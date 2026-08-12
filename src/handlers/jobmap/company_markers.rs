@@ -56,7 +56,7 @@ pub async fn labor_flow(
     };
 
     let result = tokio::task::spawn_blocking(move || {
-        use crate::handlers::helpers::{get_i64, get_str, strip_county_prefix};
+        use crate::handlers::helpers::{get_i64, get_str, municipality_address_pattern};
         use crate::handlers::region_headcount::HeadcountAggregate;
 
         // 2026-08-12: 地域の人員推移の集計方法を見直した。
@@ -95,15 +95,19 @@ pub async fn labor_flow(
                                  / (100.0 + employee_delta_3m))) ELSE 0 END) AS INTEGER)
                             as top1_change_3m"#;
 
-        // 市区町村が指定されている場合、address LIKE で絞り込む
-        // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip し、6市町
-        // (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は COUNTY_PREFIX_KEEP で保護。
-        // 旧実装は `%東彼杵郡東彼杵町%` で SalesNow `address` (郡名なし) に対して
-        // 0件マッチしていた。
+        // 市区町村が指定されている場合、address の先頭一致で絞り込む。
+        //
+        // 2026-06-08 に「address に郡名が無い」と判断して郡を strip する部分一致に
+        // したが、これは誤診だった。実データの address は郡を含む
+        // (「北海道茅部郡森町字富士見町」形式、18,536 件) し、郡込みの先頭一致なら
+        // 東彼杵郡東彼杵町も 4 社ヒットする。部分一致は逆に南相馬市を相馬市として
+        // 数えるなどの誤検出を 783 社ぶん生んでいた (2026-08-12 実測)。
         let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) =
             if !muni.is_empty() {
-                let muni_key = strip_county_prefix(&muni);
-                let muni_pattern = format!("%{}%", muni_key);
+                // 2026-08-12: 部分一致 (`%相馬市%` が南相馬市を拾う) をやめ、
+                // 都道府県 + 市区町村の先頭一致にした。詳細は
+                // handlers::helpers::municipality_address_pattern の doc を参照。
+                let muni_pattern = municipality_address_pattern(&pref, &muni);
                 (
                     format!(
                         r#"
@@ -284,14 +288,15 @@ pub async fn industry_companies(
 
     let result =
         tokio::task::spawn_blocking(move || {
-            use crate::handlers::helpers::{get_f64, get_i64, get_str, strip_county_prefix};
+            use crate::handlers::helpers::{
+                get_f64, get_i64, get_str, municipality_address_pattern,
+            };
 
             // 2026-06-08 Team H-Fix: 6市町 identity preserved via COUNTY_PREFIX_KEEP。
             // 「郡」プレフィックスを strip して SalesNow `address` (郡名なし) と LIKE 一致させる。
             let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) =
                 if !muni.is_empty() {
-                    let muni_key = strip_county_prefix(&muni);
-                    let muni_pattern = format!("%{}%", muni_key);
+                    let muni_pattern = municipality_address_pattern(&pref, &muni);
                     ("SELECT corporate_number, company_name, employee_count, employee_delta_1m, \
                     employee_delta_3m, employee_delta_1y, credit_score, address \
              FROM v2_salesnow_companies \
@@ -435,7 +440,7 @@ pub async fn company_markers(
             FROM v2_company_geocode g
             JOIN v2_salesnow_companies c ON g.corporate_number = c.corporate_number
             WHERE g.lat BETWEEN ?1 AND ?2 AND g.lng BETWEEN ?3 AND ?4
-            ORDER BY c.employee_count DESC
+            ORDER BY c.employee_count DESC, c.corporate_number, c.collated_at DESC
             LIMIT 500
         "#;
         let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&s, &n, &w, &e];

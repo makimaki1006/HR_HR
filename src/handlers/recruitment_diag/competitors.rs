@@ -14,7 +14,7 @@
 use crate::db::local_sqlite::LocalDb;
 use crate::db::turso_http::TursoDb;
 use crate::handlers::company::fetch::count_hw_postings;
-use crate::handlers::helpers::{get_f64, get_i64, get_str, strip_county_prefix};
+use crate::handlers::helpers::{get_f64, get_i64, get_str, municipality_address_pattern};
 use crate::models::job_seeker::PREFECTURE_ORDER;
 use crate::AppState;
 use axum::extract::{Query, State};
@@ -264,7 +264,7 @@ fn fetch_salesnow_companies(
         // と LIKE 一致させる。6市町 (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は
         // COUNTY_PREFIX_KEEP で identity 保持。
         where_clauses.push(format!("address LIKE ?{}", idx));
-        params_own.push(format!("%{}%", strip_county_prefix(muni)));
+        params_own.push(municipality_address_pattern(pref, muni));
         idx += 1;
     }
 
@@ -499,25 +499,34 @@ mod tests {
     }
 
     // ============================================================
-    // Team H-Fix (2026-06-08):
-    // fetch_salesnow_companies の address LIKE pattern が
-    // strip_county_prefix 経由で生成されることを確認。
+    // 2026-08-12: 部分一致 → 先頭一致。詳細は
+    // handlers::helpers::municipality_address_pattern の doc を参照。
     // ============================================================
 
-    fn fetch_salesnow_like_pattern(muni: &str) -> String {
-        // fetch_salesnow_companies の line 264 相当: format!("%{}%", strip_county_prefix(muni))
-        format!("%{}%", strip_county_prefix(muni))
+    fn fetch_salesnow_like_pattern(pref: &str, muni: &str) -> String {
+        municipality_address_pattern(pref, muni)
     }
 
     #[test]
-    fn fetch_salesnow_strips_gun_for_kitamatsuura() {
-        // 北松浦郡佐々町 → 佐々町
-        assert_eq!(fetch_salesnow_like_pattern("北松浦郡佐々町"), "%佐々町%");
+    fn fetch_salesnow_keeps_gun_for_kitamatsuura() {
+        assert_eq!(
+            fetch_salesnow_like_pattern("長崎県", "北松浦郡佐々町"),
+            "長崎県北松浦郡佐々町%"
+        );
     }
 
     #[test]
     fn fetch_salesnow_identity_for_ogori_city() {
-        // 小郡市 は地名の一部に「郡」を含むが市名そのもの → strip しない
-        assert_eq!(fetch_salesnow_like_pattern("小郡市"), "%小郡市%");
+        assert_eq!(
+            fetch_salesnow_like_pattern("福岡県", "小郡市"),
+            "福岡県小郡市%"
+        );
+    }
+
+    #[test]
+    fn fetch_salesnow_does_not_match_nakashibetsu_for_shibetsu() {
+        let pat = fetch_salesnow_like_pattern("北海道", "標津郡標津町");
+        let head = pat.trim_end_matches('%');
+        assert!(!"北海道標津郡中標津町東十一条北１丁目１番地".starts_with(head));
     }
 }

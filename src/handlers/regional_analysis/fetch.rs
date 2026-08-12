@@ -6,7 +6,7 @@
 //! - 外部統計 (e-Stat / 国勢調査 / 公的統計) を Turso 優先で取得。
 
 use crate::handlers::competitive::escape_html;
-use crate::handlers::helpers::{normalize_muni_for_external, strip_county_prefix};
+use crate::handlers::helpers::{municipality_address_pattern, normalize_muni_for_external};
 use crate::AppState;
 
 /// 地域フィルタ。
@@ -367,8 +367,8 @@ pub(crate) fn fetch_company_matrix(
     }
 
     let (sql, params): (String, Vec<String>) = if !filter.municipality.is_empty() {
-        let muni_key = strip_county_prefix(&filter.municipality);
-        let muni_pattern = format!("%{}%", muni_key);
+        // 2026-08-12: 部分一致は包含関係のある市区町村 17 組で誤検出していた (実測 783 社)。
+        let muni_pattern = municipality_address_pattern(&filter.prefecture, &filter.municipality);
         (
             format!(
                 "SELECT company_name, employee_count, employee_delta_1y, sn_industry \

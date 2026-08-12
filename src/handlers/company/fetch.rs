@@ -1,6 +1,6 @@
 use crate::db::turso_http::TursoDb;
 use crate::handlers::analysis::fetch::EXTERNAL_CLEAN_FILTER;
-use crate::handlers::helpers::{get_f64, get_i64, get_str, strip_county_prefix, Row};
+use crate::handlers::helpers::{get_f64, get_i64, get_str, municipality_address_pattern, Row};
 
 /// 近隣企業データ（郵便番号上3桁マッチ）
 ///
@@ -170,7 +170,7 @@ pub fn search_companies(turso: &TursoDb, query: &str) -> Vec<Row> {
                salesnow_score, listing_category
         FROM v2_salesnow_companies
         WHERE company_name LIKE ?1
-        ORDER BY employee_count DESC
+        ORDER BY employee_count DESC, corporate_number, collated_at DESC
         LIMIT 20
     "#;
     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&like_pattern];
@@ -719,15 +719,15 @@ pub fn fetch_companies_by_region(
         //   都道府県のみ版 (下ブランチ) と同じ 11 列構成に揃える。
         // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip し SalesNow address と
         // マッチさせる (6市町 identity preserved via COUNTY_PREFIX_KEEP)。
-        let muni_key = strip_county_prefix(muni);
-        let muni_pattern = format!("%{}%", muni_key);
+        // 2026-08-12: 部分一致は包含関係のある市区町村 17 組で誤検出していた (実測 783 社)。
+        let muni_pattern = municipality_address_pattern(pref, muni);
         let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                    employee_count, credit_score, postal_code, \
                    sales_amount, sales_range, \
                    employee_delta_1y, employee_delta_3m, capital_stock_range \
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 AND address LIKE ?2 \
-                   ORDER BY employee_count DESC LIMIT ?3";
+                   ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?3";
         let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref, &muni_pattern, &lim];
         sn_db.query(sql, &params).unwrap_or_default()
     } else {
@@ -738,7 +738,7 @@ pub fn fetch_companies_by_region(
                    employee_delta_1y, employee_delta_3m, capital_stock_range \
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 \
-                   ORDER BY employee_count DESC LIMIT ?2";
+                   ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?2";
         let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref, &lim];
         sn_db.query(sql, &params).unwrap_or_default()
     };
@@ -888,7 +888,7 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
          FROM v2_salesnow_companies \
          WHERE sn_industry IN ({}) AND ({}) \
            AND employee_count >= ?{} AND employee_count <= ?{} \
-         ORDER BY employee_count DESC LIMIT ?{}",
+         ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?{}",
         in_placeholders, or_pairs, lo_idx, hi_idx, limit_idx
     );
 
@@ -901,7 +901,7 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
     // strip しないまま LIKE すると silent 0-match になる (aae8776 で修正した 6 サイトと同根)。
     let muni_patterns: Vec<String> = neighborhood
         .iter()
-        .map(|(_, m)| format!("%{}%", strip_county_prefix(m)))
+        .map(|(p, m)| municipality_address_pattern(p, m))
         .collect();
 
     for (lo, hi, _band) in band_ranges.iter() {
@@ -1053,7 +1053,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
         let muni_pat = if muni.is_empty() {
             String::new()
         } else {
-            format!("%{}%", strip_county_prefix(muni))
+            municipality_address_pattern(pref, muni)
         };
         let (count_sql, count_params): (&str, Vec<&dyn crate::db::turso_http::ToSqlTurso>) =
             if muni.is_empty() {
@@ -1140,7 +1140,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                      FROM v2_salesnow_companies \
                      WHERE prefecture = ?1 AND sn_industry IN ({}) \
                        AND employee_count >= ?{} AND employee_count <= ?{} \
-                     ORDER BY employee_count DESC LIMIT ?{}",
+                     ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?{}",
                     in_placeholders, lo_idx, hi_idx, limit_idx
                 );
             } else {
@@ -1150,7 +1150,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                 hi_idx = lo_idx + 1;
                 limit_idx = hi_idx + 1;
                 // 2026-06-08 Team H-Fix: strip 「郡」プレフィックス (6市町 identity preserved)。
-                muni_pat = format!("%{}%", strip_county_prefix(muni));
+                muni_pat = municipality_address_pattern(pref, muni);
                 sql = format!(
                     "SELECT corporate_number, company_name, prefecture, sn_industry, \
                      employee_count, credit_score, postal_code, \
@@ -1159,7 +1159,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                      FROM v2_salesnow_companies \
                      WHERE prefecture = ?1 AND sn_industry IN ({}){} \
                        AND employee_count >= ?{} AND employee_count <= ?{} \
-                     ORDER BY employee_count DESC LIMIT ?{}",
+                     ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?{}",
                     in_placeholders, muni_clause, lo_idx, hi_idx, limit_idx
                 );
             }
@@ -1179,7 +1179,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
             match (muni.is_empty(), &industry_keyword) {
                 (false, Some(kw)) => {
                     // 2026-06-08 Team H-Fix: strip 「郡」プレフィックス (6市町 identity preserved)。
-                    let muni_pattern = format!("%{}%", strip_county_prefix(muni));
+                    let muni_pattern = municipality_address_pattern(pref, muni);
                     let ind_pattern = format!("%{}%", kw);
                     let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
@@ -1188,7 +1188,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                            FROM v2_salesnow_companies \
                            WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry LIKE ?3 \
                              AND employee_count >= ?4 AND employee_count <= ?5 \
-                           ORDER BY employee_count DESC LIMIT ?6";
+                           ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?6";
                     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
                         vec![&pref, &muni_pattern, &ind_pattern, lo, hi, &band_limit];
                     sn_db.query(sql, &params).unwrap_or_default()
@@ -1202,14 +1202,14 @@ fn fetch_company_segments_by_region_with_industry_internal(
                            FROM v2_salesnow_companies \
                            WHERE prefecture = ?1 AND sn_industry LIKE ?2 \
                              AND employee_count >= ?3 AND employee_count <= ?4 \
-                           ORDER BY employee_count DESC LIMIT ?5";
+                           ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?5";
                     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
                         vec![&pref, &ind_pattern, lo, hi, &band_limit];
                     sn_db.query(sql, &params).unwrap_or_default()
                 }
                 (false, None) => {
                     // 2026-06-08 Team H-Fix: strip 「郡」プレフィックス (6市町 identity preserved)。
-                    let muni_pattern = format!("%{}%", strip_county_prefix(muni));
+                    let muni_pattern = municipality_address_pattern(pref, muni);
                     let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
@@ -1217,7 +1217,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                            FROM v2_salesnow_companies \
                            WHERE prefecture = ?1 AND address LIKE ?2 \
                              AND employee_count >= ?3 AND employee_count <= ?4 \
-                           ORDER BY employee_count DESC LIMIT ?5";
+                           ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?5";
                     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
                         vec![&pref, &muni_pattern, lo, hi, &band_limit];
                     sn_db.query(sql, &params).unwrap_or_default()
@@ -1230,7 +1230,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                            FROM v2_salesnow_companies \
                            WHERE prefecture = ?1 \
                              AND employee_count >= ?2 AND employee_count <= ?3 \
-                           ORDER BY employee_count DESC LIMIT ?4";
+                           ORDER BY employee_count DESC, corporate_number, collated_at DESC LIMIT ?4";
                     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
                         vec![&pref, lo, hi, &band_limit];
                     sn_db.query(sql, &params).unwrap_or_default()
@@ -1647,7 +1647,7 @@ pub fn fetch_nearby_companies(
                employee_delta_1y, employee_delta_3m, capital_stock_range
         FROM v2_salesnow_companies
         WHERE postal_code LIKE ?1 AND corporate_number != ?2
-        ORDER BY employee_count DESC
+        ORDER BY employee_count DESC, corporate_number, collated_at DESC
         LIMIT 50
     "#;
     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&like_pattern, &exclude_corp];
@@ -1981,43 +1981,47 @@ pub fn count_hw_postings(
 // ============================================================
 #[cfg(test)]
 mod team_h_fix_tests {
-    use crate::handlers::helpers::strip_county_prefix;
+    use crate::handlers::helpers::municipality_address_pattern;
 
     /// fetch.rs の各 LIKE 構築サイトと同形の pattern を再現するヘルパー。
-    fn like_pattern(muni: &str) -> String {
-        format!("%{}%", strip_county_prefix(muni))
+    fn like_pattern(pref: &str, muni: &str) -> String {
+        municipality_address_pattern(pref, muni)
     }
 
     #[test]
-    fn companies_by_region_strips_gun_for_higashisonogi() {
-        // line 651 相当: fetch_companies_by_region 市区町村フィルタあり経路
-        assert_eq!(like_pattern("東彼杵郡東彼杵町"), "%東彼杵町%");
+    fn segments_override_keeps_koriyama_city() {
+        assert_eq!(like_pattern("福島県", "郡山市"), "福島県郡山市%");
     }
 
     #[test]
-    fn segments_override_identity_for_koriyama_city() {
-        // line 1036 相当: sn_industries_override + muni 経路
-        // 郡山市 は地名の一部に「郡」を含むが市名そのもの → strip しない
-        assert_eq!(like_pattern("郡山市"), "%郡山市%");
+    fn segments_industry_keyword_keeps_gun_for_nishisonogi() {
+        // 2026-08-12: address は郡込みなので strip しない
+        assert_eq!(
+            like_pattern("長崎県", "西彼杵郡時津町"),
+            "長崎県西彼杵郡時津町%"
+        );
     }
 
     #[test]
-    fn segments_industry_keyword_strips_gun_for_nishisonogi() {
-        // line 1064 相当: (false, Some(kw)) 経路
-        assert_eq!(like_pattern("西彼杵郡時津町"), "%時津町%");
+    fn segments_muni_only_keeps_gamagori_city() {
+        assert_eq!(like_pattern("愛知県", "蒲郡市"), "愛知県蒲郡市%");
     }
 
     #[test]
-    fn segments_muni_only_identity_for_gamagori_city() {
-        // line 1093 相当: (false, None) 経路
-        // 蒲郡市 は地名の一部に「郡」を含むが市名そのもの → strip しない
-        assert_eq!(like_pattern("蒲郡市"), "%蒲郡市%");
+    fn companies_by_region_anchors_plain_city() {
+        assert_eq!(like_pattern("北海道", "札幌市"), "北海道札幌市%");
     }
 
+    /// 逆証明: 包含関係のある市区町村を取り違えないこと (実測 783 社の誤検出)
     #[test]
-    fn companies_by_region_identity_for_plain_city() {
-        // 「郡」を含まない通常の市名はそのまま
-        assert_eq!(like_pattern("札幌市"), "%札幌市%");
+    fn companies_by_region_does_not_match_prefixed_municipality() {
+        let pat = like_pattern("新潟県", "魚沼市");
+        let head = pat.trim_end_matches('%');
+        assert!(
+            !"新潟県南魚沼市六日町".starts_with(head),
+            "南魚沼市を拾わない"
+        );
+        assert!("新潟県魚沼市小出島".starts_with(head), "魚沼市は拾う");
     }
 }
 
@@ -2030,27 +2034,30 @@ mod team_h_fix_tests {
 // ============================================================
 #[cfg(test)]
 mod team_h_fix2_tests {
-    use crate::handlers::helpers::strip_county_prefix;
+    use crate::handlers::helpers::municipality_address_pattern;
 
     /// fetch_company_segments_by_neighborhood_sn_industries の
-    /// `muni_patterns` 構築 (`format!("%{}%", strip_county_prefix(m))`) と同形のヘルパー。
-    fn neighborhood_like_pattern(muni: &str) -> String {
-        format!("%{}%", strip_county_prefix(muni))
+    /// `muni_patterns` 構築 (`municipality_address_pattern(p, m)`) と同形のヘルパー。
+    fn neighborhood_like_pattern(pref: &str, muni: &str) -> String {
+        municipality_address_pattern(pref, muni)
     }
 
     #[test]
-    fn neighborhood_strips_gun_for_higashisonogi_town() {
-        // 通勤圏に郡名込み「東彼杵郡東彼杵町」が入った場合の検証。
-        // strip 適用前 → "%東彼杵郡東彼杵町%" (address LIKE 0-match)
-        // strip 適用後 → "%東彼杵町%"        (正しくヒット)
-        assert_eq!(neighborhood_like_pattern("東彼杵郡東彼杵町"), "%東彼杵町%");
+    fn neighborhood_keeps_gun_for_higashisonogi_town() {
+        // 2026-08-12: 2026-06-08 の「address に郡名が無い」は誤診だった。
+        // 郡込みの先頭一致で 4 社ヒットする (実測)。
+        assert_eq!(
+            neighborhood_like_pattern("長崎県", "東彼杵郡東彼杵町"),
+            "長崎県東彼杵郡東彼杵町%"
+        );
     }
 
     #[test]
     fn neighborhood_identity_for_koriyama_city() {
-        // 「郡山市」は COUNTY_PREFIX_KEEP で保持される 6 市町の 1 つ。
-        // 通勤圏に「郡山市」が入っても strip されない。
-        assert_eq!(neighborhood_like_pattern("郡山市"), "%郡山市%");
+        assert_eq!(
+            neighborhood_like_pattern("福島県", "郡山市"),
+            "福島県郡山市%"
+        );
     }
 }
 

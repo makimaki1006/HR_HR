@@ -18,7 +18,7 @@
 
 use crate::db::turso_http::{ToSqlTurso, TursoDb};
 use crate::handlers::helpers::{
-    escape_html, format_number, get_f64, get_i64, get_str, strip_county_prefix, Row,
+    escape_html, format_number, get_f64, get_i64, get_str, municipality_address_pattern, Row,
 };
 use std::fmt::Write as _;
 
@@ -296,8 +296,8 @@ pub fn fetch_company_segments(turso: &TursoDb, pref: &str, muni: &str) -> Vec<Se
     }
     // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip。6市町
     // (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は COUNTY_PREFIX_KEEP で identity 保持。
-    let muni_key = strip_county_prefix(muni);
-    let muni_pattern = format!("%{}%", muni_key);
+    // 2026-08-12: 部分一致は包含関係のある市区町村 17 組で誤検出していた (実測 783 社)。
+    let muni_pattern = municipality_address_pattern(pref, muni);
 
     let mut segments: Vec<SegmentRow> = Vec::new();
 
@@ -1723,25 +1723,39 @@ mod tests {
     }
 
     // ============================================================
-    // Team H-Fix (2026-06-08):
-    // fetch_company_segments の LIKE pattern が
-    // strip_county_prefix 経由で生成されることを確認。
-    // 6市町 (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は identity preserved。
+    // 2026-08-12: 市区町村の絞り込みを部分一致から先頭一致へ変更した。
+    // 2026-06-08 の「郡 strip + 部分一致」は誤診に基づくもので、
+    // 南相馬市を相馬市として数えるなどの誤検出を 783 社ぶん生んでいた。
     // ============================================================
 
-    fn segments_like_pattern(muni: &str) -> String {
-        format!("%{}%", strip_county_prefix(muni))
+    fn segments_like_pattern(pref: &str, muni: &str) -> String {
+        municipality_address_pattern(pref, muni)
     }
 
     #[test]
-    fn segments_strip_gun_prefix_for_minamimatsuura() {
-        // 南松浦郡新上五島町 → 新上五島町
-        assert_eq!(segments_like_pattern("南松浦郡新上五島町"), "%新上五島町%");
+    fn segments_keep_gun_prefix_for_minamimatsuura() {
+        // 郡を strip しない。address が郡込みなので先頭一致がそのまま効く
+        assert_eq!(
+            segments_like_pattern("長崎県", "南松浦郡新上五島町"),
+            "長崎県南松浦郡新上五島町%"
+        );
     }
 
     #[test]
     fn segments_identity_for_yamatokoriyama_city() {
-        // 大和郡山市 は地名の一部に「郡」を含むが市名そのもの → strip しない
-        assert_eq!(segments_like_pattern("大和郡山市"), "%大和郡山市%");
+        // 「郡」を地名に含む市も特別扱い不要 (strip しないため)
+        assert_eq!(
+            segments_like_pattern("奈良県", "大和郡山市"),
+            "奈良県大和郡山市%"
+        );
+    }
+
+    #[test]
+    fn segments_do_not_match_prefixed_municipality() {
+        // 相馬市の検索で南相馬市を拾わないこと
+        let pat = segments_like_pattern("福島県", "相馬市");
+        let head = pat.trim_end_matches('%');
+        assert!("福島県相馬市塚部字中谷地１１３番地の３".starts_with(head));
+        assert!(!"福島県南相馬市原町区金沢字物見山１３１番地".starts_with(head));
     }
 }

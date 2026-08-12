@@ -556,6 +556,77 @@ fn api_v1_headcount_fields_match_implementation_and_openapi() {
     );
 }
 
+/// 逆証明: 企業を絞り込む SQL が環境によらず同じ結果を返すこと。
+///
+/// 2026-08-12 に 2 種類の非決定性を潰した。どちらも「値は正しいが、
+/// 同じデータで同じ画面にならない」という質のバグで、テストが無いと静かに戻る。
+///
+/// # 1. `ORDER BY ... LIMIT N` の tie-break
+///
+/// `ORDER BY employee_count DESC` だけでは同値の順序が保証されない。実測で
+/// 東京都の小規模帯は `>V` が 0 社、つまり **50 枠すべてが 161 社の抽選**だった。
+/// index 構成を変えるだけで 242 ケース中 67 件で選ばれる企業集合が変わり、
+/// 下流のレポート掲載企業は 35 件中 17 件で入れ替わっていた
+/// (東京都「零細企業×増員」は 5 社全部が別会社になる)。
+///
+/// `corporate_number` を第 2 キーにすると集合・並びとも 0 件に落ち着く。
+/// 法人番号は先頭がチェックディジットで全国分布がほぼ一様なため、
+/// 順列検定 14 件すべてで p > 0.05 (最小 0.116)、登記所コードの地域偏りも出ない。
+/// ただし法人番号は一意ではない (重複 54 件) ので、`collated_at DESC` を
+/// 第 3 キーに置いて表示名の揺れも止める。
+///
+/// # 2. 市区町村の絞り込み
+///
+/// 部分一致は包含関係のある市区町村を取り違える。
+/// [`crate::handlers::helpers::municipality_address_pattern`] の doc を参照。
+#[test]
+fn company_queries_are_deterministic_across_environments() {
+    const FETCH: &str = include_str!("company/fetch.rs");
+    const MARKERS: &str = include_str!("jobmap/company_markers.rs");
+
+    // --- tie-break: LIMIT 付きの ORDER BY に第 2・第 3 キーが要る ---
+    for (name, src) in [("company/fetch.rs", FETCH)] {
+        // 経緯を説明するコメント中の言及 (バッククォート囲み) は数えない。
+        // 実際の SQL 文字列だけを見る。
+        let bare = src
+            .match_indices("ORDER BY employee_count DESC LIMIT")
+            .filter(|(i, _)| !src[..*i].ends_with('`'))
+            .count();
+        assert_eq!(
+            bare, 0,
+            "{name} に tie-break の無い `ORDER BY employee_count DESC LIMIT` が {bare} 箇所ある。\
+             同値が境界にあると、どの企業が表示されるか自体が環境で変わる"
+        );
+        let fixed = src
+            .matches("ORDER BY employee_count DESC, corporate_number, collated_at DESC")
+            .count();
+        assert!(
+            fixed >= 11,
+            "{name} の tie-break 付き ORDER BY が {fixed} 箇所しかない (11 箇所以上のはず)"
+        );
+    }
+    assert!(
+        !MARKERS.contains("ORDER BY c.employee_count DESC\n            LIMIT"),
+        "company_markers.rs に tie-break の無い LIMIT 付き ORDER BY がある"
+    );
+
+    // --- 市区町村の絞り込みが部分一致に戻っていないこと ---
+    for (name, src) in [
+        ("company/fetch.rs", FETCH),
+        ("jobmap/company_markers.rs", MARKERS),
+    ] {
+        assert!(
+            !src.contains("format!(\"%{}%\", strip_county_prefix"),
+            "{name} が市区町村の部分一致に戻っている。\
+             `%相馬市%` は南相馬市を拾う (実測 783 社の誤検出)"
+        );
+        assert!(
+            src.contains("municipality_address_pattern"),
+            "{name} が municipality_address_pattern を使っていない"
+        );
+    }
+}
+
 // ========== 既知ミスマッチの記録テスト（#[ignore]） ==========
 
 /// 🔴 BUG MARKER: Mismatch #4 (docs/contract_audit_2026_04_23.md)
