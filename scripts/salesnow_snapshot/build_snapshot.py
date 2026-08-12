@@ -42,6 +42,18 @@ import pandas as pd
 TABLE = "v2_salesnow_headcount_snapshot"
 BATCH = 500
 
+# `OR REPLACE` ではなく `OR IGNORE` を使う理由は課金。
+# SQLite の total_changes で実測した再実行コスト:
+#
+#   方式               完全な再実行      途中失敗後の再試行
+#   INSERT OR REPLACE  212,856 行 (全額)  212,856 行 (全額)
+#   INSERT OR IGNORE   0 行              162,856 行 (残りのみ)
+#
+# スナップショットは不変の記録なので上書き意味論は要らない。
+# 値が誤っていたら別の snapshot_date を使う。同じ日付を意図的に貼り替えるには
+# 先に DELETE を明示する (黙って歴史を書き換えないための設計)。
+INSERT_MODE = "INSERT OR IGNORE"
+
 DDL = f"""-- 従業員数の定点スナップショット
 -- snapshot_date : この一括取得を行った日 (同一バッチは同じ値)
 -- collated_at   : 元データ側がその企業を収集した日。snapshot_date とは別物で、
@@ -122,13 +134,15 @@ def main():
                 f"{rows / 100_000_000 * 100:.3f}%)\n")
         f.write(f"-- 元データ {total:,} 行 → 法人番号なし {int(no_key.sum())} 行を除外, "
                 f"重複 {deduped} 行を最新 collated_at に集約\n")
-        f.write("-- 冪等: 同じ snapshot_date を再実行しても行数は増えない\n\n")
+        f.write("-- 冪等: OR IGNORE のため既に入っている行は書き込みが発生しない。\n")
+        f.write("--       実測: 完全再実行 0 行 / 途中失敗後の再試行は残りのみ。\n")
+        f.write("-- 同じ snapshot_date を貼り替えるには先に明示的な DELETE が要る。\n\n")
         f.write(DDL)
         f.write("\n")
         recs = list(df.itertuples(index=False))
         for i in range(0, len(recs), BATCH):
             chunk = recs[i:i + BATCH]
-            f.write(f"INSERT OR REPLACE INTO {TABLE} "
+            f.write(f"{INSERT_MODE} INTO {TABLE} "
                     "(snapshot_date, corporate_number, employee_count, collated_at) VALUES\n")
             vals = [
                 f"({sq(args.date)},{sq(r.corporate_number)},"
