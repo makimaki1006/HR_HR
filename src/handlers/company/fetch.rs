@@ -28,6 +28,20 @@ pub struct NearbyCompany {
     ///   §05 企業リスト表の「資本金」列に使用。空値は表示側で "—"。
     pub capital_stock_range: String,
 }
+/// 増減率が「率として意味を持つ」範囲か。
+///
+/// `employee_delta_1y` は対過去比なので、母数 (1 年前の従業員数) が小さいほど値が爆発する。
+/// 1 人 → 5,210 人なら +520,900%、1 人 → 2 人でも +100% になり、
+/// 大企業の +0.1% と同じ土俵で比較すると意味を成さない。
+///
+/// 実データで `|delta| > 300%` は 106 社、`> 1000%` は 24 社。
+/// うち 13 社は「1 年前 1 人以下」で、率ではなく実質的な新設・実体化である。
+///
+/// 2026-05-14 に近隣企業の抽出 (`pick_band`) で使い始めた ±300% を、
+/// 2026-08-12 に自社 vs 地域の比較にも適用した。
+pub(crate) fn is_realistic_delta(d: f64) -> bool {
+    d.is_finite() && d.abs() <= 300.0
+}
 
 /// 企業プロフィール + 市場コンテキストの統合データ
 #[derive(Default)]
@@ -109,8 +123,16 @@ pub struct CompanyContext {
     pub region_industry_notice: Option<String>,
     pub region_industry_company_count: i64,
 
-    /// 個社 vs 地域の比較 (pt)。地域側が示せないときは `None`
+    /// 個社 vs 地域の比較 (pt)。
+    ///
+    /// 地域側が示せない場合に加えて、**自社の増減率が率として意味を持たない場合**も `None`。
+    /// 2026-08-12: 地域側にだけゲートを付けたため、比較のもう一方である
+    /// `employee_delta_1y` の生値が素通りしていた。1 年前 1 人 → 現在 5,210 人の企業では
+    /// 「地域との比較: +520,897.4pt 上回る」「御社は地域を 520,897.4%ポイント上回る成長率です」
+    /// という営業提案文が顧客に提示される状態だった。
     pub company_vs_region_gap: Option<f64>,
+    /// `company_vs_region_gap` を出さなかった理由のうち、自社側に起因するもの
+    pub company_delta_notice: Option<String>,
 
     // 自社の給与 vs 市場（月給のみ）
     pub company_avg_salary_min: f64,
@@ -271,7 +293,12 @@ pub fn build_company_context(
     // 2026-05-24 audit_B P1-1: employee_delta_1y 範囲監視警告。
     // 単位 (%) で 2026-04-30 100倍ずれ / 2026-05-14 表示層 ×100 が再発した事故対策。
     // ETL バグ or 単位ずれを早期検知するため、現実値域外を警告ログに残す。
-    // (現実値域: -100% 〜 +1000%。±300% 超は in_realistic_range で表示時に除外)
+    //
+    // 2026-08-12 訂正: 旧コメントは「±300% 超は in_realistic_range で表示時に除外」と
+    // 書いていたが、これは誤りだった。当時 `in_realistic_range` は `pick_band` の
+    // ローカルクロージャで近隣企業の抽出にしか掛かっておらず、自社の表示や
+    // 地域との比較は素通りしていた。現在は `is_realistic_delta` を
+    // `company_vs_region_gap` にも適用している。
     if ctx.employee_delta_1y.is_finite() && !(-100.0..=1000.0).contains(&ctx.employee_delta_1y) {
         tracing::warn!(
             corp = %ctx.corporate_number,
@@ -403,9 +430,19 @@ pub fn build_company_context(
     // 地域の傾向として示せる場合のみ値を持つ。抑制時は比較 (gap) も作らない。
     ctx.region_industry_rate = flow_result.displayed_rate_pct();
     ctx.region_industry_notice = flow_result.gate().notice();
-    ctx.company_vs_region_gap = ctx
-        .region_industry_rate
-        .map(|region| ctx.employee_delta_1y - region);
+    // 地域側と自社側の両方が「率として意味を持つ」ときだけ比較する。
+    ctx.company_delta_notice = if is_realistic_delta(ctx.employee_delta_1y) {
+        None
+    } else {
+        Some(format!(
+            "御社の前年比 {:+.1}% は母数が小さく、率としての比較には適しません。",
+            ctx.employee_delta_1y
+        ))
+    };
+    ctx.company_vs_region_gap = match ctx.region_industry_rate {
+        Some(region) if ctx.company_delta_notice.is_none() => Some(ctx.employee_delta_1y - region),
+        _ => None,
+    };
 
     // Thread C 結果
     ctx.nearby_companies = nearby_result;
@@ -950,12 +987,11 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
 
     let cell_limit: usize = 5;
     let pick_band = |min_emp: i64, max_emp: i64, growth_pos: bool| -> Vec<NearbyCompany> {
-        let in_realistic_range = |d: f64| d.is_finite() && d.abs() <= 300.0;
         let mut v: Vec<NearbyCompany> = pool
             .iter()
             .filter(|c| {
                 (min_emp..=max_emp).contains(&c.employee_count)
-                    && in_realistic_range(c.employee_delta_1y)
+                    && is_realistic_delta(c.employee_delta_1y)
                     && (if growth_pos {
                         c.employee_delta_1y > 5.0
                     } else {
@@ -1286,12 +1322,11 @@ fn fetch_company_segments_by_region_with_industry_internal(
     let pick_band = |min_emp: i64, max_emp: i64, growth_pos: bool| -> Vec<NearbyCompany> {
         // 2026-05-14: ±300% を超えるレコードはデータ精度由来の外れ値として除外
         //             (表 5-B / 5-F の信頼性確保)。
-        let in_realistic_range = |d: f64| d.is_finite() && d.abs() <= 300.0;
         let mut v: Vec<NearbyCompany> = pool
             .iter()
             .filter(|c| {
                 (min_emp..=max_emp).contains(&c.employee_count)
-                    && in_realistic_range(c.employee_delta_1y)
+                    && is_realistic_delta(c.employee_delta_1y)
                     && (if growth_pos {
                         // 2026-04-30: ±5% (±5.0) growth threshold (DB は %単位)
                         c.employee_delta_1y > 5.0
@@ -1807,7 +1842,9 @@ fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
     // +752.7% (実測でその 99.4% が 1 社由来) となり、「地域平均より 747.7%ポイント
     // 下回っています」という営業トークが顧客に出る状態だった。
     // 地域の傾向として示せないときは比較の提案自体を作らない。
-    if let Some(region_rate) = ctx.region_industry_rate {
+    // 2026-08-12: 地域側だけでなく自社側の値域も見る。`company_vs_region_gap` が
+    // `Some` であることは「地域側が示せる」かつ「自社の率が比較に耐える」を意味する。
+    if let (Some(region_rate), Some(_)) = (ctx.region_industry_rate, ctx.company_vs_region_gap) {
         if ctx.region_industry_company_count > 0 && ctx.employee_delta_1y != 0.0 {
             if ctx.employee_delta_1y < region_rate {
                 let gap = region_rate - ctx.employee_delta_1y;
@@ -2051,5 +2088,58 @@ mod team_h_fix2_commit_c_tests {
         assert!(!should_short_circuit("AB"));
         // 前後空白があっても trim 後 2 文字以上であれば続行。
         assert!(!should_short_circuit("  日産  "));
+    }
+}
+
+#[cfg(test)]
+mod realistic_delta_tests {
+    use super::is_realistic_delta;
+
+    /// 逆証明: ±300% の境界を固定する。
+    ///
+    /// 2026-08-12 まで、この判定は `pick_band` のローカルクロージャにしか無く、
+    /// 自社 vs 地域の比較には掛かっていなかった。その結果
+    /// 「地域との比較: +520,897.4pt 上回る」「御社は地域を 520,897.4%ポイント
+    /// 上回る成長率です」という営業提案文が顧客に提示されていた
+    /// (株式会社インディードリクルートパートナーズ: 1 年前 1 人 → 現在 5,210 人)。
+    #[test]
+    fn realistic_delta_boundary_is_pinned_at_300pct() {
+        assert!(is_realistic_delta(0.0));
+        assert!(is_realistic_delta(2.62), "地域の人数加重増減率の典型値");
+        assert!(is_realistic_delta(-100.0), "対過去比の数学的下限は許容する");
+        assert!(is_realistic_delta(300.0), "境界ちょうどは許容する");
+        assert!(is_realistic_delta(-300.0));
+
+        assert!(!is_realistic_delta(300.01), "境界を超えたら弾く");
+        assert!(!is_realistic_delta(-300.01));
+        assert!(
+            !is_realistic_delta(520_900.0),
+            "1 年前 1 人 → 現在 5,210 人。率としての比較に使ってはならない"
+        );
+        assert!(!is_realistic_delta(f64::NAN));
+        assert!(!is_realistic_delta(f64::INFINITY));
+        assert!(!is_realistic_delta(f64::NEG_INFINITY));
+    }
+
+    /// 実データの分布と閾値の関係を固定する (§11.5 の根拠)
+    #[test]
+    fn realistic_delta_excludes_the_measured_outliers() {
+        // 実測: |delta| > 300% は 106 社、> 1000% は 24 社、
+        // うち 13 社は「1 年前 1 人以下」
+        for (delta, label) in [
+            (520_900.0, "インディードリクルートパートナーズ"),
+            (48_600.0, "delta_3m の最大値"),
+            (8_100.0, "タスクソリューション (2y)"),
+            (1_800.0, "delta_1m の最大値"),
+        ] {
+            assert!(
+                !is_realistic_delta(delta),
+                "{label} ({delta}%) は比較対象から外れるべき"
+            );
+        }
+        // 一方、現実的な急成長は残す
+        for delta in [50.0, 100.0, 276.7, 299.9] {
+            assert!(is_realistic_delta(delta), "{delta}% は残すべき");
+        }
     }
 }

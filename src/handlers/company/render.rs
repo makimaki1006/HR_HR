@@ -1016,6 +1016,15 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
         "text-slate-400"
     };
 
+    // 自社側の率が比較に耐えない場合の注記 (母数が小さく率が爆発しているケース)
+    let company_notice_html = match &ctx.company_delta_notice {
+        Some(n) => format!(
+            r#"<div class="text-[11px] text-slate-500 mt-1 leading-snug">{}</div>"#,
+            escape_html(n)
+        ),
+        None => String::new(),
+    };
+
     // 地域側を示せないときは比較も出さない (存在しない基準との差を語らないため)
     let gap_display = match ctx.company_vs_region_gap {
         Some(gap) if gap > 0.1 => {
@@ -1045,6 +1054,7 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
                 <div class="text-xs text-slate-500 mb-1">御社</div>
                 <div class="text-xl font-bold text-white">{emp}人</div>
                 <div class="text-sm mt-1">前年比 {delta:.1}%（地域との比較: {gap}）</div>
+                {company_notice}
             </div>
         </div>
     </div>"#,
@@ -1056,6 +1066,7 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
         net_change = ctx.region_industry_net_change,
         avg_delta = region_delta_display,
         region_notice = region_notice_html,
+        company_notice = company_notice_html,
         emp = format_number(ctx.employee_count),
         delta = ctx.employee_delta_1y,
         gap = gap_display,

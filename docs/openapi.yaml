@@ -250,6 +250,42 @@ paths:
       responses:
         "200": {content: {text/html: {}}}
 
+  # 2026-08-12 追記: 認証不要の MCP/AI 連携端点。ルートは lib.rs:786-799 で定義。
+  # cross_analysis.region_industry の shape を変更したため記載を追加した
+  # (それまで openapi に /api/v1/* の記載が 1 行も無かった)。
+  /api/v1/companies/{corporate_number}:
+    get:
+      tags: [ApiV1]
+      summary: 企業プロフィール (認証不要 / MCP・AI 連携用)
+      parameters:
+        - {name: corporate_number, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cross_analysis:
+                    type: object
+                    properties:
+                      region_industry:
+                        type: object
+                        properties:
+                          total_employees: {type: integer}
+                          net_change: {type: integer}
+                          company_count: {type: integer}
+                          # 人数加重の増減率 (%)。増減人数の合計 ÷ 過去の従業員数の合計。
+                          # 企業数が 30 社未満、または 1 社が人員変動の 50% 以上を
+                          # 占める場合は null。
+                          # 2026-08-12: 旧 avg_delta (各社の増減率の単純平均) を置換。
+                          headcount_rate: {type: number, nullable: true}
+                          # headcount_rate が null のときの理由。表示できるときは null。
+                          headcount_notice: {type: string, nullable: true}
+                      # 自社 vs 地域 (pt)。地域側を示せない場合に加えて、
+                      # 自社の増減率が ±300% を超える場合も null。
+                      company_vs_region_gap: {type: number, nullable: true}
+
 components:
   schemas:
     Marker:
