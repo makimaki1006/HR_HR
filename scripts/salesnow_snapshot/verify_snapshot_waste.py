@@ -65,6 +65,23 @@ exec_sql = "\n".join(
     line for line in sql.splitlines() if not line.lstrip().startswith("--")
 )
 
+hr("(0) ファイルが途中で切れていないか")
+# 生成器がヘッダに宣言した行数と、実際の VALUES 数を突き合わせる。
+# 初版はこの検査が無く、500KB に切り詰めたファイルを「9,192 行」として
+# そのまま検査していた (それ自体は矛盾なく見えるので気づけない)。
+_declared = re.search(r"-- 書き込み行数: ([\d,]+)", sql)
+_actual = len(re.findall(r"\('(\d{4}-\d{2}-\d{2})','", sql))
+if not _declared:
+    sys.exit("[中止] ヘッダに宣言行数が無い。build_snapshot.py の生成物ではない")
+_d = int(_declared.group(1).replace(",", ""))
+print(f"  ヘッダの宣言 : {_d:,} 行")
+print(f"  実際の VALUES: {_actual:,} 行")
+if _d != _actual:
+    sys.exit(f"[中止] ファイルが不完全 (差 {_d - _actual:,} 行)。再生成すること")
+if not sql.rstrip().endswith(";"):
+    sys.exit("[中止] SQL が `;` で終わっていない。途中で切れている可能性がある")
+print("  OK  一致")
+
 hr("(1) 破壊的な文が混ざっていないか")
 DANGER = ["DROP ", "DELETE ", "UPDATE ", "TRUNCATE", "ALTER "]
 for kw in DANGER:

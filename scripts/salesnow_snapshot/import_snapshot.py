@@ -158,6 +158,28 @@ def main():
     if not snap_date:
         die("SQL から snapshot_date を読み取れない")
 
+    # --- ファイルが途中で切れていないか ---
+    #
+    # 生成器がヘッダに宣言した行数と、実際に数えた VALUES の数を突き合わせる。
+    # これが無いと、転送やコピーで切り詰められたファイルを黙って投入してしまう
+    # (実測: 500KB に切り詰めたファイルが 19 文 / 9,192 行として受理された)。
+    m2 = re.search(r"-- 書き込み行数: ([\d,]+)", text)
+    if not m2:
+        die(
+            "ヘッダに宣言行数が無い。build_snapshot.py が生成したファイルではない可能性がある。\n"
+            "  再生成: python scripts/salesnow_snapshot/build_snapshot.py "
+            '--source "<csv>" --date YYYY-MM-DD'
+        )
+    declared = int(m2.group(1).replace(",", ""))
+    if declared != rows:
+        die(
+            f"ファイルが不完全。ヘッダの宣言 {declared:,} 行に対し、実際の VALUES は "
+            f"{rows:,} 行しかない (差 {declared - rows:,} 行)。\n"
+            "  転送・コピーで切り詰められた可能性がある。再生成すること。"
+        )
+    if not text.rstrip().endswith(";"):
+        die("SQL が `;` で終わっていない。ファイルが途中で切れている可能性がある。")
+
     print(f"投入対象      : {path}")
     print(f"snapshot_date : {snap_date}")
     print(f"DDL 文        : {len(ddl)}")
