@@ -217,6 +217,86 @@ test.describe('人材フロー: 人員増減率の表示ゲート', () => {
     expect(text).toContain('—');
   });
 
+  test('欠けたフィールドが来てもパネルが壊れない', async ({ page }) => {
+    // renderTable は net_change_1y を `|| 0` でガードしていたが renderChart は
+    // ガードしておらず、1 件でも null が混ざると tooltip と棒ラベルが
+    // `Cannot read properties of null (reading 'toLocaleString')` で落ちていた。
+    // renderTable 側も companies / total_emp は素通しで、fetch の .catch() に
+    // 落ちて「データ取得に失敗しました」という誤解を招く表示になっていた。
+    //
+    // 現在の backend はこれらを必ず整数で返すので実運用では起きないが、
+    // 契約が緩んだときに黙って壊れないよう、壊れた応答を注入して確認する。
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+
+    await page.route('**/api/jobmap/labor-flow*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          prefecture: '東京都',
+          municipality: '千代田区',
+          industries: [
+            // 全フィールドが欠けた行
+            { sn_industry: '欠損だらけ' },
+            // 数値が null の行
+            {
+              sn_industry: 'null混じり',
+              companies: null,
+              total_emp: null,
+              net_change_1y: null,
+              net_change_3m: null,
+              headcount_rate_1y: null,
+              headcount_notice: '企業数が少ないため示していません',
+              top1_share_pct: null,
+            },
+            // 正常な行 (混在しても壊れないこと)
+            {
+              sn_industry: '正常',
+              companies: 100,
+              total_emp: 5000,
+              net_change_1y: -120,
+              net_change_3m: 30,
+              headcount_rate_1y: -2.34,
+              headcount_notice: null,
+              top1_share_pct: 12.5,
+            },
+          ],
+        }),
+      }),
+    );
+
+    await page.evaluate(() => {
+      (window as any).loadLaborFlow('東京都', '千代田区');
+    });
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector('#jm-labor-flow-table');
+        return !!el && (el as HTMLElement).innerHTML.includes('<table');
+      },
+      null,
+      { timeout: 30_000 },
+    );
+
+    const text = await page.locator('#jm-labor-flow-table').innerText();
+    expect(text, 'fetch の catch に落ちている').not.toContain('データ取得に失敗しました');
+    for (const bad of ['undefined', 'NaN', 'null%', '[object Object]']) {
+      expect(text, `テーブルに ${bad} が出ている`).not.toContain(bad);
+    }
+    // 正常な行は正しく描画されていること (欠損行に引きずられて消えない)
+    expect(text).toContain('正常');
+    expect(text).toContain('-2.3%');
+    // 欠けた行は 0 として描かれ、率は伏せられる
+    expect(text).toContain('欠損だらけ');
+    expect(text).toContain('—');
+
+    // tooltip の formatter を実際に走らせる (棒にホバーする)
+    await page.locator('#jm-labor-flow-chart canvas').first().hover({ position: { x: 200, y: 40 } });
+    await page.waitForTimeout(500);
+
+    expect(errors, `ページ内で例外が出ている: ${errors.join(' / ')}`).toHaveLength(0);
+  });
+
   test('画面に社内略語やサービス名が出ていない', async ({ page }) => {
     await page.evaluate(() => {
       (window as any).loadLaborFlow('東京都', '千代田区');

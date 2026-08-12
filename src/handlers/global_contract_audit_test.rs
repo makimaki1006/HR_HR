@@ -474,9 +474,16 @@ fn labor_flow_headcount_field_names_match_between_backend_and_frontend() {
         assert!(JS.contains(key), "laborflow.js が {key} を読んでいない");
     }
 
-    // 抑制時の null を JS が数値として扱わないこと (undefined% を出さない)
+    // 抑制時の null を JS が数値として扱わないこと (undefined% / NaN% を出さない)。
+    //
+    // `if (d.headcount_rate_1y)` のような真偽値判定だと 0% が抑制扱いになってしまうので、
+    // 明示的な型チェック or null 比較であることを確認する (どちらの書き方でもよい)。
+    // 実際の挙動 (0 は表示、null/NaN は伏せる) は
+    // tests/e2e/labor_flow_headcount_gate.spec.ts で実ブラウザ検証している。
+    let guards_non_number = JS.contains("typeof d.headcount_rate_1y !== \"number\"")
+        || JS.contains("headcount_rate_1y === null");
     assert!(
-        JS.contains("headcount_rate_1y === null"),
+        guards_non_number,
         "laborflow.js が headcount_rate_1y の null を明示的に処理していない。\
          企業数不足 / 1 社集中の業種で null が返るため必須"
     );
