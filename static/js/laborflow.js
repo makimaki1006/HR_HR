@@ -53,7 +53,7 @@
   var SUPPRESS_MARK = "※";
   var SUPPRESS_FOOTNOTE =
     "※ 対象企業が少ない、または 1 社の増減が大半を占める業種。" +
-    "増減人数は実数だが、地域の傾向としては増減率を示していない。";
+    "増減率を地域の傾向としては示していない。";
 
   /**
    * 都道府県を指定して人材フローデータをロード・描画
@@ -115,7 +115,7 @@
 
     // 全業種を表示（net_change_1yの絶対値が大きい順）
     var sorted = industries.slice().sort(function(a, b) {
-      return Math.abs(b.net_change_1y) - Math.abs(a.net_change_1y);
+      return Math.abs(num(b.net_change_1y)) - Math.abs(num(a.net_change_1y));
     });
     var top = sorted;
     // チャート表示用に昇順（下から大きい値）
@@ -125,7 +125,7 @@
     var names = top.map(function(d) {
       return isSuppressed(d) ? d.sn_industry + " " + SUPPRESS_MARK : d.sn_industry;
     });
-    var values = top.map(function(d) { return d.net_change_1y; });
+    var values = top.map(function(d) { return num(d.net_change_1y); });
 
     // 既存チャートがあれば破棄
     if (chart) {
