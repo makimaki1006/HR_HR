@@ -15,7 +15,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use rust_dashboard::handlers::call_quality_heatmap::{aggregate, CrossRow, HeatmapQuery};
+use rust_dashboard::handlers::call_quality::heatmap::{aggregate, CrossRow, HeatmapQuery};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args().nth(1).ok_or("CSVパスを渡してください")?;
