@@ -98,6 +98,21 @@ SALESNOW_TURSO_TOKEN=<token>
 `libsql://` でも `https://` でも受ける。取得元は Turso ダッシュボード、
 または Render (`hellowork-dashboard`) の環境変数設定。
 
+Windows で作ったファイルでも読めるよう、次を吸収する (実測で検証済み):
+
+| 書き方 | 読める |
+|---|---|
+| CRLF 改行 (メモ帳の既定) | OK |
+| **UTF-8 BOM 付き** (メモ帳の既定) | OK |
+| `export KEY=VALUE` (bash 例のコピペ) | OK |
+| `"値"` のクォート囲み / 前後の空白 | OK |
+| 値に `=` を含む (JWT のパディング) | OK |
+| `$env:KEY = "値"` (PowerShell 形式) | 読めない → **警告を出す** |
+| `SALESNOW_TURSO_*` が無い | 読めたキー名を**警告に出す** |
+
+BOM は「`SALESNOW_TURSO_URL` だけ未設定、TOKEN は設定あり」という
+分かりにくい壊れ方をするため、明示的に対応している。
+
 環境変数を直接設定してもよい。**環境変数が `.env` より優先される** (dotenvy と同じ)。
 
 ```powershell
