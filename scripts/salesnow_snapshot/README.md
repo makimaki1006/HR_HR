@@ -83,19 +83,40 @@ python scripts/salesnow_snapshot/build_snapshot.py \
 アプリ本体 (`src/db/turso_http.rs`) と同じ libSQL HTTP API を叩く投入スクリプトを使う。
 CLI もリダイレクトも要らない。
 
-```powershell
-# 認証情報 (アプリが使うものと同じ)
-$env:SALESNOW_TURSO_URL   = "https://<db>-<org>.turso.io"
-$env:SALESNOW_TURSO_TOKEN = "<token>"
+#### 認証情報の置き場所
 
-# 何が起きるかだけ見る (書き込まない)
+アプリ本体は `main.rs:13` で `dotenvy::dotenv()` を呼び、**リポジトリ直下の `.env`**
+から読む。投入スクリプトも同じファイルを読むので、置き場所は 1 箇所で済む。
+
+`.env` (`.gitignore` 済み):
+
+```
+SALESNOW_TURSO_URL=libsql://<db>-<org>.turso.io
+SALESNOW_TURSO_TOKEN=<token>
+```
+
+`libsql://` でも `https://` でも受ける。取得元は Turso ダッシュボード、
+または Render (`hellowork-dashboard`) の環境変数設定。
+
+環境変数を直接設定してもよい。**環境変数が `.env` より優先される** (dotenvy と同じ)。
+
+```powershell
+$env:SALESNOW_TURSO_URL   = "libsql://..."
+$env:SALESNOW_TURSO_TOKEN = "..."
+```
+
+#### 実行
+
+```powershell
+# 何が起きるかだけ見る (書き込まない)。認証情報の読み取り元も表示される
 python scripts/salesnow_snapshot/import_snapshot.py --dry-run
 
 # 投入
 python scripts/salesnow_snapshot/import_snapshot.py
 ```
 
-bash なら `export SALESNOW_TURSO_URL=... SALESNOW_TURSO_TOKEN=...`。
+`--dry-run` は値そのものを出さず、`設定あり (.env)` / `設定あり (環境変数)` /
+`★未設定` だけを表示する。
 
 投入スクリプトの安全設計 (libSQL 互換スタブ相手に実測済み):
 

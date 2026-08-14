@@ -51,6 +51,33 @@ def die(msg):
     sys.exit(f"[中止] {msg}")
 
 
+def load_dotenv(path=".env"):
+    """`.env` を読んで環境変数に載せる (既存の環境変数は上書きしない)。
+
+    アプリ本体は `main.rs:13` で `dotenvy::dotenv()` を呼んでおり、
+    リポジトリ直下の `.env` から認証情報を読む。投入スクリプトだけ
+    環境変数を要求すると、同じ情報を 2 箇所に置くことになるため揃える。
+
+    dotenvy と同じく、既に設定されている環境変数を上書きしない。
+    戻り値は読み込んだキー名の集合 (値は返さない/出力しない)。
+    """
+    loaded = set()
+    if not os.path.isfile(path):
+        return loaded
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+                loaded.add(key)
+    return loaded
+
+
 def resolve_sql(arg):
     if arg:
         if not os.path.isfile(arg):
@@ -147,6 +174,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="書き込まず、計画だけ表示")
     ap.add_argument("--url-env", default="SALESNOW_TURSO_URL")
     ap.add_argument("--token-env", default="SALESNOW_TURSO_TOKEN")
+    ap.add_argument("--env-file", default=".env", help="認証情報を読む .env (既定: リポジトリ直下)")
     args = ap.parse_args()
 
     path = resolve_sql(args.sql)
@@ -187,19 +215,36 @@ def main():
     print(f"Rows Written  : {rows:,} 行 = Scaler 月間 100M の "
           f"{rows / 100_000_000 * 100:.3f}%")
 
+    # 環境変数 → 無ければ .env (アプリと同じ読み方)
+    from_env_file = load_dotenv(args.env_file)
     url = os.environ.get(args.url_env, "")
     token = os.environ.get(args.token_env, "")
+
+    def source_of(key, value):
+        if not value:
+            return "★未設定"
+        return f"設定あり ({'.env' if key in from_env_file else '環境変数'})"
+
     if args.dry_run:
         print("\n[dry-run] 書き込みは行わない。")
-        print(f"  {args.url_env}   : {'設定あり' if url else '★未設定'}")
-        print(f"  {args.token_env} : {'設定あり' if token else '★未設定'}")
+        print(f"  {args.url_env}   : {source_of(args.url_env, url)}")
+        print(f"  {args.token_env} : {source_of(args.token_env, token)}")
+        if not (url and token):
+            print(f"\n  {args.env_file} が見つからない場合は、リポジトリ直下に作る:")
+            print(f"    {args.url_env}=libsql://<db>-<org>.turso.io")
+            print(f"    {args.token_env}=<token>")
+            print("  (.env は .gitignore 済み。アプリ本体も同じファイルを読む)")
         return
     if not url or not token:
         die(
-            f"認証情報が無い。次を設定すること:\n"
-            f"  PowerShell: $env:{args.url_env}='https://...'; "
-            f"$env:{args.token_env}='...'\n"
-            f"  bash      : export {args.url_env}=... {args.token_env}=..."
+            f"認証情報が無い ({args.url_env} / {args.token_env})。\n"
+            f"  方法1: リポジトリ直下の {args.env_file} に書く (アプリ本体と共通)\n"
+            f"    {args.url_env}=libsql://<db>-<org>.turso.io\n"
+            f"    {args.token_env}=<token>\n"
+            f"  方法2: 環境変数に設定する\n"
+            f"    PowerShell: $env:{args.url_env}='...'; $env:{args.token_env}='...'\n"
+            f"    bash      : export {args.url_env}=... {args.token_env}=...\n"
+            "  取得元: Turso ダッシュボード、または Render の環境変数設定"
         )
 
     db = Turso(url, token)
