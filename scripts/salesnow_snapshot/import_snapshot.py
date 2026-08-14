@@ -60,21 +60,53 @@ def load_dotenv(path=".env"):
 
     dotenvy と同じく、既に設定されている環境変数を上書きしない。
     戻り値は読み込んだキー名の集合 (値は返さない/出力しない)。
+
+    Windows で作られたファイルを受け取る前提で、次を吸収する
+    (実測でここが原因の読み取り失敗を 2 件確認したため):
+
+      - **UTF-8 BOM**: メモ帳の既定。BOM が 1 行目のキー名に食い込み、
+        `SALESNOW_TURSO_URL` だけ読めず TOKEN は読める、という分かりにくい壊れ方をする
+      - **`export ` プレフィックス**: bash 向けの例をそのまま貼ると両方読めない
+      - CRLF 改行、値の前後の空白、クォート囲み、値に含まれる `=` (JWT のパディング)
     """
     loaded = set()
+    seen_keys = []
     if not os.path.isfile(path):
         return loaded
-    with open(path, encoding="utf-8") as f:
+    # utf-8-sig: BOM があれば取り除く。無ければ utf-8 と同じ
+    with open(path, encoding="utf-8-sig") as f:
         for raw in f:
             line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
+            if not line or line.startswith("#"):
+                continue
+            # PowerShell 形式をそのまま貼った場合は読めないので明示的に知らせる
+            if line.startswith("$env:"):
+                print(
+                    f"  [警告] {path} に PowerShell 形式の行がある: {line[:40]}...\n"
+                    "         .env は KEY=VALUE 形式で書くこと",
+                    file=sys.stderr,
+                )
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):].lstrip()
+            if "=" not in line:
                 continue
             key, _, val = line.partition("=")
             key = key.strip()
             val = val.strip().strip('"').strip("'")
-            if key and key not in os.environ:
+            if not key:
+                continue
+            seen_keys.append(key)
+            if key not in os.environ:
                 os.environ[key] = val
                 loaded.add(key)
+    # ファイルはあるのに目的のキーが無い場合、何が入っていたかを示す
+    if seen_keys and not any(k.startswith("SALESNOW_TURSO") for k in seen_keys):
+        print(
+            f"  [警告] {path} に SALESNOW_TURSO_* が無い。"
+            f"読み取れたキー: {', '.join(seen_keys[:8])}",
+            file=sys.stderr,
+        )
     return loaded
 
 
