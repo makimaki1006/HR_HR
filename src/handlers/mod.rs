@@ -1,3 +1,4 @@
+pub mod call_quality_heatmap;   // 2026-08-14 PoC: サーバ側集計の検証
 pub mod admin;
 pub mod analysis;
 pub mod api;
