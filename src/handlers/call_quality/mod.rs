@@ -13,4 +13,5 @@
 
 pub mod heatmap;
 pub mod tabs;
+pub mod routes;
 pub mod sheets;
