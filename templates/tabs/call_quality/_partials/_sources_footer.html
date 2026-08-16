@@ -1,0 +1,18 @@
+<!-- 共通パーシャル: データ鮮度フッタ。
+     16タブすべての末尾で askama の include ディレクティブによりこのファイルを読み込む
+     (パスは tabs/call_quality/_partials/_sources_footer.html)。
+     注意: このファイル自身の中で自分へのinclude構文を書くと自己参照になるため、
+     このコメントでは意図的に生の構文表記を避けている。
+
+     中身は askama では埋めない(埋めようがない。データは request 後に JSON で届く)。
+     JS が各タブの JSON レスポンスの `sources[]`(sheet/total_rows/matched_rows/from_cache/age_secs)
+     を見て、この中に "求人応募_KPI: 10/10行・キャッシュ・32秒前" のような行を1シートにつき1行差し込む。
+
+     GAS 版は「シートを読んだ時刻」を「更新時刻」として出しており、データ自体が
+     2ヶ月古くても新しく見える事故があった(2026-08-04)。ここでは
+       - いつ読んだか(age_secs、鮮度)
+       - キャッシュから返したか(from_cache)
+     を分けて出し、「読んだのは今でもデータ自体は古いかもしれない」を隠さない。 -->
+<div class="cq-sources" data-cq-sources aria-live="polite">
+  <span class="cq-sources-loading">データ取得状況を読み込み中…</span>
+</div>

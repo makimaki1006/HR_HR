@@ -1,0 +1,25 @@
+{#
+  タブ prisk: 「リスクボード」(GAS版名称: リスク統合ボード、管理者向け)
+  API: /api/call-quality/riskboard (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-prisk" (1075-1214行)
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: 🔴最優先・🟠要注意の件数を確認し、Revenue at Risk の高い順に着手</div>
+<div class="cq-headline"><div class="cq-headline-title">リスク統合ボード(管理者向け)</div></div>
+<div class="cq-panel-note">
+  全 active 案件の危険を「4つの別軸」で横並び表示。1つのスコアに丸めず、「4軸中いくつが赤か(赤軸数)」で集約します。<br>
+  <b>①関係性</b>=NPS×契約フェーズ。NPS未取得の案件は判定不可(赤軸数が低い=安全とは限らない)。
+  <b>②モデル</b>=LightGBM解約予測(粗い補助・過信禁物)。<b>③放置</b>=最終接触からの経過。<b>④</b>は別軸(詳細はAPI確定後)。
+</div>
+
+<div class="cq-kpi-grid" data-cq-kpi="prisk-summary">
+  <div class="cq-status" data-cq-status>読み込み中…</div>
+</div>
+
+<div class="cq-panel"><div class="cq-panel-title">[1] 顧客健全性スコア(NPS+成果スコア, 0-100)</div><div class="cq-table" data-cq-table="prisk-health-score"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">[1.5] リスクスコア(代理指標、稼働中の案件 限定)</div><div class="cq-table" data-cq-table="prisk-risk-score"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">[2] コンサル×顧客マトリクス(接触量 × リスクスコア)</div><div class="cq-chart" data-cq-chart="prisk-matrix" style="height:380px"></div></div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

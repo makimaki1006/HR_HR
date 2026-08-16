@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+
+{#
+  架電クオリティ (GAS版移植) の外枠。
+
+  想定する Rust 側 Template 構造体(routes.rs 側で実装予定。ここでは参照のみ):
+      #[derive(Template)]
+      #[template(path = "tabs/call_quality/_layout.html")]
+      struct CqLayout { user_email: String }
+  必要な変数は user_email 1個だけにしてある。タブの中身(見出し・説明文・空コンテナ)は
+  全て静的なので、このページはリクエストごとに同じ HTML を返してよい
+  (データは初期HTMLに埋め込まず、後続の fetch で JSON として届く)。
+
+  ==========================================================================
+  設計メモ(2026-08-16 決定。team-lead との往復で確定した内容をここに残す)
+  ==========================================================================
+
+  1. 「GAS版とは全く別のページ」(ユーザー決定)。既存 job_ap_analyzer_gui の
+     dashboard.html / #content には混ぜない。ルートは /call-quality 単独。
+
+  2. base.html を extends する(team-lead 確定指示。base.html は1.4KB・CDN4本のみで、
+     CDNはブラウザキャッシュが効くうえ既存アプリの他ページで既に読み込まれている前提のため
+     「毎回無関係な資産を背負う」という当初の懸念は実測ベースで却下された)。
+     ECharts 5.5.1 / static/js/charts.js (window.ChartHelpers,
+     echarts.registerTheme('dark', ...)) / static/js/app.js
+     (.echart[data-chart-config] 自動初期化) が既に <head>/<body> で
+     読み込まれている前提でタブ側テンプレートを書く。
+
+  3. チャート描画は「動的fetch」パターンで統一(team-lead 指示、static/js/survey_explore.js
+     が実例)。テンプレート側は `data-chart-config` に option を埋め込まない
+     (=app.js の自動初期化とは衝突しない)。器だけを置き、値は JS が fetch して埋める。
+     コンテナの命名規則は survey_explore.js の `data-explore-*` に合わせ、
+     call-quality 用に `data-cq-*` を新設した(以下、全16タブ共通の契約):
+
+       .cq-page[data-cq-tab="p0"][data-cq-api="/api/call-quality/overview"]
+                                    … タブのルート。data-cq-tab がタブID、
+                                      data-cq-api がそのタブの主APIパス。
+                                      JS はタブが最初に表示された時にこの
+                                      data-cq-api を fetch する(下記5のイベント参照)。
+       [data-cq-status]             … 読込中/エラー文言を出すテキスト枠
+       [data-cq-kpi]                … KPIカード群を差し込むコンテナ
+       [data-cq-chart="xxx"]        … ECharts を描く div(高さは inline style で固定)
+       [data-cq-table="xxx"]        … テーブルを差し込むコンテナ
+       [data-cq-denom]              … 「分母: …」ラベル差し込み枠。API が返す
+                                      apo_denominator_label をそのまま入れる
+                                      (約束5: 「アポ率」単独表記の禁止に対応)
+       [data-cq-sources]            … データ鮮度フッタ(_partials/_sources_footer.html)
+       [data-cq-truncated]          … 「上位N件のみ表示」等の警告バナー
+                                      (_partials/_truncated_banner.html)
+
+  4. タブ切替はサーバ往復(HTMX)ではなく、クライアントJSでの表示切替(team-lead 条件付き承認)。
+     理由: team-lead 提示のAPI表は `/call-quality` という単一ページ1本+
+     `/api/call-quality/*` の JSON 群のみで、GAS版の16タブぶんの
+     `/tab/call-quality/*` のようなHTML断片ルートは無い
+     (既存 job_ap_analyzer_gui の /tab/driver 等の流儀とは別物として扱う)。
+     そのため16タブの空コンテナは全て初期HTMLに含める(GAS版と同じ構造。
+     空divは軽いのでDOMの骨組み自体は問題ない、というのがteam-leadの判断)。
+
+     承認の条件: 「毎回1MBのJSを送るな」は *タブのHTML* ではなく
+     *タブ専用JSの読み込み* を表示時まで遅延させることで満たす(下記5)。
+     16タブぶんのJSを最初に全部読ませてはいけない。
+
+  5. 「タブ切替」自体(表示/非表示のトグル + タブ専用JSの遅延読込)はこのファイルの
+     責務として、ここにインラインJSで実装する(static/ には触れない。JSファイルの
+     "中身"は書かない、"読み込むタイミング"だけを制御する)。
+
+     タブを**初めて**表示した瞬間、動的 import() で
+       /static/js/call_quality/{tabId}.js
+     を1回だけ読み込む(tabId は p0/p1/pbpo/p2/p3/ptf/p7/prisk/p8/p10/p11/p12/p13/p14/p15/pja)。
+     読み込み(初回のみ)が終わったら、成功・失敗にかかわらず `document` に
+     `cq:tab-shown` カスタムイベントを発火する(detail: {tab, api, el})。
+     2回目以降にそのタブを開いたときは import() をスキップして即座にイベントだけ発火する
+     (ブラウザの ES module キャッシュにも乗るが、二重 import() 自体を防ぐため
+     読み込み済みタブIDを Set で管理している)。
+
+     実際のデータ取得・ECharts描画は各 {tabId}.js が `cq:tab-shown` を購読して行う
+     契約にした(この行より下のJSがタブ切替の全て。データ取得は一切書かない)。
+     対応するJSファイルがまだ存在しない薄いタブ(バックエンド未着手分)は
+     import() が 404 で失敗するだけなので、コンソールに警告を出し画面は
+     静的な雛形のまま(エラーで丸ごと止まったりタブが開けなくなったりはしない)。
+
+  6. CSS は Tailwind(base.html 共通)+ 本ページ専用の /static/css/call_quality.css
+     (別担当実装中)。上記 .cq-* / [data-cq-*] のクラス・属性名を、
+     そのままCSSセレクタとして使える設計にしてある。
+     GAS版の `var(--xxx)` トークン運用は HR_HR 側には存在しない
+     (`grep -rn "^\s*--" static/css/*.css` で確認。あるのは dashboard.css の
+     --color-male 等ドメイン固有トークンのみで、--text/--border 等の汎用トークンは無い)。
+     CSS担当も同じ結論に至っており、call_quality.css はCSS変数を使わず直値で
+     書く方針(既に p12/p13 分は実装済み)。このテンプレートも同様に `var(--xxx)` を
+     一切使わず、クラス名だけを頼りにしている。
+     p12(cq-truncated-note / cq-badge*)・p13(p13-suggest* / p13-deal-card /
+     p13-timeline-list / p13-mtg-*)は既に CSS 側が実装済みのため、該当タブでは
+     data-cq-* の汎用フックに加えて実クラス名も付与し、そのままCSSが効くようにしてある。
+#}
+
+{% block title %}架電クオリティ - HR_HR{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="/static/css/call_quality.css">
+{% endblock %}
+
+{% block body %}
+<div class="cq-shell" id="cq-shell">
+
+  <!-- ==================== ヘッダー ==================== -->
+  <header class="cq-header">
+    <div class="cq-header-row cq-header-row-top">
+      <h1 class="cq-header-title">架電クオリティ</h1>
+      <div class="cq-header-right">
+        <!-- GAS版の「表示ロール」(Rep/Manager/VP)を踏襲。
+             2026-08-16時点でロール別スコープのAPI対応は未確認のため、
+             コンテナのみ用意する(未実装: サーバ側のロールスコープ絞り込み。
+             API が role パラメータを受けるかは routes.rs 側の実装待ち)。 -->
+        <span class="cq-role-block">
+          <label class="cq-role-label" for="cq-role-select">表示ロール</label>
+          <select id="cq-role-select" class="cq-select" data-cq-filter="role">
+            <option value="rep">Rep(自分のみ)</option>
+            <option value="manager" selected>Manager(全メンバー)</option>
+            <option value="vp">VP(全社サマリ重視)</option>
+          </select>
+        </span>
+        <span class="cq-user-email">ログイン: {{ user_email }}</span>
+        <a href="/logout" class="cq-logout-link">ログアウト</a>
+      </div>
+    </div>
+    <div class="cq-header-row cq-header-row-bottom">
+      <!-- GAS版の #updated 相当。「シートを読んだ時刻」ではなく「データの生成時刻」を
+           出す(設計メモ3系の反省を踏まえ、JSがタブ切替のたびに書き換える)。 -->
+      <span class="cq-updated" id="cq-updated" data-cq-global-updated>読み込み前</span>
+    </div>
+  </header>
+
+  <!-- ==================== グローバルフィルタ(GAS版 .filters を踏襲) ====================
+       期間・パイプライン・都道府県・メンバーは大半のタブに効く共通フィルタ。
+       P7(データブラウザ)だけは対象外(GAS版の注記をそのまま踏襲)。
+       値の保持・APIへの反映は別担当JSの責務。ここは器のみ。 -->
+  <div class="cq-filters" id="cq-filters">
+    <div class="cq-filter-group">
+      <label for="cq-date-from">期間(開始)</label>
+      <input type="date" id="cq-date-from" data-cq-filter="date-from">
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-date-to">期間(終了)</label>
+      <input type="date" id="cq-date-to" data-cq-filter="date-to">
+    </div>
+    <div class="cq-filter-group cq-filter-group-pipeline">
+      <label for="cq-pipeline-select">パイプライン</label>
+      <select id="cq-pipeline-select" class="cq-select" data-cq-filter="pipeline">
+        <option value="__all__">全パイプライン</option>
+      </select>
+    </div>
+    <div class="cq-filter-group cq-filter-group-prefecture">
+      <label for="cq-prefecture-select" title="都道府県で絞ると集計対象が営業パイプライン限定になり、分母もZoom発信からHubSpot Callログに切り替わる(GAS版の既存注記)。">
+        都道府県 <span class="cq-help-mark">(?)</span>
+      </label>
+      <select id="cq-prefecture-select" class="cq-select" data-cq-filter="prefecture">
+        <option value="__all__" selected>全都道府県</option>
+      </select>
+    </div>
+    <div class="cq-filter-group cq-filter-group-member">
+      <label for="cq-member-summary-toggle">メンバー(クリックで開閉・複数選択可)</label>
+      <details id="cq-member-details" class="cq-member-details">
+        <summary id="cq-member-summary-toggle" class="cq-member-summary-toggle">
+          <span id="cq-member-summary-label">全メンバー</span>
+          <span class="cq-member-caret">▾</span>
+        </summary>
+        <div id="cq-member-details-panel" class="cq-member-details-panel">
+          <div class="cq-member-bulk-row">
+            <button type="button" id="cq-member-select-all" class="cq-btn cq-btn-ghost">全選択</button>
+            <button type="button" id="cq-member-select-none" class="cq-btn cq-btn-ghost">全解除(=全メンバー)</button>
+          </div>
+          <!-- ロール一括選択(新規営業/コンサル営業/BPO/その他)。GAS版踏襲。値はJSが埋める。 -->
+          <div id="cq-member-role-filter" class="cq-member-role-filter"></div>
+          <div id="cq-member-checklist" class="cq-member-checklist"></div>
+        </div>
+      </details>
+    </div>
+    <div class="cq-filter-group cq-filter-group-summary">
+      <span class="cq-filter-label-spacer">&nbsp;</span>
+      <div id="cq-member-summary" class="cq-member-summary">対象: 全メンバー</div>
+    </div>
+  </div>
+
+  <!-- ==================== タブナビ ==================== -->
+  <nav class="cq-tabs" id="cq-tabs">
+    <div class="cq-tab-sep cq-tab-sep-first">営業</div>
+    <button type="button" class="cq-tab-btn active" data-cq-tab-btn="p0">全社サマリ</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p1">メンバー比較</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="pbpo">BPOダッシュボード</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p2">習慣の差</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p3">時系列</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="ptf">ターゲット分析</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p7">データブラウザ</button>
+    <div class="cq-tab-sep">コンサルCS</div>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="prisk">リスクボード</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p8">コンサル接触</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p10">未来アクション</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p11">行動量分析</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p12">解約分析</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p13">案件タイムライン</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p14">担当者360°</button>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="p15">案件マネジメント</button>
+    <div class="cq-tab-sep">求人・応募</div>
+    <button type="button" class="cq-tab-btn" data-cq-tab-btn="pja">求人・応募</button>
+  </nav>
+
+  <!-- ==================== メインコンテンツ(16タブ全て初期HTMLに含める) ====================
+       GAS版と同じ構造(1枚のHTMLに16タブ分の空コンテナを並べる)。
+       サーバ往復で断片HTMLを取りに行かないので、ここに16個 include する。 -->
+  <main class="cq-content" id="cq-content">
+
+    <div class="cq-page active" id="cq-page-p0" data-cq-tab="p0" data-cq-api="/api/call-quality/overview">
+      {% include "tabs/call_quality/p0.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p1" data-cq-tab="p1" data-cq-api="/api/call-quality/members" hidden>
+      {% include "tabs/call_quality/p1.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-pbpo" data-cq-tab="pbpo" data-cq-api="/api/call-quality/bpo" hidden>
+      {% include "tabs/call_quality/pbpo.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p2" data-cq-tab="p2" data-cq-api="/api/call-quality/habits" hidden>
+      {% include "tabs/call_quality/p2.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p3" data-cq-tab="p3" data-cq-api="/api/call-quality/timeseries" hidden>
+      {% include "tabs/call_quality/p3.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-ptf" data-cq-tab="ptf" data-cq-api="/api/call-quality/target" hidden>
+      {% include "tabs/call_quality/ptf.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p7" data-cq-tab="p7" data-cq-api="/api/call-quality/browse" hidden>
+      {% include "tabs/call_quality/p7.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-prisk" data-cq-tab="prisk" data-cq-api="/api/call-quality/riskboard" hidden>
+      {% include "tabs/call_quality/prisk.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p8" data-cq-tab="p8" data-cq-api="/api/call-quality/consulting" hidden>
+      {% include "tabs/call_quality/p8.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p10" data-cq-tab="p10" data-cq-api="/api/call-quality/future-actions" hidden>
+      {% include "tabs/call_quality/p10.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p11" data-cq-tab="p11" data-cq-api="/api/call-quality/activity" hidden>
+      {% include "tabs/call_quality/p11.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p12" data-cq-tab="p12" data-cq-api="/api/call-quality/churn" hidden>
+      {% include "tabs/call_quality/p12.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p13" data-cq-tab="p13" data-cq-api="/api/call-quality/timeline/deals" hidden>
+      {% include "tabs/call_quality/p13.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p14" data-cq-tab="p14" data-cq-api="/api/call-quality/owner360" hidden>
+      {% include "tabs/call_quality/p14.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-p15" data-cq-tab="p15" data-cq-api="/api/call-quality/pipeline-mgmt" hidden>
+      {% include "tabs/call_quality/p15.html" %}
+    </div>
+    <div class="cq-page" id="cq-page-pja" data-cq-tab="pja" data-cq-api="/api/call-quality/job-application" hidden>
+      {% include "tabs/call_quality/pja.html" %}
+    </div>
+
+  </main>
+</div>
+
+<!-- ==================== タブ切替 + タブ専用JSの遅延読込(このファイルの責務。static/ には触れない) ====================
+     やること:
+       1. ボタンクリックで .cq-page の表示/非表示を切り替える
+       2. そのタブを「初めて」開いた時だけ /static/js/call_quality/{tabId}.js を動的import()する
+          (16タブぶんのJSを最初に全部読ませない。team-lead 承認条件への対応)
+       3. import完了(または2回目以降でスキップ)後に cq:tab-shown を発火する
+     データ取得・ECharts描画は一切書かない(別担当 static/js/call_quality/*.js の責務)。
+     連携は動的import() のパス規約(下記 tabModuleUrl)と cq:tab-shown イベント
+     (detail: {tab, api, el})の2点のみ。 -->
+<script>
+(function () {
+  'use strict';
+
+  // タブ専用JSの読み込み試行を1タブ1回に抑える(成功/失敗いずれも記録する。
+  // 失敗時に毎回リトライすると、バックエンド未実装タブを開くたびに
+  // コンソールが警告で埋まるため)。
+  var attemptedModules = {};
+
+  function tabModuleUrl(tabId) {
+    return '/static/js/call_quality/' + encodeURIComponent(tabId) + '.js';
+  }
+
+  // タブ専用JSを1回だけ動的importする。ファイルが無い(薄いタブ)場合は
+  // 404 で reject されるので握りつぶし、画面は静的な雛形のまま維持する
+  // (=1タブの未実装が他タブ・タブ切替自体を壊さないようにする)。
+  function ensureTabModule(tabId) {
+    if (attemptedModules[tabId]) return attemptedModules[tabId];
+    var p = import(tabModuleUrl(tabId)).catch(function (e) {
+      // eslint系の警告避けではなく、実際に「このタブはまだJS未実装」と分かるようにする
+      console.warn('[cq] タブ専用JS未読み込み(未実装の可能性): ' + tabId, e);
+    });
+    attemptedModules[tabId] = p;
+    return p;
+  }
+
+  function activate(tabId, opts) {
+    var pushHistory = !opts || opts.pushHistory !== false;
+    var btns = document.querySelectorAll('.cq-tab-btn');
+    var pages = document.querySelectorAll('.cq-page');
+    var targetPage = null;
+
+    btns.forEach(function (b) {
+      var active = b.getAttribute('data-cq-tab-btn') === tabId;
+      b.classList.toggle('active', active);
+    });
+    pages.forEach(function (p) {
+      var active = p.getAttribute('data-cq-tab') === tabId;
+      p.classList.toggle('active', active);
+      p.hidden = !active;
+      if (active) targetPage = p;
+    });
+
+    if (!targetPage) return;
+
+    if (pushHistory) {
+      try { history.replaceState(null, '', '#' + tabId); } catch (e) { /* noop */ }
+    }
+
+    var api = targetPage.getAttribute('data-cq-api');
+
+    // 別担当JSへの引き渡し。ここでは fetch しない。
+    // タブ専用JSの読み込みが終わってから発火する(そのJSが cq:tab-shown を
+    // 購読して初めてデータ取得を始められるように、購読登録の後に発火する必要がある)。
+    // 再表示のたびに発火するので、JS側で「既に取得済みなら再取得しない」判定を
+    // する場合は data-cq-bound 等の own attribute を使うこと(このファイルは
+    // 一度も data-cq-bound を触らない= 二重取得防止の責務は持たない)。
+    ensureTabModule(tabId).then(function () {
+      document.dispatchEvent(new CustomEvent('cq:tab-shown', {
+        detail: { tab: tabId, api: api, el: targetPage }
+      }));
+    });
+  }
+
+  document.querySelectorAll('.cq-tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      activate(btn.getAttribute('data-cq-tab-btn'));
+    });
+  });
+
+  document.addEventListener('DOMContentLoaded', function () {
+    // URL の #tabId があればそれを初期表示、無ければ GAS版と同じく先頭タブ(p0)。
+    var initial = (location.hash || '').replace('#', '');
+    var hasTab = initial && document.querySelector('.cq-page[data-cq-tab="' + initial + '"]');
+    activate(hasTab ? initial : 'p0', { pushHistory: false });
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,19 @@
+{#
+  タブ p11: 「行動量分析」(旧称: 勝ち筋分析)
+  API: /api/call-quality/activity (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p11" (1492-1561行)
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: 全社の行動量(Email+電話)の傾向と、手薄なコンサルは誰か ※成果でなく行動量</div>
+<div class="cq-headline"><div class="cq-headline-title">行動量分析(旧「勝ち筋分析」)</div></div>
+
+<div class="cq-panel"><div class="cq-panel-title">上位 / 下位コンサル比較</div><div class="cq-chart" data-cq-chart="p11-top-bottom" style="height:320px"></div></div>
+<div class="cq-panel-grid">
+  <div class="cq-panel"><div class="cq-panel-title">Owner ランキング</div><div class="cq-chart" data-cq-chart="p11-owner-rank" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">Stage / Outcome 傾向</div><div class="cq-chart" data-cq-chart="p11-stage-outcome" style="height:300px"></div></div>
+</div>
+<div class="cq-panel"><div class="cq-panel-title">勝ち筋 明細</div><div class="cq-table" data-cq-table="p11-detail"></div></div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

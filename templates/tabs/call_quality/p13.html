@@ -1,0 +1,77 @@
+{#
+  タブ p13: 「案件タイムライン」
+  API: /api/call-quality/timeline/deals (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p13" (1687-1781行)。Dealセレクタ駆動、上部の期間/メンバー/
+  パイプラインフィルタは反映しない(GAS版の注記どおり)。
+
+  未実装(薄い雛形): バックエンドAPI未着手。Deal検索の候補表示(p13-deal-suggest)は
+  JS側でデバウンス+API呼び出しする想定、器のみ用意。
+
+  2026-08-16追記: CSS担当(P12/P13)が static/css/call_quality.css に .p13-suggest /
+  .p13-suggest-item / .p13-deal-card / .p13-timeline-list / .p13-mtg-card 系を
+  先行実装済み(GAS版 style.html の同名クラスをダーク配色で移植)。このタブだけは
+  data-cq-* 汎用フックに加えて実クラス名も付与し、CSSがそのまま効くようにしてある。
+  JS側がここへ子要素(.p13-suggest-item / .p13-mtg-card 等)を追加する想定。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: (Deal選択時)この案件の最終接触・最新NPS・MTG履歴</div>
+<div class="cq-headline">
+  <div class="cq-headline-title">案件タイムライン</div>
+  <div class="cq-headline-sub">
+    納品管理PL Deal を選択 → その Deal の全 MTG 履歴を時系列カードで表示。
+    Zoom AI Companion 議事録 + ネクストアクションを Deal 単位で可視化。
+    ※本タブは上部フィルタを反映しません(Deal セレクタ駆動)。
+  </div>
+</div>
+
+<div class="cq-panel cq-panel-wide">
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-p13-consultant-filter">コンサル担当者で絞込</label>
+      <select id="cq-p13-consultant-filter" class="cq-select" data-cq-control="p13-consultant-filter"><option value="">全担当者</option></select>
+    </div>
+    <div class="cq-filter-group cq-p7-search-group">
+      <label for="cq-p13-deal-select">Deal を選択(プルダウン)</label>
+      <select id="cq-p13-deal-select" class="cq-select" data-cq-control="p13-deal-select"><option value="">― Deal を選択 ―</option></select>
+    </div>
+    <div class="cq-filter-group cq-p7-search-group">
+      <label for="cq-p13-deal-search">またはキーワード検索(取引先名 / Deal ID)</label>
+      <input type="text" id="cq-p13-deal-search" class="cq-input" data-cq-control="p13-deal-search" placeholder="例: 株式会社○○ / Deal 12345">
+      <div id="cq-p13-deal-suggest" class="p13-suggest" data-cq-table="p13-deal-suggest" hidden></div>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-p13-sort">並び順</label>
+      <select id="cq-p13-sort" class="cq-select" data-cq-control="p13-sort">
+        <option value="desc" selected>新しい順</option>
+        <option value="asc">古い順</option>
+      </select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-p13-period">期間絞込</label>
+      <select id="cq-p13-period" class="cq-select" data-cq-control="p13-period">
+        <option value="all" selected>全期間</option>
+        <option value="3m">直近 3ヶ月</option>
+        <option value="6m">直近 6ヶ月</option>
+        <option value="12m">直近 12ヶ月</option>
+      </select>
+    </div>
+  </div>
+  <!-- JSが .p13-deal-card 構造(GAS版1878-1897行のダーク配色版、CSS実装済み)を差し込む -->
+  <div class="cq-table" data-cq-table="p13-deal-summary"></div>
+  <div class="cq-status" data-cq-status>―</div>
+</div>
+
+<div class="cq-panel" data-cq-table="p13-trend-card" hidden>
+  <div class="cq-panel-title">接触件数 × NPS 推移</div>
+  <div class="cq-panel-note">週次接触量(Email/Call + Zoom MTG実施)と定期NPSの推移。NPSが無い/1点のみのDealはその旨を明示。</div>
+  <div class="cq-chart" data-cq-chart="p13-contact-npm" style="height:280px"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">MTG 履歴</div>
+  <!-- JSが .p13-mtg-card (GAS版1898-2028行のダーク配色版、CSS実装済み)を
+       この中に横スクロールで並べる。コンテナ自体に .p13-timeline-list を付与。 -->
+  <div class="cq-table p13-timeline-list" data-cq-table="p13-mtg-history"></div>
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

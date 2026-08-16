@@ -1,0 +1,140 @@
+{#
+  タブ p7: 「データブラウザ」
+  API: POST /api/call-quality/browse (JSON body。GETのURLクエリでは往復できないと確定済み
+       ―― flatten+HashMap は serde_urlencoded で復元不可。team-lead 確認済み)
+  対応する Rust payload: src/handlers/call_quality/tabs/p7_data_browser.rs
+    - browse: TabPayload<BrowseData> (header/rows/total_rows/matched_rows/returned_rows/
+              page/page_size/total_pages/truncated/sort_col/sort_dir)
+    - CSVエクスポート: CsvExport (csv/row_count/matched_rows/truncated) — 別エンドポイント想定
+    - クイック可視化: TabPayload<ChartData> (bars[]/matched_rows/truncated) — 別エンドポイント想定
+
+  GAS版 index.html id="page-p7" (939-1066行) を踏襲。現行GASで最も重いタブ
+  (月次明細 96,898行×39列を毎回丸ごと送って9.48秒)。ここではサーバ側ページング
+  前提の器にしてあるので、フロントJSは「全件をローカルに保持」しないこと。
+
+  未実装: 列フィルタモーダルの「値一覧(distinct values)」取得APIがまだ無い
+  (p7_data_browser.rs 側の申告通り)。フィルタモーダルの器は用意するが、
+  選択肢リストは空のまま(JS側でAPI用意後に埋める)。
+#}
+<div class="cq-headline">
+  <div class="cq-headline-title">データブラウザ</div>
+</div>
+<div class="cq-desc">
+  任意のシートを直接見て数字の裏取り・CSV出力ができます。全文検索・列フィルタ・並び替え・ページングは全てサーバ側で処理します。<br>
+  ※期間・メンバー・パイプラインの上部フィルタはこのタブには適用されません。
+</div>
+
+<!-- コントロールバー -->
+<div class="cq-p7-control-bar">
+  <div class="cq-filter-group">
+    <label for="cq-p7-sheet-select">シート</label>
+    <select id="cq-p7-sheet-select" class="cq-select" data-cq-control="p7-sheet">
+      <option value="">-- 読み込み中 --</option>
+    </select>
+  </div>
+  <div class="cq-filter-group cq-p7-search-group">
+    <label for="cq-p7-search">全文検索(全列横断)</label>
+    <input type="text" id="cq-p7-search" class="cq-input" data-cq-control="p7-search" placeholder="キーワードを入力...">
+  </div>
+  <div class="cq-filter-group">
+    <label for="cq-p7-page-size">表示行数</label>
+    <!-- MAX_PAGE_SIZE=500 でサーバ側クランプされる(GAS版の「全表示」相当は提供しない)。 -->
+    <select id="cq-p7-page-size" class="cq-select" data-cq-control="p7-page-size">
+      <option value="50">50</option>
+      <option value="100" selected>100</option>
+      <option value="500">500(上限)</option>
+    </select>
+  </div>
+  <div class="cq-filter-group">
+    <button type="button" id="cq-p7-reset-filters" class="cq-btn cq-btn-ghost" data-cq-action="p7-reset-filters">フィルタリセット</button>
+  </div>
+  <div class="cq-filter-group">
+    <button type="button" id="cq-p7-export-csv" class="cq-btn cq-btn-primary" data-cq-action="p7-export-csv">CSVエクスポート</button>
+  </div>
+</div>
+
+<!-- メタ情報: 全行数/フィルタ後/表示中/キャッシュ状態。BrowseData の値をそのまま出す -->
+<div class="cq-p7-meta-bar" data-cq-value="p7-meta">シートを選択してください。</div>
+
+<!-- 適用中の列フィルタチップ -->
+<div class="cq-p7-chip-bar" data-cq-table="p7-chips"></div>
+
+<!-- データテーブル -->
+<div class="cq-p7-table-wrap">
+  <div class="cq-p7-table-inner" data-cq-table="p7-rows">
+    <div class="cq-empty">シートを選択するとデータが表示されます。</div>
+  </div>
+</div>
+
+<!-- ページネーション: BrowseData.page/page_size/total_pages から組み立てる -->
+<div class="cq-p7-pager" data-cq-table="p7-pager"></div>
+
+<!-- 列フィルタモーダル(器のみ。値一覧取得APIは未実装 ―― ファイル冒頭の「未実装」参照) -->
+<div class="cq-p7-filter-modal" id="cq-p7-filter-modal" hidden>
+  <div class="cq-p7-filter-backdrop" data-cq-action="p7-filter-close"></div>
+  <div class="cq-p7-filter-panel">
+    <div class="cq-p7-filter-head">
+      <div class="cq-p7-filter-title" data-cq-value="p7-filter-title">列フィルタ</div>
+      <button type="button" class="cq-p7-filter-close" data-cq-action="p7-filter-close" aria-label="閉じる">×</button>
+    </div>
+    <div class="cq-p7-filter-body">
+      <input type="text" id="cq-p7-filter-search" class="cq-input" placeholder="値で絞り込み...">
+      <div class="cq-p7-filter-actions-row">
+        <button type="button" class="cq-btn cq-btn-ghost" data-cq-action="p7-filter-select-all">全選択</button>
+        <button type="button" class="cq-btn cq-btn-ghost" data-cq-action="p7-filter-clear-all">全解除</button>
+      </div>
+      <div class="cq-p7-filter-values" data-cq-table="p7-filter-values"></div>
+    </div>
+    <div class="cq-p7-filter-foot">
+      <button type="button" class="cq-btn cq-btn-primary" data-cq-action="p7-filter-apply">適用</button>
+    </div>
+  </div>
+</div>
+
+<!-- クイック可視化: ChartData.bars[] を棒グラフ表示。ECharts(動的fetchパターン)。 -->
+<div class="cq-panel">
+  <div class="cq-panel-title">クイック可視化</div>
+  <div class="cq-panel-note">フィルタ後の行から数値列を集計して棒グラフ表示。X軸=カテゴリ列、Y軸=数値列の合計/平均/件数。上位N件(超過時は「切り捨て」の警告バナーを表示)。</div>
+  <div class="cq-p7-chart-controls">
+    <div class="cq-filter-group">
+      <label for="cq-p7-chart-x">X軸(カテゴリ列)</label>
+      <select id="cq-p7-chart-x" class="cq-select" data-cq-control="p7-chart-x"><option value="">-- 列を選択 --</option></select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-p7-chart-y">Y軸(数値列)</label>
+      <select id="cq-p7-chart-y" class="cq-select" data-cq-control="p7-chart-y"><option value="">-- 列を選択 --</option></select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-p7-chart-agg">集計方法</label>
+      <select id="cq-p7-chart-agg" class="cq-select" data-cq-control="p7-chart-agg">
+        <option value="sum" selected>合計</option>
+        <option value="avg">平均</option>
+        <option value="count">件数</option>
+      </select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-p7-chart-topn">表示件数(上位)</label>
+      <select id="cq-p7-chart-topn" class="cq-select" data-cq-control="p7-chart-topn">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </div>
+    <div class="cq-filter-group">
+      <button type="button" class="cq-btn cq-btn-primary" data-cq-action="p7-chart-draw">描画</button>
+    </div>
+  </div>
+  <!-- data-chart-config は使わない(動的fetchパターン。設計メモ参照) -->
+  <div class="cq-chart" data-cq-chart="p7-quick" style="height:360px"></div>
+</div>
+
+<div class="cq-note">
+  データブラウザは POST /api/call-quality/browse (JSON body) でシートを取得します。
+  フィルタは全文検索・各列フィルタのすべてを満たす行だけを表示します(かつ条件)。ソートは列ヘッダクリック(昇順→降順→解除)。
+  CSVはBOM付きでExcel文字化け対策済み、上限50,000行(超過時はその旨を警告表示)。
+  期間・メンバー・パイプラインの上部フィルタはこのタブには適用されません。
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

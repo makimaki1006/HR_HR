@@ -1,0 +1,21 @@
+{#
+  タブ p12: 「解約分析」
+  API: /api/call-quality/churn (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p12" (1562-1686行)。非アクティブDeal事後分析
+  (A=解約理由パターン / B=LightGBM 90日churn proba / C=コンサル担当別 / D=業界×規模)。
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+  churnモデルはリーク除去後 bad AUC=0.672〜0.725 の粗い補助指標(過信禁物、既知メモ通り)
+  である旨をJS側の注記でも引き継ぐこと。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: 直近の bad churn 予測(補助・AUC約0.72)と、担当別・セグメント別の解約傾向</div>
+<div class="cq-headline"><div class="cq-headline-title">解約分析</div></div>
+
+<div class="cq-panel"><div class="cq-panel-title">⚠️ 稼働中の案件 解約リスク予測 Top 20</div><div class="cq-panel-note">モデルは粗い補助指標。自動判断には使わない。</div><div class="cq-table" data-cq-table="p12-risk-top20"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">A. 解約理由パターン(6 stage 比較)</div><div class="cq-chart" data-cq-chart="p12-reason-pattern" style="height:320px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">C. コンサル担当別 解約状況(解約件数・率)</div><div class="cq-chart" data-cq-chart="p12-by-consultant" style="height:320px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">D. 解約率マトリクス(Bad/Good分離 + 軸切替)</div><div class="cq-chart" data-cq-chart="p12-matrix" style="height:360px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">B 付録: LightGBM モデル指標 / 特徴量重要度</div><div class="cq-table" data-cq-table="p12-model-metrics"></div></div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

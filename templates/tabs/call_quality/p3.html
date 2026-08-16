@@ -1,0 +1,40 @@
+{#
+  タブ p3: 「時系列」
+  API: /api/call-quality/timeseries (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p3" (598-718行)
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: 全社の架電量・アポ率の月次トレンドは上向きか下向きか(直近月はラグで高めに出る点に注意)</div>
+<div class="cq-headline"><div class="cq-headline-title">時系列</div></div>
+
+<div class="cq-panel-note cq-panel-note-warn">
+  ⚠ <b>傾向分析の前提</b>: 集計の起点は Zoom連携開始月で、確定済みの月数は限られます。
+  このため<b>前年同月比・季節性の判断はできません</b>。単月の増減は母数が少ない月では振れやすいので、複数月の流れで見てください。
+</div>
+
+<div class="cq-kpi-grid" data-cq-kpi="p3-scorecards">
+  <div class="cq-status" data-cq-status>読み込み中…</div>
+</div>
+
+<div class="cq-panel-grid">
+  <div class="cq-panel"><div class="cq-panel-title">月次 架電数推移</div><div class="cq-panel-note">月別の総架電数。期間・メンバー・パイプラインのフィルタを反映。複数メンバー選択時はメンバー別折れ線</div><div class="cq-chart" data-cq-chart="p3-call-trend" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">月次 アポ率推移</div><div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div><div class="cq-chart" data-cq-chart="p3-apo-trend" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">曜日別 架電数</div><div class="cq-chart" data-cq-chart="p3-weekday-call" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">曜日別 アポ率</div><div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div><div class="cq-chart" data-cq-chart="p3-weekday-apo" style="height:300px"></div></div>
+</div>
+
+<div class="cq-panel"><div class="cq-panel-title">メンバー別 月次架電推移(ヒートマップ)</div><div class="cq-chart" data-cq-chart="p3-member-monthly-heatmap" style="height:400px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">アポ取得月ごとの その後の進み具合</div><div class="cq-table" data-cq-table="p3-apo-cohort"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">時間帯×曜日 ヒートマップ(架電回数/Call記録率/アポ率 切替)</div>
+  <!-- サーバ側集計済みの /api/call-quality/heatmap を利用する想定(既存PoC: heatmap.rs) -->
+  <div class="cq-chart" data-cq-chart="p3-time-heatmap" style="height:420px"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">アポ率 母数2版比較(HubSpotコールログ / Zoom Phone発信)</div>
+  <div class="cq-panel-note">2つの分母は一致しません。単独表記禁止(運用ルール)。</div>
+  <div class="cq-chart" data-cq-chart="p3-apo-denominator-compare" style="height:300px"></div>
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

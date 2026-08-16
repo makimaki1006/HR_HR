@@ -1,0 +1,51 @@
+{#
+  タブ p14: 「担当者360°」(GAS版名称: コンサル担当者 360°ビュー)
+  API: /api/call-quality/owner360 (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p14" (1782-1925行)。担当者セレクタ駆動、上部フィルタ非反映。
+  churn_proba はリーク除去後 AUC約0.72 の粗い補助であり確定予測ではない旨、GAS版原文を踏襲。
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: (担当選択時)その人の保有件数・リスク件数・最終接触・月次推移</div>
+<div class="cq-headline">
+  <div class="cq-headline-title">コンサル担当者 360°ビュー</div>
+  <div class="cq-headline-sub">
+    担当者を選択して全 Deal / KPI / タスク / 解約予測 を1画面で確認。
+    ※本タブは上部フィルタを反映しません(担当者セレクタ駆動)。<br>
+    <span class="cq-warn-text">⚠ 解約予測(churn_proba)はリーク除去後 AUC約0.72 の粗い絞り込み補助で、確定予測ではありません。優先順位付けの参考に。</span>
+  </div>
+</div>
+
+<div class="cq-p7-control-bar">
+  <div class="cq-filter-group cq-p7-search-group">
+    <label for="cq-p14-search">担当者:名前で検索</label>
+    <input type="text" id="cq-p14-search" class="cq-input" data-cq-control="p14-search" placeholder="例: 藤巻">
+  </div>
+  <div class="cq-filter-group">
+    <label for="cq-p14-consultant-select">担当者を選択</label>
+    <select id="cq-p14-consultant-select" class="cq-select" data-cq-control="p14-consultant-select"><option value="">-- 担当者を選択 --</option></select>
+  </div>
+  <span class="cq-status" data-cq-status>―</span>
+</div>
+
+<div class="cq-kpi-grid" data-cq-kpi="p14-summary"></div>
+
+<div class="cq-panel cq-panel-wide">
+  <div class="cq-panel-title">📈 個人の月次推移(収益・受注・継続・保有)</div>
+  <div class="cq-panel-note">
+    月額収益(MRR)=その月アクティブな案件の月額合計。受注額=その月開始の契約金額。解約額=その月解約の月額。
+    継続率=その月満了案件のうち継続(更新)割合。保有案件数=その月アクティブだった案件数。
+  </div>
+  <div class="cq-panel-grid">
+    <div class="cq-chart" data-cq-chart="p14-revenue" style="height:260px"></div>
+    <div class="cq-chart" data-cq-chart="p14-retention" style="height:260px"></div>
+  </div>
+</div>
+
+<div class="cq-panel"><div class="cq-panel-title">顧客満足度(NPS 定期回推移)</div><div class="cq-chart" data-cq-chart="p14-nps-trend" style="height:280px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">担当 Deal の都道府県分布(47都道府県)</div><div class="cq-chart" data-cq-chart="p14-pref-distribution" style="height:340px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">担当 Deal 一覧(リスク降順)</div><div class="cq-table" data-cq-table="p14-deal-list"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">📞 接触ログ(案件 × 週、MTG・電話)</div><div class="cq-table" data-cq-table="p14-contact-log"></div></div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

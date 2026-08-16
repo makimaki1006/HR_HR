@@ -1,0 +1,17 @@
+{#
+  タブ p8: 「コンサル接触」(GAS版名称: コンサル電話接触 指導・モニタリング)
+  API: /api/call-quality/consulting (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p8" (1215-1387行)
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: 🚨7日以上未架電のDealを潰す / 高継続コンサルの架電水準を目標値にする / 接触少ない案件は解約に寄与してるか</div>
+<div class="cq-headline"><div class="cq-headline-title">コンサル電話接触(指導・モニタリング)</div></div>
+
+<div class="cq-panel"><div class="cq-panel-title">A. コンサル別 解約率 × 月平均Call(直近12ヶ月コホート)</div><div class="cq-chart" data-cq-chart="p8-churn-vs-call" style="height:340px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">B. 案件別 接触量×継続/解約 寄与率</div><div class="cq-chart" data-cq-chart="p8-contact-contribution" style="height:340px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">C-1. 7日以上未架電(緊急対応)</div><div class="cq-table" data-cq-table="p8-overdue"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">C-3. Call 月次推移 + 案件別ランキング</div><div class="cq-chart" data-cq-chart="p8-monthly-trend" style="height:320px"></div></div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

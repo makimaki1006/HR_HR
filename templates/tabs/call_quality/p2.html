@@ -1,0 +1,53 @@
+{#
+  タブ p2: 「習慣の差」
+  API: /api/call-quality/habits (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p2" (370-597行)
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+  GAS版は「量(scorecards)→NA/再架電の遵守・消化率→散布図→N回目架電/リサイクル/
+  コンプライアンス→プロセス(ファネル)→その場失注→商談PL遷移」という長い構成。
+  ここではパネルの見出しだけ全て再現し、中身は器のみ。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: NA期日の遵守率が落ちている人は誰か(NA遵守率はアポに最も効く習慣)</div>
+<div class="cq-headline"><div class="cq-headline-title">習慣の差</div></div>
+
+<div class="cq-kpi-grid" data-cq-kpi="p2-scorecards">
+  <div class="cq-status" data-cq-status>読み込み中…</div>
+</div>
+
+<div class="cq-panel-grid">
+  <div class="cq-panel"><div class="cq-panel-title">NA期日 遵守率</div><div class="cq-panel-note">SUM(期日内NA消化)÷SUM(NA期日到来)。NA期日100件以上のメンバーのみ</div><div class="cq-chart" data-cq-chart="p2-na-ontime" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">NA期日 消化率</div><div class="cq-panel-note">SUM(NA消化合計)÷SUM(NA期日到来)。遅れも含めた最終消化割合</div><div class="cq-chart" data-cq-chart="p2-na-done" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">再架電日 遵守率</div><div class="cq-chart" data-cq-chart="p2-rs-ontime" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">再架電日 消化率</div><div class="cq-chart" data-cq-chart="p2-rs-done" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">担当流動率(旧: 新規開拓率)</div><div class="cq-chart" data-cq-chart="p2-turnover" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">新規開拓率(全社初架電率)</div><div class="cq-chart" data-cq-chart="p2-first-touch" style="height:300px"></div></div>
+</div>
+
+<div class="cq-panel-grid">
+  <div class="cq-panel"><div class="cq-panel-title">NA遵守率 × アポ率(散布図・拡大表示)</div><div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div><div class="cq-chart" data-cq-chart="p2-na-vs-apo" style="height:360px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">1案件あたり架電 × アポ率(散布図・拡大表示)</div><div class="cq-chart" data-cq-chart="p2-dial-per-deal-vs-apo" style="height:360px"></div></div>
+</div>
+
+<div class="cq-panel"><div class="cq-panel-title">N回目架電分析(Rain Group 8touch ルール検証)</div><div class="cq-table" data-cq-table="p2-nth-call"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">リサイクル間隔別 アポ率</div><div class="cq-chart" data-cq-chart="p2-recycle-interval" style="height:300px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">コンプライアンスパターン(owner × pattern 強度)</div><div class="cq-table" data-cq-table="p2-compliance-pattern"></div></div>
+
+<div class="cq-headline"><div class="cq-headline-title">プロセス — ファネルのどの段で脱落が大きいか</div></div>
+<div class="cq-panel-grid">
+  <div class="cq-panel"><div class="cq-panel-title">ステージ移行率(前進 ÷ 到達)</div><div class="cq-chart" data-cq-chart="p2-stage-progress" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">ステージ移行率 × アポ率(散布図・拡大表示)</div><div class="cq-chart" data-cq-chart="p2-stage-progress-vs-apo" style="height:360px"></div></div>
+</div>
+<div class="cq-panel"><div class="cq-panel-title">営業ファネル(電話 → アポ → 商談 → 成約)</div><div class="cq-chart" data-cq-chart="p2-funnel" style="height:320px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">ステージ滞留日数(どこで Deal が止まっているか)</div><div class="cq-table" data-cq-table="p2-stage-stagnation"></div></div>
+
+<div class="cq-headline"><div class="cq-headline-title">その場失注(商談で即失注 = 提案ミスマッチ可視化)</div></div>
+<div class="cq-panel"><div class="cq-panel-title">メンバー別 その場失注件数(全員分・降順)</div><div class="cq-chart" data-cq-chart="p2-instant-loss" style="height:320px"></div></div>
+
+<div class="cq-headline"><div class="cq-headline-title">商談PL 遷移分析(Sankey + リードタイム)</div></div>
+<div class="cq-panel" data-cq-chart="p2-stage-sankey">
+  <div class="cq-chart" data-cq-chart="p2-stage-sankey" style="height:400px"></div>
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

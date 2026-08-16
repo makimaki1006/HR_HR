@@ -1,0 +1,61 @@
+{#
+  タブ pja: 「求人・応募」
+  API: POST/GET /api/call-quality/job-application (routes.rs 側で確定させること)
+  対応する Rust payload: src/handlers/call_quality/tabs/pja_job_application.rs の
+    TabPayload<PjaData> { kpi: PjaKpi, media: PjaMediaTable, health: Vec<PjaHealthRow>,
+                           health_silent_count, quality: Vec<PjaQualityRow> }
+
+  GAS版 index.html id="page-pja" (2025-2060行) をそのまま踏襲。
+  このタブは pja_job_application.rs を自分で書いたので、フィールド名が
+  そのまま data-cq-* に対応するよう作ってある(JS実装時に迷わないはず)。
+  未実装パネルなし(① 応募効率 / ② 顧客(Deal)健全性 / ③ データ品質 の3枚とも器を用意)。
+#}
+<div class="cq-headline">
+  <div class="cq-headline-title">求人・応募ダッシュボード</div>
+</div>
+<div class="cq-desc">
+  求人(LISTING)×応募(APPOINTMENT)。時系列は<b>応募日ベース</b>(取込日ではない)。<br>
+  ※AirWork応募は求人に未紐付けのものがあります。<b>比率は求人紐付き応募のみ</b>で算出し、総数は媒体別で別掲します。
+  <span class="cq-generated-at" data-cq-generated-at></span>
+</div>
+
+<!-- KPI: PjaKpi (listing_total/n_pub/total_appts/linked_appts/n_listings_with_apps/active_deals/
+     eff_per_public/eff_per_applied)。分母が2種類(公開中求人数 と 応募実績のある求人数)ある点を
+     必ず両方見せる(片方だけにすると意味が変わる。依頼メッセージの指示通り)。 -->
+<div class="cq-kpi-grid" data-cq-kpi="pja-kpi">
+  <div class="cq-status" data-cq-status>読み込み中…</div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">① 媒体別応募数(応募日・月次)</div>
+  <!-- PjaMediaTable: months(列見出し) × rows[].{media, monthly[], total} -->
+  <div class="cq-table" data-cq-table="pja-media" tabindex="0" role="region" aria-label="媒体別応募数(応募日・月次)"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-head">
+    <div class="cq-panel-title">② 顧客(Deal)健全性 — 応募途絶検知</div>
+    <label class="cq-checkbox-label">
+      <input type="checkbox" id="cq-pja-only-silent" data-cq-control="pja-only-silent">
+      「応募途絶注意」(公開中求人ありで直近30日応募ゼロ)のみ表示
+    </label>
+  </div>
+  <div class="cq-panel-note">
+    納品管理PLのアクティブDeal。直近30日応募・最終応募からの経過日数は応募日ベース(JSTの暦日)。<br>
+    <b>「応募途絶注意」</b>=公開中求人があるのに直近30日の応募がゼロ。<b>「掲載ゼロ・応募ゼロ」</b>=公開求人も直近応募も無い(過去に応募実績あり)。<br>
+    ※1つの求人が複数Dealに紐付く場合は各Dealに計上するため、<b>「公開中求人数」列を縦に合計しても全体の公開中求人数とは一致しません</b>。
+    該当件数(応募途絶注意): <span data-cq-value="pja-health-silent-count">-</span>件
+  </div>
+  <!-- Vec<PjaHealthRow>: deal/pub_listing_count/recent_apps_30d/last_app_date/days_since_last_app/status/is_silent -->
+  <div class="cq-table" data-cq-table="pja-health" tabindex="0" role="region" aria-label="顧客案件健全性一覧" style="max-height:520px; overflow-y:auto;"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">③ データ品質監視</div>
+  <div class="cq-panel-note">①②が「いつ信頼できるか」を判断するための整備状況。</div>
+  <!-- Vec<PjaQualityRow>: metric/value/denominator/rate_pct(Noneあり)/note -->
+  <div class="cq-table" data-cq-table="pja-quality" tabindex="0" role="region" aria-label="データ品質監視"></div>
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}
