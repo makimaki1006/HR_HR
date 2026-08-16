@@ -27,10 +27,9 @@
 //!   クロス絞込中は Zoom 側をフォールバック表示にしていた。ここでは
 //!   **HubSpot 側だけ絞り込まれた片肺の比較を出さない**ため、パネルごと
 //!   「利用不可＋理由」を返す（GAS との差異。理由は `DenominatorCompare` を参照）。
-//! - **都道府県モードの行の差し替え**: GAS はここで参照シートを
-//!   「都道府県月次」へ切り替えていた。本実装は p0/p1 と同じく
-//!   **分母だけ HubSpot Call に切り替える**（`apo_denominator`）。
-//!   都道府県で行を絞る実装は「都道府県月次」シートの移植が要るため未着手。
+//! - **都道府県モードの行の差し替え**: 2026-08-16 実装済み。
+//!   都道府県を選ぶと参照シートを「都道府県月次」へ切り替え、prefecture 列で
+//!   行を絞る（GAS `filteredRows` と同じ）。分母も HubSpot Call に切り替わる。
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -382,6 +381,16 @@ pub fn collect_monthly(
         let owner = data.get(row, "owner_id");
         if owner.is_empty() || !in_scope(scope.as_ref(), owner) {
             continue;
+        }
+        // 2026-08-16: 都道府県で行を絞る。
+        //   従来は分母を HubSpot Call に切り替えるだけで行を絞っておらず、
+        //   「東京都を選んでも全国の集計が出る」状態だった。
+        //   handle 側で「都道府県月次」へシートを差し替え、ここで列で絞る。
+        //   prefecture 列を持たないシートでは絞れないので、その場合は素通しする。
+        if let Some(pref) = q.prefecture.as_deref() {
+            if !pref.is_empty() && data.col("prefecture").is_some() && data.get(row, "prefecture") != pref {
+                continue;
+            }
         }
         let ym_raw = data.get(row, "year_month");
         if ym_raw.len() < 7 {
