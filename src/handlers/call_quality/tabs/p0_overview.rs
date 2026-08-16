@@ -83,6 +83,17 @@ pub struct OwnerRate {
     pub apo_rate: Option<f64>,
 }
 
+/// 都道府県が「実際に選ばれている」か。
+///
+/// 2026-08-16 追加。画面の「全都道府県」は **`__all__` という番兵**を送ってくる
+/// （GAS 版 index.html の `<option value="__all__">`）。これを県名として扱うと
+/// 「__all__ という県」を探しに行って **0件**になる。空文字と同じく
+/// 「絞らない」を意味するので、ここで吸収する。
+fn pref_selected(v: &Option<String>) -> Option<&str> {
+    v.as_deref()
+        .filter(|p| !p.is_empty() && *p != "__all__")
+}
+
 fn num(s: &str) -> f64 {
     s.trim().replace(',', "").parse::<f64>().unwrap_or(0.0)
 }
@@ -177,11 +188,9 @@ pub fn collect(
         //   従来は分母を HubSpot Call に切り替えるだけで行を絞っておらず、
         //   「東京都を選んでも全国の集計が出る」状態だった。
         //   handle 側で「都道府県月次」シートへ差し替え、ここで列で絞る。
-        if let Some(pref) = q.prefecture.as_deref() {
-            if !pref.is_empty() && data.col("prefecture").is_some() {
-                if data.get(row, "prefecture") != pref {
-                    continue;
-                }
+        if let Some(pref) = pref_selected(&q.prefecture) {
+            if data.col("prefecture").is_some() && data.get(row, "prefecture") != pref {
+                continue;
             }
         }
 
@@ -286,11 +295,7 @@ pub async fn handle(
 
     // 都道府県を選んだときは土台シートごと差し替える（GAS 版と同じ）。
     // 「月次明細」には prefecture 列が無いので、そのままでは絞りようがない。
-    let pref_mode = q
-        .prefecture
-        .as_deref()
-        .map(|p| !p.is_empty())
-        .unwrap_or(false);
+    let pref_mode = pref_selected(&q.prefecture).is_some();
     let sheet = if pref_mode { "都道府県月次" } else { "月次明細" };
     let (data, from_cache) = store.get(client, sheet).await?;
 
@@ -480,4 +485,19 @@ mod tests {
         assert!(denominator_label(false).contains("Zoom発信"));
         assert!(denominator_label(true).contains("HubSpot Call"));
     }
+    #[test]
+    fn 全都道府県の番兵は絞り込みとして扱わない() {
+        // 画面の「全都道府県」は `__all__` を送る（GAS index.html の option value）。
+        // これを県名として扱うと「__all__ という県」を探して **0件**になる。
+        // 実データで実際に 0件になることを確認して見つけた不具合。
+        assert_eq!(pref_selected(&Some("__all__".to_string())), None);
+        assert_eq!(pref_selected(&Some(String::new())), None);
+        assert_eq!(pref_selected(&None), None);
+        assert_eq!(
+            pref_selected(&Some("東京都".to_string())),
+            Some("東京都"),
+            "実在する県名はそのまま絞り込みに使う"
+        );
+    }
+
 }
