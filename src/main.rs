@@ -31,6 +31,15 @@ async fn main() {
         config.allowed_domains_extra,
     );
 
+    // 2026-08-16: 架電クオリティの Sheets クライアントを起動時に初期化する。
+    // 呼ばなくても初回リクエストで遅延初期化されるが、**起動時に呼んでおくと
+    // 環境変数の設定漏れ(GOOGLE_SA_KEY_B64 / SPREADSHEET_ID)がデプロイ直後の
+    // ログで分かる**。呼ばないと最初にアクセスした人が 503 を見ることになる。
+    // 失敗しても起動は止めない（他の機能は動くため）。
+    if let Err(e) = rust_dashboard::handlers::call_quality::routes::init_from_env() {
+        tracing::warn!("架電クオリティ: 初期化に失敗（該当タブのみ利用不可）: {e:#}");
+    }
+
     decompress_geojson_if_needed();
     // I-P0-2: precompress_geojson() の呼び出しを削除 (二重 I/O / dead I/O)
     //   理由: 生成される `static/geojson/*.json.gz` はどこからも参照されない。
