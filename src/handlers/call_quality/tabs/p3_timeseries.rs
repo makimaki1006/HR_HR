@@ -278,11 +278,19 @@ fn denominator_label(pref_mode: bool) -> String {
     }
 }
 
-fn pref_mode_of(q: &TimeseriesQuery) -> bool {
+/// 都道府県が「実際に選ばれている」か。
+///
+/// 2026-08-16 追加。画面の「全都道府県」は **`__all__` という番兵**を送ってくる
+/// （GAS 版 index.html の `<option value="__all__">`）。県名として扱うと
+/// 「__all__ という県」を探して 0件になる。空文字と同じく「絞らない」を意味する。
+fn pref_selected(q: &TimeseriesQuery) -> Option<&str> {
     q.prefecture
         .as_deref()
-        .map(|p| !p.is_empty())
-        .unwrap_or(false)
+        .filter(|p| !p.is_empty() && *p != "__all__")
+}
+
+fn pref_mode_of(q: &TimeseriesQuery) -> bool {
+    pref_selected(q).is_some()
 }
 
 /// 集計対象の owner_id を決める。
@@ -387,8 +395,8 @@ pub fn collect_monthly(
         //   「東京都を選んでも全国の集計が出る」状態だった。
         //   handle 側で「都道府県月次」へシートを差し替え、ここで列で絞る。
         //   prefecture 列を持たないシートでは絞れないので、その場合は素通しする。
-        if let Some(pref) = q.prefecture.as_deref() {
-            if !pref.is_empty() && data.col("prefecture").is_some() && data.get(row, "prefecture") != pref {
+        if let Some(pref) = pref_selected(q) {
+            if data.col("prefecture").is_some() && data.get(row, "prefecture") != pref {
                 continue;
             }
         }
