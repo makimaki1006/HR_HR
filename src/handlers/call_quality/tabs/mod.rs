@@ -24,6 +24,7 @@
 use serde::Serialize;
 
 pub mod p0_overview;
+pub mod p1_members;
 
 /// 各タブが返す共通の外枠。
 /// 画面はこれを見て「いつのデータか」「絞り込みで何件が対象になったか」を出す。
