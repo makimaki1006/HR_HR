@@ -1,21 +1,76 @@
 {#
   タブ p12: 「解約分析」
-  API: /api/call-quality/churn (未実装 — バックエンド未着手)
+  API: /api/call-quality/churn
+  対応する Rust payload: src/handlers/call_quality/tabs/p12_churn.rs
+    TabPayload<ChurnAnalysisData> { pattern: Vec<ChurnPatternRow>, prediction: ChurnPredictionSection,
+                                     consultants: ConsultantRankingSection,
+                                     segment_matrices: Vec<SegmentMatrix>(3パターン: 業界×規模/業界×都道府県/規模×都道府県),
+                                     metrics: ModelMetricsSection }
+    prediction: top20: Vec<ChurnPredictionRow>, total_active_deals, counts: InterventionCounts{
+                  critical_rescue/watch_bad/dig_demand/stable/mixed}, truncated,
+                auc_bad(Option)/auc_good(Option)/accuracy_overall(Option)/model_type/n_train
+    consultants: top10/bottom10/all: Vec<ConsultantChurnRow>, eligible_count(担当Deal>=5のみ)
+    segment_matrices[]: axis("industry_size"|"industry_pref"|"size_pref")/row_label/col_label/
+                         row_keys/col_keys/cells: Vec<SegmentCell>{row_key,col_key,total,bad,good,
+                         continuing,bad_rate(Option),good_rate(Option),total_rate(Option)}
+    metrics: entries: Vec<ModelMetricEntry>{key,value(Option),note}, top_features: Vec<FeatureImportance>
+
   GAS版 index.html id="page-p12" (1562-1686行)。非アクティブDeal事後分析
   (A=解約理由パターン / B=LightGBM 90日churn proba / C=コンサル担当別 / D=業界×規模)。
 
-  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
-  churnモデルはリーク除去後 bad AUC=0.672〜0.725 の粗い補助指標(過信禁物、既知メモ通り)
-  である旨をJS側の注記でも引き継ぐこと。
+  ★2026-08-16注記: このタブの data-cq-* 値(p12-risk-top20 / p12-reason-pattern /
+  p12-by-consultant / p12-matrix / p12-model-metrics)は**JS担当が既に実装済み**のため
+  変更していない。今回は payload の全容判明を受けて、既存の値は保ったまま
+  ①介入優先度バッジ(InterventionCounts。CSS担当実装済みの .cq-badge-critical 等と
+  対応させた) ②マトリクス軸切替コントロール ③モデル精度サマリ の3つを**追加**した。
+
+  churnモデルはリーク除去後 bad AUC=0.672〜0.725 の粗い補助指標(過信禁物、既知メモ通り)。
+  未実装: なし。
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: 直近の bad churn 予測(補助・AUC約0.72)と、担当別・セグメント別の解約傾向</div>
 <div class="cq-headline"><div class="cq-headline-title">解約分析</div></div>
 
-<div class="cq-panel"><div class="cq-panel-title">⚠️ 稼働中の案件 解約リスク予測 Top 20</div><div class="cq-panel-note">モデルは粗い補助指標。自動判断には使わない。</div><div class="cq-table" data-cq-table="p12-risk-top20"></div></div>
+<div class="cq-panel">
+  <div class="cq-panel-title">⚠️ 稼働中の案件 解約リスク予測 Top 20</div>
+  <div class="cq-panel-note">
+    モデルは粗い補助指標。自動判断には使わない。
+    <span data-cq-value="p12-model-summary"></span>(auc_bad/auc_good/accuracy_overall/model_type/n_train)
+  </div>
+  <!-- InterventionCounts。バッジ色は static/css/call_quality.css の
+       .cq-badge-critical(critical_rescue) / .cq-badge-watch(watch_bad) /
+       .cq-badge-dig(dig_demand) / .cq-badge-stable(stable) / .cq-badge-mixed(mixed) に対応 -->
+  <div class="cq-kpi-grid" data-cq-kpi="p12-intervention-counts">
+    <div class="cq-status" data-cq-status>読み込み中…</div>
+  </div>
+  <div class="cq-table" data-cq-table="p12-risk-top20"></div>
+</div>
 <div class="cq-panel"><div class="cq-panel-title">A. 解約理由パターン(6 stage 比較)</div><div class="cq-chart" data-cq-chart="p12-reason-pattern" style="height:320px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">C. コンサル担当別 解約状況(解約件数・率)</div><div class="cq-chart" data-cq-chart="p12-by-consultant" style="height:320px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">D. 解約率マトリクス(Bad/Good分離 + 軸切替)</div><div class="cq-chart" data-cq-chart="p12-matrix" style="height:360px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">B 付録: LightGBM モデル指標 / 特徴量重要度</div><div class="cq-table" data-cq-table="p12-model-metrics"></div></div>
+<div class="cq-panel">
+  <div class="cq-panel-title">C. コンサル担当別 解約状況(解約件数・率)</div>
+  <div class="cq-panel-note" data-cq-value="p12-consultant-eligible-count"></div>
+  <div class="cq-chart" data-cq-chart="p12-by-consultant" style="height:320px"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">D. 解約率マトリクス(Bad/Good分離 + 軸切替)</div>
+  <!-- segment_matrices[] は3パターン(業界×規模/業界×都道府県/規模×都道府県)。
+       既存の p12-matrix コンテナ値は変えず、軸切替コントロールを追加しただけ。 -->
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-p12-matrix-axis">軸</label>
+      <select id="cq-p12-matrix-axis" class="cq-select" data-cq-control="p12-matrix-axis">
+        <option value="industry_size" selected>業界×規模</option>
+        <option value="industry_pref">業界×都道府県</option>
+        <option value="size_pref">規模×都道府県</option>
+      </select>
+    </div>
+  </div>
+  <div class="cq-chart" data-cq-chart="p12-matrix" style="height:360px"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">B 付録: LightGBM モデル指標 / 特徴量重要度</div>
+  <div class="cq-table" data-cq-table="p12-model-metrics"></div>
+  <div class="cq-chart" data-cq-chart="p12-feature-importance" style="height:280px"></div>
+</div>
 
 {% include "tabs/call_quality/_partials/_truncated_banner.html" %}
 {% include "tabs/call_quality/_partials/_sources_footer.html" %}

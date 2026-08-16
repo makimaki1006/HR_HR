@@ -1,25 +1,101 @@
 {#
   タブ prisk: 「リスクボード」(GAS版名称: リスク統合ボード、管理者向け)
-  API: /api/call-quality/riskboard (未実装 — バックエンド未着手)
-  GAS版 index.html id="page-prisk" (1075-1214行)
+  API: /api/call-quality/riskboard
+  対応する Rust payload: src/handlers/call_quality/tabs/prisk_riskboard.rs
+    TabPayload<PriskData> {
+      board: BoardPanel,           -- 4軸統合ボード本体(メインテーブル)
+        rows: Vec<BoardRow> { deal_id, customer_label, consultant_name, contract_type,
+          contract_period, phase_bucket, days_to_expiry(Option), amount,
+          ax1_relation, latest_nps(Option), ax2_model_proba(Option),
+          ax3_contact, days_since_contact(Option), ax4_revenue_at_risk,
+          red_count(赤軸数), overall_band, main_factor }
+        total_rows, band_counts: BandCounts{critical/warning/watch/stable},
+        sort: RiskSort, min_red, consultant_filter(Option), consultants: Vec<String>
+      health: HealthPanel,         -- [1] 顧客健全性スコア
+        sheet_used, latest_month(Option), avg_health_score(Option), drop_count, target_count,
+        top10/bottom10: Vec<HealthRow>{deal_id,deal_label,owner_label,pipeline_stage,
+          year_month,health_score,prev_score(Option),drop:bool},
+        monthly_trend: Vec<HealthMonthPoint>{year_month,avg_health_score(Option)}
+      risk_score: RiskScorePanel,  -- [1.5] リスクスコア(代理指標、稼働中の案件限定)
+        total, avg_risk_score(Option), level_counts: RiskLevelCounts{critical/high/medium/low},
+        top20: Vec<RiskScoreRow>{deal_id,deal_label,owner_label,pipeline_stage,risk_score,
+          risk_level,days_since_last_contact(Option),call_all(Option),call_post(Option),
+          oubo_per_posting(Option),top_drivers}
+      matrix: MatrixPanel,         -- [2] コンサル×顧客マトリクス(接触量×リスクスコア)
+        points: Vec<MatrixPoint>{deal_id,deal_label,owner_label,pipeline_stage,
+          x_contact_count,y_risk_score,risk_level,quadrant},
+        quadrant_counts: QuadrantCounts{right_top/left_top/right_bottom/left_bottom},
+        median_x, median_y
+      risk_axis_notes: [&str]      -- 4軸の説明文(固定文言、そのまま表示)
+    }
 
-  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+  GAS版 index.html id="page-prisk" (1075-1214行)。
+
+  2026-08-16 実装確認により全面書き直し。「リスク統合ボード」自体(4軸横並びの
+  メインテーブル、GAS版で①関係性②モデル③放置④の4軸+赤軸数)が `board` として
+  実装されていることが分かったため、KPIサマリだけの雛形から本体テーブルへ差し替えた。
+
+  未実装: なし(全フィールドに対応するコンテナを用意した)。
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: 🔴最優先・🟠要注意の件数を確認し、Revenue at Risk の高い順に着手</div>
 <div class="cq-headline"><div class="cq-headline-title">リスク統合ボード(管理者向け)</div></div>
-<div class="cq-panel-note">
-  全 active 案件の危険を「4つの別軸」で横並び表示。1つのスコアに丸めず、「4軸中いくつが赤か(赤軸数)」で集約します。<br>
-  <b>①関係性</b>=NPS×契約フェーズ。NPS未取得の案件は判定不可(赤軸数が低い=安全とは限らない)。
-  <b>②モデル</b>=LightGBM解約予測(粗い補助・過信禁物)。<b>③放置</b>=最終接触からの経過。<b>④</b>は別軸(詳細はAPI確定後)。
+<div class="cq-panel-note" data-cq-list="prisk-axis-notes">
+  <!-- risk_axis_notes[] をJSが箇条書きで差し込む(4つの危険軸の説明。固定文言をそのまま表示) -->
 </div>
 
-<div class="cq-kpi-grid" data-cq-kpi="prisk-summary">
+<!-- board.band_counts: critical/warning/watch/stable の件数サマリ -->
+<div class="cq-kpi-grid" data-cq-kpi="prisk-band-counts">
   <div class="cq-status" data-cq-status>読み込み中…</div>
 </div>
 
-<div class="cq-panel"><div class="cq-panel-title">[1] 顧客健全性スコア(NPS+成果スコア, 0-100)</div><div class="cq-table" data-cq-table="prisk-health-score"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">[1.5] リスクスコア(代理指標、稼働中の案件 限定)</div><div class="cq-table" data-cq-table="prisk-risk-score"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">[2] コンサル×顧客マトリクス(接触量 × リスクスコア)</div><div class="cq-chart" data-cq-chart="prisk-matrix" style="height:380px"></div></div>
+<div class="cq-panel">
+  <div class="cq-panel-title">4軸統合ボード(Revenue at Risk 降順)</div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-prisk-consultant">コンサル担当者</label>
+      <select id="cq-prisk-consultant" class="cq-select" data-cq-control="prisk-consultant"><option value="">全担当者</option></select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-prisk-min-red">赤軸数 下限</label>
+      <select id="cq-prisk-min-red" class="cq-select" data-cq-control="prisk-min-red">
+        <option value="0" selected>0(全件)</option>
+        <option value="1">1以上</option>
+        <option value="2">2以上</option>
+        <option value="3">3以上</option>
+      </select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-prisk-sort">並び順</label>
+      <select id="cq-prisk-sort" class="cq-select" data-cq-control="prisk-sort"></select>
+    </div>
+  </div>
+  <div class="cq-panel-note" data-cq-value="prisk-board-total"></div>
+  <div class="cq-table" data-cq-table="prisk-board"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">[1] 顧客健全性スコア(NPS+成果スコア, 0-100)</div>
+  <div class="cq-panel-note" data-cq-value="prisk-health-summary"></div>
+  <div class="cq-chart" data-cq-chart="prisk-health-trend" style="height:260px"></div>
+  <div class="cq-panel-grid">
+    <div class="cq-panel"><div class="cq-panel-title">上位10</div><div class="cq-table" data-cq-table="prisk-health-top10"></div></div>
+    <div class="cq-panel"><div class="cq-panel-title">下位10</div><div class="cq-table" data-cq-table="prisk-health-bottom10"></div></div>
+  </div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">[1.5] リスクスコア(代理指標、稼働中の案件 限定)</div>
+  <div class="cq-panel-note">モデルは粗い補助指標。自動判断には使わない。</div>
+  <div class="cq-kpi-grid" data-cq-kpi="prisk-risk-score-summary"></div>
+  <div class="cq-table" data-cq-table="prisk-risk-score-top20"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">[2] コンサル×顧客マトリクス(接触量 × リスクスコア)</div>
+  <div class="cq-panel-note" data-cq-value="prisk-matrix-note"></div>
+  <div class="cq-kpi-grid" data-cq-kpi="prisk-matrix-quadrant-counts"></div>
+  <div class="cq-chart" data-cq-chart="prisk-matrix" style="height:380px"></div>
+</div>
 
 {% include "tabs/call_quality/_partials/_truncated_banner.html" %}
 {% include "tabs/call_quality/_partials/_sources_footer.html" %}

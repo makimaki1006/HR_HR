@@ -1,17 +1,85 @@
 {#
   タブ p8: 「コンサル接触」(GAS版名称: コンサル電話接触 指導・モニタリング)
-  API: /api/call-quality/consulting (未実装 — バックエンド未着手)
-  GAS版 index.html id="page-p8" (1215-1387行)
+  API: /api/call-quality/consulting?bench_sort_key=xxx&bench_sort_dir=asc|desc
+       (このタブは上部フィルタ(期間/PL/メンバー/都道府県)を反映しない。Python側で全期間集計済のため)
+  対応する Rust payload: src/handlers/call_quality/tabs/p8_consulting_contact.rs
+    TabPayload<P8Data> { bench: BenchPanel, contribution: ContribPanel, no_call: NoCallPanel,
+                          activity: ActivityPanel, notes: [&str] }
 
-  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+    bench(=A層): kpis: BenchKpis{n_consultants,pearson_monthly,spearman_monthly,
+                    n_cohort_total,n_continued_total,n_churned_total,n_active_pending_total,generated_at},
+                 scatter: BenchScatter{points: Vec<BenchPoint>, x_axis: XAxisCap, y_max_pct, y_title},
+                 table: BenchTable{rows: Vec<BenchRow>(low_sample旗), total_rows, truncated, limit,
+                    min_decided, sort, sortable_columns, legend},
+                 monthly: Vec<BenchMonthlyPoint>
+
+    contribution(=B層): bins: Vec<ContribBin>{bin,n_matured,n_churned,share_matured_pct,
+                    share_churned_pct,churn_minus_matured_pt},
+                 scatter: ContribScatter{matured/churned: Vec<DealPoint>, x_axis, y_title, truncated, limit, total_points},
+                 stats: ContribStats{n_matured,n_churned,median_matured_cpm(Option),median_churned_cpm(Option),
+                    pearson,spearman,generated_at,status}
+
+    no_call(=C-1): kpis: NoCallKpis{total,no_call_record,over_7days},
+                 rows: Vec<NoCallRow>{rank,deal_id,name,owner,last_call_date(Option),
+                    days_since_last_call(Option),severity(enum),hubspot_url},
+                 shown, truncated, limit, excluded_count,
+                 render: NoCallRender{max_height_px, sticky_header, note} ―― サーバが描画契約を指定
+
+    activity(=C-3): latest_month, months: Vec<String>, kpis: ActivityKpis{call(主軸)、
+                    email/mtg_total/mtg_meeting/mtg_email_track/mtg_recording_track/total(補足)},
+                 monthly_call: Vec<MonthlyCall>, ranking: Vec<ActivityRow>(call_countが順位基準、
+                    email/mtg/totalは補足で順位に使わない), ranking_total, ranking_truncated,
+                 ranking_limit, deal_count, ranking_note
+
+  GAS版 index.html id="page-p8" (1215-1387行)。
+
+  未実装: なし。render.max_height_px / render.sticky_header はJS側がコンテナに
+  適用するサーバ指定の描画契約なので、テンプレート側で高さを決め打ちしていない。
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: 🚨7日以上未架電のDealを潰す / 高継続コンサルの架電水準を目標値にする / 接触少ない案件は解約に寄与してるか</div>
 <div class="cq-headline"><div class="cq-headline-title">コンサル電話接触(指導・モニタリング)</div></div>
+<div class="cq-panel-note" data-cq-list="p8-notes"></div>
 
-<div class="cq-panel"><div class="cq-panel-title">A. コンサル別 解約率 × 月平均Call(直近12ヶ月コホート)</div><div class="cq-chart" data-cq-chart="p8-churn-vs-call" style="height:340px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">B. 案件別 接触量×継続/解約 寄与率</div><div class="cq-chart" data-cq-chart="p8-contact-contribution" style="height:340px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">C-1. 7日以上未架電(緊急対応)</div><div class="cq-table" data-cq-table="p8-overdue"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">C-3. Call 月次推移 + 案件別ランキング</div><div class="cq-chart" data-cq-chart="p8-monthly-trend" style="height:320px"></div></div>
+<div class="cq-panel">
+  <div class="cq-panel-title">A. コンサル別 解約率 × 月平均Call(直近12ヶ月コホート)</div>
+  <div class="cq-kpi-grid" data-cq-kpi="p8-bench-kpis">
+    <div class="cq-status" data-cq-status>読み込み中…</div>
+  </div>
+  <div class="cq-chart" data-cq-chart="p8-bench-scatter" style="height:340px"></div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-p8-bench-sort-key">並び替え</label>
+      <select id="cq-p8-bench-sort-key" class="cq-select" data-cq-control="p8-bench-sort-key"></select>
+    </div>
+  </div>
+  <div class="cq-panel-note" data-cq-value="p8-bench-legend"></div>
+  <div class="cq-table" data-cq-table="p8-bench-table"></div>
+  <div class="cq-chart" data-cq-chart="p8-bench-monthly" style="height:260px"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">B. 案件別 接触量×継続/解約 寄与率</div>
+  <div class="cq-table" data-cq-table="p8-contribution-bins"></div>
+  <div class="cq-chart" data-cq-chart="p8-contribution-scatter" style="height:340px"></div>
+  <div class="cq-panel-note" data-cq-value="p8-contribution-status"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">C-1. 7日以上未架電(緊急対応)</div>
+  <div class="cq-kpi-grid" data-cq-kpi="p8-no-call-kpis"></div>
+  <div class="cq-panel-note" data-cq-value="p8-no-call-render-note"></div>
+  <!-- render.max_height_px / sticky_header はJSがこのコンテナへ適用する(サーバ指定) -->
+  <div class="cq-table" data-cq-table="p8-no-call-rows"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">C-3. Call 月次推移 + 案件別ランキング</div>
+  <div class="cq-panel-note" data-cq-value="p8-activity-latest-month"></div>
+  <div class="cq-kpi-grid" data-cq-kpi="p8-activity-kpis"></div>
+  <div class="cq-chart" data-cq-chart="p8-activity-monthly" style="height:280px"></div>
+  <div class="cq-panel-note" data-cq-value="p8-activity-ranking-note"></div>
+  <div class="cq-table" data-cq-table="p8-activity-ranking"></div>
+</div>
 
 {% include "tabs/call_quality/_partials/_truncated_banner.html" %}
 {% include "tabs/call_quality/_partials/_sources_footer.html" %}
