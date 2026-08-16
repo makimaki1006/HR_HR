@@ -1,20 +1,35 @@
 {#
   タブ p1: 「メンバー比較」
-  API: /api/call-quality/members (未実装 — バックエンド未着手)
-  GAS版 index.html id="page-p1" (249-311行)。GAS版はこのタブに専用の見出し(headline)を
-  持たず、tab-focus のすぐ下にスコアカードが始まる構成だったが、タブ間の一貫性のため
-  cq-headline を追加した(GAS版に無い要素を1つ足した、という差分として明記する)。
+  API: /api/call-quality/members
+  対応する Rust payload: src/handlers/call_quality/tabs/p1_members.rs
+    TabPayload<MembersData> { members: Vec<MemberRow>(足切り前・全員), apo_rank: Vec<MemberRow>(足切り後),
+                               call_rank: Vec<MemberRow>(足切りなし), apo_denominator_label: String,
+                               min_denominator: f64 }
+    MemberRow { owner_id, call_count, zoom_dial_count, apo_count, denominator, apo_rate(Option),
+                na_due, na_done_ontime, na_rate(Option), duration_ms_total, avg_talk_secs(Option), thin: bool }
 
-  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+  GAS版 index.html id="page-p1" (249-311行)。
+
+  2026-08-16 実装確認により書き直し: 「選択メンバー比較」「メンバー特性レーダー」は
+  専用APIではなく、members(全員・足切り前)をJS側でユーザーが選んだ owner_id で
+  絞り込んで作る(サーバは1本のmembers配列を返すだけ)。
+  「規模別アポ率(参考)」は対応するフィールドが無いため未実装。
+
+  未実装: 規模別アポ率(参考) ―― MembersData に規模区分のフィールドが無い。
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: アポ率・架電数の上位/下位は誰か。量×質マップで「架電数とアポ率の関係」を把握(良し悪しの判断は人が解釈)</div>
 <div class="cq-headline"><div class="cq-headline-title">メンバー比較</div></div>
+<div class="cq-panel-note">
+  <span class="cq-denom" data-cq-denom="p1-denom">分母: —</span>
+  (足切り閾値は data-cq-value="p1-min-denominator" に入る min_denominator 件。これ未満は「※少サンプル」扱いで行は残すが順位からは外れる)
+</div>
 
+<!-- KPI: members(全員・足切り前)から集計してJSが作る(サーバに専用KPI構造体は無い) -->
 <div class="cq-kpi-grid" data-cq-kpi="p1-scorecards">
   <div class="cq-status" data-cq-status>読み込み中…</div>
 </div>
 
-<!-- 選択メンバー比較(上部フィルタで2-5名選択時のみ表示。GAS版はdisplay:noneで制御) -->
+<!-- 選択メンバー比較(上部フィルタで2-5名選択時のみ表示。members配列をJS側で絞り込む) -->
 <div class="cq-panel" data-cq-table="p1-compare" hidden>
   <div class="cq-panel-title">選択メンバー比較</div>
   <div class="cq-table" data-cq-table="p1-compare-grid"></div>
@@ -29,26 +44,23 @@
 
 <div class="cq-panel-grid">
   <div class="cq-panel">
-    <div class="cq-panel-title">アポ率ランキング</div>
-    <div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div>
+    <div class="cq-panel-title">アポ率ランキング(足切り後)</div>
+    <div class="cq-panel-note">apo_rank(denominator &gt;= min_denominator のみ)</div>
     <div class="cq-chart" data-cq-chart="p1-apo-rank" style="height:320px"></div>
   </div>
   <div class="cq-panel">
     <div class="cq-panel-title">架電数ランキング</div>
+    <div class="cq-panel-note">call_rank(足切りなし・量の比較)</div>
     <div class="cq-chart" data-cq-chart="p1-call-rank" style="height:320px"></div>
   </div>
   <div class="cq-panel">
     <div class="cq-panel-title">量 × 質マップ(架電数 × アポ率・拡大表示)</div>
-    <div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div>
+    <div class="cq-panel-note">members全員(thin=true は少サンプルとして別マーカーで表示)</div>
     <div class="cq-chart" data-cq-chart="p1-volume-quality" style="height:360px"></div>
   </div>
   <div class="cq-panel">
-    <div class="cq-panel-title">規模別 アポ率(参考)</div>
-    <div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div>
-    <div class="cq-chart" data-cq-chart="p1-size-apo" style="height:320px"></div>
-  </div>
-  <div class="cq-panel">
     <div class="cq-panel-title">メンバー別 平均通話秒数</div>
+    <div class="cq-panel-note">avg_talk_secs(架電数0の人は None)</div>
     <div class="cq-chart" data-cq-chart="p1-avg-duration" style="height:320px"></div>
   </div>
 </div>

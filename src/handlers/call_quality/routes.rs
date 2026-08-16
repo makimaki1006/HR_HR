@@ -529,10 +529,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/call-quality/job-application", get(pja))
     // ---- 移植待ち（tabs/ にファイルが無い2本）----
     // 着地したらコメントを外す。ハンドラ側も同じ場所にコメントで置いてある。
-    // TODO(未実装): p11 行動量分析 — tabs/p11_*.rs
-    // .route("/api/call-quality/activity", get(p11))
-    // TODO(未実装): p15 案件マネジメント — tabs/p15_*.rs
-    // .route("/api/call-quality/pipeline-mgmt", get(p15))
+    // 2026-08-16: 着地したので有効化
+    .route("/api/call-quality/activity", get(p11))
+    .route("/api/call-quality/pipeline-mgmt", get(p15))
     //
     // ---- 画面本体 ----
     // 2026-08-16: 画面本体。テンプレートが着地したので有効化。
@@ -788,17 +787,20 @@ async fn pja(Query(q): Query<tabs::pja_job_application::PjaQuery>) -> Result<Res
 // **3か所を同時に**有効化すること（片方だけだと台帳と実体がズレる。
 // `未着地タブと台帳が一致している` テストがそれを検知する）。
 //
-// TODO(未実装): p11 行動量分析 — tabs/p11_*.rs
-// async fn p11(Query(q): Query<tabs::p11_activity::P11Query>) -> Result<Response, CqError> {
-//     let s = cq()?;
-//     finish("p11", tabs::p11_activity::handle(&s.client, &s.store, q).await)
-// }
+// ---- p11 行動量分析 ----
+// 引数なし（絞り込みはフロント側の表示切替で行う設計）。
+async fn p11() -> Result<Response, CqError> {
+    let s = cq()?;
+    finish("p11", tabs::p11_activity::handle(&s.client, &s.store).await)
+}
+
 //
-// TODO(未実装): p15 案件マネジメント — tabs/p15_*.rs
-// async fn p15(Query(q): Query<tabs::p15_pipeline::P15Query>) -> Result<Response, CqError> {
-//     let s = cq()?;
-//     finish("p15", tabs::p15_pipeline::handle(&s.client, &s.store, q).await)
-// }
+// ---- p15 案件マネジメント ----
+async fn p15(Query(q): Query<tabs::p15_pipeline_mgmt::P15Query>) -> Result<Response, CqError> {
+    let s = cq()?;
+    finish("p15", tabs::p15_pipeline_mgmt::handle(&s.client, &s.store, q).await)
+}
+
 
 // ================================================================ テスト
 

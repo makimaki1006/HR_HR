@@ -1,53 +1,101 @@
 {#
   タブ p2: 「習慣の差」
-  API: /api/call-quality/habits (未実装 — バックエンド未着手)
-  GAS版 index.html id="page-p2" (370-597行)
+  API: /api/call-quality/habits
+  対応する Rust payload: src/handlers/call_quality/tabs/p2_habits.rs
+    TabPayload<P2HabitsData> {
+      scope: ScopeInfo,                         -- from/to/pipeline/prefecture/member_selected/
+                                                     owner_count/apo_denominator_label/matched_rows
+      scorecards: Vec<MetricCard>,               -- 上部KPIカード群
+      rankings: Vec<RateRanking>,                -- ★配列。1要素=1ランキングパネル(棒グラフ)。
+                                                     実際のkeyは na_ontime/na_done/rs_ontime/rs_done/
+                                                     owner_fluidity/new_pioneering/calls_per_deal の7種
+                                                     (rows: Vec<RankRow>, benchmark, min_denominator, truncated)
+      scatters: Vec<Scatter>,                    -- ★配列。1要素=1散布図パネル。
+                                                     key は na_apo/callpd_apo/stage_apo の3種
+                                                     (points: Vec<ScatterPoint>, x_label/y_label, filter_note)
+      touch_distribution: TouchDistribution,      -- N回目架電分析(buckets: label/apo_count/total/apo_rate)
+      recycle_interval: Vec<RecycleBucket>,       -- リサイクル間隔別アポ率(bucket/apo_next/total_next/apo_rate)
+      compliance: CompliancePattern,              -- コンプライアンスパターン(rows: Vec<ComplianceRow>、z-score群)
+      process_scorecards: Vec<MetricCard>,        -- 「プロセス」セクションの4カード
+                                                     (stage_advance/stage_entered/stage_advanced/high_call_deals)
+      funnel: Funnel,                             -- 営業ファネル(stages/flows。Sankey用)
+      stage_dwell: StageDwell,                    -- ステージ滞留日数(rows: Vec<DwellRow>)
+      on_the_spot: OnTheSpot,                     -- その場失注(rows: Vec<OnTheSpotRow>)
+      stage_transition: StageTransition,          -- 商談PL遷移分析(kpis: Vec<MetricCard> + pairs: Vec<TransitionPair>)
+    }
 
-  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
-  GAS版は「量(scorecards)→NA/再架電の遵守・消化率→散布図→N回目架電/リサイクル/
-  コンプライアンス→プロセス(ファネル)→その場失注→商談PL遷移」という長い構成。
-  ここではパネルの見出しだけ全て再現し、中身は器のみ。
+  GAS版 index.html id="page-p2" (370-597行)。
+
+  ★重要: rankings / scatters は「配列の中に複数パネル分の定義が入っている」設計。
+  GAS版では6-7個の固定パネルとして個別に組んでいたが、Rust側はデータ駆動になっている。
+  そのためテンプレート側は個々のパネルを1つずつハードコードせず、
+  「rankings用の並び(data-cq-list="p2-rankings")」「scatters用の並び(data-cq-list="p2-scatters")」
+  という**リストコンテナ**を1つずつ用意し、JSが payload.data.rankings[] / scatters[] を
+  ループしてパネルをその場で組み立てる設計にした(件数がAPI都合で増減してもテンプレート修正不要)。
+  各要素の key/title/label はAPIが返すので、日本語ラベルもハードコードしない。
+
+  未実装: なし(全フィールドに対応するコンテナを用意した)。
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: NA期日の遵守率が落ちている人は誰か(NA遵守率はアポに最も効く習慣)</div>
 <div class="cq-headline"><div class="cq-headline-title">習慣の差</div></div>
+<div class="cq-panel-note">
+  <span data-cq-value="p2-scope">対象期間・パイプライン・メンバー範囲を読み込み中…</span>
+  <span class="cq-denom" data-cq-denom="p2-denom">分母: —</span>
+</div>
 
+<!-- scorecards: Vec<MetricCard> -->
 <div class="cq-kpi-grid" data-cq-kpi="p2-scorecards">
   <div class="cq-status" data-cq-status>読み込み中…</div>
 </div>
 
-<div class="cq-panel-grid">
-  <div class="cq-panel"><div class="cq-panel-title">NA期日 遵守率</div><div class="cq-panel-note">SUM(期日内NA消化)÷SUM(NA期日到来)。NA期日100件以上のメンバーのみ</div><div class="cq-chart" data-cq-chart="p2-na-ontime" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">NA期日 消化率</div><div class="cq-panel-note">SUM(NA消化合計)÷SUM(NA期日到来)。遅れも含めた最終消化割合</div><div class="cq-chart" data-cq-chart="p2-na-done" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">再架電日 遵守率</div><div class="cq-chart" data-cq-chart="p2-rs-ontime" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">再架電日 消化率</div><div class="cq-chart" data-cq-chart="p2-rs-done" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">担当流動率(旧: 新規開拓率)</div><div class="cq-chart" data-cq-chart="p2-turnover" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">新規開拓率(全社初架電率)</div><div class="cq-chart" data-cq-chart="p2-first-touch" style="height:300px"></div></div>
-</div>
+<!-- rankings: Vec<RateRanking>(7要素をJSがループしてパネル生成) -->
+<div class="cq-panel-grid" data-cq-list="p2-rankings"></div>
 
-<div class="cq-panel-grid">
-  <div class="cq-panel"><div class="cq-panel-title">NA遵守率 × アポ率(散布図・拡大表示)</div><div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div><div class="cq-chart" data-cq-chart="p2-na-vs-apo" style="height:360px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">1案件あたり架電 × アポ率(散布図・拡大表示)</div><div class="cq-chart" data-cq-chart="p2-dial-per-deal-vs-apo" style="height:360px"></div></div>
-</div>
+<!-- scatters: Vec<Scatter>(3要素をJSがループしてパネル生成) -->
+<div class="cq-panel-grid" data-cq-list="p2-scatters"></div>
 
-<div class="cq-panel"><div class="cq-panel-title">N回目架電分析(Rain Group 8touch ルール検証)</div><div class="cq-table" data-cq-table="p2-nth-call"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">リサイクル間隔別 アポ率</div><div class="cq-chart" data-cq-chart="p2-recycle-interval" style="height:300px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">コンプライアンスパターン(owner × pattern 強度)</div><div class="cq-table" data-cq-table="p2-compliance-pattern"></div></div>
+<div class="cq-panel">
+  <div class="cq-panel-title">N回目架電分析(Rain Group 8touch ルール検証)</div>
+  <div class="cq-panel-note" data-cq-value="p2-touch-note"></div>
+  <div class="cq-chart" data-cq-chart="p2-touch-distribution" style="height:300px"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">リサイクル間隔別 アポ率</div>
+  <div class="cq-chart" data-cq-chart="p2-recycle-interval" style="height:300px"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">コンプライアンスパターン(owner × pattern 強度・z-score)</div>
+  <div class="cq-panel-note" data-cq-value="p2-compliance-note"></div>
+  <div class="cq-table" data-cq-table="p2-compliance-pattern"></div>
+</div>
 
 <div class="cq-headline"><div class="cq-headline-title">プロセス — ファネルのどの段で脱落が大きいか</div></div>
-<div class="cq-panel-grid">
-  <div class="cq-panel"><div class="cq-panel-title">ステージ移行率(前進 ÷ 到達)</div><div class="cq-chart" data-cq-chart="p2-stage-progress" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">ステージ移行率 × アポ率(散布図・拡大表示)</div><div class="cq-chart" data-cq-chart="p2-stage-progress-vs-apo" style="height:360px"></div></div>
-</div>
-<div class="cq-panel"><div class="cq-panel-title">営業ファネル(電話 → アポ → 商談 → 成約)</div><div class="cq-chart" data-cq-chart="p2-funnel" style="height:320px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">ステージ滞留日数(どこで Deal が止まっているか)</div><div class="cq-table" data-cq-table="p2-stage-stagnation"></div></div>
+<!-- process_scorecards: Vec<MetricCard>(4カード) -->
+<div class="cq-kpi-grid" data-cq-kpi="p2-process-scorecards"></div>
+<div class="cq-panel"><div class="cq-panel-title">営業ファネル(電話 → アポ → 商談 → 成約)</div><div class="cq-panel-note" data-cq-value="p2-funnel-scope"></div><div class="cq-chart" data-cq-chart="p2-funnel" style="height:320px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">ステージ滞留日数(どこで Deal が止まっているか)</div><div class="cq-panel-note" data-cq-value="p2-stage-dwell-note"></div><div class="cq-table" data-cq-table="p2-stage-dwell"></div></div>
 
 <div class="cq-headline"><div class="cq-headline-title">その場失注(商談で即失注 = 提案ミスマッチ可視化)</div></div>
-<div class="cq-panel"><div class="cq-panel-title">メンバー別 その場失注件数(全員分・降順)</div><div class="cq-chart" data-cq-chart="p2-instant-loss" style="height:320px"></div></div>
+<div class="cq-kpi-grid" data-cq-kpi="p2-on-the-spot-summary"></div>
+<div class="cq-panel"><div class="cq-panel-title">メンバー別 その場失注件数(全員分・降順)</div><div class="cq-chart" data-cq-chart="p2-on-the-spot" style="height:320px"></div></div>
 
 <div class="cq-headline"><div class="cq-headline-title">商談PL 遷移分析(Sankey + リードタイム)</div></div>
+<!-- stage_transition.kpis: Vec<MetricCard>(4カード: apo_to_progress/apo_to_lost/progress_to_a/apo_lead_time) -->
+<div class="cq-kpi-grid" data-cq-kpi="p2-stage-transition-kpis"></div>
+<div class="cq-p7-control-bar">
+  <div class="cq-filter-group">
+    <label for="cq-p2-trans-industry">業界で絞込</label>
+    <select id="cq-p2-trans-industry" class="cq-select" data-cq-control="p2-trans-industry"><option value="">全業界</option></select>
+  </div>
+  <div class="cq-filter-group">
+    <label for="cq-p2-trans-size">規模で絞込</label>
+    <select id="cq-p2-trans-size" class="cq-select" data-cq-control="p2-trans-size"><option value="">全規模</option></select>
+  </div>
+</div>
 <div class="cq-panel" data-cq-chart="p2-stage-sankey">
   <div class="cq-chart" data-cq-chart="p2-stage-sankey" style="height:400px"></div>
 </div>
+<div class="cq-panel"><div class="cq-panel-title">遷移ペア明細(リードタイム p25/p50/p75)</div><div class="cq-table" data-cq-table="p2-stage-transition-pairs"></div></div>
 
 {% include "tabs/call_quality/_partials/_truncated_banner.html" %}
 {% include "tabs/call_quality/_partials/_sources_footer.html" %}

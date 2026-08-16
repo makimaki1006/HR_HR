@@ -1,32 +1,69 @@
 {#
   タブ pbpo: 「BPOダッシュボード」
-  API: /api/call-quality/bpo (未実装 — バックエンド未着手)
-  GAS版 index.html id="page-pbpo" (312-369行)。BPO限定ダッシュボード。
+  API: /api/call-quality/bpo?year_month=xxx
+  対応する Rust payload: src/handlers/call_quality/tabs/pbpo_dashboard.rs
+    TabPayload<PbpoData> {
+      monthly_kpi: MonthlyKpiPanel { rows: Vec<MonthlyKpiRow>{year_month,dial_count,apo_count,
+                      apo_rate(Option),dur90_count,dur90_rate(Option),dur360_count,
+                      dur360_rate(Option),is_partial(当月旗)}, latest_complete_month, current_month },
+      individual: IndividualPanel { year_month, rows: Vec<CallerRow>{name,extension,year_month,
+                      dial_count,talk_hours,dur90_count,dur90_rate(Option),dur360_count,
+                      dur360_rate(Option),apo_count,apo_rate(Option),thin(参考値旗)},
+                      available_months, small_n_threshold },
+      data_quality: Vec<DataQualityRow>{item,value,memo,bad(赤字強調旗)},
+      na_health: NaHealthPanel { open_follow_count, unset_count, overdue_count,
+                      stages: Vec<NaStageRow>{stage,category,count,next_call_set_rate_pct(Option),
+                      unset_count,overdue_count}, details: Vec<NaDetailRow>{elapsed_days,stage,
+                      deal_name,next_due_date,last_call_date,phone}, measured_at_note(Option) },
+      heatmap: HeatmapPanel { cells: Vec<HeatCell>{weekday,hour,dial_count,dur_ge_30_rate(Option),
+                      dur_ge_90_rate(Option),dur_ge_360_rate(Option),apo_rate(Option),thin},
+                      total_dial, small_n_threshold },
+    }
 
-  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+  GAS版 index.html id="page-pbpo" (312-369行)。
+
+  未実装: なし(全フィールドに対応するコンテナを用意した)。個人別パネルは
+  「順位付けをしない(数値は事実のみ)」という設計意図があるため、JS側で勝手に
+  ランキング表示にしないこと(既定は担当者名の中立ソート)。
 #}
 <div class="cq-tab-focus">👀 <b>BPO限定ダッシュボード</b>: ①全体KPI → ②個人別 → ③データ品質(数値は事実のみ。順位・評価はしない=人が解釈)</div>
 <div class="cq-headline"><div class="cq-headline-title">BPOダッシュボード</div></div>
 
 <div class="cq-panel">
   <div class="cq-panel-title">① BPO全体KPI(月次推移)</div>
+  <div class="cq-status" data-cq-status>読み込み中…</div>
   <div class="cq-chart" data-cq-chart="pbpo-kpi-trend" style="height:300px"></div>
 </div>
+
 <div class="cq-panel">
   <div class="cq-panel-title">② 個人別(月次)</div>
+  <div class="cq-panel-note">数値は事実のみ・順位付けはしません(既定は担当者名の中立ソート)。参考値(架電数が少ない行)は薄字表示。</div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-pbpo-month">対象月</label>
+      <select id="cq-pbpo-month" class="cq-select" data-cq-control="pbpo-month"></select>
+    </div>
+  </div>
   <div class="cq-table" data-cq-table="pbpo-per-caller"></div>
 </div>
+
 <div class="cq-panel">
   <div class="cq-panel-title">③ データ品質 / ゴミの可視化</div>
   <div class="cq-table" data-cq-table="pbpo-data-quality"></div>
 </div>
+
 <div class="cq-panel">
   <div class="cq-panel-title">④ ネクストアクション健全性(ステージ別・要フォロー)</div>
-  <div class="cq-table" data-cq-table="pbpo-next-action"></div>
+  <div class="cq-panel-note" data-cq-value="pbpo-na-measured-at"></div>
+  <div class="cq-kpi-grid" data-cq-kpi="pbpo-na-summary"></div>
+  <div class="cq-table" data-cq-table="pbpo-na-stages"></div>
+  <div class="cq-panel-title">期限超過 明細(経過日数降順)</div>
+  <div class="cq-table" data-cq-table="pbpo-na-details"></div>
 </div>
+
 <div class="cq-panel">
   <div class="cq-panel-title">⑤ 効率のよい架電時間帯(曜日×時間帯)</div>
-  <!-- サーバ側集計済みのheatmap API(/api/call-quality/heatmap)を流用する想定 -->
+  <div class="cq-panel-note">通話時間の閾値(30/90/360秒)は「繋がった」の代理指標(BPOは接触率そのものが設計上算出不可)。</div>
   <div class="cq-chart" data-cq-chart="pbpo-time-heatmap" style="height:360px"></div>
 </div>
 

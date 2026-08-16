@@ -1,17 +1,45 @@
 {#
   タブ p13: 「案件タイムライン」
-  API: /api/call-quality/timeline/deals (未実装 — バックエンド未着手)
+  API: /api/call-quality/timeline/deals
+  対応する Rust payload: src/handlers/call_quality/tabs/p13_timeline.rs
+    ―― 2本のエンドポイントに分かれている(deal_id の有無で切り替わる想定。routes.rs側で確定):
+    1. get_deal_index() → TabPayload<DealIndexData>
+       { deals: Vec<DealIndexEntry>{deal_id,customer_label,consultant_name,pipeline_label,
+           stage_label,meeting_count,latest_start_time(Option)},
+         consultants: Vec<ConsultantOption>{name,deal_count},
+         skipped_low_confidence(host_email_match除外件数), total_meetings }
+       → p13-consultant-filter / p13-deal-select / p13-deal-suggest の選択肢を作る
+    2. get_deal_detail(DealDetailQuery{deal_id,sort,period}) → TabPayload<DealDetail>
+       { deal_id,customer_label,consultant_name,pipeline_label,stage_label,
+         meetings: Vec<MeetingCard>{meeting_id,start_time,topic,duration_min(Option),
+           host_email,zoom_url,source,confidence("high"|"mid"|"low"),has_summary,
+           summary_overview,summary_details: Vec<{label,summary}>,next_steps: Vec<String>},
+         meetings_shown, meetings_total, latest_meeting_start(Option),
+         rollup: Option<RollupCell>{call_all,email_all,mtg_all,call_post,email_post,mtg_post},
+         phase_kpi: Option<PhaseKpiCell>{overall_flag,contract_type,contract_period,phase_bucket,
+           phase_pct(Option、0-1の小数=画面側で*100),latest_nps(Option),nps_base_line(Option),
+           nps_flag,contact_flag,seika_status,alert_msg},
+         contact_trend: Vec<WeeklyContactPoint>{week_start,email_count,call_count,mtg_count},
+         nps_trend: Vec<NpsPoint>{label,nps} }
+       → p13-deal-summary(.p13-deal-card) / p13-contact-npm(chart) / p13-mtg-history(.p13-timeline-list)
+
   GAS版 index.html id="page-p13" (1687-1781行)。Dealセレクタ駆動、上部の期間/メンバー/
   パイプラインフィルタは反映しない(GAS版の注記どおり)。
 
-  未実装(薄い雛形): バックエンドAPI未着手。Deal検索の候補表示(p13-deal-suggest)は
-  JS側でデバウンス+API呼び出しする想定、器のみ用意。
+  ★2026-08-16注記: このタブの data-cq-* 値(p13-consultant-filter / p13-deal-select /
+  p13-deal-search / p13-deal-suggest / p13-sort / p13-period / p13-deal-summary /
+  p13-trend-card / p13-contact-npm / p13-mtg-history)は**JS担当が既に実装済み**のため
+  変更していない。今回は payload の全容判明を受けて、p13-rollup(RollupCell用KPI)を
+  **追加**した。rollup/phase_kpi は Option なので、値が無い Deal では「データ無し」を
+  明示すること(空欄で誤魔化さない)。
 
-  2026-08-16追記: CSS担当(P12/P13)が static/css/call_quality.css に .p13-suggest /
+  CSS担当(P12/P13)が static/css/call_quality.css に .p13-suggest /
   .p13-suggest-item / .p13-deal-card / .p13-timeline-list / .p13-mtg-card 系を
   先行実装済み(GAS版 style.html の同名クラスをダーク配色で移植)。このタブだけは
   data-cq-* 汎用フックに加えて実クラス名も付与し、CSSがそのまま効くようにしてある。
   JS側がここへ子要素(.p13-suggest-item / .p13-mtg-card 等)を追加する想定。
+
+  未実装: なし。
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: (Deal選択時)この案件の最終接触・最新NPS・MTG履歴</div>
 <div class="cq-headline">
@@ -57,6 +85,9 @@
   </div>
   <!-- JSが .p13-deal-card 構造(GAS版1878-1897行のダーク配色版、CSS実装済み)を差し込む -->
   <div class="cq-table" data-cq-table="p13-deal-summary"></div>
+  <!-- 追加: rollup(RollupCell)。call_all/email_all/mtg_all(全期間) と
+       call_post/email_post/mtg_post(契約後)を並べる。Option なので無ければ「データ無し」表示。 -->
+  <div class="cq-kpi-grid" data-cq-kpi="p13-rollup"></div>
   <div class="cq-status" data-cq-status>―</div>
 </div>
 

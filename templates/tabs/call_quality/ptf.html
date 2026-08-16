@@ -1,39 +1,183 @@
 {#
   タブ ptf: 「ターゲット分析」
-  API: /api/call-quality/target (未実装 — バックエンド未着手)
-  GAS版 index.html id="page-ptf" (719-938行)。2026-07-02再編で「乖離検知を主役」にした構成。
+  API: /api/call-quality/target?panel=xxx (1リクエスト=1パネル。GAS版の details 遅延ロードを踏襲)
+  対応する Rust payload: src/handlers/call_quality/tabs/ptf_target.rs
+    TargetQuery { panel: Option<String>(既定 chase_stop), owners, min_failed_shoudan,
+                  exclude_houjin_won, range, min_negative_visits, role, sort_by,
+                  industry, size_band, prefecture }
+    TabPayload<TargetData> ―― TargetData は enum(#[serde(tag="panel")])。panel値ごとに型が違う:
+      chase_stop        → ChaseStopData { rows: Vec<ChaseStopRow>, matched, truncated, limit,
+                                           min_failed_shoudan, exclude_houjin_won, definition }
+      field_close_rate  → FieldCloseRateData { range, range_label, available_ranges, overall(Option),
+                                                by_size/by_plan/by_period/by_plan_period/monthly: Vec<FieldRateRow>,
+                                                denominator_label, caveat }
+      bpo_contribution  → BpoContributionData { range, range_label, available_ranges,
+                                                 by_origin: Vec<BpoOriginRow>, monthly: Vec<BpoMonthlyRow>,
+                                                 has_immature_observation, caveat }
+      call_duration     → CallDurationData { rows: Vec<CallDurationRow>, bucket_labels }
+      stage_revisit     → StageRevisitData { stages: Vec<RevisitStageRow>(truncated旗),
+                                              deals: Vec<RevisitDealRow>(truncated旗), min_negative_visits, definition }
+      caller_behavior   → CallerBehaviorData { role, sort_by, rows: Vec<CallerBehaviorRow>,
+                                                type_counts: Vec<(String,usize)>, note }
+      segment           → SegmentData { by_prefecture/by_industry/by_size: Vec<SegmentRow>,
+                                         cross_active, cross_label, min_calls, top_n, denominator_label, scope_label }
+      (unavailable)     → UnavailablePanel { requested, reason, available: Vec<String>,
+                                              not_implemented: Vec<NotImplemented>{name,reason} }
 
-  未実装(薄い雛形): バックエンドAPI未着手。条件ビルダー(最大4件AND、数値/日付は範囲可)は
-  入力コントロールの器のみ用意し、実際のバリデーション・適用ロジックはJS側で実装する。
+  GAS版 index.html id="page-ptf" (719-938行)。
+
+  ★重要(ptf_target.rs 冒頭のコメントより): GAS版の①条件ビルダー+ファネル対比/
+  ②週次時系列乖離/③経営方針ターゲット(保存)/業種別アクティブ観測(動的版)/
+  コンタクト属性別アポ率 は **すべて未実装**(HubSpot ライブ照会 or Turso依存 or
+  保存先未定のため、シート層だけでは移植できない)。以前の版でこれらを実装済みの
+  ように器を作っていたが誤りだったため、今回「未実装」として明示する形に全面差し替えた。
+
+  実装済みは7パネル(chase_stop/field_close_rate/bpo_contribution/call_duration/
+  stage_revisit/caller_behavior/segment[都道府県/業界/規模のみ])。GAS版と同じく
+  segment だけ常設パネル、残り6つは <details> の遅延ロードにしてある
+  (data-cq-panel 属性がその <details> を開いたときに fetch すべき panel クエリ値)。
+
+  未実装(このタブで一覧化):
+    - ①ターゲット条件ビルダー + 該当vsそれ以外ファネル対比 (HubSpotライブ照会)
+    - ②週次時系列乖離(直近8週) (HubSpotライブ照会)
+    - ③経営方針ターゲット(保存・実績アラート) (HubSpotライブ照会+保存先未定)
+    - 業種別アクティブ観測(動的版・業界/規模バンド組替可) (Turso経路+設定保存先未定)
+    - コンタクト属性別アポ率 (「セグメント_クロス」シートに該当次元が無い)
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: 経営方針のターゲット(任意条件)に対し、現場の架電・商談・成約がどれだけズレているか(該当 vs それ以外)</div>
 <div class="cq-headline"><div class="cq-headline-title">ターゲット分析</div></div>
 
-<div class="cq-panel cq-panel-hero">
-  <div class="cq-panel-title">① ターゲット条件を組む → 該当 vs それ以外 のファネル対比</div>
-  <div class="cq-panel-note">条件(取引プロパティの複数AND、最大4件・数値/日付は範囲可)を組んで適用すると、該当(ターゲット)とそれ以外のファネル(母数→架電→アポ/商談→成約)をライブ対比します。</div>
-  <div class="cq-p7-control-bar" data-cq-table="ptf-condition-builder"></div>
-  <div class="cq-chart" data-cq-chart="ptf-funnel-compare" style="height:340px"></div>
+<div class="cq-panel cq-panel-note-warn">
+  <b>未実装のパネル(このタブにはまだありません)</b>
+  <ul>
+    <li>① ターゲット条件ビルダー + 該当vsそれ以外のファネル対比 ―― HubSpotへのライブ照会が必要なため未実装</li>
+    <li>② 週次時系列乖離(直近8週) ―― 同上</li>
+    <li>③ 経営方針ターゲット(保存・実績アラート) ―― 同上 + 保存先(GAS版はPropertiesService)が未定</li>
+    <li>業種別アクティブ観測(動的版・業界/規模バンド組替可) ―― Turso経路 + 設定の保存先が未定</li>
+    <li>コンタクト属性別アポ率 ―― 元シート「セグメント_クロス」に属性次元が無い</li>
+  </ul>
 </div>
 
-<div class="cq-panel">
-  <div class="cq-panel-title">② 時系列乖離(週次・直近8週)</div>
-  <div class="cq-chart" data-cq-chart="ptf-weekly-gap" style="height:300px"></div>
-</div>
-
-<div class="cq-panel">
-  <div class="cq-panel-title">③ 経営方針ターゲット(保存・実績アラート)</div>
-  <div class="cq-table" data-cq-table="ptf-saved-targets"></div>
-</div>
-
+<!-- panel=segment(常設パネル。GAS版のセグメント別セクション相当。都道府県/業界/規模のみ実装) -->
 <div class="cq-headline"><div class="cq-headline-title">セグメント別 — どのセグメント(業界×規模×地域)でアポ率が高い/低いか</div></div>
-<div class="cq-panel"><div class="cq-panel-title">セグメント別 クロス絞込</div><div class="cq-table" data-cq-table="ptf-segment-cross"></div></div>
-<div class="cq-panel-grid">
-  <div class="cq-panel"><div class="cq-panel-title">都道府県別 アポ率</div><div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div><div class="cq-chart" data-cq-chart="ptf-pref-apo" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">業界別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-industry-apo" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">規模別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-size-apo" style="height:300px"></div></div>
-  <div class="cq-panel"><div class="cq-panel-title">コンタクト属性別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-contact-attr-apo" style="height:300px"></div></div>
+<div class="cq-panel" data-cq-panel="segment">
+  <div class="cq-panel-title">セグメント別 クロス絞込</div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-ptf-seg-industry">業界</label>
+      <select id="cq-ptf-seg-industry" class="cq-select" data-cq-control="ptf-seg-industry"><option value="">全業界</option></select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-ptf-seg-size">規模</label>
+      <select id="cq-ptf-seg-size" class="cq-select" data-cq-control="ptf-seg-size"><option value="">全規模</option></select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-ptf-seg-prefecture">都道府県</label>
+      <select id="cq-ptf-seg-prefecture" class="cq-select" data-cq-control="ptf-seg-prefecture"><option value="">全都道府県</option></select>
+    </div>
+  </div>
+  <div class="cq-panel-note">
+    <span class="cq-denom" data-cq-denom="ptf-seg-denom">分母: —</span>
+    <span data-cq-value="ptf-seg-scope"></span>(足切り: 架電数一定件数未満は上位N件表示から除外)
+  </div>
+  <div class="cq-status" data-cq-status>読み込み中…</div>
+  <div class="cq-panel-grid">
+    <div class="cq-panel"><div class="cq-panel-title">都道府県別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-seg-pref" style="height:300px"></div></div>
+    <div class="cq-panel"><div class="cq-panel-title">業界別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-seg-industry" style="height:300px"></div></div>
+    <div class="cq-panel"><div class="cq-panel-title">規模別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-seg-size" style="height:300px"></div></div>
+  </div>
 </div>
+
+<!-- ===== 実務リスト・補助分析(GAS版と同じくdetailsで遅延ロード。既定は閉) ===== -->
+<details class="cq-panel" data-cq-panel="chase_stop">
+  <summary class="cq-panel-title">追いかけ停止候補(何度商談しても成約しない案件)</summary>
+  <div class="cq-panel-note">
+    取引レコードの動きから「商談到達→失注(商談済リードへ転落)」の繰り返し回数を数える。
+    成約すれば計上へ抜け循環が止まるので、失注循環の積み上がり=決まっていない証拠。
+  </div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-ptf-chase-min">失注商談回数</label>
+      <select id="cq-ptf-chase-min" class="cq-select" data-cq-control="ptf-chase-min">
+        <option value="2">2回以上</option>
+        <option value="3" selected>3回以上</option>
+        <option value="4">4回以上</option>
+        <option value="5">5回以上</option>
+      </select>
+    </div>
+    <label class="cq-checkbox-label"><input type="checkbox" id="cq-ptf-chase-exclwon" checked data-cq-control="ptf-chase-exclude-won"> 会社が別案件で成約済みの案件を除く</label>
+  </div>
+  <div class="cq-status" data-cq-status>開くと読み込みます…</div>
+  <div class="cq-table" data-cq-table="ptf-chase-stop"></div>
+</details>
+
+<details class="cq-panel" data-cq-panel="field_close_rate">
+  <summary class="cq-panel-title">現場ベース成約率(商談回数 ÷ 成約)</summary>
+  <div class="cq-panel-note">
+    成約率の分母を商談回数(再商談も数えるイベント単位)にした現場感覚の成約率。
+    <span class="cq-warn-text">規模別の成約率は分解不可(成約の大半が規模不明に落ちる)。規模別は「商談回数の分布」のみ妥当。</span>
+  </div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-ptf-fieldrate-range">集計期間</label>
+      <select id="cq-ptf-fieldrate-range" class="cq-select" data-cq-control="ptf-fieldrate-range">
+        <option value="all" selected>全期間</option>
+      </select>
+    </div>
+  </div>
+  <div class="cq-panel-note"><span class="cq-denom" data-cq-denom="ptf-fieldrate-denom">分母: —</span></div>
+  <div class="cq-status" data-cq-status>開くと読み込みます…</div>
+  <div class="cq-kpi-grid" data-cq-kpi="ptf-fieldrate-overall"></div>
+  <div class="cq-table" data-cq-table="ptf-fieldrate-detail"></div>
+</details>
+
+<details class="cq-panel" data-cq-panel="unavailable-segobs">
+  <summary class="cq-panel-title">業種別アクティブ観測(動的版・業界/規模バンド組替可)</summary>
+  <div class="cq-status">未実装(Turso経路 + 設定の保存先が未定のため)。静的シート「業種別アクティブ観測」だけを読んで“動的版”を名乗らせない、という判断で見送っています。</div>
+</details>
+
+<details class="cq-panel" data-cq-panel="call-quality-group">
+  <summary class="cq-panel-title">架電の質・コーラー分析(補助) — BPO貢献 / 通話時間 / ステージ反復 / コーラー行動</summary>
+  <div class="cq-panel-note">※本タブの乖離検知とは軸の違う「架電の質・コーラー診断」系。将来は別タブへ移設予定。</div>
+
+  <div class="cq-panel" data-cq-panel="bpo_contribution">
+    <div class="cq-panel-title">BPO起点 商談→計上 突合率(owner履歴ベース・観測ラグ補正)</div>
+    <div class="cq-panel-note">BPO起点判定=商談Dealのowner変更履歴にrole=bpoが含まれる(客観事実)。180日未経過の商談は「観測中」で除外(has_immature_observation)。</div>
+    <div class="cq-status" data-cq-status>開くと読み込みます…</div>
+    <div class="cq-table" data-cq-table="ptf-bpo-contrib-origin"></div>
+    <div class="cq-chart" data-cq-chart="ptf-bpo-contrib-monthly" style="height:280px"></div>
+  </div>
+
+  <div class="cq-panel" data-cq-panel="call_duration">
+    <div class="cq-panel-title">通話時間バケット(質的架電)</div>
+    <div class="cq-panel-note">0-30秒(不通/即切り)/30-90秒(短接触)/90秒以上(有意会話)/300秒以上(深い会話)/600秒以上(商談相当)。率は同月内総架電比。</div>
+    <div class="cq-table" data-cq-table="ptf-call-duration"></div>
+  </div>
+
+  <div class="cq-panel" data-cq-panel="stage_revisit">
+    <div class="cq-panel-title">ステージ反復分析(撤退候補)</div>
+    <div class="cq-panel-note">不通系ステージに一定回数以上戻り かつ 架電5回以上=無駄打ち撤退候補(min_negative_visits)。</div>
+    <div class="cq-table" data-cq-table="ptf-stage-revisit-stages"></div>
+    <div class="cq-table" data-cq-table="ptf-stage-revisit-deals"></div>
+  </div>
+
+  <div class="cq-panel" data-cq-panel="caller_behavior">
+    <div class="cq-panel-title">コーラー行動パターン(集中型 vs 分散型)</div>
+    <div class="cq-panel-note">1Deal平均架電数で分類: ≥6回=集中型 / ≤2回=分散型 / 中間=標準型。HHI*100・Top10集中率%・長時間率も併記。</div>
+    <div class="cq-p7-control-bar">
+      <div class="cq-filter-group">
+        <label for="cq-ptf-caller-role">対象ロール</label>
+        <select id="cq-ptf-caller-role" class="cq-select" data-cq-control="ptf-caller-role">
+          <option value="sales" selected>sales</option>
+          <option value="bpo">bpo</option>
+          <option value="consultant">consultant</option>
+        </select>
+      </div>
+    </div>
+    <div class="cq-kpi-grid" data-cq-kpi="ptf-caller-behavior-types"></div>
+    <div class="cq-table" data-cq-table="ptf-caller-behavior"></div>
+  </div>
+</details>
 
 {% include "tabs/call_quality/_partials/_truncated_banner.html" %}
 {% include "tabs/call_quality/_partials/_sources_footer.html" %}

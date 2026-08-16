@@ -183,9 +183,18 @@ pub struct Cohort {
     pub lag_labels: Vec<String>,
     /// 縦軸（アポが取れた月）。昇順。
     pub rows: Vec<CohortRow>,
-    /// 直近6ヶ月で切ったか（約束3）
+    /// 縦（コホート月）を直近6ヶ月で切ったか（約束3）
     pub truncated: bool,
     pub total_cohort_months: usize,
+    /// **横（経過月）も切っている**。実データは 0〜11ヶ月後まであるが表示は 0〜5。
+    /// 縦だけ `truncated` を立てて横を黙って落とすと「6ヶ月後以降は無い」と誤読される。
+    pub lag_truncated: bool,
+    /// 表示している最大経過月（= `COHORT_MAX_LAG`）
+    pub max_lag: u8,
+    /// シート側に存在する最大経過月
+    pub max_lag_in_sheet: u8,
+    /// 経過月が表示範囲を超えていて落とした行数
+    pub dropped_lag_rows: usize,
     /// このコホートの起点。GAS 版と同じく anchor='apo' のみ。
     pub anchor: String,
     /// 画面の説明文に使う一行（現場が読んで分かる言い方）
@@ -589,6 +598,11 @@ pub fn collect_cohort(data: &SheetData, metric_key: Option<&str>) -> (Cohort, us
     let mut cohort_months: Vec<String> = Vec::new();
     let mut seen: HashMap<String, ()> = HashMap::new();
     let mut matched = 0usize;
+    // 横（経過月）の切り捨てを可視化するための実測値。
+    // 実データ（cohort_table.csv, 2026-08-16）は anchor=apo 78行のうち
+    // 0〜5ヶ月後に収まるのは 57行で、残り 21行（6〜11ヶ月後）は表示範囲外。
+    let mut max_lag_in_sheet: u8 = 0;
+    let mut dropped_lag_rows = 0usize;
 
     for row in &data.rows {
         // GAS 版と同じく anchor='apo' のみ（アポ起点コホート）
@@ -611,7 +625,16 @@ pub fn collect_cohort(data: &SheetData, metric_key: Option<&str>) -> (Cohort, us
             }
         };
         let lag: u8 = match lag_raw.parse::<f64>() {
-            Ok(v) if v >= 0.0 && v <= COHORT_MAX_LAG as f64 => v as u8,
+            Ok(v) if v >= 0.0 && v <= COHORT_MAX_LAG as f64 => {
+                max_lag_in_sheet = max_lag_in_sheet.max(v as u8);
+                v as u8
+            }
+            // 表示範囲より先の経過月。**黙って捨てず数えておく**（約束3）
+            Ok(v) if v > COHORT_MAX_LAG as f64 => {
+                max_lag_in_sheet = max_lag_in_sheet.max(v.min(255.0) as u8);
+                dropped_lag_rows += 1;
+                continue;
+            }
             _ => continue,
         };
 
@@ -652,6 +675,10 @@ pub fn collect_cohort(data: &SheetData, metric_key: Option<&str>) -> (Cohort, us
             rows,
             truncated,
             total_cohort_months: total,
+            lag_truncated: dropped_lag_rows > 0,
+            max_lag: COHORT_MAX_LAG,
+            max_lag_in_sheet,
+            dropped_lag_rows,
             anchor: "apo".to_string(),
             description:
                 "「◯月にアポが取れた案件は、その後ちゃんと前に進んだか」を月ごとに並べた表です。\
@@ -1218,6 +1245,26 @@ mod tests {
         assert_eq!(c.rows[0].values[0], Some(90.0));
         assert!(c.rows[0].values[1].is_none());
         assert_eq!(c.rows[0].values.len(), (COHORT_MAX_LAG + 1) as usize);
+    }
+
+    #[test]
+    fn コホートは経過月の切り捨ても明示する() {
+        // 実データ(cohort_table.csv)は 0〜11ヶ月後まであるが表示は 0〜5。
+        // 縦(コホート月)だけ truncated を立てて横を黙って落とすと
+        // 「6ヶ月後以降はデータが無い」と誤読される。
+        let d = cohort_sheet(vec![
+            ("apo", "2026-05", 0, "0.9", "0.6"),
+            ("apo", "2026-05", 7, "0.3", "0.2"),
+            ("apo", "2026-05", 11, "0.2", "0.1"),
+        ]);
+        let (c, matched) = collect_cohort(&d, None);
+        assert_eq!(matched, 1, "表示範囲内の行だけが matched");
+        assert!(c.lag_truncated);
+        assert_eq!(c.dropped_lag_rows, 2);
+        assert_eq!(c.max_lag, COHORT_MAX_LAG);
+        assert_eq!(c.max_lag_in_sheet, 11);
+        // 縦は6ヶ月に収まっているので truncated は立たない
+        assert!(!c.truncated);
     }
 
     #[test]
