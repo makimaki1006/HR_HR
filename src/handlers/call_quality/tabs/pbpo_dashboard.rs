@@ -450,13 +450,16 @@ pub fn build_heatmap(d: &SheetData) -> HeatmapPanel {
 
 // ============================================================ 全体
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PbpoQuery {
     /// 個人別パネル(②)の対象月(YYYY-MM)。未指定なら直近の確定月(当月除く)
     pub year_month: Option<String>,
     /// テスト用の「現在月」上書き。省略時は実行時のローカル日付
     pub today_ym: Option<String>,
 }
+
+// このタブの期間指定は `year_month`（p2 の `from`/`to` ではない）。
+crate::accepted_params!(PbpoQuery, pbpo_query_accepted => "year_month", "today_ym");
 
 #[derive(Debug, Serialize)]
 pub struct PbpoData {
@@ -548,7 +551,7 @@ pub async fn handle(
     let current_month = q
         .today_ym
         .clone()
-        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m").to_string());
+        .unwrap_or_else(|| super::jst_current_ym());
 
     let monthly_kpi = build_monthly_kpi(&caller, &current_month);
     let selected_month = q
@@ -572,6 +575,8 @@ pub async fn handle(
         },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

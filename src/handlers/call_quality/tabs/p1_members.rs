@@ -26,7 +26,7 @@ use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 /// **率と同じ分母で足切りする**（GAS 版の不一致を再現しない）。
 const MIN_DEN_FOR_RATE: f64 = 100.0;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct MembersQuery {
     pub year_month: Option<String>,
     /// 指定すると分母が Zoom発信 → HubSpot Call に切り替わる
@@ -34,6 +34,9 @@ pub struct MembersQuery {
     /// カンマ区切り owner_id。未指定なら role=sales のみ。
     pub owners: Option<String>,
 }
+
+crate::accepted_params!(MembersQuery, members_query_accepted =>
+    "year_month", "prefecture", "owners");
 
 #[derive(Debug, Serialize, Clone)]
 pub struct MemberRow {
@@ -111,11 +114,12 @@ pub fn collect(
     q: &MembersQuery,
     sales_owners: Option<&Vec<String>>,
 ) -> (Vec<MemberRow>, usize) {
-    let pref_mode = q
-        .prefecture
-        .as_deref()
-        .map(|p| !p.is_empty())
-        .unwrap_or(false);
+    // 2026-08-17 是正: ここだけ `!p.is_empty()` の旧判定が残っており、
+    //   `__all__`(画面の「全都道府県」の番兵)で **分母だけ HubSpot Call に化けていた**。
+    //   handle() 側は pref_selected() を使うのでシートは月次明細のまま・
+    //   ラベルも「Zoom発信」のままなので、**表示と計算が食い違う**。
+    //   実測(2026-05): 正 1032÷67,208=1.54% → 誤 1032÷49,659=2.08%（差 0.54pt）
+    let pref_mode = pref_selected(&q.prefecture).is_some();
     let owner_filter: Option<Vec<String>> = q.owners.as_ref().map(|s| {
         s.split(',')
             .map(|t| t.trim().to_string())
@@ -205,6 +209,24 @@ pub fn collect(
         })
         .collect();
 
+    // 2026-08-17 追加: 活動の痕跡が無い owner を落とす（GAS javascript.html:606,651 と同じ）。
+    //   在籍しているだけで当該期間に架電も Zoom もアポも無い人を担当者一覧に出すと、
+    //   「37名中○名」の母数が実態とずれる。実測(2026-07): Rust 37名 / GAS 33名。
+    //   余分だったのは 久木 霞美・坂下 慶希・杉浦 理仁・大分事務 バディ（全員 call0/zoom0/apo0）。
+    //   ※ 少サンプル(thin)は落とさない。あれは「活動はあるが率が不安定」で意味が違う。
+    //
+    //   2026-08-17 追記: NA を条件に含める。含めないと **p0 の KPIカードに出る
+    //   NA期日と、この members の合算が一致しない**（実測 2025-12 で 358 対 307、
+    //   -14.2%）。2026-08 の 前川 泰平 は期日内消化 2件 も持っており分子も漏れる。
+    //   GAS 側(javascript.html)も同じ条件へ揃えた。
+    members.retain(|m| {
+        m.call_count > 0.0
+            || m.zoom_dial_count > 0.0
+            || m.apo_count > 0.0
+            || m.na_due > 0.0
+            || m.na_done_ontime > 0.0
+    });
+
     // owner_id で安定化（HashMap の反復順を返さない）
     members.sort_by(|a, b| a.owner_id.cmp(&b.owner_id));
     (members, matched)
@@ -271,6 +293,8 @@ pub async fn handle(
             age_secs: data.fetched_at.elapsed().as_secs(),
         }],
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

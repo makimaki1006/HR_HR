@@ -174,12 +174,16 @@ pub fn build_kpi_cards(d: &SheetData, row: &[Arc<str>]) -> KpiCards {
             if v.is_empty() { "―".to_string() } else { v.to_string() }
         },
         consultant_email: d.get(row, "consultant_email").to_string(),
-        churn_band: match churn_rate_pct {
-            None => Band::Neutral,
-            Some(v) if v >= 35.0 => Band::Bad,
-            Some(v) if v >= 25.0 => Band::Warn,
-            Some(_) => Band::Good,
-        },
+        // 2026-08-17 是正: 閾値35%/25%で赤/橙/緑を付けていた（51名中32名が赤）。
+        //   GAS(javascript.html:16771)は churnBand を計算しておきながら
+        //   **カードにはリテラル `'neutral'` を渡している**。書き忘れではなく判断で、
+        //   副文に理由が書かれている:
+        //     「分母=累計(未決着active含む)。**交絡(顧客層)含み優劣評価でない**」
+        //   担当者ごとに顧客層が違うので、率の高低を担当者の優劣として
+        //   読ませない、という判断。色を付けるとその判断が消える。
+        //   このプロジェクトには「負相関を片方向の因果に決めない」という
+        //   明文の規律があり、これはその系列。
+        churn_band: Band::Neutral,
         critical_band: if critical >= 5.0 {
             Band::Bad
         } else if critical >= 2.0 {
@@ -201,12 +205,11 @@ pub fn build_kpi_cards(d: &SheetData, row: &[Arc<str>]) -> KpiCards {
             Some(v) if v >= 2.0 => Band::Warn,
             Some(_) => Band::Bad,
         },
-        risk_band: match avg_risk_score {
-            None => Band::Neutral,
-            Some(v) if v >= 60.0 => Band::Bad,
-            Some(v) if v >= 40.0 => Band::Warn,
-            Some(_) => Band::Good,
-        },
+        // 上の churn_band と同じ理由で無色。GAS(javascript.html:16781)も
+        //   riskBand を計算したうえでリテラル `'neutral'` を渡している。
+        //   副文:「稼働中の案件の risk_score 平均 (0-100)・
+        //          **交絡含み優劣評価でない**」
+        risk_band: Band::Neutral,
     }
 }
 
@@ -322,6 +325,39 @@ pub struct MonthlyTrendRow {
 /// シート「コンサル担当者月次推移」(列: consultant_id,consultant_name,month,mrr,
 /// won_new,won_renewal,held_deals,expiring,renewed,continuation_rate,churned_mrr)から
 /// 選択コンサルの月次行を月昇順で返す。
+/// 月ラベルを `(年, 月)` に読む。読めなければ None。
+///
+/// 2026-08-17 追加。シートには `2026-08` と `2026-8` が混在している
+/// （書込が USER_ENTERED なので Google スプシが日付として解釈し、
+/// `yyyy-m` で描き戻す。1〜9月だけゼロ埋めが落ちる）。
+///
+/// **文字列比較のままだと `2026-5` が `2026-08` より後ろに来る。**
+/// 実測: 51名中30名でラベルが崩れ、**16名は折れ線の最終点が誤り**。
+/// 2026-08 までデータがある担当者のグラフが 2026-1 で終わっていた。
+///
+/// 生成側（`backup.py`）は 2026-08-17 に是正済みだが、シートに何が
+/// 入っていても壊れないようにここでも読めるようにしておく。
+/// 同じパースを `is_partial` の判定にも使う。**片方だけ直すと再発する。**
+fn parse_ym(s: &str) -> Option<(i32, u32)> {
+    let t = s.trim();
+    let (y, m) = t.split_once('-')?;
+    let y: i32 = y.trim().parse().ok()?;
+    let m: u32 = m.trim().parse().ok()?;
+    if !(1..=12).contains(&m) {
+        return None;
+    }
+    Some((y, m))
+}
+
+/// 2つの月ラベルが同じ月を指すか。`2026-8` と `2026-08` を同一とみなす。
+fn same_ym(a: &str, b: &str) -> bool {
+    match (parse_ym(a), parse_ym(b)) {
+        (Some(x), Some(y)) => x == y,
+        // 読めないものは従来どおり文字列で比べる（勝手に一致させない）
+        _ => a.trim() == b.trim(),
+    }
+}
+
 pub fn build_monthly_trend(d: &SheetData, consultant_id: &str, current_month: &str) -> Vec<MonthlyTrendRow> {
     let mut rows: Vec<MonthlyTrendRow> = d
         .rows
@@ -330,7 +366,7 @@ pub fn build_monthly_trend(d: &SheetData, consultant_id: &str, current_month: &s
         .map(|r| {
             let month = d.get(r, "month").to_string();
             MonthlyTrendRow {
-                is_partial: month == current_month,
+                is_partial: same_ym(&month, current_month),
                 mrr: num(d.get(r, "mrr")),
                 won_new: num(d.get(r, "won_new")),
                 won_renewal: num(d.get(r, "won_renewal")),
@@ -343,7 +379,13 @@ pub fn build_monthly_trend(d: &SheetData, consultant_id: &str, current_month: &s
             }
         })
         .collect();
-    rows.sort_by(|a, b| a.month.cmp(&b.month));
+    // 暦順に並べる。読めないラベルは末尾へ回し、その中では文字列順で安定させる。
+    rows.sort_by(|a, b| match (parse_ym(&a.month), parse_ym(&b.month)) {
+        (Some(x), Some(y)) => x.cmp(&y),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.month.cmp(&b.month),
+    });
     rows
 }
 
@@ -556,9 +598,16 @@ pub struct ContactLogPanel {
     pub weeks_shown: u32,
     /// Deal単位(週昇順)。グリッド化・配色はフロント側の責務(未実装一覧を参照)
     pub deals: Vec<ContactDeal>,
+    /// 打ち切り前の件数。`truncated` が立ったとき「何件のうち何件か」を出すため。
+    pub total_deals: usize,
+    /// 上限で切ったか。黙って上位N件にしない（このリポジトリの約束 3.）
+    pub truncated: bool,
     /// シート全体で最も新しい週(YYYY-MM-DD、月曜)
     pub max_week: String,
 }
+
+/// 接触ログの表示上限。GAS の `.slice(0, 60)` に合わせる。
+const MAX_CONTACT_DEALS: usize = 60;
 
 /// シート「コンサル接触ログ_週次」(列: consultant_id,consultant_name,deal_id,
 /// customer_label,week,call_count,mtg_count)を選択コンサル+状態+期間で絞り、
@@ -662,20 +711,50 @@ pub fn build_contact_log(
         })
         .collect();
 
-    // 並びを安定させる(Deal ID 昇順。HashMapの反復順を返さない)
-    deals_out.sort_by(|a, b| a.deal_id.cmp(&b.deal_id));
+    // 2026-08-17 是正: Deal ID 昇順にしていた。
+    //   決定性は得られるが、**このパネルの目的である「放置の可視化」が失われる**。
+    //   GAS(javascript.html:16418-16424)は
+    //     稼働中を優先 → 最終接触からの日数 降順 → 接触量 降順
+    //   実測(松野 日向子・全期間): GAS の先頭は 46日放置の稼働中案件、
+    //   旧実装の先頭は 37日の**非稼働**案件。最も放置されている案件が
+    //   先頭に来ない = 見るべきものが埋もれる。
+    //   決定性は最後に deal_id を足して担保する（同値でも順序が揺れない）。
+    deals_out.sort_by(|a, b| {
+        b.is_active
+            .cmp(&a.is_active)
+            .then_with(|| {
+                b.days_since_last_contact
+                    .partial_cmp(&a.days_since_last_contact)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| {
+                (b.total_call + b.total_mtg)
+                    .partial_cmp(&(a.total_call + a.total_mtg))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.deal_id.cmp(&b.deal_id))
+    });
+
+    // GAS は `.slice(0, 60)` で打ち切る。実測で 松野 日向子 は全期間 192件
+    // 返っており、**132件は GAS では表示されないもの**だった。
+    // 黙って切らず truncated を立てる（このリポジトリの約束 3.）。
+    let total_deals = deals_out.len();
+    let truncated = total_deals > MAX_CONTACT_DEALS;
+    deals_out.truncate(MAX_CONTACT_DEALS);
 
     ContactLogPanel {
         status_filter: filter.as_str(),
         weeks_shown: weeks_window,
         deals: deals_out,
+        total_deals,
+        truncated,
         max_week,
     }
 }
 
 // ============================================================ 全体
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct P14Query {
     /// 選択担当者。未指定なら `selected` は None(画面はセレクタ一覧のみ表示)
     pub consultant_id: Option<String>,
@@ -688,6 +767,9 @@ pub struct P14Query {
     /// テスト用の「現在月」上書き。省略時は実行時のローカル日付
     pub today_ym: Option<String>,
 }
+
+crate::accepted_params!(P14Query, p14_query_accepted =>
+    "consultant_id", "deals_status", "contact_status", "contact_weeks", "today_ym");
 
 #[derive(Debug, Serialize)]
 pub struct ConsultantOption {
@@ -709,11 +791,25 @@ pub struct ConsultantDetail {
     pub contact_log: ContactLogPanel,
 }
 
+/// 画面に固定で出す注意書き。**消さないこと**。
+///
+/// 2026-08-17 追加。GAS では該当カードの副文に書かれていたが、移植時に
+/// 落ちていた。同時に、GAS が意図的に無色にしていた2枚のカードに
+/// Rust が色を付けており（51名中32名が赤）、**その色を付けない理由が
+/// この注記そのもの**だった。注記を落とすと判断の根拠も一緒に消える。
+const CAUTION_NOTES: &[&str] = &[
+    "解約率の分母は累計（未決着の稼働中案件を含む）です。担当者ごとに顧客層が違うため、この率の高低を担当者の優劣として読まないでください。",
+    "平均代理リスクは稼働中案件の risk_score の平均(0-100)です。これも顧客層の交絡を含むため、優劣評価には使えません。",
+    "解約分析タブの解約率とは分母が違います。コンサル接触タブは「決着した案件のみ」を分母にしており、別物です。",
+];
+
 #[derive(Debug, Serialize)]
 pub struct P14Data {
     /// 担当者セレクタ用の一覧。active_deal_count 降順(GAS `_p14PopulateSelector`)
     pub consultants: Vec<ConsultantOption>,
     pub selected: Option<ConsultantDetail>,
+    /// 率の読み方についての注意書き。画面上部に固定で出す。
+    pub notes: &'static [&'static str],
 }
 
 async fn load(
@@ -766,17 +862,21 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> R
             }
         })
         .collect();
+    // 2026-08-17 是正: 第2キーに consultant_id 昇順を足していた。
+    //   GAS は `active_deal_count` 降順のみで、JS の sort は安定なので
+    //   **同値はシートの行順が保たれる**。第2キーを足したせいで
+    //   active=0 の同値が多い末尾で顔ぶれが入れ替わっていた（51名中22名で相違）。
+    //   `sort_by` も安定ソートなので、キーを1本にすればシート行順が残る。
     consultants.sort_by(|a, b| {
         b.active_deal_count
             .partial_cmp(&a.active_deal_count)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.consultant_id.cmp(&b.consultant_id))
     });
 
     let current_month = q
         .today_ym
         .clone()
-        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m").to_string());
+        .unwrap_or_else(|| super::jst_current_ym());
     let deals_filter = DealStatusFilter::parse(q.deals_status.as_deref());
     let contact_filter = ContactStatusFilter::parse(q.contact_status.as_deref());
     let contact_weeks = q.contact_weeks.unwrap_or(26);
@@ -813,9 +913,11 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> R
     );
 
     Ok(TabPayload {
-        data: P14Data { consultants, selected },
+        data: P14Data { consultants, selected, notes: CAUTION_NOTES },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 
@@ -888,8 +990,25 @@ mod tests {
         let row = &d.rows[0];
         let cards = build_kpi_cards(&d, row);
         assert!((cards.churn_rate_pct.unwrap() - 41.84).abs() < 1e-9);
-        // 閾値: 35%以上=bad / 25%以上=warn / それ未満=good。41.84%は35%以上なのでbad。
-        assert_eq!(cards.churn_band, Band::Bad, "41.84%は35%以上なのでbad");
+
+        // 2026-08-17 変更: 以前は 35%以上=bad として赤を付けていた。
+        //   GAS は churnBand を計算したうえで**カードにはリテラル `'neutral'`**
+        //   を渡している。書き忘れではなく判断で、副文に理由が書かれている:
+        //     「分母=累計(未決着active含む)。交絡(顧客層)含み優劣評価でない」
+        //   実測では51名中32名が赤になり、担当者の優劣として読まれてしまう。
+        //   **率は出す。色で優劣を示さない。**
+        assert_eq!(
+            cards.churn_band,
+            Band::Neutral,
+            "解約率は顧客層の交絡を含むので、色で優劣を示さない"
+        );
+        assert_eq!(
+            cards.risk_band,
+            Band::Neutral,
+            "平均代理リスクも同じ理由で無色"
+        );
+        // 交絡の無い実数カードは従来どおり色を付ける（全部無色にしたのではない）
+        assert_eq!(cards.task_band, Band::Warn, "タスク警告1件はwarn");
     }
 
     #[test]
