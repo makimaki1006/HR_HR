@@ -647,8 +647,8 @@ pub fn build_contact_log(
                     }
                 }
             }
-            let total_call = weeks.iter().map(|w| w.call_count).sum();
-            let total_mtg = weeks.iter().map(|w| w.mtg_count).sum();
+            let total_call: f64 = weeks.iter().map(|w| w.call_count).sum();
+            let total_mtg: f64 = weeks.iter().map(|w| w.mtg_count).sum();
             let label = deal_label(&label, &deal_id);
             Some(ContactDeal {
                 is_active,
@@ -888,10 +888,7 @@ mod tests {
         let row = &d.rows[0];
         let cards = build_kpi_cards(&d, row);
         assert!((cards.churn_rate_pct.unwrap() - 41.84).abs() < 1e-9);
-        // 2026-08-16 修正: 期待値が誤っていた（実装が正しい）。
-        //   閾値は >=35% で Bad / >=25% で Warn（179-180行）。
-        //   41.84% は 35% 以上なので Bad。元のテストは「25%以上35%未満でwarn」と
-        //   書いており、41.84 がその範囲に入らないことを見落としていた。
+        // 閾値: 35%以上=bad / 25%以上=warn / それ未満=good。41.84%は35%以上なのでbad。
         assert_eq!(cards.churn_band, Band::Bad, "41.84%は35%以上なのでbad");
     }
 
