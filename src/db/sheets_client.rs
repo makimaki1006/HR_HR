@@ -22,6 +22,19 @@ const SCOPES: &str = "https://www.googleapis.com/auth/spreadsheets.readonly";
 /// access_token 失効までこれより短いタイミングでリフレッシュ
 const REFRESH_BEFORE_EXPIRY: u64 = 300;
 
+
+/// リトライすべき HTTP ステータスか。
+///
+/// 2026-08-16 追加。実データでの起動確認中に Sheets API が **503 (UNAVAILABLE)** を返し、
+/// 画面が 502 で落ちた。Google 側の一時的な不可用は日常的に起きる。
+///
+/// - 429 (レート超過) と 5xx (サーバ側の一時障害) は再試行する
+/// - それ以外の 4xx は権限・シート名の誤りなど**再試行しても直らない**ので即諦める
+///   （無駄な待ち時間を作らないため。401 を4回リトライしても意味がない）
+fn is_retryable(status: u16) -> bool {
+    status == 429 || (500..600).contains(&status)
+}
+
 // ---- Service Account JSON ----------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -207,18 +220,56 @@ impl SheetsClient {
             range = encoded_range,
         );
 
-        let resp = self
-            .http
-            .get(&url)
-            .bearer_auth(&token)
-            .send()
-            .await
-            .with_context(|| format!("Sheets API GET 失敗: {sheet_name}"))?;
+        // 2026-08-16 追加: 429/5xx のリトライ。
+        //   実データでの起動確認中に **Sheets API が 503 (UNAVAILABLE) を返して
+        //   画面が 502 で落ちた**。Google 側の一時的な不可用は日常的に起きるため、
+        //   リトライが無いと「たまに画面が真っ白」という再現しにくい不具合になる。
+        //   Python 側(consulting_patrol / patrol_data)でも同じ教訓で
+        //   429/5xx リトライを入れている。
+        //   429 は Retry-After を尊重し、それ以外は指数バックオフ。
+        //   4xx(429以外)は再試行しても無駄なので即座に諦める。
+        const MAX_RETRIES: u32 = 4;
+        let mut last_err = String::new();
+        let mut body = String::new();
+        let mut ok = false;
 
-        let status = resp.status();
-        let body = resp.text().await.context("Sheets API body 読み込み失敗")?;
-        if !status.is_success() {
-            bail!("Sheets API 失敗 ({sheet_name}): status={status} body={body}");
+        for attempt in 0..=MAX_RETRIES {
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(&token)
+                .send()
+                .await
+                .with_context(|| format!("Sheets API GET 失敗: {sheet_name}"))?;
+
+            let status = resp.status();
+            let text = resp.text().await.context("Sheets API body 読み込み失敗")?;
+
+            if status.is_success() {
+                body = text;
+                ok = true;
+                break;
+            }
+
+            let retryable = is_retryable(status.as_u16());
+            last_err = format!("status={status} body={text}");
+            if !retryable || attempt == MAX_RETRIES {
+                break;
+            }
+
+            // 1s, 2s, 4s, 8s
+            let wait = Duration::from_secs(1u64 << attempt);
+            tracing::warn!(
+                "Sheets API {sheet_name}: {status} のため {}秒後に再試行 ({}/{})",
+                wait.as_secs(),
+                attempt + 1,
+                MAX_RETRIES
+            );
+            tokio::time::sleep(wait).await;
+        }
+
+        if !ok {
+            bail!("Sheets API 失敗 ({sheet_name}): {last_err}");
         }
 
         let parsed: ValuesResponse = serde_json::from_str(&body)
@@ -290,4 +341,29 @@ mod tests {
         assert!(s.contains("\"iss\":\"test@example.iam.gserviceaccount.com\""));
         assert!(s.contains("\"exp\":1700003600"));
     }
+    #[test]
+    fn 一時的な失敗はリトライする() {
+        // 実際に踏んだのは 503。429 はレート超過。
+        assert!(is_retryable(503), "Sheets API が返す UNAVAILABLE");
+        assert!(is_retryable(500));
+        assert!(is_retryable(502));
+        assert!(is_retryable(429), "レート超過は待てば通る");
+    }
+
+    #[test]
+    fn 再試行しても直らないものは諦める() {
+        // 権限不足やシート名の誤りは、何度叩いても同じ結果になる。
+        // リトライすると無駄に待たせるだけ(401を4回で15秒)。
+        assert!(!is_retryable(401), "認証エラー");
+        assert!(!is_retryable(403), "権限不足");
+        assert!(!is_retryable(404), "シートが無い");
+        assert!(!is_retryable(400));
+    }
+
+    #[test]
+    fn 成功はリトライ対象外() {
+        assert!(!is_retryable(200));
+        assert!(!is_retryable(204));
+    }
+
 }
