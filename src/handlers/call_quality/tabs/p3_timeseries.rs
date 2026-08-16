@@ -473,7 +473,7 @@ pub fn collect_monthly(
 }
 
 /// 直近完了月と前月比。`monthly` は年月昇順であることが前提。
-fn build_scorecard(monthly: &[MonthlyPoint]) -> Scorecard {
+pub fn build_scorecard(monthly: &[MonthlyPoint]) -> Scorecard {
     let last = match monthly.last() {
         Some(m) => m,
         None => return Scorecard::default(),

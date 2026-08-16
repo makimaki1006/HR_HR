@@ -120,7 +120,7 @@ fn denominator_label(pref_mode: bool) -> String {
 /// 使う列: owner_id / year_month / call_count / zoom_dial_count / apo_count /
 ///         na_due / na_done_ontime
 /// いずれも**列名で引く**（位置で決め打ちしない）。
-fn collect(
+pub fn collect(
     data: &SheetData,
     q: &OverviewQuery,
     sales_owners: Option<&Vec<String>>,

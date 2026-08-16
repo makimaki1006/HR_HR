@@ -279,7 +279,7 @@ const CONTENT_PRIORITY_NOTE: &str =
      の順に、最初に値がある列を採用して action_detail 列に書き込み済み(200字で切る)。\
      ai_next_actions が採用された場合のみ Zoom AI Companion 等の自動生成由来。";
 
-fn build_actions(data: &SheetData, q: &P10Query, today: NaiveDate) -> ActionsPanel {
+pub fn build_actions(data: &SheetData, q: &P10Query, today: NaiveDate) -> ActionsPanel {
     let mut rows: Vec<ActionRow> = Vec::with_capacity(data.rows.len());
     for row in &data.rows {
         let deal_id = data.get(row, "deal_id").to_string();
@@ -478,7 +478,7 @@ fn flag_rank(flag: &str) -> u8 {
     }
 }
 
-fn build_phase(data: &SheetData, today: NaiveDate) -> PhasePanel {
+pub fn build_phase(data: &SheetData, today: NaiveDate) -> PhasePanel {
     let rows: Vec<PhaseRow> = data
         .rows
         .iter()
@@ -582,7 +582,7 @@ pub struct TaskAlertsPanel {
     pub rows: Vec<AlertRow>,
 }
 
-fn build_alerts(data: &SheetData, q: &P10Query) -> TaskAlertsPanel {
+pub fn build_alerts(data: &SheetData, q: &P10Query) -> TaskAlertsPanel {
     let rows: Vec<AlertRow> = data
         .rows
         .iter()

@@ -231,7 +231,7 @@ pub struct OwnerRankingPanel {
 }
 
 /// Owner ランキング。**Call 降順が唯一の基準**（同数は owner_id で安定化）。
-fn build_owner_ranking(source: &[OwnerActivity]) -> OwnerRankingPanel {
+pub fn build_owner_ranking(source: &[OwnerActivity]) -> OwnerRankingPanel {
     let mut v: Vec<OwnerActivity> = source.to_vec();
     v.sort_by(|a, b| {
         b.call_count
@@ -284,7 +284,7 @@ fn avg_group(label: &'static str, g: &[&OwnerActivity]) -> GroupAverage {
 
 /// 上位5名 / 下位5名（Call 基準）の平均比較。GAS `_drawP11TopBottom` の移植だが
 /// 選定基準を成果スコアから Call に変更（ファイル冒頭の方針）。
-fn build_top_bottom(source: &[OwnerActivity]) -> TopBottomComparison {
+pub fn build_top_bottom(source: &[OwnerActivity]) -> TopBottomComparison {
     let mut sorted: Vec<&OwnerActivity> = source.iter().collect();
     sorted.sort_by(|a, b| {
         b.call_count
@@ -322,7 +322,7 @@ pub struct StageOutcomePanel {
 
 /// 「Stage × Outcome区分」の件数分布。GAS `_drawP11StageOutcome` の移植。
 /// 常に「勝ち筋」シート由来（`コンサル行動量_担当日次` には stage/outcome 列が無い）。
-fn build_stage_outcome(winning: &SheetData) -> StageOutcomePanel {
+pub fn build_stage_outcome(winning: &SheetData) -> StageOutcomePanel {
     let mut counts: HashMap<(String, String), usize> = HashMap::new();
     for row in &winning.rows {
         let stage = {
@@ -389,7 +389,7 @@ pub struct PatternPanel {
 
 /// 勝ち筋明細テーブル。GAS `_drawP11Table` の移植だが並び順を成果スコアから
 /// Call に変更（ファイル冒頭の方針）。
-fn build_pattern_table(winning: &SheetData) -> PatternPanel {
+pub fn build_pattern_table(winning: &SheetData) -> PatternPanel {
     let mut rows: Vec<PatternRow> = winning
         .rows
         .iter()

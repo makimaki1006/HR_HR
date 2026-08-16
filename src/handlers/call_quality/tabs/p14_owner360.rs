@@ -147,7 +147,7 @@ pub struct KpiCards {
 ///     churn_total,continuing,success_fulfilled,churn_rate,retention_rate,fulfillment_rate,
 ///     avg_risk_score,critical_pred_count,high_pred_count,task_alert_count,
 ///     avg_monthly_contact,last_activity_at,nps_round_json 他
-fn build_kpi_cards(d: &SheetData, row: &[Arc<str>]) -> KpiCards {
+pub fn build_kpi_cards(d: &SheetData, row: &[Arc<str>]) -> KpiCards {
     let churn_rate_pct = opt_num(d.get(row, "churn_rate")).map(|v| v * 100.0);
     let retention_rate_pct = opt_num(d.get(row, "retention_rate")).map(|v| v * 100.0);
     let avg_risk_score = opt_num(d.get(row, "avg_risk_score"));
@@ -265,7 +265,7 @@ pub struct PrefectureRow {
 /// deal_count,active_deal_count)から選択コンサルの47都道府県分布を作る。
 /// 0件の都道府県も padding して返す(GAS 版と同じ、棒グラフの並びを固定するため)。
 /// 「不明」が実在する場合のみ末尾に追加する。
-fn build_prefecture(d: &SheetData, consultant_id: &str) -> Vec<PrefectureRow> {
+pub fn build_prefecture(d: &SheetData, consultant_id: &str) -> Vec<PrefectureRow> {
     let mut map: HashMap<String, (f64, f64)> = HashMap::new();
     for row in &d.rows {
         if d.get(row, "consultant_id") != consultant_id {
@@ -322,7 +322,7 @@ pub struct MonthlyTrendRow {
 /// シート「コンサル担当者月次推移」(列: consultant_id,consultant_name,month,mrr,
 /// won_new,won_renewal,held_deals,expiring,renewed,continuation_rate,churned_mrr)から
 /// 選択コンサルの月次行を月昇順で返す。
-fn build_monthly_trend(d: &SheetData, consultant_id: &str, current_month: &str) -> Vec<MonthlyTrendRow> {
+pub fn build_monthly_trend(d: &SheetData, consultant_id: &str, current_month: &str) -> Vec<MonthlyTrendRow> {
     let mut rows: Vec<MonthlyTrendRow> = d
         .rows
         .iter()
@@ -417,7 +417,7 @@ pub struct DealsTable {
 ///
 /// ソート: is_active(稼働中)優先 → churn_proba_90d 降順 → 最終接触経過日数 降順
 /// （GAS `_drawP14Summary` のソート仕様と同じ）。
-fn build_deals(d: &SheetData, consultant_id: &str, filter: DealStatusFilter) -> DealsTable {
+pub fn build_deals(d: &SheetData, consultant_id: &str, filter: DealStatusFilter) -> DealsTable {
     let mine: Vec<&Vec<Arc<str>>> = d
         .rows
         .iter()
@@ -564,7 +564,7 @@ pub struct ContactLogPanel {
 /// customer_label,week,call_count,mtg_count)を選択コンサル+状態+期間で絞り、
 /// Deal単位に畳んで返す。状態(is_active)は「コンサル担当者360_Deal一覧」から引く
 /// (接触ログ自体には is_active が無いため)。
-fn build_contact_log(
+pub fn build_contact_log(
     log: &SheetData,
     deals: &SheetData,
     consultant_id: &str,

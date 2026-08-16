@@ -182,7 +182,7 @@ pub struct ConsultantOption {
 
 /// 担当者セレクタ用の一覧。`total_amount_at_risk_6m` 降順（GAS `_p15PopulateSelector`）。
 /// 名前の部分一致検索はフロント側の責務（ファイル冒頭「未実装」参照）。
-fn build_consultant_options(summary: &SheetData) -> Vec<ConsultantOption> {
+pub fn build_consultant_options(summary: &SheetData) -> Vec<ConsultantOption> {
     let mut v: Vec<ConsultantOption> = summary
         .rows
         .iter()
@@ -226,7 +226,7 @@ pub struct SummaryKpis {
 /// GAS `_p15DrawSummaryCards` の移植。`total_holding` だけ月次でなくサマリシート由来
 /// （月次には holding_count が「その月初時点」の値として月ごとにあるため、KPIカードは
 /// サマリの `total_holding`＝直近値を使う。GAS も同じ二重ソース構成）。
-fn build_summary_kpis(monthly: &[MonthlyPoint], deals_in_scope: &[DealActionRow], summary: &SheetData, cid: Option<&str>) -> SummaryKpis {
+pub fn build_summary_kpis(monthly: &[MonthlyPoint], deals_in_scope: &[DealActionRow], summary: &SheetData, cid: Option<&str>) -> SummaryKpis {
     let total_holding = match cid {
         Some(id) => summary
             .rows
@@ -277,7 +277,7 @@ pub struct MatrixPanel {
 
 /// GAS `_p15DrawMatrix` の移植。表示/非表示（全担当者ビュー限定）はフロント側の責務
 /// （ファイル冒頭「未実装」参照）なので、ここでは常に全データを返す。
-fn build_matrix(monthly: &SheetData, summary: &SheetData) -> MatrixPanel {
+pub fn build_matrix(monthly: &SheetData, summary: &SheetData) -> MatrixPanel {
     let mut year_months: Vec<String> = monthly
         .rows
         .iter()
@@ -421,7 +421,7 @@ pub struct DealsPanel {
 }
 
 /// 優先度フィルタ → 並び替え（優先度順→満了日昇順）→ 上限カット。GAS `_p15DrawDealsTable`。
-fn build_deals_panel(all: Vec<DealActionRow>, priorities: &[String]) -> DealsPanel {
+pub fn build_deals_panel(all: Vec<DealActionRow>, priorities: &[String]) -> DealsPanel {
     let mut filtered: Vec<DealActionRow> = all
         .into_iter()
         .filter(|d| priorities.iter().any(|p| p == &d.action_priority))

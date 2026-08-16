@@ -868,7 +868,7 @@ fn apo_denominator_label(pref_mode: bool) -> &'static str {
 // ---------------------------------------------------------------- パネル: スコアカード
 
 /// P2 スコアカード7枚。GAS `renderP2Scorecards`。
-fn build_scorecards(t: &MonthlyRow) -> Vec<MetricCard> {
+pub fn build_scorecards(t: &MonthlyRow) -> Vec<MetricCard> {
     vec![
         MetricCard {
             key: "na_ontime",
@@ -938,7 +938,7 @@ fn build_scorecards(t: &MonthlyRow) -> Vec<MetricCard> {
 }
 
 /// プロセス（旧P5）スコアカード4枚。GAS `renderP5Scorecards`。
-fn build_process_scorecards(t: &MonthlyRow) -> Vec<MetricCard> {
+pub fn build_process_scorecards(t: &MonthlyRow) -> Vec<MetricCard> {
     vec![
         MetricCard {
             key: "stage_advance",
@@ -986,7 +986,7 @@ fn build_process_scorecards(t: &MonthlyRow) -> Vec<MetricCard> {
 /// - `min_den` 未満のメンバーは**除外**（少サンプルで率が跳ねるため）
 /// - 率降順。同率は owner_id 昇順で固定（毎回同じ並びで返す）
 /// - GAS 版は Top25 制限を 2026-05-25 に撤廃して全員分表示。ここも全員返す。
-fn build_rate_ranking(
+pub fn build_rate_ranking(
     key: &'static str,
     title: &'static str,
     num_col: &'static str,
@@ -1038,7 +1038,7 @@ fn build_rate_ranking(
     }
 }
 
-fn build_rankings(owners: &[MonthlyRow], members: &HashMap<String, Member>) -> Vec<RateRanking> {
+pub fn build_rankings(owners: &[MonthlyRow], members: &HashMap<String, Member>) -> Vec<RateRanking> {
     vec![
         build_rate_ranking(
             "na_ontime",
@@ -1122,7 +1122,7 @@ fn build_rankings(owners: &[MonthlyRow], members: &HashMap<String, Member>) -> V
 /// 行いながら、Y 軸のアポ率は Zoom 発信を分母にしている。分母が混ざっているので、
 /// Zoom 発信の少ない担当者が足切りを通過して不安定な率のまま点になる。
 /// ここでは **率と同じ分母**（`apo_denominator`）で足切りする。
-fn build_scatters(
+pub fn build_scatters(
     owners: &[MonthlyRow],
     members: &HashMap<String, Member>,
     pref_mode: bool,
@@ -1237,7 +1237,7 @@ fn build_scatters(
 ///   結果、画面の「20+」バケットは常に空。ここでは文字列 "20+" も受けて拾う。
 /// - **接続率(Call記録率)は出さない**。2026-05-26 に「実態が Zoom→HubSpot 突合率で
 ///   誤解を生む」として GAS から削除済み。移植でも復活させない。
-fn build_touch_distribution(d: &SheetData, pipeline: Option<&str>) -> TouchDistribution {
+pub fn build_touch_distribution(d: &SheetData, pipeline: Option<&str>) -> TouchDistribution {
     let c_attempt = d.col("attempt_no");
     let c_pipeline = d.col("pipeline");
     let c_total = col_any(d, &["total", "count"]);
@@ -1314,7 +1314,7 @@ const RECYCLE_ORDER: &[&str] = &["1-3", "4-7", "8-14", "15-30", "31-60", "61+"];
 /// シート「リサイクル間隔」は `interval_bucket, total_next, apo_next, apo_rate`。
 /// **順序はシートの並びに依存させず `RECYCLE_ORDER` で固定**する
 /// （1-3 / 4-7 / … / 61+ の順でないと「短い間隔ほど良いのか」が読めない）。
-fn build_recycle_interval(d: &SheetData) -> Vec<RecycleBucket> {
+pub fn build_recycle_interval(d: &SheetData) -> Vec<RecycleBucket> {
     let c_bucket = col_any(d, &["interval_bucket", "bucket"]);
     let c_total = col_any(d, &["total_next", "count"]);
     let c_apo = col_any(d, &["apo_next"]);
@@ -1357,7 +1357,7 @@ fn build_recycle_interval(d: &SheetData) -> Vec<RecycleBucket> {
 ///   - GAS は期間フィルタを効かせないが、ここでは他パネルと揃えて効かせる。
 ///   - GAS は行（owner×月）をそのまま1点として扱う。計算はそのまま残し、
 ///     `year_month` を返して「同じ人が何度も出る」ことが分かるようにする。
-fn build_compliance(
+pub fn build_compliance(
     d: &SheetData,
     members: &HashMap<String, Member>,
     q: &P2Query,
@@ -1514,7 +1514,7 @@ fn funnel_range(period: Option<&str>, today_ym: &str) -> (String, String) {
 ///   母集団が違うため、dial→connect の段差は実コンバージョンではない。
 /// - 単調クランプ: 上流段が下流段を下回ったら上流を引き上げる（`opp < won` の
 ///   逆転が実際に起きる）。**下流の実数は毀損しない**。起きたら `clamped` を立てる。
-fn build_funnel(d: &SheetData, q: &P2Query, today_ym: &str) -> Funnel {
+pub fn build_funnel(d: &SheetData, q: &P2Query, today_ym: &str) -> Funnel {
     let c_ym = d.col("year_month");
     let cols: Vec<Option<usize>> = FUNNEL_STAGES.iter().map(|(_, _, c)| d.col(c)).collect();
 
@@ -1606,7 +1606,7 @@ fn build_funnel(d: &SheetData, q: &P2Query, today_ym: &str) -> Funnel {
 /// シート「滞留日数」は `pipeline, dealstage, stage_label, n_samples,
 /// median_days, p25_days, p75_days, bottleneck_z, severity`。
 /// メンバー・期間フィルタは持たない（シート自体が pipeline × stage 粒度）。
-fn build_stage_dwell(d: &SheetData) -> StageDwell {
+pub fn build_stage_dwell(d: &SheetData) -> StageDwell {
     let c_pipeline = d.col("pipeline");
     let c_stage = col_any(d, &["stage_label", "dealstage", "stage"]);
     let c_median = d.col("median_days");
@@ -1679,7 +1679,7 @@ fn build_stage_dwell(d: &SheetData) -> StageDwell {
 ///
 /// **GAS との差（意図的）**: GAS はメンバー未選択時に全ロールを含めるため
 /// BPO/コンサルが混ざる。約束5に従い role=sales を既定スコープにした。
-fn build_on_the_spot(
+pub fn build_on_the_spot(
     d: &SheetData,
     members: &HashMap<String, Member>,
     q: &P2Query,
@@ -1850,7 +1850,7 @@ fn is_lost_stage(stage_id: &str, label: &str) -> bool {
 ///   share は絞込後の from 内で再計算、p50 は件数加重平均、**p25/p75 は取れない**
 ///   （クロス側に列が無いため。None を返す。0 で埋めない）。
 /// - 主要ステージ以外と、ラベル同一の自己遷移（失注5ステージを1ラベルに統合した副作用）を落とす。
-fn build_stage_transition(
+pub fn build_stage_transition(
     summary: &SheetData,
     cross: &SheetData,
     q: &P2Query,
@@ -2021,7 +2021,7 @@ fn build_stage_transition(
 
 /// 遷移KPI 4枚。GAS の `p5-trans-kpis`。
 /// ステージは ID とラベルの**どちらでも**照合する（GAS `findPair` と同じ）。
-fn build_transition_kpis(pairs: &[TransitionPair]) -> Vec<MetricCard> {
+pub fn build_transition_kpis(pairs: &[TransitionPair]) -> Vec<MetricCard> {
     let matches_from = |p: &TransitionPair, key: &str| p.stage_from == key || p.from_label == key;
     let matches_to = |p: &TransitionPair, key: &str| p.stage_to == key || p.to_label == key;
 

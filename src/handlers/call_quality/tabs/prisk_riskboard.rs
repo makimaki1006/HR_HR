@@ -214,7 +214,7 @@ pub struct BoardPanel {
     pub consultants: Vec<String>,
 }
 
-fn collect_board(data: &SheetData) -> Vec<BoardRow> {
+pub fn collect_board(data: &SheetData) -> Vec<BoardRow> {
     data.rows
         .iter()
         .map(|row| {
@@ -297,7 +297,7 @@ fn sort_board(mut rows: Vec<BoardRow>, sort: RiskSort) -> Vec<BoardRow> {
     rows
 }
 
-fn build_board(data: &SheetData, q: &PriskQuery) -> BoardPanel {
+pub fn build_board(data: &SheetData, q: &PriskQuery) -> BoardPanel {
     let all = collect_board(data);
     let band_counts = band_counts(&all);
 
@@ -370,7 +370,7 @@ pub struct HealthPanel {
     pub monthly_trend: Vec<HealthMonthPoint>,
 }
 
-fn collect_health(data: &SheetData) -> Vec<HealthRow> {
+pub fn collect_health(data: &SheetData) -> Vec<HealthRow> {
     data.rows
         .iter()
         .map(|row| HealthRow {
@@ -403,7 +403,7 @@ fn year_months(data: &SheetData) -> Vec<String> {
     set
 }
 
-fn build_health(data: &SheetData, sheet_used: &'static str) -> HealthPanel {
+pub fn build_health(data: &SheetData, sheet_used: &'static str) -> HealthPanel {
     let rows = collect_health(data);
     let months = year_months(data);
     let latest_month = months.last().cloned();
@@ -525,7 +525,7 @@ fn normalize_risk_level(s: &str) -> String {
     }
 }
 
-fn build_risk_score(data: &SheetData) -> RiskScorePanel {
+pub fn build_risk_score(data: &SheetData) -> RiskScorePanel {
     let rows: Vec<RiskScoreRow> = data
         .rows
         .iter()
@@ -624,7 +624,7 @@ fn median_gas_style(mut xs: Vec<f64>) -> f64 {
     xs[xs.len() / 2]
 }
 
-fn build_matrix(data: &SheetData) -> MatrixPanel {
+pub fn build_matrix(data: &SheetData) -> MatrixPanel {
     let points: Vec<MatrixPoint> = data
         .rows
         .iter()

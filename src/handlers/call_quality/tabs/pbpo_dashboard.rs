@@ -124,7 +124,7 @@ pub struct MonthlyKpiPanel {
 ///     通話360秒以上率,通話360秒以上数,アポ数,アポ率
 ///
 /// **率は列をそのまま信じず、件数の合計から re-compute する**（ファイル冒頭の注記）。
-fn build_monthly_kpi(d: &SheetData, current_month: &str) -> MonthlyKpiPanel {
+pub fn build_monthly_kpi(d: &SheetData, current_month: &str) -> MonthlyKpiPanel {
     // [架電, アポ, 90秒以上, 360秒以上]
     let mut acc: HashMap<String, [f64; 4]> = HashMap::new();
     for row in &d.rows {
@@ -207,7 +207,7 @@ pub struct IndividualPanel {
 ///
 /// **順位付けはしない**（GAS コメント「数値は事実のみ(順位・評価なし)」）。
 /// 既定の並びは担当者名の昇順(中立)。列見出しクリックでの並び替えはフロント側の責務。
-fn build_individual(d: &SheetData, month: &str) -> IndividualPanel {
+pub fn build_individual(d: &SheetData, month: &str) -> IndividualPanel {
     let mut months_set: HashSet<String> = HashSet::new();
     let mut rows: Vec<CallerRow> = Vec::new();
 
@@ -267,7 +267,7 @@ pub struct DataQualityRow {
 }
 
 /// シート「BPOデータ品質」（列: 項目,値,メモ）をそのまま返す。
-fn build_data_quality(d: &SheetData) -> Vec<DataQualityRow> {
+pub fn build_data_quality(d: &SheetData) -> Vec<DataQualityRow> {
     d.rows
         .iter()
         .map(|row| {
@@ -324,7 +324,7 @@ pub struct NaHealthPanel {
 ///
 /// **オープンDealに担当者キーが無いため個人別集計は不可**（GAS 側の注記どおり）。
 /// ステージ別(組織単位)でのみ可視化する。
-fn build_na_health(na: &SheetData, detail: &SheetData) -> NaHealthPanel {
+pub fn build_na_health(na: &SheetData, detail: &SheetData) -> NaHealthPanel {
     let mut measured_at_note = None;
     let mut stages = Vec::new();
     let mut open_follow = 0.0;
@@ -421,7 +421,7 @@ pub struct HeatmapPanel {
 /// 通話時間の閾値(30/90/360秒)は「繋がった」の代理指標であり接触率ではない
 /// （BPOでは接触率そのものが設計上算出不可、ファイル冒頭の注記）。
 /// 色スケール(intensity)の計算はフロント側の責務(未実装一覧を参照)。
-fn build_heatmap(d: &SheetData) -> HeatmapPanel {
+pub fn build_heatmap(d: &SheetData) -> HeatmapPanel {
     let mut cells = Vec::new();
     let mut total = 0.0;
     for row in &d.rows {

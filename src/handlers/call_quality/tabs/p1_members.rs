@@ -47,7 +47,7 @@ pub struct MemberRow {
     pub na_due: f64,
     pub na_done_ontime: f64,
     pub na_rate: Option<f64>,
-    pub duration_ms_total: f64,
+    pub duration_sec_total: f64,
     /// 平均通話秒数。分母(架電数)0なら null。
     pub avg_talk_secs: Option<f64>,
     /// 分母が足切り未満か。画面で「※少サンプル」を出すための旗。
@@ -94,7 +94,7 @@ fn denominator_label(pref_mode: bool) -> String {
 ///
 /// 使うシート: 「月次明細」
 /// 使う列: owner_id / year_month / call_count / zoom_dial_count / apo_count /
-///         na_due / na_done_ontime / duration_ms_total
+///         na_due / na_done_ontime / duration_sec_total
 pub fn collect(
     data: &SheetData,
     q: &MembersQuery,
@@ -149,7 +149,7 @@ pub fn collect(
         e[2] += num(data.get(row, "apo_count"));
         e[3] += num(data.get(row, "na_due"));
         e[4] += num(data.get(row, "na_done_ontime"));
-        e[5] += num(data.get(row, "duration_ms_total"));
+        e[5] += num(data.get(row, "duration_sec_total"));
         matched += 1;
     }
 
@@ -167,13 +167,14 @@ pub fn collect(
                 na_due: v[3],
                 na_done_ontime: v[4],
                 na_rate: rate(v[4], v[3]),
-                duration_ms_total: v[5],
-                // 平均通話秒数は「架電1件あたり」。架電0なら null（0秒ではない）
-                avg_talk_secs: if v[0] > 0.0 {
-                    Some(v[5] / 1000.0 / v[0])
-                } else {
-                    None
-                },
+                duration_sec_total: v[5],
+                // 平均通話秒数は「架電1件あたり」。架電0なら null（0秒ではない）。
+                // 2026-08-16 修正: 列名を `duration_ms_total` と書いていたが、
+                //   実際の列は **`duration_sec_total`（秒）**。存在しない列を読んで
+                //   常に 0 になっていた（GAS 突合で29名ぶんの不一致として検出）。
+                //   単位も秒なので 1000 で割ってはいけない。
+                //   GAS 側 javascript.html:4851 も duration_sec_total を直接割っている。
+                avg_talk_secs: if v[0] > 0.0 { Some(v[5] / v[0]) } else { None },
                 thin: den < MIN_DEN_FOR_RATE,
             }
         })
@@ -261,7 +262,7 @@ mod tests {
             "apo_count".to_string(),
             "na_due".to_string(),
             "na_done_ontime".to_string(),
-            "duration_ms_total".to_string(),
+            "duration_sec_total".to_string(),
         ];
         let rows = rows
             .into_iter()
@@ -328,9 +329,10 @@ mod tests {
     #[test]
     fn 平均通話秒数が計算される() {
         // 100件で 300,000ms → 1件あたり 3秒
-        let d = sheet(vec![("x", 100.0, 100.0, 0.0, 300_000.0)]);
+        // 100件で 9,166秒 → 1件あたり 91.66秒（実データ owner=1305990330 の実測値）
+        let d = sheet(vec![("x", 100.0, 100.0, 0.0, 9_166.0)]);
         let (m, _) = collect(&d, &MembersQuery::default(), None);
-        assert_eq!(m[0].avg_talk_secs, Some(3.0));
+        assert_eq!(m[0].avg_talk_secs, Some(91.66));
     }
 
     #[test]

@@ -170,7 +170,7 @@ fn resolve_bad_proba(data: &SheetData, row: &[std::sync::Arc<str>]) -> f64 {
     pf_opt(data.get(row, "recommended_risk_score")).unwrap_or_else(|| pf(data.get(row, "bad_churn_proba")))
 }
 
-fn build_prediction_section(pred: &SheetData, metrics: &SheetData) -> ChurnPredictionSection {
+pub fn build_prediction_section(pred: &SheetData, metrics: &SheetData) -> ChurnPredictionSection {
     let mut counts = InterventionCounts::default();
     let mut rows: Vec<(f64, ChurnPredictionRow)> = Vec::with_capacity(pred.rows.len());
 
@@ -314,7 +314,7 @@ fn parse_consultant_rows(data: &SheetData) -> Vec<ConsultantChurnRow> {
 
 /// javascript.html `_drawP12C`(10866-10960行)を移植。
 /// 担当Deal>=5 のみランキング対象、churn_rate 降順で top10/bottom10 を切り出す。
-fn build_consultant_section(rows: Vec<ConsultantChurnRow>) -> ConsultantRankingSection {
+pub fn build_consultant_section(rows: Vec<ConsultantChurnRow>) -> ConsultantRankingSection {
     let mut eligible: Vec<ConsultantChurnRow> =
         rows.iter().filter(|r| r.total_deals >= 5).cloned().collect();
     eligible.sort_by(|a, b| b.churn_rate.partial_cmp(&a.churn_rate).unwrap_or(std::cmp::Ordering::Equal));
@@ -466,7 +466,7 @@ fn aggregate_segment(
     SegmentMatrix { axis, row_label, col_label, row_keys, col_keys, cells }
 }
 
-fn build_segment_matrices(rows: &[SegmentSourceRow]) -> Vec<SegmentMatrix> {
+pub fn build_segment_matrices(rows: &[SegmentSourceRow]) -> Vec<SegmentMatrix> {
     vec![
         aggregate_segment(
             rows,
@@ -554,7 +554,7 @@ const METRIC_DISPLAY_ORDER: &[(&str, &str)] = &[
     ("cv_n_splits", "CV 分割数"),
 ];
 
-fn build_metrics_section(data: &SheetData) -> ModelMetricsSection {
+pub fn build_metrics_section(data: &SheetData) -> ModelMetricsSection {
     let Some(row) = data.rows.first() else {
         return ModelMetricsSection { entries: Vec::new(), top_features: Vec::new() };
     };

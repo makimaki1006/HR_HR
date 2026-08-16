@@ -237,7 +237,7 @@ struct DealAgg {
 
 /// javascript.html `_p13IndexByDeal`(15121-15164行) を移植。
 /// phase_lookup: deal_id → フェーズKPI側 consultant_name (担当者名フォールバック用)。
-fn build_deal_index(timeline: &SheetData, phase_lookup: &HashMap<String, String>) -> (Vec<DealIndexEntry>, usize) {
+pub fn build_deal_index(timeline: &SheetData, phase_lookup: &HashMap<String, String>) -> (Vec<DealIndexEntry>, usize) {
     let mut by: HashMap<String, DealAgg> = HashMap::new();
     let mut skipped = 0usize;
 
@@ -295,7 +295,7 @@ fn build_deal_index(timeline: &SheetData, phase_lookup: &HashMap<String, String>
     (deals, skipped)
 }
 
-fn build_phase_lookup(phase: &SheetData) -> HashMap<String, String> {
+pub fn build_phase_lookup(phase: &SheetData) -> HashMap<String, String> {
     phase
         .rows
         .iter()
@@ -452,7 +452,7 @@ pub struct DealDetailQuery {
     pub period: Option<String>,
 }
 
-fn build_meeting_card(data: &SheetData, row: &[Arc<str>]) -> MeetingCard {
+pub fn build_meeting_card(data: &SheetData, row: &[Arc<str>]) -> MeetingCard {
     let source = data.get(row, "source").trim().to_string();
     let overview = data.get(row, "summary_overview").trim().to_string();
     let details = parse_summary_details(data.get(row, "summary_details_json"));
@@ -693,7 +693,7 @@ fn merge_weekly_trend(contact: &[(String, u32, u32)], mtg_by_week: &HashMap<Stri
 }
 
 /// javascript.html `_p13IndexTrends`(15059-15081行) の定期NPS展開 + 満了時NPS付与を移植。
-fn build_nps_trend(data: &SheetData, row: &[Arc<str>]) -> Vec<NpsPoint> {
+pub fn build_nps_trend(data: &SheetData, row: &[Arc<str>]) -> Vec<NpsPoint> {
     let series = parse_num_arr_opt(data.get(row, "nps_series_json"));
     let mut points: Vec<NpsPoint> = series
         .into_iter()
