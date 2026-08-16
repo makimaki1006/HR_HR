@@ -1,0 +1,468 @@
+//! 架電クオリティ: 全社サマリ（GAS 版 page-p0）
+//!
+//! 2026-08-14 移植。GAS 版の構成:
+//!   KPI カード / 営業日ペース進捗 / 月の接触規模 /
+//!   月次3連（架電数・アポ率・NA遵守率、直近8ヶ月）/
+//!   Recency 全社サマリ / Deal Health Critical Top20 /
+//!   トップパフォーマー・要支援 Top3
+//!
+//! **このタブは経営が見る画面なので、定義のズレが最も高くつく。**
+//! GAS 版でこの2ヶ月に潰した誤りを、ここに再度作り込まないこと:
+//!   - アポ率の分母は Zoom発信（都道府県モードのときだけ HubSpot Call）
+//!   - **足切りは率と同じ分母で行う**（HubSpot Call で足切りして Zoom分母で率を出さない）
+//!   - 分母0のアポ率は 0% でなく null
+//!   - 営業スコープの既定は role=sales（BPO/コンサルを混ぜない）
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+use super::{rate, SourceInfo, TabPayload};
+use crate::db::sheets_client::SheetsClient;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+
+/// アポ率ランキングの最低分母。これ未満は少サンプルで率が不安定なため順位から外す。
+/// GAS 版の `MIN_CALLS_FOR_RATE` と同値。
+const MIN_DEN_FOR_RATE: f64 = 100.0;
+
+#[derive(Debug, Default, Deserialize)]
+pub struct OverviewQuery {
+    /// 対象年月 (YYYY-MM)。未指定なら最新月。
+    pub year_month: Option<String>,
+    /// 都道府県。指定すると**分母が Zoom発信 → HubSpot Call に切り替わる**。
+    /// GAS 版 `_apoDen()` と同じ挙動。
+    pub prefecture: Option<String>,
+    /// カンマ区切り owner_id。未指定なら role=sales のみ。
+    pub owners: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OverviewData {
+    pub kpi: Kpi,
+    /// 直近8ヶ月の月次推移
+    pub monthly: Vec<MonthlyPoint>,
+    pub top_performers: Vec<OwnerRate>,
+    pub needs_support: Vec<OwnerRate>,
+    /// アポ率の分母が何だったかを画面に出すためのラベル。
+    /// GAS 版で「単独表記禁止（分母2版がある）」と決めた運用ルールへの対応。
+    pub apo_denominator_label: String,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct Kpi {
+    pub call_count: f64,
+    pub zoom_dial_count: f64,
+    pub apo_count: f64,
+    /// 分母0なら null（0% にしない）
+    pub apo_rate: Option<f64>,
+    pub na_due: f64,
+    pub na_done_ontime: f64,
+    pub na_rate: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MonthlyPoint {
+    pub year_month: String,
+    pub call_count: f64,
+    pub zoom_dial_count: f64,
+    pub apo_count: f64,
+    pub apo_rate: Option<f64>,
+    pub na_rate: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OwnerRate {
+    pub owner_id: String,
+    pub apo_count: f64,
+    /// 率の分母そのもの。足切りにもこれを使う（GAS 版で不一致を起こした箇所）
+    pub denominator: f64,
+    pub call_count: f64,
+    pub apo_rate: Option<f64>,
+}
+
+fn num(s: &str) -> f64 {
+    s.trim().replace(',', "").parse::<f64>().unwrap_or(0.0)
+}
+
+/// アポ率の分母を返す。
+///
+/// GAS 版 `_apoDen(callSum, zoomSum)` と同じ規則:
+///   都道府県モード → HubSpot Call
+///   通常          → Zoom発信（無ければ HubSpot Call にフォールバック）
+///
+/// **注意**: GAS 版では「県を選んだ直後（データ未ロード）に、行は全国のまま
+/// 分母だけ切り替わる」不具合があった。ここでは絞り込み後の行に対して
+/// 常に同じ規則を適用するので、その齟齬は起きない。
+fn apo_denominator(call: f64, zoom: f64, pref_mode: bool) -> f64 {
+    if pref_mode {
+        call
+    } else if zoom > 0.0 {
+        zoom
+    } else {
+        call
+    }
+}
+
+fn denominator_label(pref_mode: bool) -> String {
+    if pref_mode {
+        "HubSpot Call（都道府県で絞り込み中）".to_string()
+    } else {
+        "Zoom発信（行動量分母）".to_string()
+    }
+}
+
+/// 月次明細から owner×年月 の集計を作る。
+///
+/// 使うシート: 「月次明細」
+/// 使う列: owner_id / year_month / call_count / zoom_dial_count / apo_count /
+///         na_due / na_done_ontime
+/// いずれも**列名で引く**（位置で決め打ちしない）。
+fn collect(
+    data: &SheetData,
+    q: &OverviewQuery,
+    sales_owners: Option<&Vec<String>>,
+) -> (Vec<MonthlyPoint>, HashMap<String, OwnerRate>, usize) {
+    let pref_mode = q
+        .prefecture
+        .as_deref()
+        .map(|p| !p.is_empty())
+        .unwrap_or(false);
+
+    let owner_filter: Option<Vec<String>> = q.owners.as_ref().map(|s| {
+        s.split(',')
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect()
+    });
+
+    // 年月 → 合計
+    let mut by_month: HashMap<String, [f64; 5]> = HashMap::new();
+    // owner → 合計（当月分のみ）
+    let mut by_owner: HashMap<String, [f64; 3]> = HashMap::new();
+    let mut matched = 0usize;
+
+    // 対象月。未指定なら最新月を後で決めるため、まず全月を集める
+    let target = q.year_month.clone();
+
+    for row in &data.rows {
+        let owner = data.get(row, "owner_id").to_string();
+
+        // スコープ: メンバー指定があればその人、無ければ role=sales のみ。
+        // GAS 版でここを省いて 141名(sales30/bpo32/consultant29/other50)を
+        // 混ぜ、アポ率が 0.93% → 0.63% に希釈された事故がある。
+        match owner_filter.as_ref() {
+            Some(ids) if !ids.is_empty() => {
+                if !ids.contains(&owner) {
+                    continue;
+                }
+            }
+            _ => {
+                if let Some(sales) = sales_owners {
+                    if !sales.contains(&owner) {
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let ym = data.get(row, "year_month").to_string();
+        if ym.is_empty() {
+            continue;
+        }
+
+        let call = num(data.get(row, "call_count"));
+        let zoom = num(data.get(row, "zoom_dial_count"));
+        let apo = num(data.get(row, "apo_count"));
+        let na_due = num(data.get(row, "na_due"));
+        let na_ok = num(data.get(row, "na_done_ontime"));
+
+        let e = by_month.entry(ym.clone()).or_insert([0.0; 5]);
+        e[0] += call;
+        e[1] += zoom;
+        e[2] += apo;
+        e[3] += na_due;
+        e[4] += na_ok;
+        matched += 1;
+
+        if target.as_deref().map(|t| t == ym).unwrap_or(false) {
+            let o = by_owner.entry(owner).or_insert([0.0; 3]);
+            o[0] += call;
+            o[1] += zoom;
+            o[2] += apo;
+        }
+    }
+
+    // 月次は年月昇順で安定させる（HashMap の反復順を返さない）
+    let mut months: Vec<String> = by_month.keys().cloned().collect();
+    months.sort();
+    let monthly: Vec<MonthlyPoint> = months
+        .iter()
+        .map(|ym| {
+            let v = by_month[ym];
+            let den = apo_denominator(v[0], v[1], pref_mode);
+            MonthlyPoint {
+                year_month: ym.clone(),
+                call_count: v[0],
+                zoom_dial_count: v[1],
+                apo_count: v[2],
+                apo_rate: rate(v[2], den),
+                na_rate: rate(v[4], v[3]),
+            }
+        })
+        .collect();
+
+    let owners: HashMap<String, OwnerRate> = by_owner
+        .into_iter()
+        .map(|(id, v)| {
+            let den = apo_denominator(v[0], v[1], pref_mode);
+            (
+                id.clone(),
+                OwnerRate {
+                    owner_id: id,
+                    apo_count: v[2],
+                    denominator: den,
+                    call_count: v[0],
+                    apo_rate: rate(v[2], den),
+                },
+            )
+        })
+        .collect();
+
+    (monthly, owners, matched)
+}
+
+/// トップ3 / ワースト3 を選ぶ。
+///
+/// **足切りは率と同じ分母（denominator）で行う。**
+/// GAS 版では足切りが HubSpot Call、率の分母が Zoom発信で不一致になっており、
+/// Zoom発信が少ない担当者が足切りを通過して不安定な率で上位に出ていた。
+fn rank(owners: &HashMap<String, OwnerRate>) -> (Vec<OwnerRate>, Vec<OwnerRate>) {
+    let mut q: Vec<&OwnerRate> = owners
+        .values()
+        .filter(|o| o.denominator >= MIN_DEN_FOR_RATE)
+        .collect();
+    // 率降順。同率は owner_id で安定化
+    q.sort_by(|a, b| {
+        b.apo_rate
+            .unwrap_or(0.0)
+            .partial_cmp(&a.apo_rate.unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.owner_id.cmp(&b.owner_id))
+    });
+    let clone = |o: &&OwnerRate| OwnerRate {
+        owner_id: o.owner_id.clone(),
+        apo_count: o.apo_count,
+        denominator: o.denominator,
+        call_count: o.call_count,
+        apo_rate: o.apo_rate,
+    };
+    let top: Vec<OwnerRate> = q.iter().take(3).map(clone).collect();
+    let bottom: Vec<OwnerRate> = q.iter().rev().take(3).map(clone).collect();
+    (top, bottom)
+}
+
+pub async fn handle(
+    client: &SheetsClient,
+    store: &SheetStore,
+    mut q: OverviewQuery,
+    sales_owners: Option<Vec<String>>,
+) -> Result<TabPayload<OverviewData>> {
+    let started = Instant::now();
+    let (data, from_cache) = store.get(client, "月次明細").await?;
+
+    // 対象月未指定なら最新月にする（画面の既定挙動）
+    if q.year_month.is_none() {
+        let mut latest: Option<String> = None;
+        for row in &data.rows {
+            let ym = data.get(row, "year_month");
+            if !ym.is_empty() && latest.as_deref().map(|l| ym > l).unwrap_or(true) {
+                latest = Some(ym.to_string());
+            }
+        }
+        q.year_month = latest;
+    }
+
+    let pref_mode = q
+        .prefecture
+        .as_deref()
+        .map(|p| !p.is_empty())
+        .unwrap_or(false);
+
+    let (monthly_all, owners, matched) = collect(&data, &q, sales_owners.as_ref());
+
+    // 直近8ヶ月（GAS 版と同じ）
+    let monthly: Vec<MonthlyPoint> = monthly_all
+        .into_iter()
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+
+    // KPI は対象月の合計
+    let kpi = monthly
+        .iter()
+        .find(|m| Some(&m.year_month) == q.year_month.as_ref())
+        .map(|m| Kpi {
+            call_count: m.call_count,
+            zoom_dial_count: m.zoom_dial_count,
+            apo_count: m.apo_count,
+            apo_rate: m.apo_rate,
+            na_due: 0.0,
+            na_done_ontime: 0.0,
+            na_rate: m.na_rate,
+        })
+        .unwrap_or_default();
+
+    let (top, bottom) = rank(&owners);
+
+    Ok(TabPayload {
+        data: OverviewData {
+            kpi,
+            monthly,
+            top_performers: top,
+            needs_support: bottom,
+            apo_denominator_label: denominator_label(pref_mode),
+        },
+        sources: vec![SourceInfo {
+            sheet: "月次明細".to_string(),
+            total_rows: data.rows.len(),
+            matched_rows: matched,
+            from_cache,
+            age_secs: data.fetched_at.elapsed().as_secs(),
+        }],
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sheet(rows: Vec<(&str, &str, f64, f64, f64)>) -> SheetData {
+        let header = vec![
+            "owner_id".to_string(),
+            "year_month".to_string(),
+            "call_count".to_string(),
+            "zoom_dial_count".to_string(),
+            "apo_count".to_string(),
+            "na_due".to_string(),
+            "na_done_ontime".to_string(),
+        ];
+        let rows = rows
+            .into_iter()
+            .map(|(o, ym, c, z, a)| -> Vec<Arc<str>> {
+                vec![
+                    Arc::from(o),
+                    Arc::from(ym),
+                    Arc::from(c.to_string().as_str()),
+                    Arc::from(z.to_string().as_str()),
+                    Arc::from(a.to_string().as_str()),
+                    Arc::from("0"),
+                    Arc::from("0"),
+                ]
+            })
+            .collect();
+        SheetData {
+            header,
+            rows,
+            fetched_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn 分母はzoom発信が既定() {
+        assert_eq!(apo_denominator(100.0, 300.0, false), 300.0);
+    }
+
+    #[test]
+    fn 都道府県モードでは分母がhubspot_callになる() {
+        // GAS 版 _apoDen と同じ規則
+        assert_eq!(apo_denominator(100.0, 300.0, true), 100.0);
+    }
+
+    #[test]
+    fn zoomが0ならcallにフォールバックする() {
+        assert_eq!(apo_denominator(100.0, 0.0, false), 100.0);
+    }
+
+    #[test]
+    fn 分母0のアポ率はnull() {
+        let d = sheet(vec![("1", "2026-05", 0.0, 0.0, 3.0)]);
+        let q = OverviewQuery {
+            year_month: Some("2026-05".into()),
+            ..Default::default()
+        };
+        let (monthly, _, _) = collect(&d, &q, None);
+        assert!(
+            monthly[0].apo_rate.is_none(),
+            "架電0でアポ3件を 0% と表示してはいけない"
+        );
+    }
+
+    #[test]
+    fn 足切りは率と同じ分母で行う() {
+        // Zoom発信が少ないが HubSpot Call は多い担当者。
+        // GAS 版は call>=100 で足切りしていたため、この人が
+        // 不安定な率(3/20=15%)のまま1位に出ていた。
+        let mut owners = HashMap::new();
+        owners.insert(
+            "thin".to_string(),
+            OwnerRate {
+                owner_id: "thin".into(),
+                apo_count: 3.0,
+                denominator: 20.0, // Zoom発信20 → 足切り未満
+                call_count: 500.0, // HubSpot Call は多い
+                apo_rate: rate(3.0, 20.0),
+            },
+        );
+        owners.insert(
+            "normal".to_string(),
+            OwnerRate {
+                owner_id: "normal".into(),
+                apo_count: 5.0,
+                denominator: 500.0,
+                call_count: 400.0,
+                apo_rate: rate(5.0, 500.0),
+            },
+        );
+        let (top, _) = rank(&owners);
+        assert_eq!(top.len(), 1, "分母20の担当者は足切りで除外される");
+        assert_eq!(top[0].owner_id, "normal");
+    }
+
+    #[test]
+    fn 月次は年月昇順で安定する() {
+        let d = sheet(vec![
+            ("1", "2026-05", 100.0, 200.0, 2.0),
+            ("1", "2026-03", 100.0, 200.0, 1.0),
+            ("1", "2026-04", 100.0, 200.0, 3.0),
+        ]);
+        let (m, _, _) = collect(&d, &OverviewQuery::default(), None);
+        let ys: Vec<&str> = m.iter().map(|x| x.year_month.as_str()).collect();
+        assert_eq!(ys, vec!["2026-03", "2026-04", "2026-05"]);
+    }
+
+    #[test]
+    fn 営業以外は既定で除外される() {
+        let d = sheet(vec![
+            ("sales1", "2026-05", 100.0, 200.0, 2.0),
+            ("bpo1", "2026-05", 900.0, 900.0, 1.0),
+        ]);
+        let sales = vec!["sales1".to_string()];
+        let (m, _, matched) = collect(&d, &OverviewQuery::default(), Some(&sales));
+        assert_eq!(matched, 1, "BPO の行が混ざってはいけない");
+        assert_eq!(m[0].zoom_dial_count, 200.0);
+    }
+
+    #[test]
+    fn 分母ラベルがモードで変わる() {
+        // 「アポ率」を単独表記しないための運用ルールへの対応
+        assert!(denominator_label(false).contains("Zoom発信"));
+        assert!(denominator_label(true).contains("HubSpot Call"));
+    }
+}

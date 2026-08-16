@@ -12,4 +12,5 @@
 //!   heatmap.rs  時間帯ヒートマップ（サーバ側集計の PoC。実測 33.1MB → 6.7KB）
 
 pub mod heatmap;
+pub mod tabs;
 pub mod sheets;
