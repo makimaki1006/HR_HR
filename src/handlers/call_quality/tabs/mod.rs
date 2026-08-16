@@ -25,6 +25,10 @@ use serde::Serialize;
 
 pub mod p0_overview;
 pub mod p1_members;
+pub mod p13_timeline;
+pub mod p12_churn;
+pub mod p8_consulting_contact;
+pub mod p2_habits;
 pub mod pja_job_application;
 pub mod p7_data_browser;
 
