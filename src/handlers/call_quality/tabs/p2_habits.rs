@@ -148,7 +148,7 @@ const FUNNEL_DIAL_START_YM: &str = "2025-12";
 // ---------------------------------------------------------------- 入力
 
 /// 画面上部のフィルタ。すべて省略可（省略 = 絞らない）。
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct P2Query {
     /// 期間開始 "YYYY-MM-DD"。月次明細の date は月初日固定なので実質 YYYY-MM。
     pub from: Option<String>,
@@ -172,6 +172,15 @@ pub struct P2Query {
     /// ファネルの `3m` / `6m` / `12m` の起点計算にだけ使う。
     pub today_ym: Option<String>,
 }
+
+// **`industry` / `size_band` はここに無い**。商談遷移のクロス絞込は
+// `trans_industry` / `trans_size`。検証担当が `industry=製造業&size_band=…` と
+// 書いて 200 が返り、KPI もペアも全部それらしい数値だったため
+// 「業界: 製造業」と表示しながら全業界の数字を出していることに気づけなかった。
+// 今はこの一覧に無い名前が `ignored_params` に出る。
+crate::accepted_params!(P2Query, p2_query_accepted =>
+    "from", "to", "pipeline", "owners", "prefecture",
+    "funnel_period", "trans_industry", "trans_size", "today_ym");
 
 impl P2Query {
     fn selected_owners(&self) -> Vec<String> {
@@ -455,6 +464,18 @@ pub struct P2HabitsData {
     pub stage_transition: StageTransition,
 }
 
+/// **実際に効いたフィルタを全部返す**、が原則。
+///
+/// 2026-08-17 拡張。それまでこの構造体は `from`/`to`/`pipeline`/`prefecture` の
+/// 4つしか返しておらず、`trans_industry` / `trans_size` / `funnel_period` /
+/// `today_ym` は「送ったが応答に痕跡が無い」状態だった。
+/// クロス絞込の取り違え（`industry` / `size_band` と書いた事故）に気づけたのは
+/// `stage_transition.cross_active: false` が返っていたおかげ。**あれを他の
+/// フィルタにも広げたのがこの4フィールド**。
+///
+/// 値は「送られてきた生の文字列」ではなく **実際に効いた値**を返す。
+/// 例: `funnel_period` は未指定でも `since-zoom` と返す（既定が効いている、が事実）。
+/// 生の入力そのものは `TabPayload::ignored_params` と合わせて見れば復元できる。
 #[derive(Debug, Serialize)]
 pub struct ScopeInfo {
     pub from: String,
@@ -468,6 +489,20 @@ pub struct ScopeInfo {
     /// プロジェクト規約で禁止なので、必ず画面に添えること。
     pub apo_denominator_label: &'static str,
     pub matched_rows: usize,
+    /// 商談遷移のクロス絞込（業界 JSIC 大分類）。絞っていなければ `__all__`。
+    /// **`stage_transition` にしか効かない**。上段の KPI・ランキング・散布図は
+    /// この値に関係なく全件のまま（GAS 版と同じ挙動）。
+    pub trans_industry: String,
+    /// 商談遷移のクロス絞込（従業員規模）。絞っていなければ `__all__`。同上。
+    pub trans_size: String,
+    /// ファネルの期間セレクタ。未指定なら既定の `since-zoom` を返す
+    /// （「指定しなかった」ではなく「since-zoom が効いた」が事実）。
+    /// **`funnel` にしか効かない**。
+    pub funnel_period: String,
+    /// ファネルの相対期間（3m/6m/12m）の起点に使った「当月」。
+    /// 明示指定が無ければ実行時の JST 当月。`funnel_period` が
+    /// `since-zoom` / `all` のときは起点計算に使われない。
+    pub funnel_today_ym: String,
 }
 
 // ---------------------------------------------------------------- 小道具
@@ -1496,7 +1531,10 @@ fn funnel_range(period: Option<&str>, today_ym: &str) -> (String, String) {
         let nm = total.rem_euclid(12) + 1;
         format!("{ny:04}-{nm:02}")
     }
-    match period.unwrap_or("since-zoom") {
+    // 正規化は `funnel_period_effective` に一本化する（`ScopeInfo` が返す値と
+    // 実際に効く範囲が食い違わないようにするため。ここで独自に match すると
+    // 「応答は 6m と言っているのに since-zoom で集計していた」が起こりうる）。
+    match funnel_period_effective(period) {
         "all" => ("all".to_string(), String::new()),
         "3m" => (ym_offset(today_ym, 2), String::new()),
         "6m" => (ym_offset(today_ym, 5), String::new()),
@@ -1850,19 +1888,42 @@ fn is_lost_stage(stage_id: &str, label: &str) -> bool {
 ///   share は絞込後の from 内で再計算、p50 は件数加重平均、**p25/p75 は取れない**
 ///   （クロス側に列が無いため。None を返す。0 で埋めない）。
 /// - 主要ステージ以外と、ラベル同一の自己遷移（失注5ステージを1ラベルに統合した副作用）を落とす。
+/// クロス絞込の値を正規化する。空 / `__all__` は「絞らない」。
+///
+/// **`build_stage_transition` と `ScopeInfo` の両方がこれを使う**。
+/// 別々に書くと「絞ったつもりの表示」と「実際の絞り込み」がずれる。
+fn cross_filter(v: Option<&str>) -> Option<&str> {
+    v.filter(|s| !s.is_empty() && *s != "__all__")
+}
+
+/// 応答に載せる用。絞っていなければ `__all__` を返す（空文字にしない —
+/// 「値が無い」と「全件」を画面で区別できなくなるため）。
+fn cross_value(v: Option<&str>) -> String {
+    cross_filter(v).unwrap_or("__all__").to_string()
+}
+
+/// ファネル期間セレクタの**実際に効いた値**。
+///
+/// `funnel_range` は未知の文字列を既定（`since-zoom`）へ落とすので、
+/// ここも同じ規則で正規化する。`?funnel_period=6M` のような大文字違いが
+/// 黙って `since-zoom` になっていたことが、これで応答から分かる。
+fn funnel_period_effective(v: Option<&str>) -> &'static str {
+    match v.unwrap_or("since-zoom") {
+        "all" => "all",
+        "3m" => "3m",
+        "6m" => "6m",
+        "12m" => "12m",
+        _ => "since-zoom",
+    }
+}
+
 pub fn build_stage_transition(
     summary: &SheetData,
     cross: &SheetData,
     q: &P2Query,
 ) -> StageTransition {
-    let ind_val = q
-        .trans_industry
-        .as_deref()
-        .filter(|s| !s.is_empty() && *s != "__all__");
-    let size_val = q
-        .trans_size
-        .as_deref()
-        .filter(|s| !s.is_empty() && *s != "__all__");
+    let ind_val = cross_filter(q.trans_industry.as_deref());
+    let size_val = cross_filter(q.trans_size.as_deref());
     let cross_active = ind_val.is_some() || size_val.is_some();
 
     // --- セレクタ候補（並びを安定させる） ---
@@ -2201,7 +2262,7 @@ pub async fn handle(
     let today_ym = q
         .today_ym
         .clone()
-        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m").to_string());
+        .unwrap_or_else(|| super::jst_current_ym());
 
     let data = P2HabitsData {
         scope: ScopeInfo {
@@ -2213,6 +2274,14 @@ pub async fn handle(
             owner_count: owners.len(),
             apo_denominator_label: apo_denominator_label(pref_mode),
             matched_rows: rows.len(),
+            // 以下4つは「実際に効いた値」。`build_stage_transition` /
+            // `build_funnel` と同じ正規化規則を使う（別々に書くと第二の
+            // 定義箇所になるので、判定は `cross_value` / `funnel_period_effective`
+            // に寄せてある）。
+            trans_industry: cross_value(q.trans_industry.as_deref()),
+            trans_size: cross_value(q.trans_size.as_deref()),
+            funnel_period: funnel_period_effective(q.funnel_period.as_deref()).to_string(),
+            funnel_today_ym: today_ym.clone(),
         },
         scorecards: build_scorecards(&totals),
         rankings: build_rankings(&owners, &members),
@@ -2231,6 +2300,8 @@ pub async fn handle(
         data,
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

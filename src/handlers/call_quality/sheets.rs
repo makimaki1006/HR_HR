@@ -209,16 +209,13 @@ impl Default for SheetStore {
 }
 
 async fn fetch_sheet(client: &SheetsClient, sheet: &str) -> Result<SheetData> {
-    let raw = client.get_sheet_as_rows(sheet).await?;
-
-    // get_sheet_as_rows は header をキーにした HashMap を返すので、
-    // ここでヘッダ順を復元して Vec 形式に落とす。
-    // （HashMap のままだと 20万行ぶん HashMap を保持することになる）
-    let mut header: Vec<String> = Vec::new();
-    if let Some(first) = raw.first() {
-        header = first.keys().cloned().collect();
-        header.sort(); // HashMap は順序不定。安定させるためソートする
-    }
+    // 2026-08-17 是正: 以前は `get_sheet_as_rows`(HashMap) を使い、順序不定を
+    //   避けるため `header.sort()` していた。結果、**スプレッドシートを
+    //   そのまま見るための画面で列がアルファベット順**になり、原本
+    //   (owner_id, year_month, pipeline, call_count …) と並びが違っていた。
+    //   数値は正しい列に紐づいていたので誤りとしては現れず、見落とされていた。
+    //   `get_sheet_as_table` は原本の列順をそのまま返すのでソートは不要。
+    let (header, raw) = client.get_sheet_as_table(sheet).await?;
 
     // 値の種類が少ない列（都道府県・業種・ステージ名など）を intern して
     // 同じ文字列を使い回す
@@ -235,8 +232,8 @@ async fn fetch_sheet(client: &SheetsClient, sheet: &str) -> Result<SheetData> {
     let mut rows = Vec::with_capacity(raw.len());
     for r in &raw {
         let mut row = Vec::with_capacity(header.len());
-        for h in &header {
-            row.push(intern(r.get(h).map(|s| s.as_str()).unwrap_or("")));
+        for i in 0..header.len() {
+            row.push(intern(r.get(i).map(|s| s.as_str()).unwrap_or("")));
         }
         rows.push(row);
     }
@@ -252,7 +249,7 @@ async fn fetch_sheet(client: &SheetsClient, sheet: &str) -> Result<SheetData> {
 
 /// 汎用の絞り込み・集計指定。
 /// GAS 側でブラウザがやっていたことを、そのままサーバ側で受けられるようにする。
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct SheetQuery {
     /// 絞り込み。`列名=値` を複数。値が空なら絞らない。
     #[serde(default)]
@@ -266,6 +263,19 @@ pub struct SheetQuery {
     /// 返す最大行数。集計しない場合の保険（全件を送らないため）。
     pub limit: Option<usize>,
 }
+
+// 2026-08-17 注記: **この構造体には現在 HTTP ルートが無い**（`sheets::query` を
+// 内部から呼ぶだけ）。そのため応答に `ignored_params` を持たせる先が無く、
+// ここでは受理リストと腐り検出テストだけを置いてある。
+// ルートを生やすときは、ハンドラで
+// `query_audit::audit_query::<SheetQuery>("sheets", raw.as_deref())` を呼び、
+// `SheetResponse` に `ignored_params` を足すこと。
+//
+// なお `filter` は `HashMap<String,String>`、`group_by`/`sum` は `Vec<String>` なので、
+// この構造体は **URL クエリ文字列では復元できない**（p7 と同じ罠）。
+// ルートを生やすなら POST + JSON にすること。
+crate::accepted_params!(SheetQuery, sheet_query_accepted =>
+    "filter", "group_by", "sum", "limit");
 
 #[derive(Debug, Serialize)]
 pub struct SheetResponse {

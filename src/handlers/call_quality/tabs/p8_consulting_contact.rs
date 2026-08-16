@@ -1117,6 +1117,15 @@ pub fn build_no_call(weekly: &SheetData, excluded: &HashSet<String>) -> NoCallPa
 pub struct ActivityKpis {
     /// この KPI が指す月（year_month の最大値）
     pub year_month: String,
+    /// **その月がまだ進行中か**。
+    ///
+    /// 2026-08-17 追加。ここは「直近月の実数」を出すパネルなので、
+    /// 全社サマリのように当月を消してしまうと見たいものが見えなくなる。
+    /// ただし進行中の当月は集計が途中で、前月より大幅に低い値がそのまま出る
+    /// （実測: 2026-08 の Call 738 が、月末値のように並ぶ）。
+    /// **利用側が「途中集計だ」と知る手段が無かった**ので旗を返す。
+    /// 数字は消さず、読み方だけ添える。
+    pub is_partial: bool,
     /// 主軸。行動量を測る指標はコール数のみ、というのが現場の定義
     pub call: f64,
     /// 以下は補足（順位にも評価にも使わない）
@@ -1132,6 +1141,8 @@ pub struct ActivityKpis {
 pub struct MonthlyCall {
     pub year_month: String,
     pub call_count: f64,
+    /// 進行中の当月か。折れ線の最終点が落ち込んで見える理由を画面で説明するため。
+    pub is_partial: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -1210,6 +1221,7 @@ pub fn build_activity(act: &SheetData) -> ActivityPanel {
 
     // KPI（直近月の合算）
     let mut k = ActivityKpis {
+        is_partial: super::jst_current_ym() == latest,
         year_month: latest.clone(),
         call: 0.0,
         email: 0.0,
@@ -1240,6 +1252,7 @@ pub fn build_activity(act: &SheetData) -> ActivityPanel {
     let monthly_call: Vec<MonthlyCall> = months
         .iter()
         .map(|m| MonthlyCall {
+            is_partial: &super::jst_current_ym() == m,
             year_month: m.clone(),
             call_count: *by_month.get(m.as_str()).unwrap_or(&0.0),
         })
@@ -1360,13 +1373,19 @@ pub struct P8Data {
 /// 画面から受け取るパラメータ。
 /// このタブは上部フィルタ(期間/PL/メンバー/都道府県)を**反映しない**
 /// （Python 側で全期間集計済のため）。GAS 版と同じ。
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct P8Query {
     /// A層の表の並び替え列。既定 `churn_rate`
     pub bench_sort_key: Option<String>,
     /// `asc` / `desc`。省略時は列ごとの自然な向き
     pub bench_sort_dir: Option<String>,
 }
+
+// このタブは上部フィルタ（期間/PL/メンバー/都道府県）を**反映しない**。
+// つまり `?from=…&to=…` は 200 で返るが一切効かない。まさに検証担当が踏んだ
+// 1回目の罠の形なので、それらは `ignored_params` に出るのが正しい。
+crate::accepted_params!(P8Query, p8_query_accepted =>
+    "bench_sort_key", "bench_sort_dir");
 
 impl P8Query {
     fn sort_state(&self) -> BenchSortState {
@@ -1473,6 +1492,8 @@ pub async fn handle(
         },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

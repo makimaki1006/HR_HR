@@ -65,7 +65,7 @@ const WEEKDAY_LABELS: [&str; 7] = ["月", "火", "水", "木", "金", "土", "�
 
 // ------------------------------------------------------------------ クエリ
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct TimeseriesQuery {
     /// 期間の下限 (YYYY-MM, 含む)。未指定なら制限なし。
     pub from_ym: Option<String>,
@@ -85,6 +85,11 @@ pub struct TimeseriesQuery {
     /// テストから固定値を入れるために外出ししてある。
     pub current_ym: Option<String>,
 }
+
+// このタブの期間は `from_ym` / `to_ym`（`from`/`to` でも `year_month` でもない）。
+// 名前が p2 と揃っていないので、打ち間違いが `ignored_params` に出ることが重要。
+crate::accepted_params!(TimeseriesQuery, timeseries_query_accepted =>
+    "from_ym", "to_ym", "prefecture", "industry", "owners", "cohort_metric", "current_ym");
 
 // ------------------------------------------------------------------ 返却型
 
@@ -796,7 +801,7 @@ pub async fn handle(
     let current_ym = q
         .current_ym
         .clone()
-        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m").to_string());
+        .unwrap_or_else(|| super::jst_current_ym());
     let pref_mode = pref_mode_of(&q);
     let scope = resolve_scope(q.owners.as_deref(), sales_owners.as_ref());
     let scope_text = scope_label(q.owners.as_deref(), scope.as_ref());
@@ -943,6 +948,8 @@ pub async fn handle(
         },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

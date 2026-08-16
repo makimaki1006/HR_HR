@@ -202,10 +202,16 @@ impl SheetsClient {
     }
 
     /// 単一シートを取得し header をキーとした `Vec<HashMap<String,String>>` で返す
-    pub async fn get_sheet_as_rows(
+    /// シートを **原本の列順のまま** (ヘッダ, 行) で返す。
+    ///
+    /// 2026-08-17 新設。従来は `get_sheet_as_rows` の `HashMap` しか無く、
+    /// 呼び出し側がヘッダ順を復元できずアルファベット順にソートしていた。
+    /// その結果、スプレッドシートをそのまま見るための画面(データブラウザ)で
+    /// **原本と列順が違う**という副作用が出ていた。
+    pub async fn get_sheet_as_table(
         &self,
         sheet_name: &str,
-    ) -> Result<Vec<HashMap<String, String>>> {
+    ) -> Result<(Vec<String>, Vec<Vec<String>>)> {
         let token = self.get_access_token().await?;
 
         // シート名に '/' や日本語が含まれるので URL encode
@@ -276,7 +282,7 @@ impl SheetsClient {
             .with_context(|| format!("ValuesResponse パース失敗 ({sheet_name})"))?;
 
         if parsed.values.len() < 2 {
-            return Ok(vec![]);
+            return Ok((Vec::new(), Vec::new()));
         }
 
         let mut iter = parsed.values.into_iter();
@@ -290,25 +296,50 @@ impl SheetsClient {
                 other => other.to_string(),
             })
             .collect();
-        let mut rows = Vec::with_capacity(iter.size_hint().0);
+        // 2026-08-17: ヘッダが空の列に `列N` を充てる。
+        //   従来は空ヘッダ列を `continue` で捨てていたため、「最新サマリ」
+        //   シート(1行目が注記・3行目が実ヘッダという特殊な作り)で
+        //   **2〜39列目が無言で消えて画面がほぼ空**になっていた。
+        //   捨てずに位置名で見せる。名前で引く既存の集計には影響しない。
+        let header: Vec<String> = header
+            .into_iter()
+            .enumerate()
+            .map(|(i, h)| if h.is_empty() { format!("列{}", i + 1) } else { h })
+            .collect();
+
+        let mut rows: Vec<Vec<String>> = Vec::with_capacity(iter.size_hint().0);
         for raw in iter {
-            let mut obj = HashMap::with_capacity(header.len());
-            for (i, key) in header.iter().enumerate() {
-                if key.is_empty() {
-                    continue;
-                }
-                let val_str = match raw.get(i) {
+            let mut cells = Vec::with_capacity(header.len());
+            for i in 0..header.len() {
+                cells.push(match raw.get(i) {
                     Some(serde_json::Value::String(s)) => s.clone(),
                     Some(serde_json::Value::Null) | None => String::new(),
                     Some(serde_json::Value::Bool(b)) => b.to_string(),
                     Some(serde_json::Value::Number(n)) => n.to_string(),
                     Some(other) => other.to_string(),
-                };
-                obj.insert(key.clone(), val_str);
+                });
             }
-            rows.push(obj);
+            rows.push(cells);
         }
-        Ok(rows)
+        Ok((header, rows))
+    }
+
+    /// 従来互換。列順を要さない呼び出し向けに `HashMap` へ畳む。
+    pub async fn get_sheet_as_rows(
+        &self,
+        sheet_name: &str,
+    ) -> Result<Vec<HashMap<String, String>>> {
+        let (header, rows) = self.get_sheet_as_table(sheet_name).await?;
+        Ok(rows
+            .into_iter()
+            .map(|cells| {
+                header
+                    .iter()
+                    .zip(cells)
+                    .map(|(k, v)| (k.clone(), v))
+                    .collect::<HashMap<String, String>>()
+            })
+            .collect())
     }
 
     pub fn spreadsheet_id(&self) -> &str {

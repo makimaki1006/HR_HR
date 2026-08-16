@@ -645,13 +645,18 @@ pub fn build_alerts(data: &SheetData, q: &P10Query) -> TaskAlertsPanel {
 
 // ================================================================== ハンドラ
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct P10Query {
     /// consultant_id/owner_id または表示名との一致でフィルタ（GAS `p10-action-filter`）
     pub owner: Option<String>,
     /// "__all__"(既定) / "mtg_no_followup" / "contact_zero_2week" / "na_overdue_no_action"
     pub alert_category: Option<String>,
 }
+
+// 担当者の絞込は `owner`（**`owners` ではない**。p0/p1/p3/ptf は複数形）。
+// 単複の取り違えは 200 が返って全担当者の数字が出るので、一覧に無い方が
+// `ignored_params` に載る。
+crate::accepted_params!(P10Query, p10_query_accepted => "owner", "alert_category");
 
 #[derive(Debug, Serialize)]
 pub struct P10Data {
@@ -690,7 +695,11 @@ pub async fn handle(
 ) -> Result<TabPayload<P10Data>> {
     let started = Instant::now();
     let mut sources: Vec<SourceInfo> = Vec::new();
-    let today = chrono::Local::now().date_naive();
+    // 2026-08-17 是正: `chrono::Local::now()` だと本番(UTC)で
+    //   **毎朝 00:00〜09:00 JST の9時間、日付が1日ずれる**。
+    //   `today` は「期限切れ/今日/今週/来週」の振り分けを決めるので、
+    //   バケットが丸ごと1つずれる。未来アクションを見るのはまさにその時間帯。
+    let today = super::jst_today();
 
     let actions_data = load(client, store, SHEET_ACTIONS, &mut sources).await?;
     let phase_data = load(client, store, SHEET_PHASE, &mut sources).await?;
@@ -707,6 +716,8 @@ pub async fn handle(
         data: P10Data { actions, phase, alerts },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 
