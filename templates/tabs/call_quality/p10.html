@@ -1,17 +1,85 @@
 {#
   タブ p10: 「未来アクション」
-  API: /api/call-quality/future-actions (未実装 — バックエンド未着手)
-  GAS版 index.html id="page-p10" (1388-1491行)
+  API: /api/call-quality/future-actions?owner=xxx&alert_category=xxx
+  対応する Rust payload: src/handlers/call_quality/tabs/p10_future_actions.rs
+    TabPayload<P10Data> { actions: ActionsPanel, phase: PhasePanel, alerts: TaskAlertsPanel }
 
-  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+    actions: kpis: ActionsKpis{counts: BucketCounts{overdue/today/this_week/next_week/later/no_plan},
+                total, with_date, fill_rate_pct(Option), future_among_dated_pct(Option)},
+             groups: Vec<BucketGroup>{key,rows: Vec<ActionRow>,total,truncated}(空バケットは除外),
+             owner_filter(Option), owners: Vec<(owner_id,owner_label)>,
+             date_priority_note/content_priority_note(&str、採用列の優先順位を明示)
+      ActionRow { deal_id, customer_label, owner_id, owner_label, stage, bucket,
+        next_action_date, next_action_date_source, days_to_action(Option),
+        latest_contact_date, days_since_contact(Option), action_detail, action_detail_source }
+
+    phase: flag_counts: PhaseFlagCounts{urgent/warning/caution/healthy/unknown},
+           target_count, actionable: Vec<PhaseRow>(🚨→⚠️→🟡のみ・上限50), actionable_total, truncated
+      PhaseRow { deal_id, customer_label, consultant_name, contract_type, contract_period,
+        phase_bucket, phase_pct, days_to_expiry(Option), latest_nps(Option), nps_base_line(Option),
+        contact_last30(Option), contact_expected(Option), overall_flag, alert_msg }
+
+    alerts: category_counts: AlertCategoryCounts{mtg_no_followup/contact_zero_2week/na_overdue_no_action},
+            total, selected_category(Option), rows: Vec<AlertRow>{deal_id,customer_label,owner_label,
+              pipeline_stage,category,category_label,days_since(Option),last_contact_date,
+              days_since_mtg(Option),last_mtg_date}
+
+  GAS版 index.html id="page-p10" (1388-1491行)。
+
+  未実装: なし。actions.date_priority_note / content_priority_note は「予定日・アクション内容が
+  どのHubSpot列から採用されたか」の優先順位説明なので、注記として必ず表示すること
+  (現場が「なぜこの日付なのか」を追えるようにする目的)。
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: 期日超過・今週対応すべき顧客(次回アクション日の入力率にも注意)</div>
 <div class="cq-headline"><div class="cq-headline-title">未来アクション</div></div>
 
-<div class="cq-panel"><div class="cq-panel-title">[0] 契約フェーズ予兆アラート(満了の生存ラインに対する進捗)</div><div class="cq-table" data-cq-table="p10-phase-alert"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">カテゴリ別 アクション件数</div><div class="cq-chart" data-cq-chart="p10-category-count" style="height:300px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">今週対応すべき顧客リスト</div><div class="cq-table" data-cq-table="p10-this-week"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">[3] タスク漏れリスト</div><div class="cq-table" data-cq-table="p10-missed-tasks"></div></div>
+<div class="cq-panel">
+  <div class="cq-panel-title">[0] 契約フェーズ予兆アラート(満了の生存ラインに対する進捗)</div>
+  <div class="cq-kpi-grid" data-cq-kpi="p10-phase-flag-counts">
+    <div class="cq-status" data-cq-status>読み込み中…</div>
+  </div>
+  <div class="cq-panel-note" data-cq-value="p10-phase-note"></div>
+  <div class="cq-table" data-cq-table="p10-phase-actionable"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">カテゴリ別 アクション件数</div>
+  <div class="cq-panel-note">
+    <span data-cq-value="p10-fill-rate"></span>
+    (<span data-cq-value="p10-date-priority-note"></span>)
+  </div>
+  <div class="cq-chart" data-cq-chart="p10-bucket-counts" style="height:280px"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">今週対応すべき顧客リスト</div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-p10-owner">担当者で絞込</label>
+      <select id="cq-p10-owner" class="cq-select" data-cq-control="p10-owner"><option value="">全担当者</option></select>
+    </div>
+  </div>
+  <div class="cq-panel-note" data-cq-value="p10-content-priority-note"></div>
+  <!-- actions.groups[](bucket別)をJSがバケット見出しごとに描画 -->
+  <div class="cq-table" data-cq-table="p10-actions-groups"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">[3] タスク漏れリスト</div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-p10-alert-category">カテゴリ</label>
+      <select id="cq-p10-alert-category" class="cq-select" data-cq-control="p10-alert-category">
+        <option value="__all__" selected>全カテゴリ</option>
+        <option value="mtg_no_followup">MTG後フォロー無し</option>
+        <option value="contact_zero_2week">2週間接触ゼロ</option>
+        <option value="na_overdue_no_action">NA期日超過・未対応</option>
+      </select>
+    </div>
+  </div>
+  <div class="cq-kpi-grid" data-cq-kpi="p10-alert-category-counts"></div>
+  <div class="cq-table" data-cq-table="p10-alerts"></div>
+</div>
 
 {% include "tabs/call_quality/_partials/_truncated_banner.html" %}
 {% include "tabs/call_quality/_partials/_sources_footer.html" %}

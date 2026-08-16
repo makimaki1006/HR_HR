@@ -1,10 +1,35 @@
 {#
   タブ p14: 「担当者360°」(GAS版名称: コンサル担当者 360°ビュー)
-  API: /api/call-quality/owner360 (未実装 — バックエンド未着手)
-  GAS版 index.html id="page-p14" (1782-1925行)。担当者セレクタ駆動、上部フィルタ非反映。
-  churn_proba はリーク除去後 AUC約0.72 の粗い補助であり確定予測ではない旨、GAS版原文を踏襲。
+  API: /api/call-quality/owner360?consultant_id=xxx&deals_status=xxx&contact_status=xxx&contact_weeks=xxx
+  対応する Rust payload: src/handlers/call_quality/tabs/p14_owner360.rs
+    TabPayload<P14Data> {
+      consultants: Vec<ConsultantOption>{consultant_id,consultant_name,consultant_email,
+                     active_deal_count}(セレクタ用、active_deal_count降順),
+      selected: Option<ConsultantDetail>   -- 未選択時は None(画面はセレクタのみ表示)
+        ConsultantDetail {
+          consultant_id, consultant_name,
+          kpi: KpiCards { active_deal_count, churn_failure, churn_total, continuing,
+            success_fulfilled, churn_rate_pct(Option), retention_rate_pct(Option),
+            critical_pred_count, high_pred_count, task_alert_count, avg_risk_score(Option),
+            avg_monthly_contact(Option), last_activity_at, consultant_email,
+            churn_band/critical_band/high_band/task_band/contact_band/risk_band: "good"|"warn"|"bad"|"neutral" },
+          nps_trend: Vec<NpsPoint>{period,avg,n},
+          prefecture: Vec<PrefectureRow>{prefecture,deal_count}(47都道府県),
+          monthly_trend: Vec<MonthlyTrendRow>{month,mrr,won_new,won_renewal,held_deals,expiring,
+            renewed,continuation_rate_pct(Option),churned_mrr,is_partial(当月=集計途中の旗)},
+          deals: DealsTable{status_filter,rows: Vec<DealRow>(is_active/risk_score/churn_proba_90d_pct等),
+            total_rows,truncated,limit},
+          contact_log: ContactLogPanel{status_filter,weeks_shown,deals: Vec<ContactDeal>{deal_id,
+            label,is_active,days_since_last_contact,weeks: Vec<{week,call_count,mtg_count}>,
+            total_call,total_mtg},max_week}
+        }
+    }
 
-  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+  GAS版 index.html id="page-p14" (1782-1925行)。churn_proba はリーク除去後 AUC約0.72 の
+  粗い絞り込み補助で確定予測ではない旨、GAS版原文を踏襲。
+
+  未実装: なし(全フィールドに対応するコンテナを用意した)。band(good/warn/bad/neutral)は
+  KPIカードの色分けに使う想定(JS側の責務)。
 #}
 <div class="cq-tab-focus">👀 <b>今週の要点</b>: (担当選択時)その人の保有件数・リスク件数・最終接触・月次推移</div>
 <div class="cq-headline">
@@ -23,18 +48,24 @@
   </div>
   <div class="cq-filter-group">
     <label for="cq-p14-consultant-select">担当者を選択</label>
+    <!-- consultants[] (active_deal_count降順)をJSが差し込む -->
     <select id="cq-p14-consultant-select" class="cq-select" data-cq-control="p14-consultant-select"><option value="">-- 担当者を選択 --</option></select>
   </div>
   <span class="cq-status" data-cq-status>―</span>
 </div>
 
+<!-- selected=null のときはこの下を全部非表示にし、上のセレクタだけ見せる想定 -->
+<div data-cq-table="p14-selected-wrap" hidden>
+
+<!-- kpi: KpiCards。churn_rate_pct等はband(good/warn/bad/neutral)で色分け -->
 <div class="cq-kpi-grid" data-cq-kpi="p14-summary"></div>
 
 <div class="cq-panel cq-panel-wide">
   <div class="cq-panel-title">📈 個人の月次推移(収益・受注・継続・保有)</div>
   <div class="cq-panel-note">
-    月額収益(MRR)=その月アクティブな案件の月額合計。受注額=その月開始の契約金額。解約額=その月解約の月額。
-    継続率=その月満了案件のうち継続(更新)割合。保有案件数=その月アクティブだった案件数。
+    月額収益(MRR)=その月アクティブな案件の月額合計。受注額(won_new/won_renewal)=その月開始の契約金額(新規/更新)。
+    解約額(churned_mrr)=その月解約の月額。継続率(continuation_rate_pct)=その月満了案件のうち継続割合。
+    保有案件数(held_deals)=その月アクティブだった案件数。is_partial=当月(集計途中)。
   </div>
   <div class="cq-panel-grid">
     <div class="cq-chart" data-cq-chart="p14-revenue" style="height:260px"></div>
@@ -44,8 +75,50 @@
 
 <div class="cq-panel"><div class="cq-panel-title">顧客満足度(NPS 定期回推移)</div><div class="cq-chart" data-cq-chart="p14-nps-trend" style="height:280px"></div></div>
 <div class="cq-panel"><div class="cq-panel-title">担当 Deal の都道府県分布(47都道府県)</div><div class="cq-chart" data-cq-chart="p14-pref-distribution" style="height:340px"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">担当 Deal 一覧(リスク降順)</div><div class="cq-table" data-cq-table="p14-deal-list"></div></div>
-<div class="cq-panel"><div class="cq-panel-title">📞 接触ログ(案件 × 週、MTG・電話)</div><div class="cq-table" data-cq-table="p14-contact-log"></div></div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">担当 Deal 一覧(リスク降順)</div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-p14-deals-status">状態</label>
+      <select id="cq-p14-deals-status" class="cq-select" data-cq-control="p14-deals-status">
+        <option value="all" selected>全件</option>
+        <option value="active">稼働中</option>
+        <option value="continued">継続</option>
+        <option value="churned">解約</option>
+      </select>
+    </div>
+  </div>
+  <div class="cq-panel-note" data-cq-value="p14-deals-note"></div>
+  <div class="cq-table" data-cq-table="p14-deal-list"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">📞 接触ログ(案件 × 週、MTG・電話)</div>
+  <div class="cq-p7-control-bar">
+    <div class="cq-filter-group">
+      <label for="cq-p14-contact-status">状態</label>
+      <select id="cq-p14-contact-status" class="cq-select" data-cq-control="p14-contact-status">
+        <option value="active" selected>稼働中</option>
+        <option value="all">全件</option>
+        <option value="churned">解約</option>
+      </select>
+    </div>
+    <div class="cq-filter-group">
+      <label for="cq-p14-contact-weeks">表示期間</label>
+      <select id="cq-p14-contact-weeks" class="cq-select" data-cq-control="p14-contact-weeks">
+        <option value="16">直近16週</option>
+        <option value="26" selected>直近26週</option>
+        <option value="52">直近52週</option>
+        <option value="0">全期間</option>
+      </select>
+    </div>
+  </div>
+  <div class="cq-panel-note" data-cq-value="p14-contact-max-week"></div>
+  <div class="cq-table" data-cq-table="p14-contact-log"></div>
+</div>
+
+</div>
 
 {% include "tabs/call_quality/_partials/_truncated_banner.html" %}
 {% include "tabs/call_quality/_partials/_sources_footer.html" %}

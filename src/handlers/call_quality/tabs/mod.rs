@@ -25,6 +25,8 @@ use serde::Serialize;
 
 pub mod p0_overview;
 pub mod p1_members;
+pub mod p15_pipeline_mgmt;
+pub mod p11_activity;
 pub mod pbpo_dashboard;
 pub mod p14_owner360;
 pub mod p10_future_actions;
