@@ -49,6 +49,28 @@ pub struct TabPayload<T: Serialize> {
     pub sources: Vec<SourceInfo>,
     /// サーバ側の処理時間(ms)
     pub elapsed_ms: u128,
+    /// **このエンドポイントが解釈できず捨てた引数名**。
+    ///
+    /// 空でも必ずキーを出す（空配列）。**キーごと消してはいけない**。
+    /// 消すと「載っていない = 無かった」なのか「古いサーバ」なのかを
+    /// 画面側が区別できなくなる。
+    ///
+    /// タブ側は `Vec::new()` を入れておけばよい。実際の中身はルータ側
+    /// (`routes.rs`) が生のクエリ文字列を見て詰める。タブ関数は生の
+    /// クエリ文字列を受け取らないため、ここで判定できるのはルータだけ。
+    pub ignored_params: Vec<String>,
+}
+
+impl<T: Serialize> TabPayload<T> {
+    /// ルータが「解釈できなかった引数」を後乗せする。
+    ///
+    /// タブ側の構築コードを全部書き換えずに済ませるための入口。
+    /// 逆に言うと**ルータがこれを呼び忘れると常に空配列になる**ので、
+    /// ハンドラは必ず `routes::finish`（`ignored` を必須引数に取る）経由で返すこと。
+    pub fn with_ignored(mut self, ignored: Vec<String>) -> Self {
+        self.ignored_params = ignored;
+        self
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -64,6 +86,29 @@ pub struct SourceInfo {
     /// 実際のデータ生成時刻と混同させていた**。データ自体の生成時刻は
     /// 各シートの「生成時刻」列を見ること。
     pub age_secs: u64,
+}
+
+/// 「いま何月か」を **日本時間で** 返す（`YYYY-MM`）。
+///
+/// 2026-08-17 新設。各タブが `chrono::Local::now()` を使っていたが、
+/// 本番(Render)のプロセスは UTC で動くため **毎月1日の 00:00〜09:00 JST に
+/// 前月が「当月」になる**。GAS はブラウザ(JST)で判定しているので、
+/// 月初の朝だけ画面の当月がずれるという再現しにくい食い違いになる。
+pub fn jst_current_ym() -> String {
+    let jst = chrono::FixedOffset::east_opt(9 * 3600).expect("JST offset");
+    chrono::Utc::now().with_timezone(&jst).format("%Y-%m").to_string()
+}
+
+/// 「今日」を **日本時間で** 返す。
+///
+/// 2026-08-17 新設。`chrono::Local::now().date_naive()` を使っていた箇所は、
+/// 本番(Render)が UTC なので **毎日 00:00〜09:00 JST の9時間、日付が1日ずれます**。
+/// 当月判定(`jst_current_ym`)のズレが月初の9時間だけだったのに対し、
+/// こちらは**毎朝9時間**。しかも未来アクションを見るのはまさにその時間帯で、
+/// 「期限切れ / 今日 / 今週 / 来週」の振り分けが丸ごと1日ずれます。
+pub fn jst_today() -> chrono::NaiveDate {
+    let jst = chrono::FixedOffset::east_opt(9 * 3600).expect("JST offset");
+    chrono::Utc::now().with_timezone(&jst).date_naive()
 }
 
 /// 分母0を 0% にしないための共通ヘルパ。
