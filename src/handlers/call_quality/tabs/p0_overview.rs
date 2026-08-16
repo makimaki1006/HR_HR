@@ -173,6 +173,18 @@ pub fn collect(
             continue;
         }
 
+        // 2026-08-16 追加: 都道府県で**行を絞る**。
+        //   従来は分母を HubSpot Call に切り替えるだけで行を絞っておらず、
+        //   「東京都を選んでも全国の集計が出る」状態だった。
+        //   handle 側で「都道府県月次」シートへ差し替え、ここで列で絞る。
+        if let Some(pref) = q.prefecture.as_deref() {
+            if !pref.is_empty() && data.col("prefecture").is_some() {
+                if data.get(row, "prefecture") != pref {
+                    continue;
+                }
+            }
+        }
+
         let call = num(data.get(row, "call_count"));
         let zoom = num(data.get(row, "zoom_dial_count"));
         let apo = num(data.get(row, "apo_count"));
@@ -271,7 +283,16 @@ pub async fn handle(
     sales_owners: Option<Vec<String>>,
 ) -> Result<TabPayload<OverviewData>> {
     let started = Instant::now();
-    let (data, from_cache) = store.get(client, "月次明細").await?;
+
+    // 都道府県を選んだときは土台シートごと差し替える（GAS 版と同じ）。
+    // 「月次明細」には prefecture 列が無いので、そのままでは絞りようがない。
+    let pref_mode = q
+        .prefecture
+        .as_deref()
+        .map(|p| !p.is_empty())
+        .unwrap_or(false);
+    let sheet = if pref_mode { "都道府県月次" } else { "月次明細" };
+    let (data, from_cache) = store.get(client, sheet).await?;
 
     // 対象月未指定なら最新月にする（画面の既定挙動）
     if q.year_month.is_none() {
@@ -284,12 +305,6 @@ pub async fn handle(
         }
         q.year_month = latest;
     }
-
-    let pref_mode = q
-        .prefecture
-        .as_deref()
-        .map(|p| !p.is_empty())
-        .unwrap_or(false);
 
     let (monthly_all, owners, matched) = collect(&data, &q, sales_owners.as_ref());
 
@@ -329,7 +344,7 @@ pub async fn handle(
             apo_denominator_label: denominator_label(pref_mode),
         },
         sources: vec![SourceInfo {
-            sheet: "月次明細".to_string(),
+            sheet: sheet.to_string(),
             total_rows: data.rows.len(),
             matched_rows: matched,
             from_cache,
