@@ -646,6 +646,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // 資格辞書 / 職種辞典と同じテーブルの読み取り専用・軽量 JSON。
         // GET /api/dict/license_card?name=... / GET /api/dict/occupation_card?name=...
         .merge(handlers::dict_cards::router())
+        // 2026-08-16: 架電クオリティ（GAS版ダッシュボードの移植先）。
+        // ページ /call-quality + API /api/call-quality/*。
+        // **route_layer(auth_middleware) より前に merge すること**。
+        // 後ろに置くと認証が掛からない（route_layer は後に足した方が外側になる）。
+        .merge(handlers::call_quality::routes::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。
