@@ -1,0 +1,69 @@
+{#
+  タブ p0: 「全社サマリ」(GAS版名称: 経営サマリ)
+  API: /api/call-quality/overview
+  対応する Rust payload: src/handlers/call_quality/tabs/p0_overview.rs
+    TabPayload<OverviewData> { kpi: Kpi, monthly: Vec<MonthlyPoint>,
+                                top_performers: Vec<OwnerRate>, needs_support: Vec<OwnerRate>,
+                                apo_denominator_label: String }
+    Kpi { call_count, zoom_dial_count, apo_count, apo_rate(Option), na_due,
+          na_done_ontime, na_rate(Option) }
+    MonthlyPoint { year_month, call_count, zoom_dial_count, apo_count, apo_rate(Option), na_rate(Option) }
+    OwnerRate { owner_id, apo_count, denominator, call_count, apo_rate(Option) }
+
+  GAS版 index.html id="page-p0" (147-248行)。
+
+  2026-08-16 実装確認により全面書き直し: 実装済みの OverviewData は
+  「KPI / 月次3連(架電数・アポ率・NA遵守率) / トップパフォーマー・要支援 Top3」のみ。
+  以前の版で憶測で足していた 月の接触規模/Recency全社サマリ/Deal Health Critical Top20/
+  KPI目標達成率タグ凡例 の4パネルは、対応する payload フィールドが存在しないため削除した
+  (GAS版には存在するが、この API はまだそこまで実装していない)。
+
+  未実装(GAS版にあってこのAPIにまだ無いもの): 月の接触規模、Recency全社サマリ、
+  Deal Health Critical Top20、KPI目標達成率タグ凡例。API拡張後に追加する。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: 当月の架電・アポ率・NA遵守は目標ペースに対しどうか／要支援メンバーTop3は誰か</div>
+<div class="cq-headline">
+  <div class="cq-headline-title">全社サマリ</div>
+</div>
+
+<!-- Kpi: call_count/zoom_dial_count/apo_count/apo_rate(None可)/na_due/na_done_ontime/na_rate(None可) -->
+<div class="cq-kpi-grid" data-cq-kpi="p0-kpi">
+  <div class="cq-status" data-cq-status>読み込み中…</div>
+</div>
+<div class="cq-panel-note">
+  アポ率・NA遵守率の分母: <span class="cq-denom" data-cq-denom="p0-denom">分母: —</span>
+  (apo_denominator_label をそのまま表示。都道府県絞込時は分母が切り替わるため単独表記しない)
+</div>
+
+<!-- monthly: Vec<MonthlyPoint>(直近8ヶ月)を3チャートで共有(x軸=year_month) -->
+<div class="cq-panel-grid">
+  <div class="cq-panel">
+    <div class="cq-panel-title">月次 架電数推移</div>
+    <div class="cq-chart" data-cq-chart="p0-monthly-call" style="height:260px"></div>
+  </div>
+  <div class="cq-panel">
+    <div class="cq-panel-title">月次 アポ率推移</div>
+    <div class="cq-panel-note"><span class="cq-denom" data-cq-denom="p0-monthly-apo-denom">分母: —</span></div>
+    <div class="cq-chart" data-cq-chart="p0-monthly-apo" style="height:260px"></div>
+  </div>
+  <div class="cq-panel">
+    <div class="cq-panel-title">月次 NA遵守率推移</div>
+    <div class="cq-chart" data-cq-chart="p0-monthly-na" style="height:260px"></div>
+  </div>
+</div>
+
+<!-- top_performers / needs_support: Vec<OwnerRate>{owner_id,apo_count,denominator,call_count,apo_rate} -->
+<div class="cq-panel-grid">
+  <div class="cq-panel">
+    <div class="cq-panel-title">トップ パフォーマー(当月アポ率 Top3)</div>
+    <div class="cq-panel-note"><span class="cq-denom" data-cq-denom="p0-top-denom">分母: —</span>(足切り: 分母100件未満は対象外。rustの MIN_DEN_FOR_RATE 定数と一致させること)</div>
+    <div class="cq-table" data-cq-table="p0-top-performers"></div>
+  </div>
+  <div class="cq-panel">
+    <div class="cq-panel-title">要支援 Top3(当月アポ率 Bottom3)</div>
+    <div class="cq-table" data-cq-table="p0-needs-support"></div>
+  </div>
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

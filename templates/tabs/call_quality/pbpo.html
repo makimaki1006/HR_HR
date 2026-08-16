@@ -1,0 +1,34 @@
+{#
+  タブ pbpo: 「BPOダッシュボード」
+  API: /api/call-quality/bpo (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-pbpo" (312-369行)。BPO限定ダッシュボード。
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+#}
+<div class="cq-tab-focus">👀 <b>BPO限定ダッシュボード</b>: ①全体KPI → ②個人別 → ③データ品質(数値は事実のみ。順位・評価はしない=人が解釈)</div>
+<div class="cq-headline"><div class="cq-headline-title">BPOダッシュボード</div></div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">① BPO全体KPI(月次推移)</div>
+  <div class="cq-chart" data-cq-chart="pbpo-kpi-trend" style="height:300px"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">② 個人別(月次)</div>
+  <div class="cq-table" data-cq-table="pbpo-per-caller"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">③ データ品質 / ゴミの可視化</div>
+  <div class="cq-table" data-cq-table="pbpo-data-quality"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">④ ネクストアクション健全性(ステージ別・要フォロー)</div>
+  <div class="cq-table" data-cq-table="pbpo-next-action"></div>
+</div>
+<div class="cq-panel">
+  <div class="cq-panel-title">⑤ 効率のよい架電時間帯(曜日×時間帯)</div>
+  <!-- サーバ側集計済みのheatmap API(/api/call-quality/heatmap)を流用する想定 -->
+  <div class="cq-chart" data-cq-chart="pbpo-time-heatmap" style="height:360px"></div>
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

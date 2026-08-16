@@ -1,0 +1,272 @@
+/**
+ * call_quality.css - 架電クオリティ(GAS版ダッシュボード移植先)専用スタイル
+ * 担当: P12(解約分析) / P13(案件タイムライン)
+ *
+ * 2026-08-16。GAS版とは全く別ページとして扱う(ユーザー決定)ので、
+ * 既存タブのCSSには混ぜず、このファイルに独立させる。
+ *
+ * 【CSS変数について】未定義の var(--xxx) は使わない(チームリード指示)。
+ * GAS版 style.html は var(--text) / var(--border) / var(--text-sub) 等を多用しているが、
+ * これらは HR_HR 側の CSS(dashboard.css / tailwind-precompiled.css)には定義が無い。
+ * → 確認手順: `grep -rn "^\s*--" static/css/*.css` で :root 定義を確認した結果、
+ *    HR_HR 側にあるのは --color-male 等の意味別トークン(dashboard.css 12-30行)のみで、
+ *    GAS版が使う汎用トークン(--text/--border等)は存在しない。
+ * → 本ファイルでは変数を使わず、dashboard.css と同じダーク配色を**直値**で書く
+ *   (背景 #0f172a系 / カード #1e293b系 / 枠線 #334155系 / 本文 #e2e8f0系 / 補助文 #94a3b8系)。
+ *
+ * 【クラス名の出どころ】
+ * - P13 (.p13-*) は GAS版 style.html の同名クラスをダーク配色に置き換えて移植した
+ *   (テンプレート担当がGAS版の要素ID/構造を踏襲する方針のため、クラス名も揃えておくと
+ *   食い違いが起きにくい)。
+ * - P12 (.cq-badge-*, .cq-truncated-note) はGAS版に対応クラスが無い新設要素
+ *   (介入優先度バッジ・上位N件切り詰め警告はRust移植で追加した表現)。
+ * - 骨組み(タブ見出し・KPIグリッド・テーブル等)は dashboard.css の既存部品
+ *   (.stat-card / .grid-stats / .data-table / .karte-* / .filter-*)をJS側から
+ *   直接参照しており、このファイルには重複定義しない。
+ *
+ * 未定：ページ骨格(タブ見出しバナー等)のクラス名はテンプレート担当が最終決定する。
+ * 届き次第、必要であればこのファイルへ追記する。
+ */
+
+/* ==========================================================
+   P12: truncated 注記(上位N件のみ表示、を黙らないための警告バー)
+   ========================================================== */
+.cq-truncated-note {
+    background: rgba(217, 119, 6, 0.15);
+    border: 1px solid #d97706;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11.5px;
+    color: #fcd34d;
+    margin-bottom: 10px;
+}
+
+/* ==========================================================
+   P12: 解約リスク介入優先度バッジ
+   ========================================================== */
+.cq-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    border: 1px solid;
+    white-space: nowrap;
+}
+.cq-badge-critical { background: rgba(220, 38, 38, 0.18); border-color: #dc2626; color: #fca5a5; }
+.cq-badge-watch     { background: rgba(217, 119, 6, 0.18); border-color: #d97706; color: #fcd34d; }
+.cq-badge-dig        { background: rgba(234, 88, 12, 0.18); border-color: #ea580c; color: #fdba74; }
+.cq-badge-stable     { background: rgba(22, 163, 74, 0.18); border-color: #16a34a; color: #86efac; }
+.cq-badge-mixed      { background: rgba(100, 116, 139, 0.18); border-color: #64748b; color: #cbd5e1; }
+
+/* ==========================================================
+   P13: Deal検索の候補ドロップダウン
+   GAS版 style.html .p13-suggest 系(1850-1877行)のダーク配色版。
+   ========================================================== */
+.p13-suggest {
+    position: absolute;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    max-height: 260px;
+    overflow-y: auto;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.p13-suggest-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: #e2e8f0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.p13-suggest-item:last-child { border-bottom: none; }
+.p13-suggest-item:hover { background: rgba(59, 130, 246, 0.12); }
+.p13-suggest-item .p13-suggest-meta {
+    font-size: 10.5px;
+    color: #94a3b8;
+    margin-top: 2px;
+}
+.p13-suggest-empty {
+    padding: 14px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+/* ==========================================================
+   P13: Deal概要カード(GAS版 .p13-deal-card 1878-1897行のダーク配色版)
+   ========================================================== */
+.p13-deal-card {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    padding: 12px 14px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: #e2e8f0;
+}
+.p13-deal-card .p13-cell { min-width: 140px; }
+.p13-deal-card .p13-cell-label {
+    font-size: 10.5px;
+    color: #94a3b8;
+    margin-bottom: 2px;
+}
+.p13-deal-card .p13-cell-value {
+    font-weight: 600;
+    color: #f1f5f9;
+}
+
+/* ==========================================================
+   P13: MTGタイムライン(横スクロール・カンバン式)
+   GAS版 .p13-timeline-list / .p13-mtg-card 系(1898-2028行)のダーク配色版。
+   ========================================================== */
+.p13-timeline-list {
+    display: flex;
+    flex-direction: row;
+    gap: 14px;
+    margin-top: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 6px 6px 14px 6px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+}
+.p13-timeline-list::-webkit-scrollbar { height: 10px; }
+.p13-timeline-list::-webkit-scrollbar-track { background: #0f172a; border-radius: 5px; }
+.p13-timeline-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 5px; }
+.p13-timeline-list::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+.p13-mtg-card {
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: #1e293b;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    position: relative;
+    flex: 0 0 380px;
+    min-width: 380px;
+    max-width: 380px;
+    max-height: 560px;
+    overflow-y: auto;
+    scroll-snap-align: start;
+}
+.p13-mtg-card.p13-no-summary {
+    background: rgba(217, 119, 6, 0.08);
+    border-color: #d97706;
+}
+
+.p13-mtg-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+.p13-mtg-date {
+    font-weight: 700;
+    color: #60a5fa;
+    font-size: 13.5px;
+}
+.p13-mtg-topic {
+    font-size: 13.5px;
+    font-weight: 600;
+    flex: 1 1 280px;
+    color: #f1f5f9;
+}
+.p13-mtg-meta {
+    font-size: 11px;
+    color: #94a3b8;
+}
+.p13-mtg-meta a { color: #60a5fa; }
+
+.p13-mtg-overview {
+    font-size: 12px;
+    color: #cbd5e1;
+    background: rgba(15, 23, 42, 0.6);
+    border-left: 3px solid #6366f1;
+    padding: 8px 10px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    margin-bottom: 8px;
+}
+
+.p13-mtg-section { margin-top: 8px; }
+.p13-mtg-section-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #94a3b8;
+    margin-bottom: 4px;
+}
+.p13-mtg-details {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+}
+.p13-mtg-detail {
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 6px 10px;
+}
+.p13-mtg-detail-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #94a3b8;
+    margin-bottom: 2px;
+}
+.p13-mtg-detail-body {
+    white-space: pre-wrap;
+    color: #cbd5e1;
+}
+.p13-mtg-next {
+    background: rgba(16, 185, 129, 0.1);
+    border-left: 3px solid #10b981;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #cbd5e1;
+}
+.p13-mtg-next ul { margin: 0; padding-left: 18px; }
+.p13-mtg-next li { margin-bottom: 3px; }
+
+.p13-mtg-empty {
+    padding: 20px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 12.5px;
+    background: #1e293b;
+    border: 1px dashed #334155;
+    border-radius: 8px;
+}
+
+/* 紐付け信頼度バッジ(GAS版 .p13-mtg-source-badge 2015-2028行のダーク配色版) */
+.p13-mtg-source-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 700;
+    margin-left: 6px;
+}
+.p13-mtg-source-badge.p13-src-high { background: rgba(22, 163, 74, 0.2); color: #86efac; }
+.p13-mtg-source-badge.p13-src-mid  { background: rgba(217, 119, 6, 0.2); color: #fcd34d; }
+.p13-mtg-source-badge.p13-src-low  { background: rgba(220, 38, 38, 0.2); color: #fca5a5; }
+
+/* ==========================================================
+   アクセシビリティ
+   ========================================================== */
+@media (prefers-reduced-motion: reduce) {
+    .p13-suggest-item {
+        transition: none;
+    }
+}

@@ -1,0 +1,22 @@
+{#
+  タブ p15: 「案件マネジメント」(GAS版名称そのまま)
+  API: /api/call-quality/pipeline-mgmt (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p15" (1926-2024行)。向こう半年の保有/満了/高リスク +
+  Revenue at Risk を月別/担当者別に可視化。
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: 向こう6ヶ月の満了件数・Revenue at Risk・即対応が要る案件</div>
+<div class="cq-headline"><div class="cq-headline-title">案件マネジメント</div></div>
+
+<div class="cq-kpi-grid" data-cq-kpi="p15-summary">
+  <div class="cq-status" data-cq-status>読み込み中…</div>
+</div>
+
+<div class="cq-panel"><div class="cq-panel-title">月別 件数推移(向こう6ヶ月)</div><div class="cq-chart" data-cq-chart="p15-monthly-count" style="height:300px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">Revenue at Risk(向こう6ヶ月)</div><div class="cq-chart" data-cq-chart="p15-revenue-at-risk" style="height:300px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">コンサル × 月 マトリクス(全担当者)</div><div class="cq-chart" data-cq-chart="p15-consultant-month-matrix" style="height:340px"></div></div>
+<div class="cq-panel"><div class="cq-panel-title">アクション必要 Deal 一覧(上位100件、満了日昇順)</div><div class="cq-table" data-cq-table="p15-action-needed"></div></div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}

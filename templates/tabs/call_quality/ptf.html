@@ -1,0 +1,39 @@
+{#
+  タブ ptf: 「ターゲット分析」
+  API: /api/call-quality/target (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-ptf" (719-938行)。2026-07-02再編で「乖離検知を主役」にした構成。
+
+  未実装(薄い雛形): バックエンドAPI未着手。条件ビルダー(最大4件AND、数値/日付は範囲可)は
+  入力コントロールの器のみ用意し、実際のバリデーション・適用ロジックはJS側で実装する。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: 経営方針のターゲット(任意条件)に対し、現場の架電・商談・成約がどれだけズレているか(該当 vs それ以外)</div>
+<div class="cq-headline"><div class="cq-headline-title">ターゲット分析</div></div>
+
+<div class="cq-panel cq-panel-hero">
+  <div class="cq-panel-title">① ターゲット条件を組む → 該当 vs それ以外 のファネル対比</div>
+  <div class="cq-panel-note">条件(取引プロパティの複数AND、最大4件・数値/日付は範囲可)を組んで適用すると、該当(ターゲット)とそれ以外のファネル(母数→架電→アポ/商談→成約)をライブ対比します。</div>
+  <div class="cq-p7-control-bar" data-cq-table="ptf-condition-builder"></div>
+  <div class="cq-chart" data-cq-chart="ptf-funnel-compare" style="height:340px"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">② 時系列乖離(週次・直近8週)</div>
+  <div class="cq-chart" data-cq-chart="ptf-weekly-gap" style="height:300px"></div>
+</div>
+
+<div class="cq-panel">
+  <div class="cq-panel-title">③ 経営方針ターゲット(保存・実績アラート)</div>
+  <div class="cq-table" data-cq-table="ptf-saved-targets"></div>
+</div>
+
+<div class="cq-headline"><div class="cq-headline-title">セグメント別 — どのセグメント(業界×規模×地域)でアポ率が高い/低いか</div></div>
+<div class="cq-panel"><div class="cq-panel-title">セグメント別 クロス絞込</div><div class="cq-table" data-cq-table="ptf-segment-cross"></div></div>
+<div class="cq-panel-grid">
+  <div class="cq-panel"><div class="cq-panel-title">都道府県別 アポ率</div><div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div><div class="cq-chart" data-cq-chart="ptf-pref-apo" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">業界別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-industry-apo" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">規模別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-size-apo" style="height:300px"></div></div>
+  <div class="cq-panel"><div class="cq-panel-title">コンタクト属性別 アポ率</div><div class="cq-chart" data-cq-chart="ptf-contact-attr-apo" style="height:300px"></div></div>
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}
