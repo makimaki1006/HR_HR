@@ -1,0 +1,16 @@
+<!-- 共通パーシャル: truncated 警告バナー。
+     16タブすべてで askama の include ディレクティブによりこのファイルを読み込む
+     (パスは tabs/call_quality/_partials/_truncated_banner.html。使わないタブでは
+     hidden のまま残るだけなので置いておいて問題ない)。
+     注意: このファイル自身の中で自分へのinclude構文を書くと自己参照になるため、
+     このコメントでは意図的に生の構文表記を避けている。
+
+     「上位N件のみ表示」「1ページ最大500行にクランプ」等を黙らないための約束3対応。
+     JS が各パネルの JSON レスポンスの `truncated: true` を見つけたら、
+     このバナーの文言を書き換えて hidden を外す。1つのタブに複数の truncated 発生源が
+     ありうる場合(例: p7 はブラウズ/CSV/クイック可視化の3箇所)は、タブ側で
+     data-cq-truncated を複数配置してよい(その場合は末尾に連番やキーを振ける)。
+
+     class は cq-truncated-note。static/css/call_quality.css に既に定義済み
+     (P12担当が先行実装、34-42行)なので新規CSSを足す必要はなくそのまま使う。 -->
+<div class="cq-truncated-note" data-cq-truncated hidden role="alert"></div>

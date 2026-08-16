@@ -1,0 +1,57 @@
+{#
+  タブ p1: 「メンバー比較」
+  API: /api/call-quality/members (未実装 — バックエンド未着手)
+  GAS版 index.html id="page-p1" (249-311行)。GAS版はこのタブに専用の見出し(headline)を
+  持たず、tab-focus のすぐ下にスコアカードが始まる構成だったが、タブ間の一貫性のため
+  cq-headline を追加した(GAS版に無い要素を1つ足した、という差分として明記する)。
+
+  未実装(薄い雛形): バックエンドAPI未着手。見出し・要点・空コンテナのみ。
+#}
+<div class="cq-tab-focus">👀 <b>今週の要点</b>: アポ率・架電数の上位/下位は誰か。量×質マップで「架電数とアポ率の関係」を把握(良し悪しの判断は人が解釈)</div>
+<div class="cq-headline"><div class="cq-headline-title">メンバー比較</div></div>
+
+<div class="cq-kpi-grid" data-cq-kpi="p1-scorecards">
+  <div class="cq-status" data-cq-status>読み込み中…</div>
+</div>
+
+<!-- 選択メンバー比較(上部フィルタで2-5名選択時のみ表示。GAS版はdisplay:noneで制御) -->
+<div class="cq-panel" data-cq-table="p1-compare" hidden>
+  <div class="cq-panel-title">選択メンバー比較</div>
+  <div class="cq-table" data-cq-table="p1-compare-grid"></div>
+</div>
+<div class="cq-panel-note" data-cq-value="p1-radar-hint">
+  💡 上の<b>メンバー欄</b>で <b>2〜5名</b> を選択すると、軸別比較レーダーチャートが表示されます。
+</div>
+<div class="cq-panel" data-cq-chart="p1-radar" hidden>
+  <div class="cq-panel-title">メンバー特性レーダー(2-5名比較)</div>
+  <div class="cq-chart" data-cq-chart="p1-radar" style="height:340px"></div>
+</div>
+
+<div class="cq-panel-grid">
+  <div class="cq-panel">
+    <div class="cq-panel-title">アポ率ランキング</div>
+    <div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div>
+    <div class="cq-chart" data-cq-chart="p1-apo-rank" style="height:320px"></div>
+  </div>
+  <div class="cq-panel">
+    <div class="cq-panel-title">架電数ランキング</div>
+    <div class="cq-chart" data-cq-chart="p1-call-rank" style="height:320px"></div>
+  </div>
+  <div class="cq-panel">
+    <div class="cq-panel-title">量 × 質マップ(架電数 × アポ率・拡大表示)</div>
+    <div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div>
+    <div class="cq-chart" data-cq-chart="p1-volume-quality" style="height:360px"></div>
+  </div>
+  <div class="cq-panel">
+    <div class="cq-panel-title">規模別 アポ率(参考)</div>
+    <div class="cq-panel-note"><span class="cq-denom" data-cq-denom>分母: —</span></div>
+    <div class="cq-chart" data-cq-chart="p1-size-apo" style="height:320px"></div>
+  </div>
+  <div class="cq-panel">
+    <div class="cq-panel-title">メンバー別 平均通話秒数</div>
+    <div class="cq-chart" data-cq-chart="p1-avg-duration" style="height:320px"></div>
+  </div>
+</div>
+
+{% include "tabs/call_quality/_partials/_truncated_banner.html" %}
+{% include "tabs/call_quality/_partials/_sources_footer.html" %}
