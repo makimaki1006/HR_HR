@@ -789,9 +789,9 @@ async fn pja(Query(q): Query<tabs::pja_job_application::PjaQuery>) -> Result<Res
 //
 // ---- p11 行動量分析 ----
 // 引数なし（絞り込みはフロント側の表示切替で行う設計）。
-async fn p11() -> Result<Response, CqError> {
+async fn p11(Query(q): Query<tabs::p11_activity::P11Query>) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p11", tabs::p11_activity::handle(&s.client, &s.store).await)
+    finish("p11", tabs::p11_activity::handle(&s.client, &s.store, q).await)
 }
 
 //
