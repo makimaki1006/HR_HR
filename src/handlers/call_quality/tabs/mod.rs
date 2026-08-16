@@ -25,6 +25,12 @@ use serde::Serialize;
 
 pub mod p0_overview;
 pub mod p1_members;
+pub mod pbpo_dashboard;
+pub mod p14_owner360;
+pub mod p10_future_actions;
+pub mod prisk_riskboard;
+pub mod ptf_target;
+pub mod p3_timeseries;
 pub mod p13_timeline;
 pub mod p12_churn;
 pub mod p8_consulting_contact;
