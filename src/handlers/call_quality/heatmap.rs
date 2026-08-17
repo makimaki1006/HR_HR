@@ -47,13 +47,16 @@ pub struct CrossRow {
 }
 
 /// 絞り込み条件。未指定(None)は「絞らない」。
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct HeatmapQuery {
     pub prefecture: Option<String>,
     pub industry: Option<String>,
     /// カンマ区切りの owner_id。GAS 側のメンバー選択に相当。
     pub owners: Option<String>,
 }
+
+crate::accepted_params!(HeatmapQuery, heatmap_query_accepted =>
+    "prefecture", "industry", "owners");
 
 /// 返却する1セル。曜日×時間帯ごとの集計値。
 #[derive(Debug, Serialize)]
@@ -78,6 +81,9 @@ pub struct HeatmapResponse {
     pub from_cache: bool,
     /// サーバ側の処理時間(ms)。Sheets 取得を含むかは from_cache で判別する。
     pub elapsed_ms: u128,
+    /// 解釈できず捨てた引数名。空でも必ず出す（`TabPayload` と同じ約束）。
+    /// ルータが後乗せする。
+    pub ignored_params: Vec<String>,
 }
 
 /// 常駐キャッシュ。Sheets から読んだ全行を保持する。
@@ -248,6 +254,8 @@ pub async fn handle(
         total_rows: rows.len(),
         from_cache,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（ここは生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

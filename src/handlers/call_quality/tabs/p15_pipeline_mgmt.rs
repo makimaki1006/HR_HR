@@ -520,7 +520,7 @@ fn build_summary(monthly: &[MonthlyPoint], summary: &SheetData, deals: &SheetDat
 
 // ============================================================ 全体
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct P15Query {
     /// 選択担当者。未指定 = 全担当者ビュー(GAS `P15_VIEW_ALL`)
     pub consultant_id: Option<String>,
@@ -528,6 +528,8 @@ pub struct P15Query {
     /// 省略時は既定(immediate/high/medium、GASの初期チェック状態)
     pub priority: Option<String>,
 }
+
+crate::accepted_params!(P15Query, p15_query_accepted => "consultant_id", "priority");
 
 #[derive(Debug, Serialize)]
 pub struct ConsultantOption {
@@ -638,6 +640,8 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P15Query) -> R
         },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

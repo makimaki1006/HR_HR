@@ -348,6 +348,8 @@ pub async fn get_deal_index(client: &SheetsClient, store: &SheetStore) -> Result
             },
         ],
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 
@@ -441,7 +443,7 @@ pub struct DealDetail {
     pub nps_trend: Vec<NpsPoint>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct DealDetailQuery {
     pub deal_id: String,
     /// "desc"(既定、新しい順) | "asc"(古い順)
@@ -451,6 +453,9 @@ pub struct DealDetailQuery {
     #[serde(default)]
     pub period: Option<String>,
 }
+
+crate::accepted_params!(DealDetailQuery, deal_detail_query_accepted =>
+    "deal_id", "sort", "period");
 
 pub fn build_meeting_card(data: &SheetData, row: &[Arc<str>]) -> MeetingCard {
     let source = data.get(row, "source").trim().to_string();
@@ -667,6 +672,8 @@ pub async fn get_deal_detail(
             src("コンサルフェーズKPI", &phase, phase.rows.iter().filter(|r| phase.get(r, "deal_id").trim() == deal_id).count(), phase_cached),
         ],
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 
