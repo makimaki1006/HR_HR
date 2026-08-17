@@ -114,6 +114,29 @@ pub const ALLOWED_SHEETS: &[&str] = &[
     "事前集計cube",
     "業種グループ定義",
     "規模バンド定義",
+    // 2026-08-17 追加: **画面が読んでいるのに、この一覧から見られなかった16枚**。
+    //   GAS の `RAW_SHEET_NAMES` をそのまま移植したが、GAS 側のこの一覧は
+    //   コンサル系・求人応募系のタブが増えたときに更新されておらず、
+    //   「スプシをそのまま見る」ための画面から**画面が使っているシートが
+    //   引けない**状態だった。検証で退避を取ったとき、この16枚だけが
+    //   古いまま残り、7日前のデータと突合しかけた（実測: コンサル別
+    //   ベンチマーク_統計 の n_cohort_total が 2,501 対 2,749 で 248件差）。
+    "時間帯ヒート_BPO",
+    "コンサル接触ロールアップ",
+    "コンサル接触寄与率",
+    "コンサル接触寄与率_分布",
+    "コンサル接触寄与率_統計",
+    "コンサル別ベンチマーク",
+    "コンサル別ベンチマーク_月別",
+    "コンサル別ベンチマーク_統計",
+    "コンサル担当者360_都道府県",
+    "コンサル未来案件_月次",
+    "コンサル未来案件_Deal一覧",
+    "コンサル未来案件_担当者サマリ",
+    "求人応募_KPI",
+    "求人応募_媒体月次",
+    "求人応募_Deal健全性",
+    "求人応募_データ品質",
 ];
 
 fn num(s: &str) -> f64 {
@@ -135,11 +158,15 @@ pub fn list_sheets() -> Vec<&'static str> {
 // ------------------------------------------------------------- 共通: 絞り込み
 
 /// 検索・列フィルタの指定。ブラウズ/CSVエクスポート/簡易可視化で共通に使う。
-#[derive(Debug, Default, Deserialize, Clone)]
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct RowFilter {
     /// 全文検索(全列 OR、大小無視)。空/None なら絞らない。
     #[serde(default)]
     pub search: Option<String>,
+    // 注: `#[serde(skip_serializing_if = ...)]` を足さないこと。
+    // query_audit の腐り検出テストが「既定値でも全キーが出る」前提で
+    // フィールド一覧を取っているため、キーが消えると実在するフィールドを
+    // 「無い」と誤判定する。
     /// 列名 → 複数値(同一列内はOR)。列間はAND。値配列が空の列は無視する。
     #[serde(default)]
     pub filters: HashMap<String, Vec<String>>,
@@ -189,7 +216,7 @@ pub enum SortDir {
     Desc,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct BrowseQuery {
     pub sheet: String,
     #[serde(flatten)]
@@ -204,6 +231,12 @@ pub struct BrowseQuery {
     /// 未指定なら100(GAS版の既定値と合わせる)。MAX_PAGE_SIZE でクランプする。
     pub page_size: Option<usize>,
 }
+
+// `filter` は `#[serde(flatten)]` なので、ワイヤ上のキーは `search` / `filters` として
+// トップレベルに現れる。腐り検出テストは `to_value` を見るので flatten 後の名前で
+// 一致を確かめられる（`filter` と書くと落ちる。それが正しい）。
+crate::accepted_params!(BrowseQuery, browse_query_accepted =>
+    "sheet", "search", "filters", "sort_col", "sort_dir", "page", "page_size");
 
 #[derive(Debug, Serialize)]
 pub struct BrowseData {
@@ -331,17 +364,22 @@ pub async fn handle_browse(
         data: out,
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 
 // -------------------------------------------------------------- CSVエクスポート
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct ExportQuery {
     pub sheet: String,
     #[serde(flatten)]
     pub filter: RowFilter,
 }
+
+crate::accepted_params!(ExportQuery, export_query_accepted =>
+    "sheet", "search", "filters");
 
 #[derive(Debug, Serialize)]
 pub struct CsvExport {
@@ -352,6 +390,10 @@ pub struct CsvExport {
     /// 絞り込み後の全行数(row_count と異なれば CSV_EXPORT_MAX_ROWS で切っている)。
     pub matched_rows: usize,
     pub truncated: bool,
+    /// 解釈できず捨てた引数名。空でも必ず出す。
+    /// このエンドポイントだけ `TabPayload` を通らないので個別に持つ。
+    /// ここが抜けていると「絞り込んだつもりの CSV」を全件 CSV と見分けられない。
+    pub ignored_params: Vec<String>,
 }
 
 fn csv_escape(s: &str) -> String {
@@ -394,6 +436,8 @@ pub fn build_csv(data: &SheetData, f: &RowFilter) -> CsvExport {
         row_count,
         matched_rows,
         truncated,
+        // ルータが後乗せする（ここは生のリクエストボディを知らない）
+        ignored_params: Vec::new(),
     }
 }
 
@@ -410,7 +454,7 @@ pub async fn handle_export(
 
 // -------------------------------------------------------------- クイック可視化
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Agg {
     Sum,
@@ -418,7 +462,7 @@ pub enum Agg {
     Count,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ChartQuery {
     pub sheet: String,
     #[serde(flatten)]
@@ -431,6 +475,28 @@ pub struct ChartQuery {
     /// 上位何カテゴリ返すか(GAS版の選択肢: 10/20/50/100)。
     pub top_n: usize,
 }
+
+/// `Agg` には既定値が無い（`sum`/`avg`/`count` のどれかを必ず指定させる仕様）ので
+/// `#[derive(Default)]` は付けない。**enum に既定を作ると、指定漏れが黙って
+/// どれか1つの集計になる**（この作業で潰そうとしている無音ドロップそのもの）。
+///
+/// 代わりに手書きの `Default` を置く。用途は腐り検出テストだけ。
+/// フィールドを足すとここがコンパイルエラーになるので、腐りが1段強く検出される。
+impl Default for ChartQuery {
+    fn default() -> Self {
+        Self {
+            sheet: String::new(),
+            filter: RowFilter::default(),
+            x_col: String::new(),
+            y_col: None,
+            agg: Agg::Count,
+            top_n: 0,
+        }
+    }
+}
+
+crate::accepted_params!(ChartQuery, chart_query_accepted =>
+    "sheet", "search", "filters", "x_col", "y_col", "agg", "top_n");
 
 #[derive(Debug, Serialize)]
 pub struct ChartBar {
@@ -544,6 +610,8 @@ pub async fn handle_chart(
         data: out,
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 
@@ -589,6 +657,33 @@ mod tests {
     fn 許可されていないシート名は拒否される() {
         assert!(check_sheet_allowed("月次明細").is_ok());
         assert!(check_sheet_allowed("存在しないシート").is_err());
+    }
+
+    /// 画面が読んでいるシートは、必ずデータブラウザからも見られること。
+    ///
+    /// 2026-08-17 追加。**許可リストが2つあり、片方だけが更新されていた**。
+    /// タブが読むシートの一覧(`sheets::KNOWN_SHEETS`)には入っているのに、
+    /// データブラウザの一覧(`ALLOWED_SHEETS`)から16枚が漏れており、
+    /// 「スプシをそのまま見る」画面から画面が使っているシートを引けなかった。
+    ///
+    /// 実害: 検証で生データの退避を取ったとき、その16枚だけが更新されず
+    /// **7日前のデータと突合しかけた**（コンサル別ベンチマーク_統計 の
+    /// n_cohort_total が 2,501 対 2,749 で 248件差）。
+    ///
+    /// 逆向き(ALLOWED にあって KNOWN に無い)は許す。メンバーマスタや
+    /// 事前集計cube のように、タブが直接読まないが見たいシートがあるため。
+    #[test]
+    fn 画面が読むシートは全てデータブラウザから見られる() {
+        let missing: Vec<&str> = crate::handlers::call_quality::sheets::KNOWN_SHEETS
+            .iter()
+            .copied()
+            .filter(|s| !ALLOWED_SHEETS.contains(s))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "画面が読むのにデータブラウザから見られないシートがある: {missing:?}
+             タブを増やしたら ALLOWED_SHEETS にも足すこと。"
+        );
     }
 
     #[test]

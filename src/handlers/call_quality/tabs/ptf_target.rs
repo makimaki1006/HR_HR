@@ -83,7 +83,7 @@ const SEGMENT_TOP_N: usize = 25;
 
 // ------------------------------------------------------------------ クエリ
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct TargetQuery {
     /// 表示するパネル。未指定は `chase_stop`。
     /// `chase_stop` / `field_close_rate` / `bpo_contribution` /
@@ -118,6 +118,13 @@ pub struct TargetQuery {
     pub size_band: Option<String>,
     pub prefecture: Option<String>,
 }
+
+// **このタブだけ `industry` / `size_band`**（p2 の商談遷移は `trans_industry` /
+// `trans_size`）。名前が似ていて画面をまたぐと取り違える。どちらのタブでも
+// 相手側の名前は `ignored_params` に出る。
+crate::accepted_params!(TargetQuery, target_query_accepted =>
+    "panel", "owners", "min_failed_shoudan", "exclude_houjin_won", "range",
+    "min_negative_visits", "role", "sort_by", "industry", "size_band", "prefecture");
 
 // ------------------------------------------------------------------ 返却型
 
@@ -1226,6 +1233,8 @@ pub async fn handle(
         data,
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

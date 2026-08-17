@@ -811,11 +811,24 @@ pub async fn handle(
     let mut sources: Vec<SourceInfo> = Vec::new();
 
     // --- 月次明細 ---
-    let (monthly_sheet, monthly_cached) = store.get(client, "月次明細").await?;
+    // 2026-08-17 是正: 都道府県を選んでも常に「月次明細」を読んでいた。
+    //   月次明細に prefecture 列は無いので `collect_monthly` の行フィルタは
+    //   素通しし、**分母とラベルだけが切り替わっていた**。
+    //   実測(?prefecture=東京都): call_count / apo_count は無指定時と完全一致
+    //   （2025-12: 20,539 / 252）なのに、アポ率だけ 0.749% → 1.227% に変化。
+    //   画面には「HubSpot Call（都道府県で絞り込み中）」と出るので、
+    //   **全国の数字を東京都の数字だと思って読む**ことになる。
+    //   p0 は既に「都道府県月次」へ差し替えており、p3 だけ取り残されていた。
+    let monthly_name = if pref_selected(&q).is_some() {
+        "都道府県月次"
+    } else {
+        "月次明細"
+    };
+    let (monthly_sheet, monthly_cached) = store.get(client, monthly_name).await?;
     let (monthly, member_heatmap, monthly_matched) =
         collect_monthly(&monthly_sheet, &q, sales_owners.as_ref(), &current_ym);
     sources.push(SourceInfo {
-        sheet: "月次明細".to_string(),
+        sheet: monthly_name.to_string(),
         total_rows: monthly_sheet.rows.len(),
         matched_rows: monthly_matched,
         from_cache: monthly_cached,

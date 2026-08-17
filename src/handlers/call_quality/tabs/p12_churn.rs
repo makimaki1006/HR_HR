@@ -630,6 +630,8 @@ pub async fn get_churn_analysis(
             src("解約_モデル指標", &metrics_data, metrics_cached),
         ],
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

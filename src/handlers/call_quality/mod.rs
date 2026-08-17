@@ -10,8 +10,10 @@
 //! 構成:
 //!   sheets.rs   65シート共通のアクセス層（常駐キャッシュ + サーバ側の絞り込み/集計）
 //!   heatmap.rs  時間帯ヒートマップ（サーバ側集計の PoC。実測 33.1MB → 6.7KB）
+//!   query_audit.rs 解釈できなかったクエリ引数を応答とログに出す（無音ドロップ禁止）
 
 pub mod heatmap;
+pub mod query_audit;
 pub mod tabs;
 pub mod routes;
 pub mod sheets;

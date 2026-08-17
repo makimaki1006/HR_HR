@@ -688,12 +688,16 @@ pub const RISK_AXIS_NOTES: &[&str] = &[
 
 // ================================================================== ハンドラ
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PriskQuery {
     pub consultant: Option<String>,
     pub min_red: Option<i32>,
     pub sort: Option<String>,
 }
+
+// 担当者は `consultant`（p14/p15 は `consultant_id`）。名前が揃っていないので
+// 取り違えが `ignored_params` に出ることが重要。
+crate::accepted_params!(PriskQuery, prisk_query_accepted => "consultant", "min_red", "sort");
 
 #[derive(Debug, Serialize)]
 pub struct PriskData {
@@ -761,6 +765,8 @@ pub async fn handle(
         },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 

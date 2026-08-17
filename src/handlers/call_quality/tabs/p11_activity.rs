@@ -392,8 +392,13 @@ fn build_pattern_table(data: &SheetData) -> PatternTablePanel {
 
 // ================================================================== ハンドラ
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct P11Query {}
+
+// 引数を1つも取らないタブ。「引数が無い＝何を投げても無害」ではなく、
+// **何を投げても黙って捨てられる**という一番危ない状態なので、
+// 空リストを明示して全部 `ignored_params` に出す。
+crate::accepted_params!(P11Query, p11_query_accepted =>);
 
 #[derive(Debug, Serialize)]
 pub struct P11Kpis {
@@ -488,6 +493,8 @@ pub async fn handle(
         },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 
