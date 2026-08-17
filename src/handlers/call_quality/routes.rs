@@ -97,7 +97,7 @@ use std::sync::{Arc, OnceLock};
 
 use askama::Template;
 use tower_sessions::Session;
-use axum::extract::Query;
+use axum::extract::{Query, RawQuery};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -109,6 +109,7 @@ use crate::SESSION_USER_KEY;
 use crate::AppState;
 
 use super::heatmap::{self, HeatmapCache, HeatmapQuery};
+use super::query_audit::{self, AcceptedParams};
 use super::sheets::SheetStore;
 use super::tabs::{self, TabPayload};
 
@@ -377,14 +378,29 @@ fn tab_json<T: Serialize>(tab: &'static str, payload: TabPayload<T>) -> Response
 }
 
 /// `handle()` の結果を HTTP 応答に変換する定型。
+///
+/// **`ignored` を必ず渡す**。タブ関数は生のクエリ文字列を受け取らないので、
+/// 「解釈できなかった引数」を知っているのはここだけ。引数にしてあるのは
+/// 「呼び忘れたらコンパイルが通らない」ようにするため（省略可能にすると
+/// 新しいタブが黙って空配列を返し始める）。
 fn finish<T: Serialize>(
     tab: &'static str,
+    ignored: Vec<String>,
     r: anyhow::Result<TabPayload<T>>,
 ) -> Result<Response, CqError> {
     match r {
-        Ok(p) => Ok(tab_json(tab, p)),
+        Ok(p) => Ok(tab_json(tab, p.with_ignored(ignored))),
         Err(e) => Err(CqError::from_anyhow(tab, e)),
     }
+}
+
+/// クエリ引数を監査して「無視した引数名」を返す定型。
+///
+/// `RawQuery` は axum が URL から取り出した生のクエリ文字列（`?` を除く）。
+/// `Query<T>` は**解釈できた分だけ**を渡してくるので、両方を突き合わせないと
+/// 「捨てた引数」は分からない。
+fn audit<T: AcceptedParams>(tab: &'static str, raw: &Option<String>) -> Vec<String> {
+    query_audit::audit_query::<T>(tab, raw.as_deref())
 }
 
 /// メンバーが個別に選択されているか。
@@ -567,11 +583,13 @@ async fn cache_stats() -> Result<Json<Vec<CacheEntry>>, CqError> {
     ))
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct RefreshQuery {
     /// 破棄する1枚。**省略すると全シート破棄**（確定仕様）。
     pub sheet: Option<String>,
 }
+
+crate::accepted_params!(RefreshQuery, refresh_query_accepted => "sheet");
 
 #[derive(Debug, Serialize)]
 struct RefreshResult {
@@ -579,6 +597,12 @@ struct RefreshResult {
     cleared_sheet: Option<String>,
     /// 全シートを破棄したか
     cleared_all: bool,
+    /// 解釈できず捨てた引数名。空でも必ず出す（`TabPayload` と同じ約束）。
+    ///
+    /// このエンドポイントは特に重要で、`?sheets=…` のような打ち間違いが
+    /// **「省略 = 全シート破棄」に化ける**。69シート再取得を誘発するので、
+    /// 何が無視されたかを応答に残す。
+    ignored_params: Vec<String>,
 }
 
 /// 常駐キャッシュを破棄する（GAS 版 `?refresh=1` 相当）。
@@ -587,8 +611,12 @@ struct RefreshResult {
 /// （Sheets API と待ち時間）を招くので、**実行したことを必ず warn ログに残す**。
 /// 誤操作の追跡がこれしかできないため。
 /// GET ではなく POST なのは、プリフェッチャに勝手に叩かれないようにするため。
-async fn refresh(Query(q): Query<RefreshQuery>) -> Result<Json<RefreshResult>, CqError> {
+async fn refresh(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<RefreshQuery>,
+) -> Result<Json<RefreshResult>, CqError> {
     let s = cq()?;
+    let ignored = audit::<RefreshQuery>("refresh", &raw);
     match q.sheet.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
         Some(sheet) => {
             s.store.invalidate(Some(sheet)).await;
@@ -596,6 +624,7 @@ async fn refresh(Query(q): Query<RefreshQuery>) -> Result<Json<RefreshResult>, C
             Ok(Json(RefreshResult {
                 cleared_sheet: Some(sheet.to_string()),
                 cleared_all: false,
+                ignored_params: ignored,
             }))
         }
         None => {
@@ -607,15 +636,23 @@ async fn refresh(Query(q): Query<RefreshQuery>) -> Result<Json<RefreshResult>, C
             Ok(Json(RefreshResult {
                 cleared_sheet: None,
                 cleared_all: true,
+                ignored_params: ignored,
             }))
         }
     }
 }
 
-async fn heatmap_handler(Query(q): Query<HeatmapQuery>) -> Result<Response, CqError> {
+async fn heatmap_handler(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<HeatmapQuery>,
+) -> Result<Response, CqError> {
     let s = cq()?;
+    let ignored = audit::<HeatmapQuery>("heatmap", &raw);
     match heatmap::handle(&s.client, &s.heatmap, q).await {
-        Ok(r) => Ok(Json(r).into_response()),
+        Ok(mut r) => {
+            r.ignored_params = ignored;
+            Ok(Json(r).into_response())
+        }
         Err(e) => Err(CqError::from_anyhow("heatmap", e)),
     }
 }
@@ -623,52 +660,80 @@ async fn heatmap_handler(Query(q): Query<HeatmapQuery>) -> Result<Response, CqEr
 // ================================================================ 各タブ
 
 // ---- p0 全社サマリ ----
-async fn p0(Query(q): Query<tabs::p0_overview::OverviewQuery>) -> Result<Response, CqError> {
+async fn p0(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::p0_overview::OverviewQuery>,
+) -> Result<Response, CqError> {
     let s = cq()?;
+    let ignored = audit::<tabs::p0_overview::OverviewQuery>("p0", &raw);
     // メンバー未選択なら role=sales に絞る（約束5。理由は冒頭 (D)）
     let sales = sales_scope("p0", s, q.owners.as_deref()).await?;
-    finish("p0", tabs::p0_overview::handle(&s.client, &s.store, q, sales).await)
+    finish("p0", ignored, tabs::p0_overview::handle(&s.client, &s.store, q, sales).await)
 }
 
 // ---- p1 メンバー比較 ----
-async fn p1(Query(q): Query<tabs::p1_members::MembersQuery>) -> Result<Response, CqError> {
+async fn p1(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::p1_members::MembersQuery>,
+) -> Result<Response, CqError> {
     let s = cq()?;
+    let ignored = audit::<tabs::p1_members::MembersQuery>("p1", &raw);
     let sales = sales_scope("p1", s, q.owners.as_deref()).await?;
-    finish("p1", tabs::p1_members::handle(&s.client, &s.store, q, sales).await)
+    finish("p1", ignored, tabs::p1_members::handle(&s.client, &s.store, q, sales).await)
 }
 
 // ---- pbpo BPOダッシュボード ----
-async fn pbpo(Query(q): Query<tabs::pbpo_dashboard::PbpoQuery>) -> Result<Response, CqError> {
+async fn pbpo(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::pbpo_dashboard::PbpoQuery>,
+) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("pbpo", tabs::pbpo_dashboard::handle(&s.client, &s.store, q).await)
+    let ignored = audit::<tabs::pbpo_dashboard::PbpoQuery>("pbpo", &raw);
+    finish("pbpo", ignored, tabs::pbpo_dashboard::handle(&s.client, &s.store, q).await)
 }
 
 // ---- p2 習慣の差 ----
 // p2 は「メンバーマスタ」を自前で読んで role=sales を既定にするので、
 // ルータ側で sales_scope を渡す必要はない（p0/p1 と設計が違う）。
-async fn p2(Query(q): Query<tabs::p2_habits::P2Query>) -> Result<Response, CqError> {
+async fn p2(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::p2_habits::P2Query>,
+) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p2", tabs::p2_habits::handle(&s.client, &s.store, q).await)
+    // 商談遷移のクロス絞込を `industry` / `size_band` と書いた事故が起きたのはここ。
+    // 正しくは `trans_industry` / `trans_size`。今は間違いが応答に出る。
+    let ignored = audit::<tabs::p2_habits::P2Query>("p2", &raw);
+    finish("p2", ignored, tabs::p2_habits::handle(&s.client, &s.store, q).await)
 }
 
 // ---- p3 時系列 ----
 // このタブだけ `HeatmapCache` も要る（時間帯×曜日ヒートマップを内包するため）。
 // 常駐キャッシュを共有するので、専用のヒートマップ API と同じ実体を渡す。
-async fn p3(Query(q): Query<tabs::p3_timeseries::TimeseriesQuery>) -> Result<Response, CqError> {
+async fn p3(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::p3_timeseries::TimeseriesQuery>,
+) -> Result<Response, CqError> {
     let s = cq()?;
+    let ignored = audit::<tabs::p3_timeseries::TimeseriesQuery>("p3", &raw);
     let sales = sales_scope("p3", s, q.owners.as_deref()).await?;
     finish(
         "p3",
+        ignored,
         tabs::p3_timeseries::handle(&s.client, &s.store, &s.heatmap, q, sales).await,
     )
 }
 
 // ---- ptf ターゲット分析 ----
-async fn ptf(Query(q): Query<tabs::ptf_target::TargetQuery>) -> Result<Response, CqError> {
+async fn ptf(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::ptf_target::TargetQuery>,
+) -> Result<Response, CqError> {
     let s = cq()?;
+    let ignored = audit::<tabs::ptf_target::TargetQuery>("ptf", &raw);
     let sales = sales_scope("ptf", s, q.owners.as_deref()).await?;
     finish(
         "ptf",
+        ignored,
         tabs::ptf_target::handle(&s.client, &s.store, q, sales).await,
     )
 }
@@ -678,12 +743,32 @@ async fn p7_sheets() -> Json<Vec<&'static str>> {
     Json(tabs::p7_data_browser::list_sheets())
 }
 
-async fn p7_browse(
-    Json(q): Json<tabs::p7_data_browser::BrowseQuery>,
-) -> Result<Response, CqError> {
+/// POST + JSON の本文から「解釈できなかったキー」を拾ってから本体に流し込む。
+///
+/// `Json<T>` で直接受けると、余分なキーは serde に黙って捨てられ、
+/// **200 とそれらしい数値**が返る（GET のクエリ引数とまったく同じ罠）。
+/// そこで一度 `serde_json::Value` で受け、トップレベルのキーを見てから
+/// 目的の型へ変換する。
+///
+/// 変換に失敗したら 400。これは**今回追加した挙動ではなく**、
+/// これまで axum の `Json<T>` 拒否が返していた 4xx と同じ位置づけ
+/// （必須フィールド欠落など。「知らないキー」では 400 にしない）。
+fn from_json_body<T>(tab: &'static str, body: serde_json::Value) -> Result<(T, Vec<String>), CqError>
+where
+    T: AcceptedParams + serde::de::DeserializeOwned,
+{
+    let ignored = query_audit::audit_json::<T>(tab, &body);
+    let q: T = serde_json::from_value(body)
+        .map_err(|e| CqError::bad_request(format!("リクエスト本文を解釈できません: {e}")))?;
+    Ok((q, ignored))
+}
+
+async fn p7_browse(Json(body): Json<serde_json::Value>) -> Result<Response, CqError> {
     let s = cq()?;
+    let (q, ignored) = from_json_body::<tabs::p7_data_browser::BrowseQuery>("p7", body)?;
     finish(
         "p7",
+        ignored,
         tabs::p7_data_browser::handle_browse(&s.store, &s.client, q).await,
     )
 }
@@ -695,84 +780,116 @@ async fn p7_browse(
 /// 生の CSV を流すとこれが落ちて「上限で切ったこと」が伝わらなくなる（約束3）。
 /// ダウンロードは画面側で Blob 化してもらう。
 async fn p7_export(
-    Json(q): Json<tabs::p7_data_browser::ExportQuery>,
+    Json(body): Json<serde_json::Value>,
 ) -> Result<Json<tabs::p7_data_browser::CsvExport>, CqError> {
     let s = cq()?;
+    let (q, ignored) = from_json_body::<tabs::p7_data_browser::ExportQuery>("p7", body)?;
     tabs::p7_data_browser::handle_export(&s.store, &s.client, q)
         .await
-        .map(Json)
+        .map(|mut c| {
+            c.ignored_params = ignored;
+            Json(c)
+        })
         .map_err(|e| CqError::from_anyhow("p7", e))
 }
 
-async fn p7_chart(Json(q): Json<tabs::p7_data_browser::ChartQuery>) -> Result<Response, CqError> {
+async fn p7_chart(Json(body): Json<serde_json::Value>) -> Result<Response, CqError> {
     let s = cq()?;
+    let (q, ignored) = from_json_body::<tabs::p7_data_browser::ChartQuery>("p7", body)?;
     finish(
         "p7",
+        ignored,
         tabs::p7_data_browser::handle_chart(&s.store, &s.client, q).await,
     )
 }
 
 // ---- prisk リスクボード ----
-async fn prisk(Query(q): Query<tabs::prisk_riskboard::PriskQuery>) -> Result<Response, CqError> {
+async fn prisk(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::prisk_riskboard::PriskQuery>,
+) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("prisk", tabs::prisk_riskboard::handle(&s.client, &s.store, q).await)
+    let ignored = audit::<tabs::prisk_riskboard::PriskQuery>("prisk", &raw);
+    finish("prisk", ignored, tabs::prisk_riskboard::handle(&s.client, &s.store, q).await)
 }
 
 // ---- p10 未来アクション ----
 async fn p10(
+    RawQuery(raw): RawQuery,
     Query(q): Query<tabs::p10_future_actions::P10Query>,
 ) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p10", tabs::p10_future_actions::handle(&s.client, &s.store, q).await)
+    let ignored = audit::<tabs::p10_future_actions::P10Query>("p10", &raw);
+    finish("p10", ignored, tabs::p10_future_actions::handle(&s.client, &s.store, q).await)
 }
 
 // ---- p14 担当者360° ----
-async fn p14(Query(q): Query<tabs::p14_owner360::P14Query>) -> Result<Response, CqError> {
+async fn p14(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::p14_owner360::P14Query>,
+) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p14", tabs::p14_owner360::handle(&s.client, &s.store, q).await)
+    let ignored = audit::<tabs::p14_owner360::P14Query>("p14", &raw);
+    finish("p14", ignored, tabs::p14_owner360::handle(&s.client, &s.store, q).await)
 }
 
 // ---- p8 コンサル接触 ----
 async fn p8(
+    RawQuery(raw): RawQuery,
     Query(q): Query<tabs::p8_consulting_contact::P8Query>,
 ) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p8", tabs::p8_consulting_contact::handle(&s.client, &s.store, q).await)
+    // このタブは上部フィルタを反映しない。`?from=…&to=…` は今まで無音で捨てられていた。
+    let ignored = audit::<tabs::p8_consulting_contact::P8Query>("p8", &raw);
+    finish("p8", ignored, tabs::p8_consulting_contact::handle(&s.client, &s.store, q).await)
 }
 
 // ---- p12 解約分析 ----
 // 絞り込みパラメータを持たない（Python 側で全期間集計済）ので引数なし。
-async fn p12() -> Result<Response, CqError> {
+// **引数を取らない = 何を投げても黙って捨てられる**ので、監査はむしろ必須。
+// `?year_month=2026-05` が 200 とそれらしい数値を返した1回目の罠がこの形。
+async fn p12(RawQuery(raw): RawQuery) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p12", tabs::p12_churn::get_churn_analysis(&s.client, &s.store).await)
+    let ignored = query_audit::audit_query_none("p12", raw.as_deref());
+    finish("p12", ignored, tabs::p12_churn::get_churn_analysis(&s.client, &s.store).await)
 }
 
 // ---- p13 案件タイムライン ----
 // 一覧（案件インデックス）と 1件の詳細を別パスにする。
 // 一覧は全案件ぶんで重く、詳細は deal_id ごとに毎回変わるため、
 // 同じパスに混ぜるとキャッシュの寿命が揃わない。
-async fn p13_index() -> Result<Response, CqError> {
+async fn p13_index(RawQuery(raw): RawQuery) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p13", tabs::p13_timeline::get_deal_index(&s.client, &s.store).await)
+    // 一覧は引数を取らない。`?deal_id=…` を付けて「詳細が返ってきた」と誤解しないよう、
+    // 無視したことを応答に出す（パスが別、が仕様）。
+    let ignored = query_audit::audit_query_none("p13", raw.as_deref());
+    finish("p13", ignored, tabs::p13_timeline::get_deal_index(&s.client, &s.store).await)
 }
 
 async fn p13_deal(
+    RawQuery(raw): RawQuery,
     Query(q): Query<tabs::p13_timeline::DealDetailQuery>,
 ) -> Result<Response, CqError> {
     let s = cq()?;
+    let ignored = audit::<tabs::p13_timeline::DealDetailQuery>("p13", &raw);
     if q.deal_id.trim().is_empty() {
         return Err(CqError::bad_request("deal_id は必須です".to_string()));
     }
     finish(
         "p13",
+        ignored,
         tabs::p13_timeline::get_deal_detail(&s.client, &s.store, &q).await,
     )
 }
 
 // ---- pja 求人・応募 ----
-async fn pja(Query(q): Query<tabs::pja_job_application::PjaQuery>) -> Result<Response, CqError> {
+async fn pja(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::pja_job_application::PjaQuery>,
+) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("pja", tabs::pja_job_application::handle(&s.store, &s.client, q).await)
+    let ignored = audit::<tabs::pja_job_application::PjaQuery>("pja", &raw);
+    finish("pja", ignored, tabs::pja_job_application::handle(&s.store, &s.client, q).await)
 }
 
 // ================================================================ 移植待ちのタブ
@@ -789,16 +906,24 @@ async fn pja(Query(q): Query<tabs::pja_job_application::PjaQuery>) -> Result<Res
 //
 // ---- p11 行動量分析 ----
 // 引数なし（絞り込みはフロント側の表示切替で行う設計）。
-async fn p11(Query(q): Query<tabs::p11_activity::P11Query>) -> Result<Response, CqError> {
+async fn p11(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::p11_activity::P11Query>,
+) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p11", tabs::p11_activity::handle(&s.client, &s.store, q).await)
+    let ignored = audit::<tabs::p11_activity::P11Query>("p11", &raw);
+    finish("p11", ignored, tabs::p11_activity::handle(&s.client, &s.store, q).await)
 }
 
 //
 // ---- p15 案件マネジメント ----
-async fn p15(Query(q): Query<tabs::p15_pipeline_mgmt::P15Query>) -> Result<Response, CqError> {
+async fn p15(
+    RawQuery(raw): RawQuery,
+    Query(q): Query<tabs::p15_pipeline_mgmt::P15Query>,
+) -> Result<Response, CqError> {
     let s = cq()?;
-    finish("p15", tabs::p15_pipeline_mgmt::handle(&s.client, &s.store, q).await)
+    let ignored = audit::<tabs::p15_pipeline_mgmt::P15Query>("p15", &raw);
+    finish("p15", ignored, tabs::p15_pipeline_mgmt::handle(&s.client, &s.store, q).await)
 }
 
 
@@ -907,6 +1032,8 @@ mod tests {
                 src("解約_モデル指標", 0),
             ],
             elapsed_ms: 1,
+            // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+            ignored_params: Vec::new(),
         };
         let res = tab_json("p0", payload);
         assert_eq!(
@@ -926,10 +1053,176 @@ mod tests {
             data: 0u32,
             sources: vec![src("月次明細", 1200)],
             elapsed_ms: 1,
+            // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+            ignored_params: Vec::new(),
         };
         let res = tab_json("p0", payload);
         assert!(res.headers().get("x-callquality-degraded-sheets").is_none());
         assert!(res.headers().get("x-callquality-empty-sheets").is_none());
+    }
+
+    // ---- 解釈できなかった引数を無音で捨てない（2026-08-17 追加） ----
+
+    fn payload_json(ignored: Vec<String>) -> serde_json::Value {
+        let p = TabPayload {
+            data: 0u32,
+            sources: vec![src("月次明細", 1200)],
+            elapsed_ms: 1,
+            ignored_params: Vec::new(),
+        }
+        .with_ignored(ignored);
+        serde_json::to_value(p).expect("TabPayload は JSON になる")
+    }
+
+    #[test]
+    fn ignored_paramsは空でもキーが消えない() {
+        // **これが一番大事なテスト**。キーごと消すと、画面は
+        // 「載っていない = 無視された引数は無かった」なのか
+        // 「このサーバが古くて機能自体が無い」のかを区別できない。
+        let v = payload_json(Vec::new());
+        assert!(
+            v.get("ignored_params").is_some(),
+            "空配列でもキーは出すこと: {v}"
+        );
+        assert_eq!(v["ignored_params"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn 無視した引数名は応答に載る() {
+        let v = payload_json(vec!["year_month".to_string()]);
+        assert_eq!(v["ignored_params"], serde_json::json!(["year_month"]));
+    }
+
+    #[test]
+    fn p2にyear_monthを投げると無視として返る() {
+        // 検証担当が踏んだ1回目の罠。p2 の期間は from/to であって year_month ではない。
+        // 以前はこれが 200 + それらしい数値になり、期間が効いていないと気づけなかった。
+        let ignored = query_audit::ignored_params(
+            <tabs::p2_habits::P2Query as AcceptedParams>::ACCEPTED,
+            Some("year_month=2026-05"),
+        );
+        assert_eq!(ignored, vec!["year_month".to_string()]);
+    }
+
+    #[test]
+    fn p2にindustryとsize_bandを投げると無視として返る() {
+        // 2回目の罠。商談遷移のクロス絞込は trans_industry / trans_size。
+        let ignored = query_audit::ignored_params(
+            <tabs::p2_habits::P2Query as AcceptedParams>::ACCEPTED,
+            Some("industry=%E8%A3%BD%E9%80%A0%E6%A5%AD&size_band=100-299"),
+        );
+        assert_eq!(
+            ignored,
+            vec!["industry".to_string(), "size_band".to_string()],
+            "p2 では industry / size_band は効かない（trans_* が正）"
+        );
+    }
+
+    #[test]
+    fn ptfでは逆にindustryとsize_bandが正しい引数() {
+        // 同じ名前でもタブによって正誤が逆になる。だから「どちらが正しいか」を
+        // 覚えるのではなく、応答に出させるのが正しい解き方。
+        let ignored = query_audit::ignored_params(
+            <tabs::ptf_target::TargetQuery as AcceptedParams>::ACCEPTED,
+            Some("industry=%E8%A3%BD%E9%80%A0%E6%A5%AD&size_band=100-299"),
+        );
+        assert!(ignored.is_empty(), "ptf ではこの2つは効く: {ignored:?}");
+
+        // 逆に ptf へ trans_* を投げたら無視される
+        let ignored = query_audit::ignored_params(
+            <tabs::ptf_target::TargetQuery as AcceptedParams>::ACCEPTED,
+            Some("trans_industry=A&trans_size=B"),
+        );
+        assert_eq!(
+            ignored,
+            vec!["trans_industry".to_string(), "trans_size".to_string()]
+        );
+    }
+
+    #[test]
+    fn 引数を取らないタブでも無視した引数を返す() {
+        // p12(解約分析) は引数なし。「引数が無い = 何を投げても無害」ではなく
+        // **何を投げても黙って捨てられる**ので、ここが一番危ない。
+        let ignored = query_audit::ignored_params(&[], Some("year_month=2026-05&owners=123"));
+        assert_eq!(
+            ignored,
+            vec!["owners".to_string(), "year_month".to_string()]
+        );
+    }
+
+    #[test]
+    fn p8は上部フィルタを反映しないので期間指定は無視として返る() {
+        // このタブは Python 側で全期間集計済。from/to は最初から見ていない。
+        let ignored = query_audit::ignored_params(
+            <tabs::p8_consulting_contact::P8Query as AcceptedParams>::ACCEPTED,
+            Some("from=2026-01-01&to=2026-06-30&prefecture=%E6%9D%B1%E4%BA%AC%E9%83%BD"),
+        );
+        assert_eq!(
+            ignored,
+            vec!["from".to_string(), "prefecture".to_string(), "to".to_string()]
+        );
+    }
+
+    #[test]
+    fn p7のjsonボディでも知らないキーを拾う() {
+        // p7 は POST + JSON。GET のクエリ引数と同じ罠が本文側にもある。
+        let body = serde_json::json!({
+            "sheet": "月次明細",
+            "filters": {"pipeline": ["A"]},
+            "pageSize": 50            // 正しくは page_size
+        });
+        let ignored = query_audit::ignored_params_json(
+            <tabs::p7_data_browser::BrowseQuery as AcceptedParams>::ACCEPTED,
+            &body,
+        );
+        assert_eq!(
+            ignored,
+            vec!["pageSize".to_string()],
+            "camelCase の打ち間違いは黙って既定値100になる。それを可視化する"
+        );
+    }
+
+    #[test]
+    fn owner360のdeals_statussタイポを検出する() {
+        // 検証担当の実測(2026-08-17):
+        //   GET /api/call-quality/owner360?consultant_id=…&deals_statuss=active
+        //   → 警告なしに全218件が返り、利用者は「稼働中だけに絞った」と信じていた。
+        // 正しくは `deals_status`。s が1つ多いだけで 200 とそれらしい件数が返るので、
+        // **画面を見て気づく方法が無い**。ここが応答に出ることを固定する。
+        let ignored = query_audit::ignored_params(
+            <tabs::p14_owner360::P14Query as AcceptedParams>::ACCEPTED,
+            Some("consultant_id=123&deals_statuss=active"),
+        );
+        assert_eq!(
+            ignored,
+            vec!["deals_statuss".to_string()],
+            "consultant_id は効く。deals_statuss（s が1つ多い）だけが無視される"
+        );
+
+        // 正しい綴りなら何も無視されない（陰性対照。常に何かを報告する実装だと
+        // 警告が狼少年になり、結局読まれなくなる）
+        let ok = query_audit::ignored_params(
+            <tabs::p14_owner360::P14Query as AcceptedParams>::ACCEPTED,
+            Some("consultant_id=123&deals_status=active"),
+        );
+        assert!(ok.is_empty(), "正しい綴りでは警告を出さない: {ok:?}");
+    }
+
+    #[test]
+    fn 単数複数の取り違えを検出する() {
+        // p10 は `owner`（単数）、p0/p1/p3/ptf は `owners`（複数）。
+        // 取り違えても 200 が返って全担当者の数字が出る。
+        let ignored = query_audit::ignored_params(
+            <tabs::p10_future_actions::P10Query as AcceptedParams>::ACCEPTED,
+            Some("owners=123"),
+        );
+        assert_eq!(ignored, vec!["owners".to_string()], "p10 は owner（単数）");
+
+        let ignored = query_audit::ignored_params(
+            <tabs::p0_overview::OverviewQuery as AcceptedParams>::ACCEPTED,
+            Some("owner=123"),
+        );
+        assert_eq!(ignored, vec!["owner".to_string()], "p0 は owners（複数）");
     }
 
     #[test]

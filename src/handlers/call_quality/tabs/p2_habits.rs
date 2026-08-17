@@ -3004,4 +3004,50 @@ mod tests {
         // 無い列（zoom_dial_count 等）は 0 として扱う（パニックしない）
         assert_eq!(rows[0].zoom_dial_count, 0.0);
     }
+
+    // ---- 実際に効いたフィルタを全部エコーする（2026-08-17 追加） ----
+
+    #[test]
+    fn クロス絞込の正規化はscopeと集計で同じ規則を使う() {
+        // `ScopeInfo.trans_industry` と `build_stage_transition` の絞り込みが
+        // 別々の判定を持つと、「業界: 製造業」と表示しながら全業界を集計する
+        // という**目視で見分けられない状態**が再発する。判定は cross_filter に一本化。
+        for raw in [None, Some(""), Some("__all__")] {
+            assert!(cross_filter(raw).is_none(), "{raw:?} は絞らない");
+            assert_eq!(
+                cross_value(raw),
+                "__all__",
+                "絞っていないことを空文字でなく __all__ で返す（{raw:?}）"
+            );
+        }
+        assert_eq!(cross_filter(Some("運輸業")), Some("運輸業"));
+        assert_eq!(cross_value(Some("運輸業")), "運輸業");
+    }
+
+    #[test]
+    fn ファネル期間は実際に効いた値を返す() {
+        // 未指定は「指定しなかった」ではなく「since-zoom が効いた」が事実。
+        assert_eq!(funnel_period_effective(None), "since-zoom");
+        assert_eq!(funnel_period_effective(Some("6m")), "6m");
+        assert_eq!(funnel_period_effective(Some("all")), "all");
+        // 大文字違い・未知の値は既定へ落ちる。**落ちたことが応答に出る**のが要点。
+        assert_eq!(
+            funnel_period_effective(Some("6M")),
+            "since-zoom",
+            "大文字の 6M は既定に落ちる。画面が「6ヶ月」と出したまま since-zoom で集計するのを防ぐ"
+        );
+        assert_eq!(funnel_period_effective(Some("nope")), "since-zoom");
+    }
+
+    #[test]
+    fn funnel_rangeとfunnel_period_effectiveが同じ規則で動く() {
+        // funnel_range は funnel_period_effective を通してから match するので、
+        // 「応答は 6m と言っているのに since-zoom で集計していた」が起きない。
+        let today = "2026-08";
+        assert_eq!(funnel_range(Some("6m"), today).0, "2026-03");
+        // 大文字違いは既定（Zoom Phone 連携開始月）に落ちる
+        assert_eq!(funnel_range(Some("6M"), today).0, FUNNEL_DIAL_START_YM);
+        assert_eq!(funnel_range(None, today).0, FUNNEL_DIAL_START_YM);
+        assert_eq!(funnel_range(Some("all"), today).0, "all");
+    }
 }

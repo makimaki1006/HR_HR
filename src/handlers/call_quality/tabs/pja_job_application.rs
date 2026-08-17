@@ -52,7 +52,7 @@ const HEALTH_SHEET: &str = "求人応募_Deal健全性";
 const QUALITY_SHEET: &str = "求人応募_データ品質";
 
 /// フロントから渡す絞り込み。
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PjaQuery {
     /// true なら「応募途絶注意」(公開中求人ありで直近30日応募ゼロ)のDealのみ返す。
     /// GAS 版はチェックボックスでブラウザ側が再描画していたが(javascript.html
@@ -60,6 +60,8 @@ pub struct PjaQuery {
     #[serde(default)]
     pub only_silent: bool,
 }
+
+crate::accepted_params!(PjaQuery, pja_query_accepted => "only_silent");
 
 #[derive(Debug, Serialize)]
 pub struct PjaKpi {
@@ -407,6 +409,8 @@ pub async fn handle(
         },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
+        // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
+        ignored_params: Vec::new(),
     })
 }
 
