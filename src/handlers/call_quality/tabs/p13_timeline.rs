@@ -39,6 +39,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 use super::{SourceInfo, TabPayload};
 
@@ -350,6 +351,8 @@ pub async fn get_deal_index(client: &SheetsClient, store: &SheetStore) -> Result
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // 一覧は引数を取らないので常に空。キーごと消さない（古いサーバと区別するため）。
+        invalid_values: Vec::new(),
     })
 }
 
@@ -512,6 +515,44 @@ fn timeline_rows_for_deal<'a>(data: &'a SheetData, deal_id: &str) -> Vec<&'a Vec
         .collect()
 }
 
+/// `sort` / `period` の値を解釈し、実際に使う値と**解釈できなかった値**を返す。
+///
+/// 2026-08-17 追加。`get_deal_detail` から切り出してあるのはテストのため
+/// （あちらは Sheets を叩くので単体テストから呼べない）。
+///
+/// - `sort` は `if sort == "asc" {…} else {降順}` なので `?sort=ascending` は黙って降順。
+/// - `period` は `period_cutoff` が `_ => None`（＝絞らない）なので
+///   **`?period=6M` は「6ヶ月」のつもりで全期間**になる。
+///   動機になった `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
+pub fn resolve_detail_query(q: &DealDetailQuery) -> (&'static str, &'static str, ValueAudit) {
+    let mut audit = ValueAudit::new();
+    let sort = audit.choice(
+        "sort",
+        q.sort.as_deref(),
+        "desc | asc",
+        |v| match v.trim() {
+            "desc" => Some("desc"),
+            "asc" => Some("asc"),
+            _ => None,
+        },
+        || ("desc", "desc".to_string()),
+    );
+    let period = audit.choice(
+        "period",
+        q.period.as_deref(),
+        "all | 3m | 6m | 12m",
+        |v| match v.trim() {
+            "all" => Some("all"),
+            "3m" => Some("3m"),
+            "6m" => Some("6m"),
+            "12m" => Some("12m"),
+            _ => None,
+        },
+        || ("all", "all".to_string()),
+    );
+    (sort, period, audit)
+}
+
 pub async fn get_deal_detail(
     client: &SheetsClient,
     store: &SheetStore,
@@ -519,8 +560,12 @@ pub async fn get_deal_detail(
 ) -> Result<TabPayload<DealDetail>> {
     let started = std::time::Instant::now();
     let deal_id = q.deal_id.trim();
-    let sort = q.sort.as_deref().unwrap_or("desc");
-    let period = q.period.as_deref().unwrap_or("all");
+    // 2026-08-17 追加: 解釈できない値を黙って既定へ落とさない。
+    //   `sort` は `if sort == "asc" {…} else {降順}` なので `?sort=ascending` は黙って降順。
+    //   `period` は `period_cutoff` が `_ => None`（＝絞らない）なので
+    //   **`?period=6M` は6ヶ月のつもりで全期間**になる。動機になった
+    //   `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
+    let (sort, period, audit) = resolve_detail_query(q);
 
     let (timeline, timeline_cached) = store.get(client, "コンサルMTGタイムライン").await?;
     let (contact_weekly, contact_cached) = store.get(client, "コンサル接触率_週次").await?;
@@ -674,6 +719,8 @@ pub async fn get_deal_detail(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**（`sort` / `period` の解釈結果を知っているのはここ）。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -896,5 +943,55 @@ mod tests {
         let d = sheet(header, vec![row_vals]);
         let card = build_meeting_card(&d, &d.rows[0]);
         assert!(!card.has_summary, "AI Companion要約が無いhubspot_onlyはhas_summary=false");
+    }
+
+    // ---- sort / period の不正値を無音で既定にしない（2026-08-17 追加） ----
+
+    fn detail_q(sort: Option<&str>, period: Option<&str>) -> DealDetailQuery {
+        DealDetailQuery {
+            deal_id: "1".into(),
+            sort: sort.map(str::to_string),
+            period: period.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn periodの不正値は全期間に落ちたことを応答に出す() {
+        // `period_cutoff` は `_ => None`（＝絞らない）なので
+        // **`?period=6M` は「6ヶ月」のつもりで全期間**になる。
+        // 動機になった `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
+        let (_, period, audit) = resolve_detail_query(&detail_q(None, Some("6M")));
+        assert_eq!(period, "all", "既定値へ落とす挙動は変えない");
+        assert!(period_cutoff(period, Utc::now()).is_none(), "実際に絞られない");
+        let v = audit.into_vec();
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "period");
+        assert_eq!(v[0].given, "6M");
+        assert_eq!(v[0].used.as_deref(), Some("all"));
+    }
+
+    #[test]
+    fn sortの不正値はdescに落ちたことを応答に出す() {
+        let (sort, _, audit) = resolve_detail_query(&detail_q(Some("ascending"), None));
+        assert_eq!(sort, "desc");
+        let v = audit.into_vec();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].param, "sort");
+        assert_eq!(v[0].used.as_deref(), Some("desc"));
+    }
+
+    #[test]
+    fn 正しいsortとperiodでは何も報告しない() {
+        // **陰性対照**
+        for (s, p) in [
+            (None, None),
+            (Some("asc"), Some("3m")),
+            (Some("desc"), Some("all")),
+            (Some("desc"), Some("12m")),
+            (Some(""), Some("")),
+        ] {
+            let (_, _, a) = resolve_detail_query(&detail_q(s, p));
+            assert!(a.is_empty(), "sort={s:?} period={p:?} は正常なので黙る");
+        }
     }
 }

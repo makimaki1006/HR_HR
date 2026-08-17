@@ -66,6 +66,7 @@ use serde::{Deserialize, Serialize};
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 // ---------------------------------------------------------------- シート名
 
@@ -582,7 +583,17 @@ pub struct TaskAlertsPanel {
     pub rows: Vec<AlertRow>,
 }
 
-pub fn build_alerts(data: &SheetData, q: &P10Query) -> TaskAlertsPanel {
+/// `alert_category` が受け付ける値。**シートの `category` 列の実値**と対応する。
+pub const ALERT_CATEGORY_EXPECTED: &str =
+    "__all__ | mtg_no_followup | contact_zero_2week | na_overdue_no_action";
+
+const ALERT_CATEGORIES: [&str; 3] = [
+    "mtg_no_followup",
+    "contact_zero_2week",
+    "na_overdue_no_action",
+];
+
+pub fn build_alerts(data: &SheetData, q: &P10Query, audit: &mut ValueAudit) -> TaskAlertsPanel {
     let rows: Vec<AlertRow> = data
         .rows
         .iter()
@@ -622,6 +633,21 @@ pub fn build_alerts(data: &SheetData, q: &P10Query) -> TaskAlertsPanel {
         .map(str::trim)
         .filter(|s| !s.is_empty() && *s != "__all__")
         .map(str::to_string);
+
+    // 2026-08-17 追加。ここは**既定値へ落ちない**。知らないカテゴリを指定すると
+    // 一致する行が無く 0件になる。他の引数（絞り込みが消えて全件になる）とは
+    // 逆向きだが、「アラート0件」を「アラートが無い」と読まれる方が危ないので
+    // 同じ `invalid_values` で名指しする。`used` は null（何にも落としていない）。
+    if let Some(c) = selected_category.as_deref() {
+        if !ALERT_CATEGORIES.contains(&c) {
+            audit.no_match(
+                "alert_category",
+                c,
+                ALERT_CATEGORY_EXPECTED,
+                "この絞り込みは0件になります（アラートが無いという意味ではありません）",
+            );
+        }
+    }
 
     let mut shown: Vec<AlertRow> = match selected_category.as_deref() {
         Some(c) => rows.iter().filter(|r| r.category == c).cloned().collect(),
@@ -707,7 +733,8 @@ pub async fn handle(
 
     let actions = build_actions(&actions_data, &q, today);
     let phase = build_phase(&phase_data, today);
-    let alerts = build_alerts(&alerts_data, &q);
+    let mut audit = ValueAudit::new();
+    let alerts = build_alerts(&alerts_data, &q, &mut audit);
 
     set_matched(&mut sources, SHEET_ACTIONS, actions.kpis.total);
     set_matched(&mut sources, SHEET_ALERTS, alerts.rows.len());
@@ -718,6 +745,8 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -875,7 +904,7 @@ mod tests {
             fetched_at: Instant::now(),
         };
         let q = P10Query { owner: None, alert_category: Some("mtg_no_followup".into()) };
-        let panel = build_alerts(&d, &q);
+        let panel = build_alerts(&d, &q, &mut ValueAudit::new());
         assert_eq!(panel.category_counts.mtg_no_followup, 1);
         assert_eq!(panel.category_counts.contact_zero_2week, 1, "絞り込み後でも全体件数は変わらない");
         assert_eq!(panel.rows.len(), 1, "表示行はフィルタ後の1件");
@@ -899,7 +928,55 @@ mod tests {
             ],
             fetched_at: Instant::now(),
         };
-        let panel = build_alerts(&d, &P10Query::default());
+        let panel = build_alerts(&d, &P10Query::default(), &mut ValueAudit::new());
         assert_eq!(panel.rows[0].deal_id, "2", "経過日数の大きい方が先");
+    }
+
+    // ---- カテゴリの不正値を無音にしない（2026-08-17 追加） ----
+
+    fn alert_sheet() -> SheetData {
+        let header = vec![
+            "deal_id", "deal_label", "customer_id", "customer_label", "owner_id", "owner_name",
+            "pipeline_label", "stage_label", "category", "category_label", "last_contact_date",
+            "days_since", "last_mtg_date", "days_since_mtg",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        SheetData {
+            header,
+            rows: vec![
+                arc_row(&["1", "A", "", "A", "1", "田中", "PL", "St", "mtg_no_followup", "x", "2026-08-01", "10", "", ""]),
+            ],
+            fetched_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn 知らないカテゴリは0件になることを名指しする() {
+        // ここは他の引数と**逆向き**で、既定値に落ちず0件になる。
+        // 「アラート0件」を「アラートが無い」と読まれる方が危ないので報告する。
+        let d = alert_sheet();
+        let q = P10Query { owner: None, alert_category: Some("mtg_no_folowup".into()) };
+        let mut a = ValueAudit::new();
+        let panel = build_alerts(&d, &q, &mut a);
+        assert_eq!(panel.rows.len(), 0, "挙動は変えない（0件のまま）");
+        let v = a.into_vec();
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "alert_category");
+        assert_eq!(v[0].used, None, "既定値に落ちていないのに落ちたと言わない");
+        assert!(v[0].message.contains("0件"));
+    }
+
+    #[test]
+    fn 正しいカテゴリでは何も報告しない() {
+        // **陰性対照**。`__all__`（画面の「すべて」）も正常。
+        let d = alert_sheet();
+        for c in [None, Some("__all__"), Some("mtg_no_followup"), Some("contact_zero_2week"), Some("na_overdue_no_action"), Some("")] {
+            let q = P10Query { owner: None, alert_category: c.map(str::to_string) };
+            let mut a = ValueAudit::new();
+            build_alerts(&d, &q, &mut a);
+            assert!(a.is_empty(), "alert_category={c:?} は正常なので黙る");
+        }
     }
 }

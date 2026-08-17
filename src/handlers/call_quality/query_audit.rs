@@ -40,6 +40,201 @@
 
 use std::collections::BTreeSet;
 
+use serde::Serialize;
+
+// ================================================================ 値の監査
+//
+// 2026-08-17 追加。上の `ignored_params` は **キー名しか見ない**ので、
+// 「キーは正しいが値が解釈できない」経路がまるごと素通りしていた。
+//
+// 実測（稼働中サーバ localhost:9300）:
+//   `?deals_statuss=active` → ignored_params:["deals_statuss"]（塞いだ）
+//   `?deals_status=NONSENSE` → ignored_params:[] で **all に落ちて全218件**
+// 利用者から見た結末は同じ「絞ったつもりで全件が出る」。
+// 入口を1つ塞いだだけで、隣の入口が開いていた。
+//
+// `?today_ym=zzzz` はさらに悪く、当月判定が丸ごと無効化されて
+// **`is_partial`（集計途中の月）が立つ月が1つも無くなる**。
+//
+// # ここで扱うもの / 扱わないもの
+//
+// - 扱う: **値があるのに解釈できず、既定値へ落ちた**。
+// - 扱わない: **値が無いので既定値**。これは正常であり、報告すると
+//   ほぼ全リクエストが何か言い出して狼少年になる。
+// - 扱わない: 値がシートの中身（業界名・担当者名・県名）と一致しないケース。
+//   サーバには「打ち間違い」と「本当にデータが無い」の区別が付かない。
+//   これらは 0件として素直に見えるので、別の話として扱う。
+
+/// 解釈できなかった値1件。
+///
+/// **`used` を必ず載せる**のが要点。「`deals_status=NONSENSE` は読めませんでした」
+/// だけでは、利用者は自分が今どの数字を見ているのか分からない。
+/// 「なので `all` を使いました」まで言えば、「絞ったつもり」を自分で正せる。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InvalidValue {
+    /// 引数名（`deals_status` 等）
+    pub param: &'static str,
+    /// 受け取った生の値。**そのまま返す**（伏せると利用者が自分の打ち間違いを直せない）
+    pub given: String,
+    /// 代わりに実際に使った値。既定値へ落とした場合はその値。
+    /// 既定値へ落とさず「該当なし（0件）」として扱った場合は `None`。
+    pub used: Option<String>,
+    /// 受け付ける値、または書式（`all | active | continued | churned` / `YYYY-MM`）
+    pub expected: String,
+    /// そのまま画面に出せる日本語の一文
+    pub message: String,
+}
+
+/// 1リクエストぶんの「解釈できなかった値」を集める箱。
+///
+/// タブ側が持つ。ルータ側では判定できない（値の意味を知っているのはタブだけ）。
+/// `ignored_params` がルータ持ちなのと対になっている。
+#[derive(Debug, Default)]
+pub struct ValueAudit {
+    items: Vec<InvalidValue>,
+}
+
+impl ValueAudit {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 既定値へ落としたことを記録する。
+    pub fn fell_back(&mut self, param: &'static str, given: &str, used: &str, expected: &str) {
+        self.items.push(InvalidValue {
+            param,
+            given: given.to_string(),
+            used: Some(used.to_string()),
+            expected: expected.to_string(),
+            message: format!(
+                "「{param}={given}」は解釈できないので {used} を使いました（受け付ける値: {expected}）"
+            ),
+        });
+    }
+
+    /// 既定値へ落とさず、そのまま「該当なし」として扱ったことを記録する。
+    ///
+    /// 結果は0件になるので画面上は「該当なし」と出る。**それを「本当に0件」と
+    /// 読まれるのが危ない**ので、`effect` に何が起きるかを書く。
+    pub fn no_match(&mut self, param: &'static str, given: &str, expected: &str, effect: &str) {
+        self.items.push(InvalidValue {
+            param,
+            given: given.to_string(),
+            used: None,
+            expected: expected.to_string(),
+            message: format!(
+                "「{param}={given}」は解釈できません（受け付ける値: {expected}）。{effect}"
+            ),
+        });
+    }
+
+    /// 閉じた集合から選ぶ引数の定型。
+    ///
+    /// - 値が無い / 空白のみ → 既定値。**記録しない**（正常）
+    /// - 値があり解釈できた   → その値。記録しない
+    /// - 値があり解釈できない → 既定値 + 記録
+    ///
+    /// `default` が「値と表示名」を返すのは、既定値が他の引数に依存する場合が
+    /// あるため（p8 の `bench_sort_dir` は `bench_sort_key` によって asc/desc が変わる）。
+    pub fn choice<T>(
+        &mut self,
+        param: &'static str,
+        raw: Option<&str>,
+        expected: &str,
+        parse: impl Fn(&str) -> Option<T>,
+        default: impl FnOnce() -> (T, String),
+    ) -> T {
+        let given = match raw.map(str::trim).filter(|s| !s.is_empty()) {
+            None => return default().0,
+            Some(v) => v,
+        };
+        if let Some(v) = parse(given) {
+            return v;
+        }
+        let (v, used) = default();
+        self.fell_back(param, given, &used, expected);
+        v
+    }
+
+    /// `YYYY-MM` を受ける引数の定型（`today_ym` / `current_ym`）。
+    ///
+    /// **これは挙動を変える**。従来は `today_ym=zzzz` がそのまま「当月」として
+    /// 下流へ流れ、`ym == current_month` がどの行にも一致せず
+    /// **`is_partial` が立つ月が1つも無くなっていた**（当月判定の全面無効化）。
+    /// 書式が壊れている値を「当月」として扱う意味は無いので、
+    /// 省略時と同じ既定（実行時の当月）へ落として、落としたことを記録する。
+    pub fn year_month(
+        &mut self,
+        param: &'static str,
+        raw: Option<&str>,
+        default: impl FnOnce() -> String,
+    ) -> String {
+        self.choice(
+            param,
+            raw,
+            "YYYY-MM",
+            |v| {
+                if is_year_month(v) {
+                    Some(v.to_string())
+                } else {
+                    None
+                }
+            },
+            || {
+                let d = default();
+                (d.clone(), d)
+            },
+        )
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// 応答へ載せる形にする。**空でも空配列を返す**（キーごと消さないため）。
+    pub fn into_vec(self) -> Vec<InvalidValue> {
+        self.items
+    }
+}
+
+/// `YYYY-MM`（またはその接頭辞を持つ `YYYY-MM-DD`）か。
+///
+/// 判定を各タブに散らさない。`is_partial_month` / `same_ym` が
+/// 先頭7文字を比べる実装なので、それと同じ粒度で見る。
+pub fn is_year_month(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() < 7 {
+        return false;
+    }
+    if !b[..4].iter().all(u8::is_ascii_digit) || b[4] != b'-' {
+        return false;
+    }
+    if !b[5].is_ascii_digit() || !b[6].is_ascii_digit() {
+        return false;
+    }
+    let month = (b[5] - b'0') * 10 + (b[6] - b'0');
+    if !(1..=12).contains(&month) {
+        return false;
+    }
+    // "2026-08" ちょうど、または "2026-08-01" のような日付付きだけ通す。
+    // "2026-08zz" は通さない（黙って月として使われると気づけない）。
+    b.len() == 7 || b[7] == b'-'
+}
+
+/// 解釈できなかった値をサーバログにも残す。
+///
+/// `ignored_params` と同じ理由で**応答とログの両方に出す**。
+/// `curl | jq .data` のように一部だけ見ている検証では応答だけでは気づけない。
+pub fn warn_invalid_values(endpoint: &str, values: &[InvalidValue]) {
+    if !values.is_empty() {
+        let lines: Vec<&str> = values.iter().map(|v| v.message.as_str()).collect();
+        tracing::warn!(
+            "架電クオリティ{endpoint}: 解釈できない値を既定値で置き換えました: {lines:?} \
+             （応答の invalid_values にも同じものを載せています）"
+        );
+    }
+}
+
 /// この構造体が URL クエリ / JSON ボディで受理する引数名。
 ///
 /// 手で書かず、必ず [`crate::accepted_params!`] マクロ経由で実装すること
@@ -354,5 +549,150 @@ mod tests {
     fn jsonがオブジェクトでなければ空() {
         assert!(ignored_params_json(&["sheet"], &serde_json::json!([1, 2])).is_empty());
         assert!(ignored_params_json(&["sheet"], &serde_json::json!("x")).is_empty());
+    }
+
+    // ---- 値の監査（2026-08-17 追加） ----
+
+    fn dummy_parse(v: &str) -> Option<&'static str> {
+        match v {
+            "active" => Some("active"),
+            "churned" => Some("churned"),
+            _ => None,
+        }
+    }
+
+    fn choice_of(raw: Option<&str>) -> (&'static str, Vec<InvalidValue>) {
+        let mut a = ValueAudit::new();
+        let v = a.choice(
+            "deals_status",
+            raw,
+            "all | active | churned",
+            dummy_parse,
+            || ("all", "all".to_string()),
+        );
+        (v, a.into_vec())
+    }
+
+    #[test]
+    fn 値なしは既定値でも記録しない() {
+        // **陰性対照**。「値が無いので既定値」は正常。ここで報告し始めると
+        // ほぼ全リクエストが何か言い出して、誰も読まなくなる。
+        let (v, inv) = choice_of(None);
+        assert_eq!(v, "all");
+        assert!(inv.is_empty(), "値なしは正常: {inv:?}");
+
+        // 空文字・空白のみも「指定なし」と同じ扱い
+        assert!(choice_of(Some("")).1.is_empty());
+        assert!(choice_of(Some("   ")).1.is_empty());
+    }
+
+    #[test]
+    fn 正しい値は記録しない() {
+        // 陰性対照その2
+        let (v, inv) = choice_of(Some("active"));
+        assert_eq!(v, "active");
+        assert!(inv.is_empty(), "正しい値では警告を出さない: {inv:?}");
+        // 前後の空白は許す（画面のセレクタが空白を付けることがある）
+        assert!(choice_of(Some(" churned ")).1.is_empty());
+    }
+
+    #[test]
+    fn 解釈できない値は既定値と一緒に記録する() {
+        let (v, inv) = choice_of(Some("NONSENSE"));
+        assert_eq!(v, "all", "既定値へ落とす挙動自体は変えない（画面が落ちる）");
+        assert_eq!(inv.len(), 1);
+        assert_eq!(inv[0].param, "deals_status");
+        assert_eq!(inv[0].given, "NONSENSE");
+        assert_eq!(
+            inv[0].used.as_deref(),
+            Some("all"),
+            "**何に落としたか**まで言わないと「絞ったつもり」を自分で正せない"
+        );
+        assert!(inv[0].message.contains("NONSENSE"));
+        assert!(inv[0].message.contains("all"));
+    }
+
+    #[test]
+    fn 既定値へ落とさない場合はusedがnull() {
+        let mut a = ValueAudit::new();
+        a.no_match(
+            "alert_category",
+            "mtg_no_folowup",
+            "mtg_no_followup | contact_zero_2week | na_overdue_no_action | __all__",
+            "この絞り込みは0件になります（アラートが無いという意味ではありません）",
+        );
+        let inv = a.into_vec();
+        assert_eq!(inv[0].used, None, "既定値に落ちていないのに落ちたと言わない");
+        assert!(inv[0].message.contains("0件"));
+    }
+
+    #[test]
+    fn 年月の書式を判定する() {
+        assert!(is_year_month("2026-08"));
+        assert!(is_year_month("2026-08-17"), "日付付きも当月判定には使える");
+        assert!(is_year_month("2026-01"));
+        assert!(is_year_month("2026-12"));
+
+        assert!(!is_year_month("zzzz"), "実測で当月判定を全滅させた値");
+        assert!(!is_year_month("2026-13"), "13月は存在しない");
+        assert!(!is_year_month("2026-00"));
+        assert!(!is_year_month("2026-8"), "1桁月は先頭7文字比較で必ず外れる");
+        assert!(!is_year_month("202608"));
+        assert!(!is_year_month("2026-08zz"), "接尾に何か付いていたら通さない");
+        assert!(!is_year_month(""));
+    }
+
+    #[test]
+    fn 壊れた年月は当月へ落として記録する() {
+        let mut a = ValueAudit::new();
+        let ym = a.year_month("today_ym", Some("zzzz"), || "2026-08".to_string());
+        assert_eq!(
+            ym, "2026-08",
+            "壊れた値をそのまま「当月」として流すと is_partial が全消滅する"
+        );
+        let inv = a.into_vec();
+        assert_eq!(inv.len(), 1);
+        assert_eq!(inv[0].param, "today_ym");
+        assert_eq!(inv[0].used.as_deref(), Some("2026-08"));
+        assert_eq!(inv[0].expected, "YYYY-MM");
+    }
+
+    #[test]
+    fn 正しい年月は記録せずそのまま使う() {
+        // 陰性対照
+        let mut a = ValueAudit::new();
+        let ym = a.year_month("today_ym", Some("2026-05"), || "2026-08".to_string());
+        assert_eq!(ym, "2026-05");
+        assert!(a.is_empty());
+
+        // 省略時も静か
+        let mut a = ValueAudit::new();
+        assert_eq!(
+            a.year_month("today_ym", None, || "2026-08".to_string()),
+            "2026-08"
+        );
+        assert!(a.is_empty());
+    }
+
+    #[test]
+    fn 複数の不正値は投げた順に並ぶ() {
+        let mut a = ValueAudit::new();
+        a.fell_back("bench_sort_key", "NONSENSE", "churn_rate", "name | churn_rate");
+        a.fell_back("bench_sort_dir", "sideways", "asc", "asc | desc");
+        let inv = a.into_vec();
+        assert_eq!(inv.len(), 2);
+        assert_eq!(inv[0].param, "bench_sort_key");
+        assert_eq!(inv[1].param, "bench_sort_dir");
+    }
+
+    #[test]
+    fn 不正値はjsonで配列になる() {
+        let mut a = ValueAudit::new();
+        a.fell_back("deals_status", "NONSENSE", "all", "all | active");
+        let v = serde_json::to_value(a.into_vec()).unwrap();
+        assert_eq!(v[0]["param"], "deals_status");
+        assert_eq!(v[0]["given"], "NONSENSE");
+        assert_eq!(v[0]["used"], "all");
+        assert!(v[0]["message"].is_string());
     }
 }

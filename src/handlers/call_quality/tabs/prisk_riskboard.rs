@@ -58,6 +58,7 @@ use serde::{Deserialize, Serialize};
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 // ---------------------------------------------------------------- シート名
 
@@ -151,13 +152,29 @@ pub enum RiskSort {
     Proba,
 }
 
+/// `sort` が受け付ける値。
+pub const RISK_SORT_EXPECTED: &str = "red | rar | expiry | proba";
+
 impl RiskSort {
-    fn parse(s: Option<&str>) -> Self {
-        match s.map(str::trim) {
-            Some("rar") => Self::Rar,
-            Some("expiry") => Self::Expiry,
-            Some("proba") => Self::Proba,
-            _ => Self::Red,
+    /// 2026-08-17 是正: `_ => Self::Red` で**解釈できない値も黙って赤件数順**に
+    /// なっていた。並び順は「どの案件を先に見るか」を決めるので、
+    /// 効いていないことに気づけないのは重い。落とす先は変えず `Option` を返す。
+    fn parse(s: &str) -> Option<Self> {
+        Some(match s.trim() {
+            "red" => Self::Red,
+            "rar" => Self::Rar,
+            "expiry" => Self::Expiry,
+            "proba" => Self::Proba,
+            _ => return None,
+        })
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Red => "red",
+            Self::Rar => "rar",
+            Self::Expiry => "expiry",
+            Self::Proba => "proba",
         }
     }
 }
@@ -297,7 +314,7 @@ fn sort_board(mut rows: Vec<BoardRow>, sort: RiskSort) -> Vec<BoardRow> {
     rows
 }
 
-pub fn build_board(data: &SheetData, q: &PriskQuery) -> BoardPanel {
+pub fn build_board(data: &SheetData, q: &PriskQuery, audit: &mut ValueAudit) -> BoardPanel {
     let all = collect_board(data);
     let band_counts = band_counts(&all);
 
@@ -310,7 +327,13 @@ pub fn build_board(data: &SheetData, q: &PriskQuery) -> BoardPanel {
     names.dedup();
 
     let min_red = q.min_red.unwrap_or(0);
-    let sort = RiskSort::parse(q.sort.as_deref());
+    let sort = audit.choice(
+        "sort",
+        q.sort.as_deref(),
+        RISK_SORT_EXPECTED,
+        RiskSort::parse,
+        || (RiskSort::Red, RiskSort::Red.as_str().to_string()),
+    );
     let consultant_filter = q
         .consultant
         .as_deref()
@@ -746,7 +769,8 @@ pub async fn handle(
         build_health(&health_active, SHEET_HEALTH_ACTIVE)
     };
 
-    let board = build_board(&board_data, &q);
+    let mut audit = ValueAudit::new();
+    let board = build_board(&board_data, &q, &mut audit);
     let risk_score = build_risk_score(&risk_score_data);
     let matrix = build_matrix(&matrix_data);
 
@@ -767,6 +791,8 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -816,7 +842,7 @@ mod tests {
             vec!["2", "B", "鈴木", "新規", "6", "序盤", "50", "100", "🟢", "8", "10", "🟢", "1", "10000", "0", "🟢安定", "-"],
         ]);
         let q = PriskQuery { consultant: Some("田中".into()), min_red: Some(3), sort: None };
-        let panel = build_board(&d, &q);
+        let panel = build_board(&d, &q, &mut ValueAudit::new());
         // 担当=田中で絞っても、バンド件数(全体)は2件とも反映される
         assert_eq!(panel.band_counts.critical, 1);
         assert_eq!(panel.band_counts.stable, 1);
@@ -831,7 +857,7 @@ mod tests {
             vec!["2", "B", "x", "", "", "", "10", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
         ]);
         let q = PriskQuery { consultant: None, min_red: None, sort: Some("expiry".into()) };
-        let panel = build_board(&d, &q);
+        let panel = build_board(&d, &q, &mut ValueAudit::new());
         assert_eq!(panel.rows[0].deal_id, "1", "0日は99999扱いにせず最優先で出す");
     }
 
@@ -842,7 +868,7 @@ mod tests {
             vec!["2", "B", "x", "", "", "", "10", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
         ]);
         let q = PriskQuery { consultant: None, min_red: None, sort: Some("expiry".into()) };
-        let panel = build_board(&d, &q);
+        let panel = build_board(&d, &q, &mut ValueAudit::new());
         assert_eq!(panel.rows[0].deal_id, "2");
         assert_eq!(panel.rows[1].deal_id, "1", "欠損は99999扱いで末尾");
     }
@@ -854,7 +880,7 @@ mod tests {
             vec!["2", "B", "x", "", "", "", "", "0", "", "", "", "", "", "500", "2", "🟠要注意", ""],
         ]);
         let q = PriskQuery::default();
-        let panel = build_board(&d, &q);
+        let panel = build_board(&d, &q, &mut ValueAudit::new());
         assert_eq!(panel.rows[0].deal_id, "2", "赤軸数2の方が先");
     }
 
@@ -914,5 +940,36 @@ mod tests {
         };
         let panel = build_matrix(&d);
         assert_eq!(panel.points[0].y_risk_score, 42.0, "risk_score空欄はcontinue_intentへフォールバック");
+    }
+
+    // ---- 並び順の不正値を無音で既定にしない（2026-08-17 追加） ----
+
+    #[test]
+    fn sortの不正値はredに落ちたことを応答に出す() {
+        let d = board_sheet(vec![
+            vec!["1", "A", "x", "", "", "", "", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
+        ]);
+        let q = PriskQuery { consultant: None, min_red: None, sort: Some("NONSENSE".into()) };
+        let mut a = ValueAudit::new();
+        let panel = build_board(&d, &q, &mut a);
+        assert_eq!(panel.sort, RiskSort::Red, "既定値へ落とす挙動は変えない");
+        let v = a.into_vec();
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "sort");
+        assert_eq!(v[0].used.as_deref(), Some("red"));
+    }
+
+    #[test]
+    fn 正しいsortでは何も報告しない() {
+        // **陰性対照**
+        let d = board_sheet(vec![
+            vec!["1", "A", "x", "", "", "", "", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
+        ]);
+        for sort in [None, Some("red"), Some("rar"), Some("expiry"), Some("proba")] {
+            let q = PriskQuery { consultant: None, min_red: None, sort: sort.map(str::to_string) };
+            let mut a = ValueAudit::new();
+            build_board(&d, &q, &mut a);
+            assert!(a.is_empty(), "sort={sort:?} は正常なので黙る");
+        }
     }
 }

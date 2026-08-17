@@ -59,6 +59,7 @@ use serde::{Deserialize, Serialize};
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 // ---------------------------------------------------------------- シート名
 
@@ -548,10 +549,13 @@ pub async fn handle(
     let na_detail = get_or_empty(store, client, SHEET_NA_DETAIL, &mut sources).await;
     let heatmap = get_or_empty(store, client, SHEET_HEATMAP, &mut sources).await;
 
-    let current_month = q
-        .today_ym
-        .clone()
-        .unwrap_or_else(|| super::jst_current_ym());
+    // 2026-08-17 追加: 壊れた `today_ym` を黙って通さない。
+    //   `build_monthly_kpi` は `ym == current_month` で当月に `is_partial` を立て、
+    //   `latest_complete_month`（当月を除いた直近の確定月）もそこで決まる。
+    //   `?today_ym=zzzz` だと当月が「確定月」に紛れ込み、
+    //   **個人別パネルの既定対象月が集計途中の月になる**。
+    let mut audit = ValueAudit::new();
+    let current_month = audit.year_month("today_ym", q.today_ym.as_deref(), super::jst_current_ym);
 
     let monthly_kpi = build_monthly_kpi(&caller, &current_month);
     let selected_month = q
@@ -577,6 +581,8 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -722,5 +728,51 @@ mod tests {
         let rows = build_data_quality(&d);
         assert!(rows[0].bad, "「不可」を含む値はbad");
         assert!(!rows[1].bad);
+    }
+
+    // ---- today_ym の不正値（2026-08-17 追加） ----
+
+    #[test]
+    fn 壊れたtoday_ymは当月扱いを失い確定月がずれる() {
+        // `build_monthly_kpi` は `ym == current_month` で当月に `is_partial` を立て、
+        // `latest_complete_month`（当月を除いた直近の確定月）もそこで決まる。
+        // `?today_ym=zzzz` だと当月が「確定月」に紛れ込み、
+        // 個人別パネルの既定対象月が集計途中の月になる。
+        let d = sheet(
+            &CALLER_HEADER,
+            &[
+                &["A", "100", "2026-07", "500", "10", "30", "150", "5", "25", "5", "1.0"],
+                &["A", "100", "2026-08", "100", "2", "6", "6", "1", "1", "1", "1.0"],
+            ],
+        );
+
+        let broken = build_monthly_kpi(&d, "zzzz");
+        assert!(
+            broken.rows.iter().all(|r| !r.is_partial),
+            "旧挙動: 当月フラグが1つも立たない（記録として残す）"
+        );
+        assert_eq!(
+            broken.latest_complete_month, "2026-08",
+            "旧挙動: 集計途中の当月が既定の対象月になる"
+        );
+
+        // 監査層が壊れた値を弾くので、下流には当月が渡る
+        let mut a = ValueAudit::new();
+        let ym = a.year_month("today_ym", Some("zzzz"), || "2026-08".to_string());
+        let fixed = build_monthly_kpi(&d, &ym);
+        assert!(fixed.rows.iter().any(|r| r.is_partial), "当月に is_partial が立つ");
+        assert_eq!(fixed.latest_complete_month, "2026-07", "確定月は前月");
+        let v = a.into_vec();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].param, "today_ym");
+    }
+
+    #[test]
+    fn 正しいtoday_ymでは何も報告しない() {
+        // **陰性対照**
+        let mut a = ValueAudit::new();
+        a.year_month("today_ym", None, || "2026-08".to_string());
+        a.year_month("today_ym", Some("2026-05"), || "2026-08".to_string());
+        assert!(a.is_empty());
     }
 }

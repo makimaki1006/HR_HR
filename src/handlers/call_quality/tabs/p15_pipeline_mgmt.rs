@@ -45,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use super::{SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 // ---------------------------------------------------------------- シート名
 
@@ -136,15 +137,37 @@ fn default_priorities() -> Vec<ActionPriority> {
     vec![ActionPriority::Immediate, ActionPriority::High, ActionPriority::Medium]
 }
 
-fn parse_priorities(s: Option<&str>) -> Vec<ActionPriority> {
-    match s {
-        None => default_priorities(),
-        Some(raw) => raw
-            .split(',')
-            .map(|t| ActionPriority::parse(t.trim()))
-            .filter(|p| *p != ActionPriority::Unknown)
-            .collect(),
+/// `priority` が受け付ける値。
+pub const PRIORITY_EXPECTED: &str = "immediate | high | medium | watch（カンマ区切りで複数可）";
+
+/// 2026-08-17 是正: `filter(|p| *p != Unknown)` で**解釈できないトークンを
+/// 黙って捨てていた**。`?priority=immediate,hgih` は「immediate だけ」になり、
+/// 利用者は high も含まれていると思って一覧を読む。
+/// 全部が解釈できなければ空リスト = 0件表示になる。
+///
+/// 挙動は変えない（捨てたまま）。捨てたトークンを1つずつ `invalid_values` に出す。
+fn parse_priorities(s: Option<&str>, audit: &mut ValueAudit) -> Vec<ActionPriority> {
+    let Some(raw) = s else {
+        return default_priorities();
+    };
+    let mut out = Vec::new();
+    for token in raw.split(',') {
+        let t = token.trim();
+        if t.is_empty() {
+            // `?priority=immediate,` のような末尾カンマ。指定していないのと同じなので黙る。
+            continue;
+        }
+        match ActionPriority::parse(t) {
+            ActionPriority::Unknown => audit.no_match(
+                "priority",
+                t,
+                PRIORITY_EXPECTED,
+                "この値は絞り込みから外れます（残りの値だけで絞り込みます）",
+            ),
+            p => out.push(p),
+        }
     }
+    out
 }
 
 // ============================================================ 月次集計
@@ -583,7 +606,8 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P15Query) -> R
     let deals_sheet = load(client, store, SHEET_DEALS, &mut sources).await?;
 
     let cid = q.consultant_id.as_deref().filter(|s| !s.is_empty());
-    let priorities = parse_priorities(q.priority.as_deref());
+    let mut audit = ValueAudit::new();
+    let priorities = parse_priorities(q.priority.as_deref(), &mut audit);
 
     let mut consultants: Vec<ConsultantOption> = summary_sheet
         .rows
@@ -642,6 +666,8 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P15Query) -> R
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -788,5 +814,47 @@ mod tests {
         );
         let cards = build_summary(&monthly, &summary, &deals, Some("1"));
         assert_eq!(cards.immediate_count, 1, "watchの1件を含む全件から数える(フィルタ前)");
+    }
+
+    // ---- priority の未知トークンを黙って捨てない（2026-08-17 追加） ----
+
+    #[test]
+    fn priorityの未知トークンを名指しする() {
+        // `?priority=immediate,hgih` は「immediate だけ」で絞られるのに、
+        // 利用者は high も含まれていると思って一覧を読む。
+        let mut a = ValueAudit::new();
+        let p = parse_priorities(Some("immediate,hgih"), &mut a);
+        assert_eq!(p, vec![ActionPriority::Immediate], "挙動は変えない（捨てたまま）");
+        let v = a.into_vec();
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "priority");
+        assert_eq!(v[0].given, "hgih");
+        assert_eq!(v[0].used, None, "既定値には落ちていない");
+    }
+
+    #[test]
+    fn priorityが全部不正なら全部名指しする() {
+        let mut a = ValueAudit::new();
+        let p = parse_priorities(Some("a,b"), &mut a);
+        assert!(p.is_empty(), "0件表示になる（既定値へ戻さない。ファイル冒頭の判断）");
+        assert_eq!(a.into_vec().len(), 2, "1件で打ち切らない");
+    }
+
+    #[test]
+    fn 正しいpriorityでは何も報告しない() {
+        // **陰性対照**
+        let mut a = ValueAudit::new();
+        assert_eq!(parse_priorities(None, &mut a), default_priorities());
+        assert!(a.is_empty(), "省略は正常");
+
+        let mut a = ValueAudit::new();
+        let p = parse_priorities(Some("immediate, high , watch"), &mut a);
+        assert_eq!(p.len(), 3, "前後の空白は許す");
+        assert!(a.is_empty());
+
+        // 末尾カンマ・空トークンは「指定なし」と同じなので黙る
+        let mut a = ValueAudit::new();
+        parse_priorities(Some("immediate,"), &mut a);
+        assert!(a.is_empty());
     }
 }
