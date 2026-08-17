@@ -296,17 +296,22 @@ impl SheetsClient {
                 other => other.to_string(),
             })
             .collect();
-        // 2026-08-17: ヘッダが空の列に `列N` を充てる。
+        // 2026-08-17: 列を無言で落とさない。
+        //
         //   従来は空ヘッダ列を `continue` で捨てていたため、「最新サマリ」
         //   シート(1行目が注記・3行目が実ヘッダという特殊な作り)で
         //   **2〜39列目が無言で消えて画面がほぼ空**になっていた。
-        //   捨てずに位置名で見せる。名前で引く既存の集計には影響しない。
-        let header: Vec<String> = header
-            .into_iter()
-            .enumerate()
-            .map(|(i, h)| if h.is_empty() { format!("列{}", i + 1) } else { h })
-            .collect();
+        //
+        //   はじめ「空文字ヘッダに `列N` を充てる」だけ直したが、**効かなかった**。
+        //   実測すると header が 1列しか無い。Sheets API は行末の空セルを
+        //   詰めて返すため、1行目が注記1セルだけのシートでは
+        //   **ヘッダ行そのものが1セル**になり、空文字ですらない。
+        //   したがって全行の最大幅までヘッダを伸ばす必要がある。
+        let rows_raw: Vec<Vec<serde_json::Value>> = iter.collect();
+        let widest = rows_raw.iter().map(|r| r.len()).max().unwrap_or(0);
+        let header = normalize_header(header, widest);
 
+        let iter = rows_raw.into_iter();
         let mut rows: Vec<Vec<String>> = Vec::with_capacity(iter.size_hint().0);
         for raw in iter {
             let mut cells = Vec::with_capacity(header.len());
@@ -347,6 +352,22 @@ impl SheetsClient {
     }
 }
 
+/// ヘッダを「実際に値がある最大幅」まで伸ばし、名前の無い列に `列N` を付ける。
+///
+/// Sheets API は行末の空セルを詰めて返すため、1行目が注記1セルだけのシートでは
+/// **ヘッダ行そのものが1セル**になる。そのまま使うと2列目以降が丸ごと消える。
+/// 実測「最新サマリ」: 39列あるのにヘッダ1列 → **2〜39列目が無言で欠落**していた。
+fn normalize_header(header: Vec<String>, widest: usize) -> Vec<String> {
+    let mut h = header;
+    if widest > h.len() {
+        h.resize(widest, String::new());
+    }
+    h.into_iter()
+        .enumerate()
+        .map(|(i, x)| if x.trim().is_empty() { format!("列{}", i + 1) } else { x })
+        .collect()
+}
+
 fn epoch_now() -> Result<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -357,6 +378,32 @@ fn epoch_now() -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ヘッダが短くても列を落とさない() {
+        // 「最新サマリ」の実際の形: 1行目が注記1セル、実データは39列
+        let got = normalize_header(vec!["最終更新: 2026-08-16".to_string()], 39);
+        assert_eq!(got.len(), 39, "39列あるのにヘッダ1列では2〜39列目が消える");
+        assert_eq!(got[0], "最終更新: 2026-08-16", "元の名前は書き換えない");
+        assert_eq!(got[1], "列2");
+        assert_eq!(got[38], "列39");
+    }
+
+    #[test]
+    fn 空文字ヘッダにも位置名を付ける() {
+        let got = normalize_header(
+            vec!["owner_id".into(), "".into(), "  ".into(), "call_count".into()],
+            4,
+        );
+        assert_eq!(got, vec!["owner_id", "列2", "列3", "call_count"]);
+    }
+
+    #[test]
+    fn ヘッダの方が長いときは縮めない() {
+        // 全行が空でも、ヘッダにある列は残す
+        let got = normalize_header(vec!["a".into(), "b".into(), "c".into()], 1);
+        assert_eq!(got, vec!["a", "b", "c"]);
+    }
 
     /// JWT claims 構造の sanity check (実 SA 鍵不要)
     #[test]
