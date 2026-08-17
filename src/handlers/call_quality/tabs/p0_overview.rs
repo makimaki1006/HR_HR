@@ -406,6 +406,9 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // このタブには「値が不正なら既定値に落とす」引数が無い（値は全て
+        // シートの中身と照合するか、型で受けて 400 になる）ので常に空。
+        invalid_values: Vec::new(),
     })
 }
 

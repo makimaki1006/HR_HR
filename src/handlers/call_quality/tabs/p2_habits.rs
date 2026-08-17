@@ -108,6 +108,7 @@ use serde::{Deserialize, Serialize};
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 // ---------------------------------------------------------------- シート名
 
@@ -1908,13 +1909,25 @@ fn cross_value(v: Option<&str>) -> String {
 /// ここも同じ規則で正規化する。`?funnel_period=6M` のような大文字違いが
 /// 黙って `since-zoom` になっていたことが、これで応答から分かる。
 fn funnel_period_effective(v: Option<&str>) -> &'static str {
-    match v.unwrap_or("since-zoom") {
+    funnel_period_parse(v.unwrap_or("since-zoom")).unwrap_or("since-zoom")
+}
+
+/// `funnel_period` が受け付ける値。
+pub const FUNNEL_PERIOD_EXPECTED: &str = "since-zoom | 3m | 6m | 12m | all";
+
+/// 2026-08-17 追加。`funnel_period_effective` は「実際に効いた値」を返すので
+/// 応答を注意深く読めば `6M` → `since-zoom` に落ちたことは分かる。
+/// ただし**利用者は自分が送った値が返ってきていると思って読む**ので、
+/// 落ちたこと自体を `invalid_values` で名指しする。判定規則は1本のままにする。
+fn funnel_period_parse(v: &str) -> Option<&'static str> {
+    Some(match v.trim() {
+        "since-zoom" => "since-zoom",
         "all" => "all",
         "3m" => "3m",
         "6m" => "6m",
         "12m" => "12m",
-        _ => "since-zoom",
-    }
+        _ => return None,
+    })
 }
 
 pub fn build_stage_transition(
@@ -2258,11 +2271,24 @@ pub async fn handle(
     let trans_sum_sheet = get_or_empty(store, client, SHEET_TRANS_SUMMARY, &mut sources).await;
     let trans_cross_sheet = get_or_empty(store, client, SHEET_TRANS_CROSS, &mut sources).await;
 
-    // ファネルの相対期間（3m/6m/12m）の起点。明示指定が無ければ実行時のローカル日付。
-    let today_ym = q
-        .today_ym
-        .clone()
-        .unwrap_or_else(|| super::jst_current_ym());
+    // ファネルの相対期間（3m/6m/12m）の起点。明示指定が無ければ実行時の当月(JST)。
+    //
+    // 2026-08-17 追加: 壊れた `today_ym` を黙って通さない。
+    // `ym_offset` は `y == 0`（先頭4文字が数値でない）のとき **入力をそのまま返す**ので、
+    // `?today_ym=zzzz&funnel_period=3m` は下限が "zzzz" になる。
+    // 下限との比較は文字列なので `"2026-08" < "zzzz"` が真になり、
+    // **全ての行が範囲外に落ちてファネルが全段0になる**。
+    // 0 は「該当なし」と区別が付かないので、画面からは「その期間は実績ゼロ」に見える。
+    let mut audit = ValueAudit::new();
+    let today_ym = audit.year_month("today_ym", q.today_ym.as_deref(), super::jst_current_ym);
+    // ファネル期間セレクタも同様に、解釈できない値を名指しする（判定は既存の1本を使う）。
+    audit.choice(
+        "funnel_period",
+        q.funnel_period.as_deref(),
+        FUNNEL_PERIOD_EXPECTED,
+        funnel_period_parse,
+        || ("since-zoom", "since-zoom".to_string()),
+    );
 
     let data = P2HabitsData {
         scope: ScopeInfo {
@@ -2302,6 +2328,8 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -3049,5 +3077,42 @@ mod tests {
         assert_eq!(funnel_range(Some("6M"), today).0, FUNNEL_DIAL_START_YM);
         assert_eq!(funnel_range(None, today).0, FUNNEL_DIAL_START_YM);
         assert_eq!(funnel_range(Some("all"), today).0, "all");
+    }
+
+    // ---- funnel_period / today_ym の不正値（2026-08-17 追加） ----
+
+    #[test]
+    fn funnel_periodの不正値を判定できる() {
+        // `?funnel_period=6M`（大文字違い）は黙って since-zoom になっていた。
+        assert_eq!(funnel_period_parse("6m"), Some("6m"));
+        assert_eq!(funnel_period_parse(" all "), Some("all"));
+        assert_eq!(funnel_period_parse("since-zoom"), Some("since-zoom"));
+        assert_eq!(funnel_period_parse("6M"), None, "大文字違いは受理しない");
+        assert_eq!(funnel_period_parse("NONSENSE"), None);
+        // 落とす先は従来どおり since-zoom（挙動は変えない）
+        assert_eq!(funnel_period_effective(Some("6M")), "since-zoom");
+        assert_eq!(funnel_period_effective(None), "since-zoom");
+    }
+
+    #[test]
+    fn 壊れたtoday_ymでファネルが全段0に化ける() {
+        // `ym_offset` は先頭4文字が数値でないと**入力をそのまま返す**ので、
+        // 下限が "zzzz" になる。下限との比較は文字列なので "2026-08" < "zzzz" が真になり、
+        // **全ての行が範囲外に落ちてファネルが全段0**になる。
+        // 0 は「該当なし」と区別が付かないので、画面からは「実績ゼロ」に見える。
+        // これが `year_month` 監査を入れた理由。
+        let (since, _) = funnel_range(Some("3m"), "zzzz");
+        assert_eq!(since, "zzzz", "旧挙動（記録として残す）");
+        assert!("2026-08" < since.as_str(), "数字より 'z' が大きいので全て下限未満になる");
+
+        // 正しい当月なら期待どおり2ヶ月前が下限
+        let (since, _) = funnel_range(Some("3m"), "2026-08");
+        assert_eq!(since, "2026-06");
+
+        // 監査層が壊れた値を弾くので、下流には当月が渡る
+        let mut a = crate::handlers::call_quality::query_audit::ValueAudit::new();
+        let ym = a.year_month("today_ym", Some("zzzz"), || "2026-08".to_string());
+        assert_eq!(funnel_range(Some("3m"), &ym).0, "2026-06");
+        assert_eq!(a.into_vec().len(), 1);
     }
 }

@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 use super::{SourceInfo, TabPayload};
 
@@ -177,12 +178,40 @@ pub struct RowFilter {
 
 /// 検索+列フィルタを適用した行の参照を返す。ソート・ページングはしない
 /// (browse/build_csv/aggregate_chart がそれぞれの用途に応じて後続処理する)。
-fn filter_rows<'a>(data: &'a SheetData, f: &RowFilter) -> Vec<&'a Vec<Arc<str>>> {
+///
+/// 2026-08-17 追加: `audit` に**シートに無い列名で絞ろうとした**ことを記録する。
+/// `filter_map(|(name, vals)| data.col(name).map(...))` は列が見つからないと
+/// **その絞り込みごと落とす**。つまり `filters: {"ownr_id": ["123"]}` は
+/// 400 にも 0件にもならず、**絞り込みが消えた全件**が 200 で返る。
+/// 動機になった `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
+fn filter_rows<'a>(
+    data: &'a SheetData,
+    f: &RowFilter,
+    audit: &mut ValueAudit,
+) -> Vec<&'a Vec<Arc<str>>> {
     let needle = f
         .search
         .as_deref()
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
+
+    // 報告の並びを安定させる（`HashMap` の反復順をそのまま出さない。約束4）。
+    let mut unknown_cols: Vec<&str> = f
+        .filters
+        .iter()
+        .filter(|(_, vals)| !vals.is_empty())
+        .filter(|(name, _)| data.col(name).is_none())
+        .map(|(name, _)| name.as_str())
+        .collect();
+    unknown_cols.sort_unstable();
+    for name in unknown_cols {
+        audit.no_match(
+            "filters",
+            name,
+            "このシートに実在する列名",
+            "この列の絞り込みは無視されます（絞り込まれていない行が混ざります）",
+        );
+    }
 
     let filter_cols: Vec<(usize, &Vec<String>)> = f
         .filters
@@ -280,12 +309,24 @@ fn is_numeric_column(rows: &[&Vec<Arc<str>>], col: usize) -> bool {
 }
 
 /// 検索・列フィルタ・ソート・ページングを一括で行う本体。
-pub fn browse(data: &SheetData, q: &BrowseQuery) -> BrowseData {
-    let mut matched = filter_rows(data, &q.filter);
+pub fn browse(data: &SheetData, q: &BrowseQuery, audit: &mut ValueAudit) -> BrowseData {
+    let mut matched = filter_rows(data, &q.filter, audit);
     let matched_rows = matched.len();
 
     // --- ソート(安定ソート。約束4) ---
+    // 2026-08-17 追加: 存在しない列名を渡すと `data.col(sc)` が None になり
+    //   **並べ替えが黙って行われない**。それなのに応答の `sort_col` には
+    //   送られた値がそのまま返る（＝「その列で並べた」と読める）。
+    //   並び順は「上位が誰か」を決めるので、効いていないと気づけないのは重い。
     if let Some(sc) = &q.sort_col {
+        if data.col(sc).is_none() && !sc.trim().is_empty() {
+            audit.no_match(
+                "sort_col",
+                sc,
+                "このシートに実在する列名",
+                "並べ替えは行われず、シートの元の並びのまま返します",
+            );
+        }
         if let Some(si) = data.col(sc) {
             let numeric = is_numeric_column(&matched, si);
             matched.sort_by(|a, b| {
@@ -355,7 +396,8 @@ pub async fn handle_browse(
     let started = Instant::now();
     check_sheet_allowed(&q.sheet)?;
     let (data, from_cache) = store.get(client, &q.sheet).await?;
-    let out = browse(&data, &q);
+    let mut audit = ValueAudit::new();
+    let out = browse(&data, &q, &mut audit);
     let sources = vec![SourceInfo {
         sheet: q.sheet.clone(),
         total_rows: data.rows.len(),
@@ -369,6 +411,8 @@ pub async fn handle_browse(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -397,6 +441,10 @@ pub struct CsvExport {
     /// このエンドポイントだけ `TabPayload` を通らないので個別に持つ。
     /// ここが抜けていると「絞り込んだつもりの CSV」を全件 CSV と見分けられない。
     pub ignored_params: Vec<String>,
+    /// 解釈できなかった**値**。空でも必ず出す（`TabPayload::invalid_values` と同じ約束）。
+    /// CSV は落として Excel で開かれるので、`filters` の列名を間違えて
+    /// 絞り込みが消えた全件 CSV を掴むと、後から気づく手段がまったく無い。
+    pub invalid_values: Vec<crate::handlers::call_quality::query_audit::InvalidValue>,
 }
 
 fn csv_escape(s: &str) -> String {
@@ -418,8 +466,8 @@ fn csv_line<I: IntoIterator<Item = S>, S: AsRef<str>>(cells: I) -> String {
 /// 絞り込み後の行を CSV_EXPORT_MAX_ROWS 件まで CSV 化する。
 /// ブラウズと違って「絞り込み後の全件」が目的の機能なのでページングはしないが、
 /// 無制限にはしない(理由は本ファイル冒頭のコメント参照)。
-pub fn build_csv(data: &SheetData, f: &RowFilter) -> CsvExport {
-    let rows = filter_rows(data, f);
+pub fn build_csv(data: &SheetData, f: &RowFilter, mut audit: ValueAudit) -> CsvExport {
+    let rows = filter_rows(data, f, &mut audit);
     let matched_rows = rows.len();
     let truncated = matched_rows > CSV_EXPORT_MAX_ROWS;
 
@@ -441,6 +489,8 @@ pub fn build_csv(data: &SheetData, f: &RowFilter) -> CsvExport {
         truncated,
         // ルータが後乗せする（ここは生のリクエストボディを知らない）
         ignored_params: Vec::new(),
+        // 値の監査結果はこの関数の中で分かるので、ここで詰める。
+        invalid_values: audit.into_vec(),
     }
 }
 
@@ -452,7 +502,7 @@ pub async fn handle_export(
 ) -> Result<CsvExport> {
     check_sheet_allowed(&q.sheet)?;
     let (data, _from_cache) = store.get(client, &q.sheet).await?;
-    Ok(build_csv(&data, &q.filter))
+    Ok(build_csv(&data, &q.filter, ValueAudit::new()))
 }
 
 // -------------------------------------------------------------- クイック可視化
@@ -519,7 +569,7 @@ pub struct ChartData {
 
 /// フィルタ後の行を X軸列でグループ化し、Y軸列を sum/avg/count で集計する。
 /// GAS版「クイック可視化」(index.html 1019-1059行)のサーバ側移植。
-pub fn aggregate_chart(data: &SheetData, q: &ChartQuery) -> Result<ChartData> {
+pub fn aggregate_chart(data: &SheetData, q: &ChartQuery, audit: &mut ValueAudit) -> Result<ChartData> {
     let xi = data
         .col(&q.x_col)
         .with_context(|| format!("X軸の列が見つかりません: {}", q.x_col))?;
@@ -534,7 +584,7 @@ pub fn aggregate_chart(data: &SheetData, q: &ChartQuery) -> Result<ChartData> {
         }
     };
 
-    let rows = filter_rows(data, &q.filter);
+    let rows = filter_rows(data, &q.filter, audit);
     let matched_rows = rows.len();
 
     let mut sum: HashMap<String, f64> = HashMap::new();
@@ -601,7 +651,8 @@ pub async fn handle_chart(
     let started = Instant::now();
     check_sheet_allowed(&q.sheet)?;
     let (data, from_cache) = store.get(client, &q.sheet).await?;
-    let out = aggregate_chart(&data, &q)?;
+    let mut audit = ValueAudit::new();
+    let out = aggregate_chart(&data, &q, &mut audit)?;
     let sources = vec![SourceInfo {
         sheet: q.sheet.clone(),
         total_rows: data.rows.len(),
@@ -615,6 +666,8 @@ pub async fn handle_chart(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -694,7 +747,7 @@ mod tests {
         let d = sample();
         let mut query = q("月次明細");
         query.filter.search = Some("大阪".into());
-        let r = browse(&d, &query);
+        let r = browse(&d, &query, &mut ValueAudit::new());
         assert_eq!(r.matched_rows, 1);
         assert_eq!(r.rows[0][0], "佐藤");
     }
@@ -707,7 +760,7 @@ mod tests {
             .filter
             .filters
             .insert("prefecture".into(), vec!["東京都".into(), "愛知県".into()]);
-        let r = browse(&d, &query);
+        let r = browse(&d, &query, &mut ValueAudit::new());
         assert_eq!(r.matched_rows, 3, "東京都 or 愛知県 の3件");
     }
 
@@ -717,7 +770,7 @@ mod tests {
         let mut query = q("月次明細");
         query.sort_col = Some("dial".into());
         query.sort_dir = SortDir::Desc;
-        let r = browse(&d, &query);
+        let r = browse(&d, &query, &mut ValueAudit::new());
         // 文字列ソートなら "80" < "100" になってしまう(先頭文字'8'>'1')が、
         // 数値ソートなら 100,80,50,30 の順になる。
         assert_eq!(r.rows[0][2], "100");
@@ -738,7 +791,7 @@ mod tests {
         let mut query = q("月次明細");
         query.sort_col = Some("score".into());
         query.sort_dir = SortDir::Desc;
-        let r = browse(&d, &query);
+        let r = browse(&d, &query, &mut ValueAudit::new());
         assert_eq!(r.rows.last().unwrap()[0], "B", "空値は降順でも末尾");
     }
 
@@ -747,7 +800,7 @@ mod tests {
         let d = sample();
         let mut query = q("月次明細");
         query.page_size = Some(MAX_PAGE_SIZE + 100);
-        let r = browse(&d, &query);
+        let r = browse(&d, &query, &mut ValueAudit::new());
         assert_eq!(r.page_size, MAX_PAGE_SIZE);
         assert!(r.truncated, "GAS版の「全表示」相当は提供しない(必ずクランプされる)");
     }
@@ -757,11 +810,11 @@ mod tests {
         let d = sample();
         let mut query = q("月次明細");
         query.page_size = Some(2);
-        let p0 = browse(&d, &query);
+        let p0 = browse(&d, &query, &mut ValueAudit::new());
         assert_eq!(p0.total_pages, 2);
         assert_eq!(p0.returned_rows, 2);
         query.page = 1;
-        let p1 = browse(&d, &query);
+        let p1 = browse(&d, &query, &mut ValueAudit::new());
         assert_eq!(p1.returned_rows, 2);
         assert_ne!(p0.rows, p1.rows);
     }
@@ -769,7 +822,7 @@ mod tests {
     #[test]
     fn csvはbomとカンマエスケープを含む() {
         let d = sheet(&["name", "note"], vec![vec!["田中", "a,b\"c"]]);
-        let out = build_csv(&d, &RowFilter::default());
+        let out = build_csv(&d, &RowFilter::default(), ValueAudit::new());
         assert!(out.csv.starts_with('\u{feff}'));
         assert!(out.csv.contains("\"a,b\"\"c\""), "カンマ・引用符を含む値はダブルクォートで囲みエスケープ");
         assert_eq!(out.row_count, 1);
@@ -783,7 +836,7 @@ mod tests {
         let n = CSV_EXPORT_MAX_ROWS + 10;
         let rows: Vec<Vec<&str>> = (0..n).map(|_| vec!["x"]).collect();
         let d = sheet(&["v"], rows);
-        let out = build_csv(&d, &RowFilter::default());
+        let out = build_csv(&d, &RowFilter::default(), ValueAudit::new());
         assert_eq!(out.matched_rows, n, "絞り込み後の全件数は上限を超えていても正しく数える");
         assert_eq!(out.row_count, CSV_EXPORT_MAX_ROWS, "実際に書き出すのは上限まで");
         assert!(out.truncated);
@@ -800,7 +853,7 @@ mod tests {
             agg: Agg::Sum,
             top_n: 10,
         };
-        let out = aggregate_chart(&d, &query).unwrap();
+        let out = aggregate_chart(&d, &query, &mut ValueAudit::new()).unwrap();
         assert_eq!(out.bars[0].category, "東京都");
         assert_eq!(out.bars[0].value, 130.0, "東京都=100+30");
         assert!(!out.truncated);
@@ -817,7 +870,7 @@ mod tests {
             agg: Agg::Sum,
             top_n: 1,
         };
-        let out = aggregate_chart(&d, &query).unwrap();
+        let out = aggregate_chart(&d, &query, &mut ValueAudit::new()).unwrap();
         assert_eq!(out.bars.len(), 1);
         assert!(out.truncated);
     }
@@ -833,7 +886,7 @@ mod tests {
             agg: Agg::Count,
             top_n: 10,
         };
-        let out = aggregate_chart(&d, &query).unwrap();
+        let out = aggregate_chart(&d, &query, &mut ValueAudit::new()).unwrap();
         let tokyo = out.bars.iter().find(|b| b.category == "東京都").unwrap();
         assert_eq!(tokyo.value, 2.0, "東京都は2行");
     }
@@ -849,7 +902,7 @@ mod tests {
             agg: Agg::Count,
             top_n: 10,
         };
-        assert!(aggregate_chart(&d, &query).is_err());
+        assert!(aggregate_chart(&d, &query, &mut ValueAudit::new()).is_err());
     }
     // ---- クエリの受け渡し方式を固定する（2026-08-16 追加） ----
     //
@@ -893,4 +946,111 @@ mod tests {
         assert!(q.filter.search.is_none());
     }
 
+
+    // ---- 存在しない列名を無音で無視しない（2026-08-17 追加） ----
+
+    #[test]
+    fn 存在しない列で絞ると絞り込みが消えることを名指しする() {
+        // **これが一番危ない**。`filter_map(|(name,_)| data.col(name).map(..))` は
+        // 列が見つからないと絞り込みごと落とすので、400 にも 0件にもならず
+        // **絞り込みの消えた全件**が 200 で返る。
+        // 動機になった `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
+        let d = sample();
+        let mut query = q("月次明細");
+        query.filter.filters.insert("prefecure".into(), vec!["東京都".into()]);
+        let mut a = ValueAudit::new();
+        let r = browse(&d, &query, &mut a);
+        assert_eq!(r.matched_rows, 4, "挙動は変えない（全件のまま返す）");
+        let v = a.into_vec();
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "filters");
+        assert_eq!(v[0].given, "prefecure");
+        assert_eq!(v[0].used, None);
+        assert!(v[0].message.contains("無視"));
+    }
+
+    #[test]
+    fn 存在しない列でソートしても並べ替えたと言わない() {
+        // `sort_col` は応答にそのまま返るので、効いていないことが画面から分からない。
+        let d = sample();
+        let mut query = q("月次明細");
+        query.sort_col = Some("dail".into()); // dial の打ち間違い
+        let mut a = ValueAudit::new();
+        let r = browse(&d, &query, &mut a);
+        assert_eq!(r.rows[0][0], "田中", "並べ替えは行われずシートの元順のまま");
+        let v = a.into_vec();
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "sort_col");
+        assert_eq!(v[0].given, "dail");
+    }
+
+    #[test]
+    fn 存在する列名では何も報告しない() {
+        // **陰性対照**
+        let d = sample();
+        let mut query = q("月次明細");
+        query.filter.filters.insert("prefecture".into(), vec!["東京都".into()]);
+        query.sort_col = Some("dial".into());
+        let mut a = ValueAudit::new();
+        let r = browse(&d, &query, &mut a);
+        assert_eq!(r.matched_rows, 2);
+        assert!(a.is_empty(), "正しい列名では黙る");
+
+        // 値が空の列フィルタは「絞らない」意味なので、列が無くても黙る
+        let mut query = q("月次明細");
+        query.filter.filters.insert("nonexistent".into(), vec![]);
+        let mut a = ValueAudit::new();
+        browse(&d, &query, &mut a);
+        assert!(a.is_empty(), "値が空の絞り込みは元々無視される仕様");
+    }
+
+    #[test]
+    fn 不明列の報告は並びが安定する() {
+        // HashMap の反復順をそのまま出さない（約束4）
+        let d = sample();
+        let names = ["zzz", "aaa", "mmm"];
+        let mut query = q("月次明細");
+        for n in names {
+            query.filter.filters.insert(n.into(), vec!["x".into()]);
+        }
+        let mut a = ValueAudit::new();
+        browse(&d, &query, &mut a);
+        let got: Vec<String> = a.into_vec().into_iter().map(|v| v.given).collect();
+        assert_eq!(got, vec!["aaa".to_string(), "mmm".to_string(), "zzz".to_string()]);
+    }
+
+    #[test]
+    fn csvエクスポートでも不明列を名指しする() {
+        // CSV は落として Excel で開かれるので、絞り込みが消えた全件 CSV を掴むと
+        // 後から気づく手段がまったく無い。
+        let d = sample();
+        let mut f = RowFilter::default();
+        f.filters.insert("prefecure".into(), vec!["東京都".into()]);
+        let out = build_csv(&d, &f, ValueAudit::new());
+        assert_eq!(out.row_count, 4, "挙動は変えない");
+        assert_eq!(out.invalid_values.len(), 1);
+        assert_eq!(out.invalid_values[0].given, "prefecure");
+
+        // 陰性対照
+        let out = build_csv(&d, &RowFilter::default(), ValueAudit::new());
+        assert!(out.invalid_values.is_empty());
+    }
+
+    #[test]
+    fn クイック可視化でも不明列を名指しする() {
+        let d = sample();
+        let mut query = ChartQuery {
+            sheet: "月次明細".into(),
+            filter: RowFilter::default(),
+            x_col: "prefecture".into(),
+            y_col: None,
+            agg: Agg::Count,
+            top_n: 10,
+        };
+        query.filter.filters.insert("prefecure".into(), vec!["東京都".into()]);
+        let mut a = ValueAudit::new();
+        let out = aggregate_chart(&d, &query, &mut a).unwrap();
+        assert_eq!(out.matched_rows, 4, "挙動は変えない");
+        assert_eq!(a.into_vec().len(), 1);
+    }
 }

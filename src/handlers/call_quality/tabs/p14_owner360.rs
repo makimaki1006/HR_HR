@@ -57,6 +57,7 @@ use serde::{Deserialize, Serialize};
 use super::{SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 // ---------------------------------------------------------------- シート名
 
@@ -400,14 +401,26 @@ pub enum DealStatusFilter {
     Churned,
 }
 
+/// `deals_status` が受け付ける値。応答の `invalid_values.expected` にそのまま出す。
+pub const DEALS_STATUS_EXPECTED: &str = "all | active | continued | churned";
+
 impl DealStatusFilter {
-    fn parse(s: Option<&str>) -> Self {
-        match s.unwrap_or("all").trim() {
+    /// 2026-08-17 是正: 以前は `_ => Self::All` で、**解釈できない値も既定値の
+    /// `all` へ黙って落ちていた**。実測 `?deals_status=NONSENSE` は警告なしに
+    /// 全218件を返し、利用者は「稼働中だけに絞った」と信じたまま全件を見ていた。
+    /// これは動機になった `?deals_statuss=active`（キーのタイポ）と**結末が同じ**。
+    ///
+    /// 既定値へ落とす挙動自体は変えない（400 にすると画面が落ちる）。
+    /// 落ちたことを言えるように、ここでは `Option` を返して
+    /// 呼び出し側（`ValueAudit::choice`）に判断させる。
+    fn parse_strict(s: &str) -> Option<Self> {
+        Some(match s.trim() {
+            "all" => Self::All,
             "active" => Self::Active,
             "continued" => Self::Continued,
             "churned" => Self::Churned,
-            _ => Self::All,
-        }
+            _ => return None,
+        })
     }
 
     fn as_str(self) -> &'static str {
@@ -553,13 +566,19 @@ pub enum ContactStatusFilter {
     Churned,
 }
 
+/// `contact_status` が受け付ける値。
+pub const CONTACT_STATUS_EXPECTED: &str = "active | all | churned";
+
 impl ContactStatusFilter {
-    fn parse(s: Option<&str>) -> Self {
-        match s.unwrap_or("active").trim() {
+    /// 2026-08-17 是正: `deals_status` と同じ理由で `Option` 化した。
+    /// 以前は `?contact_status=NONSENSE` が黙って `active` に落ちていた。
+    fn parse_strict(s: &str) -> Option<Self> {
+        Some(match s.trim() {
+            "active" => Self::Active,
             "all" => Self::All,
             "churned" => Self::Churned,
-            _ => Self::Active,
-        }
+            _ => return None,
+        })
     }
 
     fn as_str(self) -> &'static str {
@@ -835,6 +854,46 @@ fn set_matched(sources: &mut [SourceInfo], sheet: &str, n: usize) {
     }
 }
 
+/// クエリの「値」を解釈して、実際に使う値と**解釈できなかった値**を返す。
+///
+/// 2026-08-17 追加。`handle` から切り出してあるのはテストのため
+/// （`handle` は Sheets を叩くので単体テストから呼べない）。
+/// **`handle` はこの関数の結果しか使わない**ので、ここを固定すれば
+/// 実際に画面へ返る値を固定したことになる。
+///
+/// 戻り: (当月, Deal一覧の状態フィルタ, 接触ログの状態フィルタ, 表示週数, 値の監査)
+pub fn resolve_query(
+    q: &P14Query,
+) -> (String, DealStatusFilter, ContactStatusFilter, u32, ValueAudit) {
+    // 解釈できなかった「値」を黙って既定値にしない。
+    // 既定値へ落とす挙動は変えず、落としたことを応答に載せる（`invalid_values`）。
+    let mut audit = ValueAudit::new();
+
+    // `today_ym=zzzz` は特に悪い。従来は壊れた値がそのまま「当月」として流れ、
+    // `same_ym(month, current_month)` がどの行にも当たらず
+    // **月次推移の `is_partial`（集計途中の月）が1つも立たなくなっていた**。
+    let current_month = audit.year_month("today_ym", q.today_ym.as_deref(), super::jst_current_ym);
+    let deals_filter = audit.choice(
+        "deals_status",
+        q.deals_status.as_deref(),
+        DEALS_STATUS_EXPECTED,
+        DealStatusFilter::parse_strict,
+        || (DealStatusFilter::All, "all".to_string()),
+    );
+    let contact_filter = audit.choice(
+        "contact_status",
+        q.contact_status.as_deref(),
+        CONTACT_STATUS_EXPECTED,
+        ContactStatusFilter::parse_strict,
+        || (ContactStatusFilter::Active, "active".to_string()),
+    );
+    // `contact_weeks` は「表示する週数」で閉じた集合ではない（0=全期間、他は任意の週数）。
+    // 数値でなければ型で弾かれて 400 になるので、ここで監査する対象は無い。
+    let contact_weeks = q.contact_weeks.unwrap_or(26);
+
+    (current_month, deals_filter, contact_filter, contact_weeks, audit)
+}
+
 /// ハンドラ本体。5シートを読み、担当者一覧 + (選択時のみ)深掘りデータを返す。
 pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> Result<TabPayload<P14Data>> {
     let started = Instant::now();
@@ -873,13 +932,7 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> R
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let current_month = q
-        .today_ym
-        .clone()
-        .unwrap_or_else(|| super::jst_current_ym());
-    let deals_filter = DealStatusFilter::parse(q.deals_status.as_deref());
-    let contact_filter = ContactStatusFilter::parse(q.contact_status.as_deref());
-    let contact_weeks = q.contact_weeks.unwrap_or(26);
+    let (current_month, deals_filter, contact_filter, contact_weeks, audit) = resolve_query(&q);
 
     let selected = match q.consultant_id.as_deref().filter(|s| !s.is_empty()) {
         None => None,
@@ -918,6 +971,8 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> R
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -1087,5 +1142,100 @@ mod tests {
 
         let full = build_contact_log(&log, &deals, "1", ContactStatusFilter::All, 0);
         assert_eq!(full.deals[0].weeks.len(), 2, "0=全期間");
+    }
+
+    // ---- 解釈できない「値」を無音で既定値にしない（2026-08-17 追加） ----
+    //
+    // 検証担当の実測（稼働中サーバ localhost:9300）:
+    //   ?deals_statuss=active  → ignored_params:["deals_statuss"]（キーのタイポ。既に塞いだ）
+    //   ?deals_status=NONSENSE → ignored_params:[] で **all に落ちて全218件**
+    // 利用者から見た結末は同じ「絞ったつもりで全件が出る」。
+    // ここで固定するのは後者（値のタイポ）が応答に出ること。
+
+    fn inv(q: P14Query) -> Vec<crate::handlers::call_quality::query_audit::InvalidValue> {
+        let (_, _, _, _, audit) = resolve_query(&q);
+        audit.into_vec()
+    }
+
+    #[test]
+    fn deals_statusの不正値はallに落ちたことを応答に出す() {
+        let q = P14Query {
+            consultant_id: Some("123".into()),
+            deals_status: Some("NONSENSE".into()),
+            ..Default::default()
+        };
+        let (_, f, _, _, audit) = resolve_query(&q);
+        assert_eq!(f, DealStatusFilter::All, "既定値へ落とす挙動自体は変えない");
+        let v = audit.into_vec();
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "deals_status");
+        assert_eq!(v[0].given, "NONSENSE");
+        assert_eq!(
+            v[0].used.as_deref(),
+            Some("all"),
+            "**何に落としたか**まで出さないと「絞ったつもり」を自分で正せない"
+        );
+    }
+
+    #[test]
+    fn contact_statusの不正値はactiveに落ちたことを応答に出す() {
+        let q = P14Query { contact_status: Some("NONSENSE".into()), ..Default::default() };
+        let (_, _, f, _, audit) = resolve_query(&q);
+        assert_eq!(f, ContactStatusFilter::Active);
+        let v = audit.into_vec();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].param, "contact_status");
+        assert_eq!(v[0].used.as_deref(), Some("active"));
+    }
+
+    #[test]
+    fn 壊れたtoday_ymは当月に落ちて月次のis_partialが生き残る() {
+        // 実測 `?today_ym=zzzz` は **当月フラグが全消滅**していた。
+        // 従来は "zzzz" がそのまま current_month として下流へ流れ、
+        // `same_ym(month, "zzzz")` がどの行にも当たらなかった。
+        let q = P14Query { today_ym: Some("zzzz".into()), ..Default::default() };
+        let (ym, _, _, _, audit) = resolve_query(&q);
+        assert_eq!(ym, super::super::jst_current_ym(), "壊れた値を当月として使わない");
+        let v = audit.into_vec();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].param, "today_ym");
+        assert_eq!(v[0].expected, "YYYY-MM");
+
+        // 実際に月次推移の is_partial が立つことまで見る（応答の形だけでなく中身）
+        let d = sheet(
+            &["consultant_id", "month", "call_count", "email_count", "mtg_count", "deal_count"],
+            &[&["1", &ym, "1", "0", "0", "1"]],
+        );
+        let rows = build_monthly_trend(&d, "1", &ym);
+        assert!(rows[0].is_partial, "当月に is_partial が立つ");
+    }
+
+    #[test]
+    fn 正しい値では何も報告しない() {
+        // **陰性対照**。常に何か警告する実装は狼少年になって読まれなくなる。
+        assert!(inv(P14Query::default()).is_empty(), "全部省略なら静か");
+        assert!(inv(P14Query {
+            consultant_id: Some("123".into()),
+            deals_status: Some("active".into()),
+            contact_status: Some("churned".into()),
+            contact_weeks: Some(52),
+            today_ym: Some("2026-05".into()),
+        })
+        .is_empty());
+        // 「絞らない」を意味する明示指定も正常
+        assert!(inv(P14Query { deals_status: Some("all".into()), ..Default::default() }).is_empty());
+    }
+
+    #[test]
+    fn 不正値が複数あれば複数返す() {
+        let v = inv(P14Query {
+            deals_status: Some("NONSENSE".into()),
+            contact_status: Some("NONSENSE".into()),
+            today_ym: Some("zzzz".into()),
+            ..Default::default()
+        });
+        assert_eq!(v.len(), 3, "1件で打ち切らない: {v:?}");
+        let params: Vec<&str> = v.iter().map(|x| x.param).collect();
+        assert_eq!(params, vec!["today_ym", "deals_status", "contact_status"]);
     }
 }

@@ -87,6 +87,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 use super::{rate, SourceInfo, TabPayload};
 
@@ -364,6 +365,16 @@ impl BenchSortKey {
             Self::CallsPerDealPerMonth,
         ]
     }
+
+    /// 受け付ける値の一覧（応答の `invalid_values.expected` 用）。
+    /// **`all()` から作る**。手で並べ直すと、列を足したときにここだけ腐る。
+    fn expected() -> String {
+        Self::all()
+            .iter()
+            .map(|k| k.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -379,6 +390,13 @@ impl SortDir {
             "asc" | "1" | "up" => Some(Self::Asc),
             "desc" | "-1" | "down" => Some(Self::Desc),
             _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
         }
     }
 }
@@ -1388,19 +1406,43 @@ crate::accepted_params!(P8Query, p8_query_accepted =>
     "bench_sort_key", "bench_sort_dir");
 
 impl P8Query {
-    fn sort_state(&self) -> BenchSortState {
-        let key = self
-            .bench_sort_key
-            .as_deref()
-            .and_then(BenchSortKey::parse)
+    /// 2026-08-17 是正: `and_then(parse).unwrap_or(既定)` は
+    /// **「指定なし」と「指定したが読めなかった」を同じ扱いにする**。
+    /// 実測 `?bench_sort_key=NONSENSE` は黙って解約率順、
+    /// `?bench_sort_dir=sideways` は黙って列の自然な向きになっていた。
+    /// 並び替えは「上位が誰か」を決めるので、効いていないと気づけないのは重い。
+    ///
+    /// 落とす先は変えない。落としたことを `invalid_values` に載せる。
+    fn sort_state(&self, audit: &mut ValueAudit) -> BenchSortState {
+        let key = audit.choice(
+            "bench_sort_key",
+            self.bench_sort_key.as_deref(),
+            &BenchSortKey::expected(),
+            BenchSortKey::parse,
             // 既定は「解約率の低い順」（GAS `_p8BenchSort = {key:'churn_rate', dir:1}`）
-            .unwrap_or(BenchSortKey::ChurnRate);
-        let dir = self
-            .bench_sort_dir
-            .as_deref()
-            .and_then(SortDir::parse)
-            .unwrap_or_else(|| key.default_dir());
+            || (BenchSortKey::ChurnRate, BenchSortKey::ChurnRate.as_str().to_string()),
+        );
+        // 既定の向きは**列によって変わる**（名前と解約率は昇順、それ以外は降順）。
+        // なので「何に落としたか」も列に依存する。
+        let dir = audit.choice(
+            "bench_sort_dir",
+            self.bench_sort_dir.as_deref(),
+            "asc | desc（1 | -1 | up | down も可）",
+            SortDir::parse,
+            || {
+                let d = key.default_dir();
+                (d, format!("{}（{} 列の既定）", d.as_str(), key.as_str()))
+            },
+        );
         BenchSortState { key, dir }
+    }
+
+    /// `sort_state` をルータ側のテストから呼ぶための入口。
+    /// 本体を `pub` にするとタブ外から並び替え解釈を再実装できてしまうので、
+    /// テスト時だけ開ける。
+    #[cfg(test)]
+    pub fn sort_state_for_test(&self, audit: &mut ValueAudit) -> BenchSortState {
+        self.sort_state(audit)
     }
 }
 
@@ -1463,7 +1505,8 @@ pub async fn handle(
 
     let excluded = load_excluded(client, store).await;
 
-    let bench_panel = build_bench(&bench, &bench_monthly, &bench_meta, &q.sort_state());
+    let mut audit = ValueAudit::new();
+    let bench_panel = build_bench(&bench, &bench_monthly, &bench_meta, &q.sort_state(&mut audit));
     let contrib_panel = build_contribution(&contrib, &contrib_dist, &contrib_meta);
     let no_call_panel = build_no_call(&weekly, &excluded);
     let activity_panel = build_activity(&activity);
@@ -1494,6 +1537,8 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -1606,7 +1651,7 @@ mod tests {
             &bench_sheet(),
             &sheet(&["expiration_month", "n_decided"], &[]),
             &empty_meta(),
-            &P8Query::default().sort_state(),
+            &P8Query::default().sort_state(&mut ValueAudit::new()),
         );
         assert_eq!(def.table.sort.key, BenchSortKey::ChurnRate);
         assert_eq!(def.table.sort.dir, SortDir::Asc);
@@ -1705,7 +1750,7 @@ mod tests {
             &bench_sheet_with_outlier(),
             &sheet(&["expiration_month", "n_decided"], &[]),
             &empty_meta(),
-            &P8Query::default().sort_state(),
+            &P8Query::default().sort_state(&mut ValueAudit::new()),
         );
         assert!(
             p.scatter.x_axis.max < 16.19,
@@ -1966,5 +2011,98 @@ mod tests {
         assert_eq!(p.kpis.total, NO_CALL_LIMIT + 5, "総件数は削らず必ず出す");
         assert_eq!(p.shown, NO_CALL_LIMIT);
         assert!(p.truncated);
+    }
+
+    // ---- 並び替えの不正値を無音で既定にしない（2026-08-17 追加） ----
+
+    fn sort_inv(key: Option<&str>, dir: Option<&str>)
+        -> (BenchSortState, Vec<crate::handlers::call_quality::query_audit::InvalidValue>)
+    {
+        let q = P8Query {
+            bench_sort_key: key.map(str::to_string),
+            bench_sort_dir: dir.map(str::to_string),
+        };
+        let mut a = ValueAudit::new();
+        let st = q.sort_state(&mut a);
+        (st, a.into_vec())
+    }
+
+    #[test]
+    fn bench_sort_keyの不正値はchurn_rateに落ちたことを応答に出す() {
+        // 実測 `?bench_sort_key=NONSENSE` は警告なしに解約率順になっていた。
+        let (st, v) = sort_inv(Some("NONSENSE"), None);
+        assert_eq!(st.key, BenchSortKey::ChurnRate, "既定値へ落とす挙動は変えない");
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "bench_sort_key");
+        assert_eq!(v[0].used.as_deref(), Some("churn_rate"));
+        assert!(
+            v[0].expected.contains("calls_per_deal_per_month"),
+            "受け付ける列を全部出す: {}",
+            v[0].expected
+        );
+    }
+
+    #[test]
+    fn bench_sort_dirの不正値は列ごとの既定に落ちたことを応答に出す() {
+        // 実測 `?bench_sort_dir=sideways` は黙って「列の自然な向き」になっていた。
+        // 既定の向きは**列によって変わる**ので、何に落としたかは列名込みで出す。
+        let (st, v) = sort_inv(None, Some("sideways"));
+        assert_eq!(st.dir, SortDir::Asc, "churn_rate の既定は昇順");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].param, "bench_sort_dir");
+        let used = v[0].used.clone().unwrap();
+        assert!(used.contains("asc") && used.contains("churn_rate"), "{used}");
+
+        // 列が変われば落ちる先も変わる
+        let (st, v) = sort_inv(Some("n_cohort"), Some("sideways"));
+        assert_eq!(st.dir, SortDir::Desc, "n_cohort の既定は降順");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].param, "bench_sort_dir");
+        assert!(v[0].used.clone().unwrap().contains("desc"));
+    }
+
+    #[test]
+    fn 結果が同じに見える不正値でも必ず報告する() {
+        // **`invalid_values` に載ることが唯一の検知手段になるケース**（検証担当の指摘）。
+        // `n_cohort` の自然な向きはたまたま `desc` なので、
+        // `?bench_sort_dir=sideways` が既定へ落ちても **並び順はまったく同じ**になる。
+        // 応答の他のどこを見ても不正だと分からない。ここを黙ると永遠に気づけない。
+        let (omitted, none_reported) = sort_inv(Some("n_cohort"), None);
+        let (fell_back, reported) = sort_inv(Some("n_cohort"), Some("sideways"));
+
+        assert_eq!(
+            omitted.dir, fell_back.dir,
+            "省略したときと結果が区別できない（だから報告が要る）"
+        );
+        assert_eq!(omitted.key, fell_back.key);
+        assert!(none_reported.is_empty(), "省略は正常なので黙る");
+        assert_eq!(
+            reported.len(),
+            1,
+            "結果が同じでも「不正な値を送った」ことは必ず出す: {reported:?}"
+        );
+        assert_eq!(reported[0].given, "sideways");
+    }
+
+    #[test]
+    fn 並び替えの正しい値では何も報告しない() {
+        // **陰性対照**
+        assert!(sort_inv(None, None).1.is_empty(), "省略は正常");
+        assert!(sort_inv(Some("n_churned"), Some("desc")).1.is_empty());
+        // 別名も受理する（画面が 1 / -1 を送る経路がある）
+        assert!(sort_inv(Some("name"), Some("-1")).1.is_empty());
+        assert!(sort_inv(Some("name"), Some("UP")).1.is_empty());
+        // 空文字は「指定なし」と同じ
+        assert!(sort_inv(Some(""), Some("")).1.is_empty());
+    }
+
+    #[test]
+    fn 受け付ける列一覧はall関数から作られている() {
+        // 手で並べ直すと列を足したときにここだけ腐り、
+        // 足した列が「解釈できない値」として報告されてしまう。
+        let e = BenchSortKey::expected();
+        for k in BenchSortKey::all() {
+            assert!(e.contains(k.as_str()), "{} が expected に無い: {e}", k.as_str());
+        }
     }
 }

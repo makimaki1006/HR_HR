@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::db::sheets_client::SheetsClient;
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 /// 対象シート名（スプレッドシート側の実タブ名）
 const SHEET_NAME: &str = "時間帯ヒート_クロス";
@@ -84,6 +85,12 @@ pub struct HeatmapResponse {
     /// 解釈できず捨てた引数名。空でも必ず出す（`TabPayload` と同じ約束）。
     /// ルータが後乗せする。
     pub ignored_params: Vec<String>,
+    /// 解釈できなかった**値**。空でも必ず出す（`TabPayload::invalid_values` と同じ約束）。
+    ///
+    /// このエンドポイントの `owners` は数値の owner_id しか受け付けないが、
+    /// 数値でないトークンは黙って捨てられ、**全部捨てられると絞り込み自体が消えて
+    /// 全員が集計される**。それを可視化する。
+    pub invalid_values: Vec<crate::handlers::call_quality::query_audit::InvalidValue>,
 }
 
 /// 常駐キャッシュ。Sheets から読んだ全行を保持する。
@@ -179,11 +186,35 @@ async fn fetch_cross_rows(client: &SheetsClient) -> Result<Vec<CrossRow>> {
 }
 
 /// 絞り込み → 曜日×時間帯で集計。ここが「サーバ側集計」の本体。
-pub fn aggregate(rows: &[CrossRow], q: &HeatmapQuery) -> (Vec<HeatCell>, usize) {
+pub fn aggregate(
+    rows: &[CrossRow],
+    q: &HeatmapQuery,
+    audit: &mut ValueAudit,
+) -> (Vec<HeatCell>, usize) {
+    // 2026-08-17 追加: `filter_map(parse::<u64>().ok())` は**数値でない owner_id を
+    // 黙って捨てる**。全部捨てられると空リストになり、下の
+    // `if !ids.is_empty()` を通らないので **絞り込みごと消えて全員が集計される**。
+    // 動機になった `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
+    // 挙動は変えず（捨てたまま）、捨てたトークンを名指しする。
     let owner_filter: Option<Vec<u64>> = q.owners.as_ref().map(|s| {
-        s.split(',')
-            .filter_map(|t| t.trim().parse::<u64>().ok())
-            .collect()
+        let mut ids = Vec::new();
+        for token in s.split(',') {
+            let t = token.trim();
+            if t.is_empty() {
+                // `?owners=` や末尾カンマ。「指定なし」と同じなので黙る。
+                continue;
+            }
+            match t.parse::<u64>() {
+                Ok(v) => ids.push(v),
+                Err(_) => audit.no_match(
+                    "owners",
+                    t,
+                    "数値の owner_id（カンマ区切りで複数可）",
+                    "この値は絞り込みから外れます。全部が外れると絞り込み自体が消えて全員が対象になります",
+                ),
+            }
+        }
+        ids
     });
 
     // 7 曜日 × 24 時間 = 168 の固定バケット
@@ -247,7 +278,8 @@ pub async fn handle(
 ) -> Result<HeatmapResponse> {
     let started = Instant::now();
     let (rows, from_cache) = cache.get_rows(client).await?;
-    let (cells, used) = aggregate(&rows, &q);
+    let mut audit = ValueAudit::new();
+    let (cells, used) = aggregate(&rows, &q, &mut audit);
     Ok(HeatmapResponse {
         cells,
         source_rows: used,
@@ -256,6 +288,13 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（ここは生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらはここで詰める。値の意味を知っているのはこの層。
+        //
+        // **p3 はこれを自分の応答へ持ち上げない**。p3 が渡す `owners` は
+        // メンバーマスタ由来の owner_id を join し直したもので、
+        // 利用者が打った値とは限らない。利用者のせいでない不正値を
+        // `invalid_values` に出すと、今度は逆向きの嘘になる。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -283,7 +322,7 @@ mod tests {
             row(0, 10, "大阪府", "建設", 2, 50, 1),
             row(1, 11, "東京都", "運輸", 1, 30, 0),
         ];
-        let (cells, used) = aggregate(&rows, &HeatmapQuery::default());
+        let (cells, used) = aggregate(&rows, &HeatmapQuery::default(), &mut ValueAudit::new());
         assert_eq!(used, 3);
         assert_eq!(cells.len(), 2, "同じ曜日×時間帯は1セルに畳まれる");
         let c = cells.iter().find(|c| c.weekday == 0 && c.hour == 10).unwrap();
@@ -301,7 +340,7 @@ mod tests {
             prefecture: Some("東京都".into()),
             ..Default::default()
         };
-        let (cells, used) = aggregate(&rows, &q);
+        let (cells, used) = aggregate(&rows, &q, &mut ValueAudit::new());
         assert_eq!(used, 1);
         assert_eq!(cells[0].dial, 100);
     }
@@ -316,7 +355,7 @@ mod tests {
             owners: Some("2".into()),
             ..Default::default()
         };
-        let (_, used) = aggregate(&rows, &q);
+        let (_, used) = aggregate(&rows, &q, &mut ValueAudit::new());
         assert_eq!(used, 1);
     }
 
@@ -324,7 +363,7 @@ mod tests {
     fn 分母0のアポ率はnullで返る() {
         // 架電0でアポだけある行（実データに存在する）。0% と表示すると誤読される。
         let rows = vec![row(0, 10, "東京都", "運輸", 1, 0, 3)];
-        let (cells, _) = aggregate(&rows, &HeatmapQuery::default());
+        let (cells, _) = aggregate(&rows, &HeatmapQuery::default(), &mut ValueAudit::new());
         assert_eq!(cells.len(), 1);
         assert!(cells[0].apo_rate.is_none(), "分母0のとき 0% を返してはいけない");
     }
@@ -332,7 +371,55 @@ mod tests {
     #[test]
     fn 空セルは返さない() {
         let rows = vec![row(3, 14, "東京都", "運輸", 1, 10, 0)];
-        let (cells, _) = aggregate(&rows, &HeatmapQuery::default());
+        let (cells, _) = aggregate(&rows, &HeatmapQuery::default(), &mut ValueAudit::new());
         assert_eq!(cells.len(), 1, "値のあるセルだけ返す(168固定にしない)");
+    }
+
+    // ---- owners の不正トークンで絞り込みが消えるのを名指しする（2026-08-17 追加） ----
+
+    #[test]
+    fn 数値でないownersは絞り込みが消えることを名指しする() {
+        // `filter_map(parse::<u64>().ok())` が全部捨てると空リストになり、
+        // `if !ids.is_empty()` を通らないので **絞り込みごと消えて全員が集計される**。
+        // 動機になった `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
+        let rows = vec![
+            row(0, 10, "東京都", "運輸", 1, 100, 2),
+            row(0, 10, "大阪府", "建設", 2, 50, 1),
+        ];
+        let q = HeatmapQuery { owners: Some("abc".into()), ..Default::default() };
+        let mut a = ValueAudit::new();
+        let (_, used) = aggregate(&rows, &q, &mut a);
+        assert_eq!(used, 2, "挙動は変えない（全員が集計されたまま）");
+        let v = a.into_vec();
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].param, "owners");
+        assert_eq!(v[0].given, "abc");
+        assert!(v[0].message.contains("全員"), "{}", v[0].message);
+    }
+
+    #[test]
+    fn 一部だけ不正なownersも名指しする() {
+        // `?owners=1,abc` は 1 だけで絞られる。利用者は2人ぶんのつもりで読む。
+        let rows = vec![
+            row(0, 10, "東京都", "運輸", 1, 100, 2),
+            row(0, 10, "大阪府", "建設", 2, 50, 1),
+        ];
+        let q = HeatmapQuery { owners: Some("1,abc".into()), ..Default::default() };
+        let mut a = ValueAudit::new();
+        let (_, used) = aggregate(&rows, &q, &mut a);
+        assert_eq!(used, 1, "有効な 1 だけで絞られる（挙動は変えない）");
+        assert_eq!(a.into_vec().len(), 1);
+    }
+
+    #[test]
+    fn 正しいownersでは何も報告しない() {
+        // **陰性対照**
+        let rows = vec![row(0, 10, "東京都", "運輸", 1, 100, 2)];
+        for owners in [None, Some("1"), Some("1,2"), Some(" 1 , 2 "), Some(""), Some("1,")] {
+            let q = HeatmapQuery { owners: owners.map(str::to_string), ..Default::default() };
+            let mut a = ValueAudit::new();
+            aggregate(&rows, &q, &mut a);
+            assert!(a.is_empty(), "owners={owners:?} は正常なので黙る");
+        }
     }
 }
