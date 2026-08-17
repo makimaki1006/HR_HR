@@ -125,6 +125,82 @@ pub fn rate(numerator: f64, denominator: f64) -> Option<f64> {
 mod tests {
     use super::*;
 
+    /// タブが読むシートは、必ず2つの一覧に載っていること。
+    ///
+    /// 2026-08-17 追加。**先に書いた乖離検出テストに穴があった**。
+    /// あれは `KNOWN_SHEETS` と `ALLOWED_SHEETS` を比べるだけなので、
+    /// **どちらにも載っていないシートは捕まえられない**。
+    /// 実際 `アラート除外リスト`（p8 の C-1 が読む運用シート）が
+    /// 両方から漏れており、テストは通っていた。
+    ///
+    /// ここではソースそのものを読んで `SHEET_*: &str = "…"` を抜き、
+    /// 実際に使われている名前を根拠にする。**一覧を人が手で保つのをやめる。**
+    ///
+    /// タブを増やしたら下の `include_str!` にも足すこと。忘れると
+    /// 直後の枚数チェックで落ちる。
+    #[test]
+    fn タブが読むシートは両方の一覧に載っている() {
+        let sources: &[&str] = &[
+            include_str!("p0_overview.rs"),
+        include_str!("p10_future_actions.rs"),
+        include_str!("p11_activity.rs"),
+        include_str!("p12_churn.rs"),
+        include_str!("p13_timeline.rs"),
+        include_str!("p14_owner360.rs"),
+        include_str!("p15_pipeline_mgmt.rs"),
+        include_str!("p1_members.rs"),
+        include_str!("p2_habits.rs"),
+        include_str!("p3_timeseries.rs"),
+        include_str!("p7_data_browser.rs"),
+        include_str!("p8_consulting_contact.rs"),
+        include_str!("pbpo_dashboard.rs"),
+        include_str!("pja_job_application.rs"),
+        include_str!("prisk_riskboard.rs"),
+        include_str!("ptf_target.rs")
+        ];
+
+        // タブを増やして include を足し忘れたら、ここで落ちる
+        let declared = include_str!("mod.rs")
+            .lines()
+            .filter(|l| l.trim_start().starts_with("pub mod "))
+            .count();
+        assert_eq!(
+            sources.len(),
+            declared,
+            "タブが {declared} 個あるのに、このテストは {} 個しか見ていない。
+             include_str! に足すこと。",
+            sources.len()
+        );
+
+        let known = crate::handlers::call_quality::sheets::KNOWN_SHEETS;
+        let allowed = crate::handlers::call_quality::tabs::p7_data_browser::ALLOWED_SHEETS;
+
+        let mut missing: Vec<String> = Vec::new();
+        for src in sources {
+            for line in src.lines() {
+                let t = line.trim();
+                if !t.starts_with("const SHEET") && !t.starts_with("pub const SHEET") {
+                    continue;
+                }
+                let Some(rest) = t.split_once('=') else { continue };
+                let Some(name) = rest.1.split('"').nth(1) else { continue };
+                if !known.contains(&name) {
+                    missing.push(format!("{name}（KNOWN_SHEETS に無い）"));
+                }
+                if !allowed.contains(&name) {
+                    missing.push(format!("{name}（ALLOWED_SHEETS に無い）"));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "タブが読むのに一覧に載っていないシートがある:
+  {}",
+            missing.join("
+  ")
+        );
+    }
+
     #[test]
     fn 分母0は0パーセントでなくnone() {
         assert_eq!(rate(3.0, 0.0), None, "架電0でアポ3件を 0% と表示してはいけない");
