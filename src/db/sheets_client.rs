@@ -112,7 +112,10 @@ impl SheetsClient {
             std::env::var("SPREADSHEET_ID").context("環境変数 SPREADSHEET_ID が未設定")?;
 
         let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            // 2026-08-17: 30秒だと大きいシートの初回取得が落ちる。
+            //   「セグメント_クロス」72,633行 /「時間帯ヒート_クロス」約20万行。
+            //   キャッシュに載れば以後は速いので、初回だけの話。
+            .timeout(Duration::from_secs(120))
             .build()
             .context("reqwest クライアント初期化失敗")?;
 
@@ -245,11 +248,55 @@ impl SheetsClient {
                 .get(&url)
                 .bearer_auth(&token)
                 .send()
-                .await
-                .with_context(|| format!("Sheets API GET 失敗: {sheet_name}"))?;
+                .await;
+
+            // 2026-08-17 追加: **送信そのものの失敗も再試行する**。
+            //   従来は `?` で即座に諦めていたため、タイムアウトや接続断が
+            //   リトライされなかった。実際に「セグメント_クロス」(72,633行)が
+            //   コールドキャッシュで 30秒のクライアント側タイムアウトに掛かり、
+            //   画面が 502 で落ちた（再試行2回はいずれも成功したので一過性）。
+            //   「時間帯ヒート_クロス」は20万行あり、より踏みやすい。
+            //   ステータスコードのリトライ(429/5xx)だけでは届かない経路だった。
+            let resp = match resp {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = format!("送信失敗: {e}");
+                    if attempt == MAX_RETRIES {
+                        bail!("Sheets API 失敗 ({sheet_name}): {last_err}");
+                    }
+                    let wait = Duration::from_secs(1u64 << attempt);
+                    tracing::warn!(
+                        "Sheets API {sheet_name}: {e} のため {}秒後に再試行 ({}/{})",
+                        wait.as_secs(),
+                        attempt + 1,
+                        MAX_RETRIES
+                    );
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+            };
 
             let status = resp.status();
-            let text = resp.text().await.context("Sheets API body 読み込み失敗")?;
+            let text = match resp.text().await {
+                Ok(t) => t,
+                Err(e) => {
+                    // 本文の読み込み中に切れる場合も同じ扱い（実際に
+                    // "error decoding response body" → "operation timed out" が出た）
+                    last_err = format!("body 読み込み失敗: {e}");
+                    if attempt == MAX_RETRIES {
+                        bail!("Sheets API 失敗 ({sheet_name}): {last_err}");
+                    }
+                    let wait = Duration::from_secs(1u64 << attempt);
+                    tracing::warn!(
+                        "Sheets API {sheet_name}: {e} のため {}秒後に再試行 ({}/{})",
+                        wait.as_secs(),
+                        attempt + 1,
+                        MAX_RETRIES
+                    );
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+            };
 
             if status.is_success() {
                 body = text;
