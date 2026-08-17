@@ -41,6 +41,7 @@ use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::heatmap::{self, HeatCell, HeatmapCache, HeatmapQuery};
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 /// メンバー別ヒートマップに載せる人数。GAS 版と同じ「架電数Top20」。
 /// 切ったら `truncated` を立てる（約束3）。
@@ -579,10 +580,23 @@ pub fn collect_weekday(data: &SheetData) -> (Vec<WeekdayPoint>, usize) {
 /// `apo_rate` は anchor='apo' のコホートでは定義上つねに 100% になる（自明）ため、
 /// GAS 版でも 2026-06-06 に選択肢から外してある。ここでも受け付けない。
 fn cohort_metric_of(key: Option<&str>) -> (&'static str, &'static str) {
-    match key.unwrap_or("progression").trim() {
+    cohort_metric_parse(key.unwrap_or("progression"))
+        .unwrap_or(("progression_rate", "次に進んだ割合"))
+}
+
+/// `cohort_metric` が受け付ける値。
+pub const COHORT_METRIC_EXPECTED: &str = "progression | progression_rate | retention | retention_rate";
+
+/// 2026-08-17 追加。以前は `_ =>` で**未知の値も黙って「次に進んだ割合」**に
+/// なっていた。コホート表は列見出しにラベルしか出ないので、
+/// `?cohort_metric=retantion` の打ち間違いは画面から見分けられない。
+/// 落とす先は変えず、落としたことを名指しできるように `Option` を分離する。
+fn cohort_metric_parse(key: &str) -> Option<(&'static str, &'static str)> {
+    Some(match key.trim() {
         "retention" | "retention_rate" => ("retention_rate", "まだ残っている割合"),
-        _ => ("progression_rate", "次に進んだ割合"),
-    }
+        "progression" | "progression_rate" => ("progression_rate", "次に進んだ割合"),
+        _ => return None,
+    })
 }
 
 fn cohort_lag_label(lag: u8) -> String {
@@ -798,10 +812,13 @@ pub async fn handle(
 ) -> Result<TabPayload<TimeseriesData>> {
     let started = Instant::now();
 
-    let current_ym = q
-        .current_ym
-        .clone()
-        .unwrap_or_else(|| super::jst_current_ym());
+    // 2026-08-17 追加: 壊れた `current_ym` を黙って通さない。
+    //   `is_partial_month(ym, current_ym)` は `ym[..7] == current_ym[..7]` なので、
+    //   `?current_ym=zzzz` だと **どの月にも一致せず「進行中の当月」が消滅する**。
+    //   月次推移から集計途中の月が除外されなくなり、途中集計のアポ率が
+    //   確定月と同じ見た目で並ぶ（p0 で実測 前月1.62% に対し当月6.60%）。
+    let mut audit = ValueAudit::new();
+    let current_ym = audit.year_month("current_ym", q.current_ym.as_deref(), super::jst_current_ym);
     let pref_mode = pref_mode_of(&q);
     let scope = resolve_scope(q.owners.as_deref(), sales_owners.as_ref());
     let scope_text = scope_label(q.owners.as_deref(), scope.as_ref());
@@ -848,6 +865,13 @@ pub async fn handle(
 
     // --- コホート分析 ---
     let (cohort_sheet, cohort_cached) = store.get(client, "コホート分析").await?;
+    audit.choice(
+        "cohort_metric",
+        q.cohort_metric.as_deref(),
+        COHORT_METRIC_EXPECTED,
+        cohort_metric_parse,
+        || (("progression_rate", "次に進んだ割合"), "progression".to_string()),
+    );
     let (cohort, cohort_matched) = collect_cohort(&cohort_sheet, q.cohort_metric.as_deref());
     sources.push(SourceInfo {
         sheet: "コホート分析".to_string(),
@@ -963,6 +987,8 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -1472,5 +1498,30 @@ mod tests {
             vec![(0, 9), (0, 15), (1, 9)]
         );
         assert_eq!(cells[0].weekday_label, "月", "0=月（Python weekday 準拠）");
+    }
+
+    // ---- cohort_metric / current_ym の不正値（2026-08-17 追加） ----
+
+    #[test]
+    fn cohort_metricの不正値を判定できる() {
+        assert_eq!(cohort_metric_parse("retention").map(|x| x.0), Some("retention_rate"));
+        assert_eq!(cohort_metric_parse("progression").map(|x| x.0), Some("progression_rate"));
+        assert_eq!(cohort_metric_parse("retantion"), None, "打ち間違いは受理しない");
+        // 落とす先は従来どおり（挙動は変えない）
+        assert_eq!(cohort_metric_of(Some("retantion")).0, "progression_rate");
+        assert_eq!(cohort_metric_of(None).0, "progression_rate");
+    }
+
+    #[test]
+    fn 壊れたcurrent_ymは当月判定を全滅させる() {
+        // これが `year_month` 監査を入れた理由。`?current_ym=zzzz` だと
+        // `is_partial_month` がどの月にも当たらず、進行中の当月が推移から除外されなくなる。
+        assert!(!is_partial_month("2026-08", "zzzz"), "旧挙動（記録として残す）");
+        assert!(is_partial_month("2026-08", "2026-08"), "正しい当月なら立つ");
+        // 監査層が壊れた値を弾くことを確認（当月へ落ちるので上の行と同じ状態に戻る）
+        let mut a = crate::handlers::call_quality::query_audit::ValueAudit::new();
+        let ym = a.year_month("current_ym", Some("zzzz"), || "2026-08".to_string());
+        assert!(is_partial_month("2026-08", &ym));
+        assert_eq!(a.into_vec().len(), 1);
     }
 }

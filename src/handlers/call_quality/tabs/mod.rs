@@ -23,6 +23,8 @@
 
 use serde::Serialize;
 
+use super::query_audit::InvalidValue;
+
 pub mod p0_overview;
 pub mod p1_members;
 pub mod p15_pipeline_mgmt;
@@ -59,6 +61,23 @@ pub struct TabPayload<T: Serialize> {
     /// (`routes.rs`) が生のクエリ文字列を見て詰める。タブ関数は生の
     /// クエリ文字列を受け取らないため、ここで判定できるのはルータだけ。
     pub ignored_params: Vec<String>,
+    /// **解釈できなかった「値」と、代わりに使った値**。
+    ///
+    /// 2026-08-17 追加。`ignored_params` は「知らないキー」しか拾わないので、
+    /// **キーは正しく値が不正**なケースが素通りしていた。
+    /// 実測: `?deals_statuss=active`（キーのタイポ）は `ignored_params` に出るのに、
+    /// `?deals_status=NONSENSE`（値のタイポ）は `[]` のまま `all` に落ちて全218件。
+    /// 利用者から見た結末は同じ「絞ったつもりで全件が出る」。
+    ///
+    /// `ignored_params` と同じ約束:
+    /// - **空でも必ずキーを出す**（空配列）。キーごと消すと「無かった」のか
+    ///   「古いサーバ」なのかを画面が区別できない。
+    /// - **値が無くて既定値になったときは載せない**（それは正常）。
+    ///   常に何か言う実装は狼少年になって読まれなくなる。
+    ///
+    /// `ignored_params` と違い、**これはタブ側が詰める**。値の意味
+    /// （`active` が有効かどうか）を知っているのはタブだけで、ルータには判定できない。
+    pub invalid_values: Vec<InvalidValue>,
 }
 
 impl<T: Serialize> TabPayload<T> {
@@ -198,6 +217,67 @@ mod tests {
   {}",
             missing.join("
   ")
+        );
+    }
+
+    /// 各タブのソース一覧（上のシート検査と共有する）。
+    ///
+    /// タブを増やしたらここに足すこと。忘れると枚数チェックで落ちる。
+    fn tab_sources() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("p0_overview.rs", include_str!("p0_overview.rs")),
+            ("p10_future_actions.rs", include_str!("p10_future_actions.rs")),
+            ("p11_activity.rs", include_str!("p11_activity.rs")),
+            ("p12_churn.rs", include_str!("p12_churn.rs")),
+            ("p13_timeline.rs", include_str!("p13_timeline.rs")),
+            ("p14_owner360.rs", include_str!("p14_owner360.rs")),
+            ("p15_pipeline_mgmt.rs", include_str!("p15_pipeline_mgmt.rs")),
+            ("p1_members.rs", include_str!("p1_members.rs")),
+            ("p2_habits.rs", include_str!("p2_habits.rs")),
+            ("p3_timeseries.rs", include_str!("p3_timeseries.rs")),
+            ("p7_data_browser.rs", include_str!("p7_data_browser.rs")),
+            ("p8_consulting_contact.rs", include_str!("p8_consulting_contact.rs")),
+            ("pbpo_dashboard.rs", include_str!("pbpo_dashboard.rs")),
+            ("pja_job_application.rs", include_str!("pja_job_application.rs")),
+            ("prisk_riskboard.rs", include_str!("prisk_riskboard.rs")),
+            ("ptf_target.rs", include_str!("ptf_target.rs")),
+        ]
+    }
+
+    /// 値を監査したタブは、必ずその結果を応答へ載せている。
+    ///
+    /// 2026-08-17 追加。`invalid_values` はフィールドなので**足し忘れ**は
+    /// コンパイルエラーになるが、`Vec::new()` で埋めて済ませることはできる。
+    /// そうなると **監査は動いているのに応答は空配列**で、画面は
+    /// 「不正な値は無かった」と読む。`ignored_params` を入れたときに
+    /// 「ルータが `with_ignored` を呼び忘れると常に空配列」を潰したのと同じ穴。
+    ///
+    /// 規約: 本番経路で `ValueAudit` を作るときは必ず
+    /// `let mut audit = ValueAudit::new();` と書き、`audit.into_vec()` で返す。
+    /// テスト内で使い捨てるときは `&mut ValueAudit::new()` を直接渡す
+    /// （`let mut audit` を作らない）。この2つを文字列で見分ける。
+    #[test]
+    fn 値を監査したタブは必ず応答に載せている() {
+        let mut bad: Vec<String> = Vec::new();
+        for (name, src) in tab_sources() {
+            let audits = src.contains("let mut audit = ValueAudit::new();");
+            let returns = src.contains("invalid_values: audit.into_vec()");
+            if audits && !returns {
+                bad.push(format!(
+                    "{name}: ValueAudit を作っているのに invalid_values: audit.into_vec() で返していない"
+                ));
+            }
+            if !audits && returns {
+                bad.push(format!("{name}: audit.into_vec() を返しているが audit を作っていない"));
+            }
+            if !audits && !src.contains("invalid_values: Vec::new()") {
+                bad.push(format!("{name}: invalid_values を返していない"));
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "解釈できなかった値が応答へ届かないタブがある:\n  {}",
+            bad.join("\n  ")
         );
     }
 

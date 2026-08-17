@@ -69,6 +69,7 @@ use serde::{Deserialize, Serialize};
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
+use crate::handlers::call_quality::query_audit::ValueAudit;
 
 /// 追いかけ停止候補の表示上限。GAS 版と同じ 500 件。
 const CHASE_LIMIT: usize = 500;
@@ -876,6 +877,17 @@ pub fn collect_stage_revisit(data: &SheetData, min_negative: f64) -> (StageRevis
 ///
 /// **`role` はこのシート自身が持っている**ので、営業スコープは owner_id ではなく
 /// この列で絞る（GAS 版と同じ。既定は sales）。
+/// `sort_by` が受け付ける列名。**`key` の match と同じ並び**にすること。
+/// 片方だけ増やすと、増やした列が「解釈できない値」として報告されてしまう。
+pub const CALLER_SORT_KEYS: [&str; 6] = [
+    "総架電",
+    "ユニーク先(Deal数)",
+    "1Deal平均架電",
+    "HHI*100(集中度)",
+    "Top10集中率%",
+    "90秒以上率%",
+];
+
 pub fn collect_caller_behavior(
     data: &SheetData,
     role: &str,
@@ -1102,6 +1114,9 @@ pub async fn handle(
     let started = Instant::now();
     let panel = q.panel.clone().unwrap_or_else(|| "chase_stop".to_string());
     let mut sources: Vec<SourceInfo> = Vec::new();
+    // 2026-08-17 追加。`panel` 自体は未知の値なら `TargetData::Unavailable` で
+    // 名指しして返すので、ここで二重に報告しない（狼少年を作らない）。
+    let mut audit = ValueAudit::new();
 
     // Arc<SheetData> をそのまま渡すと参照の型合わせで悩むので、必要な値だけ受ける。
     let mut push_source =
@@ -1196,7 +1211,23 @@ pub async fn handle(
         "caller_behavior" => {
             let (sheet, cached) = store.get(client, "コーラー行動パターン").await?;
             let role = q.role.clone().unwrap_or_else(|| "sales".to_string());
-            let sort_by = q.sort_by.clone().unwrap_or_else(|| "総架電".to_string());
+            // 2026-08-17 是正: `collect_caller_behavior` は未知の列名を黙って
+            //   「総架電」へ落とすのに、応答の `sort_by` には**送られた値がそのまま
+            //   返っていた**。つまり応答が「HHIで並べた」と言いながら総架電で
+            //   並んでいる状態を、画面から見分ける方法が無い。
+            //   落とす先は変えず、落としたことを名指しする。
+            let sort_by = audit.choice(
+                "sort_by",
+                q.sort_by.as_deref(),
+                &CALLER_SORT_KEYS.join(" | "),
+                |v| {
+                    CALLER_SORT_KEYS
+                        .iter()
+                        .find(|k| **k == v.trim())
+                        .map(|k| (*k).to_string())
+                },
+                || ("総架電".to_string(), "総架電".to_string()),
+            );
             let (d, matched) = collect_caller_behavior(&sheet, &role, &sort_by);
             push_source(
                 "コーラー行動パターン",
@@ -1235,6 +1266,8 @@ pub async fn handle(
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
         ignored_params: Vec::new(),
+        // こちらは**タブ側が詰める**。値の意味を知っているのはここだけ。
+        invalid_values: audit.into_vec(),
     })
 }
 
@@ -1717,5 +1750,59 @@ mod tests {
         assert_eq!(matched, 1);
         assert_eq!(b.overall.as_ref().unwrap().close_rate, Some(5.0));
         assert_eq!(b.available_ranges, vec!["6m".to_string(), "all".to_string()]);
+    }
+
+    // ---- sort_by の不正値（2026-08-17 追加） ----
+
+    #[test]
+    fn 受け付けるsort_by一覧が実際の並べ替えキーと一致する() {
+        // `CALLER_SORT_KEYS` と `collect_caller_behavior` の `match sort_by` は
+        // 片方だけ増やすと、増やした列が「解釈できない値」として報告されてしまう。
+        // 実際に並び順が変わることで一致を確かめる。
+        let d = sheet(
+            &["role", "owner_id", "name", "総架電", "ユニーク先(Deal数)", "1Deal平均架電",
+              "HHI*100(集中度)", "Top10集中率%", "90秒以上率%", "行動タイプ"],
+            vec![
+                vec!["sales", "1", "A", "10", "5", "2", "90", "80", "70", "集中型"],
+                vec!["sales", "2", "B", "20", "1", "1", "10", "20", "30", "分散型"],
+            ],
+        );
+        // 総架電なら B が先、それ以外のキーでは A が先になるデータにしてある
+        let (out, _) = collect_caller_behavior(&d, "sales", "総架電");
+        assert_eq!(out.rows[0].owner_id, "2");
+        for key in CALLER_SORT_KEYS.iter().filter(|k| **k != "総架電") {
+            let (out, _) = collect_caller_behavior(&d, "sales", key);
+            assert_eq!(out.rows[0].owner_id, "1", "{key} で並べ替えが効いていない");
+        }
+        // 未知の列は総架電へ落ちる（挙動は変えない）
+        let (out, _) = collect_caller_behavior(&d, "sales", "NONSENSE");
+        assert_eq!(out.rows[0].owner_id, "2", "未知の列は総架電の並び");
+    }
+
+    #[test]
+    fn sort_byの不正値は総架電に落ちたことを記録する() {
+        let mut a = ValueAudit::new();
+        let used = a.choice(
+            "sort_by",
+            Some("NONSENSE"),
+            &CALLER_SORT_KEYS.join(" | "),
+            |v| CALLER_SORT_KEYS.iter().find(|k| **k == v.trim()).map(|k| (*k).to_string()),
+            || ("総架電".to_string(), "総架電".to_string()),
+        );
+        assert_eq!(used, "総架電");
+        let v = a.into_vec();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].used.as_deref(), Some("総架電"));
+
+        // 陰性対照
+        let mut a = ValueAudit::new();
+        a.choice(
+            "sort_by",
+            Some("HHI*100(集中度)"),
+            &CALLER_SORT_KEYS.join(" | "),
+            |v| CALLER_SORT_KEYS.iter().find(|k| **k == v.trim()).map(|k| (*k).to_string()),
+            || ("総架電".to_string(), "総架電".to_string()),
+        );
+        assert!(a.is_empty());
     }
 }
