@@ -51,6 +51,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use rust_dashboard::handlers::call_quality::heatmap::{aggregate, CrossRow, HeatmapQuery};
+// 2026-09-03: aggregate() が第3引数に監査を取るようになったのに追随しておらず、
+// まっさら clone で `cargo test` が落ちていた(cargo test は examples もビルドする)。
+use rust_dashboard::handlers::call_quality::query_audit::ValueAudit;
 use rust_dashboard::handlers::call_quality::sheets::{query, SheetData, SheetQuery};
 use rust_dashboard::handlers::call_quality::tabs::p1_members::{collect, MembersQuery};
 use rust_dashboard::handlers::call_quality::tabs::rate;
@@ -363,7 +366,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         owners: Some(sales_owners.join(",")),
         ..Default::default()
     };
-    let (cells_sales, used_sales) = aggregate(&cross_rows, &q_sales);
+    let (cells_sales, used_sales) = aggregate(&cross_rows, &q_sales, &mut ValueAudit::new());
     v.num("heat.sales.used_rows", used_sales as f64);
     v.num("heat.sales.cell_count", cells_sales.len() as f64);
     for c in &cells_sales {
@@ -376,7 +379,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // (b) 営業スコープなし（全ロール混在）。GAS 旧版の姿。
     //     「営業に絞るかどうかで値がどれだけ動くか」を数字で残すために出す。
-    let (cells_all, used_all) = aggregate(&cross_rows, &HeatmapQuery::default());
+    let (cells_all, used_all) = aggregate(&cross_rows, &HeatmapQuery::default(), &mut ValueAudit::new());
     v.num("heat.allroles.used_rows", used_all as f64);
     v.num("heat.allroles.cell_count", cells_all.len() as f64);
     for c in &cells_all {
@@ -391,7 +394,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         owners: Some(sales_owners.join(",")),
         ..Default::default()
     };
-    let (cells_tokyo, used_tokyo) = aggregate(&cross_rows, &q_pref_heat);
+    let (cells_tokyo, used_tokyo) = aggregate(&cross_rows, &q_pref_heat, &mut ValueAudit::new());
     v.num("heat.tokyo.used_rows", used_tokyo as f64);
     v.num("heat.tokyo.cell_count", cells_tokyo.len() as f64);
     for c in &cells_tokyo {

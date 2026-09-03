@@ -16,6 +16,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use rust_dashboard::handlers::call_quality::heatmap::{aggregate, CrossRow, HeatmapQuery};
+// 2026-09-03: aggregate() が第3引数に監査を取るようになったのに、この example が
+// 追随しておらず **まっさら clone で `cargo test` が必ず落ちる** 状態だった
+// (cargo test は examples もビルドする)。lib とテスト自体は健全。
+use rust_dashboard::handlers::call_quality::query_audit::ValueAudit;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args().nth(1).ok_or("CSVパスを渡してください")?;
@@ -98,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ---- サーバ側集計（絞り込みなし） ----
     let t1 = Instant::now();
-    let (cells, used) = aggregate(&rows, &HeatmapQuery::default());
+    let (cells, used) = aggregate(&rows, &HeatmapQuery::default(), &mut ValueAudit::new());
     let agg_ms = t1.elapsed().as_micros();
     let cells_json = serde_json::to_string(&cells)?;
 
@@ -128,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         };
         let t = Instant::now();
-        let (c, u) = aggregate(&rows, &q);
+        let (c, u) = aggregate(&rows, &q, &mut ValueAudit::new());
         let json = serde_json::to_string(&c)?;
         println!(
             "  {:<10} : {:>6} μs / {:>3} セル / {:>6} bytes / 元 {:>7} 行",
@@ -144,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let t2 = Instant::now();
     const N: usize = 100;
     for _ in 0..N {
-        let _ = aggregate(&rows, &HeatmapQuery::default());
+        let _ = aggregate(&rows, &HeatmapQuery::default(), &mut ValueAudit::new());
     }
     println!(
         "\n== 絞り込みを{}回変えた場合 ==\n  合計 {} ms（1回あたり {:.2} ms）",
