@@ -30,6 +30,8 @@ pub struct AppConfig {
     pub allowed_domains_extra: Vec<String>,
     /// ハローワークDBパス
     pub hellowork_db_path: String,
+    /// Indeed 採用市場データ（分析層）。無くてもアプリは起動する
+    pub indeed_db_path: String,
     /// キャッシュTTL（秒）
     pub cache_ttl_secs: u64,
     /// キャッシュ最大エントリ数
@@ -103,6 +105,8 @@ impl AppConfig {
                 .map(|s| s.trim().to_lowercase())
                 .filter(|s| !s.is_empty())
                 .collect(),
+            indeed_db_path: env::var("INDEED_DB_PATH")
+                .unwrap_or_else(|_| "data/indeed_insights.db".to_string()),
             hellowork_db_path: env::var("HELLOWORK_DB_PATH")
                 .unwrap_or_else(|_| "data/hellowork.db".to_string()),
             cache_ttl_secs: env::var("CACHE_TTL_SECS")

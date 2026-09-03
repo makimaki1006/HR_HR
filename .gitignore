@@ -8,6 +8,9 @@ target/
 # Database files (DB is downloaded from GitHub Release at build time)
 data/*.db
 data/*.db.gz
+# Indeed 分析層だけは Docker イメージに同梱する（5.4MB、起動時に展開）。
+# 本体 DB (hellowork.db) と違い Release 経由にするには小さすぎる。
+!data/indeed_insights.db.gz
 # Phase 3: 再生成可能な集計CSV (scripts/build_*.py で再現可能、サイズ大)
 data/generated/
 
