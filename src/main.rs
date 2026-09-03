@@ -83,6 +83,20 @@ async fn main() {
         }
     };
 
+    // Indeed 採用市場データ（分析層・約19MB）。
+    // これが無くても他の機能は動くので、読めなければ None にして起動を続ける。
+    decompress_db_if_needed(&config.indeed_db_path);
+    let indeed_db = match LocalDb::new(&config.indeed_db_path) {
+        Ok(db) => {
+            tracing::info!("Indeed insights DB loaded: {}", config.indeed_db_path);
+            Some(db)
+        }
+        Err(e) => {
+            tracing::warn!("Indeed insights DB not available: {e}");
+            None
+        }
+    };
+
     // 3つのTurso接続 (外部統計 / SalesNow / 監査) を tokio::join! で並列初期化する。
     // 各接続は相互に独立しており、cold start 時に直列 await すると 3回分の
     // network round-trip + 接続テスト (SELECT 1) が積算される。並列化により
@@ -257,6 +271,7 @@ async fn main() {
     let state = Arc::new(AppState {
         config,
         hw_db,
+        indeed_db,
         turso_db,
         salesnow_db,
         scout_db,

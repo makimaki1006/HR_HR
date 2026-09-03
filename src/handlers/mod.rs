@@ -14,6 +14,7 @@ pub mod driver;
 pub mod emp_classifier;
 pub mod guide;
 pub mod helpers;
+pub mod indeed;
 pub mod insight;
 pub mod integrated_report;
 pub mod jobmap;

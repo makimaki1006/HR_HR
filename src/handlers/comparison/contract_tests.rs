@@ -71,6 +71,7 @@ fn test_state(db: LocalDb) -> Arc<AppState> {
         allowed_domains: Vec::new(),
         allowed_domains_extra: Vec::new(),
         hellowork_db_path: String::new(),
+        indeed_db_path: "data/indeed_insights.db".to_string(),
         cache_ttl_secs: 60,
         cache_max_entries: 10,
         rate_limit_max_attempts: 5,
@@ -89,6 +90,7 @@ fn test_state(db: LocalDb) -> Arc<AppState> {
     Arc::new(AppState {
         config: cfg,
         hw_db: Some(db),
+        indeed_db: None,
         turso_db: None,
         salesnow_db: None,
         scout_db: None,
