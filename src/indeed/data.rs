@@ -57,6 +57,11 @@ pub struct Series {
 }
 
 impl Series {
+    /// 空の並びを作る。集計側から使う。
+    pub fn blank_public(n: usize) -> Self {
+        Self::blank(n)
+    }
+
     fn blank(n: usize) -> Self {
         Self {
             job: vec![None; n],
