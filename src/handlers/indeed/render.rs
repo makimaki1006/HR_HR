@@ -42,6 +42,25 @@ pub fn json_str(s: &str) -> String {
     esc(&out)
 }
 
+/// URL のクエリに入れてよい形にしてから、HTML 属性用にも退避する。
+///
+/// 職種名は日本語で、`&` や `#` を含む可能性もある。素のまま
+/// `?name=...` に入れると、そこでクエリが切れたり別の引数に化けたりする。
+/// 英数字と `-_.~` 以外はすべて %XX にする（RFC 3986 の unreserved）。
+pub fn url_query(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    // ここまでで `&"'<>` は残らないが、属性に入れる以上は同じ道を通す
+    esc(&out)
+}
+
 /// 3 桁区切り。
 pub fn num(v: f64) -> String {
     let neg = v < 0.0;

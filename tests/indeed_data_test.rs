@@ -369,3 +369,158 @@ fn 傾向線が引けないときは変化率も出さない() {
     // 全部に傾向線が引けているなら、それはそれで確かめたい事実なので数を出す。
     println!("傾向線が引けなかった指標: {none_fit} 件");
 }
+
+/// 職種詳細で出す「順位」と「全国比」の意味を固定する。
+///
+/// どちらも名前から意味が読めない。作り（scripts/indeed_build_insights.js）は
+///   rows.sort((a,b) => b.seekers_per_posting - a.seekers_per_posting)  // 降順
+///   rank = i + 1 / vs_national = その県の1求人あたり ÷ 全国の1求人あたり
+/// なので、順位は「1求人あたりが多い順（1位＝いちばん集まりやすい）」、
+/// 全国比は「全国平均を1とした比（差ではない）」。
+/// 画面にはこの説明を書いて出している。ここが変わったら説明も直す必要がある。
+#[test]
+fn 職種詳細の順位と全国比が定義どおりである() {
+    let db = open_db();
+    let d = rust_dashboard::indeed::detail::load(&db, "配送ドライバー")
+        .expect("読み込み")
+        .expect("配送ドライバーが見つからない");
+
+    assert!(!d.prefs.is_empty(), "都道府県の行が空です");
+
+    // 1) 順位は 1..=比べた数 に収まる
+    for p in &d.prefs {
+        if let (Some(r), Some(of)) = (p.rank, p.of) {
+            assert!(
+                r >= 1 && r <= of,
+                "{} の順位 {r} が 1〜{of} の外にある",
+                p.prefecture
+            );
+        }
+    }
+
+    // 2) 順位が小さいほど 1 求人あたりが大きい（＝集まりやすい）
+    let mut ranked: Vec<_> = d
+        .prefs
+        .iter()
+        .filter(|p| p.rank.is_some() && p.spp.is_some())
+        .collect();
+    ranked.sort_by_key(|p| p.rank.unwrap());
+    for w in ranked.windows(2) {
+        let (a, b) = (&w[0], &w[1]);
+        assert!(
+            a.spp.unwrap() >= b.spp.unwrap() - 1e-9,
+            "順位 {} の {}（{:.2}）より、順位 {} の {}（{:.2}）のほうが多い。\
+             順位の向きが逆になっている",
+            a.rank.unwrap(),
+            a.prefecture,
+            a.spp.unwrap(),
+            b.rank.unwrap(),
+            b.prefecture,
+            b.spp.unwrap()
+        );
+    }
+
+    // 3) 全国比は「比」。差なら 0 をまたぐが、比は必ず正になる
+    for p in &d.prefs {
+        if let Some(v) = p.vs_national {
+            assert!(
+                v > 0.0 && v < 20.0,
+                "{} の全国比 {v} が比として現実的でない（差と取り違えていないか）",
+                p.prefecture
+            );
+        }
+    }
+    // 全部が 1.0 付近に固まっていたら、比ではなく別のものを見ている疑い
+    let spread = {
+        let vs: Vec<f64> = d.prefs.iter().filter_map(|p| p.vs_national).collect();
+        let (mn, mx) = vs.iter().fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        mx - mn
+    };
+    assert!(spread > 0.05, "全国比の幅が {spread} しかない。比になっていない疑い");
+
+    // 4) 1 求人あたり = 見た人数 ÷ 求人数
+    for p in &d.prefs {
+        let (Some(j), Some(c), Some(s)) = (p.job, p.ctk, p.spp) else {
+            continue;
+        };
+        if j <= 0.0 {
+            continue;
+        }
+        assert!(
+            (s - c / j).abs() < 0.05,
+            "{} の 1 求人あたり {s} が {c} ÷ {j} と合わない",
+            p.prefecture
+        );
+    }
+}
+
+/// 探している人の傾向は、足しても 100% にならないこと。
+///
+/// 1 つの語が複数に当てはまる（「主婦 未経験」など）ため。
+/// 画面にもそう書いている。もし排他になったら説明を直す必要がある。
+#[test]
+fn 属性の割合は足しても百にならない() {
+    let db = open_db();
+    let d = rust_dashboard::indeed::detail::load(&db, "配送ドライバー")
+        .expect("読み込み")
+        .expect("見つからない");
+    let a = d.attrs.expect("属性が無い");
+    let sum: f64 = a.shares.iter().filter_map(|(_, v)| *v).sum();
+    assert!(sum > 0.0, "属性がすべて空です");
+    assert!(
+        (sum - 100.0).abs() > 1.0,
+        "足すと {sum}% とほぼ 100% になっている。排他の割合なら画面の説明を直すこと"
+    );
+}
+
+/// 5 業界のまとめ方が、顧客に配った見本と同じであること。
+///
+/// # なぜ職種数まで見るか
+/// 分類名を 1 文字打ち間違えても、コードは動く。その分類が丸ごと
+/// 「5 業界の外」に落ちるだけで、業界の数字が静かに減る。
+/// 見本（claudedocs/indeed_newsletter.html の「4.1 業界のまとめ方」）に
+/// 書いてある職種数と突き合わせれば、打ち間違いはここで落ちる。
+#[test]
+fn 五業界のまとめ方が見本と一致する() {
+    use rust_dashboard::indeed::industry;
+
+    let s = snap();
+    let mut count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut outside = 0usize;
+    for t in &s.titles {
+        match industry::of_category(&t.category) {
+            Some(name) => *count.entry(name).or_insert(0) += 1,
+            None => outside += 1,
+        }
+    }
+
+    // 見本に書いてある職種数
+    for (name, want) in [
+        ("物流・運輸", 17),
+        ("製造・生産", 34),
+        ("建設・設備・整備", 17),
+        ("サービス・販売", 21),
+        ("事務・管理", 11),
+    ] {
+        let got = count.get(name).copied().unwrap_or(0);
+        assert_eq!(
+            got, want,
+            "{name} が {got} 職種。見本は {want} 職種。分類名の打ち間違いを疑うこと"
+        );
+    }
+
+    // 外に出るのは農林水産と、Indeed 側の分類が実態と離れているもの。
+    // 名簿ずれの修正で拾った職種（分類が引けないもの）もここに入る。
+    assert!(
+        (4..=8).contains(&outside),
+        "5 業界の外が {outside} 職種。見本では 4 職種。増えすぎ・減りすぎを疑うこと"
+    );
+
+    // 全部の職種がどちらかに入っていること
+    let inside: usize = count.values().sum();
+    assert_eq!(
+        inside + outside,
+        s.titles.len(),
+        "業界に振り分けた数と職種の総数が合わない"
+    );
+}
