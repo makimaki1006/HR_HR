@@ -26,14 +26,37 @@ pub struct Metric {
     pub first: Option<f64>,
     /// 最後に取れている月の値
     pub latest: Option<f64>,
-    /// 期間全体で何 % 変わったか
+    /// 期間全体で何 % 変わったか（直線に沿った変化）
     pub change_pct: Option<f64>,
+    /// 先月からの変化。直近 2 か月の素の比
+    ///
+    /// [`Self::change_pct`] とは別のものなので、画面では必ず別の名前で出す。
+    /// 期間全体はならした線、先月比は 2 点だけ。混ぜると同じ指標に 2 つの値が並ぶ。
+    pub mom_pct: Option<f64>,
+    /// 前年同月からの変化。12 か月前と比べた素の比
+    pub yoy_pct: Option<f64>,
     /// 一覧に出す短い言い方
     pub short: String,
     /// 詳細に出す 1 文
     pub sentence: String,
     /// 「ゆるやかに増加」などの札
     pub label_trend: &'static str,
+}
+
+/// 「いちばん新しい月」と「その n か月前」を比べて、変化率を出す。
+///
+/// # 欠測はずらさない
+/// n か月前が欠測のときに、その隣の月で代用してはいけない。
+/// 「前年同月比」と言いながら 11 か月前と比べることになる。取れなければ出さない。
+fn ratio_back(series: &[Option<f64>], n: usize) -> Option<f64> {
+    let last = series.iter().rposition(|v| v.is_some())?;
+    let prev = last.checked_sub(n)?;
+    let (a, b) = (series[prev]?, series[last]?);
+    if a > 0.0 {
+        Some((b / a - 1.0) * 100.0)
+    } else {
+        None
+    }
 }
 
 impl Metric {
@@ -53,6 +76,10 @@ impl Metric {
         // 「比べられるだけの月数がありません」と言っている隣で
         // -56.9% のような具体的な数字が出て、読む人が混乱する。
         let change_pct = fit.as_ref().map(|f| f.total_pct);
+        // 「先月と比べてどうか」「去年の同じ月と比べてどうか」は、
+        // ならした線ではなく素の比で答える。読む人が数えられる形にするため。
+        let mom_pct = ratio_back(&series, 1);
+        let yoy_pct = ratio_back(&series, 12);
         Self {
             short: short_trend(fit.as_ref(), words),
             sentence: describe_trend(fit.as_ref(), label, Some(months)),
@@ -63,6 +90,8 @@ impl Metric {
             first,
             latest,
             change_pct,
+            mom_pct,
+            yoy_pct,
         }
     }
 
@@ -340,4 +369,165 @@ pub fn extreme(rows: &[CategoryRow], want_top: bool) -> Option<(&CategoryRow, bo
         let positive = r.job_change_pct.unwrap_or(0.0) >= 0.0;
         (r, positive)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 先月比・前年同月比は「素の比」で、欠測をずらして代用しない。
+    #[test]
+    fn 先月比と前年同月比はずらして代用しない() {
+        // 13 か月ぶん。最後が 130、12 か月前が 100
+        let mut v: Vec<Option<f64>> = (0..13).map(|i| Some(100.0 + i as f64 * 2.5)).collect();
+        // 100 → 130 なので +30%
+        let yoy = ratio_back(&v, 12).expect("前年同月比が出ていない");
+        assert!((yoy - 30.0).abs() < 1e-9, "前年同月比が {yoy}");
+        // 127.5 → 130 なので約 +1.96%
+        let mom = ratio_back(&v, 1).expect("先月比が出ていない");
+        assert!((mom - 100.0 * (130.0 / 127.5 - 1.0)).abs() < 1e-9, "先月比が {mom}");
+
+        // 12 か月前が欠測なら、隣で代用せずに出さない
+        v[0] = None;
+        assert_eq!(
+            ratio_back(&v, 12),
+            None,
+            "12 か月前が取れていないのに前年同月比を出している"
+        );
+
+        // 月数が足りなければ出さない
+        let short = vec![Some(1.0), Some(2.0)];
+        assert_eq!(ratio_back(&short, 12), None);
+    }
+
+    /// 期間全体の変化と、先月比・前年同月比は別物であること。
+    ///
+    /// 同じ数字を別の名前で 2 回出すと、読む人はどちらかが間違っていると思う。
+    #[test]
+    fn 期間全体と先月比は別の数字である() {
+        let months: Vec<String> = (0..13).map(|i| format!("2025-{:02}", i + 1)).collect();
+        // 途中で跳ねる並び。ならした線と、直近 2 点の比は一致しないはず
+        let mut v: Vec<Option<f64>> = (0..13).map(|i| Some(100.0 + i as f64)).collect();
+        v[12] = Some(200.0);
+        let m = Metric::build("試し", v, &W_JOB, &months);
+        let (Some(total), Some(mom)) = (m.change_pct, m.mom_pct) else {
+            panic!("変化率が出ていない");
+        };
+        assert!(
+            (total - mom).abs() > 1.0,
+            "期間全体 {total} と先月比 {mom} が同じ値になっている"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 5 業界
+//
+// Indeed の 20 分類のままでは、同じ会社の話が離れた場所に出て繋げられない。
+// 顧客に配る見本と同じまとめ方（[`super::industry`]）で 5 つにする。
+// 5 つに入らないものは無理に入れず、「5 業界の外」として別に数える。
+// ---------------------------------------------------------------------------
+
+/// 業界 1 つ分の姿。
+pub struct IndustryRow {
+    pub name: String,
+    /// この業界に入る職種の数
+    pub titles: usize,
+    /// この業界の職種名（求人数の多い順）
+    pub top_titles: Vec<String>,
+    /// 最新月の求人数
+    pub job_latest: Option<f64>,
+    /// 全体に占める割合（%）
+    pub share_pct: Option<f64>,
+    /// 期間全体の求人数の変化
+    pub job_change_pct: Option<f64>,
+    /// 先月からの変化
+    pub job_mom_pct: Option<f64>,
+    /// 前年同月からの変化
+    pub job_yoy_pct: Option<f64>,
+    /// 最新月の 1 求人あたり
+    pub spp_latest: Option<f64>,
+    /// 期間全体の 1 求人あたりの変化
+    pub spp_change_pct: Option<f64>,
+    /// 動き方の札
+    pub trend: &'static str,
+    /// まとめた理由。外の枠には無い
+    pub why: Option<&'static str>,
+}
+
+/// 業界ごとに足した並びを作る。「5 業界の外」も 1 つの枠として返す。
+pub fn industry_series(snap: &Snapshot) -> Vec<(String, Series, Vec<String>)> {
+    use super::industry;
+    let n = snap.n_months();
+    let mut order: Vec<String> = industry::INDUSTRIES.iter().map(|i| i.name.to_string()).collect();
+    order.push(industry::OUTSIDE.to_string());
+
+    let mut acc: HashMapAlias = std::collections::HashMap::new();
+    for t in &snap.titles {
+        let key = industry::of_category(&t.category)
+            .unwrap_or(industry::OUTSIDE)
+            .to_string();
+        let Some(s) = snap.by_title.get(&t.name) else {
+            continue;
+        };
+        let e = acc
+            .entry(key)
+            .or_insert_with(|| (Series::blank_public(n), Vec::new()));
+        e.0.merge_public(s);
+        e.1.push(t.name.clone());
+    }
+
+    order
+        .into_iter()
+        .filter_map(|name| {
+            let (s, mut names) = acc.remove(&name)?;
+            // 職種は求人数の多い順。名前を出すときに上から使う
+            names.sort_by(|a, b| {
+                let ja = snap
+                    .by_title
+                    .get(a)
+                    .and_then(|x| Snapshot::last_of(&x.job))
+                    .unwrap_or(0.0);
+                let jb = snap
+                    .by_title
+                    .get(b)
+                    .and_then(|x| Snapshot::last_of(&x.job))
+                    .unwrap_or(0.0);
+                jb.total_cmp(&ja)
+            });
+            Some((name, s, names))
+        })
+        .collect()
+}
+
+type HashMapAlias = std::collections::HashMap<String, (Series, Vec<String>)>;
+
+/// 5 業界＋外の定点表。並びは見本と同じ（業界の並び順は固定）。
+pub fn industry_table(snap: &Snapshot) -> Vec<IndustryRow> {
+    use super::industry;
+    let months = &snap.meta.months;
+    let all = Snapshot::last_of(&snap.nation.job);
+    industry_series(snap)
+        .into_iter()
+        .map(|(name, s, names)| {
+            let ov = Overview::from_series(&name, &s, months);
+            IndustryRow {
+                titles: names.len(),
+                top_titles: names.into_iter().take(3).collect(),
+                job_latest: ov.job.latest,
+                share_pct: match (ov.job.latest, all) {
+                    (Some(j), Some(a)) if a > 0.0 => Some(j / a * 100.0),
+                    _ => None,
+                },
+                job_change_pct: ov.job.change_pct,
+                job_mom_pct: ov.job.mom_pct,
+                job_yoy_pct: ov.job.yoy_pct,
+                spp_latest: ov.spp.latest,
+                spp_change_pct: ov.spp.change_pct,
+                trend: ov.job.label_trend,
+                why: industry::why(&name),
+                name,
+            }
+        })
+        .collect()
 }
