@@ -86,7 +86,8 @@ fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String
     h.push_str(&format!(
         "<div class=\"flex flex-wrap items-end justify-between gap-3\">\
          <div><h2 class=\"text-xl font-bold text-gray-100\">Indeed 採用市場（社内用）</h2>\
-         <p class=\"text-slate-400 text-sm mt-1\">{period}／{n} 職種・{np} 都道府県・{src}</p></div>\
+         <p class=\"text-slate-400 text-sm mt-1\">{period}／{n} 職種・{np} 都道府県・{src}</p>\
+         {sample}</div>\
          {selector}</div>",
         period = esc(&format!(
             "{} 〜 {}",
@@ -94,6 +95,21 @@ fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String
             snap.meta.latest
         )),
         n = snap.titles.len(),
+        // 合計に入っている職種の数を必ず書く。母集団が月で変わると比べられない
+        sample = {
+            let nc = snap.complete_titles();
+            let part = snap.titles.len() - nc;
+            if part == 0 {
+                String::new()
+            } else {
+                format!(
+                    "<p class=\"text-slate-500 text-xs mt-1 leading-relaxed\">\
+                     合計は、全期間そろっている {nc} 職種で出しています。\
+                     残り {part} 職種は月が欠けているため、下の一覧には出しますが合計には入れていません\
+                     （母集団が月によって変わると、先月比が実態と関係なく動くためです）。</p>"
+                )
+            }
+        },
         np = prefs.len(),
         src = esc(&snap.meta.source),
         selector = format!(

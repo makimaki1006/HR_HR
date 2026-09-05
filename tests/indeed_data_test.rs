@@ -256,6 +256,18 @@ fn 見出しの変化率と本文の変化率が一致する() {
 
     for m in [&ov.job, &ov.ctk, &ov.emp, &ov.spp] {
         let Some(pct) = m.change_pct else { continue };
+        // 向きが定まらない指標は、文章側が意図的に数字を出さない。
+        // 文言は生成する関数ごとに違う（「向きは定まりません」／
+        // 「増えているとも減っているとも言えません」）ので、
+        // 文字列ではなく判定そのものを見る。一度文字列で書いて外した。
+        if m
+            .fit
+            .as_ref()
+            .map(|f| f.level == rust_dashboard::indeed::trend::Level::None)
+            .unwrap_or(false)
+        {
+            continue;
+        }
         // 文章は小数を落とした整数で「X% 増えました／減りました」と書く
         let expect = format!("{:.0}%", pct.abs());
         assert!(
@@ -301,11 +313,31 @@ fn 全国の合計が元の表と一致する() {
     let db = open_db();
     let s = load(&db).expect("読み込み");
 
+    // 合計は「全期間そろっている職種」だけで作っている（母集団を月ごとに
+    // 変えないため）。元の表と突き合わせるときも、同じ職種に限る。
+    // 2026-08 から取り始めた 21 職種を混ぜると、比べるものが違ってしまう。
+    let complete: Vec<String> = s
+        .titles
+        .iter()
+        .filter(|t| t.complete)
+        .map(|t| t.name.clone())
+        .collect();
+    assert!(!complete.is_empty(), "全期間そろっている職種がありません");
+    let ph = (1..=complete.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let params: Vec<&dyn rusqlite::types::ToSql> = complete
+        .iter()
+        .map(|x| x as &dyn rusqlite::types::ToSql)
+        .collect();
     let rows = db
         .query(
-            "SELECT report_month, SUM(job_count) AS job, SUM(ctk_count) AS ctk \
-             FROM insight_title_pref GROUP BY report_month",
-            &[],
+            &format!(
+                "SELECT report_month, SUM(job_count) AS job, SUM(ctk_count) AS ctk \
+                 FROM insight_title_pref WHERE norm_title IN ({ph}) GROUP BY report_month"
+            ),
+            &params,
         )
         .expect("元の表を読む");
 
@@ -487,7 +519,10 @@ fn 五業界のまとめ方が見本と一致する() {
     let s = snap();
     let mut count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     let mut outside = 0usize;
-    for t in &s.titles {
+    // 数えるのは合計に入る職種（全期間そろっているもの）だけ。
+    // 途中から取り始めた職種が増えると総数は変わるが、
+    // 対応表の打ち間違いを見たいので、母集団は固定側で見る。
+    for t in s.titles.iter().filter(|t| t.complete) {
         match industry::of_category(&t.category) {
             Some(name) => *count.entry(name).or_insert(0) += 1,
             None => outside += 1,
@@ -520,7 +555,68 @@ fn 五業界のまとめ方が見本と一致する() {
     let inside: usize = count.values().sum();
     assert_eq!(
         inside + outside,
-        s.titles.len(),
-        "業界に振り分けた数と職種の総数が合わない"
+        s.complete_titles(),
+        "業界に振り分けた数と、合計に入る職種の数が合わない"
+    );
+}
+
+/// 合計は、全期間そろっている職種だけで出していること。
+///
+/// # なぜこれが要るか
+/// 2026-08 から 21 職種を新しく取り始めた。そのまま合計すると、
+/// 母集団が月によって変わるため、市場が動いていなくても数字が動く。
+/// 実測で、全国の先月比が -9.4%（比べてよい値）のところ
+/// -2.5% に見えていた。6.9 ポイントのずれ。
+#[test]
+fn 合計は全期間そろっている職種だけで出している() {
+    let db = open_db();
+    let s = load(&db).expect("読み込み");
+
+    let complete = s.complete_titles();
+    assert!(complete > 0, "合計に入る職種が 1 つもありません");
+    assert!(
+        complete <= s.titles.len(),
+        "合計に入る職種が総数を超えています"
+    );
+
+    // 合計の各月は、全期間そろっている職種の合計と一致すること
+    for i in 0..s.n_months() {
+        let want: f64 = s
+            .titles
+            .iter()
+            .filter(|t| t.complete)
+            .filter_map(|t| s.by_title.get(&t.name))
+            .filter_map(|x| x.job.get(i).copied().flatten())
+            .sum();
+        let got = s.nation.job.get(i).copied().flatten().unwrap_or(0.0);
+        assert!(
+            (want - got).abs() < 1.0,
+            "{} 月目: 全期間そろう職種の合計 {want} と全国 {got} が違う",
+            i + 1
+        );
+    }
+
+    // そろっていない職種が合計に混ざっていないこと。
+    // 混ざっていれば、全職種で足した値と一致してしまう
+    let all_titles: f64 = s
+        .by_title
+        .values()
+        .filter_map(|x| x.job.last().copied().flatten())
+        .sum();
+    let nation_last = s.nation.job.last().copied().flatten().unwrap_or(0.0);
+    if complete < s.titles.len() {
+        assert!(
+            all_titles > nation_last + 1.0,
+            "そろっていない職種があるのに、全国が全職種の合計と同じ。\
+             固定標本になっていない（全職種 {all_titles} / 全国 {nation_last}）"
+        );
+    }
+
+    // 一覧には、そろっていない職種も出ていること（合計に入れないだけ）
+    let listed = s.titles.len();
+    assert_eq!(
+        listed,
+        s.by_title.len(),
+        "一覧から職種が落ちている。合計に入れないことと、一覧に出さないことは別"
     );
 }

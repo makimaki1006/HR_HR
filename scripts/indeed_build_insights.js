@@ -477,6 +477,17 @@ try {
 }
 
 // ---------------------------------------------------------------------------
+// 配布用の gz を作る前に、書き込みを確実にディスクへ落とす。
+//
+// これをしないと、最後に書いたテーブルだけが空の gz ができる。
+// 実際に踏んだ（2026-09-05）: insight_title 125 行・insight_title_pref 56,322 行は
+// 入っているのに insight_meta だけ 0 行。アプリは full_months を読めず
+// 「データがありません」になる。中身が一部だけ欠ける壊れ方なので、
+// ファイルサイズや行数の目視では気づけない。
+// ---------------------------------------------------------------------------
+out.close();
+
+// ---------------------------------------------------------------------------
 // 配布用の gz を必ず作り直す。
 //
 // アプリは data/indeed_insights.db.gz を Docker イメージに積み、起動時に
@@ -491,4 +502,25 @@ try {
   fs.writeFileSync(dst, zlib.gzipSync(raw, { level: 9 }));
   const mb = (n) => `${(n / 1048576).toFixed(1)}MB`;
   console.log(`配布用: ${dst}（${mb(raw.length)} → ${mb(fs.statSync(dst).size)}）`);
+
+  // 作った gz を展開し直して、中身が入っていることを確かめる。
+  // サイズだけ見ても、一部のテーブルが空という壊れ方は見つからない。
+  const tmp = `${src}.verify.tmp`;
+  fs.writeFileSync(tmp, zlib.gunzipSync(fs.readFileSync(dst)));
+  const chk = new Database(tmp);
+  const need = ['insight_meta', 'insight_title', 'insight_title_pref'];
+  const bad = [];
+  for (const t of need) {
+    let n = 0;
+    try { n = chk.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c; } catch (e) { n = -1; }
+    if (n <= 0) bad.push(`${t}=${n}`);
+  }
+  chk.close();
+  fs.unlinkSync(tmp);
+  if (bad.length) {
+    console.error(`配布用の gz が壊れています（${bad.join(', ')}）。`);
+    console.error('書き込みがディスクに落ちる前に固めた可能性があります。');
+    process.exit(1);
+  }
+  console.log(`配布用の検証: ${need.join(' / ')} すべて中身あり`);
 }
