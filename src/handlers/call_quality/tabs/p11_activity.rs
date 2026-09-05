@@ -12,9 +12,11 @@
 //!
 //! **画面名は「勝ち筋分析」から「行動量分析」に変わっているが中身は同じ**。
 //! index.html の見方説明（`#page-p11` の `<details>`）が明言する通り、
-//! 上位/下位は**成果スコア(行動量ベース)の順位**であり、成約率・継続率・効果量ではない。
-//! 継続/解約が確定した Deal だけ 100/0点、それ以外（進行中・提案中=結果未確定）は
-//! 行動量をそのままスコアにしている。**MTG件数は現状データ取得できておらず常に0**
+//! 上位/下位は**Call数の順位**であり、成約率・継続率・効果量ではない。
+//! 2026-08-19 仕様変更: ランキングに使う列は **`call_count` のみ**。
+//! 継続/解約の outcome（勝ち/負け）はスコアに影響しない。
+//! 欠損・空・null・非数値は 0 として扱う。
+//! **MTG件数は現状データ取得できておらず常に0**
 //! （index.html の注意書きどおり。実データでも `mtg_count` 列は全行 `0`）。
 //!
 //! ------------------------------------------------------------------
@@ -42,11 +44,10 @@
 //!   `displayDealLabel(r)` はこのシートに対して常に `"-"` を返しており、
 //!   `PatternRow::customer_label` も同じく実質的に常に `"-"` になる。これは移植ミスではなく
 //!   **GAS 版から存在する仕様上の制約**であることをここに明記する（黙って直さない）。
-//! - `_p11Score` の勝敗判定 regex（`/継続確定|win|won|...|成約|良好/` /
-//!   `/解約|lost|fail|失注|悪化/`）は GAS 側に `i` フラグが無く**大文字小文字を区別する**。
-//!   ここでは `regex` クレートを新規追加せず（このタブ担当の変更範囲外のファイルである
-//!   `Cargo.toml` を触らないため）、`str::contains` の OR 列挙で同じ判定を再現した。
-//!   結果は正規表現版と同一（`win`/`won`/`success` の大文字表記は一致しない点も含めて)。
+//! - 2026-08-19 Call数限定仕様により `_p11Score` の勝敗判定 (100/0点) は **廃止**。
+//!   スコア = call_count のみ。outcome_status / email / total / mtg は一切加味しない。
+//!   GAS 版からの仕様乖離だが、Hubspot 側の方針に従い P11 ランキング指標を
+//!   「Call数」一本に統一した（前任M3 テスト更新 + 本実装で追従）。
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -121,55 +122,11 @@ fn p11_contact(data: &SheetData, row: &[Arc<str>]) -> f64 {
         + num(data.get(row, "mtg_total_count"))
 }
 
-/// GAS `_p11Score` 用の候補列。`bool` は「rate系(0〜1.5の範囲なら%に換算)」かどうか。
-const SCORE_CANDIDATE_COLS: &[(&str, bool)] = &[
-    ("win_rate", true),
-    ("success_rate", true),
-    ("outcome_score", false),
-    ("health_score", false),
-    ("continue_intent", false),
-    ("consultant_eval", false),
-    ("score", false),
-];
-
-/// 継続確定/成功 系のキーワード（GAS 正規表現 `/継続確定|win|won|success|成約|良好/` の移植。
-/// 元の JS 正規表現に `i` フラグは無く、大文字小文字を区別する）。
-const OUTCOME_WIN_KEYWORDS: &[&str] = &["継続確定", "win", "won", "success", "成約", "良好"];
-/// 解約/失敗 系のキーワード（GAS `/解約|lost|fail|失注|悪化/` の移植）。
-const OUTCOME_LOSS_KEYWORDS: &[&str] = &["解約", "lost", "fail", "失注", "悪化"];
-
-/// GAS `_p11Score` の移植。
-/// 1. win_rate 等の直接スコア列があればそれを使う(rate系は0〜1.5なら%に換算)
-/// 2. 無ければ outcome_status(等)を見て 継続確定=100 / 解約=0
-/// 3. どちらも無ければ接触量(`p11_contact`)をスコア代わりにする
+/// P11 (2026-08-19) Call数限定仕様: ランキングスコアは `call_count` のみ。
+/// outcome_status / email / total / mtg などは一切加味しない。
+/// 欠損・空文字・null・非数値は 0（`num()` の挙動と同じ）。
 fn p11_score(data: &SheetData, row: &[Arc<str>]) -> f64 {
-    for &(col, is_rate) in SCORE_CANDIDATE_COLS {
-        let raw = data.get(row, col).trim();
-        if raw.is_empty() {
-            continue;
-        }
-        let n = num(raw);
-        return if is_rate && n > 0.0 && n <= 1.5 { n * 100.0 } else { n };
-    }
-    let outcome = outcome_text(data, row);
-    if OUTCOME_WIN_KEYWORDS.iter().any(|k| outcome.contains(k)) {
-        return 100.0;
-    }
-    if OUTCOME_LOSS_KEYWORDS.iter().any(|k| outcome.contains(k)) {
-        return 0.0;
-    }
-    p11_contact(data, row)
-}
-
-/// GAS `r.outcome_status || r.outcome || r.result || r.outcome_label` の移植。
-fn outcome_text(data: &SheetData, row: &[Arc<str>]) -> String {
-    for col in ["outcome_status", "outcome", "result", "outcome_label"] {
-        let v = data.get(row, col).trim();
-        if !v.is_empty() {
-            return v.to_string();
-        }
-    }
-    String::new()
+    num(data.get(row, "call_count"))
 }
 
 /// 表示用の Outcome（未分類フォールバック込み）。GAS `_drawP11StageOutcome` /
@@ -201,12 +158,11 @@ pub struct OwnerAgg {
     pub owner_label: String,
     /// 集計対象の行数（GAS `x.rows`）
     pub rows: usize,
-    /// 成果スコア(行動量ベース)の平均
-    pub avg_score: f64,
-    /// 接触量の合計
+    /// 1行あたり Call 数の平均（P11 2026-08-19 Call数限定仕様）。
+    /// outcome/email/total/mtg は加味しない。
+    pub avg_call: f64,
+    /// 接触量（email+call+mtg+mtg_total_count）の合計。ランキング同点時のタイブレーク用。
     pub contact_total: f64,
-    /// MTG件数の合計（現状データ未取得のため常に0。ファイル冒頭の注記参照）
-    pub mtg_total: f64,
 }
 
 /// GAS `_p11OwnerAgg` の移植。owner_name(無ければ owner_id) でグルーピングする
@@ -214,28 +170,29 @@ pub struct OwnerAgg {
 /// GAS 版がそうなっているため、ここでも同じ挙動にする）。
 fn owner_agg(data: &SheetData) -> Vec<OwnerAgg> {
     use std::collections::HashMap;
-    let mut m: HashMap<String, (usize, f64, f64, f64)> = HashMap::new(); // (rows, score_sum, contact_sum, mtg_sum)
+    // P11 (2026-08-19) Call数限定仕様: avg_call と contact_total のみ集計する。
+    // mtg_total は集計対象から除外する。
+    let mut m: HashMap<String, (usize, f64, f64)> = HashMap::new(); // (rows, call_sum, contact_sum)
     for row in &data.rows {
         let owner = owner_label(data.get(row, "owner_name"), data.get(row, "owner_id"));
-        let e = m.entry(owner).or_insert((0, 0.0, 0.0, 0.0));
+        let e = m.entry(owner).or_insert((0, 0.0, 0.0));
         e.0 += 1;
-        e.1 += p11_score(data, row);
+        e.1 += p11_score(data, row); // = call_count
         e.2 += p11_contact(data, row);
-        e.3 += num(data.get(row, "mtg_count")) + num(data.get(row, "mtg_total_count"));
     }
     let mut agg: Vec<OwnerAgg> = m
         .into_iter()
-        .map(|(owner_label, (rows, score_sum, contact_total, mtg_total))| OwnerAgg {
+        .map(|(owner_label, (rows, call_sum, contact_total))| OwnerAgg {
             owner_label,
             rows,
-            avg_score: if rows > 0 { score_sum / rows as f64 } else { 0.0 },
+            avg_call: if rows > 0 { call_sum / rows as f64 } else { 0.0 },
             contact_total,
-            mtg_total,
         })
         .collect();
+    // 仕様: 平均Call数降順 → 同点なら contact 降順 → さらに同点なら owner_label 昇順。
     agg.sort_by(|a, b| {
-        b.avg_score
-            .partial_cmp(&a.avg_score)
+        b.avg_call
+            .partial_cmp(&a.avg_call)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| b.contact_total.partial_cmp(&a.contact_total).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| a.owner_label.cmp(&b.owner_label))
@@ -249,9 +206,8 @@ fn owner_agg(data: &SheetData) -> Vec<OwnerAgg> {
 pub struct TopBottomGroup {
     pub label: &'static str,
     pub n: usize,
-    pub avg_score: f64,
-    pub avg_contact: f64,
-    pub avg_mtg: f64,
+    /// P11 (2026-08-19) Call数限定仕様: 平均 Call 数を返す。
+    pub avg_call: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -280,16 +236,12 @@ fn build_top_bottom(agg: &[OwnerAgg]) -> TopBottomPanel {
         top: TopBottomGroup {
             label: "上位",
             n: top.len(),
-            avg_score: avg_of(&top, |x| x.avg_score),
-            avg_contact: avg_of(&top, |x| x.contact_total),
-            avg_mtg: avg_of(&top, |x| x.mtg_total),
+            avg_call: avg_of(&top, |x| x.avg_call),
         },
         bottom: TopBottomGroup {
             label: "下位",
             n: bottom.len(),
-            avg_score: avg_of(&bottom, |x| x.avg_score),
-            avg_contact: avg_of(&bottom, |x| x.contact_total),
-            avg_mtg: avg_of(&bottom, |x| x.mtg_total),
+            avg_call: avg_of(&bottom, |x| x.avg_call),
         },
     }
 }
@@ -346,6 +298,8 @@ pub struct PatternRow {
     pub customer_label: String,
     pub stage: String,
     pub outcome: String,
+    /// P11 (2026-08-19) Call数限定仕様: `score` は Call 数を返す。
+    /// （列名互換のため `score` のままにしている。意味は call_count。）
     pub score: f64,
     pub contact: f64,
     pub insight: String,
@@ -528,15 +482,90 @@ mod tests {
     }
 
     #[test]
-    fn 継続確定は100点解約は0点それ以外は接触量() {
+    fn p11_scoreはcall_countを返す_outcomeは無視() {
+        // P11 (2026-08-19) Call数限定仕様: ランキングスコアは call_count のみ。
+        // 成果、outcome_status、email/total/mtg はランキング計算に入らない。
         let d = winning_sheet(vec![
             vec!["1", "田中", "2026-06", "定期1", "継続確定", "1", "5", "2", "3", "0", "0", "5", "0.0"],
-            vec!["2", "田中", "2026-06", "定期2", "解約済", "1", "5", "2", "3", "0", "0", "5", "0.0"],
-            vec!["3", "田中", "2026-06", "定期3", "進行中", "1", "5", "2", "3", "0", "0", "5", "0.0"],
+            vec!["2", "田中", "2026-06", "定期2", "解約済",   "1", "5", "2", "3", "0", "0", "5", "0.0"],
+            vec!["3", "田中", "2026-06", "定期3", "進行中",   "1", "5", "2", "3", "0", "0", "5", "0.0"],
         ]);
-        assert_eq!(p11_score(&d, &d.rows[0]), 100.0);
-        assert_eq!(p11_score(&d, &d.rows[1]), 0.0);
-        assert_eq!(p11_score(&d, &d.rows[2]), 5.0, "結果未確定は接触量(total_count)をスコアにする");
+        assert_eq!(p11_score(&d, &d.rows[0]), 3.0, "継続確定でも call_count を返す");
+        assert_eq!(p11_score(&d, &d.rows[1]), 3.0, "解約でも call_count を返す");
+        assert_eq!(p11_score(&d, &d.rows[2]), 3.0, "進行中でも call_count を返す");
+    }
+
+    #[test]
+    fn call_countが欠損空null非数値のときは0() {
+        let d = winning_sheet(vec![
+            vec!["1", "田中", "2026-06", "s", "進行中", "1", "1", "0", "",  "0", "0", "0", "0.0"],
+            vec!["2", "田中", "2026-06", "s", "進行中", "1", "1", "0", "0", "0", "0", "0", "0.0"],
+            vec!["3", "田中", "2026-06", "s", "進行中", "1", "1", "0", "abc","0","0", "0", "0.0"],
+        ]);
+        // call_count 列は "call_count" の index 8
+        // 0行: ""  → 0
+        // 1行: "0" → 0
+        // 2行: "abc" → 0
+        assert_eq!(p11_score(&d, &d.rows[0]), 0.0, "空文字は 0");
+        assert_eq!(p11_score(&d, &d.rows[1]), 0.0, "明示の 0 は 0");
+        assert_eq!(p11_score(&d, &d.rows[2]), 0.0, "非数値は 0");
+    }
+
+    #[test]
+    fn owner_aggはcall_count平均降順で並ぶ_outcomeは順位に影響しない() {
+        // (a) 勝ち/解約のoutcomeがcall_count順位を覆さない
+        let d = winning_sheet(vec![
+            vec!["1", "鈴木", "2026-06", "s", "継続確定", "1", "1", "0", "1", "0", "0", "10", "0.0"],
+            vec!["2", "田中", "2026-06", "s", "解約済",   "1", "1", "0", "5", "0", "0", "10", "0.0"],
+            vec!["3", "佐藤", "2026-06", "s", "進行中",   "1", "1", "0", "3", "0", "0", "10", "0.0"],
+        ]);
+        let agg = owner_agg(&d);
+        assert_eq!(agg.len(), 3);
+        // 期待: 田中(5) > 佐藤(3) > 鈴木(1)
+        assert_eq!(agg[0].owner_label, "田中");
+        assert_eq!(agg[1].owner_label, "佐藤");
+        assert_eq!(agg[2].owner_label, "鈴木");
+        assert!((agg[0].avg_call - 5.0).abs() < 1e-9);
+        assert!((agg[1].avg_call - 3.0).abs() < 1e-9);
+        assert!((agg[2].avg_call - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn owner_aggはemail_total_mtgが大きくてもcall_countの小さいownerが後位() {
+        // (b) email/total/mtg が call_count 順位を覆さない
+        let d = winning_sheet(vec![
+            vec!["1", "鈴木", "2026-06", "s", "進行中", "1", "1", "9999", "2", "9999", "0", "9999", "0.0"],
+            vec!["2", "田中", "2026-06", "s", "進行中", "1", "1", "0",    "5", "0",    "0", "0",    "0.0"],
+            vec!["3", "佐藤", "2026-06", "s", "進行中", "1", "1", "5000", "3", "5000", "0", "5000", "0.0"],
+        ]);
+        let agg = owner_agg(&d);
+        assert_eq!(agg[0].owner_label, "田中");
+        assert_eq!(agg[1].owner_label, "佐藤");
+        assert_eq!(agg[2].owner_label, "鈴木");
+    }
+
+    #[test]
+    fn owner_aggはcall同点ならcontact_desc_owner_label_asc() {
+        // (d) 同点順 (contact desc, owner_name asc)
+        let d = winning_sheet(vec![
+            vec!["1", "B", "2026-06", "s", "進行中", "1", "1", "5", "5", "0", "0", "10", "0.0"], // call=5, contact=10
+            vec!["2", "A", "2026-06", "s", "進行中", "1", "1", "10","5", "0", "0", "15", "0.0"], // call=5, contact=15
+            vec!["3", "C", "2026-06", "s", "進行中", "1", "1", "0", "5", "0", "0", "5",  "0.0"], // call=5, contact=5
+        ]);
+        let agg = owner_agg(&d);
+        assert_eq!(agg[0].owner_label, "A", "call同点 → contact desc");
+        assert_eq!(agg[1].owner_label, "B");
+        assert_eq!(agg[2].owner_label, "C");
+        // (d-2) contact も同点なら owner_label asc
+        let d2 = winning_sheet(vec![
+            vec!["1", "Z", "2026-06", "s", "進行中", "1", "1", "5", "5", "0", "0", "10", "0.0"],
+            vec!["2", "A", "2026-06", "s", "進行中", "1", "1", "5", "5", "0", "0", "10", "0.0"],
+            vec!["3", "M", "2026-06", "s", "進行中", "1", "1", "5", "5", "0", "0", "10", "0.0"],
+        ]);
+        let agg2 = owner_agg(&d2);
+        assert_eq!(agg2[0].owner_label, "A");
+        assert_eq!(agg2[1].owner_label, "M");
+        assert_eq!(agg2[2].owner_label, "Z");
     }
 
     #[test]
@@ -548,30 +577,17 @@ mod tests {
     }
 
     #[test]
-    fn owner集計は表示名でグルーピングし平均スコアで降順に並ぶ() {
-        let d = winning_sheet(vec![
-            vec!["1", "田中", "2026-06", "s", "継続確定", "1", "1", "0", "0", "0", "0", "10", "0.0"],
-            vec!["1", "田中", "2026-07", "s", "解約済", "1", "1", "0", "0", "0", "0", "10", "0.0"],
-            vec!["2", "鈴木", "2026-06", "s", "継続確定", "1", "1", "0", "0", "0", "0", "10", "0.0"],
-        ]);
-        let agg = owner_agg(&d);
-        assert_eq!(agg.len(), 2);
-        assert_eq!(agg[0].owner_label, "鈴木", "平均100点の鈴木が先(田中は(100+0)/2=50)");
-        assert_eq!(agg[0].rows, 1);
-        let tanaka = agg.iter().find(|a| a.owner_label == "田中").unwrap();
-        assert_eq!(tanaka.avg_score, 50.0);
-    }
-
-    #[test]
-    fn 上位下位グループは平均で比較する() {
+    fn 上位下位グループはavg_callで比較する() {
         let agg = vec![
-            OwnerAgg { owner_label: "a".into(), rows: 1, avg_score: 90.0, contact_total: 10.0, mtg_total: 0.0 },
-            OwnerAgg { owner_label: "b".into(), rows: 1, avg_score: 80.0, contact_total: 10.0, mtg_total: 0.0 },
-            OwnerAgg { owner_label: "c".into(), rows: 1, avg_score: 20.0, contact_total: 5.0, mtg_total: 0.0 },
+            OwnerAgg { owner_label: "a".into(), rows: 1, avg_call: 9.0, contact_total: 10.0 },
+            OwnerAgg { owner_label: "b".into(), rows: 1, avg_call: 8.0, contact_total: 10.0 },
+            OwnerAgg { owner_label: "c".into(), rows: 1, avg_call: 2.0, contact_total: 5.0 },
         ];
         let panel = build_top_bottom(&agg);
         assert_eq!(panel.top.n, 3, "3名しかいないので上位グループも3名(min(5,len))");
         assert_eq!(panel.bottom.n, 3);
+        assert!((panel.top.avg_call - (9.0 + 8.0 + 2.0) / 3.0).abs() < 1e-9);
+        assert!((panel.bottom.avg_call - (9.0 + 8.0 + 2.0) / 3.0).abs() < 1e-9);
     }
 
     #[test]
@@ -594,23 +610,29 @@ mod tests {
     }
 
     #[test]
-    fn 明細テーブルはスコア降順で200件に切る() {
-        let counts: Vec<String> = (0..250).map(|i| i.to_string()).collect();
-        let rows: Vec<Vec<&str>> = counts
-            .iter()
-            .map(|c| vec!["1", "田中", "2026-06", "s", "進行中", "1", "1", "0", "0", "0", "0", c.as_str(), "0.0"])
+    fn 明細テーブルはcall_count降順で200件に切る() {
+        // call_count を 0..250 まで振る。 大きい call_count が先頭。
+        // `vec!` 内で `&i.to_string()` を返すと一時値の参照で lifetime error (E0515) になるため
+        // `String` を所有する `Vec<Vec<String>>` で生成してから `&str` に変換する。
+        let rows: Vec<Vec<String>> = (0..250)
+            .map(|i| {
+                vec![
+                    "1".into(), "田中".into(), "2026-06".into(), "s".into(), "進行中".into(),
+                    "1".into(), "1".into(), "0".into(), i.to_string(),
+                    "0".into(), "0".into(), "0".into(), "0.0".into(),
+                ]
+            })
             .collect();
-        let d = winning_sheet(rows);
+        let rows_ref: Vec<Vec<&str>> = rows
+            .iter()
+            .map(|r| r.iter().map(|s| s.as_str()).collect())
+            .collect();
+        let d = winning_sheet(rows_ref);
         let panel = build_pattern_table(&d);
         assert_eq!(panel.rows.len(), 200);
         assert!(panel.truncated);
+        // call_count=249 が先頭
+        assert!((panel.rows[0].score - 249.0).abs() < 1e-9);
         assert!(panel.rows[0].score >= panel.rows[1].score);
-    }
-
-    #[test]
-    fn 大文字小文字を区別するoutcome判定() {
-        // GAS 正規表現に i フラグが無いため "WIN"(大文字)は勝ちと判定されない
-        let d = winning_sheet(vec![vec!["1", "田中", "2026-06", "s", "WIN", "1", "1", "0", "0", "0", "0", "3", "0.0"]]);
-        assert_eq!(p11_score(&d, &d.rows[0]), 3.0, "大文字WINはキーワード不一致→接触量にフォールバック");
     }
 }
