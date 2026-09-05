@@ -40,6 +40,13 @@ pub struct Title {
     pub name: String,
     /// 20 ある分類のどれか
     pub category: String,
+    /// 全部の月に数字があるか。
+    ///
+    /// 途中から取り始めた職種を合計に混ぜると、母集団が月によって変わる。
+    /// 実際、2026-08 から 21 職種を取り始めたときに、全国の先月比が
+    /// -9.4% であるべきところ -2.5% に見えた（6.9 ポイントのずれ）。
+    /// 合計はこれが true のものだけで出す。
+    pub complete: bool,
 }
 
 /// 月ごとの並び。長さは [`Meta::months`] と必ず同じで、欠測は `None`。
@@ -162,6 +169,11 @@ impl Snapshot {
         self.meta.months.len()
     }
 
+    /// 合計に入っている職種の数（全期間そろっているもの）。
+    pub fn complete_titles(&self) -> usize {
+        self.titles.iter().filter(|t| t.complete).count()
+    }
+
     /// 最新月の値を取り出す。
     pub fn last_of(v: &[Option<f64>]) -> Option<f64> {
         v.last().copied().flatten()
@@ -255,7 +267,11 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
         } else {
             raw
         };
-        titles.push(Title { name, category });
+        titles.push(Title {
+            name,
+            category,
+            complete: false, // 並びを読んだあとで判定する
+        });
     }
 
     // 2. 全国 = 都道府県を足したもの。
@@ -298,20 +314,33 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
         .map(|k| Title {
             name: k.clone(),
             category: "その他".to_string(),
+            complete: false,
         })
         .collect();
     extra.sort_by(|a, b| a.name.cmp(&b.name));
     titles.extend(extra);
     titles.sort_by(|a, b| a.name.cmp(&b.name));
 
+    // 全部の月に数字があるかを判定する。合計はこれが true のものだけで作る
+    for t in titles.iter_mut() {
+        t.complete = by_title
+            .get(&t.name)
+            .map(|s| s.job.iter().all(|v| v.is_some()))
+            .unwrap_or(false);
+    }
+
     let mut by_category: HashMap<String, Series> = HashMap::new();
     let mut category_titles: HashMap<String, Vec<String>> = HashMap::new();
     let mut nation = Series::blank(n);
     for t in &titles {
+        // 一覧には全部出す。合計に入れるかどうかだけを分ける
         category_titles
             .entry(t.category.clone())
             .or_default()
             .push(t.name.clone());
+        if !t.complete {
+            continue;
+        }
         if let Some(s) = by_title.get(&t.name) {
             by_category
                 .entry(t.category.clone())

@@ -11,7 +11,7 @@
 //! この分解を先に持っておくと、現場が推測で語らずに済む。
 
 use super::data::{PrefSeries, Series, Snapshot};
-use super::trend::{fit_trend, Fit};
+use super::trend::{fit_trend, Fit, Level};
 use super::wording::{describe_trend, short_trend, trend_label, Words, W_JOB, W_SEEK};
 
 /// 1 つの指標について、並び・傾向・文章までひとまとめにしたもの。
@@ -75,6 +75,13 @@ impl Metric {
         // 2 点しかない並びから「最後 ÷ 最初」を出すと、文章が
         // 「比べられるだけの月数がありません」と言っている隣で
         // -56.9% のような具体的な数字が出て、読む人が混乱する。
+        // 直線に沿った期間全体の変化。向きが定まらない指標でも値そのものは出す。
+        //
+        // 一度「向きが定まらないなら数字も出さない」に倒したが、14 か月に
+        // なった時点で主要 3 指標すべてが「向き不明」（傾き/ばらつき比 0.11〜0.22、
+        // しきい値 1.8）になり、画面から数字が全部消えた。過剰だった。
+        // 数字は出したうえで、[`Metric::label_trend`] の「月ごとにばらつく」と
+        // [`Overview::why`] の断りで、向きが定まらないことを伝える。
         let change_pct = fit.as_ref().map(|f| f.total_pct);
         // 「先月と比べてどうか」「去年の同じ月と比べてどうか」は、
         // ならした線ではなく素の比で答える。読む人が数えられる形にするため。
@@ -192,6 +199,28 @@ impl Overview {
             ));
         }
         s.push_str(&format!(" 全体としては{}なっています。", dir));
+
+        // 月ごとの上下が傾きより大きい指標があるときは、必ず断る。
+        // 数字だけ見せると「そう動いている」と読まれるが、この判定では
+        // 向きそのものが定まっていない。
+        let unsure: Vec<&str> = [&self.job, &self.ctk, &self.emp, &self.spp]
+            .iter()
+            .filter(|m| {
+                m.fit
+                    .as_ref()
+                    .map(|f| f.level == Level::None)
+                    .unwrap_or(false)
+            })
+            .map(|m| m.label.as_str())
+            .collect();
+        if !unsure.is_empty() {
+            s.push_str(&format!(
+                " ただし{}は、月ごとの上下が毎月の動きより大きく、期間全体の向きは定まっていません。\
+                 上の % は月ごとの上下をならした線に沿った変化で、\
+                 その方向に動き続けていることを示すものではありません。",
+                unsure.join("・")
+            ));
+        }
         s
     }
 }
@@ -464,6 +493,11 @@ pub fn industry_series(snap: &Snapshot) -> Vec<(String, Series, Vec<String>)> {
 
     let mut acc: HashMapAlias = std::collections::HashMap::new();
     for t in &snap.titles {
+        // 合計は全期間そろっている職種だけ。途中から取り始めたものを混ぜると、
+        // 母集団が月によって変わって比べられなくなる
+        if !t.complete {
+            continue;
+        }
         let key = industry::of_category(&t.category)
             .unwrap_or(industry::OUTSIDE)
             .to_string();
