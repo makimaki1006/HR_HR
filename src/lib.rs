@@ -7,6 +7,8 @@ pub mod db;
 pub mod gemini;
 pub mod geo;
 pub mod handlers;
+/// Indeed 採用市場データ。社内タブと顧客レポートが同じ集計を使う
+pub mod indeed;
 pub mod job_gen;
 pub mod media_engine;
 pub mod models;
@@ -63,6 +65,9 @@ pub const JOBGEN_JOURNEY_BODY_LIMIT_BYTES: usize = 68 * 1024 * 1024;
 pub struct AppState {
     pub config: AppConfig,
     pub hw_db: Option<db::local_sqlite::LocalDb>,
+    /// Indeed 採用市場データ（分析層）。未同梱なら None で、
+    /// タブは「データがありません」と出して他の機能は動き続ける
+    pub indeed_db: Option<db::local_sqlite::LocalDb>,
     pub turso_db: Option<db::turso_http::TursoDb>,
     pub salesnow_db: Option<db::turso_http::TursoDb>,
     /// Scout(スカウト自動化) 専用 Turso DB。HR_HR 本体のDBとは別物。
@@ -651,6 +656,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // **route_layer(auth_middleware) より前に merge すること**。
         // 後ろに置くと認証が掛からない（route_layer は後に足した方が外側になる）。
         .merge(handlers::call_quality::routes::router())
+        // 営業KPI（現場版）。架電クオリティと同じ SheetStore を借りる。
+        .merge(handlers::sales_kpi::routes::router())
+        // ======== Indeed 採用市場（社内タブ + 顧客レポート） ========
+        // /tab/indeed は社内用。/report/indeed は INDEED_PUBLIC=on まで 404。
+        // call_quality と同じく auth の route_layer より前に置くこと。
+        .merge(handlers::indeed::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。

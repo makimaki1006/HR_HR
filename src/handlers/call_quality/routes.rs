@@ -177,6 +177,15 @@ fn cq() -> Result<&'static CallQualityState, CqError> {
     }
 }
 
+/// 営業KPI(`handlers::sales_kpi`)から同じ常駐リソースを借りるための入口。
+///
+/// **別に `SheetsClient` / `SheetStore` を持たせないこと**。読むスプレッドシートは
+/// 同じなので、別インスタンスにすると常駐キャッシュが二重になり、Sheets を
+/// 無駄に2回叩く（移行の目的が半分消える）。
+pub(crate) fn cq_state() -> Result<&'static CallQualityState, CqError> {
+    cq()
+}
+
 // ================================================================ エラー
 
 /// このタブ群が返すエラー。**必ず JSON で返す**。
@@ -224,7 +233,7 @@ impl CqError {
         }
     }
 
-    fn bad_request(message: String) -> Self {
+    pub(crate) fn bad_request(message: String) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
             error: true,
@@ -261,7 +270,7 @@ impl CqError {
     /// 現状これが唯一の手がかりで、**壊れやすい**。
     /// 誤分類しても `chain` に全文が載るので情報は失われない設計にしてある。
     /// タブが出揃ったら共有のエラー enum に寄せるのが本筋。
-    fn from_anyhow(tab: &'static str, e: anyhow::Error) -> Self {
+    pub(crate) fn from_anyhow(tab: &'static str, e: anyhow::Error) -> Self {
         let chain: Vec<String> = e.chain().map(|c| c.to_string()).collect();
         let joined = chain.join(" / ");
 

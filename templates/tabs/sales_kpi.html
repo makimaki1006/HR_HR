@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>営業KPI 現場版</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f4f5f7; --card:#fff; --border:#e4e7eb;
+  --text:#1b2330; --sub:#707a89; --faint:#9aa3af;
+  --accent:#2f6df6; --accent-soft:#ecf2ff;
+  --alert:#e0473e; --alert-soft:#fdeceb;
+  --warn:#e08a1e; --warn-soft:#fdf4e6;
+  --ok:#18a957; --ok-soft:#eaf7ef;
+  --shadow:0 1px 3px rgba(20,30,50,.07),0 1px 2px rgba(20,30,50,.04);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --bg:#12141a; --card:#1a1d24; --border:#2b2f38;
+  --text:#e8ebef; --sub:#9aa3af; --faint:#6d7684;
+  --accent:#5b8dff; --accent-soft:#1c2740;
+  --alert:#ef5f56; --alert-soft:#3a1f1d;
+  --warn:#eda63c; --warn-soft:#33280f;
+  --ok:#2fbd6d; --ok-soft:#12291c;
+  --shadow:0 1px 3px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.3);
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#12141a; --card:#1a1d24; --border:#2b2f38;
+  --text:#e8ebef; --sub:#9aa3af; --faint:#6d7684;
+  --accent:#5b8dff; --accent-soft:#1c2740;
+  --alert:#ef5f56; --alert-soft:#3a1f1d;
+  --warn:#eda63c; --warn-soft:#33280f;
+  --ok:#2fbd6d; --ok-soft:#12291c;
+  --shadow:0 1px 3px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI","Yu Gothic UI","Hiragino Sans",Meiryo,sans-serif;
+  font-size:15px; line-height:1.7; -webkit-font-smoothing:antialiased}
+.wrap{max-width:920px; margin:0 auto; padding:20px 16px 90px; min-width:0; overflow-x:hidden}
+header{display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap}
+h1{font-size:21px; margin:0 0 3px; font-weight:700}
+.range{font-size:13px; color:var(--sub); margin:0}
+.hbtn{background:var(--card); color:var(--sub); border:1px solid var(--border);
+  border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; font-family:inherit}
+.hbtn:hover{border-color:var(--accent); color:var(--accent)}
+.filters{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:16px 0 4px}
+.chiprow{display:flex; gap:7px; flex-wrap:wrap}
+.chip{background:var(--card); border:1px solid var(--border); color:var(--sub);
+  border-radius:999px; padding:7px 15px; font-size:14px; cursor:pointer; font-family:inherit}
+.chip:hover{border-color:var(--accent)}
+.chip.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+select{background:var(--card); color:var(--text); border:1px solid var(--border);
+  border-radius:8px; padding:7px 11px; font-size:14px; font-family:inherit; max-width:100%}
+select:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.scope{font-size:12.5px; color:var(--faint); margin:0 0 20px}
+h2{font-size:17px; margin:30px 0 3px; font-weight:700}
+.lead{font-size:13.5px; color:var(--sub); margin:0 0 12px}
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:11px}
+.c{background:var(--card); border:1px solid var(--border); border-radius:10px;
+  padding:14px 16px; box-shadow:var(--shadow); text-align:left; font-family:inherit;
+  color:inherit; width:100%}
+button.c{cursor:pointer; transition:border-color .12s}
+button.c:hover{border-color:var(--accent)}
+button.c:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.c .lab{font-size:13px; color:var(--sub)}
+.c .v{font-size:32px; font-weight:700; line-height:1.2; margin:1px 0 0; font-variant-numeric:tabular-nums}
+.c .v small{font-size:15px; font-weight:500; color:var(--sub); margin-left:2px}
+.c .hint{font-size:12.5px; color:var(--faint); margin-top:1px}
+.c .sub2{font-size:12px; color:var(--sub); margin-top:3px}
+.c .open{font-size:12.5px; color:var(--accent); font-weight:600; margin-top:5px}
+.c.alert{border-color:var(--alert); background:var(--alert-soft)}
+.c.alert .lab,.c.alert .v{color:var(--alert)}
+.c.warn{border-color:var(--warn); background:var(--warn-soft)}
+.c.warn .lab{color:var(--warn)}
+.c.ok{border-color:var(--ok); background:var(--ok-soft)}
+.c.ok .lab,.c.ok .v{color:var(--ok)}
+.wow{font-size:12px; font-variant-numeric:tabular-nums; margin-top:3px}
+.bar{display:flex; height:30px; border-radius:6px; overflow:hidden; margin:4px 0 8px}
+.blegend{display:flex; flex-wrap:wrap; gap:14px; font-size:12.5px; color:var(--sub)}
+.blegend i{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; font-style:normal}
+.list{display:flex; flex-direction:column; gap:8px; margin-top:10px}
+.item{display:flex; align-items:center; gap:14px; text-decoration:none; color:inherit;
+  background:var(--card); border:1px solid var(--border); border-radius:10px;
+  padding:12px 15px; box-shadow:var(--shadow); transition:border-color .12s}
+.item:hover{border-color:var(--accent)}
+.item:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.item .d{font-size:12.5px; color:var(--sub); white-space:nowrap; min-width:86px; font-variant-numeric:tabular-nums}
+.item .d b{display:block; font-size:14.5px; color:var(--text); font-weight:700}
+.item .nm{flex:1; min-width:0; font-size:14.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.item .who{font-size:12.5px; color:var(--sub); white-space:nowrap}
+.item .go{font-size:12.5px; color:var(--accent); white-space:nowrap; font-weight:600}
+.item.stale{border-left:4px solid var(--alert)}
+.item.done{opacity:.5}
+.item.done .nm{text-decoration:line-through; text-decoration-color:var(--faint)}
+.day{font-size:12.5px; color:var(--sub); font-weight:700; margin:14px 0 6px}
+.empty{background:var(--card); border:1px dashed var(--border); border-radius:10px;
+  padding:20px; text-align:center; color:var(--sub); font-size:14px}
+.empty b{color:var(--ok)}
+.more{background:none; border:0; color:var(--accent); font-size:14px; cursor:pointer;
+  padding:10px 0; font-family:inherit; font-weight:600}
+.panel{margin-top:12px}
+.panel.hide{display:none}
+.ph{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.ph b{font-size:15px}
+.close{background:none; border:0; color:var(--sub); font-size:13px; cursor:pointer; font-family:inherit}
+table{border-collapse:collapse; width:100%; font-size:13.5px; margin-top:6px}
+th,td{padding:7px 10px; text-align:left; border-bottom:1px solid var(--border)}
+th{font-size:12px; color:var(--sub); font-weight:600; white-space:nowrap}
+td.n,th.n{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+.tw{overflow:auto; max-height:420px; max-width:100%}
+.c{min-width:0}
+.cards{min-width:0}
+.tip{position:fixed; pointer-events:none; z-index:99; background:var(--card); color:var(--text);
+  border:1px solid var(--border); border-radius:6px; padding:7px 10px; font-size:12.5px;
+  box-shadow:var(--shadow); opacity:0; transition:opacity .1s; max-width:260px}
+.tip b{display:block; margin-bottom:3px}
+.tip .row{display:flex; justify-content:space-between; gap:14px; font-variant-numeric:tabular-nums}
+.axis-l{font-size:10px; fill:var(--faint)}
+.chartbox{overflow-x:auto; max-width:100%}
+.chartbox>svg{min-width:620px}
+@media(min-width:900px){.chartbox>svg{min-width:0}}
+.foot{margin-top:36px; padding-top:16px; border-top:1px solid var(--border);
+  font-size:12px; color:var(--faint); line-height:1.9}
+@media(max-width:540px){
+  .item{flex-wrap:wrap; gap:5px 12px}
+  .item .nm{flex-basis:100%; order:3}
+  .item .go{margin-left:auto}
+}
+.loadstate{background:var(--card); border:1px solid var(--border); border-radius:10px;
+  padding:16px 18px; margin:16px 0; color:var(--sub); font-size:14px; box-shadow:var(--shadow)}
+.loadstate.err{border-color:var(--alert); background:var(--alert-soft); color:var(--alert)}
+.loadstate.err b{display:block; margin-bottom:4px}
+.loadstate .hint{color:var(--sub); font-size:12.5px}
+.backlink{font-size:13px; color:var(--sub); text-decoration:none}
+.backlink:hover{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="loadstate" id="loadstate">データを読み込んでいます…</div>
+
+<header>
+  <div>
+    <h1>営業KPI</h1>
+    <p class="range" id="range"></p>
+  </div>
+  <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+    <a class="backlink" href="/dashboard">← ダッシュボードへ戻る</a>
+    <button class="hbtn" id="tt">◐ 表示切替</button>
+  </div>
+</header>
+
+<div class="filters">
+  <div class="chiprow" id="teams"></div>
+  <select id="person"><option value="">個人で見る…</option></select>
+</div>
+<p class="scope" id="scope"></p>
+
+<h2>今月の成績</h2>
+<p class="lead">商談の予定日が過ぎたものだけで数えています（今日の商談はまだ終わっていないので入れません）。<br><span id="bporule"></span></p>
+<div class="cards" id="cards1"></div>
+
+<h2>いま手を打てること</h2>
+<p class="lead">数字を押すと、中身の一覧が開きます。そのままHubSpotを開けます。</p>
+<div class="cards" id="cards2"></div>
+<div class="panel hide" id="panel"></div>
+
+<h2>架電</h2>
+<p class="lead" id="lead3"></p>
+<div class="chiprow" id="callperiod" style="margin-bottom:11px"></div>
+<div class="cards" id="cards3"></div>
+<div id="kadenbar"></div>
+
+<h2>架電リストの残り</h2>
+<p class="lead">リストのどこまで手がついているか。会社全体の数字です。</p>
+<div class="cards" id="cards3b"></div>
+<div id="listbar"></div>
+
+<h2>先週との比べ方</h2>
+<p class="lead" id="lead4"></p>
+<div id="snapbox"></div>
+
+<div class="foot" id="foot"></div>
+</div>
+
+
+<script>
+(async function(){
+const box=document.getElementById('loadstate');
+let D;
+try{
+  const url='/api/sales-kpi/data'+(location.search.includes('refresh=1')?'?refresh=1':'');
+  const res=await fetch(url,{headers:{Accept:'application/json'},credentials:'same-origin'});
+  const text=await res.text();
+  if(!res.ok){
+    let why=text.slice(0,400);
+    try{const j=JSON.parse(text); why=(j.message||why)+(j.sheet?'（シート: '+j.sheet+'）':'');}catch(e){}
+    throw new Error('サーバが '+res.status+' を返しました。'+why);
+  }
+  D=JSON.parse(text);
+}catch(err){
+  box.className='loadstate err';
+  box.innerHTML='<b>データを読み込めませんでした。</b><br>'+String(err.message||err)+
+    '<br><span class="hint">スプレッドシートの KPI営業_ シートが揃っているか、'+
+    'GAS の sales_kpi_sync が動いているかを確認してください。</span>';
+  return;
+}
+box.remove();
+const $=id=>document.getElementById(id);
+const WD=['日','月','火','水','木','金','土'];
+const fmt=n=>(n==null?'—':n.toLocaleString('ja-JP'));
+const pct=n=>(n==null?'—':n.toFixed(1)+'%');
+let team='すべて', person='', openKey=null, weekOpen=false, callPeriod='this_week';
+
+$('tt').onclick=()=>{const c=document.documentElement.getAttribute('data-theme');
+  const dark=c?c==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.setAttribute('data-theme',dark?'light':'dark');};
+
+const md=s=>{const d=new Date(s+'T00:00:00+09:00');return (d.getMonth()+1)+'/'+d.getDate();};
+const wd=s=>WD[new Date(s+'T00:00:00+09:00').getDay()];
+const ago=s=>Math.round((new Date(D.generated_at+'T00:00:00+09:00')-new Date(s+'T00:00:00+09:00'))/86400000);
+
+$('bporule').innerHTML='<b>内 BPO</b> は「BPOアポ取得日」がその期間にあるものです。'+
+  'このプロパティは<b>過去のBPOアポの日付が残り続ける</b>ため、値の有無では判定できません'+
+  '（今月の商談で言うと、値があるのは200件ですが、そのうち当月・前月に取ったものは129件です）。';
+$('range').textContent='2026年9月　／　今週 '+md(D.week.start)+'（'+wd(D.week.start)+'）〜'+
+  md(D.week.end)+'（'+wd(D.week.end)+'）　※'+D.generated_at+' 時点';
+
+['すべて'].concat(D.teams).forEach(t=>{
+  const b=document.createElement('button');
+  b.className='chip'+(t===team?' on':''); b.textContent=t;
+  b.onclick=()=>{team=t;person='';openKey=null;syncPerson();
+    [...$('teams').children].forEach(c=>c.classList.toggle('on',c.textContent===t));render();};
+  $('teams').appendChild(b);
+});
+function syncPerson(){
+  const sel=$('person'); sel.innerHTML='<option value="">個人で見る…</option>';
+  D.people.filter(p=>team==='すべて'||p.team===team).forEach(p=>{
+    const o=document.createElement('option'); o.value=p.id;
+    o.textContent=p.name+(team==='すべて'?'（'+p.team+'）':'');
+    sel.appendChild(o);});
+  sel.value=person;
+}
+syncPerson();
+$('person').onchange=e=>{person=e.target.value;openKey=null;render();};
+
+function agg(){
+  if(person) return D.by_person[person]||{};
+  if(team==='すべて'){
+    const o={}; Object.values(D.by_team).forEach(v=>Object.keys(v).forEach(k=>o[k]=(o[k]||0)+v[k]));
+    return o;}
+  return D.by_team[team]||{};
+}
+const pick=rows=>rows.filter(r=>
+  (person? r.owner===person : (team==='すべて'||r.team===team)));
+
+function itemEl(r,opt){
+  opt=opt||{};
+  const a=document.createElement('a');
+  a.className='item'+(opt.stale?' stale':'')+(opt.done?' done':'');
+  a.href=r.url; a.target='_blank'; a.rel='noopener noreferrer';
+  const d=document.createElement('div'); d.className='d';
+  const sub=opt.stale?(ago(r.date)+'日前'):(opt.days?(r.days+'日'):(r.time||''));
+  d.innerHTML='<b>'+(r.date?md(r.date)+'（'+wd(r.date)+'）':'—')+'</b>'+(sub?'<span>'+sub+'</span>':'');
+  const nm=document.createElement('div'); nm.className='nm'; nm.textContent=r.name;
+  const who=document.createElement('div'); who.className='who'; who.textContent=r.ownerName;
+  const go=document.createElement('div'); go.className='go'; go.textContent='HubSpotを開く ›';
+  a.appendChild(d);a.appendChild(nm);a.appendChild(who);a.appendChild(go);
+  return a;
+}
+const listOf=(rows,opt)=>{const w=document.createElement('div');w.className='list';
+  rows.forEach(r=>w.appendChild(itemEl(r,opt)));return w;};
+
+function cardEl(o){
+  const c=document.createElement(o.onClick?'button':'div');
+  c.className='c'+(o.tone?' '+o.tone:'');
+  let h='<div class="lab">'+o.lab+'</div><div class="v">'+
+    (o.pct?pct(o.val):fmt(o.val))+(o.unit?'<small>'+o.unit+'</small>':'')+'</div>';
+  if(o.hint)h+='<div class="hint">'+o.hint+'</div>';
+  if(o.sub2)h+='<div class="sub2">'+o.sub2+'</div>';
+  if(o.wow)h+=o.wow;
+  if(o.onClick)h+='<div class="open">'+(openKey===o.key?'閉じる ▲':'一覧を見る ▾')+'</div>';
+  c.innerHTML=h;
+  if(o.onClick)c.onclick=o.onClick;
+  return c;
+}
+function wowEl(now,prev,unit,invert){
+  if(prev==null) return '';
+  const d=now-prev; if(!d) return '<div class="wow" style="color:var(--faint)">先週と同じ</div>';
+  const good=invert?d<0:d>0;
+  const col=good?'var(--ok)':'var(--alert)';
+  return '<div class="wow" style="color:'+col+'">'+(d>0?'▲':'▼')+Math.abs(d).toLocaleString('ja-JP')+
+    (unit||'')+' <span style="color:var(--faint)">先週 '+fmt(prev)+(unit||'')+'</span></div>';
+}
+
+// SVG要素の生成（日別グラフで使う）
+const NS='http://www.w3.org/2000/svg';
+const mk=(t,a)=>{const e=document.createElementNS(NS,t);
+  for(const k in (a||{}))e.setAttribute(k,a[k]);return e;};
+
+// グラフのホバー説明
+const tipEl=document.createElement('div'); tipEl.className='tip'; document.body.appendChild(tipEl);
+function showTip(html,x,y){
+  tipEl.innerHTML=html; tipEl.style.opacity=1;
+  const r=tipEl.getBoundingClientRect();
+  let l=x-r.width/2, t=y-r.height-12;
+  l=Math.max(8,Math.min(l,innerWidth-r.width-8));
+  if(t<8)t=y+18;
+  tipEl.style.left=l+'px'; tipEl.style.top=t+'px';
+}
+const hideTip=()=>{tipEl.style.opacity=0;};
+function bindTip(e,html){
+  e.addEventListener('pointerenter',()=>{const r=e.getBoundingClientRect();
+    showTip(html,r.left+r.width/2,r.top);});
+  e.addEventListener('pointerleave',hideTip);
+  e.setAttribute('tabindex','0');
+  e.addEventListener('focus',()=>{const r=e.getBoundingClientRect();
+    showTip(html,r.left+r.width/2,r.top);});
+  e.addEventListener('blur',hideTip);
+}
+addEventListener('scroll',hideTip,{passive:true});
+
+function render(){
+  const a=agg();
+  const den=(a['実施']||0)+(a['未実施']||0)+(a['未処理']||0)+(a['要判定']||0);
+  const rate=den?(a['実施']||0)/den*100:null;
+  // BPO経由の内訳（BPOアポ取得日に値があるもの）
+  const bpoOf=k=>a['bpo_'+k]||0;
+  const oi=k=>{const v=bpoOf(k),t=k==='apo'?(a.apo||0):(k==='cyomi'?(a.cyomi||0):(a[k]||0));
+    return v?'<span style="color:var(--sub)">内 BPO '+fmt(v)+'件'+
+      (t?'（'+(v/t*100).toFixed(0)+'%）':'')+'</span>':'';};
+  $('scope').textContent=person
+    ? (D.people.find(p=>p.id===person)||{}).name+' の数字だけを表示しています。'
+    : (team==='すべて'?'全チームの合計を表示しています。チーム名か、右のプルダウンで絞り込めます。'
+                     :team+' の数字だけを表示しています。');
+
+  // ---- 今月の成績 ----
+  const c1=$('cards1'); c1.innerHTML='';
+  const anqDen=a.anq_den||0, anqNum=a.anq_num||0;
+  [
+    {lab:'① 取ったアポ',val:a.apo||0,unit:'件',hint:'今月アポ日が確定した数',sub2:oi('apo')},
+    {lab:'③ 商談の予定',val:a.pool||0,unit:'件',hint:'今月に商談日が入っている数',sub2:oi('pool')},
+    {lab:'④ 日が過ぎた分',val:den,unit:'件',hint:'このうち下の率を計算'},
+    {lab:'② やった商談',val:a['実施']||0,unit:'件',hint:'ステージが先へ進んだ数',sub2:oi('実施')},
+    {lab:'⑥ 商談化率',val:rate,pct:true,hint:fmt(a['実施']||0)+' ÷ '+fmt(den)+' 件'},
+    {lab:'⑤ アンケート回収率',val:anqDen?anqNum/anqDen*100:null,pct:true,
+     hint:fmt(anqNum)+' ÷ '+fmt(anqDen)+' 件（今日までに商談日が来た分）'},
+    {lab:'⑨ 持っているCヨミ',val:a.cyomi||0,unit:'件',hint:'決定者と合意できた案件',sub2:oi('cyomi')},
+  ].forEach(o=>c1.appendChild(cardEl(o)));
+
+  // ---- いま手を打てること ----
+  const stale=pick(D.stale), anq=pick(D.anq_missing), cys=pick(D.cyomi_stale),
+        wk=pick(D.week_deals), nx=pick(D.next_week_deals);
+  const c2=$('cards2'); c2.innerHTML='';
+  const toggle=k=>()=>{openKey=openKey===k?null:k;render();
+    if(openKey)setTimeout(()=>$('panel').scrollIntoView({behavior:'smooth',block:'nearest'}),50);};
+  [
+    {key:'stale',lab:'⑦ ステージが止まっている',val:stale.length,unit:'件',
+     tone:stale.length?'alert':'ok',hint:stale.length?'商談日が過ぎたのに動いていない':'ありません',
+     onClick:toggle('stale')},
+    {key:'anq',lab:'⑤ アンケート未回収',val:anq.length,unit:'件',
+     tone:anq.length?'warn':'ok',hint:'今週・来週これからの商談のうち',onClick:toggle('anq')},
+    {key:'cyomi',lab:'⑨ Cヨミで止まっている',val:cys.length,unit:'件',
+     tone:cys.length?'warn':'ok',hint:'30日以上ステージが動いていない',onClick:toggle('cyomi')},
+    {key:'week',lab:'③ 今週の商談',val:wk.length,unit:'件',
+     hint:'うち '+wk.filter(r=>r.past).length+'件 は日が過ぎました',onClick:toggle('week')},
+    {key:'next',lab:'③ 来週の商談',val:nx.length,unit:'件',
+     hint:md(D.next_week.start)+'〜'+md(D.next_week.end)+' の予定',onClick:toggle('next')},
+  ].forEach(o=>c2.appendChild(cardEl(o)));
+
+  const P=$('panel'); P.innerHTML=''; P.classList.toggle('hide',!openKey);
+  if(openKey){
+    const conf={
+      stale:{t:'ステージが止まっている取引',rows:stale,opt:{stale:true},
+        d:'商談の日が過ぎたのに、ステージが「アポ日確定」のままです。商談したなら次のステージへ、しなかったならキャンセルに動かしてください。'},
+      anq:{t:'アンケートが未回収の商談',rows:anq,opt:{},
+        d:'今週・来週これから商談するもののうち、事前アンケートがまだ返ってきていないものです。商談前に催促してください。'},
+      cyomi:{t:'Cヨミで30日以上動いていない取引',rows:cys,opt:{days:true},
+        d:'決定者と価値合意ができてから30日以上、ステージが動いていません。次の一手を決めてください。'},
+      week:{t:'今週の商談',rows:wk,opt:{},d:'日付の早い順です。終わった日はうすく表示しています。',byDay:true},
+      next:{t:'来週の商談',rows:nx,opt:{},d:'来週の予定です。',byDay:true},
+    }[openKey];
+    const h=document.createElement('div'); h.className='ph';
+    h.innerHTML='<b>'+conf.t+'（'+conf.rows.length+'件）</b>';
+    const x=document.createElement('button'); x.className='close'; x.textContent='閉じる ✕';
+    x.onclick=()=>{openKey=null;render();}; h.appendChild(x); P.appendChild(h);
+    P.appendChild(Object.assign(document.createElement('p'),{className:'lead',textContent:conf.d}));
+    if(!conf.rows.length){P.innerHTML+='<div class="empty"><b>該当はありません。</b></div>';}
+    else if(conf.byDay){
+      const byDay={}; conf.rows.forEach(r=>(byDay[r.date]=byDay[r.date]||[]).push(r));
+      const days=Object.keys(byDay).sort();
+      (weekOpen?days:days.slice(0,4)).forEach(dt=>{
+        const hh=document.createElement('div'); hh.className='day';
+        hh.textContent=md(dt)+'（'+wd(dt)+'）　'+byDay[dt].length+'件'; P.appendChild(hh);
+        P.appendChild(listOf(byDay[dt],{done:byDay[dt][0].past}));});
+      if(days.length>4){
+        const b=document.createElement('button'); b.className='more';
+        b.textContent=weekOpen?'たたむ':'残り '+(days.length-4)+'日分を見る ▾';
+        b.onclick=()=>{weekOpen=!weekOpen;render();}; P.appendChild(b);}
+    }else{P.appendChild(listOf(conf.rows,conf.opt));}
+  }
+
+  // ---- 架電（Zoomのコール数を架電数として扱う）----
+  const C_=D.calls, K=D.kaden, kc=K.cls;
+  const PL={today:'今日',yesterday:'昨日',this_week:'今週',prev_week:'先週',this_month:'今月'};
+  const c3=$('cards3'); c3.innerHTML='';
+  const cp=$('callperiod');
+  if(C_&&C_.periods){
+    if(!cp.dataset.done){
+      Object.keys(PL).forEach(k=>{
+        const b=document.createElement('button');
+        b.className='chip'; b.textContent=PL[k];
+        b.onclick=()=>{callPeriod=k;render();};
+        cp.appendChild(b);});
+      cp.dataset.done='1';
+    }
+    [...cp.children].forEach((b,ix)=>b.classList.toggle('on',Object.keys(PL)[ix]===callPeriod));
+
+    const per=C_.periods[callPeriod]||{};
+    const prevP=(callPeriod==='this_week')?C_.periods.prev_week_same:null;
+    const scopeOf=o=>{
+      if(!o) return {};
+      if(person) return (o.by_person||{})[person]||{};
+      if(team!=='すべて') return (o.by_team||{})[team]||{};
+      const t={}; Object.values(o.by_team||{}).forEach(v=>Object.keys(v).forEach(k=>t[k]=(t[k]||0)+v[k]));
+      return t;
+    };
+    const cur=scopeOf(per), prv=prevP?scopeOf(prevP):null;
+    const calls=cur.calls||0, conn=cur.connected||0, lng=cur.long||0;
+    const days=(per.days||[]).length||1;
+    const dl=per.days||[];
+    $('lead3').innerHTML='Zoomのログから数えています。<b>架電数＝つながった通話</b>で、現場が数えている数と合わせています。'+
+      '<br><span style="color:var(--faint)">つながらなかった発信（相手が出る前に切った・失敗した）は「発信した回数」にだけ入ります。</span>';
+    [
+      {lab:'架電数',val:conn,unit:'件',
+       hint:dl.length?(dl[0]===dl[dl.length-1]?md(dl[0]):md(dl[0])+'〜'+md(dl[dl.length-1])):'',
+       sub2:'<span style="color:var(--sub)">Zoomでつながった通話の数</span>',
+       wow:prv?wowEl(conn,prv.connected||0,'件'):''},
+      {lab:'発信した回数',val:calls,unit:'件',hint:'かけ直しや切ったものを含む全発信'},
+      {lab:'つながった率',val:calls?conn/calls*100:null,pct:true,hint:fmt(conn)+' ÷ '+fmt(calls)+' 件'},
+      {lab:'5分超の通話',val:lng,unit:'件',hint:'深い会話。アポにつながりやすい'},
+      {lab:'1日あたりの架電数',val:Math.round(conn/days),unit:'件',hint:days+'日で割った平均'},
+    ].forEach(o=>c3.appendChild(cardEl(o)));
+
+    const kb=$('kadenbar'); kb.innerHTML='';
+    const box=document.createElement('div'); box.className='c';
+    box.innerHTML='<div class="lab">日別の架電数（全社・担当者が紐づかない発信も含む）</div>';
+    const dd=(C_.daily||[]).filter(x=>x.calls>100);
+    if(dd.length){
+      const W=880,H=150,ml=44,mr=10,mt=12,mb=28,iw=W-ml-mr,ih=H-mt-mb;
+      const mx=Math.max(...dd.map(x=>x.calls));
+      const sv=mk('svg',{viewBox:'0 0 '+W+' '+H,role:'img','aria-label':'日別の架電数'});
+      [0,Math.round(mx/2),mx].forEach(v=>{const y=mt+ih-ih*v/mx;
+        sv.appendChild(mk('line',{x1:ml,x2:W-mr,y1:y,y2:y,stroke:'var(--border)','stroke-width':1}));
+        const t=mk('text',{x:ml-6,y:y+4,'text-anchor':'end',class:'axis-l'});
+        t.textContent=fmt(v);sv.appendChild(t);});
+      const bw=iw/dd.length,bar=Math.min(46,bw*0.64);
+      dd.forEach((x,ix)=>{
+        const cx=ml+bw*ix+bw/2,h=ih*x.calls/mx,y=mt+ih-h,hc=ih*(x.connected||0)/mx;
+        const g=mk('g');
+        g.appendChild(mk('rect',{x:cx-bar/2,y,width:bar,height:Math.max(h,2),rx:3,fill:'var(--border)'}));
+        g.appendChild(mk('rect',{x:cx-bar/2,y:mt+ih-hc,width:bar,height:Math.max(hc,2),rx:3,fill:'var(--accent)'}));
+        sv.appendChild(g);
+        bindTip(g,'<b>'+md(x.date)+'（'+wd(x.date)+'）</b>'+
+          '<div class="row"><span>架電</span><span>'+fmt(x.calls)+'件</span></div>'+
+          '<div class="row"><span>つながった</span><span>'+fmt(x.connected)+'件</span></div>'+
+          '<div class="row"><span>5分超</span><span>'+fmt(x.long)+'件</span></div>');
+        const t=mk('text',{x:cx,y:H-10,'text-anchor':'middle',class:'axis-l'});
+        t.textContent=md(x.date);sv.appendChild(t);});
+      const bx=document.createElement('div'); bx.className='chartbox'; bx.appendChild(sv);
+      box.appendChild(bx);
+      box.innerHTML+='<div class="blegend" style="margin-top:6px">'+
+        '<span><i style="background:var(--accent)"></i>つながった</span>'+
+        '<span><i style="background:var(--border)"></i>つながらず</span></div>';
+    }
+    kb.appendChild(box);
+
+    const rows=Object.entries(per.by_person||{})
+      .filter(function(e){const oid=e[0];const pp=(C_.people||[]).find(x=>x.id===oid);
+        if(person) return oid===person;
+        if(team==='すべて') return true;
+        return pp&&pp.team===team;})
+      .map(function(e){const oid=e[0],v=e[1];
+        const pp=(C_.people||[]).find(x=>x.id===oid)||{};
+        const pv=prevP?((prevP.by_person||{})[oid]||{}):null;
+        return {name:pp.name||('owner_'+oid),team:pp.team||'—',
+                calls:v.calls||0,conn:v.connected||0,lng:v.long||0,prev:pv?(pv.connected||0):null};})
+      .sort((x,y)=>y.conn-x.conn).slice(0,40);
+    if(rows.length){
+      const b2=document.createElement('div'); b2.className='c'; b2.style.marginTop='11px';
+      b2.innerHTML='<div class="lab">'+PL[callPeriod]+'の架電数（人別・上位'+rows.length+'名）</div>';
+      const tw=document.createElement('div'); tw.className='tw';
+      const tb=document.createElement('table');
+      tb.innerHTML='<thead><tr><th>担当</th><th>チーム</th><th class="n">架電数</th>'+
+        '<th class="n">発信回数</th><th class="n">つながった率</th><th class="n">5分超</th>'+
+        (prevP?'<th class="n">前週比</th>':'')+'</tr></thead>';
+      const bd=document.createElement('tbody');
+      rows.forEach(function(r){const tr=document.createElement('tr');
+        const d2=(r.prev==null)?null:r.conn-r.prev;
+        tr.innerHTML='<td>'+r.name+'</td><td style="color:var(--sub)">'+r.team+'</td>'+
+          '<td class="n"><b>'+fmt(r.conn)+'</b></td><td class="n" style="color:var(--sub)">'+fmt(r.calls)+'</td>'+
+          '<td class="n">'+pct(r.calls?r.conn/r.calls*100:null)+'</td>'+
+          '<td class="n">'+fmt(r.lng)+'</td>'+
+          (prevP?('<td class="n" style="color:'+(d2>0?'var(--ok)':(d2<0?'var(--alert)':'var(--faint)'))+'">'+
+            (d2>0?'+':'')+fmt(d2)+'</td>'):'');
+        bd.appendChild(tr);});
+      tb.appendChild(bd); tw.appendChild(tb); b2.appendChild(tw);
+      const um=C_.unmatched_by_dept||{};
+      b2.innerHTML+='<div class="hint" style="margin-top:8px">'+
+        '担当者に紐づいた発信は '+fmt(per.matched||0)+'件 ／ 全体 '+fmt((per.total||{}).calls||0)+'件。'+
+        '紐づかない分は他部署の発信です（'+
+        Object.keys(um).slice(0,3).map(k=>k+' '+fmt(um[k])+'件').join(' ／ ')+'）。</div>';
+      kb.appendChild(b2);
+    }
+  }else{
+    $('lead3').textContent='架電データがありません。';
+  }
+
+  // ---- 架電リストの残り ----
+  const c3b=$('cards3b'); c3b.innerHTML='';
+  [
+    {lab:'まだかけていない',val:kc['未架電'],unit:'件',hint:pct(kc['未架電']/K.base*100)+' を占めます'},
+    {lab:'つながらず',val:kc['未接触'],unit:'件',hint:'受付ブロック・不在・不通'},
+    {lab:'話せた',val:kc['接触済み'],unit:'件',hint:'担当者と接触できた'},
+    {lab:'手をつけた割合',val:(kc['未接触']+kc['接触済み'])/K.base*100,pct:true,
+     hint:fmt(kc['未接触']+kc['接触済み'])+' ÷ '+fmt(K.base)+' 件'},
+  ].forEach(o=>c3b.appendChild(cardEl(o)));
+  const lb=$('listbar'); lb.innerHTML='';
+  const cols={'未架電':'var(--warn)','未接触':'var(--alert)','接触済み':'var(--accent)'};
+  const wrapB=document.createElement('div'); wrapB.className='c'; wrapB.style.marginTop='11px';
+  const bar2=document.createElement('div'); bar2.className='bar';
+  ['未架電','未接触','接触済み'].forEach(k=>{const sp=document.createElement('span');
+    sp.style.cssText='width:'+(kc[k]/K.base*100)+'%;background:'+cols[k];bar2.appendChild(sp);});
+  wrapB.appendChild(bar2);
+  const lg2=document.createElement('div'); lg2.className='blegend';
+  ['未架電','未接触','接触済み'].forEach(k=>{
+    lg2.innerHTML+='<span><i style="background:'+cols[k]+'"></i>'+k+' '+fmt(kc[k])+'件</span>';});
+  wrapB.appendChild(lg2);
+  wrapB.innerHTML+='<div class="hint" style="margin-top:10px">決定者・決裁者の入力状況（リスト全体 '+
+    fmt(K.total)+'件）: '+Object.keys(K.fill).map(k=>k+' '+pct(K.fill[k]/K.total*100)).join(' ／ ')+
+    '　<b style="color:var(--alert)">ほぼ入っていません。</b></div>';
+  lb.appendChild(wrapB);
+
+  // ---- 週次スナップショット ----
+  const S=D.snapshots||[];
+  $('lead4').innerHTML=S.length<2
+    ? '週ごとの記録をこれから貯めていきます。今週が1週目なので、比較は来週から出せます。'
+    : '週ごとに記録しています。矢印は先週との差です。';
+  const sb=$('snapbox'); sb.innerHTML='';
+  const box=document.createElement('div'); box.className='c';
+  const t=document.createElement('table');
+  t.innerHTML='<thead><tr><th>週</th><th class="n">取ったアポ</th><th class="n">やった商談</th>'+
+    '<th class="n">商談化率</th><th class="n">止まっている</th><th class="n">架電数</th></tr></thead>';
+  const tb=document.createElement('tbody');
+  S.slice(-8).forEach(s=>{
+    const tt=s.totals||{};
+    const dn=(tt['実施']||0)+(tt['未実施']||0)+(tt['未処理']||0)+(tt['要判定']||0);
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+s.week+'<br><span style="color:var(--faint);font-size:11.5px">'+
+      md(s.week_start)+' の週</span></td>'+
+      '<td class="n">'+fmt(tt.apo)+'</td><td class="n">'+fmt(tt['実施'])+'</td>'+
+      '<td class="n">'+(dn?pct((tt['実施']||0)/dn*100):'—')+'</td>'+
+      '<td class="n">'+fmt(s.stale)+'</td>'+
+      '<td class="n">'+(s.zoom_called==null?'<span style="color:var(--faint)">—</span>'
+        :fmt(s.zoom_called)+(s.zoom_partial
+          ?'<br><span style="color:var(--faint);font-size:11px">'+s.zoom_days+'日目まで（集計中）</span>':''))+'</td>';
+    tb.appendChild(tr);});
+  t.appendChild(tb);
+  const stw=document.createElement('div'); stw.className='tw'; stw.appendChild(t);
+  box.appendChild(stw);
+  box.innerHTML+='<div class="hint" style="margin-top:8px">'+
+    'この画面を開いたときではなく、データを取り直したときに1週ぶんが記録されます。'+
+    '週の途中で取り直すと、その週の行が上書きされます。'+
+    '架電数はZoomでつながった通話の数です。</div>';
+  sb.appendChild(box);
+}
+render();
+
+$('foot').innerHTML=
+  '⑧ 決定者以上の割合は、判定できる材料が足りないためまだ出せません（事前アンケートの回収が必要です）。<br>'+
+  '「ステージが止まっている」は商談予定日を過ぎてもステージが「アポ日確定」のままのもの（直近'+D.stale_days+'日ぶん）。'+
+  'ステージが止まっているだけで、商談をしたかどうかは分かりません。<br>'+
+  '架電数は Zoom のログで「つながった通話」を数えたものです。'+
+  '相手が出る前に切った発信・失敗した発信は「発信した回数」にだけ入ります。<br>'+
+  '誰がかけたかは、Zoomのメールアドレスと HubSpot 担当者のメールアドレスで突き合わせています'+
+  ((D.calls&&D.calls.periods&&D.calls.periods.this_week)?
+    ('（今週の発信 '+fmt(D.calls.periods.this_week.total.calls)+'件のうち '+
+     fmt(D.calls.periods.this_week.matched)+'件が突合できました。残りは medica事業部など他部署の発信です）'):'')+'。<br>'+
+  'データ取得: '+D.generated_at+' ／ HubSpot・Zoom（読み取りのみ）。自動更新はまだ行っていません。';
+})();
+</script>
+</body>
+</html>
