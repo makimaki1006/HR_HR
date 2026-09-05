@@ -1,0 +1,404 @@
+//! 社内タブ `/tab/indeed`。
+//!
+//! 顧客レポートとの違いは「どこまで見せるか」だけで、数字は同じものを使う。
+//! ここでは分解（なぜそうなったか）と、言い切れない部分まで出す。
+
+use std::sync::Arc;
+
+use axum::{
+    extract::{Query, State},
+    response::Html,
+};
+use serde::Deserialize;
+
+use super::render::{
+    arrow, category_table_html, dec1_opt, dir_class, esc, indexed_chart, line_chart, metric_card,
+    num_opt, pct_opt,
+};
+use crate::indeed::aggregate::{
+    category_table, nation_overview, pref_overview, pref_title_overviews, Overview,
+};
+use crate::indeed::data::{snapshot, Snapshot};
+use crate::AppState;
+
+#[derive(Debug, Deserialize, Default)]
+pub struct TabQuery {
+    /// 都道府県で絞る。空なら全国
+    pub pref: Option<String>,
+    /// 一覧の並べ替え。指定が無ければ求人数の多い順
+    pub sort: Option<String>,
+}
+
+/// 直接 URL を叩かれたときにトップへ戻す決まり文句。
+/// HTMX で差し込まれた場合は nav があるので何もしない。
+const DIRECT_ACCESS_GUARD: &str = r#"<script>
+(function(){
+  if (!document.querySelector('nav')) {
+    var target = location.pathname + location.search;
+    location.replace('/?tab=' + encodeURIComponent(target));
+  }
+})();
+</script>"#;
+
+pub async fn tab_indeed(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<TabQuery>,
+) -> Html<String> {
+    let Some(db) = state.indeed_db.as_ref() else {
+        return Html(degraded(
+            "Indeed 分析データ (data/indeed_insights.db) が積まれていません。",
+        ));
+    };
+    let snap = match snapshot(db) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("indeed snapshot failed: {e}");
+            return Html(degraded("Indeed 分析データを読めませんでした。"));
+        }
+    };
+    Html(render_tab(snap, q.pref.as_deref(), q.sort.as_deref()))
+}
+
+fn degraded(msg: &str) -> String {
+    format!(
+        "{DIRECT_ACCESS_GUARD}<div class=\"p-6\"><div class=\"bg-navy-800/60 border border-amber-600/40 rounded-lg p-4 text-amber-200\">{}</div></div>",
+        esc(msg)
+    )
+}
+
+fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String {
+    let months = &snap.meta.months;
+    let prefs = snap.prefectures();
+    let pref = pref.filter(|p| !p.is_empty() && prefs.iter().any(|x| x == p));
+
+    // 全国か、選ばれた 1 県か。集計は同じ関数を通す
+    // 集計は aggregate に一本化する。画面ごとに合算を書くと数字がずれる
+    let overview = match pref {
+        None => nation_overview(snap),
+        Some(p) => pref_overview(snap, p),
+    };
+
+    let mut h = String::with_capacity(160_000);
+    h.push_str(DIRECT_ACCESS_GUARD);
+    h.push_str("<div class=\"space-y-6\">");
+
+    // 見出しと出どころ
+    h.push_str(&format!(
+        "<div class=\"flex flex-wrap items-end justify-between gap-3\">\
+         <div><h2 class=\"text-xl font-bold text-gray-100\">Indeed 採用市場（社内用）</h2>\
+         <p class=\"text-slate-400 text-sm mt-1\">{period}／{n} 職種・{np} 都道府県・{src}</p></div>\
+         {selector}</div>",
+        period = esc(&format!(
+            "{} 〜 {}",
+            months.first().map(String::as_str).unwrap_or("—"),
+            snap.meta.latest
+        )),
+        n = snap.titles.len(),
+        np = prefs.len(),
+        src = esc(&snap.meta.source),
+        selector = format!(
+            "{}<span id=\"indeed-loading\" class=\"htmx-indicator text-slate-400 text-sm ml-2\">読み込み中…</span>",
+            pref_selector(&prefs, pref)
+        )
+    ));
+
+    // 但し書きは最初に出す。後ろに置くと読まれない
+    h.push_str(&format!(
+        "<div class=\"bg-navy-800/60 border-l-4 border-sky-500 rounded p-3 text-slate-300 text-sm leading-relaxed\">{}</div>",
+        esc(&snap.meta.caveat)
+    ));
+
+    // 見出しの 5 指標
+    h.push_str("<div class=\"grid grid-cols-2 lg:grid-cols-5 gap-3\">");
+    for m in [
+        &overview.job,
+        &overview.ctk,
+        &overview.emp,
+        &overview.spp,
+        &overview.ppe,
+    ] {
+        h.push_str(&metric_card(m, true));
+    }
+    h.push_str("</div>");
+
+    // 「なぜ」の分解。推測ではなく割り算で答える
+    h.push_str(&format!(
+        "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+         <h3 class=\"text-slate-100 font-bold mb-2\">なぜそうなったか（割り算での分解）</h3>\
+         <p class=\"text-slate-300 text-sm leading-relaxed\">{}</p>\
+         <p class=\"text-slate-400 text-xs mt-3 leading-relaxed\">\
+         1 求人あたり = 求人を見た人数 ÷ 求人の数。求人の数 = 募集した企業の数 × 1 社あたりの本数。\
+         この 2 段の割り算で説明が尽きるので、これ以上の理由づけは推測になります。</p></div>",
+        esc(&overview.why())
+    ));
+
+    // 全体の動き
+    h.push_str(&format!(
+        "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+         <h3 class=\"text-slate-100 font-bold mb-1\">{name}の動き</h3>\
+         <p class=\"text-slate-400 text-xs mb-2\">最初の月を 100 とした指数。伸びの違いを同じ物差しで見るためです。</p>\
+         {chart}\
+         <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">{s1}</p>\
+         <p class=\"text-slate-300 text-sm mt-1 leading-relaxed\">{s2}</p></div>",
+        name = esc(&overview.name),
+        chart = line_chart(
+            months,
+            &[
+                ("求人の数".to_string(), overview.job.indexed()),
+                ("求人を見た人数".to_string(), overview.ctk.indexed()),
+                ("募集している企業の数".to_string(), overview.emp.indexed()),
+            ],
+            true,
+            300
+        ),
+        s1 = esc(&overview.job.sentence),
+        s2 = esc(&overview.spp.sentence)
+    ));
+
+    // 分類（全国のみ。県で絞ると分類別の月次が薄くなる）
+    if pref.is_none() {
+        let cats = category_table(snap);
+        let top: Vec<(String, Overview)> = cats
+            .iter()
+            .take(7)
+            .filter_map(|c| {
+                snap.by_category
+                    .get(&c.name)
+                    .map(|s| (c.name.clone(), Overview::from_series(&c.name, s, months)))
+            })
+            .collect();
+        let refs: Vec<(String, &Overview)> = top.iter().map(|(n, o)| (n.clone(), o)).collect();
+        h.push_str(&format!(
+            "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+             <h3 class=\"text-slate-100 font-bold mb-1\">分類ごとの求人数（上位 7、指数）</h3>\
+             <p class=\"text-slate-400 text-xs mb-2\">同じ物差しで重ねています。分類ごとに軸を変えると、どれも同じ形に見えてしまいます。</p>\
+             {chart}</div>",
+            chart = indexed_chart(months, &refs, true, 320)
+        ));
+        h.push_str(&format!(
+            "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+             <h3 class=\"text-slate-100 font-bold mb-2\">分類別の定点表（{} 分類）</h3>{}</div>",
+            cats.len(),
+            category_table_html(&cats, true)
+        ));
+    }
+
+    // 職種の一覧
+    h.push_str(&title_section(snap, pref, sort));
+
+    h.push_str("</div>");
+    h
+}
+
+fn pref_selector(prefs: &[String], current: Option<&str>) -> String {
+    let mut s = String::from(
+        "<select class=\"bg-navy-800 border border-slate-600 text-slate-100 rounded px-3 py-2 text-sm\" \
+         hx-get=\"/tab/indeed\" hx-target=\"#content\" hx-swap=\"innerHTML\" name=\"pref\" hx-trigger=\"change\" hx-include=\"[name='sort']\" \n         hx-push-url=\"true\" hx-indicator=\"#indeed-loading\" aria-label=\"都道府県\">",
+    );
+    s.push_str(&format!(
+        "<option value=\"\"{}>全国</option>",
+        if current.is_none() { " selected" } else { "" }
+    ));
+    for p in prefs {
+        s.push_str(&format!(
+            "<option value=\"{v}\"{sel}>{v}</option>",
+            v = esc(p),
+            sel = if current == Some(p.as_str()) {
+                " selected"
+            } else {
+                ""
+            }
+        ));
+    }
+    s.push_str("</select>");
+    s
+}
+
+/// 一覧の並べ替え。
+///
+/// 104 行を全部出したうえで、並び順そのもので「何を見たいのか」を示す。
+/// 上位だけを抜き出すと、別の意図で見たいときに何も残らない。
+struct SortSpec {
+    key: &'static str,
+    label: &'static str,
+    /// この並びで何が見えるのかを、表の上に出す
+    note: &'static str,
+}
+
+const SORTS: [SortSpec; 7] = [
+    SortSpec {
+        key: "size",
+        label: "求人数が多い順",
+        note: "案件量の大きい職種から並べています。まずここで市場の規模感を見ます。",
+    },
+    SortSpec {
+        key: "grow",
+        label: "求人が増えた順",
+        note: "この期間で募集が増えた職種です。採用の競争が強まっている側から並びます。",
+    },
+    SortSpec {
+        key: "shrink",
+        label: "求人が減った順",
+        note: "この期間で募集が減った職種です。撤退や採り控えが起きている可能性を見る並びです。",
+    },
+    SortSpec {
+        key: "hard",
+        label: "1求人あたりが少ない順",
+        note: "1 件の求人を見た人が少ない職種です。同じ求人票でも人が集まりにくい側から並びます。",
+    },
+    SortSpec {
+        key: "worse",
+        label: "1求人あたりが減った順",
+        note: "この期間で「集まりにくく」なった度合いが大きい職種です。去年と同じやり方が通じにくくなっている側です。",
+    },
+    SortSpec {
+        key: "better",
+        label: "1求人あたりが増えた順",
+        note: "この期間で「集まりやすく」なった職種です。競合が引いた可能性を見る並びです。",
+    },
+    SortSpec {
+        key: "steady",
+        label: "動きが一本調子なものを上に",
+        note: "月ごとの振れが小さく、傾向として読んでよい職種を上にしています。下にいくほど振れが大きく、1 か月の増減で判断してはいけません。",
+    },
+];
+
+fn sort_spec(key: Option<&str>) -> &'static SortSpec {
+    let k = key.unwrap_or("size");
+    SORTS.iter().find(|s| s.key == k).unwrap_or(&SORTS[0])
+}
+
+fn sort_selector(current: &SortSpec) -> String {
+    let mut s = String::from(
+        "<select class=\"bg-navy-800 border border-slate-600 text-slate-100 rounded px-3 py-2 text-sm\" \
+         hx-get=\"/tab/indeed\" hx-target=\"#content\" hx-swap=\"innerHTML\" name=\"sort\" hx-trigger=\"change\" \
+         hx-include=\"[name='pref']\" \n         hx-push-url=\"true\" hx-indicator=\"#indeed-loading\" aria-label=\"並べ替え\">",
+    );
+    for o in SORTS.iter() {
+        s.push_str(&format!(
+            "<option value=\"{k}\"{sel}>{l}</option>",
+            k = o.key,
+            l = esc(o.label),
+            sel = if o.key == current.key { " selected" } else { "" }
+        ));
+    }
+    s.push_str("</select>");
+    // 都道府県は画面上のセレクト（name="pref"）を hx-include で拾う。
+    // ここに隠しフィールドを足すと同じ名前が 2 つになり、二重に送られる。
+    s
+}
+
+/// 職種の一覧。全国なら全職種、県を選んでいればその県の職種。
+fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String {
+    let months = &snap.meta.months;
+    let spec = sort_spec(sort);
+
+    // 全国と県で、行の作り方だけを変える。以降の並べ替えと描画は共通
+    let mut rows: Vec<(String, String, Overview)> = match pref {
+        None => snap
+            .titles
+            .iter()
+            .filter_map(|t| {
+                snap.by_title.get(&t.name).map(|s| {
+                    (
+                        t.name.clone(),
+                        t.category.clone(),
+                        Overview::from_series(&t.name, s, months),
+                    )
+                })
+            })
+            .collect(),
+        // 県の絞り込みは集計側の 1 関数に閉じ込める。画面ごとに書くと
+        // 片方だけ直す事故になる（このプロジェクトの過去の dedup 事故と同型）
+        Some(p) => pref_title_overviews(snap, p),
+    };
+
+    // 欠測は必ず最後に置く。0 として並べると「いちばん減った」の先頭に来てしまう
+    fn key_desc(v: Option<f64>) -> f64 {
+        v.unwrap_or(f64::NEG_INFINITY)
+    }
+    fn key_asc(v: Option<f64>) -> f64 {
+        v.unwrap_or(f64::INFINITY)
+    }
+    match spec.key {
+        "grow" => rows.sort_by(|a, b| {
+            key_desc(b.2.job.change_pct).total_cmp(&key_desc(a.2.job.change_pct))
+        }),
+        "shrink" => rows.sort_by(|a, b| {
+            key_asc(a.2.job.change_pct).total_cmp(&key_asc(b.2.job.change_pct))
+        }),
+        "hard" => rows.sort_by(|a, b| key_asc(a.2.spp.latest).total_cmp(&key_asc(b.2.spp.latest))),
+        "worse" => rows.sort_by(|a, b| {
+            key_asc(a.2.spp.change_pct).total_cmp(&key_asc(b.2.spp.change_pct))
+        }),
+        "better" => rows.sort_by(|a, b| {
+            key_desc(b.2.spp.change_pct).total_cmp(&key_desc(a.2.spp.change_pct))
+        }),
+        "steady" => rows.sort_by(|a, b| {
+            let sa = a.2.job.fit.as_ref().map(|f| f.steady).unwrap_or(false);
+            let sb = b.2.job.fit.as_ref().map(|f| f.steady).unwrap_or(false);
+            sb.cmp(&sa)
+                .then_with(|| key_desc(b.2.job.latest).total_cmp(&key_desc(a.2.job.latest)))
+        }),
+        _ => rows.sort_by(|a, b| key_desc(b.2.job.latest).total_cmp(&key_desc(a.2.job.latest))),
+    }
+
+    let mut h = String::with_capacity(80_000);
+    h.push_str(
+        "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+         <div class=\"flex flex-wrap items-center justify-between gap-3 mb-1\">\
+         <h3 class=\"text-slate-100 font-bold\">職種の一覧</h3>",
+    );
+    h.push_str(&sort_selector(spec));
+    h.push_str("</div>");
+    h.push_str(&format!(
+        "<p class=\"text-slate-400 text-xs mb-3 leading-relaxed\">{}　\
+         全 {n} 職種を出しています。抜き出さずに、並び順で見たいことを示しています。</p>",
+        esc(spec.note),
+        n = rows.len()
+    ));
+
+    h.push_str(
+        "<div style=\"overflow-x:auto\"><table class=\"w-full text-sm border-collapse\" style=\"min-width:760px\"><thead><tr>",
+    );
+    for (name, align) in [
+        ("職種", "left"),
+        ("分類", "left"),
+        ("求人数（最新月）", "right"),
+        ("求人数の変化", "right"),
+        ("1求人あたり", "right"),
+        ("その変化", "right"),
+        ("動き方", "left"),
+    ] {
+        h.push_str(&format!(
+            "<th scope=\"col\" class=\"text-slate-400 font-medium px-3 py-2 border-b border-slate-700\" style=\"text-align:{align}\">{name}</th>"
+        ));
+    }
+    h.push_str("</tr></thead><tbody>");
+
+    let td = "px-3 py-2 border-b border-slate-800 text-slate-200";
+    for (name, cat, o) in &rows {
+        h.push_str(&format!(
+            "<tr><th scope=\"row\" class=\"{td} font-normal\" style=\"text-align:left\">{n}</th>\
+             <td class=\"{td} text-slate-400\">{c}</td>\
+             <td class=\"{td} tabular-nums\" style=\"text-align:right\">{j}</td>\
+             <td class=\"{td} tabular-nums {jc}\" style=\"text-align:right\">{ja} {jp}</td>\
+             <td class=\"{td} tabular-nums\" style=\"text-align:right\">{s}</td>\
+             <td class=\"{td} tabular-nums {sc}\" style=\"text-align:right\">{sa} {sp}</td>\
+             <td class=\"{td} text-slate-300\">{t}</td></tr>",
+            n = esc(name),
+            c = esc(cat),
+            j = num_opt(o.job.latest),
+            jc = dir_class(o.job.change_pct, true),
+            ja = arrow(o.job.change_pct),
+            jp = pct_opt(o.job.change_pct),
+            s = dec1_opt(o.spp.latest),
+            sc = dir_class(o.spp.change_pct, true),
+            sa = arrow(o.spp.change_pct),
+            sp = pct_opt(o.spp.change_pct),
+            t = esc(o.job.label_trend)
+        ));
+    }
+    h.push_str("</tbody></table></div></div>");
+    h
+}
