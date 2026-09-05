@@ -1,4 +1,5 @@
-pub mod call_quality;   // 2026-08-14: GAS版ダッシュボードの移植先
+pub mod call_quality;
+pub mod sales_kpi;   // 2026-09-05: 営業KPI（現場版）
 pub mod admin;
 pub mod analysis;
 pub mod api;
@@ -15,6 +16,7 @@ pub mod driver;
 pub mod emp_classifier;
 pub mod guide;
 pub mod helpers;
+pub mod indeed;
 pub mod insight;
 pub mod integrated_report;
 pub mod jobmap;

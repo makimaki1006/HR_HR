@@ -1,0 +1,467 @@
+//! 営業KPI: ルーティングと集計の組み立て
+//!
+//! パスの規約は架電クオリティに揃える（`/api/<領域>/<資源>`・ハイフン区切り）。
+//!   ページ `/sales-kpi`
+//!   API    `/api/sales-kpi/data`
+//!
+//! サーバは画面の見た目を組み立てない。返すのは集計済みの素の JSON だけで、
+//! グラフや表の組み立てはクライアント側に置く（架電クオリティと同じ方針）。
+//!
+//! 常駐リソース（SheetsClient / SheetStore）は架電クオリティのものを borrow する。
+//! **同じスプレッドシートなので、別に持つとキャッシュが二重になって
+//! Sheets を無駄に2回叩く**。
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use askama::Template;
+use axum::extract::Query;
+use axum::response::{Html, IntoResponse, Response};
+use axum::routing::get;
+use axum::{Json, Router};
+use chrono::{Datelike, Duration, FixedOffset, NaiveDate, Utc};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use tower_sessions::Session;
+
+use crate::handlers::call_quality::routes::{cq_state, CqError};
+use crate::AppState;
+use crate::SESSION_USER_KEY;
+
+use super::{
+    classify, deal_row, deals_of, is_bpo, kaden_of, kaden_period, load, members_of, Counts, Deal,
+    DealRow, Kind, Person, Sheets, SHEET_META,
+};
+
+/// 日本時間。サーバのタイムゾーン設定に依存させない。
+fn jst() -> FixedOffset {
+    FixedOffset::east_opt(9 * 3600).expect("JST")
+}
+
+fn today_jst() -> NaiveDate {
+    Utc::now().with_timezone(&jst()).date_naive()
+}
+
+/// `yyyy-MM-dd 00:00`。シートの日時と辞書順で比べるための形。
+fn at_midnight(date: NaiveDate) -> String {
+    format!("{date} 00:00")
+}
+
+fn ymd(date: NaiveDate) -> String {
+    date.format("%Y-%m-%d").to_string()
+}
+
+fn month_first(date: NaiveDate) -> NaiveDate {
+    NaiveDate::from_ymd_opt(date.year(), date.month(), 1).unwrap_or(date)
+}
+
+fn next_month_first(date: NaiveDate) -> NaiveDate {
+    let (y, m) = if date.month() == 12 {
+        (date.year() + 1, 1)
+    } else {
+        (date.year(), date.month() + 1)
+    };
+    NaiveDate::from_ymd_opt(y, m, 1).unwrap_or(date)
+}
+
+fn prev_month_first(date: NaiveDate) -> NaiveDate {
+    let first = month_first(date);
+    month_first(first - Duration::days(1))
+}
+
+/// 月曜はじまりの週頭。
+fn week_start(date: NaiveDate) -> NaiveDate {
+    date - Duration::days(date.weekday().num_days_from_monday() as i64)
+}
+
+fn days_between(from: NaiveDate, to: NaiveDate) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut d = from;
+    while d < to {
+        out.push(ymd(d));
+        d += Duration::days(1);
+    }
+    out
+}
+
+pub fn router() -> Router<std::sync::Arc<AppState>> {
+    Router::new()
+        .route("/sales-kpi", get(page))
+        .route("/api/sales-kpi/data", get(data))
+}
+
+#[derive(Template)]
+#[template(path = "tabs/sales_kpi.html")]
+struct SalesKpiTemplate {
+    user: String,
+}
+
+async fn page(session: Session) -> Result<Html<String>, CqError> {
+    let user: String = session
+        .get(SESSION_USER_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    SalesKpiTemplate { user }
+        .render()
+        .map(Html)
+        .map_err(|e| CqError::from_anyhow("sales-kpi", anyhow::anyhow!("画面の組み立てに失敗: {e}")))
+}
+
+#[derive(Debug, Deserialize)]
+struct DataQuery {
+    /// `1` を渡すとキャッシュを捨てて読み直す。
+    refresh: Option<String>,
+}
+
+/// 画面がそのまま使える形の JSON を1本で返す。
+///
+/// 分けて何本も叩かせないのは、どの数字も同じ日の同じシートから作らないと
+/// 画面の中で食い違うため（「取ったアポ」と「やった商談」が別時点になる）。
+async fn data(Query(q): Query<DataQuery>, session: Session) -> Result<Response, CqError> {
+    let _ = session;
+    let state = cq_state()?;
+    if q.refresh.as_deref() == Some("1") {
+        for name in [
+            super::SHEET_SHODAN,
+            super::SHEET_APO,
+            super::SHEET_CYOMI,
+            super::SHEET_KADEN,
+            super::SHEET_KADEN_LIST,
+            super::SHEET_MEMBER,
+            SHEET_META,
+        ] {
+            state.store.invalidate(Some(name)).await;
+        }
+    }
+    let sheets = load(&state.client, &state.store)
+        .await
+        .map_err(|e| CqError::from_anyhow("sales-kpi", e))?;
+
+    Ok(Json(build_payload(&sheets, today_jst())).into_response())
+}
+
+/// シートと「今日」から、画面がそのまま使える JSON を作る。
+///
+/// `data()` から切り出してあるのは、**実データのシートを読み込んで
+/// Python 版（これまでの画面）と突き合わせるテストを書くため**。
+/// 今日を引数で受けるので、過去の日付でも同じ結果を再現できる。
+pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
+    let members = members_of(&sheets.member);
+    let cutoff = at_midnight(today);
+    let month_lo = at_midnight(month_first(today));
+    let month_hi = at_midnight(next_month_first(today));
+    let prev_month_lo = at_midnight(prev_month_first(today));
+    let wk = week_start(today);
+    let week_lo = at_midnight(wk);
+    let week_hi = at_midnight(wk + Duration::days(7));
+    let next_hi = at_midnight(wk + Duration::days(14));
+    let stale_from = at_midnight(today - Duration::days(super::STALE_DAYS));
+
+    let all = deals_of(&sheets.shodan);
+    let bpo_of = |d: &Deal| is_bpo(d, &prev_month_lo, &month_hi);
+
+    // ---- 当月の母集団を仕分ける ----------------------------------------
+    let mut by_team: BTreeMap<String, Counts> = BTreeMap::new();
+    let mut by_person: BTreeMap<String, Counts> = BTreeMap::new();
+    let mut bpo_total: Counts = Counts::new();
+    let mut people: HashMap<String, Person> = HashMap::new();
+
+    let mut add = |team: &str, owner: &str, key: &str| {
+        *by_team
+            .entry(team.to_string())
+            .or_default()
+            .entry(key.to_string())
+            .or_insert(0) += 1;
+        *by_person
+            .entry(owner.to_string())
+            .or_default()
+            .entry(key.to_string())
+            .or_insert(0) += 1;
+    };
+
+    let month: Vec<&Deal> = all
+        .iter()
+        .filter(|d| d.scheduled.as_str() >= month_lo.as_str() && d.scheduled.as_str() < month_hi.as_str())
+        .collect();
+
+    for deal in &month {
+        let person = members.get(&deal.owner);
+        let team = person
+            .map(|p| p.team.clone())
+            .unwrap_or_else(|| "チーム未設定".to_string());
+        people.entry(deal.owner.clone()).or_insert_with(|| Person {
+            id: deal.owner.clone(),
+            name: person
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| if deal.owner.is_empty() { "担当なし".into() } else { format!("owner_{}", deal.owner) }),
+            team: team.clone(),
+        });
+
+        let (kind, _) = classify(deal, &cutoff);
+        let bpo = bpo_of(deal);
+        add(&team, &deal.owner, "pool");
+        add(&team, &deal.owner, kind.label());
+        if bpo {
+            add(&team, &deal.owner, "bpo_pool");
+            add(&team, &deal.owner, &format!("bpo_{}", kind.label()));
+            *bpo_total.entry("pool".into()).or_insert(0) += 1;
+            *bpo_total.entry(kind.label().into()).or_insert(0) += 1;
+        }
+
+        // ⑤ アンケートは「今月かつ今日までに商談日が来たもの」を分母にする。
+        //    これから先の商談を分母に入れると、まだ回収する時間があるものまで
+        //    「未回収」に見えてしまう（2026-09-04 ユーザー指示）。
+        if deal.scheduled.as_str() < cutoff.as_str() {
+            add(&team, &deal.owner, "anq_den");
+            if bpo {
+                add(&team, &deal.owner, "bpo_anq_den");
+            }
+            if deal.has_survey {
+                add(&team, &deal.owner, "anq_num");
+                if bpo {
+                    add(&team, &deal.owner, "bpo_anq_num");
+                }
+            }
+        }
+    }
+
+    // ---- ① 取ったアポ --------------------------------------------------
+    for deal in deals_of(&sheets.apo) {
+        let person = members.get(&deal.owner);
+        let team = person
+            .map(|p| p.team.clone())
+            .unwrap_or_else(|| "チーム未設定".to_string());
+        people.entry(deal.owner.clone()).or_insert_with(|| Person {
+            id: deal.owner.clone(),
+            name: person
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| if deal.owner.is_empty() { "担当なし".into() } else { format!("owner_{}", deal.owner) }),
+            team: team.clone(),
+        });
+        add(&team, &deal.owner, "apo");
+        // ① は当月に確定したアポなので、BPO 判定も当月の取得日に限る
+        if is_bpo(&deal, &month_lo, &month_hi) {
+            add(&team, &deal.owner, "bpo_apo");
+        }
+    }
+
+    // ---- ⑨ Cヨミ --------------------------------------------------------
+    let mut cyomi_stale: Vec<DealRow> = Vec::new();
+    for deal in deals_of(&sheets.cyomi) {
+        let person = members.get(&deal.owner);
+        let team = person
+            .map(|p| p.team.clone())
+            .unwrap_or_else(|| "チーム未設定".to_string());
+        people.entry(deal.owner.clone()).or_insert_with(|| Person {
+            id: deal.owner.clone(),
+            name: person
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| if deal.owner.is_empty() { "担当なし".into() } else { format!("owner_{}", deal.owner) }),
+            team: team.clone(),
+        });
+        add(&team, &deal.owner, "cyomi");
+        if bpo_of(&deal) {
+            add(&team, &deal.owner, "bpo_cyomi");
+        }
+        if let Some(days) = days_since(&deal.entered_c, today) {
+            if days >= super::CYOMI_STALE_DAYS {
+                add(&team, &deal.owner, "cyomi_stale");
+                let mut row = deal_row(&deal, Kind::Unknown, "Cヨミのまま".into(), &members, bpo_of(&deal));
+                row.days = Some(days);
+                cyomi_stale.push(row);
+            }
+        }
+    }
+    cyomi_stale.sort_by(|a, b| b.days.cmp(&a.days));
+
+    // ---- 止まっている取引（予定日を過ぎてアポ日確定のまま）--------------
+    let mut stale: Vec<DealRow> = all
+        .iter()
+        .filter(|d| {
+            (d.stage == super::ST_APO || d.stage == super::ST_APO_BPO)
+                && d.scheduled.as_str() >= stale_from.as_str()
+                && d.scheduled.as_str() < cutoff.as_str()
+        })
+        .map(|d| deal_row(d, Kind::Stuck, "アポ日確定のまま".into(), &members, bpo_of(d)))
+        .collect();
+    stale.sort_by(|a, b| a.date.cmp(&b.date));
+
+    // ---- 今週・来週 ------------------------------------------------------
+    let week_rows = |lo: &str, hi: &str| -> Vec<DealRow> {
+        let mut rows: Vec<DealRow> = all
+            .iter()
+            .filter(|d| d.scheduled.as_str() >= lo && d.scheduled.as_str() < hi)
+            .map(|d| {
+                let (kind, why) = classify(d, &cutoff);
+                let mut row = deal_row(d, kind, why, &members, bpo_of(d));
+                row.past = Some(d.scheduled.as_str() < cutoff.as_str());
+                row.anq = Some(d.has_survey);
+                row
+            })
+            .collect();
+        rows.sort_by(|a, b| (a.date.as_str(), a.time.as_str()).cmp(&(b.date.as_str(), b.time.as_str())));
+        rows
+    };
+    let this_week = week_rows(&week_lo, &week_hi);
+    let next_week = week_rows(&week_hi, &next_hi);
+
+    // アンケート未回収は「これから商談があるのに、まだアンケートが無い」もの
+    let anq_missing: Vec<Value> = this_week
+        .iter()
+        .chain(next_week.iter())
+        .filter(|r| r.past == Some(false) && r.anq == Some(false))
+        .map(|r| serde_json::to_value(r).unwrap_or(Value::Null))
+        .collect();
+
+    // ---- 架電リストの状態 -------------------------------------------------
+    let (kaden_block, kaden_base) = kaden_list_block(&sheets.kaden_list);
+
+    // ---- Zoom の架電 ------------------------------------------------------
+    let kaden_rows = kaden_of(&sheets.kaden);
+    let have_days: HashSet<&str> = kaden_rows.iter().map(|r| r.date.as_str()).collect();
+    // シートにある最後の日を「今日」として扱う。GAS は前日ぶんを朝に書くので、
+    // 実際の today にはまだ行が無いことが多い。無い日を today として出すと
+    // 画面が「今日は0件」と嘘をつく。
+    let last_day = kaden_rows.iter().map(|r| r.date.as_str()).max().unwrap_or("").to_string();
+    let last_date = NaiveDate::parse_from_str(&last_day, "%Y-%m-%d").unwrap_or(today);
+    let kwk = week_start(last_date);
+    let this_week_days: Vec<String> = days_between(kwk, last_date + Duration::days(1))
+        .into_iter()
+        .filter(|d| have_days.contains(d.as_str()))
+        .collect();
+    let prev_week_days: Vec<String> = days_between(kwk - Duration::days(7), kwk);
+    let prev_same: Vec<String> = prev_week_days
+        .iter()
+        .take(this_week_days.len())
+        .cloned()
+        .collect();
+    let month_days: Vec<String> = days_between(month_first(last_date), last_date + Duration::days(1))
+        .into_iter()
+        .filter(|d| have_days.contains(d.as_str()))
+        .collect();
+
+    let mut daily: Vec<Value> = Vec::new();
+    let mut per_day: BTreeMap<&str, (i64, i64, i64)> = BTreeMap::new();
+    for row in &kaden_rows {
+        let e = per_day.entry(row.date.as_str()).or_insert((0, 0, 0));
+        e.0 += row.calls;
+        e.1 += row.connected;
+        e.2 += row.long;
+    }
+    for (date, (calls, connected, long)) in &per_day {
+        daily.push(json!({"date": date, "calls": calls, "connected": connected, "long": long}));
+    }
+
+    let mut unmatched_by_dept: BTreeMap<String, i64> = BTreeMap::new();
+    for row in kaden_rows.iter().filter(|r| r.owner.is_empty()) {
+        *unmatched_by_dept
+            .entry(if row.dept.is_empty() { "(不明)".into() } else { row.dept.clone() })
+            .or_insert(0) += row.calls;
+    }
+    let mut unmatched: Vec<(String, i64)> = unmatched_by_dept.into_iter().collect();
+    unmatched.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let calls = json!({
+        "generated_at": last_day,
+        "rule": {
+            "calls": "Zoomの通話ログのうち direction=outbound を1件と数える",
+            "connected": "result が Auto Recorded のもの。現場が「架電数」と呼んでいるのはこの数",
+            "long": "通話 300 秒超。過去分析でアポ獲得との相関が高かった指標",
+            "join": "call_logs に caller_email が無いため Zoomユーザーのメール → HubSpot担当者のメールで紐づけ",
+        },
+        "periods": {
+            "today": kaden_period(&kaden_rows, std::slice::from_ref(&last_day), &members),
+            "yesterday": kaden_period(&kaden_rows, &[ymd(last_date - Duration::days(1))], &members),
+            "this_week": kaden_period(&kaden_rows, &this_week_days, &members),
+            "prev_week_same": kaden_period(&kaden_rows, &prev_same, &members),
+            "prev_week": kaden_period(&kaden_rows, &prev_week_days, &members),
+            "this_month": kaden_period(&kaden_rows, &month_days, &members),
+        },
+        "daily": daily,
+        "people": people_list(&people),
+        "unmatched_by_dept": unmatched.into_iter().collect::<BTreeMap<_, _>>(),
+    });
+
+    // ---- 取得条件 ---------------------------------------------------------
+    let mut meta: BTreeMap<String, String> = BTreeMap::new();
+    for row in &sheets.meta.rows {
+        meta.insert(
+            sheets.meta.get(row, "項目").to_string(),
+            sheets.meta.get(row, "値").to_string(),
+        );
+    }
+
+    let teams: Vec<String> = by_team.keys().cloned().collect();
+    let body = json!({
+        "generated_at": meta.get("取得時刻").cloned().unwrap_or_else(|| ymd(today)),
+        "week": {"start": ymd(wk), "end": ymd(wk + Duration::days(6))},
+        "next_week": {"start": ymd(wk + Duration::days(7)), "end": ymd(wk + Duration::days(13))},
+        "stale_days": super::STALE_DAYS,
+        "bpo_rule": "BPOアポ取得日が当月または前月にあるものをBPO経由とする。このプロパティは過去のBPOアポの日付が残り続けるため、値の有無では判定できない（現場指摘）",
+        "teams": teams,
+        "by_team": by_team,
+        "by_person": by_person,
+        "people": people_list(&people),
+        "bpo_total": bpo_total,
+        "stale": stale,
+        "week_deals": this_week,
+        "next_week_deals": next_week,
+        "anq_missing": anq_missing,
+        "cyomi_stale": cyomi_stale,
+        "kaden": kaden_block,
+        "kaden_base": kaden_base,
+        "calls": calls,
+        // 週次スナップショットはまだ持っていない（黙って省略しないための明示）。
+        // GAS 側に週1回シートへ追記する処理を足したら、ここでそれを読む。
+        "snapshots": Value::Array(vec![]),
+        "meta": meta,
+        "from_cache": sheets.all_cached,
+    });
+
+    body
+}
+
+fn people_list(people: &HashMap<String, Person>) -> Vec<&Person> {
+    let mut v: Vec<&Person> = people.values().collect();
+    v.sort_by(|a, b| (a.team.as_str(), a.name.as_str()).cmp(&(b.team.as_str(), b.name.as_str())));
+    v
+}
+
+/// `yyyy-MM-dd HH:mm` から今日までの日数。空・壊れていれば None。
+fn days_since(text: &str, today: NaiveDate) -> Option<i64> {
+    let date = NaiveDate::parse_from_str(text.get(..10)?, "%Y-%m-%d").ok()?;
+    Some((today - date).num_days())
+}
+
+/// 架電リストの状態（未架電／未接触／接触済み）と入力状況をまとめる。
+fn kaden_list_block(sheet: &crate::handlers::call_quality::sheets::SheetData) -> (Value, i64) {
+    let mut composition = Vec::new();
+    let mut cls: BTreeMap<String, i64> = BTreeMap::new();
+    let mut fill: BTreeMap<String, i64> = BTreeMap::new();
+    let mut total = 0i64;
+    for row in &sheet.rows {
+        let kind = sheet.get(row, "区分");
+        let name = sheet.get(row, "名前");
+        let group = sheet.get(row, "分類");
+        let count = sheet.get(row, "件数").replace(',', "").parse::<i64>().unwrap_or(0);
+        match kind {
+            "ステージ" => {
+                composition.push(json!({"stage": name, "cls": group, "count": count}));
+                *cls.entry(group.to_string()).or_insert(0) += count;
+            }
+            "合計" => total = count,
+            "充足" => {
+                fill.insert(name.to_string(), count);
+            }
+            _ => {}
+        }
+    }
+    let base = cls.get("未架電").copied().unwrap_or(0)
+        + cls.get("未接触").copied().unwrap_or(0)
+        + cls.get("接触済み").copied().unwrap_or(0);
+    (
+        json!({"composition": composition, "base": base, "total": total, "cls": cls, "fill": fill}),
+        base,
+    )
+}
