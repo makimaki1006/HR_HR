@@ -12,6 +12,7 @@
 pub mod render;
 pub mod report;
 pub mod tab;
+pub mod title;
 
 use std::sync::Arc;
 
@@ -26,5 +27,7 @@ use crate::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/tab/indeed", get(tab::tab_indeed))
+        // 職種 1 つを深く見る。名前で参照する（この分析層の主キーは職種名）
+        .route("/tab/indeed/title", get(title::tab_indeed_title))
         .route("/report/indeed", get(report::report_indeed))
 }

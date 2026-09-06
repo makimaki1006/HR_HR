@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use super::render::{
     arrow, category_table_html, dec1_opt, dir_class, esc, indexed_chart, line_chart, metric_card,
-    num_opt, pct_opt,
+    num_opt, pct_opt, url_query,
 };
 use crate::indeed::aggregate::{
     category_table, nation_overview, pref_overview, pref_title_overviews, Overview,
@@ -86,7 +86,8 @@ fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String
     h.push_str(&format!(
         "<div class=\"flex flex-wrap items-end justify-between gap-3\">\
          <div><h2 class=\"text-xl font-bold text-gray-100\">Indeed 採用市場（社内用）</h2>\
-         <p class=\"text-slate-400 text-sm mt-1\">{period}／{n} 職種・{np} 都道府県・{src}</p></div>\
+         <p class=\"text-slate-400 text-sm mt-1\">{period}／{n} 職種・{np} 都道府県・{src}</p>\
+         {sample}</div>\
          {selector}</div>",
         period = esc(&format!(
             "{} 〜 {}",
@@ -94,6 +95,21 @@ fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String
             snap.meta.latest
         )),
         n = snap.titles.len(),
+        // 合計に入っている職種の数を必ず書く。母集団が月で変わると比べられない
+        sample = {
+            let nc = snap.complete_titles();
+            let part = snap.titles.len() - nc;
+            if part == 0 {
+                String::new()
+            } else {
+                format!(
+                    "<p class=\"text-slate-500 text-xs mt-1 leading-relaxed\">\
+                     合計は、全期間そろっている {nc} 職種で出しています。\
+                     残り {part} 職種は月が欠けているため、下の一覧には出しますが合計には入れていません\
+                     （母集団が月によって変わると、先月比が実態と関係なく動くためです）。</p>"
+                )
+            }
+        },
         np = prefs.len(),
         src = esc(&snap.meta.source),
         selector = format!(
@@ -154,6 +170,11 @@ fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String
         s1 = esc(&overview.job.sentence),
         s2 = esc(&overview.spp.sentence)
     ));
+
+    // 業界（全国のみ。県で絞ると 1 業界あたりの月次が薄くなる）
+    if pref.is_none() {
+        h.push_str(&industry_section(snap, months));
+    }
 
     // 分類（全国のみ。県で絞ると分類別の月次が薄くなる）
     if pref.is_none() {
@@ -379,7 +400,10 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
     let td = "px-3 py-2 border-b border-slate-800 text-slate-200";
     for (name, cat, o) in &rows {
         h.push_str(&format!(
-            "<tr><th scope=\"row\" class=\"{td} font-normal\" style=\"text-align:left\">{n}</th>\
+            "<tr><th scope=\"row\" class=\"{td} font-normal\" style=\"text-align:left\">\
+             <a class=\"text-sky-400 hover:underline\" href=\"/tab/indeed/title?name={q}\" \
+                hx-get=\"/tab/indeed/title?name={q}\" hx-target=\"#content\" hx-swap=\"innerHTML\" \
+                hx-push-url=\"true\">{n}</a></th>\
              <td class=\"{td} text-slate-400\">{c}</td>\
              <td class=\"{td} tabular-nums\" style=\"text-align:right\">{j}</td>\
              <td class=\"{td} tabular-nums {jc}\" style=\"text-align:right\">{ja} {jp}</td>\
@@ -387,6 +411,7 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
              <td class=\"{td} tabular-nums {sc}\" style=\"text-align:right\">{sa} {sp}</td>\
              <td class=\"{td} text-slate-300\">{t}</td></tr>",
             n = esc(name),
+            q = url_query(name),
             c = esc(cat),
             j = num_opt(o.job.latest),
             jc = dir_class(o.job.change_pct, true),
@@ -400,5 +425,181 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
         ));
     }
     h.push_str("</tbody></table></div></div>");
+    h
+}
+
+/// 5 業界のまとめ。
+///
+/// # なぜ 20 分類の前に置くか
+/// 20 個並べても、見る人は自分が話す相手がどこにいるか探せない。
+/// 先に 5 つで全体像を見てから、細かい分類に降りる。
+///
+/// # まとめ方は顧客に配る見本と同じ
+/// [`crate::indeed::industry`] を使う。紙とアプリで違うまとめ方をすると、
+/// 同じ会社の話が食い違う。5 つに入らないものは無理に入れず、別枠で数える。
+fn industry_section(snap: &Snapshot, months: &[String]) -> String {
+    use crate::indeed::aggregate::{industry_series, industry_table};
+    use crate::indeed::industry;
+
+    let rows = industry_table(snap);
+    if rows.is_empty() {
+        return String::new();
+    }
+    let series_by_industry = industry_series(snap);
+    let td = "px-3 py-2 border-b border-slate-800 text-slate-200";
+    let th = "text-slate-400 font-medium px-3 py-2 border-b border-slate-700";
+
+    let mut h = String::with_capacity(30_000);
+    h.push_str(
+        "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+         <h3 class=\"text-slate-100 font-bold mb-1\">業界ごとの動き（5 業界）</h3>\
+         <p class=\"text-slate-400 text-xs mb-3 leading-relaxed\">\
+         Indeed の 20 分類のうち、募集する会社が重なるものを 5 つにまとめています。\
+         顧客に配る見本と同じまとめ方です。5 つに入らない職種は、無理に入れず別枠で数えています。\
+         「先月比」と「前年同月比」は素の比で、「動き方」は月ごとの上下をならした線から出しています。</p>",
+    );
+
+    // --- 表 ---
+    h.push_str(
+        "<div style=\"overflow-x:auto\"><table class=\"w-full text-sm border-collapse\" \
+         style=\"min-width:860px\"><thead><tr>",
+    );
+    for (n, a) in [
+        ("業界", "left"),
+        ("職種数", "right"),
+        ("求人数（最新月）", "right"),
+        ("全体に占める割合", "right"),
+        ("先月比", "right"),
+        ("前年同月比", "right"),
+        ("1求人あたり", "right"),
+        ("動き方", "left"),
+    ] {
+        h.push_str(&format!(
+            "<th scope=\"col\" class=\"{th}\" style=\"text-align:{a}\">{n}</th>"
+        ));
+    }
+    h.push_str("</tr></thead><tbody>");
+    for r in &rows {
+        h.push_str(&format!(
+            "<tr><th scope=\"row\" class=\"{td} font-normal\" style=\"text-align:left\">{n}</th>\
+             <td class=\"{td}\" style=\"text-align:right\">{t}</td>\
+             <td class=\"{td} tabular-nums\" style=\"text-align:right\">{j}</td>\
+             <td class=\"{td} tabular-nums text-slate-400\" style=\"text-align:right\">{sh}</td>\
+             <td class=\"{td} tabular-nums {mc}\" style=\"text-align:right\">{ma} {m}</td>\
+             <td class=\"{td} tabular-nums {yc}\" style=\"text-align:right\">{ya} {y}</td>\
+             <td class=\"{td} tabular-nums\" style=\"text-align:right\">{s}</td>\
+             <td class=\"{td} text-slate-300\">{tr}</td></tr>",
+            n = esc(&r.name),
+            t = r.titles,
+            j = num_opt(r.job_latest),
+            sh = match r.share_pct {
+                Some(v) => format!("{v:.1}%"),
+                None => "—".to_string(),
+            },
+            mc = dir_class(r.job_mom_pct, true),
+            ma = arrow(r.job_mom_pct),
+            m = pct_opt(r.job_mom_pct),
+            yc = dir_class(r.job_yoy_pct, true),
+            ya = arrow(r.job_yoy_pct),
+            y = pct_opt(r.job_yoy_pct),
+            s = dec1_opt(r.spp_latest),
+            tr = esc(r.trend)
+        ));
+    }
+    // 合計は業界を足し直さず、全国の集計をそのまま置く。
+    // 足し直すと丸めの分だけ全体とずれる。
+    let all = nation_overview(snap);
+    h.push_str(&format!(
+        "<tr class=\"border-t border-slate-600\">\
+         <th scope=\"row\" class=\"{td} font-bold\" style=\"text-align:left\">全体</th>\
+         <td class=\"{td}\" style=\"text-align:right\">{t}</td>\
+         <td class=\"{td} tabular-nums font-bold\" style=\"text-align:right\">{j}</td>\
+         <td class=\"{td} tabular-nums text-slate-400\" style=\"text-align:right\">100.0%</td>\
+         <td class=\"{td} tabular-nums {mc}\" style=\"text-align:right\">{ma} {m}</td>\
+         <td class=\"{td} tabular-nums {yc}\" style=\"text-align:right\">{ya} {y}</td>\
+         <td class=\"{td} tabular-nums\" style=\"text-align:right\">{s}</td>\
+         <td class=\"{td} text-slate-300\">{tr}</td></tr>",
+        t = snap.titles.len(),
+        j = num_opt(all.job.latest),
+        mc = dir_class(all.job.mom_pct, true),
+        ma = arrow(all.job.mom_pct),
+        m = pct_opt(all.job.mom_pct),
+        yc = dir_class(all.job.yoy_pct, true),
+        ya = arrow(all.job.yoy_pct),
+        y = pct_opt(all.job.yoy_pct),
+        s = dec1_opt(all.spp.latest),
+        tr = esc(all.job.label_trend)
+    ));
+    h.push_str("</tbody></table></div>");
+
+    // --- 5 業界を同じ物差しで重ねた図 ---
+    let series: Vec<(String, Vec<Option<f64>>)> = series_by_industry
+        .iter()
+        .filter(|(n, _, _)| n != industry::OUTSIDE)
+        .map(|(n, s, _)| {
+            let ov = Overview::from_series(n, s, months);
+            (n.clone(), ov.job.indexed())
+        })
+        .collect();
+    h.push_str(&format!(
+        "<p class=\"text-slate-400 text-xs mt-4 mb-1\">\
+         最初の月を 100 とした指数。業界ごとに軸を変えると、どれも同じ形に見えてしまいます。</p>{}",
+        line_chart(months, &series, true, 320)
+    ));
+
+    // --- 業界ごとの一行 ---
+    h.push_str("<div class=\"mt-4 space-y-3\">");
+    for r in rows.iter().filter(|r| r.why.is_some()) {
+        let Some((_, s, _)) = series_by_industry.iter().find(|(n, _, _)| *n == r.name) else {
+            continue;
+        };
+        let ov = Overview::from_series(&r.name, s, months);
+        h.push_str(&format!(
+            "<div class=\"bg-navy-900/40 border border-slate-700 rounded p-3\">\
+             <div class=\"flex flex-wrap items-baseline gap-2\">\
+             <span class=\"text-slate-100 font-bold\">{n}</span>\
+             <span class=\"text-slate-400 text-xs\">{t} 職種／全体の {sh}／求人数が多いのは {top}</span></div>\
+             <p class=\"text-slate-300 text-sm mt-1 leading-relaxed\">{s1}</p>\
+             <p class=\"text-slate-300 text-sm leading-relaxed\">{s2}</p>\
+             <p class=\"text-slate-500 text-xs mt-2 leading-relaxed\">まとめ方：{why}</p></div>",
+            n = esc(&r.name),
+            t = r.titles,
+            sh = match r.share_pct {
+                Some(v) => format!("{v:.1}%"),
+                None => "—".to_string(),
+            },
+            top = if r.top_titles.is_empty() {
+                "—".to_string()
+            } else {
+                r.top_titles
+                    .iter()
+                    .map(|s| esc(s))
+                    .collect::<Vec<_>>()
+                    .join("、")
+            },
+            s1 = esc(&ov.job.sentence),
+            s2 = esc(&ov.spp.sentence),
+            why = esc(r.why.unwrap_or(""))
+        ));
+    }
+    h.push_str("</div>");
+
+    // 5 業界に入れなかった職種は、名前まで出す。黙って除くと数字が合わなくなる
+    let outside: Vec<String> = snap
+        .titles
+        .iter()
+        .filter(|t| industry::of_category(&t.category).is_none())
+        .map(|t| format!("{}（{}）", t.name, t.category))
+        .collect();
+    if !outside.is_empty() {
+        h.push_str(&format!(
+            "<p class=\"text-slate-400 text-xs mt-3 leading-relaxed\">\
+             5 業界に入れていない職種：{}。数字は上の「{}」の行に入っています。</p>",
+            esc(&outside.join("、")),
+            esc(industry::OUTSIDE)
+        ));
+    }
+
+    h.push_str("</div>");
     h
 }

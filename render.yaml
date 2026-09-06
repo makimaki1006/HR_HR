@@ -19,6 +19,17 @@ services:
         value: "f-a-c.co.jp"
       - key: HELLOWORK_DB_PATH
         value: "data/hellowork.db"
+      # 架電クオリティ(/call-quality) と 営業KPI(/sales-kpi) が読む
+      # スプレッドシート「リクロジ分析_Hubspot」。この2つが無いと
+      # 両方のページが 503（not_configured）を返す。
+      # 値は Render のダッシュボードで設定する（リポジトリに置かない）。
+      - key: SPREADSHEET_ID
+        sync: false
+      # Google サービスアカウントの鍵を base64 にしたもの。
+      # 手元の credentials/call_quality_sa.json と同じ鍵。
+      #   base64 -w0 call_quality_sa.json
+      - key: GOOGLE_SA_KEY_B64
+        sync: false
       - key: TURSO_EXTERNAL_URL
         sync: false
       - key: TURSO_EXTERNAL_TOKEN

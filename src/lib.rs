@@ -647,6 +647,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // ======== 資格カルテタブ (license / 免許・資格情報) ========
         // 出典: JILPT 職業情報データベース 資格情報 ver.7.01
         .merge(handlers::license::router())
+        // ======== Indeed 採用市場（社内タブ + 顧客レポート） ========
+        // /tab/indeed は社内用。/report/indeed は INDEED_PUBLIC=on まで 404。
+        // 認証の route_layer より前に置くこと（後ろだと認証が掛からない）。
+        .merge(handlers::indeed::router())
         // ======== 辞書カード API (ジャーニーマップのホバー用、2026-08-05) ========
         // 資格辞書 / 職種辞典と同じテーブルの読み取り専用・軽量 JSON。
         // GET /api/dict/license_card?name=... / GET /api/dict/occupation_card?name=...
