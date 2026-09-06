@@ -20,6 +20,7 @@ pub mod aggregate;
 pub mod data;
 pub mod detail;
 pub mod industry;
+pub mod season;
 pub mod trend;
 pub mod wording;
 

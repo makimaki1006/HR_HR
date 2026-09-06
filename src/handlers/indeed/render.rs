@@ -605,6 +605,57 @@ pub fn dumbbell_chart(
     )
 }
 
+/// 縦棒。基準線を 1 本引ける。
+///
+/// # なぜ横棒と分けるのか
+/// 横棒は「順位」を見る形で、47 県のように順序に意味がある並びに使う。
+/// 暦月 1〜12 のように**並び順が決まっていて量を比べたい**ものは縦棒のほうが
+/// 読みやすい。同じ形にすると、順位の図と季節の図が見分けられなくなる。
+pub fn vbar_chart(
+    labels: &[String],
+    values: &[Option<f64>],
+    unit: &str,
+    baseline: Option<(f64, &str)>,
+    dark: bool,
+    height: u32,
+) -> String {
+    let ax = axis_color(dark);
+    let pal = palette(dark);
+    let mark = match baseline {
+        Some((v, name)) => format!(
+            ",\"markLine\":{{\"silent\":true,\"symbol\":\"none\",\
+             \"lineStyle\":{{\"color\":\"{c1}\",\"type\":\"dashed\",\"width\":1}},\
+             \"label\":{{\"formatter\":\"{n}\",\"color\":\"{c1}\",\"fontSize\":10,\"position\":\"end\"}},\
+             \"data\":[{{\"yAxis\":{v:.3}}}]}}",
+            n = json_str(name),
+            c1 = pal[1],
+            v = v
+        ),
+        None => String::new(),
+    };
+    format!(
+        "<div class=\"echart\" style=\"height:{h}px;\" data-chart-config='{{\
+         \"tooltip\":{{\"trigger\":\"axis\",\"axisPointer\":{{\"type\":\"shadow\"}}}},\
+         \"grid\":{{\"left\":\"12%\",\"right\":\"6%\",\"top\":\"10%\",\"bottom\":\"14%\"}},\
+         \"xAxis\":{{\"type\":\"category\",\"data\":[{lb}],\"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}}}},\
+         \"yAxis\":{{\"type\":\"value\",\"name\":\"{u}\",\"scale\":true,\
+         \"nameTextStyle\":{{\"color\":\"{ax}\",\"fontSize\":10}},\
+         \"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}},\"splitLine\":{{\"lineStyle\":{{\"opacity\":0.12}}}}}},\
+         \"series\":[{{\"type\":\"bar\",\"data\":[{d}],\"itemStyle\":{{\"color\":\"{c0}\"}},\"barMaxWidth\":34{mk}}}]}}'></div>",
+        h = height,
+        ax = ax,
+        u = json_str(unit),
+        lb = labels
+            .iter()
+            .map(|l| format!("\"{}\"", json_str(l)))
+            .collect::<Vec<_>>()
+            .join(","),
+        d = series_json(values),
+        c0 = pal[0],
+        mk = mark
+    )
+}
+
 /// 棒と折れ線を 1 枚に重ねる。軸は 2 本。
 ///
 /// 「求人が増えたから 1 求人あたりが薄まった」という関係は、

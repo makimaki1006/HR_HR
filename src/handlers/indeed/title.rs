@@ -24,6 +24,18 @@ use crate::indeed::data::snapshot;
 use crate::indeed::detail::{self, TitleDetail};
 use crate::AppState;
 
+/// 前年比を出してよい月平均の下限。
+///
+/// # なぜ切るのか
+/// 検索ボリュームは粗いきざみで報告される。検索数が少ないほど、
+/// 前年比が市場の動きではなくきざみのぶれになる。実測では
+///
+///     月あたり  〜50 回   前年比の絶対値 中央 23.5%
+///           300 回以上                    9.7%
+///
+/// 施工管理技術者は月 7 回の検索で「前年比 -44.4%」と出ていた。
+const MIN_VOL_FOR_YOY: f64 = 100.0;
+
 #[derive(Debug, Deserialize, Default)]
 pub struct TitleQuery {
     /// 見たい職種名
@@ -424,7 +436,10 @@ fn volume_block(d: &TitleDetail) -> String {
         "<div class=\"{CARD}\"><h3 class=\"text-slate-100 font-bold mb-1\">この職種が検索された量</h3>\
          <p class=\"text-slate-400 text-xs mb-3 leading-relaxed\">\
          検索エンジンの推定値で、月ごとに丸められています。\
-         職種名だけの検索は求職以外の意図も含むため、求職の目安には「職種名＋求人」を見てください。</p>\
+         職種名だけの検索は求職以外の意図も含むため、求職の目安には「職種名＋求人」を見てください。\
+         <strong>月平均が {MIN_VOL_FOR_YOY} 回に満たない行は前年比を出していません。</strong>\
+         丸めのきざみが大きく、市場の動きではなくきざみを見ることになるためです\
+         （実測で、月 50 回未満では前年比の絶対値が中央 23.5%、月 300 回以上では 9.7%）。</p>\
          <div style=\"overflow-x:auto\"><table class=\"w-full text-sm border-collapse\" style=\"min-width:640px\"><thead><tr>"
     );
     for (n, a) in [
@@ -441,6 +456,12 @@ fn volume_block(d: &TitleDetail) -> String {
     }
     h.push_str("</tr></thead><tbody>");
     for v in &d.volumes {
+        // 丸めのきざみが大きい行の前年比は落とす。
+        // 施工管理技術者は月 7 回の検索で「前年比 -44.4%」と出ていた
+        let yoy = match v.avg_monthly {
+            Some(a) if a as f64 >= MIN_VOL_FOR_YOY => v.yoy_pct,
+            _ => None,
+        };
         let label = match v.variant.as_str() {
             "job" => "職種名 ＋ 求人",
             "name" => "職種名だけ",
@@ -456,9 +477,9 @@ fn volume_block(d: &TitleDetail) -> String {
             l = esc(label),
             a = num_opt(v.avg_monthly.map(|x| x as f64)),
             n = num_opt(v.latest.map(|x| x as f64)),
-            dc = dir_class(v.yoy_pct, true),
-            ar = arrow(v.yoy_pct),
-            y = pct_opt(v.yoy_pct),
+            dc = dir_class(yoy, true),
+            ar = arrow(yoy),
+            y = pct_opt(yoy),
             cp = esc(&v.competition),
             bid = match (v.low_bid_yen, v.high_bid_yen) {
                 (Some(a), Some(b)) => format!("{:.0} 〜 {:.0} 円", a, b),
@@ -664,7 +685,7 @@ fn wage_gap_chart(d: &TitleDetail, w: &MinWages) -> String {
          <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
          帯の左端が{y}の最低賃金、右端がこの職種の掲示時給の中央値です。\
          <strong>帯が長いほど、その県では相場が下限から離れています。</strong>\
-         時給で出ている求人だけが対象で、月給・日給の求人は含みません。</p>{chart}\
+         時給で出ている求人だけが対象で、月給・日給の求人は含みません。\n         そのため出ている県は 47 県のうち <strong>{cnt} 県</strong>です。</p>{chart}\
          <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
          いちばん開いているのは{t}（{tv} 円）です。{tail}</p></div>",
         y = match w.fiscal_year {
@@ -682,8 +703,64 @@ fn wage_gap_chart(d: &TitleDetail, w: &MinWages) -> String {
             true,
             height
         ),
+        // 何県ぶんの話なのかを書く。月給で出す職種は時給の掲載が少なく、
+        // 土木技術者は 7 県しか無い。7 本の棒を 47 県の話と読まれないようにする
+        cnt = rows.len(),
         t = esc(&top.0),
         tv = num_opt(Some(top.2 - top.1)),
         tail = tail
     )
+}
+
+#[cfg(test)]
+mod volume_tests {
+    use super::*;
+    use crate::indeed::detail::SearchVolume;
+
+    fn v(avg: i64, yoy: f64) -> SearchVolume {
+        SearchVolume {
+            variant: "job".to_string(),
+            avg_monthly: Some(avg),
+            latest: Some(avg),
+            yoy_pct: Some(yoy),
+            competition: "MEDIUM".to_string(),
+            low_bid_yen: Some(50.0),
+            high_bid_yen: Some(600.0),
+        }
+    }
+
+    fn detail_with(vols: Vec<SearchVolume>) -> TitleDetail {
+        TitleDetail {
+            title: "施工管理技術者".to_string(),
+            volumes: vols,
+            ..Default::default()
+        }
+    }
+
+    /// 検索数が少ない行の前年比は出さない。
+    ///
+    /// 施工管理技術者は月 7 回の検索で「前年比 -44.4%」と出ていた。
+    /// 48 か月の値が 0 か 10 しかなく、丸めのきざみを見ているだけ。
+    /// 実測でも、月 50 回未満は前年比の絶対値が中央 23.5%、
+    /// 月 300 回以上では 9.7% と、データが薄いほど大きく振れる。
+    #[test]
+    fn 検索数が少ない行の前年比は出さない() {
+        let h = volume_block(&detail_with(vec![v(7, -44.4)]));
+        assert!(!h.contains("44.4"), "きざみのぶれを前年比として出している");
+        assert!(h.contains("月平均が 100 回に満たない行は前年比を出していません"));
+    }
+
+    /// 十分な検索数がある行は今までどおり出す。
+    #[test]
+    fn 検索数が足りていれば前年比を出す() {
+        let h = volume_block(&detail_with(vec![v(1300, 9.4)]));
+        assert!(h.contains("9.4"), "出せるはずの前年比が消えている");
+    }
+
+    /// しきい値ちょうどは出す側に入れる。
+    #[test]
+    fn しきい値ちょうどは出す() {
+        let h = volume_block(&detail_with(vec![v(100, 12.0)]));
+        assert!(h.contains("12.0"));
+    }
 }
