@@ -12,8 +12,8 @@ use axum::{
 use serde::Deserialize;
 
 use super::render::{
-    arrow, bar_line_chart, category_table_html, dec1_opt, dir_class, esc, indexed_chart,
-    line_chart, metric_card, num_opt, pct_opt, scatter_chart, url_query,
+    arrow, bar_line_chart, category_table_html, dec1_opt, dir_class, esc, hbar_chart, indexed_chart,
+    line_chart, metric_card, num_opt, pct_opt, scatter_chart, url_query, vbar_chart,
 };
 use crate::indeed::aggregate::{
     category_table, nation_overview, pref_overview, pref_title_overviews, Overview,
@@ -56,7 +56,18 @@ pub async fn tab_indeed(
             return Html(degraded("Indeed 分析データを読めませんでした。"));
         }
     };
-    Html(render_tab(snap, q.pref.as_deref(), q.sort.as_deref()))
+    // 季節の波は別の出どころ（検索エンジンの検索ボリューム）。
+    // 引けなければその節を出さないだけで、他は普通に出す
+    let seasons = crate::indeed::season::load(db).unwrap_or_else(|e| {
+        tracing::warn!("季節の波を読めませんでした: {e}");
+        Vec::new()
+    });
+    Html(render_tab(
+        snap,
+        q.pref.as_deref(),
+        q.sort.as_deref(),
+        &seasons,
+    ))
 }
 
 fn degraded(msg: &str) -> String {
@@ -66,7 +77,12 @@ fn degraded(msg: &str) -> String {
     )
 }
 
-fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String {
+fn render_tab(
+    snap: &Snapshot,
+    pref: Option<&str>,
+    sort: Option<&str>,
+    seasons: &[crate::indeed::season::TitleSeason],
+) -> String {
     let months = &snap.meta.months;
     let prefs = snap.prefectures();
     let pref = pref.filter(|p| !p.is_empty() && prefs.iter().any(|x| x == p));
@@ -196,6 +212,14 @@ fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String
         h.push_str(&scatter_section(snap));
     }
 
+    // 季節の波（全国のみ。県別の検索ボリュームは持っていない）
+    if pref.is_none() {
+        h.push_str(&season_section(seasons));
+    }
+
+    // スマホ比率（職種そのものの性質なので、県で絞っても同じ値）
+    h.push_str(&mobile_section(snap));
+
     // 分類（全国のみ。県で絞ると分類別の月次が薄くなる）
     if pref.is_none() {
         let cats = category_table(snap);
@@ -266,7 +290,7 @@ struct SortSpec {
     note: &'static str,
 }
 
-const SORTS: [SortSpec; 7] = [
+const SORTS: [SortSpec; 8] = [
     SortSpec {
         key: "size",
         label: "求人数が多い順",
@@ -302,6 +326,11 @@ const SORTS: [SortSpec; 7] = [
         label: "動きが一本調子なものを上に",
         note: "月ごとの振れが小さく、傾向として読んでよい職種を上にしています。下にいくほど振れが大きく、1 か月の増減で判断してはいけません。",
     },
+    SortSpec {
+        key: "mobile",
+        label: "スマホで探されている順",
+        note: "スマホからの検索が多い職種を上にしています。求人ページと応募フォームをどちらに合わせるかの手がかりです。この値は職種そのものの性質なので、県を選んでも変わりません。",
+    },
 ];
 
 fn sort_spec(key: Option<&str>) -> &'static SortSpec {
@@ -333,6 +362,13 @@ fn sort_selector(current: &SortSpec) -> String {
 fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String {
     let months = &snap.meta.months;
     let spec = sort_spec(sort);
+
+    // スマホ比率は職種そのものの性質で、県で絞っても変わらない。名前から引く
+    let mobile: std::collections::HashMap<&str, f64> = snap
+        .titles
+        .iter()
+        .filter_map(|t| t.mobile_pct.map(|v| (t.name.as_str(), v)))
+        .collect();
 
     // 全国と県で、行の作り方だけを変える。以降の並べ替えと描画は共通
     let mut rows: Vec<(String, String, Overview)> = match pref {
@@ -381,6 +417,10 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
             sb.cmp(&sa)
                 .then_with(|| key_desc(b.2.job.latest).total_cmp(&key_desc(a.2.job.latest)))
         }),
+        "mobile" => rows.sort_by(|a, b| {
+            key_desc(mobile.get(b.0.as_str()).copied())
+                .total_cmp(&key_desc(mobile.get(a.0.as_str()).copied()))
+        }),
         _ => rows.sort_by(|a, b| key_desc(b.2.job.latest).total_cmp(&key_desc(a.2.job.latest))),
     }
 
@@ -400,7 +440,7 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
     ));
 
     h.push_str(
-        "<div style=\"overflow-x:auto\"><table class=\"w-full text-sm border-collapse\" style=\"min-width:860px\"><thead><tr>",
+        "<div style=\"overflow-x:auto\"><table class=\"w-full text-sm border-collapse\" style=\"min-width:940px\"><thead><tr>",
     );
     for (name, align) in [
         ("職種", "left"),
@@ -410,6 +450,7 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
         ("求人数の変化", "right"),
         ("1求人あたり", "right"),
         ("その変化", "right"),
+        ("スマホ", "right"),
         ("動き方", "left"),
     ] {
         h.push_str(&format!(
@@ -431,6 +472,7 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
              <td class=\"{td} tabular-nums {jc}\" style=\"text-align:right\">{ja} {jp}</td>\
              <td class=\"{td} tabular-nums\" style=\"text-align:right\">{s}</td>\
              <td class=\"{td} tabular-nums {sc}\" style=\"text-align:right\">{sa} {sp}</td>\
+             <td class=\"{td} tabular-nums text-slate-400\" style=\"text-align:right\">{mb}</td>\
              <td class=\"{td} text-slate-300\">{t}</td></tr>",
             n = esc(name),
             q = url_query(name),
@@ -448,6 +490,10 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
             sc = dir_class(o.spp.change_pct, true),
             sa = arrow(o.spp.change_pct),
             sp = pct_opt(o.spp.change_pct),
+            mb = match mobile.get(name.as_str()) {
+                Some(v) => format!("{v:.1}%"),
+                None => "—".to_string(),
+            },
             t = esc(o.job.label_trend)
         ));
     }
@@ -629,6 +675,172 @@ fn industry_section(snap: &Snapshot, months: &[String]) -> String {
 /// 126 行の表は上から読むしかない。「募集は多いのに人が集まっていない」職種を
 /// 探すには、求人数の列と 1 求人あたりの列を目で往復することになる。
 /// 位置に置けば、右下を見るだけで済む。
+/// 季節の波。1 年のうち、いつ求職者が動くか。
+///
+/// # なぜ職種ごとに出さないのか
+/// 検索ボリュームは粗いきざみで報告される。検索数が少ない職種ほど
+/// きざみの影響が大きく出て、**季節の波が大きく見える**。
+///
+///     月あたりの検索数   職種数   peak_ratio の中央
+///          〜50           16          1.28
+///        1000〜           20          1.10
+///
+/// データが良いほど波が小さいので、これは季節ではなくきざみの粗さである。
+/// 施工管理技術者（月 7 回）は 48 か月の値が 0 か 10 しか無く、
+/// 0 を除くと全月 1.00 になる。職種ごとに出すと、この見せかけを
+/// 「3 月に動くべき職種」と読ませてしまう。
+///
+/// 職種をまたいでならすとぶれが打ち消し合い、3 月が山・12 月が谷という
+/// 形が残る。しかも検索数の多い職種に絞るほどはっきりする
+/// （12 月が最小の職種は全体で 42%、月 1000 回以上では 65%）。
+fn season_section(seasons: &[crate::indeed::season::TitleSeason]) -> String {
+    use crate::indeed::season;
+    if seasons.len() < 20 {
+        return String::new();
+    }
+    let idx = season::overall(seasons);
+    if idx.iter().any(|v| v.is_none()) {
+        return String::new();
+    }
+    let labels: Vec<String> = (1..=12).map(|m| format!("{m}月")).collect();
+    let pick = |want_max: bool| -> (String, String) {
+        let mut best: Option<(usize, f64)> = None;
+        for (i, v) in idx.iter().enumerate() {
+            let Some(x) = v else { continue };
+            let better = match best {
+                None => true,
+                Some((_, b)) => {
+                    if want_max {
+                        *x > b
+                    } else {
+                        *x < b
+                    }
+                }
+            };
+            if better {
+                best = Some((i, *x));
+            }
+        }
+        match best {
+            Some((i, x)) => (format!("{} 月", i + 1), format!("{x:.2}")),
+            None => ("—".to_string(), "—".to_string()),
+        }
+    };
+    let (hm, hv) = pick(true);
+    let (lm, lv) = pick(false);
+    let years = seasons.first().map(|s| s.years).unwrap_or(0);
+    let solid = seasons.iter().filter(|s| s.avg_monthly >= 1000.0).count();
+
+    format!(
+        "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+         <h3 class=\"text-slate-100 font-bold mb-1\">1 年のうち、いつ動くか（過去 {y} 年）</h3>\
+         <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
+         検索エンジンで職種名がどれだけ検索されたかを、{n} 職種ぶんならして\
+         暦月ごとに平均したものです。<strong>1.00 が年間の平均</strong>で、\
+         1.10 なら平均より 1 割多い月という意味です。\
+         上の求人数とは<strong>別の出どころ</strong>で、求人の数ではなく\
+         「探している人の動き」を表します。</p>{chart}\
+         <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
+         いちばん多いのは{hm}（{hv}）、少ないのは{lm}（{lv}）です。\
+         差は 2 割ほどで、大きくはありません。</p>\
+         <p class=\"text-slate-500 text-xs mt-2 leading-relaxed\">\
+         職種ごとには出していません。検索数が少ない職種ほど月ごとのきざみが粗く、\
+         波が大きく見えてしまうためです（月 50 回未満の 16 職種では山が年間平均の \
+         1.28 倍、月 1000 回以上の {solid} 職種では 1.10 倍）。\
+         ならすとぶれが打ち消し合い、検索数の多い職種に絞るほどこの形がはっきりします。</p></div>",
+        y = years,
+        n = seasons.len(),
+        chart = vbar_chart(
+            &labels,
+            &idx,
+            "年間平均を 1.00 としたときの比",
+            Some((1.0, "年間平均")),
+            true,
+            300
+        ),
+        hm = hm,
+        hv = hv,
+        lm = lm,
+        lv = lv,
+        solid = solid
+    )
+}
+
+/// スマホで探されている職種と、PC で探されている職種。
+///
+/// # なぜ図にするのか
+/// 求人ページと応募フォームをどちらに合わせるかは、作り直しの費用が大きい割に
+/// 「なんとなくスマホ」で決められがち。職種によって 44.5% から 84.4% まで
+/// 40 ポイント近く違うので、職種を決めてから話せる材料になる。
+///
+/// # 125 職種を全部は出さない
+/// 横棒 125 本は 2000px 近くになり、上下を見比べられない。
+/// 高いほう 10 と低いほう 10 だけを出し、残りは下の表で見てもらう。
+fn mobile_section(snap: &Snapshot) -> String {
+    let mut rows: Vec<(&str, f64)> = snap
+        .titles
+        .iter()
+        .filter_map(|t| t.mobile_pct.map(|v| (t.name.as_str(), v)))
+        .collect();
+    if rows.len() < 20 {
+        return String::new();
+    }
+    rows.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let med = {
+        let mut v: Vec<f64> = rows.iter().map(|r| r.1).collect();
+        v.sort_by(|a, b| a.total_cmp(b));
+        v[v.len() / 2]
+    };
+    let n = rows.len();
+    let top: Vec<&(&str, f64)> = rows.iter().take(10).collect();
+    let bottom: Vec<&(&str, f64)> = rows.iter().skip(n - 10).collect();
+    // 上と下をそのまま繋げると、20 職種が連続した順位に見える。
+    // 間に棒の無い行を 1 つ挟んで、抜けていることを図の側でも示す。
+    // 抜けが無いとき（20 職種ちょうど）は挟まない。「ほか 0 職種」は嘘になる
+    let hidden = n.saturating_sub(20);
+    let mut labels: Vec<String> = top.iter().map(|r| r.0.to_string()).collect();
+    let mut values: Vec<Option<f64>> = top.iter().map(|r| Some(r.1)).collect();
+    if hidden > 0 {
+        labels.push(format!("\u{2500}\u{2500} ほか {hidden} 職種 \u{2500}\u{2500}"));
+        values.push(None);
+    }
+    labels.extend(bottom.iter().map(|r| r.0.to_string()));
+    values.extend(bottom.iter().map(|r| Some(r.1)));
+
+    format!(
+        "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+         <h3 class=\"text-slate-100 font-bold mb-1\">スマホで探されている職種・PC で探されている職種</h3>\
+         <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
+         求人ページと応募フォームをどちらに合わせるかの手がかりです。\
+         {n} 職種のうち、<strong>高いほう 10 と低いほう 10</strong>だけを出しています{mid}\
+         。破線は全体の真ん中（{md}）です。</p>{chart}\
+         <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
+         いちばん高いのは{t}（{tv}）、いちばん低いのは{b}（{bv}）で、差は {gap} ポイントあります。\
+         「スマホで探す人は条件で絞り込む」という見方は、この数字と条件検索率の間には\
+         ほとんど関係が無く（相関 0.04）、裏づけられません。</p></div>",
+        n = n,
+        mid = if hidden > 0 {
+            format!("（間の {hidden} 職種は下の表で見てください）")
+        } else {
+            String::new()
+        },
+        md = dec1_opt(Some(med)),
+        chart = hbar_chart(
+            &labels,
+            &values,
+            "スマホからの検索の割合（%）",
+            Some((med, "全体の真ん中")),
+            true,
+            140 + (labels.len() as u32) * 22
+        ),
+        t = esc(top[0].0),
+        tv = dec1_opt(Some(top[0].1)),
+        b = esc(bottom[9].0),
+        bv = dec1_opt(Some(bottom[9].1)),
+        gap = dec1_opt(Some(top[0].1 - bottom[9].1))
+    )
+}
+
 fn scatter_section(snap: &Snapshot) -> String {
     use crate::indeed::industry;
 
@@ -699,4 +911,71 @@ fn scatter_section(snap: &Snapshot) -> String {
             hard.iter().map(|s| esc(s)).collect::<Vec<_>>().join("、")
         }
     )
+}
+
+#[cfg(test)]
+mod season_tests {
+    use super::*;
+    use crate::indeed::season::TitleSeason;
+
+    fn t(name: &str, index: [Option<f64>; 12], avg: f64) -> TitleSeason {
+        TitleSeason {
+            title: name.to_string(),
+            index,
+            peak_month: Some(3),
+            trough_month: Some(12),
+            peak_ratio: Some(1.1),
+            years: 4,
+            avg_monthly: avg,
+        }
+    }
+
+    fn many(n: usize) -> Vec<TitleSeason> {
+        // 3 月が山、12 月が谷の形
+        let v = [
+            1.03, 1.01, 1.09, 1.06, 1.05, 1.00, 0.95, 0.98, 1.03, 0.99, 0.95, 0.86,
+        ];
+        let mut idx = [None; 12];
+        for (i, x) in v.iter().enumerate() {
+            idx[i] = Some(*x);
+        }
+        (0..n)
+            .map(|i| t(&format!("職種{i}"), idx, if i < 20 { 2000.0 } else { 30.0 }))
+            .collect()
+    }
+
+    /// 職種が少なければ出さない。ならして初めて意味が出る図なので、
+    /// 数が足りないうちに出すと 1 職種のぶれがそのまま形になる。
+    #[test]
+    fn 職種が少ないときは季節の図を出さない() {
+        assert_eq!(season_section(&many(19)), "");
+        assert!(!season_section(&many(20)).is_empty());
+    }
+
+    /// 職種ごとに出さない理由を必ず書く。
+    ///
+    /// 検索数が少ない職種ほど月ごとのきざみが粗く、波が大きく見える。
+    /// 実測で 月 50 回未満は中央 1.28、月 1000 回以上は 1.10 だった。
+    /// この断りが消えると、読み手は「職種ごとの波も出せるはず」と考える。
+    #[test]
+    fn 職種ごとに出さない理由を書いている() {
+        let h = season_section(&many(84));
+        assert!(h.contains("職種ごとには出していません"));
+        assert!(h.contains("きざみが粗く"));
+        // 出どころが違うことも書く
+        assert!(h.contains("別の出どころ"));
+        assert!(h.contains("検索エンジン"));
+        assert!(!h.contains("Google"));
+    }
+
+    /// 山と谷が本文と図で一致すること。
+    #[test]
+    fn 山と谷が本文と図で一致する() {
+        let h = season_section(&many(84));
+        assert!(h.contains("3 月（1.09）"), "山が本文に出ていない");
+        assert!(h.contains("12 月（0.86）"), "谷が本文に出ていない");
+        assert!(h.contains("1.090"), "図に山の値が渡っていない");
+        // 検索数が多い職種の数を数えて書く
+        assert!(h.contains("月 1000 回以上の 20 職種"));
+    }
 }
