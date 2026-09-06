@@ -55,6 +55,9 @@ COPY data/geojson_gz/ data/geojson_gz/
 # キーワード需要ビューア: /api/regions が実行時に読む市区町村重心CSV
 COPY data/media_engine/ data/media_engine/
 
+# Indeed 採用市場データ（分析層・gz 5.4MB）。起動時に data/indeed_insights.db へ展開する。
+COPY data/indeed_insights.db.gz data/indeed_insights.db.gz
+
 # DB: GitHub Releaseからダウンロード（Git LFS不要）
 # DB_VERSION を変更するとDockerキャッシュが無効化され、最新DBがダウンロードされる
 ARG DB_VERSION="2.2-pyramid9-force"
