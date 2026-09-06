@@ -662,10 +662,6 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .merge(handlers::call_quality::routes::router())
         // 営業KPI（現場版）。架電クオリティと同じ SheetStore を借りる。
         .merge(handlers::sales_kpi::routes::router())
-        // ======== Indeed 採用市場（社内タブ + 顧客レポート） ========
-        // /tab/indeed は社内用。/report/indeed は INDEED_PUBLIC=on まで 404。
-        // call_quality と同じく auth の route_layer より前に置くこと。
-        .merge(handlers::indeed::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。
