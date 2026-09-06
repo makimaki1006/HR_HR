@@ -40,6 +40,11 @@ pub struct Title {
     pub name: String,
     /// 20 ある分類のどれか
     pub category: String,
+    /// スマホから検索された割合（%）。
+    ///
+    /// 求人ページと応募の導線をどちらに寄せるかの手がかりになる。
+    /// 実データでは 44.5〜84.4% で、職種によって 40 ポイント近く違う。
+    pub mobile_pct: Option<f64>,
     /// 全部の月に数字があるか。
     ///
     /// 途中から取り始めた職種を合計に混ぜると、母集団が月によって変わる。
@@ -255,7 +260,7 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
 
     // 1. 職種と、その分類
     let title_rows = db.query(
-        "SELECT norm_title, display_category FROM insight_title ORDER BY norm_title",
+        "SELECT norm_title, display_category, mobile_pct FROM insight_title ORDER BY norm_title",
         &[],
     )?;
     let mut titles = Vec::with_capacity(title_rows.len());
@@ -270,6 +275,7 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
         titles.push(Title {
             name,
             category,
+            mobile_pct: get_f64_opt(r, "mobile_pct"),
             complete: false, // 並びを読んだあとで判定する
         });
     }
@@ -314,6 +320,8 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
         .map(|k| Title {
             name: k.clone(),
             category: "その他".to_string(),
+            // insight_title に無い職種なので、スマホ比率も引けない
+            mobile_pct: None,
             complete: false,
         })
         .collect();
