@@ -12,8 +12,8 @@ use axum::{
 use serde::Deserialize;
 
 use super::render::{
-    arrow, category_table_html, dec1_opt, dir_class, esc, indexed_chart, line_chart, metric_card,
-    num_opt, pct_opt, url_query,
+    arrow, bar_line_chart, category_table_html, dec1_opt, dir_class, esc, indexed_chart,
+    line_chart, metric_card, num_opt, pct_opt, scatter_chart, url_query,
 };
 use crate::indeed::aggregate::{
     category_table, nation_overview, pref_overview, pref_title_overviews, Overview,
@@ -148,6 +148,21 @@ fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String
         esc(&overview.why())
     ));
 
+    // 「なぜ」を図でも見せる。求人（棒）が増えると 1 求人あたり（線）が薄まる、
+    // という関係は、別々の図に分けると読み手が頭の中で重ねることになる
+    h.push_str(&format!(
+        "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\n         <h3 class=\"text-slate-100 font-bold mb-1\">求人の数と、1 求人あたりに見た人数</h3>\n         <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\n         棒が求人の数（左軸）、線が 1 求人あたりに見た人数（右軸）です。\n         棒が伸びた月に線が下がっていれば、求人が増えて 1 件あたりの取り分が薄まったことになります。</p>{chart}</div>",
+        chart = bar_line_chart(
+            months,
+            "求人の数",
+            &overview.job.series,
+            "1 求人あたりに見た人数",
+            &overview.spp.series,
+            true,
+            300
+        )
+    ));
+
     // 全体の動き
     h.push_str(&format!(
         "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
@@ -174,6 +189,11 @@ fn render_tab(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String
     // 業界（全国のみ。県で絞ると 1 業界あたりの月次が薄くなる）
     if pref.is_none() {
         h.push_str(&industry_section(snap, months));
+    }
+
+    // 職種の位置取り（全国のみ。県で絞ると点が薄くなる）
+    if pref.is_none() {
+        h.push_str(&scatter_section(snap));
     }
 
     // 分類（全国のみ。県で絞ると分類別の月次が薄くなる）
@@ -380,11 +400,12 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
     ));
 
     h.push_str(
-        "<div style=\"overflow-x:auto\"><table class=\"w-full text-sm border-collapse\" style=\"min-width:760px\"><thead><tr>",
+        "<div style=\"overflow-x:auto\"><table class=\"w-full text-sm border-collapse\" style=\"min-width:860px\"><thead><tr>",
     );
     for (name, align) in [
         ("職種", "left"),
         ("分類", "left"),
+        ("業界", "left"),
         ("求人数（最新月）", "right"),
         ("求人数の変化", "right"),
         ("1求人あたり", "right"),
@@ -405,6 +426,7 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
                 hx-get=\"/tab/indeed/title?name={q}\" hx-target=\"#content\" hx-swap=\"innerHTML\" \
                 hx-push-url=\"true\">{n}</a></th>\
              <td class=\"{td} text-slate-400\">{c}</td>\
+             <td class=\"{td} text-slate-400\">{ind}</td>\
              <td class=\"{td} tabular-nums\" style=\"text-align:right\">{j}</td>\
              <td class=\"{td} tabular-nums {jc}\" style=\"text-align:right\">{ja} {jp}</td>\
              <td class=\"{td} tabular-nums\" style=\"text-align:right\">{s}</td>\
@@ -413,6 +435,11 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
             n = esc(name),
             q = url_query(name),
             c = esc(cat),
+            // 散布図の色はこの業界。色が読み取れない人も、表から同じ区分けを追える
+            ind = esc(
+                crate::indeed::industry::of_category(cat)
+                    .unwrap_or(crate::indeed::industry::OUTSIDE)
+            ),
             j = num_opt(o.job.latest),
             jc = dir_class(o.job.change_pct, true),
             ja = arrow(o.job.change_pct),
@@ -438,14 +465,13 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
 /// [`crate::indeed::industry`] を使う。紙とアプリで違うまとめ方をすると、
 /// 同じ会社の話が食い違う。5 つに入らないものは無理に入れず、別枠で数える。
 fn industry_section(snap: &Snapshot, months: &[String]) -> String {
-    use crate::indeed::aggregate::{industry_series, industry_table};
+    use crate::indeed::aggregate::industry_table;
     use crate::indeed::industry;
 
     let rows = industry_table(snap);
     if rows.is_empty() {
         return String::new();
     }
-    let series_by_industry = industry_series(snap);
     let td = "px-3 py-2 border-b border-slate-800 text-slate-200";
     let th = "text-slate-400 font-medium px-3 py-2 border-b border-slate-700";
 
@@ -533,13 +559,10 @@ fn industry_section(snap: &Snapshot, months: &[String]) -> String {
     h.push_str("</tbody></table></div>");
 
     // --- 5 業界を同じ物差しで重ねた図 ---
-    let series: Vec<(String, Vec<Option<f64>>)> = series_by_industry
+    let series: Vec<(String, Vec<Option<f64>>)> = rows
         .iter()
-        .filter(|(n, _, _)| n != industry::OUTSIDE)
-        .map(|(n, s, _)| {
-            let ov = Overview::from_series(n, s, months);
-            (n.clone(), ov.job.indexed())
-        })
+        .filter(|r| r.name != industry::OUTSIDE)
+        .map(|r| (r.name.clone(), r.ov.job.indexed()))
         .collect();
     h.push_str(&format!(
         "<p class=\"text-slate-400 text-xs mt-4 mb-1\">\
@@ -550,10 +573,6 @@ fn industry_section(snap: &Snapshot, months: &[String]) -> String {
     // --- 業界ごとの一行 ---
     h.push_str("<div class=\"mt-4 space-y-3\">");
     for r in rows.iter().filter(|r| r.why.is_some()) {
-        let Some((_, s, _)) = series_by_industry.iter().find(|(n, _, _)| *n == r.name) else {
-            continue;
-        };
-        let ov = Overview::from_series(&r.name, s, months);
         h.push_str(&format!(
             "<div class=\"bg-navy-900/40 border border-slate-700 rounded p-3\">\
              <div class=\"flex flex-wrap items-baseline gap-2\">\
@@ -577,8 +596,8 @@ fn industry_section(snap: &Snapshot, months: &[String]) -> String {
                     .collect::<Vec<_>>()
                     .join("、")
             },
-            s1 = esc(&ov.job.sentence),
-            s2 = esc(&ov.spp.sentence),
+            s1 = esc(&r.ov.job.sentence),
+            s2 = esc(&r.ov.spp.sentence),
             why = esc(r.why.unwrap_or(""))
         ));
     }
@@ -602,4 +621,82 @@ fn industry_section(snap: &Snapshot, months: &[String]) -> String {
 
     h.push_str("</div>");
     h
+}
+
+/// 職種の位置取りを 1 枚で見る散布図。
+///
+/// # なぜ表ではなく散布図か
+/// 126 行の表は上から読むしかない。「募集は多いのに人が集まっていない」職種を
+/// 探すには、求人数の列と 1 求人あたりの列を目で往復することになる。
+/// 位置に置けば、右下を見るだけで済む。
+fn scatter_section(snap: &Snapshot) -> String {
+    use crate::indeed::industry;
+
+    let months = &snap.meta.months;
+    let mut points: Vec<(String, f64, f64, String)> = Vec::new();
+    for t in snap.titles.iter().filter(|t| t.complete) {
+        let Some(s) = snap.by_title.get(&t.name) else {
+            continue;
+        };
+        let ov = Overview::from_series(&t.name, s, months);
+        let (Some(j), Some(spp)) = (ov.job.latest, ov.spp.latest) else {
+            continue;
+        };
+        if j <= 0.0 {
+            continue;
+        }
+        points.push((
+            t.name.clone(),
+            j,
+            spp,
+            industry::of_category(&t.category)
+                .unwrap_or(industry::OUTSIDE)
+                .to_string(),
+        ));
+    }
+    if points.is_empty() {
+        return String::new();
+    }
+    let mut groups: Vec<String> = industry::INDUSTRIES
+        .iter()
+        .map(|i| i.name.to_string())
+        .collect();
+    if points.iter().any(|p| p.3 == industry::OUTSIDE) {
+        groups.push(industry::OUTSIDE.to_string());
+    }
+
+    // 目安になる値を文章で添える。図だけでは「どこから右下か」が決められない
+    let med = {
+        let mut v: Vec<f64> = points.iter().map(|p| p.2).collect();
+        v.sort_by(|a, b| a.total_cmp(b));
+        v[v.len() / 2]
+    };
+    let hard: Vec<&str> = {
+        let mut v: Vec<&(String, f64, f64, String)> =
+            points.iter().filter(|p| p.1 >= 20_000.0).collect();
+        v.sort_by(|a, b| a.2.total_cmp(&b.2));
+        v.iter().take(5).map(|p| p.0.as_str()).collect()
+    };
+
+    format!(
+        "<div class=\"bg-navy-800/60 border border-slate-700 rounded-lg p-4\">\
+         <h3 class=\"text-slate-100 font-bold mb-1\">職種の位置取り（{m}）</h3>\
+         <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
+         横は求人数（対数）、縦は 1 求人あたりに見た人数です。\
+         <strong>右下ほど「募集は多いのに人が集まっていない」</strong>職種になります。\
+         色は業界です。合計に入る {n} 職種を出しています。</p>\
+         {chart}\
+         <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
+         1 求人あたりの真ん中は {med} です。\
+         求人が 20,000 件以上ある職種のうち、1 求人あたりが少ないのは {hard} の順でした。</p></div>",
+        m = esc(&snap.meta.latest),
+        n = points.len(),
+        chart = scatter_chart(&points, &groups, true, 380),
+        med = dec1_opt(Some(med)),
+        hard = if hard.is_empty() {
+            "—".to_string()
+        } else {
+            hard.iter().map(|s| esc(s)).collect::<Vec<_>>().join("、")
+        }
+    )
 }

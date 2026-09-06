@@ -15,7 +15,10 @@ use axum::{
 };
 use serde::Deserialize;
 
-use super::render::{arrow, dec1_opt, dir_class, esc, line_chart, metric_card, num_opt, pct_opt};
+use super::render::{
+    arrow, dec1_opt, dir_class, dumbbell_chart, esc, hbar_chart, line_chart, metric_card,
+    num_opt, pct_opt,
+};
 use crate::indeed::aggregate::Overview;
 use crate::indeed::data::snapshot;
 use crate::indeed::detail::{self, TitleDetail};
@@ -182,6 +185,9 @@ fn render(d: &TitleDetail, ov: Option<&Overview>, months: &[String], w: &MinWage
         ));
     }
 
+    // 図を先、表を後にする。先に形で掴んでから数字を確かめる順
+    h.push_str(&pref_bar(d, ov.and_then(|o| o.spp.latest)));
+    h.push_str(&wage_gap_chart(d, w));
     h.push_str(&pref_table(d, w));
     h.push_str(&keywords_block(d));
     h.push_str(&attrs_block(d));
@@ -551,4 +557,133 @@ mod tests {
         );
         assert!(html.contains("差ではありません"), "全国比が比だという断りが無い");
     }
+}
+
+/// 都道府県を並べた横棒。順位を目で追うための図。
+///
+/// # なぜ表と両方出すのか
+/// 表は 47 行あり、上から読まないと順位が分からない。長さで並べれば
+/// 「どこが集めやすいか」は一目で決まる。数字そのものは下の表で確かめる。
+fn pref_bar(d: &TitleDetail, nation_spp: Option<f64>) -> String {
+    let mut rows: Vec<&crate::indeed::detail::PrefRow> =
+        d.prefs.iter().filter(|p| p.spp.is_some()).collect();
+    if rows.len() < 5 {
+        return String::new();
+    }
+    // 1 求人あたりが多い順。上が「集まりやすい」
+    rows.sort_by(|a, b| b.spp.unwrap_or(0.0).total_cmp(&a.spp.unwrap_or(0.0)));
+    let labels: Vec<String> = rows.iter().map(|p| p.prefecture.clone()).collect();
+    let values: Vec<Option<f64>> = rows.iter().map(|p| p.spp).collect();
+    let height = 140 + (rows.len() as u32) * 15;
+
+    format!(
+        "<div class=\"{CARD}\"><h3 class=\"text-slate-100 font-bold mb-1\">\
+         都道府県別の 1 求人あたりに見た人数（{m}）</h3>\
+         <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
+         多い順に並べています。<strong>上ほど 1 件の求人に人が集まっている</strong>県です。\
+         {base}</p>{chart}</div>",
+        m = esc(&d.month),
+        base = match nation_spp {
+            Some(v) => format!(
+                "破線は全国（{}）です。これより下にある県は、全国より集まりにくいことになります。",
+                dec1_opt(Some(v))
+            ),
+            None => String::new(),
+        },
+        chart = hbar_chart(
+            &labels,
+            &values,
+            "1 求人あたりに見た人数",
+            nation_spp.map(|v| (v, "全国")),
+            true,
+            height
+        )
+    )
+}
+
+/// 掲示時給が最低賃金からどれだけ離れているかを、県ごとに帯で見せる。
+///
+/// 棒を 2 本並べると差そのものが読み取りにくい。下限からの帯にすると、
+/// 「この県は下限すれすれ」「この県は余裕がある」が長さで分かる。
+fn wage_gap_chart(d: &TitleDetail, w: &MinWages) -> String {
+    if w.by_pref.is_empty() {
+        return String::new();
+    }
+    let mut rows: Vec<(String, f64, f64)> = d
+        .prefs
+        .iter()
+        .filter_map(|p| {
+            let wage = p.wage_median?;
+            let min = w.by_pref.get(&p.prefecture).copied()?;
+            Some((p.prefecture.clone(), min, wage))
+        })
+        .collect();
+    if rows.len() < 5 {
+        return String::new();
+    }
+    // 差の大きい順。上ほど下限から離れている
+    rows.sort_by(|a, b| (b.2 - b.1).total_cmp(&(a.2 - a.1)));
+    let labels: Vec<String> = rows.iter().map(|r| r.0.clone()).collect();
+    let low: Vec<Option<f64>> = rows.iter().map(|r| Some(r.1)).collect();
+    let high: Vec<Option<f64>> = rows.iter().map(|r| Some(r.2)).collect();
+    let height = 140 + (rows.len() as u32) * 15;
+
+    let top = &rows[0];
+    // 掲示が下限を割っている県。丸めずに数え、理由も添える
+    let below: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.2 < r.1)
+        .map(|r| r.0.as_str())
+        .collect();
+    let tail = if below.is_empty() {
+        let b = &rows[rows.len() - 1];
+        format!(
+            "いちばん狭いのは{}（{} 円）です。",
+            esc(&b.0),
+            num_opt(Some(b.2 - b.1))
+        )
+    } else {
+        // 下回るのは異常値ではない。理由が言えるので言っておく
+        format!(
+            "一方、{}の {} 県では、掲示時給の中央値が最低賃金を下回っています。\
+             基本給だけを載せた求人、改定前に出された求人、\
+             最低賃金の対象にならない業務委託の求人が混ざるとこうなります。",
+            below
+                .iter()
+                .take(3)
+                .map(|s| esc(s))
+                .collect::<Vec<_>>()
+                .join("・")
+                + if below.len() > 3 { "など" } else { "" },
+            below.len()
+        )
+    };
+    format!(
+        "<div class=\"{CARD}\"><h3 class=\"text-slate-100 font-bold mb-1\">\
+         掲示時給と最低賃金の開き</h3>\
+         <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
+         帯の左端が{y}の最低賃金、右端がこの職種の掲示時給の中央値です。\
+         <strong>帯が長いほど、その県では相場が下限から離れています。</strong>\
+         時給で出ている求人だけが対象で、月給・日給の求人は含みません。</p>{chart}\
+         <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
+         いちばん開いているのは{t}（{tv} 円）です。{tail}</p></div>",
+        y = match w.fiscal_year {
+            Some(y) => format!("{y} 年度"),
+            None => "公表値".to_string(),
+        },
+        chart = dumbbell_chart(
+            &labels,
+            &low,
+            &high,
+            "最低賃金",
+            "最低賃金からの上乗せ",
+            "最低賃金を下回る分",
+            "円",
+            true,
+            height
+        ),
+        t = esc(&top.0),
+        tv = num_opt(Some(top.2 - top.1)),
+        tail = tail
+    )
 }
