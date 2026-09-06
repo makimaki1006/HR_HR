@@ -482,6 +482,11 @@ pub struct IndustryRow {
     pub trend: &'static str,
     /// まとめた理由。外の枠には無い
     pub why: Option<&'static str>,
+    /// この業界の見立てそのもの。
+    ///
+    /// 表・指数図・一行説明で同じものを使う。呼び出し側で作り直すと、
+    /// 同じ業界の回帰を 1 リクエストで 3 回計算することになる。
+    pub ov: Overview,
 }
 
 /// 業界ごとに足した並びを作る。「5 業界の外」も 1 つの枠として返す。
@@ -561,6 +566,7 @@ pub fn industry_table(snap: &Snapshot) -> Vec<IndustryRow> {
                 trend: ov.job.label_trend,
                 why: industry::why(&name),
                 name,
+                ov,
             }
         })
         .collect()
