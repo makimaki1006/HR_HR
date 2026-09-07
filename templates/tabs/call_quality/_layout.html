@@ -105,7 +105,10 @@
   <!-- ==================== ヘッダー ==================== -->
   <header class="cq-header">
     <div class="cq-header-row cq-header-row-top">
-      <h1 class="cq-header-title">架電クオリティ</h1>
+      <h1 class="cq-header-title">
+        {# 独立ページなので、タブバーからは戻れない。自分で戻り道を持つ。 #}
+        <a href="/" style="color:inherit; text-decoration:none; opacity:.6; margin-right:.5rem"
+           title="ダッシュボードへ戻る">←</a>架電クオリティ</h1>
       <div class="cq-header-right">
         <!-- GAS版の「表示ロール」(Rep/Manager/VP)を踏襲。
              2026-08-16時点でロール別スコープのAPI対応は未確認のため、
