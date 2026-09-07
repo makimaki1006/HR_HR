@@ -116,6 +116,15 @@
         {{JOBGEN_TAB}}
         <button type="button" id="explore-group-btn" class="tab-btn-group" aria-expanded="false"
             aria-controls="explore-subnav" onclick="toggleExploreGroup()">調べる ▾</button>
+        <!-- ここから先は #content に差し込むのではなく、独立したページへ移動する。
+             中身がフルHTML（自前の <style> と <script> を持つ）なので、HTMX で
+             swap すると <html> が二重になって壊れる。だから <a> にしてある。
+             営業が毎朝見るものなので「調べる」の中には入れず、表に出しておく。 -->
+        <span class="tab-sep" aria-hidden="true"></span>
+        <a class="tab-btn tab-link" href="/sales-kpi"
+           title="今月の商談と架電。営業の現場が毎朝見る画面">営業KPI</a>
+        <a class="tab-btn tab-link" href="/call-quality"
+           title="架電クオリティの分析（16タブ）">架電クオリティ</a>
     </nav>
 
     <!-- 「調べる」グループのサブタブ列（既定は非表示） -->
