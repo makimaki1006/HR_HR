@@ -499,9 +499,11 @@ fn 架電リストの担当者別はチームと個人で食い違わない() {
 }
 
 #[test]
-fn 架電リストの担当者別が全社を超えない() {
+fn 架電リストの担当者別がリスト全体を超えない() {
     let body = payload();
-    let base = body["kaden"]["base"].as_i64().unwrap();
+    // 🔴 比べる相手は `all.base`（アポ前リスト全体）。`base` は 2026-09-08 から
+    //    「営業チームの合計」になったので、担当者別の合計より小さくて当たり前。
+    let base = body["kaden"]["all"]["base"].as_i64().unwrap();
     let counted = body["kaden"]["counted_base"].as_i64().unwrap();
     let no_owner = body["kaden"]["no_owner"]["base"].as_i64().unwrap_or(0);
     assert_eq!(
@@ -512,13 +514,114 @@ fn 架電リストの担当者別が全社を超えない() {
     assert!(counted > 0, "担当者別が空");
     assert!(
         counted <= base,
-        "担当者別の合計 {counted} が全社の母数 {base} を超えている"
+        "担当者別の合計 {counted} がリスト全体の母数 {base} を超えている"
     );
-    // どのチームも全社を超えない
+    // どのチームもリスト全体を超えない
     for (team, counts) in body["kaden"]["by_team"].as_object().unwrap() {
         let n = counts["base"].as_i64().unwrap_or(0);
-        assert!(n <= base, "{team} の {n} が全社の {base} を超えている");
+        assert!(n <= base, "{team} の {n} がリスト全体の {base} を超えている");
     }
+}
+
+// ------------------------------------------------ 営業チームと未配布の切り分け
+//
+// 🔴 2026-09-08 ユーザー判断。アポ前リスト全体で数えると「74.5%が未着手」に
+// なるが、それは名簿に載っていない人が持っている在庫（永田さん 70,176件 ほか）に
+// 引きずられた数字だった。営業チームだけで数えると 72.8% が着手済み。
+// 現場が見たいのは後者で、在庫は別枠で配布の判断に使う。
+
+/// 「すべて」で出す架電リストは、営業チームの合計であってリスト全体ではない。
+#[test]
+fn 全社の架電リストは営業チームの合計になる() {
+    let body = payload();
+    let k = &body["kaden"];
+    let sales = by_owner_sum(&body, "by_team", "base")
+        - k["by_team"]["チーム未設定"]["base"].as_i64().unwrap_or(0);
+    assert_eq!(
+        k["base"].as_i64().unwrap(),
+        sales,
+        "「すべて」の母数が営業チームの合計になっていない"
+    );
+    for class in ["未架電", "未接触", "接触済み"] {
+        let want: i64 = k["by_team"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(t, _)| t.as_str() != "チーム未設定")
+            .map(|(_, c)| c[class].as_i64().unwrap_or(0))
+            .sum();
+        assert_eq!(k["cls"][class].as_i64().unwrap_or(0), want, "{class} が合わない");
+    }
+    // リスト全体は別のキーに残っていること（注記と母数の推移がこちらを使う）
+    assert!(k["base"].as_i64().unwrap() < k["all"]["base"].as_i64().unwrap());
+}
+
+/// 営業チームぶんと未配布ぶんを足すと、数えられた合計に戻る。
+/// どこかで取りこぼすと、画面から静かに件数が消える。
+#[test]
+fn 営業チームと未配布を足すと元に戻る() {
+    let body = payload();
+    let k = &body["kaden"];
+    let (sales, un) = (
+        k["base"].as_i64().unwrap(),
+        k["unassigned"]["base"].as_i64().unwrap(),
+    );
+    let counted = k["counted_base"].as_i64().unwrap();
+    assert_eq!(
+        sales + un,
+        counted,
+        "営業チーム {sales} ＋ 未配布 {un} が、数えられた合計 {counted} に戻らない"
+    );
+    assert!(un > 0, "未配布が空。fixture に名簿外の担当者が居ない");
+    // 担当者が入っていない分は未配布側に入れる（どのチームにも属さないため）
+    assert_eq!(
+        k["unassigned"]["no_owner"].as_i64().unwrap(),
+        k["no_owner"]["base"].as_i64().unwrap()
+    );
+}
+
+/// 未配布は「誰が持っているか」まで出す。配る判断に使うため。
+#[test]
+fn 未配布は誰が持っているかまで出す() {
+    let body = payload();
+    let people = body["kaden"]["unassigned"]["people"].as_array().unwrap();
+    assert!(!people.is_empty(), "未配布の内訳が空");
+    let bases: Vec<i64> = people.iter().map(|p| p["base"].as_i64().unwrap()).collect();
+    assert!(bases.windows(2).all(|w| w[0] >= w[1]), "件数の多い順でない");
+    for p in people {
+        assert_eq!(
+            p["team"], "チーム未設定",
+            "営業チームの人が未配布に混ざっている: {p}"
+        );
+        assert!(
+            !p["name"].as_str().unwrap().starts_with("owner_"),
+            "名前が引けていない: {p}"
+        );
+    }
+    // 上位1名だけで未配布の半分を超える（2026-09-07 実測: 70,176 / 86,168）。
+    // この偏りこそが「配る判断に使う」材料なので、消えていないことを見る。
+    let total = body["kaden"]["unassigned"]["base"].as_i64().unwrap();
+    assert!(
+        bases[0] * 2 > total,
+        "上位1名の偏りが出ていない: {}/{total}",
+        bases[0]
+    );
+}
+
+/// 担当者別シートが無い環境では、これまでどおりリスト全体を出す（分けようがない）。
+#[test]
+fn 担当者別シートが無ければリスト全体を出す() {
+    let body = build_payload(
+        &Sheets {
+            kaden_by_owner: super::empty_sheet(),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    );
+    let k = &body["kaden"];
+    assert_eq!(k["has_by_owner"], Value::Bool(false));
+    assert_eq!(k["base"].as_i64(), k["all"]["base"].as_i64());
+    assert_eq!(k["unassigned"]["base"].as_i64(), Some(0));
 }
 
 /// 担当者が入っていない取引は、どのチームにも個人にも混ぜない。
@@ -612,10 +715,10 @@ fn 架電リストの担当者別が無くても画面は出る() {
     );
     assert_eq!(body["kaden"]["has_by_owner"], Value::Bool(false));
     assert_eq!(body["kaden"]["by_person"].as_object().unwrap().len(), 0);
-    // 全社の数字は変わらない
+    // リスト全体の数字は変わらない（営業チームぶんは分けようがないので出せない）
     assert_eq!(
-        body["kaden"]["base"].as_i64(),
-        payload()["kaden"]["base"].as_i64()
+        body["kaden"]["all"]["base"].as_i64(),
+        payload()["kaden"]["all"]["base"].as_i64()
     );
 }
 
@@ -659,13 +762,15 @@ fn 母数が動いたことを前の週の記録と比べて出す() {
         weekly_row("2026-W36", "2026-09-04", "2026-08-31", 999_999),
     ));
     let t = &body["kaden"]["base_trend"];
-    let base = body["kaden"]["base"].as_i64().unwrap();
+    // 🔴 比べるのは `all.base`（アポ前リスト全体）。週次シートに残っているのが
+    //    その数え方なので、営業チームの合計（`base`）と比べると桁が合わない。
+    let base = body["kaden"]["all"]["base"].as_i64().unwrap();
     assert_eq!(t["week"], "2026-W35", "今週の行と比べてしまっている");
     assert_eq!(t["base"].as_i64(), Some(136_518));
     assert_eq!(
         t["diff"].as_i64(),
         Some(base - 136_518),
-        "差が「今の母数 − 前の記録」になっていない"
+        "差が「リスト全体の今の母数 − 前の記録」になっていない"
     );
     assert!(t["diff"].as_i64().unwrap() < 0, "減っているのに増えて見える");
 }

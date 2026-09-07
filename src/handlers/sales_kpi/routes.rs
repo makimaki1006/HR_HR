@@ -604,13 +604,80 @@ fn kaden_list_block(
         .filter(|(owner, _)| !owner.is_empty())
         .collect();
 
+    // ---- 「全社」＝ 営業チームの合計にする ------------------------------
+    //
+    // 🔴 2026-09-08 ユーザー判断。アポ前パイプライン全体で数えると
+    // 「74.5% が未着手」になるが、これは名簿に載っていない人が持っている在庫
+    // （永田さん 70,176件 ほか）に引きずられた数字だった。営業5チームだけで
+    // 数えると 72.8% が着手済みになる。現場が見たいのは後者。
+    //
+    // 🔴 チーム名は列挙しない。**名簿にチームが入っているか**だけで判定する
+    // （`is_sales_team`）。チームが増えても名簿に足すだけで数えられる。
+    let mut sales_cls: Counts = Counts::new();
+    let mut unassigned_cls: Counts = Counts::new();
+    for (team, counts) in &by_team {
+        let bucket = if super::is_sales_team(team) {
+            &mut sales_cls
+        } else {
+            &mut unassigned_cls
+        };
+        for (key, value) in counts {
+            *bucket.entry(key.clone()).or_insert(0) += value;
+        }
+    }
+    // 担当者が入っていない取引も「まだ配られていない」側。
+    for (key, value) in &no_owner {
+        *unassigned_cls.entry(key.clone()).or_insert(0) += value;
+    }
+    let sum_of = |c: &Counts| -> i64 {
+        KADEN_CLASSES
+            .iter()
+            .map(|k| c.get(*k).copied().unwrap_or(0))
+            .sum()
+    };
+    let sales_base = sum_of(&sales_cls);
+    let unassigned_base = sum_of(&unassigned_cls);
+
+    // まだ配られていない分を、誰が持っているかまで出す。配る判断に使うため。
+    let mut stock: Vec<Value> = by_person
+        .iter()
+        .filter(|(owner, _)| !super::is_sales_team(&person_of(members, owner).team))
+        .map(|(owner, counts)| {
+            let p = person_of(members, owner);
+            json!({
+                "id": owner, "name": p.name, "team": p.team, "hsTeam": p.hs_team,
+                "base": counts.get("base").copied().unwrap_or(0),
+                "未架電": counts.get("未架電").copied().unwrap_or(0),
+                "未接触": counts.get("未接触").copied().unwrap_or(0),
+                "接触済み": counts.get("接触済み").copied().unwrap_or(0),
+            })
+        })
+        .filter(|v| v["base"].as_i64().unwrap_or(0) > 0)
+        .collect();
+    stock.sort_by_key(|v| -v["base"].as_i64().unwrap_or(0));
+
+    // 担当者別シートがまだ無い環境では分けようがない。従来どおり全体を出す。
+    let have = !by_owner_sheet.rows.is_empty();
+
     (
         json!({
             "composition": composition,
-            "base": base,
+            // 画面のカードが使う「全社」。営業チームの合計。
+            "base": if have { sales_base } else { base },
+            "cls": if have { sales_cls } else { cls.clone() },
             "total": total,
-            "cls": cls,
             "fill": fill,
+            // アポ前パイプライン全体（従来の「全社」）。注記と母数の推移に使う。
+            // 🔴 週次シートの `kaden_base` はこちらの数え方なので、
+            //    前の週との比較はこちらと突き合わせないと桁が合わない。
+            "all": {"cls": cls, "base": base},
+            // まだ営業チームに配られていない分。合計と、誰が持っているか。
+            "unassigned": {
+                "cls": unassigned_cls,
+                "base": unassigned_base,
+                "no_owner": no_owner.get("base").copied().unwrap_or(0),
+                "people": stock,
+            },
             // どちらも担当なしを含まない。合計は必ず一致する。
             "by_person": by_person,
             "by_team": by_team,
@@ -620,7 +687,7 @@ fn kaden_list_block(
             // 全社の `base` との差は「今回数えていない担当者ぶん」か
             // 「数えている間にステージが動いたぶん」。画面はこの差を出す。
             "counted_base": counted,
-            "has_by_owner": !by_owner_sheet.rows.is_empty(),
+            "has_by_owner": have,
         }),
         base,
     )
