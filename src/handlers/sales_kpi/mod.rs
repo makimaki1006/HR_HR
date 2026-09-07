@@ -21,9 +21,15 @@
 //!   KPI営業_架電リスト アポ前パイプラインの状態と、決定者・決裁者の入力状況
 //!   KPI営業_メンバー  ownerId → 氏名・チーム
 //!   KPI営業_取得条件  いつ・どの範囲で取ったか
+//!   KPI営業_週次      週に1行の記録（唯一、集計済みの値を持つシート）
 //!
 //! **仕分け（実施/未実施/未処理/予定）はシートに入っていない。ここで判定する。**
 //! 現場ヒアリングで判定が変わる見込みがあり、変わるたびにシートを作り直したくないため。
+//!
+//! 例外は `KPI営業_週次` だけ。「その週にどうだったか」は材料からは作り直せない
+//! （HubSpot は今の状態しか返さない）ので、Python 側が集計してから書く。
+//! そのぶん **Python の `classify()` はここの `classify()` の写し**になっている。
+//! 片方だけ変えると週次だけ数字がずれる。
 //!
 //! ------------------------------------------------------------------
 //! 日付は文字列のまま比べる
@@ -85,6 +91,7 @@ pub const SHEET_KADEN: &str = "KPI営業_架電日次";
 pub const SHEET_KADEN_LIST: &str = "KPI営業_架電リスト";
 pub const SHEET_MEMBER: &str = "KPI営業_メンバー";
 pub const SHEET_META: &str = "KPI営業_取得条件";
+pub const SHEET_WEEKLY: &str = "KPI営業_週次";
 
 // ---------------------------------------------------------------- 取引
 
@@ -222,8 +229,19 @@ pub struct Sheets {
     pub kaden_list: Arc<SheetData>,
     pub member: Arc<SheetData>,
     pub meta: Arc<SheetData>,
+    /// 週次の記録。**まだ1度も書かれていないことがある**ので、無ければ空。
+    pub weekly: Arc<SheetData>,
     /// 全部キャッシュから返せたか（画面に鮮度を出すため）
     pub all_cached: bool,
+}
+
+/// 見出しも行も無いシート。まだ作られていない週次シートの代わりに使う。
+pub fn empty_sheet() -> Arc<SheetData> {
+    Arc::new(SheetData {
+        header: Vec::new(),
+        rows: Vec::new(),
+        fetched_at: std::time::Instant::now(),
+    })
 }
 
 pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
@@ -238,6 +256,18 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
             data
         }};
     }
+    // 週次だけは無くても通す。初回は Python 側がまだ1度も書いていないので
+    // シート自体が存在せず、ここで落とすと画面ごと出なくなる。
+    let weekly = match store.get(client, SHEET_WEEKLY).await {
+        Ok((data, hit)) => {
+            cached &= hit;
+            data
+        }
+        Err(e) => {
+            tracing::warn!("シート「{SHEET_WEEKLY}」が読めないので週次は空で出します: {e:#}");
+            empty_sheet()
+        }
+    };
     Ok(Sheets {
         shodan: fetch!(SHEET_SHODAN),
         apo: fetch!(SHEET_APO),
@@ -246,8 +276,98 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
         kaden_list: fetch!(SHEET_KADEN_LIST),
         member: fetch!(SHEET_MEMBER),
         meta: fetch!(SHEET_META),
+        weekly,
         all_cached: cached,
     })
+}
+
+// ---------------------------------------------------------------- 週次の記録
+
+/// 週次シートの列 → 画面が読むキー。`totals` の中に入るもの。
+///
+/// 🔴 左側は Python 側（Hubspot リポジトリ `scripts/sales_kpi/sync_daily.py` の
+/// `WEEKLY_HEADER`）と対で決まっている。片方だけ変えると値が 0 で並ぶ。
+const WEEKLY_TOTALS: &[(&str, &str)] = &[
+    ("母集団", "pool"),
+    ("実施", "実施"),
+    ("未実施", "未実施"),
+    ("未処理", "未処理"),
+    ("これから", "これから"),
+    ("要判定", "要判定"),
+    ("取ったアポ", "apo"),
+    ("Cヨミ", "cyomi"),
+    ("BPO母集団", "bpo_pool"),
+];
+
+/// 週次シートの列 → 画面が読むキー。`totals` の外に出るもの。
+const WEEKLY_NUMS: &[(&str, &str)] = &[
+    ("止まっている", "stale"),
+    ("アンケート未回収", "anq_missing"),
+    ("Cヨミ置きっぱなし", "cyomi_stale"),
+    ("架電リスト手をつけた", "kaden_called"),
+    ("架電リスト母数", "kaden_base"),
+];
+
+fn cell_num(text: &str) -> Option<i64> {
+    let t = text.replace(',', "");
+    let t = t.trim();
+    if t.is_empty() {
+        return None;
+    }
+    t.parse::<i64>().ok()
+}
+
+/// 週次シートを、画面がそのまま使える配列にする。
+///
+/// 週が空の行は捨てる（シートの下に空行が残っていることがある）。
+/// 画面は古い順に並んでいる前提で末尾8週を出すので、ここで週の昇順に揃える。
+/// `2026-W07` のようにゼロ埋めしてあるので辞書順で週順になる。
+pub fn snapshots_of(sheet: &SheetData) -> Vec<serde_json::Value> {
+    use serde_json::{json, Map, Value};
+    let mut out: Vec<(String, Value)> = Vec::new();
+    for row in &sheet.rows {
+        let week = sheet.get(row, "週").trim().to_string();
+        if week.is_empty() {
+            continue;
+        }
+        let mut totals = Map::new();
+        for (col, key) in WEEKLY_TOTALS {
+            totals.insert(
+                (*key).to_string(),
+                json!(cell_num(sheet.get(row, col)).unwrap_or(0)),
+            );
+        }
+        let mut item = Map::new();
+        item.insert("week".into(), json!(week.clone()));
+        item.insert("taken_at".into(), json!(sheet.get(row, "記録日")));
+        item.insert("week_start".into(), json!(sheet.get(row, "週はじまり")));
+        item.insert("totals".into(), Value::Object(totals));
+        for (col, key) in WEEKLY_NUMS {
+            item.insert(
+                (*key).to_string(),
+                json!(cell_num(sheet.get(row, col)).unwrap_or(0)),
+            );
+        }
+        // 架電数だけは「まだ無い」と「0件」を分ける。画面は null を「—」で出す。
+        item.insert(
+            "zoom_called".into(),
+            match cell_num(sheet.get(row, "Zoom架電数")) {
+                Some(n) => json!(n),
+                None => Value::Null,
+            },
+        );
+        item.insert(
+            "zoom_days".into(),
+            json!(cell_num(sheet.get(row, "Zoom日数")).unwrap_or(0)),
+        );
+        item.insert(
+            "zoom_partial".into(),
+            json!(sheet.get(row, "Zoom集計中") == "集計中"),
+        );
+        out.push((week, Value::Object(item)));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.into_iter().map(|(_, v)| v).collect()
 }
 
 pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
