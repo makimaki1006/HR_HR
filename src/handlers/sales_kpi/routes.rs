@@ -28,8 +28,8 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
-    classify, deal_row, deals_of, is_bpo, kaden_of, kaden_period, load, members_of, Counts, Deal,
-    DealRow, Kind, Person, Sheets, SHEET_META,
+    classify, deal_row, deals_of, is_bpo, kaden_of, kaden_period, load, members_of, snapshots_of,
+    Counts, Deal, DealRow, Kind, Person, Sheets, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -129,6 +129,7 @@ async fn data(Query(q): Query<DataQuery>, session: Session) -> Result<Response, 
             super::SHEET_KADEN_LIST,
             super::SHEET_MEMBER,
             SHEET_META,
+            super::SHEET_WEEKLY,
         ] {
             state.store.invalidate(Some(name)).await;
         }
@@ -346,35 +347,58 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     // ---- 架電リストの状態 -------------------------------------------------
     let (kaden_block, kaden_base) = kaden_list_block(&sheets.kaden_list);
 
+    // ---- 取得条件 ---------------------------------------------------------
+    // 架電より先に読む。「架電の最終日が途中かどうか」は取得条件に入っている。
+    let mut meta: BTreeMap<String, String> = BTreeMap::new();
+    for row in &sheets.meta.rows {
+        meta.insert(
+            sheets.meta.get(row, "項目").to_string(),
+            sheets.meta.get(row, "値").to_string(),
+        );
+    }
+
     // ---- Zoom の架電 ------------------------------------------------------
+    //
+    // 🔴 週・月の区切りは **実際の today** で決める。シートの最終日で決めてはいけない。
+    //    日次同期は前日ぶんを朝に書くので、月曜の朝はシートの最終日が日曜（＝先週）
+    //    になる。そこを週頭にすると「今週」として先週が丸ごと出る。
+    //    実際に 2026-09-07（月）の本番で、今週として 8/31〜9/06 が出ていた。
+    //    その週にまだ行が無ければ 0件と正直に出す。先週を今週と偽らない。
     let kaden_rows = kaden_of(&sheets.kaden);
     let have_days: HashSet<&str> = kaden_rows.iter().map(|r| r.date.as_str()).collect();
-    // シートにある最後の日を「今日」として扱う。GAS は前日ぶんを朝に書くので、
-    // 実際の today にはまだ行が無いことが多い。無い日を today として出すと
-    // 画面が「今日は0件」と嘘をつく。
     let last_day = kaden_rows
         .iter()
         .map(|r| r.date.as_str())
         .max()
         .unwrap_or("")
         .to_string();
-    let last_date = NaiveDate::parse_from_str(&last_day, "%Y-%m-%d").unwrap_or(today);
-    let kwk = week_start(last_date);
-    let this_week_days: Vec<String> = days_between(kwk, last_date + Duration::days(1))
+    // 最終日がまだ途中か。日次同期が「架電の最終日／その日は途中か」を取得条件に
+    // 書くので、それが同じ日について言っているならそれを使う。
+    // 無ければ「最終日＝今日なら途中」と見なす（今日はまだ終わっていない）。
+    let kaden_partial = match meta.get("架電の最終日") {
+        Some(d) if *d == last_day => meta.get("架電の最終日は途中").map(|v| v == "はい"),
+        _ => None,
+    }
+    .unwrap_or(!last_day.is_empty() && last_day == ymd(today));
+
+    // 商談の「今週」と同じ週頭を使う（wk = week_start(today)）。
+    // 商談と架電で週がずれていると、画面の中で今週の意味が2つになる。
+    let this_week_days: Vec<String> = days_between(wk, today + Duration::days(1))
         .into_iter()
         .filter(|d| have_days.contains(d.as_str()))
         .collect();
-    let prev_week_days: Vec<String> = days_between(kwk - Duration::days(7), kwk);
-    let prev_same: Vec<String> = prev_week_days
+    let prev_week_days: Vec<String> = days_between(wk - Duration::days(7), wk);
+    // 先週の「同じところまで」。件数で頭から取るのではなく、今週ぶんの各日を
+    // そのまま7日ずらす。今週の途中に行が無い日があっても曜日がずれない。
+    let prev_same: Vec<String> = this_week_days
         .iter()
-        .take(this_week_days.len())
-        .cloned()
+        .filter_map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+        .map(|d| ymd(d - Duration::days(7)))
         .collect();
-    let month_days: Vec<String> =
-        days_between(month_first(last_date), last_date + Duration::days(1))
-            .into_iter()
-            .filter(|d| have_days.contains(d.as_str()))
-            .collect();
+    let month_days: Vec<String> = days_between(month_first(today), today + Duration::days(1))
+        .into_iter()
+        .filter(|d| have_days.contains(d.as_str()))
+        .collect();
 
     let mut daily: Vec<Value> = Vec::new();
     let mut per_day: BTreeMap<&str, (i64, i64, i64)> = BTreeMap::new();
@@ -402,7 +426,11 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     unmatched.sort_by(|a, b| b.1.cmp(&a.1));
 
     let calls = json!({
-        "generated_at": last_day,
+        "generated_at": last_day.clone(),
+        // シートに入っている最後の日と、その日がまだ途中かどうか。
+        // 画面はこれを見て「集計中」と出せる。
+        "last_day": last_day.clone(),
+        "last_day_partial": kaden_partial,
         "rule": {
             "calls": "Zoomの通話ログのうち direction=outbound を1件と数える",
             "connected": "result が Auto Recorded のもの。現場が「架電数」と呼んでいるのはこの数",
@@ -410,8 +438,10 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
             "join": "call_logs に caller_email が無いため Zoomユーザーのメール → HubSpot担当者のメールで紐づけ",
         },
         "periods": {
-            "today": kaden_period(&kaden_rows, std::slice::from_ref(&last_day), &members),
-            "yesterday": kaden_period(&kaden_rows, &[ymd(last_date - Duration::days(1))], &members),
+            // 🔴 today はシートの最終日ではなく実際の今日。今日の行がまだ無ければ
+            //    空（0件）で返す。無い日を「今日」として出すと画面が嘘をつく。
+            "today": kaden_period(&kaden_rows, &[ymd(today)], &members),
+            "yesterday": kaden_period(&kaden_rows, &[ymd(today - Duration::days(1))], &members),
             "this_week": kaden_period(&kaden_rows, &this_week_days, &members),
             "prev_week_same": kaden_period(&kaden_rows, &prev_same, &members),
             "prev_week": kaden_period(&kaden_rows, &prev_week_days, &members),
@@ -421,15 +451,6 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         "people": people_list(&people),
         "unmatched_by_dept": unmatched.into_iter().collect::<BTreeMap<_, _>>(),
     });
-
-    // ---- 取得条件 ---------------------------------------------------------
-    let mut meta: BTreeMap<String, String> = BTreeMap::new();
-    for row in &sheets.meta.rows {
-        meta.insert(
-            sheets.meta.get(row, "項目").to_string(),
-            sheets.meta.get(row, "値").to_string(),
-        );
-    }
 
     let teams: Vec<String> = by_team.keys().cloned().collect();
     let body = json!({
@@ -451,9 +472,10 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         "kaden": kaden_block,
         "kaden_base": kaden_base,
         "calls": calls,
-        // 週次スナップショットはまだ持っていない（黙って省略しないための明示）。
-        // GAS 側に週1回シートへ追記する処理を足したら、ここでそれを読む。
-        "snapshots": Value::Array(vec![]),
+        // 週に1行の記録。Python の日次同期（Hubspot リポジトリ
+        // `scripts/sales_kpi/sync_daily.py` の `sync_weekly()`）が
+        // KPI営業_週次 へその週の行を上書きする。まだ1度も書かれていなければ空配列。
+        "snapshots": snapshots_of(&sheets.weekly),
         "meta": meta,
         "from_cache": sheets.all_cached,
     });
