@@ -46,7 +46,9 @@ fn load_tsv(name: &str) -> Arc<SheetData> {
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
-    let out = args.next().unwrap_or_else(|| "sales_kpi_payload.json".to_string());
+    let out = args
+        .next()
+        .unwrap_or_else(|| "sales_kpi_payload.json".to_string());
     let day = args
         .next()
         .and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())

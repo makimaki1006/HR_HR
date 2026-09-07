@@ -1,1 +1,9 @@
 # DB is now downloaded from GitHub Release at build time (no LFS needed)
+
+# シェルスクリプトは必ず LF で置く。
+# Windows でチェックアウトすると CRLF になり、`#!/bin/bash` を
+# shebang として解釈できず、Linux コンテナで
+#   /bin/sh: 1: scripts/download_db.sh: not found
+# と出る（ファイルは存在するのに「無い」と言われる）。
+# 2026-09-07 に Docker ビルドの再現でこれを踏んだ。
+*.sh text eol=lf

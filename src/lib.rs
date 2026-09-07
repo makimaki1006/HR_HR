@@ -82,6 +82,12 @@ pub struct AppState {
 }
 
 /// アプリケーションRouter構築
+// Router を組み立てられることの確認。ここが落ちたら本番は起動できない。
+// 2026-09-07: マージで同じルートが2回登録され、cargo test は全部通るのに
+// 起動だけできない状態で main に入り、本番が21時間出せなかった。
+#[cfg(test)]
+mod router_startup_test;
+
 pub fn build_app(state: Arc<AppState>) -> Router {
     let session_store = MemoryStore::default();
     // 2026-05-22 セキュリティ修正 (Agent A3 H1): 本番 (RENDER env 等) で
