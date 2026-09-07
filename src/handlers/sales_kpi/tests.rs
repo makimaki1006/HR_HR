@@ -619,6 +619,90 @@ fn 架電リストの担当者別が無くても画面は出る() {
     );
 }
 
+// ------------------------------------------------ 母数の動き
+//
+// 🔴 架電リストの母数は毎月大きく動く。異常ではなくリストマネジメントの正常な運用
+// （2026-09-07 ユーザー確認）。実測では 09-01 に BPO→アポ前 7,360件、09-02 に
+// アポ前→BPO 6,663件が動き、母数は 136,518 → 129,790 になった。
+// 率だけ見て「進んだ／戻った」と読まれないよう、動いた事実を画面に出す。
+
+/// 週次シートを1行ぶん作る。母数以外は画面が触らないので固定でよい。
+fn weekly_row(week: &str, taken_at: &str, week_start: &str, kaden_base: i64) -> String {
+    format!(
+        "{week}\t{taken_at}\t{week_start}\t537\t166\t54\t8\t304\t5\t245\t126\t129\t\
+         13\t280\t41\t32817\t{kaden_base}\t1000\t5\t確定\n"
+    )
+}
+
+const WEEKLY_HEAD: &str = "週\t記録日\t週はじまり\t母集団\t実施\t未実施\t未処理\tこれから\t要判定\t\
+     取ったアポ\tCヨミ\tBPO母集団\t止まっている\tアンケート未回収\tCヨミ置きっぱなし\t\
+     架電リスト手をつけた\t架電リスト母数\tZoom架電数\tZoom日数\tZoom集計中\n";
+
+/// 週次シートを差し替えて payload を作る。fixture_day() は 2026-09-04（金）、
+/// その週のはじまりは 2026-08-31。
+fn payload_with_weekly(rows: &str) -> Value {
+    build_payload(
+        &Sheets {
+            weekly: Arc::new(sheet_from_tsv(&format!("{WEEKLY_HEAD}{rows}"))),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    )
+}
+
+#[test]
+fn 母数が動いたことを前の週の記録と比べて出す() {
+    let body = payload_with_weekly(&format!(
+        "{}{}",
+        weekly_row("2026-W35", "2026-08-28", "2026-08-24", 136_518),
+        // 今週（2026-08-31 はじまり）の行。これ自身とは比べない
+        weekly_row("2026-W36", "2026-09-04", "2026-08-31", 999_999),
+    ));
+    let t = &body["kaden"]["base_trend"];
+    let base = body["kaden"]["base"].as_i64().unwrap();
+    assert_eq!(t["week"], "2026-W35", "今週の行と比べてしまっている");
+    assert_eq!(t["base"].as_i64(), Some(136_518));
+    assert_eq!(
+        t["diff"].as_i64(),
+        Some(base - 136_518),
+        "差が「今の母数 − 前の記録」になっていない"
+    );
+    assert!(t["diff"].as_i64().unwrap() < 0, "減っているのに増えて見える");
+}
+
+#[test]
+fn 前の週の記録が無ければ母数の比較を出さない() {
+    // 今週の行しか無い（本番の 2026-09-07 がこの状態だった）
+    let body = payload_with_weekly(&weekly_row("2026-W36", "2026-09-04", "2026-08-31", 129_869));
+    assert_eq!(
+        body["kaden"]["base_trend"],
+        Value::Null,
+        "比べる相手が無いのに前週比を出している"
+    );
+    // 週次シートが丸ごと無くても落ちない
+    let body = build_payload(&fixture_sheets_without_weekly(), fixture_day());
+    assert_eq!(body["kaden"]["base_trend"], Value::Null);
+}
+
+#[test]
+fn 母数の比較は今週でない一番新しい記録を使う() {
+    // 週が飛んでいても、今週でない最新の記録と比べる
+    let body = payload_with_weekly(&format!(
+        "{}{}{}",
+        weekly_row("2026-W30", "2026-07-24", "2026-07-20", 100_000),
+        weekly_row("2026-W34", "2026-08-21", "2026-08-17", 136_518),
+        weekly_row("2026-W36", "2026-09-04", "2026-08-31", 999_999),
+    ));
+    assert_eq!(body["kaden"]["base_trend"]["week"], "2026-W34");
+    // 母数が空の行（架電がまだ入っていない週）は比較相手にしない
+    let body = payload_with_weekly(&format!(
+        "{}{}",
+        weekly_row("2026-W34", "2026-08-21", "2026-08-17", 136_518),
+        weekly_row("2026-W35", "2026-08-28", "2026-08-24", 0),
+    ));
+    assert_eq!(body["kaden"]["base_trend"]["week"], "2026-W34");
+}
+
 // ------------------------------------------------ メンバー
 
 /// 名簿に載っていない人（BPO など）も名前で出す。

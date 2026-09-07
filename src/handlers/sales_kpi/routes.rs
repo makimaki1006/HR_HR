@@ -305,8 +305,15 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         .collect();
 
     // ---- 架電リストの状態 -------------------------------------------------
-    let (kaden_block, kaden_base) =
+    let (mut kaden_block, kaden_base) =
         kaden_list_block(&sheets.kaden_list, &sheets.kaden_by_owner, &members);
+    // 母数がどれだけ動いたか。週次シートは読むだけ（書くのは Python 側）。
+    if let Some(obj) = kaden_block.as_object_mut() {
+        obj.insert(
+            "base_trend".into(),
+            kaden_base_trend(&sheets.weekly, kaden_base, &ymd(wk)),
+        );
+    }
 
     // 架電リストだけに出てくる担当者も個人プルダウンに載せる。
     // 🔴 載せないと「そのチームの合計は出るのに、中の誰も選べない」ことが起きる。
@@ -487,6 +494,46 @@ fn people_list(people: &HashMap<String, Person>) -> Vec<&Person> {
 fn days_since(text: &str, today: NaiveDate) -> Option<i64> {
     let date = NaiveDate::parse_from_str(text.get(..10)?, "%Y-%m-%d").ok()?;
     Some((today - date).num_days())
+}
+
+/// 架電リストの母数が、前の週の記録からどれだけ動いたか。無ければ `Null`。
+///
+/// 🔴 **母数は毎月大きく動く。異常ではなくリストマネジメントの正常な運用**
+/// （2026-09-07 ユーザー確認）。アポ前リストと BPO リストの間でまとまった件数が
+/// 行き来している。実測では 09-01 に BPO→アポ前 7,360件、09-02 に アポ前→BPO
+/// 6,663件、09-03 に新ステージへ 1,825件。母数は 136,518 → 129,790 と動いた。
+/// これを画面に出さないと、「手をつけた割合」が動いたのを見た人が
+/// 「先週より進んだ／戻った」と読む。実際には母数の入れ替えで動いただけ、
+/// ということが起きる。
+///
+/// 比べる相手は「今週ではない、いちばん新しい記録」。今週の行は今日と同じ材料から
+/// 書かれているので、それと比べても 0 にしかならない。
+///
+/// 🔴 増減の**理由**までは出さない。この材料（週ごとの母数）だけでは
+/// 「BPO へ払い出したから減った」のか「ステージ構成が変わったから」なのかを
+/// 判定できない。画面には動いた事実だけを出して、断定しない。
+fn kaden_base_trend(
+    weekly: &crate::handlers::call_quality::sheets::SheetData,
+    base: i64,
+    this_week_start: &str,
+) -> Value {
+    let prev = snapshots_of(weekly)
+        .into_iter()
+        .filter(|s| {
+            s["kaden_base"].as_i64().unwrap_or(0) > 0
+                && s["week_start"].as_str().unwrap_or("") != this_week_start
+        })
+        // snapshots_of は週の昇順。最後が「今週ではない、いちばん新しい記録」。
+        .next_back();
+    match prev {
+        Some(s) => json!({
+            "week": s["week"],
+            "week_start": s["week_start"],
+            "base": s["kaden_base"],
+            "diff": base - s["kaden_base"].as_i64().unwrap_or(0),
+        }),
+        None => Value::Null,
+    }
 }
 
 /// 架電リストの状態（未架電／未接触／接触済み）と入力状況をまとめる。
