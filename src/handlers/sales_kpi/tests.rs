@@ -135,14 +135,26 @@ fn 仕分けの合計が母集団と一致する() {
 #[test]
 fn 個人別の合計がチーム別の合計と一致する() {
     let body = payload();
-    for key in ["pool", "実施", "未実施", "未処理", "これから", "apo", "cyomi"] {
+    for key in [
+        "pool",
+        "実施",
+        "未実施",
+        "未処理",
+        "これから",
+        "apo",
+        "cyomi",
+    ] {
         let by_person: i64 = body["by_person"]
             .as_object()
             .unwrap()
             .values()
             .map(|c| c.get(key).and_then(Value::as_i64).unwrap_or(0))
             .sum();
-        assert_eq!(by_person, team_sum(&body, key), "{key} がチームと個人で食い違う");
+        assert_eq!(
+            by_person,
+            team_sum(&body, key),
+            "{key} がチームと個人で食い違う"
+        );
     }
 }
 
@@ -210,6 +222,9 @@ fn 止まっている取引はすべて予定日を過ぎている() {
     let cutoff = fixture_day().format("%Y-%m-%d").to_string();
     for row in body["stale"].as_array().unwrap() {
         let date = row["date"].as_str().unwrap_or("");
-        assert!(date < cutoff.as_str(), "予定日が未来なのに止まっている扱い: {row}");
+        assert!(
+            date < cutoff.as_str(),
+            "予定日が未来なのに止まっている扱い: {row}"
+        );
     }
 }

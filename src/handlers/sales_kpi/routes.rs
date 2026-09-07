@@ -102,10 +102,9 @@ async fn page(session: Session) -> Result<Html<String>, CqError> {
         .ok()
         .flatten()
         .unwrap_or_default();
-    SalesKpiTemplate { user }
-        .render()
-        .map(Html)
-        .map_err(|e| CqError::from_anyhow("sales-kpi", anyhow::anyhow!("画面の組み立てに失敗: {e}")))
+    SalesKpiTemplate { user }.render().map(Html).map_err(|e| {
+        CqError::from_anyhow("sales-kpi", anyhow::anyhow!("画面の組み立てに失敗: {e}"))
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,7 +181,9 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
 
     let month: Vec<&Deal> = all
         .iter()
-        .filter(|d| d.scheduled.as_str() >= month_lo.as_str() && d.scheduled.as_str() < month_hi.as_str())
+        .filter(|d| {
+            d.scheduled.as_str() >= month_lo.as_str() && d.scheduled.as_str() < month_hi.as_str()
+        })
         .collect();
 
     for deal in &month {
@@ -192,9 +193,13 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
             .unwrap_or_else(|| "チーム未設定".to_string());
         people.entry(deal.owner.clone()).or_insert_with(|| Person {
             id: deal.owner.clone(),
-            name: person
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| if deal.owner.is_empty() { "担当なし".into() } else { format!("owner_{}", deal.owner) }),
+            name: person.map(|p| p.name.clone()).unwrap_or_else(|| {
+                if deal.owner.is_empty() {
+                    "担当なし".into()
+                } else {
+                    format!("owner_{}", deal.owner)
+                }
+            }),
             team: team.clone(),
         });
 
@@ -234,9 +239,13 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
             .unwrap_or_else(|| "チーム未設定".to_string());
         people.entry(deal.owner.clone()).or_insert_with(|| Person {
             id: deal.owner.clone(),
-            name: person
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| if deal.owner.is_empty() { "担当なし".into() } else { format!("owner_{}", deal.owner) }),
+            name: person.map(|p| p.name.clone()).unwrap_or_else(|| {
+                if deal.owner.is_empty() {
+                    "担当なし".into()
+                } else {
+                    format!("owner_{}", deal.owner)
+                }
+            }),
             team: team.clone(),
         });
         add(&team, &deal.owner, "apo");
@@ -255,9 +264,13 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
             .unwrap_or_else(|| "チーム未設定".to_string());
         people.entry(deal.owner.clone()).or_insert_with(|| Person {
             id: deal.owner.clone(),
-            name: person
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| if deal.owner.is_empty() { "担当なし".into() } else { format!("owner_{}", deal.owner) }),
+            name: person.map(|p| p.name.clone()).unwrap_or_else(|| {
+                if deal.owner.is_empty() {
+                    "担当なし".into()
+                } else {
+                    format!("owner_{}", deal.owner)
+                }
+            }),
             team: team.clone(),
         });
         add(&team, &deal.owner, "cyomi");
@@ -267,7 +280,13 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         if let Some(days) = days_since(&deal.entered_c, today) {
             if days >= super::CYOMI_STALE_DAYS {
                 add(&team, &deal.owner, "cyomi_stale");
-                let mut row = deal_row(&deal, Kind::Unknown, "Cヨミのまま".into(), &members, bpo_of(&deal));
+                let mut row = deal_row(
+                    &deal,
+                    Kind::Unknown,
+                    "Cヨミのまま".into(),
+                    &members,
+                    bpo_of(&deal),
+                );
                 row.days = Some(days);
                 cyomi_stale.push(row);
             }
@@ -283,7 +302,15 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
                 && d.scheduled.as_str() >= stale_from.as_str()
                 && d.scheduled.as_str() < cutoff.as_str()
         })
-        .map(|d| deal_row(d, Kind::Stuck, "アポ日確定のまま".into(), &members, bpo_of(d)))
+        .map(|d| {
+            deal_row(
+                d,
+                Kind::Stuck,
+                "アポ日確定のまま".into(),
+                &members,
+                bpo_of(d),
+            )
+        })
         .collect();
     stale.sort_by(|a, b| a.date.cmp(&b.date));
 
@@ -300,7 +327,9 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
                 row
             })
             .collect();
-        rows.sort_by(|a, b| (a.date.as_str(), a.time.as_str()).cmp(&(b.date.as_str(), b.time.as_str())));
+        rows.sort_by(|a, b| {
+            (a.date.as_str(), a.time.as_str()).cmp(&(b.date.as_str(), b.time.as_str()))
+        });
         rows
     };
     let this_week = week_rows(&week_lo, &week_hi);
@@ -323,7 +352,12 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     // シートにある最後の日を「今日」として扱う。GAS は前日ぶんを朝に書くので、
     // 実際の today にはまだ行が無いことが多い。無い日を today として出すと
     // 画面が「今日は0件」と嘘をつく。
-    let last_day = kaden_rows.iter().map(|r| r.date.as_str()).max().unwrap_or("").to_string();
+    let last_day = kaden_rows
+        .iter()
+        .map(|r| r.date.as_str())
+        .max()
+        .unwrap_or("")
+        .to_string();
     let last_date = NaiveDate::parse_from_str(&last_day, "%Y-%m-%d").unwrap_or(today);
     let kwk = week_start(last_date);
     let this_week_days: Vec<String> = days_between(kwk, last_date + Duration::days(1))
@@ -336,10 +370,11 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         .take(this_week_days.len())
         .cloned()
         .collect();
-    let month_days: Vec<String> = days_between(month_first(last_date), last_date + Duration::days(1))
-        .into_iter()
-        .filter(|d| have_days.contains(d.as_str()))
-        .collect();
+    let month_days: Vec<String> =
+        days_between(month_first(last_date), last_date + Duration::days(1))
+            .into_iter()
+            .filter(|d| have_days.contains(d.as_str()))
+            .collect();
 
     let mut daily: Vec<Value> = Vec::new();
     let mut per_day: BTreeMap<&str, (i64, i64, i64)> = BTreeMap::new();
@@ -356,7 +391,11 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     let mut unmatched_by_dept: BTreeMap<String, i64> = BTreeMap::new();
     for row in kaden_rows.iter().filter(|r| r.owner.is_empty()) {
         *unmatched_by_dept
-            .entry(if row.dept.is_empty() { "(不明)".into() } else { row.dept.clone() })
+            .entry(if row.dept.is_empty() {
+                "(不明)".into()
+            } else {
+                row.dept.clone()
+            })
             .or_insert(0) += row.calls;
     }
     let mut unmatched: Vec<(String, i64)> = unmatched_by_dept.into_iter().collect();
@@ -444,7 +483,11 @@ fn kaden_list_block(sheet: &crate::handlers::call_quality::sheets::SheetData) ->
         let kind = sheet.get(row, "区分");
         let name = sheet.get(row, "名前");
         let group = sheet.get(row, "分類");
-        let count = sheet.get(row, "件数").replace(',', "").parse::<i64>().unwrap_or(0);
+        let count = sheet
+            .get(row, "件数")
+            .replace(',', "")
+            .parse::<i64>()
+            .unwrap_or(0);
         match kind {
             "ステージ" => {
                 composition.push(json!({"stage": name, "cls": group, "count": count}));
