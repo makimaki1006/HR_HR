@@ -606,14 +606,18 @@ function render(){
 
   // ---- 架電リストの残り ----
   //
-  // 全社のときは KPI営業_架電リスト（全社の合計）をそのまま出す。
-  // チーム・個人を選んだときは KPI営業_架電リスト_担当別 から出す。
-  // 🔴 チームを全部足しても全社にはならない。担当者が入っていない取引が
-  //    7千件あり、どのチームにも属さないため。その旨は下の注記に必ず出す。
+  // 🔴 「すべて」で出すのは**営業チームの合計**であって、アポ前パイプライン全体
+  //    ではない（2026-09-08 ユーザー判断）。全体で数えると「74.5%が未着手」に
+  //    なるが、それは名簿に載っていない人が持っている在庫に引きずられた数字だった。
+  //    営業チームだけで数えると 72.8% が着手済み。現場が見たいのは後者。
+  //    配られていない在庫は下の「まだ配られていないリスト」に別枠で出す。
   const noOwn=(K.no_owner||{}).base||0;
+  const UN=K.unassigned||{}, ALL=K.all||{};
+  const nTeams=Object.keys(K.by_team||{}).filter(t=>t!=='チーム未設定').length;
   const scope=(function(){
     if(!person&&team==='すべて')
-      return {c:kc,base:K.base,who:'会社全体',whole:true};
+      return {c:kc,base:K.base,
+              who:K.has_by_owner?('営業'+nTeams+'チームの合計'):'会社全体',whole:true};
     if(!K.has_by_owner) return null;
     if(person){
       const p=D.people.find(x=>x.id===person)||{};
@@ -633,24 +637,25 @@ function render(){
   }else{
     const sb=scope.base, sc=scope.c;
     const g=k=>sc[k]||0;
-    // 母数そのものの動き。KPI営業_週次 に記録された「その週の母数」との差で、
-    // サーバが出す（全社ぶんしか記録が無いので、全社を選んだときだけ）。
+    // 母数の動き。KPI営業_週次 に記録されているのは**アポ前パイプライン全体**の
+    // 母数なので、営業チームの合計と比べると桁が合わない。全体の数字と並べて出す。
     const tr=scope.whole?D.kaden.base_trend:null;
     const sign=n=>(n>0?'＋':'−')+fmt(Math.abs(n));
     $('lead3b').innerHTML='リストのどこまで手がついているか。<b>'+scope.who+'</b>の数字です。'+
-      (scope.whole?'':'<br><span style="color:var(--faint)">チームや個人を選ぶと、'+
-        'その担当者が持っている取引だけで数え直します。</span>');
+      (scope.whole
+        ? (K.has_by_owner
+            ? '<br><span style="color:var(--faint)">名簿でチームが決まっている人が持っている分だけを数えています。'+
+              'まだ誰にも配られていない分は下に別枠で出しています。</span>'
+            : '')
+        : '<br><span style="color:var(--faint)">チームや個人を選ぶと、'+
+          'その担当者が持っている取引だけで数え直します。</span>');
     [
       {lab:'まだかけていない',val:g('未架電'),unit:'件',hint:pct(g('未架電')/sb*100)+' を占めます'},
       {lab:'つながらず',val:g('未接触'),unit:'件',hint:'受付ブロック・不在・不通'},
       {lab:'話せた',val:g('接触済み'),unit:'件',hint:'担当者と接触できた'},
       {lab:'手をつけた割合',val:(g('未接触')+g('接触済み'))/sb*100,pct:true,
        hint:fmt(g('未接触')+g('接触済み'))+' ÷ '+fmt(sb)+' 件',
-       // 🔴 分母そのものが動くので、率だけを前と比べても意味にならない。
-       //    動いた事実をこの場で出す（理由は判定できないので書かない）。
-       sub2:'<span style="color:var(--sub)">母数 '+fmt(sb)+'件'+
-            (tr?'（'+tr.week+' の記録 '+fmt(tr.base)+'件 より <b>'+sign(tr.diff)+'</b>）'
-               :(scope.whole?'（前の週の記録がまだありません）':''))+'</span>'},
+       sub2:'<span style="color:var(--sub)">母数 '+fmt(sb)+'件</span>'},
     ].forEach(o=>c3b.appendChild(cardEl(o)));
     const cols={'未架電':'var(--warn)','未接触':'var(--alert)','接触済み':'var(--accent)'};
     const wrapB=document.createElement('div'); wrapB.className='c'; wrapB.style.marginTop='11px';
@@ -662,27 +667,59 @@ function render(){
     ['未架電','未接触','接触済み'].forEach(k=>{
       lg2.innerHTML+='<span><i style="background:'+cols[k]+'"></i>'+k+' '+fmt(g(k))+'件</span>';});
     wrapB.appendChild(lg2);
-    if(scope.whole&&K.has_by_owner&&noOwn){
-      wrapB.innerHTML+='<div class="hint" style="margin-top:10px">'+
-        'このうち <b>'+fmt(noOwn)+'件</b>（'+pct(noOwn/sb*100)+'）は担当者が入っていません。'+
-        'チームや個人で絞ると、その分は出てきません。</div>';
-    }
-    // 母数が動くことの説明。率の増減を「進んだ／戻った」と読ませないための注記。
-    if(tr){
-      wrapB.innerHTML+='<div class="hint" style="margin-top:10px">'+
-        '<b>母数そのものが動きます。</b>アポ前リストと BPO リストの間で、'+
-        '毎月まとまった件数が行き来しています（リスト管理の通常の運用です）。'+
-        'そのため <b>「手をつけた割合」が動いても、そのまま「進んだ／戻った」とは限りません</b>。'+
-        'この画面では増減の理由までは判定できないので、'+
-        '大きく動いた月はリストを動かした人に確認してください。</div>';
-    }
     // 決定者・決裁者は全社でしか数えていない。担当者ごとに数えると
     // リクエストが4倍になるわりに、全社で 0.1〜0.2% しか入っておらず差が出ないため。
     wrapB.innerHTML+='<div class="hint" style="margin-top:10px">決定者・決裁者の入力状況'+
-      '（<b>全社</b>のリスト全体 '+fmt(K.total)+'件・チームや個人では出せません）: '+
+      '（<b>アポ前リスト全体</b> '+fmt(K.total)+'件・チームや個人では出せません）: '+
       Object.keys(K.fill).map(k=>k+' '+pct(K.fill[k]/K.total*100)).join(' ／ ')+
       '　<b style="color:var(--alert)">ほぼ入っていません。</b></div>';
     lb.appendChild(wrapB);
+
+    // ---- まだ配られていないリスト（全社のときだけ）----
+    //
+    // 上のカードは「営業チームが持っている分」なので、誰にも配られていない在庫は
+    // そこに入らない。配る判断に使えるよう、誰が抱えているかまで出す。
+    if(scope.whole&&K.has_by_owner&&UN.base){
+      const un=document.createElement('div'); un.className='c'; un.style.marginTop='11px';
+      const ug=k=>(UN.cls||{})[k]||0;
+      un.innerHTML='<div class="lab">まだ配られていないリスト</div>'+
+        '<div class="v">'+fmt(UN.base)+'<small>件</small></div>'+
+        '<div class="hint">名簿でチームが決まっていない人が持っている分と、担当者が'+
+        '入っていない分。<b>上の「'+scope.who+'」には入っていません。</b></div>'+
+        '<div class="sub2">まだかけていない '+fmt(ug('未架電'))+'件 ／ つながらず '+
+        fmt(ug('未接触'))+'件 ／ 話せた '+fmt(ug('接触済み'))+'件</div>';
+      const rows=(UN.people||[]).filter(p=>p.base>0).slice(0,8);
+      if(rows.length||UN.no_owner){
+        const tw=document.createElement('div'); tw.className='tw'; tw.style.marginTop='8px';
+        const tb=document.createElement('table');
+        tb.innerHTML='<thead><tr><th>誰が持っているか</th><th>所属</th>'+
+          '<th class="n">件数</th><th class="n">まだかけていない</th></tr></thead>';
+        const bd=document.createElement('tbody');
+        rows.forEach(p=>{const tr2=document.createElement('tr');
+          tr2.innerHTML='<td>'+p.name+'</td>'+
+            '<td style="color:var(--sub)">'+(p.hsTeam||'—')+'</td>'+
+            '<td class="n"><b>'+fmt(p.base)+'</b></td>'+
+            '<td class="n">'+fmt(p['未架電'])+'</td>';
+          bd.appendChild(tr2);});
+        if(UN.no_owner){
+          const tr2=document.createElement('tr');
+          tr2.innerHTML='<td>（担当者が入っていない）</td><td style="color:var(--sub)">—</td>'+
+            '<td class="n"><b>'+fmt(UN.no_owner)+'</b></td><td class="n">—</td>';
+          bd.appendChild(tr2);}
+        tb.appendChild(bd); tw.appendChild(tb); un.appendChild(tw);
+      }
+      // 母数が動くことの説明。率の増減を「進んだ／戻った」と読ませないための注記。
+      // 週次に残っているのはアポ前リスト全体の母数なので、ここで並べて出す。
+      un.innerHTML+='<div class="hint" style="margin-top:10px">'+
+        'アポ前リスト全体では <b>'+fmt(ALL.base)+'件</b>'+
+        (tr?'（'+tr.week+' の記録 '+fmt(tr.base)+'件 より <b>'+sign(tr.diff)+'</b>）':'')+'。'+
+        '<b>この母数そのものが動きます。</b>アポ前リストと BPO リストの間で毎月まとまった'+
+        '件数が行き来しています（リスト管理の通常の運用です）。そのため'+
+        '<b>率が動いても、そのまま「進んだ／戻った」とは限りません</b>。'+
+        'この画面では増減の理由までは判定できないので、'+
+        '大きく動いた月はリストを動かした人に確認してください。</div>';
+      lb.appendChild(un);
+    }
   }
 
   // ---- 週次スナップショット ----
