@@ -167,6 +167,7 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 
 <h2>今月の成績</h2>
 <p class="lead">商談の予定日が過ぎたものだけで数えています（今日の商談はまだ終わっていないので入れません）。<br><span id="bporule"></span></p>
+<p class="scope" id="scope2" style="margin:-8px 0 12px"></p>
 <div class="cards" id="cards1"></div>
 
 <h2>いま手を打てること</h2>
@@ -390,6 +391,17 @@ function render(){
                      :team+' の数字だけを表示しています。');
 
   // ---- 今月の成績 ----
+  //
+  // 何を数えているかを必ず出す。架電リストは「営業チームの合計」、商談は
+  // 「集計対象外を除いた全員」で、基準が違う。黙って減らすと数字が合わなくなる。
+  // 🔴 チーム名は書かない。サーバが返した内訳（HubSpotチーム別）をそのまま出す。
+  const EX=D.excluded||{}, exN=EX['件数']||0;
+  $('scope2').innerHTML=exN
+    ? '商談の数字からは <b>'+Object.keys(EX).filter(k=>k!=='件数')
+        .map(k=>k+' '+fmt(EX[k])+'件').join(' ／ ')+'</b> を除いています'+
+      '<span style="color:var(--faint)">（誰を除くかは スプレッドシートの '+
+      'KPI営業_集計除外 で変えられます。架電と架電リストは除いていません）。</span>'
+    : '';
   const c1=$('cards1'); c1.innerHTML='';
   const anqDen=a.anq_den||0, anqNum=a.anq_num||0;
   // 「1人あたり」の相手と、その合計。率のカードには付けない。

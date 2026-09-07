@@ -449,6 +449,16 @@ pub struct Person {
     /// 誰なのかを示す手掛かり。名簿のチームより粒度が粗いので、絞り込みには使わない。
     #[serde(rename = "hsTeam", skip_serializing_if = "String::is_empty")]
     pub hs_team: String,
+    /// 商談（①③②⑥⑨）の集計に入れるか。
+    ///
+    /// 🔴 **誰を外すかはここには書かない。** `KPI営業_メンバー` の `集計対象` 列を
+    /// そのまま読むだけで、条件は運用シート `KPI営業_集計除外` にしかない
+    /// （2026-09-08。現場が触れる場所を1つにするため）。列が無い古いシートでは
+    /// 全員 `true` になる＝これまでどおり全員数える。
+    ///
+    /// 🔴 外すのは商談だけ。架電と架電リストは外さない（コンサル営業も架電はしている）。
+    #[serde(skip)]
+    pub counted: bool,
 }
 
 /// 名簿にも HubSpot にも居ない ownerId のときの表示。
@@ -460,8 +470,9 @@ pub fn unknown_person(owner: &str) -> Person {
         } else {
             format!("owner_{owner}")
         },
-        team: "チーム未設定".into(),
+        team: TEAM_NONE.into(),
         hs_team: String::new(),
+        counted: true,
     }
 }
 
@@ -492,12 +503,14 @@ pub fn members_of(sheet: &SheetData) -> HashMap<String, Person> {
                     },
                     id,
                     team: if team.is_empty() {
-                        "チーム未設定".into()
+                        TEAM_NONE.into()
                     } else {
                         team
                     },
                     // 2026-09-07 追加。それ以前のシートにはこの列が無いので空になる。
                     hs_team: sheet.get(r, "HubSpotチーム").to_string(),
+                    // 2026-09-08 追加。列が無い古いシートでは全員 true（＝全員数える）。
+                    counted: sheet.get(r, "集計対象") != "対象外",
                 },
             )
         })
