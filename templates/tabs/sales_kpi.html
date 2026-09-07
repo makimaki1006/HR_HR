@@ -579,6 +579,10 @@ function render(){
   }else{
     const sb=scope.base, sc=scope.c;
     const g=k=>sc[k]||0;
+    // 母数そのものの動き。KPI営業_週次 に記録された「その週の母数」との差で、
+    // サーバが出す（全社ぶんしか記録が無いので、全社を選んだときだけ）。
+    const tr=scope.whole?D.kaden.base_trend:null;
+    const sign=n=>(n>0?'＋':'−')+fmt(Math.abs(n));
     $('lead3b').innerHTML='リストのどこまで手がついているか。<b>'+scope.who+'</b>の数字です。'+
       (scope.whole?'':'<br><span style="color:var(--faint)">チームや個人を選ぶと、'+
         'その担当者が持っている取引だけで数え直します。</span>');
@@ -587,7 +591,12 @@ function render(){
       {lab:'つながらず',val:g('未接触'),unit:'件',hint:'受付ブロック・不在・不通'},
       {lab:'話せた',val:g('接触済み'),unit:'件',hint:'担当者と接触できた'},
       {lab:'手をつけた割合',val:(g('未接触')+g('接触済み'))/sb*100,pct:true,
-       hint:fmt(g('未接触')+g('接触済み'))+' ÷ '+fmt(sb)+' 件'},
+       hint:fmt(g('未接触')+g('接触済み'))+' ÷ '+fmt(sb)+' 件',
+       // 🔴 分母そのものが動くので、率だけを前と比べても意味にならない。
+       //    動いた事実をこの場で出す（理由は判定できないので書かない）。
+       sub2:'<span style="color:var(--sub)">母数 '+fmt(sb)+'件'+
+            (tr?'（'+tr.week+' の記録 '+fmt(tr.base)+'件 より <b>'+sign(tr.diff)+'</b>）'
+               :(scope.whole?'（前の週の記録がまだありません）':''))+'</span>'},
     ].forEach(o=>c3b.appendChild(cardEl(o)));
     const cols={'未架電':'var(--warn)','未接触':'var(--alert)','接触済み':'var(--accent)'};
     const wrapB=document.createElement('div'); wrapB.className='c'; wrapB.style.marginTop='11px';
@@ -603,6 +612,15 @@ function render(){
       wrapB.innerHTML+='<div class="hint" style="margin-top:10px">'+
         'このうち <b>'+fmt(noOwn)+'件</b>（'+pct(noOwn/sb*100)+'）は担当者が入っていません。'+
         'チームや個人で絞ると、その分は出てきません。</div>';
+    }
+    // 母数が動くことの説明。率の増減を「進んだ／戻った」と読ませないための注記。
+    if(tr){
+      wrapB.innerHTML+='<div class="hint" style="margin-top:10px">'+
+        '<b>母数そのものが動きます。</b>アポ前リストと BPO リストの間で、'+
+        '毎月まとまった件数が行き来しています（リスト管理の通常の運用です）。'+
+        'そのため <b>「手をつけた割合」が動いても、そのまま「進んだ／戻った」とは限りません</b>。'+
+        'この画面では増減の理由までは判定できないので、'+
+        '大きく動いた月はリストを動かした人に確認してください。</div>';
     }
     // 決定者・決裁者は全社でしか数えていない。担当者ごとに数えると
     // リクエストが4倍になるわりに、全社で 0.1〜0.2% しか入っておらず差が出ないため。
@@ -646,7 +664,9 @@ function render(){
     : '')+
     '<b>商談の数え方を2つ持っています。下のボタンで切り替えてください。</b><br>'+
     '<b>'+SNAP.week.chip+'</b>＝'+SNAP.week.note+'<br>'+
-    '<b>'+SNAP.month.chip+'</b>＝'+SNAP.month.note;
+    '<b>'+SNAP.month.chip+'</b>＝'+SNAP.month.note+
+    '<br><span style="color:var(--faint)">この表は<b>全社</b>の記録です。'+
+    '上のチーム・個人の絞り込みには連動しません。</span>';
 
   const sb=$('snapbox'); sb.innerHTML='';
   const box=document.createElement('div'); box.className='c';
@@ -655,12 +675,18 @@ function render(){
     '<th class="n grp" colspan="3">'+SNAP[snapMode].head+'</th>'+
     '<th class="n" rowspan="2">架電数<span class="sm">その週の合計</span></th>'+
     '<th class="n" rowspan="2">取ったアポ<span class="sm">当月の累計</span></th>'+
-    '<th class="n" rowspan="2">止まっている<span class="sm">記録した時点</span></th></tr>'+
+    '<th class="n" rowspan="2">止まっている<span class="sm">記録した時点</span></th>'+
+    '<th class="n" rowspan="2">架電リスト母数<span class="sm">記録した時点</span></th></tr>'+
     '<tr><th class="n">商談</th><th class="n">やった</th><th class="n">商談化率</th></tr></thead>';
   const tb=document.createElement('tbody');
   let missing=0;
-  S.slice(-8).forEach(s=>{
+  const shown=S.slice(-8);
+  shown.forEach((s,ix)=>{
     const tt=s.totals||{};
+    // 架電リストの母数は前の行との差も出す。動いたこと自体が
+    // 「リストを入れ替えた」という事実で、率の比較が成り立たない合図になる。
+    const pb=ix?shown[ix-1].kaden_base:null;
+    const bd=(pb&&s.kaden_base)?s.kaden_base-pb:null;
     // 週ベースの列は 2026-09-07 に足したもの。それより前に記録した行には入っていない。
     // 0 で埋めると「その週は0件だった」と嘘になるので「—」を出す。
     const src=(snapMode==='week')?s.week_totals:tt;
@@ -684,7 +710,9 @@ function render(){
         :fmt(s.zoom_called)+(s.zoom_partial
           ?'<span class="sm">'+s.zoom_days+'日目まで（集計中）</span>':''))+'</td>'+
       '<td class="n">'+fmt(tt.apo)+'</td>'+
-      '<td class="n">'+fmt(s.stale)+'</td>';
+      '<td class="n">'+fmt(s.stale)+'</td>'+
+      '<td class="n">'+(s.kaden_base?fmt(s.kaden_base):'<span style="color:var(--faint)">—</span>')+
+        (bd?'<span class="sm">'+(bd>0?'＋':'−')+fmt(Math.abs(bd))+'</span>':'')+'</td>';
     tb.appendChild(tr);});
   t.appendChild(tb);
   const stw=document.createElement('div'); stw.className='tw'; stw.appendChild(t);
@@ -700,7 +728,9 @@ function render(){
       '当月の累積なら見られます。<br>':'')+
     'この画面を開いたときではなく、データを取り直したときに1週ぶんが記録されます。'+
     '週の途中で取り直すと、その週の行が上書きされます。'+
-    '架電数はZoomでつながった通話の数です。</div>';
+    '架電数はZoomでつながった通話の数です。<br>'+
+    '<b>架電リスト母数</b>はアポ前リストの件数です。BPOリストとの間で件数が'+
+    '行き来するため週ごとに動きます。<b>母数が動いた週は、率の比較が成り立ちません。</b></div>';
   sb.appendChild(box);
 }
 render();
