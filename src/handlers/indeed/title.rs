@@ -152,6 +152,12 @@ pub async fn tab_indeed_title(
         tracing::warn!("属性の内訳を読めませんでした: {e}");
         Vec::new()
     });
+    // スマホ比率は職種そのものの性質。要点で使う
+    let mobile = snap
+        .titles
+        .iter()
+        .find(|t| t.name == name)
+        .and_then(|t| t.mobile_pct);
     Html(render(
         &d,
         overview.as_ref(),
@@ -159,6 +165,7 @@ pub async fn tab_indeed_title(
         &wages,
         &shifts,
         &attrs,
+        mobile,
     ))
 }
 
@@ -177,6 +184,7 @@ fn render(
     w: &MinWages,
     shifts: &[crate::indeed::keywords::TermShift],
     attrs: &[crate::indeed::keywords::AttrMonth],
+    mobile: Option<f64>,
 ) -> String {
     let mut h = String::with_capacity(120_000);
     h.push_str(GUARD);
@@ -194,6 +202,9 @@ fn render(
         c = esc(&d.category),
         m = esc(&d.month)
     ));
+
+    // 結論を先に置く。図と表はその根拠として下に続く
+    h.push_str(&takeaway_section(d, ov, w, shifts, mobile));
 
     // 全国の姿
     if let Some(o) = ov {
@@ -603,6 +614,138 @@ mod tests {
         );
         assert!(html.contains("差ではありません"), "全国比が比だという断りが無い");
     }
+}
+
+/// この職種について言えることを、先頭にまとめる。
+///
+/// # なぜ足したのか
+/// 図と表は並んでいたが、「この職種の商談で何を言えるか」は
+/// 読み手が組み立てるしかなかった。材料は下にそろっているので、
+/// 答えの形にして先頭に置く。
+///
+/// # 線引き
+/// 下の図から出せることだけを書く。無い材料の行は出さない。
+/// 断定を避け、「〜の候補になります」「〜と見えます」に留める。
+fn takeaway_section(
+    d: &TitleDetail,
+    ov: Option<&Overview>,
+    w: &MinWages,
+    shifts: &[crate::indeed::keywords::TermShift],
+    mobile: Option<f64>,
+) -> String {
+    let mut items: Vec<String> = Vec::new();
+
+    // 1. 集まりやすさ
+    if let Some(o) = ov {
+        if let (Some(sp), Some(j)) = (o.spp.latest, o.job.latest) {
+            let ch = o.spp.change_pct;
+            let dir = match ch {
+                Some(c) if c < -5.0 => "集まりにくさが強まっています。求人票か媒体を見直す候補です。",
+                Some(c) if c > 5.0 => "集まりやすくなっています。競合が引いた可能性があります。",
+                _ => "集まりやすさはこの期間ほぼ横ばいです。",
+            };
+            items.push(format!(
+                "<li>いま求人 <strong>{}</strong> 件、1 求人あたりに見た人は <strong>{}</strong> 人。\
+                 この期間で {}。{}</li>",
+                num_opt(Some(j)),
+                dec1_opt(Some(sp)),
+                pct_opt(ch),
+                dir
+            ));
+        }
+    }
+
+    // 2. どの県で戦うか
+    let mut top: Vec<&crate::indeed::detail::PrefRow> =
+        d.prefs.iter().filter(|p| p.spp.is_some()).collect();
+    if top.len() >= 5 {
+        top.sort_by(|a, b| b.spp.unwrap_or(0.0).total_cmp(&a.spp.unwrap_or(0.0)));
+        let easy: Vec<String> = top.iter().take(3).map(|p| esc(&p.prefecture)).collect();
+        let hard: Vec<String> = top
+            .iter()
+            .rev()
+            .take(3)
+            .map(|p| esc(&p.prefecture))
+            .collect();
+        items.push(format!(
+            "<li>人が集まりやすいのは <strong>{}</strong>、集まりにくいのは <strong>{}</strong>。\
+             同じ求人票でも、県によって手応えが変わります。</li>",
+            easy.join("・"),
+            hard.join("・")
+        ));
+    }
+
+    // 3. 求人票の職種名
+    if let Some(up) = shifts.iter().find(|s| s.diff_pt.unwrap_or(0.0) > 1.0) {
+        let down = shifts.iter().rev().find(|s| s.diff_pt.unwrap_or(0.0) < -1.0);
+        items.push(format!(
+            "<li>探すときの言葉が「{}」に寄っています{}。\
+             <strong>求人票の職種名に入っているか確かめる価値があります。</strong></li>",
+            esc(&up.term),
+            match down {
+                Some(x) => format!("（逆に「{}」は減りました）", esc(&x.term)),
+                None => String::new(),
+            }
+        ));
+    }
+
+    // 4. 応募の入口
+    if let Some(m) = mobile {
+        // 表示は小数第 1 位まで。判定も同じ丸めで行う。
+        // 生の 69.95 は「70.0%」と出るのに「70 未満」と判定され、
+        // 「70.0% がスマホから。スマホと PC が混ざります」と食い違っていた
+        let m = (m * 10.0).round() / 10.0;
+        let s = if m >= 70.0 {
+            "ほとんどスマホです。応募フォームがスマホで完了するか確かめてください。"
+        } else if m <= 55.0 {
+            "PC が比較的多い職種です。スマホ前提の作りだけでは取りこぼす可能性があります。"
+        } else {
+            "スマホと PC が混ざります。"
+        };
+        items.push(format!(
+            "<li>この職種を探す人の <strong>{:.1}%</strong> がスマホから。{}</li>",
+            m, s
+        ));
+    }
+
+    // 5. 時給
+    if !w.by_pref.is_empty() {
+        let below: Vec<&str> = d
+            .prefs
+            .iter()
+            .filter(|p| match (p.wage_median, w.by_pref.get(&p.prefecture)) {
+                (Some(x), Some(m)) => x < *m,
+                _ => false,
+            })
+            .map(|p| p.prefecture.as_str())
+            .collect();
+        if !below.is_empty() {
+            items.push(format!(
+                "<li><strong>{} 県で、掲示時給の中央値が最低賃金を下回っています</strong>（{}など）。\
+                 業務委託や基本給だけの掲示が混ざるとこうなります。\
+                 提示額を決めるときは、この相場をそのまま使わないでください。</li>",
+                below.len(),
+                below
+                    .iter()
+                    .take(3)
+                    .map(|s| esc(s))
+                    .collect::<Vec<_>>()
+                    .join("・")
+            ));
+        }
+    }
+
+    if items.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<div class=\"bg-sky-900/30 border-l-4 border-sky-400 rounded-r-lg p-4\">\
+         <h3 class=\"text-sky-100 text-base font-bold mb-2\">この職種で言えること</h3>\
+         <ul class=\"text-slate-200 text-sm leading-relaxed list-disc pl-5 space-y-2\">{}</ul>\
+         <p class=\"text-slate-500 text-xs mt-3 leading-relaxed\">\
+         下の図と表から出せることだけを書いています。根拠は各図の下にあります。</p></div>",
+        items.join("")
+    )
 }
 
 /// 探し方の言葉が入れ替わった分。
