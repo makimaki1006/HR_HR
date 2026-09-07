@@ -261,7 +261,7 @@ fn 予定日が未来のものを未処理にしない() {
 /// **上の TSV をそのまま食わせて**作ってあるので、ここで一致を見るということは
 /// Python の `classify()` と Rust の `classify()` が同じ判定かを見ていることになる。
 ///
-/// 🔴 上の6枚を `make_fixture.py` で取り直したら、**必ず**
+/// 🔴 `make_fixture.py` が落とすのは7枚（週次を除く全部）。取り直したら、**必ず**
 /// `python scripts/sales_kpi/make_weekly_fixture.py <fixtureのディレクトリ>`
 /// を続けて流して週次も作り直すこと。片方だけ新しいとここが落ちる。
 #[test]
