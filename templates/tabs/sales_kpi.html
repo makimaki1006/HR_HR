@@ -433,17 +433,32 @@ function render(){
     const calls=cur.calls||0, conn=cur.connected||0, lng=cur.long||0;
     const days=(per.days||[]).length||1;
     const dl=per.days||[];
+    // データがどこまで入っているかを、必ず画面に出す。
+    // 前日ぶんまでしか無いのに「今週」と出すと、月曜の朝に先週の数字を
+    // 今週として見せてしまう（2026-09-07 に実際に起きた）。
+    const upto=C_.generated_at||'', partial=!!C_.partial;
+    let fresh='';
+    if(dl.length===0){
+      fresh='<br><b style="color:var(--warn)">この期間の架電はまだ集計されていません。</b>'+
+        (upto?'<span style="color:var(--faint)">（集計済みは '+md(upto)+' まで）</span>':'');
+    }else if(partial&&dl[dl.length-1]===upto){
+      fresh='<br><span style="color:var(--warn)">'+md(upto)+' は集計中です（その日の途中までの数）。</span>';
+    }
     $('lead3').innerHTML='Zoomのログから数えています。<b>架電数＝つながった通話</b>で、現場が数えている数と合わせています。'+
+      fresh+
       '<br><span style="color:var(--faint)">つながらなかった発信（相手が出る前に切った・失敗した）は「発信した回数」にだけ入ります。</span>';
     [
-      {lab:'架電数',val:conn,unit:'件',
-       hint:dl.length?(dl[0]===dl[dl.length-1]?md(dl[0]):md(dl[0])+'〜'+md(dl[dl.length-1])):'',
-       sub2:'<span style="color:var(--sub)">Zoomでつながった通話の数</span>',
-       wow:prv?wowEl(conn,prv.connected||0,'件'):''},
+      {lab:'架電数',val:dl.length?conn:null,unit:'件',
+       hint:dl.length?(dl[0]===dl[dl.length-1]?md(dl[0]):md(dl[0])+'〜'+md(dl[dl.length-1]))
+                     :'まだ集計されていません',
+       sub2:'<span style="color:var(--sub)">Zoomでつながった通話の数'+
+            (partial&&dl.length&&dl[dl.length-1]===upto?'（'+md(upto)+' は集計中）':'')+'</span>',
+       wow:(prv&&dl.length)?wowEl(conn,prv.connected||0,'件'):''},
       {lab:'発信した回数',val:calls,unit:'件',hint:'かけ直しや切ったものを含む全発信'},
       {lab:'つながった率',val:calls?conn/calls*100:null,pct:true,hint:fmt(conn)+' ÷ '+fmt(calls)+' 件'},
       {lab:'5分超の通話',val:lng,unit:'件',hint:'深い会話。アポにつながりやすい'},
-      {lab:'1日あたりの架電数',val:Math.round(conn/days),unit:'件',hint:days+'日で割った平均'},
+      {lab:'1日あたりの架電数',val:dl.length?Math.round(conn/dl.length):null,unit:'件',
+       hint:dl.length?(dl.length+'日で割った平均'):'—'},
     ].forEach(o=>c3.appendChild(cardEl(o)));
 
     const kb=$('kadenbar'); kb.innerHTML='';
