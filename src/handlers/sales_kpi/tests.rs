@@ -33,6 +33,11 @@ fn load_tsv(name: &str) -> Arc<SheetData> {
     );
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("テストデータが読めません {path}: {e}"));
+    Arc::new(sheet_from_tsv(&text))
+}
+
+/// タブ区切りの文字列を1枚のシートにする。
+fn sheet_from_tsv(text: &str) -> SheetData {
     let mut lines = text.lines();
     let header: Vec<String> = lines
         .next()
@@ -48,11 +53,11 @@ fn load_tsv(name: &str) -> Arc<SheetData> {
             cells
         })
         .collect();
-    Arc::new(SheetData {
+    SheetData {
         header,
         rows,
         fetched_at: Instant::now(),
-    })
+    }
 }
 
 fn fixture_sheets() -> Sheets {
@@ -64,7 +69,16 @@ fn fixture_sheets() -> Sheets {
         kaden_list: load_tsv("KPI営業_架電リスト"),
         member: load_tsv("KPI営業_メンバー"),
         meta: load_tsv("KPI営業_取得条件"),
+        weekly: load_tsv("KPI営業_週次"),
         all_cached: true,
+    }
+}
+
+/// 週次シートがまだ無いとき（初回）。落ちずに空配列を返せることを見る。
+fn fixture_sheets_without_weekly() -> Sheets {
+    Sheets {
+        weekly: super::empty_sheet(),
+        ..fixture_sheets()
     }
 }
 
@@ -214,6 +228,206 @@ fn 予定日が未来のものを未処理にしない() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------- 週次の記録
+
+/// 週次シートは Python 側（Hubspot リポジトリ `scripts/sales_kpi/sync_daily.py`）が
+/// 集計して書く唯一のシート。テストデータもその `weekly_cells()` に
+/// **上の TSV をそのまま食わせて**作ってあるので、ここで一致を見るということは
+/// Python の `classify()` と Rust の `classify()` が同じ判定かを見ていることになる。
+#[test]
+fn 週次の行が画面側の集計と一致する() {
+    let body = payload();
+    let snaps = body["snapshots"].as_array().expect("snapshots が配列でない");
+    let cur = snaps
+        .iter()
+        .find(|s| s["week"] == "2026-W36")
+        .expect("fixture の当週（2026-W36）が無い");
+    let t = &cur["totals"];
+
+    for (key, got) in [
+        ("pool", team_sum(&body, "pool")),
+        ("実施", team_sum(&body, "実施")),
+        ("未実施", team_sum(&body, "未実施")),
+        ("未処理", team_sum(&body, "未処理")),
+        ("これから", team_sum(&body, "これから")),
+        ("要判定", team_sum(&body, "要判定")),
+        ("apo", team_sum(&body, "apo")),
+        ("cyomi", team_sum(&body, "cyomi")),
+        ("bpo_pool", body["bpo_total"]["pool"].as_i64().unwrap_or(0)),
+    ] {
+        assert_eq!(
+            t[key].as_i64().unwrap_or(-1),
+            got,
+            "{key} が週次シートと画面の集計で食い違う＝Python と Rust の判定がずれている"
+        );
+    }
+    assert_eq!(
+        cur["stale"].as_i64().unwrap_or(-1),
+        body["stale"].as_array().unwrap().len() as i64
+    );
+    assert_eq!(
+        cur["anq_missing"].as_i64().unwrap_or(-1),
+        body["anq_missing"].as_array().unwrap().len() as i64
+    );
+    assert_eq!(
+        cur["cyomi_stale"].as_i64().unwrap_or(-1),
+        body["cyomi_stale"].as_array().unwrap().len() as i64
+    );
+}
+
+#[test]
+fn 週次は古い順に並び画面が要る項目がそろっている() {
+    let body = payload();
+    let snaps = body["snapshots"].as_array().unwrap();
+    assert_eq!(snaps.len(), 2, "fixture は2週ぶん");
+    assert_eq!(snaps[0]["week"], "2026-W35");
+    assert_eq!(snaps[1]["week"], "2026-W36");
+    // 画面（templates/tabs/sales_kpi.html の「先週との比べ方」）が触るキー。
+    for s in snaps {
+        for key in ["week", "taken_at", "week_start", "totals", "stale", "zoom_days"] {
+            assert!(!s[key].is_null(), "{key} が無い: {s}");
+        }
+    }
+    assert_eq!(snaps[0]["week_start"], "2026-08-24");
+    assert_eq!(snaps[0]["taken_at"], "2026-08-28");
+    // 週が終わった行は「確定」、まだ途中の行は「集計中」。
+    assert_eq!(snaps[0]["zoom_partial"], serde_json::Value::Bool(false));
+    assert_eq!(snaps[1]["zoom_partial"], serde_json::Value::Bool(true));
+    assert_eq!(snaps[1]["zoom_called"].as_i64().unwrap(), 46137);
+}
+
+/// 架電がまだ1日も入っていない週の行。本番の KPI営業_週次 から取った実物
+/// （2026-09-07 月曜、その週の初回。Zoom架電数の欄が空で書かれる）。
+/// 空欄を 0 にすると画面が「0件」と嘘をつくので、null にして「—」を出させる。
+#[test]
+fn 架電がまだ無い週は0でなく空で返す() {
+    let text = "週\t記録日\t週はじまり\t母集団\t実施\t未実施\t未処理\tこれから\t要判定\t\
+                取ったアポ\tCヨミ\tBPO母集団\t止まっている\tアンケート未回収\tCヨミ置きっぱなし\t\
+                架電リスト手をつけた\t架電リスト母数\tZoom架電数\tZoom日数\tZoom集計中\n\
+                2026-W37\t2026-09-07\t2026-09-07\t537\t166\t54\t8\t304\t5\t245\t126\t129\t\
+                13\t280\t41\t32817\t129867\t\t0\t集計中\n";
+    let snaps = super::snapshots_of(&sheet_from_tsv(text));
+    assert_eq!(snaps.len(), 1);
+    assert!(
+        snaps[0]["zoom_called"].is_null(),
+        "架電が無い週を0件として出している: {}",
+        snaps[0]
+    );
+    assert_eq!(snaps[0]["zoom_days"].as_i64(), Some(0));
+    assert_eq!(snaps[0]["totals"]["pool"].as_i64(), Some(537));
+    assert_eq!(snaps[0]["kaden_base"].as_i64(), Some(129867));
+}
+
+#[test]
+fn 週次シートがまだ無くても画面は出る() {
+    // 初回は Python がまだ1度も書いていないのでシート自体が存在しない。
+    // ここで落とすと画面ごと出なくなる。
+    let body = build_payload(&fixture_sheets_without_weekly(), fixture_day());
+    assert_eq!(body["snapshots"].as_array().unwrap().len(), 0);
+    // 週次が無いだけで、他の数字は変わらない
+    assert_eq!(team_sum(&body, "pool"), 537);
+}
+
+// ---------------------------------------------------------------- 架電の週
+
+/// 🔴 2026-09-07（月）の本番で見つかった不具合の再現。
+/// 架電の週頭をシートの最終日から求めていたため、月曜の朝は最終日が
+/// 金曜（＝先週）になり、「今週」として 8/31〜9/06 が丸ごと出ていた。
+/// fixture の架電は 8/25〜9/04 なので、今日を 9/07（月）にすると
+/// 今週（9/07〜）には1日も無い。0件と正直に出るのが正しい。
+#[test]
+fn 月曜に開いても先週を今週として出さない() {
+    let monday = NaiveDate::from_ymd_opt(2026, 9, 7).unwrap();
+    let body = build_payload(&fixture_sheets(), monday);
+    let periods = &body["calls"]["periods"];
+
+    let this_week: Vec<&str> = periods["this_week"]["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d.as_str().unwrap())
+        .collect();
+    assert!(
+        this_week.is_empty(),
+        "今週に架電の行は無いはずなのに入っている: {this_week:?}"
+    );
+    assert_eq!(
+        periods["this_week"]["total"]["connected"].as_i64().unwrap_or(0),
+        0,
+        "先週の架電を今週として数えている"
+    );
+
+    // 先週は 8/31〜9/06。fixture のある日（8/31〜9/04）が入る。
+    let prev: Vec<&str> = periods["prev_week"]["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d.as_str().unwrap())
+        .collect();
+    assert_eq!(prev.first(), Some(&"2026-08-31"));
+    assert_eq!(prev.last(), Some(&"2026-09-06"));
+    assert!(
+        periods["prev_week"]["total"]["connected"].as_i64().unwrap_or(0) > 0,
+        "先週の架電が0になっている"
+    );
+
+    // 今日（9/07）の行はまだ無い。空で返す。
+    assert_eq!(periods["today"]["days"].as_array().unwrap().len(), 1);
+    assert_eq!(periods["today"]["days"][0], "2026-09-07");
+    assert_eq!(periods["today"]["total"]["connected"].as_i64().unwrap_or(0), 0);
+    // 今週ぶんが無いので、比較相手の「先週の同じところまで」も空
+    assert!(periods["prev_week_same"]["days"].as_array().unwrap().is_empty());
+}
+
+/// 「先週の同じところまで」は曜日をそろえる（頭から件数ぶん取らない）。
+#[test]
+fn 先週の比較は曜日をそろえる() {
+    let body = payload(); // 2026-09-04（金）。今週は 8/31〜9/04 の5日
+    let periods = &body["calls"]["periods"];
+    let this_week: Vec<&str> = periods["this_week"]["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d.as_str().unwrap())
+        .collect();
+    let prev_same: Vec<&str> = periods["prev_week_same"]["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d.as_str().unwrap())
+        .collect();
+    assert_eq!(this_week, ["2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]);
+    assert_eq!(prev_same, ["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"]);
+}
+
+/// 架電の最終日がまだ途中かどうかを、取得条件から拾って画面に渡す。
+#[test]
+fn 架電の最終日が途中かどうかを取得条件から渡す() {
+    let body = payload();
+    // fixture の取得条件には「架電の最終日」がまだ無い。その場合は
+    // 「最終日＝今日なら途中」に落とす。fixture は 9/04 で今日も 9/04。
+    assert_eq!(body["calls"]["last_day"], "2026-09-04");
+    assert_eq!(body["calls"]["last_day_partial"], serde_json::Value::Bool(true));
+
+    // 取得条件に「いいえ」と書いてあれば、そちらが勝つ
+    let meta = "項目\t値\n架電の最終日\t2026-09-04\n架電の最終日は途中\tいいえ\n";
+    let sheets = Sheets {
+        meta: Arc::new(sheet_from_tsv(meta)),
+        ..fixture_sheets()
+    };
+    let body = build_payload(&sheets, fixture_day());
+    assert_eq!(body["calls"]["last_day_partial"], serde_json::Value::Bool(false));
+
+    // 取得条件が別の日について言っているなら、それは使わない
+    let meta = "項目\t値\n架電の最終日\t2026-09-02\n架電の最終日は途中\tいいえ\n";
+    let sheets = Sheets {
+        meta: Arc::new(sheet_from_tsv(meta)),
+        ..fixture_sheets()
+    };
+    let body = build_payload(&sheets, fixture_day());
+    assert_eq!(body["calls"]["last_day_partial"], serde_json::Value::Bool(true));
 }
 
 #[test]
