@@ -140,6 +140,9 @@ fn render_tab(
         esc(&snap.meta.caveat)
     ));
 
+    // 結論を先に置く。数字と図はその根拠として下に続く
+    h.push_str(&summary_section(snap, &overview, seasons, pref));
+
     // 見出しの 5 指標
     h.push_str("<div class=\"grid grid-cols-2 lg:grid-cols-5 gap-3\">");
     for m in [
@@ -712,6 +715,180 @@ fn industry_section(snap: &Snapshot, months: &[String]) -> String {
 /// 126 行の表は上から読むしかない。「募集は多いのに人が集まっていない」職種を
 /// 探すには、求人数の列と 1 求人あたりの列を目で往復することになる。
 /// 位置に置けば、右下を見るだけで済む。
+/// 先頭に置く「要点」。
+///
+/// # なぜ足したのか
+/// 数字と図は出していたが、「だから何をすればいいのか」が無かった。
+/// 12 画面ぶんを上から読ませて、読み手に結論を組み立てさせていた。
+/// 材料は散らばっていただけなので、答えの形にして先頭に置く。
+///
+/// # 書いてよいことの線引き
+/// ここに書くのは**この画面の数字から出せることだけ**。
+/// 向きが定まらない指標を「増えています」と断定しない
+/// （期間全体の変化は月ごとの上下をならした線に沿った値なので、そう断る）。
+/// 打ち手は「やれ」ではなく「見直す候補になる」に留める。
+fn summary_section(
+    snap: &Snapshot,
+    ov: &Overview,
+    seasons: &[crate::indeed::season::TitleSeason],
+    pref: Option<&str>,
+) -> String {
+    let months = &snap.meta.months;
+    let where_ = pref.unwrap_or("全国");
+
+    // --- 1. いま何が起きているか ---
+    let state = match (ov.job.change_pct, ov.spp.change_pct) {
+        (Some(j), Some(s)) if j > 0.0 && s < 0.0 => format!(
+            "募集は <strong>{}</strong> 増えたのに、1 求人あたりに見た人数は <strong>{}</strong> 減りました。\
+             <strong>同じ求人票なら、期間の初めより人が集まりにくくなっています。</strong>",
+            pct_opt(Some(j)),
+            pct_opt(Some(s))
+        ),
+        (Some(j), Some(s)) if j < 0.0 && s > 0.0 => format!(
+            "募集が <strong>{}</strong> 減り、1 求人あたりに見た人数は <strong>{}</strong> 増えました。\
+             <strong>競合が引いて、集まりやすくなっています。</strong>",
+            pct_opt(Some(j)),
+            pct_opt(Some(s))
+        ),
+        (Some(j), Some(s)) => format!(
+            "募集は {}、1 求人あたりに見た人数は {} でした。",
+            pct_opt(Some(j)),
+            pct_opt(Some(s))
+        ),
+        _ => "この期間の変化を出せるだけの月数がそろっていません。".to_string(),
+    };
+    let unsure = [&ov.job, &ov.spp]
+        .iter()
+        .filter(|m| {
+            m.fit
+                .as_ref()
+                .map(|f| f.level == crate::indeed::trend::Level::None)
+                .unwrap_or(false)
+        })
+        .count();
+    let hedge = if unsure > 0 {
+        "（月ごとの上下が大きく、一本調子ではありません。上の % はならした線に沿った変化です）"
+    } else {
+        ""
+    };
+
+    // --- 2. どの職種を見るか ---
+    let mut rows: Vec<(&str, Overview)> = snap
+        .titles
+        .iter()
+        .filter(|t| t.complete)
+        .filter_map(|t| {
+            snap.by_title
+                .get(&t.name)
+                .map(|s| (t.name.as_str(), Overview::from_series(&t.name, s, months)))
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        a.1.spp
+            .change_pct
+            .unwrap_or(f64::INFINITY)
+            .total_cmp(&b.1.spp.change_pct.unwrap_or(f64::INFINITY))
+    });
+    let harder: Vec<String> = rows
+        .iter()
+        .filter(|(_, o)| o.job.latest.unwrap_or(0.0) >= 5_000.0)
+        .take(3)
+        .map(|(n, o)| format!("{}（{}）", esc(n), pct_opt(o.spp.change_pct)))
+        .collect();
+    let mut big: Vec<&(&str, Overview)> = rows
+        .iter()
+        .filter(|(_, o)| o.job.latest.unwrap_or(0.0) >= 20_000.0)
+        .collect();
+    big.sort_by(|a, b| {
+        a.1.spp
+            .latest
+            .unwrap_or(f64::INFINITY)
+            .total_cmp(&b.1.spp.latest.unwrap_or(f64::INFINITY))
+    });
+    let crowded: Vec<String> = big
+        .iter()
+        .take(3)
+        .map(|(n, o)| format!("{}（{}）", esc(n), dec1_opt(o.spp.latest)))
+        .collect();
+
+    // --- 3. いつ動くか ---
+    let when = if pref.is_some() || seasons.len() < 20 {
+        String::new()
+    } else {
+        let idx = crate::indeed::season::overall(seasons);
+        let pick = |max: bool| {
+            let mut best: Option<(usize, f64)> = None;
+            for (i, v) in idx.iter().enumerate() {
+                let Some(x) = v else { continue };
+                let better = match best {
+                    None => true,
+                    Some((_, b)) => {
+                        if max {
+                            *x > b
+                        } else {
+                            *x < b
+                        }
+                    }
+                };
+                if better {
+                    best = Some((i, *x));
+                }
+            }
+            best
+        };
+        match (pick(true), pick(false)) {
+            (Some((hi, hv)), Some((lo, lv))) => format!(
+                "<li>探している人がいちばん多いのは <strong>{} 月</strong>（年間平均の {:.2} 倍）、\
+                 少ないのは <strong>{} 月</strong>（{:.2} 倍）です。\
+                 動くなら年明けから {} 月に向けてで、{} 月に出しても人は少なめです。\
+                 <span class=\"text-slate-500 text-xs\">※ 検索エンジンの検索ボリューム。\
+                 Indeed の求人数とは別のデータです</span></li>",
+                hi + 1,
+                hv,
+                lo + 1,
+                lv,
+                hi + 1,
+                lo + 1
+            ),
+            _ => String::new(),
+        }
+    };
+
+    format!(
+        "<div class=\"bg-sky-900/30 border-l-4 border-sky-400 rounded-r-lg p-4\">\
+         <h3 class=\"text-sky-100 text-base font-bold mb-2\">要点（{w}）</h3>\
+         <ul class=\"text-slate-200 text-sm leading-relaxed list-disc pl-5 space-y-2\">\
+         <li>{state}<span class=\"text-slate-500 text-xs\">{hedge}</span></li>\
+         {harder}{crowded}{when}</ul>\
+         <p class=\"text-slate-500 text-xs mt-3 leading-relaxed\">\
+         ここに書いたのは、下の図と表から出せることだけです。根拠は各図の下にあります。</p></div>",
+        w = esc(where_),
+        state = state,
+        hedge = hedge,
+        harder = if harder.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<li><strong>去年と同じやり方が通じにくくなっている職種</strong>は {}。\
+                 1 求人あたりに見た人数がいちばん減った順です（求人 5,000 件以上）。\
+                 求人票の書き方か、出す媒体を見直す候補になります。</li>",
+                harder.join("、")
+            )
+        },
+        crowded = if crowded.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<li><strong>募集は多いのに人が集まっていない職種</strong>は {}。\
+                 かっこ内は 1 求人あたりに見た人数で、求人 20,000 件以上の中で少ない順です。\
+                 求人票を出すだけでは埋まりにくい見込みです。</li>",
+                crowded.join("、")
+            )
+        },
+        when = when
+    )
+}
+
 /// 季節の波。1 年のうち、いつ求職者が動くか。
 ///
 /// # なぜ職種ごとに出さないのか
