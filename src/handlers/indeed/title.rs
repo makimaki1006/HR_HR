@@ -144,9 +144,9 @@ pub async fn tab_indeed_title(
 
     let wages = load_min_wages(&state);
     // 検索語まわり。引けなければその節を出さないだけ
-    let shifts = crate::indeed::keywords::term_shifts(db, name).unwrap_or_else(|e| {
-        tracing::warn!("検索語の入れ替わりを読めませんでした: {e}");
-        Vec::new()
+    let (term_months, terms) = crate::indeed::keywords::term_monthly(db, name).unwrap_or_else(|e| {
+        tracing::warn!("検索語の月次を読めませんでした: {e}");
+        (Vec::new(), Vec::new())
     });
     let attrs = crate::indeed::keywords::attr_months(db, name).unwrap_or_else(|e| {
         tracing::warn!("属性の内訳を読めませんでした: {e}");
@@ -163,7 +163,8 @@ pub async fn tab_indeed_title(
         overview.as_ref(),
         &snap.meta.months,
         &wages,
-        &shifts,
+        &term_months,
+        &terms,
         &attrs,
         mobile,
     ))
@@ -182,7 +183,8 @@ fn render(
     ov: Option<&Overview>,
     months: &[String],
     w: &MinWages,
-    shifts: &[crate::indeed::keywords::TermShift],
+    term_months: &[String],
+    terms: &[crate::indeed::keywords::TermSeries],
     attrs: &[crate::indeed::keywords::AttrMonth],
     mobile: Option<f64>,
 ) -> String {
@@ -204,7 +206,7 @@ fn render(
     ));
 
     // 結論を先に置く。図と表はその根拠として下に続く
-    h.push_str(&takeaway_section(d, ov, w, shifts, mobile));
+    h.push_str(&takeaway_section(d, ov, w, terms, mobile));
 
     // 全国の姿
     if let Some(o) = ov {
@@ -234,7 +236,7 @@ fn render(
     // 図を先、表を後にする。先に形で掴んでから数字を確かめる順
     h.push_str(&pref_bar(d, ov.and_then(|o| o.spp.latest)));
     h.push_str(&wage_gap_chart(d, w));
-    h.push_str(&term_shift_section(shifts));
+    h.push_str(&term_series_section(term_months, terms));
     h.push_str(&attr_section(attrs));
     h.push_str(&pref_table(d, w));
     h.push_str(&keywords_block(d));
@@ -630,7 +632,7 @@ fn takeaway_section(
     d: &TitleDetail,
     ov: Option<&Overview>,
     w: &MinWages,
-    shifts: &[crate::indeed::keywords::TermShift],
+    terms: &[crate::indeed::keywords::TermSeries],
     mobile: Option<f64>,
 ) -> String {
     let mut items: Vec<String> = Vec::new();
@@ -676,8 +678,10 @@ fn takeaway_section(
     }
 
     // 3. 求人票の職種名
-    if let Some(up) = shifts.iter().find(|s| s.diff_pt.unwrap_or(0.0) > 1.0) {
-        let down = shifts.iter().rev().find(|s| s.diff_pt.unwrap_or(0.0) < -1.0);
+    let mut moved: Vec<&crate::indeed::keywords::TermSeries> = terms.iter().collect();
+    moved.sort_by(|a, b| b.diff_pt.unwrap_or(0.0).total_cmp(&a.diff_pt.unwrap_or(0.0)));
+    if let Some(up) = moved.first().filter(|x| x.diff_pt.unwrap_or(0.0) > 1.0) {
+        let down = moved.last().filter(|x| x.diff_pt.unwrap_or(0.0) < -1.0);
         items.push(format!(
             "<li>探すときの言葉が「{}」に寄っています{}。\
              <strong>求人票の職種名に入っているか確かめる価値があります。</strong></li>",
@@ -748,178 +752,151 @@ fn takeaway_section(
     )
 }
 
-/// 探し方の言葉が入れ替わった分。
+/// 探し方の言葉の月次推移。
 ///
-/// # なぜ「傾向」と書かないのか
-/// 前 3 か月と直近 3 か月の**比較**であって、毎月そう動いているわけではない。
-/// 生成側（scripts/indeed_build_insights.js）が 2 期間の平均で作っている。
-/// 「増えている」と書くと、来月も増えると読まれる。
+/// # なぜ月次で出すのか
+/// はじめは前 3 か月と直近 3 か月の平均を比べた図（中央 0 の横棒）にしていたが、
+/// 2 点しか無いのでトレンドが読めない。実データの「事務」は
+/// 45.3 → 46.4 → 46.3 → 44.8 → 41.4 → 40.8 → 34.9 → 36.6 → 37.9 →
+/// 35.7 → 35.8 → 31.9 → 29.8 → 26.8 と、2025-09 から一貫して下がり続けている。
+/// 2 点に丸めると「46.1 → 29.8」としか読めず、
+/// いつから動いたのか・まだ続いているのかが分からない。判断を誤る。
 ///
-/// # 品質の確認
-/// 季節性で踏んだ「データが薄いほど大きく出る」歪みが無いか、
-/// クリック数の帯で層別して確かめた。増減幅の中央値は
-/// 〜500 で 1.7pt、500〜5000 で 1.6pt、5000〜5万 で 1.7pt、5万〜 で 1.6pt と
-/// ほぼ一定で、薄いデータほど大きく出る傾向は無かった。そのまま出してよい。
-fn term_shift_section(shifts: &[crate::indeed::keywords::TermShift]) -> String {
-    if shifts.len() < 4 {
+/// # どの語を出すか
+/// 直近のシェアが大きい順に 6 本まで。折れ線を増やすほど読めなくなる。
+/// 残りは本文で件数だけ伝える。
+fn term_series_section(months: &[String], series: &[crate::indeed::keywords::TermSeries]) -> String {
+    if months.len() < 4 || series.len() < 2 {
         return String::new();
     }
-    let rows: Vec<(String, Option<f64>)> = shifts
+    const SHOW: usize = 6;
+    let lines: Vec<(String, Vec<Option<f64>>)> = series
         .iter()
-        .map(|s| (s.term.clone(), s.diff_pt))
+        .take(SHOW)
+        .map(|t| (t.term.clone(), t.pct.clone()))
         .collect();
-    let up = shifts.iter().find(|s| s.diff_pt.unwrap_or(0.0) > 0.0);
-    let down = shifts.iter().rev().find(|s| s.diff_pt.unwrap_or(0.0) < 0.0);
-    let say = |t: Option<&crate::indeed::keywords::TermShift>| match t {
-        Some(x) => format!(
-            "「{}」（{} → {}）",
-            esc(&x.term),
-            pct1(x.before_pct),
-            pct1(x.after_pct)
-        ),
+
+    // 期間を通していちばん増えた語・減った語
+    let mut by_move: Vec<&crate::indeed::keywords::TermSeries> = series.iter().collect();
+    by_move.sort_by(|a, b| {
+        b.diff_pt
+            .unwrap_or(0.0)
+            .total_cmp(&a.diff_pt.unwrap_or(0.0))
+    });
+    let say = |t: Option<&&crate::indeed::keywords::TermSeries>| match t {
+        Some(x) => {
+            let first = x.pct.iter().flatten().next().copied();
+            format!(
+                "「{}」（{} → {}）",
+                esc(&x.term),
+                pct1(first),
+                pct1(x.latest)
+            )
+        }
         None => "—".to_string(),
     };
+    let up = by_move.first().filter(|x| x.diff_pt.unwrap_or(0.0) > 0.0);
+    let down = by_move.last().filter(|x| x.diff_pt.unwrap_or(0.0) < 0.0);
+
     format!(
         "<div class=\"{CARD}\"><h3 class=\"text-slate-100 font-bold mb-1\">\
-         探し方の言葉が入れ替わった分</h3>\
+         探し方の言葉の移り変わり</h3>\
          <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
-         この職種を探す人が使った言葉の内訳が、<strong>前の 3 か月と直近 3 か月で\
-         どれだけ入れ替わったか</strong>です。右が増えた語、左が減った語。\
-         単位はポイント（シェアの差）です。\
-         2 期間の比較なので、毎月そう動いているという意味ではありません。</p>{chart}\
+         この職種を探す人が使った言葉の内訳を、<strong>月ごと</strong>に出しています。\
+         縦はその月の検索の中で占める割合（%）。直近で大きい {n} 語だけを出しています\
+         （全 {all} 語）。県ごとに上位 10 語しか取れないため、\
+         どの月も 1% に届かない語は入っていません。</p>{chart}\
          <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
-         いちばん増えたのは{u}、いちばん減ったのは{d}です。\
-         求人票の職種名を、増えている側の言葉に寄せると見つけてもらいやすくなります。</p></div>",
-        chart = tornado_chart(&rows, "ポイント", true, 140 + (rows.len() as u32) * 22),
+         期間を通していちばん増えたのは{u}、いちばん減ったのは{d}です。\
+         <strong>線が交差していれば、呼び名が置き換わっている最中です。</strong>\
+         求人票の職種名を、増えている側に寄せると見つけてもらいやすくなります。</p></div>",
+        n = lines.len(),
+        all = series.len(),
+        chart = line_chart(months, &lines, true, 340),
         u = say(up),
         d = say(down)
     )
 }
 
-/// 探している人の内訳が、期間の頭と終わりでどう変わったか。
+/// 探している人の内訳の月次推移。
 ///
-/// # なぜ端の 1 か月どうしを比べないのか
-/// 月ごとの割合はよく振れる。実測では母数（語数）が 20 未満の職種で
-/// 振れ幅が中央 12.2pt、60 以上で 3.1pt と、薄いほど大きく振れる。
-/// 端の月を 1 つずつ取ると、たまたま高い月と低い月を選んだだけで
-/// 大きな変化に見える。頭と終わりを 3 か月ずつならして比べる。
+/// # なぜ月次で出すのか
+/// 8 区分の割合を「頭 3 か月の平均」と「直近 3 か月の平均」で比べていたが、
+/// 2 点では動き方が分からない。月ごとに出せば、
+/// じわじわ動いているのか、ある月から急に変わったのかが見える。
+/// データは最初から 14 か月ぶんある。丸めていたのはこちらの都合だった。
 ///
-/// # なぜ水準ではなく変化の図にするのか
-/// はじめは「頭の平均 → 終わりの平均」を帯（ダンベル）で出したが、読めなかった。
-/// 水準が 24% の区分と 5% の区分が同じ軸に乗るため、24% 側の 0.2pt の動きが
-/// 線 1 本に潰れる。さらに 8 区分のうち 5 つは両方の期間とも 0% で、
-/// 空の行が並んで壊れているように見えた。
-/// 知りたいのは「何が動いたか」なので、動いた量そのものを軸に置く。
-/// 今の水準はラベルに添える。両方 0% の区分は図から外し、名前を文章で挙げる。
-fn attr_section(months: &[crate::indeed::keywords::AttrMonth]) -> String {
-    use crate::indeed::keywords::{attr_change, ATTR_LABELS};
-    let Some(ch) = attr_change(months) else {
+/// # 出さない区分
+/// 全期間 0% の区分は線が軸に張り付くだけなので外し、名前だけ文章で挙げる。
+fn attr_section(months_all: &[crate::indeed::keywords::AttrMonth]) -> String {
+    use crate::indeed::keywords::ATTR_LABELS;
+    if months_all.len() < 4 {
         return String::new();
-    };
-    let delta = |i: usize| match (ch.before[i], ch.after[i]) {
-        (Some(b), Some(a)) => Some(a - b),
-        _ => None,
-    };
-    // 両方の期間で 0% の区分は図に出さない（空の行が並ぶだけで何も言えない）
-    let live: Vec<usize> = (0..8)
-        .filter(|i| {
-            ch.before[*i].unwrap_or(0.0) > 0.0 || ch.after[*i].unwrap_or(0.0) > 0.0
-        })
-        .collect();
-    let dead: Vec<&str> = (0..8)
-        .filter(|i| !live.contains(i))
-        .map(|i| ATTR_LABELS[i])
-        .collect();
+    }
+    let months: Vec<String> = months_all.iter().map(|m| m.month.clone()).collect();
+    let mut live: Vec<usize> = Vec::new();
+    let mut dead: Vec<&str> = Vec::new();
+    for i in 0..8 {
+        if months_all
+            .iter()
+            .any(|m| m.pct[i].unwrap_or(0.0) > 0.0)
+        {
+            live.push(i);
+        } else {
+            dead.push(ATTR_LABELS[i]);
+        }
+    }
     if live.is_empty() {
         return String::new();
     }
-    let mut order = live.clone();
-    order.sort_by(|a, b| {
-        delta(*b)
-            .unwrap_or(0.0)
-            .total_cmp(&delta(*a).unwrap_or(0.0))
+    // 直近の割合が大きい順。折れ線は 7 本まで（色がひと回りする）
+    live.sort_by(|a, b| {
+        let last = |i: usize| {
+            months_all
+                .iter()
+                .rev()
+                .find_map(|m| m.pct[i])
+                .unwrap_or(0.0)
+        };
+        last(*b).total_cmp(&last(*a))
     });
-    // ラベルに今の水準を添える。図は「動いた量」、ラベルは「今どのくらいか」
-    let rows: Vec<(String, Option<f64>)> = order
+    live.truncate(7);
+    let lines: Vec<(String, Vec<Option<f64>>)> = live
         .iter()
         .map(|i| {
             (
-                format!("{}（{}）", ATTR_LABELS[*i], pct1(ch.after[*i])),
-                delta(*i),
+                ATTR_LABELS[*i].to_string(),
+                months_all.iter().map(|m| m.pct[*i]).collect(),
             )
         })
         .collect();
-    let top = order
-        .iter()
-        .copied()
-        .max_by(|a, b| {
-            delta(*a)
-                .map(f64::abs)
-                .unwrap_or(-1.0)
-                .total_cmp(&delta(*b).map(f64::abs).unwrap_or(-1.0))
-        })
-        .unwrap_or(order[0]);
-    // どのくらいの動きなら「目立つ」と言ってよいか。
-    // 全 104 職種 × 8 区分の 832 件で、3 か月平均どうしの変化幅を測った。
-    //     中央 0.02pt / 75% 0.70pt / 90% 3.15pt / 95% 5.51pt
-    // 母数の帯ごとの 90 パーセンタイルは 〜20 で 7.82pt、20 以上では 2.1〜3.3pt。
-    // 上位 1 割に入るかどうかを線にする。43 職種がこれを超える。
-    let bar = match ch.term_count_median {
-        Some(t) if t < 20.0 => 8.0,
-        _ => 3.0,
-    };
-    let biggest = delta(top).map(f64::abs).unwrap_or(0.0);
-    // 「誤差」とは書かない。誤差の推定はしていない。
-    // 測ったのは「他の職種と比べて大きいか」なので、そう書く
-    let lead = if biggest < bar {
-        format!(
-            "<strong>目立つ動きはありませんでした。</strong>\
-             いちばん大きい「{tl}」でも {mv:.1} ポイントで、\
-             全職種の変化の 9 割はこれより小さい範囲に収まります。",
-            tl = esc(ATTR_LABELS[top]),
-            mv = biggest
-        )
-    } else {
-        format!(
-            "いちばん動いたのは「{tl}」で、{b} から {a} になりました\
-             （{mv:.1} ポイント）。これは全職種の変化のうち<strong>上位 1 割</strong>に入る大きさです。",
-            tl = esc(ATTR_LABELS[top]),
-            b = pct1(ch.before[top]),
-            a = pct1(ch.after[top]),
-            mv = biggest
-        )
-    };
+
+    // 母数。薄い月は割合が振れる
+    let mut tc: Vec<f64> = months_all.iter().filter_map(|m| m.term_count).collect();
+    tc.sort_by(|a, b| a.total_cmp(b));
+    let med = tc.get(tc.len() / 2).copied();
+
     format!(
         "<div class=\"{CARD}\"><h3 class=\"text-slate-100 font-bold mb-1\">\
-         探している人の内訳の変化</h3>\
+         探している人の内訳の移り変わり</h3>\
          <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
-         検索語に出てくる言葉を 8 つに区分し、<strong>最初の {w} か月の平均と\
-         直近 {w} か月の平均で、どれだけ動いたか</strong>を出しています。\
-         単位はポイント。右が増えた区分、左が減った区分です。\
-         かっこの中は直近 {w} か月の割合（今どのくらいか）です。</p>{chart}\
-         <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
-         {lead}{dead}</p>\
+         検索語に出てくる言葉を 8 つに区分し、<strong>月ごとの割合</strong>を出しています。\
+         単位は %。{dead}</p>{chart}\
          <p class=\"text-slate-500 text-xs mt-2 leading-relaxed\">\
          この職種の母数（月あたりの語数）は中央 {tc} です。\
-         「上位 1 割」の線は {bar:.0} ポイントに置いています\
-         （全 104 職種 × 8 区分 832 件の変化幅を並べたときの 90 パーセンタイルが 3.2 ポイント、\
-         母数 20 未満の職種に限ると 7.8 ポイントでした）。</p></div>",
-        w = ch.window,
-        chart = tornado_chart(&rows, "ポイント", true, 140 + (rows.len() as u32) * 26),
-        lead = lead,
+         母数が小さい月ほど割合が振れます。実測では、母数 20 未満の職種で\
+         月ごとの振れ幅が中央 12.2 ポイント、60 以上では 3.1 ポイントでした。\
+         <strong>1 か月だけの上下で判断しないでください。</strong></p></div>",
         dead = if dead.is_empty() {
             String::new()
         } else {
             format!(
-                "{}は、どちらの期間も 0% だったので図から外しています。",
+                "{}は全期間 0% なので出していません。",
                 dead.iter().map(|s| esc(s)).collect::<Vec<_>>().join("・")
             )
         },
-        tc = ch
-            .term_count_median
-            .map(|v| format!("{v:.0}"))
-            .unwrap_or_else(|| "—".to_string()),
-        bar = bar
+        chart = line_chart(&months, &lines, true, 340),
+        tc = med.map(|v| format!("{v:.0}")).unwrap_or_else(|| "—".to_string())
     )
 }
 
@@ -1131,29 +1108,50 @@ mod keyword_section_tests {
         }
     }
 
-    /// 「増えている」と書かない。2 期間の比較であって傾向ではない。
+    fn series(term: &str, pct: &[f64]) -> crate::indeed::keywords::TermSeries {
+        let v: Vec<Option<f64>> = pct.iter().map(|x| Some(*x)).collect();
+        crate::indeed::keywords::TermSeries {
+            term: term.to_string(),
+            diff_pt: Some(pct[pct.len() - 1] - pct[0]),
+            latest: Some(pct[pct.len() - 1]),
+            pct: v,
+        }
+    }
+
+    /// 2 期間に丸めず、月ごとに出す。
     ///
-    /// 生成側は前 3 か月と直近 3 か月の平均を比べている。
-    /// 「増えている」と書くと来月も増えると読まれる。
+    /// 前 3 か月と直近 3 か月の平均どうしでは 2 点しか無く、
+    /// いつから動いたのか・まだ続いているのかが読めない。
+    /// 実データの「事務」は 45.3 から 26.8 まで 2025-09 以降ずっと下がっているが、
+    /// 2 点に丸めると「46.1 → 29.8」としか見えない。
     #[test]
-    fn 入れ替わりを傾向として書かない() {
+    fn 検索語は月ごとに出す() {
+        let months: Vec<String> = (7..=12)
+            .map(|m| format!("2025-{m:02}"))
+            .collect();
         let v = vec![
-            shift("一般事務", 5.1, 18.4),
-            shift("ハローワーク", 0.2, 2.9),
-            shift("土日祝休み", 6.9, 3.5),
-            shift("事務", 46.1, 29.8),
+            series("事務", &[45.3, 46.4, 46.3, 44.8, 41.4, 40.8]),
+            series("一般事務", &[5.3, 4.9, 5.0, 7.4, 10.1, 7.7]),
+            series("正社員", &[13.0, 12.6, 12.1, 11.1, 11.4, 13.4]),
         ];
-        let h = term_shift_section(&v);
-        assert!(h.contains("前の 3 か月と直近 3 か月"), "期間比較だと書いていない");
-        assert!(h.contains("毎月そう動いているという意味ではありません"));
+        let h = term_series_section(&months, &v);
+        // 月がすべて図に渡っていること
+        for m in &months {
+            assert!(h.contains(m.as_str()), "{m} が図に無い");
+        }
+        // 各語の全月ぶんの値が入っていること（2 点に丸めていない）
+        assert!(h.contains("46.400") && h.contains("40.800"), "途中の月が落ちている");
         assert!(h.contains("いちばん増えたのは「一般事務」"));
         assert!(h.contains("いちばん減ったのは「事務」"));
-        // 語が少なすぎるときは出さない
-        assert_eq!(term_shift_section(&v[..3]), "");
+        // 2 期間の比較だと書かない
+        assert!(!h.contains("前の 3 か月"));
+        // 月が少なすぎる・語が少なすぎるときは出さない
+        assert_eq!(term_series_section(&months[..3], &v), "");
+        assert_eq!(term_series_section(&months, &v[..1]), "");
     }
 
     fn month(m: &str, senior: f64, cond: f64, tc: f64) -> AttrMonth {
-        let mut pct = [None; 8];
+        let mut pct = [Some(0.0); 8];
         pct[0] = Some(cond);
         pct[1] = Some(senior);
         AttrMonth {
@@ -1163,118 +1161,58 @@ mod keyword_section_tests {
         }
     }
 
-    /// 端の 1 か月どうしではなく、3 か月ずつならして比べる。
+    /// 属性も 2 期間に丸めず、月ごとに出す。
     ///
     /// 研磨作業のシニアは端点だと 19.5% → 32.0% だが、途中は 14.0〜23.5 を
-    /// 行き来している。3 か月ならすと 17.8% → 27.0%。
+    /// 行き来している。3 か月ならしても「17.8 → 27.0」の 2 点にしかならず、
+    /// じわじわ動いたのか、ある月から急に変わったのかが分からない。
     #[test]
-    fn 属性は三か月ならして比べる() {
-        // 頭 3 か月 20/18/16 → 平均 18.0、終わり 3 か月 26/32/23 → 平均 27.0
-        let v = vec![
-            month("2025-07", 20.0, 30.0, 50.0),
-            month("2025-08", 18.0, 30.0, 50.0),
-            month("2025-09", 16.0, 30.0, 50.0),
-            month("2025-10", 15.0, 30.0, 50.0),
-            month("2025-11", 26.0, 30.0, 50.0),
-            month("2025-12", 32.0, 30.0, 50.0),
-            month("2026-01", 23.0, 30.0, 50.0),
-        ];
-        let h = attr_section(&v);
-        assert!(h.contains("18.0%"), "頭 3 か月の平均が出ていない");
-        assert!(h.contains("27.0%"), "終わり 3 か月の平均が出ていない");
-        // 端点の 20.0 → 23.0 で語っていないこと
-        assert!(!h.contains("いちばん動いたのは「シニア」で、20.0% から 23.0%"));
-    }
-
-    /// 両方の期間で 0% の区分は図に出さず、名前を文章で挙げる。
-    ///
-    /// はじめは 8 区分すべてを帯で出していたが、配送ドライバーでは 5 つが
-    /// 両方 0% で、空の行が並んで壊れているように見えた。
-    /// 黙って落とすと「なぜ 3 つしか無いのか」が分からないので、名前は出す。
-    #[test]
-    fn 両方ゼロの区分は図から外して名前を挙げる() {
-        // 条件と シニア だけ値があり、残り 6 区分は 0%
-        let mk = |m: &str, cond: f64, senior: f64| {
-            let mut pct = [Some(0.0); 8];
-            pct[0] = Some(cond);
-            pct[1] = Some(senior);
-            AttrMonth {
-                month: m.to_string(),
-                pct,
-                term_count: Some(80.0),
-            }
-        };
-        let v: Vec<AttrMonth> = (0..7)
-            .map(|i| mk(&format!("2025-{:02}", i + 7), 24.0, if i < 3 { 6.0 } else { 3.0 }))
+    fn 属性は月ごとに出す() {
+        let v: Vec<AttrMonth> = [19.5, 17.0, 15.0, 20.7, 23.5, 26.1, 32.0]
+            .iter()
+            .enumerate()
+            .map(|(i, s)| month(&format!("2025-{:02}", i + 7), *s, 30.0, 80.0))
             .collect();
         let h = attr_section(&v);
-        assert!(
-            h.contains("どちらの期間も 0% だったので図から外しています"),
-            "外した区分の説明が無い"
-        );
+        for i in 0..7 {
+            assert!(h.contains(&format!("2025-{:02}", i + 7)), "{i} 月目が図に無い");
+        }
+        // 途中の月の値が落ちていないこと
+        assert!(h.contains("15.000") && h.contains("26.100"), "途中の月が落ちている");
+        // 2 期間の言い方をしない
+        assert!(!h.contains("最初の 3 か月"));
+        assert!(h.contains("1 か月だけの上下で判断しないでください"));
+    }
+
+    /// 全期間 0% の区分は線を出さず、名前だけ挙げる。
+    ///
+    /// 線が軸に張り付くだけで何も言えない。黙って落とすと
+    /// 「なぜ 2 本しかないのか」が分からないので、名前は出す。
+    #[test]
+    fn 全期間ゼロの区分は名前だけ挙げる() {
+        let v: Vec<AttrMonth> = (0..7)
+            .map(|i| month(&format!("2025-{:02}", i + 7), 5.0, 30.0, 80.0))
+            .collect();
+        let h = attr_section(&v);
+        assert!(h.contains("全期間 0% なので出していません"));
         assert!(h.contains("学生"), "外した区分の名前が出ていない");
-        // 図に渡るのは生きている 2 区分だけ
         let cfg = h
             .split("data-chart-config='")
             .nth(1)
             .and_then(|x| x.split('\'').next())
             .unwrap_or("");
         assert!(!cfg.contains("学生"), "0% の区分が図に入っている");
-        assert!(cfg.contains("シニア"), "動いた区分が図に入っていない");
+        assert!(cfg.contains("シニア"), "値のある区分が図に無い");
     }
 
-    /// 誤差に埋もれる動きを「動いた」と語らない。
-    ///
-    /// 配送ドライバー（母数 24）はいちばん大きい動きが 2.8 ポイントで、
-    /// この母数だと 5 ポイントまでは月ごとの振れで説明がつく。
-    /// それを「シニアが 5.6% から 2.8% になりました」と書くと、
-    /// 他の職種と比べて小さい動きを「動いた」と語らない。
-    ///
-    /// 全 104 職種 × 8 区分 832 件の変化幅を測ると、90 パーセンタイルは 3.2 ポイント。
-    /// 母数 20 未満に限ると 7.8 ポイント。この線を下回る動きを断定して書くと、
-    /// 図の全部のバーが「よくある大きさ」なのに発見のように読まれる。
+    /// 母数を出して、1 か月の上下で判断しないよう書く。
     #[test]
-    fn 上位一割に入らない動きは断定して書かない() {
-        let mk = |m: &str, senior: f64, tc: f64| {
-            let mut pct = [Some(0.0); 8];
-            pct[0] = Some(24.0);
-            pct[1] = Some(senior);
-            AttrMonth { month: m.to_string(), pct, term_count: Some(tc) }
-        };
-        // 母数 60 → 線は 3pt。動きは 5.6 → 2.8 の 2.8pt で下回る
-        let small: Vec<AttrMonth> = (0..7)
-            .map(|i| mk(&format!("2025-{:02}", i + 7), if i < 3 { 5.6 } else { 2.8 }, 60.0))
+    fn 母数と読み方の注意を出す() {
+        let v: Vec<AttrMonth> = (0..7)
+            .map(|i| month(&format!("2025-{:02}", i + 7), 5.0, 30.0, 42.0))
             .collect();
-        let h = attr_section(&small);
-        assert!(h.contains("目立つ動きはありませんでした"), "小さい動きを断定して書いている");
-        assert!(h.contains("2.8 ポイント"), "実際の動きの大きさが出ていない");
-        assert!(!h.contains("誤差"), "測っていない「誤差」という言葉を使っている");
-
-        // はっきり超えるときは書く
-        let big: Vec<AttrMonth> = (0..7)
-            .map(|i| mk(&format!("2025-{:02}", i + 7), if i < 3 { 20.0 } else { 5.0 }, 60.0))
-            .collect();
-        let hb = attr_section(&big);
-        assert!(hb.contains("いちばん動いたのは"), "超えているのに書いていない");
-        assert!(hb.contains("上位 1 割"), "何と比べて大きいのかが書かれていない");
-        assert!(!hb.contains("目立つ動きはありませんでした"));
-    }
-
-    /// 母数の帯で線の高さを変える。
-    ///
-    /// 母数が薄い職種ほど月ごとの割合が振れる。実測で、母数 20 未満の帯の
-    /// 90 パーセンタイルは 7.8 ポイント、20 以上では 2.1〜3.3 ポイントだった。
-    #[test]
-    fn 母数の帯で線の高さを変える() {
-        let mk = |m: &str, tc: f64| {
-            let mut pct = [Some(0.0); 8];
-            pct[0] = Some(30.0);
-            pct[1] = Some(20.0);
-            AttrMonth { month: m.to_string(), pct, term_count: Some(tc) }
-        };
-        let thin: Vec<AttrMonth> = (0..7).map(|i| mk(&format!("2025-{:02}", i + 7), 12.0)).collect();
-        let thick: Vec<AttrMonth> = (0..7).map(|i| mk(&format!("2025-{:02}", i + 7), 120.0)).collect();
-        assert!(attr_section(&thin).contains("8 ポイントに置いています"));
-        assert!(attr_section(&thick).contains("3 ポイントに置いています"));
+        let h = attr_section(&v);
+        assert!(h.contains("中央 42"), "母数が出ていない");
+        assert!(h.contains("12.2 ポイント") && h.contains("3.1 ポイント"), "振れ幅の実測が出ていない");
     }
 }

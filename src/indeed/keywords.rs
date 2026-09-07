@@ -453,3 +453,77 @@ pub fn attr_change(months: &[AttrMonth]) -> Option<AttrChange> {
         window,
     })
 }
+
+/// 検索語 1 つぶんの月次シェア。
+pub struct TermSeries {
+    pub term: String,
+    /// 月ごとのシェア(%)。月の並びは [`term_monthly`] が返す months と対応する
+    pub pct: Vec<Option<f64>>,
+    /// 直近で値のある月のシェア。並べ替えに使う
+    pub latest: Option<f64>,
+    /// 期間の頭と終わりの差（ポイント）
+    pub diff_pt: Option<f64>,
+}
+
+/// 語ごとのシェアを月次で読む。
+///
+/// # なぜ 2 期間の比較（[`term_shifts`]）と別に持つのか
+/// 前 3 か月と直近 3 か月の平均どうしでは 2 点しか無く、
+/// 「いつから動いたのか」「まだ続いているのか」が読めない。
+/// 実データの「事務」は 45.3 → 46.4 → 46.3 → 44.8 → 41.4 → 40.8 → 34.9 →
+/// 36.6 → 37.9 → 35.7 → 35.8 → 31.9 → 29.8 → 26.8 と、2025-09 から下がり続けている。
+/// 2 点に丸めると「46.1 → 29.8」としか見えず、動きが続いているのかが分からない。
+///
+/// # どの語まで出すか
+/// 生成側で「どの月でも 1% に届かない語」を落としてある。
+/// Indeed は県ごとに上位 10 語しか返さないため、小さい語は
+/// 「消えた」のか「圏外に落ちた」のか区別できない。
+pub fn term_monthly(db: &LocalDb, title: &str) -> Result<(Vec<String>, Vec<TermSeries>)> {
+    let rows = db
+        .query(
+            "SELECT report_month, search_term, share_pct              FROM insight_kw_term_monthly WHERE norm_title = ?1              ORDER BY report_month, search_term",
+            &[&title],
+        )
+        .map_err(|e| anyhow!("検索語の月次を読めませんでした（{title}）: {e}"))?;
+    if rows.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let mut months: Vec<String> = Vec::new();
+    let mut by: std::collections::HashMap<String, std::collections::HashMap<String, f64>> =
+        std::collections::HashMap::new();
+    for r in &rows {
+        let m = get_str(r, "report_month");
+        if !months.contains(&m) {
+            months.push(m.clone());
+        }
+        let t = get_str(r, "search_term");
+        if let Some(v) = get_f64_opt(r, "share_pct") {
+            by.entry(t).or_default().insert(m, v);
+        }
+    }
+    months.sort();
+    let mut out: Vec<TermSeries> = by
+        .into_iter()
+        .map(|(term, m)| {
+            let pct: Vec<Option<f64>> = months.iter().map(|x| m.get(x).copied()).collect();
+            let first = pct.iter().flatten().next().copied();
+            let latest = pct.iter().flatten().next_back().copied();
+            TermSeries {
+                term,
+                diff_pt: match (first, latest) {
+                    (Some(a), Some(b)) => Some(b - a),
+                    _ => None,
+                },
+                latest,
+                pct,
+            }
+        })
+        .collect();
+    // 直近のシェアが大きい順。画面では上から数本だけ出す
+    out.sort_by(|a, b| {
+        b.latest
+            .unwrap_or(0.0)
+            .total_cmp(&a.latest.unwrap_or(0.0))
+    });
+    Ok((months, out))
+}
