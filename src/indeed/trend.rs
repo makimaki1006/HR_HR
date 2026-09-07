@@ -188,7 +188,15 @@ mod tests {
     #[test]
     /// 欠測と 0 以下は対数がとれないので飛ばす
     fn test_skips_missing_and_nonpositive() {
-        let v = vec![Some(10.0), None, Some(0.0), Some(-5.0), Some(12.0), Some(13.0), Some(14.0)];
+        let v = vec![
+            Some(10.0),
+            None,
+            Some(0.0),
+            Some(-5.0),
+            Some(12.0),
+            Some(13.0),
+            Some(14.0),
+        ];
         let f = fit_trend(&v).expect("4 点あるので当てはまる");
         assert_eq!(f.n, 4);
     }
@@ -217,12 +225,18 @@ mod tests {
     /// 1 点だけ跳ねた系列は一本調子にならず、外れ月が出る
     fn test_single_spike_breaks_steady_and_flags_outlier() {
         // 和歌山県のトラックドライバーの求人数。2026-03（8 番目）だけ跳ねている
-        let v: Vec<Option<f64>> = [45.0, 55.0, 62.0, 72.0, 85.0, 78.0, 80.0, 85.0, 173.0, 130.0, 68.0, 65.0, 85.0]
-            .iter()
-            .map(|x| Some(*x))
-            .collect();
+        let v: Vec<Option<f64>> = [
+            45.0, 55.0, 62.0, 72.0, 85.0, 78.0, 80.0, 85.0, 173.0, 130.0, 68.0, 65.0, 85.0,
+        ]
+        .iter()
+        .map(|x| Some(*x))
+        .collect();
         let f = fit_trend(&v).unwrap();
-        assert!(!f.steady, "散らばり {} / 毎月 {}", f.scatter_pct, f.slope_pct);
+        assert!(
+            !f.steady,
+            "散らばり {} / 毎月 {}",
+            f.scatter_pct, f.slope_pct
+        );
         assert!(!f.outliers.is_empty());
         assert_eq!(f.outliers[0].index, 8);
         assert!(f.outliers[0].ratio > 0.0, "跳ね上がりなので符号は正");
@@ -231,10 +245,12 @@ mod tests {
     #[test]
     /// 上下するだけの系列は向きが定まらない
     fn test_oscillating_series_has_no_direction() {
-        let v: Vec<Option<f64>> = [100.0, 130.0, 90.0, 125.0, 95.0, 120.0, 100.0, 128.0, 92.0, 122.0, 98.0, 126.0, 105.0]
-            .iter()
-            .map(|x| Some(*x))
-            .collect();
+        let v: Vec<Option<f64>> = [
+            100.0, 130.0, 90.0, 125.0, 95.0, 120.0, 100.0, 128.0, 92.0, 122.0, 98.0, 126.0, 105.0,
+        ]
+        .iter()
+        .map(|x| Some(*x))
+        .collect();
         let f = fit_trend(&v).unwrap();
         assert_eq!(f.level, Level::None);
         assert!(!f.steady);

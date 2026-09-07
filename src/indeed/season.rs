@@ -260,14 +260,13 @@ mod tests {
     /// 誰かが開いている実体を消さないよう、無いときだけ呼ぶ
     /// （`tests/indeed_data_test.rs` の `open_db` と同じ手順に合わせてある）。
     fn open_db() -> LocalDb {
-        if !Path::new(DB).exists() {
-            assert!(
-                Path::new(GZ).exists(),
-                "{GZ} がありません。Docker イメージに積む同梱物なので、\
-                 消えているとデプロイしてもタブが空になります"
-            );
-            crate::decompress_db_if_needed(DB);
-        }
+        assert!(
+            Path::new(GZ).exists(),
+            "{GZ} がありません。Docker イメージに積む同梱物なので、\n             消えているとデプロイしてもタブが空になります"
+        );
+        // 存在確認ごとロックの中でやる。外で確かめると、
+        // 別スレッドが書いている途中のファイルを「在る」と見てしまう
+        crate::ensure_db_from_gz(DB);
         LocalDb::new(DB).expect("Indeed 分析 DB を開けませんでした")
     }
 
