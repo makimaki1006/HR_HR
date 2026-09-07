@@ -71,6 +71,8 @@ button.c:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 .c .v small{font-size:15px; font-weight:500; color:var(--sub); margin-left:2px}
 .c .hint{font-size:12.5px; color:var(--faint); margin-top:1px}
 .c .sub2{font-size:12px; color:var(--sub); margin-top:3px}
+/* 「1人あたり」。主役の数字を邪魔しないよう、いちばん薄く小さく置く */
+.c .avg{font-size:11.5px; color:var(--faint); margin-top:3px; font-variant-numeric:tabular-nums}
 .c .open{font-size:12.5px; color:var(--accent); font-weight:600; margin-top:5px}
 .c.alert{border-color:var(--alert); background:var(--alert-soft)}
 .c.alert .lab,.c.alert .v{color:var(--alert)}
@@ -268,6 +270,41 @@ function agg(){
 const pick=rows=>rows.filter(r=>
   (person? r.owner===person : (team==='すべて'||r.team===team)));
 
+// ---- 「1人あたり」の出し方 -------------------------------------------------
+//
+// 分母は**画面に出ている人数**（そのチームで選べる人の数）にしている。
+// 🔴 名簿の人数で割るのと同じ結果になることを実データで確かめた（2026-09-07）。
+//    伊壺 7/7・平田 9/9・櫻井 8/8・野中 5/5・野口 4/4 で完全に一致する。
+//    一致しないのは「チーム未設定」だけで、名簿側は 376名（退職者271名を含む）
+//    なのに対し画面に出るのは 77名。名簿で割ると意味を成さないので、
+//    どちらでも同じになる方＝画面に出ている人数を採る。
+//    分母が分かるよう、人数はそのまま画面に出す。
+const headOf=t=>D.people.filter(p=>p.team===t).length;
+
+// 誰と比べるか。個人を選んでいるときは「その人のチーム」を相手にする
+// （自分の数字と並べて見られるようにするため）。
+function avgBase(){
+  if(person){
+    const p=D.people.find(x=>x.id===person);
+    if(!p) return null;
+    return {label:p.team+' の平均', team:p.team, n:headOf(p.team)};
+  }
+  if(team!=='すべて') return {label:'1人あたり', team:team, n:headOf(team)};
+  return {label:'1人あたり', team:null, n:D.people.length};
+}
+// チーム（全社なら全チーム）の合計。個人ぶんではないので person は見ない。
+function teamTotal(byTeam, teamName){
+  if(teamName) return (byTeam||{})[teamName]||{};
+  const o={}; Object.values(byTeam||{}).forEach(v=>Object.keys(v).forEach(k=>o[k]=(o[k]||0)+v[k]));
+  return o;
+}
+// 平均の1行。件数のカードにだけ付ける（率のカードに平均は意味を成さない）。
+function avgLine(ab, total, unit){
+  if(!ab||!ab.n) return '';
+  return ab.label+' '+(total/ab.n).toFixed(1)+(unit||'件')+
+         '<span style="opacity:.75">（'+ab.n+'名）</span>';
+}
+
 function itemEl(r,opt){
   opt=opt||{};
   const a=document.createElement('a');
@@ -292,6 +329,7 @@ function cardEl(o){
     (o.pct?pct(o.val):fmt(o.val))+(o.unit?'<small>'+o.unit+'</small>':'')+'</div>';
   if(o.hint)h+='<div class="hint">'+o.hint+'</div>';
   if(o.sub2)h+='<div class="sub2">'+o.sub2+'</div>';
+  if(o.avg)h+='<div class="avg">'+o.avg+'</div>';
   if(o.wow)h+=o.wow;
   if(o.onClick)h+='<div class="open">'+(openKey===o.key?'閉じる ▲':'一覧を見る ▾')+'</div>';
   c.innerHTML=h;
@@ -354,15 +392,23 @@ function render(){
   // ---- 今月の成績 ----
   const c1=$('cards1'); c1.innerHTML='';
   const anqDen=a.anq_den||0, anqNum=a.anq_num||0;
+  // 「1人あたり」の相手と、その合計。率のカードには付けない。
+  const AB=avgBase(), TT=teamTotal(D.by_team, AB&&AB.team);
+  const tden=(TT['実施']||0)+(TT['未実施']||0)+(TT['未処理']||0)+(TT['要判定']||0);
   [
-    {lab:'① 取ったアポ',val:a.apo||0,unit:'件',hint:'今月アポ日が確定した数',sub2:oi('apo')},
-    {lab:'③ 商談の予定',val:a.pool||0,unit:'件',hint:'今月に商談日が入っている数',sub2:oi('pool')},
-    {lab:'④ 日が過ぎた分',val:den,unit:'件',hint:'このうち下の率を計算'},
-    {lab:'② やった商談',val:a['実施']||0,unit:'件',hint:'ステージが先へ進んだ数',sub2:oi('実施')},
+    {lab:'① 取ったアポ',val:a.apo||0,unit:'件',hint:'今月アポ日が確定した数',sub2:oi('apo'),
+     avg:avgLine(AB,TT.apo||0)},
+    {lab:'③ 商談の予定',val:a.pool||0,unit:'件',hint:'今月に商談日が入っている数',sub2:oi('pool'),
+     avg:avgLine(AB,TT.pool||0)},
+    {lab:'④ 日が過ぎた分',val:den,unit:'件',hint:'このうち下の率を計算',
+     avg:avgLine(AB,tden)},
+    {lab:'② やった商談',val:a['実施']||0,unit:'件',hint:'ステージが先へ進んだ数',sub2:oi('実施'),
+     avg:avgLine(AB,TT['実施']||0)},
     {lab:'⑥ 商談化率',val:rate,pct:true,hint:fmt(a['実施']||0)+' ÷ '+fmt(den)+' 件'},
     {lab:'⑤ アンケート回収率',val:anqDen?anqNum/anqDen*100:null,pct:true,
      hint:fmt(anqNum)+' ÷ '+fmt(anqDen)+' 件（今日までに商談日が来た分）'},
-    {lab:'⑨ 持っているCヨミ',val:a.cyomi||0,unit:'件',hint:'決定者と合意できた案件',sub2:oi('cyomi')},
+    {lab:'⑨ 持っているCヨミ',val:a.cyomi||0,unit:'件',hint:'決定者と合意できた案件',sub2:oi('cyomi'),
+     avg:avgLine(AB,TT.cyomi||0)},
   ].forEach(o=>c1.appendChild(cardEl(o)));
 
   // ---- いま手を打てること ----
@@ -443,6 +489,9 @@ function render(){
       return t;
     };
     const cur=scopeOf(per), prv=prevP?scopeOf(prevP):null;
+    // 「1人あたり」はチーム（全社なら全チーム）の合計を人数で割る。
+    // 担当者が紐づかない発信は by_team に入らないので、この平均にも入らない。
+    const KT=teamTotal(per.by_team, AB&&AB.team);
     const calls=cur.calls||0, conn=cur.connected||0, lng=cur.long||0;
     const days=(per.days||[]).length||1;
     const dl=per.days||[];
@@ -468,10 +517,15 @@ function render(){
                      :'まだ集計されていません',
        sub2:'<span style="color:var(--sub)">Zoomでつながった通話の数'+
             (partial&&dl.length&&dl[dl.length-1]===upto?'（'+md(upto)+' は集計中）':'')+'</span>',
+       avg:dl.length?avgLine(AB,KT.connected||0):'',
        wow:(prv&&dl.length)?wowEl(conn,prv.connected||0,'件'):''},
-      {lab:'発信した回数',val:calls,unit:'件',hint:'かけ直しや切ったものを含む全発信'},
+      {lab:'発信した回数',val:calls,unit:'件',hint:'かけ直しや切ったものを含む全発信',
+       avg:avgLine(AB,KT.calls||0)},
       {lab:'つながった率',val:calls?conn/calls*100:null,pct:true,hint:fmt(conn)+' ÷ '+fmt(calls)+' 件'},
-      {lab:'5分超の通話',val:lng,unit:'件',hint:'深い会話。アポにつながりやすい'},
+      {lab:'5分超の通話',val:lng,unit:'件',hint:'深い会話。アポにつながりやすい',
+       avg:avgLine(AB,KT.long||0)},
+      // 🔴 このカードには平均を付けない。すでに日数で割った平均なので、
+      //    さらに人数で割ると「1人1日あたり」になり、他のカードと意味が変わる。
       {lab:'1日あたりの架電数',val:dl.length?Math.round(conn/dl.length):null,unit:'件',
        hint:dl.length?(dl.length+'日で割った平均'):'—'},
     ].forEach(o=>c3.appendChild(cardEl(o)));
@@ -736,6 +790,10 @@ function render(){
 render();
 
 $('foot').innerHTML=
+  'カードの下の小さい「1人あたり」は、選んでいるチームの合計を<b>そのチームの人数</b>'+
+  '（個人プルダウンに出る人数）で割ったものです。個人を選んだときは、'+
+  'その人が所属するチームの平均を出しています。'+
+  '率のカード（商談化率・アンケート回収率・つながった率）には付けていません。<br>'+
   '⑧ 決定者以上の割合は、判定できる材料が足りないためまだ出せません（事前アンケートの回収が必要です）。<br>'+
   '「ステージが止まっている」は商談予定日を過ぎてもステージが「アポ日確定」のままのもの（直近'+D.stale_days+'日ぶん）。'+
   'ステージが止まっているだけで、商談をしたかどうかは分かりません。<br>'+
