@@ -111,6 +111,9 @@ table{border-collapse:collapse; width:100%; font-size:13.5px; margin-top:6px}
 th,td{padding:7px 10px; text-align:left; border-bottom:1px solid var(--border)}
 th{font-size:12px; color:var(--sub); font-weight:600; white-space:nowrap}
 td.n,th.n{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+/* 列が何を数えたものかを、見出しの下に小さく添える */
+.sm{display:block; font-size:11px; font-weight:400; color:var(--faint)}
+th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 .tw{overflow:auto; max-height:420px; max-width:100%}
 .c{min-width:0}
 .cards{min-width:0}
@@ -182,6 +185,7 @@ td.n,th.n{text-align:right; font-variant-numeric:tabular-nums; white-space:nowra
 
 <h2>先週との比べ方</h2>
 <p class="lead" id="lead4"></p>
+<div class="chiprow" id="snapmode" style="margin-bottom:11px"></div>
 <div id="snapbox"></div>
 
 <div class="foot" id="foot"></div>
@@ -215,6 +219,9 @@ const WD=['日','月','火','水','木','金','土'];
 const fmt=n=>(n==null?'—':n.toLocaleString('ja-JP'));
 const pct=n=>(n==null?'—':n.toFixed(1)+'%');
 let team='すべて', person='', openKey=null, weekOpen=false, callPeriod='this_week';
+// 週次表をどちらの数え方で見るか。既定は「その週の商談」（週次表として自然なので）。
+// 'month' は当月の累積で、月初にゼロから数え直しになる。
+let snapMode='week';
 
 $('tt').onclick=()=>{const c=document.documentElement.getAttribute('data-theme');
   const dark=c?c==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
@@ -563,33 +570,90 @@ function render(){
   lb.appendChild(wrapB);
 
   // ---- 週次スナップショット ----
+  //
+  // 🔴 商談の数え方が2つある。取り違えると必ず誤読されるので、どちらを見ているかを
+  //    見出しにも注記にも出す。
+  //      week  その週（月〜日）に予定されていた商談。週どうしを比べられる
+  //      month 当月に予定されている商談を月初から積み上げたもの。月初にリセットされる
+  //    当月ぶんだけを並べると、月初の行で 1,064 → 537 と半減して見える
+  //    （8月と9月を比べているだけで、減ってはいない）。
   const S=D.snapshots||[];
-  $('lead4').innerHTML=S.length<2
-    ? '週ごとの記録をこれから貯めていきます。今週が1週目なので、比較は来週から出せます。'
-    : '週ごとに記録しています。矢印は先週との差です。';
+  const SNAP={
+    week:{chip:'その週の商談', head:'その週に予定された商談',
+          note:'その週（月〜日）に予定されていた商談だけを数えたもの。'+
+               '毎週おなじ長さの窓なので、<b>週どうしを比べられます</b>。'},
+    month:{chip:'当月の累積', head:'当月に予定された商談（月初からの累積）',
+           note:'その月に予定されている商談を月初から積み上げたもの。'+
+                '<b style="color:var(--warn)">月が変わるとゼロから数え直しになります。</b>'+
+                '月初の週が前の週より小さいのは、減ったのではなく別の月を見ているためです。'}};
+  const sm=$('snapmode');
+  if(!sm.dataset.done){
+    Object.keys(SNAP).forEach(k=>{
+      const b=document.createElement('button');
+      b.className='chip'; b.textContent=SNAP[k].chip;
+      b.onclick=()=>{snapMode=k;render();};
+      sm.appendChild(b);});
+    sm.dataset.done='1';
+  }
+  [...sm.children].forEach((b,ix)=>b.classList.toggle('on',Object.keys(SNAP)[ix]===snapMode));
+
+  $('lead4').innerHTML=(S.length<2
+    ? '週ごとの記録をこれから貯めていきます。今週が1週目なので、比較は来週から出せます。<br>'
+    : '')+
+    '<b>商談の数え方を2つ持っています。下のボタンで切り替えてください。</b><br>'+
+    '<b>'+SNAP.week.chip+'</b>＝'+SNAP.week.note+'<br>'+
+    '<b>'+SNAP.month.chip+'</b>＝'+SNAP.month.note;
+
   const sb=$('snapbox'); sb.innerHTML='';
   const box=document.createElement('div'); box.className='c';
   const t=document.createElement('table');
-  t.innerHTML='<thead><tr><th>週</th><th class="n">取ったアポ</th><th class="n">やった商談</th>'+
-    '<th class="n">商談化率</th><th class="n">止まっている</th><th class="n">架電数</th></tr></thead>';
+  t.innerHTML='<thead><tr><th rowspan="2">週</th>'+
+    '<th class="n grp" colspan="3">'+SNAP[snapMode].head+'</th>'+
+    '<th class="n" rowspan="2">架電数<span class="sm">その週の合計</span></th>'+
+    '<th class="n" rowspan="2">取ったアポ<span class="sm">当月の累計</span></th>'+
+    '<th class="n" rowspan="2">止まっている<span class="sm">記録した時点</span></th></tr>'+
+    '<tr><th class="n">商談</th><th class="n">やった</th><th class="n">商談化率</th></tr></thead>';
   const tb=document.createElement('tbody');
+  let missing=0;
   S.slice(-8).forEach(s=>{
     const tt=s.totals||{};
-    const dn=(tt['実施']||0)+(tt['未実施']||0)+(tt['未処理']||0)+(tt['要判定']||0);
+    // 週ベースの列は 2026-09-07 に足したもの。それより前に記録した行には入っていない。
+    // 0 で埋めると「その週は0件だった」と嘘になるので「—」を出す。
+    const src=(snapMode==='week')?s.week_totals:tt;
+    let cells;
+    if(src){
+      const dn=(src['実施']||0)+(src['未実施']||0)+(src['未処理']||0)+(src['要判定']||0);
+      const half=(snapMode==='week')&&s.week_partial;
+      cells='<td class="n">'+fmt(src.pool)+
+        (half?'<span class="sm">週の途中（集計中）</span>':'')+'</td>'+
+        '<td class="n">'+fmt(src['実施'])+'</td>'+
+        '<td class="n">'+(dn?pct((src['実施']||0)/dn*100):'—')+'</td>';
+    }else{
+      missing++;
+      cells='<td class="n" colspan="3"><span style="color:var(--faint)">'+
+        'この数え方で記録する前の週です</span></td>';
+    }
     const tr=document.createElement('tr');
     tr.innerHTML='<td>'+s.week+'<br><span style="color:var(--faint);font-size:11.5px">'+
-      md(s.week_start)+' の週</span></td>'+
-      '<td class="n">'+fmt(tt.apo)+'</td><td class="n">'+fmt(tt['実施'])+'</td>'+
-      '<td class="n">'+(dn?pct((tt['実施']||0)/dn*100):'—')+'</td>'+
-      '<td class="n">'+fmt(s.stale)+'</td>'+
+      md(s.week_start)+' の週</span></td>'+cells+
       '<td class="n">'+(s.zoom_called==null?'<span style="color:var(--faint)">—</span>'
         :fmt(s.zoom_called)+(s.zoom_partial
-          ?'<br><span style="color:var(--faint);font-size:11px">'+s.zoom_days+'日目まで（集計中）</span>':''))+'</td>';
+          ?'<span class="sm">'+s.zoom_days+'日目まで（集計中）</span>':''))+'</td>'+
+      '<td class="n">'+fmt(tt.apo)+'</td>'+
+      '<td class="n">'+fmt(s.stale)+'</td>';
     tb.appendChild(tr);});
   t.appendChild(tb);
   const stw=document.createElement('div'); stw.className='tw'; stw.appendChild(t);
   box.appendChild(stw);
   box.innerHTML+='<div class="hint" style="margin-top:8px">'+
+    'いま出しているのは<b>「'+SNAP[snapMode].head+'」</b>です。'+SNAP[snapMode].note+'<br>'+
+    (snapMode==='week'
+      ? 'その週の数字は<b>週が終わるまで確定しません</b>（残りの日ぶんが「これから」に入るため）。'+
+        '週が終わったあと、翌週の取り直しで実施・未実施を入れ直します。'
+      : '「取ったアポ」も当月の累計なので、この列も月初にリセットされます。')+'<br>'+
+    (missing?'「この数え方で記録する前の週です」と出ている行は、'+
+      '週ごとの数え方を足した 2026-09-07 より前に記録したものです。'+
+      '当月の累積なら見られます。<br>':'')+
     'この画面を開いたときではなく、データを取り直したときに1週ぶんが記録されます。'+
     '週の途中で取り直すと、その週の行が上書きされます。'+
     '架電数はZoomでつながった通話の数です。</div>';

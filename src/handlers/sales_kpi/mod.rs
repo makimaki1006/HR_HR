@@ -288,6 +288,9 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
 ///
 /// 🔴 左側は Python 側（Hubspot リポジトリ `scripts/sales_kpi/sync_daily.py` の
 /// `WEEKLY_HEADER`）と対で決まっている。片方だけ変えると値が 0 で並ぶ。
+///
+/// ここは**当月**に商談予定日があるもの。月内は積み上がり、月初に入れ替わる。
+/// その週ぶんは `WEEKLY_WEEK_TOTALS`（`week_totals`）にある。
 const WEEKLY_TOTALS: &[(&str, &str)] = &[
     ("母集団", "pool"),
     ("実施", "実施"),
@@ -298,6 +301,22 @@ const WEEKLY_TOTALS: &[(&str, &str)] = &[
     ("取ったアポ", "apo"),
     ("Cヨミ", "cyomi"),
     ("BPO母集団", "bpo_pool"),
+];
+
+/// 週次シートの「週_」列 → 画面が読むキー。`week_totals` の中に入るもの。
+///
+/// 接頭辞の無い `WEEKLY_TOTALS` が**当月**に商談予定日があるもの（月内は積み上がり、
+/// 月初に入れ替わる）なのに対し、こちらは**その週（月〜日）**に商談予定日があるもの。
+/// 週次表に当月ぶんだけを並べると、月初の行で 1,064 → 537 と半減して見える
+/// （8月と9月を比べているだけ）。両方を持って、画面で選べるようにしている
+/// （2026-09-07 ユーザー判断）。
+const WEEKLY_WEEK_TOTALS: &[(&str, &str)] = &[
+    ("週_母集団", "pool"),
+    ("週_実施", "実施"),
+    ("週_未実施", "未実施"),
+    ("週_未処理", "未処理"),
+    ("週_これから", "これから"),
+    ("週_要判定", "要判定"),
 ];
 
 /// 週次シートの列 → 画面が読むキー。`totals` の外に出るもの。
@@ -364,6 +383,31 @@ pub fn snapshots_of(sheet: &SheetData) -> Vec<serde_json::Value> {
         item.insert(
             "zoom_partial".into(),
             json!(sheet.get(row, "Zoom集計中") == "集計中"),
+        );
+        // その週に予定された商談だけを数えた列（2026-09-07 追加）。
+        // 🔴 それ以前に書かれた行にはこの列が無い。`SheetData::get()` は
+        //    列が無ければ "" を返すので落ちはしないが、0 を入れると画面が
+        //    「その週は0件だった」と嘘をつく。母集団が読めない行は null にして
+        //    画面に「—」を出させる。
+        item.insert(
+            "week_totals".into(),
+            match cell_num(sheet.get(row, "週_母集団")) {
+                Some(_) => {
+                    let mut m = Map::new();
+                    for (col, key) in WEEKLY_WEEK_TOTALS {
+                        m.insert(
+                            (*key).to_string(),
+                            json!(cell_num(sheet.get(row, col)).unwrap_or(0)),
+                        );
+                    }
+                    Value::Object(m)
+                }
+                None => Value::Null,
+            },
+        );
+        item.insert(
+            "week_partial".into(),
+            json!(sheet.get(row, "週_集計中") == "集計中"),
         );
         out.push((week, Value::Object(item)));
     }

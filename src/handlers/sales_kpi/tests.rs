@@ -314,7 +314,16 @@ fn 週次は古い順に並び画面が要る項目がそろっている() {
     assert_eq!(snaps[1]["week"], "2026-W36");
     // 画面（templates/tabs/sales_kpi.html の「先週との比べ方」）が触るキー。
     for s in snaps {
-        for key in ["week", "taken_at", "week_start", "totals", "stale", "zoom_days"] {
+        for key in [
+            "week",
+            "taken_at",
+            "week_start",
+            "totals",
+            "week_totals",
+            "week_partial",
+            "stale",
+            "zoom_days",
+        ] {
             assert!(!s[key].is_null(), "{key} が無い: {s}");
         }
     }
@@ -344,6 +353,92 @@ fn 週次は古い順に並び画面が要る項目がそろっている() {
         "週次の架電数が架電シートの合計と合わない。\
          6枚を取り直したなら make_weekly_fixture.py も流し直すこと"
     );
+}
+
+/// その週に予定された商談の列（`週_`）が、当月ベースの列とは別の窓で数えられていること。
+///
+/// 当月ベースだけを週次表に並べると、月初の行で 1,064 → 537 と半減して見える
+/// （8月と9月を比べているだけで、減ってはいない）。週ベースはそれが起きない。
+#[test]
+fn 週ベースの列は当月ベースと別の窓で数えている() {
+    let body = payload();
+    let snaps = body["snapshots"].as_array().unwrap();
+    let w35 = &snaps[0];
+    let w36 = &snaps[1];
+
+    // 当月ベースは 8月（W35 の記録日）と 9月（W36 の記録日）で丸ごと入れ替わる
+    assert_eq!(w35["totals"]["pool"].as_i64(), Some(1064));
+    assert_eq!(w36["totals"]["pool"].as_i64(), Some(537));
+
+    // 週ベースは同じ長さの窓なので、そこまで飛ばない
+    for s in [w35, w36] {
+        assert!(
+            !s["week_totals"].is_null(),
+            "週ベースの列が読めていない: {s}"
+        );
+        let wt = &s["week_totals"];
+        let parts: i64 = ["実施", "未実施", "未処理", "これから", "要判定"]
+            .iter()
+            .map(|k| wt[*k].as_i64().unwrap_or(-1))
+            .sum();
+        assert_eq!(
+            parts,
+            wt["pool"].as_i64().unwrap(),
+            "週ベースの仕分けの合計が母集団と合わない: {s}"
+        );
+    }
+
+    // 🔴 件数を直書きしない。商談シートをその週で切ったものと突き合わせる。
+    let sheets = fixture_sheets();
+    for (s, monday) in [(w35, "2026-08-24"), (w36, "2026-08-31")] {
+        let lo = format!("{monday} 00:00");
+        let hi = {
+            let d = NaiveDate::parse_from_str(monday, "%Y-%m-%d").unwrap()
+                + chrono::Duration::days(7);
+            format!("{} 00:00", d.format("%Y-%m-%d"))
+        };
+        let want = sheets
+            .shodan
+            .rows
+            .iter()
+            .filter(|r| {
+                let v = sheets.shodan.get(r, "商談予定日時");
+                lo.as_str() <= v && v < hi.as_str()
+            })
+            .count() as i64;
+        assert!(want > 0, "商談の fixture に {monday} の週の行が無い");
+        assert_eq!(
+            s["week_totals"]["pool"].as_i64().unwrap(),
+            want,
+            "週ベースの母集団が商談シートのその週の件数と合わない（{monday} の週）。\
+             fixture を取り直したなら make_weekly_fixture.py も流し直すこと"
+        );
+    }
+
+    // 週が終わった行は「確定」、まだ途中の行は「集計中」
+    assert_eq!(w35["week_partial"], serde_json::Value::Bool(false));
+    assert_eq!(w36["week_partial"], serde_json::Value::Bool(true));
+}
+
+/// 「週_」列が無い古い行。2026-09-07 より前に書かれた行がこれになる。
+/// 0 で埋めると画面が「その週は0件だった」と嘘をつくので、null にして「—」を出させる。
+#[test]
+fn 週ベースの列が無い古い行でも落ちない() {
+    let text = "週\t記録日\t週はじまり\t母集団\t実施\t未実施\t未処理\tこれから\t要判定\t\
+                取ったアポ\tCヨミ\tBPO母集団\t止まっている\tアンケート未回収\tCヨミ置きっぱなし\t\
+                架電リスト手をつけた\t架電リスト母数\tZoom架電数\tZoom日数\tZoom集計中\n\
+                2026-W37\t2026-09-07\t2026-09-07\t537\t166\t54\t8\t304\t5\t245\t126\t129\t\
+                13\t280\t41\t32817\t129867\t\t0\t集計中\n";
+    let snaps = super::snapshots_of(&sheet_from_tsv(text));
+    assert_eq!(snaps.len(), 1);
+    assert!(
+        snaps[0]["week_totals"].is_null(),
+        "週ベースの列が無い行を0件として出している: {}",
+        snaps[0]
+    );
+    assert_eq!(snaps[0]["week_partial"], serde_json::Value::Bool(false));
+    // 当月ベースの列は今まで通り読める
+    assert_eq!(snaps[0]["totals"]["pool"].as_i64(), Some(537));
 }
 
 /// 架電がまだ1日も入っていない週の行。本番の KPI営業_週次 から取った実物
