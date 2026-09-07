@@ -1,0 +1,93 @@
+# Docker のビルドコンテキストから外すもの。
+#
+# 【ここに何か足す前に必ず読むこと】
+# このリポジトリは include_str! でコンパイル時にファイルを埋め込む。次のどれかを
+# 除外すると cargo build がコンパイルエラーで落ちる:
+#   src/  templates/  assets/
+#   static/keywords.html  static/jobgen.html
+#   static/jobgen_competitive_beta.html  static/jobgen_applicant_journey_beta.html
+#   static/proposal_mock.html
+#   data/wage_census_to_occupation_middle_map.json
+# 確認コマンド:
+#   grep -rn "include_str!\|include_bytes!" src/ --include=*.rs
+#
+# ランタイムステージが COPY するもの (これも除外しない):
+#   templates/  static/css/  static/js/  static/guide/
+#   data/geojson_gz/  data/media_engine/  data/indeed_insights.db.gz
+#   scripts/download_db.sh
+
+# --- VCS / ビルド生成物 ---
+.git
+.git_backup/
+.gitignore
+.gitattributes
+target/
+target-*/
+node_modules/
+out/
+*.exe
+
+# --- DB 本体 ---
+# hellowork.db はランタイムステージが GitHub Release から落とす。
+# 手元にあるものを送るとコンテキストが数百 MB 増える。
+# indeed_insights.db.gz だけはイメージに載せるので除外しない。
+data/*.db
+data/*.db.gz
+!data/indeed_insights.db.gz
+data/generated/
+static/geojson/
+*.db-wal
+*.db-shm
+*.db-journal
+
+# --- テスト一式 ---
+# cargo build --release は tests/ の統合テストをビルドしない。
+tests/
+test-results/
+playwright-report/
+.playwright/
+.pytest_cache/
+videos/
+trace.zip
+e2e_*.py
+gen_survey_pdf.py
+playwright.config.ts
+playwright.vrt.config.ts
+package.json
+package-lock.json
+
+# --- ドキュメント ---
+docs/
+claudedocs/
+*.md
+
+# --- CI / エディタ設定 ---
+.github/
+.claude/
+.vscode/
+.idea/
+
+# --- 秘密情報 (イメージに入れない) ---
+.env
+.env.*
+credentials/
+*.pem
+*.key
+
+# --- 参照されていないデータ ---
+# src/ からの参照はコメントのみ。実体の master_city.csv は src/geo/ にある。
+data/jobtag_raw/
+data/agoop/
+
+# --- 作業中の一時ファイル ---
+__pycache__/
+*.pyc
+*.log
+*.tmp
+*.bak
+*.old
+*.profraw
+_sec_tmp/
+_*_mock.csv
+.DS_Store
+Thumbs.db

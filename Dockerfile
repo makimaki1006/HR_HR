@@ -1,5 +1,12 @@
 # ===== ビルドステージ =====
-FROM rust:latest AS builder
+# ベースを固定する理由が 2 つある。
+#  1) glibc: rust:latest は Debian 13 (trixie/glibc 2.41) に上がっており、
+#     ランタイムの debian:bookworm-slim (glibc 2.36) より新しい。新しい glibc で
+#     リンクしたバイナリは古い glibc では起動しない可能性がある。bookworm 版の
+#     rust イメージを使ってランタイムと glibc を揃える。
+#  2) キャッシュ: latest はタグの中身が動くので、動いた瞬間に下の依存ビルド層まで
+#     まるごと無効化される。バージョンを固定するとそれが起きない。
+FROM rust:1.98-slim-bookworm AS builder
 
 # ビルドに必要なシステムライブラリ
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -10,8 +17,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# ソースコード + テンプレート（include_str!がコンパイル時に参照）+ Cargo.lock（依存バージョン固定）
+# ---- 依存クレートだけを先にビルドする層 ----
+# Cargo.toml / Cargo.lock が変わらない限り、この RUN はキャッシュに乗る。
+# ソースを 1 文字直しただけで 312 個の依存クレートを再ビルドしないための層。
+#
+# 仕組み: 中身が空の src/main.rs と src/lib.rs を置いて依存だけコンパイルする。
+#   - src/bin/ を置かないので、cargo のターゲット自動検出には何も引っかからない
+#   - ビルド対象を --bin rust_dashboard に固定しているのでダミーはこの 2 つで足りる
+#     (cargo-chef を使わずに済むのはこのため。複数バイナリを全部ビルドするなら
+#      ダミーも全部用意する必要があり、その場合は cargo-chef の方が向く)
+#   - 最後の cargo clean -p はダミー本体の成果物だけを捨てる。依存 312 個は残る。
+#     これをやらないと、COPY したソースの mtime がダミーのビルド時刻より古い場合に
+#     cargo が「変更なし」と誤判定し、空のダミーバイナリをそのまま出荷してしまう。
 COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src \
+    && echo 'fn main() {}' > src/main.rs \
+    && : > src/lib.rs \
+    && cargo build --release --locked --bin rust_dashboard \
+    && cargo clean --release -p rust_dashboard \
+    && rm -rf src
+
+# ---- アプリ本体 ----
+# ソースコード + テンプレート（include_str!がコンパイル時に参照）
 COPY src/ src/
 COPY templates/ templates/
 # include_str! で driver/data.rs が wage_census → 国勢調査中分類のマッピングを参照
@@ -25,7 +52,14 @@ COPY static/jobgen_applicant_journey_beta.html static/jobgen_applicant_journey_b
 COPY assets/ assets/
 # include_str! で採用提案の試作モックページを埋め込む
 COPY static/proposal_mock.html static/proposal_mock.html
-RUN cargo build --release
+
+# touch は上の cargo clean と同じ目的の二重の保険。COPY はコンテキスト側の mtime を
+# そのまま持ち込むため、キャッシュ層のビルド時刻より古いソースが来ることがある。
+#
+# ランタイムに載せるのは rust_dashboard 1 本だけ。--bin を付けないと
+# src/bin/ の 10 本 (probe_* / gen_vrt_fixtures 等) も一緒にビルド・リンクされる。
+RUN touch src/main.rs src/lib.rs \
+    && cargo build --release --locked --bin rust_dashboard
 
 # ===== ランタイムステージ =====
 FROM debian:bookworm-slim
