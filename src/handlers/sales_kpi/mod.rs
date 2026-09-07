@@ -20,6 +20,7 @@
 //!   KPI営業_Cヨミ     ステージが「Cヨミ」の取引
 //!   KPI営業_架電日次  日 × 担当者の架電数（Zoom）
 //!   KPI営業_架電リスト アポ前パイプラインの状態と、決定者・決裁者の入力状況
+//!   KPI営業_架電リスト_担当別 上と同じ内訳を担当者ごとに（チーム／個人の絞り込み用）
 //!   KPI営業_メンバー  ownerId → 氏名・チーム
 //!   KPI営業_取得条件  いつ・どの範囲で取ったか
 //!   KPI営業_週次      週に1行の記録（唯一、集計済みの値を持つシート）
@@ -90,6 +91,10 @@ pub const SHEET_APO: &str = "KPI営業_アポ";
 pub const SHEET_CYOMI: &str = "KPI営業_Cヨミ";
 pub const SHEET_KADEN: &str = "KPI営業_架電日次";
 pub const SHEET_KADEN_LIST: &str = "KPI営業_架電リスト";
+/// 架電リストの内訳を担当者ごとに持つ（`ownerId / 分類 / 件数`）。
+/// **無いことがある**（2026-09-07 に足したので、日次同期が1度も走っていない環境では
+/// シート自体が存在しない）。週次と同じく、無ければ空で通す。
+pub const SHEET_KADEN_BY_OWNER: &str = "KPI営業_架電リスト_担当別";
 pub const SHEET_MEMBER: &str = "KPI営業_メンバー";
 pub const SHEET_META: &str = "KPI営業_取得条件";
 pub const SHEET_WEEKLY: &str = "KPI営業_週次";
@@ -228,6 +233,8 @@ pub struct Sheets {
     pub cyomi: Arc<SheetData>,
     pub kaden: Arc<SheetData>,
     pub kaden_list: Arc<SheetData>,
+    /// 架電リストの担当者別。**まだ1度も書かれていないことがある**ので、無ければ空。
+    pub kaden_by_owner: Arc<SheetData>,
     pub member: Arc<SheetData>,
     pub meta: Arc<SheetData>,
     /// 週次の記録。**まだ1度も書かれていないことがある**ので、無ければ空。
@@ -257,24 +264,32 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
             data
         }};
     }
-    // 週次だけは無くても通す。初回は Python 側がまだ1度も書いていないので
-    // シート自体が存在せず、ここで落とすと画面ごと出なくなる。
-    let weekly = match store.get(client, SHEET_WEEKLY).await {
-        Ok((data, hit)) => {
-            cached &= hit;
-            data
-        }
-        Err(e) => {
-            tracing::warn!("シート「{SHEET_WEEKLY}」が読めないので週次は空で出します: {e:#}");
-            empty_sheet()
-        }
-    };
+    // 週次と担当者別だけは無くても通す。あとから足したシートなので、日次同期が
+    // まだ新しい版で1度も走っていない環境ではシート自体が存在せず、
+    // ここで落とすと画面ごと出なくなる。
+    macro_rules! optional {
+        ($name:expr, $what:expr) => {
+            match store.get(client, $name).await {
+                Ok((data, hit)) => {
+                    cached &= hit;
+                    data
+                }
+                Err(e) => {
+                    tracing::warn!("シート「{}」が読めないので{}は空で出します: {e:#}", $name, $what);
+                    empty_sheet()
+                }
+            }
+        };
+    }
+    let weekly = optional!(SHEET_WEEKLY, "週次");
+    let kaden_by_owner = optional!(SHEET_KADEN_BY_OWNER, "架電リストの担当者別");
     Ok(Sheets {
         shodan: fetch!(SHEET_SHODAN),
         apo: fetch!(SHEET_APO),
         cyomi: fetch!(SHEET_CYOMI),
         kaden: fetch!(SHEET_KADEN),
         kaden_list: fetch!(SHEET_KADEN_LIST),
+        kaden_by_owner,
         member: fetch!(SHEET_MEMBER),
         meta: fetch!(SHEET_META),
         weekly,
@@ -430,6 +445,32 @@ pub struct Person {
     pub id: String,
     pub name: String,
     pub team: String,
+    /// HubSpot 側のチーム名（`BPO_リクロジ` など）。営業の名簿に載っていない人が
+    /// 誰なのかを示す手掛かり。名簿のチームより粒度が粗いので、絞り込みには使わない。
+    #[serde(rename = "hsTeam", skip_serializing_if = "String::is_empty")]
+    pub hs_team: String,
+}
+
+/// 名簿にも HubSpot にも居ない ownerId のときの表示。
+pub fn unknown_person(owner: &str) -> Person {
+    Person {
+        id: owner.to_string(),
+        name: if owner.is_empty() {
+            "担当なし".into()
+        } else {
+            format!("owner_{owner}")
+        },
+        team: "チーム未設定".into(),
+        hs_team: String::new(),
+    }
+}
+
+/// `members` から引く。無ければ `unknown_person`。
+pub fn person_of(members: &HashMap<String, Person>, owner: &str) -> Person {
+    members
+        .get(owner)
+        .cloned()
+        .unwrap_or_else(|| unknown_person(owner))
 }
 
 pub fn members_of(sheet: &SheetData) -> HashMap<String, Person> {
@@ -443,17 +484,55 @@ pub fn members_of(sheet: &SheetData) -> HashMap<String, Person> {
             (
                 id.clone(),
                 Person {
+                    // 氏名が空の行は ownerId のままにする（名前を作らない）。
+                    name: if name.is_empty() {
+                        unknown_person(&id).name
+                    } else {
+                        name
+                    },
                     id,
-                    name,
                     team: if team.is_empty() {
                         "チーム未設定".into()
                     } else {
                         team
                     },
+                    // 2026-09-07 追加。それ以前のシートにはこの列が無いので空になる。
+                    hs_team: sheet.get(r, "HubSpotチーム").to_string(),
                 },
             )
         })
         .collect()
+}
+
+// ------------------------------------------------- 架電リストの担当者別
+
+/// 架電リストの分類。画面に出す順で並べてある。
+pub const KADEN_CLASSES: &[&str] = &["未架電", "未接触", "接触済み"];
+
+/// `KPI営業_架電リスト_担当別` を `ownerId → {分類: 件数}` にする。
+///
+/// 「対象外」の行も入っているが、母数（`base`）には足さない。母数は全社の
+/// `KPI営業_架電リスト` と同じ「未架電＋未接触＋接触済み」で揃える。
+pub fn kaden_by_owner_of(sheet: &SheetData) -> BTreeMap<String, Counts> {
+    let mut out: BTreeMap<String, Counts> = BTreeMap::new();
+    for row in &sheet.rows {
+        let owner = sheet.get(row, "ownerId").to_string();
+        let class = sheet.get(row, "分類");
+        if class.is_empty() {
+            continue;
+        }
+        let n = sheet
+            .get(row, "件数")
+            .replace(',', "")
+            .parse::<i64>()
+            .unwrap_or(0);
+        let per = out.entry(owner).or_default();
+        *per.entry(class.to_string()).or_insert(0) += n;
+        if KADEN_CLASSES.contains(&class) {
+            *per.entry("base".into()).or_insert(0) += n;
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------- 集計
@@ -502,7 +581,7 @@ pub fn deal_row(
     members: &HashMap<String, Person>,
     bpo: bool,
 ) -> DealRow {
-    let person = members.get(&deal.owner);
+    let person = person_of(members, &deal.owner);
     DealRow {
         id: deal.id.clone(),
         name: if deal.name.is_empty() {
@@ -517,16 +596,8 @@ pub fn deal_row(
             deal.jikan.clone()
         },
         owner: deal.owner.clone(),
-        owner_name: person.map(|p| p.name.clone()).unwrap_or_else(|| {
-            if deal.owner.is_empty() {
-                "担当なし".into()
-            } else {
-                format!("owner_{}", deal.owner)
-            }
-        }),
-        team: person
-            .map(|p| p.team.clone())
-            .unwrap_or_else(|| "チーム未設定".into()),
+        owner_name: person.name,
+        team: person.team,
         bpo,
         kind: kind.label(),
         why,
@@ -601,10 +672,7 @@ pub fn kaden_period(
             if row.owner.is_empty() {
                 continue;
             }
-            let team = members
-                .get(&row.owner)
-                .map(|p| p.team.clone())
-                .unwrap_or_else(|| "チーム未設定".into());
+            let team = person_of(members, &row.owner).team;
             *out.by_team
                 .entry(team)
                 .or_default()

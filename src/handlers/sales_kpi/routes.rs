@@ -28,8 +28,9 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
-    classify, deal_row, deals_of, is_bpo, kaden_of, kaden_period, load, members_of, snapshots_of,
-    Counts, Deal, DealRow, Kind, Person, Sheets, SHEET_META,
+    classify, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_of, kaden_period, load,
+    members_of, person_of, snapshots_of, Counts, Deal, DealRow, Kind, Person, Sheets,
+    KADEN_CLASSES, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -127,6 +128,7 @@ async fn data(Query(q): Query<DataQuery>, session: Session) -> Result<Response, 
             super::SHEET_CYOMI,
             super::SHEET_KADEN,
             super::SHEET_KADEN_LIST,
+            super::SHEET_KADEN_BY_OWNER,
             super::SHEET_MEMBER,
             SHEET_META,
             super::SHEET_WEEKLY,
@@ -188,21 +190,7 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         .collect();
 
     for deal in &month {
-        let person = members.get(&deal.owner);
-        let team = person
-            .map(|p| p.team.clone())
-            .unwrap_or_else(|| "チーム未設定".to_string());
-        people.entry(deal.owner.clone()).or_insert_with(|| Person {
-            id: deal.owner.clone(),
-            name: person.map(|p| p.name.clone()).unwrap_or_else(|| {
-                if deal.owner.is_empty() {
-                    "担当なし".into()
-                } else {
-                    format!("owner_{}", deal.owner)
-                }
-            }),
-            team: team.clone(),
-        });
+        let team = note(&mut people, &members, &deal.owner);
 
         let (kind, _) = classify(deal, &cutoff);
         let bpo = bpo_of(deal);
@@ -234,21 +222,7 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
 
     // ---- ① 取ったアポ --------------------------------------------------
     for deal in deals_of(&sheets.apo) {
-        let person = members.get(&deal.owner);
-        let team = person
-            .map(|p| p.team.clone())
-            .unwrap_or_else(|| "チーム未設定".to_string());
-        people.entry(deal.owner.clone()).or_insert_with(|| Person {
-            id: deal.owner.clone(),
-            name: person.map(|p| p.name.clone()).unwrap_or_else(|| {
-                if deal.owner.is_empty() {
-                    "担当なし".into()
-                } else {
-                    format!("owner_{}", deal.owner)
-                }
-            }),
-            team: team.clone(),
-        });
+        let team = note(&mut people, &members, &deal.owner);
         add(&team, &deal.owner, "apo");
         // ① は当月に確定したアポなので、BPO 判定も当月の取得日に限る
         if is_bpo(&deal, &month_lo, &month_hi) {
@@ -259,21 +233,7 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     // ---- ⑨ Cヨミ --------------------------------------------------------
     let mut cyomi_stale: Vec<DealRow> = Vec::new();
     for deal in deals_of(&sheets.cyomi) {
-        let person = members.get(&deal.owner);
-        let team = person
-            .map(|p| p.team.clone())
-            .unwrap_or_else(|| "チーム未設定".to_string());
-        people.entry(deal.owner.clone()).or_insert_with(|| Person {
-            id: deal.owner.clone(),
-            name: person.map(|p| p.name.clone()).unwrap_or_else(|| {
-                if deal.owner.is_empty() {
-                    "担当なし".into()
-                } else {
-                    format!("owner_{}", deal.owner)
-                }
-            }),
-            team: team.clone(),
-        });
+        let team = note(&mut people, &members, &deal.owner);
         add(&team, &deal.owner, "cyomi");
         if bpo_of(&deal) {
             add(&team, &deal.owner, "bpo_cyomi");
@@ -345,7 +305,19 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         .collect();
 
     // ---- 架電リストの状態 -------------------------------------------------
-    let (kaden_block, kaden_base) = kaden_list_block(&sheets.kaden_list);
+    let (kaden_block, kaden_base) =
+        kaden_list_block(&sheets.kaden_list, &sheets.kaden_by_owner, &members);
+
+    // 架電リストだけに出てくる担当者も個人プルダウンに載せる。
+    // 🔴 載せないと「そのチームの合計は出るのに、中の誰も選べない」ことが起きる。
+    // 実際 65名中27名が商談・アポ・Cヨミのどれにも出てこない（BPO が中心。2026-09-07 実測）。
+    // 今月の商談が無い人なので、成績のカードは 0 で並ぶ。それは事実なのでそのまま出す。
+    for row in &sheets.kaden_by_owner.rows {
+        let owner = sheets.kaden_by_owner.get(row, "ownerId");
+        if !owner.is_empty() {
+            note(&mut people, &members, owner);
+        }
+    }
 
     // ---- 取得条件 ---------------------------------------------------------
     // 架電より先に読む。「架電の最終日が途中かどうか」は取得条件に入っている。
@@ -365,6 +337,14 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     //    実際に 2026-09-07（月）の本番で、今週として 8/31〜9/06 が出ていた。
     //    その週にまだ行が無ければ 0件と正直に出す。先週を今週と偽らない。
     let kaden_rows = kaden_of(&sheets.kaden);
+    // Zoom で架電した人も控える。`people` に入れておかないと、人別の架電表が
+    // 名前を引けずに `owner_96437217` と出る（2026-09-07 現場指摘の直し残り）。
+    // ここまでで `people` は「この画面に数字が出る人 = 商談 ∪ 架電リスト ∪ Zoom架電」になる。
+    for row in &kaden_rows {
+        if !row.owner.is_empty() {
+            note(&mut people, &members, &row.owner);
+        }
+    }
     let have_days: HashSet<&str> = kaden_rows.iter().map(|r| r.date.as_str()).collect();
     let last_day = kaden_rows
         .iter()
@@ -483,6 +463,20 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     body
 }
 
+/// 取引に出てきた担当者を控えて、その人のチーム名を返す。
+/// 名簿にも HubSpot にも居なければ `owner_<id>` のまま「チーム未設定」。
+fn note(
+    people: &mut HashMap<String, Person>,
+    members: &HashMap<String, Person>,
+    owner: &str,
+) -> String {
+    people
+        .entry(owner.to_string())
+        .or_insert_with(|| person_of(members, owner))
+        .team
+        .clone()
+}
+
 fn people_list(people: &HashMap<String, Person>) -> Vec<&Person> {
     let mut v: Vec<&Person> = people.values().collect();
     v.sort_by(|a, b| (a.team.as_str(), a.name.as_str()).cmp(&(b.team.as_str(), b.name.as_str())));
@@ -496,7 +490,19 @@ fn days_since(text: &str, today: NaiveDate) -> Option<i64> {
 }
 
 /// 架電リストの状態（未架電／未接触／接触済み）と入力状況をまとめる。
-fn kaden_list_block(sheet: &crate::handlers::call_quality::sheets::SheetData) -> (Value, i64) {
+///
+/// 全社の数字は `KPI営業_架電リスト` から、チーム別・個人別は
+/// `KPI営業_架電リスト_担当別` から作る。担当者別のシートが無ければ
+/// `by_person` / `by_team` は空で返し、画面は全社の数字だけを出す。
+///
+/// 🔴 **チームの合計は全社の合計にならない**。担当者が入っていない取引が
+/// 7,337件あり（2026-09-07 実測。12万件の 5.7%）、どのチームにも属さないため。
+/// そのぶんは `no_owner` に出して、画面が黙って落とさないようにする。
+fn kaden_list_block(
+    sheet: &crate::handlers::call_quality::sheets::SheetData,
+    by_owner_sheet: &crate::handlers::call_quality::sheets::SheetData,
+    members: &HashMap<String, Person>,
+) -> (Value, i64) {
     let mut composition = Vec::new();
     let mut cls: BTreeMap<String, i64> = BTreeMap::new();
     let mut fill: BTreeMap<String, i64> = BTreeMap::new();
@@ -522,11 +528,53 @@ fn kaden_list_block(sheet: &crate::handlers::call_quality::sheets::SheetData) ->
             _ => {}
         }
     }
-    let base = cls.get("未架電").copied().unwrap_or(0)
-        + cls.get("未接触").copied().unwrap_or(0)
-        + cls.get("接触済み").copied().unwrap_or(0);
+    let base: i64 = KADEN_CLASSES
+        .iter()
+        .map(|k| cls.get(*k).copied().unwrap_or(0))
+        .sum();
+
+    // ---- 担当者別 ----
+    let by_person = kaden_by_owner_of(by_owner_sheet);
+    let mut by_team: BTreeMap<String, Counts> = BTreeMap::new();
+    let mut no_owner: Counts = Counts::new();
+    let mut counted: i64 = 0;
+    for (owner, counts) in &by_person {
+        counted += counts.get("base").copied().unwrap_or(0);
+        let bucket = if owner.is_empty() {
+            &mut no_owner
+        } else {
+            by_team
+                .entry(person_of(members, owner).team)
+                .or_default()
+        };
+        for (key, value) in counts {
+            *bucket.entry(key.clone()).or_insert(0) += value;
+        }
+    }
+    // 担当なしは by_person からも外す。画面の個人プルダウンに空の項目を出さない。
+    let by_person: BTreeMap<String, Counts> = by_person
+        .into_iter()
+        .filter(|(owner, _)| !owner.is_empty())
+        .collect();
+
     (
-        json!({"composition": composition, "base": base, "total": total, "cls": cls, "fill": fill}),
+        json!({
+            "composition": composition,
+            "base": base,
+            "total": total,
+            "cls": cls,
+            "fill": fill,
+            // どちらも担当なしを含まない。合計は必ず一致する。
+            "by_person": by_person,
+            "by_team": by_team,
+            // 担当者が入っていない取引。どのチームにも個人にも入らない。
+            "no_owner": no_owner,
+            // 数えられた母数の合計（= by_person の合計 ＋ no_owner）。
+            // 全社の `base` との差は「今回数えていない担当者ぶん」か
+            // 「数えている間にステージが動いたぶん」。画面はこの差を出す。
+            "counted_base": counted,
+            "has_by_owner": !by_owner_sheet.rows.is_empty(),
+        }),
         base,
     )
 }
