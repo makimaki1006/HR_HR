@@ -182,6 +182,27 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
             .or_insert(0) += 1;
     };
 
+    // 商談の集計から外す相手。**条件はここに書かない。**
+    // `KPI営業_メンバー` の `集計対象` 列（＝運用シート `KPI営業_集計除外` の写し）
+    // だけを見る（2026-09-08 ユーザー判断: HubSpotチームが「コンサル営業」の人を外す）。
+    // 🔴 外すのは商談（①③②⑥⑨）だけ。架電と架電リストは外さない。
+    // 落とした件数は画面に出す（黙って減らさない）。
+    let mut dropped: Counts = Counts::new();
+    let mut drop_deal = |members: &HashMap<String, Person>, owner: &str| -> bool {
+        let p = person_of(members, owner);
+        if p.counted {
+            return false;
+        }
+        *dropped.entry("件数".into()).or_insert(0) += 1;
+        let label = if p.hs_team.is_empty() {
+            "（所属なし）".to_string()
+        } else {
+            p.hs_team.clone()
+        };
+        *dropped.entry(label).or_insert(0) += 1;
+        true
+    };
+
     let month: Vec<&Deal> = all
         .iter()
         .filter(|d| {
@@ -190,6 +211,9 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         .collect();
 
     for deal in &month {
+        if drop_deal(&members, &deal.owner) {
+            continue;
+        }
         let team = note(&mut people, &members, &deal.owner);
 
         let (kind, _) = classify(deal, &cutoff);
@@ -222,6 +246,9 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
 
     // ---- ① 取ったアポ --------------------------------------------------
     for deal in deals_of(&sheets.apo) {
+        if drop_deal(&members, &deal.owner) {
+            continue;
+        }
         let team = note(&mut people, &members, &deal.owner);
         add(&team, &deal.owner, "apo");
         // ① は当月に確定したアポなので、BPO 判定も当月の取得日に限る
@@ -233,6 +260,9 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     // ---- ⑨ Cヨミ --------------------------------------------------------
     let mut cyomi_stale: Vec<DealRow> = Vec::new();
     for deal in deals_of(&sheets.cyomi) {
+        if drop_deal(&members, &deal.owner) {
+            continue;
+        }
         let team = note(&mut people, &members, &deal.owner);
         add(&team, &deal.owner, "cyomi");
         if bpo_of(&deal) {
@@ -456,6 +486,9 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         "next_week_deals": next_week,
         "anq_missing": anq_missing,
         "cyomi_stale": cyomi_stale,
+        // 商談の集計から外した件数。内訳は HubSpotチーム 別。
+        // 🔴 チーム名はシート（KPI営業_集計除外）由来で、ここには書かれていない。
+        "excluded": dropped,
         "kaden": kaden_block,
         "kaden_base": kaden_base,
         "calls": calls,

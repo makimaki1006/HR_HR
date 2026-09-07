@@ -103,6 +103,32 @@ fn fixture_sheets() -> Sheets {
     }
 }
 
+/// `集計対象` 列を落としたメンバーシート。列を足す前の環境の再現で、
+/// 「誰も外さない」ときの数字を作るのにも使う。
+fn fixture_sheets_counting_everyone() -> Sheets {
+    let text = std::fs::read_to_string(format!(
+        "{}/tests/fixtures/sales_kpi/KPI営業_メンバー.tsv",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("メンバーの fixture が読めません");
+    let mut lines = text.lines();
+    let head: Vec<&str> = lines.next().expect("見出し").split('\t').collect();
+    let keep: Vec<usize> = (0..head.len()).filter(|i| head[*i] != "集計対象").collect();
+    let pick = |line: &str| {
+        let cells: Vec<&str> = line.split('\t').collect();
+        keep.iter()
+            .map(|i| cells.get(*i).copied().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\t")
+    };
+    let mut out = vec![keep.iter().map(|i| head[*i]).collect::<Vec<_>>().join("\t")];
+    out.extend(lines.filter(|l| !l.trim().is_empty()).map(pick));
+    Sheets {
+        member: Arc::new(sheet_from_tsv(&out.join("\n"))),
+        ..fixture_sheets()
+    }
+}
+
 /// 週次シートがまだ無いとき（初回）。落ちずに空配列を返せることを見る。
 fn fixture_sheets_without_weekly() -> Sheets {
     Sheets {
@@ -147,9 +173,21 @@ fn cヨミと置きっぱなしがpython版と一致する() {
     // 2026-08-05 16:31 に入った1件が 29.31日と出て 38件だった。
     // 日付で数える（時刻を見ない）方に統一している。現場は
     // 「8/5に入って今日9/4だから30日」と日付で数えるため。
-    assert_eq!(team_sum(&body, "cyomi"), 127);
-    assert_eq!(team_sum(&body, "cyomi_stale"), 39);
-    assert_eq!(body["cyomi_stale"].as_array().unwrap().len(), 39);
+    // 🔴 127 は「誰も外さない」ときの値。2026-09-08 に集計対象外
+    // （HubSpotチーム＝コンサル営業）を入れたので、画面はそのぶん減る。
+    // 数を直書きし直すのではなく、除外を無かったことにした版と突き合わせる。
+    let all_in = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
+    assert_eq!(team_sum(&all_in, "cyomi"), 127);
+    assert_eq!(
+        team_sum(&body, "cyomi"),
+        127 - count_owned(&fixture_sheets().cyomi, &excluded_owners(&fixture_sheets())),
+        "Cヨミの減り方が、集計対象外の担当者が持っている件数と合わない"
+    );
+    assert_eq!(team_sum(&all_in, "cyomi_stale"), 39);
+    assert_eq!(
+        body["cyomi_stale"].as_array().unwrap().len() as i64,
+        team_sum(&body, "cyomi_stale")
+    );
 }
 
 #[test]
@@ -271,7 +309,16 @@ fn 予定日が未来のものを未処理にしない() {
 /// を続けて流して週次も作り直すこと。片方だけ新しいとここが落ちる。
 #[test]
 fn 週次の行が画面側の集計と一致する() {
-    let body = payload();
+    // 🔴 **週次シートは「誰も外さない」数え方のまま**である。
+    // 集計対象外（2026-09-08 追加）は画面側にしか入っておらず、週次を書く
+    // Python の `weekly_cells()` は全員を数えている。だからここで突き合わせるのは
+    // 除外を無かったことにした版。
+    // このテストの目的は「Python の classify() と Rust の classify() が同じ判定か」で、
+    // 除外の有無はその目的に関係しない。目的は保ったまま比べている。
+    // ただし **画面の数字と週次表の数字は、除外したぶんだけ食い違う**。
+    // 週次側にも除外を通すかどうかは別途の判断（`sync_daily.py` の週次まわりは
+    // 別の作業で触っているため、ここでは手を入れていない）。
+    let body = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
     let snaps = body["snapshots"].as_array().expect("snapshots が配列でない");
     let cur = snaps
         .iter()
@@ -806,6 +853,116 @@ fn 母数の比較は今週でない一番新しい記録を使う() {
         weekly_row("2026-W35", "2026-08-28", "2026-08-24", 0),
     ));
     assert_eq!(body["kaden"]["base_trend"]["week"], "2026-W34");
+}
+
+// ------------------------------------------------ 商談の集計から外す
+//
+// 🔴 2026-09-08 ユーザー判断。HubSpotチームが「コンサル営業」の人だけを
+// **商談の集計から**外す。BPO と 新規営業（名簿に無い人）は残す。
+// 一律に「営業5チームだけ」にはしない。理由は落ちる中身の性質が違うため:
+//   コンサル営業  営業KPIの対象ではない          → 落とす
+//   BPO_リクロジ  画面に「内BPO」表示があり不整合 → 残す
+//   新規営業      今月378架電・商談75件の現役     → 残す
+// 🔴 外すのは商談だけ。架電と架電リストは外さない（コンサル営業も架電している）。
+
+/// 誰を外すかは `KPI営業_メンバー` の `集計対象` 列にしか無い。
+/// テストでもチーム名を書かず、シートから「対象外」の人を引いて期待値にする。
+fn excluded_owners(sheets: &Sheets) -> std::collections::HashSet<String> {
+    super::members_of(&sheets.member)
+        .into_iter()
+        .filter(|(_, p)| !p.counted)
+        .map(|(id, _)| id)
+        .collect()
+}
+
+/// シートの ownerId 列を数える（除外対象の人が何件持っているか）。
+fn count_owned(sheet: &SheetData, owners: &std::collections::HashSet<String>) -> i64 {
+    sheet
+        .rows
+        .iter()
+        .filter(|r| owners.contains(sheet.get(r, "ownerId")))
+        .count() as i64
+}
+
+#[test]
+fn 集計対象外の担当者ぶんだけ商談が減る() {
+    let sheets = fixture_sheets();
+    let out = excluded_owners(&sheets);
+    assert!(!out.is_empty(), "fixture に集計対象外の担当者が居ない");
+
+    // 除外を無かったことにした版と比べる。差＝除外で落ちた件数のはず。
+    let all_in = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
+    let body = payload();
+
+    for (key, sheet) in [
+        ("apo", &sheets.apo),
+        ("cyomi", &sheets.cyomi),
+    ] {
+        let want = count_owned(sheet, &out);
+        assert_eq!(
+            team_sum(&all_in, key) - team_sum(&body, key),
+            want,
+            "{key} の減り方が、集計対象外の担当者が持っている件数と合わない"
+        );
+    }
+    // 当月の母集団も同じ関係
+    assert!(team_sum(&all_in, "pool") >= team_sum(&body, "pool"));
+    // 落とした件数を画面に出していること（黙って減らさない）
+    let dropped = body["excluded"]["件数"].as_i64().unwrap_or(0);
+    assert!(dropped > 0, "落とした件数が出ていない");
+    // 内訳は HubSpotチーム 別。テスト側でもチーム名は直書きしない
+    let by_team: i64 = body["excluded"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(k, _)| k.as_str() != "件数")
+        .map(|(_, v)| v.as_i64().unwrap_or(0))
+        .sum();
+    assert_eq!(dropped, by_team, "件数と内訳の合計が合わない");
+}
+
+/// 除外しても「内BPO」は壊れない。BPO の人は外さないので数は変わらないはず。
+#[test]
+fn 除外しても内bpoの表示は変わらない() {
+    let all_in = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
+    let body = payload();
+    for key in ["pool", "実施"] {
+        assert_eq!(
+            body["bpo_total"][key].as_i64(),
+            all_in["bpo_total"][key].as_i64(),
+            "内BPO の {key} が除外で変わっている＝BPO を巻き込んでいる"
+        );
+    }
+    assert!(body["bpo_total"]["pool"].as_i64().unwrap_or(0) > 0);
+}
+
+/// 商談から外した人でも、架電と架電リストからは外さない。
+#[test]
+fn 集計対象外でも架電と架電リストには残る() {
+    let sheets = fixture_sheets();
+    let out = excluded_owners(&sheets);
+    let body = payload();
+    let in_kaden = body["kaden"]["by_person"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|o| out.contains(o.as_str()))
+        .count();
+    assert!(
+        in_kaden > 0,
+        "集計対象外の担当者が架電リストからも消えている（外すのは商談だけ）"
+    );
+}
+
+/// `集計対象` 列が無い古いシートでは、これまでどおり全員を数える。
+#[test]
+fn 集計対象の列が無ければ全員数える() {
+    let body = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
+    assert_eq!(body["excluded"]["件数"].as_i64().unwrap_or(0), 0);
+    // Python 版の実測（除外を入れる前の値）に戻ること
+    assert_eq!(team_sum(&body, "pool"), 537);
+    assert_eq!(team_sum(&body, "apo"), 245);
+    assert_eq!(team_sum(&body, "cyomi"), 127);
 }
 
 // ------------------------------------------------ メンバー
