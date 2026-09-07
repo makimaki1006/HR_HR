@@ -619,6 +619,68 @@ pub fn dumbbell_chart(
     )
 }
 
+/// 中央 0 の横棒。増えたものを右、減ったものを左に出す。
+///
+/// # なぜ順位の横棒と分けるのか
+/// [`hbar_chart`] は 0 から伸びる量の比較で、長さがそのまま大小になる。
+/// こちらは**向きに意味がある**。同じ長さでも右と左では逆のことを言うので、
+/// 色を分け、0 に線を引いて、どちら側かが先に目に入るようにする。
+///
+/// `rows` は (ラベル, 値)。値の符号がそのまま向きになる。
+/// 並べ替えは呼び出し側の責任（降順で渡せば増えたものが上に来る）。
+pub fn tornado_chart(
+    rows: &[(String, Option<f64>)],
+    unit: &str,
+    dark: bool,
+    height: u32,
+) -> String {
+    let ax = axis_color(dark);
+    let pal = palette(dark);
+    // 増えた側と減った側。青と橙にする（緑と橙は色の見え方が違う人に見分けにくい）
+    let (c_up, c_down) = (pal[0], pal[1]);
+    // ECharts の縦軸は下から積むので、上を 1 位にするため逆順に入れる
+    let labels = rows
+        .iter()
+        .rev()
+        .map(|r| format!("\"{}\"", json_str(&r.0)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let data = rows
+        .iter()
+        .rev()
+        .map(|(_, v)| match v {
+            Some(x) if x.is_finite() => format!(
+                "{{\"value\":{:.3},\"itemStyle\":{{\"color\":\"{}\"}}}}",
+                x,
+                if *x >= 0.0 { c_up } else { c_down }
+            ),
+            _ => "null".to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "<div class=\"echart\" style=\"height:{h}px;\" data-chart-config='{{\
+         \"tooltip\":{{\"trigger\":\"axis\",\"axisPointer\":{{\"type\":\"shadow\"}}}},\
+         \"grid\":{{\"left\":\"30%\",\"right\":\"8%\",\"top\":\"3%\",\"bottom\":\"14%\"}},\
+         \"xAxis\":{{\"type\":\"value\",\"name\":\"{u}\",\"nameLocation\":\"middle\",\"nameGap\":26,\
+         \"nameTextStyle\":{{\"color\":\"{ax}\",\"fontSize\":10}},\
+         \"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}},\
+         \"splitLine\":{{\"lineStyle\":{{\"opacity\":0.12}}}}}},\
+         \"yAxis\":{{\"type\":\"category\",\"data\":[{lb}],\
+         \"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}},\
+         \"axisLine\":{{\"show\":false}},\"axisTick\":{{\"show\":false}}}},\
+         \"series\":[{{\"type\":\"bar\",\"data\":[{d}],\"barMaxWidth\":14,\
+         \"markLine\":{{\"silent\":true,\"symbol\":\"none\",\
+         \"lineStyle\":{{\"color\":\"{ax}\",\"width\":1}},\"label\":{{\"show\":false}},\
+         \"data\":[{{\"xAxis\":0}}]}}}}]}}'></div>",
+        h = height,
+        ax = ax,
+        u = json_str(unit),
+        lb = labels,
+        d = data
+    )
+}
+
 /// 縦棒。基準線を 1 本引ける。
 ///
 /// # なぜ横棒と分けるのか
@@ -808,6 +870,30 @@ mod chart_tests {
             .unwrap()
             .iter()
             .all(|v| v.is_null()));
+    }
+
+    /// 増えた側と減った側で色が変わり、0 に線が入ること。
+    ///
+    /// 順位の横棒と違い、こちらは長さだけでなく**向き**に意味がある。
+    /// 同じ長さでも右と左では逆のことを言うので、色で先に分かるようにする。
+    #[test]
+    fn 増減の横棒は向きで色が変わる() {
+        let rows = vec![
+            ("一般事務".to_string(), Some(13.3)),
+            ("事務".to_string(), Some(-16.3)),
+            ("欠測".to_string(), None),
+        ];
+        let v = parsed(&tornado_chart(&rows, "ポイント", true, 300));
+        let d = v["series"][0]["data"].as_array().unwrap();
+        // 逆順に入るので、末尾が 1 行目（一般事務）
+        assert_eq!(d[2]["value"], 13.3);
+        assert_eq!(d[1]["value"], -16.3);
+        let up = d[2]["itemStyle"]["color"].as_str().unwrap();
+        let down = d[1]["itemStyle"]["color"].as_str().unwrap();
+        assert_ne!(up, down, "増えた側と減った側が同じ色");
+        assert!(d[0].is_null(), "欠測が 0 として入っている");
+        // 0 の線が引かれていること
+        assert_eq!(v["series"][0]["markLine"]["data"][0]["xAxis"], 0);
     }
 
     /// 横軸の左端を丸める。

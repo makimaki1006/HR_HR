@@ -1803,6 +1803,67 @@ pub fn decompress_geojson_if_needed() {
 }
 
 /// gzip圧縮DBファイルを解凍
+/// 実体が無ければ gz から作る。あるときは触らない。
+///
+/// # なぜ [`decompress_db_if_needed`] と分けるのか
+/// あちらは「gz があれば毎回作り直す」作りで、デプロイのたびに新しい gz を
+/// 確実に反映させるためにそうなっている。実体を **削除してから** 展開するので、
+/// 別のスレッドがその DB を開いている最中に呼ぶと壊れる。
+///
+/// # なぜ一時ファイルに書いて改名するのか
+/// テストは複数スレッド、かつ複数のテストバイナリ（別プロセス）で同時に走る。
+/// 展開先へ直接書くと、書きかけのファイルが「もう在る」と見えてしまい、
+/// 別のスレッドがそれを開いて壊れた DB を読む。実際、DB を消した状態から
+/// 繰り返し走らせると 6 回に 1 回、10 件が同時に落ちた。
+/// 一時ファイルに書き切ってから改名すれば、他から見えるのは完成品だけになる。
+/// ミューテックスは同じプロセス内の重複展開を省くためのもので、
+/// プロセスをまたぐ安全性は改名が担保する。
+pub fn ensure_db_from_gz(db_path: &str) {
+    use flate2::read::GzDecoder;
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    if Path::new(db_path).exists() {
+        return;
+    }
+    let gz_path = format!("{db_path}.gz");
+    if !Path::new(&gz_path).exists() {
+        tracing::error!("{gz_path} がありません");
+        return;
+    }
+    // 同じ場所に置く（別ドライブだと改名が失敗する）。プロセスごとに名前を変える
+    let tmp = format!("{db_path}.tmp{}", std::process::id());
+    let res = (|| -> std::io::Result<()> {
+        let mut decoder = GzDecoder::new(File::open(&gz_path)?);
+        let mut out = File::create(&tmp)?;
+        let mut buf = vec![0u8; 1024 * 1024];
+        loop {
+            let n = decoder.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            out.write_all(&buf[..n])?;
+        }
+        out.flush()?;
+        drop(out);
+        // 先に別プロセスが置いていれば、こちらは捨てる
+        if Path::new(db_path).exists() {
+            let _ = std::fs::remove_file(&tmp);
+            return Ok(());
+        }
+        std::fs::rename(&tmp, db_path)
+    })();
+    if let Err(e) = res {
+        tracing::error!("{gz_path} を展開できませんでした: {e}");
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
 pub fn decompress_db_if_needed(db_path: &str) {
     use flate2::read::GzDecoder;
     use std::fs::File;

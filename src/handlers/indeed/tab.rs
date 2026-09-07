@@ -358,6 +358,36 @@ fn sort_selector(current: &SortSpec) -> String {
     s
 }
 
+/// 職種一覧の検索欄。
+///
+/// # なぜ画面側で絞るのか
+/// 125 行を上から目で追うのは現実的でない。並べ替えは 8 種類あるが、
+/// 「この職種を見たい」という探し方には効かない。
+/// サーバーに投げ直すと並べ替えと県の選択を持ち回る必要が出るので、
+/// 出ている表をその場で隠す。件数も出して、何行に絞れたか分かるようにする。
+///
+/// htmx で差し替わるたびにこの script は読み直されるが、
+/// 関数を定義し直すだけなので二重には効かない。
+const SEARCH_BOX: &str = r#"<div class="mt-3 mb-2 flex items-center gap-3">
+<input id="indeed-title-find" type="search" oninput="indeedFilterTitles(this.value)"
+ placeholder="職種名・分類・業界で絞り込み"
+ class="flex-1 px-3 py-1.5 bg-navy-900 border border-slate-700 rounded text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500 focus:outline-none">
+<span id="indeed-title-count" class="text-slate-400 text-xs tabular-nums"></span></div>
+<script>
+function indeedFilterTitles(q) {
+  var rows = document.querySelectorAll('tr[data-find]');
+  var needle = (q || '').trim().toLowerCase();
+  var shown = 0;
+  rows.forEach(function (r) {
+    var hit = !needle || (r.getAttribute('data-find') || '').toLowerCase().indexOf(needle) >= 0;
+    r.style.display = hit ? '' : 'none';
+    if (hit) shown += 1;
+  });
+  var c = document.getElementById('indeed-title-count');
+  if (c) c.textContent = needle ? shown + ' / ' + rows.length + ' 職種' : '';
+}
+</script>"#;
+
 /// 職種の一覧。全国なら全職種、県を選んでいればその県の職種。
 fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String {
     let months = &snap.meta.months;
@@ -431,6 +461,7 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
          <h3 class=\"text-slate-100 font-bold\">職種の一覧</h3>",
     );
     h.push_str(&sort_selector(spec));
+    h.push_str(SEARCH_BOX);
     h.push_str("</div>");
     h.push_str(&format!(
         "<p class=\"text-slate-400 text-xs mb-3 leading-relaxed\">{}　\
@@ -462,7 +493,7 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
     let td = "px-3 py-2 border-b border-slate-800 text-slate-200";
     for (name, cat, o) in &rows {
         h.push_str(&format!(
-            "<tr><th scope=\"row\" class=\"{td} font-normal\" style=\"text-align:left\">\
+            "<tr data-find=\"{find}\"><th scope=\"row\" class=\"{td} font-normal\" style=\"text-align:left\">\
              <a class=\"text-sky-400 hover:underline\" href=\"/tab/indeed/title?name={q}\" \
                 hx-get=\"/tab/indeed/title?name={q}\" hx-target=\"#content\" hx-swap=\"innerHTML\" \
                 hx-push-url=\"true\">{n}</a></th>\
@@ -475,6 +506,12 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
              <td class=\"{td} tabular-nums text-slate-400\" style=\"text-align:right\">{mb}</td>\
              <td class=\"{td} text-slate-300\">{t}</td></tr>",
             n = esc(name),
+            // 検索欄が見る文字列。職種・分類・業界をまとめて 1 つの属性に入れる
+            find = esc(&format!(
+                "{name} {cat} {ind}",
+                ind = crate::indeed::industry::of_category(cat)
+                    .unwrap_or(crate::indeed::industry::OUTSIDE)
+            )),
             q = url_query(name),
             c = esc(cat),
             // 散布図の色はこの業界。色が読み取れない人も、表から同じ区分けを追える

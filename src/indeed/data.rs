@@ -216,11 +216,7 @@ impl Snapshot {
 
     /// 都道府県の一覧。重複なし、名前順。
     pub fn prefectures(&self) -> Vec<String> {
-        let mut v: Vec<String> = self
-            .by_pref
-            .iter()
-            .map(|p| p.prefecture.clone())
-            .collect();
+        let mut v: Vec<String> = self.by_pref.iter().map(|p| p.prefecture.clone()).collect();
         v.sort();
         v.dedup();
         v

@@ -168,10 +168,7 @@ impl Overview {
             self.ctk.change_pct,
             self.job.change_pct,
         ) else {
-            return format!(
-                "{}は、比べられるだけの月数がそろっていません。",
-                self.name
-            );
+            return format!("{}は、比べられるだけの月数がそろっていません。", self.name);
         };
         let dir = if spp >= 0.0 {
             "集まりやすく"
@@ -414,7 +411,10 @@ mod tests {
         assert!((yoy - 30.0).abs() < 1e-9, "前年同月比が {yoy}");
         // 127.5 → 130 なので約 +1.96%
         let mom = ratio_back(&v, 1).expect("先月比が出ていない");
-        assert!((mom - 100.0 * (130.0 / 127.5 - 1.0)).abs() < 1e-9, "先月比が {mom}");
+        assert!(
+            (mom - 100.0 * (130.0 / 127.5 - 1.0)).abs() < 1e-9,
+            "先月比が {mom}"
+        );
 
         // 12 か月前が欠測なら、隣で代用せずに出さない
         v[0] = None;
@@ -493,7 +493,10 @@ pub struct IndustryRow {
 pub fn industry_series(snap: &Snapshot) -> Vec<(String, Series, Vec<String>)> {
     use super::industry;
     let n = snap.n_months();
-    let mut order: Vec<String> = industry::INDUSTRIES.iter().map(|i| i.name.to_string()).collect();
+    let mut order: Vec<String> = industry::INDUSTRIES
+        .iter()
+        .map(|i| i.name.to_string())
+        .collect();
     order.push(industry::OUTSIDE.to_string());
 
     let mut acc: HashMapAlias = std::collections::HashMap::new();
