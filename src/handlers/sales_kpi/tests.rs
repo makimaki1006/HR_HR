@@ -22,8 +22,32 @@ use super::Sheets;
 use crate::handlers::call_quality::sheets::SheetData;
 
 /// Python 版を動かした日。ここを変えると期待値も変わる。
+///
+/// 🔴 **fixture を取り直しても、ここは 2026-09-04 に固定したままにする**
+/// （期待値が動かない方が安定するため。2026-09-07 ユーザー判断）。
+/// そのぶん、取り直した fixture は判定日より新しい行を含むことがある。
+/// 実際に 2026-09-06 まで架電が入った fixture で「9/04 時点」を判定した
+/// ことがある。**判定日と fixture の最終日が一致する前提で書かないこと。**
+/// 日付や件数は直書きせず、シートから引いて期待値にする。
 fn fixture_day() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 9, 4).unwrap()
+}
+
+/// シートの列を数字として足す。fixture の取り直しで動く値を、
+/// 直書きせずシートから作るために使う。
+fn sum_col(sheet: &SheetData, col: &str, keep: impl Fn(&[Arc<str>]) -> bool) -> i64 {
+    sheet
+        .rows
+        .iter()
+        .filter(|r| keep(r))
+        .map(|r| {
+            sheet
+                .get(r, col)
+                .replace(',', "")
+                .parse::<i64>()
+                .unwrap_or(0)
+        })
+        .sum()
 }
 
 fn load_tsv(name: &str) -> Arc<SheetData> {
@@ -236,6 +260,10 @@ fn 予定日が未来のものを未処理にしない() {
 /// 集計して書く唯一のシート。テストデータもその `weekly_cells()` に
 /// **上の TSV をそのまま食わせて**作ってあるので、ここで一致を見るということは
 /// Python の `classify()` と Rust の `classify()` が同じ判定かを見ていることになる。
+///
+/// 🔴 上の6枚を `make_fixture.py` で取り直したら、**必ず**
+/// `python scripts/sales_kpi/make_weekly_fixture.py <fixtureのディレクトリ>`
+/// を続けて流して週次も作り直すこと。片方だけ新しいとここが落ちる。
 #[test]
 fn 週次の行が画面側の集計と一致する() {
     let body = payload();
@@ -295,7 +323,27 @@ fn 週次は古い順に並び画面が要る項目がそろっている() {
     // 週が終わった行は「確定」、まだ途中の行は「集計中」。
     assert_eq!(snaps[0]["zoom_partial"], serde_json::Value::Bool(false));
     assert_eq!(snaps[1]["zoom_partial"], serde_json::Value::Bool(true));
-    assert_eq!(snaps[1]["zoom_called"].as_i64().unwrap(), 46137);
+
+    // 🔴 件数を直書きしない。架電シートをその週で足したものと突き合わせる。
+    let sheets = fixture_sheets();
+    let monday = NaiveDate::from_ymd_opt(2026, 8, 31).unwrap();
+    let week: Vec<String> = (0..7)
+        .map(|i| {
+            (monday + chrono::Duration::days(i))
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .collect();
+    let want = sum_col(&sheets.kaden, "架電数", |r| {
+        week.iter().any(|d| d == sheets.kaden.get(r, "日付"))
+    });
+    assert!(want > 0, "架電の fixture にその週の行が無い");
+    assert_eq!(
+        snaps[1]["zoom_called"].as_i64().unwrap(),
+        want,
+        "週次の架電数が架電シートの合計と合わない。\
+         6枚を取り直したなら make_weekly_fixture.py も流し直すこと"
+    );
 }
 
 /// 架電がまだ1日も入っていない週の行。本番の KPI営業_週次 から取った実物
@@ -405,29 +453,54 @@ fn 先週の比較は曜日をそろえる() {
 /// 架電の最終日がまだ途中かどうかを、取得条件から拾って画面に渡す。
 #[test]
 fn 架電の最終日が途中かどうかを取得条件から渡す() {
+    // 🔴 日付を直書きしない。fixture を取り直すと架電の最終日が動くのに
+    //    `fixture_day()` は 9/04 で固定なので、両者が一致する保証は無い。
+    //    シートから引いた最終日を期待値にする。
+    let sheets = fixture_sheets();
+    let last = sheets
+        .kaden
+        .rows
+        .iter()
+        .map(|r| sheets.kaden.get(r, "日付").to_string())
+        .max()
+        .expect("架電の fixture が空");
+    let today = fixture_day().format("%Y-%m-%d").to_string();
+
     let body = payload();
-    // fixture の取得条件には「架電の最終日」がまだ無い。その場合は
-    // 「最終日＝今日なら途中」に落とす。fixture は 9/04 で今日も 9/04。
-    assert_eq!(body["calls"]["last_day"], "2026-09-04");
-    assert_eq!(body["calls"]["last_day_partial"], serde_json::Value::Bool(true));
+    assert_eq!(body["calls"]["last_day"], last);
+    // fixture の取得条件には「架電の最終日」がまだ無い。
+    // その場合は「最終日＝今日なら途中」に落とす。
+    assert_eq!(
+        body["calls"]["last_day_partial"],
+        serde_json::Value::Bool(last == today)
+    );
 
-    // 取得条件に「いいえ」と書いてあれば、そちらが勝つ
-    let meta = "項目\t値\n架電の最終日\t2026-09-04\n架電の最終日は途中\tいいえ\n";
-    let sheets = Sheets {
-        meta: Arc::new(sheet_from_tsv(meta)),
-        ..fixture_sheets()
+    let with_meta = |text: String| {
+        build_payload(
+            &Sheets {
+                meta: Arc::new(sheet_from_tsv(&text)),
+                ..fixture_sheets()
+            },
+            fixture_day(),
+        )
     };
-    let body = build_payload(&sheets, fixture_day());
-    assert_eq!(body["calls"]["last_day_partial"], serde_json::Value::Bool(false));
-
-    // 取得条件が別の日について言っているなら、それは使わない
-    let meta = "項目\t値\n架電の最終日\t2026-09-02\n架電の最終日は途中\tいいえ\n";
-    let sheets = Sheets {
-        meta: Arc::new(sheet_from_tsv(meta)),
-        ..fixture_sheets()
-    };
-    let body = build_payload(&sheets, fixture_day());
-    assert_eq!(body["calls"]["last_day_partial"], serde_json::Value::Bool(true));
+    // 取得条件が同じ日について言っていれば、そちらが勝つ
+    for (says, want) in [("はい", true), ("いいえ", false)] {
+        let body = with_meta(format!(
+            "項目\t値\n架電の最終日\t{last}\n架電の最終日は途中\t{says}\n"
+        ));
+        assert_eq!(
+            body["calls"]["last_day_partial"],
+            serde_json::Value::Bool(want),
+            "取得条件が「{says}」なのに従っていない"
+        );
+    }
+    // 別の日について言っているなら使わない（最終日＝今日かどうかに落とす）
+    let body = with_meta("項目\t値\n架電の最終日\t1999-01-01\n架電の最終日は途中\tはい\n".into());
+    assert_eq!(
+        body["calls"]["last_day_partial"],
+        serde_json::Value::Bool(last == today)
+    );
 }
 
 #[test]
