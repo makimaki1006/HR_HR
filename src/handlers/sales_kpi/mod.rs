@@ -541,7 +541,6 @@ pub fn deal_row(
 pub struct KadenRow {
     pub date: String,
     pub owner: String,
-    pub email: String,
     pub dept: String,
     pub calls: i64,
     pub connected: i64,
@@ -563,7 +562,6 @@ pub fn kaden_of(sheet: &SheetData) -> Vec<KadenRow> {
             KadenRow {
                 date: sheet.get(r, "日付").to_string(),
                 owner: sheet.get(r, "ownerId").to_string(),
-                email: sheet.get(r, "Zoomメール").to_string(),
                 dept: sheet.get(r, "部署").to_string(),
                 calls: num("発信"),
                 connected: num("架電数"),
