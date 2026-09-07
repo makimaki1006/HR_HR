@@ -144,6 +144,14 @@ pub async fn tab_indeed_title(
 
     let wages = load_min_wages(&state);
     // 検索語まわり。引けなければその節を出さないだけ
+    // 検索エンジン側の月次。Indeed 側と重ねるのに使う
+    let season = crate::indeed::season::load(db)
+        .unwrap_or_else(|e| {
+            tracing::warn!("検索エンジン側の月次を読めませんでした: {e}");
+            Vec::new()
+        })
+        .into_iter()
+        .find(|s| s.title == name);
     let (term_months, terms) = crate::indeed::keywords::term_monthly(db, name).unwrap_or_else(|e| {
         tracing::warn!("検索語の月次を読めませんでした: {e}");
         (Vec::new(), Vec::new())
@@ -167,6 +175,7 @@ pub async fn tab_indeed_title(
         &terms,
         &attrs,
         mobile,
+        season.as_ref(),
     ))
 }
 
@@ -187,6 +196,7 @@ fn render(
     terms: &[crate::indeed::keywords::TermSeries],
     attrs: &[crate::indeed::keywords::AttrMonth],
     mobile: Option<f64>,
+    season: Option<&crate::indeed::season::TitleSeason>,
 ) -> String {
     let mut h = String::with_capacity(120_000);
     h.push_str(GUARD);
@@ -236,6 +246,7 @@ fn render(
     // 図を先、表を後にする。先に形で掴んでから数字を確かめる順
     h.push_str(&pref_bar(d, ov.and_then(|o| o.spp.latest)));
     h.push_str(&wage_gap_chart(d, w));
+    h.push_str(&source_compare_section(d, ov, months, season));
     h.push_str(&term_series_section(term_months, terms));
     h.push_str(&attr_section(attrs));
     h.push_str(&pref_table(d, w));
@@ -749,6 +760,146 @@ fn takeaway_section(
          <p class=\"text-slate-500 text-xs mt-3 leading-relaxed\">\
          下の図と表から出せることだけを書いています。根拠は各図の下にあります。</p></div>",
         items.join("")
+    )
+}
+
+/// 検索エンジン側と Indeed 側を、同じ時間軸に並べる。
+///
+/// # 何が違うデータなのか
+/// * 検索エンジン … Indeed の外で「◯◯ 求人」と検索した回数。48 か月ある
+/// * Indeed …… Indeed の中で求人を見た人数。14 か月しかない
+///
+/// 前者は「そもそもこの仕事を探している人がどれだけいるか」、
+/// 後者は「そのうち Indeed まで来て求人を見た人がどれだけか」。
+/// 数えているものが違うので、量は比べられない。**動きの向き**だけを見る。
+///
+/// # どこまで言えるか
+/// 重なるのは 13 か月しかない。13 点だと相関はよほど大きくないと
+/// 偶然と区別できない（|r| > 0.55 が目安）。実測では
+///
+///     検索エンジンの月平均   職種数   |相関| の中央   0.55 を超える割合
+///          〜50            15        0.26          26%
+///        50〜200           21        0.21           4%
+///       200〜1000          26        0.33          19%
+///        1000〜            19        0.46          31%
+///
+/// と、検索数が多いほど関係が強い。ただし多い帯でも 3 割しか超えない。
+/// **相関の数字だけを出して「連動している」と書かない。**両方の線を出して、
+/// 読み手が形を見られるようにする。
+fn source_compare_section(
+    d: &TitleDetail,
+    ov: Option<&Overview>,
+    months: &[String],
+    season: Option<&crate::indeed::season::TitleSeason>,
+) -> String {
+    let (Some(o), Some(sn)) = (ov, season) else {
+        return String::new();
+    };
+    if sn.months.len() < 12 || months.is_empty() {
+        return String::new();
+    }
+    // 検索エンジン側の月をそのまま軸にし、Indeed 側は重なる月にだけ置く
+    let axis: Vec<String> = sn.months.clone();
+    let idx: std::collections::HashMap<&str, usize> = months
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.as_str(), i))
+        .collect();
+    let indeed: Vec<Option<f64>> = axis
+        .iter()
+        .map(|m| idx.get(m.as_str()).and_then(|i| o.ctk.series.get(*i).copied().flatten()))
+        .collect();
+    let overlap = indeed.iter().filter(|v| v.is_some()).count();
+    if overlap < 6 {
+        return String::new();
+    }
+    // 量が違うので指数にそろえる。重なりの最初の月を 100 にする
+    let base_at = indeed.iter().position(|v| v.is_some()).unwrap_or(0);
+    let to_index = |v: &[Option<f64>]| -> Vec<Option<f64>> {
+        let base = v.get(base_at).copied().flatten();
+        match base {
+            Some(b) if b > 0.0 => v.iter().map(|x| x.map(|y| y / b * 100.0)).collect(),
+            _ => vec![None; v.len()],
+        }
+    };
+    let g = to_index(&sn.series);
+    let i2 = to_index(&indeed);
+    if g.iter().all(|x| x.is_none()) || i2.iter().all(|x| x.is_none()) {
+        return String::new();
+    }
+
+    // 重なる区間の相関。断定には使わず、形の説明にだけ添える
+    let pairs: Vec<(f64, f64)> = g
+        .iter()
+        .zip(i2.iter())
+        .filter_map(|(a, b)| match (a, b) {
+            (Some(x), Some(y)) => Some((*x, *y)),
+            _ => None,
+        })
+        .collect();
+    let r = if pairs.len() >= 6 {
+        let n = pairs.len() as f64;
+        let ma = pairs.iter().map(|p| p.0).sum::<f64>() / n;
+        let mb = pairs.iter().map(|p| p.1).sum::<f64>() / n;
+        let num: f64 = pairs.iter().map(|p| (p.0 - ma) * (p.1 - mb)).sum();
+        let da: f64 = pairs.iter().map(|p| (p.0 - ma).powi(2)).sum::<f64>().sqrt();
+        let db: f64 = pairs.iter().map(|p| (p.1 - mb).powi(2)).sum::<f64>().sqrt();
+        if da > 0.0 && db > 0.0 {
+            Some(num / (da * db))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let say = match r {
+        Some(x) if x > 0.55 => format!(
+            "重なる {overlap} か月では<strong>同じ向きに動いて見えます</strong>（相関 {x:+.2}）。\
+             外での関心と Indeed での動きが揃っている職種です。"
+        ),
+        Some(x) if x < -0.55 => format!(
+            "重なる {overlap} か月では<strong>逆向きに動いて見えます</strong>（相関 {x:+.2}）。\
+             外で探す人が増えているのに Indeed では見られていない、\
+             またはその逆が起きている可能性があります。"
+        ),
+        Some(x) => format!(
+            "重なる {overlap} か月では、はっきりした関係は見えません（相関 {x:+.2}）。\
+             13 か月ほどでは、相関が ±0.55 を超えないと偶然と区別できません。"
+        ),
+        None => String::new(),
+    };
+
+    format!(
+        "<div class=\"{CARD}\"><h3 class=\"text-slate-100 font-bold mb-1\">\
+         検索エンジンでの関心と、Indeed での動き</h3>\
+         <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
+         <strong>数えているものが違います。</strong>\
+         青は Indeed の外で「{t} 求人」と検索された回数（{y} か月ぶん）、\
+         もう 1 本は Indeed の中で求人を見た人数（{n} か月ぶん）です。\
+         量は比べられないので、<strong>重なりの最初の月を 100 とした指数</strong>で\
+         形だけを並べています。</p>{chart}\
+         <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">{say}</p>\
+         <p class=\"text-slate-500 text-xs mt-2 leading-relaxed\">\
+         <strong>青い線が階段状なのは、検索エンジン側が粗い刻みで報告するため</strong>です\
+         （実際に「5,600」「4,400」のような値しか返りません）。細かい上下は刻みの影響で、\
+         意味のある動きではありません。長い期間の傾きだけを見てください。<br>\
+         重なりは 13 か月ほどしかありません。この長さでは、相関が ±0.55 を超えても\
+         偶然と言い切れないことに注意してください。<br>\
+         検索エンジン側は職種名の 1 語だけで、Indeed 側のような語ごとの内訳は取れません。\
+         そのため「どの言葉で探しているか」の比較はできず、動きの向きだけを見ています。</p></div>",
+        t = esc(&d.title),
+        y = sn.months.len(),
+        n = overlap,
+        chart = line_chart(
+            &axis,
+            &[
+                ("検索エンジンでの検索数".to_string(), g),
+                ("Indeed で求人を見た人数".to_string(), i2),
+            ],
+            true,
+            340
+        ),
+        say = say
     )
 }
 

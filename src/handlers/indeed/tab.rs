@@ -27,6 +27,8 @@ pub struct TabQuery {
     pub pref: Option<String>,
     /// 一覧の並べ替え。指定が無ければ求人数の多い順
     pub sort: Option<String>,
+    /// どの面を出すか。指定が無ければ「全体」
+    pub view: Option<String>,
 }
 
 /// 直接 URL を叩かれたときにトップへ戻す決まり文句。
@@ -66,6 +68,7 @@ pub async fn tab_indeed(
         snap,
         q.pref.as_deref(),
         q.sort.as_deref(),
+        q.view.as_deref(),
         &seasons,
     ))
 }
@@ -77,10 +80,62 @@ fn degraded(msg: &str) -> String {
     )
 }
 
+/// 画面の面。1 枚に全部出すと 12 画面ぶんになり、上から読むしかなくなる。
+///
+/// # なぜサーバー側で分けるのか
+/// 画面側で隠すだけだと、見ない図まで毎回作って送ることになる。
+/// 面ごとに必要なものだけ組み立てる。
+const VIEWS: [(&str, &str); 4] = [
+    ("overview", "全体"),
+    ("titles", "職種"),
+    ("industry", "業界・分類"),
+    ("people", "探している人"),
+];
+
+fn view_of(v: Option<&str>) -> &str {
+    match v {
+        Some(x) if VIEWS.iter().any(|(k, _)| *k == x) => x,
+        _ => "overview",
+    }
+}
+
+/// 面を切り替える帯。県と並べ替えを持ち回る。
+fn view_tabs(current: &str, pref: Option<&str>, sort: Option<&str>) -> String {
+    let mut h = String::from(
+        "<div class=\"flex flex-wrap gap-1 border-b border-slate-700\" role=\"tablist\">",
+    );
+    for (key, label) in VIEWS {
+        let on = key == current;
+        let cls = if on {
+            "px-4 py-2 text-sm font-bold text-sky-300 border-b-2 border-sky-400"
+        } else {
+            "px-4 py-2 text-sm text-slate-400 hover:text-slate-200 border-b-2 border-transparent"
+        };
+        let mut q = format!("?view={key}");
+        if let Some(p) = pref.filter(|x| !x.is_empty()) {
+            q.push_str(&format!("&pref={}", url_query(p)));
+        }
+        if let Some(x) = sort.filter(|x| !x.is_empty()) {
+            q.push_str(&format!("&sort={}", url_query(x)));
+        }
+        h.push_str(&format!(
+            "<a class=\"{cls}\" role=\"tab\" aria-selected=\"{on}\"              href=\"/tab/indeed{q}\" hx-get=\"/tab/indeed{q}\" hx-target=\"#content\"              hx-swap=\"innerHTML\" hx-push-url=\"true\" hx-indicator=\"#indeed-loading\">{l}</a>",
+            l = esc(label)
+        ));
+    }
+    h.push_str(&format!(
+        "<input type=\"hidden\" name=\"view\" value=\"{}\">",
+        esc(current)
+    ));
+    h.push_str("</div>");
+    h
+}
+
 fn render_tab(
     snap: &Snapshot,
     pref: Option<&str>,
     sort: Option<&str>,
+    view: Option<&str>,
     seasons: &[crate::indeed::season::TitleSeason],
 ) -> String {
     let months = &snap.meta.months;
@@ -140,10 +195,16 @@ fn render_tab(
         esc(&snap.meta.caveat)
     ));
 
+    let view = view_of(view);
+    h.push_str(&view_tabs(view, pref, sort));
+
     // 結論を先に置く。数字と図はその根拠として下に続く
-    h.push_str(&summary_section(snap, &overview, seasons, pref));
+    if view == "overview" {
+        h.push_str(&summary_section(snap, &overview, seasons, pref));
+    }
 
     // 見出しの 5 指標
+    if view == "overview" {
     h.push_str("<div class=\"grid grid-cols-2 lg:grid-cols-5 gap-3\">");
     for m in [
         &overview.job,
@@ -205,26 +266,30 @@ fn render_tab(
         s2 = esc(&overview.spp.sentence)
     ));
 
+    }
+
     // 業界（全国のみ。県で絞ると 1 業界あたりの月次が薄くなる）
-    if pref.is_none() {
+    if view == "industry" && pref.is_none() {
         h.push_str(&industry_section(snap, months));
     }
 
     // 職種の位置取り（全国のみ。県で絞ると点が薄くなる）
-    if pref.is_none() {
+    if view == "titles" && pref.is_none() {
         h.push_str(&scatter_section(snap));
     }
 
     // 季節の波（全国のみ。県別の検索ボリュームは持っていない）
-    if pref.is_none() {
+    if view == "people" && pref.is_none() {
         h.push_str(&season_section(seasons));
     }
 
     // スマホ比率（職種そのものの性質なので、県で絞っても同じ値）
-    h.push_str(&mobile_section(snap));
+    if view == "people" {
+        h.push_str(&mobile_section(snap));
+    }
 
     // 分類（全国のみ。県で絞ると分類別の月次が薄くなる）
-    if pref.is_none() {
+    if view == "industry" && pref.is_none() {
         let cats = category_table(snap);
         let top: Vec<(String, Overview)> = cats
             .iter()
@@ -252,7 +317,9 @@ fn render_tab(
     }
 
     // 職種の一覧
-    h.push_str(&title_section(snap, pref, sort));
+    if view == "titles" {
+        h.push_str(&title_section(snap, pref, sort));
+    }
 
     h.push_str("</div>");
     h
@@ -261,7 +328,7 @@ fn render_tab(
 fn pref_selector(prefs: &[String], current: Option<&str>) -> String {
     let mut s = String::from(
         "<select class=\"bg-navy-800 border border-slate-600 text-slate-100 rounded px-3 py-2 text-sm\" \
-         hx-get=\"/tab/indeed\" hx-target=\"#content\" hx-swap=\"innerHTML\" name=\"pref\" hx-trigger=\"change\" hx-include=\"[name='sort']\" \n         hx-push-url=\"true\" hx-indicator=\"#indeed-loading\" aria-label=\"都道府県\">",
+         hx-get=\"/tab/indeed\" hx-target=\"#content\" hx-swap=\"innerHTML\" name=\"pref\" hx-trigger=\"change\" hx-include=\"[name='sort'],[name='view']\" \n         hx-push-url=\"true\" hx-indicator=\"#indeed-loading\" aria-label=\"都道府県\">",
     );
     s.push_str(&format!(
         "<option value=\"\"{}>全国</option>",
@@ -345,7 +412,7 @@ fn sort_selector(current: &SortSpec) -> String {
     let mut s = String::from(
         "<select class=\"bg-navy-800 border border-slate-600 text-slate-100 rounded px-3 py-2 text-sm\" \
          hx-get=\"/tab/indeed\" hx-target=\"#content\" hx-swap=\"innerHTML\" name=\"sort\" hx-trigger=\"change\" \
-         hx-include=\"[name='pref']\" \n         hx-push-url=\"true\" hx-indicator=\"#indeed-loading\" aria-label=\"並べ替え\">",
+         hx-include=\"[name='pref'],[name='view']\" \n         hx-push-url=\"true\" hx-indicator=\"#indeed-loading\" aria-label=\"並べ替え\">",
     );
     for o in SORTS.iter() {
         s.push_str(&format!(
@@ -1140,6 +1207,8 @@ mod season_tests {
             trough_month: Some(12),
             peak_ratio: Some(1.1),
             years: 4,
+            months: Vec::new(),
+            series: Vec::new(),
             avg_monthly: avg,
         }
     }
