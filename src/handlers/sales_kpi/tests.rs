@@ -1,7 +1,11 @@
 //! 営業KPI: 実データでの突き合わせ
 //!
 //! `tests/fixtures/sales_kpi/` にある TSV は、本番のスプレッドシートから
-//! そのまま落としたもの（取引名＝顧客の会社名だけ落としてある）。
+//! そのまま落としたもの。ただし **このリポジトリは public** なので、
+//! 集計に使っていない列は落としてある（取引名＝顧客の会社名、
+//! Zoomメール／メール＝社員のメールアドレス、在籍／出どころ）。
+//! 落とす列は Hubspot リポジトリ `scripts/sales_kpi/make_fixture.py` の
+//! `DROP_COLUMNS` にある。
 //!
 //! なぜ自作のテストデータを使わないか:
 //!   架電クオリティを Rust へ移したとき、テストデータを自作していたせいで
@@ -91,6 +95,7 @@ fn fixture_sheets() -> Sheets {
         cyomi: load_tsv("KPI営業_Cヨミ"),
         kaden: load_tsv("KPI営業_架電日次"),
         kaden_list: load_tsv("KPI営業_架電リスト"),
+        kaden_by_owner: load_tsv("KPI営業_架電リスト_担当別"),
         member: load_tsv("KPI営業_メンバー"),
         meta: load_tsv("KPI営業_取得条件"),
         weekly: load_tsv("KPI営業_週次"),
@@ -461,6 +466,192 @@ fn 架電がまだ無い週は0でなく空で返す() {
     assert_eq!(snaps[0]["zoom_days"].as_i64(), Some(0));
     assert_eq!(snaps[0]["totals"]["pool"].as_i64(), Some(537));
     assert_eq!(snaps[0]["kaden_base"].as_i64(), Some(129867));
+}
+
+// ------------------------------------------------ 架電リストの担当者別
+//
+// 🔴 `KPI営業_架電リスト`（全社）と `KPI営業_架電リスト_担当別` は取った日が違う
+// （全社は 2026-09-05、担当別は 2026-09-07 に足したので 09-07）。**両者の合計が
+// ぴったり一致することは期待しない。** ここで見るのは、画面が絞り込んだときに
+// 数字が破綻しないこと ―― 内訳が合計を超えない・チームと個人で食い違わない ―― の方。
+
+/// 担当者別シートの分類ごとの合計。
+fn by_owner_sum(body: &Value, scope: &str, class: &str) -> i64 {
+    body["kaden"][scope]
+        .as_object()
+        .unwrap_or_else(|| panic!("kaden.{scope} が無い"))
+        .values()
+        .map(|c| c.get(class).and_then(Value::as_i64).unwrap_or(0))
+        .sum()
+}
+
+#[test]
+fn 架電リストの担当者別はチームと個人で食い違わない() {
+    let body = payload();
+    // どちらも担当なしを含まないので、そのまま一致するはず
+    for class in ["未架電", "未接触", "接触済み", "対象外", "base"] {
+        assert_eq!(
+            by_owner_sum(&body, "by_person", class),
+            by_owner_sum(&body, "by_team", class),
+            "{class} がチームと個人で食い違う"
+        );
+    }
+}
+
+#[test]
+fn 架電リストの担当者別が全社を超えない() {
+    let body = payload();
+    let base = body["kaden"]["base"].as_i64().unwrap();
+    let counted = body["kaden"]["counted_base"].as_i64().unwrap();
+    let no_owner = body["kaden"]["no_owner"]["base"].as_i64().unwrap_or(0);
+    assert_eq!(
+        counted,
+        by_owner_sum(&body, "by_person", "base") + no_owner,
+        "counted_base が「個人別の合計＋担当なし」と合わない"
+    );
+    assert!(counted > 0, "担当者別が空");
+    assert!(
+        counted <= base,
+        "担当者別の合計 {counted} が全社の母数 {base} を超えている"
+    );
+    // どのチームも全社を超えない
+    for (team, counts) in body["kaden"]["by_team"].as_object().unwrap() {
+        let n = counts["base"].as_i64().unwrap_or(0);
+        assert!(n <= base, "{team} の {n} が全社の {base} を超えている");
+    }
+}
+
+/// 担当者が入っていない取引は、どのチームにも個人にも混ぜない。
+/// 混ぜると「チームの合計＝全社」に見えてしまい、7千件の持ち主不明が隠れる。
+#[test]
+fn 担当なしはチームにも個人にも入れない() {
+    let body = payload();
+    let no_owner = body["kaden"]["no_owner"]["base"].as_i64().unwrap_or(0);
+    assert!(no_owner > 0, "fixture に担当なしの行が無い");
+    assert!(
+        body["kaden"]["by_person"].get("").is_none(),
+        "空の ownerId が個人別に入っている"
+    );
+    for team in body["kaden"]["by_team"].as_object().unwrap().keys() {
+        assert_ne!(team, "", "空のチーム名がある");
+    }
+}
+
+/// 架電リストにしか出てこない担当者（商談が1件も無い BPO など）も個人プルダウンに載せる。
+/// 載せないと「チームの合計は出るのに、中の誰も選べない」ことが起きる。
+#[test]
+fn 架電リストにしかいない担当者も個人で選べる() {
+    let body = payload();
+    let listed: std::collections::HashSet<&str> = body["people"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p["id"].as_str())
+        .collect();
+    let owners: Vec<&str> = body["kaden"]["by_person"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|s| s.as_str())
+        .collect();
+    assert!(!owners.is_empty(), "fixture に担当者別の行が無い");
+    let missing: Vec<&&str> = owners.iter().filter(|o| !listed.contains(**o)).collect();
+    assert!(
+        missing.is_empty(),
+        "架電リストに居るのに個人で選べない担当者: {missing:?}"
+    );
+    // 商談にしか出てこない人も消えていないこと
+    assert!(
+        listed.len() >= owners.len(),
+        "個人プルダウンが架電リストの担当者だけになっている"
+    );
+}
+
+/// 画面に数字が出る担当者は、全員が名前を持っていること。
+/// 🔴 `owner_96437217` のような ID がそのまま出ていた（2026-09-07 現場指摘）。
+/// 直したあとも Zoom の架電表だけ別の一覧を見ていて ID が残っていた。
+#[test]
+fn 画面に出る担当者はすべて名前が引ける() {
+    let body = payload();
+    let listed: std::collections::HashMap<&str, &str> = body["people"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| (p["id"].as_str().unwrap(), p["name"].as_str().unwrap()))
+        .collect();
+    for (p, name) in &listed {
+        assert!(
+            !name.starts_with("owner_"),
+            "{p} の名前が ID のまま: {name}"
+        );
+    }
+    // Zoom の架電で人別に数字が出る担当者が、全員この一覧に載っていること
+    for period in ["today", "this_week", "prev_week", "this_month"] {
+        for owner in body["calls"]["periods"][period]["by_person"]
+            .as_object()
+            .unwrap()
+            .keys()
+        {
+            assert!(
+                listed.contains_key(owner.as_str()),
+                "{period} の架電表に出る {owner} が people に無い＝画面で owner_ 表示になる"
+            );
+        }
+    }
+}
+
+/// 担当者別シートが無くても（足す前の環境）画面は出る。
+#[test]
+fn 架電リストの担当者別が無くても画面は出る() {
+    let body = build_payload(
+        &Sheets {
+            kaden_by_owner: super::empty_sheet(),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    );
+    assert_eq!(body["kaden"]["has_by_owner"], Value::Bool(false));
+    assert_eq!(body["kaden"]["by_person"].as_object().unwrap().len(), 0);
+    // 全社の数字は変わらない
+    assert_eq!(
+        body["kaden"]["base"].as_i64(),
+        payload()["kaden"]["base"].as_i64()
+    );
+}
+
+// ------------------------------------------------ メンバー
+
+/// 名簿に載っていない人（BPO など）も名前で出す。
+/// 画面に `owner_62991116` と出ていたのを直したぶん（2026-09-07 現場指摘）。
+#[test]
+fn 名簿にない担当者もhubspotの氏名で出す() {
+    let sheets = fixture_sheets();
+    let members = super::members_of(&sheets.member);
+    // 現場が「名前が分からない」と言った3人。いずれも BPO で名簿に無い。
+    for id in ["71368916", "62991116", "96437217"] {
+        let p = members.get(id).unwrap_or_else(|| panic!("{id} が名簿に無い"));
+        assert!(
+            !p.name.starts_with("owner_") && !p.name.is_empty(),
+            "{id} の氏名が入っていない: {}",
+            p.name
+        );
+        // チームは名簿が正。名簿に無い人は「チーム未設定」のまま
+        assert_eq!(p.team, "チーム未設定");
+        // 代わりに HubSpot 側のチームを持たせて、誰なのかが分かるようにする
+        assert!(!p.hs_team.is_empty(), "{id} の HubSpotチームが空");
+    }
+    // 名簿に載っている人は名簿のチームが勝つ（HubSpot は「新規営業」までしか無い）
+    let itsubo = members.get("613211320").expect("伊壺さんが名簿に無い");
+    assert_eq!(itsubo.team, "伊壺チーム");
+    assert_eq!(itsubo.hs_team, "新規営業");
+}
+
+#[test]
+fn 名簿にもhubspotにも無いownerはidのまま出す() {
+    let members = std::collections::HashMap::new();
+    assert_eq!(super::person_of(&members, "999").name, "owner_999");
+    assert_eq!(super::person_of(&members, "999").team, "チーム未設定");
+    assert_eq!(super::person_of(&members, "").name, "担当なし");
 }
 
 #[test]

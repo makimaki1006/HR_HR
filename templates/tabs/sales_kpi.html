@@ -179,7 +179,7 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 <div id="kadenbar"></div>
 
 <h2>架電リストの残り</h2>
-<p class="lead">リストのどこまで手がついているか。会社全体の数字です。</p>
+<p class="lead" id="lead3b"></p>
 <div class="cards" id="cards3b"></div>
 <div id="listbar"></div>
 
@@ -244,11 +244,14 @@ $('range').textContent='2026年9月　／　今週 '+md(D.week.start)+'（'+wd(D
     [...$('teams').children].forEach(c=>c.classList.toggle('on',c.textContent===t));render();};
   $('teams').appendChild(b);
 });
+// 所属の見せ方。営業の名簿に載っていない人（BPO・他部署）は「チーム未設定」に
+// なるが、それだけでは誰なのか分からないので HubSpot 側のチーム名を添える。
+const teamLabel=p=>(!p?'':p.team+((p.team==='チーム未設定'&&p.hsTeam)?'・'+p.hsTeam:''));
 function syncPerson(){
   const sel=$('person'); sel.innerHTML='<option value="">個人で見る…</option>';
   D.people.filter(p=>team==='すべて'||p.team===team).forEach(p=>{
     const o=document.createElement('option'); o.value=p.id;
-    o.textContent=p.name+(team==='すべて'?'（'+p.team+'）':'');
+    o.textContent=p.name+(team==='すべて'?'（'+teamLabel(p)+'）':'');
     sel.appendChild(o);});
   sel.value=person;
 }
@@ -341,7 +344,10 @@ function render(){
     return v?'<span style="color:var(--sub)">内 BPO '+fmt(v)+'件'+
       (t?'（'+(v/t*100).toFixed(0)+'%）':'')+'</span>':'';};
   $('scope').textContent=person
-    ? (D.people.find(p=>p.id===person)||{}).name+' の数字だけを表示しています。'
+    ? ((D.people.find(p=>p.id===person)||{}).name+' の数字だけを表示しています。'
+       // 架電リストにだけ出てくる人（BPO など）は今月の商談が無い。
+       // カードが 0 で並ぶ理由を書いておかないと、壊れているように見える。
+       +(Object.keys(a).length?'':'この担当者には今月の商談がありません（架電リストの数字だけ出ます）。'))
     : (team==='すべて'?'全チームの合計を表示しています。チーム名か、右のプルダウンで絞り込めます。'
                      :team+' の数字だけを表示しています。');
 
@@ -511,7 +517,7 @@ function render(){
       .map(function(e){const oid=e[0],v=e[1];
         const pp=(C_.people||[]).find(x=>x.id===oid)||{};
         const pv=prevP?((prevP.by_person||{})[oid]||{}):null;
-        return {name:pp.name||('owner_'+oid),team:pp.team||'—',
+        return {name:pp.name||('owner_'+oid),team:teamLabel(pp)||'—',
                 calls:v.calls||0,conn:v.connected||0,lng:v.long||0,prev:pv?(pv.connected||0):null};})
       .sort((x,y)=>y.conn-x.conn).slice(0,40);
     if(rows.length){
@@ -545,29 +551,67 @@ function render(){
   }
 
   // ---- 架電リストの残り ----
+  //
+  // 全社のときは KPI営業_架電リスト（全社の合計）をそのまま出す。
+  // チーム・個人を選んだときは KPI営業_架電リスト_担当別 から出す。
+  // 🔴 チームを全部足しても全社にはならない。担当者が入っていない取引が
+  //    7千件あり、どのチームにも属さないため。その旨は下の注記に必ず出す。
+  const noOwn=(K.no_owner||{}).base||0;
+  const scope=(function(){
+    if(!person&&team==='すべて')
+      return {c:kc,base:K.base,who:'会社全体',whole:true};
+    if(!K.has_by_owner) return null;
+    if(person){
+      const p=D.people.find(x=>x.id===person)||{};
+      return {c:(K.by_person||{})[person]||{},base:((K.by_person||{})[person]||{}).base||0,
+              who:(p.name||'この担当者')+' が持っている分'};
+    }
+    return {c:(K.by_team||{})[team]||{},base:((K.by_team||{})[team]||{}).base||0,
+            who:team+' が持っている分'};
+  })();
   const c3b=$('cards3b'); c3b.innerHTML='';
-  [
-    {lab:'まだかけていない',val:kc['未架電'],unit:'件',hint:pct(kc['未架電']/K.base*100)+' を占めます'},
-    {lab:'つながらず',val:kc['未接触'],unit:'件',hint:'受付ブロック・不在・不通'},
-    {lab:'話せた',val:kc['接触済み'],unit:'件',hint:'担当者と接触できた'},
-    {lab:'手をつけた割合',val:(kc['未接触']+kc['接触済み'])/K.base*100,pct:true,
-     hint:fmt(kc['未接触']+kc['接触済み'])+' ÷ '+fmt(K.base)+' 件'},
-  ].forEach(o=>c3b.appendChild(cardEl(o)));
   const lb=$('listbar'); lb.innerHTML='';
-  const cols={'未架電':'var(--warn)','未接触':'var(--alert)','接触済み':'var(--accent)'};
-  const wrapB=document.createElement('div'); wrapB.className='c'; wrapB.style.marginTop='11px';
-  const bar2=document.createElement('div'); bar2.className='bar';
-  ['未架電','未接触','接触済み'].forEach(k=>{const sp=document.createElement('span');
-    sp.style.cssText='width:'+(kc[k]/K.base*100)+'%;background:'+cols[k];bar2.appendChild(sp);});
-  wrapB.appendChild(bar2);
-  const lg2=document.createElement('div'); lg2.className='blegend';
-  ['未架電','未接触','接触済み'].forEach(k=>{
-    lg2.innerHTML+='<span><i style="background:'+cols[k]+'"></i>'+k+' '+fmt(kc[k])+'件</span>';});
-  wrapB.appendChild(lg2);
-  wrapB.innerHTML+='<div class="hint" style="margin-top:10px">決定者・決裁者の入力状況（リスト全体 '+
-    fmt(K.total)+'件）: '+Object.keys(K.fill).map(k=>k+' '+pct(K.fill[k]/K.total*100)).join(' ／ ')+
-    '　<b style="color:var(--alert)">ほぼ入っていません。</b></div>';
-  lb.appendChild(wrapB);
+  if(!scope){
+    $('lead3b').innerHTML='<b style="color:var(--warn)">担当者ごとの内訳がまだ集計されていません。</b>'+
+      '<span style="color:var(--faint)">（日次同期が KPI営業_架電リスト_担当別 を作ると出ます）</span>';
+  }else if(!scope.base){
+    $('lead3b').textContent=scope.who+'：架電リストに取引がありません。';
+  }else{
+    const sb=scope.base, sc=scope.c;
+    const g=k=>sc[k]||0;
+    $('lead3b').innerHTML='リストのどこまで手がついているか。<b>'+scope.who+'</b>の数字です。'+
+      (scope.whole?'':'<br><span style="color:var(--faint)">チームや個人を選ぶと、'+
+        'その担当者が持っている取引だけで数え直します。</span>');
+    [
+      {lab:'まだかけていない',val:g('未架電'),unit:'件',hint:pct(g('未架電')/sb*100)+' を占めます'},
+      {lab:'つながらず',val:g('未接触'),unit:'件',hint:'受付ブロック・不在・不通'},
+      {lab:'話せた',val:g('接触済み'),unit:'件',hint:'担当者と接触できた'},
+      {lab:'手をつけた割合',val:(g('未接触')+g('接触済み'))/sb*100,pct:true,
+       hint:fmt(g('未接触')+g('接触済み'))+' ÷ '+fmt(sb)+' 件'},
+    ].forEach(o=>c3b.appendChild(cardEl(o)));
+    const cols={'未架電':'var(--warn)','未接触':'var(--alert)','接触済み':'var(--accent)'};
+    const wrapB=document.createElement('div'); wrapB.className='c'; wrapB.style.marginTop='11px';
+    const bar2=document.createElement('div'); bar2.className='bar';
+    ['未架電','未接触','接触済み'].forEach(k=>{const sp=document.createElement('span');
+      sp.style.cssText='width:'+(g(k)/sb*100)+'%;background:'+cols[k];bar2.appendChild(sp);});
+    wrapB.appendChild(bar2);
+    const lg2=document.createElement('div'); lg2.className='blegend';
+    ['未架電','未接触','接触済み'].forEach(k=>{
+      lg2.innerHTML+='<span><i style="background:'+cols[k]+'"></i>'+k+' '+fmt(g(k))+'件</span>';});
+    wrapB.appendChild(lg2);
+    if(scope.whole&&K.has_by_owner&&noOwn){
+      wrapB.innerHTML+='<div class="hint" style="margin-top:10px">'+
+        'このうち <b>'+fmt(noOwn)+'件</b>（'+pct(noOwn/sb*100)+'）は担当者が入っていません。'+
+        'チームや個人で絞ると、その分は出てきません。</div>';
+    }
+    // 決定者・決裁者は全社でしか数えていない。担当者ごとに数えると
+    // リクエストが4倍になるわりに、全社で 0.1〜0.2% しか入っておらず差が出ないため。
+    wrapB.innerHTML+='<div class="hint" style="margin-top:10px">決定者・決裁者の入力状況'+
+      '（<b>全社</b>のリスト全体 '+fmt(K.total)+'件・チームや個人では出せません）: '+
+      Object.keys(K.fill).map(k=>k+' '+pct(K.fill[k]/K.total*100)).join(' ／ ')+
+      '　<b style="color:var(--alert)">ほぼ入っていません。</b></div>';
+    lb.appendChild(wrapB);
+  }
 
   // ---- 週次スナップショット ----
   //
