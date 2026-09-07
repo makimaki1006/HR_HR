@@ -45,6 +45,15 @@ pub struct TitleSeason {
     pub peak_ratio: Option<f64>,
     /// 何年ぶんの観測から出したか
     pub years: usize,
+    /// 月ラベル（"2022-08" 形式）。[`Self::series`] と同じ並び
+    pub months: Vec<String>,
+    /// 月ごとの検索数。48 か月ぶん。欠測は None
+    ///
+    /// # なぜ生の並びも持つのか
+    /// 暦月にならした [`Self::index`] は季節の形しか見えない。
+    /// Indeed 側の動き（求人を見た人数）と同じ時間軸で重ねるには、
+    /// ならす前の月次がいる。
+    pub series: Vec<Option<f64>>,
     /// 1 か月あたりの平均検索数。
     ///
     /// # なぜ持つのか
@@ -71,6 +80,8 @@ impl TitleSeason {
             peak_month: peak.map(|(m, _)| m),
             trough_month: trough.map(|(m, _)| m),
             peak_ratio: peak.map(|(_, v)| v),
+            months: months.iter().map(|m| m.to_string()).collect(),
+            series: values.to_vec(),
             years: years_of(months),
             avg_monthly: {
                 let v: Vec<f64> = values
