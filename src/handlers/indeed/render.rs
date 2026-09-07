@@ -561,6 +561,19 @@ pub fn dumbbell_chart(
     let up = pair(|a, b| if b >= a { Some(b - a) } else { None });
     let down = pair(|a, b| if b < a { Some(a - b) } else { None });
     let has_down = down.iter().any(|v| v.is_some());
+    // 軸の左端。dataMin をそのまま使うと「903.358」のような半端な目盛りが出て、
+    // 隣の 1,000 / 1,100 と並んだときに読みにくい。100 円単位に切り下げる
+    let axis_min = base
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|v| v.is_finite())
+        .fold(f64::INFINITY, f64::min);
+    let axis_min = if axis_min.is_finite() {
+        format!("{:.0}", (axis_min / 100.0).floor() * 100.0)
+    } else {
+        String::from("\"dataMin\"")
+    };
 
     let (c_up, c_down) = if dark {
         ("#38bdf8", "#f59e0b")
@@ -579,7 +592,7 @@ pub fn dumbbell_chart(
          \"legend\":{{\"bottom\":0,\"data\":[{lg}],\"textStyle\":{{\"color\":\"{ax}\",\"fontSize\":11}}}},\
          \"grid\":{{\"left\":\"22%\",\"right\":\"8%\",\"top\":\"3%\",\"bottom\":\"14%\"}},\
          \"xAxis\":{{\"type\":\"value\",\"name\":\"{u}\",\"nameLocation\":\"middle\",\"nameGap\":26,\
-         \"nameTextStyle\":{{\"color\":\"{ax}\",\"fontSize\":10}},\"min\":\"dataMin\",\
+         \"nameTextStyle\":{{\"color\":\"{ax}\",\"fontSize\":10}},\"min\":{amin},\
          \"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}},\"splitLine\":{{\"lineStyle\":{{\"opacity\":0.12}}}}}},\
          \"yAxis\":{{\"type\":\"category\",\"data\":[{lb}],\"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}}}},\
          \"series\":[\
@@ -592,6 +605,7 @@ pub fn dumbbell_chart(
         h = height,
         ax = ax,
         lg = legend,
+        amin = axis_min,
         ln = json_str(low_name),
         hn = json_str(high_name),
         bn = json_str(below_name),
@@ -794,6 +808,26 @@ mod chart_tests {
             .unwrap()
             .iter()
             .all(|v| v.is_null()));
+    }
+
+    /// 横軸の左端を丸める。
+    ///
+    /// `min: dataMin` をそのまま使うと、いちばん低い値がそのまま目盛りになる。
+    /// 実データでは「903.358」と出て、隣の 1,000 / 1,100 と並ぶと読みにくかった。
+    #[test]
+    fn 横軸の左端は百円単位に切り下げる() {
+        let v = parsed(&dumbbell_chart(
+            &["徳島県".into(), "大分県".into()],
+            &[Some(1046.0), Some(1024.0)],
+            &[Some(903.358), Some(1497.0)],
+            "最低賃金",
+            "上乗せ",
+            "下回る分",
+            "円",
+            true,
+            300,
+        ));
+        assert_eq!(v["xAxis"]["min"], 900.0, "左端が丸められていない");
     }
 
     /// 掲示時給が最低賃金を下回る県を 0 に丸めない。

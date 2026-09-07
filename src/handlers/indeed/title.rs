@@ -684,7 +684,7 @@ fn wage_gap_chart(d: &TitleDetail, w: &MinWages) -> String {
          掲示時給と最低賃金の開き</h3>\
          <p class=\"text-slate-400 text-xs mb-2 leading-relaxed\">\
          帯の左端が{y}の最低賃金、右端がこの職種の掲示時給の中央値です。\
-         <strong>帯が長いほど、その県では相場が下限から離れています。</strong>\
+         <strong>帯が長いほど、相場と下限が離れています。</strong>青は下限より上、オレンジは下限を下回っている県です。\
          時給で出ている求人だけが対象で、月給・日給の求人は含みません。\n         そのため出ている県は 47 県のうち <strong>{cnt} 県</strong>です。</p>{chart}\
          <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
          いちばん開いているのは{t}（{tv} 円）です。{tail}</p></div>",
