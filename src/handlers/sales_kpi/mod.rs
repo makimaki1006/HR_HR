@@ -251,7 +251,11 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
 }
 
 pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
-    sheet.rows.iter().map(|r| Deal::from_row(sheet, r)).collect()
+    sheet
+        .rows
+        .iter()
+        .map(|r| Deal::from_row(sheet, r))
+        .collect()
 }
 
 // ---------------------------------------------------------------- メンバー
@@ -276,7 +280,11 @@ pub fn members_of(sheet: &SheetData) -> HashMap<String, Person> {
                 Person {
                     id,
                     name,
-                    team: if team.is_empty() { "チーム未設定".into() } else { team },
+                    team: if team.is_empty() {
+                        "チーム未設定".into()
+                    } else {
+                        team
+                    },
                 },
             )
         })
@@ -332,7 +340,11 @@ pub fn deal_row(
     let person = members.get(&deal.owner);
     DealRow {
         id: deal.id.clone(),
-        name: if deal.name.is_empty() { "（取引名なし）".into() } else { deal.name.clone() },
+        name: if deal.name.is_empty() {
+            "（取引名なし）".into()
+        } else {
+            deal.name.clone()
+        },
         date: deal.date().to_string(),
         time: if deal.jikan.is_empty() {
             deal.scheduled.get(11..).unwrap_or("").to_string()
@@ -341,9 +353,15 @@ pub fn deal_row(
         },
         owner: deal.owner.clone(),
         owner_name: person.map(|p| p.name.clone()).unwrap_or_else(|| {
-            if deal.owner.is_empty() { "担当なし".into() } else { format!("owner_{}", deal.owner) }
+            if deal.owner.is_empty() {
+                "担当なし".into()
+            } else {
+                format!("owner_{}", deal.owner)
+            }
         }),
-        team: person.map(|p| p.team.clone()).unwrap_or_else(|| "チーム未設定".into()),
+        team: person
+            .map(|p| p.team.clone())
+            .unwrap_or_else(|| "チーム未設定".into()),
         bpo,
         kind: kind.label(),
         why,
@@ -370,7 +388,13 @@ pub fn kaden_of(sheet: &SheetData) -> Vec<KadenRow> {
         .rows
         .iter()
         .map(|r| {
-            let num = |name: &str| sheet.get(r, name).replace(',', "").parse::<i64>().unwrap_or(0);
+            let num = |name: &str| {
+                sheet
+                    .get(r, name)
+                    .replace(',', "")
+                    .parse::<i64>()
+                    .unwrap_or(0)
+            };
             KadenRow {
                 date: sheet.get(r, "日付").to_string(),
                 owner: sheet.get(r, "ownerId").to_string(),
@@ -418,9 +442,12 @@ pub fn kaden_period(
                 .get(&row.owner)
                 .map(|p| p.team.clone())
                 .unwrap_or_else(|| "チーム未設定".into());
-            *out.by_team.entry(team).or_default().entry(key.to_string()).or_insert(0) += value;
-            *out
-                .by_person
+            *out.by_team
+                .entry(team)
+                .or_default()
+                .entry(key.to_string())
+                .or_insert(0) += value;
+            *out.by_person
                 .entry(row.owner.clone())
                 .or_default()
                 .entry(key.to_string())
@@ -432,4 +459,3 @@ pub fn kaden_period(
     }
     out
 }
-
