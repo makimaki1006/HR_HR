@@ -436,7 +436,9 @@ function render(){
     // データがどこまで入っているかを、必ず画面に出す。
     // 前日ぶんまでしか無いのに「今週」と出すと、月曜の朝に先週の数字を
     // 今週として見せてしまう（2026-09-07 に実際に起きた）。
-    const upto=C_.generated_at||'', partial=!!C_.partial;
+    // last_day = 架電がどこまで入っているか。last_day_partial = その日がまだ途中か。
+    // どちらもサーバが KPI営業_取得条件 から作って返す（画面では判断しない）。
+    const upto=C_.last_day||C_.generated_at||'', partial=!!C_.last_day_partial;
     let fresh='';
     if(dl.length===0){
       fresh='<br><b style="color:var(--warn)">この期間の架電はまだ集計されていません。</b>'+
