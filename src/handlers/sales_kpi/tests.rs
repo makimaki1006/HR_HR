@@ -64,7 +64,16 @@ fn fixture_sheets() -> Sheets {
         kaden_list: load_tsv("KPI営業_架電リスト"),
         member: load_tsv("KPI営業_メンバー"),
         meta: load_tsv("KPI営業_取得条件"),
+        weekly: load_tsv("KPI営業_週次"),
         all_cached: true,
+    }
+}
+
+/// 週次シートがまだ無いとき（初回）。落ちずに空配列を返せることを見る。
+fn fixture_sheets_without_weekly() -> Sheets {
+    Sheets {
+        weekly: super::empty_sheet(),
+        ..fixture_sheets()
     }
 }
 
@@ -214,6 +223,121 @@ fn 予定日が未来のものを未処理にしない() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------- 週次の記録
+
+/// 週次シートは Python 側（Hubspot リポジトリ `scripts/sales_kpi/sync_daily.py`）が
+/// 集計して書く唯一のシート。テストデータもその `weekly_cells()` に
+/// **上の TSV をそのまま食わせて**作ってあるので、ここで一致を見るということは
+/// Python の `classify()` と Rust の `classify()` が同じ判定かを見ていることになる。
+#[test]
+fn 週次の行が画面側の集計と一致する() {
+    let body = payload();
+    let snaps = body["snapshots"].as_array().expect("snapshots が配列でない");
+    let cur = snaps
+        .iter()
+        .find(|s| s["week"] == "2026-W36")
+        .expect("fixture の当週（2026-W36）が無い");
+    let t = &cur["totals"];
+
+    for (key, got) in [
+        ("pool", team_sum(&body, "pool")),
+        ("実施", team_sum(&body, "実施")),
+        ("未実施", team_sum(&body, "未実施")),
+        ("未処理", team_sum(&body, "未処理")),
+        ("これから", team_sum(&body, "これから")),
+        ("要判定", team_sum(&body, "要判定")),
+        ("apo", team_sum(&body, "apo")),
+        ("cyomi", team_sum(&body, "cyomi")),
+        ("bpo_pool", body["bpo_total"]["pool"].as_i64().unwrap_or(0)),
+    ] {
+        assert_eq!(
+            t[key].as_i64().unwrap_or(-1),
+            got,
+            "{key} が週次シートと画面の集計で食い違う＝Python と Rust の判定がずれている"
+        );
+    }
+    assert_eq!(
+        cur["stale"].as_i64().unwrap_or(-1),
+        body["stale"].as_array().unwrap().len() as i64
+    );
+    assert_eq!(
+        cur["anq_missing"].as_i64().unwrap_or(-1),
+        body["anq_missing"].as_array().unwrap().len() as i64
+    );
+    assert_eq!(
+        cur["cyomi_stale"].as_i64().unwrap_or(-1),
+        body["cyomi_stale"].as_array().unwrap().len() as i64
+    );
+}
+
+#[test]
+fn 週次は古い順に並び画面が要る項目がそろっている() {
+    let body = payload();
+    let snaps = body["snapshots"].as_array().unwrap();
+    assert_eq!(snaps.len(), 2, "fixture は2週ぶん");
+    assert_eq!(snaps[0]["week"], "2026-W35");
+    assert_eq!(snaps[1]["week"], "2026-W36");
+    // 画面（templates/tabs/sales_kpi.html の「先週との比べ方」）が触るキー。
+    for s in snaps {
+        for key in ["week", "taken_at", "week_start", "totals", "stale", "zoom_days"] {
+            assert!(!s[key].is_null(), "{key} が無い: {s}");
+        }
+    }
+    assert_eq!(snaps[0]["week_start"], "2026-08-24");
+    assert_eq!(snaps[0]["taken_at"], "2026-08-28");
+    // 週が終わった行は「確定」、まだ途中の行は「集計中」。
+    assert_eq!(snaps[0]["zoom_partial"], serde_json::Value::Bool(false));
+    assert_eq!(snaps[1]["zoom_partial"], serde_json::Value::Bool(true));
+    assert_eq!(snaps[1]["zoom_called"].as_i64().unwrap(), 46137);
+}
+
+/// 架電がまだ1日も入っていない週の行。本番の KPI営業_週次 から取った実物
+/// （2026-09-07 月曜、その週の初回。Zoom架電数の欄が空で書かれる）。
+/// 空欄を 0 にすると画面が「0件」と嘘をつくので、null にして「—」を出させる。
+#[test]
+fn 架電がまだ無い週は0でなく空で返す() {
+    let text = "週\t記録日\t週はじまり\t母集団\t実施\t未実施\t未処理\tこれから\t要判定\t\
+                取ったアポ\tCヨミ\tBPO母集団\t止まっている\tアンケート未回収\tCヨミ置きっぱなし\t\
+                架電リスト手をつけた\t架電リスト母数\tZoom架電数\tZoom日数\tZoom集計中\n\
+                2026-W37\t2026-09-07\t2026-09-07\t537\t166\t54\t8\t304\t5\t245\t126\t129\t\
+                13\t280\t41\t32817\t129867\t\t0\t集計中\n";
+    let mut lines = text.lines();
+    let header: Vec<String> = lines.next().unwrap().split('\t').map(str::to_string).collect();
+    let rows: Vec<Vec<Arc<str>>> = lines
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            let mut cells: Vec<Arc<str>> = l.split('\t').map(Arc::from).collect();
+            cells.resize(header.len(), Arc::from(""));
+            cells
+        })
+        .collect();
+    let sheet = SheetData {
+        header,
+        rows,
+        fetched_at: Instant::now(),
+    };
+    let snaps = super::snapshots_of(&sheet);
+    assert_eq!(snaps.len(), 1);
+    assert!(
+        snaps[0]["zoom_called"].is_null(),
+        "架電が無い週を0件として出している: {}",
+        snaps[0]
+    );
+    assert_eq!(snaps[0]["zoom_days"].as_i64(), Some(0));
+    assert_eq!(snaps[0]["totals"]["pool"].as_i64(), Some(537));
+    assert_eq!(snaps[0]["kaden_base"].as_i64(), Some(129867));
+}
+
+#[test]
+fn 週次シートがまだ無くても画面は出る() {
+    // 初回は Python がまだ1度も書いていないのでシート自体が存在しない。
+    // ここで落とすと画面ごと出なくなる。
+    let body = build_payload(&fixture_sheets_without_weekly(), fixture_day());
+    assert_eq!(body["snapshots"].as_array().unwrap().len(), 0);
+    // 週次が無いだけで、他の数字は変わらない
+    assert_eq!(team_sum(&body, "pool"), 537);
 }
 
 #[test]

@@ -28,8 +28,8 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
-    classify, deal_row, deals_of, is_bpo, kaden_of, kaden_period, load, members_of, Counts, Deal,
-    DealRow, Kind, Person, Sheets, SHEET_META,
+    classify, deal_row, deals_of, is_bpo, kaden_of, kaden_period, load, members_of, snapshots_of,
+    Counts, Deal, DealRow, Kind, Person, Sheets, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -129,6 +129,7 @@ async fn data(Query(q): Query<DataQuery>, session: Session) -> Result<Response, 
             super::SHEET_KADEN_LIST,
             super::SHEET_MEMBER,
             SHEET_META,
+            super::SHEET_WEEKLY,
         ] {
             state.store.invalidate(Some(name)).await;
         }
@@ -451,9 +452,10 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         "kaden": kaden_block,
         "kaden_base": kaden_base,
         "calls": calls,
-        // 週次スナップショットはまだ持っていない（黙って省略しないための明示）。
-        // GAS 側に週1回シートへ追記する処理を足したら、ここでそれを読む。
-        "snapshots": Value::Array(vec![]),
+        // 週に1行の記録。Python の日次同期（Hubspot リポジトリ
+        // `scripts/sales_kpi/sync_daily.py` の `sync_weekly()`）が
+        // KPI営業_週次 へその週の行を上書きする。まだ1度も書かれていなければ空配列。
+        "snapshots": snapshots_of(&sheets.weekly),
         "meta": meta,
         "from_cache": sheets.all_cached,
     });
