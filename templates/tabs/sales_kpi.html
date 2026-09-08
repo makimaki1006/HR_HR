@@ -116,6 +116,22 @@ td.n,th.n{text-align:right; font-variant-numeric:tabular-nums; white-space:nowra
 /* 列が何を数えたものかを、見出しの下に小さく添える */
 .sm{display:block; font-size:11px; font-weight:400; color:var(--faint)}
 th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
+/* 担当者のチェックボックス。110名を出すので、詰めて置く */
+.pick{background:var(--card); border:1px solid var(--border); border-radius:10px;
+  padding:14px 16px; box-shadow:var(--shadow); margin-top:10px}
+.pick .grp2{margin-top:12px}
+.pick .grp2:first-of-type{margin-top:4px}
+.pick .gh{display:flex; align-items:center; gap:10px; margin-bottom:5px}
+.pick .gh b{font-size:13.5px}
+.pick .gh .n{font-size:12px; color:var(--faint); font-variant-numeric:tabular-nums}
+.pick .who2{display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:2px 14px}
+.pick label{display:flex; align-items:center; gap:7px; font-size:13px; cursor:pointer;
+  padding:2px 0; min-width:0}
+.pick label span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.pick label.off span{color:var(--faint); text-decoration:line-through}
+.pick input{accent-color:var(--accent); flex:none}
+.pick .mini{background:none; border:0; color:var(--accent); font-size:12px; cursor:pointer;
+  font-family:inherit; padding:0}
 .tw{overflow:auto; max-height:420px; max-width:100%}
 .c{min-width:0}
 .cards{min-width:0}
@@ -162,7 +178,10 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 <div class="filters">
   <div class="chiprow" id="teams"></div>
   <select id="person"><option value="">個人で見る…</option></select>
+  <button class="hbtn" id="pickbtn">担当者を選ぶ</button>
+  <span id="pickcount" style="font-size:12.5px"></span>
 </div>
+<div class="pick" id="pickpanel" hidden></div>
 <p class="scope" id="scope"></p>
 
 <h2>今月の成績</h2>
@@ -247,12 +266,49 @@ $('range').textContent='2026年9月　／　今週 '+md(D.week.start)+'（'+wd(D
     [...$('teams').children].forEach(c=>c.classList.toggle('on',c.textContent===t));render();};
   $('teams').appendChild(b);
 });
+// ---- 担当者を外す（この画面だけの絞り込み）---------------------------------
+//
+// 🔴 スプレッドシートの `KPI営業_集計除外` とは**別物**。
+//    あちらは全員の画面に効く恒久的な設定。こちらは見ている人の手元だけの
+//    一時的な絞り込みで、サーバには送らない（localStorage に置く）。
+//    混ざらないよう、画面でも別の場所・別の言い方にしてある。
+const HIDE_KEY='salesKpi.hidden.v1';
+let hidden=new Set();
+try{hidden=new Set(JSON.parse(localStorage.getItem(HIDE_KEY)||'[]'));}catch(e){}
+function saveHidden(){
+  // プライベートモード等で localStorage が使えなくても画面は動く（保存されないだけ）
+  try{localStorage.setItem(HIDE_KEY,JSON.stringify([...hidden]));}catch(e){}
+}
+// ownerId → チーム。by_person を足し直すのに何度も引くので先に作る。
+const TEAM_OF={}; D.people.forEach(p=>{TEAM_OF[p.id]=p.team;});
+const isSalesTeam=t=>!!t&&t!=='チーム未設定';
+
+// 🔴 チーム別の合計はサーバも返しているが、**使わずに by_person から足し直す**。
+//    そうしないとチェックを外した人がチームの合計に残ってしまう。
+//    足し直した値がサーバの by_team と完全に一致することは実データで確認済み
+//    （商談・架電リスト・架電の全期間で差 0。2026-09-08）。
+function sumIf(byPerson, ok){
+  const o={};
+  for(const id in (byPerson||{})){
+    if(hidden.has(id)||!ok(id)) continue;
+    const v=byPerson[id];
+    for(const k in v) o[k]=(o[k]||0)+v[k];
+  }
+  return o;
+}
+// いま選んでいる範囲（チップ・プルダウン・チェックボックス）で足す。
+const sumScope=byPerson=>sumIf(byPerson,
+  id=>person? id===person : (team==='すべて'||TEAM_OF[id]===team));
+// チーム（全社なら全チーム）で足す。個人の選択は見ない（平均の分子に使う）。
+const sumTeam=(byPerson,teamName)=>sumIf(byPerson,
+  id=>!teamName||TEAM_OF[id]===teamName);
+
 // 所属の見せ方。営業の名簿に載っていない人（BPO・他部署）は「チーム未設定」に
 // なるが、それだけでは誰なのか分からないので HubSpot 側のチーム名を添える。
 const teamLabel=p=>(!p?'':p.team+((p.team==='チーム未設定'&&p.hsTeam)?'・'+p.hsTeam:''));
 function syncPerson(){
   const sel=$('person'); sel.innerHTML='<option value="">個人で見る…</option>';
-  D.people.filter(p=>team==='すべて'||p.team===team).forEach(p=>{
+  D.people.filter(p=>!hidden.has(p.id)&&(team==='すべて'||p.team===team)).forEach(p=>{
     const o=document.createElement('option'); o.value=p.id;
     o.textContent=p.name+(team==='すべて'?'（'+teamLabel(p)+'）':'');
     sel.appendChild(o);});
@@ -261,14 +317,73 @@ function syncPerson(){
 syncPerson();
 $('person').onchange=e=>{person=e.target.value;openKey=null;render();};
 
-function agg(){
-  if(person) return D.by_person[person]||{};
-  if(team==='すべて'){
-    const o={}; Object.values(D.by_team).forEach(v=>Object.keys(v).forEach(k=>o[k]=(o[k]||0)+v[k]));
-    return o;}
-  return D.by_team[team]||{};
+// ---- 担当者のチェックボックス ---------------------------------------------
+//
+// 110名いるので、たたんでおいてチームごとにまとめる。
+// チームの見出しのチェックでそのチームをまとめて入り切りできる。
+function drawPick(){
+  const box=$('pickpanel'); box.innerHTML='';
+  const head=document.createElement('div'); head.className='ph';
+  head.innerHTML='<b>数字に入れる担当者</b>';
+  const rst=document.createElement('button'); rst.className='close'; rst.textContent='全部戻す';
+  rst.onclick=()=>{hidden.clear();saveHidden();syncPerson();drawPick();render();};
+  head.appendChild(rst); box.appendChild(head);
+  const note=document.createElement('p'); note.className='lead';
+  note.innerHTML='チェックを外した人は、この画面の数字から抜けます。'+
+    '<b>あなたのブラウザにだけ残ります</b>（他の人の画面は変わりません）。'+
+    '<br><span style="color:var(--faint)">全員に効かせたいときは、'+
+    'スプレッドシートの KPI営業_集計除外 を使ってください。</span>';
+  box.appendChild(note);
+
+  const byTeam={};
+  D.people.forEach(p=>{(byTeam[p.team]=byTeam[p.team]||[]).push(p);});
+  // 営業チームを先に、「チーム未設定」（77名と長い）を最後に。
+  // そうしないと、よく使う営業チームが画面の下に押し出される。
+  const order=Object.keys(byTeam).sort((a,b)=>
+    (isSalesTeam(b)-isSalesTeam(a))||a.localeCompare(b,'ja'));
+  order.forEach(t=>{
+    const list=byTeam[t].slice().sort((a,b)=>a.name.localeCompare(b.name,'ja'));
+    const on=list.filter(p=>!hidden.has(p.id)).length;
+    const g=document.createElement('div'); g.className='grp2';
+    const gh=document.createElement('div'); gh.className='gh';
+    const all=document.createElement('input'); all.type='checkbox';
+    all.checked=on>0; all.indeterminate=on>0&&on<list.length;
+    all.onchange=()=>{list.forEach(p=>{if(all.checked)hidden.delete(p.id);else hidden.add(p.id);});
+      if(person&&hidden.has(person)){person='';}
+      saveHidden();syncPerson();drawPick();render();};
+    const lb=document.createElement('b'); lb.textContent=t;
+    const cnt=document.createElement('span'); cnt.className='n';
+    cnt.textContent=on+' / '+list.length+'名';
+    gh.appendChild(all); gh.appendChild(lb); gh.appendChild(cnt); g.appendChild(gh);
+    const w=document.createElement('div'); w.className='who2';
+    list.forEach(p=>{
+      const l=document.createElement('label');
+      if(hidden.has(p.id)) l.className='off';
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!hidden.has(p.id);
+      cb.onchange=()=>{if(cb.checked)hidden.delete(p.id);else hidden.add(p.id);
+        if(person===p.id&&!cb.checked)person='';
+        saveHidden();syncPerson();drawPick();render();};
+      const sp=document.createElement('span'); sp.textContent=p.name;
+      sp.title=p.name+'（'+teamLabel(p)+'）';
+      l.appendChild(cb); l.appendChild(sp); w.appendChild(l);});
+    g.appendChild(w); box.appendChild(g);});
 }
+$('pickbtn').onclick=()=>{
+  const box=$('pickpanel');
+  box.hidden=!box.hidden;
+  $('pickbtn').textContent=box.hidden?'担当者を選ぶ':'担当者を閉じる';
+  if(!box.hidden) drawPick();
+};
+function syncPickCount(){
+  const n=D.people.filter(p=>hidden.has(p.id)).length;
+  $('pickcount').innerHTML=n
+    ? '<b style="color:var(--warn)">'+n+'名を外しています</b>'
+    : '<span style="color:var(--faint)">'+D.people.length+'名すべて入っています</span>';
+}
+
+function agg(){ return sumScope(D.by_person); }
 const pick=rows=>rows.filter(r=>
+  !hidden.has(r.owner)&&
   (person? r.owner===person : (team==='すべて'||r.team===team)));
 
 // ---- 「1人あたり」の出し方 -------------------------------------------------
@@ -280,7 +395,8 @@ const pick=rows=>rows.filter(r=>
 //    なのに対し画面に出るのは 77名。名簿で割ると意味を成さないので、
 //    どちらでも同じになる方＝画面に出ている人数を採る。
 //    分母が分かるよう、人数はそのまま画面に出す。
-const headOf=t=>D.people.filter(p=>p.team===t).length;
+// チェックを外した人は分母からも抜く（見ていない人を頭数に入れない）。
+const headOf=t=>D.people.filter(p=>p.team===t&&!hidden.has(p.id)).length;
 
 // 誰と比べるか。個人を選んでいるときは「その人のチーム」を相手にする
 // （自分の数字と並べて見られるようにするため）。
@@ -291,13 +407,7 @@ function avgBase(){
     return {label:p.team+' の平均', team:p.team, n:headOf(p.team)};
   }
   if(team!=='すべて') return {label:'1人あたり', team:team, n:headOf(team)};
-  return {label:'1人あたり', team:null, n:D.people.length};
-}
-// チーム（全社なら全チーム）の合計。個人ぶんではないので person は見ない。
-function teamTotal(byTeam, teamName){
-  if(teamName) return (byTeam||{})[teamName]||{};
-  const o={}; Object.values(byTeam||{}).forEach(v=>Object.keys(v).forEach(k=>o[k]=(o[k]||0)+v[k]));
-  return o;
+  return {label:'1人あたり', team:null, n:D.people.filter(p=>!hidden.has(p.id)).length};
 }
 // 平均の1行。件数のカードにだけ付ける（率のカードに平均は意味を成さない）。
 function avgLine(ab, total, unit){
@@ -374,6 +484,9 @@ function bindTip(e,html){
 addEventListener('scroll',hideTip,{passive:true});
 
 function render(){
+  syncPickCount();
+  // チェックを外している人がいるか。効かない場所に注記を出すのに使う。
+  const hid=D.people.some(p=>hidden.has(p.id));
   const a=agg();
   const den=(a['実施']||0)+(a['未実施']||0)+(a['未処理']||0)+(a['要判定']||0);
   const rate=den?(a['実施']||0)/den*100:null;
@@ -382,13 +495,15 @@ function render(){
   const oi=k=>{const v=bpoOf(k),t=k==='apo'?(a.apo||0):(k==='cyomi'?(a.cyomi||0):(a[k]||0));
     return v?'<span style="color:var(--sub)">内 BPO '+fmt(v)+'件'+
       (t?'（'+(v/t*100).toFixed(0)+'%）':'')+'</span>':'';};
-  $('scope').textContent=person
+  const hidNote=hid?('　'+D.people.filter(p=>hidden.has(p.id)).length+
+    '名をチェックで外しています。'):'';
+  $('scope').textContent=(person
     ? ((D.people.find(p=>p.id===person)||{}).name+' の数字だけを表示しています。'
        // 架電リストにだけ出てくる人（BPO など）は今月の商談が無い。
        // カードが 0 で並ぶ理由を書いておかないと、壊れているように見える。
        +(Object.keys(a).length?'':'この担当者には今月の商談がありません（架電リストの数字だけ出ます）。'))
     : (team==='すべて'?'全チームの合計を表示しています。チーム名か、右のプルダウンで絞り込めます。'
-                     :team+' の数字だけを表示しています。');
+                     :team+' の数字だけを表示しています。'))+hidNote;
 
   // ---- 今月の成績 ----
   //
@@ -408,7 +523,7 @@ function render(){
   const c1=$('cards1'); c1.innerHTML='';
   const anqDen=a.anq_den||0, anqNum=a.anq_num||0;
   // 「1人あたり」の相手と、その合計。率のカードには付けない。
-  const AB=avgBase(), TT=teamTotal(D.by_team, AB&&AB.team);
+  const AB=avgBase(), TT=sumTeam(D.by_person, AB&&AB.team);
   const tden=(TT['実施']||0)+(TT['未実施']||0)+(TT['未処理']||0)+(TT['要判定']||0);
   [
     {lab:'① 取ったアポ',val:a.apo||0,unit:'件',hint:'今月アポ日が確定した数',sub2:oi('apo'),
@@ -496,17 +611,11 @@ function render(){
 
     const per=C_.periods[callPeriod]||{};
     const prevP=(callPeriod==='this_week')?C_.periods.prev_week_same:null;
-    const scopeOf=o=>{
-      if(!o) return {};
-      if(person) return (o.by_person||{})[person]||{};
-      if(team!=='すべて') return (o.by_team||{})[team]||{};
-      const t={}; Object.values(o.by_team||{}).forEach(v=>Object.keys(v).forEach(k=>t[k]=(t[k]||0)+v[k]));
-      return t;
-    };
+    const scopeOf=o=>o?sumScope(o.by_person):{};
     const cur=scopeOf(per), prv=prevP?scopeOf(prevP):null;
     // 「1人あたり」はチーム（全社なら全チーム）の合計を人数で割る。
     // 担当者が紐づかない発信は by_team に入らないので、この平均にも入らない。
-    const KT=teamTotal(per.by_team, AB&&AB.team);
+    const KT=sumTeam(per.by_person, AB&&AB.team);
     const calls=cur.calls||0, conn=cur.connected||0, lng=cur.long||0;
     const days=(per.days||[]).length||1;
     const dl=per.days||[];
@@ -547,7 +656,8 @@ function render(){
 
     const kb=$('kadenbar'); kb.innerHTML='';
     const box=document.createElement('div'); box.className='c';
-    box.innerHTML='<div class="lab">日別の架電数（全社・担当者が紐づかない発信も含む）</div>';
+    box.innerHTML='<div class="lab">日別の架電数（全社・担当者が紐づかない発信も含む）'+
+      (hid?'<span class="sm"><b style="color:var(--warn)">チェックの絞り込みは効きません</b>（日ごとの合計しか持っていないため）</span>':'')+'</div>';
     const dd=(C_.daily||[]).filter(x=>x.calls>100);
     if(dd.length){
       const W=880,H=150,ml=44,mr=10,mt=12,mb=28,iw=W-ml-mr,ih=H-mt-mb;
@@ -580,6 +690,7 @@ function render(){
 
     const rows=Object.entries(per.by_person||{})
       .filter(function(e){const oid=e[0];const pp=(C_.people||[]).find(x=>x.id===oid);
+        if(hidden.has(oid)) return false;
         if(person) return oid===person;
         if(team==='すべて') return true;
         return pp&&pp.team===team;})
@@ -610,7 +721,10 @@ function render(){
       tb.appendChild(bd); tw.appendChild(tb); b2.appendChild(tw);
       const um=C_.unmatched_by_dept||{};
       b2.innerHTML+='<div class="hint" style="margin-top:8px">'+
-        '担当者に紐づいた発信は '+fmt(per.matched||0)+'件 ／ 全体 '+fmt((per.total||{}).calls||0)+'件。'+
+        '担当者に紐づいた発信は '+fmt(cur.calls||0)+'件'+
+        (hid?'（チェックを外した人を除いた数）':'')+
+        ' ／ 全体 '+fmt((per.total||{}).calls||0)+'件'+
+        (hid?'（こちらは<b>絞り込み前</b>）':'')+'。'+
         '紐づかない分は他部署の発信です（'+
         Object.keys(um).slice(0,3).map(k=>k+' '+fmt(um[k])+'件').join(' ／ ')+'）。</div>';
       kb.appendChild(b2);
@@ -626,21 +740,26 @@ function render(){
   //    なるが、それは名簿に載っていない人が持っている在庫に引きずられた数字だった。
   //    営業チームだけで数えると 72.8% が着手済み。現場が見たいのは後者。
   //    配られていない在庫は下の「まだ配られていないリスト」に別枠で出す。
-  const noOwn=(K.no_owner||{}).base||0;
-  const UN=K.unassigned||{}, ALL=K.all||{};
+  const ALL=K.all||{};
   const nTeams=Object.keys(K.by_team||{}).filter(t=>t!=='チーム未設定').length;
+  // 🔴 サーバの cls/base をそのまま使わず by_person から足し直す。
+  //    チェックを外した人をここでも抜くため。
+  //    「すべて」は営業チームぶんだけ（在庫は下の別枠）。
+  const salesCls=sumIf(K.by_person, id=>isSalesTeam(TEAM_OF[id]));
+  const unCls=sumIf(K.by_person, id=>!isSalesTeam(TEAM_OF[id]));
+  // 担当者が入っていない分は「人」ではないのでチェックで外せない。常に在庫側。
+  const noOwn=(K.no_owner||{}).base||0;
+  ['未架電','未接触','接触済み','base'].forEach(k=>{
+    unCls[k]=(unCls[k]||0)+((K.no_owner||{})[k]||0);});
   const scope=(function(){
+    if(!K.has_by_owner)
+      return (!person&&team==='すべて')?{c:kc,base:K.base,who:'会社全体',whole:true}:null;
     if(!person&&team==='すべて')
-      return {c:kc,base:K.base,
-              who:K.has_by_owner?('営業'+nTeams+'チームの合計'):'会社全体',whole:true};
-    if(!K.has_by_owner) return null;
-    if(person){
-      const p=D.people.find(x=>x.id===person)||{};
-      return {c:(K.by_person||{})[person]||{},base:((K.by_person||{})[person]||{}).base||0,
-              who:(p.name||'この担当者')+' が持っている分'};
-    }
-    return {c:(K.by_team||{})[team]||{},base:((K.by_team||{})[team]||{}).base||0,
-            who:team+' が持っている分'};
+      return {c:salesCls,base:salesCls.base||0,who:'営業'+nTeams+'チームの合計',whole:true};
+    const c=sumScope(K.by_person);
+    const who=person?((D.people.find(x=>x.id===person)||{}).name||'この担当者')+' が持っている分'
+                    :team+' が持っている分';
+    return {c:c,base:c.base||0,who:who};
   })();
   const c3b=$('cards3b'); c3b.innerHTML='';
   const lb=$('listbar'); lb.innerHTML='';
@@ -685,7 +804,8 @@ function render(){
     // 決定者・決裁者は全社でしか数えていない。担当者ごとに数えると
     // リクエストが4倍になるわりに、全社で 0.1〜0.2% しか入っておらず差が出ないため。
     wrapB.innerHTML+='<div class="hint" style="margin-top:10px">決定者・決裁者の入力状況'+
-      '（<b>アポ前リスト全体</b> '+fmt(K.total)+'件・チームや個人では出せません）: '+
+      '（<b>アポ前リスト全体</b> '+fmt(K.total)+'件・チームや個人では出せません。'+
+      (hid?'<b style="color:var(--warn)">チェックの絞り込みは効きません</b>）: ':'）: ')+
       Object.keys(K.fill).map(k=>k+' '+pct(K.fill[k]/K.total*100)).join(' ／ ')+
       '　<b style="color:var(--alert)">ほぼ入っていません。</b></div>';
     lb.appendChild(wrapB);
@@ -694,17 +814,18 @@ function render(){
     //
     // 上のカードは「営業チームが持っている分」なので、誰にも配られていない在庫は
     // そこに入らない。配る判断に使えるよう、誰が抱えているかまで出す。
-    if(scope.whole&&K.has_by_owner&&UN.base){
+    if(scope.whole&&K.has_by_owner&&unCls.base){
       const un=document.createElement('div'); un.className='c'; un.style.marginTop='11px';
-      const ug=k=>(UN.cls||{})[k]||0;
+      const ug=k=>unCls[k]||0;
       un.innerHTML='<div class="lab">まだ配られていないリスト</div>'+
-        '<div class="v">'+fmt(UN.base)+'<small>件</small></div>'+
+        '<div class="v">'+fmt(unCls.base)+'<small>件</small></div>'+
         '<div class="hint">名簿でチームが決まっていない人が持っている分と、担当者が'+
         '入っていない分。<b>上の「'+scope.who+'」には入っていません。</b></div>'+
         '<div class="sub2">まだかけていない '+fmt(ug('未架電'))+'件 ／ つながらず '+
         fmt(ug('未接触'))+'件 ／ 話せた '+fmt(ug('接触済み'))+'件</div>';
-      const rows=(UN.people||[]).filter(p=>p.base>0).slice(0,8);
-      if(rows.length||UN.no_owner){
+      const rows=((K.unassigned||{}).people||[])
+        .filter(p=>p.base>0&&!hidden.has(p.id)).slice(0,8);
+      if(rows.length||noOwn){
         const tw=document.createElement('div'); tw.className='tw'; tw.style.marginTop='8px';
         const tb=document.createElement('table');
         tb.innerHTML='<thead><tr><th>誰が持っているか</th><th>所属</th>'+
@@ -716,10 +837,12 @@ function render(){
             '<td class="n"><b>'+fmt(p.base)+'</b></td>'+
             '<td class="n">'+fmt(p['未架電'])+'</td>';
           bd.appendChild(tr2);});
-        if(UN.no_owner){
+        if(noOwn){
           const tr2=document.createElement('tr');
-          tr2.innerHTML='<td>（担当者が入っていない）</td><td style="color:var(--sub)">—</td>'+
-            '<td class="n"><b>'+fmt(UN.no_owner)+'</b></td><td class="n">—</td>';
+          tr2.innerHTML='<td>（担当者が入っていない）<span class="sm">'+
+            '担当者が居ないのでチェックでは外せません</span></td>'+
+            '<td style="color:var(--sub)">—</td>'+
+            '<td class="n"><b>'+fmt(noOwn)+'</b></td><td class="n">—</td>';
           bd.appendChild(tr2);}
         tb.appendChild(bd); tw.appendChild(tb); un.appendChild(tw);
       }
@@ -772,7 +895,9 @@ function render(){
     '<b>'+SNAP.week.chip+'</b>＝'+SNAP.week.note+'<br>'+
     '<b>'+SNAP.month.chip+'</b>＝'+SNAP.month.note+
     '<br><span style="color:var(--faint)">この表は<b>全社</b>の記録です。'+
-    '上のチーム・個人の絞り込みには連動しません。</span>';
+    '上のチーム・個人の絞り込みには連動しません。'+
+    (hid?'<b style="color:var(--warn)">担当者のチェックも効きません</b>'+
+         '（記録した時点の値をそのまま出しているため）。':'')+'</span>';
 
   const sb=$('snapbox'); sb.innerHTML='';
   const box=document.createElement('div'); box.className='c';
