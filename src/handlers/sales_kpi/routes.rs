@@ -449,6 +449,10 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         // 画面はこれを見て「集計中」と出せる。
         "last_day": last_day.clone(),
         "last_day_partial": kaden_partial,
+        // いつ Zoom から取ったか。当日は次の同期まで動かないので、
+        // 「何時時点の数か」を出さないと、夕方に見た人が朝の数を今の数だと思う。
+        // 2026-09-08 に実際そうなっていた（画面 22件・実数 10,410件）。
+        "fetched_at": meta.get("架電の取得時刻").cloned().unwrap_or_default(),
         "rule": {
             "calls": "Zoomの通話ログのうち direction=outbound を1件と数える",
             "connected": "result が Auto Recorded のもの。現場が「架電数」と呼んでいるのはこの数",

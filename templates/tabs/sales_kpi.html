@@ -625,12 +625,19 @@ function render(){
     // last_day = 架電がどこまで入っているか。last_day_partial = その日がまだ途中か。
     // どちらもサーバが KPI営業_取得条件 から作って返す（画面では判断しない）。
     const upto=C_.last_day||C_.generated_at||'', partial=!!C_.last_day_partial;
+    // 「何時時点の数か」。当日は次の同期まで動かないので、これを出さないと
+    // 夕方に見た人が朝の数を今の数だと思う（2026-09-08: 画面22件・実数10,410件）。
+    // 取り直しは平日 06:30 と 18:00 の2回だけ。その間は数字が止まっている。
+    const asof=(C_.fetched_at||'').slice(11,16);
     let fresh='';
     if(dl.length===0){
       fresh='<br><b style="color:var(--warn)">この期間の架電はまだ集計されていません。</b>'+
         (upto?'<span style="color:var(--faint)">（集計済みは '+md(upto)+' まで）</span>':'');
     }else if(partial&&dl[dl.length-1]===upto){
-      fresh='<br><span style="color:var(--warn)">'+md(upto)+' は集計中です（その日の途中までの数）。</span>';
+      fresh='<br><span style="color:var(--warn)">'+md(upto)+' は'+
+        (asof?asof+' 時点':'集計中')+'の数です。</span>'+
+        '<span style="color:var(--faint)">その日の途中までしか入っていません。'+
+        '取り直すのは平日の 6:30 と 18:00 で、その間は数字が変わりません。</span>';
     }
     $('lead3').innerHTML='Zoomのログから数えています。<b>架電数＝つながった通話</b>で、現場が数えている数と合わせています。'+
       fresh+
@@ -640,7 +647,8 @@ function render(){
        hint:dl.length?(dl[0]===dl[dl.length-1]?md(dl[0]):md(dl[0])+'〜'+md(dl[dl.length-1]))
                      :'まだ集計されていません',
        sub2:'<span style="color:var(--sub)">Zoomでつながった通話の数'+
-            (partial&&dl.length&&dl[dl.length-1]===upto?'（'+md(upto)+' は集計中）':'')+'</span>',
+            (partial&&dl.length&&dl[dl.length-1]===upto
+              ?'（'+md(upto)+' は'+(asof?asof+' 時点':'集計中')+'）':'')+'</span>',
        avg:dl.length?avgLine(AB,KT.connected||0):'',
        wow:(prv&&dl.length)?wowEl(conn,prv.connected||0,'件'):''},
       {lab:'発信した回数',val:calls,unit:'件',hint:'かけ直しや切ったものを含む全発信',
