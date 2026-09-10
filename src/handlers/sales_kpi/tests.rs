@@ -1234,3 +1234,34 @@ fn payload_を書き出す() {
     std::fs::write(path, serde_json::to_string(&body).expect("JSON 化")).expect("書き出し");
     println!("書き出した: {}", path.display());
 }
+
+/// ⑤アンケートの分母は ④「日が過ぎた分」と同じ（2026-09-10 ユーザー指示）。
+///
+/// 🔴 日付（商談予定日時 < 今日）で切ってはいけない。予定日はまだ先なのに
+/// もう実施した／やらないと決まったものが漏れる。2026-09-10 実測で48件。
+/// 逆に「これから」は入れてはいけない（まだ回収する時間がある）。
+#[test]
+fn アンケートの分母は日が過ぎた分と同じ() {
+    let body = payload();
+    let sum = |key: &str| -> i64 {
+        body["by_team"]
+            .as_object()
+            .expect("by_team")
+            .values()
+            .map(|c| c[key].as_i64().unwrap_or(0))
+            .sum()
+    };
+    let den: i64 = ["実施", "未実施", "未処理", "要判定"].iter().map(|k| sum(k)).sum();
+    assert_eq!(
+        sum("anq_den"),
+        den,
+        "⑤の分母が④と違う（これから {} 件を入れていないか）",
+        sum("これから")
+    );
+    assert!(
+        sum("anq_num") <= sum("anq_den"),
+        "回収済みが分母を超えている"
+    );
+    // 「これから」は分母に入れない
+    assert!(sum("これから") > 0, "fixture に『これから』が無く、この検査が効かない");
+}
