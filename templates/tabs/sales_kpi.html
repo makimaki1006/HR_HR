@@ -117,6 +117,25 @@ button.c:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 .item.done{opacity:.5}
 .item.done .nm{text-decoration:line-through; text-decoration-color:var(--faint)}
 .day{font-size:12.5px; color:var(--sub); font-weight:700; margin:14px 0 6px}
+/* 週の日別サマリー。まず「どの日に何件あるか」を見せ、日を押すとその日の一覧が出る。 */
+.wkstrip{display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin:2px 0 14px}
+@media (max-width:560px){.wkstrip{grid-template-columns:repeat(4,1fr)}}
+.wkday{background:var(--card); border:1px solid var(--border); border-radius:9px;
+  padding:9px 4px 8px; text-align:center; cursor:pointer; font-family:inherit;
+  color:var(--text); min-width:0; transition:border-color .12s,background .12s}
+.wkday:hover{border-color:var(--accent)}
+.wkday .wd{font-size:11px; color:var(--faint); font-weight:700; letter-spacing:.04em}
+.wkday .dt{font-size:11.5px; color:var(--sub); margin-top:1px}
+.wkday .n{font-size:19px; font-weight:700; line-height:1.25;
+  font-variant-numeric:tabular-nums; margin-top:3px}
+.wkday .u{font-size:10.5px; color:var(--faint); margin-left:1px}
+.wkday.zero .n{color:var(--faint); font-weight:600}
+.wkday.past{background:var(--bg)}
+.wkday.past .n{color:var(--sub)}
+.wkday.today{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset}
+.wkday.on{background:var(--accent); border-color:var(--accent)}
+.wkday.on .wd,.wkday.on .dt,.wkday.on .n,.wkday.on .u{color:#fff}
+.wkhint{font-size:12.5px; color:var(--faint); margin:0 0 10px}
 .empty{background:var(--card); border:1px dashed var(--border); border-radius:10px;
   padding:20px; text-align:center; color:var(--sub); font-size:14px}
 .empty b{color:var(--ok)}
@@ -260,7 +279,7 @@ const fmt=n=>(n==null?'—':n.toLocaleString('ja-JP'));
 const pct=n=>(n==null?'—':n.toFixed(1)+'%');
 // 架電の期間の初期表示。🔴「今週」で固定（ユーザー指示 2026-09-10）。
 // 今日・昨日は途中経過なので初期表示に向かない。並び順は PL の定義順。
-let team='すべて', person='', openKey=null, weekOpen=false, callPeriod='this_week';
+let team='すべて', person='', openKey=null, weekOpen=false, dayKey=null, callPeriod='this_week';
 // 週次表をどちらの数え方で見るか。既定は「その週の商談」（週次表として自然なので）。
 // 'month' は当月の累積で、月初にゼロから数え直しになる。
 let snapMode='week';
@@ -270,7 +289,11 @@ let snapMode='week';
 
 const md=s=>{const d=new Date(s+'T00:00:00+09:00');return (d.getMonth()+1)+'/'+d.getDate();};
 const wd=s=>WD[new Date(s+'T00:00:00+09:00').getDay()];
-const ago=s=>Math.round((new Date(D.generated_at+'T00:00:00+09:00')-new Date(s+'T00:00:00+09:00'))/86400000);
+// 🔴 D.generated_at は「2026-09-05 19:08」と時刻付き。日付として使うときは必ず切る。
+//    切らずに 'T00:00:00+09:00' を足すと日付として読めず、ago() が NaN を返す
+//    （⑦の一覧が全部「NaN日前」になっていた。2026-09-10 修正）。
+const TODAY=String(D.generated_at||'').slice(0,10);
+const ago=s=>Math.round((new Date(TODAY+'T00:00:00+09:00')-new Date(s+'T00:00:00+09:00'))/86400000);
 
 $('bporule').innerHTML='<b>内 BPO</b> は「BPOアポ取得日」がその期間にあるものです。'+
   'このプロパティは<b>過去のBPOアポの日付が残り続ける</b>ため、値の有無では判定できません'+
@@ -564,7 +587,7 @@ function render(){
   const stale=pick(D.stale), anq=pick(D.anq_missing), cys=pick(D.cyomi_stale),
         wk=pick(D.week_deals), nx=pick(D.next_week_deals);
   const c2=$('cards2'); c2.innerHTML='';
-  const toggle=k=>()=>{openKey=openKey===k?null:k;render();
+  const toggle=k=>()=>{openKey=openKey===k?null:k;dayKey=null;weekOpen=false;render();
     if(openKey)setTimeout(()=>$('panel').scrollIntoView({behavior:'smooth',block:'nearest'}),50);};
   [
     {key:'stale',lab:'⑦ ステージが止まっている',val:stale.length,unit:'件',
@@ -589,8 +612,10 @@ function render(){
         d:'今週・来週これから商談するもののうち、事前アンケートがまだ返ってきていないものです。商談前に催促してください。'},
       cyomi:{t:'Cヨミで30日以上動いていない取引',rows:cys,opt:{days:true},
         d:'決定者と価値合意ができてから30日以上、ステージが動いていません。次の一手を決めてください。'},
-      week:{t:'今週の商談',rows:wk,opt:{},d:'日付の早い順です。終わった日はうすく表示しています。',byDay:true},
-      next:{t:'来週の商談',rows:nx,opt:{},d:'来週の予定です。',byDay:true},
+      week:{t:'今週の商談',rows:wk,opt:{},byDay:true,span:D.week,
+        d:'まずどの日に何件あるかを出しています。日を押すと、その日の商談が出ます。終わった日はうすく表示しています。'},
+      next:{t:'来週の商談',rows:nx,opt:{},byDay:true,span:D.next_week,
+        d:'来週の予定です。まずどの日に何件あるかを出しています。日を押すと、その日の商談が出ます。'},
     }[openKey];
     const h=document.createElement('div'); h.className='ph';
     h.innerHTML='<b>'+conf.t+'（'+conf.rows.length+'件）</b>';
@@ -599,16 +624,50 @@ function render(){
     P.appendChild(Object.assign(document.createElement('p'),{className:'lead',textContent:conf.d}));
     if(!conf.rows.length){P.innerHTML+='<div class="empty"><b>該当はありません。</b></div>';}
     else if(conf.byDay){
+      // まず「どの日に何件あるか」を出す。いきなり一覧が出ても、その週の形が分からない。
+      // 0件の日も出す（空いている日が見えることに意味がある）。
       const byDay={}; conf.rows.forEach(r=>(byDay[r.date]=byDay[r.date]||[]).push(r));
-      const days=Object.keys(byDay).sort();
-      (weekOpen?days:days.slice(0,4)).forEach(dt=>{
+      const span=[]; let d0=new Date(conf.span.start+'T00:00:00+09:00');
+      const dEnd=new Date(conf.span.end+'T00:00:00+09:00');
+      while(d0<=dEnd){
+        span.push(d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0'));
+        d0=new Date(d0.getTime()+86400000);
+      }
+      const strip=document.createElement('div'); strip.className='wkstrip';
+      span.forEach(dt=>{
+        const rows=byDay[dt]||[], past=rows.length?!!rows[0].past:dt<TODAY;
+        const b=document.createElement('button');
+        b.className='wkday'+(rows.length?'':' zero')+(past?' past':'')
+          +(dt===TODAY?' today':'')+(dayKey===dt?' on':'');
+        b.innerHTML='<div class="wd">'+wd(dt)+'</div><div class="dt">'+md(dt)+'</div>'+
+          '<div class="n">'+rows.length+'<span class="u">件</span></div>';
+        b.title=md(dt)+'（'+wd(dt)+'）の商談 '+rows.length+'件'+(rows.length?'　押すと一覧が出ます':'');
+        if(rows.length) b.onclick=()=>{dayKey=(dayKey===dt?null:dt);weekOpen=false;render();};
+        strip.appendChild(b);
+      });
+      P.appendChild(strip);
+
+      if(dayKey&&byDay[dayKey]){
         const hh=document.createElement('div'); hh.className='day';
-        hh.textContent=md(dt)+'（'+wd(dt)+'）　'+byDay[dt].length+'件'; P.appendChild(hh);
-        P.appendChild(listOf(byDay[dt],{done:byDay[dt][0].past}));});
-      if(days.length>4){
+        hh.textContent=md(dayKey)+'（'+wd(dayKey)+'）　'+byDay[dayKey].length+'件';
+        P.appendChild(hh);
+        P.appendChild(listOf(byDay[dayKey],{done:byDay[dayKey][0].past}));
         const b=document.createElement('button'); b.className='more';
-        b.textContent=weekOpen?'たたむ':'残り '+(days.length-4)+'日分を見る ▾';
-        b.onclick=()=>{weekOpen=!weekOpen;render();}; P.appendChild(b);}
+        b.textContent='この日を閉じる'; b.onclick=()=>{dayKey=null;render();}; P.appendChild(b);
+      }else if(weekOpen){
+        Object.keys(byDay).sort().forEach(dt=>{
+          const hh=document.createElement('div'); hh.className='day';
+          hh.textContent=md(dt)+'（'+wd(dt)+'）　'+byDay[dt].length+'件'; P.appendChild(hh);
+          P.appendChild(listOf(byDay[dt],{done:byDay[dt][0].past}));});
+        const b=document.createElement('button'); b.className='more';
+        b.textContent='たたむ'; b.onclick=()=>{weekOpen=false;render();}; P.appendChild(b);
+      }else{
+        P.appendChild(Object.assign(document.createElement('p'),
+          {className:'wkhint',textContent:'日を押すと、その日の商談が出ます。'}));
+        const b=document.createElement('button'); b.className='more';
+        b.textContent='全部の日をまとめて見る ▾';
+        b.onclick=()=>{weekOpen=true;dayKey=null;render();}; P.appendChild(b);
+      }
     }else{P.appendChild(listOf(conf.rows,conf.opt));}
   }
 
