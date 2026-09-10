@@ -22,7 +22,7 @@ use chrono::NaiveDate;
 use serde_json::Value;
 
 use super::routes::build_payload;
-use super::Sheets;
+use super::{members_of, Sheets};
 use crate::handlers::call_quality::sheets::SheetData;
 
 /// Python 版を動かした日。ここを変えると期待値も変わる。
@@ -99,6 +99,7 @@ fn fixture_sheets() -> Sheets {
         member: load_tsv("KPI営業_メンバー"),
         meta: load_tsv("KPI営業_取得条件"),
         weekly: load_tsv("KPI営業_週次"),
+        kettei: load_tsv("KPI営業_決定者"),
         all_cached: true,
     }
 }
@@ -133,6 +134,14 @@ fn fixture_sheets_counting_everyone() -> Sheets {
 fn fixture_sheets_without_weekly() -> Sheets {
     Sheets {
         weekly: super::empty_sheet(),
+        ..fixture_sheets()
+    }
+}
+
+/// 決定者・決裁者シートがまだ無いとき（日次同期が新しい版で1度も走っていない環境）。
+fn fixture_sheets_without_kettei() -> Sheets {
+    Sheets {
+        kettei: super::empty_sheet(),
         ..fixture_sheets()
     }
 }
@@ -1264,4 +1273,176 @@ fn アンケートの分母は日が過ぎた分と同じ() {
     );
     // 「これから」は分母に入れない
     assert!(sum("これから") > 0, "fixture に『これから』が無く、この検査が効かない");
+}
+
+// ---------------------------------------------------------------- 決定者・決裁者
+
+/// 決定者・決裁者の fixture は `tests/fixtures/sales_kpi/KPI営業_決定者.tsv`。
+/// 3日ぶん入っていて、いちばん古い 2026-09-02 は**使われない**（最新日と前日だけ）。
+/// 実名は入っていない（ownerId と件数だけのシートなので、名前は名簿から引く）。
+fn kettei(body: &Value) -> &Value {
+    &body["kettei"]
+}
+
+fn kettei_row<'a>(body: &'a Value, owner: &str) -> &'a Value {
+    kettei(body)["rows"]
+        .as_array()
+        .expect("rows が配列でない")
+        .iter()
+        .find(|r| r["owner"].as_str() == Some(owner))
+        .unwrap_or_else(|| panic!("ownerId {owner} の行が無い"))
+}
+
+/// 最新日とその1つ前の日だけを使う。それより古い行は混ぜない。
+///
+/// 🔴 シートは日付が違う行が積み上がる（キー = 日付 + ownerId）。全部を足すと
+/// 同じ取引を日数ぶん数えることになるので、必ず1日を切り出す。
+#[test]
+fn 決定者は最新日と前日だけを使う() {
+    let body = payload();
+    let k = kettei(&body);
+    assert_eq!(k["date"].as_str(), Some("2026-09-04"), "最新日");
+    assert_eq!(k["prev_date"].as_str(), Some("2026-09-03"), "その1つ前の日");
+    // いちばん古い 2026-09-02 は全員 1件ずつ（合計4）。混ざっていればここで落ちる。
+    let r = kettei_row(&body, "613211320");
+    assert_eq!(r["合計"].as_i64(), Some(289), "最新日の合計だけを出す");
+}
+
+/// 「本日増加」は 最新日の合計 − 前日の合計。
+#[test]
+fn 決定者の増加は前日との差() {
+    let body = payload();
+    // 258 → 289
+    assert_eq!(kettei_row(&body, "613211320")["増加"].as_i64(), Some(31));
+    // 157 → 181
+    assert_eq!(kettei_row(&body, "97534759")["増加"].as_i64(), Some(24));
+    // 88 → 158
+    assert_eq!(kettei_row(&body, "79628535")["増加"].as_i64(), Some(70));
+    // 前日と同じ。0 は null ではない（画面は ±0 と出す）
+    assert_eq!(kettei_row(&body, "79319481")["増加"].as_i64(), Some(0));
+    // 減ることもある。45 → 42
+    assert_eq!(kettei_row(&body, "94365826")["増加"].as_i64(), Some(-3));
+}
+
+/// 前日の行が無い担当者は増加を出さない（0 と言い切らない）。
+///
+/// 🔴 0 と書くと「今日は1件も増えなかった」と断定することになる。
+/// 前日も入力が無かったのか、前日はそもそも記録されていなかったのかは
+/// この材料からは分からない。画面は null を「—」で出す。
+///
+/// この担当者（1302250542）は `集計対象` が「対象外」でもある。
+/// **決定者・決裁者は外さない**（外すのは商談だけ。架電・架電リストと同じ扱い）ので、
+/// 対象外でもこの表には出る。
+#[test]
+fn 前日の行が無ければ増加はnull() {
+    let body = payload();
+    let r = kettei_row(&body, "1302250542");
+    assert_eq!(r["合計"].as_i64(), Some(15));
+    assert!(r["増加"].is_null(), "前日の行が無いのに増加が出ている: {r}");
+    assert!(
+        !members_of(&fixture_sheets().member)["1302250542"].counted,
+        "この検査は『集計対象外の人』で行う前提。名簿の fixture が変わっている"
+    );
+}
+
+/// シートがまだ無い環境でも落ちない。空配列を返して、画面はタブごと出さない。
+#[test]
+fn 決定者シートが無くても落ちない() {
+    let body = build_payload(&fixture_sheets_without_kettei(), fixture_day());
+    let k = kettei(&body);
+    assert!(
+        k["rows"].as_array().expect("rows が配列でない").is_empty(),
+        "シートが空なのに行が出ている"
+    );
+    assert!(k["date"].is_null(), "行が無いのに日付が出ている");
+    assert!(k["prev_date"].is_null());
+    // 他の数字は今までどおり出ること（決定者シートの有無に巻き込まれない）
+    assert_eq!(
+        body["by_team"],
+        payload()["by_team"],
+        "決定者シートの有無で商談の数字が変わっている"
+    );
+}
+
+/// 合計の多い順に並べる（画面はそのまま出すだけ）。
+#[test]
+fn 決定者は合計の多い順に並ぶ() {
+    let body = payload();
+    let totals: Vec<i64> = kettei(&body)["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|r| r["合計"].as_i64().unwrap_or(0))
+        .collect();
+    assert!(
+        totals.len() >= 2,
+        "fixture の行が足りず、この検査が効かない"
+    );
+    assert!(
+        totals.windows(2).all(|w| w[0] >= w[1]),
+        "合計の多い順になっていない: {totals:?}"
+    );
+}
+
+/// 担当者が入っていない行は表に出さない。「担当者ごとの表」に置き場所が無いため。
+#[test]
+fn 決定者は担当者なしの行を出さない() {
+    let body = payload();
+    for r in kettei(&body)["rows"].as_array().expect("rows") {
+        assert!(
+            !r["owner"].as_str().unwrap_or("").is_empty(),
+            "担当者なしの行が出ている: {r}"
+        );
+    }
+}
+
+/// この表にだけ出てくる担当者も、チーム・個人・チェックボックスの絞り込みに載せる。
+///
+/// 🔴 載せないと「表には出るのに、その人を外せない／選べない」ことが起きる
+/// （架電リスト・Zoom架電と同じ扱い）。
+#[test]
+fn 決定者だけに出る担当者も絞り込みに載る() {
+    let body = payload();
+    let ids: Vec<&str> = body["people"]
+        .as_array()
+        .expect("people")
+        .iter()
+        .filter_map(|p| p["id"].as_str())
+        .collect();
+    for r in kettei(&body)["rows"].as_array().expect("rows") {
+        let owner = r["owner"].as_str().unwrap_or("");
+        assert!(
+            ids.contains(&owner),
+            "決定者の表に出る {owner} が people に居ない（絞り込みから漏れる）"
+        );
+    }
+}
+
+/// 画面が出す列は、サーバが返す `cols` と行のキーが一致していること。
+/// 見出しを2か所に書くと、シートの列名が変わったときに片方だけ直して
+/// 「見出しはあるのに中身が 0」になる。
+#[test]
+fn 決定者の列は表と行で揃っている() {
+    let body = payload();
+    let cols: Vec<&str> = kettei(&body)["cols"]
+        .as_array()
+        .expect("cols")
+        .iter()
+        .filter_map(|c| c.as_str())
+        .collect();
+    assert_eq!(
+        cols,
+        super::KETTEI_COLS
+            .iter()
+            .map(|(_, k)| *k)
+            .collect::<Vec<_>>()
+    );
+    let row = kettei_row(&body, "613211320");
+    let mut sum = 0i64;
+    for c in &cols {
+        sum += row[*c]
+            .as_i64()
+            .unwrap_or_else(|| panic!("行に列 {c} が無い: {row}"));
+    }
+    assert_eq!(sum, row["合計"].as_i64().unwrap(), "4列の和が合計と違う");
 }
