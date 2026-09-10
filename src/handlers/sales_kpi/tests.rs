@@ -259,23 +259,35 @@ fn bpoは当月と前月の窓でしか数えない() {
     assert!(bpo_pool < pool, "BPO が母集団を超えている");
 }
 
+/// 現場が数えている実数と、Zoom から作った架電数が合うこと。
+///
+/// 2026-09-04 に本人へ確認した実数は 206件。判定を "Auto Recorded" だけにして
+/// 205件（差 -1）。この1件差は許容している。
+///
+/// 🔴 以前は**実名の部分一致**で人を引いていたが、**このリポジトリは public** なので
+/// fixture から実名を外した（2026-09-11）。氏名で引く書き方自体にも穴があり、
+/// 同じ姓の人が名簿に複数いるとどれを掴むかが `people` の並び順に依存する。
+/// 架電の行を持たない同姓の人を掴めば 0件で落ちる（実際、名簿には同姓が3名いた）。
+/// ownerId は HubSpot の内部IDで、fixture 全体で既に使っている。
+const KADEN_ACTUAL_OWNER: &str = "96032022";
+
 #[test]
 fn 架電数が現場の実数と合う() {
     let body = payload();
-    // 菊地さんの 2026-09-04 の実数は 206件（本人に確認）。
-    // 判定を "Auto Recorded" だけにして 205件（差 -1）。
-    let kiku = body["people"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|p| p["name"].as_str().unwrap_or("").contains("菊地"))
-        .map(|p| p["id"].as_str().unwrap().to_string())
-        .expect("菊地さんが名簿にいません");
-    let today = &body["calls"]["periods"]["today"]["by_person"][&kiku];
+    let today = &body["calls"]["periods"]["today"]["by_person"][KADEN_ACTUAL_OWNER];
     let connected = today["connected"].as_i64().unwrap_or(0);
     assert!(
         (200..=210).contains(&connected),
-        "架電数が実数(206)から離れすぎ: {connected}"
+        "架電数が実数(206)から離れすぎ: {connected}（ownerId {KADEN_ACTUAL_OWNER}）"
+    );
+    // 名簿に居ること（居ないと画面に ID がそのまま出る）。
+    assert!(
+        body["people"]
+            .as_array()
+            .expect("people")
+            .iter()
+            .any(|p| p["id"].as_str() == Some(KADEN_ACTUAL_OWNER)),
+        "実数を突き合わせた担当者が名簿から消えている"
     );
 }
 
@@ -1506,4 +1518,72 @@ fn 決定者の列は表と行で揃っている() {
             .unwrap_or_else(|| panic!("行に列 {c} が無い: {row}"));
     }
     assert_eq!(sum, row["合計"].as_i64().unwrap(), "4列の和が合計と違う");
+}
+
+/// fixture の見出しが、本番シートの見出しと1文字も違わないこと。
+///
+/// 🔴 2026-09-11 に本番の `KPI営業_決定者` を読み取り専用で見た実物がこれ:
+///   日付 / ownerId / 決定者名 / 決定者の役職 / 決裁者名 / 決裁者の役職 / 合計
+/// （33行・日付は 2026-09-11 の1日ぶん・合計 1,650 で4列の和と一致）。
+/// **「決定者の役職」の `の` は実在する。**
+///
+/// ここが1文字ずれても `SheetData::get()` は "" を返すだけで落ちない。
+/// 落ちないぶん気づきにくく、画面には**全員 0 が並ぶ**。
+/// 定数と fixture が別々に書き換わるのを防ぐため、両方をここで留める。
+#[test]
+fn 決定者の見出しは本番シートと同じ() {
+    let sheet = load_tsv("KPI営業_決定者");
+    let head: Vec<&str> = sheet.header.iter().map(|s| s.as_str()).collect();
+    assert_eq!(
+        head,
+        vec![
+            "日付",
+            "ownerId",
+            "決定者名",
+            "決定者の役職",
+            "決裁者名",
+            "決裁者の役職",
+            "合計"
+        ],
+        "fixture の見出しが本番シートと違う"
+    );
+    for (col, _) in super::KETTEI_COLS {
+        assert!(
+            sheet.col(col).is_some(),
+            "定数が指す列「{col}」がシートに無い（落ちずに全員0で並ぶ）"
+        );
+    }
+}
+
+/// 日が飛んでいても「前の記録」との差が出る。
+///
+/// 🔴 前日を **日付の引き算で求めてはいけない**。決定者シートを書くのは朝の便だけで、
+/// 朝の便は月〜土（cron `30 21 * * 0-5`）。**日曜の行は存在しない**ので、月曜に
+/// 「昨日＝日曜」を探すと毎週かならず空振りし、増加が出せなくなる。
+/// 正しくは「シートに実際にある直近2つの日付」を使う。
+#[test]
+fn 決定者は日が飛んでいても前の記録と比べる() {
+    let sheet = sheet_from_tsv(
+        "日付\townerId\t決定者名\t決定者の役職\t決裁者名\t決裁者の役職\t合計\n\
+         2026-09-12\tA\t10\t10\t10\t10\t40\n\
+         2026-09-14\tA\t12\t11\t10\t10\t43\n",
+    );
+    let body = build_payload(
+        &Sheets {
+            kettei: Arc::new(sheet),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    );
+    let k = kettei(&body);
+    assert_eq!(k["date"], "2026-09-14", "最新日が違う");
+    assert_eq!(
+        k["prev_date"], "2026-09-12",
+        "日曜を飛ばした前の記録（土）を見ていない。日付の引き算になっていないか"
+    );
+    assert_eq!(
+        kettei_row(&body, "A")["増加"].as_i64(),
+        Some(3),
+        "43 - 40 = 3 になっていない"
+    );
 }
