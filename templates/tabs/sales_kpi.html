@@ -605,7 +605,7 @@ function render(){
      avg:avgLine(AB,TT['実施']||0)},
     {lab:'⑥ 商談化率',val:rate,pct:true,hint:fmt(a['実施']||0)+' ÷ '+fmt(den)+' 件'},
     {lab:'⑤ アンケート回収率',val:anqDen?anqNum/anqDen*100:null,pct:true,
-     hint:fmt(anqNum)+' ÷ '+fmt(anqDen)+' 件（今日までに商談日が来た分）'},
+     hint:fmt(anqNum)+' ÷ '+fmt(anqDen)+' 件（④ 日が過ぎた分と同じ母数）'},
     {lab:'⑨ 持っているCヨミ',val:a.cyomi||0,unit:'件',hint:'決定者と合意できた案件',sub2:oi('cyomi'),
      avg:avgLine(AB,TT.cyomi||0)},
   ].forEach(o=>c1.appendChild(cardEl(o)));
