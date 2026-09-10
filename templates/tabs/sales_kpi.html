@@ -258,6 +258,8 @@ const $=id=>document.getElementById(id);
 const WD=['日','月','火','水','木','金','土'];
 const fmt=n=>(n==null?'—':n.toLocaleString('ja-JP'));
 const pct=n=>(n==null?'—':n.toFixed(1)+'%');
+// 架電の期間の初期表示。🔴「今週」で固定（ユーザー指示 2026-09-10）。
+// 今日・昨日は途中経過なので初期表示に向かない。並び順は PL の定義順。
 let team='すべて', person='', openKey=null, weekOpen=false, callPeriod='this_week';
 // 週次表をどちらの数え方で見るか。既定は「その週の商談」（週次表として自然なので）。
 // 'month' は当月の累積で、月初にゼロから数え直しになる。
@@ -612,7 +614,10 @@ function render(){
 
   // ---- 架電（Zoomのコール数を架電数として扱う）----
   const C_=D.calls, K=D.kaden, kc=K.cls;
-  const PL={today:'今日',yesterday:'昨日',this_week:'今週',prev_week:'先週',this_month:'今月'};
+  // 🔴 並び順はこの通りに書いた順で画面に出る（ユーザー指示 2026-09-10）。
+  //    今週・先週を先に置くのは、現場が普段見るのが週の数字だから。
+  //    今日・昨日は途中経過なので後ろ。初期表示も「今週」（callPeriod の初期値）。
+  const PL={this_week:'今週',prev_week:'先週',today:'今日',yesterday:'昨日',this_month:'今月'};
   const c3=$('cards3'); c3.innerHTML='';
   const cp=$('callperiod');
   if(C_&&C_.periods){
