@@ -1251,8 +1251,18 @@ fn 週の範囲は7日で商談はその中に収まる() {
 #[ignore]
 fn payload_を書き出す() {
     let body = payload();
-    let path = std::path::Path::new("sales_kpi_payload.json");
-    std::fs::write(path, serde_json::to_string(&body).expect("JSON 化")).expect("書き出し");
+    // 🔴 **リポジトリ直下に書かない。** 以前はカレントに書いていたので、
+    //    このテストを流したあと `git add -A` すると 264KB の生成物が
+    //    そのままコミットに混ざった（2026-09-11 に実際に起きた）。
+    //    `target/` は .gitignore に入っているのでそこへ置く。
+    //    CARGO_TARGET_DIR を指している環境（OneDrive 配下で cargo build が
+    //    通らないため、この repo では指すことがある）ではそちらを使う。
+    let dir = std::path::PathBuf::from(
+        std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".into()),
+    );
+    std::fs::create_dir_all(&dir).expect("書き出し先が作れません");
+    let path = dir.join("sales_kpi_payload.json");
+    std::fs::write(&path, serde_json::to_string(&body).expect("JSON 化")).expect("書き出し");
     println!("書き出した: {}", path.display());
 }
 
