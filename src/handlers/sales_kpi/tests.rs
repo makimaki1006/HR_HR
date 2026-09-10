@@ -1186,3 +1186,51 @@ fn 止まっている取引はすべて予定日を過ぎている() {
         );
     }
 }
+
+/// 週の日別サマリーが成り立つための約束。
+///
+/// 画面（`.wkstrip`）は `week.start`〜`week.end` の7日を自分で作り、
+/// `week_deals` をその日に振り分けて「どの日に何件あるか」を出す。
+/// だから **範囲が7日ぶんであること**と、**商談がその範囲から外れないこと**が要る。
+/// ここが崩れると、画面はどこにも出ない商談を持つか、日が足りなくなる。
+#[test]
+fn 週の範囲は7日で商談はその中に収まる() {
+    let body = payload();
+    for key in ["week", "next_week"] {
+        let start = body[key]["start"].as_str().expect("start が無い").to_string();
+        let end = body[key]["end"].as_str().expect("end が無い").to_string();
+        let s = chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d").expect("start の形");
+        let e = chrono::NaiveDate::parse_from_str(&end, "%Y-%m-%d").expect("end の形");
+        assert_eq!(
+            (e - s).num_days(),
+            6,
+            "{key} が7日ぶんではない（{start}〜{end}）"
+        );
+
+        let rows_key = if key == "week" { "week_deals" } else { "next_week_deals" };
+        for r in body[rows_key].as_array().expect("一覧が配列でない") {
+            let d = r["date"].as_str().unwrap_or_default();
+            assert!(
+                !d.is_empty() && d >= start.as_str() && d <= end.as_str(),
+                "{rows_key} に範囲外の日がある: {d}（{start}〜{end}）"
+            );
+        }
+    }
+}
+
+/// 画面の見た目を確かめるために、fixture から作った JSON をファイルへ書き出す。
+///
+/// 普段は走らせない（`#[ignore]`）。実データの資格情報がローカルに無くても
+/// 画面を実際に描かせたいときに使う:
+/// ```text
+/// cargo test --lib payload_を書き出す -- --ignored --nocapture
+/// → target/sales_kpi_payload.json を Playwright の route() で返す
+/// ```
+#[test]
+#[ignore]
+fn payload_を書き出す() {
+    let body = payload();
+    let path = std::path::Path::new("sales_kpi_payload.json");
+    std::fs::write(path, serde_json::to_string(&body).expect("JSON 化")).expect("書き出し");
+    println!("書き出した: {}", path.display());
+}
