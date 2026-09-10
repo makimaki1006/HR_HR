@@ -195,6 +195,13 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 .loadstate .hint{color:var(--sub); font-size:12.5px}
 .backlink{font-size:13px; color:var(--sub); text-decoration:none}
 .backlink:hover{color:var(--accent)}
+/* 「直す場所」への行き先。チームや集計対象はスプレッドシートが正なので、
+   画面から1クリックで開けるようにしておく。 */
+.fixlinks{font-size:12.5px; color:var(--faint); margin:-4px 0 14px;
+  display:flex; gap:8px 16px; flex-wrap:wrap; align-items:baseline}
+.fixlinks a{color:var(--accent); text-decoration:none; font-weight:600}
+.fixlinks a:hover{text-decoration:underline}
+.fixlinks .sh{color:var(--faint); font-weight:400}
 </style>
 </head>
 <body>
@@ -220,6 +227,7 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 </div>
 <div class="pick" id="pickpanel" hidden></div>
 <p class="scope" id="scope"></p>
+<p class="fixlinks" id="fixlinks"></p>
 
 <h2>今月の成績</h2>
 <p class="lead">商談の予定日が過ぎたものだけで数えています（今日の商談はまだ終わっていないので入れません）。<br><span id="bporule"></span></p>
@@ -293,6 +301,17 @@ const wd=s=>WD[new Date(s+'T00:00:00+09:00').getDay()];
 //    切らずに 'T00:00:00+09:00' を足すと日付として読めず、ago() が NaN を返す
 //    （⑦の一覧が全部「NaN日前」になっていた。2026-09-10 修正）。
 const TODAY=String(D.generated_at||'').slice(0,10);
+
+// 直す場所（スプレッドシート）。中身は共有設定で守られているので、URL はここに書く。
+// 開けるのは共有されている人だけ。リンクを知っていても中は見えない。
+const SHEETS={
+  roster :{url:'https://docs.google.com/spreadsheets/d/1KLQW1L9SVCqz9_E0qxHbSsoOU4jLh3_2KtC4BK8dCtA/edit',
+           sheet:'②メンバー配置_入力'},
+  exclude:{url:'https://docs.google.com/spreadsheets/d/1jrUspALKO6CNhSzSWJJoJ3VLuSnqfj_eTu3hocO-o2k/edit',
+           sheet:'KPI営業_集計除外'},
+};
+const sheetLink=(k,label)=>
+  '<a href="'+SHEETS[k].url+'" target="_blank" rel="noopener">'+label+' ↗</a>';
 const ago=s=>Math.round((new Date(TODAY+'T00:00:00+09:00')-new Date(s+'T00:00:00+09:00'))/86400000);
 
 $('bporule').innerHTML='<b>内 BPO</b> は「BPOアポ取得日」がその期間にあるものです。'+
@@ -374,7 +393,7 @@ function drawPick(){
   note.innerHTML='チェックを外した人は、この画面の数字から抜けます。'+
     '<b>あなたのブラウザにだけ残ります</b>（他の人の画面は変わりません）。'+
     '<br><span style="color:var(--faint)">全員に効かせたいときは、'+
-    'スプレッドシートの KPI営業_集計除外 を使ってください。</span>';
+    sheetLink('exclude','KPI営業_集計除外')+' を使ってください。</span>';
   box.appendChild(note);
 
   const byTeam={};
@@ -556,11 +575,19 @@ function render(){
   // 🔴 「もとデータから」と書く。数えているのは商談・アポ・Cヨミのシートから
   //    落とした行数で、当月のカードが減る数とは一致しない（当月の外の行も含むため。
   //    2026-09-08 実測: 6件のうち当月のカードに効くのは Cヨミ 4件だけ）。
+  // 直す場所。チーム分けは名簿、商談から外す人は集計除外シートが正。
+  // どちらも「現場が編集する場所」なので、画面から1クリックで開けるようにする。
+  $('fixlinks').innerHTML=
+    'チーム分け・在籍を直す：'+sheetLink('roster','名簿を開く')+
+    '<span class="sh">（'+SHEETS.roster.sheet+'）</span>'+
+    '商談の集計から人を外す：'+sheetLink('exclude','集計除外を開く')+
+    '<span class="sh">（'+SHEETS.exclude.sheet+'）</span>';
+
   $('scope2').innerHTML=exN
     ? '商談のもとデータからは <b>'+Object.keys(EX).filter(k=>k!=='件数')
         .map(k=>k+' '+fmt(EX[k])+'件').join(' ／ ')+'</b> を除いています'+
-      '<span style="color:var(--faint)">（誰を除くかは スプレッドシートの '+
-      'KPI営業_集計除外 で変えられます。架電と架電リストは除いていません）。</span>'
+      '<span style="color:var(--faint)">（誰を除くかは '+
+      sheetLink('exclude','KPI営業_集計除外')+' で変えられます。架電と架電リストは除いていません）。</span>'
     : '';
   const c1=$('cards1'); c1.innerHTML='';
   const anqDen=a.anq_den||0, anqNum=a.anq_num||0;
