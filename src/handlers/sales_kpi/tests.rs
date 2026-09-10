@@ -1290,8 +1290,14 @@ fn アンケートの分母は日が過ぎた分と同じ() {
 // ---------------------------------------------------------------- 決定者・決裁者
 
 /// 決定者・決裁者の fixture は `tests/fixtures/sales_kpi/KPI営業_決定者.tsv`。
-/// 3日ぶん入っていて、いちばん古い 2026-09-02 は**使われない**（最新日と前日だけ）。
+/// 3日ぶん入っていて、いちばん古い 2026-09-04 は**使われない**（最新日と前日だけ）。
 /// 実名は入っていない（ownerId と件数だけのシートなので、名前は名簿から引く）。
+///
+/// 🔴 日付は **09-05(土) → [09-06(日) は無い] → 09-07(月)** にしてある。
+/// 本番の朝の便の cron は JST 月〜土 6:30 なので、**日曜の行は永久に作られない**
+/// （2026-09-11 に `.github/workflows/sales_kpi_daily.yml` で確認）。
+/// 連続した3日にすると、前日比を「日付 − 1日」で引く実装が素通りしてしまう。
+/// この形なら月曜に日曜を引きにいって空振りし、増加が全部 null になって落ちる。
 fn kettei(body: &Value) -> &Value {
     &body["kettei"]
 }
@@ -1332,11 +1338,47 @@ fn kettei_row<'a>(body: &'a Value, owner: &str) -> &'a Value {
 fn 決定者は最新日と前日だけを使う() {
     let body = payload();
     let k = kettei(&body);
-    assert_eq!(k["date"].as_str(), Some("2026-09-04"), "最新日");
-    assert_eq!(k["prev_date"].as_str(), Some("2026-09-03"), "その1つ前の日");
-    // いちばん古い 2026-09-02 は全員 1件ずつ（合計4）。混ざっていればここで落ちる。
+    assert_eq!(k["date"].as_str(), Some("2026-09-07"), "最新日");
+    assert_eq!(
+        k["prev_date"].as_str(),
+        Some("2026-09-05"),
+        "その1つ前の**記録**"
+    );
+    // いちばん古い 2026-09-04 は全員 1件ずつ（合計4）。混ざっていればここで落ちる。
     let r = kettei_row(&body, "613211320");
     assert_eq!(r["合計"].as_i64(), Some(289), "最新日の合計だけを出す");
+}
+
+/// fixture の最新2日が「土 → 月」の形（日曜が抜けている）に保たれていること。
+///
+/// 判定そのものは `決定者は日が飛んでいても前の記録と比べる` が専用のシートで見る。
+/// こちらは **fixture の形**を留めるためのもので、誰かが日付を連続3日に
+/// 「揃える」と落ちる。連続にしてしまうと、この fixture を使う他の検査
+/// （増加・担当者なし・ブラウザ確認）が週またぎを踏まなくなる。
+///
+/// 実際に実装を「日付 − 1日」に変えて確かめたところ、この形なら
+/// 決定者まわり5件が落ちた（2026-09-11）。
+#[test]
+fn 決定者のfixtureは日曜が抜けた形を保つ() {
+    let body = payload();
+    let k = kettei(&body);
+    let d = |key: &str| {
+        NaiveDate::parse_from_str(k[key].as_str().expect(key), "%Y-%m-%d").expect("日付の形")
+    };
+    let (latest, prev) = (d("date"), d("prev_date"));
+    assert_eq!(
+        (latest - prev).num_days(),
+        2,
+        "fixture の最新2日が連続してしまっている。日曜が抜ける形（土→月）にしておかないと、
+         前日比を日付の引き算で書いた実装をここで捕まえられない"
+    );
+    assert_eq!(
+        latest.format("%a").to_string(),
+        "Mon",
+        "最新日を月曜にしてある（1つ前が土曜になる形）"
+    );
+    // その形でも増加はちゃんと出ること。
+    assert_eq!(kettei_row(&body, "613211320")["増加"].as_i64(), Some(31));
 }
 
 /// 「本日増加」は 最新日の合計 − 前日の合計。
@@ -1452,12 +1494,12 @@ fn 担当者なしは人の行に混ぜず別に返す() {
 #[test]
 fn 決定者が1日ぶんしか無ければ増加は全部出せない() {
     let one_day = Sheets {
-        kettei: Arc::new(sheet_from_tsv(&keep_kettei_days(&["2026-09-04"]))),
+        kettei: Arc::new(sheet_from_tsv(&keep_kettei_days(&["2026-09-07"]))),
         ..fixture_sheets()
     };
     let body = build_payload(&one_day, fixture_day());
     let k = kettei(&body);
-    assert_eq!(k["date"].as_str(), Some("2026-09-04"));
+    assert_eq!(k["date"].as_str(), Some("2026-09-07"));
     assert!(k["prev_date"].is_null(), "前日が無いのに日付が出ている");
     let rows = k["rows"].as_array().expect("rows");
     assert!(!rows.is_empty(), "行そのものは出る");
