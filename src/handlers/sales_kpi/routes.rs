@@ -763,6 +763,11 @@ fn kaden_list_block(
 ///
 /// 並びは合計の多い順。シートがまだ無い／空なら `rows` は空配列で返す
 /// （落とさない。画面はそのときタブごと出さない）。
+///
+/// 🔴 **`ownerId` が空の行が来ることがある**（担当者が入っていない取引をまとめた行。
+/// `KPI営業_架電リスト_担当別` と同じ）。担当者ごとの表には置き場所が無いが、
+/// 黙って落とすと表の合計がシートの合計より少なくなる。`no_owner` に分けて返し、
+/// 画面が別の行として出せるようにする。
 fn kettei_block(
     sheet: &crate::handlers::call_quality::sheets::SheetData,
     members: &HashMap<String, Person>,
@@ -772,25 +777,10 @@ fn kettei_block(
     // 画面が出す列。見出しをサーバとテンプレートの2か所に書かないよう、ここから渡す。
     let cols: Vec<&str> = KETTEI_COLS.iter().map(|(_, key)| *key).collect();
 
-    let mut rows: Vec<Value> = Vec::new();
-    for (owner, counts) in &days.latest {
-        // 担当者が入っていない行（ownerId が空）は誰の数字でもないので出さない。
-        // 表は「担当者ごと」なので、置き場所が無い。
-        if owner.is_empty() {
-            continue;
-        }
-        let team = note(people, members, owner);
-        let person = person_of(members, owner);
+    // 1人ぶん（または担当なしぶん）の数字。列・合計・増加をまとめて作る。
+    let cells = |owner: &str, counts: &Counts| -> serde_json::Map<String, Value> {
         let total = counts.get("合計").copied().unwrap_or(0);
-        let grew = days
-            .prev
-            .get(owner)
-            .map(|p| total - p.get("合計").copied().unwrap_or(0));
         let mut item = serde_json::Map::new();
-        item.insert("owner".into(), json!(owner));
-        item.insert("ownerName".into(), json!(person.name));
-        item.insert("team".into(), json!(team));
-        item.insert("hsTeam".into(), json!(person.hs_team));
         for key in &cols {
             item.insert(
                 (*key).to_string(),
@@ -798,7 +788,32 @@ fn kettei_block(
             );
         }
         item.insert("合計".into(), json!(total));
-        item.insert("増加".into(), json!(grew));
+        item.insert(
+            "増加".into(),
+            json!(days
+                .prev
+                .get(owner)
+                .map(|p| total - p.get("合計").copied().unwrap_or(0))),
+        );
+        item
+    };
+
+    let mut rows: Vec<Value> = Vec::new();
+    let mut no_owner = Value::Null;
+    for (owner, counts) in &days.latest {
+        let mut item = cells(owner, counts);
+        // 担当者が入っていない行は「人」ではないので、担当者ごとの表には混ぜない。
+        // 落としもしない（→ `no_owner`）。チーム・個人の絞り込みも掛けようが無い。
+        if owner.is_empty() {
+            no_owner = Value::Object(item);
+            continue;
+        }
+        let team = note(people, members, owner);
+        let person = person_of(members, owner);
+        item.insert("owner".into(), json!(owner));
+        item.insert("ownerName".into(), json!(person.name));
+        item.insert("team".into(), json!(team));
+        item.insert("hsTeam".into(), json!(person.hs_team));
         rows.push(Value::Object(item));
     }
     // 合計の多い順。同数なら担当者名で決めて、読み直すたびに並びが変わらないようにする。
@@ -816,5 +831,8 @@ fn kettei_block(
         "prev_date": if days.prev_date.is_empty() { Value::Null } else { json!(days.prev_date) },
         "cols": cols,
         "rows": rows,
+        // 担当者が入っていない取引ぶん。人ではないのでチーム・個人では絞れない。
+        // 無ければ null。
+        "no_owner": no_owner,
     })
 }

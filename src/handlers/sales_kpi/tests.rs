@@ -1284,6 +1284,25 @@ fn kettei(body: &Value) -> &Value {
     &body["kettei"]
 }
 
+/// 決定者の fixture から、指定した日の行だけを残した TSV を作る。
+/// 本番の初日（1日ぶんしか無い）を再現するのに使う。
+fn keep_kettei_days(days: &[&str]) -> String {
+    let text = std::fs::read_to_string(format!(
+        "{}/tests/fixtures/sales_kpi/KPI営業_決定者.tsv",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("決定者の fixture が読めません");
+    let mut lines = text.lines();
+    let mut out = vec![lines.next().expect("見出し").to_string()];
+    out.extend(
+        lines
+            .filter(|l| !l.trim().is_empty())
+            .filter(|l| days.contains(&l.split('\t').next().unwrap_or("")))
+            .map(|l| l.to_string()),
+    );
+    out.join("\n")
+}
+
 fn kettei_row<'a>(body: &'a Value, owner: &str) -> &'a Value {
     kettei(body)["rows"]
         .as_array()
@@ -1384,16 +1403,58 @@ fn 決定者は合計の多い順に並ぶ() {
     );
 }
 
-/// 担当者が入っていない行は表に出さない。「担当者ごとの表」に置き場所が無いため。
+/// 担当者が入っていない行は、担当者の行に混ぜないが**落としもしない**。
+///
+/// 🔴 落とすと表の合計がシートの合計より少なくなる。日次同期は
+/// 「担当者が入っていない取引」を ownerId が空の1行にまとめて書く
+/// （`KPI営業_架電リスト_担当別` と同じ）。画面は別の行として出す。
 #[test]
-fn 決定者は担当者なしの行を出さない() {
+fn 担当者なしは人の行に混ぜず別に返す() {
     let body = payload();
     for r in kettei(&body)["rows"].as_array().expect("rows") {
         assert!(
             !r["owner"].as_str().unwrap_or("").is_empty(),
-            "担当者なしの行が出ている: {r}"
+            "担当者なしが人の行に混ざっている: {r}"
         );
     }
+    let no = &kettei(&body)["no_owner"];
+    assert!(!no.is_null(), "担当者なしの行が落とされている");
+    assert_eq!(no["合計"].as_i64(), Some(29), "8+8+6+7");
+    assert_eq!(no["増加"].as_i64(), Some(3), "前日 26 → 29");
+    // 人ではないので、個人プルダウンには出さない（空の項目になる）。
+    assert!(
+        !body["people"]
+            .as_array()
+            .expect("people")
+            .iter()
+            .any(|p| p["id"].as_str() == Some("")),
+        "担当者なしが個人プルダウンに出ている"
+    );
+}
+
+/// 本番の初日（1日ぶんしか書かれていない日）。増加は全部出せない。
+///
+/// 🔴 2026-09-11 に本番シートが初めて書かれた時点がこの状態だった。
+/// 前日の行が1つも無いので `prev_date` が null になり、画面は全行に「—」を出す。
+/// ここで 0 を返すと「今朝は誰も1件も増やさなかった」と嘘をつく。
+#[test]
+fn 決定者が1日ぶんしか無ければ増加は全部出せない() {
+    let one_day = Sheets {
+        kettei: Arc::new(sheet_from_tsv(&keep_kettei_days(&["2026-09-04"]))),
+        ..fixture_sheets()
+    };
+    let body = build_payload(&one_day, fixture_day());
+    let k = kettei(&body);
+    assert_eq!(k["date"].as_str(), Some("2026-09-04"));
+    assert!(k["prev_date"].is_null(), "前日が無いのに日付が出ている");
+    let rows = k["rows"].as_array().expect("rows");
+    assert!(!rows.is_empty(), "行そのものは出る");
+    for r in rows {
+        assert!(r["増加"].is_null(), "前日が無いのに増加が出ている: {r}");
+    }
+    assert!(k["no_owner"]["増加"].is_null(), "担当者なしも同じ");
+    // 件数は最新日ぶんそのまま出る（増加が出せないだけ）。
+    assert_eq!(kettei_row(&body, "613211320")["合計"].as_i64(), Some(289));
 }
 
 /// この表にだけ出てくる担当者も、チーム・個人・チェックボックスの絞り込みに載せる。
