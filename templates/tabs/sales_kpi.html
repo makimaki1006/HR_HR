@@ -4,6 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>営業KPI 現場版</title>
+<script>
+// 前に「暗い画面」を選んだ人だけ、描画される前に暗くする。
+// 🔴 CSS より先・body より先に置くこと。後ろに置くと、明るい画面が一瞬映ってから
+//    暗くなる（ちらつく）。既定は明るいので、選んでいない人はここで何もしない。
+var THEME_KEY='salesKpi.theme.v1';
+try{ if(localStorage.getItem(THEME_KEY)==='dark'){
+  document.documentElement.setAttribute('data-theme','dark'); } }catch(e){}
+
+// 切り替えボタンの配線もここでやる。
+// 🔴 データを読む処理の中に置かない。シートが読めないと 503 で処理が止まり、
+//    ボタンが死ぬ（実際そうなっていた。エラー画面のまま明暗も変えられない）。
+//    表示の切り替えはデータと関係ないので、データの成否に巻き込まれない場所に置く。
+document.addEventListener('DOMContentLoaded',function(){
+  var b=document.getElementById('tt');
+  if(!b) return;
+  b.onclick=function(){
+    var dark=document.documentElement.getAttribute('data-theme')==='dark';
+    var next=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    try{localStorage.setItem(THEME_KEY,next);}catch(e){}
+  };
+});
+</script>
 <style>
 :root{
   color-scheme:light;
@@ -15,16 +38,11 @@
   --ok:#18a957; --ok-soft:#eaf7ef;
   --shadow:0 1px 3px rgba(20,30,50,.07),0 1px 2px rgba(20,30,50,.04);
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  color-scheme:dark;
-  --bg:#12141a; --card:#1a1d24; --border:#2b2f38;
-  --text:#e8ebef; --sub:#9aa3af; --faint:#6d7684;
-  --accent:#5b8dff; --accent-soft:#1c2740;
-  --alert:#ef5f56; --alert-soft:#3a1f1d;
-  --warn:#eda63c; --warn-soft:#33280f;
-  --ok:#2fbd6d; --ok-soft:#12291c;
-  --shadow:0 1px 3px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.3);
-}}
+/* 🔴 明るい画面が既定。OSがダークでも、この画面は明るいまま開く。
+   （2026-09-10 ユーザー指示「標準は明るくしてほしい」）
+   暗くしたい人は右上のボタンで切り替える。選択はブラウザに残るので、
+   一度押せば次からその人の画面だけ暗いまま開く。
+   ここに @media (prefers-color-scheme:dark) を足すと、OSの設定が既定に戻る。 */
 :root[data-theme="dark"]{
   color-scheme:dark;
   --bg:#12141a; --card:#1a1d24; --border:#2b2f38;
@@ -245,9 +263,8 @@ let team='すべて', person='', openKey=null, weekOpen=false, callPeriod='this_
 // 'month' は当月の累積で、月初にゼロから数え直しになる。
 let snapMode='week';
 
-$('tt').onclick=()=>{const c=document.documentElement.getAttribute('data-theme');
-  const dark=c?c==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
-  document.documentElement.setAttribute('data-theme',dark?'light':'dark');};
+// 明暗の切り替えはここには無い。<head> の先頭で配線している。
+// データが読めなくてもボタンは効く必要があるため（→ head のコメント）。
 
 const md=s=>{const d=new Date(s+'T00:00:00+09:00');return (d.getMonth()+1)+'/'+d.getDate();};
 const wd=s=>WD[new Date(s+'T00:00:00+09:00').getDay()];
