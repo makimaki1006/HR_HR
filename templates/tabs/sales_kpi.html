@@ -71,6 +71,23 @@ h1{font-size:21px; margin:0 0 3px; font-weight:700}
   border-radius:999px; padding:7px 15px; font-size:14px; cursor:pointer; font-family:inherit}
 .chip:hover{border-color:var(--accent)}
 .chip.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+/* タブ。見る人が違う中身を、1枚に足さずに切り替えで出す（2026-09-11 ユーザー指示）。
+   .chip と同じ色を使うが、形は下線タブにして「絞り込み」と見分けられるようにする。 */
+.tabs{display:flex; gap:2px; flex-wrap:wrap; margin:18px 0 0;
+  border-bottom:1px solid var(--border)}
+/* 🔴 display を指定した要素は hidden 属性だけでは消えない（作者のスタイルが
+   ブラウザ既定の [hidden]{display:none} に勝つ）。決定者のデータが無いときに
+   タブが1つしか無いので、バーごと消す。実際に空の枠線だけが残っていた。 */
+.tabs[hidden]{display:none}
+.tab{background:none; border:0; border-bottom:2px solid transparent; margin-bottom:-1px;
+  color:var(--sub); padding:9px 16px; font-size:15px; font-weight:600;
+  font-family:inherit; cursor:pointer}
+.tab:hover{color:var(--accent)}
+.tab.on{color:var(--accent); border-bottom-color:var(--accent)}
+.tab:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+/* 表の合計行。本文より1段強く出す */
+tfoot td{border-top:2px solid var(--border); border-bottom:0; font-weight:700}
+tfoot td .sm{font-weight:400}
 select{background:var(--card); color:var(--text); border:1px solid var(--border);
   border-radius:8px; padding:7px 11px; font-size:14px; font-family:inherit; max-width:100%}
 select:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
@@ -219,6 +236,8 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
   </div>
 </header>
 
+<div class="tabs" id="tabs" role="tablist" hidden></div>
+
 <div class="filters">
   <div class="chiprow" id="teams"></div>
   <select id="person"><option value="">個人で見る…</option></select>
@@ -227,6 +246,8 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 </div>
 <div class="pick" id="pickpanel" hidden></div>
 <p class="scope" id="scope"></p>
+
+<div id="tab-kpi" role="tabpanel">
 <p class="fixlinks" id="fixlinks"></p>
 
 <h2>今月の成績</h2>
@@ -256,6 +277,14 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 <div id="snapbox"></div>
 
 <div class="foot" id="foot"></div>
+</div>
+
+<div id="tab-kettei" role="tabpanel" hidden>
+<h2>決定者・決裁者の入力状況</h2>
+<p class="lead" id="lead5"></p>
+<div id="ketteibox"></div>
+</div>
+
 </div>
 
 
@@ -919,11 +948,16 @@ function render(){
     wrapB.appendChild(lg2);
     // 決定者・決裁者は全社でしか数えていない。担当者ごとに数えると
     // リクエストが4倍になるわりに、全社で 0.1〜0.2% しか入っておらず差が出ないため。
+    // 🔴 ここは**アポ前リスト全体**の入力率。担当者ごとの件数は別のシートから
+    //    数えていて、母集団が同じとは限らない。同じ数だとは書かない。
     wrapB.innerHTML+='<div class="hint" style="margin-top:10px">決定者・決裁者の入力状況'+
-      '（<b>アポ前リスト全体</b> '+fmt(K.total)+'件・チームや個人では出せません。'+
-      (hid?'<b style="color:var(--warn)">チェックの絞り込みは効きません</b>）: ':'）: ')+
+      '（<b>アポ前リスト全体</b> '+fmt(K.total)+'件'+
+      (HAVE_KETTEI?'':'・チームや個人では出せません')+
+      (hid?'。<b style="color:var(--warn)">チェックの絞り込みは効きません</b>）: ':'）: ')+
       Object.keys(K.fill).map(k=>k+' '+pct(K.fill[k]/K.total*100)).join(' ／ ')+
-      '　<b style="color:var(--alert)">ほぼ入っていません。</b></div>';
+      '　<b style="color:var(--alert)">ほぼ入っていません。</b>'+
+      (HAVE_KETTEI?'<br>担当者ごとの件数は上の<b>「決定者・決裁者」タブ</b>にあります。':'')+
+      '</div>';
     lb.appendChild(wrapB);
 
     // ---- まだ配られていないリスト（全社のときだけ）----
@@ -1079,8 +1113,114 @@ function render(){
     '<b>架電リスト母数</b>はアポ前リストの件数です。BPOリストとの間で件数が'+
     '行き来するため週ごとに動きます。<b>母数が動いた週は、率の比較が成り立ちません。</b></div>';
   sb.appendChild(box);
+
+  // 決定者・決裁者タブ。チーム・個人・チェックボックスの絞り込みを同じように効かせるので、
+  // ここ（render の中）から呼ぶ。
+  renderKettei();
 }
+
+// ---- 決定者・決裁者 --------------------------------------------------------
+//
+// HubSpot のレポートを写した表。担当者ごとに、決定者・決裁者の名前と役職が
+// 何件入っているかを出す。
+//
+// 🔴 「本日増加」は前回の記録との差。前回の記録が無い担当者は **null** で来るので
+//    「—」を出す。0 と書くと「今日は1件も増えなかった」と断定することになる
+//    （前日も入力が無かったのか、その日が記録の1日目なのかは区別できない）。
+const growText=n=>(n==null?'—':(n===0?'±0':(n>0?'+':'')+fmt(n)));
+const growColor=n=>(n==null||n===0?'var(--faint)':(n>0?'var(--ok)':'var(--alert)'));
+
+function renderKettei(){
+  const KE=D.kettei||{}, cols=KE.cols||[], rows=pick(KE.rows||[]);
+  const asof=KE.date?md(KE.date)+'（'+wd(KE.date)+'）':'—';
+  $('lead5').innerHTML=
+    '取引に決定者・決裁者が何件入っているかを、担当者ごとに数えたものです。'+
+    '<b>'+asof+' 時点</b>の件数です。'+
+    (KE.prev_date
+      ? '「本日増加」は前回の記録（'+md(KE.prev_date)+'）からの差です。'
+      : '<b style="color:var(--warn)">前回の記録がまだ無いので、「本日増加」は出せません。</b>')+
+    '<br><span style="color:var(--faint)">上のチーム・個人・担当者のチェックは、この表にも効きます。</span>';
+
+  const box=$('ketteibox'); box.innerHTML='';
+  if(!rows.length){
+    box.innerHTML='<div class="empty">選んでいる範囲に、決定者・決裁者を入力した担当者がいません。</div>';
+    return;
+  }
+  const card=document.createElement('div'); card.className='c';
+  const tw=document.createElement('div'); tw.className='tw';
+  const t=document.createElement('table');
+  t.innerHTML='<thead><tr><th>担当者</th>'+
+    cols.map(c=>'<th class="n">'+c+'</th>').join('')+
+    '<th class="n">合計</th><th class="n">本日増加'+
+    (KE.prev_date?'<span class="sm">'+md(KE.prev_date)+' からの差</span>'
+                 :'<span class="sm">前回の記録がありません</span>')+
+    '</th></tr></thead>';
+
+  const sum={}; cols.concat(['合計']).forEach(c=>{sum[c]=0;});
+  let grew=0, grewKnown=0;
+  const tb=document.createElement('tbody');
+  rows.forEach(r=>{
+    let h='<td>'+r.ownerName+'</td>';
+    cols.forEach(c=>{h+='<td class="n">'+fmt(r[c])+'</td>'; sum[c]+=r[c]||0;});
+    h+='<td class="n"><b>'+fmt(r['合計'])+'</b></td>';
+    sum['合計']+=r['合計']||0;
+    h+='<td class="n" style="color:'+growColor(r['増加'])+'">'+growText(r['増加'])+'</td>';
+    if(r['増加']!=null){grew+=r['増加']; grewKnown++;}
+    const tr=document.createElement('tr'); tr.innerHTML=h; tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+
+  // 合計行。絞り込みが効いている表なので、**いま出している行の合計**であることを明記する。
+  // 何も絞っていなければ全社の合計になる。
+  const who=person?((D.people.find(x=>x.id===person)||{}).name||'この担当者')
+                  :(team==='すべて'?'全社':team);
+  // 前回の記録が無い担当者は増加を足せない。何名ぶん足せなかったかを添える。
+  const miss=rows.length-grewKnown;
+  const gcell=grewKnown
+    ? '<span style="color:'+growColor(grew)+'">'+growText(grew)+'</span>'+
+      (miss?'<span class="sm">'+miss+'名は前回の記録なし</span>':'')
+    : '—';
+  const tf=document.createElement('tfoot');
+  tf.innerHTML='<tr><td>合計<span class="sm">'+who+'・'+rows.length+'名</span></td>'+
+    cols.map(c=>'<td class="n">'+fmt(sum[c])+'</td>').join('')+
+    '<td class="n">'+fmt(sum['合計'])+'</td>'+
+    '<td class="n">'+gcell+'</td></tr>';
+  t.appendChild(tf);
+
+  tw.appendChild(t); card.appendChild(tw);
+  box.appendChild(card);
+}
+
+// ---- タブの切り替え --------------------------------------------------------
+//
+// 「見たい人が違うから、今のに足すのではなく切り替えで見れるようにしたい」
+// （2026-09-11 ユーザー指示）。ページは遷移せず、同じ JSON を両方のタブで使う。
+// 選んだタブは覚えない（開くたび「営業KPI」から始まる）。
+const HAVE_KETTEI=((D.kettei||{}).rows||[]).length>0;
+const TABS=[{key:'kpi',label:'営業KPI',el:'tab-kpi'}];
+// 決定者のシートがまだ無い／空のときは、タブごと出さない。
+// 空の表を出しても読む人が判断できないため。
+if(HAVE_KETTEI) TABS.push({key:'kettei',label:'決定者・決裁者',el:'tab-kettei'});
+let tab='kpi';
+if(TABS.length>1){
+  const tbar=$('tabs'); tbar.hidden=false;
+  TABS.forEach(function(t){
+    const b=document.createElement('button');
+    b.type='button'; b.className='tab'; b.textContent=t.label;
+    b.setAttribute('role','tab'); b.setAttribute('aria-controls',t.el);
+    b.onclick=function(){tab=t.key; drawTabs();};
+    tbar.appendChild(b);});
+}
+function drawTabs(){
+  [...$('tabs').children].forEach(function(b,ix){
+    const on=TABS[ix].key===tab;
+    b.classList.toggle('on',on);
+    b.setAttribute('aria-selected',on?'true':'false');});
+  TABS.forEach(function(t){$(t.el).hidden=(t.key!==tab);});
+}
+
 render();
+drawTabs();
 
 $('foot').innerHTML=
   'カードの下の小さい「1人あたり」は、選んでいるチームの合計を<b>そのチームの人数</b>'+

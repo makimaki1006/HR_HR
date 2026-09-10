@@ -24,6 +24,7 @@
 //!   KPI営業_メンバー  ownerId → 氏名・チーム
 //!   KPI営業_取得条件  いつ・どの範囲で取ったか
 //!   KPI営業_週次      週に1行の記録（唯一、集計済みの値を持つシート）
+//!   KPI営業_決定者    決定者・決裁者の入力状況を、日 × 担当者で持つ
 //!
 //! **仕分け（実施/未実施/未処理/予定）はシートに入っていない。ここで判定する。**
 //! 現場ヒアリングで判定が変わる見込みがあり、変わるたびにシートを作り直したくないため。
@@ -98,6 +99,10 @@ pub const SHEET_KADEN_BY_OWNER: &str = "KPI営業_架電リスト_担当別";
 pub const SHEET_MEMBER: &str = "KPI営業_メンバー";
 pub const SHEET_META: &str = "KPI営業_取得条件";
 pub const SHEET_WEEKLY: &str = "KPI営業_週次";
+/// 決定者・決裁者の入力状況を、日 × 担当者で持つ（`日付 / ownerId / 決定者名 / …`）。
+/// **無いことがある**（2026-09-11 に足したので、日次同期が新しい版で1度も走っていない
+/// 環境ではシート自体が存在しない）。週次と同じく、無ければ空で通す。
+pub const SHEET_KETTEI: &str = "KPI営業_決定者";
 
 // ---------------------------------------------------------------- 取引
 
@@ -239,6 +244,8 @@ pub struct Sheets {
     pub meta: Arc<SheetData>,
     /// 週次の記録。**まだ1度も書かれていないことがある**ので、無ければ空。
     pub weekly: Arc<SheetData>,
+    /// 決定者・決裁者の入力状況。**まだ1度も書かれていないことがある**ので、無ければ空。
+    pub kettei: Arc<SheetData>,
     /// 全部キャッシュから返せたか（画面に鮮度を出すため）
     pub all_cached: bool,
 }
@@ -283,6 +290,7 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
     }
     let weekly = optional!(SHEET_WEEKLY, "週次");
     let kaden_by_owner = optional!(SHEET_KADEN_BY_OWNER, "架電リストの担当者別");
+    let kettei = optional!(SHEET_KETTEI, "決定者・決裁者");
     Ok(Sheets {
         shodan: fetch!(SHEET_SHODAN),
         apo: fetch!(SHEET_APO),
@@ -293,6 +301,7 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
         member: fetch!(SHEET_MEMBER),
         meta: fetch!(SHEET_META),
         weekly,
+        kettei,
         all_cached: cached,
     })
 }
@@ -556,6 +565,114 @@ pub fn kaden_by_owner_of(sheet: &SheetData) -> BTreeMap<String, Counts> {
         *per.entry(class.to_string()).or_insert(0) += n;
         if KADEN_CLASSES.contains(&class) {
             *per.entry("base".into()).or_insert(0) += n;
+        }
+    }
+    out
+}
+
+// ------------------------------------------------- 決定者・決裁者
+
+/// 決定者・決裁者の入力状況の列。左がシートの見出し、右が画面に出す短い名前。
+///
+/// 🔴 左側は Python 側（Hubspot リポジトリ `scripts/sales_kpi/sync_daily.py`）と
+/// 対で決まっている。片方だけ変えると全員 0 で並ぶ。
+///
+/// 見出しの「決定者の役職」に `の` が入っているのは、既に `KPI営業_架電リスト` の
+/// 充足行がその表記だから（プロパティのラベルをそのまま使っている）。
+/// 画面の表は列が7つ並んで横に長くなるので、ここで短い名前に読み替える。
+pub const KETTEI_COLS: &[(&str, &str)] = &[
+    ("決定者名", "決定者名"),
+    ("決定者の役職", "決定者役職"),
+    ("決裁者名", "決裁者名"),
+    ("決裁者の役職", "決裁者役職"),
+];
+
+/// 決定者・決裁者シートを「いちばん新しい日」と「その1つ前の日」に絞ったもの。
+///
+/// シートは日付が違う行が積み上がる（キー = 日付 + ownerId）ので、
+/// 全部を足すと同じ取引を日数ぶん数えることになる。**必ず1日を切り出して使う。**
+#[derive(Debug, Default)]
+pub struct KetteiDays {
+    /// いちばん新しい日。行が1つも無ければ空。
+    pub date: String,
+    /// その1つ前の日。日が1つしか無ければ空。
+    pub prev_date: String,
+    /// `ownerId → {列: 件数}`。最新日ぶん。
+    pub latest: BTreeMap<String, Counts>,
+    /// 同じく前日ぶん。増加を出すためだけに使う。
+    pub prev: BTreeMap<String, Counts>,
+}
+
+/// 1行から `{列: 件数}` を作る。
+///
+/// `合計` はシートの列をそのまま読む（シートが正）。列が無い・読めないときだけ
+/// 4つを足して埋める。足し算で上書きしないのは、シート側が別の定義で合計を
+/// 出すようになったときに、画面が黙って違う数を出さないようにするため。
+fn kettei_counts(sheet: &SheetData, row: &[Arc<str>]) -> Counts {
+    let num = |name: &str| -> i64 {
+        sheet
+            .get(row, name)
+            .replace(',', "")
+            .trim()
+            .parse::<i64>()
+            .unwrap_or(0)
+    };
+    let mut c = Counts::new();
+    let mut sum = 0i64;
+    for (col, key) in KETTEI_COLS {
+        let n = num(col);
+        c.insert((*key).to_string(), n);
+        sum += n;
+    }
+    let total = sheet
+        .get(row, "合計")
+        .replace(',', "")
+        .trim()
+        .parse::<i64>()
+        .unwrap_or(sum);
+    c.insert("合計".into(), total);
+    c
+}
+
+/// `KPI営業_決定者` から最新日と前日を切り出す。行が無ければ全部空。
+///
+/// 同じ日・同じ担当者の行が2つあれば足す（日次同期が二重に書いた場合の保険。
+/// 落とすより足したほうが、取りこぼしに気づける）。
+pub fn kettei_days_of(sheet: &SheetData) -> KetteiDays {
+    let mut dates: Vec<&str> = sheet
+        .rows
+        .iter()
+        .map(|r| sheet.get(r, "日付").trim())
+        .filter(|d| !d.is_empty())
+        .collect();
+    dates.sort_unstable();
+    dates.dedup();
+    // 日付は `yyyy-MM-dd` のゼロ埋めなので辞書順が日付順になる。
+    let date = dates.last().copied().unwrap_or("").to_string();
+    let prev_date = if dates.len() >= 2 {
+        dates[dates.len() - 2].to_string()
+    } else {
+        String::new()
+    };
+
+    let mut out = KetteiDays {
+        date: date.clone(),
+        prev_date: prev_date.clone(),
+        ..Default::default()
+    };
+    for row in &sheet.rows {
+        let d = sheet.get(row, "日付").trim();
+        let bucket = if !date.is_empty() && d == date {
+            &mut out.latest
+        } else if !prev_date.is_empty() && d == prev_date {
+            &mut out.prev
+        } else {
+            continue;
+        };
+        let owner = sheet.get(row, "ownerId").trim().to_string();
+        let per = bucket.entry(owner).or_default();
+        for (key, value) in kettei_counts(sheet, row) {
+            *per.entry(key).or_insert(0) += value;
         }
     }
     out

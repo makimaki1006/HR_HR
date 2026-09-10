@@ -28,9 +28,9 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
-    classify, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_of, kaden_period, load,
-    members_of, person_of, snapshots_of, Counts, Deal, DealRow, Kind, Person, Sheets,
-    KADEN_CLASSES, SHEET_META,
+    classify, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_of, kaden_period,
+    kettei_days_of, load, members_of, person_of, snapshots_of, Counts, Deal, DealRow, Kind, Person,
+    Sheets, KADEN_CLASSES, KETTEI_COLS, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -132,6 +132,7 @@ async fn data(Query(q): Query<DataQuery>, session: Session) -> Result<Response, 
             super::SHEET_MEMBER,
             SHEET_META,
             super::SHEET_WEEKLY,
+            super::SHEET_KETTEI,
         ] {
             state.store.invalidate(Some(name)).await;
         }
@@ -364,6 +365,13 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         }
     }
 
+    // ---- 決定者・決裁者の入力状況 -----------------------------------------
+    //
+    // 🔴 ここに出てくる担当者も `people` に控える。控えないと、
+    //    チームのチップ・個人のプルダウン・担当者のチェックボックスに出てこない人が
+    //    この表にだけ現れて、絞り込みから漏れる（架電リスト・Zoom架電と同じ扱い）。
+    let kettei = kettei_block(&sheets.kettei, &members, &mut people);
+
     // ---- 取得条件 ---------------------------------------------------------
     // 架電より先に読む。「架電の最終日が途中かどうか」は取得条件に入っている。
     let mut meta: BTreeMap<String, String> = BTreeMap::new();
@@ -503,6 +511,9 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         "excluded": dropped,
         "kaden": kaden_block,
         "kaden_base": kaden_base,
+        // 決定者・決裁者の入力状況（担当者ごと）。シートがまだ無ければ rows は空配列。
+        // 画面はそのときタブごと出さない。
+        "kettei": kettei,
         "calls": calls,
         // 週に1行の記録。Python の日次同期（Hubspot リポジトリ
         // `scripts/sales_kpi/sync_daily.py` の `sync_weekly()`）が
@@ -736,4 +747,74 @@ fn kaden_list_block(
         }),
         base,
     )
+}
+
+/// 決定者・決裁者の入力状況を、担当者ごとの1行にする。
+///
+/// シートは日付が違う行が積み上がる（キー = 日付 + ownerId）ので、
+/// **最新日と、その1つ前の日だけ**を切り出す。全部を足すと同じ取引を
+/// 日数ぶん数えることになる。
+///
+/// 「増加」は 最新日の合計 − 前日の合計。
+/// 🔴 **前日の行が無い担当者は `null`**（0 ではない）。「前日も入力が無かった」のか
+/// 「前日はそもそも記録されていなかった（同期が動いていない・その日から数え始めた）」
+/// のかを、この材料からは区別できない。0 と書くと「今日は1件も増えなかった」と
+/// 断定することになるので、画面には「—」を出させる。
+///
+/// 並びは合計の多い順。シートがまだ無い／空なら `rows` は空配列で返す
+/// （落とさない。画面はそのときタブごと出さない）。
+fn kettei_block(
+    sheet: &crate::handlers::call_quality::sheets::SheetData,
+    members: &HashMap<String, Person>,
+    people: &mut HashMap<String, Person>,
+) -> Value {
+    let days = kettei_days_of(sheet);
+    // 画面が出す列。見出しをサーバとテンプレートの2か所に書かないよう、ここから渡す。
+    let cols: Vec<&str> = KETTEI_COLS.iter().map(|(_, key)| *key).collect();
+
+    let mut rows: Vec<Value> = Vec::new();
+    for (owner, counts) in &days.latest {
+        // 担当者が入っていない行（ownerId が空）は誰の数字でもないので出さない。
+        // 表は「担当者ごと」なので、置き場所が無い。
+        if owner.is_empty() {
+            continue;
+        }
+        let team = note(people, members, owner);
+        let person = person_of(members, owner);
+        let total = counts.get("合計").copied().unwrap_or(0);
+        let grew = days
+            .prev
+            .get(owner)
+            .map(|p| total - p.get("合計").copied().unwrap_or(0));
+        let mut item = serde_json::Map::new();
+        item.insert("owner".into(), json!(owner));
+        item.insert("ownerName".into(), json!(person.name));
+        item.insert("team".into(), json!(team));
+        item.insert("hsTeam".into(), json!(person.hs_team));
+        for key in &cols {
+            item.insert(
+                (*key).to_string(),
+                json!(counts.get(*key).copied().unwrap_or(0)),
+            );
+        }
+        item.insert("合計".into(), json!(total));
+        item.insert("増加".into(), json!(grew));
+        rows.push(Value::Object(item));
+    }
+    // 合計の多い順。同数なら担当者名で決めて、読み直すたびに並びが変わらないようにする。
+    rows.sort_by(|a, b| {
+        b["合計"]
+            .as_i64()
+            .cmp(&a["合計"].as_i64())
+            .then_with(|| a["ownerName"].as_str().cmp(&b["ownerName"].as_str()))
+    });
+
+    json!({
+        // いつ時点の入力件数か。行が無ければ null（画面はタブごと出さない）。
+        "date": if days.date.is_empty() { Value::Null } else { json!(days.date) },
+        // 「増加」が何との差か。1日ぶんしか無ければ null。
+        "prev_date": if days.prev_date.is_empty() { Value::Null } else { json!(days.prev_date) },
+        "cols": cols,
+        "rows": rows,
+    })
 }
