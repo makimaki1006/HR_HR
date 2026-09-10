@@ -1132,17 +1132,30 @@ const growColor=n=>(n==null||n===0?'var(--faint)':(n>0?'var(--ok)':'var(--alert)
 
 function renderKettei(){
   const KE=D.kettei||{}, cols=KE.cols||[], rows=pick(KE.rows||[]);
+  // 担当者が入っていない取引ぶん。人ではないのでチーム・個人では絞りようが無い。
+  // 全社を見ているときだけ出す（チームを選んでいるときに出すと、そのチームの分に見える）。
+  const NO=(team==='すべて'&&!person)?KE.no_owner:null;
   const asof=KE.date?md(KE.date)+'（'+wd(KE.date)+'）':'—';
+  // 🔴 このシートを書くのは**朝の便（6:30・月〜土）だけ**。夕方の便は走らない。
+  //    「今日の入力状況」と書くと、現場が日中に入れたぶんが載っていないのに
+  //    今の数だと読まれる。何時時点かを必ず出す。
   $('lead5').innerHTML=
-    '取引に決定者・決裁者が何件入っているかを、担当者ごとに数えたものです。'+
-    '<b>'+asof+' 時点</b>の件数です。'+
+    '取引に決定者・決裁者がどれだけ入力されているかを、担当者ごとに数えたものです。'+
+    '<b>毎朝6:30 に取り直した数</b>で、いま出しているのは <b>'+asof+'朝</b>の時点です。'+
     (KE.prev_date
-      ? '「本日増加」は前回の記録（'+md(KE.prev_date)+'）からの差です。'
-      : '<b style="color:var(--warn)">前回の記録がまだ無いので、「本日増加」は出せません。</b>')+
-    '<br><span style="color:var(--faint)">上のチーム・個人・担当者のチェックは、この表にも効きます。</span>';
+      ? '「本日増加」は前の記録（'+md(KE.prev_date)+' 朝）からの増加です。'
+      : '<b style="color:var(--warn)">前の記録がまだ無いので、「本日増加」はまだ出せません。</b>')+
+    '<br><span style="color:var(--faint)">'+
+    '現場が日中に入力したぶんは、翌朝の行に載ります。'+
+    // 🔴 合計は**項目の数**であって取引の件数ではない。決定者名と決裁者名の両方が
+    //    入っている取引は2と数える（HubSpot のレポート画面と同じ数え方）。
+    //    実測 2026-09-10 で 取引609件に対して合計1,650。件数だと読ませない。
+    '合計は<b>入力された項目の数</b>です。決定者名と決裁者名の両方が入っている取引は'+
+    ' 2 と数えるので、<b>取引の件数ではありません</b>。'+
+    '<br>上のチーム・個人・担当者のチェックは、この表にも効きます。</span>';
 
   const box=$('ketteibox'); box.innerHTML='';
-  if(!rows.length){
+  if(!rows.length&&!NO){
     box.innerHTML='<div class="empty">選んでいる範囲に、決定者・決裁者を入力した担当者がいません。</div>';
     return;
   }
@@ -1151,37 +1164,42 @@ function renderKettei(){
   const t=document.createElement('table');
   t.innerHTML='<thead><tr><th>担当者</th>'+
     cols.map(c=>'<th class="n">'+c+'</th>').join('')+
-    '<th class="n">合計</th><th class="n">本日増加'+
-    (KE.prev_date?'<span class="sm">'+md(KE.prev_date)+' からの差</span>'
-                 :'<span class="sm">前回の記録がありません</span>')+
+    '<th class="n">合計<span class="sm">項目の数</span></th><th class="n">本日増加'+
+    (KE.prev_date?'<span class="sm">'+md(KE.prev_date)+' 朝からの増加</span>'
+                 :'<span class="sm">前の記録がありません</span>')+
     '</th></tr></thead>';
 
   const sum={}; cols.concat(['合計']).forEach(c=>{sum[c]=0;});
   let grew=0, grewKnown=0;
   const tb=document.createElement('tbody');
-  rows.forEach(r=>{
-    let h='<td>'+r.ownerName+'</td>';
-    cols.forEach(c=>{h+='<td class="n">'+fmt(r[c])+'</td>'; sum[c]+=r[c]||0;});
-    h+='<td class="n"><b>'+fmt(r['合計'])+'</b></td>';
-    sum['合計']+=r['合計']||0;
-    h+='<td class="n" style="color:'+growColor(r['増加'])+'">'+growText(r['増加'])+'</td>';
-    if(r['増加']!=null){grew+=r['増加']; grewKnown++;}
+  // 1行ぶん。担当者の行も「担当者が入っていない」行も、数字の出し方は同じ。
+  const addRow=head=>o=>{
+    let h='<td>'+head+'</td>';
+    cols.forEach(c=>{h+='<td class="n">'+fmt(o[c])+'</td>'; sum[c]+=o[c]||0;});
+    h+='<td class="n"><b>'+fmt(o['合計'])+'</b></td>';
+    sum['合計']+=o['合計']||0;
+    h+='<td class="n" style="color:'+growColor(o['増加'])+'">'+growText(o['増加'])+'</td>';
+    if(o['増加']!=null){grew+=o['増加']; grewKnown++;}
     const tr=document.createElement('tr'); tr.innerHTML=h; tb.appendChild(tr);
-  });
+  };
+  rows.forEach(r=>addRow(r.ownerName)(r));
+  if(NO) addRow('（担当者が入っていない）'+
+    '<span class="sm">担当者が居ないのでチェックでは外せません</span>')(NO);
   t.appendChild(tb);
 
   // 合計行。絞り込みが効いている表なので、**いま出している行の合計**であることを明記する。
   // 何も絞っていなければ全社の合計になる。
   const who=person?((D.people.find(x=>x.id===person)||{}).name||'この担当者')
                   :(team==='すべて'?'全社':team);
-  // 前回の記録が無い担当者は増加を足せない。何名ぶん足せなかったかを添える。
-  const miss=rows.length-grewKnown;
+  // 前の記録が無い行は増加を足せない。何行ぶん足せなかったかを添える。
+  const shown=rows.length+(NO?1:0), miss=shown-grewKnown;
   const gcell=grewKnown
     ? '<span style="color:'+growColor(grew)+'">'+growText(grew)+'</span>'+
-      (miss?'<span class="sm">'+miss+'名は前回の記録なし</span>':'')
+      (miss?'<span class="sm">'+miss+'行は前の記録なし</span>':'')
     : '—';
   const tf=document.createElement('tfoot');
-  tf.innerHTML='<tr><td>合計<span class="sm">'+who+'・'+rows.length+'名</span></td>'+
+  tf.innerHTML='<tr><td>合計<span class="sm">'+who+'・'+rows.length+'名'+
+    (NO?'＋担当なし':'')+'</span></td>'+
     cols.map(c=>'<td class="n">'+fmt(sum[c])+'</td>').join('')+
     '<td class="n">'+fmt(sum['合計'])+'</td>'+
     '<td class="n">'+gcell+'</td></tr>';
@@ -1196,7 +1214,9 @@ function renderKettei(){
 // 「見たい人が違うから、今のに足すのではなく切り替えで見れるようにしたい」
 // （2026-09-11 ユーザー指示）。ページは遷移せず、同じ JSON を両方のタブで使う。
 // 選んだタブは覚えない（開くたび「営業KPI」から始まる）。
-const HAVE_KETTEI=((D.kettei||{}).rows||[]).length>0;
+// 担当者ごとの行が1つも無くても、担当者なしのぶんがあれば出す価値がある
+// （「誰にも紐づいていない取引に入力がある」という事実が読める）。
+const HAVE_KETTEI=((D.kettei||{}).rows||[]).length>0||!!(D.kettei||{}).no_owner;
 const TABS=[{key:'kpi',label:'営業KPI',el:'tab-kpi'}];
 // 決定者のシートがまだ無い／空のときは、タブごと出さない。
 // 空の表を出しても読む人が判断できないため。
