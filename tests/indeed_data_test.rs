@@ -20,16 +20,16 @@ const GZ: &str = "data/indeed_insights.db.gz";
 
 /// 同梱の gz から実体を用意する。本番の起動時と同じ手順。
 fn open_db() -> LocalDb {
-    if !Path::new(DB).exists() {
-        assert!(
-            Path::new(GZ).exists(),
-            "{GZ} がありません。Docker イメージに積むファイルなので、\
-             消えているとデプロイしてもタブが空になります"
-        );
-        rust_dashboard::decompress_db_if_needed(DB);
-    }
+    assert!(
+        Path::new(GZ).exists(),
+        "{GZ} がありません。Docker イメージに積むファイルなので、\n         消えているとデプロイしてもタブが空になります"
+    );
+    // 存在確認ごとロックの中でやる。外で確かめると、
+    // 別スレッドが書いている途中のファイルを「在る」と見てしまう
+    rust_dashboard::ensure_db_from_gz(DB);
     LocalDb::new(DB).expect("Indeed 分析 DB を開けませんでした")
 }
+
 
 fn snap() -> Snapshot {
     load(&open_db()).expect("Indeed 分析 DB を読めませんでした")
