@@ -21,8 +21,21 @@
          header 下端で消える。overflow-x: clip は Y 軸への副作用が無く、現代
          ブラウザ (Chrome/Edge 90+, Firefox 81+, Safari 16+) で動作。
          未対応ブラウザは visible にフォールバックし、wrap で横スクロール抑止。 -->
+    <!-- 2026-09-11: ヘッダで使っていたクラス 3 つが static/css/tailwind-precompiled.css に
+         実在せず、無言で効いていなかった（precompiled は「実際に使った分だけ手で足す」
+         方式なので、書いただけでは存在しない）。実在するものに寄せた。
+           ・sm:gap-4  → md:gap-4   … sm 段は precompiled に gap が 1 つも無い。
+                                      md:gap-4 は実在。広がる幅が 640px→768px に上がるが、
+                                      640〜767px はヘッダが詰まる帯なので gap-2 のままで困らない。
+           ・p-1.5     → p-2        … p-1.5 は無い。p-1(4px)/p-2(8px) が候補で、
+                                      「?」は現状 padding 0 の極小クリック領域なので広い方を採った。
+           ・self-center → 親に items-center
+                                    … self-center は無い。親を items-center にすれば
+                                      「よく使う:」が縦中央に来る。兄弟のプリセット
+                                      ボタンは 4 つとも同じ高さなので見た目は変わらない。
+         置換候補は必ず grep で tailwind-precompiled.css にあることを確認してから採用すること。 -->
     <header class="bg-navy-800 border-b border-slate-700 px-4 sm:px-6 py-3 flex items-center justify-between flex-wrap gap-2" style="overflow-x: clip;">
-        <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
+        <div class="flex items-center gap-2 md:gap-4 flex-wrap">
             <h1 class="text-lg font-bold text-white">求人ダッシュボード</h1>
             <!-- 2026-08-10: 3 つのフィルタ（都道府県 / 市区町村 / 産業）が小さくて
                  気づかれない・選びにくいという指摘への対応。
@@ -67,8 +80,8 @@
                                 <span class="text-xs text-slate-400">産業分類（大分類展開で中分類表示）</span>
                                 <button type="button" onclick="clearIndustryFilter()" class="text-xs text-blue-400 hover:text-blue-300">全解除</button>
                             </div>
-                            <div class="flex flex-wrap gap-1 mb-2 pb-1 border-b border-slate-700">
-                                <span class="text-xs text-slate-500 mr-1 self-center">よく使う:</span>
+                            <div class="flex flex-wrap items-center gap-1 mb-2 pb-1 border-b border-slate-700">
+                                <span class="text-xs text-slate-500 mr-1">よく使う:</span>
                                 <button type="button" onclick="applyPreset(['医療','老人福祉・介護'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">医療・介護</button>
                                 <button type="button" onclick="applyPreset(['IT・通信'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">IT・通信</button>
                                 <button type="button" onclick="applyPreset(['建設業','製造業'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">建設・製造</button>
@@ -80,11 +93,11 @@
                 </div><!-- /.filter-field -->
             </div><!-- /.filter-group -->
         </div>
-        <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
+        <div class="flex items-center gap-2 md:gap-4 flex-wrap">
             <!-- 2026-08-10: 「統合PDF」ボタンを UI から削除（用途不明・認知負荷）。
                  /integrated-report のハンドラ・ルートは温存（URL 直アクセスは可）。 -->
             <button type="button" onclick="navigateToTab('/tab/guide')" title="使い方ガイド"
-                class="text-slate-400 hover:text-white text-sm transition p-1.5 rounded hover:bg-navy-700">?</button>
+                class="text-slate-400 hover:text-white text-sm transition p-2 rounded hover:bg-navy-700">?</button>
             <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
             <!-- 2026-08-10: 自分の操作履歴だけを見る「履歴」リンクを削除。
                  /my/activity のルートは温存（URL 直アクセスは可）。
@@ -95,7 +108,18 @@
         </div>
     </header>
 
-    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto scrollbar-thin" role="tablist" aria-label="ダッシュボードタブ" style="-webkit-overflow-scrolling:touch;scrollbar-width:thin">
+    <!-- 2026-09-11: このナビ 2 段に付いていた scrollbar-thin は precompiled に定義が無く、
+         何もしていなかったので外した。細くしているのは下の style 属性の方で、
+         幅 420px でサブタブ列を溢れさせて実測したところ:
+           ・この 2 段（style="scrollbar-width:thin" あり） … 11px
+           ・inline を持たない要素 … 6px（static/css/dashboard.css の
+             ::-webkit-scrollbar { width:6px; height:6px } が効く）
+           ・CSS が何も無いとき … 15px
+         Chrome は標準プロパティ scrollbar-width が指定されていると
+         ::-webkit-scrollbar の指定を無視するので、この 2 段では 6px ではなく
+         11px になる。いずれにせよ既定の 15px より細く、外したクラスは無関係。
+         .scrollbar-thin を CSS 側に新設しても同じ値になるだけなので足していない。 -->
+    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto" role="tablist" aria-label="ダッシュボードタブ" style="-webkit-overflow-scrolling:touch;scrollbar-width:thin">
         <!--
         2026-05-15: 未使用 8 タブ (市場概況/地域カルテ/詳細分析/総合診断/トレンド/
             都道府県比較/条件診断/採用診断) を UI から非表示。
@@ -129,8 +153,23 @@
            title="今月の商談と架電。営業の現場が毎朝見る画面">営業KPI</a>
     </nav>
 
-    <!-- 「調べる」グループのサブタブ列（既定は非表示） -->
-    <div id="explore-subnav" class="hidden bg-navy-800/70 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto scrollbar-thin"
+    <!-- 「調べる」グループのサブタブ列（既定は非表示）
+         2026-09-11: 背景は bg-navy-800/70 と書かれていたが precompiled に /70 は
+         無く（あるのは /60 と /80）、指定が無効で背景が透明のままだった。
+         /70 に一番近い /80 に寄せてある。
+
+         🔴 ここで色を変えても 2 段のナビは見分けられない。測ってあるので
+            もう一度調べ直さないこと。スクショの実ピクセルで:
+              直す前（/70 が無効・透明）… 上のナビ rgb(15,23,42) / この段 rgb(13,21,37)
+              直した後（/80）          … 上のナビ rgb(15,23,42) / この段 rgb(15,22,41)
+            下地が navy-900 (#0d1525) で navy-800 (#0f172a) とほぼ同じ色なので、
+            /60 でも /70 でも /80 でも合成結果は 2/255 以内に収まる。
+            （皮肉なことに、壊れていたとき（透明＝下地の色がそのまま出る）の方が
+            上のナビとの差は大きかった。それでも 2/255 で、どちらも見分けられない。）
+            2 段を見分けられるようにしたいなら不透明度ではなく別の色か区切り線が要る。
+            それは「実在しないクラスをなくす」という今回の趣旨とは別の話なので
+            手を付けていない（2026-09-11 の判断）。 -->
+    <div id="explore-subnav" class="hidden bg-navy-800/80 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto"
          role="tablist" aria-label="調べる（サブタブ）" style="-webkit-overflow-scrolling:touch;scrollbar-width:thin">
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">地図</button>
@@ -170,6 +209,8 @@
 
     <script src="/static/js/tabcache.js?v={{ASSET_V}}"></script>
     <script src="/static/js/app.js?v={{ASSET_V}}"></script>
+    <!-- 軸をドラッグして目盛りの幅を変える。app.js が図を作ったあとに効く -->
+    <script src="/static/js/axis_drag.js?v={{ASSET_V}}"></script>
     <script src="/static/js/a11y.js?v={{ASSET_V}}" defer></script>
     <script>
     // タブ切替・フィルタ変更時のローディングフィードバック
@@ -223,6 +264,40 @@
         document.body.addEventListener('htmx:sendError', function() { stopLoading(false); });
         document.body.addEventListener('htmx:timeout', function() { stopLoading(false); });
     })();
+
+    // 面を切り替えると画面が下にずれる問題への対応 (2026-09-10)
+    //
+    // 採用市場の面・並べ替え・ページ送りは hx-swap="innerHTML show:top" を持つ。
+    // show:top は #content を必ず画面の先頭へ送るので、いちばん上にいる人が面を
+    // 切り替えると、押しただけでヘッダの絞り込みが画面外に出る (#content の上端＝
+    // 214px あたりまで下がる)。下の方から押したときに上へ戻るのは妥当なので、
+    // 「もともと #content の上端より上にいた場合だけ」動かさないようにする。
+    //
+    // htmx は afterSettle を出したあとにスクロールする (htmx 2.0.4 の doSettle →
+    // updateScrollState の順)。requestAnimationFrame でそのあとに戻せば、描画前に
+    // 元の位置へ戻るのでちらつかない。
+    (function() {
+        var scrollBefore = null;
+        document.body.addEventListener('htmx:beforeSwap', function(e) {
+            var c = document.getElementById('content');
+            if (c && e.detail && e.detail.target === c) scrollBefore = window.scrollY;
+        });
+        document.body.addEventListener('htmx:afterSettle', function() {
+            if (scrollBefore === null) return;
+            var y = scrollBefore;
+            // afterSettle は差し込んだ要素の数だけ飛んでくるので、最初の 1 回で使い切る
+            scrollBefore = null;
+            var c = document.getElementById('content');
+            if (!c) return;
+            // ここはまだ htmx がスクロールする前。この時点の座標が「元の位置」での上端
+            var contentTop = c.getBoundingClientRect().top + window.scrollY;
+            // 中身の途中を見ていたのなら、従来どおり先頭に送ってよい
+            if (y > contentTop) return;
+            requestAnimationFrame(function() {
+                if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
+            });
+        });
+    })();
     </script>
     <script src="/static/js/charts.js?v={{ASSET_V}}"></script>
     <!-- 2026-08-10: 各タブ見出しへ「印刷 / 画像保存」バーを自動注入する export.js の
@@ -234,10 +309,152 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // ==== どのタブ・どの面を見ていたかの記憶 (2026-09-10) ====
+            //
+            // 覚えるものは 2 つある。
+            //  1) タブごとの「最後に見ていた URL」(面 view・並べ替え sort 付き)
+            //     これまでは 1 つしか覚えていなかったので、採用市場 → 企業検索 →
+            //     採用市場 と往復すると面と並べ替えが消えた。タブ単位の連想配列にする。
+            //  2) 「この URL のページで最後に開いていたタブ」
+            //     ?tab= は履歴を汚さないよう replaceState で消しているため、
+            //     再読込すると何を見ていたか分からず既定タブに落ちていた。
+            //     URL は消したままにしたいので sessionStorage に置く。
+            //     キーを location (pathname + search) 別にしてあるので、戻るで
+            //     履歴の最初 (/) に着いたときも「そこで見ていたタブ」に戻せる。
+            //
+            // sessionStorage はプライベートモード等で例外を投げるので必ず包む。
+            var TAB_MAP_KEY = 'hrdash:tabs';
+            var ENTRY_KEY_PREFIX = 'hrdash:entry:';
+            function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+            function ssSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* 保存できなくても画面は動かす */ } }
+            function ssDel(k) { try { sessionStorage.removeItem(k); } catch (e) { /* 同上 */ } }
+            function entryKey() { return ENTRY_KEY_PREFIX + location.pathname + location.search; }
+            // '/tab/indeed?view=titles' → '/tab/indeed' (タブボタンの hx-get と同じ粒度)
+            function tabKeyOf(url) {
+                var pathOnly = (url || '').split('?')[0];
+                return '/' + pathOnly.split('/').slice(1, 3).join('/');
+            }
+            // pref は覚えない (理由は下の htmx:configRequest のコメント参照)
+            function stripPref(url) {
+                var c = (url || '').split('?');
+                if (!c[1]) return c[0];
+                var keep = c[1].split('&').filter(function(p) { return p.indexOf('pref=') !== 0; });
+                return keep.length ? c[0] + '?' + keep.join('&') : c[0];
+            }
+            var tabFullUrls = (function() {
+                try { return JSON.parse(ssGet(TAB_MAP_KEY)) || {}; } catch (e) { return {}; }
+            })();
+            window._tabFullUrls = tabFullUrls;
+            var entryFixup = null;
+            function rememberTab(fullUrl) {
+                if (!fullUrl || fullUrl.indexOf('/tab/') !== 0) return;
+                tabFullUrls[tabKeyOf(fullUrl)] = fullUrl;
+                // 1 つしか覚えていなかったころの名前。参照が残っていても壊れないよう維持する
+                window._lastTabFullUrl = fullUrl;
+                ssSet(TAB_MAP_KEY, JSON.stringify(tabFullUrls));
+                var key = entryKey();
+                entryFixup = { key: key, prev: ssGet(key), url: fullUrl };
+                ssSet(key, fullUrl);
+            }
+            // 押した瞬間の URL をキーにすると、hx-push-url で URL が変わる遷移
+            // (職種辞典 → 職種の詳細) のときに「/ で見ていたもの」を詳細で上書きして
+            // しまい、戻ったときに詳細が出る。htmx は swap の前に pushState する
+            // (htmx 2.0.4 の handleAjaxResponse) ので、swap 後に URL が変わって
+            // いたら、元のキーの値を戻してから新しいキーに書き直す。
+            document.body.addEventListener('htmx:afterSettle', function() {
+                if (!entryFixup) return;
+                var f = entryFixup;
+                entryFixup = null;
+                if (entryKey() === f.key) return;
+                if (f.prev === null) ssDel(f.key); else ssSet(f.key, f.prev);
+                ssSet(entryKey(), f.url);
+            });
+            // 復元に使うのは「基底パス + クエリ」のときだけ。'/tab/driver/123' の
+            // ような詳細ページまで復元すると、タブを押した人が一覧ではなく前回の
+            // 詳細に飛ばされて驚く (従来 reloadActiveTab が使っていた条件と同じ)。
+            function rememberedFor(base) {
+                var v = tabFullUrls[tabKeyOf(base)];
+                return (v && (v === base || v.indexOf(base + '?') === 0)) ? v : null;
+            }
+
+            // 上部タブの active を URL に合わせる。?tab= 復元と戻る/進むの両方で使う。
+            //
+            // クエリを外してから比べる。`/tab/indeed?view=titles` のような URL を
+            // そのまま使うと basePath が `/tab/indeed?view=titles` になり、
+            // ボタンの hx-get (`/tab/indeed`) と一致しない。すると active が
+            // 0 個になり、2 段目のナビが畳まれたまま・県を変えても何も起きない、
+            // という状態になる（共有された URL を開いた人がまさにこれを踏む）。
+            function applyActiveTab(url) {
+                var pathOnly = (url || '').split('?')[0];
+                var basePath = '/' + pathOnly.split('/').slice(1, 3).join('/');
+                document.querySelectorAll('.tab-btn').forEach(function(b) {
+                    var hxGet = b.getAttribute('hx-get') || '';
+                    // hx-get を持たないボタン（「調べる ▾」の開閉トグル）を除く。
+                    // 除かないと hxGet が '' になり、pathOnly.startsWith('' + '/')
+                    // が常に true になって一緒に active が付く。DOM 順で採用市場より
+                    // 手前にあるため reloadActiveTab() がこちらを拾い、hx-get が null の
+                    // まま htmx.ajax に渡って '/' へ全体遷移していた（＝県を変えると
+                    // 媒体分析に戻る）。
+                    var isMatch = !!hxGet && (hxGet === basePath || pathOnly === hxGet || pathOnly.startsWith(hxGet + '/'));
+                    b.classList.toggle('active', isMatch);
+                    if (isMatch) b.setAttribute('aria-selected', 'true');
+                    else b.setAttribute('aria-selected', 'false');
+                });
+                // 復元でサブタブが選ばれた場合は「調べる」列を開く
+                if (typeof syncExploreGroup === 'function') syncExploreGroup();
+            }
+            window._applyActiveTab = applyActiveTab;
+
             // パーシャル直接アクセス対応 (?tab= で復元):
             // /tab/driver 等を直接開くとパーシャル HTML だけが返って nav が消えるため、
             // パーシャル側がトップに ?tab=/tab/driver でリダイレクトしてくる。それを受けて
             // 対応するタブを active 化 + HTMX swap で復元する。
+            // ?tab=/tab/xxx?...&pref=YY の YY を、ヘッダの県プルダウンに反映する。
+            //
+            // 外枠の HTML はサーバが「セッションの県」で描く。ところが ?tab= 経由では
+            //   ① 外枠を描く（このときセッションはまだ前の県、または空）
+            //   ② そのあと htmx が /tab/... を読み、サーバが URL の pref をセッションに書く
+            // という順序なので、ヘッダは ① の時点で固定され、画面と食い違う。
+            //
+            // 実測（2026-09-11、セッション = 東京都 の状態で pref=北海道 の ?tab= を開いた）:
+            //   タブ内の帯 = 北海道 / ヘッダ = 東京都 / パンくず = 東京都
+            //   → その直後に素の / を開き直すと <option value="北海道" selected> が返る。
+            // つまりサーバは既に北海道を持っていて、画面のヘッダだけが違う県を出している。
+            // 空欄ではなく「別の県」を出すので、見た人は絞り込みを取り違える。
+            //
+            // サーバに値を送り直す必要は無いので、表示を合わせるだけにする。
+            // change は発火させない。発火させると change ハンドラの reloadActiveTab() が走り、
+            // すぐ下の htmx.ajax(targetUrl) と #content を取り合うことになる。
+            function syncHeaderPrefFrom(url) {
+                var q = (url || '').split('?')[1];
+                if (!q) return;
+                var raw = null;
+                q.split('&').forEach(function(pair) {
+                    if (pair.indexOf('pref=') === 0) raw = pair.slice(5);
+                });
+                if (!raw) return;
+                var pref;
+                try { pref = decodeURIComponent(raw); } catch (e) { return; }
+                var sel = document.getElementById('pref-select');
+                if (!sel || !pref || sel.value === pref) return;
+                // 選択肢に無い値は入れない。入れても <select> の値は空に落ちるだけで、
+                // 「ヘッダだけ全国」という別の食い違いに化ける。
+                var exists = false;
+                for (var i = 0; i < sel.options.length; i++) {
+                    if (sel.options[i].value === pref) { exists = true; break; }
+                }
+                if (!exists) return;
+                sel.value = pref;
+                // パンくず (updateBreadcrumb) も産業ツリー (loadIndustryTree) も、
+                // このファイルの下の初期化で呼ばれ、呼ばれた時点の pref-select.value を
+                // 読む。ここで先に値を入れておけば、どちらも自動で揃う。
+                //
+                // 市区町村はここでは取り直さない。この環境で /api/municipalities_cascade を
+                // 北海道・東京都・沖縄県で叩くと 3 県とも 0 バイトを返し、取り直しても
+                // 増えるものが無いことを実測した。効果を確認できない追加リクエストを
+                // 読み込み経路に足さない方を採る。県を選び直せば従来どおり change
+                // ハンドラが取りに行くし、再読込すればサーバが外枠と一緒に描く。
+            }
             var params = new URLSearchParams(location.search);
             var requestedTab = params.get('tab');
             // 2026-08-10: 既定タブを媒体分析に変更（地図は「調べる」内へ移動）
@@ -245,22 +462,102 @@
             var targetUrl = DEFAULT_TAB;
             if (requestedTab && requestedTab.startsWith('/tab/')) {
                 targetUrl = requestedTab;
-                // 該当タブボタンを active 化 (基底パスでマッチ)
-                var basePath = '/' + requestedTab.split('/').slice(1, 3).join('/');
-                document.querySelectorAll('.tab-btn').forEach(function(b) {
-                    var hxGet = b.getAttribute('hx-get') || '';
-                    var isMatch = hxGet === basePath || requestedTab.startsWith(hxGet + '/');
-                    b.classList.toggle('active', isMatch);
-                    if (isMatch) b.setAttribute('aria-selected', 'true');
-                    else b.setAttribute('aria-selected', 'false');
-                });
+                applyActiveTab(targetUrl);
+                // 上記 syncHeaderPrefFrom の説明を参照。
+                // ヘッダの表示だけをサーバの現状に合わせる（リクエストは出さない）。
+                syncHeaderPrefFrom(targetUrl);
                 // ?tab= を URL から消す (履歴を汚さない、push でなく replace)
+                // 消すのはここまでどおり。消したあとに迷子にならないよう、
+                // 下の rememberTab() が「消したあとの URL」をキーにして控える。
+                // state は htmx が付けた目印 ({htmx:true}) を落とさないよう引き継ぐ。
                 var cleanUrl = location.pathname + location.hash;
-                history.replaceState(null, '', cleanUrl);
+                history.replaceState(history.state, '', cleanUrl);
+            } else {
+                // ?tab= 無しで来た (再読込・戻る・ブックマーク)。
+                // 同じ URL で最後に開いていたタブがあれば、それを復元する。
+                var savedTab = ssGet(entryKey());
+                if (savedTab && savedTab.indexOf('/tab/') === 0) {
+                    targetUrl = savedTab;
+                    applyActiveTab(targetUrl);
+                }
             }
-            // ?tab= 復元でサブタブが選ばれた場合は「調べる」列を開く
             if (typeof syncExploreGroup === 'function') syncExploreGroup();
+            // 最初の 1 回は下の htmx:configRequest リスナーより前に走るので、
+            // ここで直接覚えておく（pref は除く。理由はリスナー側のコメント参照）。
+            rememberTab(stripPref(targetUrl));
             htmx.ajax('GET', targetUrl, {target: '#content', swap: 'innerHTML'});
+
+            // ==== 戻る / 進む で履歴の最初に着いたときの復帰 (2026-09-10) ====
+            //
+            // 履歴の最初 (?tab= の無い '/') まで戻ると #content が「読み込み中...」で
+            // 止まっていた。原因は htmx の履歴復元の性質 2 つ。
+            //  ・localStorage の履歴キャッシュに '/' の写しが無い (?tab= 付きで開いた
+            //    回は '/?tab=...' 名で保存される) と、htmx は '/' をサーバから取り直す。
+            //    返ってくるのは素のダッシュボードなので #content はテンプレートの
+            //    「読み込み中...」のまま。
+            //  ・キャッシュに当たっても、それが初回訪問時 (タブ読込前) の写しなら同じ。
+            // どちらも「復元後に中身が空なら、そこで見ていたタブを読み直す」で拾える。
+            var contentReqInFlight = 0;
+            var contentReqStartedAt = 0;
+            document.body.addEventListener('htmx:beforeRequest', function(e) {
+                if (e.detail && e.detail.target === document.getElementById('content')) {
+                    contentReqInFlight++;
+                    contentReqStartedAt = Date.now();
+                }
+            });
+            document.body.addEventListener('htmx:afterRequest', function(e) {
+                if (e.detail && e.detail.target === document.getElementById('content')) {
+                    contentReqInFlight = Math.max(0, contentReqInFlight - 1);
+                }
+            });
+            // 数え違い（beforeRequest が来て afterRequest が来ない事態）で復帰が
+            // 永久に止まらないよう、古い数えは無かったことにする。
+            function contentReqIsRunning() {
+                return contentReqInFlight > 0 && (Date.now() - contentReqStartedAt) < 20000;
+            }
+            function contentIsEmpty() {
+                var c = document.getElementById('content');
+                if (!c) return false;
+                var t = (c.textContent || '').replace(/\s/g, '');
+                return t === '' || t === '読み込み中...';
+            }
+            // いまの履歴エントリが指しているタブ URL。分からなければ null。
+            function currentEntryTabUrl() {
+                if (location.pathname.indexOf('/tab/') === 0) return location.pathname + location.search;
+                var p = new URLSearchParams(location.search).get('tab');
+                if (p && p.indexOf('/tab/') === 0) return p;
+                var saved = ssGet(entryKey());
+                if (saved && saved.indexOf('/tab/') === 0) return saved;
+                return null;
+            }
+            function onHistoryNavigation() {
+                var url = currentEntryTabUrl();
+                var stuck = !contentReqIsRunning() && contentIsEmpty();
+                if (!url) {
+                    // どのタブだったか分からない (sessionStorage が使えない等)。
+                    // 中身が残っているなら、当てずっぽうで active を付け替えない。
+                    if (!stuck) return;
+                    url = DEFAULT_TAB;
+                }
+                applyActiveTab(url);
+                // 戻った先の面・並べ替えを覚え直す (この状態で県を変えても保たれるように)
+                rememberTab(stripPref(url));
+                // 復元済みの中身があるなら読み直さない。取得中なら二重に取りにいかない。
+                if (!stuck) return;
+                // tabcache.js の当たり判定は「保存キー = active なタブボタンの hx-get」
+                // 「参照キー = リクエストの URL」で食い違っており、詳細ページを見たあとは
+                // /tab/driver のキーに詳細の HTML が入っていることがある。ここで拾うと
+                // 戻ったのに詳細が出るので、復帰のときだけキャッシュを捨てて取り直す。
+                if (window.clearTabCache) window.clearTabCache();
+                htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+            }
+            // htmx は window.onpopstate (プロパティ代入) で履歴復元するので、
+            // addEventListener のこちらとの前後関係は保証できない。0ms 遅らせて
+            // 「復元されたあとの状態」を見てから判断する。キャッシュミスでサーバから
+            // 取り直す場合は復元完了がさらに後になるため、htmx:historyRestore でも
+            // もう一度見る (どちらから来ても contentIsEmpty で二重実行を防ぐ)。
+            window.addEventListener('popstate', function() { setTimeout(onHistoryNavigation, 0); });
+            document.body.addEventListener('htmx:historyRestore', function() { setTimeout(onHistoryNavigation, 0); });
 
             // ブレッドクラム更新
             window.updateBreadcrumb = function() {
@@ -304,14 +601,72 @@
             function isToolTab(url) {
                 return url === '/tab/jobgen_tools' || url === '/tab/keyword_tools';
             }
-            // アクティブタブ再読み込み共通関数
-            function reloadActiveTab() {
-                var activeBtn = document.querySelector('.tab-btn.active');
-                if (activeBtn) {
-                    var url = activeBtn.getAttribute('hx-get');
-                    if (isToolTab(url)) return;
-                    htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+            // タブの読み込み URL を、面 (view) や並べ替え (sort) のクエリごと覚えておく。
+            //
+            // タブボタンの hx-get は基底パス（`/tab/indeed`）しか持たないので、
+            // それだけで取り直すと `?view=titles` のような面の指定が落ちて、
+            // 県を変えるたびに「全体」に戻ってしまう。URL は書き換わらないので
+            // URL と画面が食い違う。
+            //
+            // 2026-09-10: 同じ理由で、タブボタンを押して戻ってきたときも、その
+            // タブで最後に見ていた面・並べ替えの URL に差し替える (下のキャプチャ
+            // 段階のリスナー)。tabcache.js も同じ htmx:configRequest で path を見て
+            // キャッシュを引くため、あちらより先に走るようキャプチャ段階で登録する
+            // (tabcache.js は本ファイルより前に読まれ、バブル段階で待っている)。
+            document.body.addEventListener('htmx:configRequest', function(e) {
+                var raw = e.detail.path || '';
+                // 既にクエリが付いているものは呼び出し側が決めた URL なので触らない
+                if (raw.indexOf('/tab/') !== 0 || raw.indexOf('?') !== -1) return;
+                var elt = e.detail.elt;
+                if (!elt || !elt.classList || !elt.classList.contains('tab-btn')) return;
+                // 上部ナビ (と「調べる」のサブタブ列) のボタンだけが対象。
+                // タブの中にある絞り込み（採用市場の県・並べ替え）は hx-include で
+                // view/sort を送ってくるので、ここで URL にも足すと二重に付く。
+                if (!elt.closest || !elt.closest('nav, #explore-subnav')) return;
+                var remembered = rememberedFor(raw);
+                if (remembered && remembered !== raw) e.detail.path = remembered;
+            }, true);
+            document.body.addEventListener('htmx:configRequest', function(e) {
+                var raw = e.detail.path || '';
+                if (raw.indexOf('/tab/') !== 0) return;
+                var cut = raw.split('?');
+                var base = cut[0];
+                var kv = {};
+                // hx-get の URL に元から付いているクエリ
+                if (cut[1]) {
+                    cut[1].split('&').forEach(function(pair) {
+                        var i = pair.indexOf('=');
+                        if (i > 0) kv[decodeURIComponent(pair.slice(0, i))] = decodeURIComponent(pair.slice(i + 1));
+                    });
                 }
+                // hx-include で足されるもの（並べ替えの select など）
+                for (var k in e.detail.parameters) {
+                    if (Object.prototype.hasOwnProperty.call(e.detail.parameters, k)) kv[k] = e.detail.parameters[k];
+                }
+                // pref は覚えない。ここで覚えると、県を変えたときの取り直しに
+                // 古い pref が乗って、サーバ側でセッションの新しい県より優先され、
+                // 「県を変えても何も変わらない」ことになる。
+                delete kv.pref;
+                var q = [];
+                for (var k2 in kv) {
+                    if (Object.prototype.hasOwnProperty.call(kv, k2) && kv[k2] !== '' && kv[k2] != null) {
+                        q.push(encodeURIComponent(k2) + '=' + encodeURIComponent(kv[k2]));
+                    }
+                }
+                rememberTab(q.length ? base + '?' + q.join('&') : base);
+            });
+
+            function reloadActiveTab() {
+                // hx-get を持つものだけを見る。持たないボタンを拾うと url が null になり、
+                // htmx.ajax('GET', null, ...) が '/' への全体遷移になって、
+                // いま見ているタブが既定タブに置き換わる。
+                var activeBtn = document.querySelector('.tab-btn.active[hx-get]');
+                if (!activeBtn) return;
+                var base = activeBtn.getAttribute('hx-get');
+                if (!base || isToolTab(base)) return;
+                // 同じタブを見ている間は、面や並べ替えを含む URL のほうを使う
+                var url = rememberedFor(base) || base;
+                htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
             }
 
             // セレクトボックスのオプション安全更新
@@ -1128,10 +1483,10 @@
                             }
                         }
                         if (window.updateBreadcrumb) window.updateBreadcrumb();
-                        var activeBtn = document.querySelector('.tab-btn.active');
+                        var activeBtn = document.querySelector('.tab-btn.active[hx-get]');
                         if (activeBtn) {
                             var url = activeBtn.getAttribute('hx-get');
-                            if (!isToolTab(url)) htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                            if (url && !isToolTab(url)) htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
                         }
                     });
                 } else {
@@ -1141,10 +1496,10 @@
                         body: 'municipality='
                     }).then(function() {
                         if (window.updateBreadcrumb) window.updateBreadcrumb();
-                        var activeBtn = document.querySelector('.tab-btn.active');
+                        var activeBtn = document.querySelector('.tab-btn.active[hx-get]');
                         if (activeBtn) {
                             var url = activeBtn.getAttribute('hx-get');
-                            if (!isToolTab(url)) htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                            if (url && !isToolTab(url)) htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
                         }
                     });
                 }
