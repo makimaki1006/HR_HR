@@ -202,6 +202,17 @@ input:focus-visible {
    ========================================================== */
 .echart {
     width: 100%;
+
+    /* 2026-09-11: 採用市場タブのサブタブ帯（src/handlers/indeed/tab.rs）が
+       position:sticky / top:0 / 高さ 39px で画面最上部に居座る。図を
+       scrollIntoView やアンカーで呼ぶと図の上端がちょうど画面最上部に来て、
+       帯の下に潜り、軸名・目盛りラベルが読めなくなる。実測でこの値は
+       全図 0px だった。帯 39px + 余白 9px = 48px 手前で止める。
+       scroll-margin は「呼ばれたときの停止位置」だけを動かすので、
+       通常のレイアウト・印刷（@media print）には影響しない。
+       html 側に scroll-padding-top を置く手もあるが、そちらは全タブの
+       htmx show:top（#content の頭出し）も 48px ずらすので採らない。 */
+    scroll-margin-top: 48px;
 }
 
 .echart[data-chart-config] {
@@ -1293,6 +1304,24 @@ select.filter-control {
 .min-h-\[44px\] { min-height: 44px; }
 .mt-0\.5 { margin-top: 0.125rem; }
 .gap-1\.5 { gap: 0.375rem; }
+
+/* 2026-09-11: 同じ理由でここに置く hover 系 2 つ。
+   どちらも色そのもの (.text-slate-200 / .bg-slate-600) は
+   tailwind-precompiled.css に実在するのに、hover 版だけ無かった。
+   書いた本人は効いていると思っており、効かなくても画面は壊れないので
+   誰も気づけない。上の 2026-08-12 と同じ形の穴。
+   生成物である tailwind-precompiled.css 側ではなくこちらに置くのは、
+   あちらを再生成した瞬間に黙って消えるのを避けるため。dashboard.css は
+   後から読み込まれるので、再生成であちらに同じ規則が入っても値は同じで衝突しない。
+
+   ・hover:text-slate-200 … src/handlers/indeed/tab.rs:161 の採用市場サブタブ。
+     実測: 乗せても rgb(148,163,184) のまま → rgb(226,232,240) に変わるようになった。
+   ・hover:bg-slate-600 … アプリ全体で 25 箇所（産業プルダウンの「よく使う:」の
+     プリセット 4 つ、企業検索、競合、管理画面ほか）。併用されている地の色を
+     全数えたところ bg-slate-700 系だけなので、乗せると明るくなる。
+     半透明の .hover:bg-slate-600/40 とは別物（あちらは合成すると地より暗くなる）。 */
+.hover\:text-slate-200:hover { color: #e2e8f0; }
+.hover\:bg-slate-600:hover { background-color: #475569; }
 
 /* 別ページへ移動するタブ。中身がフルHTMLなので HTMX では差し込めず <a> にしている。
    button と並べても違和感が無いよう、見た目だけ tab-btn に揃える。 */
