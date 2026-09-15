@@ -1809,6 +1809,67 @@ pub fn decompress_geojson_if_needed() {
 }
 
 /// gzip圧縮DBファイルを解凍
+/// 実体が無ければ gz から作る。あるときは触らない。
+///
+/// # なぜ [`decompress_db_if_needed`] と分けるのか
+/// あちらは「gz があれば毎回作り直す」作りで、デプロイのたびに新しい gz を
+/// 確実に反映させるためにそうなっている。実体を **削除してから** 展開するので、
+/// 別のスレッドがその DB を開いている最中に呼ぶと壊れる。
+///
+/// # なぜ一時ファイルに書いて改名するのか
+/// テストは複数スレッド、かつ複数のテストバイナリ（別プロセス）で同時に走る。
+/// 展開先へ直接書くと、書きかけのファイルが「もう在る」と見えてしまい、
+/// 別のスレッドがそれを開いて壊れた DB を読む。実際、DB を消した状態から
+/// 繰り返し走らせると 6 回に 1 回、10 件が同時に落ちた。
+/// 一時ファイルに書き切ってから改名すれば、他から見えるのは完成品だけになる。
+/// ミューテックスは同じプロセス内の重複展開を省くためのもので、
+/// プロセスをまたぐ安全性は改名が担保する。
+pub fn ensure_db_from_gz(db_path: &str) {
+    use flate2::read::GzDecoder;
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    if Path::new(db_path).exists() {
+        return;
+    }
+    let gz_path = format!("{db_path}.gz");
+    if !Path::new(&gz_path).exists() {
+        tracing::error!("{gz_path} がありません");
+        return;
+    }
+    // 同じ場所に置く（別ドライブだと改名が失敗する）。プロセスごとに名前を変える
+    let tmp = format!("{db_path}.tmp{}", std::process::id());
+    let res = (|| -> std::io::Result<()> {
+        let mut decoder = GzDecoder::new(File::open(&gz_path)?);
+        let mut out = File::create(&tmp)?;
+        let mut buf = vec![0u8; 1024 * 1024];
+        loop {
+            let n = decoder.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            out.write_all(&buf[..n])?;
+        }
+        out.flush()?;
+        drop(out);
+        // 先に別プロセスが置いていれば、こちらは捨てる
+        if Path::new(db_path).exists() {
+            let _ = std::fs::remove_file(&tmp);
+            return Ok(());
+        }
+        std::fs::rename(&tmp, db_path)
+    })();
+    if let Err(e) = res {
+        tracing::error!("{gz_path} を展開できませんでした: {e}");
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
 pub fn decompress_db_if_needed(db_path: &str) {
     use flate2::read::GzDecoder;
     use std::fs::File;
@@ -1963,36 +2024,33 @@ pub fn precompress_geojson() {
     }
 }
 
-#[cfg(test)]
-mod css_utility_tests {
-    /// 逆証明: 見た目を担保しているクラスが CSS に本当に定義されているか。
-    ///
-    /// 2026-08-12 に実測したところ、`min-h-[44px]` は 20 箇所で「スマホでも
-    /// タップしやすいサイズ」の保証として使われているのに min-height が 0px の
-    /// ままだった。tailwind-precompiled.css に含まれておらず、既存テストは
-    /// 「HTML に文字列があるか」しか見ていなかったため誰も気づけていない。
-    /// クラス名を書いただけで効いた気になるのを防ぐため、CSS 側を検査する。
-    #[test]
-    fn utility_classes_used_for_layout_are_actually_defined() {
-        let precompiled = include_str!("../static/css/tailwind-precompiled.css");
-        let dashboard = include_str!("../static/css/dashboard.css");
-
-        // (クラス名, CSS セレクタとしてのエスケープ形)
-        let required = [
-            ("min-h-[44px]", r".min-h-\[44px\]"),
-            ("mt-0.5", r".mt-0\.5"),
-            ("gap-1.5", r".gap-1\.5"),
-            ("text-[10px]", r".text-\[10px\]"),
-            ("text-[11px]", r".text-\[11px\]"),
-        ];
-        for (name, selector) in required {
-            assert!(
-                precompiled.contains(selector) || dashboard.contains(selector),
-                "クラス {name} が CSS に定義されていない（HTML で使っても効かない）"
-            );
-        }
-    }
-}
+// 「使っているクラスが CSS に本当に定義されているか」の検査は
+// tests/css_classes_exist.rs に移した（2026-09-11）。
+//
+// ■ ここに何があったか
+//   `css_utility_tests::utility_classes_used_for_layout_are_actually_defined` が
+//   5 個のクラス（min-h-[44px] / mt-0.5 / gap-1.5 / text-[10px] / text-[11px]）を
+//   配列にベタ書きし、その 5 個だけ CSS に在るかを見ていた。
+//
+// ■ なぜ置き換えたか
+//   ベタ書きの配列は、そこに書いたものしか守らない。
+//   2026-09-10 に見た目の修正が軒並み無効になった件（sky-* と rose-* が CSS に
+//   1 件も無く、text-rose-400 / bg-sky-900/30 / z-20 / backdrop-blur が素通り）
+//   では、このテストは緑のままだった。1 つも入っていなかったからで、
+//   「テストがあるから大丈夫」が成立していなかった。
+//
+//   移した先は、ソース（src/**/*.rs の文字列リテラルと templates/**/*.html）から
+//   使っているクラスを総当たりで集め、配っている CSS と突き合わせる。
+//   手で並べる必要が無いので、新しく足したクラスも自動で対象に入る。
+//   旧テストが見ていた 5 個は tests/css_classes_exist.rs の
+//   `旧lib_rsのベタ書き5個を今も見ている` で明示的に押さえてある。
+//
+// ■ 動かし方
+//   cargo test --test css_classes_exist        （段 1 / 静的・数秒）
+//   node scripts/audit_css_classes.js          （段 2 / 実 DOM・nightly）
+//
+//   注: cargo test --lib は tests/ 配下を走らせない。CI では
+//   .github/workflows/ci.yml の lint-css-classes ジョブが明示的に呼んでいる。
 
 #[cfg(test)]
 mod asset_version_tests {

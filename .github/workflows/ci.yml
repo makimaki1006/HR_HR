@@ -26,6 +26,32 @@ jobs:
       - name: Statistical claims lint
         run: python scripts/lint_statistical_claims.py
 
+  # -----------------------------------------------------------------------
+  # CSS クラス存在検査 (段 1 / 静的)
+  # 配っている CSS に無いクラスを書いても、この画面では何も起きず素通りする
+  # (Tailwind は JIT ではなく static/css/tailwind-precompiled.css で配布)。
+  # 2026-09-10 に sky-* / rose-* / z-20 / backdrop-blur が丸ごと無効だった。
+  # 数秒で終わるので全 PR で回す。実 DOM を読む段 2 は regression.yml (nightly)。
+  #
+  # 注: cargo test --lib は tests/ 配下の統合テストを走らせない。
+  #     この検査は tests/css_classes_exist.rs なので明示的に指定する。
+  # -----------------------------------------------------------------------
+  lint-css-classes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: 未定義クラスの静的検査 (段 1)
+        run: cargo test --test css_classes_exist
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # 段 2 の照合ロジックが壊れていないことだけ、ブラウザ抜きで毎 PR 確認する。
+      # 「未定義 0 件」は照合が壊れていても出るので、逆から押さえておく
+      - name: 段 2 の照合が機能していることの確認
+        run: node scripts/audit_css_classes.selftest.js
+
   rust-test:
     runs-on: ubuntu-latest
     steps:
@@ -55,7 +81,7 @@ jobs:
   # Slack 通知: CI 失敗時のみ送信（Secrets.SLACK_WEBHOOK_URL が未設定なら実行時にskip）
   notify:
     runs-on: ubuntu-latest
-    needs: [rust-test, lint-statistical-claims]
+    needs: [rust-test, lint-statistical-claims, lint-css-classes]
     if: failure()
     steps:
       - name: Slack notification on failure

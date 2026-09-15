@@ -61,6 +61,46 @@ jobs:
           fi
           npx playwright test tests/e2e/regression_2026_04_26.spec.ts --reporter=list
 
+      # ------------------------------------------------------------------
+      # CSS クラス存在検査 (段 2 / 実 DOM)
+      #
+      # 段 1 (CI の lint-css-classes) はソースの文字列リテラルしか見られず、
+      # 条件で組み立てるクラス・テンプレート/JS が付けるクラス・
+      # 「定義はどこかにあるがこのページには読み込まれていない CSS」を
+      # 取りこぼす。実際に描画された DOM を読めば全部まとめて分かる。
+      #
+      # 4 面 × 2 県 (全国・鳥取県)。データが薄いときだけ通る枝も踏む。
+      # 許可リストは段 1 と共用 (tests/css_class_allowlist.txt)。
+      # 手書き部分の「直ったのに残っている行」はここが名指しする。
+      # ------------------------------------------------------------------
+      - name: 未定義クラスの実 DOM 検査 (段 2)
+        env:
+          BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://hr-hw.onrender.com' }}
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+          E2E_PASS: ${{ secrets.E2E_PASS }}
+          AUDIT_BROWSER_CHANNEL: ""   # CI は同梱 Chromium を使う
+        run: |
+          if [ -z "$E2E_EMAIL" ] || [ -z "$E2E_PASS" ]; then
+            echo "::warning ::E2E_EMAIL/E2E_PASS が未設定。段 2 の CSS クラス検査をスキップ"
+            exit 0
+          fi
+          # 先におとりで「検出の経路が働いているか」を見る。
+          # これを挟まないと、検出が壊れて「未定義 0 件」になっても緑になる
+          AUDIT_CANARY=1 node scripts/audit_css_classes.js
+          # 終了コード 1 (未定義クラスあり) と 2 (環境の問題) を読み分ける。
+          # どちらも赤にするが、ログを見なくても原因が分かるようにする
+          set +e
+          node scripts/audit_css_classes.js
+          rc=$?
+          set -e
+          case "$rc" in
+            0) ;;
+            1) echo "::error ::CSS に定義の無いクラスが増えています。許可リストと出力を確認してください" ;;
+            2) echo "::error ::段 2 の検査を実行できませんでした（環境の問題）。未定義クラスの有無は判定できていません" ;;
+            *) echo "::error ::段 2 が想定外の終了コード $rc で終わりました" ;;
+          esac
+          exit $rc
+
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
