@@ -21,12 +21,11 @@ use axum::{
 use serde::Deserialize;
 
 use super::render::{
-    category_table_html, dec1_opt, dir_class, esc, headline_opt, indexed_chart, line_chart,
-    num_opt, pct_opt,
+    arrow, category_table_html, dec1_opt, dir_class, esc, num, num_opt, pct_opt, raw_line_chart,
 };
 use crate::indeed::aggregate::{
     category_table, extreme, nation_overview, pref_overview, pref_title_overviews, CategoryRow,
-    Overview,
+    Metric, Overview,
 };
 use crate::indeed::data::{snapshot, Snapshot};
 use crate::AppState;
@@ -99,6 +98,10 @@ p{margin:.5em 0;max-width:40em}
 .kpi-card{border:1px solid var(--line);border-radius:8px;padding:14px 16px;background:var(--bg)}
 .kpi-label{color:var(--ink-soft);font-size:12px;line-height:1.7}
 .kpi-value{font-size:25px;font-weight:700;font-variant-numeric:tabular-nums;margin:2px 0}
+/* 単位は値より小さく、色も落とす。「162.4」と「万件」が同じ強さだと
+   数と単位の切れ目が見えず、桁を読み違える */
+.kpi-unit{font-size:14px;font-weight:600;color:var(--ink-soft);margin-left:2px}
+.kpi-chg{font-size:13px;font-variant-numeric:tabular-nums}
 .ind-up{color:var(--up)} .ind-down{color:var(--down)} .ind-flat{color:var(--ink-soft)}
 table.tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0;
   /* 狭い幅で縮ませない。縮むと職種名が 1 文字ずつ縦に折り返って読めなくなる。
@@ -113,6 +116,15 @@ table.tbl td:first-child,table.tbl th:first-child{white-space:normal}
 table.tbl tr:nth-child(even) td{background:#fbfcfd}
 .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:14px 0}
 .chart{margin:14px 0}
+/* 3 枚を必ず横に並べる。auto-fit(minmax) だと紙の幅で 2 枚 + 1 枚になり、
+   3 枚目だけが次の行に取り残される（.kpis で直したのと同じ形） */
+.panels{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:14px 0}
+/* 狭い画面で 3 列のままだと 1 枚 180px を切り、月のラベルが読めなくなる。
+   縦に積む。紙は常に 3 列（@media print は max-width を見ない） */
+@media (max-width:640px){.panels{grid-template-columns:1fr}}
+.panel-name{font-size:13.5px;font-weight:700;margin:0;line-height:1.6}
+.panel-sub{color:var(--ink-soft);font-size:11.5px;line-height:1.7;margin:0 0 2px;
+  font-variant-numeric:tabular-nums}
 @media (max-width:640px){
   .wrap{padding:28px 16px 56px}
   body{font-size:14px}
@@ -139,7 +151,22 @@ table.tbl tr:nth-child(even) td{background:#fbfcfd}
   h2{break-after:avoid} h3{break-after:avoid}
   table{break-inside:auto} tr{break-inside:avoid}
   .tbl-wrap{overflow:visible}
-  .kpi-card,.chart,.note{break-inside:avoid}
+  .kpi-card,.chart,.note,.panels>div{break-inside:avoid}
+  /* 図は画面幅のまま描かれた SVG を持っている。紙の本文幅はそれより狭いので、
+     そのままでは右にはみ出す。実測（A4・余白 16/14mm）では、分類別の図が
+     用紙 596pt に対し 654pt まで出て 2026-06 以降が消え、全体の動きの 3 枚は
+     隣どうし重なっていた。CHART_INIT が viewBox を付けてあるので、
+     幅を紙に合わせれば中身ごと縮む。高さは SVG の比率に任せる。
+
+     ECharts は器の中にもう 1 枚 div を作り、そこに px 直書きの幅と
+     overflow:hidden を置く。SVG は position:absolute でその中に浮いている。
+     SVG だけ 100% にしても、基準になるのがこの固定幅の div なので何も変わらない
+     （実測で幅 904px のまま動かなかった）。中の div ごと広げ、SVG を
+     いったん流し込みに戻してから幅を与える。印刷指定はスタイルシート側なので、
+     !important を付ければ ECharts のインライン指定より強い */
+  .echart{height:auto!important}
+  .echart>div{width:100%!important;height:auto!important;overflow:visible!important}
+  .echart svg{position:static!important;width:100%!important;height:auto!important}
   /* 背景を落とすと表の縞と注記の枠が消えて読みにくくなる */
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
@@ -153,21 +180,72 @@ table.tbl tr:nth-child(even) td{background:#fbfcfd}
 /// ライブラリを読み込んだだけでは 1 枚も描かれない（実測で 2 枚とも空だった）。
 const CHART_INIT: &str = r#"<script>
 (function () {
+  // ECharts の SVG には width/height だけが入り viewBox が無い。無いと
+  // CSS で幅を詰めても中身が縮まず、右がそのまま切れる。紙の本文幅は
+  // 画面より狭いので、印刷のたびに図がはみ出していた（実測で用紙 596pt に
+  // 対し図が 654pt。全体の動きの 3 枚は隣どうし重なっていた）。
+  // 描いた直後の実寸を viewBox に写しておけば、あとは幅を与えるだけで縮む。
+  function fit(el) {
+    var svg = el.querySelector('svg');
+    if (!svg) return;
+    var w = svg.getAttribute('width');
+    var h = svg.getAttribute('height');
+    if (!w || !h) return;
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  }
   function draw() {
     if (typeof echarts === 'undefined') return;
     document.querySelectorAll('.echart[data-chart-config]').forEach(function (el) {
-      if (echarts.getInstanceByDom(el)) return;
+      if (echarts.getInstanceByDom(el)) { fit(el); return; }
       try {
         var cfg = JSON.parse(el.getAttribute('data-chart-config'));
         cfg.backgroundColor = 'transparent';
         cfg.animation = false;              // 印刷で描き終わる前に出ないように
         cfg.aria = { enabled: true, decal: { show: true } };
+        // いちばん右の月のラベルは、軸の端から半分はみ出す位置に置かれる。
+        // 右の余白が足りないと外にはみ出した分が切れる。実測では
+        // 分類の図の「2026-08」が「2026-0」になっていた。最新月は
+        // このレポートでいちばん見たい月なので、足りなければ広げる
+        if (cfg.grid && typeof cfg.grid.right === 'number' && cfg.grid.right < 28) {
+          cfg.grid.right = 28;
+        }
+        // 分類 → 色 の表は 12 分類を 6 色に載せているので、同じ図に
+        // 同じ色の線が 2 本入りうる（線種は必ず違う）。線そのものは紙でも
+        // 実線・破線・点線を見分けられたが、凡例の印は既定 25px だと
+        // 破線が「ほぼ実線の棒 + 点 1 つ」にしか見えず、名前と線を
+        // 結びつけられなかった（A4 で刷って確認）。印を広げると 3 種類が
+        // はっきり分かれる。画面でも損はしない
+        if (cfg.legend && cfg.legend.show !== false) {
+          cfg.legend.itemWidth = 42;
+          cfg.legend.itemGap = 18;
+        }
+        // 1 枚 1 系列の図（2 節）。色や線種で区別する相手がいないのに
+        // 分類と同じパレットから採ると、隣の 3 節で同じ色が別の分類を指す。
+        // 本文と同じ墨色の実線にそろえ、色は 3 節だけの手がかりにする
+        if (el.hasAttribute('data-solo')) {
+          (cfg.series || []).forEach(function (s) {
+            s.itemStyle = { color: '#334155' };
+            s.lineStyle = { width: 2, type: 'solid' };
+          });
+          cfg.legend = { show: false };     // 系列名は図の見出しに出ている
+          if (cfg.grid) cfg.grid.bottom = 6; // 凡例のために空けていた分を線に回す
+        }
         // canvas は印刷エンジンによって出たり出なかったりする。SVG なら確実
         echarts.init(el, null, { renderer: 'svg' }).setOption(cfg);
+        fit(el);
       } catch (e) {
         // 図が出せなくても本文と表で意味が通るようにしてある。ここでは黙って諦める
         el.style.display = 'none';
       }
+    });
+  }
+  // 描き直すと width/height が書き換わる。viewBox が古いままだと像が歪むので
+  // resize と fit は必ず対で呼ぶ
+  function redraw() {
+    document.querySelectorAll('.echart').forEach(function (el) {
+      var c = echarts.getInstanceByDom(el);
+      if (c) { c.resize(); fit(el); }
     });
   }
   if (document.readyState === 'loading') {
@@ -176,19 +254,10 @@ const CHART_INIT: &str = r#"<script>
     draw();
   }
   window.addEventListener('load', draw);
-  window.addEventListener('resize', function () {
-    document.querySelectorAll('.echart').forEach(function (el) {
-      var c = echarts.getInstanceByDom(el);
-      if (c) c.resize();
-    });
-  });
-  // 印刷の直前にもう一度描く。幅が変わると中身がずれるため
-  window.addEventListener('beforeprint', function () {
-    document.querySelectorAll('.echart').forEach(function (el) {
-      var c = echarts.getInstanceByDom(el);
-      if (c) c.resize();
-    });
-  });
+  window.addEventListener('resize', redraw);
+  // 印刷の直前にもう一度描く。幅が変わると中身がずれるため。
+  // この時点ではまだ画面の幅なので、縮めるのは viewBox と印刷 CSS の仕事
+  window.addEventListener('beforeprint', redraw);
 })();
 </script>"#;
 
@@ -246,19 +315,24 @@ fn render_report(snap: &Snapshot, pref: Option<&str>) -> String {
     ));
 
     h.push_str("<div class=\"kpis\">");
-    for m in [
-        &overview.job,
-        &overview.ctk,
-        &overview.emp,
-        &overview.spp,
+    // 単位はここで持つ。「求人の数」という名前だけでは、件なのか人なのか
+    // 社なのかが読み手に分からない
+    for (m, unit) in [
+        (&overview.job, "件"),
+        (&overview.ctk, "人"),
+        (&overview.emp, "社"),
+        (&overview.spp, "人"),
     ] {
         h.push_str(&format!(
             "<div class=\"kpi-card\"><div class=\"kpi-label\">{n}</div>\
              <div class=\"kpi-value\">{v}</div>\
-             <div class=\"{dc}\" style=\"font-size:13px;font-variant-numeric:tabular-nums\">{p}</div></div>",
+             <div class=\"kpi-chg {dc}\">{a} {p}</div></div>",
             n = esc(&m.label),
-            v = headline_opt(m.latest),
+            v = headline_jp(m.latest, unit),
             dc = dir_class(m.change_pct, false),
+            // 増減を色だけで伝えない。赤と緑の見え方が違う人には符号しか
+            // 手がかりが残らない（`render::arrow` と同じ理由）
+            a = arrow(m.change_pct),
             p = pct_opt(m.change_pct)
         ));
     }
@@ -266,23 +340,24 @@ fn render_report(snap: &Snapshot, pref: Option<&str>) -> String {
 
     // 全体の動き
     h.push_str("<h2>2. 全体の動き</h2>");
-    h.push_str(
-        "<p>期間の最初の月を 100 として重ねています。件数の大小ではなく、\
-         増え方・減り方の違いを見るための図です。</p>",
-    );
+    let panels: [(&Metric, &str); 3] = [
+        (&overview.job, "件"),
+        (&overview.ctk, "人"),
+        (&overview.emp, "社"),
+    ];
+    // 以前は「求人数と見た人数では桁が 40 倍ほど違う」という固定の文だった。
+    // 40 倍なのは見た人数と企業数の比で、文が名指ししている求人数と見た人数は
+    // 実データでは 11 倍。しかも固定文字なので、データが変われば黙って嘘になる。
+    // 出すたびに数えて書く
     h.push_str(&format!(
-        "<div class=\"chart\">{}</div>",
-        line_chart(
-            months,
-            &[
-                ("求人の数".to_string(), overview.job.indexed()),
-                ("求人を見た人数".to_string(), overview.ctk.indexed()),
-                ("募集している企業の数".to_string(), overview.emp.indexed()),
-            ],
-            false,
-            320
-        )
+        "<p>実数です。{ratio}1 つの目盛りに重ねず 3 つ並べています。\
+         号をまたいで同じ数字を比べられます。</p>",
+        ratio = match spread(&panels) {
+            Some(r) => format!("いちばん多い数といちばん少ない数で {} 倍ちがうため、", num(r)),
+            None => String::new(),
+        }
     ));
+    h.push_str(&overview_panels(months, &panels));
 
     // 分類別（全国のみ）
     if pref.is_none() {
@@ -324,7 +399,10 @@ fn render_report(snap: &Snapshot, pref: Option<&str>) -> String {
         );
         let top: Vec<(String, Overview)> = cats
             .iter()
-            .take(7)
+            // 6 本。7 本だと、色だけでは見分けにくい 6 組を線種 3 種類で
+            // さばききれず、分類 → 色/線種 の割り当てが成立しない
+            // （`render::CATEGORY_STYLE` のコメント参照）
+            .take(6)
             .filter_map(|c| {
                 snap.by_category
                     .get(&c.name)
@@ -334,7 +412,16 @@ fn render_report(snap: &Snapshot, pref: Option<&str>) -> String {
         let refs: Vec<(String, &Overview)> = top.iter().map(|(n, o)| (n.clone(), o)).collect();
         h.push_str(&format!(
             "<div class=\"chart\">{}</div>",
-            indexed_chart(months, &refs, false, 340)
+            raw_line_chart(
+                months,
+                &refs
+                    .iter()
+                    .map(|(n, o)| (n.clone(), o.job.series.clone()))
+                    .collect::<Vec<_>>(),
+                false,
+                340,
+                "件"
+            )
         ));
 
         h.push_str("<h3>分類別の定点表</h3>");
@@ -432,6 +519,109 @@ fn render_report(snap: &Snapshot, pref: Option<&str>) -> String {
     h
 }
 
+/// 見出しに出す大きな数。単位まで含めて返す。
+///
+/// # なぜ万で出すのか
+/// 指数をやめて実数に戻したので、見た人数は 18,240,805 のような 8 桁で出る。
+/// 桁を数えないと大きさが分からず、号をまたいで見比べるときに読み違える。
+/// 1 万を超えるものは「1,824.1 万人」と万で出す。小数第 1 位まで残すので
+/// 1,000 人単位の動きは見える。実数のほうは 2 節の図の見出しと表に出ている。
+fn headline_jp(v: Option<f64>, unit: &str) -> String {
+    let Some(x) = v else {
+        return "—".to_string();
+    };
+    let (n, u) = if x.abs() >= 10_000.0 {
+        // 先に 1,000 で割って四捨五入してから 10 で割る。
+        // 小数の引き算で 0.1 が 0.0999… になっても桁が崩れない
+        let y = (x / 1_000.0).round() / 10.0;
+        let i = y.trunc();
+        let f = ((y - i).abs() * 10.0).round() as i64;
+        (format!("{}.{}", num(i), f), format!("万{unit}"))
+    } else if x.abs() < 1_000.0 {
+        // 「1 求人あたり 11.2 人」を整数に丸めると、月ごとの動きが見えなくなる
+        (format!("{x:.1}"), unit.to_string())
+    } else {
+        (num(x), unit.to_string())
+    };
+    format!("{n}<span class=\"kpi-unit\">{u}</span>", u = esc(&u))
+}
+
+/// 並べる指標のあいだで、いちばん多い数といちばん少ない数が何倍離れているか。
+///
+/// 2 倍を切るなら「桁が違うので重ねなかった」という断りがそもそも要らないので、
+/// そのときは何も返さない。
+fn spread(panels: &[(&Metric, &str)]) -> Option<f64> {
+    let v: Vec<f64> = panels.iter().filter_map(|(m, _)| m.latest).collect();
+    if v.len() < 2 {
+        return None;
+    }
+    let max = v.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let min = v.iter().copied().fold(f64::INFINITY, f64::min);
+    (min > 0.0 && max / min >= 2.0).then_some(max / min)
+}
+
+/// 規模の違う指標を、重ねずに 1 枚ずつ並べる。
+///
+/// # なぜ [`super::render::small_multiples`] を使わないのか
+/// あちらは図の見出しの増減を「最初の月と最後の月の素の比」で出す。
+/// このレポートの増減はどこも [`Metric::change_pct`]（月ごとの上下をならした
+/// 線に沿った変化）で、表紙にもそう書いてある。実データでは同じ
+/// 「募集している企業の数」が、すぐ上のカードで +11.9%、図の見出しで +3.4% と
+/// 並んでいた。同じページの同じ指標に 2 つの値が出ている状態は直さないといけない。
+/// ここは Metric の値だけを使い、カード・図・表をすべて同じ数にそろえる。
+///
+/// 枠は [`CSS`] の `.panels` で持つ。あちらの grid はインライン style で
+/// `auto-fit` なので、紙の幅で 2 枚 + 1 枚に割れて 3 枚目が取り残される。
+fn overview_panels(months: &[String], panels: &[(&Metric, &str)]) -> String {
+    let mut h = String::from("<div class=\"panels\">");
+    for (m, unit) in panels {
+        let one = vec![(m.label.clone(), m.series.clone())];
+        h.push_str(&format!(
+            "<div><p class=\"panel-name\">{n}</p>\
+             <p class=\"panel-sub\">{last} は {v} {u}\
+             （この期間 <span class=\"{dc}\">{a} {p}</span>）</p>{chart}</div>",
+            n = esc(&m.label),
+            last = esc(months.last().map(String::as_str).unwrap_or("")),
+            // ここは概観ではなく突き合わせ用なので実数のまま出す
+            v = num_opt(m.latest),
+            u = esc(unit),
+            dc = dir_class(m.change_pct, false),
+            a = arrow(m.change_pct),
+            p = pct_opt(m.change_pct),
+            chart = solo_chart(&raw_line_chart(months, &one, false, 190, unit))
+        ));
+    }
+    h.push_str("</div>");
+    h
+}
+
+/// 2 節の図に「1 枚 1 系列である」という印を付ける。
+///
+/// [`raw_line_chart`] は系列名から色と線種を決める。3 節ではそれが
+/// 「分類 → 見た目」の約束になっていて意味があるが、2 節は 1 枚 1 系列で、
+/// 色に区別の役目がない。それでも同じパレットから採るので、実データでは
+/// 2 節の「求人の数」と 3 節の「事務・オフィスワーク」がどちらも薔薇色の破線、
+/// 2 節の「求人を見た人数」と 3 節の「製造・生産」がどちらも同じ青になっていた。
+/// 隣り合う節で同じ見た目が別のものを指すと、読み手の対応づけが壊れる。
+///
+/// # なぜ属性を足すだけなのか
+/// 軸・単位・万への丸め・欠測の扱いは [`raw_line_chart`] のものを使いたい。
+/// ここで別に組むと、2 節と 3 節で数字の作り方が分かれる。
+/// 最初は出来上がった JSON の色や凡例を文字列で置き換えていたが、
+/// [`raw_line_chart`] が `grid` の書き方を変えた時点で置換が空振りした
+/// （色は変わったのに余白だけ元のまま、という気づきにくい壊れ方をした）。
+/// 印だけ付けて、実際の差し替えは [`CHART_INIT`] が `JSON.parse` した後の
+/// オブジェクトに対して行う。あちらは形で触るので、書き方が変わっても効く。
+fn solo_chart(chart: &str) -> String {
+    // `raw_line_chart` の出だしはこの形。変わったら印が付かず、
+    // 色と凡例が既定のまま出る（tests で押さえてある）
+    chart.replacen(
+        "<div class=\"echart\"",
+        "<div class=\"echart\" data-solo=\"1\"",
+        1,
+    )
+}
+
 fn title_table_html(snap: &Snapshot, pref: Option<&str>, limit: usize) -> String {
     let months = &snap.meta.months;
     let mut h = String::from(
@@ -490,4 +680,153 @@ fn title_table_html(snap: &Snapshot, pref: Option<&str>, limit: usize) -> String
     }
     h.push_str("</tbody></table></div>");
     h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::local_sqlite::LocalDb;
+    use crate::indeed::data::load;
+
+    /// 実データを読む。テスト用のダミーは作らない。
+    ///
+    /// 作りかけのレポートを見るのに架空の数字を使うと、桁数も欠測も本物と違い、
+    /// 「実データでだけ崩れる」ものを見逃す。同梱の gz から本番と同じ手順で開く。
+    fn real_snapshot() -> Snapshot {
+        crate::ensure_db_from_gz("data/indeed_insights.db");
+        let db = LocalDb::new("data/indeed_insights.db").expect("Indeed 分析 DB を開けない");
+        load(&db).expect("Indeed 分析 DB を読めない")
+    }
+
+    /// 節を切り出す。節ごとに見たいので、全文に対する contains では足りない。
+    fn section<'a>(html: &'a str, from: &str, to: &str) -> &'a str {
+        let a = html.find(from).unwrap_or_else(|| panic!("{from} が無い"));
+        let b = html[a..].find(to).map(|i| a + i).unwrap_or(html.len());
+        &html[a..b]
+    }
+
+    /// カードと図の見出しで、同じ指標に同じ増減が出ていること。
+    ///
+    /// # 逆向きにも見る
+    /// 「期待した数字が入っている」だけだと、素の比がたまたま同じ値のときにも通る。
+    /// 素の比（最初の月と最後の月だけを見た値）が違う値になる指標については、
+    /// **その素の比が 2 節に出ていないこと**まで見る。直す前はここが
+    /// カード +11.9% ／ 図の見出し +3.4% に割れていた。
+    #[test]
+    fn カードと図で同じ指標の増減がそろっている() {
+        let snap = real_snapshot();
+        let html = render_report(&snap, None);
+        let sec2 = section(&html, "<h2>2. ", "<h2>3. ");
+        let ov = crate::indeed::aggregate::nation_overview(&snap);
+        let wants: Vec<String> = [&ov.job, &ov.ctk, &ov.emp]
+            .iter()
+            .map(|m| pct_opt(m.change_pct))
+            .collect();
+
+        for m in [&ov.job, &ov.ctk, &ov.emp] {
+            let want = pct_opt(m.change_pct);
+            assert!(
+                sec2.contains(&want),
+                "{} の図の見出しに、カードと同じ {want} が無い",
+                m.label
+            );
+            let first = m.series.iter().flatten().next().copied();
+            let last = m.series.iter().flatten().next_back().copied();
+            let (Some(a), Some(b)) = (first, last) else { continue };
+            if a <= 0.0 {
+                continue;
+            }
+            let raw = pct_opt(Some((b - a) / a * 100.0));
+            // 素の比が、たまたま別の指標の期間変化と同じ文字列になることはある。
+            // そのときは見分けられないので判定しない
+            if raw != want && !wants.iter().any(|w| *w == raw) {
+                assert!(
+                    !sec2.contains(&raw),
+                    "{} の 2 節に素の比 {raw} が出ている（期間の増減は {want}）",
+                    m.label
+                );
+            }
+        }
+    }
+
+    /// 色に意味を持たせるのは分類の図だけ。
+    ///
+    /// 1 枚 1 系列の図が分類と同じパレットから色を採ると、隣の節で
+    /// 同じ色が別の分類を指す。印が付かなくなったら（[`solo_chart`] が
+    /// 当てにしている出だしが変わったら）ここで落ちる。
+    #[test]
+    fn 一枚一系列の図には色の意味を持たせない() {
+        let snap = real_snapshot();
+        let html = render_report(&snap, None);
+        let sec2 = section(&html, "<h2>2. ", "<h2>3. ");
+        assert_eq!(
+            sec2.matches("data-solo=\"1\"").count(),
+            3,
+            "2 節の 3 枚に印が付いていない"
+        );
+        let sec3 = section(&html, "<h2>3. ", "<h2>4. ");
+        assert!(
+            !sec3.contains("data-solo"),
+            "分類の図に印が付いている。色と線種の約束が消える"
+        );
+    }
+
+    /// 指数をやめたのに、指数を前提にした説明が残っていないこと。
+    #[test]
+    fn 指数だったころの言い回しが残っていない() {
+        let snap = real_snapshot();
+        for pref in [None, Some("三重県")] {
+            let html = render_report(&snap, pref);
+            for w in ["指数", "を 100", "100 として", "基準の月"] {
+                assert!(!html.contains(w), "「{w}」が残っている（pref={pref:?}）");
+            }
+        }
+    }
+
+    /// 大きな桁は万で出す。桁を数えないと大きさが分からないため。
+    #[test]
+    fn 見出しの数は万で出す() {
+        assert!(
+            headline_jp(Some(18_240_805.0), "人").starts_with("1,824.1<span"),
+            "{}",
+            headline_jp(Some(18_240_805.0), "人")
+        );
+        assert!(headline_jp(Some(1_624_095.0), "件").starts_with("162.4<span"));
+        assert!(headline_jp(Some(450_838.0), "社").starts_with("45.1<span"));
+        // 1 求人あたりは小数第 1 位まで残す。整数に丸めると動きが消える
+        assert!(headline_jp(Some(11.23), "人").starts_with("11.2<span"));
+        assert_eq!(headline_jp(None, "件"), "—");
+        // 単位は必ず添える。「求人の数 162.4」だけでは件か人か分からない
+        assert!(headline_jp(Some(1_624_095.0), "件").contains("万件"));
+    }
+
+    /// 目で見るための HTML を書き出す。
+    ///
+    /// # なぜテストの中から出すのか
+    /// `/report/indeed` は `INDEED_PUBLIC` が立つまで 404 で、動いているサーバを
+    /// 開け直さないと現物が見られない。図の重なりや印刷の切れ方は読むだけでは
+    /// 分からないので、実データを通した HTML をそのままファイルに落として開く。
+    ///
+    /// 既定では何も書かない。`INDEED_REPORT_DUMP=<出力先ディレクトリ>` を
+    /// 指定したときだけ、全国版と県版を書き出す。
+    #[test]
+    fn レポートを目視用に書き出す() {
+        let Ok(dir) = std::env::var("INDEED_REPORT_DUMP") else {
+            return;
+        };
+        let snap = real_snapshot();
+        std::fs::create_dir_all(&dir).expect("出力先を作れない");
+        std::fs::write(
+            format!("{dir}/report_nation.html"),
+            render_report(&snap, None),
+        )
+        .expect("全国版を書けない");
+        let pref = snap.prefectures().first().cloned().unwrap_or_default();
+        std::fs::write(
+            format!("{dir}/report_pref.html"),
+            render_report(&snap, Some(&pref)),
+        )
+        .expect("県版を書けない");
+        eprintln!("dumped to {dir} (pref={pref})");
+    }
 }
