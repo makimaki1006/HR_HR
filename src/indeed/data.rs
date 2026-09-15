@@ -148,6 +148,13 @@ pub struct PrefSeries {
     pub prefecture: String,
     pub title: String,
     pub series: Series,
+    /// その県でスマホから検索された割合(%)。いちばん新しい月の値。
+    ///
+    /// # なぜ県別に持つのか
+    /// 以前は全国の値(insight_title.mobile_pct)しか持たず、
+    /// 県を選んでも全国の数字を出していた。県別の内訳は
+    /// insight_title_pref に最初から入っている。
+    pub mobile_pct: Option<f64>,
 }
 
 /// 一度読んだら変えない、データのかたまり。
@@ -216,11 +223,7 @@ impl Snapshot {
 
     /// 都道府県の一覧。重複なし、名前順。
     pub fn prefectures(&self) -> Vec<String> {
-        let mut v: Vec<String> = self
-            .by_pref
-            .iter()
-            .map(|p| p.prefecture.clone())
-            .collect();
+        let mut v: Vec<String> = self.by_pref.iter().map(|p| p.prefecture.clone()).collect();
         v.sort();
         v.dedup();
         v
@@ -361,10 +364,12 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
     // 4. 都道府県 × 職種
     let pref_rows = db.query(
         "SELECT prefecture, norm_title, report_month, job_count AS job, \
-           ctk_count AS ctk, employer_count AS emp FROM insight_title_pref",
+           ctk_count AS ctk, employer_count AS emp, mobile_pct FROM insight_title_pref",
         &[],
     )?;
     let mut pref_map: HashMap<(String, String), Series> = HashMap::new();
+    // スマホ率は月ごとに来るので、いちばん新しい月の値を残す
+    let mut mobile_map: HashMap<(String, String), (usize, f64)> = HashMap::new();
     for r in &pref_rows {
         let p = get_str(r, "prefecture");
         let t = get_str(r, "norm_title");
@@ -372,6 +377,12 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
         let Some(&i) = idx.get(&m) else {
             continue;
         };
+        if let Some(v) = get_f64_opt(r, "mobile_pct") {
+            let e = mobile_map.entry((p.clone(), t.clone())).or_insert((0, v));
+            if i >= e.0 {
+                *e = (i, v);
+            }
+        }
         let e = pref_map.entry((p, t)).or_insert_with(|| Series::blank(n));
         e.job[i] = get_f64_opt(r, "job");
         e.ctk[i] = get_f64_opt(r, "ctk");
@@ -380,6 +391,7 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
     let mut by_pref: Vec<PrefSeries> = pref_map
         .into_iter()
         .map(|((prefecture, title), series)| PrefSeries {
+            mobile_pct: mobile_map.get(&(prefecture.clone(), title.clone())).map(|x| x.1),
             prefecture,
             title,
             series,

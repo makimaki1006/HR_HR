@@ -352,6 +352,25 @@ CREATE TABLE insight_kw_term_shift (
   share_before REAL, share_after REAL, share_diff REAL,
   clicks_after INTEGER, built_at TEXT NOT NULL,
   PRIMARY KEY (norm_title, search_term)
+);
+
+-- 語ごとのシェアを月次でそのまま持つ。
+--
+-- なぜ insight_kw_term_shift と別に持つか:
+--   あちらは前 3 か月と直近 3 か月の平均どうしの比較で、2 点しか無い。
+--   「事務」は 45.3 → 26.8 と一本調子で下がり、「一般事務」は 5.3 → 19.9 と
+--   上がり続けているが、2 点に丸めると「46.1 → 29.8」としか読めず、
+--   いつから動いたのか・まだ続いているのかが分からない。
+--   トレンドの判断には月次がいる。
+DROP TABLE IF EXISTS insight_kw_term_monthly;
+CREATE TABLE insight_kw_term_monthly (
+  norm_title  TEXT NOT NULL,
+  report_month TEXT NOT NULL,
+  search_term TEXT NOT NULL,
+  clicks      INTEGER,
+  share_pct   REAL,
+  built_at    TEXT NOT NULL,
+  PRIMARY KEY (norm_title, report_month, search_term)
 );`);
 
 {
@@ -370,6 +389,9 @@ CREATE TABLE insight_kw_term_shift (
     (norm_title,report_month,total_clicks,pct_condition,pct_senior,pct_homemaker,
      pct_student,pct_foreign,pct_inexperienced,pct_language,pct_qualified,term_count,built_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const insM = out.prepare(`INSERT OR REPLACE INTO insight_kw_term_monthly
+    (norm_title,report_month,search_term,clicks,share_pct,built_at)
+    VALUES (?,?,?,?,?,?)`);
   const insS = out.prepare(`INSERT OR REPLACE INTO insight_kw_term_shift
     (norm_title,search_term,share_before,share_after,share_diff,clicks_after,built_at)
     VALUES (?,?,?,?,?,?,?)`);
@@ -378,6 +400,7 @@ CREATE TABLE insight_kw_term_shift (
   out.exec('BEGIN');
   let nA = 0;
   let nS = 0;
+  let nM = 0;
   for (const [t, byM] of agg) {
     // --- 属性シェアの月次推移 ---
     for (const m of fullMonths) {
@@ -391,6 +414,33 @@ CREATE TABLE insight_kw_term_shift (
         sh.student, sh.foreign, sh.inexperienced, sh.language, sh.qualified,
         terms.size, now);
       nA += 1;
+    }
+
+    // --- 語ごとのシェアを月次で残す ---
+    {
+      // どの月でも 1% に届かない語は落とす。県ごとに上位 10 語しか返らないので、
+      // 小さい語は「消えた」のか「圏外に落ちた」のか区別できない
+      const share = new Map();      // term -> month -> %
+      for (const m of fullMonths) {
+        const terms = byM.get(m);
+        if (!terms) continue;
+        let tot = 0;
+        for (const [, c] of terms) tot += c;
+        if (!tot) continue;
+        for (const [sTerm, c] of terms) {
+          if (!share.has(sTerm)) share.set(sTerm, new Map());
+          share.get(sTerm).set(m, { pct: (c / tot) * 100, clicks: c });
+        }
+      }
+      for (const [sTerm, byMonth] of share) {
+        let peak = 0;
+        for (const [, v] of byMonth) peak = Math.max(peak, v.pct);
+        if (peak < 1) continue;
+        for (const [m, v] of byMonth) {
+          insM.run(t, m, sTerm, v.clicks, v.pct, now);
+          nM += 1;
+        }
+      }
     }
 
     // --- 語ごとのシェア変化（前 3 か月平均 と 直近 3 か月平均）---
@@ -426,7 +476,7 @@ CREATE TABLE insight_kw_term_shift (
     }
   }
   out.exec('COMMIT');
-  console.log(`insight_kw_attr_trend: ${nA} 行 / insight_kw_term_shift: ${nS} 行`);
+  console.log(`insight_kw_attr_trend: ${nA} 行 / insight_kw_term_shift: ${nS} 行 / insight_kw_term_monthly: ${nM} 行`);
 }
 
 // ---------------------------------------------------------------------------
