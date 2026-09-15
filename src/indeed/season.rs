@@ -45,6 +45,15 @@ pub struct TitleSeason {
     pub peak_ratio: Option<f64>,
     /// 何年ぶんの観測から出したか
     pub years: usize,
+    /// 月ラベル（"2022-08" 形式）。[`Self::series`] と同じ並び
+    pub months: Vec<String>,
+    /// 月ごとの検索数。48 か月ぶん。欠測は None
+    ///
+    /// # なぜ生の並びも持つのか
+    /// 暦月にならした [`Self::index`] は季節の形しか見えない。
+    /// Indeed 側の動き（求人を見た人数）と同じ時間軸で重ねるには、
+    /// ならす前の月次がいる。
+    pub series: Vec<Option<f64>>,
     /// 1 か月あたりの平均検索数。
     ///
     /// # なぜ持つのか
@@ -71,6 +80,8 @@ impl TitleSeason {
             peak_month: peak.map(|(m, _)| m),
             trough_month: trough.map(|(m, _)| m),
             peak_ratio: peak.map(|(_, v)| v),
+            months: months.iter().map(|m| m.to_string()).collect(),
+            series: values.to_vec(),
             years: years_of(months),
             avg_monthly: {
                 let v: Vec<f64> = values
@@ -260,14 +271,13 @@ mod tests {
     /// 誰かが開いている実体を消さないよう、無いときだけ呼ぶ
     /// （`tests/indeed_data_test.rs` の `open_db` と同じ手順に合わせてある）。
     fn open_db() -> LocalDb {
-        if !Path::new(DB).exists() {
-            assert!(
-                Path::new(GZ).exists(),
-                "{GZ} がありません。Docker イメージに積む同梱物なので、\
-                 消えているとデプロイしてもタブが空になります"
-            );
-            crate::decompress_db_if_needed(DB);
-        }
+        assert!(
+            Path::new(GZ).exists(),
+            "{GZ} がありません。Docker イメージに積む同梱物なので、\n             消えているとデプロイしてもタブが空になります"
+        );
+        // 存在確認ごとロックの中でやる。外で確かめると、
+        // 別スレッドが書いている途中のファイルを「在る」と見てしまう
+        crate::ensure_db_from_gz(DB);
         LocalDb::new(DB).expect("Indeed 分析 DB を開けませんでした")
     }
 
