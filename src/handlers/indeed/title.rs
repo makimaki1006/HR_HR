@@ -121,6 +121,104 @@ const CARD: &str = "bg-navy-800/60 border border-slate-700 rounded-lg p-4";
 const TD: &str = "px-3 py-2 border-b border-slate-800 text-slate-200";
 const TH: &str = "text-slate-400 font-medium px-3 py-2 border-b border-slate-700";
 
+/// 県の行を開いたときに差し込む推移。
+///
+/// `close=1` が付いていれば空文字を返す。閉じるための別ルートを作らずに済み、
+/// JavaScript も要らない。
+pub async fn tab_indeed_title_pref(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<PrefQuery>,
+) -> Html<String> {
+    if q.close.as_deref() == Some("1") {
+        return Html(String::new());
+    }
+    let (Some(name), Some(pref)) = (q.name.as_deref(), q.pref.as_deref()) else {
+        return Html(String::new());
+    };
+    let Some(db) = state.indeed_db.as_ref() else {
+        return Html(String::new());
+    };
+    let series = match crate::indeed::detail::pref_series(db, name, pref) {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return Html(format!(
+                "<p class=\"text-slate-400 text-sm p-3\">{} の推移は取れませんでした。</p>",
+                esc(pref)
+            ))
+        }
+        Err(e) => {
+            tracing::error!("pref_series failed: {e}");
+            return Html(String::new());
+        }
+    };
+    Html(pref_series_html(&series))
+}
+
+#[derive(serde::Deserialize)]
+pub struct PrefQuery {
+    pub name: Option<String>,
+    pub pref: Option<String>,
+    /// "1" なら閉じる（空を返す）
+    pub close: Option<String>,
+}
+
+/// 1 県ぶんの推移を、3 つの図として横に並べる。
+///
+/// # なぜ重ねないのか
+/// 見た人数・求人数・企業数は桁が 2 つ違う（東京都の販売スタッフで
+/// 30 万人 / 3 万件 / 4.5 千社）。1 つの軸に重ねると企業数が平らな線になる。
+/// 全国の面と同じく、桁が違うものは重ねずに並べる。
+fn pref_series_html(s: &crate::indeed::detail::PrefSeries) -> String {
+    use crate::handlers::indeed::render::small_multiples;
+    let n = s.months.len();
+    if n < 4 {
+        return format!(
+            "<p class=\"text-slate-400 text-sm p-3\">{} は {} か月ぶんしか無く、推移として出せません。</p>",
+            esc(&s.prefecture),
+            n
+        );
+    }
+    let first = |v: &[Option<f64>]| v.iter().flatten().next().copied();
+    let last = |v: &[Option<f64>]| v.iter().flatten().next_back().copied();
+    let move_line = |v: &[Option<f64>], unit: &str| match (first(v), last(v)) {
+        (Some(a), Some(b)) if a > 0.0 => format!(
+            "{} → {} {}（{:+.1}%）",
+            crate::handlers::indeed::render::num_opt(Some(a)),
+            crate::handlers::indeed::render::num_opt(Some(b)),
+            unit,
+            (b / a - 1.0) * 100.0
+        ),
+        _ => String::new(),
+    };
+    format!(
+        "<div class=\"border border-slate-600 rounded-lg p-3 mt-1 mb-2\">\
+         <div class=\"flex flex-wrap gap-4 items-baseline mb-2\">\
+         <span class=\"text-slate-100 text-sm font-bold\">{p} の推移（{m} か月）</span>\
+         <a class=\"text-blue-400 text-xs\" href=\"#\"\
+            hx-get=\"/tab/indeed/title/pref?close=1\"\
+            hx-target=\"closest div.pref-open\" hx-swap=\"innerHTML\">閉じる</a></div>\
+         {chart}\
+         <p class=\"text-slate-400 text-xs mt-2 leading-relaxed\">\
+         求人を見た人数 {c1}／求人の数 {c2}／募集している企業の数 {c3}。\
+         見た人数は応募数ではありません。</p></div>",
+        p = esc(&s.prefecture),
+        m = n,
+        chart = small_multiples(
+            &s.months,
+            &[
+                ("求人を見た人数".to_string(), s.ctk.clone(), "人", 2),
+                ("求人の数".to_string(), s.job.clone(), "件", 0),
+                ("募集している企業の数".to_string(), s.employers.clone(), "社", 3),
+            ],
+            true,
+            170
+        ),
+        c1 = move_line(&s.ctk, "人"),
+        c2 = move_line(&s.job, "件"),
+        c3 = move_line(&s.employers, "社"),
+    )
+}
+
 pub async fn tab_indeed_title(
     State(state): State<Arc<AppState>>,
     session: tower_sessions::Session,
@@ -484,9 +582,13 @@ fn pref_table(d: &TitleDetail, w: &MinWages) -> String {
         ));
     }
     h.push_str("</tr></thead><tbody>");
-    for p in &d.prefs {
+    for (i, p) in d.prefs.iter().enumerate() {
         h.push_str(&format!(
-            "<tr><th scope=\"row\" class=\"{TD} font-normal\" style=\"text-align:left\">{pf}</th>\
+            "<tr><th scope=\"row\" class=\"{TD} font-normal\" style=\"text-align:left\">\
+             <a class=\"text-blue-400 hover:underline\" href=\"#\" \
+                hx-get=\"/tab/indeed/title/pref?name={qn}&pref={qp}\" \
+                hx-target=\"#pref-open-{slot}\" hx-swap=\"innerHTML\" \
+                title=\"この県の推移を開く\">{pf}</a></th>\
              <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{j}</td>\
              <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{c}</td>\
              <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{e}</td>\
@@ -494,7 +596,9 @@ fn pref_table(d: &TitleDetail, w: &MinWages) -> String {
              <td class=\"{TD} tabular-nums text-slate-400\" style=\"text-align:right\">{r}</td>\
              <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{v}</td>\
              <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{d}</td>\
-             <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{wg}</td>{extra}</tr>",
+             <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{wg}</td>{extra}</tr>\
+             <tr><td colspan=\"11\" class=\"p-0\">\
+             <div class=\"pref-open\" id=\"pref-open-{slot}\"></div></td></tr>",
             pf = esc(&p.prefecture),
             j = num_opt(p.job),
             c = num_opt(p.ctk),
@@ -517,6 +621,9 @@ fn pref_table(d: &TitleDetail, w: &MinWages) -> String {
                 None => "—".to_string(),
             },
             // 最低賃金が引けていないときは、列そのものを出さない
+            qn = url_query(&d.title),
+            qp = url_query(&p.prefecture),
+            slot = i,
             extra = if w.by_pref.is_empty() {
                 String::new()
             } else {
