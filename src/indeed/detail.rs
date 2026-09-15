@@ -19,6 +19,52 @@
 use crate::db::local_sqlite::LocalDb;
 use crate::handlers::helpers::{get_f64_opt, get_i64_opt, get_str};
 
+/// 1 つの県の、月ごとの並び。
+///
+/// 県別の表は最新月の 1 行しか持たない。行を開いたときに出す推移はこちらで読む。
+#[derive(Debug, Clone, Default)]
+pub struct PrefSeries {
+    pub prefecture: String,
+    pub months: Vec<String>,
+    /// 求人の数
+    pub job: Vec<Option<f64>>,
+    /// 求人を見た人数。応募数ではない
+    pub ctk: Vec<Option<f64>>,
+    /// 募集している企業の数
+    pub employers: Vec<Option<f64>>,
+}
+
+/// 1 職種 × 1 県の推移を読む。
+///
+/// # なぜ県を絞って引くのか
+/// 47 県 × 14 か月を毎回全部読むと、開くたびに 658 行を捨てることになる。
+/// 押された県だけを引く。`report_month` で並べれば時系列になる
+/// （月は "YYYY-MM" なので文字列の昇順で正しい）。
+pub fn pref_series(
+    db: &LocalDb,
+    title: &str,
+    pref: &str,
+) -> Result<Option<PrefSeries>, String> {
+    let rows = db.query(
+        "SELECT report_month, job_count, ctk_count, employer_count          FROM insight_title_pref WHERE norm_title = ?1 AND prefecture = ?2          ORDER BY report_month",
+        &[&title, &pref],
+    )?;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let mut out = PrefSeries {
+        prefecture: pref.to_string(),
+        ..Default::default()
+    };
+    for r in rows.iter() {
+        out.months.push(get_str(r, "report_month"));
+        out.job.push(get_f64_opt(r, "job_count"));
+        out.ctk.push(get_f64_opt(r, "ctk_count"));
+        out.employers.push(get_f64_opt(r, "employer_count"));
+    }
+    Ok(Some(out))
+}
+
 /// 都道府県 1 つ分。最新月の姿。
 #[derive(Debug, Clone)]
 pub struct PrefRow {
