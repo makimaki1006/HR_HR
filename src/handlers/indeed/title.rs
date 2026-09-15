@@ -169,7 +169,7 @@ pub struct PrefQuery {
 /// 30 万人 / 3 万件 / 4.5 千社）。1 つの軸に重ねると企業数が平らな線になる。
 /// 全国の面と同じく、桁が違うものは重ねずに並べる。
 fn pref_series_html(s: &crate::indeed::detail::PrefSeries) -> String {
-    use crate::handlers::indeed::render::small_multiples;
+    use crate::handlers::indeed::render::{num_opt, raw_line_chart_colored};
     let n = s.months.len();
     if n < 4 {
         return format!(
@@ -180,42 +180,58 @@ fn pref_series_html(s: &crate::indeed::detail::PrefSeries) -> String {
     }
     let first = |v: &[Option<f64>]| v.iter().flatten().next().copied();
     let last = |v: &[Option<f64>]| v.iter().flatten().next_back().copied();
-    let move_line = |v: &[Option<f64>], unit: &str| match (first(v), last(v)) {
-        (Some(a), Some(b)) if a > 0.0 => format!(
-            "{} → {} {}（{:+.1}%）",
-            crate::handlers::indeed::render::num_opt(Some(a)),
-            crate::handlers::indeed::render::num_opt(Some(b)),
-            unit,
-            (b / a - 1.0) * 100.0
-        ),
-        _ => String::new(),
+    // 図 1 枚ぶん。全幅で縦に積む。
+    //
+    // # なぜ横に並べないのか
+    // 最初は `small_multiples` で 3 枚を横に並べていた。1 枚あたりの幅が
+    // 画面の 3 分の 1 になり、14 か月ぶんの折れ線が小さくて読めなかった
+    // （2026-09-15 に指摘）。県を一度に何枚も開く使い方ではないので、
+    // 1 枚ずつ全幅を使い、縦に積むほうが読める。
+    let one = |name: &str, v: &[Option<f64>], unit: &str, ci: usize| -> String {
+        let 増減 = match (first(v), last(v)) {
+            (Some(a), Some(b)) if a > 0.0 => format!(
+                "{} → {} {}（{:+.1}%）",
+                num_opt(Some(a)),
+                num_opt(Some(b)),
+                unit,
+                (b / a - 1.0) * 100.0
+            ),
+            _ => "—".to_string(),
+        };
+        format!(
+            "<div class=\"mb-3\">\
+             <div class=\"flex flex-wrap gap-3 items-baseline mb-1\">\
+             <span class=\"text-slate-200 text-sm font-bold\">{nm}</span>\
+             <span class=\"text-slate-400 text-xs tabular-nums\">{d}</span></div>\
+             {c}</div>",
+            nm = esc(name),
+            d = 増減,
+            c = raw_line_chart_colored(
+                &s.months,
+                &[(name.to_string(), v.to_vec())],
+                true,
+                230,
+                unit,
+                Some(ci)
+            )
+        )
     };
     format!(
-        "<div class=\"border border-slate-600 rounded-lg p-3 mt-1 mb-2\">\
-         <div class=\"flex flex-wrap gap-4 items-baseline mb-2\">\
-         <span class=\"text-slate-100 text-sm font-bold\">{p} の推移（{m} か月）</span>\
+        "<div class=\"border border-slate-600 rounded-lg p-4 mt-1 mb-2\">\
+         <div class=\"flex flex-wrap gap-4 items-baseline mb-3\">\
+         <span class=\"text-slate-100 text-base font-bold\">{p} の推移（{m} か月）</span>\
          <a class=\"text-blue-400 text-xs\" href=\"#\"\
             hx-get=\"/tab/indeed/title/pref?close=1\"\
             hx-target=\"closest div.pref-open\" hx-swap=\"innerHTML\">閉じる</a></div>\
-         {chart}\
-         <p class=\"text-slate-400 text-xs mt-2 leading-relaxed\">\
-         求人を見た人数 {c1}／求人の数 {c2}／募集している企業の数 {c3}。\
-         見た人数は応募数ではありません。</p></div>",
+         {c1}{c2}{c3}\
+         <p class=\"text-slate-400 text-xs leading-relaxed\">\
+         見た人数は<strong>求人が開かれた回数</strong>で、応募数ではありません。\
+         縦軸はドラッグで目盛りの幅を変えられます（ダブルクリックで戻ります）。</p></div>",
         p = esc(&s.prefecture),
         m = n,
-        chart = small_multiples(
-            &s.months,
-            &[
-                ("求人を見た人数".to_string(), s.ctk.clone(), "人", 2),
-                ("求人の数".to_string(), s.job.clone(), "件", 0),
-                ("募集している企業の数".to_string(), s.employers.clone(), "社", 3),
-            ],
-            true,
-            170
-        ),
-        c1 = move_line(&s.ctk, "人"),
-        c2 = move_line(&s.job, "件"),
-        c3 = move_line(&s.employers, "社"),
+        c1 = one("求人を見た人数", &s.ctk, "人", 2),
+        c2 = one("求人の数", &s.job, "件", 0),
+        c3 = one("募集している企業の数", &s.employers, "社", 3),
     )
 }
 
