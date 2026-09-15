@@ -1210,6 +1210,9 @@ pub async fn url_visibility_endpoint(Query(q): Query<VisibilityQuery>) -> Json<V
     }
 }
 
+/// 返却に必ず添える断り。結果は「検索エンジンの意味理解」であって実流入ではない。
+const NOTE: &str = "検索エンジンの意味理解上の確認であり、実際の検索流入・応募効果を示すものではありません。お客様への説明は「〜の可能性があります」の形でお願いします。";
+
 async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
     use crate::media_engine::google_ads::{generate_keyword_ideas_with_seed, IdeaSeed};
     use crate::media_engine::url_visibility::{unique_page_terms, visibility_hypotheses};
@@ -1225,9 +1228,21 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
         }));
     }
     let url = q.url.trim().to_string();
-    if url.is_empty() || q.job.trim().is_empty() {
-        return Ok(json!({"status":"error","message":"url と job の両方が必要です"}));
+    if url.is_empty() {
+        return Ok(json!({"status":"error","message":"URL を入れてください"}));
     }
+    // 職種は任意。空なら「このページが何と読み取られたか」だけを返す。
+    //
+    // # なぜ職種なしを許すのか
+    // 職種は 2 つにしか使っていない: 市場の検索語を引く種と、判定文の主語。
+    // ページの読み取り結果そのものは職種が無くても出せる。
+    // URL を次々に放り込んで「このページは何だと思われているか」を見る
+    // 使い方のほうが多い、という指摘を受けて任意にした（2026-09-15）。
+    //
+    // 職種を推測して埋める案は採らない。この記事の例では読み取りの最上位が
+    // 「起業 会社」で、職種として扱うと「職種『起業』の言葉は上位に出ています」
+    // という**外れた前提の上の判定**になる。分からないものは分からないまま返す。
+    let job_given = !q.job.trim().is_empty();
     // 職種欄に地域が混ざる入力 (「神奈川県 フロントスタッフ」) を分離する。
     // 明示のregion指定があればそちらを優先する。
     let location_names = crate::job_gen::commute::CommuteClassifier::load()
@@ -1273,6 +1288,66 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
         });
         metrics
     };
+
+    // 職種が無いときは、ここで終わり。ページの読み取りだけを返す。
+    //
+    // 市場語彙の照会（下）は職種を種にするので、職種が無ければ引けない。
+    // 外部への問い合わせも 1 回で済み、待ち時間が短くなる。
+    if !job_given {
+        let page_resp =
+            generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(url.clone()), &[]).await?;
+        let mut sibling_sets: Vec<StdHashSet<String>> = Vec::new();
+        for sibling in &siblings {
+            match generate_keyword_ideas_with_seed(
+                &cfg,
+                &cid,
+                &IdeaSeed::Url(sibling.clone()),
+                &[],
+            )
+            .await
+            {
+                Ok(value) => sibling_sets.push(
+                    parse_keyword_metrics(&value)
+                        .into_iter()
+                        .map(|m| m.keyword)
+                        .collect(),
+                ),
+                Err(error) => {
+                    tracing::warn!(target: "url_visibility", %error, "sibling url_seed failed");
+                }
+            }
+        }
+        let page_terms: Vec<(String, i64)> = sorted_metrics(&page_resp)
+            .into_iter()
+            .take(100)
+            .map(|m| (m.keyword.clone(), m.avg_monthly.unwrap_or(0)))
+            .collect();
+        let unique = unique_page_terms(&page_terms, &sibling_sets, &url);
+        if unique.is_empty() {
+            return Ok(json!({
+                "status": "ok",
+                "job": Value::Null,
+                "unique_terms": [],
+                "hypotheses": [
+                    "このページからは、検索エンジンが読み取れる特徴的な言葉が拾えませんでした。ページの文章量が少ないか、サイト共通の作りが強い可能性があります。"
+                ],
+                "sibling_count": sibling_sets.len(),
+                "note": NOTE,
+            }));
+        }
+        return Ok(json!({
+            "status": "ok",
+            "job": Value::Null,
+            "unique_terms": unique.iter().take(12)
+                .map(|(k, v)| json!({"keyword": k, "avg_monthly": v})).collect::<Vec<_>>(),
+            "hypotheses": [format!(
+                "このページは「{}」を中心に読み取られています。狙っている職種の言葉が入っているかを見てください。職種を入れて調べ直すと、その職種でよく検索される言葉との比較も出ます。",
+                unique.iter().take(3).map(|(k, _)| k.replace(' ', "")).collect::<Vec<_>>().join("」「")
+            )],
+            "sibling_count": sibling_sets.len(),
+            "note": NOTE,
+        }));
+    }
 
     // 市場語彙の取得。ニッチ職種で検索量が全て10未満なら、役割接尾辞を剥がした
     // 関連語 (電気機械修理工→機械修理) で検索量が計上されるまで追いかける (最大2回)。
@@ -1389,7 +1464,7 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
         "market": market_rows,
         "hypotheses": hypotheses,
         "sibling_count": sibling_sets.len(),
-        "note": "検索エンジンの意味理解上の確認であり、実際の検索流入・応募効果を示すものではありません。お客様への説明は「〜の可能性があります」の形でお願いします。",
+        "note": NOTE,
     }))
 }
 
