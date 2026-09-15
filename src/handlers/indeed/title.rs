@@ -862,6 +862,52 @@ mod tests {
     use super::*;
     use crate::indeed::detail::PrefRow;
 
+    /// 片方にしか無い月を落とさない。
+    ///
+    /// # 何を防いでいるか
+    /// 検索エンジン側の月だけで軸を作っていたため、Indeed 側の 2026-08 が
+    /// 黙って落ちていた。本番で「8 月のデータはあるのに 7 月で止まっている」
+    /// と指摘されて分かった（2026-09-15）。
+    /// **どちらか一方にしか無い月**を必ず含むことを、データを使わずに確かめる。
+    #[test]
+    fn 軸は両方の月を落とさない() {
+        let m = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        // 実際に起きた形: 検索側が先に終わり、Indeed 側だけ 1 か月多い
+        let 検索 = m(&["2026-05", "2026-06", "2026-07"]);
+        let indeed = m(&["2026-06", "2026-07", "2026-08"]);
+        assert_eq!(
+            merged_axis(&検索, &indeed),
+            m(&["2026-05", "2026-06", "2026-07", "2026-08"]),
+            "片方にしか無い月が落ちている"
+        );
+
+        // 逆向き（Indeed 側が先に終わる）でも同じ
+        assert_eq!(
+            merged_axis(&indeed, &検索),
+            m(&["2026-05", "2026-06", "2026-07", "2026-08"])
+        );
+
+        // 並びが崩れていても時系列に直す
+        assert_eq!(
+            merged_axis(&m(&["2026-07", "2026-05"]), &m(&["2026-06"])),
+            m(&["2026-05", "2026-06", "2026-07"])
+        );
+
+        // 重複を増やさない
+        assert_eq!(merged_axis(&検索, &検索), 検索);
+
+        // 片方が空
+        assert_eq!(merged_axis(&検索, &[]), 検索);
+        assert_eq!(merged_axis(&[], &indeed), indeed);
+
+        // 年をまたいでも時系列（文字列の並びが時系列になることの確認）
+        assert_eq!(
+            merged_axis(&m(&["2025-12"]), &m(&["2026-01", "2025-09"])),
+            m(&["2025-09", "2025-12", "2026-01"])
+        );
+    }
+
     fn row(pref: &str, wage: Option<f64>) -> PrefRow {
         PrefRow {
             prefecture: pref.to_string(),
@@ -1226,6 +1272,26 @@ fn takeaway_section(
 /// と、検索数が多いほど関係が強い。ただし多い帯でも 3 割しか超えない。
 /// **相関の数字だけを出して「連動している」と書かない。**両方の線を出して、
 /// 読み手が形を見られるようにする。
+/// 2 つの系列の月を合わせて、時系列に並べた軸を返す。
+///
+/// # なぜ要るのか
+/// 片方の月だけで軸を作ると、もう片方にしか無い月が**黙って落ちる**。
+/// 実際に起きた: 検索エンジン側は 2026-07 までしか返さないのに、その月並びを
+/// そのまま軸にしていたため、Indeed 側の 2026-08 が描かれなかった。
+/// 同じページの他の図が 8 月まで出ているのに、この図だけ 7 月で終わっていた。
+///
+/// 月は "YYYY-MM" なので、文字列のまま並べれば時系列になる。
+fn merged_axis(a: &[String], b: &[String]) -> Vec<String> {
+    let mut v: Vec<String> = a.to_vec();
+    for m in b {
+        if !v.contains(m) {
+            v.push(m.clone());
+        }
+    }
+    v.sort();
+    v
+}
+
 fn source_compare_section(
     d: &TitleDetail,
     ov: Option<&Overview>,
@@ -1238,9 +1304,26 @@ fn source_compare_section(
     if sn.months.len() < 12 || months.is_empty() {
         return String::new();
     }
-    // 検索エンジン側の月をそのまま軸にし、Indeed 側は重なる月にだけ置く
-    let axis: Vec<String> = sn.months.clone();
+    // 軸は「両方の月をあわせたもの」にする。
+    //
+    // # なぜ片方の月だけで作ってはいけないか
+    // 以前は検索エンジン側の月（`sn.months`）をそのまま軸にしていた。
+    // 検索エンジン側は 2026-07 までしか返さないため、**Indeed 側の 2026-08 は
+    // 置き場所が無く、黙って落ちていた**。同じページの他の図が 8 月まで
+    // 描いているのに、この図だけ 7 月で終わっていた（本番で実測）。
+    // この図の説明文は「重なっていない区間では線は 1 本だけです」と書いており、
+    // 左側（検索だけある月）では守られていたが右側では守られていなかった。
+    //
+    // 両方の月を合わせて並べ、それぞれ値のある月にだけ置く。
+    // 月は "YYYY-MM" なので、文字列のまま並べれば時系列になる。
+    let axis: Vec<String> = merged_axis(&sn.months, months);
     let idx: std::collections::HashMap<&str, usize> = months
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.as_str(), i))
+        .collect();
+    let sidx: std::collections::HashMap<&str, usize> = sn
+        .months
         .iter()
         .enumerate()
         .map(|(i, m)| (m.as_str(), i))
@@ -1249,7 +1332,21 @@ fn source_compare_section(
         .iter()
         .map(|m| idx.get(m.as_str()).and_then(|i| o.ctk.series.get(*i).copied().flatten()))
         .collect();
-    let overlap = indeed.iter().filter(|v| v.is_some()).count();
+    // 検索側も、合わせた軸に置き直す
+    let search: Vec<Option<f64>> = axis
+        .iter()
+        .map(|m| sidx.get(m.as_str()).and_then(|i| sn.series.get(*i).copied().flatten()))
+        .collect();
+    // 2 つを区別する。軸を両方の月の和集合にしたので、
+    // 「Indeed にある月」と「両方にある月」は同じ数にならない。
+    // 相関も向きの差も**両方そろっている月**の上でしか計算できないので、
+    // 本文に出す数も overlap のほうを使う。
+    let indeed_months = indeed.iter().filter(|v| v.is_some()).count();
+    let overlap = axis
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| indeed[*i].is_some() && search[*i].is_some())
+        .count();
     if overlap < 6 {
         return String::new();
     }
@@ -1257,7 +1354,7 @@ fn source_compare_section(
     // 「Indeed 側にデータがある最初の月」だった。取得できる月が 1 つ動くだけで
     // 両系列の値が全部ずれ、先月出した図と比べられなくなる。
     // 相関は尺度によらないので、指数をやめても下の r は変わらない。
-    let g = sn.series.clone();
+    let g = search.clone();
     let i2 = indeed.clone();
     if g.iter().all(|x| x.is_none()) || i2.iter().all(|x| x.is_none()) {
         return String::new();
@@ -1425,7 +1522,7 @@ fn divergence(search: &[Option<f64>], views: &[Option<f64>]) -> Option<(f64, f64
          そのため「どの言葉で探しているか」の比較はできず、動きの向きだけを見ています。</p></div>",
         t = esc(&d.title),
         y = sn.months.len(),
-        n = overlap,
+        n = indeed_months,
         chart = dual_line_chart(
             &axis,
             ("検索エンジンでの検索数", &g, "回"),
