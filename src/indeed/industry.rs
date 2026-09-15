@@ -41,7 +41,11 @@ pub const INDUSTRIES: [Industry; 5] = [
     },
     Industry {
         name: "建設・設備・整備",
-        categories: &["建設・土木", "建築・インテリア・造園", "保全・管理（設備・建物）"],
+        categories: &[
+            "建設・土木",
+            "建築・インテリア・造園",
+            "保全・管理（設備・建物）",
+        ],
         why: "つくる仕事と、できたものを保つ仕事をまとめています。\
               Indeed の「保全・管理（設備・建物）」に自動車整備士やタイヤ交換が入っているため、\
               この枠には車の整備も含まれます。",
@@ -100,7 +104,10 @@ mod tests {
             of_category("製造・開発 (電気・機械・金属・化学)"),
             Some("製造・生産")
         );
-        assert_eq!(of_category("保全・管理（設備・建物）"), Some("建設・設備・整備"));
+        assert_eq!(
+            of_category("保全・管理（設備・建物）"),
+            Some("建設・設備・整備")
+        );
         assert_eq!(of_category("清掃"), Some("サービス・販売"));
         assert_eq!(of_category("未分類"), Some("事務・管理"));
     }

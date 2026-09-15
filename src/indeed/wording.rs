@@ -51,10 +51,18 @@ pub fn trend_label(fit: Option<&Fit>) -> &'static str {
     // 全体としては動いているが月ごとの振れが大きい場合。
     // 「緩やかに増加」と書くと毎月少しずつ増えていると誤解される。
     if !f.steady {
-        return if up { "振れながら増えた" } else { "振れながら減った" };
+        return if up {
+            "振れながら増えた"
+        } else {
+            "振れながら減った"
+        };
     }
     if f.level == Level::Mild {
-        return if up { "緩やかに増加" } else { "緩やかに減少" };
+        return if up {
+            "緩やかに増加"
+        } else {
+            "緩やかに減少"
+        };
     }
     if up {
         "増え続けている"
@@ -82,7 +90,11 @@ pub fn short_trend(fit: Option<&Fit>, words: &Words) -> String {
              月ごとの上下（±{sc}%）が毎月の動き（約 {per}%）より大きく、一本調子ではありません"
         );
     }
-    let strength = if f.level == Level::Mild { "緩やかに" } else { "" };
+    let strength = if f.level == Level::Mild {
+        "緩やかに"
+    } else {
+        ""
+    };
     format!("{strength}{dir}います（毎月およそ {per}% ずつ）")
 }
 
@@ -95,7 +107,11 @@ pub fn short_trend(fit: Option<&Fit>, words: &Words) -> String {
 /// 見てよさそうです」と書いていた。上下が 44% あっても同じ文が出ており、
 /// 振れの大きさを結論の根拠にしていた。逆である。
 pub fn describe_trend(fit: Option<&Fit>, what: &str, months: Option<&[String]>) -> String {
-    let name = if what.is_empty() { "この数値" } else { what };
+    let name = if what.is_empty() {
+        "この数値"
+    } else {
+        what
+    };
     let Some(f) = fit else {
         return format!("{name}は、比べられるだけの月数がありません。");
     };
@@ -105,14 +121,20 @@ pub fn describe_trend(fit: Option<&Fit>, what: &str, months: Option<&[String]>) 
     let sc = f0(f.scatter_pct);
 
     if f.level == Level::None {
-        return format!("{name}は月ごとに {sc}% ほど上下していて、増えているとも減っているとも言えません。");
+        return format!(
+            "{name}は月ごとに {sc}% ほど上下していて、増えているとも減っているとも言えません。"
+        );
     }
 
     // 跳ねた月があれば名指しする
     let spike = match (f.outliers.first(), months) {
         (Some(o), Some(ms)) => match ms.get(o.index) {
             Some(m) => {
-                let how = if o.ratio > 0.0 { "跳ねて" } else { "落ち込んで" };
+                let how = if o.ratio > 0.0 {
+                    "跳ねて"
+                } else {
+                    "落ち込んで"
+                };
                 format!("{m} が大きく{how}います。")
             }
             None => String::new(),
@@ -124,7 +146,11 @@ pub fn describe_trend(fit: Option<&Fit>, what: &str, months: Option<&[String]>) 
     if !f.steady {
         // 一本調子ではない。「毎月 X% ずつ」とは書かない。
         // 上下の大きさは「大きい」と決めつけず、毎月の動きと比べて示す。
-        let verb = if up { "増えました" } else { "減りました" };
+        let verb = if up {
+            "増えました"
+        } else {
+            "減りました"
+        };
         let verb2 = if up { "増えた" } else { "減った" };
         let tail = if spike.is_empty() {
             String::new()
@@ -138,7 +164,11 @@ pub fn describe_trend(fit: Option<&Fit>, what: &str, months: Option<&[String]>) 
         );
     }
 
-    let strength = if f.level == Level::Mild { "緩やかに、" } else { "" };
+    let strength = if f.level == Level::Mild {
+        "緩やかに、"
+    } else {
+        ""
+    };
     let verb = if up { "増えて" } else { "減って" };
     let noun = if up { "増加" } else { "減少" };
     let verb2 = if up { "増え" } else { "減り" };
@@ -168,15 +198,17 @@ mod tests {
         (0..n).map(|i| Some(start * rate.powi(i as i32))).collect()
     }
     fn bumpy() -> Vec<Option<f64>> {
-        [45.0, 55.0, 62.0, 72.0, 85.0, 78.0, 80.0, 85.0, 173.0, 130.0, 68.0, 65.0, 85.0]
-            .iter()
-            .map(|x| Some(*x))
-            .collect()
+        [
+            45.0, 55.0, 62.0, 72.0, 85.0, 78.0, 80.0, 85.0, 173.0, 130.0, 68.0, 65.0, 85.0,
+        ]
+        .iter()
+        .map(|x| Some(*x))
+        .collect()
     }
     fn months13() -> Vec<String> {
         [
-            "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01",
-            "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07",
+            "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01", "2026-02",
+            "2026-03", "2026-04", "2026-05", "2026-06", "2026-07",
         ]
         .iter()
         .map(|s| s.to_string())
