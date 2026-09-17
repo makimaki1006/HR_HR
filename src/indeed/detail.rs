@@ -32,6 +32,18 @@ pub struct PrefSeries {
     pub ctk: Vec<Option<f64>>,
     /// 募集している企業の数
     pub employers: Vec<Option<f64>>,
+    /// 1 求人あたりに見た人数
+    pub spp: Vec<Option<f64>>,
+    /// 1 求人あたりが多い順の順位（1 位が最も集まりやすい）
+    pub rank: Vec<Option<f64>>,
+    /// 比べた県の数。順位の軸の下端に使う
+    pub of: Vec<Option<f64>>,
+    /// 同じ月の全県の中央値
+    pub med: Vec<Option<f64>>,
+    /// 同じ月の全県の 25 パーセンタイル
+    pub q1: Vec<Option<f64>>,
+    /// 同じ月の全県の 75 パーセンタイル
+    pub q3: Vec<Option<f64>>,
 }
 
 /// 1 職種 × 1 県の推移を読む。
@@ -40,13 +52,9 @@ pub struct PrefSeries {
 /// 47 県 × 14 か月を毎回全部読むと、開くたびに 658 行を捨てることになる。
 /// 押された県だけを引く。`report_month` で並べれば時系列になる
 /// （月は "YYYY-MM" なので文字列の昇順で正しい）。
-pub fn pref_series(
-    db: &LocalDb,
-    title: &str,
-    pref: &str,
-) -> Result<Option<PrefSeries>, String> {
+pub fn pref_series(db: &LocalDb, title: &str, pref: &str) -> Result<Option<PrefSeries>, String> {
     let rows = db.query(
-        "SELECT report_month, job_count, ctk_count, employer_count          FROM insight_title_pref WHERE norm_title = ?1 AND prefecture = ?2          ORDER BY report_month",
+        "SELECT report_month, job_count, ctk_count, employer_count,                 seekers_per_posting, rank_in_country, prefs_compared          FROM insight_title_pref WHERE norm_title = ?1 AND prefecture = ?2          ORDER BY report_month",
         &[&title, &pref],
     )?;
     if rows.is_empty() {
@@ -61,6 +69,44 @@ pub fn pref_series(
         out.job.push(get_f64_opt(r, "job_count"));
         out.ctk.push(get_f64_opt(r, "ctk_count"));
         out.employers.push(get_f64_opt(r, "employer_count"));
+        out.spp.push(get_f64_opt(r, "seekers_per_posting"));
+        out.rank.push(get_f64_opt(r, "rank_in_country"));
+        out.of.push(get_f64_opt(r, "prefs_compared"));
+    }
+
+    // 同じ月の全県のばらつき。順位だけでは「自分が動いた」のか
+    // 「まわりが動いた」のか分からないため、位置を帯で示すのに使う。
+    //
+    // # なぜ帯が要るのか
+    // 中位帯は団子状態で、実測では**中央値の 0.7% の差で順位が 1 つ入れ替わる**。
+    // 東京都の販売スタッフは 2026-01 に 1 求人あたりが +10.3% 動いたのに順位は
+    // 1 つ下がり、2026-06 には -0.6% しか動いていないのに 5 つ下がった。
+    // 順位の上下は自分の動きと同じくらい他県の動きを映す。
+    for m in &out.months {
+        let vals = db.query(
+            "SELECT seekers_per_posting FROM insight_title_pref              WHERE norm_title = ?1 AND report_month = ?2 AND seekers_per_posting IS NOT NULL",
+            &[&title, &m.as_str()],
+        )?;
+        let mut v: Vec<f64> = vals
+            .iter()
+            .filter_map(|r| get_f64_opt(r, "seekers_per_posting"))
+            .filter(|x| x.is_finite())
+            .collect();
+        if v.len() < 8 {
+            // 県が少ない月は四分位に意味が無い
+            out.med.push(None);
+            out.q1.push(None);
+            out.q3.push(None);
+            continue;
+        }
+        v.sort_by(f64::total_cmp);
+        let at = |p: f64| -> f64 {
+            let i = ((v.len() - 1) as f64 * p).round() as usize;
+            v[i.min(v.len() - 1)]
+        };
+        out.med.push(Some(at(0.50)));
+        out.q1.push(Some(at(0.25)));
+        out.q3.push(Some(at(0.75)));
     }
     Ok(Some(out))
 }
