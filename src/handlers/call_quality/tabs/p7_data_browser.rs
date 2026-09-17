@@ -43,8 +43,8 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 use super::{SourceInfo, TabPayload};
 
@@ -64,12 +64,27 @@ pub const ALLOWED_SHEETS: &[&str] = &[
     // 2026-05-31 セル上限対策: 'セグメント明細' は Python 側でスプシ push を
     // 停止した(約355万セル/チャート未参照)。スプシに存在しないため除外
     // (GAS版に合わせてここにも含めない)。
-    "日次明細", "セグメント月次集計", "月次明細", "メンバーマスタ",
-    "最新サマリ", "異常検知", "Deal Health", "Deal Health owner月次", "月末予測",
-    "時間帯ヒート", "N回目架電分析", "リサイクル間隔", "コンプライアンスパターン",
-    "Recency owner月次", "滞留日数", "コホート分析",
-    "新規/既存/リサイクル", "ファネル4段",
-    "曜日別集計", "曜日別 owner別", "都道府県月次",
+    "日次明細",
+    "セグメント月次集計",
+    "月次明細",
+    "メンバーマスタ",
+    "最新サマリ",
+    "異常検知",
+    "Deal Health",
+    "Deal Health owner月次",
+    "月末予測",
+    "時間帯ヒート",
+    "N回目架電分析",
+    "リサイクル間隔",
+    "コンプライアンスパターン",
+    "Recency owner月次",
+    "滞留日数",
+    "コホート分析",
+    "新規/既存/リサイクル",
+    "ファネル4段",
+    "曜日別集計",
+    "曜日別 owner別",
+    "都道府県月次",
     "その場失注 owner月次",
     "時間帯ヒート_クロス",
     "セグメント_クロス",
@@ -144,8 +159,13 @@ pub const ALLOWED_SHEETS: &[&str] = &[
     // 2026-09-05 追加: 営業KPI(`/sales-kpi`)が読む7枚。
     //   画面の数字を裏取りしたいときに、ここから直接見られるようにしておく。
     //   Python の日次同期(scripts/sales_kpi/sync_daily.py)が書く。
-    "KPI営業_商談", "KPI営業_アポ", "KPI営業_Cヨミ",
-    "KPI営業_架電日次", "KPI営業_架電リスト", "KPI営業_メンバー", "KPI営業_取得条件",
+    "KPI営業_商談",
+    "KPI営業_アポ",
+    "KPI営業_Cヨミ",
+    "KPI営業_架電日次",
+    "KPI営業_架電リスト",
+    "KPI営業_メンバー",
+    "KPI営業_取得条件",
     // 2026-09-07 追加: 週次スナップショット。集計済みの値を持つ唯一のシートなので、
     //   画面の「先週との比べ方」が疑わしいときに元の行をここから直接見られるようにする。
     "KPI営業_週次",
@@ -583,7 +603,11 @@ pub struct ChartData {
 
 /// フィルタ後の行を X軸列でグループ化し、Y軸列を sum/avg/count で集計する。
 /// GAS版「クイック可視化」(index.html 1019-1059行)のサーバ側移植。
-pub fn aggregate_chart(data: &SheetData, q: &ChartQuery, audit: &mut ValueAudit) -> Result<ChartData> {
+pub fn aggregate_chart(
+    data: &SheetData,
+    q: &ChartQuery,
+    audit: &mut ValueAudit,
+) -> Result<ChartData> {
     let xi = data
         .col(&q.x_col)
         .with_context(|| format!("X軸の列が見つかりません: {}", q.x_col))?;
@@ -796,11 +820,7 @@ mod tests {
     fn 空値は昇順降順どちらでも末尾に来る() {
         let d = sheet(
             &["name", "score"],
-            vec![
-                vec!["A", "10"],
-                vec!["B", ""],
-                vec!["C", "5"],
-            ],
+            vec![vec!["A", "10"], vec!["B", ""], vec!["C", "5"]],
         );
         let mut query = q("月次明細");
         query.sort_col = Some("score".into());
@@ -816,7 +836,10 @@ mod tests {
         query.page_size = Some(MAX_PAGE_SIZE + 100);
         let r = browse(&d, &query, &mut ValueAudit::new());
         assert_eq!(r.page_size, MAX_PAGE_SIZE);
-        assert!(r.truncated, "GAS版の「全表示」相当は提供しない(必ずクランプされる)");
+        assert!(
+            r.truncated,
+            "GAS版の「全表示」相当は提供しない(必ずクランプされる)"
+        );
     }
 
     #[test]
@@ -838,7 +861,10 @@ mod tests {
         let d = sheet(&["name", "note"], vec![vec!["田中", "a,b\"c"]]);
         let out = build_csv(&d, &RowFilter::default(), ValueAudit::new());
         assert!(out.csv.starts_with('\u{feff}'));
-        assert!(out.csv.contains("\"a,b\"\"c\""), "カンマ・引用符を含む値はダブルクォートで囲みエスケープ");
+        assert!(
+            out.csv.contains("\"a,b\"\"c\""),
+            "カンマ・引用符を含む値はダブルクォートで囲みエスケープ"
+        );
         assert_eq!(out.row_count, 1);
         assert!(!out.truncated);
     }
@@ -851,8 +877,14 @@ mod tests {
         let rows: Vec<Vec<&str>> = (0..n).map(|_| vec!["x"]).collect();
         let d = sheet(&["v"], rows);
         let out = build_csv(&d, &RowFilter::default(), ValueAudit::new());
-        assert_eq!(out.matched_rows, n, "絞り込み後の全件数は上限を超えていても正しく数える");
-        assert_eq!(out.row_count, CSV_EXPORT_MAX_ROWS, "実際に書き出すのは上限まで");
+        assert_eq!(
+            out.matched_rows, n,
+            "絞り込み後の全件数は上限を超えていても正しく数える"
+        );
+        assert_eq!(
+            out.row_count, CSV_EXPORT_MAX_ROWS,
+            "実際に書き出すのは上限まで"
+        );
         assert!(out.truncated);
     }
 
@@ -960,7 +992,6 @@ mod tests {
         assert!(q.filter.search.is_none());
     }
 
-
     // ---- 存在しない列名を無音で無視しない（2026-08-17 追加） ----
 
     #[test]
@@ -971,7 +1002,10 @@ mod tests {
         // 動機になった `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
         let d = sample();
         let mut query = q("月次明細");
-        query.filter.filters.insert("prefecure".into(), vec!["東京都".into()]);
+        query
+            .filter
+            .filters
+            .insert("prefecure".into(), vec!["東京都".into()]);
         let mut a = ValueAudit::new();
         let r = browse(&d, &query, &mut a);
         assert_eq!(r.matched_rows, 4, "挙動は変えない（全件のまま返す）");
@@ -1003,7 +1037,10 @@ mod tests {
         // **陰性対照**
         let d = sample();
         let mut query = q("月次明細");
-        query.filter.filters.insert("prefecture".into(), vec!["東京都".into()]);
+        query
+            .filter
+            .filters
+            .insert("prefecture".into(), vec!["東京都".into()]);
         query.sort_col = Some("dial".into());
         let mut a = ValueAudit::new();
         let r = browse(&d, &query, &mut a);
@@ -1030,7 +1067,10 @@ mod tests {
         let mut a = ValueAudit::new();
         browse(&d, &query, &mut a);
         let got: Vec<String> = a.into_vec().into_iter().map(|v| v.given).collect();
-        assert_eq!(got, vec!["aaa".to_string(), "mmm".to_string(), "zzz".to_string()]);
+        assert_eq!(
+            got,
+            vec!["aaa".to_string(), "mmm".to_string(), "zzz".to_string()]
+        );
     }
 
     #[test]
@@ -1061,7 +1101,10 @@ mod tests {
             agg: Agg::Count,
             top_n: 10,
         };
-        query.filter.filters.insert("prefecure".into(), vec!["東京都".into()]);
+        query
+            .filter
+            .filters
+            .insert("prefecure".into(), vec!["東京都".into()]);
         let mut a = ValueAudit::new();
         let out = aggregate_chart(&d, &query, &mut a).unwrap();
         assert_eq!(out.matched_rows, 4, "挙動は変えない");

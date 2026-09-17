@@ -453,7 +453,11 @@ mod tests {
     fn 列は名前で引ける() {
         let d = sample();
         assert_eq!(d.col("prefecture"), Some(1));
-        assert_eq!(d.col("存在しない列"), None, "無い列は None（位置で決め打ちしない）");
+        assert_eq!(
+            d.col("存在しない列"),
+            None,
+            "無い列は None（位置で決め打ちしない）"
+        );
     }
 
     #[test]
@@ -461,7 +465,13 @@ mod tests {
         let d = sample();
         let mut f = HashMap::new();
         f.insert("prefecture".to_string(), "東京都".to_string());
-        let r = query(&d, &SheetQuery { filter: f, ..Default::default() });
+        let r = query(
+            &d,
+            &SheetQuery {
+                filter: f,
+                ..Default::default()
+            },
+        );
         assert_eq!(r.matched_rows, 2);
         assert_eq!(r.total_rows, 3);
     }
@@ -489,7 +499,13 @@ mod tests {
         let d = sample();
         let mut f = HashMap::new();
         f.insert("prefecture".to_string(), String::new());
-        let r = query(&d, &SheetQuery { filter: f, ..Default::default() });
+        let r = query(
+            &d,
+            &SheetQuery {
+                filter: f,
+                ..Default::default()
+            },
+        );
         assert_eq!(r.matched_rows, 3);
     }
 
@@ -497,7 +513,13 @@ mod tests {
     fn limitで切ったらtruncatedが立つ() {
         // 黙って切り捨てない（GAS 版で「上位N件のみ」を明示せず誤読させた反省）
         let d = sample();
-        let r = query(&d, &SheetQuery { limit: Some(2), ..Default::default() });
+        let r = query(
+            &d,
+            &SheetQuery {
+                limit: Some(2),
+                ..Default::default()
+            },
+        );
         assert_eq!(r.rows.len(), 2);
         assert!(r.truncated);
     }

@@ -78,8 +78,7 @@ pub struct MembersData {
 /// 「__all__ という県」を探しに行って **0件**になる。空文字と同じく
 /// 「絞らない」を意味するので、ここで吸収する。
 fn pref_selected(v: &Option<String>) -> Option<&str> {
-    v.as_deref()
-        .filter(|p| !p.is_empty() && *p != "__all__")
+    v.as_deref().filter(|p| !p.is_empty() && *p != "__all__")
 }
 
 fn num(s: &str) -> f64 {
@@ -272,7 +271,11 @@ pub async fn handle(
     // 都道府県を選んだときは土台シートごと差し替える（GAS 版と同じ）。
     //   「月次明細」には prefecture 列が無いので、そのまま使うと絞りようがない。
     let pref_mode = pref_selected(&q.prefecture).is_some();
-    let sheet = if pref_mode { "都道府県月次" } else { "月次明細" };
+    let sheet = if pref_mode {
+        "都道府県月次"
+    } else {
+        "月次明細"
+    };
 
     let (data, from_cache) = store.get(client, sheet).await?;
     let (members, matched) = collect(&data, &q, sales_owners.as_ref());
@@ -343,7 +346,7 @@ mod tests {
         // GAS 版は call>=100 で足切りしていたため、Zoom発信が少ない担当者が
         // 不安定な率のままランキング上位に出ていた
         let d = sheet(vec![
-            ("thin", 500.0, 20.0, 3.0, 0.0),   // Call多いがZoom発信20
+            ("thin", 500.0, 20.0, 3.0, 0.0), // Call多いがZoom発信20
             ("normal", 400.0, 500.0, 5.0, 0.0),
         ]);
         let (m, _) = collect(&d, &MembersQuery::default(), None);
@@ -389,7 +392,10 @@ mod tests {
 
     #[test]
     fn 営業以外は既定で除外される() {
-        let d = sheet(vec![("sales1", 100.0, 200.0, 2.0, 0.0), ("bpo1", 900.0, 900.0, 1.0, 0.0)]);
+        let d = sheet(vec![
+            ("sales1", 100.0, 200.0, 2.0, 0.0),
+            ("bpo1", 900.0, 900.0, 1.0, 0.0),
+        ]);
         let sales = vec!["sales1".to_string()];
         let (m, matched) = collect(&d, &MembersQuery::default(), Some(&sales));
         assert_eq!(matched, 1);
@@ -437,5 +443,4 @@ mod tests {
             "実在する県名はそのまま絞り込みに使う"
         );
     }
-
 }

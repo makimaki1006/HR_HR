@@ -391,7 +391,9 @@ pub fn load(db: &LocalDb) -> Result<Snapshot, String> {
     let mut by_pref: Vec<PrefSeries> = pref_map
         .into_iter()
         .map(|((prefecture, title), series)| PrefSeries {
-            mobile_pct: mobile_map.get(&(prefecture.clone(), title.clone())).map(|x| x.1),
+            mobile_pct: mobile_map
+                .get(&(prefecture.clone(), title.clone()))
+                .map(|x| x.1),
             prefecture,
             title,
             series,

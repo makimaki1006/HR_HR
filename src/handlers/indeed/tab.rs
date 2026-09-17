@@ -21,8 +21,8 @@ use axum::{
 use serde::Deserialize;
 
 use super::render::{
-    arrow, bar_line_chart, category_table_html, dec1_opt, dir_class, esc, hbar_chart, raw_line_chart, small_multiples,
-    metric_card, num_opt, pct_opt, scatter_chart, url_query, vbar_chart,
+    arrow, bar_line_chart, category_table_html, dec1_opt, dir_class, esc, hbar_chart, metric_card,
+    num_opt, pct_opt, raw_line_chart, scatter_chart, small_multiples, url_query, vbar_chart,
 };
 use crate::indeed::aggregate::{
     category_table_at, nation_overview, pref_overview, pref_title_overviews, Overview,
@@ -117,10 +117,7 @@ pub async fn tab_indeed(
     };
     if let Some(v) = to_store {
         if v != session_pref {
-            if let Err(e) = session
-                .insert(crate::auth::SESSION_PREFECTURE_KEY, v)
-                .await
-            {
+            if let Err(e) = session.insert(crate::auth::SESSION_PREFECTURE_KEY, v).await {
                 tracing::warn!("県をセッションに書けませんでした: {e}");
             }
         }
@@ -323,7 +320,6 @@ fn render_tab(
     let view = view_of(view);
     h.push_str(&view_tabs(view, pref, sort));
 
-
     // 結論を先に置く。数字と図はその根拠として下に続く
     if view == "overview" {
         h.push_str(&summary_section(snap, &overview, seasons, pref));
@@ -331,37 +327,37 @@ fn render_tab(
 
     // 見出しの 5 指標
     if view == "overview" {
-    // 間を内側より広くする。gap-3(12px) は内側の p-4(16px) より狭く、
-    // 罫線もカード地に対して 1.74:1 でほぼ見えないため、5 枚が 1 本の帯に
-    // 見えていた（ux-visual の実測）
-    h.push_str("<div class=\"grid grid-cols-2 lg:grid-cols-5 gap-6\">");
-    for m in [
-        &overview.job,
-        &overview.ctk,
-        &overview.emp,
-        &overview.spp,
-        &overview.ppe,
-    ] {
-        h.push_str(&metric_card(m, true));
-    }
-    h.push_str("</div>");
+        // 間を内側より広くする。gap-3(12px) は内側の p-4(16px) より狭く、
+        // 罫線もカード地に対して 1.74:1 でほぼ見えないため、5 枚が 1 本の帯に
+        // 見えていた（ux-visual の実測）
+        h.push_str("<div class=\"grid grid-cols-2 lg:grid-cols-5 gap-6\">");
+        for m in [
+            &overview.job,
+            &overview.ctk,
+            &overview.emp,
+            &overview.spp,
+            &overview.ppe,
+        ] {
+            h.push_str(&metric_card(m, true));
+        }
+        h.push_str("</div>");
 
-    // 「なぜ」の分解。推測ではなく割り算で答える
-    h.push_str(&format!(
-        // 文字だけの箱なので、箱ごと絞る。カードを全幅のまま中の文だけ絞ると、
-        // 1280px で右に 600px 以上の空白が残って間延びして見える。
-        "<div class=\"bg-navy-700 border border-slate-700 rounded-xl p-5 max-w-2xl\">\
+        // 「なぜ」の分解。推測ではなく割り算で答える
+        h.push_str(&format!(
+            // 文字だけの箱なので、箱ごと絞る。カードを全幅のまま中の文だけ絞ると、
+            // 1280px で右に 600px 以上の空白が残って間延びして見える。
+            "<div class=\"bg-navy-700 border border-slate-700 rounded-xl p-5 max-w-2xl\">\
          <h3 class=\"text-slate-100 text-lg font-bold mb-2\">なぜそうなったか（数字の内訳）</h3>\
          <p class=\"text-slate-300 text-sm leading-relaxed\">{}</p>\
          <p class=\"text-slate-400 text-xs mt-3 leading-relaxed max-w-lg\">\
          1 求人あたり = 求人を見た人数 ÷ 求人の数。求人の数 = 募集した企業の数 × 1 社あたりの本数。\
          この 2 つの内訳で説明は終わりです。これ以上は推測になります。</p></div>",
-        esc(&overview.why())
-    ));
+            esc(&overview.why())
+        ));
 
-    // 「なぜ」を図でも見せる。求人（棒）が増えると 1 求人あたり（線）が薄まる、
-    // という関係は、別々の図に分けると読み手が頭の中で重ねることになる
-    h.push_str(&format!(
+        // 「なぜ」を図でも見せる。求人（棒）が増えると 1 求人あたり（線）が薄まる、
+        // という関係は、別々の図に分けると読み手が頭の中で重ねることになる
+        h.push_str(&format!(
         "<div class=\"bg-navy-700 border border-slate-700 rounded-xl p-5\">\n         <h3 class=\"text-slate-100 text-lg font-bold mb-1\">求人の数と、1 求人あたりに見た人数</h3>\n         <p class=\"text-slate-400 text-xs mb-2 leading-relaxed max-w-lg\">\n         棒が求人の数（左軸）、線が 1 求人あたりに見た人数（右軸）です。\n         棒が伸びた月に線が下がっていれば、求人が増えて 1 件あたりの取り分が薄まったことになります。</p>{chart}</div>",
         chart = bar_line_chart(
             months,
@@ -374,8 +370,8 @@ fn render_tab(
         )
     ));
 
-    // 全体の動き
-    h.push_str(&format!(
+        // 全体の動き
+        h.push_str(&format!(
         "<div class=\"bg-navy-700 border border-slate-700 rounded-xl p-5\">\
          <h3 class=\"text-slate-100 text-lg font-bold mb-1\">{name}の動き</h3>\
          <p class=\"text-slate-400 text-xs mb-2 max-w-lg\">実数です。求人数と見た人数は 40 倍ほど桁が違うので、重ねずに並べています。</p>\
@@ -399,7 +395,6 @@ fn render_tab(
         s1 = esc(&overview.job.sentence),
         s2 = esc(&overview.spp.sentence)
     ));
-
     }
 
     // 業界（全国のみ。県で絞ると 1 業界あたりの月次が薄くなる）
@@ -608,7 +603,11 @@ fn sort_selector(current: &SortSpec) -> String {
             "<option value=\"{k}\"{sel}>{l}</option>",
             k = o.key,
             l = esc(o.label),
-            sel = if o.key == current.key { " selected" } else { "" }
+            sel = if o.key == current.key {
+                " selected"
+            } else {
+                ""
+            }
         ));
     }
     s.push_str("</select>");
@@ -772,19 +771,17 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
         v.unwrap_or(f64::INFINITY)
     }
     match spec.key {
-        "grow" => rows.sort_by(|a, b| {
-            key_desc(b.2.job.change_pct).total_cmp(&key_desc(a.2.job.change_pct))
-        }),
-        "shrink" => rows.sort_by(|a, b| {
-            key_asc(a.2.job.change_pct).total_cmp(&key_asc(b.2.job.change_pct))
-        }),
+        "grow" => rows
+            .sort_by(|a, b| key_desc(b.2.job.change_pct).total_cmp(&key_desc(a.2.job.change_pct))),
+        "shrink" => {
+            rows.sort_by(|a, b| key_asc(a.2.job.change_pct).total_cmp(&key_asc(b.2.job.change_pct)))
+        }
         "hard" => rows.sort_by(|a, b| key_asc(a.2.spp.latest).total_cmp(&key_asc(b.2.spp.latest))),
-        "worse" => rows.sort_by(|a, b| {
-            key_asc(a.2.spp.change_pct).total_cmp(&key_asc(b.2.spp.change_pct))
-        }),
-        "better" => rows.sort_by(|a, b| {
-            key_desc(b.2.spp.change_pct).total_cmp(&key_desc(a.2.spp.change_pct))
-        }),
+        "worse" => {
+            rows.sort_by(|a, b| key_asc(a.2.spp.change_pct).total_cmp(&key_asc(b.2.spp.change_pct)))
+        }
+        "better" => rows
+            .sort_by(|a, b| key_desc(b.2.spp.change_pct).total_cmp(&key_desc(a.2.spp.change_pct))),
         "steady" => rows.sort_by(|a, b| {
             let sa = a.2.job.fit.as_ref().map(|f| f.steady).unwrap_or(false);
             let sb = b.2.job.fit.as_ref().map(|f| f.steady).unwrap_or(false);
@@ -1181,7 +1178,11 @@ fn industry_section(snap: &Snapshot, months: &[String], pref: Option<&str>) -> S
             n = shown
         ));
     }
-    let list_cls = if all_unsteady { "space-y-3" } else { "mt-4 space-y-3" };
+    let list_cls = if all_unsteady {
+        "space-y-3"
+    } else {
+        "mt-4 space-y-3"
+    };
     h.push_str(&format!("<div class=\"{list_cls}\">"));
     for r in rows.iter().filter(|r| r.why.is_some()) {
         h.push_str(&format!(
@@ -1632,7 +1633,9 @@ fn mobile_section(snap: &Snapshot, pref: Option<&str>) -> String {
     let mut labels: Vec<String> = top.iter().map(|r| r.0.to_string()).collect();
     let mut values: Vec<Option<f64>> = top.iter().map(|r| Some(r.1)).collect();
     if hidden > 0 {
-        labels.push(format!("\u{2500}\u{2500} ほか {hidden} 職種 \u{2500}\u{2500}"));
+        labels.push(format!(
+            "\u{2500}\u{2500} ほか {hidden} 職種 \u{2500}\u{2500}"
+        ));
         values.push(None);
     }
     labels.extend(bottom.iter().map(|r| r.0.to_string()));
@@ -1917,7 +1920,9 @@ mod axis_tests {
     /// 切り下げない。切り下げると、いま図に出ている点が軸の外にはみ出す。
     #[test]
     fn 上限は必ず元の値以上になる() {
-        for v in [1.0, 9.9, 10.0, 10.1, 38.0, 45.0, 83.0, 99.9, 100.0, 100.1, 1234.0] {
+        for v in [
+            1.0, 9.9, 10.0, 10.1, 38.0, 45.0, 83.0, 99.9, 100.0, 100.1, 1234.0,
+        ] {
             assert!(nice_ceil(v) >= v, "{v} を下回った: {}", nice_ceil(v));
         }
     }
@@ -2001,8 +2006,14 @@ mod season_tests {
         assert!(h.contains("12 月（-14%）"), "谷が本文に出ていない");
         // 図には差（%）が渡る。1.090 のような倍率が残っていたら本文とずれている
         assert!(h.contains("9.00"), "図に山の値が渡っていない");
-        assert!(!h.contains("1.090"), "図に倍率が残っている（本文は % なのでずれる）");
-        assert!(h.contains("年間平均からの差"), "軸名が差の表記になっていない");
+        assert!(
+            !h.contains("1.090"),
+            "図に倍率が残っている（本文は % なのでずれる）"
+        );
+        assert!(
+            h.contains("年間平均からの差"),
+            "軸名が差の表記になっていない"
+        );
         // 検索数が多い職種の数を数えて書く
         assert!(h.contains("月 1000 回以上の 20 職種"));
     }

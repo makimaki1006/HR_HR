@@ -56,8 +56,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 // ---------------------------------------------------------------- シート名
 
@@ -172,7 +172,11 @@ pub fn build_kpi_cards(d: &SheetData, row: &[Arc<str>]) -> KpiCards {
         avg_monthly_contact,
         last_activity_at: {
             let v = d.get(row, "last_activity_at").trim();
-            if v.is_empty() { "―".to_string() } else { v.to_string() }
+            if v.is_empty() {
+                "―".to_string()
+            } else {
+                v.to_string()
+            }
         },
         consultant_email: d.get(row, "consultant_email").to_string(),
         // 2026-08-17 是正: 閾値35%/25%で赤/橙/緑を付けていた（51名中32名が赤）。
@@ -235,11 +239,17 @@ fn parse_nps_round_json(raw: &str) -> Vec<NpsPoint> {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
-    let Some(arr) = v.as_array() else { return Vec::new() };
+    let Some(arr) = v.as_array() else {
+        return Vec::new();
+    };
     arr.iter()
         .filter_map(|item| {
             let obj = item.as_object()?;
-            let period = obj.get("r").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let period = obj
+                .get("r")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let avg = obj.get("avg").and_then(|v| v.as_f64())?;
             let n = obj.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0);
             Some(NpsPoint { period, avg, n })
@@ -251,11 +261,53 @@ fn parse_nps_round_json(raw: &str) -> Vec<NpsPoint> {
 
 /// 北海道→沖縄県の表示順(GAS `P14_PREFECTURES_47`、javascript.html 15947-15956行)。
 const PREFECTURES_47: [&str; 47] = [
-    "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県",
-    "埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
-    "岐阜県", "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県",
-    "鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県",
-    "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+    "北海道",
+    "青森県",
+    "岩手県",
+    "宮城県",
+    "秋田県",
+    "山形県",
+    "福島県",
+    "茨城県",
+    "栃木県",
+    "群馬県",
+    "埼玉県",
+    "千葉県",
+    "東京都",
+    "神奈川県",
+    "新潟県",
+    "富山県",
+    "石川県",
+    "福井県",
+    "山梨県",
+    "長野県",
+    "岐阜県",
+    "静岡県",
+    "愛知県",
+    "三重県",
+    "滋賀県",
+    "京都府",
+    "大阪府",
+    "兵庫県",
+    "奈良県",
+    "和歌山県",
+    "鳥取県",
+    "島根県",
+    "岡山県",
+    "広島県",
+    "山口県",
+    "徳島県",
+    "香川県",
+    "愛媛県",
+    "高知県",
+    "福岡県",
+    "佐賀県",
+    "長崎県",
+    "熊本県",
+    "大分県",
+    "宮崎県",
+    "鹿児島県",
+    "沖縄県",
 ];
 
 #[derive(Debug, Serialize)]
@@ -359,7 +411,11 @@ fn same_ym(a: &str, b: &str) -> bool {
     }
 }
 
-pub fn build_monthly_trend(d: &SheetData, consultant_id: &str, current_month: &str) -> Vec<MonthlyTrendRow> {
+pub fn build_monthly_trend(
+    d: &SheetData,
+    consultant_id: &str,
+    current_month: &str,
+) -> Vec<MonthlyTrendRow> {
     let mut rows: Vec<MonthlyTrendRow> = d
         .rows
         .iter()
@@ -667,7 +723,11 @@ pub fn build_contact_log(
     } else {
         chrono::NaiveDate::parse_from_str(&max_week, "%Y-%m-%d")
             .ok()
-            .map(|base| (base - chrono::Duration::days(7 * (weeks_window as i64 - 1))).format("%Y-%m-%d").to_string())
+            .map(|base| {
+                (base - chrono::Duration::days(7 * (weeks_window as i64 - 1)))
+                    .format("%Y-%m-%d")
+                    .to_string()
+            })
     };
 
     let mut by_deal: HashMap<String, (String, Vec<ContactWeekRow>)> = HashMap::new();
@@ -689,7 +749,9 @@ pub fn build_contact_log(
             continue;
         }
         let label = log.get(r, "customer_label").trim().to_string();
-        let e = by_deal.entry(deal_id).or_insert_with(|| (label, Vec::new()));
+        let e = by_deal
+            .entry(deal_id)
+            .or_insert_with(|| (label, Vec::new()));
         e.1.push(ContactWeekRow {
             week,
             call_count: num(log.get(r, "call_count")),
@@ -701,7 +763,8 @@ pub fn build_contact_log(
         .into_iter()
         .filter_map(|(deal_id, (label, mut weeks))| {
             weeks.sort_by(|a, b| a.week.cmp(&b.week));
-            let (is_active, days_since) = deal_status.get(&deal_id).copied().unwrap_or((false, None));
+            let (is_active, days_since) =
+                deal_status.get(&deal_id).copied().unwrap_or((false, None));
             match filter {
                 ContactStatusFilter::All => {}
                 ContactStatusFilter::Active => {
@@ -864,7 +927,13 @@ fn set_matched(sources: &mut [SourceInfo], sheet: &str, n: usize) {
 /// 戻り: (当月, Deal一覧の状態フィルタ, 接触ログの状態フィルタ, 表示週数, 値の監査)
 pub fn resolve_query(
     q: &P14Query,
-) -> (String, DealStatusFilter, ContactStatusFilter, u32, ValueAudit) {
+) -> (
+    String,
+    DealStatusFilter,
+    ContactStatusFilter,
+    u32,
+    ValueAudit,
+) {
     // 解釈できなかった「値」を黙って既定値にしない。
     // 既定値へ落とす挙動は変えず、落としたことを応答に載せる（`invalid_values`）。
     let mut audit = ValueAudit::new();
@@ -891,11 +960,21 @@ pub fn resolve_query(
     // 数値でなければ型で弾かれて 400 になるので、ここで監査する対象は無い。
     let contact_weeks = q.contact_weeks.unwrap_or(26);
 
-    (current_month, deals_filter, contact_filter, contact_weeks, audit)
+    (
+        current_month,
+        deals_filter,
+        contact_filter,
+        contact_weeks,
+        audit,
+    )
 }
 
 /// ハンドラ本体。5シートを読み、担当者一覧 + (選択時のみ)深掘りデータを返す。
-pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> Result<TabPayload<P14Data>> {
+pub async fn handle(
+    client: &SheetsClient,
+    store: &SheetStore,
+    q: P14Query,
+) -> Result<TabPayload<P14Data>> {
     let started = Instant::now();
     let mut sources: Vec<SourceInfo> = Vec::new();
 
@@ -913,7 +992,11 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> R
             ConsultantOption {
                 consultant_name: {
                     let n = kpi.get(r, "consultant_name").trim();
-                    if n.is_empty() { consultant_id.clone() } else { n.to_string() }
+                    if n.is_empty() {
+                        consultant_id.clone()
+                    } else {
+                        n.to_string()
+                    }
                 },
                 consultant_email: kpi.get(r, "consultant_email").to_string(),
                 active_deal_count: num(kpi.get(r, "active_deal_count")),
@@ -936,22 +1019,36 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> R
 
     let selected = match q.consultant_id.as_deref().filter(|s| !s.is_empty()) {
         None => None,
-        Some(cid) => kpi.rows.iter().find(|r| kpi.get(r, "consultant_id") == cid).map(|kr| {
-            let name = {
-                let n = kpi.get(kr, "consultant_name").trim();
-                if n.is_empty() { cid.to_string() } else { n.to_string() }
-            };
-            ConsultantDetail {
-                consultant_id: cid.to_string(),
-                consultant_name: name,
-                kpi: build_kpi_cards(&kpi, kr),
-                nps_trend: parse_nps_round_json(kpi.get(kr, "nps_round_json")),
-                prefecture: build_prefecture(&prefecture, cid),
-                monthly_trend: build_monthly_trend(&monthly_trend, cid, &current_month),
-                deals: build_deals(&deals, cid, deals_filter),
-                contact_log: build_contact_log(&contact_log, &deals, cid, contact_filter, contact_weeks),
-            }
-        }),
+        Some(cid) => kpi
+            .rows
+            .iter()
+            .find(|r| kpi.get(r, "consultant_id") == cid)
+            .map(|kr| {
+                let name = {
+                    let n = kpi.get(kr, "consultant_name").trim();
+                    if n.is_empty() {
+                        cid.to_string()
+                    } else {
+                        n.to_string()
+                    }
+                };
+                ConsultantDetail {
+                    consultant_id: cid.to_string(),
+                    consultant_name: name,
+                    kpi: build_kpi_cards(&kpi, kr),
+                    nps_trend: parse_nps_round_json(kpi.get(kr, "nps_round_json")),
+                    prefecture: build_prefecture(&prefecture, cid),
+                    monthly_trend: build_monthly_trend(&monthly_trend, cid, &current_month),
+                    deals: build_deals(&deals, cid, deals_filter),
+                    contact_log: build_contact_log(
+                        &contact_log,
+                        &deals,
+                        cid,
+                        contact_filter,
+                        contact_weeks,
+                    ),
+                }
+            }),
     };
 
     set_matched(
@@ -962,11 +1059,18 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P14Query) -> R
     set_matched(
         &mut sources,
         SHEET_CONTACT_LOG,
-        selected.as_ref().map(|s| s.contact_log.deals.len()).unwrap_or(0),
+        selected
+            .as_ref()
+            .map(|s| s.contact_log.deals.len())
+            .unwrap_or(0),
     );
 
     Ok(TabPayload {
-        data: P14Data { consultants, selected, notes: CAUTION_NOTES },
+        data: P14Data {
+            consultants,
+            selected,
+            notes: CAUTION_NOTES,
+        },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
@@ -994,11 +1098,28 @@ mod tests {
     }
 
     const DEALS_HEADER: [&str; 23] = [
-        "consultant_id", "consultant_name", "deal_id", "customer_id", "customer_label",
-        "pipeline_label", "stage_label", "is_active", "deal_age_days", "last_contact_at",
-        "days_since_last_contact", "risk_score", "churn_proba_90d", "risk_level",
-        "has_task_alert", "task_alert_category", "monthly_contact_avg", "prefecture",
-        "latest_nps", "latest_nps_period", "latest_seika", "latest_sufficiency",
+        "consultant_id",
+        "consultant_name",
+        "deal_id",
+        "customer_id",
+        "customer_label",
+        "pipeline_label",
+        "stage_label",
+        "is_active",
+        "deal_age_days",
+        "last_contact_at",
+        "days_since_last_contact",
+        "risk_score",
+        "churn_proba_90d",
+        "risk_level",
+        "has_task_alert",
+        "task_alert_category",
+        "monthly_contact_avg",
+        "prefecture",
+        "latest_nps",
+        "latest_nps_period",
+        "latest_seika",
+        "latest_sufficiency",
         "latest_continue_intent",
     ];
 
@@ -1007,8 +1128,29 @@ mod tests {
         let d = sheet(
             &DEALS_HEADER,
             &[&[
-                "1", "藤巻", "999", "", "", "リクロジ_納品管理", "アクティブ", "True", "10", "",
-                "", "0", "0", "", "False", "", "0", "東京都", "", "", "", "", "",
+                "1",
+                "藤巻",
+                "999",
+                "",
+                "",
+                "リクロジ_納品管理",
+                "アクティブ",
+                "True",
+                "10",
+                "",
+                "",
+                "0",
+                "0",
+                "",
+                "False",
+                "",
+                "0",
+                "東京都",
+                "",
+                "",
+                "",
+                "",
+                "",
             ]],
         );
         let table = build_deals(&d, "1", DealStatusFilter::All);
@@ -1020,27 +1162,93 @@ mod tests {
     fn churn_rateの空文字はnoneで0パーセントと誤読させない() {
         // GAS版は `parseFloat(kpi.churn_rate) || 0` で空文字を無条件0にしていた誤り。
         let d = sheet(
-            &["consultant_id", "consultant_name", "consultant_email", "active_deal_count",
-              "churn_failure", "churn_total", "continuing", "success_fulfilled",
-              "churn_rate", "retention_rate", "avg_risk_score", "critical_pred_count",
-              "high_pred_count", "task_alert_count", "avg_monthly_contact", "last_activity_at"],
-            &[&["1", "藤巻", "f@f-a-c.co.jp", "0", "0", "0", "0", "0", "", "", "", "0", "0", "0", "", ""]],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "consultant_email",
+                "active_deal_count",
+                "churn_failure",
+                "churn_total",
+                "continuing",
+                "success_fulfilled",
+                "churn_rate",
+                "retention_rate",
+                "avg_risk_score",
+                "critical_pred_count",
+                "high_pred_count",
+                "task_alert_count",
+                "avg_monthly_contact",
+                "last_activity_at",
+            ],
+            &[&[
+                "1",
+                "藤巻",
+                "f@f-a-c.co.jp",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "",
+                "",
+                "",
+                "0",
+                "0",
+                "0",
+                "",
+                "",
+            ]],
         );
         let row = &d.rows[0];
         let cards = build_kpi_cards(&d, row);
         assert_eq!(cards.churn_rate_pct, None);
-        assert_eq!(cards.churn_band, Band::Neutral, "値が無ければneutral(good/badで断定しない)");
+        assert_eq!(
+            cards.churn_band,
+            Band::Neutral,
+            "値が無ければneutral(good/badで断定しない)"
+        );
         assert_eq!(cards.avg_risk_score, None);
     }
 
     #[test]
     fn churn_rateは0から1を百分率に変換する() {
         let d = sheet(
-            &["consultant_id", "consultant_name", "consultant_email", "active_deal_count",
-              "churn_failure", "churn_total", "continuing", "success_fulfilled",
-              "churn_rate", "retention_rate", "avg_risk_score", "critical_pred_count",
-              "high_pred_count", "task_alert_count", "avg_monthly_contact", "last_activity_at"],
-            &[&["1", "藤巻", "f@f-a-c.co.jp", "35", "45", "59", "48", "14", "0.4184", "0.5816", "22.06", "0", "3", "1", "8.1", "2026-06-08"]],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "consultant_email",
+                "active_deal_count",
+                "churn_failure",
+                "churn_total",
+                "continuing",
+                "success_fulfilled",
+                "churn_rate",
+                "retention_rate",
+                "avg_risk_score",
+                "critical_pred_count",
+                "high_pred_count",
+                "task_alert_count",
+                "avg_monthly_contact",
+                "last_activity_at",
+            ],
+            &[&[
+                "1",
+                "藤巻",
+                "f@f-a-c.co.jp",
+                "35",
+                "45",
+                "59",
+                "48",
+                "14",
+                "0.4184",
+                "0.5816",
+                "22.06",
+                "0",
+                "3",
+                "1",
+                "8.1",
+                "2026-06-08",
+            ]],
         );
         let row = &d.rows[0];
         let cards = build_kpi_cards(&d, row);
@@ -1071,22 +1279,107 @@ mod tests {
         let d = sheet(
             &DEALS_HEADER,
             &[
-                &["1", "藤巻", "1", "", "非アクティブ古い", "PL", "解約済", "False", "10", "", "500", "0", "0.1", "low", "False", "", "0", "", "", "", "", "", ""],
-                &["1", "藤巻", "2", "", "アクティブ低risk", "PL", "アクティブ", "True", "10", "", "10", "0", "0.2", "low", "False", "", "0", "", "", "", "", "", ""],
-                &["1", "藤巻", "3", "", "アクティブ高risk", "PL", "アクティブ", "True", "10", "", "10", "0", "0.8", "critical", "False", "", "0", "", "", "", "", "", ""],
+                &[
+                    "1",
+                    "藤巻",
+                    "1",
+                    "",
+                    "非アクティブ古い",
+                    "PL",
+                    "解約済",
+                    "False",
+                    "10",
+                    "",
+                    "500",
+                    "0",
+                    "0.1",
+                    "low",
+                    "False",
+                    "",
+                    "0",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ],
+                &[
+                    "1",
+                    "藤巻",
+                    "2",
+                    "",
+                    "アクティブ低risk",
+                    "PL",
+                    "アクティブ",
+                    "True",
+                    "10",
+                    "",
+                    "10",
+                    "0",
+                    "0.2",
+                    "low",
+                    "False",
+                    "",
+                    "0",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ],
+                &[
+                    "1",
+                    "藤巻",
+                    "3",
+                    "",
+                    "アクティブ高risk",
+                    "PL",
+                    "アクティブ",
+                    "True",
+                    "10",
+                    "",
+                    "10",
+                    "0",
+                    "0.8",
+                    "critical",
+                    "False",
+                    "",
+                    "0",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ],
             ],
         );
         let table = build_deals(&d, "1", DealStatusFilter::All);
         let ids: Vec<&str> = table.rows.iter().map(|r| r.deal_id.as_str()).collect();
-        assert_eq!(ids, vec!["3", "2", "1"], "アクティブが先、アクティブ内はchurn降順、非アクティブは経過日数降順");
+        assert_eq!(
+            ids,
+            vec!["3", "2", "1"],
+            "アクティブが先、アクティブ内はchurn降順、非アクティブは経過日数降順"
+        );
         assert_eq!(table.rows[0].churn_proba_90d_pct, Some(80.0));
-        assert_eq!(table.rows[2].churn_proba_90d_pct, None, "非アクティブはchurn確率を出さない(GAS仕様)");
+        assert_eq!(
+            table.rows[2].churn_proba_90d_pct, None,
+            "非アクティブはchurn確率を出さない(GAS仕様)"
+        );
     }
 
     #[test]
     fn 都道府県は47件パディングされ不明があれば末尾に追加() {
         let d = sheet(
-            &["consultant_id", "consultant_name", "prefecture", "deal_count", "active_deal_count"],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "prefecture",
+                "deal_count",
+                "active_deal_count",
+            ],
             &[
                 &["1", "藤巻", "東京都", "10", "5"],
                 &["1", "藤巻", "不明", "2", "1"],
@@ -1105,7 +1398,15 @@ mod tests {
     #[test]
     fn 接触ログは状態フィルタで絞り込める() {
         let log = sheet(
-            &["consultant_id", "consultant_name", "deal_id", "customer_label", "week", "call_count", "mtg_count"],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "deal_id",
+                "customer_label",
+                "week",
+                "call_count",
+                "mtg_count",
+            ],
             &[
                 &["1", "藤巻", "10", "A社", "2026-06-01", "2", "0"],
                 &["1", "藤巻", "20", "B社", "2026-06-01", "1", "1"],
@@ -1114,8 +1415,56 @@ mod tests {
         let deals = sheet(
             &DEALS_HEADER,
             &[
-                &["1", "藤巻", "10", "", "A社", "PL", "アクティブ", "True", "1", "", "1", "0", "0", "", "False", "", "0", "", "", "", "", "", ""],
-                &["1", "藤巻", "20", "", "B社", "PL", "解約済", "False", "1", "", "1", "0", "0", "", "False", "", "0", "", "", "", "", "", ""],
+                &[
+                    "1",
+                    "藤巻",
+                    "10",
+                    "",
+                    "A社",
+                    "PL",
+                    "アクティブ",
+                    "True",
+                    "1",
+                    "",
+                    "1",
+                    "0",
+                    "0",
+                    "",
+                    "False",
+                    "",
+                    "0",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ],
+                &[
+                    "1",
+                    "藤巻",
+                    "20",
+                    "",
+                    "B社",
+                    "PL",
+                    "解約済",
+                    "False",
+                    "1",
+                    "",
+                    "1",
+                    "0",
+                    "0",
+                    "",
+                    "False",
+                    "",
+                    "0",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ],
             ],
         );
         let active_only = build_contact_log(&log, &deals, "1", ContactStatusFilter::Active, 0);
@@ -1129,7 +1478,15 @@ mod tests {
     #[test]
     fn 接触ログの週数ウィンドウで直近n週のみに絞れる() {
         let log = sheet(
-            &["consultant_id", "consultant_name", "deal_id", "customer_label", "week", "call_count", "mtg_count"],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "deal_id",
+                "customer_label",
+                "week",
+                "call_count",
+                "mtg_count",
+            ],
             &[
                 &["1", "藤巻", "10", "A社", "2026-01-05", "1", "0"],
                 &["1", "藤巻", "10", "A社", "2026-06-01", "3", "0"],
@@ -1179,7 +1536,10 @@ mod tests {
 
     #[test]
     fn contact_statusの不正値はactiveに落ちたことを応答に出す() {
-        let q = P14Query { contact_status: Some("NONSENSE".into()), ..Default::default() };
+        let q = P14Query {
+            contact_status: Some("NONSENSE".into()),
+            ..Default::default()
+        };
         let (_, _, f, _, audit) = resolve_query(&q);
         assert_eq!(f, ContactStatusFilter::Active);
         let v = audit.into_vec();
@@ -1193,9 +1553,16 @@ mod tests {
         // 実測 `?today_ym=zzzz` は **当月フラグが全消滅**していた。
         // 従来は "zzzz" がそのまま current_month として下流へ流れ、
         // `same_ym(month, "zzzz")` がどの行にも当たらなかった。
-        let q = P14Query { today_ym: Some("zzzz".into()), ..Default::default() };
+        let q = P14Query {
+            today_ym: Some("zzzz".into()),
+            ..Default::default()
+        };
         let (ym, _, _, _, audit) = resolve_query(&q);
-        assert_eq!(ym, super::super::jst_current_ym(), "壊れた値を当月として使わない");
+        assert_eq!(
+            ym,
+            super::super::jst_current_ym(),
+            "壊れた値を当月として使わない"
+        );
         let v = audit.into_vec();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].param, "today_ym");
@@ -1203,7 +1570,14 @@ mod tests {
 
         // 実際に月次推移の is_partial が立つことまで見る（応答の形だけでなく中身）
         let d = sheet(
-            &["consultant_id", "month", "call_count", "email_count", "mtg_count", "deal_count"],
+            &[
+                "consultant_id",
+                "month",
+                "call_count",
+                "email_count",
+                "mtg_count",
+                "deal_count",
+            ],
             &[&["1", &ym, "1", "0", "0", "1"]],
         );
         let rows = build_monthly_trend(&d, "1", &ym);
@@ -1223,7 +1597,11 @@ mod tests {
         })
         .is_empty());
         // 「絞らない」を意味する明示指定も正常
-        assert!(inv(P14Query { deals_status: Some("all".into()), ..Default::default() }).is_empty());
+        assert!(inv(P14Query {
+            deals_status: Some("all".into()),
+            ..Default::default()
+        })
+        .is_empty());
     }
 
     #[test]
