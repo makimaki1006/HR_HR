@@ -17,8 +17,8 @@ use axum::{
 use serde::Deserialize;
 
 use super::render::{
-    arrow, dec1_opt, dir_class, dumbbell_chart, esc, hbar_chart, json_str, line_chart, metric_card,
-    dual_line_chart, num_opt, pct_opt, small_multiples, url_query,
+    arrow, dec1_opt, dir_class, dual_line_chart, dumbbell_chart, esc, hbar_chart, json_str,
+    line_chart, metric_card, num_opt, pct_opt, small_multiples, url_query,
 };
 use crate::indeed::aggregate::Overview;
 use crate::indeed::data::snapshot;
@@ -169,7 +169,9 @@ pub struct PrefQuery {
 /// 30 万人 / 3 万件 / 4.5 千社）。1 つの軸に重ねると企業数が平らな線になる。
 /// 全国の面と同じく、桁が違うものは重ねずに並べる。
 fn pref_series_html(s: &crate::indeed::detail::PrefSeries) -> String {
-    use crate::handlers::indeed::render::{num_opt, raw_line_chart_colored};
+    use crate::handlers::indeed::render::{
+        band_chart, num_opt, rank_chart, raw_line_chart_colored,
+    };
     let n = s.months.len();
     if n < 4 {
         return format!(
@@ -223,7 +225,7 @@ fn pref_series_html(s: &crate::indeed::detail::PrefSeries) -> String {
          <a class=\"text-blue-400 text-xs\" href=\"#\"\
             hx-get=\"/tab/indeed/title/pref?close=1\"\
             hx-target=\"closest div.pref-open\" hx-swap=\"innerHTML\">閉じる</a></div>\
-         {c1}{c2}{c3}\
+         {c1}{c2}{c3}{c4}\
          <p class=\"text-slate-400 text-xs leading-relaxed\">\
          見た人数は<strong>求人が開かれた回数</strong>で、応募数ではありません。\
          縦軸はドラッグで目盛りの幅を変えられます（ダブルクリックで戻ります）。</p></div>",
@@ -232,6 +234,100 @@ fn pref_series_html(s: &crate::indeed::detail::PrefSeries) -> String {
         c1 = one("求人を見た人数", &s.ctk, "人", 2),
         c2 = one("求人の数", &s.job, "件", 0),
         c3 = one("募集している企業の数", &s.employers, "社", 3),
+        c4 = rank_block(s),
+    )
+}
+
+/// 順位の推移と、全県の中で自分がどこにいるかの 2 枚。
+///
+/// # なぜ順位だけで終わらせないのか
+/// 順位の上下は、自分の動きと同じくらい他県の動きを映す。実測で中位帯は
+/// 中央値の 0.7% の差で順位が 1 つ入れ替わる団子状態だった。
+/// 東京都の販売スタッフは 2026-01 に 1 求人あたりが +10.3% 動いたのに順位は
+/// 1 つ下がり、2026-06 には -0.6% しか動いていないのに 5 つ下がっている。
+/// 順位だけを出すと「下がった＝悪くなった」と読まれる。実数と帯を併せて出す。
+fn rank_block(s: &crate::indeed::detail::PrefSeries) -> String {
+    use crate::handlers::indeed::render::{band_chart, headline_opt, rank_chart};
+    let has_rank = s.rank.iter().flatten().count() >= 4;
+    let has_band = s.med.iter().flatten().count() >= 4;
+    if !has_rank && !has_band {
+        return String::new();
+    }
+    let first = |v: &[Option<f64>]| v.iter().flatten().next().copied();
+    let last = |v: &[Option<f64>]| v.iter().flatten().next_back().copied();
+    let of = s.of.iter().flatten().fold(0.0f64, |a, b| a.max(*b));
+    let 順位の話 = match (first(&s.rank), last(&s.rank)) {
+        (Some(a), Some(b)) => {
+            let d = a - b; // 順位は小さいほうが上
+            let 向き = if d > 0.0 {
+                format!("{d:.0} つ上がりました")
+            } else if d < 0.0 {
+                format!("{:.0} つ下がりました", -d)
+            } else {
+                "変わっていません".to_string()
+            };
+            format!(
+                "{a:.0} 位 → {b:.0} 位（{of:.0} 県中）で、{向き}。",
+                a = a,
+                b = b,
+                of = of,
+                向き = 向き
+            )
+        }
+        _ => String::new(),
+    };
+    // 直近月に、自分が帯のどこにいるか
+    let 位置の話 = match (last(&s.spp), last(&s.med), last(&s.q1), last(&s.q3)) {
+        (Some(v), Some(m), Some(lo), Some(hi)) => {
+            let ど = if v < lo {
+                "下から 4 分の 1 の中"
+            } else if v > hi {
+                "上から 4 分の 1 の中"
+            } else {
+                "真ん中の半分の中"
+            };
+            format!(
+                "直近では 1 求人あたり {v} 人で、全県の中央値 {m} 人に対して<strong>{ど}</strong>にいます（帯は {lo}〜{hi} 人）。",
+                // 整数に丸めると 9.87 が「10」、帯の下端 10.53 が「11」になり、
+                // 「10 人は帯 11〜14 の下」という数の上でつながらない文になる
+                v = headline_opt(Some(v)),
+                m = headline_opt(Some(m)),
+                lo = headline_opt(Some(lo)),
+                hi = headline_opt(Some(hi)),
+                ど = ど
+            )
+        }
+        _ => String::new(),
+    };
+    let rank_html = if has_rank {
+        format!(
+            "<div class=\"mb-3\">             <div class=\"text-slate-200 text-sm font-bold mb-1\">全国での順位（1 求人あたりに見た人数が多い順）</div>             <p class=\"text-slate-400 text-xs mb-1\">{t}</p>{c}</div>",
+            t = 順位の話,
+            c = rank_chart(&s.months, &s.rank, &s.of, true, 200)
+        )
+    } else {
+        String::new()
+    };
+    let band_html = if has_band {
+        format!(
+            "<div class=\"mb-2\">             <div class=\"text-slate-200 text-sm font-bold mb-1\">全県の中でどこにいるか</div>             <p class=\"text-slate-400 text-xs mb-1\">{t}</p>{c}</div>",
+            t = 位置の話,
+            c = band_chart(
+                &s.months,
+                (&s.prefecture, &s.spp),
+                &s.med,
+                &s.q1,
+                &s.q3,
+                "人",
+                true,
+                230
+            )
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "<div class=\"border-t border-slate-700 pt-2 mt-3\">{rank_html}{band_html}         <p class=\"text-slate-400 text-xs leading-relaxed\">         <strong>順位の上下は、他県の動きでも変わります。</strong>実測では、真ん中あたりの県は         1 求人あたりが中央値の 0.7% 違うだけで順位が 1 つ入れ替わります。         順位が動いた月は、下の図で自分の線と帯のどちらが動いたかを見てください。</p></div>"
     )
 }
 
@@ -319,10 +415,11 @@ pub async fn tab_indeed_title(
         })
         .into_iter()
         .find(|s| s.title == name);
-    let (term_months, terms) = crate::indeed::keywords::term_monthly(db, name).unwrap_or_else(|e| {
-        tracing::warn!("検索語の月次を読めませんでした: {e}");
-        (Vec::new(), Vec::new())
-    });
+    let (term_months, terms) =
+        crate::indeed::keywords::term_monthly(db, name).unwrap_or_else(|e| {
+            tracing::warn!("検索語の月次を読めませんでした: {e}");
+            (Vec::new(), Vec::new())
+        });
     let attrs = crate::indeed::keywords::attr_months(db, name).unwrap_or_else(|e| {
         tracing::warn!("属性の内訳を読めませんでした: {e}");
         Vec::new()
@@ -399,9 +496,7 @@ fn sort_from_hx_url(headers: &HeaderMap) -> Option<String> {
     if !path.ends_with("/tab/indeed") {
         return None;
     }
-    let v = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("sort="))?;
+    let v = query.split('&').find_map(|kv| kv.strip_prefix("sort="))?;
     if !v.is_empty() && v.len() <= 16 && v.bytes().all(|b| b.is_ascii_lowercase()) {
         Some(v.to_string())
     } else {
@@ -463,8 +558,6 @@ fn render(
         // 県を選んだのに数字が全国のままだと気づけない
         w = esc(pref.unwrap_or("全国"))
     ));
-
-
 
     // 結論を先に置く。図と表はその根拠として下に続く
     h.push_str(&takeaway_section(d, ov, w, terms, mobile));
@@ -688,10 +781,14 @@ fn keywords_block(d: &TitleDetail) -> String {
          <div class=\"grid grid-cols-1 lg:grid-cols-2 gap-4\">"
     );
 
-    h.push_str("<div><p class=\"text-slate-400 text-xs mb-1\">いま多い語（全国の合計）</p>\
-                <div style=\"overflow-x:auto\"><table class=\"w-full text-sm\">");
+    h.push_str(
+        "<div><p class=\"text-slate-400 text-xs mb-1\">いま多い語（全国の合計）</p>\
+                <div style=\"overflow-x:auto\"><table class=\"w-full text-sm\">",
+    );
     if top.is_empty() {
-        h.push_str("<tbody><tr><td class=\"text-slate-400 text-sm py-2\">取れていません</td></tr></tbody>");
+        h.push_str(
+            "<tbody><tr><td class=\"text-slate-400 text-sm py-2\">取れていません</td></tr></tbody>",
+        );
     } else {
         h.push_str("<tbody>");
         for (t, n) in &top {
@@ -1031,6 +1128,41 @@ mod tests {
         );
     }
 
+    /// 帯と自分の値は、表示に丸めたあとも上下関係が保たれる。
+    ///
+    /// # 何を防いでいるか
+    /// 整数に丸める `num_opt` を使っていたため、東京都の実値 9.87 が「10」、
+    /// 帯の下端 10.53 が「11」と出て、
+    /// 「10 人で…下から 4 分の 1 の中にいます（帯は 11〜14 人）」という、
+    /// **数の上でつながらない文**になっていた（2026-09-17 実画面で発覚）。
+    /// 図は正しく描けており、文章だけが壊れていたので気づきにくい。
+    #[test]
+    fn 帯の文章は丸めても上下関係が壊れない() {
+        use crate::handlers::indeed::render::headline_opt;
+        // 実データ（販売スタッフ × 東京都 2026-08）
+        let cases: [(f64, f64, f64, f64); 3] = [
+            (9.87, 11.81, 10.53, 13.62),  // 帯の下
+            (16.76, 11.81, 10.53, 13.62), // 帯の上
+            (11.9, 11.81, 10.53, 13.62),  // 帯の中
+        ];
+        for (v, _m, lo, hi) in cases {
+            let sv: f64 = headline_opt(Some(v)).parse().expect("自分の値が数でない");
+            let slo: f64 = headline_opt(Some(lo)).parse().expect("下端が数でない");
+            let shi: f64 = headline_opt(Some(hi)).parse().expect("上端が数でない");
+            // 実値での関係が、表示した文字列の上でも同じであること
+            assert_eq!(
+                v < lo,
+                sv < slo,
+                "実値 {v} < {lo} が、表示 {sv} < {slo} と食い違う"
+            );
+            assert_eq!(
+                v > hi,
+                sv > shi,
+                "実値 {v} > {hi} が、表示 {sv} > {shi} と食い違う"
+            );
+        }
+    }
+
     fn row(pref: &str, wage: Option<f64>) -> PrefRow {
         PrefRow {
             prefecture: pref.to_string(),
@@ -1133,18 +1265,24 @@ mod tests {
             .map(|x| x.as_str().unwrap_or_default().to_string())
             .collect();
         let want = [
-            "奈良県", "徳島県", "東京都", "神奈川県", "埼玉県", "山形県",
-            "静岡県", "大阪府", "京都府", "佐賀県", "大分県",
+            "奈良県",
+            "徳島県",
+            "東京都",
+            "神奈川県",
+            "埼玉県",
+            "山形県",
+            "静岡県",
+            "大阪府",
+            "京都府",
+            "佐賀県",
+            "大分県",
         ];
         assert_eq!(got, want, "上乗せの大きい順になっていない");
 
         // 横軸の左端は、いちばん低い値（奈良県の 903.358 円）を 100 円単位に切り下げた値。
         // 「900 始まり」に意味が無いことは図の上の説明で断る
         assert_eq!(v["xAxis"]["min"], 900, "横軸の左端が変わっている");
-        assert!(
-            h.contains("上乗せの大きい順"),
-            "並び順の説明が無い"
-        );
+        assert!(h.contains("上乗せの大きい順"), "並び順の説明が無い");
         assert!(
             h.contains("いちばん下が、下回る幅のいちばん大きい県"),
             "下端が何かの説明が無い"
@@ -1241,7 +1379,9 @@ fn takeaway_section(
             // 「ほぼ横ばいです」と断定していた。出せないことを言う
             let dir = match ch {
                 None => "この期間の変化は、月が欠けているため出せません。",
-                Some(c) if c < -5.0 => "集まりにくさが強まっています。求人票か媒体を見直す候補です。",
+                Some(c) if c < -5.0 => {
+                    "集まりにくさが強まっています。求人票か媒体を見直す候補です。"
+                }
                 Some(c) if c > 5.0 => "集まりやすくなっています。競合が引いた可能性があります。",
                 _ => "集まりやすさはこの期間ほぼ横ばいです。",
             };
@@ -1275,7 +1415,7 @@ fn takeaway_section(
         // 「集まりやすいのは愛知県、集まりにくいのは愛知県」になるので出さない
         let overlap = easy.iter().any(|x| hard.contains(x));
         if !overlap {
-        items.push(format!(
+            items.push(format!(
             "<li>人が集まりやすいのは <strong>{}</strong>、集まりにくいのは <strong>{}</strong>。\
              同じ求人票でも、県によって手応えが変わります。</li>",
             easy.join("・"),
@@ -1286,7 +1426,11 @@ fn takeaway_section(
 
     // 3. 求人票の職種名
     let mut moved: Vec<&crate::indeed::keywords::TermSeries> = terms.iter().collect();
-    moved.sort_by(|a, b| b.diff_pt.unwrap_or(0.0).total_cmp(&a.diff_pt.unwrap_or(0.0)));
+    moved.sort_by(|a, b| {
+        b.diff_pt
+            .unwrap_or(0.0)
+            .total_cmp(&a.diff_pt.unwrap_or(0.0))
+    });
     if let Some(up) = moved.first().filter(|x| x.diff_pt.unwrap_or(0.0) > 1.0) {
         let down = moved.last().filter(|x| x.diff_pt.unwrap_or(0.0) < -1.0);
         items.push(format!(
@@ -1453,12 +1597,18 @@ fn source_compare_section(
         .collect();
     let indeed: Vec<Option<f64>> = axis
         .iter()
-        .map(|m| idx.get(m.as_str()).and_then(|i| o.ctk.series.get(*i).copied().flatten()))
+        .map(|m| {
+            idx.get(m.as_str())
+                .and_then(|i| o.ctk.series.get(*i).copied().flatten())
+        })
         .collect();
     // 検索側も、合わせた軸に置き直す
     let search: Vec<Option<f64>> = axis
         .iter()
-        .map(|m| sidx.get(m.as_str()).and_then(|i| sn.series.get(*i).copied().flatten()))
+        .map(|m| {
+            sidx.get(m.as_str())
+                .and_then(|i| sn.series.get(*i).copied().flatten())
+        })
         .collect();
     // 2 つを区別する。軸を両方の月の和集合にしたので、
     // 「Indeed にある月」と「両方にある月」は同じ数にならない。
@@ -1483,72 +1633,72 @@ fn source_compare_section(
         return String::new();
     }
 
-/// 検索の関心と Indeed 内の閲覧が、重なる期間でどちらへ動いたかを返す。
-///
-/// 返すのは `(検索の変化率%, 閲覧の変化率%, 丸め 1 段の%)`。
-/// **測れないときは `None`** で、呼び出し側は数字を出さない。
-///
-/// # なぜ前月比の向きを数えないのか
-/// 最初は「前月比で向きが違った月の割合」を考えたが、実データで成立しない。
-/// 検索エンジン側は 110 / 170 / 210 / 260 / 320 / 390 のような**粗い刻みの推定値**しか
-/// 返さず、13 か月の重なりのうち **12 回中 3〜10 回が前月と同値**になる。
-/// 実測では横ばいの内訳が「検索側 20 回 / Indeed 側 0 回」で、
-/// 割合の分母が職種ごとに 2〜9 とばらついた。清掃スタッフの「乖離 0%」は
-/// **n=2 の上に乗っていた**。これは向きではなく丸めの粒度を測っている。
-///
-/// # 代わりに何を見るか
-/// 重なる区間の**両端 3 か月ずつの平均**を比べ、期間全体でどちらへ動いたかを出す。
-/// 3 か月にするのは、端の 1 か月が刻みの境目に当たると符号が反転するため。
-///
-/// # 測れない条件
-/// 検索側の変化が「丸め 1 段」に届かないものは出さない。1 段は実際に現れた
-/// 隣り合う値の最小の比で決める（実測で約 13〜24%）。この関門で、
-/// 手元の 15 職種のうち 12 職種は数字が出ない。**出ないことが正しい**。
-fn divergence(search: &[Option<f64>], views: &[Option<f64>]) -> Option<(f64, f64, f64)> {
-    let pairs: Vec<(f64, f64)> = search
-        .iter()
-        .zip(views.iter())
-        .filter_map(|(a, b)| match (a, b) {
-            (Some(x), Some(y)) if x.is_finite() && y.is_finite() => Some((*x, *y)),
-            _ => None,
-        })
-        .collect();
-    // 両端 3 か月ずつを重ならせないため 6 か月以上を要求する
-    const K: usize = 3;
-    if pairs.len() < K * 2 {
-        return None;
-    }
-    let mean = |v: &[(f64, f64)], f: fn(&(f64, f64)) -> f64| {
-        v.iter().map(f).sum::<f64>() / v.len() as f64
-    };
-    let head = &pairs[..K];
-    let tail = &pairs[pairs.len() - K..];
-    let (ha, hb) = (mean(head, |p| p.0), mean(head, |p| p.1));
-    let (ta, tb) = (mean(tail, |p| p.0), mean(tail, |p| p.1));
-    if ha <= 0.0 || hb <= 0.0 {
-        return None;
-    }
-    let a_pct = (ta / ha - 1.0) * 100.0;
-    let b_pct = (tb / hb - 1.0) * 100.0;
-
-    // 検索側の「丸め 1 段」= その期間に実際に現れた隣り合う値の最小の比
-    let mut v: Vec<f64> = pairs.iter().map(|p| p.0).collect();
-    v.sort_by(f64::total_cmp);
-    v.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
-    if v.len() < 2 {
-        return None; // 1 種類しか出ていない＝刻みを測れない
-    }
-    let mut step = f64::INFINITY;
-    for w in v.windows(2) {
-        if w[0] > 0.0 {
-            step = step.min((w[1] / w[0] - 1.0) * 100.0);
+    /// 検索の関心と Indeed 内の閲覧が、重なる期間でどちらへ動いたかを返す。
+    ///
+    /// 返すのは `(検索の変化率%, 閲覧の変化率%, 丸め 1 段の%)`。
+    /// **測れないときは `None`** で、呼び出し側は数字を出さない。
+    ///
+    /// # なぜ前月比の向きを数えないのか
+    /// 最初は「前月比で向きが違った月の割合」を考えたが、実データで成立しない。
+    /// 検索エンジン側は 110 / 170 / 210 / 260 / 320 / 390 のような**粗い刻みの推定値**しか
+    /// 返さず、13 か月の重なりのうち **12 回中 3〜10 回が前月と同値**になる。
+    /// 実測では横ばいの内訳が「検索側 20 回 / Indeed 側 0 回」で、
+    /// 割合の分母が職種ごとに 2〜9 とばらついた。清掃スタッフの「乖離 0%」は
+    /// **n=2 の上に乗っていた**。これは向きではなく丸めの粒度を測っている。
+    ///
+    /// # 代わりに何を見るか
+    /// 重なる区間の**両端 3 か月ずつの平均**を比べ、期間全体でどちらへ動いたかを出す。
+    /// 3 か月にするのは、端の 1 か月が刻みの境目に当たると符号が反転するため。
+    ///
+    /// # 測れない条件
+    /// 検索側の変化が「丸め 1 段」に届かないものは出さない。1 段は実際に現れた
+    /// 隣り合う値の最小の比で決める（実測で約 13〜24%）。この関門で、
+    /// 手元の 15 職種のうち 12 職種は数字が出ない。**出ないことが正しい**。
+    fn divergence(search: &[Option<f64>], views: &[Option<f64>]) -> Option<(f64, f64, f64)> {
+        let pairs: Vec<(f64, f64)> = search
+            .iter()
+            .zip(views.iter())
+            .filter_map(|(a, b)| match (a, b) {
+                (Some(x), Some(y)) if x.is_finite() && y.is_finite() => Some((*x, *y)),
+                _ => None,
+            })
+            .collect();
+        // 両端 3 か月ずつを重ならせないため 6 か月以上を要求する
+        const K: usize = 3;
+        if pairs.len() < K * 2 {
+            return None;
         }
+        let mean = |v: &[(f64, f64)], f: fn(&(f64, f64)) -> f64| {
+            v.iter().map(f).sum::<f64>() / v.len() as f64
+        };
+        let head = &pairs[..K];
+        let tail = &pairs[pairs.len() - K..];
+        let (ha, hb) = (mean(head, |p| p.0), mean(head, |p| p.1));
+        let (ta, tb) = (mean(tail, |p| p.0), mean(tail, |p| p.1));
+        if ha <= 0.0 || hb <= 0.0 {
+            return None;
+        }
+        let a_pct = (ta / ha - 1.0) * 100.0;
+        let b_pct = (tb / hb - 1.0) * 100.0;
+
+        // 検索側の「丸め 1 段」= その期間に実際に現れた隣り合う値の最小の比
+        let mut v: Vec<f64> = pairs.iter().map(|p| p.0).collect();
+        v.sort_by(f64::total_cmp);
+        v.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        if v.len() < 2 {
+            return None; // 1 種類しか出ていない＝刻みを測れない
+        }
+        let mut step = f64::INFINITY;
+        for w in v.windows(2) {
+            if w[0] > 0.0 {
+                step = step.min((w[1] / w[0] - 1.0) * 100.0);
+            }
+        }
+        if !step.is_finite() || a_pct.abs() < step {
+            return None;
+        }
+        Some((a_pct, b_pct, step))
     }
-    if !step.is_finite() || a_pct.abs() < step {
-        return None;
-    }
-    Some((a_pct, b_pct, step))
-}
 
     // 重なる区間の相関。断定には使わず、形の説明にだけ添える
     let pairs: Vec<(f64, f64)> = g
@@ -1595,7 +1745,11 @@ fn divergence(search: &[Option<f64>], views: &[Option<f64>]) -> Option<(f64, f64
             ab = arrow(Some(b)),
             ca = dir_class(Some(a), true),
             cb = dir_class(Some(b), true),
-            mk = if a.signum() == b.signum() { "同じ向き" } else { "逆の向き" },
+            mk = if a.signum() == b.signum() {
+                "同じ向き"
+            } else {
+                "逆の向き"
+            },
         ),
         None => format!(
             "<div class=\"mt-3 mb-1 border border-slate-700 rounded-lg p-3\">\
@@ -1711,7 +1865,10 @@ fn with_y_unit(chart: String, unit: &str) -> String {
 /// # どの語を出すか
 /// 直近のシェアが大きい順に 6 本まで。折れ線を増やすほど読めなくなる。
 /// 残りは本文で件数だけ伝える。
-fn term_series_section(months: &[String], series: &[crate::indeed::keywords::TermSeries]) -> String {
+fn term_series_section(
+    months: &[String],
+    series: &[crate::indeed::keywords::TermSeries],
+) -> String {
     if months.len() < 4 || series.len() < 2 {
         return String::new();
     }
@@ -1783,10 +1940,7 @@ fn attr_section(months_all: &[crate::indeed::keywords::AttrMonth]) -> String {
     let mut live: Vec<usize> = Vec::new();
     let mut dead: Vec<&str> = Vec::new();
     for i in 0..8 {
-        if months_all
-            .iter()
-            .any(|m| m.pct[i].unwrap_or(0.0) > 0.0)
-        {
+        if months_all.iter().any(|m| m.pct[i].unwrap_or(0.0) > 0.0) {
             live.push(i);
         } else {
             dead.push(ATTR_LABELS[i]);
@@ -1842,7 +1996,9 @@ fn attr_section(months_all: &[crate::indeed::keywords::AttrMonth]) -> String {
             )
         },
         chart = with_y_unit(line_chart(&months, &lines, true, 340), "%"),
-        tc = med.map(|v| format!("{v:.0}")).unwrap_or_else(|| "—".to_string())
+        tc = med
+            .map(|v| format!("{v:.0}"))
+            .unwrap_or_else(|| "—".to_string())
     )
 }
 
@@ -2108,9 +2264,7 @@ mod keyword_section_tests {
     /// 2 点に丸めると「46.1 → 29.8」としか見えない。
     #[test]
     fn 検索語は月ごとに出す() {
-        let months: Vec<String> = (7..=12)
-            .map(|m| format!("2025-{m:02}"))
-            .collect();
+        let months: Vec<String> = (7..=12).map(|m| format!("2025-{m:02}")).collect();
         let v = vec![
             series("事務", &[45.3, 46.4, 46.3, 44.8, 41.4, 40.8]),
             series("一般事務", &[5.3, 4.9, 5.0, 7.4, 10.1, 7.7]),
@@ -2122,7 +2276,10 @@ mod keyword_section_tests {
             assert!(h.contains(m.as_str()), "{m} が図に無い");
         }
         // 各語の全月ぶんの値が入っていること（2 点に丸めていない）
-        assert!(h.contains("46.400") && h.contains("40.800"), "途中の月が落ちている");
+        assert!(
+            h.contains("46.400") && h.contains("40.800"),
+            "途中の月が落ちている"
+        );
         assert!(h.contains("いちばん増えたのは「一般事務」"));
         assert!(h.contains("いちばん減ったのは「事務」"));
         // 2 期間の比較だと書かない
@@ -2157,10 +2314,16 @@ mod keyword_section_tests {
             .collect();
         let h = attr_section(&v);
         for i in 0..7 {
-            assert!(h.contains(&format!("2025-{:02}", i + 7)), "{i} 月目が図に無い");
+            assert!(
+                h.contains(&format!("2025-{:02}", i + 7)),
+                "{i} 月目が図に無い"
+            );
         }
         // 途中の月の値が落ちていないこと
-        assert!(h.contains("15.000") && h.contains("26.100"), "途中の月が落ちている");
+        assert!(
+            h.contains("15.000") && h.contains("26.100"),
+            "途中の月が落ちている"
+        );
         // 2 期間の言い方をしない
         assert!(!h.contains("最初の 3 か月"));
         assert!(h.contains("1 か月だけの上下で判断しないでください"));
@@ -2207,7 +2370,10 @@ mod keyword_section_tests {
             .collect();
 
         for (name, h) in [
-            ("探し方の言葉の移り変わり", term_series_section(&months, &terms)),
+            (
+                "探し方の言葉の移り変わり",
+                term_series_section(&months, &terms),
+            ),
             ("求職者の内訳の移り変わり", attr_section(&attrs)),
         ] {
             let cfg = h
@@ -2233,7 +2399,10 @@ mod keyword_section_tests {
             .collect();
         let h = attr_section(&v);
         assert!(h.contains("中央値で 42 語"), "母数が出ていない");
-        assert!(h.contains("12.2 ポイント") && h.contains("3.1 ポイント"), "振れ幅の実測が出ていない");
+        assert!(
+            h.contains("12.2 ポイント") && h.contains("3.1 ポイント"),
+            "振れ幅の実測が出ていない"
+        );
     }
 }
 
@@ -2301,7 +2470,10 @@ mod detail_display_tests {
         // 働き方の条件・シニア・外国人・未経験・語学は期間中どこかで値がある
         let trend: Vec<AttrMonth> = vec![
             attr_month("2026-06", &[(0, 16.2), (1, 2.7), (5, 2.8)]),
-            attr_month("2026-07", &[(0, 20.3), (1, 2.7), (4, 1.7), (5, 1.1), (6, 1.1)]),
+            attr_month(
+                "2026-07",
+                &[(0, 20.3), (1, 2.7), (4, 1.7), (5, 1.1), (6, 1.1)],
+            ),
             attr_month("2026-08", &[(0, 15.2)]),
         ];
         let d = detail_with_attrs(attrs(&[(0, 15.2)]));
@@ -2314,7 +2486,10 @@ mod detail_display_tests {
             // 断り書きに 1 回だけ出る。枠としては出さない
             assert_eq!(frames, 1, "{dead} の枠が残っている");
         }
-        assert!(h.contains("全期間 0% なので出していません"), "落とした理由が書いていない");
+        assert!(
+            h.contains("全期間 0% なので出していません"),
+            "落とした理由が書いていない"
+        );
     }
 
     /// 全部ゼロなら枠を並べず 1 文で済ませる。
@@ -2338,7 +2513,10 @@ mod detail_display_tests {
         // 最新月 2026-08 は働き方の条件 15.2% だけで、残る 4 区分は 0%
         let trend: Vec<AttrMonth> = vec![
             attr_month("2026-06", &[(0, 16.2), (1, 2.7), (5, 2.8)]),
-            attr_month("2026-07", &[(0, 20.3), (1, 2.7), (4, 1.7), (5, 1.1), (6, 1.1)]),
+            attr_month(
+                "2026-07",
+                &[(0, 20.3), (1, 2.7), (4, 1.7), (5, 1.1), (6, 1.1)],
+            ),
             attr_month("2026-08", &[(0, 15.2)]),
         ];
         let d = detail_with_attrs(attrs(&[(0, 15.2)]));
@@ -2350,13 +2528,22 @@ mod detail_display_tests {
 
         // 8 区分すべてに値があるときは、数を書かない（読む意味が無い）
         let all = [
-            (0, 30.0), (1, 5.0), (2, 4.0), (3, 3.0),
-            (4, 2.0), (5, 1.5), (6, 1.0), (7, 0.5),
+            (0, 30.0),
+            (1, 5.0),
+            (2, 4.0),
+            (3, 3.0),
+            (4, 2.0),
+            (5, 1.5),
+            (6, 1.0),
+            (7, 0.5),
         ];
         let trend: Vec<AttrMonth> = vec![attr_month("2026-08", &all)];
         let d = detail_with_attrs(attrs(&all));
         let h = attrs_block(&d, &trend);
-        assert!(!h.contains("区分は全部で"), "全部出ているのに数を書いている");
+        assert!(
+            !h.contains("区分は全部で"),
+            "全部出ているのに数を書いている"
+        );
         assert!(!h.contains("出していません") && !h.contains("枠にしていません"));
     }
     /// この月だけ 0% の区分も枠にしない。
@@ -2380,7 +2567,10 @@ mod detail_display_tests {
 
         // 「10.0%」にも "0.0%" が含まれるので、枠の中身そのものの形で見る
         assert!(!h.contains(">0.0%<"), "0.0% の枠が残っている");
-        assert!(h.contains("14.7%") && h.contains("4.7%"), "値のある枠が消えている");
+        assert!(
+            h.contains("14.7%") && h.contains("4.7%"),
+            "値のある枠が消えている"
+        );
         assert!(
             h.contains("この月 0% だったので枠にしていません"),
             "落とした理由が書かれていない"
@@ -2389,7 +2579,10 @@ mod detail_display_tests {
         for n in ["主婦・主夫", "資格"] {
             assert_eq!(h.matches(n).count(), 1, "{n} の枠が残っている");
         }
-        assert!(h.contains("全期間 0% なので出していません"), "全期間 0% の断りが消えている");
+        assert!(
+            h.contains("全期間 0% なので出していません"),
+            "全期間 0% の断りが消えている"
+        );
     }
 
     /// 月次が読めなくても、区分の名前は黙って消さない。
@@ -2415,7 +2608,10 @@ mod detail_display_tests {
     /// 「937.0」「307.0」になり、同じ画面の本文の「937 件」と食い違っていた。
     #[test]
     fn 件数のカードは整数で出す() {
-        let months: Vec<String> = ["2026-07", "2026-08"].iter().map(|s| s.to_string()).collect();
+        let months: Vec<String> = ["2026-07", "2026-08"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let o = Overview::from_series(
             "自動車設計",
             &crate::indeed::data::Series {
@@ -2428,9 +2624,15 @@ mod detail_display_tests {
         let h = count_card(&o.job) + &count_card(&o.emp);
         assert!(h.contains(">937<"), "求人数が整数で出ていない");
         assert!(h.contains(">307<"), "企業数が整数で出ていない");
-        assert!(!h.contains("937.0") && !h.contains("307.0"), "小数のまま出ている");
+        assert!(
+            !h.contains("937.0") && !h.contains("307.0"),
+            "小数のまま出ている"
+        );
         // 比のカードは小数第 1 位のままであること
-        assert!(metric_card(&o.spp, true).contains("4.3"), "1 求人あたりが整数に丸まっている");
+        assert!(
+            metric_card(&o.spp, true).contains("4.3"),
+            "1 求人あたりが整数に丸まっている"
+        );
     }
 
     /// 競合の多さは日本語で出す。
@@ -2543,7 +2745,9 @@ mod detail_display_tests {
         let mut h = HeaderMap::new();
         h.insert(
             "hx-current-url",
-            "http://127.0.0.1:8080/tab/analysis?sort=mobile".parse().unwrap(),
+            "http://127.0.0.1:8080/tab/analysis?sort=mobile"
+                .parse()
+                .unwrap(),
         );
         assert_eq!(sort_from_hx_url(&h), None);
 
@@ -2650,13 +2854,13 @@ mod real_data_tests {
                 continue;
             }
             // 「10.0%」にも "0.0%" が含まれるので、枠の中身そのものの形で見る
-            assert!(
-                !h.contains(">0.0%<"),
-                "{t} に 0.0% の枠が残っています"
-            );
+            assert!(!h.contains(">0.0%<"), "{t} に 0.0% の枠が残っています");
             checked += 1;
         }
-        assert!(checked >= 100, "{checked} 職種しか見ていません（125 のはず）");
+        assert!(
+            checked >= 100,
+            "{checked} 職種しか見ていません（125 のはず）"
+        );
     }
 
     /// 2 つの折れ線の縦軸に、実データでも単位が入る。

@@ -184,7 +184,12 @@ fn labels_json(months: &[String]) -> String {
 ///
 /// `data-chart-config` はシングルクォートで囲まれるので、
 /// 中の JSON にシングルクォートを入れない（[`esc`] が `&#39;` に変える）。
-pub fn line_chart(months: &[String], series: &[(String, Vec<Option<f64>>)], dark: bool, height: u32) -> String {
+pub fn line_chart(
+    months: &[String],
+    series: &[(String, Vec<Option<f64>>)],
+    dark: bool,
+    height: u32,
+) -> String {
     let axis = axis_color(dark);
     let palette = palette(dark);
     let items: Vec<String> = series
@@ -430,9 +435,9 @@ fn style_of(name: &str, dark: bool) -> (&'static str, &'static str) {
         None => {
             // 名前から決める素朴なハッシュ。県をまたいでも同じ名前は同じ見た目になる。
             // 表に無い名前どうしでは色が近くなることがある（枠が 12 でちょうどのため）。
-            let h = name
-                .bytes()
-                .fold(2_166_136_261u32, |a, b| (a ^ b as u32).wrapping_mul(16_777_619));
+            let h = name.bytes().fold(2_166_136_261u32, |a, b| {
+                (a ^ b as u32).wrapping_mul(16_777_619)
+            });
             (
                 pal[(h % pal.len() as u32) as usize],
                 dash((h / pal.len() as u32) as usize),
@@ -668,6 +673,142 @@ pub fn breakdown_html(b: Option<crate::indeed::aggregate::Breakdown>) -> String 
     )
 }
 
+/// 順位の推移。**1 位を上に**して描く。
+///
+/// # なぜ軸を反転させるのか
+/// 順位は小さいほうが良い。そのまま描くと 1 位が下に来て、成績が上がったときに
+/// 線が下がる。読み手が毎回頭の中で反転させることになる。
+///
+/// # 下端を「比べた県の数」にする
+/// 47 に固定すると、比べた県が 40 しかない月に空白ができて「下位に沈んだ」ように
+/// 見える。その月に実際に比べた数の最大を下端にする。
+pub fn rank_chart(
+    months: &[String],
+    rank: &[Option<f64>],
+    of: &[Option<f64>],
+    dark: bool,
+    height: u32,
+) -> String {
+    let ax = axis_color(dark);
+    let pal = palette(dark);
+    let bottom = of.iter().flatten().fold(0.0f64, |a, b| a.max(*b)).max(1.0);
+    format!(
+        "<div class=\"echart\" style=\"height:{h}px;\" data-chart-config='{{\"tooltip\":{{\"trigger\":\"axis\"}},\
+         \"grid\":{{\"left\":8,\"right\":14,\"top\":\"14%\",\"bottom\":\"14%\",\"containLabel\":true}},\
+         \"xAxis\":{{\"type\":\"category\",\"boundaryGap\":false,\"data\":[{lb}],\
+         \"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}}}},\
+         \"yAxis\":{{\"type\":\"value\",\"inverse\":true,\"min\":1,\"max\":{bot},\
+         \"name\":\"位（上が 1 位）\",\"nameTextStyle\":{{\"color\":\"{ax}\",\"fontSize\":10,\"align\":\"left\"}},\"nameGap\":8,\
+         \"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}},\
+         \"splitLine\":{{\"lineStyle\":{{\"color\":\"{gl}\"}}}}}},\
+         \"series\":[{{\"name\":\"順位\",\"type\":\"line\",\"smooth\":false,\
+         \"showSymbol\":true,\"symbolSize\":5,\"connectNulls\":false,\
+         \"lineStyle\":{{\"width\":2}},\"itemStyle\":{{\"color\":\"{c}\"}},\"data\":[{d}]}}]}}'></div>",
+        h = height,
+        ax = ax,
+        gl = grid_line_color(dark),
+        c = pal[0],
+        bot = bottom.round() as i64,
+        lb = labels_json(months),
+        d = series_json(rank),
+    )
+}
+
+/// 自分の線と、同じ月の全県のばらつき（中央値と 25〜75% の帯）を重ねる。
+///
+/// # なぜ順位と別に要るのか
+/// 順位の上下は、自分の動きと同じくらい他県の動きを映す。実測で中位帯は
+/// **中央値の 0.7% の差で順位が 1 つ入れ替わる**団子状態だった。
+/// 東京都の販売スタッフは 2026-01 に 1 求人あたりが +10.3% 動いたのに順位は
+/// 1 つ下がり、2026-06 には -0.6% しか動いていないのに 5 つ下がっている。
+/// 帯と一緒に見れば「自分が動いた」のか「まわりが動いた」のかが分かる。
+///
+/// # 帯の作り方
+/// 下端（25%）の線を透明で積み、その上に（75% − 25%）を半透明で積む。
+/// 土台は凡例に出さない（`legend.data` で出す名前を明示する）。
+#[allow(clippy::too_many_arguments)]
+pub fn band_chart(
+    months: &[String],
+    mine: (&str, &[Option<f64>]),
+    med: &[Option<f64>],
+    q1: &[Option<f64>],
+    q3: &[Option<f64>],
+    unit: &str,
+    dark: bool,
+    height: u32,
+) -> String {
+    let ax = axis_color(dark);
+    let pal = palette(dark);
+    // 帯の厚み。片方でも欠けている月は帯を描かない
+    let thick: Vec<Option<f64>> = q1
+        .iter()
+        .zip(q3.iter())
+        .map(|(a, b)| match (a, b) {
+            (Some(x), Some(y)) if y >= x => Some(y - x),
+            _ => None,
+        })
+        .collect();
+    let band_area = if dark {
+        "rgba(148,163,184,0.16)"
+    } else {
+        "rgba(100,116,139,0.14)"
+    };
+    // 軸は自分の線・中央値・帯の上端を全部包む範囲で決める
+    let mut all: Vec<Option<f64>> = mine.1.to_vec();
+    all.extend_from_slice(med);
+    all.extend_from_slice(q1);
+    all.extend_from_slice(q3);
+    let yax = match ladder_axis(&all) {
+        Some((a, b, st)) => format!(
+            "\"min\":{},\"max\":{},\"interval\":{}",
+            axis_num(a),
+            axis_num(b),
+            axis_num(st)
+        ),
+        None => "\"min\":0".to_string(),
+    };
+    format!(
+        "<div class=\"echart\" style=\"height:{h}px;\" data-chart-config='{{\"tooltip\":{{\"trigger\":\"axis\"}},\
+         \"legend\":{{\"bottom\":0,\"data\":[{lg}],\"textStyle\":{{\"color\":\"{ax}\",\"fontSize\":11}}}},\
+         \"grid\":{{\"left\":8,\"right\":14,\"top\":\"14%\",\"bottom\":\"24%\",\"containLabel\":true}},\
+         \"xAxis\":{{\"type\":\"category\",\"boundaryGap\":false,\"data\":[{lb}],\
+         \"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}}}},\
+         \"yAxis\":{{\"type\":\"value\",{yax},\"name\":\"{un}\",\
+         \"nameTextStyle\":{{\"color\":\"{ax}\",\"fontSize\":10,\"align\":\"left\"}},\"nameGap\":8,\
+         \"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}},\
+         \"splitLine\":{{\"lineStyle\":{{\"color\":\"{gl}\"}}}}}},\
+         \"series\":[\
+         {{\"name\":\"帯の土台\",\"type\":\"line\",\"stack\":\"b\",\
+         \"lineStyle\":{{\"width\":0}},\"showSymbol\":false,\"tooltip\":{{\"show\":false}},\
+         \"areaStyle\":{{\"color\":\"transparent\"}},\"itemStyle\":{{\"color\":\"transparent\"}},\"data\":[{dq1}]}},\
+         {{\"name\":\"全県の 25〜75%\",\"type\":\"line\",\"stack\":\"b\",\
+         \"lineStyle\":{{\"width\":0}},\"showSymbol\":false,\
+         \"areaStyle\":{{\"color\":\"{ba}\"}},\"itemStyle\":{{\"color\":\"{ba}\"}},\"data\":[{dth}]}},\
+         {{\"name\":\"全県の中央値\",\"type\":\"line\",\"smooth\":false,\"showSymbol\":false,\
+         \"lineStyle\":{{\"width\":2,\"type\":\"dashed\"}},\"itemStyle\":{{\"color\":\"{cm}\"}},\"data\":[{dmed}]}},\
+         {{\"name\":\"{mn}\",\"type\":\"line\",\"smooth\":false,\"showSymbol\":true,\"symbolSize\":5,\
+         \"lineStyle\":{{\"width\":3}},\"itemStyle\":{{\"color\":\"{cs}\"}},\"data\":[{dm}]}}]}}'></div>",
+        h = height,
+        ax = ax,
+        gl = grid_line_color(dark),
+        ba = band_area,
+        cm = ax,
+        cs = pal[0],
+        un = json_str(unit),
+        mn = json_str(mine.0),
+        lg = format!(
+            "\"{}\",\"全県の中央値\",\"全県の 25〜75%\"",
+            json_str(mine.0)
+        ),
+        yax = yax,
+        lb = labels_json(months),
+        dq1 = series_json(q1),
+        dth = series_json(&thick),
+        dmed = series_json(med),
+        dm = series_json(mine.1),
+    )
+}
+
 /// 目盛りの刻みを 1 / 2 / 5 × 10^n のはしごから選び、データを包む最小の窓を返す。
 ///
 /// 返すのは `(下端, 上端, 刻み)`。決められないときは `None`（呼び出し側で 0 起点に戻す）。
@@ -719,7 +860,11 @@ fn ladder_axis(values: &[Option<f64>]) -> Option<(f64, f64, f64)> {
 fn axis_num(v: f64) -> String {
     let s = format!("{v:.6}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s.is_empty() || s == "-" { "0".to_string() } else { s.to_string() }
+    if s.is_empty() || s == "-" {
+        "0".to_string()
+    } else {
+        s.to_string()
+    }
 }
 
 /// 単位の違う 2 本を、左右の軸に分けて実数のまま重ねる。
@@ -748,11 +893,25 @@ pub fn dual_line_chart(
     let rd = scaled(right.1, rby);
     let lax = ladder_axis(&ld).map_or_else(
         || "\"min\":0".to_string(),
-        |(a, b, st)| format!("\"min\":{},\"max\":{},\"interval\":{}", axis_num(a), axis_num(b), axis_num(st)),
+        |(a, b, st)| {
+            format!(
+                "\"min\":{},\"max\":{},\"interval\":{}",
+                axis_num(a),
+                axis_num(b),
+                axis_num(st)
+            )
+        },
     );
     let rax = ladder_axis(&rd).map_or_else(
         || "\"min\":0".to_string(),
-        |(a, b, st)| format!("\"min\":{},\"max\":{},\"interval\":{}", axis_num(a), axis_num(b), axis_num(st)),
+        |(a, b, st)| {
+            format!(
+                "\"min\":{},\"max\":{},\"interval\":{}",
+                axis_num(a),
+                axis_num(b),
+                axis_num(st)
+            )
+        },
     );
     format!(
         "<div class=\"echart\" style=\"height:{h}px;\" data-chart-config='{{\"tooltip\":{{\"trigger\":\"axis\"}},\"legend\":{{\"bottom\":0,\"textStyle\":{{\"color\":\"{ax}\",\"fontSize\":11}}}},\"grid\":{{\"left\":\"13%\",\"right\":\"13%\",\"top\":\"16%\",\"bottom\":\"24%\"}},\"xAxis\":{{\"type\":\"category\",\"boundaryGap\":false,\"data\":[{lb}],\"axisLabel\":{{\"color\":\"{ax}\",\"fontSize\":10}}}},\"yAxis\":[{{\"type\":\"value\",{lax},\"name\":\"{ln}\",\"nameTextStyle\":{{\"color\":\"{c1}\",\"fontSize\":10,\"align\":\"left\"}},\"nameGap\":8,\"axisLabel\":{{\"color\":\"{c1}\",\"fontSize\":10}},\"splitLine\":{{\"lineStyle\":{{\"color\":\"{gl}\"}}}}}},{{\"type\":\"value\",{rax},\"name\":\"{rn}\",\"nameTextStyle\":{{\"color\":\"{c2}\",\"fontSize\":10,\"align\":\"right\"}},\"nameGap\":8,\"axisLabel\":{{\"color\":\"{c2}\",\"fontSize\":10}},\"splitLine\":{{\"show\":false}}}}],\"series\":[{{\"name\":\"{n1}\",\"type\":\"line\",\"yAxisIndex\":0,\"smooth\":false,\"showSymbol\":false,\"connectNulls\":false,\"lineStyle\":{{\"width\":2,\"type\":\"solid\"}},\"itemStyle\":{{\"color\":\"{c1}\"}},\"data\":[{d1}]}},{{\"name\":\"{n2}\",\"type\":\"line\",\"yAxisIndex\":1,\"smooth\":false,\"showSymbol\":false,\"connectNulls\":false,\"lineStyle\":{{\"width\":2,\"type\":\"dashed\"}},\"itemStyle\":{{\"color\":\"{c2}\"}},\"data\":[{d2}]}}]}}'></div>",
@@ -1121,7 +1280,9 @@ pub fn hbar_chart(
                 };
                 let lb = match baseline {
                     Some((b, _)) if *n <= b && b - *n <= near && *n >= too_short => {
-                        format!(",\"label\":{{\"position\":\"insideRight\",\"color\":\"{inside}\"}}")
+                        format!(
+                            ",\"label\":{{\"position\":\"insideRight\",\"color\":\"{inside}\"}}"
+                        )
                     }
                     _ => String::new(),
                 };
@@ -1502,14 +1663,25 @@ mod chart_tests {
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&amp;", "&");
-        serde_json::from_str(&decoded).unwrap_or_else(|e| panic!("JSON が壊れている: {e}\n{decoded}"))
+        serde_json::from_str(&decoded)
+            .unwrap_or_else(|e| panic!("JSON が壊れている: {e}\n{decoded}"))
     }
 
     #[test]
     fn 散布図の設定がjsonとして正しく点が入っている() {
         let pts = vec![
-            ("販売スタッフ".to_string(), 167_591.0, 11.1, "サービス・販売".to_string()),
-            ("配送ドライバー".to_string(), 83_647.0, 8.1, "物流・運輸".to_string()),
+            (
+                "販売スタッフ".to_string(),
+                167_591.0,
+                11.1,
+                "サービス・販売".to_string(),
+            ),
+            (
+                "配送ドライバー".to_string(),
+                83_647.0,
+                8.1,
+                "物流・運輸".to_string(),
+            ),
         ];
         let groups = vec!["サービス・販売".to_string(), "物流・運輸".to_string()];
         let v = parsed(&scatter_chart(&pts, &groups, &[], None, true, 300));
@@ -1542,7 +1714,15 @@ mod chart_tests {
     fn 横棒は一位が上に来る() {
         let labels = vec!["東京都".into(), "大阪府".into(), "福岡県".into()];
         let values = vec![Some(12.0), Some(8.0), Some(5.0)];
-        let v = parsed(&hbar_chart(&labels, &values, "人", Some((9.0, "全国")), None, true, 300));
+        let v = parsed(&hbar_chart(
+            &labels,
+            &values,
+            "人",
+            Some((9.0, "全国")),
+            None,
+            true,
+            300,
+        ));
         // ECharts の縦軸は下から積むので、渡す配列は逆順になっているのが正しい
         let cats = v["yAxis"]["data"].as_array().unwrap();
         assert_eq!(cats[cats.len() - 1], "東京都", "1 位が上に来ていない");
@@ -1558,7 +1738,10 @@ mod chart_tests {
             "基準線の上下で色が変わっていない"
         );
         // 値は棒の脇に出す。47 県だと目盛りが粗く、76 と 78 の差が読めない
-        assert_eq!(v["series"][0]["label"]["show"], true, "値ラベルが出ていない");
+        assert_eq!(
+            v["series"][0]["label"]["show"], true,
+            "値ラベルが出ていない"
+        );
     }
 
     /// 基準線に近い行の値ラベルは棒の内側に入れる。
@@ -1607,10 +1790,16 @@ mod chart_tests {
             );
         }
         // 基準線より上の行は、ラベルが線より右に出るので動かさない
-        assert!(d[4]["label"].is_null(), "茨城県は基準線より上なのに内側へ寄せている");
+        assert!(
+            d[4]["label"].is_null(),
+            "茨城県は基準線より上なのに内側へ寄せている"
+        );
         assert!(d[5]["label"].is_null(), "1 位まで内側へ寄せている");
         // 遠い行も動かさない。全部内側にすると読む位置が揃わない
-        assert!(d[0]["label"].is_null(), "基準線から遠い福井県まで内側へ寄せている");
+        assert!(
+            d[0]["label"].is_null(),
+            "基準線から遠い福井県まで内側へ寄せている"
+        );
     }
 
     /// 文字が収まらない短い棒は、内側に入れない。
@@ -1621,10 +1810,21 @@ mod chart_tests {
     fn 短すぎる棒には値を入れない() {
         let labels = vec!["A".to_string(), "B".to_string()];
         let values = vec![Some(100.0), Some(5.0)];
-        let v = parsed(&hbar_chart(&labels, &values, "件", Some((6.0, "全国")), None, true, 300));
+        let v = parsed(&hbar_chart(
+            &labels,
+            &values,
+            "件",
+            Some((6.0, "全国")),
+            None,
+            true,
+            300,
+        ));
         let d = v["series"][0]["data"].as_array().unwrap();
         // 逆順なので添字 0 が B（軸の 5% しかない）
-        assert!(d[0]["label"].is_null(), "軸の 5% しかない棒に文字を入れている");
+        assert!(
+            d[0]["label"].is_null(),
+            "軸の 5% しかない棒に文字を入れている"
+        );
     }
 
     /// 棒の高さの見積りが、ECharts の実寸と合っていること。
@@ -1712,15 +1912,66 @@ mod chart_tests {
         for dark in [true, false] {
             let want = grid_line_color(dark);
             let charts = [
-                ("line_chart", line_chart(&months, &[("全国".to_string(), two.clone())], dark, 300)),
-                ("raw_line_chart", raw_line_chart(&months, &[("全国".to_string(), two.clone())], dark, 300, "件")),
-                ("dual_line_chart", dual_line_chart(&months, ("検索", &two, "回"), ("見た人", &two, "人"), dark, 300)),
-                ("scatter_chart", scatter_chart(&pts, &groups, &[], None, dark, 300)),
-                ("hbar_chart", hbar_chart(&labels, &two, "件", Some((1.5, "全国")), None, dark, 300)),
-                ("dumbbell_chart", dumbbell_chart(&labels, &[Some(1000.0), Some(1100.0)], &[Some(1200.0), Some(1300.0)], "最低賃金", "上乗せ", "下回る分", "円", dark, 300)),
-                ("tornado_chart", tornado_chart(&[("A".to_string(), Some(1.0)), ("B".to_string(), Some(-1.0))], "ポイント", dark, 300)),
+                (
+                    "line_chart",
+                    line_chart(&months, &[("全国".to_string(), two.clone())], dark, 300),
+                ),
+                (
+                    "raw_line_chart",
+                    raw_line_chart(
+                        &months,
+                        &[("全国".to_string(), two.clone())],
+                        dark,
+                        300,
+                        "件",
+                    ),
+                ),
+                (
+                    "dual_line_chart",
+                    dual_line_chart(
+                        &months,
+                        ("検索", &two, "回"),
+                        ("見た人", &two, "人"),
+                        dark,
+                        300,
+                    ),
+                ),
+                (
+                    "scatter_chart",
+                    scatter_chart(&pts, &groups, &[], None, dark, 300),
+                ),
+                (
+                    "hbar_chart",
+                    hbar_chart(&labels, &two, "件", Some((1.5, "全国")), None, dark, 300),
+                ),
+                (
+                    "dumbbell_chart",
+                    dumbbell_chart(
+                        &labels,
+                        &[Some(1000.0), Some(1100.0)],
+                        &[Some(1200.0), Some(1300.0)],
+                        "最低賃金",
+                        "上乗せ",
+                        "下回る分",
+                        "円",
+                        dark,
+                        300,
+                    ),
+                ),
+                (
+                    "tornado_chart",
+                    tornado_chart(
+                        &[("A".to_string(), Some(1.0)), ("B".to_string(), Some(-1.0))],
+                        "ポイント",
+                        dark,
+                        300,
+                    ),
+                ),
                 ("vbar_chart", vbar_chart(&labels, &two, "件", dark, 300)),
-                ("bar_line_chart", bar_line_chart(&months, "棒", &two, "線", &two, dark, 300)),
+                (
+                    "bar_line_chart",
+                    bar_line_chart(&months, "棒", &two, "線", &two, dark, 300),
+                ),
             ];
             for (name, html) in &charts {
                 let mut found = Vec::new();
@@ -1799,7 +2050,15 @@ mod chart_tests {
         let low = vec![Some(1226.0), Some(1030.0)];
         let high = vec![Some(1520.0), Some(1207.0)];
         let v = parsed(&dumbbell_chart(
-            &labels, &low, &high, "最低賃金", "上乗せ", "下回る分", "円", true, 300,
+            &labels,
+            &low,
+            &high,
+            "最低賃金",
+            "上乗せ",
+            "下回る分",
+            "円",
+            true,
+            300,
         ));
         let series = v["series"].as_array().unwrap();
         // 帯 3 本（透明の土台・上乗せ・下回る分）＋ 両端の点 2 本
@@ -1828,8 +2087,7 @@ mod chart_tests {
         assert_eq!(hi_pt[hi_pt.len() - 1], 1520.0, "掲示時給の点が相場に無い");
         // 白丸と塗り丸で描き分ける
         assert_ne!(
-            series[3]["itemStyle"]["color"],
-            series[4]["itemStyle"]["color"],
+            series[3]["itemStyle"]["color"], series[4]["itemStyle"]["color"],
             "両端の点が同じ見た目になっている"
         );
     }
@@ -1901,7 +2159,11 @@ mod chart_tests {
         let v = parsed(&out);
         let series = v["series"].as_array().unwrap();
         // 逆順なので添字 0 が東京都
-        assert_eq!(series[1]["data"][0], serde_json::Value::Null, "上乗せ側に出ている");
+        assert_eq!(
+            series[1]["data"][0],
+            serde_json::Value::Null,
+            "上乗せ側に出ている"
+        );
         assert_eq!(series[2]["data"][0], 80.0, "下回る分が 80 円で出ていない");
         // 土台は低いほうの値。東京都は掲示の 1146 が左端になる
         assert_eq!(series[0]["data"][0], 1146.0);
@@ -1950,7 +2212,10 @@ mod chart_tests {
         assert_eq!(v["yAxis"].as_array().unwrap().len(), 2, "軸が 2 本無い");
         assert_eq!(v["series"][0]["type"], "bar");
         assert_eq!(v["series"][1]["type"], "line");
-        assert_eq!(v["series"][1]["yAxisIndex"], 1, "折れ線が右軸になっていない");
+        assert_eq!(
+            v["series"][1]["yAxisIndex"], 1,
+            "折れ線が右軸になっていない"
+        );
     }
 
     /// 欠測は 0 ではなく null で渡すこと。0 にすると図が谷に見える。
@@ -1969,7 +2234,6 @@ mod chart_tests {
         assert!(v["series"][0]["data"][1].is_null(), "欠測が 0 になっている");
     }
 }
-
 
 #[cfg(test)]
 mod category_style_tests {
@@ -2015,7 +2279,10 @@ mod category_style_tests {
     fn 同じ見た目の分類が二つ無い() {
         let mut seen: HashSet<(usize, &str)> = HashSet::new();
         for (n, ci, d) in CATEGORY_STYLE.iter() {
-            assert!(seen.insert((*ci, d)), "{n} が他の分類と同じ色・同じ線種になっている");
+            assert!(
+                seen.insert((*ci, d)),
+                "{n} が他の分類と同じ色・同じ線種になっている"
+            );
         }
     }
 
@@ -2142,7 +2409,10 @@ mod scatter_size_tests {
         let v = parsed(&scatter_chart(&pts, &groups, &names, None, true, 300));
         let d = v["series"][0]["data"].as_array().unwrap();
         assert_eq!(d[0]["label"]["show"], true, "名指しした職種にラベルが無い");
-        assert!(d[1]["label"].is_null(), "渡していない職種にラベルが付いている");
+        assert!(
+            d[1]["label"].is_null(),
+            "渡していない職種にラベルが付いている"
+        );
         // 重なりは隠す前にずらす。隠すだけだと名指しした職種が消えうる。
         //
         // **トップレベルに置くこと。** series に置くと ECharts は series 単位で
@@ -2290,7 +2560,10 @@ mod palette_tests {
                     assert!(max >= hi - 1e-9, "上端 {max} がデータ {hi} を切っている");
                     // 本数が 3〜6 であること
                     let n = ((max - min) / step).round() as i64;
-                    assert!((3..=6).contains(&n), "本数 {n} が 3〜6 から外れた（{lo}〜{hi}）");
+                    assert!(
+                        (3..=6).contains(&n),
+                        "本数 {n} が 3〜6 から外れた（{lo}〜{hi}）"
+                    );
                 }
             }
         }
@@ -2333,7 +2606,10 @@ mod palette_tests {
             true,
             300,
         );
-        assert!(h.contains("\"min\":0"), "窓を作れないのに 0 起点に戻っていない");
+        assert!(
+            h.contains("\"min\":0"),
+            "窓を作れないのに 0 起点に戻っていない"
+        );
     }
 
     /// 伸びの内訳の帯は、どんな向きの組み合わせでも幅を持つ。
@@ -2366,12 +2642,19 @@ mod palette_tests {
             // style="width:○○%" を全部拾って合計する
             let mut 幅: Vec<f64> = Vec::new();
             for part in h.split("width:").skip(1) {
-                let num: String = part.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                let num: String = part
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.')
+                    .collect();
                 if let Ok(v) = num.parse::<f64>() {
                     幅.push(v);
                 }
             }
-            assert_eq!(幅.len(), 2, "帯が 2 本になっていない（求人 {j} / 会社 {e}）");
+            assert_eq!(
+                幅.len(),
+                2,
+                "帯が 2 本になっていない（求人 {j} / 会社 {e}）"
+            );
             let 合計: f64 = 幅.iter().sum();
             assert!(
                 (合計 - 100.0).abs() < 0.5,
@@ -2386,6 +2669,131 @@ mod palette_tests {
         }
     }
 
+    /// 順位の図は 1 位が上に来る。
+    ///
+    /// # なぜ検査するのか
+    /// 順位は小さいほうが良い。軸を反転し忘れると、成績が上がったときに線が下がる。
+    /// 見ただけでは「下がった」としか読めず、間違いに気づけない。
+    #[test]
+    fn 順位の図は一位が上にくる() {
+        use super::chart_tests::parsed;
+        let months = vec![
+            "2026-06".to_string(),
+            "2026-07".to_string(),
+            "2026-08".to_string(),
+        ];
+        let rank = vec![Some(41.0), Some(43.0), Some(41.0)];
+        let of = vec![Some(47.0), Some(47.0), Some(47.0)];
+        let v = parsed(&rank_chart(&months, &rank, &of, true, 200));
+        let y = &v["yAxis"];
+        assert_eq!(
+            y["inverse"],
+            serde_json::Value::Bool(true),
+            "軸が反転していない"
+        );
+        assert_eq!(y["min"], serde_json::json!(1), "上端が 1 位になっていない");
+        assert_eq!(
+            y["max"],
+            serde_json::json!(47),
+            "下端が比べた県の数になっていない"
+        );
+    }
+
+    /// 帯は「下端 → 厚み」の順に積む。土台は凡例に出さない。
+    ///
+    /// # なぜ検査するのか
+    /// 積み上げの 2 本目に上端の値をそのまま渡すと、帯が 2 倍の高さになる。
+    /// 図としては破綻せず、目で見ても「そういう帯」に見えるので気づけない。
+    /// 実際の値で「土台 + 厚み = 上端」を確かめる。
+    #[test]
+    fn 帯は下端と厚みで積む() {
+        use super::chart_tests::parsed;
+        let months = vec![
+            "2026-06".to_string(),
+            "2026-07".to_string(),
+            "2026-08".to_string(),
+        ];
+        let mine = vec![Some(9.09), Some(9.01), Some(9.87)];
+        let med = vec![Some(10.88), Some(11.35), Some(11.81)];
+        let q1 = vec![Some(9.49), Some(9.63), Some(10.53)];
+        let q3 = vec![Some(12.31), Some(12.70), Some(13.62)];
+        let h = band_chart(&months, ("東京都", &mine), &med, &q1, &q3, "人", true, 230);
+        let v = parsed(&h);
+        let series = v["series"].as_array().expect("series が配列でない");
+        assert_eq!(series.len(), 4, "系列が 4 本でない");
+
+        let base = &series[0];
+        let thick = &series[1];
+        assert_eq!(base["name"], "帯の土台");
+        assert_eq!(base["stack"], thick["stack"], "土台と厚みが同じ積みでない");
+        // 土台 + 厚み = 上端
+        for i in 0..3 {
+            let b = base["data"][i].as_f64().expect("土台が数でない");
+            let t = thick["data"][i].as_f64().expect("厚みが数でない");
+            let want = q3[i].unwrap();
+            assert!(
+                (b + t - want).abs() < 1e-6,
+                "{i} 番目: 土台 {b} + 厚み {t} = {} で、上端 {want} と合わない",
+                b + t
+            );
+        }
+        // 土台は凡例に出さない
+        let lg: Vec<String> = v["legend"]["data"]
+            .as_array()
+            .expect("凡例が配列でない")
+            .iter()
+            .map(|x: &serde_json::Value| x.as_str().unwrap_or("").to_string())
+            .collect();
+        assert!(
+            !lg.contains(&"帯の土台".to_string()),
+            "土台が凡例に出ている"
+        );
+        assert!(lg.contains(&"東京都".to_string()), "自分の県が凡例に無い");
+        assert!(
+            lg.contains(&"全県の中央値".to_string()),
+            "中央値が凡例に無い"
+        );
+        // 自分の線がいちばん太い
+        let mine_w = series[3]["lineStyle"]["width"].as_f64().unwrap_or(0.0);
+        let med_w = series[2]["lineStyle"]["width"].as_f64().unwrap_or(0.0);
+        assert!(
+            mine_w > med_w,
+            "自分の線が中央値より細い（{mine_w} <= {med_w}）"
+        );
+    }
+
+    /// 帯の軸は、自分の線と帯の両方を包む。
+    ///
+    /// 自分の線だけで軸を決めると、帯が画面の外に出る。
+    /// 東京都は中央値より下にいるので、自分基準だと帯の上端が切れる。
+    #[test]
+    fn 帯の軸は自分の線と帯の両方を包む() {
+        use super::chart_tests::parsed;
+        let months = vec![
+            "2026-06".to_string(),
+            "2026-07".to_string(),
+            "2026-08".to_string(),
+        ];
+        let mine = vec![Some(9.09), Some(9.01), Some(9.87)];
+        let med = vec![Some(10.88), Some(11.35), Some(11.81)];
+        let q1 = vec![Some(9.49), Some(9.63), Some(10.53)];
+        let q3 = vec![Some(12.31), Some(12.70), Some(13.62)];
+        let v = parsed(&band_chart(
+            &months,
+            ("東京都", &mine),
+            &med,
+            &q1,
+            &q3,
+            "人",
+            true,
+            230,
+        ));
+        let lo = v["yAxis"]["min"].as_f64().expect("下端が無い");
+        let hi = v["yAxis"]["max"].as_f64().expect("上端が無い");
+        assert!(lo <= 9.01, "下端 {lo} が自分の最小 9.01 を切っている");
+        assert!(hi >= 13.62, "上端 {hi} が帯の最大 13.62 に届いていない");
+    }
+
     /// 色が近い組は線種で分ける。
     ///
     /// 暗い画面の 2 番と 6 番（#34d399 と #4ade80）、3 番と 5 番
@@ -2394,11 +2802,7 @@ mod palette_tests {
     #[test]
     fn 色の近い系列は線種が違う() {
         for (a, b) in [(2usize, 6usize), (3, 5)] {
-            assert_ne!(
-                dash(a),
-                dash(b),
-                "{a} 番と {b} 番が同じ線種で、色も近い"
-            );
+            assert_ne!(dash(a), dash(b), "{a} 番と {b} 番が同じ線種で、色も近い");
         }
     }
 
@@ -2445,8 +2849,14 @@ mod palette_tests {
         ] {
             let c = grid_line_color(dark);
             let r = contrast(c, bg);
-            assert!(r >= 1.5, "{name}（{bg}）の目盛り線 {c} は {r:.2}:1 しかなく、地に沈む");
-            assert!(r < 3.0, "{name}（{bg}）の目盛り線 {c} は {r:.2}:1 あり、データより目立つ");
+            assert!(
+                r >= 1.5,
+                "{name}（{bg}）の目盛り線 {c} は {r:.2}:1 しかなく、地に沈む"
+            );
+            assert!(
+                r < 3.0,
+                "{name}（{bg}）の目盛り線 {c} は {r:.2}:1 あり、データより目立つ"
+            );
         }
         // いちばん多く見られるのは tab.rs の明るいカード。ここは狙いの 1.7〜2.0 に入れる
         let r = contrast(grid_line_color(true), "#1e293b");
@@ -2464,7 +2874,10 @@ mod palette_tests {
                 "{bg} で目盛り線が軸の文字より目立つ"
             );
             for c in palette(dark) {
-                assert!(g < contrast(c, bg), "{bg} で目盛り線が系列の色 {c} より目立つ");
+                assert!(
+                    g < contrast(c, bg),
+                    "{bg} で目盛り線が系列の色 {c} より目立つ"
+                );
             }
         }
     }
