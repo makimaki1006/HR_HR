@@ -65,8 +65,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 // ---------------------------------------------------------------- シート名
 
@@ -268,8 +268,7 @@ pub struct ActionsPanel {
     pub content_priority_note: &'static str,
 }
 
-const DATE_PRIORITY_NOTE: &str =
-    "予定日は Python 側 (_next_action_value) が HubSpot Deal の \
+const DATE_PRIORITY_NOTE: &str = "予定日は Python 側 (_next_action_value) が HubSpot Deal の \
      date_of_next_action → next_action_date → hs_task_due_date の順に、\
      最初に値がある列を採用して「コンサル未来アクション」シートの next_action_date 列に \
      書き込み済み。このシートには生プロパティ列(date_of_next_action 等)は存在しない。";
@@ -289,14 +288,33 @@ pub fn build_actions(data: &SheetData, q: &P10Query, today: NaiveDate) -> Action
             v
         };
         let owner_label = {
-            let (v, _) = pick_field(data, row, &["consultant_name", "owner_name", "deal_owner_name"]);
-            if v.is_empty() { owner_id.clone() } else { v }
+            let (v, _) = pick_field(
+                data,
+                row,
+                &["consultant_name", "owner_name", "deal_owner_name"],
+            );
+            if v.is_empty() {
+                owner_id.clone()
+            } else {
+                v
+            }
         };
 
-        let (next_action_date, date_src) =
-            pick_field(data, row, &["next_action_date", "date_of_next_action", "due_date", "action_date"]);
-        let (days_to_action_s, _) =
-            pick_field(data, row, &["days_to_action", "days_until_next_action", "days_until"]);
+        let (next_action_date, date_src) = pick_field(
+            data,
+            row,
+            &[
+                "next_action_date",
+                "date_of_next_action",
+                "due_date",
+                "action_date",
+            ],
+        );
+        let (days_to_action_s, _) = pick_field(
+            data,
+            row,
+            &["days_to_action", "days_until_next_action", "days_until"],
+        );
         let (action_detail_raw, content_src) = pick_field(
             data,
             row,
@@ -318,17 +336,31 @@ pub fn build_actions(data: &SheetData, q: &P10Query, today: NaiveDate) -> Action
             let (due_s, _) = pick_field(
                 data,
                 row,
-                &["due_date", "action_date", "next_action_date", "date_of_next_action", "scheduled_date", "target_date"],
+                &[
+                    "due_date",
+                    "action_date",
+                    "next_action_date",
+                    "date_of_next_action",
+                    "scheduled_date",
+                    "target_date",
+                ],
             );
             compute_bucket_fallback(parse_date(&due_s), today).to_string()
         };
 
         rows.push(ActionRow {
             deal_id: deal_id.clone(),
-            customer_label: deal_label(&deal_id, data.get(row, "deal_label"), data.get(row, "customer_label")),
+            customer_label: deal_label(
+                &deal_id,
+                data.get(row, "deal_label"),
+                data.get(row, "customer_label"),
+            ),
             owner_id,
             owner_label,
-            stage: pipeline_stage(data.get(row, "pipeline_label"), data.get(row, "stage_label")),
+            stage: pipeline_stage(
+                data.get(row, "pipeline_label"),
+                data.get(row, "stage_label"),
+            ),
             bucket,
             next_action_date,
             next_action_date_source: date_src,
@@ -381,7 +413,11 @@ pub fn build_actions(data: &SheetData, q: &P10Query, today: NaiveDate) -> Action
     // bucket でグルーピング（GAS `_drawP10Table`）
     let mut groups: Vec<BucketGroup> = Vec::new();
     for key in BUCKET_ORDER {
-        let mut list: Vec<ActionRow> = filtered.iter().filter(|r| r.bucket == key).cloned().collect();
+        let mut list: Vec<ActionRow> = filtered
+            .iter()
+            .filter(|r| r.bucket == key)
+            .cloned()
+            .collect();
         if list.is_empty() {
             continue;
         }
@@ -390,7 +426,8 @@ pub fn build_actions(data: &SheetData, q: &P10Query, today: NaiveDate) -> Action
             list.sort_by(|a, b| {
                 let na = a.days_since_contact.unwrap_or(-1.0);
                 let nb = b.days_since_contact.unwrap_or(-1.0);
-                nb.partial_cmp(&na).unwrap_or(std::cmp::Ordering::Equal)
+                nb.partial_cmp(&na)
+                    .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.deal_id.cmp(&b.deal_id))
             });
         } else {
@@ -398,7 +435,8 @@ pub fn build_actions(data: &SheetData, q: &P10Query, today: NaiveDate) -> Action
             list.sort_by(|a, b| {
                 let na = a.days_to_action.unwrap_or(999999.0);
                 let nb = b.days_to_action.unwrap_or(999999.0);
-                na.partial_cmp(&nb).unwrap_or(std::cmp::Ordering::Equal)
+                na.partial_cmp(&nb)
+                    .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.deal_id.cmp(&b.deal_id))
             });
         }
@@ -452,11 +490,11 @@ pub struct PhaseRow {
 
 #[derive(Debug, Serialize, Default)]
 pub struct PhaseFlagCounts {
-    pub urgent: usize,   // 🚨緊急
-    pub warning: usize,  // ⚠️警告
-    pub caution: usize,  // 🟡注意
-    pub healthy: usize,  // 🟢健全
-    pub unknown: usize,  // ⚪判定不可
+    pub urgent: usize,  // 🚨緊急
+    pub warning: usize, // ⚠️警告
+    pub caution: usize, // 🟡注意
+    pub healthy: usize, // 🟢健全
+    pub unknown: usize, // ⚪判定不可
 }
 
 #[derive(Debug, Serialize)]
@@ -497,7 +535,11 @@ pub fn build_phase(data: &SheetData, today: NaiveDate) -> PhasePanel {
                 })
             };
             PhaseRow {
-                customer_label: deal_label(&deal_id, data.get(row, "deal_label"), data.get(row, "customer_label")),
+                customer_label: deal_label(
+                    &deal_id,
+                    data.get(row, "deal_label"),
+                    data.get(row, "customer_label"),
+                ),
                 deal_id,
                 consultant_name: data.get(row, "consultant_name").to_string(),
                 contract_type: data.get(row, "contract_type").to_string(),
@@ -534,7 +576,11 @@ pub fn build_phase(data: &SheetData, today: NaiveDate) -> PhasePanel {
     actionable.sort_by(|a, b| {
         flag_rank(&a.overall_flag)
             .cmp(&flag_rank(&b.overall_flag))
-            .then_with(|| b.phase_pct.partial_cmp(&a.phase_pct).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| {
+                b.phase_pct
+                    .partial_cmp(&a.phase_pct)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| a.deal_id.cmp(&b.deal_id))
     });
     let actionable_total = actionable.len();
@@ -600,13 +646,21 @@ pub fn build_alerts(data: &SheetData, q: &P10Query, audit: &mut ValueAudit) -> T
         .map(|row| {
             let deal_id = data.get(row, "deal_id").to_string();
             AlertRow {
-                customer_label: deal_label(&deal_id, data.get(row, "deal_label"), data.get(row, "customer_label")),
+                customer_label: deal_label(
+                    &deal_id,
+                    data.get(row, "deal_label"),
+                    data.get(row, "customer_label"),
+                ),
                 deal_id,
                 owner_label: {
-                    let (v, _) = pick_field(data, row, &["owner_name", "deal_owner_name", "owner_id"]);
+                    let (v, _) =
+                        pick_field(data, row, &["owner_name", "deal_owner_name", "owner_id"]);
                     v
                 },
-                pipeline_stage: pipeline_stage(data.get(row, "pipeline_label"), data.get(row, "stage_label")),
+                pipeline_stage: pipeline_stage(
+                    data.get(row, "pipeline_label"),
+                    data.get(row, "stage_label"),
+                ),
                 category: data.get(row, "category").to_string(),
                 category_label: data.get(row, "category_label").to_string(),
                 days_since: opt_num(data.get(row, "days_since")),
@@ -740,7 +794,11 @@ pub async fn handle(
     set_matched(&mut sources, SHEET_ALERTS, alerts.rows.len());
 
     Ok(TabPayload {
-        data: P10Data { actions, phase, alerts },
+        data: P10Data {
+            actions,
+            phase,
+            alerts,
+        },
         sources,
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
@@ -762,11 +820,24 @@ mod tests {
 
     fn actions_sheet(rows: Vec<Vec<&str>>) -> SheetData {
         let header = vec![
-            "deal_id", "deal_label", "customer_label", "consultant_id", "consultant_name",
-            "owner_id", "owner_name", "pipeline_label", "stage_label",
-            "latest_contact_date", "days_since_contact", "next_action_date",
-            "days_until_next_action", "bucket", "days_to_action", "risk_level",
-            "recommended_action", "action_detail",
+            "deal_id",
+            "deal_label",
+            "customer_label",
+            "consultant_id",
+            "consultant_name",
+            "owner_id",
+            "owner_name",
+            "pipeline_label",
+            "stage_label",
+            "latest_contact_date",
+            "days_since_contact",
+            "next_action_date",
+            "days_until_next_action",
+            "bucket",
+            "days_to_action",
+            "risk_level",
+            "recommended_action",
+            "action_detail",
         ]
         .into_iter()
         .map(String::from)
@@ -791,22 +862,119 @@ mod tests {
     fn 予定日入力率と未来の予定は別指標で両方返す() {
         // 実測(2026-06-08断面)を模した縮小版: 4件中1件だけ予定日あり、それも期限超過
         let d = actions_sheet(vec![
-            vec!["1", "A", "A", "c1", "田中", "1", "田中", "PL", "St", "", "", "2025-01-01", "-500", "期限超過", "-500", "", "", ""],
-            vec!["2", "B", "B", "c1", "田中", "1", "田中", "PL", "St", "", "", "", "", "予定なし", "", "", "", ""],
-            vec!["3", "C", "C", "c1", "田中", "1", "田中", "PL", "St", "", "", "", "", "予定なし", "", "", "", ""],
-            vec!["4", "D", "D", "c1", "田中", "1", "田中", "PL", "St", "", "", "", "", "予定なし", "", "", "", ""],
+            vec![
+                "1",
+                "A",
+                "A",
+                "c1",
+                "田中",
+                "1",
+                "田中",
+                "PL",
+                "St",
+                "",
+                "",
+                "2025-01-01",
+                "-500",
+                "期限超過",
+                "-500",
+                "",
+                "",
+                "",
+            ],
+            vec![
+                "2",
+                "B",
+                "B",
+                "c1",
+                "田中",
+                "1",
+                "田中",
+                "PL",
+                "St",
+                "",
+                "",
+                "",
+                "",
+                "予定なし",
+                "",
+                "",
+                "",
+                "",
+            ],
+            vec![
+                "3",
+                "C",
+                "C",
+                "c1",
+                "田中",
+                "1",
+                "田中",
+                "PL",
+                "St",
+                "",
+                "",
+                "",
+                "",
+                "予定なし",
+                "",
+                "",
+                "",
+                "",
+            ],
+            vec![
+                "4",
+                "D",
+                "D",
+                "c1",
+                "田中",
+                "1",
+                "田中",
+                "PL",
+                "St",
+                "",
+                "",
+                "",
+                "",
+                "予定なし",
+                "",
+                "",
+                "",
+                "",
+            ],
         ]);
         let q = P10Query::default();
         let panel = build_actions(&d, &q, today());
         assert_eq!(panel.kpis.with_date, 1);
         assert_eq!(panel.kpis.fill_rate_pct, Some(25.0));
-        assert_eq!(panel.kpis.future_among_dated_pct, Some(0.0), "唯一の予定日も期限超過なので未来の予定は0%");
+        assert_eq!(
+            panel.kpis.future_among_dated_pct,
+            Some(0.0),
+            "唯一の予定日も期限超過なので未来の予定は0%"
+        );
     }
 
     #[test]
     fn 予定日が無いときfuture_among_datedはnone() {
         let d = actions_sheet(vec![vec![
-            "1", "A", "A", "c1", "田中", "1", "田中", "PL", "St", "", "", "", "", "予定なし", "", "", "", "",
+            "1",
+            "A",
+            "A",
+            "c1",
+            "田中",
+            "1",
+            "田中",
+            "PL",
+            "St",
+            "",
+            "",
+            "",
+            "",
+            "予定なし",
+            "",
+            "",
+            "",
+            "",
         ]]);
         let panel = build_actions(&d, &P10Query::default(), today());
         assert_eq!(panel.kpis.future_among_dated_pct, None);
@@ -815,39 +983,141 @@ mod tests {
     #[test]
     fn bucketは自身の列を優先しフォールバック計算しない() {
         let d = actions_sheet(vec![vec![
-            "1", "A", "A", "c1", "田中", "1", "田中", "PL", "St", "", "", "2099-01-01", "999", "今日", "0", "", "", "",
+            "1",
+            "A",
+            "A",
+            "c1",
+            "田中",
+            "1",
+            "田中",
+            "PL",
+            "St",
+            "",
+            "",
+            "2099-01-01",
+            "999",
+            "今日",
+            "0",
+            "",
+            "",
+            "",
         ]]);
         let panel = build_actions(&d, &P10Query::default(), today());
-        assert_eq!(panel.groups[0].key, "今日", "シート自身のbucket列(今日)を優先する");
+        assert_eq!(
+            panel.groups[0].key, "今日",
+            "シート自身のbucket列(今日)を優先する"
+        );
     }
 
     #[test]
     fn bucket列が空ならフォールバック計算する() {
         let d = actions_sheet(vec![vec![
-            "1", "A", "A", "", "", "1", "田中", "PL", "St", "", "", "2026-08-16", "", "", "", "", "", "",
+            "1",
+            "A",
+            "A",
+            "",
+            "",
+            "1",
+            "田中",
+            "PL",
+            "St",
+            "",
+            "",
+            "2026-08-16",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
         ]]);
         let panel = build_actions(&d, &P10Query::default(), today());
-        assert_eq!(panel.groups[0].key, "今日", "予定日が今日ならフォールバックで「今日」になる");
+        assert_eq!(
+            panel.groups[0].key, "今日",
+            "予定日が今日ならフォールバックで「今日」になる"
+        );
     }
 
     #[test]
     fn action_detailは200字で切る() {
         let long = "あ".repeat(250);
         let d = actions_sheet(vec![vec![
-            "1", "A", "A", "", "", "1", "田中", "PL", "St", "", "", "", "", "予定なし", "", "", "", &long,
+            "1",
+            "A",
+            "A",
+            "",
+            "",
+            "1",
+            "田中",
+            "PL",
+            "St",
+            "",
+            "",
+            "",
+            "",
+            "予定なし",
+            "",
+            "",
+            "",
+            &long,
         ]]);
         let panel = build_actions(&d, &P10Query::default(), today());
-        let row = panel.groups[0].rows.iter().find(|r| r.deal_id == "1").unwrap();
+        let row = panel.groups[0]
+            .rows
+            .iter()
+            .find(|r| r.deal_id == "1")
+            .unwrap();
         assert_eq!(row.action_detail.chars().count(), 200);
     }
 
     #[test]
     fn 担当フィルタはidと表示名どちらでも一致する() {
         let d = actions_sheet(vec![
-            vec!["1", "A", "A", "c1", "田中", "1", "田中", "PL", "St", "", "", "", "", "予定なし", "", "", "", ""],
-            vec!["2", "B", "B", "c2", "鈴木", "2", "鈴木", "PL", "St", "", "", "", "", "予定なし", "", "", "", ""],
+            vec![
+                "1",
+                "A",
+                "A",
+                "c1",
+                "田中",
+                "1",
+                "田中",
+                "PL",
+                "St",
+                "",
+                "",
+                "",
+                "",
+                "予定なし",
+                "",
+                "",
+                "",
+                "",
+            ],
+            vec![
+                "2",
+                "B",
+                "B",
+                "c2",
+                "鈴木",
+                "2",
+                "鈴木",
+                "PL",
+                "St",
+                "",
+                "",
+                "",
+                "",
+                "予定なし",
+                "",
+                "",
+                "",
+                "",
+            ],
         ]);
-        let q = P10Query { owner: Some("田中".into()), alert_category: None };
+        let q = P10Query {
+            owner: Some("田中".into()),
+            alert_category: None,
+        };
         let panel = build_actions(&d, &q, today());
         assert_eq!(panel.kpis.total, 1);
     }
@@ -855,11 +1125,27 @@ mod tests {
     #[test]
     fn フェーズフラグの件数を数える() {
         let header = vec![
-            "deal_id", "deal_label", "customer_label", "consultant_name", "contract_type",
-            "contract_period", "contract_start_date", "phase_bucket", "phase_pct",
-            "elapsed_months", "latest_nps", "nps_base_line", "nps_trend", "nps_flag",
-            "contact_last30", "contact_expected", "days_since_contact", "contact_flag",
-            "seika_status", "overall_flag", "alert_msg",
+            "deal_id",
+            "deal_label",
+            "customer_label",
+            "consultant_name",
+            "contract_type",
+            "contract_period",
+            "contract_start_date",
+            "phase_bucket",
+            "phase_pct",
+            "elapsed_months",
+            "latest_nps",
+            "nps_base_line",
+            "nps_trend",
+            "nps_flag",
+            "contact_last30",
+            "contact_expected",
+            "days_since_contact",
+            "contact_flag",
+            "seika_status",
+            "overall_flag",
+            "alert_msg",
         ]
         .into_iter()
         .map(String::from)
@@ -867,8 +1153,52 @@ mod tests {
         let d = SheetData {
             header,
             rows: vec![
-                arc_row(&["1", "A", "A", "田中", "新規", "6", "2026-01-01", "終盤", "0.9", "", "3", "6", "", "", "1", "2", "5", "", "", "🚨緊急", "満了間近"]),
-                arc_row(&["2", "B", "B", "田中", "新規", "6", "2026-06-01", "序盤", "0.1", "", "8", "6", "", "", "3", "2", "1", "", "", "🟢健全", ""]),
+                arc_row(&[
+                    "1",
+                    "A",
+                    "A",
+                    "田中",
+                    "新規",
+                    "6",
+                    "2026-01-01",
+                    "終盤",
+                    "0.9",
+                    "",
+                    "3",
+                    "6",
+                    "",
+                    "",
+                    "1",
+                    "2",
+                    "5",
+                    "",
+                    "",
+                    "🚨緊急",
+                    "満了間近",
+                ]),
+                arc_row(&[
+                    "2",
+                    "B",
+                    "B",
+                    "田中",
+                    "新規",
+                    "6",
+                    "2026-06-01",
+                    "序盤",
+                    "0.1",
+                    "",
+                    "8",
+                    "6",
+                    "",
+                    "",
+                    "3",
+                    "2",
+                    "1",
+                    "",
+                    "",
+                    "🟢健全",
+                    "",
+                ]),
             ],
             fetched_at: Instant::now(),
         };
@@ -888,9 +1218,20 @@ mod tests {
     #[test]
     fn アラートのカテゴリ件数は絞り込み前で数える() {
         let header = vec![
-            "deal_id", "deal_label", "customer_id", "customer_label", "owner_id", "owner_name",
-            "pipeline_label", "stage_label", "category", "category_label", "last_contact_date",
-            "days_since", "last_mtg_date", "days_since_mtg",
+            "deal_id",
+            "deal_label",
+            "customer_id",
+            "customer_label",
+            "owner_id",
+            "owner_name",
+            "pipeline_label",
+            "stage_label",
+            "category",
+            "category_label",
+            "last_contact_date",
+            "days_since",
+            "last_mtg_date",
+            "days_since_mtg",
         ]
         .into_iter()
         .map(String::from)
@@ -898,24 +1239,71 @@ mod tests {
         let d = SheetData {
             header,
             rows: vec![
-                arc_row(&["1", "A", "", "A", "1", "田中", "PL", "St", "mtg_no_followup", "MTG後フォロー無し", "2026-08-01", "10", "", ""]),
-                arc_row(&["2", "B", "", "B", "1", "田中", "PL", "St", "contact_zero_2week", "接触ゼロ警告", "2026-08-10", "3", "", ""]),
+                arc_row(&[
+                    "1",
+                    "A",
+                    "",
+                    "A",
+                    "1",
+                    "田中",
+                    "PL",
+                    "St",
+                    "mtg_no_followup",
+                    "MTG後フォロー無し",
+                    "2026-08-01",
+                    "10",
+                    "",
+                    "",
+                ]),
+                arc_row(&[
+                    "2",
+                    "B",
+                    "",
+                    "B",
+                    "1",
+                    "田中",
+                    "PL",
+                    "St",
+                    "contact_zero_2week",
+                    "接触ゼロ警告",
+                    "2026-08-10",
+                    "3",
+                    "",
+                    "",
+                ]),
             ],
             fetched_at: Instant::now(),
         };
-        let q = P10Query { owner: None, alert_category: Some("mtg_no_followup".into()) };
+        let q = P10Query {
+            owner: None,
+            alert_category: Some("mtg_no_followup".into()),
+        };
         let panel = build_alerts(&d, &q, &mut ValueAudit::new());
         assert_eq!(panel.category_counts.mtg_no_followup, 1);
-        assert_eq!(panel.category_counts.contact_zero_2week, 1, "絞り込み後でも全体件数は変わらない");
+        assert_eq!(
+            panel.category_counts.contact_zero_2week, 1,
+            "絞り込み後でも全体件数は変わらない"
+        );
         assert_eq!(panel.rows.len(), 1, "表示行はフィルタ後の1件");
     }
 
     #[test]
     fn アラートは経過日数降順で並ぶ() {
         let header = vec![
-            "deal_id", "deal_label", "customer_id", "customer_label", "owner_id", "owner_name",
-            "pipeline_label", "stage_label", "category", "category_label", "last_contact_date",
-            "days_since", "last_mtg_date", "days_since_mtg",
+            "deal_id",
+            "deal_label",
+            "customer_id",
+            "customer_label",
+            "owner_id",
+            "owner_name",
+            "pipeline_label",
+            "stage_label",
+            "category",
+            "category_label",
+            "last_contact_date",
+            "days_since",
+            "last_mtg_date",
+            "days_since_mtg",
         ]
         .into_iter()
         .map(String::from)
@@ -923,8 +1311,38 @@ mod tests {
         let d = SheetData {
             header,
             rows: vec![
-                arc_row(&["1", "A", "", "A", "1", "田中", "PL", "St", "mtg_no_followup", "x", "2026-08-01", "3", "", ""]),
-                arc_row(&["2", "B", "", "B", "1", "田中", "PL", "St", "mtg_no_followup", "x", "2026-07-01", "30", "", ""]),
+                arc_row(&[
+                    "1",
+                    "A",
+                    "",
+                    "A",
+                    "1",
+                    "田中",
+                    "PL",
+                    "St",
+                    "mtg_no_followup",
+                    "x",
+                    "2026-08-01",
+                    "3",
+                    "",
+                    "",
+                ]),
+                arc_row(&[
+                    "2",
+                    "B",
+                    "",
+                    "B",
+                    "1",
+                    "田中",
+                    "PL",
+                    "St",
+                    "mtg_no_followup",
+                    "x",
+                    "2026-07-01",
+                    "30",
+                    "",
+                    "",
+                ]),
             ],
             fetched_at: Instant::now(),
         };
@@ -936,18 +1354,42 @@ mod tests {
 
     fn alert_sheet() -> SheetData {
         let header = vec![
-            "deal_id", "deal_label", "customer_id", "customer_label", "owner_id", "owner_name",
-            "pipeline_label", "stage_label", "category", "category_label", "last_contact_date",
-            "days_since", "last_mtg_date", "days_since_mtg",
+            "deal_id",
+            "deal_label",
+            "customer_id",
+            "customer_label",
+            "owner_id",
+            "owner_name",
+            "pipeline_label",
+            "stage_label",
+            "category",
+            "category_label",
+            "last_contact_date",
+            "days_since",
+            "last_mtg_date",
+            "days_since_mtg",
         ]
         .into_iter()
         .map(String::from)
         .collect();
         SheetData {
             header,
-            rows: vec![
-                arc_row(&["1", "A", "", "A", "1", "田中", "PL", "St", "mtg_no_followup", "x", "2026-08-01", "10", "", ""]),
-            ],
+            rows: vec![arc_row(&[
+                "1",
+                "A",
+                "",
+                "A",
+                "1",
+                "田中",
+                "PL",
+                "St",
+                "mtg_no_followup",
+                "x",
+                "2026-08-01",
+                "10",
+                "",
+                "",
+            ])],
             fetched_at: Instant::now(),
         }
     }
@@ -957,7 +1399,10 @@ mod tests {
         // ここは他の引数と**逆向き**で、既定値に落ちず0件になる。
         // 「アラート0件」を「アラートが無い」と読まれる方が危ないので報告する。
         let d = alert_sheet();
-        let q = P10Query { owner: None, alert_category: Some("mtg_no_folowup".into()) };
+        let q = P10Query {
+            owner: None,
+            alert_category: Some("mtg_no_folowup".into()),
+        };
         let mut a = ValueAudit::new();
         let panel = build_alerts(&d, &q, &mut a);
         assert_eq!(panel.rows.len(), 0, "挙動は変えない（0件のまま）");
@@ -972,8 +1417,18 @@ mod tests {
     fn 正しいカテゴリでは何も報告しない() {
         // **陰性対照**。`__all__`（画面の「すべて」）も正常。
         let d = alert_sheet();
-        for c in [None, Some("__all__"), Some("mtg_no_followup"), Some("contact_zero_2week"), Some("na_overdue_no_action"), Some("")] {
-            let q = P10Query { owner: None, alert_category: c.map(str::to_string) };
+        for c in [
+            None,
+            Some("__all__"),
+            Some("mtg_no_followup"),
+            Some("contact_zero_2week"),
+            Some("na_overdue_no_action"),
+            Some(""),
+        ] {
+            let q = P10Query {
+                owner: None,
+                alert_category: c.map(str::to_string),
+            };
             let mut a = ValueAudit::new();
             build_alerts(&d, &q, &mut a);
             assert!(a.is_empty(), "alert_category={c:?} は正常なので黙る");

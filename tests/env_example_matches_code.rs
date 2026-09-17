@@ -139,7 +139,10 @@ fn 実装が読む環境変数はすべてenv_exampleに載っている() {
     );
 
     let text = read_env_example();
-    let missing: Vec<&String> = in_code.iter().filter(|n| !text.contains(n.as_str())).collect();
+    let missing: Vec<&String> = in_code
+        .iter()
+        .filter(|n| !text.contains(n.as_str()))
+        .collect();
 
     assert!(
         missing.is_empty(),
@@ -190,8 +193,20 @@ fn 抽出ロジックそのものが動く() {
         let d = some_other::var("QUX");    // env::var ではないので拾わない
     "#;
     let got = extract_env_var_names(sample);
-    assert!(got.contains(&"FOO_BAR".to_string()), "取れていない: {got:?}");
-    assert!(got.contains(&"BAZ".to_string()), "空白入りが取れていない: {got:?}");
-    assert!(!got.contains(&"not_upper".to_string()), "小文字を拾っている: {got:?}");
-    assert!(!got.contains(&"QUX".to_string()), "別関数を拾っている: {got:?}");
+    assert!(
+        got.contains(&"FOO_BAR".to_string()),
+        "取れていない: {got:?}"
+    );
+    assert!(
+        got.contains(&"BAZ".to_string()),
+        "空白入りが取れていない: {got:?}"
+    );
+    assert!(
+        !got.contains(&"not_upper".to_string()),
+        "小文字を拾っている: {got:?}"
+    );
+    assert!(
+        !got.contains(&"QUX".to_string()),
+        "別関数を拾っている: {got:?}"
+    );
 }

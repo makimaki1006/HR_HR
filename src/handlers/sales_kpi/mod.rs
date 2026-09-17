@@ -282,7 +282,11 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
                     data
                 }
                 Err(e) => {
-                    tracing::warn!("シート「{}」が読めないので{}は空で出します: {e:#}", $name, $what);
+                    tracing::warn!(
+                        "シート「{}」が読めないので{}は空で出します: {e:#}",
+                        $name,
+                        $what
+                    );
                     empty_sheet()
                 }
             }

@@ -353,7 +353,10 @@ fn render_report(snap: &Snapshot, pref: Option<&str>) -> String {
         "<p>実数です。{ratio}1 つの目盛りに重ねず 3 つ並べています。\
          号をまたいで同じ数字を比べられます。</p>",
         ratio = match spread(&panels) {
-            Some(r) => format!("いちばん多い数といちばん少ない数で {} 倍ちがうため、", num(r)),
+            Some(r) => format!(
+                "いちばん多い数といちばん少ない数で {} 倍ちがうため、",
+                num(r)
+            ),
             None => String::new(),
         }
     ));
@@ -732,7 +735,9 @@ mod tests {
             );
             let first = m.series.iter().flatten().next().copied();
             let last = m.series.iter().flatten().next_back().copied();
-            let (Some(a), Some(b)) = (first, last) else { continue };
+            let (Some(a), Some(b)) = (first, last) else {
+                continue;
+            };
             if a <= 0.0 {
                 continue;
             }

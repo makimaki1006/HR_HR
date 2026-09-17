@@ -1,10 +1,9 @@
-pub mod call_quality;
-pub mod sales_kpi;   // 2026-09-05: 営業KPI（現場版）
 pub mod admin;
 pub mod analysis;
 pub mod api;
 pub mod api_v1;
 pub mod balance;
+pub mod call_quality;
 pub mod company;
 pub mod comparison;
 pub mod competitive;
@@ -27,6 +26,7 @@ pub mod overview;
 pub mod recruitment_diag;
 pub mod region;
 pub mod regional_analysis;
+pub mod sales_kpi; // 2026-09-05: 営業KPI（現場版）
 pub mod survey;
 pub mod trend;
 pub mod types;

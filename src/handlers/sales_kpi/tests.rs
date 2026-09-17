@@ -336,7 +336,9 @@ fn 週次の行が画面側の集計と一致する() {
     // 片方だけに入れると、ここが落ちる（実際に一度そうなって気づいた）。
     // このテストの目的は「Python の classify() と Rust の classify() が同じ判定か」。
     let body = payload();
-    let snaps = body["snapshots"].as_array().expect("snapshots が配列でない");
+    let snaps = body["snapshots"]
+        .as_array()
+        .expect("snapshots が配列でない");
     let cur = snaps
         .iter()
         .find(|s| s["week"] == "2026-W36")
@@ -473,8 +475,8 @@ fn 週ベースの列は当月ベースと別の窓で数えている() {
     for (s, monday) in [(w35, "2026-08-24"), (w36, "2026-08-31")] {
         let lo = format!("{monday} 00:00");
         let hi = {
-            let d = NaiveDate::parse_from_str(monday, "%Y-%m-%d").unwrap()
-                + chrono::Duration::days(7);
+            let d =
+                NaiveDate::parse_from_str(monday, "%Y-%m-%d").unwrap() + chrono::Duration::days(7);
             format!("{} 00:00", d.format("%Y-%m-%d"))
         };
         let want = sheets
@@ -594,7 +596,10 @@ fn 架電リストの担当者別がリスト全体を超えない() {
     // どのチームもリスト全体を超えない
     for (team, counts) in body["kaden"]["by_team"].as_object().unwrap() {
         let n = counts["base"].as_i64().unwrap_or(0);
-        assert!(n <= base, "{team} の {n} がリスト全体の {base} を超えている");
+        assert!(
+            n <= base,
+            "{team} の {n} がリスト全体の {base} を超えている"
+        );
     }
 }
 
@@ -625,7 +630,11 @@ fn 全社の架電リストは営業チームの合計になる() {
             .filter(|(t, _)| t.as_str() != "チーム未設定")
             .map(|(_, c)| c[class].as_i64().unwrap_or(0))
             .sum();
-        assert_eq!(k["cls"][class].as_i64().unwrap_or(0), want, "{class} が合わない");
+        assert_eq!(
+            k["cls"][class].as_i64().unwrap_or(0),
+            want,
+            "{class} が合わない"
+        );
     }
     // リスト全体は別のキーに残っていること（注記と母数の推移がこちらを使う）
     assert!(k["base"].as_i64().unwrap() < k["all"]["base"].as_i64().unwrap());
@@ -812,7 +821,8 @@ fn weekly_row(week: &str, taken_at: &str, week_start: &str, kaden_base: i64) -> 
     )
 }
 
-const WEEKLY_HEAD: &str = "週\t記録日\t週はじまり\t母集団\t実施\t未実施\t未処理\tこれから\t要判定\t\
+const WEEKLY_HEAD: &str =
+    "週\t記録日\t週はじまり\t母集団\t実施\t未実施\t未処理\tこれから\t要判定\t\
      取ったアポ\tCヨミ\tBPO母集団\t止まっている\tアンケート未回収\tCヨミ置きっぱなし\t\
      架電リスト手をつけた\t架電リスト母数\tZoom架電数\tZoom日数\tZoom集計中\n";
 
@@ -847,7 +857,10 @@ fn 母数が動いたことを前の週の記録と比べて出す() {
         Some(base - 136_518),
         "差が「リスト全体の今の母数 − 前の記録」になっていない"
     );
-    assert!(t["diff"].as_i64().unwrap() < 0, "減っているのに増えて見える");
+    assert!(
+        t["diff"].as_i64().unwrap() < 0,
+        "減っているのに増えて見える"
+    );
 }
 
 #[test]
@@ -922,10 +935,7 @@ fn 集計対象外の担当者ぶんだけ商談が減る() {
     let all_in = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
     let body = payload();
 
-    for (key, sheet) in [
-        ("apo", &sheets.apo),
-        ("cyomi", &sheets.cyomi),
-    ] {
+    for (key, sheet) in [("apo", &sheets.apo), ("cyomi", &sheets.cyomi)] {
         let want = count_owned(sheet, &out);
         assert_eq!(
             team_sum(&all_in, key) - team_sum(&body, key),
@@ -1003,7 +1013,9 @@ fn 名簿にない担当者もhubspotの氏名で出す() {
     let members = super::members_of(&sheets.member);
     // 現場が「名前が分からない」と言った3人。いずれも BPO で名簿に無い。
     for id in ["71368916", "62991116", "96437217"] {
-        let p = members.get(id).unwrap_or_else(|| panic!("{id} が名簿に無い"));
+        let p = members
+            .get(id)
+            .unwrap_or_else(|| panic!("{id} が名簿に無い"));
         assert!(
             !p.name.starts_with("owner_") && !p.name.is_empty(),
             "{id} の氏名が入っていない: {}",
@@ -1062,7 +1074,9 @@ fn 月曜に開いても先週を今週として出さない() {
         "今週に架電の行は無いはずなのに入っている: {this_week:?}"
     );
     assert_eq!(
-        periods["this_week"]["total"]["connected"].as_i64().unwrap_or(0),
+        periods["this_week"]["total"]["connected"]
+            .as_i64()
+            .unwrap_or(0),
         0,
         "先週の架電を今週として数えている"
     );
@@ -1077,16 +1091,25 @@ fn 月曜に開いても先週を今週として出さない() {
     assert_eq!(prev.first(), Some(&"2026-08-31"));
     assert_eq!(prev.last(), Some(&"2026-09-06"));
     assert!(
-        periods["prev_week"]["total"]["connected"].as_i64().unwrap_or(0) > 0,
+        periods["prev_week"]["total"]["connected"]
+            .as_i64()
+            .unwrap_or(0)
+            > 0,
         "先週の架電が0になっている"
     );
 
     // 今日（9/07）の行はまだ無い。空で返す。
     assert_eq!(periods["today"]["days"].as_array().unwrap().len(), 1);
     assert_eq!(periods["today"]["days"][0], "2026-09-07");
-    assert_eq!(periods["today"]["total"]["connected"].as_i64().unwrap_or(0), 0);
+    assert_eq!(
+        periods["today"]["total"]["connected"].as_i64().unwrap_or(0),
+        0
+    );
     // 今週ぶんが無いので、比較相手の「先週の同じところまで」も空
-    assert!(periods["prev_week_same"]["days"].as_array().unwrap().is_empty());
+    assert!(periods["prev_week_same"]["days"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 /// 「先週の同じところまで」は曜日をそろえる（頭から件数ぶん取らない）。
@@ -1106,8 +1129,26 @@ fn 先週の比較は曜日をそろえる() {
         .iter()
         .map(|d| d.as_str().unwrap())
         .collect();
-    assert_eq!(this_week, ["2026-08-31", "2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"]);
-    assert_eq!(prev_same, ["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"]);
+    assert_eq!(
+        this_week,
+        [
+            "2026-08-31",
+            "2026-09-01",
+            "2026-09-02",
+            "2026-09-03",
+            "2026-09-04"
+        ]
+    );
+    assert_eq!(
+        prev_same,
+        [
+            "2026-08-24",
+            "2026-08-25",
+            "2026-08-26",
+            "2026-08-27",
+            "2026-08-28"
+        ]
+    );
 }
 
 /// 架電の最終日がまだ途中かどうかを、取得条件から拾って画面に渡す。
@@ -1218,7 +1259,10 @@ fn 止まっている取引はすべて予定日を過ぎている() {
 fn 週の範囲は7日で商談はその中に収まる() {
     let body = payload();
     for key in ["week", "next_week"] {
-        let start = body[key]["start"].as_str().expect("start が無い").to_string();
+        let start = body[key]["start"]
+            .as_str()
+            .expect("start が無い")
+            .to_string();
         let end = body[key]["end"].as_str().expect("end が無い").to_string();
         let s = chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d").expect("start の形");
         let e = chrono::NaiveDate::parse_from_str(&end, "%Y-%m-%d").expect("end の形");
@@ -1228,7 +1272,11 @@ fn 週の範囲は7日で商談はその中に収まる() {
             "{key} が7日ぶんではない（{start}〜{end}）"
         );
 
-        let rows_key = if key == "week" { "week_deals" } else { "next_week_deals" };
+        let rows_key = if key == "week" {
+            "week_deals"
+        } else {
+            "next_week_deals"
+        };
         for r in body[rows_key].as_array().expect("一覧が配列でない") {
             let d = r["date"].as_str().unwrap_or_default();
             assert!(
@@ -1282,7 +1330,10 @@ fn アンケートの分母は日が過ぎた分と同じ() {
             .map(|c| c[key].as_i64().unwrap_or(0))
             .sum()
     };
-    let den: i64 = ["実施", "未実施", "未処理", "要判定"].iter().map(|k| sum(k)).sum();
+    let den: i64 = ["実施", "未実施", "未処理", "要判定"]
+        .iter()
+        .map(|k| sum(k))
+        .sum();
     assert_eq!(
         sum("anq_den"),
         den,
@@ -1294,7 +1345,10 @@ fn アンケートの分母は日が過ぎた分と同じ() {
         "回収済みが分母を超えている"
     );
     // 「これから」は分母に入れない
-    assert!(sum("これから") > 0, "fixture に『これから』が無く、この検査が効かない");
+    assert!(
+        sum("これから") > 0,
+        "fixture に『これから』が無く、この検査が効かない"
+    );
 }
 
 // ---------------------------------------------------------------- 決定者・決裁者

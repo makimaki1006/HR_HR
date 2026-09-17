@@ -272,7 +272,9 @@ fn parse_health(data: &SheetData) -> Vec<PjaHealthRow> {
     let mut out = Vec::new();
     for row in &data.rows {
         let g = |ci: Option<usize>| -> &str {
-            ci.and_then(|i| row.get(i)).map(|s| s.as_ref()).unwrap_or("")
+            ci.and_then(|i| row.get(i))
+                .map(|s| s.as_ref())
+                .unwrap_or("")
         };
         let deal = g(ci_deal);
         if deal.is_empty() {
@@ -310,7 +312,9 @@ fn parse_quality(data: &SheetData) -> Vec<PjaQualityRow> {
     let mut out = Vec::new();
     for row in &data.rows {
         let g = |ci: Option<usize>| -> &str {
-            ci.and_then(|i| row.get(i)).map(|s| s.as_ref()).unwrap_or("")
+            ci.and_then(|i| row.get(i))
+                .map(|s| s.as_ref())
+                .unwrap_or("")
         };
         let metric = g(ci_metric);
         if metric.is_empty() {
@@ -448,7 +452,10 @@ mod tests {
             ],
         );
         let kpi = parse_kpi(&s);
-        assert_eq!(kpi.eff_per_public, None, "分母(公開中求人数)0は0.0でなくNone");
+        assert_eq!(
+            kpi.eff_per_public, None,
+            "分母(公開中求人数)0は0.0でなくNone"
+        );
         assert_eq!(kpi.eff_per_applied, Some(700.0 / 300.0));
     }
 
@@ -491,13 +498,23 @@ mod tests {
         assert_eq!(m.rows[1].media, "AirWork");
         assert_eq!(m.rows[1].total, 30);
         // 年月ごとの内訳も months と同じ並びで持つ
-        assert_eq!(m.rows[0].monthly, vec![("2026-06".into(), 5), ("2026-07".into(), 50)]);
+        assert_eq!(
+            m.rows[0].monthly,
+            vec![("2026-06".into(), 5), ("2026-07".into(), 50)]
+        );
     }
 
     #[test]
     fn 応募途絶注意でフィルタできる() {
         let s = sheet(
-            &["Deal", "公開中求人数", "直近30日応募数", "最終応募日", "最終応募からの経過日数", "状態"],
+            &[
+                "Deal",
+                "公開中求人数",
+                "直近30日応募数",
+                "最終応募日",
+                "最終応募からの経過日数",
+                "状態",
+            ],
             vec![
                 vec!["A社", "3", "5", "2026-08-10", "6", "応募あり"],
                 vec!["B社", "2", "0", "2026-06-01", "76", "応募途絶注意"],
@@ -521,11 +538,29 @@ mod tests {
         let s = sheet(
             &["指標", "値", "母数", "率", "補足"],
             vec![
-                vec!["未紐付け応募(求人に紐付かない)", "7", "1000", "0.7%", "media内訳"],
+                vec![
+                    "未紐付け応募(求人に紐付かない)",
+                    "7",
+                    "1000",
+                    "0.7%",
+                    "media内訳",
+                ],
                 // 母数はあるが率は空欄(Python側の意図的な設計)。ここもNoneのまま。
-                vec!["求人紐付きだがDeal未到達の応募", "12", "1000", "", "LISTING→Deal未設定"],
+                vec![
+                    "求人紐付きだがDeal未到達の応募",
+                    "12",
+                    "1000",
+                    "",
+                    "LISTING→Deal未設定",
+                ],
                 // 母数も率も無い行
-                vec!["応募総数(取込進捗の目安)", "1000", "", "", "yingmuri応募日ベース"],
+                vec![
+                    "応募総数(取込進捗の目安)",
+                    "1000",
+                    "",
+                    "",
+                    "yingmuri応募日ベース",
+                ],
             ],
         );
         let rows = parse_quality(&s);

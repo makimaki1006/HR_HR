@@ -107,8 +107,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 // ---------------------------------------------------------------- シート名
 
@@ -527,7 +527,9 @@ fn num_opt(s: &str) -> Option<f64> {
 }
 
 fn cell<'a>(row: &'a [Arc<str>], idx: Option<usize>) -> &'a str {
-    idx.and_then(|i| row.get(i)).map(|s| s.as_ref()).unwrap_or("")
+    idx.and_then(|i| row.get(i))
+        .map(|s| s.as_ref())
+        .unwrap_or("")
 }
 
 fn numv(row: &[Arc<str>], idx: Option<usize>) -> f64 {
@@ -732,11 +734,7 @@ impl MonthlyCols {
 ///   2. パイプライン
 ///   3. 都道府県（都道府県モード時のみ。土台シート自体が別）
 ///   4. メンバー選択 → あればその人だけ / 無ければ **role=sales のみ**
-fn scope_monthly(
-    d: &SheetData,
-    members: &HashMap<String, Member>,
-    q: &P2Query,
-) -> Vec<MonthlyRow> {
+fn scope_monthly(d: &SheetData, members: &HashMap<String, Member>, q: &P2Query) -> Vec<MonthlyRow> {
     let c = MonthlyCols::resolve(d);
     let selected = q.selected_owners();
     let sel: Option<Vec<String>> = if selected.is_empty() {
@@ -1074,7 +1072,10 @@ pub fn build_rate_ranking(
     }
 }
 
-pub fn build_rankings(owners: &[MonthlyRow], members: &HashMap<String, Member>) -> Vec<RateRanking> {
+pub fn build_rankings(
+    owners: &[MonthlyRow],
+    members: &HashMap<String, Member>,
+) -> Vec<RateRanking> {
     vec![
         build_rate_ranking(
             "na_ontime",
@@ -1229,7 +1230,10 @@ pub fn build_scatters(
             x_label: "NA遵守率(%)",
             y_label: y_label.clone(),
             points: na_apo,
-            filter_note: format!("NA期日到来 {} 件以上 かつ {}", MIN_DUE_FOR_RATE as i64, cut_note),
+            filter_note: format!(
+                "NA期日到来 {} 件以上 かつ {}",
+                MIN_DUE_FOR_RATE as i64, cut_note
+            ),
         },
         Scatter {
             key: "callpd_apo",
@@ -1280,8 +1284,7 @@ pub fn build_touch_distribution(d: &SheetData, pipeline: Option<&str>) -> TouchD
     let c_apo = d.col("apo_count");
 
     let target = pipeline.unwrap_or("__all__");
-    let has_target = c_pipeline.is_some()
-        && d.rows.iter().any(|r| cell(r, c_pipeline) == target);
+    let has_target = c_pipeline.is_some() && d.rows.iter().any(|r| cell(r, c_pipeline) == target);
     let (used, fell_back) = if has_target {
         (target.to_string(), false)
     } else {
@@ -1400,7 +1403,10 @@ pub fn build_compliance(
 ) -> CompliancePattern {
     let c_owner = d.col("owner_id");
     let c_ym = d.col("year_month");
-    let c_max = col_any(d, &["na_breach_streak_days", "max_consecutive_violation_days"]);
+    let c_max = col_any(
+        d,
+        &["na_breach_streak_days", "max_consecutive_violation_days"],
+    );
     let c_avg = col_any(
         d,
         &[
@@ -1633,7 +1639,8 @@ pub fn build_funnel(d: &SheetData, q: &P2Query, today_ym: &str) -> Funnel {
         clamped_stages,
         raw_stages,
         dial_available: dial_rows_in_range > 0,
-        scope_note: "メンバー・パイプライン・ロールのフィルタは未適用（GAS 版と同じ）。\
+        scope_note:
+            "メンバー・パイプライン・ロールのフィルタは未適用（GAS 版と同じ）。\
                      dial は Zoom 集約値、connect 以降は owner 別 Call 記録の合算で母集団が異なる。",
     }
 }
@@ -1664,7 +1671,11 @@ pub fn build_stage_dwell(d: &SheetData) -> StageDwell {
         let pipeline = cell(row, c_pipeline).trim().to_string();
         let stage = {
             let s = cell(row, c_stage).trim();
-            if s.is_empty() { "?".to_string() } else { s.to_string() }
+            if s.is_empty() {
+                "?".to_string()
+            } else {
+                s.to_string()
+            }
         };
         let n = num_opt(cell(row, c_n));
         rows.push(DwellRow {
@@ -1704,7 +1715,8 @@ pub fn build_stage_dwell(d: &SheetData) -> StageDwell {
         total_rows,
         truncated,
         z_self_computed,
-        scope_note: "期間・メンバー・PL のフィルタは未適用（シートが pipeline × stage 粒度のため）。",
+        scope_note:
+            "期間・メンバー・PL のフィルタは未適用（シートが pipeline × stage 粒度のため）。",
     }
 }
 
@@ -1734,12 +1746,11 @@ pub fn build_on_the_spot(
         .filter(|s| s.len() >= 7)
         .map(|s| s[..7].to_string())
         .unwrap_or_default();
-    let to_ym = q
-        .to
-        .as_deref()
-        .filter(|s| s.len() >= 7)
-        .map(|s| s[..7].to_string())
-        .unwrap_or_default();
+    let to_ym =
+        q.to.as_deref()
+            .filter(|s| s.len() >= 7)
+            .map(|s| s[..7].to_string())
+            .unwrap_or_default();
 
     let mut by_owner: HashMap<String, f64> = HashMap::new();
     let mut total = 0.0f64;
@@ -1832,9 +1843,7 @@ fn trans_fallback_label(stage_id: &str) -> Option<&'static str> {
         "52035890" => "Bヨミ(70%)",
         "52035891" => "Aヨミ(90%)",
         "52017683" => "成約",
-        "155012220" | "155012221" | "155012222" | "155012223" | "155012224" => {
-            "商談済リード(失注)"
-        }
+        "155012220" | "155012221" | "155012222" | "155012223" | "155012224" => "商談済リード(失注)",
         _ => return None,
     })
 }
@@ -1961,7 +1970,9 @@ pub fn build_stage_transition(
     // 規模は「10-49人」のように先頭の数値で並べたいので数値優先ソート（GAS と同じ意図）
     size_bands.sort_by(|a, b| {
         let n = |s: &str| -> i64 {
-            let digits: String = s.chars().skip_while(|c| !c.is_ascii_digit())
+            let digits: String = s
+                .chars()
+                .skip_while(|c| !c.is_ascii_digit())
                 .take_while(|c| c.is_ascii_digit())
                 .collect();
             digits.parse::<i64>().unwrap_or(0)
@@ -2016,18 +2027,20 @@ pub fn build_stage_transition(
             *from_totals.entry(from.clone()).or_insert(0.0) += v.2;
         }
         acc.into_iter()
-            .map(|((from, to), (from_label, to_label, count, p50n, p50d))| TransitionPair {
-                share_within_from: rate(count, *from_totals.get(&from).unwrap_or(&0.0)),
-                stage_from: from,
-                stage_to: to,
-                from_label,
-                to_label,
-                count,
-                lead_time_p50: ratio(p50n, p50d),
-                // クロスシートは p25/p75 を持たない。0 で埋めず「無い」と返す。
-                lead_time_p25: None,
-                lead_time_p75: None,
-            })
+            .map(
+                |((from, to), (from_label, to_label, count, p50n, p50d))| TransitionPair {
+                    share_within_from: rate(count, *from_totals.get(&from).unwrap_or(&0.0)),
+                    stage_from: from,
+                    stage_to: to,
+                    from_label,
+                    to_label,
+                    count,
+                    lead_time_p50: ratio(p50n, p50d),
+                    // クロスシートは p25/p75 を持たない。0 で埋めず「無い」と返す。
+                    lead_time_p25: None,
+                    lead_time_p75: None,
+                },
+            )
             .collect()
     } else {
         let c_from = summary.col("stage_from");
@@ -2295,7 +2308,10 @@ pub async fn handle(
             from: q.from.clone().unwrap_or_default(),
             to: q.to.clone().unwrap_or_default(),
             pipeline: q.pipeline.clone().unwrap_or_else(|| "__all__".to_string()),
-            prefecture: q.prefecture.clone().unwrap_or_else(|| "__all__".to_string()),
+            prefecture: q
+                .prefecture
+                .clone()
+                .unwrap_or_else(|| "__all__".to_string()),
             member_selected: !q.selected_owners().is_empty(),
             owner_count: owners.len(),
             apo_denominator_label: apo_denominator_label(pref_mode),
@@ -2431,7 +2447,10 @@ mod tests {
         let na = cards.iter().find(|c| c.key == "na_ontime").unwrap();
         assert_eq!(na.value, None, "NA期日0件を遵守率0%と表示してはいけない");
         let cpd = cards.iter().find(|c| c.key == "calls_per_deal").unwrap();
-        assert_eq!(cpd.value, None, "タッチ案件0件で 1案件あたり架電 0 と出さない");
+        assert_eq!(
+            cpd.value, None,
+            "タッチ案件0件で 1案件あたり架電 0 と出さない"
+        );
     }
 
     #[test]
@@ -2778,7 +2797,10 @@ mod tests {
         assert!(s.truncated);
         assert_eq!(s.rows[0].median_days, 33.0, "滞留の長い順");
         assert!(s.rows[0].low_confidence, "n<10 は低信頼として旗を立てる");
-        assert!(s.z_self_computed, "bottleneck_z 列が無いので自前計算に落ちる");
+        assert!(
+            s.z_self_computed,
+            "bottleneck_z 列が無いので自前計算に落ちる"
+        );
     }
 
     #[test]
@@ -2827,8 +2849,15 @@ mod tests {
             &[
                 // アポ日確定 → 進捗確認
                 &[
-                    "52035886", "52035887", "アポ日確定", "進捗確認(商談実施済)", "100", "62.5",
-                    "1", "3", "9",
+                    "52035886",
+                    "52035887",
+                    "アポ日確定",
+                    "進捗確認(商談実施済)",
+                    "100",
+                    "62.5",
+                    "1",
+                    "3",
+                    "9",
                 ],
                 // アポ日確定 → 失注（即失注）
                 &[
@@ -2856,13 +2885,26 @@ mod tests {
                 ],
                 // 他PLのステージ（主要ステージ外。落とす）
                 &[
-                    "99999999", "88888888", "未知(99999999)", "未知(88888888)", "500", "100", "",
-                    "", "",
+                    "99999999",
+                    "88888888",
+                    "未知(99999999)",
+                    "未知(88888888)",
+                    "500",
+                    "100",
+                    "",
+                    "",
+                    "",
                 ],
             ],
         );
         let cross = sheet(
-            &["industry_jsic", "size_band", "stage_from", "stage_to", "transition_count"],
+            &[
+                "industry_jsic",
+                "size_band",
+                "stage_from",
+                "stage_to",
+                "transition_count",
+            ],
             &[&["運輸業", "50-99人", "52035886", "52035887", "5"]],
         );
         let t = build_stage_transition(&summary, &cross, &q_default());
@@ -2922,9 +2964,36 @@ mod tests {
                 "lead_time_p50_days",
             ],
             &[
-                &["運輸業", "50-99人", "52035886", "52035887", "", "", "8", "4"],
-                &["運輸業", "100-499人", "52035886", "52035887", "", "", "2", "9"],
-                &["建設業", "50-99人", "52035886", "52035887", "", "", "99", "1"],
+                &[
+                    "運輸業",
+                    "50-99人",
+                    "52035886",
+                    "52035887",
+                    "",
+                    "",
+                    "8",
+                    "4",
+                ],
+                &[
+                    "運輸業",
+                    "100-499人",
+                    "52035886",
+                    "52035887",
+                    "",
+                    "",
+                    "2",
+                    "9",
+                ],
+                &[
+                    "建設業",
+                    "50-99人",
+                    "52035886",
+                    "52035887",
+                    "",
+                    "",
+                    "99",
+                    "1",
+                ],
             ],
         );
         let q = P2Query {
@@ -2939,7 +3008,10 @@ mod tests {
         assert_eq!(t.pairs[0].from_label, "アポ日確定");
         // p50 は件数加重平均 (4*8 + 9*2)/10 = 5.0
         assert_eq!(t.pairs[0].lead_time_p50, Some(5.0));
-        assert_eq!(t.pairs[0].lead_time_p25, None, "クロス側に p25 は無い。0で埋めない");
+        assert_eq!(
+            t.pairs[0].lead_time_p25, None,
+            "クロス側に p25 は無い。0で埋めない"
+        );
         assert_eq!(t.pairs[0].lead_time_p75, None);
         // 絞込後の from 内シェアは 100%
         assert_eq!(t.pairs[0].share_within_from, Some(100.0));
@@ -3020,7 +3092,13 @@ mod tests {
         // feature_monthly.csv の列は Python 側の都合で増減する。
         // 位置決め打ちだと G列を会社名と誤読した事故の再来になる。
         let shuffled = sheet(
-            &["year_month", "na_due", "owner_id", "na_done_ontime", "pipeline"],
+            &[
+                "year_month",
+                "na_due",
+                "owner_id",
+                "na_done_ontime",
+                "pipeline",
+            ],
             &[&["2026-06", "200", "1", "100", "PL_A"]],
         );
         let m = load_members(&members_sheet());
@@ -3103,7 +3181,10 @@ mod tests {
         // これが `year_month` 監査を入れた理由。
         let (since, _) = funnel_range(Some("3m"), "zzzz");
         assert_eq!(since, "zzzz", "旧挙動（記録として残す）");
-        assert!("2026-08" < since.as_str(), "数字より 'z' が大きいので全て下限未満になる");
+        assert!(
+            "2026-08" < since.as_str(),
+            "数字より 'z' が大きいので全て下限未満になる"
+        );
 
         // 正しい当月なら期待どおり2ヶ月前が下限
         let (since, _) = funnel_range(Some("3m"), "2026-08");

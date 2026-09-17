@@ -31,9 +31,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/tab/indeed/title", get(title::tab_indeed_title))
         // 県の行を開いたときに差し込む推移。表は最新月しか持たないので、
         // 開いた県の 14 か月ぶんだけをここで引く
-        .route(
-            "/tab/indeed/title/pref",
-            get(title::tab_indeed_title_pref),
-        )
+        .route("/tab/indeed/title/pref", get(title::tab_indeed_title_pref))
         .route("/report/indeed", get(report::report_indeed))
 }

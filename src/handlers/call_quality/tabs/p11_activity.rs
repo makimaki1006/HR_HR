@@ -94,7 +94,12 @@ fn owner_label(owner_name: &str, owner_id: &str) -> String {
 /// GAS `displayDealLabel` の移植。「コンサル勝ち筋分析」シートには
 /// deal_label/customer_label/customer_name/deal_id のどれも無いため、常に "-" になる
 /// （ファイル冒頭「GASと意図的に違えた点」参照。仕様どおりであり不具合ではない）。
-fn deal_label(deal_id: &str, deal_label: &str, customer_label: &str, customer_name: &str) -> String {
+fn deal_label(
+    deal_id: &str,
+    deal_label: &str,
+    customer_label: &str,
+    customer_name: &str,
+) -> String {
     for v in [deal_label, customer_label, customer_name] {
         let v = v.trim();
         if !v.is_empty() {
@@ -185,7 +190,11 @@ fn owner_agg(data: &SheetData) -> Vec<OwnerAgg> {
         .map(|(owner_label, (rows, call_sum, contact_total))| OwnerAgg {
             owner_label,
             rows,
-            avg_call: if rows > 0 { call_sum / rows as f64 } else { 0.0 },
+            avg_call: if rows > 0 {
+                call_sum / rows as f64
+            } else {
+                0.0
+            },
             contact_total,
         })
         .collect();
@@ -194,7 +203,11 @@ fn owner_agg(data: &SheetData) -> Vec<OwnerAgg> {
         b.avg_call
             .partial_cmp(&a.avg_call)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| b.contact_total.partial_cmp(&a.contact_total).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| {
+                b.contact_total
+                    .partial_cmp(&a.contact_total)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| a.owner_label.cmp(&b.owner_label))
     });
     agg
@@ -274,7 +287,11 @@ fn build_stage_outcome(data: &SheetData) -> StageOutcomePanel {
     }
     let mut all: Vec<StageOutcomeCount> = counts
         .into_iter()
-        .map(|((stage, outcome), count)| StageOutcomeCount { stage, outcome, count })
+        .map(|((stage, outcome), count)| StageOutcomeCount {
+            stage,
+            outcome,
+            count,
+        })
         .collect();
     all.sort_by(|a, b| {
         b.count
@@ -285,7 +302,11 @@ fn build_stage_outcome(data: &SheetData) -> StageOutcomePanel {
     let total_groups = all.len();
     let truncated = total_groups > STAGE_OUTCOME_LIMIT;
     all.truncate(STAGE_OUTCOME_LIMIT);
-    StageOutcomePanel { top: all, total_groups, truncated }
+    StageOutcomePanel {
+        top: all,
+        total_groups,
+        truncated,
+    }
 }
 
 // ================================================================== 明細テーブル
@@ -337,11 +358,19 @@ fn build_pattern_table(data: &SheetData) -> PatternTablePanel {
             },
         })
         .collect();
-    rows.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    rows.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let total = rows.len();
     let truncated = total > PATTERN_TABLE_LIMIT;
     rows.truncate(PATTERN_TABLE_LIMIT);
-    PatternTablePanel { rows, total, truncated }
+    PatternTablePanel {
+        rows,
+        total,
+        truncated,
+    }
 }
 
 // ================================================================== ハンドラ
@@ -417,11 +446,19 @@ pub async fn handle(
     // GAS `var source = rows.length ? rows : ownerRows;`
     // 上位/下位比較と Owner ランキングはこの `source` を使う。
     // Stage/Outcome と明細テーブルは常に winning(勝ち筋) のみを使う。
-    let source: &SheetData = if !winning.rows.is_empty() { &winning } else { &owner_daily };
+    let source: &SheetData = if !winning.rows.is_empty() {
+        &winning
+    } else {
+        &owner_daily
+    };
 
     let agg = owner_agg(source);
     let target_owners = agg.len();
-    let top_bottom = if agg.is_empty() { None } else { Some(build_top_bottom(&agg)) };
+    let top_bottom = if agg.is_empty() {
+        None
+    } else {
+        Some(build_top_bottom(&agg))
+    };
     let owner_ranking = OwnerRankingPanel {
         total: agg.len(),
         truncated: agg.len() > OWNER_RANKING_LIMIT,
@@ -467,9 +504,19 @@ mod tests {
 
     fn winning_sheet(rows: Vec<Vec<&str>>) -> SheetData {
         let header = vec![
-            "owner_id", "owner_name", "year_month", "stage_label", "outcome_status",
-            "active_deal_count", "touched_days", "email_count", "call_count", "mtg_count",
-            "other_count", "total_count", "mtg_ratio",
+            "owner_id",
+            "owner_name",
+            "year_month",
+            "stage_label",
+            "outcome_status",
+            "active_deal_count",
+            "touched_days",
+            "email_count",
+            "call_count",
+            "mtg_count",
+            "other_count",
+            "total_count",
+            "mtg_ratio",
         ]
         .into_iter()
         .map(String::from)
@@ -486,21 +533,113 @@ mod tests {
         // P11 (2026-08-19) Call数限定仕様: ランキングスコアは call_count のみ。
         // 成果、outcome_status、email/total/mtg はランキング計算に入らない。
         let d = winning_sheet(vec![
-            vec!["1", "田中", "2026-06", "定期1", "継続確定", "1", "5", "2", "3", "0", "0", "5", "0.0"],
-            vec!["2", "田中", "2026-06", "定期2", "解約済",   "1", "5", "2", "3", "0", "0", "5", "0.0"],
-            vec!["3", "田中", "2026-06", "定期3", "進行中",   "1", "5", "2", "3", "0", "0", "5", "0.0"],
+            vec![
+                "1",
+                "田中",
+                "2026-06",
+                "定期1",
+                "継続確定",
+                "1",
+                "5",
+                "2",
+                "3",
+                "0",
+                "0",
+                "5",
+                "0.0",
+            ],
+            vec![
+                "2",
+                "田中",
+                "2026-06",
+                "定期2",
+                "解約済",
+                "1",
+                "5",
+                "2",
+                "3",
+                "0",
+                "0",
+                "5",
+                "0.0",
+            ],
+            vec![
+                "3",
+                "田中",
+                "2026-06",
+                "定期3",
+                "進行中",
+                "1",
+                "5",
+                "2",
+                "3",
+                "0",
+                "0",
+                "5",
+                "0.0",
+            ],
         ]);
-        assert_eq!(p11_score(&d, &d.rows[0]), 3.0, "継続確定でも call_count を返す");
+        assert_eq!(
+            p11_score(&d, &d.rows[0]),
+            3.0,
+            "継続確定でも call_count を返す"
+        );
         assert_eq!(p11_score(&d, &d.rows[1]), 3.0, "解約でも call_count を返す");
-        assert_eq!(p11_score(&d, &d.rows[2]), 3.0, "進行中でも call_count を返す");
+        assert_eq!(
+            p11_score(&d, &d.rows[2]),
+            3.0,
+            "進行中でも call_count を返す"
+        );
     }
 
     #[test]
     fn call_countが欠損空null非数値のときは0() {
         let d = winning_sheet(vec![
-            vec!["1", "田中", "2026-06", "s", "進行中", "1", "1", "0", "",  "0", "0", "0", "0.0"],
-            vec!["2", "田中", "2026-06", "s", "進行中", "1", "1", "0", "0", "0", "0", "0", "0.0"],
-            vec!["3", "田中", "2026-06", "s", "進行中", "1", "1", "0", "abc","0","0", "0", "0.0"],
+            vec![
+                "1",
+                "田中",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "0",
+                "",
+                "0",
+                "0",
+                "0",
+                "0.0",
+            ],
+            vec![
+                "2",
+                "田中",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0.0",
+            ],
+            vec![
+                "3",
+                "田中",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "0",
+                "abc",
+                "0",
+                "0",
+                "0",
+                "0.0",
+            ],
         ]);
         // call_count 列は "call_count" の index 8
         // 0行: ""  → 0
@@ -515,9 +654,51 @@ mod tests {
     fn owner_aggはcall_count平均降順で並ぶ_outcomeは順位に影響しない() {
         // (a) 勝ち/解約のoutcomeがcall_count順位を覆さない
         let d = winning_sheet(vec![
-            vec!["1", "鈴木", "2026-06", "s", "継続確定", "1", "1", "0", "1", "0", "0", "10", "0.0"],
-            vec!["2", "田中", "2026-06", "s", "解約済",   "1", "1", "0", "5", "0", "0", "10", "0.0"],
-            vec!["3", "佐藤", "2026-06", "s", "進行中",   "1", "1", "0", "3", "0", "0", "10", "0.0"],
+            vec![
+                "1",
+                "鈴木",
+                "2026-06",
+                "s",
+                "継続確定",
+                "1",
+                "1",
+                "0",
+                "1",
+                "0",
+                "0",
+                "10",
+                "0.0",
+            ],
+            vec![
+                "2",
+                "田中",
+                "2026-06",
+                "s",
+                "解約済",
+                "1",
+                "1",
+                "0",
+                "5",
+                "0",
+                "0",
+                "10",
+                "0.0",
+            ],
+            vec![
+                "3",
+                "佐藤",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "0",
+                "3",
+                "0",
+                "0",
+                "10",
+                "0.0",
+            ],
         ]);
         let agg = owner_agg(&d);
         assert_eq!(agg.len(), 3);
@@ -534,9 +715,51 @@ mod tests {
     fn owner_aggはemail_total_mtgが大きくてもcall_countの小さいownerが後位() {
         // (b) email/total/mtg が call_count 順位を覆さない
         let d = winning_sheet(vec![
-            vec!["1", "鈴木", "2026-06", "s", "進行中", "1", "1", "9999", "2", "9999", "0", "9999", "0.0"],
-            vec!["2", "田中", "2026-06", "s", "進行中", "1", "1", "0",    "5", "0",    "0", "0",    "0.0"],
-            vec!["3", "佐藤", "2026-06", "s", "進行中", "1", "1", "5000", "3", "5000", "0", "5000", "0.0"],
+            vec![
+                "1",
+                "鈴木",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "9999",
+                "2",
+                "9999",
+                "0",
+                "9999",
+                "0.0",
+            ],
+            vec![
+                "2",
+                "田中",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "0",
+                "5",
+                "0",
+                "0",
+                "0",
+                "0.0",
+            ],
+            vec![
+                "3",
+                "佐藤",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "5000",
+                "3",
+                "5000",
+                "0",
+                "5000",
+                "0.0",
+            ],
         ]);
         let agg = owner_agg(&d);
         assert_eq!(agg[0].owner_label, "田中");
@@ -548,9 +771,51 @@ mod tests {
     fn owner_aggはcall同点ならcontact_desc_owner_label_asc() {
         // (d) 同点順 (contact desc, owner_name asc)
         let d = winning_sheet(vec![
-            vec!["1", "B", "2026-06", "s", "進行中", "1", "1", "5", "5", "0", "0", "10", "0.0"], // call=5, contact=10
-            vec!["2", "A", "2026-06", "s", "進行中", "1", "1", "10","5", "0", "0", "15", "0.0"], // call=5, contact=15
-            vec!["3", "C", "2026-06", "s", "進行中", "1", "1", "0", "5", "0", "0", "5",  "0.0"], // call=5, contact=5
+            vec![
+                "1",
+                "B",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "5",
+                "5",
+                "0",
+                "0",
+                "10",
+                "0.0",
+            ], // call=5, contact=10
+            vec![
+                "2",
+                "A",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "10",
+                "5",
+                "0",
+                "0",
+                "15",
+                "0.0",
+            ], // call=5, contact=15
+            vec![
+                "3",
+                "C",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "0",
+                "5",
+                "0",
+                "0",
+                "5",
+                "0.0",
+            ], // call=5, contact=5
         ]);
         let agg = owner_agg(&d);
         assert_eq!(agg[0].owner_label, "A", "call同点 → contact desc");
@@ -558,9 +823,51 @@ mod tests {
         assert_eq!(agg[2].owner_label, "C");
         // (d-2) contact も同点なら owner_label asc
         let d2 = winning_sheet(vec![
-            vec!["1", "Z", "2026-06", "s", "進行中", "1", "1", "5", "5", "0", "0", "10", "0.0"],
-            vec!["2", "A", "2026-06", "s", "進行中", "1", "1", "5", "5", "0", "0", "10", "0.0"],
-            vec!["3", "M", "2026-06", "s", "進行中", "1", "1", "5", "5", "0", "0", "10", "0.0"],
+            vec![
+                "1",
+                "Z",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "5",
+                "5",
+                "0",
+                "0",
+                "10",
+                "0.0",
+            ],
+            vec![
+                "2",
+                "A",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "5",
+                "5",
+                "0",
+                "0",
+                "10",
+                "0.0",
+            ],
+            vec![
+                "3",
+                "M",
+                "2026-06",
+                "s",
+                "進行中",
+                "1",
+                "1",
+                "5",
+                "5",
+                "0",
+                "0",
+                "10",
+                "0.0",
+            ],
         ]);
         let agg2 = owner_agg(&d2);
         assert_eq!(agg2[0].owner_label, "A");
@@ -572,19 +879,55 @@ mod tests {
     fn total_countが0のときは内訳の合計にフォールバックする() {
         // GAS `_p11Contact` は email+call+mtg+mtg_total_count の合計であり、
         // other_count は含めない(GAS 版の実装をそのまま踏襲。ファイル冒頭 注記参照)。
-        let d = winning_sheet(vec![vec!["1", "田中", "2026-06", "s", "進行中", "1", "1", "2", "3", "0", "1", "0", "0.0"]]);
-        assert_eq!(p11_contact(&d, &d.rows[0]), 5.0, "email2+call3+mtg0+mtg_total_count0(列無し)=5");
+        let d = winning_sheet(vec![vec![
+            "1",
+            "田中",
+            "2026-06",
+            "s",
+            "進行中",
+            "1",
+            "1",
+            "2",
+            "3",
+            "0",
+            "1",
+            "0",
+            "0.0",
+        ]]);
+        assert_eq!(
+            p11_contact(&d, &d.rows[0]),
+            5.0,
+            "email2+call3+mtg0+mtg_total_count0(列無し)=5"
+        );
     }
 
     #[test]
     fn 上位下位グループはavg_callで比較する() {
         let agg = vec![
-            OwnerAgg { owner_label: "a".into(), rows: 1, avg_call: 9.0, contact_total: 10.0 },
-            OwnerAgg { owner_label: "b".into(), rows: 1, avg_call: 8.0, contact_total: 10.0 },
-            OwnerAgg { owner_label: "c".into(), rows: 1, avg_call: 2.0, contact_total: 5.0 },
+            OwnerAgg {
+                owner_label: "a".into(),
+                rows: 1,
+                avg_call: 9.0,
+                contact_total: 10.0,
+            },
+            OwnerAgg {
+                owner_label: "b".into(),
+                rows: 1,
+                avg_call: 8.0,
+                contact_total: 10.0,
+            },
+            OwnerAgg {
+                owner_label: "c".into(),
+                rows: 1,
+                avg_call: 2.0,
+                contact_total: 5.0,
+            },
         ];
         let panel = build_top_bottom(&agg);
-        assert_eq!(panel.top.n, 3, "3名しかいないので上位グループも3名(min(5,len))");
+        assert_eq!(
+            panel.top.n, 3,
+            "3名しかいないので上位グループも3名(min(5,len))"
+        );
         assert_eq!(panel.bottom.n, 3);
         assert!((panel.top.avg_call - (9.0 + 8.0 + 2.0) / 3.0).abs() < 1e-9);
         assert!((panel.bottom.avg_call - (9.0 + 8.0 + 2.0) / 3.0).abs() < 1e-9);
@@ -593,9 +936,51 @@ mod tests {
     #[test]
     fn stage_outcomeは件数降順で上位12件() {
         let d = winning_sheet(vec![
-            vec!["1", "田中", "2026-06", "定期1", "進行中", "1", "1", "0", "0", "0", "0", "1", "0.0"],
-            vec!["2", "田中", "2026-06", "定期1", "進行中", "1", "1", "0", "0", "0", "0", "1", "0.0"],
-            vec!["3", "田中", "2026-06", "定期2", "提案中", "1", "1", "0", "0", "0", "0", "1", "0.0"],
+            vec![
+                "1",
+                "田中",
+                "2026-06",
+                "定期1",
+                "進行中",
+                "1",
+                "1",
+                "0",
+                "0",
+                "0",
+                "0",
+                "1",
+                "0.0",
+            ],
+            vec![
+                "2",
+                "田中",
+                "2026-06",
+                "定期1",
+                "進行中",
+                "1",
+                "1",
+                "0",
+                "0",
+                "0",
+                "0",
+                "1",
+                "0.0",
+            ],
+            vec![
+                "3",
+                "田中",
+                "2026-06",
+                "定期2",
+                "提案中",
+                "1",
+                "1",
+                "0",
+                "0",
+                "0",
+                "0",
+                "1",
+                "0.0",
+            ],
         ]);
         let panel = build_stage_outcome(&d);
         assert_eq!(panel.top[0].count, 2, "定期1×進行中が2件で最多");
@@ -604,7 +989,21 @@ mod tests {
 
     #[test]
     fn 勝ち筋シートには顧客名が無いので常にハイフンになる() {
-        let d = winning_sheet(vec![vec!["1", "田中", "2026-06", "s", "進行中", "1", "1", "0", "0", "0", "0", "1", "0.0"]]);
+        let d = winning_sheet(vec![vec![
+            "1",
+            "田中",
+            "2026-06",
+            "s",
+            "進行中",
+            "1",
+            "1",
+            "0",
+            "0",
+            "0",
+            "0",
+            "1",
+            "0.0",
+        ]]);
         let panel = build_pattern_table(&d);
         assert_eq!(panel.rows[0].customer_label, "-");
     }
@@ -617,9 +1016,19 @@ mod tests {
         let rows: Vec<Vec<String>> = (0..250)
             .map(|i| {
                 vec![
-                    "1".into(), "田中".into(), "2026-06".into(), "s".into(), "進行中".into(),
-                    "1".into(), "1".into(), "0".into(), i.to_string(),
-                    "0".into(), "0".into(), "0".into(), "0.0".into(),
+                    "1".into(),
+                    "田中".into(),
+                    "2026-06".into(),
+                    "s".into(),
+                    "進行中".into(),
+                    "1".into(),
+                    "1".into(),
+                    "0".into(),
+                    i.to_string(),
+                    "0".into(),
+                    "0".into(),
+                    "0".into(),
+                    "0.0".into(),
                 ]
             })
             .collect();

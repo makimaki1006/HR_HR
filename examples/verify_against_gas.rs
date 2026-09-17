@@ -149,7 +149,8 @@ impl Values {
         self.nums.insert(path.into(), v);
     }
     fn flag(&mut self, path: impl Into<String>, v: bool) {
-        self.nums.insert(path.into(), Some(if v { 1.0 } else { 0.0 }));
+        self.nums
+            .insert(path.into(), Some(if v { 1.0 } else { 0.0 }));
     }
     fn text(&mut self, path: impl Into<String>, v: impl Into<String>) {
         self.strs.insert(path.into(), v.into());
@@ -166,7 +167,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out_path = dir.join("_parity_rust_actual.json");
     while let Some(a) = args.next() {
         match a.as_str() {
-            "--expected" => expected_path = args.next().ok_or("--expected の値がありません")?.into(),
+            "--expected" => {
+                expected_path = args.next().ok_or("--expected の値がありません")?.into()
+            }
             "--out" => out_path = args.next().ok_or("--out の値がありません")?.into(),
             other => return Err(format!("不明な引数: {other}").into()),
         }
@@ -296,8 +299,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     v.num("p1.picked.matched_rows", matched_pick as f64);
     v.num("p1.picked.owner_count", rows_pick.len() as f64);
     for m in &rows_pick {
-        v.num(format!("p1.picked.owner.{}.call_count", m.owner_id), m.call_count);
-        v.opt(format!("p1.picked.owner.{}.apo_rate", m.owner_id), m.apo_rate);
+        v.num(
+            format!("p1.picked.owner.{}.call_count", m.owner_id),
+            m.call_count,
+        );
+        v.opt(
+            format!("p1.picked.owner.{}.apo_rate", m.owner_id),
+            m.apo_rate,
+        );
     }
 
     // ================================================================
@@ -313,14 +322,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         v.num(format!("p1.month.{ym}.matched_rows"), matched_m as f64);
         v.num(format!("p1.month.{ym}.owner_count"), rows_m.len() as f64);
         // 全社合計は単純和（harness-sum）。分母選択の規則は owner 単位で突合済み。
-        let sum = |f: fn(&rust_dashboard::handlers::call_quality::tabs::p1_members::MemberRow) -> f64| -> f64 {
-            rows_m.iter().map(f).sum()
-        };
-        v.num(format!("p1.month.{ym}.total.call_count"), sum(|m| m.call_count));
-        v.num(format!("p1.month.{ym}.total.zoom_dial_count"), sum(|m| m.zoom_dial_count));
-        v.num(format!("p1.month.{ym}.total.apo_count"), sum(|m| m.apo_count));
+        let sum = |f: fn(
+            &rust_dashboard::handlers::call_quality::tabs::p1_members::MemberRow,
+        ) -> f64|
+         -> f64 { rows_m.iter().map(f).sum() };
+        v.num(
+            format!("p1.month.{ym}.total.call_count"),
+            sum(|m| m.call_count),
+        );
+        v.num(
+            format!("p1.month.{ym}.total.zoom_dial_count"),
+            sum(|m| m.zoom_dial_count),
+        );
+        v.num(
+            format!("p1.month.{ym}.total.apo_count"),
+            sum(|m| m.apo_count),
+        );
         v.num(format!("p1.month.{ym}.total.na_due"), sum(|m| m.na_due));
-        v.num(format!("p1.month.{ym}.total.na_done_ontime"), sum(|m| m.na_done_ontime));
+        v.num(
+            format!("p1.month.{ym}.total.na_done_ontime"),
+            sum(|m| m.na_done_ontime),
+        );
         for m in &rows_m {
             let p = format!("p1.month.{ym}.owner.{}", m.owner_id);
             v.num(format!("{p}.call_count"), m.call_count);
@@ -340,7 +362,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cross_rows: Vec<CrossRow> = Vec::with_capacity(cross.rows.len());
     let mut skipped = 0usize;
     for row in &cross.rows {
-        let wd = cross.get(row, "weekday").trim().parse::<u8>().unwrap_or(255);
+        let wd = cross
+            .get(row, "weekday")
+            .trim()
+            .parse::<u8>()
+            .unwrap_or(255);
         let hr = cross.get(row, "hour").trim().parse::<u8>().unwrap_or(255);
         if wd > 6 || hr > 23 {
             skipped += 1;
@@ -348,7 +374,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let n = |s: &str| -> u32 { s.trim().parse::<f64>().ok().map(|x| x as u32).unwrap_or(0) };
         cross_rows.push(CrossRow {
-            owner_id: cross.get(row, "owner_id").trim().parse::<u64>().unwrap_or(0),
+            owner_id: cross
+                .get(row, "owner_id")
+                .trim()
+                .parse::<u64>()
+                .unwrap_or(0),
             weekday: wd,
             hour: hr,
             prefecture: Arc::from(cross.get(row, "prefecture")),
@@ -379,7 +409,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // (b) 営業スコープなし（全ロール混在）。GAS 旧版の姿。
     //     「営業に絞るかどうかで値がどれだけ動くか」を数字で残すために出す。
-    let (cells_all, used_all) = aggregate(&cross_rows, &HeatmapQuery::default(), &mut ValueAudit::new());
+    let (cells_all, used_all) = aggregate(
+        &cross_rows,
+        &HeatmapQuery::default(),
+        &mut ValueAudit::new(),
+    );
     v.num("heat.allroles.used_rows", used_all as f64);
     v.num("heat.allroles.cell_count", cells_all.len() as f64);
     for c in &cells_all {
@@ -494,7 +528,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if !expected_path.exists() {
         println!();
-        println!("期待値ファイルが見つかりません: {}", expected_path.display());
+        println!(
+            "期待値ファイルが見つかりません: {}",
+            expected_path.display()
+        );
         println!("先に GAS 版の期待値を作ってください:");
         println!(
             "  python \"C:\\Users\\fuji1\\OneDrive\\デスクトップ\\Hubspot\\scripts\\call_quality_monitor\\_verify_rust_parity.py\""
@@ -514,7 +551,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn report(actual: &serde_json::Value, expected: &serde_json::Value) {
     let a_nums = actual["values"].as_object().cloned().unwrap_or_default();
     let a_strs = actual["strings"].as_object().cloned().unwrap_or_default();
-    let exp = expected["expected"].as_object().cloned().unwrap_or_default();
+    let exp = expected["expected"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
 
     let mut ok = 0usize;
     let mut intended: Vec<(String, String, String)> = Vec::new();
@@ -555,9 +595,17 @@ fn report(actual: &serde_json::Value, expected: &serde_json::Value) {
         if same {
             ok += 1;
         } else if let Some(note) = diff_note {
-            intended.push((path.clone(), format!("GAS={} / Rust={}", fmt(want), fmt(&got)), note.to_string()));
+            intended.push((
+                path.clone(),
+                format!("GAS={} / Rust={}", fmt(want), fmt(&got)),
+                note.to_string(),
+            ));
         } else {
-            bad.push((path.clone(), format!("GAS={} / Rust={}", fmt(want), fmt(&got)), String::new()));
+            bad.push((
+                path.clone(),
+                format!("GAS={} / Rust={}", fmt(want), fmt(&got)),
+                String::new(),
+            ));
         }
     }
 
@@ -582,7 +630,9 @@ fn report(actual: &serde_json::Value, expected: &serde_json::Value) {
         // 同じ理由のものは代表1件 + 件数でまとめる（同じ話を数百行出さない）
         let mut by_note: BTreeMap<String, (usize, String, String)> = BTreeMap::new();
         for (p, d, note) in &intended {
-            let e = by_note.entry(note.clone()).or_insert((0, p.clone(), d.clone()));
+            let e = by_note
+                .entry(note.clone())
+                .or_insert((0, p.clone(), d.clone()));
             e.0 += 1;
         }
         for (note, (n, p, d)) in by_note {
@@ -626,7 +676,10 @@ fn report(actual: &serde_json::Value, expected: &serde_json::Value) {
     if bad.is_empty() {
         println!("結果: 要調査の不一致は 0 件。");
     } else {
-        println!("結果: ★要調査の不一致が {} 件あります。上記を確認してください。", bad.len());
+        println!(
+            "結果: ★要調査の不一致が {} 件あります。上記を確認してください。",
+            bad.len()
+        );
     }
     println!("========================================================");
 }

@@ -47,7 +47,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         idx("apo_count"),
     );
 
-    let mut interner: std::collections::HashMap<String, Arc<str>> = std::collections::HashMap::new();
+    let mut interner: std::collections::HashMap<String, Arc<str>> =
+        std::collections::HashMap::new();
     let mut rows: Vec<CrossRow> = Vec::new();
     let mut skipped = 0usize;
     for line in lines {
@@ -55,7 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         let f: Vec<&str> = line.split(',').collect();
-        let g = |i: Option<usize>| -> &str { i.and_then(|i| f.get(i)).copied().unwrap_or("").trim() };
+        let g =
+            |i: Option<usize>| -> &str { i.and_then(|i| f.get(i)).copied().unwrap_or("").trim() };
         let wd = g(i_wd).parse::<u8>().unwrap_or(255);
         let hr = g(i_hr).parse::<u8>().unwrap_or(255);
         if wd > 6 || hr > 23 {
@@ -87,7 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("== 入力 ==");
     println!("  行数            : {}", rows.len());
     println!("  読込不能で除外  : {}", skipped);
-    println!("  読込+正規化     : {} ms （常駐後は2回目以降0。GASは毎回これが要る）", load_ms);
+    println!(
+        "  読込+正規化     : {} ms （常駐後は2回目以降0。GASは毎回これが要る）",
+        load_ms
+    );
     println!("  ユニーク都道府県/業種: {}", interner.len());
 
     // ---- 現行GASが送っている量（=生データ全件をJSONにした場合） ----

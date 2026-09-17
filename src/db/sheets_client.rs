@@ -22,7 +22,6 @@ const SCOPES: &str = "https://www.googleapis.com/auth/spreadsheets.readonly";
 /// access_token 失効までこれより短いタイミングでリフレッシュ
 const REFRESH_BEFORE_EXPIRY: u64 = 300;
 
-
 /// リトライすべき HTTP ステータスか。
 ///
 /// 2026-08-16 追加。実データでの起動確認中に Sheets API が **503 (UNAVAILABLE)** を返し、
@@ -100,8 +99,8 @@ impl SheetsClient {
     ///   - GOOGLE_SA_KEY_B64 : base64 化された SA JSON
     ///   - SPREADSHEET_ID    : 対象スプシ ID
     pub fn from_env() -> Result<Self> {
-        let b64 = std::env::var("GOOGLE_SA_KEY_B64")
-            .context("環境変数 GOOGLE_SA_KEY_B64 が未設定")?;
+        let b64 =
+            std::env::var("GOOGLE_SA_KEY_B64").context("環境変数 GOOGLE_SA_KEY_B64 が未設定")?;
         let json_bytes = B64
             .decode(b64.trim())
             .context("GOOGLE_SA_KEY_B64 の base64 デコードに失敗")?;
@@ -167,7 +166,10 @@ impl SheetsClient {
             .context("OAuth token endpoint POST 失敗")?;
 
         let status = resp.status();
-        let body = resp.text().await.context("token endpoint body 読み込み失敗")?;
+        let body = resp
+            .text()
+            .await
+            .context("token endpoint body 読み込み失敗")?;
         if !status.is_success() {
             bail!("OAuth token 取得失敗: status={} body={}", status, body);
         }
@@ -243,12 +245,7 @@ impl SheetsClient {
         let mut ok = false;
 
         for attempt in 0..=MAX_RETRIES {
-            let resp = self
-                .http
-                .get(&url)
-                .bearer_auth(&token)
-                .send()
-                .await;
+            let resp = self.http.get(&url).bearer_auth(&token).send().await;
 
             // 2026-08-17 追加: **送信そのものの失敗も再試行する**。
             //   従来は `?` で即座に諦めていたため、タイムアウトや接続断が
@@ -411,7 +408,13 @@ fn normalize_header(header: Vec<String>, widest: usize) -> Vec<String> {
     }
     h.into_iter()
         .enumerate()
-        .map(|(i, x)| if x.trim().is_empty() { format!("列{}", i + 1) } else { x })
+        .map(|(i, x)| {
+            if x.trim().is_empty() {
+                format!("列{}", i + 1)
+            } else {
+                x
+            }
+        })
         .collect()
 }
 
@@ -439,7 +442,12 @@ mod tests {
     #[test]
     fn 空文字ヘッダにも位置名を付ける() {
         let got = normalize_header(
-            vec!["owner_id".into(), "".into(), "  ".into(), "call_count".into()],
+            vec![
+                "owner_id".into(),
+                "".into(),
+                "  ".into(),
+                "call_count".into(),
+            ],
             4,
         );
         assert_eq!(got, vec!["owner_id", "列2", "列3", "call_count"]);
@@ -490,5 +498,4 @@ mod tests {
         assert!(!is_retryable(200));
         assert!(!is_retryable(204));
     }
-
 }

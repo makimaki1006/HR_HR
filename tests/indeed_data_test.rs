@@ -30,7 +30,6 @@ fn open_db() -> LocalDb {
     LocalDb::new(DB).expect("Indeed 分析 DB を開けませんでした")
 }
 
-
 fn snap() -> Snapshot {
     load(&open_db()).expect("Indeed 分析 DB を読めませんでした")
 }
@@ -46,7 +45,11 @@ fn 月の並びの長さが全部そろっている() {
 
     for (name, series) in &s.by_title {
         assert_eq!(series.job.len(), n, "{name} の求人数の並びが {n} 本でない");
-        assert_eq!(series.ctk.len(), n, "{name} の見た人数の並びが {n} 本でない");
+        assert_eq!(
+            series.ctk.len(),
+            n,
+            "{name} の見た人数の並びが {n} 本でない"
+        );
         assert_eq!(series.emp.len(), n, "{name} の企業数の並びが {n} 本でない");
     }
     for p in &s.by_pref {
@@ -131,7 +134,11 @@ fn 欠測は合計に数えられていない() {
         "全部欠測なのに合計が出てしまっている"
     );
     let mixed = vec![None, Some(2.0), None, Some(3.0)];
-    assert_eq!(Series::total(&mixed), Some(5.0), "欠測を飛ばして足せていない");
+    assert_eq!(
+        Series::total(&mixed),
+        Some(5.0),
+        "欠測を飛ばして足せていない"
+    );
 }
 
 /// 変化率が現実的な範囲に収まっていること。
@@ -260,8 +267,7 @@ fn 見出しの変化率と本文の変化率が一致する() {
         // 文言は生成する関数ごとに違う（「向きは定まりません」／
         // 「増えているとも減っているとも言えません」）ので、
         // 文字列ではなく判定そのものを見る。一度文字列で書いて外した。
-        if m
-            .fit
+        if m.fit
             .as_ref()
             .map(|f| f.level == rust_dashboard::indeed::trend::Level::None)
             .unwrap_or(false)
@@ -465,10 +471,15 @@ fn 職種詳細の順位と全国比が定義どおりである() {
     // 全部が 1.0 付近に固まっていたら、比ではなく別のものを見ている疑い
     let spread = {
         let vs: Vec<f64> = d.prefs.iter().filter_map(|p| p.vs_national).collect();
-        let (mn, mx) = vs.iter().fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+        let (mn, mx) = vs
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
         mx - mn
     };
-    assert!(spread > 0.05, "全国比の幅が {spread} しかない。比になっていない疑い");
+    assert!(
+        spread > 0.05,
+        "全国比の幅が {spread} しかない。比になっていない疑い"
+    );
 
     // 4) 1 求人あたり = 見た人数 ÷ 求人数
     for p in &d.prefs {

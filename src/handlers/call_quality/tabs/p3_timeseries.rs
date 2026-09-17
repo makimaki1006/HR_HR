@@ -40,8 +40,8 @@ use serde::{Deserialize, Serialize};
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::heatmap::{self, HeatCell, HeatmapCache, HeatmapQuery};
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 /// メンバー別ヒートマップに載せる人数。GAS 版と同じ「架電数Top20」。
 /// 切ったら `truncated` を立てる（約束3）。
@@ -585,7 +585,8 @@ fn cohort_metric_of(key: Option<&str>) -> (&'static str, &'static str) {
 }
 
 /// `cohort_metric` が受け付ける値。
-pub const COHORT_METRIC_EXPECTED: &str = "progression | progression_rate | retention | retention_rate";
+pub const COHORT_METRIC_EXPECTED: &str =
+    "progression | progression_rate | retention | retention_rate";
 
 /// 2026-08-17 追加。以前は `_ =>` で**未知の値も黙って「次に進んだ割合」**に
 /// なっていた。コホート表は列見出しにラベルしか出ないので、
@@ -675,7 +676,8 @@ pub fn collect_cohort(data: &SheetData, metric_key: Option<&str>) -> (Cohort, us
         };
 
         // 選択指標 → 旧 rate 列 の順にフォールバック（GAS `pickMetric` と同じ）
-        let v = normalize_rate(data.get(row, col)).or_else(|| normalize_rate(data.get(row, "rate")));
+        let v =
+            normalize_rate(data.get(row, col)).or_else(|| normalize_rate(data.get(row, "rate")));
         matched += 1;
         if let Some(v) = v {
             cells.insert((cm.clone(), lag), v);
@@ -870,7 +872,12 @@ pub async fn handle(
         q.cohort_metric.as_deref(),
         COHORT_METRIC_EXPECTED,
         cohort_metric_parse,
-        || (("progression_rate", "次に進んだ割合"), "progression".to_string()),
+        || {
+            (
+                ("progression_rate", "次に進んだ割合"),
+                "progression".to_string(),
+            )
+        },
     );
     let (cohort, cohort_matched) = collect_cohort(&cohort_sheet, q.cohort_metric.as_deref());
     sources.push(SourceInfo {
@@ -1171,7 +1178,11 @@ mod tests {
         let (cells, _, _, matched) = collect_denominator_compare(&d, Some(&sales));
         assert_eq!(matched, 1);
         assert_eq!(cells[0].hubspot_dial, 100.0);
-        assert_eq!(cells[0].apo_rate_hubspot, Some(1.0), "混ぜると 0.2% に薄まる");
+        assert_eq!(
+            cells[0].apo_rate_hubspot,
+            Some(1.0),
+            "混ぜると 0.2% に薄まる"
+        );
     }
 
     #[test]
@@ -1235,7 +1246,10 @@ mod tests {
         ]);
         let (_, h, _) = collect_monthly(&d, &q_at("2026-08"), None, "2026-08");
         assert_eq!(
-            h.members.iter().map(|m| m.owner_id.as_str()).collect::<Vec<_>>(),
+            h.members
+                .iter()
+                .map(|m| m.owner_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["a", "b"]
         );
     }
@@ -1348,7 +1362,11 @@ mod tests {
         // 是正3: どちらで割ったかを必ずラベルで返す（「アポ率」単独表記の禁止）
         assert_eq!(apo_denominator(100.0, 300.0, false), 300.0);
         assert_eq!(apo_denominator(100.0, 300.0, true), 100.0);
-        assert_eq!(apo_denominator(100.0, 0.0, false), 100.0, "Zoom無しはCallへ");
+        assert_eq!(
+            apo_denominator(100.0, 0.0, false),
+            100.0,
+            "Zoom無しはCallへ"
+        );
         assert!(denominator_label(false).contains("Zoom発信"));
         assert!(denominator_label(true).contains("HubSpot Call"));
     }
@@ -1494,7 +1512,10 @@ mod tests {
         ]);
         let (cells, _, _, _) = collect_denominator_compare(&d, None);
         assert_eq!(
-            cells.iter().map(|c| (c.weekday, c.hour)).collect::<Vec<_>>(),
+            cells
+                .iter()
+                .map(|c| (c.weekday, c.hour))
+                .collect::<Vec<_>>(),
             vec![(0, 9), (0, 15), (1, 9)]
         );
         assert_eq!(cells[0].weekday_label, "月", "0=月（Python weekday 準拠）");
@@ -1504,9 +1525,19 @@ mod tests {
 
     #[test]
     fn cohort_metricの不正値を判定できる() {
-        assert_eq!(cohort_metric_parse("retention").map(|x| x.0), Some("retention_rate"));
-        assert_eq!(cohort_metric_parse("progression").map(|x| x.0), Some("progression_rate"));
-        assert_eq!(cohort_metric_parse("retantion"), None, "打ち間違いは受理しない");
+        assert_eq!(
+            cohort_metric_parse("retention").map(|x| x.0),
+            Some("retention_rate")
+        );
+        assert_eq!(
+            cohort_metric_parse("progression").map(|x| x.0),
+            Some("progression_rate")
+        );
+        assert_eq!(
+            cohort_metric_parse("retantion"),
+            None,
+            "打ち間違いは受理しない"
+        );
         // 落とす先は従来どおり（挙動は変えない）
         assert_eq!(cohort_metric_of(Some("retantion")).0, "progression_rate");
         assert_eq!(cohort_metric_of(None).0, "progression_rate");
@@ -1516,7 +1547,10 @@ mod tests {
     fn 壊れたcurrent_ymは当月判定を全滅させる() {
         // これが `year_month` 監査を入れた理由。`?current_ym=zzzz` だと
         // `is_partial_month` がどの月にも当たらず、進行中の当月が推移から除外されなくなる。
-        assert!(!is_partial_month("2026-08", "zzzz"), "旧挙動（記録として残す）");
+        assert!(
+            !is_partial_month("2026-08", "zzzz"),
+            "旧挙動（記録として残す）"
+        );
         assert!(is_partial_month("2026-08", "2026-08"), "正しい当月なら立つ");
         // 監査層が壊れた値を弾くことを確認（当月へ落ちるので上の行と同じ状態に戻る）
         let mut a = crate::handlers::call_quality::query_audit::ValueAudit::new();

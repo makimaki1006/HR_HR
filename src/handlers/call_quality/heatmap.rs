@@ -325,7 +325,10 @@ mod tests {
         let (cells, used) = aggregate(&rows, &HeatmapQuery::default(), &mut ValueAudit::new());
         assert_eq!(used, 3);
         assert_eq!(cells.len(), 2, "同じ曜日×時間帯は1セルに畳まれる");
-        let c = cells.iter().find(|c| c.weekday == 0 && c.hour == 10).unwrap();
+        let c = cells
+            .iter()
+            .find(|c| c.weekday == 0 && c.hour == 10)
+            .unwrap();
         assert_eq!(c.dial, 150);
         assert_eq!(c.apo, 3);
     }
@@ -365,7 +368,10 @@ mod tests {
         let rows = vec![row(0, 10, "東京都", "運輸", 1, 0, 3)];
         let (cells, _) = aggregate(&rows, &HeatmapQuery::default(), &mut ValueAudit::new());
         assert_eq!(cells.len(), 1);
-        assert!(cells[0].apo_rate.is_none(), "分母0のとき 0% を返してはいけない");
+        assert!(
+            cells[0].apo_rate.is_none(),
+            "分母0のとき 0% を返してはいけない"
+        );
     }
 
     #[test]
@@ -386,7 +392,10 @@ mod tests {
             row(0, 10, "東京都", "運輸", 1, 100, 2),
             row(0, 10, "大阪府", "建設", 2, 50, 1),
         ];
-        let q = HeatmapQuery { owners: Some("abc".into()), ..Default::default() };
+        let q = HeatmapQuery {
+            owners: Some("abc".into()),
+            ..Default::default()
+        };
         let mut a = ValueAudit::new();
         let (_, used) = aggregate(&rows, &q, &mut a);
         assert_eq!(used, 2, "挙動は変えない（全員が集計されたまま）");
@@ -404,7 +413,10 @@ mod tests {
             row(0, 10, "東京都", "運輸", 1, 100, 2),
             row(0, 10, "大阪府", "建設", 2, 50, 1),
         ];
-        let q = HeatmapQuery { owners: Some("1,abc".into()), ..Default::default() };
+        let q = HeatmapQuery {
+            owners: Some("1,abc".into()),
+            ..Default::default()
+        };
         let mut a = ValueAudit::new();
         let (_, used) = aggregate(&rows, &q, &mut a);
         assert_eq!(used, 1, "有効な 1 だけで絞られる（挙動は変えない）");
@@ -415,8 +427,18 @@ mod tests {
     fn 正しいownersでは何も報告しない() {
         // **陰性対照**
         let rows = vec![row(0, 10, "東京都", "運輸", 1, 100, 2)];
-        for owners in [None, Some("1"), Some("1,2"), Some(" 1 , 2 "), Some(""), Some("1,")] {
-            let q = HeatmapQuery { owners: owners.map(str::to_string), ..Default::default() };
+        for owners in [
+            None,
+            Some("1"),
+            Some("1,2"),
+            Some(" 1 , 2 "),
+            Some(""),
+            Some("1,"),
+        ] {
+            let q = HeatmapQuery {
+                owners: owners.map(str::to_string),
+                ..Default::default()
+            };
             let mut a = ValueAudit::new();
             aggregate(&rows, &q, &mut a);
             assert!(a.is_empty(), "owners={owners:?} は正常なので黙る");

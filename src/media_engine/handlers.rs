@@ -1298,13 +1298,8 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
             generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(url.clone()), &[]).await?;
         let mut sibling_sets: Vec<StdHashSet<String>> = Vec::new();
         for sibling in &siblings {
-            match generate_keyword_ideas_with_seed(
-                &cfg,
-                &cid,
-                &IdeaSeed::Url(sibling.clone()),
-                &[],
-            )
-            .await
+            match generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(sibling.clone()), &[])
+                .await
             {
                 Ok(value) => sibling_sets.push(
                     parse_keyword_metrics(&value)

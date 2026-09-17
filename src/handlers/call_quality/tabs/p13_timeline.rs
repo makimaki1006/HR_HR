@@ -38,8 +38,8 @@ use chrono::{DateTime, Datelike, Duration as ChronoDuration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 use super::{SourceInfo, TabPayload};
 
@@ -123,7 +123,9 @@ fn parse_num_arr_opt(raw: &str) -> Vec<Option<f64>> {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
-    v.as_array().map(|a| a.iter().map(|x| x.as_f64()).collect()).unwrap_or_default()
+    v.as_array()
+        .map(|a| a.iter().map(|x| x.as_f64()).collect())
+        .unwrap_or_default()
 }
 
 /// summary_details_json = `[{"label":..., "summary":...}, ...]`
@@ -136,12 +138,24 @@ fn parse_summary_details(raw: &str) -> Vec<SummaryDetail> {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
-    let Some(arr) = v.as_array() else { return Vec::new() };
+    let Some(arr) = v.as_array() else {
+        return Vec::new();
+    };
     arr.iter()
         .filter_map(|item| {
             let obj = item.as_object()?;
-            let label = obj.get("label").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-            let summary = obj.get("summary").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let label = obj
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let summary = obj
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if label.is_empty() && summary.is_empty() {
                 None
             } else {
@@ -162,7 +176,9 @@ fn parse_next_steps(raw: &str) -> Vec<String> {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
-    let Some(arr) = v.as_array() else { return Vec::new() };
+    let Some(arr) = v.as_array() else {
+        return Vec::new();
+    };
     arr.iter()
         .filter_map(|item| {
             let s = if let Some(s) = item.as_str() {
@@ -178,7 +194,11 @@ fn parse_next_steps(raw: &str) -> Vec<String> {
                 String::new()
             };
             let s = s.trim().to_string();
-            if s.is_empty() { None } else { Some(s) }
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
         })
         .collect()
 }
@@ -238,7 +258,10 @@ struct DealAgg {
 
 /// javascript.html `_p13IndexByDeal`(15121-15164行) を移植。
 /// phase_lookup: deal_id → フェーズKPI側 consultant_name (担当者名フォールバック用)。
-pub fn build_deal_index(timeline: &SheetData, phase_lookup: &HashMap<String, String>) -> (Vec<DealIndexEntry>, usize) {
+pub fn build_deal_index(
+    timeline: &SheetData,
+    phase_lookup: &HashMap<String, String>,
+) -> (Vec<DealIndexEntry>, usize) {
     let mut by: HashMap<String, DealAgg> = HashMap::new();
     let mut skipped = 0usize;
 
@@ -255,7 +278,10 @@ pub fn build_deal_index(timeline: &SheetData, phase_lookup: &HashMap<String, Str
         let start_time = timeline.get(row, "start_time").trim().to_string();
         let entry = by.entry(deal_id.clone()).or_insert_with(|| DealAgg {
             customer_label: timeline.get(row, "customer_label").trim().to_string(),
-            consultant_owner_name: timeline.get(row, "consultant_owner_name").trim().to_string(),
+            consultant_owner_name: timeline
+                .get(row, "consultant_owner_name")
+                .trim()
+                .to_string(),
             pipeline_label: timeline.get(row, "pipeline_label").trim().to_string(),
             stage_label: timeline.get(row, "stage_label").trim().to_string(),
             meeting_count: 0,
@@ -305,12 +331,18 @@ pub fn build_phase_lookup(phase: &SheetData) -> HashMap<String, String> {
             if deal_id.is_empty() {
                 return None;
             }
-            Some((deal_id, phase.get(row, "consultant_name").trim().to_string()))
+            Some((
+                deal_id,
+                phase.get(row, "consultant_name").trim().to_string(),
+            ))
         })
         .collect()
 }
 
-pub async fn get_deal_index(client: &SheetsClient, store: &SheetStore) -> Result<TabPayload<DealIndexData>> {
+pub async fn get_deal_index(
+    client: &SheetsClient,
+    store: &SheetStore,
+) -> Result<TabPayload<DealIndexData>> {
     let started = std::time::Instant::now();
     let (timeline, timeline_cached) = store.get(client, "コンサルMTGタイムライン").await?;
     let (phase, phase_cached) = store.get(client, "コンサルフェーズKPI").await?;
@@ -320,18 +352,29 @@ pub async fn get_deal_index(client: &SheetsClient, store: &SheetStore) -> Result
 
     let mut consultant_counts: HashMap<String, u32> = HashMap::new();
     for d in &deals {
-        *consultant_counts.entry(d.consultant_name.clone()).or_insert(0) += 1;
+        *consultant_counts
+            .entry(d.consultant_name.clone())
+            .or_insert(0) += 1;
     }
     let mut consultants: Vec<ConsultantOption> = consultant_counts
         .into_iter()
         .map(|(name, deal_count)| ConsultantOption { name, deal_count })
         .collect();
-    consultants.sort_by(|a, b| b.deal_count.cmp(&a.deal_count).then_with(|| a.name.cmp(&b.name)));
+    consultants.sort_by(|a, b| {
+        b.deal_count
+            .cmp(&a.deal_count)
+            .then_with(|| a.name.cmp(&b.name))
+    });
 
     let total_meetings: usize = deals.iter().map(|d| d.meeting_count).sum();
 
     Ok(TabPayload {
-        data: DealIndexData { deals, consultants, skipped_low_confidence: skipped, total_meetings },
+        data: DealIndexData {
+            deals,
+            consultants,
+            skipped_low_confidence: skipped,
+            total_meetings,
+        },
         sources: vec![
             SourceInfo {
                 sheet: "コンサルMTGタイムライン".to_string(),
@@ -465,7 +508,10 @@ pub fn build_meeting_card(data: &SheetData, row: &[Arc<str>]) -> MeetingCard {
     let overview = data.get(row, "summary_overview").trim().to_string();
     let details = parse_summary_details(data.get(row, "summary_details_json"));
     let next_steps = parse_next_steps(data.get(row, "next_steps_json"));
-    let has_summary = !(source == "hubspot_only" && overview.is_empty() && details.is_empty() && next_steps.is_empty());
+    let has_summary = !(source == "hubspot_only"
+        && overview.is_empty()
+        && details.is_empty()
+        && next_steps.is_empty());
     MeetingCard {
         meeting_id: data.get(row, "meeting_id").trim().to_string(),
         start_time: data.get(row, "start_time").trim().to_string(),
@@ -490,9 +536,10 @@ fn months_ago(today: NaiveDate, months: i32) -> NaiveDate {
     let year = total.div_euclid(12);
     let month = (total.rem_euclid(12) + 1) as u32;
     let day = today.day();
-    (1..=day).rev().find_map(|d| NaiveDate::from_ymd_opt(year, month, d)).unwrap_or_else(|| {
-        NaiveDate::from_ymd_opt(year, month, 1).expect("月初は常に有効な日付")
-    })
+    (1..=day)
+        .rev()
+        .find_map(|d| NaiveDate::from_ymd_opt(year, month, d))
+        .unwrap_or_else(|| NaiveDate::from_ymd_opt(year, month, 1).expect("月初は常に有効な日付"))
 }
 
 fn period_cutoff(period: &str, now: DateTime<Utc>) -> Option<NaiveDate> {
@@ -510,7 +557,8 @@ fn timeline_rows_for_deal<'a>(data: &'a SheetData, deal_id: &str) -> Vec<&'a Vec
     data.rows
         .iter()
         .filter(|row| {
-            data.get(row, "deal_id").trim() == deal_id && data.get(row, "source").trim() != "host_email_match"
+            data.get(row, "deal_id").trim() == deal_id
+                && data.get(row, "source").trim() != "host_email_match"
         })
         .collect()
 }
@@ -581,19 +629,25 @@ pub async fn get_deal_detail(
     // (javascript.html 15157-15161行 `_p13IndexByDeal` と同じ順序)。
     let mut sorted_desc = meetings_all.clone();
     sorted_desc.sort_by(|a, b| {
-        timeline.get(b, "start_time").trim().cmp(timeline.get(a, "start_time").trim())
+        timeline
+            .get(b, "start_time")
+            .trim()
+            .cmp(timeline.get(a, "start_time").trim())
     });
-    let latest_meeting_start = sorted_desc.first().map(|r| timeline.get(r, "start_time").trim().to_string());
+    let latest_meeting_start = sorted_desc
+        .first()
+        .map(|r| timeline.get(r, "start_time").trim().to_string());
 
-    let (customer_label, mut consultant_owner_name, pipeline_label, stage_label) = match meetings_all.first() {
-        Some(r) => (
-            timeline.get(r, "customer_label").trim().to_string(),
-            timeline.get(r, "consultant_owner_name").trim().to_string(),
-            timeline.get(r, "pipeline_label").trim().to_string(),
-            timeline.get(r, "stage_label").trim().to_string(),
-        ),
-        None => (String::new(), String::new(), String::new(), String::new()),
-    };
+    let (customer_label, mut consultant_owner_name, pipeline_label, stage_label) =
+        match meetings_all.first() {
+            Some(r) => (
+                timeline.get(r, "customer_label").trim().to_string(),
+                timeline.get(r, "consultant_owner_name").trim().to_string(),
+                timeline.get(r, "pipeline_label").trim().to_string(),
+                timeline.get(r, "stage_label").trim().to_string(),
+            ),
+            None => (String::new(), String::new(), String::new(), String::new()),
+        };
     if consultant_owner_name.is_empty() {
         if let Some(r) = sorted_desc.first() {
             consultant_owner_name = timeline.get(r, "consultant_owner_name").trim().to_string();
@@ -601,7 +655,10 @@ pub async fn get_deal_detail(
     }
 
     let phase_lookup = build_phase_lookup(&phase);
-    let consultant_name = resolve_consultant_name(&consultant_owner_name, phase_lookup.get(deal_id).map(|s| s.as_str()));
+    let consultant_name = resolve_consultant_name(
+        &consultant_owner_name,
+        phase_lookup.get(deal_id).map(|s| s.as_str()),
+    );
 
     // ---- 期間絞込 + 並び順 (タイムラインのカード一覧のみに適用) ----
     let cutoff = period_cutoff(period, Utc::now());
@@ -618,26 +675,38 @@ pub async fn get_deal_detail(
     filtered.sort_by(|a, b| {
         let av = timeline.get(a, "start_time").trim();
         let bv = timeline.get(b, "start_time").trim();
-        if sort == "asc" { av.cmp(bv) } else { bv.cmp(av) }
+        if sort == "asc" {
+            av.cmp(bv)
+        } else {
+            bv.cmp(av)
+        }
     });
-    let meetings: Vec<MeetingCard> = filtered.iter().map(|row| build_meeting_card(&timeline, row)).collect();
+    let meetings: Vec<MeetingCard> = filtered
+        .iter()
+        .map(|row| build_meeting_card(&timeline, row))
+        .collect();
     let meetings_shown = meetings.len();
 
     // ---- ロールアップ ----
-    let rollup_cell = rollup.rows.iter().find(|row| rollup.get(row, "deal_id").trim() == deal_id).map(|row| {
-        RollupCell {
+    let rollup_cell = rollup
+        .rows
+        .iter()
+        .find(|row| rollup.get(row, "deal_id").trim() == deal_id)
+        .map(|row| RollupCell {
             call_all: pu32(rollup.get(row, "call_all")),
             email_all: pu32(rollup.get(row, "email_all")),
             mtg_all: pu32(rollup.get(row, "mtg_all")),
             call_post: pu32(rollup.get(row, "call_post")),
             email_post: pu32(rollup.get(row, "email_post")),
             mtg_post: pu32(rollup.get(row, "mtg_post")),
-        }
-    });
+        });
 
     // ---- 契約フェーズKPI ----
-    let phase_cell = phase.rows.iter().find(|row| phase.get(row, "deal_id").trim() == deal_id).map(|row| {
-        PhaseKpiCell {
+    let phase_cell = phase
+        .rows
+        .iter()
+        .find(|row| phase.get(row, "deal_id").trim() == deal_id)
+        .map(|row| PhaseKpiCell {
             overall_flag: phase.get(row, "overall_flag").trim().to_string(),
             contract_type: phase.get(row, "contract_type").trim().to_string(),
             contract_period: phase.get(row, "contract_period").trim().to_string(),
@@ -649,8 +718,7 @@ pub async fn get_deal_detail(
             contact_flag: phase.get(row, "contact_flag").trim().to_string(),
             seika_status: phase.get(row, "seika_status").trim().to_string(),
             alert_msg: phase.get(row, "alert_msg").trim().to_string(),
-        }
-    });
+        });
 
     // ---- 接触量推移 (週次。期間絞込の影響を受けない、コメント参照) ----
     let mut mtg_by_week: HashMap<String, u32> = HashMap::new();
@@ -710,11 +778,52 @@ pub async fn get_deal_detail(
             nps_trend,
         },
         sources: vec![
-            src("コンサルMTGタイムライン", &timeline, meetings_total, timeline_cached),
-            src("コンサル接触率_週次", &contact_weekly, contact_rows.len(), contact_cached),
-            src("コンサル健全性_月次", &health, if health.rows.iter().any(|r| health.get(r, "deal_id").trim() == deal_id) { 1 } else { 0 }, health_cached),
-            src("コンサル接触ロールアップ", &rollup, rollup.rows.iter().filter(|r| rollup.get(r, "deal_id").trim() == deal_id).count(), rollup_cached),
-            src("コンサルフェーズKPI", &phase, phase.rows.iter().filter(|r| phase.get(r, "deal_id").trim() == deal_id).count(), phase_cached),
+            src(
+                "コンサルMTGタイムライン",
+                &timeline,
+                meetings_total,
+                timeline_cached,
+            ),
+            src(
+                "コンサル接触率_週次",
+                &contact_weekly,
+                contact_rows.len(),
+                contact_cached,
+            ),
+            src(
+                "コンサル健全性_月次",
+                &health,
+                if health
+                    .rows
+                    .iter()
+                    .any(|r| health.get(r, "deal_id").trim() == deal_id)
+                {
+                    1
+                } else {
+                    0
+                },
+                health_cached,
+            ),
+            src(
+                "コンサル接触ロールアップ",
+                &rollup,
+                rollup
+                    .rows
+                    .iter()
+                    .filter(|r| rollup.get(r, "deal_id").trim() == deal_id)
+                    .count(),
+                rollup_cached,
+            ),
+            src(
+                "コンサルフェーズKPI",
+                &phase,
+                phase
+                    .rows
+                    .iter()
+                    .filter(|r| phase.get(r, "deal_id").trim() == deal_id)
+                    .count(),
+                phase_cached,
+            ),
         ],
         elapsed_ms: started.elapsed().as_millis(),
         // ルータが後乗せする（タブ側は生のクエリ文字列を知らない）
@@ -726,7 +835,10 @@ pub async fn get_deal_detail(
 
 /// javascript.html `_p13DrawTrends`(15486-15493行) の週集合マージを移植。
 /// contact_weekly の週 ∪ MTG実施週。BTreeSet で昇順(=文字列昇順=時系列順)に揃える。
-fn merge_weekly_trend(contact: &[(String, u32, u32)], mtg_by_week: &HashMap<String, u32>) -> Vec<WeeklyContactPoint> {
+fn merge_weekly_trend(
+    contact: &[(String, u32, u32)],
+    mtg_by_week: &HashMap<String, u32>,
+) -> Vec<WeeklyContactPoint> {
     let mut weeks: BTreeSet<String> = BTreeSet::new();
     let mut contact_map: HashMap<&str, (u32, u32)> = HashMap::new();
     for (w, email, call) in contact {
@@ -741,7 +853,12 @@ fn merge_weekly_trend(contact: &[(String, u32, u32)], mtg_by_week: &HashMap<Stri
         .map(|w| {
             let (email_count, call_count) = contact_map.get(w.as_str()).copied().unwrap_or((0, 0));
             let mtg_count = mtg_by_week.get(&w).copied().unwrap_or(0);
-            WeeklyContactPoint { week_start: w, email_count, call_count, mtg_count }
+            WeeklyContactPoint {
+                week_start: w,
+                email_count,
+                call_count,
+                mtg_count,
+            }
         })
         .collect()
 }
@@ -752,13 +869,21 @@ pub fn build_nps_trend(data: &SheetData, row: &[Arc<str>]) -> Vec<NpsPoint> {
     let mut points: Vec<NpsPoint> = series
         .into_iter()
         .enumerate()
-        .filter_map(|(i, v)| v.map(|v| NpsPoint { label: period_label(i), nps: v }))
+        .filter_map(|(i, v)| {
+            v.map(|v| NpsPoint {
+                label: period_label(i),
+                nps: v,
+            })
+        })
         .collect();
 
     let latest_period = data.get(row, "latest_nps_period").trim();
     if latest_period == "満了時" {
         if let Some(v) = pf_opt(data.get(row, "latest_nps")) {
-            points.push(NpsPoint { label: "満了時".to_string(), nps: v });
+            points.push(NpsPoint {
+                label: "満了時".to_string(),
+                nps: v,
+            });
         }
     }
     points
@@ -772,16 +897,34 @@ mod tests {
     fn sheet(header: &[&str], rows: Vec<Vec<&str>>) -> SheetData {
         SheetData {
             header: header.iter().map(|s| s.to_string()).collect(),
-            rows: rows.into_iter().map(|r| r.into_iter().map(Arc::from).collect()).collect(),
+            rows: rows
+                .into_iter()
+                .map(|r| r.into_iter().map(Arc::from).collect())
+                .collect(),
             fetched_at: Instant::now(),
         }
     }
 
     const TIMELINE_HEADER: &[&str] = &[
-        "deal_id", "customer_label", "consultant_owner_id", "consultant_owner_name", "pipeline_label",
-        "stage_label", "meeting_id", "meeting_uuid", "zoom_meeting_id", "start_time", "topic",
-        "duration_min", "host_email", "summary_overview", "summary_details_json", "next_steps_json",
-        "zoom_url", "hubspot_meeting_id", "source",
+        "deal_id",
+        "customer_label",
+        "consultant_owner_id",
+        "consultant_owner_name",
+        "pipeline_label",
+        "stage_label",
+        "meeting_id",
+        "meeting_uuid",
+        "zoom_meeting_id",
+        "start_time",
+        "topic",
+        "duration_min",
+        "host_email",
+        "summary_overview",
+        "summary_details_json",
+        "next_steps_json",
+        "zoom_url",
+        "hubspot_meeting_id",
+        "source",
     ];
 
     fn tl_row(deal: &str, name: &str, start: &str, source: &str) -> Vec<&'static str> {
@@ -812,9 +955,16 @@ mod tests {
 
     #[test]
     fn 担当者名がid形式ならフェーズkpiにフォールバックする() {
-        assert_eq!(resolve_consultant_name("1867408508", Some("鶴見 亮介")), "鶴見 亮介");
+        assert_eq!(
+            resolve_consultant_name("1867408508", Some("鶴見 亮介")),
+            "鶴見 亮介"
+        );
         assert_eq!(resolve_consultant_name("", Some("鶴見 亮介")), "鶴見 亮介");
-        assert_eq!(resolve_consultant_name("山田太郎", Some("別の名前")), "山田太郎", "有効な名前があればそちらを優先");
+        assert_eq!(
+            resolve_consultant_name("山田太郎", Some("別の名前")),
+            "山田太郎",
+            "有効な名前があればそちらを優先"
+        );
         assert_eq!(resolve_consultant_name("", None), "（未設定）");
     }
 
@@ -832,7 +982,10 @@ mod tests {
         let (deals, skipped) = build_deal_index(&d, &HashMap::new());
         assert_eq!(skipped, 1);
         assert_eq!(deals.len(), 1);
-        assert_eq!(deals[0].meeting_count, 1, "host_email_match の1件はカウントしない");
+        assert_eq!(
+            deals[0].meeting_count, 1,
+            "host_email_match の1件はカウントしない"
+        );
     }
 
     #[test]
@@ -846,7 +999,10 @@ mod tests {
             ],
         );
         let (deals, _) = build_deal_index(&d, &HashMap::new());
-        assert_eq!(deals[0].latest_start_time.as_deref(), Some("2025-09-15T00:00:00Z"));
+        assert_eq!(
+            deals[0].latest_start_time.as_deref(),
+            Some("2025-09-15T00:00:00Z")
+        );
         assert_eq!(deals[0].meeting_count, 3);
     }
 
@@ -863,17 +1019,25 @@ mod tests {
         assert_eq!(trend[0].week_start, "2025-07-28", "昇順(時系列順)");
         assert_eq!(trend[1].email_count, 3);
         assert_eq!(trend[1].mtg_count, 2);
-        assert_eq!(trend[0].email_count, 0, "接触データが無い週は0(欠損を捏造しない)");
+        assert_eq!(
+            trend[0].email_count, 0,
+            "接触データが無い週は0(欠損を捏造しない)"
+        );
     }
 
     #[test]
     fn 同じ週集計を2回呼んでも並びが安定する() {
-        let contact = vec![("2025-08-04".to_string(), 1, 0), ("2025-07-28".to_string(), 2, 0)];
+        let contact = vec![
+            ("2025-08-04".to_string(), 1, 0),
+            ("2025-07-28".to_string(), 2, 0),
+        ];
         let mtg = HashMap::new();
         let a = merge_weekly_trend(&contact, &mtg);
         let b = merge_weekly_trend(&contact, &mtg);
-        assert_eq!(a.iter().map(|p| p.week_start.clone()).collect::<Vec<_>>(),
-                   b.iter().map(|p| p.week_start.clone()).collect::<Vec<_>>());
+        assert_eq!(
+            a.iter().map(|p| p.week_start.clone()).collect::<Vec<_>>(),
+            b.iter().map(|p| p.week_start.clone()).collect::<Vec<_>>()
+        );
     }
 
     // ---- 週開始日(JST月曜起点)変換 ----
@@ -881,31 +1045,46 @@ mod tests {
     #[test]
     fn jst換算で正しい月曜起点週になる() {
         // UTC 2025-08-01T00:58:19Z → JST 2025-08-01 09:58 (金曜) → その週の月曜は 2025-07-28
-        assert_eq!(week_start_jst("2025-08-01T00:58:19Z").as_deref(), Some("2025-07-28"));
+        assert_eq!(
+            week_start_jst("2025-08-01T00:58:19Z").as_deref(),
+            Some("2025-07-28")
+        );
     }
 
     #[test]
     fn utc深夜でjst日付が繰り上がるケース() {
         // UTC 2025-08-03T16:00:00Z (日曜) → JST +9h = 2025-08-04 01:00 (月曜) → 週開始は当日
-        assert_eq!(week_start_jst("2025-08-03T16:00:00Z").as_deref(), Some("2025-08-04"));
+        assert_eq!(
+            week_start_jst("2025-08-03T16:00:00Z").as_deref(),
+            Some("2025-08-04")
+        );
     }
 
     // ---- NPS推移: 欠番があってもラベルの通し番号がズレない ----
 
     #[test]
     fn nps欠番があってもラベル番号は元の位置を保つ() {
-        let d = sheet(&["nps_series_json", "latest_nps_period", "latest_nps"], vec![vec!["[5, null, 7]", "", ""]]);
+        let d = sheet(
+            &["nps_series_json", "latest_nps_period", "latest_nps"],
+            vec![vec!["[5, null, 7]", "", ""]],
+        );
         let row: Vec<Arc<str>> = vec![Arc::from("[5, null, 7]"), Arc::from(""), Arc::from("")];
         let trend = build_nps_trend(&d, &row);
         assert_eq!(trend.len(), 2, "null要素はスキップされるが件数は2件");
         assert_eq!(trend[0].label, "定期①");
-        assert_eq!(trend[1].label, "定期③", "2番目(index=1)はnullなので③にジャンプ");
+        assert_eq!(
+            trend[1].label, "定期③",
+            "2番目(index=1)はnullなので③にジャンプ"
+        );
     }
 
     #[test]
     fn 満了時npsは系列の末尾に付与される() {
         let row: Vec<Arc<str>> = vec![Arc::from("[5]"), Arc::from("満了時"), Arc::from("8")];
-        let d = sheet(&["nps_series_json", "latest_nps_period", "latest_nps"], vec![]);
+        let d = sheet(
+            &["nps_series_json", "latest_nps_period", "latest_nps"],
+            vec![],
+        );
         let trend = build_nps_trend(&d, &row);
         assert_eq!(trend.len(), 2);
         assert_eq!(trend[1].label, "満了時");
@@ -917,13 +1096,19 @@ mod tests {
     #[test]
     fn 三ヶ月前の日付を計算できる() {
         let today = NaiveDate::from_ymd_opt(2026, 8, 16).unwrap();
-        assert_eq!(months_ago(today, 3), NaiveDate::from_ymd_opt(2026, 5, 16).unwrap());
+        assert_eq!(
+            months_ago(today, 3),
+            NaiveDate::from_ymd_opt(2026, 5, 16).unwrap()
+        );
     }
 
     #[test]
     fn 年をまたぐ月数減算ができる() {
         let today = NaiveDate::from_ymd_opt(2026, 1, 10).unwrap();
-        assert_eq!(months_ago(today, 3), NaiveDate::from_ymd_opt(2025, 10, 10).unwrap());
+        assert_eq!(
+            months_ago(today, 3),
+            NaiveDate::from_ymd_opt(2025, 10, 10).unwrap()
+        );
     }
 
     // ---- MTGカードの信頼度分類 ----
@@ -942,7 +1127,10 @@ mod tests {
         let row_vals = tl_row("1", "山田", "2025-08-01T00:00:00Z", "hubspot_only");
         let d = sheet(header, vec![row_vals]);
         let card = build_meeting_card(&d, &d.rows[0]);
-        assert!(!card.has_summary, "AI Companion要約が無いhubspot_onlyはhas_summary=false");
+        assert!(
+            !card.has_summary,
+            "AI Companion要約が無いhubspot_onlyはhas_summary=false"
+        );
     }
 
     // ---- sort / period の不正値を無音で既定にしない（2026-08-17 追加） ----
@@ -962,7 +1150,10 @@ mod tests {
         // 動機になった `deals_status=NONSENSE`（絞ったつもりで全件）と同じ形。
         let (_, period, audit) = resolve_detail_query(&detail_q(None, Some("6M")));
         assert_eq!(period, "all", "既定値へ落とす挙動は変えない");
-        assert!(period_cutoff(period, Utc::now()).is_none(), "実際に絞られない");
+        assert!(
+            period_cutoff(period, Utc::now()).is_none(),
+            "実際に絞られない"
+        );
         let v = audit.into_vec();
         assert_eq!(v.len(), 1, "{v:?}");
         assert_eq!(v[0].param, "period");

@@ -68,8 +68,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 /// 追いかけ停止候補の表示上限。GAS 版と同じ 500 件。
 const CHASE_LIMIT: usize = 500;
@@ -471,7 +471,8 @@ fn not_implemented_list() -> Vec<NotImplemented> {
         },
         NotImplemented {
             name: "③ 経営方針ターゲット（保存・実績アラート）".into(),
-            reason: "HubSpot ライブ照会 + 保存先（GAS は PropertiesService）が Rust 側に無い".into(),
+            reason: "HubSpot ライブ照会 + 保存先（GAS は PropertiesService）が Rust 側に無い"
+                .into(),
         },
         NotImplemented {
             name: "条件ビルダーのプロパティ一覧・候補値".into(),
@@ -861,10 +862,9 @@ pub fn collect_stage_revisit(data: &SheetData, min_negative: f64) -> (StageRevis
             deals_truncated,
             deals_matched,
             min_negative_visits: min_negative,
-            definition:
-                "不通系ステージに規定回数以上戻り、かつ架電5回以上の案件を撤退候補とする。\
+            definition: "不通系ステージに規定回数以上戻り、かつ架電5回以上の案件を撤退候補とする。\
                  同じステージを何度も訪問＝現場の空回りの兆候。"
-                    .to_string(),
+                .to_string(),
         },
         matched,
     )
@@ -996,8 +996,7 @@ pub fn collect_segment(
     let cross_active = fi.is_some() || fs.is_some() || fp.is_some();
 
     // 次元 → 値 → [call, apo]。0=都道府県 / 1=業界 / 2=規模
-    let mut acc: [HashMap<String, [f64; 2]>; 3] =
-        [HashMap::new(), HashMap::new(), HashMap::new()];
+    let mut acc: [HashMap<String, [f64; 2]>; 3] = [HashMap::new(), HashMap::new(), HashMap::new()];
     let mut matched = 0usize;
 
     for row in &data.rows {
@@ -1334,7 +1333,9 @@ mod tests {
                 "600秒以上(商談相当)",
             ],
             vec![
-                vec!["全体", "全体", "2026-05", "", "", "0", "0", "0", "0", "0", "0"],
+                vec![
+                    "全体", "全体", "2026-05", "", "", "0", "0", "0", "0", "0", "0",
+                ],
                 vec![
                     "全体", "全体", "2026-06", "", "", "200", "100", "50", "30", "15", "5",
                 ],
@@ -1364,7 +1365,17 @@ mod tests {
                 "年月",
             ],
             vec![vec![
-                "all", "全期間", "源泉別 商談→成約", "BPO起点", "100", "0", "5", "40", "0", "", "",
+                "all",
+                "全期間",
+                "源泉別 商談→成約",
+                "BPO起点",
+                "100",
+                "0",
+                "5",
+                "40",
+                "0",
+                "",
+                "",
             ]],
         );
         let (r, _) = collect_bpo_contribution(&d, "all");
@@ -1380,9 +1391,15 @@ mod tests {
             Some(0.0),
             "分母100・分子0なので観測率は0%。null ではない"
         );
-        assert!(r.by_origin[0].immature, "観測できていない行は必ず旗を立てる");
+        assert!(
+            r.by_origin[0].immature,
+            "観測できていない行は必ず旗を立てる"
+        );
         assert!(r.has_immature_observation);
-        assert!(r.by_origin[0].bpo_contribution_rate.is_none(), "空欄を0にしない");
+        assert!(
+            r.by_origin[0].bpo_contribution_rate.is_none(),
+            "空欄を0にしない"
+        );
     }
 
     // ----------------------------------------------------------- 営業スコープ
@@ -1408,7 +1425,11 @@ mod tests {
         let (r, matched) = collect_segment(&d, &TargetQuery::default(), Some(&sales));
         assert_eq!(matched, 1);
         assert_eq!(r.by_prefecture[0].call_count, 1000.0);
-        assert_eq!(r.by_prefecture[0].apo_rate, Some(1.0), "混ぜると 0.19% に薄まる");
+        assert_eq!(
+            r.by_prefecture[0].apo_rate,
+            Some(1.0),
+            "混ぜると 0.19% に薄まる"
+        );
         assert!(r.scope_label.contains("営業"));
     }
 
@@ -1447,8 +1468,30 @@ mod tests {
                 "行動タイプ",
             ],
             vec![
-                vec!["1", "営業A", "sales", "500", "100", "5", "3", "20", "30", "標準型"],
-                vec!["2", "BPO B", "bpo", "9000", "300", "30", "9", "60", "10", "集中型"],
+                vec![
+                    "1",
+                    "営業A",
+                    "sales",
+                    "500",
+                    "100",
+                    "5",
+                    "3",
+                    "20",
+                    "30",
+                    "標準型",
+                ],
+                vec![
+                    "2",
+                    "BPO B",
+                    "bpo",
+                    "9000",
+                    "300",
+                    "30",
+                    "9",
+                    "60",
+                    "10",
+                    "集中型",
+                ],
             ],
         );
         let (r, matched) = collect_caller_behavior(&d, "sales", "総架電");
@@ -1456,7 +1499,10 @@ mod tests {
         assert_eq!(r.rows[0].name, "営業A");
         // 行動タイプの並びは固定
         assert_eq!(
-            r.type_counts.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+            r.type_counts
+                .iter()
+                .map(|(k, _)| k.as_str())
+                .collect::<Vec<_>>(),
             vec!["集中型", "標準型", "分散型"]
         );
         assert_eq!(r.type_counts[1].1, 1);
@@ -1620,7 +1666,10 @@ mod tests {
         );
         let (r, _) = collect_segment(&d, &TargetQuery::default(), None);
         assert_eq!(
-            r.by_industry.iter().map(|x| x.value.as_str()).collect::<Vec<_>>(),
+            r.by_industry
+                .iter()
+                .map(|x| x.value.as_str())
+                .collect::<Vec<_>>(),
             vec!["E 製造業"],
             "「一」は業界ではなく欠損"
         );
@@ -1648,7 +1697,10 @@ mod tests {
         );
         let (r, _) = collect_segment(&d, &TargetQuery::default(), None);
         assert_eq!(
-            r.by_prefecture.iter().map(|x| x.value.as_str()).collect::<Vec<_>>(),
+            r.by_prefecture
+                .iter()
+                .map(|x| x.value.as_str())
+                .collect::<Vec<_>>(),
             vec!["東京都"],
             "架電100件未満は率が不安定なので順位に出さない"
         );
@@ -1749,7 +1801,10 @@ mod tests {
         let (b, matched) = collect_field_close_rate(&d, "6m");
         assert_eq!(matched, 1);
         assert_eq!(b.overall.as_ref().unwrap().close_rate, Some(5.0));
-        assert_eq!(b.available_ranges, vec!["6m".to_string(), "all".to_string()]);
+        assert_eq!(
+            b.available_ranges,
+            vec!["6m".to_string(), "all".to_string()]
+        );
     }
 
     // ---- sort_by の不正値（2026-08-17 追加） ----
@@ -1760,11 +1815,43 @@ mod tests {
         // 片方だけ増やすと、増やした列が「解釈できない値」として報告されてしまう。
         // 実際に並び順が変わることで一致を確かめる。
         let d = sheet(
-            &["role", "owner_id", "name", "総架電", "ユニーク先(Deal数)", "1Deal平均架電",
-              "HHI*100(集中度)", "Top10集中率%", "90秒以上率%", "行動タイプ"],
+            &[
+                "role",
+                "owner_id",
+                "name",
+                "総架電",
+                "ユニーク先(Deal数)",
+                "1Deal平均架電",
+                "HHI*100(集中度)",
+                "Top10集中率%",
+                "90秒以上率%",
+                "行動タイプ",
+            ],
             vec![
-                vec!["sales", "1", "A", "10", "5", "2", "90", "80", "70", "集中型"],
-                vec!["sales", "2", "B", "20", "1", "1", "10", "20", "30", "分散型"],
+                vec![
+                    "sales",
+                    "1",
+                    "A",
+                    "10",
+                    "5",
+                    "2",
+                    "90",
+                    "80",
+                    "70",
+                    "集中型",
+                ],
+                vec![
+                    "sales",
+                    "2",
+                    "B",
+                    "20",
+                    "1",
+                    "1",
+                    "10",
+                    "20",
+                    "30",
+                    "分散型",
+                ],
             ],
         );
         // 総架電なら B が先、それ以外のキーでは A が先になるデータにしてある
@@ -1786,7 +1873,12 @@ mod tests {
             "sort_by",
             Some("NONSENSE"),
             &CALLER_SORT_KEYS.join(" | "),
-            |v| CALLER_SORT_KEYS.iter().find(|k| **k == v.trim()).map(|k| (*k).to_string()),
+            |v| {
+                CALLER_SORT_KEYS
+                    .iter()
+                    .find(|k| **k == v.trim())
+                    .map(|k| (*k).to_string())
+            },
             || ("総架電".to_string(), "総架電".to_string()),
         );
         assert_eq!(used, "総架電");
@@ -1800,7 +1892,12 @@ mod tests {
             "sort_by",
             Some("HHI*100(集中度)"),
             &CALLER_SORT_KEYS.join(" | "),
-            |v| CALLER_SORT_KEYS.iter().find(|k| **k == v.trim()).map(|k| (*k).to_string()),
+            |v| {
+                CALLER_SORT_KEYS
+                    .iter()
+                    .find(|k| **k == v.trim())
+                    .map(|k| (*k).to_string())
+            },
             || ("総架電".to_string(), "総架電".to_string()),
         );
         assert!(a.is_empty());
