@@ -58,8 +58,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 // ---------------------------------------------------------------- シート名
 
@@ -276,7 +276,12 @@ pub fn build_data_quality(d: &SheetData) -> Vec<DataQualityRow> {
             let value = d.get(row, "値").to_string();
             let memo = d.get(row, "メモ").to_string();
             let bad = bad_dq_value(&item, &value);
-            DataQualityRow { item, value, memo, bad }
+            DataQualityRow {
+                item,
+                value,
+                memo,
+                bad,
+            }
         })
         .collect()
 }
@@ -604,8 +609,17 @@ mod tests {
     }
 
     const CALLER_HEADER: [&str; 11] = [
-        "担当者", "内線", "年月", "架電数", "通話時間h", "通話90秒以上率", "通話90秒以上数",
-        "通話360秒以上率", "通話360秒以上数", "アポ数", "アポ率",
+        "担当者",
+        "内線",
+        "年月",
+        "架電数",
+        "通話時間h",
+        "通話90秒以上率",
+        "通話90秒以上数",
+        "通話360秒以上率",
+        "通話360秒以上数",
+        "アポ数",
+        "アポ率",
     ];
 
     #[test]
@@ -614,11 +628,26 @@ mod tests {
         // シート上の「アポ率」列は "0" だが、ここでは件数から re-compute するので None。
         let d = sheet(
             &CALLER_HEADER,
-            &[&["久保 寿代", "957", "2026-01", "0", "0", "0", "0", "0", "0", "17", "0"]],
+            &[&[
+                "久保 寿代",
+                "957",
+                "2026-01",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "0",
+                "17",
+                "0",
+            ]],
         );
         let panel = build_monthly_kpi(&d, "2026-08");
         assert_eq!(panel.rows.len(), 1);
-        assert_eq!(panel.rows[0].apo_rate, None, "分母(架電)0はNone。シート列の\"0\"を信じない");
+        assert_eq!(
+            panel.rows[0].apo_rate, None,
+            "分母(架電)0はNone。シート列の\"0\"を信じない"
+        );
         assert_eq!(panel.rows[0].apo_count, 17.0, "アポ件数自体は消さない");
 
         let ind = build_individual(&d, "2026-01");
@@ -633,20 +662,42 @@ mod tests {
         let d = sheet(
             &CALLER_HEADER,
             &[
-                &["担当A", "100", "2026-06", "300", "10", "30", "90", "5", "15", "10", "3.3"],
-                &["担当B", "101", "2026-06", "300", "10", "30", "90", "5", "15", "10", "3.3"],
-                &["担当C(BPO)", "102", "2026-06", "300", "10", "30", "90", "5", "15", "10", "3.3"],
+                &[
+                    "担当A", "100", "2026-06", "300", "10", "30", "90", "5", "15", "10", "3.3",
+                ],
+                &[
+                    "担当B", "101", "2026-06", "300", "10", "30", "90", "5", "15", "10", "3.3",
+                ],
+                &[
+                    "担当C(BPO)",
+                    "102",
+                    "2026-06",
+                    "300",
+                    "10",
+                    "30",
+                    "90",
+                    "5",
+                    "15",
+                    "10",
+                    "3.3",
+                ],
             ],
         );
         let ind = build_individual(&d, "2026-06");
-        assert_eq!(ind.rows.len(), 3, "BPO担当者は全員残る(営業ロースターとの突合はしない)");
+        assert_eq!(
+            ind.rows.len(),
+            3,
+            "BPO担当者は全員残る(営業ロースターとの突合はしない)"
+        );
     }
 
     #[test]
     fn 架電数200未満は参考フラグが立つ() {
         let d = sheet(
             &CALLER_HEADER,
-            &[&["少数", "100", "2026-06", "150", "5", "10", "15", "2", "3", "2", "1.3"]],
+            &[&[
+                "少数", "100", "2026-06", "150", "5", "10", "15", "2", "3", "2", "1.3",
+            ]],
         );
         let ind = build_individual(&d, "2026-06");
         assert!(ind.rows[0].thin, "架電数200未満はthin");
@@ -657,12 +708,20 @@ mod tests {
         let d = sheet(
             &CALLER_HEADER,
             &[
-                &["A", "100", "2026-05", "500", "10", "30", "150", "5", "25", "5", "1.0"],
-                &["A", "100", "2026-06", "100", "2", "6", "6", "1", "1", "1", "1.0"],
+                &[
+                    "A", "100", "2026-05", "500", "10", "30", "150", "5", "25", "5", "1.0",
+                ],
+                &[
+                    "A", "100", "2026-06", "100", "2", "6", "6", "1", "1", "1", "1.0",
+                ],
             ],
         );
         let panel = build_monthly_kpi(&d, "2026-06");
-        let jun = panel.rows.iter().find(|r| r.year_month == "2026-06").unwrap();
+        let jun = panel
+            .rows
+            .iter()
+            .find(|r| r.year_month == "2026-06")
+            .unwrap();
         assert!(jun.is_partial);
         assert_eq!(panel.latest_complete_month, "2026-05", "当月を除いた直近月");
     }
@@ -670,48 +729,110 @@ mod tests {
     #[test]
     fn na要フォロー以外は集計対象外() {
         let na = sheet(
-            &["displayOrder", "ステージ", "区分", "件数", "次回架電日設定率%", "未設定数", "期限超過数"],
+            &[
+                "displayOrder",
+                "ステージ",
+                "区分",
+                "件数",
+                "次回架電日設定率%",
+                "未設定数",
+                "期限超過数",
+            ],
             &[
                 &["-1", "計測日: 2026-06-10", "週次/手動更新", "", "", "", ""],
-                &["0", "未済", "対象外(次回日不要)", "4251", "1.6", "4181", "14"],
+                &[
+                    "0",
+                    "未済",
+                    "対象外(次回日不要)",
+                    "4251",
+                    "1.6",
+                    "4181",
+                    "14",
+                ],
                 &["3", "不在", "要フォロー", "3364", "70.8", "982", "375"],
             ],
         );
-        let detail = sheet(&["経過日数", "ステージ", "取引名", "次回予定日", "最終架電日", "電話"], &[]);
+        let detail = sheet(
+            &[
+                "経過日数",
+                "ステージ",
+                "取引名",
+                "次回予定日",
+                "最終架電日",
+                "電話",
+            ],
+            &[],
+        );
         let panel = build_na_health(&na, &detail);
-        assert_eq!(panel.stages.len(), 1, "対象外(次回日不要)は要フォロー集計に含めない");
+        assert_eq!(
+            panel.stages.len(),
+            1,
+            "対象外(次回日不要)は要フォロー集計に含めない"
+        );
         assert_eq!(panel.open_follow_count, 3364.0);
-        assert_eq!(panel.measured_at_note.as_deref(), Some("計測日: 2026-06-10"));
+        assert_eq!(
+            panel.measured_at_note.as_deref(),
+            Some("計測日: 2026-06-10")
+        );
     }
 
     #[test]
     fn na明細は経過日数降順で安定ソートされる() {
         let na = sheet(
-            &["displayOrder", "ステージ", "区分", "件数", "次回架電日設定率%", "未設定数", "期限超過数"],
+            &[
+                "displayOrder",
+                "ステージ",
+                "区分",
+                "件数",
+                "次回架電日設定率%",
+                "未設定数",
+                "期限超過数",
+            ],
             &[],
         );
         let detail = sheet(
-            &["経過日数", "ステージ", "取引名", "次回予定日", "最終架電日", "電話"],
+            &[
+                "経過日数",
+                "ステージ",
+                "取引名",
+                "次回予定日",
+                "最終架電日",
+                "電話",
+            ],
             &[
                 &["5", "不在", "A社", "2026-06-01", "2026-05-20", "090-1"],
                 &["20", "不在", "B社", "2026-05-10", "2026-04-20", "090-2"],
             ],
         );
         let panel = build_na_health(&na, &detail);
-        assert_eq!(panel.details[0].deal_name, "B社", "経過日数が大きい方(=再架電すべき先)が先頭");
+        assert_eq!(
+            panel.details[0].deal_name, "B社",
+            "経過日数が大きい方(=再架電すべき先)が先頭"
+        );
     }
 
     #[test]
     fn ヒートマップは分母0でnone_少数はthin() {
         let d = sheet(
-            &["weekday", "hour", "dial_count", "dur_ge_30", "dur_ge_90", "dur_ge_360", "apo_count"],
+            &[
+                "weekday",
+                "hour",
+                "dial_count",
+                "dur_ge_30",
+                "dur_ge_90",
+                "dur_ge_360",
+                "apo_count",
+            ],
             &[
                 &["0", "10", "0", "0", "0", "0", "0"],
                 &["1", "11", "50", "20", "10", "2", "1"],
             ],
         );
         let panel = build_heatmap(&d);
-        assert_eq!(panel.cells[0].dur_ge_30_rate, None, "架電0のセルはNone(0%と誤読させない)");
+        assert_eq!(
+            panel.cells[0].dur_ge_30_rate, None,
+            "架電0のセルはNone(0%と誤読させない)"
+        );
         assert!(panel.cells[1].thin, "架電50件は100未満なのでthin");
         assert_eq!(panel.total_dial, 50.0);
     }
@@ -741,8 +862,12 @@ mod tests {
         let d = sheet(
             &CALLER_HEADER,
             &[
-                &["A", "100", "2026-07", "500", "10", "30", "150", "5", "25", "5", "1.0"],
-                &["A", "100", "2026-08", "100", "2", "6", "6", "1", "1", "1", "1.0"],
+                &[
+                    "A", "100", "2026-07", "500", "10", "30", "150", "5", "25", "5", "1.0",
+                ],
+                &[
+                    "A", "100", "2026-08", "100", "2", "6", "6", "1", "1", "1", "1.0",
+                ],
             ],
         );
 
@@ -760,7 +885,10 @@ mod tests {
         let mut a = ValueAudit::new();
         let ym = a.year_month("today_ym", Some("zzzz"), || "2026-08".to_string());
         let fixed = build_monthly_kpi(&d, &ym);
-        assert!(fixed.rows.iter().any(|r| r.is_partial), "当月に is_partial が立つ");
+        assert!(
+            fixed.rows.iter().any(|r| r.is_partial),
+            "当月に is_partial が立つ"
+        );
         assert_eq!(fixed.latest_complete_month, "2026-07", "確定月は前月");
         let v = a.into_vec();
         assert_eq!(v.len(), 1);

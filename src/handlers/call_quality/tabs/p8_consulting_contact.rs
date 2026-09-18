@@ -86,8 +86,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 use super::{rate, SourceInfo, TabPayload};
 
@@ -1420,7 +1420,12 @@ impl P8Query {
             &BenchSortKey::expected(),
             BenchSortKey::parse,
             // 既定は「解約率の低い順」（GAS `_p8BenchSort = {key:'churn_rate', dir:1}`）
-            || (BenchSortKey::ChurnRate, BenchSortKey::ChurnRate.as_str().to_string()),
+            || {
+                (
+                    BenchSortKey::ChurnRate,
+                    BenchSortKey::ChurnRate.as_str().to_string(),
+                )
+            },
         );
         // 既定の向きは**列によって変わる**（名前と解約率は昇順、それ以外は降順）。
         // なので「何に落としたか」も列に依存する。
@@ -1506,7 +1511,12 @@ pub async fn handle(
     let excluded = load_excluded(client, store).await;
 
     let mut audit = ValueAudit::new();
-    let bench_panel = build_bench(&bench, &bench_monthly, &bench_meta, &q.sort_state(&mut audit));
+    let bench_panel = build_bench(
+        &bench,
+        &bench_monthly,
+        &bench_meta,
+        &q.sort_state(&mut audit),
+    );
     let contrib_panel = build_contribution(&contrib, &contrib_dist, &contrib_meta);
     let no_call_panel = build_no_call(&weekly, &excluded);
     let activity_panel = build_activity(&activity);
@@ -1519,11 +1529,7 @@ pub async fn handle(
         SHEET_CONTRIB_DIST,
         contrib_panel.scatter.total_points,
     );
-    set_matched(
-        &mut sources,
-        SHEET_BENCH_MONTHLY,
-        bench_panel.monthly.len(),
-    );
+    set_matched(&mut sources, SHEET_BENCH_MONTHLY, bench_panel.monthly.len());
 
     Ok(TabPayload {
         data: P8Data {
@@ -1884,10 +1890,49 @@ mod tests {
                 "total_count",
             ],
             &[
-                &["1", "A社", "鶴見", "リクロジ_納品管理", "定期1", "2026-07", "5", "1", "0", "0", "0", "6"],
+                &[
+                    "1",
+                    "A社",
+                    "鶴見",
+                    "リクロジ_納品管理",
+                    "定期1",
+                    "2026-07",
+                    "5",
+                    "1",
+                    "0",
+                    "0",
+                    "0",
+                    "6",
+                ],
                 // 直近月。Email は多いが Call が少ない → 上位に来てはいけない
-                &["1", "A社", "鶴見", "リクロジ_納品管理", "定期1", "2026-08", "2", "30", "1", "0", "0", "33"],
-                &["2", "B社", "永田", "リクロジ_納品管理", "定期2", "2026-08", "9", "0", "0", "1", "0", "10"],
+                &[
+                    "1",
+                    "A社",
+                    "鶴見",
+                    "リクロジ_納品管理",
+                    "定期1",
+                    "2026-08",
+                    "2",
+                    "30",
+                    "1",
+                    "0",
+                    "0",
+                    "33",
+                ],
+                &[
+                    "2",
+                    "B社",
+                    "永田",
+                    "リクロジ_納品管理",
+                    "定期2",
+                    "2026-08",
+                    "9",
+                    "0",
+                    "0",
+                    "1",
+                    "0",
+                    "10",
+                ],
                 &["3", "", "", "", "", "2026-08", "4", "2", "0", "0", "2", "8"],
             ],
         )
@@ -2015,9 +2060,13 @@ mod tests {
 
     // ---- 並び替えの不正値を無音で既定にしない（2026-08-17 追加） ----
 
-    fn sort_inv(key: Option<&str>, dir: Option<&str>)
-        -> (BenchSortState, Vec<crate::handlers::call_quality::query_audit::InvalidValue>)
-    {
+    fn sort_inv(
+        key: Option<&str>,
+        dir: Option<&str>,
+    ) -> (
+        BenchSortState,
+        Vec<crate::handlers::call_quality::query_audit::InvalidValue>,
+    ) {
         let q = P8Query {
             bench_sort_key: key.map(str::to_string),
             bench_sort_dir: dir.map(str::to_string),
@@ -2031,7 +2080,11 @@ mod tests {
     fn bench_sort_keyの不正値はchurn_rateに落ちたことを応答に出す() {
         // 実測 `?bench_sort_key=NONSENSE` は警告なしに解約率順になっていた。
         let (st, v) = sort_inv(Some("NONSENSE"), None);
-        assert_eq!(st.key, BenchSortKey::ChurnRate, "既定値へ落とす挙動は変えない");
+        assert_eq!(
+            st.key,
+            BenchSortKey::ChurnRate,
+            "既定値へ落とす挙動は変えない"
+        );
         assert_eq!(v.len(), 1, "{v:?}");
         assert_eq!(v[0].param, "bench_sort_key");
         assert_eq!(v[0].used.as_deref(), Some("churn_rate"));
@@ -2051,7 +2104,10 @@ mod tests {
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].param, "bench_sort_dir");
         let used = v[0].used.clone().unwrap();
-        assert!(used.contains("asc") && used.contains("churn_rate"), "{used}");
+        assert!(
+            used.contains("asc") && used.contains("churn_rate"),
+            "{used}"
+        );
 
         // 列が変われば落ちる先も変わる
         let (st, v) = sort_inv(Some("n_cohort"), Some("sideways"));
@@ -2102,7 +2158,11 @@ mod tests {
         // 足した列が「解釈できない値」として報告されてしまう。
         let e = BenchSortKey::expected();
         for k in BenchSortKey::all() {
-            assert!(e.contains(k.as_str()), "{} が expected に無い: {e}", k.as_str());
+            assert!(
+                e.contains(k.as_str()),
+                "{} が expected に無い: {e}",
+                k.as_str()
+            );
         }
     }
 }

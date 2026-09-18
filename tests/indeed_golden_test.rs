@@ -64,14 +64,42 @@ fn test_trend_matches_js_golden() {
         // 当てはめられるかどうかが一致すること
         let js_fit = &case["fit"];
         if js_fit.is_null() {
-            assert!(fit.is_none(), "{name}: JS は当てはめないが Rust は当てはめた");
+            assert!(
+                fit.is_none(),
+                "{name}: JS は当てはめないが Rust は当てはめた"
+            );
         } else {
-            let f = fit.as_ref().unwrap_or_else(|| panic!("{name}: Rust だけ当てはまらない"));
-            close(f.slope_pct, js_fit["slopePct"].as_f64().unwrap(), 1e-9, &format!("{name} 毎月"));
-            close(f.total_pct, js_fit["totalPct"].as_f64().unwrap(), 1e-9, &format!("{name} 期間全体"));
-            close(f.scatter_pct, js_fit["scatterPct"].as_f64().unwrap(), 1e-9, &format!("{name} 上下"));
-            assert_eq!(f.level.as_str(), js_fit["level"].as_str().unwrap(), "{name} 判定");
-            assert_eq!(f.steady, js_fit["steady"].as_bool().unwrap(), "{name} 一本調子");
+            let f = fit
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name}: Rust だけ当てはまらない"));
+            close(
+                f.slope_pct,
+                js_fit["slopePct"].as_f64().unwrap(),
+                1e-9,
+                &format!("{name} 毎月"),
+            );
+            close(
+                f.total_pct,
+                js_fit["totalPct"].as_f64().unwrap(),
+                1e-9,
+                &format!("{name} 期間全体"),
+            );
+            close(
+                f.scatter_pct,
+                js_fit["scatterPct"].as_f64().unwrap(),
+                1e-9,
+                &format!("{name} 上下"),
+            );
+            assert_eq!(
+                f.level.as_str(),
+                js_fit["level"].as_str().unwrap(),
+                "{name} 判定"
+            );
+            assert_eq!(
+                f.steady,
+                js_fit["steady"].as_bool().unwrap(),
+                "{name} 一本調子"
+            );
             assert_eq!(f.n, js_fit["n"].as_u64().unwrap() as usize, "{name} 点の数");
 
             let js_out = js_fit["outliers"].as_array().unwrap();
@@ -102,7 +130,11 @@ fn test_trend_matches_js_golden() {
             case["short"].as_str().unwrap(),
             "{name} の一覧の一文"
         );
-        let m = if input.len() == ms.len() { Some(&ms[..]) } else { None };
+        let m = if input.len() == ms.len() {
+            Some(&ms[..])
+        } else {
+            None
+        };
         assert_eq!(
             describe_trend(fit.as_ref(), "求人数", m),
             case["describe"].as_str().unwrap(),
@@ -120,7 +152,11 @@ fn test_golden_has_compare_months() {
     assert!(c["now"].as_str().is_some(), "対象月が無い");
     assert!(c["prev"].as_str().is_some(), "先月が無い");
     let ms = months(&g);
-    assert_eq!(ms.last().unwrap(), c["now"].as_str().unwrap(), "対象月が月の並びの末尾と違う");
+    assert_eq!(
+        ms.last().unwrap(),
+        c["now"].as_str().unwrap(),
+        "対象月が月の並びの末尾と違う"
+    );
 }
 
 #[test]

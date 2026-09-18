@@ -520,10 +520,6 @@ pub fn term_monthly(db: &LocalDb, title: &str) -> Result<(Vec<String>, Vec<TermS
         })
         .collect();
     // 直近のシェアが大きい順。画面では上から数本だけ出す
-    out.sort_by(|a, b| {
-        b.latest
-            .unwrap_or(0.0)
-            .total_cmp(&a.latest.unwrap_or(0.0))
-    });
+    out.sort_by(|a, b| b.latest.unwrap_or(0.0).total_cmp(&a.latest.unwrap_or(0.0)));
     Ok((months, out))
 }

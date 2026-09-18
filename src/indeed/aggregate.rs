@@ -156,7 +156,12 @@ const BREAKDOWN_FLOOR: f64 = 3.0;
 /// 両端 3 か月ずつの平均で変化率を出す。端の 1 か月のぶれに引きずられないため。
 fn ends_change(v: &[Option<f64>]) -> Option<f64> {
     const K: usize = 3;
-    let x: Vec<f64> = v.iter().flatten().copied().filter(|n| n.is_finite()).collect();
+    let x: Vec<f64> = v
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|n| n.is_finite())
+        .collect();
     if x.len() < K * 2 {
         return None;
     }
@@ -550,8 +555,12 @@ mod tests {
     /// 6 か月ぶんの並びを作る。前半 3 か月が `from`、後半 3 か月が `to`。
     fn 並び(from: f64, to: f64) -> Vec<Option<f64>> {
         vec![
-            Some(from), Some(from), Some(from),
-            Some(to), Some(to), Some(to),
+            Some(from),
+            Some(from),
+            Some(from),
+            Some(to),
+            Some(to),
+            Some(to),
         ]
     }
 
@@ -562,11 +571,14 @@ mod tests {
     /// 割合で見れば 8% しか会社ぶんが無いことが分かる。
     #[test]
     fn 符号が同じでも中身は違う() {
-        let b = growth_breakdown(&並び(100.0, 138.3), &並び(100.0, 102.6))
-            .expect("分解できるはず");
+        let b = growth_breakdown(&並び(100.0, 138.3), &並び(100.0, 102.6)).expect("分解できるはず");
         assert!(b.job_pct > 38.0 && b.job_pct < 38.6, "求人 {}", b.job_pct);
         assert!(b.emp_pct > 2.5 && b.emp_pct < 2.7, "企業 {}", b.emp_pct);
-        assert!(b.per_pct > 34.0 && b.per_pct < 35.5, "1 社あたり {}", b.per_pct);
+        assert!(
+            b.per_pct > 34.0 && b.per_pct < 35.5,
+            "1 社あたり {}",
+            b.per_pct
+        );
         assert!(
             b.emp_share < 15.0,
             "会社ぶんの割合が {:.0}% と出た。符号だけ見て「新規参入」と読むのが誤り",
@@ -575,10 +587,12 @@ mod tests {
         assert_eq!(b.reading(), "いまいる会社が本数を増やしたぶんが大きいです");
 
         // 逆に、伸びがほぼ全部が会社ぶんのケース（営業: 求人 +19.9 / 企業 +19.1）
-        let c = growth_breakdown(&並び(100.0, 119.9), &並び(100.0, 119.1))
-            .expect("分解できるはず");
+        let c = growth_breakdown(&並び(100.0, 119.9), &並び(100.0, 119.1)).expect("分解できるはず");
         assert!(c.emp_share > 90.0, "会社ぶんの割合 {:.0}%", c.emp_share);
-        assert_eq!(c.reading(), "新しく募集を始めた会社が増えたぶんが大きいです");
+        assert_eq!(
+            c.reading(),
+            "新しく募集を始めた会社が増えたぶんが大きいです"
+        );
     }
 
     /// 求人がほとんど動いていない職種は分解しない。
@@ -601,19 +615,24 @@ mod tests {
     #[test]
     fn 逆を向いたら割合は範囲の外に出る() {
         // 会社は減ったのに求人は増えた（フォークリフト: 求人 +4.5 / 企業 -4.2）
-        let a = growth_breakdown(&並び(100.0, 104.5), &並び(100.0, 95.8))
-            .expect("分解できるはず");
-        assert!(a.emp_share < 0.0, "割合 {:.0}% が負になっていない", a.emp_share);
+        let a = growth_breakdown(&並び(100.0, 104.5), &並び(100.0, 95.8)).expect("分解できるはず");
+        assert!(
+            a.emp_share < 0.0,
+            "割合 {:.0}% が負になっていない",
+            a.emp_share
+        );
         assert_eq!(
             a.reading(),
             "会社の数は減りましたが、いまいる会社が本数を増やして押し上げました"
         );
 
         // 会社は増えたのに 1 社あたりは減った（調理スタッフ: 求人 +11.5 / 企業 +11.9）
-        let b = growth_breakdown(&並び(100.0, 111.5), &並び(100.0, 111.9))
-            .expect("分解できるはず");
+        let b = growth_breakdown(&並び(100.0, 111.5), &並び(100.0, 111.9)).expect("分解できるはず");
         assert!(b.emp_share > 100.0, "割合 {:.0}%", b.emp_share);
-        assert_eq!(b.reading(), "会社は増えましたが、1 社あたりの本数はむしろ減りました");
+        assert_eq!(
+            b.reading(),
+            "会社は増えましたが、1 社あたりの本数はむしろ減りました"
+        );
     }
 
     /// 先月比・前年同月比は「素の比」で、欠測をずらして代用しない。

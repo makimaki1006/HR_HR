@@ -14,6 +14,6 @@
 
 pub mod heatmap;
 pub mod query_audit;
-pub mod tabs;
 pub mod routes;
 pub mod sheets;
+pub mod tabs;

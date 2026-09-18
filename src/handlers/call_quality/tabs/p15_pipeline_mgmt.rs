@@ -44,8 +44,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 // ---------------------------------------------------------------- シート名
 
@@ -134,7 +134,11 @@ impl ActionPriority {
 /// GAS 初期チェック状態(immediate/high/medium はチェック済、watchは未チェック)。
 /// パラメータ省略時の既定値として使う(ファイル冒頭「意図的に違えた点」を参照)。
 fn default_priorities() -> Vec<ActionPriority> {
-    vec![ActionPriority::Immediate, ActionPriority::High, ActionPriority::Medium]
+    vec![
+        ActionPriority::Immediate,
+        ActionPriority::High,
+        ActionPriority::Medium,
+    ]
 }
 
 /// `priority` が受け付ける値。
@@ -331,7 +335,10 @@ fn build_matrix(monthly: &SheetData, summary: &SheetData) -> (Vec<MatrixRow>, Ve
             let cells = yms
                 .iter()
                 .map(|ym| {
-                    let (h, e, hr) = cell_map.get(&(cid.clone(), ym.clone())).copied().unwrap_or((0.0, 0.0, 0.0));
+                    let (h, e, hr) = cell_map
+                        .get(&(cid.clone(), ym.clone()))
+                        .copied()
+                        .unwrap_or((0.0, 0.0, 0.0));
                     MatrixCell {
                         year_month: ym.clone(),
                         holding_count: h,
@@ -343,7 +350,11 @@ fn build_matrix(monthly: &SheetData, summary: &SheetData) -> (Vec<MatrixRow>, Ve
             MatrixRow {
                 consultant_name: {
                     let n = summary.get(r, "consultant_name").trim();
-                    if n.is_empty() { cid.clone() } else { n.to_string() }
+                    if n.is_empty() {
+                        cid.clone()
+                    } else {
+                        n.to_string()
+                    }
                 },
                 cells,
                 total_expiring_6m: num(summary.get(r, "total_expiring_6m")),
@@ -404,7 +415,11 @@ pub struct DealsTable {
 /// churn_proba_90d,risk_level,latest_nps,latest_sufficiency,action_priority)から、
 /// (任意で)担当者 + 優先度で絞り込み、優先度→満了日昇順でソートして上位100件を返す
 /// (GAS `_p15DrawDealsTable` と同じ仕様)。
-fn build_deals(d: &SheetData, consultant_id: Option<&str>, priorities: &[ActionPriority]) -> DealsTable {
+fn build_deals(
+    d: &SheetData,
+    consultant_id: Option<&str>,
+    priorities: &[ActionPriority],
+) -> DealsTable {
     let mut filtered: Vec<&Vec<Arc<str>>> = d
         .rows
         .iter()
@@ -425,7 +440,8 @@ fn build_deals(d: &SheetData, consultant_id: Option<&str>, priorities: &[ActionP
         if pa != pb {
             return pa.cmp(&pb);
         }
-        d.get(a, "contract_expiration_date").cmp(d.get(b, "contract_expiration_date"))
+        d.get(a, "contract_expiration_date")
+            .cmp(d.get(b, "contract_expiration_date"))
     });
 
     let total_rows = filtered.len();
@@ -440,7 +456,11 @@ fn build_deals(d: &SheetData, consultant_id: Option<&str>, priorities: &[ActionP
                 consultant_id: d.get(r, "consultant_id").to_string(),
                 consultant_name: {
                     let n = d.get(r, "consultant_name").trim();
-                    if n.is_empty() { "-".to_string() } else { n.to_string() }
+                    if n.is_empty() {
+                        "-".to_string()
+                    } else {
+                        n.to_string()
+                    }
                 },
                 label,
                 prefecture: d.get(r, "prefecture").to_string(),
@@ -462,7 +482,12 @@ fn build_deals(d: &SheetData, consultant_id: Option<&str>, priorities: &[ActionP
         })
         .collect();
 
-    DealsTable { rows, total_rows, truncated, limit: DEALS_LIMIT }
+    DealsTable {
+        rows,
+        total_rows,
+        truncated,
+        limit: DEALS_LIMIT,
+    }
 }
 
 // ============================================================ KPIスコアカード
@@ -484,7 +509,12 @@ pub struct SummaryCards {
 /// `immediate_count`/`high_count` は**優先度フィルタを適用する前**の全件から数える
 /// （チェックボックスで隠しても実数が変わって見えると誤解を招くため。GAS も同様に
 /// `deals` = `_p15GetDeals(P15_SELECTED)` を使い、優先度チェックボックスの影響を受けない）。
-fn build_summary(monthly: &[MonthlyPoint], summary: &SheetData, deals: &SheetData, consultant_id: Option<&str>) -> SummaryCards {
+fn build_summary(
+    monthly: &[MonthlyPoint],
+    summary: &SheetData,
+    deals: &SheetData,
+    consultant_id: Option<&str>,
+) -> SummaryCards {
     let total_holding = match consultant_id {
         Some(cid) => summary
             .rows
@@ -492,7 +522,11 @@ fn build_summary(monthly: &[MonthlyPoint], summary: &SheetData, deals: &SheetDat
             .find(|r| summary.get(r, "consultant_id") == cid)
             .map(|r| num(summary.get(r, "total_holding")))
             .unwrap_or(0.0),
-        None => summary.rows.iter().map(|r| num(summary.get(r, "total_holding"))).sum(),
+        None => summary
+            .rows
+            .iter()
+            .map(|r| num(summary.get(r, "total_holding")))
+            .sum(),
     };
 
     let total_exp: f64 = monthly.iter().map(|m| m.expiring_count).sum();
@@ -577,7 +611,12 @@ pub struct P15Data {
     pub priority_filter: Vec<&'static str>,
 }
 
-async fn load(client: &SheetsClient, store: &SheetStore, name: &str, sources: &mut Vec<SourceInfo>) -> Result<Arc<SheetData>> {
+async fn load(
+    client: &SheetsClient,
+    store: &SheetStore,
+    name: &str,
+    sources: &mut Vec<SourceInfo>,
+) -> Result<Arc<SheetData>> {
     let (d, from_cache) = store.get(client, name).await?;
     sources.push(SourceInfo {
         sheet: name.to_string(),
@@ -597,7 +636,11 @@ fn set_matched(sources: &mut [SourceInfo], sheet: &str, n: usize) {
 
 /// ハンドラ本体。3シートを読み、KPIカード/月別チャート/Revenue at Riskチャート/
 /// (全担当者ビューのみ)マトリクス/アクション必要Deal一覧を組んで返す。
-pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P15Query) -> Result<TabPayload<P15Data>> {
+pub async fn handle(
+    client: &SheetsClient,
+    store: &SheetStore,
+    q: P15Query,
+) -> Result<TabPayload<P15Data>> {
     let started = Instant::now();
     let mut sources: Vec<SourceInfo> = Vec::new();
 
@@ -617,7 +660,11 @@ pub async fn handle(client: &SheetsClient, store: &SheetStore, q: P15Query) -> R
             ConsultantOption {
                 consultant_name: {
                     let n = summary_sheet.get(r, "consultant_name").trim();
-                    if n.is_empty() { consultant_id.clone() } else { n.to_string() }
+                    if n.is_empty() {
+                        consultant_id.clone()
+                    } else {
+                        n.to_string()
+                    }
                 },
                 total_amount_at_risk_6m: num(summary_sheet.get(r, "total_amount_at_risk_6m")),
                 total_high_risk_6m: num(summary_sheet.get(r, "total_high_risk_6m")),
@@ -689,10 +736,23 @@ mod tests {
     }
 
     const DEALS_HEADER: [&str; 17] = [
-        "deal_id", "consultant_id", "consultant_name", "customer_label", "prefecture",
-        "contract_start_date", "contract_expiration_date", "days_to_expiration",
-        "contract_period", "contract_plan", "contract_type", "amount", "churn_proba_90d",
-        "risk_level", "latest_nps", "latest_sufficiency", "action_priority",
+        "deal_id",
+        "consultant_id",
+        "consultant_name",
+        "customer_label",
+        "prefecture",
+        "contract_start_date",
+        "contract_expiration_date",
+        "days_to_expiration",
+        "contract_period",
+        "contract_plan",
+        "contract_type",
+        "amount",
+        "churn_proba_90d",
+        "risk_level",
+        "latest_nps",
+        "latest_sufficiency",
+        "action_priority",
     ];
 
     #[test]
@@ -700,8 +760,23 @@ mod tests {
         let d = sheet(
             &DEALS_HEADER,
             &[&[
-                "777", "1", "藤巻", "", "東京都", "2026-01-01", "2026-07-01", "5",
-                "6", "スタンダード", "更新", "500000", "0.6", "high", "", "", "immediate",
+                "777",
+                "1",
+                "藤巻",
+                "",
+                "東京都",
+                "2026-01-01",
+                "2026-07-01",
+                "5",
+                "6",
+                "スタンダード",
+                "更新",
+                "500000",
+                "0.6",
+                "high",
+                "",
+                "",
+                "immediate",
             ]],
         );
         let table = build_deals(&d, None, &default_priorities());
@@ -711,11 +786,25 @@ mod tests {
     #[test]
     fn 月次集計は担当者別と全体合算どちらも正しい() {
         let d = sheet(
-            &["consultant_id", "consultant_name", "year_month", "holding_count", "expiring_count",
-              "high_risk_count", "holding_amount", "expiring_amount", "revenue_at_risk", "plan_breakdown_json"],
             &[
-                &["1", "藤巻", "2026-07", "10", "3", "1", "1000000", "300000", "100000", "{}"],
-                &["2", "他人", "2026-07", "5", "2", "0", "500000", "200000", "0", "{}"],
+                "consultant_id",
+                "consultant_name",
+                "year_month",
+                "holding_count",
+                "expiring_count",
+                "high_risk_count",
+                "holding_amount",
+                "expiring_amount",
+                "revenue_at_risk",
+                "plan_breakdown_json",
+            ],
+            &[
+                &[
+                    "1", "藤巻", "2026-07", "10", "3", "1", "1000000", "300000", "100000", "{}",
+                ],
+                &[
+                    "2", "他人", "2026-07", "5", "2", "0", "500000", "200000", "0", "{}",
+                ],
             ],
         );
         let mine = build_monthly(&d, Some("1"));
@@ -749,37 +838,139 @@ mod tests {
         let d = sheet(
             &DEALS_HEADER,
             &[
-                &["1", "1", "藤巻", "A", "東京都", "", "2026-08-01", "", "", "", "", "0", "0.5", "high", "", "", "medium"],
-                &["2", "1", "藤巻", "B", "東京都", "", "2026-07-01", "", "", "", "", "0", "0.9", "critical", "", "", "immediate"],
-                &["3", "1", "藤巻", "C", "東京都", "", "2026-07-15", "", "", "", "", "0", "0.9", "critical", "", "", "immediate"],
+                &[
+                    "1",
+                    "1",
+                    "藤巻",
+                    "A",
+                    "東京都",
+                    "",
+                    "2026-08-01",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "0",
+                    "0.5",
+                    "high",
+                    "",
+                    "",
+                    "medium",
+                ],
+                &[
+                    "2",
+                    "1",
+                    "藤巻",
+                    "B",
+                    "東京都",
+                    "",
+                    "2026-07-01",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "0",
+                    "0.9",
+                    "critical",
+                    "",
+                    "",
+                    "immediate",
+                ],
+                &[
+                    "3",
+                    "1",
+                    "藤巻",
+                    "C",
+                    "東京都",
+                    "",
+                    "2026-07-15",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "0",
+                    "0.9",
+                    "critical",
+                    "",
+                    "",
+                    "immediate",
+                ],
             ],
         );
-        let table = build_deals(&d, None, &[ActionPriority::Immediate, ActionPriority::Medium]);
+        let table = build_deals(
+            &d,
+            None,
+            &[ActionPriority::Immediate, ActionPriority::Medium],
+        );
         let ids: Vec<&str> = table.rows.iter().map(|r| r.deal_id.as_str()).collect();
-        assert_eq!(ids, vec!["2", "3", "1"], "immediateが先、同優先度内は満了日昇順");
+        assert_eq!(
+            ids,
+            vec!["2", "3", "1"],
+            "immediateが先、同優先度内は満了日昇順"
+        );
     }
 
     #[test]
     fn 優先度フィルタは指定されたものだけ含む_全て外れたら空() {
         let d = sheet(
             &DEALS_HEADER,
-            &[&["1", "1", "藤巻", "A", "東京都", "", "2026-07-01", "", "", "", "", "0", "0.1", "low", "", "", "watch"]],
+            &[&[
+                "1",
+                "1",
+                "藤巻",
+                "A",
+                "東京都",
+                "",
+                "2026-07-01",
+                "",
+                "",
+                "",
+                "",
+                "0",
+                "0.1",
+                "low",
+                "",
+                "",
+                "watch",
+            ]],
         );
         // GASの「全部外れたら全4種にフォールバック」はしない(ファイル冒頭の注記)。空を渡せば空で返る。
         let table = build_deals(&d, None, &[]);
-        assert_eq!(table.rows.len(), 0, "空の優先度リストはフォールバックせず0件");
+        assert_eq!(
+            table.rows.len(),
+            0,
+            "空の優先度リストはフォールバックせず0件"
+        );
     }
 
     #[test]
     fn 全担当者ビューでのみマトリクスが埋まる() {
         let monthly = sheet(
-            &["consultant_id", "consultant_name", "year_month", "holding_count", "expiring_count",
-              "high_risk_count", "holding_amount", "expiring_amount", "revenue_at_risk", "plan_breakdown_json"],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "year_month",
+                "holding_count",
+                "expiring_count",
+                "high_risk_count",
+                "holding_amount",
+                "expiring_amount",
+                "revenue_at_risk",
+                "plan_breakdown_json",
+            ],
             &[&["1", "藤巻", "2026-07", "10", "3", "1", "0", "0", "0", "{}"]],
         );
         let summary = sheet(
-            &["consultant_id", "consultant_name", "total_holding", "total_expiring_6m",
-              "total_high_risk_6m", "total_amount_at_risk_6m", "max_month_expiring", "max_month_amount_at_risk"],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "total_holding",
+                "total_expiring_6m",
+                "total_high_risk_6m",
+                "total_amount_at_risk_6m",
+                "max_month_expiring",
+                "max_month_amount_at_risk",
+            ],
             &[&["1", "藤巻", "10", "3", "1", "100000", "", ""]],
         );
         let (rows, months) = build_matrix(&monthly, &summary);
@@ -802,18 +993,50 @@ mod tests {
         let deals = sheet(
             &DEALS_HEADER,
             &[
-                &["1", "1", "藤巻", "A", "", "", "", "", "", "", "", "0", "0", "", "", "", "immediate"],
-                &["2", "1", "藤巻", "B", "", "", "", "", "", "", "", "0", "0", "", "", "", "watch"],
+                &[
+                    "1",
+                    "1",
+                    "藤巻",
+                    "A",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "0",
+                    "0",
+                    "",
+                    "",
+                    "",
+                    "immediate",
+                ],
+                &[
+                    "2", "1", "藤巻", "B", "", "", "", "", "", "", "", "0", "0", "", "", "",
+                    "watch",
+                ],
             ],
         );
         let monthly: Vec<MonthlyPoint> = Vec::new();
         let summary = sheet(
-            &["consultant_id", "consultant_name", "total_holding", "total_expiring_6m",
-              "total_high_risk_6m", "total_amount_at_risk_6m", "max_month_expiring", "max_month_amount_at_risk"],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "total_holding",
+                "total_expiring_6m",
+                "total_high_risk_6m",
+                "total_amount_at_risk_6m",
+                "max_month_expiring",
+                "max_month_amount_at_risk",
+            ],
             &[],
         );
         let cards = build_summary(&monthly, &summary, &deals, Some("1"));
-        assert_eq!(cards.immediate_count, 1, "watchの1件を含む全件から数える(フィルタ前)");
+        assert_eq!(
+            cards.immediate_count, 1,
+            "watchの1件を含む全件から数える(フィルタ前)"
+        );
     }
 
     // ---- priority の未知トークンを黙って捨てない（2026-08-17 追加） ----
@@ -824,7 +1047,11 @@ mod tests {
         // 利用者は high も含まれていると思って一覧を読む。
         let mut a = ValueAudit::new();
         let p = parse_priorities(Some("immediate,hgih"), &mut a);
-        assert_eq!(p, vec![ActionPriority::Immediate], "挙動は変えない（捨てたまま）");
+        assert_eq!(
+            p,
+            vec![ActionPriority::Immediate],
+            "挙動は変えない（捨てたまま）"
+        );
         let v = a.into_vec();
         assert_eq!(v.len(), 1, "{v:?}");
         assert_eq!(v[0].param, "priority");
@@ -836,7 +1063,10 @@ mod tests {
     fn priorityが全部不正なら全部名指しする() {
         let mut a = ValueAudit::new();
         let p = parse_priorities(Some("a,b"), &mut a);
-        assert!(p.is_empty(), "0件表示になる（既定値へ戻さない。ファイル冒頭の判断）");
+        assert!(
+            p.is_empty(),
+            "0件表示になる（既定値へ戻さない。ファイル冒頭の判断）"
+        );
         assert_eq!(a.into_vec().len(), 2, "1件で打ち切らない");
     }
 

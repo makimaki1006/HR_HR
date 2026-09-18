@@ -26,21 +26,21 @@ use serde::Serialize;
 use super::query_audit::InvalidValue;
 
 pub mod p0_overview;
-pub mod p1_members;
-pub mod p15_pipeline_mgmt;
-pub mod p11_activity;
-pub mod pbpo_dashboard;
-pub mod p14_owner360;
 pub mod p10_future_actions;
+pub mod p11_activity;
+pub mod p12_churn;
+pub mod p13_timeline;
+pub mod p14_owner360;
+pub mod p15_pipeline_mgmt;
+pub mod p1_members;
+pub mod p2_habits;
+pub mod p3_timeseries;
+pub mod p7_data_browser;
+pub mod p8_consulting_contact;
+pub mod pbpo_dashboard;
+pub mod pja_job_application;
 pub mod prisk_riskboard;
 pub mod ptf_target;
-pub mod p3_timeseries;
-pub mod p13_timeline;
-pub mod p12_churn;
-pub mod p8_consulting_contact;
-pub mod p2_habits;
-pub mod pja_job_application;
-pub mod p7_data_browser;
 
 /// 各タブが返す共通の外枠。
 /// 画面はこれを見て「いつのデータか」「絞り込みで何件が対象になったか」を出す。
@@ -115,7 +115,10 @@ pub struct SourceInfo {
 /// 月初の朝だけ画面の当月がずれるという再現しにくい食い違いになる。
 pub fn jst_current_ym() -> String {
     let jst = chrono::FixedOffset::east_opt(9 * 3600).expect("JST offset");
-    chrono::Utc::now().with_timezone(&jst).format("%Y-%m").to_string()
+    chrono::Utc::now()
+        .with_timezone(&jst)
+        .format("%Y-%m")
+        .to_string()
 }
 
 /// 「今日」を **日本時間で** 返す。
@@ -161,21 +164,21 @@ mod tests {
     fn タブが読むシートは両方の一覧に載っている() {
         let sources: &[&str] = &[
             include_str!("p0_overview.rs"),
-        include_str!("p10_future_actions.rs"),
-        include_str!("p11_activity.rs"),
-        include_str!("p12_churn.rs"),
-        include_str!("p13_timeline.rs"),
-        include_str!("p14_owner360.rs"),
-        include_str!("p15_pipeline_mgmt.rs"),
-        include_str!("p1_members.rs"),
-        include_str!("p2_habits.rs"),
-        include_str!("p3_timeseries.rs"),
-        include_str!("p7_data_browser.rs"),
-        include_str!("p8_consulting_contact.rs"),
-        include_str!("pbpo_dashboard.rs"),
-        include_str!("pja_job_application.rs"),
-        include_str!("prisk_riskboard.rs"),
-        include_str!("ptf_target.rs")
+            include_str!("p10_future_actions.rs"),
+            include_str!("p11_activity.rs"),
+            include_str!("p12_churn.rs"),
+            include_str!("p13_timeline.rs"),
+            include_str!("p14_owner360.rs"),
+            include_str!("p15_pipeline_mgmt.rs"),
+            include_str!("p1_members.rs"),
+            include_str!("p2_habits.rs"),
+            include_str!("p3_timeseries.rs"),
+            include_str!("p7_data_browser.rs"),
+            include_str!("p8_consulting_contact.rs"),
+            include_str!("pbpo_dashboard.rs"),
+            include_str!("pja_job_application.rs"),
+            include_str!("prisk_riskboard.rs"),
+            include_str!("ptf_target.rs"),
         ];
 
         // タブを増やして include を足し忘れたら、ここで落ちる
@@ -201,8 +204,12 @@ mod tests {
                 if !t.starts_with("const SHEET") && !t.starts_with("pub const SHEET") {
                     continue;
                 }
-                let Some(rest) = t.split_once('=') else { continue };
-                let Some(name) = rest.1.split('"').nth(1) else { continue };
+                let Some(rest) = t.split_once('=') else {
+                    continue;
+                };
+                let Some(name) = rest.1.split('"').nth(1) else {
+                    continue;
+                };
                 if !known.contains(&name) {
                     missing.push(format!("{name}（KNOWN_SHEETS に無い）"));
                 }
@@ -215,8 +222,10 @@ mod tests {
             missing.is_empty(),
             "タブが読むのに一覧に載っていないシートがある:
   {}",
-            missing.join("
-  ")
+            missing.join(
+                "
+  "
+            )
         );
     }
 
@@ -226,7 +235,10 @@ mod tests {
     fn tab_sources() -> Vec<(&'static str, &'static str)> {
         vec![
             ("p0_overview.rs", include_str!("p0_overview.rs")),
-            ("p10_future_actions.rs", include_str!("p10_future_actions.rs")),
+            (
+                "p10_future_actions.rs",
+                include_str!("p10_future_actions.rs"),
+            ),
             ("p11_activity.rs", include_str!("p11_activity.rs")),
             ("p12_churn.rs", include_str!("p12_churn.rs")),
             ("p13_timeline.rs", include_str!("p13_timeline.rs")),
@@ -236,9 +248,15 @@ mod tests {
             ("p2_habits.rs", include_str!("p2_habits.rs")),
             ("p3_timeseries.rs", include_str!("p3_timeseries.rs")),
             ("p7_data_browser.rs", include_str!("p7_data_browser.rs")),
-            ("p8_consulting_contact.rs", include_str!("p8_consulting_contact.rs")),
+            (
+                "p8_consulting_contact.rs",
+                include_str!("p8_consulting_contact.rs"),
+            ),
             ("pbpo_dashboard.rs", include_str!("pbpo_dashboard.rs")),
-            ("pja_job_application.rs", include_str!("pja_job_application.rs")),
+            (
+                "pja_job_application.rs",
+                include_str!("pja_job_application.rs"),
+            ),
             ("prisk_riskboard.rs", include_str!("prisk_riskboard.rs")),
             ("ptf_target.rs", include_str!("ptf_target.rs")),
         ]
@@ -268,7 +286,9 @@ mod tests {
                 ));
             }
             if !audits && returns {
-                bad.push(format!("{name}: audit.into_vec() を返しているが audit を作っていない"));
+                bad.push(format!(
+                    "{name}: audit.into_vec() を返しているが audit を作っていない"
+                ));
             }
             if !audits && !src.contains("invalid_values: Vec::new()") {
                 bad.push(format!("{name}: invalid_values を返していない"));
@@ -283,7 +303,11 @@ mod tests {
 
     #[test]
     fn 分母0は0パーセントでなくnone() {
-        assert_eq!(rate(3.0, 0.0), None, "架電0でアポ3件を 0% と表示してはいけない");
+        assert_eq!(
+            rate(3.0, 0.0),
+            None,
+            "架電0でアポ3件を 0% と表示してはいけない"
+        );
         assert_eq!(rate(0.0, 0.0), None);
     }
 
