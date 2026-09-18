@@ -60,8 +60,14 @@ fn main() -> anyhow::Result<()> {
         cyomi: load_tsv("KPI営業_Cヨミ"),
         kaden: load_tsv("KPI営業_架電日次"),
         kaden_list: load_tsv("KPI営業_架電リスト"),
+        // 2026-09-17: Sheets にあとから足された 3 つ。
+        // cargo build は examples を組み立てないので、
+        // 足し忘れても気づけるのは cargo clippy --all-targets だけだった。
+        kaden_by_owner: load_tsv("KPI営業_架電リスト_担当別"),
         member: load_tsv("KPI営業_メンバー"),
         meta: load_tsv("KPI営業_取得条件"),
+        weekly: load_tsv("KPI営業_週次"),
+        kettei: load_tsv("KPI営業_決定者"),
         all_cached: true,
     };
     let body = build_payload(&sheets, day);
