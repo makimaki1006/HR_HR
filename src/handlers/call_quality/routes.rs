@@ -96,17 +96,17 @@
 use std::sync::{Arc, OnceLock};
 
 use askama::Template;
-use tower_sessions::Session;
 use axum::extract::{Query, RawQuery};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use tower_sessions::Session;
 
 use crate::db::sheets_client::SheetsClient;
-use crate::SESSION_USER_KEY;
 use crate::AppState;
+use crate::SESSION_USER_KEY;
 
 use super::heatmap::{self, HeatmapCache, HeatmapQuery};
 use super::query_audit::{self, AcceptedParams};
@@ -335,7 +335,8 @@ pub struct CqQuery<T>(pub T);
 
 impl<S, T> axum::extract::FromRequestParts<S> for CqQuery<T>
 where
-    Query<T>: axum::extract::FromRequestParts<S, Rejection = axum::extract::rejection::QueryRejection>,
+    Query<T>:
+        axum::extract::FromRequestParts<S, Rejection = axum::extract::rejection::QueryRejection>,
     S: Send + Sync,
 {
     type Rejection = CqError;
@@ -433,7 +434,9 @@ fn tab_json<T: Serialize>(tab: &'static str, payload: TabPayload<T>) -> Response
     let n_degraded = degraded.len();
     let n_empty = empty.len();
     if n_degraded > 0 {
-        tracing::warn!("架電クオリティ{tab}: 読めなかったシートが{n_degraded}枚あります: {degraded:?}");
+        tracing::warn!(
+            "架電クオリティ{tab}: 読めなかったシートが{n_degraded}枚あります: {degraded:?}"
+        );
     }
     if n_empty > 0 {
         tracing::warn!(
@@ -557,23 +560,119 @@ pub struct TabInfo {
 /// **`id` は GAS 版 `data-page` のまま残す**。パスから内部IDが消えたので、
 /// 画面側が「どのタブか」を機械的に判別する手がかりがこれしかない。
 const TABS: &[TabInfo] = &[
-    TabInfo { id: "p0",   name: "全社サマリ",       path: "/api/call-quality/overview",        method: "GET",  implemented: true },
-    TabInfo { id: "p1",   name: "メンバー比較",     path: "/api/call-quality/members",         method: "GET",  implemented: true },
-    TabInfo { id: "pbpo", name: "BPOダッシュボード", path: "/api/call-quality/bpo",            method: "GET",  implemented: true },
-    TabInfo { id: "p2",   name: "習慣の差",         path: "/api/call-quality/habits",          method: "GET",  implemented: true },
-    TabInfo { id: "p3",   name: "時系列",           path: "/api/call-quality/timeseries",      method: "GET",  implemented: true },
-    TabInfo { id: "ptf",  name: "ターゲット分析",   path: "/api/call-quality/target",          method: "GET",  implemented: true },
+    TabInfo {
+        id: "p0",
+        name: "全社サマリ",
+        path: "/api/call-quality/overview",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p1",
+        name: "メンバー比較",
+        path: "/api/call-quality/members",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "pbpo",
+        name: "BPOダッシュボード",
+        path: "/api/call-quality/bpo",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p2",
+        name: "習慣の差",
+        path: "/api/call-quality/habits",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p3",
+        name: "時系列",
+        path: "/api/call-quality/timeseries",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "ptf",
+        name: "ターゲット分析",
+        path: "/api/call-quality/target",
+        method: "GET",
+        implemented: true,
+    },
     // データブラウザだけ POST。理由はファイル冒頭 (A)
-    TabInfo { id: "p7",   name: "データブラウザ",   path: "/api/call-quality/browse",          method: "POST", implemented: true },
-    TabInfo { id: "prisk", name: "リスクボード",    path: "/api/call-quality/riskboard",       method: "GET",  implemented: true },
-    TabInfo { id: "p8",   name: "コンサル接触",     path: "/api/call-quality/consulting",      method: "GET",  implemented: true },
-    TabInfo { id: "p10",  name: "未来アクション",   path: "/api/call-quality/future-actions",  method: "GET",  implemented: true },
-    TabInfo { id: "p11",  name: "行動量分析",       path: "/api/call-quality/activity",        method: "GET",  implemented: false },
-    TabInfo { id: "p12",  name: "解約分析",         path: "/api/call-quality/churn",           method: "GET",  implemented: true },
-    TabInfo { id: "p13",  name: "案件タイムライン", path: "/api/call-quality/timeline/deals",  method: "GET",  implemented: true },
-    TabInfo { id: "p14",  name: "担当者360°",       path: "/api/call-quality/owner360",        method: "GET",  implemented: true },
-    TabInfo { id: "p15",  name: "案件マネジメント", path: "/api/call-quality/pipeline-mgmt",   method: "GET",  implemented: false },
-    TabInfo { id: "pja",  name: "求人・応募",       path: "/api/call-quality/job-application", method: "GET",  implemented: true },
+    TabInfo {
+        id: "p7",
+        name: "データブラウザ",
+        path: "/api/call-quality/browse",
+        method: "POST",
+        implemented: true,
+    },
+    TabInfo {
+        id: "prisk",
+        name: "リスクボード",
+        path: "/api/call-quality/riskboard",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p8",
+        name: "コンサル接触",
+        path: "/api/call-quality/consulting",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p10",
+        name: "未来アクション",
+        path: "/api/call-quality/future-actions",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p11",
+        name: "行動量分析",
+        path: "/api/call-quality/activity",
+        method: "GET",
+        implemented: false,
+    },
+    TabInfo {
+        id: "p12",
+        name: "解約分析",
+        path: "/api/call-quality/churn",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p13",
+        name: "案件タイムライン",
+        path: "/api/call-quality/timeline/deals",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p14",
+        name: "担当者360°",
+        path: "/api/call-quality/owner360",
+        method: "GET",
+        implemented: true,
+    },
+    TabInfo {
+        id: "p15",
+        name: "案件マネジメント",
+        path: "/api/call-quality/pipeline-mgmt",
+        method: "GET",
+        implemented: false,
+    },
+    TabInfo {
+        id: "pja",
+        name: "求人・応募",
+        path: "/api/call-quality/job-application",
+        method: "GET",
+        implemented: true,
+    },
 ];
 
 // ================================================================ ルータ
@@ -622,15 +721,15 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/call-quality/timeline/deal", get(p13_deal))
         .route("/api/call-quality/owner360", get(p14))
         .route("/api/call-quality/job-application", get(pja))
-    // ---- 移植待ち（tabs/ にファイルが無い2本）----
-    // 着地したらコメントを外す。ハンドラ側も同じ場所にコメントで置いてある。
-    // 2026-08-16: 着地したので有効化
-    .route("/api/call-quality/activity", get(p11))
-    .route("/api/call-quality/pipeline-mgmt", get(p15))
-    //
-    // ---- 画面本体 ----
-    // 2026-08-16: 画面本体。テンプレートが着地したので有効化。
-    .route("/call-quality", get(call_quality_page))
+        // ---- 移植待ち（tabs/ にファイルが無い2本）----
+        // 着地したらコメントを外す。ハンドラ側も同じ場所にコメントで置いてある。
+        // 2026-08-16: 着地したので有効化
+        .route("/api/call-quality/activity", get(p11))
+        .route("/api/call-quality/pipeline-mgmt", get(p15))
+        //
+        // ---- 画面本体 ----
+        // 2026-08-16: 画面本体。テンプレートが着地したので有効化。
+        .route("/call-quality", get(call_quality_page))
 }
 
 // ================================================================ 運用系ハンドラ
@@ -749,7 +848,11 @@ async fn p0(
     let ignored = audit::<tabs::p0_overview::OverviewQuery>("p0", &raw);
     // メンバー未選択なら role=sales に絞る（約束5。理由は冒頭 (D)）
     let sales = sales_scope("p0", s, q.owners.as_deref()).await?;
-    finish("p0", ignored, tabs::p0_overview::handle(&s.client, &s.store, q, sales).await)
+    finish(
+        "p0",
+        ignored,
+        tabs::p0_overview::handle(&s.client, &s.store, q, sales).await,
+    )
 }
 
 // ---- p1 メンバー比較 ----
@@ -760,7 +863,11 @@ async fn p1(
     let s = cq()?;
     let ignored = audit::<tabs::p1_members::MembersQuery>("p1", &raw);
     let sales = sales_scope("p1", s, q.owners.as_deref()).await?;
-    finish("p1", ignored, tabs::p1_members::handle(&s.client, &s.store, q, sales).await)
+    finish(
+        "p1",
+        ignored,
+        tabs::p1_members::handle(&s.client, &s.store, q, sales).await,
+    )
 }
 
 // ---- pbpo BPOダッシュボード ----
@@ -770,7 +877,11 @@ async fn pbpo(
 ) -> Result<Response, CqError> {
     let s = cq()?;
     let ignored = audit::<tabs::pbpo_dashboard::PbpoQuery>("pbpo", &raw);
-    finish("pbpo", ignored, tabs::pbpo_dashboard::handle(&s.client, &s.store, q).await)
+    finish(
+        "pbpo",
+        ignored,
+        tabs::pbpo_dashboard::handle(&s.client, &s.store, q).await,
+    )
 }
 
 // ---- p2 習慣の差 ----
@@ -784,7 +895,11 @@ async fn p2(
     // 商談遷移のクロス絞込を `industry` / `size_band` と書いた事故が起きたのはここ。
     // 正しくは `trans_industry` / `trans_size`。今は間違いが応答に出る。
     let ignored = audit::<tabs::p2_habits::P2Query>("p2", &raw);
-    finish("p2", ignored, tabs::p2_habits::handle(&s.client, &s.store, q).await)
+    finish(
+        "p2",
+        ignored,
+        tabs::p2_habits::handle(&s.client, &s.store, q).await,
+    )
 }
 
 // ---- p3 時系列 ----
@@ -834,7 +949,10 @@ async fn p7_sheets() -> Json<Vec<&'static str>> {
 /// 変換に失敗したら 400。これは**今回追加した挙動ではなく**、
 /// これまで axum の `Json<T>` 拒否が返していた 4xx と同じ位置づけ
 /// （必須フィールド欠落など。「知らないキー」では 400 にしない）。
-fn from_json_body<T>(tab: &'static str, body: serde_json::Value) -> Result<(T, Vec<String>), CqError>
+fn from_json_body<T>(
+    tab: &'static str,
+    body: serde_json::Value,
+) -> Result<(T, Vec<String>), CqError>
 where
     T: AcceptedParams + serde::de::DeserializeOwned,
 {
@@ -893,7 +1011,11 @@ async fn prisk(
 ) -> Result<Response, CqError> {
     let s = cq()?;
     let ignored = audit::<tabs::prisk_riskboard::PriskQuery>("prisk", &raw);
-    finish("prisk", ignored, tabs::prisk_riskboard::handle(&s.client, &s.store, q).await)
+    finish(
+        "prisk",
+        ignored,
+        tabs::prisk_riskboard::handle(&s.client, &s.store, q).await,
+    )
 }
 
 // ---- p10 未来アクション ----
@@ -903,7 +1025,11 @@ async fn p10(
 ) -> Result<Response, CqError> {
     let s = cq()?;
     let ignored = audit::<tabs::p10_future_actions::P10Query>("p10", &raw);
-    finish("p10", ignored, tabs::p10_future_actions::handle(&s.client, &s.store, q).await)
+    finish(
+        "p10",
+        ignored,
+        tabs::p10_future_actions::handle(&s.client, &s.store, q).await,
+    )
 }
 
 // ---- p14 担当者360° ----
@@ -913,7 +1039,11 @@ async fn p14(
 ) -> Result<Response, CqError> {
     let s = cq()?;
     let ignored = audit::<tabs::p14_owner360::P14Query>("p14", &raw);
-    finish("p14", ignored, tabs::p14_owner360::handle(&s.client, &s.store, q).await)
+    finish(
+        "p14",
+        ignored,
+        tabs::p14_owner360::handle(&s.client, &s.store, q).await,
+    )
 }
 
 // ---- p8 コンサル接触 ----
@@ -924,7 +1054,11 @@ async fn p8(
     let s = cq()?;
     // このタブは上部フィルタを反映しない。`?from=…&to=…` は今まで無音で捨てられていた。
     let ignored = audit::<tabs::p8_consulting_contact::P8Query>("p8", &raw);
-    finish("p8", ignored, tabs::p8_consulting_contact::handle(&s.client, &s.store, q).await)
+    finish(
+        "p8",
+        ignored,
+        tabs::p8_consulting_contact::handle(&s.client, &s.store, q).await,
+    )
 }
 
 // ---- p12 解約分析 ----
@@ -934,7 +1068,11 @@ async fn p8(
 async fn p12(RawQuery(raw): RawQuery) -> Result<Response, CqError> {
     let s = cq()?;
     let ignored = query_audit::audit_query_none("p12", raw.as_deref());
-    finish("p12", ignored, tabs::p12_churn::get_churn_analysis(&s.client, &s.store).await)
+    finish(
+        "p12",
+        ignored,
+        tabs::p12_churn::get_churn_analysis(&s.client, &s.store).await,
+    )
 }
 
 // ---- p13 案件タイムライン ----
@@ -946,7 +1084,11 @@ async fn p13_index(RawQuery(raw): RawQuery) -> Result<Response, CqError> {
     // 一覧は引数を取らない。`?deal_id=…` を付けて「詳細が返ってきた」と誤解しないよう、
     // 無視したことを応答に出す（パスが別、が仕様）。
     let ignored = query_audit::audit_query_none("p13", raw.as_deref());
-    finish("p13", ignored, tabs::p13_timeline::get_deal_index(&s.client, &s.store).await)
+    finish(
+        "p13",
+        ignored,
+        tabs::p13_timeline::get_deal_index(&s.client, &s.store).await,
+    )
 }
 
 async fn p13_deal(
@@ -972,7 +1114,11 @@ async fn pja(
 ) -> Result<Response, CqError> {
     let s = cq()?;
     let ignored = audit::<tabs::pja_job_application::PjaQuery>("pja", &raw);
-    finish("pja", ignored, tabs::pja_job_application::handle(&s.store, &s.client, q).await)
+    finish(
+        "pja",
+        ignored,
+        tabs::pja_job_application::handle(&s.store, &s.client, q).await,
+    )
 }
 
 // ================================================================ 移植待ちのタブ
@@ -995,7 +1141,11 @@ async fn p11(
 ) -> Result<Response, CqError> {
     let s = cq()?;
     let ignored = audit::<tabs::p11_activity::P11Query>("p11", &raw);
-    finish("p11", ignored, tabs::p11_activity::handle(&s.client, &s.store, q).await)
+    finish(
+        "p11",
+        ignored,
+        tabs::p11_activity::handle(&s.client, &s.store, q).await,
+    )
 }
 
 //
@@ -1006,9 +1156,12 @@ async fn p15(
 ) -> Result<Response, CqError> {
     let s = cq()?;
     let ignored = audit::<tabs::p15_pipeline_mgmt::P15Query>("p15", &raw);
-    finish("p15", ignored, tabs::p15_pipeline_mgmt::handle(&s.client, &s.store, q).await)
+    finish(
+        "p15",
+        ignored,
+        tabs::p15_pipeline_mgmt::handle(&s.client, &s.store, q).await,
+    )
 }
-
 
 // ================================================================ テスト
 
@@ -1203,7 +1356,12 @@ mod tests {
     #[test]
     fn 解釈できなかった値は応答に載る() {
         let mut audit = query_audit::ValueAudit::new();
-        audit.fell_back("deals_status", "NONSENSE", "all", "all | active | continued | churned");
+        audit.fell_back(
+            "deals_status",
+            "NONSENSE",
+            "all",
+            "all | active | continued | churned",
+        );
         let p = TabPayload {
             data: 0u32,
             sources: vec![src("月次明細", 1200)],
@@ -1257,7 +1415,11 @@ mod tests {
         let v = audit.into_vec();
         let params: Vec<&str> = v.iter().map(|x| x.param).collect();
         assert_eq!(params, vec!["today_ym", "deals_status", "contact_status"]);
-        assert_eq!(v[1].used.as_deref(), Some("all"), "実測で全218件が返っていた方");
+        assert_eq!(
+            v[1].used.as_deref(),
+            Some("all"),
+            "実測で全218件が返っていた方"
+        );
         assert_eq!(v[2].used.as_deref(), Some("active"));
 
         // **陰性対照**: 正しい値では空。常に何か警告する実装は狼少年になる。
@@ -1363,7 +1525,11 @@ mod tests {
         );
         assert_eq!(
             ignored,
-            vec!["from".to_string(), "prefecture".to_string(), "to".to_string()]
+            vec![
+                "from".to_string(),
+                "prefecture".to_string(),
+                "to".to_string()
+            ]
         );
     }
 
@@ -1450,7 +1616,11 @@ mod tests {
         //   "Failed to deserialize query string: contact_weeks: invalid digit found in string"
         // 同じ API に2種類のエラー形式が混在し、画面が JSON 前提だとパースに失敗する。
         let e = reject("/x?contact_weeks=abc").await;
-        assert_eq!(e.status, StatusCode::BAD_REQUEST, "400 という挙動は変えない");
+        assert_eq!(
+            e.status,
+            StatusCode::BAD_REQUEST,
+            "400 という挙動は変えない"
+        );
         assert_eq!(e.code, "bad_query");
         assert!(e.error, "データ本文と取り違えないための目印");
 
@@ -1458,7 +1628,10 @@ mod tests {
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["error"], true);
         assert_eq!(v["code"], "bad_query");
-        assert!(v["message"].as_str().unwrap().contains("contact_weeks"), "{v}");
+        assert!(
+            v["message"].as_str().unwrap().contains("contact_weeks"),
+            "{v}"
+        );
         assert!(v.get("chain").is_some(), "原因を落とさない");
     }
 
@@ -1511,8 +1684,7 @@ mod tests {
 
     #[test]
     fn 取得失敗は502でシート名が付く() {
-        let e = anyhow::anyhow!("connection reset")
-            .context("シート「月次明細」の取得に失敗");
+        let e = anyhow::anyhow!("connection reset").context("シート「月次明細」の取得に失敗");
         let cq = CqError::from_anyhow("p0", e);
         assert_eq!(cq.status, StatusCode::BAD_GATEWAY, "上流の失敗は 502");
         assert_eq!(cq.code, "sheet_fetch_failed");

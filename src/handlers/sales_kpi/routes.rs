@@ -646,9 +646,7 @@ fn kaden_list_block(
         let bucket = if owner.is_empty() {
             &mut no_owner
         } else {
-            by_team
-                .entry(person_of(members, owner).team)
-                .or_default()
+            by_team.entry(person_of(members, owner).team).or_default()
         };
         for (key, value) in counts {
             *bucket.entry(key.clone()).or_insert(0) += value;

@@ -486,7 +486,10 @@ mod tests {
         let a = ignored_params(ACCEPTED, Some("zzz=1&aaa=2&mmm=3"));
         let b = ignored_params(ACCEPTED, Some("mmm=3&zzz=1&aaa=2"));
         assert_eq!(a, b);
-        assert_eq!(a, vec!["aaa".to_string(), "mmm".to_string(), "zzz".to_string()]);
+        assert_eq!(
+            a,
+            vec!["aaa".to_string(), "mmm".to_string(), "zzz".to_string()]
+        );
     }
 
     #[test]
@@ -622,7 +625,10 @@ mod tests {
             "この絞り込みは0件になります（アラートが無いという意味ではありません）",
         );
         let inv = a.into_vec();
-        assert_eq!(inv[0].used, None, "既定値に落ちていないのに落ちたと言わない");
+        assert_eq!(
+            inv[0].used, None,
+            "既定値に落ちていないのに落ちたと言わない"
+        );
         assert!(inv[0].message.contains("0件"));
     }
 
@@ -638,7 +644,10 @@ mod tests {
         assert!(!is_year_month("2026-00"));
         assert!(!is_year_month("2026-8"), "1桁月は先頭7文字比較で必ず外れる");
         assert!(!is_year_month("202608"));
-        assert!(!is_year_month("2026-08zz"), "接尾に何か付いていたら通さない");
+        assert!(
+            !is_year_month("2026-08zz"),
+            "接尾に何か付いていたら通さない"
+        );
         assert!(!is_year_month(""));
     }
 
@@ -677,7 +686,12 @@ mod tests {
     #[test]
     fn 複数の不正値は投げた順に並ぶ() {
         let mut a = ValueAudit::new();
-        a.fell_back("bench_sort_key", "NONSENSE", "churn_rate", "name | churn_rate");
+        a.fell_back(
+            "bench_sort_key",
+            "NONSENSE",
+            "churn_rate",
+            "name | churn_rate",
+        );
         a.fell_back("bench_sort_dir", "sideways", "asc", "asc | desc");
         let inv = a.into_vec();
         assert_eq!(inv.len(), 2);

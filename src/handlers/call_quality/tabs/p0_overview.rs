@@ -97,8 +97,7 @@ pub struct OwnerRate {
 /// 「__all__ という県」を探しに行って **0件**になる。空文字と同じく
 /// 「絞らない」を意味するので、ここで吸収する。
 fn pref_selected(v: &Option<String>) -> Option<&str> {
-    v.as_deref()
-        .filter(|p| !p.is_empty() && *p != "__all__")
+    v.as_deref().filter(|p| !p.is_empty() && *p != "__all__")
 }
 
 /// 進行中の当月か。GAS `_isPartialMonth` と同じで先頭7文字(YYYY-MM)で判定する。
@@ -311,7 +310,11 @@ pub async fn handle(
     // 都道府県を選んだときは土台シートごと差し替える（GAS 版と同じ）。
     // 「月次明細」には prefecture 列が無いので、そのままでは絞りようがない。
     let pref_mode = pref_selected(&q.prefecture).is_some();
-    let sheet = if pref_mode { "都道府県月次" } else { "月次明細" };
+    let sheet = if pref_mode {
+        "都道府県月次"
+    } else {
+        "月次明細"
+    };
     let (data, from_cache) = store.get(client, sheet).await?;
 
     // 対象月未指定なら最新月にする（画面の既定挙動）
@@ -552,5 +555,4 @@ mod tests {
             "実在する県名はそのまま絞り込みに使う"
         );
     }
-
 }

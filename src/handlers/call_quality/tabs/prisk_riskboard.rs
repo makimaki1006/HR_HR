@@ -57,8 +57,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{rate, SourceInfo, TabPayload};
 use crate::db::sheets_client::SheetsClient;
-use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 use crate::handlers::call_quality::query_audit::ValueAudit;
+use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
 
 // ---------------------------------------------------------------- シート名
 
@@ -95,7 +95,12 @@ fn opt_num(s: &str) -> Option<f64> {
 
 /// GAS `displayDealLabel` の移植（2026-08-13 是正込み）。
 /// 名前が取れないとき Deal ID をそのまま返さない。
-fn deal_label(deal_id: &str, deal_label: &str, customer_label: &str, customer_name: &str) -> String {
+fn deal_label(
+    deal_id: &str,
+    deal_label: &str,
+    customer_label: &str,
+    customer_name: &str,
+) -> String {
     for v in [deal_label, customer_label, customer_name] {
         let v = v.trim();
         if !v.is_empty() {
@@ -405,7 +410,10 @@ pub fn collect_health(data: &SheetData) -> Vec<HealthRow> {
                 "",
             ),
             owner_label: owner_label(data.get(row, "owner_name"), "", data.get(row, "owner_id")),
-            pipeline_stage: pipeline_stage(data.get(row, "pipeline_label"), data.get(row, "stage_label")),
+            pipeline_stage: pipeline_stage(
+                data.get(row, "pipeline_label"),
+                data.get(row, "stage_label"),
+            ),
             year_month: data.get(row, "year_month").trim().to_string(),
             health_score: num(data.get(row, "health_score")),
             prev_score: opt_num(data.get(row, "prev_score")),
@@ -561,7 +569,10 @@ pub fn build_risk_score(data: &SheetData) -> RiskScorePanel {
                 "",
             ),
             owner_label: owner_label(data.get(row, "owner_name"), "", data.get(row, "owner_id")),
-            pipeline_stage: pipeline_stage(data.get(row, "pipeline_label"), data.get(row, "stage_label")),
+            pipeline_stage: pipeline_stage(
+                data.get(row, "pipeline_label"),
+                data.get(row, "stage_label"),
+            ),
             risk_score: num(data.get(row, "risk_score")),
             risk_level: normalize_risk_level(data.get(row, "risk_level")),
             days_since_last_contact: opt_num(data.get(row, "days_since_last_contact")),
@@ -666,8 +677,15 @@ pub fn build_matrix(data: &SheetData) -> MatrixPanel {
                     data.get(row, "customer_label"),
                     "",
                 ),
-                owner_label: owner_label(data.get(row, "owner_name"), "", data.get(row, "owner_id")),
-                pipeline_stage: pipeline_stage(data.get(row, "pipeline_label"), data.get(row, "stage_label")),
+                owner_label: owner_label(
+                    data.get(row, "owner_name"),
+                    "",
+                    data.get(row, "owner_id"),
+                ),
+                pipeline_stage: pipeline_stage(
+                    data.get(row, "pipeline_label"),
+                    data.get(row, "stage_label"),
+                ),
                 x_contact_count: num(data.get(row, "contact_count")),
                 y_risk_score: y,
                 risk_level: data.get(row, "risk_level").to_string(),
@@ -808,11 +826,23 @@ mod tests {
 
     fn board_sheet(rows: Vec<Vec<&str>>) -> SheetData {
         let header = vec![
-            "deal_id", "customer_label", "consultant_name", "contract_type",
-            "contract_period", "phase_bucket", "days_to_expiry", "amount",
-            "ax1_relation", "latest_nps", "ax2_model_proba", "ax3_contact",
-            "days_since_contact", "ax4_revenue_at_risk", "red_count",
-            "overall_band", "main_factor",
+            "deal_id",
+            "customer_label",
+            "consultant_name",
+            "contract_type",
+            "contract_period",
+            "phase_bucket",
+            "days_to_expiry",
+            "amount",
+            "ax1_relation",
+            "latest_nps",
+            "ax2_model_proba",
+            "ax3_contact",
+            "days_since_contact",
+            "ax4_revenue_at_risk",
+            "red_count",
+            "overall_band",
+            "main_factor",
         ]
         .into_iter()
         .map(String::from)
@@ -832,16 +862,59 @@ mod tests {
 
     #[test]
     fn 名前があればそれを使う() {
-        assert_eq!(deal_label("123", "", "株式会社テスト", ""), "株式会社テスト");
+        assert_eq!(
+            deal_label("123", "", "株式会社テスト", ""),
+            "株式会社テスト"
+        );
     }
 
     #[test]
     fn バンド件数は絞り込み前の全体で数える() {
         let d = board_sheet(vec![
-            vec!["1", "A", "田中", "新規", "6", "終盤", "10", "100", "🚨", "3", "60", "🟢", "5", "500000", "3", "🔴最優先", "-"],
-            vec!["2", "B", "鈴木", "新規", "6", "序盤", "50", "100", "🟢", "8", "10", "🟢", "1", "10000", "0", "🟢安定", "-"],
+            vec![
+                "1",
+                "A",
+                "田中",
+                "新規",
+                "6",
+                "終盤",
+                "10",
+                "100",
+                "🚨",
+                "3",
+                "60",
+                "🟢",
+                "5",
+                "500000",
+                "3",
+                "🔴最優先",
+                "-",
+            ],
+            vec![
+                "2",
+                "B",
+                "鈴木",
+                "新規",
+                "6",
+                "序盤",
+                "50",
+                "100",
+                "🟢",
+                "8",
+                "10",
+                "🟢",
+                "1",
+                "10000",
+                "0",
+                "🟢安定",
+                "-",
+            ],
         ]);
-        let q = PriskQuery { consultant: Some("田中".into()), min_red: Some(3), sort: None };
+        let q = PriskQuery {
+            consultant: Some("田中".into()),
+            min_red: Some(3),
+            sort: None,
+        };
         let panel = build_board(&d, &q, &mut ValueAudit::new());
         // 担当=田中で絞っても、バンド件数(全体)は2件とも反映される
         assert_eq!(panel.band_counts.critical, 1);
@@ -853,21 +926,104 @@ mod tests {
     fn 満了0日をexpirySortで末尾に沈めない() {
         // GAS の `a.days_to_expiry || 99999` バグを再現しない
         let d = board_sheet(vec![
-            vec!["1", "A", "x", "", "", "", "0", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
-            vec!["2", "B", "x", "", "", "", "10", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
+            vec![
+                "1",
+                "A",
+                "x",
+                "",
+                "",
+                "",
+                "0",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "0",
+                "0",
+                "🟢安定",
+                "",
+            ],
+            vec![
+                "2",
+                "B",
+                "x",
+                "",
+                "",
+                "",
+                "10",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "0",
+                "0",
+                "🟢安定",
+                "",
+            ],
         ]);
-        let q = PriskQuery { consultant: None, min_red: None, sort: Some("expiry".into()) };
+        let q = PriskQuery {
+            consultant: None,
+            min_red: None,
+            sort: Some("expiry".into()),
+        };
         let panel = build_board(&d, &q, &mut ValueAudit::new());
-        assert_eq!(panel.rows[0].deal_id, "1", "0日は99999扱いにせず最優先で出す");
+        assert_eq!(
+            panel.rows[0].deal_id, "1",
+            "0日は99999扱いにせず最優先で出す"
+        );
     }
 
     #[test]
     fn expiry欠損は最後に並ぶ() {
         let d = board_sheet(vec![
-            vec!["1", "A", "x", "", "", "", "", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
-            vec!["2", "B", "x", "", "", "", "10", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
+            vec![
+                "1",
+                "A",
+                "x",
+                "",
+                "",
+                "",
+                "",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "0",
+                "0",
+                "🟢安定",
+                "",
+            ],
+            vec![
+                "2",
+                "B",
+                "x",
+                "",
+                "",
+                "",
+                "10",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "0",
+                "0",
+                "🟢安定",
+                "",
+            ],
         ]);
-        let q = PriskQuery { consultant: None, min_red: None, sort: Some("expiry".into()) };
+        let q = PriskQuery {
+            consultant: None,
+            min_red: None,
+            sort: Some("expiry".into()),
+        };
         let panel = build_board(&d, &q, &mut ValueAudit::new());
         assert_eq!(panel.rows[0].deal_id, "2");
         assert_eq!(panel.rows[1].deal_id, "1", "欠損は99999扱いで末尾");
@@ -876,8 +1032,44 @@ mod tests {
     #[test]
     fn red_countの既定ソートは赤軸数優先rar劣後() {
         let d = board_sheet(vec![
-            vec!["1", "A", "x", "", "", "", "", "0", "", "", "", "", "", "100", "1", "🟡監視", ""],
-            vec!["2", "B", "x", "", "", "", "", "0", "", "", "", "", "", "500", "2", "🟠要注意", ""],
+            vec![
+                "1",
+                "A",
+                "x",
+                "",
+                "",
+                "",
+                "",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "100",
+                "1",
+                "🟡監視",
+                "",
+            ],
+            vec![
+                "2",
+                "B",
+                "x",
+                "",
+                "",
+                "",
+                "",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "500",
+                "2",
+                "🟠要注意",
+                "",
+            ],
         ]);
         let q = PriskQuery::default();
         let panel = build_board(&d, &q, &mut ValueAudit::new());
@@ -903,9 +1095,18 @@ mod tests {
     #[test]
     fn マトリクスは象限件数を数える() {
         let header = vec![
-            "deal_id", "deal_label", "customer_label", "owner_id", "owner_name",
-            "pipeline_label", "stage_label", "contact_count", "risk_score",
-            "risk_level", "continue_intent", "quadrant",
+            "deal_id",
+            "deal_label",
+            "customer_label",
+            "owner_id",
+            "owner_name",
+            "pipeline_label",
+            "stage_label",
+            "contact_count",
+            "risk_score",
+            "risk_level",
+            "continue_intent",
+            "quadrant",
         ]
         .into_iter()
         .map(String::from)
@@ -913,8 +1114,23 @@ mod tests {
         let d = SheetData {
             header,
             rows: vec![
-                arc_row(&["1", "A", "A", "1", "田中", "PL", "St", "10", "80", "high", "", "left-top"]),
-                arc_row(&["2", "B", "B", "1", "田中", "PL", "St", "50", "20", "low", "", "right-bottom"]),
+                arc_row(&[
+                    "1", "A", "A", "1", "田中", "PL", "St", "10", "80", "high", "", "left-top",
+                ]),
+                arc_row(&[
+                    "2",
+                    "B",
+                    "B",
+                    "1",
+                    "田中",
+                    "PL",
+                    "St",
+                    "50",
+                    "20",
+                    "low",
+                    "",
+                    "right-bottom",
+                ]),
             ],
             fetched_at: Instant::now(),
         };
@@ -926,30 +1142,64 @@ mod tests {
     #[test]
     fn マトリクスはrisk_score優先でcontinue_intentにフォールバック() {
         let header = vec![
-            "deal_id", "deal_label", "customer_label", "owner_id", "owner_name",
-            "pipeline_label", "stage_label", "contact_count", "risk_score",
-            "risk_level", "continue_intent", "quadrant",
+            "deal_id",
+            "deal_label",
+            "customer_label",
+            "owner_id",
+            "owner_name",
+            "pipeline_label",
+            "stage_label",
+            "contact_count",
+            "risk_score",
+            "risk_level",
+            "continue_intent",
+            "quadrant",
         ]
         .into_iter()
         .map(String::from)
         .collect();
         let d = SheetData {
             header,
-            rows: vec![arc_row(&["1", "A", "A", "1", "田中", "PL", "St", "10", "", "low", "42", "left-top"])],
+            rows: vec![arc_row(&[
+                "1", "A", "A", "1", "田中", "PL", "St", "10", "", "low", "42", "left-top",
+            ])],
             fetched_at: Instant::now(),
         };
         let panel = build_matrix(&d);
-        assert_eq!(panel.points[0].y_risk_score, 42.0, "risk_score空欄はcontinue_intentへフォールバック");
+        assert_eq!(
+            panel.points[0].y_risk_score, 42.0,
+            "risk_score空欄はcontinue_intentへフォールバック"
+        );
     }
 
     // ---- 並び順の不正値を無音で既定にしない（2026-08-17 追加） ----
 
     #[test]
     fn sortの不正値はredに落ちたことを応答に出す() {
-        let d = board_sheet(vec![
-            vec!["1", "A", "x", "", "", "", "", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
-        ]);
-        let q = PriskQuery { consultant: None, min_red: None, sort: Some("NONSENSE".into()) };
+        let d = board_sheet(vec![vec![
+            "1",
+            "A",
+            "x",
+            "",
+            "",
+            "",
+            "",
+            "0",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "0",
+            "0",
+            "🟢安定",
+            "",
+        ]]);
+        let q = PriskQuery {
+            consultant: None,
+            min_red: None,
+            sort: Some("NONSENSE".into()),
+        };
         let mut a = ValueAudit::new();
         let panel = build_board(&d, &q, &mut a);
         assert_eq!(panel.sort, RiskSort::Red, "既定値へ落とす挙動は変えない");
@@ -962,11 +1212,37 @@ mod tests {
     #[test]
     fn 正しいsortでは何も報告しない() {
         // **陰性対照**
-        let d = board_sheet(vec![
-            vec!["1", "A", "x", "", "", "", "", "0", "", "", "", "", "", "0", "0", "🟢安定", ""],
-        ]);
-        for sort in [None, Some("red"), Some("rar"), Some("expiry"), Some("proba")] {
-            let q = PriskQuery { consultant: None, min_red: None, sort: sort.map(str::to_string) };
+        let d = board_sheet(vec![vec![
+            "1",
+            "A",
+            "x",
+            "",
+            "",
+            "",
+            "",
+            "0",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "0",
+            "0",
+            "🟢安定",
+            "",
+        ]]);
+        for sort in [
+            None,
+            Some("red"),
+            Some("rar"),
+            Some("expiry"),
+            Some("proba"),
+        ] {
+            let q = PriskQuery {
+                consultant: None,
+                min_red: None,
+                sort: sort.map(str::to_string),
+            };
             let mut a = ValueAudit::new();
             build_board(&d, &q, &mut a);
             assert!(a.is_empty(), "sort={sort:?} は正常なので黙る");

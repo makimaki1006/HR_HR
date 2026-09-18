@@ -167,7 +167,8 @@ pub struct ChurnPredictionSection {
 }
 
 fn resolve_bad_proba(data: &SheetData, row: &[std::sync::Arc<str>]) -> f64 {
-    pf_opt(data.get(row, "recommended_risk_score")).unwrap_or_else(|| pf(data.get(row, "bad_churn_proba")))
+    pf_opt(data.get(row, "recommended_risk_score"))
+        .unwrap_or_else(|| pf(data.get(row, "bad_churn_proba")))
 }
 
 pub fn build_prediction_section(pred: &SheetData, metrics: &SheetData) -> ChurnPredictionSection {
@@ -315,9 +316,16 @@ fn parse_consultant_rows(data: &SheetData) -> Vec<ConsultantChurnRow> {
 /// javascript.html `_drawP12C`(10866-10960行)を移植。
 /// 担当Deal>=5 のみランキング対象、churn_rate 降順で top10/bottom10 を切り出す。
 pub fn build_consultant_section(rows: Vec<ConsultantChurnRow>) -> ConsultantRankingSection {
-    let mut eligible: Vec<ConsultantChurnRow> =
-        rows.iter().filter(|r| r.total_deals >= 5).cloned().collect();
-    eligible.sort_by(|a, b| b.churn_rate.partial_cmp(&a.churn_rate).unwrap_or(std::cmp::Ordering::Equal));
+    let mut eligible: Vec<ConsultantChurnRow> = rows
+        .iter()
+        .filter(|r| r.total_deals >= 5)
+        .cloned()
+        .collect();
+    eligible.sort_by(|a, b| {
+        b.churn_rate
+            .partial_cmp(&a.churn_rate)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let top_n = eligible.len().min(10);
     let top10 = eligible[..top_n].to_vec();
@@ -417,7 +425,12 @@ fn aggregate_segment(
     let mut agg: HashMap<(String, String), Agg> = HashMap::new();
     for r in rows {
         let k = (row_of(r).to_string(), col_of(r).to_string());
-        let e = agg.entry(k).or_insert(Agg { total: 0, bad: 0, good: 0, cont: 0 });
+        let e = agg.entry(k).or_insert(Agg {
+            total: 0,
+            bad: 0,
+            good: 0,
+            cont: 0,
+        });
         e.total += r.total_deals;
         e.bad += r.bad_churn_count;
         e.good += r.good_churn_count;
@@ -436,7 +449,12 @@ fn aggregate_segment(
         for ((_, c), a) in agg.iter() {
             *col_totals.entry(c.clone()).or_insert(0) += a.total;
         }
-        col_keys.sort_by(|a, b| col_totals.get(b).unwrap_or(&0).cmp(col_totals.get(a).unwrap_or(&0)));
+        col_keys.sort_by(|a, b| {
+            col_totals
+                .get(b)
+                .unwrap_or(&0)
+                .cmp(col_totals.get(a).unwrap_or(&0))
+        });
     }
 
     // セルは (row_keys × col_keys) を安定した二重ループで並べる(HashMap の反復順に依存しない)
@@ -463,7 +481,14 @@ fn aggregate_segment(
         }
     }
 
-    SegmentMatrix { axis, row_label, col_label, row_keys, col_keys, cells }
+    SegmentMatrix {
+        axis,
+        row_label,
+        col_label,
+        row_keys,
+        col_keys,
+        cells,
+    }
 }
 
 pub fn build_segment_matrices(rows: &[SegmentSourceRow]) -> Vec<SegmentMatrix> {
@@ -556,7 +581,10 @@ const METRIC_DISPLAY_ORDER: &[(&str, &str)] = &[
 
 pub fn build_metrics_section(data: &SheetData) -> ModelMetricsSection {
     let Some(row) = data.rows.first() else {
-        return ModelMetricsSection { entries: Vec::new(), top_features: Vec::new() };
+        return ModelMetricsSection {
+            entries: Vec::new(),
+            top_features: Vec::new(),
+        };
     };
 
     let entries = METRIC_DISPLAY_ORDER
@@ -565,7 +593,11 @@ pub fn build_metrics_section(data: &SheetData) -> ModelMetricsSection {
             let v = data.get(row, key);
             ModelMetricEntry {
                 key: key.to_string(),
-                value: if v.trim().is_empty() { None } else { Some(v.to_string()) },
+                value: if v.trim().is_empty() {
+                    None
+                } else {
+                    Some(v.to_string())
+                },
                 note: note.to_string(),
             }
         })
@@ -576,10 +608,16 @@ pub fn build_metrics_section(data: &SheetData) -> ModelMetricsSection {
     let top_features = serde_json::from_str::<Vec<(String, f64)>>(raw)
         .unwrap_or_default()
         .into_iter()
-        .map(|(feature, importance)| FeatureImportance { feature, importance })
+        .map(|(feature, importance)| FeatureImportance {
+            feature,
+            importance,
+        })
         .collect();
 
-    ModelMetricsSection { entries, top_features }
+    ModelMetricsSection {
+        entries,
+        top_features,
+    }
 }
 
 // ============================================================== 統合ハンドラ
@@ -621,7 +659,13 @@ pub async fn get_churn_analysis(
     };
 
     Ok(TabPayload {
-        data: ChurnAnalysisData { pattern, prediction, consultants, segment_matrices, metrics },
+        data: ChurnAnalysisData {
+            pattern,
+            prediction,
+            consultants,
+            segment_matrices,
+            metrics,
+        },
         sources: vec![
             src("解約_理由パターン", &pattern_data, pattern_cached),
             src("解約_コンサル担当別", &consultant_data, consultant_cached),
@@ -660,13 +704,39 @@ mod tests {
     #[test]
     fn パターン行の空欄はnoneになる() {
         let d = sheet(
-            &["stage_id", "stage_label", "deals_count", "avg_total_contact", "avg_call", "avg_email",
-              "avg_mtg", "avg_mtg_interval_days", "avg_customer_lifetime_days", "avg_nps", "avg_continue_intent"],
-            vec![vec!["52016159", "解約済(成果不足)", "614", "28.93", "28.93", "0.0", "0.0", "", "328.65", "3.88", "1.4"]],
+            &[
+                "stage_id",
+                "stage_label",
+                "deals_count",
+                "avg_total_contact",
+                "avg_call",
+                "avg_email",
+                "avg_mtg",
+                "avg_mtg_interval_days",
+                "avg_customer_lifetime_days",
+                "avg_nps",
+                "avg_continue_intent",
+            ],
+            vec![vec![
+                "52016159",
+                "解約済(成果不足)",
+                "614",
+                "28.93",
+                "28.93",
+                "0.0",
+                "0.0",
+                "",
+                "328.65",
+                "3.88",
+                "1.4",
+            ]],
         );
         let rows = parse_pattern_rows(&d);
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].avg_mtg_interval_days, None, "実データにMTG間隔空欄のstageが存在する");
+        assert_eq!(
+            rows[0].avg_mtg_interval_days, None,
+            "実データにMTG間隔空欄のstageが存在する"
+        );
         assert_eq!(rows[0].deals_count, 614);
     }
 
@@ -674,10 +744,27 @@ mod tests {
 
     fn pred_sheet(rows: Vec<Vec<&str>>) -> SheetData {
         sheet(
-            &["deal_id", "deal_name", "customer_id", "consultant_id", "consultant_name", "stage_label",
-              "industry_jsic", "size_band", "deal_age_months", "days_since_last_activity",
-              "recommended_risk_score", "bad_churn_proba", "good_churn_proba", "continue_proba",
-              "predicted_class", "intervention_priority", "nps_alert_msg", "top_factors", "top_features"],
+            &[
+                "deal_id",
+                "deal_name",
+                "customer_id",
+                "consultant_id",
+                "consultant_name",
+                "stage_label",
+                "industry_jsic",
+                "size_band",
+                "deal_age_months",
+                "days_since_last_activity",
+                "recommended_risk_score",
+                "bad_churn_proba",
+                "good_churn_proba",
+                "continue_proba",
+                "predicted_class",
+                "intervention_priority",
+                "nps_alert_msg",
+                "top_factors",
+                "top_features",
+            ],
             rows,
         )
     }
@@ -685,12 +772,38 @@ mod tests {
     #[test]
     fn 予測はbad_probaの降順で並ぶ() {
         let pred = pred_sheet(vec![
-            vec!["1", "A社", "c1", "u1", "山田", "定期1", "H", "06", "10", "5", "0.2", "0.2", "0.01", "0.7", "継続", "STABLE", "", "", ""],
-            vec!["2", "B社", "c2", "u1", "山田", "定期1", "H", "06", "10", "5", "0.9", "0.9", "0.01", "0.05", "失敗解約", "CRITICAL_RESCUE", "", "", ""],
+            vec![
+                "1", "A社", "c1", "u1", "山田", "定期1", "H", "06", "10", "5", "0.2", "0.2",
+                "0.01", "0.7", "継続", "STABLE", "", "", "",
+            ],
+            vec![
+                "2",
+                "B社",
+                "c2",
+                "u1",
+                "山田",
+                "定期1",
+                "H",
+                "06",
+                "10",
+                "5",
+                "0.9",
+                "0.9",
+                "0.01",
+                "0.05",
+                "失敗解約",
+                "CRITICAL_RESCUE",
+                "",
+                "",
+                "",
+            ],
         ]);
         let metrics = sheet(&["auc_bad"], vec![]);
         let section = build_prediction_section(&pred, &metrics);
-        assert_eq!(section.top20[0].deal_id, "2", "recommended_risk_score最大の行が先頭");
+        assert_eq!(
+            section.top20[0].deal_id, "2",
+            "recommended_risk_score最大の行が先頭"
+        );
         assert_eq!(section.counts.critical_rescue, 1);
         assert_eq!(section.counts.stable, 1);
         assert!(!section.truncated);
@@ -698,9 +811,27 @@ mod tests {
 
     #[test]
     fn recommended_risk_score空欄はbad_churn_probaにフォールバックする() {
-        let pred = pred_sheet(vec![
-            vec!["1", "A社", "c1", "u1", "山田", "定期1", "H", "06", "10", "5", "", "0.55", "0.01", "0.4", "失敗解約", "WATCH_BAD", "", "", ""],
-        ]);
+        let pred = pred_sheet(vec![vec![
+            "1",
+            "A社",
+            "c1",
+            "u1",
+            "山田",
+            "定期1",
+            "H",
+            "06",
+            "10",
+            "5",
+            "",
+            "0.55",
+            "0.01",
+            "0.4",
+            "失敗解約",
+            "WATCH_BAD",
+            "",
+            "",
+            "",
+        ]]);
         let metrics = sheet(&["auc_bad"], vec![]);
         let section = build_prediction_section(&pred, &metrics);
         assert_eq!(section.top20[0].bad_proba, 0.55);
@@ -712,8 +843,24 @@ mod tests {
         for i in 0..25 {
             rows.push(vec![
                 Box::leak(i.to_string().into_boxed_str()) as &str,
-                "A社", "c1", "u1", "山田", "定期1", "H", "06", "10", "5",
-                "0.5", "0.5", "0.01", "0.4", "失敗解約", "WATCH_BAD", "", "", "",
+                "A社",
+                "c1",
+                "u1",
+                "山田",
+                "定期1",
+                "H",
+                "06",
+                "10",
+                "5",
+                "0.5",
+                "0.5",
+                "0.01",
+                "0.4",
+                "失敗解約",
+                "WATCH_BAD",
+                "",
+                "",
+                "",
             ]);
         }
         let pred = pred_sheet(rows);
@@ -721,7 +868,10 @@ mod tests {
         let section = build_prediction_section(&pred, &metrics);
         assert_eq!(section.top20.len(), 20, "表示は上位20件");
         assert_eq!(section.total_active_deals, 25, "対象数は全件");
-        assert!(section.truncated, "20件を超えたら黙って切らずtruncatedを立てる");
+        assert!(
+            section.truncated,
+            "20件を超えたら黙って切らずtruncatedを立てる"
+        );
     }
 
     // ---- C: コンサル担当別 ----
@@ -731,17 +881,38 @@ mod tests {
             Box::leak(id.to_string().into_boxed_str()),
             Box::leak(name.to_string().into_boxed_str()),
             Box::leak(total.to_string().into_boxed_str()),
-            "0", "0", "0", "0", "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
             Box::leak(rate.to_string().into_boxed_str()),
-            "0", "0", "0", "", "",
+            "0",
+            "0",
+            "0",
+            "",
+            "",
         ]
     }
 
     fn consultant_sheet(rows: Vec<Vec<&str>>) -> SheetData {
         sheet(
-            &["consultant_id", "consultant_name", "total_deals", "active_deals", "churn_deals",
-              "sufficiency_deals", "continue_deals", "market_deals", "churn_rate", "continue_rate",
-              "sufficiency_rate", "avg_call_per_deal", "rank_churn", "rank_continue"],
+            &[
+                "consultant_id",
+                "consultant_name",
+                "total_deals",
+                "active_deals",
+                "churn_deals",
+                "sufficiency_deals",
+                "continue_deals",
+                "market_deals",
+                "churn_rate",
+                "continue_rate",
+                "sufficiency_rate",
+                "avg_call_per_deal",
+                "rank_churn",
+                "rank_continue",
+            ],
             rows,
         )
     }
@@ -754,7 +925,11 @@ mod tests {
         ]);
         let section = build_consultant_section(parse_consultant_rows(&d));
         assert_eq!(section.eligible_count, 1);
-        assert_eq!(section.all.len(), 2, "全担当テーブルにはフィルタなしで両方載る");
+        assert_eq!(
+            section.all.len(),
+            2,
+            "全担当テーブルにはフィルタなしで両方載る"
+        );
     }
 
     #[test]
@@ -765,13 +940,27 @@ mod tests {
             consultant_row("3", "低解約", "10", "0.1"),
         ]);
         let section = build_consultant_section(parse_consultant_rows(&d));
-        assert_eq!(section.top10[0].consultant_name, "高解約", "上位=解約率が高い順");
-        assert_eq!(section.bottom10[0].consultant_name, "低解約", "下位=解約率が低い順(昇順)");
+        assert_eq!(
+            section.top10[0].consultant_name, "高解約",
+            "上位=解約率が高い順"
+        );
+        assert_eq!(
+            section.bottom10[0].consultant_name, "低解約",
+            "下位=解約率が低い順(昇順)"
+        );
     }
 
     // ---- D: 業界×規模マトリクス ----
 
-    fn segment_row(ind: &str, size: &str, pref: &str, total: &str, bad: &str, good: &str, cont: &str) -> Vec<&'static str> {
+    fn segment_row(
+        ind: &str,
+        size: &str,
+        pref: &str,
+        total: &str,
+        bad: &str,
+        good: &str,
+        cont: &str,
+    ) -> Vec<&'static str> {
         vec![
             Box::leak(ind.to_string().into_boxed_str()),
             Box::leak(size.to_string().into_boxed_str()),
@@ -780,14 +969,26 @@ mod tests {
             Box::leak(cont.to_string().into_boxed_str()),
             Box::leak(bad.to_string().into_boxed_str()),
             Box::leak(good.to_string().into_boxed_str()),
-            "0", "0", "0",
+            "0",
+            "0",
+            "0",
         ]
     }
 
     fn segment_sheet(rows: Vec<Vec<&str>>) -> SheetData {
         sheet(
-            &["industry_jsic", "size_band", "prefecture", "total_deals", "continuing_count",
-              "bad_churn_count", "good_churn_count", "bad_churn_rate", "good_churn_rate", "total_churn_rate"],
+            &[
+                "industry_jsic",
+                "size_band",
+                "prefecture",
+                "total_deals",
+                "continuing_count",
+                "bad_churn_count",
+                "good_churn_count",
+                "bad_churn_rate",
+                "good_churn_rate",
+                "total_churn_rate",
+            ],
             rows,
         )
     }
@@ -819,7 +1020,11 @@ mod tests {
         let rows = parse_segment_rows(&d);
         let matrices = build_segment_matrices(&rows);
         let m = matrices.iter().find(|m| m.axis == "industry_size").unwrap();
-        assert_eq!(m.row_keys, vec!["A業".to_string(), "Z業".to_string()], "業界名の昇順で安定");
+        assert_eq!(
+            m.row_keys,
+            vec!["A業".to_string(), "Z業".to_string()],
+            "業界名の昇順で安定"
+        );
     }
 
     #[test]
@@ -831,7 +1036,10 @@ mod tests {
         let rows = parse_segment_rows(&d);
         let matrices = build_segment_matrices(&rows);
         let m = matrices.iter().find(|m| m.axis == "industry_pref").unwrap();
-        assert_eq!(m.col_keys[0], "多数県", "都道府県は合計件数の降順(javascript.html 11061行と同じ)");
+        assert_eq!(
+            m.col_keys[0], "多数県",
+            "都道府県は合計件数の降順(javascript.html 11061行と同じ)"
+        );
     }
 
     // ---- B付録: モデル指標 ----
@@ -840,7 +1048,10 @@ mod tests {
     fn 特徴量重要度をパースできる() {
         let d = sheet(
             &["auc_bad", "top10_features_importance"],
-            vec![vec!["0.72", r#"[["calls_per_month", 2287.5], ["naite", 1762.2]]"#]],
+            vec![vec![
+                "0.72",
+                r#"[["calls_per_month", 2287.5], ["naite", 1762.2]]"#,
+            ]],
         );
         let m = build_metrics_section(&d);
         assert_eq!(m.top_features.len(), 2);
