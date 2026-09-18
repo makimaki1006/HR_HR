@@ -98,15 +98,58 @@ C:/Users/fuji1/AppData/Local/Temp/hrhr_verify_p12p13   (detached HEAD)
   `Merge branch 'feat/weekly-snapshot' of C:/Users/fuji1/AppData/Local/hrhr_snapshot`
   があり、**別クローンの存在**を示す（そのフォルダは現在存在しない）
 
-### 原因の推定（未確定）
+### 原因（判明済み）
 
-別プロジェクト（スクレイピング）の作業環境が `HR_HR` を remote に持っている可能性。
-確認方法:
+**別プロジェクト（Hubspot）のセッションが、公開リポジトリ HR_HR の履歴から
+実名を消すために `git push --force` を実行した。**
+
+そのセッションが自分で記録を残していた
+（`~/.claude/projects/…Hubspot/memory/feedback_force_push_refetch_first.md`、
+2026-09-17 16:14 作成）。
+
+```
+目的       公開リポジトリの履歴から実名を消す
+クローン   9/11 の e94faf5（6 日前の状態）
+実行       9/17 14:39   git push --force
+出力       + 891b379...efe86c4 (forced update)
+結果       9/11〜9/15 の 9 コミットが消えた
+```
+
+**remote の取り違えではない。** 意図して HR_HR に押したが、
+**自分のクローンが 6 日前で止まっていることに気づいていなかった。**
+
+14:41 の「2 分後の復旧」も自動処理ではなく、そのセッションが push 出力の
+`891b379...` を見て即座に気づき、他のローカルクローンから 9 件を回収して
+仮名化後の履歴の上に rebase したもの。ツリーのハッシュが元と一致することも
+確認されている。
+
+なお `main` の履歴は仮名化された別物に置き換わっている。
+本 PR 群（#20 / #21）はその新しい履歴の上に乗っている。
+作者名は `makimaki1006` のみであることを確認済み。
+
+### 調査で回り道した点
+
+「別プロジェクトが HR_HR を remote に持っているのでは」と推測し、
+スクレイピングのプロジェクト（`recruit-media-pipeline`）を疑ったが**外れ**だった。
+そちらの remote は自分のリポジトリを指しており、設定に `HR_HR` の文字列は無い。
+
+**別セッションのメモリを先に探すべきだった。**
+`~/.claude/projects/*/memory/` を横断で検索すれば、
+自認の記録が残っていることにすぐ気づけた。
 
 ```bash
-cd <そのプロジェクトのフォルダ> && git remote -v
-# https://github.com/makimaki1006/HR_HR.git が出たら原因
+find ~/.claude/projects -name 'feedback_force_push*'
 ```
+
+### 相手セッションが残した教訓（取り込み）
+
+- 🔴 **`--force` を使わない。`--force-with-lease=<branch>:<期待するSHA>` を使う。**
+  押す先が動いていれば失敗して止まる。**今回もこれなら消えなかった**
+- 押す直前に必ず `git fetch` して `<クローン地点>..origin/<branch>` を見る。
+  空でなければ取り込んでから押す
+- 履歴を書き換えるときは先に `--all` の bundle を取る
+- 消えたものは他のローカルクローン／worktree から回収できる。
+  `git cat-file -t <sha>` で持っているクローンが見つかる
 
 ### 復旧の手順（記録）
 
