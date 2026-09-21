@@ -27,6 +27,8 @@ pub mod recruitment_diag;
 pub mod region;
 pub mod regional_analysis;
 pub mod sales_kpi; // 2026-09-05: 営業KPI（現場版）
+// 2026-09-21: コンサルダッシュボード。handlers::consult（商談準備レポート）とは別物。
+pub mod cs_dashboard;
 pub mod survey;
 pub mod trend;
 pub mod types;

@@ -1,0 +1,172 @@
+//! `build_app()` を実際に呼んで、ルートの重複で起動できなくなることを防ぐ
+//!
+//! 2026-09-21 追加。
+//!
+//! ------------------------------------------------------------------
+//! なぜ要るか
+//! ------------------------------------------------------------------
+//! **`cargo test` が全部通っても、サーバが起動しないことがある。**
+//! axum は同じパスを2度登録すると `Router::merge` / `Router::route` の時点で
+//! panic するが、それは `build_app()` を通らないと起きない。
+//! 各ハンドラのユニットテストは自分の `router()` しか見ないので、
+//! **別のモジュールと同じパスを取り合っていても気づけない**。
+//!
+//! 実害の記録: マージで同じルートが2行残り、本番が 21時間出なかった。
+//!
+//! ここでは本物の `build_app()` をそのまま呼ぶ。panic すればテストが落ちる。
+//!
+//! ------------------------------------------------------------------
+//! AppState について
+//! ------------------------------------------------------------------
+//! DB も Turso も監査も `Option` なので、**全部 `None` で組める**。
+//! ルートの重複はデータに関係なく `Router` の組み立てだけで決まるので、
+//! 重い依存を用意する必要はない。
+
+use std::sync::Arc;
+
+use rust_dashboard::auth::session::RateLimiter;
+use rust_dashboard::config::AppConfig;
+use rust_dashboard::db::cache::AppCache;
+use rust_dashboard::{build_app, AppState};
+
+fn bare_state() -> Arc<AppState> {
+    let config = AppConfig::from_env();
+    let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
+    let rate_limiter = RateLimiter::new(
+        config.rate_limit_max_attempts,
+        config.rate_limit_lockout_secs,
+    );
+    Arc::new(AppState {
+        config,
+        hw_db: None,
+        indeed_db: None,
+        turso_db: None,
+        salesnow_db: None,
+        scout_db: None,
+        cache,
+        rate_limiter,
+        company_geo_cache: None,
+        audit: None,
+    })
+}
+
+/// 同じパスを2つのルータが登録していたら、ここで panic して落ちる。
+#[test]
+fn build_appがルートの重複で落ちない() {
+    let _router = build_app(bare_state());
+}
+
+/// コンサルダッシュボードのパスが、実際に `build_app()` の中に入っていること。
+///
+/// 重複していないことと、**そもそも配線されていること**は別。
+/// `.merge()` を書き忘れても上のテストは通ってしまう。
+///
+/// 🔴 `protected_routes` は最後に `route_layer(auth_middleware)` を当てているので、
+/// 未ログインだと 303（/login へのリダイレクト）になる。
+/// **404 でなければ配線されている**、という見方をする。
+#[tokio::test]
+async fn コンサルダッシュボードのパスが配線されている() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    let app = build_app(bare_state());
+    for path in [
+        "/consulting",
+        "/api/consulting/focus",
+        "/api/consulting/renewal",
+        "/api/consulting/customer",
+        "/api/consulting/headquarters",
+        "/api/consulting/mtg-quality",
+        "/api/consulting/phone",
+        "/api/consulting/rampup",
+        "/api/consulting/outcome",
+        "/api/consulting/data-quality",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("リクエストを組めない"),
+            )
+            .await
+            .expect("ルータが応答しない");
+        assert_ne!(
+            res.status(),
+            StatusCode::NOT_FOUND,
+            "{path} が 404。build_app() に配線されていない\
+（src/lib.rs の protected_routes に .merge() を足したか確認）"
+        );
+    }
+}
+
+/// 架電クオリティと営業KPI のパスも生きていること。
+///
+/// コンサルを足したせいで既存の画面が消えていないか（同じパスを取り合って
+/// 片方が負けていないか）を見る。
+#[tokio::test]
+async fn 既存の画面のパスが消えていない() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    let app = build_app(bare_state());
+    for path in [
+        "/call-quality",
+        "/api/call-quality/tabs",
+        "/api/call-quality/overview",
+        "/sales-kpi",
+        "/api/sales-kpi/data",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("リクエストを組めない"),
+            )
+            .await
+            .expect("ルータが応答しない");
+        assert_ne!(
+            res.status(),
+            StatusCode::NOT_FOUND,
+            "{path} が 404。コンサルを足したときに既存の画面を消していないか確認"
+        );
+    }
+}
+
+/// 🔴 コンサルダッシュボードが**認証の内側**に入っていること。
+///
+/// `protected_routes` に `.merge()` するのを間違えて外側に置くと、
+/// **顧客ごとの契約金額が誰でも見られる**ことになる。
+/// 未ログインで 303（`/login` へのリダイレクト）になることで確かめる。
+/// 200 が返ったら、認証の外に出ている。
+#[tokio::test]
+async fn コンサルダッシュボードは認証の内側にある() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    let app = build_app(bare_state());
+    for path in ["/consulting", "/api/consulting/focus", "/api/consulting/customer"] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("リクエストを組めない"),
+            )
+            .await
+            .expect("ルータが応答しない");
+        assert_eq!(
+            res.status(),
+            StatusCode::SEE_OTHER,
+            "{path} が {} を返した。未ログインなら 303 で /login へ飛ぶはず。200 なら認証の外に出ている（protected_routes の .route_layer より前に merge しているか確認）",
+            res.status()
+        );
+    }
+}

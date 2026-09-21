@@ -668,6 +668,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .merge(handlers::call_quality::routes::router())
         // 営業KPI（現場版）。架電クオリティと同じ SheetStore を借りる。
         .merge(handlers::sales_kpi::routes::router())
+        // コンサルダッシュボード（納品管理PL）。同じ SheetStore を借りる。
+        .merge(handlers::cs_dashboard::routes::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。
