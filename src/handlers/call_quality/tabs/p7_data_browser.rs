@@ -185,6 +185,7 @@ pub const ALLOWED_SHEETS: &[&str] = &[
     "CS_MTG実施日_メール由来",
     "CS_通話明細",
     "CS_プロパティ履歴",
+    "CS_メタ",
 ];
 
 fn num(s: &str) -> f64 {
