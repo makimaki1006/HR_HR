@@ -1526,8 +1526,24 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             b.ltv.unwrap_or(0.0).partial_cmp(&a.ltv.unwrap_or(0.0))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        // 🔴 開いた瞬間に空の画面を出さない。**取引がいちばん多い法人**を既定にする。
+        //    ①今日動く先の1件目にしなかったのは、あちらが日によって変わるので
+        //    「昨日と同じ顧客を続けて見る」ができなくなるため。
+        //    取引数が多い法人は履歴が長く、この画面（1顧客を深く見る）の値打ちが出る。
+        let default_houjin = list
+            .iter()
+            .max_by(|a, b| {
+                a.deal_count.unwrap_or(0.0)
+                    .partial_cmp(&b.deal_count.unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|c| c.houjin.clone());
         return json!({
             "meta": {"today": today.to_string(), "all_cached": sheets.all_cached},
+            "default_houjin": default_houjin,
+            "default_reason": "取引がいちばん多い法人を既定で開いています。\
+①今日動く先の1件目にしていないのは、あちらが日によって変わるので\
+「昨日と同じ顧客を続けて見る」ができなくなるためです",
             "index": list.iter().map(|c| json!({
                 "houjin": c.houjin, "name": c.name, "ltv": c.ltv,
                 "deals": c.deal_count, "sites": c.kyoten_unique,
@@ -1814,6 +1830,10 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
                 "nps_low": a.nps_low,
                 "no_contact": a.no_contact,
                 "retired": a.retired,
+                // 🔴 母数（案件×経過月）が小さい担当者は、図に載せると誤読を生む。
+                //    1案件・5か月で 0% の人が、33案件で 24.4% の人より「悪い」位置に並ぶ。
+                //    画面はこの印を見て**図からだけ外す**。表には残す（接触ゼロは拾いたい）。
+                "small_n": a.months < super::MIN_CONTACT_MONTHS,
             })
         })
         .collect();
@@ -1836,6 +1856,11 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
         "contact_rule": "接触 ＝ MTG または60秒超の通話（メールは数えない）。\
 接触率 ＝ 接触があった月 ÷（案件 × 経過月）。件数ではなく率で見るのは、\
 件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分からなくなるため",
+        "small_n_rule": format!(
+            "接触率の図には、分母（案件 × 経過月）が {} か月未満の担当者を載せていません。\
+1案件・数か月の分母で 0% になった人が、何十案件も抱えて 20% 台の人より「悪い」位置に\
+並ぶと、実態とずれて読まれるためです。**表には残しています**（1案件でも接触ゼロなら拾いたいので）。",
+            super::MIN_CONTACT_MONTHS),
         "focus_rule": "注力の定義は既存のまま（月額30万超 / 拠点が複数 / 従業員規模のいずれか）。\
 ここで作り直していません",
         "owner_rule": "担当は consultant が正本です（hubspot_owner_id ではありません）。\
@@ -1897,7 +1922,15 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
             .get(&d.id)
             .map(|(o, r)| (o.clone(), *r))
             .unwrap_or_default();
-        let months = progress(d, today).map(|p| p * d.contract_period.unwrap_or(0.0));
+        // 🔴 契約開始がまだ先の案件がある（実測115件）。
+        //    そのまま計算すると「-1 / 6 か月目」と出て読めない。
+        //    **開始前は経過月を出さない**（0ヶ月目でもない）。
+        let started = date10(&d.contract_start_date).map(|st| st <= today).unwrap_or(false);
+        let months = if started {
+            progress(d, today).map(|p| (p * d.contract_period.unwrap_or(0.0)).max(0.0))
+        } else {
+            None
+        };
         let days_left = date10(&d.contract_expiration_date).map(|e| (e - today).num_days());
         let last_contact = contacts.get(&d.id).and_then(|v| v.iter().max().copied());
         let days_since = last_contact.map(|l| (today - l).num_days());
@@ -1921,7 +1954,10 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
         if matches!(days_left, Some(x) if (0..=60).contains(&x)) {
             flags.push("満了まで60日以内");
         }
-        if n_contact == 0 {
+        // 🔴 契約開始がまだ先なら「接触が無い」は当たり前。名札にしない
+        if !started {
+            // 開始前。ここでは接触の名札を立てない
+        } else if n_contact == 0 {
             flags.push("接触の記録が無い");
         } else if matches!(days_since, Some(x) if x > 30) {
             flags.push("接触が30日以上空いている");
@@ -1950,6 +1986,9 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
             "consultant": owner, "retired": retired,
             "amount": d.amount, "focus": focus.get(&d.houjin_resolved).copied().unwrap_or(false),
             "months": months.map(|m| m.round()),
+            // 開始前かどうか。画面は「何ヶ月目」の代わりに「開始前」と出す
+            "not_started": !started,
+            "start": d.contract_start_date,
             "period": d.contract_period,
             "days_left": days_left,
             "progress": progress(d, today),

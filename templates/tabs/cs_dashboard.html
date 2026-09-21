@@ -1202,7 +1202,9 @@ let teamSort = { key: "contact_rate", asc: true };
 
 const TEAM_COLS = [
   { k: "consultant",     t: "担当者",        n: 0, fmt: (r) => esc(r.consultant) +
-      (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") },
+      (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") +
+      /* 🔴 図から外した人が表では見えるので、その理由が分かる印を添える */
+      (r.small_n ? ' <span class="tag" title="分母が小さいので上の図からは外しています">母数が小さい</span>' : "") },
   { k: "n_active",       t: "持ち案件",      n: 1, fmt: (r) => num(r.n_active) },
   { k: "contact_rate",   t: "接触率",        n: 1,
     fmt: (r) => (r.contact_rate == null
@@ -1261,8 +1263,11 @@ function renderTeam(D) {
 
   /* ---- 接触率の横棒（低い順）---- */
   h += sec("図", "接触率（低い順）");
-  const bar = rows.filter((r) => r.contact_rate != null)
+  /* 🔴 図からは母数の小さい担当者を外す。表には残す。扱いを変える理由は下に書く */
+  const all = rows.filter((r) => r.contact_rate != null);
+  const bar = all.filter((r) => !r.small_n)
     .slice().sort((a, b) => a.contact_rate - b.contact_rate);
+  const dropped = all.filter((r) => r.small_n);
   h += fig("接触があった月 ÷（案件 × 経過月）",
     "棒の右は「接触した月 / 経過月」。持ち案件数は注記",
     bar.length
@@ -1278,7 +1283,13 @@ function renderTeam(D) {
     '<i class="full">🔴 <b>件数ではなく率で見ています。</b>' +
     "件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分かりません。" +
     "帯の切り方（40% / 70%）は機械が決めたものです。" +
-    "<b>どこから要注意とするかは取り決め</b>で、事実ではありません。</i>");
+    "<b>どこから要注意とするかは取り決め</b>で、事実ではありません。</i>" +
+    (dropped.length
+      ? '<i class="full">🔴 <b>この図から ' + num(dropped.length) +
+        " 名を外しています</b>（" +
+        dropped.map((r) => esc(r.consultant) + " " + num(r.contact_months) + "か月").join(" / ") +
+        "）。" + esc(D.small_n_rule || "") + "</i>"
+      : ""));
 
   /* ---- 一覧（本題）---- */
   h += sec("表", "コンサルタント一覧");
@@ -1536,9 +1547,17 @@ function med(o, d, isMan) {
    一覧は持っておいて、差し込んだ後の wire() で流し込む。 */
 let customerIndex = null;
 let customerHoujin = "";
+let customerReason = "";
 function renderCustomer(D) {
   if (D.index) {
     customerIndex = D.index;
+    /* 🔴 開いた瞬間に空の画面を出さない。既定の法人を1社開く */
+    if (D.default_houjin && !customerHoujin) {
+      customerHoujin = D.default_houjin;
+      customerReason = D.default_reason || "";
+      setTimeout(() => load("customer", false), 0);
+      return '<div class="loading">既定の顧客を開いています…</div>';
+    }
     return sec("問い", "この顧客に何が起きているか") +
       '<div class="lede">LTV の大きい順に ' + num(D.index.length) +
       " 法人。上の選択から選ぶと明細が出ます。</div>" +
@@ -1550,6 +1569,10 @@ function renderCustomer(D) {
   if (!D.meta.found) return note("warn", "見つかりません", "この法人の取引がありません。");
   const c = D.customer;
   let h = sec("顧客", c && c.name ? c.name : D.meta.houjin) +
+    (customerReason
+      ? note("info", "この顧客を既定で開いています", esc(customerReason) +
+             "　上の選択から別の法人に切り替えられます。")
+      : "") +
     '<div class="kpis">' +
     kpi("取引", num(c.deals) + '<span class="u">件</span>', "稼働中 " + num(c.active)) +
     kpi("拠点", num(c.sites) + '<span class="u">拠点</span>', "") +
@@ -2131,6 +2154,10 @@ function numCarry(v, carry) {
 
 /* 何ヶ月目か。分母は契約期間 */
 function pos(r) {
+  /* 🔴 契約開始がまだ先のものは「-1 か月目」ではなく「開始前」と出す */
+  if (r.not_started)
+    return '<span class="muted">開始前</span>' +
+      (r.start ? '<span class="muted small"> ' + esc(r.start) + " から</span>" : "");
   if (r.months == null) return DASH;
   return num(r.months) + (r.period ? " / " + num(r.period) : "") +
     '<span class="muted small"> か月目</span>' +
@@ -2190,6 +2217,8 @@ const BOARD_COLS = [
   { k: "rate_tassei", t: "採用目標に対して", n: 1, fmt: goalCell },
   /* 🔴 接触率は②コンサルタント一覧と同じ定義。必ず分母つき */
   { k: "contact_rate", t: "接触率",    n: 1, fmt: (r) => {
+      /* 開始前は分母（経過月）が0。「0%」ではなく理由を出す */
+      if (r.not_started) return '<span class="muted small">開始前</span>';
       if (r.contact_rate == null) return DASH;
       const col = r.contact_rate < 40 ? "hi" : r.contact_rate < 70 ? "ki" : "midori";
       return '<b style="color:var(--' + col + ')">' + pct1(r.contact_rate, 0) + "</b>" +
@@ -2269,6 +2298,28 @@ function renderToday(D) {
     h += '<div class="lede">残り7日以内。名札の本数に関わらず出しています。</div>';
     h += scroll(boardTable(soon, { key: "days_left", asc: true }, "soon-tbl"), 320);
   }
+
+  /* 🔴 図はこれ1つだけ。毎朝の画面なので、表が主役のままにする。
+     件数の推移は作らない（スナップショットが無いので、作ると嘘になる）。 */
+  h += sec("図", "何で上がってきたか（今日出す先 " + num(D.rows.length) + " 件の名札）");
+  const fc = {};
+  for (const r of D.rows) for (const f of (r.flags || [])) fc[f] = (fc[f] || 0) + 1;
+  const fr = Object.entries(fc).sort((a, b) => b[1] - a[1]);
+  h += fig("名札ごとの件数", "1つの案件に複数つきます",
+    fr.length
+      ? svgBarH({ w: 700, fmt: F.int, rh: 24,
+          rows: fr.map(([label, n]) => ({
+            label: tail(label, 26), v: n, txt: num(n) + "件",
+            color: label.indexOf("NPS") >= 0 || label.indexOf("退職") >= 0 ? C.hi :
+                   label.indexOf("満了") >= 0 || label.indexOf("接触") >= 0 ? C.ki :
+                   C.murasaki })) })
+      : '<div class="empty">名札の付いた案件がありません。</div>',
+    lg("box", C.hi, "関係が危ない") + lg("box", C.ki, "時間が迫っている") +
+    lg("box", C.murasaki, "成果が出ていない") +
+    '<i class="full">この24件だけの内訳です。稼働中の全件の内訳は' +
+    "「③案件の立ち位置」にあります。" +
+    "🔴 <b>件数の推移は出していません。</b>日ごとの記録を持っていないので、" +
+    "作ると嘘になります。</i>");
 
   h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）");
   h += scroll(boardTable(D.rows, { key: "n_flags", asc: false }, "today-tbl"), 640);
