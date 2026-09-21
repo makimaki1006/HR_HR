@@ -2122,6 +2122,13 @@ function tags(fs) {
       ');color:var(--' + col + ')">' + esc(f) + "</span>";
   }).join(" ");
 }
+/* 履歴から取った値。🔴 その月に書き換えが無ければ「持越」と出す */
+function numCarry(v, carry) {
+  if (v == null) return DASH;
+  return num(v) + (carry
+    ? ' <span class="n0" title="その月に書き換えが無く、前の値を引き継いだ">持越</span>' : "");
+}
+
 /* 何ヶ月目か。分母は契約期間 */
 function pos(r) {
   if (r.months == null) return DASH;
@@ -2151,6 +2158,8 @@ function goalCell(r) {
     '<span class="muted small"> ' + nz(r.syoudaku) + "/" + nz(r.saiyomokuhyou) + "</span>";
 }
 function cpaCell(r) {
+  /* 🔴 金額が入っていない（0を含む）と採用単価は出せない。0万 と書かない */
+  if (r.amount == null) return '<span class="n0">金額なし</span>';
   if (r.cpa == null) return '<span class="n0">採用0</span>';
   const col = r.cpa_vs_band != null && r.cpa_vs_band >= 1.5 ? "hi" : "ink-2";
   return '<b style="color:var(--' + col + ')">' + yen(r.cpa) + "</b>" +
@@ -2174,9 +2183,19 @@ const BOARD_COLS = [
     } },
   { k: "nps",        t: "定期NPS",     n: 1, fmt: npsCell },
   { k: "days_since_contact", t: "最後の接触", n: 1, fmt: touchCell },
-  { k: "oubo",       t: "応募",        n: 1, fmt: (r) => nz(r.oubo) +
-      (r.oubo_carry ? ' <span class="n0" title="その月に書き換えが無く、前の値を引き継いだ">持越</span>' : "") },
+  /* 🔴 応募 → 面接 → 採用 を横に並べる。どこで詰まっているかが1行で読めるように */
+  { k: "oubo",       t: "応募",        n: 1, fmt: (r) => numCarry(r.oubo, r.oubo_carry) },
+  { k: "mensetu",    t: "面接",        n: 1, fmt: (r) => numCarry(r.mensetu, r.mensetu_carry) },
+  { k: "syoudaku",   t: "採用",        n: 1, fmt: (r) => numCarry(r.syoudaku, r.syoudaku_carry) },
   { k: "rate_tassei", t: "採用目標に対して", n: 1, fmt: goalCell },
+  /* 🔴 接触率は②コンサルタント一覧と同じ定義。必ず分母つき */
+  { k: "contact_rate", t: "接触率",    n: 1, fmt: (r) => {
+      if (r.contact_rate == null) return DASH;
+      const col = r.contact_rate < 40 ? "hi" : r.contact_rate < 70 ? "ki" : "midori";
+      return '<b style="color:var(--' + col + ')">' + pct1(r.contact_rate, 0) + "</b>" +
+        '<span class="muted small"> ' + num(r.contact_touched) + "/" +
+        num(r.contact_months) + " か月</span>";
+    } },
   { k: "cpa",        t: "採用単価",    n: 1, fmt: cpaCell },
   { k: "amount",     t: "金額",        n: 1, fmt: (r) => yen(r.amount) },
   { k: "n_flags",    t: "名札",        n: 0, fmt: (r) => tags(r.flags) },

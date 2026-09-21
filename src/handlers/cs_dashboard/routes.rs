@@ -48,8 +48,8 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
-    consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, elapsed_months,
-    focus_of, latest_nps, load, opt_num, Deal, Outcome, Sheets,
+    consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, focus_of,
+    latest_nps, load, opt_num, Deal, Outcome, Sheets,
 };
 
 pub fn router() -> Router<std::sync::Arc<AppState>> {
@@ -1773,13 +1773,11 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
             retired_deals += 1;
         }
 
-        // 接触率の分母と分子
-        let ms = elapsed_months(d, today);
-        e.months += ms.len();
-        if let Some(dates) = contacts.get(&d.id) {
-            let hit: HashSet<String> = dates.iter().map(|x| x.format("%Y-%m").to_string()).collect();
-            e.touched += ms.iter().filter(|m| hit.contains(*m)).count();
-        } else {
+        // 接触率の分母と分子。🔴 ③案件の立ち位置と同じ関数を使う
+        let (touched, months) = super::contact_rate_of(d, &contacts, today);
+        e.months += months;
+        e.touched += touched;
+        if !contacts.contains_key(&d.id) {
             e.no_contact += 1;
         }
 
@@ -1904,6 +1902,8 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
         let last_contact = contacts.get(&d.id).and_then(|v| v.iter().max().copied());
         let days_since = last_contact.map(|l| (today - l).num_days());
         let n_contact = contacts.get(&d.id).map(|v| v.len()).unwrap_or(0);
+        // 接触率。🔴 ②コンサルタント一覧と同じ関数。計算を2つ持たない
+        let (touched_m, elapsed_m) = super::contact_rate_of(d, &contacts, today);
         let np = nps.get(&d.id);
         let band = band_of(d);
         let mycpa = cpa(d);
@@ -1961,7 +1961,13 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
             // 🔴 現在値ではなくプロパティ履歴の最新。carry は「その月に書き換えが無い」
             "oubo": oubo.as_ref().map(|x| x.1), "oubo_carry": oubo.as_ref().map(|x| x.2),
             "mensetu": mensetu.as_ref().map(|x| x.1),
+            "mensetu_carry": mensetu.as_ref().map(|x| x.2),
             "syoudaku": syoudaku.as_ref().map(|x| x.1),
+            "syoudaku_carry": syoudaku.as_ref().map(|x| x.2),
+            // 接触率。🔴 ②と同じ定義・同じ関数。分子と分母を必ず一緒に返す
+            "contact_touched": touched_m,
+            "contact_months": elapsed_m,
+            "contact_rate": rate(touched_m as f64, elapsed_m as f64),
             "saiyomokuhyou": d.saiyomokuhyou,
             "rate_tassei": d.rate_tassei(),
             "cpa": mycpa, "cpa_band_median": bmed, "cpa_vs_band": vs_band,
