@@ -20,8 +20,9 @@ use std::time::Instant;
 use serde_json::Value;
 
 use super::routes::{
-    build_customer, build_data_quality, build_focus, build_headquarters, build_mtg_quality,
-    build_outcome, build_phone, build_rampup, build_renewal,
+    build_consultants, build_customer, build_data_quality, build_deal_board, build_focus,
+    build_headquarters, build_mtg_quality, build_outcome, build_phone, build_rampup,
+    build_renewal,
 };
 use super::Sheets;
 use crate::handlers::call_quality::sheets::SheetData;
@@ -442,9 +443,12 @@ fn リスク2軸の帯が実データと一致する() {
     assert_eq!(v["risk"]["ax3"]["赤"], 145);
     assert_eq!(v["risk"]["ax3"]["未測定"], 157);
 
-    assert_eq!(v["risk"]["ax4"]["白"], 548);
+    // 2026-09-21: 白 548 -> 547 / 未測定 1 -> 2。
+    //   金額 0 を「入っていない」扱いに変えたため（0円の契約は存在しない）。
+    //   稼働中で amount=0 が1件あり、それが白から未測定へ移った。
+    assert_eq!(v["risk"]["ax4"]["白"], 547);
     assert_eq!(v["risk"]["ax4"]["赤"], 154);
-    assert_eq!(v["risk"]["ax4"]["未測定"], 1);
+    assert_eq!(v["risk"]["ax4"]["未測定"], 2);
 
     assert_eq!(band_n(&v, "0＝安定"), 430);
     assert_eq!(band_n(&v, "1＝要注意"), 247);
@@ -1000,4 +1004,103 @@ fn ステージは日本語名で返る() {
             "タブ7のステージが内部IDのまま: {r}"
         );
     }
+}
+
+// ================================================================ 列の追加（2026-09-21）
+
+/// 🔴 金額0は「入っていない」。`0万` と書かず、採用単価の計算にも入れない。
+///
+/// 0円の契約は存在しないので、0 は未入力の裏返し。0 を混ぜると採用単価の
+/// 平均や中央値が下に引っ張られる。実データで 3,659件中2件（稼働中1件）。
+#[test]
+fn 金額0は入っていない扱いになる() {
+    let sh = sheets();
+    let deals = super::deals_of(&sh.deal);
+    assert!(
+        !deals.iter().any(|d| matches!(d.amount, Some(v) if v <= 0.0)),
+        "金額に 0 以下が残っている。money() が効いていない"
+    );
+    for d in &deals {
+        if d.amount.is_none() {
+            assert!(super::cpa(d).is_none(), "金額が無いのに採用単価が出ている: {}", d.id);
+        }
+    }
+    // シートには 0 の行が実在する（テストが素通りしていないことの確認）
+    let raw_zero = sh
+        .deal
+        .rows
+        .iter()
+        .filter(|r| {
+            let v = sh.deal.get(r, "amount").trim();
+            !v.is_empty() && v.parse::<f64>().map(|x| x <= 0.0).unwrap_or(false)
+        })
+        .count();
+    assert!(raw_zero > 0, "シートに金額0の行が無い。このテストが意味を持たない");
+}
+
+/// ③案件の立ち位置に、応募・面接・採用・接触率がそろっていること。
+///
+/// 🔴 接触率は**②コンサルタント一覧と同じ定義**（接触＝MTG または60秒超の通話）。
+/// 率だけ出さず、分子と分母を必ず一緒に返す。
+#[test]
+fn 案件ごとに応募面接採用と接触率が出る() {
+    let v = build_deal_board(&sheets(), fixture_day());
+    let rows = v["rows"].as_array().expect("rows");
+    assert!(!rows.is_empty());
+
+    for key in ["oubo", "mensetu", "syoudaku", "contact_touched", "contact_months"] {
+        assert!(rows.iter().any(|r| r.get(key).is_some()), "{key} の列が無い");
+    }
+    for key in ["oubo_carry", "mensetu_carry", "syoudaku_carry"] {
+        assert!(rows.iter().any(|r| r.get(key).is_some()), "{key} が無い");
+    }
+
+    let mut with_rate = 0;
+    for r in rows {
+        let den = r["contact_months"].as_u64().expect("contact_months");
+        let n = r["contact_touched"].as_u64().expect("contact_touched");
+        assert!(n <= den, "接触した月が経過月を超えている: {r}");
+        if den == 0 {
+            // 🔴 分母0の率は null。0% と書かない
+            assert!(r["contact_rate"].is_null(), "経過月0なのに率が出ている: {r}");
+        } else {
+            let got = r["contact_rate"].as_f64().expect("contact_rate");
+            let want = n as f64 / den as f64 * 100.0;
+            assert!((got - want).abs() < 0.01, "接触率が分子分母と合わない: {r}");
+            with_rate += 1;
+        }
+    }
+    assert!(with_rate > 100, "接触率を出せる案件が {with_rate} 件しかない");
+}
+
+/// ②と③で接触率の定義がずれていないこと。
+///
+/// 同じ数字を2か所で作ると、画面ごとに値が違う原因になる。
+#[test]
+fn 接触率の定義が担当者一覧と案件一覧でそろっている() {
+    let sh = sheets();
+    let team = build_consultants(&sh, fixture_day());
+    let board = build_deal_board(&sh, fixture_day());
+
+    let mut sum: std::collections::BTreeMap<String, (u64, u64)> = Default::default();
+    for r in board["rows"].as_array().unwrap() {
+        let who = r["consultant"].as_str().unwrap_or("").to_string();
+        if who.is_empty() {
+            continue;
+        }
+        let e = sum.entry(who).or_insert((0, 0));
+        e.0 += r["contact_touched"].as_u64().unwrap_or(0);
+        e.1 += r["contact_months"].as_u64().unwrap_or(0);
+    }
+    let mut checked = 0;
+    for t in team["rows"].as_array().unwrap() {
+        let who = t["consultant"].as_str().unwrap().to_string();
+        let Some((tn, td)) = sum.get(&who) else {
+            continue;
+        };
+        assert_eq!(t["contact_touched"].as_u64().unwrap(), *tn, "{who} の分子がずれている");
+        assert_eq!(t["contact_months"].as_u64().unwrap(), *td, "{who} の分母がずれている");
+        checked += 1;
+    }
+    assert!(checked > 10, "突き合わせた担当者が {checked} 名しかない");
 }

@@ -186,6 +186,19 @@ pub fn opt_num(s: &str) -> Option<f64> {
     t.replace(',', "").parse::<f64>().ok()
 }
 
+/// 金額。🔴 **0 は「入っていない」として扱う。**
+///
+/// 0円の契約は存在しないので、0 は未入力の裏返し。`0万` と表示したり、
+/// 採用単価の計算に 0 を入れると、集計が下に引っ張られる。
+/// 実データで 3,659件中 2件（稼働中は1件）。入力側の問題なので、
+/// **ここでは表示から外すだけ**にして、名指しの表は作らない。
+fn money(s: &str) -> Option<f64> {
+    match opt_num(s) {
+        Some(v) if v > 0.0 => Some(v),
+        _ => None,
+    }
+}
+
 /// シートの真偽値。Python 側は `TRUE`/`FALSE` で書く。
 pub fn flag_true(s: &str) -> bool {
     flag(s)
@@ -216,7 +229,7 @@ impl Deal {
             syoudaku: opt_num(g("syoudaku")),
             saiyomokuhyou: opt_num(g("saiyomokuhyou")),
             keisaisu: opt_num(g("keisaisu")),
-            amount: opt_num(g("amount")),
+            amount: money(g("amount")),
             contract_period: opt_num(g("contract_period")),
         }
     }
@@ -727,4 +740,22 @@ pub fn elapsed_months(d: &Deal, today: NaiveDate) -> Vec<String> {
         }
     }
     out
+}
+
+/// 案件1件の接触率。**②コンサルタント一覧と同じ定義・同じ計算**。
+///
+/// 🔴 接触 ＝ MTG または60秒超の通話。**メールは数えない。**
+/// 接触率 ＝ 接触があった月 ÷ 経過月。**率だけ出さず、分子と分母を一緒に返す。**
+/// 経過月が0なら `None`（0% と書かない）。
+pub fn contact_rate_of(
+    d: &Deal,
+    contacts: &HashMap<String, Vec<NaiveDate>>,
+    today: NaiveDate,
+) -> (usize, usize) {
+    let ms = elapsed_months(d, today);
+    let Some(dates) = contacts.get(&d.id) else {
+        return (0, ms.len());
+    };
+    let hit: HashSet<String> = dates.iter().map(|x| x.format("%Y-%m").to_string()).collect();
+    (ms.iter().filter(|m| hit.contains(*m)).count(), ms.len())
 }
