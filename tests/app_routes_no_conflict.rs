@@ -218,3 +218,38 @@ fn コンサルから既存の画面へ戻れる() {
 /sales-kpi と同じく「← ダッシュボードへ戻る」を置くこと"
     );
 }
+
+/// 🔴 画面の JS が壊れていると、**どのテストにも引っかからずに無言で死ぬ**。
+///
+/// 2026-09-21 の実害: テンプレートの JS に構文エラーが1つあり、`<script>` 全体が
+/// 実行されなかった。API は1本も呼ばれず画面は空。それでも
+///   - `cargo test` は 3,393 件すべて通る（Rust 側は無関係）
+///   - `curl` で `/api/consulting/*` は 200（サーバは正常）
+///   - `/consulting` も 200（HTML は出ている）
+/// だったので、どの確認にも掛からなかった。
+///
+/// 原因は JS の文字列に `\\"` と書いたこと。JS では `\` が
+/// バックスラッシュ1つになるので、次の `"` で文字列が終わってしまう。
+///
+/// ここでは**その1パターンだけ**を見る。構文そのものの検査は Rust からは
+/// できないので、`tests/consulting_page_js.js`（Node）が担当する。
+/// こちらは cargo test で毎回走る安い見張り。
+#[test]
+fn 画面のjsに文字列を壊すエスケープが無い() {
+    for (name, src) in [
+        ("templates/tabs/cs_dashboard.html", include_str!("../templates/tabs/cs_dashboard.html")),
+    ] {
+        let bad: Vec<(usize, &str)> = src
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| l.contains("\\\\\""))
+            .map(|(i, l)| (i + 1, l.trim()))
+            .collect();
+        assert!(
+            bad.is_empty(),
+            "{name} の JS に `\\\\\"` がある。JS では文字列がそこで終わってしまい、\
+<script> 全体が動かなくなる。HTML 属性を書きたいなら外側をシングルクォートにすること。\n{:?}",
+            bad
+        );
+    }
+}

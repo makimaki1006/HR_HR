@@ -580,7 +580,8 @@ fn risk(act: &[&Deal], contacts: &HashMap<String, Vec<NaiveDate>>, today: NaiveD
         if b == 2 {
             rows.push(json!({
                 "deal_id": d.id,
-                "stage": d.stage,
+                "name": d.name,
+                "stage": d.stage_label,
                 "amount": d.amount,
                 "days_to_expiry": days_to_expiry,
                 "ax3w": ax3w,
@@ -700,7 +701,8 @@ fn nps_low(
             .map(|ed| (ed - today).num_days());
         rows.push(json!({
             "deal_id": d.id,
-            "stage": d.stage,
+            "name": d.name,
+                "stage": d.stage_label,
             "nps": v,
             "nps_month": month,
             "amount": d.amount,
@@ -995,7 +997,8 @@ fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDat
         let days = date10(&d.contract_start_date).map(|st| (today - st).num_days());
         rows.push(json!({
             "deal_id": d.id,
-            "stage": d.stage,
+            "name": d.name,
+                "stage": d.stage_label,
             "amount": d.amount,
             "days_since_start": days,
         }));
@@ -1120,7 +1123,8 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
                 days.push(dd as f64);
                 if dd > 90 {
                     silent.push(json!({
-                        "deal_id": d.id, "stage": d.stage, "amount": d.amount,
+                        "deal_id": d.id, "name": d.name,
+                "stage": d.stage_label, "amount": d.amount,
                         "n_calls": n_all,
                         "n_contact": hits.map(|v| v.len()).unwrap_or(0),
                         "last_contact": l.to_string(), "days_since": dd,
@@ -1131,7 +1135,8 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
                 no_contact += 1;
                 // 🔴 「接触が1本も無い」は日数が出せない。0日として混ぜない
                 silent.push(json!({
-                    "deal_id": d.id, "stage": d.stage, "amount": d.amount,
+                    "deal_id": d.id, "name": d.name,
+                "stage": d.stage_label, "amount": d.amount,
                     "n_calls": n_all, "n_contact": 0,
                     "last_contact": Value::Null, "days_since": Value::Null,
                 }));
@@ -1512,7 +1517,8 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "max_renewal_no": c.max_renewal_no, "last_expiration": c.last_expiration,
         })),
         "deals": ds.iter().map(|d| json!({
-            "deal_id": d.id, "stage": d.stage, "kind": d.contract_kind,
+            "deal_id": d.id, "name": d.name,
+                "stage": d.stage_label, "kind": d.contract_kind,
             "start": d.contract_start_date, "expiration": d.contract_expiration_date,
             "renewal_no": d.renewal_no, "amount": d.amount,
             "oubo": d.oubo, "mensetu": d.mensetu, "syoudaku": d.syoudaku,

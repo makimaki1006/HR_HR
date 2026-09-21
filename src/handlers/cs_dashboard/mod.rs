@@ -143,7 +143,11 @@ pub fn outcome_of(stage: &str) -> Outcome {
 #[derive(Debug, Clone)]
 pub struct Deal {
     pub id: String,
+    /// 取引名。**画面はこれを出す。** 取引IDは現場に意味が無い。
+    pub name: String,
     pub stage: String,
+    /// ステージの日本語名。🔴 **画面に内部ID（`52016155` など）を出さない。**
+    pub stage_label: String,
     /// 契約種別。オプション判定に使う。
     pub contract_kind: String,
     /// 満了日 `yyyy-MM-dd`。**実データ。推定していない。**
@@ -193,7 +197,9 @@ impl Deal {
         let g = |name: &str| sheet.get(row, name);
         Self {
             id: g("deal_id").to_string(),
+            name: g("dealname").to_string(),
             stage: g("dealstage").to_string(),
+            stage_label: g("dealstage_label").to_string(),
             contract_kind: g("contract_kind").to_string(),
             contract_expiration_date: g("contract_expiration_date").to_string(),
             contract_start_date: g("contract_start_date").to_string(),

@@ -956,3 +956,47 @@ fn 存在しない法人でも落ちない() {
     assert!(v["deals"].as_array().unwrap().is_empty());
     assert!(v["customer"].is_null());
 }
+
+/// 🔴 画面に**内部IDを出さない**。ステージは日本語名で返すこと。
+///
+/// 2026-09-21 の実害: ステージ列に `52016155` のような ID が並んでいた。
+/// 現場は内部IDを見ても何のことか分からない。
+#[test]
+fn ステージは日本語名で返る() {
+    let v = build_outcome(&sheets(), fixture_day());
+    let top = v["risk"]["top"].as_array().expect("top");
+    assert!(!top.is_empty());
+    for r in top {
+        let st = r["stage"].as_str().unwrap_or("");
+        assert!(!st.is_empty(), "ステージが空: {r}");
+        assert!(
+            st.parse::<u64>().is_err(),
+            "ステージが内部ID（{st}）のまま。dealstage_label を返すこと"
+        );
+        // 取引名も返していること（画面は取引IDでなくこちらを出す）
+        assert!(r["name"].is_string(), "取引名を返していない: {r}");
+    }
+
+    // タブ1・6・7 も同じ
+    let f = build_focus(&sheets(), fixture_day());
+    for r in f["nps_low"]["rows"].as_array().unwrap().iter().take(20) {
+        assert!(
+            r["stage"].as_str().unwrap_or("").parse::<u64>().is_err(),
+            "タブ1のステージが内部IDのまま: {r}"
+        );
+    }
+    let p = build_phone(&sheets(), fixture_day());
+    for r in p["silent"]["rows"].as_array().unwrap().iter().take(20) {
+        assert!(
+            r["stage"].as_str().unwrap_or("").parse::<u64>().is_err(),
+            "タブ6のステージが内部IDのまま: {r}"
+        );
+    }
+    let ru = build_rampup(&sheets(), fixture_day());
+    for r in ru["no_mtg"]["rows"].as_array().unwrap().iter().take(20) {
+        assert!(
+            r["stage"].as_str().unwrap_or("").parse::<u64>().is_err(),
+            "タブ7のステージが内部IDのまま: {r}"
+        );
+    }
+}
