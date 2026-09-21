@@ -170,3 +170,40 @@ async fn コンサルダッシュボードは認証の内側にある() {
         );
     }
 }
+
+// ================================================================ 画面から辿れるか
+
+/// 🔴 **ルートが生きていることと、画面から辿れることは別。**
+///
+/// 2026-09-21 の実害: `/consulting` は 303 を返していた（＝配線済み）のに、
+/// **既存レイアウトにリンクが無かった**ので、画面を見ている人には
+/// 存在しないのと同じだった。URL を直接叩けば出る、では使われない。
+///
+/// ここではテンプレートの中身を見る。レンダリングを通さないのは、
+/// このナビが `{{JOBGEN_TAB}}` のような差し込みを含んでいて、
+/// 組み立てに `AppState` の中身が要るため。**リンクが書かれているか**だけを見る。
+#[test]
+fn 既存の画面からコンサルへ行ける() {
+    let nav = include_str!("../templates/dashboard_inline.html");
+    assert!(
+        nav.contains(r#"href="/consulting""#),
+        "templates/dashboard_inline.html に /consulting へのリンクが無い。\
+ルートが生きていても、画面から辿れなければ存在しないのと同じ"
+    );
+    // 先例が消えていないことも一緒に見る（並びごと消える事故を捕まえる）
+    assert!(
+        nav.contains(r#"href="/sales-kpi""#),
+        "templates/dashboard_inline.html から /sales-kpi のリンクが消えている"
+    );
+}
+
+/// 行きっぱなしで戻れないと使えない。
+#[test]
+fn コンサルから既存の画面へ戻れる() {
+    let page = include_str!("../templates/tabs/cs_dashboard.html");
+    assert!(
+        page.contains(r#"href="/""#),
+        "templates/tabs/cs_dashboard.html に戻り導線が無い。\
+/sales-kpi と同じく「← ダッシュボードへ戻る」を置くこと"
+    );
+}
