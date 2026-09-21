@@ -73,6 +73,7 @@ fn sheets() -> Sheets {
         customer: load_tsv("CS_顧客"),
         mail_mtg: load_tsv("CS_MTG実施日_メール由来"),
         handover: load_tsv("CS_担当交代"),
+        owner_hist: load_tsv("CS_担当履歴"),
         all_cached: false,
     }
 }
