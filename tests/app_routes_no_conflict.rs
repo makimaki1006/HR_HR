@@ -195,6 +195,17 @@ fn 既存の画面からコンサルへ行ける() {
         nav.contains(r#"href="/sales-kpi""#),
         "templates/dashboard_inline.html から /sales-kpi のリンクが消えている"
     );
+
+    // 🔴 ラベルも固定する（2026-09-21 ユーザー指定「営業KPIの隣にコンサルKPI」）。
+    //    リンクだけ見ていると、文言が英語や内部IDに変わっても気づけない。
+    assert!(
+        nav.contains("コンサルKPI"),
+        "ナビのラベルが「コンサルKPI」でない。営業KPI の隣に並べる文言として指定されている"
+    );
+    assert!(
+        nav.contains("営業KPI"),
+        "ナビから「営業KPI」のラベルが消えている"
+    );
 }
 
 /// 行きっぱなしで戻れないと使えない。
