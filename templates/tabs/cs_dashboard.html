@@ -241,9 +241,9 @@ function renderFocus(D) {
       kpi("NPS が入っている", num(n.n_have_nps), pct(n.coverage) + " の取引", "gray") +
     "</div>" +
     '<div class="scroll">' + table(
-      ["取引ID", "ステージ", "NPS", "回答月", "金額", "満了まで", "接触の記録"],
+      ["取引", "ステージ", "NPS", "回答月", "金額", "満了まで", "接触の記録"],
       n.rows.slice(0, 200).map((r) => [
-        esc(r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>",
+        esc(r.name || r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>",
         '<span class="flag">' + num(r.nps) + "</span>", esc(r.nps_month),
         man(r.amount),
         r.days_to_expiry === null ? n0() : num(r.days_to_expiry) + "日",
@@ -378,9 +378,10 @@ function renderCustomer(D) {
   h += card("契約の系列（" + num(D.deals.length) + " 件）",
     "契約開始の順。継続のたびに別の取引になります。",
     '<div class="scroll">' + table(
-      ["取引ID", "拠点", "種別", "開始", "満了", "継続回数", "金額", "応募", "面接", "承諾", "状態"],
+      ["取引", "ステージ", "拠点", "種別", "開始", "満了", "継続回数", "金額", "応募", "面接", "承諾", "状態"],
       D.deals.map((d) => [
-        esc(d.deal_id), '<span class="n0">' + esc(d.site) + "</span>",
+        esc(d.name || d.deal_id), '<span class="n0">' + esc(d.stage) + "</span>",
+        '<span class="n0">' + esc(d.site) + "</span>",
         '<span class="n0">' + esc(d.kind) + "</span>",
         esc(d.start), esc(d.expiration), num(d.renewal_no), man(d.amount),
         num(d.oubo), num(d.mensetu), num(d.syoudaku),
@@ -390,7 +391,7 @@ function renderCustomer(D) {
   h += card("採用単価（拠点ごと）",
     "🔴 <strong>決裁は事業所単位です。</strong>1本の線にまとめると、拠点間のばらつきが時間の悪化に見えます。",
     D.cpa_by_site.map((s) =>
-      "<h3 style=\\"font-size:13px;margin:12px 0 4px\\">" + esc(s.site) + "</h3>" +
+      '<h3 style="font-size:13px;margin:12px 0 4px">' + esc(s.site) + '</h3>' +
       table(["開始", "継続回数", "採用単価", "採用数", "金額", "確かさ"],
         s.points.map((p) => [
           esc(p.start), num(p.renewal_no), man(p.cpa), num(p.syoudaku), man(p.amount),
@@ -399,7 +400,7 @@ function renderCustomer(D) {
 
   h += card("MTG の履歴（" + num(D.mtgs.length) + " 件）",
     "🔴 中身が空なのは「まだ抽出していない」であって、記録が無いのとは違います。",
-    '<div class="scroll">' + table(["開催日", "取引", "リスク", "やること", "顧客の懸念", "抽出"],
+    '<div class="scroll">' + table(["開催日", "取引ID", "リスク", "やること", "顧客の懸念", "抽出"],
       D.mtgs.map((m) => [
         esc(m.date), '<span class="n0">' + esc(m.deal_id) + "</span>",
         esc(m.risk) || n0(), esc(m.todo) || n0(), esc(m.concern) || n0(),
@@ -480,9 +481,9 @@ function renderPhone(D) {
 
   h += card("沈黙している取引（" + num(D.silent.n) + " 件）", esc(D.silent.rule),
     '<div class="scroll">' + table(
-      ["取引ID", "ステージ", "金額", "通話", "接触", "最後の接触", "経過"],
+      ["取引", "ステージ", "金額", "通話", "接触", "最後の接触", "経過"],
       D.silent.rows.map((x) => [
-        esc(x.deal_id), '<span class="n0">' + esc(x.stage) + "</span>", man(x.amount),
+        esc(x.name || x.deal_id), '<span class="n0">' + esc(x.stage) + "</span>", man(x.amount),
         num(x.n_calls), num(x.n_contact),
         x.last_contact === null ? '<span class="flag">一度も無い</span>' : esc(x.last_contact),
         x.days_since === null ? n0() : num(x.days_since) + "日",
@@ -522,9 +523,9 @@ function renderRampup(D) {
 
   h += card("まだ MTG が結べていない初回契約（" + num(nm.n) + " 件）",
     "稼働中の初回契約 " + num(nm.first_active) + " 件のうち " + pct(nm.rate) + "。",
-    '<div class="scroll">' + table(["取引ID", "ステージ", "金額", "契約開始から"],
+    '<div class="scroll">' + table(["取引", "ステージ", "金額", "契約開始から"],
       nm.rows.map((r) => [
-        esc(r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>", man(r.amount),
+        esc(r.name || r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>", man(r.amount),
         r.days_since_start === null ? n0() : num(r.days_since_start) + "日",
       ])) + "</div>", esc(nm.note));
 
@@ -595,9 +596,9 @@ function renderOutcome(D) {
 
   h += card("4　最優先（2軸とも赤）", num(R.top.length) + " 件。金額が大きい順。",
     '<div class="scroll">' + table(
-      ["取引ID", "ステージ", "金額", "満了まで", "③ 放置", "接触の記録"],
+      ["取引", "ステージ", "金額", "満了まで", "③ 放置", "接触の記録"],
       R.top.map((r) => [
-        esc(r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>", man(r.amount),
+        esc(r.name || r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>", man(r.amount),
         r.days_to_expiry === null ? n0() : num(r.days_to_expiry) + "日",
         (r.never_after_start ? '<span class="flag">' : "<span>") + esc(r.ax3w) +
           (r.never_after_start ? " ▲" : "") + "</span>",
