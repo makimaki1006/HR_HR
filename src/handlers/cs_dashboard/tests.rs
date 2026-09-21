@@ -75,6 +75,9 @@ fn sheets() -> Sheets {
         mail_mtg: load_tsv("CS_MTG実施日_メール由来"),
         handover: load_tsv("CS_担当交代"),
         owner_hist: load_tsv("CS_担当履歴"),
+        // 🔴 この fixture の生成時刻だけは**手で固定**してある（2026-09-16 04:30）。
+        //    ビルドのたびに時刻が変わると、鮮度のテストが実行日で落ちるため。
+        meta: load_tsv("CS_メタ"),
         all_cached: false,
     }
 }
@@ -1193,4 +1196,89 @@ fn 顧客詳細に既定の法人がある() {
     let d = build_customer(&sheets(), Some(h), fixture_day());
     assert_eq!(d["meta"]["found"], true);
     assert!(!d["deals"].as_array().unwrap().is_empty());
+}
+
+// ================================================================ ループ3
+
+/// シートをいつ作ったかが読めること。
+///
+/// 🔴 これが読めないと、画面は「古いデータを新しいものと誤認させない」責任を
+/// 果たせない。`meta.today`（計算の基準日）とは**別物**。
+#[test]
+fn データをいつ作ったかが読める() {
+    let sh = sheets();
+    let at = super::generated_at(&sh.meta).expect("生成時刻が読めない");
+    assert_eq!(at, "2026-09-16 04:30:00", "fixture の生成時刻は手で固定してある");
+
+    // 基準日 2026-09-18 から見て2日前
+    let age = super::generated_age_days(&sh.meta, fixture_day()).expect("経過日数");
+    assert_eq!(age, 2, "生成時刻と基準日の差が合わない");
+
+    // 🔴 元データを落とした時刻は、シートを作り直した時刻と**別物**。
+    //    古い JSON を詰め直すと生成時刻だけ新しくなるので、
+    //    「何日前のデータか」は元データのほうで数える。
+    let src = super::data_as_of(&sh.meta).expect("データ取得時刻が読めない");
+    assert_eq!(src, "2026-09-14 22:00:00");
+    assert_ne!(src, at, "元データの時刻と生成時刻を同じものとして扱っている");
+    assert_eq!(
+        super::data_age_days(&sh.meta, fixture_day()).expect("経過日数"),
+        4,
+        "元データの経過日数が合わない"
+    );
+    assert!(
+        super::data_age_days(&sh.meta, fixture_day())
+            > super::generated_age_days(&sh.meta, fixture_day()),
+        "元データはシートを作った時刻より古いはず"
+    );
+}
+
+/// メタシートが読めないときに「新しい」と嘘をつかないこと。
+#[test]
+fn 生成時刻が無ければ分からないと返す() {
+    let empty = std::sync::Arc::new(SheetData {
+        header: vec!["key".into(), "value".into()],
+        rows: Vec::new(),
+        fetched_at: Instant::now(),
+    });
+    assert!(super::generated_at(&empty).is_none(), "空なのに時刻を返した");
+    assert!(super::data_as_of(&empty).is_none(), "空なのに取得時刻を返した");
+    assert!(
+        super::data_age_days(&empty, fixture_day()).is_none(),
+        "空なのに経過日数を返した"
+    );
+    assert!(
+        super::generated_age_days(&empty, fixture_day()).is_none(),
+        "空なのに経過日数を返した（0日＝今日 と誤認させる）"
+    );
+}
+
+/// 🔴 **まとめるのに使うキーを連番にしない。**
+///
+/// fixture の伏字は「読めば分かる列」を潰すためのものだが、
+/// **まとめるキーまで連番にすると1行1グループになり、
+/// 「◯◯ごとに見る」処理がテストで素通りする**。
+/// 拠点キー（採用単価が0件になった）・担当者（全員が母数が小さいになった）で
+/// 2度踏んだ穴。ホスト氏名も同じ性質なので、ここで塞いでおく。
+#[test]
+fn まとめるキーが行ごとの連番になっていない() {
+    let sh = sheets();
+    let v = build_mtg_quality(&sh, fixture_day());
+    let n_mtg = v["meta"]["n_mtg"].as_u64().expect("n_mtg") as usize;
+    let n_host = v["hosts"].as_array().expect("hosts").len();
+    assert!(n_mtg > 500, "MTG が少なすぎる: {n_mtg}");
+    assert!(
+        n_host * 10 < n_mtg,
+        "ホストが {n_host} 種で MTG が {n_mtg} 件。1MTG1ホストに近く、\
+         「ホストごとに数える」処理が素通りしている。fixture の伏字で\
+         ホスト氏名を連番にしていないか確認すること"
+    );
+
+    // 担当者・拠点も同じ穴。ここでまとめて見張る
+    let t = build_consultants(&sh, fixture_day());
+    let n_consultant = t["rows"].as_array().expect("rows").len();
+    let n_active = t["meta"]["n_active"].as_u64().expect("n_active") as usize;
+    assert!(
+        n_consultant * 5 < n_active,
+        "担当者 {n_consultant} 名に対して稼働中 {n_active} 件。1取引1担当に近い"
+    );
 }

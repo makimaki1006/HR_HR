@@ -105,7 +105,7 @@ async fn renewal(Query(q): Query<RenewalQuery>, session: Session) -> Result<Resp
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
     let excl = q.exclude_right_censored.as_deref() == Some("1");
-    Ok(Json(build_renewal(&sheets, excl)).into_response())
+    Ok(Json(freshen(build_renewal(&sheets, excl), &sheets, today_jst())).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,7 +124,7 @@ async fn outcome(Query(q): Query<OutcomeQuery>, session: Session) -> Result<Resp
     let sheets = load(&state.client, &state.store)
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
-    Ok(Json(build_outcome(&sheets, today_jst())).into_response())
+    Ok(Json(freshen(build_outcome(&sheets, today_jst()), &sheets, today_jst())).into_response())
 }
 
 /// 日本時間の今日。サーバのタイムゾーン設定に依存させない。
@@ -157,7 +157,7 @@ async fn focus(Query(q): Query<FocusQuery>, session: Session) -> Result<Response
     let sheets = load(&state.client, &state.store)
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
-    Ok(Json(build_focus(&sheets, today_jst())).into_response())
+    Ok(Json(freshen(build_focus(&sheets, today_jst()), &sheets, today_jst())).into_response())
 }
 
 macro_rules! simple_handler {
@@ -171,7 +171,7 @@ macro_rules! simple_handler {
             let sheets = load(&state.client, &state.store)
                 .await
                 .map_err(|e| CqError::from_anyhow("consulting", e))?;
-            Ok(Json($build(&sheets, today_jst())).into_response())
+            Ok(Json(freshen($build(&sheets, today_jst()), &sheets, today_jst())).into_response())
         }
     };
 }
@@ -201,7 +201,49 @@ async fn customer_detail(
     let sheets = load(&state.client, &state.store)
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
-    Ok(Json(build_customer(&sheets, q.houjin.as_deref(), today_jst())).into_response())
+    let v = build_customer(&sheets, q.houjin.as_deref(), today_jst());
+    Ok(Json(freshen(v, &sheets, today_jst())).into_response())
+}
+
+/// 返す JSON の `meta` に「このデータをいつ作ったか」を足す。
+///
+/// 🔴 この画面は毎朝見るもの。**古いデータを新しいものと誤認させないのは画面の責任**。
+/// `meta.today` は計算に使った基準日で、**シートを作り直した日時とは別物**。
+/// シートは手で作り直しているので、基準日だけ今日になっていて中身は何日も前、
+/// ということが実際に起きる。だから両方を返す。
+///
+/// 取れないときは `null` を返す。**推測で埋めない**（埋めると嘘になる）。
+/// 集計側（`build_*`）ではなくここで足しているのは、集計は fixture でも
+/// 同じ値を返してほしいのに対し、鮮度は取ってきたシートの性質だから。
+fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value {
+    let at = super::generated_at(&sheets.meta);
+    let age = super::generated_age_days(&sheets.meta, today);
+    if let Some(m) = v.get_mut("meta").and_then(Value::as_object_mut) {
+        m.insert(
+            "generated_at".into(),
+            at.map(Value::String).unwrap_or(Value::Null),
+        );
+        m.insert(
+            "generated_age_days".into(),
+            age.map(Value::from).unwrap_or(Value::Null),
+        );
+        // 🔴 元データを取った時刻。シートを作り直した時刻とは**別物**。
+        //    古い JSON を詰め直すと generated_at だけ新しくなるので、
+        //    「何日前のデータか」はこちらで数える。
+        m.insert(
+            "source_as_of".into(),
+            super::data_as_of(&sheets.meta)
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
+        m.insert(
+            "source_age_days".into(),
+            super::data_age_days(&sheets.meta, today)
+                .map(Value::from)
+                .unwrap_or(Value::Null),
+        );
+    }
+    v
 }
 
 // ================================================================ 集計

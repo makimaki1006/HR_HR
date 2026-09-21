@@ -253,3 +253,56 @@ fn 画面のjsに文字列を壊すエスケープが無い() {
         );
     }
 }
+
+
+/// 🔴 この画面は毎朝見るもの。**「このデータはいつのものか」が出ていること。**
+///
+/// `meta.today` は計算に使った基準日で、シートを作り直した日時とは**別物**。
+/// シートは手で作り直しているので、基準日だけ今日になっていて中身は何日も前、
+/// ということが起きる。画面が作成日時を出さなくなったらここで落ちる。
+#[test]
+fn 画面にデータの作成日時が出る() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html")
+        .expect("templates/tabs/cs_dashboard.html が読めない");
+    for needle in [
+        "generated_at",        // シートを作り直した時刻
+        "source_as_of",        // 🔴 元データを落とした時刻。作成時刻とは別物
+        "source_age_days",     // 何日前のデータか
+        "cs-fresh",            // 出す場所
+        "setFresh",            // 出す処理
+        "このデータがいつのものか分かりません", // 取れなかったときに嘘をつかない
+    ] {
+        assert!(html.contains(needle), "画面から「{needle}」が消えている");
+    }
+}
+
+/// ②の担当者名から③へ辿れること。
+#[test]
+fn コンサルタント一覧から案件の立ち位置へ辿れる() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    assert!(html.contains("drillToBoard"), "②→③の関数が無い");
+    assert!(html.contains("a.drill"), "担当者名にリンクが張られていない");
+    assert!(
+        html.contains("boardFilter = { consultant: name"),
+        "③へ飛んだときに担当で絞られていない"
+    );
+}
+
+/// 🔴 **絞ったら「◯件中 N件を表示」を必ず出す。**
+/// 絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐため。
+#[test]
+fn 案件の立ち位置は絞り込みの件数を出す() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    for needle in [
+        "bf-consultant", // 担当
+        "bf-flag",       // 名札
+        "bf-expiry",     // 満了までの期間
+        "bf-q",          // 案件名の部分一致
+        "bf-clear",      // 外す
+        "board-count",
+        " 件中 ",
+        "を表示",
+    ] {
+        assert!(html.contains(needle), "③の絞り込みから「{needle}」が消えている");
+    }
+}

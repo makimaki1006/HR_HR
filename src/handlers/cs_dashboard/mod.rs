@@ -79,6 +79,10 @@ pub const SHEET_HANDOVER: &str = "CS_担当交代";
 /// 担当の履歴。🔴 **担当者の正本は `consultant`**（`hubspot_owner_id` ではない）。
 /// このシートの `owner` 欄が consultant で、取引ごとの最新行がいまの担当。
 pub const SHEET_OWNER_HIST: &str = "CS_担当履歴";
+/// このデータをいつ作ったか。
+/// 🔴 **計算の基準日（今日）とは別物。** シートは手で作り直しているので、
+///    基準日だけ今日になっていて中身は何日も前、ということが起きる。
+pub const SHEET_META: &str = "CS_メタ";
 
 /// 定期NPS のプロパティ名。回ごとに別プロパティになっている。
 pub const NPS_PROPS: &[&str] = &[
@@ -290,6 +294,8 @@ pub struct Sheets {
     pub mail_mtg: Arc<SheetData>,
     pub handover: Arc<SheetData>,
     pub owner_hist: Arc<SheetData>,
+    /// 生成時刻。シートが無い環境もあるので、読めなくても画面は出す。
+    pub meta: Arc<SheetData>,
     /// 全部キャッシュから返せたか（画面に鮮度を出すため）
     pub all_cached: bool,
 }
@@ -315,6 +321,22 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
         mail_mtg: fetch!(SHEET_MAIL_MTG),
         handover: fetch!(SHEET_HANDOVER),
         owner_hist: fetch!(SHEET_OWNER_HIST),
+        // 🔴 これだけは**読めなくても落とさない**。鮮度が出ないだけで、
+        //    画面そのものは開けるべきなので、失敗したら空のシートとして扱う。
+        meta: match store.get(client, SHEET_META).await {
+            Ok((data, hit)) => {
+                cached &= hit;
+                data
+            }
+            Err(e) => {
+                tracing::warn!("シート「{}」が読めません（鮮度は出しません）: {e:#}", SHEET_META);
+                Arc::new(SheetData {
+                    header: vec!["key".into(), "value".into()],
+                    rows: Vec::new(),
+                    fetched_at: std::time::Instant::now(),
+                })
+            }
+        },
         all_cached: cached,
     })
 }
@@ -572,6 +594,7 @@ pub const SHEETS: &[&str] = &[
     SHEET_MAIL_MTG,
     SHEET_HANDOVER,
     SHEET_OWNER_HIST,
+    SHEET_META,
 ];
 
 /// 起動時にシートを常駐キャッシュへ載せておく。
@@ -765,4 +788,50 @@ pub fn contact_rate_of(
     };
     let hit: HashSet<String> = dates.iter().map(|x| x.format("%Y-%m").to_string()).collect();
     (ms.iter().filter(|m| hit.contains(*m)).count(), ms.len())
+}
+
+// ---------------------------------------------------------------- データの鮮度
+
+/// メタシートのキーを引く。
+fn meta_value(meta: &SheetData, key: &str) -> Option<String> {
+    meta.rows.iter().find_map(|row| {
+        if meta.get(row, "key").trim() == key {
+            let v = meta.get(row, "value").trim().to_string();
+            (!v.is_empty()).then_some(v)
+        } else {
+            None
+        }
+    })
+}
+
+/// シートを作り直した日時（JST, `yyyy-MM-dd HH:mm:ss`）。
+///
+/// 🔴 **計算の基準日（今日）とは別物。** この画面は毎朝見るものなので、
+/// 「古いデータを新しいものと誤認させない」のは画面の責任。
+/// 取れないときは `None`。**推測で埋めない**（埋めると嘘になる）。
+pub fn generated_at(meta: &SheetData) -> Option<String> {
+    meta_value(meta, "生成時刻(JST)")
+}
+
+/// 生成時刻から基準日まで何日たったか。日付部分（先頭10文字）だけで数える。
+pub fn generated_age_days(meta: &SheetData, today: NaiveDate) -> Option<i64> {
+    let at = generated_at(meta)?;
+    date10(&at).map(|d| (today - d).num_days())
+}
+
+/// 元データを HubSpot / Zoom から落とした時刻（いちばん古いもの）。
+///
+/// 🔴 **シートを作り直した時刻（`generated_at`）とは別物。**
+/// 古い JSON を詰め直してもシートの生成時刻だけ新しくなり、中身は古いまま。
+/// 「このデータは何日前のものか」はこちらで数える。
+/// 元データが複数あるときは**いちばん古いもの**を代表にしてある
+/// （画面はいちばん古いところまでしか遡れないため）。
+pub fn data_as_of(meta: &SheetData) -> Option<String> {
+    meta_value(meta, "データ取得時刻(JST)")
+}
+
+/// 元データの取得から基準日まで何日たったか。
+pub fn data_age_days(meta: &SheetData, today: NaiveDate) -> Option<i64> {
+    let at = data_as_of(meta)?;
+    date10(&at).map(|d| (today - d).num_days())
 }

@@ -206,7 +206,6 @@ chapter-scope-banner            src/handlers/integrated_report/render.rs
 cluster-boxplots-ssr            src/handlers/survey/report_html/helpers.rs
 cluster-table                   src/handlers/survey/report_html/helpers.rs
 col-span-1                      src/handlers/competitive/render.rs
-color                           templates/tabs/recruitment_diag.html
 contribution                    src/handlers/survey/report_html/market_tightness.rs
 cover-scope                     src/handlers/integrated_report/render.rs
 data-empty                      src/handlers/survey/report_html/helpers.rs

@@ -85,6 +85,22 @@
              gap:20px; flex-wrap:wrap; }
   .masthead h1{ font-size:27px; margin:0; font-weight:600; letter-spacing:.06em;
                 line-height:1.25; }
+  /* データの鮮度。毎朝見る画面なので、見出しのすぐ下に固定で出す */
+  .fresh{ font-size:12.5px; line-height:1.7; padding:7px 11px; margin:0 0 var(--space-2);
+    border:1px solid var(--rule); border-left-width:3px; background:var(--panel);
+    color:var(--ink-2); font-variant-numeric:tabular-nums; }
+  .fresh:empty{ display:none; }
+  .fresh b{ color:var(--ink); font-weight:600; }
+  .fresh.ok{ border-left-color:var(--midori); }
+  .fresh.warn{ border-left-color:var(--ki); }
+  .fresh.bad{ border-left-color:var(--hi); }
+  .fresh.bad b{ color:var(--hi); }
+  /* 絞り込みの結果。何件中の何件を見ているか */
+  .count-line{ font-size:12.5px; padding:6px 10px; margin:0 0 var(--space-2);
+    background:var(--panel); border:1px solid var(--rule);
+    color:var(--ink-2); font-variant-numeric:tabular-nums; }
+  .count-line.on{ border-left:3px solid var(--ai); }
+  .count-line b{ color:var(--ink); }
   .masthead h1 span{ font-size:12px; letter-spacing:.22em; color:var(--ink-2);
                      border:1px solid var(--rule); border-radius:3px;
                      padding:2px var(--space-2); margin-left:var(--space-3); vertical-align:5px;
@@ -306,6 +322,10 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
   <div class="stamp" id="sub">{{ user }}<a class="backlink" href="/">&#8592; ダッシュボードへ戻る</a></div>
 </header>
 <div class="rule-thin"></div>
+
+<!-- 🔴 この画面は毎朝見るもの。古いデータを新しいものと誤認させないために、
+     「シートをいつ作り直したか」を常に出す。基準日（計算に使った今日）とは別物。 -->
+<div id="cs-fresh" class="fresh"></div>
 
 <div class="legend">
   <i><b style="background:var(--ai)"></b>触れるところ・主系列</i>
@@ -1201,7 +1221,11 @@ function tooFew(n, what) {
 let teamSort = { key: "contact_rate", asc: true };
 
 const TEAM_COLS = [
-  { k: "consultant",     t: "担当者",        n: 0, fmt: (r) => esc(r.consultant) +
+  /* 🔴 名前を押すと③へ飛んで、その担当の案件だけに絞る */
+  { k: "consultant",     t: "担当者",        n: 0, fmt: (r) =>
+      '<a href="#" class="drill" data-c="' + esc(r.consultant) +
+      '" title="この担当の案件だけを「案件の立ち位置」で見る">' +
+      (esc(r.consultant) || DASH) + "</a>" +
       (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") +
       /* 🔴 図から外した人が表では見えるので、その理由が分かる印を添える */
       (r.small_n ? ' <span class="tag" title="分母が小さいので上の図からは外しています">母数が小さい</span>' : "") },
@@ -1239,7 +1263,8 @@ function renderTeam(D) {
 
   let h = sec("問い", "いま、どこに手が回っていないか") +
     '<div class="lede">1行1担当者。<b>列の見出しを押すと並び替わります。</b>' +
-    "既定は<b>接触率の低い順</b>（手が回っていない人が上）。</div>";
+    "既定は<b>接触率の低い順</b>（手が回っていない人が上）。" +
+    "<b>担当者名を押すと</b>「③案件の立ち位置」がその担当だけに絞られます。</div>";
 
   h += note("info", "これは担当者の評価ではありません",
     esc(D.meta.not_counted).replace("※ ", "") + "<br>" +
@@ -1320,6 +1345,9 @@ function renderTeam(D) {
 
 /* 見出しを押したら並び替える。同じ列を押したら向きが反転する */
 function wireTeam() {
+  document.querySelectorAll("#team-tbl a.drill").forEach((a) => {
+    a.onclick = (ev) => { ev.preventDefault(); drillToBoard(a.dataset.c); };
+  });
   document.querySelectorAll("#team-tbl th.sortable").forEach((th) => {
     th.onclick = () => {
       const kk = th.dataset.k;
@@ -2232,6 +2260,99 @@ const BOARD_COLS = [
 
 let boardSort = { key: "n_flags", asc: false };
 
+/* ③の絞り込み。②から担当者を押して来たときも、ここに入る。
+   🔴 絞ったら必ず「◯件中 N件を表示」を出す（全件を見ていると誤認させない）。 */
+let boardFilter = { consultant: "", flag: "", expiry: "", q: "" };
+
+/* 満了までの帯。値は days_left（null は「満了日が入っていない」） */
+const EXPIRY_BANDS = [
+  { k: "over", t: "満了を過ぎている",     hit: (d) => d != null && d < 0 },
+  { k: "d30",  t: "30日以内",             hit: (d) => d != null && d >= 0 && d <= 30 },
+  { k: "d60",  t: "60日以内",             hit: (d) => d != null && d >= 0 && d <= 60 },
+  { k: "d90",  t: "90日以内",             hit: (d) => d != null && d >= 0 && d <= 90 },
+  { k: "far",  t: "90日より先",           hit: (d) => d != null && d > 90 },
+  { k: "none", t: "満了日が入っていない", hit: (d) => d == null },
+];
+
+/* 絞り込みを当てる。**行を落とすのはここだけ** */
+function boardApply(rows) {
+  const f = boardFilter;
+  const band = EXPIRY_BANDS.find((b) => b.k === f.expiry);
+  const q = f.q.trim().toLowerCase();
+  return rows.filter((r) => {
+    if (f.consultant && (r.consultant || "") !== f.consultant) return false;
+    if (f.flag && !(r.flags || []).some((x) => x === f.flag)) return false;
+    if (band && !band.hit(r.days_left)) return false;
+    if (q && String(r.name || r.deal_id || "").toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+}
+
+function boardFilterOn() {
+  const f = boardFilter;
+  return !!(f.consultant || f.flag || f.expiry || f.q.trim());
+}
+
+/* いま何で絞っているかを日本語で並べる */
+function boardFilterWords() {
+  const f = boardFilter, w = [];
+  if (f.consultant) w.push("担当 " + f.consultant);
+  if (f.flag) w.push("名札 " + f.flag);
+  if (f.expiry) {
+    const b = EXPIRY_BANDS.find((x) => x.k === f.expiry);
+    if (b) w.push("満了まで " + b.t);
+  }
+  if (f.q.trim()) w.push("案件名に " + f.q.trim());
+  return w.join(" / ");
+}
+
+/* 絞り込みの操作列 */
+function boardFilterBar(D) {
+  const names = Array.from(new Set(D.rows.map((r) => r.consultant).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, "ja"));
+  const flags = (D.meta.flag_counts || []).slice().sort((a, b) => b.n - a.n);
+  const opt = (v, t, cur) =>
+    '<option value="' + esc(v) + '"' + (cur === v ? " selected" : "") + ">" + esc(t) + "</option>";
+  let h = '<div class="ctlbar" id="board-filter">';
+  h += '<label class="act">担当 <select id="bf-consultant">' +
+    opt("", "すべて", boardFilter.consultant) +
+    names.map((n) => opt(n, n, boardFilter.consultant)).join("") + "</select></label>";
+  h += '<label class="act">名札 <select id="bf-flag">' +
+    opt("", "すべて", boardFilter.flag) +
+    flags.map((x) => opt(x.label, x.label + "（" + num(x.n) + "）", boardFilter.flag)).join("") +
+    "</select></label>";
+  h += '<label class="act">満了まで <select id="bf-expiry">' +
+    opt("", "すべて", boardFilter.expiry) +
+    EXPIRY_BANDS.map((b) => opt(b.k, b.t, boardFilter.expiry)).join("") + "</select></label>";
+  h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
+    'value="' + esc(boardFilter.q) + '" style="width:180px"></label>';
+  h += '<button type="button" class="act" id="bf-clear">絞り込みを外す</button>';
+  return h + "</div>";
+}
+
+/* ②のコンサルタント名から③へ飛ぶ。担当で絞った状態で開く */
+function drillToBoard(name) {
+  boardFilter = { consultant: name, flag: "", expiry: "", q: "" };
+  goTab("board");
+}
+
+/* タブを画面の外から切り替える */
+function goTab(key) {
+  document.querySelectorAll("nav.tabs button").forEach((x) => {
+    x.classList.toggle("on", x.dataset.p === key);
+  });
+  document.querySelectorAll(".pane").forEach((x) => {
+    x.classList.toggle("on", x.id === "pane-" + key);
+  });
+  window.scrollTo(0, 0);
+  if (!loaded[key]) { load(key, false); return; }
+  if (key === "board" && boardCache) {
+    const pane = document.getElementById("pane-board");
+    pane.innerHTML = ctlbar("board", boardCache) + renderBoard(boardCache);
+    wire("board");
+  }
+}
+
 function boardTable(rows, sort, id) {
   const rs = rows.slice();
   const k = sort.key, asc = sort.asc;
@@ -2260,9 +2381,17 @@ function boardTable(rows, sort, id) {
   return t + "</tbody></table>";
 }
 
-function flagFig(D) {
-  const fc = D.meta.flag_counts || [];
-  return fig("名札ごとの件数", "1つの案件に複数つきます",
+function flagFig(D, subset) {
+  /* subset を渡すと、絞り込んだ後の件数で数え直す。
+     🔴 絞り込み中に全件の図を出すと、表と図で件数が食い違って読めなくなる。 */
+  let fc = D.meta.flag_counts || [];
+  if (subset) {
+    const m = {};
+    for (const r of subset) for (const f of (r.flags || [])) m[f] = (m[f] || 0) + 1;
+    fc = Object.entries(m).map((e) => ({ label: e[0], n: e[1] }));
+  }
+  return fig("名札ごとの件数" + (subset ? "（絞り込んだ " + num(subset.length) + " 件）" : ""),
+    "1つの案件に複数つきます",
     fc.length
       ? svgBarH({ w: 700, fmt: F.int, rh: 24,
           rows: fc.slice().sort((a, b) => b.n - a.n).map((x) => ({
@@ -2329,18 +2458,63 @@ function renderToday(D) {
 
 /* ---------------------------------------------------------------- 2 案件の立ち位置 */
 function renderBoard(D) {
+  const shown = boardApply(D.rows);
+  const on = boardFilterOn();
   let h = sec("問い", "いま、それぞれの案件はどこにいるか") +
     '<div class="lede">稼働中 ' + num(D.rows.length) +
-    " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。</div>";
+    " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。" +
+    "<b>担当・名札・満了までの期間・案件名で絞り込めます。</b></div>";
   h += note("info", "この並びについて", esc(D.meta.order_rule));
+
+  h += boardFilterBar(D);
+  /* 🔴 絞り込んだら、何件中の何件を見ているのかを必ず出す。
+     絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐ。 */
+  h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
+    "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
+    (on ? "（絞り込み中: " + esc(boardFilterWords()) + "）" : "（絞り込みなし）") + "</div>";
+
   h += sec("図", "名札の分布");
-  h += flagFig(D);
+  h += flagFig(D, on ? shown : null);
   h += sec("表", "案件の立ち位置");
-  h += boardTable(D.rows, boardSort, "board-tbl");
+  h += shown.length
+    ? boardTable(shown, boardSort, "board-tbl")
+    : '<div class="empty">この条件に当てはまる案件はありません。' +
+      "「絞り込みを外す」で戻せます。</div>";
   return h + foot(D.meta);
 }
 
 function wireBoard() {
+  const redraw = () => {
+    const pane = document.getElementById("pane-board");
+    pane.innerHTML = ctlbar("board", boardCache) + renderBoard(boardCache);
+    wire("board");
+  };
+  const pick = (id, key) => {
+    const e = document.getElementById(id);
+    if (e) e.onchange = () => { boardFilter[key] = e.value; redraw(); };
+  };
+  pick("bf-consultant", "consultant");
+  pick("bf-flag", "flag");
+  pick("bf-expiry", "expiry");
+  const q = document.getElementById("bf-q");
+  if (q) {
+    /* 1文字ごとに 703 行を組み直すと重い。打ち終わってから当てる */
+    let t = null;
+    q.oninput = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        boardFilter.q = q.value;
+        redraw();
+        const e = document.getElementById("bf-q");
+        if (e) { e.focus(); e.setSelectionRange(e.value.length, e.value.length); }
+      }, 260);
+    };
+  }
+  const cl = document.getElementById("bf-clear");
+  if (cl) cl.onclick = () => {
+    boardFilter = { consultant: "", flag: "", expiry: "", q: "" };
+    redraw();
+  };
   document.querySelectorAll("#board-tbl th.sortable").forEach((th) => {
     th.onclick = () => {
       const kk = th.dataset.k;
@@ -2404,6 +2578,59 @@ function wireStudy() {
   });
 }
 
+/* ================================================================ データの鮮度 */
+/* 🔴 この画面は毎朝見るもの。**古いデータを新しいものと誤認させないのは画面の責任**。
+   meta.today は「計算に使った基準日」で、シートを作り直した日時とは**別物**。
+   シートは今のところ手で作り直しているので、基準日だけ今日になっていて
+   中身は何日も前、ということが実際に起きる。だから作成日時のほうを主に出す。
+   取れないときは「分かりません」と書く。推測で埋めない。 */
+function setFresh(meta) {
+  const box = document.getElementById("cs-fresh");
+  if (!box) return;
+  const src = meta && meta.source_as_of;      /* HubSpot から落とした時刻 */
+  const srcAge = meta && meta.source_age_days;
+  const gen = meta && meta.generated_at;      /* シートを作り直した時刻 */
+  const base = meta && meta.today;            /* 計算に使った今日 */
+
+  /* 🔴 取れないときは「分かりません」と書く。推測で埋めない */
+  if (!src && !gen) {
+    box.className = "fresh bad";
+    box.innerHTML = "<b>このデータがいつのものか分かりません。</b>" +
+      "作成日時を記録したシート（CS_メタ）が読めていません。" +
+      "画面の数字が今日のものだと思わないでください。" +
+      (base ? '　<span class="muted">計算の基準日 ' + esc(base) + "</span>" : "");
+    return;
+  }
+
+  /* 何日前かは**元データを落とした時刻**で数える。
+     古いデータを詰め直すとシートの生成時刻だけ新しくなるため。 */
+  const age = srcAge != null ? srcAge : null;
+  let word, cls;
+  if (age == null)    { word = "";           cls = "warn"; }
+  else if (age <= 0)  { word = "今日";       cls = "ok"; }
+  else if (age === 1) { word = "昨日";       cls = "ok"; }
+  else if (age <= 3)  { word = age + "日前"; cls = "warn"; }
+  else                { word = age + "日前"; cls = "bad"; }
+  box.className = "fresh " + cls;
+
+  let h = "このデータは <b>" + (word ? word + "　" : "") +
+    (src ? esc(src) : esc(gen)) + "</b> 時点のものです";
+  h += src ? "（HubSpot から落とした時刻）。" : "（シートを作った時刻）。";
+  if (age != null && age >= 4) {
+    h += "<b>" + age + "日分の動きが入っていません。</b>";
+  }
+  h += '<br><span class="muted">';
+  if (gen && src && gen.slice(0, 10) !== src.slice(0, 10)) {
+    /* 🔴 3つの時刻は別物。混ぜないで並べる */
+    h += "シートを作り直したのは " + esc(gen) + "（元データはそれより前のもの）。";
+  } else if (gen) {
+    h += "シートを作り直したのは " + esc(gen) + "。";
+  }
+  if (base) h += "計算の基準日は " + esc(base) + "（データの新しさとは別物）。";
+  h += "更新は手で回しています（自動ではありません）。</span>";
+  box.innerHTML = h;
+}
+
 /* ================================================================ 取得 */
 const TABS = {
   today:    { path: "/api/consulting/today",        render: renderToday },
@@ -2446,6 +2673,7 @@ async function load(key, refresh) {
     if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
     if (key === "team") teamCache = body;
     if (key === "board") boardCache = body;
+    setFresh(body.meta || {});
     pane.innerHTML = ctlbar(key, body) + t.render(body);
     wire(key);
     loaded[key] = true;
