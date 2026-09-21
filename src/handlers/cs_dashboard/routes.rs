@@ -1440,6 +1440,74 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
 /// 🔴 **契約は継続のたびに別の取引レコードになる。** 取引をまたいで並べないと
 /// 履歴が分断される。ここは法人でまとめるが、**採用単価だけは拠点ごとに分ける**
 /// （決裁が事業所単位なので、1本の線にすると拠点差が時間の悪化に見える）。
+
+/// 契約のどこまで来たか（契約長に対する割合）。
+///
+/// 🔴 経過月数ではなく**割合**で見る。同じ「3ヶ月目」でも、3ヶ月契約なら満了、
+/// 12ヶ月契約なら序盤。契約期間が無ければ `None`（0 にしない）。
+fn progress(d: &Deal, today: NaiveDate) -> Option<f64> {
+    let st = date10(&d.contract_start_date)?;
+    let p = d.contract_period?;
+    if p <= 0.0 {
+        return None;
+    }
+    let elapsed = (today - st).num_days() as f64 / 30.4;
+    Some(elapsed / p)
+}
+
+/// 契約開始からの「何ヶ月目か」。🔴 **始月は含めない**
+/// （契約開始 7/23・今日 9/21 なら 2ヶ月目）。数え方で率が振れるので1か所に閉じる。
+fn month_index(start: &str, month: &str) -> Option<i64> {
+    let ym = |s: &str| -> Option<(i64, i64)> {
+        if s.len() < 7 {
+            return None;
+        }
+        Some((s[..4].parse().ok()?, s[5..7].parse().ok()?))
+    };
+    let (sy, sm) = ym(start)?;
+    let (my, mm) = ym(month)?;
+    Some((my - sy) * 12 + (mm - sm) + 1)
+}
+
+/// 取引ごとの月次推移。🔴 **現在値を並べない。** プロパティの変更履歴を使う。
+///
+/// 実測で応募数の変更の 30.4% / 採用数の 35.2% が決着日より後に入っている。
+/// 現在値を時系列に並べると「契約中に伸びた」ように見える。
+///
+/// 値が変わらなかった月はシートに行が無いので、**最後の値を持ち越す**。
+/// 持ち越した月は `carry` を立てて、画面が中空・破線で描けるようにする。
+fn monthly_of(
+    series: &HashMap<(String, String), Vec<(String, f64)>>,
+    deal: &Deal,
+    props: &[&str],
+    until: &str,
+) -> Value {
+    let mut out = serde_json::Map::new();
+    for prop in props {
+        let key = (deal.id.clone(), (*prop).to_string());
+        let pts = match series.get(&key) {
+            Some(v) if !v.is_empty() => v,
+            // 🔴 記録が無い系列は 0 で描かない。空で返して「記録がありません」と出させる
+            _ => {
+                out.insert((*prop).to_string(), json!([]));
+                continue;
+            }
+        };
+        let filled = super::fill_forward(pts, until);
+        let rows: Vec<Value> = filled
+            .iter()
+            .filter_map(|mv| {
+                month_index(&deal.contract_start_date, &mv.month).map(|mi| {
+                    json!({"m": mi, "month": mv.month, "v": mv.v, "carry": mv.carry})
+                })
+            })
+            .filter(|r| r["m"].as_i64().unwrap_or(0) >= 1)
+            .collect();
+        out.insert((*prop).to_string(), Value::Array(rows));
+    }
+    Value::Object(out)
+}
+
 pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
     let cust = customers_of(&sheets.customer);
@@ -1489,6 +1557,101 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
     }
     mtgs.sort_by(|a, b| a["date"].as_str().unwrap_or("").cmp(b["date"].as_str().unwrap_or("")));
 
+    /* ---- 採用単価を3つの出し方で ----
+       🔴 1つの数字に見せない。出し方で値が変わることを画面に出す。
+         (1) 総額 ÷ 採用数      … いちばん素直。ただし稼働中は金額が丸ごと乗る
+         (2) 月割り             … 金額 ÷ 契約期間 × 経過月数 ÷ 採用数
+         (3) 同じ進捗帯の中央値 … 進捗が近い契約どうしで比べる */
+    let band_of = |d: &Deal| -> Option<usize> {
+        let p = progress(d, today)?;
+        Some(if p < 0.34 {
+            0
+        } else if p < 0.67 {
+            1
+        } else {
+            2
+        })
+    };
+    let mut band_vals: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    for d in &deals {
+        if let (Some(b), Some(v)) = (band_of(d), cpa(d)) {
+            band_vals[b].push(v);
+        }
+    }
+    let band_med: Vec<Option<f64>> = band_vals
+        .iter_mut()
+        .map(|v| {
+            if v.is_empty() {
+                return None;
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            Some(v[v.len() / 2])
+        })
+        .collect();
+
+    let cpa3: Vec<Value> = ds
+        .iter()
+        .map(|d| {
+            let total = cpa(d);
+            let monthly_cpa = match (d.amount, d.contract_period, d.syoudaku, progress(d, today)) {
+                (Some(a), Some(p), Some(sy), Some(pg)) if p > 0.0 && sy > 0.0 => {
+                    Some(a / p * (p * pg.min(1.0)).max(1.0) / sy)
+                }
+                _ => None,
+            };
+            json!({
+                "deal_id": d.id, "name": d.name, "start": d.contract_start_date,
+                "total": total, "monthly": monthly_cpa,
+                "band": band_of(d).map(|b| ["序盤", "中盤", "終盤"][b]),
+                "band_median": band_of(d).and_then(|b| band_med[b]),
+                "syoudaku": d.syoudaku,
+                "censored": d.right_censored, "active": d.is_active,
+            })
+        })
+        .collect();
+
+    /* ---- 月次推移（プロパティ履歴から）---- */
+    let series = super::series_of(&sheets.history);
+    let until = today.format("%Y-%m").to_string();
+    let monthly: Vec<Value> = ds
+        .iter()
+        .map(|d| {
+            json!({
+                "deal_id": d.id, "name": d.name, "start": d.contract_start_date,
+                "period": d.contract_period,
+                "series": monthly_of(&series, d, &["oubo", "mensetu", "syoudaku"], &until),
+                "nps": monthly_of(&series, d, super::NPS_PROPS, &until),
+            })
+        })
+        .collect();
+
+    /* ---- 担当交代と接触（時系列に載せる）---- */
+    let hv = &sheets.handover;
+    let handover: Vec<Value> = hv
+        .rows
+        .iter()
+        .filter(|r| ids.contains(hv.get(r, "deal_id")))
+        .map(|r| {
+            json!({
+                "deal_id": hv.get(r, "deal_id"), "date": hv.get(r, "date"),
+                "from": hv.get(r, "from"), "to": hv.get(r, "to"),
+                "reflected": hv.get(r, "reflected"),
+            })
+        })
+        .collect();
+
+    let (cmap, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let contacts: Vec<Value> = ds
+        .iter()
+        .map(|d| {
+            json!({
+                "deal_id": d.id,
+                "dates": cmap.get(&d.id).map(|v| v.iter().map(|x| x.to_string())
+                    .collect::<Vec<_>>()).unwrap_or_default(),
+            })
+        })
+        .collect();
+
     // 拠点ごとの採用単価
     let mut by_site: BTreeMap<&str, Vec<Value>> = BTreeMap::new();
     for d in &ds {
@@ -1528,5 +1691,28 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
         "mtgs": mtgs,
         "cpa_by_site": by_site.iter().map(|(k, v)| json!({"site": k, "points": v}))
             .collect::<Vec<_>>(),
+        // 応募 → 面接 → 採用 の落ち方。**0 と欠損を分ける**
+        "funnel": {
+            "oubo": sum_opt(&ds, |d| d.oubo),
+            "mensetu": sum_opt(&ds, |d| d.mensetu),
+            "syoudaku": sum_opt(&ds, |d| d.syoudaku),
+        },
+        // 採用単価を3つの出し方で。1つの数字に見せない
+        "cpa3": cpa3,
+        // 契約ごとの月次推移（プロパティ履歴から。現在値ではない）
+        "monthly": monthly,
+        // 担当の交代。時系列に載せる
+        "handover": handover,
+        "contacts": contacts,
     })
+}
+
+/// 非空だけ足す。1件も無ければ `None`（0 と「値が無い」を分ける）。
+fn sum_opt(ds: &[&Deal], f: impl Fn(&Deal) -> Option<f64>) -> Option<f64> {
+    let vs: Vec<f64> = ds.iter().filter_map(|d| f(d)).collect();
+    if vs.is_empty() {
+        None
+    } else {
+        Some(vs.iter().sum())
+    }
 }

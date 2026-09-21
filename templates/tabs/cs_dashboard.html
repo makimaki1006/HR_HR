@@ -5,641 +5,1986 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>コンサルダッシュボード</title>
 <style>
-/* 色は必ずトークン経由で引く。インラインの hex を書かない（Design Tokens 規律）。 */
 :root{
-  color-scheme:light;
-  --bg:#f4f5f7; --card:#fff; --border:#e4e7eb;
-  --text:#1b2330; --sub:#707a89; --faint:#9aa3af;
-  --accent:#2f6df6; --accent-soft:#ecf2ff;
-  --alert:#e0473e; --alert-soft:#fdeceb;
-  --warn:#e08a1e; --warn-soft:#fdf4e6;
-  --ok:#18a957; --ok-soft:#eaf7ef;
-  --ghost:#aeb6c1;
-  --shadow:0 1px 3px rgba(20,30,50,.07),0 1px 2px rgba(20,30,50,.04);
-}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  color-scheme:dark;
-  --bg:#12141a; --card:#1a1d24; --border:#2b2f38;
-  --text:#e8ebef; --sub:#9aa3af; --faint:#6d7684;
-  --accent:#5b8dff; --accent-soft:#1c2740;
-  --alert:#ef5f56; --alert-soft:#3a1f1d;
-  --warn:#eda63c; --warn-soft:#33280f;
-  --ok:#2fbd6d; --ok-soft:#12291c;
-  --ghost:#5e6672;
-  --shadow:0 1px 3px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.3);
-}}
-*{box-sizing:border-box}
-html,body{margin:0;padding:0}
-body{background:var(--bg);color:var(--text);
-  font-family:"Yu Gothic UI","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
-  font-size:14px;line-height:1.6}
-.wrap{max-width:1180px;margin:0 auto;padding:18px 16px 70px}
-header.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
-header.top h1{font-size:19px;margin:0}
-header.top .who{color:var(--sub);font-size:12px;margin-left:auto}
-/* 戻り導線。行きっぱなしで戻れないと使えない（/sales-kpi と同じ形） */
-a.backlink{color:var(--sub);font-size:12.5px;text-decoration:none}
-a.backlink:hover{color:var(--accent);text-decoration:underline}
-.lead{color:var(--sub);font-size:12.5px;margin:0 0 12px}
-nav.tabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 16px;
-  border-bottom:1.5px solid var(--border)}
-nav.tabs button{font:inherit;font-size:12.5px;padding:7px 12px;border:1px solid transparent;
-  border-bottom:none;background:none;color:var(--sub);cursor:pointer;
-  border-radius:6px 6px 0 0;margin-bottom:-1.5px;white-space:nowrap}
-nav.tabs button:hover{color:var(--accent)}
-nav.tabs button.on{background:var(--card);border-color:var(--border);
-  border-bottom:1.5px solid var(--card);color:var(--text);font-weight:600}
-nav.tabs .no{color:var(--faint);margin-right:4px}
-.pane{display:none}
-.pane.on{display:block}
-.card{background:var(--card);border:1px solid var(--border);border-radius:8px;
-  box-shadow:var(--shadow);padding:15px 17px;margin-bottom:14px}
-.card h2{font-size:15px;margin:0 0 4px}
-.card .q{color:var(--sub);font-size:12px;margin:0 0 11px}
-table{border-collapse:collapse;width:100%;font-size:13px}
-th,td{padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;
-  white-space:nowrap}
-th:first-child,td:first-child{text-align:left}
-thead th{color:var(--sub);font-weight:600;font-size:11.5px;
-  border-bottom:1.5px solid var(--border)}
-tbody tr:hover{background:var(--accent-soft)}
-.n0{color:var(--faint)}
-.note{color:var(--sub);font-size:11.5px;margin-top:8px;line-height:1.55}
-.warn{background:var(--warn-soft);border-left:3px solid var(--warn);
-  padding:9px 12px;border-radius:0 5px 5px 0;font-size:12.5px;margin:10px 0}
-.info{background:var(--accent-soft);border-left:3px solid var(--accent);
-  padding:9px 12px;border-radius:0 5px 5px 0;font-size:12.5px;margin:10px 0}
-.ctl{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-.ctl label{display:flex;gap:6px;align-items:center;font-size:12.5px;cursor:pointer}
-button.act,select,input[type=text]{font:inherit;font-size:13px;padding:5px 10px;
-  border:1px solid var(--border);background:var(--card);color:var(--text);
-  border-radius:5px;cursor:pointer}
-button.act:hover{border-color:var(--accent);color:var(--accent)}
-.bar{display:inline-block;height:9px;background:var(--accent);border-radius:2px;
-  vertical-align:middle}
-.err{background:var(--alert-soft);border-left:3px solid var(--alert);
-  padding:11px 13px;border-radius:0 5px 5px 0;font-size:13px;white-space:pre-wrap}
-.kpis{display:flex;gap:9px;flex-wrap:wrap;margin:10px 0}
-.kpi{flex:1 1 140px;border:1px solid var(--border);border-radius:7px;padding:8px 11px}
-.kpi .lbl{display:block;color:var(--sub);font-size:11.5px}
-.kpi .big{display:block;font-size:20px;font-weight:600;line-height:1.3}
-.kpi .fine{display:block;color:var(--faint);font-size:11px}
-.kpi.red .big{color:var(--alert)}
-.kpi.amber .big{color:var(--warn)}
-.kpi.gray .big{color:var(--faint)}
-.kpi.ok .big{color:var(--ok)}
-.scroll{max-height:440px;overflow:auto;border:1px solid var(--border);border-radius:6px}
-.scroll table{font-size:12.5px}
-.scroll thead th{position:sticky;top:0;background:var(--card);z-index:1}
-.flag{color:var(--alert);font-weight:600}
-/* 🔴 持ち越した点は中空・破線。実線で描くと「その月に更新があった」ように見える */
-.carry{border:1px dashed var(--ghost);background:none;color:var(--sub)}
-.spark{display:inline-flex;align-items:flex-end;gap:1px;height:16px;vertical-align:middle}
-.spark i{display:block;width:3px;background:var(--accent);border-radius:1px}
-.spark i.c{background:none;border:1px dashed var(--ghost)}
+    --paper:#f4f6f8; --panel:#ffffff; --panel-2:#fafbfc; --panel-3:#edf0f3;
+    --ink:#191a1c; --ink-2:#5b6168; --ink-3:#8d939a;
+    --rule:#dde2e8; --rule-2:#eaeef2;
+    --ai:#1f4f8f;      --ai-soft:#e8eefa;
+    --hi:#ab2f26;      --hi-soft:#fbecea;
+    --ki:#8a5f06;      --ki-soft:#fbf3e1;
+    --midori:#0f6b51;  --midori-soft:#e5f3ed;
+    --murasaki:#5b4b8a;
+    --grid:#e3e8ee; --ghost:#a9b2bc;
+    --shadow-card:0 1px 2px rgba(25,26,28,.05), 0 6px 18px -12px rgba(25,26,28,.22);
+    /* 間隔。数列の5段と、用途で名付けた1つ。
+       space-gap は「カードや図の間」。実測で最多(9箇所)だったので段ではなく用途名にした。
+       数列に見せかけて実は7段、という状態が一番読めないため。 */
+    --space-1:4px; --space-2:8px; --space-3:12px;
+    --space-4:16px; --space-6:40px;
+    --space-gap:14px;
+    /* 角丸。radius-lg が既定（カード・図の枠）。
+       radius-pill はタグ専用で、高さ18pxの半分。「丸角」ではなく「ピル形」なので名前を分ける。 */
+    --radius-md:7px; --radius-lg:10px; --radius-pill:11px;
+
+    /* ---- ここから下の px はトークンにしていない。理由を残す ----
+       1〜3px … 光学調整。数字のベースラインを合わせる margin-top:2px、
+                4px幅の帯を「ほんの少し」丸める border-radius:1px など。
+                段として持つと「2px は space-0 だから使ってよい」と読まれて、
+                意味のない微調整が増える。意図的にトークンの外に置く。
+       5〜9px … 行の中の隙間（凡例の粒とラベル、チェックボックスと文字）。
+                文字サイズに紐づく値で、カードの余白とは別系統。
+       10〜11px… タブ・入力欄・summary の上下。押せる範囲の高さを決めている値で、
+                余白ではなく当たり判定に近い。
+       18〜30px… 見出し前後の間合い。space-4(16) と space-6(40) の間。
+                ここを段にするなら実測で決め直す必要があるので、今は残す。
+       120px  … .wrap の下。ページ末尾の余白で一点物。
+       ---------------------------------------------------------------- */
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#15171b; --panel:#1d2026; --panel-2:#1a1d22; --panel-3:#242830;
+      --ink:#e9e6e0; --ink-2:#a3a9b1; --ink-3:#767c85;
+      --rule:#31353c; --rule-2:#24272d;
+      --ai:#7fadf0;      --ai-soft:#17243a;
+      --hi:#f18c7f;      --hi-soft:#311d1a;
+      --ki:#e0b063;      --ki-soft:#2c2214;
+      --midori:#5fc79c;  --midori-soft:#112c24;
+      --murasaki:#a294d8;
+      --grid:#2d3138; --ghost:#5d636c;
+      --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#15171b; --panel:#1d2026; --panel-2:#1a1d22; --panel-3:#242830;
+    --ink:#e9e6e0; --ink-2:#a3a9b1; --ink-3:#767c85;
+    --rule:#31353c; --rule-2:#24272d;
+    --ai:#7fadf0;      --ai-soft:#17243a;
+    --hi:#f18c7f;      --hi-soft:#311d1a;
+    --ki:#e0b063;      --ki-soft:#2c2214;
+    --midori:#5fc79c;  --midori-soft:#112c24;
+    --murasaki:#a294d8;
+    --grid:#2d3138; --ghost:#5d636c;
+    --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
+  }
+
+  *{ box-sizing:border-box; }
+  html{ background:var(--paper); }
+  body{
+    background:var(--paper); color:var(--ink); margin:0;
+    font-family:"BIZ UDPGothic","Yu Gothic UI","Yu Gothic","Hiragino Sans","Meiryo",sans-serif;
+    font-size:14px; line-height:1.85; letter-spacing:.008em;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  /* 見出しだけ明朝にして、図と本文の境目を目で分かるようにする */
+  .mincho{ font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif; }
+  .wrap{ max-width:1560px; margin:0 auto; padding:0 26px 120px; }
+
+  /* ---------------- 紙の上端 ---------------- */
+  .masthead{ border-bottom:1px solid var(--ink); margin:0 0 var(--space-1); padding:26px 0 var(--space-3);
+             display:flex; align-items:flex-end; justify-content:space-between;
+             gap:20px; flex-wrap:wrap; }
+  .masthead h1{ font-size:27px; margin:0; font-weight:600; letter-spacing:.06em;
+                line-height:1.25; }
+  .masthead h1 span{ font-size:12px; letter-spacing:.22em; color:var(--ink-2);
+                     border:1px solid var(--rule); border-radius:3px;
+                     padding:2px var(--space-2); margin-left:var(--space-3); vertical-align:5px;
+                     font-family:"BIZ UDPGothic","Yu Gothic UI",sans-serif; }
+  .stamp{ font-size:11.5px; color:var(--ink-2); text-align:right; line-height:1.7;
+          font-variant-numeric:tabular-nums; }
+  .stamp b{ color:var(--ink); font-weight:600; }
+  .rule-thin{ height:3px; border-top:1px solid var(--ink); border-bottom:1px solid var(--rule);
+              margin:0 0 18px; }
+
+  /* ---------------- 凡例 ---------------- */
+  .legend{ display:flex; gap:18px; flex-wrap:wrap; align-items:center;
+           font-size:11.5px; color:var(--ink-2); margin:0 0 var(--space-1); padding:0 0 var(--space-gap); }
+  .legend i{ font-style:normal; display:inline-flex; align-items:center; gap:6px; }
+  .legend b{ width:10px; height:10px; border-radius:2px; display:inline-block; flex:none; }
+
+  /* ---------------- タブ ---------------- */
+  .tabs{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 26px;
+         border-bottom:1px solid var(--rule); }
+  .tabs button{ background:none; border:none; border-bottom:2px solid transparent;
+    padding:11px 18px 10px; font-size:13.5px; color:var(--ink-2); cursor:pointer;
+    font-family:inherit; margin-bottom:-1px; letter-spacing:.03em; }
+  .tabs button:hover{ color:var(--ink); background:var(--panel-2); }
+  .tabs button:focus-visible{ outline:2px solid var(--ai); outline-offset:-2px; }
+  .tabs button.on{ color:var(--ink); border-bottom-color:var(--ai); font-weight:700; }
+  .tabs button .no{ color:var(--ai); font-weight:700; margin-right:5px; }
+  .pane{ display:none; } .pane.on{ display:block; animation:fade .18s ease-out; }
+  @keyframes fade{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; } }
+
+  /* ---------------- 見出し ---------------- */
+  h2.sec{ font-size:19px; font-weight:600; margin:var(--space-6) 0 var(--space-1); letter-spacing:.05em;
+          display:flex; align-items:baseline; gap:var(--space-3); }
+  h2.sec .no{ font-size:12px; letter-spacing:.14em; color:var(--ink-3);
+              font-family:"BIZ UDPGothic","Yu Gothic UI",sans-serif; flex:none; }
+  h2.sec::after{ content:""; flex:1; height:1px; background:var(--rule); }
+  h2.sec + .lede{ color:var(--ink-2); font-size:12.5px; margin:0 0 var(--space-4); max-width:76ch; }
+  h3.sub{ font-size:14.5px; font-weight:700; margin:30px 0 10px; letter-spacing:.03em;
+          display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
+  h3.sub::before{ content:""; width:4px; height:15px; background:var(--ai);
+                  border-radius:1px; flex:none; align-self:center; }
+  h3.sub .hint{ font-weight:400; font-size:12px; color:var(--ink-2); letter-spacing:0; }
+
+  /* ---------------- 注記ブロック ---------------- */
+  .note{ border:1px solid var(--rule); border-left:3px solid var(--ink-3);
+         border-radius:0 var(--radius-lg) var(--radius-lg) 0; background:var(--panel);
+         padding:var(--space-3) var(--space-4); margin:var(--space-gap) 0; font-size:13px; }
+  .note .hd{ display:block; font-weight:700; margin-bottom:3px; letter-spacing:.02em; }
+  .note .hd::before{ font-size:11px; margin-right:7px; vertical-align:1px;
+                     letter-spacing:.1em; font-weight:700; }
+  .note.bad{ border-left-color:var(--hi); background:var(--hi-soft);
+             border-color:color-mix(in srgb, var(--hi) 28%, transparent); }
+  .note.bad .hd{ color:var(--hi); } .note.bad .hd::before{ content:"■ まずい"; }
+  .note.warn{ border-left-color:var(--ki); }
+  .note.warn .hd{ color:var(--ki); } .note.warn .hd::before{ content:"▲ 注意"; }
+  .note.good{ border-left-color:var(--midori); }
+  .note.good .hd{ color:var(--midori); } .note.good .hd::before{ content:"● 良い"; }
+  .note.info{ border-left-color:var(--ai); }
+  .note.info .hd::before{ content:"— 読み方"; color:var(--ai); }
+  .note p{ margin:5px 0 0; }
+
+  /* ---------------- KPI ---------------- */
+  .kpis{ display:grid; gap:var(--space-3); margin:var(--space-4) 0 var(--space-1);
+         grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); }
+  .kpi{ background:var(--panel); border:1px solid var(--rule); border-radius:var(--radius-lg);
+        border-top:3px solid var(--rule); padding:var(--space-3) var(--space-4);
+        box-shadow:var(--shadow-card); }
+  /* 🔴 button の中身は span なので、block にしないと1行に流れる */
+  .kpi .lbl, .kpi .big, .kpi .fine, .kpi .act{ display:block; }
+  .kpi .lbl{ color:var(--ink-2); font-size:11.5px; line-height:1.55; letter-spacing:.02em;
+             min-height:2ex; }
+  .kpi .big{ font-size:29px; font-weight:700; line-height:1.24; letter-spacing:-.018em;
+             font-variant-numeric:tabular-nums; margin-top:2px; }
+  .kpi .big .u{ display:inline; }
+  .kpi .big .u{ font-size:14px; font-weight:600; color:var(--ink-2); margin-left:2px;
+                letter-spacing:0; }
+  .kpi .fine{ color:var(--ink-2); font-size:11.5px; line-height:1.6; margin-top:3px;
+              min-height:1.6em; }
+  .kpi .big.sm{ font-size:19px; letter-spacing:0; }
+  .kpi.is-bad{ border-top-color:var(--hi); } .kpi.is-bad .big{ color:var(--hi); }
+  .kpi.is-warn{ border-top-color:var(--ki); } .kpi.is-warn .big{ color:var(--ki); }
+  .kpi.is-good{ border-top-color:var(--midori); } .kpi.is-good .big{ color:var(--midori); }
+  .kpi.is-ai{ border-top-color:var(--ai); }
+  /* 押せる KPI は絞り込みボタン。押せることが分かる形にする */
+  button.kpi{ font:inherit; text-align:left; cursor:pointer; width:100%; color:inherit; }
+  button.kpi:hover{ border-color:var(--ai); transform:translateY(-1px); }
+  button.kpi:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+  button.kpi{ transition:transform .12s ease, border-color .12s ease; }
+  button.kpi[aria-pressed="true"]{ border-color:var(--ai); background:var(--ai-soft);
+                                   box-shadow:inset 0 0 0 1px var(--ai); }
+  button.kpi .act{ display:block; font-size:11px; color:var(--ai); margin-top:5px;
+                   letter-spacing:.02em; }
+
+  /* ---------------- 図 ---------------- */
+  figure.fig{ margin:var(--space-gap) 0 6px; background:var(--panel); border:1px solid var(--rule);
+              border-radius:var(--radius-lg);
+              padding:var(--space-3) var(--space-4); box-shadow:var(--shadow-card); }
+  figure.fig > figcaption{ font-size:12.5px; font-weight:700; letter-spacing:.03em;
+              margin:0 0 2px; display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; }
+  figure.fig > figcaption .hint{ font-weight:400; color:var(--ink-2); font-size:11.5px;
+              letter-spacing:0; }
+  figure.fig .figbody{ overflow-x:auto; overflow-y:hidden; margin-top:var(--space-2); }
+  figure.fig svg{ display:block; max-width:100%; height:auto; }
+  .figlegend{ display:flex; gap:var(--space-gap); flex-wrap:wrap; font-size:11px; color:var(--ink-2);
+              margin-top:7px; padding-top:7px; border-top:1px solid var(--rule-2); }
+  .figlegend i{ font-style:normal; display:inline-flex; align-items:center; gap:5px; }
+  /* 色の粒を持たない「注記」は、列に混ぜると途中で折れて読めない。1行まるごと使わせる */
+  .figlegend i.full{ flex:1 0 100%; display:block; line-height:1.7; }
+  .figlegend svg{ display:inline-block; vertical-align:-2px; }
+  /* 図の中の文字。SVG は fill でしか色が付かないので style で var() を渡す */
+  .ax{ font-size:10px; fill:var(--ink-3); font-variant-numeric:tabular-nums; }
+  .axl{ font-size:10.5px; fill:var(--ink-2); }
+  .vl{ font-size:10.5px; fill:var(--ink); font-variant-numeric:tabular-nums;
+       font-weight:600; }
+  .gridline{ stroke:var(--grid); stroke-width:1; }
+  .axisline{ stroke:var(--rule); stroke-width:1; }
+
+  /* ---------------- 表 ---------------- */
+  .scroll{ overflow:auto; margin:var(--space-3) 0; max-height:70vh;
+           border:1px solid var(--rule); border-radius:var(--radius-lg); background:var(--panel);
+           box-shadow:var(--shadow-card); }
+  table{ border-collapse:separate; border-spacing:0; width:max-content; max-width:none;
+         font-size:12.5px; }
+  /* 枠より表が狭いときは枠いっぱいに伸ばす（右に地が余ると別の箱に見える）。
+     枠より広いときは max-content のまま横スクロールさせる */
+  .scroll>table{ width:100%; min-width:max-content; }
+  th,td{ padding:var(--space-2) var(--space-3); text-align:left; white-space:nowrap;
+         border-bottom:1px solid var(--rule-2); }
+  th{ background:var(--panel-3); font-weight:700; font-size:11.5px; color:var(--ink-2);
+      position:sticky; top:0; z-index:2; cursor:pointer; letter-spacing:.03em;
+      border-bottom:1px solid var(--rule); }
+  th:hover{ color:var(--ai); }
+  th.n,td.n{ text-align:right; font-variant-numeric:tabular-nums; }
+  tbody tr:nth-child(even){ background:var(--panel-2); }
+  tbody tr:hover{ background:var(--ai-soft); }
+  tbody tr:last-child td{ border-bottom:none; }
+  td:first-child{ font-weight:600; }
+  td.t{ white-space:normal; min-width:180px; max-width:330px; line-height:1.6; }
+  tr.clickable{ cursor:pointer; }
+  caption{ caption-side:bottom; text-align:left; padding:var(--space-2) var(--space-3); font-size:11.5px;
+           color:var(--ink-2); }
+
+  /* ---------------- 小物 ---------------- */
+  .ctl{ display:flex; gap:var(--space-4); flex-wrap:wrap; align-items:center; margin:var(--space-gap) 0;
+        background:var(--panel); border:1px solid var(--rule); border-radius:var(--radius-lg);
+        padding:var(--space-3) var(--space-4); box-shadow:var(--shadow-card); }
+  .ctl label{ display:flex; align-items:center; gap:7px; font-size:12.5px; cursor:pointer; }
+  .ctl input[type=search], .ctl select{ padding:7px 11px; border:1px solid var(--rule);
+    border-radius:var(--radius-md); background:var(--panel-2); color:var(--ink); font-family:inherit;
+    font-size:12.5px; }
+  .ctl input[type=search]{ min-width:230px; }
+  .ctl input:focus-visible, .ctl select:focus-visible{ outline:2px solid var(--ai);
+    outline-offset:1px; }
+  .tag{ display:inline-block; font-size:10.5px; padding:1px var(--space-2); border-radius:var(--radius-pill);
+        border:1px solid var(--rule); margin-right:var(--space-1); white-space:nowrap;
+        color:var(--ink-2); letter-spacing:.02em; }
+  .tag.m{ color:var(--midori); border-color:var(--midori); }
+  .tag.s{ color:var(--ki); border-color:var(--ki); }
+  .tag.e{ background:var(--ai-soft); color:var(--ai); border-color:var(--ai); }
+  .tag.d{ color:var(--ghost); border-style:dashed; }
+  .muted{ color:var(--ink-2); } .small{ font-size:12px; }
+  /* 原文の引用。読ませるが、こちらの主張ではないので一段落とす */
+  .quote{ color:var(--ink-2); font-size:12px; line-height:1.7; }
+  /* 表の行から③顧客詳細へ。セル全体を押せるようにすると誤爆するのでボタンで */
+  .lnk{ font:inherit; font-size:11.5px; color:var(--ai); background:var(--ai-soft);
+        border:1px solid var(--ai); border-radius:var(--radius-pill);
+        padding:1px var(--space-2); cursor:pointer; white-space:nowrap; }
+  .lnk:hover{ background:var(--ai); color:var(--panel); }
+  .lnk:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+  .n0{ color:var(--ghost); }                    /* 値が無い。0 ではない */
+  .up{ color:var(--hi); font-weight:700; }      /* 悪化 */
+  .dn{ color:var(--midori); font-weight:700; }  /* 改善 */
+  /* 🔴 inline のままだと枠が 10.5px の em ボックスに張り付き、日本語グリフが
+     はみ出して取り消し線のように見える。inline-block + 行高で箱を作る */
+  .dummy{ display:inline-block; color:var(--ghost); font-size:10.5px;
+          border:1px dashed var(--ghost); border-radius:3px;
+          padding:0 5px; line-height:1.6; vertical-align:baseline;
+          white-space:nowrap; }
+  code{ background:var(--panel-3); padding:1px 5px; border-radius:3px; font-size:.88em;
+        font-family:Consolas,"Courier New",monospace; }
+  /* 上下が 0 なのは意図的。中身の余白は summary と本文が持つ。
+     横だけ他のカードと同じ space-4 に揃えている */
+  details{ margin:var(--space-3) 0; border:1px solid var(--rule); border-radius:var(--radius-lg);
+           padding:0 var(--space-4); background:var(--panel); }
+  details[open]{ padding-bottom:var(--space-3); }
+  summary{ cursor:pointer; color:var(--ai); padding:10px 0; font-size:12.5px;
+           font-weight:600; letter-spacing:.02em; }
+  summary:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+  textarea{ width:100%; font-family:inherit; font-size:12.5px; line-height:1.9;
+    border:1px solid var(--rule); border-radius:var(--radius-lg); padding:var(--space-3);
+    background:var(--panel-2); color:var(--ink); resize:vertical; }
+  textarea:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+  .stack{ display:grid; gap:var(--space-gap); }
+  .two{ display:grid; gap:var(--space-gap); align-items:start;
+        grid-template-columns:repeat(auto-fit,minmax(430px,1fr)); }
+  .empty{ color:var(--ink-2); font-size:12.5px; border:1px dashed var(--rule);
+          border-radius:var(--radius-lg); padding:var(--space-4); text-align:center; }
+  .sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0);
+       white-space:nowrap; }
+  @media (prefers-reduced-motion:reduce){ *{ animation:none !important;
+       transition:none !important; } }
+/* ---------------------------------------------------------------- 本番用の小物
+   モックには無いもの（戻り導線・読み直し・取得失敗の表示）だけをここに足す。
+   色と間隔は上のトークンから引く。新しい値を持ち込まない。 */
+a.backlink{ color:var(--ink-2); font-size:12px; text-decoration:none; margin-left:var(--space-3); }
+a.backlink:hover{ color:var(--ai); text-decoration:underline; }
+.ctlbar{ display:flex; align-items:center; gap:var(--space-3);
+         flex-wrap:wrap; margin:var(--space-3) 0; }
+.err{ background:var(--hi-soft); border-left:3px solid var(--hi);
+      padding:var(--space-3) var(--space-4); border-radius:0 var(--radius-md) var(--radius-md) 0;
+      color:var(--ink); font-size:13px; white-space:pre-wrap; margin:var(--space-3) 0; }
+.loading{ color:var(--ink-3); font-size:12px; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<header class="top">
-  <h1>コンサルダッシュボード</h1>
-  <a class="backlink" href="/">← ダッシュボードへ戻る</a>
-  <span class="who">{{ user }}</span>
+<header class="masthead">
+  <h1 class="mincho">コンサルダッシュボード</h1>
+  <div class="stamp" id="sub">{{ user }}<a class="backlink" href="/">&#8592; ダッシュボードへ戻る</a></div>
 </header>
-<p class="lead">
-  納品管理PL（採用コンサルの契約）を見る画面。
-  <strong>分母が0のときは率を空欄（—）にします。0% とは書きません。</strong>
-  すべての数字に母数(n)を添えています。良し悪しの判断は人がします。
-</p>
+<div class="rule-thin"></div>
+
+<div class="legend">
+  <i><b style="background:var(--ai)"></b>触れるところ・主系列</i>
+  <i><b style="background:var(--hi)"></b>&#9650; まずい / 悪化</i>
+  <i><b style="background:var(--ki)"></b>読むのに注意が要る</i>
+  <i><b style="background:var(--midori)"></b>&#9660; 良い / 改善</i>
+  <i><b style="background:var(--ghost)"></b><span class="n0">&#8212;</span> 値が無い（0 ではない）</i>
+  <i><b style="border:1px dashed var(--ghost);background:none"></b>&#9675; 未確定（右側打ち切り）</i>
+</div>
 
 <nav class="tabs" aria-label="画面の切り替え">
-  <button type="button" data-p="focus" class="on"><span class="no">1</span>いま見るべき顧客</button>
-  <button type="button" data-p="renewal"><span class="no">2</span>継続回数 × 成果</button>
-  <button type="button" data-p="customer"><span class="no">3</span>顧客詳細</button>
-  <button type="button" data-p="hq"><span class="no">4</span>本部アプローチ</button>
-  <button type="button" data-p="mtgq"><span class="no">5</span>MTG の品質</button>
-  <button type="button" data-p="phone"><span class="no">6</span>電話</button>
-  <button type="button" data-p="rampup"><span class="no">7</span>立ち上がり</button>
-  <button type="button" data-p="outcome"><span class="no">8</span>成果とリスク</button>
-  <button type="button" data-p="dq"><span class="no">9</span>データ品質</button>
+  <button type="button" data-p="focus" class="on"><span class="no">&#9312;</span>いま見るべき顧客</button>
+  <button type="button" data-p="renewal"><span class="no">&#9313;</span>継続回数 &#215; 成果</button>
+  <button type="button" data-p="customer"><span class="no">&#9314;</span>顧客詳細</button>
+  <button type="button" data-p="hq"><span class="no">&#9315;</span>本部アプローチ</button>
+  <button type="button" data-p="mtgq"><span class="no">&#9316;</span>MTG の品質</button>
+  <button type="button" data-p="phone"><span class="no">&#9317;</span>電話</button>
+  <button type="button" data-p="rampup"><span class="no">&#9318;</span>立ち上がり</button>
+  <button type="button" data-p="outcome"><span class="no">&#9319;</span>成果</button>
+  <button type="button" data-p="dq"><span class="no">&#9320;</span>データ品質</button>
 </nav>
 
 <div id="cs-error" style="display:none"></div>
 
-<div class="pane on" id="pane-focus"><div class="ctl"><button type="button" class="act" data-reload="focus">読み直す</button><span class="n0" id="st-focus"></span></div><div id="body-focus"></div></div>
-<div class="pane" id="pane-renewal">
-  <div class="ctl">
-    <label><input type="checkbox" id="cs-censor">
-      右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>
-    <button type="button" class="act" data-reload="renewal">読み直す</button>
-    <span class="n0" id="st-renewal"></span>
-  </div>
-  <div id="body-renewal"></div>
-</div>
-<div class="pane" id="pane-customer">
-  <div class="ctl">
-    <select id="cs-houjin"><option value="">法人を選ぶ…</option></select>
-    <button type="button" class="act" data-reload="customer">読み直す</button>
-    <span class="n0" id="st-customer"></span>
-  </div>
-  <div id="body-customer"></div>
-</div>
-<div class="pane" id="pane-hq"><div class="ctl"><button type="button" class="act" data-reload="hq">読み直す</button><span class="n0" id="st-hq"></span></div><div id="body-hq"></div></div>
-<div class="pane" id="pane-mtgq"><div class="ctl"><button type="button" class="act" data-reload="mtgq">読み直す</button><span class="n0" id="st-mtgq"></span></div><div id="body-mtgq"></div></div>
-<div class="pane" id="pane-phone"><div class="ctl"><button type="button" class="act" data-reload="phone">読み直す</button><span class="n0" id="st-phone"></span></div><div id="body-phone"></div></div>
-<div class="pane" id="pane-rampup"><div class="ctl"><button type="button" class="act" data-reload="rampup">読み直す</button><span class="n0" id="st-rampup"></span></div><div id="body-rampup"></div></div>
-<div class="pane" id="pane-outcome"><div class="ctl"><button type="button" class="act" data-reload="outcome">読み直す</button><span class="n0" id="st-outcome"></span></div><div id="body-outcome"></div></div>
-<div class="pane" id="pane-dq"><div class="ctl"><button type="button" class="act" data-reload="dq">読み直す</button><span class="n0" id="st-dq"></span></div><div id="body-dq"></div></div>
-
+<div class="pane on" id="pane-focus"></div>
+<div class="pane" id="pane-renewal"></div>
+<div class="pane" id="pane-customer"></div>
+<div class="pane" id="pane-hq"></div>
+<div class="pane" id="pane-mtgq"></div>
+<div class="pane" id="pane-phone"></div>
+<div class="pane" id="pane-rampup"></div>
+<div class="pane" id="pane-outcome"></div>
+<div class="pane" id="pane-dq"></div>
 </div>
 <script>
-"use strict";
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
-  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const $ = s => document.querySelector(s);
+const el = (t, a, h) => { const e = document.createElement(t);
+  if (a) for (const k in a) e.setAttribute(k, a[k]); if (h != null) e.innerHTML = h; return e; };
+const num = (v, d = 0) => v == null || v === "" ? "" :
+  Number(v).toLocaleString("ja-JP", { minimumFractionDigits: d, maximumFractionDigits: d });
+// 🔴 分母0・欠損は空。0% と書かない
+const rate = (v, d = 1) => v == null ? '<span class="n0">—</span>' : (v * 100).toFixed(d) + "%";
+const man = v => v == null ? "" : num(Math.round(v / 10000)) + "万";
 
-/** 値が無いときは 0 でなくダッシュ。これがこの画面の約束。 */
-function n0() { return '<span class="n0">—</span>'; }
-function num(v, d) {
-  if (v === null || v === undefined) return n0();
-  return Number(v).toLocaleString("ja-JP",
-    { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
+/* ========================================================================
+   図を描く道具
+   ------------------------------------------------------------------------
+   外部CDNが使えないので SVG を自前で組み立てる。文字列を返して innerHTML に流す。
+
+   🔴 SVG は fill="var(--x)" が効かない。必ず style="fill:var(--x)" で渡す。
+      そうしないとダークモードで色が追従しない。
+   🔴 この中の数値（pad の l/r/t/b、rh、rx）は**図の幾何であって UI の間隔ではない**。
+      space トークンには繋がない。pad.t=16 が space-4 と同じ値なのは偶然で、
+      意味は「目盛りの文字が入る高さ」。space-4 を 20px に変えたときに
+      軸の余白まで動くと、図が壊れる。角丸も rx=2/3 で radius トークン(4/7/10)には
+      当たらない。合わせると見た目が変わるので、値はこのまま持つ。
+   🔴 値が無い(null)ときは 0 として描かない。線は切り、印だけ残す。
+   🔴 右側打ち切り(結果が確定していない)の点は中空にして、線を破線にする。
+   🔴 色だけで意味を伝えない。記号と文字を必ず添える。
+   ======================================================================== */
+const SVGNS = 'xmlns="http://www.w3.org/2000/svg"';
+const C = { ai:"var(--ai)", hi:"var(--hi)", ki:"var(--ki)", midori:"var(--midori)",
+            murasaki:"var(--murasaki)", ghost:"var(--ghost)", ink:"var(--ink)",
+            ink2:"var(--ink-2)", ink3:"var(--ink-3)" };
+const SERIES = [C.ai, C.hi, C.midori, C.ki, C.murasaki];
+
+/** 日本語の社名・拠点名は「末尾」が効くので、長いときは頭を削る */
+const tail = (s, n) => { s = String(s == null ? "" : s);
+  return s.length > n ? "…" + s.slice(-(n - 1)) : s; };
+/** 図のラベル用。まず法人格を落とす（「株式会社」で幅を使うと見分けが付かない） */
+const shortName = (s, n) => tail(String(s == null ? "" : s)
+  .replace(/(株式会社|有限会社|合同会社|合資会社|合名会社)/g, "").replace(/\s+/g, " ").trim(), n || 16);
+/** ラベル列の幅を文字数から見積もる。10.5px の全角で 1 文字およそ 10.6px */
+const labW = (rows, cap, key) => Math.min(cap || 210,
+  18 + Math.max(0, ...rows.map(r => String((key ? r[key] : r.label) || "").length)) * 10.6);
+
+const esc = s => String(s == null ? "" : s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;");
+
+/** 目盛りを人が読める刻みにする */
+function ticks(lo, hi, want) {
+  want = want || 4;
+  if (!isFinite(lo) || !isFinite(hi)) return [0];
+  if (hi <= lo) hi = lo + (Math.abs(lo) || 1);
+  const raw = (hi - lo) / want;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / mag;
+  const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-6; v += step)
+    out.push(Number(v.toFixed(10)));
+  return out.length ? out : [lo];
 }
-function pct(v, d) {
-  if (v === null || v === undefined) return n0();
-  return Number(v).toFixed(d === undefined ? 1 : d) + "%";
+
+/* 目盛りの書式。単位は軸のラベルに1回だけ書いて、数字自体は素で出す */
+const F = {
+  int: v => Math.round(v).toLocaleString("ja-JP"),
+  man: v => Math.round(v / 10000).toLocaleString("ja-JP"),
+  pct: v => (v * 100).toFixed(0) + "%",
+  pct1: v => (v * 100).toFixed(1) + "%",
+  d1: v => v.toFixed(1),
+  d2: v => v.toFixed(2),
+  d3: v => (v >= 0 ? "+" : "") + v.toFixed(3),
+};
+
+/** 図の外枠。figcaption と凡例をまとめて面倒をみる */
+function fig(caption, hint, body, legend) {
+  return `<figure class="fig"><figcaption>${esc(caption)}` +
+    (hint ? `<span class="hint">${hint}</span>` : "") + `</figcaption>` +
+    `<div class="figbody">${body}</div>` +
+    (legend ? `<div class="figlegend">${legend}</div>` : "") + `</figure>`;
 }
-function man(v) {
-  if (v === null || v === undefined) return n0();
-  return num(Number(v) / 10000) + "万";
+/** 凡例の粒。四角・丸・中空丸・破線を描き分ける */
+function lg(kind, color, label) {
+  const s = { box: `<rect x="1" y="3" width="10" height="10" rx="2" style="fill:${color}"/>`,
+    dot: `<circle cx="6" cy="8" r="4.5" style="fill:${color}"/>`,
+    ring: `<circle cx="6" cy="8" r="4.2" style="fill:var(--panel);stroke:${color}" stroke-width="1.6" stroke-dasharray="2 1.6"/>`,
+    line: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4"/>`,
+    dash: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4" stroke-dasharray="3 2.5"/>`,
+    none: `<path d="M1 8H11" style="stroke:${color}" stroke-width="2"/>`,
+  }[kind] || "";
+  return `<i><svg ${SVGNS} width="12" height="16" aria-hidden="true">${s}</svg>${label}</i>`;
 }
-function table(cols, rows) {
-  let h = "<table><thead><tr>";
-  for (const c of cols) h += "<th>" + esc(c) + "</th>";
+
+/* ---------------------------------------------------------------- 折れ線 */
+/** 推移を見る。x はカテゴリ(契約の順・週)。null は線を切る */
+function svgLine(o) {
+  const w = o.w || 660, h = o.h || 250;
+  /* 🔴 右端のラベルは最後の点を中心に置くので、ラベルの半分だけ余白が要る。
+     固定値にすると「2026-09」のような長いラベルで末尾が切れる。文字数から決める。 */
+  const xLabW = Math.max(0, ...(o.x || []).map(v => String(v).length)) * 3.6 + 6;
+  const pad = Object.assign({ l: 58, r: Math.max(o.xSub ? 40 : 24, Math.ceil(xLabW)),
+                              t: 16, b: o.xSub ? 44 : 34 }, o.pad || {});
+  const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
+  const fmt = o.yFmt || F.int;
+  let vals = [];
+  o.series.forEach(s => s.pts.forEach(p => { if (p && p.v != null) vals.push(p.v); }));
+  if (!vals.length) return `<div class="empty">この図に出せる値がありません（値が無いものは 0 として描きません）。</div>`;
+  let lo = o.yZero === false ? Math.min(...vals) : 0, hi = Math.max(...vals);
+  if (o.yMax != null) hi = Math.max(hi, o.yMax);
+  const tk = ticks(lo, hi, o.yTicks || 4);
+  lo = Math.min(lo, tk[0]); hi = Math.max(hi, tk[tk.length - 1]);
+  const n = o.x.length;
+  const X = i => pad.l + (n === 1 ? iw / 2 : iw * i / (n - 1));
+  const Y = v => pad.t + ih - ih * (v - lo) / (hi - lo || 1);
+
+  let g = "";
+  tk.forEach(t => {
+    g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
+         `<text class="ax" x="${pad.l - 7}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(fmt(t))}</text>`;
+  });
+  // 右側打ち切りの帯。ここから先は結果が確定していない
+  if (o.censorFrom != null && o.censorFrom < n) {
+    const x0 = X(Math.max(0, o.censorFrom - 0.5 < 0 ? 0 : o.censorFrom)) - (n > 1 ? iw / (n - 1) / 2 : 0);
+    g += `<rect x="${Math.max(pad.l, x0).toFixed(1)}" y="${pad.t}" width="${(w - pad.r - Math.max(pad.l, x0)).toFixed(1)}" height="${ih}" style="fill:var(--ghost)" opacity=".1"/>` +
+         `<text class="ax" x="${(w - pad.r - 4).toFixed(1)}" y="${pad.t + 12}" text-anchor="end" style="fill:var(--ink-3)">未確定</text>`;
+  }
+  g += `<line class="axisline" x1="${pad.l}" y1="${pad.t + ih}" x2="${w - pad.r}" y2="${pad.t + ih}"/>`;
+
+  // x ラベル。多いときは間引く
+  const every = Math.ceil(n / Math.max(1, Math.floor(iw / 58)));
+  o.x.forEach((lab, i) => {
+    if (i % every && i !== n - 1) return;
+    g += `<text class="axl" x="${X(i).toFixed(1)}" y="${pad.t + ih + 15}" text-anchor="middle">${esc(lab)}</text>`;
+  });
+  if (o.xSub) o.xSub.forEach((lab, i) => {
+    if (!lab || (i % every && i !== n - 1)) return;
+    g += `<text class="ax" x="${X(i).toFixed(1)}" y="${pad.t + ih + 28}" text-anchor="middle">${esc(lab)}</text>`;
+  });
+  if (o.yLab) g += `<text class="ax" x="2" y="${pad.t - 5}">${esc(o.yLab)}</text>`;
+
+  o.series.forEach((s, si) => {
+    const col = s.color || SERIES[si % SERIES.length];
+    // null で切った区間ごとに線を引く
+    let run = [];
+    const flush = () => {
+      if (run.length >= 2) {
+        for (let k = 1; k < run.length; k++) {
+          const a = run[k - 1], b = run[k];
+          /* 🔴 carry = その月に書き換えが無く、前の値を引き継いだ点。
+             値としては読めるが「新しく書かれた数字」ではないので、
+             右側打ち切りと同じ中空・破線にして目で分かるようにする。 */
+          const dash = (a.p.censored || b.p.censored || a.p.carry || b.p.carry)
+            ? ` stroke-dasharray="5 4"` : "";
+          g += `<path d="M${X(a.i).toFixed(1)} ${Y(a.p.v).toFixed(1)}L${X(b.i).toFixed(1)} ${Y(b.p.v).toFixed(1)}" fill="none" style="stroke:${col}" stroke-width="2.2" stroke-linecap="round"${dash}/>`;
+        }
+      }
+      run = [];
+    };
+    s.pts.forEach((p, i) => {
+      if (!p || p.v == null) { flush(); return; }
+      run.push({ i, p });
+    });
+    flush();
+    // 点
+    s.pts.forEach((p, i) => {
+      const x = X(i);
+      if (!p || p.v == null) {
+        g += `<line x1="${(x - 4).toFixed(1)}" y1="${(pad.t + ih - 3).toFixed(1)}" x2="${(x + 4).toFixed(1)}" y2="${(pad.t + ih - 3).toFixed(1)}" style="stroke:var(--ghost)" stroke-width="2"><title>${esc(o.x[i])}: 値が無い（0 ではない）</title></line>`;
+        return;
+      }
+      const y = Y(p.v);
+      const t = `<title>${esc(o.x[i])}: ${esc(fmt(p.v))}${p.note ? " / " + esc(p.note) : ""}${p.censored ? " / 未確定" : ""}</title>`;
+      g += (p.censored || p.carry)
+        ? `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.6" style="fill:var(--panel);stroke:${col}" stroke-width="2" stroke-dasharray="2.4 2">${t}</circle>`
+        : `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.2" style="fill:${col}">${t}</circle>`;
+      if (o.labelPts && n <= 14 && !p.carry) {
+        const flip = y < pad.t + 18;
+        /* 🔴 端の点のラベルを中央ぞろえにすると、縦軸の目盛りに重なって両方読めなくなる。
+           左端は左ぞろえ、右端は右ぞろえにして、必ず描画領域の内側に収める。 */
+        const anc = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
+        const lx = i === 0 ? x - 2 : i === n - 1 ? x + 2 : x;
+        g += `<text class="vl" x="${lx.toFixed(1)}" y="${(flip ? y + 16 : y - 9).toFixed(1)}" text-anchor="${anc}">${esc(fmt(p.v))}</text>`;
+        if (p.note) g += `<text class="ax" x="${lx.toFixed(1)}" y="${(flip ? y + 26 : y - 20).toFixed(1)}" text-anchor="${anc}">${esc(p.note)}</text>`;
+      }
+    });
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || o.yLab || "折れ線")}">${g}</svg>`;
+}
+
+/* -------------------------------------------------------------- 箱ひげ図 */
+/** ばらつきを見る。中央値だけでは分からない「幅」を出す */
+function svgBoxH(o) {
+  const rows = o.rows.filter(r => r && r.med != null);
+  if (!rows.length) return `<div class="empty">出せる行がありません。</div>`;
+  const w = o.w || 680, rh = o.rh || 27;
+  const pad = { l: o.padL || labW(rows, 120), r: 64, t: 22, b: 26 };
+  const h = pad.t + pad.b + rows.length * rh;
+  const iw = w - pad.l - pad.r;
+  const fmt = o.xFmt || F.int;
+  /* 🔴 最大値までひげを伸ばすと、外れ値のせいで箱が1本の線に潰れて読めない。
+     Tukey の内境界 (q3 + 1.5×四分位範囲) でひげを止め、
+     そこから先がある行は「→ 最大 300」と書いて、隠していないことを明示する。 */
+  rows.forEach(r => {
+    const iqr = r.q3 - r.q1;
+    r._wl = Math.max(r.min, r.q1 - 1.5 * iqr);
+    r._wh = Math.min(r.max, r.q3 + 1.5 * iqr);
+    r._over = r.max > r._wh + 1e-9;
+  });
+  /* 🔴 軸の上限は「読める行」だけから決める。n=2 の行のばらつきに軸を合わせると、
+     n=973 の行が1本の線に潰れて何も読めなくなる。
+     はみ出した行は軸の端で止めて矢印を出す（隠してはいない）。 */
+  const base = rows.filter(r => !r.dim);
+  let hi = 0;
+  (base.length ? base : rows).forEach(r => { hi = Math.max(hi, r._wh, r.med); });
+  const tk = ticks(0, hi, 4); hi = Math.max(hi, tk[tk.length - 1]);
+  const cl = v => Math.max(0, Math.min(v, hi));
+  const X = v => pad.l + iw * cl(v) / (hi || 1);
+  let g = "";
+  tk.forEach(t => {
+    g += `<line class="gridline" x1="${X(t).toFixed(1)}" y1="${pad.t - 6}" x2="${X(t).toFixed(1)}" y2="${h - pad.b + 2}"/>` +
+         `<text class="ax" x="${X(t).toFixed(1)}" y="${h - pad.b + 15}" text-anchor="middle">${esc(fmt(t))}</text>`;
+  });
+  if (o.xLab) g += `<text class="ax" x="${w - pad.r}" y="${pad.t - 10}" text-anchor="end">${esc(o.xLab)}</text>`;
+  rows.forEach((r, i) => {
+    const y = pad.t + i * rh + rh / 2, bh = Math.min(15, rh - 10);
+    const col = r.color || C.ai;
+    const dim = r.dim ? ` opacity=".5"` : "";
+    g += `<g${dim}>`;
+    g += `<text class="axl" x="${pad.l - 9}" y="${(y + 4).toFixed(1)}" text-anchor="end">${esc(r.label)}</text>`;
+    /* 🔴 箱が軸に収まらない行は、潰れた箱を描かない。
+       軸いっぱいに伸びた箱は「ばらつきが大きい」ではなく「はみ出した」だけで、嘘になる。
+       位置だけ印で示し、値は文字で出す。 */
+    if (r.q3 > hi + 1e-9) {
+      const xm = X(r.med);
+      g += `<line x1="${xm.toFixed(1)}" y1="${(y - bh / 2).toFixed(1)}" x2="${xm.toFixed(1)}" y2="${(y + bh / 2).toFixed(1)}" style="stroke:${col}" stroke-width="2.4"/>` +
+           `<path d="M${(xm + 5).toFixed(1)} ${(y - 3.2).toFixed(1)}l4.4 3.2-4.4 3.2z" style="fill:${col}" opacity=".7"/>` +
+           `<text class="ax" x="${Math.min(xm + 13, w - 150).toFixed(1)}" y="${(y + 3.5).toFixed(1)}" style="fill:var(--ink-3)">四分位 ${esc(fmt(r.q1))}–${esc(fmt(r.q3))}（軸外）</text>` +
+           `<title>${esc(r.label)}: 中央値 ${esc(fmt(r.med))} / 四分位 ${esc(fmt(r.q1))}–${esc(fmt(r.q3))} / n=${r.n}。ばらつきが軸に収まらないため箱は描いていません</title>` +
+           `<text class="ax" x="${w - 4}" y="${(y + 4).toFixed(1)}" text-anchor="end">n=${esc(String(r.n))}</text></g>`;
+      return;
+    }
+    /* ひげ（Tukey の内境界まで）。
+       「最大 N」を n= の列に食い込まないよう引き戻したとき、
+       ひげの先端だけ右に残ると文字を突き抜けて見えるので、ひげも一緒に縮める。 */
+    const over = r._over || r.max > hi;
+    const lblW0 = String(fmt(r.max)).length * 8 + 34;
+    const xe0 = over ? Math.min(X(r._wh) + 4, w - 58 - lblW0) : null;
+    const whEnd = over ? Math.min(X(r._wh), xe0) : X(r._wh);
+    g += `<line x1="${X(r._wl).toFixed(1)}" y1="${y.toFixed(1)}" x2="${whEnd.toFixed(1)}" y2="${y.toFixed(1)}" style="stroke:${col}" stroke-width="1" opacity=".55"/>`;
+    [X(r._wl), whEnd].forEach(xv =>
+      g += `<line x1="${xv.toFixed(1)}" y1="${(y - 4).toFixed(1)}" x2="${xv.toFixed(1)}" y2="${(y + 4).toFixed(1)}" style="stroke:${col}" stroke-width="1" opacity=".55"/>`);
+    // ひげの先にまだ値がある行は、隠さずに「→ 最大 N」と書く
+    if (over) {
+      const lblW = lblW0;
+      const xe = xe0;
+      const t = "最大 " + fmt(r.max);
+      g += `<rect x="${(xe + 5).toFixed(1)}" y="${(y - 7).toFixed(1)}" width="${(t.length * 6.4 + 6).toFixed(1)}" height="14" style="fill:var(--panel)"/>` +
+           `<path d="M${xe.toFixed(1)} ${(y - 3.2).toFixed(1)}l4.4 3.2-4.4 3.2z" style="fill:${col}" opacity=".7"/>` +
+           `<text class="ax" x="${(xe + 8).toFixed(1)}" y="${(y + 3.5).toFixed(1)}" style="fill:var(--ink-3)">${esc(t)}</text>`;
+    }
+    // 箱
+    g += `<rect x="${X(r.q1).toFixed(1)}" y="${(y - bh / 2).toFixed(1)}" width="${Math.max(1.5, X(r.q3) - X(r.q1)).toFixed(1)}" height="${bh}" rx="2" style="fill:${col}" opacity=".26"/>` +
+         `<rect x="${X(r.q1).toFixed(1)}" y="${(y - bh / 2).toFixed(1)}" width="${Math.max(1.5, X(r.q3) - X(r.q1)).toFixed(1)}" height="${bh}" rx="2" fill="none" style="stroke:${col}" stroke-width="1"/>`;
+    // 中央値
+    g += `<line x1="${X(r.med).toFixed(1)}" y1="${(y - bh / 2 - 2).toFixed(1)}" x2="${X(r.med).toFixed(1)}" y2="${(y + bh / 2 + 2).toFixed(1)}" style="stroke:${col}" stroke-width="2.6"/>`;
+    // 平均（中央値とずれる＝裾が重い、が見えるように）
+    if (r.mean != null)
+      g += `<path d="M${X(r.mean).toFixed(1)} ${(y - 3.4).toFixed(1)}l3.4 3.4-3.4 3.4-3.4-3.4z" style="fill:var(--panel);stroke:${col}" stroke-width="1.2"/>`;
+    g += `<title>${esc(r.label)}: 中央値 ${esc(fmt(r.med))} / 四分位 ${esc(fmt(r.q1))}–${esc(fmt(r.q3))} / 最小 ${esc(fmt(r.min))} 最大 ${esc(fmt(r.max))} / n=${r.n}</title>`;
+    g += `<text class="ax" x="${w - 4}" y="${(y + 4).toFixed(1)}" text-anchor="end">n=${esc(String(r.n))}</text>`;
+    g += `</g>`;
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "箱ひげ図")}">${g}</svg>`;
+}
+
+/* ---------------------------------------------------------------- 横棒 */
+/** 大小を一目で。diverging を立てると 0 を中心に左右へ伸ばす */
+function svgBarH(o) {
+  const rows = o.rows || [];
+  if (!rows.length) return `<div class="empty">出せる行がありません。</div>`;
+  const w = o.w || 660, rh = o.rh || 24;
+  /* 🔴 ラベル欄と注記欄は文字数から決める。固定値にするとラベルが切れ、値と注記が重なる。
+     値ラベル（棒の先に出る文字）のぶんも必ず空けておく。 */
+  const noteW = Math.max(0, ...rows.map(r => String(r.note || "").length)) * 10.6;
+  const valW = Math.max(0, ...rows.map(r => String(r.txt || "").length)) * 8.2 + 14;
+  const pad = { l: o.padL || labW(rows, 210), t: 8, b: 22,
+                r: o.padR || Math.min(320, Math.ceil(noteW + valW + 10)) };
+  const h = pad.t + pad.b + rows.length * rh;
+  const iw = Math.max(60, w - pad.l - pad.r);
+  const fmt = o.fmt || F.int;
+  // 🔴 v0（前の値の破線）も軸に入れる。入れないと v より大きいときに枠の外へ出る
+  const vs = rows.filter(r => r.v != null).map(r => r.v)
+    .concat(rows.filter(r => r.v0 != null).map(r => r.v0));
+  if (!vs.length) return `<div class="empty">出せる値がありません（値が無いものは 0 として描きません）。</div>`;
+  let hi = Math.max(...vs, 0), lo = o.diverging ? Math.min(...vs, 0) : 0;
+  const span = Math.max(Math.abs(hi), Math.abs(lo)) || 1;
+  if (o.diverging) { hi = span; lo = -span; }
+  const X = v => pad.l + iw * (v - lo) / (hi - lo || 1);
+  const x0 = X(o.diverging ? 0 : lo);
+  let g = "";
+  ticks(lo, hi, 4).forEach(t => {
+    g += `<line class="gridline" x1="${X(t).toFixed(1)}" y1="${pad.t}" x2="${X(t).toFixed(1)}" y2="${h - pad.b + 2}"/>` +
+         `<text class="ax" x="${X(t).toFixed(1)}" y="${h - pad.b + 14}" text-anchor="middle">${esc(fmt(t))}</text>`;
+  });
+  g += `<line class="axisline" x1="${x0.toFixed(1)}" y1="${pad.t}" x2="${x0.toFixed(1)}" y2="${h - pad.b + 2}"/>`;
+  rows.forEach((r, i) => {
+    const y = pad.t + i * rh + rh / 2, bh = Math.min(14, rh - 8);
+    const col = r.color || C.ai;
+    g += `<text class="axl" x="${pad.l - 9}" y="${(y + 4).toFixed(1)}" text-anchor="end">${esc(r.label)}</text>`;
+    if (r.v == null) {
+      // 🔴 値が無い。0 の棒を描かず、空きだと分かる印だけ置く
+      g += `<text class="ax" x="${(x0 + 7).toFixed(1)}" y="${(y + 4).toFixed(1)}" style="fill:var(--ghost)">— 記録なし</text>`;
+    } else {
+      const xa = Math.min(x0, X(r.v)), bw = Math.max(1.5, Math.abs(X(r.v) - x0));
+      g += `<rect x="${xa.toFixed(1)}" y="${(y - bh / 2).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh}" rx="2" style="fill:${col}" opacity="${r.faint ? ".34" : ".82"}">` +
+           `<title>${esc(r.label)}: ${esc(fmt(r.v))}${r.n != null ? " (n=" + r.n + ")" : ""}</title></rect>`;
+      // 前の値を中空の棒で重ねる。どこからどこへ動いたかを1行で見せる
+      if (r.v0 != null) {
+        const xb = Math.min(x0, X(r.v0)), bw0 = Math.max(1.5, Math.abs(X(r.v0) - x0));
+        g += `<rect x="${xb.toFixed(1)}" y="${(y - bh / 2 - 2).toFixed(1)}" width="${bw0.toFixed(1)}" height="${bh + 4}" rx="2" fill="none" style="stroke:${col}" stroke-width="1.2" stroke-dasharray="3 2.4" opacity=".75">` +
+             `<title>前回: ${esc(fmt(r.v0))}</title></rect>`;
+      }
+      const right = X(r.v) >= x0;
+      g += `<text class="vl" x="${(right ? X(r.v) + 6 : X(r.v) - 6).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${esc(r.txt || fmt(r.v))}</text>`;
+    }
+    if (r.note)
+      g += `<text class="ax" x="${(w - 2).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" style="fill:${r.noteColor || "var(--ink-3)"}">${esc(r.note)}</text>`;
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "横棒")}">${g}</svg>`;
+}
+
+/* ------------------------------------------------- 帯を縦に積む（相関を見る）
+   横軸だけを共有し、系列ごとに自分の縦軸を持たせる。
+   🔴 1つの縦軸に重ねない。値の幅が違いすぎて（応募 0〜214 / NPS 0〜10 /
+      電話 0〜数十）応募の線だけが動いて NPS が底に張り付く。
+   🔴 二軸も使わない。目盛りの取り方しだいで「相関して見える絵」を作れてしまう。
+   🔴 記録が無い系列は 0 で描かず、帯ごと「記録がありません」と出す。
+   縦に目を落とすと「NPS が落ちた月に接触が切れていて、応募も止まっていた」が読める。 */
+function svgStackLanes(o) {
+  const months = o.months || [];
+  const n = months.length;
+  if (!n) return `<div class="empty">出せる月がありません。</div>`;
+  const w = o.w || 1000, padL = 112, padR = 68, padT = 10, padB = 28, gap = 6;
+  const iw = Math.max(60, w - padL - padR);
+  const X = i => n === 1 ? padL + iw / 2 : padL + iw * i / (n - 1);
+  const H = { line: 58, dots: 48, bars: 52, empty: 30 };
+  const lanes = o.lanes || [];
+  let h = padT + padB;
+  lanes.forEach(L => { h += (L.empty ? H.empty : H[L.type]) + gap; });
+
+  let g = "";
+  /* 月の縦線。全部の帯を貫いて引く（縦に目を落とすための線） */
+  months.forEach((m, i) => {
+    g += `<line class="gridline" x1="${X(i).toFixed(1)}" y1="${padT}" ` +
+         `x2="${X(i).toFixed(1)}" y2="${(h - padB + 2).toFixed(1)}"/>`;
+  });
+  /* 共有の横軸ラベル。多いときは間引く */
+  const every = Math.ceil(n / Math.max(1, Math.floor(iw / 52)));
+  months.forEach((m, i) => {
+    if (i % every && i !== n - 1) return;
+    g += `<text class="axl" x="${X(i).toFixed(1)}" y="${h - padB + 16}" ` +
+         `text-anchor="middle">${esc(String(m))}</text>`;
+  });
+
+  let y = padT;
+  lanes.forEach(L => {
+    const lh = L.empty ? H.empty : H[L.type];
+    const top = y, bot = y + lh;
+    g += `<text class="axl" x="${padL - 10}" y="${(top + lh / 2 + 4).toFixed(1)}" ` +
+         `text-anchor="end">${esc(L.label)}</text>`;
+    if (L.empty) {
+      g += `<text class="ax" x="${padL + 6}" y="${(top + lh / 2 + 4).toFixed(1)}" ` +
+           `style="fill:var(--ghost)">— この顧客では記録がありません</text>`;
+      y = bot + gap; return;
+    }
+    g += `<line class="axisline" x1="${padL}" y1="${bot.toFixed(1)}" ` +
+         `x2="${(w - padR).toFixed(1)}" y2="${bot.toFixed(1)}"/>`;
+
+    if (L.type === "line") {
+      const vs = L.pts.filter(p => p && p.v != null).map(p => p.v);
+      if (!vs.length) { y = bot + gap; return; }
+      let lo = Math.min(...vs), hi = Math.max(...vs);
+      if (hi === lo) { hi = lo + 1; }
+      const Y = v => bot - 8 - (lh - 18) * (v - lo) / (hi - lo);
+      /* null で切れた区間ごとに線を引く（落差で切った箇所） */
+      let run = [];
+      const flush = () => {
+        for (let k = 1; k < run.length; k++) {
+          const a = run[k - 1], b = run[k];
+          const dash = (a.p.carry || b.p.carry) ? ` stroke-dasharray="5 4"` : "";
+          g += `<path d="M${X(a.i).toFixed(1)} ${Y(a.p.v).toFixed(1)}` +
+               `L${X(b.i).toFixed(1)} ${Y(b.p.v).toFixed(1)}" fill="none" ` +
+               `style="stroke:${L.color}" stroke-width="2.2" stroke-linecap="round"${dash}/>`;
+        }
+        run = [];
+      };
+      /* 🔴 切れ目は p.cut で表す。「その点の手前で線を切る」意味なので、
+         null を挟んで点ごと消したりしない（値は読めるまま残す）。 */
+      L.pts.forEach((p, i) => {
+        if (!p || p.v == null) { flush(); return; }
+        if (p.cut) flush();
+        run.push({ i, p });
+      });
+      flush();
+      L.pts.forEach((p, i) => {
+        if (!p || p.v == null) return;
+        const t = `<title>${esc(String(months[i]))}: ${F.int(p.v)}` +
+                  `${p.carry ? " / 引き継ぎ（この月は書き換えなし）" : ""}</title>`;
+        g += p.carry
+          ? `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="3.8" ` +
+            `style="fill:var(--panel);stroke:${L.color}" stroke-width="1.8" stroke-dasharray="2.2 1.8">${t}</circle>`
+          : `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="3.6" ` +
+            `style="fill:${L.color}">${t}</circle>`;
+      });
+      /* 右端に最小と最大だけ添える（帯ごとに縦軸が違うことを明示する） */
+      g += `<text class="ax" x="${(w - padR + 6)}" y="${(top + 12).toFixed(1)}">${F.int(hi)}</text>` +
+           `<text class="ax" x="${(w - padR + 6)}" y="${(bot - 2).toFixed(1)}">${F.int(lo)}</text>`;
+    }
+
+    if (L.type === "dots") {
+      const Y = v => bot - 7 - (lh - 17) * (v - 0) / 10;   // 0〜10 固定
+      let prev = null;
+      L.pts.forEach((p, i) => {
+        if (!p || p.v == null) return;
+        const col = p.v <= 4 ? C.hi : C.ai;
+        if (prev) g += `<path d="M${X(prev.i).toFixed(1)} ${Y(prev.v).toFixed(1)}` +
+                       `L${X(i).toFixed(1)} ${Y(p.v).toFixed(1)}" fill="none" ` +
+                       `style="stroke:var(--ink-3)" stroke-width="1.4" stroke-dasharray="3 3"/>`;
+        g += `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="5" style="fill:${col}">` +
+             `<title>${esc(String(months[i]))}: 定期${p.round} の回答 ${F.int(p.v)}</title></circle>` +
+             `<text class="vl" x="${X(i).toFixed(1)}" y="${(Y(p.v) - 8).toFixed(1)}" ` +
+             `text-anchor="middle">${F.int(p.v)}</text>` +
+             `<text class="ax" x="${X(i).toFixed(1)}" y="${(Y(p.v) + 14).toFixed(1)}" ` +
+             `text-anchor="middle">定期${p.round}</text>`;
+        prev = { i, v: p.v };
+      });
+      g += `<text class="ax" x="${(w - padR + 6)}" y="${(top + 12).toFixed(1)}">10</text>` +
+           `<text class="ax" x="${(w - padR + 6)}" y="${(bot - 2).toFixed(1)}">0</text>`;
+    }
+
+    if (L.type === "bars") {
+      /* 🔴 目盛りは「塗り」と「中空」の大きいほうで決めるが、
+         1回でも見えるように最低の高さを持たせる（あったか無かったかを優先）。
+         中空 = 広いほう（MTG は実施の事実・電話は通話の全体）
+         塗り = 狭いほう（MTG は中身が読める録画・電話は60秒超の接触） */
+      const vals = L.pts.flatMap(p => p ? [p.fill || 0, p.out || 0] : []);
+      const hi = Math.max(1, ...vals);
+      const bw = Math.max(4, Math.min(11, iw / Math.max(1, n) / 2.4));
+      L.pts.forEach((p, i) => {
+        if (!p) return;
+        const base = bot - 3, full = lh - 12;
+        const sc = v => v > 0 ? Math.max(4, Math.min(full, full * v / hi)) : 0;
+        if (p.out) {
+          const hh = sc(p.out);
+          g += `<rect x="${(X(i) - bw / 2).toFixed(1)}" y="${(base - hh).toFixed(1)}" ` +
+               `width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" fill="none" ` +
+               `style="stroke:${L.color}" stroke-width="1.3" opacity=".9">` +
+               `<title>${esc(String(months[i]))}: ${esc(L.outLabel)} ${p.out}</title></rect>`;
+        }
+        if (p.fill) {
+          const hh = sc(p.fill);
+          g += `<rect x="${(X(i) - bw / 2 + 1.3).toFixed(1)}" y="${(base - hh).toFixed(1)}" ` +
+               `width="${(bw - 2.6).toFixed(1)}" height="${hh.toFixed(1)}" rx="1" ` +
+               `style="fill:${L.color}" opacity=".9">` +
+               `<title>${esc(String(months[i]))}: ${esc(L.fillLabel)} ${p.fill}</title></rect>`;
+        }
+        /* 🔴 何も無い月は 0 の棒ではなく、無いと分かる印だけ置く */
+        if (!p.out && !p.fill) {
+          g += `<line x1="${(X(i) - 4).toFixed(1)}" y1="${(base - 1).toFixed(1)}" ` +
+               `x2="${(X(i) + 4).toFixed(1)}" y2="${(base - 1).toFixed(1)}" ` +
+               `style="stroke:var(--ghost)" stroke-width="2">` +
+               `<title>${esc(String(months[i]))}: ${esc(L.noneLabel || "記録なし")}</title></line>`;
+        }
+      });
+      g += `<text class="ax" x="${(w - padR + 6)}" y="${(top + 12).toFixed(1)}">${F.int(hi)}</text>`;
+    }
+    y = bot + gap;
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h.toFixed(0)}" width="${w}" height="${h.toFixed(0)}" ` +
+         `role="img" aria-label="${esc(o.alt || "系列を縦に積んだ図")}">${g}</svg>`;
+}
+
+/* -------------------------------------------------------------- 100%帯 */
+/** 構成比。面積で大小を見せる。ラベルは帯の中か下に必ず書く */
+function svgStack(o) {
+  const parts = (o.parts || []).filter(p => p.v > 0);
+  if (!parts.length) return `<div class="empty">出せる値がありません。</div>`;
+  const total = parts.reduce((a, b) => a + b.v, 0);
+  const w = o.w || 660, bh = o.bh || 36, h = bh + 12;
+  let x = 0, g = "";
+  parts.forEach((p, i) => {
+    const pw = w * p.v / total;
+    const col = p.color || SERIES[i % SERIES.length];
+    g += `<rect x="${x.toFixed(1)}" y="6" width="${Math.max(0.5, pw - 1).toFixed(1)}" height="${bh}" rx="2" style="fill:${col}" opacity="${p.faint ? ".3" : ".85"}">` +
+         `<title>${esc(p.label)}: ${F.int(p.v)} (${(p.v / total * 100).toFixed(1)}%)</title></rect>`;
+    // 🔴 細い区間に文字を置くと必ず隣と重なる。帯の中は「入るときだけ」。
+    //    ラベルと件数は下の凡例(stackLegend)で全件そろえる
+    // 🔴 薄く塗った区間に白文字を載せると読めない。文字色を地の濃さで切り替える
+    if (pw > 46)
+      g += `<text x="${(x + pw / 2).toFixed(1)}" y="${(6 + bh / 2 + 4).toFixed(1)}" text-anchor="middle" style="fill:${p.faint ? "var(--ink-2)" : "var(--panel)"};font-size:11.5px;font-weight:700">${(p.v / total * 100).toFixed(1)}%</text>`;
+    x += pw;
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "構成比")}">${g}</svg>`;
+}
+/** 100%帯の凡例。区間の幅に関係なく、全部の名前・件数・率を必ず出す */
+function stackLegend(parts) {
+  const total = parts.reduce((a, b) => a + b.v, 0);
+  return parts.map((p, i) => lg("box", p.color || SERIES[i % SERIES.length],
+    `${esc(p.label)} <strong>${F.int(p.v)}</strong> 件 / ${(p.v / total * 100).toFixed(1)}%`)).join("");
+}
+
+/* ------------------------------------------------------------ 充足率の面 */
+/** 何が埋まっていて何が空かを面で見る。色の濃さ＋数字の二重表示 */
+function svgMatrix(o) {
+  const cols = o.cols, rows = o.rows;
+  const cw = o.cw || 108, rh = 28, padL = o.padL || 190, padT = 34;
+  const w = padL + cols.length * cw + 8, h = padT + rows.length * rh + 6;
+  let g = "";
+  cols.forEach((c, j) =>
+    g += `<text class="axl" x="${(padL + j * cw + cw / 2).toFixed(1)}" y="${padT - 12}" text-anchor="middle">${esc(c)}</text>`);
+  rows.forEach((r, i) => {
+    const y = padT + i * rh;
+    g += `<text class="axl" x="${padL - 10}" y="${y + 18}" text-anchor="end">${esc(r.label)}</text>`;
+    r.cells.forEach((cell, j) => {
+      const x = padL + j * cw;
+      if (cell.v == null) {
+        g += `<rect x="${x}" y="${y + 3}" width="${cw - 6}" height="${rh - 7}" rx="3" fill="none" style="stroke:var(--ghost)" stroke-width="1" stroke-dasharray="3 3"/>` +
+             `<text class="ax" x="${(x + (cw - 6) / 2).toFixed(1)}" y="${y + 18}" text-anchor="middle" style="fill:var(--ghost)">—</text>`;
+        return;
+      }
+      const col = cell.color || (cell.v >= .8 ? C.midori : cell.v >= .5 ? C.ki : C.hi);
+      g += `<rect x="${x}" y="${y + 3}" width="${cw - 6}" height="${rh - 7}" rx="3" style="fill:${col}" opacity="${(0.1 + cell.v * 0.55).toFixed(3)}"/>` +
+           `<rect x="${x}" y="${y + 3}" width="${cw - 6}" height="${rh - 7}" rx="3" fill="none" style="stroke:${col}" stroke-width="1" opacity=".5"/>` +
+           `<text class="vl" x="${(x + (cw - 6) / 2).toFixed(1)}" y="${y + 18}" text-anchor="middle">${esc(cell.txt != null ? cell.txt : F.pct1(cell.v))}</text>` +
+           `<title>${esc(r.label)} / ${esc(cols[j])}: ${esc(cell.txt != null ? cell.txt : F.pct1(cell.v))}${cell.n != null ? " (n=" + cell.n + ")" : ""}</title>`;
+    });
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "充足率")}">${g}</svg>`;
+}
+
+/* ------------------------------------------------------------ ヒストグラム */
+function svgHist(o) {
+  const vs = (o.values || []).filter(v => v != null && isFinite(v));
+  if (!vs.length) return `<div class="empty">出せる値がありません。</div>`;
+  const w = o.w || 660, h = o.h || 200;
+  const pad = { l: 46, r: 16, t: 14, b: 40 };
+  const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
+  const lo = o.min != null ? o.min : Math.min(...vs);
+  const hi = o.max != null ? o.max : Math.max(...vs);
+  const nb = o.bins || 18, step = (hi - lo) / nb || 1;
+  const cnt = new Array(nb).fill(0);
+  vs.forEach(v => { let k = Math.floor((v - lo) / step); if (k >= nb) k = nb - 1; if (k < 0) k = 0; cnt[k]++; });
+  const cmax = Math.max(...cnt, 1);
+  const X = v => pad.l + iw * (v - lo) / (hi - lo || 1);
+  const Y = c => pad.t + ih - ih * c / cmax;
+  let g = "";
+  ticks(0, cmax, 3).forEach(t =>
+    g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
+         `<text class="ax" x="${pad.l - 6}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${F.int(t)}</text>`);
+  cnt.forEach((c, i) => {
+    if (!c) return;
+    const x = X(lo + i * step), bw = Math.max(1, iw / nb - 1.5);
+    const col = (o.colorAt && o.colorAt(lo + (i + .5) * step)) || C.ai;
+    g += `<rect x="${x.toFixed(1)}" y="${Y(c).toFixed(1)}" width="${bw.toFixed(1)}" height="${(pad.t + ih - Y(c)).toFixed(1)}" rx="1.5" style="fill:${col}" opacity=".8">` +
+         `<title>${esc((o.xFmt || F.int)(lo + i * step))} 〜 ${esc((o.xFmt || F.int)(lo + (i + 1) * step))}: ${c} 件</title></rect>`;
+  });
+  g += `<line class="axisline" x1="${pad.l}" y1="${pad.t + ih}" x2="${w - pad.r}" y2="${pad.t + ih}"/>`;
+  ticks(lo, hi, 5).forEach(t => {
+    if (t < lo - 1e-9 || t > hi + 1e-9) return;
+    g += `<text class="ax" x="${X(t).toFixed(1)}" y="${pad.t + ih + 15}" text-anchor="middle">${esc((o.xFmt || F.int)(t))}</text>`;
+  });
+  /* 🔴 代表値の印が近いと文字がぶつかる。段をずらして必ず両方読めるようにする */
+  (o.marks || []).forEach((m, mi) => {
+    if (m.v < lo || m.v > hi) return;
+    const ly = pad.t + 7 + mi * 13;
+    g += `<line x1="${X(m.v).toFixed(1)}" y1="${pad.t - 4}" x2="${X(m.v).toFixed(1)}" y2="${pad.t + ih}" style="stroke:${m.color || C.hi}" stroke-width="1.6" stroke-dasharray="4 3"/>` +
+         `<text class="ax" x="${(X(m.v) + 5).toFixed(1)}" y="${ly}" style="fill:${m.color || C.hi}">${esc(m.label)}</text>`;
+  });
+  if (o.xLab) g += `<text class="ax" x="${w - pad.r}" y="${h - 6}" text-anchor="end">${esc(o.xLab)}</text>`;
+  if (o.yLab) g += `<text class="ax" x="2" y="${pad.t - 3}">${esc(o.yLab)}</text>`;
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "分布")}">${g}</svg>`;
+}
+
+/* ---------------------------------------------------------------- 散布図 */
+function svgScatter(o) {
+  const pts = (o.pts || []).filter(p => p.x != null && p.y != null);
+  if (!pts.length) return `<div class="empty">両方そろう点がありません。</div>`;
+  const w = o.w || 660, h = o.h || 300;
+  const pad = { l: 56, r: 18, t: 16, b: 42 };
+  const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const xlo = o.xMin != null ? o.xMin : Math.min(...xs), xhi = o.xMax != null ? o.xMax : Math.max(...xs);
+  const ylo = 0, yhi = o.yMax != null ? o.yMax : Math.max(...ys);
+  const X = v => pad.l + iw * (v - xlo) / (xhi - xlo || 1);
+  const Y = v => pad.t + ih - ih * (v - ylo) / (yhi - ylo || 1);
+  const yf = o.yFmt || F.int, xf = o.xFmt || F.int;
+  let g = "";
+  ticks(ylo, yhi, 4).forEach(t =>
+    g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
+         `<text class="ax" x="${pad.l - 6}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(yf(t))}</text>`);
+  ticks(xlo, xhi, 5).forEach(t => {
+    if (t < xlo - 1e-9 || t > xhi + 1e-9) return;
+    g += `<text class="ax" x="${X(t).toFixed(1)}" y="${pad.t + ih + 15}" text-anchor="middle">${esc(xf(t))}</text>`;
+  });
+  g += `<line class="axisline" x1="${pad.l}" y1="${pad.t + ih}" x2="${w - pad.r}" y2="${pad.t + ih}"/>`;
+  // 点が重なるので少しだけ横に散らす。縦はそのまま
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - .5;
+  pts.forEach(p => {
+    const jx = (o.jitter || 0) * rnd();
+    const col = p.color || C.ai;
+    g += p.censored
+      ? `<circle cx="${X(p.x + jx).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.4" fill="none" style="stroke:${col}" stroke-width="1.3" stroke-dasharray="2 1.6" opacity=".8"><title>${esc(p.label)} / 未確定</title></circle>`
+      : `<circle cx="${X(p.x + jx).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.2" style="fill:${col}" opacity=".5"><title>${esc(p.label)}</title></circle>`;
+  });
+  (o.line || []).forEach((p, i, arr) => {
+    if (!i) return;
+    const a = arr[i - 1];
+    g += `<path d="M${X(a.x).toFixed(1)} ${Y(a.y).toFixed(1)}L${X(p.x).toFixed(1)} ${Y(p.y).toFixed(1)}" fill="none" style="stroke:${C.hi}" stroke-width="2.4"/>`;
+  });
+  if (o.xLab) g += `<text class="ax" x="${w - pad.r}" y="${h - 6}" text-anchor="end">${esc(o.xLab)}</text>`;
+  if (o.yLab) g += `<text class="ax" x="2" y="${pad.t - 4}">${esc(o.yLab)}</text>`;
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "散布図")}">${g}</svg>`;
+}
+
+/* -------------------------------------------------------------- 接触の帯 */
+/** MTG・架電・担当交代を1本の時間軸に載せる。交代の前後で間隔が開いたかを目で見る */
+const DAYMS = 86400000;
+const dnum = s => { const t = Date.parse(String(s).slice(0, 10)); return isFinite(t) ? t / DAYMS : null; };
+function svgTimeline(o) {
+  const lanes = (o.lanes || []).filter(l => (l.marks || []).length || (l.spans || []).length);
+  if (!lanes.length) return `<div class="empty">時間軸に載せられる出来事がありません。</div>`;
+  let lo = Infinity, hi = -Infinity;
+  const push = d => { if (d != null) { lo = Math.min(lo, d); hi = Math.max(hi, d); } };
+  lanes.forEach(l => { (l.marks || []).forEach(m => push(dnum(m.d)));
+    (l.spans || []).forEach(s => { push(dnum(s.from)); push(dnum(s.to)); }); });
+  (o.rules || []).forEach(r => push(dnum(r.d)));
+  if (!isFinite(lo)) return `<div class="empty">日付が読めませんでした。</div>`;
+  if (hi === lo) { hi = lo + 30; lo = lo - 30; }
+  const padDays = (hi - lo) * .04 + 2; lo -= padDays; hi += padDays;
+  /* 注記がある図は、その文字数ぶん右を空ける。空けないと帯の上に重なって読めない */
+  const noteW = Math.max(0, ...lanes.map(l => String(l.note || "").length)) * 10.4;
+  const w = o.w || 680, rh = 34, padL = o.padL || 128, padT = 26,
+        padR = noteW ? Math.min(300, Math.ceil(noteW + 12)) : 16;
+  const h = padT + lanes.length * rh + 34;
+  const iw = w - padL - padR;
+  const X = d => padL + iw * (d - lo) / (hi - lo || 1);
+  let g = "";
+  // 年月の目盛り
+  const months = [];
+  const d0 = new Date(lo * DAYMS), d1 = new Date(hi * DAYMS);
+  let cur = new Date(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), 1));
+  const stepM = Math.max(1, Math.ceil((hi - lo) / 30.5 / 9));
+  while (cur <= d1) {
+    months.push(new Date(cur));
+    cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + stepM, 1));
+  }
+  months.forEach(m => {
+    const x = X(m.getTime() / DAYMS);
+    if (x < padL - 1 || x > w - padR + 1) return;
+    g += `<line class="gridline" x1="${x.toFixed(1)}" y1="${padT - 8}" x2="${x.toFixed(1)}" y2="${padT + lanes.length * rh}"/>` +
+         `<text class="ax" x="${x.toFixed(1)}" y="${padT + lanes.length * rh + 15}" text-anchor="middle">${m.getUTCFullYear()}-${String(m.getUTCMonth() + 1).padStart(2, "0")}</text>`;
+  });
+  // 担当交代などの縦線。全レーンを貫く
+  (o.rules || []).forEach(r => {
+    const d = dnum(r.d); if (d == null) return;
+    const x = X(d), col = r.color || C.hi;
+    g += `<line x1="${x.toFixed(1)}" y1="${padT - 10}" x2="${x.toFixed(1)}" y2="${padT + lanes.length * rh + 2}" style="stroke:${col}" stroke-width="1.6" stroke-dasharray="4 3"/>` +
+         `<path d="M${(x - 4).toFixed(1)} ${padT - 10}l4-6 4 6z" style="fill:${col}"><title>${esc(r.label || "")} ${esc(r.d)}</title></path>`;
+  });
+  lanes.forEach((l, i) => {
+    const y = padT + i * rh + rh / 2;
+    g += `<text class="axl" x="${padL - 9}" y="${(y + 4).toFixed(1)}" text-anchor="end">${esc(l.label)}</text>` +
+         `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w - padR}" y2="${y.toFixed(1)}" style="stroke:var(--rule)" stroke-width="1"/>`;
+    (l.spans || []).forEach(s => {
+      const a = dnum(s.from), b = dnum(s.to);
+      if (a == null || b == null) return;
+      g += `<rect x="${X(a).toFixed(1)}" y="${(y - 7).toFixed(1)}" width="${Math.max(1.5, X(b) - X(a)).toFixed(1)}" height="14" rx="3" style="fill:${s.color || C.ai}" opacity="${s.faint ? ".18" : ".3"}">` +
+           `<title>${esc(s.label || "")} ${esc(s.from)}〜${esc(s.to)}</title></rect>`;
+    });
+    (l.marks || []).forEach(m => {
+      const d = dnum(m.d); if (d == null) return;
+      const x = X(d), col = m.color || l.color || C.ai;
+      g += m.hollow
+        ? `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="none" style="stroke:${col}" stroke-width="1.6" stroke-dasharray="2 1.6"><title>${esc(m.t || "")} ${esc(m.d)}</title></circle>`
+        : `<line x1="${x.toFixed(1)}" y1="${(y - 6).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y + 6).toFixed(1)}" style="stroke:${col}" stroke-width="${m.thick || 2.4}" stroke-linecap="round"><title>${esc(m.t || "")} ${esc(m.d)}</title></line>`;
+    });
+    if (l.note)
+      g += `<text class="ax" x="${(w - 2).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" style="fill:${l.noteColor || "var(--ink-3)"}">${esc(l.note)}</text>`;
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "接触の時系列")}">${g}</svg>`;
+}
+
+/* ------------------------------------------------------------ 小さな折れ線 */
+/** 表の行に埋め込む。傾きだけ分かればよい */
+function svgSpark(vals, o) {
+  o = o || {};
+  const w = o.w || 74, h = o.h || 20;
+  const ok = vals.filter(v => v != null);
+  if (ok.length < 2) return `<span class="n0" title="2点そろわないため線が引けません">—</span>`;
+  const lo = Math.min(...ok), hi = Math.max(...ok);
+  const X = i => 1 + (w - 2) * i / (vals.length - 1);
+  const Y = v => h - 3 - (h - 6) * (v - lo) / (hi - lo || 1);
+  let d = "", pen = false, g = "";
+  vals.forEach((v, i) => {
+    if (v == null) { pen = false; return; }
+    d += (pen ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1);
+    pen = true;
+  });
+  const col = o.color || C.ai;
+  g += `<path d="${d}" fill="none" style="stroke:${col}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const li = vals.length - 1 - [...vals].reverse().findIndex(v => v != null);
+  if (vals[li] != null)
+    g += `<circle cx="${X(li).toFixed(1)}" cy="${Y(vals[li]).toFixed(1)}" r="2.4" style="fill:${o.lastColor || col}"/>`;
+  return `<svg ${SVGNS} width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(o.alt || "推移")}" style="vertical-align:-5px">${g}</svg>`;
+}
+
+/* -------------------------------------------------------------- ドット図 */
+/** 「517社のうち116社」のような割合を、数えられる形で見せる */
+function svgDots(o) {
+  const per = o.per || 25, r = o.r || 4.2, gap = o.gap || 11.5;
+  const total = o.total, rows = Math.ceil(total / per);
+  const w = per * gap + 6, h = rows * gap + 6;
+  let g = "", i = 0;
+  const seq = [];
+  (o.groups || []).forEach(gr => { for (let k = 0; k < gr.v; k++) seq.push(gr); });
+  while (seq.length < total) seq.push({ color: "var(--rule)", label: o.restLabel || "その他" });
+  seq.slice(0, total).forEach(gr => {
+    const cx = 4 + (i % per) * gap, cy = 4 + Math.floor(i / per) * gap;
+    g += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" style="fill:${gr.color}" opacity="${gr.faint ? ".3" : ".85"}"><title>${esc(gr.label)}</title></circle>`;
+    i++;
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "割合")}">${g}</svg>`;
+}
+
+/* -------------------------------------------------------------- ファネル */
+/** 応募 → 面接 → 採用。段の落ち方を幅で見る */
+function svgFunnel(o) {
+  const st = (o.steps || []).filter(s => s.v != null);
+  if (!st.length) return `<div class="empty">段の値がありません（値が無いものは 0 として描きません）。</div>`;
+  const rh = 40, h = st.length * rh + 12;
+  const top = Math.max(...st.map(s => s.v), 1);
+  /* 🔴 値ラベルと「前段の N%」の位置を固定値で決めると、桁が増えたときに重なる。
+     いちばん長い値ラベルの幅を測ってから、その先に注記を置く。 */
+  const valW = Math.max(...st.map(s => String(F.int(s.v)).length)) * 7.4 + 10;
+  const noteW = 84;
+  const w = o.w || 420, padL = o.padL || 62;
+  const iw = Math.max(40, w - padL - valW - noteW);
+  let g = "";
+  st.forEach((s, i) => {
+    const y = 6 + i * rh, bw = Math.max(2, iw * s.v / top);
+    const col = s.color || SERIES[i % SERIES.length];
+    g += `<text class="axl" x="${padL - 8}" y="${y + 21}" text-anchor="end">${esc(s.label)}</text>` +
+         `<rect x="${padL}" y="${y + 6}" width="${bw.toFixed(1)}" height="${rh - 16}" rx="3" style="fill:${col}" opacity=".8"><title>${esc(s.label)}: ${F.int(s.v)}</title></rect>` +
+         `<text class="vl" x="${(padL + bw + 7).toFixed(1)}" y="${y + 21}">${F.int(s.v)}</text>`;
+    if (i) {
+      const prev = st[i - 1].v;
+      // 🔴 分母0のときは率を書かない
+      const txt = prev ? (s.v / prev * 100).toFixed(1) + "%" : "—";
+      g += `<text class="ax" x="${(padL + bw + valW + 4).toFixed(1)}" y="${y + 21}" style="fill:${prev ? "var(--ink-2)" : "var(--ghost)"}">前段の ${txt}</text>`;
+    }
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "ファネル")}">${g}</svg>`;
+}
+
+
+function cpaLine(st, w, h) {
+  const pts = st.pts;
+  return svgLine({
+    w: w || 700, h: h || 240, labelPts: pts.length <= 10,
+    x: pts.map(p => (p.no === 0 ? "初回" : "継続" + p.no)),
+    xSub: pts.map(p => (p.d || "").slice(0, 7)),
+    series: [{ color: C.hi, pts: pts.map(p =>
+      ({ v: p.v, censored: p.cen, note: "採用" + num(p.syo) + "名" })) }],
+    yFmt: F.man, yLab: "万円/人",
+    censorFrom: pts.findIndex(p => p.cen) >= 0 ? pts.findIndex(p => p.cen) : null,
+    alt: st.name + " の採用単価の推移",
+  });
+}
+/* MTG の抽出カバレッジ。画面のあちこちで使うので1回だけ数える。
+   🔴 _src は「実データ」/「未抽出」の2値。ダミーは入っていない。 */
+
+function monthsBetween(a, b) {
+  if (!a || !b) return 0;
+  const x = String(a).slice(0, 10).split("-"), y = String(b).slice(0, 10).split("-");
+  return Math.max(0, (+y[0] - +x[0]) * 12 + (+y[1] - +x[1]));
+}
+
+/** 履歴（[日付, 値] の配列）を「契約の N ヶ月目」に畳む。
+    🔴 10倍以上の落差は下がる前の値を捨てる（桁の打ち間違いの訂正）。
+    🔴 その月の最後の書き換え値を採る。同じ月に何度書き換えても1点。
+    ③の推移と、系列を縦に積む図の両方がこれを使う（畳み方を2つ作らない）。 */
+function foldMonthly(series, startDate, lastM) {
+  const byKey = {}; let fixed = 0; const wMonths = new Set();
+  Object.keys(series || {}).forEach(k => {
+    const raw = series[k] || [];
+    if (!raw.length) return;
+    const pts = raw.slice();
+    for (let i = pts.length - 1; i >= 1; i--) {
+      const a = pts[i - 1][1], b = pts[i][1];
+      const big = (b <= 0) ? a >= 10 : (a / b) >= 10;
+      if (b < a && big) { pts.splice(i - 1, 1); fixed++; }
+    }
+    const m = new Map();
+    pts.forEach(([t, v]) => {
+      const mi = monthsBetween(startDate, t) + 1;
+      if (mi >= 1 && mi <= lastM) m.set(mi, v);
+    });
+    if (m.size) { byKey[k] = m; m.forEach((_, mi) => wMonths.add(mi)); }
+  });
+  return { byKey, fixed, written: wMonths.size };
+}
+
+/* ================================================================
+   ここから下は本番用。モックは payload を埋め込んでいるが、こちらは
+   タブを開いたときに API から取る。**図の道具は上のものをそのまま使う**。
+   ================================================================ */
+
+/* 値が無いときの印。0 と混ぜない */
+const DASH = '<span class="n0">&#8212;</span>';
+const pct1 = (v, d) => v == null ? DASH : Number(v).toFixed(d === undefined ? 1 : d) + "%";
+const yen = (v) => v == null ? DASH : man(v);
+const nz = (v, d) => v == null ? DASH : num(v, d || 0);
+
+function kpi(label, big, fine, kind) {
+  return '<div class="kpi' + (kind ? " is-" + kind : "") + '">' +
+    '<span class="lbl">' + esc(label) + "</span>" +
+    '<span class="big">' + big + "</span>" +
+    (fine ? '<span class="fine">' + fine + "</span>" : "") + "</div>";
+}
+function sec(no, title) {
+  return '<h2 class="sec mincho"><span class="no">' + esc(no) + "</span>" + esc(title) + "</h2>";
+}
+function note(kind, head, body) {
+  return '<div class="note ' + kind + '"><span class="hd">' + esc(head) + "</span><p>" +
+    body + "</p></div>";
+}
+/* 表は最後の手段。個別の行を特定したいときだけ使う */
+function table(cols, rows, cls) {
+  let h = '<table' + (cls ? ' class="' + cls + '"' : "") + "><thead><tr>";
+  for (const c of cols) h += '<th' + (c.n ? ' class="n"' : "") + ">" + esc(c.t || c) + "</th>";
   h += "</tr></thead><tbody>";
   for (const r of rows) {
     h += "<tr>";
-    for (const c of r) h += "<td>" + c + "</td>";
+    r.forEach((v, i) => { h += '<td' + (cols[i] && cols[i].n ? ' class="n"' : "") + ">" + v + "</td>"; });
     h += "</tr>";
   }
   return h + "</tbody></table>";
 }
-function med(o, d) {
-  if (!o || !o.n) return n0();
-  return num(o.median, d) + ' <span class="n0">(n=' + num(o.n) + ")</span>";
+function scroll(inner, max) {
+  return '<div class="scroll"' + (max ? ' style="max-height:' + max + 'px"' : "") + ">" + inner + "</div>";
 }
-function kpi(label, big, fine, cls) {
-  return '<div class="kpi ' + (cls || "") + '"><span class="lbl">' + esc(label) +
-    '</span><span class="big">' + big + '</span>' +
-    (fine ? '<span class="fine">' + esc(fine) + "</span>" : "") + "</div>";
-}
-function card(title, q, body, note) {
-  return '<section class="card"><h2>' + esc(title) + "</h2>" +
-    (q ? '<p class="q">' + q + "</p>" : "") + body +
-    (note ? '<p class="note">' + note + "</p>" : "") + "</section>";
-}
-/** 🔴 持ち越した点は中空・破線で描く。実線だと「その月に更新があった」ように見える。 */
-function spark(points) {
-  if (!points || !points.length) return n0();
-  const mx = Math.max.apply(null, points.map((p) => Math.abs(p.v))) || 1;
-  return '<span class="spark">' + points.map((p) =>
-    '<i class="' + (p.carry ? "c" : "") + '" style="height:' +
-    Math.max(2, Math.abs(p.v) / mx * 16).toFixed(1) + 'px"></i>').join("") + "</span>";
+/* n が小さい図は出さない。出さない理由は図の直下に書く */
+const MIN_N = 30;
+function tooFew(n, what) {
+  return '<div class="empty">' + esc(what) + 'は n=' + num(n) + ' で、図にするには足りません（' +
+    MIN_N + '件未満）。件数だけ出しています。</div>';
 }
 
-function showError(e) {
-  $("cs-error").style.display = "";
-  $("cs-error").innerHTML = '<div class="err">データを取得できませんでした。\n' +
-    esc(e.message) + "</div>";
-}
-async function get(path, q) {
-  const res = await fetch(path + "?" + (q ? q.toString() : ""), { credentials: "same-origin" });
-  const body = await res.json();
-  // サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す。
-  if (!res.ok || body.error) throw new Error(body.message || ("HTTP " + res.status));
-  return body;
-}
-function foot(meta) {
-  return '<p class="note">' + esc(meta.not_counted || "") +
-    (meta.today ? "　基準日 " + esc(meta.today) : "") +
-    (meta.n_deals ? "　取引 " + num(meta.n_deals) + " 件" : "") +
-    (meta.n_active ? "（稼働中 " + num(meta.n_active) + " 件）" : "") + "</p>";
-}
-
-/* ============================================================ 1 いま見るべき顧客 */
+/* ================================================================ 1 いま見るべき顧客 */
 function renderFocus(D) {
-  const n = D.nps_low, c = D.cpa, m = D.mtg_layers, s = D.shape;
-  let h = '<div class="info"><strong>この画面で数えていないもの</strong><br>' +
-    '売上でも担当者の評価でもありません。手を打つ先を絞るための画面です。' +
-    '接触 ＝ MTG または60秒超の通話で、メールは数えていません。</div>';
+  const n = D.nps_low, c = D.cpa, m = D.mtg_layers, sh = D.shape;
+  let h = sec("問い", "いま、どの顧客に手を打つべきか");
+  h += '<div class="lede">予測モデルは使っていません。<b>既にあるデータを数えただけ</b>です。' +
+    '当たった顧客に手を打つかどうかは、③顧客詳細で中身を読んでから決めてください。</div>';
 
-  h += card("定期NPS が " + n.threshold + " 以下の顧客",
-    "名指しで出します。NPS の低い順、同じなら金額の大きい順。",
-    '<div class="kpis">' +
-      kpi("対象", num(n.n), "稼働中 " + num(n.n_act) + " 件のうち", "red") +
-      kpi("NPS が入っている", num(n.n_have_nps), pct(n.coverage) + " の取引", "gray") +
-    "</div>" +
-    '<div class="scroll">' + table(
-      ["取引", "ステージ", "NPS", "回答月", "金額", "満了まで", "接触の記録"],
-      n.rows.slice(0, 200).map((r) => [
-        esc(r.name || r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>",
-        '<span class="flag">' + num(r.nps) + "</span>", esc(r.nps_month),
-        man(r.amount),
-        r.days_to_expiry === null ? n0() : num(r.days_to_expiry) + "日",
-        r.no_contact_record ? '<span class="n0">記録なし</span>' : num(r.n_contact) + "件",
-      ])) + "</div>",
-    esc(n.note));
+  h += '<div class="kpis">' +
+    kpi("定期NPS が " + n.threshold + " 以下", num(n.n) + '<span class="u">社</span>',
+        "NPSの回答がある " + num(n.n_have_nps) + " 件のうち", "bad") +
+    kpi("採用単価が悪化した拠点", num(c.worse) + '<span class="u">拠点</span>',
+        "確定した点どうしで比べられた " + num(c.judged) + " 拠点のうち", "bad") +
+    kpi("MTG の記録がどちらも無い", num(m.neither) + '<span class="u">件</span>',
+        "稼働中 " + num(m.n_act) + " 件のうち", "warn") +
+    kpi("NPS が入っている", pct1(n.coverage),
+        num(n.n_have_nps) + " / " + num(n.n_act) + " 件") +
+    kpi("LTV 中央値", sh.ltv ? yen(sh.ltv.median) : DASH,
+        sh.ltv ? "Q3 " + yen(sh.ltv.q3) + " / 最大 " + yen(sh.ltv.max) : "") +
+    "</div>";
 
-  h += card("採用単価の悪化", c.note,
-    '<div class="kpis">' +
-      kpi("悪化した拠点", num(c.worse), pct(c.worse_rate) + " / 判定できた " + num(c.judged), "red") +
-      kpi("判定を見送った拠点", num(c.skipped_censored), "確定した点が2つ未満", "gray") +
-    "</div>" +
-    '<div class="scroll">' + table(
-      ["拠点", "前回", "今回", "倍率", "点の数"],
-      c.rows.map((r) => [
-        esc(r.site), man(r.prev), man(r.last),
-        r.ratio === null ? n0() : num(r.ratio, 2) + "倍", num(r.n_points),
-      ])) + "</div>",
-    c.truncated ? "上位60件だけ出しています。" : "");
+  h += note("info", "この4つをシグナルにした理由",
+    "顧客が実際に見ているのは応募数ではなく<b>1人採るのにいくらかかったか</b>です（採用単価）。" +
+    "残りは、成果とは別に<b>こちらの体制が崩れている合図</b>で、いずれも HubSpot の記録だけでは気づけません。<br>" +
+    "採用単価の悪化は<b>確定した契約どうし</b>で比べています。稼働中の契約は「金額は丸ごと乗っているのに" +
+    "採用はまだ 0〜1 人」という状態を必ず通るため、最新の点に稼働中を置くと不当に悪化と出ます。" +
+    "判定を見送った拠点が " + num(c.skipped_censored) + " あります。");
 
-  h += card("MTG が実施された記録",
-    "🔴 <strong>事実と推定を同じ率にまとめていません。</strong>",
-    '<div class="kpis">' +
-      kpi("Zoom録画がある（事実）", num(m.fact_recording.n), pct(m.fact_recording.rate), "ok") +
-      kpi("メール由来（推定 ±1日 83.3%）", num(m.estimated_mail.n), pct(m.estimated_mail.rate), "amber") +
-      kpi("どちらも無い", num(m.neither), "稼働中 " + num(m.n_act) + " 件のうち", "gray") +
-    "</div>" +
-    table(["内訳", "件数"], [
-      ["両方ある", num(m.both)], ["録画だけ", num(m.only_recording)],
-      ["メールだけ", num(m.only_mail)], ["どちらも無い", num(m.neither)],
-    ]), esc(m.note));
+  /* ---- 図 定期NPSの分布 ---- */
+  h += sec("図", "定期NPS の散らばり（4以下がどれだけあるか）");
+  const dist = (n.dist || []).map((d) => ({
+    label: "NPS " + d.v, v: d.n, txt: num(d.n) + "件",
+    color: d.v <= n.threshold ? C.hi : (d.v >= 9 ? C.midori : C.ai),
+  }));
+  h += fig("定期NPS の最新回答", "回ごとに別プロパティなので、月が新しい方を採っています",
+    dist.length ? svgBarH({ rows: dist, w: 660, fmt: F.int }) : tooFew(0, "NPS"),
+    lg("box", C.hi, n.threshold + " 以下") + lg("box", C.ai, "5〜8") +
+    lg("box", C.midori, "9以上") +
+    '<i class="full">' + esc(n.note) + "</i>");
 
-  h += card("顧客ぜんたいの形", esc(s.display_label) + " が母数です。",
-    '<div class="kpis">' +
-      kpi("法人", num(s.n_all), "うち表示対象 " + num(s.n_display)) +
-      kpi("LTV 中央値", med(s.ltv), "") +
-      kpi("拠点が2つ以上", num(s.multi_site), "") +
-    "</div>", esc(s.multi_site_note));
+  /* ---- 表 NPSが低い顧客 ---- */
+  h += sec("表", "定期NPS が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）");
+  h += '<div class="lede">NPS の低い順、同じなら金額の大きい順。</div>';
+  h += scroll(table(
+    [{ t: "取引" }, { t: "ステージ" }, { t: "NPS", n: 1 }, { t: "回答月" },
+     { t: "金額", n: 1 }, { t: "満了まで", n: 1 }, { t: "接触の記録", n: 1 }],
+    n.rows.slice(0, 200).map((r) => [
+      esc(r.name || r.deal_id),
+      '<span class="muted small">' + esc(r.stage) + "</span>",
+      '<b style="color:var(--hi)">' + num(r.nps) + "</b>",
+      '<span class="muted">' + esc(r.nps_month) + "</span>",
+      yen(r.amount),
+      r.days_to_expiry == null ? DASH : num(r.days_to_expiry) + "日",
+      r.no_contact_record ? '<span class="n0">記録なし</span>' : num(r.n_contact) + "件",
+    ])), 420);
+
+  /* ---- 図 採用単価の悪化 ---- */
+  h += sec("図", "採用単価の悪化（拠点ごと・確定した直近2点）");
+  const cr = (c.rows || []).slice(0, 20).map((r) => ({
+    label: shortName(r.site, 18),
+    v: r.last, v0: r.prev,
+    txt: yen(r.last),
+    note: r.ratio == null ? "" : num(r.ratio, 2) + "倍",
+    noteColor: r.ratio != null && r.ratio >= 1.5 ? C.hi : C.ink3,
+    color: C.hi,
+  }));
+  h += fig("採用単価 ＝ 契約総額 ÷ 採用数", "破線は前回の値。棒が長いほど1人あたりが高い",
+    cr.length ? svgBarH({ rows: cr, w: 680, fmt: F.man }) :
+      '<div class="empty">悪化した拠点はありません。</div>',
+    lg("box", C.hi, "今回") + lg("dash", C.ghost, "前回") +
+    '<i class="full">' + esc(c.note) + "</i>" +
+    (c.truncated ? '<i class="full">上位20拠点だけ出しています（全 ' + num(c.worse) + " 拠点）。</i>" : ""));
+
+  /* ---- 図 MTG の記録（事実と推定） ---- */
+  h += sec("図", "MTG を実施した記録（事実と推定を分ける）");
+  const mparts = [
+    { label: "録画もメールもある", v: m.both, color: C.midori },
+    { label: "録画だけ（事実）", v: m.only_recording, color: C.ai },
+    { label: "メールだけ（推定）", v: m.only_mail, color: C.ki, faint: true },
+    { label: "どちらも無い", v: m.neither, color: C.ghost, faint: true },
+  ];
+  h += fig("稼働中 " + num(m.n_act) + " 件の内訳",
+    "Zoom録画は事実、メール由来は推定（&plusmn;1日で83.3%）",
+    svgStack({ parts: mparts, w: 680 }),
+    stackLegend(mparts) +
+    '<i class="full">' + esc(m.note) + "　録画がある " + num(m.fact_recording.n) +
+    " 件（" + pct1(m.fact_recording.rate) + "）／ メール由来 " + num(m.estimated_mail.n) +
+    " 件（" + pct1(m.estimated_mail.rate) + "）</i>");
+
+  /* ---- 図 顧客ぜんたいの形 ---- */
+  h += sec("図", "顧客ぜんたいの形");
+  const lt = sh.ltv;
+  h += fig("LTV の散らばり（" + esc(sh.display_label) + "）",
+    "跡地（解約済・契約終了）も含めた全件",
+    lt && lt.n >= MIN_N
+      ? svgBoxH({
+          rows: [{ label: "LTV", med: lt.median, q1: lt.q1, q3: lt.q3,
+                   min: lt.min, max: lt.max, mean: lt.mean, n: lt.n, color: C.ai }],
+          w: 680, xFmt: F.man,
+        })
+      : tooFew(lt ? lt.n : 0, "LTV"),
+    lg("box", C.ai, "四分位") + lg("line", C.ink, "中央値") +
+    '<i class="full">法人 ' + num(sh.n_all) + "（表示対象 " + num(sh.n_display) +
+    "）／ 拠点が2つ以上ある法人 " + num(sh.multi_site) + "。" + esc(sh.multi_site_note) + "</i>");
 
   return h + foot(D.meta);
 }
 
-/* ============================================================ 2 継続回数 × 成果 */
+function foot(meta) {
+  return '<div class="note info"><span class="hd">この画面で数えていないもの</span><p>' +
+    esc(meta.not_counted || "") +
+    (meta.today ? "<br>基準日 " + esc(meta.today) : "") +
+    (meta.n_deals ? "　取引 " + num(meta.n_deals) + " 件" : "") +
+    (meta.n_active ? "（稼働中 " + num(meta.n_active) + " 件）" : "") + "</p></div>";
+}
+
+/* ================================================================ 2 継続回数 × 成果 */
 function renderRenewal(D) {
   const mr = D.monthly_retention, br = D.by_renewal;
   const label = (r) => (r.renewal_no === 0 ? "初回" : "継続" + r.renewal_no);
-  const maxN = Math.max.apply(null, br.map((r) => r.n));
-  let h = card("月次の継続率", "母数: " + esc(mr.denominator_label),
-    table(["満了月", "継続", "解約", "充足", "母数", "継続率", "結果待ち"],
-      mr.rows.map((r) => [
-        esc(r.month), num(r.keep), num(r.cancel), num(r.fill), num(r.denom),
-        "<strong>" + pct(r.rate) + "</strong>", num(r.pending),
-      ])),
-    "継続率 ＝ 継続済 ÷（継続済 ＋ 解約 ＋ 充足）。<strong>「充足」も分母に入れます。</strong>" +
-    "採れて終わったのも「継続しなかった」結果だからです。" +
-    "オプション契約 " + num(mr.excluded_option) + " 件は母数から外しています。");
+  const big = br.filter((r) => r.n >= MIN_N);
+  let h = sec("問い", "継続を重ねると、成果は落ちるのか");
 
-  h += card("継続回数ごとの解約率",
-    "解約は初回契約に集中しています。最初の契約を乗り切れれば、あとは残ります。",
-    table(["継続回数", "件数", "稼働中", "解約", "充足", "解約率", "（充足を外すと）"],
-      br.map((r) => [
-        label(r),
-        num(r.n) + ' <span class="bar" style="width:' + (r.n / maxN * 60).toFixed(1) + 'px"></span>',
-        num(r.n_active), num(r.cancel), num(r.fill),
-        "<strong>" + pct(r.cancel_rate) + "</strong>",
-        '<span class="n0">' + pct(r.cancel_rate_excl_fill) + "</span>",
-      ])),
-    "解約率の分子は「解約 ＋ 充足」です。<strong>画面の主値は外さない方</strong>です。<br>" +
+  h += sec("図", "月次の継続率（満了月ベース・本体契約のみ）");
+  h += fig("継続率 ＝ 継続済 ÷（継続済 ＋ 解約 ＋ 充足）",
+    "<b>充足も分母に入れています</b>",
+    svgLine({ w: 680, h: 240, labelPts: true,
+      x: mr.rows.map((r) => r.month.slice(2)),
+      xSub: mr.rows.map((r) => "n=" + r.denom),
+      series: [{ color: C.ai, pts: mr.rows.map((r) => ({
+        v: r.rate == null ? null : r.rate / 100,
+        censored: r.pending > 5 })) }],
+      yFmt: F.pct, yLab: "継続率", alt: "月次の継続率" }),
+    lg("dot", C.ai, "確定した月") + lg("ring", C.ai, "結果待ちが多い月") +
+    '<i class="full">充足（採れて終わった契約）も分母に入れます。採用できて終わったのも' +
+    "「継続しなかった」という結果だからです。オプション契約 " + num(mr.excluded_option) +
+    " 件は母数から外しています（月ごとの偏りが大きく、含めると月次比較が歪むため）。</i>");
+
+  h += sec("表", "満了月ごとの内訳");
+  h += table([{ t: "満了月" }, { t: "継続", n: 1 }, { t: "解約", n: 1 }, { t: "充足", n: 1 },
+              { t: "母数", n: 1 }, { t: "継続率", n: 1 }, { t: "結果待ち", n: 1 }],
+    mr.rows.map((r) => [esc(r.month), num(r.keep), num(r.cancel), num(r.fill),
+      num(r.denom), "<b>" + pct1(r.rate) + "</b>", num(r.pending)]));
+
+  h += sec("図", "継続回数ごとの解約率");
+  h += fig("分子は「解約 ＋ 充足」", "初回を乗り切れれば、あとは残ります",
+    svgBarH({ w: 660, fmt: F.d1, rh: 26,
+      rows: big.map((r) => ({
+        label: label(r), v: r.cancel_rate, v0: r.cancel_rate_excl_fill,
+        txt: pct1(r.cancel_rate), note: "n=" + num(r.n),
+        color: r.cancel_rate >= 40 ? C.hi : C.ai })) }),
+    lg("box", C.hi, "40%以上") + lg("box", C.ai, "40%未満") +
+    lg("dash", C.ghost, "充足を外すと") +
+    '<i class="full">n が ' + MIN_N + " 件未満の継続回数は図に載せていません（下の表には出しています）。" +
     "上の「月次の継続率」とは分母が違います。あちらは満了して結果が出た契約だけ、" +
-    "こちらはその継続回数の全取引（稼働中も含む）です。");
+    "こちらはその継続回数の全取引（稼働中も含む）です。</i>");
 
-  h += card("継続回数ごとの成果（代表値）",
-    "中央値。値が入っている契約だけで計算し、その件数を n に出しています。",
-    table(["継続回数", "応募数", "面接数", "承諾数", "求人票あたり応募", "目標達成率", "契約額", "契約月数"],
-      br.map((r) => [
-        label(r), med(r.oubo), med(r.mensetu), med(r.syoudaku), med(r.oubo_per_posting, 1),
-        r.rate_tassei && r.rate_tassei.n
-          ? pct(r.rate_tassei.median * 100) + ' <span class="n0">(n=' + num(r.rate_tassei.n) + ")</span>"
-          : n0(),
-        med(r.amount), med(r.contract_period, 1),
-      ])),
-    D.meta.exclude_right_censored
-      ? "右側打ち切りを外しています。"
-      : "右側打ち切り " + num(D.meta.right_censored_n) +
-        " 件を含んでいます（直近の契約は結果が確定しておらず、成果が低く出ます）。");
+  h += sec("図", "継続回数ごとの成果のばらつき");
+  for (const [key, name, fmt] of [["oubo", "応募数", F.int], ["syoudaku", "採用数", F.int],
+                                  ["oubo_per_posting", "求人票あたり応募", F.d1]]) {
+    const rows = big.filter((r) => r[key] && r[key].n >= MIN_N).map((r, i) => ({
+      label: label(r), med: r[key].median, q1: r[key].q1, q3: r[key].q3,
+      min: r[key].min, max: r[key].max, mean: r[key].mean, n: r[key].n,
+      color: SERIES[i % 5] }));
+    h += fig(name + "の散らばり（継続回数ごと）",
+      "中央値だけでは分からない「幅」を出す",
+      rows.length ? svgBoxH({ w: 680, xFmt: fmt, rows: rows })
+                  : tooFew(0, name),
+      lg("line", C.ink, "中央値") +
+      '<i class="full">n は値が入っている契約の数で、件数そのものではありません。' +
+      (D.meta.exclude_right_censored
+        ? "右側打ち切りを外しています。"
+        : "右側打ち切り " + num(D.meta.right_censored_n) +
+          " 件を含んでいます（直近の契約は結果が確定しておらず、成果が低く出ます）。") + "</i>");
+  }
 
+  h += sec("表", "継続回数ごとの代表値");
+  h += table([{ t: "継続回数" }, { t: "件数", n: 1 }, { t: "稼働中", n: 1 },
+              { t: "解約率", n: 1 }, { t: "（充足を外すと）", n: 1 },
+              { t: "応募数", n: 1 }, { t: "面接数", n: 1 }, { t: "承諾数", n: 1 },
+              { t: "求人票あたり応募", n: 1 }, { t: "契約額", n: 1 }],
+    br.map((r) => [label(r), num(r.n), num(r.n_active),
+      "<b>" + pct1(r.cancel_rate) + "</b>",
+      '<span class="muted">' + pct1(r.cancel_rate_excl_fill) + "</span>",
+      med(r.oubo), med(r.mensetu), med(r.syoudaku), med(r.oubo_per_posting, 1),
+      med(r.amount, 0, 1)]));
+
+  h += sec("図", "欠測の偏り");
   const groups = ["継続済", "解約", "充足", "結果待ち"];
   const fields = [...new Set(D.missingness.map((r) => r.field))];
-  h += card("欠測の偏り", "結果ごとに、成果の数字がどれだけ記録されているか。",
-    '<div class="warn">うまくいかなかった契約ほど数字が記録されていない可能性があります。' +
-    'これは「継続するほど成果が良い」という見え方を<strong>押し上げる方向</strong>に効きます。' +
-    '上の表を読むときは、この偏りを踏まえてください。</div>' +
-    table(["項目"].concat(groups.map((g) => g + " の記入率")),
-      fields.map((f) => [esc(f)].concat(groups.map((g) => {
+  h += fig("結果ごとの記入率", "色が濃いほど埋まっている",
+    svgMatrix({ padL: 150, cw: 120, cols: groups,
+      rows: fields.map((f) => ({ label: f, cells: groups.map((g) => {
         const r = D.missingness.find((x) => x.group === g && x.field === f);
-        if (!r) return n0();
-        return pct(r.fill_rate) + ' <span class="n0">(' + num(r.filled) + "/" + num(r.n) + ")</span>";
-      })))));
+        if (!r || r.fill_rate == null) return { v: null, txt: "—", n: 0 };
+        return { v: r.fill_rate / 100, txt: pct1(r.fill_rate), n: r.filled, color: C.ai };
+      }) })) }),
+    '<i class="full">うまくいかなかった契約ほど数字が記録されていない可能性があります。</i>');
+  h += note("bad", "この偏りは相関を押し上げる方向に効きます",
+    "「継続するほど成果が良い」という見え方が強く出ます。上の図を読むときは踏まえてください。");
   return h + foot(D.meta);
 }
 
-/* ============================================================ 3 顧客詳細 */
-let houjinIndex = null;
+function med(o, d, isMan) {
+  if (!o || !o.n) return DASH;
+  return (isMan ? yen(o.median) : num(o.median, d || 0)) +
+    ' <span class="muted small">(n=' + num(o.n) + ")</span>";
+}
+
+/* ================================================================ 3 顧客詳細 */
+/* 🔴 描画中に DOM を触らない。返した HTML が差し込まれるのは render の**後**なので、
+   ここで $("#cs-houjin") を引いても null になる（実際にそれで③が落ちた）。
+   一覧は持っておいて、差し込んだ後の wire() で流し込む。 */
+let customerIndex = null;
+let customerHoujin = "";
 function renderCustomer(D) {
   if (D.index) {
-    houjinIndex = D.index;
-    const sel = $("cs-houjin");
-    sel.innerHTML = '<option value="">法人を選ぶ…</option>' + D.index.slice(0, 400).map((r) =>
-      '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
-      "（取引" + num(r.deals) + " / 拠点" + num(r.sites) + "）</option>").join("");
-    return card("顧客を選んでください",
-      "LTV の大きい順に " + num(D.index.length) + " 法人。上の選択から選ぶと明細が出ます。",
-      '<div class="scroll">' + table(["法人", "取引", "拠点", "稼働中", "LTV", "最終満了"],
-        D.index.slice(0, 200).map((r) => [
-          esc(r.name || r.houjin), num(r.deals), num(r.sites), num(r.active),
-          man(r.ltv), esc(r.last_expiration),
-        ])) + "</div>");
+    customerIndex = D.index;
+    return sec("問い", "この顧客に何が起きているか") +
+      '<div class="lede">LTV の大きい順に ' + num(D.index.length) +
+      " 法人。上の選択から選ぶと明細が出ます。</div>" +
+      scroll(table([{ t: "法人" }, { t: "取引", n: 1 }, { t: "拠点", n: 1 },
+                    { t: "稼働中", n: 1 }, { t: "LTV", n: 1 }, { t: "最終満了" }],
+        D.index.slice(0, 200).map((r) => [esc(r.name || r.houjin), num(r.deals),
+          num(r.sites), num(r.active), yen(r.ltv), esc(r.last_expiration)])), 460);
   }
-  if (!D.meta.found) {
-    return card("見つかりません", "", '<div class="warn">この法人の取引がありません。</div>');
-  }
+  if (!D.meta.found) return note("warn", "見つかりません", "この法人の取引がありません。");
   const c = D.customer;
-  let h = card(c && c.name ? c.name : D.meta.houjin, "",
+  let h = sec("顧客", c && c.name ? c.name : D.meta.houjin) +
     '<div class="kpis">' +
-      kpi("取引", num(c.deals), "稼働中 " + num(c.active)) +
-      kpi("拠点", num(c.sites), "") +
-      kpi("LTV", man(c.ltv), "") +
-      kpi("継続回数（最大）", num(c.max_renewal_no), "") +
-      kpi("最終満了", esc(c.last_expiration || "—"), "") +
-    "</div>");
+    kpi("取引", num(c.deals) + '<span class="u">件</span>', "稼働中 " + num(c.active)) +
+    kpi("拠点", num(c.sites) + '<span class="u">拠点</span>', "") +
+    kpi("LTV", yen(c.ltv), "") +
+    kpi("継続回数（最大）", num(c.max_renewal_no), "") +
+    kpi("最終満了", esc(c.last_expiration || "—"), "") + "</div>";
 
-  h += card("契約の系列（" + num(D.deals.length) + " 件）",
-    "契約開始の順。継続のたびに別の取引になります。",
-    '<div class="scroll">' + table(
-      ["取引", "ステージ", "拠点", "種別", "開始", "満了", "継続回数", "金額", "応募", "面接", "承諾", "状態"],
-      D.deals.map((d) => [
-        esc(d.name || d.deal_id), '<span class="n0">' + esc(d.stage) + "</span>",
-        '<span class="n0">' + esc(d.site) + "</span>",
-        '<span class="n0">' + esc(d.kind) + "</span>",
-        esc(d.start), esc(d.expiration), num(d.renewal_no), man(d.amount),
-        num(d.oubo), num(d.mensetu), num(d.syoudaku),
-        (d.is_active ? "稼働中" : "") + (d.right_censored ? ' <span class="carry">未確定</span>' : ""),
-      ])) + "</div>");
+  /* ---- 顧客に説明する数字 ---- */
+  h += sec("図", "顧客に説明する数字");
+  const fn_ = D.funnel;
+  h += fig("応募 → 面接 → 採用 の落ち方", "取引をまたいだ合計",
+    svgFunnel({ steps: [
+      { label: "応募", v: fn_.oubo, color: C.ai },
+      { label: "面接", v: fn_.mensetu, color: C.ki },
+      { label: "採用", v: fn_.syoudaku, color: C.midori },
+    ], alt: "応募から採用までの落ち方" }),
+    '<i class="full">値が入っている契約だけを足しています。' +
+    "<b>入っていないものを 0 として足していません</b>（母数が変わるため）。</i>");
 
-  h += card("採用単価（拠点ごと）",
-    "🔴 <strong>決裁は事業所単位です。</strong>1本の線にまとめると、拠点間のばらつきが時間の悪化に見えます。",
-    D.cpa_by_site.map((s) =>
-      '<h3 style="font-size:13px;margin:12px 0 4px">' + esc(s.site) + '</h3>' +
-      table(["開始", "継続回数", "採用単価", "採用数", "金額", "確かさ"],
-        s.points.map((p) => [
-          esc(p.start), num(p.renewal_no), man(p.cpa), num(p.syoudaku), man(p.amount),
-          p.censored ? '<span class="carry">未確定</span>' : "確定",
-        ]))).join("") || '<p class="note">採用数が入っている契約がありません。</p>');
+  /* ---- 採用単価を3つの出し方で ---- */
+  h += sec("図", "採用単価を3つの出し方で見る");
+  const c3 = D.cpa3.filter((x) => x.total != null);
+  h += fig("同じ契約でも、出し方で値が変わります",
+    "顧客が見ているのは「1人採るのにいくらかかったか」",
+    c3.length
+      ? svgBarH({ w: 700, fmt: F.man, rh: 26,
+          rows: c3.map((x) => ({
+            label: shortName(x.name || x.deal_id, 20),
+            v: x.total, v0: x.monthly,
+            txt: yen(x.total),
+            note: (x.band ? x.band + "帯 中央値 " + yen(x.band_median) : "") +
+                  (x.syoudaku != null ? "　" + num(x.syoudaku) + "人" : ""),
+            color: x.censored ? C.ghost : C.hi,
+            faint: !!x.censored,
+          })) })
+      : '<div class="empty">採用数が入っている契約がありません（0で割っていません）。</div>',
+    lg("box", C.hi, "総額 ÷ 採用数（確定）") + lg("box", C.ghost, "同（未確定・稼働中）") +
+    lg("dash", C.ghost, "月割り") +
+    '<i class="full">稼働中の契約は<b>金額が丸ごと乗っているのに採用がまだ伸びていない</b>ので、' +
+    "総額での単価は必ず高く出ます。月割り（金額 ÷ 契約期間 × 経過月数 ÷ 採用数）と、" +
+    "<b>同じ進捗帯の契約の中央値</b>を並べています。3つが食い違うときは、進捗帯の中央値を見てください。</i>");
 
-  h += card("MTG の履歴（" + num(D.mtgs.length) + " 件）",
-    "🔴 中身が空なのは「まだ抽出していない」であって、記録が無いのとは違います。",
-    '<div class="scroll">' + table(["開催日", "取引ID", "リスク", "やること", "顧客の懸念", "抽出"],
-      D.mtgs.map((m) => [
-        esc(m.date), '<span class="n0">' + esc(m.deal_id) + "</span>",
-        esc(m.risk) || n0(), esc(m.todo) || n0(), esc(m.concern) || n0(),
-        m.extracted ? "済" : '<span class="n0">未</span>',
-      ])) + "</div>");
+  /* ---- 拠点ごとの推移 ---- */
+  h += sec("図", "採用単価の推移（拠点ごと）");
+  h += note("info", "1本の線にまとめない理由",
+    "決裁は<b>事業所単位</b>です。拠点をまたいで1本につなぐと、拠点間のばらつきが" +
+    "「時間の悪化」に見えてしまいます。");
+  for (const st of D.cpa_by_site) {
+    const pts = st.points.map((p) => ({ v: p.cpa, censored: !!p.censored }));
+    h += fig("採用単価の推移 — " + shortName(st.site, 28), "点の下は採れた人数",
+      pts.length >= 2
+        ? svgLine({ w: 660, h: 200,
+            x: st.points.map((p) => (p.start || "").slice(2, 7)),
+            xSub: st.points.map((p) => (p.syoudaku == null ? "" : num(p.syoudaku) + "人")),
+            series: [{ color: C.hi, pts: pts }],
+            yFmt: F.man, yLab: "採用単価", alt: "採用単価の推移" })
+        : '<div class="empty">点が1つしかないので線にしていません（' +
+          st.points.map((p) => yen(p.cpa)).join(" / ") + "）。</div>",
+      lg("dot", C.hi, "確定した契約") + lg("ring", C.hi, "未確定（右側打ち切り）"));
+  }
+
+  /* ---- 応募・面接・採用の推移 ---- */
+  h += sec("図", "応募・面接・採用の推移");
+  h += note("info", "現在値ではなく、プロパティの変更履歴を使っています",
+    "HubSpot のプロパティは上書きで履歴が残らないため、現在値を時系列に並べると" +
+    "<b>決着後に入力された値が契約中に伸びたように見えます</b>" +
+    "（実測で応募数の変更の 30.4%・採用数の 35.2% が決着日より後）。<br>" +
+    "値が変わらなかった月は<b>前の値を持ち越し</b>、中空・破線で描いています。" +
+    "実線・塗りつぶしはその月に書き換えがあった印です。");
+  for (const mm of D.monthly) {
+    const ser = mm.series || {};
+    const any = ["oubo", "mensetu", "syoudaku"].some((k) => (ser[k] || []).length);
+    if (!any) {
+      h += fig(shortName(mm.name || mm.deal_id, 28) + " の推移", "",
+        '<div class="empty">この契約には応募・面接・採用の変更履歴がありません' +
+        "（記録が無いだけで、0 ではありません）。</div>");
+      continue;
+    }
+    const months = [...new Set([].concat(...["oubo", "mensetu", "syoudaku"]
+      .map((k) => (ser[k] || []).map((x) => x.m))))].sort((a, b) => a - b);
+    const mk = (k) => months.map((mi) => {
+      const f = (ser[k] || []).find((x) => x.m === mi);
+      return f ? { v: f.v, carry: f.carry } : { v: null };
+    });
+    h += fig(shortName(mm.name || mm.deal_id, 28) + " の推移",
+      "横軸は契約の何ヶ月目か" + (mm.period ? "（契約 " + num(mm.period) + "ヶ月）" : ""),
+      svgLine({ w: 680, h: 220,
+        x: months.map((m) => m + "ヶ月"),
+        series: [
+          { color: C.ai, pts: mk("oubo") },
+          { color: C.ki, pts: mk("mensetu") },
+          { color: C.midori, pts: mk("syoudaku") },
+        ], yFmt: F.int, yLab: "件", alt: "応募・面接・採用の推移" }),
+      lg("line", C.ai, "応募") + lg("line", C.ki, "面接") + lg("line", C.midori, "採用") +
+      lg("dash", C.ghost, "持ち越し（その月に書き換えが無い）"));
+
+    /* ---- 系列を縦に積む ---- */
+    const npsSer = mm.nps || {};
+    const npsPts = months.map((mi) => {
+      let hit = null;
+      for (const k of Object.keys(npsSer)) {
+        const f = (npsSer[k] || []).find((x) => x.m === mi);
+        if (f && (hit == null || !f.carry)) hit = f;
+      }
+      return hit ? { v: hit.v, carry: hit.carry } : { v: null };
+    });
+    const ct = (D.contacts || []).find((x) => x.deal_id === mm.deal_id);
+    const ctPts = months.map((mi) => {
+      if (!ct) return { v: null };
+      const n = ct.dates.filter((d) => monthIdx(mm.start, d.slice(0, 7)) === mi).length;
+      return { v: n };
+    });
+    const lane = (label, color, pts, type, noneLabel) => {
+      const has = pts.some((p) => p.v != null);
+      return { label: label, color: color, type: type || "line",
+               pts: pts, empty: !has, noneLabel: noneLabel || "記録がありません" };
+    };
+    h += fig(shortName(mm.name || mm.deal_id, 28) + " — 系列を縦に並べる",
+      "縦に目を落とすと「NPS が落ちた月に接触が切れていて、応募も止まっていた」が読めます",
+      svgStackLanes({ w: 940, months: months.map((m) => m + "ヶ月"), lanes: [
+        lane("応募", C.ai, mk("oubo")),
+        lane("面接", C.ki, mk("mensetu")),
+        lane("採用", C.midori, mk("syoudaku")),
+        lane("定期NPS", C.murasaki, npsPts, "dots", "回答がありません"),
+        lane("接触（MTG・60秒超の通話）", C.hi, ctPts, "bars", "接触の記録がありません"),
+      ] }),
+      '<i class="full">🔴 <b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
+      "値の幅が違いすぎる（応募 0〜200 / NPS 0〜10 / 接触 0〜数十）ので、" +
+      "重ねると応募だけが動いて NPS が底に張り付きます。" +
+      "目盛りの取り方しだいで「相関して見える絵」を作れてしまうため、" +
+      "<b>横軸だけを共有して、系列ごとに自分の縦軸を持たせています</b>。</i>");
+  }
+
+  /* ---- 接触と担当交代 ---- */
+  if ((D.handover || []).length || (D.contacts || []).some((x) => x.dates.length)) {
+    h += sec("図", "こちらの動き（接触と担当交代）");
+    const lanes = [];
+    for (const ct of (D.contacts || [])) {
+      if (!ct.dates.length) continue;
+      const d = D.deals.find((x) => x.deal_id === ct.deal_id);
+      lanes.push({ label: shortName((d && d.name) || ct.deal_id, 16), color: C.ai,
+        marks: ct.dates.map((x) => ({ d: x })) });
+    }
+    if ((D.handover || []).length) {
+      lanes.push({ label: "担当交代", color: C.hi,
+        marks: D.handover.map((x) => ({ d: x.date, thick: true })),
+        note: D.handover.length + "件" });
+    }
+    h += fig("接触と担当交代の時系列", "交代の前後で間隔が開いたかを目で見る",
+      svgTimeline({ w: 940, lanes: lanes, alt: "接触と担当交代" }),
+      lg("dot", C.ai, "接触（MTG・60秒超の通話）") + lg("dot", C.hi, "担当交代") +
+      '<i class="full">交代の「反映なし」には、新しい担当の MTG が1回しか無く' +
+      "<b>引き継ぎか代理出席か区別が付かないもの</b>が混ざります。未反映と決めつけていません。</i>");
+  }
+
+  /* ---- 表（個別の行を特定したいときだけ）---- */
+  h += sec("表", "契約の系列（" + num(D.deals.length) + " 件）");
+  h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "拠点" }, { t: "種別" },
+                     { t: "開始" }, { t: "満了" }, { t: "継続", n: 1 }, { t: "金額", n: 1 },
+                     { t: "応募", n: 1 }, { t: "面接", n: 1 }, { t: "承諾", n: 1 }, { t: "状態" }],
+    D.deals.map((d) => [esc(d.name || d.deal_id),
+      '<span class="muted small">' + esc(d.stage) + "</span>",
+      '<span class="muted small">' + esc(d.site) + "</span>",
+      '<span class="muted small">' + esc(d.kind) + "</span>",
+      esc(d.start), esc(d.expiration), nz(d.renewal_no), yen(d.amount),
+      nz(d.oubo), nz(d.mensetu), nz(d.syoudaku),
+      (d.is_active ? "稼働中" : "") +
+      (d.right_censored ? ' <span class="tag">未確定</span>' : "")])), 420);
+
+  h += sec("表", "MTG の履歴（" + num(D.mtgs.length) + " 件）");
+  h += note("info", "中身が空なのは「まだ抽出していない」です",
+    "記録が無いのとは違います。抽出は日次の枠で止まっており、全件には届いていません。");
+  h += scroll(table([{ t: "開催日" }, { t: "リスク" }, { t: "やること" },
+                     { t: "顧客の懸念" }, { t: "抽出" }],
+    D.mtgs.map((m) => [esc(m.date), esc(m.risk) || DASH, esc(m.todo) || DASH,
+      esc(m.concern) || DASH, m.extracted ? "済" : '<span class="n0">未</span>'])), 420);
   return h + foot(D.meta);
 }
 
-/* ============================================================ 4 本部アプローチ */
+/** 契約開始からの「何ヶ月目か」。🔴 始月は含めない（サーバ側と同じ数え方） */
+function monthIdx(start, month) {
+  if (!start || start.length < 7 || !month || month.length < 7) return null;
+  return (+month.slice(0, 4) - +start.slice(0, 4)) * 12 +
+         (+month.slice(5, 7) - +start.slice(5, 7)) + 1;
+}
+
+/* ================================================================ 4 本部アプローチ */
 function renderHq(D) {
-  let h = '<div class="info"><strong>親法人の合計ではありません。</strong>' +
-    '事業所ごとに出しています。決裁は事業所単位なので、まとめると行き先が消えます。</div>';
-  h += card("拠点どうしの差が大きい法人",
-    "拠点が2つ以上ある " + num(D.multi_site) + " 法人（全 " + num(D.meta.n_houjin) + " 法人のうち）。" +
-    "採用単価の最大÷最小が大きい順。",
-    D.rows.map((r) =>
-      '<details style="margin:8px 0"><summary style="cursor:pointer;padding:4px 0">' +
-      esc(r.houjin) + "　拠点" + num(r.sites) + " / 取引" + num(r.deals) +
-      " / 稼働中" + num(r.active) +
-      (r.spread === null ? "" : '　<span class="flag">単価の開き ' + num(r.spread, 1) + "倍</span>") +
-      "</summary>" +
-      table(["拠点", "取引", "稼働中", "解約", "解約率", "金額", "採用数", "採用単価"],
-        r.rows.map((s) => [
-          esc(s.site), num(s.deals), num(s.active), num(s.cancel), pct(s.cancel_rate),
-          man(s.amount), num(s.syoudaku), man(s.cpa),
-        ])) + "</details>").join(""),
-    D.truncated ? "上位80法人だけ出しています。" : "");
+  let h = sec("問い", "本部に何を持っていくか") +
+    note("info", "親法人の合計ではありません",
+      "事業所ごとに出しています。<b>決裁は事業所単位</b>なので、まとめると行き先が消えます。" +
+      "本部に持っていくのは「事業所どうしの差」そのものです。");
+
+  /* ---- 法人ごとの開き ---- */
+  h += sec("図", "拠点どうしで採用単価がどれだけ開いているか");
+  const top = D.rows.filter((r) => r.spread != null).slice(0, 25);
+  h += fig("いちばん高い拠点 ÷ いちばん安い拠点",
+    "拠点が2つ以上ある " + num(D.multi_site) + " 法人（全 " + num(D.meta.n_houjin) + " 法人）のうち",
+    top.length
+      ? svgBarH({ w: 700, fmt: F.d1, rh: 24,
+          rows: top.map((r) => ({
+            label: shortName(r.houjin, 22), v: r.spread,
+            txt: num(r.spread, 1) + "倍",
+            note: "拠点" + num(r.sites) + " / 取引" + num(r.deals),
+            color: r.spread >= 3 ? C.hi : r.spread >= 2 ? C.ki : C.ai })) })
+      : '<div class="empty">採用単価を両端で比べられる法人がありません。</div>',
+    lg("box", C.hi, "3倍以上") + lg("box", C.ki, "2〜3倍") + lg("box", C.ai, "2倍未満") +
+    '<i class="full">採用数が 0 の拠点は単価を出していないので、この比較に入っていません' +
+    "（0で割っていません）。上位25法人だけ出しています。</i>");
+
+  /* ---- 法人ごとの事業所比較 ---- */
+  h += sec("図", "事業所どうしを比べる（上位10法人）");
+  h += '<div class="lede">開きが大きい順。棒は採用単価、注記は解約率です。</div>';
+  for (const r of D.rows.slice(0, 10)) {
+    const rows = r.rows.filter((x) => x.cpa != null);
+    h += fig(shortName(r.houjin, 30),
+      "拠点" + num(r.sites) + " / 取引" + num(r.deals) + " / 稼働中" + num(r.active) +
+      (r.spread == null ? "" : " / 開き " + num(r.spread, 1) + "倍"),
+      rows.length
+        ? svgBarH({ w: 680, fmt: F.man, rh: 24,
+            rows: rows.map((x) => ({
+              label: shortName(x.site, 20), v: x.cpa, txt: yen(x.cpa),
+              note: (x.cancel_rate == null ? "" : "解約 " + pct1(x.cancel_rate)) +
+                    "　" + num(x.syoudaku) + "人",
+              noteColor: x.cancel_rate != null && x.cancel_rate >= 50 ? C.hi : C.ink3,
+              color: C.ai })) })
+        : '<div class="empty">採用数が入っている拠点がありません（0で割っていません）。</div>',
+      lg("box", C.ai, "採用単価") +
+      '<i class="full">解約率が 50% 以上の拠点は注記を緋で出しています。' +
+      "拠点ごとの取引数が少ないので、率だけで判断しないでください。</i>");
+  }
+
+  /* ---- 表は最後。個別の行を特定したいときだけ ---- */
+  h += sec("表", "全法人の内訳");
+  h += scroll(D.rows.map((r) =>
+    "<details><summary>" + esc(r.houjin) + "　拠点" + num(r.sites) +
+    " / 取引" + num(r.deals) + " / 稼働中" + num(r.active) +
+    (r.spread == null ? "" : '　<b style="color:var(--hi)">開き ' + num(r.spread, 1) + "倍</b>") +
+    "</summary>" +
+    table([{ t: "拠点" }, { t: "取引", n: 1 }, { t: "稼働中", n: 1 }, { t: "解約", n: 1 },
+           { t: "解約率", n: 1 }, { t: "金額", n: 1 }, { t: "採用数", n: 1 }, { t: "採用単価", n: 1 }],
+      r.rows.map((x) => [esc(x.site), num(x.deals), num(x.active), num(x.cancel),
+        pct1(x.cancel_rate), yen(x.amount), nz(x.syoudaku), yen(x.cpa)])) +
+    "</details>").join(""), 520);
+  if (D.truncated) h += '<p class="muted small">上位80法人だけ出しています。</p>';
   return h + foot(D.meta);
 }
 
-/* ============================================================ 5 MTG の品質 */
+/* ================================================================ 5 MTG の品質 */
 function renderMtgQ(D) {
-  let h = card("そもそも記録が結べているか", "",
-    '<div class="kpis">' +
-      kpi("MTG", num(D.meta.n_mtg), "") +
-      kpi("取引に結べた", num(D.linked.n), pct(D.linked.rate), "ok") +
-    "</div>", esc(D.linked.note));
+  let h = sec("問い", "MTG に何が記録されているか") +
+    note("info", "MTG の良し悪しを採点していません",
+      "何が記録されているかだけを出しています。<b>埋まっていないのは「記録していない」ではなく" +
+      "「まだ抽出を通していない」</b>です。");
 
-  h += card("分析項目がどれだけ埋まっているか", "",
-    table(["項目", "埋まっている", "率"],
-      D.filled.map((f) => [esc(f.field), num(f.n), pct(f.rate)])),
-    D.filled_note);
+  h += '<div class="kpis">' +
+    kpi("MTG", num(D.meta.n_mtg) + '<span class="u">回</span>', "") +
+    kpi("取引に結べた", pct1(D.linked.rate), num(D.linked.n) + " 回", "good") + "</div>";
 
-  h += card("リスク判定の分布", "未判定も件数を出します（黙って落としません）。",
-    table(["判定", "件数"], D.risk_dist.map((r) => [esc(r.label), num(r.n)])));
+  h += sec("図", "分析項目がどれだけ埋まっているか");
+  h += fig("抽出の進み具合", "埋まっていないのは「記録していない」ではありません",
+    svgBarH({ w: 680, fmt: F.int, rh: 24,
+      rows: D.filled.map((f) => ({
+        label: f.field, v: f.n, txt: num(f.n) + "件", note: pct1(f.rate),
+        color: f.rate >= 50 ? C.midori : f.rate >= 15 ? C.ai : C.ghost,
+        faint: f.rate < 15 })) }),
+    lg("box", C.midori, "50%以上") + lg("box", C.ai, "15〜50%") + lg("box", C.ghost, "15%未満") +
+    '<i class="full">' + esc(D.filled_note) + "</i>");
 
-  h += card("誰がどれだけ MTG をしているか",
-    "🔴 これは行動量であって、良し悪しではありません。",
-    '<div class="scroll">' + table(["ホスト", "件数"],
-      D.hosts.slice(0, 60).map((r) => [esc(r.host), num(r.n)])) + "</div>");
+  h += sec("図", "リスク判定の分布");
+  const rp = D.risk_dist.map((r) => ({
+    label: r.label, v: r.n,
+    color: r.label.indexOf("高") >= 0 ? C.hi : r.label.indexOf("中") >= 0 ? C.ki :
+           r.label.indexOf("低") >= 0 ? C.midori : C.ghost,
+    faint: r.label.indexOf("未") >= 0 }));
+  h += fig("MTG ごとのリスク判定", "未判定も黙って落としません",
+    svgStack({ w: 680, parts: rp }), stackLegend(rp) +
+    '<i class="full">未判定は「リスクが無い」ではなく「まだ抽出していない」です。</i>');
 
-  h += card("月ごとの件数", "",
-    table(["月", "件数"], D.monthly.map((r) => [esc(r.month), num(r.n)])));
+  h += sec("図", "誰がどれだけ MTG をしているか");
+  h += fig("ホスト別の件数", "これは行動量です。良し悪しではありません",
+    svgBarH({ w: 680, fmt: F.int, rh: 22,
+      rows: D.hosts.slice(0, 25).map((r) => ({
+        label: shortName(r.host, 16), v: r.n, txt: num(r.n) + "回", color: C.ai })) }),
+    '<i class="full">上位25名だけ出しています（全 ' + num(D.hosts.length) + " 名）。" +
+    "件数が多い＝良い、ではありません。担当している契約の数が違います。</i>");
+
+  h += sec("図", "月ごとの件数");
+  h += fig("MTG の実施回数", "",
+    svgLine({ w: 680, h: 220,
+      x: D.monthly.map((m) => m.month.slice(2)),
+      series: [{ color: C.ai, pts: D.monthly.map((m) => ({ v: m.n })) }],
+      yFmt: F.int, yLab: "回", alt: "月ごとの MTG 件数" }),
+    lg("line", C.ai, "MTG"));
   return h + foot(D.meta);
 }
 
-/* ============================================================ 6 電話 */
+/* ================================================================ 6 電話 */
 function renderPhone(D) {
   const r = D.reach;
-  let h = '<div class="info"><strong>接触 ＝ ' + num(D.meta.threshold_sec) +
-    '秒より長い通話。</strong>メールは数えていません。' +
-    '接触は検知にだけ使い、処方には使いません。</div>';
+  let h = sec("問い", "顧客と電話で話せているか") +
+    note("info", "接触 ＝ " + num(D.meta.threshold_sec) + " 秒より長い通話",
+      "メールは数えていません。<b>接触は検知にだけ使い、処方には使いません。</b>" +
+      "中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。");
 
-  h += card("電話は届いているか", esc(r.note),
-    '<div class="kpis">' +
-      kpi("通話の行", num(r.rows), "Call は Deal に多対多") +
-      kpi("電話が付いた取引", num(r.deals_with_call), "") +
-      kpi("電話が1本も無い", num(r.no_call), pct(r.no_call_rate) + " / 稼働中 " + num(D.meta.n_active), "amber") +
-      kpi("接触が1本も無い", num(r.no_contact), pct(r.no_contact_rate), "red") +
-    "</div>");
+  h += '<div class="kpis">' +
+    kpi("電話が1本も無い", num(r.no_call) + '<span class="u">件</span>',
+        pct1(r.no_call_rate) + " / 稼働中 " + num(D.meta.n_active), "warn") +
+    kpi("接触が1本も無い", num(r.no_contact) + '<span class="u">件</span>',
+        pct1(r.no_contact_rate), "bad") +
+    kpi("最後に話してから", D.days_since ? num(D.days_since.median) + '<span class="u">日</span>' : DASH,
+        D.days_since ? "四分位 " + num(D.days_since.q1) + "〜" + num(D.days_since.q3) + "日" : "") +
+    kpi("文字起こしがある", pct1(D.transcript.rate, 2),
+        num(D.transcript.n) + " / " + num(D.transcript.rows) + " 行", "warn") + "</div>";
 
-  h += card("最後に話してから何日たったか",
-    "接触が1本も無い取引は<strong>日数が出せません</strong>。0日として混ぜていません。",
-    '<div class="kpis">' +
-      kpi("中央値", med(D.days_since), "") +
-      kpi("四分位", D.days_since ? num(D.days_since.q1) + " – " + num(D.days_since.q3) + "日" : n0(), "") +
-    "</div>");
+  h += sec("図", "電話は届いているか");
+  const rp = [
+    { label: "接触がある（60秒超）", v: D.meta.n_active - r.no_contact, color: C.midori },
+    { label: "電話はあるが接触なし", v: r.no_contact - r.no_call, color: C.ki },
+    { label: "電話が1本も無い", v: r.no_call, color: C.hi },
+  ];
+  h += fig("稼働中 " + num(D.meta.n_active) + " 件の内訳", "",
+    svgStack({ w: 680, parts: rp }), stackLegend(rp) +
+    '<i class="full">' + esc(r.note) + "</i>");
 
-  h += card("沈黙している取引（" + num(D.silent.n) + " 件）", esc(D.silent.rule),
-    '<div class="scroll">' + table(
-      ["取引", "ステージ", "金額", "通話", "接触", "最後の接触", "経過"],
-      D.silent.rows.map((x) => [
-        esc(x.name || x.deal_id), '<span class="n0">' + esc(x.stage) + "</span>", man(x.amount),
-        num(x.n_calls), num(x.n_contact),
-        x.last_contact === null ? '<span class="flag">一度も無い</span>' : esc(x.last_contact),
-        x.days_since === null ? n0() : num(x.days_since) + "日",
-      ])) + "</div>",
-    "日数が出せないもの（接触が一度も無い）を先頭に出しています。いちばん拾うべきものだからです。");
+  h += sec("図", "最後に話してから何日たったか");
+  h += fig("経過日数の散らばり", "接触が1本も無い取引はここに入っていません（日数が出せないため）",
+    D.days_since && D.days_since.n >= MIN_N
+      ? svgBoxH({ w: 680, xFmt: F.int, rows: [{
+          label: "経過日数", med: D.days_since.median, q1: D.days_since.q1,
+          q3: D.days_since.q3, min: D.days_since.min, max: D.days_since.max,
+          mean: D.days_since.mean, n: D.days_since.n, color: C.ai }] })
+      : tooFew(D.days_since ? D.days_since.n : 0, "経過日数"),
+    lg("box", C.ai, "四分位") + lg("line", C.ink, "中央値") +
+    '<i class="full">🔴 接触が1本も無い ' + num(r.no_contact) +
+    " 件は<b>0日として混ぜていません</b>。0日にすると「昨日話した」ように見えます。</i>");
 
-  h += card("電話の中身", "",
-    '<div class="kpis">' +
-      kpi("文字起こしがある通話", num(D.transcript.n), pct(D.transcript.rate) + " / " + num(D.transcript.rows) + " 行", "gray") +
-    "</div>", esc(D.transcript.note));
+  h += sec("図", "月ごとの本数");
+  h += fig("通話と、そのうち接触（" + num(D.meta.threshold_sec) + "秒超）", "",
+    svgLine({ w: 700, h: 230,
+      x: D.monthly.map((m) => m.month.slice(2)),
+      series: [
+        { color: C.ai, pts: D.monthly.map((m) => ({ v: m.calls })) },
+        { color: C.midori, pts: D.monthly.map((m) => ({ v: m.contacts })) },
+      ], yFmt: F.int, yLab: "件", alt: "月ごとの通話" }),
+    lg("line", C.ai, "通話") + lg("line", C.midori, "接触（60秒超）") +
+    '<i class="full">Call は Deal に多対多なので、同じ通話が複数の取引に付きます。</i>');
 
-  h += card("月ごとの本数", "",
-    '<div class="scroll">' + table(["月", "通話", "接触(60秒超)", "接触率"],
-      D.monthly.map((m) => [esc(m.month), num(m.calls), num(m.contacts), pct(m.contact_rate)])) + "</div>");
+  h += note("warn", "電話の中身はまだ読めていません", esc(D.transcript.note));
+
+  h += sec("表", "沈黙している取引（" + num(D.silent.n) + " 件）");
+  h += '<div class="lede">' + esc(D.silent.rule) +
+    "。日数が出せないもの（接触が一度も無い）を先頭に出しています。</div>";
+  h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "金額", n: 1 },
+                     { t: "通話", n: 1 }, { t: "接触", n: 1 }, { t: "最後の接触" }, { t: "経過", n: 1 }],
+    D.silent.rows.map((x) => [esc(x.name || x.deal_id),
+      '<span class="muted small">' + esc(x.stage) + "</span>", yen(x.amount),
+      num(x.n_calls), num(x.n_contact),
+      x.last_contact == null ? '<b style="color:var(--hi)">一度も無い</b>' : esc(x.last_contact),
+      x.days_since == null ? DASH : num(x.days_since) + "日"])), 420);
   return h + foot(D.meta);
 }
 
-/* ============================================================ 7 立ち上がり */
+/* ================================================================ 7 立ち上がり */
 function renderRampup(D) {
   const ph = D.phase, f = D.first_mtg, nm = D.no_mtg;
-  let h = card("いま、どのフェーズにいるか", esc(ph.rule),
-    '<div class="kpis">' + ph.rows.map((r) =>
-      kpi(r.label, num(r.n), "", r.label === "満了超過" ? "amber" :
-        r.label === "出せない" ? "gray" : "")).join("") + "</div>",
-    "🔴 同じ「3ヶ月目」でも、3ヶ月契約なら満了、12ヶ月契約なら序盤です。" +
-    "契約期間が入っていないものは「出せない」に置いています（0として満了超過に落としていません）。");
+  let h = sec("問い", "最初の契約を乗り切れているか") +
+    note("info", "この画面で数えていないもの",
+      "成約率・売上・担当者の評価ではありません。<b>契約が始まってから最初の MTG までに" +
+      "何日かかったか</b>だけを見ています。良し悪しの判断は人がします。<br>" +
+      "ここの「初回MTG」は<b>MTG だけ</b>で、電話は入っていません" +
+      "（MTGと電話を束ねた最終接触は⑧成果にあります）。");
 
-  h += card("立ち上がりの速さ（契約開始 → 初回MTG）",
-    "母数 " + num(f.n) + " 件。契約前のMTG " + num(f.pre_contract) + " 件は日数に混ぜていません。",
-    '<div class="kpis">' +
-      kpi("中央値", med(f.stats), "") +
-      kpi("四分位", f.stats ? num(f.stats.q1) + " – " + num(f.stats.q3) + "日" : n0(), "") +
-    "</div>" +
-    table(["初回MTGまで", "件数", "解約＋充足", "率"],
-      f.buckets.map((b) => [esc(b.label), num(b.n), num(b.cancel), pct(b.cancel_rate)])),
-    esc(f.note));
+  h += sec("図", "いま、どのフェーズにいるか");
+  const pparts = ph.rows.map((r, i) => ({
+    label: r.label, v: r.n,
+    color: r.label === "満了超過" ? C.ki : r.label === "出せない" ? C.ghost : SERIES[i % 5],
+    faint: r.label === "出せない" }));
+  h += fig("契約長に対する割合で見る", esc(ph.rule),
+    svgStack({ w: 680, parts: pparts }), stackLegend(pparts) +
+    '<i class="full">同じ「3ヶ月目」でも、3ヶ月契約なら満了、12ヶ月契約なら序盤です。' +
+    "契約期間が入っていないものは「出せない」に置いています（0として満了超過に落としていません）。</i>");
 
-  h += card("まだ MTG が結べていない初回契約（" + num(nm.n) + " 件）",
-    "稼働中の初回契約 " + num(nm.first_active) + " 件のうち " + pct(nm.rate) + "。",
-    '<div class="scroll">' + table(["取引", "ステージ", "金額", "契約開始から"],
-      nm.rows.map((r) => [
-        esc(r.name || r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>", man(r.amount),
-        r.days_since_start === null ? n0() : num(r.days_since_start) + "日",
-      ])) + "</div>", esc(nm.note));
+  h += sec("図", "立ち上がりの速さ（契約開始 → 初回MTG）");
+  h += fig("初回MTGまでの日数の散らばり",
+    "母数 " + num(f.n) + " 件。契約前のMTG " + num(f.pre_contract) + " 件は混ぜていません",
+    f.stats && f.stats.n >= MIN_N
+      ? svgBoxH({ w: 680, xFmt: F.int, rows: [{
+          label: "初回MTGまで", med: f.stats.median, q1: f.stats.q1, q3: f.stats.q3,
+          min: f.stats.min, max: f.stats.max, mean: f.stats.mean, n: f.stats.n, color: C.ai }] })
+      : tooFew(f.stats ? f.stats.n : 0, "初回MTGまでの日数"),
+    lg("box", C.ai, "四分位") + lg("line", C.ink, "中央値"));
 
-  h += '<div class="info">継続率と継続回数ごとの解約率は' +
-    '<strong>「2 継続回数 × 成果」タブ</strong>にあります。同じ数字を2か所で作らないためです。</div>';
+  h += fig("帯ごとの、その後の解約率", "遅い群が悪いことだけが読めます",
+    svgBarH({ w: 660, fmt: F.d1, rh: 26,
+      rows: f.buckets.filter((b) => b.n >= MIN_N).map((b) => ({
+        label: b.label, v: b.cancel_rate, txt: pct1(b.cancel_rate),
+        note: "n=" + num(b.n),
+        color: b.label === "61日超" ? C.hi : C.ai })) }),
+    lg("box", C.hi, "61日超") + lg("box", C.ai, "それ以外") +
+    '<i class="full">🔴 <b>単調ではありません。</b>14日以内も解約しています。' +
+    "「早ければ良い」とは言えず、<b>遅い群が悪い</b>ことだけが読めます。" +
+    "61日超には関係が薄い顧客が混じっている可能性があり、" +
+    "<b>遅れが原因とは決められません（相関であって因果ではない）</b>。</i>");
+
+  h += sec("表", "まだ MTG が結べていない初回契約（" + num(nm.n) + " 件）");
+  h += '<div class="lede">稼働中の初回契約 ' + num(nm.first_active) + " 件のうち " +
+    pct1(nm.rate) + "。" + esc(nm.note) + "</div>";
+  h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "金額", n: 1 }, { t: "契約開始から", n: 1 }],
+    nm.rows.map((r) => [esc(r.name || r.deal_id),
+      '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
+      r.days_since_start == null ? DASH : num(r.days_since_start) + "日"])), 420);
+  h += note("info", "継続率はこの画面にありません",
+    "「②継続回数 × 成果」タブにあります。<b>同じ数字を2か所で作らない</b>ためです。");
   return h + foot(D.meta);
 }
 
-/* ============================================================ 8 成果とリスク */
+/* ================================================================ 8 成果とリスク */
 function renderOutcome(D) {
   const ga = D.goal_act, gl = D.goal_all, ef = D.efficiency, R = D.risk, cs = D.contact_source;
-  let h = '<div class="info"><strong>この画面で数えていないもの</strong><br>' +
-    '成約率・継続率・MTG件数・メール件数ではありません。' +
-    '<strong>接触 ＝ MTG または60秒超の通話。メールは数えていません。</strong><br>' +
-    '<strong>接触は検知にだけ使っています。処方には使いません。</strong>' +
-    '中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。</div>';
+  let h = sec("問い", "成果は出ているか、どこが危ないか") +
+    note("info", "この画面で数えていないもの",
+      "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
+      "メールは数えていません。<b>接触は検知にだけ使っています。処方には使いません。</b>" +
+      "中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。");
 
-  h += card("1　目標に対する進捗",
-    "達成率 ＝ 承諾数 ÷ 採用目標数。目標が入っている契約だけが母数です。",
-    table(["帯", "稼働中", "全件"],
-      ga.bands.map((b, i) => [esc(b.label), num(b.n), num(gl.bands[i].n)])),
-    "<strong>目標が入っているのは稼働中の " + pct(ga.fill_rate) + "（" + num(ga.has_goal) +
-    " / " + num(ga.pop) + "）だけです。</strong>全件では " + pct(gl.fill_rate) +
-    "（" + num(gl.has_goal) + " / " + num(gl.pop) + "）。" +
-    "入っていない取引は「達成率0%」ではなく、この図の母数に入っていません。" +
-    "　中央値（稼働中）" + (ga.median === null ? "—" : pct(ga.median * 100)));
+  h += sec("図", "目標に対する進捗");
+  const gparts = ga.bands.map((b, i) => ({
+    label: b.label, v: b.n,
+    color: b.label === "100%以上" ? C.midori : b.label === "0%（実績ゼロ）" ? C.hi :
+           b.label.startsWith("未記入") ? C.ghost : SERIES[i % 5],
+    faint: b.label.startsWith("未記入") }));
+  h += fig("達成率 ＝ 承諾数 ÷ 採用目標数", "目標が入っている契約だけが母数",
+    svgStack({ w: 680, parts: gparts }),
+    stackLegend(gparts) +
+    '<i class="full"><b>目標が入っているのは稼働中の ' + pct1(ga.fill_rate) + "（" +
+    num(ga.has_goal) + " / " + num(ga.pop) + "）だけです。</b>全件では " + pct1(gl.fill_rate) +
+    "。入っていない取引は「達成率0%」ではなく、母数に入っていません。" +
+    "　中央値（稼働中）" + (ga.median == null ? DASH : pct1(ga.median * 100)) + "</i>");
 
-  h += card("2　求人票あたりの応募効率", "応募数 ÷ 掲載数。結果ごとに比べます。",
-    table(["結果", "n", "中央値", "平均", "四分位"],
-      ef.groups.map((g) => [
-        esc(g.label), g.box ? num(g.box.n) : n0(),
-        g.box ? num(g.box.median, 2) : n0(), g.box ? num(g.box.mean, 2) : n0(),
-        g.box ? num(g.box.q1, 2) + " – " + num(g.box.q3, 2) : n0(),
-      ])) +
-    '<div class="warn"><strong>資料にある「per-posting 8.1 ≪ 継続 14.5」という値は、' +
-    '今あるデータでは再現しません。</strong>向き（解約 ＜ 継続）は合っていますが、' +
-    '中央値で見ると差はほとんどありません。<strong>単独で解約を見分けられる指標ではない</strong>' +
-    'と読んでください。</div>',
-    "掲載数が入っているのは 稼働中 " + num(ef.has_keisaisu_act) + " / " + num(ef.n_act) +
-    "、全件 " + num(ef.has_keisaisu_all) + " / " + num(ef.n_all) + "。" + esc(ef.caveat));
+  h += sec("図", "求人票あたりの応募効率");
+  h += fig("応募数 ÷ 掲載数", "結果ごとのばらつき",
+    svgBoxH({ w: 680, xFmt: F.d1,
+      rows: ef.groups.filter((g) => g.box && g.box.n >= MIN_N).map((g, i) => ({
+        label: g.label, med: g.box.median, q1: g.box.q1, q3: g.box.q3,
+        min: g.box.min, max: g.box.max, mean: g.box.mean, n: g.box.n,
+        color: SERIES[i % 5] })) }),
+    lg("line", C.ink, "中央値") +
+    '<i class="full">' + esc(ef.caveat) + "　掲載数が入っているのは 稼働中 " +
+    num(ef.has_keisaisu_act) + " / " + num(ef.n_act) + "。</i>");
+  h += note("bad", "資料の「8.1 ≪ 14.5」は、今あるデータでは再現しません",
+    "向き（解約 ＜ 継続）は合っていますが、中央値で見ると差はほとんどありません。" +
+    "<b>単独で解約を見分けられる指標ではない</b>と読んでください。");
 
-  h += card("3　リスクは2軸だけで見る", "",
-    '<div class="info"><strong>4軸のうち2軸を意図的に外しています。手抜きではありません。</strong><br>' +
-    '<strong>関係性の軸（NPS）</strong>：中身は「最新NPS 5以下」単独です。' +
-    'NPS が稼働中の半分にしか無く、<strong>構造的に発火しません</strong>。' +
-    '常に非赤になる軸を並べると「問題ない」と読まれますが、実際は<strong>測れていないだけ</strong>です。' +
-    '（NPS は「1 いま見るべき顧客」で独立した指標として出しています）<br>' +
-    '<strong>モデルの軸（churn予測）</strong>：本番が StratifiedKFold のままで、同じ顧客が' +
-    '継続契約で複数の取引を持つため <strong>AUC が上振れします</strong>。' +
-    '説明できない順位を現場に出せません。</div>' +
-    '<div class="kpis">' + R.bands.map((b, i) =>
-      kpi(b.label, num(b.n), "稼働中 " + num(R.n_act) + " 件のうち",
-        i === 2 ? "red" : i === 1 ? "amber" : "")).join("") +
-      kpi("③ 未測定", num(R.ax3["未測定"]), "接触の記録が1つも無い", "gray") + "</div>" +
-    table(["軸", "赤", "白", "未測定", "判定のしかた"], [
-      ["③ 放置", '<span class="flag">' + num(R.ax3["赤"]) + "</span>", num(R.ax3["白"]),
-       num(R.ax3["未測定"]), '<span class="n0">' + esc(R.ax3.rule) + "</span>"],
-      ["④ 収益", '<span class="flag">' + num(R.ax4["赤"]) + "</span>", num(R.ax4["白"]),
-       num(R.ax4["未測定"]), '<span class="n0">' + esc(R.ax4.rule) + "</span>"],
-    ]),
-    "③軸は本日の MTG と電話から組み直しています。既存の <code>deal_contact_rollup</code> は" +
-    "使っていません（<code>last_contact_at_post</code> はメールが混ざり、" +
-    "<code>last_call_at_post</code> は MTG が抜けるため）。" +
-    "　数えた接触: 60秒超の通話 " + num(cs.calls_over_threshold) + " 件 ／ " +
-    "取引に紐づいた MTG " + num(cs.mtgs_linked) + " 件 ／ 接触のある取引 " +
-    num(cs.deals_with_contact) + " 件。<br>接触の記録が1つも無い " + num(R.ax3["未測定"]) +
-    " 件は<strong>赤にせず「未測定」として分けています</strong>。記録が無いことと放置は別です。");
+  h += sec("図", "リスクは2軸だけで見る");
+  h += note("info", "4軸のうち2軸を意図的に外しています。手抜きではありません",
+    "<b>関係性の軸（NPS）</b>：稼働中の半分にしか値が無く、<b>構造的に発火しません</b>。" +
+    "常に非赤の軸を並べると「問題ない」と読まれますが、実際は<b>測れていないだけ</b>です" +
+    "（NPS は①で独立した指標として出しています）。<br>" +
+    "<b>モデルの軸（churn予測）</b>：本番が StratifiedKFold のままで、同じ顧客が継続契約で" +
+    "複数の取引を持つため <b>AUC が上振れします</b>。説明できない順位を現場に出せません。");
+  const rparts = R.bands.map((b) => ({
+    label: b.label, v: b.n,
+    color: b.label.startsWith("2") ? C.hi : b.label.startsWith("1") ? C.ki : C.midori }));
+  h += fig("稼働中 " + num(R.n_act) + " 件の帯", "2軸とも赤 ＝ 最優先",
+    svgStack({ w: 680, parts: rparts }),
+    stackLegend(rparts) +
+    '<i class="full">③放置: 赤 ' + num(R.ax3["赤"]) + " / 白 " + num(R.ax3["白"]) +
+    " / 未測定 " + num(R.ax3["未測定"]) + "（" + esc(R.ax3.rule) + "）<br>" +
+    "④収益: 赤 " + num(R.ax4["赤"]) + " / 白 " + num(R.ax4["白"]) +
+    " / 未測定 " + num(R.ax4["未測定"]) + "（" + esc(R.ax4.rule) + "）<br>" +
+    "接触の記録が1つも無い " + num(R.ax3["未測定"]) +
+    " 件は<b>赤にせず「未測定」として分けています</b>。記録が無いことと放置は別です。" +
+    "数えた接触: 60秒超の通話 " + num(cs.calls_over_threshold) + " / MTG " +
+    num(cs.mtgs_linked) + " / 接触のある取引 " + num(cs.deals_with_contact) + "</i>");
 
-  h += card("4　最優先（2軸とも赤）", num(R.top.length) + " 件。金額が大きい順。",
-    '<div class="scroll">' + table(
-      ["取引", "ステージ", "金額", "満了まで", "③ 放置", "接触の記録"],
-      R.top.map((r) => [
-        esc(r.name || r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>", man(r.amount),
-        r.days_to_expiry === null ? n0() : num(r.days_to_expiry) + "日",
-        (r.never_after_start ? '<span class="flag">' : "<span>") + esc(r.ax3w) +
-          (r.never_after_start ? " ▲" : "") + "</span>",
-        r.n_contact ? num(r.n_contact) + "件" : n0(),
-      ])) + "</div>",
-    "▲ は契約後に一度も接触の記録が無いもの。「接触の記録」は60秒超の通話とMTGの合計件数。" +
-    esc(R.order_note) + "。");
+  h += sec("図", "最優先の広がり（金額 × 満了まで）");
+  h += fig("2軸とも赤の " + num(R.top.length) + " 件", "右上ほど金額が大きく満了が遠い",
+    R.top.length
+      ? svgScatter({ w: 680, h: 260,
+          pts: R.top.filter((r) => r.amount != null && r.days_to_expiry != null)
+            .map((r) => ({ x: r.days_to_expiry, y: r.amount,
+                           color: r.never_after_start ? C.hi : C.ki,
+                           label: r.name || r.deal_id })),
+          xFmt: F.int, yFmt: F.man, xLab: "満了まで（日）", yLab: "金額",
+          alt: "最優先の広がり" })
+      : '<div class="empty">最優先に当たる取引がありません。</div>',
+    lg("dot", C.hi, "契約後に一度も接触していない") + lg("dot", C.ki, "接触から30日超") +
+    '<i class="full">' + esc(R.order_note) + "</i>");
+
+  h += sec("表", "最優先（2軸とも赤・" + num(R.top.length) + " 件）");
+  h += '<div class="lede">金額が大きい順。' + esc(R.order_note) + "</div>";
+  h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "金額", n: 1 },
+                     { t: "満了まで", n: 1 }, { t: "③ 放置" }, { t: "接触の記録", n: 1 }],
+    R.top.map((r) => [esc(r.name || r.deal_id),
+      '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
+      r.days_to_expiry == null ? DASH : num(r.days_to_expiry) + "日",
+      (r.never_after_start ? '<b style="color:var(--hi)">' : "<span>") + esc(r.ax3w) +
+        (r.never_after_start ? " &#9650;</b>" : "</span>"),
+      r.n_contact ? num(r.n_contact) + "件" : DASH])), 420);
   return h + foot(D.meta);
 }
 
-/* ============================================================ 9 データ品質 */
+/* ================================================================ 9 データ品質 */
 function renderDq(D) {
-  let h = card("この画面の数字を、どこまで信じてよいか",
-    "取引 " + num(D.meta.n_deals) + " 件（稼働中 " + num(D.meta.n_active) + " 件）。", "");
+  let h = sec("問い", "この画面の数字を、どこまで信じてよいか") +
+    '<div class="lede">取引 ' + num(D.meta.n_deals) + " 件（稼働中 " +
+    num(D.meta.n_active) + " 件）。</div>";
 
-  h += card("法人番号の出どころ", "",
-    table(["出どころ", "件数"], D.houjin_source.rows.map((r) => [esc(r.label), num(r.n)])),
-    esc(D.houjin_source.note));
+  /* ---- 法人番号の出どころ ---- */
+  h += sec("図", "法人番号の出どころ");
+  const hp = D.houjin_source.rows.map((r, i) => ({
+    label: r.label, v: r.n,
+    color: r.label === "deal" ? C.ai : r.label === "company" ? C.ki : C.ghost,
+    faint: r.label.indexOf("無") >= 0 || r.label === "none" }));
+  h += fig("どこから取れたか", "",
+    svgStack({ w: 680, parts: hp }), stackLegend(hp) +
+    '<i class="full">' + esc(D.houjin_source.note) + "</i>");
 
+  /* ---- 記入率の偏り（面で見る）---- */
+  h += sec("図", "成果系の記入率が結果で偏っている");
   const groups = ["継続済", "解約", "充足", "結果待ち"];
   const fields = [...new Set(D.outcome_bias.rows.map((r) => r.field))];
-  h += card("成果系の記入率が結果で偏っている", "",
-    table(["項目"].concat(groups.map((g) => g + " の記入率")),
-      fields.map((f) => [esc(f)].concat(groups.map((g) => {
-        const r = D.outcome_bias.rows.find((x) => x.group === g && x.field === f);
-        if (!r) return n0();
-        return pct(r.fill_rate) + ' <span class="n0">(' + num(r.filled) + "/" + num(r.n) + ")</span>";
-      })))),
-    esc(D.outcome_bias.note));
+  h += fig("結果ごとの記入率", "色が濃いほど埋まっている",
+    svgMatrix({ padL: 150, cw: 120,
+      cols: groups,
+      rows: fields.map((f) => ({
+        label: f,
+        cells: groups.map((g) => {
+          const r = D.outcome_bias.rows.find((x) => x.group === g && x.field === f);
+          if (!r || r.fill_rate == null) return { v: null, txt: "—", n: 0 };
+          return { v: r.fill_rate / 100, txt: pct1(r.fill_rate),
+                   n: r.filled, color: C.ai };
+        }),
+      })) }),
+    '<i class="full">' + esc(D.outcome_bias.note) + "</i>");
+  h += note("bad", "この偏りは相関を押し上げる方向に効きます",
+    "うまくいかなかった契約ほど数字が残っていないので、" +
+    "「継続するほど成果が良い」という見え方が強く出ます。");
 
-  h += card("欠測", "件数と率の両方を出します。0 で埋めていません。",
-    table(["項目", "件数", "率", "どう効くか"],
-      D.missing.map((m) => [esc(m.label), num(m.n), pct(m.rate),
-        '<span class="n0">' + esc(m.note) + "</span>"])));
+  /* ---- 欠測 ---- */
+  h += sec("図", "何がどれだけ欠けているか");
+  h += fig("欠測の件数", "0 で埋めていません",
+    svgBarH({ w: 700, fmt: F.int, rh: 26,
+      rows: D.missing.map((m) => ({
+        label: tail(m.label, 30), v: m.n, txt: num(m.n) + "件",
+        note: pct1(m.rate), color: m.rate >= 20 ? C.ki : C.ai })) }),
+    lg("box", C.ki, "20%以上") + lg("box", C.ai, "20%未満") +
+    '<i class="full">' + D.missing.map((m) => esc(m.label) + "：" + esc(m.note)).join(" ／ ") +
+    "</i>");
 
-  h += card("読んでいるシート", "スプレッドシートを直接読んでいます。",
-    table(["シート", "行数"], D.sheets.map((s) => [esc(s.name), num(s.rows)])));
+  /* ---- 読んでいるシート ---- */
+  h += sec("表", "読んでいるシート");
+  h += '<div class="lede">スプレッドシートを直接読んでいます。件数はいま読めた行数です。</div>';
+  h += table([{ t: "シート" }, { t: "行数", n: 1 }],
+    D.sheets.map((x) => [esc(x.name), num(x.rows)]));
   return h + foot(D.meta);
 }
 
-/* ============================================================ 読み込み */
+/* ================================================================ 取得 */
 const TABS = {
   focus:    { path: "/api/consulting/focus",        render: renderFocus },
   renewal:  { path: "/api/consulting/renewal",      render: renderRenewal },
@@ -653,23 +1998,64 @@ const TABS = {
 };
 const loaded = {};
 
+function showError(e) {
+  const box = document.getElementById("cs-error");
+  box.style.display = "";
+  box.innerHTML = '<div class="err">データを取得できませんでした。\n' + esc(e.message) + "</div>";
+}
+
 async function load(key, refresh) {
   const t = TABS[key];
   const q = new URLSearchParams();
   if (refresh) q.set("refresh", "1");
-  if (key === "renewal" && $("cs-censor").checked) q.set("exclude_right_censored", "1");
-  if (key === "customer" && $("cs-houjin").value) q.set("houjin", $("cs-houjin").value);
-  $("st-" + key).textContent = "読み込み中…";
-  $("cs-error").style.display = "none";
+  const censor = document.getElementById("cs-censor");
+  if (key === "renewal" && censor && censor.checked) q.set("exclude_right_censored", "1");
+  if (key === "customer" && customerHoujin) q.set("houjin", customerHoujin);
+
+  const pane = document.getElementById("pane-" + key);
+  pane.innerHTML = '<div class="loading">読み込み中…</div>';
+  document.getElementById("cs-error").style.display = "none";
   try {
-    const D = await get(t.path, q);
-    $("body-" + key).innerHTML = t.render(D);
-    $("st-" + key).textContent = D.meta && D.meta.all_cached ? "（キャッシュから表示）" : "";
+    const res = await fetch(t.path + "?" + q.toString(), { credentials: "same-origin" });
+    const body = await res.json();
+    // サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す
+    if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
+    pane.innerHTML = ctlbar(key, body) + t.render(body);
+    wire(key);
     loaded[key] = true;
   } catch (e) {
-    $("st-" + key).textContent = "";
+    pane.innerHTML = "";
     showError(e);
   }
+}
+
+/* タブごとの操作列。②は右側打ち切りの切り替え、③は法人の選択 */
+function ctlbar(key, D) {
+  let h = '<div class="ctlbar">';
+  if (key === "renewal") {
+    h += '<label class="act"><input type="checkbox" id="cs-censor">' +
+      "右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>";
+  }
+  if (key === "customer") h += '<select id="cs-houjin" class="act"></select>';
+  h += '<button type="button" class="act" id="cs-reload">読み直す</button>';
+  if (D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
+  return h + "</div>";
+}
+function wire(key) {
+  const rl = document.getElementById("cs-reload");
+  if (rl) rl.onclick = () => load(key, true);
+  const sel = document.getElementById("cs-houjin");
+  if (sel && customerIndex) {
+    sel.innerHTML = '<option value="">法人を選ぶ…</option>' + customerIndex.slice(0, 400).map((r) =>
+      '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
+      "（取引" + num(r.deals) + " / 拠点" + num(r.sites) + "）</option>").join("");
+    // 差し込み直しでも選んだ法人が残るようにする
+    if (customerHoujin) sel.value = customerHoujin;
+  }
+  const cz = document.getElementById("cs-censor");
+  if (cz) cz.onchange = () => load("renewal", false);
+  const hj = document.getElementById("cs-houjin");
+  if (hj) hj.onchange = () => { customerHoujin = hj.value; load("customer", false); };
 }
 
 document.querySelectorAll("nav.tabs button").forEach((b) => {
@@ -677,16 +2063,11 @@ document.querySelectorAll("nav.tabs button").forEach((b) => {
     document.querySelectorAll("nav.tabs button").forEach((x) => x.classList.remove("on"));
     document.querySelectorAll(".pane").forEach((x) => x.classList.remove("on"));
     b.classList.add("on");
-    $("pane-" + b.dataset.p).classList.add("on");
+    document.getElementById("pane-" + b.dataset.p).classList.add("on");
     // 開いたときに初めて取る。開かないタブのぶんは Sheets を叩かない
     if (!loaded[b.dataset.p]) load(b.dataset.p, false);
   });
 });
-document.querySelectorAll("button.act[data-reload]").forEach((b) => {
-  b.addEventListener("click", () => load(b.dataset.reload, true));
-});
-$("cs-censor").addEventListener("change", () => load("renewal", false));
-$("cs-houjin").addEventListener("change", () => load("customer", false));
 load("focus", false);
 </script>
 </body>
