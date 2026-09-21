@@ -48,8 +48,8 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
-    consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, focus_of,
-    latest_nps, load, opt_num, Deal, Outcome, Sheets,
+    consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, focus_of, latest_nps,
+    load, opt_num, Deal, Outcome, Sheets,
 };
 
 pub fn router() -> Router<std::sync::Arc<AppState>> {
@@ -124,7 +124,12 @@ async fn outcome(Query(q): Query<OutcomeQuery>, session: Session) -> Result<Resp
     let sheets = load(&state.client, &state.store)
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
-    Ok(Json(freshen(build_outcome(&sheets, today_jst()), &sheets, today_jst())).into_response())
+    Ok(Json(freshen(
+        build_outcome(&sheets, today_jst()),
+        &sheets,
+        today_jst(),
+    ))
+    .into_response())
 }
 
 /// 日本時間の今日。サーバのタイムゾーン設定に依存させない。
@@ -157,7 +162,12 @@ async fn focus(Query(q): Query<FocusQuery>, session: Session) -> Result<Response
     let sheets = load(&state.client, &state.store)
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
-    Ok(Json(freshen(build_focus(&sheets, today_jst()), &sheets, today_jst())).into_response())
+    Ok(Json(freshen(
+        build_focus(&sheets, today_jst()),
+        &sheets,
+        today_jst(),
+    ))
+    .into_response())
 }
 
 macro_rules! simple_handler {
@@ -745,8 +755,8 @@ fn nps_low(
             continue;
         }
         let n_contact = contacts.get(&d.id).map(|v| v.len()).unwrap_or(0);
-        let days_to_expiry = super::date10(&d.contract_expiration_date)
-            .map(|ed| (ed - today).num_days());
+        let days_to_expiry =
+            super::date10(&d.contract_expiration_date).map(|ed| (ed - today).num_days());
         rows.push(json!({
             "deal_id": d.id,
             "name": d.name,
@@ -1033,10 +1043,7 @@ fn first_mtg(deals: &[Deal], mtg_first: &HashMap<String, NaiveDate>) -> Value {
 
 /// 稼働中の初回契約で、まだMTGをしていないもの。
 fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDate) -> Value {
-    let first_time: Vec<&&Deal> = act
-        .iter()
-        .filter(|d| d.renewal_no == Some(0))
-        .collect();
+    let first_time: Vec<&&Deal> = act.iter().filter(|d| d.renewal_no == Some(0)).collect();
     let mut rows = Vec::new();
     for d in &first_time {
         if mtg_first.contains_key(&d.id) {
@@ -1171,12 +1178,12 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
                 days.push(dd as f64);
                 if dd > 90 {
                     silent.push(json!({
-                        "deal_id": d.id, "name": d.name,
-                "stage": d.stage_label, "amount": d.amount,
-                        "n_calls": n_all,
-                        "n_contact": hits.map(|v| v.len()).unwrap_or(0),
-                        "last_contact": l.to_string(), "days_since": dd,
-                    }));
+                            "deal_id": d.id, "name": d.name,
+                    "stage": d.stage_label, "amount": d.amount,
+                            "n_calls": n_all,
+                            "n_contact": hits.map(|v| v.len()).unwrap_or(0),
+                            "last_contact": l.to_string(), "days_since": dd,
+                        }));
                 }
             }
             None => {
@@ -1246,19 +1253,25 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
     let mut by_houjin: HashMap<&str, Vec<&Deal>> = HashMap::new();
     for d in &deals {
         if !d.houjin_resolved.is_empty() {
-            by_houjin.entry(d.houjin_resolved.as_str()).or_default().push(d);
+            by_houjin
+                .entry(d.houjin_resolved.as_str())
+                .or_default()
+                .push(d);
         }
     }
 
     let mut rows = Vec::new();
     let mut multi = 0usize;
     for (houjin, ds) in &by_houjin {
-        let sites: BTreeMap<&str, Vec<&&Deal>> =
-            ds.iter().fold(BTreeMap::new(), |mut acc, d| {
-                let k = if d.kyoten_key.is_empty() { "(拠点不明)" } else { d.kyoten_key.as_str() };
-                acc.entry(k).or_default().push(d);
-                acc
-            });
+        let sites: BTreeMap<&str, Vec<&&Deal>> = ds.iter().fold(BTreeMap::new(), |mut acc, d| {
+            let k = if d.kyoten_key.is_empty() {
+                "(拠点不明)"
+            } else {
+                d.kyoten_key.as_str()
+            };
+            acc.entry(k).or_default().push(d);
+            acc
+        });
         if sites.len() < 2 {
             continue;
         }
@@ -1288,8 +1301,10 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
             .collect();
         // 拠点間の差がいちばん大きい法人を上に出す
         let cpas: Vec<f64> = site_rows.iter().filter_map(|r| r["cpa"].as_f64()).collect();
-        let spread = match (cpas.iter().cloned().fold(f64::NAN, f64::min),
-                            cpas.iter().cloned().fold(f64::NAN, f64::max)) {
+        let spread = match (
+            cpas.iter().cloned().fold(f64::NAN, f64::min),
+            cpas.iter().cloned().fold(f64::NAN, f64::max),
+        ) {
             (lo, hi) if lo.is_finite() && hi.is_finite() && lo > 0.0 => Some(hi / lo),
             _ => None,
         };
@@ -1303,7 +1318,9 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
         }));
     }
     rows.sort_by(|a, b| {
-        b["spread"].as_f64().unwrap_or(-1.0)
+        b["spread"]
+            .as_f64()
+            .unwrap_or(-1.0)
             .partial_cmp(&a["spread"].as_f64().unwrap_or(-1.0))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
@@ -1336,13 +1353,24 @@ pub fn build_mtg_quality(sheets: &Sheets, today: NaiveDate) -> Value {
 
     // 分析項目の埋まり具合
     let fields = [
-        "議題", "決定事項", "やること", "顧客の懸念", "前向きシグナル",
-        "次回予定", "リスク判定", "リスク理由", "商談フェーズ",
+        "議題",
+        "決定事項",
+        "やること",
+        "顧客の懸念",
+        "前向きシグナル",
+        "次回予定",
+        "リスク判定",
+        "リスク理由",
+        "商談フェーズ",
     ];
     let filled: Vec<Value> = fields
         .iter()
         .map(|f| {
-            let n = mtg.rows.iter().filter(|r| !mtg.get(r, f).trim().is_empty()).count();
+            let n = mtg
+                .rows
+                .iter()
+                .filter(|r| !mtg.get(r, f).trim().is_empty())
+                .count();
             json!({"field": f, "n": n, "rate": rate(n as f64, total as f64)})
         })
         .collect();
@@ -1354,7 +1382,11 @@ pub fn build_mtg_quality(sheets: &Sheets, today: NaiveDate) -> Value {
     let mut monthly: BTreeMap<String, usize> = BTreeMap::new();
     for r in &mtg.rows {
         let v = mtg.get(r, "リスク判定").trim();
-        let key = if v.is_empty() { "（未判定）".to_string() } else { v.to_string() };
+        let key = if v.is_empty() {
+            "（未判定）".to_string()
+        } else {
+            v.to_string()
+        };
         *risk.entry(key).or_insert(0) += 1;
         let h = mtg.get(r, "ホスト氏名").trim();
         if !h.is_empty() {
@@ -1372,7 +1404,12 @@ pub fn build_mtg_quality(sheets: &Sheets, today: NaiveDate) -> Value {
         .iter()
         .map(|(k, v)| json!({"host": k, "n": v}))
         .collect();
-    hosts.sort_by(|a, b| b["n"].as_i64().unwrap_or(0).cmp(&a["n"].as_i64().unwrap_or(0)));
+    hosts.sort_by(|a, b| {
+        b["n"]
+            .as_i64()
+            .unwrap_or(0)
+            .cmp(&a["n"].as_i64().unwrap_or(0))
+    });
 
     json!({
         "meta": {
@@ -1405,7 +1442,11 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
     let mut src: BTreeMap<String, usize> = BTreeMap::new();
     for r in &sheets.deal.rows {
         let v = sheets.deal.get(r, "houjin_source").trim();
-        let k = if v.is_empty() { "（無し）".to_string() } else { v.to_string() };
+        let k = if v.is_empty() {
+            "（無し）".to_string()
+        } else {
+            v.to_string()
+        };
         *src.entry(k).or_insert(0) += 1;
     }
 
@@ -1425,7 +1466,10 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
     ];
     let mut bias = Vec::new();
     for (gl, g) in groups {
-        let ds: Vec<&Deal> = deals.iter().filter(|d| super::outcome_of(&d.stage) == *g).collect();
+        let ds: Vec<&Deal> = deals
+            .iter()
+            .filter(|d| super::outcome_of(&d.stage) == *g)
+            .collect();
         for (fl, f) in fields {
             let n = ds.iter().filter(|d| f(d).is_some()).count();
             bias.push(json!({"group": gl, "field": fl, "n": ds.len(), "filled": n,
@@ -1434,9 +1478,15 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
     }
 
     let censored = deals.iter().filter(|d| d.right_censored).count();
-    let no_expiry = deals.iter().filter(|d| d.contract_expiration_date.is_empty()).count();
+    let no_expiry = deals
+        .iter()
+        .filter(|d| d.contract_expiration_date.is_empty())
+        .count();
     let no_period = deals.iter().filter(|d| d.contract_period.is_none()).count();
-    let no_start = deals.iter().filter(|d| d.contract_start_date.is_empty()).count();
+    let no_start = deals
+        .iter()
+        .filter(|d| d.contract_start_date.is_empty())
+        .count();
 
     json!({
         "meta": {
@@ -1545,9 +1595,8 @@ fn monthly_of(
         let rows: Vec<Value> = filled
             .iter()
             .filter_map(|mv| {
-                month_index(&deal.contract_start_date, &mv.month).map(|mi| {
-                    json!({"m": mi, "month": mv.month, "v": mv.v, "carry": mv.carry})
-                })
+                month_index(&deal.contract_start_date, &mv.month)
+                    .map(|mi| json!({"m": mi, "month": mv.month, "v": mv.v, "carry": mv.carry}))
             })
             .filter(|r| r["m"].as_i64().unwrap_or(0) >= 1)
             .collect();
@@ -1562,10 +1611,11 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
 
     let Some(h) = houjin.filter(|x| !x.is_empty()) else {
         // 法人の指定が無ければ一覧だけ返す（全部の明細を返すと巨大になる）
-        let mut list: Vec<&super::Customer> =
-            cust.iter().filter(|c| c.is_display_target).collect();
+        let mut list: Vec<&super::Customer> = cust.iter().filter(|c| c.is_display_target).collect();
         list.sort_by(|a, b| {
-            b.ltv.unwrap_or(0.0).partial_cmp(&a.ltv.unwrap_or(0.0))
+            b.ltv
+                .unwrap_or(0.0)
+                .partial_cmp(&a.ltv.unwrap_or(0.0))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         // 🔴 開いた瞬間に空の画面を出さない。**取引がいちばん多い法人**を既定にする。
@@ -1575,7 +1625,8 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
         let default_houjin = list
             .iter()
             .max_by(|a, b| {
-                a.deal_count.unwrap_or(0.0)
+                a.deal_count
+                    .unwrap_or(0.0)
                     .partial_cmp(&b.deal_count.unwrap_or(0.0))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
@@ -1584,8 +1635,8 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "meta": {"today": today.to_string(), "all_cached": sheets.all_cached},
             "default_houjin": default_houjin,
             "default_reason": "取引がいちばん多い法人を既定で開いています。\
-①今日動く先の1件目にしていないのは、あちらが日によって変わるので\
-「昨日と同じ顧客を続けて見る」ができなくなるためです",
+        ①今日動く先の1件目にしていないのは、あちらが日によって変わるので\
+        「昨日と同じ顧客を続けて見る」ができなくなるためです",
             "index": list.iter().map(|c| json!({
                 "houjin": c.houjin, "name": c.name, "ltv": c.ltv,
                 "deals": c.deal_count, "sites": c.kyoten_unique,
@@ -1619,13 +1670,18 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "extracted": !sheets.mtg.get(r, "やること").trim().is_empty(),
         }));
     }
-    mtgs.sort_by(|a, b| a["date"].as_str().unwrap_or("").cmp(b["date"].as_str().unwrap_or("")));
+    mtgs.sort_by(|a, b| {
+        a["date"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["date"].as_str().unwrap_or(""))
+    });
 
     /* ---- 採用単価を3つの出し方で ----
-       🔴 1つの数字に見せない。出し方で値が変わることを画面に出す。
-         (1) 総額 ÷ 採用数      … いちばん素直。ただし稼働中は金額が丸ごと乗る
-         (2) 月割り             … 金額 ÷ 契約期間 × 経過月数 ÷ 採用数
-         (3) 同じ進捗帯の中央値 … 進捗が近い契約どうしで比べる */
+    🔴 1つの数字に見せない。出し方で値が変わることを画面に出す。
+      (1) 総額 ÷ 採用数      … いちばん素直。ただし稼働中は金額が丸ごと乗る
+      (2) 月割り             … 金額 ÷ 契約期間 × 経過月数 ÷ 採用数
+      (3) 同じ進捗帯の中央値 … 進捗が近い契約どうしで比べる */
     let band_of = |d: &Deal| -> Option<usize> {
         let p = progress(d, today)?;
         Some(if p < 0.34 {
@@ -1720,7 +1776,11 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
     let mut by_site: BTreeMap<&str, Vec<Value>> = BTreeMap::new();
     for d in &ds {
         let Some(v) = cpa(d) else { continue };
-        let k = if d.kyoten_key.is_empty() { "(拠点不明)" } else { d.kyoten_key.as_str() };
+        let k = if d.kyoten_key.is_empty() {
+            "(拠点不明)"
+        } else {
+            d.kyoten_key.as_str()
+        };
         by_site.entry(k).or_default().push(json!({
             "deal_id": d.id, "start": d.contract_start_date, "cpa": v,
             "syoudaku": d.syoudaku, "amount": d.amount,
@@ -1822,8 +1882,15 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
             continue;
         };
         let e = by.entry(name.clone()).or_insert(Agg {
-            n: 0, months: 0, touched: 0, atv_max: None, focus: 0,
-            expiring: 0, nps_low: 0, no_contact: 0, retired: false,
+            n: 0,
+            months: 0,
+            touched: 0,
+            atv_max: None,
+            focus: 0,
+            expiring: 0,
+            nps_low: 0,
+            no_contact: 0,
+            retired: false,
         });
         e.n += 1;
         e.retired |= *retired;
@@ -1893,22 +1960,22 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
             "owner_ties": ties,
             "all_cached": sheets.all_cached,
             "not_counted": "※ 担当者の評価ではありません。手が足りていない場所を見つけるための画面です。\
-順位を付けていますが、良し悪しの判断は人がします",
+    順位を付けていますが、良し悪しの判断は人がします",
         },
         "contact_rule": "接触 ＝ MTG または60秒超の通話（メールは数えない）。\
-接触率 ＝ 接触があった月 ÷（案件 × 経過月）。件数ではなく率で見るのは、\
-件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分からなくなるため",
+    接触率 ＝ 接触があった月 ÷（案件 × 経過月）。件数ではなく率で見るのは、\
+    件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分からなくなるため",
         "small_n_rule": format!(
             "接触率の図には、分母（案件 × 経過月）が {} か月未満の担当者を載せていません。\
-1案件・数か月の分母で 0% になった人が、何十案件も抱えて 20% 台の人より「悪い」位置に\
-並ぶと、実態とずれて読まれるためです。**表には残しています**（1案件でも接触ゼロなら拾いたいので）。",
+    1案件・数か月の分母で 0% になった人が、何十案件も抱えて 20% 台の人より「悪い」位置に\
+    並ぶと、実態とずれて読まれるためです。**表には残しています**（1案件でも接触ゼロなら拾いたいので）。",
             super::MIN_CONTACT_MONTHS),
         "focus_rule": "注力の定義は既存のまま（月額30万超 / 拠点が複数 / 従業員規模のいずれか）。\
-ここで作り直していません",
+    ここで作り直していません",
         "owner_rule": "担当は consultant が正本です（hubspot_owner_id ではありません）。\
-取引ごとに、担当履歴のいちばん新しい行を採っています。\
-🔴 同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。\
-採り方を変えると担当が変わる取引があるので、その件数を出しています",
+    取引ごとに、担当履歴のいちばん新しい行を採っています。\
+    🔴 同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。\
+    採り方を変えると担当が変わる取引があるので、その件数を出しています",
         "rows": rows,
     })
 }
@@ -1933,7 +2000,13 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     // 同じ進捗帯の採用単価の中央値。比べる相手をそろえる
     let band_of = |d: &Deal| -> Option<usize> {
         let p = progress(d, today)?;
-        Some(if p < 0.34 { 0 } else if p < 0.67 { 1 } else { 2 })
+        Some(if p < 0.34 {
+            0
+        } else if p < 0.67 {
+            1
+        } else {
+            2
+        })
     };
     let mut band_vals: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     for d in &deals {
@@ -1944,7 +2017,9 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     let band_med: Vec<Option<f64>> = band_vals
         .iter_mut()
         .map(|v| {
-            if v.is_empty() { return None; }
+            if v.is_empty() {
+                return None;
+            }
             v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             Some(v[v.len() / 2])
         })
@@ -1967,7 +2042,9 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
         // 🔴 契約開始がまだ先の案件がある（実測115件）。
         //    そのまま計算すると「-1 / 6 か月目」と出て読めない。
         //    **開始前は経過月を出さない**（0ヶ月目でもない）。
-        let started = date10(&d.contract_start_date).map(|st| st <= today).unwrap_or(false);
+        let started = date10(&d.contract_start_date)
+            .map(|st| st <= today)
+            .unwrap_or(false);
         let months = if started {
             progress(d, today).map(|p| (p * d.contract_period.unwrap_or(0.0)).max(0.0))
         } else {
@@ -2059,10 +2136,17 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
 
     // 名札の本数が多い順。同数なら金額の大きい順
     rows.sort_by(|a, b| {
-        b["n_flags"].as_u64().unwrap_or(0).cmp(&a["n_flags"].as_u64().unwrap_or(0))
-            .then_with(|| b["amount"].as_f64().unwrap_or(-1.0)
-                .partial_cmp(&a["amount"].as_f64().unwrap_or(-1.0))
-                .unwrap_or(std::cmp::Ordering::Equal))
+        b["n_flags"]
+            .as_u64()
+            .unwrap_or(0)
+            .cmp(&a["n_flags"].as_u64().unwrap_or(0))
+            .then_with(|| {
+                b["amount"]
+                    .as_f64()
+                    .unwrap_or(-1.0)
+                    .partial_cmp(&a["amount"].as_f64().unwrap_or(-1.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
     });
 
     let meta = json!({
@@ -2072,10 +2156,10 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
         "flag_counts": flag_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
             .collect::<Vec<_>>(),
         "order_rule": "既定の並びは「名札の本数が多い順、同じなら金額の大きい順」です。\
-🔴 スコアや確率は出していません。契約開始時点の当たり具合（AUC 0.583）では順位付けの\
-根拠になりません。何で上に来たかは、その行の名札を見れば分かります",
+    🔴 スコアや確率は出していません。契約開始時点の当たり具合（AUC 0.583）では順位付けの\
+    根拠になりません。何で上に来たかは、その行の名札を見れば分かります",
         "not_counted": "※ 予測ではありません。既にあるデータに名札を付けて並べただけです。\
-手を打つかどうかは中身を読んで決めてください",
+    手を打つかどうかは中身を読んで決めてください",
     });
     (rows, meta)
 }
