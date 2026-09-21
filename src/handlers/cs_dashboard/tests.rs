@@ -21,8 +21,7 @@ use serde_json::Value;
 
 use super::routes::{
     build_consultants, build_customer, build_data_quality, build_deal_board, build_focus,
-    build_headquarters, build_mtg_quality, build_outcome, build_phone, build_rampup,
-    build_renewal,
+    build_headquarters, build_mtg_quality, build_outcome, build_phone, build_rampup, build_renewal,
 };
 use super::Sheets;
 use crate::handlers::call_quality::sheets::SheetData;
@@ -34,8 +33,8 @@ fn load_tsv(name: &str) -> Arc<SheetData> {
         "{}/tests/fixtures/cs_dashboard/{name}.tsv.gz",
         env!("CARGO_MANIFEST_DIR")
     );
-    let raw = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("テストデータが読めません {path}: {e}"));
+    let raw =
+        std::fs::read(&path).unwrap_or_else(|e| panic!("テストデータが読めません {path}: {e}"));
     let mut text = String::new();
     {
         use std::io::Read;
@@ -203,7 +202,10 @@ fn 充足を外した値は別のキーで返る() {
     let main = r["cancel_rate"].as_f64().unwrap();
     let excl = r["cancel_rate_excl_fill"].as_f64().unwrap();
     assert!((main - 46.8).abs() < 0.05, "主値が {main:.1}%");
-    assert!(excl < main - 5.0, "充足を外すと {excl:.1}% まで下がるはず（主値 {main:.1}%）");
+    assert!(
+        excl < main - 5.0,
+        "充足を外すと {excl:.1}% まで下がるはず（主値 {main:.1}%）"
+    );
 }
 
 /// 右側打ち切りを外すと代表値が動く。
@@ -300,8 +302,14 @@ fn 主要な列が読めている() {
 
     let has = |f: &dyn Fn(&super::Deal) -> bool| deals.iter().filter(|d| f(d)).count();
     assert!(has(&|d| !d.stage.is_empty()) > 3600, "dealstage");
-    assert!(has(&|d| !d.contract_expiration_date.is_empty()) > 3600, "contract_expiration_date");
-    assert!(has(&|d| !d.contract_kind.is_empty()) > 3600, "contract_kind");
+    assert!(
+        has(&|d| !d.contract_expiration_date.is_empty()) > 3600,
+        "contract_expiration_date"
+    );
+    assert!(
+        has(&|d| !d.contract_kind.is_empty()) > 3600,
+        "contract_kind"
+    );
     assert!(has(&|d| d.renewal_no.is_some()) > 3600, "renewal_no");
     assert!(has(&|d| d.oubo.is_some()) > 1000, "oubo");
     assert!(has(&|d| d.keisaisu.is_some()) > 500, "keisaisu");
@@ -500,7 +508,10 @@ fn 最優先は金額の降順で返る() {
         assert!(a <= prev, "金額の降順になっていない: {a} の前が {prev}");
         prev = a;
     }
-    assert!(v["risk"]["order_note"].as_str().unwrap().contains("機械が付けた順"));
+    assert!(v["risk"]["order_note"]
+        .as_str()
+        .unwrap()
+        .contains("機械が付けた順"));
 }
 
 /// 基準日を変えるとリスクの帯が動くこと。
@@ -526,7 +537,11 @@ fn 基準日を変えると帯が動く() {
 use super::{fill_forward, series_of, MonthValue};
 
 fn mv(month: &str, v: f64, carry: bool) -> MonthValue {
-    MonthValue { month: month.to_string(), v, carry }
+    MonthValue {
+        month: month.to_string(),
+        v,
+        carry,
+    }
 }
 
 /// 飛んだ月を前の値で埋めること。
@@ -562,8 +577,11 @@ fn 飛んだ月は前の値を持ち越す() {
 fn 最初の実測より前は埋めない() {
     let pts = vec![("2026-03".to_string(), 7.0)];
     let got = fill_forward(&pts, "2026-05");
-    assert_eq!(got.first().map(|x| x.month.as_str()), Some("2026-03"),
-               "最初の点より前の月が出ている: {got:?}");
+    assert_eq!(
+        got.first().map(|x| x.month.as_str()),
+        Some("2026-03"),
+        "最初の点より前の月が出ている: {got:?}"
+    );
     assert!(!got.iter().any(|x| x.month.as_str() < "2026-03"));
     assert_eq!(got.len(), 3, "2026-03..05 の3ヶ月だけ");
 
@@ -586,8 +604,16 @@ fn 持ち越しと実測が区別できる() {
         ("2026-04".to_string(), 4.0),
     ];
     let got = fill_forward(&pts, "2026-04");
-    let carried: Vec<&str> = got.iter().filter(|x| x.carry).map(|x| x.month.as_str()).collect();
-    let measured: Vec<&str> = got.iter().filter(|x| !x.carry).map(|x| x.month.as_str()).collect();
+    let carried: Vec<&str> = got
+        .iter()
+        .filter(|x| x.carry)
+        .map(|x| x.month.as_str())
+        .collect();
+    let measured: Vec<&str> = got
+        .iter()
+        .filter(|x| !x.carry)
+        .map(|x| x.month.as_str())
+        .collect();
     assert_eq!(measured, vec!["2026-01", "2026-02", "2026-04"], "実測の月");
     assert_eq!(carried, vec!["2026-03"], "持ち越した月");
 }
@@ -633,7 +659,10 @@ fn プロパティ履歴の系列が読める() {
 #[test]
 fn rustは補正をやり直さない() {
     // 10倍以上の落差をそのまま渡す。Rust 側で消されたら fill_forward の結果が変わる
-    let pts = vec![("2026-01".to_string(), 300.0), ("2026-02".to_string(), 30.0)];
+    let pts = vec![
+        ("2026-01".to_string(), 300.0),
+        ("2026-02".to_string(), 30.0),
+    ];
     let got = fill_forward(&pts, "2026-02");
     assert_eq!(got.len(), 2, "点が消されている: {got:?}");
     assert_eq!(got[0].v, 300.0, "畳む側が残した値を Rust が捨てている");
@@ -657,13 +686,19 @@ fn npsは母数つきで独立して出る() {
     assert!(have > 0 && have < act, "NPSが入っているのは {have} / {act}");
     assert!(n["coverage"].as_f64().is_some(), "母数の率が null");
     assert!(
-        n["note"].as_str().unwrap().contains("リスクの軸に入れていません"),
+        n["note"]
+            .as_str()
+            .unwrap()
+            .contains("リスクの軸に入れていません"),
         "NPSを軸に入れない理由が payload に載っていない"
     );
 
     // 低NPSの行はしきい値以下だけ
     for r in n["rows"].as_array().unwrap() {
-        assert!(r["nps"].as_f64().unwrap() <= 4.0, "しきい値を超える行がある: {r}");
+        assert!(
+            r["nps"].as_f64().unwrap() <= 4.0,
+            "しきい値を超える行がある: {r}"
+        );
     }
     assert_eq!(n["n"], n["rows"].as_array().unwrap().len());
 
@@ -671,7 +706,10 @@ fn npsは母数つきで独立して出る() {
     let o = build_outcome(&sheets(), fixture_day());
     assert!(o["risk"]["ax3"].is_object() && o["risk"]["ax4"].is_object());
     assert!(o["risk"].get("ax1").is_none(), "NPSの軸が復活している");
-    assert!(o["risk"].get("ax2").is_none(), "churnモデルの軸が復活している");
+    assert!(
+        o["risk"].get("ax2").is_none(),
+        "churnモデルの軸が復活している"
+    );
 }
 
 /// 🔴 採用単価は**拠点ごと**に見ること。法人で1本にまとめない。
@@ -701,16 +739,28 @@ fn mtgの事実と推定を同じ率にまとめない() {
     let m = &v["mtg_layers"];
     let fact = m["fact_recording"]["n"].as_i64().unwrap();
     let est = m["estimated_mail"]["n"].as_i64().unwrap();
-    assert!(fact > 0 && est > 0, "どちらかの層が空: 事実{fact} / 推定{est}");
+    assert!(
+        fact > 0 && est > 0,
+        "どちらかの層が空: 事実{fact} / 推定{est}"
+    );
     // 2つの層が別のキーで返る
-    assert!(m["fact_recording"]["label"].as_str().unwrap().contains("事実"));
-    assert!(m["estimated_mail"]["label"].as_str().unwrap().contains("推定"));
+    assert!(m["fact_recording"]["label"]
+        .as_str()
+        .unwrap()
+        .contains("事実"));
+    assert!(m["estimated_mail"]["label"]
+        .as_str()
+        .unwrap()
+        .contains("推定"));
     // 内訳が母数と合う
     let both = m["both"].as_i64().unwrap();
     let only_r = m["only_recording"].as_i64().unwrap();
     let only_m = m["only_mail"].as_i64().unwrap();
     let neither = m["neither"].as_i64().unwrap();
-    assert_eq!(both + only_r + only_m + neither, m["n_act"].as_i64().unwrap());
+    assert_eq!(
+        both + only_r + only_m + neither,
+        m["n_act"].as_i64().unwrap()
+    );
     assert_eq!(fact, both + only_r);
     assert_eq!(est, both + only_m);
 }
@@ -724,7 +774,10 @@ fn 顧客の形が母数つきで出る() {
     let disp = sh["n_display"].as_i64().unwrap();
     assert!(disp > 0 && disp < 1649, "表示対象が {disp} 件");
     assert!(sh["ltv"]["n"].as_i64().unwrap() > 0, "LTVの代表値が空");
-    assert!(sh["multi_site"].as_i64().unwrap() > 0, "複数拠点の法人が0件");
+    assert!(
+        sh["multi_site"].as_i64().unwrap() > 0,
+        "複数拠点の法人が0件"
+    );
 }
 
 // ================================================================ タブ7 立ち上がり
@@ -737,8 +790,12 @@ fn フェーズは契約長に対する割合で決まる() {
     let ph = &v["phase"];
     assert_eq!(ph["total"], 703);
     let n = |label: &str| -> i64 {
-        ph["rows"].as_array().unwrap().iter()
-            .find(|r| r["label"] == label).and_then(|r| r["n"].as_i64())
+        ph["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["label"] == label)
+            .and_then(|r| r["n"].as_i64())
             .unwrap_or_else(|| panic!("{label} が無い"))
     };
     assert_eq!(n("序盤"), 290);
@@ -747,8 +804,12 @@ fn フェーズは契約長に対する割合で決まる() {
     assert_eq!(n("満了超過"), 32);
     // 🔴 契約期間が空のものは「出せない」。満了超過に混ぜない
     assert_eq!(n("出せない"), 1);
-    let total: i64 = ph["rows"].as_array().unwrap().iter()
-        .map(|r| r["n"].as_i64().unwrap_or(0)).sum();
+    let total: i64 = ph["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["n"].as_i64().unwrap_or(0))
+        .sum();
     assert_eq!(total, 703, "内訳の合計が母数と合わない");
     assert!(ph["rule"].as_str().unwrap().contains("契約長に対する割合"));
 }
@@ -806,7 +867,10 @@ fn 接触ゼロの取引は経過日数をnullにする() {
         }
     }
     // 日数が出せないものが先頭に来る（いちばん拾うべきもの）
-    assert!(rows[0]["days_since"].is_null(), "接触ゼロが先頭に来ていない");
+    assert!(
+        rows[0]["days_since"].is_null(),
+        "接触ゼロが先頭に来ていない"
+    );
 }
 
 /// 経過日数の代表値と、文字起こしの薄さ。
@@ -819,7 +883,10 @@ fn 電話の経過日数と文字起こしの薄さが出る() {
     let t = &v["transcript"];
     assert_eq!(t["n"], 1372);
     assert_eq!(t["rows"], 20843);
-    assert!(t["rate"].as_f64().unwrap() < 10.0, "文字起こしが薄いという読みが変わる");
+    assert!(
+        t["rate"].as_f64().unwrap() < 10.0,
+        "文字起こしが薄いという読みが変わる"
+    );
     assert!(t["note"].as_str().unwrap().contains("まだ読めていません"));
 
     // 月ごとの率は分母0で null
@@ -852,7 +919,10 @@ fn 本部は事業所ごとに並べる() {
             }
         }
     }
-    assert!(v["meta"]["not_counted"].as_str().unwrap().contains("事業所ごと"));
+    assert!(v["meta"]["not_counted"]
+        .as_str()
+        .unwrap()
+        .contains("事業所ごと"));
 }
 
 // ================================================================ タブ5 MTGの品質
@@ -864,18 +934,36 @@ fn mtgの埋まり具合は抽出の進み具合として出す() {
     assert_eq!(v["meta"]["n_mtg"], 3133);
     assert_eq!(v["linked"]["n"], 3133, "取引に結べた MTG");
 
-    let todo = v["filled"].as_array().unwrap().iter()
-        .find(|f| f["field"] == "やること").expect("やること");
+    let todo = v["filled"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["field"] == "やること")
+        .expect("やること");
     assert_eq!(todo["n"], 426);
-    assert!(todo["rate"].as_f64().unwrap() < 20.0, "抽出が一部だけという読みが変わる");
-    assert!(v["filled_note"].as_str().unwrap().contains("まだ抽出を通していない"));
+    assert!(
+        todo["rate"].as_f64().unwrap() < 20.0,
+        "抽出が一部だけという読みが変わる"
+    );
+    assert!(v["filled_note"]
+        .as_str()
+        .unwrap()
+        .contains("まだ抽出を通していない"));
 
     // リスク判定の分布は母数と合う
-    let sum: i64 = v["risk_dist"].as_array().unwrap().iter()
-        .map(|r| r["n"].as_i64().unwrap_or(0)).sum();
+    let sum: i64 = v["risk_dist"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["n"].as_i64().unwrap_or(0))
+        .sum();
     assert_eq!(sum, 3133, "リスク判定の内訳が母数と合わない");
     // 未判定を黙って落としていない
-    assert!(v["risk_dist"].as_array().unwrap().iter().any(|r| r["label"] == "（未判定）"));
+    assert!(v["risk_dist"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["label"] == "（未判定）"));
 }
 
 // ================================================================ タブ9 データ品質
@@ -886,20 +974,31 @@ fn データ品質は欠測を件数で出す() {
     let v = build_data_quality(&sheets(), fixture_day());
     assert_eq!(v["meta"]["n_deals"], 3659);
 
-    let sum: i64 = v["houjin_source"]["rows"].as_array().unwrap().iter()
-        .map(|r| r["n"].as_i64().unwrap_or(0)).sum();
+    let sum: i64 = v["houjin_source"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["n"].as_i64().unwrap_or(0))
+        .sum();
     assert_eq!(sum, 3659, "法人番号の出どころの内訳が母数と合わない");
     let note = v["houjin_source"]["note"].as_str().unwrap();
     assert!(note.contains("1社1つ"), "法人番号の規律が載っていない");
-    assert!(note.contains("就業場所"), "法人番号と就業場所の区別が載っていない");
+    assert!(
+        note.contains("就業場所"),
+        "法人番号と就業場所の区別が載っていない"
+    );
 
     // 欠測は件数と率の両方。率は分母0なら null
     for m in v["missing"].as_array().unwrap() {
         assert!(m["n"].as_i64().is_some());
         assert!(m["rate"].as_f64().is_some(), "率が出ていない: {m}");
     }
-    let censored = v["missing"].as_array().unwrap().iter()
-        .find(|m| m["label"].as_str().unwrap().contains("右側打ち切り")).unwrap();
+    let censored = v["missing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["label"].as_str().unwrap().contains("右側打ち切り"))
+        .unwrap();
     assert_eq!(censored["n"], 511);
 
     // 読んだシートの行数が全部載っている
@@ -933,7 +1032,10 @@ fn 顧客詳細は法人未指定なら一覧だけ返す() {
 fn 顧客詳細の採用単価は拠点ごとに分かれる() {
     let all = build_customer(&sheets(), None, fixture_day());
     // 拠点が2つ以上ある法人を1つ選ぶ
-    let target = all["index"].as_array().unwrap().iter()
+    let target = all["index"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|r| r["sites"].as_f64().unwrap_or(0.0) >= 2.0)
         .expect("拠点が2つ以上ある法人が無い");
     let h = target["houjin"].as_str().unwrap();
@@ -1020,12 +1122,18 @@ fn 金額0は入っていない扱いになる() {
     let sh = sheets();
     let deals = super::deals_of(&sh.deal);
     assert!(
-        !deals.iter().any(|d| matches!(d.amount, Some(v) if v <= 0.0)),
+        !deals
+            .iter()
+            .any(|d| matches!(d.amount, Some(v) if v <= 0.0)),
         "金額に 0 以下が残っている。money() が効いていない"
     );
     for d in &deals {
         if d.amount.is_none() {
-            assert!(super::cpa(d).is_none(), "金額が無いのに採用単価が出ている: {}", d.id);
+            assert!(
+                super::cpa(d).is_none(),
+                "金額が無いのに採用単価が出ている: {}",
+                d.id
+            );
         }
     }
     // シートには 0 の行が実在する（テストが素通りしていないことの確認）
@@ -1038,7 +1146,10 @@ fn 金額0は入っていない扱いになる() {
             !v.is_empty() && v.parse::<f64>().map(|x| x <= 0.0).unwrap_or(false)
         })
         .count();
-    assert!(raw_zero > 0, "シートに金額0の行が無い。このテストが意味を持たない");
+    assert!(
+        raw_zero > 0,
+        "シートに金額0の行が無い。このテストが意味を持たない"
+    );
 }
 
 /// ③案件の立ち位置に、応募・面接・採用・接触率がそろっていること。
@@ -1051,8 +1162,17 @@ fn 案件ごとに応募面接採用と接触率が出る() {
     let rows = v["rows"].as_array().expect("rows");
     assert!(!rows.is_empty());
 
-    for key in ["oubo", "mensetu", "syoudaku", "contact_touched", "contact_months"] {
-        assert!(rows.iter().any(|r| r.get(key).is_some()), "{key} の列が無い");
+    for key in [
+        "oubo",
+        "mensetu",
+        "syoudaku",
+        "contact_touched",
+        "contact_months",
+    ] {
+        assert!(
+            rows.iter().any(|r| r.get(key).is_some()),
+            "{key} の列が無い"
+        );
     }
     for key in ["oubo_carry", "mensetu_carry", "syoudaku_carry"] {
         assert!(rows.iter().any(|r| r.get(key).is_some()), "{key} が無い");
@@ -1065,7 +1185,10 @@ fn 案件ごとに応募面接採用と接触率が出る() {
         assert!(n <= den, "接触した月が経過月を超えている: {r}");
         if den == 0 {
             // 🔴 分母0の率は null。0% と書かない
-            assert!(r["contact_rate"].is_null(), "経過月0なのに率が出ている: {r}");
+            assert!(
+                r["contact_rate"].is_null(),
+                "経過月0なのに率が出ている: {r}"
+            );
         } else {
             let got = r["contact_rate"].as_f64().expect("contact_rate");
             let want = n as f64 / den as f64 * 100.0;
@@ -1073,7 +1196,10 @@ fn 案件ごとに応募面接採用と接触率が出る() {
             with_rate += 1;
         }
     }
-    assert!(with_rate > 100, "接触率を出せる案件が {with_rate} 件しかない");
+    assert!(
+        with_rate > 100,
+        "接触率を出せる案件が {with_rate} 件しかない"
+    );
 }
 
 /// ②と③で接触率の定義がずれていないこと。
@@ -1101,8 +1227,16 @@ fn 接触率の定義が担当者一覧と案件一覧でそろっている() {
         let Some((tn, td)) = sum.get(&who) else {
             continue;
         };
-        assert_eq!(t["contact_touched"].as_u64().unwrap(), *tn, "{who} の分子がずれている");
-        assert_eq!(t["contact_months"].as_u64().unwrap(), *td, "{who} の分母がずれている");
+        assert_eq!(
+            t["contact_touched"].as_u64().unwrap(),
+            *tn,
+            "{who} の分子がずれている"
+        );
+        assert_eq!(
+            t["contact_months"].as_u64().unwrap(),
+            *td,
+            "{who} の分母がずれている"
+        );
         checked += 1;
     }
     assert!(checked > 10, "突き合わせた担当者が {checked} 名しかない");
@@ -1117,7 +1251,10 @@ fn 契約開始がまだ先の案件は開始前として分ける() {
     let v = build_deal_board(&sheets(), fixture_day());
     let rows = v["rows"].as_array().expect("rows");
     let ns: Vec<&serde_json::Value> = rows.iter().filter(|r| r["not_started"] == true).collect();
-    assert!(!ns.is_empty(), "開始前の案件が1件も無い。判定が効いていない");
+    assert!(
+        !ns.is_empty(),
+        "開始前の案件が1件も無い。判定が効いていない"
+    );
 
     for r in rows {
         // 経過月が負のまま出ていないこと
@@ -1126,8 +1263,12 @@ fn 契約開始がまだ先の案件は開始前として分ける() {
         }
         if r["not_started"] == true {
             assert!(r["months"].is_null(), "開始前なのに経過月が出ている: {r}");
-            let flags: Vec<&str> = r["flags"].as_array().unwrap()
-                .iter().filter_map(|x| x.as_str()).collect();
+            let flags: Vec<&str> = r["flags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|x| x.as_str())
+                .collect();
             assert!(
                 !flags.iter().any(|f| f.contains("接触")),
                 "開始前なのに接触の名札が立っている: {flags:?}"
@@ -1161,13 +1302,19 @@ fn 母数が小さい担当者に印が付く() {
             small += 1;
         }
     }
-    assert!(small > 0, "母数が小さい担当者が1人もいない。判定が効いていない");
+    assert!(
+        small > 0,
+        "母数が小さい担当者が1人もいない。判定が効いていない"
+    );
     // 🔴 表から消していないこと（サーバは全員返す）
     assert!(rows.len() > small, "母数が小さい人しかいない");
 
     // 外す理由が payload に載っていること
     let rule = v["small_n_rule"].as_str().expect("small_n_rule");
-    assert!(rule.contains("表には残して"), "図と表で扱いを変える理由が載っていない");
+    assert!(
+        rule.contains("表には残して"),
+        "図と表で扱いを変える理由が載っていない"
+    );
 }
 
 /// ④顧客詳細が、開いた瞬間に空にならないこと。
@@ -1182,15 +1329,24 @@ fn 顧客詳細に既定の法人がある() {
     let top = idx
         .iter()
         .max_by(|a, b| {
-            a["deals"].as_f64().unwrap_or(0.0)
+            a["deals"]
+                .as_f64()
+                .unwrap_or(0.0)
                 .partial_cmp(&b["deals"].as_f64().unwrap_or(0.0))
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .unwrap();
-    assert_eq!(top["houjin"].as_str().unwrap(), h, "既定が取引数の最多と一致しない");
+    assert_eq!(
+        top["houjin"].as_str().unwrap(),
+        h,
+        "既定が取引数の最多と一致しない"
+    );
 
     // 選んだ理由が payload に載っていること
-    assert!(v["default_reason"].as_str().unwrap().contains("取引がいちばん多い"));
+    assert!(v["default_reason"]
+        .as_str()
+        .unwrap()
+        .contains("取引がいちばん多い"));
 
     // その法人を実際に開けること
     let d = build_customer(&sheets(), Some(h), fixture_day());
@@ -1208,7 +1364,10 @@ fn 顧客詳細に既定の法人がある() {
 fn データをいつ作ったかが読める() {
     let sh = sheets();
     let at = super::generated_at(&sh.meta).expect("生成時刻が読めない");
-    assert_eq!(at, "2026-09-16 04:30:00", "fixture の生成時刻は手で固定してある");
+    assert_eq!(
+        at, "2026-09-16 04:30:00",
+        "fixture の生成時刻は手で固定してある"
+    );
 
     // 基準日 2026-09-18 から見て2日前
     let age = super::generated_age_days(&sh.meta, fixture_day()).expect("経過日数");
@@ -1219,7 +1378,10 @@ fn データをいつ作ったかが読める() {
     //    「何日前のデータか」は元データのほうで数える。
     let src = super::data_as_of(&sh.meta).expect("データ取得時刻が読めない");
     assert_eq!(src, "2026-09-14 22:00:00");
-    assert_ne!(src, at, "元データの時刻と生成時刻を同じものとして扱っている");
+    assert_ne!(
+        src, at,
+        "元データの時刻と生成時刻を同じものとして扱っている"
+    );
     assert_eq!(
         super::data_age_days(&sh.meta, fixture_day()).expect("経過日数"),
         4,
@@ -1240,8 +1402,14 @@ fn 生成時刻が無ければ分からないと返す() {
         rows: Vec::new(),
         fetched_at: Instant::now(),
     });
-    assert!(super::generated_at(&empty).is_none(), "空なのに時刻を返した");
-    assert!(super::data_as_of(&empty).is_none(), "空なのに取得時刻を返した");
+    assert!(
+        super::generated_at(&empty).is_none(),
+        "空なのに時刻を返した"
+    );
+    assert!(
+        super::data_as_of(&empty).is_none(),
+        "空なのに取得時刻を返した"
+    );
     assert!(
         super::data_age_days(&empty, fixture_day()).is_none(),
         "空なのに経過日数を返した"

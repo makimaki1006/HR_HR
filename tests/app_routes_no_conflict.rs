@@ -151,7 +151,11 @@ async fn コンサルダッシュボードは認証の内側にある() {
     use tower::ServiceExt;
 
     let app = build_app(bare_state());
-    for path in ["/consulting", "/api/consulting/focus", "/api/consulting/customer"] {
+    for path in [
+        "/consulting",
+        "/api/consulting/focus",
+        "/api/consulting/customer",
+    ] {
         let res = app
             .clone()
             .oneshot(
@@ -236,9 +240,10 @@ fn コンサルから既存の画面へ戻れる() {
 /// こちらは cargo test で毎回走る安い見張り。
 #[test]
 fn 画面のjsに文字列を壊すエスケープが無い() {
-    for (name, src) in [
-        ("templates/tabs/cs_dashboard.html", include_str!("../templates/tabs/cs_dashboard.html")),
-    ] {
+    for (name, src) in [(
+        "templates/tabs/cs_dashboard.html",
+        include_str!("../templates/tabs/cs_dashboard.html"),
+    )] {
         let bad: Vec<(usize, &str)> = src
             .lines()
             .enumerate()
@@ -254,7 +259,6 @@ fn 画面のjsに文字列を壊すエスケープが無い() {
     }
 }
 
-
 /// 🔴 この画面は毎朝見るもの。**「このデータはいつのものか」が出ていること。**
 ///
 /// `meta.today` は計算に使った基準日で、シートを作り直した日時とは**別物**。
@@ -265,11 +269,11 @@ fn 画面にデータの作成日時が出る() {
     let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html")
         .expect("templates/tabs/cs_dashboard.html が読めない");
     for needle in [
-        "generated_at",        // シートを作り直した時刻
-        "source_as_of",        // 🔴 元データを落とした時刻。作成時刻とは別物
-        "source_age_days",     // 何日前のデータか
-        "cs-fresh",            // 出す場所
-        "setFresh",            // 出す処理
+        "generated_at",                         // シートを作り直した時刻
+        "source_as_of",                         // 🔴 元データを落とした時刻。作成時刻とは別物
+        "source_age_days",                      // 何日前のデータか
+        "cs-fresh",                             // 出す場所
+        "setFresh",                             // 出す処理
         "このデータがいつのものか分かりません", // 取れなかったときに嘘をつかない
     ] {
         assert!(html.contains(needle), "画面から「{needle}」が消えている");
@@ -303,6 +307,9 @@ fn 案件の立ち位置は絞り込みの件数を出す() {
         " 件中 ",
         "を表示",
     ] {
-        assert!(html.contains(needle), "③の絞り込みから「{needle}」が消えている");
+        assert!(
+            html.contains(needle),
+            "③の絞り込みから「{needle}」が消えている"
+        );
     }
 }

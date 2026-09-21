@@ -280,7 +280,11 @@ impl Deal {
 }
 
 pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
-    sheet.rows.iter().map(|r| Deal::from_row(sheet, r)).collect()
+    sheet
+        .rows
+        .iter()
+        .map(|r| Deal::from_row(sheet, r))
+        .collect()
 }
 
 // ---------------------------------------------------------------- 読み込み
@@ -329,7 +333,10 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
                 data
             }
             Err(e) => {
-                tracing::warn!("シート「{}」が読めません（鮮度は出しません）: {e:#}", SHEET_META);
+                tracing::warn!(
+                    "シート「{}」が読めません（鮮度は出しません）: {e:#}",
+                    SHEET_META
+                );
                 Arc::new(SheetData {
                     header: vec!["key".into(), "value".into()],
                     rows: Vec::new(),
@@ -450,8 +457,10 @@ pub fn series_of(history: &SheetData) -> HashMap<(String, String), Vec<(String, 
 
 /// `yyyy-MM` を1ヶ月進める。
 fn next_month(m: &str) -> String {
-    let (y, mo) = match (m.get(..4).and_then(|x| x.parse::<i32>().ok()),
-                         m.get(5..7).and_then(|x| x.parse::<u32>().ok())) {
+    let (y, mo) = match (
+        m.get(..4).and_then(|x| x.parse::<i32>().ok()),
+        m.get(5..7).and_then(|x| x.parse::<u32>().ok()),
+    ) {
         (Some(y), Some(mo)) => (y, mo),
         _ => return m.to_string(),
     };
@@ -563,7 +572,9 @@ pub fn latest_nps(history: &SheetData) -> HashMap<String, (String, f64)> {
         let Some(v) = opt_num(history.get(row, "v")) else {
             continue;
         };
-        let e = out.entry(deal.to_string()).or_insert((month.to_string(), v));
+        let e = out
+            .entry(deal.to_string())
+            .or_insert((month.to_string(), v));
         if month >= e.0.as_str() {
             *e = (month.to_string(), v);
         }
@@ -630,7 +641,11 @@ pub async fn prefetch() {
                 tracing::info!(
                     "コンサル先読み: {name} {}行{}",
                     data.rows.len(),
-                    if from_cache { "（キャッシュ）" } else { "" }
+                    if from_cache {
+                        "（キャッシュ）"
+                    } else {
+                        ""
+                    }
                 );
             }
             Err(e) => {
@@ -786,7 +801,10 @@ pub fn contact_rate_of(
     let Some(dates) = contacts.get(&d.id) else {
         return (0, ms.len());
     };
-    let hit: HashSet<String> = dates.iter().map(|x| x.format("%Y-%m").to_string()).collect();
+    let hit: HashSet<String> = dates
+        .iter()
+        .map(|x| x.format("%Y-%m").to_string())
+        .collect();
     (ms.iter().filter(|m| hit.contains(*m)).count(), ms.len())
 }
 
