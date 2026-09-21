@@ -317,28 +317,20 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
 </div>
 
 <nav class="tabs" aria-label="画面の切り替え">
-  <button type="button" data-p="focus" class="on"><span class="no">&#9312;</span>いま見るべき顧客</button>
-  <button type="button" data-p="renewal"><span class="no">&#9313;</span>継続回数 &#215; 成果</button>
-  <button type="button" data-p="customer"><span class="no">&#9314;</span>顧客詳細</button>
-  <button type="button" data-p="hq"><span class="no">&#9315;</span>本部アプローチ</button>
-  <button type="button" data-p="mtgq"><span class="no">&#9316;</span>MTG の品質</button>
-  <button type="button" data-p="phone"><span class="no">&#9317;</span>電話</button>
-  <button type="button" data-p="rampup"><span class="no">&#9318;</span>立ち上がり</button>
-  <button type="button" data-p="outcome"><span class="no">&#9319;</span>成果</button>
-  <button type="button" data-p="dq"><span class="no">&#9320;</span>データ品質</button>
+  <button type="button" data-p="today" class="on"><span class="no">&#9312;</span>今日動く先</button>
+  <button type="button" data-p="team"><span class="no">&#9313;</span>コンサルタント一覧</button>
+  <button type="button" data-p="board"><span class="no">&#9314;</span>案件の立ち位置</button>
+  <button type="button" data-p="customer"><span class="no">&#9315;</span>顧客詳細</button>
+  <button type="button" data-p="study"><span class="no">&#9316;</span>調査と定義</button>
 </nav>
 
 <div id="cs-error" style="display:none"></div>
 
-<div class="pane on" id="pane-focus"></div>
-<div class="pane" id="pane-renewal"></div>
+<div class="pane on" id="pane-today"></div>
+<div class="pane" id="pane-team"></div>
+<div class="pane" id="pane-board"></div>
 <div class="pane" id="pane-customer"></div>
-<div class="pane" id="pane-hq"></div>
-<div class="pane" id="pane-mtgq"></div>
-<div class="pane" id="pane-phone"></div>
-<div class="pane" id="pane-rampup"></div>
-<div class="pane" id="pane-outcome"></div>
-<div class="pane" id="pane-dq"></div>
+<div class="pane" id="pane-study"></div>
 </div>
 <script>
 const $ = s => document.querySelector(s);
@@ -1197,7 +1189,140 @@ function tooFew(n, what) {
     MIN_N + '件未満）。件数だけ出しています。</div>';
 }
 
-/* ================================================================ 1 いま見るべき顧客 */
+
+/* ================================================================ 1 コンサルタント一覧
+
+   🔴 毎朝これを見て、**手が回っていない場所**を探す画面。
+      担当者の評価ではない。
+   🔴 接触「数」ではなく接触「率」で見る。件数だと持ち案件が多い人ほど
+      大きく出て、手が回っているかが分からなくなる。
+   🔴 ここは一覧そのものが目的なので、表が正しい形。
+   ================================================================ */
+let teamSort = { key: "contact_rate", asc: true };
+
+const TEAM_COLS = [
+  { k: "consultant",     t: "担当者",        n: 0, fmt: (r) => esc(r.consultant) +
+      (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") },
+  { k: "n_active",       t: "持ち案件",      n: 1, fmt: (r) => num(r.n_active) },
+  { k: "contact_rate",   t: "接触率",        n: 1,
+    fmt: (r) => (r.contact_rate == null
+        ? DASH
+        : '<b style="color:' + (r.contact_rate < 40 ? "var(--hi)" :
+             r.contact_rate < 70 ? "var(--ki)" : "var(--midori)") + '">' +
+          pct1(r.contact_rate) + "</b>") +
+      ' <span class="muted small">' + num(r.contact_touched) + "/" +
+      num(r.contact_months) + " か月</span>" },
+  { k: "atv_max",        t: "ATV 最大",      n: 1, fmt: (r) => yen(r.atv_max) },
+  { k: "focus",          t: "注力案件",      n: 1, fmt: (r) => num(r.focus) },
+  { k: "expiring",       t: "満了60日以内",  n: 1,
+    fmt: (r) => r.expiring ? '<b style="color:var(--ki)">' + num(r.expiring) + "</b>" : num(r.expiring) },
+  { k: "nps_low",        t: "NPS4以下",      n: 1,
+    fmt: (r) => r.nps_low ? '<b style="color:var(--hi)">' + num(r.nps_low) + "</b>" : num(r.nps_low) },
+  { k: "no_contact",     t: "接触の記録なし", n: 1,
+    fmt: (r) => r.no_contact ? '<span class="n0">' + num(r.no_contact) + "</span>" : num(r.no_contact) },
+];
+
+function renderTeam(D) {
+  const rows = D.rows.slice();
+  const k = teamSort.key, asc = teamSort.asc;
+  rows.sort((a, b) => {
+    const x = a[k], y = b[k];
+    // 🔴 値が無いものは常に末尾。0 として並べない
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    const c = typeof x === "string" ? x.localeCompare(y, "ja") : x - y;
+    return asc ? c : -c;
+  });
+
+  let h = sec("問い", "いま、どこに手が回っていないか") +
+    '<div class="lede">1行1担当者。<b>列の見出しを押すと並び替わります。</b>' +
+    "既定は<b>接触率の低い順</b>（手が回っていない人が上）。</div>";
+
+  h += note("info", "これは担当者の評価ではありません",
+    esc(D.meta.not_counted).replace("※ ", "") + "<br>" +
+    "<b>接触率で見ています。件数では見ていません。</b>" + esc(D.contact_rule));
+
+  const worst = rows.filter((r) => r.contact_rate != null)
+    .sort((a, b) => a.contact_rate - b.contact_rate)[0];
+  const focusTop = D.rows.slice().sort((a, b) => b.focus - a.focus)[0];
+  h += '<div class="kpis">' +
+    kpi("担当者", num(D.meta.n_consultant) + '<span class="u">名</span>',
+        "稼働中 " + num(D.meta.n_active) + " 件を持っている") +
+    kpi("接触率がいちばん低い", worst ? esc(worst.consultant) : DASH,
+        worst ? pct1(worst.contact_rate) + "（" + num(worst.contact_touched) + "/" +
+                num(worst.contact_months) + " か月）" : "", "bad") +
+    kpi("注力案件をいちばん持っている", focusTop ? esc(focusTop.consultant) : DASH,
+        focusTop ? num(focusTop.focus) + " 件" : "") +
+    kpi("退職者のまま", num(D.meta.retired_deals) + '<span class="u">件</span>',
+        "担当 " + num(D.meta.retired_people) + " 名 ／ 同じ日に複数行あって担当が割れる取引 " +
+        num(D.meta.owner_ties) + " 件", D.meta.retired_deals ? "warn" : "") +
+    "</div>";
+
+  /* ---- 接触率の横棒（低い順）---- */
+  h += sec("図", "接触率（低い順）");
+  const bar = rows.filter((r) => r.contact_rate != null)
+    .slice().sort((a, b) => a.contact_rate - b.contact_rate);
+  h += fig("接触があった月 ÷（案件 × 経過月）",
+    "棒の右は「接触した月 / 経過月」。持ち案件数は注記",
+    bar.length
+      ? svgBarH({ w: 720, fmt: F.d1, rh: 24,
+          rows: bar.map((r) => ({
+            label: shortName(r.consultant, 14), v: r.contact_rate,
+            txt: pct1(r.contact_rate),
+            note: num(r.contact_touched) + "/" + num(r.contact_months) +
+                  " か月　案件" + num(r.n_active),
+            color: r.contact_rate < 40 ? C.hi : r.contact_rate < 70 ? C.ki : C.midori })) })
+      : '<div class="empty">接触率を出せる担当者がいません。</div>',
+    lg("box", C.hi, "40%未満") + lg("box", C.ki, "40〜70%") + lg("box", C.midori, "70%以上") +
+    '<i class="full">🔴 <b>件数ではなく率で見ています。</b>' +
+    "件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分かりません。" +
+    "帯の切り方（40% / 70%）は機械が決めたものです。" +
+    "<b>どこから要注意とするかは取り決め</b>で、事実ではありません。</i>");
+
+  /* ---- 一覧（本題）---- */
+  h += sec("表", "コンサルタント一覧");
+  let t = '<table id="team-tbl"><thead><tr>';
+  for (const c of TEAM_COLS) {
+    const on = c.k === k;
+    t += '<th class="' + (c.n ? "n " : "") + 'sortable" data-k="' + c.k + '"' +
+      ' style="cursor:pointer;user-select:none"' +
+      (on ? ' aria-sort="' + (asc ? "ascending" : "descending") + '"' : "") + ">" +
+      esc(c.t) + (on ? (asc ? " &#9650;" : " &#9660;") : '<span class="n0"> &#8597;</span>') +
+      "</th>";
+  }
+  t += "</tr></thead><tbody>";
+  for (const r of rows) {
+    t += "<tr>";
+    for (const c of TEAM_COLS) t += '<td' + (c.n ? ' class="n"' : "") + ">" + c.fmt(r) + "</td>";
+    t += "</tr>";
+  }
+  t += "</tbody></table>";
+  h += t;
+
+  h += note("info", "この一覧の決まりごと",
+    esc(D.owner_rule) + "<br>" + esc(D.focus_rule) +
+    (D.meta.unknown_owner ? "<br>担当が取れない取引が " + num(D.meta.unknown_owner) +
+      " 件あります。<b>「その他」に混ぜていません</b>（件数だけ出しています）。" : ""));
+  return h + foot(D.meta);
+}
+
+/* 見出しを押したら並び替える。同じ列を押したら向きが反転する */
+function wireTeam() {
+  document.querySelectorAll("#team-tbl th.sortable").forEach((th) => {
+    th.onclick = () => {
+      const kk = th.dataset.k;
+      if (teamSort.key === kk) teamSort.asc = !teamSort.asc;
+      else teamSort = { key: kk, asc: kk === "consultant" || kk === "contact_rate" };
+      const pane = document.getElementById("pane-team");
+      pane.innerHTML = ctlbar("team", teamCache) + renderTeam(teamCache);
+      wire("team");
+    };
+  });
+}
+let teamCache = null;
+
+/* ================================================================ 2 いま見るべき顧客 */
 function renderFocus(D) {
   const n = D.nps_low, c = D.cpa, m = D.mtg_layers, sh = D.shape;
   let h = sec("問い", "いま、どの顧客に手を打つべきか");
@@ -1984,17 +2109,238 @@ function renderDq(D) {
   return h + foot(D.meta);
 }
 
+
+/* ================================================================ 案件の立ち位置 / 今日動く先 */
+
+/* 名札。🔴 これの本数で並べる。スコアは出さない */
+function tags(fs) {
+  if (!fs || !fs.length) return '<span class="n0">—</span>';
+  return fs.map((f) => {
+    const col = f.indexOf("NPS") >= 0 || f.indexOf("退職") >= 0 ? "hi" :
+                f.indexOf("満了") >= 0 || f.indexOf("接触") >= 0 ? "ki" : "murasaki";
+    return '<span class="tag" style="border-color:var(--' + col +
+      ');color:var(--' + col + ')">' + esc(f) + "</span>";
+  }).join(" ");
+}
+/* 何ヶ月目か。分母は契約期間 */
+function pos(r) {
+  if (r.months == null) return DASH;
+  return num(r.months) + (r.period ? " / " + num(r.period) : "") +
+    '<span class="muted small"> か月目</span>' +
+    (r.band ? ' <span class="muted small">' + esc(r.band) + "</span>" : "");
+}
+function npsCell(r) {
+  if (r.nps == null) return '<span class="n0">未回答</span>';
+  const col = r.nps <= 4 ? "hi" : r.nps >= 9 ? "midori" : "ink-2";
+  return '<b style="color:var(--' + col + ')">' + num(r.nps) + "</b>" +
+    '<span class="muted small"> ' + esc(r.nps_month || "") + "</span>";
+}
+function touchCell(r) {
+  if (r.n_contact === 0) return '<b style="color:var(--hi)">記録なし</b>';
+  if (r.days_since_contact == null) return DASH;
+  const col = r.days_since_contact > 30 ? "hi" : r.days_since_contact > 14 ? "ki" : "ink-2";
+  return '<b style="color:var(--' + col + ')">' + num(r.days_since_contact) +
+    "日</b>" + '<span class="muted small"> 前</span>';
+}
+function goalCell(r) {
+  if (r.saiyomokuhyou == null || r.saiyomokuhyou <= 0)
+    return '<span class="n0">目標なし</span>';
+  if (r.rate_tassei == null) return DASH;
+  const col = r.rate_tassei >= 1 ? "midori" : r.rate_tassei < 0.5 ? "hi" : "ki";
+  return '<b style="color:var(--' + col + ')">' + pct1(r.rate_tassei * 100, 0) + "</b>" +
+    '<span class="muted small"> ' + nz(r.syoudaku) + "/" + nz(r.saiyomokuhyou) + "</span>";
+}
+function cpaCell(r) {
+  if (r.cpa == null) return '<span class="n0">採用0</span>';
+  const col = r.cpa_vs_band != null && r.cpa_vs_band >= 1.5 ? "hi" : "ink-2";
+  return '<b style="color:var(--' + col + ')">' + yen(r.cpa) + "</b>" +
+    (r.cpa_band_median == null ? "" :
+      '<span class="muted small"> 帯中央 ' + yen(r.cpa_band_median) + "</span>");
+}
+
+const BOARD_COLS = [
+  { k: "name",       t: "案件",        n: 0, fmt: (r) => esc(r.name || r.deal_id) +
+      (r.focus ? ' <span class="tag">注力</span>' : "") },
+  { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
+  { k: "months",     t: "何ヶ月目",    n: 1, fmt: pos },
+  /* 🔴 マイナスは「満了を過ぎている」。そのまま -329日 と出すと読めない */
+  { k: "days_left",  t: "満了まで",    n: 1, fmt: (r) => {
+      if (r.days_left == null) return DASH;
+      if (r.days_left < 0)
+        return '<b style="color:var(--hi)">満了を' + num(-r.days_left) + "日過ぎている</b>";
+      return r.days_left <= 60
+        ? '<b style="color:var(--ki)">' + num(r.days_left) + "日</b>"
+        : num(r.days_left) + "日";
+    } },
+  { k: "nps",        t: "定期NPS",     n: 1, fmt: npsCell },
+  { k: "days_since_contact", t: "最後の接触", n: 1, fmt: touchCell },
+  { k: "oubo",       t: "応募",        n: 1, fmt: (r) => nz(r.oubo) +
+      (r.oubo_carry ? ' <span class="n0" title="その月に書き換えが無く、前の値を引き継いだ">持越</span>' : "") },
+  { k: "rate_tassei", t: "採用目標に対して", n: 1, fmt: goalCell },
+  { k: "cpa",        t: "採用単価",    n: 1, fmt: cpaCell },
+  { k: "amount",     t: "金額",        n: 1, fmt: (r) => yen(r.amount) },
+  { k: "n_flags",    t: "名札",        n: 0, fmt: (r) => tags(r.flags) },
+];
+
+let boardSort = { key: "n_flags", asc: false };
+
+function boardTable(rows, sort, id) {
+  const rs = rows.slice();
+  const k = sort.key, asc = sort.asc;
+  rs.sort((a, b) => {
+    const x = a[k], y = b[k];
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;   // 値が無いものは常に末尾。0 として並べない
+    if (y == null) return -1;
+    const c = typeof x === "string" ? x.localeCompare(y, "ja") : x - y;
+    return asc ? c : -c;
+  });
+  let t = '<table id="' + id + '"><thead><tr>';
+  for (const c of BOARD_COLS) {
+    const on = c.k === k;
+    t += '<th class="' + (c.n ? "n " : "") + 'sortable" data-k="' + c.k +
+      '" style="cursor:pointer;user-select:none"' +
+      (on ? ' aria-sort="' + (asc ? "ascending" : "descending") + '"' : "") + ">" +
+      esc(c.t) + (on ? (asc ? " &#9650;" : " &#9660;") : '<span class="n0"> &#8597;</span>') + "</th>";
+  }
+  t += "</tr></thead><tbody>";
+  for (const r of rs) {
+    t += "<tr>";
+    for (const c of BOARD_COLS) t += '<td' + (c.n ? ' class="n"' : "") + ">" + c.fmt(r) + "</td>";
+    t += "</tr>";
+  }
+  return t + "</tbody></table>";
+}
+
+function flagFig(D) {
+  const fc = D.meta.flag_counts || [];
+  return fig("名札ごとの件数", "1つの案件に複数つきます",
+    fc.length
+      ? svgBarH({ w: 700, fmt: F.int, rh: 24,
+          rows: fc.slice().sort((a, b) => b.n - a.n).map((x) => ({
+            label: tail(x.label, 26), v: x.n, txt: num(x.n) + "件",
+            color: x.label.indexOf("NPS") >= 0 || x.label.indexOf("退職") >= 0 ? C.hi :
+                   x.label.indexOf("満了") >= 0 || x.label.indexOf("接触") >= 0 ? C.ki :
+                   C.murasaki })) })
+      : '<div class="empty">名札の付いた案件がありません。</div>',
+    lg("box", C.hi, "関係が危ない") + lg("box", C.ki, "時間が迫っている") +
+    lg("box", C.murasaki, "成果が出ていない") +
+    '<i class="full">' + esc(D.meta.order_rule) + "</i>");
+}
+
+/* ---------------------------------------------------------------- 3 今日動く先 */
+function renderToday(D) {
+  let h = sec("問い", "今日・今週、どこに連絡するか") +
+    '<div class="lede">毎朝ここだけ見れば動ける長さに絞っています。' +
+    "上から順に潰していってください。</div>";
+
+  h += note("info", "絞った条件", esc(D.meta.filter_rule));
+
+  const soon = D.expiring_this_week || [];
+  h += '<div class="kpis">' +
+    kpi("今日出す先", num(D.meta.n_shown) + '<span class="u">件</span>',
+        "名札が2本以上ついた " + num(D.meta.n_hit) + " 件から", "bad") +
+    kpi("今週満了する", num(soon.length) + '<span class="u">件</span>',
+        "名札の本数に関わらず落としていません", "warn") +
+    kpi("稼働中の全件", num(D.meta.n_active) + '<span class="u">件</span>',
+        "全件は「案件の立ち位置」タブに") + "</div>";
+
+  if (soon.length) {
+    h += sec("表", "今週満了（" + num(soon.length) + " 件）");
+    h += '<div class="lede">残り7日以内。名札の本数に関わらず出しています。</div>';
+    h += scroll(boardTable(soon, { key: "days_left", asc: true }, "soon-tbl"), 320);
+  }
+
+  h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）");
+  h += scroll(boardTable(D.rows, { key: "n_flags", asc: false }, "today-tbl"), 640);
+  h += note("info", "この並びについて", esc(D.meta.order_rule));
+  return h + foot(D.meta);
+}
+
+/* ---------------------------------------------------------------- 2 案件の立ち位置 */
+function renderBoard(D) {
+  let h = sec("問い", "いま、それぞれの案件はどこにいるか") +
+    '<div class="lede">稼働中 ' + num(D.rows.length) +
+    " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。</div>";
+  h += note("info", "この並びについて", esc(D.meta.order_rule));
+  h += sec("図", "名札の分布");
+  h += flagFig(D);
+  h += sec("表", "案件の立ち位置");
+  h += boardTable(D.rows, boardSort, "board-tbl");
+  return h + foot(D.meta);
+}
+
+function wireBoard() {
+  document.querySelectorAll("#board-tbl th.sortable").forEach((th) => {
+    th.onclick = () => {
+      const kk = th.dataset.k;
+      if (boardSort.key === kk) boardSort.asc = !boardSort.asc;
+      else boardSort = { key: kk, asc: kk === "name" || kk === "consultant" ||
+                                       kk === "days_left" || kk === "days_since_contact" };
+      const pane = document.getElementById("pane-board");
+      pane.innerHTML = ctlbar("board", boardCache) + renderBoard(boardCache);
+      wire("board");
+    };
+  });
+}
+let boardCache = null;
+
+/* ---------------------------------------------------------------- 5 調査と定義 */
+/* 🔴 調査の成果は一度読めば済む。毎朝の動線から外して、ここに畳む。消さない。 */
+const STUDY = [
+  ["renewal",  "継続回数 × 成果",   "/api/consulting/renewal",      () => renderRenewal],
+  ["outcome",  "成果とリスク",       "/api/consulting/outcome",      () => renderOutcome],
+  ["rampup",   "立ち上がり",         "/api/consulting/rampup",       () => renderRampup],
+  ["phone",    "電話",               "/api/consulting/phone",        () => renderPhone],
+  ["mtgq",     "MTG の品質",         "/api/consulting/mtg-quality",  () => renderMtgQ],
+  ["hq",       "本部アプローチ",     "/api/consulting/headquarters", () => renderHq],
+  ["focus",    "いま見るべき顧客",   "/api/consulting/focus",        () => renderFocus],
+  ["dq",       "データ品質",         "/api/consulting/data-quality", () => renderDq],
+];
+const studyLoaded = {};
+
+function renderStudy() {
+  let h = sec("問い", "この画面の数字は、どうやって作っているか") +
+    '<div class="lede">調べた結果と、定義の説明です。' +
+    "<b>一度読めば済む話</b>なので、毎朝の動線からは外してあります。" +
+    "見出しを押すと開きます。</div>";
+  for (const [key, label] of STUDY) {
+    h += '<details class="study" data-s="' + key + '" style="margin:var(--space-2) 0">' +
+      "<summary>" + esc(label) + "</summary>" +
+      '<div id="study-' + key + '"><span class="loading">開くと読み込みます</span></div>' +
+      "</details>";
+  }
+  return h;
+}
+
+function wireStudy() {
+  document.querySelectorAll("details.study").forEach((dt) => {
+    dt.addEventListener("toggle", async () => {
+      const key = dt.dataset.s;
+      if (!dt.open || studyLoaded[key]) return;
+      const ent = STUDY.find((x) => x[0] === key);
+      const box = document.getElementById("study-" + key);
+      box.innerHTML = '<span class="loading">読み込み中…</span>';
+      try {
+        const res = await fetch(ent[2], { credentials: "same-origin" });
+        const body = await res.json();
+        if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
+        box.innerHTML = ent[3]()(body);
+        studyLoaded[key] = true;
+      } catch (e) {
+        box.innerHTML = '<div class="err">' + esc(e.message) + "</div>";
+      }
+    });
+  });
+}
+
 /* ================================================================ 取得 */
 const TABS = {
-  focus:    { path: "/api/consulting/focus",        render: renderFocus },
-  renewal:  { path: "/api/consulting/renewal",      render: renderRenewal },
+  today:    { path: "/api/consulting/today",        render: renderToday },
+  team:     { path: "/api/consulting/consultants",  render: renderTeam },
+  board:    { path: "/api/consulting/deals",        render: renderBoard },
   customer: { path: "/api/consulting/customer",     render: renderCustomer },
-  hq:       { path: "/api/consulting/headquarters", render: renderHq },
-  mtgq:     { path: "/api/consulting/mtg-quality",  render: renderMtgQ },
-  phone:    { path: "/api/consulting/phone",        render: renderPhone },
-  rampup:   { path: "/api/consulting/rampup",       render: renderRampup },
-  outcome:  { path: "/api/consulting/outcome",      render: renderOutcome },
-  dq:       { path: "/api/consulting/data-quality", render: renderDq },
+  study:    { path: null,                            render: renderStudy },
 };
 const loaded = {};
 
@@ -2006,6 +2352,14 @@ function showError(e) {
 
 async function load(key, refresh) {
   const t = TABS[key];
+  // 調査タブは中の見出しを開いたときに初めて取る
+  if (!t.path) {
+    const pane = document.getElementById("pane-" + key);
+    pane.innerHTML = ctlbar(key, {}) + t.render();
+    wire(key);
+    loaded[key] = true;
+    return;
+  }
   const q = new URLSearchParams();
   if (refresh) q.set("refresh", "1");
   const censor = document.getElementById("cs-censor");
@@ -2020,6 +2374,8 @@ async function load(key, refresh) {
     const body = await res.json();
     // サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す
     if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
+    if (key === "team") teamCache = body;
+    if (key === "board") boardCache = body;
     pane.innerHTML = ctlbar(key, body) + t.render(body);
     wire(key);
     loaded[key] = true;
@@ -2042,6 +2398,9 @@ function ctlbar(key, D) {
   return h + "</div>";
 }
 function wire(key) {
+  if (key === "team") wireTeam();
+  if (key === "board") wireBoard();
+  if (key === "study") wireStudy();
   const rl = document.getElementById("cs-reload");
   if (rl) rl.onclick = () => load(key, true);
   const sel = document.getElementById("cs-houjin");
@@ -2068,7 +2427,7 @@ document.querySelectorAll("nav.tabs button").forEach((b) => {
     if (!loaded[b.dataset.p]) load(b.dataset.p, false);
   });
 });
-load("focus", false);
+load("today", false);
 </script>
 </body>
 </html>

@@ -48,8 +48,8 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
-    contacts_by_deal, cpa, customers_of, date10, deals_of, latest_nps, load, opt_num, Deal,
-    Outcome, Sheets,
+    consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, elapsed_months,
+    focus_of, latest_nps, load, opt_num, Deal, Outcome, Sheets,
 };
 
 pub fn router() -> Router<std::sync::Arc<AppState>> {
@@ -64,6 +64,9 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/mtg-quality", get(mtg_quality))
         .route("/api/consulting/data-quality", get(data_quality))
         .route("/api/consulting/customer", get(customer_detail))
+        .route("/api/consulting/consultants", get(consultants))
+        .route("/api/consulting/deals", get(deal_board))
+        .route("/api/consulting/today", get(today_board))
 }
 
 #[derive(Template)]
@@ -178,6 +181,9 @@ simple_handler!(phone, build_phone);
 simple_handler!(headquarters, build_headquarters);
 simple_handler!(mtg_quality, build_mtg_quality);
 simple_handler!(data_quality, build_data_quality);
+simple_handler!(consultants, build_consultants);
+simple_handler!(deal_board, build_deal_board);
+simple_handler!(today_board, build_today_board);
 
 #[derive(Debug, Deserialize)]
 struct CustomerQuery {
@@ -1715,4 +1721,318 @@ fn sum_opt(ds: &[&Deal], f: impl Fn(&Deal) -> Option<f64>) -> Option<f64> {
     } else {
         Some(vs.iter().sum())
     }
+}
+
+// ================================================================ コンサルタント一覧
+
+/// 1行1担当者。**毎朝これを見て、手が回っていない場所を探す画面**。
+///
+/// 🔴 **担当者の評価ではない。** 手が足りていない場所を見つけるためのもの。
+/// 🔴 **接触率で見る。件数では見ない。** 件数だと持ち案件が多い人ほど大きく出て、
+///    手が回っているかが分からなくなる。
+///    接触率 ＝ 接触があった月 ÷ （案件 × 経過月）。**分母を必ず一緒に返す**。
+/// 🔴 接触 ＝ MTG または60秒超の通話。**メールは数えない。**
+pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
+    let deals = deals_of(&sheets.deal);
+    let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
+    let who = consultant_of(&sheets.owner_hist);
+    let focus = focus_of(&sheets.customer);
+    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let nps = latest_nps(&sheets.history);
+
+    struct Agg {
+        n: usize,
+        months: usize,
+        touched: usize,
+        atv_max: Option<f64>,
+        focus: usize,
+        expiring: usize,
+        nps_low: usize,
+        no_contact: usize,
+        retired: bool,
+    }
+    let mut by: BTreeMap<String, Agg> = BTreeMap::new();
+    let mut unknown = 0usize;
+    let mut retired_deals = 0usize;
+    let active_ids: HashSet<&str> = act.iter().map(|d| d.id.as_str()).collect();
+    let ties = super::consultant_ties(&sheets.owner_hist, &active_ids);
+
+    for d in &act {
+        let Some((name, retired)) = who.get(&d.id) else {
+            // 担当が取れない取引。**「その他」に混ぜない**。件数だけ出す
+            unknown += 1;
+            continue;
+        };
+        let e = by.entry(name.clone()).or_insert(Agg {
+            n: 0, months: 0, touched: 0, atv_max: None, focus: 0,
+            expiring: 0, nps_low: 0, no_contact: 0, retired: false,
+        });
+        e.n += 1;
+        e.retired |= *retired;
+        if *retired {
+            retired_deals += 1;
+        }
+
+        // 接触率の分母と分子
+        let ms = elapsed_months(d, today);
+        e.months += ms.len();
+        if let Some(dates) = contacts.get(&d.id) {
+            let hit: HashSet<String> = dates.iter().map(|x| x.format("%Y-%m").to_string()).collect();
+            e.touched += ms.iter().filter(|m| hit.contains(*m)).count();
+        } else {
+            e.no_contact += 1;
+        }
+
+        if let Some(a) = d.amount {
+            e.atv_max = Some(e.atv_max.map_or(a, |x: f64| x.max(a)));
+        }
+        if *focus.get(&d.houjin_resolved).unwrap_or(&false) {
+            e.focus += 1;
+        }
+        if let Some(ed) = date10(&d.contract_expiration_date) {
+            let dte = (ed - today).num_days();
+            if (0..=60).contains(&dte) {
+                e.expiring += 1;
+            }
+        }
+        if matches!(nps.get(&d.id), Some((_, v)) if *v <= super::NPS_LOW) {
+            e.nps_low += 1;
+        }
+    }
+
+    let rows: Vec<Value> = by
+        .iter()
+        .map(|(name, a)| {
+            json!({
+                "consultant": name,
+                "n_active": a.n,
+                // 🔴 率だけ出さない。分子と分母を必ず添える
+                "contact_touched": a.touched,
+                "contact_months": a.months,
+                "contact_rate": rate(a.touched as f64, a.months as f64),
+                "atv_max": a.atv_max,
+                "focus": a.focus,
+                "expiring": a.expiring,
+                "nps_low": a.nps_low,
+                "no_contact": a.no_contact,
+                "retired": a.retired,
+            })
+        })
+        .collect();
+
+    json!({
+        "meta": {
+            "today": today.to_string(),
+            "n_active": act.len(),
+            "n_consultant": rows.len(),
+            "unknown_owner": unknown,
+            // 🔴 案件の数と担当の人数を両方出す。片方だけだと画面が食い違って見える
+            "retired_deals": retired_deals,
+            "retired_people": by.values().filter(|a| a.retired).count(),
+            // 同じ日に複数行あって、どちらを採るかで担当が変わる取引
+            "owner_ties": ties,
+            "all_cached": sheets.all_cached,
+            "not_counted": "※ 担当者の評価ではありません。手が足りていない場所を見つけるための画面です。\
+順位を付けていますが、良し悪しの判断は人がします",
+        },
+        "contact_rule": "接触 ＝ MTG または60秒超の通話（メールは数えない）。\
+接触率 ＝ 接触があった月 ÷（案件 × 経過月）。件数ではなく率で見るのは、\
+件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分からなくなるため",
+        "focus_rule": "注力の定義は既存のまま（月額30万超 / 拠点が複数 / 従業員規模のいずれか）。\
+ここで作り直していません",
+        "owner_rule": "担当は consultant が正本です（hubspot_owner_id ではありません）。\
+取引ごとに、担当履歴のいちばん新しい行を採っています。\
+🔴 同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。\
+採り方を変えると担当が変わる取引があるので、その件数を出しています",
+        "rows": rows,
+    })
+}
+
+// ================================================================ 案件の立ち位置 / 今日動く先
+
+/// 案件1件の「いまの立ち位置」。②と③で同じものを使う。
+///
+/// 🔴 **スコアや確率を出さない。** 契約開始時点の AUC は 0.583 で、順位付けの
+/// 根拠にならない。代わりに**名札**（NPS4以下・満了が近い・接触が空いている等）を
+/// 立てて、その**本数**で並べる。何で上に来たかが画面で説明できる形にする。
+fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
+    let deals = deals_of(&sheets.deal);
+    let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
+    let who = consultant_of(&sheets.owner_hist);
+    let focus = focus_of(&sheets.customer);
+    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let nps = latest_nps(&sheets.history);
+    let series = super::series_of(&sheets.history);
+    let until = today.format("%Y-%m").to_string();
+
+    // 同じ進捗帯の採用単価の中央値。比べる相手をそろえる
+    let band_of = |d: &Deal| -> Option<usize> {
+        let p = progress(d, today)?;
+        Some(if p < 0.34 { 0 } else if p < 0.67 { 1 } else { 2 })
+    };
+    let mut band_vals: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    for d in &deals {
+        if let (Some(b), Some(v)) = (band_of(d), cpa(d)) {
+            band_vals[b].push(v);
+        }
+    }
+    let band_med: Vec<Option<f64>> = band_vals
+        .iter_mut()
+        .map(|v| {
+            if v.is_empty() { return None; }
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            Some(v[v.len() / 2])
+        })
+        .collect();
+
+    // 履歴の最新値。🔴 現在値ではない
+    let hist_last = |d: &Deal, prop: &str| -> Option<(String, f64, bool)> {
+        let pts = series.get(&(d.id.clone(), prop.to_string()))?;
+        let f = super::fill_forward(pts, &until);
+        f.last().map(|m| (m.month.clone(), m.v, m.carry))
+    };
+
+    let mut rows = Vec::new();
+    let mut flag_count: BTreeMap<&str, usize> = BTreeMap::new();
+    for d in &act {
+        let (owner, retired) = who
+            .get(&d.id)
+            .map(|(o, r)| (o.clone(), *r))
+            .unwrap_or_default();
+        let months = progress(d, today).map(|p| p * d.contract_period.unwrap_or(0.0));
+        let days_left = date10(&d.contract_expiration_date).map(|e| (e - today).num_days());
+        let last_contact = contacts.get(&d.id).and_then(|v| v.iter().max().copied());
+        let days_since = last_contact.map(|l| (today - l).num_days());
+        let n_contact = contacts.get(&d.id).map(|v| v.len()).unwrap_or(0);
+        let np = nps.get(&d.id);
+        let band = band_of(d);
+        let mycpa = cpa(d);
+        let bmed = band.and_then(|b| band_med[b]);
+        let vs_band = match (mycpa, bmed) {
+            (Some(a), Some(b)) if b > 0.0 => Some(a / b),
+            _ => None,
+        };
+
+        // ---- 名札。🔴 これの本数で並べる。スコアにしない ----
+        let mut flags: Vec<&str> = Vec::new();
+        if matches!(np, Some((_, v)) if *v <= super::NPS_LOW) {
+            flags.push("NPSが4以下");
+        }
+        if matches!(days_left, Some(x) if (0..=60).contains(&x)) {
+            flags.push("満了まで60日以内");
+        }
+        if n_contact == 0 {
+            flags.push("接触の記録が無い");
+        } else if matches!(days_since, Some(x) if x > 30) {
+            flags.push("接触が30日以上空いている");
+        }
+        if matches!(vs_band, Some(x) if x >= 1.5) {
+            flags.push("採用単価が同じ進捗帯の1.5倍以上");
+        }
+        if retired {
+            flags.push("担当が退職者のまま");
+        }
+        if matches!(d.saiyomokuhyou, Some(t) if t > 0.0)
+            && matches!(d.rate_tassei(), Some(r) if r < 0.5)
+        {
+            flags.push("採用目標の半分に届いていない");
+        }
+        for f in &flags {
+            *flag_count.entry(f).or_insert(0) += 1;
+        }
+
+        let oubo = hist_last(d, "oubo");
+        let mensetu = hist_last(d, "mensetu");
+        let syoudaku = hist_last(d, "syoudaku");
+
+        rows.push(json!({
+            "deal_id": d.id, "name": d.name, "stage": d.stage_label,
+            "consultant": owner, "retired": retired,
+            "amount": d.amount, "focus": focus.get(&d.houjin_resolved).copied().unwrap_or(false),
+            "months": months.map(|m| m.round()),
+            "period": d.contract_period,
+            "days_left": days_left,
+            "progress": progress(d, today),
+            "band": band.map(|b| ["序盤", "中盤", "終盤"][b]),
+            "nps": np.map(|(_, v)| *v),
+            "nps_month": np.map(|(m, _)| m.clone()),
+            "days_since_contact": days_since,
+            "n_contact": n_contact,
+            // 🔴 現在値ではなくプロパティ履歴の最新。carry は「その月に書き換えが無い」
+            "oubo": oubo.as_ref().map(|x| x.1), "oubo_carry": oubo.as_ref().map(|x| x.2),
+            "mensetu": mensetu.as_ref().map(|x| x.1),
+            "syoudaku": syoudaku.as_ref().map(|x| x.1),
+            "saiyomokuhyou": d.saiyomokuhyou,
+            "rate_tassei": d.rate_tassei(),
+            "cpa": mycpa, "cpa_band_median": bmed, "cpa_vs_band": vs_band,
+            "flags": flags,
+            "n_flags": flags.len(),
+        }));
+    }
+
+    // 名札の本数が多い順。同数なら金額の大きい順
+    rows.sort_by(|a, b| {
+        b["n_flags"].as_u64().unwrap_or(0).cmp(&a["n_flags"].as_u64().unwrap_or(0))
+            .then_with(|| b["amount"].as_f64().unwrap_or(-1.0)
+                .partial_cmp(&a["amount"].as_f64().unwrap_or(-1.0))
+                .unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    let meta = json!({
+        "today": today.to_string(),
+        "n_active": act.len(),
+        "all_cached": sheets.all_cached,
+        "flag_counts": flag_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
+            .collect::<Vec<_>>(),
+        "order_rule": "既定の並びは「名札の本数が多い順、同じなら金額の大きい順」です。\
+🔴 スコアや確率は出していません。契約開始時点の当たり具合（AUC 0.583）では順位付けの\
+根拠になりません。何で上に来たかは、その行の名札を見れば分かります",
+        "not_counted": "※ 予測ではありません。既にあるデータに名札を付けて並べただけです。\
+手を打つかどうかは中身を読んで決めてください",
+    });
+    (rows, meta)
+}
+
+/// ②案件の立ち位置。稼働中の全件を返す（画面で並び替える）。
+pub fn build_deal_board(sheets: &Sheets, today: NaiveDate) -> Value {
+    let (rows, meta) = deal_rows(sheets, today);
+    json!({"meta": meta, "rows": rows})
+}
+
+/// ③今日動く先。
+///
+/// 🔴 **件数が多すぎると使われない。** 上から順に潰せる長さに絞る。
+/// 絞った条件は画面に出す。
+pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
+    let (rows, mut meta) = deal_rows(sheets, today);
+
+    // 名札が2本以上。そのうえで金額の大きい順に 24件
+    const KEEP: usize = 24;
+    const MIN_FLAGS: u64 = 2;
+    let picked: Vec<Value> = rows
+        .iter()
+        .filter(|r| r["n_flags"].as_u64().unwrap_or(0) >= MIN_FLAGS)
+        .cloned()
+        .collect();
+    let n_hit = picked.len();
+    let mut top = picked;
+    top.truncate(KEEP);
+
+    // 今週満了するもの（名札の本数に関わらず落とさない）
+    let soon: Vec<Value> = rows
+        .iter()
+        .filter(|r| matches!(r["days_left"].as_i64(), Some(x) if (0..=7).contains(&x)))
+        .cloned()
+        .collect();
+
+    if let Some(m) = meta.as_object_mut() {
+        m.insert("filter_rule".into(), json!(format!(
+            "名札が {MIN_FLAGS} 本以上ついた {n_hit} 件から、金額の大きい順に {KEEP} 件を出しています。\
+毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} 本という線引きは取り決めです。\
+全件は「案件の立ち位置」タブにあります"
+        )));
+        m.insert("n_hit".into(), json!(n_hit));
+        m.insert("n_shown".into(), json!(top.len()));
+    }
+    json!({"meta": meta, "rows": top, "expiring_this_week": soon})
 }

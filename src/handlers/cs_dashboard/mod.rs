@@ -54,11 +54,11 @@ pub mod routes;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use serde::Serialize;
 
 use crate::db::sheets_client::SheetsClient;
@@ -76,6 +76,9 @@ pub const SHEET_CUSTOMER: &str = "CS_顧客";
 /// 「実施した事実（推定）」と「中身が読める（事実）」を分けて出す。
 pub const SHEET_MAIL_MTG: &str = "CS_MTG実施日_メール由来";
 pub const SHEET_HANDOVER: &str = "CS_担当交代";
+/// 担当の履歴。🔴 **担当者の正本は `consultant`**（`hubspot_owner_id` ではない）。
+/// このシートの `owner` 欄が consultant で、取引ごとの最新行がいまの担当。
+pub const SHEET_OWNER_HIST: &str = "CS_担当履歴";
 
 /// 定期NPS のプロパティ名。回ごとに別プロパティになっている。
 pub const NPS_PROPS: &[&str] = &[
@@ -266,6 +269,7 @@ pub struct Sheets {
     pub customer: Arc<SheetData>,
     pub mail_mtg: Arc<SheetData>,
     pub handover: Arc<SheetData>,
+    pub owner_hist: Arc<SheetData>,
     /// 全部キャッシュから返せたか（画面に鮮度を出すため）
     pub all_cached: bool,
 }
@@ -290,6 +294,7 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
         customer: fetch!(SHEET_CUSTOMER),
         mail_mtg: fetch!(SHEET_MAIL_MTG),
         handover: fetch!(SHEET_HANDOVER),
+        owner_hist: fetch!(SHEET_OWNER_HIST),
         all_cached: cached,
     })
 }
@@ -546,6 +551,7 @@ pub const SHEETS: &[&str] = &[
     SHEET_HISTORY,
     SHEET_MAIL_MTG,
     SHEET_HANDOVER,
+    SHEET_OWNER_HIST,
 ];
 
 /// 起動時にシートを常駐キャッシュへ載せておく。
@@ -595,4 +601,130 @@ pub async fn prefetch() {
         "コンサル先読み: 完了 {ok}枚 / 失敗 {ng}枚 / {:.1}秒",
         started.elapsed().as_secs_f64()
     );
+}
+
+// ---------------------------------------------------------------- 担当者
+
+/// 取引ごとの「いまの担当」。
+///
+/// 🔴 **正本は `consultant`。** `hubspot_owner_id` ではない。
+/// `CS_担当履歴` の `owner` 欄が consultant で、日付が最新の行がいまの担当。
+/// 退職者のまま残っている取引があるので、`retired` も一緒に返す。
+/// 🔴 **同じ日に複数行あると、どちらを採るかで答えが変わる。**
+/// 稼働中で最新日が割れているのは 38件（2026-09-21 実測）。
+/// ここでは**シートの並び順で後に来る行**を採る（追記順＝新しい出来事）。
+/// 割れている件数は `consultant_ties` で数えて画面に出す。黙って選ばない。
+pub fn consultant_ties(owner_hist: &SheetData, active: &HashSet<&str>) -> usize {
+    let mut top: HashMap<&str, (String, usize, bool)> = HashMap::new();
+    for row in &owner_hist.rows {
+        let deal = owner_hist.get(row, "deal_id");
+        if !active.contains(deal) {
+            continue;
+        }
+        let date = owner_hist.get(row, "date").to_string();
+        let owner = owner_hist.get(row, "owner").to_string();
+        let retired = flag(owner_hist.get(row, "retired"));
+        let key = format!("{owner}|{retired}");
+        match top.get_mut(deal) {
+            Some(e) if e.0 == date => {
+                e.1 += 1;
+                if format!("{owner}|{retired}") != key {
+                    // 同日で中身が違う
+                }
+                e.2 = true;
+            }
+            Some(e) if date > e.0 => {
+                *e = (date, 1, false);
+            }
+            Some(_) => {}
+            None => {
+                top.insert(deal, (date, 1, false));
+            }
+        }
+    }
+    top.values().filter(|(_, n, _)| *n > 1).count()
+}
+
+pub fn consultant_of(owner_hist: &SheetData) -> HashMap<String, (String, bool)> {
+    let mut latest: HashMap<String, (String, String, bool)> = HashMap::new();
+    for row in &owner_hist.rows {
+        let deal = owner_hist.get(row, "deal_id");
+        let owner = owner_hist.get(row, "owner").trim();
+        let date = owner_hist.get(row, "date");
+        if deal.is_empty() || owner.is_empty() {
+            continue;
+        }
+        let retired = flag(owner_hist.get(row, "retired"));
+        let e = latest.entry(deal.to_string());
+        match e {
+            std::collections::hash_map::Entry::Occupied(mut o) => {
+                if date >= o.get().0.as_str() {
+                    o.insert((date.to_string(), owner.to_string(), retired));
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(v) => {
+                v.insert((date.to_string(), owner.to_string(), retired));
+            }
+        }
+    }
+    latest
+        .into_iter()
+        .map(|(k, (_, o, r))| (k, (o, r)))
+        .collect()
+}
+
+/// 法人ごとの「注力かどうか」。
+///
+/// 既存の定義をそのまま使う（`focus_flags`: 月額30万超 / 拠点が複数 / 従業員規模）。
+/// **ここで定義を作り直さない。**
+pub fn focus_of(customer: &SheetData) -> HashMap<String, bool> {
+    customer
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let h = customer.get(row, "houjin");
+            if h.is_empty() {
+                return None;
+            }
+            let raw = customer.get(row, "focus_flags");
+            let any = serde_json::from_str::<serde_json::Value>(raw)
+                .ok()
+                .and_then(|v| v.get("any").and_then(|x| x.as_bool()))
+                .unwrap_or(false);
+            Some((h.to_string(), any))
+        })
+        .collect()
+}
+
+/// 契約開始から今日（または満了）までの「経過月」を並べる。
+///
+/// 接触率の分母。🔴 **件数ではなく率で見るため**に要る
+/// （件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分からない）。
+pub fn elapsed_months(d: &Deal, today: NaiveDate) -> Vec<String> {
+    let Some(st) = date10(&d.contract_start_date) else {
+        return Vec::new();
+    };
+    let end = date10(&d.contract_expiration_date)
+        .map(|e| if e < today { e } else { today })
+        .unwrap_or(today);
+    if end < st {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let (mut y, mut m) = (st.year(), st.month());
+    let (ey, em) = (end.year(), end.month());
+    while (y, m) <= (ey, em) {
+        out.push(format!("{y:04}-{m:02}"));
+        if m == 12 {
+            y += 1;
+            m = 1;
+        } else {
+            m += 1;
+        }
+        // 暴走よけ。契約が壊れていても画面は出す
+        if out.len() > 120 {
+            break;
+        }
+    }
+    out
 }
