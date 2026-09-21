@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>コンサルダッシュボード</title>
+<style>
+/* 色は必ずトークン経由で引く。インラインの hex を書かない（Design Tokens 規律）。 */
+:root{
+  color-scheme:light;
+  --bg:#f4f5f7; --card:#fff; --border:#e4e7eb;
+  --text:#1b2330; --sub:#707a89; --faint:#9aa3af;
+  --accent:#2f6df6; --accent-soft:#ecf2ff;
+  --alert:#e0473e; --alert-soft:#fdeceb;
+  --warn:#e08a1e; --warn-soft:#fdf4e6;
+  --ok:#18a957; --ok-soft:#eaf7ef;
+  --ghost:#aeb6c1;
+  --shadow:0 1px 3px rgba(20,30,50,.07),0 1px 2px rgba(20,30,50,.04);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --bg:#12141a; --card:#1a1d24; --border:#2b2f38;
+  --text:#e8ebef; --sub:#9aa3af; --faint:#6d7684;
+  --accent:#5b8dff; --accent-soft:#1c2740;
+  --alert:#ef5f56; --alert-soft:#3a1f1d;
+  --warn:#eda63c; --warn-soft:#33280f;
+  --ok:#2fbd6d; --ok-soft:#12291c;
+  --ghost:#5e6672;
+  --shadow:0 1px 3px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.3);
+}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);
+  font-family:"Yu Gothic UI","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  font-size:14px;line-height:1.6}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 16px 70px}
+header.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+header.top h1{font-size:19px;margin:0}
+header.top .who{color:var(--sub);font-size:12px;margin-left:auto}
+.lead{color:var(--sub);font-size:12.5px;margin:0 0 12px}
+nav.tabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 16px;
+  border-bottom:1.5px solid var(--border)}
+nav.tabs button{font:inherit;font-size:12.5px;padding:7px 12px;border:1px solid transparent;
+  border-bottom:none;background:none;color:var(--sub);cursor:pointer;
+  border-radius:6px 6px 0 0;margin-bottom:-1.5px;white-space:nowrap}
+nav.tabs button:hover{color:var(--accent)}
+nav.tabs button.on{background:var(--card);border-color:var(--border);
+  border-bottom:1.5px solid var(--card);color:var(--text);font-weight:600}
+nav.tabs .no{color:var(--faint);margin-right:4px}
+.pane{display:none}
+.pane.on{display:block}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;
+  box-shadow:var(--shadow);padding:15px 17px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 4px}
+.card .q{color:var(--sub);font-size:12px;margin:0 0 11px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:5px 8px;border-bottom:1px solid var(--border);text-align:right;
+  white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{color:var(--sub);font-weight:600;font-size:11.5px;
+  border-bottom:1.5px solid var(--border)}
+tbody tr:hover{background:var(--accent-soft)}
+.n0{color:var(--faint)}
+.note{color:var(--sub);font-size:11.5px;margin-top:8px;line-height:1.55}
+.warn{background:var(--warn-soft);border-left:3px solid var(--warn);
+  padding:9px 12px;border-radius:0 5px 5px 0;font-size:12.5px;margin:10px 0}
+.info{background:var(--accent-soft);border-left:3px solid var(--accent);
+  padding:9px 12px;border-radius:0 5px 5px 0;font-size:12.5px;margin:10px 0}
+.ctl{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.ctl label{display:flex;gap:6px;align-items:center;font-size:12.5px;cursor:pointer}
+button.act,select,input[type=text]{font:inherit;font-size:13px;padding:5px 10px;
+  border:1px solid var(--border);background:var(--card);color:var(--text);
+  border-radius:5px;cursor:pointer}
+button.act:hover{border-color:var(--accent);color:var(--accent)}
+.bar{display:inline-block;height:9px;background:var(--accent);border-radius:2px;
+  vertical-align:middle}
+.err{background:var(--alert-soft);border-left:3px solid var(--alert);
+  padding:11px 13px;border-radius:0 5px 5px 0;font-size:13px;white-space:pre-wrap}
+.kpis{display:flex;gap:9px;flex-wrap:wrap;margin:10px 0}
+.kpi{flex:1 1 140px;border:1px solid var(--border);border-radius:7px;padding:8px 11px}
+.kpi .lbl{display:block;color:var(--sub);font-size:11.5px}
+.kpi .big{display:block;font-size:20px;font-weight:600;line-height:1.3}
+.kpi .fine{display:block;color:var(--faint);font-size:11px}
+.kpi.red .big{color:var(--alert)}
+.kpi.amber .big{color:var(--warn)}
+.kpi.gray .big{color:var(--faint)}
+.kpi.ok .big{color:var(--ok)}
+.scroll{max-height:440px;overflow:auto;border:1px solid var(--border);border-radius:6px}
+.scroll table{font-size:12.5px}
+.scroll thead th{position:sticky;top:0;background:var(--card);z-index:1}
+.flag{color:var(--alert);font-weight:600}
+/* 🔴 持ち越した点は中空・破線。実線で描くと「その月に更新があった」ように見える */
+.carry{border:1px dashed var(--ghost);background:none;color:var(--sub)}
+.spark{display:inline-flex;align-items:flex-end;gap:1px;height:16px;vertical-align:middle}
+.spark i{display:block;width:3px;background:var(--accent);border-radius:1px}
+.spark i.c{background:none;border:1px dashed var(--ghost)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>コンサルダッシュボード</h1>
+  <span class="who">{{ user }}</span>
+</header>
+<p class="lead">
+  納品管理PL（採用コンサルの契約）を見る画面。
+  <strong>分母が0のときは率を空欄（—）にします。0% とは書きません。</strong>
+  すべての数字に母数(n)を添えています。良し悪しの判断は人がします。
+</p>
+
+<nav class="tabs" aria-label="画面の切り替え">
+  <button type="button" data-p="focus" class="on"><span class="no">1</span>いま見るべき顧客</button>
+  <button type="button" data-p="renewal"><span class="no">2</span>継続回数 × 成果</button>
+  <button type="button" data-p="customer"><span class="no">3</span>顧客詳細</button>
+  <button type="button" data-p="hq"><span class="no">4</span>本部アプローチ</button>
+  <button type="button" data-p="mtgq"><span class="no">5</span>MTG の品質</button>
+  <button type="button" data-p="phone"><span class="no">6</span>電話</button>
+  <button type="button" data-p="rampup"><span class="no">7</span>立ち上がり</button>
+  <button type="button" data-p="outcome"><span class="no">8</span>成果とリスク</button>
+  <button type="button" data-p="dq"><span class="no">9</span>データ品質</button>
+</nav>
+
+<div id="cs-error" style="display:none"></div>
+
+<div class="pane on" id="pane-focus"><div class="ctl"><button type="button" class="act" data-reload="focus">読み直す</button><span class="n0" id="st-focus"></span></div><div id="body-focus"></div></div>
+<div class="pane" id="pane-renewal">
+  <div class="ctl">
+    <label><input type="checkbox" id="cs-censor">
+      右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>
+    <button type="button" class="act" data-reload="renewal">読み直す</button>
+    <span class="n0" id="st-renewal"></span>
+  </div>
+  <div id="body-renewal"></div>
+</div>
+<div class="pane" id="pane-customer">
+  <div class="ctl">
+    <select id="cs-houjin"><option value="">法人を選ぶ…</option></select>
+    <button type="button" class="act" data-reload="customer">読み直す</button>
+    <span class="n0" id="st-customer"></span>
+  </div>
+  <div id="body-customer"></div>
+</div>
+<div class="pane" id="pane-hq"><div class="ctl"><button type="button" class="act" data-reload="hq">読み直す</button><span class="n0" id="st-hq"></span></div><div id="body-hq"></div></div>
+<div class="pane" id="pane-mtgq"><div class="ctl"><button type="button" class="act" data-reload="mtgq">読み直す</button><span class="n0" id="st-mtgq"></span></div><div id="body-mtgq"></div></div>
+<div class="pane" id="pane-phone"><div class="ctl"><button type="button" class="act" data-reload="phone">読み直す</button><span class="n0" id="st-phone"></span></div><div id="body-phone"></div></div>
+<div class="pane" id="pane-rampup"><div class="ctl"><button type="button" class="act" data-reload="rampup">読み直す</button><span class="n0" id="st-rampup"></span></div><div id="body-rampup"></div></div>
+<div class="pane" id="pane-outcome"><div class="ctl"><button type="button" class="act" data-reload="outcome">読み直す</button><span class="n0" id="st-outcome"></span></div><div id="body-outcome"></div></div>
+<div class="pane" id="pane-dq"><div class="ctl"><button type="button" class="act" data-reload="dq">読み直す</button><span class="n0" id="st-dq"></span></div><div id="body-dq"></div></div>
+
+</div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+
+/** 値が無いときは 0 でなくダッシュ。これがこの画面の約束。 */
+function n0() { return '<span class="n0">—</span>'; }
+function num(v, d) {
+  if (v === null || v === undefined) return n0();
+  return Number(v).toLocaleString("ja-JP",
+    { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 });
+}
+function pct(v, d) {
+  if (v === null || v === undefined) return n0();
+  return Number(v).toFixed(d === undefined ? 1 : d) + "%";
+}
+function man(v) {
+  if (v === null || v === undefined) return n0();
+  return num(Number(v) / 10000) + "万";
+}
+function table(cols, rows) {
+  let h = "<table><thead><tr>";
+  for (const c of cols) h += "<th>" + esc(c) + "</th>";
+  h += "</tr></thead><tbody>";
+  for (const r of rows) {
+    h += "<tr>";
+    for (const c of r) h += "<td>" + c + "</td>";
+    h += "</tr>";
+  }
+  return h + "</tbody></table>";
+}
+function med(o, d) {
+  if (!o || !o.n) return n0();
+  return num(o.median, d) + ' <span class="n0">(n=' + num(o.n) + ")</span>";
+}
+function kpi(label, big, fine, cls) {
+  return '<div class="kpi ' + (cls || "") + '"><span class="lbl">' + esc(label) +
+    '</span><span class="big">' + big + '</span>' +
+    (fine ? '<span class="fine">' + esc(fine) + "</span>" : "") + "</div>";
+}
+function card(title, q, body, note) {
+  return '<section class="card"><h2>' + esc(title) + "</h2>" +
+    (q ? '<p class="q">' + q + "</p>" : "") + body +
+    (note ? '<p class="note">' + note + "</p>" : "") + "</section>";
+}
+/** 🔴 持ち越した点は中空・破線で描く。実線だと「その月に更新があった」ように見える。 */
+function spark(points) {
+  if (!points || !points.length) return n0();
+  const mx = Math.max.apply(null, points.map((p) => Math.abs(p.v))) || 1;
+  return '<span class="spark">' + points.map((p) =>
+    '<i class="' + (p.carry ? "c" : "") + '" style="height:' +
+    Math.max(2, Math.abs(p.v) / mx * 16).toFixed(1) + 'px"></i>').join("") + "</span>";
+}
+
+function showError(e) {
+  $("cs-error").style.display = "";
+  $("cs-error").innerHTML = '<div class="err">データを取得できませんでした。\n' +
+    esc(e.message) + "</div>";
+}
+async function get(path, q) {
+  const res = await fetch(path + "?" + (q ? q.toString() : ""), { credentials: "same-origin" });
+  const body = await res.json();
+  // サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す。
+  if (!res.ok || body.error) throw new Error(body.message || ("HTTP " + res.status));
+  return body;
+}
+function foot(meta) {
+  return '<p class="note">' + esc(meta.not_counted || "") +
+    (meta.today ? "　基準日 " + esc(meta.today) : "") +
+    (meta.n_deals ? "　取引 " + num(meta.n_deals) + " 件" : "") +
+    (meta.n_active ? "（稼働中 " + num(meta.n_active) + " 件）" : "") + "</p>";
+}
+
+/* ============================================================ 1 いま見るべき顧客 */
+function renderFocus(D) {
+  const n = D.nps_low, c = D.cpa, m = D.mtg_layers, s = D.shape;
+  let h = '<div class="info"><strong>この画面で数えていないもの</strong><br>' +
+    '売上でも担当者の評価でもありません。手を打つ先を絞るための画面です。' +
+    '接触 ＝ MTG または60秒超の通話で、メールは数えていません。</div>';
+
+  h += card("定期NPS が " + n.threshold + " 以下の顧客",
+    "名指しで出します。NPS の低い順、同じなら金額の大きい順。",
+    '<div class="kpis">' +
+      kpi("対象", num(n.n), "稼働中 " + num(n.n_act) + " 件のうち", "red") +
+      kpi("NPS が入っている", num(n.n_have_nps), pct(n.coverage) + " の取引", "gray") +
+    "</div>" +
+    '<div class="scroll">' + table(
+      ["取引ID", "ステージ", "NPS", "回答月", "金額", "満了まで", "接触の記録"],
+      n.rows.slice(0, 200).map((r) => [
+        esc(r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>",
+        '<span class="flag">' + num(r.nps) + "</span>", esc(r.nps_month),
+        man(r.amount),
+        r.days_to_expiry === null ? n0() : num(r.days_to_expiry) + "日",
+        r.no_contact_record ? '<span class="n0">記録なし</span>' : num(r.n_contact) + "件",
+      ])) + "</div>",
+    esc(n.note));
+
+  h += card("採用単価の悪化", c.note,
+    '<div class="kpis">' +
+      kpi("悪化した拠点", num(c.worse), pct(c.worse_rate) + " / 判定できた " + num(c.judged), "red") +
+      kpi("判定を見送った拠点", num(c.skipped_censored), "確定した点が2つ未満", "gray") +
+    "</div>" +
+    '<div class="scroll">' + table(
+      ["拠点", "前回", "今回", "倍率", "点の数"],
+      c.rows.map((r) => [
+        esc(r.site), man(r.prev), man(r.last),
+        r.ratio === null ? n0() : num(r.ratio, 2) + "倍", num(r.n_points),
+      ])) + "</div>",
+    c.truncated ? "上位60件だけ出しています。" : "");
+
+  h += card("MTG が実施された記録",
+    "🔴 <strong>事実と推定を同じ率にまとめていません。</strong>",
+    '<div class="kpis">' +
+      kpi("Zoom録画がある（事実）", num(m.fact_recording.n), pct(m.fact_recording.rate), "ok") +
+      kpi("メール由来（推定 ±1日 83.3%）", num(m.estimated_mail.n), pct(m.estimated_mail.rate), "amber") +
+      kpi("どちらも無い", num(m.neither), "稼働中 " + num(m.n_act) + " 件のうち", "gray") +
+    "</div>" +
+    table(["内訳", "件数"], [
+      ["両方ある", num(m.both)], ["録画だけ", num(m.only_recording)],
+      ["メールだけ", num(m.only_mail)], ["どちらも無い", num(m.neither)],
+    ]), esc(m.note));
+
+  h += card("顧客ぜんたいの形", esc(s.display_label) + " が母数です。",
+    '<div class="kpis">' +
+      kpi("法人", num(s.n_all), "うち表示対象 " + num(s.n_display)) +
+      kpi("LTV 中央値", med(s.ltv), "") +
+      kpi("拠点が2つ以上", num(s.multi_site), "") +
+    "</div>", esc(s.multi_site_note));
+
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 2 継続回数 × 成果 */
+function renderRenewal(D) {
+  const mr = D.monthly_retention, br = D.by_renewal;
+  const label = (r) => (r.renewal_no === 0 ? "初回" : "継続" + r.renewal_no);
+  const maxN = Math.max.apply(null, br.map((r) => r.n));
+  let h = card("月次の継続率", "母数: " + esc(mr.denominator_label),
+    table(["満了月", "継続", "解約", "充足", "母数", "継続率", "結果待ち"],
+      mr.rows.map((r) => [
+        esc(r.month), num(r.keep), num(r.cancel), num(r.fill), num(r.denom),
+        "<strong>" + pct(r.rate) + "</strong>", num(r.pending),
+      ])),
+    "継続率 ＝ 継続済 ÷（継続済 ＋ 解約 ＋ 充足）。<strong>「充足」も分母に入れます。</strong>" +
+    "採れて終わったのも「継続しなかった」結果だからです。" +
+    "オプション契約 " + num(mr.excluded_option) + " 件は母数から外しています。");
+
+  h += card("継続回数ごとの解約率",
+    "解約は初回契約に集中しています。最初の契約を乗り切れれば、あとは残ります。",
+    table(["継続回数", "件数", "稼働中", "解約", "充足", "解約率", "（充足を外すと）"],
+      br.map((r) => [
+        label(r),
+        num(r.n) + ' <span class="bar" style="width:' + (r.n / maxN * 60).toFixed(1) + 'px"></span>',
+        num(r.n_active), num(r.cancel), num(r.fill),
+        "<strong>" + pct(r.cancel_rate) + "</strong>",
+        '<span class="n0">' + pct(r.cancel_rate_excl_fill) + "</span>",
+      ])),
+    "解約率の分子は「解約 ＋ 充足」です。<strong>画面の主値は外さない方</strong>です。<br>" +
+    "上の「月次の継続率」とは分母が違います。あちらは満了して結果が出た契約だけ、" +
+    "こちらはその継続回数の全取引（稼働中も含む）です。");
+
+  h += card("継続回数ごとの成果（代表値）",
+    "中央値。値が入っている契約だけで計算し、その件数を n に出しています。",
+    table(["継続回数", "応募数", "面接数", "承諾数", "求人票あたり応募", "目標達成率", "契約額", "契約月数"],
+      br.map((r) => [
+        label(r), med(r.oubo), med(r.mensetu), med(r.syoudaku), med(r.oubo_per_posting, 1),
+        r.rate_tassei && r.rate_tassei.n
+          ? pct(r.rate_tassei.median * 100) + ' <span class="n0">(n=' + num(r.rate_tassei.n) + ")</span>"
+          : n0(),
+        med(r.amount), med(r.contract_period, 1),
+      ])),
+    D.meta.exclude_right_censored
+      ? "右側打ち切りを外しています。"
+      : "右側打ち切り " + num(D.meta.right_censored_n) +
+        " 件を含んでいます（直近の契約は結果が確定しておらず、成果が低く出ます）。");
+
+  const groups = ["継続済", "解約", "充足", "結果待ち"];
+  const fields = [...new Set(D.missingness.map((r) => r.field))];
+  h += card("欠測の偏り", "結果ごとに、成果の数字がどれだけ記録されているか。",
+    '<div class="warn">うまくいかなかった契約ほど数字が記録されていない可能性があります。' +
+    'これは「継続するほど成果が良い」という見え方を<strong>押し上げる方向</strong>に効きます。' +
+    '上の表を読むときは、この偏りを踏まえてください。</div>' +
+    table(["項目"].concat(groups.map((g) => g + " の記入率")),
+      fields.map((f) => [esc(f)].concat(groups.map((g) => {
+        const r = D.missingness.find((x) => x.group === g && x.field === f);
+        if (!r) return n0();
+        return pct(r.fill_rate) + ' <span class="n0">(' + num(r.filled) + "/" + num(r.n) + ")</span>";
+      })))));
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 3 顧客詳細 */
+let houjinIndex = null;
+function renderCustomer(D) {
+  if (D.index) {
+    houjinIndex = D.index;
+    const sel = $("cs-houjin");
+    sel.innerHTML = '<option value="">法人を選ぶ…</option>' + D.index.slice(0, 400).map((r) =>
+      '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
+      "（取引" + num(r.deals) + " / 拠点" + num(r.sites) + "）</option>").join("");
+    return card("顧客を選んでください",
+      "LTV の大きい順に " + num(D.index.length) + " 法人。上の選択から選ぶと明細が出ます。",
+      '<div class="scroll">' + table(["法人", "取引", "拠点", "稼働中", "LTV", "最終満了"],
+        D.index.slice(0, 200).map((r) => [
+          esc(r.name || r.houjin), num(r.deals), num(r.sites), num(r.active),
+          man(r.ltv), esc(r.last_expiration),
+        ])) + "</div>");
+  }
+  if (!D.meta.found) {
+    return card("見つかりません", "", '<div class="warn">この法人の取引がありません。</div>');
+  }
+  const c = D.customer;
+  let h = card(c && c.name ? c.name : D.meta.houjin, "",
+    '<div class="kpis">' +
+      kpi("取引", num(c.deals), "稼働中 " + num(c.active)) +
+      kpi("拠点", num(c.sites), "") +
+      kpi("LTV", man(c.ltv), "") +
+      kpi("継続回数（最大）", num(c.max_renewal_no), "") +
+      kpi("最終満了", esc(c.last_expiration || "—"), "") +
+    "</div>");
+
+  h += card("契約の系列（" + num(D.deals.length) + " 件）",
+    "契約開始の順。継続のたびに別の取引になります。",
+    '<div class="scroll">' + table(
+      ["取引ID", "拠点", "種別", "開始", "満了", "継続回数", "金額", "応募", "面接", "承諾", "状態"],
+      D.deals.map((d) => [
+        esc(d.deal_id), '<span class="n0">' + esc(d.site) + "</span>",
+        '<span class="n0">' + esc(d.kind) + "</span>",
+        esc(d.start), esc(d.expiration), num(d.renewal_no), man(d.amount),
+        num(d.oubo), num(d.mensetu), num(d.syoudaku),
+        (d.is_active ? "稼働中" : "") + (d.right_censored ? ' <span class="carry">未確定</span>' : ""),
+      ])) + "</div>");
+
+  h += card("採用単価（拠点ごと）",
+    "🔴 <strong>決裁は事業所単位です。</strong>1本の線にまとめると、拠点間のばらつきが時間の悪化に見えます。",
+    D.cpa_by_site.map((s) =>
+      "<h3 style=\\"font-size:13px;margin:12px 0 4px\\">" + esc(s.site) + "</h3>" +
+      table(["開始", "継続回数", "採用単価", "採用数", "金額", "確かさ"],
+        s.points.map((p) => [
+          esc(p.start), num(p.renewal_no), man(p.cpa), num(p.syoudaku), man(p.amount),
+          p.censored ? '<span class="carry">未確定</span>' : "確定",
+        ]))).join("") || '<p class="note">採用数が入っている契約がありません。</p>');
+
+  h += card("MTG の履歴（" + num(D.mtgs.length) + " 件）",
+    "🔴 中身が空なのは「まだ抽出していない」であって、記録が無いのとは違います。",
+    '<div class="scroll">' + table(["開催日", "取引", "リスク", "やること", "顧客の懸念", "抽出"],
+      D.mtgs.map((m) => [
+        esc(m.date), '<span class="n0">' + esc(m.deal_id) + "</span>",
+        esc(m.risk) || n0(), esc(m.todo) || n0(), esc(m.concern) || n0(),
+        m.extracted ? "済" : '<span class="n0">未</span>',
+      ])) + "</div>");
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 4 本部アプローチ */
+function renderHq(D) {
+  let h = '<div class="info"><strong>親法人の合計ではありません。</strong>' +
+    '事業所ごとに出しています。決裁は事業所単位なので、まとめると行き先が消えます。</div>';
+  h += card("拠点どうしの差が大きい法人",
+    "拠点が2つ以上ある " + num(D.multi_site) + " 法人（全 " + num(D.meta.n_houjin) + " 法人のうち）。" +
+    "採用単価の最大÷最小が大きい順。",
+    D.rows.map((r) =>
+      '<details style="margin:8px 0"><summary style="cursor:pointer;padding:4px 0">' +
+      esc(r.houjin) + "　拠点" + num(r.sites) + " / 取引" + num(r.deals) +
+      " / 稼働中" + num(r.active) +
+      (r.spread === null ? "" : '　<span class="flag">単価の開き ' + num(r.spread, 1) + "倍</span>") +
+      "</summary>" +
+      table(["拠点", "取引", "稼働中", "解約", "解約率", "金額", "採用数", "採用単価"],
+        r.rows.map((s) => [
+          esc(s.site), num(s.deals), num(s.active), num(s.cancel), pct(s.cancel_rate),
+          man(s.amount), num(s.syoudaku), man(s.cpa),
+        ])) + "</details>").join(""),
+    D.truncated ? "上位80法人だけ出しています。" : "");
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 5 MTG の品質 */
+function renderMtgQ(D) {
+  let h = card("そもそも記録が結べているか", "",
+    '<div class="kpis">' +
+      kpi("MTG", num(D.meta.n_mtg), "") +
+      kpi("取引に結べた", num(D.linked.n), pct(D.linked.rate), "ok") +
+    "</div>", esc(D.linked.note));
+
+  h += card("分析項目がどれだけ埋まっているか", "",
+    table(["項目", "埋まっている", "率"],
+      D.filled.map((f) => [esc(f.field), num(f.n), pct(f.rate)])),
+    D.filled_note);
+
+  h += card("リスク判定の分布", "未判定も件数を出します（黙って落としません）。",
+    table(["判定", "件数"], D.risk_dist.map((r) => [esc(r.label), num(r.n)])));
+
+  h += card("誰がどれだけ MTG をしているか",
+    "🔴 これは行動量であって、良し悪しではありません。",
+    '<div class="scroll">' + table(["ホスト", "件数"],
+      D.hosts.slice(0, 60).map((r) => [esc(r.host), num(r.n)])) + "</div>");
+
+  h += card("月ごとの件数", "",
+    table(["月", "件数"], D.monthly.map((r) => [esc(r.month), num(r.n)])));
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 6 電話 */
+function renderPhone(D) {
+  const r = D.reach;
+  let h = '<div class="info"><strong>接触 ＝ ' + num(D.meta.threshold_sec) +
+    '秒より長い通話。</strong>メールは数えていません。' +
+    '接触は検知にだけ使い、処方には使いません。</div>';
+
+  h += card("電話は届いているか", esc(r.note),
+    '<div class="kpis">' +
+      kpi("通話の行", num(r.rows), "Call は Deal に多対多") +
+      kpi("電話が付いた取引", num(r.deals_with_call), "") +
+      kpi("電話が1本も無い", num(r.no_call), pct(r.no_call_rate) + " / 稼働中 " + num(D.meta.n_active), "amber") +
+      kpi("接触が1本も無い", num(r.no_contact), pct(r.no_contact_rate), "red") +
+    "</div>");
+
+  h += card("最後に話してから何日たったか",
+    "接触が1本も無い取引は<strong>日数が出せません</strong>。0日として混ぜていません。",
+    '<div class="kpis">' +
+      kpi("中央値", med(D.days_since), "") +
+      kpi("四分位", D.days_since ? num(D.days_since.q1) + " – " + num(D.days_since.q3) + "日" : n0(), "") +
+    "</div>");
+
+  h += card("沈黙している取引（" + num(D.silent.n) + " 件）", esc(D.silent.rule),
+    '<div class="scroll">' + table(
+      ["取引ID", "ステージ", "金額", "通話", "接触", "最後の接触", "経過"],
+      D.silent.rows.map((x) => [
+        esc(x.deal_id), '<span class="n0">' + esc(x.stage) + "</span>", man(x.amount),
+        num(x.n_calls), num(x.n_contact),
+        x.last_contact === null ? '<span class="flag">一度も無い</span>' : esc(x.last_contact),
+        x.days_since === null ? n0() : num(x.days_since) + "日",
+      ])) + "</div>",
+    "日数が出せないもの（接触が一度も無い）を先頭に出しています。いちばん拾うべきものだからです。");
+
+  h += card("電話の中身", "",
+    '<div class="kpis">' +
+      kpi("文字起こしがある通話", num(D.transcript.n), pct(D.transcript.rate) + " / " + num(D.transcript.rows) + " 行", "gray") +
+    "</div>", esc(D.transcript.note));
+
+  h += card("月ごとの本数", "",
+    '<div class="scroll">' + table(["月", "通話", "接触(60秒超)", "接触率"],
+      D.monthly.map((m) => [esc(m.month), num(m.calls), num(m.contacts), pct(m.contact_rate)])) + "</div>");
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 7 立ち上がり */
+function renderRampup(D) {
+  const ph = D.phase, f = D.first_mtg, nm = D.no_mtg;
+  let h = card("いま、どのフェーズにいるか", esc(ph.rule),
+    '<div class="kpis">' + ph.rows.map((r) =>
+      kpi(r.label, num(r.n), "", r.label === "満了超過" ? "amber" :
+        r.label === "出せない" ? "gray" : "")).join("") + "</div>",
+    "🔴 同じ「3ヶ月目」でも、3ヶ月契約なら満了、12ヶ月契約なら序盤です。" +
+    "契約期間が入っていないものは「出せない」に置いています（0として満了超過に落としていません）。");
+
+  h += card("立ち上がりの速さ（契約開始 → 初回MTG）",
+    "母数 " + num(f.n) + " 件。契約前のMTG " + num(f.pre_contract) + " 件は日数に混ぜていません。",
+    '<div class="kpis">' +
+      kpi("中央値", med(f.stats), "") +
+      kpi("四分位", f.stats ? num(f.stats.q1) + " – " + num(f.stats.q3) + "日" : n0(), "") +
+    "</div>" +
+    table(["初回MTGまで", "件数", "解約＋充足", "率"],
+      f.buckets.map((b) => [esc(b.label), num(b.n), num(b.cancel), pct(b.cancel_rate)])),
+    esc(f.note));
+
+  h += card("まだ MTG が結べていない初回契約（" + num(nm.n) + " 件）",
+    "稼働中の初回契約 " + num(nm.first_active) + " 件のうち " + pct(nm.rate) + "。",
+    '<div class="scroll">' + table(["取引ID", "ステージ", "金額", "契約開始から"],
+      nm.rows.map((r) => [
+        esc(r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>", man(r.amount),
+        r.days_since_start === null ? n0() : num(r.days_since_start) + "日",
+      ])) + "</div>", esc(nm.note));
+
+  h += '<div class="info">継続率と継続回数ごとの解約率は' +
+    '<strong>「2 継続回数 × 成果」タブ</strong>にあります。同じ数字を2か所で作らないためです。</div>';
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 8 成果とリスク */
+function renderOutcome(D) {
+  const ga = D.goal_act, gl = D.goal_all, ef = D.efficiency, R = D.risk, cs = D.contact_source;
+  let h = '<div class="info"><strong>この画面で数えていないもの</strong><br>' +
+    '成約率・継続率・MTG件数・メール件数ではありません。' +
+    '<strong>接触 ＝ MTG または60秒超の通話。メールは数えていません。</strong><br>' +
+    '<strong>接触は検知にだけ使っています。処方には使いません。</strong>' +
+    '中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。</div>';
+
+  h += card("1　目標に対する進捗",
+    "達成率 ＝ 承諾数 ÷ 採用目標数。目標が入っている契約だけが母数です。",
+    table(["帯", "稼働中", "全件"],
+      ga.bands.map((b, i) => [esc(b.label), num(b.n), num(gl.bands[i].n)])),
+    "<strong>目標が入っているのは稼働中の " + pct(ga.fill_rate) + "（" + num(ga.has_goal) +
+    " / " + num(ga.pop) + "）だけです。</strong>全件では " + pct(gl.fill_rate) +
+    "（" + num(gl.has_goal) + " / " + num(gl.pop) + "）。" +
+    "入っていない取引は「達成率0%」ではなく、この図の母数に入っていません。" +
+    "　中央値（稼働中）" + (ga.median === null ? "—" : pct(ga.median * 100)));
+
+  h += card("2　求人票あたりの応募効率", "応募数 ÷ 掲載数。結果ごとに比べます。",
+    table(["結果", "n", "中央値", "平均", "四分位"],
+      ef.groups.map((g) => [
+        esc(g.label), g.box ? num(g.box.n) : n0(),
+        g.box ? num(g.box.median, 2) : n0(), g.box ? num(g.box.mean, 2) : n0(),
+        g.box ? num(g.box.q1, 2) + " – " + num(g.box.q3, 2) : n0(),
+      ])) +
+    '<div class="warn"><strong>資料にある「per-posting 8.1 ≪ 継続 14.5」という値は、' +
+    '今あるデータでは再現しません。</strong>向き（解約 ＜ 継続）は合っていますが、' +
+    '中央値で見ると差はほとんどありません。<strong>単独で解約を見分けられる指標ではない</strong>' +
+    'と読んでください。</div>',
+    "掲載数が入っているのは 稼働中 " + num(ef.has_keisaisu_act) + " / " + num(ef.n_act) +
+    "、全件 " + num(ef.has_keisaisu_all) + " / " + num(ef.n_all) + "。" + esc(ef.caveat));
+
+  h += card("3　リスクは2軸だけで見る", "",
+    '<div class="info"><strong>4軸のうち2軸を意図的に外しています。手抜きではありません。</strong><br>' +
+    '<strong>関係性の軸（NPS）</strong>：中身は「最新NPS 5以下」単独です。' +
+    'NPS が稼働中の半分にしか無く、<strong>構造的に発火しません</strong>。' +
+    '常に非赤になる軸を並べると「問題ない」と読まれますが、実際は<strong>測れていないだけ</strong>です。' +
+    '（NPS は「1 いま見るべき顧客」で独立した指標として出しています）<br>' +
+    '<strong>モデルの軸（churn予測）</strong>：本番が StratifiedKFold のままで、同じ顧客が' +
+    '継続契約で複数の取引を持つため <strong>AUC が上振れします</strong>。' +
+    '説明できない順位を現場に出せません。</div>' +
+    '<div class="kpis">' + R.bands.map((b, i) =>
+      kpi(b.label, num(b.n), "稼働中 " + num(R.n_act) + " 件のうち",
+        i === 2 ? "red" : i === 1 ? "amber" : "")).join("") +
+      kpi("③ 未測定", num(R.ax3["未測定"]), "接触の記録が1つも無い", "gray") + "</div>" +
+    table(["軸", "赤", "白", "未測定", "判定のしかた"], [
+      ["③ 放置", '<span class="flag">' + num(R.ax3["赤"]) + "</span>", num(R.ax3["白"]),
+       num(R.ax3["未測定"]), '<span class="n0">' + esc(R.ax3.rule) + "</span>"],
+      ["④ 収益", '<span class="flag">' + num(R.ax4["赤"]) + "</span>", num(R.ax4["白"]),
+       num(R.ax4["未測定"]), '<span class="n0">' + esc(R.ax4.rule) + "</span>"],
+    ]),
+    "③軸は本日の MTG と電話から組み直しています。既存の <code>deal_contact_rollup</code> は" +
+    "使っていません（<code>last_contact_at_post</code> はメールが混ざり、" +
+    "<code>last_call_at_post</code> は MTG が抜けるため）。" +
+    "　数えた接触: 60秒超の通話 " + num(cs.calls_over_threshold) + " 件 ／ " +
+    "取引に紐づいた MTG " + num(cs.mtgs_linked) + " 件 ／ 接触のある取引 " +
+    num(cs.deals_with_contact) + " 件。<br>接触の記録が1つも無い " + num(R.ax3["未測定"]) +
+    " 件は<strong>赤にせず「未測定」として分けています</strong>。記録が無いことと放置は別です。");
+
+  h += card("4　最優先（2軸とも赤）", num(R.top.length) + " 件。金額が大きい順。",
+    '<div class="scroll">' + table(
+      ["取引ID", "ステージ", "金額", "満了まで", "③ 放置", "接触の記録"],
+      R.top.map((r) => [
+        esc(r.deal_id), '<span class="n0">' + esc(r.stage) + "</span>", man(r.amount),
+        r.days_to_expiry === null ? n0() : num(r.days_to_expiry) + "日",
+        (r.never_after_start ? '<span class="flag">' : "<span>") + esc(r.ax3w) +
+          (r.never_after_start ? " ▲" : "") + "</span>",
+        r.n_contact ? num(r.n_contact) + "件" : n0(),
+      ])) + "</div>",
+    "▲ は契約後に一度も接触の記録が無いもの。「接触の記録」は60秒超の通話とMTGの合計件数。" +
+    esc(R.order_note) + "。");
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 9 データ品質 */
+function renderDq(D) {
+  let h = card("この画面の数字を、どこまで信じてよいか",
+    "取引 " + num(D.meta.n_deals) + " 件（稼働中 " + num(D.meta.n_active) + " 件）。", "");
+
+  h += card("法人番号の出どころ", "",
+    table(["出どころ", "件数"], D.houjin_source.rows.map((r) => [esc(r.label), num(r.n)])),
+    esc(D.houjin_source.note));
+
+  const groups = ["継続済", "解約", "充足", "結果待ち"];
+  const fields = [...new Set(D.outcome_bias.rows.map((r) => r.field))];
+  h += card("成果系の記入率が結果で偏っている", "",
+    table(["項目"].concat(groups.map((g) => g + " の記入率")),
+      fields.map((f) => [esc(f)].concat(groups.map((g) => {
+        const r = D.outcome_bias.rows.find((x) => x.group === g && x.field === f);
+        if (!r) return n0();
+        return pct(r.fill_rate) + ' <span class="n0">(' + num(r.filled) + "/" + num(r.n) + ")</span>";
+      })))),
+    esc(D.outcome_bias.note));
+
+  h += card("欠測", "件数と率の両方を出します。0 で埋めていません。",
+    table(["項目", "件数", "率", "どう効くか"],
+      D.missing.map((m) => [esc(m.label), num(m.n), pct(m.rate),
+        '<span class="n0">' + esc(m.note) + "</span>"])));
+
+  h += card("読んでいるシート", "スプレッドシートを直接読んでいます。",
+    table(["シート", "行数"], D.sheets.map((s) => [esc(s.name), num(s.rows)])));
+  return h + foot(D.meta);
+}
+
+/* ============================================================ 読み込み */
+const TABS = {
+  focus:    { path: "/api/consulting/focus",        render: renderFocus },
+  renewal:  { path: "/api/consulting/renewal",      render: renderRenewal },
+  customer: { path: "/api/consulting/customer",     render: renderCustomer },
+  hq:       { path: "/api/consulting/headquarters", render: renderHq },
+  mtgq:     { path: "/api/consulting/mtg-quality",  render: renderMtgQ },
+  phone:    { path: "/api/consulting/phone",        render: renderPhone },
+  rampup:   { path: "/api/consulting/rampup",       render: renderRampup },
+  outcome:  { path: "/api/consulting/outcome",      render: renderOutcome },
+  dq:       { path: "/api/consulting/data-quality", render: renderDq },
+};
+const loaded = {};
+
+async function load(key, refresh) {
+  const t = TABS[key];
+  const q = new URLSearchParams();
+  if (refresh) q.set("refresh", "1");
+  if (key === "renewal" && $("cs-censor").checked) q.set("exclude_right_censored", "1");
+  if (key === "customer" && $("cs-houjin").value) q.set("houjin", $("cs-houjin").value);
+  $("st-" + key).textContent = "読み込み中…";
+  $("cs-error").style.display = "none";
+  try {
+    const D = await get(t.path, q);
+    $("body-" + key).innerHTML = t.render(D);
+    $("st-" + key).textContent = D.meta && D.meta.all_cached ? "（キャッシュから表示）" : "";
+    loaded[key] = true;
+  } catch (e) {
+    $("st-" + key).textContent = "";
+    showError(e);
+  }
+}
+
+document.querySelectorAll("nav.tabs button").forEach((b) => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll("nav.tabs button").forEach((x) => x.classList.remove("on"));
+    document.querySelectorAll(".pane").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+    $("pane-" + b.dataset.p).classList.add("on");
+    // 開いたときに初めて取る。開かないタブのぶんは Sheets を叩かない
+    if (!loaded[b.dataset.p]) load(b.dataset.p, false);
+  });
+});
+document.querySelectorAll("button.act[data-reload]").forEach((b) => {
+  b.addEventListener("click", () => load(b.dataset.reload, true));
+});
+$("cs-censor").addEventListener("change", () => load("renewal", false));
+$("cs-houjin").addEventListener("change", () => load("customer", false));
+load("focus", false);
+</script>
+</body>
+</html>

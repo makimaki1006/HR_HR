@@ -40,6 +40,14 @@ async fn main() {
         tracing::warn!("架電クオリティ: 初期化に失敗（該当タブのみ利用不可）: {e:#}");
     }
 
+    // コンサルダッシュボード（/consulting）が読む7枚を先読みしておく。
+    // 先読みが無いと最初に開いた人だけが 24.4秒待つ（2026-09-21 実測）。
+    // await しない（SheetStore は取得中ずっと書き込みロックを持つため）。
+    // 失敗しても起動は止めない。
+    tokio::spawn(async {
+        rust_dashboard::handlers::cs_dashboard::prefetch().await;
+    });
+
     decompress_geojson_if_needed();
     // I-P0-2: precompress_geojson() の呼び出しを削除 (二重 I/O / dead I/O)
     //   理由: 生成される `static/geojson/*.json.gz` はどこからも参照されない。
