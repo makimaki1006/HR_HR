@@ -1104,3 +1104,93 @@ fn 接触率の定義が担当者一覧と案件一覧でそろっている() {
     }
     assert!(checked > 10, "突き合わせた担当者が {checked} 名しかない");
 }
+
+/// 🔴 契約開始がまだ先の案件を「-1 か月目」と出さない。
+///
+/// 実測で115件ある。そのまま計算すると負の経過月になって読めない。
+/// 「接触の記録が無い」の名札も立てない（まだ始まっていないので当たり前）。
+#[test]
+fn 契約開始がまだ先の案件は開始前として分ける() {
+    let v = build_deal_board(&sheets(), fixture_day());
+    let rows = v["rows"].as_array().expect("rows");
+    let ns: Vec<&serde_json::Value> = rows.iter().filter(|r| r["not_started"] == true).collect();
+    assert!(!ns.is_empty(), "開始前の案件が1件も無い。判定が効いていない");
+
+    for r in rows {
+        // 経過月が負のまま出ていないこと
+        if let Some(m) = r["months"].as_f64() {
+            assert!(m >= 0.0, "経過月が負のまま出ている: {r}");
+        }
+        if r["not_started"] == true {
+            assert!(r["months"].is_null(), "開始前なのに経過月が出ている: {r}");
+            let flags: Vec<&str> = r["flags"].as_array().unwrap()
+                .iter().filter_map(|x| x.as_str()).collect();
+            assert!(
+                !flags.iter().any(|f| f.contains("接触")),
+                "開始前なのに接触の名札が立っている: {flags:?}"
+            );
+        }
+    }
+}
+
+/// 🔴 母数の小さい担当者を、図と表で別に扱えること。
+///
+/// 1案件・5か月の分母で 0% になった人が、33案件で 24.4% の人より「悪い」位置に
+/// 並ぶと実態とずれる。図からは外し、**表には残す**（接触ゼロは拾いたい）。
+/// サーバは印（`small_n`）を返すだけで、外すかどうかは画面が決める。
+#[test]
+fn 母数が小さい担当者に印が付く() {
+    let v = build_consultants(&sheets(), fixture_day());
+    let rows = v["rows"].as_array().expect("rows");
+    assert!(!rows.is_empty());
+
+    let mut small = 0;
+    for r in rows {
+        let months = r["contact_months"].as_u64().expect("contact_months");
+        let flagged = r["small_n"].as_bool().expect("small_n");
+        assert_eq!(
+            flagged,
+            months < super::MIN_CONTACT_MONTHS as u64,
+            "{} の印が分母と合っていない（{months} か月）",
+            r["consultant"]
+        );
+        if flagged {
+            small += 1;
+        }
+    }
+    assert!(small > 0, "母数が小さい担当者が1人もいない。判定が効いていない");
+    // 🔴 表から消していないこと（サーバは全員返す）
+    assert!(rows.len() > small, "母数が小さい人しかいない");
+
+    // 外す理由が payload に載っていること
+    let rule = v["small_n_rule"].as_str().expect("small_n_rule");
+    assert!(rule.contains("表には残して"), "図と表で扱いを変える理由が載っていない");
+}
+
+/// ④顧客詳細が、開いた瞬間に空にならないこと。
+#[test]
+fn 顧客詳細に既定の法人がある() {
+    let v = build_customer(&sheets(), None, fixture_day());
+    let h = v["default_houjin"].as_str().expect("default_houjin が無い");
+    assert!(!h.is_empty());
+
+    // 既定は「取引がいちばん多い法人」
+    let idx = v["index"].as_array().unwrap();
+    let top = idx
+        .iter()
+        .max_by(|a, b| {
+            a["deals"].as_f64().unwrap_or(0.0)
+                .partial_cmp(&b["deals"].as_f64().unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap();
+    assert_eq!(top["houjin"].as_str().unwrap(), h, "既定が取引数の最多と一致しない");
+
+    // 選んだ理由が payload に載っていること
+    assert!(v["default_reason"].as_str().unwrap().contains("取引がいちばん多い"));
+
+    // その法人を実際に開けること
+    let d = build_customer(&sheets(), Some(h), fixture_day());
+    assert_eq!(d["meta"]["found"], true);
+    assert!(!d["deals"].as_array().unwrap().is_empty());
+}
