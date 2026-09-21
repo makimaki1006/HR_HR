@@ -37,6 +37,9 @@ body{background:var(--bg);color:var(--text);
 header.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
 header.top h1{font-size:19px;margin:0}
 header.top .who{color:var(--sub);font-size:12px;margin-left:auto}
+/* 戻り導線。行きっぱなしで戻れないと使えない（/sales-kpi と同じ形） */
+a.backlink{color:var(--sub);font-size:12.5px;text-decoration:none}
+a.backlink:hover{color:var(--accent);text-decoration:underline}
 .lead{color:var(--sub);font-size:12.5px;margin:0 0 12px}
 nav.tabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 16px;
   border-bottom:1.5px solid var(--border)}
@@ -101,6 +104,7 @@ button.act:hover{border-color:var(--accent);color:var(--accent)}
 
 <header class="top">
   <h1>コンサルダッシュボード</h1>
+  <a class="backlink" href="/">← ダッシュボードへ戻る</a>
   <span class="who">{{ user }}</span>
 </header>
 <p class="lead">
