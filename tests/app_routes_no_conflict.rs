@@ -623,3 +623,204 @@ fn 画面に出る文章に絵文字が無い() {
         );
     }
 }
+
+// ================================================================ 画面の並び
+
+/// 画面の `MENUS` から「メニュー名 → 中の項目」を抜き出す。
+///
+/// 画面は JS の配列で持っているので、そこを読む。
+/// **項目が1つ消えただけで気づけるようにする**のがこのテストの目的。
+fn menus(html: &str) -> Vec<(String, Vec<String>)> {
+    let body = html
+        .split_once("const MENUS = [")
+        .expect("MENUS が無い")
+        .1
+        .split_once("\n];")
+        .expect("MENUS の終わりが無い")
+        .0;
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for line in body.lines() {
+        let t = line.trim();
+        if !t.starts_with("{ key:") || !t.contains("label:") {
+            continue;
+        }
+        // メニューの行だけが丸数字（no:）を持ち、項目の行は path: を持つ
+        if t.contains(" no: ") {
+            out.push((take_label(t), Vec::new()));
+        } else if t.contains("path:") {
+            out.last_mut()
+                .expect("メニューより先に項目が出てきた")
+                .1
+                .push(take_label(t));
+        }
+    }
+    out
+}
+
+/// `label: "…"` の中身を取る。
+fn take_label(line: &str) -> String {
+    let after = line.split_once("label:").expect("label が無い").1;
+    let s = after.split_once('"').expect("開き").1;
+    s.split_once('"').expect("閉じ").0.to_string()
+}
+
+/// 🔴 上のメニューは**3つ**。増やすときは認知の負荷が上がるので、意図して決めること。
+#[test]
+fn 上のメニューが三つある() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    let m = menus(&html);
+    let names: Vec<&str> = m.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["案件", "コンサルタント", "集計"],
+        "上のメニューの顔ぶれが変わっている"
+    );
+}
+
+/// 🔴 サイドバーの項目が消えていないこと。
+///
+/// 折りたたみをやめて左に並べたので、**1つ消えても画面上は自然に見えてしまう**。
+/// ここで顔ぶれを固定しておく。増やすのは構わないが、消すときは意図的に。
+#[test]
+fn サイドバーの項目がそろっている() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    let m = menus(&html);
+    let want: &[(&str, &[&str])] = &[
+        ("案件", &["今日動く先", "案件の立ち位置", "顧客ごとに見る"]),
+        (
+            "コンサルタント",
+            &["担当者の一覧", "担当者ごとの案件", "担当の交代"],
+        ),
+        (
+            "集計",
+            &[
+                "継続回数 × 成果",
+                "成果とリスク",
+                "いま見るべき顧客",
+                "立ち上がり",
+                "電話",
+                "MTG の品質",
+                "本部アプローチ",
+                "データ品質",
+                "定義と検証",
+            ],
+        ),
+    ];
+    assert_eq!(m.len(), want.len(), "メニューの数が違う");
+    for ((got_name, got_views), (want_name, want_views)) in m.iter().zip(want) {
+        assert_eq!(got_name, want_name);
+        let got: Vec<&str> = got_views.iter().map(|x| x.as_str()).collect();
+        assert_eq!(got, *want_views, "「{want_name}」の中の項目が変わっている");
+    }
+}
+
+/// 🔴 **開いたら「今日動く先」が出ること。** 毎朝いちばん見るもの。
+///
+/// 既定は「先頭のメニューの、先頭の項目」。並び順を変えると既定も変わるので、
+/// 両方をここで見張る。
+#[test]
+fn 開いたときの既定が今日動く先() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    let m = menus(&html);
+    assert_eq!(m[0].0, "案件", "先頭のメニューが「案件」でない");
+    assert_eq!(
+        m[0].1[0], "今日動く先",
+        "「案件」の先頭が「今日動く先」でない"
+    );
+    // URL に何も無いときの戻り値
+    assert!(
+        html.contains(r#"return { menu: "deal", view: "today" };"#),
+        "URL が空のときの行き先が「案件 → 今日動く先」でない"
+    );
+    // 先頭の項目を既定として開く実装が残っていること
+    assert!(
+        html.contains("|| m.views[0]"),
+        "項目を省いたときに先頭を開く作りが無い"
+    );
+}
+
+/// 折りたたみ（details/summary）で中身を隠していないこと。
+///
+/// 左に並べれば一望できるので、箱に入れる理由が無くなった。
+#[test]
+fn 集計を折りたたみに隠していない() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    assert!(
+        !html.contains("details class=\"study\""),
+        "調査の折りたたみが残っている"
+    );
+    assert!(
+        !html.contains("function renderStudy"),
+        "古い⑤の描画が残っている"
+    );
+    // 開いたときだけ取りに行く作りは維持する
+    assert!(
+        html.contains("if (!v.path) {"),
+        "API を持たない項目の扱いが無い（全部まとめて取りに行っていないか）"
+    );
+}
+
+/// サイドバーがキーボードでたどれて、いまどこかが読み上げに伝わること。
+#[test]
+fn サイドバーがキーボードでたどれる() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    for needle in [
+        "<nav class=\"side\"", // nav 要素
+        "aria-label=\"この中の切り替え\"",
+        "aria-current=\"page\"",      // いまどこにいるか
+        ".side button:focus-visible", // フォーカスリング
+    ] {
+        assert!(
+            html.contains(needle),
+            "サイドバーから「{needle}」が消えている"
+        );
+    }
+    // 🔴 fixed で本文に重ねない。sticky なら列の中に居座るだけで重ならない
+    assert!(
+        html.contains(".side{ position:sticky;"),
+        "サイドバーが sticky でない（fixed にすると本文に重なる）"
+    );
+    assert!(
+        !html.contains(".side{ position:fixed"),
+        "サイドバーが fixed になっている"
+    );
+    // 狭い画面で消さない
+    assert!(
+        html.contains("@media (max-width:900px){"),
+        "狭い画面での振る舞いが決まっていない"
+    );
+}
+
+/// 見ている場所が URL に残ること（共有と戻るボタンのため）。
+#[test]
+fn 見ている場所がurlに残る() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    assert!(
+        html.contains("history.replaceState"),
+        "URL を更新していない"
+    );
+    assert!(html.contains("hashchange"), "戻るボタンに追従していない");
+    assert!(
+        html.contains("function fromHash("),
+        "URL から位置を決めていない"
+    );
+}
+
+/// 担当の交代の一覧が、新しい指標を作らずに並べているだけであること。
+#[test]
+fn 担当の交代は記録を並べるだけ() {
+    let rs = std::fs::read_to_string("src/handlers/cs_dashboard/routes.rs").expect("routes");
+    assert!(
+        rs.contains("pub fn build_handover("),
+        "担当の交代の組み立てが無い"
+    );
+    assert!(
+        rs.contains("/api/consulting/handover"),
+        "担当の交代のパスが配線されていない"
+    );
+    // 🔴 from / to でまとめない（伏字が連番なので、まとめると処理が素通りする）
+    assert!(
+        !rs.contains("hv.get(r, \"from\")).or_insert") && !rs.contains("entry(hv.get(r, \"from\")"),
+        "from / to でまとめている。拠点キー・担当者・ホスト氏名と同じ穴"
+    );
+}
