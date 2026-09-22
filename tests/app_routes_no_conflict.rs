@@ -313,3 +313,313 @@ fn 案件の立ち位置は絞り込みの件数を出す() {
         );
     }
 }
+
+// ================================================================ 見た目の決まりごと
+
+/// 画面の `<style>` から `--<名前>: #rrggbb` を拾う。
+/// `which` は 0=明るい地、1=暗い地（media query）。
+fn tokens(html: &str, which: usize) -> std::collections::HashMap<String, String> {
+    let css = html
+        .split_once("<style>")
+        .and_then(|(_, r)| r.split_once("</style>"))
+        .map(|(c, _)| c)
+        .expect("style が無い");
+    // `:root{` で始まるブロックを順に拾う
+    let mut blocks = Vec::new();
+    let mut rest = css;
+    while let Some(i) = rest.find(":root") {
+        let after = &rest[i..];
+        if let Some(s) = after.find('{') {
+            let mut depth = 0i32;
+            let mut end = 0usize;
+            for (j, ch) in after[s..].char_indices() {
+                if ch == '{' {
+                    depth += 1;
+                } else if ch == '}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = s + j;
+                        break;
+                    }
+                }
+            }
+            blocks.push(&after[s..end]);
+            rest = &after[end.max(s + 1)..];
+        } else {
+            break;
+        }
+    }
+    let block = blocks.get(which).unwrap_or_else(|| {
+        panic!(
+            "{which} 番目の :root ブロックが無い（{} 個しか無い）",
+            blocks.len()
+        )
+    });
+    let mut out = std::collections::HashMap::new();
+    let mut it = block.split("--");
+    it.next();
+    for part in it {
+        if let Some((name, tail)) = part.split_once(':') {
+            let v: String = tail
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_ascii_hexdigit() || *c == '#')
+                .collect();
+            if v.len() == 7 && v.starts_with('#') {
+                out.insert(name.trim().to_string(), v);
+            }
+        }
+    }
+    out
+}
+
+/// sRGB の相対輝度（WCAG の定義そのまま）。
+fn luminance(hex: &str) -> f64 {
+    let h = hex.trim_start_matches('#');
+    let ch = |i: usize| {
+        let v = u8::from_str_radix(&h[i..i + 2], 16).expect("16進") as f64 / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * ch(0) + 0.7152 * ch(2) + 0.0722 * ch(4)
+}
+
+fn contrast(a: &str, b: &str) -> f64 {
+    let (x, y) = (luminance(a), luminance(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// 🔴 **文字のコントラストは 4.5:1 以上。**
+///
+/// 2026-09-22 に実測したら `--ink-3` が paper の上で **2.86:1**、
+/// `--ghost` が **1.98:1** しかなかった。どちらも読ませる文字に使っている
+/// （節番号・図の軸ラベル・「値が無い(—)」「記録なし」）。
+/// 色を薄くし直したときにここで落ちる。
+#[test]
+fn 文字のコントラストが足りている() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    // 文字に使うトークン × 背景に使うトークン
+    let text = [
+        "ink", "ink-2", "ink-3", "ghost", "ai", "hi", "ki", "midori", "murasaki",
+    ];
+    let bg = ["paper", "panel", "panel-2", "panel-3"];
+    for (which, theme) in [(0usize, "明るい地"), (1usize, "暗い地")] {
+        let t = tokens(&html, which);
+        for f in text {
+            let fg = t.get(f).unwrap_or_else(|| panic!("{theme}: --{f} が無い"));
+            for b in bg {
+                let Some(back) = t.get(b) else { continue };
+                let r = contrast(fg, back);
+                assert!(
+                    r >= 4.5,
+                    "{theme}: --{f}({fg}) を --{b}({back}) の上に置くと {r:.2}:1。\
+                     文字は 4.5:1 が要る。薄くするなら、その色を文字に使っていないことを先に確かめること"
+                );
+            }
+        }
+    }
+}
+
+/// 押せる部品の枠は 3:1（WCAG 1.4.11）。
+///
+/// 表の罫線（`--rule`）まで濃くすると画面が重くなるので、
+/// **部品の枠だけ** `--rule-strong` を使う。その値がここで守られる。
+#[test]
+fn 操作できる部品の枠が見える() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    for (which, theme) in [(0usize, "明るい地"), (1usize, "暗い地")] {
+        let t = tokens(&html, which);
+        let strong = t
+            .get("rule-strong")
+            .unwrap_or_else(|| panic!("{theme}: --rule-strong が無い"));
+        for b in ["paper", "panel", "panel-2"] {
+            let Some(back) = t.get(b) else { continue };
+            let r = contrast(strong, back);
+            assert!(
+                r >= 3.0,
+                "{theme}: --rule-strong を --{b} の上に置くと {r:.2}:1（3:1 が要る）"
+            );
+        }
+    }
+    assert!(
+        html.contains("border:1px solid var(--rule-strong)"),
+        "--rule-strong を定義しただけで、部品に当てていない"
+    );
+}
+
+/// 🔴 **並び替えはキーボードでもできること。**
+///
+/// `th` の `onclick` だけにしていたせいで、2026-09-22 の実測では
+/// **Tab でたどり着けず、Enter でも並び替わらなかった**（tabIndex -1）。
+/// `th` の中に `button` を置く形に直した。`th` の onclick に戻すとここで落ちる。
+#[test]
+fn 並び替えがキーボードでできる() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    assert!(
+        html.contains("<button type=\"button\" class=\"sort\""),
+        "見出しが button になっていない"
+    );
+    assert!(
+        html.contains("th.sortable button.sort"),
+        "button に配線していない（th 側に onclick を付け直していないか）"
+    );
+    assert!(
+        html.contains("th button.sort:focus-visible"),
+        "見出しのフォーカスリングが無い"
+    );
+    assert!(
+        html.contains("aria-sort="),
+        "いま並んでいる列を読み上げに伝えていない"
+    );
+    // 読み上げ用の説明（見た目には出ない）
+    assert!(
+        html.contains("押すとこの列で並び替わります"),
+        "並び替えできることが読み上げに伝わらない"
+    );
+}
+
+/// 押せるところが 24px 未満にならないこと（WCAG 2.2 AA / Target Size Minimum）。
+///
+/// 担当者名から③へ飛ぶリンクが実測 42.1 x **13px** しかなかった。
+#[test]
+fn 押せるところが小さすぎない() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    for needle in [
+        "a.drill{ display:inline-block; min-height:24px",
+        "min-height:28px", // 操作列の select / input / button
+        "a.drill:focus-visible",
+    ] {
+        assert!(
+            html.contains(needle),
+            "当たり判定の指定「{needle}」が消えている"
+        );
+    }
+}
+
+/// 🔴 **色だけで意味を伝えない。**
+///
+/// 名札の図は3つの意味を色で分けている。棒の右に分類の言葉も書くので、
+/// 色が見分けられなくても、白黒に印刷しても読める。
+#[test]
+fn 図は色だけで意味を伝えない() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    assert!(
+        html.contains("function flagGroup("),
+        "名札の分類が1か所にまとまっていない"
+    );
+    assert!(
+        html.matches("note: flagGroup(").count() >= 2,
+        "分類の言葉を棒に書いていない（①と③の両方に要る）"
+    );
+    assert!(
+        html.contains("色が見分けられなくても"),
+        "色に頼っていないことが画面に書かれていない"
+    );
+}
+
+/// いちばん小さい文字が 11px を下回らないこと。
+#[test]
+fn 小さすぎる文字が無い() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    let css = html
+        .split_once("<style>")
+        .and_then(|(_, r)| r.split_once("</style>"))
+        .map(|(c, _)| c)
+        .expect("style");
+    let mut small = Vec::new();
+    for part in css.split("font-size:").skip(1) {
+        let v: String = part
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
+        if let Ok(px) = v.parse::<f64>() {
+            if part[v.len()..].starts_with("px") && px < 11.0 {
+                small.push(px);
+            }
+        }
+    }
+    assert!(
+        small.is_empty(),
+        "11px より小さい文字がある: {small:?}。読ませる情報なら 11px 以上にすること"
+    );
+}
+
+/// 表以外がページ全体を横に流さないこと。
+///
+/// ③は14列あり、`.scroll` に入れていなかったせいで
+/// 1440px 幅のページが 2640px に広がっていた（2026-09-22 実測）。
+#[test]
+fn 広い表は枠の中でスクロールする() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    for needle in [
+        "scroll(boardTable(shown, boardSort,",          // ③
+        "scroll(boardTable(D.rows, { key: \"n_flags\"", // ①
+    ] {
+        assert!(
+            html.contains(needle),
+            "表が .scroll に入っていない: {needle}"
+        );
+    }
+    // 画面の中に px 直書きの幅を持ち込んでいないこと（max-width は可）
+    assert!(
+        !html.contains("style=\"width:180px\""),
+        "固定 px 幅がインラインで残っている"
+    );
+}
+
+/// 🔴 **画面に出す文章に絵文字を混ぜない。**
+///
+/// コードの注記に 🔴 を使うのはこの案件の決まりごとだが、
+/// それが JSON の文字列や画面の文言に紛れ込むと、実際に赤丸が表示される
+/// （2026-09-22 のスクリーンショットで「スコアや確率は出していません」の前に出ていた）。
+/// 強調は `<b>` と「読み方」の見出しが担うので、印は要らない。
+#[test]
+fn 画面に出る文章に絵文字が無い() {
+    // 拾うのはコメントでない行だけ。`//` `///` `/*` `*` で始まる行は注記なので見逃す。
+    fn displayed(src: &str) -> Vec<(usize, String)> {
+        let mut out = Vec::new();
+        let mut in_block = false;
+        for (i, raw) in src.lines().enumerate() {
+            let t = raw.trim_start();
+            if t.starts_with("/*") {
+                in_block = true;
+            }
+            let skip =
+                in_block || t.starts_with("//") || t.starts_with('*') || t.starts_with("<!--");
+            if t.contains("*/") {
+                in_block = false;
+            }
+            if skip {
+                continue;
+            }
+            if raw.chars().any(is_emoji) {
+                out.push((i + 1, raw.trim().chars().take(70).collect()));
+            }
+        }
+        out
+    }
+    fn is_emoji(c: char) -> bool {
+        matches!(c as u32,
+            0x1F300..=0x1FAFF | 0x2600..=0x27BF | 0x2B00..=0x2BFF | 0xFE0F | 0x1F000..=0x1F0FF)
+        // ▲▼◯— など、この画面が意味を持たせて使う記号は絵文字ではない（別の範囲）
+    }
+
+    for path in [
+        "src/handlers/cs_dashboard/routes.rs",
+        "templates/tabs/cs_dashboard.html",
+    ] {
+        let src = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let hits = displayed(&src);
+        assert!(
+            hits.is_empty(),
+            "{path} の画面に出る文字列に絵文字がある:\n{}",
+            hits.iter()
+                .map(|(n, t)| format!("  {n}行: {t}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+}
