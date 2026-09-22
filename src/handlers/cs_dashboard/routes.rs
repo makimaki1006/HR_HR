@@ -227,7 +227,18 @@ async fn customer_detail(
 /// 取れないときは `null` を返す。**推測で埋めない**（埋めると嘘になる）。
 /// 集計側（`build_*`）ではなくここで足しているのは、集計は fixture でも
 /// 同じ値を返してほしいのに対し、鮮度は取ってきたシートの性質だから。
-fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value {
+///
+/// 🔴 **母集団（`population`）もここで足す。** 画面ごとに数えると、タブによって
+/// 母集団が違う画面に戻ってしまう（実測で②593件・③703件と食い違っていた）。
+pub(super) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value {
+    // 🔴 母集団は**ここで1回だけ**作って全部の画面に載せる。
+    //    画面ごとに数えると、タブによって数が違う画面に戻る。
+    if let Some(o) = v.as_object_mut() {
+        o.insert(
+            "population".into(),
+            serde_json::to_value(super::population_of(&sheets.deal)).unwrap_or(Value::Null),
+        );
+    }
     let at = super::generated_at(&sheets.meta);
     let age = super::generated_age_days(&sheets.meta, today);
     if let Some(m) = v.get_mut("meta").and_then(Value::as_object_mut) {
@@ -313,14 +324,11 @@ fn monthly_retention(deals: &[Deal]) -> Value {
         pending: usize,
     }
     let mut by_month: BTreeMap<String, M> = BTreeMap::new();
-    let mut excluded_option = 0usize;
     let mut no_expiry = 0usize;
 
     for d in deals {
-        if d.is_option() {
-            excluded_option += 1;
-            continue;
-        }
+        // オプションは `deals_of` の時点で落ちている。ここは保険。
+        debug_assert!(!d.is_option(), "オプションが母数に残っている: {}", d.name);
         let Some(month) = d.manryou_month() else {
             no_expiry += 1;
             continue;
@@ -353,8 +361,8 @@ fn monthly_retention(deals: &[Deal]) -> Value {
 
     json!({
         "rows": rows,
-        "excluded_option": excluded_option,
         "no_expiry": no_expiry,
+        // 外したオプションの件数は `population`（全画面共通）に入っている
         "denominator_label": "満了月が該当月で決着済み（継続＋解約＋充足）。オプション契約は除く",
     })
 }
@@ -1440,10 +1448,12 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
 
-    // 法人番号の出どころ
+    // 法人番号の出どころ。
+    // 🔴 生の行ではなく `deals` を数える。生の行だとオプション契約が混ざり、
+    //    同じ画面の中で母数（n_deals）と内訳の合計が食い違う。
     let mut src: BTreeMap<String, usize> = BTreeMap::new();
-    for r in &sheets.deal.rows {
-        let v = sheets.deal.get(r, "houjin_source").trim();
+    for d in &deals {
+        let v = d.houjin_source.trim();
         let k = if v.is_empty() {
             "（無し）".to_string()
         } else {

@@ -422,6 +422,13 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
 .ctlbar button.act:hover{ background:var(--ai-soft); }
 .ctlbar select:focus-visible, .ctlbar input:focus-visible,
 .ctlbar button.act:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+/* 母集団の注記。全部の項目の頭に、同じ文言で出る。
+   数字は本文と同じ濃さ、内訳は一段落として読ませる。 */
+.popnote{ margin:0 0 var(--space-3); padding:7px var(--space-4);
+          border-left:3px solid var(--ink-3); background:var(--panel-2);
+          border-radius:0 var(--radius-md) var(--radius-md) 0;
+          color:var(--ink); font-size:12.5px; line-height:1.7; }
+.popnote b{ font-weight:700; }
 .err{ background:var(--hi-soft); border-left:3px solid var(--hi);
       padding:var(--space-3) var(--space-4); border-radius:0 var(--radius-md) var(--radius-md) 0;
       color:var(--ink); font-size:13px; white-space:pre-wrap; margin:var(--space-3) 0; }
@@ -1402,7 +1409,11 @@ function renderTeam(D) {
   const focusTop = D.rows.slice().sort((a, b) => b.focus - a.focus)[0];
   h += '<div class="kpis">' +
     kpi("担当者", num(D.meta.n_consultant) + '<span class="u">名</span>',
-        "稼働中 " + num(D.meta.n_active) + " 件を持っている") +
+        /* 🔴 上の数字と下の表の合計が合うように、外した分をここに書く。
+           「稼働中604件」と言いながら表が593件しかない、という見え方を作らない */
+        "稼働中 " + num(D.meta.n_active) + " 件（オプション契約を除く）" +
+        (D.meta.unknown_owner ? "　うち担当が取れない " + num(D.meta.unknown_owner) +
+          " 件は下の表に出していません" : "")) +
     kpi("接触率がいちばん低い", worst ? esc(worst.consultant) : DASH,
         worst ? pct1(worst.contact_rate) + "（" + num(worst.contact_touched) + "/" +
                 num(worst.contact_months) + " か月）" : "", "bad") +
@@ -1616,7 +1627,8 @@ function renderRenewal(D) {
       yFmt: F.pct, yLab: "継続率", alt: "月次の継続率" }),
     lg("dot", C.ai, "確定した月") + lg("ring", C.ai, "結果待ちが多い月") +
     '<i class="full">充足（採れて終わった契約）も分母に入れます。採用できて終わったのも' +
-    "「継続しなかった」という結果だからです。オプション契約 " + num(mr.excluded_option) +
+    "「継続しなかった」という結果だからです。オプション契約 " +
+    num((D.population || {}).deals_option) +
     " 件は母数から外しています（月ごとの偏りが大きく、含めると月次比較が歪むため）。</i>");
 
   h += sec("表", "満了月ごとの内訳");
@@ -3066,7 +3078,12 @@ function renderDefs() {
      ["<b>事業所をまたいで1本につながない</b>",
       "決裁が事業所単位なので、まとめると拠点差が時間の変化に見える"],
      ["<b>色だけで意味を伝えない</b>",
-      "記号か文字を必ず添える。白黒に印刷しても読めるようにする"]]);
+      "記号か文字を必ず添える。白黒に印刷しても読めるようにする"],
+     ["<b>オプション契約を母集団から外す</b>",
+      "求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加。本体契約と一緒に並べると、" +
+      "同じ顧客が案件一覧にも担当者の持ち件数にも二重に出る。<b>外した件数と金額は各画面の頭に出している</b>"],
+     ["<b>母集団はどの項目でも同じ</b>",
+      "サーバが1か所で数えた値を全部の項目に同じまま渡している。項目ごとに数え直していない"]]);
 
   h += sec("表", "3つの「いつ」は別物");
   h += table([{ t: "名前" }, { t: "何の時刻か" }],
@@ -3269,9 +3286,10 @@ async function load(refresh) {
   const main = document.getElementById("cs-main");
   document.getElementById("cs-error").style.display = "none";
 
-  /* API を持たない項目（定義と検証）はその場で描く */
+  /* API を持たない項目（定義と検証）はその場で描く。
+     母集団の注記だけは直前に読んだ応答から出す（画面共通の値なので同じ数字になる） */
   if (!v.path) {
-    main.innerHTML = ctlbar(v, {}) + v.render();
+    main.innerHTML = ctlbar(v, lastPayload || {}) + v.render();
     wire(v);
     return;
   }
@@ -3301,10 +3319,31 @@ async function load(refresh) {
   }
 }
 
+/* 母集団の注記。🔴 **どの項目でも同じ文言・同じ数字を出す。**
+   タブによって母集団が違うと、同じ画面の中で数が合わなくなる
+   （②593件・③703件と食い違っていた）。サーバが `population` を
+   全部の応答に同じ値で載せているので、画面はそれをそのまま出す。
+
+   🔴 **何をいくつ外したかも書く。** 黙って消さない。AirWork広告運用は
+   実在する売上で、「無かったこと」にはしない。 */
+function popline(D) {
+  const p = D && D.population;
+  if (!p) return "";
+  return '<p class="popnote">稼働中 <b>' + num(p.active) +
+    "</b> 件（オプション契約を除く）<br>" +
+    '<span class="muted">稼働中 ' + num(p.active_all) + " 件から、オプション契約 " +
+    num(p.active_option) + " 件を除いた数です" +
+    (p.option_amount ? "（外した契約の金額は " + man(p.option_amount) +
+      "。契約が無くなったわけではありません）" : "") +
+    "。オプション＝求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加。" +
+    "全取引 " + num(p.deals_all) + " 件のうち " + num(p.deals_option) +
+    " 件がオプションで、この画面は残り " + num(p.deals) + " 件を見ています。</span></p>";
+}
+
 /* 項目ごとの操作列。「継続回数 × 成果」は右側打ち切りの切り替え、
    「顧客ごとに見る」は法人の選択 */
 function ctlbar(v, D) {
-  let h = '<div class="ctlbar">';
+  let h = popline(D) + '<div class="ctlbar">';
   if (v.key === "renewal") {
     h += '<label class="act"><input type="checkbox" id="cs-censor">' +
       "右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>";
