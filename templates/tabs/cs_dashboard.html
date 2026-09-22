@@ -7,14 +7,29 @@
 <style>
 :root{
     --paper:#f4f6f8; --panel:#ffffff; --panel-2:#fafbfc; --panel-3:#edf0f3;
-    --ink:#191a1c; --ink-2:#5b6168; --ink-3:#8d939a;
+    --ink:#191a1c; --ink-2:#5b6168;
+    /* 🔴 2026-09-22 実測: #8d939a は paper の上で 2.86:1 しかなく、4.5:1 に届いていなかった
+       （節番号12px・図の軸ラベル10px・読み込み中の表示に使っている）。
+       色相と彩度はそのままに明度だけ落とした。実測 4.55:1
+       （4つの地のうち一番きつい --panel-3 #edf0f3 の上での値）。 */
+    --ink-3:#686d75;
     --rule:#dde2e8; --rule-2:#eaeef2;
+    /* 操作できる部品（select / input / button）の枠**だけ**に使う。
+       部品の境界には 3:1 が要る（WCAG 1.4.11）が、--rule は実測 1.20:1 しかなく
+       「押せる場所がどこまでか」が見えなかった。表の罫線までこれにすると
+       画面が重くなって承認された見た目が変わるので、部品の枠に限る。実測 3.01:1（表の見出しの地 --panel-3 の上で測った。ここが一番きつい）*/
+    --rule-strong:#798ca4;
     --ai:#1f4f8f;      --ai-soft:#e8eefa;
     --hi:#ab2f26;      --hi-soft:#fbecea;
     --ki:#8a5f06;      --ki-soft:#fbf3e1;
     --midori:#0f6b51;  --midori-soft:#e5f3ed;
     --murasaki:#5b4b8a;
-    --grid:#e3e8ee; --ghost:#a9b2bc;
+    --grid:#e3e8ee;
+    /* 🔴 2026-09-22 実測: #a9b2bc は 1.98:1 しかなかった。ghost は「値が無い（0 ではない）」を
+       示す — や「記録なし」に使っていて、**読ませる文字**なので 4.5:1 が要る。4.54:1 にした。
+       実測 4.55:1。
+       それでも ink(17.41:1) よりはっきり弱いので、「データより一段落とす」役割は保つ。 */
+    --ghost:#616e7d;
     --shadow-card:0 1px 2px rgba(25,26,28,.05), 0 6px 18px -12px rgba(25,26,28,.22);
     /* 間隔。数列の5段と、用途で名付けた1つ。
        space-gap は「カードや図の間」。実測で最多(9箇所)だったので段ではなく用途名にした。
@@ -43,27 +58,27 @@
   @media (prefers-color-scheme:dark){
     :root:not([data-theme="light"]){
       --paper:#15171b; --panel:#1d2026; --panel-2:#1a1d22; --panel-3:#242830;
-      --ink:#e9e6e0; --ink-2:#a3a9b1; --ink-3:#767c85;
-      --rule:#31353c; --rule-2:#24272d;
+      --ink:#e9e6e0; --ink-2:#a3a9b1; --ink-3:#898f96;   /* 3.88:1 → 4.53:1 */
+      --rule:#31353c; --rule-2:#24272d; --rule-strong:#697180;  /* 3.01:1 */
       --ai:#7fadf0;      --ai-soft:#17243a;
       --hi:#f18c7f;      --hi-soft:#311d1a;
       --ki:#e0b063;      --ki-soft:#2c2214;
       --midori:#5fc79c;  --midori-soft:#112c24;
       --murasaki:#a294d8;
-      --grid:#2d3138; --ghost:#5d636c;
+      --grid:#2d3138; --ghost:#888f99;   /* 2.69:1 → 4.53:1 */
       --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
     }
   }
   :root[data-theme="dark"]{
     --paper:#15171b; --panel:#1d2026; --panel-2:#1a1d22; --panel-3:#242830;
-    --ink:#e9e6e0; --ink-2:#a3a9b1; --ink-3:#767c85;
-    --rule:#31353c; --rule-2:#24272d;
+    --ink:#e9e6e0; --ink-2:#a3a9b1; --ink-3:#898f96;
+    --rule:#31353c; --rule-2:#24272d; --rule-strong:#697180;
     --ai:#7fadf0;      --ai-soft:#17243a;
     --hi:#f18c7f;      --hi-soft:#311d1a;
     --ki:#e0b063;      --ki-soft:#2c2214;
     --midori:#5fc79c;  --midori-soft:#112c24;
     --murasaki:#a294d8;
-    --grid:#2d3138; --ghost:#5d636c;
+    --grid:#2d3138; --ghost:#888f99;
     --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
   }
 
@@ -72,6 +87,14 @@
   body{
     background:var(--paper); color:var(--ink); margin:0;
     font-family:"BIZ UDPGothic","Yu Gothic UI","Yu Gothic","Hiragino Sans","Meiryo",sans-serif;
+    /* 🔴 本文 14px の判断（2026-09-22）
+       UI/UX の規約は「本文は最低 16px」だが、原文は "Minimum 16px body text
+       **on mobile**" で、**スマートフォンを前提にした規約**。
+       この画面は毎朝PCで見るもので、③は14列の表を横に並べる。
+       16px にすると1画面に収まる列が減り、横スクロールが増えて読みにくくなる。
+       行間を 1.85 と広めに取って可読性を補っている。
+       代わりに「いちばん小さい文字」の下限は 11px に上げた（軸ラベル・タグ）。
+       スマートフォンで常用することになったら、ここは見直すこと。 */
     font-size:14px; line-height:1.85; letter-spacing:.008em;
     -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
   }
@@ -210,9 +233,12 @@
   .figlegend i.full{ flex:1 0 100%; display:block; line-height:1.7; }
   .figlegend svg{ display:inline-block; vertical-align:-2px; }
   /* 図の中の文字。SVG は fill でしか色が付かないので style で var() を渡す */
-  .ax{ font-size:10px; fill:var(--ink-3); font-variant-numeric:tabular-nums; }
-  .axl{ font-size:10.5px; fill:var(--ink-2); }
-  .vl{ font-size:10.5px; fill:var(--ink); font-variant-numeric:tabular-nums;
+  /* 🔴 2026-09-22: 10px だった。軸のラベルは読ませる情報（月・件数・母数）なので、
+     いちばん小さい文字の下限を 11px に上げた。本文14px・表12.5px は据え置き
+     （理由は body の注記に書いた）。 */
+  .ax{ font-size:11px; fill:var(--ink-3); font-variant-numeric:tabular-nums; }
+  .axl{ font-size:11px; fill:var(--ink-2); }
+  .vl{ font-size:11px; fill:var(--ink); font-variant-numeric:tabular-nums;
        font-weight:600; }
   .gridline{ stroke:var(--grid); stroke-width:1; }
   .axisline{ stroke:var(--rule); stroke-width:1; }
@@ -229,9 +255,19 @@
   th,td{ padding:var(--space-2) var(--space-3); text-align:left; white-space:nowrap;
          border-bottom:1px solid var(--rule-2); }
   th{ background:var(--panel-3); font-weight:700; font-size:11.5px; color:var(--ink-2);
-      position:sticky; top:0; z-index:2; cursor:pointer; letter-spacing:.03em;
+      position:sticky; top:0; z-index:2; letter-spacing:.03em;
       border-bottom:1px solid var(--rule); }
-  th:hover{ color:var(--ai); }
+  /* 🔴 2026-09-22 実測: 並び替えを th の onclick でやっていたので、キーボードでは
+     一切さわれなかった（tabIndex -1 / focus できない）。中に button を入れて、
+     Tab で来られて Enter・Space で並び替わるようにした。
+     button は見た目を持たず th いっぱいに広がるので、押せる範囲は変わらない。 */
+  th.sortable{ padding:0; }
+  th button.sort{ all:unset; display:block; width:100%; box-sizing:border-box;
+      padding:var(--space-2) var(--space-3); cursor:pointer; text-align:left;
+      font:inherit; color:inherit; letter-spacing:inherit; white-space:nowrap; }
+  th.n button.sort{ text-align:right; }
+  th button.sort:hover{ color:var(--ai); }
+  th button.sort:focus-visible{ outline:2px solid var(--ai); outline-offset:-2px; }
   th.n,td.n{ text-align:right; font-variant-numeric:tabular-nums; }
   tbody tr:nth-child(even){ background:var(--panel-2); }
   tbody tr:hover{ background:var(--ai-soft); }
@@ -253,7 +289,7 @@
   .ctl input[type=search]{ min-width:230px; }
   .ctl input:focus-visible, .ctl select:focus-visible{ outline:2px solid var(--ai);
     outline-offset:1px; }
-  .tag{ display:inline-block; font-size:10.5px; padding:1px var(--space-2); border-radius:var(--radius-pill);
+  .tag{ display:inline-block; font-size:11px; padding:1px var(--space-2); border-radius:var(--radius-pill);
         border:1px solid var(--rule); margin-right:var(--space-1); white-space:nowrap;
         color:var(--ink-2); letter-spacing:.02em; }
   .tag.m{ color:var(--midori); border-color:var(--midori); }
@@ -269,12 +305,19 @@
         padding:1px var(--space-2); cursor:pointer; white-space:nowrap; }
   .lnk:hover{ background:var(--ai); color:var(--panel); }
   .lnk:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+  /* 🔴 2026-09-22 実測: 担当者名から③へ飛ぶリンクが 42.1 x 13px しかなく、
+     WCAG 2.2 AA の 24 CSS px に届いていなかった。
+     行の高さを増やさずに当たり判定だけ広げる。 */
+  a.drill{ display:inline-block; min-height:24px; line-height:24px; padding:0 3px;
+           color:var(--ai); text-decoration:underline; text-underline-offset:2px; }
+  a.drill:hover{ background:var(--ai-soft); }
+  a.drill:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
   .n0{ color:var(--ghost); }                    /* 値が無い。0 ではない */
   .up{ color:var(--hi); font-weight:700; }      /* 悪化 */
   .dn{ color:var(--midori); font-weight:700; }  /* 改善 */
   /* 🔴 inline のままだと枠が 10.5px の em ボックスに張り付き、日本語グリフが
      はみ出して取り消し線のように見える。inline-block + 行高で箱を作る */
-  .dummy{ display:inline-block; color:var(--ghost); font-size:10.5px;
+  .dummy{ display:inline-block; color:var(--ghost); font-size:11px;
           border:1px dashed var(--ghost); border-radius:3px;
           padding:0 5px; line-height:1.6; vertical-align:baseline;
           white-space:nowrap; }
@@ -308,6 +351,20 @@ a.backlink{ color:var(--ink-2); font-size:12px; text-decoration:none; margin-lef
 a.backlink:hover{ color:var(--ai); text-decoration:underline; }
 .ctlbar{ display:flex; align-items:center; gap:var(--space-3);
          flex-wrap:wrap; margin:var(--space-3) 0; }
+/* 操作列の部品。いままで素の見た目のままで、枠が 1.20:1 しかなかった。
+   高さは 28px（WCAG 2.2 AA の web 基準 24px を満たす。iOS の 44pt は
+   この画面の前提ではない＝毎朝PCで見るもの）。 */
+.ctlbar .act{ display:inline-flex; align-items:center; gap:6px;
+              font-size:12.5px; color:var(--ink-2); }
+.ctlbar select, .ctlbar input, .ctlbar button.act{
+  font-family:inherit; font-size:12.5px; color:var(--ink); background:var(--panel-2);
+  border:1px solid var(--rule-strong); border-radius:var(--radius-md);
+  padding:4px 9px; min-height:28px; }
+.ctlbar input[type=search]{ min-width:160px; max-width:100%; }
+.ctlbar button.act{ cursor:pointer; color:var(--ai); }
+.ctlbar button.act:hover{ background:var(--ai-soft); }
+.ctlbar select:focus-visible, .ctlbar input:focus-visible,
+.ctlbar button.act:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 .err{ background:var(--hi-soft); border-left:3px solid var(--hi);
       padding:var(--space-3) var(--space-4); border-radius:0 var(--radius-md) var(--radius-md) 0;
       color:var(--ink); font-size:13px; white-space:pre-wrap; margin:var(--space-3) 0; }
@@ -1199,6 +1256,26 @@ function table(cols, rows, cls) {
   }
   return h + "</tbody></table>";
 }
+/* 並び替えできる見出し。
+   🔴 押せるものは button にする。th の onclick だけだと**キーボードで一切さわれない**
+      （2026-09-22 の実測で tabIndex -1・focus 不可だった）。
+   🔴 矢印（▲▼↕）は色ではなく**形**で向きを示している。
+      いま並んでいる列には aria-sort も付けるので、読み上げでも向きが分かる。 */
+function sortTh(c, key, asc) {
+  const on = c.k === key;
+  const arrow = on
+    ? (asc ? ' <span aria-hidden="true">&#9650;</span>' : ' <span aria-hidden="true">&#9660;</span>')
+    : '<span class="n0" aria-hidden="true"> &#8597;</span>';
+  const say = on
+    ? "（いまこの列で" + (asc ? "小さい順" : "大きい順") + "。押すと逆になります）"
+    : "（押すとこの列で並び替わります）";
+  return '<th class="' + (c.n ? "n " : "") + 'sortable"' +
+    (on ? ' aria-sort="' + (asc ? "ascending" : "descending") + '"' : "") + ">" +
+    '<button type="button" class="sort" data-k="' + c.k + '">' +
+    esc(c.t) + arrow + '<span class="sr">' + esc(say) + "</span>" +
+    "</button></th>";
+}
+
 function scroll(inner, max) {
   return '<div class="scroll"' + (max ? ' style="max-height:' + max + 'px"' : "") + ">" + inner + "</div>";
 }
@@ -1305,12 +1382,14 @@ function renderTeam(D) {
             color: r.contact_rate < 40 ? C.hi : r.contact_rate < 70 ? C.ki : C.midori })) })
       : '<div class="empty">接触率を出せる担当者がいません。</div>',
     lg("box", C.hi, "40%未満") + lg("box", C.ki, "40〜70%") + lg("box", C.midori, "70%以上") +
-    '<i class="full">🔴 <b>件数ではなく率で見ています。</b>' +
+    '<i class="full">棒の右に率そのものを書いているので、' +
+    "<b>色が見分けられなくても帯は読めます。</b></i>" +
+    '<i class="full"><b>件数ではなく率で見ています。</b>' +
     "件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分かりません。" +
     "帯の切り方（40% / 70%）は機械が決めたものです。" +
     "<b>どこから要注意とするかは取り決め</b>で、事実ではありません。</i>" +
     (dropped.length
-      ? '<i class="full">🔴 <b>この図から ' + num(dropped.length) +
+      ? '<i class="full"><b>この図から ' + num(dropped.length) +
         " 名を外しています</b>（" +
         dropped.map((r) => esc(r.consultant) + " " + num(r.contact_months) + "か月").join(" / ") +
         "）。" + esc(D.small_n_rule || "") + "</i>"
@@ -1318,15 +1397,9 @@ function renderTeam(D) {
 
   /* ---- 一覧（本題）---- */
   h += sec("表", "コンサルタント一覧");
+  /* 列が増えたときにページ全体が流れないよう、③と同じく枠の中で収める */
   let t = '<table id="team-tbl"><thead><tr>';
-  for (const c of TEAM_COLS) {
-    const on = c.k === k;
-    t += '<th class="' + (c.n ? "n " : "") + 'sortable" data-k="' + c.k + '"' +
-      ' style="cursor:pointer;user-select:none"' +
-      (on ? ' aria-sort="' + (asc ? "ascending" : "descending") + '"' : "") + ">" +
-      esc(c.t) + (on ? (asc ? " &#9650;" : " &#9660;") : '<span class="n0"> &#8597;</span>') +
-      "</th>";
-  }
+  for (const c of TEAM_COLS) t += sortTh(c, k, asc);
   t += "</tr></thead><tbody>";
   for (const r of rows) {
     t += "<tr>";
@@ -1334,7 +1407,7 @@ function renderTeam(D) {
     t += "</tr>";
   }
   t += "</tbody></table>";
-  h += t;
+  h += scroll(t, 680);
 
   h += note("info", "この一覧の決まりごと",
     esc(D.owner_rule) + "<br>" + esc(D.focus_rule) +
@@ -1348,7 +1421,7 @@ function wireTeam() {
   document.querySelectorAll("#team-tbl a.drill").forEach((a) => {
     a.onclick = (ev) => { ev.preventDefault(); drillToBoard(a.dataset.c); };
   });
-  document.querySelectorAll("#team-tbl th.sortable").forEach((th) => {
+  document.querySelectorAll("#team-tbl th.sortable button.sort").forEach((th) => {
     th.onclick = () => {
       const kk = th.dataset.k;
       if (teamSort.key === kk) teamSort.asc = !teamSort.asc;
@@ -1727,7 +1800,7 @@ function renderCustomer(D) {
         lane("定期NPS", C.murasaki, npsPts, "dots", "回答がありません"),
         lane("接触（MTG・60秒超の通話）", C.hi, ctPts, "bars", "接触の記録がありません"),
       ] }),
-      '<i class="full">🔴 <b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
+      '<i class="full"><b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
       "値の幅が違いすぎる（応募 0〜200 / NPS 0〜10 / 接触 0〜数十）ので、" +
       "重ねると応募だけが動いて NPS が底に張り付きます。" +
       "目盛りの取り方しだいで「相関して見える絵」を作れてしまうため、" +
@@ -1935,7 +2008,7 @@ function renderPhone(D) {
           mean: D.days_since.mean, n: D.days_since.n, color: C.ai }] })
       : tooFew(D.days_since ? D.days_since.n : 0, "経過日数"),
     lg("box", C.ai, "四分位") + lg("line", C.ink, "中央値") +
-    '<i class="full">🔴 接触が1本も無い ' + num(r.no_contact) +
+    '<i class="full">接触が1本も無い ' + num(r.no_contact) +
     " 件は<b>0日として混ぜていません</b>。0日にすると「昨日話した」ように見えます。</i>");
 
   h += sec("図", "月ごとの本数");
@@ -2001,7 +2074,7 @@ function renderRampup(D) {
         note: "n=" + num(b.n),
         color: b.label === "61日超" ? C.hi : C.ai })) }),
     lg("box", C.hi, "61日超") + lg("box", C.ai, "それ以外") +
-    '<i class="full">🔴 <b>単調ではありません。</b>14日以内も解約しています。' +
+    '<i class="full"><b>単調ではありません。</b>14日以内も解約しています。' +
     "「早ければ良い」とは言えず、<b>遅い群が悪い</b>ことだけが読めます。" +
     "61日超には関係が薄い顧客が混じっている可能性があり、" +
     "<b>遅れが原因とは決められません（相関であって因果ではない）</b>。</i>");
@@ -2324,8 +2397,9 @@ function boardFilterBar(D) {
   h += '<label class="act">満了まで <select id="bf-expiry">' +
     opt("", "すべて", boardFilter.expiry) +
     EXPIRY_BANDS.map((b) => opt(b.k, b.t, boardFilter.expiry)).join("") + "</select></label>";
+  /* 幅は CSS の min-width / max-width で決める。ここに px を書かない */
   h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
-    'value="' + esc(boardFilter.q) + '" style="width:180px"></label>';
+    'value="' + esc(boardFilter.q) + '"></label>';
   h += '<button type="button" class="act" id="bf-clear">絞り込みを外す</button>';
   return h + "</div>";
 }
@@ -2365,13 +2439,7 @@ function boardTable(rows, sort, id) {
     return asc ? c : -c;
   });
   let t = '<table id="' + id + '"><thead><tr>';
-  for (const c of BOARD_COLS) {
-    const on = c.k === k;
-    t += '<th class="' + (c.n ? "n " : "") + 'sortable" data-k="' + c.k +
-      '" style="cursor:pointer;user-select:none"' +
-      (on ? ' aria-sort="' + (asc ? "ascending" : "descending") + '"' : "") + ">" +
-      esc(c.t) + (on ? (asc ? " &#9650;" : " &#9660;") : '<span class="n0"> &#8597;</span>') + "</th>";
-  }
+  for (const c of BOARD_COLS) t += sortTh(c, k, asc);
   t += "</tr></thead><tbody>";
   for (const r of rs) {
     t += "<tr>";
@@ -2379,6 +2447,18 @@ function boardTable(rows, sort, id) {
     t += "</tr>";
   }
   return t + "</tbody></table>";
+}
+
+/* 名札を3つの意味に分ける。
+   🔴 **色だけで分類を伝えない。** 色覚によっては緋・山吹・紫が見分けられない。
+      棒の右に分類の言葉も書くので、白黒に印刷しても読める。
+   分類の規則をここ1か所に置いているのは、①と③で食い違わないようにするため。 */
+function flagGroup(label) {
+  if (label.indexOf("NPS") >= 0 || label.indexOf("退職") >= 0)
+    return { color: C.hi, word: "関係が危ない" };
+  if (label.indexOf("満了") >= 0 || label.indexOf("接触") >= 0)
+    return { color: C.ki, word: "時間が迫っている" };
+  return { color: C.murasaki, word: "成果が出ていない" };
 }
 
 function flagFig(D, subset) {
@@ -2396,12 +2476,12 @@ function flagFig(D, subset) {
       ? svgBarH({ w: 700, fmt: F.int, rh: 24,
           rows: fc.slice().sort((a, b) => b.n - a.n).map((x) => ({
             label: tail(x.label, 26), v: x.n, txt: num(x.n) + "件",
-            color: x.label.indexOf("NPS") >= 0 || x.label.indexOf("退職") >= 0 ? C.hi :
-                   x.label.indexOf("満了") >= 0 || x.label.indexOf("接触") >= 0 ? C.ki :
-                   C.murasaki })) })
+            note: flagGroup(x.label).word, color: flagGroup(x.label).color })) })
       : '<div class="empty">名札の付いた案件がありません。</div>',
     lg("box", C.hi, "関係が危ない") + lg("box", C.ki, "時間が迫っている") +
     lg("box", C.murasaki, "成果が出ていない") +
+    '<i class="full">棒の右に分類の言葉も書いています。' +
+    "<b>色が見分けられなくても読めます。</b></i>" +
     '<i class="full">' + esc(D.meta.order_rule) + "</i>");
 }
 
@@ -2439,15 +2519,15 @@ function renderToday(D) {
       ? svgBarH({ w: 700, fmt: F.int, rh: 24,
           rows: fr.map(([label, n]) => ({
             label: tail(label, 26), v: n, txt: num(n) + "件",
-            color: label.indexOf("NPS") >= 0 || label.indexOf("退職") >= 0 ? C.hi :
-                   label.indexOf("満了") >= 0 || label.indexOf("接触") >= 0 ? C.ki :
-                   C.murasaki })) })
+            note: flagGroup(label).word, color: flagGroup(label).color })) })
       : '<div class="empty">名札の付いた案件がありません。</div>',
     lg("box", C.hi, "関係が危ない") + lg("box", C.ki, "時間が迫っている") +
     lg("box", C.murasaki, "成果が出ていない") +
+    '<i class="full">棒の右に分類の言葉も書いています。' +
+    "<b>色が見分けられなくても読めます。</b></i>" +
     '<i class="full">この24件だけの内訳です。稼働中の全件の内訳は' +
     "「③案件の立ち位置」にあります。" +
-    "🔴 <b>件数の推移は出していません。</b>日ごとの記録を持っていないので、" +
+    "<b>件数の推移は出していません。</b>日ごとの記録を持っていないので、" +
     "作ると嘘になります。</i>");
 
   h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）");
@@ -2476,8 +2556,11 @@ function renderBoard(D) {
   h += sec("図", "名札の分布");
   h += flagFig(D, on ? shown : null);
   h += sec("表", "案件の立ち位置");
+  /* 🔴 14列あるので、枠に入れないと**ページ全体が横に流れる**
+     （2026-09-22 実測: 1440px幅で document が 2640px になっていた）。
+     表は枠の中だけで横スクロールさせる。 */
   h += shown.length
-    ? boardTable(shown, boardSort, "board-tbl")
+    ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
     : '<div class="empty">この条件に当てはまる案件はありません。' +
       "「絞り込みを外す」で戻せます。</div>";
   return h + foot(D.meta);
@@ -2515,7 +2598,7 @@ function wireBoard() {
     boardFilter = { consultant: "", flag: "", expiry: "", q: "" };
     redraw();
   };
-  document.querySelectorAll("#board-tbl th.sortable").forEach((th) => {
+  document.querySelectorAll("#board-tbl th.sortable button.sort").forEach((th) => {
     th.onclick = () => {
       const kk = th.dataset.k;
       if (boardSort.key === kk) boardSort.asc = !boardSort.asc;

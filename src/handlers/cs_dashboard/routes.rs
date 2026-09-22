@@ -920,7 +920,7 @@ fn mtg_layers(act: &[&Deal], mtg: &SheetData, mail: &SheetData) -> Value {
         "only_recording": only_rec,
         "only_mail": only_mail,
         "neither": neither,
-        "note": "🔴 2つを1つの率にまとめていません。録画は事実、メール由来は推定です",
+        "note": "2つを1つの率にまとめていません。録画は事実、メール由来は推定です",
     })
 }
 
@@ -1037,7 +1037,7 @@ fn first_mtg(deals: &[Deal], mtg_first: &HashMap<String, NaiveDate>) -> Value {
             // 決着0件なら空。0% にしない
             "cancel_rate": rate(*c as f64, *n as f64),
         })).collect::<Vec<_>>(),
-        "note": "MTG だけで、電話は入れていません。🔴 単調ではないので「早ければ良い」とは言えません。遅い群が悪いことだけが読めます（相関であって因果ではない）",
+        "note": "MTG だけで、電話は入れていません。単調ではないので「早ければ良い」とは言えません。遅い群が悪いことだけが読めます（相関であって因果ではない）",
     })
 }
 
@@ -1232,7 +1232,7 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
             "n": n_transcript,
             "rows": n_rows,
             "rate": rate(n_transcript as f64, n_rows as f64),
-            "note": "🔴 電話の中身はまだ読めていません。文字起こしを取れているのはごく一部です",
+            "note": "電話の中身はまだ読めていません。文字起こしを取れているのはごく一部です",
         },
         "monthly": monthly.iter().map(|(m, (a, h))| json!({
             "month": m, "calls": a, "contacts": h,
@@ -1424,7 +1424,7 @@ pub fn build_mtg_quality(sheets: &Sheets, today: NaiveDate) -> Value {
             "note": "取引に結べた MTG。結べないものは接触の計算にも入りません",
         },
         "filled": filled,
-        "filled_note": "🔴 埋まっていないのは「記録していない」ではなく「まだ抽出を通していない」です。抽出は日次の枠で止まっており、全件には届いていません",
+        "filled_note": "埋まっていないのは「記録していない」ではなく「まだ抽出を通していない」です。抽出は日次の枠で止まっており、全件には届いていません",
         "risk_dist": risk.iter().map(|(k, v)| json!({"label": k, "n": v})).collect::<Vec<_>>(),
         "hosts": hosts,
         "monthly": monthly.iter().map(|(m, n)| json!({"month": m, "n": n})).collect::<Vec<_>>(),
@@ -1497,11 +1497,11 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
         },
         "houjin_source": {
             "rows": src.iter().map(|(k, v)| json!({"label": k, "n": v})).collect::<Vec<_>>(),
-            "note": "🔴 法人番号は1社1つ。候補が複数あるときは選んでいません（突合情報が悪いということなので、最小値を採って別法人に解決した事故があります）。🔴 法人番号は就業場所を表しません。事業所の特定には使えません",
+            "note": "法人番号は1社1つ。候補が複数あるときは選んでいません（突合情報が悪いということなので、最小値を採って別法人に解決した事故があります）。法人番号は就業場所を表しません。事業所の特定には使えません",
         },
         "outcome_bias": {
             "rows": bias,
-            "note": "🔴 うまくいかなかった契約ほど数字が記録されていない可能性があります。「継続するほど成果が良い」という見え方を押し上げる方向に効きます",
+            "note": "うまくいかなかった契約ほど数字が記録されていない可能性があります。「継続するほど成果が良い」という見え方を押し上げる方向に効きます",
         },
         "missing": [
             {"label": "右側打ち切り（結果が確定していない直近の契約）", "n": censored,
@@ -1974,7 +1974,7 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
     ここで作り直していません",
         "owner_rule": "担当は consultant が正本です（hubspot_owner_id ではありません）。\
     取引ごとに、担当履歴のいちばん新しい行を採っています。\
-    🔴 同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。\
+    同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。\
     採り方を変えると担当が変わる取引があるので、その件数を出しています",
         "rows": rows,
     })
@@ -2156,7 +2156,7 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
         "flag_counts": flag_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
             .collect::<Vec<_>>(),
         "order_rule": "既定の並びは「名札の本数が多い順、同じなら金額の大きい順」です。\
-    🔴 スコアや確率は出していません。契約開始時点の当たり具合（AUC 0.583）では順位付けの\
+    スコアや確率は出していません。契約開始時点の当たり具合（AUC 0.583）では順位付けの\
     根拠になりません。何で上に来たかは、その行の名札を見れば分かります",
         "not_counted": "※ 予測ではありません。既にあるデータに名札を付けて並べただけです。\
     手を打つかどうかは中身を読んで決めてください",
