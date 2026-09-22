@@ -153,6 +153,51 @@
   .pane{ display:none; } .pane.on{ display:block; animation:fade .18s ease-out; }
   @keyframes fade{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; } }
 
+  /* ---------------- 上のメニュー1つ ＋ 左のサイドバー ----------------
+     上で「案件 / コンサルタント / 集計」を選び、左で中の項目を選ぶ。
+     一度に見せる選択肢を減らして、どこを見ているかを分かりやすくする。 */
+  .layout{ display:grid; grid-template-columns:212px minmax(0,1fr); gap:26px;
+           align-items:start; }
+  /* 🔴 **position:fixed を使わない。** fixed だと本文に重なって先頭の節が隠れる。
+     sticky なら grid の列の中に居座るので、本文の幅を食うだけで重ならない。
+     余白の打ち消し（padding-top を足す等）も要らなくなる。 */
+  .side{ position:sticky; top:var(--space-3); align-self:start;
+         max-height:calc(100vh - 2 * var(--space-3)); overflow-y:auto;
+         border-right:1px solid var(--rule); padding-right:var(--space-3); }
+  .side h2{ font-size:11px; letter-spacing:.14em; color:var(--ink-3);
+            margin:0 0 var(--space-2); font-weight:700; border:none; padding:0; }
+  .side ul{ list-style:none; margin:0; padding:0; }
+  .side li{ margin:0 0 2px; }
+  .side button{ all:unset; box-sizing:border-box; display:block; width:100%;
+    min-height:34px; line-height:1.45; padding:8px var(--space-3);
+    border-radius:var(--radius-md); cursor:pointer;
+    font-family:inherit; font-size:12.5px; color:var(--ink-2);
+    border-left:3px solid transparent; }
+  .side button:hover{ background:var(--panel-2); color:var(--ink); }
+  .side button:focus-visible{ outline:2px solid var(--ai); outline-offset:-2px; }
+  /* いまどこを見ているか。色だけでなく**太さと左の帯**でも示す */
+  .side button[aria-current="page"]{ background:var(--ai-soft); color:var(--ai);
+    font-weight:700; border-left-color:var(--ai); }
+  .side .n{ color:var(--ink-3); font-size:11px; margin-left:5px;
+            font-variant-numeric:tabular-nums; font-weight:400; }
+
+  /* 🔴 狭い画面ではサイドバーを本文の上に回して横に並べる（畳まない）。
+     集計は項目が9つあり、開閉の一手間を挟むと「毎朝いちばん見るもの」が
+     1タップ遠くなる。横に流して**全部たどれる状態のまま**にした。 */
+  @media (max-width:900px){
+    .layout{ grid-template-columns:minmax(0,1fr); gap:var(--space-3); }
+    .side{ position:static; max-height:none; overflow:visible;
+           border-right:none; border-bottom:1px solid var(--rule);
+           padding:0 0 var(--space-2); }
+    .side ul{ display:flex; gap:var(--space-1); overflow-x:auto;
+              padding-bottom:var(--space-1); }
+    .side li{ margin:0; }
+    .side button{ white-space:nowrap; width:auto; border-left:none;
+                  border-bottom:3px solid transparent; border-radius:0; }
+    .side button[aria-current="page"]{ border-left-color:transparent;
+                  border-bottom-color:var(--ai); background:none; }
+  }
+
   /* ---------------- 見出し ---------------- */
   h2.sec{ font-size:19px; font-weight:600; margin:var(--space-6) 0 var(--space-1); letter-spacing:.05em;
           display:flex; align-items:baseline; gap:var(--space-3); }
@@ -393,21 +438,14 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
   <i><b style="border:1px dashed var(--ghost);background:none"></b>&#9675; 未確定（右側打ち切り）</i>
 </div>
 
-<nav class="tabs" aria-label="画面の切り替え">
-  <button type="button" data-p="today" class="on"><span class="no">&#9312;</span>今日動く先</button>
-  <button type="button" data-p="team"><span class="no">&#9313;</span>コンサルタント一覧</button>
-  <button type="button" data-p="board"><span class="no">&#9314;</span>案件の立ち位置</button>
-  <button type="button" data-p="customer"><span class="no">&#9315;</span>顧客詳細</button>
-  <button type="button" data-p="study"><span class="no">&#9316;</span>調査と定義</button>
-</nav>
+<nav class="tabs" id="cs-menu" aria-label="見るものの切り替え"></nav>
 
 <div id="cs-error" style="display:none"></div>
 
-<div class="pane on" id="pane-today"></div>
-<div class="pane" id="pane-team"></div>
-<div class="pane" id="pane-board"></div>
-<div class="pane" id="pane-customer"></div>
-<div class="pane" id="pane-study"></div>
+<div class="layout">
+  <nav class="side" id="cs-side" aria-label="この中の切り替え"></nav>
+  <main class="pane on" id="cs-main"></main>
+</div>
 </div>
 <script>
 const $ = s => document.querySelector(s);
@@ -1341,7 +1379,7 @@ function renderTeam(D) {
   let h = sec("問い", "いま、どこに手が回っていないか") +
     '<div class="lede">1行1担当者。<b>列の見出しを押すと並び替わります。</b>' +
     "既定は<b>接触率の低い順</b>（手が回っていない人が上）。" +
-    "<b>担当者名を押すと</b>「③案件の立ち位置」がその担当だけに絞られます。</div>";
+    "<b>担当者名を押すと</b>、左の「担当者ごとの案件」がその人だけに絞られます。</div>";
 
   h += note("info", "これは担当者の評価ではありません",
     esc(D.meta.not_counted).replace("※ ", "") + "<br>" +
@@ -1426,9 +1464,7 @@ function wireTeam() {
       const kk = th.dataset.k;
       if (teamSort.key === kk) teamSort.asc = !teamSort.asc;
       else teamSort = { key: kk, asc: kk === "consultant" || kk === "contact_rate" };
-      const pane = document.getElementById("pane-team");
-      pane.innerHTML = ctlbar("team", teamCache) + renderTeam(teamCache);
-      wire("team");
+      redrawMain(teamCache);
     };
   });
 }
@@ -2087,7 +2123,7 @@ function renderRampup(D) {
       '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
       r.days_since_start == null ? DASH : num(r.days_since_start) + "日"])), 420);
   h += note("info", "継続率はこの画面にありません",
-    "「②継続回数 × 成果」タブにあります。<b>同じ数字を2か所で作らない</b>ためです。");
+    "「集計」の中の「継続回数 × 成果」にあります。<b>同じ数字を2か所で作らない</b>ためです。");
   return h + foot(D.meta);
 }
 
@@ -2407,24 +2443,16 @@ function boardFilterBar(D) {
 /* ②のコンサルタント名から③へ飛ぶ。担当で絞った状態で開く */
 function drillToBoard(name) {
   boardFilter = { consultant: name, flag: "", expiry: "", q: "" };
-  goTab("board");
+  go("consultant", "byowner");
 }
 
-/* タブを画面の外から切り替える */
-function goTab(key) {
-  document.querySelectorAll("nav.tabs button").forEach((x) => {
-    x.classList.toggle("on", x.dataset.p === key);
-  });
-  document.querySelectorAll(".pane").forEach((x) => {
-    x.classList.toggle("on", x.id === "pane-" + key);
-  });
-  window.scrollTo(0, 0);
-  if (!loaded[key]) { load(key, false); return; }
-  if (key === "board" && boardCache) {
-    const pane = document.getElementById("pane-board");
-    pane.innerHTML = ctlbar("board", boardCache) + renderBoard(boardCache);
-    wire("board");
-  }
+/* いま開いている項目を描き直す（並び替え・絞り込みのたびに使う）。
+   取り直しはしない。手元のデータで組み直すだけ */
+function redrawMain(D) {
+  const v = viewOf(cur.menu, cur.view);
+  const main = document.getElementById("cs-main");
+  main.innerHTML = ctlbar(v, D) + v.render(D);
+  wire(v);
 }
 
 function boardTable(rows, sort, id) {
@@ -2500,7 +2528,7 @@ function renderToday(D) {
     kpi("今週満了する", num(soon.length) + '<span class="u">件</span>',
         "名札の本数に関わらず落としていません", "warn") +
     kpi("稼働中の全件", num(D.meta.n_active) + '<span class="u">件</span>',
-        "全件は「案件の立ち位置」タブに") + "</div>";
+        "全件は左の「案件の立ち位置」で") + "</div>";
 
   if (soon.length) {
     h += sec("表", "今週満了（" + num(soon.length) + " 件）");
@@ -2526,7 +2554,7 @@ function renderToday(D) {
     '<i class="full">棒の右に分類の言葉も書いています。' +
     "<b>色が見分けられなくても読めます。</b></i>" +
     '<i class="full">この24件だけの内訳です。稼働中の全件の内訳は' +
-    "「③案件の立ち位置」にあります。" +
+    "「案件」の中の「案件の立ち位置」にあります。" +
     "<b>件数の推移は出していません。</b>日ごとの記録を持っていないので、" +
     "作ると嘘になります。</i>");
 
@@ -2540,6 +2568,30 @@ function renderToday(D) {
 function renderBoard(D) {
   const shown = boardApply(D.rows);
   const on = boardFilterOn();
+  /* 同じ表を①と②の両方で使う。問いだけ変える */
+  const byOwner = cur.view === "byowner";
+  if (byOwner) {
+    let h = sec("問い", "この担当者は、どの案件を持っているか") +
+      '<div class="lede">下の「担当」で選ぶと、その人の案件だけになります。' +
+      "「②担当者の一覧」で名前を押しても同じところに来ます。</div>";
+    h += boardFilterBar(D);
+    if (!boardFilter.consultant) {
+      h += note("info", "担当者を選んでください",
+        "まだ誰も選んでいないので、稼働中 " + num(D.rows.length) +
+        " 件をすべて出しています。担当者で絞ると、その人の持ち方が見えます。");
+    }
+    h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
+      "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
+      (on ? "（絞り込み中: " + esc(boardFilterWords()) + "）" : "（絞り込みなし）") + "</div>";
+    h += sec("図", "名札の分布");
+    h += flagFig(D, on ? shown : null);
+    h += sec("表", "この担当者の案件");
+    h += shown.length
+      ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
+      : '<div class="empty">この条件に当てはまる案件はありません。' +
+        "「絞り込みを外す」で戻せます。</div>";
+    return h + foot(D.meta);
+  }
   let h = sec("問い", "いま、それぞれの案件はどこにいるか") +
     '<div class="lede">稼働中 ' + num(D.rows.length) +
     " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。" +
@@ -2568,9 +2620,7 @@ function renderBoard(D) {
 
 function wireBoard() {
   const redraw = () => {
-    const pane = document.getElementById("pane-board");
-    pane.innerHTML = ctlbar("board", boardCache) + renderBoard(boardCache);
-    wire("board");
+    redrawMain(boardCache);
   };
   const pick = (id, key) => {
     const e = document.getElementById(id);
@@ -2604,9 +2654,7 @@ function wireBoard() {
       if (boardSort.key === kk) boardSort.asc = !boardSort.asc;
       else boardSort = { key: kk, asc: kk === "name" || kk === "consultant" ||
                                        kk === "days_left" || kk === "days_since_contact" };
-      const pane = document.getElementById("pane-board");
-      pane.innerHTML = ctlbar("board", boardCache) + renderBoard(boardCache);
-      wire("board");
+      redrawMain(boardCache);
     };
   });
 }
@@ -2614,51 +2662,104 @@ let boardCache = null;
 
 /* ---------------------------------------------------------------- 5 調査と定義 */
 /* 🔴 調査の成果は一度読めば済む。毎朝の動線から外して、ここに畳む。消さない。 */
-const STUDY = [
-  ["renewal",  "継続回数 × 成果",   "/api/consulting/renewal",      () => renderRenewal],
-  ["outcome",  "成果とリスク",       "/api/consulting/outcome",      () => renderOutcome],
-  ["rampup",   "立ち上がり",         "/api/consulting/rampup",       () => renderRampup],
-  ["phone",    "電話",               "/api/consulting/phone",        () => renderPhone],
-  ["mtgq",     "MTG の品質",         "/api/consulting/mtg-quality",  () => renderMtgQ],
-  ["hq",       "本部アプローチ",     "/api/consulting/headquarters", () => renderHq],
-  ["focus",    "いま見るべき顧客",   "/api/consulting/focus",        () => renderFocus],
-  ["dq",       "データ品質",         "/api/consulting/data-quality", () => renderDq],
-];
-const studyLoaded = {};
+/* ---------------------------------------------------------------- 担当の交代 */
+/* 🔴 交代が良かったか悪かったかは判定しない。記録を並べるだけ。
+   🔴 「誰から誰へ」でまとめない（`from`/`to` は読めば分かる列で、
+      テスト用データでは1行1人に伏せてある。まとめると処理が素通りする）。 */
+function renderHandover(D) {
+  let h = sec("問い", "担当はいつ、どう替わったか") +
+    '<div class="lede">1行1回の交代。<b>新しい順</b>に並べています。</div>';
+  h += note("info", "この一覧の決まりごと",
+    esc(D.source_rule) + "<br>" + esc(D.gap_rule));
 
-function renderStudy() {
-  let h = sec("問い", "この画面の数字は、どうやって作っているか") +
-    '<div class="lede">調べた結果と、定義の説明です。' +
-    "<b>一度読めば済む話</b>なので、毎朝の動線からは外してあります。" +
-    "見出しを押すと開きます。</div>";
-  for (const [key, label] of STUDY) {
-    h += '<details class="study" data-s="' + key + '" style="margin:var(--space-2) 0">' +
-      "<summary>" + esc(label) + "</summary>" +
-      '<div id="study-' + key + '"><span class="loading">開くと読み込みます</span></div>' +
-      "</details>";
-  }
-  return h;
+  h += '<div class="kpis">' +
+    kpi("記録された交代", num(D.meta.n) + '<span class="u">件</span>',
+        "うち稼働中の案件 " + num(D.meta.n_active) + " 件") +
+    kpi("退職者へ渡っている", num(D.to_retired) + '<span class="u">件</span>',
+        "交代先が退職者だったもの", D.to_retired ? "bad" : "") +
+    kpi("記録の遅れ（中央値）",
+        D.median_gap_days == null ? DASH : num(D.median_gap_days) + '<span class="u">日</span>',
+        "差が取れた " + num(D.n_gap) + " 件で") +
+    "</div>";
+
+  const rd = D.reflected_dist || [];
+  h += sec("図", "HubSpot の担当者欄に反映されたか");
+  h += fig("反映のされ方ごとの件数", "欄が直された経緯の内訳",
+    rd.length
+      ? svgBarH({ w: 680, fmt: F.int, rh: 24,
+          rows: rd.slice().sort((a, b) => b.n - a.n).map((x) => ({
+            label: tail(x.label, 26), v: x.n, txt: num(x.n) + "件",
+            color: x.label.indexOf("なし") >= 0 ? C.hi : C.ai })) })
+      : '<div class="empty">記録がありません。</div>',
+    lg("box", C.hi, "反映されていない") + lg("box", C.ai, "反映されている") +
+    '<i class="full">棒の左に経緯の言葉が書いてあります。' +
+    "<b>色が見分けられなくても読めます。</b></i>");
+
+  h += sec("表", "交代の記録（" + num(D.rows.length) + " 件）");
+  h += scroll(table(
+    [{ t: "交代日" }, { t: "案件" }, { t: "前の担当" }, { t: "次の担当" },
+     { t: "いまの担当" }, { t: "記録の遅れ", n: 1 }, { t: "反映" }, { t: "状態" }],
+    D.rows.map((r) => [
+      esc(r.date) || DASH,
+      esc(r.name || r.deal_id),
+      esc(r.from) || DASH,
+      esc(r.to) + (r.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : ""),
+      esc(r.consultant) || DASH,
+      r.record_gap_days == null ? DASH : num(r.record_gap_days) + "日",
+      esc(r.reflected),
+      r.is_active ? '<span class="tag e">稼働中</span>' : '<span class="tag d">決着済</span>',
+    ])), 640);
+  return h + foot(D.meta);
 }
 
-function wireStudy() {
-  document.querySelectorAll("details.study").forEach((dt) => {
-    dt.addEventListener("toggle", async () => {
-      const key = dt.dataset.s;
-      if (!dt.open || studyLoaded[key]) return;
-      const ent = STUDY.find((x) => x[0] === key);
-      const box = document.getElementById("study-" + key);
-      box.innerHTML = '<span class="loading">読み込み中…</span>';
-      try {
-        const res = await fetch(ent[2], { credentials: "same-origin" });
-        const body = await res.json();
-        if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
-        box.innerHTML = ent[3]()(body);
-        studyLoaded[key] = true;
-      } catch (e) {
-        box.innerHTML = '<div class="err">' + esc(e.message) + "</div>";
-      }
-    });
-  });
+/* ---------------------------------------------------------------- 定義と検証 */
+/* 🔴 ここに新しい主張を書かない。画面の他の場所に既に出ている決まりごとを、
+   1か所で読めるようにまとめただけ。数字は出さない（数字は各画面が母数つきで出す）。 */
+function renderDefs() {
+  let h = sec("問い", "この画面の数字は、どうやって作っているか") +
+    '<div class="lede">一度読めば済む話をここに置いています。' +
+    "各画面にも同じ説明が母数つきで出ます。</div>";
+
+  h += sec("表", "色と印の意味");
+  h += table([{ t: "見た目" }, { t: "意味" }],
+    [['<b style="display:inline-block;width:26px;height:10px;background:var(--ai)"></b>',
+      "触れるところ・主系列"],
+     ['<b style="display:inline-block;width:26px;height:10px;background:var(--hi)"></b> &#9650;',
+      "まずい / 悪化"],
+     ['<b style="display:inline-block;width:26px;height:10px;background:var(--ki)"></b>',
+      "読むのに注意が要る"],
+     ['<b style="display:inline-block;width:26px;height:10px;background:var(--midori)"></b> &#9660;',
+      "良い / 改善"],
+     ['<span class="n0">&#8212;</span>', "値が無い。<b>0 ではない</b>"],
+     ["&#9675;", "未確定（右側打ち切り）。結果がまだ出ていない"]]);
+
+  h += sec("表", "この画面が守っていること");
+  h += table([{ t: "決まりごと" }, { t: "なぜ" }],
+    [["分母が 0 のときは <b>0% と書かない</b>",
+      "「1件中0件」と「0件中0件」は別のこと。後者は率が出せない"],
+     ["すべての数字に<b>母数を添える</b>",
+      "中央値だけ見せると、何件で作った値か分からない"],
+     ["<b>n が 30 未満のものは図に載せない</b>",
+      "少ない件数の差は、たまたまでも大きく振れる。表には残して印を添える"],
+     ["未確定は<b>中空の印と破線</b>",
+      "結果が出ていない契約を、出たものと同じ形で描かない"],
+     ["<b>スコアや確率を出さない</b>",
+      "契約開始時点の当たり具合は AUC 0.583。順位付けの根拠にならない"],
+     ["<b>事業所をまたいで1本につながない</b>",
+      "決裁が事業所単位なので、まとめると拠点差が時間の変化に見える"],
+     ["<b>色だけで意味を伝えない</b>",
+      "記号か文字を必ず添える。白黒に印刷しても読めるようにする"]]);
+
+  h += sec("表", "3つの「いつ」は別物");
+  h += table([{ t: "名前" }, { t: "何の時刻か" }],
+    [["計算の基準日", "画面が「今日」として使う日付。サーバがその場で決める。<b>データの新しさとは無関係</b>"],
+     ["シートの生成時刻", "スプレッドシートを作り直した時刻"],
+     ["<b>元データの取得時刻</b>",
+      "HubSpot / Zoom から落とした時刻。<b>画面の上に出ている「N日前」はこれで数えています</b>"]]);
+  h += note("info", "なぜ3つ要るのか",
+    "古い元データのままシートを作り直すと、<b>生成時刻だけが新しくなって中身は古いまま</b>に" +
+    "なります。生成時刻を「データの新しさ」として出すと嘘になるので、分けています。");
+  return h;
 }
 
 /* ================================================================ データの鮮度 */
@@ -2714,101 +2815,207 @@ function setFresh(meta) {
   box.innerHTML = h;
 }
 
-/* ================================================================ 取得 */
-const TABS = {
-  today:    { path: "/api/consulting/today",        render: renderToday },
-  team:     { path: "/api/consulting/consultants",  render: renderTeam },
-  board:    { path: "/api/consulting/deals",        render: renderBoard },
-  customer: { path: "/api/consulting/customer",     render: renderCustomer },
-  study:    { path: null,                            render: renderStudy },
-};
+/* ================================================================ 画面の並び
+
+   上で3つ（案件 / コンサルタント / 集計）を選び、左のサイドバーで中の項目を選ぶ。
+   1画面に出す選択肢を減らして、いまどこを見ているかを分かりやすくするため。
+
+   🔴 **開いた項目だけ取りに行く。** 並べ替えただけで全部読むと重くなる。
+   🔴 **折りたたみは使わない。** 左に並べば一望できるので、箱に隠す理由が無い。
+   🔴 中身（図・表・数字）は前のまま。置き場所だけ変えている。
+*/
+const MENUS = [
+  { key: "deal", no: "\u2460", label: "案件",
+    lead: "案件そのものを見る画面です。",
+    views: [
+      { key: "today",    label: "今日動く先",     path: "/api/consulting/today",
+        render: (D) => renderToday(D) },
+      { key: "board",    label: "案件の立ち位置", path: "/api/consulting/deals",
+        render: (D) => renderBoard(D) },
+      { key: "customer", label: "顧客ごとに見る", path: "/api/consulting/customer",
+        render: (D) => renderCustomer(D) },
+    ] },
+  { key: "consultant", no: "\u2461", label: "コンサルタント",
+    lead: "人の側から見る画面です。担当者の評価ではありません。",
+    views: [
+      { key: "team",     label: "担当者の一覧",     path: "/api/consulting/consultants",
+        render: (D) => renderTeam(D) },
+      { key: "byowner",  label: "担当者ごとの案件", path: "/api/consulting/deals",
+        render: (D) => renderBoard(D) },
+      { key: "handover", label: "担当の交代",       path: "/api/consulting/handover",
+        render: (D) => renderHandover(D) },
+    ] },
+  { key: "study", no: "\u2462", label: "集計",
+    lead: "調べた結果と定義です。一度読めば済む話をここに置いています。",
+    views: [
+      { key: "renewal", label: "継続回数 × 成果", path: "/api/consulting/renewal",
+        render: (D) => renderRenewal(D) },
+      { key: "outcome", label: "成果とリスク",     path: "/api/consulting/outcome",
+        render: (D) => renderOutcome(D) },
+      { key: "focus",   label: "いま見るべき顧客", path: "/api/consulting/focus",
+        render: (D) => renderFocus(D) },
+      { key: "rampup",  label: "立ち上がり",       path: "/api/consulting/rampup",
+        render: (D) => renderRampup(D) },
+      { key: "phone",   label: "電話",             path: "/api/consulting/phone",
+        render: (D) => renderPhone(D) },
+      { key: "mtgq",    label: "MTG の品質",       path: "/api/consulting/mtg-quality",
+        render: (D) => renderMtgQ(D) },
+      { key: "hq",      label: "本部アプローチ",   path: "/api/consulting/headquarters",
+        render: (D) => renderHq(D) },
+      { key: "dq",      label: "データ品質",       path: "/api/consulting/data-quality",
+        render: (D) => renderDq(D) },
+      { key: "defs",    label: "定義と検証",       path: null,
+        render: () => renderDefs() },
+    ] },
+];
+
+/* いま見ているところ。既定は「案件 → 今日動く先」。毎朝いちばん見るもの */
+let cur = { menu: "deal", view: "today" };
 const loaded = {};
 
+const menuOf = (k) => MENUS.find((m) => m.key === k);
+const viewOf = (m, v) => (menuOf(m) || MENUS[0]).views.find((x) => x.key === v);
+
+/* ---------------------------------------------------------------- 上のメニュー */
+function drawMenu() {
+  const nav = document.getElementById("cs-menu");
+  nav.innerHTML = MENUS.map((m) =>
+    '<button type="button" data-m="' + m.key + '"' +
+    (m.key === cur.menu ? ' class="on" aria-current="page"' : "") + ">" +
+    '<span class="no">' + m.no + "</span>" + esc(m.label) + "</button>").join("");
+  nav.querySelectorAll("button").forEach((b) => {
+    b.onclick = () => go(b.dataset.m, null);
+  });
+}
+
+/* ---------------------------------------------------------------- 左のサイドバー */
+function drawSide() {
+  const m = menuOf(cur.menu);
+  const box = document.getElementById("cs-side");
+  box.innerHTML = "<h2>" + esc(m.label) + "の中</h2><ul>" +
+    m.views.map((v, i) =>
+      "<li><button type=\"button\" data-v=\"" + v.key + "\"" +
+      (v.key === cur.view ? ' aria-current="page"' : "") + ">" +
+      esc(v.label) + '<span class="n" aria-hidden="true">' + (i + 1) +
+      "</span></button></li>").join("") +
+    "</ul>";
+  box.querySelectorAll("button").forEach((b) => {
+    b.onclick = () => go(cur.menu, b.dataset.v);
+  });
+}
+
+/* ---------------------------------------------------------------- 移動
+   view を省いたら、そのメニューの先頭（＝既定）を開く */
+function go(menu, view, refresh) {
+  const m = menuOf(menu) || MENUS[0];
+  const v = (view && viewOf(m.key, view)) || m.views[0];
+  /* 🔴 ①「案件の立ち位置」は全件を見る場所。②から担当で絞った状態を
+     持ち越すと、絞っていることに気づかないまま全件だと思い込む。
+     ①へ入るときは担当の絞り込みだけ外す（名札・期間・検索は残す）。 */
+  if (m.key === "deal" && v.key === "board") boardFilter.consultant = "";
+  cur = { menu: m.key, view: v.key };
+  /* URL に残す。共有と戻るボタンのため */
+  const hash = "#" + m.key + "/" + v.key;
+  if (location.hash !== hash) history.replaceState(null, "", hash);
+  drawMenu();
+  drawSide();
+  window.scrollTo(0, 0);
+  load(refresh);
+}
+
+/* 開いたときの位置を URL から決める。無ければ既定 */
+function fromHash() {
+  const p = (location.hash || "").replace(/^#/, "").split("/");
+  const m = menuOf(p[0]);
+  if (!m) return { menu: "deal", view: "today" };
+  const v = viewOf(m.key, p[1]);
+  return { menu: m.key, view: (v || m.views[0]).key };
+}
+
+/* ================================================================ 取得 */
 function showError(e) {
   const box = document.getElementById("cs-error");
   box.style.display = "";
   box.innerHTML = '<div class="err">データを取得できませんでした。\n' + esc(e.message) + "</div>";
 }
 
-async function load(key, refresh) {
-  const t = TABS[key];
-  // 調査タブは中の見出しを開いたときに初めて取る
-  if (!t.path) {
-    const pane = document.getElementById("pane-" + key);
-    pane.innerHTML = ctlbar(key, {}) + t.render();
-    wire(key);
-    loaded[key] = true;
+async function load(refresh) {
+  const v = viewOf(cur.menu, cur.view);
+  const main = document.getElementById("cs-main");
+  document.getElementById("cs-error").style.display = "none";
+
+  /* API を持たない項目（定義と検証）はその場で描く */
+  if (!v.path) {
+    main.innerHTML = ctlbar(v, {}) + v.render();
+    wire(v);
     return;
   }
+
   const q = new URLSearchParams();
   if (refresh) q.set("refresh", "1");
   const censor = document.getElementById("cs-censor");
-  if (key === "renewal" && censor && censor.checked) q.set("exclude_right_censored", "1");
-  if (key === "customer" && customerHoujin) q.set("houjin", customerHoujin);
+  if (cur.view === "renewal" && censor && censor.checked) q.set("exclude_right_censored", "1");
+  if (cur.view === "customer" && customerHoujin) q.set("houjin", customerHoujin);
 
-  const pane = document.getElementById("pane-" + key);
-  pane.innerHTML = '<div class="loading">読み込み中…</div>';
-  document.getElementById("cs-error").style.display = "none";
+  main.innerHTML = '<div class="loading">読み込み中…</div>';
   try {
-    const res = await fetch(t.path + "?" + q.toString(), { credentials: "same-origin" });
+    const res = await fetch(v.path + "?" + q.toString(), { credentials: "same-origin" });
     const body = await res.json();
-    // サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す
+    /* サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す */
     if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
-    if (key === "team") teamCache = body;
-    if (key === "board") boardCache = body;
+    if (cur.view === "team") teamCache = body;
+    if (cur.view === "board" || cur.view === "byowner") boardCache = body;
     setFresh(body.meta || {});
-    pane.innerHTML = ctlbar(key, body) + t.render(body);
-    wire(key);
-    loaded[key] = true;
+    main.innerHTML = ctlbar(v, body) + v.render(body);
+    wire(v);
+    loaded[cur.menu + "/" + cur.view] = true;
   } catch (e) {
-    pane.innerHTML = "";
+    main.innerHTML = "";
     showError(e);
   }
 }
 
-/* タブごとの操作列。②は右側打ち切りの切り替え、③は法人の選択 */
-function ctlbar(key, D) {
+/* 項目ごとの操作列。「継続回数 × 成果」は右側打ち切りの切り替え、
+   「顧客ごとに見る」は法人の選択 */
+function ctlbar(v, D) {
   let h = '<div class="ctlbar">';
-  if (key === "renewal") {
+  if (v.key === "renewal") {
     h += '<label class="act"><input type="checkbox" id="cs-censor">' +
       "右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>";
   }
-  if (key === "customer") h += '<select id="cs-houjin" class="act"></select>';
-  h += '<button type="button" class="act" id="cs-reload">読み直す</button>';
-  if (D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
+  if (v.key === "customer") h += '<select id="cs-houjin" class="act"></select>';
+  if (v.path) h += '<button type="button" class="act" id="cs-reload">読み直す</button>';
+  if (D && D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
   return h + "</div>";
 }
-function wire(key) {
-  if (key === "team") wireTeam();
-  if (key === "board") wireBoard();
-  if (key === "study") wireStudy();
+
+function wire(v) {
+  if (v.key === "team") wireTeam();
+  if (v.key === "board" || v.key === "byowner") wireBoard();
   const rl = document.getElementById("cs-reload");
-  if (rl) rl.onclick = () => load(key, true);
+  if (rl) rl.onclick = () => load(true);
   const sel = document.getElementById("cs-houjin");
   if (sel && customerIndex) {
     sel.innerHTML = '<option value="">法人を選ぶ…</option>' + customerIndex.slice(0, 400).map((r) =>
       '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
       "（取引" + num(r.deals) + " / 拠点" + num(r.sites) + "）</option>").join("");
-    // 差し込み直しでも選んだ法人が残るようにする
+    /* 差し込み直しでも選んだ法人が残るようにする */
     if (customerHoujin) sel.value = customerHoujin;
   }
   const cz = document.getElementById("cs-censor");
-  if (cz) cz.onchange = () => load("renewal", false);
+  if (cz) cz.onchange = () => load(false);
   const hj = document.getElementById("cs-houjin");
-  if (hj) hj.onchange = () => { customerHoujin = hj.value; load("customer", false); };
+  if (hj) hj.onchange = () => { customerHoujin = hj.value; load(false); };
 }
 
-document.querySelectorAll("nav.tabs button").forEach((b) => {
-  b.addEventListener("click", () => {
-    document.querySelectorAll("nav.tabs button").forEach((x) => x.classList.remove("on"));
-    document.querySelectorAll(".pane").forEach((x) => x.classList.remove("on"));
-    b.classList.add("on");
-    document.getElementById("pane-" + b.dataset.p).classList.add("on");
-    // 開いたときに初めて取る。開かないタブのぶんは Sheets を叩かない
-    if (!loaded[b.dataset.p]) load(b.dataset.p, false);
-  });
+/* 戻る・進むでも同じところへ */
+window.addEventListener("hashchange", () => {
+  const h = fromHash();
+  if (h.menu !== cur.menu || h.view !== cur.view) go(h.menu, h.view);
 });
-load("today", false);
+
+/* 開いた時点で URL にも位置を残す。そのまま貼れば同じ場所が開く */
+(() => { const h = fromHash(); go(h.menu, h.view); })();
 </script>
 </body>
 </html>

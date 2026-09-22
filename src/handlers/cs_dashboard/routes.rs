@@ -65,6 +65,7 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/data-quality", get(data_quality))
         .route("/api/consulting/customer", get(customer_detail))
         .route("/api/consulting/consultants", get(consultants))
+        .route("/api/consulting/handover", get(handover))
         .route("/api/consulting/deals", get(deal_board))
         .route("/api/consulting/today", get(today_board))
 }
@@ -192,6 +193,7 @@ simple_handler!(headquarters, build_headquarters);
 simple_handler!(mtg_quality, build_mtg_quality);
 simple_handler!(data_quality, build_data_quality);
 simple_handler!(consultants, build_consultants);
+simple_handler!(handover, build_handover);
 simple_handler!(deal_board, build_deal_board);
 simple_handler!(today_board, build_today_board);
 
@@ -1531,6 +1533,102 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
     })
 }
 
+// ================================================================ 担当の交代
+
+/// 担当が替わった記録の一覧。
+///
+/// 🔴 **新しい指標を作らない。** `CS_担当交代` に既に入っている列を並べるだけ。
+/// あの列は `scripts/consulting_owner/analyze_handover_reality.py` が作っていて、
+/// 「MTG のホストが替わった日」を実際の交代日としている。
+/// HubSpot の担当者欄が直された日は交代日ではない（遅れの中央値 73日）ので、
+/// **そのずれ（`record_gap_days`）も並べて見えるようにする**。
+///
+/// 🔴 **誰から誰へ、でまとめない。** `from` / `to` は取引名と同じ「読めば分かる列」で、
+/// テスト用データでは1行1人の連番に伏せてある。ここでまとめると、拠点キー・担当者・
+/// ホスト氏名で踏んだのと同じ穴（1行1グループ）にはまる。**表示だけにとどめる。**
+pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
+    let deals = deals_of(&sheets.deal);
+    let by_id: HashMap<&str, &Deal> = deals.iter().map(|d| (d.id.as_str(), d)).collect();
+    let who = consultant_of(&sheets.owner_hist);
+    let hv = &sheets.handover;
+
+    let mut rows: Vec<Value> = Vec::new();
+    let mut reflected: BTreeMap<String, usize> = BTreeMap::new();
+    let mut to_retired = 0usize;
+    let mut gaps: Vec<f64> = Vec::new();
+    let mut active = 0usize;
+
+    for r in &hv.rows {
+        let deal_id = hv.get(r, "deal_id");
+        let d = by_id.get(deal_id);
+        let is_active = d.map(|x| x.is_active).unwrap_or(false);
+        if is_active {
+            active += 1;
+        }
+        let rf = hv.get(r, "reflected").trim();
+        let rf = if rf.is_empty() {
+            "（記録なし）"
+        } else {
+            rf
+        };
+        *reflected.entry(rf.to_string()).or_insert(0) += 1;
+
+        // 🔴 文字列の "TRUE"/"FALSE"。真偽値として入っていない
+        let retired = hv.get(r, "to_retired").trim().eq_ignore_ascii_case("true");
+        if retired {
+            to_retired += 1;
+        }
+        let gap = opt_num(hv.get(r, "record_gap_days"));
+        if let Some(g) = gap {
+            gaps.push(g);
+        }
+        rows.push(json!({
+            "deal_id": deal_id,
+            "name": d.map(|x| x.name.as_str()).unwrap_or(""),
+            "date": hv.get(r, "date"),
+            "from": hv.get(r, "from"),
+            "to": hv.get(r, "to"),
+            "to_retired": retired,
+            "reflected": rf,
+            "record_gap_days": gap,
+            "is_active": is_active,
+            // いまの担当。交代の相手と食い違っていたら、その後さらに動いている
+            "consultant": who.get(deal_id).map(|(n, _)| n.as_str()).unwrap_or(""),
+        }));
+    }
+
+    // 新しい順。日付が無い行は末尾（0 として並べない）
+    rows.sort_by(|a, b| {
+        let k = |v: &Value| v["date"].as_str().unwrap_or("").to_string();
+        k(b).cmp(&k(a))
+    });
+
+    gaps.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median_gap = if gaps.is_empty() {
+        Value::Null
+    } else {
+        Value::from(gaps[gaps.len() / 2])
+    };
+
+    json!({
+        "meta": {
+            "today": today.to_string(),
+            "all_cached": sheets.all_cached,
+            "n": rows.len(),
+            "n_active": active,
+            "not_counted": "※ 交代が良かったか悪かったかは判定していません。記録を並べているだけです",
+        },
+        "rows": rows,
+        "reflected_dist": reflected.iter()
+            .map(|(k, v)| json!({"label": k, "n": v})).collect::<Vec<_>>(),
+        "to_retired": to_retired,
+        "median_gap_days": median_gap,
+        "n_gap": gaps.len(),
+        "gap_rule": "「記録の遅れ」は、実際に替わった日（MTG のホストが替わった日）と HubSpot の担当者欄が直された日の差です。プラスなら HubSpot のほうが後。マイナスは、先に欄だけ直して実務の引き継ぎが後になったことを表します",
+        "source_rule": "交代日は MTG のホストが替わった日で取っています。HubSpot の担当者欄が直された日は交代日ではありません",
+    })
+}
+
 // ================================================================ タブ3 顧客詳細
 
 /// 顧客1件の縦串。
@@ -2200,7 +2298,7 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         m.insert("filter_rule".into(), json!(format!(
             "名札が {MIN_FLAGS} 本以上ついた {n_hit} 件から、金額の大きい順に {KEEP} 件を出しています。\
 毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} 本という線引きは取り決めです。\
-全件は「案件の立ち位置」タブにあります"
+全件は「案件」の中の「案件の立ち位置」で見られます"
         )));
         m.insert("n_hit".into(), json!(n_hit));
         m.insert("n_shown".into(), json!(top.len()));
