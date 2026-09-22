@@ -686,7 +686,16 @@ fn サイドバーの項目がそろっている() {
     let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
     let m = menus(&html);
     let want: &[(&str, &[&str])] = &[
-        ("案件", &["今日動く先", "案件の立ち位置", "顧客ごとに見る"]),
+        // 🔴 ①は**粒度で分けてある**。案件 / 事業所 / 法人で数字の意味が変わる
+        (
+            "案件",
+            &[
+                "今日動く先",       // 案件（今日・今週）
+                "案件そのもの",     // 案件 = 取引1件
+                "継続を追いかける", // 事業所（契約の連なり）
+                "法人番号で見る",   // 法人（拠点をまたぐ）
+            ],
+        ),
         (
             "コンサルタント",
             &["担当者の一覧", "担当者ごとの案件", "担当の交代"],
@@ -700,7 +709,6 @@ fn サイドバーの項目がそろっている() {
                 "立ち上がり",
                 "電話",
                 "MTG の品質",
-                "本部アプローチ",
                 "データ品質",
                 "定義と検証",
             ],
@@ -822,5 +830,105 @@ fn 担当の交代は記録を並べるだけ() {
     assert!(
         !rs.contains("hv.get(r, \"from\")).or_insert") && !rs.contains("entry(hv.get(r, \"from\")"),
         "from / to でまとめている。拠点キー・担当者・ホスト氏名と同じ穴"
+    );
+}
+
+/// 🔴 本部アプローチは**法人の粒度**なので、③集計ではなく①案件の中に置く。
+#[test]
+fn 本部アプローチが法人の画面にある() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    let m = menus(&html);
+    let study: Vec<&str> = m[2].1.iter().map(|x| x.as_str()).collect();
+    assert!(
+        !study.contains(&"本部アプローチ"),
+        "本部アプローチが集計に残っている"
+    );
+    assert!(
+        html.contains("fetch(\"/api/consulting/headquarters\""),
+        "本部アプローチを法人の画面から取りに行っていない"
+    );
+    assert!(
+        html.contains("他の法人と比べる"),
+        "本部アプローチの節が無い"
+    );
+    assert!(
+        html.contains("function renderHq("),
+        "本部アプローチの描画が消えている"
+    );
+}
+
+/// 🔴 法人の画面は**チェックで案件を出し入れ**でき、**画面の全部が追従する**こと。
+///
+/// どこか1つでも全件のまま残ると、画面の中で数字が食い違う。
+#[test]
+fn 法人の画面は選んだ案件に全部が追従する() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    for needle in [
+        "function custFilter(",
+        "hj-pick",
+        "hj-all",
+        "hj-none",
+        "hj-count",
+        " 件中 ",
+        "案件が1つも選ばれていません",
+    ] {
+        assert!(
+            html.contains(needle),
+            "法人の画面から「{needle}」が消えている"
+        );
+    }
+    assert!(
+        html.contains("houjinPick[id] = true;"),
+        "既定で全部にチェックが入っていない"
+    );
+    // 図・表・KPI・合計を1か所でまとめて絞る。ここが漏れると画面の中で数字が食い違う
+    for needle in [
+        "deals: ds,",
+        "monthly: (D.monthly",
+        "cpa3: (D.cpa3",
+        "funnel: {",
+        "customer: D.customer &&",
+    ] {
+        assert!(
+            html.contains(needle),
+            "custFilter が「{needle}」を絞っていない"
+        );
+    }
+}
+
+/// 図は「案件ごと」と「全体」の両方を出すこと。切り替えではなく両方。
+#[test]
+fn 法人の画面は案件ごとと全体の両方を出す() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    assert!(
+        html.contains("案件ごとの採用数の推移"),
+        "案件ごとの図が無い"
+    );
+    assert!(html.contains("全体（選んだ案件の合算）"), "全体の図が無い");
+    assert!(
+        html.contains("LTV の推移（契約金額の累計）"),
+        "LTV の推移が無い"
+    );
+    assert!(
+        html.contains("<b>拠点をまたいで1本にしていません。</b>"),
+        "拠点をまたいでいないことが図に書かれていない"
+    );
+    assert!(
+        html.contains("<b>これは合算です。</b>") && html.contains("<b>これも合算です。</b>"),
+        "合算であることが図に書かれていない"
+    );
+}
+
+/// どちらの粒度で見ているかが画面に出ていること。取り違えると数字の意味が変わる。
+#[test]
+fn 粒度が画面に書いてある() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    assert!(
+        html.contains("いま見ている粒度は「事業所」です"),
+        "事業所の粒度が明示されていない"
+    );
+    assert!(
+        html.contains("いま見ている粒度は「法人」です"),
+        "法人の粒度が明示されていない"
     );
 }

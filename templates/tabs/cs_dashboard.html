@@ -123,6 +123,18 @@
     background:var(--panel); border:1px solid var(--rule);
     color:var(--ink-2); font-variant-numeric:tabular-nums; }
   .count-line.on{ border-left:3px solid var(--ai); }
+  /* 案件のチェック。既定は全部入り。外すと図・表・KPI がぜんぶ追従する */
+  .pickbox{ display:grid; gap:2px; grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+    background:var(--panel); border:1px solid var(--rule); border-radius:var(--radius-lg);
+    padding:var(--space-2); max-height:260px; overflow:auto; margin:var(--space-2) 0; }
+  /* 当たり判定は 24px 以上（WCAG 2.2 AA / web は 24 CSS px） */
+  .pick{ display:flex; align-items:center; gap:7px; min-height:28px;
+         padding:2px var(--space-2); border-radius:var(--radius-md);
+         font-size:12.5px; cursor:pointer; }
+  .pick:hover{ background:var(--panel-2); }
+  .pick input{ width:16px; height:16px; margin:0; accent-color:var(--ai); cursor:pointer; }
+  .pick input:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+  .pick span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .count-line b{ color:var(--ink); }
   .masthead h1 span{ font-size:12px; letter-spacing:.22em; color:var(--ink-2);
                      border:1px solid var(--rule); border-radius:3px;
@@ -1685,27 +1697,64 @@ function med(o, d, isMan) {
 let customerIndex = null;
 let customerHoujin = "";
 let customerReason = "";
-function renderCustomer(D) {
-  if (D.index) {
-    customerIndex = D.index;
-    /* 🔴 開いた瞬間に空の画面を出さない。既定の法人を1社開く */
-    if (D.default_houjin && !customerHoujin) {
-      customerHoujin = D.default_houjin;
-      customerReason = D.default_reason || "";
-      setTimeout(() => load("customer", false), 0);
-      return '<div class="loading">既定の顧客を開いています…</div>';
-    }
-    return sec("問い", "この顧客に何が起きているか") +
-      '<div class="lede">LTV の大きい順に ' + num(D.index.length) +
-      " 法人。上の選択から選ぶと明細が出ます。</div>" +
-      scroll(table([{ t: "法人" }, { t: "取引", n: 1 }, { t: "拠点", n: 1 },
-                    { t: "稼働中", n: 1 }, { t: "LTV", n: 1 }, { t: "最終満了" }],
-        D.index.slice(0, 200).map((r) => [esc(r.name || r.houjin), num(r.deals),
-          num(r.sites), num(r.active), yen(r.ltv), esc(r.last_expiration)])), 460);
+/* 法人を選んでいないときの入口。①の「継続を追いかける」「法人番号で見る」で共通 */
+function custIndex(D, question, lede) {
+  customerIndex = D.index;
+  /* 🔴 開いた瞬間に空の画面を出さない。既定の法人を1社開く */
+  if (D.default_houjin && !customerHoujin) {
+    customerHoujin = D.default_houjin;
+    customerReason = D.default_reason || "";
+    setTimeout(() => load(false), 0);
+    return '<div class="loading">既定の顧客を開いています…</div>';
   }
+  return sec("問い", question) +
+    '<div class="lede">' + lede + " LTV の大きい順に " + num(D.index.length) +
+    " 法人。上の選択から選ぶと明細が出ます。</div>" +
+    scroll(table([{ t: "法人" }, { t: "取引", n: 1 }, { t: "拠点", n: 1 },
+                  { t: "稼働中", n: 1 }, { t: "LTV", n: 1 }, { t: "最終満了" }],
+      D.index.slice(0, 200).map((r) => [esc(r.name || r.houjin), num(r.deals),
+        num(r.sites), num(r.active), yen(r.ltv), esc(r.last_expiration)])), 460);
+}
+
+/* 選んだ案件だけの D を作る。
+   🔴 **画面の全部が選択に追従する**ようにするため、図・表・KPI・合計を
+      ここで一度に絞る。どこか1つでも全件のまま残ると画面の中で数字が食い違う。 */
+function custFilter(D, ids) {
+  const keep = (x) => ids.has(x.deal_id);
+  const ds = (D.deals || []).filter(keep);
+  const sum = (f) => {
+    let s = null;
+    for (const d of ds) if (d[f] != null) s = (s || 0) + d[f];
+    /* 🔴 1件も値が無ければ null。0 と「値が無い」を分ける */
+    return s;
+  };
+  return Object.assign({}, D, {
+    deals: ds,
+    monthly: (D.monthly || []).filter(keep),
+    contacts: (D.contacts || []).filter(keep),
+    cpa3: (D.cpa3 || []).filter(keep),
+    handover: (D.handover || []).filter(keep),
+    cpa_by_site: (D.cpa_by_site || [])
+      .map((st) => ({ site: st.site, points: (st.points || []).filter(keep) }))
+      .filter((st) => st.points.length),
+    funnel: { oubo: sum("oubo"), mensetu: sum("mensetu"), syoudaku: sum("syoudaku") },
+    customer: D.customer && Object.assign({}, D.customer, {
+      deals: ds.length,
+      active: ds.filter((d) => d.is_active).length,
+      ltv: sum("amount"),
+      sites: new Set(ds.map((d) => d.site)).size,
+      max_renewal_no: ds.reduce((m, d) => Math.max(m, d.renewal_no || 0), 0),
+    }),
+  });
+}
+
+/* 顧客1件の中身。`want` に入れた節だけを出す。
+   節の中身はいままでのまま。粒度ごとに要る節が違うので、出し分けだけを足した。 */
+function custBlocks(D, want) {
   if (!D.meta.found) return note("warn", "見つかりません", "この法人の取引がありません。");
   const c = D.customer;
-  let h = sec("顧客", c && c.name ? c.name : D.meta.houjin) +
+  let h = "";
+  if (want.has("head")) h += sec("顧客", c && c.name ? c.name : D.meta.houjin) +
     (customerReason
       ? note("info", "この顧客を既定で開いています", esc(customerReason) +
              "　上の選択から別の法人に切り替えられます。")
@@ -1718,6 +1767,7 @@ function renderCustomer(D) {
     kpi("最終満了", esc(c.last_expiration || "—"), "") + "</div>";
 
   /* ---- 顧客に説明する数字 ---- */
+  if (want.has("funnel")) {
   h += sec("図", "顧客に説明する数字");
   const fn_ = D.funnel;
   h += fig("応募 → 面接 → 採用 の落ち方", "取引をまたいだ合計",
@@ -1728,8 +1778,10 @@ function renderCustomer(D) {
     ], alt: "応募から採用までの落ち方" }),
     '<i class="full">値が入っている契約だけを足しています。' +
     "<b>入っていないものを 0 として足していません</b>（母数が変わるため）。</i>");
+  }
 
   /* ---- 採用単価を3つの出し方で ---- */
+  if (want.has("cpa3")) {
   h += sec("図", "採用単価を3つの出し方で見る");
   const c3 = D.cpa3.filter((x) => x.total != null);
   h += fig("同じ契約でも、出し方で値が変わります",
@@ -1751,8 +1803,10 @@ function renderCustomer(D) {
     '<i class="full">稼働中の契約は<b>金額が丸ごと乗っているのに採用がまだ伸びていない</b>ので、' +
     "総額での単価は必ず高く出ます。月割り（金額 ÷ 契約期間 × 経過月数 ÷ 採用数）と、" +
     "<b>同じ進捗帯の契約の中央値</b>を並べています。3つが食い違うときは、進捗帯の中央値を見てください。</i>");
+  }
 
   /* ---- 拠点ごとの推移 ---- */
+  if (want.has("cpasite")) {
   h += sec("図", "採用単価の推移（拠点ごと）");
   h += note("info", "1本の線にまとめない理由",
     "決裁は<b>事業所単位</b>です。拠点をまたいで1本につなぐと、拠点間のばらつきが" +
@@ -1770,8 +1824,10 @@ function renderCustomer(D) {
           st.points.map((p) => yen(p.cpa)).join(" / ") + "）。</div>",
       lg("dot", C.hi, "確定した契約") + lg("ring", C.hi, "未確定（右側打ち切り）"));
   }
+  }
 
   /* ---- 応募・面接・採用の推移 ---- */
+  if (want.has("monthly")) {
   h += sec("図", "応募・面接・採用の推移");
   h += note("info", "現在値ではなく、プロパティの変更履歴を使っています",
     "HubSpot のプロパティは上書きで履歴が残らないため、現在値を時系列に並べると" +
@@ -1842,9 +1898,11 @@ function renderCustomer(D) {
       "目盛りの取り方しだいで「相関して見える絵」を作れてしまうため、" +
       "<b>横軸だけを共有して、系列ごとに自分の縦軸を持たせています</b>。</i>");
   }
+  }
 
   /* ---- 接触と担当交代 ---- */
-  if ((D.handover || []).length || (D.contacts || []).some((x) => x.dates.length)) {
+  if (want.has("timeline") &&
+      ((D.handover || []).length || (D.contacts || []).some((x) => x.dates.length))) {
     h += sec("図", "こちらの動き（接触と担当交代）");
     const lanes = [];
     for (const ct of (D.contacts || [])) {
@@ -1866,6 +1924,7 @@ function renderCustomer(D) {
   }
 
   /* ---- 表（個別の行を特定したいときだけ）---- */
+  if (want.has("deals")) {
   h += sec("表", "契約の系列（" + num(D.deals.length) + " 件）");
   h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "拠点" }, { t: "種別" },
                      { t: "開始" }, { t: "満了" }, { t: "継続", n: 1 }, { t: "金額", n: 1 },
@@ -1878,7 +1937,9 @@ function renderCustomer(D) {
       nz(d.oubo), nz(d.mensetu), nz(d.syoudaku),
       (d.is_active ? "稼働中" : "") +
       (d.right_censored ? ' <span class="tag">未確定</span>' : "")])), 420);
+  }
 
+  if (want.has("mtgs")) {
   h += sec("表", "MTG の履歴（" + num(D.mtgs.length) + " 件）");
   h += note("info", "中身が空なのは「まだ抽出していない」です",
     "記録が無いのとは違います。抽出は日次の枠で止まっており、全件には届いていません。");
@@ -1886,7 +1947,264 @@ function renderCustomer(D) {
                      { t: "顧客の懸念" }, { t: "抽出" }],
     D.mtgs.map((m) => [esc(m.date), esc(m.risk) || DASH, esc(m.todo) || DASH,
       esc(m.concern) || DASH, m.extracted ? "済" : '<span class="n0">未</span>'])), 420);
+  }
+  return h;
+}
+
+/* ================================================================ 継続を追いかける（事業所）
+
+   🔴 粒度は**事業所（拠点）**。決裁は事業所単位なので、ふだん見るのはこちら。
+      同じ事業所が契約を重ねてきた流れ（サブスク継続①②③…）を時系列で追う。
+*/
+let seriesSite = "";          /* 選んでいる拠点。空なら全部 */
+
+function siteLabel(D, key) {
+  if (!key) return "すべての拠点";
+  const n = (D.deals || []).filter((d) => d.site === key).length;
+  return shortName(key, 28) + "（契約 " + num(n) + " 件）";
+}
+
+function renderSeries(D) {
+  if (D.index) {
+    return custIndex(D, "この事業所は契約を重ねてこられたか",
+      "<b>粒度は事業所です。</b>決裁は事業所単位なので、ふだん見るのはこちらです。");
+  }
+  const sites = [...new Set((D.deals || []).map((d) => d.site))].sort();
+  if (seriesSite && !sites.includes(seriesSite)) seriesSite = "";
+  const ids = new Set((D.deals || [])
+    .filter((d) => !seriesSite || d.site === seriesSite)
+    .map((d) => d.deal_id));
+  const F2 = custFilter(D, ids);
+
+  let h = sec("問い", "この事業所は契約を重ねてこられたか");
+  h += note("info", "いま見ている粒度は「事業所」です",
+    "<b>拠点をまたいでいません。</b>決裁は事業所単位なので、" +
+    "同じ法人でも拠点が違えば別の契約の流れとして見ます。" +
+    "拠点をまたいで比べたいときは、左の「法人番号で見る」を使ってください。");
+
+  /* 拠点の選択。件数が多いので選択式にする */
+  h += '<div class="ctlbar"><label class="act">拠点 <select id="cs-site">' +
+    '<option value=""' + (seriesSite ? "" : " selected") + ">" +
+    esc(siteLabel(D, "")) + "（" + num((D.deals || []).length) + " 件）</option>" +
+    sites.map((k) => '<option value="' + esc(k) + '"' +
+      (k === seriesSite ? " selected" : "") + ">" + esc(siteLabel(D, k)) +
+      "</option>").join("") + "</select></label></div>";
+  h += '<div class="count-line' + (seriesSite ? " on" : "") + '">' +
+    "<b>" + num((D.deals || []).length) + " 件中 " + num(F2.deals.length) +
+    " 件</b>を表示" + (seriesSite ? "（拠点 " + esc(shortName(seriesSite, 28)) + "）"
+                                  : "（拠点で絞っていません）") + "</div>";
+
+  /* 契約の連なり。何回目か・間が空いていないか */
+  h += sec("図", "契約の連なり");
+  const ordered = F2.deals.slice().sort((a, b) =>
+    String(a.start || "").localeCompare(String(b.start || "")));
+  h += fig("契約を古い順に並べる", "横は開始日。空きがあれば間が空いている",
+    ordered.length
+      ? svgTimeline({ w: 940, alt: "契約の連なり", lanes: ordered.map((d) => ({
+          label: shortName(d.name || d.deal_id, 18),
+          color: d.is_active ? C.ai : C.ghost,
+          note: (d.renewal_no ? num(d.renewal_no) + "回目" : "初回") +
+                (d.amount != null ? "　" + yen(d.amount) : ""),
+          marks: [d.start, d.expiration].filter(Boolean).map((x) => ({ d: x, thick: true })),
+        })) })
+      : '<div class="empty">この拠点に契約がありません。</div>',
+    lg("dot", C.ai, "稼働中") + lg("dot", C.ghost, "決着済") +
+    '<i class="full">印は契約の開始日と満了日です。' +
+    "<b>間が空いていれば、その分だけ契約が途切れています。</b></i>");
+
+  h += custBlocks(F2, new Set(["monthly", "timeline", "deals", "mtgs"]));
   return h + foot(D.meta);
+}
+
+/* ================================================================ 法人番号で見る（法人）
+
+   🔴 粒度は**法人**。拠点をまたいで並べる。本部に持っていく話のとき用。
+   🔴 案件はチェックで出し入れできる。**既定は全表示**。
+      チェックを外したら図・表・KPI・合計の**全部**が追従する。
+*/
+let houjinPick = null;        /* deal_id -> true。null なら「まだ決めていない＝全部」 */
+let houjinFor = "";           /* どの法人ぶんの選択か */
+
+function houjinIds(D) {
+  const all = (D.deals || []).map((d) => d.deal_id);
+  if (houjinFor !== customerHoujin || !houjinPick) {
+    houjinFor = customerHoujin;
+    houjinPick = {};
+    all.forEach((id) => { houjinPick[id] = true; });   /* 既定は全部 */
+  }
+  return new Set(all.filter((id) => houjinPick[id]));
+}
+
+/* 月ごとに畳む。key は "YYYY-MM" */
+function byMonth(pairs) {
+  const m = {};
+  for (const [k, v] of pairs) {
+    if (!k || v == null) continue;
+    m[k] = (m[k] || 0) + v;
+  }
+  return m;
+}
+
+function renderHoujin(D) {
+  if (D.index) {
+    return custIndex(D, "この法人は拠点ごとにどう違うか",
+      "<b>粒度は法人です。</b>拠点をまたいで並べます。本部に持っていく話のとき用です。");
+  }
+  const ids = houjinIds(D);
+  const F2 = custFilter(D, ids);
+  const all = D.deals || [];
+
+  let h = sec("問い", "この法人は拠点ごとにどう違うか");
+  h += note("info", "いま見ている粒度は「法人」です",
+    "<b>拠点をまたいで並べています。</b>ふだんの判断は事業所単位なので、" +
+    "1つの事業所の流れを追うときは左の「継続を追いかける」を使ってください。" +
+    "<b>拠点をまたいで1本の線にはしていません</b>（拠点差が時間の悪化に見えるため）。");
+
+  /* ---- 案件のチェック ---- */
+  h += sec("表", "見る案件を選ぶ");
+  h += '<div class="ctlbar" id="hj-ctl">' +
+    '<button type="button" class="act" id="hj-all">全部選ぶ</button>' +
+    '<button type="button" class="act" id="hj-none">全部外す</button></div>';
+  h += '<div class="pickbox" id="hj-pick">' + all.map((d) =>
+    '<label class="pick"><input type="checkbox" data-d="' + esc(d.deal_id) + '"' +
+    (houjinPick[d.deal_id] ? " checked" : "") + ">" +
+    "<span>" + esc(shortName(d.name || d.deal_id, 34)) +
+    '<span class="muted small">　' + esc(shortName(d.site, 14)) +
+    (d.amount != null ? "　" + yen(d.amount) : "") +
+    (d.is_active ? '　<span class="tag e">稼働中</span>' : "") +
+    "</span></span></label>").join("") + "</div>";
+  /* 🔴 絞ったことを忘れて全体だと読むのが、この種の画面でいちばん起きる事故 */
+  /* class の中に式を書かない（CSS の静的検査がクラス名と読み違える） */
+  const picked = ids.size < all.length;
+  h += '<div class="count-line' + (picked ? " on" : "") + '" id="hj-count">' +
+    "<b>" + num(all.length) + " 件中 " + num(ids.size) + " 件</b>を表示" +
+    (picked ? "（チェックを外している案件があります）" : "（全部出しています）") +
+    "</div>";
+
+  if (!ids.size) {
+    h += note("warn", "案件が1つも選ばれていません",
+      "上のチェックを1つ以上入れてください。「全部選ぶ」で戻せます。");
+    return h + foot(D.meta);
+  }
+
+  h += custBlocks(F2, new Set(["head", "funnel", "cpa3"]));
+
+  /* ---- 案件ごとの推移 ---- */
+  /* 案件ごとに契約開始日が違うので、月番号を暦の月に直してから横軸をそろえる */
+  const mkMonths = () => {
+    const set = new Set();
+    for (const mm of F2.monthly) {
+      const ser = (mm.series || {}).syoudaku || [];
+      for (const x of ser) {
+        const mi = monthAdd(mm.start, x.m);
+        if (mi) set.add(mi);
+      }
+    }
+    return [...set].sort();
+  };
+  const ms = mkMonths();
+
+  h += sec("図", "案件ごとの採用数の推移");
+  /* 🔴 **記録が無い契約は線にしない。** 0 として描くと「採れていない」に見えるが、
+     実際は「プロパティの変更履歴が残っていない」だけ（古い契約ほど残っていない）。
+     新しい順に、記録のあるものだけを最大12本描く。 */
+  const withSer = F2.monthly
+    .filter((mm) => (((mm.series || {}).syoudaku) || []).length)
+    .sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")));
+  /* 🔴 **色は4役＋紫の5つしかない。** 6本目からは色を使い回すことになり、
+     凡例を見ても線が見分けられなくなる（色だけで意味を伝えないという規律に反する）。
+     線は5本までにして、それ以上見たいときは**チェックで案件を絞ってもらう**。
+     チェックはそのために付けてある。 */
+  const MAX_LINE = 5;
+  const drawn = withSer.slice(0, MAX_LINE);
+  h += fig("選んだ案件それぞれの線", "横は暦の月。1本＝1案件",
+    ms.length >= 2 && drawn.length
+      ? svgLine({ w: 940, h: 260, x: ms.map((m) => m.slice(2)),
+          series: drawn.map((mm, i) => ({
+            color: [C.ai, C.hi, C.ki, C.midori, C.murasaki][i],
+            /* 🔴 記録は**書き換えのあった月だけ**。間の月は前の値を持ち越す
+               （サーバ側の fill_forward と同じ読み方）。持ち越した点は
+               carry を立てて中空・破線で描く。契約期間の外までは伸ばさない。 */
+            pts: ms.map((mo) => {
+              const ser = ((mm.series || {}).syoudaku || [])
+                .map((x) => ({ mo: monthAdd(mm.start, x.m), v: x.v }))
+                .filter((x) => x.mo);
+              const st = String(mm.start || "").slice(0, 7);
+              const dl = F2.deals.find((d) => d.deal_id === mm.deal_id) || {};
+              const en = String(dl.expiration || "9999-12").slice(0, 7);
+              if (!st || mo < st || mo > en) return { v: null };
+              let last = null;
+              for (const x of ser) { if (x.mo <= mo) last = x; }
+              if (!last) return { v: null };
+              return { v: last.v, carry: last.mo !== mo };
+            }),
+          })), yFmt: F.int, yLab: "採用数", alt: "案件ごとの採用数の推移" })
+      : '<div class="empty">線にできる月次の記録がありません（記録が無いだけで 0 ではありません）。</div>',
+    drawn.map((mm, i) =>
+      lg("line", [C.ai, C.hi, C.ki, C.midori, C.murasaki][i],
+         shortName(mm.name || mm.deal_id, 18))).join("") +
+    '<i class="full"><b>拠点をまたいで1本にしていません。</b>1本が1案件です。' +
+    "選んだ " + num(F2.monthly.length) + " 件のうち、採用数の変更履歴があるのは " +
+    num(withSer.length) + " 件です。" +
+    "<b>履歴が無いのは「採れていない」ではなく「記録が残っていない」です</b>" +
+    "（古い契約ほど残っていません）。</i>" +
+    (withSer.length > MAX_LINE
+      ? '<i class="full"><b>線は新しい ' + MAX_LINE + " 本だけです。</b>" +
+        "色は4役＋紫の5つしかなく、6本目から色を使い回すと線が見分けられなくなるためです。" +
+        "<b>見たい案件だけチェックを残すと、その案件が線になります。</b></i>"
+      : ""));
+
+  /* ---- 全体（合算）---- */
+  h += sec("図", "全体（選んだ案件の合算）");
+  const sumM = byMonth(F2.monthly.flatMap((mm) =>
+    (((mm.series || {}).syoudaku) || []).map((x) => [monthAdd(mm.start, x.m), x.v])));
+  const smKeys = Object.keys(sumM).sort();
+  h += fig("採用数の月ごとの合計", "この法人として月にどれだけ採れたか",
+    smKeys.length >= 2
+      ? svgLine({ w: 940, h: 220, x: smKeys.map((m) => m.slice(2)),
+          series: [{ color: C.midori, pts: smKeys.map((k) => ({ v: sumM[k] })) }],
+          yFmt: F.int, yLab: "採用数", alt: "採用数の合計の推移" })
+      : '<div class="empty">合算できる月次の記録がありません。</div>',
+    lg("line", C.midori, "選んだ案件の合計") +
+    '<i class="full"><b>これは合算です。</b>拠点をまたいで足しています。' +
+    "拠点ごとの違いを見るときは1つ上の図か、下の「採用単価の推移（拠点ごと）」を見てください。</i>");
+
+  /* LTV の累計。金額の入っている案件を開始日の順に足していく */
+  const lt = F2.deals.filter((d) => d.amount != null && d.start)
+    .sort((a, b) => String(a.start).localeCompare(String(b.start)));
+  let acc = 0;
+  const ltPts = lt.map((d) => { acc += d.amount; return { v: acc }; });
+  h += fig("LTV の推移（契約金額の累計）", "契約が増えるたびに積み上がる",
+    ltPts.length >= 2
+      ? svgLine({ w: 940, h: 220, labelPts: true,
+          x: lt.map((d) => String(d.start).slice(2, 7)),
+          series: [{ color: C.ai, pts: ltPts }],
+          yFmt: F.man, yLab: "累計金額", alt: "LTV の推移" })
+      : '<div class="empty">金額が入っている契約が ' + num(lt.length) +
+        " 件しかないので線にしていません。</div>",
+    lg("line", C.ai, "契約金額の累計") +
+    '<i class="full"><b>これも合算です。</b>金額が入っていない契約は足していません' +
+    "（0 として足すと母数が変わるため）。横軸は契約の開始月で、" +
+    "どの拠点のぶんかは下の「契約の系列」の表にあります。</i>");
+
+  h += custBlocks(F2, new Set(["cpasite", "deals"]));
+
+  /* ---- 他の法人と比べる（本部アプローチ）---- */
+  h += sec("図", "他の法人と比べる");
+  h += '<div id="hq-box"><span class="loading">読み込み中…</span></div>';
+  return h + foot(D.meta);
+}
+
+/** 契約開始からの月番号 `m` を暦の "YYYY-MM" に直す。
+    🔴 サーバ側と同じ数え方（始月を1ヶ月目とする）。 */
+function monthAdd(start, m) {
+  if (!start || String(start).length < 7 || m == null) return null;
+  const y = +String(start).slice(0, 4);
+  const mo = +String(start).slice(5, 7);
+  const t = (y * 12 + (mo - 1)) + (m - 1);
+  const yy = Math.floor(t / 12);
+  const mm = (t % 12) + 1;
+  return yy + "-" + String(mm).padStart(2, "0");
 }
 
 /** 契約開始からの「何ヶ月目か」。🔴 始月は含めない（サーバ側と同じ数え方） */
@@ -2825,15 +3143,20 @@ function setFresh(meta) {
    🔴 中身（図・表・数字）は前のまま。置き場所だけ変えている。
 */
 const MENUS = [
+  /* 🔴 ①の中は**粒度で分けてある**。同じ「顧客」でも、
+     取引1件で見るのか / 事業所の契約の連なりで見るのか / 法人で拠点をまたいで見るのか で
+     数字の意味が変わる。取り違えると読み間違えるので、画面を分けて粒度を明示する。 */
   { key: "deal", no: "\u2460", label: "案件",
     lead: "案件そのものを見る画面です。",
     views: [
-      { key: "today",    label: "今日動く先",     path: "/api/consulting/today",
+      { key: "today",    label: "今日動く先",       path: "/api/consulting/today",
         render: (D) => renderToday(D) },
-      { key: "board",    label: "案件の立ち位置", path: "/api/consulting/deals",
+      { key: "board",    label: "案件そのもの",     path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
-      { key: "customer", label: "顧客ごとに見る", path: "/api/consulting/customer",
-        render: (D) => renderCustomer(D) },
+      { key: "series",   label: "継続を追いかける", path: "/api/consulting/customer",
+        render: (D) => renderSeries(D) },
+      { key: "houjin",   label: "法人番号で見る",   path: "/api/consulting/customer",
+        render: (D) => renderHoujin(D) },
     ] },
   { key: "consultant", no: "\u2461", label: "コンサルタント",
     lead: "人の側から見る画面です。担当者の評価ではありません。",
@@ -2860,8 +3183,6 @@ const MENUS = [
         render: (D) => renderPhone(D) },
       { key: "mtgq",    label: "MTG の品質",       path: "/api/consulting/mtg-quality",
         render: (D) => renderMtgQ(D) },
-      { key: "hq",      label: "本部アプローチ",   path: "/api/consulting/headquarters",
-        render: (D) => renderHq(D) },
       { key: "dq",      label: "データ品質",       path: "/api/consulting/data-quality",
         render: (D) => renderDq(D) },
       { key: "defs",    label: "定義と検証",       path: null,
@@ -2872,8 +3193,12 @@ const MENUS = [
 /* いま見ているところ。既定は「案件 → 今日動く先」。毎朝いちばん見るもの */
 let cur = { menu: "deal", view: "today" };
 const loaded = {};
+/* いま出している項目のデータ。チェックや絞り込みで描き直すときに使う */
+let lastPayload = null;
 
 const menuOf = (k) => MENUS.find((m) => m.key === k);
+/* 法人を選んで見る項目。🔴 2つあるので、片方だけ直して取りこぼさないよう1か所で判定する */
+const isCustView = (k) => k === "series" || k === "houjin";
 const viewOf = (m, v) => (menuOf(m) || MENUS[0]).views.find((x) => x.key === v);
 
 /* ---------------------------------------------------------------- 上のメニュー */
@@ -2955,7 +3280,7 @@ async function load(refresh) {
   if (refresh) q.set("refresh", "1");
   const censor = document.getElementById("cs-censor");
   if (cur.view === "renewal" && censor && censor.checked) q.set("exclude_right_censored", "1");
-  if (cur.view === "customer" && customerHoujin) q.set("houjin", customerHoujin);
+  if (isCustView(cur.view) && customerHoujin) q.set("houjin", customerHoujin);
 
   main.innerHTML = '<div class="loading">読み込み中…</div>';
   try {
@@ -2965,6 +3290,7 @@ async function load(refresh) {
     if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
     if (cur.view === "team") teamCache = body;
     if (cur.view === "board" || cur.view === "byowner") boardCache = body;
+    lastPayload = body;   /* 絞り込みで描き直すときに使う。取り直しはしない */
     setFresh(body.meta || {});
     main.innerHTML = ctlbar(v, body) + v.render(body);
     wire(v);
@@ -2983,7 +3309,7 @@ function ctlbar(v, D) {
     h += '<label class="act"><input type="checkbox" id="cs-censor">' +
       "右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>";
   }
-  if (v.key === "customer") h += '<select id="cs-houjin" class="act"></select>';
+  if (isCustView(v.key)) h += '<select id="cs-houjin" class="act"></select>';
   if (v.path) h += '<button type="button" class="act" id="cs-reload">読み直す</button>';
   if (D && D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
   return h + "</div>";
@@ -2992,6 +3318,8 @@ function ctlbar(v, D) {
 function wire(v) {
   if (v.key === "team") wireTeam();
   if (v.key === "board" || v.key === "byowner") wireBoard();
+  if (v.key === "series") wireSeries();
+  if (v.key === "houjin") wireHoujin();
   const rl = document.getElementById("cs-reload");
   if (rl) rl.onclick = () => load(true);
   const sel = document.getElementById("cs-houjin");
@@ -3007,6 +3335,46 @@ function wire(v) {
   const hj = document.getElementById("cs-houjin");
   if (hj) hj.onchange = () => { customerHoujin = hj.value; load(false); };
 }
+
+/* 「継続を追いかける」の拠点選択 */
+function wireSeries() {
+  const st = document.getElementById("cs-site");
+  if (st) st.onchange = () => { seriesSite = st.value; redrawMain(lastPayload); };
+}
+
+/* 「法人番号で見る」のチェックと、本部アプローチの遅延読み */
+function wireHoujin() {
+  const redraw = () => redrawMain(lastPayload);
+  document.querySelectorAll("#hj-pick input[type=checkbox]").forEach((cb) => {
+    cb.onchange = () => { houjinPick[cb.dataset.d] = cb.checked; redraw(); };
+  });
+  const setAll = (on) => {
+    (lastPayload.deals || []).forEach((d) => { houjinPick[d.deal_id] = on; });
+    redraw();
+  };
+  const a = document.getElementById("hj-all");
+  if (a) a.onclick = () => setAll(true);
+  const n = document.getElementById("hj-none");
+  if (n) n.onclick = () => setAll(false);
+
+  /* 本部アプローチは別のデータ。この項目を開いたときだけ取りに行く */
+  const box = document.getElementById("hq-box");
+  if (!box) return;
+  if (hqCache) { box.innerHTML = renderHq(hqCache); return; }
+  fetch("/api/consulting/headquarters", { credentials: "same-origin" })
+    .then((r) => r.json())
+    .then((body) => {
+      if (body.error) throw new Error(body.message || "取得できません");
+      hqCache = body;
+      const b2 = document.getElementById("hq-box");
+      if (b2) b2.innerHTML = renderHq(body);
+    })
+    .catch((e) => {
+      const b2 = document.getElementById("hq-box");
+      if (b2) b2.innerHTML = '<div class="err">' + esc(e.message) + "</div>";
+    });
+}
+let hqCache = null;
 
 /* 戻る・進むでも同じところへ */
 window.addEventListener("hashchange", () => {
