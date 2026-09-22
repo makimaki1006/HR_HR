@@ -117,18 +117,41 @@ pub const ST_CANCEL: &[&str] = &["52016159", "52016158", "1016664339"];
 /// 解約済（充足）。🔴 **分母に入れる**。採用できて終わったのも継続しなかった結果。
 pub const ST_FILL: &str = "90598807";
 
-/// 継続率の母数から外す契約種別。
+/// オプション契約の種別。**画面の母集団から外す。**
 ///
 /// 実測で月ごとの偏りが大きく（6月8件 vs 8月20件）、含めると月次比較が歪む。
-/// 外すと結果待ちもほぼ消える（3ヶ月で 48件→5件）。満了してもステージが
+/// 外すと結果待ちもほぼ消える（3ヶ月で 48件→3件）。満了してもステージが
 /// 動かない取引の多くがオプションだったため。
+///
+/// 🔴 `contract_kind` は**取引名の接頭辞から機械で作った値**
+///    (`scripts/consulting_renewal/renewal_no.py` の `contract_kind`)。
+///    接頭辞が想定と違うと別の値になる。実データ 3,659件で数えたところ、
+///    「AirWork広告費用＿…」は `AirWork` という別の値になっていた（3件・全部稼働中）。
+///    取引名に「AirWork」等を含むのに種別がオプション外だったのはこの3件だけで、
+///    それ以外の取りこぼしは無い（AirWork 71件 / 広告運用 68件 / 求人追加 128件 /
+///    追加 133件 / 一次対応 13件 / エントリーフォーム 6件 を名前で数えて確認）。
+///    **取引名そのものでは判定しない**。本体契約の名前に「追加」等が混じったときに
+///    売上のある本体を誤って外すため。判定に足すのは値（種別・ステージ）だけにする。
 pub const OPTION_KINDS: &[&str] = &[
     "求人追加",
     "AirWork広告運用",
+    // 「AirWork広告費用＿…」がここに落ちる。名前ではなく値で拾う
+    "AirWork",
     "一次対応",
     "エントリーフォーム",
     "追加",
 ];
+
+/// オプション契約だけが置かれるステージ。**種別と OR で判定する。**
+///
+/// - `1049738304` オプション（求人追加・一次対応）    173件中95件
+/// - `1281526627` 満了済オプション（一次対応・追加）  同78件
+///
+/// 🔴 **種別だけでも、ステージだけでも取りこぼす。** 実測で
+/// 「ステージはオプションなのに種別が `(新規)`／`サブスク継続`」が4件、
+/// 逆に「種別はオプションなのにステージは継続済など」が54件ある。
+/// 両方を見て、どちらかに当たればオプションとする。
+pub const OPTION_STAGES: &[&str] = &["1049738304", "1281526627"];
 
 /// 決着の3状態。ここに入らないものは「結果待ち」で、分母に入れない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +196,8 @@ pub struct Deal {
     /// （法人でまとめると拠点間のばらつきが「時間の悪化」に見える）。
     pub kyoten_key: String,
     pub houjin_resolved: String,
+    /// 法人番号をどこから解決したか。データ品質の画面が数える。
+    pub houjin_source: String,
     /// 継続回数。初回が 0。
     pub renewal_no: Option<i64>,
     pub is_active: bool,
@@ -232,6 +257,7 @@ impl Deal {
             contract_start_date: g("contract_start_date").to_string(),
             kyoten_key: g("kyoten_key").to_string(),
             houjin_resolved: g("houjin_resolved").to_string(),
+            houjin_source: g("houjin_source").to_string(),
             renewal_no: opt_num(g("renewal_no")).map(|v| v as i64),
             is_active: flag(g("is_active")),
             right_censored: flag(g("right_censored")),
@@ -245,9 +271,12 @@ impl Deal {
         }
     }
 
-    /// 継続率の母数から外す契約か。
+    /// オプション契約か。**画面の母集団から外すもの。**
+    ///
+    /// 種別（取引名の接頭辞由来）とステージの **OR**。片方だけだと取りこぼす。
     pub fn is_option(&self) -> bool {
         OPTION_KINDS.contains(&self.contract_kind.as_str())
+            || OPTION_STAGES.contains(&self.stage.as_str())
     }
 
     /// 満了月 `yyyy-MM`。満了日が無ければ `None`。
@@ -279,12 +308,75 @@ impl Deal {
     }
 }
 
+/// 画面が見る取引。**オプション契約は入っていない。**
+///
+/// 🔴 ここで外すのは、外し忘れる画面を作らないため。実データで
+/// 稼働中703件のうち99件がオプション（求人追加・AirWork広告運用ほか）で、
+/// 案件一覧・コンサルタント一覧・集計に混ざると読めない画面になる。
+/// **外した件数は黙って消さず、`population_of` が数えて画面に出す。**
 pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
+    deals_all_of(sheet)
+        .into_iter()
+        .filter(|d| !d.is_option())
+        .collect()
+}
+
+/// オプション契約も含む全取引。**母集団の注記を作るときだけ使う。**
+pub fn deals_all_of(sheet: &SheetData) -> Vec<Deal> {
     sheet
         .rows
         .iter()
         .map(|r| Deal::from_row(sheet, r))
         .collect()
+}
+
+/// 画面に出す母集団。**どの画面でも同じ数字を出すために1か所で作る。**
+///
+/// 🔴 タブによって母集団が違うと、同じ画面の中で数が合わなくなる。
+/// 除いた件数と金額も持つ（AirWork広告運用は実在する売上なので、
+/// 「無かったこと」にはしない）。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Population {
+    /// 全取引（オプション込み）
+    pub deals_all: usize,
+    /// そのうちオプション契約
+    pub deals_option: usize,
+    /// 全取引（オプション契約を除く）
+    pub deals: usize,
+    /// 稼働中（オプション込み）
+    pub active_all: usize,
+    /// そのうちオプション契約
+    pub active_option: usize,
+    /// 稼働中（オプション契約を除く）。**これが画面の母集団**
+    pub active: usize,
+    /// 外した稼働中オプションの金額合計。入っていなければ `None`
+    pub option_amount: Option<f64>,
+    /// 画面に出す一文
+    pub note: String,
+}
+
+pub fn population_of(sheet: &SheetData) -> Population {
+    let all = deals_all_of(sheet);
+    let deals_all = all.len();
+    let deals_option = all.iter().filter(|d| d.is_option()).count();
+    let active: Vec<&Deal> = all.iter().filter(|d| d.is_active).collect();
+    let active_all = active.len();
+    let opt_active: Vec<&&Deal> = active.iter().filter(|d| d.is_option()).collect();
+    let active_option = opt_active.len();
+    let amt: f64 = opt_active.iter().filter_map(|d| d.amount).sum();
+    Population {
+        deals_all,
+        deals_option,
+        deals: deals_all - deals_option,
+        active_all,
+        active_option,
+        active: active_all - active_option,
+        option_amount: if amt > 0.0 { Some(amt) } else { None },
+        note: format!(
+            "稼働中{active_all}件からオプション契約{active_option}件を除いた{}件で見ています。オプション（求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加）は本体契約と一緒に数えると案件も担当者も二重に見えるため外しています。外した契約が無くなったわけではありません",
+            active_all - active_option
+        ),
+    }
 }
 
 // ---------------------------------------------------------------- 読み込み

@@ -21,7 +21,8 @@ use serde_json::Value;
 
 use super::routes::{
     build_consultants, build_customer, build_data_quality, build_deal_board, build_focus,
-    build_headquarters, build_mtg_quality, build_outcome, build_phone, build_rampup, build_renewal,
+    build_handover, build_headquarters, build_mtg_quality, build_outcome, build_phone,
+    build_rampup, build_renewal, build_today_board,
 };
 use super::Sheets;
 use crate::handlers::call_quality::sheets::SheetData;
@@ -142,10 +143,13 @@ fn 満了月ごとの継続率がスキルの確定値と一致する() {
     }
 }
 
-/// オプション契約を外すと結果待ちがほぼ消える（3ヶ月で 48件→5件）。
+/// オプション契約を外すと結果待ちがほぼ消える（3ヶ月で 48件→3件）。
 ///
 /// 満了してもステージが動かない取引の多くがオプションだったため。
-/// ここが崩れたら `OPTION_KINDS` の判定が壊れている。
+/// ここが崩れたら `OPTION_KINDS` / `OPTION_STAGES` の判定が壊れている。
+///
+/// 2026-09-23: 5件 → 3件。オプションの判定にステージ（オプション／満了済オプション）と
+/// 種別 `AirWork` を足したため。継続率そのもの（54.2% / 52.0% / 61.4%）は動いていない。
 #[test]
 fn オプションを外すと結果待ちがほぼ消える() {
     let v = build_renewal(&sheets(), false);
@@ -153,10 +157,8 @@ fn オプションを外すと結果待ちがほぼ消える() {
         .iter()
         .map(|m| month(&v, m)["pending"].as_i64().unwrap_or(0))
         .sum();
-    assert_eq!(pending, 5, "3ヶ月の結果待ち。オプションを外した後の実測値");
-    let excluded = v["monthly_retention"]["excluded_option"]
-        .as_i64()
-        .expect("excluded_option");
+    assert_eq!(pending, 3, "3ヶ月の結果待ち。オプションを外した後の実測値");
+    let excluded = super::population_of(&sheets().deal).deals_option;
     assert!(
         excluded > 200,
         "オプション契約が {excluded} 件しか外れていない。contract_kind の値が変わった可能性"
@@ -165,19 +167,25 @@ fn オプションを外すと結果待ちがほぼ消える() {
 
 /// 解約は初回契約に集中している。充足を分子に**含めた**値。
 ///
-/// | 継続回数 | 件数 | 解約 | 解約率 |
-/// | 初回 | 2,101 | 974 | 46.4% |
-/// | 継続1 |  744 | 278 | 37.4% |
-/// | 継続2 |  397 | 109 | 27.5% |
+/// 🔴 2026-09-23 に**オプション契約を母集団から外した**ので、件数と率が動いた。
+/// 資料（オプション込み）の値とは一致しない。
+///
+/// | 継続回数 | 件数 | 解約＋充足 | 解約率 |（オプションを外した実測）
+/// | 初回  | 1,914 | 959 | 50.1% |
+/// | 継続1 |   734 | 283 | 38.6% |
+/// | 継続2 |   383 | 110 | 28.7% |
+///
+/// 初回の解約率が 46.8% → 50.1% と上がるのは、オプション契約が
+/// 「初回・決着しない（＝解約にも継続にも数えない）」側へ偏って入っていたため。
 #[test]
 fn 継続回数ごとの解約率が資料の値と一致する() {
     let v = build_renewal(&sheets(), false);
     for (no, n, cancel_plus_fill, pct) in [
-        (0, 2067, 967, 46.8),
-        (1, 769, 284, 36.9),
-        (2, 404, 110, 27.2),
-        (3, 191, 40, 20.9),
-        (5, 52, 4, 7.7),
+        (0, 1914, 959, 50.1),
+        (1, 734, 283, 38.6),
+        (2, 383, 110, 28.7),
+        (3, 182, 39, 21.4),
+        (5, 49, 4, 8.2),
     ] {
         let r = renewal(&v, no);
         assert_eq!(r["n"], n, "継続{no} の件数");
@@ -191,7 +199,7 @@ fn 継続回数ごとの解約率が資料の値と一致する() {
     }
 }
 
-/// 充足を外すと 46.4% が 37.5% に見える。
+/// 充足を外すと 50.1% が 40.4% に見える。
 ///
 /// **外さないのが確定した定義**。両方返しているのは画面で並べて見せるためで、
 /// 主値を取り違えていないことをここで固定する。
@@ -201,7 +209,7 @@ fn 充足を外した値は別のキーで返る() {
     let r = renewal(&v, 0);
     let main = r["cancel_rate"].as_f64().unwrap();
     let excl = r["cancel_rate_excl_fill"].as_f64().unwrap();
-    assert!((main - 46.8).abs() < 0.05, "主値が {main:.1}%");
+    assert!((main - 50.1).abs() < 0.05, "主値が {main:.1}%");
     assert!(
         excl < main - 5.0,
         "充足を外すと {excl:.1}% まで下がるはず（主値 {main:.1}%）"
@@ -231,8 +239,9 @@ fn 右側打ち切りを外すと代表値が動く() {
         "打ち切りを外すと中央値は上がるはず（{m_all} → {m_cut}）"
     );
 
-    // 打ち切り件数そのもの。モックの meta と同じ。
-    assert_eq!(all["meta"]["right_censored_n"], 511);
+    // 打ち切り件数そのもの。511件（モックの meta）から、オプション契約を
+    // 外した分だけ減っている（2026-09-23）。
+    assert_eq!(all["meta"]["right_censored_n"], 419);
 }
 
 /// 分母0のとき率は null。**0% と書かない。**
@@ -297,20 +306,22 @@ fn 欠測の偏りが出ている() {
 #[test]
 fn 主要な列が読めている() {
     let sh = sheets();
+    // 🔴 `deals_of` はオプション契約を落として返す。全件は `deals_all_of`。
+    assert_eq!(super::deals_all_of(&sh.deal).len(), 3659, "全取引の件数");
     let deals = super::deals_of(&sh.deal);
-    assert_eq!(deals.len(), 3659, "取引件数");
+    assert_eq!(deals.len(), 3432, "オプション契約を外した取引件数");
 
     let has = |f: &dyn Fn(&super::Deal) -> bool| deals.iter().filter(|d| f(d)).count();
-    assert!(has(&|d| !d.stage.is_empty()) > 3600, "dealstage");
+    assert!(has(&|d| !d.stage.is_empty()) > 3400, "dealstage");
     assert!(
-        has(&|d| !d.contract_expiration_date.is_empty()) > 3600,
+        has(&|d| !d.contract_expiration_date.is_empty()) > 3400,
         "contract_expiration_date"
     );
     assert!(
-        has(&|d| !d.contract_kind.is_empty()) > 3600,
+        has(&|d| !d.contract_kind.is_empty()) > 3400,
         "contract_kind"
     );
-    assert!(has(&|d| d.renewal_no.is_some()) > 3600, "renewal_no");
+    assert!(has(&|d| d.renewal_no.is_some()) > 3400, "renewal_no");
     assert!(has(&|d| d.oubo.is_some()) > 1000, "oubo");
     assert!(has(&|d| d.keisaisu.is_some()) > 500, "keisaisu");
     assert!(has(&|d| d.is_active) > 100, "is_active");
@@ -358,16 +369,16 @@ fn 接触は60秒超の通話とmtgだけを数える() {
 
 /// 目標が入っていない取引を「達成率0%」に落としていないこと。
 ///
-/// 稼働中 701件のうち目標が入っているのは 353件。残り 348件は
-/// **母数に入れない**（0%として数えると全体が半分に薄まる）。
+/// 稼働中 604件（オプション契約を除く）のうち目標が入っているのは 351件。
+/// 残り 253件は **母数に入れない**（0%として数えると全体が半分に薄まる）。
 #[test]
 fn 目標が無い取引は母数に入れない() {
     let v = build_outcome(&sheets(), fixture_day());
 
     let a = &v["goal_act"];
-    assert_eq!(a["pop"], 703, "稼働中の件数");
-    assert_eq!(a["has_goal"], 352, "目標が入っている件数");
-    assert_eq!(a["both"], 346, "目標と実績が両方ある件数");
+    assert_eq!(a["pop"], 604, "稼働中の件数（オプション契約を除く）");
+    assert_eq!(a["has_goal"], 351, "目標が入っている件数");
+    assert_eq!(a["both"], 345, "目標と実績が両方ある件数");
 
     let unwritten = a["bands"]
         .as_array()
@@ -376,7 +387,7 @@ fn 目標が無い取引は母数に入れない() {
         .find(|b| b["label"] == "未記入（目標が無い）")
         .and_then(|b| b["n"].as_i64())
         .unwrap();
-    assert_eq!(unwritten, 703 - 352, "未記入は pop - has_goal");
+    assert_eq!(unwritten, 604 - 351, "未記入は pop - has_goal");
 
     // 0%（実績ゼロ）と 未記入 は別の帯。混ぜない
     let zero = a["bands"]
@@ -386,12 +397,12 @@ fn 目標が無い取引は母数に入れない() {
         .find(|b| b["label"] == "0%（実績ゼロ）")
         .and_then(|b| b["n"].as_i64())
         .unwrap();
-    assert_eq!(zero, 199, "実績ゼロ（目標はある）");
+    assert_eq!(zero, 198, "実績ゼロ（目標はある）");
     assert_ne!(zero, unwritten, "実績ゼロと未記入を同じ数にしない");
 
     let all = &v["goal_all"];
-    assert_eq!(all["pop"], 3659);
-    assert_eq!(all["has_goal"], 1162);
+    assert_eq!(all["pop"], 3432);
+    assert_eq!(all["has_goal"], 1146);
 }
 
 /// 求人票あたり応募効率。**資料の 8.1 / 14.5 は再現しない。**
@@ -414,8 +425,8 @@ fn 応募効率は向きだけ合って値は再現しない() {
     let kaiyaku = g("解約した");
     let juusoku = g("充足（採れて終わった）");
 
-    assert_eq!(keizoku["n"], 1330);
-    assert_eq!(kaiyaku["n"], 531);
+    assert_eq!(keizoku["n"], 1282);
+    assert_eq!(kaiyaku["n"], 529);
     assert_eq!(juusoku["n"], 142);
 
     let m_keizoku = keizoku["mean"].as_f64().unwrap();
@@ -440,29 +451,33 @@ fn 応募効率は向きだけ合って値は再現しない() {
     );
 
     // 掲載数が空の取引を 0 として入れていないこと
-    assert_eq!(v["efficiency"]["has_keisaisu_all"], 2182);
-    assert_eq!(v["efficiency"]["has_keisaisu_act"], 687);
+    assert_eq!(v["efficiency"]["has_keisaisu_all"], 2013);
+    assert_eq!(v["efficiency"]["has_keisaisu_act"], 593);
 }
 
 /// リスク2軸の帯。
 #[test]
 fn リスク2軸の帯が実データと一致する() {
     let v = build_outcome(&sheets(), fixture_day());
-    assert_eq!(v["risk"]["n_act"], 703);
+    assert_eq!(v["risk"]["n_act"], 604);
 
-    assert_eq!(v["risk"]["ax3"]["白"], 401);
-    assert_eq!(v["risk"]["ax3"]["赤"], 145);
-    assert_eq!(v["risk"]["ax3"]["未測定"], 157);
+    // 2026-09-23: オプション契約を母集団から外した。
+    //   未測定（接触の記録が1つも無い）が 157 -> 64 に落ちる。
+    //   **外した99件のうち93件が「接触の記録が1つも無い」だった**ので、
+    //   この画面はオプションで埋まっていたことになる。
+    assert_eq!(v["risk"]["ax3"]["白"], 400);
+    assert_eq!(v["risk"]["ax3"]["赤"], 140);
+    assert_eq!(v["risk"]["ax3"]["未測定"], 64);
 
     // 2026-09-21: 白 548 -> 547 / 未測定 1 -> 2。
     //   金額 0 を「入っていない」扱いに変えたため（0円の契約は存在しない）。
     //   稼働中で amount=0 が1件あり、それが白から未測定へ移った。
-    assert_eq!(v["risk"]["ax4"]["白"], 547);
+    assert_eq!(v["risk"]["ax4"]["白"], 448);
     assert_eq!(v["risk"]["ax4"]["赤"], 154);
     assert_eq!(v["risk"]["ax4"]["未測定"], 2);
 
-    assert_eq!(band_n(&v, "0＝安定"), 430);
-    assert_eq!(band_n(&v, "1＝要注意"), 247);
+    assert_eq!(band_n(&v, "0＝安定"), 336);
+    assert_eq!(band_n(&v, "1＝要注意"), 242);
     assert_eq!(band_n(&v, "2＝最優先"), 26);
 
     let top = v["risk"]["top"].as_array().unwrap();
@@ -471,13 +486,14 @@ fn リスク2軸の帯が実データと一致する() {
 
 /// 🔴 「接触の記録が1つも無い」を赤にしないこと。
 ///
-/// 165件ある。ここを赤に混ぜると、**本来いちばん拾うべき
+/// 64件ある（オプション契約を外す前は157件。差の93件は全部オプションだった）。
+/// ここを赤に混ぜると、**本来いちばん拾うべき
 /// 「契約後に一度も接触していない」が埋もれる**。
 #[test]
 fn 接触の記録が無いものは赤にしない() {
     let v = build_outcome(&sheets(), fixture_day());
     let unmeasured = v["risk"]["ax3"]["未測定"].as_i64().unwrap();
-    assert_eq!(unmeasured, 157);
+    assert_eq!(unmeasured, 64);
 
     // 未測定は帯の計算にも入らない（3軸目が赤でないので、2軸目だけでは最優先にならない）
     let top = v["risk"]["top"].as_array().unwrap();
@@ -788,7 +804,7 @@ fn 顧客の形が母数つきで出る() {
 fn フェーズは契約長に対する割合で決まる() {
     let v = build_rampup(&sheets(), fixture_day());
     let ph = &v["phase"];
-    assert_eq!(ph["total"], 703);
+    assert_eq!(ph["total"], 604);
     let n = |label: &str| -> i64 {
         ph["rows"]
             .as_array()
@@ -798,10 +814,10 @@ fn フェーズは契約長に対する割合で決まる() {
             .and_then(|r| r["n"].as_i64())
             .unwrap_or_else(|| panic!("{label} が無い"))
     };
-    assert_eq!(n("序盤"), 290);
-    assert_eq!(n("中盤"), 200);
-    assert_eq!(n("終盤"), 180);
-    assert_eq!(n("満了超過"), 32);
+    assert_eq!(n("序盤"), 263);
+    assert_eq!(n("中盤"), 172);
+    assert_eq!(n("終盤"), 153);
+    assert_eq!(n("満了超過"), 15);
     // 🔴 契約期間が空のものは「出せない」。満了超過に混ぜない
     assert_eq!(n("出せない"), 1);
     let total: i64 = ph["rows"]
@@ -810,7 +826,7 @@ fn フェーズは契約長に対する割合で決まる() {
         .iter()
         .map(|r| r["n"].as_i64().unwrap_or(0))
         .sum();
-    assert_eq!(total, 703, "内訳の合計が母数と合わない");
+    assert_eq!(total, 604, "内訳の合計が母数と合わない");
     assert!(ph["rule"].as_str().unwrap().contains("契約長に対する割合"));
 }
 
@@ -819,8 +835,8 @@ fn フェーズは契約長に対する割合で決まる() {
 fn 立ち上がりは契約後のmtgだけで測る() {
     let v = build_rampup(&sheets(), fixture_day());
     let f = &v["first_mtg"];
-    assert_eq!(f["n"], 1088);
-    assert_eq!(f["pre_contract"], 16, "契約前のMTGは別に数える");
+    assert_eq!(f["n"], 1083);
+    assert_eq!(f["pre_contract"], 15, "契約前のMTGは別に数える");
     assert_eq!(f["stats"]["median"].as_f64().unwrap(), 14.0, "中央値14日");
 
     // 帯ごとの解約率。決着0件なら null
@@ -838,9 +854,9 @@ fn 立ち上がりは契約後のmtgだけで測る() {
 fn mtgが結べていない初回契約が出る() {
     let v = build_rampup(&sheets(), fixture_day());
     let nm = &v["no_mtg"];
-    assert_eq!(nm["first_active"], 321);
-    assert_eq!(nm["n"], 169);
-    assert_eq!(nm["rows"].as_array().unwrap().len(), 169);
+    assert_eq!(nm["first_active"], 264);
+    assert_eq!(nm["n"], 114);
+    assert_eq!(nm["rows"].as_array().unwrap().len(), 114);
     assert!(nm["rate"].as_f64().is_some());
     // 記録が無いことと、やっていないことを分けて書いているか
     assert!(nm["note"].as_str().unwrap().contains("記録が無いことと"));
@@ -854,12 +870,15 @@ fn mtgが結べていない初回契約が出る() {
 #[test]
 fn 接触ゼロの取引は経過日数をnullにする() {
     let v = build_phone(&sheets(), fixture_day());
-    assert_eq!(v["reach"]["no_call"], 156, "電話が1本も無い");
-    assert_eq!(v["reach"]["no_contact"], 176, "接触(60秒超)が1本も無い");
+    // 2026-09-23: オプション契約を外した。電話が1本も無い稼働中は 156 -> 61、
+    //   接触が1本も無いものは 176 -> 81。**減った95件はオプション契約**で、
+    //   もともと電話する相手ではない契約がこの画面を埋めていた。
+    assert_eq!(v["reach"]["no_call"], 61, "電話が1本も無い");
+    assert_eq!(v["reach"]["no_contact"], 81, "接触(60秒超)が1本も無い");
 
     let rows = v["silent"]["rows"].as_array().unwrap();
     let zero = rows.iter().filter(|r| r["days_since"].is_null()).count();
-    assert_eq!(zero, 176, "接触ゼロの行が日数 null になっていない");
+    assert_eq!(zero, 81, "接触ゼロの行が日数 null になっていない");
     for r in rows {
         if r["days_since"].is_null() {
             assert_eq!(r["n_contact"], 0);
@@ -903,8 +922,10 @@ fn 電話の経過日数と文字起こしの薄さが出る() {
 #[test]
 fn 本部は事業所ごとに並べる() {
     let v = build_headquarters(&sheets(), fixture_day());
-    assert_eq!(v["meta"]["n_houjin"], 1649);
-    assert_eq!(v["multi_site"], 205, "拠点が2つ以上ある法人");
+    // 2026-09-23: オプション契約を外したので 1649 -> 1646。
+    //   3法人は**オプション契約しか無かった**法人。
+    assert_eq!(v["meta"]["n_houjin"], 1646);
+    assert_eq!(v["multi_site"], 194, "拠点が2つ以上ある法人");
 
     for row in v["rows"].as_array().unwrap() {
         let sites = row["rows"].as_array().unwrap();
@@ -972,7 +993,7 @@ fn mtgの埋まり具合は抽出の進み具合として出す() {
 #[test]
 fn データ品質は欠測を件数で出す() {
     let v = build_data_quality(&sheets(), fixture_day());
-    assert_eq!(v["meta"]["n_deals"], 3659);
+    assert_eq!(v["meta"]["n_deals"], 3432);
 
     let sum: i64 = v["houjin_source"]["rows"]
         .as_array()
@@ -980,7 +1001,7 @@ fn データ品質は欠測を件数で出す() {
         .iter()
         .map(|r| r["n"].as_i64().unwrap_or(0))
         .sum();
-    assert_eq!(sum, 3659, "法人番号の出どころの内訳が母数と合わない");
+    assert_eq!(sum, 3432, "法人番号の出どころの内訳が母数と合わない");
     let note = v["houjin_source"]["note"].as_str().unwrap();
     assert!(note.contains("1社1つ"), "法人番号の規律が載っていない");
     assert!(
@@ -999,7 +1020,7 @@ fn データ品質は欠測を件数で出す() {
         .iter()
         .find(|m| m["label"].as_str().unwrap().contains("右側打ち切り"))
         .unwrap();
-    assert_eq!(censored["n"], 511);
+    assert_eq!(censored["n"], 419);
 
     // 読んだシートの行数が全部載っている
     let sheets_listed = v["sheets"].as_array().unwrap();
@@ -1449,4 +1470,250 @@ fn まとめるキーが行ごとの連番になっていない() {
         n_consultant * 5 < n_active,
         "担当者 {n_consultant} 名に対して稼働中 {n_active} 件。1取引1担当に近い"
     );
+}
+
+// ================================================================ オプション契約を外す
+//
+// 🔴 2026-09-23。「案件のときにエアワーク等のオプションが入っていて読めない」
+//    という指摘を受けて、**全画面の母集団からオプション契約を外した**。
+//    ここが緩むと、案件一覧にも担当者の持ち件数にもオプションが戻ってくる。
+
+/// オプション契約の判定は、種別とステージの **OR** で取りこぼさない。
+///
+/// 実データ 3,659件で数えた内訳（2026-09-23）:
+///   種別で当たる      223件（求人追加128 / AirWork広告運用68 / 一次対応13 /
+///                            エントリーフォーム6 / 追加5 / AirWork 3）
+///   ステージだけで当たる 4件（種別が `(新規)` や `サブスク継続` のまま
+///                            「満了済オプション」ステージに置かれている）
+///   合計              227件
+///
+/// 🔴 **種別だけでは4件、ステージだけでは54件を取りこぼす。**
+#[test]
+fn オプションは種別とステージの両方で拾う() {
+    let sh = sheets();
+    let all = super::deals_all_of(&sh.deal);
+    assert_eq!(all.len(), 3659, "全取引");
+
+    let by_kind = all
+        .iter()
+        .filter(|d| super::OPTION_KINDS.contains(&d.contract_kind.as_str()))
+        .count();
+    let by_stage = all
+        .iter()
+        .filter(|d| super::OPTION_STAGES.contains(&d.stage.as_str()))
+        .count();
+    let both = all.iter().filter(|d| d.is_option()).count();
+
+    assert_eq!(by_kind, 223, "種別で当たるもの");
+    assert_eq!(by_stage, 173, "オプション用ステージに置かれているもの");
+    assert_eq!(both, 227, "どちらかに当たるもの");
+    assert!(
+        both > by_kind && both > by_stage,
+        "片方だけで足りているなら、この OR は要らないはず（種別{by_kind} / ステージ{by_stage} / OR {both}）"
+    );
+
+    // 「AirWork広告費用＿…」は種別が `AirWork` になる。取引名では判定していない
+    assert!(
+        super::OPTION_KINDS.contains(&"AirWork"),
+        "AirWork広告費用 の3件が母集団に残る"
+    );
+}
+
+/// 🔴 オプション契約が**案件の一覧に出ない**こと。
+///
+/// ①今日動く先 / ①案件そのもの / ②担当者ごとの案件 は同じ `deal_rows` を使う。
+/// ここに1件でも混ざったら落とす。
+#[test]
+fn オプション契約は案件の一覧に出ない() {
+    let sh = sheets();
+    let day = fixture_day();
+    let option_ids: std::collections::HashSet<String> = super::deals_all_of(&sh.deal)
+        .iter()
+        .filter(|d| d.is_option())
+        .map(|d| d.id.clone())
+        .collect();
+    assert!(
+        !option_ids.is_empty(),
+        "テストデータにオプションが1件も無い"
+    );
+
+    let board = build_deal_board(&sh, day);
+    let today = build_today_board(&sh, day);
+    let mut checked = 0usize;
+    let screens: [(&str, &Value, &[&str]); 2] = [
+        ("案件そのもの", &board, &["rows"]),
+        ("今日動く先", &today, &["rows", "expiring_this_week"]),
+    ];
+    for (name, v, keys) in screens {
+        for key in keys {
+            let rows = v[*key]
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} に {key} が無い。キー名が変わった"));
+            checked += rows.len();
+            for r in rows {
+                let id = r["deal_id"].as_str().unwrap_or("");
+                assert!(
+                    !option_ids.contains(id),
+                    "{name} の {key} にオプション契約が出ている: {r}"
+                );
+            }
+        }
+    }
+
+    // 🔴 1行も見ていないのに緑になるのを防ぐ
+    assert!(checked > 600, "案件の行を {checked} 行しか見ていない");
+
+    // 件数そのものも押さえる
+    let pop = super::population_of(&sh.deal);
+    assert_eq!(
+        board["rows"].as_array().unwrap().len(),
+        pop.active,
+        "案件そのものの行数が母集団と合っていない"
+    );
+}
+
+/// 🔴 **すべての画面で母集団の件数が一致すること。**
+///
+/// 直す前は、②コンサルタント一覧が593件・③案件の立ち位置が703件と、
+/// 同じ画面の中で数が合っていなかった。`freshen` が1か所で数えた値を
+/// 全部の応答に載せるので、**画面ごとに数え直していたら落ちる**。
+#[test]
+fn 全画面で母集団の件数が一致する() {
+    let sh = sheets();
+    let day = fixture_day();
+    let f = |v: Value| super::routes::freshen(v, &sh, day);
+
+    let screens: Vec<(&str, Value)> = vec![
+        ("継続回数 × 成果", f(build_renewal(&sh, false))),
+        ("成果とリスク", f(build_outcome(&sh, day))),
+        ("いま見るべき顧客", f(build_focus(&sh, day))),
+        ("立ち上がり", f(build_rampup(&sh, day))),
+        ("電話", f(build_phone(&sh, day))),
+        ("本部アプローチ", f(build_headquarters(&sh, day))),
+        ("MTG の品質", f(build_mtg_quality(&sh, day))),
+        ("データ品質", f(build_data_quality(&sh, day))),
+        ("担当者の一覧", f(build_consultants(&sh, day))),
+        ("担当の交代", f(build_handover(&sh, day))),
+        ("案件そのもの", f(build_deal_board(&sh, day))),
+        ("今日動く先", f(build_today_board(&sh, day))),
+        ("顧客ごとに見る", f(build_customer(&sh, None, day))),
+    ];
+
+    let want = 604;
+    for (name, v) in &screens {
+        let p = &v["population"];
+        assert!(!p.is_null(), "{name} に母集団が載っていない");
+        assert_eq!(
+            p["active"], want,
+            "{name} の母集団（稼働中・オプション除く）"
+        );
+        assert_eq!(p["active_all"], 703, "{name} の稼働中（オプション込み）");
+        assert_eq!(p["active_option"], 99, "{name} の外したオプション");
+        assert_eq!(p["deals"], 3432, "{name} の全取引（オプション除く）");
+        assert_eq!(p["deals_all"], 3659, "{name} の全取引（オプション込み）");
+    }
+
+    // 画面が自分で数えている件数も、同じ母集団を指していること
+    let get = |label: &str| -> Value {
+        screens
+            .iter()
+            .find(|(n, _)| *n == label)
+            .unwrap_or_else(|| panic!("{label} が無い"))
+            .1
+            .clone()
+    };
+    assert_eq!(get("いま見るべき顧客")["meta"]["n_active"], want);
+    assert_eq!(get("立ち上がり")["meta"]["n_active"], want);
+    assert_eq!(get("電話")["meta"]["n_active"], want);
+    assert_eq!(get("データ品質")["meta"]["n_active"], want);
+    assert_eq!(get("担当者の一覧")["meta"]["n_active"], want);
+    assert_eq!(get("成果とリスク")["risk"]["n_act"], want);
+    assert_eq!(get("立ち上がり")["phase"]["total"], want);
+
+    // ②コンサルタント一覧は、表の合計 + 担当が取れない件数 = 母集団。
+    // 🔴 ここが合わないと「稼働中604件」と言いながら表が593件、という画面に戻る。
+    let team = get("担当者の一覧");
+    let sum: i64 = team["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["n_active"].as_i64().unwrap_or(0))
+        .sum();
+    let unknown = team["meta"]["unknown_owner"].as_i64().unwrap();
+    assert_eq!(
+        sum + unknown,
+        want,
+        "担当者一覧の合計{sum} + 担当が取れない{unknown} が母集団{want} と合わない"
+    );
+
+    // 取引の側も同じ
+    for label in [
+        "継続回数 × 成果",
+        "いま見るべき顧客",
+        "立ち上がり",
+        "データ品質",
+    ] {
+        assert_eq!(get(label)["meta"]["n_deals"], 3432, "{label} の取引件数");
+    }
+}
+
+/// 🔴 **除いた件数を画面に出していること。** 黙って消さない。
+///
+/// AirWork広告運用は実在する売上なので、「無かったこと」にはしない。
+/// 件数・金額・内訳の一文が応答に入っていて、テンプレートがそれを出している。
+#[test]
+fn 除いたオプションの件数と金額が画面に出る() {
+    let sh = sheets();
+    let pop = super::population_of(&sh.deal);
+
+    assert_eq!(pop.active_all, 703);
+    assert_eq!(pop.active_option, 99);
+    assert_eq!(pop.active, 604);
+    assert_eq!(
+        pop.active_all - pop.active_option,
+        pop.active,
+        "引き算が合わない"
+    );
+    assert_eq!(
+        pop.deals_all - pop.deals_option,
+        pop.deals,
+        "引き算が合わない"
+    );
+
+    // 外した契約の金額。**0 や null にしない**（売上が無かったことになる）
+    let amt = pop
+        .option_amount
+        .expect("外したオプションの金額が出ていない");
+    assert!(
+        (amt - 17_631_000.0).abs() < 1.0,
+        "外した稼働中オプションの金額が {amt} 円。実測は 17,631,000 円"
+    );
+
+    // 画面に出す一文に、元の件数・外した件数・残りの件数が全部入っている
+    for w in ["703", "99", "604", "AirWork広告運用"] {
+        assert!(
+            pop.note.contains(w),
+            "母集団の注記に「{w}」が入っていない: {}",
+            pop.note
+        );
+    }
+
+    // テンプレートが実際にそれを描いているか（描いていなければ画面には出ない）
+    let html = include_str!("../../../templates/tabs/cs_dashboard.html");
+    assert!(
+        html.contains("function popline("),
+        "母集団の注記を描く関数がテンプレートに無い"
+    );
+    assert!(
+        html.contains("popline(D)"),
+        "母集団の注記が操作列で呼ばれていない（どの画面にも出ない）"
+    );
+    for w in [
+        "p.active_all",
+        "p.active_option",
+        "p.option_amount",
+        "p.deals_option",
+    ] {
+        assert!(html.contains(w), "テンプレートが {w} を出していない");
+    }
 }
