@@ -1919,13 +1919,16 @@ function custBlocks(D, want) {
 
     /* ---- 系列を縦に積む ---- */
     const npsSer = mm.nps || {};
+    // 🔴 何回目の定期かを点に載せる。載せないと図の文字が「定期undefined」になる。
+    //    キーは nps / nps2 … nps11 で、末尾の数字が回数（nps だけ 1 回目）。
+    const npsRound = (k) => (k === "nps" ? 1 : parseInt(k.slice(3), 10) || null);
     const npsPts = months.map((mi) => {
       let hit = null;
       for (const k of Object.keys(npsSer)) {
         const f = (npsSer[k] || []).find((x) => x.m === mi);
-        if (f && (hit == null || !f.carry)) hit = f;
+        if (f && (hit == null || !f.carry)) hit = { v: f.v, carry: f.carry, round: npsRound(k) };
       }
-      return hit ? { v: hit.v, carry: hit.carry } : { v: null };
+      return hit || { v: null };
     });
     const ct = (D.contacts || []).find((x) => x.deal_id === mm.deal_id);
     const ctPts = months.map((mi) => {
