@@ -384,6 +384,9 @@
   tbody tr:last-child td{ border-bottom:none; }
   td:first-child{ font-weight:600; }
   td.t{ white-space:normal; min-width:180px; max-width:330px; line-height:1.6; }
+  /* 折り返す列（table() の列の w）。幅は字数で決める（本文 12.5px） */
+  td.wl{ white-space:normal; min-width:12em; max-width:22em; line-height:1.6; overflow-wrap:anywhere; }
+  td.ws{ white-space:normal; min-width:6em; max-width:11em; line-height:1.6; overflow-wrap:anywhere; }
   tr.clickable{ cursor:pointer; }
   caption{ caption-side:bottom; text-align:left; padding:var(--space-2) var(--space-3); font-size:11.5px;
            color:var(--ink-2); }
@@ -422,6 +425,10 @@
            color:var(--ai); text-decoration:underline; text-underline-offset:2px; }
   a.drill:hover{ background:var(--ai-soft); }
   a.drill:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+  /* 本文の中の「別の画面へ」のリンク（goLink）。文の中なので行の高さは変えない */
+  a.golink{ color:var(--ai); text-decoration:underline; text-underline-offset:2px; white-space:nowrap; }
+  a.golink:hover{ background:var(--ai-soft); }
+  a.golink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
   .n0{ color:var(--ghost); }                    /* 値が無い。0 ではない */
   .up{ color:var(--hi); font-weight:700; }      /* 悪化 */
   .dn{ color:var(--midori); font-weight:700; }  /* 改善 */
@@ -585,11 +592,14 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
 <details class="fold" id="cs-legend"><summary>色と印の意味</summary>
 <div class="legend">
   <i><b style="background:var(--ai)"></b>触れるところ・主系列</i>
-  <i><b style="background:var(--hi)"></b>&#9650; まずい / 悪化</i>
+  <!-- 🔴 2026-09-24 実機: ▲/▼ が値の上がり下がりに読め、接触率のように上がると良い指標では逆の意味に
+       取れた。▲▼ は良し悪しの向きであることと、表の見出しの ▲▼（並び順）とは別であることを書く -->
+  <i><b style="background:var(--hi)"></b>&#9650; まずい / 悪化（値の上がり下がりではなく良し悪し。上がると良い指標が下がったときも &#9650;）</i>
   <i><b style="background:var(--ki)"></b>読むのに注意が要る</i>
   <i><b style="background:var(--midori)"></b>&#9660; 良い / 改善</i>
   <i><b style="background:var(--ghost)"></b><span class="n0">&#8212;</span> 値が無い（0 ではない）</i>
   <i><b style="border:1px dashed var(--ghost);background:none"></b>&#9675; 未確定（右側打ち切り）</i>
+  <i class="full">表の見出しの &#9650; / &#9660; は並び順（小さい順 / 大きい順）で、良し悪しではありません。</i>
 </div>
 </details>
 
@@ -1809,14 +1819,20 @@ function note(kind, head, body) {
   return '<div class="note ' + kind + '"><span class="hd">' + esc(head) + "</span><p>" +
     body + "</p></div>";
 }
-/* 表は最後の手段。個別の行を特定したいときだけ使う */
+/* 表は最後の手段。個別の行を特定したいときだけ使う。
+   列の w: 折り返す列。"l" は案件名・自由記述（12〜22字で折る）、"s" は人名・ステージ・短い説明（6〜11字）。
+   🔴 2026-09-24 実機（1440px）: td は既定で折り返さないので、いちばん長い案件名（約40字）や
+   「氏名が分からない担当（HubSpotの担当者一覧に無い）」の幅がそのまま列の幅になり、
+   担当の交代は8列中4列しか見えなかった（いま見るべき顧客・成果とリスクの表も右端が切れていた）。
+   長い文字の列だけを折り返し、数字・日付の列は1行のまま残す（400px は横スクロールのまま） */
 function table(cols, rows, cls, id) {
+  const cc = (c) => [c && c.n ? "n" : "", c && c.w ? "w" + c.w : ""].filter(Boolean).join(" ");
   let h = '<table' + (id ? ' id="' + id + '"' : "") + (cls ? ' class="' + cls + '"' : "") + "><thead><tr>";
-  for (const c of cols) h += '<th' + (c.n ? ' class="n"' : "") + ">" + esc(c.t || c) + "</th>";
+  for (const c of cols) h += '<th' + (cc(c) ? ' class="' + cc(c) + '"' : "") + ">" + esc(c.t || c) + "</th>";
   h += "</tr></thead><tbody>";
   for (const r of rows) {
     h += "<tr>";
-    r.forEach((v, i) => { h += '<td' + (cols[i] && cols[i].n ? ' class="n"' : "") + ">" + v + "</td>"; });
+    r.forEach((v, i) => { h += '<td' + (cc(cols[i]) ? ' class="' + cc(cols[i]) + '"' : "") + ">" + v + "</td>"; });
     h += "</tr>";
   }
   return h + "</tbody></table>";
@@ -1900,6 +1916,25 @@ function scrollCap(inner, total) {
 }
 /* n が小さい図は出さない。出さない理由は図の直下に書く */
 const MIN_N = 30;
+/* 解約率（分子は解約＋充足、分母は決着済み）の色の決まり。**ここ1か所で決める。**
+   🔴 2026-09-24 実機: 継続回数×成果は 40%以上を緋、本部アプローチは 50%以上を緋、立ち上がりは全部藍で、
+   立ち上がりの 49.7% が藍なのに継続回数×成果では同じ値が緋になる、と画面ごとに決まりが違っていた。
+   線は 40%。継続回数×成果（継続率を見る中心の画面）がモックの移植（facae9c）から使ってきた線で、
+   その見た目を変えないためにこちらへ揃えた。40% にも 50% にも、根拠はコメント・コミット・資料
+   （call-quality-metrics の SKILL・build_mock.py）のどこにも書かれていない。
+   **取り決めであって事実ではない。線引きは藤巻さんの確認待ち**（変えるときはこの1行だけ直す）。
+   本番（2026-09-23）では初回 58.1%・継続1 45.1% が緋のまま、立ち上がりの 49.7% と
+   本部アプローチで 40〜49% の拠点の注記（あれば）が新たに緋になる。
+   棒の色で出す図も注記の色で出す図も、この関数を通す */
+const CANCEL_HI = 40;
+const cancelHi = (v) => v != null && v >= CANCEL_HI;
+const cancelColor = (v) => (cancelHi(v) ? C.hi : C.ai);
+/** 解約率の図の凡例。図に出ている色だけを出す（使っていない色を凡例に残さない） */
+function cancelLegend(rates) {
+  const vs = rates.filter((v) => v != null);
+  return (vs.some(cancelHi) ? lg("box", C.hi, "解約率 " + CANCEL_HI + "%以上") : "") +
+    (vs.some((v) => !cancelHi(v)) ? lg("box", C.ai, "解約率 " + CANCEL_HI + "%未満") : "");
+}
 function tooFew(n, what) {
   return '<div class="empty">' + esc(what) + 'は n=' + num(n) + ' で、図にするには足りません（' +
     MIN_N + '件未満）。件数だけ出しています。</div>';
@@ -1942,7 +1977,7 @@ const TEAM_COLS = [
   /* 🔴 名前を押すと③へ飛んで、その担当の案件だけに絞る */
   { k: "consultant",     t: "担当者",        n: 0, fmt: (r) =>
       '<a href="#" class="drill" data-c="' + esc(r.consultant) +
-      '" title="この担当の案件だけを「案件の立ち位置」で見る">' +
+      '" title="この担当の案件だけを「担当者ごとの案件」で見る">' +
       (esc(r.consultant) || DASH) + "</a>" +
       (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") +
       /* 🔴 図から外した人が表では見えるので、その理由が分かる印を添える */
@@ -1982,7 +2017,8 @@ function renderTeam(D) {
   let h = sec("問い", "いま、どこに手が回っていないか") +
     '<div class="lede">1行1担当者。<b>列の見出しを押すと並び替わります。</b>' +
     "既定は<b>接触率の低い順</b>（手が回っていない人が上）。" +
-    "<b>担当者名を押すと</b>、左の「担当者ごとの案件」がその人だけに絞られます。</div>";
+    /* 画面の名前は goLink で MENUS から引く（「左の『…』」と直書きすると名前を変えたときに残る） */
+    "<b>担当者名を押すと</b>、" + goLink("consultant", "byowner") + " がその人だけに絞られます。</div>";
 
   h += note("info", "これは担当者の評価ではありません",
     esc(D.meta.not_counted).replace("※ ", "") + "<br>" +
@@ -1999,11 +2035,15 @@ function renderTeam(D) {
   h += '<div class="kpis">' +
     kpi("担当者", num(D.meta.n_consultant) + '<span class="u">名</span>',
         /* 🔴 上の数字と下の表の合計が合うように、外した分をここに書く。
-           「稼働中604件」と言いながら表が593件しかない、という見え方を作らない */
-        "稼働中 " + num(D.meta.n_active) + " 件（オプション契約を除く）" +
-        (D.meta.unknown_owner ? "　うち担当が取れない " + num(D.meta.unknown_owner) +
-          " 件は下の表に出していません" : "")) +
-    kpi("接触率がいちばん低い", worst ? esc(worst.consultant) : DASH,
+           「稼働中604件」と言いながら表が593件しかない、という見え方を作らない。
+           🔴 2026-09-24 実機: 「稼働中 604 件（オプション契約を除く）」は画面の頭の1行・ここ・末尾の枠の
+           3か所に同じ数が出ていた。件数は頭の1行に任せ、ここは表に出していない分だけを書く */
+        D.meta.unknown_owner
+          ? "稼働中のうち担当が取れない " + num(D.meta.unknown_owner) + " 件は下の表に出していません"
+          : "稼働中の案件を持っている担当者") +
+    /* 🔴 母数が小さい人を外した結果なので、見出しにそう書く。書かないと、表の先頭（0.0%）と
+       食い違って見えた（2026-09-24 実機） */
+    kpi("接触率がいちばん低い（母数が小さい人を除く）", worst ? esc(worst.consultant) : DASH,
         (worst ? pct1(worst.contact_rate) + "（" + num(worst.contact_touched) + "/" +
                  num(worst.contact_months) + " か月）" : "") +
         (worstPick.skipped
@@ -2075,7 +2115,9 @@ function renderTeam(D) {
       num(D.meta.owner_ties) + " 件あります（どちらを採ったかは上のとおり）。" : "") +
     (D.meta.unknown_owner ? "<br>担当が取れない取引が " + num(D.meta.unknown_owner) +
       " 件あります。<b>「その他」に混ぜていません</b>（件数だけ出しています）。" : ""));
-  return h + foot(D.meta, true);   /* not_counted は頭の枠で出している */
+  /* not_counted は頭の枠で出している。稼働中の件数は画面の頭の1行にあるので、末尾では繰り返さず
+     この画面の数（担当者の人数）を書く */
+  return h + foot(D.meta, true, "担当者 " + num(D.meta.n_consultant) + " 名");
 }
 
 /* 見出しを押したら並び替える。同じ列を押したら向きが反転する */
@@ -2099,7 +2141,8 @@ function renderFocus(D) {
   const n = D.nps_low, c = D.cpa, m = D.mtg_layers, sh = D.shape;
   let h = sec("問い", "いま、どの顧客に手を打つべきか");
   h += '<div class="lede">予測モデルは使っていません。<b>既にあるデータを数えただけ</b>です。' +
-    '当たった顧客に手を打つかどうかは、③顧客詳細で中身を読んでから決めてください。</div>';
+    '当たった顧客に手を打つかどうかは、' + goLink("deal", "series") + " か " +
+    goLink("deal", "houjin") + " で中身を読んでから決めてください。</div>";
 
   h += '<div class="kpis">' +
     /* 🔴 数えているのは取引（契約）。「社」と書くと法人数に読める（V20） */
@@ -2112,7 +2155,8 @@ function renderFocus(D) {
     kpi("NPS が入っている", pct1(n.coverage),
         num(n.n_have_nps) + " / " + num(n.n_act) + " 件") +
     kpi("LTV 中央値", sh.ltv ? yen(sh.ltv.median) : DASH,
-        sh.ltv ? "Q3 " + yen(sh.ltv.q3) + " / 最大 " + yen(sh.ltv.max) : "") +
+        /* 「Q3」と英字の略号のままだった（2026-09-24）。上位4分の1の境 */
+        sh.ltv ? "上位4分の1の境 " + yen(sh.ltv.q3) + " / 最大 " + yen(sh.ltv.max) : "") +
     "</div>";
 
   h += note("info", "この4つをシグナルにした理由",
@@ -2148,12 +2192,14 @@ function renderFocus(D) {
     (n.rows.length > 200 ? "<b>上位200件だけ出しています（全 " + num(n.rows.length) + " 件）。</b>" : "") +
     "</div>";
   h += scroll(table(
-    [{ t: "取引" }, { t: "ステージ" }, { t: "NPS", n: 1 }, { t: "回答月" },
+    [{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "NPS", n: 1 }, { t: "回答月" },
      { t: "金額", n: 1 }, { t: "満了まで", n: 1 }, { t: "接触の記録", n: 1 }],
     n.rows.slice(0, 200).map((r) => [
       esc(r.name || r.deal_id),
       '<span class="muted small">' + esc(r.stage) + "</span>",
-      '<b style="color:var(--hi)">' + num(r.nps) + "</b>",
+      /* 🔴 この表は全行が「4以下」なので、全行を同じ印で出す。2026-09-24 実機で「0 は赤・1 は黒」に
+         見えた（同じ緋の太字でも、細い「1」は字の面が小さく黒に見える）。色だけに頼らず ▲ を添える */
+      '<b style="color:var(--hi)">&#9650; ' + num(r.nps) + "</b>",
       '<span class="muted">' + esc(r.nps_month) + "</span>",
       yen(r.amount),
       r.days_to_expiry == null ? DASH : num(r.days_to_expiry) + "日",
@@ -2213,7 +2259,7 @@ function renderFocus(D) {
       ? svgBoxH({
           rows: [{ label: "LTV", med: lt.median, q1: lt.q1, q3: lt.q3,
                    min: lt.min, max: lt.max, mean: lt.mean, n: lt.n, color: C.ai }],
-          w: 680, xFmt: F.man,
+          w: 680, xFmt: F.man, xLab: "LTV（万円）",   /* 目盛りは万円の数字だけなので単位を書く */
         })
       : tooFew(lt ? lt.n : 0, "LTV"),
     lg("quart", C.ai, "四分位") + lg("line", C.ai, "中央値") +
@@ -2345,8 +2391,8 @@ function renderRenewal(D) {
       rows: big.map((r) => ({
         label: label(r), v: r.cancel_rate, v0: r.cancel_rate_excl_fill,
         txt: pct1(r.cancel_rate), note: "n=" + num(r.denom),
-        color: r.cancel_rate >= 40 ? C.hi : C.ai })) }),
-    lg("box", C.hi, "40%以上") + lg("box", C.ai, "40%未満") +
+        color: cancelColor(r.cancel_rate) })) }),   /* 色の線は全画面共通（CANCEL_HI） */
+    cancelLegend(big.map((r) => r.cancel_rate)) +
     lg("dash", C.ghost, "充足を外すと") +
     '<i class="full">n は決着済み（継続＋解約＋充足）の件数で、解約率の分母です。' +
     "結果待ち（稼働中）は分母に入れていません。n が " + MIN_N +
@@ -2397,7 +2443,7 @@ function renderRenewal(D) {
      ここには読み方への影響だけを残し、図はデータ品質に1つだけ置く。 */
   h += note("warn", "上の図は「継続するほど成果が良い」側に強く出ます",
     "うまくいかなかった契約ほど応募数・採用数が記録されていません。" +
-    "結果ごとの記入率は「集計」の中の「データ品質」にあります。");
+    "結果ごとの記入率は " + goLink("study", "dq") + " にあります。");
   return h + foot(D.meta);
 }
 
@@ -2678,7 +2724,10 @@ function custBlocks(D, want) {
   const c3rows = c3.map((x) => ({
     label: shortName(x.name || x.deal_id, 20), full: x.name || x.deal_id,
     v: x.total, v0: x.monthly,
-    txt: yen(x.total),
+    /* 🔴 採れた人数は値の横に括弧で付ける。前は注記の頭（「　2人」）に置いていて、
+       値の文字が長い行で「162万2人」とくっついて読めた（2026-09-24 実機・柏原）。
+       値の文字に入れておけば、図の部品が値の幅を取ってから注記を置く */
+    txt: yen(x.total) + (x.syoudaku != null ? "（" + num(x.syoudaku) + "人）" : ""),
     note: "",
     /* 採用単価は量なので赤を使わない（V9）。確定も未確定も藍で、塗りか中空かで分ける */
     color: C.ai,
@@ -2691,8 +2740,7 @@ function custBlocks(D, want) {
     const x = c3[i];
     r.note = (x.band ? "進捗帯「" + x.band + "」の中央値 " +
                (x.band_median == null ? "なし（n<" + MIN_N + "）"
-                 : yen(x.band_median) + (x.band_median > hi3 ? "（軸の外）" : "")) : "") +
-             (x.syoudaku != null ? "　" + num(x.syoudaku) + "人" : "");
+                 : yen(x.band_median) + (x.band_median > hi3 ? "（軸の外）" : "")) : "");
   });
   const hasMed = c3.some((x) => x.band_median != null);
   h += fig("同じ契約でも、出し方で値が変わります",
@@ -2730,7 +2778,7 @@ function custBlocks(D, want) {
             xSub: st.points.map((p) => (p.syoudaku == null ? "" : num(p.syoudaku) + "人")),
             /* 採用単価は量なので赤を使わない（V9）。未確定は中空・破線で分かる */
             series: [{ color: C.ai, pts: pts }],
-            yFmt: F.man, yLab: "採用単価", alt: "採用単価の推移" }),
+            yFmt: F.man, yLab: "採用単価（万円）", alt: "採用単価の推移" }),
       lg("dot", C.ai, "確定した契約") + lg("ring", C.ai, "未確定（右側打ち切り）"));
   }
   if (oneCpa.length) {
@@ -2773,8 +2821,9 @@ function custBlocks(D, want) {
        横軸が「7ヶ月」まであり、「契約 6ヶ月」と食い違って見えた（案件一覧の稼働中604件のうち553件がこの形）。
        暦の月で出し、期間より多い月にまたがる理由を横に書く（span_months はサーバ） */
     const xCal = months.map((m) => calMonth(mm.start, m));
+    const gap = histGap(mm, months);
     h += fig(shortName(mm.name || mm.deal_id, 28) + " の推移",
-      spanHint(mm),
+      spanHint(mm) + (gap ? "。" + gap : ""),
       svgLine({ w: 680, h: 220,
         x: xCal,
         series: [
@@ -2831,6 +2880,7 @@ function custBlocks(D, want) {
         /* 接触は「あった」印なので赤（まずい）で塗らない（V9）。fillLabel は U2 */
         lane("接触（MTG・60秒超の通話）", C.ink2, ctPts, "bars", "接触の記録がありません", "接触"),
       ] }),
+      (gap ? '<i class="full">' + gap + "</i>" : "") +
       '<i class="full"><b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
       "値の幅が違いすぎる（応募 0〜200 / NPS 0〜10 / 接触 0〜数十）ので、" +
       "重ねると応募だけが動いて NPS が底に張り付きます。" +
@@ -2887,8 +2937,8 @@ function custBlocks(D, want) {
   h += sec("表", "MTG の履歴（" + num(D.mtgs.length) + " 件）");
   h += note("info", "中身が空なのは「まだ抽出していない」です",
     "記録が無いのとは違います。抽出は日次の枠で止まっており、全件には届いていません。");
-  h += scroll(table([{ t: "開催日" }, { t: "リスク" }, { t: "やること" },
-                     { t: "顧客の懸念" }, { t: "抽出" }],
+  h += scroll(table([{ t: "開催日" }, { t: "リスク" }, { t: "やること", w: "l" },
+                     { t: "顧客の懸念", w: "l" }, { t: "抽出" }],
     D.mtgs.map((m) => [esc(m.date), esc(m.risk) || DASH, esc(m.todo) || DASH,
       esc(m.concern) || DASH, m.extracted ? "済" : '<span class="n0">未</span>'])), 420);
   }
@@ -2930,7 +2980,7 @@ function renderSeries(D) {
   h += note("info", "いま見ている粒度は「事業所」です",
     "<b>拠点をまたいでいません。</b>決裁は事業所単位なので、" +
     "同じ法人でも拠点が違えば別の契約の流れとして見ます。" +
-    "拠点をまたいで比べたいときは、左の「法人番号で見る」を使ってください。");
+    "拠点をまたいで比べたいときは " + goLink("deal", "houjin") + " を使ってください。");
 
   /* 拠点の選択。件数が多いので選択式にする */
   h += '<div class="ctlbar"><label class="act">拠点 <select id="cs-site">' +
@@ -3059,7 +3109,7 @@ function renderHoujin(D) {
   let h = sec("問い", "この法人は拠点ごとにどう違うか");
   h += note("info", "いま見ている粒度は「法人」です",
     "<b>拠点をまたいで並べています。</b>ふだんの判断は事業所単位なので、" +
-    "1つの事業所の流れを追うときは左の「継続を追いかける」を使ってください。" +
+    "1つの事業所の流れを追うときは " + goLink("deal", "series") + " を使ってください。" +
     "<b>拠点をまたいで1本の線にはしていません</b>（拠点差が時間の悪化に見えるため）。");
   h += focusSection(D);
 
@@ -3308,6 +3358,21 @@ function spanHint(mm) {
   return t;
 }
 
+/** 推移の図で、契約の頭に変更履歴が無い月があるときの断り書き。無ければ空文字。
+    months は図に描く月の番号（始月を1）の並び。
+    🔴 2026-09-24 実機: 見出しは「契約 6ヶ月・2025-03-09〜2025-09-08」なのに横軸は 25-07 から始まり、
+    期間と横軸が合っていなかった。プロパティの変更履歴が 2025-07 より前には無いため
+    （fixture でも 2025-03-09 開始の契約は変更履歴が 25-07 からの1点だけ）。
+    黙って欠けさせず、何月から記録があるか・どこが無いかを書く */
+function histGap(mm, months) {
+  if (!mm || !mm.start || !months.length || months[0] <= 1) return "";
+  const from = monthAdd(mm.start, months[0]);
+  const s0 = String(mm.start).slice(0, 7), s1 = monthAdd(mm.start, months[0] - 1);
+  if (!from || !s1) return "";
+  return "<b>変更履歴は " + esc(from) + " からしかありません</b>（" + esc(s0) +
+    (s1 !== s0 ? "〜" + esc(s1) : "") + " は記録が無いので描いていません。0 ではありません）";
+}
+
 /** 暦の月の番号（始月を1）。🔴 サーバの month_index と同じ数え方（以前の「始月は含めない」は誤り）。
     契約の「何ヶ月目」ではない（あちらはサーバの contract_month、案件一覧の months） */
 function monthIdx(start, month) {
@@ -3375,11 +3440,11 @@ function renderHq(D) {
               note: (x.cancel_rate == null ? "" : "解約・充足 " + pct1(x.cancel_rate) +
                       "（決着済み " + num(x.denom) + "件中）") +
                     "　" + num(x.syoudaku) + "人",
-              noteColor: x.cancel_rate != null && x.cancel_rate >= 50 ? C.hi : C.ink3,
+              noteColor: cancelHi(x.cancel_rate) ? C.hi : C.ink3,   /* 線は全画面共通（CANCEL_HI） */
               color: C.ai })) })
         : '<div class="empty">採用数が入っている拠点がありません（0で割っていません）。</div>',
       lg("box", C.ai, "採用単価") +
-      '<i class="full">解約率が 50% 以上の拠点は注記を緋で出しています。' +
+      '<i class="full">解約率が ' + CANCEL_HI + "% 以上の拠点は注記を緋で出しています。" +
       "拠点ごとの取引数が少ないので、率だけで判断しないでください。</i>");
   }
 
@@ -3429,7 +3494,7 @@ function renderMtgQ(D) {
 
   h += '<div class="kpis">' +
     kpi("MTG", num(D.meta.n_mtg) + '<span class="u">回</span>', "") +
-    kpi("取引に結べた", pct1(D.linked.rate), num(D.linked.n) + " 回", "good") + "</div>";
+    kpi("取引に紐づいた", pct1(D.linked.rate), num(D.linked.n) + " 回", "good") + "</div>";
 
   h += sec("図", "分析項目がどれだけ埋まっているか");
   h += fig("抽出の進み具合", "埋まっていないのは「記録していない」ではありません",
@@ -3438,9 +3503,11 @@ function renderMtgQ(D) {
         label: f.field, v: f.n, txt: num(f.n) + "件", note: pct1(f.rate),
         color: f.rate >= 50 ? C.midori : f.rate >= 15 ? C.ai : C.ghost,
         faint: f.rate < 15 })) }),
-    /* 15%未満は薄い棒（faint）。凡例の粒も同じ濃さにする（濃い灰の粒だと別の色に見える） */
-    lg("box", C.midori, "50%以上", BAR_OP) + lg("box", C.ai, "15〜50%", BAR_OP) +
-    lg("box", C.ghost, "15%未満", BAR_FAINT_OP) +
+    /* 15%未満は薄い棒（faint）。凡例の粒も同じ濃さにする（濃い灰の粒だと別の色に見える）。
+       🔴 図に出ていない帯は凡例に出さない（2026-09-24 実機: 50%以上の項目が無いのに緑の「50%以上」が出ていた） */
+    (D.filled.some((f) => f.rate >= 50) ? lg("box", C.midori, "50%以上", BAR_OP) : "") +
+    (D.filled.some((f) => f.rate >= 15 && f.rate < 50) ? lg("box", C.ai, "15〜50%", BAR_OP) : "") +
+    (D.filled.some((f) => f.rate < 15) ? lg("box", C.ghost, "15%未満", BAR_FAINT_OP) : "") +
     '<i class="full">' + esc(D.filled_note) + "</i>");
 
   h += sec("図", "リスク判定の分布");
@@ -3573,7 +3640,7 @@ function renderRampup(D) {
       "成約率・売上・担当者の評価ではありません。<b>契約が始まってから最初の MTG までに" +
       "何日かかったか</b>だけを見ています。良し悪しの判断は人がします。<br>" +
       "ここの「初回MTG」は<b>MTG だけ</b>で、電話は入っていません" +
-      "（MTGと電話を束ねた最終接触は⑧成果にあります）。");
+      "（MTGと電話を束ねた最終接触は " + goLink("study", "outcome") + " にあります）。");
 
   h += sec("図", "いま、どのフェーズにいるか");
   /* 🔴 SERIES を並び順で回していたので「序盤」が緑（＝良い）、別の日には赤にもなり得た（V9）。
@@ -3607,9 +3674,11 @@ function renderRampup(D) {
         label: b.label, v: b.cancel_rate, txt: pct1(b.cancel_rate),
         note: "n=" + num(b.denom),
         /* 🔴 以前は「61日超」だけ赤（■まずい）にしていた。決着済みで割り直すと向きは
-           読めないので、特定の帯を判定の色で強調しない。全帯を同じ色にする */
-        color: C.ai })) }),
-    lg("box", C.ai, "解約率") +
+           読めないので、特定の帯を判定の色で強調しない。
+           色は帯の名前ではなく率の値で、全画面共通の線（CANCEL_HI）で決める（2026-09-24。
+           前は全帯を藍にしていて、継続回数×成果の 40%以上＝緋と決まりが食い違っていた） */
+        color: cancelColor(b.cancel_rate) })) }),
+    cancelLegend(f.buckets.filter((b) => b.denom >= MIN_N).map((b) => b.cancel_rate)) +
     // 足切りは決着済みの件数（b.denom）で見る。図の filter と同じ基準にする（rust N3 + ui V6）
     droppedNote(f.buckets, (b) => b.denom || 0, (b) => b.label) +
     '<i class="full">n は決着済み（継続＋解約＋充足）の件数で、解約率の分母です。結果待ちは入れていません。' +
@@ -3618,17 +3687,17 @@ function renderRampup(D) {
     "61日超には関係が薄い顧客が混じっている可能性があり、" +
     "<b>遅れが原因とは決められません（相関であって因果ではない）</b>。</i>");
 
-  h += sec("表", "まだ MTG が結べていない初回契約（" + num(nm.n) + " 件）");
+  h += sec("表", "契約開始から MTG の記録がまだ無い初回契約（" + num(nm.n) + " 件）");
   h += '<div class="lede">稼働中の初回契約 ' + num(nm.first_active) + " 件のうち " +
     pct1(nm.rate) + "。" + esc(nm.note) +
     (nm.excluded_marketing ? "。「マーケ関連」の " + num(nm.excluded_marketing) +
       " 件は MTG をしないのが普通なので、この表と母数から外しています" : "") + "</div>";
-  h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "金額", n: 1 }, { t: "契約開始から", n: 1 }],
+  h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 }, { t: "契約開始から", n: 1 }],
     nm.rows.map((r) => [esc(r.name || r.deal_id),
       '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
       r.days_since_start == null ? DASH : num(r.days_since_start) + "日"])), 420);
   h += note("info", "継続率はこの画面にありません",
-    "「集計」の中の「継続回数 × 成果」にあります。<b>同じ数字を2か所で作らない</b>ためです。");
+    goLink("study", "renewal") + " にあります。<b>同じ数字を2か所で作らない</b>ためです。");
   return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
 }
 
@@ -3716,7 +3785,7 @@ function renderOutcome(D) {
   h += note("info", "4軸のうち2軸を意図的に外しています。手抜きではありません",
     "<b>関係性の軸（NPS）</b>：稼働中の半分にしか値が無く、<b>構造的に発火しません</b>。" +
     "常に非赤の軸を並べると「問題ない」と読まれますが、実際は<b>測れていないだけ</b>です" +
-    "（NPS は①で独立した指標として出しています）。<br>" +
+    "（NPS は " + goLink("study", "focus") + " で独立した指標として出しています）。<br>" +
     /* 🔴 「churn予測」「StratifiedKFold」「AUC」と英語の用語のまま出していた（2026-09-23 実機）。
        意味は変えずに言い換える: StratifiedKFold ＝ 顧客で分けずに取引を無作為に分けた検証、
        AUC ＝ 解約する契約としない契約を見分ける力（0.5 で当て推量と同じ、1.0 で完全） */
@@ -3730,9 +3799,9 @@ function renderOutcome(D) {
   h += fig("稼働中 " + num(R.n_act) + " 件の帯", "2軸とも赤 ＝ 最優先",
     svgStack({ w: 680, parts: rparts }),
     stackLegend(rparts) +
-    '<i class="full">③放置: 赤 ' + num(R.ax3["赤"]) + " / 白 " + num(R.ax3["白"]) +
+    '<i class="full">放置の軸: 赤 ' + num(R.ax3["赤"]) + " / 白 " + num(R.ax3["白"]) +
     " / 未測定 " + num(R.ax3["未測定"]) + "（" + esc(R.ax3.rule) + "）<br>" +
-    "④収益: 赤 " + num(R.ax4["赤"]) + " / 白 " + num(R.ax4["白"]) +
+    "収益の軸: 赤 " + num(R.ax4["赤"]) + " / 白 " + num(R.ax4["白"]) +
     " / 未測定 " + num(R.ax4["未測定"]) + "（" + esc(R.ax4.rule) + "）<br>" +
     "接触の記録が1つも無い " + num(R.ax3["未測定"]) +
     " 件は<b>赤にせず「未測定」として分けています</b>。記録が無いことと放置は別です。" +
@@ -3747,7 +3816,7 @@ function renderOutcome(D) {
             .map((r) => ({ x: r.days_to_expiry, y: r.amount,
                            color: r.never_after_start ? C.hi : C.ki,
                            label: r.name || r.deal_id })),
-          xFmt: F.int, yFmt: F.man, xLab: "満了まで（日）", yLab: "金額",
+          xFmt: F.int, yFmt: F.man, xLab: "満了まで（日）", yLab: "金額（万円）",
           alt: "最優先の広がり" })
       : '<div class="empty">最優先に当たる取引がありません。</div>',
     lg("dot", C.hi, "契約後に一度も接触していない", PT_OP) + lg("dot", C.ki, "接触から30日超", PT_OP));
@@ -3756,8 +3825,8 @@ function renderOutcome(D) {
 
   h += sec("表", "最優先（2軸とも赤・" + num(R.top.length) + " 件）");
   h += '<div class="lede">金額が大きい順。' + esc(R.order_note) + "</div>";
-  h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "金額", n: 1 },
-                     { t: "満了まで", n: 1 }, { t: "③ 放置" }, { t: "接触の記録", n: 1 }],
+  h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
+                     { t: "満了まで", n: 1 }, { t: "放置の軸", w: "s" }, { t: "接触の記録", n: 1 }],
     R.top.map((r) => [esc(r.name || r.deal_id),
       '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
       r.days_to_expiry == null ? DASH : num(r.days_to_expiry) + "日",
@@ -3813,7 +3882,9 @@ function renderDq(D) {
       rows: D.missing.map((m) => ({
         label: tail(m.label, 30), full: m.label, v: m.n, txt: num(m.n) + "件",
         note: pct1(m.rate), color: m.rate >= 20 ? C.ki : C.ai })) }),
-    lg("box", C.ki, "20%以上") + lg("box", C.ai, "20%未満") +
+    /* 図に出ていない色は凡例に出さない（2026-09-24 実機: 20%以上の項目が無いのに山吹の「20%以上」が出ていた） */
+    (D.missing.some((m) => m.rate >= 20) ? lg("box", C.ki, "20%以上") : "") +
+    (D.missing.some((m) => !(m.rate >= 20)) ? lg("box", C.ai, "20%未満") : "") +
     '<i class="full">' + D.missing.map((m) => esc(m.label) + "：" + esc(m.note)).join(" ／ ") +
     "</i>");
 
@@ -4124,11 +4195,15 @@ function flagGroup(label) {
 }
 
 /* MTG途絶の帯の色。🔴 **色だけで意味を伝えない。**
-   棒には帯の名前（日数入り）がそのまま出るので、白黒でも読める。 */
+   棒には帯の名前（日数入り）がそのまま出るので、白黒でも読める。
+   🔴 2026-09-24 実機: 注意（30〜59日）を紫で塗っていて、同じ画面の名札の図では紫が
+   「成果が出ていない」だった（1つの画面で紫が2つの意味）。注意は警告（山吹）の一段手前なので、
+   同じ山吹を薄く塗る（MTG_BAND_FAINT）。紫は名札の「成果が出ていない」だけにする */
 const MTG_BAND_COLOR = {
-  critical: C.hi, red: C.ki, yellow: C.murasaki,
+  critical: C.hi, red: C.ki, yellow: C.ki,
   recent: C.midori, no_record: C.ghost, onboarding: C.ghost,
 };
+const MTG_BAND_FAINT = { yellow: true };
 
 /* 1行ぶんの「最後のMTG」。
    🔴 日数だけでなく**どこから取った日付か**を必ず添える。
@@ -4138,13 +4213,14 @@ function mtgCell(r) {
     return '<span class="muted small">立ち上がり期</span>';
   if (r.mtg_days == null)
     return '<span class="muted small">記録なし</span>';
+  /* 注意（30〜59日）は警告と同じ山吹で、太字にしない（帯の図の薄い山吹と同じ扱い。紫は使わない） */
   const col = r.mtg_band === "critical" ? "hi"
-            : r.mtg_band === "red" ? "ki"
-            : r.mtg_band === "yellow" ? "murasaki" : "midori";
+            : r.mtg_band === "red" || r.mtg_band === "yellow" ? "ki" : "midori";
+  const tagB = r.mtg_band === "yellow" ? "span" : "b";
   const src = r.mtg_source === "recording" ? "録画"
             : r.mtg_source === "mail" ? "メール（推定）"
             : r.mtg_source === "both" ? "録画" : "";
-  return '<b style="color:var(--' + col + ')">' + num(r.mtg_days) + "日前</b>" +
+  return "<" + tagB + ' style="color:var(--' + col + ')">' + num(r.mtg_days) + "日前</" + tagB + ">" +
     (src ? '<span class="muted small"> ' + esc(src) + "</span>" : "") +
     (r.mtg_forced_by_expiry ? '<span class="muted small"> 満了前</span>' : "");
 }
@@ -4196,24 +4272,29 @@ function renderToday(D) {
     kpi("今週始まった契約", num(started.length) + '<span class="u">件</span>',
         "開始がまだ先の契約が " + num(D.meta.n_not_started) + " 件") +
     kpi("稼働中の全件", num(D.meta.n_active) + '<span class="u">件</span>',
-        "全件は左の「案件の立ち位置」で") + "</div>";
+        "全件は " + goLink("deal", "board") + " で") + "</div>";
 
   /* ---------------- MTG途絶の帯 ---------------- */
   h += sec("図", "MTG が途絶えている先");
   const bands = (G.bands || []).filter((b) => b.n > 0);
   const cov = G.coverage || {};
   h += fig("最終MTGからの経過日数で分けた帯",
-    "線引きは毎朝動いている GAS（no_mtg_alerter）と同じ",
+    /* 🔴 2026-09-24 実機: 副題と注記に「GAS（no_mtg_alerter）」と中の仕組みの名前が出ていた。
+       現場の人が知っているのは「毎朝 Slack に届く MTG 途絶の警告」のほう（NO_MTG_ALERTER_README） */
+    "線引きは、毎朝 Slack に届く MTG 途絶の警告と同じ",
     bands.length
       ? svgBarH({ w: 700, fmt: F.int, rh: 26,
           rows: bands.map((b) => ({
             label: b.label, v: b.n, txt: num(b.n) + "件",
             note: b.alert ? "手を打つ" : "帯を付けていない",
-            color: MTG_BAND_COLOR[b.band] || C.ghost })) })
+            color: MTG_BAND_COLOR[b.band] || C.ghost, faint: !!MTG_BAND_FAINT[b.band] })) })
       : '<div class="empty">帯を出せる案件がありません。</div>',
-    lg("box", C.hi, "90日以上") + lg("box", C.ki, "60〜89日") +
-    lg("box", C.murasaki, "30〜59日") + lg("box", C.midori, "直近30日にあり") +
-    lg("box", C.ghost, "帯を付けていない") +
+    /* 凡例は図に出ている帯だけ（使っていない色を残さない）。粒の濃さは棒と同じ */
+    [["critical", "90日以上"], ["red", "60〜89日"], ["yellow", "30〜59日"], ["recent", "直近30日にあり"]]
+      .filter(([k]) => bands.some((b) => b.band === k))
+      .map(([k, t]) => lg("box", MTG_BAND_COLOR[k], t, MTG_BAND_FAINT[k] ? BAR_FAINT_OP : BAR_OP)).join("") +
+    (bands.some((b) => !["critical", "red", "yellow", "recent"].includes(b.band))
+      ? lg("box", C.ghost, "帯を付けていない", BAR_OP) : "") +
     '<i class="full">' + esc(G.rule || "") + "</i>" +
     '<i class="full">' + esc(G.no_record_note || "") + "</i>");
 
@@ -4265,7 +4346,7 @@ function renderToday(D) {
     "<b>色が見分けられなくても読めます。</b></i>" +
     /* 件数は直書きしない。24件は 2026-09-23 のたまたまの値で、日によって変わる（V8） */
     '<i class="full">この ' + num(D.rows.length) + " 件だけの内訳です。稼働中の全件の内訳は" +
-    "「案件」の中の「案件の立ち位置」にあります。" +
+    goLink("deal", "board") + " にあります。" +
     "<b>件数の推移は出していません。</b>日ごとの記録を持っていないので、" +
     "作ると嘘になります。</i>");
 
@@ -4286,8 +4367,11 @@ function renderBoard(D) {
   const byOwner = cur.view === "byowner";
   if (byOwner) {
     let h = sec("問い", "この担当者は、どの案件を持っているか") +
-      '<div class="lede">下の「担当」で選ぶか、持ち件数の表で名前を押すと、その人の案件だけになります。' +
-      "「②担当者の一覧」で名前を押しても同じところに来ます。</div>";
+      /* 🔴 前はここに「下の『担当』で選ぶか、持ち件数の表で名前を押すと…」と書いていて、
+         すぐ下の枠（担当者を選んでください）の1文目と同じ話が2回続いていた（2026-09-24 実機）。
+         選び方は枠の側に1回だけ書き、ここは画面が何を並べるかと、ほかの入口だけにする */
+      '<div class="lede">1人の担当者が持っている稼働中の案件を並べます。' +
+      goLink("consultant", "team") + " で名前を押しても、ここに来ます。</div>";
     h += boardFilterBar(D, !boardFilter.consultant);
     if (!boardFilter.consultant) {
       /* 🔴 担当を選ぶ前は「案件そのもの」と同じ 604 行の表がそのまま出ていて、
@@ -4307,7 +4391,7 @@ function renderBoard(D) {
       h += note("info", "担当者を選んでください",
         "上の「担当」で選ぶか、下の表で名前を押すと、その人の案件の表が出ます。" +
         "名札・満了まで・案件名での絞り込みは、担当を選んだ後に出ます。" +
-        "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は「案件そのもの」にあります）。");
+        "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は " + goLink("deal", "board") + " にあります）。");
       h += sec("表", "担当者ごとの持ち件数（" + num(ks.length) + " 名・稼働中 " + num(D.rows.length) + " 件）");
       /* 名前を押すと担当で絞る。②担当者の一覧の表（TEAM_COLS）と同じ作り（a.drill）。
          担当が空の行は選択欄にも無いので押せるようにしない */
@@ -4485,8 +4569,8 @@ function renderHandover(D) {
 
   h += sec("表", "交代の記録（" + num(D.rows.length) + " 件）");
   h += scroll(table(
-    [{ t: "交代日" }, { t: "案件" }, { t: "前の担当" }, { t: "次の担当" },
-     { t: "いまの担当" }, { t: "記録の遅れ", n: 1 }, { t: "反映" }, { t: "状態" }],
+    [{ t: "交代日" }, { t: "案件", w: "l" }, { t: "前の担当", w: "s" }, { t: "次の担当", w: "s" },
+     { t: "いまの担当", w: "s" }, { t: "記録の遅れ", n: 1 }, { t: "反映", w: "s" }, { t: "状態" }],
     D.rows.map((r) => [
       esc(r.date) || DASH,
       /* 🔴 取引名が無いときに 11桁の deal_id を出さない（画面に内部IDを出さない） */
@@ -4520,11 +4604,12 @@ function renderDefs() {
     [['<b style="display:inline-block;width:26px;height:10px;background:var(--ai)"></b>',
       "触れるところ・主系列"],
      ['<b style="display:inline-block;width:26px;height:10px;background:var(--hi)"></b> &#9650;',
-      "まずい / 悪化"],
+      "まずい / 悪化。<b>値の上がり下がりではなく良し悪しの向き</b>です（接触率のように上がると良い指標が下がったときも &#9650;）"],
      ['<b style="display:inline-block;width:26px;height:10px;background:var(--ki)"></b>',
       "読むのに注意が要る"],
      ['<b style="display:inline-block;width:26px;height:10px;background:var(--midori)"></b> &#9660;',
       "良い / 改善"],
+     ["表の見出しの &#9650; / &#9660;", "並び順（小さい順 / 大きい順）。良し悪しではありません"],
      ['<span class="n0">&#8212;</span>', "値が無い。<b>0 ではない</b>"],
      ["&#9675;", "未確定（右側打ち切り）。結果がまだ出ていない"]]));
 
@@ -4689,6 +4774,19 @@ const menuOf = (k) => MENUS.find((m) => m.key === k);
 /* 法人を選んで見る項目。🔴 2つあるので、片方だけ直して取りこぼさないよう1か所で判定する */
 const isCustView = (k) => k === "series" || k === "houjin";
 const viewOf = (m, v) => (menuOf(m) || MENUS[0]).views.find((x) => x.key === v);
+/** 本文から別の画面を指すときの書き方。「集計 → 成果とリスク」のように名前で書き、押すとそこへ移る。
+    🔴 2026-09-24 実機（第2弾の後）: 本文に「⑧成果」「NPS は①で」「③顧客詳細」と、画面を並べ替える前の
+    番号が残っていた。左のメニューは上が ①案件 ②コンサルタント ③集計、中が 1〜8 で、どれとも合わない。
+    番号は並べ替えのたびにずれるので本文には書かない。名前は MENUS から引く（名前を変えても本文が追従する）。
+    押すとハッシュが変わり、followUrl → go() でその画面が開く（戻るで元の画面へ戻れる）。
+    行き先が MENUS に無いときはリンクにしない（見張り consulting_view_rules.js が落とす） */
+function goLink(menu, view) {
+  const m = MENUS.find((x) => x.key === menu);
+  const v = m && m.views.find((x) => x.key === view);
+  if (!v) return esc(menu + " → " + view);
+  return '<a class="golink" href="#' + m.key + "/" + v.key + '">' +
+    esc(m.label) + " → " + esc(v.label) + "</a>";
+}
 
 /* ---------------------------------------------------------------- 上のメニュー */
 function drawMenu() {
