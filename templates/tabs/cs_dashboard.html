@@ -552,6 +552,8 @@ function lg(kind, color, label) {
     ring: `<circle cx="6" cy="8" r="4.2" style="fill:var(--panel);stroke:${color}" stroke-width="1.6" stroke-dasharray="2 1.6"/>`,
     line: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4"/>`,
     dash: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4" stroke-dasharray="3 2.5"/>`,
+    /* 中空・破線の四角。積み上げ縦棒の「引き継ぎ」の区間と同じ描き方 */
+    hollow: `<rect x="1.5" y="3.5" width="9" height="9" rx="1.5" style="fill:var(--panel);stroke:${color}" stroke-width="1.4" stroke-dasharray="3 2"/>`,
     none: `<path d="M1 8H11" style="stroke:${color}" stroke-width="2"/>`,
   }[kind] || "";
   return `<i><svg ${SVGNS} width="12" height="16" aria-hidden="true">${s}</svg>${label}</i>`;
@@ -1736,10 +1738,26 @@ function renderRenewal(D) {
     " 件は母数から外しています（月ごとの偏りが大きく、含めると月次比較が歪むため）。</i>");
 
   h += sec("表", "満了月ごとの内訳");
+  /* 🔴 表も図と同じ線で分ける。図の注記は「下の表には出しています」と表へ誘うので、
+     表で未確定の率を確定と同じ太字にすると、図で中空にした意味が無くなる
+     （前は結果待ち1〜5件の月も n=1 の月も、確定月と同じ太字だった, N5）。
+     - 太字は確定（結果待ち0・n 30 以上）だけ
+     - 未確定は太字にせず「未確定」と理由を添える
+     - n=0 の月は率が無い。0% にも見せず — にする */
+  h += '<div class="lede">継続率の<b>太字は確定した月</b>（結果待ち0件・n ' + MIN_N +
+    " 以上）だけです。「未確定」の月は、結果待ちが決着すると率が動くか、件数が少なくて振れやすい月です。</div>";
   h += table([{ t: "満了月" }, { t: "継続", n: 1 }, { t: "解約", n: 1 }, { t: "充足", n: 1 },
               { t: "母数", n: 1 }, { t: "継続率", n: 1 }, { t: "結果待ち", n: 1 }],
     mr.rows.map((r) => [esc(r.month), num(r.keep), num(r.cancel), num(r.fill),
-      num(r.denom), "<b>" + pct1(r.rate) + "</b>", num(r.pending)]));
+      num(r.denom),
+      (!r.denom || r.rate == null)
+        ? DASH
+        : shaky(r)
+          ? pct1(r.rate) + '<br><span class="muted small">未確定（' +
+            [r.pending > 0 ? "結果待ち " + num(r.pending) + " 件" : "",
+             r.denom < MIN_N ? "n&lt;" + MIN_N : ""].filter(Boolean).join("・") + "）</span>"
+          : "<b>" + pct1(r.rate) + "</b>",
+      num(r.pending)]));
 
   h += sec("図", "継続回数ごとの解約率");
   h += fig("分子は「解約 ＋ 充足」", "初回を乗り切れれば、あとは残ります",
@@ -1921,6 +1939,9 @@ function custFilter(D, ids) {
          一覧の LTV が全取引の合計と一致 517、本体契約だけの合計と一致 409） */
       ltv_index: D.customer.ltv,
       last_expiration: lastExp || null,
+      /* 一覧の「最終満了」もオプション契約込みの値。LTV と同じく元の値も持っておき、
+         食い違うときは理由を書く（U11） */
+      last_expiration_index: D.customer.last_expiration,
       sites: new Set(ds.map((d) => d.site)).size,
       max_renewal_no: ds.reduce((m, d) => Math.max(m, d.renewal_no || 0), 0),
     }),
@@ -1948,7 +1969,12 @@ function custBlocks(D, want) {
             yen(c.ltv_index) + " はオプション契約も含みます"
           : "選んだ契約の金額の合計") +
     kpi("継続回数（最大）", num(c.max_renewal_no), "") +
-    kpi("最終満了", esc(c.last_expiration || "—"), "") + "</div>";
+    kpi("最終満了", esc(c.last_expiration || "—"),
+        /* 🔴 LTV と同じ理由で食い違う。オプション契約の満了日が本体より遅い法人だけ */
+        c.last_expiration_index && c.last_expiration_index !== c.last_expiration
+          ? "選んだ契約の満了日の最大（オプション契約を除く）。法人一覧の最終満了 " +
+            esc(c.last_expiration_index) + " は全取引（オプション契約を含む）の最大です"
+          : "") + "</div>";
 
   /* ---- 顧客に説明する数字 ---- */
   if (want.has("funnel")) {
@@ -2258,10 +2284,13 @@ function syoudakuAt(mm, dl, mo) {
   let last = null;
   for (const x of ((mm.series || {}).syoudaku || [])) {
     const xm = monthAdd(mm.start, x.m);
-    if (xm && xm <= mo) last = { mo: xm, v: x.v };
+    if (xm && xm <= mo) last = { mo: xm, v: x.v, carry: !!x.carry };
   }
   if (!last || last.v == null) return { v: null };
-  return { v: last.v, carry: last.mo !== mo };
+  /* 🔴 サーバは書き換えの無い月にも点を置き、carry を立てて返す（routes の月次）。
+     点がある＝その月に書かれた、ではない。前は点の有無だけで決めていたので、
+     実データでは持ち越しの月もすべて「書き換えあり」の塗りで描かれていた（N8） */
+  return { v: last.v, carry: last.mo !== mo || last.carry };
 }
 
 /* "YYYY-MM" の a から b まで、1か月ずつ全部。柱の間隔を暦どおりに保つため */
@@ -2282,7 +2311,10 @@ function monthRange(a, b) {
    🔴 束ねたことは凡例に拠点数で出す（黙って落とさない）。 */
 const SITE_COLORS = [C.ai, C.hi, C.ki, C.midori, C.murasaki];
 function siteSeries(sites, valsOf, order) {
-  const sorted = sites.slice().sort((a, b) => order(b) - order(a));
+  /* 並べ替えの基準は拠点ごとに1回だけ計算する。比較のたびに order() を呼ぶと
+     O(n log n) 回の計算し直しになり、合成データの 200案件・100拠点で 272ms かかった（N8） */
+  const key = new Map(sites.map((s) => [s, order(s)]));
+  const sorted = sites.slice().sort((a, b) => key.get(b) - key.get(a));
   const head = sorted.slice(0, SITE_COLORS.length);
   const rest = sorted.slice(SITE_COLORS.length);
   const out = head.map((s, i) => ({ label: s === NO_SITE ? "拠点が入っていない" : shortName(s, 16),
@@ -2403,25 +2435,55 @@ function renderHoujin(D) {
   const synHit = ms.filter((mo) => synDeals.some((mm) => syoudakuAt(mm, dealOf[mm.deal_id], mo).v != null));
   const synAxis = synHit.length ? monthRange(synHit[0], synHit[synHit.length - 1]) : [];
   const synSites = [...new Set(synDeals.map((mm) => siteOf(dealOf[mm.deal_id] || {})))];
+  /* 🔴 書き換えのあった契約（fresh）と持ち越した契約（carry）を**分けて足す**。
+     まとめて1つにすると、1件でも書き換えがあった拠点は区分全体が確定の塗りになり、
+     持ち越した値まで「その月に書かれた値」の顔で描かれていた（N8）。 */
   const synVals = (sites) => synAxis.map((mo) => {
-    let s = 0, any = false, allCarry = true;
+    let fresh = null, carried = null;
     for (const mm of synDeals) {
       if (!sites.includes(siteOf(dealOf[mm.deal_id] || {}))) continue;
       const r = syoudakuAt(mm, dealOf[mm.deal_id], mo);
       if (r.v == null) continue;
-      s += r.v; any = true; allCarry = allCarry && !!r.carry;
+      if (r.carry) carried = (carried || 0) + r.v;
+      else fresh = (fresh || 0) + r.v;
     }
-    return any ? { v: s, carry: allCarry } : { v: null };
+    if (fresh == null && carried == null) return { v: null };
+    return { v: (fresh || 0) + (carried || 0), fresh: fresh, carried: carried };
   });
-  const synSer = siteSeries(synSites, synVals, (s) => {
-    const v = synVals([s]); const last = v[v.length - 1]; return last && last.v != null ? last.v : 0; });
-  h += fig("採用数の月ごとの合計", "その月に契約期間中だった案件の採用数（契約ごとの累計）を、拠点ごとに積んだもの",
+  /* 色を付ける拠点は「契約ごとの最終的な累計」の合計が大きい順（LTV の図が合計金額で
+     並べるのと同じ考え方）。前は横軸の最後の月の値で並べていて、満了で止めた（N8）後は
+     満了済みの拠点が過去に何人採っていても 0 扱いで「その他」に回っていた。 */
+  const synOrder = (s) => synDeals
+    .filter((mm) => siteOf(dealOf[mm.deal_id] || {}) === s)
+    .reduce((a, mm) => a + synAxis.reduce((mx, mo) => {
+      const r = syoudakuAt(mm, dealOf[mm.deal_id], mo);
+      return r.v != null && r.v > mx ? r.v : mx;
+    }, 0), 0);
+  const synSer = siteSeries(synSites, synVals, synOrder);
+  /* 柱は拠点ごとに2段: 下が書き換えのあった契約（塗り）、上が持ち越し（中空・破線）。
+     凡例は拠点ごとに1つ（synSer から作る） */
+  const synBars = [];
+  synSer.forEach((S) => {
+    synBars.push({ label: S.label, color: S.color,
+                   vals: S.vals.map((p) => ({ v: p.fresh == null ? null : p.fresh })) });
+    synBars.push({ label: S.label, color: S.color,
+                   vals: S.vals.map((p) => (p.carried == null ? { v: null } : { v: p.carried, carry: true })) });
+  });
+  /* 🔴 題名に「累計」と入れる。柱の高さは**その月に新しく採れた数ではなく**、
+     契約期間中の各契約の累計（ストック）を足したもの。「月ごとの合計」だけだと
+     月々の採用数（フロー）に読める。満了で柱が下がっても採用が減ったわけではない（N8） */
+  h += fig("契約中の案件の採用数（累計）の月ごとの合計",
+    "その月に契約期間中だった案件の、契約ごとの採用数の累計を拠点ごとに積んだもの。その月に新しく採れた数ではありません",
     synAxis.length >= 2
-      ? svgColStack({ w: 940, h: 230, x: synAxis.map((m) => m.slice(2)), series: synSer,
-          yFmt: F.int, yLab: "採用数", alt: "採用数の合計を拠点ごとに積んだ推移" })
+      ? svgColStack({ w: 940, h: 230, x: synAxis.map((m) => m.slice(2)), series: synBars,
+          yFmt: F.int, yLab: "採用数（累計）", alt: "契約中の案件の採用数の累計を拠点ごとに積んだ推移" })
       : '<div class="empty">合算できる月次の記録がありません。</div>',
     synSer.map((S) => lg("box", S.color, esc(S.label))).join("") +
-    lg("dash", C.ghost, "引き継ぎ（その月に書き換えが無い）") +
+    /* 「その他の拠点」は C.ghost の塗り。引き継ぎを C.ghost の線にすると同じ色で2つの意味になる */
+    lg("hollow", C.ink, "引き継ぎ（その月に書き換えが無い契約のぶん）") +
+    '<i class="full"><b>柱の高さは累計です。</b>その月に新しく採れた人数ではありません。' +
+    "契約ごとの採用数の累計を、契約期間中の月に積んでいます。" +
+    "<b>柱が下がるのは契約が満了したからで、採用が減ったからではありません。</b></i>" +
     '<i class="full"><b>これは合算です。</b>拠点をまたいで足しています。' +
     "<b>線でつながず、柱を拠点ごとの色で積んでいます</b>（拠点をまたいで1本の線にすると、" +
     "拠点の違いが時間の変化に見えるため）。" +
@@ -2593,13 +2655,15 @@ function renderMtgQ(D) {
 
   h += sec("図", "月ごとの件数");
   const openM = openMonth(D.meta);
+  /* 途中の月が横軸に無いときは凡例にも出さない（図に無い印を凡例に残さない, V5） */
+  const hasOpenM = !!openM && D.monthly.some((m) => m.month >= openM);
   h += fig("MTG の実施回数", "",
     svgLine({ w: 680, h: 220,
       x: D.monthly.map((m) => m.month.slice(2)),
       series: [{ color: C.ai, pts: D.monthly.map((m) => monthPt(m.month, m.n, openM)) }],
       yFmt: F.int, yLab: "回", alt: "月ごとの MTG 件数" }),
-    lg("line", C.ai, "MTG") + lg("ring", C.ai, "途中の月（まだ締まっていない）") +
-    (openM && D.monthly.some((m) => m.month >= openM) ? '<i class="full">' + esc(openM) + " は元データを落とした時点までの途中の値です。" +
+    lg("line", C.ai, "MTG") + (hasOpenM ? lg("ring", C.ai, "途中の月（まだ締まっていない）") : "") +
+    (hasOpenM ? '<i class="full">' + esc(openM) + " は元データを落とした時点までの途中の値です。" +
       "<b>ほかの月と同じには比べられません</b>（必ず低く出ます）。</i>" : ""));
   return h + foot(D.meta);
 }
@@ -2646,6 +2710,7 @@ function renderPhone(D) {
 
   h += sec("図", "月ごとの本数");
   const openP = openMonth(D.meta);
+  const hasOpenP = !!openP && D.monthly.some((m) => m.month >= openP);   /* MTG と同じ（V5） */
   h += fig("通話と、そのうち接触（" + num(D.meta.threshold_sec) + "秒超）", "",
     svgLine({ w: 700, h: 230,
       x: D.monthly.map((m) => m.month.slice(2)),
@@ -2654,8 +2719,8 @@ function renderPhone(D) {
         { color: C.midori, pts: D.monthly.map((m) => monthPt(m.month, m.contacts, openP)) },
       ], yFmt: F.int, yLab: "件", alt: "月ごとの通話" }),
     lg("line", C.ai, "通話") + lg("line", C.midori, "接触（60秒超）") +
-    lg("ring", C.ghost, "途中の月（まだ締まっていない）") +
-    (openP && D.monthly.some((m) => m.month >= openP) ? '<i class="full">' + esc(openP) + " は元データを落とした時点までの途中の値です。" +
+    (hasOpenP ? lg("ring", C.ghost, "途中の月（まだ締まっていない）") : "") +
+    (hasOpenP ? '<i class="full">' + esc(openP) + " は元データを落とした時点までの途中の値です。" +
       "<b>ほかの月と同じには比べられません</b>（必ず低く出ます）。</i>" : "") +
     '<i class="full">Call は Deal に多対多なので、同じ通話が複数の取引に付きます。</i>');
 
@@ -3753,7 +3818,8 @@ async function load(refresh) {
   if (isCustView(cur.view) && customerHoujin) q.set("houjin", customerHoujin);
 
   /* 取り直しの間は本文が「読み込み中」に置き換わるので、触っていた部品を覚えておいて戻す（U9） */
-  const fk = focusKey(document.activeElement);
+  const fe = document.activeElement;
+  const fk = focusKey(fe);
   main.innerHTML = '<div class="loading">読み込み中…</div>';
   try {
     const res = await fetch(v.path + "?" + q.toString(), { credentials: "same-origin" });
@@ -3767,7 +3833,11 @@ async function load(refresh) {
     setFresh(body.meta || {});
     main.innerHTML = ctlbar(v, body) + v.render(body);
     wire(v);
-    refocus(fk);
+    /* 🔴 待つ間に人が別の場所へフォーカスを動かしていたら戻さない。遅い応答が来た瞬間に
+       前の部品へ引き戻すと、打っている途中の入力を奪う。描き直しで消えた部品は
+       フォーカスを失って body になるので、「body か、覚えた部品のまま」のときだけ戻す */
+    const now = document.activeElement;
+    if (!now || now === document.body || now === fe) refocus(fk);
     loaded[cur.menu + "/" + cur.view] = true;
   } catch (e) {
     if (my !== loadSeq) return;   /* 古い要求の失敗で、いまの画面を消さない */
