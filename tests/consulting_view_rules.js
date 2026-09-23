@@ -130,13 +130,58 @@ check("V3: データ品質の図に内部名が出ない", () => {
 /* ================================================================ V9 */
 check("V9: 目標の帯は 赤=まずい / 緑=良い を守る", () => {
   // outcome.json の goal_act.bands の並び（2026-09-23 実測）。以前は並び順で SERIES を回し、
-  // 50〜100% が赤、1〜50% が緑になっていた
+  // 50〜100% が赤、1〜50% が緑になっていた。
+  // 🔴 期待値を変えた（2026-09-23 検証 V9）: 以前は「0% は赤」を固定していたが、母集団は
+  // 稼働中の契約で達成率は伸びる途中の値（右側打ち切り）。0% を赤（■まずい）・1〜50% を
+  // 山吹（▲注意）で塗ると途中の値を確定した悪い結果として読ませるので、判定の色を使わない
   const c = (l) => run("goalBandColor(" + JSON.stringify(l) + ")");
   ok(c("100%以上") === "var(--midori)", "100%以上 が緑でない");
-  ok(c("0%（実績ゼロ）") === "var(--hi)", "0% が赤でない");
-  ok(c("50〜100%") !== "var(--hi)", "50〜100% が赤（まずい）になっている");
-  ok(c("1〜50%") !== "var(--midori)", "1〜50% が緑（良い）になっている");
+  for (const l of ["0%（実績ゼロ）", "1〜50%", "50〜100%"]) {
+    ok(!["var(--hi)", "var(--ki)", "var(--midori)"].includes(c(l)), l + " に判定の色 " + c(l) + " を使っている");
+    ok(run("goalBandOpen(" + JSON.stringify(l) + ")") === true, l + " が未確定（中空）になっていない");
+  }
+  ok(!run('goalBandOpen("100%以上")'), "100%以上（確定）を中空にしている");
   ok(c("未記入（目標が無い）") === "var(--ghost)", "未記入が灰でない（値が無い）");
+  ok(c("承諾数が空（目標はある）") === "var(--ghost)", "承諾数が空が灰でない（値が無い）");
+});
+
+/* renderOutcome に渡す最小の応答。帯の件数は fixture の goal_act（2026-09-23 実測:
+   pop 604 / has_goal 351 / both 345 / 0% 198 / 承諾数が空 6 / 未記入 253）。
+   100%以上・50〜100%・1〜50% は合計が 345 - 198 = 147 になるように置いた値
+   （色と形を見るだけで、件数は検査しない）。
+   efficiency の n は fixture の 継続 1282 / 解約 529 / 充足 142（検証の指摘より） */
+const obox = (n) => ({ n, min: 0, q1: 1, median: 2, q3: 3, max: 9, mean: 2.5 });
+ctx.__OUT = {
+  meta: { not_counted: "※ 成約率ではありません", today: "2026-09-18" },
+  goal_act: { pop: 604, has_goal: 351, both: 345, median: 0, fill_rate: 58.1, bands: [
+    { label: "100%以上", n: 60 }, { label: "50〜100%", n: 40 }, { label: "1〜50%", n: 47 },
+    { label: "0%（実績ゼロ）", n: 198 }, { label: "承諾数が空（目標はある）", n: 6 },
+    { label: "未記入（目標が無い）", n: 253 }] },
+  goal_all: { fill_rate: 33.4 },
+  efficiency: { caveat: "", has_keisaisu_act: 500, n_act: 604, groups: [
+    { label: "継続した", box: obox(1282) }, { label: "解約した", box: obox(529) },
+    { label: "充足", box: obox(142) }] },
+  risk: { n_act: 604, bands: [], ax3: { rule: "" }, ax4: { rule: "" }, top: [], order_note: "" },
+  contact_source: {},
+};
+
+check("V9: 目標の帯を renderOutcome が実際に中空・判定の色なしで描く", () => {
+  const h = run("renderOutcome(__OUT)");
+  const g = h.split("<figcaption>達成率 ＝ 承諾数 ÷ 採用目標数")[1].split("</figure>")[0];
+  const rects = [...g.matchAll(/<rect [^>]*>/g)].map((m) => m[0]);
+  ok(rects.length >= 6, "帯の数が足りない: " + rects.length);
+  ok(!g.includes("var(--hi)") && !g.includes("var(--ki)"), "目標の帯に赤・山吹を使っている");
+  const dashed = rects.filter((r) => r.includes("stroke-dasharray")).length;
+  // 帯 3 つ ＋ 凡例の粒 3 つ
+  ok(dashed === 6, "未確定の帯（0% / 1〜50% / 50〜100%）が中空・破線になっていない: " + dashed);
+  ok(g.includes("途中の値"), "稼働中なので途中の値だという断り書きが無い");
+  ok(g.includes("承諾数が空の 6 件"), "目標はあるが承諾数が空の件数を書いていない（NEW）");
+});
+
+check("V9: 応募効率の箱ひげで群の並び順に色を回さない（解約=赤・充足=緑にしない）", () => {
+  const h = run("renderOutcome(__OUT)");
+  const g = h.split("<figcaption>応募数 ÷ 掲載数")[1].split("</figure>")[0];
+  ok(!g.includes("var(--hi)") && !g.includes("var(--midori)"), "箱ひげに赤または緑が入っている");
 });
 
 check("V9: 継続回数ごとの箱ひげで行ごとに色を回さない（継続1だけ赤にしない）", () => {
@@ -170,6 +215,45 @@ check("V12: 表の枠の上に行数と列数・スクロールの案内を出�
   ok(h.includes("全 <b>2</b> 行 × 3 列"), "行数・列数が合っていない: " + h.slice(0, 160));
 });
 
+check("V12: 途中で切った表は「全 N 行」と言わず、元の件数を書く", () => {
+  const t = 'table([{ t: "a" }], [[1],[2],[3]])';
+  const cut = run("scroll(" + t + ", 400, 250)");
+  ok(!cut.includes("全 <b>3</b> 行"), "3 行で切った表に「全 3 行」と出している");
+  ok(cut.includes("<b>3</b> 行を出しています（全 250 件のうち）"), "元の件数が無い: " + cut.slice(0, 160));
+  const all = run("scroll(" + t + ", 400, 3)");
+  ok(all.includes("全 <b>3</b> 行"), "切っていない表の書き方が変わった");
+});
+
+check("V12: NPS が低い顧客の表は 200 件で切ったとき元の件数を枠の上に出す", () => {
+  // 件数は 200 件を超える場合を作るために置いた値（fixture の実数は 200 件以下の可能性がある）
+  ctx.__FO = { meta: { today: "2026-09-18" },
+    nps_low: { threshold: 4, n: 230, n_have_nps: 300, n_act: 604, coverage: 49.7, dist: [], note: "",
+      rows: Array.from({ length: 230 }, (_, i) => ({ deal_id: "d" + i, stage: "", nps: 1, nps_month: "2026-09",
+        amount: 1, days_to_expiry: 10, n_contact: 1 })) },
+    cpa: { worse: 0, judged: 0, skipped_censored: 0, rows: [], note: "" },
+    mtg_layers: { neither: 0, n_act: 604, both: 0, only_recording: 0, only_mail: 0, note: "",
+      fact_recording: { n: 0, rate: 0 }, estimated_mail: { n: 0, rate: 0 } },
+    shape: { ltv: null, display_label: "", n_all: 0, n_display: 0, multi_site: 0, multi_site_note: "" } };
+  const h = run("renderFocus(__FO)");
+  ok(h.includes("<b>200</b> 行を出しています（全 230 件のうち）"), "NPS低: 切った後の件数を全件の顔で出している");
+  ok(!h.includes("全 <b>200</b> 行"), "NPS低: lede と枠の上の件数が食い違っている");
+});
+
+check("V12: 法人の一覧と今日動く先が、切る前の件数を枠の上に出す", () => {
+  // 法人の一覧は 200 法人で切る。250 法人を渡す
+  ctx.__IX = { index: Array.from({ length: 250 }, (_, i) => ({ houjin: "h" + i, deals: 1, sites: 1,
+    active: 1, ltv: 1, last_expiration: "2026-01-01" })) };
+  const ix = run('custIndex(__IX, "問い", "")');
+  ok(ix.includes("<b>200</b> 行を出しています（全 250 件のうち）"),
+    "法人の一覧: 切った後の件数を全件の顔で出している");
+  // 今日動く先: サーバが n_hit 件から 24 件に絞る（routes.rs KEEP）。
+  // fixture の n_hit は控えていないので 57 を置いた（行は空。件数の書き方だけ見る）
+  ctx.__TD = { rows: [], meta: { n_hit: 57, n_shown: 0, filter_rule: "", order_rule: "", mtg_gap: {} } };
+  const td = run("renderToday(__TD)");
+  ok(td.includes("全 57 件のうち"), "今日動く先: 絞る前の n_hit 件を出していない");
+  ok(/<div class="note def"><span class="hd">この並びについて/.test(td), "並びの決まりごとが def の枠でない");
+});
+
 /* ================================================================ V15 */
 check("V15: 継続回数の表で n<30 の行に印を付ける", () => {
   const box = { n: 40, min: 0, q1: 1, median: 2, q3: 3, max: 9, mean: 2.5 };
@@ -190,6 +274,21 @@ check("V16: 記入率の図は継続回数×成果に重ねて出さない（デ
   ok(h.includes("データ品質"), "図の在りかを案内していない");
 });
 
+check("V15/V17: 満了月ごとの内訳は枠に入れ、「折れ線と同じ」と書かない", () => {
+  const box = { n: 40, min: 0, q1: 1, median: 2, q3: 3, max: 9, mean: 2.5 };
+  ctx.__RN3 = { meta: { exclude_right_censored: false, right_censored_n: 0 }, missingness: [], population: {},
+    monthly_retention: { rows: [
+      { month: "2026-01", keep: 5, cancel: 2, fill: 1, denom: 8, rate: 62.5, pending: 3 },
+      { month: "2026-02", keep: 4, cancel: 1, fill: 0, denom: 5, rate: 80, pending: 9 }] },
+    by_renewal: [{ renewal_no: 0, n: 40, n_active: 0, cancel_rate: 0, cancel_rate_excl_fill: 0,
+      oubo: box, mensetu: box, syoudaku: box, oubo_per_posting: box, amount: box }] };
+  const h = run("renderRenewal(__RN3)");
+  const d = h.split('<details class="fold"><summary>満了月ごとの内訳')[1].split("</details>")[0];
+  ok(!d.includes("上の折れ線と同じ"), "summary が「上の折れ線と同じ数字」のまま（件数は折れ線に無い）");
+  ok(d.includes("結果待ち 12 件"), "summary に結果待ちの合計（3+9）が無い");
+  ok(d.includes('<div class="scroll"'), "開いた表が scroll の枠に入っていない（400px 幅ではみ出す）");
+});
+
 /* ================================================================ V20 / V21 */
 check("V21: 末尾の枠に同じ文を2回出さない・本文が空の枠を作らない", () => {
   const said = run('foot({ not_counted: "※ 数えていない", today: "2026-09-18" }, true)');
@@ -208,6 +307,59 @@ check("V20: 図の読み上げ名を既定値（横棒 など）のままにし�
 check("V20: 注力でない点に 1.20:1 の --rule を使わない", () => {
   const svg = run("svgDots({ total: 3, groups: [{ v: 1, color: C.ai, label: \"x\" }] })");
   ok(!svg.includes("fill:var(--rule)\""), "注力でない点が --rule（1.20:1）のまま");
+});
+
+check("V20: 図の見出しに $& などがあっても読み上げ名が壊れない", () => {
+  ctx.__CAP = "拠点$&名$'";
+  const h = run('fig(__CAP, "", svgBarH({ rows: [{ label: "a", v: 1 }] }))');
+  ok(h.includes('aria-label="拠点$&amp;名$\'"'), "置き換えの特殊パターンとして解釈された: " +
+    (h.match(/aria-label="[^"]*"/) || [""])[0]);
+});
+
+/* 本部アプローチの最小の応答。not_counted は routes.rs build_headquarters の文そのもの */
+ctx.__HQ = {
+  meta: { n_houjin: 1, today: "2026-09-18",
+    not_counted: "※ 親法人の合計ではありません。事業所ごとに出しています。決裁は事業所単位なので、まとめると行き先が消えます" },
+  multi_site: 1,
+  rows: [{ houjin: "法人A", sites: 2, deals: 5, active: 1, spread: 2.5, rows: [
+    { site: "拠点1", cpa: 300000, cancel_rate: 50, deals: 4, syoudaku: 2, active: 1, cancel: 2, amount: 1 },
+    { site: "拠点2", cpa: 120000, cancel_rate: 0, deals: 1, syoudaku: 1, active: 0, cancel: 0, amount: 1 }] }],
+};
+
+check("V20: 本部アプローチの拠点の解約率に母数（取引数）を添える", () => {
+  const h = run("renderHq(__HQ)");
+  ok(h.includes("解約 50.0%（4件中）"), "解約率に母数が無い");
+});
+
+check("V21: 本部アプローチは頭の枠を def にし、サーバの not_counted を出す", () => {
+  const h = run("renderHq(__HQ)");
+  const head = h.split('<div class="note ')[1] || "";
+  ok(head.startsWith("def"), "頭の枠が def でない: " + head.slice(0, 20));
+  ok(head.includes("決裁は事業所単位なので、まとめると行き先が消えます"), "サーバの not_counted が頭の枠に無い");
+  ok((h.match(/決裁は事業所単位なので/g) || []).length === 1, "同じ文を2回出している");
+});
+
+check("V11: 点が1つの拠点の採用単価で、未確定の値を確定値と分ける", () => {
+  ctx.__CB = { meta: { found: true }, cpa_by_site: [
+    { site: "拠点X", points: [{ cpa: 500000, censored: true }] },
+    { site: "拠点Y", points: [{ cpa: 200000, censored: false }] }] };
+  const h = run('custBlocks(__CB, new Set(["cpasite"]))');
+  const lineX = h.split("拠点X")[1].split("<br>")[0];
+  const lineY = h.split("拠点Y")[1].split("<br>")[0];
+  ok(/<span class="muted">[^<]*（未確定・稼働中）<\/span>/.test(lineX), "未確定の値に印が無い: " + lineX);
+  ok(!lineY.includes("未確定"), "確定の値にまで未確定の印を付けている: " + lineY);
+});
+
+check("V3: 表示名は HubSpot 画面のラベルそのまま（探して見つかる名前）", () => {
+  // platform-data-quirks/references/hubspot-deals.md: consultant＝「コンサル担当」、keisaisu＝「掲載求人数」
+  ok(run('dispName("consultant")').includes("「コンサル担当」"), "consultant の表示名が HubSpot のラベルでない");
+  ok(run('dispName("keisaisu")') === "掲載求人数", "keisaisu の表示名が HubSpot のラベルでない");
+  // renderTeam が owner_rule を dispText に通していること（上の V2 の __D を使う）
+  const h = run("renderTeam(__D)");
+  ok(h.includes("担当は HubSpot の「コンサル担当」欄 が正本です"), "renderTeam が owner_rule の内部名を置き換えていない");
+  // foot(D.meta, true): 末尾の枠は基準日だけで、頭で出した not_counted をもう一度出さない（V21）
+  const tailBox = h.split("集計の基準日と件数")[1];
+  ok(tailBox !== undefined && !tailBox.includes("評価ではありません"), "renderTeam が not_counted を末尾でもう一度出している");
 });
 
 /* ================================================================ V1 */
