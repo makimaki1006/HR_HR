@@ -487,5 +487,282 @@ check("本部アプローチ: cancel_rule / cpa_rule を上位10法人の図ご�
   ok((h.match(/採用単価のきまりXYZ/g) || []).length === 1, "cpa_rule が " + (h.match(/採用単価のきまりXYZ/g) || []).length + " 回出ている");
 });
 
+/* ================================================================ 第2弾: 文言と凡例（2026-09-23 デプロイ後の実機確認） */
+/* 描いた HTML から文字だけを取り出す（タグ・SVG を落とす） */
+const textOf = (h) => String(h).replace(/<svg[\s\S]*?<\/svg>/g, " ").replace(/<[^>]+>/g, " ");
+
+check("英語: 成果とリスク・定義と検証・電話に英語の用語を出さない", () => {
+  // 電話の reach.note は routes.rs build_phone の文そのもの（直した後の文）
+  ctx.__PH = { meta: { n_active: 604, threshold_sec: 60, today: "2026-09-18", not_counted: "" },
+    reach: { no_call: 61, no_contact: 81, no_call_rate: 10.1, no_contact_rate: 13.4, option_rows_excluded: 0,
+      note: "1本の通話が複数の取引に結び付いていることがあります。同じ通話を取引ごとに数えるので、行数は実際の通話の本数より多くなります" },
+    days_since: null, transcript: { rate: 1, n: 1, rows: 100, note: "" },
+    monthly: [{ month: "2026-08", calls: 10, contacts: 5 }, { month: "2026-09", calls: 8, contacts: 4 }],
+    silent: { n: 0, rule: "", rows: [] } };
+  for (const [name, code] of [["成果とリスク", "renderOutcome(__OUT)"], ["定義と検証", "renderDefs()"],
+                              ["電話", "renderPhone(__PH)"]]) {
+    const t = textOf(run(code));
+    const hit = t.match(/StratifiedKFold|AUC|churn|Call は|Deal に|多対多/);
+    ok(!hit, name + " に英語の用語「" + (hit && hit[0]) + "」が残っている");
+  }
+});
+
+/* 担当者ごとの案件の最小の応答。行は deals.json の形（担当 2 名・名札つき 1 件）。件数は見張りのために置いた値 */
+ctx.__BD = { meta: { today: "2026-09-18", n_active: 3, order_rule: "並びのきまりXYZ", flag_counts: [],
+    not_counted: "※ 予測ではありません" },
+  rows: [
+    { deal_id: "d1", name: "案件1", consultant: "田中", flags: ["NPSが4以下"], focus: true, days_left: 10 },
+    { deal_id: "d2", name: "案件2", consultant: "田中", flags: [], focus: false, days_left: 200 },
+    { deal_id: "d3", name: "案件3", consultant: "佐藤", flags: [], focus: false, days_left: 20 }] };
+
+check("byowner: 担当を選ぶ前は絞り込みの欄と「N 件中 N 件を表示」を出さず、名前を押して選べる", () => {
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "" };');
+  try {
+    const h = run("renderBoard(__BD)");
+    ok(h.includes('id="bf-consultant"'), "担当の選択欄が無い");
+    for (const id of ["bf-flag", "bf-expiry", "bf-q", "bf-clear"])
+      ok(!h.includes('id="' + id + '"'), "担当を選ぶ前に " + id + " が出ている（件数の表しか無いのに絞り込めるように見える）");
+    ok(!/件中 .* 件<\/b>を表示/.test(h) && !h.includes("board-count"), "担当を選ぶ前に「N 件中 N 件を表示」が出ている");
+    const tbl = h.split('<table id="owner-tbl"')[1];
+    ok(tbl !== undefined, "持ち件数の表に id が無い（名前を押す仕掛けを付けられない）");
+    ok(/<a href="#" class="drill" data-c="田中"/.test(tbl) && /<a href="#" class="drill" data-c="佐藤"/.test(tbl),
+      "持ち件数の表の担当者名が押せない（team の表と同じ a.drill でない）");
+    // 名前を押したら担当で絞る。wireBoard が付けた onclick を呼ぶ
+    const a = { dataset: { c: "佐藤" }, onclick: null };
+    const qsa = ctx.document.querySelectorAll;
+    ctx.document.querySelectorAll = (sel) => (sel === "#owner-tbl a.drill" ? [a] : []);
+    try {
+      run("boardCache = __BD; wireBoard()");
+      ok(typeof a.onclick === "function", "持ち件数の表の名前に onclick が付かない");
+      a.onclick({ preventDefault() {} });
+      ok(run("boardFilter.consultant") === "佐藤", "名前を押しても担当で絞られない: " + run("boardFilter.consultant"));
+    } finally { ctx.document.querySelectorAll = qsa; }
+    // 選んだ後は絞り込みの欄と件数の行が出る。並びの決まりは表の側に1回だけ
+    const h2 = run("renderBoard(__BD)");
+    ok(h2.includes('id="bf-flag"') && h2.includes("board-count"), "担当を選んだ後に絞り込みの欄・件数の行が無い");
+    ok((h2.match(/並びのきまりXYZ/g) || []).length === 1, "担当を選んだ後の画面に並びの決まりが1回だけ出ていない");
+  } finally {
+    run('boardFilter = { consultant: "", flag: "", expiry: "", q: "" }; cur = { menu: "deal", view: "today" };');
+  }
+});
+
+check("board: 並びの決まり（order_rule）を1回だけ出す（名札の図の凡例に重ねない）", () => {
+  run('cur = { menu: "deal", view: "board" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "" };');
+  const h = run("renderBoard(__BD)");
+  run('cur = { menu: "deal", view: "today" };');
+  ok((h.match(/並びのきまりXYZ/g) || []).length === 1, "order_rule が " + (h.match(/並びのきまりXYZ/g) || []).length + " 回出ている");
+});
+
+/* 法人番号で見るの cpa3（routes.rs build_customer の形）。fixture の h00f31a786bac（2026-09-23 実測）では
+   稼働中 2 件のうち censored は 1 件だけで、総額が出ている稼働中の 1 件（censored=false, 720000）が藍で描かれていた。
+   その形を写し、中央値の位置を数値で確かめられるよう、帯の中央値を確定の契約の総額と同じ 900000 に置いた */
+ctx.__C3 = { meta: { found: true }, cpa3: [
+  { deal_id: "a", name: "確定の契約", total: 900000, monthly: 600000, band: null, band_median: null,
+    syoudaku: 2, censored: false, active: false },
+  { deal_id: "b", name: "稼働中の契約", total: 720000, monthly: 480000, band: "終盤（75〜100%）",
+    band_median: 900000, syoudaku: 10, censored: false, active: true },
+  { deal_id: "c", name: "打ち切り", total: null, monthly: null, band: "契約の前半（0〜50%）",
+    band_median: 750000, syoudaku: null, censored: true, active: true }] };
+const cpa3Fig = () => run('custBlocks(__C3, new Set(["cpa3"]))')
+  .split("<figcaption>同じ契約でも")[1].split("</figure>")[0];
+
+check("houjin 採用単価: 稼働中の契約を未確定の見た目にし、凡例と棒の塗り・濃さをそろえる", () => {
+  const g = cpa3Fig();
+  const bars = [...g.matchAll(/<rect x="[0-9.]+" y="[0-9.]+" width="[0-9.]+" height="[0-9.]+" rx="2" style="fill:([^"]+)" opacity="([.0-9]+)">/g)]
+    .map((m) => ({ fill: m[1], op: m[2] }));
+  ok(bars.length === 2, "棒の数が 2 でない: " + bars.length);
+  ok(bars[0].fill === "var(--ai)", "確定の契約が藍でない: " + bars[0].fill);
+  ok(bars[1].fill === "var(--ghost)", "稼働中（censored=false）の契約を確定と同じ " + bars[1].fill + " で塗っている");
+  const leg = g.split('<div class="figlegend">')[1];
+  const a = legendSwatch(leg, "総額 ÷ 採用数（確定）"), b = legendSwatch(leg, "同（未確定・稼働中）");
+  ok(a && a.fill === bars[0].fill && a.op === bars[0].op, "確定の凡例の粒 " + JSON.stringify(a) + " が棒 " + JSON.stringify(bars[0]) + " と違う");
+  ok(b && b.fill === bars[1].fill && b.op === bars[1].op, "未確定の凡例の粒 " + JSON.stringify(b) + " が棒 " + JSON.stringify(bars[1]) + " と違う");
+});
+
+check("houjin 採用単価: 進捗帯の中央値を図の上に印で出し、位置が軸の尺度に合う", () => {
+  const g = cpa3Fig();
+  const marks = [...g.matchAll(/<circle cx="([0-9.]+)" cy="([0-9.]+)" r="4.5" data-mark="band"/g)];
+  ok(marks.length === 1, "中央値の印が 1 つでない: " + marks.length + "（総額が出ていて帯の中央値がある棒は 1 本）");
+  // 中央値 900000 は「確定の契約」の総額と同じ。印の x はその棒の右端と一致するはず（数値で確かめる）
+  const r0 = g.match(/<rect x="([0-9.]+)" y="([0-9.]+)" width="([0-9.]+)" height="([0-9.]+)" rx="2" style="fill:var\(--ai\)"/);
+  const right = +r0[1] + +r0[3];
+  ok(Math.abs(+marks[0][1] - right) < 0.6, "印の x " + marks[0][1] + " が 900000 の棒の右端 " + right.toFixed(1) + " と合わない");
+  // y は2本目（稼働中の契約）の棒の中心
+  const r1 = g.match(/<rect x="[0-9.]+" y="([0-9.]+)" width="[0-9.]+" height="([0-9.]+)" rx="2" style="fill:var\(--ghost\)"/);
+  ok(Math.abs(+marks[0][2] - (+r1[1] + +r1[2] / 2)) < 0.6, "印の y " + marks[0][2] + " が稼働中の棒の中心と合わない");
+  ok(g.includes("同じ進捗帯の中央値"), "印の凡例が無い");
+});
+
+check("定義と検証: 文の表は折り返す（「なぜ」が右端で切れない）", () => {
+  const h = run("renderDefs()");
+  // 見出しの直後の表だけを見る（後ろの「3つのいつ」の表の prose に引っ張られない）
+  const t = h.split("この画面が守っていること")[1].split("</table>")[0];
+  ok(/<table class="prose">/.test(t), "「この画面が守っていること」の表が折り返す表（prose）になっていない");
+  ok(/table\.prose td\{[^}]*white-space:normal/.test(html), "table.prose td に white-space:normal が無い");
+  ok(/\.scroll > table\.prose\{[^}]*min-width:0/.test(html), "prose の表に min-width:max-content が残る（折り返さずに伸びる）");
+});
+
+/* 100%帯の区間の塗りと濃さを、描いた SVG から読む（svgStack の出力の形） */
+function stackRects(svg) {
+  return [...String(svg).matchAll(/<rect x="[0-9.]+" y="6" width="[0-9.]+" height="[0-9.]+" rx="2" style="fill:([^"]+)" opacity="([.0-9]+)"><title>([^:]+):/g)]
+    .map((m) => ({ fill: m[1], op: m[2], label: m[3] }));
+}
+/* 凡例のラベル直前の粒の塗りと濃さ。opacity が無ければ "1" */
+function legendSwatch(leg, label) {
+  const i = String(leg).indexOf("</svg>" + label);
+  if (i < 0) return null;
+  const sv = leg.slice(leg.lastIndexOf("<svg", i), i);
+  const m = sv.match(/style="fill:([^";]+)[^"]*"(?: opacity="([.0-9]+)")?/);
+  return m ? { fill: m[1], op: m[2] || "1" } : null;
+}
+
+check("凡例: 100%帯の凡例の粒は帯と同じ塗り・濃さ（いま見るべき顧客の MTG 記録。focus.json の件数）", () => {
+  ctx.__SP = [
+    { label: "録画もメールもある", v: 257, color: "var(--midori)" },
+    { label: "録画だけ（事実）", v: 17, color: "var(--ai)" },
+    { label: "メールだけ（推定）", v: 215, color: "var(--ki)", faint: true },
+    { label: "どちらも無い", v: 115, color: "var(--ghost)", faint: true }];
+  const rs = stackRects(run("svgStack({ parts: __SP, w: 680 })")), leg = run("stackLegend(__SP)");
+  ok(rs.length === 4, "帯の区間が取れない: " + rs.length);
+  for (const r of rs) {
+    const s = legendSwatch(leg, r.label);
+    ok(s && s.fill === r.fill && s.op === r.op, r.label + " の凡例 " + JSON.stringify(s) + " が帯 " + JSON.stringify(r) + " と違う");
+  }
+});
+
+check("凡例: 目標の帯の「承諾数が空」と「未記入」を見分けられる塗りにする", () => {
+  const h = run("renderOutcome(__OUT)");
+  const g = h.split("<figcaption>達成率 ＝ 承諾数 ÷ 採用目標数")[1].split("</figure>")[0];
+  const leg = g.split('<div class="figlegend">')[1];
+  const a = legendSwatch(leg, "承諾数が空（目標はある）"), b = legendSwatch(leg, "未記入（目標が無い）");
+  ok(a && b, "凡例が取れない");
+  ok(a.fill !== b.fill || a.op !== b.op, "承諾数が空と未記入の凡例が同じ塗り " + JSON.stringify(a));
+  const rs = stackRects(g);
+  const ra = rs.find((r) => r.label.startsWith("承諾数が空")), rb = rs.find((r) => r.label.startsWith("未記入"));
+  ok(ra && rb && (ra.fill !== rb.fill || ra.op !== rb.op), "帯の中で承諾数が空と未記入が同じ塗り");
+  ok(a.op === ra.op && b.op === rb.op, "凡例の濃さが帯と違う");
+});
+
+check("凡例: MTGのリスク（判定不可 / 未判定）と立ち上がり（終盤 / 出せない）の粒が見分けられる", () => {
+  // mtg-quality.json の risk_dist（2026-09-23 実測）
+  ctx.__MQ = { meta: { n_mtg: 3124, today: "2026-09-18", not_counted: "" }, linked: { rate: 90, n: 1 },
+    filled: [{ field: "やること", n: 10, rate: 10 }], filled_note: "", hosts: [], monthly: [],
+    risk_dist: [{ label: "高", n: 34 }, { label: "中", n: 115 }, { label: "低", n: 300 },
+                { label: "判定不可", n: 27 }, { label: "（未判定）", n: 2648 }] };
+  const q = run("renderMtgQ(__MQ)");
+  const x = legendSwatch(q, "判定不可"), y = legendSwatch(q, "（未判定）");
+  ok(x && y && (x.fill !== y.fill || x.op !== y.op), "判定不可と未判定の凡例が同じ " + JSON.stringify(x));
+  // rampup.json の phase.rows（2026-09-23 実測）
+  const r = JSON.parse(JSON.stringify(ctx.__RU));
+  r.phase = { rule: "契約長に対する割合", rows: [{ label: "序盤", n: 263 }, { label: "中盤", n: 172 },
+    { label: "終盤", n: 153 }, { label: "満了超過", n: 15 }, { label: "出せない", n: 1 }] };
+  ctx.__RU2 = r;
+  const rh = run("renderRampup(__RU2)");
+  const e = legendSwatch(rh, "終盤"), f = legendSwatch(rh, "出せない");
+  ok(e && f && (e.fill !== f.fill || e.op !== f.op), "終盤と出せないの凡例が同じ " + JSON.stringify(e));
+});
+
+/* 成果とリスクで最優先が1件ある形（散布図と表が出る）。order_note は routes.rs risk() の文 */
+ctx.__OUT2 = JSON.parse(JSON.stringify(ctx.__OUT));
+ctx.__OUT2.risk.top = [{ name: "x", amount: 100, days_to_expiry: 10, never_after_start: true, ax3w: "", n_contact: 0, stage: "" }];
+ctx.__OUT2.risk.ax3 = { "赤": 1, "白": 0, "未測定": 0, rule: "" };
+ctx.__OUT2.risk.ax4 = { "赤": 1, "白": 0, "未測定": 0, rule: "" };
+ctx.__OUT2.risk.order_note = "この並びは機械が付けた順（金額順）";
+
+check("凡例: 散布図の点と箱ひげの「四分位」は図と同じ濃さ", () => {
+  const sc = run('svgScatter({ pts: [{ x: 1, y: 1, color: C.hi }, { x: 2, y: 2, color: C.hi }], w: 300 })');
+  const pop = (sc.match(/<circle [^>]*style="fill:var\(--hi\)" opacity="([.0-9]+)"/) || [])[1];
+  ok(pop && legendSwatch(run('lg("dot", C.hi, "x", PT_OP)'), "x").op === pop, "散布図の点の濃さ " + pop + " と PT_OP が違う");
+  const bx = run('svgBoxH({ rows: [{ label: "a", med: 2, q1: 1, q3: 3, min: 0, max: 4, n: 40, color: C.ai }] })');
+  const bop = (bx.match(/<rect [^>]*style="fill:var\(--ai\)" opacity="([.0-9]+)"/) || [])[1];
+  ok(bop && legendSwatch(run('lg("quart", C.ai, "四分位")'), "四分位").op === bop, "箱ひげの箱の濃さ " + bop + " と「四分位」の粒が違う");
+  // 画面の凡例がその粒を使っていること
+  ok(!/lg\("box", C\.ai, "四分位"\)/.test(html), "「四分位」を不透明の四角（box）で出している呼び出しが残っている");
+  const g = run("renderOutcome(__OUT2)").split("<figcaption>2軸とも赤の")[1].split("</figure>")[0];
+  const s = legendSwatch(g, "契約後に一度も接触していない");
+  const p = (g.match(/<circle [^>]*style="fill:var\(--hi\)" opacity="([.0-9]+)"/) || [])[1];
+  ok(s && p && s.op === p, "散布図の凡例 " + JSON.stringify(s) + " と点の濃さ " + p + " が違う");
+});
+
+check("読み方の枠: 末尾の見出しを中身に合わせる（予測ではありません…に「数えていないもの」と付けない）", () => {
+  const f = run('foot({ not_counted: "※ 予測ではありません", today: "2026-09-18", n_active: 604 })');
+  ok(!f.includes("この画面で数えていないもの"), "断り書きに「この画面で数えていないもの」の見出しが付いている");
+  ok(f.includes("読むときの注意"), "断り書きの見出しが無い");
+  const d = run('foot({ today: "2026-09-18" })');
+  ok(!d.includes("件数"), "件数が無いのに見出しに「件数」と書いている: " + d);
+});
+
+check("読み方の枠: 成果とリスクの並びの注記・立ち上がりの「同じ3ヶ月目でも」を2回出さない", () => {
+  const h = run("renderOutcome(__OUT2)");
+  ok((h.match(/この並びは機械が付けた順/g) || []).length === 1,
+    "order_note が " + (h.match(/この並びは機械が付けた順/g) || []).length + " 回出ている");
+  const r = JSON.parse(JSON.stringify(ctx.__RU));
+  // rampup.json の phase.rule（2026-09-23 実測）
+  r.phase = { rule: "契約長に対する割合。< 0.34 序盤 / < 0.67 中盤 / <= 1.05 終盤 / 超 満了超過。同じ3ヶ月目でも、3ヶ月契約なら満了・12ヶ月契約なら序盤",
+    rows: [{ label: "序盤", n: 1 }] };
+  ctx.__RU3 = r;
+  const t = textOf(run("renderRampup(__RU3)"));
+  const n = (t.match(/同じ「?3ヶ月目」?でも/g) || []).length;
+  ok(n === 1, "「同じ3ヶ月目でも」が " + n + " 回出ている");
+});
+
+check("法人番号で見る: 末尾の「集計の基準日と件数」に件数を書く", () => {
+  const h = run('foot({ today: "2026-09-18" }, false, houjinCounts([{ is_active: true }, { is_active: false }], new Set(["a"])))');
+  ok(h.includes("集計の基準日と件数") && h.includes("この法人の取引 2 件（稼働中 1 件）"), "件数が無い: " + h);
+  const body = html.split("function renderHoujin(D)")[1].split("\nfunction ")[0];
+  ok((body.match(/foot\(D\.meta, false, houjinCounts\(all, ids\)\)/g) || []).length === 2,
+    "renderHoujin の2つの末尾が件数を渡していない");
+});
+
+check("KPI: 最終満了を折り返さない・電話の61件の色をそろえる・退職者の補足に別の話を混ぜない", () => {
+  ok(/\.kpi\.is-date \.big\{[^}]*white-space:nowrap/.test(html), "日付の KPI に white-space:nowrap が無い");
+  const c = run('custBlocks({ meta: { found: true, houjin: "H" }, customer: { name: "法人", deals: 1, active: 1, sites: 1, ltv: 1, max_renewal_no: 0, last_expiration: "2027-02-28" } }, new Set(["head"]))');
+  ok(/<div class="kpi is-date"><span class="lbl">最終満了/.test(c), "最終満了の KPI が日付の型（is-date）になっていない");
+  const ph = run("renderPhone(__PH)");
+  const card = ph.match(/<div class="kpi( is-[a-z]+)?"><span class="lbl">電話が1本も無い/);
+  ok(card && card[1] === " is-bad", "電話が1本も無いの KPI が赤でない: " + (card && card[1]));
+  ok(/style="fill:var\(--hi\)"[^>]*><title>電話が1本も無い/.test(ph), "内訳の帯の「電話が1本も無い」が赤でない（KPI と色がそろわない）");
+  const tm = run("renderTeam(__D)");
+  const k = tm.split('<span class="lbl">退職者のまま</span>')[1].split("</div>")[0];
+  ok(!k.includes("割れ") && !k.includes("38"), "退職者のままの補足に担当の割れ（38件）が混ざっている: " + k);
+  ok(tm.includes("担当が割れている稼働中の案件が 38 件"), "担当の割れ（38件）がどこにも出ていない（黙って消した）");
+});
+
+check("担当の交代: 交代のうち稼働中の件数を、全体の「稼働中 N 件」と同じ言葉で書かない", () => {
+  const h = run("renderHandover(__HO)");
+  ok(!/（稼働中 1 件）/.test(h) && !/うち稼働中の案件 1 件/.test(h), "交代のうち稼働中の件数を「稼働中 N 件」とだけ書いている");
+  ok((h.match(/案件がいまも稼働中のもの 1 件/g) || []).length === 2, "KPI と末尾で何の件数かを書いていない");
+});
+
+check("いま見るべき顧客: LTV の注記で「拠点が2つ以上ある法人」を続けて2回書かない", () => {
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  // focus.json の shape（2026-09-23 実測）
+  fo.shape = { ltv: { n: 517, median: 1, q1: 1, q3: 2, min: 0, max: 3, mean: 1 }, n_all: 1649, n_display: 517,
+    display_label: "稼働中の取引を持つ法人", multi_site: 136,
+    multi_site_note: "拠点が2つ以上ある法人。決裁は事業所単位なので、1本の線にまとめない" };
+  ctx.__FO4 = fo;
+  const t = textOf(run("renderFocus(__FO4)"));
+  const n = (t.match(/拠点が2つ以上ある法人/g) || []).length;
+  ok(n === 1, "「拠点が2つ以上ある法人」が " + n + " 回出ている");
+  ok(t.includes("決裁は事業所単位なので"), "注記の後半まで消している");
+});
+
+check("V12 の残り: 表の枠の端に、横の続きがある側だけ影を出す", () => {
+  const h = run('scroll(table([{ t: "a" }], [[1]]), 400)');
+  ok(/<div class="scroll-wrap"><div class="scroll"/.test(h), "枠が影を描く包み（scroll-wrap）に入っていない");
+  ok(/\.scroll-wrap\.more-l::before, \.scroll-wrap\.more-r::after\{ opacity:1; \}/.test(html), "影を出す CSS が無い");
+  const cls = new Set();
+  const inner = { scrollWidth: 1000, clientWidth: 400, scrollLeft: 0 };
+  ctx.__W = { querySelector: () => inner,
+    classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); } } };
+  run("markScroll(__W)");
+  ok(cls.has("more-r") && !cls.has("more-l"), "左端にいるのに右の影が無い／左の影がある: " + [...cls]);
+  inner.scrollLeft = 600; run("markScroll(__W)");
+  ok(!cls.has("more-r") && cls.has("more-l"), "右端まで動かしたのに右の影が残る: " + [...cls]);
+  inner.scrollWidth = 400; inner.scrollLeft = 0; run("markScroll(__W)");
+  ok(!cls.size, "はみ出していない表に影を出している: " + [...cls]);
+  ok(/markScrollAll\(\);[^\n]*\n\}/.test(html.split("function wire(v)")[1] || ""), "描いた後（wire）に影を付けていない");
+});
+
 console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
 if (failed) process.exit(1);
