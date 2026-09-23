@@ -1430,6 +1430,173 @@ check("読み方の枠: MTG の品質・電話で、見出しと本文の頭に�
   }
 });
 
+/* ================================================================ 図の部品（第3弾, 2026-09-24） */
+/* 折れ線の点の高さを読む（svgLine の点の形。title の頭は「月: 値」） */
+function lineDots(svg) {
+  return [...String(svg).matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="[\d.]+"(?: data-shifted="(-?\d+)")?[^>]*>\s*<title>([^<]*)<\/title>/g)]
+    .map((m) => ({ cx: +m[1], cy: +m[2], shifted: m[3] != null ? +m[3] : 0, title: m[4] }));
+}
+check("ずらし: 5系列とも 0 の月でも、5つの点が全部別の高さに描かれ、軸より下に出ない（軸の端で反転して重ならない）", () => {
+  // 🔴 横断レビュー (a): 前は上下交互で、軸の端では下の番が上へ返るので 0,-4,-4,-8,-8 になり、見える線は 3 本だった
+  const svg = run('svgLine({ x: ["25-07","25-08"], series: [0,1,2,3,4].map(() => ({ pts: [{ v: 0 }, { v: 0 }] })), h: 250 })');
+  const ds = lineDots(svg);
+  ok(ds.length === 10, "点が 10 個（5系列 × 2か月）でない: " + ds.length);
+  const axisY = Math.max(...ds.map((d) => d.cy));   // いちばん下の点（ずらしていない 1 本目）＝ 0 の位置
+  for (const cx of new Set(ds.map((d) => d.cx))) {
+    const ys = ds.filter((d) => d.cx === cx).map((d) => d.cy);
+    ok(new Set(ys.map((y) => y.toFixed(1))).size === 5, "同じ月の 5 点のうち重なっているものがある: " + ys.join(","));
+    ok(ys.every((y) => y <= axisY + .05), "軸（0 の線）より下に描いた点がある: " + ys.join(",") + " 軸=" + axisY);
+  }
+  ok(/<svg [^>]*data-shift="edge"/.test(svg), "軸の端でずらしたことの印（data-shift=\"edge\"）が無い");
+  const sh = ds.filter((d) => d.shifted);
+  ok(sh.length === 8 && sh.every((d) => /ずらして表示/.test(d.title)), "ずらした点（8 個）の title にずらしたことが書かれていない");
+  const f = run('fig("採用数", "", svgLine({ x: ["a","b"], series: [0,1,2].map(() => ({ pts: [{ v: 0 }, { v: 0 }] })) }))');
+  ok(f.includes("軸の内側へずらしている") && f.includes("値は変えていません"),
+    "軸の端でずらした図の凡例に、0 の線が 0 より上に見えることの断りが無い");
+});
+check("ずらし: 軸の途中で重なった 3 本は上と下に分かれ、全部が別の高さ。重ならない図には印も断りも出さない", () => {
+  const svg = run('svgLine({ x: ["a","b"], series: [10,20,30].map((v0) => ({ pts: [{ v: v0 }, { v: 50 }] })).concat([{ pts: [{ v: 100 }, { v: 100 }] }]) })');
+  const mid = lineDots(svg).filter((d) => /^b: 50/.test(d.title));
+  ok(mid.length === 3, "50 の点が 3 つ取れない: " + mid.length);
+  ok(new Set(mid.map((d) => d.cy)).size === 3, "50 の 3 点のうち重なっているものがある: " + mid.map((d) => d.cy));
+  const sh = mid.map((d) => d.shifted).sort((a, b) => a - b);
+  ok(sh[0] < 0 && sh[1] === 0 && sh[2] > 0, "軸の途中なのに上下に分かれていない: " + sh);
+  ok(/<svg [^>]*data-shift="1"/.test(svg), "途中でずらした図に data-shift=\"1\" が無い");
+  const f = run('fig("x", "", svgLine({ x: ["a","b"], series: [{ pts: [{ v: 1 }, { v: 2 }] }, { pts: [{ v: 3 }, { v: 4 }] }] }))');
+  ok(!/data-shift|ずらして/.test(f), "重なっていない図にずらしの印・断りが出ている");
+});
+check("ずらし: lineShift は r が違えば別の位置を返し、枠の外に出さない（上端・下端・途中・片側が狭い）", () => {
+  for (const [up, down] of [[0, 200], [200, 0], [100, 100], [6, 200], [200, 6]]) {
+    const ds = run(`[1,2,3,4,5,6].map((r) => lineShift(r, ${up}, ${down}, 4))`);
+    ok(new Set(ds).size === 6 && ds.every((d) => d !== 0), `up=${up} down=${down} で同じ位置・ずらし 0 がある: ` + ds);
+    ok(ds.every((d) => -d <= up + .5 && d <= down + .5), `up=${up} down=${down} で枠の外に出る: ` + ds);
+  }
+});
+
+check("compact: 400px の枠（334px）では、横棒の注記を棒の下に回して枠の幅に収める（値と注記が横スクロールの奥に行かない）", () => {
+  const code = 'svgBarH({ w: 680, fmt: F.pct, rows: [' +
+    '{ label: "ケアサポートかがやき", v: 58.1, txt: "58.1%", note: "解約・充足 100%（決着済み 12件中）　3人" },' +
+    '{ label: "拠点B", v: 12, txt: "12.0%", note: "解約・充足 12.0%（決着済み 25件中）　8人" }] })';
+  const wide = run("FIGFIT.seq = 0; FIGFIT.avail = null; " + code);
+  ok(/viewBox="0 0 680 /.test(wide) && !/data-under/.test(wide), "枠が分からないとき（1回目）は描いた幅のまま・注記は右");
+  const narrow = run("FIGFIT.seq = 0; FIGFIT.avail = { 0: 334 }; try { " + code + " } finally { FIGFIT.avail = null; }");
+  ok(/viewBox="0 0 334 /.test(narrow), "334px の枠に合わせて描いていない: " + (narrow.match(/viewBox="[^"]*"/) || [""])[0]);
+  const under = [...narrow.matchAll(/<text class="ax" data-under="1" x="([\d.]+)"[^>]*>([^<]*)</g)];
+  ok(under.length >= 2, "注記が棒の下の行に回っていない");
+  const textW = run("textW");
+  ok(under.every((m) => +m[1] + textW(m[2]) <= 334 + 1), "棒の下の注記が枠の右からはみ出す: " +
+    under.map((m) => m[2]).join(" | "));
+  ok(narrow.includes("58.1%") && narrow.includes("100%"), "値（58.1%）・注記（100%）を落としている");
+});
+
+check("paintFigs: 1回目に測った枠の幅で図を描き直し（2回描き）、畳んだ枠の図には data-unfit を付ける", () => {
+  let calls = 0;
+  const svgs = [];
+  const el = {
+    id: "x", clientWidth: 334,
+    set innerHTML(v) {
+      this._h = v; svgs.length = 0;
+      for (const m of v.matchAll(/<svg [^>]*viewBox="0 0 ([\d.]+) [^"]*"[^>]*data-fk="(\d+)"/g)) {
+        const k = svgs.length;
+        svgs.push({ attrs: { "data-fk": m[2] }, viewBox: { baseVal: { width: +m[1] } },
+          closest: () => ({ clientWidth: k === 0 ? 334 : 0 }),   // 2つ目の図は畳んだ枠の中（幅 0）
+          getAttribute(a) { return this.attrs[a]; }, setAttribute(a, b) { this.attrs[a] = b; } });
+      }
+    },
+    get innerHTML() { return this._h; },
+    querySelectorAll: (s) => (s === "svg[data-fk]" ? svgs : []),
+  };
+  ctx.__EL = el;
+  ctx.__MK = () => { calls++; return run('svgStack({ w: 680, parts: [{ label: "a", v: 3 }, { label: "b", v: 1 }] }) + svgStack({ w: 680, parts: [{ label: "a", v: 1 }] })'); };
+  run("paintFigs(__EL, __MK)");
+  ok(calls === 2, "枠と描いた幅が違うのに描き直していない（make の呼び出し " + calls + " 回）");
+  ok(/viewBox="0 0 334 /.test(el.innerHTML), "描き直した図が枠の幅（334）になっていない");
+  ok(/viewBox="0 0 680 /.test(el.innerHTML), "畳んだ枠の図（幅を測れない）まで幅を変えている");
+  ok(svgs[1].attrs["data-unfit"] === "1" && !svgs[0].attrs["data-unfit"], "畳んだ枠の図だけに data-unfit が付いていない");
+  // 枠と描いた幅が合っていれば 1 回で終わる
+  calls = 0;
+  ctx.__MK = () => { calls++; return run('svgStack({ w: 334, parts: [{ label: "a", v: 3 }] })'); };
+  run("paintFigs(__EL, __MK)");
+  ok(calls === 1, "幅が合っている図まで描き直している（" + calls + " 回）");
+});
+
+check("figToData: 横にスクロールする図は、開いた直後の位置をデータのある側へ合わせる（左にもデータが見える図は動かさない）", () => {
+  const body = (x0) => {
+    const b = { scrollWidth: 1000, clientWidth: 334, scrollLeft: 0 };
+    b.querySelector = () => ({ viewBox: { baseVal: { width: 1000 } }, getBoundingClientRect: () => ({ width: 1000 }),
+      getAttribute: (a) => (a === "data-x0" ? String(x0) : null) });
+    return b;
+  };
+  const far = body(800), near = body(100);
+  ctx.__EL = { querySelectorAll: () => [far, near] };
+  run("figToData(__EL)");
+  ok(far.scrollLeft === 666, "データが右の奥にある図の位置が合っていない: " + far.scrollLeft + "（期待 666 = 右端）");
+  ok(near.scrollLeft === 0, "左にデータが見えている図を動かした: " + near.scrollLeft);
+});
+
+check("畳んだ枠: details を開いたとき、幅を測れずに描いた図があれば、開いたまま描き直す（横断レビュー (b)）", () => {
+  const tg = winListeners.filter((l) => l.type === "toggle");
+  ok(tg.length, "toggle を受ける処理が無い");
+  const calls = [];
+  ctx.__RD0 = run("redrawMain");
+  ctx.__RD = (D, keep) => calls.push(keep);
+  run("redrawMain = __RD; lastPayload = {};");
+  const main = document.getElementById("cs-main");
+  const qsa0 = main.querySelectorAll;
+  try {
+    const d0 = { open: false }, d1 = { open: true };
+    main.querySelectorAll = (s) => (s === "details" ? [d0, d1] : []);
+    main.contains = (d) => d === d1 || d === d0;
+    const fire = (d) => tg.forEach((l) => l.fn({ target: d }));
+    d1.querySelector = (s) => (s === "svg[data-unfit]" ? {} : null);
+    fire(d1);
+    ok(calls.length === 1, "幅を測れずに描いた図がある枠を開いても描き直さない（" + calls.length + " 回）");
+    ok(JSON.stringify(calls[0]) === "[1]", "開いている details を開いたまま描き直していない: " + JSON.stringify(calls[0]));
+    // 描き直した後（data-unfit が無い）・閉じたときは描き直さない（開き直しの toggle で繰り返さない）
+    d1.querySelector = () => null; fire(d1);
+    d0.querySelector = (s) => (s === "svg[data-unfit]" ? {} : null); fire(d0);
+    ok(calls.length === 1, "描き直す必要の無い toggle でも描き直している（" + calls.length + " 回）");
+  } finally {
+    main.querySelectorAll = qsa0; delete main.contains;
+    run("redrawMain = __RD0; lastPayload = null;");
+  }
+});
+check("畳んだ枠: paintFigs は keep の details を開き直してから幅を測る（描き直しで畳まない）", () => {
+  const ds = [{ open: false }, { open: false }];
+  ctx.__EL = { id: "x", innerHTML: "", querySelectorAll: (s) => (s === "details" ? ds : []) };
+  run('paintFigs(__EL, () => "<details></details><details></details>", [1])');
+  ok(!ds[0].open && ds[1].open, "覚えた details を開き直していない: " + ds.map((d) => d.open));
+});
+
+check("図の部品: 案件・拠点を見分ける色に灰色どうし・判定の色を並べない（houjin の線 5 本・拠点の積み上げ）", () => {
+  const cs = run("CASE_COLORS");
+  ok(cs.length === 5 && new Set(cs).size === 5, "5 色が別々でない: " + cs);
+  for (const bad of ["var(--ink-2)", "var(--ink-3)", "var(--ghost)", "var(--hi)", "var(--ki)", "var(--midori)"])
+    ok(!cs.includes(bad), "見分けの色に灰色・判定の色 " + bad + " がある");
+  ok(run("SITE_COLORS") === cs, "拠点の積み上げが案件の線と違う並びを使っている");
+});
+check("図の部品: 折れ線の 0 の点（○）が横軸の月の字に重ならない", () => {
+  const svg = run('svgLine({ x: ["25-07","25-08"], series: [{ pts: [{ v: 0 }, { v: 2 }] }] })');
+  const d = lineDots(svg).find((p) => /^25-07/.test(p.title));
+  const lab = svg.match(/<text class="axl" x="[\d.]+" y="([\d.]+)"[^>]*>25-07</);
+  ok(d && lab, "点か月の字が取れない");
+  // 点の下端（半径 4.2）と月の字の上端（ベースラインから約 9px 上）の間を 3px 以上あける
+  ok(+lab[1] - 9 - (d.cy + 4.2) >= 3, "0 の点と月の字の間が詰まっている: 点 " + d.cy + " / 字 " + lab[1]);
+});
+check("図の部品: 接触の帯が全部の月で記録なしのとき、目盛り「1」を出さない", () => {
+  const lanes = (pts) => run(`svgStackLanes({ months: ["25-01","25-02"], lanes: [{ type: "bars", label: "接触", color: "blue", fillLabel: "60秒超", outLabel: "全体", pts: ${JSON.stringify(pts)} }] })`);
+  const none = lanes([{ fill: 0, out: 0 }, { fill: 0, out: 0 }]);
+  ok(!/<text class="ax" x="[\d.]+" y="[\d.]+">1<\/text>/.test(none), "棒が 1 本も無い帯に目盛り「1」が出る");
+  const some = lanes([{ fill: 1, out: 2 }, { fill: 0, out: 0 }]);
+  ok(/<text class="ax" x="[\d.]+" y="[\d.]+">2<\/text>/.test(some), "棒がある帯の目盛り（2）が消えた");
+});
+check("図の部品: 前回の値が 0 付近でも、前回の破線の枠を潰さず、本当の位置に縦の印を置く", () => {
+  const svg = run('svgBarH({ w: 680, fmt: F.int, rows: [{ label: "a", v: 900000, v0: 0 }] })');
+  const r = svg.match(/<rect x="[\d.]+" y="[\d.]+" width="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/);
+  ok(r && +r[1] >= 5, "前回の破線の枠が潰れている（幅 " + (r && r[1]) + "）");
+  ok(/<line data-v0tick="1"[^>]*><title>前回: 0<\/title>/.test(svg), "前回の本当の位置の縦の印が無い");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
