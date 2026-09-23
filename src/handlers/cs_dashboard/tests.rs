@@ -400,6 +400,17 @@ fn 目標が無い取引は母数に入れない() {
     assert_eq!(zero, 198, "実績ゼロ（目標はある）");
     assert_ne!(zero, unwritten, "実績ゼロと未記入を同じ数にしない");
 
+    // 帯の合計は母数と一致する。目標はあるが承諾数が空の 6 件（351 - 345）を黙って落とさない
+    let bands = a["bands"].as_array().unwrap();
+    let sum: i64 = bands.iter().filter_map(|b| b["n"].as_i64()).sum();
+    assert_eq!(sum, 604, "帯の合計が pop と合わない");
+    let no_syo = bands
+        .iter()
+        .find(|b| b["label"] == "承諾数が空（目標はある）")
+        .and_then(|b| b["n"].as_i64())
+        .unwrap();
+    assert_eq!(no_syo, 351 - 345, "目標はあるが承諾数が空");
+
     let all = &v["goal_all"];
     assert_eq!(all["pop"], 3432);
     assert_eq!(all["has_goal"], 1146);
