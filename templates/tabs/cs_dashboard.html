@@ -3729,7 +3729,8 @@ function ctlbar(v, D) {
     h += '<label class="act"><input type="checkbox" id="cs-censor">' +
       "右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>";
   }
-  if (isCustView(v.key)) h += '<select id="cs-houjin" class="act"></select>';
+  /* 選択欄に名前が無く、読み上げでは何を選ぶ欄か分からなかった（V20） */
+  if (isCustView(v.key)) h += '<select id="cs-houjin" class="act" aria-label="法人を選ぶ"></select>';
   if (v.path) h += '<button type="button" class="act" id="cs-reload">読み直す</button>';
   if (D && D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
   return h + "</div>";
