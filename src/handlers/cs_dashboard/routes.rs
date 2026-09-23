@@ -1713,9 +1713,44 @@ fn monthly_of(
     Value::Object(out)
 }
 
+/// 注力の内訳。**法人単位**（大きさの話）。
+///
+/// 🔴 **MTG途絶の帯とは別物。** あちらは取引単位で日々変わる状態、こちらは
+/// 法人の大きさで、日々は変わらない。GAS の Layer に当たるのは帯のほう。
+///
+/// 🔴 定義はシートの `focus_flags` をそのまま読んでいる。**ここで作り直さない。**
+/// 条件は重なる（1社が2つ3つに当たる）ので、内訳の合計は注力の社数と一致しない。
+fn focus_shape(cust: &[super::Customer], flags: &HashMap<String, super::FocusFlags>) -> Value {
+    let disp: Vec<&super::Customer> = cust.iter().filter(|c| c.is_display_target).collect();
+    let f = |c: &super::Customer| flags.get(&c.houjin).copied().unwrap_or_default();
+    let n = |pop: &[&super::Customer], g: fn(&super::FocusFlags) -> bool| -> usize {
+        pop.iter().filter(|c| g(&f(c))).count()
+    };
+    let all: Vec<&super::Customer> = cust.iter().collect();
+    json!({
+        "n_all": cust.len(),
+        "n_display": disp.len(),
+        "display_label": "稼働中の取引を持つ法人",
+        // 図は表示対象（稼働中の取引を持つ法人）で描く。全法人だと点が多すぎて数えられない
+        "n_focus": n(&disp, |x| x.any),
+        "monthly_over_300k": n(&disp, |x| x.monthly_over_300k),
+        "enterprise": n(&disp, |x| x.enterprise),
+        "multi_site": n(&disp, |x| x.multi_site),
+        // 全法人での件数も出す（表示対象だけを見ていると思われないように）
+        "n_focus_all": n(&all, |x| x.any),
+        "rule": "月額30万以上 ／ 従業員1,000名以上 ／ 拠点3つ以上 のいずれかに当たる法人です。\
+    条件は重なるので、内訳を足しても注力の社数にはなりません。\
+    この線引きはシートに入っている値をそのまま読んでいて、画面で決めていません",
+        "not_layer": "これは法人の大きさの話で、法人ごとに決まります。日々は変わりません。\
+    日々変わる状態は「今日動く先」の MTG途絶の帯のほうです。混ぜて読まないでください",
+    })
+}
+
 pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
     let cust = customers_of(&sheets.customer);
+    let fflags = super::focus_flags_of(&sheets.customer);
+    let focus = focus_shape(&cust, &fflags);
 
     let Some(h) = houjin.filter(|x| !x.is_empty()) else {
         // 法人の指定が無ければ一覧だけ返す（全部の明細を返すと巨大になる）
@@ -1745,11 +1780,17 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "default_reason": "取引がいちばん多い法人を既定で開いています。\
         ①今日動く先の1件目にしていないのは、あちらが日によって変わるので\
         「昨日と同じ顧客を続けて見る」ができなくなるためです",
-            "index": list.iter().map(|c| json!({
-                "houjin": c.houjin, "name": c.name, "ltv": c.ltv,
-                "deals": c.deal_count, "sites": c.kyoten_unique,
-                "active": c.active_deal_count, "last_expiration": c.last_expiration,
-            })).collect::<Vec<_>>(),
+            "index": list.iter().map(|c| {
+                let f = fflags.get(&c.houjin).copied().unwrap_or_default();
+                json!({
+                    "houjin": c.houjin, "name": c.name, "ltv": c.ltv,
+                    "deals": c.deal_count, "sites": c.kyoten_unique,
+                    "active": c.active_deal_count, "last_expiration": c.last_expiration,
+                    // 注力かどうかと、**なぜ注力なのか**。理由を出さないと絞り込めない
+                    "focus": f.any, "focus_why": f.reasons(),
+                })
+            }).collect::<Vec<_>>(),
+            "focus": focus,
             "note": "houjin を付けると1社の明細を返します",
         });
     };
@@ -1906,11 +1947,17 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "all_cached": sheets.all_cached,
             "not_counted": "※ 採用単価は拠点ごとに分けています。1本にまとめると拠点間のばらつきが時間の悪化に見えます",
         },
-        "customer": c.map(|c| json!({
-            "name": c.name, "ltv": c.ltv, "deals": c.deal_count,
-            "sites": c.kyoten_unique, "active": c.active_deal_count,
-            "max_renewal_no": c.max_renewal_no, "last_expiration": c.last_expiration,
-        })),
+        "customer": c.map(|c| {
+            let f = fflags.get(&c.houjin).copied().unwrap_or_default();
+            json!({
+                "name": c.name, "ltv": c.ltv, "deals": c.deal_count,
+                "sites": c.kyoten_unique, "active": c.active_deal_count,
+                "max_renewal_no": c.max_renewal_no, "last_expiration": c.last_expiration,
+                "focus": f.any, "focus_why": f.reasons(),
+            })
+        }),
+        // 注力の内訳。🔴 明細を開いていても出す（一覧に戻らないと分からない、を作らない）
+        "focus": focus,
         "deals": ds.iter().map(|d| json!({
             "deal_id": d.id, "name": d.name,
                 "stage": d.stage_label, "kind": d.contract_kind,
@@ -2104,6 +2151,10 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     let nps = latest_nps(&sheets.history);
     let series = super::series_of(&sheets.history);
     let until = today.format("%Y-%m").to_string();
+    // 🔴 MTG は**録画（事実）とメール由来（推定）の両方**を見る。
+    //    録画だけだと記録が無いものが191件出るが、その多くは「していない」ではなく
+    //    「取引に結べていない」。それをそのまま赤にしない（2026-09-23）。
+    let last_mtg = super::last_mtg_by_deal(&sheets.mtg, &sheets.mail_mtg);
 
     // 同じ進捗帯の採用単価の中央値。比べる相手をそろえる
     let band_of = |d: &Deal| -> Option<usize> {
@@ -2142,6 +2193,13 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
 
     let mut rows = Vec::new();
     let mut flag_count: BTreeMap<&str, usize> = BTreeMap::new();
+    // MTG途絶の帯ごとの件数。帯・出どころ・強制引き上げを別々に数える
+    let mut band_count: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut src_count: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut forced_n = 0usize;
+    let mut cover_rec = 0usize;
+    let mut cover_mail = 0usize;
+    let mut cover_any = 0usize;
     for d in &act {
         let (owner, retired) = who
             .get(&d.id)
@@ -2165,6 +2223,27 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
         // 接触率。🔴 ②コンサルタント一覧と同じ関数。計算を2つ持たない
         let (touched_m, elapsed_m) = super::contact_rate_of(d, &contacts, today);
         let np = nps.get(&d.id);
+        // MTG途絶の帯。閾値は GAS `no_mtg_alerter.gs` と同じ
+        let gap = super::mtg_gap_of(d, &last_mtg, today);
+        *band_count.entry(gap.band.label()).or_insert(0) += 1;
+        if gap.band != super::MtgBand::Onboarding {
+            let (r, m) = last_mtg.get(&d.id).copied().unwrap_or((None, None));
+            if r.is_some() {
+                cover_rec += 1;
+            }
+            if m.is_some() {
+                cover_mail += 1;
+            }
+            if r.is_some() || m.is_some() {
+                cover_any += 1;
+            }
+        }
+        if gap.source != super::MtgSource::None {
+            *src_count.entry(gap.source.label()).or_insert(0) += 1;
+        }
+        if gap.forced_by_expiry {
+            forced_n += 1;
+        }
         let band = band_of(d);
         let mycpa = cpa(d);
         let bmed = band.and_then(|b| band_med[b]);
@@ -2194,6 +2273,14 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
         }
         if retired {
             flags.push("担当が退職者のまま");
+        }
+        // 🔴 MTG途絶の名札。**記録が無いものには立てない**（そのまま赤にしない）。
+        //    接触の名札（MTG＋60秒超の通話）とは別に立つので、同じ案件に2本つくことがある。
+        //    向いている先が違う（あちらは電話も含む「連絡そのもの」、こちらは MTG だけ）。
+        if gap.forced_by_expiry {
+            flags.push("満了90日前でMTGが30日以上途絶");
+        } else if gap.band.is_alert() {
+            flags.push(gap.band.label());
         }
         if matches!(d.saiyomokuhyou, Some(t) if t > 0.0)
             && matches!(d.rate_tassei(), Some(r) if r < 0.5)
@@ -2234,6 +2321,14 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
             "contact_touched": touched_m,
             "contact_months": elapsed_m,
             "contact_rate": rate(touched_m as f64, elapsed_m as f64),
+            // MTG途絶。🔴 **出どころを行ごとに出す**（録画は事実、メールは推定）
+            "mtg_band": gap.band,
+            "mtg_band_label": gap.band.label(),
+            "mtg_days": gap.days,
+            "mtg_last": gap.last.map(|x| x.to_string()),
+            "mtg_source": gap.source,
+            "mtg_source_label": gap.source.label(),
+            "mtg_forced_by_expiry": gap.forced_by_expiry,
             "saiyomokuhyou": d.saiyomokuhyou,
             "rate_tassei": d.rate_tassei(),
             "cpa": mycpa, "cpa_band_median": bmed, "cpa_vs_band": vs_band,
@@ -2257,12 +2352,58 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
             })
     });
 
+    // 帯は決まった順に並べる（件数順にすると毎日入れ替わって読めない）
+    let band_order = [
+        super::MtgBand::Critical,
+        super::MtgBand::Red,
+        super::MtgBand::Yellow,
+        super::MtgBand::Recent,
+        super::MtgBand::NoRecord,
+        super::MtgBand::Onboarding,
+    ];
+    let n_judged = act.len()
+        - band_count
+            .get(super::MtgBand::Onboarding.label())
+            .copied()
+            .unwrap_or(0);
     let meta = json!({
         "today": today.to_string(),
         "n_active": act.len(),
         "all_cached": sheets.all_cached,
         "flag_counts": flag_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
             .collect::<Vec<_>>(),
+        "mtg_gap": {
+            "bands": band_order.iter().map(|b| json!({
+                "band": b, "label": b.label(),
+                "n": band_count.get(b.label()).copied().unwrap_or(0),
+                "alert": b.is_alert(),
+            })).collect::<Vec<_>>(),
+            "forced_by_expiry": forced_n,
+            "sources": src_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
+                .collect::<Vec<_>>(),
+            // 帯を付けた母数（立ち上がり期を除いた稼働中）に対する被覆
+            "n_judged": n_judged,
+            "coverage": {
+                "recording": cover_rec, "recording_rate": rate(cover_rec as f64, n_judged as f64),
+                "mail": cover_mail, "mail_rate": rate(cover_mail as f64, n_judged as f64),
+                "either": cover_any, "either_rate": rate(cover_any as f64, n_judged as f64),
+            },
+            "rule": format!(
+                "最終MTGからの経過日数で分けています。注意 {}〜{}日 ／ 警告 {}〜{}日 ／ 重大 {}日以上。\
+    契約開始から{}日以内は立ち上がり期として帯を付けていません。\
+    満了まで{}日以内で{}日以上途絶しているものは、経過日数に関わらず重大にしています。\
+    線引きは毎朝動いている GAS（no_mtg_alerter）と同じです",
+                super::MTG_GAP_YELLOW_DAYS, super::MTG_GAP_RED_DAYS - 1,
+                super::MTG_GAP_RED_DAYS, super::MTG_GAP_CRITICAL_DAYS - 1,
+                super::MTG_GAP_CRITICAL_DAYS, super::MTG_ONBOARDING_GRACE_DAYS,
+                super::MTG_PRE_TERMINATION_DAYS, super::MTG_PRE_TERMINATION_GAP_DAYS),
+            "no_record_note": "「記録が無い」は「MTGをしていない」という意味ではありません。\
+    録画が取引に結べていないぶんを含みます。だから名札は立てていません。\
+    録画（事実）とメール由来の実施日（推定・±1日で83.3%）の両方を見たうえで、\
+    それでも見つからなかったものだけがここに入ります",
+            "source_note": "行ごとに、その日付をどちらから取ったかを出しています。\
+    録画は事実、メール由来は推定です。1つの数字にまとめていません",
+        },
         "order_rule": "既定の並びは「名札の本数が多い順、同じなら金額の大きい順」です。\
     スコアや確率は出していません。契約開始時点の当たり具合（AUC 0.583）では順位付けの\
     根拠になりません。何で上に来たかは、その行の名札を見れば分かります",
@@ -2304,6 +2445,32 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         .cloned()
         .collect();
 
+    // 今週始まった契約。🔴 **始まった日に気づけないと、立ち上がり期
+    //    （開始30日以内は帯を付けない）がただの取りこぼしになる。**
+    //    日数は GAS `new_deal_detector.gs` の 7日と同じ。
+    //    GAS は `createdate` で数えているが、ここは契約の開始日で数える
+    //    （立ち上がり期と同じ時計でないと、対にならない）。
+    let started: Vec<Value> = rows
+        .iter()
+        .filter(|r| {
+            r["start"]
+                .as_str()
+                .and_then(date10)
+                .map(|st| {
+                    let age = (today - st).num_days();
+                    (0..=super::NEW_DEAL_LOOKBACK_DAYS).contains(&age)
+                })
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    // 開始がまだ先のもの。**「始まっていない」を「途絶」と読ませない**ために別に出す
+    let not_started: Vec<Value> = rows
+        .iter()
+        .filter(|r| r["not_started"] == true)
+        .cloned()
+        .collect();
+
     if let Some(m) = meta.as_object_mut() {
         m.insert("filter_rule".into(), json!(format!(
             "名札が {MIN_FLAGS} 本以上ついた {n_hit} 件から、金額の大きい順に {KEEP} 件を出しています。\
@@ -2312,6 +2479,25 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         )));
         m.insert("n_hit".into(), json!(n_hit));
         m.insert("n_shown".into(), json!(top.len()));
+        m.insert("n_started_this_week".into(), json!(started.len()));
+        m.insert("n_not_started".into(), json!(not_started.len()));
+        m.insert(
+            "new_deal_rule".into(),
+            json!(format!(
+                "契約開始日が{}日以内のものを「今週始まった契約」として出しています。\
+名札の本数に関わらず落としていません。始まったことに気づけないと、\
+立ち上がり期（開始から{}日以内は MTG途絶の帯を付けない）が\
+ただの取りこぼしになるためです。開始がまだ先の契約は別に数えています",
+                super::NEW_DEAL_LOOKBACK_DAYS,
+                super::MTG_ONBOARDING_GRACE_DAYS
+            )),
+        );
     }
-    json!({"meta": meta, "rows": top, "expiring_this_week": soon})
+    json!({
+        "meta": meta,
+        "rows": top,
+        "expiring_this_week": soon,
+        "started_this_week": started,
+        "not_started": not_started,
+    })
 }
