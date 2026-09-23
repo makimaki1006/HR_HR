@@ -3255,3 +3255,30 @@ fn 担当者一覧の文言に訂正前の定義とmarkdownが無い() {
     let all = serde_json::to_string(&v).unwrap();
     assert!(!all.contains("**"), "画面に出す文字列に ** が入っている");
 }
+
+/// 🔴 画面にそのまま出る文に英語の用語を残さない（2026-09-23 デプロイ後の実機確認）。
+/// 電話の「Call は Deal に多対多」（reach.note）と、案件の並びの「AUC 0.583」（order_rule）が
+/// 英語のまま出ていた。画面の側（templates）の文は tests/consulting_view_rules.js が見る。
+#[test]
+fn 画面に出す文に英語の用語を残さない() {
+    let s = sheets();
+    let t = fixture_day();
+    let phone = build_phone(&s, t);
+    let today = build_today_board(&s, t);
+    let board = build_deal_board(&s, t);
+    for (name, v) in [
+        ("電話 reach.note", &phone["reach"]["note"]),
+        ("今日動く先 order_rule", &today["meta"]["order_rule"]),
+        ("案件そのもの order_rule", &board["meta"]["order_rule"]),
+    ] {
+        let text = v
+            .as_str()
+            .unwrap_or_else(|| panic!("{name} が文字列でない: {v}"));
+        for w in ["Call", "Deal", "多対多", "AUC", "StratifiedKFold", "churn"] {
+            assert!(
+                !text.contains(w),
+                "{name} に英語の用語「{w}」が残っている: {text}"
+            );
+        }
+    }
+}
