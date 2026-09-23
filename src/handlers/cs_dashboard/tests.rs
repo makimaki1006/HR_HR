@@ -830,6 +830,17 @@ fn 顧客の形が母数つきで出る() {
     let v = build_focus(&sheets(), fixture_day());
     let sh = &v["shape"];
     assert_eq!(sh["n_all"], 1649);
+    // 🔴 画面の「法人 N」は houjin_population の main（本部アプローチ・法人番号で見ると同じ母数, F4）
+    assert_eq!(
+        sh["n_houjin"], 1646,
+        "画面の法人数が houjin_population と合わない"
+    );
+    assert_eq!(sh["n_houjin_option_only"], 3);
+    let hq = build_headquarters(&sheets(), fixture_day());
+    assert_eq!(
+        sh["n_houjin"], hq["meta"]["n_houjin"],
+        "本部アプローチの全 N 法人と合わない"
+    );
     let disp = sh["n_display"].as_i64().unwrap();
     assert!(disp > 0 && disp < 1649, "表示対象が {disp} 件");
     assert!(sh["ltv"]["n"].as_i64().unwrap() > 0, "LTVの代表値が空");

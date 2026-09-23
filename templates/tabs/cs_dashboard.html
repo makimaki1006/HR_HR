@@ -251,6 +251,12 @@
   .kpi{ background:var(--panel); border:1px solid var(--rule); border-radius:var(--radius-lg);
         border-top:3px solid var(--rule); padding:var(--space-3) var(--space-4);
         box-shadow:var(--shadow-card); }
+  /* 🔴 2026-09-23 統合後の実測（400px）: team の KPI「接触率がいちばん低い」の担当名（英数字の続き
+     h9821a39368fe、29px）が箱（中身 144px）に収まらず 263px まで伸び、ページ本体が 486px に広がっていた
+     （はみ出し 86px）。箱は中身の最小幅で広がらないようにし（min-width:0）、切れ目の無い長い語も
+     箱の幅で折り返す。数字は1行に収まる幅なので折り返されない。日付（is-date）は nowrap のまま */
+  .kpi{ min-width:0; }
+  .kpi .lbl, .kpi .big, .kpi .fine{ overflow-wrap:anywhere; }
   /* 🔴 button の中身は span なので、block にしないと1行に流れる */
   .kpi .lbl, .kpi .big, .kpi .fine, .kpi .act{ display:block; }
   .kpi .lbl{ color:var(--ink-2); font-size:11.5px; line-height:1.55; letter-spacing:.02em;
@@ -309,6 +315,11 @@
   figure.fig{ container-type:inline-size; }
   .figscroll{ font-size:11px; line-height:20px; color:var(--ink-2); overflow:hidden;
               height:clamp(0px, calc((var(--minw, 0px) - 100cqw) * 999), 20px); }
+  /* 🔴 2026-09-23 レビュー F1: 描いた後は、枠が実際にはみ出しているか（scrollWidth > clientWidth）で
+     決め直す（markFig が fig-measured / fig-over を付け外しする）。tabindex・読み上げ名と同じ条件にそろえる。
+     上の cqw の式は、測る前（JS が走る前）の見え方だけを受け持つ */
+  figure.fig.fig-measured .figscroll{ height:0; }
+  figure.fig.fig-measured.fig-over .figscroll{ height:20px; }
   /* 横にスクロールする枠にキーボードで止まったとき、どこにいるか見えるようにする */
   figure.fig .figbody:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   /* 切った左のラベルの全文（fig の <details class="fold figfull">）。ふだんは1行に畳む。
@@ -829,8 +840,11 @@ function fig(caption, hint, body, legend) {
     (hint ? `<span class="hint">${hint}</span>` : "") + `</figcaption>` +
     (scroll ? `<div class="figscroll" style="--minw:${Math.ceil(minW)}px">← 図を横にスクロールできます →</div>` : "") +
     /* 🔴 横にスクロールする枠は Tab で止まれるようにする（キーボードの矢印で動かせる）。
-       tabindex が無いと、枠に自動でフォーカスが当たるブラウザでしか動かせなかった（2026-09-23 検証） */
-    (scroll ? `<div class="figbody" tabindex="0" role="group" aria-label="${esc(caption)}（横にスクロールできる枠）">`
+       tabindex が無いと、枠に自動でフォーカスが当たるブラウザでしか動かせなかった（2026-09-23 検証）。
+       🔴 2026-09-23 レビュー F1: 前は minW > 330 だけで tabindex と「横にスクロールできる枠」の名前を
+       付けていたので、1440px で横に動かない図まで全部 Tab で止まっていた。ここでは候補の印（data-cap）だけ
+       付け、描いた後・窓の幅が変わったときに markFig が実際のはみ出しを測って付け外しする */
+    (scroll ? `<div class="figbody" data-cap="${esc(caption)}">`
             : `<div class="figbody">`) + `${body}</div>` +
     (fulls.length ? `<details class="fold figfull"><summary>省略した名前の全文（${fulls.length} 件）</summary>` +
                     `<ul>${fulls.join("")}</ul></details>` : "") +
@@ -1849,7 +1863,26 @@ function markScroll(w) {
   w.classList.toggle("more-r", max > 1 && s.scrollLeft < max - 1);
   w.classList.toggle("more-l", max > 1 && s.scrollLeft > 1);
 }
-function markScrollAll() { document.querySelectorAll(".scroll-wrap").forEach(markScroll); }
+/** 図の枠（fig の .figbody[data-cap]）が実際に横へはみ出しているときだけ、Tab で止まれるようにし
+    （tabindex）、「横にスクロールできる枠」の読み上げ名を付ける。文の案内（.figscroll）も同じ条件で出す。
+    🔴 2026-09-23 レビュー F1: 図の最小幅だけで決めていて、1440px で動かない図まで Tab で止まっていた */
+function markFig(b) {
+  if (!b || !b.setAttribute) return;
+  const over = b.scrollWidth - b.clientWidth > 1;
+  if (over) {
+    b.setAttribute("tabindex", "0");
+    b.setAttribute("role", "group");
+    b.setAttribute("aria-label", (b.getAttribute("data-cap") || "") + "（横にスクロールできる枠）");
+  } else {
+    b.removeAttribute("tabindex"); b.removeAttribute("role"); b.removeAttribute("aria-label");
+  }
+  const f = b.parentNode;
+  if (f && f.classList) { f.classList.add("fig-measured"); f.classList.toggle("fig-over", over); }
+}
+function markScrollAll() {
+  document.querySelectorAll(".scroll-wrap").forEach(markScroll);
+  document.querySelectorAll("figure.fig .figbody[data-cap]").forEach(markFig);
+}
 function scrollCap(inner, total) {
   const s = String(inner);
   const body = s.split("<tbody>").slice(1).join("");
@@ -2035,9 +2068,11 @@ function renderTeam(D) {
 
   h += note("def", "この一覧の決まりごと",
     esc(dispText(D.owner_rule)) + "<br>" + esc(D.focus_rule) +
-    /* 担当の割れ（mod.rs consultant_ties）。どちらを採ったかも書く */
+    /* 担当の割れ（mod.rs consultant_ties）。ここでは件数だけ書く。
+       🔴 2026-09-23 レビュー F2: どちらを採ったか（シートで後に来る行）は owner_rule（routes.rs）が
+       すでに書いていて、同じ文が2回出ていた。採り方の説明は owner_rule の1か所にする */
     (D.meta.owner_ties ? "<br>同じ日に担当の記録が複数あって担当が割れている稼働中の案件が " +
-      num(D.meta.owner_ties) + " 件あります。シートで後に来る行（追記順で新しい方）を担当にしています。" : "") +
+      num(D.meta.owner_ties) + " 件あります（どちらを採ったかは上のとおり）。" : "") +
     (D.meta.unknown_owner ? "<br>担当が取れない取引が " + num(D.meta.unknown_owner) +
       " 件あります。<b>「その他」に混ぜていません</b>（件数だけ出しています）。" : ""));
   return h + foot(D.meta, true);   /* not_counted は頭の枠で出している */
@@ -2182,7 +2217,12 @@ function renderFocus(D) {
         })
       : tooFew(lt ? lt.n : 0, "LTV"),
     lg("quart", C.ai, "四分位") + lg("line", C.ai, "中央値") +
-    '<i class="full">法人 ' + num(sh.n_all) + "（表示対象 " + num(sh.n_display) +
+    /* 🔴 2026-09-23 レビュー F4: 「法人 N」は CS_顧客 の行数（n_all = 1,649）を出していて、
+       法人番号で見る・本部アプローチの「全 1,646 法人」（houjin_population。オプション契約しか
+       持たない3法人を外す）と合わなかった。同じ母数（n_houjin）にし、外した数も書く */
+    '<i class="full">法人 ' + num(sh.n_houjin) +
+    (sh.n_houjin_option_only ? "（オプション契約しか持たない " + num(sh.n_houjin_option_only) +
+      " 法人を除く）" : "") + "（表示対象 " + num(sh.n_display) +
     /* 🔴 サーバの multi_site_note が「拠点が2つ以上ある法人。決裁は…」で始まるので、
        「拠点が2つ以上ある法人 136。拠点が2つ以上ある法人。」と同じ語が続いていた（2026-09-23 実機）。
        言葉の頭が同じなら重ねない */
@@ -3245,12 +3285,19 @@ function spanHint(mm) {
      満了日が期間より前にある取引（fixture 12件。12ヶ月契約なのに 2025-12-18〜2026-06-17 など。
      ほかに月の途中の開始で、またがる月数がちょうど期間になる6件）には何も書いていなかった。
      std_expiration はサーバが contract_month と同じ区切りで出す */
+  /* 🔴 2026-09-23 レビュー F3: 満了日が「開始＋契約期間」から数日ずれただけの取引
+     （2025-12-18 開始の12ヶ月契約で満了 2026-12-14 など）にも「より前にあり、暦では 13 か月に
+     またがります」と出ていた。数日のずれでは、またがる月の数は変わらない（13 か月の理由は月の途中の開始）。
+     満了日のずれを理由にするのは、**ずれで月の数が変わったとき**（標準の満了日でまたがる月の数
+     spStd と実際の sp が違うとき）だけにする */
   const ex = String(mm.expiration || "").slice(0, 10);
   const st = mm.std_expiration;
   const span = "暦では " + num(sp) + " か月にまたがります";
-  if (st && ex.length === 10 && ex > st)
+  const spStd = st ? monthIdx(String(mm.start || ""), String(st)) : null;
+  const moved = st && ex.length === 10 && spStd != null && sp !== spStd;
+  if (moved && ex > st)
     t += "。満了日が「開始＋契約期間」（" + esc(st) + "）より後ろにあり、" + span;
-  else if (st && ex.length === 10 && ex < st)
+  else if (moved && ex < st)
     t += "。満了日が「開始＋契約期間」（" + esc(st) + "）より前にあり、" + span;
   else if (sp === mm.period)
     return t;

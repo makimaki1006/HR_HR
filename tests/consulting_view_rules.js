@@ -568,11 +568,40 @@ check("図の部品(1): 狭い画面で図を縮めきらず、枠の中で横�
     ok(/style="--fw:\d+px"/.test(v), k + " の図に --fw（描いた幅）が無い");
   const f = run('fig("題", "", svgBarH({ w: 700, rows: [{ label: "a", v: 1 }] }))');
   ok(f.includes('class="figscroll" style="--minw:644px"'), "700px の図の横スクロールの案内に、図の最小幅（700×.92=644px）が無い");
-  // 横にスクロールする枠は Tab で止まれる（キーボードの矢印で動かせる）。スクロールしない小さい図には付けない
-  ok(/<div class="figbody" tabindex="0" role="group" aria-label="題（横にスクロールできる枠）">/.test(f),
-    "横にスクロールする枠に tabindex / 名前が無い（キーボードで動かせない）");
+  // 横にスクロールしうる枠には候補の印（data-cap）だけ付ける。tabindex・読み上げ名は描いた後に
+  // 実際のはみ出しを測って付ける（2026-09-23 レビュー F1: minW > 330 だけで付けていて、
+  // 1440px で横に動かない図まで全部 Tab で止まっていた）
+  ok(/<div class="figbody" data-cap="題">/.test(f), "横にスクロールしうる枠に候補の印（data-cap）が無い");
+  ok(!/tabindex|横にスクロールできる枠/.test(f),
+    "描いた時点（はみ出しを測る前）で tabindex / 「横にスクロールできる枠」を付けている（F1。1440px でも Tab で止まる）");
   const small = run('fig("小", "", svgStack({ w: 300, parts: [{ label: "a", v: 1 }] }))');
-  ok(!/figscroll|tabindex/.test(small), "330px に収まる図にまでスクロールの案内・tabindex を付けている");
+  ok(!/figscroll|tabindex|data-cap/.test(small), "330px に収まる図にまでスクロールの案内・tabindex を付けている");
+});
+
+check("図の部品(1b): 図の枠が実際にはみ出しているときだけ Tab で止まり、案内も同じ条件で出す（F1）", () => {
+  /* 偽の枠。markFig が付け外しする属性とクラスを覚える */
+  const attrs = { "data-cap": "題" }, cls = new Set();
+  const b = { scrollWidth: 1000, clientWidth: 400,
+    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; },
+    getAttribute: (k) => (k in attrs ? attrs[k] : null),
+    parentNode: { classList: { add: (c) => cls.add(c), toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); } } } };
+  ctx.__FB = b;
+  run("markFig(__FB)");   // 400px 幅: はみ出している
+  ok(attrs.tabindex === "0" && attrs.role === "group" && attrs["aria-label"] === "題（横にスクロールできる枠）",
+    "はみ出している枠に tabindex / 読み上げ名が無い: " + JSON.stringify(attrs));
+  ok(cls.has("fig-measured") && cls.has("fig-over"), "はみ出している枠で案内を出す印（fig-over）が無い: " + [...cls]);
+  b.clientWidth = 1000; run("markFig(__FB)");   // 1440px 幅: 収まった
+  ok(!("tabindex" in attrs) && !("role" in attrs) && !("aria-label" in attrs),
+    "はみ出していない枠に tabindex / 読み上げ名が残っている（1440px でも Tab で止まる, F1）: " + JSON.stringify(attrs));
+  ok(cls.has("fig-measured") && !cls.has("fig-over"), "はみ出していない枠で案内を出す印が残っている: " + [...cls]);
+  // 案内の CSS は、測った後は fig-over だけで出し分ける（tabindex と同じ条件）
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/figure\.fig\.fig-measured \.figscroll\{ height:0; \}/.test(css) &&
+     /figure\.fig\.fig-measured\.fig-over \.figscroll\{ height:20px; \}/.test(css),
+    "測った後の案内の出し分けが、はみ出しの測定（fig-over）になっていない");
+  // 描いた後・窓の幅が変わったとき（markScrollAll）に測り直している
+  ok(/function markScrollAll\(\) \{[^}]*\.figbody\[data-cap\]"\)\.forEach\(markFig\)/.test(html),
+    "markScrollAll（描いた後・resize・details の開閉）で図の枠を測り直していない");
 });
 
 check("図の部品(2): 左のラベルが欄より長いとき、省略記号で切り、全文を title に残す", () => {
@@ -1161,6 +1190,12 @@ check("法人番号で見る: 末尾の「集計の基準日と件数」に件�
 
 check("KPI: 最終満了を折り返さない・電話の61件の色をそろえる・退職者の補足に別の話を混ぜない", () => {
   ok(/\.kpi\.is-date \.big\{[^}]*white-space:nowrap/.test(html), "日付の KPI に white-space:nowrap が無い");
+  // 🔴 2026-09-23 統合後の実測（400px）: 担当名（h9821a39368fe、29px）が KPI の箱（中身 144px）から 263px まで
+  // 伸び、ページ本体が 486px に広がっていた（86px のはみ出し）。箱は中身で広がらず、長い語は箱の幅で折り返す
+  const kcss = html.slice(0, html.indexOf("</style>"));
+  ok(/\.kpi\{ min-width:0; \}/.test(kcss), "KPI の箱に min-width:0 が無い（長い名前で格子の列が広がり、ページ本体がはみ出す）");
+  ok(/\.kpi \.lbl, \.kpi \.big, \.kpi \.fine\{ overflow-wrap:anywhere; \}/.test(kcss),
+    "KPI の名前・値が箱の幅で折り返さない（400px で担当名が箱から 86px はみ出す）");
   const c = run('custBlocks({ meta: { found: true, houjin: "H" }, customer: { name: "法人", deals: 1, active: 1, sites: 1, ltv: 1, max_renewal_no: 0, last_expiration: "2027-02-28" } }, new Set(["head"]))');
   ok(/<div class="kpi is-date"><span class="lbl">最終満了/.test(c), "最終満了の KPI が日付の型（is-date）になっていない");
   const ph = run("renderPhone(__PH)");
@@ -1171,6 +1206,17 @@ check("KPI: 最終満了を折り返さない・電話の61件の色をそろえ
   const k = tm.split('<span class="lbl">退職者のまま</span>')[1].split("</div>")[0];
   ok(!k.includes("割れ") && !k.includes("38"), "退職者のままの補足に担当の割れ（38件）が混ざっている: " + k);
   ok(tm.includes("担当が割れている稼働中の案件が 38 件"), "担当の割れ（38件）がどこにも出ていない（黙って消した）");
+  // 🔴 2026-09-23 レビュー F2: owner_rule（routes.rs）と画面で「後に来る行を採る」を2回書いていた。
+  // owner_rule は consultants.json の実物（routes.rs の文そのもの）を入れて数える
+  const D2 = JSON.parse(JSON.stringify(ctx.__D));
+  D2.owner_rule = "担当は consultant が正本です（hubspot_owner_id ではありません）。" +
+    "取引ごとに、担当履歴のいちばん新しい行を採っています。" +
+    "同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。" +
+    "採り方を変えると担当が変わる取引があるので、その件数を出しています";
+  ctx.__D2 = D2;
+  const rule = textOf(run("renderTeam(__D2)")).split("この一覧の決まりごと")[1] || "";
+  const dup = (rule.match(/シートで後に来る行/g) || []).length;
+  ok(dup === 1, "「この一覧の決まりごと」で採り方（シートで後に来る行）が " + dup + " 回出ている（F2）");
 });
 
 check("担当の交代: 交代のうち稼働中の件数を、全体の「稼働中 N 件」と同じ言葉で書かない", () => {
@@ -1190,6 +1236,19 @@ check("いま見るべき顧客: LTV の注記で「拠点が2つ以上ある法
   const n = (t.match(/拠点が2つ以上ある法人/g) || []).length;
   ok(n === 1, "「拠点が2つ以上ある法人」が " + n + " 回出ている");
   ok(t.includes("決裁は事業所単位なので"), "注記の後半まで消している");
+});
+
+check("いま見るべき顧客: 「法人 N」は本部アプローチ・法人番号で見ると同じ母数（houjin_population, F4）", () => {
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  // focus.json の shape（2026-09-23 実測。n_all は CS_顧客 の行数、n_houjin は houjin_population の main）
+  fo.shape = { ltv: { n: 517, median: 1, q1: 1, q3: 2, min: 0, max: 3, mean: 1 }, n_all: 1649,
+    n_houjin: 1646, n_houjin_option_only: 3, n_display: 517,
+    display_label: "稼働中の取引を持つ法人", multi_site: 136, multi_site_note: "" };
+  ctx.__FO5 = fo;
+  const t = textOf(run("renderFocus(__FO5)"));
+  ok(!t.includes("1,649"), "「法人 N」に CS_顧客 の行数（1,649）を出している（本部の 1,646 と合わない）");
+  ok(/法人 1,646（オプション契約しか持たない 3 法人を除く）/.test(t), "「法人 1,646」と除いた法人の数が出ていない: " +
+    (t.match(/法人 [^／]*/) || [""])[0]);
 });
 
 check("V12 の残り: 表の枠の端に、横の続きがある側だけ影を出す", () => {
