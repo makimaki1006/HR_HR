@@ -422,14 +422,12 @@ check("V10: 積み上げ縦棒の整数の軸で目盛りが重複しない（0,
 });
 
 check("立ち上がり: 帯ごとの解約率で特定の帯（61日超）を赤にしない", () => {
-  /* 🔴 2026-09-24: 色は帯の名前ではなく率の値で、全画面共通の線（CANCEL_HI＝40%）で決める。
-     以前の入力（14日以内 40% / 61日超 45%）は線の上なので、値で緋になるのが正しい。
-     「名前で緋にしない」を見るために、どちらも線の下の値にした（61日超のほうを高くしてある）。
-     値で緋になることは下の「解約率の色の線」の見張りが見る */
+  /* 入力はどちらも全画面共通の線（CANCEL_HI＝40%）の上。この図は線でも色を分けない（5f11d15 の決め事。
+     2026-09-24 に一度値で緋にしたのを戻した）。線で緋にしないことは下の「解約率の色の線」でも見る */
   ctx.__RU = { meta: {}, phase: { rows: [], rule: "" },
     first_mtg: { n: 100, pre_contract: 0, stats: null, buckets: [
-      { label: "14日以内", n: 60, denom: 50, cancel_rate: 30 },
-      { label: "61日超", n: 45, denom: 40, cancel_rate: 39.9 }] },
+      { label: "14日以内", n: 60, denom: 50, cancel_rate: 40 },
+      { label: "61日超", n: 45, denom: 40, cancel_rate: 45 }] },
     no_mtg: { n: 0, first_active: 0, rate: null, note: "", rows: [] } };
   const h = run("renderRampup(__RU)");
   const g = h.split("<figcaption>帯ごとの、その後の解約率")[1].split("</figure>")[0];
@@ -1453,12 +1451,18 @@ check("解約率の色の線: 全画面で1つ（40%）。継続回数×成果�
   const rn = run("renderRenewal(__RNc)").split("<figcaption>").find((x) => x.includes("解約率 40%以上")) || "";
   ok(/fill:var\(--hi\)/.test(rn.split('<div class="figlegend">')[0]), "継続回数×成果で 45.1% が緋でない");
   ok(!rn.includes("解約率 40%未満"), "図に無い色（40%未満）を凡例に出している");
-  // 立ち上がり: 49.7% は本番の帯の最大。前は全帯を藍にしていた
+  // 立ち上がり: 49.7% は本番の帯の最大。この図だけは線で色を分けない（帯どうしの比較で、向きは読めない）。
+  // 線を使っていないことは凡例に文で書く。棒は凡例を外してから見る（凡例の粒で通らないように）
   const ru = JSON.parse(JSON.stringify(ctx.__RU));
-  ru.first_mtg.buckets = [{ label: "61日超", n: 45, denom: 40, cancel_rate: 49.7 }];
+  ru.first_mtg.buckets = [{ label: "14日以内", n: 60, denom: 50, cancel_rate: 49.7 },
+                          { label: "61日超", n: 45, denom: 40, cancel_rate: 20 }];
   ctx.__RUc = ru;
   const g = run("renderRampup(__RUc)").split("<figcaption>帯ごとの、その後の解約率")[1].split("</figure>")[0];
-  ok(g.includes("fill:var(--hi)") && g.includes("解約率 40%以上"), "立ち上がりで 49.7% が緋でない");
+  const gBars = g.split('<div class="figlegend">')[0];
+  ok(/fill:var\(--ai\)/.test(gBars), "立ち上がりの棒が取れない（見張りが空振りする）");
+  ok(!gBars.includes("var(--hi)"), "立ち上がりで 49.7% の帯だけ緋にしている（帯を判定の色で強調しない）");
+  ok(!g.includes("var(--hi)"), "立ち上がりの凡例に、図で使っていない緋の粒を出している");
+  ok(g.includes("「解約率 40%以上を緋」の線で色を分けていません"), "立ち上がりで線を使っていないことを書いていない");
   // 本部アプローチ: 注記の色も同じ線。
   // 上の「V12 の残り: 本部アプローチの枠…」が renderHq を差し替えたまま fetch の後に戻すので、それを待ってから描く
   return Promise.all(pendingChecks.slice()).then(() => {
@@ -1485,6 +1489,14 @@ check("goLink: 本文の「別の画面へ」は、行き先がすべて MENUS �
   ok(run('goLink("study", "renewal")') === '<a class="golink" href="#study/renewal">集計 → 継続回数 × 成果</a>',
     "リンクの文が「メニュー → 画面」の名前になっていない: " + run('goLink("study", "renewal")'));
   ok(!run('goLink("study", "nope")').includes("<a"), "行き先が無いのにリンクにしている");
+  for (const bad of ['goLink("study", "nope")', 'goLink("nope", "renewal")'])
+    ok(!/[a-z]{3,}/.test(run(bad)), "行き先が無いときに内部の key（英字）を本文に出している: " + run(bad));
+  // サーバが作って画面に出す文（routes.rs の文字列）にも、古い丸数字を残さない。
+  // goLink は JS の文しか直さないので、サーバの文は別に見る（2026-09-24: houjin の既定の理由に「①今日動く先」）
+  const rsText = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8")
+    .replace(/^\s*\/\/.*$/gm, "");
+  const circled = rsText.match(/.*[①-⑳].*/g) || [];
+  ok(!circled.length, "サーバの文に丸数字が残っている: " + circled.map((l) => l.trim()).join(" / "));
   ok(/a\.golink\{/.test(html), "a.golink の CSS が無い");
   // 並べ替える前の番号「⑧成果」「①で」「③顧客詳細」や、メニューのたどり方の古い書き方を本文に残さない
   for (const w of ["⑧成果", "は①で", "③顧客詳細", "③放置", "④収益", "③ 放置", "「②担当者の一覧」", "「集計」の中の",
@@ -1559,7 +1571,9 @@ check("表: 長い文字の列だけ折り返し（1440px で右端が切れな�
 check("series: 推移の図で、契約の頭に変更履歴が無い月を黙って欠けさせない", () => {
   // fixture でも 2025-03-09 開始の契約は変更履歴が 25-07 からの1点だけ（2026-09-24 実測）
   const g = run('histGap({ start: "2025-03-09" }, [5, 6])');
-  ok(g.includes("変更履歴は 2025-07 からしかありません") && g.includes("2025-03〜2025-06"), "記録が無い期間を書いていない: " + g);
+  ok(g.includes("記録は 2025-07 からです") && g.includes("2025-03〜2025-06"), "記録が無い期間を書いていない: " + g);
+  // データ全体の履歴が無いと決めつけない（その契約の値が入っていなかっただけのこともある）
+  ok(!g.includes("しかありません"), "記録が無い理由を「変更履歴が無い」と決めつけている: " + g);
   ok(g.includes("0 ではありません"), "描いていない月を 0 と読ませない断りが無い");
   ok(run('histGap({ start: "2025-03-09" }, [2, 3])').includes("2025-03 は記録が無い"), "1か月だけ無いときの書き方が崩れる");
   ok(run('histGap({ start: "2025-03-09" }, [1, 2])') === "", "始月から記録があるのに断り書きを出している");
@@ -1584,6 +1598,8 @@ check("team: 稼働中の件数を KPI と末尾で繰り返さず、KPI の見�
 check("色と印の意味: ▲▼ は良し悪しの向きで、表の見出しの ▲▼（並び順）とは別だと書く", () => {
   ok(html.includes("&#9650; まずい / 悪化（値の上がり下がりではなく良し悪し"), "凡例に ▲ の意味の断りが無い");
   ok(html.includes("表の見出しの &#9650; / &#9660; は並び順"), "凡例に表の見出しの ▲▼ の断りが無い");
+  // その注記（<i class="full">）が1行まるごと使う。.figlegend 用の定義しか無く、横に並んでいた（2026-09-24 検証）
+  ok(/\.legend i\.full\{[^}]*flex:1 0 100%/.test(html), "「色と印の意味」の注記（.legend i.full）が1行を占める CSS が無い");
   const d = run("renderDefs()");
   ok(d.includes("値の上がり下がりではなく良し悪しの向き") && d.includes("並び順（小さい順 / 大きい順）"), "定義と検証の表に ▲▼ の断りが無い");
 });

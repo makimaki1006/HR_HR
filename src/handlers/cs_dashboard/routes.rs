@@ -2191,7 +2191,7 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "meta": {"today": today.to_string(), "all_cached": sheets.all_cached},
             "default_houjin": default_houjin,
             "default_reason": "取引がいちばん多い法人を既定で開いています。\
-        ①今日動く先の1件目にしていないのは、あちらが日によって変わるので\
+        「案件 → 今日動く先」の1件目にしていないのは、あちらが日によって変わるので\
         「昨日と同じ顧客を続けて見る」ができなくなるためです",
             "index": list.iter().map(|c| {
                 let f = fflags.get(&c.houjin).copied().unwrap_or_default();
