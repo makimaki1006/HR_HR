@@ -422,10 +422,14 @@ check("V10: 積み上げ縦棒の整数の軸で目盛りが重複しない（0,
 });
 
 check("立ち上がり: 帯ごとの解約率で特定の帯（61日超）を赤にしない", () => {
+  /* 🔴 2026-09-24: 色は帯の名前ではなく率の値で、全画面共通の線（CANCEL_HI＝40%）で決める。
+     以前の入力（14日以内 40% / 61日超 45%）は線の上なので、値で緋になるのが正しい。
+     「名前で緋にしない」を見るために、どちらも線の下の値にした（61日超のほうを高くしてある）。
+     値で緋になることは下の「解約率の色の線」の見張りが見る */
   ctx.__RU = { meta: {}, phase: { rows: [], rule: "" },
     first_mtg: { n: 100, pre_contract: 0, stats: null, buckets: [
-      { label: "14日以内", n: 60, denom: 50, cancel_rate: 40 },
-      { label: "61日超", n: 45, denom: 40, cancel_rate: 45 }] },
+      { label: "14日以内", n: 60, denom: 50, cancel_rate: 30 },
+      { label: "61日超", n: 45, denom: 40, cancel_rate: 39.9 }] },
     no_mtg: { n: 0, first_active: 0, rate: null, note: "", rows: [] } };
   const h = run("renderRampup(__RU)");
   const g = h.split("<figcaption>帯ごとの、その後の解約率")[1].split("</figure>")[0];
@@ -1428,6 +1432,168 @@ check("読み方の枠: MTG の品質・電話で、見出しと本文の頭に�
     const d = noteHeadDup(run(code));
     ok(!d.length, name + " の枠「" + d.join("」「") + "」の見出しと本文の頭が同じ文");
   }
+});
+
+/* ================================================================ 第3弾（2026-09-24 実機）: 文言と表 */
+/* 本文に出る JS の文だけを見る（コメントは経緯として古い番号・語を残してよい） */
+const jsNoComment = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+check("解約率の色の線: 全画面で1つ（40%）。継続回数×成果・立ち上がり・本部アプローチで同じ値が同じ色", () => {
+  /* 線引きは藤巻さんの確認待ち。根拠が見つからなかったので renewal が使ってきた 40% に揃えた。
+     線を動かすときは、この見張りの数字も一緒に直す（黙って動かさない） */
+  ok(run("CANCEL_HI") === 40, "解約率の線が 40% でない: " + run("CANCEL_HI"));
+  ok(run("cancelColor(40)") === "var(--hi)" && run("cancelColor(39.9)") === "var(--ai)", "40% の境で色が切り替わらない");
+  ok(run("cancelColor(null)") === "var(--ai)", "値が無いのに緋にしている");
+  const box = { n: 40, min: 0, q1: 1, median: 2, q3: 3, max: 9, mean: 2.5 };
+  // 45.1% は本番（2026-09-23）の継続1。線を 50% にすると、ここが藍に変わる
+  ctx.__RNc = { meta: { exclude_right_censored: false, right_censored_n: 0 }, monthly_retention: { rows: [] },
+    missingness: [], population: {},
+    by_renewal: [{ renewal_no: 1, n: 100, n_active: 0, denom: 100, cancel_rate: 45.1, cancel_rate_excl_fill: 30,
+      oubo: box, mensetu: box, syoudaku: box, oubo_per_posting: box, amount: box }] };
+  const rn = run("renderRenewal(__RNc)").split("<figcaption>").find((x) => x.includes("解約率 40%以上")) || "";
+  ok(/fill:var\(--hi\)/.test(rn.split('<div class="figlegend">')[0]), "継続回数×成果で 45.1% が緋でない");
+  ok(!rn.includes("解約率 40%未満"), "図に無い色（40%未満）を凡例に出している");
+  // 立ち上がり: 49.7% は本番の帯の最大。前は全帯を藍にしていた
+  const ru = JSON.parse(JSON.stringify(ctx.__RU));
+  ru.first_mtg.buckets = [{ label: "61日超", n: 45, denom: 40, cancel_rate: 49.7 }];
+  ctx.__RUc = ru;
+  const g = run("renderRampup(__RUc)").split("<figcaption>帯ごとの、その後の解約率")[1].split("</figure>")[0];
+  ok(g.includes("fill:var(--hi)") && g.includes("解約率 40%以上"), "立ち上がりで 49.7% が緋でない");
+  // 本部アプローチ: 注記の色も同じ線。
+  // 上の「V12 の残り: 本部アプローチの枠…」が renderHq を差し替えたまま fetch の後に戻すので、それを待ってから描く
+  return Promise.all(pendingChecks.slice()).then(() => {
+    const hq2 = JSON.parse(JSON.stringify(ctx.__HQ));
+    hq2.rows[0].rows[0].cancel_rate = 45;
+    ctx.__HQc = hq2;
+    const hq = run("renderHq(__HQc)");
+    ok(hq.includes("解約率が 40% 以上の拠点は注記を緋で出しています"), "本部アプローチの説明の線が 40% でない");
+    ok(/fill:var\(--hi\)"?[^>]*>解約・充足 45\.0%/.test(hq), "本部アプローチで 45% の拠点の注記が緋でない");
+  });
+});
+
+check("goLink: 本文の「別の画面へ」は、行き先がすべて MENUS にあり、名前で出る（丸数字を使わない）", () => {
+  /* テンプレートの goLink("…", "…") を全部拾って、行き先が MENUS に実在するかを見る。
+     画面の key を変えたり画面を消したりしてリンクが死んだら、ここで落ちる */
+  const calls = [...jsNoComment.matchAll(/goLink\("([a-z]+)",\s*"([a-z0-9]+)"\)/g)].map((m) => [m[1], m[2]]);
+  ok(calls.length >= 10, "goLink の呼び出しが拾えていない: " + calls.length);
+  ok(!/goLink\((?!"[a-z]+",\s*"[a-z0-9]+"\))/.test(jsNoComment.replace(/function goLink\(/, "")),
+    "goLink に文字列の直書き以外を渡している（この見張りで行き先を確かめられない）");
+  for (const [m, v] of calls) {
+    const a = run("goLink(" + JSON.stringify(m) + ", " + JSON.stringify(v) + ")");
+    ok(a.startsWith('<a class="golink" href="#' + m + "/" + v + '">'), "行き先が MENUS に無い: " + m + "/" + v + " → " + a);
+  }
+  ok(run('goLink("study", "renewal")') === '<a class="golink" href="#study/renewal">集計 → 継続回数 × 成果</a>',
+    "リンクの文が「メニュー → 画面」の名前になっていない: " + run('goLink("study", "renewal")'));
+  ok(!run('goLink("study", "nope")').includes("<a"), "行き先が無いのにリンクにしている");
+  ok(/a\.golink\{/.test(html), "a.golink の CSS が無い");
+  // 並べ替える前の番号「⑧成果」「①で」「③顧客詳細」や、メニューのたどり方の古い書き方を本文に残さない
+  for (const w of ["⑧成果", "は①で", "③顧客詳細", "③放置", "④収益", "③ 放置", "「②担当者の一覧」", "「集計」の中の",
+                   "「案件」の中の", "左の「"])
+    ok(!jsNoComment.includes(w), "本文に古い番号・たどり方「" + w + "」が残っている");
+});
+
+check("today: MTG 途絶の図に中の仕組みの名前（GAS・no_mtg_alerter）を出さない。凡例は図に出た帯だけ", () => {
+  ctx.__TDg = { rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "",
+    mtg_gap: { rule: "", no_record_note: "", source_note: "", coverage: {},
+      bands: [{ band: "critical", label: "重大 90日以上", n: 3, alert: true },
+              { band: "yellow", label: "注意 30〜59日", n: 5, alert: true },
+              { band: "red", label: "警告 60〜89日", n: 0, alert: true }] } } };
+  const h = run("renderToday(__TDg)");
+  ok(!/GAS|no_mtg_alerter/.test(h), "today に内部の仕組みの名前が出ている");
+  ok(h.includes("毎朝 Slack に届く MTG 途絶の警告と同じ"), "線引きが何と同じかを現場の言葉で書いていない");
+  const g = h.split("<figcaption>最終MTGからの経過日数で分けた帯")[1].split("</figure>")[0];
+  const leg = g.split('<div class="figlegend">')[1] || "";
+  ok(leg.includes("90日以上") && leg.includes("30〜59日"), "図に出た帯が凡例に無い");
+  ok(!leg.includes("60〜89日") && !leg.includes("直近30日にあり") && !leg.includes("帯を付けていない"),
+    "図に出ていない帯を凡例に出している");
+  // 注意（30〜59日）は紫にしない（名札の図で紫は「成果が出ていない」）。山吹を薄く
+  ok(!g.includes("var(--murasaki)"), "MTG 途絶の図に紫が残っている");
+  const y = legendSwatch(leg, "30〜59日");
+  ok(y && y.fill === "var(--ki)" && +y.op < 0.5, "注意の凡例が薄い山吹でない: " + JSON.stringify(y));
+  ok(!run('mtgCell({ mtg_band: "yellow", mtg_days: 40 })').includes("murasaki"), "表の「最後のMTG」で注意を紫にしている");
+});
+
+check("凡例: MTG の品質・データ品質で、図に出ていない色を凡例に出さない", () => {
+  const q = run("renderMtgQ(__MQ)");   // filled は rate 10% の1項目だけ
+  const qf = q.split("<figcaption>抽出の進み具合")[1].split("</figure>")[0];
+  ok(qf.includes("15%未満") && !qf.includes("50%以上") && !qf.includes("15〜50%"), "抽出の進み具合の凡例に使っていない帯がある");
+  const dq = JSON.parse(JSON.stringify(ctx.__DQ));
+  dq.missing = [{ label: "応募数", n: 5, rate: 3, note: "" }];
+  ctx.__DQm = dq;
+  const d = run("renderDq(__DQm)");
+  ok(d.includes("20%未満") && !d.includes("20%以上"), "データ品質の凡例に使っていない山吹（20%以上）がある");
+});
+
+check("focus: NPS が低い表は全行に同じ印（▲）を付け、LTV の軸に単位を書く", () => {
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  fo.nps_low.rows = [0, 1].map((v, i) => ({ deal_id: "d" + i, name: "案件" + i, stage: "", nps: v,
+    nps_month: "2026-09", amount: 1, days_to_expiry: 10, n_contact: 1 }));
+  fo.shape.ltv = { n: 40, min: 1e5, q1: 2e5, median: 3e5, q3: 4e5, max: 9e5, mean: 3.5e5 };
+  ctx.__FOn = fo;
+  const h = run("renderFocus(__FOn)");
+  ok(h.includes('<b style="color:var(--hi)">&#9650; 0</b>') && h.includes('<b style="color:var(--hi)">&#9650; 1</b>'),
+    "NPS 0 と 1 で印が違う（1 が黒く見える）");
+  ok(h.includes("LTV（万円）"), "LTV の軸に単位が無い");
+  ok(!/Q3 /.test(h), "KPI に英字の略号 Q3 が残っている");
+});
+
+check("単位: 金額・採用単価の縦軸の題名に（万円）を書く", () => {
+  ok(!/yLab: "(金額|採用単価)"/.test(jsNoComment), "縦軸の題名に単位が無い（目盛りは万円の数字だけ）");
+  ok(jsNoComment.includes('yLab: "採用単価（万円）"') && jsNoComment.includes('yLab: "金額（万円）"'), "単位を付けた題名が無い");
+});
+
+check("表: 長い文字の列だけ折り返し（1440px で右端が切れない）、数字の列は1行のまま", () => {
+  const t = run('table([{ t: "案件", w: "l" }, { t: "担当", w: "s" }, { t: "金額", n: 1 }, { t: "日付" }], [["あ", "い", "1", "2026-01-01"]])');
+  ok(t.includes('<td class="wl">あ</td>') && t.includes('<td class="ws">い</td>'), "折り返す列に wl / ws が付かない");
+  ok(t.includes('<td class="n">1</td>') && t.includes("<td>2026-01-01</td>"), "数字・日付の列の扱いが変わった");
+  ok(/td\.wl\{[^}]*white-space:normal/.test(html) && /td\.ws\{[^}]*white-space:normal/.test(html), "wl / ws の CSS が無い");
+  const ho = run("renderHandover(__HO)");
+  ok(ho.includes('<th class="wl">案件</th>'), "担当の交代の表で「案件」の列が折り返さない");
+  for (const c of ["前の担当", "次の担当", "いまの担当"])
+    ok(ho.includes('<th class="ws">' + c + "</th>"), "担当の交代の表で「" + c + "」が折り返さない");
+  // いま見るべき顧客・成果とリスクの表も、取引名の列を折り返す
+  ok(run("renderFocus(__FO)").includes('<th class="wl">取引</th>'), "いま見るべき顧客の表で取引名が折り返さない");
+  ok(run("renderOutcome(__OUT)").includes('<th class="wl">取引</th>'), "成果とリスクの表で取引名が折り返さない");
+});
+
+check("series: 推移の図で、契約の頭に変更履歴が無い月を黙って欠けさせない", () => {
+  // fixture でも 2025-03-09 開始の契約は変更履歴が 25-07 からの1点だけ（2026-09-24 実測）
+  const g = run('histGap({ start: "2025-03-09" }, [5, 6])');
+  ok(g.includes("変更履歴は 2025-07 からしかありません") && g.includes("2025-03〜2025-06"), "記録が無い期間を書いていない: " + g);
+  ok(g.includes("0 ではありません"), "描いていない月を 0 と読ませない断りが無い");
+  ok(run('histGap({ start: "2025-03-09" }, [2, 3])').includes("2025-03 は記録が無い"), "1か月だけ無いときの書き方が崩れる");
+  ok(run('histGap({ start: "2025-03-09" }, [1, 2])') === "", "始月から記録があるのに断り書きを出している");
+  ok(run('histGap({ start: "" }, [3])') === "", "開始日が無いのに断り書きを作っている");
+  ok(/const gap = histGap\(mm, months\)/.test(jsNoComment), "推移の図が histGap を使っていない");
+});
+
+check("採用単価の図: 採れた人数を値の横に括弧で付ける（「162万2人」とくっつけない）", () => {
+  const g = cpa3Fig();
+  ok(g.includes(run("yen(900000)") + "（2人）"), "採れた人数が値の横の括弧に無い");
+  ok(!/[万円]2人/.test(g) && !/>　2人/.test(g), "採れた人数が値にくっついている / 注記の頭に残っている");
+});
+
+check("team: 稼働中の件数を KPI と末尾で繰り返さず、KPI の見出しに「母数が小さい人を除く」と書く", () => {
+  const h = run("renderTeam(__D)");
+  ok(!h.includes("稼働中 604 件（オプション契約を除く）"), "稼働中の件数を画面の中で繰り返している（頭の1行に任せる）");
+  ok(h.includes("接触率がいちばん低い（母数が小さい人を除く）"), "KPI の見出しが表の先頭（0.0%）と食い違って見える");
+  ok(h.split('<div class="note def">').pop().includes("担当者 27 名"), "末尾の枠にこの画面の数（担当者の人数）が無い");
+  ok(h.includes("この担当の案件だけを「担当者ごとの案件」で見る"), "名前の title が行き先の画面名と合っていない");
+});
+
+check("色と印の意味: ▲▼ は良し悪しの向きで、表の見出しの ▲▼（並び順）とは別だと書く", () => {
+  ok(html.includes("&#9650; まずい / 悪化（値の上がり下がりではなく良し悪し"), "凡例に ▲ の意味の断りが無い");
+  ok(html.includes("表の見出しの &#9650; / &#9660; は並び順"), "凡例に表の見出しの ▲▼ の断りが無い");
+  const d = run("renderDefs()");
+  ok(d.includes("値の上がり下がりではなく良し悪しの向き") && d.includes("並び順（小さい順 / 大きい順）"), "定義と検証の表に ▲▼ の断りが無い");
+});
+
+check("言い回し: 「結べた」「結べていない」を画面の文に出さない（「紐づいた」）", () => {
+  ok(!/結べ/.test(jsNoComment), "画面の JS の文に「結べ」が残っている");
+  const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8")
+    .replace(/^\s*\/\/.*$/gm, "");
+  ok(!/結べ/.test(rs), "サーバ（routes.rs）の文に「結べ」が残っている");
+  ok(run("renderMtgQ(__MQ)").includes("取引に紐づいた"), "MTG の品質の KPI が「取引に紐づいた」でない");
 });
 
 Promise.all(pendingChecks).then(() => {

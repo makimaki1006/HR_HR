@@ -3293,3 +3293,32 @@ fn 画面に出す文に英語の用語を残さない() {
         }
     }
 }
+
+/// 🔴 MTG途絶の帯の説明（画面にそのまま出る文）に、中の仕組みの名前を出さない。
+/// 2026-09-24 実機: today の図の注記に「GAS（no_mtg_alerter）」と出ていた。
+/// 帯を説明する3つの文（rule / no_record_note / source_note）に、英字の識別子
+/// （`_` を含む語・GAS）が入っていないことを見る。MTG・Zoom など画面の用語は残してよい。
+#[test]
+fn mtg途絶の帯の説明に仕組みの名前を出さない() {
+    let v = build_today_board(&sheets(), fixture_day());
+    let g = &v["meta"]["mtg_gap"];
+    for k in ["rule", "no_record_note", "source_note"] {
+        let s = g[k]
+            .as_str()
+            .unwrap_or_else(|| panic!("mtg_gap.{k} が無い"));
+        assert!(!s.contains("GAS"), "mtg_gap.{k} に「GAS」が出ている: {s}");
+        assert!(!s.contains("no_mtg"), "mtg_gap.{k} に内部名が出ている: {s}");
+        assert!(
+            !s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .any(|w| w.contains('_') && w.chars().any(|c| c.is_ascii_alphabetic())),
+            "mtg_gap.{k} に英字の識別子が出ている: {s}"
+        );
+    }
+    assert!(
+        g["rule"]
+            .as_str()
+            .unwrap()
+            .contains("Slack に届く MTG 途絶の警告"),
+        "何と同じ線引きかを、現場の言葉で書いていない"
+    );
+}
