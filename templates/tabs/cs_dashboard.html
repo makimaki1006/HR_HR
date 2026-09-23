@@ -1612,7 +1612,8 @@ function foot(meta) {
 function renderRenewal(D) {
   const mr = D.monthly_retention, br = D.by_renewal;
   const label = (r) => (r.renewal_no === 0 ? "初回" : "継続" + r.renewal_no);
-  const big = br.filter((r) => r.n >= MIN_N);
+  // 解約率の母数は決着済み（継続＋解約＋充足）。n<30 の足切りも母数で見る（全件の n ではない）
+  const big = br.filter((r) => r.denom >= MIN_N);
   let h = sec("問い", "継続を重ねると、成果は落ちるのか");
 
   h += sec("図", "月次の継続率（満了月ベース・本体契約のみ）");
@@ -1642,13 +1643,14 @@ function renderRenewal(D) {
     svgBarH({ w: 660, fmt: F.d1, rh: 26,
       rows: big.map((r) => ({
         label: label(r), v: r.cancel_rate, v0: r.cancel_rate_excl_fill,
-        txt: pct1(r.cancel_rate), note: "n=" + num(r.n),
+        txt: pct1(r.cancel_rate), note: "n=" + num(r.denom),
         color: r.cancel_rate >= 40 ? C.hi : C.ai })) }),
     lg("box", C.hi, "40%以上") + lg("box", C.ai, "40%未満") +
     lg("dash", C.ghost, "充足を外すと") +
-    '<i class="full">n が ' + MIN_N + " 件未満の継続回数は図に載せていません（下の表には出しています）。" +
-    "上の「月次の継続率」とは分母が違います。あちらは満了して結果が出た契約だけ、" +
-    "こちらはその継続回数の全取引（稼働中も含む）です。</i>");
+    '<i class="full">n は決着済み（継続＋解約＋充足）の件数で、解約率の分母です。' +
+    "結果待ち（稼働中）は分母に入れていません。n が " + MIN_N +
+    " 件未満の継続回数は図に載せていません（下の表には出しています）。" +
+    "上の「月次の継続率」も決着済みが分母ですが、あちらは満了月で、こちらは継続回数で分けています。</i>");
 
   h += sec("図", "継続回数ごとの成果のばらつき");
   for (const [key, name, fmt] of [["oubo", "応募数", F.int], ["syoudaku", "採用数", F.int],
@@ -1671,10 +1673,11 @@ function renderRenewal(D) {
 
   h += sec("表", "継続回数ごとの代表値");
   h += table([{ t: "継続回数" }, { t: "件数", n: 1 }, { t: "稼働中", n: 1 },
+              { t: "決着済み（母数）", n: 1 },
               { t: "解約率", n: 1 }, { t: "（充足を外すと）", n: 1 },
               { t: "応募数", n: 1 }, { t: "面接数", n: 1 }, { t: "承諾数", n: 1 },
               { t: "求人票あたり応募", n: 1 }, { t: "契約額", n: 1 }],
-    br.map((r) => [label(r), num(r.n), num(r.n_active),
+    br.map((r) => [label(r), num(r.n), num(r.n_active), num(r.denom),
       "<b>" + pct1(r.cancel_rate) + "</b>",
       '<span class="muted">' + pct1(r.cancel_rate_excl_fill) + "</span>",
       med(r.oubo), med(r.mensetu), med(r.syoudaku), med(r.oubo_per_posting, 1),
@@ -1847,7 +1850,8 @@ function custBlocks(D, want) {
             label: shortName(x.name || x.deal_id, 20),
             v: x.total, v0: x.monthly,
             txt: yen(x.total),
-            note: (x.band ? x.band + "帯 中央値 " + yen(x.band_median) : "") +
+            note: (x.band ? "進捗帯「" + x.band + "」の中央値 " +
+                    (x.band_median == null ? "なし（n<" + MIN_N + "）" : yen(x.band_median)) : "") +
                   (x.syoudaku != null ? "　" + num(x.syoudaku) + "人" : ""),
             color: x.censored ? C.ghost : C.hi,
             faint: !!x.censored,
@@ -2313,13 +2317,14 @@ function renderHq(D) {
         ? svgBarH({ w: 680, fmt: F.man, rh: 24,
             rows: rows.map((x) => ({
               label: shortName(x.site, 20), v: x.cpa, txt: yen(x.cpa),
-              note: (x.cancel_rate == null ? "" : "解約 " + pct1(x.cancel_rate)) +
+              note: (x.cancel_rate == null ? "" : "解約・充足 " + pct1(x.cancel_rate)) +
                     "　" + num(x.syoudaku) + "人",
               noteColor: x.cancel_rate != null && x.cancel_rate >= 50 ? C.hi : C.ink3,
               color: C.ai })) })
         : '<div class="empty">採用数が入っている拠点がありません（0で割っていません）。</div>',
       lg("box", C.ai, "採用単価") +
       '<i class="full">解約率が 50% 以上の拠点は注記を緋で出しています。' +
+      esc(D.meta.cancel_rule || "") + "。" + esc(D.meta.cpa_rule || "") + "。" +
       "拠点ごとの取引数が少ないので、率だけで判断しないでください。</i>");
   }
 
@@ -2331,9 +2336,12 @@ function renderHq(D) {
     (r.spread == null ? "" : '　<b style="color:var(--hi)">開き ' + num(r.spread, 1) + "倍</b>") +
     "</summary>" +
     table([{ t: "拠点" }, { t: "取引", n: 1 }, { t: "稼働中", n: 1 }, { t: "解約", n: 1 },
-           { t: "解約率", n: 1 }, { t: "金額", n: 1 }, { t: "採用数", n: 1 }, { t: "採用単価", n: 1 }],
+           { t: "充足", n: 1 }, { t: "決着済み", n: 1 }, { t: "解約率", n: 1 },
+           { t: "金額", n: 1 }, { t: "採用数", n: 1 }, { t: "採用単価", n: 1 },
+           { t: "単価の元の取引", n: 1 }, { t: "（稼働中で外した）", n: 1 }],
       r.rows.map((x) => [esc(x.site), num(x.deals), num(x.active), num(x.cancel),
-        pct1(x.cancel_rate), yen(x.amount), nz(x.syoudaku), yen(x.cpa)])) +
+        num(x.fill), num(x.denom), pct1(x.cancel_rate), yen(x.amount), nz(x.syoudaku),
+        yen(x.cpa), num(x.cpa_n), num(x.cpa_n_active)])) +
     "</details>").join(""), 520);
   if (D.truncated) h += '<p class="muted small">上位80法人だけ出しています。</p>';
   return h + foot(D.meta);
@@ -2443,7 +2451,9 @@ function renderPhone(D) {
 
   h += sec("表", "沈黙している取引（" + num(D.silent.n) + " 件）");
   h += '<div class="lede">' + esc(D.silent.rule) +
-    "。日数が出せないもの（接触が一度も無い）を先頭に出しています。</div>";
+    "。日数が出せないもの（接触が一度も無い）を先頭に出しています。" +
+    (D.silent.excluded_marketing ? "「マーケ関連」の " + num(D.silent.excluded_marketing) +
+      " 件は電話をしないのが普通なので、この表からだけ外しています（上の件数には入っています）。" : "") + "</div>";
   h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "金額", n: 1 },
                      { t: "通話", n: 1 }, { t: "接触", n: 1 }, { t: "最後の接触" }, { t: "経過", n: 1 }],
     D.silent.rows.map((x) => [esc(x.name || x.deal_id),
@@ -2486,19 +2496,24 @@ function renderRampup(D) {
 
   h += fig("帯ごとの、その後の解約率", "遅い群が悪いことだけが読めます",
     svgBarH({ w: 660, fmt: F.d1, rh: 26,
-      rows: f.buckets.filter((b) => b.n >= MIN_N).map((b) => ({
+      // 解約率の母数は決着済み（b.denom）。足切りも母数で見る（結果待ちを含む b.n ではない）
+      rows: f.buckets.filter((b) => b.denom >= MIN_N).map((b) => ({
         label: b.label, v: b.cancel_rate, txt: pct1(b.cancel_rate),
-        note: "n=" + num(b.n),
+        note: "n=" + num(b.denom),
         color: b.label === "61日超" ? C.hi : C.ai })) }),
     lg("box", C.hi, "61日超") + lg("box", C.ai, "それ以外") +
-    '<i class="full"><b>単調ではありません。</b>14日以内も解約しています。' +
+    '<i class="full">n は決着済み（継続＋解約＋充足）の件数で、解約率の分母です。結果待ちは入れていません。' +
+    "n が " + MIN_N + " 件未満の帯は載せていません。" +
+    "<b>単調ではありません。</b>14日以内も解約しています。" +
     "「早ければ良い」とは言えず、<b>遅い群が悪い</b>ことだけが読めます。" +
     "61日超には関係が薄い顧客が混じっている可能性があり、" +
     "<b>遅れが原因とは決められません（相関であって因果ではない）</b>。</i>");
 
   h += sec("表", "まだ MTG が結べていない初回契約（" + num(nm.n) + " 件）");
   h += '<div class="lede">稼働中の初回契約 ' + num(nm.first_active) + " 件のうち " +
-    pct1(nm.rate) + "。" + esc(nm.note) + "</div>";
+    pct1(nm.rate) + "。" + esc(nm.note) +
+    (nm.excluded_marketing ? "。「マーケ関連」の " + num(nm.excluded_marketing) +
+      " 件は MTG をしないのが普通なので、この表と母数から外しています" : "") + "</div>";
   h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "金額", n: 1 }, { t: "契約開始から", n: 1 }],
     nm.rows.map((r) => [esc(r.name || r.deal_id),
       '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
@@ -3164,8 +3179,8 @@ function renderHandover(D) {
     D.rows.map((r) => [
       esc(r.date) || DASH,
       esc(r.name || r.deal_id),
-      esc(r.from) || DASH,
-      esc(r.to) + (r.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : ""),
+      esc(r.from_label) || DASH,
+      (esc(r.to_label) || DASH) + (r.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : ""),
       esc(r.consultant) || DASH,
       r.record_gap_days == null ? DASH : num(r.record_gap_days) + "日",
       esc(r.reflected),
