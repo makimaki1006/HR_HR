@@ -555,8 +555,10 @@ fn 小さすぎる文字が無い() {
 fn 広い表は枠の中でスクロールする() {
     let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
     for needle in [
-        "scroll(boardTable(shown, boardSort,",          // ③
-        "scroll(boardTable(D.rows, { key: \"n_flags\"", // ①
+        "scroll(boardTable(shown, boardSort,", // ③
+        // ① 今日動く先。2026-09-23 に並びを表ごとの状態（todaySort）へ移した（U6: 見出しを
+        //    押しても並び替わらなかった）。見ているのは「.scroll に入っているか」で、前と同じ
+        "scroll(boardTable(D.rows, todaySort[\"today-tbl\"],",
     ] {
         assert!(
             html.contains(needle),
@@ -800,12 +802,26 @@ fn サイドバーがキーボードでたどれる() {
 }
 
 /// 見ている場所が URL に残ること（共有と戻るボタンのため）。
+///
+/// 🔴 画面の中の移動は**履歴に積む**（`pushState`）。2026-09-23 まで `replaceState` だけで、
+/// 何回移動しても履歴が増えず、戻るで画面そのものから出ていた（レビュー U5、実機で確認）。
+/// `replaceState` は開いた直後の位置合わせと、戻る・進むで来たときだけに使う。
+/// 積んだ履歴を戻るときは `popstate` が来る（`hashchange` は来ないことがある）ので両方を受ける。
+/// 動き（2回移動で2件積む・戻るで積み直さない）は tests/consulting_page_js.js の U5 が見る。
 #[test]
 fn 見ている場所がurlに残る() {
     let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
     assert!(
+        html.contains("history.pushState"),
+        "画面の中の移動を履歴に積んでいない（戻るで画面から出てしまう）"
+    );
+    assert!(
         html.contains("history.replaceState"),
-        "URL を更新していない"
+        "開いた直後の位置合わせで URL を更新していない"
+    );
+    assert!(
+        html.contains("addEventListener(\"popstate\""),
+        "戻るボタン（popstate）に追従していない"
     );
     assert!(html.contains("hashchange"), "戻るボタンに追従していない");
     assert!(
