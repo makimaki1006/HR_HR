@@ -155,6 +155,9 @@
            font-size:11.5px; color:var(--ink-2); margin:0 0 var(--space-1); padding:0 0 var(--space-gap); }
   .legend i{ font-style:normal; display:inline-flex; align-items:center; gap:6px; }
   .legend b{ width:10px; height:10px; border-radius:2px; display:inline-block; flex:none; }
+  /* 色の粒を持たない注記は1行まるごと使う（.figlegend i.full と同じ）。
+     2026-09-24 検証: 「色と印の意味」の ▲▼ の注記に効く定義が無く、他の項目と横に並んでいた */
+  .legend i.full{ flex:1 0 100%; display:block; line-height:1.7; }
 
   /* ---------------- タブ ---------------- */
   .tabs{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 26px;
@@ -1923,9 +1926,11 @@ const MIN_N = 30;
    その見た目を変えないためにこちらへ揃えた。40% にも 50% にも、根拠はコメント・コミット・資料
    （call-quality-metrics の SKILL・build_mock.py）のどこにも書かれていない。
    **取り決めであって事実ではない。線引きは藤巻さんの確認待ち**（変えるときはこの1行だけ直す）。
-   本番（2026-09-23）では初回 58.1%・継続1 45.1% が緋のまま、立ち上がりの 49.7% と
+   本番（2026-09-23）では初回 58.1%・継続1 45.1% が緋のまま、
    本部アプローチで 40〜49% の拠点の注記（あれば）が新たに緋になる。
-   棒の色で出す図も注記の色で出す図も、この関数を通す */
+   立ち上がりの帯ごとの図だけは判定の色を使わない（帯どうしの比較で、向きが読めないため。
+   renderRampup のコメント）。そこを緋にするかも藤巻さんの確認待ち。
+   判定の色で出す図は、棒の色でも注記の色でも、この関数を通す */
 const CANCEL_HI = 40;
 const cancelHi = (v) => v != null && v >= CANCEL_HI;
 const cancelColor = (v) => (cancelHi(v) ? C.hi : C.ai);
@@ -2880,7 +2885,9 @@ function custBlocks(D, want) {
         /* 接触は「あった」印なので赤（まずい）で塗らない（V9）。fillLabel は U2 */
         lane("接触（MTG・60秒超の通話）", C.ink2, ctPts, "bars", "接触の記録がありません", "接触"),
       ] }),
-      (gap ? '<i class="full">' + gap + "</i>" : "") +
+      /* 🔴 histGap の断り書きは上の図の副題に1回だけ出す。ここにも出していて、
+         1つの契約で同じ文が2回（既定の法人では1画面に28回）並んでいた（2026-09-24 検証）。
+         この図の横軸は上の図と同じ月なので、読む人は上の副題で分かる */
       '<i class="full"><b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
       "値の幅が違いすぎる（応募 0〜200 / NPS 0〜10 / 接触 0〜数十）ので、" +
       "重ねると応募だけが動いて NPS が底に張り付きます。" +
@@ -3361,15 +3368,17 @@ function spanHint(mm) {
 /** 推移の図で、契約の頭に変更履歴が無い月があるときの断り書き。無ければ空文字。
     months は図に描く月の番号（始月を1）の並び。
     🔴 2026-09-24 実機: 見出しは「契約 6ヶ月・2025-03-09〜2025-09-08」なのに横軸は 25-07 から始まり、
-    期間と横軸が合っていなかった。プロパティの変更履歴が 2025-07 より前には無いため
-    （fixture でも 2025-03-09 開始の契約は変更履歴が 25-07 からの1点だけ）。
-    黙って欠けさせず、何月から記録があるか・どこが無いかを書く */
+    期間と横軸が合っていなかった（fixture でも 2025-03-09 開始の契約は変更履歴が 25-07 からの1点だけ）。
+    黙って欠けさせず、何月から記録があるか・どこが無いかを書く。
+    🔴 理由は決めつけない。「変更履歴は X からしかありません」と書いていたが、データ全体の履歴の
+    始まり（2025-07）より後から始まる図のほうが多く（fixture 474枚中390枚）、その契約の値が
+    その月まで入っていなかった・変わらなかっただけのこともある。**この契約で最初に記録がある月**だけを書く */
 function histGap(mm, months) {
   if (!mm || !mm.start || !months.length || months[0] <= 1) return "";
   const from = monthAdd(mm.start, months[0]);
   const s0 = String(mm.start).slice(0, 7), s1 = monthAdd(mm.start, months[0] - 1);
   if (!from || !s1) return "";
-  return "<b>変更履歴は " + esc(from) + " からしかありません</b>（" + esc(s0) +
+  return "<b>この契約の応募・面接・採用の記録は " + esc(from) + " からです</b>（" + esc(s0) +
     (s1 !== s0 ? "〜" + esc(s1) : "") + " は記録が無いので描いていません。0 ではありません）";
 }
 
@@ -3674,11 +3683,15 @@ function renderRampup(D) {
         label: b.label, v: b.cancel_rate, txt: pct1(b.cancel_rate),
         note: "n=" + num(b.denom),
         /* 🔴 以前は「61日超」だけ赤（■まずい）にしていた。決着済みで割り直すと向きは
-           読めないので、特定の帯を判定の色で強調しない。
-           色は帯の名前ではなく率の値で、全画面共通の線（CANCEL_HI）で決める（2026-09-24。
-           前は全帯を藍にしていて、継続回数×成果の 40%以上＝緋と決まりが食い違っていた） */
-        color: cancelColor(b.cancel_rate) })) }),
-    cancelLegend(f.buckets.filter((b) => b.denom >= MIN_N).map((b) => b.cancel_rate)) +
+           読めないので、特定の帯を判定の色で強調しない。全帯を同じ色にする（5f11d15）。
+           2026-09-24 に一度、全画面共通の線（CANCEL_HI）で値ごとに緋にしたが、fixture で
+           4帯中3帯（14日以内 49.7% を含む）が緋になり「早い立ち上がりがまずい」と読めて、
+           副題「向きは読めません」と食い違った。この図は帯どうしを比べる図なので判定の色は使わず、
+           線の話は凡例に文で書く。緋にするかどうかは線引き（40%）と合わせて藤巻さんの確認待ち */
+        color: C.ai })) }),
+    lg("box", C.ai, "解約率") +
+    '<i class="full">この図は帯どうしを比べるための図なので、' + goLink("study", "renewal") +
+    " で使っている「解約率 " + CANCEL_HI + "%以上を緋」の線で色を分けていません。</i>" +
     // 足切りは決着済みの件数（b.denom）で見る。図の filter と同じ基準にする（rust N3 + ui V6）
     droppedNote(f.buckets, (b) => b.denom || 0, (b) => b.label) +
     '<i class="full">n は決着済み（継続＋解約＋充足）の件数で、解約率の分母です。結果待ちは入れていません。' +
@@ -4783,7 +4796,8 @@ const viewOf = (m, v) => (menuOf(m) || MENUS[0]).views.find((x) => x.key === v);
 function goLink(menu, view) {
   const m = MENUS.find((x) => x.key === menu);
   const v = m && m.views.find((x) => x.key === view);
-  if (!v) return esc(menu + " → " + view);
+  /* 行き先が無いときはリンクにしない。内部の key（英字）は画面に出さない（2026-09-24 検証） */
+  if (!v) return esc(m ? m.label : "別の画面");
   return '<a class="golink" href="#' + m.key + "/" + v.key + '">' +
     esc(m.label) + " → " + esc(v.label) + "</a>";
 }
