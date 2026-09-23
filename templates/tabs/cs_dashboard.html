@@ -1728,6 +1728,49 @@ function custIndex(D, question, lede) {
         num(r.sites), num(r.active), yen(r.ltv), esc(r.last_expiration)])), 460);
 }
 
+/* 注力の内訳と、注力だけに絞る操作。
+   🔴 **置き場所は法人の画面。** 注力は法人単位の性質なので、案件単位の画面に置くと
+      「この案件が注力」と読まれる。
+   🔴 条件は重なる（1社が2つ3つに当たる）ので、内訳を足しても社数にはならない。
+      足し算が合わないように見えるので、その旨を必ず書く。 */
+function focusSection(D) {
+  const f = D.focus;
+  if (!f) return "";
+  const me = D.customer || {};
+  const why = me.focus_why || [];
+
+  let h = sec("図", "注力の内訳");
+  /* いま開いている法人が注力かどうか。理由まで出さないと確かめようがない */
+  h += note(me.focus ? "warn" : "info",
+    me.focus ? "いま見ている法人は注力です" : "いま見ている法人は注力ではありません",
+    (me.focus
+      ? "当てはまっている条件: <b>" + why.map(esc).join(" ／ ") + "</b>"
+      : "3つの条件のどれにも当てはまっていません。") +
+    "<br>" + esc(f.rule) + "<br>" + esc(f.not_layer));
+
+  h += '<div class="ctlbar"><label class="act">' +
+    '<input type="checkbox" id="hj-focus-only"' + (focusOnly ? " checked" : "") + ">" +
+    "上の「法人を選ぶ」を注力だけにする（" + num(f.n_focus) + " / " +
+    num(f.n_display) + " 社）</label></div>";
+
+  const rest = f.n_display - f.n_focus;
+  h += fig("1点が1社（" + esc(f.display_label) + " " + num(f.n_display) + " 社）",
+    "色が付いているのが注力",
+    svgDots({ total: f.n_display, per: 37, restLabel: "注力の条件に当たらない",
+      groups: [{ v: f.n_focus, color: C.ai, label: "注力（いずれか該当）" }],
+      alt: "注力の割合" }),
+    lg("dot", C.ai, "注力 " + num(f.n_focus) + " 社") +
+    lg("dot", "var(--rule)", "それ以外 " + num(rest) + " 社") +
+    '<i class="full">内訳（<b>重なります</b>。足しても ' + num(f.n_focus) +
+    " 社にはなりません）: 月額30万以上 " + num(f.monthly_over_300k) +
+    " ／ 従業員1,000名以上 " + num(f.enterprise) +
+    " ／ 拠点3つ以上 " + num(f.multi_site) + "</i>" +
+    '<i class="full">図は' + esc(f.display_label) + "だけで描いています。" +
+    "全 " + num(f.n_all) + " 法人まで広げると注力は " + num(f.n_focus_all) +
+    " 社です。</i>");
+  return h;
+}
+
 /* 選んだ案件だけの D を作る。
    🔴 **画面の全部が選択に追従する**ようにするため、図・表・KPI・合計を
       ここで一度に絞る。どこか1つでも全件のまま残ると画面の中で数字が食い違う。 */
@@ -2035,6 +2078,10 @@ function renderSeries(D) {
       チェックを外したら図・表・KPI・合計の**全部**が追従する。
 */
 let houjinPick = null;        /* deal_id -> true。null なら「まだ決めていない＝全部」 */
+/* 上の「法人を選ぶ」を注力だけにするか。
+   🔴 注力は**法人の大きさ**で決まる性質（日々変わらない）。
+      日々変わる状態は「今日動く先」の MTG途絶の帯のほう。混ぜない。 */
+let focusOnly = false;
 let houjinFor = "";           /* どの法人ぶんの選択か */
 
 function houjinIds(D) {
@@ -2071,6 +2118,7 @@ function renderHoujin(D) {
     "<b>拠点をまたいで並べています。</b>ふだんの判断は事業所単位なので、" +
     "1つの事業所の流れを追うときは左の「継続を追いかける」を使ってください。" +
     "<b>拠点をまたいで1本の線にはしていません</b>（拠点差が時間の悪化に見えるため）。");
+  h += focusSection(D);
 
   /* ---- 案件のチェック ---- */
   h += sec("表", "見る案件を選ぶ");
@@ -2677,6 +2725,9 @@ const BOARD_COLS = [
     } },
   { k: "nps",        t: "定期NPS",     n: 1, fmt: npsCell },
   { k: "days_since_contact", t: "最後の接触", n: 1, fmt: touchCell },
+  /* 🔴 「最後の接触」（MTG＋60秒超の通話）とは別の列。こちらは MTG だけ。
+     2つ並べているのは、電話でつないでいるだけで MTG が落ちている先を見つけるため */
+  { k: "mtg_days",   t: "最後のMTG",   n: 1, fmt: mtgCell },
   /* 🔴 応募 → 面接 → 採用 を横に並べる。どこで詰まっているかが1行で読めるように */
   { k: "oubo",       t: "応募",        n: 1, fmt: (r) => numCarry(r.oubo, r.oubo_carry) },
   { k: "mensetu",    t: "面接",        n: 1, fmt: (r) => numCarry(r.mensetu, r.mensetu_carry) },
@@ -2812,11 +2863,40 @@ function boardTable(rows, sort, id) {
       棒の右に分類の言葉も書くので、白黒に印刷しても読める。
    分類の規則をここ1か所に置いているのは、①と③で食い違わないようにするため。 */
 function flagGroup(label) {
+  /* 🔴 「満了90日前でMTGが30日以上途絶」は満了の話でもあるので、
+     先に MTG を見る。順番を入れ替えると分類が変わる */
+  if (label.indexOf("MTG") >= 0) return { color: C.hi, word: "関係が危ない" };
   if (label.indexOf("NPS") >= 0 || label.indexOf("退職") >= 0)
     return { color: C.hi, word: "関係が危ない" };
   if (label.indexOf("満了") >= 0 || label.indexOf("接触") >= 0)
     return { color: C.ki, word: "時間が迫っている" };
   return { color: C.murasaki, word: "成果が出ていない" };
+}
+
+/* MTG途絶の帯の色。🔴 **色だけで意味を伝えない。**
+   棒には帯の名前（日数入り）がそのまま出るので、白黒でも読める。 */
+const MTG_BAND_COLOR = {
+  critical: C.hi, red: C.ki, yellow: C.murasaki,
+  recent: C.midori, no_record: C.ghost, onboarding: C.ghost,
+};
+
+/* 1行ぶんの「最後のMTG」。
+   🔴 日数だけでなく**どこから取った日付か**を必ず添える。
+      録画は事実、メール由来は推定（±1日で83.3%）。同じ顔で並べない。 */
+function mtgCell(r) {
+  if (r.mtg_band === "onboarding")
+    return '<span class="muted small">立ち上がり期</span>';
+  if (r.mtg_days == null)
+    return '<span class="muted small">記録なし</span>';
+  const col = r.mtg_band === "critical" ? "hi"
+            : r.mtg_band === "red" ? "ki"
+            : r.mtg_band === "yellow" ? "murasaki" : "midori";
+  const src = r.mtg_source === "recording" ? "録画"
+            : r.mtg_source === "mail" ? "メール（推定）"
+            : r.mtg_source === "both" ? "録画" : "";
+  return '<b style="color:var(--' + col + ')">' + num(r.mtg_days) + "日前</b>" +
+    (src ? '<span class="muted small"> ' + esc(src) + "</span>" : "") +
+    (r.mtg_forced_by_expiry ? '<span class="muted small"> 満了前</span>' : "");
 }
 
 function flagFig(D, subset) {
@@ -2852,13 +2932,62 @@ function renderToday(D) {
   h += note("info", "絞った条件", esc(D.meta.filter_rule));
 
   const soon = D.expiring_this_week || [];
+  const started = D.started_this_week || [];
+  const G = D.meta.mtg_gap || {};
+  const bandN = (k) => ((G.bands || []).find((b) => b.band === k) || {}).n || 0;
   h += '<div class="kpis">' +
     kpi("今日出す先", num(D.meta.n_shown) + '<span class="u">件</span>',
         "名札が2本以上ついた " + num(D.meta.n_hit) + " 件から", "bad") +
+    kpi("MTGが90日以上途絶", num(bandN("critical")) + '<span class="u">件</span>',
+        "うち " + num(G.forced_by_expiry) + " 件は満了90日前の途絶で引き上げたもの", "bad") +
     kpi("今週満了する", num(soon.length) + '<span class="u">件</span>',
         "名札の本数に関わらず落としていません", "warn") +
+    kpi("今週始まった契約", num(started.length) + '<span class="u">件</span>',
+        "開始がまだ先の契約が " + num(D.meta.n_not_started) + " 件") +
     kpi("稼働中の全件", num(D.meta.n_active) + '<span class="u">件</span>',
         "全件は左の「案件の立ち位置」で") + "</div>";
+
+  /* ---------------- MTG途絶の帯 ---------------- */
+  h += sec("図", "MTG が途絶えている先");
+  const bands = (G.bands || []).filter((b) => b.n > 0);
+  const cov = G.coverage || {};
+  h += fig("最終MTGからの経過日数で分けた帯",
+    "線引きは毎朝動いている GAS（no_mtg_alerter）と同じ",
+    bands.length
+      ? svgBarH({ w: 700, fmt: F.int, rh: 26,
+          rows: bands.map((b) => ({
+            label: b.label, v: b.n, txt: num(b.n) + "件",
+            note: b.alert ? "手を打つ" : "帯を付けていない",
+            color: MTG_BAND_COLOR[b.band] || C.ghost })) })
+      : '<div class="empty">帯を出せる案件がありません。</div>',
+    lg("box", C.hi, "90日以上") + lg("box", C.ki, "60〜89日") +
+    lg("box", C.murasaki, "30〜59日") + lg("box", C.midori, "直近30日にあり") +
+    lg("box", C.ghost, "帯を付けていない") +
+    '<i class="full">' + esc(G.rule || "") + "</i>" +
+    '<i class="full">' + esc(G.no_record_note || "") + "</i>");
+
+  /* 被覆。🔴 何件を実際に見られているのかを出さないと、帯の件数を信じてよいか分からない */
+  if (G.n_judged) {
+    h += note("info", "この帯は何件を見て作ったか",
+      "帯を付けた母数は <b>" + num(G.n_judged) + " 件</b>（稼働中 " +
+      num(D.meta.n_active) + " 件から立ち上がり期 " +
+      num(bandN("onboarding")) + " 件を外したもの）。<br>" +
+      "そのうち最終MTG日が分かったのは <b>" + num(cov.either) + " 件（" +
+      pct1(cov.either_rate) + "）</b>です。" +
+      "内訳は 録画 " + num(cov.recording) + " 件（" + pct1(cov.recording_rate) +
+      "） ／ メール由来 " + num(cov.mail) + " 件（" + pct1(cov.mail_rate) + "）。<br>" +
+      esc(G.source_note || ""));
+  }
+
+  /* ---------------- 今週始まった契約 ---------------- */
+  if (started.length) {
+    h += sec("表", "今週始まった契約（" + num(started.length) + " 件）");
+    h += '<div class="lede">' + esc(D.meta.new_deal_rule || "") + "</div>";
+    h += scroll(boardTable(started, { key: "start", asc: false }, "new-tbl"), 320);
+  } else {
+    h += sec("表", "今週始まった契約");
+    h += '<div class="empty">直近7日に始まった契約はありません。</div>';
+  }
 
   if (soon.length) {
     h += sec("表", "今週満了（" + num(soon.length) + " 件）");
@@ -3363,9 +3492,16 @@ function wire(v) {
   if (rl) rl.onclick = () => load(true);
   const sel = document.getElementById("cs-houjin");
   if (sel && customerIndex) {
-    sel.innerHTML = '<option value="">法人を選ぶ…</option>' + customerIndex.slice(0, 400).map((r) =>
+    /* 🔴 注力だけにしているときは、選択肢もそれに合わせる。
+       図だけ絞って選択肢が全件のままだと、絞ったつもりで全件から選んでしまう。
+       いま開いている法人は、注力でなくても選択肢に残す（選んだものが消えると戻れない）。 */
+    const list = focusOnly
+      ? customerIndex.filter((r) => r.focus || r.houjin === customerHoujin)
+      : customerIndex;
+    sel.innerHTML = '<option value="">法人を選ぶ…</option>' + list.slice(0, 400).map((r) =>
       '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
-      "（取引" + num(r.deals) + " / 拠点" + num(r.sites) + "）</option>").join("");
+      "（取引" + num(r.deals) + " / 拠点" + num(r.sites) + "）" +
+      (r.focus ? "［注力］" : "") + "</option>").join("");
     /* 差し込み直しでも選んだ法人が残るようにする */
     if (customerHoujin) sel.value = customerHoujin;
   }
@@ -3384,6 +3520,8 @@ function wireSeries() {
 /* 「法人番号で見る」のチェックと、本部アプローチの遅延読み */
 function wireHoujin() {
   const redraw = () => redrawMain(lastPayload);
+  const fo = document.getElementById("hj-focus-only");
+  if (fo) fo.onchange = () => { focusOnly = fo.checked; redraw(); };
   document.querySelectorAll("#hj-pick input[type=checkbox]").forEach((cb) => {
     cb.onchange = () => { houjinPick[cb.dataset.d] = cb.checked; redraw(); };
   });

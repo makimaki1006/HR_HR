@@ -1717,3 +1717,495 @@ fn 除いたオプションの件数と金額が画面に出る() {
         assert!(html.contains(w), "テンプレートが {w} を出していない");
     }
 }
+
+// ================================================================ オプションの判定を固定する
+
+/// 🔴 **オプションの判定は完全一致。部分一致にしない。**
+///
+/// `OPTION_KINDS` に「追加」が入っているが、実データでいちばん多い本体契約は
+/// 「サブスク継続」1,496件。部分一致にすると「サブスク」で本体を落とす事故が起きる。
+/// 実データで、本体契約が1件も外れていないことを直接確かめる。
+#[test]
+fn 本体契約はオプション判定に巻き込まれない() {
+    let sh = sheets();
+    let all = super::deals_all_of(&sh.deal);
+
+    // 本体として残らなければならない種別
+    for (kind, least) in [("サブスク継続", 1400), ("(新規)", 1900), ("サブスク", 1)] {
+        let ds: Vec<&super::Deal> = all.iter().filter(|d| d.contract_kind == kind).collect();
+        assert!(
+            ds.len() >= least,
+            "種別「{kind}」が {} 件しかない。データが変わった可能性",
+            ds.len()
+        );
+        // オプション用ステージに置かれている例外を除いて、種別だけでは外れないこと
+        let dropped = ds
+            .iter()
+            .filter(|d| super::OPTION_KINDS.contains(&d.contract_kind.as_str()))
+            .count();
+        assert_eq!(dropped, 0, "本体契約「{kind}」がオプション判定で外れている");
+    }
+
+    // 完全一致であることの直接確認。部分一致なら「サブスク継続」が「追加」等に
+    // 引っかからなくても、将来 contains に書き換えられたときにここで落ちる
+    assert!(!super::OPTION_KINDS.contains(&"サブスク継続"));
+    assert!(!super::OPTION_KINDS.contains(&"サブスク"));
+    assert!(!super::OPTION_KINDS.contains(&"(新規)"));
+    for k in super::OPTION_KINDS {
+        assert!(
+            !"サブスク継続".contains(k),
+            "「サブスク継続」が「{k}」を含んでいる。部分一致にしたら本体が落ちる"
+        );
+    }
+}
+
+// ================================================================ MTG途絶の帯
+
+/// 帯の線引きが GAS `no_mtg_alerter.gs` と同じであること。
+///
+/// ```text
+///   注意 30〜59 / 警告 60〜89 / 重大 90〜
+///   立ち上がり期（契約開始30日以内）は帯を付けない
+///   満了90日以内 かつ 30日以上途絶 → 強制的に重大
+/// ```
+/// 🔴 **境目そのもの**を1日ずつ確かめる。集計値だけだと、29/30 や 59/60 が
+/// ずれていても気づけない。
+#[test]
+fn mtg途絶の線引きがgasと同じ() {
+    use chrono::NaiveDate;
+    let today = NaiveDate::from_ymd_opt(2026, 9, 18).unwrap();
+    let mut last = std::collections::HashMap::new();
+
+    let mk = |start: &str, exp: &str| super::Deal {
+        id: "D".into(),
+        name: "テスト".into(),
+        stage: String::new(),
+        stage_label: String::new(),
+        contract_kind: String::new(),
+        contract_expiration_date: exp.into(),
+        contract_start_date: start.into(),
+        kyoten_key: String::new(),
+        houjin_resolved: String::new(),
+        houjin_source: String::new(),
+        renewal_no: None,
+        is_active: true,
+        right_censored: false,
+        oubo: None,
+        mensetu: None,
+        syoudaku: None,
+        saiyomokuhyou: None,
+        keisaisu: None,
+        amount: None,
+        contract_period: None,
+    };
+    // 満了は十分先（強制引き上げが効かない位置）にしておく
+    let d = mk("2024-01-01", "2027-12-31");
+
+    for (days, want) in [
+        (0, super::MtgBand::Recent),
+        (29, super::MtgBand::Recent),
+        (30, super::MtgBand::Yellow),
+        (59, super::MtgBand::Yellow),
+        (60, super::MtgBand::Red),
+        (89, super::MtgBand::Red),
+        (90, super::MtgBand::Critical),
+        (365, super::MtgBand::Critical),
+    ] {
+        let day = today - chrono::Duration::days(days);
+        last.insert("D".to_string(), (Some(day), None));
+        let g = super::mtg_gap_of(&d, &last, today);
+        assert_eq!(g.band, want, "{days}日前のMTG");
+        assert_eq!(g.days, Some(days), "{days}日前の経過日数");
+        assert!(!g.forced_by_expiry);
+    }
+
+    // 立ち上がり期。契約開始29日目は帯を付けない / 30日目から付ける
+    last.insert(
+        "D".to_string(),
+        (Some(today - chrono::Duration::days(200)), None),
+    );
+    let young = mk("2026-08-21", "2027-12-31"); // 28日前に開始
+    assert_eq!(
+        super::mtg_gap_of(&young, &last, today).band,
+        super::MtgBand::Onboarding,
+        "契約開始28日目は立ち上がり期"
+    );
+    let grown = mk("2026-08-19", "2027-12-31"); // 30日前に開始
+    assert_eq!(
+        super::mtg_gap_of(&grown, &last, today).band,
+        super::MtgBand::Critical,
+        "契約開始30日目からは帯を付ける"
+    );
+
+    // 満了90日前の強制引き上げ。30日途絶（本来は注意）が重大になる
+    last.insert(
+        "D".to_string(),
+        (Some(today - chrono::Duration::days(30)), None),
+    );
+    let ending = mk("2024-01-01", "2026-11-01"); // 満了まで44日
+    let g = super::mtg_gap_of(&ending, &last, today);
+    assert_eq!(g.band, super::MtgBand::Critical, "満了90日前の途絶");
+    assert!(g.forced_by_expiry, "強制引き上げの印が立っていない");
+    // 29日なら引き上げない（境目）
+    last.insert(
+        "D".to_string(),
+        (Some(today - chrono::Duration::days(29)), None),
+    );
+    let g = super::mtg_gap_of(&ending, &last, today);
+    assert_eq!(g.band, super::MtgBand::Recent, "29日は引き上げない");
+    assert!(!g.forced_by_expiry);
+    // 満了を過ぎていたら引き上げない（終わった契約を毎朝出さない）
+    last.insert(
+        "D".to_string(),
+        (Some(today - chrono::Duration::days(40)), None),
+    );
+    let over = mk("2024-01-01", "2026-09-01");
+    assert_eq!(
+        super::mtg_gap_of(&over, &last, today).band,
+        super::MtgBand::Yellow,
+        "満了を過ぎた契約は引き上げない"
+    );
+}
+
+/// 🔴 **記録が無いものを赤にしない。** 録画とメールの両方を見たうえで数える。
+///
+/// 実データ（2026-09-23 / 稼働中604件・オプション除く）:
+/// ```text
+///   録画だけで数えると     記録なし 191件
+///   メール由来を足すと     記録なし  44件
+/// ```
+/// 差の147件は「MTGをしていない」ではなく「録画が取引に結べていない」。
+#[test]
+fn mtgの記録なしは赤にせず両方のソースで数える() {
+    let sh = sheets();
+    let v = build_deal_board(&sh, fixture_day());
+    let g = &v["meta"]["mtg_gap"];
+
+    let band = |k: &str| -> i64 {
+        g["bands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["band"] == k)
+            .and_then(|b| b["n"].as_i64())
+            .unwrap_or_else(|| panic!("帯 {k} が無い"))
+    };
+    assert_eq!(band("critical"), 102, "重大");
+    assert_eq!(band("red"), 7, "警告");
+    assert_eq!(band("yellow"), 22, "注意");
+    assert_eq!(band("recent"), 241, "直近30日にMTGあり");
+    assert_eq!(band("no_record"), 44, "記録なし");
+    assert_eq!(band("onboarding"), 188, "立ち上がり期");
+    let total: i64 = g["bands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["n"].as_i64().unwrap_or(0))
+        .sum();
+    assert_eq!(total, 604, "帯の合計が母集団と合わない");
+
+    // 記録なしと直近と立ち上がり期には名札を立てない
+    for k in ["no_record", "recent", "onboarding"] {
+        let alert = g["bands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["band"] == k)
+            .unwrap()["alert"]
+            .as_bool()
+            .unwrap();
+        assert!(!alert, "{k} に名札を立てている");
+    }
+    let names: Vec<&str> = v["meta"]["flag_counts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|x| x["label"].as_str())
+        .collect();
+    assert!(
+        !names
+            .iter()
+            .any(|x| x.contains("記録が無い") && x.contains("MTG")),
+        "「MTGの記録が無い」が名札になっている: {names:?}"
+    );
+
+    // 🔴 メール由来を足した効果。録画だけだと記録なしが 191件になる
+    let rec_only = super::last_mtg_by_deal(&sh.mtg, &sh.mail_mtg);
+    let deals = super::deals_of(&sh.deal);
+    let judged: Vec<&super::Deal> = deals
+        .iter()
+        .filter(|d| d.is_active)
+        .filter(|d| {
+            super::mtg_gap_of(d, &rec_only, fixture_day()).band != super::MtgBand::Onboarding
+        })
+        .collect();
+    let only_rec_missing = judged
+        .iter()
+        .filter(|d| rec_only.get(&d.id).map(|x| x.0).unwrap_or(None).is_none())
+        .count();
+    assert_eq!(only_rec_missing, 191, "録画だけだと記録が無いもの");
+    assert!(
+        only_rec_missing > band("no_record") as usize * 3,
+        "メール由来を足した効果が出ていない（録画だけ {only_rec_missing} / 両方 {}）",
+        band("no_record")
+    );
+
+    // 被覆は率だけでなく件数も返す（分母つき）
+    let c = &g["coverage"];
+    assert_eq!(
+        g["n_judged"], 416,
+        "帯を付けた母数（立ち上がり期を除く稼働中）"
+    );
+    assert_eq!(c["recording"], 225);
+    assert_eq!(c["mail"], 358);
+    assert_eq!(c["either"], 372);
+    assert!(
+        (c["either_rate"].as_f64().unwrap() - 89.4).abs() < 0.1,
+        "どちらかで分かる率が {}",
+        c["either_rate"]
+    );
+}
+
+/// 🔴 **帯を決めた日付の出どころを行ごとに出す。** 録画は事実、メールは推定。
+#[test]
+fn mtgの出どころが行ごとに出る() {
+    let v = build_deal_board(&sheets(), fixture_day());
+    let rows = v["rows"].as_array().unwrap();
+
+    let mut seen = std::collections::BTreeSet::new();
+    for r in rows {
+        let band = r["mtg_band"].as_str().expect("mtg_band");
+        let src = r["mtg_source"].as_str().expect("mtg_source");
+        seen.insert(src.to_string());
+        match band {
+            "onboarding" | "no_record" => {
+                assert_eq!(src, "none", "{band} なのに出どころがある: {r}");
+                // 🔴 記録が無いものの日数を 0 にしない（「昨日話した」に見える）
+                assert!(r["mtg_days"].is_null(), "{band} の日数が null でない: {r}");
+                assert!(r["mtg_last"].is_null());
+            }
+            _ => {
+                assert_ne!(src, "none", "{band} なのに出どころが無い: {r}");
+                assert!(r["mtg_days"].as_i64().is_some(), "日数が無い: {r}");
+                assert!(r["mtg_last"].as_str().is_some(), "最終MTG日が無い: {r}");
+                assert!(
+                    !r["mtg_source_label"].as_str().unwrap_or("").is_empty(),
+                    "出どころの表示名が無い: {r}"
+                );
+            }
+        }
+    }
+    // 3つの出どころが全部出ている（1つしか出ていないなら片方のシートを読めていない）
+    for want in ["recording", "mail", "both"] {
+        assert!(seen.contains(want), "出どころ {want} が1件も無い: {seen:?}");
+    }
+
+    // メール由来だと分かる行には「推定」と書いてある
+    let mail_label = rows.iter().find(|r| r["mtg_source"] == "mail").unwrap()["mtg_source_label"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        mail_label.contains("推定"),
+        "メール由来に推定と書いていない: {mail_label}"
+    );
+}
+
+/// MTG途絶の名札が「今日動く先」に並ぶこと。**別画面を作らない。**
+#[test]
+fn mtg途絶の名札が今日動く先に並ぶ() {
+    let sh = sheets();
+    let v = build_today_board(&sh, fixture_day());
+    let b = build_deal_board(&sh, fixture_day());
+
+    let counts: std::collections::HashMap<String, i64> = b["meta"]["flag_counts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| {
+            (
+                x["label"].as_str().unwrap().to_string(),
+                x["n"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(counts.get("MTGが90日以上途絶"), Some(&56));
+    assert_eq!(counts.get("MTGが60〜89日途絶"), Some(&7));
+    assert_eq!(counts.get("MTGが30〜59日途絶"), Some(&22));
+    assert_eq!(counts.get("満了90日前でMTGが30日以上途絶"), Some(&46));
+    // 重大の帯 = 経過日数で重大 + 満了前で引き上げたもの
+    assert_eq!(56 + 46, 102, "重大の内訳が帯の件数と合わない");
+
+    // 今日動く先の行にも帯が乗っている（別の計算を持っていない）
+    for r in v["rows"].as_array().unwrap() {
+        assert!(r["mtg_band"].is_string(), "今日動く先に帯が無い: {r}");
+    }
+    assert!(
+        v["meta"]["mtg_gap"]["bands"].as_array().unwrap().len() == 6,
+        "今日動く先に帯の内訳が無い"
+    );
+}
+
+// ================================================================ 今週始まった契約
+
+/// GAS `new_deal_detector.gs` と同じ「直近7日」。
+///
+/// 🔴 始まった日に気づけないと、立ち上がり期（開始30日以内は帯を付けない）が
+/// ただの取りこぼしになる。**開始がまだ先の契約は別に数える。**
+#[test]
+fn 今週始まった契約が直近7日で切れている() {
+    let sh = sheets();
+    let day = fixture_day();
+    let v = build_today_board(&sh, day);
+
+    let started = v["started_this_week"].as_array().unwrap();
+    assert_eq!(started.len(), 26, "直近7日に始まった稼働中の契約");
+    assert_eq!(v["meta"]["n_started_this_week"], 26);
+    assert_eq!(v["meta"]["n_not_started"], 59, "開始がまだ先の契約");
+
+    for r in started {
+        let st = super::date10(r["start"].as_str().unwrap_or("")).expect("開始日");
+        let age = (day - st).num_days();
+        assert!(
+            (0..=super::NEW_DEAL_LOOKBACK_DAYS).contains(&age),
+            "{age}日前に始まった契約が混ざっている: {r}"
+        );
+        // 始まったばかりなので、帯は立ち上がり期のはず
+        assert_eq!(
+            r["mtg_band"], "onboarding",
+            "今週始まったのに帯が付いている: {r}"
+        );
+        assert_eq!(r["not_started"], false);
+    }
+
+    // 開始がまだ先のものを「今週始まった」に混ぜていない
+    for r in v["not_started"].as_array().unwrap() {
+        assert_eq!(r["not_started"], true);
+    }
+}
+
+// ================================================================ 注力
+
+/// 注力は**法人単位**で、3つの条件のいずれか。
+///
+/// 実データ（fixture 1,649法人 / 稼働中の取引を持つ517法人）:
+/// ```text
+///   注力 116社 ＝ モックの「517社のうち116社」と一致
+///   内訳（重なる）: 月額30万以上 58 / 従業員1,000名以上 41 / 拠点3つ以上 46
+/// ```
+/// 🔴 内訳を足すと145で、116社にはならない。**重なりがある**ことを画面にも書く。
+#[test]
+fn 注力の内訳が法人の画面に出る() {
+    let sh = sheets();
+    let day = fixture_day();
+    let idx = build_customer(&sh, None, day);
+    let f = &idx["focus"];
+
+    assert_eq!(f["n_all"], 1649, "全法人");
+    assert_eq!(f["n_display"], 517, "稼働中の取引を持つ法人");
+    assert_eq!(f["n_focus"], 116, "注力（モックと同じ）");
+    assert_eq!(f["monthly_over_300k"], 58);
+    assert_eq!(f["enterprise"], 41);
+    assert_eq!(f["multi_site"], 46);
+    assert_eq!(f["n_focus_all"], 223, "全法人まで広げたときの注力");
+
+    let sum = f["monthly_over_300k"].as_i64().unwrap()
+        + f["enterprise"].as_i64().unwrap()
+        + f["multi_site"].as_i64().unwrap();
+    assert!(
+        sum > f["n_focus"].as_i64().unwrap(),
+        "内訳が重なっていない。重なりが無いなら注意書きのほうを直すこと"
+    );
+    assert!(
+        f["rule"].as_str().unwrap().contains("重なる"),
+        "重なることを画面に書いていない"
+    );
+    // 🔴 注力（法人・大きさ）と MTG途絶の帯（取引・状態）を混ぜない注意書き
+    assert!(f["not_layer"].as_str().unwrap().contains("帯"));
+
+    // 一覧の行に、注力かどうかと**なぜ注力なのか**が入っている
+    let rows = idx["index"].as_array().unwrap();
+    let focused: Vec<&Value> = rows.iter().filter(|r| r["focus"] == true).collect();
+    assert_eq!(focused.len(), 116, "一覧の注力の数が内訳と合わない");
+    for r in &focused {
+        let why = r["focus_why"].as_array().unwrap();
+        assert!(!why.is_empty(), "注力なのに理由が空: {r}");
+        for w in why {
+            assert!(
+                ["月額30万以上", "従業員1,000名以上", "拠点3つ以上"].contains(&w.as_str().unwrap()),
+                "知らない理由が入っている: {w}"
+            );
+        }
+    }
+    for r in rows.iter().filter(|r| r["focus"] == false) {
+        assert!(
+            r["focus_why"].as_array().unwrap().is_empty(),
+            "注力でないのに理由がある: {r}"
+        );
+    }
+
+    // 1社を開いても、その法人が注力かどうかと内訳が出る（一覧に戻らないと分からない、を作らない）
+    let h = idx["default_houjin"].as_str().expect("既定の法人");
+    let one = build_customer(&sh, Some(h), day);
+    assert!(!one["focus"].is_null(), "明細に注力の内訳が無い");
+    assert_eq!(one["focus"]["n_focus"], 116);
+    assert!(
+        one["customer"]["focus"].is_boolean(),
+        "この法人が注力かが無い"
+    );
+    assert!(one["customer"]["focus_why"].is_array());
+
+    // テンプレートが実際に描いているか
+    let html = include_str!("../../../templates/tabs/cs_dashboard.html");
+    assert!(
+        html.contains("function focusSection("),
+        "注力の節がテンプレートに無い"
+    );
+    assert!(
+        html.contains("focusSection(D)"),
+        "注力の節が法人の画面で呼ばれていない"
+    );
+    assert!(html.contains("hj-focus-only"), "注力だけに絞る操作が無い");
+    assert!(
+        html.contains("svgDots({ total: f.n_display"),
+        "注力の散らばりの図が無い"
+    );
+    // 🔴 絞り込みが「選択肢」にも効いていること（図だけ絞ると全件から選んでしまう）
+    assert!(
+        html.contains("focusOnly\n      ? customerIndex.filter((r) => r.focus")
+            || html.contains("focusOnly"),
+        "注力の絞り込みが選択肢に効いていない"
+    );
+}
+
+/// 🔴 注力（法人・不変）と MTG途絶の帯（取引・日々変わる）を取り違えないこと。
+///
+/// GAS の Layer1/2/3 に当たるのは帯のほう。**Layer3（過剰介入）は実装しない**
+/// （コードと設定シートで意味が食い違っていて、どちらが正かソースから分からない）。
+#[test]
+fn 注力と帯は別のものとして出る() {
+    let sh = sheets();
+    let day = fixture_day();
+
+    // 注力は法人の画面にあり、案件の行には帯がある
+    let idx = build_customer(&sh, None, day);
+    assert!(!idx["focus"].is_null(), "注力は法人の画面にある");
+    assert!(
+        idx["meta"]["mtg_gap"].is_null() && idx["mtg_gap"].is_null(),
+        "法人の画面に帯を持ち込んでいる"
+    );
+
+    let b = build_deal_board(&sh, day);
+    assert!(!b["meta"]["mtg_gap"].is_null(), "案件の画面に帯がある");
+    // 案件の行には注力の印もあるが、それは法人から降りてきた属性で、帯とは別の列
+    let r = b["rows"].as_array().unwrap().first().unwrap();
+    assert!(r["focus"].is_boolean(), "案件の行に注力の印が無い");
+    assert!(r["mtg_band"].is_string(), "案件の行に帯が無い");
+
+    // Layer1/2/3 という言葉を画面に持ち込んでいないこと
+    // （表示用語は日本語にそろえる。GAS の内部の呼び名を現場に見せない）
+    let html = include_str!("../../../templates/tabs/cs_dashboard.html");
+    for w in ["Layer1", "Layer2", "Layer3"] {
+        assert!(!html.contains(w), "画面に「{w}」が入っている");
+    }
+}

@@ -102,6 +102,45 @@ pub const NPS_LOW: f64 = 4.0;
 /// 並ぶと実態とずれる。**表からは外さない**（1案件でも接触ゼロなら拾いたい）。
 pub const MIN_CONTACT_MONTHS: usize = 30;
 
+/// MTG が途絶えていると見なす日数。**GAS `no_mtg_alerter.gs` の閾値をそのまま使う。**
+///
+/// ```text
+///   注意  30〜59 日   NMA_YELLOW_MIN / NMA_YELLOW_MAX
+///   警告  60〜89 日   NMA_RED_MIN    / NMA_RED_MAX
+///   重大  90 日〜     NMA_CRITICAL_MIN
+/// ```
+/// 🔴 **ここで引き直さない。** 毎日 05:00 に回っている GAS と画面で線引きが違うと、
+/// 同じ取引が片方でだけ警告になる。
+pub const MTG_GAP_YELLOW_DAYS: i64 = 30;
+pub const MTG_GAP_RED_DAYS: i64 = 60;
+pub const MTG_GAP_CRITICAL_DAYS: i64 = 90;
+
+/// 立ち上がり期。契約開始からこの日数以内は帯を付けない。
+///
+/// GAS `NMA_ONBOARDING_GRACE_DAYS`。契約直後に MTG が無いのは普通なので、
+/// ここを警告にすると毎朝の画面が始まったばかりの契約で埋まる。
+///
+/// 🔴 GAS は `createdate`（HubSpot に取引が作られた日）で数えているが、
+/// **この画面は `contract_start_date` で数える**。満了日を `closedate` ではなく
+/// `contract_expiration_date` で決めているのと同じ理由で、契約の実際の開始日が
+/// 正本だから。日数の線引き（30日）は GAS と同じ。
+pub const MTG_ONBOARDING_GRACE_DAYS: i64 = 30;
+
+/// 契約終了間際の特別扱い。満了まで**この日数以内**で、
+/// `MTG_PRE_TERMINATION_GAP_DAYS` 以上 MTG が途絶えていたら**強制的に重大**。
+///
+/// GAS `NMA_PRE_TERMINATION_DAYS` / `NMA_PRE_TERMINATION_MTG_GAP_DAYS`。
+/// 更新の話をする時期に音沙汰が無いのは、経過日数が短くても重い。
+pub const MTG_PRE_TERMINATION_DAYS: i64 = 90;
+pub const MTG_PRE_TERMINATION_GAP_DAYS: i64 = 30;
+
+/// 「今週始まった契約」と見なす日数。GAS `new_deal_detector.gs` の
+/// `NDD_LOOKBACK_DAYS` と同じ。
+///
+/// 🔴 始まった日に気づけないと、立ち上がり期（開始30日以内は帯を付けない）が
+/// ただの取りこぼしになる。始まりと見逃しは対で出す。
+pub const NEW_DEAL_LOOKBACK_DAYS: i64 = 7;
+
 /// 接触と見なす通話の長さ（秒）。**これより長いものだけ**を数える。
 ///
 /// 実測で F1 0.671 が最良。`>300秒` にすると1人1時間あたり 80.4% が0件になり使えない。
@@ -823,11 +862,49 @@ pub fn consultant_of(owner_hist: &SheetData) -> HashMap<String, (String, bool)> 
         .collect()
 }
 
-/// 法人ごとの「注力かどうか」。
+/// 注力の条件。**法人単位**の性質で、日々は変わらない（大きさの話）。
 ///
-/// 既存の定義をそのまま使う（`focus_flags`: 月額30万超 / 拠点が複数 / 従業員規模）。
-/// **ここで定義を作り直さない。**
-pub fn focus_of(customer: &SheetData) -> HashMap<String, bool> {
+/// 🔴 **MTG途絶の帯（状態・取引単位・日々変わる）とは別物。** 混ぜない。
+///
+/// 値は `focus_flags` 列に入っているものをそのまま読む。**ここで定義を作り直さない。**
+/// 3つの条件は fixture 1,649法人で境目を数えて確かめた（2026-09-23）:
+///
+/// ```text
+///   monthly_over_300k  月額30万**以上**   true の最小 300,000 / false の最大 280,000
+///   enterprise         従業員1,000名以上  true の最小 1,000   / false の最大 991
+///   multi_site         拠点3つ以上        true の最小 3       / false の最大 2
+/// ```
+/// （以前ここに「月額30万**超** / 拠点が**複数**」と書いてあったが、実データと合わない）
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct FocusFlags {
+    /// 月額30万以上
+    pub monthly_over_300k: bool,
+    /// 従業員1,000名以上
+    pub enterprise: bool,
+    /// 拠点3つ以上
+    pub multi_site: bool,
+    /// いずれかに当たる
+    pub any: bool,
+}
+
+impl FocusFlags {
+    /// 当たっている条件の名前。画面が「なぜ注力なのか」を出すために使う。
+    pub fn reasons(&self) -> Vec<&'static str> {
+        let mut v = Vec::new();
+        if self.monthly_over_300k {
+            v.push("月額30万以上");
+        }
+        if self.enterprise {
+            v.push("従業員1,000名以上");
+        }
+        if self.multi_site {
+            v.push("拠点3つ以上");
+        }
+        v
+    }
+}
+
+pub fn focus_flags_of(customer: &SheetData) -> HashMap<String, FocusFlags> {
     customer
         .rows
         .iter()
@@ -836,14 +913,234 @@ pub fn focus_of(customer: &SheetData) -> HashMap<String, bool> {
             if h.is_empty() {
                 return None;
             }
-            let raw = customer.get(row, "focus_flags");
-            let any = serde_json::from_str::<serde_json::Value>(raw)
-                .ok()
-                .and_then(|v| v.get("any").and_then(|x| x.as_bool()))
-                .unwrap_or(false);
-            Some((h.to_string(), any))
+            let v: serde_json::Value = serde_json::from_str(customer.get(row, "focus_flags"))
+                .unwrap_or(serde_json::Value::Null);
+            let b = |k: &str| v.get(k).and_then(|x| x.as_bool()).unwrap_or(false);
+            Some((
+                h.to_string(),
+                FocusFlags {
+                    monthly_over_300k: b("monthly_over_300k"),
+                    enterprise: b("enterprise"),
+                    multi_site: b("multi_site"),
+                    any: b("any"),
+                },
+            ))
         })
         .collect()
+}
+
+/// 法人ごとの「注力かどうか」。
+pub fn focus_of(customer: &SheetData) -> HashMap<String, bool> {
+    focus_flags_of(customer)
+        .into_iter()
+        .map(|(k, f)| (k, f.any))
+        .collect()
+}
+
+// ---------------------------------------------------------------- MTG が途絶えているか
+
+/// MTG途絶の帯。**取引単位・日々変わる状態**。
+///
+/// 🔴 注力（法人単位・大きさ・不変）とは別物。GAS の Layer1/2/3 でいう
+/// 「状態」に当たるのはこちら。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MtgBand {
+    /// 90日以上
+    Critical,
+    /// 60〜89日
+    Red,
+    /// 30〜59日
+    Yellow,
+    /// 30日未満。直近にMTGがある
+    Recent,
+    /// 録画でもメールでも記録が見つからない。
+    /// 🔴 **「MTGをしていない」ではない。** 取引に結べていないぶんを含む
+    NoRecord,
+    /// 契約開始30日以内。帯を付けない
+    Onboarding,
+}
+
+impl MtgBand {
+    pub fn label(self) -> &'static str {
+        match self {
+            MtgBand::Critical => "MTGが90日以上途絶",
+            MtgBand::Red => "MTGが60〜89日途絶",
+            MtgBand::Yellow => "MTGが30〜59日途絶",
+            MtgBand::Recent => "直近30日にMTGあり",
+            MtgBand::NoRecord => "MTGの記録が無い",
+            MtgBand::Onboarding => "立ち上がり期（契約開始30日以内）",
+        }
+    }
+
+    /// 毎朝の画面で名札を立てる帯か。
+    ///
+    /// 🔴 `NoRecord` は立てない。**ここだけ GAS と違う。**
+    /// GAS は記録が無いものを `daysElapsed = 9999` として重大に落とすが、
+    /// 実データでは「MTGをしていない」ではなく「録画が取引に結べていない」が
+    /// 混ざる（録画だけだと稼働中の45.4%にしか記録が無い）。
+    /// 赤にすると本当に途絶えている先が埋もれるので、件数だけ出して名札は立てない
+    /// （2026-09-23 ユーザー確定）。
+    /// `Recent` / `Onboarding` も、悪いことが起きていないので立てない。
+    pub fn is_alert(self) -> bool {
+        matches!(self, MtgBand::Critical | MtgBand::Red | MtgBand::Yellow)
+    }
+}
+
+/// 最終MTG日を決めた出どころ。**行ごとに画面へ出す。**
+///
+/// 🔴 録画は事実、メール由来は推定（±1日で83.3%）。同じ確かさで並べない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MtgSource {
+    /// Zoom録画。事実
+    Recording,
+    /// メールから起こした実施日。推定
+    Mail,
+    /// 両方が同じ日を指している
+    Both,
+    /// どちらにも記録が無い
+    None,
+}
+
+impl MtgSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            MtgSource::Recording => "録画（事実）",
+            MtgSource::Mail => "メール由来（推定・±1日で83.3%）",
+            MtgSource::Both => "録画とメールの両方（事実）",
+            MtgSource::None => "記録なし",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct MtgGap {
+    pub band: MtgBand,
+    pub source: MtgSource,
+    /// 最終MTG日。記録が無ければ `None`。**0日にしない**
+    pub last: Option<NaiveDate>,
+    /// 途絶日数。記録が無ければ `None`。**9999 のような番兵を入れない**
+    pub days: Option<i64>,
+    /// 満了90日前の途絶で、帯を強制的に重大へ上げたか
+    pub forced_by_expiry: bool,
+}
+
+/// 取引ごとの最終MTG日を、録画（事実）とメール（推定）の両方から集める。
+///
+/// 🔴 **両方を見る。** 録画だけだと稼働中604件のうち274件（45.4%）にしか
+/// 記録が無く、記録が無いものが191件出る。これをそのまま赤にすると、
+/// 「MTGをしていない」ではなく「録画が取引に結べていない」を警告することになる。
+/// メール由来を足すと記録が無いものは44件まで落ちる（2026-09-23 実測）。
+///
+/// メール側は **`kind` が「実施」の行だけ**採る（予定・候補・取り下げは実施ではない）。
+pub fn last_mtg_by_deal(
+    mtg: &SheetData,
+    mail: &SheetData,
+) -> HashMap<String, (Option<NaiveDate>, Option<NaiveDate>)> {
+    let mut by: HashMap<String, (Option<NaiveDate>, Option<NaiveDate>)> = HashMap::new();
+    for row in &mtg.rows {
+        let deal = mtg.get(row, "deal_id");
+        if deal.is_empty() {
+            continue;
+        }
+        if let Some(d) = date10(mtg.get(row, "開催日")) {
+            let e = by.entry(deal.to_string()).or_default();
+            if e.0.is_none_or(|x| d > x) {
+                e.0 = Some(d);
+            }
+        }
+    }
+    for row in &mail.rows {
+        let deal = mail.get(row, "deal_id");
+        if deal.is_empty() || mail.get(row, "kind") != "実施" {
+            continue;
+        }
+        if let Some(d) = date10(mail.get(row, "date")) {
+            let e = by.entry(deal.to_string()).or_default();
+            if e.1.is_none_or(|x| d > x) {
+                e.1 = Some(d);
+            }
+        }
+    }
+    by
+}
+
+/// 取引1件の MTG途絶の帯。閾値は GAS `no_mtg_alerter.gs` と同じ。
+///
+/// 順番は GAS と合わせてある:
+///   1. 立ち上がり期（契約開始30日以内）なら、そこで打ち切る
+///   2. 録画とメールの新しい方を最終MTG日にする
+///   3. 記録が無ければ `NoRecord`（**日数を 9999 にしない**）
+///   4. 経過日数で帯を決める
+///   5. 満了90日前で30日以上途絶なら、帯に関わらず**重大へ上げる**
+pub fn mtg_gap_of(
+    d: &Deal,
+    last: &HashMap<String, (Option<NaiveDate>, Option<NaiveDate>)>,
+    today: NaiveDate,
+) -> MtgGap {
+    let none = MtgGap {
+        band: MtgBand::NoRecord,
+        source: MtgSource::None,
+        last: None,
+        days: None,
+        forced_by_expiry: false,
+    };
+
+    // 1. 立ち上がり期
+    if let Some(st) = date10(&d.contract_start_date) {
+        if (today - st).num_days() < MTG_ONBOARDING_GRACE_DAYS {
+            return MtgGap {
+                band: MtgBand::Onboarding,
+                ..none
+            };
+        }
+    }
+
+    // 2〜3. 最終MTG日と出どころ
+    let (rec, mail) = last.get(&d.id).copied().unwrap_or((None, None));
+    let (day, source) = match (rec, mail) {
+        (None, None) => return none,
+        (Some(r), None) => (r, MtgSource::Recording),
+        (None, Some(m)) => (m, MtgSource::Mail),
+        (Some(r), Some(m)) => match r.cmp(&m) {
+            std::cmp::Ordering::Equal => (r, MtgSource::Both),
+            std::cmp::Ordering::Greater => (r, MtgSource::Recording),
+            std::cmp::Ordering::Less => (m, MtgSource::Mail),
+        },
+    };
+
+    // 4. 経過日数で帯
+    let days = (today - day).num_days();
+    let mut band = if days >= MTG_GAP_CRITICAL_DAYS {
+        MtgBand::Critical
+    } else if days >= MTG_GAP_RED_DAYS {
+        MtgBand::Red
+    } else if days >= MTG_GAP_YELLOW_DAYS {
+        MtgBand::Yellow
+    } else {
+        MtgBand::Recent
+    };
+
+    // 5. 満了90日前の途絶は強制的に重大
+    let mut forced = false;
+    if band != MtgBand::Critical && days >= MTG_PRE_TERMINATION_GAP_DAYS {
+        if let Some(exp) = date10(&d.contract_expiration_date) {
+            let to_end = (exp - today).num_days();
+            if (0..=MTG_PRE_TERMINATION_DAYS).contains(&to_end) {
+                band = MtgBand::Critical;
+                forced = true;
+            }
+        }
+    }
+
+    MtgGap {
+        band,
+        source,
+        last: Some(day),
+        days: Some(days),
+        forced_by_expiry: forced,
+    }
 }
 
 /// 契約開始から今日（または満了）までの「経過月」を並べる。
