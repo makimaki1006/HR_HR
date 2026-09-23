@@ -1800,7 +1800,7 @@ function renderFocus(D) {
   /* ---- 図 採用単価の悪化 ---- */
   h += sec("図", "採用単価の悪化（拠点ごと・確定した直近2点）");
   const cr = (c.rows || []).slice(0, 20).map((r) => ({
-    label: shortName(r.site, 18),
+    label: shortName(r.site_name || r.site, 18),
     v: r.last, v0: r.prev,
     txt: yen(r.last),
     note: r.ratio == null ? "" : num(r.ratio, 2) + "倍",
@@ -2788,7 +2788,7 @@ function renderHq(D) {
     top.length
       ? svgBarH({ w: 700, fmt: F.d1, rh: 24,
           rows: top.map((r) => ({
-            label: shortName(r.houjin, 22), v: r.spread,
+            label: shortName(r.name || r.houjin, 22), v: r.spread,
             txt: num(r.spread, 1) + "倍",
             note: "拠点" + num(r.sites) + " / 取引" + num(r.deals),
             color: r.spread >= 3 ? C.hi : r.spread >= 2 ? C.ki : C.ai })) })
@@ -2802,13 +2802,13 @@ function renderHq(D) {
   h += '<div class="lede">開きが大きい順。棒は採用単価、注記は解約率です。</div>';
   for (const r of D.rows.slice(0, 10)) {
     const rows = r.rows.filter((x) => x.cpa != null);
-    h += fig(shortName(r.houjin, 30),
+    h += fig(shortName(r.name || r.houjin, 30),
       "拠点" + num(r.sites) + " / 取引" + num(r.deals) + " / 稼働中" + num(r.active) +
       (r.spread == null ? "" : " / 開き " + num(r.spread, 1) + "倍"),
       rows.length
         ? svgBarH({ w: 680, fmt: F.man, rh: 24,
             rows: rows.map((x) => ({
-              label: shortName(x.site, 20), v: x.cpa, txt: yen(x.cpa),
+              label: shortName(x.site_name || x.site, 20), v: x.cpa, txt: yen(x.cpa),
               /* 🔴 率だけで母数が無かった（V20 検証）。分母を添える。
                  分子は解約＋充足、分母は決着済み x.denom（fix/cs-rust N4）。取引数 x.deals は分母ではない */
               note: (x.cancel_rate == null ? "" : "解約・充足 " + pct1(x.cancel_rate) +
@@ -2826,7 +2826,7 @@ function renderHq(D) {
   /* ---- 表は最後。個別の行を特定したいときだけ ---- */
   h += sec("表", "全法人の内訳");
   h += scroll(D.rows.map((r) =>
-    "<details><summary>" + esc(r.houjin) + "　拠点" + num(r.sites) +
+    "<details><summary>" + esc(r.name || r.houjin) + "　拠点" + num(r.sites) +
     " / 取引" + num(r.deals) + " / 稼働中" + num(r.active) +
     (r.spread == null ? "" : '　<b style="color:var(--hi)">開き ' + num(r.spread, 1) + "倍</b>") +
     "</summary>" +
@@ -2834,7 +2834,7 @@ function renderHq(D) {
            { t: "充足", n: 1 }, { t: "決着済み", n: 1 }, { t: "解約率", n: 1 },
            { t: "金額", n: 1 }, { t: "採用数", n: 1 }, { t: "採用単価", n: 1 },
            { t: "単価の元の取引", n: 1 }, { t: "（稼働中で外した）", n: 1 }],
-      r.rows.map((x) => [esc(x.site), num(x.deals), num(x.active), num(x.cancel),
+      r.rows.map((x) => [esc(x.site_name || x.site), num(x.deals), num(x.active), num(x.cancel),
         num(x.fill), num(x.denom), pct1(x.cancel_rate), yen(x.amount), nz(x.syoudaku),
         yen(x.cpa), num(x.cpa_n), num(x.cpa_n_active)])) +
     "</details>").join(""), 520);
@@ -2859,7 +2859,9 @@ function renderMtgQ(D) {
   let h = sec("問い", "MTG に何が記録されているか") +
     note("def", "MTG の良し悪しを採点していません",
       notCounted(D.meta) + "<b>埋まっていないのは「記録していない」ではなく" +
-      "「まだ抽出を通していない」</b>です。");
+      "「まだ抽出を通していない」</b>です。" +
+      (D.meta.option_rows_excluded
+        ? "オプション契約の MTG " + num(D.meta.option_rows_excluded) + " 回は数えていません。" : ""));
 
   h += '<div class="kpis">' +
     kpi("MTG", num(D.meta.n_mtg) + '<span class="u">回</span>', "") +
@@ -2922,7 +2924,10 @@ function renderPhone(D) {
   let h = sec("問い", "顧客と電話で話せているか") +
     note("def", "接触 ＝ " + num(D.meta.threshold_sec) + " 秒より長い通話",
       notCounted(D.meta) +
-      "中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。");
+      "中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。" +
+      (r.option_rows_excluded
+        ? "オプション契約の通話 " + num(r.option_rows_excluded) + " 行は数えていません。" : "") +
+      "通話の日付・月は日本時間で数えています。");
 
   h += '<div class="kpis">' +
     kpi("電話が1本も無い", num(r.no_call) + '<span class="u">件</span>',
@@ -3116,10 +3121,17 @@ function renderOutcome(D) {
     lg("line", C.ink, "中央値") +
     droppedNote(ef.groups, (g) => (g.box ? g.box.n : 0), (g) => g.label) +
     '<i class="full">' + esc(ef.caveat) + "　掲載数が入っているのは 稼働中 " +
-    num(ef.has_keisaisu_act) + " / " + num(ef.n_act) + "。</i>");
-  h += note("bad", "資料の「8.1 ≪ 14.5」は、今あるデータでは再現しません",
-    "向き（解約 ＜ 継続）は合っていますが、中央値で見ると差はほとんどありません。" +
-    "<b>単独で解約を見分けられる指標ではない</b>と読んでください。");
+    num(ef.has_keisaisu_act) + " / " + num(ef.n_act) + "。</i>" +
+    /* 🔴 結果の決まっていない取引は「継続した」に混ぜない（fix/cs-rust N19）。外した件数を出す */
+    (ef.n_pending_excluded
+      ? '<i class="full">結果待ち（稼働中など）の ' + num(ef.n_pending_excluded) +
+        " 件は、結果が決まっていないので3つの群のどれにも入れていません。</i>"
+      : ""));
+  /* 🔴 以前は結果待ちを「継続した」に混ぜていて差がほとんど無く見えた。
+     決着の3群で比べ直すと向き（解約 ＜ 継続）は出る（fix/cs-rust N19）。ただし群の代表値を比べただけ */
+  h += note("bad", "資料の「8.1 ≪ 14.5」は、そのままの値では再現しません",
+    "向き（解約 ＜ 継続）は合っています。ただし群の代表値を比べただけで、平均は外れ値に引かれます。" +
+    "<b>単独で解約を見分けられる指標かは、ここからは言えません</b>。");
 
   h += sec("図", "リスクは2軸だけで見る");
   h += note("info", "4軸のうち2軸を意図的に外しています。手抜きではありません",
@@ -3785,7 +3797,9 @@ function renderHandover(D) {
 
   h += '<div class="kpis">' +
     kpi("記録された交代", num(D.meta.n) + '<span class="u">件</span>',
-        "うち稼働中の案件 " + num(D.meta.n_active) + " 件") +
+        "うち稼働中の案件 " + num(D.meta.n_active) + " 件" +
+        /* オプション契約の行は表から外している（fix/cs-rust N7） */
+        (D.meta.n_option_excluded ? "。オプション契約の " + num(D.meta.n_option_excluded) + " 件は外しています" : "")) +
     kpi("退職者へ渡っている", num(D.to_retired) + '<span class="u">件</span>',
         "交代先が退職者だったもの", D.to_retired ? "bad" : "") +
     kpi("記録の遅れ（中央値）",
