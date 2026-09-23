@@ -865,7 +865,8 @@ fn cpa_worsening(deals: &[Deal]) -> Value {
     //    1本の線で比べていた（決裁は事業所単位、の規律に反する）。
     //    法人番号まで空だと、全法人の拠点不明が1本になっていた。
     let mut no_site = 0usize;
-    // 拠点キー → 表示名（照合用のキーは人が読む名前ではない）
+    // 拠点キー → 表示名（照合用のキーは人が読む名前ではない）。
+    // 表示名が空の拠点は入れない（キーで埋めない。行の `site_name` は null になる）
     let mut site_name: HashMap<String, String> = HashMap::new();
     for d in deals {
         let Some(v) = cpa(d) else { continue };
@@ -873,9 +874,11 @@ fn cpa_worsening(deals: &[Deal]) -> Value {
             no_site += 1;
             continue;
         }
-        site_name
-            .entry(d.kyoten_key.clone())
-            .or_insert_with(|| d.site_label().to_string());
+        if let Some(nm) = d.site_name() {
+            site_name
+                .entry(d.kyoten_key.clone())
+                .or_insert_with(|| nm.to_string());
+        }
         by_site.entry(d.kyoten_key.clone()).or_default().push((
             d.contract_start_date.clone(),
             v,
@@ -1411,18 +1414,27 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
                 //    以前は「金額がある取引の合計 ÷ 採用数がある取引の合計」で、
                 //    割る側と割られる側の取引の集合が違っていた。
                 //    （`amount` / `syoudaku` の列は表示用に今までどおり全件の合計を返す）
+                // 🔴 さらに**稼働中（未確定）の取引は入れない**（未確定の点で比べない、の規律）。
+                //    稼働中は金額が丸ごと乗っているのに採用がまだ伸びていないので単価が高く出て、
+                //    法人の並び順（`spread` ＝ 拠点間の最大÷最小）をそのまま動かす。
+                //    実測（fixture・オプション除外、2拠点以上の法人194社・548拠点）で、
+                //    稼働中が採用単価に入っていた拠点が167、外すと単価が20%超動く拠点が61、
+                //    稼働中でしか採用が無く単価が出なくなる拠点が33（2026-09-23）。
+                //    外した件数は `cpa_n_active` で返す（黙って消さない）。
                 let (cpa_amt, cpa_sy, cpa_n) = ds
                     .iter()
+                    .filter(|d| !d.is_active)
                     .filter_map(|d| d.amount.zip(d.syoudaku))
                     .fold((0.0, 0.0, 0usize), |acc, (a, s)| {
                         (acc.0 + a, acc.1 + s, acc.2 + 1)
                     });
-                // 表示名。同じ拠点キーで名前が違うときは最初の1つ（照合用のキーは人が読めない）
-                let name = ds
+                let cpa_n_active = ds
                     .iter()
-                    .map(|d| d.kyoten_name.trim())
-                    .find(|s| !s.is_empty())
-                    .unwrap_or(k);
+                    .filter(|d| d.is_active && d.amount.is_some() && d.syoudaku.is_some())
+                    .count();
+                // 表示名。同じ拠点キーで名前が違うときは最初の1つ。
+                // 🔴 空なら null。照合用のキーで埋めない（人が読む名前ではない）
+                let name = ds.iter().find_map(|d| d.site_name());
                 json!({
                     "site": k,
                     "site_name": name,
@@ -1435,8 +1447,10 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
                     "cancel_rate": rate((cancel + fill) as f64, denom as f64),
                     "amount": amount,
                     "syoudaku": syoudaku,
-                    // 採用単価の元になった取引の件数
+                    // 採用単価の元になった取引の件数（決着済みで、金額と採用数が両方ある）
                     "cpa_n": cpa_n,
+                    // 稼働中なので採用単価から外した取引の件数（金額と採用数は両方ある）
+                    "cpa_n_active": cpa_n_active,
                     // 採用単価。**採用0では出さない**（0で割った値を単価にしない）
                     "cpa": if cpa_sy > 0.0 { Some(cpa_amt / cpa_sy) } else { None },
                 })
@@ -1479,6 +1493,9 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_houjin": by_houjin.len(),
             "all_cached": sheets.all_cached,
             "not_counted": "※ 親法人の合計ではありません。事業所ごとに出しています。決裁は事業所単位なので、まとめると行き先が消えます",
+            // 画面の注記に使う。拠点の行の数字どうしで検算できるように、定義を1か所で持つ
+            "cpa_rule": "採用単価は決着済みの取引のうち、金額と採用数が両方入っているものだけで出しています。稼働中は採用がまだ伸びきっておらず高く出るので外しています（外した件数は拠点ごとに出しています）",
+            "cancel_rule": "解約率 ＝（解約＋充足）÷ 決着済み（継続＋解約＋充足）。稼働中は分母に入れていません",
         },
         "multi_site": multi,
         "truncated": truncated,
@@ -1898,6 +1915,11 @@ const CPA_BANDS: [(&str, f64, f64); 3] = [
 /// 採用単価の中央値を帯に載せてよい最小の件数（n<30 は比べる相手にしない）。
 const CPA_BAND_MIN_N: usize = 30;
 
+/// 🔴 契約開始が今日より先（進捗が負）の取引は「契約の前半」に入る（`lo == 0` の帯に下限が無い）。
+/// これは**モックと同じ帯の割り当て**。モックは経過月数を `max(1, …)` で1か月に切り上げるので、
+/// 開始前でも進捗は 1/契約期間になり、契約期間が2か月以上なら同じく前半に入る
+/// （1か月契約だけはモックが終盤、こちらが前半で食い違う）。
+/// fixture（オプション込みで数えた）で開始前・稼働中・採用数ありの取引は 5件で、契約期間は 3〜12か月（2026-09-18 時点）。
 fn cpa_band_of(d: &Deal, today: NaiveDate) -> Option<usize> {
     let p = progress(d, today)?;
     CPA_BANDS
@@ -2514,13 +2536,18 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
             flags.push("満了まで60日以内");
         }
         // 🔴 契約開始がまだ先なら「接触が無い」は当たり前。名札にしない
-        // 🔴 **接触の記録が1つも無いものにも名札を立てない**（④成果とリスクの3軸目と同じ扱い）。
-        //    記録が無いのは「連絡していない」ではなく「通話・録画が取引に結べていない」を含む
-        //    真の未測定で、MTG途絶の「記録が無い」も同じ理由で名札にしていない。
-        //    以前はここだけ名札を立てていて、同じ案件が画面によって赤だったり未測定だったりした。
-        //    件数は行の `n_contact`（0）で読める。
-        if not_started || n_contact == 0 {
-            // 開始前・未測定。ここでは接触の名札を立てない
+        // 🔴 接触の記録が1つも無いものには名札を立てる（いまの仕様のまま）。
+        //    ④成果とリスクの3軸目はこれを「未測定」として赤にしないので、画面によって扱いが逆。
+        //    ただし電話の「沈黙している取引」は接触ゼロを先頭（いちばん拾うべきもの）に出し、
+        //    担当者一覧も「1案件でも接触ゼロなら拾いたい」としている。どちらに揃えるかは
+        //    藤巻さんの判断待ち。一度ここで名札を外したが、方向を決めないまま
+        //    今日動く先（名札2本以上）から案件が落ちるので戻した
+        //    （fixture で開始済み・接触ゼロの稼働中は61件）。
+        //    開始日が空のものは「開始前」とは分からないので、開始済みと同じに扱う（N6）
+        if not_started {
+            // 開始前。ここでは接触の名札を立てない
+        } else if n_contact == 0 {
+            flags.push("接触の記録が無い");
         } else if matches!(days_since, Some(x) if x > 30) {
             flags.push("接触が30日以上空いている");
         }

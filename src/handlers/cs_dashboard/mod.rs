@@ -377,13 +377,15 @@ impl Deal {
         }
     }
 
-    /// 拠点の表示名。表示名が空なら照合用のキーを返す（空欄にはしない）。
-    pub fn site_label(&self) -> &str {
-        if self.kyoten_name.trim().is_empty() {
-            &self.kyoten_key
-        } else {
-            &self.kyoten_name
-        }
+    /// 拠点の表示名。表示名が空なら `None`。
+    ///
+    /// 🔴 **照合用の `kyoten_key` で埋めない。** キーは突き合わせ用に正規化した値で、
+    /// 人が読む名前ではない（V24「内部の値を出さない」）。以前はここでキーに戻していた。
+    /// fixture では表示名が空の行は 0件だが、本番に空があるかは確かめていない。
+    /// 空のときの見せ方（「拠点名なし」など）は画面が決める。
+    pub fn site_name(&self) -> Option<&str> {
+        let t = self.kyoten_name.trim();
+        (!t.is_empty()).then_some(t)
     }
 
     /// オプション契約か。**画面の母集団から外すもの。**
