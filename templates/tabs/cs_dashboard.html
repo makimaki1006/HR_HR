@@ -295,8 +295,31 @@
   figure.fig svg{ display:block; max-width:100%; height:auto; }
   /* min-width は max-width より強い。狭い画面ではここで止まり、枠がスクロールする */
   figure.fig .figbody > svg{ min-width:calc(var(--fw, 0px) * .92); }
-  /* 横に動かせることの文での案内。狭い画面でだけ出す（下の @media） */
-  .figscroll{ display:none; font-size:11px; color:var(--ink-2); margin-top:var(--space-1); }
+  /* 横に動かせることの文での案内。**枠の幅が図の最小幅（--minw）より狭いときだけ**出す。
+     🔴 2026-09-23 検証: @media (max-width:600px) でだけ出していたので、601〜1000px 前後の
+     画面（1列になった本文・横欄ありの 1024px）でも図はスクロールするのに案内が無かった。
+     図ごとに最小幅が違うので画面幅では決められない。figure を問い合わせの入れ物にして、
+     枠の幅（100cqw）と --minw の差で高さを 0 か 1 行にする（差が正なら 999 倍して上限で止まる）。
+     cqw を読めないブラウザでは高さの指定ごと無効になり、案内は常に出る（出ないよりよい） */
+  figure.fig{ container-type:inline-size; }
+  .figscroll{ font-size:11px; line-height:20px; color:var(--ink-2); overflow:hidden;
+              height:clamp(0px, calc((var(--minw, 0px) - 100cqw) * 999), 20px); }
+  /* 横にスクロールする枠にキーボードで止まったとき、どこにいるか見えるようにする */
+  figure.fig .figbody:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+  /* 切った左のラベルの全文（fig の <details class="fold figfull">）。ふだんは1行に畳む。
+     枠付きの details（既定）にすると図の下に大きな箱が出て本文より目立つので、fold（枠なし）に乗せる */
+  details.fold.figfull{ margin:var(--space-1) 0 0; }
+  details.fold.figfull > summary{ font-weight:400; font-size:11.5px; }
+  .figfull ul{ margin:var(--space-1) 0 0; padding-left:1.4em; line-height:1.7; font-size:11.5px; color:var(--ink-2); }
+  /* 帯を縦に積む図・時間軸の図の左のラベルを、横にスクロールしても左に残す（stickyLabels）。
+     🔴 2026-09-23 検証: 400px で約 2.6 画面ぶん横に動かすと、ラベルも一緒に流れて
+     右側でどの帯の点か分からなくなっていた。ラベルだけを描いた SVG を重ねて左に貼り付ける。
+     スクロールしていないときは下の図のラベルとぴったり重なる（同じ位置・同じ縮尺） */
+  .stickwrap{ display:flex; align-items:flex-start; min-width:calc(var(--fw) * .92); max-width:var(--fw); }
+  figure.fig .stickwrap > svg{ flex:0 0 auto; max-width:none; }
+  figure.fig .stickwrap > svg.sticklab{ position:sticky; left:0; z-index:1; width:var(--lw); pointer-events:none; }
+  .sticklab text{ paint-order:stroke; stroke:var(--panel); stroke-width:4px; stroke-linejoin:round; }
+  figure.fig .stickwrap > svg.stickmain{ width:100%; margin-left:calc(-1 * var(--lw)); }
   .figlegend{ display:flex; gap:var(--space-gap); flex-wrap:wrap; font-size:11px; color:var(--ink-2);
               margin-top:7px; padding-top:7px; border-top:1px solid var(--rule-2); }
   .figlegend i{ font-style:normal; display:inline-flex; align-items:center; gap:5px; }
@@ -502,7 +525,6 @@ details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
   .side button{ padding:6px var(--space-2); min-height:30px; }
   .ctl input[type=search]{ min-width:0; width:100%; }
   .ctlbar select{ max-width:100%; }
-  .figscroll{ display:block; }
 }
 /* 本題の見出しは共通部のすぐ下に出す。間の 40px は節どうしの区切りの値で、
    ページの頭には要らない */
@@ -613,11 +635,21 @@ function fitLab(s, maxW) {
   }
   return ch.slice(0, a).join("") + "…" + ch.slice(ch.length - b).join("");
 }
-/** 左のラベル（右ぞろえ）。切ったときは全文を <title> に入れる（ホバー・読み上げで全文が読める） */
-function labText(x, y, s, maxW, attrs) {
-  const full = String(s == null ? "" : s), shown = fitLab(full, maxW);
-  return `<text class="axl" x="${x}" y="${y}" text-anchor="end"${attrs || ""}>${esc(shown)}` +
-    (shown !== full ? `<title>${esc(full)}</title>` : "") + `</text>`;
+/** 左のラベル（右ぞろえ）。
+    full は呼び出し側で shortName / tail を掛ける**前**の名前（行の r.full）。
+    🔴 2026-09-23 検証: 前は title に入るのが shortName 済みの「…会 特別養護…」で、法人名の全文は
+    どこにも残っていなかった。shortName だけで頭が削られた行（fitLab では切らない行）には title も無かった。
+    さらに title はホバーでしか出ず（400px のタッチ端末では見られない）、role="img" の SVG の中なので
+    読み上げにも出ない。そこで切った行には data-full を付け、fig() が図の下の「省略した名前の全文」
+    （<details>。タップで開ける・読み上げで読める）にまとめる。title はマウス用に残す */
+function labText(x, y, s, maxW, attrs, full) {
+  const shown = fitLab(s, maxW);
+  const src = String(full != null && full !== "" ? full : (s == null ? "" : s));
+  /* 「株式会社」を落としただけ（省略記号が無い）は切ったと数えない。全文の一覧が法人の数だけ並ぶため */
+  const cut = shown !== src && shown.includes("…");
+  return `<text class="axl" x="${x}" y="${y}" text-anchor="end"${attrs || ""}` +
+    (cut ? ` data-full="${esc(src)}"` : "") + `>${esc(shown)}` +
+    (cut ? `<title>${esc(src)}</title>` : "") + `</text>`;
 }
 /** 横軸のラベルをどれに出すか。every おきに出し、最後は必ず出す。
     🔴 最後を足すと、その1つ前に出したラベルとぶつかることがあった
@@ -639,9 +671,30 @@ function xPick(n, every, X, labs) {
     🔴 2026-09-23 実機（400px 幅）: 図は max-width:100% で縮むだけだったので、
     660〜940px で描いた図が 330px 前後に縮み、11px の文字が 4〜5px になって読めなかった。
     CSS で min-width を --fw の .92 倍（11px の文字が 10px を切らない幅）にして、
-    それより狭い画面では図を縮めずに枠の中で横にスクロールさせる。 */
-const svgHead = (w, h, alt) =>
-  `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="--fw:${Math.round(w)}px" role="img" aria-label="${esc(alt)}">`;
+    それより狭い画面では図を縮めずに枠の中で横にスクロールさせる。
+    marks: 図の中に描いた「値が無い」の見せ方。fig() が凡例に説明を足すのに使う
+      gap  = 線を途中で切った（折れ線・帯の線。その月の値が無い）
+      none = 灰色の短い線を置いた（棒の図。棒が無いと 0 に見えるので印を置く）
+    🔴 2026-09-23 検証: 図の部品ごとに「無い」の見せ方が違い（折れ線は切れ目・棒は灰色の線）、
+    推移の図の凡例にはどちらの説明も無かった。見せ方は部品の性質で分けたまま、凡例で必ず説明する */
+const svgHead = (w, h, alt, marks) =>
+  `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="--fw:${Math.round(w)}px"` +
+  (marks && marks.gap ? ` data-gap="1"` : "") + (marks && marks.none ? ` data-none="1"` : "") +
+  ` role="img" aria-label="${esc(alt)}">`;
+/** 左のラベル列を、横にスクロールしても左に残す（CSS の .stickwrap / .sticklab）。
+    labs はラベルだけを集めた SVG 断片（labText の出力）、labH はラベル列の高さ（下の月の軸は入れない）。
+    svg は図そのもの（ラベルも含む）。重ねる側はラベルの複製なので読み上げから外し、data-full も外す
+    （全文の一覧の元は下の図のラベルだけにする）。
+    🔴 重ねる側に地の色の四角を敷かない。400px ではラベル欄が見えている幅の 2/3（約 220px / 334px）を
+    占め、敷くとスクロールした先の図がほとんど隠れた（2026-09-23 chromium で確かめた）。
+    文字の縁取り（地の色の太い線を文字の下に敷く）だけで、線や点の上でも読めるようにする */
+function stickyLabels(w, padL, labH, labs, svg) {
+  const dup = labs.replace(/<text class="axl"/g, '<text data-sticky="1" class="axl"')
+    .replace(/ data-full="[^"]*"/g, "");
+  return `<div class="stickwrap" style="--fw:${Math.round(w)}px;--lw:${(padL / w * 100).toFixed(4)}%">` +
+    `<svg ${SVGNS} class="sticklab" viewBox="0 0 ${padL} ${labH}" width="${padL}" height="${labH}" aria-hidden="true" focusable="false">` +
+    dup + `</svg>` + svg.replace("<svg ", '<svg class="stickmain" ') + `</div>`;
+}
 
 const esc = s => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -691,6 +744,15 @@ function ticks(lo, hi, want, minStep) {
     out.push(Number(v.toFixed(10)));
   return out.length ? out : [lo];
 }
+/** 最大値が最上段の目盛りを超えるとき、覆うところまで目盛りを1段足す（tk を書き換えて返す）。
+    🔴 整数の軸は刻み 2.5 を 5 にする（ticks）ので、最大 7〜9 の軸は目盛りが [0,5] で止まり、
+    棒・点が最上段の目盛りより上へ伸びていた（2026-09-23 検証: ticks(0,9,4,1) → [0,5]）。
+    svgLine / svgBarH だけで足していたのを、縦軸を持つ図すべて（colstack / hist / scatter）で使う */
+function coverTicks(tk, top) {
+  if (tk.length > 1 && tk[tk.length - 1] < top - 1e-9)
+    tk.push(Number((tk[tk.length - 1] + (tk[1] - tk[0])).toFixed(10)));
+  return tk;
+}
 
 /* 目盛りの書式。単位は軸のラベルに1回だけ書いて、数字自体は素で出す */
 const F = {
@@ -718,12 +780,34 @@ function fig(caption, hint, body, legend) {
        特殊パターンとして解釈され、属性が壊れる（V20 検証。esc は $ を逃がさない） */
     () => 'aria-label="' + esc(caption) + '"');
   /* 狭い画面では図を縮めずに横スクロールにした（svgHead）。影だけでは気づきにくいので、
-     400px 幅の枠（約 330px）に入らない図には文でも添える。表示は @media で狭い画面だけ */
+     400px 幅の枠（約 330px）に入らない図には文でも添える。
+     🔴 2026-09-23 検証: 前は @media (max-width:600px) でだけ出していて、601〜1000px 前後の画面でも
+     最小幅 865〜920px の図は枠の中でスクロールするのに、文の案内が無かった。
+     いまは「枠の幅 < 図の最小幅」のときだけ出す（CSS の .figscroll。--minw と枠の幅 100cqw を比べる） */
   const minW = Math.max(0, ...[...String(body).matchAll(/--fw:(\d+)px/g)].map((m) => +m[1] * .92));
+  const scroll = minW > 330;
+  /* 切った左のラベルの全文（labText の data-full）。title はホバーでしか出ないので、
+     タップと読み上げで読めるよう図の外に並べる */
+  const fulls = [], seen = new Set();
+  for (const m of String(body).matchAll(/<text class="axl"[^>]*? data-full="([^"]*)"[^>]*>([^<]*)/g)) {
+    if (seen.has(m[1])) continue;
+    seen.add(m[1]); fulls.push(`<li><span class="muted">${m[2]}</span> … ${m[1]}</li>`);
+  }
+  /* 図の中の「値が無い」の見せ方を凡例で説明する（svgHead の marks） */
+  const gapNote = /<svg [^>]*data-gap="1"/.test(body)
+    ? '<i class="full">線が途切れているところは、その月の値が無いところです（0 ではありません）。</i>' : "";
+  const noneNote = /<svg [^>]*data-none="1"/.test(body)
+    ? lg("none", C.ghost, "灰色の短い線＝その月の記録が無い（0 の棒ではありません）") : "";
+  legend = (legend || "") + noneNote + gapNote;
   return `<figure class="fig"><figcaption>${esc(caption)}` +
     (hint ? `<span class="hint">${hint}</span>` : "") + `</figcaption>` +
-    (minW > 330 ? '<div class="figscroll">← 入り切らないときは、図を横にスクロールできます →</div>' : "") +
-    `<div class="figbody">${body}</div>` +
+    (scroll ? `<div class="figscroll" style="--minw:${Math.ceil(minW)}px">← 図を横にスクロールできます →</div>` : "") +
+    /* 🔴 横にスクロールする枠は Tab で止まれるようにする（キーボードの矢印で動かせる）。
+       tabindex が無いと、枠に自動でフォーカスが当たるブラウザでしか動かせなかった（2026-09-23 検証） */
+    (scroll ? `<div class="figbody" tabindex="0" role="group" aria-label="${esc(caption)}（横にスクロールできる枠）">`
+            : `<div class="figbody">`) + `${body}</div>` +
+    (fulls.length ? `<details class="fold figfull"><summary>省略した名前の全文（${fulls.length} 件）</summary>` +
+                    `<ul>${fulls.join("")}</ul></details>` : "") +
     (legend ? `<div class="figlegend">${legend}</div>` : "") + `</figure>`;
 }
 /** 凡例の粒。四角・丸・中空丸・破線を描き分ける */
@@ -763,8 +847,7 @@ function svgLine(o) {
   /* 🔴 最大値が最上段の目盛りを超えると、線が目盛りの無い上端に張り付いて
      「縦軸の最上段より上にはみ出す」ように見えた（V10: 応募 19 に対して目盛りが 15 まで）。
      最大値を覆うところまで目盛りを1段足す */
-  if (tk.length > 1 && tk[tk.length - 1] < hi - 1e-9)
-    tk.push(Number((tk[tk.length - 1] + (tk[1] - tk[0])).toFixed(10)));
+  coverTicks(tk, hi);
   lo = Math.min(lo, tk[0]); hi = Math.max(hi, tk[tk.length - 1]);
   const n = o.x.length;
   const X = i => pad.l + (n === 1 ? iw / 2 : iw * i / (n - 1));
@@ -796,6 +879,7 @@ function svgLine(o) {
   });
   if (o.yLab) g += `<text class="ax" x="2" y="${pad.t - 14}">${esc(o.yLab)}</text>`;
 
+  let gapped = false;   // 値が無い月がある（線が切れる。fig() が凡例で説明する）
   o.series.forEach((s, si) => {
     const col = s.color || SERIES[si % SERIES.length];
     // null で切った区間ごとに線を引く
@@ -828,9 +912,12 @@ function svgLine(o) {
       /* 🔴 値が無い月は点も線も作らない（線はそこで切れる）。前は 0 の高さに灰色の短い線を
          置いていて、凡例に無い印が「0%」「0件」の破線に見えていた
          （月次継続率の n=0 の月・推移の図, 2026-09-23 実機） */
-      if (!p || p.v == null) return;
+      if (!p || p.v == null) { gapped = true; return; }
       const y = Y(p.v);
-      const t = `<title>${esc(o.x[i])}: ${esc(fmt(p.v))}${p.note ? " / " + esc(p.note) : ""}${p.censored ? " / 未確定" : ""}</title>`;
+      /* 🔴 横軸の2段目（xSub。月次継続率の「n=8」＝母数）も点の title に入れる。
+         xPick・間引きで2段目を出さない月でも、率の母数をたどれるようにする（規律「率に母数」, 2026-09-23 検証） */
+      const sub = o.xSub && o.xSub[i] ? "（" + esc(o.xSub[i]) + "）" : "";
+      const t = `<title>${esc(o.x[i])}${sub}: ${esc(fmt(p.v))}${p.note ? " / " + esc(p.note) : ""}${p.censored ? " / 未確定" : ""}</title>`;
       g += (p.censored || p.carry)
         ? `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.6" style="fill:var(--panel);stroke:${col}" stroke-width="2" stroke-dasharray="2.4 2">${t}</circle>`
         : `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.2" style="fill:${col}">${t}</circle>`;
@@ -845,7 +932,7 @@ function svgLine(o) {
       }
     });
   });
-  return svgHead(w, h, o.alt || o.yLab || "折れ線") + `${g}</svg>`;
+  return svgHead(w, h, o.alt || o.yLab || "折れ線", { gap: gapped }) + `${g}</svg>`;
 }
 
 /* -------------------------------------------------------------- 箱ひげ図 */
@@ -887,7 +974,7 @@ function svgBoxH(o) {
     const col = r.color || C.ai;
     const dim = r.dim ? ` opacity=".5"` : "";
     g += `<g${dim}>`;
-    g += labText(pad.l - 9, (y + 4).toFixed(1), r.label, pad.l - 12);
+    g += labText(pad.l - 9, (y + 4).toFixed(1), r.label, pad.l - 12, "", r.full);
     /* 🔴 箱が軸に収まらない行は、潰れた箱を描かない。
        軸いっぱいに伸びた箱は「ばらつきが大きい」ではなく「はみ出した」だけで、嘘になる。
        位置だけ印で示し、値は文字で出す。 */
@@ -949,8 +1036,12 @@ function svgBarH(o) {
      半角の多い注記で右の欄が広がりすぎ、率と母数が棒から約 200px 離れていた（team, 2026-09-23 実機） */
   const noteW = Math.max(0, ...rows.map(r => textW(r.note || "")));
   const valW = Math.max(0, ...rows.map(r => textW(r.txt || "") * 1.06)) + 14;
-  const pad = { l: o.padL || labW(rows, 210), t: 8, b: 22,
-                r: o.padR || Math.min(Math.max(320, w * .5), Math.ceil(noteW + valW + 10)) };
+  /* 🔴 右の欄の上限を「棒の欄を 160px 残すところまで」にする。前の上限 max(320, w×.5) では、
+     長い注記（「63/65 か月　案件22　担当交代あり 2 回（直近 2026-08）」, 幅 326px）で欄が足りず、
+     注記を右端に寄せた位置が値ラベル（96.9%）の上に重なっていた（2026-09-23 検証, w=720） */
+  const padL0 = o.padL || labW(rows, 210);
+  const pad = { l: padL0, t: 8, b: 22,
+                r: o.padR || Math.max(0, Math.min(w - padL0 - 160, Math.ceil(noteW + valW + 10))) };
   const h = pad.t + pad.b + rows.length * rh;
   const iw = Math.max(60, w - pad.l - pad.r);
   const fmt = o.fmt || F.int;
@@ -962,12 +1053,8 @@ function svgBarH(o) {
   const span = Math.max(Math.abs(hi), Math.abs(lo)) || 1;
   /* 🔴 最大値が最上段の目盛りを超えると、棒が目盛りの無いところまで伸びた
      （接触率の図で目盛りが 75% で止まり、96.9% の棒がその先へ, 2026-09-23 実機）。
-     最大値を覆う目盛りを1段足し、軸の端をその目盛りにする（svgLine と同じ） */
-  const cover = (tk, top) => {
-    if (tk.length > 1 && tk[tk.length - 1] < top - 1e-9)
-      tk.push(Number((tk[tk.length - 1] + (tk[1] - tk[0])).toFixed(10)));
-    return tk;
-  };
+     最大値を覆う目盛りを1段足し、軸の端をその目盛りにする（coverTicks。svgLine と同じ） */
+  const cover = coverTicks;
   let tk;
   if (o.diverging) {
     const p = cover(ticks(0, span, 2, minStepOf(fmt)), span);
@@ -980,7 +1067,9 @@ function svgBarH(o) {
   const X = v => pad.l + iw * (v - lo) / (hi - lo || 1);
   const x0 = X(o.diverging ? 0 : lo);
   /* 注記は右端ぞろえにせず、値ラベルの欄のすぐ右に左ぞろえで並べる。
-     棒が短い行は値ラベルから注記まで点線でつなぎ、どの行の注記か目で追えるようにする */
+     棒が短い行は値ラベルから注記まで細い線でつなぎ、どの行の注記か目で追えるようにする。
+     🔴 つなぐ線は**実線**（薄い色）。このダッシュボードでは破線・点線は「未確定・持ち越し」の意味なので、
+     点線にすると短い棒の行が未確定に見える（2026-09-23 検証。前は stroke-dasharray="1 3"） */
   const xNote = Math.max(pad.l + iw + 4, Math.min(pad.l + iw + valW, w - 2 - noteW));
   let g = "";
   tk.forEach(t => {
@@ -991,7 +1080,7 @@ function svgBarH(o) {
   rows.forEach((r, i) => {
     const y = pad.t + i * rh + rh / 2, bh = Math.min(14, rh - 8);
     const col = r.color || C.ai;
-    g += labText(pad.l - 9, (y + 4).toFixed(1), r.label, pad.l - 12);
+    g += labText(pad.l - 9, (y + 4).toFixed(1), r.label, pad.l - 12, "", r.full);
     let tipX = x0 + 7 + textW("— 記録なし");   // 値の文字の右端（注記へつなぐ点線の起点）
     if (r.v == null) {
       // 🔴 値が無い。0 の棒を描かず、空きだと分かる印だけ置く
@@ -1013,7 +1102,7 @@ function svgBarH(o) {
     }
     if (r.note) {
       if (xNote - tipX > 24)
-        g += `<line x1="${(tipX + 5).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(xNote - 5).toFixed(1)}" y2="${y.toFixed(1)}" style="stroke:var(--rule-strong)" stroke-width="1" stroke-dasharray="1 3"/>`;
+        g += `<line data-leader="1" x1="${(tipX + 5).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(xNote - 5).toFixed(1)}" y2="${y.toFixed(1)}" style="stroke:var(--rule-strong)" stroke-width=".8" opacity=".6"/>`;
       g += `<text class="ax" x="${xNote.toFixed(1)}" y="${(y + 4).toFixed(1)}" style="fill:${r.noteColor || "var(--ink-3)"}">${esc(r.note)}</text>`;
     }
   });
@@ -1064,11 +1153,13 @@ function svgStackLanes(o) {
          `text-anchor="middle">${esc(String(m))}</text>`;
   });
 
-  let y = padT;
+  let y = padT, labs = "";
+  const marks = {};
   lanes.forEach(L => {
     const lh = L.empty ? H.empty : H[L.type];
     const top = y, bot = y + lh;
-    g += labText(padL - 10, (top + lh / 2 + 4).toFixed(1), L.label, padL - 14);
+    const lab = labText(padL - 10, (top + lh / 2 + 4).toFixed(1), L.label, padL - 14, "", L.full);
+    g += lab; labs += lab;
     if (L.empty) {
       g += `<text class="ax" x="${padL + 6}" y="${(top + lh / 2 + 4).toFixed(1)}" ` +
            `style="fill:var(--ghost)">— この顧客では記録がありません</text>`;
@@ -1080,6 +1171,7 @@ function svgStackLanes(o) {
     if (L.type === "line") {
       const vs = L.pts.filter(p => p && p.v != null).map(p => p.v);
       if (!vs.length) { y = bot + gap; return; }
+      if (vs.length < L.pts.length) marks.gap = true;   // 値が無い月は線が切れる（凡例で説明）
       let lo = Math.min(...vs), hi = Math.max(...vs);
       if (hi === lo) { hi = lo + 1; }
       const Y = v => bot - 8 - (lh - 18) * (v - lo) / (hi - lo);
@@ -1172,6 +1264,7 @@ function svgStackLanes(o) {
         }
         /* 🔴 何も無い月は 0 の棒ではなく、無いと分かる印だけ置く */
         if (!p.out && !p.fill) {
+          marks.none = true;
           g += `<line x1="${(X(i) - 4).toFixed(1)}" y1="${(base - 1).toFixed(1)}" ` +
                `x2="${(X(i) + 4).toFixed(1)}" y2="${(base - 1).toFixed(1)}" ` +
                `style="stroke:var(--ghost)" stroke-width="2">` +
@@ -1182,7 +1275,8 @@ function svgStackLanes(o) {
     }
     y = bot + gap;
   });
-  return svgHead(w, h.toFixed(0), o.alt || "系列を縦に積んだ図") + `${g}</svg>`;
+  return stickyLabels(w, padL, Math.round(h - padB), labs,
+    svgHead(w, h.toFixed(0), o.alt || "系列を縦に積んだ図", marks) + `${g}</svg>`);
 }
 
 /* -------------------------------------------------------------- 100%帯 */
@@ -1228,7 +1322,7 @@ function svgMatrix(o) {
     g += `<text class="axl" x="${(padL + j * cw + cw / 2).toFixed(1)}" y="${padT - 12}" text-anchor="middle">${esc(c)}</text>`);
   rows.forEach((r, i) => {
     const y = padT + i * rh;
-    g += labText(padL - 10, y + 18, r.label, padL - 14);
+    g += labText(padL - 10, y + 18, r.label, padL - 14, "", r.full);
     r.cells.forEach((cell, j) => {
       const x = padL + j * cw;
       if (cell.v == null) {
@@ -1258,11 +1352,14 @@ function svgHist(o) {
   const nb = o.bins || 18, step = (hi - lo) / nb || 1;
   const cnt = new Array(nb).fill(0);
   vs.forEach(v => { let k = Math.floor((v - lo) / step); if (k >= nb) k = nb - 1; if (k < 0) k = 0; cnt[k]++; });
-  const cmax = Math.max(...cnt, 1);
+  const cmax0 = Math.max(...cnt, 1);
+  // 最大の度数を覆うところまで目盛りを足し、縦軸の上端をその目盛りにする（coverTicks）
+  const ytk = coverTicks(ticks(0, cmax0, 3, 1), cmax0);
+  const cmax = Math.max(cmax0, ytk[ytk.length - 1]);
   const X = v => pad.l + iw * (v - lo) / (hi - lo || 1);
   const Y = c => pad.t + ih - ih * c / cmax;
   let g = "";
-  ticks(0, cmax, 3, 1).forEach(t =>
+  ytk.forEach(t =>
     g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
          `<text class="ax" x="${pad.l - 6}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${F.int(t)}</text>`);
   cnt.forEach((c, i) => {
@@ -1298,12 +1395,15 @@ function svgScatter(o) {
   const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   const xlo = o.xMin != null ? o.xMin : Math.min(...xs), xhi = o.xMax != null ? o.xMax : Math.max(...xs);
-  const ylo = 0, yhi = o.yMax != null ? o.yMax : Math.max(...ys);
+  const yf = o.yFmt || F.int, xf = o.xFmt || F.int;
+  const ylo = 0, yhi0 = o.yMax != null ? o.yMax : Math.max(...ys);
+  // 最大値を覆うところまで目盛りを足し、縦軸の上端をその目盛りにする（coverTicks）
+  const ytk = coverTicks(ticks(ylo, yhi0, 4, minStepOf(yf)), yhi0);
+  const yhi = Math.max(yhi0, ytk[ytk.length - 1]);
   const X = v => pad.l + iw * (v - xlo) / (xhi - xlo || 1);
   const Y = v => pad.t + ih - ih * (v - ylo) / (yhi - ylo || 1);
-  const yf = o.yFmt || F.int, xf = o.xFmt || F.int;
   let g = "";
-  ticks(ylo, yhi, 4, minStepOf(yf)).forEach(t =>
+  ytk.forEach(t =>
     g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
          `<text class="ax" x="${pad.l - 6}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(yf(t))}</text>`);
   ticks(xlo, xhi, 5).forEach(t => {
@@ -1381,9 +1481,12 @@ function svgTimeline(o) {
     g += `<line x1="${x.toFixed(1)}" y1="${padT - 10}" x2="${x.toFixed(1)}" y2="${padT + lanes.length * rh + 2}" style="stroke:${col}" stroke-width="1.6" stroke-dasharray="4 3"/>` +
          `<path d="M${(x - 4).toFixed(1)} ${padT - 10}l4-6 4 6z" style="fill:${col}"><title>${esc(r.label || "")} ${esc(r.d)}</title></path>`;
   });
+  let labs = "";
   lanes.forEach((l, i) => {
     const y = padT + i * rh + rh / 2;
-    g += labText(padL - 9, (y + 4).toFixed(1), l.label, padL - 12) +
+    const lab = labText(padL - 9, (y + 4).toFixed(1), l.label, padL - 12, "", l.full);
+    labs += lab;
+    g += lab +
          `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w - padR}" y2="${y.toFixed(1)}" style="stroke:var(--rule)" stroke-width="1"/>`;
     (l.spans || []).forEach(s => {
       const a = dnum(s.from), b = dnum(s.to);
@@ -1405,7 +1508,9 @@ function svgTimeline(o) {
     if (l.note)
       g += `<text class="ax" x="${(w - 2).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" style="fill:${l.noteColor || "var(--ink-3)"}">${esc(l.note)}</text>`;
   });
-  return svgHead(w, h, o.alt || "接触の時系列") + `${g}</svg>`;
+  // 左のラベルは横にスクロールしても残す（帯を縦に積む図と同じ）。下の年月の軸は重ねない
+  return stickyLabels(w, padL, padT + lanes.length * rh, labs,
+    svgHead(w, h, o.alt || "接触の時系列") + `${g}</svg>`);
 }
 
 /* ------------------------------------------------------------ 小さな折れ線 */
@@ -1469,7 +1574,7 @@ function svgFunnel(o) {
   st.forEach((s, i) => {
     const y = 6 + i * rh, bw = Math.max(2, iw * s.v / top);
     const col = s.color || SERIES[i % SERIES.length];
-    g += labText(padL - 8, y + 21, s.label, padL - 10) +
+    g += labText(padL - 8, y + 21, s.label, padL - 10, "", s.full) +
          `<rect x="${padL}" y="${y + 6}" width="${bw.toFixed(1)}" height="${rh - 16}" rx="3" style="fill:${col}" opacity=".8"><title>${esc(s.label)}: ${F.int(s.v)}</title></rect>` +
          `<text class="vl" x="${(padL + bw + 7).toFixed(1)}" y="${y + 21}">${F.int(s.v)}</text>`;
     if (i) {
@@ -1509,7 +1614,7 @@ function svgColStack(o) {
   const fmt = o.yFmt || F.int;
   /* 最小の刻みは他の図と同じく minStepOf で渡す。渡さないと採用数 0〜2 の軸が
      刻み 0.5 になり、整数に丸めて「0,1,1,2,2」と重複していた（V10 の残り） */
-  const tk = ticks(0, Math.max(...vs), 4, minStepOf(fmt));
+  const tk = coverTicks(ticks(0, Math.max(...vs), 4, minStepOf(fmt)), Math.max(...vs));
   const hi = Math.max(Math.max(...vs), tk[tk.length - 1]) || 1;
   const slot = iw / n, bw = Math.max(3, Math.min(34, slot * 0.64));
   const X = (i) => pad.l + slot * (i + 0.5);
@@ -1527,8 +1632,10 @@ function svgColStack(o) {
     g += `<text class="axl" x="${X(i).toFixed(1)}" y="${pad.t + ih + 15}" text-anchor="middle">${esc(lab)}</text>`;
   });
   if (o.yLab) g += `<text class="ax" x="2" y="${pad.t - 16}">${esc(o.yLab)}</text>`;
+  const marks = {};
   o.x.forEach((lab, i) => {
     if (tot[i] == null) {
+      marks.none = true;
       g += `<line x1="${(X(i) - 4).toFixed(1)}" y1="${(pad.t + ih - 3).toFixed(1)}" x2="${(X(i) + 4).toFixed(1)}" y2="${(pad.t + ih - 3).toFixed(1)}" style="stroke:var(--ghost)" stroke-width="2"><title>${esc(lab)}: 値が無い（0 ではない）</title></line>`;
       return;
     }
@@ -1546,7 +1653,7 @@ function svgColStack(o) {
     if (n <= 16)
       g += `<text class="vl" x="${X(i).toFixed(1)}" y="${(Y(tot[i]) - 5).toFixed(1)}" text-anchor="middle">${esc(fmt(tot[i]))}</text>`;
   });
-  return svgHead(w, h, o.alt || "積み上げ縦棒") + `${g}</svg>`;
+  return svgHead(w, h, o.alt || "積み上げ縦棒", marks) + `${g}</svg>`;
 }
 
 function cpaLine(st, w, h) {
@@ -1812,7 +1919,7 @@ function renderTeam(D) {
     bar.length
       ? svgBarH({ w: 720, fmt: F.pp, rh: 24,
           rows: bar.map((r) => ({
-            label: shortName(r.consultant, 14), v: r.contact_rate,
+            label: shortName(r.consultant, 14), full: r.consultant, v: r.contact_rate,
             txt: pct1(r.contact_rate),
             note: num(r.contact_touched) + "/" + num(r.contact_months) +
                   " か月　案件" + num(r.n_active),
@@ -1940,7 +2047,7 @@ function renderFocus(D) {
   /* 表示名が無い拠点をキー（r.site）で埋めない（siteLabels） */
   const crows = (c.rows || []).slice(0, 20), cnames = siteLabels(crows);
   const cr = crows.map((r, i) => ({
-    label: shortName(cnames[i], 18),
+    label: shortName(cnames[i], 18), full: cnames[i],
     v: r.last, v0: r.prev,
     txt: yen(r.last),
     note: r.ratio == null ? "" : num(r.ratio, 2) + "倍",
@@ -2348,7 +2455,7 @@ function custBlocks(D, want) {
     c3.length
       ? svgBarH({ w: 700, fmt: F.man, rh: 26,
           rows: c3.map((x) => ({
-            label: shortName(x.name || x.deal_id, 20),
+            label: shortName(x.name || x.deal_id, 20), full: x.name || x.deal_id,
             v: x.total, v0: x.monthly,
             txt: yen(x.total),
             note: (x.band ? "進捗帯「" + x.band + "」の中央値 " +
@@ -2502,7 +2609,7 @@ function custBlocks(D, want) {
     for (const ct of (D.contacts || [])) {
       if (!ct.dates.length) continue;
       const d = D.deals.find((x) => x.deal_id === ct.deal_id);
-      lanes.push({ label: shortName((d && d.name) || ct.deal_id, 16), color: C.ai,
+      lanes.push({ label: shortName((d && d.name) || ct.deal_id, 16), full: (d && d.name) || ct.deal_id, color: C.ai,
         marks: ct.dates.map((x) => ({ d: x })) });
     }
     if ((D.handover || []).length) {
@@ -2602,7 +2709,7 @@ function renderSeries(D) {
   h += fig("契約を古い順に並べる", "横は開始日。空きがあれば間が空いている",
     ordered.length
       ? svgTimeline({ w: 940, alt: "契約の連なり", lanes: ordered.map((d) => ({
-          label: shortName(d.name || d.deal_id, 18),
+          label: shortName(d.name || d.deal_id, 18), full: d.name || d.deal_id,
           color: d.is_active ? C.ai : C.ghost,
           note: (d.renewal_no ? num(d.renewal_no) + "回目" : "初回") +
                 (d.amount != null ? "　" + yen(d.amount) : ""),
@@ -2941,7 +3048,7 @@ function renderHq(D) {
     top.length
       ? svgBarH({ w: 700, fmt: F.d1, rh: 24,
           rows: top.map((r) => ({
-            label: shortName(r.name || r.houjin, 22), v: r.spread,
+            label: shortName(r.name || r.houjin, 22), full: r.name || r.houjin, v: r.spread,
             txt: num(r.spread, 1) + "倍",
             note: "拠点" + num(r.sites) + " / 取引" + num(r.deals),
             color: r.spread >= 3 ? C.hi : r.spread >= 2 ? C.ki : C.ai })) })
@@ -2967,7 +3074,7 @@ function renderHq(D) {
       rows.length
         ? svgBarH({ w: 680, fmt: F.man, rh: 24,
             rows: rows.map((x, i) => ({
-              label: shortName(names[i], 20), v: x.cpa, txt: yen(x.cpa),
+              label: shortName(names[i], 20), full: names[i], v: x.cpa, txt: yen(x.cpa),
               /* 🔴 率だけで母数が無かった（V20 検証）。分母を添える。
                  分子は解約＋充足、分母は決着済み x.denom（fix/cs-rust N4）。取引数 x.deals は分母ではない */
               note: (x.cancel_rate == null ? "" : "解約・充足 " + pct1(x.cancel_rate) +
@@ -3056,7 +3163,7 @@ function renderMtgQ(D) {
   h += fig("ホスト別の件数", "これは行動量です。良し悪しではありません",
     svgBarH({ w: 680, fmt: F.int, rh: 22,
       rows: D.hosts.slice(0, 25).map((r) => ({
-        label: shortName(r.host, 16), v: r.n, txt: num(r.n) + "回", color: C.ai })) }),
+        label: shortName(r.host, 16), full: r.host, v: r.n, txt: num(r.n) + "回", color: C.ai })) }),
     '<i class="full">上位25名だけ出しています（全 ' + num(D.hosts.length) + " 名）。" +
     "件数が多い＝良い、ではありません。担当している契約の数が違います。</i>" +
     /* V14: 並び替えは推測になるので、画面では直さずに断る（理由は上のコメント） */
@@ -3388,7 +3495,7 @@ function renderDq(D) {
   h += fig("欠測の件数", "0 で埋めていません",
     svgBarH({ w: 700, fmt: F.int, rh: 26,
       rows: D.missing.map((m) => ({
-        label: tail(m.label, 30), v: m.n, txt: num(m.n) + "件",
+        label: tail(m.label, 30), full: m.label, v: m.n, txt: num(m.n) + "件",
         note: pct1(m.rate), color: m.rate >= 20 ? C.ki : C.ai })) }),
     lg("box", C.ki, "20%以上") + lg("box", C.ai, "20%未満") +
     '<i class="full">' + D.missing.map((m) => esc(m.label) + "：" + esc(m.note)).join(" ／ ") +
@@ -3716,7 +3823,7 @@ function flagFig(D, subset) {
     fc.length
       ? svgBarH({ w: 700, fmt: F.int, rh: 24,
           rows: fc.slice().sort((a, b) => b.n - a.n).map((x) => ({
-            label: tail(x.label, 26), v: x.n, txt: num(x.n) + "件",
+            label: tail(x.label, 26), full: x.label, v: x.n, txt: num(x.n) + "件",
             note: flagGroup(x.label).word, color: flagGroup(x.label).color })) })
       : '<div class="empty">名札の付いた案件がありません。</div>',
     lg("box", C.hi, "関係が危ない") + lg("box", C.ki, "時間が迫っている") +
@@ -3808,7 +3915,7 @@ function renderToday(D) {
     fr.length
       ? svgBarH({ w: 700, fmt: F.int, rh: 24,
           rows: fr.map(([label, n]) => ({
-            label: tail(label, 26), v: n, txt: num(n) + "件",
+            label: tail(label, 26), full: label, v: n, txt: num(n) + "件",
             note: flagGroup(label).word, color: flagGroup(label).color })) })
       : '<div class="empty">名札の付いた案件がありません。</div>',
     lg("box", C.hi, "関係が危ない") + lg("box", C.ki, "時間が迫っている") +
@@ -4011,7 +4118,7 @@ function renderHandover(D) {
     rd.length
       ? svgBarH({ w: 680, fmt: F.int, rh: 24,
           rows: rd.slice().sort((a, b) => b.n - a.n).map((x) => ({
-            label: tail(x.label, 26), v: x.n, txt: num(x.n) + "件",
+            label: tail(x.label, 26), full: x.label, v: x.n, txt: num(x.n) + "件",
             color: x.label.indexOf("なし") >= 0 ? C.hi : C.ai })) })
       : '<div class="empty">記録がありません。</div>',
     lg("box", C.hi, "反映されていない") + lg("box", C.ai, "反映されている") +

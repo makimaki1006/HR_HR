@@ -514,7 +514,17 @@ function overlaps(svg) {
   }
   return out;
 }
-const vbW = (svg) => +((svg.match(/viewBox="0 0 ([\d.]+)/) || [0, 0])[1]);
+/* 帯を縦に積む図・時間軸の図は、左のラベルだけの SVG（sticklab）を前に重ねている。幅は図そのもの（stickmain）で見る */
+const vbW = (svg) => +((svg.match(/<svg class="stickmain"[^>]*viewBox="0 0 ([\d.]+)/) ||
+  svg.match(/viewBox="0 0 ([\d.]+)/) || [0, 0])[1]);
+const vbH = (svg) => +((svg.match(/<svg class="stickmain"[^>]*viewBox="0 0 [\d.]+ ([\d.]+)/) ||
+  svg.match(/viewBox="0 0 [\d.]+ ([\d.]+)/) || [0, 0, 0])[1]);
+/** 文字がすべて SVG の範囲（viewBox）の中にあるか。外に出た文字の一覧を返す */
+const outside = (svg) => {
+  const W = vbW(svg), H = vbH(svg);
+  return textBoxes(svg).filter((b) => b.x0 < -0.5 || b.x1 > W + 0.5 || b.y0 < -0.5 || b.y1 > H + 0.5)
+    .map((b) => b.s + "(" + b.x0.toFixed(0) + "," + b.y0.toFixed(0) + ")");
+};
 const firstSvg = (h) => { const a = h.indexOf("<svg"); return h.slice(a, h.indexOf("</svg>", a) + 6); };
 
 check("図の部品(1): 狭い画面で図を縮めきらず、枠の中で横に動かす（文字 10px を下限にする）", () => {
@@ -523,10 +533,20 @@ check("図の部品(1): 狭い画面で図を縮めきらず、枠の中で横�
   ok(/figure\.fig \.figbody > svg\{\s*min-width:calc\(var\(--fw, 0px\) \* \.92\)/.test(css),
     "図の最小幅（--fw の .92 倍）の CSS が無い。400px 幅で 11px の文字が 4〜5px に縮む");
   ok(/figure\.fig \.figbody\{[^}]*overflow-x:auto/.test(css), "図の枠が横にスクロールしない（ページ本体が広がる, V17）");
-  ok(/@media \(max-width:600px\)\{[\s\S]*?\.figscroll\{ display:block; \}/.test(css),
-    "狭い画面で「横にスクロールできます」の案内を出していない");
+  /* 文の案内は「枠の幅 < 図の最小幅」のときだけ出す（2026-09-23 検証）。
+     前は @media (max-width:600px) でだけ出していて、601〜1000px 前後でスクロールする図に案内が無かった。
+     画面幅の @media に戻したら落ちる。枠の幅（100cqw）と図の最小幅（--minw）で決めていること */
+  ok(/figure\.fig\{ container-type:inline-size; \}/.test(css), "figure が問い合わせの入れ物（container-type）になっていない");
+  ok(/\.figscroll\{[^}]*height:clamp\(0px, calc\(\(var\(--minw, 0px\) - 100cqw\) \* 999\), 20px\)/.test(css),
+    "横スクロールの案内の出し分けが、枠の幅と図の最小幅の比較になっていない");
+  ok(!/\.figscroll\{[^}]*display:none/.test(css), "横スクロールの案内を display:none で隠している（@media でしか出ない形に戻っている）");
   // どの図の道具も --fw を持つ。持たない図だけが 400px で縮む
+  // 🔴 matrix / funnel / stack / dots も見る（dq の「結果ごとの記入率」は幅 638px。2026-09-23 検証で見張りの外だった）
   const svgs = {
+    matrix: run('svgMatrix({ padL: 150, cw: 120, cols: ["a","b","c","d"], rows: [{ label: "r", cells: [{ v: .5 }, { v: .5 }, { v: null }, { v: 1 }] }] })'),
+    funnel: run('svgFunnel({ steps: [{ label: "応募", v: 10 }, { label: "面接", v: 4 }] })'),
+    stack: run('svgStack({ w: 680, parts: [{ label: "a", v: 3 }, { label: "b", v: 1 }] })'),
+    dots: run('svgDots({ total: 50, per: 37, groups: [{ v: 10, color: "red", label: "a" }] })'),
     line: run('svgLine({ x: ["a","b"], series: [{ pts: [{ v: 1 }, { v: 2 }] }] })'),
     bar: run('svgBarH({ rows: [{ label: "a", v: 1 }] })'),
     box: run('svgBoxH({ rows: [{ label: "a", med: 2, q1: 1, q3: 3, min: 0, max: 4, n: 40 }] })'),
@@ -539,7 +559,12 @@ check("図の部品(1): 狭い画面で図を縮めきらず、枠の中で横�
   for (const [k, v] of Object.entries(svgs))
     ok(/style="--fw:\d+px"/.test(v), k + " の図に --fw（描いた幅）が無い");
   const f = run('fig("題", "", svgBarH({ w: 700, rows: [{ label: "a", v: 1 }] }))');
-  ok(f.includes('class="figscroll"'), "700px の図に横スクロールの案内が付かない");
+  ok(f.includes('class="figscroll" style="--minw:644px"'), "700px の図の横スクロールの案内に、図の最小幅（700×.92=644px）が無い");
+  // 横にスクロールする枠は Tab で止まれる（キーボードの矢印で動かせる）。スクロールしない小さい図には付けない
+  ok(/<div class="figbody" tabindex="0" role="group" aria-label="題（横にスクロールできる枠）">/.test(f),
+    "横にスクロールする枠に tabindex / 名前が無い（キーボードで動かせない）");
+  const small = run('fig("小", "", svgStack({ w: 300, parts: [{ label: "a", v: 1 }] }))');
+  ok(!/figscroll|tabindex/.test(small), "330px に収まる図にまでスクロールの案内・tabindex を付けている");
 });
 
 check("図の部品(2): 左のラベルが欄より長いとき、省略記号で切り、全文を title に残す", () => {
@@ -563,6 +588,38 @@ check("図の部品(2): 左のラベルが欄より長いとき、省略記号�
   // 収まるラベルは切らない・title も足さない
   const short = run('svgBarH({ rows: [{ label: "初回", v: 1 }] })');
   ok(!short.includes("…") && !short.includes("<title>初回</title>"), "収まるラベルまで切っている");
+
+  /* ---- 2026-09-23 検証の指摘 ----
+     (a) houjin の拠点ラベルは shortName(…, 20) で頭が削られ「…」で始まる。fitLab はその流儀で
+         頭を削り足す（真ん中を削ると「…会 特…継続①」と省略記号が2つになる）
+     (b) title と全文の一覧に入るのは shortName を掛ける前の名前（行の full）。前は「…会 …」しか残らなかった
+     (c) shortName だけで削られ、fitLab では切らなかった行にも全文を残す
+     (d) 全文は図の外（<details>）に並ぶ。title はホバーでしか出ず、role="img" の中は読み上げに出ない */
+  const orig = "社会福祉法人みどり会 特別養護老人ホームさくら苑 継続①";
+  ctx.__HJ = orig;
+  const hj = run('svgBarH({ w: 680, fmt: F.man, rows: [{ label: shortName(__HJ, 20), full: __HJ, v: 1200000, txt: "120万" }], padL: 150 })');
+  const hl = textBoxes(hj).find((b) => b.s.endsWith("継続①"));
+  ok(hl && hl.s.startsWith("…") && (hl.s.match(/…/g) || []).length === 1,
+    "(a) 頭を削ったラベル（…始まり）を真ん中で削っている: " + (hl ? hl.s : "(無い)"));
+  ok(hl && hl.x0 >= -0.5, "(a) 頭を削ったラベルが SVG の左端より外に出る");
+  ok(hj.includes("<title>" + orig + "</title>") && hj.includes('data-full="' + orig + '"'),
+    "(b) title / 全文の一覧に、shortName を掛ける前の名前が入っていない");
+  const onlyTail = run('svgBarH({ w: 680, rows: [{ label: tail(__HJ, 10), full: __HJ, v: 1 }] })');
+  ok(!textBoxes(onlyTail).some((b) => /….*…/.test(b.s)) && onlyTail.includes('data-full="' + orig + '"'),
+    "(c) shortName / tail だけで削った行（fitLab では切らない行）に全文が残っていない");
+  const fg = run('fig("採用単価", "", svgBarH({ w: 680, rows: [{ label: shortName(__HJ, 20), full: __HJ, v: 1 }, { label: tail(__HJ, 10), full: __HJ, v: 2 }] }))');
+  const det = fg.slice(fg.indexOf("</svg>"));
+  ok(/<details class="fold figfull"><summary>省略した名前の全文（1 件）<\/summary>/.test(det) && det.includes(orig),
+    "(d) 省略した名前の全文が図の外（タップ・読み上げで読める所）に無い（同じ名前は1件にまとめる）");
+  // 「株式会社」を落としただけ（省略記号が無い）は切ったと数えない
+  ctx.__KK = "株式会社みどり";
+  const kk = run('fig("x", "", svgBarH({ rows: [{ label: shortName(__KK, 20), full: __KK, v: 1 }] }))');
+  ok(!/figfull|data-full/.test(kk), "法人格を落としただけの名前まで「省略した名前」に並べている");
+  // ラベル欄の幅は字の実寸で見積もる（labW）。全角 15 字は上限 210px に収まるので切らない。
+  // 前は 1 字 10.6px と数えて欄が 177px になり、168px の文字が入らず切れていた
+  const l15 = run('svgBarH({ rows: [{ label: "ケアサポートかがやき居宅介護支", v: 1 }] })');
+  ok(!l15.includes("…"), "全角 15 字のラベルが、欄に収まるのに切られている（ラベル欄の幅の見積もりが粗い）");
+  ok(textBoxes(l15).every((b) => b.x0 >= -0.5), "全角 15 字のラベルが SVG の左端より外に出る");
 });
 
 check("図の部品(3): 月次継続率の右端でラベルが重ならず、n=0 の月に点も線も作らない", () => {
@@ -585,6 +642,16 @@ check("図の部品(3): 月次継続率の右端でラベルが重ならず、n=
   ok(!ov.length, "月次継続率の文字が重なる: " + ov.slice(0, 4).join(" / "));
   ok(!/値が無い（0 ではない）/.test(svg), "n=0 の月に 0 の高さの灰色の線を描いている（凡例に無い印）");
   ok(svg.includes(">27-01<") && svg.includes(">n=1<"), "最後の月（27-01 n=1）のラベルが無い");
+  // 🔴 率に母数（2026-09-23 検証）。xPick・間引きで横軸の2段目（n=）を出さない月でも、点の title で母数が読める
+  const tt = [...svg.matchAll(/<circle [^>]*><title>([^<]*)<\/title>/g)].map((m) => m[1]);
+  ok(tt.length > 0 && tt.every((t) => /（n=\d+）/.test(t)),
+    "点の title に母数（n=）が無い月がある: " + tt.filter((t) => !/（n=\d+）/.test(t)).slice(0, 3).join(" / "));
+  const hidden = tt.filter((t) => !svg.includes(">" + t.split("（")[0] + "<"));
+  ok(hidden.length > 0, "この入力では横軸のラベルを出さない月があるはず（見張りの前提が崩れている）");
+  // 値が無い月（n=0）で線が切れることを、凡例で説明している（fig の data-gap）
+  ok(/<svg [^>]*data-gap="1"/.test(svg), "n=0 の月で線が切れるのに、図に「切れ目あり」の印（data-gap）が無い");
+  ok(run("renderRenewal(__RN)").includes("線が途切れているところは、その月の値が無いところです"),
+    "月次継続率の図の凡例に、線の切れ目の説明が無い");
 });
 
 check("図の部品(4): 系列を縦に並べる図で、NPS の「定期N」・右の目盛り・帯の境目の目盛りが重ならない", () => {
@@ -598,6 +665,29 @@ check("図の部品(4): 系列を縦に並べる図で、NPS の「定期N」・
   ok(!ov.length, "文字が重なる: " + ov.slice(0, 5).join(" / "));
   const W = vbW(h);
   textBoxes(h).forEach((b) => ok(b.x0 >= -0.5 && b.x1 <= W + 0.5, "「" + b.s + "」が SVG の外に出る"));
+
+  /* 🔴 2026-09-23 検証: 上の2つは、NPS の帯の高さ・点を内側に描く幅・右の目盛りの位置を
+     全部戻しても通っていた（この入力では文字どうしが重ならないため）。是正の中身そのものを見る:
+     (a) どの文字も帯の境目（各帯の下端の線）をまたがない。NPS の値・「定期N」が帯の中に収まる
+     (b) 右の目盛りは、その帯の線・点の実際の上端・下端の高さにある（数字が指す点と同じ高さ）。
+         前は帯の上端 +12 / 下端 −2 に置いていて、目盛りの数字と点の高さがずれていた */
+  const axY = [...h.matchAll(/<line class="axisline" x1="[\d.]+" y1="([\d.]+)"/g)].map((m) => +m[1]);
+  ok(axY.length === 4, "帯の下端の線が " + axY.length + " 本（4 のはず）");
+  const cross = textBoxes(h).filter((b) => axY.some((y) => y > b.y0 + 0.5 && y < b.y1 - 0.5));
+  ok(!cross.length, "(a) 帯の境目をまたぐ文字: " + cross.map((b) => b.s + "(" + b.y0.toFixed(0) + "〜" + b.y1.toFixed(0) + ")").join(" / "));
+  const cy = [...h.matchAll(/<circle cx="[\d.]+" cy="([\d.]+)"/g)].map((m) => +m[1]);
+  const tickX = 940 - 68 + 12;   // 右の目盛りの位置（w − padR + 12）
+  const tks = textBoxes(h).filter((b) => Math.abs(b.x0 - tickX) < 0.01);
+  ok(tks.length === 7, "右の目盛りが x=" + tickX + " に " + tks.length + " 個（応募2・面接2・NPS2・接触1 の 7 のはず）: " + tks.map((b) => b.s).join(","));
+  // (c) NPS の 0〜10 を描く高さ。帯を 62px にして上下 18px を文字に取っても、0 と 10 の点は 24px 以上離す
+  //     （帯を 48px に戻すと 12px になり、1 点ぶんの差が 1.2px で見分けられない）
+  const nps = [...h.matchAll(/<circle cx="[\d.]+" cy="([\d.]+)" r="5"[^>]*><title>[^:]*: 定期\d+ の回答 (\d+)<\/title>/g)].map((m) => [+m[2], +m[1]]);
+  const y10 = (nps.find((q) => q[0] === 10) || [0, NaN])[1], y0 = (nps.find((q) => q[0] === 0) || [0, NaN])[1];
+  ok(y0 - y10 >= 24, "(c) NPS の 0 と 10 の点の高さの差が " + (y0 - y10) + "px（24px 未満。帯が低すぎて点の差が読めない）");
+  tks.filter((b) => b.y1 < axY[2] + 0.5).forEach((b) => {
+    const y = b.y0 + 9 - 4;   // 目盛りの文字は点の高さ +4 に置く
+    ok(cy.some((c) => Math.abs(c - y) < 0.6), "(b) 右の目盛り「" + b.s + "」が、どの点の高さにも合っていない（y=" + y.toFixed(1) + "）");
+  });
 });
 
 check("図の部品(5): 軸の題名と最上段の目盛りが重ならず、整数の軸の目盛りが等間隔", () => {
@@ -619,19 +709,58 @@ check("図の部品(5): 軸の題名と最上段の目盛りが重ならず、�
   const bx = run('svgBoxH({ w: 680, rows: [{ label: "初回MTGまで", med: 14, q1: 4, q3: 43, min: 0, max: 609, mean: 40, n: 1083 }] })');
   const b = textBoxes(bx), mx = b.find((q) => q.s.startsWith("最大")), nn = b.find((q) => q.s.startsWith("n="));
   ok(mx && nn && nn.x0 - mx.x1 >= 20, "「最大 609」と「n=1083」の間が " + (mx && nn ? (nn.x0 - mx.x1).toFixed(1) : "?") + "px（20px 未満）");
+  /* 🔴 2026-09-23 検証: 散布図・ヒストグラムの題名の余白は見張りの外だった。
+     また折れ線の余白だけを戻すと題名が y=2 に来て SVG の上端の外で切れるが、重なりしか見ていなかった。
+     題名のある 4 つの図すべてで、重ならないことと SVG の中にあることを見る */
+  const sc = run('svgScatter({ pts: [{ x: 1, y: 100 }, { x: 2, y: 300 }], yLab: "金額" })');
+  const hs = run('svgHist({ values: [1, 2, 2, 3, 3, 3], yLab: "件数" })');
+  for (const [k, v] of Object.entries({ 折れ線: ln, 積み上げ縦棒: cs, 散布図: sc, ヒストグラム: hs })) {
+    ok(!overlaps(v).length, k + ": 題名と目盛りが重なる: " + overlaps(v).join(" / "));
+    ok(!outside(v).length, k + ": SVG の外に出る文字: " + outside(v).join(" / "));
+  }
+  /* 🔴 整数の軸は刻み 2.5 を 5 にするので、最大 7〜9 だと目盛りが [0,5] で止まる（2026-09-23 検証:
+     ticks(0,9,4,1) → [0,5]）。縦軸を持つ図は、最大値を覆うところまで目盛りを足す（coverTicks） */
+  const topTick = (svg) => Math.max(...textBoxes(svg).filter((b) => /^\d+$/.test(b.s) && b.x1 < 60).map((b) => +b.s));
+  const c9 = run('svgColStack({ x: ["a","b"], series: [{ label: "s", color: "red", vals: [{ v: 9 }, { v: 7 }] }] })');
+  ok(topTick(c9) >= 9, "積み上げ縦棒: 最大 9 に対して目盛りが " + topTick(c9) + " で止まる");
+  const h9 = run('svgHist({ values: [1,1,1,1,1,1,1,1,1, 5], bins: 4 })');
+  ok(topTick(h9) >= 9, "ヒストグラム: 度数 9 に対して目盛りが " + topTick(h9) + " で止まる");
+  const s9 = run('svgScatter({ pts: [{ x: 1, y: 9 }, { x: 2, y: 3 }] })');
+  ok(topTick(s9) >= 9, "散布図: 最大 9 に対して目盛りが " + topTick(s9) + " で止まる");
 });
 
 check("図の部品(6): 接触率の図の目盛りが最大値を覆い、率と母数が棒の近くにある", () => {
   // fixture の接触率（母数が足りる担当者）の最大は 96.92%。前は目盛りが 75% で止まっていた
   const h = run(`svgBarH({ w: 720, fmt: F.pp, rh: 24, rows: [
     { label: "h9821a39368fe", v: 26.4, txt: "26.4%", note: "33/125 か月　案件28" },
-    { label: "h60b499e1c307", v: 96.92, txt: "96.9%", note: "63/65 か月　案件22" } ] })`);
+    { label: "h60b499e1c307", v: 96.92, txt: "96.9%", note: "63/65 か月　案件22" },
+    { label: "h14989084e280", v: 57.14, txt: "57.1%", note: "4/7 か月" } ] })`);
   const tks = textBoxes(h).filter((b) => /^\d+%$/.test(b.s)).map((b) => parseFloat(b.s));
   ok(Math.max(...tks) >= 96.92, "目盛りの最大が " + Math.max(...tks) + "%（96.9% の棒が目盛りの先へ伸びる）");
   const b = textBoxes(h), v = b.find((q) => q.s === "96.9%"), n = b.find((q) => q.s.startsWith("63/65"));
   ok(n.x0 - v.x1 <= 60, "いちばん長い棒の率から母数まで " + (n.x0 - v.x1).toFixed(0) + "px 離れている（前は約200px）");
-  ok(/stroke-dasharray="1 3"/.test(h), "短い棒の行に、注記までつなぐ点線が無い");
+  /* 🔴 2026-09-23 検証: 上の 60px は、注記の置き方を全部戻しても通っていた（入力の注記がほぼ同じ長さで、
+     右端ぞろえでも左ぞろえでも位置が変わらなかった）。長さの違う注記を混ぜ、
+     注記が値ラベルの欄のすぐ右に**左ぞろえで1列に**並ぶこと・どの行も率から 40px 以内に始まることを見る */
+  const notes = b.filter((q) => / か月/.test(q.s));
+  ok(notes.length === 3 && notes.every((q) => Math.abs(q.x0 - notes[0].x0) < 0.5),
+    "注記が左ぞろえの1列になっていない（右端ぞろえに戻っている）: " + notes.map((q) => q.x0.toFixed(0)).join(","));
+  ok(notes[0].x0 - v.x1 <= 40, "いちばん長い棒の率から注記の列まで " + (notes[0].x0 - v.x1).toFixed(0) + "px");
+  // 右の欄は注記の実寸で空ける（1字 10.6px と数えると、いちばん長い注記の右に余白が余り、そのぶん棒が短くなる）
+  const slack = vbW(h) - Math.max(...notes.map((q) => q.x1));
+  ok(slack <= 16, "いちばん長い注記の右に " + slack.toFixed(0) + "px の余白（右の欄を空けすぎて棒が短くなる）");
+  // 棒の短い行は、値から注記まで細い線でつなぐ。**実線**にする（破線・点線は「未確定・持ち越し」の意味）
+  const leaders = [...h.matchAll(/<line data-leader="1"[^>]*>/g)].map((m) => m[0]);
+  ok(leaders.length >= 1, "短い棒の行に、注記までつなぐ線が無い");
+  ok(leaders.every((l) => !/stroke-dasharray/.test(l)), "注記までつなぐ線が点線・破線（未確定の印と読める）");
   ok(!overlaps(h).length, "文字が重なる: " + overlaps(h).join(" / "));
+  /* 長い注記（幅 326px）。前は右の欄の上限が max(320, w×.5)=360px で足りず、右端に寄せた注記が
+     値ラベル「96.9%」に重なった（2026-09-23 検証）。重ならず、SVG の中に収まる */
+  const lg2 = run(`svgBarH({ w: 720, fmt: F.pp, rows: [
+    { label: "a", v: 26.4, txt: "26.4%", note: "1/2 か月" },
+    { label: "b", v: 96.92, txt: "96.9%", note: "63/65 か月　案件22　担当交代あり 2 回（直近 2026-08）" } ] })`);
+  ok(!overlaps(lg2).length, "長い注記が値ラベルに重なる: " + overlaps(lg2).join(" / "));
+  ok(!outside(lg2).length, "長い注記が SVG の外に出る: " + outside(lg2).join(" / "));
 });
 
 check("図の部品(7): 推移の図で、値が変わった月へ向かう線は実線・持ち越しへ向かう線だけ破線", () => {
@@ -646,6 +775,89 @@ check("図の部品(7): 推移の図で、値が変わった月へ向かう線�
   const s2 = [...ln.matchAll(/<path d="M[^"]*" fill="none"[^>]*>/g)].map((m) => m[0]);
   ok(s2.length === 2 && /stroke-dasharray/.test(s2[0]) && !/stroke-dasharray/.test(s2[1]),
     "系列を縦に並べる図でも、値が変わった月へ向かう線が破線になっている");
+});
+
+check("図の部品(8): 見張りの外だった是正（横軸の間引き・目盛りの延長・右端の月・左のラベル・帯の目盛り）", () => {
+  /* 2026-09-23 検証: 次の是正は、戻しても 1 件も落ちなかった。1 つずつ見る */
+  // (a) 系列を縦に並べる図の横軸: 29 か月を 940px に並べると 3 か月おき＋最後。27 と 28 がくっつく形
+  ctx.__M29 = Array.from({ length: 29 }, (_, i) => (i + 1) + "ヶ月");
+  const ln = run('svgStackLanes({ w: 940, months: __M29, lanes: [{ label: "応募", type: "line", color: "blue", pts: __M29.map((_, i) => ({ v: i })) }] })');
+  ok(!overlaps(ln).length, "(a) 帯を縦に積む図の横軸の最後の2つが重なる: " + overlaps(ln).join(" / "));
+  // (b) 折れ線の横軸の2段目（n=）。1段目は短く収まるが2段目だけがぶつかる形（20 点を 660px に）
+  ctx.__X20 = Array.from({ length: 20 }, (_, i) => String(i + 1));
+  const sub = run('svgLine({ x: __X20, xSub: __X20.map(() => "n=1000"), series: [{ pts: __X20.map((_, i) => ({ v: i })) }] })');
+  ok(!overlaps(sub).length, "(b) 折れ線の横軸の2段目（n=）が重なる: " + overlaps(sub).join(" / "));
+  // (c) 左右に伸びる横棒（diverging）も、最大値を覆うところまで目盛りを足す
+  const dv = run('svgBarH({ diverging: true, fmt: F.d1, rows: [{ label: "a", v: -0.3 }, { label: "b", v: 0.9 }] })');
+  // 目盛りの文字だけを見る（棒の先の値「0.9」も同じ形なので、下端の目盛りの段に絞る）
+  const dt = textBoxes(dv).filter((q) => /^-?\d+\.\d$/.test(q.s) && q.y1 > vbH(dv) - 12).map((q) => +q.s);
+  ok(Math.max(...dt) >= 0.9, "(c) 左右に伸びる横棒の目盛りが " + Math.max(...dt) + " で止まり、0.9 の棒が先へ伸びる");
+  // (d) 時間軸の図の右端の月（線は描くが文字は SVG の外に出るので出さない）
+  const tl = run('svgTimeline({ w: 940, lanes: [{ label: "a", marks: [{ d: "2025-01-01" }, { d: "2025-11-17" }] }] })');
+  ok(!outside(tl).length, "(d) 時間軸の図で SVG の外に出る文字: " + outside(tl).join(" / "));
+  ok((tl.match(/<line class="gridline"/g) || []).length > textBoxes(tl).filter((q) => /^\d{4}-\d\d$/.test(q.s)).length,
+    "(d) この入力では右端の月の線だけを描く形のはず（見張りの前提が崩れている）");
+  // (e) 充足率の面・ファネルの左のラベルも、欄より長ければ省略記号で切る
+  ctx.__LB = "右側打ち切り（結果が確定していない直近の契約）の件数";
+  const mx = run('svgMatrix({ padL: 150, cw: 120, cols: ["a"], rows: [{ label: __LB, cells: [{ v: .5 }] }] })');
+  const fn = run('svgFunnel({ steps: [{ label: "応募（媒体と紹介の合計）", v: 10 }, { label: "面接", v: 4 }] })');
+  for (const [k, v] of Object.entries({ 充足率: mx, ファネル: fn })) {
+    const lb = textBoxes(v).filter((q) => q.s.includes("…"));
+    ok(lb.length === 1 && lb[0].x0 >= -0.5, "(e) " + k + ": 長いラベルを切っていない、または左端の外に出る");
+    ok(/data-full="/.test(v), "(e) " + k + ": 切ったラベルの全文が残っていない");
+  }
+  // (f) 棒の帯の目盛りは、右端の棒（X(n−1) ± 棒の半幅）から離して置く。前は棒の右端から 0.5px だった
+  const br = run('svgStackLanes({ w: 940, months: ["1","2","3"], lanes: [{ label: "接触", type: "bars", color: "gray", fillLabel: "接触", outLabel: "MTG", pts: [{ fill: 1 }, { fill: 2 }, { out: 3, fill: 1 }] }] })');
+  const bx = Math.max(...[...br.matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="([\d.]+)"/g)].map((m) => +m[1] + +m[2]));
+  const bt = textBoxes(br).find((q) => q.s === "3" && q.y1 < 40);   // 月の軸の「3」ではなく帯の上端の目盛り
+  ok(bt && bt.x0 - bx >= 4, "(f) 棒の帯の目盛り「3」が右端の棒から " + (bt ? (bt.x0 - bx).toFixed(1) : "?") + "px（4px 未満）");
+});
+
+check("図の部品(9): 横にスクロールしても左のラベルが残り、「値が無い」の見せ方を凡例で説明する", () => {
+  /* 🔴 2026-09-23 検証: 400px で帯を縦に積む図（約 2.6 画面ぶん）を右へ動かすと、左のラベルも流れて
+     どの帯の点か分からなかった。ラベルだけの SVG を重ね、CSS の position:sticky で左に残す。
+     ここでは重ねる SVG が「スクロールしていないときに下のラベルとぴったり重なる」形かを数で見る
+     （貼り付く動きそのものはブラウザでしか見られない） */
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/\.stickwrap > svg\.sticklab\{[^}]*position:sticky; left:0;/.test(css), "左のラベルを貼り付ける CSS（sticky）が無い");
+  ok(/\.sticklab text\{ paint-order:stroke; stroke:var\(--panel\);/.test(css), "重ねるラベルに縁取りが無い（線や点の上で読めない）");
+  // 3 つ目は欄（上限 240px）に入らない長さにして、切ったラベル（data-full 付き）も重ねる側に通す
+  ctx.__LL9 = ["応募", "定期NPS", "接触（MTG・60秒超の通話）とそれ以外の連絡をすべて足した回数"];
+  const lanes = run(`svgStackLanes({ w: 940, months: ["1ヶ月","2ヶ月","3ヶ月"], lanes: [
+    { label: __LL9[0], type: "line", color: "blue", pts: [{ v: 1 }, { v: null }, { v: 3 }] },
+    { label: __LL9[1], type: "dots", pts: [{ v: 3, round: 1 }, { v: 9, round: 2 }, { v: null }] },
+    { label: __LL9[2], type: "bars", color: "gray", fillLabel: "接触", outLabel: "MTG", pts: [{ fill: 1 }, { v: 0, fill: 0 }, { fill: 2 }] } ] })`);
+  const tl = run('svgTimeline({ w: 940, lanes: [{ label: "契約A", marks: [{ d: "2025-01-01" }] }, { label: "契約B", marks: [{ d: "2025-06-01" }] }] })');
+  for (const [k, v] of Object.entries({ 帯を縦に積む図: lanes, 時間軸の図: tl })) {
+    const wrap = v.match(/<div class="stickwrap" style="--fw:(\d+)px;--lw:([\d.]+)%">/);
+    const lab = v.match(/<svg [^>]*class="sticklab" viewBox="0 0 ([\d.]+) ([\d.]+)" width="[\d.]+" height="[\d.]+" aria-hidden="true"/);
+    ok(wrap && lab, k + ": 左のラベルを貼り付ける形（stickwrap / sticklab）になっていない");
+    const padL = +lab[1], labH = +lab[2];
+    ok(Math.abs(+wrap[2] - padL / +wrap[1] * 100) < 1e-3, k + ": 重ねる SVG の幅（--lw）がラベル欄の幅と合わない（縮尺がずれる）");
+    // 重ねるラベルは、下の図のラベルと同じ文字・同じ位置（スクロールしていないときに二重に見えない）
+    const main = [...v.matchAll(/<text class="axl" x="([\d.]+)" y="([\d.]+)" text-anchor="end"[^>]*>([^<]*)/g)].map((m) => m.slice(1).join("|"));
+    const dup = [...v.matchAll(/<text data-sticky="1" class="axl" x="([\d.]+)" y="([\d.]+)" text-anchor="end"[^>]*>([^<]*)/g)].map((m) => m.slice(1).join("|"));
+    ok(dup.length >= 2 && dup.every((d) => main.includes(d)), k + ": 重ねるラベルが下の図のラベルと位置・文字で一致しない");
+    ok(!/data-sticky="1"[^>]*data-full=/.test(v), k + ": 重ねるラベル（読み上げから外した複製）に data-full が残っている。全文の一覧の元は下の図のラベルだけにする");
+    // 重ねる SVG は下の軸（月・年月）を覆わない。地の色の四角は敷かない（400px では見えている幅の 2/3 を隠した）
+    const plot = textBoxes(v).filter((q) => q.x0 > padL - 20);
+    ok(plot.filter((q) => q.y1 > labH + 0.5).length > 0 && plot.every((q) => q.y1 <= labH + 0.5 || q.y0 >= labH - 0.5),
+      k + ": 重ねる SVG の高さ（" + labH + "）が下の軸の文字にかかる");
+    const inLab = plot.filter((q) => q.y0 < labH);   // 重ねる SVG の高さの中にある、図の中の文字
+    const labSvg = v.slice(v.indexOf('class="sticklab"'), v.indexOf("</svg>", v.indexOf('class="sticklab"')));
+    ok(!/<rect /.test(labSvg), k + ": 重ねる SVG に地の四角があり、スクロールした先の図（" +
+      inLab.map((q) => q.s).slice(0, 3).join(",") + " など）を隠す");
+  }
+  // 「値が無い」の見せ方を凡例で説明する（折れ線は線の切れ目・棒は灰色の短い線）
+  const fl = run('fig("推移", "", svgLine({ x: ["1","2","3"], series: [{ pts: [{ v: 1 }, { v: null }, { v: 3 }] }] }), lg("line", "blue", "応募"))');
+  ok(fl.includes("線が途切れているところは、その月の値が無いところです"), "折れ線の切れ目（値が無い月）を凡例で説明していない");
+  const f0 = run('fig("推移", "", svgLine({ x: ["1","2"], series: [{ pts: [{ v: 1 }, { v: 3 }] }] }))');
+  ok(!f0.includes("線が途切れている"), "切れ目の無い折れ線にまで切れ目の説明を出している");
+  const fc = run('fig("柱", "", svgColStack({ x: ["a","b","c"], series: [{ label: "s", color: "red", vals: [{ v: 1 }, { v: null }, { v: 2 }] }] }))');
+  ok(fc.includes("灰色の短い線＝その月の記録が無い"), "積み上げ縦棒の灰色の印（値が無い月）を凡例で説明していない");
+  const fs2 = run('fig("帯", "", svgStackLanes({ w: 940, months: ["1","2","3"], lanes: [{ label: "接触", type: "bars", color: "gray", fillLabel: "接触", outLabel: "MTG", pts: [{ fill: 1 }, { v: 0, fill: 0 }, { fill: 2 }] }, { label: "応募", type: "line", color: "blue", pts: [{ v: 1 }, { v: null }, { v: 3 }] }] }))');
+  ok(fs2.includes("灰色の短い線＝その月の記録が無い") && fs2.includes("線が途切れているところは"),
+    "帯を縦に積む図の「値が無い」の印（棒の帯の灰色の線・線の帯の切れ目）を凡例で説明していない");
 });
 
 console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
