@@ -983,6 +983,7 @@ fn 本部は事業所ごとに並べる() {
     // 2026-09-23: オプション契約を外したので 1649 -> 1646。
     //   3法人は**オプション契約しか無かった**法人。
     assert_eq!(v["meta"]["n_houjin"], 1646);
+    assert_eq!(v["meta"]["n_houjin_option_only"], 3);
     assert_eq!(v["multi_site"], 194, "拠点が2つ以上ある法人");
 
     for row in v["rows"].as_array().unwrap() {
@@ -2171,7 +2172,19 @@ fn 注力の内訳が法人の画面に出る() {
     let idx = build_customer(&sh, None, day);
     let f = &idx["focus"];
 
-    assert_eq!(f["n_all"], 1649, "全法人");
+    assert_eq!(f["n_all"], 1649, "CS_顧客 の行数");
+    // 🔴 画面の「全 N 法人」は本部アプローチと同じ母数（オプション契約しか持たない3法人を除く）。
+    //    以前は同じ画面に「全 1,649 法人」と「全 1,646 法人」が並んでいた
+    let hq = build_headquarters(&sh, day);
+    assert_eq!(
+        f["n_houjin"], 1646,
+        "オプション契約しか持たない法人を除いた数"
+    );
+    assert_eq!(
+        f["n_houjin"], hq["meta"]["n_houjin"],
+        "本部アプローチと母数が違う"
+    );
+    assert_eq!(f["n_houjin_option_only"], 3);
     assert_eq!(f["n_display"], 517, "稼働中の取引を持つ法人");
     assert_eq!(f["n_focus"], 116, "注力（モックと同じ）");
     assert_eq!(f["monthly_over_300k"], 58);
@@ -2807,23 +2820,108 @@ fn 同じ月のnpsは回が後のほうを採る() {
     assert_eq!(n["E"], ("2026-06".to_string(), 7.0), "月が新しいほうが先");
 }
 
-/// N18: 「契約の N ヶ月目」は始月を1と数える。案件一覧と顧客詳細で同じ数え方。
+/// N18: 暦の月の番号（`month_index`）は始月を1と数える。顧客詳細の月次推移の横軸。
 #[test]
 fn 何ヶ月目は始月を1と数える() {
     use super::routes::month_index;
     assert_eq!(month_index("2026-07-23", "2026-07"), Some(1));
     assert_eq!(month_index("2026-07-23", "2026-09"), Some(3));
     assert_eq!(month_index("2025-12-01", "2026-01"), Some(2));
+}
+
+/// 案件一覧の「N / 期間 か月目」は**契約の日付で**数える（`contract_month`）。
+///
+/// 2026-09-23 実機: 「7 / 6 か月目」「12 / 12」。暦の月（`month_index`）で数えていたため、
+/// 月の途中に始まった契約（案件一覧の稼働中604件のうち553件）が最後の月に期間を1つ超えていた。
+/// fixture・基準日 2026-09-18 の実測: 暦の数え方で期間を超える 62件 → この数え方で20件、
+/// その20件は全部「満了日を過ぎてもまだ稼働中」（`past_expiry`、20件）。
+/// ほかに、暦では「6 / 6」なのに実際はまだ5ヶ月目、のように1か月先に出ていたものが59件。
+/// 🔴 N18 のときはこの一覧も `month_index` と一致することをここで見ていた。
+///    推移の横軸を「暦の月」と書いて出すようにしたので、一覧は契約の月に戻した。
+#[test]
+fn 案件一覧の何ヶ月目は満了日までに契約期間を超えない() {
+    use super::routes::contract_month;
+    let d = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    // 6ヶ月契約 3/19〜9/18: 満了日に6ヶ月目、暦では7か月目
+    assert_eq!(contract_month("2026-03-19", d("2026-09-18")), Some(6));
+    assert_eq!(contract_month("2026-03-19", d("2026-09-19")), Some(7));
+    assert_eq!(contract_month("2026-03-19", d("2026-03-19")), Some(1));
+    assert_eq!(contract_month("2026-03-19", d("2026-04-18")), Some(1));
+    assert_eq!(contract_month("2026-03-19", d("2026-04-19")), Some(2));
+    // 1日に始まる契約は暦と同じ
+    assert_eq!(contract_month("2025-10-01", d("2026-09-18")), Some(12));
+    // 12ヶ月契約 2025-10-20〜2026-10-19 は 9/18 ではまだ11ヶ月目（暦だと「12 / 12」）
+    assert_eq!(contract_month("2025-10-20", d("2026-09-18")), Some(11));
+    // 月末の開始。1/31 の1か月後は 2/28 に寄る
+    assert_eq!(contract_month("2026-01-31", d("2026-02-27")), Some(1));
+    assert_eq!(contract_month("2026-01-31", d("2026-02-28")), Some(2));
+    // 開始前・読めない開始日は出さない
+    assert_eq!(contract_month("2026-09-24", d("2026-09-18")), None);
+    assert_eq!(contract_month("", d("2026-09-18")), None);
+    assert_eq!(contract_month("２０２６年７月", d("2026-09-18")), None);
+
     let v = build_deal_board(&sheets(), fixture_day());
-    let mut checked = 0;
+    let (mut checked, mut past, mut over) = (0, 0, 0);
     for r in v["rows"].as_array().unwrap() {
-        if let Some(m) = r["months"].as_i64() {
-            let want = month_index(r["start"].as_str().unwrap(), "2026-09").unwrap();
-            assert_eq!(m, want, "{r}");
-            checked += 1;
+        let Some(m) = r["months"].as_i64() else {
+            continue;
+        };
+        checked += 1;
+        assert_eq!(
+            Some(m),
+            contract_month(r["start"].as_str().unwrap(), fixture_day()),
+            "{r}"
+        );
+        let pe = r["past_expiry"].as_bool().unwrap();
+        assert_eq!(pe, r["days_left"].as_i64().is_some_and(|x| x < 0), "{r}");
+        if pe {
+            past += 1;
+        }
+        if let Some(p) = r["period"].as_f64() {
+            if m as f64 > p {
+                over += 1;
+                // 🔴 期間を超えるのは満了日を過ぎたものだけ。画面はそれを「満了後」と出す
+                assert!(pe, "満了日前なのに期間を超えている: {r}");
+            }
         }
     }
     assert!(checked > 400, "{checked}");
+    assert_eq!(
+        over, 20,
+        "期間を超える案件（全部が満了後）。暦の数え方だと62件"
+    );
+    assert_eq!(past, 20, "満了日を過ぎてもまだ稼働中");
+}
+
+/// 顧客詳細の月次推移は暦の月で並ぶ。期間と、暦でまたがる月数を一緒に返す。
+#[test]
+fn 月次推移は暦でまたがる月数を返す() {
+    let sh = sheets();
+    let deals = super::deals_of(&sh.deal);
+    // 月の途中に始まり、満了日が「開始＋期間−1日」の取引を1つ選ぶ
+    let d = deals
+        .iter()
+        .find(|d| {
+            d.contract_period == Some(6.0)
+                && d.contract_start_date.get(8..10) != Some("01")
+                && !d.houjin_resolved.is_empty()
+                && d.contract_expiration_date.len() >= 10
+                && super::routes::month_index(
+                    &d.contract_start_date,
+                    &d.contract_expiration_date[..7],
+                ) == Some(7)
+        })
+        .expect("月の途中に始まる6ヶ月契約");
+    let v = build_customer(&sh, Some(&d.houjin_resolved), fixture_day());
+    let mm = v["monthly"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["deal_id"] == d.id.as_str())
+        .expect("その取引の推移");
+    assert_eq!(mm["period"], 6.0);
+    assert_eq!(mm["span_months"], 7, "{mm}");
+    assert_eq!(mm["expiration"], d.contract_expiration_date.as_str());
 }
 
 /// N19: 「接触の記録が無い」の名札は、開始済みで接触ゼロの案件に立てる（いまの仕様のまま）。

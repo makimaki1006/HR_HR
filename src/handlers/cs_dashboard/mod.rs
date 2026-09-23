@@ -446,6 +446,38 @@ pub fn deals_all_of(sheet: &SheetData) -> Vec<Deal> {
         .collect()
 }
 
+/// 法人の母数。**「全 N 法人」はここで1回だけ数える。**
+///
+/// 🔴 以前は法人番号で見る画面に「全 1,649 法人」（注力の注記、`CS_顧客` の行数）と
+///    「全 1,646 法人」（本部アプローチ、オプション契約を外した取引の法人）が並んでいた。
+///    差の3法人は**オプション契約しか持たない法人**（fixture 2026-09-23 実測:
+///    AirWork広告運用だけ 2社、オプションのステージだけ 1社）。
+///    画面の母集団はオプション契約を外す約束（`deals_of`）なので、法人もそれに揃える。
+///    外した法人の数は黙って消さず `option_only` で返す。
+#[derive(Debug, Clone, PartialEq)]
+pub struct HoujinPopulation {
+    /// オプション以外の取引を1件以上持つ法人（法人番号が空の取引は数えない）
+    pub main: HashSet<String>,
+    /// 取引はあるが、全部オプション契約の法人の数
+    pub option_only: usize,
+}
+
+pub fn houjin_population(sheet: &SheetData) -> HoujinPopulation {
+    let mut main = HashSet::new();
+    let mut any = HashSet::new();
+    for d in deals_all_of(sheet) {
+        if d.houjin_resolved.is_empty() {
+            continue;
+        }
+        if !d.is_option() {
+            main.insert(d.houjin_resolved.clone());
+        }
+        any.insert(d.houjin_resolved);
+    }
+    let option_only = any.len() - main.len();
+    HoujinPopulation { main, option_only }
+}
+
 /// 画面に出す母集団。**どの画面でも同じ数字を出すために1か所で作る。**
 ///
 /// 🔴 タブによって母集団が違うと、同じ画面の中で数が合わなくなる。
