@@ -25,7 +25,8 @@ use crate::db::sheets_client::SheetsClient;
 
 /// 常駐キャッシュの寿命。
 /// GAS の CacheService は 6h だったが、常駐なら再読込が安いので短くして鮮度を優先する。
-const CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+/// 先読みの定期更新（`cs_dashboard::prefetch`）はこれより短い間隔で回す。
+pub const CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// GAS 版 `Code.gs` が読んでいる全シート（2026-08-14 時点で 65 枚）。
 ///
@@ -228,6 +229,24 @@ impl SheetStore {
         let arc = Arc::new(data);
         g.insert(sheet.to_string(), Arc::clone(&arc));
         Ok((arc, false))
+    }
+
+    /// 取り直して差し替える。**取得のあいだロックを持たない。**
+    ///
+    /// `get` は TTL が切れていると書き込みロックを持ったまま取りに行くので、
+    /// そのあいだ同じストアを読む他の画面も全部待たされる。こちらは取ってから
+    /// 一瞬だけロックを取って入れ替えるので、取得中も古いデータを返し続けられる。
+    /// 先読みの定期更新（`cs_dashboard::prefetch`）が、TTL が切れる前に呼ぶ。
+    pub async fn refresh(&self, client: &SheetsClient, sheet: &str) -> Result<Arc<SheetData>> {
+        let data = fetch_sheet(client, sheet)
+            .await
+            .with_context(|| format!("シート「{sheet}」の取得に失敗"))?;
+        let arc = Arc::new(data);
+        self.inner
+            .write()
+            .await
+            .insert(sheet.to_string(), Arc::clone(&arc));
+        Ok(arc)
     }
 
     /// 明示的に破棄する（GAS の `?refresh=1` 相当）。
