@@ -2018,6 +2018,12 @@ check("言い回し: 「結べた」「結べていない」を画面の文に�
   ok(run("renderMtgQ(__MQ)").includes("取引に紐づいた"), "MTG の品質の KPI が「取引に紐づいた」でない");
 });
 
+check("互換: 正規表現の後読みを使わない（Safari 16.4 より前は <script> 全体が構文エラーで動かない）", () => {
+  ok(!/\(\?<[=!]/.test(jsNoComment), "画面の JS に後読み (?<= / (?<! の正規表現がある");
+  const lines = run('JSON.stringify(wrapText("あいう えお/かき", 9999))');
+  ok(lines && lines.includes("あいう えお/かき"), "wrapText が1行に収まる文をそのまま返さない: " + lines);
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
