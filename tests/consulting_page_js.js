@@ -891,6 +891,22 @@ check("N18b", "推移の横軸は暦の月で出し、契約期間より多い�
   const h2 = t.R("renderSeries")(D2);
   if (h2.indexOf("またがります") >= 0) throw new Error("期間と暦の月数が同じなのに理由の文が出る");
 });
+check("histGap", "推移の図で、契約の頭に記録が無い月を図の副題に1回だけ書く（描いた画面で見る）", async () => {
+  const t = boot();
+  // fixture にある形: 2025-03-09 開始の契約で、記録が 5 か月目（2025-07）からしか無い
+  const pts = [{ m: 5, v: 12, carry: false }, { m: 6, v: 14, carry: false }];
+  const D = customerPayload([deal({ deal_id: "g1", start: "2025-03-09", expiration: "2025-09-08" })], {
+    monthly: [{ deal_id: "g1", name: "案件", start: "2025-03-09", expiration: "2025-09-08",
+      period: 6, span_months: 7, series: { oubo: pts }, nps: {} }],
+  });
+  const h = t.R("renderSeries")(D);
+  const a = h.indexOf(" の推移");
+  const fig1 = h.slice(a, h.indexOf("</figure>", a));
+  if (fig1.indexOf("記録は 2025-07 からです") < 0 || fig1.indexOf("2025-03〜2025-06") < 0)
+    throw new Error("推移の図に、記録が無い期間（2025-03〜2025-06）の断り書きが出ていない");
+  const times = h.split("記録は 2025-07 からです").length - 1;
+  if (times !== 1) throw new Error("同じ断り書きが1つの契約で " + times + " 回出ている（1回にする）");
+});
 
 /* ================================================================ 法人の母数 */
 // 2026-09-23 実機: 法人番号で見る画面に「全 1,649 法人」（注力の注記）と「全 1,646 法人」

@@ -1627,7 +1627,7 @@ pub fn build_mtg_quality(sheets: &Sheets, today: NaiveDate) -> Value {
         "linked": {
             "n": linked,
             "rate": rate(linked as f64, total as f64),
-            "note": "取引に結べた MTG。結べないものは接触の計算にも入りません",
+            "note": "取引に紐づいた MTG。紐づかないものは接触の計算にも入りません",
         },
         "filled": filled,
         "filled_note": "埋まっていないのは「記録していない」ではなく「まだ抽出を通していない」です。抽出は日次の枠で止まっており、全件には届いていません",
@@ -2191,7 +2191,7 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "meta": {"today": today.to_string(), "all_cached": sheets.all_cached},
             "default_houjin": default_houjin,
             "default_reason": "取引がいちばん多い法人を既定で開いています。\
-        ①今日動く先の1件目にしていないのは、あちらが日によって変わるので\
+        「案件 → 今日動く先」の1件目にしていないのは、あちらが日によって変わるので\
         「昨日と同じ顧客を続けて見る」ができなくなるためです",
             "index": list.iter().map(|c| {
                 let f = fflags.get(&c.houjin).copied().unwrap_or_default();
@@ -2819,17 +2819,20 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
                 "mail": cover_mail, "mail_rate": rate(cover_mail as f64, n_judged as f64),
                 "either": cover_any, "either_rate": rate(cover_any as f64, n_judged as f64),
             },
+            // 🔴 画面にそのまま出る文。中の仕組みの名前（GAS・no_mtg_alerter）を書かない
+            //    （2026-09-24 実機: today の図の注記に「GAS（no_mtg_alerter）」と出ていた）。
+            //    現場が知っているのは、毎朝 Slack に届く MTG 途絶の警告のほう
             "rule": format!(
                 "最終MTGからの経過日数で分けています。注意 {}〜{}日 ／ 警告 {}〜{}日 ／ 重大 {}日以上。\
     契約開始から{}日以内は立ち上がり期として帯を付けていません。\
     満了まで{}日以内で{}日以上途絶しているものは、経過日数に関わらず重大にしています。\
-    線引きは毎朝動いている GAS（no_mtg_alerter）と同じです",
+    線引きは、毎朝 Slack に届く MTG 途絶の警告と同じです",
                 super::MTG_GAP_YELLOW_DAYS, super::MTG_GAP_RED_DAYS - 1,
                 super::MTG_GAP_RED_DAYS, super::MTG_GAP_CRITICAL_DAYS - 1,
                 super::MTG_GAP_CRITICAL_DAYS, super::MTG_ONBOARDING_GRACE_DAYS,
                 super::MTG_PRE_TERMINATION_DAYS, super::MTG_PRE_TERMINATION_GAP_DAYS),
             "no_record_note": "「記録が無い」は「MTGをしていない」という意味ではありません。\
-    録画が取引に結べていないぶんを含みます。だから名札は立てていません。\
+    録画が取引に紐づいていないぶんを含みます。だから名札は立てていません。\
     録画（事実）とメール由来の実施日（推定・±1日で83.3%）の両方を見たうえで、\
     それでも見つからなかったものだけがここに入ります",
             "source_note": "行ごとに、その日付をどちらから取ったかを出しています。\
