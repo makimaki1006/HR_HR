@@ -773,7 +773,7 @@ pub fn build_outcome(sheets: &Sheets, today: NaiveDate) -> Value {
 // ================================================================ タブ1 いま見るべき顧客
 
 /// 顧客ぜんたいの形。**母数を必ず添える**。
-fn shape(cust: &[super::Customer]) -> Value {
+fn shape(cust: &[super::Customer], hp: &super::HoujinPopulation) -> Value {
     let disp: Vec<&super::Customer> = cust.iter().filter(|c| c.is_display_target).collect();
     let mut ltv: Vec<f64> = disp.iter().filter_map(|c| c.ltv).collect();
     ltv.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -782,7 +782,13 @@ fn shape(cust: &[super::Customer]) -> Value {
         .filter(|c| matches!(c.kyoten_unique, Some(k) if k >= 2.0))
         .count();
     json!({
+        // `CS_顧客` の行数そのもの（データの点検で使う。画面の「法人 N」には使わない）
         "n_all": cust.len(),
+        // 🔴 画面の「法人 N」。法人番号で見る・本部アプローチの「全 N 法人」と同じ母数
+        //    （`houjin_population` の `main`。オプション契約しか持たない法人を外す）。
+        //    以前は画面が `n_all`（1,649）を出していて、同じダッシュボードの 1,646 と合わなかった（F4）
+        "n_houjin": hp.main.len(),
+        "n_houjin_option_only": hp.option_only,
         "n_display": disp.len(),
         "display_label": "稼働中の取引を持つ法人",
         "ltv": box5(ltv),
@@ -1015,7 +1021,7 @@ pub fn build_focus(sheets: &Sheets, today: NaiveDate) -> Value {
             "all_cached": sheets.all_cached,
             "not_counted": "※ 売上でも担当者の評価でもありません。手を打つ先を絞るための画面です。良し悪しの判断は人がします",
         },
-        "shape": shape(&cust),
+        "shape": shape(&cust, &super::houjin_population(&sheets.deal)),
         "nps_low": nps_low(&act, &nps, &contacts, today),
         "cpa": cpa_worsening(&deals),
         "mtg_layers": mtg_layers(&act, &sheets.mtg, &sheets.mail_mtg),

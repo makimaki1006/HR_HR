@@ -972,6 +972,26 @@ check("N18c", "推移の横に書く理由は満了日を比べて選ぶ（1日�
     period: 6, span_months: 6 });
   if (plain.indexOf("またがります") >= 0) throw new Error("期間どおりなのに理由の文が出る: " + plain);
 });
+check("N18c", "満了日が数日ずれただけの取引に、ずれを理由として書かない（月の途中の開始が理由, F3）", async () => {
+  const t = boot();
+  const sh = t.R("spanHint");
+  // 2025-12-18 開始の12ヶ月契約で、満了日が標準（2026-12-17）より3日前。暦では 13 か月にまたがるが、
+  // 理由は月の途中の開始。満了日のずれで月の数は変わらない（標準の満了日でも 13 か月）
+  const few = sh({ start: "2025-12-18", expiration: "2026-12-14", std_expiration: "2026-12-17",
+    period: 12, span_months: 13 });
+  if (few.indexOf("より前にあり") >= 0) throw new Error("数日のずれを理由にしている: " + few);
+  if (few.indexOf("月の途中に始まったので、暦では 13 か月にまたがります") < 0)
+    throw new Error("月の途中の開始という本当の理由が書かれていない: " + few);
+  // 数日後ろにずれただけ（同じ月の中）も同じ
+  const fewLate = sh({ start: "2026-03-19", expiration: "2026-09-25", std_expiration: "2026-09-18",
+    period: 6, span_months: 7 });
+  if (fewLate.indexOf("より後ろにあり") >= 0) throw new Error("数日のずれを理由にしている: " + fewLate);
+  if (fewLate.indexOf("月の途中に始まったので") < 0) throw new Error("月の途中の開始が書かれていない: " + fewLate);
+  // 数日のずれでも月をまたいで月の数が変わったときは、ずれが理由（1日開始・満了が翌月2日）
+  const cross = sh({ start: "2026-04-01", expiration: "2026-10-02", std_expiration: "2026-09-30",
+    period: 6, span_months: 7 });
+  if (cross.indexOf("（2026-09-30）より後ろにあり、暦では 7 か月") < 0) throw new Error("月の数を変えたずれ: " + cross);
+});
 check("N18c", "注力の図の母数にオプション契約だけの法人が入っていることを書く", async () => {
   const t = boot();
   const f = { n_all: 1649, n_houjin: 1646, n_houjin_option_only: 3, n_display: 517,
