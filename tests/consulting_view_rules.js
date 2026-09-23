@@ -372,5 +372,120 @@ check("V1: 母集団の注記は1行目だけを出して内訳を畳む", () =>
   ok(/^<details class="popnote fold"><summary>稼働中 <b>604<\/b>/.test(h), "1行目が summary になっていない: " + h.slice(0, 80));
 });
 
+/* ================================================================ 統合後レビューの残り（2026-09-23） */
+/* 担当の交代の最小の応答。meta / rows の形は routes.rs build_handover のまま。
+   deal_id は 11桁（HubSpot の取引ID の桁数）。件数は見張りのために置いた値 */
+const hoRow = (o) => Object.assign({ deal_id: "40123456789", name: "", date: "2026-09-01",
+  from_label: "前任", to_label: "後任", to_retired: false, reflected: "反映済み",
+  record_gap_days: 3, is_active: false, consultant: "後任", state_label: "決着済" }, o);
+ctx.__HO = {
+  source_rule: "", gap_rule: "", to_retired: 0, median_gap_days: 3, n_gap: 3, reflected_dist: [],
+  meta: { today: "2026-09-18", n: 3, n_active: 1, n_option_excluded: 0, n_unknown_deal: 1, not_counted: "" },
+  rows: [
+    hoRow({ deal_id: "40123456789", name: "", state_label: "取引が見つからない" }),
+    hoRow({ deal_id: "40987654321", name: "案件A", is_active: true, state_label: "稼働中" }),
+    hoRow({ deal_id: "40555555555", name: "案件B", state_label: "決着済" })],
+};
+
+check("N7: 担当の交代で、取引が見つからない行を「決着済」にせず、11桁の ID も出さない", () => {
+  const h = run("renderHandover(__HO)");
+  ok(!/40123456789|40987654321|40555555555/.test(h), "取引ID（11桁）が画面に出ている");
+  const body = h.split("<tbody>")[1] || "";
+  const first = body.split("</tr>")[0];
+  ok(first.includes("取引が見つからない"), "取引が見つからない行に、その言葉が出ていない: " + first.slice(0, 200));
+  ok(!first.includes("決着済"), "取引が見つからない行を「決着済」と出している");
+  ok((body.match(/決着済/g) || []).length === 1, "決着済の行が1行でない");
+  ok(h.includes("取引が見つからない交代が 1 件"), "n_unknown_deal の件数を KPI に出していない");
+});
+
+check("色: 拠点を見分ける色に判定の色（赤・山吹・緑）を使わない", () => {
+  const cols = run('siteSeries(["a", "b", "c", "d", "e"], () => [], () => 1).map((s) => s.color)');
+  ok(cols.length === 5, "系列の数が 5 でない: " + cols.length);
+  for (const c of cols)
+    ok(!["var(--hi)", "var(--ki)", "var(--midori)"].includes(c), "拠点の色に判定の色 " + c + " を使っている");
+});
+
+check("V10: 積み上げ縦棒の整数の軸で目盛りが重複しない（0,1,1,2,2 にならない）", () => {
+  // 採用数 1〜2 の拠点が積まれる図（法人の採用数の月ごとの合計）と同じ形
+  const svg = run('svgColStack({ x: ["1", "2"], yFmt: F.int, series: [{ label: "a", color: C.ai, vals: [{ v: 1 }, { v: 2 }] }] })');
+  const tk = [...svg.matchAll(/text-anchor="end">([0-9,.]+)<\/text>/g)].map((m) => m[1]);
+  ok(tk.length >= 2, "目盛りが取れない: " + tk.join(","));
+  ok(new Set(tk).size === tk.length, "目盛りが重複: " + tk.join(","));
+});
+
+check("立ち上がり: 帯ごとの解約率で特定の帯（61日超）を赤にしない", () => {
+  ctx.__RU = { meta: {}, phase: { rows: [], rule: "" },
+    first_mtg: { n: 100, pre_contract: 0, stats: null, buckets: [
+      { label: "14日以内", n: 60, denom: 50, cancel_rate: 40 },
+      { label: "61日超", n: 45, denom: 40, cancel_rate: 45 }] },
+    no_mtg: { n: 0, first_active: 0, rate: null, note: "", rows: [] } };
+  const h = run("renderRampup(__RU)");
+  const g = h.split("<figcaption>帯ごとの、その後の解約率")[1].split("</figure>")[0];
+  ok(!g.includes("var(--hi)"), "帯ごとの解約率の図（棒か凡例）に赤を使っている");
+});
+
+check("案件一覧: 採用単価はどの帯の中央と比べたかを帯の名前で出し、何ヶ月目の立ち位置と分ける", () => {
+  ctx.__BR = { amount: 5000000, cpa: 900000, cpa_band_median: 500000, cpa_vs_band: 1.8,
+    cpa_band: "契約の前半（0〜50%）", band: "序盤", months: 2, period: 12 };
+  const c = run("cpaCell(__BR)");
+  ok(c.includes("契約の前半（0〜50%）"), "採用単価の欄に比べた帯の名前が無い: " + c);
+  const p = run("pos(__BR)");
+  ok(p.includes("立ち位置 序盤"), "何ヶ月目の横の帯が採用単価の帯と区別されていない: " + p);
+  // cpa_band_rule（routes.rs deal_rows の meta）を画面に出す
+  ctx.__TD2 = { rows: [], expiring_this_week: [], started_this_week: [],
+    meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "", mtg_gap: {},
+            cpa_band_rule: "採用単価は、稼働中の契約どうしを契約の進み具合で比べています" } };
+  const t = run("renderToday(__TD2)");
+  ok(t.includes("採用単価は、稼働中の契約どうしを契約の進み具合で比べています"), "cpa_band_rule を画面に出していない");
+  ok(t.includes("0.34 / 0.67"), "立ち位置の区切りとは別だと書いていない");
+});
+
+check("いま見るべき顧客: 拠点キーが空で判定から外した件数（skipped_no_site）を出す", () => {
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  fo.cpa.skipped_no_site = 7;
+  ctx.__FO2 = fo;
+  const h = run("renderFocus(__FO2)");
+  ok(h.includes("拠点が入っていない取引 7 件"), "skipped_no_site の件数が画面に無い");
+});
+
+check("案件一覧: 採用目標に対しての欄で、稼働中の 0〜50% を赤にしない（途中の値）", () => {
+  for (const r of [0, 0.25, 0.6]) {
+    const g = run("goalCell(" + JSON.stringify({ saiyomokuhyou: 4, rate_tassei: r, syoudaku: r * 4 }) + ")");
+    ok(!g.includes("var(--hi)") && !g.includes("var(--ki)"), "達成率 " + r + " に判定の色: " + g);
+    ok(g.includes("途中"), "達成率 " + r + " に途中の値だという印が無い: " + g);
+  }
+  const g = run('goalCell({ saiyomokuhyou: 4, rate_tassei: 1, syoudaku: 4 })');
+  ok(g.includes("var(--midori)") && !g.includes("途中"), "100% の確定を途中として出している: " + g);
+});
+
+check("本部・悪化の図: site_name が無い拠点を照合用のキーで埋めない", () => {
+  const hq = JSON.parse(JSON.stringify(ctx.__HQ));
+  hq.rows[0].rows[0].site = "kyotenkey_aaa";
+  hq.rows[0].rows[0].site_name = null;
+  hq.rows[0].rows[1].site_name = "拠点2の名前";
+  ctx.__HQ2 = hq;
+  const h = run("renderHq(__HQ2)");
+  ok(!h.includes("kyotenkey_aaa"), "本部アプローチに照合用のキーが出ている");
+  ok(h.includes("拠点名が無い"), "本部アプローチに「拠点名が無い」が出ていない");
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  fo.cpa = { worse: 1, judged: 1, skipped_censored: 0, rows: [
+    { site: "kyotenkey_bbb", site_name: null, prev: 100, last: 200, ratio: 2 }], note: "" };
+  ctx.__FO3 = fo;
+  const f = run("renderFocus(__FO3)");
+  ok(!f.includes("kyotenkey_bbb"), "採用単価の悪化の図に照合用のキーが出ている");
+  ok(f.includes("拠点名が無い"), "採用単価の悪化の図に「拠点名が無い」が出ていない");
+});
+
+check("本部アプローチ: cancel_rule / cpa_rule を上位10法人の図ごとに繰り返さない", () => {
+  const hq = JSON.parse(JSON.stringify(ctx.__HQ));
+  hq.meta.cancel_rule = "解約率のきまりXYZ";
+  hq.meta.cpa_rule = "採用単価のきまりXYZ";
+  hq.rows = [0, 1, 2].map((i) => Object.assign({}, ctx.__HQ.rows[0], { houjin: "法人" + i }));
+  ctx.__HQ3 = hq;
+  const h = run("renderHq(__HQ3)");
+  ok((h.match(/解約率のきまりXYZ/g) || []).length === 1, "cancel_rule が " + (h.match(/解約率のきまりXYZ/g) || []).length + " 回出ている");
+  ok((h.match(/採用単価のきまりXYZ/g) || []).length === 1, "cpa_rule が " + (h.match(/採用単価のきまりXYZ/g) || []).length + " 回出ている");
+});
+
 console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
 if (failed) process.exit(1);

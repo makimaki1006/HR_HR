@@ -1379,7 +1379,9 @@ function svgColStack(o) {
   const pad = { l: 58, r: 16, t: 18, b: 34 };
   const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
   const fmt = o.yFmt || F.int;
-  const tk = ticks(0, Math.max(...vs), 4);
+  /* 最小の刻みは他の図と同じく minStepOf で渡す。渡さないと採用数 0〜2 の軸が
+     刻み 0.5 になり、整数に丸めて「0,1,1,2,2」と重複していた（V10 の残り） */
+  const tk = ticks(0, Math.max(...vs), 4, minStepOf(fmt));
   const hi = Math.max(Math.max(...vs), tk[tk.length - 1]) || 1;
   const slot = iw / n, bw = Math.max(3, Math.min(34, slot * 0.64));
   const X = (i) => pad.l + slot * (i + 0.5);
@@ -1764,7 +1766,14 @@ function renderFocus(D) {
     "残りは、成果とは別に<b>こちらの体制が崩れている合図</b>で、いずれも HubSpot の記録だけでは気づけません。<br>" +
     "採用単価の悪化は<b>確定した契約どうし</b>で比べています。稼働中の契約は「金額は丸ごと乗っているのに" +
     "採用はまだ 0〜1 人」という状態を必ず通るため、最新の点に稼働中を置くと不当に悪化と出ます。" +
-    "判定を見送った拠点が " + num(c.skipped_censored) + " あります。");
+    "判定を見送った拠点が " + num(c.skipped_censored) + " あります。" +
+    /* 🔴 拠点キーが空の取引は判定から外している（法人で1本にまとめると別々の拠点を
+       1本の線で比べてしまうため）。外した件数を黙って消さない */
+    (c.skipped_no_site
+      ? "<br>拠点が入っていない取引 " + num(c.skipped_no_site) +
+        " 件は、どの拠点の点か分からないので判定から外しています" +
+        "（法人でまとめると別々の拠点を1本の線で比べてしまうため）。"
+      : ""));
 
   /* ---- 図 定期NPSの分布 ---- */
   h += sec("図", "定期NPS の散らばり（4以下がどれだけあるか）");
@@ -1799,8 +1808,10 @@ function renderFocus(D) {
 
   /* ---- 図 採用単価の悪化 ---- */
   h += sec("図", "採用単価の悪化（拠点ごと・確定した直近2点）");
-  const cr = (c.rows || []).slice(0, 20).map((r) => ({
-    label: shortName(r.site_name || r.site, 18),
+  /* 表示名が無い拠点をキー（r.site）で埋めない（siteLabels） */
+  const crows = (c.rows || []).slice(0, 20), cnames = siteLabels(crows);
+  const cr = crows.map((r, i) => ({
+    label: shortName(cnames[i], 18),
     v: r.last, v0: r.prev,
     txt: yen(r.last),
     note: r.ratio == null ? "" : num(r.ratio, 2) + "倍",
@@ -2537,9 +2548,12 @@ function monthRange(a, b) {
   return out;
 }
 
-/* 拠点ごとに積む図の系列。色は4役＋紫の5つなので、6拠点目からは「その他」に束ねる。
-   🔴 束ねたことは凡例に拠点数で出す（黙って落とさない）。 */
-const SITE_COLORS = [C.ai, C.hi, C.ki, C.midori, C.murasaki];
+/* 拠点ごとに積む図の系列。色は5つなので、6拠点目からは「その他」に束ねる。
+   🔴 束ねたことは凡例に拠点数で出す（黙って落とさない）。
+   🔴 拠点の見分けだけなので、判定の色（赤＝まずい・山吹＝注意・緑＝良い）を使わない。
+   以前は [藍, 赤, 山吹, 緑, 紫] で、2番目の拠点がいつも赤に見えていた。
+   案件ごとの線（CASE_LINE）と同じ、意味を持たない色の並びにする */
+const SITE_COLORS = [C.ai, C.murasaki, C.ink, C.ink3, C.ink2];
 function siteSeries(sites, valsOf, order) {
   /* 並べ替えの基準は拠点ごとに1回だけ計算する。比較のたびに order() を呼ぶと
      O(n log n) 回の計算し直しになり、合成データの 200案件・100拠点で 272ms かかった（N8） */
@@ -2774,6 +2788,16 @@ function monthIdx(start, month) {
 }
 
 /* ================================================================ 4 本部アプローチ */
+/** 拠点の表示名。🔴 site_name が null のときに照合用のキー（kyoten_key）へ戻さない
+    （Rust 側「キーで埋めない」）。1つの図・表に名前の無い拠点が2つ以上あるときは
+    見分けられるように番号を振る */
+function siteLabels(rows) {
+  const unnamed = rows.filter((x) => !x.site_name).length;
+  let k = 0;
+  return rows.map((x) => x.site_name ? x.site_name
+    : "拠点名が無い" + (unnamed > 1 ? "（" + (++k) + "）" : ""));
+}
+
 function renderHq(D) {
   let h = sec("問い", "本部に何を持っていくか") +
     /* 取り決めを書いた枠なので def（V21 検証: info の「読み方」のまま残っていた） */
@@ -2799,16 +2823,22 @@ function renderHq(D) {
 
   /* ---- 法人ごとの事業所比較 ---- */
   h += sec("図", "事業所どうしを比べる（上位10法人）");
-  h += '<div class="lede">開きが大きい順。棒は採用単価、注記は解約率です。</div>';
+  /* 🔴 cancel_rule / cpa_rule は10法人の図すべてで同じ文なので、ここで1回だけ出す
+     （以前は図ごとに10回繰り返していた） */
+  h += '<div class="lede">開きが大きい順。棒は採用単価、注記は解約率です。' +
+    ((D.meta.cancel_rule || D.meta.cpa_rule)
+      ? "<br>" + [D.meta.cancel_rule, D.meta.cpa_rule].filter(Boolean).map(esc).join("。") + "。"
+      : "") + "</div>";
   for (const r of D.rows.slice(0, 10)) {
     const rows = r.rows.filter((x) => x.cpa != null);
+    const names = siteLabels(rows);
     h += fig(shortName(r.name || r.houjin, 30),
       "拠点" + num(r.sites) + " / 取引" + num(r.deals) + " / 稼働中" + num(r.active) +
       (r.spread == null ? "" : " / 開き " + num(r.spread, 1) + "倍"),
       rows.length
         ? svgBarH({ w: 680, fmt: F.man, rh: 24,
-            rows: rows.map((x) => ({
-              label: shortName(x.site_name || x.site, 20), v: x.cpa, txt: yen(x.cpa),
+            rows: rows.map((x, i) => ({
+              label: shortName(names[i], 20), v: x.cpa, txt: yen(x.cpa),
               /* 🔴 率だけで母数が無かった（V20 検証）。分母を添える。
                  分子は解約＋充足、分母は決着済み x.denom（fix/cs-rust N4）。取引数 x.deals は分母ではない */
               note: (x.cancel_rate == null ? "" : "解約・充足 " + pct1(x.cancel_rate) +
@@ -2819,25 +2849,26 @@ function renderHq(D) {
         : '<div class="empty">採用数が入っている拠点がありません（0で割っていません）。</div>',
       lg("box", C.ai, "採用単価") +
       '<i class="full">解約率が 50% 以上の拠点は注記を緋で出しています。' +
-      esc(D.meta.cancel_rule || "") + "。" + esc(D.meta.cpa_rule || "") + "。" +
       "拠点ごとの取引数が少ないので、率だけで判断しないでください。</i>");
   }
 
   /* ---- 表は最後。個別の行を特定したいときだけ ---- */
   h += sec("表", "全法人の内訳");
-  h += scroll(D.rows.map((r) =>
-    "<details><summary>" + esc(r.name || r.houjin) + "　拠点" + num(r.sites) +
-    " / 取引" + num(r.deals) + " / 稼働中" + num(r.active) +
-    (r.spread == null ? "" : '　<b style="color:var(--hi)">開き ' + num(r.spread, 1) + "倍</b>") +
-    "</summary>" +
-    table([{ t: "拠点" }, { t: "取引", n: 1 }, { t: "稼働中", n: 1 }, { t: "解約", n: 1 },
-           { t: "充足", n: 1 }, { t: "決着済み", n: 1 }, { t: "解約率", n: 1 },
-           { t: "金額", n: 1 }, { t: "採用数", n: 1 }, { t: "採用単価", n: 1 },
-           { t: "単価の元の取引", n: 1 }, { t: "（稼働中で外した）", n: 1 }],
-      r.rows.map((x) => [esc(x.site_name || x.site), num(x.deals), num(x.active), num(x.cancel),
-        num(x.fill), num(x.denom), pct1(x.cancel_rate), yen(x.amount), nz(x.syoudaku),
-        yen(x.cpa), num(x.cpa_n), num(x.cpa_n_active)])) +
-    "</details>").join(""), 520);
+  h += scroll(D.rows.map((r) => {
+    const names = siteLabels(r.rows);
+    return "<details><summary>" + esc(r.name || r.houjin) + "　拠点" + num(r.sites) +
+      " / 取引" + num(r.deals) + " / 稼働中" + num(r.active) +
+      (r.spread == null ? "" : '　<b style="color:var(--hi)">開き ' + num(r.spread, 1) + "倍</b>") +
+      "</summary>" +
+      table([{ t: "拠点" }, { t: "取引", n: 1 }, { t: "稼働中", n: 1 }, { t: "解約", n: 1 },
+             { t: "充足", n: 1 }, { t: "決着済み", n: 1 }, { t: "解約率", n: 1 },
+             { t: "金額", n: 1 }, { t: "採用数", n: 1 }, { t: "採用単価", n: 1 },
+             { t: "単価の元の取引", n: 1 }, { t: "（稼働中で外した）", n: 1 }],
+        r.rows.map((x, i) => [esc(names[i]), num(x.deals), num(x.active), num(x.cancel),
+          num(x.fill), num(x.denom), pct1(x.cancel_rate), yen(x.amount), nz(x.syoudaku),
+          yen(x.cpa), num(x.cpa_n), num(x.cpa_n_active)])) +
+      "</details>";
+  }).join(""), 520);
   if (D.truncated) h += '<p class="muted small">上位80法人だけ出しています。</p>';
   return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
 }
@@ -3035,8 +3066,10 @@ function renderRampup(D) {
       rows: f.buckets.filter((b) => b.denom >= MIN_N).map((b) => ({
         label: b.label, v: b.cancel_rate, txt: pct1(b.cancel_rate),
         note: "n=" + num(b.denom),
-        color: b.label === "61日超" ? C.hi : C.ai })) }),
-    lg("box", C.hi, "61日超") + lg("box", C.ai, "それ以外") +
+        /* 🔴 以前は「61日超」だけ赤（■まずい）にしていた。決着済みで割り直すと向きは
+           読めないので、特定の帯を判定の色で強調しない。全帯を同じ色にする */
+        color: C.ai })) }),
+    lg("box", C.ai, "解約率") +
     // 足切りは決着済みの件数（b.denom）で見る。図の filter と同じ基準にする（rust N3 + ui V6）
     droppedNote(f.buckets, (b) => b.denom || 0, (b) => b.label) +
     '<i class="full">n は決着済み（継続＋解約＋充足）の件数で、解約率の分母です。結果待ちは入れていません。' +
@@ -3267,9 +3300,12 @@ function pos(r) {
     return '<span class="muted">開始前</span>' +
       (r.start ? '<span class="muted small"> ' + esc(r.start) + " から</span>" : "");
   if (r.months == null) return DASH;
+  /* 🔴 ここの序盤／中盤／終盤は契約長の 0.34 / 0.67 で区切った「立ち位置」。
+     採用単価を比べる帯（cpa_band、0.5 / 0.75）とは別の区切りなので、同じ言葉に見せない */
   return num(r.months) + (r.period ? " / " + num(r.period) : "") +
     '<span class="muted small"> か月目</span>' +
-    (r.band ? ' <span class="muted small">' + esc(r.band) + "</span>" : "");
+    (r.band ? ' <span class="muted small" title="契約長の 0.34 / 0.67 で区切った立ち位置">立ち位置 ' +
+      esc(r.band) + "</span>" : "");
 }
 function npsCell(r) {
   if (r.nps == null) return '<span class="n0">未回答</span>';
@@ -3288,18 +3324,38 @@ function goalCell(r) {
   if (r.saiyomokuhyou == null || r.saiyomokuhyou <= 0)
     return '<span class="n0">目標なし</span>';
   if (r.rate_tassei == null) return DASH;
-  const col = r.rate_tassei >= 1 ? "midori" : r.rate_tassei < 0.5 ? "hi" : "ki";
+  /* 🔴 案件の表は稼働中の契約なので、達成率は**まだ伸びる途中の値**（右側打ち切り）。
+     以前は 0〜50% を赤（■まずい）、50〜100% を山吹で塗り、途中の値を確定した悪さに見せていた。
+     成果とリスクの目標の帯（goalBandColor）と同じく、確定するのは 100% に届いたものだけ。
+     稼働中で 100% 未満のものは判定の色を使わず「途中」と添える */
+  /* 行は deal_rows の稼働中（act）だけなので、100% 未満はすべて途中 */
+  const done = r.rate_tassei >= 1;
+  const col = done ? "midori" : "ink-2";
   return '<b style="color:var(--' + col + ')">' + pct1(r.rate_tassei * 100, 0) + "</b>" +
-    '<span class="muted small"> ' + nz(r.syoudaku) + "/" + nz(r.saiyomokuhyou) + "</span>";
+    '<span class="muted small"> ' + nz(r.syoudaku) + "/" + nz(r.saiyomokuhyou) +
+    (done ? "" : "（途中）") + "</span>";
 }
 function cpaCell(r) {
   /* 🔴 金額が入っていない（0を含む）と採用単価は出せない。0万 と書かない */
   if (r.amount == null) return '<span class="n0">金額なし</span>';
   if (r.cpa == null) return '<span class="n0">採用0</span>';
   const col = r.cpa_vs_band != null && r.cpa_vs_band >= 1.5 ? "hi" : "ink-2";
+  /* 🔴 比べた帯は cpa_band（契約の進み具合 0.5 / 0.75 で区切った帯）。「何ヶ月目」の横の
+     立ち位置（0.34 / 0.67）とは別物なので、どの帯の中央と比べたかを帯の名前で出す */
   return '<b style="color:var(--' + col + ')">' + yen(r.cpa) + "</b>" +
-    (r.cpa_band_median == null ? "" :
-      '<span class="muted small"> 帯中央 ' + yen(r.cpa_band_median) + "</span>");
+    (r.cpa_band_median == null
+      ? (r.cpa_band ? '<span class="muted small"> ' + esc(r.cpa_band) +
+          " は件数が足りず比べていない</span>" : "")
+      : '<span class="muted small"> ' + esc(r.cpa_band || "同じ進み具合の帯") + " の中央 " +
+          yen(r.cpa_band_median) + "</span>");
+}
+
+/* 採用単価の比べ方。サーバの cpa_band_rule に、「何ヶ月目」の立ち位置とは区切りが違うことを添える */
+function cpaBandNote(meta) {
+  if (!meta || !meta.cpa_band_rule) return "";
+  return note("def", "採用単価の比べ方", esc(meta.cpa_band_rule) + "。<br>" +
+    "<b>「何ヶ月目」の横の立ち位置（序盤／中盤／終盤。契約長の 0.34 / 0.67 で区切る）とは別の区切りです。</b>" +
+    "採用単価の欄には、比べた帯の名前をそのまま出しています。");
 }
 
 const BOARD_COLS = [
@@ -3641,6 +3697,7 @@ function renderToday(D) {
      並びは表ごとに持つ todaySort（U6） */
   h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl"), 640, D.meta.n_hit);
   h += note("def", "この並びについて", esc(D.meta.order_rule));
+  h += cpaBandNote(D.meta);
   return h + foot(D.meta);
 }
 
@@ -3686,6 +3743,7 @@ function renderBoard(D) {
     h += sec("図", "名札の分布");
     h += flagFig(D, on ? shown : null);
     h += sec("表", "この担当者の案件");
+    h += cpaBandNote(D.meta);
     h += shown.length
       ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
       : '<div class="empty">この条件に当てはまる案件はありません。' +
@@ -3708,6 +3766,7 @@ function renderBoard(D) {
   h += sec("図", "名札の分布");
   h += flagFig(D, on ? shown : null);
   h += sec("表", "案件の立ち位置");
+  h += cpaBandNote(D.meta);
   /* 🔴 14列あるので、枠に入れないと**ページ全体が横に流れる**
      （2026-09-22 実測: 1440px幅で document が 2640px になっていた）。
      表は枠の中だけで横スクロールさせる。 */
@@ -3789,6 +3848,14 @@ function wireToday() {
 /* 🔴 交代が良かったか悪かったかは判定しない。記録を並べるだけ。
    🔴 「誰から誰へ」でまとめない（`from`/`to` は読めば分かる列で、
       テスト用データでは1行1人に伏せてある。まとめると処理が素通りする）。 */
+/** 交代の行の状態。state_label（稼働中／決着済／取引が見つからない）をそのまま出す */
+function stateTag(r) {
+  const lab = r.state_label || (r.is_active ? "稼働中" : "決着済");
+  if (lab === "稼働中") return '<span class="tag e">稼働中</span>';
+  if (lab === "決着済") return '<span class="tag d">決着済</span>';
+  return '<span class="n0">' + esc(lab) + "</span>";
+}
+
 function renderHandover(D) {
   let h = sec("問い", "担当はいつ、どう替わったか") +
     '<div class="lede">1行1回の交代。<b>新しい順</b>に並べています。</div>';
@@ -3799,7 +3866,9 @@ function renderHandover(D) {
     kpi("記録された交代", num(D.meta.n) + '<span class="u">件</span>',
         "うち稼働中の案件 " + num(D.meta.n_active) + " 件" +
         /* オプション契約の行は表から外している（fix/cs-rust N7） */
-        (D.meta.n_option_excluded ? "。オプション契約の " + num(D.meta.n_option_excluded) + " 件は外しています" : "")) +
+        (D.meta.n_option_excluded ? "。オプション契約の " + num(D.meta.n_option_excluded) + " 件は外しています" : "") +
+        /* 取引のシートに見つからない交代は表に残す。件数を黙って混ぜない（N7 の残り） */
+        (D.meta.n_unknown_deal ? "。取引が見つからない交代が " + num(D.meta.n_unknown_deal) + " 件あります（表には残しています）" : "")) +
     kpi("退職者へ渡っている", num(D.to_retired) + '<span class="u">件</span>',
         "交代先が退職者だったもの", D.to_retired ? "bad" : "") +
     kpi("記録の遅れ（中央値）",
@@ -3826,13 +3895,17 @@ function renderHandover(D) {
      { t: "いまの担当" }, { t: "記録の遅れ", n: 1 }, { t: "反映" }, { t: "状態" }],
     D.rows.map((r) => [
       esc(r.date) || DASH,
-      esc(r.name || r.deal_id),
+      /* 🔴 取引名が無いときに 11桁の deal_id を出さない（画面に内部IDを出さない） */
+      r.name ? esc(r.name)
+        : '<span class="n0">' + (r.state_label === "取引が見つからない" ? "取引が見つからない" : "取引名が無い") + "</span>",
       esc(r.from_label) || DASH,
       (esc(r.to_label) || DASH) + (r.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : ""),
       esc(r.consultant) || DASH,
       r.record_gap_days == null ? DASH : num(r.record_gap_days) + "日",
       esc(r.reflected),
-      r.is_active ? '<span class="tag e">稼働中</span>' : '<span class="tag d">決着済</span>',
+      /* 🔴 状態の言葉はサーバの state_label を使う。is_active だけで分けると、
+         取引が見つからない行まで「決着済」と出ていた（N7 の残り） */
+      stateTag(r),
     ])), 640);
   return h + foot(D.meta);
 }
