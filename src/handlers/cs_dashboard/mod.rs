@@ -192,6 +192,18 @@ pub const OPTION_KINDS: &[&str] = &[
 /// 両方を見て、どちらかに当たればオプションとする。
 pub const OPTION_STAGES: &[&str] = &["1049738304", "1281526627"];
 
+/// 「マーケ関連」ステージ。コンサルの納品ではない取引（紹介料・マーケ施策の計上）が置かれる。
+///
+/// 実測（fixture）で稼働中 10件、全部が初回（継続回数0）・種別 `(新規)`・
+/// 契約種別「その他」。「紹介料＿…」の取引もこのステージに置かれている
+/// （Hubspot リポジトリの `consulting_pipeline_coverage.csv` で `紹介料＿…` → `1278456227` を確認）。接触も MTG も起きないのが普通なので、
+/// 「接触が1本も無い」「MTG が結べていない初回契約」の**名指しの表**を埋めてしまう。
+///
+/// 🔴 **母集団からは外していない**（オプションと違い、外すかどうかはまだ決めていない）。
+/// 外しているのは、上の2つの表の行と、その表の分母だけ。外した件数は表と一緒に返す。
+/// 判定は取引名ではなくステージの値で行う（名前で外すと本体契約を巻き込む）。
+pub const MARKETING_STAGES: &[&str] = &["1278456227"];
+
 /// 決着の3状態。ここに入らないものは「結果待ち」で、分母に入れない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -234,6 +246,9 @@ pub struct Deal {
     /// 拠点キー。🔴 **決裁は事業所単位。** 採用単価はこの単位で見る
     /// （法人でまとめると拠点間のばらつきが「時間の悪化」に見える）。
     pub kyoten_key: String,
+    /// 拠点の表示名。`kyoten_key` は照合用に正規化した値で、人が読む名前ではない。
+    /// 画面に拠点を出すときはこちらを使う（空なら `kyoten_key` に戻す）。
+    pub kyoten_name: String,
     pub houjin_resolved: String,
     /// 法人番号をどこから解決したか。データ品質の画面が数える。
     pub houjin_source: String,
@@ -283,9 +298,60 @@ fn flag(s: &str) -> bool {
     matches!(s.trim(), "TRUE" | "true" | "True" | "1")
 }
 
+/// `CS_取引` の列の位置。**シート1枚につき1回だけ**引く。
+///
+/// 🔴 `SheetData::get` は呼ぶたびに見出しを頭から探す。取引1行で20列を読むので、
+/// 3,659行 × 20列 × 見出し43列ぶんの比較を、1回のリクエストで2回（集計と母集団）やっていた。
+/// 列名で引く約束（位置で決め打ちしない）はそのまま、探すのを最初の1回にする。
+struct DealCols([Option<usize>; DEAL_COLS.len()]);
+
+const DEAL_COLS: [&str; 21] = [
+    "deal_id",
+    "dealname",
+    "dealstage",
+    "dealstage_label",
+    "contract_kind",
+    "contract_expiration_date",
+    "contract_start_date",
+    "kyoten_key",
+    "kyoten_name",
+    "houjin_resolved",
+    "houjin_source",
+    "renewal_no",
+    "is_active",
+    "right_censored",
+    "oubo",
+    "mensetu",
+    "syoudaku",
+    "saiyomokuhyou",
+    "keisaisu",
+    "amount",
+    "contract_period",
+];
+
+impl DealCols {
+    fn of(sheet: &SheetData) -> Self {
+        let mut ix = [None; DEAL_COLS.len()];
+        for (i, name) in DEAL_COLS.iter().enumerate() {
+            ix[i] = sheet.col(name);
+        }
+        Self(ix)
+    }
+
+    fn get<'a>(&self, row: &'a [Arc<str>], name: &str) -> &'a str {
+        DEAL_COLS
+            .iter()
+            .position(|c| *c == name)
+            .and_then(|i| self.0[i])
+            .and_then(|i| row.get(i))
+            .map(|s| s.as_ref())
+            .unwrap_or("")
+    }
+}
+
 impl Deal {
-    fn from_row(sheet: &SheetData, row: &[Arc<str>]) -> Self {
-        let g = |name: &str| sheet.get(row, name);
+    fn from_row(cols: &DealCols, row: &[Arc<str>]) -> Self {
+        let g = |name: &str| cols.get(row, name);
         Self {
             id: g("deal_id").to_string(),
             name: g("dealname").to_string(),
@@ -295,6 +361,7 @@ impl Deal {
             contract_expiration_date: g("contract_expiration_date").to_string(),
             contract_start_date: g("contract_start_date").to_string(),
             kyoten_key: g("kyoten_key").to_string(),
+            kyoten_name: g("kyoten_name").to_string(),
             houjin_resolved: g("houjin_resolved").to_string(),
             houjin_source: g("houjin_source").to_string(),
             renewal_no: opt_num(g("renewal_no")).map(|v| v as i64),
@@ -310,6 +377,17 @@ impl Deal {
         }
     }
 
+    /// 拠点の表示名。表示名が空なら `None`。
+    ///
+    /// 🔴 **照合用の `kyoten_key` で埋めない。** キーは突き合わせ用に正規化した値で、
+    /// 人が読む名前ではない（V24「内部の値を出さない」）。以前はここでキーに戻していた。
+    /// fixture では表示名が空の行は 0件だが、本番に空があるかは確かめていない。
+    /// 空のときの見せ方（「拠点名なし」など）は画面が決める。
+    pub fn site_name(&self) -> Option<&str> {
+        let t = self.kyoten_name.trim();
+        (!t.is_empty()).then_some(t)
+    }
+
     /// オプション契約か。**画面の母集団から外すもの。**
     ///
     /// 種別（取引名の接頭辞由来）とステージの **OR**。片方だけだと取りこぼす。
@@ -320,11 +398,9 @@ impl Deal {
 
     /// 満了月 `yyyy-MM`。満了日が無ければ `None`。
     pub fn manryou_month(&self) -> Option<&str> {
-        if self.contract_expiration_date.len() >= 7 {
-            Some(&self.contract_expiration_date[..7])
-        } else {
-            None
-        }
+        // 🔴 バイト位置で切らない。7バイト目が文字の途中だと panic して全タブが落ちる
+        //    （書き出し側は今 ISO 形式だが、手で「2026年9月…」と入ると起きる）
+        self.contract_expiration_date.get(..7)
     }
 
     /// 求人票あたりの応募効率。掲載数が0/未入力なら `None`。
@@ -362,10 +438,11 @@ pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
 
 /// オプション契約も含む全取引。**母集団の注記を作るときだけ使う。**
 pub fn deals_all_of(sheet: &SheetData) -> Vec<Deal> {
+    let cols = DealCols::of(sheet);
     sheet
         .rows
         .iter()
-        .map(|r| Deal::from_row(sheet, r))
+        .map(|r| Deal::from_row(&cols, r))
         .collect()
 }
 
@@ -507,7 +584,7 @@ pub fn contacts_by_deal(
         if deal.is_empty() {
             continue;
         }
-        if let Some(d) = date10(call.get(row, "ts")) {
+        if let Some(d) = call_date_jst(call.get(row, "ts")) {
             by.entry(deal.to_string()).or_default().push(d);
             n_call += 1;
         }
@@ -534,13 +611,28 @@ pub fn contacts_by_deal(
 
 /// `yyyy-MM-dd…` の先頭10文字だけ見る。時刻とタイムゾーンは落とす。
 ///
-/// 通話の `ts` は UTC の ISO8601 だが、ここで使うのは「何日前か」だけなので
-/// 日付で足りる。パースを増やすと取り違えが起きる。
+/// 🔴 **通話の `ts`（UTC）には使わない。** `call_date_jst` を使う。
+/// 🔴 バイト位置で切らない（`&s[..10]`）。10バイト目が文字の途中だと panic して
+///    全タブが落ちる。`get` なら日付でないものは `None` になるだけ。
 pub fn date10(s: &str) -> Option<NaiveDate> {
-    if s.len() < 10 {
-        return None;
+    NaiveDate::parse_from_str(s.get(..10)?, "%Y-%m-%d").ok()
+}
+
+/// 通話の `ts` を**日本時間の日付**にする。
+///
+/// 🔴 `ts` は UTC の ISO8601（`2026-03-27T02:52:44Z`）。先頭10文字をそのまま日付にすると、
+/// 日本時間 0〜9時の通話が前日（月初なら前月）に入る。fixture 20,843行のうち
+/// UTC 15時以降（＝日本時間では翌日）が 153行、うち接触（60秒超）が 55行、
+/// 月までずれるのが 6行（2026-09-23 実測）。
+/// タイムゾーンが付いていない値は、いままでどおり先頭10文字で読む（推測で時差を足さない）。
+pub fn call_date_jst(ts: &str) -> Option<NaiveDate> {
+    match chrono::DateTime::parse_from_rfc3339(ts.trim()) {
+        Ok(t) => Some(
+            t.with_timezone(&chrono::FixedOffset::east_opt(9 * 3600).expect("JST"))
+                .date_naive(),
+        ),
+        Err(_) => date10(ts),
     }
-    NaiveDate::parse_from_str(&s[..10], "%Y-%m-%d").ok()
 }
 
 // ---------------------------------------------------------------- プロパティ履歴
@@ -567,8 +659,16 @@ pub fn series_of(history: &SheetData) -> HashMap<(String, String), Vec<(String, 
     for row in &history.rows {
         let deal = history.get(row, "deal_id");
         let prop = history.get(row, "prop");
-        let month = history.get(row, "month");
-        if deal.is_empty() || prop.is_empty() || month.len() < 7 {
+        // 🔴 `yyyy-MM` として読めないものは捨てる。`fill_forward` は月を1つずつ
+        //    進めるので、月として読めない値が混ざると進めなくなる
+        let Some(month) = history
+            .get(row, "month")
+            .get(..7)
+            .filter(|m| ym_of(m).is_some())
+        else {
+            continue;
+        };
+        if deal.is_empty() || prop.is_empty() {
             continue;
         }
         let Some(v) = opt_num(history.get(row, "v")) else {
@@ -576,7 +676,7 @@ pub fn series_of(history: &SheetData) -> HashMap<(String, String), Vec<(String, 
         };
         out.entry((deal.to_string(), prop.to_string()))
             .or_default()
-            .push((month[..7].to_string(), v));
+            .push((month.to_string(), v));
     }
     for v in out.values_mut() {
         v.sort_by(|a, b| a.0.cmp(&b.0));
@@ -586,20 +686,24 @@ pub fn series_of(history: &SheetData) -> HashMap<(String, String), Vec<(String, 
     out
 }
 
-/// `yyyy-MM` を1ヶ月進める。
-fn next_month(m: &str) -> String {
-    let (y, mo) = match (
-        m.get(..4).and_then(|x| x.parse::<i32>().ok()),
-        m.get(5..7).and_then(|x| x.parse::<u32>().ok()),
-    ) {
-        (Some(y), Some(mo)) => (y, mo),
-        _ => return m.to_string(),
-    };
-    if mo >= 12 {
+/// `yyyy-MM` を (年, 月) にする。月が 1〜12 でなければ `None`。
+pub fn ym_of(m: &str) -> Option<(i32, u32)> {
+    let y = m.get(..4)?.parse::<i32>().ok()?;
+    let mo = m.get(5..7)?.parse::<u32>().ok()?;
+    (1..=12).contains(&mo).then_some((y, mo))
+}
+
+/// `yyyy-MM` を1ヶ月進める。月として読めなければ `None`。
+///
+/// 🔴 以前は読めないときに**同じ値をそのまま返していた**。`fill_forward` の
+/// `while cur <= until` がそれで一歩も進まず、無限に行を積んでメモリを食い尽くす。
+fn next_month(m: &str) -> Option<String> {
+    let (y, mo) = ym_of(m)?;
+    Some(if mo >= 12 {
         format!("{:04}-01", y + 1)
     } else {
         format!("{y:04}-{:02}", mo + 1)
-    }
+    })
 }
 
 /// 変化点だけの系列を、月ごとに埋めて返す。
@@ -635,7 +739,11 @@ pub fn fill_forward(points: &[(String, f64)], until: &str) -> Vec<MonthValue> {
             v: last,
             carry: !measured,
         });
-        cur = next_month(&cur);
+        // 🔴 月として読めない値なら、そこで打ち切る（同じ月を積み続けない）
+        match next_month(&cur) {
+            Some(n) if n > cur => cur = n,
+            _ => break,
+        }
     }
     out
 }
@@ -689,12 +797,15 @@ pub fn customers_of(sheet: &SheetData) -> Vec<Customer> {
 /// 🔴 返すのは入っている取引だけ。入っていない取引を 0 にしない
 /// （`customer_health_score` が稼働中で実質NPS単独になっていたのと同じ罠）。
 pub fn latest_nps(history: &SheetData) -> HashMap<String, (String, f64)> {
-    let mut out: HashMap<String, (String, f64)> = HashMap::new();
+    // (月, 回の番号, 値)。🔴 同じ月に2回ぶん入っているときは**回が後のほう**を採る。
+    //    以前は「シートで後に来た行」を採っていて、上の約束と違っていた
+    //    （行の並びは畳む側の都合で、回の順とは限らない）。
+    let mut best: HashMap<String, (String, usize, f64)> = HashMap::new();
     for row in &history.rows {
         let prop = history.get(row, "prop");
-        if !NPS_PROPS.contains(&prop) {
+        let Some(round) = NPS_PROPS.iter().position(|p| *p == prop) else {
             continue;
-        }
+        };
         let deal = history.get(row, "deal_id");
         let month = history.get(row, "month");
         if deal.is_empty() || month.len() < 7 {
@@ -703,14 +814,14 @@ pub fn latest_nps(history: &SheetData) -> HashMap<String, (String, f64)> {
         let Some(v) = opt_num(history.get(row, "v")) else {
             continue;
         };
-        let e = out
+        let e = best
             .entry(deal.to_string())
-            .or_insert((month.to_string(), v));
-        if month >= e.0.as_str() {
-            *e = (month.to_string(), v);
+            .or_insert((month.to_string(), round, v));
+        if (month, round) >= (e.0.as_str(), e.1) {
+            *e = (month.to_string(), round, v);
         }
     }
-    out
+    best.into_iter().map(|(k, (m, _, v))| (k, (m, v))).collect()
 }
 
 /// 採用単価 = 契約総額 ÷ 採用数。
@@ -752,6 +863,7 @@ pub const SHEETS: &[&str] = &[
 /// 🔴 **`tokio::spawn` で呼ぶこと（`main.rs` 参照）。** `SheetStore::get` は
 /// 取得のあいだ書き込みロックを持つので、待って（await して）から listen すると
 /// 起動が 24秒遅れ、Render のヘルスチェックが落ちる。
+/// 🔴 **戻ってこない。** 最初の先読みのあと、TTL が切れる前に取り直し続ける。
 pub async fn prefetch() {
     let state = match crate::handlers::call_quality::routes::cq_state() {
         Ok(s) => s,
@@ -790,6 +902,38 @@ pub async fn prefetch() {
         "コンサル先読み: 完了 {ok}枚 / 失敗 {ng}枚 / {:.1}秒",
         started.elapsed().as_secs_f64()
     );
+
+    // 🔴 **TTL が切れる前に取り直し続ける。** 起動時の1回だけだと、1時間後に
+    //    最初に開いた人が9枚の直列取得を待つ（初回は実測 18.7秒・2026-09-23 本番）。
+    //    しかも `SheetStore::get` は取得中ずっと書き込みロックを持つので、
+    //    そのあいだ架電クオリティ・営業KPI の画面まで止まる。
+    //    `refresh` はロックを持たずに取ってから差し替えるので、誰も待たない。
+    let every = prefetch_interval();
+    loop {
+        tokio::time::sleep(every).await;
+        let started = std::time::Instant::now();
+        let mut ng = 0usize;
+        for name in SHEETS {
+            if let Err(e) = state.store.refresh(&state.client, name).await {
+                ng += 1;
+                // 取れなかった枚は古いまま残る。TTL が切れたら `get` が取りに行く
+                tracing::warn!("コンサル定期更新: {name} が読めない: {e:#}");
+            }
+        }
+        tracing::info!(
+            "コンサル定期更新: {}枚 / 失敗 {ng}枚 / {:.1}秒",
+            SHEETS.len(),
+            started.elapsed().as_secs_f64()
+        );
+    }
+}
+
+/// 定期更新の間隔。**TTL より必ず短くする**（切れてから取ると、開いた人が待つ）。
+///
+/// TTL の 3/4（60分なら45分）。取得そのものに 20秒前後かかるので、
+/// ぎりぎりにすると間に合わない。
+pub fn prefetch_interval() -> std::time::Duration {
+    crate::handlers::call_quality::sheets::CACHE_TTL * 3 / 4
 }
 
 // ---------------------------------------------------------------- 担当者
@@ -804,34 +948,40 @@ pub async fn prefetch() {
 /// ここでは**シートの並び順で後に来る行**を採る（追記順＝新しい出来事）。
 /// 割れている件数は `consultant_ties` で数えて画面に出す。黙って選ばない。
 pub fn consultant_ties(owner_hist: &SheetData, active: &HashSet<&str>) -> usize {
-    let mut top: HashMap<&str, (String, usize, bool)> = HashMap::new();
+    // 取引 → (最新日, その日の最初の行の中身, 同じ日に中身の違う行があったか)
+    //
+    // 🔴 「同じ日に複数行」だけでは割れていない。同じ日・同じ担当の行が重なっていても、
+    //    どちらを採っても担当は変わらないので数えない。以前はそれも数えていた
+    //    （中身を比べる式が、同じ行から作った文字列どうしを比べていて常に一致していた）。
+    // 🔴 担当が空の行は `consultant_of` が読み飛ばすので、ここでも数えない。
+    let mut top: HashMap<&str, (String, (String, bool), bool)> = HashMap::new();
     for row in &owner_hist.rows {
         let deal = owner_hist.get(row, "deal_id");
         if !active.contains(deal) {
             continue;
         }
+        let owner = owner_hist.get(row, "owner").trim();
+        if owner.is_empty() {
+            continue;
+        }
         let date = owner_hist.get(row, "date").to_string();
-        let owner = owner_hist.get(row, "owner").to_string();
-        let retired = flag(owner_hist.get(row, "retired"));
-        let key = format!("{owner}|{retired}");
+        let who = (owner.to_string(), flag(owner_hist.get(row, "retired")));
         match top.get_mut(deal) {
             Some(e) if e.0 == date => {
-                e.1 += 1;
-                if format!("{owner}|{retired}") != key {
-                    // 同日で中身が違う
+                if e.1 != who {
+                    e.2 = true;
                 }
-                e.2 = true;
             }
             Some(e) if date > e.0 => {
-                *e = (date, 1, false);
+                *e = (date, who, false);
             }
             Some(_) => {}
             None => {
-                top.insert(deal, (date, 1, false));
+                top.insert(deal, (date, who, false));
             }
         }
     }
-    top.values().filter(|(_, n, _)| *n > 1).count()
+    top.values().filter(|(_, _, split)| *split).count()
 }
 
 pub fn consultant_of(owner_hist: &SheetData) -> HashMap<String, (String, bool)> {
