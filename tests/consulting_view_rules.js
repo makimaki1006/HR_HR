@@ -487,5 +487,166 @@ check("本部アプローチ: cancel_rule / cpa_rule を上位10法人の図ご�
   ok((h.match(/採用単価のきまりXYZ/g) || []).length === 1, "cpa_rule が " + (h.match(/採用単価のきまりXYZ/g) || []).length + " 回出ている");
 });
 
+/* ================================================================ 図の部品（2026-09-23 デプロイ後の実機確認）
+   デプロイ後に Playwright で見た「図の文字が重なる・切れる・読めない」を、描いた SVG の文字の
+   位置と幅から数で確かめる。幅はこのテストの側で持つ見積もり（chromium で BIZ UDPGothic 11px を
+   測った 1 文字あたりの幅: 全角 11.1 / 数字 8.3 / 英大文字 8.5 / 英小文字 6.9 / 記号 5.7）で、
+   画面の JS の textW には頼らない（頼ると、見積もりを間違えたときに両方そろって通ってしまう）。 */
+const TW = (s) => [...String(s)].reduce((a, ch) =>
+  a + (ch.charCodeAt(0) > 0xff ? 11.1 : /[0-9]/.test(ch) ? 8.3 : /[A-Z%mw]/.test(ch) ? 8.5
+       : /\s/.test(ch) ? 3.5 : /[.,:;()\-/=|!'_]/.test(ch) ? 5.7 : 6.9), 0);
+const unq = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+/** SVG の中の文字を箱にする（x の揃えを見て左右を出す。縦は 11px の字の高さ） */
+function textBoxes(svg) {
+  return [...svg.matchAll(/<text class="(ax|axl|vl)" x="([-\d.]+)" y="([-\d.]+)"([^>]*)>([^<]*)/g)].map((m) => {
+    const x = +m[2], y = +m[3], s = unq(m[5]), w = TW(s) * (m[1] === "vl" ? 1.04 : 1);
+    const anc = (m[4].match(/text-anchor="(\w+)"/) || [0, "start"])[1];
+    const x0 = anc === "end" ? x - w : anc === "middle" ? x - w / 2 : x;
+    return { s, x0, x1: x0 + w, y0: y - 9, y1: y + 2 };
+  });
+}
+function overlaps(svg) {
+  const b = textBoxes(svg), out = [];
+  for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) {
+    const ox = Math.min(b[i].x1, b[j].x1) - Math.max(b[i].x0, b[j].x0);
+    const oy = Math.min(b[i].y1, b[j].y1) - Math.max(b[i].y0, b[j].y0);
+    if (ox > 1 && oy > 1) out.push(b[i].s + " と " + b[j].s);
+  }
+  return out;
+}
+const vbW = (svg) => +((svg.match(/viewBox="0 0 ([\d.]+)/) || [0, 0])[1]);
+const firstSvg = (h) => { const a = h.indexOf("<svg"); return h.slice(a, h.indexOf("</svg>", a) + 6); };
+
+check("図の部品(1): 狭い画面で図を縮めきらず、枠の中で横に動かす（文字 10px を下限にする）", () => {
+  // CSS: 図の最小幅を描いた幅（--fw）から決める。min-width は max-width:100% より強い
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/figure\.fig \.figbody > svg\{\s*min-width:calc\(var\(--fw, 0px\) \* \.92\)/.test(css),
+    "図の最小幅（--fw の .92 倍）の CSS が無い。400px 幅で 11px の文字が 4〜5px に縮む");
+  ok(/figure\.fig \.figbody\{[^}]*overflow-x:auto/.test(css), "図の枠が横にスクロールしない（ページ本体が広がる, V17）");
+  ok(/@media \(max-width:600px\)\{[\s\S]*?\.figscroll\{ display:block; \}/.test(css),
+    "狭い画面で「横にスクロールできます」の案内を出していない");
+  // どの図の道具も --fw を持つ。持たない図だけが 400px で縮む
+  const svgs = {
+    line: run('svgLine({ x: ["a","b"], series: [{ pts: [{ v: 1 }, { v: 2 }] }] })'),
+    bar: run('svgBarH({ rows: [{ label: "a", v: 1 }] })'),
+    box: run('svgBoxH({ rows: [{ label: "a", med: 2, q1: 1, q3: 3, min: 0, max: 4, n: 40 }] })'),
+    lanes: run('svgStackLanes({ w: 940, months: ["1","2"], lanes: [{ label: "a", type: "line", color: "red", pts: [{ v: 1 }, { v: 2 }] }] })'),
+    col: run('svgColStack({ x: ["a"], series: [{ label: "s", color: "red", vals: [{ v: 1 }] }] })'),
+    tl: run('svgTimeline({ lanes: [{ label: "a", marks: [{ d: "2025-01-01" }] }] })'),
+    sc: run('svgScatter({ pts: [{ x: 1, y: 1 }, { x: 2, y: 3 }] })'),
+    hist: run('svgHist({ values: [1, 2, 3] })'),
+  };
+  for (const [k, v] of Object.entries(svgs))
+    ok(/style="--fw:\d+px"/.test(v), k + " の図に --fw（描いた幅）が無い");
+  const f = run('fig("題", "", svgBarH({ w: 700, rows: [{ label: "a", v: 1 }] }))');
+  ok(f.includes('class="figscroll"'), "700px の図に横スクロールの案内が付かない");
+});
+
+check("図の部品(2): 左のラベルが欄より長いとき、省略記号で切り、全文を title に残す", () => {
+  // houjin の採用単価（shortName(…, 20)）、拠点の開き、dq の欠測の件数で頭が切れていた
+  const long = "ケアサポートかがやき居宅介護支援事業所ステップアップ継続①";
+  ctx.__LL = [long, "右側打ち切り（結果が確定していない直近の契約）"];
+  const hs = {
+    bar: run('svgBarH({ w: 700, rows: [{ label: __LL[0], v: 1 }, { label: __LL[1], v: 2 }] })'),
+    box: run('svgBoxH({ w: 680, rows: [{ label: __LL[0], med: 2, q1: 1, q3: 3, min: 0, max: 4, n: 40 }] })'),
+    tl: run('svgTimeline({ w: 940, lanes: [{ label: __LL[0], marks: [{ d: "2025-01-01" }, { d: "2025-06-01" }] }] })'),
+    lanes: run('svgStackLanes({ w: 940, months: ["1","2"], lanes: [{ label: __LL[0], type: "line", color: "red", pts: [{ v: 1 }, { v: 2 }] }] })'),
+  };
+  for (const [k, h] of Object.entries(hs)) {
+    const labs = textBoxes(h).filter((b) => b.s.includes("…"));
+    ok(labs.length >= 1, k + ": 長いラベルに省略記号が付いていない（頭が黙って切れる）");
+    labs.forEach((b) => ok(b.x0 >= -0.5, k + ": ラベル「" + b.s + "」の頭が SVG の左端より外（" + b.x0.toFixed(1) + "）"));
+    ok(h.includes("<title>" + long + "</title>"), k + ": 切ったラベルの全文が title に無い");
+    ok(labs.some((b) => b.s.startsWith("ケア") && b.s.endsWith("継続①")),
+      k + ": 頭（社名）と末尾（継続①）の両方が残っていない: " + labs.map((b) => b.s).join(" / "));
+  }
+  // 収まるラベルは切らない・title も足さない
+  const short = run('svgBarH({ rows: [{ label: "初回", v: 1 }] })');
+  ok(!short.includes("…") && !short.includes("<title>初回</title>"), "収まるラベルまで切っている");
+});
+
+check("図の部品(3): 月次継続率の右端でラベルが重ならず、n=0 の月に点も線も作らない", () => {
+  // fixture の monthly_retention（2026-09-23 実測）の末尾: 26-10 n=8 / 26-11 n=0 / 26-12 n=0 /
+  // 27-01 n=1 / 27-02 以降 n=0（末尾は図から外す）。前は「26-11」「27-01」と「n=0」「n=1」が重なり、
+  // n=0 の月の 0 の高さに灰色の短い線が出ていた
+  const rows = [];
+  for (let i = 0; i < 44; i++) {
+    const y = 2023 + Math.floor((i + 1) / 12), m = (i + 1) % 12 + 1;
+    rows.push({ month: y + "-" + String(m).padStart(2, "0"), denom: 60, rate: 50, pending: 0, keep: 30, cancel: 20, fill: 10 });
+  }
+  const tailRows = [["2026-10", 8, 100, 105], ["2026-11", 0, null, 118], ["2026-12", 0, null, 88],
+    ["2027-01", 1, 0, 49], ["2027-02", 0, null, 57], ["2027-03", 0, null, 55]];
+  const all = rows.filter((r) => r.month < "2026-10").concat(tailRows.map(([month, denom, rate, pending]) =>
+    ({ month, denom, rate, pending, keep: 0, cancel: 0, fill: 0 })));
+  ctx.__RN = { monthly_retention: { rows: all }, by_renewal: [], population: { deals_option: 99 },
+    meta: { n_deals: 3432, right_censored_n: 419, exclude_right_censored: false, not_counted: "" }, missingness: [] };
+  const svg = firstSvg(run("renderRenewal(__RN)"));
+  const ov = overlaps(svg);
+  ok(!ov.length, "月次継続率の文字が重なる: " + ov.slice(0, 4).join(" / "));
+  ok(!/値が無い（0 ではない）/.test(svg), "n=0 の月に 0 の高さの灰色の線を描いている（凡例に無い印）");
+  ok(svg.includes(">27-01<") && svg.includes(">n=1<"), "最後の月（27-01 n=1）のラベルが無い");
+});
+
+check("図の部品(4): 系列を縦に並べる図で、NPS の「定期N」・右の目盛り・帯の境目の目盛りが重ならない", () => {
+  // fixture の series（2026-09-23 実測）で「定期5 と 0」「定期NPS と 定期1」が重なっていた形
+  const h = run(`svgStackLanes({ w: 940, months: ["4ヶ月","5ヶ月","6ヶ月","7ヶ月"], lanes: [
+    { label: "応募", type: "line", color: "blue", pts: [{ v: 3 }, { v: 12 }, { v: 13 }, { v: 13, carry: true }] },
+    { label: "面接", type: "line", color: "blue", pts: [{ v: 0 }, { v: 4 }, { v: 4, carry: true }, { v: 9 }] },
+    { label: "定期NPS", type: "dots", pts: [{ v: 1, round: 1 }, { v: 10, round: 5 }, { v: 0, round: 5 }, { v: 1, round: 5 }] },
+    { label: "接触", type: "bars", color: "gray", fillLabel: "接触", outLabel: "MTG", pts: [null, { fill: 2 }, { fill: 1 }, null] } ] })`);
+  const ov = overlaps(h);
+  ok(!ov.length, "文字が重なる: " + ov.slice(0, 5).join(" / "));
+  const W = vbW(h);
+  textBoxes(h).forEach((b) => ok(b.x0 >= -0.5 && b.x1 <= W + 0.5, "「" + b.s + "」が SVG の外に出る"));
+});
+
+check("図の部品(5): 軸の題名と最上段の目盛りが重ならず、整数の軸の目盛りが等間隔", () => {
+  const ln = run('svgLine({ x: ["a","b","c"], series: [{ pts: [{ v: 0.2 }, { v: 1 }, { v: 0.5 }] }], yFmt: F.pct, yLab: "継続率" })');
+  ok(!overlaps(ln).length, "折れ線: " + overlaps(ln).join(" / "));
+  const cs = run('svgColStack({ w: 940, x: ["26-01","26-02"], series: [{ label: "s", color: "red", vals: [{ v: 20 }, { v: 18 }] }], yLab: "採用数（累計）" })');
+  ok(!overlaps(cs).length, "積み上げ縦棒: " + overlaps(cs).join(" / "));
+  // 整数の軸（件数）で 0〜10 を4段に切ると刻みが 2.5 になり「0,3,5,8,10」と出ていた
+  const tk = run("ticks(0, 10, 4, 1)");
+  const st = tk.slice(1).map((v, i) => v - tk[i]);
+  ok(tk.every((v) => Number.isInteger(v)), "整数の軸の目盛りに端数がある: " + tk.join(","));
+  ok(st.every((d) => d === st[0]), "目盛りが等間隔でない: " + tk.join(","));
+  // LTV の横軸で最後の2つ（26-07 と 26-09）がくっついていた形。38 か月を 940px に並べる
+  ctx.__X = [];
+  for (let i = 0; i < 38; i++) { const y = 23 + Math.floor((i + 6) / 12), m = (i + 6) % 12 + 1; ctx.__X.push(y + "-" + String(m).padStart(2, "0")); }
+  const ltv = run('svgColStack({ w: 940, x: __X, series: [{ label: "s", color: "red", vals: __X.map((_, i) => ({ v: 1000000 + i * 10000 })) }], yFmt: F.man, yLab: "累計金額（万円）" })');
+  ok(!overlaps(ltv).length, "LTV の横軸: " + overlaps(ltv).slice(0, 3).join(" / "));
+  // 箱ひげの「最大 609」と右端の「n=1083」の間を空ける（rampup の初回MTGまで, fixture 実測）
+  const bx = run('svgBoxH({ w: 680, rows: [{ label: "初回MTGまで", med: 14, q1: 4, q3: 43, min: 0, max: 609, mean: 40, n: 1083 }] })');
+  const b = textBoxes(bx), mx = b.find((q) => q.s.startsWith("最大")), nn = b.find((q) => q.s.startsWith("n="));
+  ok(mx && nn && nn.x0 - mx.x1 >= 20, "「最大 609」と「n=1083」の間が " + (mx && nn ? (nn.x0 - mx.x1).toFixed(1) : "?") + "px（20px 未満）");
+});
+
+check("図の部品(6): 接触率の図の目盛りが最大値を覆い、率と母数が棒の近くにある", () => {
+  // fixture の接触率（母数が足りる担当者）の最大は 96.92%。前は目盛りが 75% で止まっていた
+  const h = run(`svgBarH({ w: 720, fmt: F.pp, rh: 24, rows: [
+    { label: "h9821a39368fe", v: 26.4, txt: "26.4%", note: "33/125 か月　案件28" },
+    { label: "h60b499e1c307", v: 96.92, txt: "96.9%", note: "63/65 か月　案件22" } ] })`);
+  const tks = textBoxes(h).filter((b) => /^\d+%$/.test(b.s)).map((b) => parseFloat(b.s));
+  ok(Math.max(...tks) >= 96.92, "目盛りの最大が " + Math.max(...tks) + "%（96.9% の棒が目盛りの先へ伸びる）");
+  const b = textBoxes(h), v = b.find((q) => q.s === "96.9%"), n = b.find((q) => q.s.startsWith("63/65"));
+  ok(n.x0 - v.x1 <= 60, "いちばん長い棒の率から母数まで " + (n.x0 - v.x1).toFixed(0) + "px 離れている（前は約200px）");
+  ok(/stroke-dasharray="1 3"/.test(h), "短い棒の行に、注記までつなぐ点線が無い");
+  ok(!overlaps(h).length, "文字が重なる: " + overlaps(h).join(" / "));
+});
+
+check("図の部品(7): 推移の図で、値が変わった月へ向かう線は実線・持ち越しへ向かう線だけ破線", () => {
+  const h = run('svgLine({ x: ["5ヶ月","6ヶ月","7ヶ月","8ヶ月"], series: [{ color: "blue", pts: [{ v: 30 }, { v: 30, carry: true }, { v: 74 }, { v: null }] }] })');
+  const segs = [...h.matchAll(/<path d="M[^"]*" fill="none"[^>]*>/g)].map((m) => m[0]);
+  ok(segs.length === 2, "線の本数が " + segs.length + "（2 のはず）");
+  ok(/stroke-dasharray/.test(segs[0]), "持ち越しの点（6ヶ月）へ向かう線が破線でない");
+  ok(!/stroke-dasharray/.test(segs[1]), "値が変わった月（7ヶ月・塗りの点）へ向かう線が破線になっている（凡例「破線＝持ち越し」と食い違う）");
+  ok(!/<line [^>]*style="stroke:var\(--ghost\)"/.test(h), "値が無い月（8ヶ月）に、凡例に無い灰色の短い線を 0 の位置へ描いている");
+  const ln = run(`svgStackLanes({ w: 940, months: ["1","2","3"], lanes: [
+    { label: "応募", type: "line", color: "blue", pts: [{ v: 30 }, { v: 30, carry: true }, { v: 74 }] } ] })`);
+  const s2 = [...ln.matchAll(/<path d="M[^"]*" fill="none"[^>]*>/g)].map((m) => m[0]);
+  ok(s2.length === 2 && /stroke-dasharray/.test(s2[0]) && !/stroke-dasharray/.test(s2[1]),
+    "系列を縦に並べる図でも、値が変わった月へ向かう線が破線になっている");
+});
+
 console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
 if (failed) process.exit(1);
