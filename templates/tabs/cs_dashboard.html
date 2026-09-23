@@ -789,17 +789,27 @@ function figAvail(el) {
   });
   return avail;
 }
+/** el の details のうち、el の中の「別に描く枠」（data-paint-own。本部アプローチの #hq-box）の中に無いもの。
+    🔴 2026-09-24 検証: 前は #hq-box の中の details（全法人の内訳）も数えていた。本文を描き直す時点の
+    #hq-box は「読み込み中」の空の枠で、中身は後から wireHoujin が描くので、番号がずれて別の details を
+    開いたり、#hq-box の中の details が畳まれたりした。#hq-box の中は hqKeep で別に覚える */
+function ownDetails(el) {
+  return Array.from(el.querySelectorAll("details")).filter((d) => {
+    const b = d.closest ? d.closest("[data-paint-own]") : null;
+    return !b || b === el;
+  });
+}
 /** 開いている details の番号（el の中で何番目か） */
 function openDetails(el) {
   const out = [];
-  try { el.querySelectorAll("details").forEach((d, i) => { if (d.open) out.push(i); }); } catch (e) { /* 測れない */ }
+  try { ownDetails(el).forEach((d, i) => { if (d.open) out.push(i); }); } catch (e) { /* 測れない */ }
   return out;
 }
 /** openDetails で覚えた details を開き直す */
 function reopenDetails(el, keep) {
   if (!keep || !keep.length) return;
   try {
-    const ds = el.querySelectorAll("details");
+    const ds = ownDetails(el);
     keep.forEach((i) => { if (ds[i]) ds[i].open = true; });
   } catch (e) { /* 開き直せなくても中身は出ている */ }
 }
@@ -941,8 +951,11 @@ function fig(caption, hint, body, legend) {
   const shiftM = /<svg [^>]*data-shift="(1|edge)"/.exec(body);
   const shiftNote = shiftM
     ? '<i class="full">同じ月に同じ値の線は重なって隠れるので、どの線も見えるよう上下に少し（4px ずつ）ずらして描いています。値は変えていません。' +
-      /* 軸の端（0 など）では片側にしかずらせない。0 の線が 0 より上に見えるので、それも断る */
-      (shiftM[1] === "edge" ? "軸の端（0 など）で重なった線は、軸の内側へずらしているので、0 の線も軸より少し上に見えます。" : "") +
+      /* 軸の端（0・いちばん上）では片側にしかずらせない。0 の線が 0 より上に見えるので、それも断る。
+         🔴 2026-09-24 検証: 上端（軸の最大）で重なった線は下へずらすのに、断りは 0 のことしか書いていなかった */
+      (shiftM[1] === "edge" ? "軸の端（0 やいちばん上）で重なった線は、軸の内側へずらしているので、0 の線も軸より少し上に、いちばん上の線は少し下に見えます。" : "") +
+      /* ずらすのは重なった月の点だけ。前後の月との間の線が傾いて、値が動いたように見えることを断る */
+      "ずらすのは重なった月の点だけなので、その前後の線が少し傾いて見えることがあります。" +
       "点にマウスを重ねると本当の値が出ます。</i>" : "";
   legend = (legend || "") + noneNote + gapNote + shiftNote;
   return `<figure class="fig"><figcaption>${esc(caption)}` +
@@ -998,13 +1011,18 @@ const X_LAB_DY = 19;
 /** 重なった点のずらし幅（svgLine）。r = その点より前に同じ高さに置いた点の数（1 以上）、
     up / down = 点から枠の上端・下端（軸）までの余り。候補 0, -step, +step, -2step, +2step, … のうち
     枠の中に収まるものだけを数えて r 番目を返すので、r が違えば必ず別の位置になる。
-    枠の外に出る候補を飛ばした（＝軸の端で片側にだけ積んだ）ときは onEdge() を呼ぶ */
+    枠の外に出る候補を飛ばした（＝軸の端で片側にだけ積んだ）とき、または点が枠の端（軸の 0・上端）に
+    あってずらしたときは onEdge() を呼ぶ。
+    🔴 2026-09-24 検証: 前は「飛ばした候補がある」ときだけ呼んでいた。0 で重なった線が2本だけだと、
+    2本目（r=1）の候補 -4 は上に収まるので飛ばさず、0 の線が軸より 4px 上に描かれるのに
+    凡例に「0 の線も軸より少し上に見えます」が出なかった（series の「面接と採用がどちらも 0 の月」） */
 function lineShift(r, up, down, step, onEdge) {
   let seen = 0, skipped = false;
+  const atEdge = up <= .5 || down <= .5;
   for (let k = 1; k < 4 * r + 4; k++) {
     const d = (k % 2 === 1 ? -1 : 1) * Math.ceil(k / 2) * step;
     if (-d > up + .5 || d > down + .5) { skipped = true; continue; }
-    if (++seen === r) { if (skipped && onEdge) onEdge(); return d; }
+    if (++seen === r) { if ((skipped || atEdge) && onEdge) onEdge(); return d; }
   }
   /* 上下どちらにも収まらない（枠の高さが足りない）。ずらさずに重ねる */
   return 0;
@@ -1385,7 +1403,13 @@ function svgBarH(o) {
 const BAR_MIN_IW = 100;
 /** 前回の値の破線の枠（svgBarH の v0）の最小の幅 */
 const V0_MIN_W = 5;
-/** 文を幅 maxW で折り返す（空白・全角空白・「/」の後ろで切る）。1語が幅を超えるときはその語だけ1行 */
+/** 行の頭に置かない字（閉じ括弧・句読点など）。wrapText が字の途中で切るときに使う */
+const NO_HEAD = /^[、。，．）」』】〕％%〜…・ー]/;
+/** 文を幅 maxW で折り返す（空白・全角空白・「/」の後ろで切る）。
+    🔴 2026-09-24 検証（400px, deal/houjin「同じ契約でも、出し方で値が変わります」）: 前は1語が幅を超えると
+    その語だけの1行として幅を超えたまま出していた。空白の無い日本語の注記（「進捗帯「後半にさしかかり
+    （50〜75%）」の中央値 …」）が SVG の右端で「中央値」の途中から切れ、横スクロールも無いので読めなかった。
+    幅を超える語は字の境目で切る（閉じ括弧・句読点を行の頭に置かない） */
 function wrapText(s, maxW) {
   const parts = String(s).split(/(?<=[ 　\/])/);
   const out = [];
@@ -1393,6 +1417,16 @@ function wrapText(s, maxW) {
   parts.forEach((p) => {
     if (cur && textW(cur + p) > maxW) { out.push(cur.replace(/[ 　]+$/, "")); cur = p.replace(/^[ 　]+/, ""); }
     else cur += p;
+    /* 1語だけで幅を超える。入るところまでを1行にして、残りを次の行へ */
+    while (textW(cur.replace(/[ 　]+$/, "")) > maxW) {
+      const ch = [...cur];
+      let k = ch.length - 1;
+      while (k > 1 && textW(ch.slice(0, k).join("")) > maxW) k--;
+      while (k > 1 && NO_HEAD.test(ch[k] || "")) k--;
+      if (k < 1) break;
+      out.push(ch.slice(0, k).join("").replace(/[ 　]+$/, ""));
+      cur = ch.slice(k).join("").replace(/^[ 　]+/, "");
+    }
   });
   if (cur) out.push(cur.replace(/[ 　]+$/, ""));
   return out.length ? out : [String(s)];
@@ -3509,7 +3543,8 @@ function renderHoujin(D) {
 
   /* ---- 他の法人と比べる（本部アプローチ）---- */
   h += sec("図", "他の法人と比べる");
-  h += '<div id="hq-box"><span class="loading">読み込み中…</span></div>';
+  /* data-paint-own: 中身は wireHoujin が後から描く。本文の描き直しで開いた details を数えない（ownDetails） */
+  h += '<div id="hq-box" data-paint-own="1"><span class="loading">読み込み中…</span></div>';
   return h + foot(D.meta, false, houjinCounts(all, ids));
 }
 /** 法人番号で見るの末尾の件数。🔴 応答の meta には全体の件数が無く、末尾の枠が
@@ -4324,6 +4359,10 @@ function redrawMain(D, keep) {
   const v = viewOf(cur.menu, cur.view);
   const main = document.getElementById("cs-main");
   const fk = focusKey(document.activeElement);
+  /* 本部アプローチの枠（#hq-box）の中は本文と別に描くので、開いている details も別に覚えて、
+     wireHoujin が描き直すときに開き直す（幅の描き直しのときだけ。絞り込みでは覚えない） */
+  const hq = keep ? document.getElementById("hq-box") : null;
+  hqKeep = hq && hq.querySelectorAll ? openDetails(hq) : null;
   paintFigs(main, () => ctlbar(v, D) + v.render(D), keep);   /* 図の幅を枠に合わせる（2回描き） */
   wire(v);
   refocus(fk);
@@ -5219,7 +5258,8 @@ function wireHoujin() {
   /* 本部アプローチは別のデータ。この項目を開いたときだけ取りに行く */
   const box = document.getElementById("hq-box");
   if (!box) return;
-  if (hqCache) { paintFigs(box, () => renderHq(hqCache)); markScrollAll(); return; }
+  const keep = hqKeep; hqKeep = null;   /* redrawMain が覚えた #hq-box の開いた details */
+  if (hqCache) { paintFigs(box, () => renderHq(hqCache), keep); markScrollAll(); return; }
   fetch("/api/consulting/headquarters", { credentials: "same-origin" })
     .then(readJson)   /* ログイン切れを見分ける（U10）。r.json() だと構文エラーの文がそのまま出る */
     .then((body) => {
@@ -5235,6 +5275,7 @@ function wireHoujin() {
     });
 }
 let hqCache = null;
+let hqKeep = null;
 
 /* 戻る・進むでも同じところへ。
    🔴 pushState で積んだ履歴を戻るときは popstate が来る（hashchange はブラウザによって

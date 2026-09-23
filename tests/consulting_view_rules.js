@@ -1597,6 +1597,240 @@ check("図の部品: 前回の値が 0 付近でも、前回の破線の枠を�
   ok(/<line data-v0tick="1"[^>]*><title>前回: 0<\/title>/.test(svg), "前回の本当の位置の縦の印が無い");
 });
 
+/* ================================================================ 図の部品（第3弾の検証の指摘, 2026-09-24） */
+/* 図の部品を「2回目の描き（paintFigs が枠の幅を渡した）」として描く。avail = 枠の幅（null は1回目） */
+function drawAt(code, avail) {
+  ctx.__AV = avail == null ? null : { 0: avail };
+  return run("FIGFIT.seq = 0; FIGFIT.avail = __AV; try { " + code + " } finally { FIGFIT.avail = null; FIGFIT.seq = 0; }");
+}
+/* 図の幅（viewBox）。左にラベルを貼り付けた図（stickyLabels）は、貼った側ではなく図そのもの（stickmain）の幅 */
+const figW = (svg) => { const m = String(svg).match(/<svg (?:class="stickmain" )?[^>]*?viewBox="0 0 ([\d.]+) /g);
+  const main = (m || []).find((t) => !/class="sticklab"/.test(t));
+  return main ? +main.match(/viewBox="0 0 ([\d.]+) /)[1] : NaN; };
+const monthsN = (n) => Array.from({ length: n }, (_, i) => "m" + i);
+
+check("ずらし: 0 で重なった線が2本だけでも、軸の端でずらした印（data-shift=\"edge\"）と断りを出す（上端も）", () => {
+  // 🔴 検証の指摘: r=1（2本目）の候補 -4 は上に収まるので「飛ばした候補」が無く、edge にならなかった
+  //    （series の「面接と採用がどちらも 0 の月」）。点が枠の端にあってずらしたら edge
+  let called = 0;
+  ctx.__ON = () => { called++; };
+  ok(run("lineShift(1, 196, 0, 4, __ON)") === -4 && called === 1, "0（下端）で 2 本目をずらしても onEdge が呼ばれない: " + called);
+  called = 0;
+  ok(run("lineShift(1, 0, 196, 4, __ON)") === 4 && called === 1, "上端で 2 本目をずらしても onEdge が呼ばれない: " + called);
+  called = 0;
+  run("lineShift(1, 100, 100, 4, __ON)");
+  ok(called === 0, "軸の途中でずらしただけで端の扱いになった");
+  const two = run('svgLine({ x: ["a","b"], series: [0,1].map(() => ({ pts: [{ v: 0 }, { v: 0 }] })) })');
+  ok(/<svg [^>]*data-shift="edge"/.test(two), "0 で重なった 2 本の図に data-shift=\"edge\" が無い");
+  const f = run('fig("x", "", svgLine({ x: ["a","b"], series: [{ pts: [{ v: 0 }, { v: 2 }] }, { pts: [{ v: 0 }, { v: 2 }] }] }))');
+  ok(f.includes("0 の線も軸より少し上") && f.includes("いちばん上の線は少し下"), "端でずらした図の凡例に、0 と上端の見え方の断りが無い");
+  ok(f.includes("線が少し傾いて見える"), "重なった月の点だけずらすので線が傾くことの断りが無い");
+});
+
+check("compact: 空白の無い長い注記も、400px の枠（334px）の中で折り返す（deal/houjin の進捗帯の中央値）", () => {
+  // 🔴 検証の指摘: wrapText は空白と「/」でしか切らず、1語が幅を超えると SVG の右端で切れていた
+  const note = "進捗帯「後半にさしかかり（50〜75%）」の中央値 12.3万円（軸の外）　3人";
+  const svg = drawAt('svgBarH({ w: 680, fmt: F.man, rows: [{ label: "（伏字）2745", v: 50, txt: "50.0万", note: ' + JSON.stringify(note) + ' }] })', 334);
+  ok(figW(svg) === 334, "334px の枠で描いていない: " + figW(svg));
+  const under = [...svg.matchAll(/<text class="ax" data-under="1" x="([\d.]+)"[^>]*>([^<]*)</g)];
+  const tw = run("textW");
+  ok(under.length >= 2, "長い注記が1行のまま: " + under.map((m) => m[2]).join(" | "));
+  ok(under.every((m) => +m[1] + tw(m[2]) <= 334 + 1), "注記が枠の右からはみ出す: " + under.map((m) => m[2]).join(" | "));
+  ok(under.map((m) => m[2]).join("").replace(/\s/g, "") === note.replace(/\s/g, ""), "折り返しで字を落とした: " + under.map((m) => m[2]).join(" | "));
+  ok(!under.slice(1).some((m) => /^[、。）」%％]/.test(m[2])), "閉じ括弧・句読点を行の頭に置いた: " + under.map((m) => m[2]).join(" | "));
+  // 切れ目にちょうど閉じ括弧が来る文（5 字ぶんの幅で「あいうえお）」）でも、閉じ括弧を行の頭に置かない
+  const ls = run('wrapText("あいうえお）かきくけこ", textW("あいうえお"))');
+  ok(ls.join("") === "あいうえお）かきくけこ" && !ls.slice(1).some((l) => /^[）」、。]/.test(l)), "閉じ括弧を行の頭に置いた: " + ls.join(" | "));
+});
+
+check("枠に合わせる: 1440px の枠（1116px）では、どの図の部品も枠の幅まで広げる（右が空かない）", () => {
+  const parts = {
+    svgLine: 'svgLine({ x: ["a","b","c"], series: [{ pts: [{ v: 1 }, { v: 2 }, { v: 3 }] }] })',
+    svgStackLanes: 'svgStackLanes({ months: ["a","b"], lanes: [{ type: "line", label: "応募", color: "blue", pts: [{ v: 1 }, { v: 2 }] }] })',
+    svgTimeline: 'svgTimeline({ lanes: [{ label: "a", marks: [{ d: "2025-01-10" }, { d: "2025-06-10" }] }] })',
+    svgColStack: 'svgColStack({ x: ["a","b"], series: [{ label: "s", color: "blue", vals: [{ v: 1 }, { v: 2 }] }] })',
+    svgHist: 'svgHist({ values: [1,2,3,4,5] })',
+    svgScatter: 'svgScatter({ pts: [{ x: 1, y: 2 }, { x: 3, y: 4 }] })',
+    svgBoxH: 'svgBoxH({ rows: [{ label: "a", med: 5, q1: 3, q3: 7, min: 1, max: 9, n: 20 }] })',
+    svgBarH: 'svgBarH({ rows: [{ label: "a", v: 5, note: "注記" }] })',
+    svgStack: 'svgStack({ parts: [{ label: "a", v: 3 }, { label: "b", v: 1 }] })',
+  };
+  for (const [name, code] of Object.entries(parts)) {
+    const w1 = figW(drawAt(code, null)), w2 = figW(drawAt(code, 1116));
+    ok(w1 < 1116 && w2 === 1116, name + " が 1116px の枠で広がらない（1回目 " + w1 + " → 2回目 " + w2 + "）");
+  }
+});
+
+check("枠に合わせる: 400px の枠（334px）では、狭めても読める図は枠の幅で描き、月の多い推移の図は狭めない", () => {
+  const narrow = {
+    svgLine: 'svgLine({ x: ["a","b","c"], series: [{ pts: [{ v: 1 }, { v: 2 }, { v: 3 }] }] })',
+    svgColStack: 'svgColStack({ x: ["a","b","c"], series: [{ label: "s", color: "blue", vals: [{ v: 1 }, { v: 2 }, { v: 3 }] }] })',
+    svgHist: 'svgHist({ values: [1,2,3,4,5] })',
+    svgScatter: 'svgScatter({ pts: [{ x: 1, y: 2 }, { x: 3, y: 4 }] })',
+    svgBoxH: 'svgBoxH({ rows: [{ label: "a", med: 5, q1: 3, q3: 7, min: 1, max: 9, n: 20 }] })',
+    svgStack: 'svgStack({ parts: [{ label: "a", v: 3 }, { label: "b", v: 1 }] })',
+  };
+  for (const [name, code] of Object.entries(narrow))
+    ok(figW(drawAt(code, 334)) === 334, name + " が 334px の枠で狭まらない: " + figW(drawAt(code, 334)));
+  // 月の多い推移の図は狭めない（点と月の字が詰まる）
+  const ones = JSON.stringify(monthsN(24).map(() => ({ v: 1 })));
+  const line24 = drawAt('svgLine({ x: ' + JSON.stringify(monthsN(24)) + ', series: [{ pts: ' + ones + ' }] })', 334);
+  ok(figW(line24) === 660, "24 か月の折れ線を 334px に狭めた: " + figW(line24));
+  const col24 = drawAt('svgColStack({ x: ' + JSON.stringify(monthsN(24)) + ', series: [{ label: "s", color: "blue", vals: ' + ones + ' }] })', 334);
+  ok(figW(col24) === 660, "24 か月の積み上げ縦棒を 334px に狭めた: " + figW(col24));
+  // 横棒: 枠が描いた幅より狭くても、棒の欄が 160px 残るなら（compact にせず）枠の幅で描く
+  const bar = drawAt('svgBarH({ w: 660, rows: [{ label: "a", v: 5, note: "注記" }] })', 600);
+  ok(figW(bar) === 600 && !/data-under/.test(bar), "棒の欄が残る 600px の枠で、枠の幅（注記は右）で描いていない: " + figW(bar));
+});
+
+check("横スクロールの図: 折れ線・帯を縦に積む図・積み上げ縦棒は、最初にデータがある位置（data-x0）を出し、狭い枠の折れ線は目盛りを左に貼る", () => {
+  const x0 = (svg) => { const m = String(svg).match(/<svg [^>]*data-x0="(\d+)"/); return m ? +m[1] : null; };
+  const late = JSON.stringify(monthsN(24).map((_, i) => (i >= 20 ? { v: 1 } : null)));
+  const mx = JSON.stringify(monthsN(24));
+  const line = drawAt('svgLine({ x: ' + mx + ', series: [{ pts: ' + late + ' }] })', null);
+  ok(x0(line) > 400, "折れ線の data-x0 が無い・データの位置と違う: " + x0(line));
+  const lanes = drawAt('svgStackLanes({ months: ' + mx + ', lanes: [{ type: "line", label: "応募", color: "blue", pts: ' + late + ' }] })', null);
+  ok(x0(lanes) > 400, "帯を縦に積む図の data-x0 が無い: " + x0(lanes));
+  const col = drawAt('svgColStack({ x: ' + mx + ', series: [{ label: "s", color: "blue", vals: ' + late + ' }] })', null);
+  ok(x0(col) > 400, "積み上げ縦棒の data-x0 が無い: " + x0(col));
+  ok(/data-x0="123"/.test(run('svgHead(500, 100, "a", { x0: 123 })')), "svgHead が data-x0 を出さない");
+  // 狭い枠で横スクロールになる折れ線は、縦軸の目盛りを左に貼り付け、data-x0 を貼った欄のぶん手前にする
+  const code = 'svgLine({ x: ' + mx + ', series: [{ pts: ' + late + ' }] })';
+  const st = drawAt(code, 334);
+  ok(/<div class="stickwrap"/.test(st) && /class="sticklab"/.test(st), "狭い枠の折れ線で縦軸の目盛りを左に貼り付けていない");
+  ok(x0(st) === x0(line) - 58, "貼り付けた目盛りの欄のぶん data-x0 を手前にしていない: " + x0(st) + " / " + x0(line));
+  ok(!/stickwrap/.test(drawAt(code, 1116)), "広い枠の折れ線にまで目盛りを貼り付けた");
+});
+
+check("100%帯: 細い区間も 2px 以上で描く（最優先の 26 件が線に潰れない）", () => {
+  const svg = run('svgStack({ w: 660, parts: [{ label: "大", v: 10000 }, { label: "最優先", v: 1 }] })');
+  const m = svg.match(/<rect x="[\d.]+" y="6" width="([\d.]+)"[^>]*><title>最優先/);
+  ok(m && +m[1] >= 2, "細い区間の幅 " + (m && m[1]) + " が 2px 未満");
+});
+
+check("暗い表示: 案件を見分ける牡丹・空（--botan/--sora）を暗い地の上で見える色に置き換える（3 か所）", () => {
+  const css = html.split("<style>")[1].split("</style>")[0];
+  const [light, rest] = [css.split("@media (prefers-color-scheme:dark)")[0], css.split("@media (prefers-color-scheme:dark)")[1]];
+  const blocks = [light, rest.split(':root[data-theme="dark"]')[0], rest.split(':root[data-theme="dark"]')[1].split("}")[0]];
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const lum = (c) => {
+    const f = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+  };
+  blocks.forEach((b, i) => {
+    const p = (b.match(/--panel:(#[0-9a-f]{6})/) || [])[1];
+    for (const k of ["botan", "sora"]) {
+      const c = (b.match(new RegExp("--" + k + ":(#[0-9a-f]{6})")) || [])[1];
+      ok(p && c, "ブロック " + i + " に --" + k + " が無い（暗い表示で明るい表示の色のまま）");
+      const [a, z] = [lum(hex(p)), lum(hex(c))];
+      const r = (Math.max(a, z) + 0.05) / (Math.min(a, z) + 0.05);
+      ok(r >= 3, "ブロック " + i + " の --" + k + " と地の差 " + r.toFixed(2) + ":1 が 3:1 未満");
+    }
+  });
+});
+
+check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅の変化は paintFigs で描き、幅の描き直しは開いた details を渡す", () => {
+  const saved = { pf: run("paintFigs"), rd: run("redrawMain"), wire: run("wire"), rh: run("renderHq"), cur: run("JSON.stringify(cur)"),
+    st: ctx.setTimeout, fetch: ctx.fetch };
+  const calls = [];
+  ctx.__PF = (el, make, keep) => { calls.push({ el, keep }); };
+  const main = document.getElementById("cs-main");
+  const qsa0 = main.querySelectorAll, qs0 = main.querySelector;
+  const restore = () => {
+    ctx.__rs = saved;
+    run("paintFigs = __rs.pf; redrawMain = __rs.rd; wire = __rs.wire; renderHq = __rs.rh; cur = JSON.parse(__rs.cur); hqCache = null; hqKeep = null; lastPayload = null; paintedW = 0;");
+    ctx.setTimeout = saved.st; ctx.fetch = saved.fetch;
+    main.querySelectorAll = qsa0; main.querySelector = qs0; delete main.clientWidth; delete els["hq-box"];
+  };
+  try {
+    run("paintFigs = __PF; wire = () => {}; renderHq = () => '';");
+    // 定義と検証（API の無い項目）の load
+    run('cur = { menu: MENUS.find((m) => m.views.some((v) => v.key === "defs")).key, view: "defs" }; load()');
+    ok(calls.length === 1 && calls[0].el === main, "API の無い項目の load が paintFigs で描いていない");
+    // 絞り込み・幅の描き直し（redrawMain）は keep をそのまま渡す
+    calls.length = 0;
+    run("redrawMain({}, [2])");
+    ok(calls.length === 1 && JSON.stringify(calls[0].keep) === "[2]", "redrawMain が keep を paintFigs に渡していない: " + JSON.stringify(calls[0] && calls[0].keep));
+    // 本部アプローチ（持っているとき）
+    calls.length = 0;
+    els["hq-box"] = fakeEl();
+    run("hqCache = { x: 1 }; wireHoujin()");
+    ok(calls.length === 1 && calls[0].el === els["hq-box"], "本部アプローチの枠を paintFigs で描いていない");
+    // 窓の幅が変わった（resize → refitSoon → redrawMain(lastPayload, openDetails(main))）
+    const rd = [];
+    ctx.__RD = (D, keep) => rd.push(keep);
+    run("redrawMain = __RD; lastPayload = {}; paintedW = 334;");
+    ctx.setTimeout = (fn) => { fn(); return 1; };
+    main.clientWidth = 1116;
+    main.querySelector = (s) => (s === "svg[data-fk]" ? {} : null);
+    main.querySelectorAll = (s) => (s === "details" ? [{ open: false }, { open: true }] : []);
+    winListeners.filter((l) => l.type === "resize").forEach((l) => l.fn({}));
+    ok(rd.length === 1, "窓の幅が変わっても図を描き直さない（" + rd.length + " 回）");
+    ok(JSON.stringify(rd[0]) === "[1]", "幅の描き直しで開いている details を渡していない: " + JSON.stringify(rd[0]));
+  } catch (e) { restore(); throw e; }
+  restore();
+  /* ここから先は応答を待つ。先に走った見張り（本部アプローチの取得）が終わってから差し替える。
+     終わる前に差し替えると、その見張りの paintFigs・#hq-box の片付けと混ざる */
+  return Promise.all(pendingChecks.slice()).then(() => {
+    // API のある項目の load（応答の後）も paintFigs で描く
+    const calls2 = [];
+    ctx.__PF = (el) => { calls2.push(el); };
+    run("paintFigs = __PF; wire = () => {}; renderHq = () => '';");
+    ctx.fetch = () => Promise.resolve({ ok: true, status: 200, url: "/api/x", headers: { get: () => "application/json" }, json: () => Promise.resolve({ meta: {} }) });
+    run('cur = { menu: "deal", view: "today" }');
+    const p = run("load()");
+    // 本部アプローチを取りに行った後も paintFigs で描く
+    const hb = fakeEl();
+    els["hq-box"] = hb;
+    run("hqCache = null; wireHoujin()");
+    const tick = () => new Promise((res) => setImmediate(res));
+    return p.then(tick).then(tick).then(() => {
+      restore();
+      ok(calls2.filter((el) => el === main).length === 1, "応答の後の load が paintFigs で描いていない");
+      ok(calls2.includes(hb), "本部アプローチを取りに行った後、paintFigs で描いていない");
+    }, (e) => { restore(); throw e; });
+  });
+});
+
+check("本部アプローチ: 幅の描き直しで、#hq-box の中の開いた details を数え違えず、描き直した後に開き直す", () => {
+  // 🔴 検証の指摘: openDetails(main) が #hq-box の中の details も数え、本文の描き直しの時点では #hq-box が空なので
+  //    番号がずれ、#hq-box の中身（wireHoujin が keep 無しで描く）は畳まれていた
+  const hqd = { open: true }, own = { open: true }, own0 = { open: false };
+  const hqEl = { id: "hq-box", querySelectorAll: (s) => (s === "details" ? [hqd] : []) };
+  hqd.closest = (s) => (s === "[data-paint-own]" ? hqEl : null);
+  own.closest = own0.closest = () => null;
+  ctx.__M = { querySelectorAll: (s) => (s === "details" ? [own0, hqd, own] : []) };
+  ok(run("JSON.stringify(openDetails(__M))") === "[1]", "本文の details の番号に #hq-box の中の details が混ざっている: " + run("JSON.stringify(openDetails(__M))"));
+  ctx.__H = hqEl;
+  ok(run("JSON.stringify(openDetails(__H))") === "[0]", "#hq-box 自身の details を数えていない");
+  ok(html.includes('<div id="hq-box" data-paint-own="1">'), "#hq-box に data-paint-own が無い（本文の details に数えられる）");
+  // redrawMain(keep) が #hq-box の開いた details を覚え、wireHoujin がその keep で描く
+  const saved = { pf: run("paintFigs"), wire: run("wire"), rh: run("renderHq") };
+  const calls = [];
+  ctx.__PF = (el, make, keep) => calls.push({ el, keep });
+  const hb = fakeEl(); hb.querySelectorAll = (s) => (s === "details" ? [{ open: false }, { open: true }] : []);
+  els["hq-box"] = hb;
+  try {
+    run("paintFigs = __PF; wire = () => {}; renderHq = () => ''; hqCache = { x: 1 };");
+    run("redrawMain({}, [])");
+    els["hq-box"] = fakeEl();   // 本文を描き直すと #hq-box は新しい枠になる
+    run("wireHoujin()");
+    const hq = calls.find((c) => c.el === els["hq-box"]);
+    ok(hq && JSON.stringify(hq.keep) === "[1]", "#hq-box を開いていた details のまま描き直していない: " + JSON.stringify(hq && hq.keep));
+    calls.length = 0;
+    els["hq-box"] = hb;
+    run("redrawMain({})");   // 絞り込みの描き直しは覚えない（行が変わると番号が別の行を指す）
+    els["hq-box"] = fakeEl();
+    run("wireHoujin()");
+    const hq2 = calls.find((c) => c.el === els["hq-box"]);
+    ok(hq2 && !(hq2.keep && hq2.keep.length), "絞り込みの描き直しでも #hq-box の details を開き直している");
+  } finally {
+    ctx.__rs = saved;
+    run("paintFigs = __rs.pf; wire = __rs.wire; renderHq = __rs.rh; hqCache = null; hqKeep = null;");
+    delete els["hq-box"];
+  }
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
