@@ -1367,6 +1367,7 @@ pub fn build_phone(sheets: &Sheets, today: NaiveDate) -> Value {
 /// 本部に持っていくのは「事業所どうしの差」そのもの。
 pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
+    let hp = super::houjin_population(&sheets.deal);
     let mut by_houjin: HashMap<&str, Vec<&Deal>> = HashMap::new();
     for d in &deals {
         if !d.houjin_resolved.is_empty() {
@@ -1496,7 +1497,10 @@ pub fn build_headquarters(sheets: &Sheets, today: NaiveDate) -> Value {
     json!({
         "meta": {
             "today": today.to_string(),
-            "n_houjin": by_houjin.len(),
+            // 🔴 法人番号で見る画面の注力の注記と同じ母数（`houjin_population`）。
+            //    `by_houjin` もオプション契約を外した取引から作るので同じ数になる（テストで見張る）
+            "n_houjin": hp.main.len(),
+            "n_houjin_option_only": hp.option_only,
             "all_cached": sheets.all_cached,
             "not_counted": "※ 親法人の合計ではありません。事業所ごとに出しています。決裁は事業所単位なので、まとめると行き先が消えます",
             // 画面の注記に使う。拠点の行の数字どうしで検算できるように、定義を1か所で持つ
@@ -1965,11 +1969,92 @@ fn cpa_band_medians(deals: &[Deal], today: NaiveDate) -> [(Option<f64>, usize); 
 /// m=1 を始月として読んでいる。
 /// （以前ここに「始月は含めない（7/23→9/21 なら2ヶ月目）」と書いてあったが、
 ///   実装は上のとおり始月を含めていて、コメントのほうが誤りだった）
-/// 数え方で率が振れるので1か所に閉じる。②③の案件一覧の「N / 期間 か月目」もこれを使う。
+/// 数え方で率が振れるので1か所に閉じる。
+/// 🔴 これは**暦の月**の番号。顧客詳細の月次推移（変更履歴が月単位）の横軸に使う。
+///    案件一覧の「N / 期間 か月目」には使わない（`contract_month` を使う。理由はそちら）。
 pub(super) fn month_index(start: &str, month: &str) -> Option<i64> {
     let (sy, sm) = super::ym_of(start)?;
     let (my, mm) = super::ym_of(month)?;
     Some((my as i64 - sy as i64) * 12 + (mm as i64 - sm as i64) + 1)
+}
+
+/// 契約の「何ヶ月目か」を**契約の日付で**数える（開始日から1か月ごとに区切る）。
+///
+/// 開始 3/19 なら 3/19〜4/18 が1ヶ月目、8/19〜9/18 が6ヶ月目。
+/// 満了日（HubSpot では「開始 + 期間 − 1日」）の日までは期間を超えない。
+///
+/// 🔴 `month_index`（暦の月の差 + 1）を案件一覧の「N / 期間 か月目」に使っていたので、
+///    **月の途中に始まった契約は最後の月に「7 / 6」と期間を1つ超えていた**。
+///    6ヶ月契約 3/19〜9/18 は暦では 3月〜9月の7か月にまたがるため。
+///    同じ理由で、まだ1か月残っている 10/20 開始の12ヶ月契約が 9/18 に「12 / 12」と出ていた。
+///    実測（fixture・案件一覧の稼働中604件、2026-09-23）: 満了日が「開始 + 期間 − 1日」と
+///    一致 583件（うち開始が1日なのは49件だけ、534件は月の途中の開始）、±3日 19件、
+///    それ以外 1件、期間か日付が空 1件。
+///    基準日 2026-09-18 で、暦の数え方だと期間を超える案件が62件（ほかに「6 / 6」なのに
+///    実際はまだ5ヶ月目、と1か月先に出ていたものが59件）。この数え方だと期間を超えるのは
+///    20件で、その20件は全部、満了日を過ぎてもまだ稼働中のもの。
+///    つまり満了日が後ろにずれている取引ではなく、**暦の月と契約の月を取り違えた1ずれ**。
+///    残る「満了を過ぎて稼働中」は画面が「満了後」と出す（`past_expiry`）。
+/// 🔴 以前（N18）は顧客詳細の月次推移と数え方を揃えるために `month_index` にしていた。
+///    推移の横軸は変更履歴が月単位なので暦の月でしか並べられない。
+///    そちらは横軸を「暦の月」と書いて出し、「何ヶ月目」と名乗らせない。
+///
+/// 🔴 **月末の開始は「月末から月末まで」で区切る**（HubSpot の満了日の決め方に合わせる）。
+///    以前は chrono の `開始 + k か月` をそのまま区切りにしていて、3/31 開始は 9/30 から
+///    7ヶ月目になった。HubSpot の満了日は 9/30（3/31〜9/30）なので、**満了日の当日に**
+///    「7 / 6 か月目」が出ていた（満了日の当日は days_left=0 で `past_expiry` にもならない）。
+///    基準日 2026-09-18 の1日だけを見るテストでは出ず、行ごとに満了日を基準日にして数えて
+///    見つかった（稼働中603件のうち20件。3/31・5/31・8/31 開始など）。
+///    区切りは `month_boundary` の1か所で持つ（`std_expiration` も同じ区切りを使う）。
+///
+/// 開始日が読めない、または開始が `today` より後なら `None`。
+pub(super) fn contract_month(start: &str, today: NaiveDate) -> Option<i64> {
+    use chrono::Datelike;
+    let st = date10(start)?;
+    if st > today {
+        return None;
+    }
+    // 暦の月の差から始めて、k か月の区切りがまだ来ていなければ1つ戻す
+    let mut k = (today.year() - st.year()) * 12 + (today.month() as i32 - st.month() as i32);
+    while k > 0 {
+        match month_boundary(st, k as u32) {
+            Some(d) if d > today => k -= 1,
+            _ => break,
+        }
+    }
+    Some(k as i64 + 1)
+}
+
+/// 開始 `st` から k か月たって、**k+1 ヶ月目が始まる日**。
+///
+/// 「前日 + k か月」の翌日で数える。3/19 開始なら 3/18 + 6 か月 = 9/18 の翌日 9/19 から7ヶ月目。
+/// 月末の開始はこれで「月末から月末まで」になる: 3/31 開始は 3/30 + 6 か月 = 9/30、
+/// 翌日 10/1 から7ヶ月目。1/31 開始は 1/30 + 1 か月 = 2/28（月末に寄る）、3/1 から2ヶ月目。
+/// 🔴 1日の開始だけは前日が前月の月末になり、2/28 + 6 か月 = 8/28 と寄ってしまうので
+///    `開始 + k か月` をそのまま使う（3/1 開始なら 9/1 から7ヶ月目）。
+/// 実測（fixture の CS_取引 全件、期間が整数で日付が読める取引）: 開始日が28日以降で
+/// 満了日が「開始 + 期間 − 1日」（chrono）とだけ合う取引は 11件、この区切りの前日とだけ
+/// 合う取引は 67件（うち31日の開始 55件）。1日の開始は 86件が chrono の式と合い、
+/// 「前日 + 期間」と合うのは1件だけ。
+fn month_boundary(st: NaiveDate, k: u32) -> Option<NaiveDate> {
+    use chrono::Datelike;
+    if st.day() == 1 {
+        return st.checked_add_months(chrono::Months::new(k));
+    }
+    st.pred_opt()?
+        .checked_add_months(chrono::Months::new(k))?
+        .succ_opt()
+}
+
+/// 契約期間どおりなら満了する日（`month_boundary` で区切った期間の最後の日）。
+/// 期間が空・整数でない・開始日が読めないなら `None`。
+/// 画面は実際の満了日とこれを比べて、暦でまたがる月数が期間と違う理由を書く（`spanHint`）。
+pub(super) fn std_expiration(start: &str, period: Option<f64>) -> Option<NaiveDate> {
+    let p = period?;
+    if p <= 0.0 || p.fract() != 0.0 {
+        return None;
+    }
+    month_boundary(date10(start)?, p as u32)?.pred_opt()
 }
 
 /// 取引ごとの月次推移。🔴 **現在値を並べない。** プロパティの変更履歴を使う。
@@ -2017,16 +2102,40 @@ fn monthly_of(
 ///
 /// 🔴 定義はシートの `focus_flags` をそのまま読んでいる。**ここで作り直さない。**
 /// 条件は重なる（1社が2つ3つに当たる）ので、内訳の合計は注力の社数と一致しない。
-fn focus_shape(cust: &[super::Customer], flags: &HashMap<String, super::FocusFlags>) -> Value {
+fn focus_shape(
+    cust: &[super::Customer],
+    flags: &HashMap<String, super::FocusFlags>,
+    hp: &super::HoujinPopulation,
+) -> Value {
     let disp: Vec<&super::Customer> = cust.iter().filter(|c| c.is_display_target).collect();
     let f = |c: &super::Customer| flags.get(&c.houjin).copied().unwrap_or_default();
     let n = |pop: &[&super::Customer], g: fn(&super::FocusFlags) -> bool| -> usize {
         pop.iter().filter(|c| g(&f(c))).count()
     };
-    let all: Vec<&super::Customer> = cust.iter().collect();
+    // 🔴 「全 N 法人まで広げると」の母数は本部アプローチの「全 N 法人」と**同じ集合**
+    //    （`houjin_population` の `main`・オプション契約しか持たない法人を外す）。
+    //    以前は `CS_顧客` の全行（1,649）で、同じ画面の本部アプローチ（1,646）と合わなかった。
+    //    さらに直した後も `CS_顧客 ∩ main` を数えていて、本部の `main.len()` とは式が違った
+    //    （fixture では両方 1,646。取引にあって CS_顧客 に無い法人が出るとずれる）。
+    //    `main` をそのまま数え、注力の旗は CS_顧客 から引く（無い法人は注力に当たらない）
+    let n_focus_all = hp
+        .main
+        .iter()
+        .filter(|h| flags.get(*h).is_some_and(|x| x.any))
+        .count();
+    // 図の母数（稼働中の取引を持つ法人）のうち、オプション契約しか持たない法人。
+    // 🔴 図は選択肢と同じ集合で描く（モックの「517社のうち116社」とも同じ）ので、ここからは外さない。
+    //    代わりに画面に「うち N 社はオプション契約だけ」と書く。書かないと、すぐ下の
+    //    「オプション契約しか持たない法人は数えていません」が図にも掛かって読める（fixture 1社）
+    let n_display_option_only = disp.iter().filter(|c| !hp.main.contains(&c.houjin)).count();
     json!({
+        // `CS_顧客` の行数そのもの（データの点検で使う。画面の「全 N 法人」には使わない）
         "n_all": cust.len(),
+        // 画面の「全 N 法人」。オプション契約しか持たない法人を外した数（本部アプローチと同じ式）
+        "n_houjin": hp.main.len(),
+        "n_houjin_option_only": hp.option_only,
         "n_display": disp.len(),
+        "n_display_option_only": n_display_option_only,
         "display_label": "稼働中の取引を持つ法人",
         // 図は表示対象（稼働中の取引を持つ法人）で描く。全法人だと点が多すぎて数えられない
         "n_focus": n(&disp, |x| x.any),
@@ -2034,7 +2143,7 @@ fn focus_shape(cust: &[super::Customer], flags: &HashMap<String, super::FocusFla
         "enterprise": n(&disp, |x| x.enterprise),
         "multi_site": n(&disp, |x| x.multi_site),
         // 全法人での件数も出す（表示対象だけを見ていると思われないように）
-        "n_focus_all": n(&all, |x| x.any),
+        "n_focus_all": n_focus_all,
         "rule": "月額30万以上 ／ 従業員1,000名以上 ／ 拠点3つ以上 のいずれかに当たる法人です。\
     条件は重なるので、内訳を足しても注力の社数にはなりません。\
     この線引きはシートに入っている値をそのまま読んでいて、画面で決めていません",
@@ -2047,7 +2156,7 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
     let deals = deals_of(&sheets.deal);
     let cust = customers_of(&sheets.customer);
     let fflags = super::focus_flags_of(&sheets.customer);
-    let focus = focus_shape(&cust, &fflags);
+    let focus = focus_shape(&cust, &fflags, &super::houjin_population(&sheets.deal));
 
     let Some(h) = houjin.filter(|x| !x.is_empty()) else {
         // 法人の指定が無ければ一覧だけ返す（全部の明細を返すと巨大になる）
@@ -2173,6 +2282,21 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             json!({
                 "deal_id": d.id, "name": d.name, "start": d.contract_start_date,
                 "period": d.contract_period,
+                // 🔴 横軸は**暦の月**（`month_index`、始月を1）。変更履歴が月単位なので。
+                //    月の途中に始まった契約は、契約 6ヶ月でも暦では7か月にまたがる
+                //    （案件一覧の稼働中604件のうち553件がこれ。`contract_month` の実測）。画面は横軸を
+                //    「Nヶ月」ではなく暦の月で出し、期間とまたがる月数の違いを書く。
+                "expiration": d.contract_expiration_date,
+                // 契約期間どおりなら満了する日（`std_expiration`）。画面は実際の満了日と比べて、
+                // 暦でまたがる月数が期間と違う理由を選ぶ。🔴 span_months だけで選ぶと、
+                // 1日に始まって満了日が1か月後ろにずれた取引（fixture 2件）にも
+                // 「月の途中に始まったので」と出ていた
+                "std_expiration": std_expiration(&d.contract_start_date, d.contract_period)
+                    .map(|x| x.to_string()),
+                // 開始の月から満了の月まで、暦で何か月にまたがるか。満了日が空・読めなければ null
+                "span_months": d
+                    .manryou_month()
+                    .and_then(|m| month_index(&d.contract_start_date, m)),
                 "until": until,
                 "series": monthly_of(&series, d, &["oubo", "mensetu", "syoudaku"], &until),
                 "nps": monthly_of(&series, d, super::NPS_PROPS, &until),
@@ -2488,15 +2612,19 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
         let start = date10(&d.contract_start_date);
         let not_started = start.is_some_and(|st| st > today);
         let started = start.is_some_and(|st| st <= today);
-        // 「契約の N ヶ月目」。🔴 顧客詳細の月次推移と同じ数え方（`month_index`・始月を1）。
-        //    以前は経過日数 ÷ 30.4 を丸めていて、7/23 開始・9/21 なら「2」、
-        //    同じ日の顧客詳細は「9月＝3ヶ月目」と、画面によって1ずれていた。
+        // 「契約の N ヶ月目」。🔴 契約の日付で数える（`contract_month`）。
+        //    暦の月（`month_index`）で数えていたので、月の途中に始まった契約が
+        //    最後の月に「7 / 6 か月目」と期間を超えていた（理由と実測は `contract_month`）。
         let months = if started {
-            month_index(&d.contract_start_date, &until)
+            contract_month(&d.contract_start_date, today)
         } else {
             None
         };
         let days_left = date10(&d.contract_expiration_date).map(|e| (e - today).num_days());
+        // 満了日を過ぎてもまだ稼働中。🔴 画面は「何ヶ月目」の代わりに「満了後」と出す。
+        //    「15 / 6 か月目」のように期間を超えた数字は、数え間違いに見えて読めない。
+        //    実測（fixture・基準日 2026-09-18）で案件一覧の稼働中604件のうち20件
+        let past_expiry = matches!(days_left, Some(x) if x < 0);
         let last_contact = contacts.get(&d.id).and_then(|v| v.iter().max().copied());
         let days_since = last_contact.map(|l| (today - l).num_days());
         let n_contact = contacts.get(&d.id).map(|v| v.len()).unwrap_or(0);
@@ -2588,8 +2716,10 @@ fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
             "deal_id": d.id, "name": d.name, "stage": d.stage_label,
             "consultant": owner, "retired": retired,
             "amount": d.amount, "focus": focus.get(&d.houjin_resolved).copied().unwrap_or(false),
-            // 契約の N ヶ月目（始月が1）。開始前・開始日が空なら null
+            // 契約の N ヶ月目（開始日から1か月ごと。`contract_month`）。開始前・開始日が空なら null
             "months": months,
+            // 満了日を過ぎてもまだ稼働中。画面は「何ヶ月目」の代わりに「満了後」と出す
+            "past_expiry": past_expiry,
             // 開始前かどうか。画面は「何ヶ月目」の代わりに「開始前」と出す
             "not_started": not_started,
             // 開始日が空。開始前ではない（分からない）
