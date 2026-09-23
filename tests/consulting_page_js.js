@@ -904,12 +904,83 @@ check("法人数", "注力の注記と本部アプローチの「全 N 法人」
   if (h.indexOf("全 1,649 法人") >= 0) throw new Error("CS_顧客 の行数（1,649）を「全 N 法人」に出している");
   if (h.indexOf("全 1,646 法人まで広げると注力は 223 社です") < 0)
     throw new Error("本部アプローチと同じ 1,646 になっていない");
-  if (h.indexOf("オプション契約しか持たない 3 法人は数えていません") < 0)
+  // 🔴 文言は「3 法人は数えていません」から「3 法人を除いた全 1,646 法人」に変えた。
+  //    図の母数（517）の側にもオプション契約しか持たない法人がいるので、どちらの母数の話かを文の中で分ける
+  if (h.indexOf("オプション契約しか持たない 3 法人を除いた全 1,646 法人") < 0)
     throw new Error("外した3法人のことが書かれていない");
   const hq = t.R("renderHq")({ meta: { n_houjin: 1646, n_houjin_option_only: 3, today: "2026-09-18",
     not_counted: "", cpa_rule: "", cancel_rule: "" }, multi_site: 194, truncated: false, rows: [] });
   if (hq.indexOf("全 1,646 法人。オプション契約しか持たない 3 法人は除く") < 0)
     throw new Error("本部アプローチの「全 N 法人」に除いた法人のことが書かれていない");
+});
+
+/* ================================================================ N18c */
+// N18b の検証で出た残り。月末に始まった契約（3/31〜9/30 など）が満了日の当日だけ「7 / 6」と
+// 出ていたのはサーバ（contract_month）で直した。画面側は、満了日が後ろにずれて期間を超える行、
+// 満了後の行の並べ替え、推移の横に書く理由の選び方、注力の図の母数を直した。
+check("N18c", "満了日が後ろにずれて期間を超えた行は「2 / 1」と出さず、ずれていると書く", async () => {
+  const t = boot();
+  const pos = t.R("pos");
+  // fixture 62465528145: 1ヶ月契約 2026-06-01〜2026-07-31。7/1〜7/31 は2ヶ月目だが満了前
+  const late = pos({ months: 2, period: 1, past_expiry: false, band: "終盤" });
+  if (late.indexOf("2 / 1") >= 0) throw new Error("期間を超えた分数が出ている: " + late);
+  if (late.indexOf("満了日が後ろにずれています") < 0 || late.indexOf("契約 1 か月") < 0)
+    throw new Error("満了日がずれていることが書かれていない: " + late);
+  const ok = pos({ months: 1, period: 1, past_expiry: false });
+  if (ok.indexOf("1 / 1") < 0) throw new Error("期間内の表示が変わった: " + ok);
+});
+check("N18c", "「何ヶ月目」の並べ替えで、満了後の行は内部の月数ではなく満了を過ぎた日数で後ろに並ぶ", async () => {
+  const t = boot();
+  const rows = [
+    boardRow({ deal_id: "a", name: "満了後300日", months: 15, period: 6, past_expiry: true, days_left: -300 }),
+    boardRow({ deal_id: "b", name: "期間内10", months: 10, period: 12, past_expiry: false, days_left: 60 }),
+    boardRow({ deal_id: "c", name: "満了後5日", months: 8, period: 6, past_expiry: true, days_left: -5 }),
+  ];
+  const order = (asc) => {
+    const h = t.R("boardTable")(rows, { key: "months", asc: asc }, "x");
+    return ["満了後300日", "期間内10", "満了後5日"]
+      .map((n) => [n, h.indexOf(n)]).sort((p, q) => p[1] - q[1]).map((p) => p[0]).join(",");
+  };
+  // 内部の months（15 / 10 / 8）で並べると 満了後300日, 期間内10, 満了後5日 になる
+  if (order(false) !== "満了後300日,満了後5日,期間内10") throw new Error("大きい順: " + order(false));
+  if (order(true) !== "期間内10,満了後5日,満了後300日") throw new Error("小さい順: " + order(true));
+});
+check("N18c", "推移の横に書く理由は満了日を比べて選ぶ（1日開始のずれに「月の途中」と書かない）", async () => {
+  const t = boot();
+  const sh = t.R("spanHint");
+  const mid = sh({ start: "2026-03-19", expiration: "2026-09-18", std_expiration: "2026-09-18",
+    period: 6, span_months: 7 });
+  if (mid.indexOf("月の途中に始まったので") < 0) throw new Error("月の途中の開始: " + mid);
+  // fixture 62465528145: 1日に始まり、満了日が1か月後ろ（span = 期間 + 1）
+  const late1 = sh({ start: "2026-06-01", expiration: "2026-07-31", std_expiration: "2026-06-30",
+    period: 1, span_months: 2 });
+  if (late1.indexOf("月の途中") >= 0) throw new Error("1日の開始なのに月の途中と書いている: " + late1);
+  if (late1.indexOf("（2026-06-30）より後ろ") < 0) throw new Error("後ろにずれていると書いていない: " + late1);
+  // 満了日が2か月以上後ろ（span > 期間 + 1）
+  const late2 = sh({ start: "2025-01-10", expiration: "2025-12-09", std_expiration: "2025-07-09",
+    period: 6, span_months: 12 });
+  if (late2.indexOf("より後ろにあり、暦では 12 か月") < 0) throw new Error("2か月以上後ろ: " + late2);
+  // fixture 15873848622: 12ヶ月契約なのに 2025-12-18〜2026-06-17（span < 期間）
+  const early = sh({ start: "2025-12-18", expiration: "2026-06-17", std_expiration: "2026-12-17",
+    period: 12, span_months: 7 });
+  if (early.indexOf("（2026-12-17）より前にあり、暦では 7 か月") < 0) throw new Error("期間より前: " + early);
+  // 月の途中の開始で、またがる月数がちょうど期間になる（満了日が前）
+  const early2 = sh({ start: "2026-03-19", expiration: "2026-08-10", std_expiration: "2026-09-18",
+    period: 6, span_months: 6 });
+  if (early2.indexOf("より前にあり") < 0) throw new Error("span = 期間 でも満了日が前: " + early2);
+  const plain = sh({ start: "2026-04-01", expiration: "2026-09-30", std_expiration: "2026-09-30",
+    period: 6, span_months: 6 });
+  if (plain.indexOf("またがります") >= 0) throw new Error("期間どおりなのに理由の文が出る: " + plain);
+});
+check("N18c", "注力の図の母数にオプション契約だけの法人が入っていることを書く", async () => {
+  const t = boot();
+  const f = { n_all: 1649, n_houjin: 1646, n_houjin_option_only: 3, n_display: 517,
+    n_display_option_only: 1, n_focus: 116, n_focus_all: 223, monthly_over_300k: 58, enterprise: 41,
+    multi_site: 46, display_label: "稼働中の取引を持つ法人", rule: "", not_layer: "" };
+  const h = t.R("focusSection")(customerPayload([], { focus: f }));
+  if (h.indexOf("この 517 社には、オプション契約しか持たない法人 1 社も入っています") < 0)
+    throw new Error("図の母数にオプション契約だけの法人がいることが書かれていない");
+  if (h.indexOf("数えていません") >= 0) throw new Error("図にも掛かって読める「数えていません」が残っている");
 });
 
 /* ---------------------------------------------------------------- 実行 */

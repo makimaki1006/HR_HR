@@ -1999,6 +1999,14 @@ pub(super) fn month_index(start: &str, month: &str) -> Option<i64> {
 ///    推移の横軸は変更履歴が月単位なので暦の月でしか並べられない。
 ///    そちらは横軸を「暦の月」と書いて出し、「何ヶ月目」と名乗らせない。
 ///
+/// 🔴 **月末の開始は「月末から月末まで」で区切る**（HubSpot の満了日の決め方に合わせる）。
+///    以前は chrono の `開始 + k か月` をそのまま区切りにしていて、3/31 開始は 9/30 から
+///    7ヶ月目になった。HubSpot の満了日は 9/30（3/31〜9/30）なので、**満了日の当日に**
+///    「7 / 6 か月目」が出ていた（満了日の当日は days_left=0 で `past_expiry` にもならない）。
+///    基準日 2026-09-18 の1日だけを見るテストでは出ず、行ごとに満了日を基準日にして数えて
+///    見つかった（稼働中603件のうち20件。3/31・5/31・8/31 開始など）。
+///    区切りは `month_boundary` の1か所で持つ（`std_expiration` も同じ区切りを使う）。
+///
 /// 開始日が読めない、または開始が `today` より後なら `None`。
 pub(super) fn contract_month(start: &str, today: NaiveDate) -> Option<i64> {
     use chrono::Datelike;
@@ -2006,16 +2014,47 @@ pub(super) fn contract_month(start: &str, today: NaiveDate) -> Option<i64> {
     if st > today {
         return None;
     }
-    // 暦の月の差から始めて、今月の「開始日と同じ日」がまだ来ていなければ1つ戻す。
-    // 月末の開始（1/31 など）は chrono が月末に寄せる（2/28）
+    // 暦の月の差から始めて、k か月の区切りがまだ来ていなければ1つ戻す
     let mut k = (today.year() - st.year()) * 12 + (today.month() as i32 - st.month() as i32);
     while k > 0 {
-        match st.checked_add_months(chrono::Months::new(k as u32)) {
+        match month_boundary(st, k as u32) {
             Some(d) if d > today => k -= 1,
             _ => break,
         }
     }
     Some(k as i64 + 1)
+}
+
+/// 開始 `st` から k か月たって、**k+1 ヶ月目が始まる日**。
+///
+/// 「前日 + k か月」の翌日で数える。3/19 開始なら 3/18 + 6 か月 = 9/18 の翌日 9/19 から7ヶ月目。
+/// 月末の開始はこれで「月末から月末まで」になる: 3/31 開始は 3/30 + 6 か月 = 9/30、
+/// 翌日 10/1 から7ヶ月目。1/31 開始は 1/30 + 1 か月 = 2/28（月末に寄る）、3/1 から2ヶ月目。
+/// 🔴 1日の開始だけは前日が前月の月末になり、2/28 + 6 か月 = 8/28 と寄ってしまうので
+///    `開始 + k か月` をそのまま使う（3/1 開始なら 9/1 から7ヶ月目）。
+/// 実測（fixture の CS_取引 全件、期間が整数で日付が読める取引）: 開始日が28日以降で
+/// 満了日が「開始 + 期間 − 1日」（chrono）とだけ合う取引は 11件、この区切りの前日とだけ
+/// 合う取引は 67件（うち31日の開始 55件）。1日の開始は 86件が chrono の式と合い、
+/// 「前日 + 期間」と合うのは1件だけ。
+fn month_boundary(st: NaiveDate, k: u32) -> Option<NaiveDate> {
+    use chrono::Datelike;
+    if st.day() == 1 {
+        return st.checked_add_months(chrono::Months::new(k));
+    }
+    st.pred_opt()?
+        .checked_add_months(chrono::Months::new(k))?
+        .succ_opt()
+}
+
+/// 契約期間どおりなら満了する日（`month_boundary` で区切った期間の最後の日）。
+/// 期間が空・整数でない・開始日が読めないなら `None`。
+/// 画面は実際の満了日とこれを比べて、暦でまたがる月数が期間と違う理由を書く（`spanHint`）。
+pub(super) fn std_expiration(start: &str, period: Option<f64>) -> Option<NaiveDate> {
+    let p = period?;
+    if p <= 0.0 || p.fract() != 0.0 {
+        return None;
+    }
+    month_boundary(date10(start)?, p as u32)?.pred_opt()
 }
 
 /// 取引ごとの月次推移。🔴 **現在値を並べない。** プロパティの変更履歴を使う。
@@ -2073,20 +2112,30 @@ fn focus_shape(
     let n = |pop: &[&super::Customer], g: fn(&super::FocusFlags) -> bool| -> usize {
         pop.iter().filter(|c| g(&f(c))).count()
     };
-    // 🔴 「全 N 法人まで広げると」の母数は本部アプローチの「全 N 法人」と同じもの
-    //    （`houjin_population`・オプション契約しか持たない法人を外す）。
-    //    以前は `CS_顧客` の全行（1,649）で、同じ画面の本部アプローチ（1,646）と合わなかった
-    let all: Vec<&super::Customer> = cust
+    // 🔴 「全 N 法人まで広げると」の母数は本部アプローチの「全 N 法人」と**同じ集合**
+    //    （`houjin_population` の `main`・オプション契約しか持たない法人を外す）。
+    //    以前は `CS_顧客` の全行（1,649）で、同じ画面の本部アプローチ（1,646）と合わなかった。
+    //    さらに直した後も `CS_顧客 ∩ main` を数えていて、本部の `main.len()` とは式が違った
+    //    （fixture では両方 1,646。取引にあって CS_顧客 に無い法人が出るとずれる）。
+    //    `main` をそのまま数え、注力の旗は CS_顧客 から引く（無い法人は注力に当たらない）
+    let n_focus_all = hp
+        .main
         .iter()
-        .filter(|c| hp.main.contains(&c.houjin))
-        .collect();
+        .filter(|h| flags.get(*h).is_some_and(|x| x.any))
+        .count();
+    // 図の母数（稼働中の取引を持つ法人）のうち、オプション契約しか持たない法人。
+    // 🔴 図は選択肢と同じ集合で描く（モックの「517社のうち116社」とも同じ）ので、ここからは外さない。
+    //    代わりに画面に「うち N 社はオプション契約だけ」と書く。書かないと、すぐ下の
+    //    「オプション契約しか持たない法人は数えていません」が図にも掛かって読める（fixture 1社）
+    let n_display_option_only = disp.iter().filter(|c| !hp.main.contains(&c.houjin)).count();
     json!({
         // `CS_顧客` の行数そのもの（データの点検で使う。画面の「全 N 法人」には使わない）
         "n_all": cust.len(),
-        // 画面の「全 N 法人」。オプション契約しか持たない法人を外した数
-        "n_houjin": all.len(),
+        // 画面の「全 N 法人」。オプション契約しか持たない法人を外した数（本部アプローチと同じ式）
+        "n_houjin": hp.main.len(),
         "n_houjin_option_only": hp.option_only,
         "n_display": disp.len(),
+        "n_display_option_only": n_display_option_only,
         "display_label": "稼働中の取引を持つ法人",
         // 図は表示対象（稼働中の取引を持つ法人）で描く。全法人だと点が多すぎて数えられない
         "n_focus": n(&disp, |x| x.any),
@@ -2094,7 +2143,7 @@ fn focus_shape(
         "enterprise": n(&disp, |x| x.enterprise),
         "multi_site": n(&disp, |x| x.multi_site),
         // 全法人での件数も出す（表示対象だけを見ていると思われないように）
-        "n_focus_all": n(&all, |x| x.any),
+        "n_focus_all": n_focus_all,
         "rule": "月額30万以上 ／ 従業員1,000名以上 ／ 拠点3つ以上 のいずれかに当たる法人です。\
     条件は重なるので、内訳を足しても注力の社数にはなりません。\
     この線引きはシートに入っている値をそのまま読んでいて、画面で決めていません",
@@ -2238,6 +2287,12 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
                 //    （案件一覧の稼働中604件のうち553件がこれ。`contract_month` の実測）。画面は横軸を
                 //    「Nヶ月」ではなく暦の月で出し、期間とまたがる月数の違いを書く。
                 "expiration": d.contract_expiration_date,
+                // 契約期間どおりなら満了する日（`std_expiration`）。画面は実際の満了日と比べて、
+                // 暦でまたがる月数が期間と違う理由を選ぶ。🔴 span_months だけで選ぶと、
+                // 1日に始まって満了日が1か月後ろにずれた取引（fixture 2件）にも
+                // 「月の途中に始まったので」と出ていた
+                "std_expiration": std_expiration(&d.contract_start_date, d.contract_period)
+                    .map(|x| x.to_string()),
                 // 開始の月から満了の月まで、暦で何か月にまたがるか。満了日が空・読めなければ null
                 "span_months": d
                     .manryou_month()
