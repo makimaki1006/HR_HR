@@ -31,6 +31,7 @@
        それでも ink(17.41:1) よりはっきり弱いので、「データより一段落とす」役割は保つ。 */
     --ghost:#616e7d;
     --shadow-card:0 1px 2px rgba(25,26,28,.05), 0 6px 18px -12px rgba(25,26,28,.22);
+    --edge-shade:rgba(0,0,0,.2);   /* 表の枠の端の影（.scroll-wrap）。暗い表示では明るい側に振る */
     /* 間隔。数列の5段と、用途で名付けた1つ。
        space-gap は「カードや図の間」。実測で最多(9箇所)だったので段ではなく用途名にした。
        数列に見せかけて実は7段、という状態が一番読めないため。 */
@@ -67,6 +68,7 @@
       --murasaki:#a294d8;
       --grid:#2d3138; --ghost:#888f99;   /* 2.69:1 → 4.53:1 */
       --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
+      --edge-shade:rgba(255,255,255,.14);   /* 表の枠の端の影。下の .scroll-wrap を参照 */
     }
   }
   :root[data-theme="dark"]{
@@ -80,6 +82,7 @@
     --murasaki:#a294d8;
     --grid:#2d3138; --ghost:#888f99;
     --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
+    --edge-shade:rgba(255,255,255,.14);
   }
 
   *{ box-sizing:border-box; }
@@ -475,15 +478,19 @@ details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
 /* 枠の端の影（V12 の残り、2026-09-23 実機）。文で「スクロールします」と書いても、
    右端の列が切れて見えるだけで続きがあると分からなかった。
    横にまだ続きがある側にだけ影を出す（more-r / more-l は markScroll が付け外しする）。
-   影は枠（.scroll）の外側の包み（.scroll-wrap）に描く。.scroll の中に描くと表と一緒に流れる */
+   影は枠（.scroll）の外側の包み（.scroll-wrap）に描く。.scroll の中に描くと表と一緒に流れる。
+   🔴 影の色を rgba(0,0,0,.2) の固定にしていて、暗い表示の枠の地 #1d2026 の上では
+      20% の黒を重ねても約 rgb(23,26,30) で、地との差がほとんど無かった（2026-09-23 検証、
+      prefers-color-scheme: dark の Playwright）。色は --edge-shade にして、暗い表示では
+      14% の白（重ねると約 rgb(61,63,68)）にする */
 .scroll-wrap{ position:relative; margin:var(--space-3) 0; }
 .scroll-wrap > .scroll{ margin:0; }
 .scroll-wrap::before, .scroll-wrap::after{ content:""; position:absolute; top:1px; bottom:1px; width:28px;
   pointer-events:none; opacity:0; transition:opacity .15s; z-index:3; }
 .scroll-wrap::before{ left:1px; border-radius:var(--radius-lg) 0 0 var(--radius-lg);
-  background:linear-gradient(to right, rgba(0,0,0,.2), rgba(0,0,0,0)); }
+  background:linear-gradient(to right, var(--edge-shade), transparent); }
 .scroll-wrap::after{ right:1px; border-radius:0 var(--radius-lg) var(--radius-lg) 0;
-  background:linear-gradient(to left, rgba(0,0,0,.2), rgba(0,0,0,0)); }
+  background:linear-gradient(to left, var(--edge-shade), transparent); }
 .scroll-wrap.more-l::before, .scroll-wrap.more-r::after{ opacity:1; }
 /* 文を読ませる表（定義と検証）。🔴 td は既定で折り返さないので、「なぜ」の長い文が
    1行のまま右へ伸びて枠の右端で切れていた（2026-09-23 実機）。この表だけ折り返す */
@@ -686,6 +693,11 @@ function lg(kind, color, label, op) {
     ring: `<circle cx="6" cy="8" r="4.2" style="fill:var(--panel);stroke:${color}" stroke-width="1.6" stroke-dasharray="2 1.6"/>`,
     line: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4"/>`,
     dash: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4" stroke-dasharray="3 2.5"/>`,
+    /* 縦の線。採用単価の図の「月割り」（棒の上に重ねた縦の線、cpa3Bars）と同じ描き方 */
+    tick: `<path d="M6 2V14" style="stroke:${color}" stroke-width="2.4"/>`,
+    /* 斜線。値が無い区間（目標の帯の「承諾数が空」、stackHatch）と同じ描き方 */
+    hatch: `<rect x="1.5" y="3.5" width="9" height="9" rx="1.5" style="fill:var(--panel);stroke:${color}" stroke-width="1"/>` +
+      `<path d="M1.5 9.5L7.5 3.5M1.5 12.5L10.5 3.5M4.5 12.5L10.5 6.5" style="stroke:${color}" stroke-width="1.2"/>`,
     /* 中空・破線の四角。積み上げ縦棒の「引き継ぎ」の区間と同じ描き方 */
     hollow: `<rect x="1.5" y="3.5" width="9" height="9" rx="1.5" style="fill:var(--panel);stroke:${color}" stroke-width="1.4" stroke-dasharray="3 2"/>`,
     none: `<path d="M1 8H11" style="stroke:${color}" stroke-width="2"/>`,
@@ -1122,9 +1134,31 @@ function svgStack(o) {
 function stackLegend(parts) {
   const total = parts.reduce((a, b) => a + b.v, 0);
   /* 粒の濃さは帯と同じにする（faint の帯を不透明の粒で示すと、別の色に見える） */
-  return parts.map((p, i) => lg(p.open ? "openbox" : "box", p.color || SERIES[i % SERIES.length],
+  return parts.map((p, i) => lg(p.hatch ? "hatch" : p.open ? "openbox" : "box", p.color || SERIES[i % SERIES.length],
     `${esc(p.label)} <strong>${F.int(p.v)}</strong> 件 / ${(p.v / total * 100).toFixed(1)}%`,
-    p.open ? null : p.faint ? STACK_FAINT_OP : STACK_OP)).join("");
+    p.open || p.hatch ? null : p.faint ? STACK_FAINT_OP : STACK_OP)).join("");
+}
+/** 100%帯のうち hatch の区間を斜線で描き替える（svgStack の出力を後から直す。部品は変えない）。
+    値が無い区間に使う。中まで塗ると、中空・破線（未確定）の区間より確かなものに見えてしまう。
+    形が読めないときは何もしない（見張りが落ちる） */
+function stackHatch(svg, parts) {
+  const hs = parts.filter((p) => p.hatch && p.v > 0);
+  if (!hs.length) return svg;
+  const col = hs[0].color || C.ghost;
+  const id = "cs-hatch-nodata";
+  let n = 0;
+  const out = String(svg)
+    .replace(/<rect x="([0-9.]+)" y="6" width="([0-9.]+)" height="([0-9.]+)" rx="2" style="fill:[^"]+" opacity="[.0-9]+">(<title>([^<:]*):[^<]*<\/title>)<\/rect>(<text [^>]*style="fill:var\(--panel\))?/g,
+      (all, x, w, h, t, label, tx) => {
+        if (!hs.some((p) => p.label === label)) return all;
+        n++;
+        return `<rect x="${x}" y="6" width="${w}" height="${h}" rx="2" style="fill:url(#${id});stroke:${col}" stroke-width="1" data-fill="hatch">${t}</rect>` +
+          (tx ? tx.replace("var(--panel)", "var(--ink-2)") : "");
+      });
+  if (n !== hs.length) return svg;
+  const defs = `<defs><pattern id="${id}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">` +
+    `<rect width="6" height="6" style="fill:var(--panel)"/><line x1="0" y1="0" x2="0" y2="6" style="stroke:${col}" stroke-width="1.6"/></pattern></defs>`;
+  return out.replace(/(<svg [^>]*>)/, "$1" + defs);
 }
 
 /* ------------------------------------------------------------ 充足率の面 */
@@ -2224,32 +2258,72 @@ function custFilter(D, ids) {
 
 /* 顧客1件の中身。`want` に入れた節だけを出す。
    節の中身はいままでのまま。粒度ごとに要る節が違うので、出し分けだけを足した。 */
-/** 横棒の図に、行ごとの比べる値（中央値など）を丸い印で重ねる。
+/** 横棒の図に、行ごとの比べる値（中央値など）を印で重ねる。
     🔴 svgBarH には印を置く口が無い（部品は「図の部品チーム」の持ち物で、ここでは変えない）。
     描かれた SVG の目盛り（gridline の x と、目盛りの値）から尺度を読み取り、行の y は左のラベルから取る。
     尺度は svgBarH と同じ ticks(0, 最大値, 4, 最小刻み) で目盛りの値を作って対応させる。
-    印の値が軸の最大を超えるときは右端に置き、title に値を書く（隠さない）。
+    🔴 比べる中央値は稼働中の契約どうしから出した値（routes.rs の band_median は is_active のときだけ）で、
+       未確定。中まで塗った丸で描いていて、規律「未確定は中空の印と破線」と合わなかった
+       （2026-09-23 検証）。中空・破線の丸にする（凡例は lg("ring")）。
+    🔴 印の値が軸の最大を超えるときは右端に寄せるしかない。前は「軸の外」を title
+       （マウスを乗せたときだけ出る）にしか書いておらず、スマホでは右端の値と読まれるおそれがあった。
+       右端には丸ではなく右向きの三角を置き、見える文字（行の注記）にも「軸の外」と書く（custBlocks）。
     marks: 行と同じ並びの値（null は印を置かない） */
 function barMarks(svg, rows, marks, fmt) {
   const s = String(svg);
   if (!marks.some((m) => m != null) || s.indexOf("<svg") !== 0) return s;
-  const vs = rows.filter((r) => r.v != null).map((r) => r.v)
-    .concat(rows.filter((r) => r.v0 != null).map((r) => r.v0));
-  const hi = Math.max(...vs, 0);
+  const hi = barHi(rows);
   const tv = ticks(0, hi, 4, minStepOf(fmt));
   const gx = [...s.matchAll(/<line class="gridline" x1="([0-9.]+)"/g)].map((m) => +m[1]);
   const ly = [...s.matchAll(/<text class="axl" x="[0-9.]+" y="([0-9.]+)"/g)].map((m) => +m[1] - 4);
   if (gx.length !== tv.length || tv.length < 2 || ly.length !== rows.length) return s;
   const k = (gx[gx.length - 1] - gx[0]) / (tv[tv.length - 1] - tv[0]);
   const X = (v) => gx[0] + (Math.min(v, hi) - tv[0]) * k;
+  const open = `style="fill:var(--panel);stroke:${C.ink}" stroke-width="1.6" stroke-dasharray="2 1.6"`;
   let g = "";
   marks.forEach((m, i) => {
     if (m == null) return;
-    g += `<circle cx="${X(m).toFixed(1)}" cy="${ly[i].toFixed(1)}" r="4.5" data-mark="band" ` +
-      `style="fill:${C.ink};stroke:var(--panel)" stroke-width="1.5">` +
-      `<title>${esc(rows[i].label)}: 比べる中央値 ${esc(fmt(m))}${m > hi ? "（軸の外）" : ""}</title></circle>`;
+    const out = m > hi, x = X(m), y = ly[i];
+    const t = `<title>${esc(rows[i].label)}: 比べる中央値 ${esc(fmt(m))}${out ? "（軸の外）" : ""}</title>`;
+    g += out
+      ? `<path d="M${(x - 7).toFixed(1)} ${(y - 5).toFixed(1)}L${x.toFixed(1)} ${y.toFixed(1)}L${(x - 7).toFixed(1)} ${(y + 5).toFixed(1)}Z" data-mark="band-out" ${open}>${t}</path>`
+      : `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" data-mark="band" ${open}>${t}</circle>`;
   });
   return s.replace(/<\/svg>$/, g + "</svg>");
+}
+/** svgBarH の軸の最大（v と v0 の最大）。svgBarH の中の計算と同じ */
+function barHi(rows) {
+  const vs = rows.filter((r) => r.v != null).map((r) => r.v)
+    .concat(rows.filter((r) => r.v0 != null).map((r) => r.v0));
+  return Math.max(...vs, 0);
+}
+/** 採用単価の図の棒を、規律どおりの見た目に描き替える（svgBarH の出力を後から直す。部品は変えない）。
+    🔴 稼働中の契約（採用がまだ伸びる途中）を「薄く塗った棒」で描いていた。形は確定と同じで、
+       色の濃さでしか区別できなかった（色だけで伝えている）。規律と「定義と検証」の表は
+       「未確定は中空の印と破線」なので、open の行の棒を中空・破線にする（svgStack の open と同じ描き方）。
+    🔴 月割りは svgBarH の v0（点線の枠）で描いていて、破線が「未確定」と「月割り」の2つの意味を
+       持っていた。さらに枠は行の色で描かれるので、稼働中の行を灰にしたら凡例（藍）と色も合わなかった
+       （2026-09-23 検証）。月割りは棒の上の縦の線（墨・実線）にして、破線を未確定だけに使う。
+    rows: svgBarH に渡した行（open: 未確定か）。形が読めないときは何もしない（見張りが落ちる） */
+function cpa3Bars(svg, rows) {
+  const s = String(svg);
+  const withV = rows.filter((r) => r.v != null);
+  const barRe = /<rect x="([0-9.]+)" y="([0-9.]+)" width="([0-9.]+)" height="([0-9.]+)" rx="2" style="fill:([^"]+)" opacity="[.0-9]+">(<title>[^<]*<\/title>)<\/rect>/g;
+  if ((s.match(barRe) || []).length !== withV.length) return s;
+  let i = 0;
+  const f1 = (v) => (+v).toFixed(1);
+  return s.replace(barRe, (all, x, y, w, h, col, t) => {
+    const r = withV[i++];
+    if (!r || !r.open) return all;
+    return `<rect x="${f1(+x + 0.8)}" y="${f1(+y + 0.8)}" width="${f1(Math.max(0.5, +w - 1.6))}" height="${f1(+h - 1.6)}" rx="2" ` +
+      `style="fill:var(--panel);stroke:${col}" stroke-width="1.6" stroke-dasharray="4 3" data-open="1">` +
+      t.replace("</title>", "（未確定・稼働中）</title>") + "</rect>";
+  }).replace(/<rect x="([0-9.]+)" y="([0-9.]+)" width="([0-9.]+)" height="([0-9.]+)" rx="2" fill="none" style="stroke:[^"]+" stroke-width="1.2" stroke-dasharray="3 2.4" opacity=".75"><title>前回: ([^<]*)<\/title><\/rect>/g,
+    (all, x, y, w, h, t) => {
+      const xe = f1(+x + +w);
+      return `<line x1="${xe}" y1="${f1(y)}" x2="${xe}" y2="${f1(+y + +h)}" style="stroke:${C.ink}" stroke-width="2.4" data-mark="monthly">` +
+        `<title>月割り: ${t}</title></line>`;
+    });
 }
 function custBlocks(D, want) {
   if (!D.meta.found) return note("warn", "見つかりません", "この法人の取引がありません。");
@@ -2306,31 +2380,41 @@ function custBlocks(D, want) {
   /* 🔴 未確定の見た目を right_censored だけで決めていて、稼働中の契約（採用がまだ伸びる途中）も
      確定と同じ藍で塗っていた。凡例には「同（未確定・稼働中）」の灰があるのに、棒は全部藍
      （2026-09-23 実機。fixture の h00f31a786bac では稼働中 2 件のうち censored は 1 件だけで、
-     総額が出ている稼働中の 1 件が藍だった）。稼働中も未確定として薄い灰にする */
+     総額が出ている稼働中の 1 件が藍だった）。稼働中も未確定にする。
+     🔴 その未確定を「薄く塗った灰の棒」で描いていたのは規律と違った（形が確定と同じで、濃さでしか
+     分からない）。未確定は中空・破線の棒（cpa3Bars）、月割りは縦の線、中央値は中空・破線の丸 */
   const open3 = (x) => !!(x.censored || x.active);
   const c3rows = c3.map((x) => ({
     label: shortName(x.name || x.deal_id, 20),
     v: x.total, v0: x.monthly,
     txt: yen(x.total),
-    note: (x.band ? "進捗帯「" + x.band + "」の中央値 " +
-            (x.band_median == null ? "なし（n<" + MIN_N + "）" : yen(x.band_median)) : "") +
-          (x.syoudaku != null ? "　" + num(x.syoudaku) + "人" : ""),
-    /* 採用単価は量なので赤を使わない（V9）。確定は藍、未確定は薄い灰 */
-    color: open3(x) ? C.ghost : C.ai,
-    faint: open3(x),
+    note: "",
+    /* 採用単価は量なので赤を使わない（V9）。確定も未確定も藍で、塗りか中空かで分ける */
+    color: C.ai,
+    open: open3(x),
   }));
+  /* 中央値が軸の最大（総額・月割りの最大）を超える行は、図の右端に寄せて描くしかない。
+     見える文字にも「軸の外」と書く（title だけだとスマホで見えない） */
+  const hi3 = barHi(c3rows);
+  c3rows.forEach((r, i) => {
+    const x = c3[i];
+    r.note = (x.band ? "進捗帯「" + x.band + "」の中央値 " +
+               (x.band_median == null ? "なし（n<" + MIN_N + "）"
+                 : yen(x.band_median) + (x.band_median > hi3 ? "（軸の外）" : "")) : "") +
+             (x.syoudaku != null ? "　" + num(x.syoudaku) + "人" : "");
+  });
   const hasMed = c3.some((x) => x.band_median != null);
   h += fig("同じ契約でも、出し方で値が変わります",
     "顧客が見ているのは「1人採るのにいくらかかったか」",
     c3.length
-      ? barMarks(svgBarH({ w: 700, fmt: F.man, rh: 26, rows: c3rows }), c3rows,
+      ? barMarks(cpa3Bars(svgBarH({ w: 700, fmt: F.man, rh: 26, rows: c3rows }), c3rows), c3rows,
           c3.map((x) => x.band_median), F.man)
       : '<div class="empty">採用数が入っている契約がありません（0で割っていません）。</div>',
-    /* 凡例の粒は棒と同じ塗り・濃さ（BAR_OP / BAR_FAINT_OP）。月割りは棒に重ねた点線の枠 */
+    /* 凡例の粒は図と同じ描き方（塗りの濃さは BAR_OP、未確定は中空・破線、月割りは墨の縦の線） */
     lg("box", C.ai, "総額 ÷ 採用数（確定）", BAR_OP) +
-    lg("box", C.ghost, "同（未確定・稼働中）", BAR_FAINT_OP) +
-    lg("hollow", C.ai, "月割り（点線の枠）") +
-    (hasMed ? lg("dot", C.ink, "同じ進捗帯の中央値（稼働中の契約どうし）") : "") +
+    lg("openbox", C.ai, "同（未確定・稼働中。中空・破線）") +
+    lg("tick", C.ink, "月割り（縦の線）") +
+    (hasMed ? lg("ring", C.ink, "同じ進捗帯の中央値（稼働中の契約どうしなので未確定）") : "") +
     '<i class="full">稼働中の契約は<b>金額が丸ごと乗っているのに採用がまだ伸びていない</b>ので、' +
     "総額での単価は必ず高く出ます。月割り（金額 ÷ 契約期間 × 経過月数 ÷ 採用数）と、" +
     "<b>同じ進捗帯の契約の中央値</b>を並べています。3つが食い違うときは、進捗帯の中央値を見てください。</i>");
@@ -3242,13 +3326,16 @@ function renderOutcome(D) {
     color: goalBandColor(b.label),
     open: goalBandOpen(b.label),
     /* 🔴 「承諾数が空」と「未記入」を同じ薄い灰で塗っていて、1.0%（6件）の細い帯が隣の
-       「未記入」と見分けられなかった（2026-09-23 実機）。どちらも値が無いので灰のまま、
-       承諾数が空は濃い塗り・未記入は薄い塗りにして分ける（凡例も同じ濃さで出る） */
+       「未記入」と見分けられなかった（2026-09-23 実機）。
+       🔴 そこで承諾数が空を中まで濃く塗ったら、値が無い帯のほうが中空・破線（未確定）の
+       50%〜 / 1〜 / 0% より確かなものに見えた（2026-09-23 検証）。値が無いので斜線にする
+       （stackHatch）。未記入は薄い塗りのまま。どちらも灰で、塗り方で分ける */
+    hatch: String(b.label).startsWith("承諾数が空"),
     faint: String(b.label).startsWith("未記入") }));
   const noSyo = ga.bands.filter((b) => b.label.startsWith("承諾数が空"))
     .reduce((a, b) => a + b.n, 0);
   h += fig("達成率 ＝ 承諾数 ÷ 採用目標数", "目標が入っている契約だけが母数",
-    svgStack({ w: 680, parts: gparts }),
+    stackHatch(svgStack({ w: 680, parts: gparts }), gparts),
     stackLegend(gparts) +
     '<i class="full"><b>稼働中の契約なので、100% 未満はまだ伸びる途中の値です</b>' +
     "（中空・破線）。0% には始まったばかりの契約も入っています。「達成できなかった」とは読めません。</i>" +
@@ -3921,9 +4008,14 @@ function wireBoard() {
     if (e) e.onchange = () => { boardFilter[key] = e.value; redraw(); };
   };
   pick("bf-consultant", "consultant");
-  /* 担当を選ぶ前の持ち件数の表。名前を押したらその担当で絞る（②の表と同じ作り） */
+  /* 担当を選ぶ前の持ち件数の表。名前を押したらその担当で絞る（②の表と同じ作り）。
+     🔴 押したリンクは描き直しで消えるので、フォーカスが body に飛んでいた（2026-09-23 検証、
+     Playwright 400px で Enter → activeElement が BODY）。focusKey では戻す先が作れないので、
+     いま選ばれた担当が出ている選択欄（#bf-consultant）へ移す */
   document.querySelectorAll("#owner-tbl a.drill").forEach((a) => {
-    a.onclick = (ev) => { ev.preventDefault(); boardFilter.consultant = a.dataset.c; redraw(); };
+    a.onclick = (ev) => {
+      ev.preventDefault(); boardFilter.consultant = a.dataset.c; redraw(); refocus("#bf-consultant");
+    };
   });
   pick("bf-flag", "flag");
   pick("bf-expiry", "expiry");
