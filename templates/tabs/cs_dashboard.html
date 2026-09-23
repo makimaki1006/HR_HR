@@ -124,7 +124,8 @@
     color:var(--ink-2); font-variant-numeric:tabular-nums; }
   .count-line.on{ border-left:3px solid var(--ai); }
   /* 案件のチェック。既定は全部入り。外すと図・表・KPI がぜんぶ追従する */
-  .pickbox{ display:grid; gap:2px; grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+  /* 🔴 min(330px,100%): 固定の 330px だと 400px幅で枠からはみ出し、ページが 621px に広がった（V17） */
+  .pickbox{ display:grid; gap:2px; grid-template-columns:repeat(auto-fill,minmax(min(330px,100%),1fr));
     background:var(--panel); border:1px solid var(--rule); border-radius:var(--radius-lg);
     padding:var(--space-2); max-height:260px; overflow:auto; margin:var(--space-2) 0; }
   /* 当たり判定は 24px 以上（WCAG 2.2 AA / web は 24 CSS px） */
@@ -394,7 +395,7 @@
   textarea:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
   .stack{ display:grid; gap:var(--space-gap); }
   .two{ display:grid; gap:var(--space-gap); align-items:start;
-        grid-template-columns:repeat(auto-fit,minmax(430px,1fr)); }
+        grid-template-columns:repeat(auto-fit,minmax(min(430px,100%),1fr)); }
   .empty{ color:var(--ink-2); font-size:12.5px; border:1px dashed var(--rule);
           border-radius:var(--radius-lg); padding:var(--space-4); text-align:center; }
   .sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0);
@@ -433,6 +434,65 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
       padding:var(--space-3) var(--space-4); border-radius:0 var(--radius-md) var(--radius-md) 0;
       color:var(--ink); font-size:13px; white-space:pre-wrap; margin:var(--space-3) 0; }
 .loading{ color:var(--ink-3); font-size:12px; }
+
+/* ---------------------------------------------------------------- 共通部を畳む（V1）
+   🔴 2026-09-23 実測: 鮮度2行・色の凡例・母集団の3行ボックスが全画面の頭に並び、
+   本題の見出しが 1440px幅で y≈440、**400px幅では y=837（1画面目 800px の外）**だった。
+   消すと規律（鮮度・母集団を黙って隠さない）に反するので、**1行目は残して内訳だけ畳む**。
+   開けば全文が読める。 */
+details.fold{ margin:0 0 var(--space-2); border:none; border-radius:0; padding:0; background:none; }
+details.fold[open]{ padding-bottom:0; }
+details.fold > summary{ padding:3px 0; font-size:12px; font-weight:600; color:var(--ai); }
+details.fold > summary b{ color:var(--ink); }
+/* 母集団の注記は1行目（稼働中 N 件）だけを summary に出す。内訳は開いたときだけ */
+details.popnote.fold{ padding:4px var(--space-4); margin:0 0 var(--space-2);
+  border-left:3px solid var(--ink-3); background:var(--panel-2);
+  border-radius:0 var(--radius-md) var(--radius-md) 0; }
+details.popnote > summary{ color:var(--ink); font-weight:400; padding:2px 0; }
+details.popnote > summary b{ font-weight:700; }
+.fresh details.fold{ margin:2px 0 0; }
+.fresh details.fold > summary{ font-weight:400; font-size:12px; }
+/* 凡例は折りたたみの中。開いたときに summary との間を空けすぎない */
+details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
+
+/* 「決まりごと」の枠（V21）。
+   info の見出しには「— 読み方」が付くが、中身が**読み方ではなく取り決め・条件**の枠
+   （絞った条件・並びの決まり・数えていないもの）まで「読み方」と名乗っていて、
+   見出しと中身が合っていなかった。色は info と同じで、頭の言葉だけ分ける。 */
+.note.def{ border-left-color:var(--ai); }
+.note.def .hd::before{ content:"— 決まりごと"; color:var(--ai); }
+
+/* 表の残りを見せる（V12）。
+   🔴 2026-09-23 実測: 表は高さ 624px の枠の中で縦にスクロールし、
+   「案件そのもの」は表の幅 2,944px ÷ 枠 1,119px で横にも続く。なのに
+   **残りがあることを示すものが何も無く**、右端の列が切れて見えていた。
+   枠の上に「全 N 行 × M 列・枠の中でスクロール」を必ず出す。 */
+.scroll-cap{ font-size:11.5px; color:var(--ink-2); margin:var(--space-3) 0 calc(-1 * var(--space-2));
+             font-variant-numeric:tabular-nums; }
+.scroll-cap b{ color:var(--ink); }
+/* 母数が小さい行の印（V15）。値は消さずに一段落とす */
+.tag.few{ color:var(--ki); border-color:var(--ki); }
+
+/* 狭い画面（V1 / V17）。
+   🔴 2026-09-23 実測: 400px幅で本題の見出しが y=837、「法人番号で見る」は
+   ページ幅が 621px に広がっていた（.pickbox の最小幅 330px ＋ 余白）。 */
+@media (max-width:600px){
+  .wrap{ padding:0 var(--space-4) 80px; }
+  .masthead{ padding:var(--space-3) 0 var(--space-2); gap:var(--space-1); }
+  .masthead h1{ font-size:20px; }
+  .masthead h1 span{ display:none; }
+  .rule-thin{ margin:0 0 var(--space-2); }
+  .tabs{ margin:0 0 var(--space-3); }
+  .tabs button{ padding:8px 12px 7px; }
+  /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す */
+  .side ul{ flex-wrap:wrap; overflow-x:visible; }
+  .side button{ padding:6px var(--space-2); min-height:30px; }
+  .ctl input[type=search]{ min-width:0; width:100%; }
+  .ctlbar select{ max-width:100%; }
+}
+/* 本題の見出しは共通部のすぐ下に出す。間の 40px は節どうしの区切りの値で、
+   ページの頭には要らない */
+.pane > .ctlbar + h2.sec{ margin-top:var(--space-4); }
 </style>
 </head>
 <body>
@@ -448,6 +508,8 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
      「シートをいつ作り直したか」を常に出す。基準日（計算に使った今日）とは別物。 -->
 <div id="cs-fresh" class="fresh"></div>
 
+<!-- 色の凡例は毎回読むものではないので畳む（V1）。「定義と検証」にも同じ表がある -->
+<details class="fold" id="cs-legend"><summary>色と印の意味</summary>
 <div class="legend">
   <i><b style="background:var(--ai)"></b>触れるところ・主系列</i>
   <i><b style="background:var(--hi)"></b>&#9650; まずい / 悪化</i>
@@ -456,6 +518,7 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
   <i><b style="background:var(--ghost)"></b><span class="n0">&#8212;</span> 値が無い（0 ではない）</i>
   <i><b style="border:1px dashed var(--ghost);background:none"></b>&#9675; 未確定（右側打ち切り）</i>
 </div>
+</details>
 
 <nav class="tabs" id="cs-menu" aria-label="見るものの切り替え"></nav>
 
@@ -512,15 +575,38 @@ const esc = s => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;");
 
-/** 目盛りを人が読める刻みにする */
-function ticks(lo, hi, want) {
+/* 内部名 → 画面に出す名前（V3）。**対応表はここ1か所だけ。**
+   🔴 2026-09-23 実機: 継続回数×成果・データ品質の図に oubo / mensetu / syoudaku /
+   saiyomokuhyou / keisaisu、法人番号の出どころに deal / company、担当の決まりごとに
+   consultant / hubspot_owner_id がそのまま出ていた。HubSpot の内部名は現場の人には読めない。
+   サーバの応答（キーや文言）は変えない。**出す直前にここで置き換える。** */
+const DISPLAY_NAME = {
+  oubo: "応募数", mensetu: "面接数", syoudaku: "承諾数（採用数）",
+  saiyomokuhyou: "採用目標数", keisaisu: "求人の掲載数",
+  deal: "取引に入っていた法人番号", company: "会社に入っていた法人番号",
+  consultant: "HubSpot の「担当コンサル」欄",
+  hubspot_owner_id: "HubSpot の「取引担当者」欄",
+};
+/** 1語まるごとが内部名なら置き換える。知らない語はそのまま返す（黙って消さない） */
+const dispName = (k) => (Object.prototype.hasOwnProperty.call(DISPLAY_NAME, k) ? DISPLAY_NAME[k] : k);
+/** サーバが書いた文の中に混ざった内部名を置き換える。英単語の一部には当てない */
+const dispText = (s) => String(s == null ? "" : s).replace(
+  new RegExp("(^|[^A-Za-z0-9_])(" + Object.keys(DISPLAY_NAME).join("|") + ")(?![A-Za-z0-9_])", "g"),
+  (m, pre, k) => pre + DISPLAY_NAME[k]);
+
+/** 目盛りを人が読める刻みにする。
+    minStep: 件数・人数のように整数しか無い軸は 1 を渡す。
+    🔴 2026-09-23: 採用数 0〜2 の軸で刻みが 0.5 になり、整数に丸めて出すので
+    目盛りが「2, 2, 1, 1, 0」と重複していた（V10） */
+function ticks(lo, hi, want, minStep) {
   want = want || 4;
   if (!isFinite(lo) || !isFinite(hi)) return [0];
   if (hi <= lo) hi = lo + (Math.abs(lo) || 1);
   const raw = (hi - lo) / want;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const n = raw / mag;
-  const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+  const step = Math.max(minStep || 0,
+    (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag);
   const out = [];
   for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-6; v += step)
     out.push(Number(v.toFixed(10)));
@@ -536,10 +622,20 @@ const F = {
   d1: v => v.toFixed(1),
   d2: v => v.toFixed(2),
   d3: v => (v >= 0 ? "+" : "") + v.toFixed(3),
+  /* 値がすでに「%の数字」（50.1 のような 0〜100）で来るもの。
+     🔴 F.d1 で出すと目盛りが「10.0 20.0」になり、率なのか件数なのか読めなかった（V20） */
+  pp: v => (Math.round(v * 10) / 10) + "%",
 };
+/** 軸の最小の刻み。件数は 1、万円は 1万（それより細かい刻みは丸めると重複する） */
+const minStepOf = (fmt) => (fmt === F.int ? 1 : fmt === F.man ? 10000 : 0);
 
 /** 図の外枠。figcaption と凡例をまとめて面倒をみる */
 function fig(caption, hint, body, legend) {
+  /* 🔴 図の読み上げ名が「横棒」「構成比」のような既定値のままだった（V20）。
+     呼び出し側で alt を渡していない図は、図の見出しを読み上げ名にする */
+  body = String(body).replace(
+    /aria-label="(折れ線|箱ひげ図|横棒|系列を縦に積んだ図|構成比|充足率|分布|散布図|接触の時系列|割合|ファネル)"/g,
+    'aria-label="' + esc(caption) + '"');
   return `<figure class="fig"><figcaption>${esc(caption)}` +
     (hint ? `<span class="hint">${hint}</span>` : "") + `</figcaption>` +
     `<div class="figbody">${body}</div>` +
@@ -573,7 +669,12 @@ function svgLine(o) {
   if (!vals.length) return `<div class="empty">この図に出せる値がありません（値が無いものは 0 として描きません）。</div>`;
   let lo = o.yZero === false ? Math.min(...vals) : 0, hi = Math.max(...vals);
   if (o.yMax != null) hi = Math.max(hi, o.yMax);
-  const tk = ticks(lo, hi, o.yTicks || 4);
+  const tk = ticks(lo, hi, o.yTicks || 4, minStepOf(fmt));
+  /* 🔴 最大値が最上段の目盛りを超えると、線が目盛りの無い上端に張り付いて
+     「縦軸の最上段より上にはみ出す」ように見えた（V10: 応募 19 に対して目盛りが 15 まで）。
+     最大値を覆うところまで目盛りを1段足す */
+  if (tk.length > 1 && tk[tk.length - 1] < hi - 1e-9)
+    tk.push(Number((tk[tk.length - 1] + (tk[1] - tk[0])).toFixed(10)));
   lo = Math.min(lo, tk[0]); hi = Math.max(hi, tk[tk.length - 1]);
   const n = o.x.length;
   const X = i => pad.l + (n === 1 ? iw / 2 : iw * i / (n - 1));
@@ -678,7 +779,7 @@ function svgBoxH(o) {
   const base = rows.filter(r => !r.dim);
   let hi = 0;
   (base.length ? base : rows).forEach(r => { hi = Math.max(hi, r._wh, r.med); });
-  const tk = ticks(0, hi, 4); hi = Math.max(hi, tk[tk.length - 1]);
+  const tk = ticks(0, hi, 4, minStepOf(fmt)); hi = Math.max(hi, tk[tk.length - 1]);
   const cl = v => Math.max(0, Math.min(v, hi));
   const X = v => pad.l + iw * cl(v) / (hi || 1);
   let g = "";
@@ -764,7 +865,7 @@ function svgBarH(o) {
   const X = v => pad.l + iw * (v - lo) / (hi - lo || 1);
   const x0 = X(o.diverging ? 0 : lo);
   let g = "";
-  ticks(lo, hi, 4).forEach(t => {
+  ticks(lo, hi, 4, minStepOf(fmt)).forEach(t => {
     g += `<line class="gridline" x1="${X(t).toFixed(1)}" y1="${pad.t}" x2="${X(t).toFixed(1)}" y2="${h - pad.b + 2}"/>` +
          `<text class="ax" x="${X(t).toFixed(1)}" y="${h - pad.b + 14}" text-anchor="middle">${esc(fmt(t))}</text>`;
   });
@@ -806,7 +907,10 @@ function svgStackLanes(o) {
   const months = o.months || [];
   const n = months.length;
   if (!n) return `<div class="empty">出せる月がありません。</div>`;
-  const w = o.w || 1000, padL = 112, padR = 68, padT = 10, padB = 28, gap = 6;
+  /* 🔴 ラベル欄は文字数から決める。112px 固定だと「接触（MTG・60秒超の通話）」や
+     事業所名の頭が切れていた（V10 実測）。 */
+  const w = o.w || 1000, padL = Math.max(112, labW(o.lanes || [], 240)), padR = 68,
+        padT = 10, padB = 28, gap = 6;
   const iw = Math.max(60, w - padL - padR);
   const X = i => n === 1 ? padL + iw / 2 : padL + iw * i / (n - 1);
   const H = { line: 58, dots: 48, bars: 52, empty: 30 };
@@ -878,9 +982,12 @@ function svgStackLanes(o) {
           : `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="3.6" ` +
             `style="fill:${L.color}">${t}</circle>`;
       });
-      /* 右端に最小と最大だけ添える（帯ごとに縦軸が違うことを明示する） */
-      g += `<text class="ax" x="${(w - padR + 6)}" y="${(top + 12).toFixed(1)}">${F.int(hi)}</text>` +
-           `<text class="ax" x="${(w - padR + 6)}" y="${(bot - 2).toFixed(1)}">${F.int(lo)}</text>`;
+      /* 右端に最小と最大だけ添える（帯ごとに縦軸が違うことを明示する）。
+         🔴 値が1つしか無い帯は hi を lo+1 に広げて描いているので、その hi（実在しない値）を
+         目盛りに書かない。右端の点に文字が重なっていたので、点の外まで離す（V10 目視） */
+      const flat = Math.max(...vs) === Math.min(...vs);
+      g += (flat ? "" : `<text class="ax" x="${(w - padR + 12)}" y="${(top + 12).toFixed(1)}">${F.int(hi)}</text>`) +
+           `<text class="ax" x="${(w - padR + 12)}" y="${(flat ? Y(lo) + 4 : bot - 2).toFixed(1)}">${F.int(lo)}</text>`;
     }
 
     if (L.type === "dots") {
@@ -1020,7 +1127,7 @@ function svgHist(o) {
   const X = v => pad.l + iw * (v - lo) / (hi - lo || 1);
   const Y = c => pad.t + ih - ih * c / cmax;
   let g = "";
-  ticks(0, cmax, 3).forEach(t =>
+  ticks(0, cmax, 3, 1).forEach(t =>
     g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
          `<text class="ax" x="${pad.l - 6}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${F.int(t)}</text>`);
   cnt.forEach((c, i) => {
@@ -1061,7 +1168,7 @@ function svgScatter(o) {
   const Y = v => pad.t + ih - ih * (v - ylo) / (yhi - ylo || 1);
   const yf = o.yFmt || F.int, xf = o.xFmt || F.int;
   let g = "";
-  ticks(ylo, yhi, 4).forEach(t =>
+  ticks(ylo, yhi, 4, minStepOf(yf)).forEach(t =>
     g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
          `<text class="ax" x="${pad.l - 6}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(yf(t))}</text>`);
   ticks(xlo, xhi, 5).forEach(t => {
@@ -1106,7 +1213,9 @@ function svgTimeline(o) {
   const padDays = (hi - lo) * .04 + 2; lo -= padDays; hi += padDays;
   /* 注記がある図は、その文字数ぶん右を空ける。空けないと帯の上に重なって読めない */
   const noteW = Math.max(0, ...lanes.map(l => String(l.note || "").length)) * 10.4;
-  const w = o.w || 680, rh = 34, padL = o.padL || 128, padT = 26,
+  /* 🔴 ラベル欄は文字数から決める。128px 固定だと契約名の頭が切れ、
+     「ク継続①」のように読めなくなっていた（V10 実測） */
+  const w = o.w || 680, rh = 34, padL = o.padL || Math.max(128, labW(lanes, 230)), padT = 26,
         padR = noteW ? Math.min(300, Math.ceil(noteW + 12)) : 16;
   const h = padT + lanes.length * rh + 34;
   const iw = w - padL - padR;
@@ -1190,7 +1299,9 @@ function svgDots(o) {
   let g = "", i = 0;
   const seq = [];
   (o.groups || []).forEach(gr => { for (let k = 0; k < gr.v; k++) seq.push(gr); });
-  while (seq.length < total) seq.push({ color: "var(--rule)", label: o.restLabel || "その他" });
+  /* 🔴 --rule は地の上で 1.20:1 しかなく、注力でない点が見えなかった（V20）。
+     図形の境界に要る 3:1 を満たす --rule-strong にする */
+  while (seq.length < total) seq.push({ color: "var(--rule-strong)", label: o.restLabel || "その他" });
   seq.slice(0, total).forEach(gr => {
     const cx = 4 + (i % per) * gap, cy = 4 + Math.floor(i / per) * gap;
     g += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" style="fill:${gr.color}" opacity="${gr.faint ? ".3" : ".85"}"><title>${esc(gr.label)}</title></circle>`;
@@ -1333,8 +1444,26 @@ function sortTh(c, key, asc) {
     "</button></th>";
 }
 
+/* 表を枠に入れる。
+   🔴 枠の上に「全 N 行 × M 列・枠の中でスクロール」を必ず出す（V12）。
+   2026-09-23 実測: 枠は縦 624px で、「案件そのもの」は表の幅 2,944px ÷ 枠 1,119px。
+   残りがあることを示すものが無く、右端の列が切れて見えていた。
+   行と列は渡された HTML から数える（本文の行だけ。見出しは数えない）。 */
 function scroll(inner, max) {
-  return '<div class="scroll"' + (max ? ' style="max-height:' + max + 'px"' : "") + ">" + inner + "</div>";
+  return scrollCap(inner) +
+    '<div class="scroll"' + (max ? ' style="max-height:' + max + 'px"' : "") + ">" + inner + "</div>";
+}
+function scrollCap(inner) {
+  const s = String(inner);
+  const body = s.split("<tbody>").slice(1).join("");
+  const rows = (body.match(/<tr[\s>]/g) || []).length;
+  const head = (s.split("</thead>")[0] || "");
+  const cols = (head.match(/<th[\s>]/g) || []).length;
+  /* 表が1つでない（details の中に表が並ぶ等）ときは件数を言わず、スクロールだけ伝える */
+  const one = (s.match(/<table[\s>]/g) || []).length === 1;
+  return '<div class="scroll-cap">' +
+    (one ? "全 <b>" + num(rows) + "</b> 行 × " + num(cols) + " 列。" : "") +
+    "入り切らない分は枠の中で縦・横にスクロールします（見出しは上に残ります）。</div>";
 }
 /* n が小さい図は出さない。出さない理由は図の直下に書く */
 const MIN_N = 30;
@@ -1353,6 +1482,18 @@ function tooFew(n, what) {
    🔴 ここは一覧そのものが目的なので、表が正しい形。
    ================================================================ */
 let teamSort = { key: "contact_rate", asc: true };
+
+/** 接触率の帯。表・図・KPI で同じ切り方を使う */
+const contactKind = (v) => (v == null ? "" : v < 40 ? "bad" : v < 70 ? "warn" : "");
+/** KPI「接触率がいちばん低い」の候補選び。
+    母数が小さい（small_n）人は図に載せていないので、ここでも候補にしない。
+    返り値 skipped は外した人数（率が出ている人のうち）。 */
+function pickWorstContact(rows) {
+  const has = (rows || []).filter((r) => r.contact_rate != null);
+  const ok = has.filter((r) => !r.small_n)
+    .sort((a, b) => a.contact_rate - b.contact_rate);
+  return { worst: ok[0] || null, skipped: has.length - ok.length };
+}
 
 const TEAM_COLS = [
   /* 🔴 名前を押すと③へ飛んで、その担当の案件だけに絞る */
@@ -1404,8 +1545,13 @@ function renderTeam(D) {
     esc(D.meta.not_counted).replace("※ ", "") + "<br>" +
     "<b>接触率で見ています。件数では見ていません。</b>" + esc(D.contact_rule));
 
-  const worst = rows.filter((r) => r.contact_rate != null)
-    .sort((a, b) => a.contact_rate - b.contact_rate)[0];
+  /* 🔴 「いちばん低い」は**図と同じ母数の人から**選ぶ（V2）。
+     2026-09-23 実測: 母数が小さいとして図から外した人（0.0%・0/11か月）を拾い、
+     赤の大きな文字で個人名を出していた。図では「分母が小さいので載せない」と
+     言っているのに、KPI では最下位として名指しする、という食い違い。
+     外した人数は KPI の下に書く（黙って落とさない）。 */
+  const worstPick = pickWorstContact(rows);
+  const worst = worstPick.worst;
   const focusTop = D.rows.slice().sort((a, b) => b.focus - a.focus)[0];
   h += '<div class="kpis">' +
     kpi("担当者", num(D.meta.n_consultant) + '<span class="u">名</span>',
@@ -1415,8 +1561,13 @@ function renderTeam(D) {
         (D.meta.unknown_owner ? "　うち担当が取れない " + num(D.meta.unknown_owner) +
           " 件は下の表に出していません" : "")) +
     kpi("接触率がいちばん低い", worst ? esc(worst.consultant) : DASH,
-        worst ? pct1(worst.contact_rate) + "（" + num(worst.contact_touched) + "/" +
-                num(worst.contact_months) + " か月）" : "", "bad") +
+        (worst ? pct1(worst.contact_rate) + "（" + num(worst.contact_touched) + "/" +
+                 num(worst.contact_months) + " か月）" : "") +
+        (worstPick.skipped
+          ? "<br>母数が小さい " + num(worstPick.skipped) + " 名は候補から外しています（下の図と同じ扱い）"
+          : ""),
+        /* 色は表・図と同じ帯で付ける（40%未満=赤 / 70%未満=山吹）。最下位だから赤、にはしない */
+        worst ? contactKind(worst.contact_rate) : "") +
     kpi("注力案件をいちばん持っている", focusTop ? esc(focusTop.consultant) : DASH,
         focusTop ? num(focusTop.focus) + " 件" : "") +
     kpi("退職者のまま", num(D.meta.retired_deals) + '<span class="u">件</span>',
@@ -1434,7 +1585,7 @@ function renderTeam(D) {
   h += fig("接触があった月 ÷（案件 × 経過月）",
     "棒の右は「接触した月 / 経過月」。持ち案件数は注記",
     bar.length
-      ? svgBarH({ w: 720, fmt: F.d1, rh: 24,
+      ? svgBarH({ w: 720, fmt: F.pp, rh: 24,
           rows: bar.map((r) => ({
             label: shortName(r.consultant, 14), v: r.contact_rate,
             txt: pct1(r.contact_rate),
@@ -1470,11 +1621,11 @@ function renderTeam(D) {
   t += "</tbody></table>";
   h += scroll(t, 680);
 
-  h += note("info", "この一覧の決まりごと",
-    esc(D.owner_rule) + "<br>" + esc(D.focus_rule) +
+  h += note("def", "この一覧の決まりごと",
+    esc(dispText(D.owner_rule)) + "<br>" + esc(D.focus_rule) +
     (D.meta.unknown_owner ? "<br>担当が取れない取引が " + num(D.meta.unknown_owner) +
       " 件あります。<b>「その他」に混ぜていません</b>（件数だけ出しています）。" : ""));
-  return h + foot(D.meta);
+  return h + foot(D.meta, true);   /* not_counted は頭の枠で出している */
 }
 
 /* 見出しを押したら並び替える。同じ列を押したら向きが反転する */
@@ -1501,7 +1652,8 @@ function renderFocus(D) {
     '当たった顧客に手を打つかどうかは、③顧客詳細で中身を読んでから決めてください。</div>';
 
   h += '<div class="kpis">' +
-    kpi("定期NPS が " + n.threshold + " 以下", num(n.n) + '<span class="u">社</span>',
+    /* 🔴 数えているのは取引（契約）。「社」と書くと法人数に読める（V20） */
+    kpi("定期NPS が " + n.threshold + " 以下", num(n.n) + '<span class="u">件</span>',
         "NPSの回答がある " + num(n.n_have_nps) + " 件のうち", "bad") +
     kpi("採用単価が悪化した拠点", num(c.worse) + '<span class="u">拠点</span>',
         "確定した点どうしで比べられた " + num(c.judged) + " 拠点のうち", "bad") +
@@ -1534,7 +1686,10 @@ function renderFocus(D) {
 
   /* ---- 表 NPSが低い顧客 ---- */
   h += sec("表", "定期NPS が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）");
-  h += '<div class="lede">NPS の低い順、同じなら金額の大きい順。</div>';
+  h += '<div class="lede">NPS の低い順、同じなら金額の大きい順。' +
+    /* 🔴 200件で切っているのに書いていなかった（V20） */
+    (n.rows.length > 200 ? "<b>上位200件だけ出しています（全 " + num(n.rows.length) + " 件）。</b>" : "") +
+    "</div>";
   h += scroll(table(
     [{ t: "取引" }, { t: "ステージ" }, { t: "NPS", n: 1 }, { t: "回答月" },
      { t: "金額", n: 1 }, { t: "満了まで", n: 1 }, { t: "接触の記録", n: 1 }],
@@ -1556,12 +1711,15 @@ function renderFocus(D) {
     txt: yen(r.last),
     note: r.ratio == null ? "" : num(r.ratio, 2) + "倍",
     noteColor: r.ratio != null && r.ratio >= 1.5 ? C.hi : C.ink3,
-    color: C.hi,
+    /* 🔴 棒は採用単価そのもの（量）。赤は「まずい」の色なので量には使わない（V9）。
+       悪化の判定（1.5倍以上）は右の注記の赤が受け持つ */
+    color: C.ai,
   }));
   h += fig("採用単価 ＝ 契約総額 ÷ 採用数", "破線は前回の値。棒が長いほど1人あたりが高い",
     cr.length ? svgBarH({ rows: cr, w: 680, fmt: F.man }) :
       '<div class="empty">悪化した拠点はありません。</div>',
-    lg("box", C.hi, "今回") + lg("dash", C.ghost, "前回") +
+    lg("box", C.ai, "今回") + lg("dash", C.ghost, "前回") +
+    '<i class="full">右の「N倍」が 1.5倍以上のものは赤で出しています。</i>' +
     '<i class="full">' + esc(c.note) + "</i>" +
     (c.truncated ? '<i class="full">上位20拠点だけ出しています（全 ' + num(c.worse) + " 拠点）。</i>" : ""));
 
@@ -1600,10 +1758,16 @@ function renderFocus(D) {
   return h + foot(D.meta);
 }
 
-function foot(meta) {
-  return '<div class="note info"><span class="hd">この画面で数えていないもの</span><p>' +
-    esc(meta.not_counted || "") +
-    (meta.today ? "<br>基準日 " + esc(meta.today) : "") +
+/* 画面の末尾。said=true は「数えていないもの」を画面の頭で既に書いた画面。
+   🔴 2026-09-23 目視: 成果とリスク・立ち上がり等で、頭の枠と末尾の枠に
+   **同じ文が2回**出ていた。データ品質では not_counted が無く、見出しだけで
+   本文が空の枠になっていた（V21）。書くものが無い見出しは出さない。 */
+function foot(meta, said) {
+  const nc = said ? "" : (meta.not_counted || "");
+  return '<div class="note def"><span class="hd">' +
+    (nc ? "この画面で数えていないもの" : "集計の基準日と件数") + "</span><p>" +
+    esc(nc) +
+    (meta.today ? (nc ? "<br>" : "") + "基準日 " + esc(meta.today) : "") +
     (meta.n_deals ? "　取引 " + num(meta.n_deals) + " 件" : "") +
     (meta.n_active ? "（稼働中 " + num(meta.n_active) + " 件）" : "") + "</p></div>";
 }
@@ -1632,14 +1796,18 @@ function renderRenewal(D) {
     " 件は母数から外しています（月ごとの偏りが大きく、含めると月次比較が歪むため）。</i>");
 
   h += sec("表", "満了月ごとの内訳");
-  h += table([{ t: "満了月" }, { t: "継続", n: 1 }, { t: "解約", n: 1 }, { t: "充足", n: 1 },
+  /* 🔴 約60行あり、中身は上の折れ線と同じ（V15）。折れ線を読んでから
+     1か月ぶんの内訳を確かめたいときだけ開けばよいので畳む。消してはいない */
+  h += '<details class="fold"><summary>満了月ごとの内訳を開く（' + num(mr.rows.length) +
+    " か月ぶん・上の折れ線と同じ数字）</summary>" +
+    table([{ t: "満了月" }, { t: "継続", n: 1 }, { t: "解約", n: 1 }, { t: "充足", n: 1 },
               { t: "母数", n: 1 }, { t: "継続率", n: 1 }, { t: "結果待ち", n: 1 }],
     mr.rows.map((r) => [esc(r.month), num(r.keep), num(r.cancel), num(r.fill),
-      num(r.denom), "<b>" + pct1(r.rate) + "</b>", num(r.pending)]));
+      num(r.denom), "<b>" + pct1(r.rate) + "</b>", num(r.pending)])) + "</details>";
 
   h += sec("図", "継続回数ごとの解約率");
   h += fig("分子は「解約 ＋ 充足」", "初回を乗り切れれば、あとは残ります",
-    svgBarH({ w: 660, fmt: F.d1, rh: 26,
+    svgBarH({ w: 660, fmt: F.pp, rh: 26,
       rows: big.map((r) => ({
         label: label(r), v: r.cancel_rate, v0: r.cancel_rate_excl_fill,
         txt: pct1(r.cancel_rate), note: "n=" + num(r.n),
@@ -1656,7 +1824,9 @@ function renderRenewal(D) {
     const rows = big.filter((r) => r[key] && r[key].n >= MIN_N).map((r, i) => ({
       label: label(r), med: r[key].median, q1: r[key].q1, q3: r[key].q3,
       min: r[key].min, max: r[key].max, mean: r[key].mean, n: r[key].n,
-      color: SERIES[i % 5] }));
+      /* 🔴 行ごとに SERIES を回すと2行目（継続1）だけが赤になり、「継続1がまずい」と
+         読めてしまう（V9）。行は左のラベルで分かれているので、色は1つでよい */
+      color: C.ai }));
     h += fig(name + "の散らばり（継続回数ごと）",
       "中央値だけでは分からない「幅」を出す",
       rows.length ? svgBoxH({ w: 680, xFmt: fmt, rows: rows })
@@ -1670,29 +1840,27 @@ function renderRenewal(D) {
   }
 
   h += sec("表", "継続回数ごとの代表値");
-  h += table([{ t: "継続回数" }, { t: "件数", n: 1 }, { t: "稼働中", n: 1 },
+  /* 10列あり、枠に入れないと 400px幅でページが 1,015px に広がっていた（V17 実測） */
+  h += scroll(table([{ t: "継続回数" }, { t: "件数", n: 1 }, { t: "稼働中", n: 1 },
               { t: "解約率", n: 1 }, { t: "（充足を外すと）", n: 1 },
               { t: "応募数", n: 1 }, { t: "面接数", n: 1 }, { t: "承諾数", n: 1 },
               { t: "求人票あたり応募", n: 1 }, { t: "契約額", n: 1 }],
-    br.map((r) => [label(r), num(r.n), num(r.n_active),
-      "<b>" + pct1(r.cancel_rate) + "</b>",
+    /* 🔴 n<30 の行（継続9〜14回は n=1〜6）に 0.0% / 50.0% が印なしで並んでいた（V15）。
+       行は消さずに印を付け、率を一段落とす */
+    br.map((r) => [label(r) + (r.n < MIN_N ? ' <span class="tag few">n&lt;' + MIN_N + "</span>" : ""),
+      num(r.n), num(r.n_active),
+      r.n < MIN_N ? '<span class="muted">' + pct1(r.cancel_rate) + "</span>"
+                  : "<b>" + pct1(r.cancel_rate) + "</b>",
       '<span class="muted">' + pct1(r.cancel_rate_excl_fill) + "</span>",
       med(r.oubo), med(r.mensetu), med(r.syoudaku), med(r.oubo_per_posting, 1),
-      med(r.amount, 0, 1)]));
+      med(r.amount, 0, 1)])));
 
-  h += sec("図", "欠測の偏り");
-  const groups = ["継続済", "解約", "充足", "結果待ち"];
-  const fields = [...new Set(D.missingness.map((r) => r.field))];
-  h += fig("結果ごとの記入率", "色が濃いほど埋まっている",
-    svgMatrix({ padL: 150, cw: 120, cols: groups,
-      rows: fields.map((f) => ({ label: f, cells: groups.map((g) => {
-        const r = D.missingness.find((x) => x.group === g && x.field === f);
-        if (!r || r.fill_rate == null) return { v: null, txt: "—", n: 0 };
-        return { v: r.fill_rate / 100, txt: pct1(r.fill_rate), n: r.filled, color: C.ai };
-      }) })) }),
-    '<i class="full">うまくいかなかった契約ほど数字が記録されていない可能性があります。</i>');
-  h += note("bad", "この偏りは相関を押し上げる方向に効きます",
-    "「継続するほど成果が良い」という見え方が強く出ます。上の図を読むときは踏まえてください。");
+  /* 🔴 「結果ごとの記入率」の図と「まずい」の枠は、データ品質の画面と**まったく同じ**だった（V16）。
+     同じ数字を2か所で出さない（立ち上がりの「継続率はこの画面にありません」と同じ扱い）。
+     ここには読み方への影響だけを残し、図はデータ品質に1つだけ置く。 */
+  h += note("warn", "上の図は「継続するほど成果が良い」側に強く出ます",
+    "うまくいかなかった契約ほど応募数・採用数が記録されていません。" +
+    "結果ごとの記入率は「集計」の中の「データ品質」にあります。");
   return h + foot(D.meta);
 }
 
@@ -1760,7 +1928,7 @@ function focusSection(D) {
       groups: [{ v: f.n_focus, color: C.ai, label: "注力（いずれか該当）" }],
       alt: "注力の割合" }),
     lg("dot", C.ai, "注力 " + num(f.n_focus) + " 社") +
-    lg("dot", "var(--rule)", "それ以外 " + num(rest) + " 社") +
+    lg("dot", "var(--rule-strong)", "それ以外 " + num(rest) + " 社") +
     '<i class="full">内訳（<b>重なります</b>。足しても ' + num(f.n_focus) +
     " 社にはなりません）: 月額30万以上 " + num(f.monthly_over_300k) +
     " ／ 従業員1,000名以上 " + num(f.enterprise) +
@@ -1849,11 +2017,12 @@ function custBlocks(D, want) {
             txt: yen(x.total),
             note: (x.band ? x.band + "帯 中央値 " + yen(x.band_median) : "") +
                   (x.syoudaku != null ? "　" + num(x.syoudaku) + "人" : ""),
-            color: x.censored ? C.ghost : C.hi,
+            /* 採用単価は量なので赤を使わない（V9）。確定は藍、未確定は薄い灰 */
+            color: x.censored ? C.ghost : C.ai,
             faint: !!x.censored,
           })) })
       : '<div class="empty">採用数が入っている契約がありません（0で割っていません）。</div>',
-    lg("box", C.hi, "総額 ÷ 採用数（確定）") + lg("box", C.ghost, "同（未確定・稼働中）") +
+    lg("box", C.ai, "総額 ÷ 採用数（確定）") + lg("box", C.ghost, "同（未確定・稼働中）") +
     lg("dash", C.ghost, "月割り") +
     '<i class="full">稼働中の契約は<b>金額が丸ごと乗っているのに採用がまだ伸びていない</b>ので、' +
     "総額での単価は必ず高く出ます。月割り（金額 ÷ 契約期間 × 経過月数 ÷ 採用数）と、" +
@@ -1866,18 +2035,26 @@ function custBlocks(D, want) {
   h += note("info", "1本の線にまとめない理由",
     "決裁は<b>事業所単位</b>です。拠点をまたいで1本につなぐと、拠点間のばらつきが" +
     "「時間の悪化」に見えてしまいます。");
+  /* 🔴 点が1つの拠点ごとに「線にしていません」の空の枠を1つずつ出していて、
+     空の枠が縦に何十も続いていた（V11 目視: ページが約 28,000px）。
+     線にできない拠点は最後に1つの枠へまとめる（値は残す）。 */
+  const oneCpa = [];
   for (const st of D.cpa_by_site) {
     const pts = st.points.map((p) => ({ v: p.cpa, censored: !!p.censored }));
+    if (pts.length < 2) { oneCpa.push(st); continue; }
     h += fig("採用単価の推移 — " + shortName(st.site, 28), "点の下は採れた人数",
-      pts.length >= 2
-        ? svgLine({ w: 660, h: 200,
+      svgLine({ w: 660, h: 200,
             x: st.points.map((p) => (p.start || "").slice(2, 7)),
             xSub: st.points.map((p) => (p.syoudaku == null ? "" : num(p.syoudaku) + "人")),
-            series: [{ color: C.hi, pts: pts }],
-            yFmt: F.man, yLab: "採用単価", alt: "採用単価の推移" })
-        : '<div class="empty">点が1つしかないので線にしていません（' +
-          st.points.map((p) => yen(p.cpa)).join(" / ") + "）。</div>",
-      lg("dot", C.hi, "確定した契約") + lg("ring", C.hi, "未確定（右側打ち切り）"));
+            /* 採用単価は量なので赤を使わない（V9）。未確定は中空・破線で分かる */
+            series: [{ color: C.ai, pts: pts }],
+            yFmt: F.man, yLab: "採用単価", alt: "採用単価の推移" }),
+      lg("dot", C.ai, "確定した契約") + lg("ring", C.ai, "未確定（右側打ち切り）"));
+  }
+  if (oneCpa.length) {
+    h += note("info", "点が1つしかない拠点（" + num(oneCpa.length) + "）は線にしていません",
+      oneCpa.map((st) => esc(shortName(st.site, 28)) + " " +
+        st.points.map((p) => yen(p.cpa)).join(" / ")).join("<br>"));
   }
   }
 
@@ -1890,15 +2067,13 @@ function custBlocks(D, want) {
     "（実測で応募数の変更の 30.4%・採用数の 35.2% が決着日より後）。<br>" +
     "値が変わらなかった月は<b>前の値を持ち越し</b>、中空・破線で描いています。" +
     "実線・塗りつぶしはその月に書き換えがあった印です。");
+  /* 🔴 変更履歴が無い契約ごとに「変更履歴がありません」の空の枠を出していて、
+     空の枠が大量に続いていた（V11 目視）。まとめて1つの枠にし、どの契約かは名前で残す */
+  const noHist = [];
   for (const mm of D.monthly) {
     const ser = mm.series || {};
     const any = ["oubo", "mensetu", "syoudaku"].some((k) => (ser[k] || []).length);
-    if (!any) {
-      h += fig(shortName(mm.name || mm.deal_id, 28) + " の推移", "",
-        '<div class="empty">この契約には応募・面接・採用の変更履歴がありません' +
-        "（記録が無いだけで、0 ではありません）。</div>");
-      continue;
-    }
+    if (!any) { noHist.push(mm); continue; }
     const months = [...new Set([].concat(...["oubo", "mensetu", "syoudaku"]
       .map((k) => (ser[k] || []).map((x) => x.m))))].sort((a, b) => a - b);
     const mk = (k) => months.map((mi) => {
@@ -1941,20 +2116,33 @@ function custBlocks(D, want) {
       return { label: label, color: color, type: type || "line",
                pts: pts, empty: !has, noneLabel: noneLabel || "記録がありません" };
     };
+    /* 🔴 「NPS が落ちた月に…が読めます」は、NPS と接触の両方に記録がある契約でしか言えない。
+       NPS の記録が無い契約にもこの文が出ていた（V11 目視） */
+    const hasNps = npsPts.some((p) => p.v != null);
+    const hasCt = ctPts.some((p) => p.v != null);
     h += fig(shortName(mm.name || mm.deal_id, 28) + " — 系列を縦に並べる",
-      "縦に目を落とすと「NPS が落ちた月に接触が切れていて、応募も止まっていた」が読めます",
+      hasNps && hasCt
+        ? "縦に目を落とすと「NPS が落ちた月に接触が切れていて、応募も止まっていた」が読めます"
+        : "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
+          (hasNps ? "" : "（この契約には定期NPS の回答がありません）"),
       svgStackLanes({ w: 940, months: months.map((m) => m + "ヶ月"), lanes: [
         lane("応募", C.ai, mk("oubo")),
         lane("面接", C.ki, mk("mensetu")),
         lane("採用", C.midori, mk("syoudaku")),
         lane("定期NPS", C.murasaki, npsPts, "dots", "回答がありません"),
-        lane("接触（MTG・60秒超の通話）", C.hi, ctPts, "bars", "接触の記録がありません"),
+        /* 接触は「あった」印なので赤（まずい）で塗らない（V9） */
+        lane("接触（MTG・60秒超の通話）", C.ink2, ctPts, "bars", "接触の記録がありません"),
       ] }),
       '<i class="full"><b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
       "値の幅が違いすぎる（応募 0〜200 / NPS 0〜10 / 接触 0〜数十）ので、" +
       "重ねると応募だけが動いて NPS が底に張り付きます。" +
       "目盛りの取り方しだいで「相関して見える絵」を作れてしまうため、" +
       "<b>横軸だけを共有して、系列ごとに自分の縦軸を持たせています</b>。</i>");
+  }
+  if (noHist.length) {
+    h += note("info", "応募・面接・採用の変更履歴が無い契約（" + num(noHist.length) + " 件）",
+      "記録が無いだけで、0 ではありません。図にしていないのは次の契約です: " +
+      noHist.map((mm) => esc(shortName(mm.name || mm.deal_id, 28))).join(" ／ "));
   }
   }
 
@@ -2235,16 +2423,24 @@ function renderHoujin(D) {
   /* LTV の累計。金額の入っている案件を開始日の順に足していく */
   const lt = F2.deals.filter((d) => d.amount != null && d.start)
     .sort((a, b) => String(a.start).localeCompare(String(b.start)));
+  /* 🔴 同じ月に始まった契約が2件あると、横軸に同じ月が2回出ていた（V10 目視）。
+     1か月1点にして、その月の終わりの累計を置く */
   let acc = 0;
-  const ltPts = lt.map((d) => { acc += d.amount; return { v: acc }; });
+  const ltMonths = [], ltPts = [];
+  for (const d of lt) {
+    acc += d.amount;
+    const mo = String(d.start).slice(2, 7);
+    if (ltMonths.length && ltMonths[ltMonths.length - 1] === mo) ltPts[ltPts.length - 1].v = acc;
+    else { ltMonths.push(mo); ltPts.push({ v: acc }); }
+  }
   h += fig("LTV の推移（契約金額の累計）", "契約が増えるたびに積み上がる",
     ltPts.length >= 2
       ? svgLine({ w: 940, h: 220, labelPts: true,
-          x: lt.map((d) => String(d.start).slice(2, 7)),
+          x: ltMonths,
           series: [{ color: C.ai, pts: ltPts }],
           yFmt: F.man, yLab: "累計金額", alt: "LTV の推移" })
-      : '<div class="empty">金額が入っている契約が ' + num(lt.length) +
-        " 件しかないので線にしていません。</div>",
+      : '<div class="empty">金額が入っている契約の開始月が ' + num(ltPts.length) +
+        " か月ぶんしかないので線にしていません（契約 " + num(lt.length) + " 件）。</div>",
     lg("line", C.ai, "契約金額の累計") +
     '<i class="full"><b>これも合算です。</b>金額が入っていない契約は足していません' +
     "（0 として足すと母数が変わるため）。横軸は契約の開始月で、" +
@@ -2336,7 +2532,7 @@ function renderHq(D) {
         pct1(x.cancel_rate), yen(x.amount), nz(x.syoudaku), yen(x.cpa)])) +
     "</details>").join(""), 520);
   if (D.truncated) h += '<p class="muted small">上位80法人だけ出しています。</p>';
-  return h + foot(D.meta);
+  return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
 }
 
 /* ================================================================ 5 MTG の品質 */
@@ -2371,12 +2567,20 @@ function renderMtgQ(D) {
     '<i class="full">未判定は「リスクが無い」ではなく「まだ抽出していない」です。</i>');
 
   h += sec("図", "誰がどれだけ MTG をしているか");
+  /* 🔴 V14: ホスト名は Zoom の登録名そのまま（空白なし）で、人によって「名＋姓」の順で
+     登録されている（元データ nouhin_relink.jsonl の先頭 3MB の実測: 33名のうち少なくとも「桜小林」「詩央里田野」
+     「愛理沙安友」「萌衣藤中」）。ほかの画面の担当名（HubSpot の「姓 名」）とは一致しない。
+     空白が無いので画面の側では姓と名の境目が分からず、並べ替えは推測になる。
+     正しく揃えるにはサーバ側で担当名に突き合わせる必要がある */
   h += fig("ホスト別の件数", "これは行動量です。良し悪しではありません",
     svgBarH({ w: 680, fmt: F.int, rh: 22,
       rows: D.hosts.slice(0, 25).map((r) => ({
         label: shortName(r.host, 16), v: r.n, txt: num(r.n) + "回", color: C.ai })) }),
     '<i class="full">上位25名だけ出しています（全 ' + num(D.hosts.length) + " 名）。" +
-    "件数が多い＝良い、ではありません。担当している契約の数が違います。</i>");
+    "件数が多い＝良い、ではありません。担当している契約の数が違います。</i>" +
+    /* V14: 並び替えは推測になるので、画面では直さずに断る（理由は上のコメント） */
+    '<i class="full">名前は <b>Zoom に登録された名前のまま</b>です。人によって「名＋姓」の順で' +
+    "登録されているため、ほかの画面の担当名（姓 名）と並びが違うことがあります。</i>");
 
   h += sec("図", "月ごとの件数");
   h += fig("MTG の実施回数", "",
@@ -2385,7 +2589,7 @@ function renderMtgQ(D) {
       series: [{ color: C.ai, pts: D.monthly.map((m) => ({ v: m.n })) }],
       yFmt: F.int, yLab: "回", alt: "月ごとの MTG 件数" }),
     lg("line", C.ai, "MTG"));
-  return h + foot(D.meta);
+  return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
 }
 
 /* ================================================================ 6 電話 */
@@ -2399,8 +2603,9 @@ function renderPhone(D) {
   h += '<div class="kpis">' +
     kpi("電話が1本も無い", num(r.no_call) + '<span class="u">件</span>',
         pct1(r.no_call_rate) + " / 稼働中 " + num(D.meta.n_active), "warn") +
+    /* 🔴 率だけで母数が無かった（V20）。隣の KPI と同じく稼働中の件数を添える */
     kpi("接触が1本も無い", num(r.no_contact) + '<span class="u">件</span>',
-        pct1(r.no_contact_rate), "bad") +
+        pct1(r.no_contact_rate) + " / 稼働中 " + num(D.meta.n_active), "bad") +
     kpi("最後に話してから", D.days_since ? num(D.days_since.median) + '<span class="u">日</span>' : DASH,
         D.days_since ? "四分位 " + num(D.days_since.q1) + "〜" + num(D.days_since.q3) + "日" : "") +
     kpi("文字起こしがある", pct1(D.transcript.rate, 2),
@@ -2451,23 +2656,27 @@ function renderPhone(D) {
       num(x.n_calls), num(x.n_contact),
       x.last_contact == null ? '<b style="color:var(--hi)">一度も無い</b>' : esc(x.last_contact),
       x.days_since == null ? DASH : num(x.days_since) + "日"])), 420);
-  return h + foot(D.meta);
+  return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
 }
 
 /* ================================================================ 7 立ち上がり */
 function renderRampup(D) {
   const ph = D.phase, f = D.first_mtg, nm = D.no_mtg;
   let h = sec("問い", "最初の契約を乗り切れているか") +
-    note("info", "この画面で数えていないもの",
+    note("def", "この画面で数えていないもの",
       "成約率・売上・担当者の評価ではありません。<b>契約が始まってから最初の MTG までに" +
       "何日かかったか</b>だけを見ています。良し悪しの判断は人がします。<br>" +
       "ここの「初回MTG」は<b>MTG だけ</b>で、電話は入っていません" +
       "（MTGと電話を束ねた最終接触は⑧成果にあります）。");
 
   h += sec("図", "いま、どのフェーズにいるか");
-  const pparts = ph.rows.map((r, i) => ({
+  /* 🔴 SERIES を並び順で回していたので「序盤」が緑（＝良い）、別の日には赤にもなり得た（V9）。
+     フェーズは良し悪しではないので、赤と緑は使わない。名前で色を決める */
+  const PHASE_COLOR = { "序盤": C.ai, "中盤": C.murasaki, "終盤": C.ink2,
+                        "満了超過": C.ki, "出せない": C.ghost };
+  const pparts = ph.rows.map((r) => ({
     label: r.label, v: r.n,
-    color: r.label === "満了超過" ? C.ki : r.label === "出せない" ? C.ghost : SERIES[i % 5],
+    color: PHASE_COLOR[r.label] || C.ghost,
     faint: r.label === "出せない" }));
   h += fig("契約長に対する割合で見る", esc(ph.rule),
     svgStack({ w: 680, parts: pparts }), stackLegend(pparts) +
@@ -2485,7 +2694,7 @@ function renderRampup(D) {
     lg("box", C.ai, "四分位") + lg("line", C.ink, "中央値"));
 
   h += fig("帯ごとの、その後の解約率", "遅い群が悪いことだけが読めます",
-    svgBarH({ w: 660, fmt: F.d1, rh: 26,
+    svgBarH({ w: 660, fmt: F.pp, rh: 26,
       rows: f.buckets.filter((b) => b.n >= MIN_N).map((b) => ({
         label: b.label, v: b.cancel_rate, txt: pct1(b.cancel_rate),
         note: "n=" + num(b.n),
@@ -2505,23 +2714,35 @@ function renderRampup(D) {
       r.days_since_start == null ? DASH : num(r.days_since_start) + "日"])), 420);
   h += note("info", "継続率はこの画面にありません",
     "「集計」の中の「継続回数 × 成果」にあります。<b>同じ数字を2か所で作らない</b>ためです。");
-  return h + foot(D.meta);
+  return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
 }
 
 /* ================================================================ 8 成果とリスク */
+/** 目標に対する進捗の帯の色。帯の名前で決める（並び順に依存しない） */
+function goalBandColor(label) {
+  const s = String(label || "");
+  if (s.startsWith("未記入")) return C.ghost;   /* 値が無い。0% ではない */
+  if (s === "100%以上") return C.midori;
+  if (s.startsWith("0%")) return C.hi;
+  if (s.startsWith("50")) return C.ai;
+  if (s.startsWith("1〜")) return C.ki;
+  return C.ghost;
+}
 function renderOutcome(D) {
   const ga = D.goal_act, gl = D.goal_all, ef = D.efficiency, R = D.risk, cs = D.contact_source;
   let h = sec("問い", "成果は出ているか、どこが危ないか") +
-    note("info", "この画面で数えていないもの",
+    note("def", "この画面で数えていないもの",
       "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
       "メールは数えていません。<b>接触は検知にだけ使っています。処方には使いません。</b>" +
       "中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。");
 
   h += sec("図", "目標に対する進捗");
-  const gparts = ga.bands.map((b, i) => ({
+  /* 🔴 真ん中の帯を SERIES で順に塗っていたので、「50〜100%」が赤・「1〜50%」が緑になり、
+     色の意味（赤＝まずい・緑＝良い）が逆転していた（V9 目視）。
+     帯の名前で決める。良い→悪いの順に 緑 → 藍 → 山吹 → 赤 */
+  const gparts = ga.bands.map((b) => ({
     label: b.label, v: b.n,
-    color: b.label === "100%以上" ? C.midori : b.label === "0%（実績ゼロ）" ? C.hi :
-           b.label.startsWith("未記入") ? C.ghost : SERIES[i % 5],
+    color: goalBandColor(b.label),
     faint: b.label.startsWith("未記入") }));
   h += fig("達成率 ＝ 承諾数 ÷ 採用目標数", "目標が入っている契約だけが母数",
     svgStack({ w: 680, parts: gparts }),
@@ -2591,7 +2812,7 @@ function renderOutcome(D) {
       (r.never_after_start ? '<b style="color:var(--hi)">' : "<span>") + esc(r.ax3w) +
         (r.never_after_start ? " &#9650;</b>" : "</span>"),
       r.n_contact ? num(r.n_contact) + "件" : DASH])), 420);
-  return h + foot(D.meta);
+  return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
 }
 
 /* ================================================================ 9 データ品質 */
@@ -2602,9 +2823,11 @@ function renderDq(D) {
 
   /* ---- 法人番号の出どころ ---- */
   h += sec("図", "法人番号の出どころ");
+  /* 判定はサーバのキー（deal / company）のまま、出す名前だけ置き換える（V3）。
+     🔴 山吹は「読むのに注意が要る」の色。会社由来は注意の印ではないので紫にする（V9） */
   const hp = D.houjin_source.rows.map((r, i) => ({
-    label: r.label, v: r.n,
-    color: r.label === "deal" ? C.ai : r.label === "company" ? C.ki : C.ghost,
+    label: dispName(r.label), v: r.n,
+    color: r.label === "deal" ? C.ai : r.label === "company" ? C.murasaki : C.ghost,
     faint: r.label.indexOf("無") >= 0 || r.label === "none" }));
   h += fig("どこから取れたか", "",
     svgStack({ w: 680, parts: hp }), stackLegend(hp) +
@@ -2618,7 +2841,7 @@ function renderDq(D) {
     svgMatrix({ padL: 150, cw: 120,
       cols: groups,
       rows: fields.map((f) => ({
-        label: f,
+        label: dispName(f),
         cells: groups.map((g) => {
           const r = D.outcome_bias.rows.find((x) => x.group === g && x.field === f);
           if (!r || r.fill_rate == null) return { v: null, txt: "—", n: 0 };
@@ -2645,8 +2868,8 @@ function renderDq(D) {
   /* ---- 読んでいるシート ---- */
   h += sec("表", "読んでいるシート");
   h += '<div class="lede">スプレッドシートを直接読んでいます。件数はいま読めた行数です。</div>';
-  h += table([{ t: "シート" }, { t: "行数", n: 1 }],
-    D.sheets.map((x) => [esc(x.name), num(x.rows)]));
+  h += scroll(table([{ t: "シート" }, { t: "行数", n: 1 }],
+    D.sheets.map((x) => [esc(x.name), num(x.rows)])));
   return h + foot(D.meta);
 }
 
@@ -2932,7 +3155,7 @@ function renderToday(D) {
     '<div class="lede">毎朝ここだけ見れば動ける長さに絞っています。' +
     "上から順に潰していってください。</div>";
 
-  h += note("info", "絞った条件", esc(D.meta.filter_rule));
+  h += note("def", "絞った条件", esc(D.meta.filter_rule));
 
   const soon = D.expiring_this_week || [];
   const started = D.started_this_week || [];
@@ -3022,7 +3245,7 @@ function renderToday(D) {
 
   h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）");
   h += scroll(boardTable(D.rows, { key: "n_flags", asc: false }, "today-tbl"), 640);
-  h += note("info", "この並びについて", esc(D.meta.order_rule));
+  h += note("def", "この並びについて", esc(D.meta.order_rule));
   return h + foot(D.meta);
 }
 
@@ -3038,9 +3261,29 @@ function renderBoard(D) {
       "「②担当者の一覧」で名前を押しても同じところに来ます。</div>";
     h += boardFilterBar(D);
     if (!boardFilter.consultant) {
+      /* 🔴 担当を選ぶ前は「案件そのもの」と同じ 604 行の表がそのまま出ていて、
+         2つの画面がほぼ同じ中身になっていた（V21）。選ぶ前は**担当者ごとの件数**だけを出し、
+         案件の表は担当を選んでから出す。全件の表は「案件そのもの」にある。 */
+      const per = {};
+      for (const r of shown) {
+        const k = r.consultant || "";
+        const p = per[k] || (per[k] = { n: 0, flagged: 0, focus: 0 });
+        p.n++;
+        if ((r.flags || []).length) p.flagged++;
+        if (r.focus) p.focus++;
+      }
+      const ks = Object.keys(per).sort((a, b) => per[b].n - per[a].n || a.localeCompare(b, "ja"));
       h += note("info", "担当者を選んでください",
-        "まだ誰も選んでいないので、稼働中 " + num(D.rows.length) +
-        " 件をすべて出しています。担当者で絞ると、その人の持ち方が見えます。");
+        "上の「担当」で選ぶと、その人の案件の表が出ます。" +
+        "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は「案件そのもの」にあります）。");
+      h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
+        "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
+        (on ? "（絞り込み中: " + esc(boardFilterWords()) + "）" : "（絞り込みなし）") + "</div>";
+      h += sec("表", "担当者ごとの持ち件数（" + num(ks.length) + " 名）");
+      h += scroll(table([{ t: "担当" }, { t: "案件", n: 1 }, { t: "名札のある案件", n: 1 },
+                         { t: "注力案件", n: 1 }],
+        ks.map((k) => [k ? esc(k) : DASH, num(per[k].n), num(per[k].flagged), num(per[k].focus)])), 640);
+      return h + foot(D.meta);
     }
     h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
       "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
@@ -3058,7 +3301,7 @@ function renderBoard(D) {
     '<div class="lede">稼働中 ' + num(D.rows.length) +
     " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。" +
     "<b>担当・名札・満了までの期間・案件名で絞り込めます。</b></div>";
-  h += note("info", "この並びについて", esc(D.meta.order_rule));
+  h += note("def", "この並びについて", esc(D.meta.order_rule));
 
   h += boardFilterBar(D);
   /* 🔴 絞り込んだら、何件中の何件を見ているのかを必ず出す。
@@ -3131,7 +3374,7 @@ let boardCache = null;
 function renderHandover(D) {
   let h = sec("問い", "担当はいつ、どう替わったか") +
     '<div class="lede">1行1回の交代。<b>新しい順</b>に並べています。</div>';
-  h += note("info", "この一覧の決まりごと",
+  h += note("def", "この一覧の決まりごと",
     esc(D.source_rule) + "<br>" + esc(D.gap_rule));
 
   h += '<div class="kpis">' +
@@ -3183,7 +3426,8 @@ function renderDefs() {
     "各画面にも同じ説明が母数つきで出ます。</div>";
 
   h += sec("表", "色と印の意味");
-  h += table([{ t: "見た目" }, { t: "意味" }],
+  /* 定義の表も枠に入れる。400px幅でページが 1,368px に広がっていた（V17 実測） */
+  h += scroll(table([{ t: "見た目" }, { t: "意味" }],
     [['<b style="display:inline-block;width:26px;height:10px;background:var(--ai)"></b>',
       "触れるところ・主系列"],
      ['<b style="display:inline-block;width:26px;height:10px;background:var(--hi)"></b> &#9650;',
@@ -3193,10 +3437,10 @@ function renderDefs() {
      ['<b style="display:inline-block;width:26px;height:10px;background:var(--midori)"></b> &#9660;',
       "良い / 改善"],
      ['<span class="n0">&#8212;</span>', "値が無い。<b>0 ではない</b>"],
-     ["&#9675;", "未確定（右側打ち切り）。結果がまだ出ていない"]]);
+     ["&#9675;", "未確定（右側打ち切り）。結果がまだ出ていない"]]));
 
   h += sec("表", "この画面が守っていること");
-  h += table([{ t: "決まりごと" }, { t: "なぜ" }],
+  h += scroll(table([{ t: "決まりごと" }, { t: "なぜ" }],
     [["分母が 0 のときは <b>0% と書かない</b>",
       "「1件中0件」と「0件中0件」は別のこと。後者は率が出せない"],
      ["すべての数字に<b>母数を添える</b>",
@@ -3215,14 +3459,14 @@ function renderDefs() {
       "求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加。本体契約と一緒に並べると、" +
       "同じ顧客が案件一覧にも担当者の持ち件数にも二重に出る。<b>外した件数と金額は各画面の頭に出している</b>"],
      ["<b>母集団はどの項目でも同じ</b>",
-      "サーバが1か所で数えた値を全部の項目に同じまま渡している。項目ごとに数え直していない"]]);
+      "サーバが1か所で数えた値を全部の項目に同じまま渡している。項目ごとに数え直していない"]]));
 
   h += sec("表", "3つの「いつ」は別物");
-  h += table([{ t: "名前" }, { t: "何の時刻か" }],
+  h += scroll(table([{ t: "名前" }, { t: "何の時刻か" }],
     [["計算の基準日", "画面が「今日」として使う日付。サーバがその場で決める。<b>データの新しさとは無関係</b>"],
      ["シートの生成時刻", "スプレッドシートを作り直した時刻"],
      ["<b>元データの取得時刻</b>",
-      "HubSpot / Zoom から落とした時刻。<b>画面の上に出ている「N日前」はこれで数えています</b>"]]);
+      "HubSpot / Zoom から落とした時刻。<b>画面の上に出ている「N日前」はこれで数えています</b>"]]));
   h += note("info", "なぜ3つ要るのか",
     "古い元データのままシートを作り直すと、<b>生成時刻だけが新しくなって中身は古いまま</b>に" +
     "なります。生成時刻を「データの新しさ」として出すと嘘になるので、分けています。");
@@ -3270,7 +3514,10 @@ function setFresh(meta) {
   if (age != null && age >= 4) {
     h += "<b>" + age + "日分の動きが入っていません。</b>";
   }
-  h += '<br><span class="muted">';
+  /* 🔴 1行目（何日前・いつ時点・何日分が抜けているか）は畳まない。毎朝まず読むもの。
+     残りの時刻の内訳だけ畳む（V1: 全画面の頭で2行を使い、本題を下へ押していた） */
+  h += '<details class="fold"><summary>ほかの時刻（シートの作成・計算の基準日）</summary>' +
+    '<span class="muted">';
   if (gen && src && gen.slice(0, 10) !== src.slice(0, 10)) {
     /* 🔴 3つの時刻は別物。混ぜないで並べる */
     h += "シートを作り直したのは " + esc(gen) + "（元データはそれより前のもの）。";
@@ -3278,7 +3525,7 @@ function setFresh(meta) {
     h += "シートを作り直したのは " + esc(gen) + "。";
   }
   if (base) h += "計算の基準日は " + esc(base) + "（データの新しさとは別物）。";
-  h += "更新は手で回しています（自動ではありません）。</span>";
+  h += "更新は手で回しています（自動ではありません）。</span></details>";
   box.innerHTML = h;
 }
 
@@ -3461,15 +3708,17 @@ async function load(refresh) {
 function popline(D) {
   const p = D && D.population;
   if (!p) return "";
-  return '<p class="popnote">稼働中 <b>' + num(p.active) +
-    "</b> 件（オプション契約を除く）<br>" +
+  /* 🔴 1行目（稼働中 N 件・オプション除く）は常に見せ、外した内訳は畳む（V1）。
+     3行のボックスが全画面の頭に出て、本題を下へ押していた。黙って消してはいない */
+  return '<details class="popnote fold"><summary>稼働中 <b>' + num(p.active) +
+    "</b> 件（オプション契約 " + num(p.active_option) + " 件を除く）</summary>" +
     '<span class="muted">稼働中 ' + num(p.active_all) + " 件から、オプション契約 " +
     num(p.active_option) + " 件を除いた数です" +
     (p.option_amount ? "（外した契約の金額は " + man(p.option_amount) +
       "。契約が無くなったわけではありません）" : "") +
     "。オプション＝求人追加・AirWork広告運用・一次対応・エントリーフォーム・追加。" +
     "全取引 " + num(p.deals_all) + " 件のうち " + num(p.deals_option) +
-    " 件がオプションで、この画面は残り " + num(p.deals) + " 件を見ています。</span></p>";
+    " 件がオプションで、この画面は残り " + num(p.deals) + " 件を見ています。</span></details>";
 }
 
 /* 項目ごとの操作列。「継続回数 × 成果」は右側打ち切りの切り替え、
