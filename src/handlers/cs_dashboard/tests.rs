@@ -170,25 +170,31 @@ fn オプションを外すと結果待ちがほぼ消える() {
 /// 🔴 2026-09-23 に**オプション契約を母集団から外した**ので、件数と率が動いた。
 /// 資料（オプション込み）の値とは一致しない。
 ///
-/// | 継続回数 | 件数 | 解約＋充足 | 解約率 |（オプションを外した実測）
-/// | 初回  | 1,914 | 959 | 50.1% |
-/// | 継続1 |   734 | 283 | 38.6% |
-/// | 継続2 |   383 | 110 | 28.7% |
+/// 🔴 2026-09-23（2回目）: **分母を決着済み（継続＋解約＋充足）に直した**。
+/// 以前は件数 n（結果待ち＝稼働中を含む）で割っていて、初回は 50.1% と出ていた。
+/// 定義「結果待ちは分母に入れない」（call-quality-metrics）に合わせて期待値を
+/// fixture から数え直した（Python で別に数えて一致を確認）。
 ///
-/// 初回の解約率が 46.8% → 50.1% と上がるのは、オプション契約が
-/// 「初回・決着しない（＝解約にも継続にも数えない）」側へ偏って入っていたため。
+/// | 継続回数 | 件数 | 結果待ち | 決着済み | 解約＋充足 | 解約率 | 以前の表示 |
+/// | 初回  | 1,914 | 264 | 1,650 | 959 | 58.1% | 50.1% |
+/// | 継続1 |   734 | 107 |   627 | 283 | 45.1% | 38.6% |
+/// | 継続2 |   383 |  98 |   285 | 110 | 38.6% | 28.7% |
+/// | 継続3 |   182 |  61 |   121 |  39 | 32.2% | 21.4% |
+/// | 継続5 |    49 |  18 |    31 |   4 | 12.9% |  8.2% |
 #[test]
 fn 継続回数ごとの解約率が資料の値と一致する() {
     let v = build_renewal(&sheets(), false);
-    for (no, n, cancel_plus_fill, pct) in [
-        (0, 1914, 959, 50.1),
-        (1, 734, 283, 38.6),
-        (2, 383, 110, 28.7),
-        (3, 182, 39, 21.4),
-        (5, 49, 4, 8.2),
+    for (no, n, pending, denom, cancel_plus_fill, pct) in [
+        (0, 1914, 264, 1650, 959, 58.1),
+        (1, 734, 107, 627, 283, 45.1),
+        (2, 383, 98, 285, 110, 38.6),
+        (3, 182, 61, 121, 39, 32.2),
+        (5, 49, 18, 31, 4, 12.9),
     ] {
         let r = renewal(&v, no);
         assert_eq!(r["n"], n, "継続{no} の件数");
+        assert_eq!(r["pending"], pending, "継続{no} の結果待ち");
+        assert_eq!(r["denom"], denom, "継続{no} の決着済み（解約率の分母）");
         let got_cf = r["cancel"].as_i64().unwrap() + r["fill"].as_i64().unwrap();
         assert_eq!(got_cf, cancel_plus_fill, "継続{no} の解約＋充足");
         let got = r["cancel_rate"].as_f64().expect("率が null");
@@ -199,7 +205,7 @@ fn 継続回数ごとの解約率が資料の値と一致する() {
     }
 }
 
-/// 充足を外すと 50.1% が 40.4% に見える。
+/// 充足を外すと 58.1% が 46.9% に見える（どちらも分母は決着済み）。
 ///
 /// **外さないのが確定した定義**。両方返しているのは画面で並べて見せるためで、
 /// 主値を取り違えていないことをここで固定する。
@@ -209,7 +215,7 @@ fn 充足を外した値は別のキーで返る() {
     let r = renewal(&v, 0);
     let main = r["cancel_rate"].as_f64().unwrap();
     let excl = r["cancel_rate_excl_fill"].as_f64().unwrap();
-    assert!((main - 50.1).abs() < 0.05, "主値が {main:.1}%");
+    assert!((main - 58.1).abs() < 0.05, "主値が {main:.1}%");
     assert!(
         excl < main - 5.0,
         "充足を外すと {excl:.1}% まで下がるはず（主値 {main:.1}%）"
@@ -403,12 +409,36 @@ fn 目標が無い取引は母数に入れない() {
     let all = &v["goal_all"];
     assert_eq!(all["pop"], 3432);
     assert_eq!(all["has_goal"], 1146);
+
+    // 🔴 帯を全部足すと見出しの母数（pop）になること。以前は「目標はあるが採用数が空」
+    //    （稼働中 351 − 345 = 6件）がどの帯にも入らず、合計が pop に届かなかった。
+    for g in [&v["goal_act"], &v["goal_all"]] {
+        let sum: i64 = g["bands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["n"].as_i64().unwrap())
+            .sum();
+        assert_eq!(
+            sum,
+            g["pop"].as_i64().unwrap(),
+            "帯の合計が母数と合わない: {g}"
+        );
+        assert_eq!(
+            g["no_result"].as_i64().unwrap(),
+            g["has_goal"].as_i64().unwrap() - g["both"].as_i64().unwrap()
+        );
+    }
+    assert_eq!(a["no_result"], 6, "目標はあるが採用数が空（稼働中）");
 }
 
-/// 求人票あたり応募効率。**資料の 8.1 / 14.5 は再現しない。**
+/// 求人票あたり応募効率。**決着の3群で比べる**（結果待ちを「継続した」に混ぜない）。
 ///
-/// 向き（解約 < 継続）は合うが、中央値で見ると差はほとんど無い。
-/// ここを「再現する」と書き換えたくなったら、まず実データを数え直すこと。
+/// 🔴 2026-09-23: 以前は `_ => 継続` で結果待ち（稼働中など）が「継続した / 稼働中」に
+/// 入っていて（n=1282）、中央値の差がほとんど無く「資料の 8.1 / 14.5 は再現しない」と
+/// 固定していた。結果待ち 540件（中央値 3.0）を外すと、継続 n=742（中央値 7.5・平均 12.9）
+/// ／ 解約 n=529（中央値 5.0・平均 8.4）と差が出る（Python で別に数えて一致を確認）。
+/// 期待値はその値に直した。画面の「再現しません」の注記は画面側チームに報告済み。
 #[test]
 fn 応募効率は向きだけ合って値は再現しない() {
     let v = build_outcome(&sheets(), fixture_day());
@@ -421,13 +451,22 @@ fn 応募効率は向きだけ合って値は再現しない() {
             .unwrap()["box"]
             .clone()
     };
-    let keizoku = g("継続した / 稼働中");
+    let keizoku = g("継続した");
     let kaiyaku = g("解約した");
     let juusoku = g("充足（採れて終わった）");
 
-    assert_eq!(keizoku["n"], 1282);
+    assert_eq!(
+        keizoku["n"], 742,
+        "継続済だけ。結果待ちが混ざると 1282 になる"
+    );
     assert_eq!(kaiyaku["n"], 529);
     assert_eq!(juusoku["n"], 142);
+    assert_eq!(v["efficiency"]["n_pending_excluded"], 540);
+    assert!(v["efficiency"]["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|x| !x["label"].as_str().unwrap().contains("稼働中")));
 
     let m_keizoku = keizoku["mean"].as_f64().unwrap();
     let m_kaiyaku = kaiyaku["mean"].as_f64().unwrap();
@@ -435,20 +474,8 @@ fn 応募効率は向きだけ合って値は再現しない() {
         m_kaiyaku < m_keizoku,
         "平均の向きが逆になっている（解約 {m_kaiyaku:.1} / 継続 {m_keizoku:.1}）"
     );
-    // 資料の値は 8.1 vs 14.5。実データはここまで離れていない
-    assert!(
-        (m_keizoku - 14.5).abs() > 1.0,
-        "継続の平均が {m_keizoku:.1}。資料の 14.5 に一致したなら、
-         『再現しない』と書いた注意書きのほうを直すこと"
-    );
-
-    let med_keizoku = keizoku["median"].as_f64().unwrap();
-    let med_kaiyaku = kaiyaku["median"].as_f64().unwrap();
-    assert!(
-        (med_keizoku - med_kaiyaku).abs() < 1.0,
-        "中央値の差が {:.2} ある。ほとんど差が無いという読みが変わる",
-        med_keizoku - med_kaiyaku
-    );
+    assert_eq!(keizoku["median"].as_f64().unwrap(), 7.5);
+    assert_eq!(kaiyaku["median"].as_f64().unwrap(), 5.0);
 
     // 掲載数が空の取引を 0 として入れていないこと
     assert_eq!(v["efficiency"]["has_keisaisu_all"], 2013);
@@ -465,8 +492,13 @@ fn リスク2軸の帯が実データと一致する() {
     //   未測定（接触の記録が1つも無い）が 157 -> 64 に落ちる。
     //   **外した99件のうち93件が「接触の記録が1つも無い」だった**ので、
     //   この画面はオプションで埋まっていたことになる。
-    assert_eq!(v["risk"]["ax3"]["白"], 400);
-    assert_eq!(v["risk"]["ax3"]["赤"], 140);
+    // 2026-09-23（2回目）: 白 400 -> 401 / 赤 140 -> 139。通話の日付を日本時間で
+    //   取るようにしたため（UTC のままだと日本時間 0〜9時の通話が前日に入る）。
+    //   動いたのは1件で、UTC の日付だと契約開始の前日になっていた通話が、日本時間では
+    //   開始日当日になり「契約後に一度も接触していない（赤）」から白に移った
+    //   （Python で別に数えて一致を確認）。
+    assert_eq!(v["risk"]["ax3"]["白"], 401);
+    assert_eq!(v["risk"]["ax3"]["赤"], 139);
     assert_eq!(v["risk"]["ax3"]["未測定"], 64);
 
     // 2026-09-21: 白 548 -> 547 / 未測定 1 -> 2。
@@ -476,8 +508,8 @@ fn リスク2軸の帯が実データと一致する() {
     assert_eq!(v["risk"]["ax4"]["赤"], 154);
     assert_eq!(v["risk"]["ax4"]["未測定"], 2);
 
-    assert_eq!(band_n(&v, "0＝安定"), 336);
-    assert_eq!(band_n(&v, "1＝要注意"), 242);
+    assert_eq!(band_n(&v, "0＝安定"), 337);
+    assert_eq!(band_n(&v, "1＝要注意"), 241);
     assert_eq!(band_n(&v, "2＝最優先"), 26);
 
     let top = v["risk"]["top"].as_array().unwrap();
@@ -854,9 +886,17 @@ fn 立ち上がりは契約後のmtgだけで測る() {
 fn mtgが結べていない初回契約が出る() {
     let v = build_rampup(&sheets(), fixture_day());
     let nm = &v["no_mtg"];
-    assert_eq!(nm["first_active"], 264);
-    assert_eq!(nm["n"], 114);
-    assert_eq!(nm["rows"].as_array().unwrap().len(), 114);
+    // 2026-09-23: 「マーケ関連」（紹介料・マーケ施策の計上）10件を表と分母から外した。
+    //   264 -> 254、114 -> 104。10件とも MTG の記録が無かった。件数は別に返す
+    assert_eq!(nm["first_active"], 254);
+    assert_eq!(nm["excluded_marketing"], 10);
+    assert_eq!(nm["n"], 104);
+    assert_eq!(nm["rows"].as_array().unwrap().len(), 104);
+    assert!(nm["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["stage"] != "マーケ関連"));
     assert!(nm["rate"].as_f64().is_some());
     // 記録が無いことと、やっていないことを分けて書いているか
     assert!(nm["note"].as_str().unwrap().contains("記録が無いことと"));
@@ -878,7 +918,11 @@ fn 接触ゼロの取引は経過日数をnullにする() {
 
     let rows = v["silent"]["rows"].as_array().unwrap();
     let zero = rows.iter().filter(|r| r["days_since"].is_null()).count();
-    assert_eq!(zero, 81, "接触ゼロの行が日数 null になっていない");
+    // 2026-09-23: 「マーケ関連」10件（全部が接触ゼロ）を表からだけ外した。
+    //   KPI の no_contact（81）はそのまま。表は 81 -> 71、外した件数は別に返す
+    assert_eq!(zero, 71, "接触ゼロの行が日数 null になっていない");
+    assert_eq!(v["silent"]["excluded_marketing"], 10);
+    assert!(rows.iter().all(|r| r["stage"] != "マーケ関連"));
     for r in rows {
         if r["days_since"].is_null() {
             assert_eq!(r["n_contact"], 0);
@@ -900,8 +944,11 @@ fn 電話の経過日数と文字起こしの薄さが出る() {
     assert_eq!(v["meta"]["threshold_sec"], 60.0);
 
     let t = &v["transcript"];
-    assert_eq!(t["n"], 1372);
-    assert_eq!(t["rows"], 20843);
+    // 2026-09-23: オプション契約に付いた通話（2,218行）を数えないようにした。
+    //   20,843 -> 18,625行、文字起こし 1,372 -> 1,275（Python で別に数えて一致）
+    assert_eq!(t["n"], 1275);
+    assert_eq!(t["rows"], 18625);
+    assert_eq!(v["reach"]["option_rows_excluded"], 2218);
     assert!(
         t["rate"].as_f64().unwrap() < 10.0,
         "文字起こしが薄いという読みが変わる"
@@ -952,8 +999,10 @@ fn 本部は事業所ごとに並べる() {
 #[test]
 fn mtgの埋まり具合は抽出の進み具合として出す() {
     let v = build_mtg_quality(&sheets(), fixture_day());
-    assert_eq!(v["meta"]["n_mtg"], 3133);
-    assert_eq!(v["linked"]["n"], 3133, "取引に結べた MTG");
+    // 2026-09-23: オプション契約に結ばれた MTG（9行）を数えないようにした。3133 -> 3124
+    assert_eq!(v["meta"]["n_mtg"], 3124);
+    assert_eq!(v["meta"]["option_rows_excluded"], 9);
+    assert_eq!(v["linked"]["n"], 3124, "取引に結べた MTG");
 
     let todo = v["filled"]
         .as_array()
@@ -978,7 +1027,7 @@ fn mtgの埋まり具合は抽出の進み具合として出す() {
         .iter()
         .map(|r| r["n"].as_i64().unwrap_or(0))
         .sum();
-    assert_eq!(sum, 3133, "リスク判定の内訳が母数と合わない");
+    assert_eq!(sum, 3124, "リスク判定の内訳が母数と合わない");
     // 未判定を黙って落としていない
     assert!(v["risk_dist"]
         .as_array()
@@ -1024,7 +1073,16 @@ fn データ品質は欠測を件数で出す() {
 
     // 読んだシートの行数が全部載っている
     let sheets_listed = v["sheets"].as_array().unwrap();
-    assert_eq!(sheets_listed.len(), 7);
+    // 🔴 先読みする9枚（SHEETS）と同じ顔ぶれ・同じ順。以前は7枚で担当履歴とメタが抜けていた
+    let names: Vec<&str> = sheets_listed
+        .iter()
+        .map(|x| x["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        super::SHEETS.to_vec(),
+        "データ品質のシート一覧が先読みと違う"
+    );
     for sh in sheets_listed {
         assert!(sh["rows"].as_i64().unwrap() > 0, "空のシートがある: {sh}");
     }
@@ -1785,6 +1843,7 @@ fn mtg途絶の線引きがgasと同じ() {
         contract_expiration_date: exp.into(),
         contract_start_date: start.into(),
         kyoten_key: String::new(),
+        kyoten_name: String::new(),
         houjin_resolved: String::new(),
         houjin_source: String::new(),
         renewal_no: None,
@@ -2208,4 +2267,556 @@ fn 注力と帯は別のものとして出る() {
     for w in ["Layer1", "Layer2", "Layer3"] {
         assert!(!html.contains(w), "画面に「{w}」が入っている");
     }
+}
+
+// ================================================================ 2026-09-23 全体レビューの是正
+
+/// 1枚のシートを行ごと差し替えた複製を作る（fixture を壊さずに境目を作るため）。
+fn with_rows(base: &SheetData, f: impl Fn(&mut Vec<Arc<str>>)) -> Arc<SheetData> {
+    let mut rows = base.rows.clone();
+    for r in rows.iter_mut() {
+        f(r);
+    }
+    Arc::new(SheetData {
+        header: base.header.clone(),
+        rows,
+        fetched_at: Instant::now(),
+    })
+}
+
+/// 見出しと行を直接書いた小さなシート。
+fn tiny(header: &[&str], rows: &[&[&str]]) -> Arc<SheetData> {
+    Arc::new(SheetData {
+        header: header.iter().map(|s| s.to_string()).collect(),
+        rows: rows
+            .iter()
+            .map(|r| r.iter().map(|c| Arc::from(*c)).collect())
+            .collect(),
+        fetched_at: Instant::now(),
+    })
+}
+
+/// N3: 立ち上がりの帯ごとの解約率は、決着済みを分母にする。
+///
+/// fixture（基準日 2026-09-18）で Python で別に数えた値:
+/// | 帯 | 件数 | 解約＋充足 | 決着済み | 解約率 | 以前（件数で割った値） |
+/// | 14日以内 | 545 | 178 | 358 | 49.7% | 32.7% |
+/// | 15〜30日 | 151 |  40 | 109 | 36.7% | 26.5% |
+/// | 31〜60日 | 172 |  63 | 147 | 42.9% | 36.6% |
+/// | 61日超   | 215 |  91 | 199 | 45.7% | 42.3% |
+#[test]
+fn 立ち上がりの帯の解約率は決着済みで割る() {
+    let v = build_rampup(&sheets(), fixture_day());
+    let b = |label: &str| -> Value {
+        v["first_mtg"]["buckets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["label"] == label)
+            .cloned()
+            .unwrap()
+    };
+    for (label, n, c, dn, pct) in [
+        ("14日以内", 545, 178, 358, 49.7),
+        ("15〜30日", 151, 40, 109, 36.7),
+        ("31〜60日", 172, 63, 147, 42.9),
+        ("61日超", 215, 91, 199, 45.7),
+    ] {
+        let x = b(label);
+        assert_eq!(x["n"], n, "{label} の件数");
+        assert_eq!(x["cancel"], c, "{label} の解約＋充足");
+        assert_eq!(x["denom"], dn, "{label} の決着済み");
+        let got = x["cancel_rate"].as_f64().unwrap();
+        assert!(
+            (got - pct).abs() < 0.05,
+            "{label} の解約率 {got:.1}%（期待 {pct}%）"
+        );
+    }
+    // 以前の注記「遅い群が悪い」は、分母を直すと読めない
+    assert!(!v["first_mtg"]["note"]
+        .as_str()
+        .unwrap()
+        .contains("遅い群が悪い"));
+}
+
+/// N4: 本部アプローチの拠点ごとの解約率と採用単価の作り方。
+///
+/// 解約率 ＝（解約＋充足）÷ 決着済み。
+/// 採用単価 ＝ 金額と採用数が**両方ある取引だけ**の合計どうし。
+#[test]
+fn 本部の拠点ごとの解約率と採用単価は定義どおり() {
+    let sh = sheets();
+    let v = build_headquarters(&sh, fixture_day());
+    let deals = super::deals_of(&sh.deal);
+    let mut checked_rate = 0;
+    let mut checked_cpa = 0;
+    for h in v["rows"].as_array().unwrap() {
+        let houjin = h["houjin"].as_str().unwrap();
+        for st in h["rows"].as_array().unwrap() {
+            let site = st["site"].as_str().unwrap();
+            let ds: Vec<&super::Deal> = deals
+                .iter()
+                .filter(|d| d.houjin_resolved == houjin)
+                .filter(|d| {
+                    if site == "(拠点不明)" {
+                        d.kyoten_key.is_empty()
+                    } else {
+                        d.kyoten_key == site
+                    }
+                })
+                .collect();
+            let o = |x: super::Outcome| {
+                ds.iter()
+                    .filter(|d| super::outcome_of(&d.stage) == x)
+                    .count() as f64
+            };
+            let (k, c, f) = (
+                o(super::Outcome::Keep),
+                o(super::Outcome::Cancel),
+                o(super::Outcome::Fill),
+            );
+            if k + c + f > 0.0 {
+                let want = (c + f) / (k + c + f) * 100.0;
+                let got = st["cancel_rate"].as_f64().unwrap();
+                assert!((got - want).abs() < 1e-6, "{site}: {got} / {want}");
+                checked_rate += 1;
+            } else {
+                assert!(st["cancel_rate"].is_null());
+            }
+            let pairs: Vec<(f64, f64)> =
+                ds.iter().filter_map(|d| d.amount.zip(d.syoudaku)).collect();
+            let sy: f64 = pairs.iter().map(|p| p.1).sum();
+            if sy > 0.0 {
+                let want = pairs.iter().map(|p| p.0).sum::<f64>() / sy;
+                let got = st["cpa"].as_f64().unwrap();
+                assert!((got - want).abs() < 1e-6, "{site} の採用単価");
+                checked_cpa += 1;
+            }
+            // 表示名が返っている（照合用のキーのまま出さない）
+            assert!(st["site_name"].is_string());
+        }
+        // 会社名が返っている（fixture は伏字だが空ではない）
+        assert!(h["name"].is_string(), "会社名が無い: {}", h["houjin"]);
+    }
+    assert!(
+        checked_rate > 100 && checked_cpa > 100,
+        "{checked_rate} / {checked_cpa}"
+    );
+}
+
+/// N2: 「採用単価が同じ進捗帯の1.5倍以上」の比べる相手は、稼働中の本体契約だけで作る。
+/// 区切りはモックと同じ 0.5 / 0.75、n<30 の帯は中央値を出さない。
+#[test]
+fn 採用単価の進捗帯は稼働中だけで作る() {
+    let sh = sheets();
+    let day = fixture_day();
+    let v = build_deal_board(&sh, day);
+    let bands = v["meta"]["cpa_bands"].as_array().unwrap();
+    assert_eq!(bands.len(), 3);
+    // 別に数え直す（稼働中・進捗が帯に入る・採用単価がある）
+    let deals = super::deals_of(&sh.deal);
+    let mut vals: [Vec<f64>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    for d in deals.iter().filter(|d| d.is_active) {
+        let (Some(st), Some(p), Some(c)) = (
+            super::date10(&d.contract_start_date),
+            d.contract_period.filter(|p| *p > 0.0),
+            super::cpa(d),
+        ) else {
+            continue;
+        };
+        let pg = (day - st).num_days() as f64 / 30.4 / p;
+        let b = if pg <= 0.5 {
+            0
+        } else if pg <= 0.75 {
+            1
+        } else if pg <= 1.01 {
+            2
+        } else {
+            continue;
+        };
+        vals[b].push(c);
+    }
+    for (i, b) in bands.iter().enumerate() {
+        assert_eq!(
+            b["n"].as_u64().unwrap() as usize,
+            vals[i].len(),
+            "帯{i} の件数"
+        );
+        let want = if vals[i].len() >= 30 {
+            super::routes::median_of(vals[i].clone())
+        } else {
+            None
+        };
+        assert_eq!(b["median"].as_f64(), want, "帯{i} の中央値");
+    }
+    // 名札は、その帯の中央値の 1.5 倍以上のときだけ
+    for r in v["rows"].as_array().unwrap() {
+        let has = r["flags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "採用単価が同じ進捗帯の1.5倍以上");
+        let want = matches!(r["cpa_vs_band"].as_f64(), Some(x) if x >= 1.5);
+        assert_eq!(has, want, "{r}");
+        if r["cpa_vs_band"].is_number() {
+            assert!(r["cpa_band"].is_string());
+        }
+    }
+}
+
+/// N6: 開始日が空の案件を「開始がまだ先」に数えない。
+#[test]
+fn 開始日が空の案件は開始前に数えない() {
+    let base = sheets();
+    let day = fixture_day();
+    // 稼働中で、開始済みの取引を1件選んで開始日を消す
+    let target = super::deals_of(&base.deal)
+        .into_iter()
+        .find(|d| d.is_active && super::date10(&d.contract_start_date).is_some_and(|s| s <= day))
+        .unwrap()
+        .id;
+    let before = build_today_board(&base, day)["meta"]["n_not_started"]
+        .as_i64()
+        .unwrap();
+    let mut sh = sheets();
+    let (ci, si) = (
+        base.deal.col("deal_id").unwrap(),
+        base.deal.col("contract_start_date").unwrap(),
+    );
+    sh.deal = with_rows(&base.deal, |r| {
+        if r[ci].as_ref() == target {
+            r[si] = Arc::from("");
+        }
+    });
+    let v = build_today_board(&sh, day);
+    assert_eq!(
+        v["meta"]["n_not_started"].as_i64().unwrap(),
+        before,
+        "開始日が空の案件が「開始前」に数えられた"
+    );
+    let b = build_deal_board(&sh, day);
+    let row = b["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["deal_id"] == target.as_str())
+        .unwrap();
+    assert_eq!(row["not_started"], false);
+    assert_eq!(row["start_unknown"], true);
+    assert!(
+        row["months"].is_null(),
+        "開始日が空なのに何ヶ月目が出ている"
+    );
+}
+
+/// N7: 担当の交代は、オプション契約の行を外して母集団と揃える。
+///
+/// fixture 385行のうち 27行がオプション契約。以前は `deals_of`（オプション除外）で
+/// 引いていたので、その27行が「取引名なし・決着済」として表に残っていた。
+#[test]
+fn 担当の交代はオプション契約を外す() {
+    let sh = sheets();
+    let v = build_handover(&sh, fixture_day());
+    assert_eq!(sh.handover.rows.len(), 385);
+    assert_eq!(v["meta"]["n_option_excluded"], 27);
+    assert_eq!(v["meta"]["n"], 358);
+    assert_eq!(v["meta"]["n_unknown_deal"], 0);
+    // 稼働中は 163（オプション込み）ではなく 149（オプション除外。母集団と同じ数え方）
+    assert_eq!(v["meta"]["n_active"], 149);
+    for r in v["rows"].as_array().unwrap() {
+        assert!(
+            !r["name"].as_str().unwrap().is_empty(),
+            "取引名の無い行が残っている: {r}"
+        );
+        assert!(r["state_label"].is_string());
+    }
+}
+
+/// V13: 担当の交代で、メールアドレスを人の名前として出さない。
+#[test]
+fn 担当の交代でメールアドレスを名前として出さない() {
+    use super::routes::person_label;
+    assert_eq!(person_label("田野 詩央里").as_deref(), Some("田野 詩央里"));
+    assert_eq!(person_label("  "), None);
+    let l = person_label("someone@example.co.jp").unwrap();
+    assert!(!l.contains('@'), "メールアドレスがそのまま出ている: {l}");
+
+    let mut sh = sheets();
+    let fi = sh.handover.col("from").unwrap();
+    sh.handover = with_rows(&sh.handover, |r| r[fi] = Arc::from("x.y@example.co.jp"));
+    let v = build_handover(&sh, fixture_day());
+    for r in v["rows"].as_array().unwrap() {
+        assert!(!r["from_label"].as_str().unwrap().contains('@'));
+        assert_eq!(r["from_unresolved"], true);
+        // 元の値は残す（書き出し側を直すときの手掛かり）
+        assert_eq!(r["from"], "x.y@example.co.jp");
+    }
+}
+
+/// N11: 今日動く先の並びの説明が、実際の並び（名札の本数 → 金額）と一致する。
+#[test]
+fn 今日動く先の並びは名札の本数が先() {
+    let v = build_today_board(&sheets(), fixture_day());
+    let rule = v["meta"]["filter_rule"].as_str().unwrap();
+    assert!(rule.contains("名札の本数が多い順"), "{rule}");
+    let rows = v["rows"].as_array().unwrap();
+    for w in rows.windows(2) {
+        let (a, b) = (&w[0], &w[1]);
+        let (na, nb) = (
+            a["n_flags"].as_u64().unwrap(),
+            b["n_flags"].as_u64().unwrap(),
+        );
+        assert!(na >= nb, "名札の本数の順になっていない");
+        if na == nb {
+            assert!(a["amount"].as_f64().unwrap_or(-1.0) >= b["amount"].as_f64().unwrap_or(-1.0));
+        }
+    }
+}
+
+/// N13: 通話の ts（UTC）は日本時間の日付にする。
+#[test]
+fn 通話の日付は日本時間で取る() {
+    use chrono::NaiveDate;
+    let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd);
+    // UTC 15:00 = 日本時間 翌日 0:00。月もまたぐ
+    assert_eq!(super::call_date_jst("2026-03-31T15:00:00Z"), d(2026, 4, 1));
+    assert_eq!(
+        super::call_date_jst("2026-03-31T14:59:59.999Z"),
+        d(2026, 3, 31)
+    );
+    // タイムゾーンの無い値は、推測で時差を足さない
+    assert_eq!(super::call_date_jst("2026-03-31 20:00:00"), d(2026, 3, 31));
+
+    // 電話の月次は日本時間の月で数える。月の合計は通話の行数と一致する
+    let v = build_phone(&sheets(), fixture_day());
+    let months = v["monthly"].as_array().unwrap();
+    let sum: i64 = months.iter().map(|m| m["calls"].as_i64().unwrap()).sum();
+    assert_eq!(sum, 18625);
+    let aug = months.iter().find(|m| m["month"] == "2026-08").unwrap();
+    // Python で日本時間の月に直して数えた値
+    assert_eq!(aug["calls"], 3364);
+}
+
+/// N14: 顧客詳細の月次推移は満了月までで止める。
+#[test]
+fn 顧客詳細の月次推移は満了月で止まる() {
+    let sh = sheets();
+    let day = fixture_day();
+    let idx = build_customer(&sh, None, day);
+    let h = idx["default_houjin"].as_str().unwrap().to_string();
+    let v = build_customer(&sh, Some(&h), day);
+    let deals = super::deals_of(&sh.deal);
+    let mut checked = 0;
+    for m in v["monthly"].as_array().unwrap() {
+        let d = deals
+            .iter()
+            .find(|d| d.id == m["deal_id"].as_str().unwrap())
+            .unwrap();
+        let Some(exp) = d.manryou_month() else {
+            continue;
+        };
+        if exp >= "2026-09" {
+            continue;
+        }
+        assert_eq!(m["until"], exp);
+        for s in m["series"].as_object().unwrap().values() {
+            for p in s.as_array().unwrap() {
+                assert!(
+                    p["month"].as_str().unwrap() <= exp,
+                    "満了月 {exp} を過ぎて伸びている: {p}"
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 0, "満了済みの取引の点が1つも無い");
+}
+
+/// N15: 偶数個の中央値は中2つの平均（box5 と同じ約束）。
+#[test]
+fn 偶数個の中央値は中2つの平均() {
+    use super::routes::median_of;
+    assert_eq!(median_of(vec![4.0, 1.0, 3.0, 2.0]), Some(2.5));
+    assert_eq!(median_of(vec![3.0, 1.0, 2.0]), Some(2.0));
+    assert_eq!(median_of(vec![]), None);
+}
+
+/// N16: 担当の「割れ」は、同じ日に**中身の違う**行があるときだけ数える。
+#[test]
+fn 担当の割れは中身が違うときだけ数える() {
+    let h = [
+        "date", "owner", "owner_id", "retired", "src", "bulk", "deal_id",
+    ];
+    let sh = tiny(
+        &h,
+        &[
+            // A: 同じ日に同じ担当が2行（重複）。割れではない
+            &["2026-09-01", "佐藤", "1", "FALSE", "", "", "A"],
+            &["2026-09-01", "佐藤", "1", "FALSE", "", "", "A"],
+            // B: 同じ日に別の担当。割れ
+            &["2026-09-01", "佐藤", "1", "FALSE", "", "", "B"],
+            &["2026-09-01", "鈴木", "2", "FALSE", "", "", "B"],
+            // C: 古い日に割れていても、最新日が1行なら割れではない
+            &["2026-08-01", "佐藤", "1", "FALSE", "", "", "C"],
+            &["2026-08-01", "鈴木", "2", "FALSE", "", "", "C"],
+            &["2026-09-01", "鈴木", "2", "FALSE", "", "", "C"],
+        ],
+    );
+    let active: std::collections::HashSet<&str> = ["A", "B", "C"].into_iter().collect();
+    assert_eq!(super::consultant_ties(&sh, &active), 1);
+}
+
+/// N17: 同じ月に NPS が2回ぶん入っていたら、回が後のほうを採る（シートの並びではない）。
+#[test]
+fn 同じ月のnpsは回が後のほうを採る() {
+    let sh = tiny(
+        &["deal_id", "prop", "month", "v", "ts"],
+        &[
+            &["D", "nps3", "2026-05", "9", ""],
+            &["D", "nps2", "2026-05", "3", ""],
+            &["E", "nps", "2026-06", "7", ""],
+            &["E", "nps4", "2026-05", "2", ""],
+        ],
+    );
+    let n = super::latest_nps(&sh);
+    assert_eq!(
+        n["D"],
+        ("2026-05".to_string(), 9.0),
+        "回が後（nps3）を採っていない"
+    );
+    assert_eq!(n["E"], ("2026-06".to_string(), 7.0), "月が新しいほうが先");
+}
+
+/// N18: 「契約の N ヶ月目」は始月を1と数える。案件一覧と顧客詳細で同じ数え方。
+#[test]
+fn 何ヶ月目は始月を1と数える() {
+    use super::routes::month_index;
+    assert_eq!(month_index("2026-07-23", "2026-07"), Some(1));
+    assert_eq!(month_index("2026-07-23", "2026-09"), Some(3));
+    assert_eq!(month_index("2025-12-01", "2026-01"), Some(2));
+    let v = build_deal_board(&sheets(), fixture_day());
+    let mut checked = 0;
+    for r in v["rows"].as_array().unwrap() {
+        if let Some(m) = r["months"].as_i64() {
+            let want = month_index(r["start"].as_str().unwrap(), "2026-09").unwrap();
+            assert_eq!(m, want, "{r}");
+            checked += 1;
+        }
+    }
+    assert!(checked > 400, "{checked}");
+}
+
+/// N19: 接触の記録が1つも無い案件に名札を立てない（成果とリスクの「未測定」と揃える）。
+/// 拠点キーが空の取引で採用単価の悪化を判定しない。
+#[test]
+fn 接触の記録なしと拠点不明の扱いを揃える() {
+    let sh = sheets();
+    let b = build_deal_board(&sh, fixture_day());
+    for r in b["rows"].as_array().unwrap() {
+        assert!(
+            !r["flags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f == "接触の記録が無い"),
+            "接触の記録が無い案件に名札が立っている: {r}"
+        );
+    }
+    let f = build_focus(&sh, fixture_day());
+    for r in f["cpa"]["rows"].as_array().unwrap() {
+        assert!(
+            !r["site"].as_str().unwrap().contains("拠点不明"),
+            "拠点不明を1本にまとめている: {r}"
+        );
+    }
+    assert!(f["cpa"]["skipped_no_site"].as_u64().is_some());
+}
+
+/// P1: `?refresh=1` で共有の SheetStore を丸ごと消さない（架電クオリティ・営業KPI の道連れ）。
+/// 行単位で見る（コメントの中の言及には当てない）。
+#[test]
+fn 読み直しで共有のキャッシュを丸ごと消さない() {
+    let src = include_str!("routes.rs");
+    for (i, line) in src.lines().enumerate() {
+        let t = line.trim_start();
+        if t.starts_with("//") {
+            continue;
+        }
+        assert!(
+            !t.contains("invalidate(None)"),
+            "routes.rs:{} で共有のキャッシュを丸ごと消している",
+            i + 1
+        );
+    }
+}
+
+/// P2: 定期更新の間隔は TTL より短い（切れてから取ると、開いた人が待つ）。
+#[test]
+fn 先読みの定期更新はttlより短い() {
+    let ttl = crate::handlers::call_quality::sheets::CACHE_TTL;
+    let every = super::prefetch_interval();
+    assert!(every < ttl, "{every:?} / {ttl:?}");
+    assert!(
+        every.as_secs() >= 10 * 60,
+        "短すぎて Sheets を叩きすぎる: {every:?}"
+    );
+}
+
+/// P3 / P4: 日付でない値が混ざっても panic せず、止まる。
+#[test]
+fn 日付でない値で落ちない() {
+    // 多バイト文字の途中でバイト位置を切ると panic していた
+    assert_eq!(super::date10("２０２６年９月２３日"), None);
+    assert_eq!(super::date10("2026年9月23日"), None);
+    assert_eq!(super::call_date_jst("２０２６年９月"), None);
+    let mut d = super::deals_of(&sheets().deal).remove(0);
+    d.contract_expiration_date = "2026年9月末".into();
+    let _ = d.manryou_month();
+    // 月として読めない値から埋め始めても、無限に積まずに止まる
+    let out = super::fill_forward(&[("2026-1x".to_string(), 1.0)], "2027-01");
+    assert_eq!(out.len(), 1);
+    let out = super::fill_forward(&[("2026-13".to_string(), 1.0)], "2027-01");
+    assert_eq!(out.len(), 1);
+    // 正しい値はいままでどおり埋まる
+    let out = super::fill_forward(&[("2026-11".to_string(), 1.0)], "2027-01");
+    assert_eq!(out.len(), 3);
+}
+
+/// V4: フェーズとリスク判定は意味の順で返す（画面は受け取った順に描く）。
+#[test]
+fn フェーズとリスク判定は意味の順で返る() {
+    let sh = sheets();
+    let r = build_rampup(&sh, fixture_day());
+    let labels: Vec<&str> = r["phase"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["序盤", "中盤", "終盤", "満了超過", "出せない"]);
+    let q = build_mtg_quality(&sh, fixture_day());
+    let labels: Vec<&str> = q["risk_dist"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["高", "中", "低", "判定不可", "（未判定）"]);
+}
+
+/// V22: 注力の定義の文言が正しい定義で、画面に出す文字列に Markdown の ** が無い。
+#[test]
+fn 担当者一覧の文言に訂正前の定義とmarkdownが無い() {
+    let v = build_consultants(&sheets(), fixture_day());
+    let rule = v["focus_rule"].as_str().unwrap();
+    assert!(
+        rule.contains("月額30万以上") && rule.contains("拠点3つ以上"),
+        "{rule}"
+    );
+    assert!(
+        !rule.contains("30万超") && !rule.contains("拠点が複数"),
+        "{rule}"
+    );
+    let all = serde_json::to_string(&v).unwrap();
+    assert!(!all.contains("**"), "画面に出す文字列に ** が入っている");
 }
