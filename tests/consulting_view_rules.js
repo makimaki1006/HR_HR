@@ -44,11 +44,13 @@ const document = {
   querySelectorAll: () => [],
   createElement: () => fakeEl(),
 };
+/* 読み込み時に window に付けたリスナーを残しておく（影の付け直しがイベントにつながっているかを見る） */
+const winListeners = [];
 const ctx = vm.createContext({
   document,
   location: { hash: "", href: "http://localhost/consulting" },
   history: { replaceState() {} },
-  window: { addEventListener() {}, scrollTo() {} },
+  window: { addEventListener(type, fn, capture) { winListeners.push({ type, fn, capture }); }, scrollTo() {} },
   fetch: () => new Promise(() => {}),   // 取りに行かない（返事が来ないまま）
   setTimeout: () => 0, clearTimeout: () => {},
   URLSearchParams, console,
@@ -57,9 +59,15 @@ vm.runInContext(js, ctx, { filename: "cs_dashboard.html#script" });
 const run = (code) => vm.runInContext(code, ctx);
 
 let failed = 0, passed = 0;
+const pendingChecks = [];   /* Promise を返す見張り（fetch の後を見るもの）。最後にまとめて待つ */
 function check(name, fn) {
-  try { fn(); passed++; console.log("OK   " + name); }
-  catch (e) { failed++; console.error("FAIL " + name + "\n     " + e.message); }
+  const good = () => { passed++; console.log("OK   " + name); };
+  const bad = (e) => { failed++; console.error("FAIL " + name + "\n     " + e.message); };
+  try {
+    const r = fn();
+    if (r && typeof r.then === "function") pendingChecks.push(r.then(good, bad));
+    else good();
+  } catch (e) { bad(e); }
 }
 function ok(cond, msg) { if (!cond) throw new Error(msg); }
 
@@ -566,31 +574,76 @@ ctx.__C3 = { meta: { found: true }, cpa3: [
 const cpa3Fig = () => run('custBlocks(__C3, new Set(["cpa3"]))')
   .split("<figcaption>同じ契約でも")[1].split("</figure>")[0];
 
-check("houjin 採用単価: 稼働中の契約を未確定の見た目にし、凡例と棒の塗り・濃さをそろえる", () => {
+check("houjin 採用単価: 稼働中の契約は中空・破線の棒（薄い塗りにしない）、凡例も同じ描き方", () => {
   const g = cpa3Fig();
-  const bars = [...g.matchAll(/<rect x="[0-9.]+" y="[0-9.]+" width="[0-9.]+" height="[0-9.]+" rx="2" style="fill:([^"]+)" opacity="([.0-9]+)">/g)]
+  // 中まで塗った棒（svgBarH の塗りの形）は確定の 1 本だけ
+  const solid = [...g.matchAll(/<rect x="[0-9.]+" y="[0-9.]+" width="[0-9.]+" height="[0-9.]+" rx="2" style="fill:([^"]+)" opacity="([.0-9]+)">/g)]
     .map((m) => ({ fill: m[1], op: m[2] }));
-  ok(bars.length === 2, "棒の数が 2 でない: " + bars.length);
-  ok(bars[0].fill === "var(--ai)", "確定の契約が藍でない: " + bars[0].fill);
-  ok(bars[1].fill === "var(--ghost)", "稼働中（censored=false）の契約を確定と同じ " + bars[1].fill + " で塗っている");
+  ok(solid.length === 1, "塗った棒が 1 本でない: " + solid.length + "（稼働中の契約を塗りで描いている）");
+  ok(solid[0].fill === "var(--ai)" && solid[0].op === ".82", "確定の契約が藍・.82 でない: " + JSON.stringify(solid[0]));
+  ok(!/opacity="\.34"/.test(g.split('<div class="figlegend">')[0]), "薄く塗った棒（.34）が残っている（濃さだけで未確定を伝えている）");
+  // 稼働中（censored=false, active=true）の棒は中空・破線
+  const open = [...g.matchAll(/<rect [^>]*style="fill:var\(--panel\);stroke:([^"]+)"[^>]*stroke-dasharray="[^"]+" data-open="1">/g)];
+  ok(open.length === 1, "中空・破線の棒が 1 本でない: " + open.length);
+  ok(open[0][1] === "var(--ai)", "未確定の棒の枠が藍でない: " + open[0][1]);
   const leg = g.split('<div class="figlegend">')[1];
-  const a = legendSwatch(leg, "総額 ÷ 採用数（確定）"), b = legendSwatch(leg, "同（未確定・稼働中）");
-  ok(a && a.fill === bars[0].fill && a.op === bars[0].op, "確定の凡例の粒 " + JSON.stringify(a) + " が棒 " + JSON.stringify(bars[0]) + " と違う");
-  ok(b && b.fill === bars[1].fill && b.op === bars[1].op, "未確定の凡例の粒 " + JSON.stringify(b) + " が棒 " + JSON.stringify(bars[1]) + " と違う");
+  const a = legendSwatch(leg, "総額 ÷ 採用数（確定）");
+  ok(a && a.fill === solid[0].fill && a.op === solid[0].op, "確定の凡例の粒 " + JSON.stringify(a) + " が棒と違う");
+  const i = leg.indexOf("</svg>同（未確定・稼働中");
+  const sw = i >= 0 ? leg.slice(leg.lastIndexOf("<svg", i), i) : "";
+  ok(/style="fill:var\(--panel\);stroke:var\(--ai\)"[^>]*stroke-dasharray/.test(sw), "未確定の凡例の粒が中空・破線の藍でない: " + sw);
 });
 
-check("houjin 採用単価: 進捗帯の中央値を図の上に印で出し、位置が軸の尺度に合う", () => {
+check("houjin 採用単価: 破線は未確定だけに使い、月割りは墨の縦の線（凡例と同じ色・位置は軸の尺度どおり）", () => {
   const g = cpa3Fig();
-  const marks = [...g.matchAll(/<circle cx="([0-9.]+)" cy="([0-9.]+)" r="4.5" data-mark="band"/g)];
+  const fig = g.split('<div class="figlegend">')[0], leg = g.split('<div class="figlegend">')[1];
+  // 図の中の破線は、中空の棒（data-open）と中央値の印（data-mark="band…"）だけ
+  const dashed = [...fig.matchAll(/<(?:rect|line|path|circle) [^>]*stroke-dasharray[^>]*>/g)].map((m) => m[0]);
+  const other = dashed.filter((d) => !/data-open="1"|data-mark="band/.test(d));
+  ok(!other.length, "未確定でないものに破線を使っている（破線が2つの意味を持つ）: " + other.join(" "));
+  const ms = [...fig.matchAll(/<line x1="([0-9.]+)" y1="[0-9.]+" x2="([0-9.]+)" y2="[0-9.]+" style="stroke:([^"]+)" stroke-width="[0-9.]+" data-mark="monthly">/g)];
+  ok(ms.length === 2, "月割りの線が 2 本でない: " + ms.length + "（月割りが出ている契約は 2 件）");
+  const t = leg.indexOf("</svg>月割り");
+  const sw = t >= 0 ? leg.slice(leg.lastIndexOf("<svg", t), t) : "";
+  const lc = (sw.match(/style="stroke:([^";]+)"/) || [])[1];
+  for (const m of ms) ok(m[3] === lc, "月割りの線の色 " + m[3] + " が凡例の粒 " + lc + " と違う（行の色で描いている）");
+  ok(lc === "var(--ink)", "月割りの凡例が墨でない: " + lc);
+  // 確定の契約: 総額 900000 の棒の右端に対し、月割り 600000 の線は 2/3 の位置
+  const r0 = fig.match(/<rect x="([0-9.]+)" y="[0-9.]+" width="([0-9.]+)" height="[0-9.]+" rx="2" style="fill:var\(--ai\)"/);
+  const want = +r0[1] + +r0[2] * 600000 / 900000;
+  ok(Math.abs(+ms[0][1] - want) < 0.6, "確定の契約の月割りの線 x " + ms[0][1] + " が 600000 の位置 " + want.toFixed(1) + " と合わない");
+});
+
+check("houjin 採用単価: 進捗帯の中央値は中空・破線の丸で、位置が軸の尺度に合う（軸の外は見える文字でも書く）", () => {
+  const g = cpa3Fig();
+  const marks = [...g.matchAll(/<circle cx="([0-9.]+)" cy="([0-9.]+)" r="4.5" data-mark="band" style="([^"]+)"([^>]*)>/g)];
   ok(marks.length === 1, "中央値の印が 1 つでない: " + marks.length + "（総額が出ていて帯の中央値がある棒は 1 本）");
+  ok(/fill:var\(--panel\)/.test(marks[0][3]) && /stroke-dasharray/.test(marks[0][4]),
+    "稼働中どうしの中央値（未確定）を中まで塗った丸で描いている: " + marks[0][0]);
   // 中央値 900000 は「確定の契約」の総額と同じ。印の x はその棒の右端と一致するはず（数値で確かめる）
   const r0 = g.match(/<rect x="([0-9.]+)" y="([0-9.]+)" width="([0-9.]+)" height="([0-9.]+)" rx="2" style="fill:var\(--ai\)"/);
   const right = +r0[1] + +r0[3];
   ok(Math.abs(+marks[0][1] - right) < 0.6, "印の x " + marks[0][1] + " が 900000 の棒の右端 " + right.toFixed(1) + " と合わない");
   // y は2本目（稼働中の契約）の棒の中心
-  const r1 = g.match(/<rect x="[0-9.]+" y="([0-9.]+)" width="[0-9.]+" height="([0-9.]+)" rx="2" style="fill:var\(--ghost\)"/);
-  ok(Math.abs(+marks[0][2] - (+r1[1] + +r1[2] / 2)) < 0.6, "印の y " + marks[0][2] + " が稼働中の棒の中心と合わない");
-  ok(g.includes("同じ進捗帯の中央値"), "印の凡例が無い");
+  const r1 = g.match(/<rect x="[0-9.]+" y="([0-9.]+)" width="[0-9.]+" height="([0-9.]+)" rx="2" style="fill:var\(--panel\)[^"]*"[^>]*data-open="1"/);
+  ok(r1 && Math.abs(+marks[0][2] - (+r1[1] + +r1[2] / 2)) < 0.6, "印の y " + marks[0][2] + " が稼働中の棒の中心と合わない");
+  const leg = g.split('<div class="figlegend">')[1];
+  const t = leg.indexOf("</svg>同じ進捗帯の中央値");
+  const sw = t >= 0 ? leg.slice(leg.lastIndexOf("<svg", t), t) : "";
+  ok(/<circle [^>]*fill:var\(--panel\)[^>]*stroke-dasharray/.test(sw), "中央値の凡例が中空・破線の丸でない: " + sw);
+  ok(!g.includes("軸の外"), "軸の中に収まっているのに「軸の外」と書いている");
+  // 中央値が軸の最大（900000）を超えるとき: 右端に三角を置き、行の注記（見える文字）にも書く
+  const c = JSON.parse(JSON.stringify(ctx.__C3));
+  c.cpa3[1].band_median = 2000000;
+  ctx.__C3o = c;
+  const go = run('custBlocks(__C3o, new Set(["cpa3"]))').split("<figcaption>同じ契約でも")[1].split("</figure>")[0];
+  ok(!/data-mark="band"/.test(go), "軸の外の中央値を、軸の中と同じ丸で描いている");
+  const tri = go.match(/<path d="M([0-9.]+) [0-9.]+L([0-9.]+) [0-9.]+L[^"]+" data-mark="band-out" style="fill:var\(--panel\)[^"]*"[^>]*stroke-dasharray/);
+  ok(tri, "軸の外の中央値の印（中空・破線の三角）が無い");
+  // 軸の最大は 900000（確定の契約の総額）。三角の先はその棒の右端（＝図の右端）
+  const e = go.match(/<rect x="([0-9.]+)" y="[0-9.]+" width="([0-9.]+)" height="[0-9.]+" rx="2" style="fill:var\(--ai\)"/);
+  ok(Math.abs(+tri[2] - (+e[1] + +e[2])) < 0.6, "三角の先 " + tri[2] + " が軸の右端 " + (+e[1] + +e[2]).toFixed(1) + " にない");
+  ok(/<text class="ax"[^>]*>[^<]*中央値 200万（軸の外）/.test(go), "「軸の外」が見える文字（行の注記）に無い（title だけだとスマホで見えない）");
 });
 
 check("定義と検証: 文の表は折り返す（「なぜ」が右端で切れない）", () => {
@@ -630,17 +683,33 @@ check("凡例: 100%帯の凡例の粒は帯と同じ塗り・濃さ（いま見�
   }
 });
 
-check("凡例: 目標の帯の「承諾数が空」と「未記入」を見分けられる塗りにする", () => {
+check("凡例: 目標の帯の「承諾数が空」は斜線（値が無い）、「未記入」は薄い塗りで見分け、未確定の帯より強く描かない", () => {
   const h = run("renderOutcome(__OUT)");
   const g = h.split("<figcaption>達成率 ＝ 承諾数 ÷ 採用目標数")[1].split("</figure>")[0];
-  const leg = g.split('<div class="figlegend">')[1];
-  const a = legendSwatch(leg, "承諾数が空（目標はある）"), b = legendSwatch(leg, "未記入（目標が無い）");
-  ok(a && b, "凡例が取れない");
-  ok(a.fill !== b.fill || a.op !== b.op, "承諾数が空と未記入の凡例が同じ塗り " + JSON.stringify(a));
-  const rs = stackRects(g);
-  const ra = rs.find((r) => r.label.startsWith("承諾数が空")), rb = rs.find((r) => r.label.startsWith("未記入"));
-  ok(ra && rb && (ra.fill !== rb.fill || ra.op !== rb.op), "帯の中で承諾数が空と未記入が同じ塗り");
-  ok(a.op === ra.op && b.op === rb.op, "凡例の濃さが帯と違う");
+  const fig = g.split('<div class="figlegend">')[0], leg = g.split('<div class="figlegend">')[1];
+  // 承諾数が空の帯は斜線の模様（同じ図の中に模様の定義がある）
+  const hb = fig.match(/<rect [^>]*style="fill:url\(#([a-z-]+)\);stroke:var\(--ghost\)"[^>]*data-fill="hatch"><title>承諾数が空/);
+  ok(hb, "承諾数が空の帯が斜線になっていない");
+  ok(new RegExp('<pattern id="' + hb[1] + '"').test(fig), "斜線の模様の定義が図の中に無い");
+  // 中まで塗った区間は 100%以上（確定の達成）と、薄い塗りの未記入だけ。値が無い帯を濃く塗らない
+  const rs = stackRects(fig);
+  ok(rs.map((r) => r.label).join("|") === "100%以上|未記入（目標が無い）",
+    "中まで塗った帯が 100%以上 と 未記入 だけでない: " + rs.map((r) => r.label + "=" + r.op).join(", "));
+  const rb = rs.find((r) => r.label.startsWith("未記入"));
+  ok(rb.op === ".3", "未記入が薄い塗り（.3）でない: " + rb.op);
+  // 凡例: 承諾数が空は斜線の粒、未記入は帯と同じ濃さ
+  const i = leg.indexOf("</svg>承諾数が空（目標はある）");
+  const sw = i >= 0 ? leg.slice(leg.lastIndexOf("<svg", i), i) : "";
+  ok(/<path d="M1\.5 9\.5L7\.5 3\.5/.test(sw) && /stroke:var\(--ghost\)/.test(sw), "承諾数が空の凡例が斜線の粒でない: " + sw);
+  const b = legendSwatch(leg, "未記入（目標が無い）");
+  ok(b && b.fill === rb.fill && b.op === rb.op, "未記入の凡例 " + JSON.stringify(b) + " が帯 " + JSON.stringify(rb) + " と違う");
+  // 帯の中の文字（6件は細いので出ないが、出るときに白文字にしない）: 斜線の上は墨系
+  const big = JSON.parse(JSON.stringify(ctx.__OUT));
+  big.goal_act.bands[4].n = 300;
+  ctx.__OUTh = big;
+  const g2 = run("renderOutcome(__OUTh)").split("<figcaption>達成率 ＝ 承諾数 ÷ 採用目標数")[1].split("</figure>")[0];
+  const tx = g2.match(/data-fill="hatch"><title>[^<]*<\/title><\/rect><text [^>]*style="fill:([^;]+);/);
+  ok(tx && tx[1] === "var(--ink-2)", "斜線の帯の上の文字が白（var(--panel)）のまま: " + (tx && tx[1]));
 });
 
 check("凡例: MTGのリスク（判定不可 / 未判定）と立ち上がり（終盤 / 出せない）の粒が見分けられる", () => {
@@ -764,5 +833,169 @@ check("V12 の残り: 表の枠の端に、横の続きがある側だけ影を�
   ok(/markScrollAll\(\);[^\n]*\n\}/.test(html.split("function wire(v)")[1] || ""), "描いた後（wire）に影を付けていない");
 });
 
-console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
-if (failed) process.exit(1);
+check("byowner: 担当を選ぶ前の持ち件数は、見えない絞り込み（名札・満了・案件名）で減らさない", () => {
+  // 案件そのものの画面で名札・案件名を絞ってから byowner に来た形。選択欄は隠れている
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "NPSが4以下", expiry: "", q: "案件1" };');
+  try {
+    const h = run("renderBoard(__BD)");
+    const tbl = h.split('<table id="owner-tbl"')[1].split("</table>")[0];
+    const cnt = (name) => ((tbl.match(new RegExp('data-c="' + name + '"[^>]*>' + name + "</a></td><td[^>]*>([0-9,]+)<")) || [])[1]);
+    ok(cnt("田中") === "2" && cnt("佐藤") === "1",
+      "持ち件数が隠れた絞り込みで減っている: 田中 " + cnt("田中") + " / 佐藤 " + cnt("佐藤") + "（稼働中の全件は 2 / 1）");
+    ok(h.includes("稼働中 3 件"), "見出しの件数が稼働中の全件でない");
+  } finally {
+    run('boardFilter = { consultant: "", flag: "", expiry: "", q: "" }; cur = { menu: "deal", view: "today" };');
+  }
+});
+
+check("byowner: 持ち件数の表で名前を押したら、描き直した後に担当の選択欄へフォーカスを移す", () => {
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "" };');
+  const a = { dataset: { c: "佐藤" }, onclick: null };
+  const qsa = ctx.document.querySelectorAll, qs = ctx.document.querySelector;
+  let focused = null;
+  const sel = { focus() { focused = "#bf-consultant"; } };
+  ctx.document.querySelectorAll = (s) => (s === "#owner-tbl a.drill" ? [a] : []);
+  ctx.document.querySelector = (s) => (s === "#bf-consultant" ? sel : null);
+  try {
+    run("boardCache = __BD; wireBoard()");
+    a.onclick({ preventDefault() {} });
+    ok(focused === "#bf-consultant", "名前を押した後のフォーカスの行き先が担当の選択欄でない（押したリンクは描き直しで消える）");
+  } finally {
+    ctx.document.querySelectorAll = qsa; ctx.document.querySelector = qs;
+    run('boardFilter = { consultant: "", flag: "", expiry: "", q: "" }; cur = { menu: "deal", view: "today" };');
+  }
+});
+
+/* 影の付け直しがイベント・差し込みにつながっているか。偽の枠 1 つ（右にはみ出している）を用意し、
+   それぞれの経路で more-r が付くかを見る */
+function fakeWrap() {
+  const cls = new Set();
+  const inner = { scrollWidth: 1000, clientWidth: 400, scrollLeft: 0 };
+  return { cls, inner, el: { querySelector: () => inner,
+    classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); } } } };
+}
+function withWraps(w, fn) {
+  const qsa = ctx.document.querySelectorAll;
+  ctx.document.querySelectorAll = (s) => (s === ".scroll-wrap" ? [w.el] : []);
+  try { return fn(); } finally { ctx.document.querySelectorAll = qsa; }
+}
+
+check("V12 の残り: 枠を横に動かす（scroll の捕捉）・窓の幅・details を開く、で影を付け直す", () => {
+  const find = (t) => winListeners.filter((l) => l.type === t);
+  const sc = find("scroll");
+  ok(sc.length === 1 && sc[0].capture === true, "scroll を捕捉側で受けるリスナーが無い（scroll は泡立たない）");
+  const w = fakeWrap();
+  const target = { classList: { contains: (c) => c === "scroll" }, parentNode: w.el };
+  sc[0].fn({ target });
+  ok(w.cls.has("more-r") && !w.cls.has("more-l"), "scroll で左端の枠に影が付かない: " + [...w.cls]);
+  w.inner.scrollLeft = 600; sc[0].fn({ target });
+  ok(!w.cls.has("more-r") && w.cls.has("more-l"), "右端まで動かしたのに影が付け直されない: " + [...w.cls]);
+  for (const [t, cap] of [["resize", undefined], ["toggle", true]]) {
+    const ls = find(t);
+    ok(ls.length === 1 && (cap === undefined || ls[0].capture === cap), t + " のリスナーが無い" + (cap ? "（捕捉側で）" : ""));
+    const v = fakeWrap();
+    withWraps(v, () => ls[0].fn({}));
+    ok(v.cls.has("more-r"), t + " で影を付け直していない");
+  }
+});
+
+check("V12 の残り: 本部アプローチの枠を差し込んだ後（持っているとき・取りに行った後）に影を付ける", () => {
+  const saved = { rh: run("renderHq"), rj: run("readJson"), fetch: ctx.fetch, qsa: ctx.document.querySelectorAll };
+  const restore = () => {
+    ctx.__rh = saved.rh; ctx.__rj = saved.rj;
+    run("renderHq = __rh; readJson = __rj; hqCache = null;");
+    ctx.fetch = saved.fetch; ctx.document.querySelectorAll = saved.qsa; delete els["hq-box"];
+  };
+  ctx.__noop = () => "";
+  run("renderHq = __noop; readJson = (r) => r.json();");
+  els["hq-box"] = fakeEl();
+  try {
+    // 持っているとき（hqCache）
+    const w1 = fakeWrap();
+    run("hqCache = { x: 1 }");
+    withWraps(w1, () => run("wireHoujin()"));
+    ok(w1.cls.has("more-r"), "hqCache から差し込んだ後に影を付けていない");
+  } catch (e) { restore(); throw e; }
+  // 取りに行ったとき（fetch の後）
+  run("hqCache = null");
+  const w2 = fakeWrap();
+  ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: 1 }) });
+  ctx.document.querySelectorAll = (s) => (s === ".scroll-wrap" ? [w2.el] : []);
+  run("wireHoujin()");
+  const tick = () => new Promise((res) => setImmediate(res));
+  return tick().then(tick).then(() => {
+    restore();
+    ok(w2.cls.has("more-r"), "本部アプローチを取りに行って差し込んだ後に影を付けていない");
+  }, (e) => { restore(); throw e; });
+});
+
+check("V12 の残り: 暗い表示でも枠の端の影が地と見分けられる（明るい表示と同じくらいの差）", () => {
+  const css = html.split("<style>")[1].split("</style>")[0];
+  ok(/linear-gradient\(to right, var\(--edge-shade\)/.test(css) && /linear-gradient\(to left, var\(--edge-shade\)/.test(css),
+    "影の色がテーマの値（--edge-shade）でなく固定の色");
+  // 3 か所（明るい :root / prefers-color-scheme:dark / data-theme="dark"）の --panel と --edge-shade を読む
+  const [light, rest] = [css.split("@media (prefers-color-scheme:dark)")[0], css.split("@media (prefers-color-scheme:dark)")[1]];
+  const blocks = [light, rest.split(':root[data-theme="dark"]')[0], rest.split(':root[data-theme="dark"]')[1].split("}")[0]];
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const lum = (c) => {
+    const f = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+  };
+  blocks.forEach((b, i) => {
+    const p = (b.match(/--panel:(#[0-9a-f]{6})/) || [])[1];
+    const e = b.match(/--edge-shade:rgba\((\d+),(\d+),(\d+),([.0-9]+)\)/);
+    ok(p && e, "ブロック " + i + " に --panel か --edge-shade が無い");
+    const bg = hex(p), a = +e[4];
+    const mix = bg.map((v, k) => v * (1 - a) + +e[k + 1] * a);
+    const L1 = lum(bg), L2 = lum(mix);
+    const r = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+    // 明るい表示（白の上の 20% の黒）で約 1.6:1。以前の暗い表示（#1d2026 の上の 20% の黒）は約 1.1:1
+    ok(r >= 1.4, "ブロック " + i + " の影と地の差 " + r.toFixed(2) + ":1 が小さい（ほとんど見えない）");
+  });
+});
+
+check("凡例: MTG の項目の埋まり具合の「15%未満」の粒は棒と同じ濃さ", () => {
+  const q = run("renderMtgQ(__MQ)");
+  const g = q.split("<figcaption>抽出の進み具合")[1].split("</figure>")[0];
+  // __MQ の「やること」は 10%（15%未満）
+  const bop = (g.match(/<rect [^>]*style="fill:var\(--ghost\)" opacity="([.0-9]+)"><title>やること/) || [])[1];
+  const s = legendSwatch(g.split('<div class="figlegend">')[1], "15%未満");
+  ok(bop && s && s.fill === "var(--ghost)" && s.op === bop, "15%未満の凡例 " + JSON.stringify(s) + " が棒の濃さ " + bop + " と違う");
+});
+
+check("定義と検証: 「3つのいつ」の表も折り返す（prose）", () => {
+  const h = run("renderDefs()");
+  const t = h.split("3つの「いつ」は別物")[1].split("</table>")[0];
+  ok(/<table class="prose">/.test(t), "「3つのいつ」の表が折り返す表（prose）になっていない");
+});
+
+/* 読み方の枠の見出しが、本文の頭の文と同じ（または本文の頭が見出しそのもの）になっていないか */
+function noteHeadDup(h) {
+  const out = [];
+  for (const m of String(h).matchAll(/<span class="hd">([^<]*)<\/span><p>([\s\S]*?)<\/p><\/div>/g)) {
+    const head = m[1].trim();
+    const first = m[2].replace(/<[^>]+>/g, "").replace(/^[※\s]+/, "").split("。")[0].trim();
+    if (head && first && (first.startsWith(head) || head.includes(first))) out.push(head);
+  }
+  return out;
+}
+check("読み方の枠: MTG の品質・電話で、見出しと本文の頭に同じ文を出さない（サーバの文そのもので見る）", () => {
+  // routes.rs build_mtg_quality の not_counted と build_phone の transcript.note（直した時点の文）
+  const mq = JSON.parse(JSON.stringify(ctx.__MQ));
+  mq.meta.not_counted = "※ MTG の良し悪しを採点していません。何が記録されているかだけを出しています";
+  ctx.__MQd = mq;
+  const ph = JSON.parse(JSON.stringify(ctx.__PH));
+  ph.transcript.note = "電話の中身はまだ読めていません。文字起こしを取れているのはごく一部です";
+  ctx.__PHd = ph;
+  const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8");
+  ok(rs.includes(mq.meta.not_counted) && rs.includes(ph.transcript.note), "サーバの文が変わった（この見張りの入力を合わせ直す）");
+  for (const [name, code] of [["MTG の品質", "renderMtgQ(__MQd)"], ["電話", "renderPhone(__PHd)"]]) {
+    const d = noteHeadDup(run(code));
+    ok(!d.length, name + " の枠「" + d.join("」「") + "」の見出しと本文の頭が同じ文");
+  }
+});
+
+Promise.all(pendingChecks).then(() => {
+  console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
+  if (failed) process.exit(1);
+});
