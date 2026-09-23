@@ -552,6 +552,8 @@ function lg(kind, color, label) {
     ring: `<circle cx="6" cy="8" r="4.2" style="fill:var(--panel);stroke:${color}" stroke-width="1.6" stroke-dasharray="2 1.6"/>`,
     line: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4"/>`,
     dash: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4" stroke-dasharray="3 2.5"/>`,
+    /* 中空・破線の四角。積み上げ縦棒の「引き継ぎ」の区間と同じ描き方 */
+    hollow: `<rect x="1.5" y="3.5" width="9" height="9" rx="1.5" style="fill:var(--panel);stroke:${color}" stroke-width="1.4" stroke-dasharray="3 2"/>`,
     none: `<path d="M1 8H11" style="stroke:${color}" stroke-width="2"/>`,
   }[kind] || "";
   return `<i><svg ${SVGNS} width="12" height="16" aria-hidden="true">${s}</svg>${label}</i>`;
@@ -1147,9 +1149,13 @@ function svgTimeline(o) {
     (l.marks || []).forEach(m => {
       const d = dnum(m.d); if (d == null) return;
       const x = X(d), col = m.color || l.color || C.ai;
+      /* 🔴 thick は真偽で渡される（呼ぶ側は `thick: true`）。そのまま属性に流すと
+         stroke-width="true" になり、ブラウザが無効値として既定の 1 で描く。
+         太くしたい印がいちばん細く出ていた。数値のときだけその値を使う。 */
+      const sw = typeof m.thick === "number" ? m.thick : m.thick ? 3.6 : 2.4;
       g += m.hollow
         ? `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="none" style="stroke:${col}" stroke-width="1.6" stroke-dasharray="2 1.6"><title>${esc(m.t || "")} ${esc(m.d)}</title></circle>`
-        : `<line x1="${x.toFixed(1)}" y1="${(y - 6).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y + 6).toFixed(1)}" style="stroke:${col}" stroke-width="${m.thick || 2.4}" stroke-linecap="round"><title>${esc(m.t || "")} ${esc(m.d)}</title></line>`;
+        : `<line x1="${x.toFixed(1)}" y1="${(y - 6).toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y + 6).toFixed(1)}" style="stroke:${col}" stroke-width="${sw}" stroke-linecap="round"><title>${esc(m.t || "")} ${esc(m.d)}</title></line>`;
     });
     if (l.note)
       g += `<text class="ax" x="${(w - 2).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" style="fill:${l.noteColor || "var(--ink-3)"}">${esc(l.note)}</text>`;
@@ -1220,15 +1226,77 @@ function svgFunnel(o) {
          `<rect x="${padL}" y="${y + 6}" width="${bw.toFixed(1)}" height="${rh - 16}" rx="3" style="fill:${col}" opacity=".8"><title>${esc(s.label)}: ${F.int(s.v)}</title></rect>` +
          `<text class="vl" x="${(padL + bw + 7).toFixed(1)}" y="${y + 21}">${F.int(s.v)}</text>`;
     if (i) {
-      const prev = st[i - 1].v;
+      /* 🔴 前段比は**両方の値がある取引だけ**で割る（s.pair = {num, den, n}）。
+         棒の合計どうしで割ると、応募だけ入っていて面接が空の取引が分母にだけ乗り、
+         逆に面接だけ入っている取引は分子にだけ乗る。取引の集合が揃わないので
+         100% を超えることがある。pair が無い呼び出しだけ、前の段の合計で割る。 */
+      const pr = s.pair;
+      const den = pr ? pr.den : st[i - 1].v, nu = pr ? pr.num : s.v;
       // 🔴 分母0のときは率を書かない
-      const txt = prev ? (s.v / prev * 100).toFixed(1) + "%" : "—";
-      g += `<text class="ax" x="${(padL + bw + valW + 4).toFixed(1)}" y="${y + 21}" style="fill:${prev ? "var(--ink-2)" : "var(--ghost)"}">前段の ${txt}</text>`;
+      const txt = den ? (nu / den * 100).toFixed(1) + "%" : "—";
+      const why = pr ? `両方の値がある ${pr.n} 件で ${F.int(nu)} ÷ ${F.int(den)}` : "";
+      g += `<text class="ax" x="${(padL + bw + valW + 4).toFixed(1)}" y="${y + 21}" style="fill:${den ? "var(--ink-2)" : "var(--ghost)"}">前段の ${txt}${why ? `<title>${esc(why)}</title>` : ""}</text>`;
     }
   });
   return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "ファネル")}">${g}</svg>`;
 }
 
+/* ------------------------------------------------------------ 積み上げ縦棒 */
+/** 合計と、その内訳（拠点ごと）を同時に見せる。
+    🔴 拠点をまたいで足した値を**1本の線でつながない**ための道具。線にすると
+       拠点間のばらつきが「時間の変化」に見える（規律: 事業所をまたいで1本にしない）。
+       柱ごとに拠点の色で積むので、合計が動いたときにどの拠点のぶんかが見える。
+    🔴 carry（その月に書き換えが無く前の値を引き継いだ）の区間は中空・破線。
+    🔴 その月に値が1つも無い柱は 0 の柱にせず、無いと分かる印だけ置く。 */
+function svgColStack(o) {
+  const n = (o.x || []).length;
+  const ser = o.series || [];
+  const tot = o.x.map((_, i) => ser.reduce((s, S) => {
+    const p = S.vals[i]; return p && p.v != null ? (s == null ? 0 : s) + p.v : s; }, null));
+  const vs = tot.filter((v) => v != null);
+  if (!n || !vs.length) return `<div class="empty">この図に出せる値がありません（値が無いものは 0 として描きません）。</div>`;
+  const w = o.w || 660, h = o.h || 230;
+  const pad = { l: 58, r: 16, t: 18, b: 34 };
+  const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
+  const fmt = o.yFmt || F.int;
+  const tk = ticks(0, Math.max(...vs), 4);
+  const hi = Math.max(Math.max(...vs), tk[tk.length - 1]) || 1;
+  const slot = iw / n, bw = Math.max(3, Math.min(34, slot * 0.64));
+  const X = (i) => pad.l + slot * (i + 0.5);
+  const Y = (v) => pad.t + ih - ih * v / hi;
+  let g = "";
+  tk.forEach((t) => {
+    g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
+         `<text class="ax" x="${pad.l - 7}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(fmt(t))}</text>`;
+  });
+  g += `<line class="axisline" x1="${pad.l}" y1="${pad.t + ih}" x2="${w - pad.r}" y2="${pad.t + ih}"/>`;
+  const every = Math.ceil(n / Math.max(1, Math.floor(iw / 50)));
+  o.x.forEach((lab, i) => {
+    if (i % every && i !== n - 1) return;
+    g += `<text class="axl" x="${X(i).toFixed(1)}" y="${pad.t + ih + 15}" text-anchor="middle">${esc(lab)}</text>`;
+  });
+  if (o.yLab) g += `<text class="ax" x="2" y="${pad.t - 6}">${esc(o.yLab)}</text>`;
+  o.x.forEach((lab, i) => {
+    if (tot[i] == null) {
+      g += `<line x1="${(X(i) - 4).toFixed(1)}" y1="${(pad.t + ih - 3).toFixed(1)}" x2="${(X(i) + 4).toFixed(1)}" y2="${(pad.t + ih - 3).toFixed(1)}" style="stroke:var(--ghost)" stroke-width="2"><title>${esc(lab)}: 値が無い（0 ではない）</title></line>`;
+      return;
+    }
+    let acc = 0;
+    ser.forEach((S) => {
+      const p = S.vals[i];
+      if (!p || p.v == null || p.v <= 0) return;
+      const y0 = Y(acc), y1 = Y(acc + p.v);
+      const t = `<title>${esc(lab)} ${esc(S.label)}: ${esc(fmt(p.v))}${p.carry ? " / 引き継ぎ（この月は書き換えなし）" : ""}</title>`;
+      g += p.carry
+        ? `<rect x="${(X(i) - bw / 2 + 0.7).toFixed(1)}" y="${y1.toFixed(1)}" width="${(bw - 1.4).toFixed(1)}" height="${Math.max(1, y0 - y1).toFixed(1)}" style="fill:var(--panel);stroke:${S.color}" stroke-width="1.4" stroke-dasharray="3 2">${t}</rect>`
+        : `<rect x="${(X(i) - bw / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y0 - y1).toFixed(1)}" style="fill:${S.color}" opacity=".85">${t}</rect>`;
+      acc += p.v;
+    });
+    if (n <= 16)
+      g += `<text class="vl" x="${X(i).toFixed(1)}" y="${(Y(tot[i]) - 5).toFixed(1)}" text-anchor="middle">${esc(fmt(tot[i]))}</text>`;
+  });
+  return `<svg ${SVGNS} viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(o.alt || "積み上げ縦棒")}">${g}</svg>`;
+}
 
 function cpaLine(st, w, h) {
   const pts = st.pts;
@@ -1341,6 +1409,16 @@ const MIN_N = 30;
 function tooFew(n, what) {
   return '<div class="empty">' + esc(what) + 'は n=' + num(n) + ' で、図にするには足りません（' +
     MIN_N + '件未満）。件数だけ出しています。</div>';
+}
+/* 図から n<30 で外した群を、件数と理由つきで書く。🔴 黙って落とさない（V6）。
+   外した群が無ければ空文字。凡例（figlegend）の中に置く前提で <i class="full"> を返す */
+function droppedNote(rows, nOf, labelOf) {
+  const out = rows.filter((r) => nOf(r) < MIN_N);
+  if (!out.length) return "";
+  return '<i class="full"><b>n が ' + MIN_N + " 件未満の " + num(out.length) +
+    " 群を図から外しています</b>（" +
+    out.map((r) => esc(labelOf(r)) + " n=" + num(nOf(r))).join(" / ") +
+    "）。少ない件数の率は、たまたまでも大きく振れるためです。</i>";
 }
 
 
@@ -1563,7 +1641,13 @@ function renderFocus(D) {
       '<div class="empty">悪化した拠点はありません。</div>',
     lg("box", C.hi, "今回") + lg("dash", C.ghost, "前回") +
     '<i class="full">' + esc(c.note) + "</i>" +
-    (c.truncated ? '<i class="full">上位20拠点だけ出しています（全 ' + num(c.worse) + " 拠点）。</i>" : ""));
+    /* 🔴 図は20拠点で切る。サーバの truncated は「60件で切ったか」なので、
+       21〜60拠点の日は切っているのに注記が出ていなかった（V7）。
+       切ったかどうかは画面側の件数で決める */
+    (c.worse > cr.length
+      ? '<i class="full">倍率の大きい上位 ' + num(cr.length) + " 拠点だけ出しています（悪化した拠点は全 " +
+        num(c.worse) + " 拠点）。</i>"
+      : ""));
 
   /* ---- 図 MTG の記録（事実と推定） ---- */
   h += sec("図", "MTG を実施した記録（事実と推定を分ける）");
@@ -1617,26 +1701,64 @@ function renderRenewal(D) {
   let h = sec("問い", "継続を重ねると、成果は落ちるのか");
 
   h += sec("図", "月次の継続率（満了月ベース・本体契約のみ）");
+  /* 🔴 実線・塗りの点は「結果が出そろっていて、n が 30 以上」の月だけ。
+     - 結果待ちが1件でもある月は率がまだ動く（右側打ち切り）。前は `pending > 5` という
+       独自の線で切っていて、結果待ち1〜5件の月が確定値と同じ顔で出ていた（N5）
+     - n<30 の月は、たまたまでも大きく振れる。確定値と同じ顔で描かない
+     - 決着が0件（n=0）の月は率が無い。**点を作らない**。末尾に続く n=0 の月
+       （満了がまだ先の契約しかない月）は横軸からも外し、外した月数を下に書く */
+  const mrRows = mr.rows.slice();
+  const cutTail = [];
+  while (mrRows.length && !mrRows[mrRows.length - 1].denom) cutTail.unshift(mrRows.pop());
+  const shaky = (r) => r.pending > 0 || r.denom < MIN_N;
   h += fig("継続率 ＝ 継続済 ÷（継続済 ＋ 解約 ＋ 充足）",
     "<b>充足も分母に入れています</b>",
     svgLine({ w: 680, h: 240, labelPts: true,
-      x: mr.rows.map((r) => r.month.slice(2)),
-      xSub: mr.rows.map((r) => "n=" + r.denom),
-      series: [{ color: C.ai, pts: mr.rows.map((r) => ({
-        v: r.rate == null ? null : r.rate / 100,
-        censored: r.pending > 5 })) }],
+      x: mrRows.map((r) => r.month.slice(2)),
+      xSub: mrRows.map((r) => "n=" + r.denom),
+      series: [{ color: C.ai, pts: mrRows.map((r) => (!r.denom || r.rate == null)
+        ? null
+        : { v: r.rate / 100, censored: shaky(r),
+            note: [r.pending > 0 ? "結果待ち" + r.pending : "",
+                   r.denom < MIN_N ? "n<" + MIN_N : ""].filter(Boolean).join(" ") }) }],
       yFmt: F.pct, yLab: "継続率", alt: "月次の継続率" }),
-    lg("dot", C.ai, "確定した月") + lg("ring", C.ai, "結果待ちが多い月") +
+    lg("dot", C.ai, "確定した月（結果待ち0件・n " + MIN_N + " 以上）") +
+    lg("ring", C.ai, "未確定（結果待ちがある月・n " + MIN_N + " 未満の月）") +
+    '<i class="full">中空・破線の月は、結果待ちがまだ残っているか、決着した件数が ' + MIN_N +
+    " 件に届いていない月です。<b>確定値と同じには読まないでください。</b>" +
+    "点の下の n は決着した件数です。" +
+    (cutTail.length
+      ? "決着が1件も無い " + num(cutTail.length) + " か月（" + esc(cutTail[0].month) +
+        (cutTail.length > 1 ? "〜" + esc(cutTail[cutTail.length - 1].month) : "") +
+        "、結果待ち " + num(cutTail.reduce((s, r) => s + r.pending, 0)) +
+        " 件）は率が出せないので図に入れていません（下の表には出しています）。"
+      : "") + "</i>" +
     '<i class="full">充足（採れて終わった契約）も分母に入れます。採用できて終わったのも' +
     "「継続しなかった」という結果だからです。オプション契約 " +
     num((D.population || {}).deals_option) +
     " 件は母数から外しています（月ごとの偏りが大きく、含めると月次比較が歪むため）。</i>");
 
   h += sec("表", "満了月ごとの内訳");
+  /* 🔴 表も図と同じ線で分ける。図の注記は「下の表には出しています」と表へ誘うので、
+     表で未確定の率を確定と同じ太字にすると、図で中空にした意味が無くなる
+     （前は結果待ち1〜5件の月も n=1 の月も、確定月と同じ太字だった, N5）。
+     - 太字は確定（結果待ち0・n 30 以上）だけ
+     - 未確定は太字にせず「未確定」と理由を添える
+     - n=0 の月は率が無い。0% にも見せず — にする */
+  h += '<div class="lede">継続率の<b>太字は確定した月</b>（結果待ち0件・n ' + MIN_N +
+    " 以上）だけです。「未確定」の月は、結果待ちが決着すると率が動くか、件数が少なくて振れやすい月です。</div>";
   h += table([{ t: "満了月" }, { t: "継続", n: 1 }, { t: "解約", n: 1 }, { t: "充足", n: 1 },
               { t: "母数", n: 1 }, { t: "継続率", n: 1 }, { t: "結果待ち", n: 1 }],
     mr.rows.map((r) => [esc(r.month), num(r.keep), num(r.cancel), num(r.fill),
-      num(r.denom), "<b>" + pct1(r.rate) + "</b>", num(r.pending)]));
+      num(r.denom),
+      (!r.denom || r.rate == null)
+        ? DASH
+        : shaky(r)
+          ? pct1(r.rate) + '<br><span class="muted small">未確定（' +
+            [r.pending > 0 ? "結果待ち " + num(r.pending) + " 件" : "",
+             r.denom < MIN_N ? "n&lt;" + MIN_N : ""].filter(Boolean).join("・") + "）</span>"
+          : "<b>" + pct1(r.rate) + "</b>",
+      num(r.pending)]));
 
   h += sec("図", "継続回数ごとの解約率");
   h += fig("分子は「解約 ＋ 充足」", "初回を乗り切れれば、あとは残ります",
@@ -1786,20 +1908,43 @@ function custFilter(D, ids) {
     /* 🔴 1件も値が無ければ null。0 と「値が無い」を分ける */
     return s;
   };
+  /* 前段比の分子・分母。🔴 **両方の値がある取引だけ**で足す（svgFunnel の pair）。
+     段ごとの合計どうしで割ると、片方しか入っていない取引で集合がずれて 100% を超える */
+  const pair = (a, b) => {
+    const both = ds.filter((d) => d[a] != null && d[b] != null);
+    return { num: both.reduce((s, d) => s + d[b], 0),
+             den: both.reduce((s, d) => s + d[a], 0), n: both.length };
+  };
+  /* 最終満了は選んだ契約から取り直す。サーバの値はオプション契約も含めた全取引の最大で、
+     チェックを外しても動かなかった（U11） */
+  const lastExp = ds.reduce((m, d) => (d.expiration && d.expiration > m ? d.expiration : m), "");
   return Object.assign({}, D, {
     deals: ds,
     monthly: (D.monthly || []).filter(keep),
     contacts: (D.contacts || []).filter(keep),
+    /* 🔴 MTG の履歴も絞る。ここが漏れると「40件中1件」に絞っても
+       MTG の履歴だけ全拠点の 33件のまま出ていた（2026-09-23 実機, U7） */
+    mtgs: (D.mtgs || []).filter(keep),
     cpa3: (D.cpa3 || []).filter(keep),
     handover: (D.handover || []).filter(keep),
     cpa_by_site: (D.cpa_by_site || [])
       .map((st) => ({ site: st.site, points: (st.points || []).filter(keep) }))
       .filter((st) => st.points.length),
-    funnel: { oubo: sum("oubo"), mensetu: sum("mensetu"), syoudaku: sum("syoudaku") },
+    funnel: { oubo: sum("oubo"), mensetu: sum("mensetu"), syoudaku: sum("syoudaku"),
+              pair_mensetu: pair("oubo", "mensetu"), pair_syoudaku: pair("mensetu", "syoudaku") },
     customer: D.customer && Object.assign({}, D.customer, {
       deals: ds.length,
       active: ds.filter((d) => d.is_active).length,
       ltv: sum("amount"),
+      /* 一覧（CS_顧客）の LTV はオプション契約も足した値で、この画面の取引は
+         オプションを外している。全部にチェックが入っていても一致しないので、
+         元の値も持っておいて KPI に並べる（fixture 実測: 表示対象 517法人のうち
+         一覧の LTV が全取引の合計と一致 517、本体契約だけの合計と一致 409） */
+      ltv_index: D.customer.ltv,
+      last_expiration: lastExp || null,
+      /* 一覧の「最終満了」もオプション契約込みの値。LTV と同じく元の値も持っておき、
+         食い違うときは理由を書く（U11） */
+      last_expiration_index: D.customer.last_expiration,
       sites: new Set(ds.map((d) => d.site)).size,
       max_renewal_no: ds.reduce((m, d) => Math.max(m, d.renewal_no || 0), 0),
     }),
@@ -1820,9 +1965,19 @@ function custBlocks(D, want) {
     '<div class="kpis">' +
     kpi("取引", num(c.deals) + '<span class="u">件</span>', "稼働中 " + num(c.active)) +
     kpi("拠点", num(c.sites) + '<span class="u">拠点</span>', "") +
-    kpi("LTV", yen(c.ltv), "") +
+    kpi("LTV", yen(c.ltv),
+        /* 🔴 一覧の LTV と食い違う理由を書く。黙って別の値を出すと「どちらが正しいか」になる */
+        c.ltv_index != null && c.ltv_index !== c.ltv
+          ? "選んだ契約の金額の合計（オプション契約を除く）。法人一覧の LTV " +
+            yen(c.ltv_index) + " はオプション契約も含みます"
+          : "選んだ契約の金額の合計") +
     kpi("継続回数（最大）", num(c.max_renewal_no), "") +
-    kpi("最終満了", esc(c.last_expiration || "—"), "") + "</div>";
+    kpi("最終満了", esc(c.last_expiration || "—"),
+        /* 🔴 LTV と同じ理由で食い違う。オプション契約の満了日が本体より遅い法人だけ */
+        c.last_expiration_index && c.last_expiration_index !== c.last_expiration
+          ? "選んだ契約の満了日の最大（オプション契約を除く）。法人一覧の最終満了 " +
+            esc(c.last_expiration_index) + " は全取引（オプション契約を含む）の最大です"
+          : "") + "</div>";
 
   /* ---- 顧客に説明する数字 ---- */
   if (want.has("funnel")) {
@@ -1831,11 +1986,17 @@ function custBlocks(D, want) {
   h += fig("応募 → 面接 → 採用 の落ち方", "取引をまたいだ合計",
     svgFunnel({ steps: [
       { label: "応募", v: fn_.oubo, color: C.ai },
-      { label: "面接", v: fn_.mensetu, color: C.ki },
-      { label: "採用", v: fn_.syoudaku, color: C.midori },
+      { label: "面接", v: fn_.mensetu, color: C.ki, pair: fn_.pair_mensetu },
+      { label: "採用", v: fn_.syoudaku, color: C.midori, pair: fn_.pair_syoudaku },
     ], alt: "応募から採用までの落ち方" }),
     '<i class="full">値が入っている契約だけを足しています。' +
-    "<b>入っていないものを 0 として足していません</b>（母数が変わるため）。</i>");
+    "<b>入っていないものを 0 として足していません</b>（母数が変わるため）。</i>" +
+    '<i class="full">「前段の N%」は<b>前の段と両方の値が入っている契約だけ</b>で割っています' +
+    (fn_.pair_mensetu
+      ? "（面接÷応募は " + num(fn_.pair_mensetu.n) + " 件、採用÷面接は " +
+        num(fn_.pair_syoudaku.n) + " 件）"
+      : "") +
+    "。棒の合計どうしで割ると、片方しか入っていない契約のぶん集合がずれます。</i>");
   }
 
   /* ---- 採用単価を3つの出し方で ---- */
@@ -1935,15 +2096,20 @@ function custBlocks(D, want) {
       return hit || { v: null };
     });
     const ct = (D.contacts || []).find((x) => x.deal_id === mm.deal_id);
+    /* 🔴 棒の帯（bars）は p.fill / p.out を読む。{v:n} だけ返すと棒が1本も立たず、
+       上限も「1」のまま空の帯になっていた（2026-09-23 実機, U2）。
+       接触は「MTG・60秒超の通話」の1種類なので塗り（fill）に入れる。
+       v は帯が空かどうかの判定に使う（取引に接触の記録が無ければ null）。 */
     const ctPts = months.map((mi) => {
       if (!ct) return { v: null };
       const n = ct.dates.filter((d) => monthIdx(mm.start, d.slice(0, 7)) === mi).length;
-      return { v: n };
+      return { v: n, fill: n };
     });
-    const lane = (label, color, pts, type, noneLabel) => {
+    const lane = (label, color, pts, type, noneLabel, fillLabel) => {
       const has = pts.some((p) => p.v != null);
       return { label: label, color: color, type: type || "line",
-               pts: pts, empty: !has, noneLabel: noneLabel || "記録がありません" };
+               pts: pts, empty: !has, noneLabel: noneLabel || "記録がありません",
+               fillLabel: fillLabel || label };
     };
     h += fig(shortName(mm.name || mm.deal_id, 28) + " — 系列を縦に並べる",
       "縦に目を落とすと「NPS が落ちた月に接触が切れていて、応募も止まっていた」が読めます",
@@ -1952,7 +2118,7 @@ function custBlocks(D, want) {
         lane("面接", C.ki, mk("mensetu")),
         lane("採用", C.midori, mk("syoudaku")),
         lane("定期NPS", C.murasaki, npsPts, "dots", "回答がありません"),
-        lane("接触（MTG・60秒超の通話）", C.hi, ctPts, "bars", "接触の記録がありません"),
+        lane("接触（MTG・60秒超の通話）", C.hi, ctPts, "bars", "接触の記録がありません", "接触"),
       ] }),
       '<i class="full"><b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
       "値の幅が違いすぎる（応募 0〜200 / NPS 0〜10 / 接触 0〜数十）ので、" +
@@ -2019,11 +2185,17 @@ function custBlocks(D, want) {
       同じ事業所が契約を重ねてきた流れ（サブスク継続①②③…）を時系列で追う。
 */
 let seriesSite = "";          /* 選んでいる拠点。空なら全部 */
+/* 拠点が空の取引の選択肢の値。🔴 空文字のままだと「すべての拠点」と同じ value になり、
+   選んでも全部が出る（2026-09-23 実機: value が空の選択肢が1つあった, U13）。
+   拠点キーには出てこない文字列にしておく（NUL は HTML の属性値で U+FFFD に化けるので使わない）。 */
+const NO_SITE = "__no_site__";
+const siteOf = (d) => d.site || NO_SITE;
 
 function siteLabel(D, key) {
   if (!key) return "すべての拠点";
-  const n = (D.deals || []).filter((d) => d.site === key).length;
-  return shortName(key, 28) + "（契約 " + num(n) + " 件）";
+  const n = (D.deals || []).filter((d) => siteOf(d) === key).length;
+  return (key === NO_SITE ? "拠点が入っていない" : shortName(key, 28)) +
+    "（契約 " + num(n) + " 件）";
 }
 
 function renderSeries(D) {
@@ -2031,10 +2203,10 @@ function renderSeries(D) {
     return custIndex(D, "この事業所は契約を重ねてこられたか",
       "<b>粒度は事業所です。</b>決裁は事業所単位なので、ふだん見るのはこちらです。");
   }
-  const sites = [...new Set((D.deals || []).map((d) => d.site))].sort();
+  const sites = [...new Set((D.deals || []).map(siteOf))].sort();
   if (seriesSite && !sites.includes(seriesSite)) seriesSite = "";
   const ids = new Set((D.deals || [])
-    .filter((d) => !seriesSite || d.site === seriesSite)
+    .filter((d) => !seriesSite || siteOf(d) === seriesSite)
     .map((d) => d.deal_id));
   const F2 = custFilter(D, ids);
 
@@ -2053,7 +2225,8 @@ function renderSeries(D) {
       "</option>").join("") + "</select></label></div>";
   h += '<div class="count-line' + (seriesSite ? " on" : "") + '">' +
     "<b>" + num((D.deals || []).length) + " 件中 " + num(F2.deals.length) +
-    " 件</b>を表示" + (seriesSite ? "（拠点 " + esc(shortName(seriesSite, 28)) + "）"
+    " 件</b>を表示" + (seriesSite ? "（" + (seriesSite === NO_SITE ? "拠点が入っていない契約"
+                                  : "拠点 " + esc(shortName(seriesSite, 28))) + "）"
                                   : "（拠点で絞っていません）") + "</div>";
 
   /* 契約の連なり。何回目か・間が空いていないか */
@@ -2101,14 +2274,58 @@ function houjinIds(D) {
   return new Set(all.filter((id) => houjinPick[id]));
 }
 
-/* 月ごとに畳む。key は "YYYY-MM" */
-function byMonth(pairs) {
-  const m = {};
-  for (const [k, v] of pairs) {
-    if (!k || v == null) continue;
-    m[k] = (m[k] || 0) + v;
+/* 1案件の暦月 mo（"YYYY-MM"）時点の採用数。{ v, carry } を返す。
+   🔴 記録は**書き換えのあった月だけ**。間の月は前の値を持ち越す
+      （サーバ側の fill_forward と同じ読み方）。持ち越した点は carry を立てる。
+   🔴 **契約期間の外は null。** サーバの月次はその契約の満了後も今月まで持ち越して
+      返してくるので、そのまま足すと満了した契約の累計が毎月乗り続け、
+      「毎月採れている」ように見えていた（N8）。満了月で止める。
+   案件ごとの線と、拠点ごとに積んだ合計の両方がこれを使う（止め方を2つ作らない）。 */
+function syoudakuAt(mm, dl, mo) {
+  const st = String(mm.start || "").slice(0, 7);
+  const en = String((dl && dl.expiration) || "9999-12").slice(0, 7);
+  if (!st || mo < st || mo > en) return { v: null };
+  let last = null;
+  for (const x of ((mm.series || {}).syoudaku || [])) {
+    const xm = monthAdd(mm.start, x.m);
+    if (xm && xm <= mo) last = { mo: xm, v: x.v, carry: !!x.carry };
   }
-  return m;
+  if (!last || last.v == null) return { v: null };
+  /* 🔴 サーバは書き換えの無い月にも点を置き、carry を立てて返す（routes の月次）。
+     点がある＝その月に書かれた、ではない。前は点の有無だけで決めていたので、
+     実データでは持ち越しの月もすべて「書き換えあり」の塗りで描かれていた（N8） */
+  return { v: last.v, carry: last.mo !== mo || last.carry };
+}
+
+/* "YYYY-MM" の a から b まで、1か月ずつ全部。柱の間隔を暦どおりに保つため */
+function monthRange(a, b) {
+  const out = [];
+  if (!a || !b) return out;
+  let y = +a.slice(0, 4), m = +a.slice(5, 7);
+  for (let k = 0; k < 600; k++) {
+    const s = y + "-" + String(m).padStart(2, "0");
+    if (s > b) break;
+    out.push(s);
+    if (++m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+/* 拠点ごとに積む図の系列。色は4役＋紫の5つなので、6拠点目からは「その他」に束ねる。
+   🔴 束ねたことは凡例に拠点数で出す（黙って落とさない）。 */
+const SITE_COLORS = [C.ai, C.hi, C.ki, C.midori, C.murasaki];
+function siteSeries(sites, valsOf, order) {
+  /* 並べ替えの基準は拠点ごとに1回だけ計算する。比較のたびに order() を呼ぶと
+     O(n log n) 回の計算し直しになり、合成データの 200案件・100拠点で 272ms かかった（N8） */
+  const key = new Map(sites.map((s) => [s, order(s)]));
+  const sorted = sites.slice().sort((a, b) => key.get(b) - key.get(a));
+  const head = sorted.slice(0, SITE_COLORS.length);
+  const rest = sorted.slice(SITE_COLORS.length);
+  const out = head.map((s, i) => ({ label: s === NO_SITE ? "拠点が入っていない" : shortName(s, 16),
+                                    color: SITE_COLORS[i], vals: valsOf([s]) }));
+  if (rest.length)
+    out.push({ label: "その他の拠点（" + rest.length + " か所）", color: C.ghost, vals: valsOf(rest) });
+  return out;
 }
 
 function renderHoujin(D) {
@@ -2189,27 +2406,17 @@ function renderHoujin(D) {
       ? svgLine({ w: 940, h: 260, x: ms.map((m) => m.slice(2)),
           series: drawn.map((mm, i) => ({
             color: [C.ai, C.hi, C.ki, C.midori, C.murasaki][i],
-            /* 🔴 記録は**書き換えのあった月だけ**。間の月は前の値を持ち越す
-               （サーバ側の fill_forward と同じ読み方）。持ち越した点は
-               carry を立てて中空・破線で描く。契約期間の外までは伸ばさない。 */
-            pts: ms.map((mo) => {
-              const ser = ((mm.series || {}).syoudaku || [])
-                .map((x) => ({ mo: monthAdd(mm.start, x.m), v: x.v }))
-                .filter((x) => x.mo);
-              const st = String(mm.start || "").slice(0, 7);
-              const dl = F2.deals.find((d) => d.deal_id === mm.deal_id) || {};
-              const en = String(dl.expiration || "9999-12").slice(0, 7);
-              if (!st || mo < st || mo > en) return { v: null };
-              let last = null;
-              for (const x of ser) { if (x.mo <= mo) last = x; }
-              if (!last) return { v: null };
-              return { v: last.v, carry: last.mo !== mo };
-            }),
+            /* 持ち越した点は carry を立てて中空・破線で描く。
+               契約期間の外までは伸ばさない（読み方は syoudakuAt の1か所） */
+            pts: ms.map((mo) => syoudakuAt(mm,
+              F2.deals.find((d) => d.deal_id === mm.deal_id), mo)),
           })), yFmt: F.int, yLab: "採用数", alt: "案件ごとの採用数の推移" })
       : '<div class="empty">線にできる月次の記録がありません（記録が無いだけで 0 ではありません）。</div>',
+    /* 🔴 lg() のラベルは HTML としてそのまま入る（凡例に <strong> を使う呼び出しがあるため）。
+       取引名は HubSpot で誰でも書ける文字列なので、ここで必ずエスケープする（V18） */
     drawn.map((mm, i) =>
       lg("line", [C.ai, C.hi, C.ki, C.midori, C.murasaki][i],
-         shortName(mm.name || mm.deal_id, 18))).join("") +
+         esc(shortName(mm.name || mm.deal_id, 18)))).join("") +
     '<i class="full"><b>拠点をまたいで1本にしていません。</b>1本が1案件です。' +
     "選んだ " + num(F2.monthly.length) + " 件のうち、採用数の変更履歴があるのは " +
     num(withSer.length) + " 件です。" +
@@ -2223,36 +2430,92 @@ function renderHoujin(D) {
 
   /* ---- 全体（合算）---- */
   h += sec("図", "全体（選んだ案件の合算）");
-  const sumM = byMonth(F2.monthly.flatMap((mm) =>
-    (((mm.series || {}).syoudaku) || []).map((x) => [monthAdd(mm.start, x.m), x.v])));
-  const smKeys = Object.keys(sumM).sort();
-  h += fig("採用数の月ごとの合計", "この法人として月にどれだけ採れたか",
-    smKeys.length >= 2
-      ? svgLine({ w: 940, h: 220, x: smKeys.map((m) => m.slice(2)),
-          series: [{ color: C.midori, pts: smKeys.map((k) => ({ v: sumM[k] })) }],
-          yFmt: F.int, yLab: "採用数", alt: "採用数の合計の推移" })
+  /* 🔴 **拠点をまたいで1本の線にしない**（規律）。合算は見せるが、柱を拠点の色で積む。
+     線でつなぐと拠点間のばらつきが「時間の変化」に見える。柱なら合計の高さと、
+     どの拠点のぶんかが同時に読める（N8）。 */
+  const dealOf = {};
+  F2.deals.forEach((d) => { dealOf[d.deal_id] = d; });
+  const synDeals = F2.monthly.filter((mm) => (((mm.series || {}).syoudaku) || []).length);
+  const synHit = ms.filter((mo) => synDeals.some((mm) => syoudakuAt(mm, dealOf[mm.deal_id], mo).v != null));
+  const synAxis = synHit.length ? monthRange(synHit[0], synHit[synHit.length - 1]) : [];
+  const synSites = [...new Set(synDeals.map((mm) => siteOf(dealOf[mm.deal_id] || {})))];
+  /* 🔴 書き換えのあった契約（fresh）と持ち越した契約（carry）を**分けて足す**。
+     まとめて1つにすると、1件でも書き換えがあった拠点は区分全体が確定の塗りになり、
+     持ち越した値まで「その月に書かれた値」の顔で描かれていた（N8）。 */
+  const synVals = (sites) => synAxis.map((mo) => {
+    let fresh = null, carried = null;
+    for (const mm of synDeals) {
+      if (!sites.includes(siteOf(dealOf[mm.deal_id] || {}))) continue;
+      const r = syoudakuAt(mm, dealOf[mm.deal_id], mo);
+      if (r.v == null) continue;
+      if (r.carry) carried = (carried || 0) + r.v;
+      else fresh = (fresh || 0) + r.v;
+    }
+    if (fresh == null && carried == null) return { v: null };
+    return { v: (fresh || 0) + (carried || 0), fresh: fresh, carried: carried };
+  });
+  /* 色を付ける拠点は「契約ごとの最終的な累計」の合計が大きい順（LTV の図が合計金額で
+     並べるのと同じ考え方）。前は横軸の最後の月の値で並べていて、満了で止めた（N8）後は
+     満了済みの拠点が過去に何人採っていても 0 扱いで「その他」に回っていた。 */
+  const synOrder = (s) => synDeals
+    .filter((mm) => siteOf(dealOf[mm.deal_id] || {}) === s)
+    .reduce((a, mm) => a + synAxis.reduce((mx, mo) => {
+      const r = syoudakuAt(mm, dealOf[mm.deal_id], mo);
+      return r.v != null && r.v > mx ? r.v : mx;
+    }, 0), 0);
+  const synSer = siteSeries(synSites, synVals, synOrder);
+  /* 柱は拠点ごとに2段: 下が書き換えのあった契約（塗り）、上が持ち越し（中空・破線）。
+     凡例は拠点ごとに1つ（synSer から作る） */
+  const synBars = [];
+  synSer.forEach((S) => {
+    synBars.push({ label: S.label, color: S.color,
+                   vals: S.vals.map((p) => ({ v: p.fresh == null ? null : p.fresh })) });
+    synBars.push({ label: S.label, color: S.color,
+                   vals: S.vals.map((p) => (p.carried == null ? { v: null } : { v: p.carried, carry: true })) });
+  });
+  /* 🔴 題名に「累計」と入れる。柱の高さは**その月に新しく採れた数ではなく**、
+     契約期間中の各契約の累計（ストック）を足したもの。「月ごとの合計」だけだと
+     月々の採用数（フロー）に読める。満了で柱が下がっても採用が減ったわけではない（N8） */
+  h += fig("契約中の案件の採用数（累計）の月ごとの合計",
+    "その月に契約期間中だった案件の、契約ごとの採用数の累計を拠点ごとに積んだもの。その月に新しく採れた数ではありません",
+    synAxis.length >= 2
+      ? svgColStack({ w: 940, h: 230, x: synAxis.map((m) => m.slice(2)), series: synBars,
+          yFmt: F.int, yLab: "採用数（累計）", alt: "契約中の案件の採用数の累計を拠点ごとに積んだ推移" })
       : '<div class="empty">合算できる月次の記録がありません。</div>',
-    lg("line", C.midori, "選んだ案件の合計") +
+    synSer.map((S) => lg("box", S.color, esc(S.label))).join("") +
+    /* 「その他の拠点」は C.ghost の塗り。引き継ぎを C.ghost の線にすると同じ色で2つの意味になる */
+    lg("hollow", C.ink, "引き継ぎ（その月に書き換えが無い契約のぶん）") +
+    '<i class="full"><b>柱の高さは累計です。</b>その月に新しく採れた人数ではありません。' +
+    "契約ごとの採用数の累計を、契約期間中の月に積んでいます。" +
+    "<b>柱が下がるのは契約が満了したからで、採用が減ったからではありません。</b></i>" +
     '<i class="full"><b>これは合算です。</b>拠点をまたいで足しています。' +
+    "<b>線でつながず、柱を拠点ごとの色で積んでいます</b>（拠点をまたいで1本の線にすると、" +
+    "拠点の違いが時間の変化に見えるため）。" +
+    "<b>満了した契約は満了月で止めています。</b>満了後も累計を足し続けると、" +
+    "採れていない月まで採れているように見えるためです。" +
     "拠点ごとの違いを見るときは1つ上の図か、下の「採用単価の推移（拠点ごと）」を見てください。</i>");
 
-  /* LTV の累計。金額の入っている案件を開始日の順に足していく */
+  /* LTV の累計。金額の入っている案件を開始日の順に足していく。
+     🔴 これも拠点ごとに積む（同じ理由）。柱は契約が始まった月だけに立てる */
   const lt = F2.deals.filter((d) => d.amount != null && d.start)
     .sort((a, b) => String(a.start).localeCompare(String(b.start)));
-  let acc = 0;
-  const ltPts = lt.map((d) => { acc += d.amount; return { v: acc }; });
-  h += fig("LTV の推移（契約金額の累計）", "契約が増えるたびに積み上がる",
-    ltPts.length >= 2
-      ? svgLine({ w: 940, h: 220, labelPts: true,
-          x: lt.map((d) => String(d.start).slice(2, 7)),
-          series: [{ color: C.ai, pts: ltPts }],
-          yFmt: F.man, yLab: "累計金額", alt: "LTV の推移" })
-      : '<div class="empty">金額が入っている契約が ' + num(lt.length) +
-        " 件しかないので線にしていません。</div>",
-    lg("line", C.ai, "契約金額の累計") +
-    '<i class="full"><b>これも合算です。</b>金額が入っていない契約は足していません' +
-    "（0 として足すと母数が変わるため）。横軸は契約の開始月で、" +
-    "どの拠点のぶんかは下の「契約の系列」の表にあります。</i>");
+  const ltAxis = [...new Set(lt.map((d) => String(d.start).slice(0, 7)))];
+  const ltVals = (sites) => ltAxis.map((mo) => {
+    const got = lt.filter((d) => sites.includes(siteOf(d)) && String(d.start).slice(0, 7) <= mo);
+    return got.length ? { v: got.reduce((s, d) => s + d.amount, 0) } : { v: null };
+  });
+  const ltSer = siteSeries([...new Set(lt.map(siteOf))], ltVals,
+    (s) => lt.filter((d) => siteOf(d) === s).reduce((a, d) => a + d.amount, 0));
+  h += fig("LTV の推移（契約金額の累計）", "契約が増えるたびに積み上がる。拠点ごとに積んでいます",
+    ltAxis.length >= 2
+      ? svgColStack({ w: 940, h: 230, x: ltAxis.map((m) => m.slice(2)), series: ltSer,
+          yFmt: F.man, yLab: "累計金額（万円）", alt: "LTV を拠点ごとに積んだ推移" })
+      : '<div class="empty">金額が入っている契約の開始月が ' + num(ltAxis.length) +
+        " つしかないので図にしていません。</div>",
+    ltSer.map((S) => lg("box", S.color, esc(S.label))).join("") +
+    '<i class="full"><b>これも合算です。</b>拠点ごとの色で積んでいます。' +
+    "金額が入っていない契約は足していません" +
+    "（0 として足すと母数が変わるため）。横軸は契約の開始月です。</i>");
 
   h += custBlocks(F2, new Set(["cpasite", "deals"]));
 
@@ -2347,6 +2610,18 @@ function renderHq(D) {
   return h + foot(D.meta);
 }
 
+/* 月次の件数で「まだ締まっていない月」。
+   🔴 元データを落とした時刻（source_as_of）の月から先は、その月の途中までしか入っていない。
+      計算の基準日（today）ではなく元データの時刻で決める。シートを作り直さずに日付だけ
+      進むと、前の月まで途中のまま確定に見えてしまうため。取れなければ基準日で代える。 */
+function openMonth(meta) {
+  const s = (meta && (meta.source_as_of || meta.today)) || "";
+  return s.length >= 7 ? s.slice(0, 7) : null;
+}
+/* 月次の件数の点。締まっていない月は中空・破線にする（V5） */
+const monthPt = (month, v, open) =>
+  ({ v: v, censored: !!open && month >= open, note: open && month >= open ? "途中" : "" });
+
 /* ================================================================ 5 MTG の品質 */
 function renderMtgQ(D) {
   let h = sec("問い", "MTG に何が記録されているか") +
@@ -2387,12 +2662,17 @@ function renderMtgQ(D) {
     "件数が多い＝良い、ではありません。担当している契約の数が違います。</i>");
 
   h += sec("図", "月ごとの件数");
+  const openM = openMonth(D.meta);
+  /* 途中の月が横軸に無いときは凡例にも出さない（図に無い印を凡例に残さない, V5） */
+  const hasOpenM = !!openM && D.monthly.some((m) => m.month >= openM);
   h += fig("MTG の実施回数", "",
     svgLine({ w: 680, h: 220,
       x: D.monthly.map((m) => m.month.slice(2)),
-      series: [{ color: C.ai, pts: D.monthly.map((m) => ({ v: m.n })) }],
+      series: [{ color: C.ai, pts: D.monthly.map((m) => monthPt(m.month, m.n, openM)) }],
       yFmt: F.int, yLab: "回", alt: "月ごとの MTG 件数" }),
-    lg("line", C.ai, "MTG"));
+    lg("line", C.ai, "MTG") + (hasOpenM ? lg("ring", C.ai, "途中の月（まだ締まっていない）") : "") +
+    (hasOpenM ? '<i class="full">' + esc(openM) + " は元データを落とした時点までの途中の値です。" +
+      "<b>ほかの月と同じには比べられません</b>（必ず低く出ます）。</i>" : ""));
   return h + foot(D.meta);
 }
 
@@ -2437,14 +2717,19 @@ function renderPhone(D) {
     " 件は<b>0日として混ぜていません</b>。0日にすると「昨日話した」ように見えます。</i>");
 
   h += sec("図", "月ごとの本数");
+  const openP = openMonth(D.meta);
+  const hasOpenP = !!openP && D.monthly.some((m) => m.month >= openP);   /* MTG と同じ（V5） */
   h += fig("通話と、そのうち接触（" + num(D.meta.threshold_sec) + "秒超）", "",
     svgLine({ w: 700, h: 230,
       x: D.monthly.map((m) => m.month.slice(2)),
       series: [
-        { color: C.ai, pts: D.monthly.map((m) => ({ v: m.calls })) },
-        { color: C.midori, pts: D.monthly.map((m) => ({ v: m.contacts })) },
+        { color: C.ai, pts: D.monthly.map((m) => monthPt(m.month, m.calls, openP)) },
+        { color: C.midori, pts: D.monthly.map((m) => monthPt(m.month, m.contacts, openP)) },
       ], yFmt: F.int, yLab: "件", alt: "月ごとの通話" }),
     lg("line", C.ai, "通話") + lg("line", C.midori, "接触（60秒超）") +
+    (hasOpenP ? lg("ring", C.ghost, "途中の月（まだ締まっていない）") : "") +
+    (hasOpenP ? '<i class="full">' + esc(openP) + " は元データを落とした時点までの途中の値です。" +
+      "<b>ほかの月と同じには比べられません</b>（必ず低く出ます）。</i>" : "") +
     '<i class="full">Call は Deal に多対多なので、同じ通話が複数の取引に付きます。</i>');
 
   h += note("warn", "電話の中身はまだ読めていません", esc(D.transcript.note));
@@ -2494,7 +2779,7 @@ function renderRampup(D) {
       : tooFew(f.stats ? f.stats.n : 0, "初回MTGまでの日数"),
     lg("box", C.ai, "四分位") + lg("line", C.ink, "中央値"));
 
-  h += fig("帯ごとの、その後の解約率", "遅い群が悪いことだけが読めます",
+  h += fig("帯ごとの、その後の解約率", "立ち上がりの速さと解約の向きは読めません",
     svgBarH({ w: 660, fmt: F.d1, rh: 26,
       // 解約率の母数は決着済み（b.denom）。足切りも母数で見る（結果待ちを含む b.n ではない）
       rows: f.buckets.filter((b) => b.denom >= MIN_N).map((b) => ({
@@ -2502,10 +2787,11 @@ function renderRampup(D) {
         note: "n=" + num(b.denom),
         color: b.label === "61日超" ? C.hi : C.ai })) }),
     lg("box", C.hi, "61日超") + lg("box", C.ai, "それ以外") +
+    // 足切りは決着済みの件数（b.denom）で見る。図の filter と同じ基準にする（rust N3 + ui V6）
+    droppedNote(f.buckets, (b) => b.denom || 0, (b) => b.label) +
     '<i class="full">n は決着済み（継続＋解約＋充足）の件数で、解約率の分母です。結果待ちは入れていません。' +
-    "n が " + MIN_N + " 件未満の帯は載せていません。" +
     "<b>単調ではありません。</b>14日以内も解約しています。" +
-    "「早ければ良い」とは言えず、<b>遅い群が悪い</b>ことだけが読めます。" +
+    "「早ければ良い」とも「遅いほど悪い」とも言えません（決着済みで割ると、遅い群が悪いという差は読めなくなりました）。" +
     "61日超には関係が薄い顧客が混じっている可能性があり、" +
     "<b>遅れが原因とは決められません（相関であって因果ではない）</b>。</i>");
 
@@ -2554,6 +2840,7 @@ function renderOutcome(D) {
         min: g.box.min, max: g.box.max, mean: g.box.mean, n: g.box.n,
         color: SERIES[i % 5] })) }),
     lg("line", C.ink, "中央値") +
+    droppedNote(ef.groups, (g) => (g.box ? g.box.n : 0), (g) => g.label) +
     '<i class="full">' + esc(ef.caveat) + "　掲載数が入っているのは 稼働中 " +
     num(ef.has_keisaisu_act) + " / " + num(ef.n_act) + "。</i>");
   h += note("bad", "資料の「8.1 ≪ 14.5」は、今あるデータでは再現しません",
@@ -2850,8 +3137,33 @@ function drillToBoard(name) {
 function redrawMain(D) {
   const v = viewOf(cur.menu, cur.view);
   const main = document.getElementById("cs-main");
+  const fk = focusKey(document.activeElement);
   main.innerHTML = ctlbar(v, D) + v.render(D);
   wire(v);
+  refocus(fk);
+}
+
+/* 描き直しの前後でフォーカスを保つ。
+   🔴 本文を innerHTML で入れ替えると、いま触っていた選択欄・ボタンが消えて
+      フォーカスが body に飛ぶ。キーボードで選択欄を↓で動かすと1回ごとに
+      change が来て描き直すので、2つ目から先へ進めなくなっていた
+      （2026-09-23 実機: 案件そのものの担当の選択欄, U9）。
+      描き直した後に、同じ役目の部品を探してフォーカスを戻す。 */
+function focusKey(a) {
+  if (!a || a === document.body || !a.getAttribute) return null;
+  if (a.id) return "#" + a.id;
+  const tbl = a.closest && a.closest("table[id]");
+  if (tbl && a.dataset && a.dataset.k != null)
+    return "#" + tbl.id + ' button.sort[data-k="' + a.dataset.k + '"]';
+  if (a.dataset && a.dataset.d != null) return '#hj-pick input[data-d="' + a.dataset.d + '"]';
+  if (a.dataset && a.dataset.v != null) return '#cs-side button[data-v="' + a.dataset.v + '"]';
+  return null;
+}
+function refocus(k) {
+  if (!k) return;
+  let e = null;
+  try { e = document.querySelector(k); } catch (_) { e = null; }
+  if (e && e.focus) e.focus({ preventScroll: true });
 }
 
 function boardTable(rows, sort, id) {
@@ -3001,7 +3313,7 @@ function renderToday(D) {
   if (started.length) {
     h += sec("表", "今週始まった契約（" + num(started.length) + " 件）");
     h += '<div class="lede">' + esc(D.meta.new_deal_rule || "") + "</div>";
-    h += scroll(boardTable(started, { key: "start", asc: false }, "new-tbl"), 320);
+    h += scroll(boardTable(started, todaySort["new-tbl"], "new-tbl"), 320);
   } else {
     h += sec("表", "今週始まった契約");
     h += '<div class="empty">直近7日に始まった契約はありません。</div>';
@@ -3010,7 +3322,7 @@ function renderToday(D) {
   if (soon.length) {
     h += sec("表", "今週満了（" + num(soon.length) + " 件）");
     h += '<div class="lede">残り7日以内。名札の本数に関わらず出しています。</div>';
-    h += scroll(boardTable(soon, { key: "days_left", asc: true }, "soon-tbl"), 320);
+    h += scroll(boardTable(soon, todaySort["soon-tbl"], "soon-tbl"), 320);
   }
 
   /* 🔴 図はこれ1つだけ。毎朝の画面なので、表が主役のままにする。
@@ -3030,13 +3342,14 @@ function renderToday(D) {
     lg("box", C.murasaki, "成果が出ていない") +
     '<i class="full">棒の右に分類の言葉も書いています。' +
     "<b>色が見分けられなくても読めます。</b></i>" +
-    '<i class="full">この24件だけの内訳です。稼働中の全件の内訳は' +
+    /* 件数は直書きしない。24件は 2026-09-23 のたまたまの値で、日によって変わる（V8） */
+    '<i class="full">この ' + num(D.rows.length) + " 件だけの内訳です。稼働中の全件の内訳は" +
     "「案件」の中の「案件の立ち位置」にあります。" +
     "<b>件数の推移は出していません。</b>日ごとの記録を持っていないので、" +
     "作ると嘘になります。</i>");
 
   h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）");
-  h += scroll(boardTable(D.rows, { key: "n_flags", asc: false }, "today-tbl"), 640);
+  h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl"), 640);
   h += note("info", "この並びについて", esc(D.meta.order_rule));
   return h + foot(D.meta);
 }
@@ -3127,15 +3440,38 @@ function wireBoard() {
   };
   document.querySelectorAll("#board-tbl th.sortable button.sort").forEach((th) => {
     th.onclick = () => {
-      const kk = th.dataset.k;
-      if (boardSort.key === kk) boardSort.asc = !boardSort.asc;
-      else boardSort = { key: kk, asc: kk === "name" || kk === "consultant" ||
-                                       kk === "days_left" || kk === "days_since_contact" };
+      boardSort = nextSort(boardSort, th.dataset.k);
       redrawMain(boardCache);
     };
   });
 }
 let boardCache = null;
+
+/* 同じ列を押したら向きを反転、別の列なら既定の向き（名前・残り日数は小さい順、他は大きい順） */
+function nextSort(s, kk) {
+  if (s.key === kk) return { key: kk, asc: !s.asc };
+  return { key: kk, asc: kk === "name" || kk === "consultant" ||
+                         kk === "days_left" || kk === "days_since_contact" };
+}
+
+/* ①今日動く先の3つの表の並び。表ごとに持つ（1つ並べ替えても他の表は動かさない）。
+   🔴 見出しは button で「押すと並び替わります」と読み上げるのに、ここだけ押しても
+      何も起きなかった（2026-09-23 実機: 3表とも並びが変わらない, U6）。 */
+let todaySort = {
+  "today-tbl": { key: "n_flags", asc: false },
+  "new-tbl": { key: "start", asc: false },
+  "soon-tbl": { key: "days_left", asc: true },
+};
+function wireToday() {
+  Object.keys(todaySort).forEach((id) => {
+    document.querySelectorAll("#" + id + " th.sortable button.sort").forEach((th) => {
+      th.onclick = () => {
+        todaySort[id] = nextSort(todaySort[id], th.dataset.k);
+        redrawMain(lastPayload);
+      };
+    });
+  });
+}
 
 /* ---------------------------------------------------------------- 5 調査と定義 */
 /* 🔴 調査の成果は一度読めば済む。毎朝の動線から外して、ここに畳む。消さない。 */
@@ -3395,7 +3731,7 @@ function drawSide() {
 
 /* ---------------------------------------------------------------- 移動
    view を省いたら、そのメニューの先頭（＝既定）を開く */
-function go(menu, view, refresh) {
+function go(menu, view, refresh, how) {
   const m = menuOf(menu) || MENUS[0];
   const v = (view && viewOf(m.key, view)) || m.views[0];
   /* 🔴 ①「案件の立ち位置」は全件を見る場所。②から担当で絞った状態を
@@ -3403,9 +3739,17 @@ function go(menu, view, refresh) {
      ①へ入るときは担当の絞り込みだけ外す（名札・期間・検索は残す）。 */
   if (m.key === "deal" && v.key === "board") boardFilter.consultant = "";
   cur = { menu: m.key, view: v.key };
-  /* URL に残す。共有と戻るボタンのため */
+  /* URL に残す。共有と戻るボタンのため。
+     🔴 画面の中の移動は履歴に**積む**（pushState）。replaceState だと何回移動しても
+        履歴が増えず、戻るで画面そのものから出てしまっていた
+        （2026-09-23 実機: 2回移動しても history.length が増えない, U5）。
+        開いた直後の位置合わせと、戻る・進むで来たときだけは積まない（how = "replace"）。
+        積むと「戻る」を押すたびに同じ場所が増えて、いつまでも戻れなくなる。 */
   const hash = "#" + m.key + "/" + v.key;
-  if (location.hash !== hash) history.replaceState(null, "", hash);
+  if (location.hash !== hash) {
+    if (how === "replace") history.replaceState(null, "", hash);
+    else history.pushState(null, "", hash);
+  }
   drawMenu();
   drawSide();
   window.scrollTo(0, 0);
@@ -3425,10 +3769,52 @@ function fromHash() {
 function showError(e) {
   const box = document.getElementById("cs-error");
   box.style.display = "";
-  box.innerHTML = '<div class="err">データを取得できませんでした。\n' + esc(e.message) + "</div>";
+  box.innerHTML = e && e.loginExpired ? LOGIN_EXPIRED_HTML
+    : '<div class="err">データを取得できませんでした。\n' + esc(e.message) + "</div>";
 }
 
+/* ログインが切れたときに出す文。
+   🔴 セッションはサーバのメモリにしか無いので、**デプロイのたびに全員のログインが切れる**。
+      切れた状態で API を叩くと 303 で /login の HTML が返り、それを JSON として読んで
+      「Unexpected token '<' … is not valid JSON」がそのまま出ていた（U10）。
+      何をすればよいかを書き、行き先のリンクを置く。 */
+const LOGIN_EXPIRED_HTML = '<div class="err"><b>ログインが切れています。</b>' +
+  '<a href="/login">ログインし直してください</a>。' +
+  "サーバを入れ替えるたびに切れます（データが壊れたわけではありません）。" +
+  "ログインした後、このページを開き直すと同じ場所が出ます。</div>";
+
+/* 応答を JSON として読む。ログイン切れはここで見分ける。
+   - 未ログインの API は 303 で /login に飛ばされ、fetch はそれを追って 200 の HTML を受け取る
+     （res.redirected が立ち、res.url が /login になる）
+   - JSON でないものを res.json() に渡すと、原因の分からない構文エラーになる */
+async function readJson(res) {
+  let path = "";
+  try { path = new URL(res.url, location.href).pathname; } catch (_) { path = ""; }
+  if (res.status === 401 || (res.redirected && /\/login$/.test(path))) {
+    const e = new Error("ログインが切れています");
+    e.loginExpired = true;
+    throw e;
+  }
+  const ct = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
+  if (ct && ct.indexOf("json") < 0) {
+    throw new Error("サーバが JSON 以外を返しました（HTTP " + res.status + " / " + ct + "）");
+  }
+  return res.json();
+}
+
+/* 右側打ち切りを外すかどうか。
+   🔴 チェックボックスの状態は**ここに持つ**。前は描き直した後の DOM から読んでいたので、
+      描き直すとチェックが外れた表示になり、もう一度押しても
+      exclude_right_censored=1 で取り直して「含める」に戻せなかった（2026-09-23 実機, U1）。 */
+let renewalExcludeCensored = false;
+
+/* 取りに行った順番。🔴 画面を素早く切り替えると、前の画面の遅い応答が後から届いて
+   いまの画面を上書きしていた（2026-09-23 実機: URL は byowner なのに中身が担当者の一覧, U3）。
+   応答を描く前に「自分が最後の要求か」を番号で確かめ、古いものは捨てる。 */
+let loadSeq = 0;
+
 async function load(refresh) {
+  const my = ++loadSeq;
   const v = viewOf(cur.menu, cur.view);
   const main = document.getElementById("cs-main");
   document.getElementById("cs-error").style.display = "none";
@@ -3443,14 +3829,17 @@ async function load(refresh) {
 
   const q = new URLSearchParams();
   if (refresh) q.set("refresh", "1");
-  const censor = document.getElementById("cs-censor");
-  if (cur.view === "renewal" && censor && censor.checked) q.set("exclude_right_censored", "1");
+  if (cur.view === "renewal" && renewalExcludeCensored) q.set("exclude_right_censored", "1");
   if (isCustView(cur.view) && customerHoujin) q.set("houjin", customerHoujin);
 
+  /* 取り直しの間は本文が「読み込み中」に置き換わるので、触っていた部品を覚えておいて戻す（U9） */
+  const fe = document.activeElement;
+  const fk = focusKey(fe);
   main.innerHTML = '<div class="loading">読み込み中…</div>';
   try {
     const res = await fetch(v.path + "?" + q.toString(), { credentials: "same-origin" });
-    const body = await res.json();
+    const body = await readJson(res);
+    if (my !== loadSeq) return;   /* 後から別の画面を頼んでいる。古い応答は描かない */
     /* サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す */
     if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
     if (cur.view === "team") teamCache = body;
@@ -3459,8 +3848,14 @@ async function load(refresh) {
     setFresh(body.meta || {});
     main.innerHTML = ctlbar(v, body) + v.render(body);
     wire(v);
+    /* 🔴 待つ間に人が別の場所へフォーカスを動かしていたら戻さない。遅い応答が来た瞬間に
+       前の部品へ引き戻すと、打っている途中の入力を奪う。描き直しで消えた部品は
+       フォーカスを失って body になるので、「body か、覚えた部品のまま」のときだけ戻す */
+    const now = document.activeElement;
+    if (!now || now === document.body || now === fe) refocus(fk);
     loaded[cur.menu + "/" + cur.view] = true;
   } catch (e) {
+    if (my !== loadSeq) return;   /* 古い要求の失敗で、いまの画面を消さない */
     main.innerHTML = "";
     showError(e);
   }
@@ -3492,7 +3887,8 @@ function popline(D) {
 function ctlbar(v, D) {
   let h = popline(D) + '<div class="ctlbar">';
   if (v.key === "renewal") {
-    h += '<label class="act"><input type="checkbox" id="cs-censor">' +
+    h += '<label class="act"><input type="checkbox" id="cs-censor"' +
+      (renewalExcludeCensored ? " checked" : "") + ">" +
       "右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>";
   }
   if (isCustView(v.key)) h += '<select id="cs-houjin" class="act"></select>';
@@ -3503,6 +3899,7 @@ function ctlbar(v, D) {
 
 function wire(v) {
   if (v.key === "team") wireTeam();
+  if (v.key === "today") wireToday();
   if (v.key === "board" || v.key === "byowner") wireBoard();
   if (v.key === "series") wireSeries();
   if (v.key === "houjin") wireHoujin();
@@ -3512,11 +3909,16 @@ function wire(v) {
   if (sel && customerIndex) {
     /* 🔴 注力だけにしているときは、選択肢もそれに合わせる。
        図だけ絞って選択肢が全件のままだと、絞ったつもりで全件から選んでしまう。
-       いま開いている法人は、注力でなくても選択肢に残す（選んだものが消えると戻れない）。 */
-    const list = focusOnly
+       いま開いている法人は、注力でなくても選択肢に残す（選んだものが消えると戻れない）。
+       🔴 絞るのは「法人番号で見る」だけ。注力の切り替えはそちらの画面にしか無いので、
+          「継続を追いかける」まで絞ると、そちらでは解除できなくなる
+          （2026-09-23 実機: 401 → 117 のまま引き継がれ、トグルは無い, U4）。 */
+    const list = focusOnly && v.key === "houjin"
       ? customerIndex.filter((r) => r.focus || r.houjin === customerHoujin)
       : customerIndex;
-    sel.innerHTML = '<option value="">法人を選ぶ…</option>' + list.slice(0, 400).map((r) =>
+    /* 🔴 件数で切らない。400件で切っていて、全517法人のうち117法人が選べなかった（U8）。
+       選択欄は長くても文字を打てば飛べるので、全件を入れる */
+    sel.innerHTML = '<option value="">法人を選ぶ…</option>' + list.map((r) =>
       '<option value="' + esc(r.houjin) + '">' + esc(r.name || r.houjin) +
       "（取引" + num(r.deals) + " / 拠点" + num(r.sites) + "）" +
       (r.focus ? "［注力］" : "") + "</option>").join("");
@@ -3524,9 +3926,10 @@ function wire(v) {
     if (customerHoujin) sel.value = customerHoujin;
   }
   const cz = document.getElementById("cs-censor");
-  if (cz) cz.onchange = () => load(false);
+  if (cz) cz.onchange = () => { renewalExcludeCensored = cz.checked; load(false); };
   const hj = document.getElementById("cs-houjin");
-  if (hj) hj.onchange = () => { customerHoujin = hj.value; load(false); };
+  /* 人が選び直したら「既定で開いています」の注記は外す。前は別の法人を選んだ後も残っていた（U12） */
+  if (hj) hj.onchange = () => { customerHoujin = hj.value; customerReason = ""; load(false); };
 }
 
 /* 「継続を追いかける」の拠点選択 */
@@ -3557,7 +3960,7 @@ function wireHoujin() {
   if (!box) return;
   if (hqCache) { box.innerHTML = renderHq(hqCache); return; }
   fetch("/api/consulting/headquarters", { credentials: "same-origin" })
-    .then((r) => r.json())
+    .then(readJson)   /* ログイン切れを見分ける（U10）。r.json() だと構文エラーの文がそのまま出る */
     .then((body) => {
       if (body.error) throw new Error(body.message || "取得できません");
       hqCache = body;
@@ -3566,19 +3969,26 @@ function wireHoujin() {
     })
     .catch((e) => {
       const b2 = document.getElementById("hq-box");
-      if (b2) b2.innerHTML = '<div class="err">' + esc(e.message) + "</div>";
+      if (b2) b2.innerHTML = e.loginExpired ? LOGIN_EXPIRED_HTML
+        : '<div class="err">' + esc(e.message) + "</div>";
     });
 }
 let hqCache = null;
 
-/* 戻る・進むでも同じところへ */
-window.addEventListener("hashchange", () => {
+/* 戻る・進むでも同じところへ。
+   🔴 pushState で積んだ履歴を戻るときは popstate が来る（hashchange はブラウザによって
+      来ないことがある）。手で URL のハッシュを書き換えたときは hashchange が来る。
+      両方で描き直す。どちらも位置が変わっていなければ何もしないので、2回来ても1回しか描かない。
+   🔴 ここから go() するときは履歴に積まない（積むと「戻る」が効かなくなる）。 */
+const followUrl = () => {
   const h = fromHash();
-  if (h.menu !== cur.menu || h.view !== cur.view) go(h.menu, h.view);
-});
+  if (h.menu !== cur.menu || h.view !== cur.view) go(h.menu, h.view, false, "replace");
+};
+window.addEventListener("popstate", followUrl);
+window.addEventListener("hashchange", followUrl);
 
 /* 開いた時点で URL にも位置を残す。そのまま貼れば同じ場所が開く */
-(() => { const h = fromHash(); go(h.menu, h.view); })();
+(() => { const h = fromHash(); go(h.menu, h.view, false, "replace"); })();
 </script>
 </body>
 </html>
