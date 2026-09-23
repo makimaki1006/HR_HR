@@ -2342,7 +2342,8 @@ fn 立ち上がりの帯の解約率は決着済みで割る() {
 /// N4: 本部アプローチの拠点ごとの解約率と採用単価の作り方。
 ///
 /// 解約率 ＝（解約＋充足）÷ 決着済み。
-/// 採用単価 ＝ 金額と採用数が**両方ある取引だけ**の合計どうし。
+/// 採用単価 ＝ **決着済み**で、金額と採用数が**両方ある取引だけ**の合計どうし。
+/// V24: 拠点の表示名は `kyoten_name`（照合用の `kyoten_key` ではない）。
 #[test]
 fn 本部の拠点ごとの解約率と採用単価は定義どおり() {
     let sh = sheets();
@@ -2350,6 +2351,7 @@ fn 本部の拠点ごとの解約率と採用単価は定義どおり() {
     let deals = super::deals_of(&sh.deal);
     let mut checked_rate = 0;
     let mut checked_cpa = 0;
+    let mut checked_active = 0;
     for h in v["rows"].as_array().unwrap() {
         let houjin = h["houjin"].as_str().unwrap();
         for st in h["rows"].as_array().unwrap() {
@@ -2383,17 +2385,39 @@ fn 本部の拠点ごとの解約率と採用単価は定義どおり() {
             } else {
                 assert!(st["cancel_rate"].is_null());
             }
-            let pairs: Vec<(f64, f64)> =
-                ds.iter().filter_map(|d| d.amount.zip(d.syoudaku)).collect();
+            // 🔴 稼働中は入れない（未確定の点で比べない）。以前は稼働中も入れていて、
+            //    fixture で 167拠点の単価に稼働中が混ざっていた（外すと 61拠点が20%超動く）
+            let pairs: Vec<(f64, f64)> = ds
+                .iter()
+                .filter(|d| !d.is_active)
+                .filter_map(|d| d.amount.zip(d.syoudaku))
+                .collect();
             let sy: f64 = pairs.iter().map(|p| p.1).sum();
             if sy > 0.0 {
                 let want = pairs.iter().map(|p| p.0).sum::<f64>() / sy;
                 let got = st["cpa"].as_f64().unwrap();
                 assert!((got - want).abs() < 1e-6, "{site} の採用単価");
                 checked_cpa += 1;
+            } else {
+                assert!(st["cpa"].is_null(), "{site}: 採用0で単価が出ている");
             }
-            // 表示名が返っている（照合用のキーのまま出さない）
-            assert!(st["site_name"].is_string());
+            assert_eq!(st["cpa_n"].as_u64().unwrap() as usize, pairs.len());
+            let n_active = ds
+                .iter()
+                .filter(|d| d.is_active && d.amount.is_some() && d.syoudaku.is_some())
+                .count();
+            assert_eq!(st["cpa_n_active"].as_u64().unwrap() as usize, n_active);
+            if n_active > 0 {
+                checked_active += 1;
+            }
+            // 表示名は kyoten_name の値（照合用のキーのまま出さない）。
+            // fixture の kyoten_name は伏字の連番で、キーとは必ず違う
+            let want_name = ds
+                .iter()
+                .map(|d| d.kyoten_name.trim())
+                .find(|s| !s.is_empty());
+            assert_eq!(st["site_name"].as_str(), want_name, "{site} の表示名");
+            assert_ne!(st["site_name"].as_str(), Some(site), "キーのまま出している");
         }
         // 会社名が返っている（fixture は伏字だが空ではない）
         assert!(h["name"].is_string(), "会社名が無い: {}", h["houjin"]);
@@ -2402,6 +2426,8 @@ fn 本部の拠点ごとの解約率と採用単価は定義どおり() {
         checked_rate > 100 && checked_cpa > 100,
         "{checked_rate} / {checked_cpa}"
     );
+    // 稼働中を外す是正が効く拠点が実際にある（無いとこのテストは何も守らない）
+    assert!(checked_active > 30, "{checked_active}");
 }
 
 /// N2: 「採用単価が同じ進捗帯の1.5倍以上」の比べる相手は、稼働中の本体契約だけで作る。
@@ -2462,6 +2488,52 @@ fn 採用単価の進捗帯は稼働中だけで作る() {
             assert!(r["cpa_band"].is_string());
         }
     }
+}
+
+/// N2: 顧客詳細の「採用単価を3つの出し方で」も、帯と帯の中央値は**稼働中の契約にだけ**付ける。
+///
+/// 決着済みでも途中で解約して進捗が 1.01 以下のものは帯に入ってしまうので、
+/// そういう取引がある法人を選んで確かめる（無いと是正を戻しても落ちない）。
+#[test]
+fn 顧客詳細の進捗帯は稼働中にだけ付く() {
+    let sh = sheets();
+    let day = fixture_day();
+    let deals = super::deals_of(&sh.deal);
+    let in_band = |d: &super::Deal| {
+        let (Some(st), Some(p)) = (
+            super::date10(&d.contract_start_date),
+            d.contract_period.filter(|p| *p > 0.0),
+        ) else {
+            return false;
+        };
+        (day - st).num_days() as f64 / 30.4 / p <= 1.01
+    };
+    let targets: Vec<&str> = deals
+        .iter()
+        .filter(|d| !d.is_active && super::cpa(d).is_some() && in_band(d))
+        .map(|d| d.houjin_resolved.as_str())
+        .filter(|h| !h.is_empty())
+        .take(5)
+        .collect();
+    assert!(
+        !targets.is_empty(),
+        "途中で決着した採用単価ありの取引が無い"
+    );
+    let mut settled = 0;
+    for h in targets {
+        let v = build_customer(&sh, Some(h), day);
+        for x in v["cpa3"].as_array().unwrap() {
+            if x["active"] == false {
+                assert!(x["band"].is_null(), "決着済みに帯が付いている: {x}");
+                assert!(
+                    x["band_median"].is_null(),
+                    "決着済みに中央値が付いている: {x}"
+                );
+                settled += 1;
+            }
+        }
+    }
+    assert!(settled > 0, "{settled}");
 }
 
 /// N6: 開始日が空の案件を「開始がまだ先」に数えない。
@@ -2641,6 +2713,37 @@ fn 偶数個の中央値は中2つの平均() {
     assert_eq!(median_of(vec![]), None);
 }
 
+/// N15: 担当交代の「記録の遅れ」の中央値も、偶数個なら中2つの平均。
+/// 関数だけでなく、画面に返す `median_gap_days` が実際にそれを使っていることを見る
+/// （以前は上側の値 `g[len/2]` を採っていた。1,2,3,10 なら 3 になる）。
+#[test]
+fn 担当交代の記録の遅れの中央値は中2つの平均() {
+    let mut sh = sheets();
+    let h = [
+        "deal_id",
+        "date",
+        "from",
+        "to",
+        "to_retired",
+        "reflected",
+        "record_gap_days",
+    ];
+    sh.handover = tiny(
+        &h,
+        &[
+            &["X1", "2026-09-01", "佐藤", "鈴木", "FALSE", "", "10"],
+            &["X2", "2026-09-02", "佐藤", "鈴木", "FALSE", "", "1"],
+            &["X3", "2026-09-03", "佐藤", "鈴木", "FALSE", "", "3"],
+            &["X4", "2026-09-04", "佐藤", "鈴木", "FALSE", "", "2"],
+            // 空は数えない（0 にしない）
+            &["X5", "2026-09-05", "佐藤", "鈴木", "FALSE", "", ""],
+        ],
+    );
+    let v = build_handover(&sh, fixture_day());
+    assert_eq!(v["n_gap"], 4);
+    assert_eq!(v["median_gap_days"].as_f64(), Some(2.5));
+}
+
 /// N16: 担当の「割れ」は、同じ日に**中身の違う**行があるときだけ数える。
 #[test]
 fn 担当の割れは中身が違うときだけ数える() {
@@ -2660,9 +2763,15 @@ fn 担当の割れは中身が違うときだけ数える() {
             &["2026-08-01", "佐藤", "1", "FALSE", "", "", "C"],
             &["2026-08-01", "鈴木", "2", "FALSE", "", "", "C"],
             &["2026-09-01", "鈴木", "2", "FALSE", "", "", "C"],
+            // D / E: 同じ日に担当が空の行があっても割れではない（`consultant_of` も空は読み飛ばす）。
+            //    空が先に来ても後に来ても同じ
+            &["2026-09-01", "佐藤", "1", "FALSE", "", "", "D"],
+            &["2026-09-01", "", "", "FALSE", "", "", "D"],
+            &["2026-09-01", "", "", "FALSE", "", "", "E"],
+            &["2026-09-01", "鈴木", "2", "FALSE", "", "", "E"],
         ],
     );
-    let active: std::collections::HashSet<&str> = ["A", "B", "C"].into_iter().collect();
+    let active: std::collections::HashSet<&str> = ["A", "B", "C", "D", "E"].into_iter().collect();
     assert_eq!(super::consultant_ties(&sh, &active), 1);
 }
 
@@ -2706,30 +2815,118 @@ fn 何ヶ月目は始月を1と数える() {
     assert!(checked > 400, "{checked}");
 }
 
-/// N19: 接触の記録が1つも無い案件に名札を立てない（成果とリスクの「未測定」と揃える）。
-/// 拠点キーが空の取引で採用単価の悪化を判定しない。
+/// N19: 「接触の記録が無い」の名札は、開始済みで接触ゼロの案件に立てる（いまの仕様のまま）。
+///
+/// 一度外したが、④成果とリスク（赤にしない）と電話・担当者一覧（いちばん拾うべきもの）の
+/// どちらに揃えるかが決まっていないので戻した。藤巻さんの判断待ち。
+/// 方向を変えるときは、このテストの期待を判断に合わせて書き換える。
 #[test]
-fn 接触の記録なしと拠点不明の扱いを揃える() {
+fn 接触の記録が無い名札は開始済みで接触ゼロのときだけ() {
     let sh = sheets();
     let b = build_deal_board(&sh, fixture_day());
+    let mut tagged = 0;
     for r in b["rows"].as_array().unwrap() {
+        let has = r["flags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "接触の記録が無い");
+        let want = r["not_started"] == false && r["n_contact"] == 0;
+        assert_eq!(has, want, "{r}");
+        if has {
+            tagged += 1;
+        }
+    }
+    // fixture で開始済み・接触ゼロの稼働中は 61件（2026-09-18 時点）
+    assert_eq!(tagged, 61);
+}
+
+/// N19: 拠点キーが空の取引は採用単価の悪化の判定に使わない（法人で1本にまとめない）。
+/// V24: 悪化の行の `site_name` は kyoten_name（照合用のキーではない）。
+///
+/// fixture には拠点キーが空の取引が1件も無いので、そのままでは是正を戻しても落ちない。
+/// 悪化と出る法人を1つ選び、その法人の取引の拠点キーを全部消して確かめる。
+/// 旧仕様（「(拠点不明) 法人番号」で1本にまとめる）なら、その法人が悪化の行に出る。
+#[test]
+fn 拠点キーが空の取引は採用単価の悪化に使わない() {
+    let base = sheets();
+    let day = fixture_day();
+    let deals = super::deals_of(&base.deal);
+
+    // 素のままでも、悪化の行の表示名は kyoten_name
+    let f0 = build_focus(&base, day);
+    assert_eq!(
+        f0["cpa"]["skipped_no_site"], 0,
+        "fixture の拠点キーは全部入っている"
+    );
+    let mut named = 0;
+    for r in f0["cpa"]["rows"].as_array().unwrap() {
+        let site = r["site"].as_str().unwrap();
+        // fixture の kyoten_name は行ごとの伏字の連番なので、同じ拠点でも行で違う。
+        // その拠点の取引のどれかの表示名であればよい（キーとは必ず違う）
+        let got = r["site_name"].as_str().unwrap_or("");
         assert!(
-            !r["flags"]
-                .as_array()
-                .unwrap()
+            deals
                 .iter()
-                .any(|f| f == "接触の記録が無い"),
-            "接触の記録が無い案件に名札が立っている: {r}"
+                .any(|d| d.kyoten_key == site && d.kyoten_name.trim() == got),
+            "表示名になっていない: {r}"
         );
+        assert_ne!(got, site, "キーのまま出している: {r}");
+        named += 1;
     }
-    let f = build_focus(&sh, fixture_day());
+    assert!(named > 0);
+    // 表示名が空なら null（照合用のキーで埋めない）。fixture に空が無いので1件作って見る
+    let mut d = super::deals_of(&base.deal).remove(0);
+    d.kyoten_name = " ".into();
+    assert!(!d.kyoten_key.is_empty());
+    assert_eq!(d.site_name(), None);
+
+    // 法人でまとめたとき、確定した直近2点の上がり方がいちばん大きい法人
+    // （＝旧仕様なら悪化の行の先頭に出る。上位60行で切られて見えなくならないように）
+    let mut by_h: std::collections::BTreeMap<&str, Vec<&super::Deal>> = Default::default();
+    for d in deals.iter().filter(|d| !d.houjin_resolved.is_empty()) {
+        if super::cpa(d).is_some() {
+            by_h.entry(d.houjin_resolved.as_str()).or_default().push(d);
+        }
+    }
+    let (houjin, n_cpa, _) = by_h
+        .iter()
+        .filter_map(|(h, ds)| {
+            let mut fixed: Vec<&&super::Deal> = ds.iter().filter(|d| !d.right_censored).collect();
+            fixed.sort_by(|a, b| a.contract_start_date.cmp(&b.contract_start_date));
+            let n = fixed.len();
+            if n < 2 {
+                return None;
+            }
+            let (a, b) = (super::cpa(fixed[n - 2])?, super::cpa(fixed[n - 1])?);
+            (a > 0.0 && b > a).then_some((*h, ds.len(), b / a))
+        })
+        .max_by(|x, y| x.2.total_cmp(&y.2))
+        .expect("法人でまとめると悪化に見える法人が無い");
+
+    let mut sh = sheets();
+    let (hi, ki) = (
+        base.deal.col("houjin_resolved").unwrap(),
+        base.deal.col("kyoten_key").unwrap(),
+    );
+    sh.deal = with_rows(&base.deal, |r| {
+        if r[hi].as_ref() == houjin {
+            r[ki] = Arc::from("");
+        }
+    });
+    let f = build_focus(&sh, day);
     for r in f["cpa"]["rows"].as_array().unwrap() {
+        let site = r["site"].as_str().unwrap();
         assert!(
-            !r["site"].as_str().unwrap().contains("拠点不明"),
-            "拠点不明を1本にまとめている: {r}"
+            !site.contains("拠点不明") && !site.contains(houjin),
+            "拠点キーが空の取引を法人で1本にまとめている: {r}"
         );
     }
-    assert!(f["cpa"]["skipped_no_site"].as_u64().is_some());
+    // 外した件数は、その法人の採用単価がある取引の数ちょうど（黙って消さない）
+    assert_eq!(
+        f["cpa"]["skipped_no_site"].as_u64().unwrap() as usize,
+        n_cpa
+    );
 }
 
 /// P1: `?refresh=1` で共有の SheetStore を丸ごと消さない（架電クオリティ・営業KPI の道連れ）。
@@ -2769,9 +2966,23 @@ fn 日付でない値で落ちない() {
     assert_eq!(super::date10("２０２６年９月２３日"), None);
     assert_eq!(super::date10("2026年9月23日"), None);
     assert_eq!(super::call_date_jst("２０２６年９月"), None);
+    // 🔴 「2026年9月末」は 4バイト＋「年」3バイトで、7バイト目がちょうど文字の境目になる。
+    //    旧コードの `[..7]` でも panic しないので、それだけでは何も守っていなかった。
+    //    全角数字は1文字3バイトなので、4・7・10 バイト目がどれも文字の途中に落ちる
     let mut d = super::deals_of(&sheets().deal).remove(0);
     d.contract_expiration_date = "2026年9月末".into();
     let _ = d.manryou_month();
+    d.contract_expiration_date = "２０２６年９月末".into();
+    assert_eq!(d.manryou_month(), None);
+    // 何ヶ月目（`[..4]` / `[5..7]` で切っていた）
+    assert_eq!(
+        super::routes::month_index("２０２６年７月", "2026-09"),
+        None
+    );
+    assert_eq!(
+        super::routes::month_index("2026-07-01", "２０２６年９月"),
+        None
+    );
     // 月として読めない値から埋め始めても、無限に積まずに止まる
     let out = super::fill_forward(&[("2026-1x".to_string(), 1.0)], "2027-01");
     assert_eq!(out.len(), 1);
@@ -2780,6 +2991,18 @@ fn 日付でない値で落ちない() {
     // 正しい値はいままでどおり埋まる
     let out = super::fill_forward(&[("2026-11".to_string(), 1.0)], "2027-01");
     assert_eq!(out.len(), 3);
+}
+
+/// P3: MTG の開催日が日本語で入っていても、MTG の品質の月次（開催日の先頭7文字）で落ちない。
+/// 以前は `d[..7]` で切っていて、全角の日付だと7バイト目が文字の途中になり panic していた。
+#[test]
+fn mtgの開催日が日付でなくても落ちない() {
+    let base = sheets();
+    let ci = base.mtg.col("開催日").unwrap();
+    let mut sh = sheets();
+    sh.mtg = with_rows(&base.mtg, |r| r[ci] = Arc::from("２０２６年９月３日"));
+    let v = build_mtg_quality(&sh, fixture_day());
+    assert!(v.is_object());
 }
 
 /// V4: フェーズとリスク判定は意味の順で返す（画面は受け取った順に描く）。
