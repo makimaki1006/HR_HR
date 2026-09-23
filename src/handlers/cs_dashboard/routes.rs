@@ -297,7 +297,7 @@ fn median_sorted(vs: &[f64]) -> Option<f64> {
     let n = vs.len();
     if n == 0 {
         None
-    } else if n % 2 == 0 {
+    } else if n.is_multiple_of(2) {
         Some((vs[n / 2 - 1] + vs[n / 2]) / 2.0)
     } else {
         Some(vs[n / 2])
