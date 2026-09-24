@@ -2075,6 +2075,17 @@ check("ループ4: 狭い枠（319px）の帯のラベルは、省略せずに2�
   ok(!/data-wrap/.test(drawAt('svgBarH({ w: 680, rows: [{ label: "初回", v: 1, note: "n=3" }] })', 319)), "収まるラベルまで折り返している");
 });
 
+check("ループ4: 前回の値が 0 付近で枠を描かなかった行も、houjin の採用単価では月割りの縦の線（墨）になる", () => {
+  // svgBarH は枠の代わりに縦の破線（data-v0tick）を置く。cpa3Bars がそれを月割りの線に描き替えないと、破線が残る
+  const rows = [{ label: "a", v: 9000000, v0: 20000, txt: "900万", color: "var(--ai)" }];
+  ctx.__R3 = rows;
+  const svg = run("cpa3Bars(svgBarH({ w: 680, fmt: F.man, rows: __R3 }), __R3)");
+  ok(!/data-v0tick/.test(svg), "月割りが 0 付近の行に、前回の縦の破線が残っている");
+  const m = svg.match(/<line x1="([\d.]+)"[^>]*data-mark="monthly">/);
+  const r = svg.match(/<rect x="([\d.]+)" y="[\d.]+" width="([\d.]+)" height="[\d.]+" rx="2" style="fill:/);
+  ok(m && r && Math.abs(+m[1] - (+r[1] + +r[2] * 20000 / 9000000)) < 0.6, "月割りの線が本当の位置に無い: " + (m && m[1]));
+});
+
 check("ループ4: 注記の折り返しは、数字・単位・括弧の途中で切らない（「50〜7 / 5%」「6.7 / 倍」「（決着済み / 1件中）」）", () => {
   const W = (s, w) => run("wrapText(" + JSON.stringify(s) + ", " + w + ")");
   const s1 = "進捗帯「後半にさしかかり（50〜75%）」の中央値 60万", s2 = "解約・充足 100%（決着済み 1件中）　2人";
