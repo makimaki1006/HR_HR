@@ -2870,6 +2870,121 @@ check("ループ5統合: 担当者ごとの接触の見出しの2行目も、数
   ok(!/<figcaption>[^<]*<span class="nw">/.test(f.body), "見出しの名前まで包んでいる");
 });
 
+/* ================================================================ 担当の交代 × 交代の前後の接触（2026-09-24 藤巻さんの要望） */
+/* 入力の形は routes.rs build_handover の contact_cmp / rows[].contact のまま。値は見張りのために置いたもの。
+   - 拠点 S1 の交代（2026-07-01）が2行（同じ event）。比べられた・減った
+   - S2 の交代（2026-06-01）は比べられた・増えた
+   - 短い（通話の記録の前）1行・途中 1行・数えていない（null）1行
+   - 引き継いだ側: 担当P（比べられた 6件 → 図に出す）/ 担当Q（1件 → 少）/ 氏名不明が2人 */
+{
+  const cw = (d, c) => ({ days: d, contacts: c, per30: d ? c * 30 / d : null });
+  const cmp = (status, why, b, a, ev, dir) => ({ status, why, before: b, after: a, event: ev,
+    change: b.days && a.days ? a.per30 - b.per30 : null, dir: dir || null });
+  const HC = JSON.parse(JSON.stringify(ctx.__HO));
+  HC.rows = [
+    hoRow({ deal_id: "40000000001", name: "拠点S1の前の契約", date: "2026-07-01", contact: cmp("ok", null, cw(60, 3), cw(60, 1), "site:S1|2026-07-01", "down") }),
+    hoRow({ deal_id: "40000000002", name: "拠点S1の継続の契約", date: "2026-07-01", contact: cmp("ok", null, cw(60, 3), cw(60, 1), "site:S1|2026-07-01", "down") }),
+    hoRow({ deal_id: "40000000003", name: "拠点S2の契約", date: "2026-06-01", contact: cmp("ok", null, cw(50, 1), cw(60, 2), "site:S2|2026-06-01", "up") }),
+    hoRow({ deal_id: "40000000004", name: "拠点S3の契約", date: "2026-04-10", contact: cmp("short", "calls", cw(18, 0), cw(60, 4), "site:S3|2026-04-10", "up") }),
+    hoRow({ deal_id: "40000000005", name: "拠点S4の契約", date: "2026-08-01", contact: cmp("provisional", null, cw(60, 2), cw(45, 1), "site:S4|2026-08-01", "down") }),
+    hoRow({ deal_id: "40000000006", name: "拠点S5の契約", date: "2026-08-02", contact: null }),
+  ];
+  HC.meta.n = HC.rows.length;
+  const person = (o) => Object.assign({ label: "", unresolved: false, unresolved_no: null, n_events: 1, n_ok: 1,
+    n_up: 0, n_down: 1, n_same: 0, n_short: 0, n_provisional: 0, median_change: -1, small: true }, o);
+  HC.contact_cmp = {
+    n_events: 4, n_ok: 2, n_up: 1, n_down: 1, n_same: 0, n_short: 1, n_provisional: 1,
+    short_why: { calls: 1, before: 0, after: 0 }, median_change: -0.3,
+    by_to: [
+      person({ label: "担当P", n_events: 7, n_ok: 6, n_up: 2, n_down: 4, median_change: -0.8, small: false }),
+      person({ label: "担当Q" }),
+      person({ label: "氏名が分からない担当（HubSpotの担当者一覧に無い）", unresolved: true, unresolved_no: 1 }),
+      person({ label: "氏名が分からない担当（HubSpotの担当者一覧に無い）", unresolved: true, unresolved_no: 2, median_change: 0.4, n_up: 1, n_down: 0 }),
+    ],
+    by_from: [person({ label: "担当R", n_ok: 2, n_events: 2, n_up: 1, n_down: 1, median_change: -0.3 })],
+    meta: { window_days: 60, min_window_days: 30, per_days: 30, min_person_n: 5, call_from: "2026-03-23",
+      last_day: "2026-09-13", n_unavailable_rows: 1, n_ambiguous: 0 },
+    /* routes.rs contact_cmp_json の文そのもの */
+    not_causal: "交代が接触を減らした・増やした証拠ではありません。危ない案件だから担当を替えた可能性もあり、向きは決まりません（過去の検証で、同じ取引に偽の交代日を置いた比較対象と並べると、前の接触の量をそろえたところで差が消えました）。接触は検知専用で、多いほど良いという評価でもありません",
+    rule: "交代ごとに、交代日の前60日（前日まで）と、交代日からの60日の接触を30日あたりに直して比べています。",
+    dedupe_rule: "まとめでは、同じ拠点・同じ交代日の行を1件の交代と数えています。",
+    dir_rule: "比べられた交代が 5 件未満の人には印を付け、図には出していません",
+  };
+  ctx.__HOC = HC;
+}
+/* 新しい節（問い〜「反映されたか」の手前）だけを切り出す */
+const hocPart = (h) => h.slice(h.indexOf("交代の前後で、接触は増えたか減ったか"), h.indexOf("HubSpot の担当者欄に反映されたか"));
+
+check("交代の前後: 図より前に「交代の効果の証拠ではない・向きは決まらない」と断る", () => {
+  const p = hocPart(run("renderHandover(__HOC)"));
+  ok(p.length > 0, "交代の前後の節が無い");
+  const at = p.indexOf("証拠ではありません");
+  ok(at >= 0 && at < p.indexOf("<figure"), "図より前に断りが無い");
+  const t = textOf(p.slice(0, p.indexOf("<figure")));
+  for (const w of ["危ない案件だから担当を替えた可能性", "向きは決まりません", "差が消えました", "検知専用"])
+    ok(t.includes(w), "断りに「" + w + "」が無い");
+  ok(p.indexOf('<div class="note warn">') >= 0 && p.indexOf('<div class="note warn">') < p.indexOf("<figure"), "断りが注意の枠に入っていない");
+});
+
+check("交代の前後: 増減を良し悪しの色（赤・緑・山吹）や ▲▼ で示さず、符号と言葉で書く", () => {
+  const p = hocPart(run("renderHandover(__HOC)"));
+  ok(!/var\(--(hi|midori|ki)\)/.test(p), "判定の色（赤・緑・山吹）を使っている");
+  ok(!/&#9650;|&#9660;|▲|▼|is-bad|is-good|note bad|note good/.test(p), "▲▼ や良し悪しの印を使っている");
+  const svgs = [...p.matchAll(/<svg[\s\S]*?<\/svg>/g)].map((m) => m[0]);
+  ok(svgs.length >= 1, "図が無い");
+  const fills = new Set(svgs.join("").match(/<rect [^>]*style="fill:([^"]+)"/g) || []);
+  ok([...fills].every((f) => f.includes("var(--ai)")), "棒の色が1色（藍）でない: " + [...fills].join(" "));
+  ok(/−1\.00 減った/.test(svgs[0]) && /\+0\.40 増えた/.test(svgs[0]), "棒の値に符号と言葉が無い");
+});
+
+check("交代の前後: 同じ交代の行は1本にし、短い・途中・数えていない交代は図に出さない", () => {
+  const p = hocPart(run("renderHandover(__HOC)"));
+  const svg = firstSvg(p);
+  const bars = (svg.match(/<rect [^>]*style="fill:var\(--ai\)"/g) || []).length;
+  ok(bars === 2, "交代ごとの棒が " + bars + " 本（期待 2。S1 の2行は1本）");
+  ok(!/拠点S3|拠点S4|拠点S5/.test(svg), "短い・途中・数えていない交代を図に出している");
+  ok(p.includes("交代ごとの変化（比べられた 2 件）"), "図の見出しに比べられた件数が無い");
+  const t = textOf(p);
+  ok(t.includes("比べるには短い 1 件") && t.includes("通話の記録が始まる前の日がかかる 1 件"), "短い交代の件数と理由を書いていない");
+  ok(t.includes("途中 1 件") && t.includes("2026-09-13 まで"), "途中の件数と、数えた最後の日を書いていない");
+  ok(/前 1\.50（60日）→ 後 0\.50（60日）/.test(svg), "比べた日数（前 N日 / 後 M日）を添えていない");
+});
+
+check("交代の前後: 担当者のまとめは母数を添え、少ない人は印を付けて図に出さない。氏名不明は番号で分ける", () => {
+  const p = hocPart(run("renderHandover(__HOC)"));
+  const i = p.indexOf("引き継いだ側（次の担当）（変化の中央値）");
+  ok(i >= 0, "引き継いだ側のまとめが無い");
+  ok(p.indexOf("引き継がれた側（前の担当）（変化の中央値）") > i, "引き継がれた側のまとめが無い");
+  const part = p.slice(i, p.indexOf("引き継がれた側（前の担当）"));
+  const svg = firstSvg(part);
+  ok(svg.includes("担当P") && !svg.includes("担当Q") && !svg.includes("氏名不明"), "母数が 5 件未満の人を図に出している、または足りる人を出していない");
+  const tb = part.slice(part.indexOf("<tbody>"));
+  const rowOf = (name) => tb.slice(tb.indexOf(name), tb.indexOf("</tr>", tb.indexOf(name)));
+  ok(/>少<\/span>/.test(rowOf("担当Q")), "母数が小さい人に「少」の印が無い");
+  ok(!/>少<\/span>/.test(rowOf("担当P")), "母数が足りる人に「少」の印が付いている");
+  ok(/6 <span class="muted small">\/ 7件<\/span>/.test(rowOf("担当P")), "比べられた件数に母数（交代の件数）を添えていない");
+  ok(rowOf("担当P").includes("−0.80"), "変化の中央値に符号が無い");
+  ok(/氏名不明 1<\/span>/.test(tb) && /氏名不明 2<\/span>/.test(tb), "氏名の分からない担当が2人いるのに番号で分けていない");
+  ok(!part.includes("HubSpotの担当者一覧に無い）"), "長い「氏名が分からない担当（…）」をそのまま出している");
+  ok(!/@/.test(p), "メールアドレスが出ている");
+});
+
+check("交代の前後: 交代の表に「接触の前後」の列を足し、既存の列（記録の遅れ・反映・状態）は残す", () => {
+  const h = run("renderHandover(__HOC)");
+  const tbl = h.slice(h.lastIndexOf("<table"));
+  const head = tbl.slice(0, tbl.indexOf("</thead>"));
+  for (const c of ["交代日", "前の担当", "次の担当", "いまの担当", "接触の前後（30日あたり）", "記録の遅れ", "反映", "状態"])
+    ok(head.includes(">" + c + "<"), "表の列「" + c + "」が無い");
+  const body = tbl.slice(tbl.indexOf("<tbody>"));
+  const rowOf = (name) => body.slice(body.indexOf(name), body.indexOf("</tr>", body.indexOf(name)));
+  ok(/1\.50 → 0\.50 <span class="muted small">前 60日 \/ 後 60日<\/span> 減った −1\.00/.test(rowOf("拠点S1の前の契約")), "比べられた行の前後が出ていない: " + rowOf("拠点S1の前の契約"));
+  ok(/>短い<\/span>/.test(rowOf("拠点S3")) && /前 18日/.test(rowOf("拠点S3")), "短い行に印と日数が無い");
+  ok(/>途中<\/span>/.test(rowOf("拠点S4")), "途中の行に印が無い");
+  ok(rowOf("拠点S5").includes("数えていない") && !/0\.00/.test(rowOf("拠点S5")), "数えていない行を 0 回として出している");
+  /* 前後の接触が無い応答（古いサーバ）でも落ちない */
+  ok(!run("renderHandover(__HO)").includes("交代の前後で、接触は増えたか減ったか"), "contact_cmp が無いのに節を出している");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
