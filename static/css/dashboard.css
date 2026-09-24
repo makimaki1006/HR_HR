@@ -1341,3 +1341,19 @@ select.filter-control {
     background: #334155;
     flex-shrink: 0;
 }
+
+/* 効いていなかった hover 指定の補完（2026-09-24 試作）
+   実測: hover: 指定は全 216 回。うち 91 回（25 種類）が配布 CSS に定義が無く、
+   無言で何も起きていなかった。Playwright で職種の一覧（127 行）の行に
+   カーソルを当てても地色は rgba(0,0,0,0) のまま変わらなかった。
+   行を目で追う手掛かりが無い状態だったので、使用回数の多いものから足す。
+   地色 #1e293b (bg-navy-700) の上に乗る想定。*/
+.hover\:bg-slate-800\/60:hover { background-color: rgba(30, 41, 59, 0.6); }
+.hover\:bg-slate-800\/50:hover { background-color: rgba(30, 41, 59, 0.5); }
+.hover\:bg-slate-800\/30:hover { background-color: rgba(30, 41, 59, 0.3); }
+.hover\:bg-slate-700:hover { background-color: #334155; }
+.hover\:bg-slate-700\/50:hover { background-color: rgba(51, 65, 85, 0.5); }
+.hover\:bg-slate-500:hover { background-color: #64748b; }
+.hover\:bg-navy-600:hover { background-color: #263449; }
+.hover\:text-cyan-300:hover { color: #67e8f9; }
+.hover\:text-blue-200:hover { color: #bfdbfe; }
