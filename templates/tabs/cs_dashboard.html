@@ -5466,9 +5466,20 @@ function stateTag(r) {
     「氏名が分からない担当（HubSpotの担当者一覧に無い）」と長く、その行だけ3〜4行に折れて高くなっていた。
     表では「氏名不明」と短く出し、意味は title と表の上の1文で補う（*_unresolved はサーバの判定） */
 const UNRESOLVED_TITLE = "HubSpot の担当者一覧に無い担当です（元の記録にはメールアドレスしか残っていません）";
-function whoCell(label, unresolved) {
-  if (unresolved) return '<span class="n0" title="' + esc(UNRESOLVED_TITLE) + '">氏名不明</span>';
+/* 🔴 2026-09-24 検証の指摘: 氏名の分からない担当が何人かいるとき、交代の表は番号なし、まとめは側ごとに
+   並びの順で番号を振っていて、表どうしで同じ人か突き合わせられなかった。番号はサーバが交代の記録全体で
+   1回だけ振る（routes.rs unresolved_numbers）。ここでは受け取った番号をそのまま出す。
+   many = 番号を出すか（氏名不明が2人以上いるとき。1人なら番号は要らない） */
+function whoCell(label, unresolved, no, many) {
+  if (unresolved)
+    return '<span class="n0" title="' + esc(UNRESOLVED_TITLE) + '">氏名不明' + (many && no != null ? " " + num(no) : "") + "</span>";
   return esc(label) || DASH;
+}
+/** 氏名不明の番号を出すか。サーバの人数（meta.n_unresolved_people）で決め、無い応答では表の中の人数で決める */
+function hoManyUnresolved(D, rows) {
+  const n = D && D.meta && D.meta.n_unresolved_people;
+  if (n != null) return n > 1;
+  return (rows || []).filter((r) => r.unresolved).length > 1;
 }
 /* ---------------------------------------------------------------- 交代の前後の接触
    2026-09-24 藤巻さんの要望「担当が変わったときに接触率が落ちたのか減ったのか、担当ごとに」。
@@ -5485,9 +5496,10 @@ function hoDelta(v) {
 const hoPer = (w) => (w && w.per30 != null ? num(w.per30, 2) : "—");
 /** 比べられなかった理由（サーバの why） */
 const HO_WHY = {
-  calls: "前の60日に、通話の記録が始まる前の日がかかる",
+  calls: "前の60日の多くが、通話の記録が始まる前の日",
   before: "前の60日に、同じ拠点で動いていた案件が短い（初めての契約の直後など）",
   after: "後の60日に、同じ拠点で動いていた案件が短い（満了・解約など）",
+  overlap: "同じ拠点で本体案件が重なる日が多い（付け先を決められず、その日を外した）",
 };
 /** 交代の表の「接触の前後」のます */
 function hoCmpCell(c) {
@@ -5499,16 +5511,15 @@ function hoCmpCell(c) {
     return vals + ' <span class="tag d" title="後の60日がまだ終わっていません（データを取った日まで）">途中</span>';
   return vals + ' <span class="tag" title="' + esc(HO_WHY[c.why] || "") + '">短い</span>';
 }
-/** 担当者のまとめの名前。氏名の分からない担当が何人かいるときは番号で分ける */
+/** 担当者のまとめの名前。氏名の分からない担当が何人かいるときは番号で分ける（交代の表と同じ番号） */
 function hoWho(r, many) {
-  if (r.unresolved)
-    return '<span class="n0" title="' + esc(UNRESOLVED_TITLE) + '">氏名不明' + (many ? " " + num(r.unresolved_no) : "") + "</span>";
-  return esc(r.label) || DASH;
+  return whoCell(r.label, r.unresolved, r.unresolved_no, many);
 }
-/** 担当者のまとめ（引き継いだ側 / 引き継がれた側）。表＋横棒（母数が足りる人だけ） */
-function hoPeople(title, rows, minN) {
-  const many = rows.filter((r) => r.unresolved).length > 1;
-  const who = (r) => (r.unresolved ? "氏名不明" + (many ? " " + r.unresolved_no : "") : r.label || "");
+/** 担当者のまとめ（引き継いだ側 / 引き継がれた側）。表＋横棒（母数が足りる人だけ）。
+    many = 氏名不明を番号で分けるか（hoManyUnresolved。両側と交代の表で同じ判断にする） */
+function hoPeople(title, rows, minN, many) {
+  if (many == null) many = rows.filter((r) => r.unresolved).length > 1;
+  const who = (r) => (r.unresolved ? "氏名不明" + (many && r.unresolved_no != null ? " " + r.unresolved_no : "") : r.label || "");
   const big = rows.filter((r) => !r.small && r.median_change != null);
   let h = sec("図", title + "（変化の中央値）");
   h += fig(title + "ごとの変化の中央値", "比べられた交代が " + num(minN) + " 件以上の人だけ",
@@ -5579,15 +5590,19 @@ function renderHandoverContact(D) {
     '<i class="full">色で良し悪しを付けていません。向きは符号（＋ / −）と言葉で書いています。' +
     "棒の右の「前 → 後」は " + num(M.per_days) + " 日あたりの接触と、比べた日数です。</i>");
   h += '<p class="muted small">外した交代: 比べるには短い ' + num(X.n_short) + " 件（" +
-    [["calls", sw.calls], ["before", sw.before], ["after", sw.after]]
+    [["calls", sw.calls], ["before", sw.before], ["after", sw.after], ["overlap", sw.overlap]]
       .map((x) => esc(HO_WHY[x[0]]) + " " + num(x[1] || 0) + " 件").join("・") +
-    "。どちらかが " + num(M.min_window_days) + " 日未満）、途中 " + num(X.n_provisional) +
+    "。どちらかが " + num(M.min_window_days) + " 日未満。理由は、窓から外した日のいちばん多い理由）、途中 " + num(X.n_provisional) +
     " 件（後の " + num(M.window_days) + " 日がまだ終わっていない。数えたのは " + esc(M.last_day || "") + " まで）。" +
-    (M.call_from ? "通話の記録は " + esc(M.call_from) + " からです。" : "") + "</p>";
+    (M.call_from ? "通話の記録は " + esc(M.call_from) + " からです。" : "") +
+    /* 🔴 2026-09-24 検証の指摘: 重なりで外した日をどこにも書いていなかった。比べられた交代でも外した日がある */
+    (X.overlap_days ? "同じ拠点で本体案件が重なり窓から外した日が、交代 " + num(X.overlap_events) + " 件で合わせて " + num(X.overlap_days) + " 日あります。" : "") +
+    "</p>";
 
   /* ---- 担当者ごと ---- */
-  h += hoPeople("引き継いだ側（次の担当）", X.by_to || [], minN);
-  h += hoPeople("引き継がれた側（前の担当）", X.by_from || [], minN);
+  const many = hoManyUnresolved(D, (X.by_to || []).concat(X.by_from || []));
+  h += hoPeople("引き継いだ側（次の担当）", X.by_to || [], minN, many);
+  h += hoPeople("引き継がれた側（前の担当）", X.by_from || [], minN, many);
 
   h += note("def", "前後の比べ方",
     esc(X.rule || "") + "<br>" + esc(X.dedupe_rule || "") + "<br>" + esc(X.dir_rule || "") +
@@ -5634,8 +5649,11 @@ function renderHandover(D) {
     "<b>色が見分けられなくても読めます。</b></i>");
 
   h += sec("表", "交代の記録（" + num(D.rows.length) + " 件）");
+  /* 氏名不明が2人以上なら番号で分ける。番号は「交代の前後の接触」の担当者のまとめと同じ人に同じ番号 */
+  const manyU = !!(D.meta && D.meta.n_unresolved_people > 1);
   if (D.rows.some((r) => r.from_unresolved || r.to_unresolved))
-    h += '<div class="lede">「氏名不明」は ' + esc(UNRESOLVED_TITLE) + "</div>";
+    h += '<div class="lede">「氏名不明」は ' + esc(UNRESOLVED_TITLE) +
+      (manyU ? "。番号は交代の記録に初めて出てきた順で、上の担当者ごとのまとめと同じ人に同じ番号です" : "") + "</div>";
   h += scroll(table(
     [{ t: "交代日" }, { t: "案件", w: "l" }, { t: "前の担当", w: "s" }, { t: "次の担当", w: "s" },
      { t: "いまの担当", w: "s" }, { t: "接触の前後（30日あたり）", n: 1 }, { t: "記録の遅れ", n: 1 }, { t: "反映", w: "s" }, { t: "状態" }],
@@ -5644,8 +5662,8 @@ function renderHandover(D) {
       /* 🔴 取引名が無いときに 11桁の deal_id を出さない（画面に内部IDを出さない） */
       r.name ? esc(r.name)
         : '<span class="n0">' + (r.state_label === "取引が見つからない" ? "取引が見つからない" : "取引名が無い") + "</span>",
-      whoCell(r.from_label, r.from_unresolved),
-      whoCell(r.to_label, r.to_unresolved) + (r.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : ""),
+      whoCell(r.from_label, r.from_unresolved, r.from_unresolved_no, manyU),
+      whoCell(r.to_label, r.to_unresolved, r.to_unresolved_no, manyU) + (r.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : ""),
       esc(r.consultant) || DASH,
       /* 交代の前後の接触。同じ交代の行には同じ値が出る（数えるのは交代ごとに1回） */
       hoCmpCell(r.contact),
