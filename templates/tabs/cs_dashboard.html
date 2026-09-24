@@ -1641,9 +1641,13 @@ function svgBarH(o) {
           g += `<line data-v0tick="1" x1="${X(r.v0).toFixed(1)}" y1="${(y - bh / 2 - 4).toFixed(1)}" x2="${X(r.v0).toFixed(1)}" y2="${(y + bh / 2 + 4).toFixed(1)}" style="stroke:${col}" stroke-width="2" stroke-dasharray="2.4 1.6"><title>前回: ${esc(fmt(r.v0))}</title></line>`;
         }
       }
-      const right = X(r.v) >= x0;
-      g += `<text class="vl" x="${(right ? X(r.v) + 6 : X(r.v) - 6).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${esc(r.txt || fmt(r.v))}</text>`;
-      tipX = Math.max(right ? X(r.v) + 6 + textW(r.txt || fmt(r.v)) * 1.06 : x0,
+      /* 🔴 2026-09-24（400px, 担当の交代の「交代ごとの変化」）: 左へ長く伸びた負の棒の値（「−7.00 減った」）を
+         棒の左に置くと、ラベル欄（左の交代日と案件名）に重なっていた。ラベル欄にかかるときは 0 の線の右に置く */
+      const tw = textW(r.txt || fmt(r.v)) * 1.06;
+      const right = X(r.v) >= x0 || X(r.v) - 6 - tw < pad.l + 2;
+      const tx = X(r.v) >= x0 ? X(r.v) + 6 : right ? x0 + 6 : X(r.v) - 6;
+      g += `<text class="vl" x="${tx.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="${right ? "start" : "end"}">${esc(r.txt || fmt(r.v))}</text>`;
+      tipX = Math.max(right ? tx + tw : x0,
                       r.v0 != null ? X(r.v0) : x0);
     }
     if (r.note && compact) {
