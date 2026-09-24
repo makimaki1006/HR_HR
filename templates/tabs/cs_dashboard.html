@@ -500,6 +500,13 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
 .ctlbar input[type=search]{ min-width:160px; max-width:100%; }
 .ctlbar button.act{ cursor:pointer; color:var(--ai); }
 .ctlbar button.act:hover{ background:var(--ai-soft); }
+/* 切り替えの押している側（担当者ごとの接触の 月ごと / 週ごと）。色だけでなく太字と枠の太さでも示す */
+.ctlbar button.act[aria-pressed="true"]{ background:var(--ai-soft); border:2px solid var(--ai); font-weight:700; }
+/* 小さな図を並べる（担当者ごとの接触。1人1枚）。1枚の最小幅は 12点の折れ線が読める 360px */
+.multi{ display:grid; gap:0 var(--space-gap); align-items:start;
+        grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr)); }
+/* 小さな図の見出し: 1行目は担当者の名前、2行目に持ち案件（名前と数字が1行に続くと、伏字の名前が数字の一部に見えた。ループ5） */
+.multi figure.fig > figcaption .hint{ flex-basis:100%; }
 .ctlbar select:focus-visible, .ctlbar input:focus-visible,
 .ctlbar button.act:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 /* 母集団の注記。全部の項目の頭に、同じ文言で出る。
@@ -859,6 +866,8 @@ const svgHead = (w, h, alt, marks) =>
   (marks && marks.xr > 0 ? ` data-xr="${Math.round(marks.xr)}"` : "") +
   (marks && marks.mean ? ` data-mean="1"` : "") + (marks && marks.boxout ? ` data-boxout="1"` : "") +
   (marks && marks.boxmax ? ` data-boxmax="1"` : "") +
+  /* fit = 枠の幅で描いた図（svgLine の o.fit）。どの幅でも横スクロールにしないので fig() は案内を出さない */
+  (marks && marks.fit ? ` data-fit="1"` : "") +
   ` role="img" aria-label="${esc(alt)}">`;
 
 /* ---------------------------------------------------------------- 図の幅を枠に合わせる
@@ -1092,7 +1101,9 @@ function fig(caption, hint, body, legend) {
      🔴 2026-09-23 検証: 前は @media (max-width:600px) でだけ出していて、601〜1000px 前後の画面でも
      最小幅 865〜920px の図は枠の中でスクロールするのに、文の案内が無かった。
      いまは「枠の幅 < 図の最小幅」のときだけ出す（CSS の .figscroll。--minw と枠の幅 100cqw を比べる） */
-  const minW = Math.max(0, ...[...String(body).matchAll(/--fw:(\d+)px/g)].map((m) => +m[1] * .92));
+  /* 枠の幅で描いた図（data-fit。小さな図を並べる画面）は横スクロールにならないので数えない（ループ5） */
+  const minW = Math.max(0, ...[...String(body).matchAll(/<[^>]*--fw:(\d+)px[^>]*>/g)]
+    .filter((m) => m[0].indexOf(' data-fit="1"') < 0).map((m) => +m[1] * .92));
   const scroll = minW > 330;
   /* 切った左のラベルの全文（labText の data-full）。title はホバーでしか出ないので、
      タップと読み上げで読めるよう図の外に並べる */
@@ -1225,7 +1236,11 @@ function svgLine(o) {
      点と月の字が詰まって読めないので、これまでどおり横スクロール（開いた直後の位置はデータのある側） */
   const nx = (o.x || []).length;
   const minW = pad.l + pad.r + Math.max(180, (o.labelPts ? 64 : 24) * Math.max(0, nx - 1));
-  const w = slot.avail > w0 ? widen(w0, slot) : fitTo(w0, slot, minW);
+  /* o.fit: 小さな図を並べる画面（担当者ごとの接触）。並べて比べるので、どの幅でも枠の幅で描いて横スクロールにしない。
+     🔴 2026-09-24 ループ5（藤巻さん）: 週ごと（12 週）は minW が枠（約 319px）を超えて 360px のまま横スクロールになり、
+     縦軸の目盛りを左に貼り付けた複製（stickyLabels）まで出て「0.0 2.0 4.0 6.0」が2回読めた。
+     横軸の字は iw に合わせて間引くので、狭めても字は重ならない */
+  const w = o.fit && slot.avail > 0 ? Math.round(slot.avail) : slot.avail > w0 ? widen(w0, slot) : fitTo(w0, slot, minW);
   const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
   const fmt = o.yFmt || F.int;
   let vals = [];
@@ -1239,13 +1254,18 @@ function svgLine(o) {
      最大値を覆うところまで目盛りを1段足す */
   coverTicks(tk, hi);
   lo = Math.min(lo, tk[0]); hi = Math.max(hi, tk[tk.length - 1]);
+  /* o.yTickAuto: 目盛りの字は刻みに要る桁だけ（0 2 4 は整数、0.5 刻みは 0.0 0.5 1.0 にそろえる）。
+     点の値（title）は yFmt のまま。🔴 ループ5: 1件あたりの回数の目盛りが「0.0 2.0 4.0」と読みにくかった */
+  const tDec = (t) => { for (let d = 0; d < 3; d++) { const m = t * Math.pow(10, d); if (Math.abs(m - Math.round(m)) < 1e-6) return d; } return 3; };
+  const tkDec = o.yTickAuto ? Math.max(0, ...tk.map(tDec)) : 0;
+  const tfmt = o.yTickAuto ? (v) => v.toFixed(tkDec) : fmt;
   const n = o.x.length;
   const X = i => pad.l + (n === 1 ? iw / 2 : iw * i / (n - 1));
   const Y = v => pad.t + ih - ih * (v - lo) / (hi - lo || 1);
 
   let g = "", yl = "";   // yl = 縦軸の目盛りの字だけ（左に貼り付けるときに使う）
   tk.forEach(t => {
-    const tt = `<text class="ax" x="${pad.l - 7}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(fmt(t))}</text>`;
+    const tt = `<text class="ax" x="${pad.l - 7}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(tfmt(t))}</text>`;
     g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` + tt;
     yl += tt;
   });
@@ -1362,7 +1382,7 @@ function svgLine(o) {
   o.series.forEach((s) => s.pts.forEach((p, i) => { if (p && p.v != null && i > last) last = i; }));
   const xr = last >= 0 ? Math.min(w, X(last) + pad.r) : 0;
   const svg = svgHead(w, h, o.alt || o.yLab || "折れ線",
-    { gap: gapped, shift: shiftedEdge ? "edge" : shifted, fk: slot.k, x0, xr }) + `${g}</svg>`;
+    { gap: gapped, shift: shiftedEdge ? "edge" : shifted, fk: slot.k, x0, xr, fit: !!o.fit }) + `${g}</svg>`;
   /* 枠より広く描いて（横スクロール）、開いた直後の位置をデータのある側へ動かす図は、縦軸の目盛りも
      一緒に流れて見えなくなる。そのときだけ目盛りを左に貼り付ける（stickyLabels。帯を縦に積む図と同じ）。
      x0 は貼り付けた目盛りの欄のぶん手前にする */
@@ -2767,6 +2787,181 @@ function wireTeam() {
   });
 }
 let teamCache = null;
+
+/* ================================================================ 担当者ごとの接触
+
+   2026-09-24 藤巻さん「各担当者の平均接触数を週か月で比較したい」。
+   担当者ごとに**持ち案件1件あたりの接触回数**を期間ごとに並べる（routes の contact_trend.rs）。
+   🔴 接触は検知専用。多いほど良いという評価ではない（担当者の評価ではない）。頭の枠で必ず言う。
+   🔴 1人1本の線を全員重ねると読めないので、**1人1枚の小さな図**を並べる（small multiples）。
+      縦軸の目盛りは全員そろえる（そろえないと、枠ごとに目盛りが違って高さで比べられない）。
+   🔴 持ち案件が少ない期間（small_n。3件未満）は**点を打たない**。表には残して印を付ける。
+      分母0の期間は空（— ）。0 と書かない。
+   🔴 いまの週・月は途中なので未確定（中空＋破線）。
+   🔴 通話の記録が始まる前の期間（calls_missing）は MTG しか数えられないので、図にも表にも出さない。
+      出すと、データの範囲が変わっただけなのに接触が増えたように見える（fixture で月 0.4 回 → 2.3 回以上）。
+   🔴 通話は継続先・オプションの取引に付いていることが多いので、サーバが「その日に動いていた同じ拠点の
+      本体案件」に付け直して数えている（attach_rule）。画面の決まりごとに必ず書く（接触率と数が違うため）。
+   🔴 縦軸の上端は**確定した期間の値だけ**で決める。未確定（途中）の値1つで全員の縦軸が伸びると、
+      ふだんの線が下に押し込まれて読めない（2026-09-24 検証: 途中の 9.00 で 0〜10 の軸になっていた）。
+      上端を超える未確定の値は上端に置き、その図に実際の値を書く。
+   ================================================================ */
+let contactUnit = "month";
+const CONTACT_UNITS = [{ k: "month", t: "月ごと" }, { k: "week", t: "週ごと" }];
+
+/** 期間の短い名前（横軸）。月は「26-04」、週は始まりの日「9/14」 */
+const contactX = (p, unit) => (unit === "month" ? String(p.key).slice(2) : String(p.label).split("〜")[0]);
+
+/** 1人（または全体）の点。出さない期間（分母0・小さい）は null で線を切る。未確定は中空（censored）。
+    縦軸の上端（top）を超える未確定の値は上端に置き（clipped）、note に実際の値を書く */
+function contactPts(cells, idx, periods, top) {
+  return idx.map((i) => {
+    const c = cells[i], p = periods[i];
+    if (!c || c.avg == null || c.small_n) return null;
+    const over = !!p.provisional && top > 0 && c.avg > top;
+    return { v: over ? top : c.avg, censored: !!p.provisional, clipped: over, real: c.avg,
+             note: "持ち案件 " + num(c.deals) + " 件・接触 " + num(c.contacts) + " 回" +
+               (over ? "（1件あたり " + num(c.avg, 2) + " 回。縦軸の上端より大きいので上端に置いています）" : "") };
+  });
+}
+
+/** 表のひとます。1件あたり（2桁）と、分子/分母。分母0は —、小さい分母は印 */
+function contactCell(c) {
+  if (!c || !c.deals) return DASH;
+  return num(c.avg, 2) + ' <span class="muted small">' + num(c.contacts) + "/" + num(c.deals) + "件</span>" +
+    (c.small_n ? ' <span class="tag" title="持ち案件が少ないので図には点を打っていません">少</span>' : "");
+}
+
+function renderContact(D) {
+  const unit = contactUnit === "week" ? "week" : "month";
+  const U = D[unit] || { periods: [], rows: [], team: [], undetermined: [], shared: [] };
+  const periods = U.periods || [];
+  const minDeals = (D.meta && D.meta.min_deals) || 3;
+  /* 通話の記録がある期間だけを使う（図も表も） */
+  const idx = periods.map((p, i) => i).filter((i) => !periods[i].calls_missing);
+  const hidden = periods.length - idx.length;
+  /* 出す期間に1件も持っていない人（出さない期間にだけ持っていた人）は、図にも表にも出さない */
+  const rows = (U.rows || []).filter((r) => idx.some((i) => r.cells[i] && r.cells[i].deals > 0));
+  const X = idx.map((i) => contactX(periods[i], unit));
+  const what = unit === "month" ? "月" : "週";
+
+  let h = sec("問い", "担当者ごとに、持ち案件1件あたりの接触はどう動いているか") +
+    '<div class="lede">1件あたりの接触 ＝ その' + what + "の接触の回数 ÷ その" + what +
+    "に持っていた案件の数。件数そのままではなく1件あたりで見るのは、持ち案件が多い人ほど件数が大きく出るためです。" +
+    "<b>上の「" + what + "ごと / " + (unit === "month" ? "週" : "月") + "ごと」で切り替わります。</b>" +
+    "1人1枚の図で、縦軸の目盛りは全員そろえてあります。</div>";
+
+  /* 見出しは本文と別のことを言う（担当者の一覧と同じ作り） */
+  h += note("info", "何のための画面か",
+    esc(D.meta.not_counted || "").replace("※ ", "") + "<br>" + esc(D.contact_rule || ""));
+
+  /* ---- 図（1人1枚）---- */
+  h += sec("図", "持ち案件1件あたりの接触（" + what + "ごと）");
+  if (!idx.length) {
+    h += '<div class="empty">通話の記録がある' + what + "がありません。</div>";
+  } else {
+    /* 出す期間のどこかに点を打てる人だけ図にする（全部が 0 件か小さい人は名前だけ書く） */
+    const drawable = rows.filter((r) =>
+      idx.some((i) => r.cells[i] && r.cells[i].avg != null && !r.cells[i].small_n));
+    const dropped = rows.filter((r) => drawable.indexOf(r) < 0);
+    /* 縦軸の上端は全員（と全体）の最大でそろえる。点を打たない値（small_n）と、
+       未確定（途中）の値は上端を決めない。確定した値が1つも無いときだけ、未確定の値で決める */
+    const topOf = (withProv) => {
+      let t = 0;
+      const seen = (cells) => idx.forEach((i) => {
+        const c = cells[i];
+        if (c && c.avg != null && !c.small_n && (withProv || !periods[i].provisional) && c.avg > t) t = c.avg;
+      });
+      seen(U.team || []);
+      drawable.forEach((r) => seen(r.cells));
+      return t;
+    };
+    const top = topOf(false) || topOf(true);
+    const gapWhy = '<i class="full" data-gapwhy="1">線が切れているところは、持ち案件が 0 件か ' + num(minDeals) +
+      " 件未満の" + what + "です（点を打っていません。値は下の表）。</i>";
+    const small = (title, hint, cells, legend) => {
+      const pts = contactPts(cells, idx, periods, top);
+      /* 1回目（枠の幅が分からない）は 320px。.92 倍が 330px 以下なので「横にスクロールできます」を出さない。
+         2回目は枠の幅で描く（fit）。目盛りの字の欄は「10」が入る 34px で足りる */
+      const svg = svgLine({ w: 320, h: 180, x: X, yFmt: F.d2, yTickAuto: true, fit: true, pad: { l: 34 },
+        yMax: top, yTicks: 3,
+        alt: title + "の持ち案件1件あたりの接触",
+        series: [{ pts: pts, color: C.ai }] });
+      const gap = pts.some((p) => p == null) ? gapWhy : "";
+      const clip = pts.filter((p) => p && p.clipped).map((p) => num(p.real, 2)).join("・");
+      const clipWhy = clip ? '<i class="full" data-clip="1">いまの' + what + "（未確定）の " + clip +
+        " 回は縦軸の上端より大きいので、上端に置いています（途中の値で全員の縦軸を伸ばさないため）。</i>" : "";
+      return fig(title, hint, svg, (legend || "") + gap + clipWhy);
+    };
+    const lastFixed = (() => { for (let k = idx.length - 1; k >= 0; k--) if (!periods[idx[k]].provisional) return idx[k]; return -1; })();
+    /* 見出しの2行目（CSS の .multi … .hint）。1行目の名前と分けて「持ち案件 N 件」から書く。
+       🔴 2026-09-24 ループ5（藤巻さん「タイトルが意味わからなくなってる」）: 「hd26f422ffda0 / 直近の確定した週（…）:
+       持ち案件 34 件」と1行に続き、伏字の名前が何か分からなかった */
+    const hintOf = (cells) => (lastFixed >= 0 && cells[lastFixed]
+      ? "持ち案件 " + num(cells[lastFixed].deals) + " 件（直近の確定した" + what + " " + esc(periods[lastFixed].label) + "）"
+      : "");
+    h += '<div class="multi">' +
+      small("全体（担当が決まった案件の合計）", hintOf(U.team || []), U.team || [],
+        lg("line", C.ai, "確定した" + what) + lg("ring", C.ai, "未確定（いまの" + what + "。途中なので低く出ます）") +
+        '<i class="full">点にマウスを重ねると、持ち案件と接触の回数が出ます。</i>') +
+      /* 見出しは「担当者: 名前」。本番は実名、fixture は伏字（ハッシュ）なので、語を添えて何の名前か分かるようにする */
+      drawable.map((r) => small("担当者: " + (r.consultant || "（名前なし）") + (r.retired ? "（退職者のまま）" : ""),
+        hintOf(r.cells), r.cells, "")).join("") +
+      "</div>";
+    if (dropped.length) {
+      h += '<p class="muted small"><b>図にしていない担当者が ' + num(dropped.length) + " 名います</b>（" +
+        dropped.map((r) => esc(r.consultant) + " 最大 " + num(Math.max(...idx.map((i) => r.cells[i].deals))) + " 件").join(" / ") +
+        "）。どの" + what + "も持ち案件が " + num(minDeals) + " 件未満で、1件あたりの値がたまたまで大きく振れるためです。下の表には出しています。</p>";
+    }
+  }
+  if (hidden) {
+    h += '<p class="muted small">通話の記録は ' + esc(D.meta.call_from || "（不明）") + " からです。それより前に始まる " +
+      num(hidden) + " つの" + what + "は出していません。" + esc(D.calls_missing_rule || "") + "</p>";
+  }
+
+  /* ---- 表（期間 × 担当者）---- */
+  h += sec("表", what + " × 担当者");
+  const cols = [{ t: "担当者", w: "s" }].concat(idx.map((i) => ({
+    t: periods[i].label + (periods[i].provisional ? "（途中）" : ""), n: 1 })));
+  const trs = rows.map((r) => [
+    (esc(r.consultant) || DASH) + (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "")]
+    .concat(idx.map((i) => contactCell(r.cells[i]))));
+  trs.push(["<b>全体</b>（担当が決まった案件）"].concat(idx.map((i) => contactCell((U.team || [])[i]))));
+  trs.push(['<span class="muted">担当が決められない</span>'].concat(idx.map((i) => {
+    const u = (U.undetermined || [])[i];
+    return u && (u.deals || u.contacts)
+      ? '<span class="muted small">案件 ' + num(u.deals) + " 件・接触 " + num(u.contacts) + " 回</span>" : DASH;
+  })));
+  h += scroll(table(cols, trs, "", "ct-tbl"), 680);
+  h += '<p class="muted small">ひとますは「1件あたりの接触　接触の回数/持ち案件」。<b>—</b> はその' + what +
+    "に持ち案件が無い（0 ではありません）。<b>少</b> は持ち案件が " + num(minDeals) +
+    " 件未満で、図には点を打っていません。（途中）の列は未確定です。</p>";
+
+  /* ---- 決まりごと ---- */
+  const sharedN = idx.reduce((a, i) => a + ((U.shared || [])[i] || 0), 0);
+  const movedN = idx.reduce((a, i) => a + ((U.moved || [])[i] || 0), 0);
+  h += note("def", "この画面の決まりごと",
+    esc(D.denom_rule || "") +
+    "<br>" + esc(D.attach_rule || "") +
+    (movedN ? "（この表の" + what + "で、付け直して数えた接触はのべ " + num(movedN) + " 回）" : "") +
+    (D.meta.n_ambiguous ? "（付け先を決められず数えなかった接触 " + num(D.meta.n_ambiguous) + " 回）" : "") +
+    "<br>" + esc(dispText(D.owner_rule || "")) +
+    (sharedN ? "（この表の" + what + "で、途中で担当が替わり両方に数えた案件はのべ " + num(sharedN) + " 件。" +
+      "担当者の持ち案件を足すと、全体の持ち案件よりその分多くなります）" : "") +
+    "<br>" + esc(D.undetermined_rule || "") +
+    (D.meta.n_no_history ? "担当履歴が1行も無い案件は " + num(D.meta.n_no_history) + " 件です。" : "") +
+    (D.meta.n_no_span ? "<br>契約の開始日か満了日が読めない案件 " + num(D.meta.n_no_span) + " 件は、どの" + what + "にも数えていません。" : "") +
+    "<br>" + esc(D.provisional_rule || "") +
+    "<br>実際の引き継ぎ日と記録のずれは " + goLink("consultant", "handover") + " で見られます。");
+  return h + foot(D.meta, true, "担当者 " + num(rows.length) + " 名");
+}
+
+/* 月ごと / 週ごとの切り替え。取り直さず、手元の応答で描き直す（応答に両方入っている） */
+function wireContact() {
+  document.querySelectorAll("#ct-unit button[data-u]").forEach((b) => {
+    b.onclick = () => { contactUnit = b.dataset.u; redrawMain(lastPayload); };
+  });
+}
 
 /* ================================================================ 2 いま見るべき顧客 */
 function renderFocus(D) {
@@ -5482,6 +5677,9 @@ const MENUS = [
         render: (D) => renderBoard(D) },
       { key: "handover", label: "担当の交代",       path: "/api/consulting/handover",
         render: (D) => renderHandover(D) },
+      /* 2026-09-24 藤巻さんの要望で足した。接触は検知専用（多いほど良い、ではない） */
+      { key: "contact",  label: "担当者ごとの接触", path: "/api/consulting/contact-trend",
+        render: (D) => renderContact(D) },
     ] },
   { key: "study", no: "\u2462", label: "集計",
     lead: "調べた結果と定義です。一度読めば済む話をここに置いています。",
@@ -5724,6 +5922,13 @@ function ctlbar(v, D) {
   }
   /* 選択欄に名前が無く、読み上げでは何を選ぶ欄か分からなかった（V20） */
   if (isCustView(v.key)) h += '<select id="cs-houjin" class="act" aria-label="法人を選ぶ"></select>';
+  /* 担当者ごとの接触: 月ごと / 週ごと。押している方は aria-pressed と太字・枠で示す（色だけにしない） */
+  if (v.key === "contact") {
+    h += '<span class="act" id="ct-unit" role="group" aria-label="期間の単位">期間:' +
+      CONTACT_UNITS.map((u) => '<button type="button" class="act" id="ct-unit-' + u.k + '" data-u="' + u.k +
+        '" aria-pressed="' + (contactUnit === u.k ? "true" : "false") + '">' + esc(u.t) + "</button>").join("") +
+      "</span>";
+  }
   if (v.path) h += '<button type="button" class="act" id="cs-reload">読み直す</button>';
   if (D && D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
   return h + "</div>";
@@ -5731,6 +5936,7 @@ function ctlbar(v, D) {
 
 function wire(v) {
   if (v.key === "team") wireTeam();
+  if (v.key === "contact") wireContact();
   if (v.key === "today") wireToday();
   if (v.key === "board" || v.key === "byowner") wireBoard();
   if (v.key === "series") wireSeries();

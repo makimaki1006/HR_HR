@@ -49,6 +49,7 @@
 //!
 //! 定義の正本: `.claude\skills\call-quality-metrics\SKILL.md`
 
+pub mod contact_trend;
 pub mod routes;
 
 #[cfg(test)]

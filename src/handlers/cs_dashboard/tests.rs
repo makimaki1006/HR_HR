@@ -1737,6 +1737,7 @@ fn 全画面で母集団の件数が一致する() {
         ("データ品質", f(build_data_quality(&sh, day))),
         ("担当者の一覧", f(build_consultants(&sh, day))),
         ("担当の交代", f(build_handover(&sh, day))),
+        ("担当者ごとの接触", f(build_contact_trend(&sh, day))),
         ("案件そのもの", f(build_deal_board(&sh, day))),
         ("今日動く先", f(build_today_board(&sh, day))),
         ("顧客ごとに見る", f(build_customer(&sh, None, day))),
@@ -3383,4 +3384,617 @@ fn mtg途絶の帯の説明に仕組みの名前を出さない() {
             .contains("Slack に届く MTG 途絶の警告"),
         "何と同じ線引きかを、現場の言葉で書いていない"
     );
+}
+
+// ================================================================ 担当者ごとの接触
+
+use super::contact_trend::{build_contact_trend, owner_at, owner_timeline};
+
+/// 期間ごとの (持ち案件, 接触) を取り出す。
+fn trend_pairs(v: &Value, unit: &str, key: &str) -> Vec<(i64, i64)> {
+    v[unit][key]
+        .as_array()
+        .unwrap_or_else(|| panic!("{unit}.{key} が無い"))
+        .iter()
+        .map(|c| {
+            (
+                c["deals"].as_i64().expect("deals"),
+                c["contacts"].as_i64().expect("contacts"),
+            )
+        })
+        .collect()
+}
+
+/// 🔴 分母（持っていた案件）と分子（接触）を、Rust とは別に Python で数えた値で固定する。
+///
+/// Python 側は担当を**1日ずつ**引いて数えた（Rust は担当が替わった日だけを見る）。
+/// 数え方の違う2つが同じ数になることを見る（基準日 2026-09-18）。
+/// | 月 | 持ち案件 | 接触 |（担当が決まった分。担当が決められない分は別）
+/// | 2026-07 | 627 | 1,183 |
+/// | 2026-08 | 644 | 1,401 |
+/// | 2026-09（未確定） | 604 | 1,274 |
+#[test]
+fn 担当者ごとの接触の分母と接触が別の数え方と一致する() {
+    let v = build_contact_trend(&sheets(), fixture_day());
+    let month: Vec<(i64, i64)> = vec![
+        (569, 223),
+        (582, 198),
+        (597, 227),
+        (594, 242),
+        (611, 217),
+        (632, 621),
+        (608, 1402),
+        (615, 1397),
+        (601, 1500),
+        (627, 1930),
+        (644, 1812),
+        (604, 1486),
+    ];
+    assert_eq!(trend_pairs(&v, "month", "team"), month, "月ごとの全体");
+    let week: Vec<(i64, i64)> = vec![
+        (518, 386),
+        (523, 417),
+        (534, 417),
+        (536, 391),
+        (558, 473),
+        (543, 476),
+        (534, 82),
+        (547, 581),
+        (567, 548),
+        (568, 600),
+        (564, 493),
+        (567, 518),
+    ];
+    assert_eq!(trend_pairs(&v, "week", "team"), week, "週ごとの全体");
+    // 担当が決められない分（どの担当者にも数えていない）
+    assert_eq!(
+        trend_pairs(&v, "month", "undetermined"),
+        vec![
+            (1, 0),
+            (1, 0),
+            (0, 0),
+            (3, 0),
+            (0, 0),
+            (0, 0),
+            (1, 0),
+            (1, 0),
+            (1, 3),
+            (0, 8),
+            (1, 10),
+            (0, 0)
+        ]
+    );
+    // 付け直して数えた接触（担当が決まった分。team の接触の内数）
+    assert_eq!(
+        v["month"]["moved"],
+        serde_json::json!([3, 1, 2, 4, 1, 279, 888, 833, 756, 747, 411, 212])
+    );
+    assert_eq!(
+        v["week"]["moved"],
+        serde_json::json!([176, 211, 172, 127, 130, 129, 21, 133, 105, 103, 68, 64])
+    );
+    let week_und: Vec<i64> = trend_pairs(&v, "week", "undetermined")
+        .iter()
+        .map(|x| x.1)
+        .collect();
+    assert_eq!(week_und, vec![0, 0, 0, 5, 3, 0, 0, 2, 8, 0, 0, 0]);
+    assert_eq!(v["meta"]["n_ambiguous"], 0);
+    // 期間の途中で担当が替わり、両方の担当に数えた案件
+    assert_eq!(
+        v["month"]["shared"],
+        serde_json::json!([45, 17, 33, 20, 16, 37, 42, 10, 14, 72, 42, 10])
+    );
+    assert_eq!(
+        v["month"]["rows"].as_array().unwrap().len(),
+        39,
+        "担当者の数（月）"
+    );
+    assert_eq!(
+        v["week"]["rows"].as_array().unwrap().len(),
+        34,
+        "担当者の数（週）"
+    );
+    // 開始日・満了日が読めずに数えられない本体案件
+    assert_eq!(v["meta"]["n_no_span"], 3);
+}
+
+/// 担当者の分母を足すと、全体の分母より多い（替わった案件を両方に数えるため）。
+/// 1期間に3人が持った案件は3人に数えるので、差は「両方に数えた案件」の数以上になる。
+/// 担当者の分母の合計は Python で1日ずつ担当を引いて数えた値で固定する。
+/// 接触は1回を1人にだけ数えるので、担当者の合計と全体が一致する。
+#[test]
+fn 担当替わりの案件は両方に数え接触はその日の担当に数える() {
+    let v = build_contact_trend(&sheets(), fixture_day());
+    let sum_deals = |unit: &str| -> Vec<i64> {
+        (0..12)
+            .map(|i| {
+                v[unit]["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|r| r["cells"][i]["deals"].as_i64().unwrap())
+                    .sum()
+            })
+            .collect()
+    };
+    assert_eq!(
+        sum_deals("month"),
+        vec![614, 599, 630, 614, 628, 670, 651, 625, 616, 699, 686, 614]
+    );
+    assert_eq!(
+        sum_deals("week"),
+        vec![527, 531, 542, 547, 588, 549, 536, 551, 583, 578, 564, 569]
+    );
+    for unit in ["month", "week"] {
+        let team = trend_pairs(&v, unit, "team");
+        let shared: Vec<i64> = v[unit]["shared"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_i64().unwrap())
+            .collect();
+        for (i, (td, tc)) in team.iter().enumerate() {
+            let (mut d, mut c) = (0i64, 0i64);
+            for r in v[unit]["rows"].as_array().unwrap() {
+                d += r["cells"][i]["deals"].as_i64().unwrap();
+                c += r["cells"][i]["contacts"].as_i64().unwrap();
+            }
+            assert!(d >= td + shared[i], "{unit}[{i}] 担当者の分母の合計 {d}");
+            assert_eq!(c, *tc, "{unit}[{i}] 担当者の接触の合計");
+        }
+    }
+    // どこかの期間で本当に担当が替わっていること（0 だと上の見張りが素通りする）
+    assert!(v["month"]["shared"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|x| x.as_i64().unwrap() > 0));
+}
+
+/// 小さなシートで、担当替わり・履歴より前・分母0・オプション除外を1つずつ確かめる。
+fn trend_tiny(meta_asof: &str) -> Sheets {
+    let empty = |h: &[&str]| tiny(h, &[]);
+    Sheets {
+        deal: tiny(
+            &[
+                "deal_id",
+                "dealstage",
+                "contract_kind",
+                "contract_start_date",
+                "contract_expiration_date",
+                "is_active",
+            ],
+            &[
+                // 9/10 に A → B。9/5 と 9/15 に接触
+                &["d1", "x", "(新規)", "2026-08-01", "2026-12-31", "TRUE"],
+                // 履歴が 9/20 から。9/12 の接触は担当が決められない
+                &["d2", "x", "(新規)", "2026-09-01", "2026-12-31", "TRUE"],
+                // オプション契約。どこにも数えない
+                &["d3", "x", "求人追加", "2026-08-01", "2026-12-31", "TRUE"],
+            ],
+        ),
+        call: tiny(
+            &["ts", "duration_sec", "deal_id"],
+            &[
+                &["2026-09-05T01:00:00Z", "120", "d1"],
+                // UTC 9/14 16:00 ＝ 日本時間 9/15
+                &["2026-09-14T16:00:00Z", "120", "d1"],
+                // 60秒ちょうどは接触ではない
+                &["2026-09-16T01:00:00Z", "60", "d1"],
+                &["2026-09-12T01:00:00Z", "300", "d2"],
+                &["2026-09-12T01:00:00Z", "300", "d3"],
+            ],
+        ),
+        mtg: empty(&["開催日", "deal_id"]),
+        history: empty(&["deal_id"]),
+        customer: empty(&["houjin"]),
+        mail_mtg: empty(&["deal_id"]),
+        handover: empty(&["deal_id"]),
+        owner_hist: tiny(
+            &["date", "owner", "retired", "deal_id"],
+            &[
+                &["2026-07-01", "A", "FALSE", "d1"],
+                &["2026-09-10", "B", "FALSE", "d1"],
+                &["2026-09-20", "C", "FALSE", "d2"],
+                &["2026-07-01", "D", "FALSE", "d3"],
+            ],
+        ),
+        meta: tiny(&["key", "value"], &[&["データ取得時刻(JST)", meta_asof]]),
+        all_cached: false,
+    }
+}
+
+fn row_of<'a>(v: &'a Value, unit: &str, who: &str) -> &'a Value {
+    v[unit]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["consultant"] == who)
+        .unwrap_or_else(|| panic!("{unit} に {who} が無い"))
+}
+
+#[test]
+fn 担当者ごとの接触は担当替わりと履歴の前を分けて数える() {
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
+    let v = build_contact_trend(&trend_tiny("2026-09-25 09:00:00"), day);
+    let last = super::contact_trend::N_MONTHS - 1; // 2026-09
+    assert_eq!(v["month"]["periods"][last]["key"], "2026-09");
+    let a = &row_of(&v, "month", "A")["cells"][last];
+    let b = &row_of(&v, "month", "B")["cells"][last];
+    // 替わる前も後も1件ずつ。接触はその日の担当に
+    assert_eq!(
+        (a["deals"].as_i64(), a["contacts"].as_i64()),
+        (Some(1), Some(1))
+    );
+    assert_eq!(
+        (b["deals"].as_i64(), b["contacts"].as_i64()),
+        (Some(1), Some(1))
+    );
+    assert_eq!(v["month"]["shared"][last], 1);
+    // 🔴 d2 は 9/20 から C。9/1〜9/19 は担当が決められないので C に付けない
+    let c = &row_of(&v, "month", "C")["cells"][last];
+    assert_eq!(
+        (c["deals"].as_i64(), c["contacts"].as_i64()),
+        (Some(1), Some(0))
+    );
+    assert_eq!(v["month"]["undetermined"][last]["contacts"], 1);
+    // 🔴 オプション契約（d3）の担当 D はどこにも出ない
+    assert!(v["month"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|r| r["consultant"] != "D"));
+    assert_eq!(v["month"]["team"][last]["deals"], 2);
+    assert_eq!(v["month"]["team"][last]["contacts"], 2);
+    // 8月の d1 は A だけ。接触0でも分母は1（1件あたり 0 回。空ではない）
+    let aug = &row_of(&v, "month", "A")["cells"][last - 1];
+    assert_eq!(aug["deals"], 1);
+    assert_eq!(aug["avg"], 0.0);
+    // 🔴 分母0の期間は空（0 にしない）。B は 8月に何も持っていない
+    let b_aug = &row_of(&v, "month", "B")["cells"][last - 1];
+    assert_eq!(b_aug["deals"], 0);
+    assert!(
+        b_aug["avg"].is_null(),
+        "分母0の平均が {} になっている",
+        b_aug["avg"]
+    );
+    assert_eq!(b_aug["small_n"], false);
+    // 持ち案件1件は小さい印
+    assert_eq!(a["small_n"], true);
+}
+
+/// 🔴 いまの週・月は未確定。データを取った日が古ければ、そこから先も未確定。
+#[test]
+fn 担当者ごとの接触は今期とデータ取得日より後を未確定にする() {
+    // fixture: 基準日 2026-09-18・データ取得 2026-09-14
+    let v = build_contact_trend(&sheets(), fixture_day());
+    let prov = |unit: &str| -> Vec<bool> {
+        v[unit]["periods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["provisional"].as_bool().unwrap())
+            .collect()
+    };
+    let m = prov("month");
+    assert_eq!(m.iter().filter(|x| **x).count(), 1, "月で未確定は今月だけ");
+    assert!(m[m.len() - 1], "今月が未確定になっていない");
+    let w = prov("week");
+    assert_eq!(v["week"]["periods"][11]["start"], "2026-09-14");
+    assert_eq!(w.iter().filter(|x| **x).count(), 1, "週で未確定は今週だけ");
+    assert!(w[11]);
+
+    // データ取得が 9/5 なら、9/5 を含む週（8/31〜）から先は未確定
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 9, 18).unwrap();
+    let v = build_contact_trend(&trend_tiny("2026-09-05 09:00:00"), day);
+    let starts: Vec<(String, bool)> = v["week"]["periods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["start"].as_str().unwrap().to_string(),
+                p["provisional"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    let first_prov = starts.iter().find(|(_, p)| *p).unwrap();
+    assert_eq!(first_prov.0, "2026-08-31");
+    assert_eq!(starts.iter().filter(|(_, p)| *p).count(), 3);
+    // 2026-08 は 8/31 まで。データは 9/5 まであるので確定
+    assert_eq!(v["month"]["periods"][10]["provisional"], false);
+}
+
+/// 🔴 分母はオプション契約を除いた案件（`deals_of`）。オプション込みで数えると別の数になる。
+#[test]
+fn 担当者ごとの接触はオプション契約を分母に入れない() {
+    let sh = sheets();
+    let v = build_contact_trend(&sh, fixture_day());
+    let count = |ds: &[super::Deal], s: chrono::NaiveDate, e: chrono::NaiveDate| {
+        ds.iter()
+            .filter(|d| {
+                match (
+                    super::date10(&d.contract_start_date),
+                    super::date10(&d.contract_expiration_date),
+                ) {
+                    (Some(a), Some(b)) => a <= b && a <= e && b >= s,
+                    _ => false,
+                }
+            })
+            .count() as i64
+    };
+    let main = super::deals_of(&sh.deal);
+    let all = super::deals_all_of(&sh.deal);
+    for (i, p) in v["month"]["periods"].as_array().unwrap().iter().enumerate() {
+        let s = super::date10(p["start"].as_str().unwrap()).unwrap();
+        let e = super::date10(p["end"].as_str().unwrap())
+            .unwrap()
+            .min(fixture_day());
+        let got = v["month"]["team"][i]["deals"].as_i64().unwrap()
+            + v["month"]["undetermined"][i]["deals"].as_i64().unwrap();
+        assert_eq!(got, count(&main, s, e), "{i} 本体案件の数");
+        assert_ne!(
+            got,
+            count(&all, s, e),
+            "{i} オプション込みと同じ数（除外が効いていない）"
+        );
+    }
+}
+
+/// いまの担当は、担当者の一覧（`consultant_of`）と同じ人を指す。
+#[test]
+fn 担当者ごとの接触のいまの担当は担当者の一覧と同じ() {
+    let sh = sheets();
+    let day = fixture_day();
+    let tl = owner_timeline(&sh.owner_hist);
+    let now = super::consultant_of(&sh.owner_hist);
+    let mut n = 0;
+    for (id, t) in &tl {
+        if t.last().is_some_and(|e| e.0 > day) {
+            continue; // 基準日より後の書き換えがある取引は比べない
+        }
+        let got = owner_at(t, day).map(|e| e.1.as_str());
+        assert_eq!(got, now.get(id).map(|x| x.0.as_str()), "{id} のいまの担当");
+        n += 1;
+    }
+    assert!(n > 3000, "比べた取引が少なすぎる: {n}");
+}
+
+/// 🔴 通話の記録が始まる前の期間は、MTG だけなので比べられない（画面に出さない印）。
+#[test]
+fn 通話の記録が始まる前の期間に印が付く() {
+    let v = build_contact_trend(&sheets(), fixture_day());
+    assert_eq!(v["meta"]["call_from"], "2026-03-23");
+    let flags: Vec<(String, bool)> = v["month"]["periods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["key"].as_str().unwrap().to_string(),
+                p["calls_missing"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    for (k, f) in &flags {
+        assert_eq!(*f, k.as_str() <= "2026-03", "{k} の印");
+    }
+    assert!(v["week"]["periods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["calls_missing"] == false));
+}
+
+/// 🔴 画面の頭に出す断り。接触は検知専用で、多いほど良い・担当者の評価、ではない。
+#[test]
+fn 担当者ごとの接触は検知専用で評価ではないと書く() {
+    let v = build_contact_trend(&sheets(), fixture_day());
+    let t = v["meta"]["not_counted"].as_str().expect("not_counted");
+    for w in [
+        "接触は検知専用",
+        "多いほど良いという評価ではありません",
+        "担当者の評価ではありません",
+    ] {
+        assert!(t.contains(w), "断りに「{w}」が無い: {t}");
+    }
+}
+
+/// 🔴 通話が、まだ始まっていない継続の取引やオプションの取引に付いていても、
+/// その日に動いていた同じ拠点の本体案件に付け直して数える（2026-09-24 検証の指摘）。
+/// 付け直さないと、継続の前の月ほど接触が落ち、確定した月もあとで下がる。
+fn trend_sites() -> Sheets {
+    let empty = |h: &[&str]| tiny(h, &[]);
+    Sheets {
+        deal: tiny(
+            &[
+                "deal_id",
+                "dealstage",
+                "contract_kind",
+                "contract_start_date",
+                "contract_expiration_date",
+                "kyoten_key",
+                "is_active",
+            ],
+            &[
+                // 拠点 S2: 前の契約 p1（〜8/31）と、継続の契約 p2（9/1〜）
+                &[
+                    "p1",
+                    "x",
+                    "(新規)",
+                    "2026-03-01",
+                    "2026-08-31",
+                    "S2",
+                    "FALSE",
+                ],
+                &["p2", "x", "継続", "2026-09-01", "2027-02-28", "S2", "TRUE"],
+                // 拠点 S2 のオプション契約（分母には入らない）
+                &[
+                    "o1",
+                    "x",
+                    "求人追加",
+                    "2026-06-01",
+                    "2026-12-31",
+                    "S2",
+                    "TRUE",
+                ],
+                // 拠点 S3: 契約期間の重なる本体案件が2件（付け先を決められない）
+                &[
+                    "q1",
+                    "x",
+                    "(新規)",
+                    "2026-01-01",
+                    "2026-12-31",
+                    "S3",
+                    "TRUE",
+                ],
+                &["q2", "x", "継続", "2026-06-01", "2027-05-31", "S3", "TRUE"],
+                &[
+                    "o2",
+                    "x",
+                    "求人追加",
+                    "2026-01-01",
+                    "2026-12-31",
+                    "S3",
+                    "TRUE",
+                ],
+                // 拠点キーが空。契約の外の接触は付け直さない
+                &["r1", "x", "(新規)", "2026-08-01", "2026-12-31", "", "TRUE"],
+            ],
+        ),
+        call: tiny(
+            &["ts", "duration_sec", "deal_id"],
+            &[
+                // 8/20 の通話が、まだ始まっていない p2 に付いている → p1（E）に数える
+                &["2026-08-20T01:00:00Z", "120", "p2"],
+                // p2 の中の通話はそのまま p2（F）
+                &["2026-09-03T01:00:00Z", "120", "p2"],
+                // オプション o1 に付いた 7/10 の通話 → p1（E）に数える
+                &["2026-07-10T01:00:00Z", "120", "o1"],
+                // 2/10 は S2 のどの契約の前。数えない
+                &["2026-02-10T01:00:00Z", "120", "p2"],
+                // S3 は 7/10 に q1・q2 の2件が動いている。決められないので数えない
+                &["2026-07-10T01:00:00Z", "120", "o2"],
+                // 拠点キーが空の r1 の契約前（7/15）。数えない
+                &["2026-07-15T01:00:00Z", "120", "r1"],
+            ],
+        ),
+        mtg: empty(&["開催日", "deal_id"]),
+        history: empty(&["deal_id"]),
+        customer: empty(&["houjin"]),
+        mail_mtg: empty(&["deal_id"]),
+        handover: empty(&["deal_id"]),
+        owner_hist: tiny(
+            &["date", "owner", "retired", "deal_id"],
+            &[
+                &["2026-01-01", "E", "FALSE", "p1"],
+                &["2026-08-15", "F", "FALSE", "p2"],
+                &["2026-01-01", "G", "FALSE", "q1"],
+                &["2026-01-01", "G", "FALSE", "q2"],
+                &["2026-01-01", "H", "FALSE", "r1"],
+            ],
+        ),
+        meta: tiny(
+            &["key", "value"],
+            &[&["データ取得時刻(JST)", "2026-09-25 09:00:00"]],
+        ),
+        all_cached: false,
+    }
+}
+
+#[test]
+fn 担当者ごとの接触は継続先やオプションに付いた通話をその日の案件に付け直す() {
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
+    let v = build_contact_trend(&trend_sites(), day);
+    let last = super::contact_trend::N_MONTHS - 1; // 2026-09
+    let at = |who: &str, i: usize| -> (i64, i64) {
+        let c = &row_of(&v, "month", who)["cells"][i];
+        (
+            c["deals"].as_i64().unwrap(),
+            c["contacts"].as_i64().unwrap(),
+        )
+    };
+    // 8月: p1 の E に、p2 に付いていた 8/20 の通話を数える
+    assert_eq!(
+        at("E", last - 1),
+        (1, 1),
+        "継続先に付いた通話を前の契約に付け直していない"
+    );
+    // 7月: オプション o1 に付いていた通話を p1 の E に数える
+    assert_eq!(
+        at("E", last - 2),
+        (1, 1),
+        "オプションに付いた通話を本体案件に付け直していない"
+    );
+    // 9月: p2 の中の通話はそのまま F
+    assert_eq!(at("F", last), (1, 1));
+    // 🔴 S3 は付け先が2件あって決められない。G には数えず、件数を出す
+    assert_eq!(
+        at("G", last - 2),
+        (2, 0),
+        "付け先を決められない通話を推測で数えている"
+    );
+    assert_eq!(v["meta"]["n_ambiguous"], 1);
+    // 🔴 拠点キーが空の r1 の契約前の通話は数えない
+    assert_eq!(v["month"]["team"][last - 2]["contacts"], 1);
+    // 付け直した数（7月・8月に1件ずつ、9月は0）
+    assert_eq!(v["month"]["moved"][last - 2], 1);
+    assert_eq!(v["month"]["moved"][last - 1], 1);
+    assert_eq!(v["month"]["moved"][last], 0);
+    // 2月（p1 の前）はどこにも数えない
+    let feb = v["month"]["periods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|p| p["key"] == "2026-02")
+        .unwrap();
+    assert_eq!(v["month"]["team"][feb]["contacts"], 0);
+    // 画面に付け直しの決まりを書く
+    let t = v["attach_rule"].as_str().expect("attach_rule");
+    for w in ["付け直して", "同じ拠点", "決められない", "あとで少し動く"] {
+        assert!(t.contains(w), "付け直しの決まりに「{w}」が無い: {t}");
+    }
+}
+
+/// 🔴 `small_n` の線引きは「持ち案件 3 件未満」。2 件は印あり、3 件は印なし（境目を固める）。
+#[test]
+fn 担当者ごとの接触の小さい印は持ち案件3件未満の境目で切り替わる() {
+    assert_eq!(super::contact_trend::MIN_DEALS, 3);
+    let v = build_contact_trend(&sheets(), fixture_day());
+    let (mut seen2, mut seen3) = (false, false);
+    for unit in ["month", "week"] {
+        for r in v[unit]["rows"].as_array().unwrap() {
+            for c in r["cells"].as_array().unwrap() {
+                let d = c["deals"].as_i64().unwrap();
+                assert_eq!(
+                    c["small_n"].as_bool().unwrap(),
+                    d > 0 && d < 3,
+                    "{unit} {} 持ち案件 {d} 件の印",
+                    r["consultant"]
+                );
+                seen2 |= d == 2;
+                seen3 |= d == 3;
+            }
+        }
+    }
+    // 境目の両側が fixture に無いと、上の見張りが素通りする
+    assert!(
+        seen2 && seen3,
+        "持ち案件 2 件と 3 件の期間が fixture に無い"
+    );
+}
+
+/// 分母は契約期間で数えるので、画面の頭の「稼働中 N 件」（いまの稼働の印）とは別の集合。
+/// 同じ集合に見えないよう、分母の決まりに違いを書く（2026-09-24 検証の指摘）。
+#[test]
+fn 担当者ごとの接触の分母は頭の稼働中の件数と別だと書く() {
+    let v = build_contact_trend(&sheets(), fixture_day());
+    let t = v["denom_rule"].as_str().expect("denom_rule");
+    for w in [
+        "画面の頭の「稼働中」の件数",
+        "別の数え方",
+        "満了日より前に解約・充足へ移った案件",
+    ] {
+        assert!(t.contains(w), "分母の決まりに「{w}」が無い: {t}");
+    }
 }
