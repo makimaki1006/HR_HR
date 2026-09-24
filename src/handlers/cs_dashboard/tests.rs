@@ -3998,3 +3998,448 @@ fn 担当者ごとの接触の分母は頭の稼働中の件数と別だと書�
         assert!(t.contains(w), "分母の決まりに「{w}」が無い: {t}");
     }
 }
+
+// ================================================================ 担当の交代 × 交代の前後の接触
+
+/// 🔴 交代の前後の接触を、Rust とは別に Python で数えた値で固定する（基準日 2026-09-18）。
+///
+/// Python 側は、接触の定義（60秒超の通話・MTG、通話は日本時間）と付け直し（同じ拠点で
+/// その日に契約期間の中の本体案件が1件だけならそこへ）を別に書き、窓は**1日ずつ**回して
+/// 「その日に同じ拠点で動いている本体案件が1件だけか」を全部の取引から数え直した。
+/// データを取った日は 2026-09-14（数えるのは 9/13 まで）、通話の記録は 2026-03-23 から。
+///
+/// | | 交代（拠点×交代日） | 行 |
+/// | 比べられた | 12 | 29 |
+/// | 途中（未確定） | 18 | 27 |
+/// | 比べるには短い | 211（通話の記録の前 118・前に案件が無い 86・後に案件が無い 7） | 301 |
+/// | 数えられない（契約期間が読めない） | — | 1 |
+///
+/// 比べられた 12件: 増えた 7・減った 5・変わらない 0、変化の中央値 +0.7056 回/30日。
+#[test]
+fn 交代の前後の接触が別の数え方と一致する() {
+    let v = build_handover(&sheets(), fixture_day());
+    let c = &v["contact_cmp"];
+    assert_eq!(c["meta"]["last_day"], "2026-09-13");
+    assert_eq!(c["meta"]["call_from"], "2026-03-23");
+    assert_eq!(c["n_events"], 241);
+    assert_eq!(c["n_ok"], 12);
+    assert_eq!(c["n_provisional"], 18);
+    assert_eq!(c["n_short"], 211);
+    assert_eq!(
+        c["short_why"],
+        serde_json::json!({"calls": 118, "before": 86, "after": 7})
+    );
+    assert_eq!(c["n_up"], 7);
+    assert_eq!(c["n_down"], 5);
+    assert_eq!(c["n_same"], 0);
+    let med = c["median_change"].as_f64().unwrap();
+    assert!((med - 0.705592105263158).abs() < 1e-9, "中央値 {med}");
+    assert_eq!(c["meta"]["n_unavailable_rows"], 1);
+
+    // 比べられた交代の (交代日, 前の日数, 前の接触, 後の日数, 後の接触)。交代ごとに1件
+    let mut ok: Vec<(String, i64, i64, i64, i64)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut rows_by: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    let mut sums = [0i64; 4];
+    for r in v["rows"].as_array().unwrap() {
+        let x = &r["contact"];
+        if x.is_null() {
+            continue;
+        }
+        *rows_by
+            .entry(x["status"].as_str().unwrap().to_string())
+            .or_insert(0) += 1;
+        let n = |w: &str, k: &str| x[w][k].as_i64().unwrap();
+        sums[0] += n("before", "days");
+        sums[1] += n("before", "contacts");
+        sums[2] += n("after", "days");
+        sums[3] += n("after", "contacts");
+        if x["status"] == "ok" && seen.insert(x["event"].as_str().unwrap().to_string()) {
+            ok.push((
+                r["date"].as_str().unwrap().to_string(),
+                n("before", "days"),
+                n("before", "contacts"),
+                n("after", "days"),
+                n("after", "contacts"),
+            ));
+        }
+    }
+    ok.sort();
+    let want: Vec<(String, i64, i64, i64, i64)> = [
+        ("2026-04-27", 35, 0, 60, 3),
+        ("2026-04-30", 38, 4, 60, 16),
+        ("2026-05-01", 39, 0, 32, 1),
+        ("2026-05-01", 39, 0, 43, 2),
+        ("2026-05-13", 51, 7, 60, 4),
+        ("2026-05-14", 52, 0, 60, 2),
+        ("2026-05-15", 53, 6, 60, 6),
+        ("2026-05-19", 57, 1, 60, 2),
+        ("2026-05-20", 58, 2, 60, 1),
+        ("2026-06-01", 60, 24, 60, 10),
+        ("2026-07-08", 43, 0, 60, 2),
+        ("2026-07-29", 57, 2, 35, 1),
+    ]
+    .iter()
+    .map(|&(d, a, b, c, e)| (d.to_string(), a, b, c, e))
+    .collect();
+    assert_eq!(ok, want, "比べられた交代");
+    // 行で数えた状態と、行の日数・接触の合計（同じ交代の行にも同じ値が入る）
+    let want_rows: std::collections::BTreeMap<String, i64> =
+        [("ok", 29), ("provisional", 27), ("short", 301)]
+            .iter()
+            .map(|&(k, n)| (k.to_string(), n))
+            .collect();
+    assert_eq!(rows_by, want_rows);
+    assert_eq!(sums, [4606, 557, 10055, 1656]);
+}
+
+/// 交代の前後の接触を試す小さなデータ。基準日 2026-09-18、データを取った日 2026-09-15（数えるのは 9/14 まで）。
+///
+/// - 拠点 S1: 前の契約 a1（2026-04-01〜06-30）→ 継続 a2（07-01〜12-31）。交代 07-01。
+///   交代の記録は a1 と a2 の2行（同じ交代）。前の60日は a1、後の60日は a2 に付いた接触を数える
+/// - 拠点 S2: b1（2026-05-01〜2027-04-30）と b2（06-01〜06-10）が重なる。交代 07-01
+///   （重なる 06-01〜06-10 の10日は窓に入れない → 前は50日）
+/// - 拠点 S3: c1（2026-06-20〜12-31）だけ。交代 07-01（前に動いていた案件が 11日しか無い → 短い）
+/// - 拠点 S4: d1（2026-01-01〜12-31）。交代 08-01（後の窓 08-01〜09-29 のうち 9/15 以降はまだ無い → 途中）
+/// - 拠点 S5: e1（2026-01-01〜12-31）。交代 04-10（前の窓が通話の記録の始まり 03-23 より前にかかる → 短い）
+fn handover_tiny() -> Sheets {
+    let empty = |h: &[&str]| tiny(h, &[]);
+    let dh = [
+        "deal_id",
+        "dealname",
+        "dealstage",
+        "contract_kind",
+        "contract_start_date",
+        "contract_expiration_date",
+        "kyoten_key",
+        "is_active",
+    ];
+    let hh = [
+        "date",
+        "from",
+        "to",
+        "to_retired",
+        "reflected",
+        "record_gap_days",
+        "deal_id",
+    ];
+    Sheets {
+        deal: tiny(
+            &dh,
+            &[
+                &[
+                    "a1",
+                    "A前",
+                    "x",
+                    "(新規)",
+                    "2026-04-01",
+                    "2026-06-30",
+                    "S1",
+                    "FALSE",
+                ],
+                &[
+                    "a2",
+                    "A継続",
+                    "x",
+                    "継続",
+                    "2026-07-01",
+                    "2026-12-31",
+                    "S1",
+                    "TRUE",
+                ],
+                &[
+                    "b1",
+                    "B",
+                    "x",
+                    "(新規)",
+                    "2026-05-01",
+                    "2027-04-30",
+                    "S2",
+                    "TRUE",
+                ],
+                &[
+                    "b2",
+                    "B短",
+                    "x",
+                    "(新規)",
+                    "2026-06-01",
+                    "2026-06-10",
+                    "S2",
+                    "FALSE",
+                ],
+                &[
+                    "c1",
+                    "C",
+                    "x",
+                    "(新規)",
+                    "2026-06-20",
+                    "2026-12-31",
+                    "S3",
+                    "TRUE",
+                ],
+                &[
+                    "d1",
+                    "D",
+                    "x",
+                    "(新規)",
+                    "2026-01-01",
+                    "2026-12-31",
+                    "S4",
+                    "TRUE",
+                ],
+                &[
+                    "e1",
+                    "E",
+                    "x",
+                    "(新規)",
+                    "2026-01-01",
+                    "2026-12-31",
+                    "S5",
+                    "TRUE",
+                ],
+            ],
+        ),
+        call: tiny(
+            &["ts", "duration_sec", "deal_id"],
+            &[
+                // 通話の記録の始まり（長さを問わない。短い通話も始まりには数える）
+                &["2026-03-23T01:00:00Z", "10", "e1"],
+                // S1: 前の窓（05-02〜06-30）に a1 の 3回。1回はまだ始まっていない a2 に付いている → a1 に付け直す
+                &["2026-05-10T01:00:00Z", "120", "a1"],
+                &["2026-06-10T01:00:00Z", "120", "a1"],
+                &["2026-06-20T01:00:00Z", "120", "a2"],
+                // 60秒ちょうどは接触ではない
+                &["2026-06-21T01:00:00Z", "60", "a1"],
+                // S1: 後の窓（07-01〜08-29）に a2 の 1回。UTC 8/29 15:30 は日本時間 8/30 で窓の外
+                &["2026-07-15T01:00:00Z", "120", "a2"],
+                &["2026-08-29T15:30:00Z", "120", "a2"],
+                // S2: 重なる 06-05 の通話は窓に入れない日
+                &["2026-06-05T01:00:00Z", "120", "b1"],
+                &["2026-06-15T01:00:00Z", "120", "b1"],
+                &["2026-07-15T01:00:00Z", "120", "b1"],
+            ],
+        ),
+        mtg: tiny(
+            &["開催日", "deal_id"],
+            // S2: 後の窓に MTG 1回
+            &[&["2026-07-20", "b1"]],
+        ),
+        history: empty(&["deal_id"]),
+        customer: empty(&["houjin"]),
+        mail_mtg: empty(&["deal_id"]),
+        handover: tiny(
+            &hh,
+            &[
+                // S1 の同じ交代が2行（前の契約とあとの契約）
+                &["2026-07-01", "佐藤", "鈴木", "FALSE", "", "", "a1"],
+                &["2026-07-01", "佐藤", "鈴木", "FALSE", "", "", "a2"],
+                &[
+                    "2026-07-01",
+                    "佐藤",
+                    "x.y@example.co.jp",
+                    "FALSE",
+                    "",
+                    "",
+                    "b1",
+                ],
+                &["2026-07-01", "田中", "鈴木", "FALSE", "", "", "c1"],
+                &["2026-08-01", "田中", "鈴木", "FALSE", "", "", "d1"],
+                &["2026-04-10", "", "鈴木", "FALSE", "", "", "e1"],
+                // 取引のシートに無い。前後は数えない（null）
+                &["2026-07-01", "佐藤", "鈴木", "FALSE", "", "", "zz"],
+            ],
+        ),
+        owner_hist: empty(&["date", "owner", "retired", "deal_id"]),
+        meta: tiny(
+            &["key", "value"],
+            &[&["データ取得時刻(JST)", "2026-09-15 09:00:00"]],
+        ),
+        all_cached: false,
+    }
+}
+
+fn ho_row<'a>(v: &'a Value, deal: &str) -> &'a Value {
+    v["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["deal_id"] == deal)
+        .unwrap_or_else(|| panic!("{deal} の行が無い"))
+}
+
+#[test]
+fn 交代の前後は同じ拠点で動いていた案件1件の日だけで数える() {
+    let v = build_handover(&handover_tiny(), fixture_day());
+    let win = |deal: &str| -> (i64, i64, i64, i64) {
+        let x = &ho_row(&v, deal)["contact"];
+        let n = |w: &str, k: &str| x[w][k].as_i64().unwrap();
+        (
+            n("before", "days"),
+            n("before", "contacts"),
+            n("after", "days"),
+            n("after", "contacts"),
+        )
+    };
+    // S1: 前は a1 の 60日（05-02〜06-30）に 3回（a2 に付いていた 6/20 を a1 に付け直す）。
+    //     後は a2 の 60日に 1回（8/30 は窓の外）
+    assert_eq!(win("a1"), (60, 3, 60, 1));
+    // 同じ交代の行には同じ値
+    assert_eq!(win("a2"), win("a1"));
+    assert_eq!(
+        ho_row(&v, "a1")["contact"]["event"],
+        ho_row(&v, "a2")["contact"]["event"]
+    );
+    let a = &ho_row(&v, "a1")["contact"];
+    assert_eq!(a["status"], "ok");
+    assert_eq!(a["dir"], "down");
+    assert!((a["before"]["per30"].as_f64().unwrap() - 1.5).abs() < 1e-12);
+    assert!((a["after"]["per30"].as_f64().unwrap() - 0.5).abs() < 1e-12);
+    assert!((a["change"].as_f64().unwrap() + 1.0).abs() < 1e-12);
+    // S2: 重なる 06-01〜06-10 は窓に入れない（6/5 の通話も数えない）。前 50日に 1回、後 60日に 2回（通話＋MTG）
+    assert_eq!(win("b1"), (50, 1, 60, 2));
+    assert_eq!(ho_row(&v, "b1")["contact"]["status"], "ok");
+    assert_eq!(ho_row(&v, "b1")["contact"]["dir"], "up");
+    // S3: 前に動いていた案件は 06-20〜06-30 の 11日だけ → 短い（前に案件が無い）
+    let c = &ho_row(&v, "c1")["contact"];
+    assert_eq!(c["status"], "short");
+    assert_eq!(c["why"], "before");
+    assert_eq!(c["before"]["days"], 11);
+    // S4: 後の窓（08-01〜09-29）は 9/14 まで（45日）。案件はまだ動いているので途中
+    let d = &ho_row(&v, "d1")["contact"];
+    assert_eq!(d["status"], "provisional");
+    assert_eq!(d["after"]["days"], 45);
+    // S5: 前の窓（02-09〜04-09）が通話の記録の始まり（03-23）より前にかかり、18日しか無い
+    let e = &ho_row(&v, "e1")["contact"];
+    assert_eq!(e["status"], "short");
+    assert_eq!(e["why"], "calls");
+    assert_eq!(e["before"]["days"], 18);
+    // 取引が見つからない行は数えない（0 回にしない）
+    assert!(ho_row(&v, "zz")["contact"].is_null());
+
+    let c = &v["contact_cmp"];
+    // 交代は S1〜S5 の 5件（S1 の2行は1件）
+    assert_eq!(c["n_events"], 5);
+    assert_eq!(c["n_ok"], 2);
+    assert_eq!(c["n_up"], 1);
+    assert_eq!(c["n_down"], 1);
+    assert_eq!(c["n_provisional"], 1);
+    assert_eq!(
+        c["short_why"],
+        serde_json::json!({"calls": 1, "before": 1, "after": 0})
+    );
+    assert_eq!(c["meta"]["n_unavailable_rows"], 1);
+    assert_eq!(c["meta"]["last_day"], "2026-09-14");
+}
+
+#[test]
+fn 交代の前後の担当者のまとめは同じ交代を1件と数え母数の小さい人に印を付ける() {
+    let v = build_handover(&handover_tiny(), fixture_day());
+    let c = &v["contact_cmp"];
+    let find = |side: &str, label: &str| -> Value {
+        c[side]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["label"] == label)
+            .cloned()
+            .unwrap_or_else(|| panic!("{side} に {label} が無い"))
+    };
+    // 引き継いだ側の鈴木: S1（2行で1件）・S3・S4・S5 の 4件。比べられたのは S1 だけ
+    let s = find("by_to", "鈴木");
+    assert_eq!(s["n_events"], 4);
+    assert_eq!(s["n_ok"], 1);
+    assert_eq!(s["n_down"], 1);
+    assert_eq!(s["n_short"], 2);
+    assert_eq!(s["n_provisional"], 1);
+    assert!((s["median_change"].as_f64().unwrap() + 1.0).abs() < 1e-12);
+    assert_eq!(s["small"], true);
+    // 引き継がれた側の佐藤: S1・S2 の 2件（取引が見つからない行は数えない）
+    let p = find("by_from", "佐藤");
+    assert_eq!(p["n_events"], 2);
+    assert_eq!(p["n_ok"], 2);
+    assert_eq!(p["n_up"], 1);
+    assert_eq!(p["n_down"], 1);
+    // 偶数個の中央値は中2つの平均: S1 は −1.0、S2 は 2回×30/60 − 1回×30/50 = 0.4
+    assert!((p["median_change"].as_f64().unwrap() - (-1.0 + 0.4) / 2.0).abs() < 1e-12);
+    // 担当が空の行（S5 の from）は誰にも数えない
+    let from_n: i64 = c["by_from"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["n_events"].as_i64().unwrap())
+        .sum();
+    assert_eq!(
+        from_n, 4,
+        "引き継がれた側の件数の合計（S1 S2 佐藤・S3 S4 田中）"
+    );
+    // メールアドレスを名前として出さない
+    let to = c["by_to"].as_array().unwrap();
+    let u = to.iter().find(|r| r["unresolved"] == true).unwrap();
+    assert!(!u["label"].as_str().unwrap().contains('@'), "{u}");
+    assert_eq!(u["unresolved_no"], 1);
+    assert!(
+        !c.to_string().contains("x.y@example.co.jp"),
+        "まとめにメールアドレスが出ている"
+    );
+    // 母数の印は MIN_PERSON_N 件未満
+    assert_eq!(super::handover_contact::MIN_PERSON_N, 5);
+    for side in ["by_to", "by_from"] {
+        for r in c[side].as_array().unwrap() {
+            assert_eq!(r["small"], r["n_ok"].as_u64().unwrap() < 5, "{r}");
+        }
+    }
+}
+
+#[test]
+fn 交代の前後の増減は丸めずに比べ変わらないを分ける() {
+    use super::handover_contact::{Cmp, Status, Window};
+    let w = |days, contacts| Window { days, contacts };
+    let c = |b, a| Cmp {
+        status: Status::Ok,
+        before: b,
+        after: a,
+    };
+    // 60日に 2回と 30日に 1回は同じ（30日あたり 1.0）
+    assert_eq!(c(w(60, 2), w(30, 1)).dir(), Some("same"));
+    assert_eq!(c(w(60, 2), w(30, 1)).change(), Some(0.0));
+    // 前後とも 0回は変わらない（減ったにしない）
+    assert_eq!(c(w(60, 0), w(60, 0)).dir(), Some("same"));
+    // 3回/60日 と 3回/59日 はわずかでも増えた
+    assert_eq!(c(w(60, 3), w(59, 3)).dir(), Some("up"));
+    // 日数0の窓は値が無い（0 回として比べない）
+    assert_eq!(c(w(0, 0), w(60, 3)).dir(), None);
+    assert_eq!(c(w(0, 0), w(60, 3)).change(), None);
+    assert_eq!(w(0, 0).per30(), None);
+}
+
+/// 画面に出す断り（交代が接触を増減させた証拠ではない・向きは決まらない）と決まりごと。
+#[test]
+fn 交代の前後の接触は証拠ではないと書く() {
+    let v = build_handover(&sheets(), fixture_day());
+    let c = &v["contact_cmp"];
+    let t = c["not_causal"].as_str().unwrap();
+    for w in [
+        "証拠ではありません",
+        "危ない案件だから担当を替えた可能性",
+        "向きは決まりません",
+        "差が消え",
+        "検知専用",
+    ] {
+        assert!(t.contains(w), "断りに「{w}」が無い: {t}");
+    }
+    let r = c["rule"].as_str().unwrap();
+    for w in [
+        "前60日",
+        "30日あたり",
+        "60秒超の通話",
+        "メールは数えない",
+        "付け直し",
+        "1件だけの日",
+        "30日未満",
+        "途中（未確定）",
+    ] {
+        assert!(r.contains(w), "決まりごとに「{w}」が無い: {r}");
+    }
+    assert!(c["dedupe_rule"].as_str().unwrap().contains("1件の交代"));
+    assert!(c["dir_rule"].as_str().unwrap().contains("5 件未満"));
+}
