@@ -770,9 +770,39 @@ function labText(x, y, s, maxW, attrs, full, lines) {
     省略記号で切り、4本とも「MTGが…途絶」に見えた。帯のラベルは省略より折り返しを優先する。
     - 数字の途中・数字と単位の間・開き括弧の直後・閉じ括弧の手前では切らない（wrapText と同じ）
     - 「が」「の」「期」の後ろ・括弧の手前で切れるならそこを選ぶ（語の途中より読みやすい）
-    - 2行目も入らないときは、2行目だけを fitLab で切る（見分けの語は残る） */
+    - 2行目も入らないときは、2行目だけを fitLab で切る（見分けの語は残る）
+    🔴 2026-09-24 検証（385px, ループ4 の後）: 2行目が幅に入るかと左右の釣り合いだけで選んでいて、
+    「充足（採れ / て終わった）」「立ち上がり期（契 / 約開始30日以内）」「採用単価が同じ進 / 捗帯の1.5倍以上」
+    「満了90日前でMTG / が30日以上途絶」と、括弧の中・語の途中・助詞の手前で切れていた。
+    括弧の中（labBreakCost の -300）・語の途中（漢字・カタカナ・ひらがなどうし）・行の頭の助詞は減点する。
+    2行目が幅に入ること（+1000）はそれより優先する（入らないと fitLab で字を落とすため） */
 /** a と b の間で切ると語が割れる（英字どうし「MT / G」、「以 / 上」「以 / 内」）。labWrap が使う */
 const wordGlue = (a, b) => (/[A-Za-z]/.test(a || "") && /[A-Za-z]/.test(b || "")) || (a === "以" && /[上下内外]/.test(b || ""));
+/** 字の種類（labBreakCost）。H ひらがな / K カタカナ / C 漢字 / A 英字 / D 数字 / P そのほか */
+const chKind = (c) => (/[ぁ-ゟ]/.test(c || "") ? "H" : /[゠-ヿ]/.test(c || "") ? "K"
+  : /[一-鿿々]/.test(c || "") ? "C" : /[A-Za-z]/.test(c || "") ? "A" : /[0-9]/.test(c || "") ? "D" : "P");
+/** ch[k-1] と ch[k] の間で切るときの減点（labWrap）。
+    - 括弧の中: -300（「充足（採れ / て終わった）」）
+    - 漢字どうし: 続いた漢字の奇数字目の後ろ -150、偶数字目 -50（2字の熟語が多い。「進 / 捗帯」より「契約 / 開始」）
+    - カタカナどうし -150、ひらがなどうし -60（「採れ / て」）
+    - 行の頭に助詞（「MTG / が30日」）: -150 */
+function labBreakCost(ch, k) {
+  let cost = 0, depth = 0;
+  for (let i = 0; i < k; i++) {
+    if (/[（(「『【〔]/.test(ch[i])) depth++;
+    else if (/[）)」』】〕]/.test(ch[i])) depth = Math.max(0, depth - 1);
+  }
+  if (depth > 0) cost -= 300;
+  const a = chKind(ch[k - 1]), b = chKind(ch[k]);
+  if (a === "C" && b === "C") {
+    let run = 0;
+    for (let i = k - 1; i >= 0 && chKind(ch[i]) === "C"; i--) run++;
+    cost -= run % 2 ? 150 : 50;
+  } else if (a === "K" && b === "K") cost -= 150;
+  else if (a === "H" && b === "H" && !/[がのをにはでと]/.test(ch[k - 1])) cost -= 60;
+  if (/[がのをにはでとへも]/.test(ch[k]) && a !== "H") cost -= 150;
+  return cost;
+}
 function labWrap(s, maxW) {
   s = String(s == null ? "" : s);
   if (!(maxW > 0) || textW(s) <= maxW) return null;
@@ -782,8 +812,8 @@ function labWrap(s, maxW) {
     const a = ch.slice(0, k).join(""), b = ch.slice(k).join("");
     if (textW(a) > maxW) break;
     if (NO_HEAD.test(ch[k]) || NO_TAIL.test(ch[k - 1]) || numGlue(ch[k - 1], ch[k]) || wordGlue(ch[k - 1], ch[k])) continue;
-    const good = /[がのをにはと期・）)＿_ 　]/.test(ch[k - 1]) || /[（(]/.test(ch[k]);
-    const score = (textW(b) <= maxW ? 1000 : 0) + (good ? 100 : 0) - Math.abs(textW(a) - textW(b)) / 10;
+    const good = /[がのをにはでと期・）)＿_ 　]/.test(ch[k - 1]) || /[（(]/.test(ch[k]);
+    const score = (textW(b) <= maxW ? 1000 : 0) + (good ? 100 : 0) + labBreakCost(ch, k) - Math.abs(textW(a) - textW(b)) / 10;
     if (!best || score > best.score) best = { k, score };
   }
   if (!best) return null;
