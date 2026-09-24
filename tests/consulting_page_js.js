@@ -1063,6 +1063,27 @@ check("L4", "契約の系列の表: 取引・ステージ・拠点を折り返�
       throw new Error("契約の系列の「" + c + "」が折り返す列（" + w + "）になっていない");
 });
 
+check("L4", "houjin: 「拠点をまたいで1本の線にしない」と基準日を1回ずつにし、他の法人と比べるの見出しは1つ", async () => {
+  const t = boot();
+  const D = customerPayload([deal({ deal_id: "h1" }), deal({ deal_id: "h2", site: "S2" })], {
+    meta: { found: true, houjin: "H1", today: "2026-09-24",
+      not_counted: "※ 採用単価は拠点ごとに分けています。1本にまとめると拠点間のばらつきが時間の悪化に見えます" },
+    cpa3: [{ deal_id: "h1", name: "案件", total: 900000, monthly: 600000, syoudaku: 2 }],
+  });
+  t.ctx.__D = D;
+  t.R('customerHoujin = "H1"; houjinFor = ""; houjinPick = null;');
+  const h = t.R("renderHoujin(__D)");
+  const n = count(h, /時間の悪化/g);
+  if (n !== 1) throw new Error("「1本にまとめると…時間の悪化に見える」が " + n + " 回出ている（頭の枠の1回にする）");
+  if (h.indexOf("1本の線にまとめない理由") >= 0) throw new Error("「1本の線にまとめない理由」の枠が残っている");
+  const b = count(h, /基準日 2026-09-24/g);
+  if (b !== 1) throw new Error("基準日が " + b + " 回出ている");
+  const at = h.indexOf("他の法人と比べる");
+  if (at < 0 || h.lastIndexOf('<h2 class="sec mincho"><span class="no">問い</span>', at) < h.lastIndexOf("<h2", at))
+    throw new Error("「他の法人と比べる」が問いの見出しになっていない（下の本部アプローチの問いと2つ続く）");
+  if (h.indexOf("横軸は採用単価（万円）") < 0) throw new Error("採用単価を3つの出し方で見る図に単位（万円）が無い");
+});
+
 /* ---------------------------------------------------------------- 実行 */
 (async () => {
   if (mainJs == null) {
