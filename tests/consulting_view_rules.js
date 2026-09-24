@@ -2952,7 +2952,10 @@ check("交代の前後: 同じ交代の行は1本にし、短い・途中・数�
   ok(t.includes("本体案件が重なる日が多い") && t.includes("いちばん多い理由"), "短い理由に「重なり」が無い、または理由の決め方を書いていない");
   ok(t.includes("窓から外した日が、交代 1 件で合わせて 10 日"), "重なりで外した日数を書いていない");
   ok(t.includes("途中 1 件") && t.includes("2026-09-13 まで"), "途中の件数と、数えた最後の日を書いていない");
-  ok(/前 1\.50（60日・2026-05-02〜2026-06-30）→ 後 0\.50（60日・2026-07-01〜2026-08-29）/.test(svg), "比べた日数と担当期間（前 N日・期間 / 後 M日・期間）を添えていない");
+  /* 2026-09-25: 注記は「前 → 後（日数 / 日数）」だけにし、担当期間（開始〜終了）は棒の説明（title）に回した（右端からはみ出したため） */
+  ok(/>前 1\.50 → 後 0\.50（60日 \/ 60日）<\/text>/.test(svg), "注記が「前 → 後（前の日数 / 後の日数）」の形でない");
+  ok(/<title>[^<]*前の担当期間 2026-05-02〜2026-06-30（60日）→ 後の担当期間 2026-07-01〜2026-08-29（60日）<\/title><\/rect>/.test(svg), "棒の説明（title）に担当期間（開始〜終了）と日数が無い");
+  ok(!/<text[^>]*>[^<]*2026-05-02〜/.test(svg), "担当期間（開始〜終了）を注記に残している");
 });
 
 check("交代の前後: 担当者のまとめは母数を添え、少ない人は印を付けて図に出さない。氏名不明は番号で分ける", () => {
@@ -3017,8 +3020,11 @@ check("交代の前後: 後の担当がまだ担当中の交代は、締め日�
   const svg = firstSvg(p);
   /* 狭い幅では注記が折り返されるので、文字だけをつないで見る */
   const flat = svg.replace(/<[^>]+>/g, "").replace(/\s+/g, "");
-  ok(flat.includes("後1.00（60日・2026-06-01〜2026-09-13）。後の担当はまだ担当中（締め日までの通期）"), "担当中の交代の棒に断りが無い: " + flat);
-  ok(!flat.includes("後0.50（60日・2026-07-01〜2026-08-29）。後の担当"), "担当中でない交代に断りが付いている");
+  /* 注記には短い印（後は担当中）、棒の説明（title）には断りの全文 */
+  ok(flat.includes("前0.60→後1.00（50日/60日・後は担当中）"), "担当中の交代の注記に短い印が無い: " + flat);
+  ok(flat.includes("後の担当期間2026-06-01〜2026-09-13（60日）。後の担当はまだ担当中（締め日までの通期）"), "担当中の交代の棒の説明に断りが無い: " + flat);
+  ok(!flat.includes("後0.50（60日/60日・後は担当中）") && !flat.includes("2026-08-29（60日）。後の担当"), "担当中でない交代に断りが付いている");
+  ok(textOf(p).includes("後は担当中」の交代は、後の担当はまだ担当中"), "凡例に短い印「後は担当中」の意味を書いていない");
   ok(t.includes("同じ拠点の交代どうしの間が短い"), "短い理由に「交代どうしの間が短い」が無い");
 });
 
@@ -3119,6 +3125,72 @@ check("0 を中心にした横棒: 負の値の文字は、入るなら棒の左
     }
   }
   ok(left > 0 && right > 0, "左に置く幅と右に置く幅の両方を通っていない（left " + left + " / right " + right + "）");
+});
+
+/* 🔴 2026-09-25 本番（394bfda）実測: 担当の交代「交代ごとの接触の変化」で、行の注記
+   「前 1.69（124日・2026-04-22〜2026-08-23）→ 後 1.00（30日・2026-…）」が SVG の右端からはみ出し、
+   日付の終わりが切れていた（1440px で SVG 幅 1104 に対し注記の右端 1117〜1131 が 14 か所、400px で 21 か所）。
+   注記の text が viewBox の外に出ないことを、1440 相当（avail 1104）と 400 相当（319）で確かめる。
+   文字幅は画面と同じ textW で見積もる（折り返した tspan は1行ずつ見る） */
+const noteOverflow = (svg) => {
+  const W = figW(svg);
+  const tw = run("textW");
+  const out = [];
+  for (const m of svg.matchAll(/<text class="ax"(?![^>]*text-anchor)([^>]*)>([\s\S]*?)<\/text>/g)) {
+    const x = +(/ x="([0-9.]+)"/.exec(m[1]) || [])[1];
+    const lines = /<tspan/.test(m[2])
+      ? [...m[2].matchAll(/<tspan([^>]*)>([^<]*)<\/tspan>/g)].map((t) => ({ x: +((/ x="([0-9.]+)"/.exec(t[1]) || [])[1] || x), s: t[2] }))
+      : [{ x, s: m[2].replace(/<[^>]+>/g, "") }];
+    lines.forEach((l) => {
+      const s = l.s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      const right = l.x + tw(s);
+      if (!(right <= W + 0.5)) out.push(s + "（右端 " + right.toFixed(1) + " / 幅 " + W + "）");
+    });
+  }
+  return { W, out };
+};
+{
+  const cw = (d, c, st, en) => ({ days: d, contacts: c, per30: d ? c * 30 / d : null, start: st || null, end: en || null });
+  const H = JSON.parse(JSON.stringify(ctx.__HOC));
+  const names = ["（伏字）ケアサポートかがやき居宅介護支援事業所 継続②", "（伏字）三菱ケミカルテクニカ株式会社 鹿児島工場",
+    "（伏字）社会福祉法人さくら会 特別養護老人ホームさくらの里", "（伏字）宮崎商会 鹿児島工場 本体"];
+  H.rows = names.map((nm, i) => hoRow({ deal_id: "5000000000" + i, name: nm, date: "2026-08-2" + i,
+    contact: { status: "ok", why: null, event: "site:L" + i + "|2026-08-2" + i, ongoing: i % 2 === 0,
+      before: cw(124, 7, "2026-04-22", "2026-08-23"), after: cw(30, 1, "2026-08-24", "2026-09-22"),
+      change: 30 / 30 - 7 * 30 / 124, dir: "down" } }));
+  /* 変化が2桁の行（値の文字が長く、400px 相当で注記を棒の下に回せない幅）も入れる */
+  H.rows.push(hoRow({ deal_id: "50000000009", name: "（伏字）医療法人 あおば会 あおば訪問看護ステーション", date: "2026-08-19",
+    contact: { status: "ok", why: null, event: "site:L9|2026-08-19", ongoing: true,
+      before: cw(124, 50, "2026-04-22", "2026-08-23"), after: cw(30, 1, "2026-08-24", "2026-09-22"),
+      change: 30 / 30 - 50 * 30 / 124, dir: "down" } }));
+  ctx.__HOL = H;
+}
+check("交代の前後: 長い注記の行でも、注記が図（viewBox）の右端から出ない（1440 相当 / 400 相当）", () => {
+  for (const av of [1104, 319]) {
+    ctx.__AV = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [i, av]));
+    const h = run("FIGFIT.seq = 0; FIGFIT.avail = __AV; try { renderHandover(__HOL) } finally { FIGFIT.avail = null; FIGFIT.seq = 0; }");
+    const at = h.lastIndexOf("<svg", h.indexOf('aria-label="交代ごとの接触の変化"'));
+    ok(h.includes('aria-label="交代ごとの接触の変化"') && at >= 0, "avail " + av + ": 図「交代ごとの接触の変化」が無い");
+    const svg = firstSvg(h.slice(at));
+    ok(/前 1\.69/.test(svg), "avail " + av + ": 見張りの前提: 注記（前 1.69 …）が図に無い");
+    const r = noteOverflow(svg);
+    ok(r.W > 0, "avail " + av + ": 図の幅が取れない");
+    ok(!r.out.length, "avail " + av + ": 注記が図の右端から出ている " + r.out.length + " か所: " + r.out.slice(0, 3).join(" / "));
+  }
+});
+check("横棒（svgBarH）: 右の注記が枠に入らないときも、どの幅でも注記を図の外に出さない（汎用の歯止め）", () => {
+  const long = "前 1.69（124日・2026-04-22〜2026-08-23）→ 後 1.00（30日・2026-08-24〜2026-09-22）。後の担当はまだ担当中（締め日までの通期）";
+  for (const av of [1104, 900, 680, 480, 400, 319]) {
+    const svg = drawAt('svgBarH({ w: 680, fmt: F.d1, diverging: true, rows: [' +
+      '{ label: "2026-08-23 （伏字）ケアサポート", v: -0.69, txt: "−0.69 減った", note: ' + JSON.stringify(long) + ' },' +
+      '{ label: "2026-07-01 （伏字）宮崎商会", v: 0.4, txt: "+0.40 増えた", note: "前 1.50 → 後 1.90（60日 / 60日）" },' +
+      '{ label: "2026-08-19 （伏字）あおば会", v: -11.1, txt: "−11.10 減った", note: "前 12.10 → 後 1.00（124日 / 30日・後は担当中）" }] })', av);
+    const r = noteOverflow(svg);
+    ok(r.W > 0, "avail " + av + ": 図の幅が取れない");
+    ok(!r.out.length, "avail " + av + ": 注記が図の右端から出ている: " + r.out.join(" / "));
+    const flat = svg.replace(/<[^>]+>/g, "").replace(/\s+/g, "");
+    ok(flat.includes(long.replace(/\s+/g, "")), "avail " + av + ": 注記の文字が欠けている（折り返しで落とした）");
+  }
 });
 
 Promise.all(pendingChecks).then(() => {
