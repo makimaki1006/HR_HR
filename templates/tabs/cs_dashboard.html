@@ -962,8 +962,11 @@ function fig(caption, hint, body, legend) {
     if (seen.has(m[1])) continue;
     seen.add(m[1]); fulls.push(`<li><span class="muted">${m[2]}</span> … ${m[1]}</li>`);
   }
-  /* 図の中の「値が無い」の見せ方を凡例で説明する（svgHead の marks） */
-  const gapNote = /<svg [^>]*data-gap="1"/.test(body)
+  /* 図の中の「値が無い」の見せ方を凡例で説明する（svgHead の marks）。
+     🔴 値はあるが点を打たない月（継続率の n<30）がある図では、途切れの理由が「値が無い」だけではない。
+     その図は凡例に data-gapwhy="1" の段落で自分の理由を書くので、ここの決まり文句は出さない
+     （2026-09-24 検証: 「値が無いところです」と「n<30 は点を打っていません」が食い違っていた） */
+  const gapNote = /<svg [^>]*data-gap="1"/.test(body) && !/data-gapwhy="1"/.test(legend || "")
     ? '<i class="full">線が途切れているところは、その月の値が無いところです（0 ではありません）。</i>' : "";
   const noneNote = /<svg [^>]*data-none="1"/.test(body)
     ? lg("none", C.ghost, "灰色の短い線＝その月の記録が無い（0 の棒ではありません）") : "";
@@ -2658,6 +2661,10 @@ function renderRenewal(D) {
       yFmt: F.pct, yLab: "継続率", alt: "月次の継続率" }),
     lg("dot", C.ai, "確定した月（結果待ち0件・n " + MIN_N + " 以上）") +
     lg("ring", C.ai, "未確定（結果待ちがある月）") +
+    (fewN.length
+      ? '<i class="full" data-gapwhy="1">線が途切れているところは、点を打っていない月（決着が ' + MIN_N +
+        " 件に届かない月）か、率が出せない月です（0 ではありません）。</i>"
+      : "") +
     '<i class="full">中空・破線の月は、結果待ちがまだ残っていて率が動く月です。' +
     "<b>確定値と同じには読まないでください。</b>" +
     "点の下の n は決着した件数です。" +
