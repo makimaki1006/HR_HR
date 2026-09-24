@@ -1567,18 +1567,34 @@ function svgBarH(o) {
   const pad = { l: padL, t: 8, b: o.xLab ? 36 : 22,
                 r: compact ? Math.ceil(valW + 4)
                            : o.padR || Math.max(0, Math.min(w - padL - 160, padR0)) };
+  const iw = Math.max(60, w - pad.l - pad.r);
+  /* 注記は右端ぞろえにせず、値ラベルの欄のすぐ右に左ぞろえで並べる。
+     棒が短い行は値ラベルから注記まで細い線でつなぎ、どの行の注記か目で追えるようにする。
+     🔴 つなぐ線は**実線**（薄い色）。このダッシュボードでは破線・点線は「未確定・持ち越し」の意味なので、
+     点線にすると短い棒の行が未確定に見える（2026-09-23 検証。前は stroke-dasharray="1 3"） */
+  let xNote = Math.max(pad.l + iw + 4, Math.min(pad.l + iw + valW, w - 2 - noteW));
+  /* 🔴 2026-09-25 本番実測（担当の交代「交代ごとの接触の変化」）: 右の欄が注記より狭いと、注記が SVG の右端から
+     はみ出して切れていた（1440px で SVG 幅 1104 に対し右端 1117〜1131、400px でも 21 か所）。
+     右の欄に入らない注記は、値の欄の右（xFull）から右端までの幅で折り返す。その幅が NOTE_MIN_W に満たないときは、
+     その行の注記を棒の下の行に回す（compact と同じ置き方）。入る注記しか無い図は、これまでと同じ描き方 */
+  const xFull = pad.l + iw + valW;
+  const over = !compact && rows.some(r => r.note && xNote + textW(r.note) > w - 2);
+  const wrapRight = over && w - 2 - xFull >= NOTE_MIN_W;
+  if (wrapRight) xNote = xFull;
+  const under = rows.map(r => compact || (over && !wrapRight && !!r.note && xNote + textW(r.note) > w - 2));
   /* 注記を下の行に回すとき（compact）は、棒の欄の左端から右端までの幅で折り返す */
-  const noteLines = rows.map(r => (!r.note ? [] : compact ? wrapText(r.note, w - pad.l - 4) : [r.note]));
+  const noteLines = rows.map((r, i) => (!r.note ? [] : under[i] ? wrapText(r.note, w - pad.l - 4)
+    : wrapRight ? wrapText(r.note, w - 2 - xNote) : [r.note]));
   /* 狭い枠（compact）で欄に入らないラベルは、省略せずに2行に折り返す（labWrap。行の高さを足す） */
   const labLines = rows.map(r => (compact ? labWrap(r.label, pad.l - 12) : null));
   /* 前回の値の印（v0）は棒の上下にはみ出すので、棒の下に回した注記を 4px 下げる。
      🔴 2026-09-24 実機（400px, ループ4）: focus の「38.40倍」、renewal の「n=」に前回の破線の枠がかかっていた */
   const V0_DROP = 4;
   const rowH = rows.map((r, i) => Math.max(labLines[i] ? 30 : 0,
-    rh + (compact ? 13 * noteLines[i].length + (r.v0 != null && noteLines[i].length ? V0_DROP : 0) : 0)));
+    under[i] ? rh + 13 * noteLines[i].length + (r.v0 != null && noteLines[i].length ? V0_DROP : 0)
+             : Math.max(rh, noteLines[i].length > 1 ? 13 * noteLines[i].length + 8 : 0)));
   const rowTop = []; rowH.reduce((a, hh, i) => (rowTop[i] = a, a + hh), pad.t);
   const h = pad.t + pad.b + rowH.reduce((a, b) => a + b, 0);
-  const iw = Math.max(60, w - pad.l - pad.r);
   const fmt = o.fmt || F.int;
   // 🔴 v0（前の値の破線）も軸に入れる。入れないと v より大きいときに枠の外へ出る
   const vs = rows.filter(r => r.v != null).map(r => r.v)
@@ -1601,11 +1617,6 @@ function svgBarH(o) {
   }
   const X = v => pad.l + iw * (v - lo) / (hi - lo || 1);
   const x0 = X(o.diverging ? 0 : lo);
-  /* 注記は右端ぞろえにせず、値ラベルの欄のすぐ右に左ぞろえで並べる。
-     棒が短い行は値ラベルから注記まで細い線でつなぎ、どの行の注記か目で追えるようにする。
-     🔴 つなぐ線は**実線**（薄い色）。このダッシュボードでは破線・点線は「未確定・持ち越し」の意味なので、
-     点線にすると短い棒の行が未確定に見える（2026-09-23 検証。前は stroke-dasharray="1 3"） */
-  const xNote = Math.max(pad.l + iw + 4, Math.min(pad.l + iw + valW, w - 2 - noteW));
   let g = "";
   /* 🔴 2026-09-24 検証（400px, 担当の交代「交代ごとの変化」）: 0 を中心にした軸の目盛りが
      「-10.0-5.0 0.0 5.0 10.0」と詰まり、-10.0 と -5.0 が間を空けずにつながって読めなかった。
@@ -1623,7 +1634,8 @@ function svgBarH(o) {
   g += `<line class="axisline" x1="${x0.toFixed(1)}" y1="${pad.t}" x2="${x0.toFixed(1)}" y2="${h - pad.b + 2}"/>`;
   if (o.xLab) g += `<text class="ax" data-xlab="1" x="${(pad.l + iw).toFixed(1)}" y="${h - 4}" text-anchor="end">${esc(o.xLab)}</text>`;
   rows.forEach((r, i) => {
-    const y = rowTop[i] + rh / 2, bh = Math.min(14, rh - 8);
+    /* 右の注記を折り返して行を高くしたときは、棒を行の真ん中に置く */
+    const y = rowTop[i] + (under[i] ? rh : rowH[i]) / 2, bh = Math.min(14, rh - 8);
     const col = r.color || C.ai;
     g += labText(pad.l - 9, (y + 4).toFixed(1), r.label, pad.l - 12, "", r.full, labLines[i]);
     let tipX = x0 + 7 + textW("— 記録なし");   // 値の文字の右端（注記へつなぐ点線の起点）
@@ -1633,7 +1645,7 @@ function svgBarH(o) {
     } else {
       const xa = Math.min(x0, X(r.v)), bw = Math.max(1.5, Math.abs(X(r.v) - x0));
       g += `<rect x="${xa.toFixed(1)}" y="${(y - bh / 2).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh}" rx="2" style="fill:${col}" opacity="${r.faint ? ".34" : ".82"}">` +
-           `<title>${esc(r.label)}: ${esc(fmt(r.v))}${r.n != null ? " (n=" + r.n + ")" : ""}</title></rect>`;
+           `<title>${esc(r.label)}: ${esc(fmt(r.v))}${r.n != null ? " (n=" + r.n + ")" : ""}${r.tip ? "&#10;" + esc(r.tip) : ""}</title></rect>`;
       // 前の値を中空の棒で重ねる。どこからどこへ動いたかを1行で見せる
       if (r.v0 != null) {
         /* 🔴 前回が 0 付近だと枠の幅が 1.5px になり、縦の軸の線に隠れて見えなかった
@@ -1663,18 +1675,21 @@ function svgBarH(o) {
       tipX = Math.max(right ? tx + tw : x0,
                       r.v0 != null ? X(r.v0) : x0);
     }
-    if (r.note && compact) {
+    if (r.note && under[i]) {
       /* 棒の下の行。棒の欄の左端（軸の位置）から左ぞろえ */
       noteLines[i].forEach((ln, k) =>
         g += `<text class="ax" data-under="1" x="${(pad.l + 2).toFixed(1)}" y="${(y + bh / 2 + 12 + (r.v0 != null ? V0_DROP : 0) + 13 * k).toFixed(1)}" style="fill:${r.noteColor || "var(--ink-3)"}">${esc(ln)}</text>`);
     } else if (r.note) {
       if (xNote - tipX > 24)
         g += `<line data-leader="1" x1="${(tipX + 5).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(xNote - 5).toFixed(1)}" y2="${y.toFixed(1)}" style="stroke:var(--rule-strong)" stroke-width=".8" opacity=".6"/>`;
-      g += `<text class="ax" x="${xNote.toFixed(1)}" y="${(y + 4).toFixed(1)}" style="fill:${r.noteColor || "var(--ink-3)"}">${esc(r.note)}</text>`;
+      noteLines[i].forEach((ln, k) =>
+        g += `<text class="ax" x="${xNote.toFixed(1)}" y="${(y + 4 + 13 * (k - (noteLines[i].length - 1) / 2)).toFixed(1)}" style="fill:${r.noteColor || "var(--ink-3)"}">${esc(ln)}</text>`);
     }
   });
   return svgHead(w, h, o.alt || "横棒", { fk: slot.k }) + `${g}</svg>`;
 }
+/** svgBarH の右の注記を折り返すときに、注記の欄として最低限残す幅。これより狭いときは注記を棒の下の行に回す */
+const NOTE_MIN_W = 60;
 /** 狭い枠で注記を下に回すとき（svgBarH の compact）、棒の欄として最低限残す幅 */
 const BAR_MIN_IW = 100;
 /** 前回の値の破線の枠（svgBarH の v0）を枠で描く最小の幅。これより狭いときは枠を描かずに縦の破線だけ置く */
@@ -5520,6 +5535,8 @@ const HO_WHY = {
 /** 担当期間（数えた最初の日〜最後の日） */
 const hoSpan = (w) => (w && w.start ? w.start + "〜" + w.end : "数えた日なし");
 const HO_ONGOING = "後の担当はまだ担当中（締め日までの通期）";
+/** 図の注記に付ける担当中の短い印（全文 HO_ONGOING は棒の説明と凡例に出す） */
+const HO_ONGOING_SHORT = "後は担当中";
 /** 交代の表の「接触の前後」のます */
 function hoCmpCell(c) {
   if (!c) return '<span class="n0" title="取引・契約期間・交代日のどれかが読めず、数えていません">数えていない</span>';
@@ -5609,14 +5626,20 @@ function renderHandoverContact(D) {
             label: (e.r.date || "") + " " + shortName(e.r.name || "", 12),
             full: (e.r.date || "") + " " + (e.r.name || ""), v: e.c.change,
             txt: hoDelta(e.c.change) + " " + (HO_DIR[e.c.dir] || ""),
-            note: "前 " + hoPer(e.c.before) + "（" + e.c.before.days + "日・" + hoSpan(e.c.before) + "）→ 後 " + hoPer(e.c.after) +
-              "（" + e.c.after.days + "日・" + hoSpan(e.c.after) + "）" + (e.c.ongoing ? "。" + HO_ONGOING : ""),
+            /* 🔴 2026-09-25 本番実測: 注記に期間（開始〜終了）と担当中の断りまで入れると長すぎ、SVG の右端から
+               はみ出して日付の終わりが切れていた。注記は「前 → 後（日数 / 日数）」と担当中の短い印だけにし、
+               期間と断りの全文は棒の説明（title。カーソルを当てると出る）に回す */
+            note: "前 " + hoPer(e.c.before) + " → 後 " + hoPer(e.c.after) +
+              "（" + e.c.before.days + "日 / " + e.c.after.days + "日" + (e.c.ongoing ? "・" + HO_ONGOING_SHORT : "") + "）",
+            tip: "前の担当期間 " + hoSpan(e.c.before) + "（" + e.c.before.days + "日）→ 後の担当期間 " + hoSpan(e.c.after) +
+              "（" + e.c.after.days + "日）" + (e.c.ongoing ? "。" + HO_ONGOING : ""),
             color: C.ai })) })
       : '<div class="empty">比べられた交代がありません。</div>',
     lg("box", C.ai, "交代1件（棒の長さ＝変化。右が増えた・左が減った）", BAR_OP) +
     '<i class="full">色で良し悪しを付けていません。向きは符号（＋ / −）と言葉で書いています。' +
-    "棒の右の「前 → 後」は " + num(M.per_days) + " 日あたりの接触と、比べた日数・期間です。" +
-    "「" + HO_ONGOING + "」の交代は、後の担当期間を締め日までで数えています。</i>");
+    "棒の右の「前 → 後」は " + num(M.per_days) + " 日あたりの接触と、比べた日数（前 / 後）です。" +
+    "担当期間（開始〜終了）は棒にカーソルを当てると出ます。" +
+    "「" + HO_ONGOING_SHORT + "」の交代は、後の担当はまだ担当中で、後の担当期間を締め日までで数えています。</i>");
   h += '<p class="muted small">外した交代: 比べるには短い ' + num(X.n_short) + " 件（" +
     [["gap", sw.gap], ["calls", sw.calls], ["before", sw.before], ["after", sw.after], ["overlap", sw.overlap]]
       .map((x) => esc(HO_WHY[x[0]]) + " " + num(x[1] || 0) + " 件").join("・") +
