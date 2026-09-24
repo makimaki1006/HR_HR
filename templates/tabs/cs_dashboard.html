@@ -306,6 +306,8 @@
               margin:0 0 2px; display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; }
   figure.fig > figcaption .hint{ font-weight:400; color:var(--ink-2); font-size:11.5px;
               letter-spacing:0; }
+  /* 数字と単位（「6.7倍」「12 件」）を行の途中で割らない（fig() の keepNum が包む） */
+  figure.fig > figcaption .hint .nw{ white-space:nowrap; }
   /* 🔴 2026-09-23 実機（400px 幅）: 図が縮むだけで文字が 4〜5px になっていた。
      図の最小幅を「描いた幅（--fw）の .92 倍」にして、11px の文字を 10px より小さくしない。
      入り切らない分は枠の中で横にスクロールする（ページ本体は広げない, V17）。
@@ -1067,6 +1069,16 @@ const F = {
 const minStepOf = (fmt) => (fmt === F.int ? 1 : fmt === F.man ? 10000 : 0);
 
 /** 図の外枠。figcaption と凡例をまとめて面倒をみる */
+/** 数字と単位を折れない塊（<span class="nw">）で包む。html はタグ・文字参照を含んでよい（中は触らない）。
+    🔴 2026-09-24 実機（ループ5）: 図の見出しの補足（.hint）は幅で折り返すので、houjin の
+    「拠点3 / 取引6 / 開き 6.7倍」が「6.7 / 倍」、rampup の「母数 12 件」が「12 / 件」と数字と単位の間で
+    折れうる（日本語は字の間どこでも折れる。数字と「倍」「件」の間も折れる）。
+    呼び出し側ごとに包むと新しい補足で漏れるので、fig() の入口でまとめて包む */
+const KEEP_NUM = /\d[\d,.]*[ \u00a0]?(?:法人|万円|ヶ月|か月|[%％倍件人社日秒円万回年月])/g;
+function keepNum(html) {
+  return String(html).split(/(<[^>]*>|&[#\w]+;)/)
+    .map((seg, i) => (i % 2 ? seg : seg.replace(KEEP_NUM, (m) => `<span class="nw">${m}</span>`))).join("");
+}
 function fig(caption, hint, body, legend) {
   /* 🔴 図の読み上げ名が「横棒」「構成比」のような既定値のままだった（V20）。
      呼び出し側で alt を渡していない図は、図の見出しを読み上げ名にする */
@@ -1120,7 +1132,7 @@ function fig(caption, hint, body, legend) {
   legend = (para > 0 ? legend.slice(0, para) + boxNote + legend.slice(para) : legend + boxNote) +
     noneNote + gapNote + shiftNote;
   return `<figure class="fig"><figcaption>${esc(caption)}` +
-    (hint ? `<span class="hint">${hint}</span>` : "") + `</figcaption>` +
+    (hint ? `<span class="hint">${keepNum(hint)}</span>` : "") + `</figcaption>` +
     (scroll ? `<div class="figscroll" style="--minw:${Math.ceil(minW)}px">← 図を横にスクロールできます →</div>` : "") +
     /* 🔴 横にスクロールする枠は Tab で止まれるようにする（キーボードの矢印で動かせる）。
        tabindex が無いと、枠に自動でフォーカスが当たるブラウザでしか動かせなかった（2026-09-23 検証）。
@@ -1152,6 +1164,8 @@ function lg(kind, color, label, op) {
       `<rect x="1.5" y="3.5" width="9" height="9" rx="2" fill="none" style="stroke:${color}" stroke-width="1"/>`,
     openbox: `<rect x="1.5" y="3.5" width="9" height="9" rx="2" style="fill:var(--panel);stroke:${color}" stroke-width="1.5" stroke-dasharray="2 1.6"/>`,
     ring: `<circle cx="6" cy="8" r="4.2" style="fill:var(--panel);stroke:${color}" stroke-width="1.6" stroke-dasharray="2 1.6"/>`,
+    /* 中空・実線の丸。散布図の p.open（outcome の「契約開始日が空」）と同じ描き方。破線の ring（未確定）とは分ける */
+    openpt: `<circle cx="6" cy="8" r="3.6" style="fill:var(--panel);stroke:${color}" stroke-width="1.6"/>`,
     line: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4"/>`,
     dash: `<path d="M0 8H12" style="stroke:${color}" stroke-width="2.4" stroke-dasharray="3 2.5"/>`,
     /* 縦の線。採用単価の図の「月割り」（棒の上に重ねた縦の線、cpa3Bars）と同じ描き方 */
@@ -1389,8 +1403,13 @@ function svgBoxH(o) {
      0〜150 になり、箱とひげが図の左 2/3 に縮んだ。目盛りを細かくしても字が詰まらない幅（広い枠）なら、
      刻みを細かくした中から軸の端がいちばん手前で止まるもの（0〜120）を選ぶ */
   const nColW = Math.max(...rows.map(q => textW("n=" + q.n)));
+  /* ラベル欄の上限。🔴 2026-09-24 実機（ループ5, 1440px, outcome「応募数 ÷ 掲載数」）: 上限 120px のままだと、
+     枠が 1,000px を超えていても「充足（採れて終わった）」（約 140px）が「充足（採…わった）」と省略された。
+     ラベル欄を 210px（横棒と同じ）まで取っても箱の欄が BOX_MIN_IW 残る広い枠では、省略しない幅を取る。
+     枠が分からない1回目と狭い枠は 120px のまま（狭い枠は下で詰めて2行に折り返す。その動きは変えない） */
+  const labCap = slot.avail && slot.avail >= labW(rows, 210) + Math.max(64, Math.ceil(nColW + 40)) + BOX_MIN_IW ? 210 : 120;
   const w0Est = slot.avail ? Math.min(slot.avail, Math.max(o.w || 680, FIT_MAX)) : (o.w || 680);
-  const iwEst = w0Est - (o.padL || labW(rows, 120)) - Math.max(64, Math.ceil(nColW + 40));
+  const iwEst = w0Est - (o.padL || labW(rows, labCap)) - Math.max(64, Math.ceil(nColW + 40));
   let tk = null;
   [4, 6, 8].forEach((want) => {
     const t = coverTicks(ticks(0, hi, want, minStepOf(fmt)), hi);
@@ -1410,7 +1429,7 @@ function svgBoxH(o) {
      🔴 2026-09-24 実機（ループ4, outcome の応募効率）: 枠が 319px（縦のスクロールバーのぶん狭い）だと
      ラベル欄 120 + 右の欄 64 + 箱の欄 150 に届かず、680px のまま横スクロールになって「充足」の箱と n= が
      奥に隠れた。届かないときはラベル欄を詰め（BOX_MIN_LAB まで）、入らないラベルは2行に折り返す */
-  let padL = o.padL || labW(rows, 120), narrow = false;
+  let padL = o.padL || labW(rows, labCap), narrow = false;
   const w0 = o.w || 680;
   let w = w0;
   if (slot.avail) {
@@ -1884,6 +1903,13 @@ function svgStackLanes(o) {
   /* 月が1つだけの図は、その点が真ん中（右の奥）に来るので、最初の月でも合わせる。
      枠の幅で描いた図（narrow）は横にスクロールしないので合わせない */
   if (first < n && !narrow) marks.x0 = X(first) - padL - 20;
+  /* 開いた直後は最新の側（値がある最後の月と、右の目盛りの欄）を右端に見せる（figToData の data-xr。x0 より優先）。
+     🔴 2026-09-24 実機（ループ5, 400px, series「サブスク継続①＿日本梱包運輸倉庫 筑…」）: 他の推移の図は
+     ループ4 で新しい側から開くようにしたが、この図だけ x0 のままで、開いた直後が古い側（scrollLeft=0/543）だった。
+     左のラベルは stickyLabels で貼り付いたまま残る */
+  let last = -1;
+  lanes.forEach((L) => { if (!L.empty) (L.pts || []).forEach((p, i) => { if (has(p) && i > last) last = i; }); });
+  if (last >= 0 && !narrow) marks.xr = Math.min(w, X(last) + padR);
   return stickyLabels(w, padL, Math.round(h - padB), labs,
     svgHead(w, h.toFixed(0), o.alt || "系列を縦に積んだ図", marks) + `${g}</svg>`);
 }
@@ -2068,8 +2094,12 @@ function svgScatter(o) {
   pts.forEach(p => {
     const jx = (o.jitter || 0) * rnd();
     const col = p.color || C.ai;
+    /* p.open: 中空・実線の丸（値は確かだが、塗りの点と分けて見せたいもの。outcome の「契約開始日が空」）。
+       破線の中空（censored ＝ 未確定）とは別の印にする */
     g += p.censored
       ? `<circle cx="${X(p.x + jx).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.4" fill="none" style="stroke:${col}" stroke-width="1.3" stroke-dasharray="2 1.6" opacity=".8"><title>${esc(p.label)} / 未確定</title></circle>`
+      : p.open
+      ? `<circle data-open="1" cx="${X(p.x + jx).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.4" style="fill:var(--panel);stroke:${col}" stroke-width="1.6"><title>${esc(p.label)}${p.note ? " / " + esc(p.note) : ""}</title></circle>`
       : `<circle cx="${X(p.x + jx).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.2" style="fill:${col}" opacity=".5"><title>${esc(p.label)}</title></circle>`;
   });
   (o.line || []).forEach((p, i, arr) => {
@@ -2219,6 +2249,8 @@ function svgDots(o) {
 }
 
 /* -------------------------------------------------------------- ファネル */
+/** 狭い枠で描くときに、棒を描く欄として最低限残す幅（これより狭くなるなら狭めずに横スクロール） */
+const FUNNEL_MIN_IW = 80;
 /** 応募 → 面接 → 採用。段の落ち方を幅で見る */
 function svgFunnel(o) {
   const st = (o.steps || []).filter(s => s.v != null);
@@ -2229,7 +2261,15 @@ function svgFunnel(o) {
      いちばん長い値ラベルの幅を測ってから、その先に注記を置く。 */
   const valW = Math.max(...st.map(s => String(F.int(s.v)).length)) * 7.4 + 10;
   const noteW = 84;
-  const w = o.w || 420, padL = o.padL || 62;
+  const padL = o.padL || 62;
+  /* 枠に合わせる（paintFigs）。🔴 2026-09-24 実機（ループ5, 400px, houjin「応募 → 面接 → 採用 の落ち方」）:
+     幅 420px 固定で描いていたので、枠（約 319px）から 64px はみ出し、「前段の N%」が横スクロールの奥にあった。
+     枠が描いた幅より狭く、棒の欄が FUNNEL_MIN_IW 残るなら枠の幅で描く（chromium 実測: 枠 319px・285px とも
+     応募 5 桁で収まる。下限 100 だと 285px の枠で届かず 420px のままだった）。広げはしない
+     （段が3つだけの図で、棒が 1,000px を超えても読みやすくならない） */
+  const slot = figSlot();
+  let w = o.w || 420;
+  if (slot.avail && slot.avail < w && slot.avail - padL - valW - noteW >= FUNNEL_MIN_IW) w = slot.avail;
   const iw = Math.max(40, w - padL - valW - noteW);
   let g = "";
   st.forEach((s, i) => {
@@ -2251,7 +2291,7 @@ function svgFunnel(o) {
       g += `<text class="ax" x="${(padL + bw + valW + 4).toFixed(1)}" y="${y + 21}" style="fill:${den ? "var(--ink-2)" : "var(--ghost)"}">前段の ${txt}${why ? `<title>${esc(why)}</title>` : ""}</text>`;
     }
   });
-  return svgHead(w, h, o.alt || "ファネル") + `${g}</svg>`;
+  return svgHead(w, h, o.alt || "ファネル", { fk: slot.k }) + `${g}</svg>`;
 }
 
 /* ------------------------------------------------------------ 積み上げ縦棒 */
@@ -4474,14 +4514,22 @@ function renderOutcome(D) {
     R.top.length
       ? svgScatter({ w: 680, h: 260,
           pts: R.top.filter((r) => r.amount != null && r.days_to_expiry != null)
+            /* 🔴 2026-09-24 実機（ループ5）: 契約開始日が空の行（no_start）を灰（C.ghost）で描いていたが、
+               灰はこの画面では「記録なし・未確定」の色。サーバ（routes.rs risk）はこの行を放置の軸の赤に数え、
+               「2軸とも赤」の件数（見出しの N 件・上の帯の最優先）にも入れている。灰のままだと、赤に数えた点が
+               赤に見えず、見た目と件数が食い違う。数え方（赤）に見た目を合わせ、赤の中空・実線の丸にして
+               「開始日が空で、契約後を切り出せない」ことを塗りの点と見分けられるようにする
+               （件数の側を灰に合わせると、サーバの判定と帯・見出しの件数まで変えることになる） */
             .map((r) => ({ x: r.days_to_expiry, y: r.amount,
-                           color: r.never_after_start ? C.hi : r.no_start ? C.ghost : C.ki,
+                           color: r.never_after_start || r.no_start ? C.hi : C.ki,
+                           open: !!r.no_start && !r.never_after_start,
+                           note: r.no_start ? "契約開始日が空（赤に数えています）" : "",
                            label: r.name || r.deal_id })),
           xFmt: F.int, yFmt: F.man, xLab: "満了まで（日）", yLab: "金額（万円）",
           alt: "最優先の広がり" })
       : '<div class="empty">最優先に当たる取引がありません。</div>',
     lg("dot", C.hi, "契約後に一度も接触していない", PT_OP) + lg("dot", C.ki, "接触から30日超", PT_OP) +
-    (R.top.some((r) => r.no_start) ? lg("dot", C.ghost, "契約開始日が空（契約後を切り出せない）", PT_OP) : ""));
+    (R.top.some((r) => r.no_start) ? lg("openpt", C.hi, "契約開始日が空（契約後を切り出せない）。赤に数えています") : ""));
   /* 🔴 ここにも並びの注記（order_note）を出していて、下の表の頭と同じ文が2回出ていた
      （2026-09-23 実機, V21 の残り）。散布図には並びが無いので、表の側だけに出す */
 

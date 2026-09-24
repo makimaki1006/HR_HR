@@ -904,7 +904,10 @@ check("図の部品(9): 横にスクロールしても左のラベルが残り�
 
 /* ================================================================ 第2弾: 文言と凡例（2026-09-23 デプロイ後の実機確認） */
 /* 描いた HTML から文字だけを取り出す（タグ・SVG を落とす） */
-const textOf = (h) => String(h).replace(/<svg[\s\S]*?<\/svg>/g, " ").replace(/<[^>]+>/g, " ");
+/* 数字と単位を折れない塊にした <span class="nw">（fig() の keepNum）は、画面では字の間に何も挟まない。
+   ほかのタグと同じく空白に置き換えると「同じ 3ヶ月 目でも」と、画面に無い空白で文が割れるので、外すだけにする */
+const textOf = (h) => String(h).replace(/<svg[\s\S]*?<\/svg>/g, " ")
+  .replace(/<span class="nw">([^<]*)<\/span>/g, "$1").replace(/<[^>]+>/g, " ");
 
 check("英語: 成果とリスク・定義と検証・電話に英語の用語を出さない", () => {
   // 電話の reach.note は routes.rs build_phone の文そのもの（直した後の文）
@@ -2544,6 +2547,90 @@ check("ループ4統合: 注記の折り返しで、とうに閉じた括弧の�
   ok(lines.join("") === "採用単価（万円）は同じ進捗帯の中央値と比べて1.5倍以上のときに赤で出しています", "字が落ちている: " + JSON.stringify(lines));
   const br = JSON.parse(run('JSON.stringify(wrapText("解約・充足 100%（決着済み 12件中）", 120))'));
   ok(br.some(l => l.startsWith("（決着済み")), "まだ閉じていない括弧の手前では切る動きが壊れた: " + JSON.stringify(br));
+});
+
+/* ================================================================ ループ5（本番 1586140 の実測の残り, 2026-09-24） */
+check("ループ5: 帯を縦に積む図（series の案件ごとの図）も、開いた直後を新しい側に合わせる（data-xr）。左のラベルは貼り付けたまま", () => {
+  const xr = (svg) => { const m = String(svg).match(/<svg [^>]*data-xr="(\d+)"/); return m ? +m[1] : null; };
+  const mx = JSON.stringify(monthsN(24));
+  const all = JSON.stringify(monthsN(24).map((_, i) => ({ v: i })));
+  const svg = drawAt('svgStackLanes({ w: 940, months: ' + mx + ', lanes: [{ type: "line", label: "応募", color: "blue", pts: ' + all + ' }] })', 319);
+  ok(xr(svg) >= 930, "帯を縦に積む図の data-xr が最新の月（右端）でない（開いた直後が古い側になる）: " + xr(svg));
+  ok(/class="sticklab"/.test(svg), "左のラベルを貼り付けていない");
+  // 最後の数か月に値が無い図は、値がある最後の月を右端に見せる（右の空の月だけが見えない）
+  const early = JSON.stringify(monthsN(24).map((_, i) => (i <= 12 ? { v: i } : null)));
+  const e = drawAt('svgStackLanes({ w: 940, months: ' + mx + ', lanes: [{ type: "line", label: "応募", color: "blue", pts: ' + early + ' }] })', 319);
+  ok(xr(e) > 400 && xr(e) < 800, "値がある最後の月に data-xr を合わせていない: " + xr(e));
+  // 枠の幅で描いた図（月が少ない）は横にスクロールしないので付けない
+  const one = drawAt('svgStackLanes({ w: 940, months: ["25-09"], lanes: [{ type: "line", label: "応募", color: "blue", pts: [{ v: 1 }] }] })', 319);
+  ok(xr(one) == null, "枠の幅で描いた図に data-xr が付いた");
+});
+
+check("ループ5: ファネル（houjin の応募 → 面接 → 採用）は 319px の枠に収め、「前段の N%」が枠の外に出ない", () => {
+  const code = 'svgFunnel({ steps: [{ label: "応募", v: 12345 }, { label: "面接", v: 2345, pair: { num: 2345, den: 12345, n: 40 } },' +
+    ' { label: "採用", v: 345, pair: { num: 345, den: 2345, n: 38 } }] })';
+  const svg = drawAt(code, 319);
+  ok(figW(svg) === 319, "ファネルが 319px の枠に収まっていない（420px 固定で 64px はみ出す）: " + figW(svg));
+  const tb = textBoxes(svg);
+  ok(tb.filter((b) => b.s.startsWith("前段の")).length === 2, "「前段の N%」が2つ出ていない");
+  ok(tb.every((b) => b.x0 >= -0.5 && b.x1 <= 319 + 1), "枠の外に出る文字: " + tb.filter((b) => b.x1 > 320).map((b) => b.s).join(" / "));
+  ok(!overlaps(svg).length, "文字が重なる: " + overlaps(svg).join(" / "));
+  // 縦のスクロールバーなどでさらに狭い枠（285px, chromium 実測）でも収める
+  const s285 = drawAt(code, 285);
+  ok(figW(s285) === 285 && textBoxes(s285).every((b) => b.x1 <= 285 + 1), "285px の枠でファネルが収まらない: " + figW(s285));
+  // 広い枠では広げない（段が3つの図を 1,000px に伸ばしても読みやすくならない）。1回目（枠が分からない）は 420px のまま
+  ok(figW(drawAt(code, 1116)) === 420 && figW(drawAt(code, null)) === 420, "広い枠・1回目で 420px のままでない");
+  ok(/<svg [^>]*data-fk="\d+"/.test(drawAt(code, null)), "枠の幅を測る印（data-fk）が無い（paintFigs が描き直さない）");
+});
+
+check("ループ5: 箱ひげは広い枠（1440px, 1116px）ではラベルを省略しない（outcome の「充足（採れて終わった）」）", () => {
+  const rows = '[{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, n: 742 },' +
+    '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 121, n: 142 }]';
+  const wide = drawAt("svgBoxH({ w: 680, xFmt: F.d1, rows: " + rows + " })", 1116);
+  const labs = [...wide.matchAll(/<text class="axl"[^>]*>([^<]*)</g)].map((m) => m[1]);
+  ok(labs.includes("充足（採れて終わった）") && !labs.some((t) => t.includes("…")),
+    "1116px の枠でラベルを省略した: " + labs.join(" / "));
+  const tb = textBoxes(wide);
+  ok(tb.every((b) => b.x0 >= -0.5) && !overlaps(wide).length, "ラベルが左端の外に出る・文字が重なる: " + overlaps(wide).join(" / "));
+  // 狭い枠（319px）は前と同じく2行に折り返す（省略しない）
+  const nar = drawAt("svgBoxH({ w: 680, xFmt: F.d1, rows: " + rows + " })", 319);
+  ok(/data-wrap="2"/.test(nar), "319px の枠で2行の折り返しが壊れた");
+});
+
+check("ループ5: 図の見出しの補足（.hint）で、数字と単位（「6.7倍」「12 件」）を折れない塊にする", () => {
+  const f = run('fig("x", "拠点3 / 取引6 / 開き 6.7倍。母数 12 件、<b data-n=\\"9件\\">2 法人</b>（&plusmn;1日で83.3%）契約 2025-12-18〜2026-06-17", "")');
+  const hint = (f.match(/<span class="hint">([\s\S]*?)<\/span><\/figcaption>/) || [0, ""])[1];
+  const nw = [...hint.matchAll(/<span class="nw">([^<]*)<\/span>/g)].map((m) => m[1]);
+  ["6.7倍", "12 件", "2 法人", "1日", "83.3%"].forEach((t) =>
+    ok(nw.includes(t), "「" + t + "」を折れない塊にしていない: " + nw.join(" | ")));
+  // タグの属性と文字参照の中は触らない
+  ok(hint.includes('<b data-n="9件">') && hint.includes("&plusmn;"), "タグの属性・文字参照を書き換えた: " + hint);
+  ok(/figcaption \.hint \.nw\{\s*white-space:nowrap/.test(html), ".hint .nw に white-space:nowrap の CSS が無い");
+});
+
+check("ループ5 outcome: 契約開始日が空（no_start）の点は、赤に数えているとおり赤系の中空で描く（灰＝記録なしの色にしない）", () => {
+  const O = JSON.parse(JSON.stringify(ctx.__OUT));
+  // routes.rs risk() は開始日が空の行を放置の軸の赤に数え、2軸とも赤（最優先）の行に入れる
+  O.risk.top = [
+    { name: "案件C", stage: "定期1", amount: 1200000, days_to_expiry: 30, ax3w: "契約開始日が空で、契約後の接触を切り出せない",
+      n_contact: 7, never_after_start: false, no_start: true },
+    { name: "案件D", stage: "定期1", amount: 900000, days_to_expiry: 40, ax3w: "最後の接触から45日",
+      n_contact: 3, never_after_start: false, no_start: false }];
+  ctx.__OUT6 = O;
+  const h = run("renderOutcome(__OUT6)");
+  const hi = run("C.hi"), ghost = run("C.ghost");
+  const c = h.match(/<circle[^>]*>(?=<title>案件C)/);
+  ok(c, "散布図に開始日が空の点（案件C）が無い");
+  ok(!c[0].includes(ghost), "開始日が空の点を灰（記録なし・未確定の色）で描いている: " + c[0]);
+  ok(c[0].includes("stroke:" + hi) && c[0].includes("fill:var(--panel)") && !/stroke-dasharray/.test(c[0]),
+    "開始日が空の点が赤の中空・実線の丸になっていない（赤に数えた件数と見た目が合わない）: " + c[0]);
+  // 開始日がある行（接触から30日超）は塗りの点のまま
+  const d = h.match(/<circle[^>]*>(?=<title>案件D)/);
+  ok(d && /style="fill:/.test(d[0]) && !/data-open/.test(d[0]), "開始日がある行の点まで中空にした: " + (d && d[0]));
+  // 凡例も同じ印（赤の中空）で、赤に数えていることを書く
+  const lgs = [...h.matchAll(/<i><svg [^>]*>((?:(?!<\/svg>)[\s\S])*)<\/svg>([^<]*)<\/i>/g)].filter((m) => m[2].startsWith("契約開始日が空"));
+  ok(lgs.length === 1 && lgs[0][1].includes("stroke:" + hi) && !lgs[0][1].includes(ghost) && lgs[0][2].includes("赤に数えています"),
+    "凡例の印・説明が点と合っていない: " + (lgs[0] ? lgs[0][0] : "無し"));
 });
 
 Promise.all(pendingChecks).then(() => {
