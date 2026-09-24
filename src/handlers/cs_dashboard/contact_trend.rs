@@ -9,6 +9,24 @@
 //! - **接触の定義は作り直さない。** `contacts_by_deal`（MTG または60秒超の通話。
 //!   メールは数えない。通話は日本時間 `call_date_jst`）をそのまま使う。
 //!   数えるのは**契約期間の中**の接触だけ（接触率と同じ範囲）。
+//! - 🔴 **接触は「その日に動いていた同じ拠点の本体案件」に付け直す**（`attach_contacts`）。
+//!   通話の `deal_id` は、その日に動いていた契約ではなく、**あとから作られた継続先の取引**に
+//!   付いていることが多い（HubSpot 側でなぜそうなるかは確かめていない。実データの付き方から分かったこと）。付いている取引の
+//!   契約期間だけで数えると、継続の前の月ほど通話が「契約開始前」として落ち、
+//!   確定した月の値も、あとで継続の取引が作られると下がる。
+//!   fixture（基準日 2026-09-18）の実測: 契約開始前として落ちていた接触のうち、同じ `kyoten_key` の
+//!   別の本体案件の契約期間に入るものが 2026-04 で 697件、05 で 623件、06 で 599件、07 で 567件、
+//!   08 で 283件。前の契約と継続の契約の組で見ると、継続の開始前の60秒超の通話は継続先に 2,318件・
+//!   前の契約に 278件付いていた（MTG は前の契約に 432件・継続先に 1件。通話だけが付き直されている）。
+//!   付け直さないと 2026-04 の全体は 1件あたり 0.85 回（514/608）、付け直すと 2.31 回（1,402/608。
+//!   オプションの取引に付いていた通話を同じ拠点の本体案件へ付け直した分も入る）。
+//!   付け直しの決まり: 付いている取引の契約期間の中ならそのまま。外なら（オプション契約に
+//!   付いている接触も）、同じ `kyoten_key` の本体案件のうち**その日が契約期間に入るものが1件だけ**
+//!   のときにその案件へ付け直す。0件（初めての契約の開始前・契約と契約のすき間）と、
+//!   2件以上（どれか決められない）は数えない。拠点キーが空の取引の接触も付け直さない。
+//!   `contacts_by_deal`（接触の定義）は作り直していない。付け先を決め直すだけ。
+//!   付け直した接触の数は期間ごとに `moved` で出す。拠点をまたいで付いた通話は直せないので、
+//!   確定した期間でもその分はあとで動きうる（画面に書く）。
 //! - **分母 ＝ その期間に担当として持っていた本体案件の数。** `deals_of`（オプション除外）
 //!   のうち、契約期間（開始日〜満了日）がその期間に**1日でも重なる**もの。
 //!   期間の途中で始まった・終わった案件も1件と数える（日割りにしない）。
@@ -17,6 +35,14 @@
 //!   `is_active = FALSE` になった案件が満了日まで動いている（fixture・基準日 2026-09-18 で、
 //!   満了日前なのに `is_active = FALSE` の26件のうち23件が「継続済」）。
 //!   開始日・満了日のどちらかが読めない案件は数えられないので外し、件数を出す。
+//!   🔴 画面の頭の「稼働中 N 件」（`population`・いまの `is_active`）とは**別の集合**。
+//!   fixture では 2026-09 の持ち案件が偶然同じ 604件になるが、9/18 時点で契約期間の中の本体案件は
+//!   551件で、稼働中なのに契約期間の外が 79件、契約期間の中なのに `is_active = FALSE` が 26件ある。
+//!   同じ集合に見えないよう、画面（`denom_rule`）に違いを書く。
+//!   🔴 満了日より前に解約・充足のステージへ移った案件も、満了日までは持っていたと数える。
+//!   ステージが書き換わった日は実際に手を離した日とは限らず、推測で終わりを早めないため。
+//!   fixture で、2026-04 以降に満了する案件のうち 31件がこれに当たる（ほとんどは数日の差。
+//!   長いものは解約 2026-08-07・満了 2027-01-30 など）。月に数件の影響（画面に書く）。
 //! - **分母0は空（null）。** 0 にしない。
 //! - **分母が小さい（`MIN_DEALS` 件未満）期間には印（`small_n`）。** 画面は図から外し、
 //!   表には残す（規律「n が小さいものを確定値の顔で並べない」）。
@@ -35,9 +61,9 @@
 //! - **今の週・月は途中なので未確定（`provisional`）。** データの取得日が今日より古いときは、
 //!   取得日を含む期間から先も未確定にする（まだ取れていない日がある）。
 //!   画面は中空＋破線で描く（規律「未確定は中空＋破線。実線と混ぜない」）。
-//! - 🔴 **通話の記録が始まる前の期間は比べられない。** `CS_通話明細` は fixture で 2026-03-22 から
+//! - 🔴 **通話の記録が始まる前の期間は比べられない。** `CS_通話明細` は fixture で 2026-03-23（日本時間）から
 //!   しか無く（MTG は 2025-08 以前からある）、それより前の月は MTG だけで数えることになる。
-//!   月で 12か月並べると 2025-10〜2026-02 が 1件あたり 0.3〜0.4 回、2026-07 以降が 1.8〜2.2 回に
+//!   月で 12か月並べると 2025-10〜2026-02 が 1件あたり 0.3〜0.4 回、2026-04 以降が 2.3〜3.1 回に
 //!   なり、「接触が増えた」ように見えるがデータの範囲が変わっただけ。
 //!   通話の記録が始まった日（`call_from`）より前に始まる期間には `calls_missing` を立て、
 //!   画面は図にも表にも出さない（出さない理由を書く）。
@@ -51,7 +77,10 @@ use std::collections::{BTreeMap, HashMap};
 use chrono::{Datelike, Duration, NaiveDate};
 use serde_json::{json, Value};
 
-use super::{call_date_jst, contacts_by_deal, data_as_of, date10, deals_of, flag_true, Sheets};
+use super::{
+    call_date_jst, contacts_by_deal, data_as_of, date10, deals_all_of, deals_of, flag_true, Deal,
+    Sheets,
+};
 use crate::handlers::call_quality::sheets::SheetData;
 
 /// これより少ない持ち案件の期間は `small_n`（図から外す。表には残す）。
@@ -176,6 +205,68 @@ fn owners_during(tl: &[OwnerEntry], a: NaiveDate, b: NaiveDate) -> Vec<&str> {
     out
 }
 
+/// 付け直したあとの接触。`(日, 付け直したか)`。日の昇順。
+pub type Attached = HashMap<String, Vec<(NaiveDate, bool)>>;
+
+/// 接触を、その日に動いていた本体案件に付ける（モジュールの頭の「付け直し」）。
+///
+/// - `raw`: `contacts_by_deal` の結果（接触の定義はそのまま）
+/// - `all`: オプションも含む全取引（付いている取引の拠点を引くため）
+/// - `spans`: 本体案件の契約期間（数える側と同じもの）
+///
+/// 返り値の2つめは、同じ拠点で契約期間の重なる本体案件が2件以上あって付け先を決められず、
+/// 数えなかった接触の数。
+pub fn attach_contacts(
+    raw: &HashMap<String, Vec<NaiveDate>>,
+    all: &[Deal],
+    spans: &[(&str, NaiveDate, NaiveDate)],
+) -> (Attached, usize) {
+    let own: HashMap<&str, (NaiveDate, NaiveDate)> =
+        spans.iter().map(|&(id, s, e)| (id, (s, e))).collect();
+    let site: HashMap<&str, &str> = all
+        .iter()
+        .map(|d| (d.id.as_str(), d.kyoten_key.trim()))
+        .collect();
+    let mut by_site: HashMap<&str, Vec<(&str, NaiveDate, NaiveDate)>> = HashMap::new();
+    for &(id, s, e) in spans {
+        if let Some(k) = site.get(id).filter(|k| !k.is_empty()) {
+            by_site.entry(k).or_default().push((id, s, e));
+        }
+    }
+    let mut out: Attached = HashMap::new();
+    let mut ambiguous = 0usize;
+    for (id, days) in raw {
+        for &d in days {
+            // 付いている本体案件の契約期間の中なら、そのまま
+            if own.get(id.as_str()).is_some_and(|&(s, e)| s <= d && d <= e) {
+                out.entry(id.clone()).or_default().push((d, false));
+                continue;
+            }
+            let Some(k) = site.get(id.as_str()).filter(|k| !k.is_empty()) else {
+                continue; // 拠点が分からない。付け直さない
+            };
+            let mut hit = by_site
+                .get(k)
+                .into_iter()
+                .flatten()
+                .filter(|&&(_, s, e)| s <= d && d <= e);
+            match (hit.next(), hit.next()) {
+                (Some(&(to, _, _)), None) => {
+                    out.entry(to.to_string()).or_default().push((d, true));
+                }
+                // 🔴 どれに付けるか決められない。推測で選ばない
+                (Some(_), Some(_)) => ambiguous += 1,
+                // 初めての契約の開始前・契約と契約のすき間。持っている案件が無い
+                (None, _) => {}
+            }
+        }
+    }
+    for v in out.values_mut() {
+        v.sort();
+    }
+    (out, ambiguous)
+}
+
 /// 1人1期間の数。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Cell {
@@ -245,7 +336,7 @@ fn period_json(unit: Unit, p: &Period, cutoff: NaiveDate, calls: Option<NaiveDat
 fn unit_json(
     unit: Unit,
     spans: &[(&str, NaiveDate, NaiveDate)],
-    contacts: &HashMap<String, Vec<NaiveDate>>,
+    contacts: &Attached,
     tl: &HashMap<String, Vec<OwnerEntry>>,
     today: NaiveDate,
     cutoff: NaiveDate,
@@ -262,8 +353,9 @@ fn unit_json(
     let mut und_deals = vec![0usize; n];
     let mut und_contacts = vec![0usize; n];
     let mut shared = vec![0usize; n];
+    let mut moved = vec![0usize; n];
     let empty: Vec<OwnerEntry> = Vec::new();
-    let no_contact: Vec<NaiveDate> = Vec::new();
+    let no_contact: Vec<(NaiveDate, bool)> = Vec::new();
 
     for &(id, s, e) in spans {
         let t = tl.get(id).unwrap_or(&empty);
@@ -276,8 +368,8 @@ fn unit_json(
                 continue;
             }
             // 重なりの中の接触（cs は昇順）
-            let lo = cs.partition_point(|d| *d < a);
-            let hi = cs.partition_point(|d| *d <= b);
+            let lo = cs.partition_point(|x| x.0 < a);
+            let hi = cs.partition_point(|x| x.0 <= b);
             let inside = &cs[lo..hi];
 
             let owners = owners_during(t, a, b);
@@ -294,13 +386,16 @@ fn unit_json(
             for o in &owners {
                 by.entry(o).or_insert_with(|| vec![Cell::default(); n])[i].deals += 1;
             }
-            for d in inside {
-                match owner_at(t, *d) {
+            for &(d, mv) in inside {
+                match owner_at(t, d) {
                     Some(o) => {
                         if let Some(c) = by.get_mut(o.1.as_str()) {
                             c[i].contacts += 1;
                         }
                         team[i].contacts += 1;
+                        if mv {
+                            moved[i] += 1;
+                        }
                     }
                     // 期間の途中で履歴が始まった案件の、始まる前の接触
                     None => und_contacts[i] += 1,
@@ -344,13 +439,17 @@ fn unit_json(
             "contacts": und_contacts[i],
         })).collect::<Vec<_>>(),
         "shared": shared,
+        // 付いていた取引から、その日に動いていた同じ拠点の本体案件へ付け直して数えた接触
+        //（担当が決まった分。上の team.contacts の内数）
+        "moved": moved,
     })
 }
 
 /// ②コンサルタント →「担当者ごとの接触」。月と週の両方を1回で返す（画面の切り替えで取り直さない）。
 pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
-    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let (raw, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let all = deals_all_of(&sheets.deal);
     let tl = owner_timeline(&sheets.owner_hist);
     let cutoff = cutoff_of(sheets, today);
     let calls = call_from(&sheets.call);
@@ -371,6 +470,7 @@ pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
             }
         })
         .collect();
+    let (contacts, n_ambiguous) = attach_contacts(&raw, &all, &spans);
     let no_history = spans
         .iter()
         .filter(|(id, _, _)| !tl.contains_key(*id))
@@ -388,15 +488,28 @@ pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_no_span": no_span,
             // 担当履歴が1行も無い本体案件（どの期間でも担当が決められない）
             "n_no_history": no_history,
+            // 同じ拠点で契約期間の重なる本体案件が2件以上あり、付け先を決められず数えなかった接触
+            "n_ambiguous": n_ambiguous,
             "not_counted": "※ 接触は検知専用です。多いほど良いという評価ではありません（担当者の評価ではありません）。\
     もめている案件ほど電話が増えることもあり、接触の多い少ないが良い悪いのどちらに向くかは、このデータでは決まっていません",
         },
         "contact_rule": "接触 ＝ MTG または60秒超の通話（メールは数えない）。通話の日付は日本時間。\
-    数えるのは契約期間の中の接触だけです（担当者の一覧の接触率と同じ定義）",
+    数えるのは契約期間の中の接触だけです",
+        "attach_rule": "通話は、その日に動いていた契約ではなく、あとから作られた継続の取引（まだ始まっていない契約）や\
+    オプションの取引に付いていることがよくあります。付いている取引の契約期間だけで数えると、継続の前の月ほど\
+    通話が「契約の前」として落ち、昔の月ほど低く出て、確定した月もあとで下がります。\
+    そこでこの画面では、付いている取引の契約期間の外の接触を、その日に契約期間の中にある同じ拠点の本体案件が\
+    1件だけあれば、その案件に付け直して数えています（担当者の一覧の接触率は付け直していないので、数が違います）。\
+    同じ拠点に動いている案件が無い日（初めての契約の前・契約と契約のすき間）と、2件以上あって決められない日の接触は数えていません。\
+    別の拠点の取引に付いた通話は直せないので、確定した期間でも、その分はあとで少し動くことがあります",
         "denom_rule": format!(
             "1件あたりの接触 ＝ その期間の接触の回数 ÷ その期間に担当として持っていた案件の数。\
     持っていた案件は、オプション契約を除く本体の案件のうち、契約期間（開始日〜満了日）がその期間に1日でも重なるものです。\
     期間の途中で始まった・終わった案件も1件と数えます（日割りにしていません）。\
+    画面の頭の「稼働中」の件数（いまの稼働の印で数えたもの）とは別の数え方です。\
+    過去の期間に持っていたかはいまの稼働の印では決まらないので、契約期間で数えています\
+    （いま稼働中でも契約期間の外の案件や、契約期間の中でも稼働の印が外れた案件があり、件数がそろうとは限りません）。\
+    満了日より前に解約・充足へ移った案件も、満了日までは持っていたと数えています（ステージが書き換わった日は、手を離した日とは限らないため）。\
     持ち案件が0件の期間は空欄です（0 ではありません）。持ち案件が {MIN_DEALS} 件未満の期間は印を付け、図には点を打っていません"
         ),
         "owner_rule": "担当は consultant が正本です（hubspot_owner_id ではありません）。\
