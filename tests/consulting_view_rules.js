@@ -2985,6 +2985,19 @@ check("交代の前後: 交代の表に「接触の前後」の列を足し、�
   ok(!run("renderHandover(__HO)").includes("交代の前後で、接触は増えたか減ったか"), "contact_cmp が無いのに節を出している");
 });
 
+check("交代の前後: 左へ長く伸びた負の棒の値をラベル欄に重ねず、0 の線の右に置く（400px 実機）", () => {
+  const svg = run('svgBarH({ w: 680, fmt: F.d1, diverging: true, rows: [' +
+    '{ label: "2026-06-01 (伏字)1109", v: -7, txt: "−7.00 減った", color: C.ai },' +
+    '{ label: "2026-05-20 (伏字)2582", v: -0.53, txt: "−0.53 減った", color: C.ai },' +
+    '{ label: "2026-07-08 (伏字)3241", v: 1, txt: "+1.00 増えた", color: C.ai }] })');
+  const x0 = +(/<line class="axisline" x1="([0-9.]+)"/.exec(svg) || [])[1];
+  const at = (t) => { const m = new RegExp('<text class="vl" x="([0-9.]+)"[^>]*text-anchor="(start|end)">' + t).exec(svg); return m && { x: +m[1], a: m[2] }; };
+  const big = at("−7.00"), small = at("−0.53");
+  ok(big && small && x0 > 0, "値の文字か 0 の線が取れない");
+  ok(big.a === "start" && big.x > x0, "左端まで伸びた棒の値をラベル欄側（棒の左）に置いている: x=" + big.x + " / 0 の線 " + x0);
+  ok(small.a === "end" && small.x < x0, "短い負の棒の値は今までどおり棒の左に置く");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
