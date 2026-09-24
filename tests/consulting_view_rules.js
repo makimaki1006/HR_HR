@@ -2129,6 +2129,19 @@ check("ループ4 handover: 担当者一覧に無い担当を表では「氏名�
   ok(!run("renderHandover(__HO)").includes("「氏名不明」は"), "氏名不明の行が無いのに説明の1文を出している");
 });
 
+check("ループ4 handover: 「次の担当」の側も、担当者一覧に無い担当は表で「氏名不明」と短く出す", () => {
+  // 上の見張りは「前の担当」の側しか入れていなかった（to 側を元の長い表記に戻しても通っていた。2026-09-24 検証）
+  const HO = JSON.parse(JSON.stringify(ctx.__HO));
+  HO.rows[1].to_label = "氏名が分からない担当（HubSpotの担当者一覧に無い）";
+  HO.rows[1].to_unresolved = true;
+  ctx.__HO5 = HO;
+  const h = run("renderHandover(__HO5)");
+  const body = h.slice(h.lastIndexOf("<tbody>"));
+  ok(!body.includes("HubSpotの担当者一覧に無い）"), "「次の担当」に長い「氏名が分からない担当（…）」が出ている");
+  ok(/<span class="n0" title="HubSpot の担当者一覧に無い担当[^"]*">氏名不明<\/span>/.test(body), "「次の担当」の「氏名不明」に意味の title が無い");
+  ok(textOf(h.slice(0, h.lastIndexOf("<table"))).includes("「氏名不明」は HubSpot の担当者一覧に無い担当"), "次の担当だけが氏名不明のとき、表の上に意味が書いていない");
+});
+
 check("ループ4 renewal: 月次継続率で n<30 の月（右端 27-01 n=1 の 0%）に点を打たず、打たない理由を書く", () => {
   const h = run("renderRenewal(__RN)");
   const svg = firstSvg(h);
@@ -2168,6 +2181,16 @@ check("ループ4 outcome: 契約開始日が空の行（no_start）では「す
   ok(tb.includes("契約後の接触を切り出せない"), "開始日が空の行で、放置の軸の理由が出ていない");
   ok(textOf(h).includes("契約開始日が空（契約後を切り出せない）"), "散布図の凡例に開始日が空の点の意味が無い");
   ok(!textOf(run("renderOutcome(__OUT4)")).includes("契約開始日が空（"), "開始日が空の行が無いのに凡例を出している");
+});
+
+check("ループ4 採用単価の棒: 万円の目盛りを出す svgBarH の呼び出しは、軸の題名（xLab）を渡す", () => {
+  // 🔴 svgBarH がまだ xLab を描かない（部品の側で対応中）ため、画面では副題と凡例の「万円」だけが効いている。
+  //    部品が描くようになったとき、呼び出し側から xLab が消えていると単位が出ないので、呼び出し側を見張る
+  //    （2026-09-24 検証: 副題だけを見ていて、xLab だけを消しても通っていた）
+  const calls = [...html.matchAll(/svgBarH\(\{[^\n]*/g)].map((m) => m[0]).filter((x) => x.includes("fmt: F.man"));
+  ok(calls.length >= 3, "見張りの前提: 万円の svgBarH の呼び出しが 3 つ見つからない（" + calls.length + "）");
+  const bad = calls.filter((x) => !/xLab: "採用単価（万円）"/.test(x));
+  ok(!bad.length, "万円の svgBarH に軸の題名（xLab）を渡していない: " + bad.join(" / "));
 });
 
 Promise.all(pendingChecks).then(() => {
