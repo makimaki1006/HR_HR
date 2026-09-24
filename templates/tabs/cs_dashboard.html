@@ -1374,8 +1374,20 @@ function svgBoxH(o) {
   const base = rows.filter(r => !r.dim);
   let hi = 0;
   (base.length ? base : rows).forEach(r => { hi = Math.max(hi, r._wh, r.med); });
-  /* 軸の右端を目盛りに合わせる（coverTicks）。端が目盛りの途中だと、軸の外の印（//）がどこにあるのか読みにくい */
-  const tk = coverTicks(ticks(0, hi, 4, minStepOf(fmt)), hi); hi = Math.max(hi, tk[tk.length - 1]);
+  /* 軸の右端を目盛りに合わせる（coverTicks）。端が目盛りの途中だと、軸の外の印（//）がどこにあるのか読みにくい。
+     🔴 2026-09-24 検証（1440px, rampup「初回MTGまでの日数の散らばり」）: 刻み 50 のまま 1段足すと、ひげの先 約100 の軸が
+     0〜150 になり、箱とひげが図の左 2/3 に縮んだ。目盛りを細かくしても字が詰まらない幅（広い枠）なら、
+     刻みを細かくした中から軸の端がいちばん手前で止まるもの（0〜120）を選ぶ */
+  const nColW0 = Math.max(...rows.map(q => textW("n=" + q.n)));
+  const w0Est = slot.avail ? Math.min(slot.avail, Math.max(o.w || 680, FIT_MAX)) : (o.w || 680);
+  const iwEst = w0Est - (o.padL || labW(rows, 120)) - Math.max(64, Math.ceil(nColW0 + 40));
+  let tk = null;
+  [4, 6, 8].forEach((want) => {
+    const t = coverTicks(ticks(0, hi, want, minStepOf(fmt)), hi);
+    const roomy = iwEst / Math.max(1, t.length - 1) >= textW(fmt(t[t.length - 1])) + 16;
+    if (!tk || (roomy && t[t.length - 1] < tk[tk.length - 1] - 1e-9)) tk = t;
+  });
+  hi = Math.max(hi, tk[tk.length - 1]);
   /* 最大値が軸の外にある行（箱は軸に収まる）。
      🔴 2026-09-24 実機（ループ4, renewal の採用数・応募数）: 前は「▶ 最大 491」をひげの先（軸の途中）に
      置いていて、そこが最大値の位置に見えた。いまは ひげを軸の右端まで伸ばして端に途切れの印（//）と
