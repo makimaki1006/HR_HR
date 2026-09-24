@@ -270,8 +270,10 @@
   .kpi .lbl, .kpi .big, .kpi .fine{ overflow-wrap:anywhere; }
   /* 🔴 button の中身は span なので、block にしないと1行に流れる */
   .kpi .lbl, .kpi .big, .kpi .fine, .kpi .act{ display:block; }
+  /* 🔴 2026-09-24 実機（400px）: 「MTG の記録がどちらも無い」の最後の「い」だけが次の行に落ちていた。
+     折り返すときは行の長さをそろえる（対応していないブラウザでは今までどおり折り返すだけ） */
   .kpi .lbl{ color:var(--ink-2); font-size:11.5px; line-height:1.55; letter-spacing:.02em;
-             min-height:2ex; }
+             min-height:2ex; text-wrap:balance; }
   .kpi .big{ font-size:29px; font-weight:700; line-height:1.24; letter-spacing:-.018em;
              font-variant-numeric:tabular-nums; margin-top:2px; }
   .kpi .big .u{ display:inline; }
@@ -2454,8 +2456,10 @@ function renderFocus(D) {
         "NPSの回答がある " + num(n.n_have_nps) + " 件のうち", "bad") +
     kpi("採用単価が悪化した拠点", num(c.worse) + '<span class="u">拠点</span>',
         "確定した点どうしで比べられた " + num(c.judged) + " 拠点のうち", "bad") +
+    /* 🔴 同じ「どちらも無い 115件」が、ここでは山吹（warn）、下の MTG の記録の帯では灰だった
+       （2026-09-24 実機）。山吹は帯の「メールだけ（推定）」の色なので、帯に合わせて色を付けない（灰） */
     kpi("MTG の記録がどちらも無い", num(m.neither) + '<span class="u">件</span>',
-        "稼働中 " + num(m.n_act) + " 件のうち", "warn") +
+        "稼働中 " + num(m.n_act) + " 件のうち") +
     kpi("NPS が入っている", pct1(n.coverage),
         num(n.n_have_nps) + " / " + num(n.n_act) + " 件") +
     kpi("LTV 中央値", sh.ltv ? yen(sh.ltv.median) : DASH,
@@ -2524,10 +2528,11 @@ function renderFocus(D) {
        悪化の判定（1.5倍以上）は右の注記の赤が受け持つ */
     color: C.ai,
   }));
-  h += fig("採用単価 ＝ 契約総額 ÷ 採用数", "破線は前回の値。棒が長いほど1人あたりが高い",
-    cr.length ? svgBarH({ rows: cr, w: 680, fmt: F.man }) :
+  /* 🔴 横軸の目盛り（0 200 400…）に単位が無かった（2026-09-24 実機）。軸の題名と凡例で万円と書く */
+  h += fig("採用単価 ＝ 契約総額 ÷ 採用数", "破線は前回の値。棒が長いほど1人あたりが高い。横軸は万円",
+    cr.length ? svgBarH({ rows: cr, w: 680, fmt: F.man, xLab: "採用単価（万円）" }) :
       '<div class="empty">悪化した拠点はありません。</div>',
-    lg("box", C.ai, "今回") + lg("dash", C.ghost, "前回") +
+    lg("box", C.ai, "今回（万円）") + lg("dash", C.ghost, "前回") +
     '<i class="full">右の「N倍」が 1.5倍以上のものは赤で出しています。</i>' +
     '<i class="full">' + esc(c.note) + "</i>" +
     /* 🔴 図は20拠点で切る。サーバの truncated は「60件で切ったか」なので、
@@ -3047,10 +3052,11 @@ function custBlocks(D, want) {
                  : yen(x.band_median) + (x.band_median > hi3 ? "（軸の外）" : "")) : "");
   });
   const hasMed = c3.some((x) => x.band_median != null);
+  /* 🔴 横軸の目盛り（0 50 100…）に単位が無かった（2026-09-24 実機）。軸の題名を渡し、副題でも単位を言う */
   h += fig("同じ契約でも、出し方で値が変わります",
-    "顧客が見ているのは「1人採るのにいくらかかったか」",
+    "顧客が見ているのは「1人採るのにいくらかかったか」。横軸は採用単価（万円）",
     c3.length
-      ? barMarks(cpa3Bars(svgBarH({ w: 700, fmt: F.man, rh: 26, rows: c3rows }), c3rows), c3rows,
+      ? barMarks(cpa3Bars(svgBarH({ w: 700, fmt: F.man, rh: 26, xLab: "採用単価（万円）", rows: c3rows }), c3rows), c3rows,
           c3.map((x) => x.band_median), F.man)
       : '<div class="empty">採用数が入っている契約がありません（0で割っていません）。</div>',
     /* 凡例の粒は図と同じ描き方（塗りの濃さは BAR_OP、未確定は中空・破線、月割りは墨の縦の線） */
@@ -3066,9 +3072,7 @@ function custBlocks(D, want) {
   /* ---- 拠点ごとの推移 ---- */
   if (want.has("cpasite")) {
   h += sec("図", "採用単価の推移（拠点ごと）");
-  h += note("info", "1本の線にまとめない理由",
-    "決裁は<b>事業所単位</b>です。拠点をまたいで1本につなぐと、拠点間のばらつきが" +
-    "「時間の悪化」に見えてしまいます。");
+  /* 「1本の線にまとめない理由」の枠は、法人番号で見るの頭の枠と同じ話なので出さない（2026-09-24 実機） */
   /* 🔴 点が1つの拠点ごとに「線にしていません」の空の枠を1つずつ出していて、
      空の枠が縦に何十も続いていた（V11 目視: ページが約 28,000px）。
      線にできない拠点は最後に1つの枠へまとめる（値は残す）。 */
@@ -3429,10 +3433,13 @@ function renderHoujin(D) {
   const all = D.deals || [];
 
   let h = sec("問い", "この法人は拠点ごとにどう違うか");
+  /* 🔴 「拠点をまたいで1本の線にしない」を、この枠・採用単価の推移の前の「1本の線にまとめない理由」・
+     末尾の「読むときの注意」（サーバの not_counted）の3か所で言っていた（2026-09-24 実機）。
+     この枠の1回にし、文の正本はサーバの not_counted にする（末尾は foot(…, true) で基準日と件数だけ） */
   h += note("info", "いま見ている粒度は「法人」です",
     "<b>拠点をまたいで並べています。</b>ふだんの判断は事業所単位なので、" +
-    "1つの事業所の流れを追うときは " + goLink("deal", "series") + " を使ってください。" +
-    "<b>拠点をまたいで1本の線にはしていません</b>（拠点差が時間の悪化に見えるため）。");
+    "1つの事業所の流れを追うときは " + goLink("deal", "series") + " を使ってください。<br>" +
+    notCounted(D.meta).replace(/<br>$/, ""));
   h += focusSection(D);
 
   /* ---- 案件のチェック ---- */
@@ -3459,7 +3466,7 @@ function renderHoujin(D) {
   if (!ids.size) {
     h += note("warn", "案件が1つも選ばれていません",
       "上のチェックを1つ以上入れてください。「全部選ぶ」で戻せます。");
-    return h + foot(D.meta, false, houjinCounts(all, ids));
+    return h + foot(D.meta, true, houjinCounts(all, ids));
   }
 
   h += custBlocks(F2, new Set(["head", "funnel", "cpa3"]));
@@ -3614,10 +3621,12 @@ function renderHoujin(D) {
   h += custBlocks(F2, new Set(["cpasite", "deals"]));
 
   /* ---- 他の法人と比べる（本部アプローチ）---- */
-  h += sec("図", "他の法人と比べる");
+  /* 🔴 「図 他の法人と比べる」の見出しのすぐ下に renderHq の「問い」の見出しが続き、
+     図の見出しの下が空に見えた（2026-09-24 実機）。見出しはここの1つにし、renderHq は見出しを出さない */
+  h += sec("問い", "他の法人と比べる — 本部に何を持っていくか");
   /* data-paint-own: 中身は wireHoujin が後から描く。本文の描き直しで開いた details を数えない（ownDetails） */
   h += '<div id="hq-box" data-paint-own="1"><span class="loading">読み込み中…</span></div>';
-  return h + foot(D.meta, false, houjinCounts(all, ids));
+  return h + foot(D.meta, true, houjinCounts(all, ids));
 }
 /** 法人番号で見るの末尾の件数。🔴 応答の meta には全体の件数が無く、末尾の枠が
     「集計の基準日と件数」なのに件数が出ていなかった（2026-09-23 実機）。この法人の件数を書く */
@@ -3718,9 +3727,12 @@ function siteLabels(rows) {
 }
 
 function renderHq(D) {
-  let h = sec("問い", "本部に何を持っていくか") +
+  /* 見出し（問い）は法人番号で見るの側（#hq-box の上）に置く。
+     🔴 枠の見出しを「親法人の合計ではありません」にしていて、本文の頭（サーバの not_counted）と
+     同じ文が続けて2回出ていた（2026-09-24 実機）。見出しは本文と別のことを言う */
+  let h =
     /* 取り決めを書いた枠なので def（V21 検証: info の「読み方」のまま残っていた） */
-    note("def", "親法人の合計ではありません",
+    note("def", "比べる単位は事業所",
       notCounted(D.meta) + "本部に持っていくのは「事業所どうしの差」そのものです。");
 
   /* ---- 法人ごとの開き ---- */
@@ -3746,7 +3758,11 @@ function renderHq(D) {
   h += sec("図", "事業所どうしを比べる（上位10法人）");
   /* 🔴 cancel_rule / cpa_rule は10法人の図すべてで同じ文なので、ここで1回だけ出す
      （以前は図ごとに10回繰り返していた） */
+  /* 🔴 「解約率が 40% 以上の拠点は注記を緋で…率だけで判断しないでください」も10法人の図の下に
+     毎回出ていた（2026-09-24 実機）。どの図でも同じ文なので、ここで1回だけ出す */
   h += '<div class="lede">開きが大きい順。棒は採用単価、注記は解約率です。' +
+    "解約率が " + CANCEL_HI + "% 以上の拠点は注記を緋で出しています。" +
+    "拠点ごとの取引数が少ないので、率だけで判断しないでください。" +
     ((D.meta.cancel_rule || D.meta.cpa_rule)
       ? "<br>" + [D.meta.cancel_rule, D.meta.cpa_rule].filter(Boolean).map(esc).join("。") + "。"
       : "") + "</div>";
@@ -3757,7 +3773,7 @@ function renderHq(D) {
       "拠点" + num(r.sites) + " / 取引" + num(r.deals) + " / 稼働中" + num(r.active) +
       (r.spread == null ? "" : " / 開き " + num(r.spread, 1) + "倍"),
       rows.length
-        ? svgBarH({ w: 680, fmt: F.man, rh: 24,
+        ? svgBarH({ w: 680, fmt: F.man, rh: 24, xLab: "採用単価（万円）",
             rows: rows.map((x, i) => ({
               label: shortName(names[i], 20), full: names[i], v: x.cpa, txt: yen(x.cpa),
               /* 🔴 率だけで母数が無かった（V20 検証）。分母を添える。
@@ -3768,9 +3784,7 @@ function renderHq(D) {
               noteColor: cancelHi(x.cancel_rate) ? C.hi : C.ink3,   /* 線は全画面共通（CANCEL_HI） */
               color: C.ai })) })
         : '<div class="empty">採用数が入っている拠点がありません（0で割っていません）。</div>',
-      lg("box", C.ai, "採用単価") +
-      '<i class="full">解約率が ' + CANCEL_HI + "% 以上の拠点は注記を緋で出しています。" +
-      "拠点ごとの取引数が少ないので、率だけで判断しないでください。</i>");
+      lg("box", C.ai, "採用単価（万円）"));
   }
 
   /* ---- 表は最後。個別の行を特定したいときだけ ---- */
@@ -3791,7 +3805,9 @@ function renderHq(D) {
       "</details>";
   }).join(""), 520);
   if (D.truncated) h += '<p class="muted small">上位80法人だけ出しています。</p>';
-  return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
+  /* 🔴 ここにも foot を付けていて、法人番号で見るの末尾と「基準日」の枠が2つ続いていた（2026-09-24 実機）。
+     基準日は同じ（どちらも計算の基準日）なので、法人番号で見るの末尾の1回にする */
+  return h;
 }
 
 /* 月次の件数で「まだ締まっていない月」。

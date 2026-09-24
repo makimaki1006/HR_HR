@@ -1186,7 +1186,8 @@ check("法人番号で見る: 末尾の「集計の基準日と件数」に件�
   const h = run('foot({ today: "2026-09-18" }, false, houjinCounts([{ is_active: true }, { is_active: false }], new Set(["a"])))');
   ok(h.includes("集計の基準日と件数") && h.includes("この法人の取引 2 件（稼働中 1 件）"), "件数が無い: " + h);
   const body = html.split("function renderHoujin(D)")[1].split("\nfunction ")[0];
-  ok((body.match(/foot\(D\.meta, false, houjinCounts\(all, ids\)\)/g) || []).length === 2,
+  /* ループ4: not_counted は頭の「いま見ている粒度」の枠で出すので、末尾は said=true（基準日と件数だけ） */
+  ok((body.match(/foot\(D\.meta, true, houjinCounts\(all, ids\)\)/g) || []).length === 2,
     "renderHoujin の2つの末尾が件数を渡していない");
 });
 
@@ -2036,6 +2037,35 @@ check("ループ4 phone: 多対多の注記は1回だけ。沈黙している取
   const head = h.slice(h.lastIndexOf("<thead>"), h.lastIndexOf("</thead>"));
   ok(head.includes('<th class="wl">取引</th>') && head.includes('<th class="ws">ステージ</th>'),
     "沈黙している取引の表で、取引・ステージが折り返す列になっていない（1440px で右端が切れる）");
+});
+
+check("ループ4 houjin: 本部アプローチは見出しと本文を重ねず、10法人の図ごとの注記と基準日を繰り返さない", () => {
+  const hq = JSON.parse(JSON.stringify(ctx.__HQ));
+  hq.rows = [0, 1, 2].map((i) => Object.assign({}, ctx.__HQ.rows[0], { houjin: "法人" + i }));
+  ctx.__HQ4 = hq;
+  const h = run("renderHq(__HQ4)");
+  const n = (h.match(/率だけで判断しないでください/g) || []).length;
+  ok(n === 1, "「解約率が 40% 以上の拠点は…率だけで判断しないでください」が " + n + " 回出ている（1回にする）");
+  ok(!/<span class="hd">親法人の合計ではありません<\/span><p>親法人の合計ではありません/.test(h),
+    "枠の見出しと本文の頭が同じ文（親法人の合計ではありません）");
+  const head = (h.match(/<span class="hd">([^<]*)<\/span><p>([^<。]*)/) || []);
+  ok(head[1] && head[2] && !head[2].startsWith(head[1]), "枠の見出しと本文の1文目が同じ: " + head[1]);
+  ok(!h.includes("集計の基準日"), "本部アプローチの末尾にも基準日の枠がある（法人番号で見るの末尾と2つ続く）");
+  ok(!h.includes('<span class="no">問い</span>'), "本部アプローチが自分の問いの見出しを出している（法人番号で見るの見出しの下が空に見える）");
+  ok(h.includes("採用単価（万円）"), "事業所どうしを比べる図で採用単価の単位（万円）が分からない");
+});
+
+check("ループ4 focus: どちらも無い（灰の帯）の KPI を山吹にしない・採用単価の単位・KPI 見出しの折り返し", () => {
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  fo.mtg_layers.neither = 115;
+  fo.cpa = { worse: 1, judged: 1, skipped_censored: 0, note: "",
+    rows: [{ site: "k1", site_name: "拠点1", prev: 1000000, last: 2000000, ratio: 2 }] };
+  ctx.__FO4 = fo;
+  const h = run("renderFocus(__FO4)");
+  const k = h.split('<div class="kpi').find((x) => x.includes("MTG の記録がどちらも無い")) || "";
+  ok(!/^ is-(warn|bad)/.test(k), "「MTG の記録がどちらも無い」の KPI に色が付いている（帯では灰）: " + k.slice(0, 30));
+  ok(h.includes("今回（万円）") && h.includes("横軸は万円"), "採用単価の悪化の図で単位（万円）が分からない");
+  ok(/\.kpi \.lbl\{[^}]*text-wrap:balance/.test(html), "KPI の見出しが最後の1文字だけ次の行に落ちうる（text-wrap:balance が無い）");
 });
 
 Promise.all(pendingChecks).then(() => {
