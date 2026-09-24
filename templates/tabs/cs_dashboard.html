@@ -4216,11 +4216,13 @@ function renderDq(D) {
           return { v: r.fill_rate / 100, txt: pct1(r.fill_rate),
                    n: r.filled, color: C.ai };
         }),
-      })) }),
-    '<i class="full">' + esc(D.outcome_bias.note) + "</i>");
-  h += note("bad", "この偏りは相関を押し上げる方向に効きます",
-    "うまくいかなかった契約ほど数字が残っていないので、" +
-    "「継続するほど成果が良い」という見え方が強く出ます。");
+      })) }));
+  /* 🔴 図の下の注記（サーバの outcome_bias.note）と、すぐ下の「まずい」の箱が同じ話を2回言っていた
+     （2026-09-24 実機）。箱の1回にし、文の正本はサーバの note にする。
+     箱の見出しは本文と同じ文にしない（本文の末尾が「押し上げる方向に効きます」） */
+  h += note("bad", "この偏りは結論を甘く見せます",
+    D.outcome_bias.note ? esc(String(D.outcome_bias.note).replace(/。$/, "")) + "。"
+      : "うまくいかなかった契約ほど数字が残っていないので、「継続するほど成果が良い」という見え方が強く出ます。");
 
   /* ---- 欠測 ---- */
   h += sec("図", "何がどれだけ欠けているか");
@@ -4888,6 +4890,15 @@ function stateTag(r) {
   return '<span class="n0">' + esc(lab) + "</span>";
 }
 
+/** 担当の交代の表の「前の担当」「次の担当」。
+    🔴 2026-09-24 実機: 担当者一覧に無い人の名前（サーバの person_label）が
+    「氏名が分からない担当（HubSpotの担当者一覧に無い）」と長く、その行だけ3〜4行に折れて高くなっていた。
+    表では「氏名不明」と短く出し、意味は title と表の上の1文で補う（*_unresolved はサーバの判定） */
+const UNRESOLVED_TITLE = "HubSpot の担当者一覧に無い担当です（元の記録にはメールアドレスしか残っていません）";
+function whoCell(label, unresolved) {
+  if (unresolved) return '<span class="n0" title="' + esc(UNRESOLVED_TITLE) + '">氏名不明</span>';
+  return esc(label) || DASH;
+}
 function renderHandover(D) {
   let h = sec("問い", "担当はいつ、どう替わったか") +
     '<div class="lede">1行1回の交代。<b>新しい順</b>に並べています。</div>';
@@ -4924,6 +4935,8 @@ function renderHandover(D) {
     "<b>色が見分けられなくても読めます。</b></i>");
 
   h += sec("表", "交代の記録（" + num(D.rows.length) + " 件）");
+  if (D.rows.some((r) => r.from_unresolved || r.to_unresolved))
+    h += '<div class="lede">「氏名不明」は ' + esc(UNRESOLVED_TITLE) + "</div>";
   h += scroll(table(
     [{ t: "交代日" }, { t: "案件", w: "l" }, { t: "前の担当", w: "s" }, { t: "次の担当", w: "s" },
      { t: "いまの担当", w: "s" }, { t: "記録の遅れ", n: 1 }, { t: "反映", w: "s" }, { t: "状態" }],
@@ -4932,8 +4945,8 @@ function renderHandover(D) {
       /* 🔴 取引名が無いときに 11桁の deal_id を出さない（画面に内部IDを出さない） */
       r.name ? esc(r.name)
         : '<span class="n0">' + (r.state_label === "取引が見つからない" ? "取引が見つからない" : "取引名が無い") + "</span>",
-      esc(r.from_label) || DASH,
-      (esc(r.to_label) || DASH) + (r.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : ""),
+      whoCell(r.from_label, r.from_unresolved),
+      whoCell(r.to_label, r.to_unresolved) + (r.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : ""),
       esc(r.consultant) || DASH,
       r.record_gap_days == null ? DASH : num(r.record_gap_days) + "日",
       esc(r.reflected),

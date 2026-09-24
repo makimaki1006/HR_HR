@@ -2103,6 +2103,32 @@ check("ループ4 byowner: 「稼働中 N 件」を表の見出しと末尾で�
   }
 });
 
+check("ループ4 dq: 記入率の偏りを図の注記と「まずい」の箱で2回言わない", () => {
+  const D = JSON.parse(JSON.stringify(ctx.__DQ));
+  // routes.rs build_data_quality の outcome_bias.note そのもの
+  D.outcome_bias.note = "うまくいかなかった契約ほど数字が記録されていない可能性があります。「継続するほど成果が良い」という見え方を押し上げる方向に効きます";
+  ctx.__DQ4 = D;
+  const t = textOf(run("renderDq(__DQ4)"));
+  const n = (t.match(/うまくいかなかった契約ほど/g) || []).length;
+  ok(n === 1, "「うまくいかなかった契約ほど…」が " + n + " 回出ている（まずいの箱の1回にする）");
+  const m = (t.match(/押し上げる方向に効きます/g) || []).length;
+  ok(m === 1, "「押し上げる方向に効きます」が " + m + " 回出ている（箱の見出しと本文で重ねない）");
+});
+
+check("ループ4 handover: 担当者一覧に無い担当を表では「氏名不明」と短く出し、意味を title と表の上で補う", () => {
+  const HO = JSON.parse(JSON.stringify(ctx.__HO));
+  // routes.rs person_label の文そのもの
+  HO.rows[1].from_label = "氏名が分からない担当（HubSpotの担当者一覧に無い）";
+  HO.rows[1].from_unresolved = true;
+  ctx.__HO4 = HO;
+  const h = run("renderHandover(__HO4)");
+  const body = h.slice(h.lastIndexOf("<tbody>"));
+  ok(!body.includes("HubSpotの担当者一覧に無い）"), "表の中に長い「氏名が分からない担当（…）」が出ている（行が高くなる）");
+  ok(/<span class="n0" title="HubSpot の担当者一覧に無い担当[^"]*">氏名不明<\/span>/.test(body), "表の「氏名不明」に意味の title が無い");
+  ok(textOf(h.slice(0, h.lastIndexOf("<table"))).includes("「氏名不明」は HubSpot の担当者一覧に無い担当"), "表の上に「氏名不明」の意味が書いていない");
+  ok(!run("renderHandover(__HO)").includes("「氏名不明」は"), "氏名不明の行が無いのに説明の1文を出している");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
