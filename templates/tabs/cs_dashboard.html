@@ -2744,7 +2744,12 @@ let teamCache = null;
       分母0の期間は空（— ）。0 と書かない。
    🔴 いまの週・月は途中なので未確定（中空＋破線）。
    🔴 通話の記録が始まる前の期間（calls_missing）は MTG しか数えられないので、図にも表にも出さない。
-      出すと、データの範囲が変わっただけなのに接触が増えたように見える（fixture で月 0.4 回 → 2.2 回）。
+      出すと、データの範囲が変わっただけなのに接触が増えたように見える（fixture で月 0.4 回 → 2.3 回以上）。
+   🔴 通話は継続先・オプションの取引に付いていることが多いので、サーバが「その日に動いていた同じ拠点の
+      本体案件」に付け直して数えている（attach_rule）。画面の決まりごとに必ず書く（接触率と数が違うため）。
+   🔴 縦軸の上端は**確定した期間の値だけ**で決める。未確定（途中）の値1つで全員の縦軸が伸びると、
+      ふだんの線が下に押し込まれて読めない（2026-09-24 検証: 途中の 9.00 で 0〜10 の軸になっていた）。
+      上端を超える未確定の値は上端に置き、その図に実際の値を書く。
    ================================================================ */
 let contactUnit = "month";
 const CONTACT_UNITS = [{ k: "month", t: "月ごと" }, { k: "week", t: "週ごと" }];
@@ -2752,13 +2757,16 @@ const CONTACT_UNITS = [{ k: "month", t: "月ごと" }, { k: "week", t: "週ご�
 /** 期間の短い名前（横軸）。月は「26-04」、週は始まりの日「9/14」 */
 const contactX = (p, unit) => (unit === "month" ? String(p.key).slice(2) : String(p.label).split("〜")[0]);
 
-/** 1人（または全体）の点。出さない期間（分母0・小さい）は null で線を切る。未確定は中空（censored） */
-function contactPts(cells, idx, periods) {
+/** 1人（または全体）の点。出さない期間（分母0・小さい）は null で線を切る。未確定は中空（censored）。
+    縦軸の上端（top）を超える未確定の値は上端に置き（clipped）、note に実際の値を書く */
+function contactPts(cells, idx, periods, top) {
   return idx.map((i) => {
     const c = cells[i], p = periods[i];
     if (!c || c.avg == null || c.small_n) return null;
-    return { v: c.avg, censored: !!p.provisional,
-             note: "持ち案件 " + num(c.deals) + " 件・接触 " + num(c.contacts) + " 回" };
+    const over = !!p.provisional && top > 0 && c.avg > top;
+    return { v: over ? top : c.avg, censored: !!p.provisional, clipped: over, real: c.avg,
+             note: "持ち案件 " + num(c.deals) + " 件・接触 " + num(c.contacts) + " 回" +
+               (over ? "（1件あたり " + num(c.avg, 2) + " 回。縦軸の上端より大きいので上端に置いています）" : "") };
   });
 }
 
@@ -2801,23 +2809,31 @@ function renderContact(D) {
     const drawable = rows.filter((r) =>
       idx.some((i) => r.cells[i] && r.cells[i].avg != null && !r.cells[i].small_n));
     const dropped = rows.filter((r) => drawable.indexOf(r) < 0);
-    /* 縦軸の上端は全員（と全体）の最大でそろえる */
-    let top = 0;
-    const seen = (cells) => idx.forEach((i) => {
-      const c = cells[i];
-      if (c && c.avg != null && !c.small_n && c.avg > top) top = c.avg;
-    });
-    seen(U.team || []);
-    drawable.forEach((r) => seen(r.cells));
+    /* 縦軸の上端は全員（と全体）の最大でそろえる。点を打たない値（small_n）と、
+       未確定（途中）の値は上端を決めない。確定した値が1つも無いときだけ、未確定の値で決める */
+    const topOf = (withProv) => {
+      let t = 0;
+      const seen = (cells) => idx.forEach((i) => {
+        const c = cells[i];
+        if (c && c.avg != null && !c.small_n && (withProv || !periods[i].provisional) && c.avg > t) t = c.avg;
+      });
+      seen(U.team || []);
+      drawable.forEach((r) => seen(r.cells));
+      return t;
+    };
+    const top = topOf(false) || topOf(true);
     const gapWhy = '<i class="full" data-gapwhy="1">線が切れているところは、持ち案件が 0 件か ' + num(minDeals) +
       " 件未満の" + what + "です（点を打っていません。値は下の表）。</i>";
     const small = (title, hint, cells, legend) => {
-      const pts = contactPts(cells, idx, periods);
+      const pts = contactPts(cells, idx, periods, top);
       const svg = svgLine({ w: 360, h: 180, x: X, yFmt: F.d1, yMax: top, yTicks: 3,
         alt: title + "の持ち案件1件あたりの接触",
         series: [{ pts: pts, color: C.ai }] });
       const gap = pts.some((p) => p == null) ? gapWhy : "";
-      return fig(title, hint, svg, (legend || "") + gap);
+      const clip = pts.filter((p) => p && p.clipped).map((p) => num(p.real, 2)).join("・");
+      const clipWhy = clip ? '<i class="full" data-clip="1">いまの' + what + "（未確定）の " + clip +
+        " 回は縦軸の上端より大きいので、上端に置いています（途中の値で全員の縦軸を伸ばさないため）。</i>" : "";
+      return fig(title, hint, svg, (legend || "") + gap + clipWhy);
     };
     const lastFixed = (() => { for (let k = idx.length - 1; k >= 0; k--) if (!periods[idx[k]].provisional) return idx[k]; return -1; })();
     const hintOf = (cells) => (lastFixed >= 0 && cells[lastFixed]
@@ -2860,8 +2876,13 @@ function renderContact(D) {
 
   /* ---- 決まりごと ---- */
   const sharedN = idx.reduce((a, i) => a + ((U.shared || [])[i] || 0), 0);
+  const movedN = idx.reduce((a, i) => a + ((U.moved || [])[i] || 0), 0);
   h += note("def", "この画面の決まりごと",
-    esc(D.denom_rule || "") + "<br>" + esc(dispText(D.owner_rule || "")) +
+    esc(D.denom_rule || "") +
+    "<br>" + esc(D.attach_rule || "") +
+    (movedN ? "（この表の" + what + "で、付け直して数えた接触はのべ " + num(movedN) + " 回）" : "") +
+    (D.meta.n_ambiguous ? "（付け先を決められず数えなかった接触 " + num(D.meta.n_ambiguous) + " 回）" : "") +
+    "<br>" + esc(dispText(D.owner_rule || "")) +
     (sharedN ? "（この表の" + what + "で、途中で担当が替わり両方に数えた案件はのべ " + num(sharedN) + " 件。" +
       "担当者の持ち案件を足すと、全体の持ち案件よりその分多くなります）" : "") +
     "<br>" + esc(D.undetermined_rule || "") +

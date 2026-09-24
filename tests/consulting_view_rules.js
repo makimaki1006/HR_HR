@@ -2566,6 +2566,7 @@ check("ループ4統合: 注記の折り返しで、とうに閉じた括弧の�
     undetermined_rule: "担当履歴の最初の行より前の日は、担当が決められません。",
     provisional_rule: "いまの週・月は途中なので未確定です。",
     calls_missing_rule: "通話の記録が始まる前の期間は、MTG しか数えられないので出していません。",
+    attach_rule: "付いている取引の契約期間の外の接触を、同じ拠点の本体案件に付け直して数えています。",
     month: {
       periods: [per("2026-03", false, true), per("2026-06", false, false), per("2026-07", false, false), per("2026-09", true, false)],
       rows: [
@@ -2579,6 +2580,7 @@ check("ループ4統合: 注記の折り返しで、とうに閉じた括弧の�
       team: [cell(10, 55), cell(12, 22), cell(9, 18), cell(16, 8)],
       undetermined: [cell(0, 0), cell(1, 2), cell(0, 0), cell(0, 0)],
       shared: [0, 0, 1, 0],
+      moved: [9, 4, 3, 0],
     },
     week: { periods: [], rows: [], team: [], undetermined: [], shared: [] },
   };
@@ -2632,6 +2634,53 @@ check("担当者ごとの接触: 通話の記録が始まる前の期間は図�
   ok(tops.every((x) => x === tops[0]), "縦軸の目盛りが図ごとに違う: " + tops.join(", "));
   ok(tops[0] < 10, "出さない期間の値で縦軸が伸びている: " + tops[0]);
   ok(textOf(h).includes("退職者のまま"), "退職者のままの印が無い");
+});
+
+check("担当者ごとの接触: 担当が決められない行・決まりごと（分母・付け直し・担当の正本・未確定・読めない案件・交代へのリンク）・全体の行を出す", () => {
+  /* 2026-09-24 検証: どれを消しても見張りが落ちなかった（J1・J2・J8・J13〜J15・J17・J18） */
+  const h = run('contactUnit = "month"; renderContact(__CT)');
+  const tb = h.slice(h.indexOf('<table id="ct-tbl"'), h.indexOf("</table>", h.indexOf('<table id="ct-tbl"')));
+  const rowOf = (name) => tb.slice(tb.indexOf(name), tb.indexOf("</tr>", tb.indexOf(name)));
+  ok(tb.includes("担当が決められない"), "表に「担当が決められない」の行が無い");
+  ok(rowOf("担当が決められない").includes("案件 1 件・接触 2 回"), "担当が決められない件数（p1: 案件1件・接触2回）を出していない");
+  const all = rowOf("<b>全体</b>");
+  ok(tb.includes("<b>全体</b>") && all.includes("1.83 ") && all.includes("22/12件"), "表の「全体」の行が無いか、値が違う: " + all);
+  const t = textOf(h.slice(h.indexOf("この画面の決まりごと")));
+  ok(t.includes("この画面の決まりごと"), "決まりごとの枠が無い");
+  for (const [k, why] of [["denom_rule", "分母の定義"], ["attach_rule", "接触の付け直し"], ["owner_rule", "担当の正本"],
+    ["undetermined_rule", "担当が決められないときの扱い"], ["provisional_rule", "未確定の説明"]]) {
+    ok(t.includes(run(k === "owner_rule" ? "dispText(__CT.owner_rule)" : "__CT." + k)), "決まりごとに" + why + "（" + k + "）が無い");
+  }
+  ok(t.includes("付け直して数えた接触はのべ 7 回"), "付け直して数えた接触の数（出す期間の合計 4+3）を書いていない");
+  ok(t.includes("契約の開始日か満了日が読めない案件 3 件"), "開始日・満了日が読めない案件の数（n_no_span）を書いていない");
+  ok(/<a class="golink" href="#consultant\/handover">/.test(h.slice(h.indexOf("この画面の決まりごと"))), "担当の交代へのリンクが無い");
+});
+
+check("担当者ごとの接触: 持ち案件があって接触0回のますは 0.00（— にしない）", () => {
+  /* — は「持ち案件が無い」の印。接触0回を — にすると意味が逆に読まれる（J16） */
+  const h = run('contactUnit = "month"; renderContact(__CT)');
+  const tb = h.slice(h.indexOf('<table id="ct-tbl"'));
+  const c = tb.slice(tb.indexOf("担当C"), tb.indexOf("</tr>", tb.indexOf("担当C")));
+  ok(/0\.00 <span class="muted small">0\/1件<\/span>/.test(c), "持ち案件1件・接触0回のますが 0.00 になっていない: " + c);
+});
+
+check("担当者ごとの接触: 縦軸の上端は、点を打たない値（small_n）と未確定の値では決めない", () => {
+  /* 2026-09-24 検証: small_n を上端から外す処理（J5）が見張られておらず、未確定の途中の値1つで全員の軸が 0〜10 になっていた */
+  const T = JSON.parse(JSON.stringify(ctx.__CT));
+  const cell = (d, c) => ({ deals: d, contacts: c, avg: d ? c / d : null, small_n: d > 0 && d < 3 });
+  T.month.rows[0].cells[2] = cell(2, 30);  /* A の p2: 15.0 回だが small_n */
+  T.month.rows[1].cells[3] = cell(6, 60);  /* B のいまの月: 10.0 回（未確定） */
+  ctx.__CT2 = T;
+  const h = run('contactUnit = "month"; renderContact(__CT2)');
+  const figs = ctFigs(h);
+  const tops = figs.map((f) => Math.max(...[...f.body.matchAll(/<text class="ax" [^>]*text-anchor="end">([0-9.]+)<\/text>/g)].map((m) => +m[1])));
+  ok(tops.every((x) => x === tops[0]), "縦軸の目盛りが図ごとに違う: " + tops.join(", "));
+  ok(tops[0] < 10, "未確定または small_n の値で縦軸が伸びている: " + tops.join(", "));
+  const fb = figs.find((f) => f.cap.indexOf("担当B") === 0);
+  ok(fb && /<title>26-09: [^<]*10\.00 回[^<]*上端/.test(fb.body), "上端に置いた未確定の点に実際の値を書いていない");
+  ok(fb && textOf(fb.body).includes("10.00 回は縦軸の上端より大きいので"), "上端に置いたことを図の下に書いていない");
+  /* 上端を超えないときは書かない */
+  ok(!textOf(run('contactUnit = "month"; renderContact(__CT)')).includes("縦軸の上端より大きいので"), "上端を超えていないのに上端に置いたと書いている");
 });
 
 Promise.all(pendingChecks).then(() => {
