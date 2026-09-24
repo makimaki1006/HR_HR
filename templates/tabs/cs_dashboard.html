@@ -2226,6 +2226,8 @@ function svgDots(o) {
 }
 
 /* -------------------------------------------------------------- ファネル */
+/** 狭い枠で描くときに、棒を描く欄として最低限残す幅（これより狭くなるなら狭めずに横スクロール） */
+const FUNNEL_MIN_IW = 100;
 /** 応募 → 面接 → 採用。段の落ち方を幅で見る */
 function svgFunnel(o) {
   const st = (o.steps || []).filter(s => s.v != null);
@@ -2236,7 +2238,14 @@ function svgFunnel(o) {
      いちばん長い値ラベルの幅を測ってから、その先に注記を置く。 */
   const valW = Math.max(...st.map(s => String(F.int(s.v)).length)) * 7.4 + 10;
   const noteW = 84;
-  const w = o.w || 420, padL = o.padL || 62;
+  const padL = o.padL || 62;
+  /* 枠に合わせる（paintFigs）。🔴 2026-09-24 実機（ループ5, 400px, houjin「応募 → 面接 → 採用 の落ち方」）:
+     幅 420px 固定で描いていたので、枠（約 319px）から 64px はみ出し、「前段の N%」が横スクロールの奥にあった。
+     枠が描いた幅より狭く、棒の欄が FUNNEL_MIN_IW 残るなら枠の幅で描く。広げはしない
+     （段が3つだけの図で、棒が 1,000px を超えても読みやすくならない） */
+  const slot = figSlot();
+  let w = o.w || 420;
+  if (slot.avail && slot.avail < w && slot.avail - padL - valW - noteW >= FUNNEL_MIN_IW) w = slot.avail;
   const iw = Math.max(40, w - padL - valW - noteW);
   let g = "";
   st.forEach((s, i) => {
@@ -2258,7 +2267,7 @@ function svgFunnel(o) {
       g += `<text class="ax" x="${(padL + bw + valW + 4).toFixed(1)}" y="${y + 21}" style="fill:${den ? "var(--ink-2)" : "var(--ghost)"}">前段の ${txt}${why ? `<title>${esc(why)}</title>` : ""}</text>`;
     }
   });
-  return svgHead(w, h, o.alt || "ファネル") + `${g}</svg>`;
+  return svgHead(w, h, o.alt || "ファネル", { fk: slot.k }) + `${g}</svg>`;
 }
 
 /* ------------------------------------------------------------ 積み上げ縦棒 */

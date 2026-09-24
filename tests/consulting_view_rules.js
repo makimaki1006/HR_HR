@@ -2563,6 +2563,20 @@ check("ループ5: 帯を縦に積む図（series の案件ごとの図）も、
   ok(xr(one) == null, "枠の幅で描いた図に data-xr が付いた");
 });
 
+check("ループ5: ファネル（houjin の応募 → 面接 → 採用）は 319px の枠に収め、「前段の N%」が枠の外に出ない", () => {
+  const code = 'svgFunnel({ steps: [{ label: "応募", v: 12345 }, { label: "面接", v: 2345, pair: { num: 2345, den: 12345, n: 40 } },' +
+    ' { label: "採用", v: 345, pair: { num: 345, den: 2345, n: 38 } }] })';
+  const svg = drawAt(code, 319);
+  ok(figW(svg) === 319, "ファネルが 319px の枠に収まっていない（420px 固定で 64px はみ出す）: " + figW(svg));
+  const tb = textBoxes(svg);
+  ok(tb.filter((b) => b.s.startsWith("前段の")).length === 2, "「前段の N%」が2つ出ていない");
+  ok(tb.every((b) => b.x0 >= -0.5 && b.x1 <= 319 + 1), "枠の外に出る文字: " + tb.filter((b) => b.x1 > 320).map((b) => b.s).join(" / "));
+  ok(!overlaps(svg).length, "文字が重なる: " + overlaps(svg).join(" / "));
+  // 広い枠では広げない（段が3つの図を 1,000px に伸ばしても読みやすくならない）。1回目（枠が分からない）は 420px のまま
+  ok(figW(drawAt(code, 1116)) === 420 && figW(drawAt(code, null)) === 420, "広い枠・1回目で 420px のままでない");
+  ok(/<svg [^>]*data-fk="\d+"/.test(drawAt(code, null)), "枠の幅を測る印（data-fk）が無い（paintFigs が描き直さない）");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
