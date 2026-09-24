@@ -1378,9 +1378,9 @@ function svgBoxH(o) {
      🔴 2026-09-24 検証（1440px, rampup「初回MTGまでの日数の散らばり」）: 刻み 50 のまま 1段足すと、ひげの先 約100 の軸が
      0〜150 になり、箱とひげが図の左 2/3 に縮んだ。目盛りを細かくしても字が詰まらない幅（広い枠）なら、
      刻みを細かくした中から軸の端がいちばん手前で止まるもの（0〜120）を選ぶ */
-  const nColW0 = Math.max(...rows.map(q => textW("n=" + q.n)));
+  const nColW = Math.max(...rows.map(q => textW("n=" + q.n)));
   const w0Est = slot.avail ? Math.min(slot.avail, Math.max(o.w || 680, FIT_MAX)) : (o.w || 680);
-  const iwEst = w0Est - (o.padL || labW(rows, 120)) - Math.max(64, Math.ceil(nColW0 + 40));
+  const iwEst = w0Est - (o.padL || labW(rows, 120)) - Math.max(64, Math.ceil(nColW + 40));
   let tk = null;
   [4, 6, 8].forEach((want) => {
     const t = coverTicks(ticks(0, hi, want, minStepOf(fmt)), hi);
@@ -1394,7 +1394,6 @@ function svgBoxH(o) {
      矢印を置き、文字は「最大 491（軸の外）」としてひげの下の行に書く（行の高さを 12px 足す）。
      右端の「n=」と続けて読めないよう、n= の欄との間を空ける（pad.r） */
   const outOf = (r) => r.q3 <= hi + 1e-9 && r.max > hi + 1e-9;
-  const nColW = Math.max(...rows.map(q => textW("n=" + q.n)));
   const padR = rows.some(outOf) ? Math.max(64, Math.ceil(nColW + 40)) : 64;
   /* 枠に合わせる（paintFigs）。🔴 400px で「最大 N」と n= が右端（横スクロールの奥）にあり、
      開いた直後に見えなかった（2026-09-24 実機, renewal）。箱を描く欄が BOX_MIN_IW 残るなら枠の幅で描く。
