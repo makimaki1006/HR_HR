@@ -4011,10 +4011,15 @@ fn 担当者ごとの接触の分母は頭の稼働中の件数と別だと書�
 /// | | 交代（拠点×交代日） | 行 |
 /// | 比べられた | 12 | 29 |
 /// | 途中（未確定） | 18 | 27 |
-/// | 比べるには短い | 211（通話の記録の前 118・前に案件が無い 86・後に案件が無い 7） | 301 |
+/// | 比べるには短い | 211（通話の記録の前 21・前に案件が無い 183・後に案件が無い 7・重なり 0） | 301 |
 /// | 数えられない（契約期間が読めない） | — | 1 |
 ///
 /// 比べられた 12件: 増えた 7・減った 5・変わらない 0、変化の中央値 +0.7056 回/30日。
+///
+/// 短い理由は、窓から外した日を理由ごとに数えたいちばん多い理由（2026-09-24 検証の指摘で直した）。
+/// 以前の「前の窓が通話の記録の始まりにかかれば一律に通話」では 通話 118・前に案件が無い 86 だった。
+/// 行ごとの外した日の合計（Python）: 前の窓 通話 3,166・重なり 0・案件なし 13,627、
+/// 後の窓 通話 5,721・重なり 0・案件なし 2,914。fixture には同じ拠点で本体案件が重なる日が無い。
 #[test]
 fn 交代の前後の接触が別の数え方と一致する() {
     let v = build_handover(&sheets(), fixture_day());
@@ -4027,8 +4032,10 @@ fn 交代の前後の接触が別の数え方と一致する() {
     assert_eq!(c["n_short"], 211);
     assert_eq!(
         c["short_why"],
-        serde_json::json!({"calls": 118, "before": 86, "after": 7})
+        serde_json::json!({"calls": 21, "before": 183, "after": 7, "overlap": 0})
     );
+    assert_eq!(c["overlap_days"], 0);
+    assert_eq!(c["overlap_events"], 0);
     assert_eq!(c["n_up"], 7);
     assert_eq!(c["n_down"], 5);
     assert_eq!(c["n_same"], 0);
@@ -4041,6 +4048,8 @@ fn 交代の前後の接触が別の数え方と一致する() {
     let mut seen = std::collections::HashSet::new();
     let mut rows_by: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
     let mut sums = [0i64; 4];
+    // 行ごとの外した日（前の窓 通話・重なり・案件なし、後の窓 同じ順）
+    let mut lost = [0i64; 6];
     for r in v["rows"].as_array().unwrap() {
         let x = &r["contact"];
         if x.is_null() {
@@ -4054,6 +4063,10 @@ fn 交代の前後の接触が別の数え方と一致する() {
         sums[1] += n("before", "contacts");
         sums[2] += n("after", "days");
         sums[3] += n("after", "contacts");
+        for (i, k) in ["calls", "overlap", "none"].iter().enumerate() {
+            lost[i] += x["before"]["lost"][k].as_i64().unwrap();
+            lost[3 + i] += x["after"]["lost"][k].as_i64().unwrap();
+        }
         if x["status"] == "ok" && seen.insert(x["event"].as_str().unwrap().to_string()) {
             ok.push((
                 r["date"].as_str().unwrap().to_string(),
@@ -4091,6 +4104,7 @@ fn 交代の前後の接触が別の数え方と一致する() {
             .collect();
     assert_eq!(rows_by, want_rows);
     assert_eq!(sums, [4606, 557, 10055, 1656]);
+    assert_eq!(lost, [3166, 0, 13627, 5721, 0, 2914]);
 }
 
 /// 交代の前後の接触を試す小さなデータ。基準日 2026-09-18、データを取った日 2026-09-15（数えるのは 9/14 まで）。
@@ -4325,8 +4339,12 @@ fn 交代の前後は同じ拠点で動いていた案件1件の日だけで数�
     assert_eq!(c["n_provisional"], 1);
     assert_eq!(
         c["short_why"],
-        serde_json::json!({"calls": 1, "before": 1, "after": 0})
+        serde_json::json!({"calls": 1, "before": 1, "after": 0, "overlap": 0})
     );
+    // S2 の重なる 06-01〜06-10 は、比べられた交代でも外した日として数える（黙って外さない）
+    assert_eq!(ho_row(&v, "b1")["contact"]["before"]["lost"]["overlap"], 10);
+    assert_eq!(c["overlap_days"], 10);
+    assert_eq!(c["overlap_events"], 1);
     assert_eq!(c["meta"]["n_unavailable_rows"], 1);
     assert_eq!(c["meta"]["last_day"], "2026-09-14");
 }
@@ -4393,7 +4411,11 @@ fn 交代の前後の担当者のまとめは同じ交代を1件と数え母数�
 #[test]
 fn 交代の前後の増減は丸めずに比べ変わらないを分ける() {
     use super::handover_contact::{Cmp, Status, Window};
-    let w = |days, contacts| Window { days, contacts };
+    let w = |days, contacts| Window {
+        days,
+        contacts,
+        ..Default::default()
+    };
     let c = |b, a| Cmp {
         status: Status::Ok,
         before: b,
@@ -4410,6 +4432,173 @@ fn 交代の前後の増減は丸めずに比べ変わらないを分ける() {
     assert_eq!(c(w(0, 0), w(60, 3)).dir(), None);
     assert_eq!(c(w(0, 0), w(60, 3)).change(), None);
     assert_eq!(w(0, 0).per30(), None);
+}
+
+/// 「比べるには短い」の境目（ちょうど30日は比べる、29日は短い）と、短い理由の分け方を試すデータ。
+/// 通話・MTG・メタは `handover_tiny` のまま（通話の記録は 03-23 から、数えるのは 9/14 まで）。
+///
+/// - K1: p1（06-01〜12-31）。交代 07-01。前 06-01〜06-30 のちょうど 30日 → 比べる
+/// - K2: p2（06-02〜12-31）。交代 07-01。前 29日 → 短い（前に案件が無い）
+/// - K3: p3（04-01〜07-30）。交代 07-01。後 07-01〜07-30 のちょうど 30日 → 比べる
+/// - K4: p4（04-01〜07-29）。交代 07-01。後 29日 → 短い（後に案件が無い）
+/// - K5: q1（03-01〜12-31）と q2（03-01〜05-31）が重なる。交代 06-10。
+///   前 04-11〜06-09 のうち 04-11〜05-31 の 51日が重なり、9日しか残らない → 短い（重なり）
+/// - K6: g1（04-05〜12-31）。交代 05-01。前 03-02〜04-30 は通話の記録の始まり（03-23）にかかるが、
+///   04-04 までは案件が無い（34日、うち 03-23 より前は 21日）。26日 → 短い（前に案件が無い。通話ではない）
+/// - K7: h1（03-01〜12-31）。交代 04-20。前 02-19〜04-19 は 案件なし 10日・通話の記録の前 22日・数えた 28日
+///   → 短い（通話）
+fn handover_edges() -> Sheets {
+    let dh = [
+        "deal_id",
+        "dealname",
+        "dealstage",
+        "contract_kind",
+        "contract_start_date",
+        "contract_expiration_date",
+        "kyoten_key",
+        "is_active",
+    ];
+    let hh = [
+        "date",
+        "from",
+        "to",
+        "to_retired",
+        "reflected",
+        "record_gap_days",
+        "deal_id",
+    ];
+    let d = |id, s, e, k| [id, id, "x", "(新規)", s, e, k, "TRUE"];
+    let deals = [
+        d("p1", "2026-06-01", "2026-12-31", "K1"),
+        d("p2", "2026-06-02", "2026-12-31", "K2"),
+        d("p3", "2026-04-01", "2026-07-30", "K3"),
+        d("p4", "2026-04-01", "2026-07-29", "K4"),
+        d("q1", "2026-03-01", "2026-12-31", "K5"),
+        d("q2", "2026-03-01", "2026-05-31", "K5"),
+        d("g1", "2026-04-05", "2026-12-31", "K6"),
+        d("h1", "2026-03-01", "2026-12-31", "K7"),
+    ];
+    let h = |day, id| [day, "佐藤", "鈴木", "FALSE", "", "", id];
+    let hv = [
+        h("2026-07-01", "p1"),
+        h("2026-07-01", "p2"),
+        h("2026-07-01", "p3"),
+        h("2026-07-01", "p4"),
+        h("2026-06-10", "q1"),
+        h("2026-05-01", "g1"),
+        h("2026-04-20", "h1"),
+    ];
+    let deal_rows: Vec<&[&str]> = deals.iter().map(|r| &r[..]).collect();
+    let ho_rows: Vec<&[&str]> = hv.iter().map(|r| &r[..]).collect();
+    Sheets {
+        deal: tiny(&dh, &deal_rows),
+        handover: tiny(&hh, &ho_rows),
+        ..handover_tiny()
+    }
+}
+
+/// 検証の指摘（2026-09-24）: 30日ちょうどの境目を見張るテストが無く、`<` を `<=` にしても落ちなかった。
+#[test]
+fn 交代の前後はちょうど30日なら比べ29日なら短い() {
+    let v = build_handover(&handover_edges(), fixture_day());
+    let st = |deal: &str| {
+        let x = &ho_row(&v, deal)["contact"];
+        (
+            x["status"].as_str().unwrap().to_string(),
+            x["why"].as_str().map(str::to_string),
+            x["before"]["days"].as_i64().unwrap(),
+            x["after"]["days"].as_i64().unwrap(),
+        )
+    };
+    assert_eq!(st("p1"), ("ok".into(), None, 30, 60));
+    assert_eq!(st("p2"), ("short".into(), Some("before".into()), 29, 60));
+    assert_eq!(st("p3"), ("ok".into(), None, 60, 30));
+    assert_eq!(st("p4"), ("short".into(), Some("after".into()), 60, 29));
+}
+
+/// 検証の指摘（2026-09-24）: 短い理由を「前の窓が通話の記録の始まりにかかれば通話」と近似していて、
+/// 前に案件が無い交代まで通話に入っていた。重なりで外した日もどこにも数えていなかった。
+#[test]
+fn 交代の前後の短い理由は外した日のいちばん多い理由にする() {
+    let v = build_handover(&handover_edges(), fixture_day());
+    let x = |deal: &str| ho_row(&v, deal)["contact"].clone();
+    let lost = |deal: &str| {
+        let l = &x(deal)["before"]["lost"];
+        (
+            l["calls"].as_i64().unwrap(),
+            l["overlap"].as_i64().unwrap(),
+            l["none"].as_i64().unwrap(),
+        )
+    };
+    // K5: 重なり
+    assert_eq!(x("q1")["status"], "short");
+    assert_eq!(x("q1")["why"], "overlap");
+    assert_eq!(x("q1")["before"]["days"], 9);
+    assert_eq!(lost("q1"), (0, 51, 0));
+    // K6: 窓は通話の記録の始まりにかかるが、その日々は案件が無い → 前に案件が無い
+    assert_eq!(x("g1")["why"], "before");
+    assert_eq!(x("g1")["before"]["days"], 26);
+    assert_eq!(lost("g1"), (0, 0, 34));
+    // K7: 通話の記録の前が 22日でいちばん多い → 通話
+    assert_eq!(x("h1")["why"], "calls");
+    assert_eq!(x("h1")["before"]["days"], 28);
+    assert_eq!(lost("h1"), (22, 0, 10));
+
+    let c = &v["contact_cmp"];
+    assert_eq!(
+        c["short_why"],
+        serde_json::json!({"calls": 1, "before": 2, "after": 1, "overlap": 1})
+    );
+    // 重なりで外した日は K5 の前の窓の 51日だけ（後の窓 06-10〜は q2 が終わっていて重ならない）
+    assert_eq!(c["overlap_days"], 51);
+    assert_eq!(c["overlap_events"], 1);
+}
+
+/// 検証の指摘（2026-09-24）: 母数の印（5件未満）の境目と、担当者のまとめの並び（比べられた件数の多い順。
+/// 名前の順・成績の順にしない）を見張るテストが無かった。`summarize` に合成の交代を直接渡して確かめる。
+#[test]
+fn 交代の前後の担当者のまとめは5件ちょうどで印を外し件数の多い順に並べる() {
+    use super::handover_contact::{summarize, Cmp, Item, Status, Window};
+    let w = |days, contacts| Window {
+        days,
+        contacts,
+        ..Default::default()
+    };
+    let ok = |b: usize, a: usize| Cmp {
+        status: Status::Ok,
+        before: w(60, b),
+        after: w(60, a),
+    };
+    let mut items: Vec<Item> = Vec::new();
+    // 「あ」は 4件で全部増えた、「ん」は 5件で全部減った。名前の順でも、変化の大きい順でも「あ」が先になる。
+    // 件数の多い順なら「ん」が先
+    for i in 0..4 {
+        items.push(Item {
+            event: format!("site:A{i}|2026-06-01"),
+            cmp: ok(2, 4),
+            from: "前",
+            to: "あ",
+        });
+    }
+    for i in 0..5 {
+        items.push(Item {
+            event: format!("site:N{i}|2026-06-01"),
+            cmp: ok(4, 2),
+            from: "前",
+            to: "ん",
+        });
+    }
+    let v = summarize(&items);
+    let to = v["by_to"].as_array().unwrap();
+    let names: Vec<&str> = to.iter().map(|r| r["label"].as_str().unwrap()).collect();
+    assert_eq!(names, ["ん", "あ"], "比べられた件数の多い順");
+    assert_eq!(to[0]["n_ok"], 5);
+    assert_eq!(to[0]["small"], false, "ちょうど 5件は印を付けない");
+    assert_eq!(to[1]["n_ok"], 4);
+    assert_eq!(to[1]["small"], true, "4件は印を付ける");
+    // 引き継がれた側は1人に 9件
+    assert_eq!(v["by_from"][0]["n_ok"], 9);
+    assert_eq!(v["by_from"][0]["small"], false);
 }
 
 /// 画面に出す断り（交代が接触を増減させた証拠ではない・向きは決まらない）と決まりごと。
