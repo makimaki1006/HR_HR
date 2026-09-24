@@ -2531,6 +2531,21 @@ check("ループ4 series: 契約の系列の表は折り返しの幅を詰め（
   ok(l <= 16 && s2 <= 9, "契約の系列の表の折り返しの幅が詰まっていない（wl " + l + "em / ws " + s2 + "em）");
 });
 
+check("ループ4統合: 横棒（svgBarH）は xLab を軸の題名として描く（採用単価の単位）", () => {
+  const svg = run('svgBarH({ w: 680, fmt: F.man, xLab: "採用単価（万円）", rows: [{ label: "A", v: 500000, txt: "50万" }] })');
+  ok(/<text[^>]*data-xlab="1"[^>]*>採用単価（万円）<\/text>/.test(svg), "横棒に軸の題名「採用単価（万円）」が出ていない");
+  const plain = run('svgBarH({ w: 680, fmt: F.man, rows: [{ label: "A", v: 500000, txt: "50万" }] })');
+  ok(!/data-xlab/.test(plain), "xLab を渡していないのに軸の題名が出ている");
+});
+
+check("ループ4統合: 注記の折り返しで、とうに閉じた括弧の手前まで遡って切らない（1行目が極端に短くならない）", () => {
+  const lines = JSON.parse(run('JSON.stringify(wrapText("採用単価（万円）は同じ進捗帯の中央値と比べて1.5倍以上のときに赤で出しています", 300))'));
+  ok(lines[0] !== "採用単価" && lines[0].length > 8, "1行目が極端に短い: " + JSON.stringify(lines));
+  ok(lines.join("") === "採用単価（万円）は同じ進捗帯の中央値と比べて1.5倍以上のときに赤で出しています", "字が落ちている: " + JSON.stringify(lines));
+  const br = JSON.parse(run('JSON.stringify(wrapText("解約・充足 100%（決着済み 12件中）", 120))'));
+  ok(br.some(l => l.startsWith("（決着済み")), "まだ閉じていない括弧の手前では切る動きが壊れた: " + JSON.stringify(br));
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
