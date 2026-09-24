@@ -2291,6 +2291,44 @@ check("ループ4 検証: 箱ひげの軸の端を目盛りに合わせても、
   ok(!overlaps(nar).length && axis(nar).length <= 5, "319px の枠で目盛りが詰まった: " + axis(nar).join(","));
 });
 
+check("ループ4 検証: wrapText は語の中の開き括弧の手前で切り（続く開き括弧もまとめる）、1行に入らない語は今の行に続けてから切る", () => {
+  const W = (s, w) => run("wrapText(" + JSON.stringify(s) + ", " + w + ")");
+  // 空白の無い語の途中に括弧がある。幅の境目が括弧の中に来ても、括弧の手前で切る
+  const a = W("立ち上がり期（契約開始30日以内）の件数", run('textW("立ち上がり期（契約開始")'));
+  ok(a[0] === "立ち上がり期", "括弧の中で折れた: " + a.join(" | "));
+  // 開き括弧が2つ続く（「（）は2つ目だけで切ると、1行目の終わりに「「」が残る
+  const b = W("あいう「（えおかきくけこさしすせそ）」", run('textW("あいう「（えおか")'));
+  ok(b[0] === "あいう", "開き括弧で行を終えた: " + b.join(" | "));
+  // 次の語が1行に入らないときは、今の行に続けてから字の境目で切る（「合計」だけの短い行を作らない）
+  const c = W("合計 とてもながいながいながいながいことばです", 120);
+  ok(c[0].startsWith("合計 と"), "1行に入らない語の前で行を改め、短い行が残った: " + c.join(" | "));
+  ok(c.join("").replace(/\s/g, "") === "合計とてもながいながいながいながいことばです", "折り返しで字を落とした: " + c.join(" | "));
+});
+
+check("ループ4 検証: fitLab は省略したラベルの頭に1〜2字だけの切れ端（「サ…」「サブ…」）を残さない", () => {
+  const s = "サブスク継続②＿ニッコン 富山営業所";
+  [80, 85, 90].forEach((w) => {
+    const r = run("fitLab(" + JSON.stringify(s) + ", " + w + ")");
+    ok(!/^[^…]{1,2}…/.test(r) && r.includes("富山営業所"), w + "px で頭に字の切れ端が残る・拠点名が消えた: " + r);
+  });
+});
+
+check("ループ4 検証: 散布図の右端の目盛りは、中央ぞろえで枠の外に出るなら右ぞろえにする", () => {
+  const svg = drawAt('svgScatter({ w: 680, pts: [{ x: 300, y: 60 }, { x: 9500, y: 90 }], xLab: "金額" })', 319);
+  const last = [...svg.matchAll(/<text class="ax" x="([\d.]+)" y="[\d.]+" text-anchor="(\w+)">10,000</g)];
+  ok(last.length === 1 && last[0][2] === "end" && +last[0][1] <= 319, "右端の目盛り「10,000」を右ぞろえにしていない: " + JSON.stringify(last.map((m) => m.slice(1))));
+  ok(textBoxes(svg).every((b) => b.x1 <= 319 + 1), "目盛りの字が枠の外に出る");
+});
+
+check("ループ4 検証: 2行に折り返して省略したラベルも、図の下の「省略した名前の全文」に見えている字をつないで並べる", () => {
+  const body = '<svg viewBox="0 0 10 10"><text class="axl" x="9" y="9" text-anchor="end" data-wrap="2" data-full="長い拠点の名前の全文">' +
+    '<tspan x="9">長い拠点の</tspan><tspan x="9" dy="13">名前…全文</tspan><title>長い拠点の名前の全文</title></text></svg>';
+  ctx.__FB = body;
+  const f = run('fig("x", "", __FB)');
+  ok(/省略した名前の全文（1 件）/.test(f) && f.includes('<span class="muted">長い拠点の名前…全文</span> … 長い拠点の名前の全文'),
+    "2行のラベルが全文の一覧に出ない・見えている字が空: " + (f.match(/<li>.*?<\/li>/) || ["なし"])[0]);
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
