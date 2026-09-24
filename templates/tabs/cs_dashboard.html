@@ -3110,6 +3110,7 @@ function custBlocks(D, want) {
   /* 🔴 変更履歴が無い契約ごとに「変更履歴がありません」の空の枠を出していて、
      空の枠が大量に続いていた（V11 目視）。まとめて1つの枠にし、どの契約かは名前で残す */
   const noHist = [];
+  let laneWhy = false;   /* 「1つの縦軸に重ねていません」をもう出したか */
   for (const mm of D.monthly) {
     const ser = mm.series || {};
     const any = ["oubo", "mensetu", "syoudaku"].some((k) => (ser[k] || []).length);
@@ -3171,9 +3172,12 @@ function custBlocks(D, want) {
        NPS の記録が無い契約にもこの文が出ていた（V11 目視） */
     const hasNps = npsPts.some((p) => p.v != null);
     const hasCt = ctPts.some((p) => p.v != null);
+    /* 🔴 NPS が上がった契約にも「NPS が落ちた月に接触が切れていて…が読めます」と出て、
+       例文が結論のように読めた（2026-09-24 実機）。例であることを文の中で言う */
     h += fig(shortName(mm.name || mm.deal_id, 28) + " — 系列を縦に並べる",
       hasNps && hasCt
-        ? "縦に目を落とすと「NPS が落ちた月に接触が切れていて、応募も止まっていた」が読めます"
+        ? "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
+          "（読み方の例:「NPS が落ちた月に接触が切れていたか」。この契約がそうだという意味ではありません）"
         : "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
           (hasNps ? "" : "（この契約には定期NPS の回答がありません）"),
       svgStackLanes({ w: 940, months: xCal, lanes: [
@@ -3187,11 +3191,16 @@ function custBlocks(D, want) {
       /* 🔴 histGap の断り書きは上の図の副題に1回だけ出す。ここにも出していて、
          1つの契約で同じ文が2回（既定の法人では1画面に28回）並んでいた（2026-09-24 検証）。
          この図の横軸は上の図と同じ月なので、読む人は上の副題で分かる */
+      /* 🔴 この段落を契約ごとの図の下に毎回出していて、既定の事業所で約20回並んでいた
+         （2026-09-24 実機）。どの図でも同じ決まりなので、最初の図の下の1回だけにする */
+      (laneWhy ? "" :
       '<i class="full"><b>1つの縦軸に重ねていません。二軸も使っていません。</b>' +
       "値の幅が違いすぎる（応募 0〜200 / NPS 0〜10 / 接触 0〜数十）ので、" +
       "重ねると応募だけが動いて NPS が底に張り付きます。" +
       "目盛りの取り方しだいで「相関して見える絵」を作れてしまうため、" +
-      "<b>横軸だけを共有して、系列ごとに自分の縦軸を持たせています</b>。</i>");
+      "<b>横軸だけを共有して、系列ごとに自分の縦軸を持たせています</b>。" +
+      "下に続く契約の図も同じです。</i>"));
+    laneWhy = true;
   }
   if (noHist.length) {
     h += note("info", "応募・面接・採用の変更履歴が無い契約（" + num(noHist.length) + " 件）",
@@ -3226,7 +3235,9 @@ function custBlocks(D, want) {
   /* ---- 表（個別の行を特定したいときだけ）---- */
   if (want.has("deals")) {
   h += sec("表", "契約の系列（" + num(D.deals.length) + " 件）");
-  h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "拠点" }, { t: "種別" },
+  /* 🔴 2026-09-24 実機（1440px）: 取引・ステージ・拠点が折り返さず、12列のうち右の4列（金額から先）が切れていた。
+     長い文字の列だけを折る（数字・日付の列は1行のまま） */
+  h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "拠点", w: "s" }, { t: "種別" },
                      { t: "開始" }, { t: "満了" }, { t: "継続", n: 1 }, { t: "金額", n: 1 },
                      { t: "応募", n: 1 }, { t: "面接", n: 1 }, { t: "承諾", n: 1 }, { t: "状態" }],
     D.deals.map((d) => [esc(d.name || d.deal_id),
@@ -3310,8 +3321,10 @@ function renderSeries(D) {
       ? svgTimeline({ w: 940, alt: "契約の連なり", lanes: ordered.map((d) => ({
           label: shortName(d.name || d.deal_id, 18), full: d.name || d.deal_id,
           color: d.is_active ? C.ai : C.ghost,
+          /* 🔴 金額が空の契約は「3回目」だけになり、ほかの行と並べると書き漏れに見えた（2026-09-24 実機）。
+             空であることを文字で書く（0 円として描かない） */
           note: (d.renewal_no ? num(d.renewal_no) + "回目" : "初回") +
-                (d.amount != null ? "　" + yen(d.amount) : ""),
+                "　" + (d.amount != null ? yen(d.amount) : "金額なし"),
           marks: [d.start, d.expiration].filter(Boolean).map((x) => ({ d: x, thick: true })),
         })) })
       : '<div class="empty">この拠点に契約がありません。</div>',
@@ -3922,9 +3935,9 @@ function renderPhone(D) {
     lg("line", C.ai, "通話") + lg("line", C.midori, "接触（60秒超）") +
     (hasOpenP ? lg("ring", C.ghost, "途中の月（まだ締まっていない）") : "") +
     (hasOpenP ? '<i class="full">' + esc(openP) + " は元データを落とした時点までの途中の値です。" +
-      "<b>ほかの月と同じには比べられません</b>（必ず低く出ます）。</i>" : "") +
-    /* 🔴 「Call は Deal に多対多」と英語の内部名で書いていた（2026-09-23 実機） */
-    '<i class="full">1本の通話が複数の取引に結び付いていることがあり、その通話は取引ごとに数えています。</i>');
+      "<b>ほかの月と同じには比べられません</b>（必ず低く出ます）。</i>" : ""));
+  /* 🔴 「1本の通話が複数の取引に結び付いて…取引ごとに数えています」を、上の内訳の図（サーバの reach.note）と
+     この図の下で2回出していた（2026-09-24 実機）。内訳の図の注記の1回にする */
 
   /* 見出しと本文の頭（サーバの transcript.note）が同じ文で、続けて2回出ていた（V21 の残り） */
   h += note("warn", "文字起こしの状況", esc(D.transcript.note));
@@ -3934,7 +3947,8 @@ function renderPhone(D) {
     "。日数が出せないもの（接触が一度も無い）を先頭に出しています。" +
     (D.silent.excluded_marketing ? "「マーケ関連」の " + num(D.silent.excluded_marketing) +
       " 件は電話をしないのが普通なので、この表からだけ外しています（上の件数には入っています）。" : "") + "</div>";
-  h += scroll(table([{ t: "取引" }, { t: "ステージ" }, { t: "金額", n: 1 },
+  /* 🔴 2026-09-24 実機（1440px）: 取引・ステージが折り返さず、接触から右の列が切れていた。長い文字の列を折る */
+  h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
                      { t: "通話", n: 1 }, { t: "接触", n: 1 }, { t: "最後の接触" }, { t: "経過", n: 1 }],
     D.silent.rows.map((x) => [esc(x.name || x.deal_id),
       '<span class="muted small">' + esc(x.stage) + "</span>", yen(x.amount),

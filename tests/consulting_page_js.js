@@ -1019,6 +1019,50 @@ check("N18c", "注力の図の母数にオプション契約だけの法人が�
   if (h.indexOf("数えていません") >= 0) throw new Error("図にも掛かって読める「数えていません」が残っている");
 });
 
+/* ================================================================ ループ4: 文言と表（2026-09-24 実機） */
+check("L4", "series: 「1つの縦軸に重ねていません」は契約ごとに繰り返さず、最初の図の下の1回だけ", async () => {
+  const t = boot();
+  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
+  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
+    period: 6, span_months: 6, series: { oubo: pts }, nps: {} });
+  const D = customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" }), deal({ deal_id: "c" })],
+    { monthly: [mm("a"), mm("b"), mm("c")] });
+  const h = t.R("renderSeries")(D);
+  if (count(h, /系列を縦に並べる/g) < 3) throw new Error("契約ごとの図が3つ描かれていない（見張りの前提）");
+  const n = count(h, /1つの縦軸に重ねていません/g);
+  if (n !== 1) throw new Error("「1つの縦軸に重ねていません」の段落が " + n + " 回出ている（1回にする）");
+});
+check("L4", "series: NPS と接触がある契約の副題で、例文を結論のように書かない（読み方の例と言う）", async () => {
+  const t = boot();
+  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
+  const D = customerPayload([deal({ deal_id: "n1", start: "2026-04-01" })], {
+    monthly: [{ deal_id: "n1", name: "案件", start: "2026-04-01", expiration: "2026-09-30",
+      period: 6, span_months: 6, series: { oubo: pts }, nps: { nps: [{ m: 1, v: 6 }, { m: 2, v: 9 }] } }],
+    contacts: [{ deal_id: "n1", dates: ["2026-04-10"] }],
+  });
+  const h = t.R("renderSeries")(D);
+  const b = h.indexOf("系列を縦に並べる");
+  const head = h.slice(b, h.indexOf("<svg", b));
+  if (head.indexOf("が読めます") >= 0 && head.indexOf("接触が切れていて、応募も止まっていた」が読めます") >= 0)
+    throw new Error("NPS が上がった契約にも「NPS が落ちた月に…が読めます」と結論のように出ている");
+  if (head.indexOf("読み方の例") < 0) throw new Error("副題の例文に「読み方の例」と書いていない");
+});
+check("L4", "series: 契約の連なりで金額が空の契約に「金額なし」と書く（「3回目」だけにしない）", async () => {
+  const t = boot();
+  const D = customerPayload([deal({ deal_id: "x1", renewal_no: 3, amount: null }),
+                             deal({ deal_id: "x2", renewal_no: 2, amount: 1200000, start: "2024-01-01" })]);
+  const h = t.R("renderSeries")(D);
+  if (h.indexOf("3回目　金額なし") < 0) throw new Error("金額が空の契約の注記が「3回目」だけになっている");
+});
+check("L4", "契約の系列の表: 取引・ステージ・拠点を折り返す列にする（1440px で右端が切れない）", async () => {
+  const t = boot();
+  const h = t.R("custBlocks")(customerPayload([deal({ deal_id: "t1" })]), new Set(["deals"]));
+  const head = h.slice(h.indexOf("<thead>"), h.indexOf("</thead>"));
+  for (const [c, w] of [["取引", "wl"], ["ステージ", "ws"], ["拠点", "ws"]])
+    if (head.indexOf('<th class="' + w + '">' + c + "</th>") < 0)
+      throw new Error("契約の系列の「" + c + "」が折り返す列（" + w + "）になっていない");
+});
+
 /* ---------------------------------------------------------------- 実行 */
 (async () => {
   if (mainJs == null) {
