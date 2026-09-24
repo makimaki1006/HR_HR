@@ -1598,10 +1598,26 @@ check("図の部品: 接触の帯が全部の月で記録なしのとき、目�
   ok(/<text class="ax" x="[\d.]+" y="[\d.]+">2<\/text>/.test(some), "棒がある帯の目盛り（2）が消えた");
 });
 check("図の部品: 前回の値が 0 付近でも、前回の破線の枠を潰さず、本当の位置に縦の印を置く", () => {
+  /* 🔴 ループ4（2026-09-24 実機, focus）: 前は最低 5px の枠を描いていたが、破線の目が2つしか入らず
+     潰れた塊に見えた（本当の位置より右まで伸びてもいた）。狭い枠は描かず、縦の破線だけにする */
   const svg = run('svgBarH({ w: 680, fmt: F.int, rows: [{ label: "a", v: 900000, v0: 0 }] })');
-  const r = svg.match(/<rect x="[\d.]+" y="[\d.]+" width="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/);
-  ok(r && +r[1] >= 5, "前回の破線の枠が潰れている（幅 " + (r && r[1]) + "）");
+  const minW = run("V0_MIN_W");
+  const rs = [...svg.matchAll(/<rect x="[\d.]+" y="[\d.]+" width="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/g)];
+  ok(minW >= 8, "枠で描く最小の幅が小さすぎる（潰れた枠を描く）: " + minW);
+  ok(rs.every((m) => +m[1] >= minW), "前回の破線の枠が潰れている（幅 " + rs.map((m) => m[1]) + "）");
   ok(/<line data-v0tick="1"[^>]*><title>前回: 0<\/title>/.test(svg), "前回の本当の位置の縦の印が無い");
+  // 前回が 0 から離れていれば、枠は本当の幅で描く（縦の破線は出さない）
+  const wide = run('svgBarH({ w: 680, fmt: F.int, rows: [{ label: "a", v: 900000, v0: 450000 }] })');
+  const wr = wide.match(/<rect x="([\d.]+)" y="[\d.]+" width="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/);
+  ok(wr && +wr[2] > 100 && !/data-v0tick/.test(wide), "0 から離れた前回の枠が本当の幅で描かれていない: " + (wr && wr[2]));
+  // 棒の下に回した注記（compact）は、前回の印（棒の上下にはみ出す）にかからない（focus の「38.40倍」・renewal の n=）
+  const nar = drawAt('svgBarH({ w: 680, fmt: F.man, rows: [{ label: "三菱ケミカルテクニカ", v: 4320000, v0: 110000, txt: "432万", note: "38.40倍" }, { label: "宮崎商会 鹿児島工場", v: 680000, v0: 400000, txt: "68万", note: "13.60倍" }] })', 319);
+  const unders = [...nar.matchAll(/<text class="ax" data-under="1" x="[\d.]+" y="([\d.]+)"[^>]*>([^<]*)</g)];
+  const marks = [...nar.matchAll(/<line data-v0tick="1"[^>]*y2="([\d.]+)"|<rect x="[\d.]+" y="([\d.]+)" width="[\d.]+" height="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/g)]
+    .map((m) => (m[1] != null ? +m[1] : +m[2] + +m[3]));
+  ok(unders.length === 2 && marks.length === 2, "注記か前回の印が取れない: " + unders.length + " / " + marks.length);
+  // 字の上端はベースラインから約 9px 上。前回の印の下端との間を 2px 以上あける
+  unders.forEach((u, i) => ok(+u[1] - 9 - marks[i] >= 2, "棒の下の注記「" + u[2] + "」が前回の印にかかる: 字 " + u[1] + " / 印の下端 " + marks[i]));
 });
 
 /* ================================================================ 図の部品（第3弾の検証の指摘, 2026-09-24） */
