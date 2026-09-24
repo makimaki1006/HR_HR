@@ -104,6 +104,10 @@ for (const rel of TEMPLATES) {
 //    新しく足した関数名に頼ると「直す前は関数が無いので落ちる」だけの見張りになるので、
 //    できるだけ前からある入口（render* / wire / go / load / ctlbar）から叩いている。
 
+/** 数字と単位を折れない塊にした <span class="nw">（fig() の keepNum。図の見出しの補足）を外す。
+    画面では字の間に何も挟まないので、文言を見る見張りはこれを外した文字列で見る（ループ5） */
+const unNw = (h) => String(h).replace(/<span class="nw">([^<]*)<\/span>/g, "$1");
+
 /** 1つの見張りごとに、まっさらな画面を作る（状態の変数を持ち越さない） */
 function boot() {
   const reg = {};        // getElementById が返すもの
@@ -875,7 +879,7 @@ check("N18b", "推移の横軸は暦の月で出し、契約期間より多い�
     monthly: [{ deal_id: "d1", name: "案件", start: "2026-03-19", expiration: "2026-09-18",
       period: 6, span_months: 7, series: { oubo: pts }, nps: {} }],
   });
-  const h = t.R("renderSeries")(D);
+  const h = unNw(t.R("renderSeries")(D));
   const a = h.indexOf(" の推移");
   const fig1 = h.slice(a, h.indexOf("</figure>", a));
   if (/\d+ヶ月</.test(fig1) || fig1.indexOf(">7ヶ月<") >= 0)
@@ -929,8 +933,8 @@ check("法人数", "注力の注記と本部アプローチの「全 N 法人」
   //    図の母数（517）の側にもオプション契約しか持たない法人がいるので、どちらの母数の話かを文の中で分ける
   if (h.indexOf("オプション契約しか持たない 3 法人を除いた全 1,646 法人") < 0)
     throw new Error("外した3法人のことが書かれていない");
-  const hq = t.R("renderHq")({ meta: { n_houjin: 1646, n_houjin_option_only: 3, today: "2026-09-18",
-    not_counted: "", cpa_rule: "", cancel_rule: "" }, multi_site: 194, truncated: false, rows: [] });
+  const hq = unNw(t.R("renderHq")({ meta: { n_houjin: 1646, n_houjin_option_only: 3, today: "2026-09-18",
+    not_counted: "", cpa_rule: "", cancel_rule: "" }, multi_site: 194, truncated: false, rows: [] }));
   if (hq.indexOf("全 1,646 法人。オプション契約しか持たない 3 法人は除く") < 0)
     throw new Error("本部アプローチの「全 N 法人」に除いた法人のことが書かれていない");
 });

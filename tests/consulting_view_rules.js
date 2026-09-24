@@ -904,7 +904,10 @@ check("図の部品(9): 横にスクロールしても左のラベルが残り�
 
 /* ================================================================ 第2弾: 文言と凡例（2026-09-23 デプロイ後の実機確認） */
 /* 描いた HTML から文字だけを取り出す（タグ・SVG を落とす） */
-const textOf = (h) => String(h).replace(/<svg[\s\S]*?<\/svg>/g, " ").replace(/<[^>]+>/g, " ");
+/* 数字と単位を折れない塊にした <span class="nw">（fig() の keepNum）は、画面では字の間に何も挟まない。
+   ほかのタグと同じく空白に置き換えると「同じ 3ヶ月 目でも」と、画面に無い空白で文が割れるので、外すだけにする */
+const textOf = (h) => String(h).replace(/<svg[\s\S]*?<\/svg>/g, " ")
+  .replace(/<span class="nw">([^<]*)<\/span>/g, "$1").replace(/<[^>]+>/g, " ");
 
 check("英語: 成果とリスク・定義と検証・電話に英語の用語を出さない", () => {
   // 電話の reach.note は routes.rs build_phone の文そのもの（直した後の文）
@@ -2589,6 +2592,17 @@ check("ループ5: 箱ひげは広い枠（1440px, 1116px）ではラベルを�
   // 狭い枠（319px）は前と同じく2行に折り返す（省略しない）
   const nar = drawAt("svgBoxH({ w: 680, xFmt: F.d1, rows: " + rows + " })", 319);
   ok(/data-wrap="2"/.test(nar), "319px の枠で2行の折り返しが壊れた");
+});
+
+check("ループ5: 図の見出しの補足（.hint）で、数字と単位（「6.7倍」「12 件」）を折れない塊にする", () => {
+  const f = run('fig("x", "拠点3 / 取引6 / 開き 6.7倍。母数 12 件、<b data-n=\\"9件\\">2 法人</b>（&plusmn;1日で83.3%）契約 2025-12-18〜2026-06-17", "")');
+  const hint = (f.match(/<span class="hint">([\s\S]*?)<\/span><\/figcaption>/) || [0, ""])[1];
+  const nw = [...hint.matchAll(/<span class="nw">([^<]*)<\/span>/g)].map((m) => m[1]);
+  ["6.7倍", "12 件", "2 法人", "1日", "83.3%"].forEach((t) =>
+    ok(nw.includes(t), "「" + t + "」を折れない塊にしていない: " + nw.join(" | ")));
+  // タグの属性と文字参照の中は触らない
+  ok(hint.includes('<b data-n="9件">') && hint.includes("&plusmn;"), "タグの属性・文字参照を書き換えた: " + hint);
+  ok(/figcaption \.hint \.nw\{\s*white-space:nowrap/.test(html), ".hint .nw に white-space:nowrap の CSS が無い");
 });
 
 Promise.all(pendingChecks).then(() => {

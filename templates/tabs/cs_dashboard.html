@@ -306,6 +306,8 @@
               margin:0 0 2px; display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; }
   figure.fig > figcaption .hint{ font-weight:400; color:var(--ink-2); font-size:11.5px;
               letter-spacing:0; }
+  /* 数字と単位（「6.7倍」「12 件」）を行の途中で割らない（fig() の keepNum が包む） */
+  figure.fig > figcaption .hint .nw{ white-space:nowrap; }
   /* 🔴 2026-09-23 実機（400px 幅）: 図が縮むだけで文字が 4〜5px になっていた。
      図の最小幅を「描いた幅（--fw）の .92 倍」にして、11px の文字を 10px より小さくしない。
      入り切らない分は枠の中で横にスクロールする（ページ本体は広げない, V17）。
@@ -1067,6 +1069,16 @@ const F = {
 const minStepOf = (fmt) => (fmt === F.int ? 1 : fmt === F.man ? 10000 : 0);
 
 /** 図の外枠。figcaption と凡例をまとめて面倒をみる */
+/** 数字と単位を折れない塊（<span class="nw">）で包む。html はタグ・文字参照を含んでよい（中は触らない）。
+    🔴 2026-09-24 実機（ループ5）: 図の見出しの補足（.hint）は幅で折り返すので、houjin の
+    「拠点3 / 取引6 / 開き 6.7倍」が「6.7 / 倍」、rampup の「母数 12 件」が「12 / 件」と数字と単位の間で
+    折れうる（日本語は字の間どこでも折れる。数字と「倍」「件」の間も折れる）。
+    呼び出し側ごとに包むと新しい補足で漏れるので、fig() の入口でまとめて包む */
+const KEEP_NUM = /\d[\d,.]*[ \u00a0]?(?:法人|万円|ヶ月|か月|[%％倍件人社日秒円万回年月])/g;
+function keepNum(html) {
+  return String(html).split(/(<[^>]*>|&[#\w]+;)/)
+    .map((seg, i) => (i % 2 ? seg : seg.replace(KEEP_NUM, (m) => `<span class="nw">${m}</span>`))).join("");
+}
 function fig(caption, hint, body, legend) {
   /* 🔴 図の読み上げ名が「横棒」「構成比」のような既定値のままだった（V20）。
      呼び出し側で alt を渡していない図は、図の見出しを読み上げ名にする */
@@ -1120,7 +1132,7 @@ function fig(caption, hint, body, legend) {
   legend = (para > 0 ? legend.slice(0, para) + boxNote + legend.slice(para) : legend + boxNote) +
     noneNote + gapNote + shiftNote;
   return `<figure class="fig"><figcaption>${esc(caption)}` +
-    (hint ? `<span class="hint">${hint}</span>` : "") + `</figcaption>` +
+    (hint ? `<span class="hint">${keepNum(hint)}</span>` : "") + `</figcaption>` +
     (scroll ? `<div class="figscroll" style="--minw:${Math.ceil(minW)}px">← 図を横にスクロールできます →</div>` : "") +
     /* 🔴 横にスクロールする枠は Tab で止まれるようにする（キーボードの矢印で動かせる）。
        tabindex が無いと、枠に自動でフォーカスが当たるブラウザでしか動かせなかった（2026-09-23 検証）。
