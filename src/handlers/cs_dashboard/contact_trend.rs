@@ -35,6 +35,12 @@
 //! - **今の週・月は途中なので未確定（`provisional`）。** データの取得日が今日より古いときは、
 //!   取得日を含む期間から先も未確定にする（まだ取れていない日がある）。
 //!   画面は中空＋破線で描く（規律「未確定は中空＋破線。実線と混ぜない」）。
+//! - 🔴 **通話の記録が始まる前の期間は比べられない。** `CS_通話明細` は fixture で 2026-03-22 から
+//!   しか無く（MTG は 2025-08 以前からある）、それより前の月は MTG だけで数えることになる。
+//!   月で 12か月並べると 2025-10〜2026-02 が 1件あたり 0.3〜0.4 回、2026-07 以降が 1.8〜2.2 回に
+//!   なり、「接触が増えた」ように見えるがデータの範囲が変わっただけ。
+//!   通話の記録が始まった日（`call_from`）より前に始まる期間には `calls_missing` を立て、
+//!   画面は図にも表にも出さない（出さない理由を書く）。
 //! - 🔴 **接触は検知専用。** 多いほど良いという評価ではない（担当者の評価ではない）。
 //!   もめている案件ほど電話が増えることもあり、向きはこのデータでは決まっていない
 //!   （引き継ぎ資料 03「4. 接触の定義と実測」）。
@@ -45,7 +51,7 @@ use std::collections::{BTreeMap, HashMap};
 use chrono::{Datelike, Duration, NaiveDate};
 use serde_json::{json, Value};
 
-use super::{contacts_by_deal, data_as_of, date10, deals_of, flag_true, Sheets};
+use super::{call_date_jst, contacts_by_deal, data_as_of, date10, deals_of, flag_true, Sheets};
 use crate::handlers::call_quality::sheets::SheetData;
 
 /// これより少ない持ち案件の期間は `small_n`（図から外す。表には残す）。
@@ -135,6 +141,18 @@ pub fn owner_timeline(owner_hist: &SheetData) -> HashMap<String, Vec<OwnerEntry>
     for v in out.values_mut() {
         // 安定ソート。同じ日の行はシートの並び順のまま（後の行が勝つ）
         v.sort_by_key(|e| e.0);
+        // 🔴 同じ日の行は最後の1行だけ残す。先の行の担当は1日も持っていない
+        //    （その日のうちに後の行に書き換わる）ので、「期間中に担当だった人」に入れない。
+        //    残すと、同じ日に2行ある案件が「担当が替わった案件」として両方の担当に数えられる
+        //    （fixture で月の `shared` が最大3件ずつ多く出た）。
+        let mut keep: Vec<OwnerEntry> = Vec::with_capacity(v.len());
+        for e in v.drain(..) {
+            match keep.last_mut() {
+                Some(last) if last.0 == e.0 => *last = e,
+                _ => keep.push(e),
+            }
+        }
+        *v = keep;
     }
     out
 }
@@ -185,7 +203,16 @@ fn cutoff_of(sheets: &Sheets, today: NaiveDate) -> NaiveDate {
         .unwrap_or(today)
 }
 
-fn period_json(unit: Unit, p: &Period, cutoff: NaiveDate) -> Value {
+/// 通話の記録が始まった日（日本時間）。長さを問わず、いちばん古い通話の日。
+/// 1本も無ければ `None`（どの期間も通話が数えられない）。
+pub fn call_from(call: &SheetData) -> Option<NaiveDate> {
+    call.rows
+        .iter()
+        .filter_map(|r| call_date_jst(call.get(r, "ts")))
+        .min()
+}
+
+fn period_json(unit: Unit, p: &Period, cutoff: NaiveDate, calls: Option<NaiveDate>) -> Value {
     let (key, label) = match unit {
         Unit::Month => {
             let k = p.start.format("%Y-%m").to_string();
@@ -209,6 +236,8 @@ fn period_json(unit: Unit, p: &Period, cutoff: NaiveDate) -> Value {
         "end": p.end.to_string(),
         // 🔴 いまの期間（途中）と、データを取った日から先を含む期間は未確定
         "provisional": p.end >= cutoff,
+        // 🔴 通話の記録が始まる前に始まる期間。MTG しか数えられないので、ほかの期間と比べられない
+        "calls_missing": calls.is_none_or(|f| p.start < f),
     })
 }
 
@@ -220,6 +249,7 @@ fn unit_json(
     tl: &HashMap<String, Vec<OwnerEntry>>,
     today: NaiveDate,
     cutoff: NaiveDate,
+    calls: Option<NaiveDate>,
 ) -> Value {
     let n = match unit {
         Unit::Week => N_WEEKS,
@@ -282,7 +312,10 @@ fn unit_json(
         }
     }
 
-    let pjs: Vec<Value> = ps.iter().map(|p| period_json(unit, p, cutoff)).collect();
+    let pjs: Vec<Value> = ps
+        .iter()
+        .map(|p| period_json(unit, p, cutoff, calls))
+        .collect();
     // 並びは「直近の確定した期間の持ち案件が多い順」。成績の順ではない
     let last_fixed = ps.iter().rposition(|p| p.end < cutoff);
     let mut names: Vec<&&str> = by.keys().collect();
@@ -323,6 +356,7 @@ pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
     let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
     let tl = owner_timeline(&sheets.owner_hist);
     let cutoff = cutoff_of(sheets, today);
+    let calls = call_from(&sheets.call);
 
     let mut no_span = 0usize;
     let spans: Vec<(&str, NaiveDate, NaiveDate)> = deals
@@ -350,6 +384,8 @@ pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
             "today": today.to_string(),
             "all_cached": sheets.all_cached,
             "cutoff": cutoff.to_string(),
+            // 通話の記録が始まった日。これより前に始まる期間は出さない
+            "call_from": calls.map(|d| d.to_string()),
             "min_deals": MIN_DEALS,
             // 契約の開始日・満了日が読めず、どの期間にも数えられない本体案件
             "n_no_span": no_span,
@@ -374,7 +410,9 @@ pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
     最初の担当にさかのぼって付けることはせず、どの担当者にも数えていません（件数は別に出しています）",
         "provisional_rule": "いまの週・月は途中なので未確定です（途中までの接触しか入っていないので低く出ます）。\
     データを取った日がそれより前なら、その日を含む期間から先も未確定にしています",
-        "month": unit_json(Unit::Month, &spans, &contacts, &tl, today, cutoff),
-        "week": unit_json(Unit::Week, &spans, &contacts, &tl, today, cutoff),
+        "calls_missing_rule": "通話の記録が始まる前の期間は、MTG しか数えられないので出していません。\
+    出すと、データの範囲が変わっただけなのに接触が増えたように見えるためです",
+        "month": unit_json(Unit::Month, &spans, &contacts, &tl, today, cutoff, calls),
+        "week": unit_json(Unit::Week, &spans, &contacts, &tl, today, cutoff, calls),
     })
 }
