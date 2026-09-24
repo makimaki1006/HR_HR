@@ -3126,6 +3126,10 @@ function custBlocks(D, want) {
      空の枠が大量に続いていた（V11 目視）。まとめて1つの枠にし、どの契約かは名前で残す */
   const noHist = [];
   let laneWhy = false;   /* 「1つの縦軸に重ねていません」をもう出したか */
+  let laneEx = false;    /* 読み方の例（NPS と接触）をもう出したか */
+  /* 系列の図を描く契約の数。「下に続く契約の図も同じです」は2つ以上のときだけ言う */
+  const nLaneFig = D.monthly.filter((mm) =>
+    ["oubo", "mensetu", "syoudaku"].some((k) => ((mm.series || {})[k] || []).length)).length;
   for (const mm of D.monthly) {
     const ser = mm.series || {};
     const any = ["oubo", "mensetu", "syoudaku"].some((k) => (ser[k] || []).length);
@@ -3189,8 +3193,12 @@ function custBlocks(D, want) {
     const hasCt = ctPts.some((p) => p.v != null);
     /* 🔴 NPS が上がった契約にも「NPS が落ちた月に接触が切れていて…が読めます」と出て、
        例文が結論のように読めた（2026-09-24 実機）。例であることを文の中で言う */
+    /* 🔴 読み方の例を契約ごとの図の副題に毎回出していて、既定の事業所で17回並んでいた
+       （2026-09-24 検証）。例はどの契約でも同じなので、NPS と接触の両方がある最初の図だけに出す */
+    const ex = hasNps && hasCt && !laneEx;
+    if (ex) laneEx = true;
     h += fig(shortName(mm.name || mm.deal_id, 28) + " — 系列を縦に並べる",
-      hasNps && hasCt
+      ex
         ? "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
           "（読み方の例:「NPS が落ちた月に接触が切れていたか」。この契約がそうだという意味ではありません）"
         : "縦に目を落とすと、同じ月に何が起きていたかが読めます" +
@@ -3214,7 +3222,8 @@ function custBlocks(D, want) {
       "重ねると応募だけが動いて NPS が底に張り付きます。" +
       "目盛りの取り方しだいで「相関して見える絵」を作れてしまうため、" +
       "<b>横軸だけを共有して、系列ごとに自分の縦軸を持たせています</b>。" +
-      "下に続く契約の図も同じです。</i>"));
+      /* 🔴 契約の図が1つしかない事業所でも「下に続く…」と出ていた（2026-09-24 検証） */
+      (nLaneFig > 1 ? "下に続く契約の図も同じです。" : "") + "</i>"));
     laneWhy = true;
   }
   if (noHist.length) {
