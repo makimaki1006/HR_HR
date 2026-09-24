@@ -1175,26 +1175,28 @@ check("C1", "担当者ごとの接触: 開くと contact-trend を1回だけ取�
 /* ================================================================ H1 担当の交代 × 交代の前後の接触（2026-09-24） */
 /* 形は routes.rs build_handover のまま（contact_cmp と rows[].contact）。値は見張りのために置いたもの */
 function handoverPayload() {
-  const w = (d, c) => ({ days: d, contacts: c, per30: d ? c * 30 / d : null });
+  const w = (d, c, st, en) => ({ days: d, contacts: c, per30: d ? c * 30 / d : null, start: st || null, end: en || null });
   const row = (o) => Object.assign({ deal_id: "40000000001", name: "案件", date: "2026-07-01",
     from: "前任", to: "後任", from_label: "前任", to_label: "後任", from_unresolved: false, to_unresolved: false,
     to_retired: false, reflected: "反映済み", record_gap_days: 3, is_active: true, state_label: "稼働中",
     consultant: "後任", contact: null }, o);
   const who = (label, o) => Object.assign({ label, unresolved: false, unresolved_no: null, n_events: 6, n_ok: 5,
-    n_up: 2, n_down: 3, n_same: 0, n_short: 1, n_provisional: 0, median_change: -0.5, small: false }, o);
+    n_up: 2, n_down: 3, n_same: 0, n_short: 1, n_provisional: 0, n_ongoing: 1, mean_change: -0.4, median_change: -0.5, small: false }, o);
   return {
     meta: { today: "2026-09-18", all_cached: false, n: 2, n_active: 2, n_option_excluded: 0, n_unknown_deal: 0, not_counted: "" },
     rows: [
-      row({ name: "案件X", contact: { status: "ok", why: null, event: "site:S1|2026-07-01", before: w(60, 3), after: w(60, 1), change: -1, dir: "down" } }),
-      row({ name: "案件Y", date: "2026-08-01", contact: { status: "provisional", why: null, event: "site:S2|2026-08-01", before: w(60, 2), after: w(45, 3), change: 1, dir: "up" } }),
+      row({ name: "案件X", contact: { status: "ok", why: null, event: "site:S1|2026-07-01", ongoing: true,
+        before: w(60, 3, "2026-05-02", "2026-06-30"), after: w(60, 1, "2026-07-01", "2026-08-29"), change: -1, dir: "down" } }),
+      row({ name: "案件Y", date: "2026-08-20", contact: { status: "provisional", why: null, event: "site:S2|2026-08-20", ongoing: true,
+        before: w(60, 2, "2026-06-21", "2026-08-19"), after: w(25, 3, "2026-08-20", "2026-09-13"), change: 1, dir: "up" } }),
     ],
     reflected_dist: [{ label: "反映済み", n: 2 }], to_retired: 0, median_gap_days: 3, n_gap: 2,
     gap_rule: "記録の遅れ", source_rule: "交代日",
     contact_cmp: {
       n_events: 2, n_ok: 1, n_up: 0, n_down: 1, n_same: 0, n_short: 0, n_provisional: 1,
-      short_why: { calls: 0, before: 0, after: 0 }, median_change: -1,
+      short_why: { calls: 0, before: 0, after: 0, overlap: 0, gap: 0 }, mean_change: -1, median_change: -1, n_ongoing: 1,
       by_to: [who("後任")], by_from: [who("前任", { small: true, n_ok: 1 })],
-      meta: { window_days: 60, min_window_days: 30, per_days: 30, min_person_n: 5, call_from: "2026-03-23",
+      meta: { window: "tenure", min_window_days: 30, per_days: 30, min_person_n: 5, call_from: "2026-03-23",
         last_day: "2026-09-13", n_unavailable_rows: 0, n_ambiguous: 0 },
       not_causal: "交代が接触を減らした・増やした証拠ではありません。", rule: "比べ方", dedupe_rule: "1件の交代", dir_rule: "印",
     },
@@ -1210,7 +1212,7 @@ check("H1", "担当の交代: 開くと handover を取り、交代の前後の�
   await tick(); await tick();
   const h = t.reg["cs-main"].innerHTML;
   for (const w of ["交代の前後で、接触は増えたか減ったか", "証拠ではありません", "引き継いだ側（次の担当）", "引き継がれた側（前の担当）",
-    "接触の前後（30日あたり）", "記録の遅れ"])
+    "接触の前後（30日あたり）", "記録の遅れ", "それぞれの担当期間の全体（通期）", "変化の平均 / 中央値", "担当中"])
     if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
   if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
   if (h.indexOf('href="#consultant/contact"') < 0) throw new Error("担当者ごとの接触へのリンクが無い");
