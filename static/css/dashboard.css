@@ -1342,6 +1342,83 @@ select.filter-control {
     flex-shrink: 0;
 }
 
+/* 採用市場タブの左の並び（面の選択 + その面の節）。
+   指針: templates/tabs/cs_dashboard.html:174-214（コンサルKPI）に合わせる。
+   社内に完成形が 1 つしかないので、2 つ目の流儀を作らない。
+
+   🔴 position:fixed を使わない。fixed だと本文に重なって先頭の節が隠れる。
+   sticky なら列の中に居座るので、本文の幅を食うだけで重ならない。
+
+   幅 212px はコンサルKPI と同値。w-64(256px) から変えている。
+   高さの上限とスクロールを列自身に持たせるので、節が増えても画面外に出ない。 */
+.indeed-with-nav {
+  display: grid;
+  grid-template-columns: 212px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.indeed-sidenav {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  border-right: 1px solid #334155;
+  padding-right: 12px;
+}
+.indeed-sidenav > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 🔴 狭い画面でも畳まない。横に流す。
+   コンサルKPI が同じ問題に出した答えで、理由もそちらに書いてある——
+   「開閉の一手間を挟むと、毎朝いちばん見るものが1タップ遠くなる」。
+   採用市場は面が 4 つしかなく毎回どれかを選ぶので、なおさら消してはいけない。
+
+   以前の試作は display:none にしていた。面の切り替えが画面から消えていた。
+   しきい値 900px もコンサルKPI と同じにする。 */
+@media (max-width: 900px) {
+  .indeed-with-nav {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .indeed-sidenav {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid #334155;
+    padding: 0 0 8px;
+  }
+  .indeed-sidenav > div {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .indeed-sidenav a {
+    white-space: nowrap;
+  }
+  /* 節（面の下にぶら下がる項目）は横並びでは邪魔になるので隠す。
+     面の切り替えだけ残す。節は縦に並んだ本文をスクロールすれば届く。 */
+  .indeed-sidenav a.indeed-sec-link {
+    display: none;
+  }
+  /* 「見るもの」の見出しと県の札は横並びでは意味が薄い */
+  .indeed-sidenav .indeed-nav-head {
+    display: none;
+  }
+}
+
+/* 飛び先の印。見出しの直前に置くので、帯（39px）の下で止まるよう余白を持たせる。
+   .echart の scroll-margin-top: 48px と同じ考え方。 */
+.indeed-sec-anchor {
+  display: block;
+  height: 0;
+  scroll-margin-top: 56px;
+}
+
 /* 効いていなかった hover 指定の補完（2026-09-24 試作）
    実測: hover: 指定は全 216 回。うち 91 回（25 種類）が配布 CSS に定義が無く、
    無言で何も起きていなかった。Playwright で職種の一覧（127 行）の行に
@@ -1368,4 +1445,13 @@ select.filter-control {
 .indeed-with-nav table tbody tr:hover,
 .indeed-with-nav table tbody tr:hover > th {
   background-color: #2c3a4f;
+}
+
+/* 本文の器。表の折り返し判定を画面幅ではなく本文の幅で行うため（2026-09-24 試作）。
+   左の列を足すと本文は 1232px -> 960px になるが、@media は画面幅しか見ないので
+   画面が 1280px あるうちは折り返しが発動せず、表（最小 1100px）がはみ出していた。
+   Playwright で documentElement.scrollWidth > clientWidth を計って確認した。 */
+.indeed-with-nav > .flex-1 {
+  container-type: inline-size;
+  container-name: indeedbody;
 }
