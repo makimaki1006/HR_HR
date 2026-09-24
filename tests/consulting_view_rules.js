@@ -2219,6 +2219,23 @@ check("ループ4 検証: 1か月の図の「記録がありません」は語�
   ok(bgs.length === em.length, "「記録がありません」の地の四角が行の数と合わない: " + bgs.length);
 });
 
+check("ループ4 検証: 箱ひげを狭い枠（319px）で描くとき、ラベル欄に入らないラベルは省略せずに2行に折り返す（outcome の「充足」）", () => {
+  const svg = drawAt('svgBoxH({ w: 680, xFmt: F.d1, rows: [' +
+    '{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, n: 742 },' +
+    '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 121, n: 142 }] })', 319);
+  const wr = [...svg.matchAll(/<text class="axl"[^>]*data-wrap="2"[^>]*><tspan[^>]*>([^<]*)<\/tspan><tspan[^>]*>([^<]*)<\/tspan>/g)];
+  ok(wr.length === 1 && wr[0][1] + wr[0][2] === "充足（採れて終わった）", "「充足（採れて終わった）」を2行に折り返していない: " +
+    [...svg.matchAll(/<text class="axl"[^>]*>(.*?)<\/text>/g)].map((m) => m[1].replace(/<[^>]*>/g, "|")).join(" / "));
+  // 行の高さ: 2行に折り返した行は 32px、軸の外の最大値がある行は「最大 N（軸の外）」の行のぶん 12px 足す
+  // （27 + 12 = 39）。足りないと2行目・「最大 N」が下の行や目盛りにかかる
+  const vh = (t) => +(t.match(/viewBox="0 0 [\d.]+ ([\d.]+)"/) || [0, 0])[1];
+  ok(vh(svg) === 22 + 26 + 39 + 39, "軸の外の行・2行のラベルの行の高さが足りない: " + vh(svg));
+  const inAx = drawAt('svgBoxH({ w: 680, xFmt: F.d1, rows: [' +
+    '{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 20, n: 742 },' +
+    '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 25, n: 142 }] })', 319);
+  ok(vh(inAx) === 22 + 26 + 27 + 32, "2行のラベルの行が 32px になっていない: " + vh(inAx));
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
