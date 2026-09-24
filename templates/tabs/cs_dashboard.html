@@ -503,6 +503,8 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
 /* 小さな図を並べる（担当者ごとの接触。1人1枚）。1枚の最小幅は 12点の折れ線が読める 360px */
 .multi{ display:grid; gap:0 var(--space-gap); align-items:start;
         grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr)); }
+/* 小さな図の見出し: 1行目は担当者の名前、2行目に持ち案件（名前と数字が1行に続くと、伏字の名前が数字の一部に見えた。ループ5） */
+.multi figure.fig > figcaption .hint{ flex-basis:100%; }
 .ctlbar select:focus-visible, .ctlbar input:focus-visible,
 .ctlbar button.act:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 /* 母集団の注記。全部の項目の頭に、同じ文言で出る。
@@ -862,6 +864,8 @@ const svgHead = (w, h, alt, marks) =>
   (marks && marks.xr > 0 ? ` data-xr="${Math.round(marks.xr)}"` : "") +
   (marks && marks.mean ? ` data-mean="1"` : "") + (marks && marks.boxout ? ` data-boxout="1"` : "") +
   (marks && marks.boxmax ? ` data-boxmax="1"` : "") +
+  /* fit = 枠の幅で描いた図（svgLine の o.fit）。どの幅でも横スクロールにしないので fig() は案内を出さない */
+  (marks && marks.fit ? ` data-fit="1"` : "") +
   ` role="img" aria-label="${esc(alt)}">`;
 
 /* ---------------------------------------------------------------- 図の幅を枠に合わせる
@@ -1085,7 +1089,9 @@ function fig(caption, hint, body, legend) {
      🔴 2026-09-23 検証: 前は @media (max-width:600px) でだけ出していて、601〜1000px 前後の画面でも
      最小幅 865〜920px の図は枠の中でスクロールするのに、文の案内が無かった。
      いまは「枠の幅 < 図の最小幅」のときだけ出す（CSS の .figscroll。--minw と枠の幅 100cqw を比べる） */
-  const minW = Math.max(0, ...[...String(body).matchAll(/--fw:(\d+)px/g)].map((m) => +m[1] * .92));
+  /* 枠の幅で描いた図（data-fit。小さな図を並べる画面）は横スクロールにならないので数えない（ループ5） */
+  const minW = Math.max(0, ...[...String(body).matchAll(/<[^>]*--fw:(\d+)px[^>]*>/g)]
+    .filter((m) => m[0].indexOf(' data-fit="1"') < 0).map((m) => +m[1] * .92));
   const scroll = minW > 330;
   /* 切った左のラベルの全文（labText の data-full）。title はホバーでしか出ないので、
      タップと読み上げで読めるよう図の外に並べる */
@@ -1216,7 +1222,11 @@ function svgLine(o) {
      点と月の字が詰まって読めないので、これまでどおり横スクロール（開いた直後の位置はデータのある側） */
   const nx = (o.x || []).length;
   const minW = pad.l + pad.r + Math.max(180, (o.labelPts ? 64 : 24) * Math.max(0, nx - 1));
-  const w = slot.avail > w0 ? widen(w0, slot) : fitTo(w0, slot, minW);
+  /* o.fit: 小さな図を並べる画面（担当者ごとの接触）。並べて比べるので、どの幅でも枠の幅で描いて横スクロールにしない。
+     🔴 2026-09-24 ループ5（藤巻さん）: 週ごと（12 週）は minW が枠（約 319px）を超えて 360px のまま横スクロールになり、
+     縦軸の目盛りを左に貼り付けた複製（stickyLabels）まで出て「0.0 2.0 4.0 6.0」が2回読めた。
+     横軸の字は iw に合わせて間引くので、狭めても字は重ならない */
+  const w = o.fit && slot.avail > 0 ? Math.round(slot.avail) : slot.avail > w0 ? widen(w0, slot) : fitTo(w0, slot, minW);
   const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
   const fmt = o.yFmt || F.int;
   let vals = [];
@@ -1230,13 +1240,18 @@ function svgLine(o) {
      最大値を覆うところまで目盛りを1段足す */
   coverTicks(tk, hi);
   lo = Math.min(lo, tk[0]); hi = Math.max(hi, tk[tk.length - 1]);
+  /* o.yTickAuto: 目盛りの字は刻みに要る桁だけ（0 2 4 は整数、0.5 刻みは 0.0 0.5 1.0 にそろえる）。
+     点の値（title）は yFmt のまま。🔴 ループ5: 1件あたりの回数の目盛りが「0.0 2.0 4.0」と読みにくかった */
+  const tDec = (t) => { for (let d = 0; d < 3; d++) { const m = t * Math.pow(10, d); if (Math.abs(m - Math.round(m)) < 1e-6) return d; } return 3; };
+  const tkDec = o.yTickAuto ? Math.max(0, ...tk.map(tDec)) : 0;
+  const tfmt = o.yTickAuto ? (v) => v.toFixed(tkDec) : fmt;
   const n = o.x.length;
   const X = i => pad.l + (n === 1 ? iw / 2 : iw * i / (n - 1));
   const Y = v => pad.t + ih - ih * (v - lo) / (hi - lo || 1);
 
   let g = "", yl = "";   // yl = 縦軸の目盛りの字だけ（左に貼り付けるときに使う）
   tk.forEach(t => {
-    const tt = `<text class="ax" x="${pad.l - 7}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(fmt(t))}</text>`;
+    const tt = `<text class="ax" x="${pad.l - 7}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(tfmt(t))}</text>`;
     g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` + tt;
     yl += tt;
   });
@@ -1353,7 +1368,7 @@ function svgLine(o) {
   o.series.forEach((s) => s.pts.forEach((p, i) => { if (p && p.v != null && i > last) last = i; }));
   const xr = last >= 0 ? Math.min(w, X(last) + pad.r) : 0;
   const svg = svgHead(w, h, o.alt || o.yLab || "折れ線",
-    { gap: gapped, shift: shiftedEdge ? "edge" : shifted, fk: slot.k, x0, xr }) + `${g}</svg>`;
+    { gap: gapped, shift: shiftedEdge ? "edge" : shifted, fk: slot.k, x0, xr, fit: !!o.fit }) + `${g}</svg>`;
   /* 枠より広く描いて（横スクロール）、開いた直後の位置をデータのある側へ動かす図は、縦軸の目盛りも
      一緒に流れて見えなくなる。そのときだけ目盛りを左に貼り付ける（stickyLabels。帯を縦に積む図と同じ）。
      x0 は貼り付けた目盛りの欄のぶん手前にする */
@@ -2826,7 +2841,10 @@ function renderContact(D) {
       " 件未満の" + what + "です（点を打っていません。値は下の表）。</i>";
     const small = (title, hint, cells, legend) => {
       const pts = contactPts(cells, idx, periods, top);
-      const svg = svgLine({ w: 360, h: 180, x: X, yFmt: F.d1, yMax: top, yTicks: 3,
+      /* 1回目（枠の幅が分からない）は 320px。.92 倍が 330px 以下なので「横にスクロールできます」を出さない。
+         2回目は枠の幅で描く（fit）。目盛りの字の欄は「10」が入る 34px で足りる */
+      const svg = svgLine({ w: 320, h: 180, x: X, yFmt: F.d2, yTickAuto: true, fit: true, pad: { l: 34 },
+        yMax: top, yTicks: 3,
         alt: title + "の持ち案件1件あたりの接触",
         series: [{ pts: pts, color: C.ai }] });
       const gap = pts.some((p) => p == null) ? gapWhy : "";
@@ -2836,14 +2854,19 @@ function renderContact(D) {
       return fig(title, hint, svg, (legend || "") + gap + clipWhy);
     };
     const lastFixed = (() => { for (let k = idx.length - 1; k >= 0; k--) if (!periods[idx[k]].provisional) return idx[k]; return -1; })();
+    /* 見出しの2行目（CSS の .multi … .hint）。1行目の名前と分けて「持ち案件 N 件」から書く。
+       🔴 2026-09-24 ループ5（藤巻さん「タイトルが意味わからなくなってる」）: 「hd26f422ffda0 / 直近の確定した週（…）:
+       持ち案件 34 件」と1行に続き、伏字の名前が何か分からなかった */
     const hintOf = (cells) => (lastFixed >= 0 && cells[lastFixed]
-      ? "直近の確定した" + what + "（" + esc(periods[lastFixed].label) + "）: 持ち案件 " + num(cells[lastFixed].deals) + " 件"
+      ? "持ち案件 " + num(cells[lastFixed].deals) + " 件（直近の確定した" + what + " " + esc(periods[lastFixed].label) + "）"
       : "");
     h += '<div class="multi">' +
       small("全体（担当が決まった案件の合計）", hintOf(U.team || []), U.team || [],
         lg("line", C.ai, "確定した" + what) + lg("ring", C.ai, "未確定（いまの" + what + "。途中なので低く出ます）") +
         '<i class="full">点にマウスを重ねると、持ち案件と接触の回数が出ます。</i>') +
-      drawable.map((r) => small(r.consultant + (r.retired ? "（退職者のまま）" : ""), hintOf(r.cells), r.cells, "")).join("") +
+      /* 見出しは「担当者: 名前」。本番は実名、fixture は伏字（ハッシュ）なので、語を添えて何の名前か分かるようにする */
+      drawable.map((r) => small("担当者: " + (r.consultant || "（名前なし）") + (r.retired ? "（退職者のまま）" : ""),
+        hintOf(r.cells), r.cells, "")).join("") +
       "</div>";
     if (dropped.length) {
       h += '<p class="muted small"><b>図にしていない担当者が ' + num(dropped.length) + " 名います</b>（" +
