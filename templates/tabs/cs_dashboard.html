@@ -707,8 +707,8 @@ function fitLab(s, maxW) {
         best = { a, b, kept, bal };
       }
     }
-    /* 頭に 1 字だけ残すと読めない字の切れ端になるので、そのときは頭を残さない */
-    if (best && best.a === 1 && best.b <= key[0]) best.a = 0;
+    /* 頭に 1〜2 字だけ残しても読めない字の切れ端（「サブ…」）になるので、そのときは頭を残さない */
+    if (best && best.a > 0 && best.a < 3 && best.b <= key[0]) best.a = 0;
     if (best) return ch.slice(0, best.a).join("") + "…" + ch.slice(best.b).join("");
   }
   let a = Math.ceil(ch.length / 2), b = ch.length - a;
@@ -726,8 +726,13 @@ function labKey(ch) {
   let k = -1;
   for (let i = ch.length - 2; i > 0; i--) if (/[ 　＿_]/.test(ch[i])) { k = i; break; }
   let key = null;
+  const SUF = /(営業所|事業所|事業部|支店|支社|本社|本部|工場|センター|倉庫|エリア)$/;
   if (k > 0) key = [k + 1, ch.length];
-  else {
+  else if (SUF.test(s)) {
+    /* 区切りの無い拠点名（「ロンコ・ジャパンプラス事業部」）は、末尾の「事業部」だけ残すと全部の行が
+       「…ス事業部」「…ル事業部」と並ぶ（2026-09-24 実機）。末尾の語の手前 3 字も残す */
+    key = [Math.max(0, ch.length - [...SUF.exec(s)[0]].length - 3), ch.length];
+  } else {
     const m = /[0-9０-９][0-9０-９.,〜~\-]*(?:日|件|人|回|倍|%|％|か月|ヶ月|万)?/.exec(s);
     if (m) { const st = [...s.slice(0, m.index)].length; key = [st, st + [...m[0]].length]; }
   }
@@ -912,11 +917,21 @@ let paintedW = 0;
     左に貼り付けたラベル欄のぶんは引いてある）を付け、ここで枠の位置を合わせる */
 function figToData(el) {
   el.querySelectorAll("figure.fig .figbody").forEach((b) => {
-    const sv = b.querySelector("svg[data-x0]");
+    const sv = b.querySelector("svg[data-x0], svg[data-xr]");
     if (!sv || b.scrollWidth - b.clientWidth <= 1) return;
     const vb = sv.viewBox && sv.viewBox.baseVal ? sv.viewBox.baseVal.width : 0;
     if (!(vb > 0)) return;
     const k = sv.getBoundingClientRect().width / vb;
+    /* data-xr: 開いた直後に右端へ見せたい位置（時間軸の図の「いちばん新しい側」）。
+       🔴 2026-09-24 実機（ループ4, 400px）: 契約の連なり・LTV の推移・月次の継続率は、開いた直後が
+       古い側で、要（新しい契約・最新の累計・直近の月）が横スクロールの奥にあった。
+       x0（最初にデータがある位置）より優先する */
+    const xr = sv.getAttribute("data-xr");
+    if (xr != null && xr !== "") {
+      const r = +xr * k;
+      if (r > b.clientWidth) b.scrollLeft = Math.min(r - b.clientWidth, b.scrollWidth - b.clientWidth);
+      return;
+    }
     const x = +sv.getAttribute("data-x0") * k;
     /* 開いた直後に左半分より右にデータが始まる図だけ動かす。左にも見えているなら動かさない */
     if (x > b.clientWidth * 0.5) b.scrollLeft = Math.min(x, b.scrollWidth - b.clientWidth);
@@ -929,6 +944,9 @@ function figToData(el) {
     🔴 重ねる側に地の色の四角を敷かない。400px ではラベル欄が見えている幅の 2/3（約 220px / 334px）を
     占め、敷くとスクロールした先の図がほとんど隠れた（2026-09-23 chromium で確かめた）。
     文字の縁取り（地の色の太い線を文字の下に敷く）だけで、線や点の上でも読めるようにする */
+/** 目盛りを左に貼り付けるときの欄の幅。軸の題名（x=2 から書く「累計金額（万円）」）が目盛りの欄より長いと、
+    貼った側で題名が「累計金額（万」と切れた（2026-09-24 ループ4 実機, houjin の LTV）。題名が入る幅まで広げる */
+const stickW = (padL, yLab) => Math.max(padL, yLab ? Math.ceil(2 + textW(yLab) + 4) : 0);
 function stickyLabels(w, padL, labH, labs, svg) {
   const dup = labs.replace(/<text class="axl"/g, '<text data-sticky="1" class="axl"')
     .replace(/ data-full="[^"]*"/g, "");
@@ -1278,13 +1296,18 @@ function svgLine(o) {
   let first = n;
   o.series.forEach((s) => s.pts.forEach((p, i) => { if (p && p.v != null && i < first) first = i; }));
   const x0 = first < n ? X(first) - 30 : 0;
+  /* 開いた直後は最新の側（値がある最後の月と、その右の余白）を右端に見せる（figToData の data-xr。x0 より優先）。
+     🔴 2026-09-24 実機（ループ4, renewal の月次の継続率）: 開いた直後が古い側で、右端の 26 年が奥にあった */
+  let last = -1;
+  o.series.forEach((s) => s.pts.forEach((p, i) => { if (p && p.v != null && i > last) last = i; }));
+  const xr = last >= 0 ? Math.min(w, X(last) + pad.r) : 0;
   const svg = svgHead(w, h, o.alt || o.yLab || "折れ線",
-    { gap: gapped, shift: shiftedEdge ? "edge" : shifted, fk: slot.k, x0 }) + `${g}</svg>`;
+    { gap: gapped, shift: shiftedEdge ? "edge" : shifted, fk: slot.k, x0, xr }) + `${g}</svg>`;
   /* 枠より広く描いて（横スクロール）、開いた直後の位置をデータのある側へ動かす図は、縦軸の目盛りも
      一緒に流れて見えなくなる。そのときだけ目盛りを左に貼り付ける（stickyLabels。帯を縦に積む図と同じ）。
      x0 は貼り付けた目盛りの欄のぶん手前にする */
-  if (slot.avail && slot.avail < w * .92 && x0 * .92 > slot.avail * .5)
-    return stickyLabels(w, pad.l, pad.t + ih + 4, yl,
+  if (slot.avail && slot.avail < w * .92 && (x0 * .92 > slot.avail * .5 || xr * .92 > slot.avail))
+    return stickyLabels(w, stickW(pad.l, o.yLab), pad.t + ih + 4, yl,
       svg.replace(`data-x0="${Math.round(x0)}"`, `data-x0="${Math.round(Math.max(1, x0 - pad.l))}"`));
   return svg;
 }
@@ -1610,8 +1633,18 @@ function svgStackLanes(o) {
      （2026-09-23 実機, series）。帯の間を 8px にし、目盛りは線の実際の上端・下端の高さに置く。
      NPS の帯は点の上に値・下に「定期N」を書くので、その2行が帯の中に収まる高さにする */
   const slot = figSlot();
-  const w = widen(o.w || 1000, slot), padL = Math.max(112, labW(o.lanes || [], 240)), padR = 68,
-        padT = 10, padB = 28, gap = 8;
+  let w = widen(o.w || 1000, slot), padL = Math.max(112, labW(o.lanes || [], 240));
+  const padR = 68, padT = 10, padB = 28, gap = 8;
+  /* 🔴 2026-09-24 実機（ループ4, 400px, series の甲賀＝1か月の契約）: 月が少ない図も 940px で描いて
+     真ん中の月に位置を合わせていたので、帯の「この顧客では記録がありません」が左のラベルの下（左）へ
+     はみ出し、右端の目盛りの値は枠の外だった。月が少ない図（月の間が 48px 以上とれる）は、ラベル欄を詰めて
+     枠の幅で描く。入らないラベルは fitLab で切る（全文は図の下の一覧に出る） */
+  const narrowW = (pl) => slot.avail - pl - padR;
+  let narrow = false;
+  if (slot.avail && slot.avail < w * .92) {
+    const pl = Math.min(padL, Math.round(slot.avail * .36));
+    if (narrowW(pl) >= Math.max(110, 48 * (n - 1))) { narrow = true; padL = pl; w = slot.avail; }
+  }
   const iw = Math.max(60, w - padL - padR);
   const X = i => n === 1 ? padL + iw / 2 : padL + iw * i / (n - 1);
   /* 点の上下に書く文字の揃え。両端の月は中央ぞろえにすると左のラベル（「定期NPS」）や
@@ -1620,8 +1653,12 @@ function svgStackLanes(o) {
   const ancX = i => X(i) + (anc(i) === "start" ? -4 : anc(i) === "end" ? 4 : 0);
   const H = { line: 58, dots: 62, bars: 52, empty: 30 };
   const lanes = o.lanes || [];
+  /* 記録が無い帯の文。狭く描くときは入る幅で折り返す（2行なら帯を 8px 高くする） */
+  const EMPTY_T = "— この顧客では記録がありません";
+  const emptyLines = wrapText(EMPTY_T, Math.max(60, iw - 8));
+  const hEmpty = emptyLines.length > 1 ? H.empty + 13 * (emptyLines.length - 1) : H.empty;
   let h = padT + padB;
-  lanes.forEach(L => { h += (L.empty ? H.empty : H[L.type]) + gap; });
+  lanes.forEach(L => { h += (L.empty ? hEmpty : H[L.type]) + gap; });
 
   let g = "";
   /* 月の縦線。全部の帯を貫いて引く（縦に目を落とすための線） */
@@ -1641,13 +1678,15 @@ function svgStackLanes(o) {
   let y = padT, labs = "";
   const marks = {};
   lanes.forEach(L => {
-    const lh = L.empty ? H.empty : H[L.type];
+    const lh = L.empty ? hEmpty : H[L.type];
     const top = y, bot = y + lh;
     const lab = labText(padL - 10, (top + lh / 2 + 4).toFixed(1), L.label, padL - 14, "", L.full);
     g += lab; labs += lab;
     if (L.empty) {
-      g += `<text class="ax" x="${padL + 6}" y="${(top + lh / 2 + 4).toFixed(1)}" ` +
-           `style="fill:var(--ghost)">— この顧客では記録がありません</text>`;
+      const y0 = top + lh / 2 + 4 - 6.5 * (emptyLines.length - 1);
+      emptyLines.forEach((ln, k) =>
+        g += `<text class="ax" data-empty="1" x="${padL + 6}" y="${(y0 + 13 * k).toFixed(1)}" ` +
+             `style="fill:var(--ghost)">${esc(ln)}</text>`);
       y = bot + gap; return;
     }
     g += `<line class="axisline" x1="${padL}" y1="${bot.toFixed(1)}" ` +
@@ -1769,8 +1808,9 @@ function svgStackLanes(o) {
   const first = Math.min(n, ...lanes.filter((L) => !L.empty).map((L) => {
     const k = (L.pts || []).findIndex(has); return k < 0 ? n : k; }));
   marks.fk = slot.k;
-  /* 月が1つだけの図は、その点が真ん中（右の奥）に来るので、最初の月でも合わせる */
-  if (first < n) marks.x0 = X(first) - padL - 20;
+  /* 月が1つだけの図は、その点が真ん中（右の奥）に来るので、最初の月でも合わせる。
+     枠の幅で描いた図（narrow）は横にスクロールしないので合わせない */
+  if (first < n && !narrow) marks.x0 = X(first) - padL - 20;
   return stickyLabels(w, padL, Math.round(h - padB), labs,
     svgHead(w, h.toFixed(0), o.alt || "系列を縦に積んだ図", marks) + `${g}</svg>`);
 }
@@ -1924,7 +1964,13 @@ function svgScatter(o) {
   const pad = { l: 56, r: 18, t: o.yLab ? 28 : 16, b: 42 };   // 題名と最上段の目盛りを重ねない
   const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-  const xlo = o.xMin != null ? o.xMin : Math.min(...xs), xhi = o.xMax != null ? o.xMax : Math.max(...xs);
+  /* 🔴 2026-09-24 実機（ループ4, outcome の最優先の広がり）: 横軸を点の最小〜最大で取っていて、
+     0 が無く（「満了まで」の日数なのに起点が読めない）、いちばん右の点が枠の右端にかかっていた。
+     値がすべて 0 以上なら 0 から始め、右端は最大値を覆う目盛りまで伸ばす（縦軸と同じ coverTicks） */
+  const xmin0 = Math.min(...xs), xmax0 = Math.max(...xs);
+  const xlo = o.xMin != null ? o.xMin : xmin0 >= 0 ? 0 : xmin0;
+  const xtk = coverTicks(ticks(xlo, xmax0, 5, minStepOf(o.xFmt || F.int)), xmax0);
+  const xhi = o.xMax != null ? o.xMax : Math.max(xmax0, xtk[xtk.length - 1]);
   const yf = o.yFmt || F.int, xf = o.xFmt || F.int;
   const ylo = 0, yhi0 = o.yMax != null ? o.yMax : Math.max(...ys);
   // 最大値を覆うところまで目盛りを足し、縦軸の上端をその目盛りにする（coverTicks）
@@ -1936,9 +1982,11 @@ function svgScatter(o) {
   ytk.forEach(t =>
     g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
          `<text class="ax" x="${pad.l - 6}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(yf(t))}</text>`);
-  ticks(xlo, xhi, 5).forEach(t => {
+  (o.xMax != null || o.xMin != null ? ticks(xlo, xhi, 5) : xtk).forEach(t => {
     if (t < xlo - 1e-9 || t > xhi + 1e-9) return;
-    g += `<text class="ax" x="${X(t).toFixed(1)}" y="${pad.t + ih + 15}" text-anchor="middle">${esc(xf(t))}</text>`;
+    /* 右端の目盛りは右ぞろえにする（中央ぞろえだと字の半分が枠の外に出る） */
+    const end = X(t) + textW(xf(t)) / 2 > w - 2;
+    g += `<text class="ax" x="${(end ? w - 2 : X(t)).toFixed(1)}" y="${pad.t + ih + 15}" text-anchor="${end ? "end" : "middle"}">${esc(xf(t))}</text>`;
   });
   g += `<line class="axisline" x1="${pad.l}" y1="${pad.t + ih}" x2="${w - pad.r}" y2="${pad.t + ih}"/>`;
   // 点が重なるので少しだけ横に散らす。縦はそのまま
@@ -2040,8 +2088,11 @@ function svgTimeline(o) {
       g += `<text class="ax" x="${(w - 2).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" style="fill:${l.noteColor || "var(--ink-3)"}">${esc(l.note)}</text>`;
   });
   // 左のラベルは横にスクロールしても残す（帯を縦に積む図と同じ）。下の年月の軸は重ねない
+  /* 横にスクロールするときは、開いた直後をいちばん新しい側（右端。最後の印と右の注記「3回目 108万」）に
+     合わせる（figToData の data-xr）。🔴 2026-09-24 実機（ループ4, series「契約の連なり」）: 開いた直後が
+     古い側で、新しい契約の行（下の行）が空に見え、右の注記も奥にあった */
   return stickyLabels(w, padL, padT + lanes.length * rh, labs,
-    svgHead(w, h, o.alt || "接触の時系列", { fk: slot.k }) + `${g}</svg>`);
+    svgHead(w, h, o.alt || "接触の時系列", { fk: slot.k, xr: w }) + `${g}</svg>`);
 }
 
 /* ------------------------------------------------------------ 小さな折れ線 */
@@ -2071,7 +2122,13 @@ function svgSpark(vals, o) {
 /* -------------------------------------------------------------- ドット図 */
 /** 「517社のうち116社」のような割合を、数えられる形で見せる */
 function svgDots(o) {
-  const per = o.per || 25, r = o.r || 4.2, gap = o.gap || 11.5;
+  /* 枠に合わせる（paintFigs）。1行の点の数を枠の幅から決める（5 の倍数にして数えやすくする）。
+     🔴 2026-09-24 実機（ループ4, houjin の注力の点）: 1行 37 点（432px）のまま描いていたので、1440px では
+     カードの左半分で終わり、400px（枠 319px）では右の点が横スクロールの奥にあった */
+  const slot = figSlot();
+  const r = o.r || 4.2, gap = o.gap || 11.5;
+  const fitPer = slot.avail ? Math.max(5, Math.floor((slot.avail - 8) / gap / 5) * 5) : 0;
+  const per = fitPer ? Math.min(fitPer, Math.max(5, Math.ceil(o.total / 5) * 5)) : (o.per || 25);
   const total = o.total, rows = Math.ceil(total / per);
   const w = per * gap + 6, h = rows * gap + 6;
   let g = "", i = 0;
@@ -2085,7 +2142,7 @@ function svgDots(o) {
     g += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" style="fill:${gr.color}" opacity="${gr.faint ? ".3" : ".85"}"><title>${esc(gr.label)}</title></circle>`;
     i++;
   });
-  return svgHead(w, h, o.alt || "割合") + `${g}</svg>`;
+  return svgHead(w, h, o.alt || "割合", { fk: slot.k }) + `${g}</svg>`;
 }
 
 /* -------------------------------------------------------------- ファネル */
@@ -2156,10 +2213,11 @@ function svgColStack(o) {
   const slot = iw / n, bw = Math.max(3, Math.min(34, slot * 0.64));
   const X = (i) => pad.l + slot * (i + 0.5);
   const Y = (v) => pad.t + ih - ih * v / hi;
-  let g = "";
+  let g = "", yl = "";   // yl = 縦軸の目盛りの字だけ（左に貼り付けるときに使う。svgLine と同じ）
   tk.forEach((t) => {
-    g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` +
-         `<text class="ax" x="${pad.l - 7}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(fmt(t))}</text>`;
+    const tt = `<text class="ax" x="${pad.l - 7}" y="${(Y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(fmt(t))}</text>`;
+    g += `<line class="gridline" x1="${pad.l}" y1="${Y(t).toFixed(1)}" x2="${w - pad.r}" y2="${Y(t).toFixed(1)}"/>` + tt;
+    yl += tt;
   });
   g += `<line class="axisline" x1="${pad.l}" y1="${pad.t + ih}" x2="${w - pad.r}" y2="${pad.t + ih}"/>`;
   const every = Math.ceil(n / Math.max(1, Math.floor(iw / 50)));
@@ -2168,7 +2226,7 @@ function svgColStack(o) {
     if (!xOn[i]) return;
     g += `<text class="axl" x="${X(i).toFixed(1)}" y="${pad.t + ih + 15}" text-anchor="middle">${esc(lab)}</text>`;
   });
-  if (o.yLab) g += `<text class="ax" x="2" y="${pad.t - 16}">${esc(o.yLab)}</text>`;
+  if (o.yLab) { const t = `<text class="ax" x="2" y="${pad.t - 16}">${esc(o.yLab)}</text>`; g += t; yl += t; }
   const marks = {};
   o.x.forEach((lab, i) => {
     if (tot[i] == null) {
@@ -2193,7 +2251,17 @@ function svgColStack(o) {
   marks.fk = fs.k;
   const first = tot.findIndex((v) => v != null);
   if (first >= 0) marks.x0 = X(first) - slot / 2 - 30;
-  return svgHead(w, h, o.alt || "積み上げ縦棒", marks) + `${g}</svg>`;
+  /* 開いた直後は最新の側（値がある最後の柱）を右端に見せる（figToData の data-xr）。
+     🔴 2026-09-24 実機（ループ4, houjin の LTV の推移）: 開いた直後が古い側で、最新の累計が奥にあった。
+     このとき縦軸の目盛りも一緒に流れて見えなくなるので、目盛りを左に貼り付ける（svgLine と同じ） */
+  let last = -1;
+  tot.forEach((v, i) => { if (v != null) last = i; });
+  if (last >= 0) marks.xr = Math.min(w, X(last) + slot / 2 + pad.r);
+  const svg = svgHead(w, h, o.alt || "積み上げ縦棒", marks) + `${g}</svg>`;
+  if (fs.avail && fs.avail < w * .92 && marks.xr * .92 > fs.avail)
+    return stickyLabels(w, stickW(pad.l, o.yLab), pad.t + ih + 4, yl,
+      svg.replace(/ data-x0="(\d+)"/, (m, v) => ` data-x0="${Math.max(1, +v - pad.l)}"`));
+  return svg;
 }
 
 function cpaLine(st, w, h) {
