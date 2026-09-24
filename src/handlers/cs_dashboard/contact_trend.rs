@@ -286,8 +286,33 @@ impl Cell {
     }
 }
 
+/// 本体案件の契約期間 `(取引ID, 開始日, 満了日)`。`deals` はオプション除外（`deals_of`）を渡す。
+/// 開始日・満了日のどちらかが読めない（または開始日が満了日より後の）案件は入れず、その数を2つめに返す。
+///
+/// 🔴 「担当者ごとの接触」と「担当の交代」の前後比較は、**同じこの期間で**接触を付け直す
+///    （`attach_contacts`）。画面ごとに契約期間の読み方を作り直さない。
+pub fn main_spans(deals: &[Deal]) -> (Vec<(&str, NaiveDate, NaiveDate)>, usize) {
+    let mut no_span = 0usize;
+    let spans = deals
+        .iter()
+        .filter_map(|d| {
+            match (
+                date10(&d.contract_start_date),
+                date10(&d.contract_expiration_date),
+            ) {
+                (Some(s), Some(e)) if s <= e => Some((d.id.as_str(), s, e)),
+                _ => {
+                    no_span += 1;
+                    None
+                }
+            }
+        })
+        .collect();
+    (spans, no_span)
+}
+
 /// 未確定にし始める日。今日と、データを取った日の早いほう。
-fn cutoff_of(sheets: &Sheets, today: NaiveDate) -> NaiveDate {
+pub(super) fn cutoff_of(sheets: &Sheets, today: NaiveDate) -> NaiveDate {
     data_as_of(&sheets.meta)
         .and_then(|s| date10(&s))
         .map(|d| d.min(today))
@@ -454,22 +479,7 @@ pub fn build_contact_trend(sheets: &Sheets, today: NaiveDate) -> Value {
     let cutoff = cutoff_of(sheets, today);
     let calls = call_from(&sheets.call);
 
-    let mut no_span = 0usize;
-    let spans: Vec<(&str, NaiveDate, NaiveDate)> = deals
-        .iter()
-        .filter_map(|d| {
-            match (
-                date10(&d.contract_start_date),
-                date10(&d.contract_expiration_date),
-            ) {
-                (Some(s), Some(e)) if s <= e => Some((d.id.as_str(), s, e)),
-                _ => {
-                    no_span += 1;
-                    None
-                }
-            }
-        })
-        .collect();
+    let (spans, no_span) = main_spans(&deals);
     let (contacts, n_ambiguous) = attach_contacts(&raw, &all, &spans);
     let no_history = spans
         .iter()
