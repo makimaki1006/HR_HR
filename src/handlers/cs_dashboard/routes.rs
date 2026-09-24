@@ -1787,7 +1787,22 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
     let hv = &sheets.handover;
     // 交代の前後の接触（`handover_contact`）。数える先は「担当者ごとの接触」と同じ付け直し
     let mains = super::deals_of(&sheets.deal);
-    let cx = super::handover_contact::Ctx::new(sheets, today, &mains, &all);
+    let mut cx = super::handover_contact::Ctx::new(sheets, today, &mains, &all);
+    // 🔴 窓は「一つ前の交代〜次の交代」で区切るので、先に比べる交代を全部入れる
+    //    （下の行ごとの判定と同じ条件: オプション契約でない・取引がある・契約期間と交代日が読める）
+    let evs: Vec<(&str, NaiveDate)> = hv
+        .rows
+        .iter()
+        .filter_map(|r| {
+            let deal_id = hv.get(r, "deal_id");
+            let d = by_id.get(deal_id)?;
+            if d.is_option() || !cx.has_span(deal_id) {
+                return None;
+            }
+            Some((deal_id, super::date10(hv.get(r, "date"))?))
+        })
+        .collect();
+    cx.set_events(evs);
     let mut items: Vec<super::handover_contact::Item> = Vec::new();
     let mut cmp_unavailable = 0usize;
     // 氏名の分からない担当（メールアドレスのまま書かれた人）の番号。表・引き継いだ側・引き継がれた側で共通
@@ -1971,10 +1986,11 @@ fn contact_cmp_json(
     n_unavailable: usize,
     unresolved_no: &HashMap<&str, usize>,
 ) -> Value {
-    use super::handover_contact::{MIN_PERSON_N, MIN_WINDOW_DAYS, PER_DAYS, WINDOW_DAYS};
+    use super::handover_contact::{MIN_PERSON_N, MIN_WINDOW_DAYS, PER_DAYS};
     let mut v = super::handover_contact::summarize(items, unresolved_no);
     v["meta"] = json!({
-        "window_days": WINDOW_DAYS,
+        // 窓はそれぞれの担当の期間の全体（通期）。日数は交代ごとに違う（rows[].contact の before / after）
+        "window": "tenure",
         "min_window_days": MIN_WINDOW_DAYS,
         "per_days": PER_DAYS,
         "min_person_n": MIN_PERSON_N,
@@ -1993,14 +2009,18 @@ fn contact_cmp_json(
     接触は検知専用で、多いほど良いという評価でもありません"
     );
     v["rule"] = json!(format!(
-        "交代ごとに、交代日の前{WINDOW_DAYS}日（前日まで）と、交代日からの{WINDOW_DAYS}日の接触を{PER_DAYS}日あたりに直して比べています。\
+        "交代ごとに、それぞれの担当期間の全体（通期）の接触を{PER_DAYS}日あたりに直して比べています。\
+    前は、同じ拠点の一つ前の交代日（無ければ数えられる最初の日）から交代日の前日まで。\
+    後は、交代日から、同じ拠点の次の交代日の前日（無ければデータを取った日の前日）までです。\
+    後の担当はまだ担当中（締め日までの通期）の交代も、比べた日数が{MIN_WINDOW_DAYS}日以上あれば比べています。\
+    区切りは交代の記録（MTG のホストが替わった日）で取り、HubSpot の担当者欄の履歴は使っていません（欄が直された日は実際に替わった日とずれるため）。\
     接触 ＝ MTG または60秒超の通話（メールは数えない。通話の日付は日本時間）。\
     数える先は「担当者ごとの接触」と同じで、付いている取引の契約期間の外の接触を、その日に動いていた同じ拠点の本体案件に付け直しています。\
     窓に入れるのは、その日に同じ拠点で契約期間の中にある本体案件が1件だけの日です（オプション契約は除きます）。\
-    交代の取引そのものの契約期間で切らないのは、交代が継続の切り替わりに合わせて起きることが多く、前の窓がほとんど前の契約に入るためです。\
     通話の記録が始まる前の日と、データを取った日から先の日は窓に入れていません。\
     比べた日数（前 N日 / 後 M日）を添えています。どちらかが{MIN_WINDOW_DAYS}日未満の交代は「比べるには短い」として、まとめから外して別に数えています。\
-    後の窓にまだデータの無い日がある交代は途中（未確定）として、同じくまとめから外しています"
+    後の担当がまだ担当中で、後がまだ{MIN_WINDOW_DAYS}日に届かない交代は途中（未確定）として、同じくまとめから外しています。\
+    まとめの数字は変化の平均と中央値です。最頻値は出していません（{PER_DAYS}日あたりの回数は日数で割った値で、同じ値がほとんど重ならないため）"
     ));
     v["dedupe_rule"] = json!(
         "交代の記録は、同じ交代を拠点の取引ごとに1行ずつ書いています（前の契約・いまの契約・これからの継続の契約に同じ日の行があります）。\
