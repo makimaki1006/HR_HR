@@ -5497,6 +5497,8 @@ function hoManyUnresolved(D, rows) {
 /* ---------------------------------------------------------------- 交代の前後の接触
    2026-09-24 藤巻さんの要望「担当が変わったときに接触率が落ちたのか減ったのか、担当ごとに」。
    数えるのはサーバ（handover_contact.rs）。ここは並べるだけ。
+   2026-09-24 藤巻さんの判断で、窓を前後60日から「それぞれの担当期間の全体（通期）」に変えた
+   （前 ＝ 一つ前の交代〜交代日の前日、後 ＝ 交代日〜次の交代の前日。まだ担当中なら締め日まで）。まとめは平均と中央値。
    🔴 交代が接触を増減させた証拠ではない（06 の失敗9）。断りを図より前に出す。
    🔴 接触は検知専用。「減った＝赤・増えた＝緑」と良し悪しで塗らない。棒は1色（主系列の藍）で、
       向きは符号（＋ / −）と言葉（増えた / 減った）で書く。▲▼ は画面の決まりで「まずい / 良い」の印なので使わない */
@@ -5509,19 +5511,26 @@ function hoDelta(v) {
 const hoPer = (w) => (w && w.per30 != null ? num(w.per30, 2) : "—");
 /** 比べられなかった理由（サーバの why） */
 const HO_WHY = {
-  calls: "前の60日の多くが、通話の記録が始まる前の日",
-  before: "前の60日に、同じ拠点で動いていた案件が短い（初めての契約の直後など）",
-  after: "後の60日に、同じ拠点で動いていた案件が短い（満了・解約など）",
+  gap: "同じ拠点の交代どうしの間が短い（次の交代まで、または一つ前の交代からが 30 日に届かない）",
+  calls: "担当期間の多くが、通話の記録が始まる前の日",
+  before: "前の担当期間に、同じ拠点で動いていた案件が短い（初めての契約の直後など）",
+  after: "後の担当期間に、同じ拠点で動いていた案件が短い（満了・解約など）",
   overlap: "同じ拠点で本体案件が重なる日が多い（付け先を決められず、その日を外した）",
 };
+/** 担当期間（数えた最初の日〜最後の日） */
+const hoSpan = (w) => (w && w.start ? w.start + "〜" + w.end : "数えた日なし");
+const HO_ONGOING = "後の担当はまだ担当中（締め日までの通期）";
 /** 交代の表の「接触の前後」のます */
 function hoCmpCell(c) {
   if (!c) return '<span class="n0" title="取引・契約期間・交代日のどれかが読めず、数えていません">数えていない</span>';
-  const days = ' <span class="muted small">前 ' + num(c.before.days) + "日 / 後 " + num(c.after.days) + "日</span>";
+  const days = ' <span class="muted small" title="' + esc("前 " + hoSpan(c.before) + " / 後 " + hoSpan(c.after)) + '">前 ' +
+    num(c.before.days) + "日 / 後 " + num(c.after.days) + "日</span>";
   const vals = hoPer(c.before) + " → " + hoPer(c.after) + days;
-  if (c.status === "ok") return vals + " " + esc(HO_DIR[c.dir] || "") + " " + hoDelta(c.change);
+  /* 後の担当がまだ担当中（通期なので締め日までで比べている） */
+  const now = c.ongoing ? ' <span class="tag" title="' + esc(HO_ONGOING) + '">担当中</span>' : "";
+  if (c.status === "ok") return vals + " " + esc(HO_DIR[c.dir] || "") + " " + hoDelta(c.change) + now;
   if (c.status === "provisional")
-    return vals + ' <span class="tag d" title="後の60日がまだ終わっていません（データを取った日まで）">途中</span>';
+    return vals + ' <span class="tag d" title="後の担当はまだ担当中で、後の担当期間がまだ 30 日に届いていません（締め日まで）">途中</span>';
   return vals + ' <span class="tag" title="' + esc(HO_WHY[c.why] || "") + '">短い</span>';
 }
 /** 担当者のまとめの名前。氏名の分からない担当が何人かいるときは番号で分ける（交代の表と同じ番号） */
@@ -5545,14 +5554,16 @@ function hoPeople(title, rows, minN, many) {
             color: C.ai })) })
       : '<div class="empty">比べられた交代が ' + num(minN) + " 件以上ある人がいません。下の表には全員を出しています。</div>",
     lg("box", C.ai, "1人（棒の長さ＝変化の中央値。右が増えた・左が減った）", BAR_OP) +
-    '<i class="full">色で良し悪しを付けていません。向きは符号（＋ / −）で書いています。</i>');
+    '<i class="full">色で良し悪しを付けていません。向きは符号（＋ / −）で書いています。平均は下の表にあります。</i>');
   h += scroll(table(
     [{ t: "担当", w: "s" }, { t: "比べられた交代", n: 1 }, { t: "減った", n: 1 }, { t: "増えた", n: 1 },
-     { t: "変わらない", n: 1 }, { t: "変化の中央値（30日あたり）", n: 1 }, { t: "外した交代（短い / 途中）", n: 1 }],
+     { t: "変わらない", n: 1 }, { t: "変化の平均（30日あたり）", n: 1 }, { t: "変化の中央値（30日あたり）", n: 1 },
+     { t: "外した交代（短い / 途中）", n: 1 }],
     rows.map((r) => [
       hoWho(r, many) + (r.small ? ' <span class="tag" title="比べられた交代が ' + esc(String(minN)) + ' 件未満です。たまたまで大きく振れるので図には出していません">少</span>' : ""),
       num(r.n_ok) + ' <span class="muted small">/ ' + num(r.n_events) + "件</span>",
       num(r.n_down), num(r.n_up), num(r.n_same),
+      r.mean_change == null ? DASH : hoDelta(r.mean_change),
       r.median_change == null ? DASH : hoDelta(r.median_change),
       num(r.n_short) + " / " + num(r.n_provisional),
     ])), 420);
@@ -5564,18 +5575,20 @@ function renderHandoverContact(D) {
   const M = X.meta || {};
   const minN = M.min_person_n || 5;
   let h = sec("問い", "交代の前後で、接触は増えたか減ったか") +
-    '<div class="lede">交代ごとに、交代日の前 ' + num(M.window_days) + " 日と後 " + num(M.window_days) +
-    " 日の接触を " + num(M.per_days) + " 日あたりに直して比べています。<b>同じ拠点・同じ交代日の行は1件の交代</b>と数えています。</div>";
+    '<div class="lede">交代ごとに、<b>それぞれの担当期間の全体（通期）</b>の接触を ' + num(M.per_days) +
+    " 日あたりに直して比べています。前は同じ拠点の一つ前の交代から交代日の前日まで、後は交代日から次の交代の前日まで" +
+    "（次の交代が無く、後の担当がまだ担当中なら " + esc(M.last_day || "") + " まで）。<b>同じ拠点・同じ交代日の行は1件の交代</b>と数えています。</div>";
   /* 🔴 図より前に断る（交代が接触を増減させた証拠ではない・向きは決まらない） */
   h += note("warn", "交代の効果ではありません", esc(X.not_causal));
   const sw = X.short_why || {};
   h += '<div class="kpis">' +
     kpi("比べられた交代", num(X.n_ok) + '<span class="u">件</span>',
-        "交代 " + num(X.n_events) + " 件のうち。比べるには短い " + num(X.n_short) + " 件・途中 " + num(X.n_provisional) + " 件は外しています") +
+        "交代 " + num(X.n_events) + " 件のうち。比べるには短い " + num(X.n_short) + " 件・途中 " + num(X.n_provisional) + " 件は外しています" +
+        (X.n_ongoing ? "。うち " + num(X.n_ongoing) + " 件は" + HO_ONGOING : "")) +
     kpi("減った / 増えた", num(X.n_down) + " / " + num(X.n_up) + '<span class="u">件</span>',
         "変わらない " + num(X.n_same) + " 件（比べられた " + num(X.n_ok) + " 件のうち）") +
-    kpi("変化の中央値", hoDelta(X.median_change) + '<span class="u">回</span>',
-        "後−前、" + num(M.per_days) + "日あたり（比べられた " + num(X.n_ok) + " 件で）") +
+    kpi("変化の平均 / 中央値", hoDelta(X.mean_change) + " / " + hoDelta(X.median_change) + '<span class="u">回</span>',
+        "後−前、" + num(M.per_days) + "日あたり（比べられた " + num(X.n_ok) + " 件で。最頻値は出していません）") +
     "</div>";
 
   /* ---- 交代ごと（比べられたものだけ）。同じ交代の行は1本にする ---- */
@@ -5588,7 +5601,7 @@ function renderHandoverContact(D) {
     evs.push({ r: r, c: c });
   });
   h += sec("図", "交代ごとの変化（比べられた " + num(evs.length) + " 件）");
-  h += fig("交代ごとの接触の変化", "後の" + num(M.window_days) + "日 − 前の" + num(M.window_days) + "日（" + num(M.per_days) + "日あたり）。新しい順",
+  h += fig("交代ごとの接触の変化", "後の担当期間 − 前の担当期間（" + num(M.per_days) + "日あたり）。新しい順",
     evs.length
       ? svgBarH({ w: 680, fmt: F.d1, rh: 24, diverging: true, xLab: "変化（後−前、30日あたりの接触）",
           alt: "交代ごとの接触の変化",
@@ -5596,17 +5609,19 @@ function renderHandoverContact(D) {
             label: (e.r.date || "") + " " + shortName(e.r.name || "", 12),
             full: (e.r.date || "") + " " + (e.r.name || ""), v: e.c.change,
             txt: hoDelta(e.c.change) + " " + (HO_DIR[e.c.dir] || ""),
-            note: "前 " + hoPer(e.c.before) + "（" + e.c.before.days + "日）→ 後 " + hoPer(e.c.after) + "（" + e.c.after.days + "日）",
+            note: "前 " + hoPer(e.c.before) + "（" + e.c.before.days + "日・" + hoSpan(e.c.before) + "）→ 後 " + hoPer(e.c.after) +
+              "（" + e.c.after.days + "日・" + hoSpan(e.c.after) + "）" + (e.c.ongoing ? "。" + HO_ONGOING : ""),
             color: C.ai })) })
       : '<div class="empty">比べられた交代がありません。</div>',
     lg("box", C.ai, "交代1件（棒の長さ＝変化。右が増えた・左が減った）", BAR_OP) +
     '<i class="full">色で良し悪しを付けていません。向きは符号（＋ / −）と言葉で書いています。' +
-    "棒の右の「前 → 後」は " + num(M.per_days) + " 日あたりの接触と、比べた日数です。</i>");
+    "棒の右の「前 → 後」は " + num(M.per_days) + " 日あたりの接触と、比べた日数・期間です。" +
+    "「" + HO_ONGOING + "」の交代は、後の担当期間を締め日までで数えています。</i>");
   h += '<p class="muted small">外した交代: 比べるには短い ' + num(X.n_short) + " 件（" +
-    [["calls", sw.calls], ["before", sw.before], ["after", sw.after], ["overlap", sw.overlap]]
+    [["gap", sw.gap], ["calls", sw.calls], ["before", sw.before], ["after", sw.after], ["overlap", sw.overlap]]
       .map((x) => esc(HO_WHY[x[0]]) + " " + num(x[1] || 0) + " 件").join("・") +
-    "。どちらかが " + num(M.min_window_days) + " 日未満。理由は、窓から外した日のいちばん多い理由）、途中 " + num(X.n_provisional) +
-    " 件（後の " + num(M.window_days) + " 日がまだ終わっていない。数えたのは " + esc(M.last_day || "") + " まで）。" +
+    "。どちらかが " + num(M.min_window_days) + " 日未満。理由は、交代どうしの間そのものが短ければそれ、ほかは窓から外した日のいちばん多い理由）、途中 " + num(X.n_provisional) +
+    " 件（後の担当はまだ担当中で、後の担当期間がまだ " + num(M.min_window_days) + " 日に届かない。数えたのは " + esc(M.last_day || "") + " まで）。" +
     (M.call_from ? "通話の記録は " + esc(M.call_from) + " からです。" : "") +
     /* 🔴 2026-09-24 検証の指摘: 重なりで外した日をどこにも書いていなかった。比べられた交代でも外した日がある */
     (X.overlap_days ? "同じ拠点で本体案件が重なり窓から外した日が、交代 " + num(X.overlap_events) + " 件で合わせて " + num(X.overlap_days) + " 日あります。" : "") +
