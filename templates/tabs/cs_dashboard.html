@@ -4172,19 +4172,22 @@ function renderOutcome(D) {
       ? svgScatter({ w: 680, h: 260,
           pts: R.top.filter((r) => r.amount != null && r.days_to_expiry != null)
             .map((r) => ({ x: r.days_to_expiry, y: r.amount,
-                           color: r.never_after_start ? C.hi : C.ki,
+                           color: r.never_after_start ? C.hi : r.no_start ? C.ghost : C.ki,
                            label: r.name || r.deal_id })),
           xFmt: F.int, yFmt: F.man, xLab: "満了まで（日）", yLab: "金額（万円）",
           alt: "最優先の広がり" })
       : '<div class="empty">最優先に当たる取引がありません。</div>',
-    lg("dot", C.hi, "契約後に一度も接触していない", PT_OP) + lg("dot", C.ki, "接触から30日超", PT_OP));
+    lg("dot", C.hi, "契約後に一度も接触していない", PT_OP) + lg("dot", C.ki, "接触から30日超", PT_OP) +
+    (R.top.some((r) => r.no_start) ? lg("dot", C.ghost, "契約開始日が空（契約後を切り出せない）", PT_OP) : ""));
   /* 🔴 ここにも並びの注記（order_note）を出していて、下の表の頭と同じ文が2回出ていた
      （2026-09-23 実機, V21 の残り）。散布図には並びが無いので、表の側だけに出す */
 
   h += sec("表", "最優先（2軸とも赤・" + num(R.top.length) + " 件）");
   /* 🔴 放置の軸が「契約後に一度も接触していない」の行に「接触の記録 23件」と出て、矛盾して見えた
      （2026-09-24 実機）。接触の記録は契約前も含めた件数（routes.rs build_outcome の n_contact）。
-     その行では「すべて契約前」と書き、列の意味も表の上で言う */
+     その行では「すべて契約前」と書き、列の意味も表の上で言う。
+     🔴 契約開始日が空の行（no_start）は、接触が契約の前か後かが分からない。「すべて契約前」と
+     言い切らない（2026-09-24 検証。サーバも never_after_start を立てない） */
   h += '<div class="lede">金額が大きい順。' + esc(R.order_note) +
     "「接触の記録」は契約の前も含めた件数です。</div>";
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },

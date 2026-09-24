@@ -2155,6 +2155,21 @@ check("ループ4 outcome: 「契約後に一度も接触していない」の�
   ok(textOf(h).includes("「接触の記録」は契約の前も含めた件数です"), "表の上で「接触の記録」の数え方を書いていない");
 });
 
+check("ループ4 outcome: 契約開始日が空の行（no_start）では「すべて契約前」と言い切らず、散布図の色も分ける", () => {
+  const O = JSON.parse(JSON.stringify(ctx.__OUT));
+  // routes.rs risk() の開始日が空の行の形（never_after_start は立たない。tests.rs で見張る）
+  O.risk.top = [
+    { name: "案件C", stage: "定期1", amount: 1200000, days_to_expiry: 30, ax3w: "契約開始日が空で、契約後の接触を切り出せない",
+      n_contact: 7, never_after_start: false, no_start: true }];
+  ctx.__OUT5 = O;
+  const h = run("renderOutcome(__OUT5)");
+  const tb = h.slice(h.lastIndexOf("<tbody>"));
+  ok(tb.includes("7件") && !tb.includes("契約前"), "開始日が空の行で接触が契約前だと言い切っている");
+  ok(tb.includes("契約後の接触を切り出せない"), "開始日が空の行で、放置の軸の理由が出ていない");
+  ok(textOf(h).includes("契約開始日が空（契約後を切り出せない）"), "散布図の凡例に開始日が空の点の意味が無い");
+  ok(!textOf(run("renderOutcome(__OUT4)")).includes("契約開始日が空（"), "開始日が空の行が無いのに凡例を出している");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
