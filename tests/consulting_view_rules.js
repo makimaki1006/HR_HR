@@ -2570,7 +2570,8 @@ check("ループ4統合: 注記の折り返しで、とうに閉じた括弧の�
       periods: [per("2026-03", false, true), per("2026-06", false, false), per("2026-07", false, false), per("2026-09", true, false)],
       rows: [
         { consultant: "担当A", retired: false, cells: [cell(5, 50), cell(10, 20), cell(2, 6), cell(10, 5)] },
-        { consultant: "担当B", retired: true, cells: [cell(0, 0), cell(0, 0), cell(6, 12), cell(6, 3)] },
+        /* B の 4.0 回が全員の縦軸の上端を決める（A だけなら 2.0 で足りる） */
+        { consultant: "担当B", retired: true, cells: [cell(0, 0), cell(0, 0), cell(6, 24), cell(6, 3)] },
         { consultant: "担当C", retired: false, cells: [cell(1, 1), cell(2, 2), cell(1, 0), cell(0, 0)] },
         /* 出さない期間（p0）にだけ持っていた人。図にも表にも出さない */
         { consultant: "担当Z", retired: false, cells: [cell(4, 4), cell(0, 0), cell(0, 0), cell(0, 0)] },
