@@ -967,12 +967,18 @@ function figToData(el) {
     （全文の一覧の元は下の図のラベルだけにする）。
     🔴 重ねる側に地の色の四角を敷かない。400px ではラベル欄が見えている幅の 2/3（約 220px / 334px）を
     占め、敷くとスクロールした先の図がほとんど隠れた（2026-09-23 chromium で確かめた）。
-    文字の縁取り（地の色の太い線を文字の下に敷く）だけで、線や点の上でも読めるようにする */
+    文字の縁取り（地の色の太い線を文字の下に敷く）だけで、線や点の上でも読めるようにする。
+    bgW: 縦軸の目盛りだけを貼り付ける図（折れ線・積み上げ縦棒）で、目盛りの欄（0〜bgW）にだけ地の色の四角を敷く。
+    🔴 2026-09-24 検証（385px, ループ4 の後）: 右端で開くようにした折れ線・LTV で、貼り付けた目盛りの字
+    （「50%」「2,000」「0」）の上にデータの点や棒が重なって読みにくかった。目盛りの欄は 40〜60px
+    （見えている幅の 1/6 ほど）なので、敷いても図はほとんど隠れない。欄は pad.l までにして、
+    スクロールしていないとき（左端）に最初の点・棒を隠さない */
 /** 目盛りを左に貼り付けるときの欄の幅。軸の題名（x=2 から書く「累計金額（万円）」）が目盛りの欄より長いと、
     貼った側で題名が「累計金額（万」と切れた（2026-09-24 ループ4 実機, houjin の LTV）。題名が入る幅まで広げる */
 const stickW = (padL, yLab) => Math.max(padL, yLab ? Math.ceil(2 + textW(yLab) + 4) : 0);
-function stickyLabels(w, padL, labH, labs, svg) {
-  const dup = labs.replace(/<text class="axl"/g, '<text data-sticky="1" class="axl"')
+function stickyLabels(w, padL, labH, labs, svg, bgW) {
+  const dup = (bgW > 0 ? `<rect data-stickbg="1" x="0" y="0" width="${Math.round(bgW)}" height="${Math.round(labH)}" style="fill:var(--panel)" opacity=".92"/>` : "") +
+    labs.replace(/<text class="axl"/g, '<text data-sticky="1" class="axl"')
     .replace(/ data-full="[^"]*"/g, "");
   return `<div class="stickwrap" style="--fw:${Math.round(w)}px;--lw:${(padL / w * 100).toFixed(4)}%">` +
     `<svg ${SVGNS} class="sticklab" viewBox="0 0 ${padL} ${labH}" width="${padL}" height="${labH}" aria-hidden="true" focusable="false">` +
@@ -1332,7 +1338,7 @@ function svgLine(o) {
      x0 は貼り付けた目盛りの欄のぶん手前にする */
   if (slot.avail && slot.avail < w * .92 && (x0 * .92 > slot.avail * .5 || xr * .92 > slot.avail))
     return stickyLabels(w, stickW(pad.l, o.yLab), pad.t + ih + 4, yl,
-      svg.replace(`data-x0="${Math.round(x0)}"`, `data-x0="${Math.round(Math.max(1, x0 - pad.l))}"`));
+      svg.replace(`data-x0="${Math.round(x0)}"`, `data-x0="${Math.round(Math.max(1, x0 - pad.l))}"`), pad.l - 2);
   return svg;
 }
 
@@ -2290,7 +2296,7 @@ function svgColStack(o) {
   const svg = svgHead(w, h, o.alt || "積み上げ縦棒", marks) + `${g}</svg>`;
   if (fs.avail && fs.avail < w * .92 && marks.xr * .92 > fs.avail)
     return stickyLabels(w, stickW(pad.l, o.yLab), pad.t + ih + 4, yl,
-      svg.replace(/ data-x0="(\d+)"/, (m, v) => ` data-x0="${Math.max(1, +v - pad.l)}"`));
+      svg.replace(/ data-x0="(\d+)"/, (m, v) => ` data-x0="${Math.max(1, +v - pad.l)}"`), pad.l - 2);
   return svg;
 }
 
