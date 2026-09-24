@@ -82,6 +82,7 @@ async fn コンサルダッシュボードのパスが配線されている() {
         "/api/consulting/rampup",
         "/api/consulting/outcome",
         "/api/consulting/data-quality",
+        "/api/consulting/contact-trend",
     ] {
         let res = app
             .clone()
@@ -155,6 +156,7 @@ async fn コンサルダッシュボードは認証の内側にある() {
         "/consulting",
         "/api/consulting/focus",
         "/api/consulting/customer",
+        "/api/consulting/contact-trend",
     ] {
         let res = app
             .clone()
@@ -700,7 +702,13 @@ fn サイドバーの項目がそろっている() {
         ),
         (
             "コンサルタント",
-            &["担当者の一覧", "担当者ごとの案件", "担当の交代"],
+            &[
+                "担当者の一覧",
+                "担当者ごとの案件",
+                "担当の交代",
+                // 2026-09-24 追加。持ち案件1件あたりの接触を週 / 月で比べる（検知専用）
+                "担当者ごとの接触",
+            ],
         ),
         (
             "集計",
@@ -717,6 +725,9 @@ fn サイドバーの項目がそろっている() {
         ),
     ];
     assert_eq!(m.len(), want.len(), "メニューの数が違う");
+    // 🔴 項目は全部で16。増やす・減らすときはここも意図して直す
+    let total: usize = m.iter().map(|(_, v)| v.len()).sum();
+    assert_eq!(total, 16, "サイドバーの項目の数が 16 でない");
     for ((got_name, got_views), (want_name, want_views)) in m.iter().zip(want) {
         assert_eq!(got_name, want_name);
         let got: Vec<&str> = got_views.iter().map(|x| x.as_str()).collect();

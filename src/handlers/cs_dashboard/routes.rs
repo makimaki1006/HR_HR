@@ -47,6 +47,7 @@ use crate::handlers::call_quality::tabs::rate;
 use crate::AppState;
 use crate::SESSION_USER_KEY;
 
+use super::contact_trend::build_contact_trend;
 use super::{
     consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, focus_of, latest_nps,
     load, opt_num, Deal, Outcome, Sheets,
@@ -66,6 +67,7 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/customer", get(customer_detail))
         .route("/api/consulting/consultants", get(consultants))
         .route("/api/consulting/handover", get(handover))
+        .route("/api/consulting/contact-trend", get(contact_trend))
         .route("/api/consulting/deals", get(deal_board))
         .route("/api/consulting/today", get(today_board))
 }
@@ -199,6 +201,7 @@ simple_handler!(mtg_quality, build_mtg_quality);
 simple_handler!(data_quality, build_data_quality);
 simple_handler!(consultants, build_consultants);
 simple_handler!(handover, build_handover);
+simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
 simple_handler!(today_board, build_today_board);
 
