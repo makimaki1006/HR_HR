@@ -2577,6 +2577,20 @@ check("ループ5: ファネル（houjin の応募 → 面接 → 採用）は 3
   ok(/<svg [^>]*data-fk="\d+"/.test(drawAt(code, null)), "枠の幅を測る印（data-fk）が無い（paintFigs が描き直さない）");
 });
 
+check("ループ5: 箱ひげは広い枠（1440px, 1116px）ではラベルを省略しない（outcome の「充足（採れて終わった）」）", () => {
+  const rows = '[{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, n: 742 },' +
+    '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 121, n: 142 }]';
+  const wide = drawAt("svgBoxH({ w: 680, xFmt: F.d1, rows: " + rows + " })", 1116);
+  const labs = [...wide.matchAll(/<text class="axl"[^>]*>([^<]*)</g)].map((m) => m[1]);
+  ok(labs.includes("充足（採れて終わった）") && !labs.some((t) => t.includes("…")),
+    "1116px の枠でラベルを省略した: " + labs.join(" / "));
+  const tb = textBoxes(wide);
+  ok(tb.every((b) => b.x0 >= -0.5) && !overlaps(wide).length, "ラベルが左端の外に出る・文字が重なる: " + overlaps(wide).join(" / "));
+  // 狭い枠（319px）は前と同じく2行に折り返す（省略しない）
+  const nar = drawAt("svgBoxH({ w: 680, xFmt: F.d1, rows: " + rows + " })", 319);
+  ok(/data-wrap="2"/.test(nar), "319px の枠で2行の折り返しが壊れた");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
