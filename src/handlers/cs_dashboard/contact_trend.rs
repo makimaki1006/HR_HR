@@ -331,9 +331,6 @@ fn unit_json(
                 "consultant": nm,
                 "retired": retired.get(**nm).copied().unwrap_or(false),
                 "cells": cells.iter().map(|c| c.json()).collect::<Vec<_>>(),
-                // 図に出せる期間が1つも無い（全部が分母0か小さい）人。画面は図から外して名前を書く
-                "all_small": cells.iter().all(|c| c.deals < MIN_DEALS),
-                "max_deals": cells.iter().map(|c| c.deals).max().unwrap_or(0),
             })
         })
         .collect();

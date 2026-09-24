@@ -2777,6 +2777,8 @@ function renderContact(D) {
   /* 通話の記録がある期間だけを使う（図も表も） */
   const idx = periods.map((p, i) => i).filter((i) => !periods[i].calls_missing);
   const hidden = periods.length - idx.length;
+  /* 出す期間に1件も持っていない人（出さない期間にだけ持っていた人）は、図にも表にも出さない */
+  const rows = (U.rows || []).filter((r) => idx.some((i) => r.cells[i] && r.cells[i].deals > 0));
   const X = idx.map((i) => contactX(periods[i], unit));
   const what = unit === "month" ? "月" : "週";
 
@@ -2795,9 +2797,10 @@ function renderContact(D) {
   if (!idx.length) {
     h += '<div class="empty">通話の記録がある' + what + "がありません。</div>";
   } else {
-    const drawable = (U.rows || []).filter((r) => !r.all_small &&
+    /* 出す期間のどこかに点を打てる人だけ図にする（全部が 0 件か小さい人は名前だけ書く） */
+    const drawable = rows.filter((r) =>
       idx.some((i) => r.cells[i] && r.cells[i].avg != null && !r.cells[i].small_n));
-    const dropped = (U.rows || []).filter((r) => drawable.indexOf(r) < 0);
+    const dropped = rows.filter((r) => drawable.indexOf(r) < 0);
     /* 縦軸の上端は全員（と全体）の最大でそろえる */
     let top = 0;
     const seen = (cells) => idx.forEach((i) => {
@@ -2828,7 +2831,7 @@ function renderContact(D) {
       "</div>";
     if (dropped.length) {
       h += '<p class="muted small"><b>図にしていない担当者が ' + num(dropped.length) + " 名います</b>（" +
-        dropped.map((r) => esc(r.consultant) + " 最大 " + num(r.max_deals) + " 件").join(" / ") +
+        dropped.map((r) => esc(r.consultant) + " 最大 " + num(Math.max(...idx.map((i) => r.cells[i].deals))) + " 件").join(" / ") +
         "）。どの" + what + "も持ち案件が " + num(minDeals) + " 件未満で、1件あたりの値がたまたまで大きく振れるためです。下の表には出しています。</p>";
     }
   }
@@ -2841,7 +2844,7 @@ function renderContact(D) {
   h += sec("表", what + " × 担当者");
   const cols = [{ t: "担当者", w: "s" }].concat(idx.map((i) => ({
     t: periods[i].label + (periods[i].provisional ? "（途中）" : ""), n: 1 })));
-  const trs = (U.rows || []).map((r) => [
+  const trs = rows.map((r) => [
     (esc(r.consultant) || DASH) + (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "")]
     .concat(idx.map((i) => contactCell(r.cells[i]))));
   trs.push(["<b>全体</b>（担当が決まった案件）"].concat(idx.map((i) => contactCell((U.team || [])[i]))));
@@ -2866,7 +2869,7 @@ function renderContact(D) {
     (D.meta.n_no_span ? "<br>契約の開始日か満了日が読めない案件 " + num(D.meta.n_no_span) + " 件は、どの" + what + "にも数えていません。" : "") +
     "<br>" + esc(D.provisional_rule || "") +
     "<br>実際の引き継ぎ日と記録のずれは " + goLink("consultant", "handover") + " で見られます。");
-  return h + foot(D.meta, true, "担当者 " + num((U.rows || []).length) + " 名");
+  return h + foot(D.meta, true, "担当者 " + num(rows.length) + " 名");
 }
 
 /* 月ごと / 週ごとの切り替え。取り直さず、手元の応答で描き直す（応答に両方入っている） */
