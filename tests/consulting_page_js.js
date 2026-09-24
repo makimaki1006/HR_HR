@@ -1052,6 +1052,37 @@ check("L4", "series: NPS と接触がある契約の副題で、例文を結論�
     throw new Error("NPS が上がった契約にも「NPS が落ちた月に…が読めます」と結論のように出ている");
   if (head.indexOf("読み方の例") < 0) throw new Error("副題の例文に「読み方の例」と書いていない");
 });
+check("L4", "series: 契約の図が1つだけのときは「下に続く契約の図も同じです」と書かない", async () => {
+  const t = boot();
+  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
+  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
+    period: 6, span_months: 6, series: { oubo: pts }, nps: {} });
+  // 変更履歴の無い契約（図にしない）が並んでいても、図が1つなら下には何も続かない
+  const one = t.R("renderSeries")(customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "z" })],
+    { monthly: [mm("a"), { deal_id: "z", name: "案件z", start: "2026-04-01", series: {}, nps: {} }] }));
+  if (one.indexOf("案件a — 系列を縦に並べる") < 0 || one.indexOf("案件z — 系列を縦に並べる") >= 0)
+    throw new Error("契約ごとの図が1つ（案件a だけ）になっていない（見張りの前提）");
+  if (count(one, /1つの縦軸に重ねていません/g) !== 1) throw new Error("図が1つのときに理由の段落が出ていない");
+  if (one.indexOf("下に続く契約の図も同じです") >= 0) throw new Error("図が1つなのに「下に続く契約の図も同じです」と書いている");
+  const two = t.R("renderSeries")(customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" })],
+    { monthly: [mm("a"), mm("b")] }));
+  if (two.indexOf("下に続く契約の図も同じです") < 0) throw new Error("図が2つ以上なのに「下に続く契約の図も同じです」が消えた");
+});
+check("L4", "series: 読み方の例（NPS と接触）は契約ごとに繰り返さず、最初の図の副題の1回だけ", async () => {
+  const t = boot();
+  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
+  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
+    period: 6, span_months: 6, series: { oubo: pts }, nps: { nps: [{ m: 1, v: 6 }, { m: 2, v: 9 }] } });
+  const D = customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" }), deal({ deal_id: "c" })], {
+    monthly: [mm("a"), mm("b"), mm("c")],
+    contacts: ["a", "b", "c"].map((id) => ({ deal_id: id, dates: ["2026-04-10"] })),
+  });
+  const h = t.R("renderSeries")(D);
+  if (count(h, /系列を縦に並べる/g) < 3) throw new Error("契約ごとの図が3つ描かれていない（見張りの前提）");
+  const n = count(h, /読み方の例/g);
+  if (n !== 1) throw new Error("「読み方の例」が " + n + " 回出ている（最初の図の1回にする）");
+  if (count(h, /同じ月に何が起きていたかが読めます/g) < 3) throw new Error("2つ目以降の図の副題まで消えた");
+});
 check("L4", "series: 契約の連なりで金額が空の契約に「金額なし」と書く（「3回目」だけにしない）", async () => {
   const t = boot();
   const D = customerPayload([deal({ deal_id: "x1", renewal_no: 3, amount: null }),
