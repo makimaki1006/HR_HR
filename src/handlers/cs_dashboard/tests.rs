@@ -4442,4 +4442,10 @@ fn 交代の前後の接触は証拠ではないと書く() {
     }
     assert!(c["dedupe_rule"].as_str().unwrap().contains("1件の交代"));
     assert!(c["dir_rule"].as_str().unwrap().contains("5 件未満"));
+    // 🔴 文の途中に字下げの空白が混ざらない（2026-09-24: 行の継ぎ目の `\` が抜けて
+    //    「決まりません    （過去の…」と画面に空白が出ていた）
+    for k in ["not_causal", "rule", "dedupe_rule", "dir_rule"] {
+        let s = c[k].as_str().unwrap();
+        assert!(!s.contains("  "), "{k} に空白の連続が混ざっている: {s}");
+    }
 }
