@@ -2193,6 +2193,21 @@ check("ループ4 採用単価の棒: 万円の目盛りを出す svgBarH の呼
   ok(!bad.length, "万円の svgBarH に軸の題名（xLab）を渡していない: " + bad.join(" / "));
 });
 
+check("ループ4 series: 契約の系列の表は折り返しの幅を詰め（table.ser）、1440px の本文に余白を残す", () => {
+  // 11列が本文 1,117px にちょうど収まるだけで、長い取引名・拠点名・ステージで右端（状態）が切れた
+  // （2026-09-24 検証。40字・20字・15字にすると 47px 超）。既定の 22em / 11em より狭くする
+  ctx.__SER = { meta: { found: true, houjin: "H1", today: "2026-09-23" },
+    customer: { name: "x", ltv: 1, deals: 1, sites: 1, active: 1, max_renewal_no: 0, last_expiration: "2027-01-31" },
+    focus: null, mtgs: [], cpa3: [], cpa_by_site: [], monthly: [], handover: [], contacts: [], funnel: {},
+    deals: [{ deal_id: "d1", name: "取引", stage: "定期1", site: "拠点", kind: "定期", start: "2025-01-01",
+      expiration: "2025-12-31", renewal_no: 1, amount: 100, oubo: 1, mensetu: 1, syoudaku: 1, is_active: true }] };
+  const h = run('custBlocks(__SER, new Set(["deals"]))');
+  ok(/<table class="ser"><thead><tr><th class="wl">取引<\/th>/.test(h), "契約の系列の表に class=\"ser\" が付いていない");
+  const em = (re) => { const m = html.match(re); return m ? parseFloat(m[1]) : NaN; };
+  const l = em(/table\.ser td\.wl\{\s*max-width:([\d.]+)em/), s2 = em(/table\.ser td\.ws\{\s*max-width:([\d.]+)em/);
+  ok(l <= 16 && s2 <= 9, "契約の系列の表の折り返しの幅が詰まっていない（wl " + l + "em / ws " + s2 + "em）");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
