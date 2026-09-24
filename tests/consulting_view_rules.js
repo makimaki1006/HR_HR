@@ -2546,6 +2546,93 @@ check("ループ4統合: 注記の折り返しで、とうに閉じた括弧の�
   ok(br.some(l => l.startsWith("（決着済み")), "まだ閉じていない括弧の手前では切る動きが壊れた: " + JSON.stringify(br));
 });
 
+/* ================================================================ 担当者ごとの接触（2026-09-24 追加）
+   応答の形は src/handlers/cs_dashboard/contact_trend.rs のとおり。not_counted と各 rule は
+   サーバの文そのもの（fixture の応答から写した）。期間と数は見張りのために作った小さなもの:
+     p0 = 通話の記録が始まる前（calls_missing）。A は 50/5 件 ＝ 1件あたり 10 回（出してはいけない）
+     p1・p2 = 確定。A の p2 は持ち案件 2 件（small_n）、B の p1 は持ち案件 0 件（分母0）
+     p3 = いまの月（provisional）
+     C = どの期間も持ち案件 3 件未満（図にしない人） */
+{
+  const cell = (d, c) => ({ deals: d, contacts: c, avg: d ? c / d : null, small_n: d > 0 && d < 3 });
+  const per = (key, prov, miss) => ({ key, label: key, start: key + "-01", end: key + "-28",
+    provisional: prov, calls_missing: miss });
+  ctx.__CT = {
+    meta: { today: "2026-09-18", min_deals: 3, call_from: "2026-03-23", n_no_span: 3, n_no_history: 0,
+      cutoff: "2026-09-14",
+      not_counted: "※ 接触は検知専用です。多いほど良いという評価ではありません（担当者の評価ではありません）。もめている案件ほど電話が増えることもあり、接触の多い少ないが良い悪いのどちらに向くかは、このデータでは決まっていません" },
+    contact_rule: "接触 ＝ MTG または60秒超の通話（メールは数えない）。",
+    denom_rule: "1件あたりの接触 ＝ …", owner_rule: "担当は consultant が正本です。",
+    undetermined_rule: "担当履歴の最初の行より前の日は、担当が決められません。",
+    provisional_rule: "いまの週・月は途中なので未確定です。",
+    calls_missing_rule: "通話の記録が始まる前の期間は、MTG しか数えられないので出していません。",
+    month: {
+      periods: [per("2026-03", false, true), per("2026-06", false, false), per("2026-07", false, false), per("2026-09", true, false)],
+      rows: [
+        { consultant: "担当A", retired: false, cells: [cell(5, 50), cell(10, 20), cell(2, 6), cell(10, 5)] },
+        { consultant: "担当B", retired: true, cells: [cell(0, 0), cell(0, 0), cell(6, 12), cell(6, 3)] },
+        { consultant: "担当C", retired: false, cells: [cell(1, 1), cell(2, 2), cell(1, 0), cell(0, 0)] },
+        /* 出さない期間（p0）にだけ持っていた人。図にも表にも出さない */
+        { consultant: "担当Z", retired: false, cells: [cell(4, 4), cell(0, 0), cell(0, 0), cell(0, 0)] },
+      ],
+      team: [cell(10, 55), cell(12, 22), cell(9, 18), cell(16, 8)],
+      undetermined: [cell(0, 0), cell(1, 2), cell(0, 0), cell(0, 0)],
+      shared: [0, 0, 1, 0],
+    },
+    week: { periods: [], rows: [], team: [], undetermined: [], shared: [] },
+  };
+}
+const ctFigs = (h) => [...h.matchAll(/<figure class="fig"><figcaption>([^<]*)[\s\S]*?<\/figure>/g)]
+  .map((m) => ({ cap: m[1], body: m[0] }));
+
+check("担当者ごとの接触: 頭の枠で「検知専用・多いほど良いではない・評価ではない」を言う", () => {
+  const h = run('contactUnit = "month"; renderContact(__CT)');
+  const head = h.slice(0, h.indexOf('<figure'));
+  ok(head.includes("接触は検知専用です") && head.includes("多いほど良いという評価ではありません") &&
+     head.includes("担当者の評価ではありません"), "図より前に検知専用・評価ではないの断りが無い");
+});
+
+check("担当者ごとの接触: 分母0は —、分母が小さい期間は印を付けて点を打たない、未確定は中空・破線", () => {
+  const h = run('contactUnit = "month"; renderContact(__CT)');
+  const tb = h.slice(h.indexOf('<table id="ct-tbl"'));
+  const rowOf = (name) => tb.slice(tb.indexOf(name), tb.indexOf("</tr>", tb.indexOf(name)));
+  const b = rowOf("担当B");
+  ok(/<td[^>]*><span class="n0">/.test(b.slice(b.indexOf("</td>"))), "分母0の期間を — にしていない: " + b);
+  ok(!b.includes("0.00 "), "分母0の期間を 0.00 と書いている");
+  const a = rowOf("担当A");
+  ok(/3\.00 <span class="muted small">6\/2件<\/span> <span class="tag"[^>]*>少<\/span>/.test(a),
+    "持ち案件 2 件の期間に「少」の印が無い: " + a);
+  const fa = ctFigs(h).find((f) => f.cap === "担当A");
+  ok(fa, "担当A の図が無い");
+  ok(!/<title>07: /.test(fa.body) && !/<title>26-07: /.test(fa.body), "持ち案件 2 件の期間に点を打っている");
+  ok(/<circle [^>]*stroke-dasharray[^>]*><title>26-09: [^<]*未確定/.test(fa.body), "いまの月を中空・破線の点で描いていない");
+  /* A はいまの月の前が点を打たない期間なので線が無い。前の月に点がある B で線を見る */
+  const fb = ctFigs(h).find((f) => f.cap.indexOf("担当B") === 0);
+  ok(fb && /<path [^>]*stroke-dasharray="5 4"/.test(fb.body), "いまの月へ向かう線が破線でない");
+  ok(tb.includes("2026-09（途中）"), "表の列見出しにいまの月が途中だと書いていない");
+});
+
+check("担当者ごとの接触: 通話の記録が始まる前の期間は図にも表にも出さず、縦軸は全員そろえる", () => {
+  const h = run('contactUnit = "month"; renderContact(__CT)');
+  const tb = h.slice(h.indexOf('<table id="ct-tbl"'));
+  ok(!tb.includes(">2026-03<"), "通話の記録が無い期間を表に出している");
+  ok(!/<title>26-03: /.test(h), "通話の記録が無い期間を図に出している");
+  ok(textOf(h).includes("通話の記録は 2026-03-23 からです"), "出していない理由（通話の記録の始まり）を書いていない");
+  ok(!h.includes("担当Z"), "出す期間に何も持っていない人を出している");
+  const figs = ctFigs(h);
+  ok(figs.length === 3, "図の枚数が 全体＋2名 でない: " + figs.map((f) => f.cap).join(" / "));
+  ok(!figs.some((f) => f.cap.indexOf("担当C") === 0), "持ち案件が少ない人を図にしている");
+  ok(textOf(h).includes("図にしていない担当者が 1 名います") && textOf(h).includes("担当C"), "図にしていない人の名前と理由を書いていない");
+  /* 縦軸の目盛りのいちばん上がどの図でも同じ（10 回＝出さない期間の値に引っぱられていない） */
+  const tops = figs.map((f) => {
+    const t = [...f.body.matchAll(/<text class="ax" [^>]*text-anchor="end">([0-9.]+)<\/text>/g)].map((m) => +m[1]);
+    return Math.max(...t);
+  });
+  ok(tops.every((x) => x === tops[0]), "縦軸の目盛りが図ごとに違う: " + tops.join(", "));
+  ok(tops[0] < 10, "出さない期間の値で縦軸が伸びている: " + tops[0]);
+  ok(textOf(h).includes("退職者のまま"), "退職者のままの印が無い");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);

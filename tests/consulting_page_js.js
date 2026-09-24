@@ -1125,6 +1125,49 @@ check("L4", "houjin: 「拠点をまたいで1本の線にしない」と基準�
 });
 
 /* ---------------------------------------------------------------- 実行 */
+/* ================================================================ 担当者ごとの接触（2026-09-24 追加） */
+/** 担当者ごとの接触の応答（形だけ合わせた小さなもの）。月・週の両方が入っている */
+function contactPayload() {
+  const cell = (d, c) => ({ deals: d, contacts: c, avg: d ? c / d : null, small_n: d > 0 && d < 3 });
+  const per = (key, label, prov) => ({ key, label, start: key, end: key, provisional: prov, calls_missing: false });
+  return {
+    meta: { today: "2026-09-18", min_deals: 3, call_from: "2026-03-23", n_no_span: 0, n_no_history: 0,
+            not_counted: "※ 接触は検知専用です。" },
+    month: { periods: [per("2026-08", "2026-08", false), per("2026-09", "2026-09", true)],
+             rows: [{ consultant: "担当A", retired: false, cells: [cell(10, 20), cell(10, 5)] }],
+             team: [cell(10, 20), cell(10, 5)], undetermined: [cell(0, 0), cell(0, 0)], shared: [0, 0] },
+    week: { periods: [per("2026-09-07", "9/7〜9/13", false), per("2026-09-14", "9/14〜9/20", true)],
+            rows: [{ consultant: "担当W", retired: false, cells: [cell(8, 4), cell(8, 1)] }],
+            team: [cell(8, 4), cell(8, 1)], undetermined: [cell(0, 0), cell(0, 0)], shared: [0, 0] },
+  };
+}
+check("C1", "担当者ごとの接触: 開くと contact-trend を1回だけ取り、週ごとに切り替えても取り直さずに描き直す", async () => {
+  const t = boot();
+  t.R('go("consultant", "contact")');
+  const req = t.fetched[t.fetched.length - 1];
+  if (!req || req.url.indexOf("/api/consulting/contact-trend") !== 0)
+    throw new Error("担当者ごとの接触で contact-trend を取りに行っていない: " + (req && req.url));
+  req.resolve(jsonRes(contactPayload()));
+  await tick(); await tick();
+  const main = t.reg["cs-main"];
+  if (main.innerHTML.indexOf("担当A") < 0 || main.innerHTML.indexOf("担当W") >= 0)
+    throw new Error("既定（月ごと）で描いていない");
+  if (!/id="ct-unit-month"[^>]*aria-pressed="true"/.test(main.innerHTML))
+    throw new Error("月ごとが押された状態で出ていない");
+  // 週ごとのボタンを押す
+  const wk = new t.El("ct-unit-week"); wk.dataset.u = "week";
+  t.qsa["#ct-unit button[data-u]"] = [wk];
+  t.R("wire(viewOf('consultant', 'contact'))");
+  const n = t.fetched.length;
+  if (typeof wk.onclick !== "function") throw new Error("週ごとのボタンに onclick が付いていない");
+  wk.onclick();
+  if (t.fetched.length !== n) throw new Error("切り替えで取り直している（応答に両方入っている）");
+  if (main.innerHTML.indexOf("担当W") < 0 || main.innerHTML.indexOf("担当A") >= 0)
+    throw new Error("週ごとに切り替わっていない");
+  if (!/id="ct-unit-week"[^>]*aria-pressed="true"/.test(main.innerHTML))
+    throw new Error("週ごとが押された状態で出ていない");
+});
+
 (async () => {
   if (mainJs == null) {
     console.error("FAIL 動きの見張り: 画面の <script> が取り出せない");

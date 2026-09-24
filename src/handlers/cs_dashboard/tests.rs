@@ -3770,3 +3770,17 @@ fn 通話の記録が始まる前の期間に印が付く() {
         .iter()
         .all(|p| p["calls_missing"] == false));
 }
+
+/// 🔴 画面の頭に出す断り。接触は検知専用で、多いほど良い・担当者の評価、ではない。
+#[test]
+fn 担当者ごとの接触は検知専用で評価ではないと書く() {
+    let v = build_contact_trend(&sheets(), fixture_day());
+    let t = v["meta"]["not_counted"].as_str().expect("not_counted");
+    for w in [
+        "接触は検知専用",
+        "多いほど良いという評価ではありません",
+        "担当者の評価ではありません",
+    ] {
+        assert!(t.contains(w), "断りに「{w}」が無い: {t}");
+    }
+}
