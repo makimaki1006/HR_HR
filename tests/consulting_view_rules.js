@@ -2279,6 +2279,18 @@ check("ループ4 検証: 箱ひげの凡例（◇ 平均・軸の外の印）�
   ok(run('fig("x", "", eval(__BX))').includes("平均（"), "凡例の無い図で箱ひげの凡例が出ない");
 });
 
+check("ループ4 検証: 箱ひげの軸の端を目盛りに合わせても、広い枠では軸を伸ばしすぎない（rampup の初回MTGまで: 0〜150 にしない）", () => {
+  // ひげの先 = 47 + 1.5 × 37 = 102.5。刻み 50 のまま1段足すと 0〜150 になり、箱とひげが左 2/3 に縮む
+  const code = 'svgBoxH({ w: 680, rows: [{ label: "初回MTGまで", med: 20, q1: 10, q3: 47, min: 0, max: 300, mean: 40, n: 500 }] })';
+  const axis = (svg) => [...svg.matchAll(/<line class="gridline" x1="[\d.]+"[^>]*\/><text class="ax"[^>]*>([^<]*)</g)].map((m) => +m[1].replace(/,/g, ""));
+  const wide = drawAt(code, 1116), tk = axis(wide);
+  ok(tk[tk.length - 1] >= 102.5 && tk[tk.length - 1] <= 120, "1116px の枠で軸の端がひげの先から離れすぎ: " + tk.join(","));
+  ok(!overlaps(wide).length, "目盛りの字が重なる: " + overlaps(wide).join(" / "));
+  // 狭い枠（319px）では字が詰まらないよう、刻みを細かくしない
+  const nar = drawAt(code, 319);
+  ok(!overlaps(nar).length && axis(nar).length <= 5, "319px の枠で目盛りが詰まった: " + axis(nar).join(","));
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
