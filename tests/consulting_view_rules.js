@@ -2129,6 +2129,32 @@ check("ループ4 handover: 担当者一覧に無い担当を表では「氏名�
   ok(!run("renderHandover(__HO)").includes("「氏名不明」は"), "氏名不明の行が無いのに説明の1文を出している");
 });
 
+check("ループ4 renewal: 月次継続率で n<30 の月（右端 27-01 n=1 の 0%）に点を打たず、打たない理由を書く", () => {
+  const h = run("renderRenewal(__RN)");
+  const svg = firstSvg(h);
+  const tt = [...svg.matchAll(/<circle [^>]*><title>([^<]*)<\/title>/g)].map((m) => m[1]);
+  ok(tt.length > 0 && tt.some((t) => t.startsWith("26-09")), "見張りの前提: 点の title が「月…」で始まっていない: " + tt.slice(-2).join(" / "));
+  ok(!tt.some((t) => t.startsWith("27-01") || t.startsWith("26-10")), "n<30 の月（26-10 n=8 / 27-01 n=1）に点を打っている: " + tt.slice(-3).join(" / "));
+  ok(svg.includes(">27-01<") && svg.includes(">n=1<"), "n<30 の月を横軸から消している（月と件数は残す）");
+  ok(textOf(h).includes("30 件に届かない 2 か月は点を打っていません"), "n<30 で点を打たなかった月のことが書かれていない");
+});
+
+check("ループ4 outcome: 「契約後に一度も接触していない」の行の接触の件数は、契約前のものだと書く", () => {
+  const O = JSON.parse(JSON.stringify(ctx.__OUT));
+  // routes.rs build_outcome の top の形。n_contact は契約前も含めた件数
+  O.risk.top = [
+    { name: "案件A", stage: "定期1", amount: 1800000, days_to_expiry: 40, ax3w: "契約後に一度も接触していない", n_contact: 23, never_after_start: true },
+    { name: "案件B", stage: "定期2", amount: 900000, days_to_expiry: 20, ax3w: "契約後の最終接触から 45日", n_contact: 5, never_after_start: false }];
+  ctx.__OUT4 = O;
+  const h = run("renderOutcome(__OUT4)");
+  const tb = h.slice(h.lastIndexOf("<tbody>"));
+  const rowA = tb.slice(tb.indexOf("案件A"), tb.indexOf("</tr>", tb.indexOf("案件A")));
+  const rowB = tb.slice(tb.indexOf("案件B"), tb.indexOf("</tr>", tb.indexOf("案件B")));
+  ok(rowA.includes("23件") && rowA.includes("すべて契約前"), "契約後に接触ゼロの行で、接触 23 件が契約前のものだと書いていない");
+  ok(!rowB.includes("契約前"), "契約後に接触がある行にまで「契約前」と書いている");
+  ok(textOf(h).includes("「接触の記録」は契約の前も含めた件数です"), "表の上で「接触の記録」の数え方を書いていない");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
