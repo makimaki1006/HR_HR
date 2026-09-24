@@ -1685,7 +1685,10 @@ function svgStackLanes(o) {
   const lanes = o.lanes || [];
   /* 記録が無い帯の文。狭く描くときは入る幅で折り返す（2行なら帯を 8px 高くする） */
   const EMPTY_T = "— この顧客では記録がありません";
-  const emptyLines = wrapText(EMPTY_T, Math.max(60, iw - 8));
+  /* 🔴 2026-09-24 検証（385px, series の1か月の図）: wrapText は空白の無い日本語を字の境目で切るので、
+     「記録があ / りません」と語の途中で折れた。折り返すときは「この顧客では」の後ろで切る */
+  const emptyLines = textW(EMPTY_T) <= Math.max(60, iw - 8) ? [EMPTY_T]
+    : wrapText("— この顧客では 記録がありません", Math.max(60, iw - 8));
   const hEmpty = emptyLines.length > 1 ? H.empty + 13 * (emptyLines.length - 1) : H.empty;
   let h = padT + padB;
   lanes.forEach(L => { h += (L.empty ? hEmpty : H[L.type]) + gap; });
@@ -1714,8 +1717,11 @@ function svgStackLanes(o) {
     g += lab; labs += lab;
     if (L.empty) {
       const y0 = top + lh / 2 + 4 - 6.5 * (emptyLines.length - 1);
+      /* 🔴 月が1つの図では、月の縦線（X(0)＝欄の真ん中）が文字の上を通った（2026-09-24 検証, 385px）。
+         文字の下にだけ地の色の四角を敷く（記録が無い帯なので、隠れる線や点は無い） */
       emptyLines.forEach((ln, k) =>
-        g += `<text class="ax" data-empty="1" x="${padL + 6}" y="${(y0 + 13 * k).toFixed(1)}" ` +
+        g += `<rect data-emptybg="1" x="${padL + 4}" y="${(y0 + 13 * k - 10).toFixed(1)}" width="${Math.ceil(textW(ln) + 4)}" height="13" style="fill:var(--panel)"/>` +
+             `<text class="ax" data-empty="1" x="${padL + 6}" y="${(y0 + 13 * k).toFixed(1)}" ` +
              `style="fill:var(--ghost)">${esc(ln)}</text>`);
       y = bot + gap; return;
     }
