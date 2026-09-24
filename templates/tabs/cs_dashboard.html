@@ -1389,8 +1389,13 @@ function svgBoxH(o) {
      0〜150 になり、箱とひげが図の左 2/3 に縮んだ。目盛りを細かくしても字が詰まらない幅（広い枠）なら、
      刻みを細かくした中から軸の端がいちばん手前で止まるもの（0〜120）を選ぶ */
   const nColW = Math.max(...rows.map(q => textW("n=" + q.n)));
+  /* ラベル欄の上限。🔴 2026-09-24 実機（ループ5, 1440px, outcome「応募数 ÷ 掲載数」）: 上限 120px のままだと、
+     枠が 1,000px を超えていても「充足（採れて終わった）」（約 140px）が「充足（採…わった）」と省略された。
+     ラベル欄を 210px（横棒と同じ）まで取っても箱の欄が BOX_MIN_IW 残る広い枠では、省略しない幅を取る。
+     枠が分からない1回目と狭い枠は 120px のまま（狭い枠は下で詰めて2行に折り返す。その動きは変えない） */
+  const labCap = slot.avail && slot.avail >= labW(rows, 210) + Math.max(64, Math.ceil(nColW + 40)) + BOX_MIN_IW ? 210 : 120;
   const w0Est = slot.avail ? Math.min(slot.avail, Math.max(o.w || 680, FIT_MAX)) : (o.w || 680);
-  const iwEst = w0Est - (o.padL || labW(rows, 120)) - Math.max(64, Math.ceil(nColW + 40));
+  const iwEst = w0Est - (o.padL || labW(rows, labCap)) - Math.max(64, Math.ceil(nColW + 40));
   let tk = null;
   [4, 6, 8].forEach((want) => {
     const t = coverTicks(ticks(0, hi, want, minStepOf(fmt)), hi);
@@ -1410,7 +1415,7 @@ function svgBoxH(o) {
      🔴 2026-09-24 実機（ループ4, outcome の応募効率）: 枠が 319px（縦のスクロールバーのぶん狭い）だと
      ラベル欄 120 + 右の欄 64 + 箱の欄 150 に届かず、680px のまま横スクロールになって「充足」の箱と n= が
      奥に隠れた。届かないときはラベル欄を詰め（BOX_MIN_LAB まで）、入らないラベルは2行に折り返す */
-  let padL = o.padL || labW(rows, 120), narrow = false;
+  let padL = o.padL || labW(rows, labCap), narrow = false;
   const w0 = o.w || 680;
   let w = w0;
   if (slot.avail) {
