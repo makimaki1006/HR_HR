@@ -2196,6 +2196,25 @@ check("ループ4 検証: labWrap は括弧の中・語の途中・助詞の手�
   ok(W("MTG実施の記録が無い取引の一覧", 90) !== null && !/M \/ TG|MT \/ G/.test(W("MTG実施の記録が無い取引の一覧", 90)), "英字の途中で切った");
 });
 
+check("ループ4 検証: 1か月の図の「記録がありません」は語の途中で折らず、月の縦線が文字の上を通らない", () => {
+  const svg = drawAt('svgStackLanes({ w: 940, months: ["25-09"], lanes: [' +
+    '{ type: "line", label: "応募", color: "blue", pts: [{ v: 19 }] },' +
+    '{ type: "dots", label: "定期NPS", empty: true, pts: [] }] })', 319);
+  const em = [...svg.matchAll(/<text class="ax" data-empty="1" x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]*)</g)];
+  ok(em.map((m) => m[3]).join(" / ") === "— この顧客では / 記録がありません", "折り返しの位置が語の途中: " + em.map((m) => m[3]).join(" / "));
+  // 月の縦線（x=X(0)）が文字の範囲に入るなら、文字の下に地の四角を敷く
+  const gx = [...svg.matchAll(/<line class="gridline" x1="([\d.]+)"/g)].map((m) => +m[1]);
+  const tw = run("textW");
+  const bgs = [...svg.matchAll(/<rect data-emptybg="1" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)];
+  em.forEach((m) => {
+    const x0 = +m[1], x1 = x0 + tw(m[3]), y = +m[2];
+    if (!gx.some((x) => x > x0 && x < x1)) return;
+    ok(bgs.some((b) => +b[1] <= x0 && +b[1] + +b[3] >= x1 && +b[2] <= y - 9 && +b[2] + +b[4] >= y + 2),
+      "月の縦線が「" + m[3] + "」の上を通る（地の四角が無い）");
+  });
+  ok(bgs.length === em.length, "「記録がありません」の地の四角が行の数と合わない: " + bgs.length);
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
