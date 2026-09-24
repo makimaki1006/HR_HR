@@ -641,7 +641,11 @@ fn efficiency(deals: &[Deal], act: &[&Deal]) -> Value {
 /// 🔴 **3軸目の「無い」を一括で扱わない。** 2つの状態を分ける:
 ///   - 接触の記録が1つも無い … 真の未測定 → **赤にしない**
 ///   - 記録はあるが契約後がゼロ … **赤のまま**（いちばん拾うべきもの）
-fn risk(act: &[&Deal], contacts: &HashMap<String, Vec<NaiveDate>>, today: NaiveDate) -> Value {
+pub(super) fn risk(
+    act: &[&Deal],
+    contacts: &HashMap<String, Vec<NaiveDate>>,
+    today: NaiveDate,
+) -> Value {
     let mut rows = Vec::new();
     // (白, 赤, 未測定)
     let mut a3 = (0usize, 0usize, 0usize);
@@ -660,6 +664,15 @@ fn risk(act: &[&Deal], contacts: &HashMap<String, Vec<NaiveDate>>, today: NaiveD
         let (ax3, ax3w) = if n_contact == 0 {
             a3.2 += 1;
             ("未測定", "接触の記録が1つも無い".to_string())
+        } else if start.is_none() {
+            // 🔴 開始日が空だと「契約後」を切り出せない。以前は下の「契約後に一度も接触していない」に
+            //    落ちていて、表でも「接触の記録 N件・すべて契約前」と言い切っていた（2026-09-24 検証）。
+            //    赤か未測定かは数え方の判断なので、ここでは赤のまま（件数を動かさない）で、文だけ本当のことにする
+            a3.1 += 1;
+            (
+                "赤",
+                "契約開始日が空で、契約後の接触を切り出せない".to_string(),
+            )
         } else if last_post.is_none() {
             a3.1 += 1;
             ("赤", "契約後に一度も接触していない".to_string())
@@ -705,7 +718,9 @@ fn risk(act: &[&Deal], contacts: &HashMap<String, Vec<NaiveDate>>, today: NaiveD
                 "ax3w": ax3w,
                 "n_contact": n_contact,
                 // 契約後ゼロは別に立てる。いちばん拾うべきもの
-                "never_after_start": last_post.is_none() && n_contact > 0,
+                // 開始日が空の行は「契約後」を判定できないので立てない（no_start で別に立てる）
+                "never_after_start": start.is_some() && last_post.is_none() && n_contact > 0,
+                "no_start": start.is_none(),
             }));
         }
     }
@@ -2548,8 +2563,7 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
     シートに入っている値をそのまま読んでいて、ここで作り直していません",
         "owner_rule": "担当は consultant が正本です（hubspot_owner_id ではありません）。\
     取引ごとに、担当履歴のいちばん新しい行を採っています。\
-    同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。\
-    採り方を変えると担当が変わる取引があるので、その件数を出しています",
+    同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています",
         "rows": rows,
     })
 }

@@ -604,7 +604,12 @@ check("N5", "月次継続率: 結果待ちがある月・n<30 を実線にせず
   const svg = h.slice(h.indexOf("<svg"), h.indexOf("</svg>"));
   const solid = count(svg, /<circle [^>]*r="4\.2"/g), hollow = count(svg, /<circle [^>]*r="4\.6"/g);
   if (solid !== 2) throw new Error("確定の点（結果待ち0・n>=30）は2つのはずが " + solid);
-  if (hollow !== 2) throw new Error("未確定の点（結果待ち2件の月・n=10 の月）は2つのはずが " + hollow);
+  // ループ4: n<30 の月（2026-08, n=10）は点を打たない（規律「n<30 は図に載せない」。前は中空で描いていた）
+  if (hollow !== 1) throw new Error("未確定の点（結果待ち2件の月）は1つのはずが " + hollow);
+  if (/<circle [^>]*><title>26-08/.test(svg)) throw new Error("n<30 の月（26-08, n=10）に点を打っている");
+  if (svg.indexOf(">26-08<") < 0) throw new Error("n<30 の月（26-08）を横軸から消している（月があることは残す）");
+  if (h.indexOf("30 件に届かない 1 か月は点を打っていません") < 0 || h.indexOf("2026-08 n=10") < 0)
+    throw new Error("n<30 で点を打たなかった月とその理由が書かれていない");
   if (svg.indexOf("27-02") >= 0) throw new Error("n=0 の月（27-02）が図に残っている");
   if (h.indexOf("決着が1件も無い 1 か月") < 0) throw new Error("n=0 で外した月のことが書かれていない");
   // 下の表。図の注記が表へ誘うので、表でも未確定を確定と同じ太字にしない
@@ -1017,6 +1022,106 @@ check("N18c", "注力の図の母数にオプション契約だけの法人が�
   if (h.indexOf("この 517 社には、オプション契約しか持たない法人 1 社も入っています") < 0)
     throw new Error("図の母数にオプション契約だけの法人がいることが書かれていない");
   if (h.indexOf("数えていません") >= 0) throw new Error("図にも掛かって読める「数えていません」が残っている");
+});
+
+/* ================================================================ ループ4: 文言と表（2026-09-24 実機） */
+check("L4", "series: 「1つの縦軸に重ねていません」は契約ごとに繰り返さず、最初の図の下の1回だけ", async () => {
+  const t = boot();
+  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
+  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
+    period: 6, span_months: 6, series: { oubo: pts }, nps: {} });
+  const D = customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" }), deal({ deal_id: "c" })],
+    { monthly: [mm("a"), mm("b"), mm("c")] });
+  const h = t.R("renderSeries")(D);
+  if (count(h, /系列を縦に並べる/g) < 3) throw new Error("契約ごとの図が3つ描かれていない（見張りの前提）");
+  const n = count(h, /1つの縦軸に重ねていません/g);
+  if (n !== 1) throw new Error("「1つの縦軸に重ねていません」の段落が " + n + " 回出ている（1回にする）");
+});
+check("L4", "series: NPS と接触がある契約の副題で、例文を結論のように書かない（読み方の例と言う）", async () => {
+  const t = boot();
+  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
+  const D = customerPayload([deal({ deal_id: "n1", start: "2026-04-01" })], {
+    monthly: [{ deal_id: "n1", name: "案件", start: "2026-04-01", expiration: "2026-09-30",
+      period: 6, span_months: 6, series: { oubo: pts }, nps: { nps: [{ m: 1, v: 6 }, { m: 2, v: 9 }] } }],
+    contacts: [{ deal_id: "n1", dates: ["2026-04-10"] }],
+  });
+  const h = t.R("renderSeries")(D);
+  const b = h.indexOf("系列を縦に並べる");
+  const head = h.slice(b, h.indexOf("<svg", b));
+  if (head.indexOf("が読めます") >= 0 && head.indexOf("接触が切れていて、応募も止まっていた」が読めます") >= 0)
+    throw new Error("NPS が上がった契約にも「NPS が落ちた月に…が読めます」と結論のように出ている");
+  if (head.indexOf("読み方の例") < 0) throw new Error("副題の例文に「読み方の例」と書いていない");
+});
+check("L4", "series: 契約の図が1つだけのときは「下に続く契約の図も同じです」と書かない", async () => {
+  const t = boot();
+  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
+  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
+    period: 6, span_months: 6, series: { oubo: pts }, nps: {} });
+  // 変更履歴の無い契約（図にしない）が並んでいても、図が1つなら下には何も続かない
+  const one = t.R("renderSeries")(customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "z" })],
+    { monthly: [mm("a"), { deal_id: "z", name: "案件z", start: "2026-04-01", series: {}, nps: {} }] }));
+  if (one.indexOf("案件a — 系列を縦に並べる") < 0 || one.indexOf("案件z — 系列を縦に並べる") >= 0)
+    throw new Error("契約ごとの図が1つ（案件a だけ）になっていない（見張りの前提）");
+  if (count(one, /1つの縦軸に重ねていません/g) !== 1) throw new Error("図が1つのときに理由の段落が出ていない");
+  if (one.indexOf("下に続く契約の図も同じです") >= 0) throw new Error("図が1つなのに「下に続く契約の図も同じです」と書いている");
+  const two = t.R("renderSeries")(customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" })],
+    { monthly: [mm("a"), mm("b")] }));
+  if (two.indexOf("下に続く契約の図も同じです") < 0) throw new Error("図が2つ以上なのに「下に続く契約の図も同じです」が消えた");
+});
+check("L4", "series: 読み方の例（NPS と接触）は契約ごとに繰り返さず、最初の図の副題の1回だけ", async () => {
+  const t = boot();
+  const pts = [{ m: 1, v: 3, carry: false }, { m: 2, v: 5, carry: false }];
+  const mm = (id) => ({ deal_id: id, name: "案件" + id, start: "2026-04-01", expiration: "2026-09-30",
+    period: 6, span_months: 6, series: { oubo: pts }, nps: { nps: [{ m: 1, v: 6 }, { m: 2, v: 9 }] } });
+  const D = customerPayload([deal({ deal_id: "a" }), deal({ deal_id: "b" }), deal({ deal_id: "c" })], {
+    monthly: [mm("a"), mm("b"), mm("c")],
+    contacts: ["a", "b", "c"].map((id) => ({ deal_id: id, dates: ["2026-04-10"] })),
+  });
+  const h = t.R("renderSeries")(D);
+  if (count(h, /系列を縦に並べる/g) < 3) throw new Error("契約ごとの図が3つ描かれていない（見張りの前提）");
+  const n = count(h, /読み方の例/g);
+  if (n !== 1) throw new Error("「読み方の例」が " + n + " 回出ている（最初の図の1回にする）");
+  if (count(h, /同じ月に何が起きていたかが読めます/g) < 3) throw new Error("2つ目以降の図の副題まで消えた");
+});
+check("L4", "series: 契約の連なりで金額が空の契約に「金額なし」と書く（「3回目」だけにしない）", async () => {
+  const t = boot();
+  const D = customerPayload([deal({ deal_id: "x1", renewal_no: 3, amount: null }),
+                             deal({ deal_id: "x2", renewal_no: 2, amount: 1200000, start: "2024-01-01" })]);
+  const h = t.R("renderSeries")(D);
+  if (h.indexOf("3回目　金額なし") < 0) throw new Error("金額が空の契約の注記が「3回目」だけになっている");
+});
+check("L4", "契約の系列の表: 取引・ステージ・拠点を折り返す列にする（1440px で右端が切れない）", async () => {
+  const t = boot();
+  const h = t.R("custBlocks")(customerPayload([deal({ deal_id: "t1" })]), new Set(["deals"]));
+  const head = h.slice(h.indexOf("<thead>"), h.indexOf("</thead>"));
+  for (const [c, w] of [["取引", "wl"], ["ステージ", "ws"], ["拠点", "ws"]])
+    if (head.indexOf('<th class="' + w + '">' + c + "</th>") < 0)
+      throw new Error("契約の系列の「" + c + "」が折り返す列（" + w + "）になっていない");
+  // 折るだけでは 1440px の本文（1,117px）に 35px 足りなかった。開始と満了を1つの列に2段で出す
+  if (head.indexOf("<th>開始〜満了</th>") < 0 || head.indexOf("<th>開始</th>") >= 0)
+    throw new Error("契約の系列で開始と満了が別の列のまま（12列で右端が切れる）");
+  if (h.indexOf("2025-01-01<br>〜2025-12-31") < 0) throw new Error("開始〜満了の列に2段で日付が出ていない");
+});
+
+check("L4", "houjin: 「拠点をまたいで1本の線にしない」と基準日を1回ずつにし、他の法人と比べるの見出しは1つ", async () => {
+  const t = boot();
+  const D = customerPayload([deal({ deal_id: "h1" }), deal({ deal_id: "h2", site: "S2" })], {
+    meta: { found: true, houjin: "H1", today: "2026-09-24",
+      not_counted: "※ 採用単価は拠点ごとに分けています。1本にまとめると拠点間のばらつきが時間の悪化に見えます" },
+    cpa3: [{ deal_id: "h1", name: "案件", total: 900000, monthly: 600000, syoudaku: 2 }],
+  });
+  t.ctx.__D = D;
+  t.R('customerHoujin = "H1"; houjinFor = ""; houjinPick = null;');
+  const h = t.R("renderHoujin(__D)");
+  const n = count(h, /時間の悪化/g);
+  if (n !== 1) throw new Error("「1本にまとめると…時間の悪化に見える」が " + n + " 回出ている（頭の枠の1回にする）");
+  if (h.indexOf("1本の線にまとめない理由") >= 0) throw new Error("「1本の線にまとめない理由」の枠が残っている");
+  const b = count(h, /基準日 2026-09-24/g);
+  if (b !== 1) throw new Error("基準日が " + b + " 回出ている");
+  const at = h.indexOf("他の法人と比べる");
+  if (at < 0 || h.lastIndexOf('<h2 class="sec mincho"><span class="no">問い</span>', at) < h.lastIndexOf("<h2", at))
+    throw new Error("「他の法人と比べる」が問いの見出しになっていない（下の本部アプローチの問いと2つ続く）");
+  if (h.indexOf("横軸は採用単価（万円）") < 0) throw new Error("採用単価を3つの出し方で見る図に単位（万円）が無い");
 });
 
 /* ---------------------------------------------------------------- 実行 */
