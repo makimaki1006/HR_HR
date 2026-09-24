@@ -1214,8 +1214,7 @@ check("KPI: 最終満了を折り返さない・電話の61件の色をそろえ
   const D2 = JSON.parse(JSON.stringify(ctx.__D));
   D2.owner_rule = "担当は consultant が正本です（hubspot_owner_id ではありません）。" +
     "取引ごとに、担当履歴のいちばん新しい行を採っています。" +
-    "同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。" +
-    "採り方を変えると担当が変わる取引があるので、その件数を出しています";
+    "同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています";
   ctx.__D2 = D2;
   const rule = textOf(run("renderTeam(__D2)")).split("この一覧の決まりごと")[1] || "";
   const dup = (rule.match(/シートで後に来る行/g) || []).length;
@@ -1280,7 +1279,8 @@ check("byowner: 担当を選ぶ前の持ち件数は、見えない絞り込み�
     const cnt = (name) => ((tbl.match(new RegExp('data-c="' + name + '"[^>]*>' + name + "</a></td><td[^>]*>([0-9,]+)<")) || [])[1]);
     ok(cnt("田中") === "2" && cnt("佐藤") === "1",
       "持ち件数が隠れた絞り込みで減っている: 田中 " + cnt("田中") + " / 佐藤 " + cnt("佐藤") + "（稼働中の全件は 2 / 1）");
-    ok(h.includes("稼働中 3 件"), "見出しの件数が稼働中の全件でない");
+    /* ループ4: 見出しから「稼働中 N 件」を外した（頭の1行と重なる）。人数が隠れた絞り込みで減らないことを見る */
+    ok(h.includes("担当者ごとの持ち件数（2 名）"), "見出しの人数が稼働中の全件の担当者数でない");
   } finally {
     run('boardFilter = { consultant: "", flag: "", expiry: "", q: "" }; cur = { menu: "deal", view: "today" };');
   }
@@ -2066,6 +2066,41 @@ check("ループ4 focus: どちらも無い（灰の帯）の KPI を山吹に�
   ok(!/^ is-(warn|bad)/.test(k), "「MTG の記録がどちらも無い」の KPI に色が付いている（帯では灰）: " + k.slice(0, 30));
   ok(h.includes("今回（万円）") && h.includes("横軸は万円"), "採用単価の悪化の図で単位（万円）が分からない");
   ok(/\.kpi \.lbl\{[^}]*text-wrap:balance/.test(html), "KPI の見出しが最後の1文字だけ次の行に落ちうる（text-wrap:balance が無い）");
+});
+
+check("ループ4 team: 読み方の見出しと本文を重ねず、件数で見ない理由・担当の割れを1回ずつにする", () => {
+  const D = JSON.parse(JSON.stringify(ctx.__D));
+  D.meta.not_counted = "※ 担当者の評価ではありません。手が足りていない場所を見つけるための画面です。順位を付けていますが、良し悪しの判断は人がします";
+  // routes.rs build_consultants の contact_rule / owner_rule そのもの
+  D.contact_rule = "接触 ＝ MTG または60秒超の通話（メールは数えない）。接触率 ＝ 接触があった月 ÷（案件 × 経過月）。" +
+    "件数ではなく率で見るのは、件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分からなくなるため";
+  D.owner_rule = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8")
+    .split('"owner_rule": "')[1].split('",')[0].replace(/\\\r?\n\s*/g, "");
+  ok(!/[\\\r\n]/.test(D.owner_rule) && D.owner_rule.includes("シートで後に来る行"), "routes.rs の owner_rule を読み取れない: " + D.owner_rule);
+  ctx.__D4 = D;
+  const h = run("renderTeam(__D4)");
+  const t = textOf(h);
+  ok(!/これは担当者の評価ではありません\s+担当者の評価ではありません/.test(t), "読み方の見出しと本文の1文目が同じ文");
+  const n = (t.match(/持ち案件が多い人ほど大きく出て/g) || []).length;
+  ok(n === 1, "件数で見ない理由が " + n + " 回出ている（1回にする）");
+  ok(!/件数では見ていません/.test(t), "「件数では見ていません」が理由（contact_rule）と別に出ている");
+  const rule = t.split("この一覧の決まりごと")[1] || "";
+  ok(!rule.includes("その件数を出しています"), "決まりごとで「その件数を出しています」と「担当が割れている…N 件あります」が2文続く");
+  ok(rule.includes("担当が割れている稼働中の案件が 38 件"), "担当の割れの件数が決まりごとから消えた");
+});
+
+check("ループ4 byowner: 「稼働中 N 件」を表の見出しと末尾で繰り返さない（頭の1行に任せる）", () => {
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "" };');
+  try {
+    const h = run("renderBoard(__BD)");
+    ok(!/稼働中 3 件/.test(textOf(h)), "担当を選ぶ前の画面に「稼働中 3 件」が出ている（頭の1行と重なる）");
+    ok(h.includes("担当者ごとの持ち件数（2 名）") && h.includes("担当者 2 名"), "表の見出し・末尾にこの画面の数（担当者の人数）が無い");
+    run('boardFilter.consultant = "田中";');
+    const h2 = run("renderBoard(__BD)");
+    ok(!/稼働中 3 件/.test(textOf(h2)), "担当を選んだ後の末尾に「稼働中 3 件」が出ている（頭の1行・N 件中 M 件と重なる）");
+  } finally {
+    run('boardFilter = { consultant: "", flag: "", expiry: "", q: "" }; cur = { menu: "deal", view: "today" };');
+  }
 });
 
 Promise.all(pendingChecks).then(() => {

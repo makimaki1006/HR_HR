@@ -2326,9 +2326,12 @@ function renderTeam(D) {
     /* 画面の名前は goLink で MENUS から引く（「左の『…』」と直書きすると名前を変えたときに残る） */
     "<b>担当者名を押すと</b>、" + goLink("consultant", "byowner") + " がその人だけに絞られます。</div>";
 
-  h += note("info", "これは担当者の評価ではありません",
-    esc(D.meta.not_counted).replace("※ ", "") + "<br>" +
-    "<b>接触率で見ています。件数では見ていません。</b>" + esc(D.contact_rule));
+  /* 🔴 2026-09-24 実機: 見出し「これは担当者の評価ではありません」と本文の1文目（サーバの not_counted
+     「担当者の評価ではありません」）が同じで、続けて2回出ていた。見出しは本文と別のことを言う。
+     「件数では見ていません」も、この枠の太字・サーバの contact_rule（件数ではなく率で見るのは…）・
+     下の図の注記の3か所にあった。理由まで書いてある contact_rule の1か所にする */
+  h += note("info", "何のための画面か",
+    esc(D.meta.not_counted).replace("※ ", "") + "<br>" + esc(D.contact_rule));
 
   /* 🔴 「いちばん低い」は**図と同じ母数の人から**選ぶ（V2）。
      2026-09-23 実測: 母数が小さいとして図から外した人（0.0%・0/11か月）を拾い、
@@ -2387,9 +2390,7 @@ function renderTeam(D) {
     lg("box", C.hi, "40%未満") + lg("box", C.ki, "40〜70%") + lg("box", C.midori, "70%以上") +
     '<i class="full">棒の右に率そのものを書いているので、' +
     "<b>色が見分けられなくても帯は読めます。</b></i>" +
-    '<i class="full"><b>件数ではなく率で見ています。</b>' +
-    "件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分かりません。" +
-    "帯の切り方（40% / 70%）は機械が決めたものです。" +
+    '<i class="full">帯の切り方（40% / 70%）は機械が決めたものです。' +
     "<b>どこから要注意とするかは取り決め</b>で、事実ではありません。</i>" +
     (dropped.length
       ? '<i class="full"><b>この図から ' + num(dropped.length) +
@@ -4744,7 +4745,9 @@ function renderBoard(D) {
         "上の「担当」で選ぶか、下の表で名前を押すと、その人の案件の表が出ます。" +
         "名札・満了まで・案件名での絞り込みは、担当を選んだ後に出ます。" +
         "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は " + goLink("deal", "board") + " にあります）。");
-      h += sec("表", "担当者ごとの持ち件数（" + num(ks.length) + " 名・稼働中 " + num(D.rows.length) + " 件）");
+      /* 🔴 「稼働中 604 件」が画面の頭の1行・この見出し・末尾の枠の3か所に出ていた（2026-09-24 実機）。
+         件数は頭の1行に任せ、ここと末尾はこの画面の数（担当者の人数）だけにする */
+      h += sec("表", "担当者ごとの持ち件数（" + num(ks.length) + " 名）");
       /* 名前を押すと担当で絞る。②担当者の一覧の表（TEAM_COLS）と同じ作り（a.drill）。
          担当が空の行は選択欄にも無いので押せるようにしない */
       h += scroll(table([{ t: "担当" }, { t: "案件", n: 1 }, { t: "名札のある案件", n: 1 },
@@ -4753,7 +4756,7 @@ function renderBoard(D) {
           ? '<a href="#" class="drill" data-c="' + esc(k) + '" title="この担当の案件だけを見る">' + esc(k) + "</a>"
           : DASH,
           num(per[k].n), num(per[k].flagged), num(per[k].focus)]), "", "owner-tbl"), 640);
-      return h + foot(D.meta);
+      return h + foot(D.meta, false, "担当者 " + num(ks.length) + " 名");
     }
     h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
       "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
@@ -4767,7 +4770,8 @@ function renderBoard(D) {
       ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
       : '<div class="empty">この条件に当てはまる案件はありません。' +
         "「絞り込みを外す」で戻せます。</div>";
-    return h + foot(D.meta);
+    /* 稼働中の件数は頭の1行と「N 件中 M 件を表示」にあるので、末尾では繰り返さない */
+    return h + foot(D.meta, false, "");
   }
   let h = sec("問い", "いま、それぞれの案件はどこにいるか") +
     '<div class="lede">稼働中 ' + num(D.rows.length) +
