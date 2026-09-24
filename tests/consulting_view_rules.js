@@ -2089,11 +2089,13 @@ check("ループ4 team: 読み方の見出しと本文を重ねず、件数で�
   ok(rule.includes("担当が割れている稼働中の案件が 38 件"), "担当の割れの件数が決まりごとから消えた");
 });
 
-check("ループ4 byowner: 「稼働中 N 件」を表の見出しと末尾で繰り返さない（頭の1行に任せる）", () => {
+check("ループ4 byowner: 「稼働中 N 件」を表の見出しと末尾で繰り返さない（担当を選ぶ前は末尾の1か所だけ）", () => {
   run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "" };');
   try {
     const h = run("renderBoard(__BD)");
-    ok(!/稼働中 3 件/.test(textOf(h)), "担当を選ぶ前の画面に「稼働中 3 件」が出ている（頭の1行と重なる）");
+    // 🔴 担当を選ぶ前の頭の1行には件数が無い。見出しと末尾から消すと0か所になっていた（2026-09-24 検証）
+    const nAct = (textOf(h).match(/稼働中 3 件/g) || []).length;
+    ok(nAct === 1, "担当を選ぶ前の画面で「稼働中 3 件」が " + nAct + " 回出ている（1回にする）");
     ok(h.includes("担当者ごとの持ち件数（2 名）") && h.includes("担当者 2 名"), "表の見出し・末尾にこの画面の数（担当者の人数）が無い");
     run('boardFilter.consultant = "田中";');
     const h2 = run("renderBoard(__BD)");
