@@ -2546,6 +2546,23 @@ check("ループ4統合: 注記の折り返しで、とうに閉じた括弧の�
   ok(br.some(l => l.startsWith("（決着済み")), "まだ閉じていない括弧の手前では切る動きが壊れた: " + JSON.stringify(br));
 });
 
+/* ================================================================ ループ5（本番 1586140 の実測の残り, 2026-09-24） */
+check("ループ5: 帯を縦に積む図（series の案件ごとの図）も、開いた直後を新しい側に合わせる（data-xr）。左のラベルは貼り付けたまま", () => {
+  const xr = (svg) => { const m = String(svg).match(/<svg [^>]*data-xr="(\d+)"/); return m ? +m[1] : null; };
+  const mx = JSON.stringify(monthsN(24));
+  const all = JSON.stringify(monthsN(24).map((_, i) => ({ v: i })));
+  const svg = drawAt('svgStackLanes({ w: 940, months: ' + mx + ', lanes: [{ type: "line", label: "応募", color: "blue", pts: ' + all + ' }] })', 319);
+  ok(xr(svg) >= 930, "帯を縦に積む図の data-xr が最新の月（右端）でない（開いた直後が古い側になる）: " + xr(svg));
+  ok(/class="sticklab"/.test(svg), "左のラベルを貼り付けていない");
+  // 最後の数か月に値が無い図は、値がある最後の月を右端に見せる（右の空の月だけが見えない）
+  const early = JSON.stringify(monthsN(24).map((_, i) => (i <= 12 ? { v: i } : null)));
+  const e = drawAt('svgStackLanes({ w: 940, months: ' + mx + ', lanes: [{ type: "line", label: "応募", color: "blue", pts: ' + early + ' }] })', 319);
+  ok(xr(e) > 400 && xr(e) < 800, "値がある最後の月に data-xr を合わせていない: " + xr(e));
+  // 枠の幅で描いた図（月が少ない）は横にスクロールしないので付けない
+  const one = drawAt('svgStackLanes({ w: 940, months: ["25-09"], lanes: [{ type: "line", label: "応募", color: "blue", pts: [{ v: 1 }] }] })', 319);
+  ok(xr(one) == null, "枠の幅で描いた図に data-xr が付いた");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
