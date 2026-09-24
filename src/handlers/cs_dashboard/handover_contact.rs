@@ -34,7 +34,14 @@
 //!   取った日そのものも途中までしか入っていないので、数えるのは `cutoff` の前日まで。
 //!   後の窓の途中に「まだデータが無いが、案件は動いている日」があれば**未確定**（`provisional`）。
 //! - **どちらかの窓が30日未満なら「比べるには短い」**（`short`）。まとめの件数には入れず、
-//!   理由ごとに分けて数える（通話の記録が始まる前にかかる / 前に動いていた案件が無い / 後に動いていた案件が無い）。
+//!   理由ごとに分けて数える（通話の記録が始まる前にかかる / 同じ拠点で本体案件が重なる /
+//!   前に動いていた案件が無い / 後に動いていた案件が無い）。
+//!   🔴 理由は、短い窓から**外した日を理由ごとに数え、いちばん多い理由**にする（同じ日数なら
+//!   通話 → 重なり → 案件が無い の順）。外した日の理由は、その日に動いている本体案件が 0件なら
+//!   「案件が無い」、2件以上なら「重なり」、1件で通話の記録の前なら「通話」。
+//!   以前は「前の窓が通話の記録の始まりにかかれば一律に通話」としていて、初めての契約の直後
+//!   （前に案件が無い）まで通話に入っていた（fixture で短い 211件のうち 通話 118 → 21、前に案件が無い 86 → 183）。
+//!   重なりで外した日数も交代ごとに `lost.overlap` として出し、まとめで合計する（黙って外さない）。
 //! - 増えた / 減った / 変わらない は、30日あたりの値を**分数のまま**比べる（小数の丸めで「変わらない」を作らない）。
 //!   わずかな差でも増えた・減ったに入る。大きさは変化（後−前、30日あたり）で見る。
 //! - **担当者ごとのまとめ**は比べられた交代（`ok`）だけで作る。同じ人の同じ交代は1件。
@@ -68,6 +75,14 @@ pub struct Window {
     pub days: i64,
     /// その日々の接触の回数
     pub contacts: usize,
+    /// 外した日: 本体案件は1件だが、通話の記録が始まる前
+    pub lost_calls: i64,
+    /// 外した日: 同じ拠点で契約期間の中の本体案件が2件以上（付け先を決められない）
+    pub lost_overlap: i64,
+    /// 外した日: 動いている本体案件が無い
+    pub lost_none: i64,
+    /// まだデータの無い日（データを取った日から先）で、本体案件が1件動いている日
+    pub future: i64,
 }
 
 impl Window {
@@ -76,7 +91,27 @@ impl Window {
         (self.days > 0).then(|| self.contacts as f64 * PER_DAYS as f64 / self.days as f64)
     }
     fn json(self) -> Value {
-        json!({"days": self.days, "contacts": self.contacts, "per30": self.per30()})
+        json!({
+            "days": self.days,
+            "contacts": self.contacts,
+            "per30": self.per30(),
+            // 窓から外した日を理由ごとに（まだデータの無い日は入れない）
+            "lost": {"calls": self.lost_calls, "overlap": self.lost_overlap, "none": self.lost_none},
+        })
+    }
+    /// 短い窓の理由。外した日のいちばん多い理由（同じなら 通話 → 重なり → 案件が無い）。
+    /// `none` は案件が無いときの理由（前の窓なら `ShortBefore`、後の窓なら `ShortAfter`）。
+    fn short_reason(self, none: Status) -> Status {
+        let mut best = (self.lost_calls, Status::ShortCalls);
+        for c in [
+            (self.lost_overlap, Status::ShortOverlap),
+            (self.lost_none, none),
+        ] {
+            if c.0 > best.0 {
+                best = c;
+            }
+        }
+        best.1
     }
 }
 
@@ -84,8 +119,10 @@ impl Window {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Ok,
-    /// 前の窓が短く、その窓に通話の記録が始まる前の日がかかる
+    /// 窓が短く、外した日のいちばん多い理由が「通話の記録が始まる前」
     ShortCalls,
+    /// 窓が短く、外した日のいちばん多い理由が「同じ拠点で本体案件が重なる」
+    ShortOverlap,
     /// 前の窓が短い（前に動いていた本体案件が無い。初めての契約の直後など）
     ShortBefore,
     /// 後の窓が短い（後に動いていた本体案件が無い。満了・解約など）
@@ -99,6 +136,7 @@ impl Status {
         match self {
             Status::Ok => ("ok", None),
             Status::ShortCalls => ("short", Some("calls")),
+            Status::ShortOverlap => ("short", Some("overlap")),
             Status::ShortBefore => ("short", Some("before")),
             Status::ShortAfter => ("short", Some("after")),
             Status::Provisional => ("provisional", None),
@@ -204,9 +242,9 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// `day` に数える本体案件。同じ拠点で契約期間の中の本体案件が1件だけならそれ。
-    /// 0件・2件以上なら `None`（その日は窓に入れない）。
-    fn running(&self, deal: &str, day: NaiveDate) -> Option<&str> {
+    /// `day` に動いている本体案件。同じ拠点で契約期間の中の本体案件が1件だけなら `One`
+    /// （その日は窓に入れる）。0件・2件以上はその日を窓に入れない。
+    fn running(&self, deal: &str, day: NaiveDate) -> Run<'_> {
         match self.site.get(deal) {
             Some(k) => {
                 let mut hit = self
@@ -216,34 +254,40 @@ impl<'a> Ctx<'a> {
                     .flatten()
                     .filter(|&&(_, s, e)| s <= day && day <= e);
                 match (hit.next(), hit.next()) {
-                    (Some(&(id, _, _)), None) => Some(id),
-                    _ => None,
+                    (Some(&(id, _, _)), None) => Run::One(id),
+                    (Some(_), Some(_)) => Run::Many,
+                    _ => Run::Zero,
                 }
             }
             None => self
                 .own
                 .get_key_value(deal)
                 .filter(|(_, &(s, e))| s <= day && day <= e)
-                .map(|(&id, _)| id),
+                .map_or(Run::Zero, |(&id, _)| Run::One(id)),
         }
     }
 
     /// `a`〜`b`（両端を含む）のうち窓に入れる日を数え、その日々の接触を足す。
+    /// 入れなかった日は理由ごとに数える（`lost_*`）。データを取った日から先で案件が動いている日は `future`。
     fn count(&self, deal: &str, a: NaiveDate, b: NaiveDate) -> Window {
         let mut w = Window::default();
-        let Some(from) = self.call_from else {
-            return w; // 通話の記録が1本も無い。どの日も比べられない
-        };
-        let mut d = a.max(from);
-        let end = b.min(self.last);
-        while d <= end {
-            if let Some(id) = self.running(deal, d) {
-                w.days += 1;
-                if let Some(cs) = self.contacts.get(id) {
-                    // cs は日の昇順
-                    let lo = cs.partition_point(|x| x.0 < d);
-                    let hi = cs.partition_point(|x| x.0 <= d);
-                    w.contacts += hi - lo;
+        let mut d = a;
+        while d <= b {
+            match self.running(deal, d) {
+                // まだデータが無い。途中（未確定）の印にだけ使う
+                Run::One(_) if d > self.last => w.future += 1,
+                Run::Zero => w.lost_none += 1,
+                Run::Many => w.lost_overlap += 1,
+                // 通話の記録が1本も無い（call_from が無い）ときも、どの日も比べられない
+                Run::One(_) if self.call_from.is_none_or(|f| d < f) => w.lost_calls += 1,
+                Run::One(id) => {
+                    w.days += 1;
+                    if let Some(cs) = self.contacts.get(id) {
+                        // cs は日の昇順
+                        let lo = cs.partition_point(|x| x.0 < d);
+                        let hi = cs.partition_point(|x| x.0 <= d);
+                        w.contacts += hi - lo;
+                    }
                 }
             }
             d += Duration::days(1);
@@ -261,28 +305,13 @@ impl<'a> Ctx<'a> {
         let after_end = day + Duration::days(WINDOW_DAYS - 1);
         let after = self.count(deal, day, after_end);
         // 🔴 後の窓に、まだデータの無い日で案件が動いている日があれば途中
-        let mut pending = false;
-        let mut d = day.max(self.last + Duration::days(1));
-        while d <= after_end {
-            if self.running(deal, d).is_some() {
-                pending = true;
-                break;
-            }
-            d += Duration::days(1);
-        }
+        //    （前の窓は交代日の前日までなので、交代日がデータを取った日より先でない限り future は 0）
         let status = if before.days < MIN_WINDOW_DAYS {
-            if self
-                .call_from
-                .is_none_or(|f| day - Duration::days(WINDOW_DAYS) < f)
-            {
-                Status::ShortCalls
-            } else {
-                Status::ShortBefore
-            }
-        } else if pending {
+            before.short_reason(Status::ShortBefore)
+        } else if after.future > 0 {
             Status::Provisional
         } else if after.days < MIN_WINDOW_DAYS {
-            Status::ShortAfter
+            after.short_reason(Status::ShortAfter)
         } else {
             Status::Ok
         };
@@ -292,6 +321,13 @@ impl<'a> Ctx<'a> {
             after,
         }
     }
+}
+
+/// その日に同じ拠点で契約期間の中にある本体案件（`Ctx::running`）。
+enum Run<'a> {
+    Zero,
+    One(&'a str),
+    Many,
 }
 
 /// 交代の表の1行ぶん（まとめに使うもの）。
@@ -346,14 +382,23 @@ pub fn summarize(items: &[Item]) -> Value {
         events.entry(it.event.as_str()).or_insert(&it.cmp);
     }
     let mut all = Tally::default();
-    let mut why = [0usize; 3];
+    let mut why = [0usize; 4];
+    // 同じ拠点で本体案件が重なり、窓から外した日（交代ごとに1回、前後の合計）
+    let mut overlap_days = 0i64;
+    let mut overlap_events = 0usize;
     for c in events.values() {
         all.add(c);
         match c.status {
             Status::ShortCalls => why[0] += 1,
             Status::ShortBefore => why[1] += 1,
             Status::ShortAfter => why[2] += 1,
+            Status::ShortOverlap => why[3] += 1,
             _ => {}
+        }
+        let o = c.before.lost_overlap + c.after.lost_overlap;
+        if o > 0 {
+            overlap_days += o;
+            overlap_events += 1;
         }
     }
 
@@ -365,8 +410,11 @@ pub fn summarize(items: &[Item]) -> Value {
         "n_same": all.n_same,
         "n_short": all.n_short,
         "n_provisional": all.n_provisional,
-        // 短い理由ごとの件数（calls / before / after）
-        "short_why": {"calls": why[0], "before": why[1], "after": why[2]},
+        // 短い理由ごとの件数（calls / before / after / overlap）
+        "short_why": {"calls": why[0], "before": why[1], "after": why[2], "overlap": why[3]},
+        // 重なりで窓から外した日数と、その日がある交代の件数（比べられた交代も含む）
+        "overlap_days": overlap_days,
+        "overlap_events": overlap_events,
         "median_change": median_of(all.changes),
         "by_to": side(items, |it| it.to),
         "by_from": side(items, |it| it.from),
