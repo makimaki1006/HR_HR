@@ -2241,6 +2241,18 @@ check("ループ4 検証: 箱ひげを狭い枠（319px）で描くとき、ラ�
     "ひげの先から軸の端までの細い線が無い: 印 " + JSON.stringify(outs) + " / 線 " + thin.map((t) => t[1] + "→" + t[3]).join(","));
 });
 
+check("ループ4 検証: 最初の月からデータがある折れ線（renewal の月次の継続率）も、右端で開くなら縦軸の目盛りを左に貼り付ける", () => {
+  // x0 が小さい（最初の月から値がある）図では、貼り付けるかどうかを data-xr だけが決める
+  const mx = JSON.stringify(monthsN(24));
+  const all = JSON.stringify(monthsN(24).map((_, i) => ({ v: .5 + i / 100 })));
+  const line = drawAt("svgLine({ x: " + mx + ", series: [{ pts: " + all + ' }], yFmt: F.pct, yLab: "継続率" })', 319);
+  ok(+(line.match(/<svg [^>]*data-x0="(\d+)"/) || [0, 99])[1] < 60, "最初の月から値があるのに data-x0 が小さくない（条件を確かめられない）");
+  ok(/class="sticklab"/.test(line), "右端で開く折れ線で、縦軸の目盛りを左に貼り付けていない（開いた直後に目盛りが流れて見えない）");
+  // 枠に収まる幅（1440px）では貼り付けない
+  ok(!/class="sticklab"/.test(drawAt("svgLine({ x: " + JSON.stringify(monthsN(6)) + ", series: [{ pts: " +
+    JSON.stringify(monthsN(6).map(() => ({ v: .5 }))) + ' }], yFmt: F.pct, yLab: "継続率" })', 1116)), "枠に収まる折れ線まで目盛りを貼り付けた");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
