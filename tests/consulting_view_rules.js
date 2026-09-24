@@ -2248,6 +2248,21 @@ check("ループ4 検証: 最初の月からデータがある折れ線（renewa
   const line = drawAt("svgLine({ x: " + mx + ", series: [{ pts: " + all + ' }], yFmt: F.pct, yLab: "継続率" })', 319);
   ok(+(line.match(/<svg [^>]*data-x0="(\d+)"/) || [0, 99])[1] < 60, "最初の月から値があるのに data-x0 が小さくない（条件を確かめられない）");
   ok(/class="sticklab"/.test(line), "右端で開く折れ線で、縦軸の目盛りを左に貼り付けていない（開いた直後に目盛りが流れて見えない）");
+  // 貼り付けた目盛りの欄には地の色の四角を敷く（点・線が「50%」の字に重ならない）。
+  // 欄は目盛りの字を覆い、図の左端（最初の点 = 縦軸の線の位置）にはかからない
+  const bgOf = (svg) => { const st = (svg.match(/<svg [^>]*class="sticklab"[\s\S]*?<\/svg>/) || [""])[0];
+    const r = st.match(/<rect data-stickbg="1" x="0" y="0" width="([\d.]+)" height="([\d.]+)"/);
+    return { r: r ? { w: +r[1], h: +r[2] } : null, ticks: textBoxes(st).filter((b) => /^\d/.test(b.s)) }; };
+  const firstX = (svg) => Math.min(...[...svg.replace(/<svg [^>]*class="sticklab"[\s\S]*?<\/svg>/, "").matchAll(/<circle cx="([\d.]+)"/g)].map((m) => +m[1]));
+  const lb = bgOf(line);
+  ok(lb.r && lb.ticks.length && lb.ticks.every((b) => b.x1 <= lb.r.w + 1) && lb.r.w < firstX(line),
+    "折れ線の貼り付けた目盛りに地の四角が無い・字を覆わない・最初の点にかかる: " + JSON.stringify(lb.r) + " 最初の点 " + firstX(line));
+  const col = drawAt("svgColStack({ w: 940, x: " + mx + ', series: [{ label: "s", color: "blue", vals: ' +
+    JSON.stringify(monthsN(24).map((_, i) => ({ v: 1000000 * (i + 1) }))) + ' }], yFmt: F.man, yLab: "累計金額（万円）" })', 319);
+  const cb = bgOf(col);
+  const firstBar = Math.min(...[...col.replace(/<svg [^>]*class="sticklab"[\s\S]*?<\/svg>/, "").matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="[\d.]+" height="[\d.]+"[^>]*fill:blue/g)].map((m) => +m[1]));
+  ok(cb.r && cb.ticks.length && cb.ticks.every((b) => b.x1 <= cb.r.w + 1) && cb.r.w < firstBar,
+    "LTV の貼り付けた目盛りに地の四角が無い・字を覆わない・最初の棒にかかる: " + JSON.stringify(cb.r) + " 最初の棒 " + firstBar);
   // 枠に収まる幅（1440px）では貼り付けない
   ok(!/class="sticklab"/.test(drawAt("svgLine({ x: " + JSON.stringify(monthsN(6)) + ", series: [{ pts: " +
     JSON.stringify(monthsN(6).map(() => ({ v: .5 }))) + ' }], yFmt: F.pct, yLab: "継続率" })', 1116)), "枠に収まる折れ線まで目盛りを貼り付けた");
