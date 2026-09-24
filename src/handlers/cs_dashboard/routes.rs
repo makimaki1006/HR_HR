@@ -1770,9 +1770,12 @@ pub fn build_data_quality(sheets: &Sheets, today: NaiveDate) -> Value {
 /// HubSpot の担当者欄が直された日は交代日ではない（遅れの中央値 73日）ので、
 /// **そのずれ（`record_gap_days`）も並べて見えるようにする**。
 ///
-/// 🔴 **誰から誰へ、でまとめない。** `from` / `to` は取引名と同じ「読めば分かる列」で、
-/// テスト用データでは1行1人の連番に伏せてある。ここでまとめると、拠点キー・担当者・
-/// ホスト氏名で踏んだのと同じ穴（1行1グループ）にはまる。**表示だけにとどめる。**
+/// 🔴 **誰から誰へ、の組ではまとめない。** `from` / `to` は取引名と同じ「読めば分かる列」で、
+/// テスト用データでは1行1人の連番に伏せてある。fixture でまとめを確かめると、拠点キー・担当者・
+/// ホスト氏名で踏んだのと同じ穴（1行1グループ）にはまる。
+/// 例外は 2026-09-24 に足した「交代の前後の接触」の担当者ごとのまとめ（`handover_contact::summarize`）で、
+/// 藤巻さんの要望で from / to それぞれの人ごとに数える。まとめ方の正しさは fixture ではなく
+/// tests.rs の合成データで見ている。
 pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
     // 🔴 引き当ては**オプション込みの全取引**で行い、オプション契約の行は外す。
     //    以前は `deals_of`（オプション除外）で引いていたので、オプション契約の交代が
@@ -1782,6 +1785,11 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
     let by_id: HashMap<&str, &Deal> = all.iter().map(|d| (d.id.as_str(), d)).collect();
     let who = consultant_of(&sheets.owner_hist);
     let hv = &sheets.handover;
+    // 交代の前後の接触（`handover_contact`）。数える先は「担当者ごとの接触」と同じ付け直し
+    let mains = super::deals_of(&sheets.deal);
+    let cx = super::handover_contact::Ctx::new(sheets, today, &mains, &all);
+    let mut items: Vec<super::handover_contact::Item> = Vec::new();
+    let mut cmp_unavailable = 0usize;
 
     let mut rows: Vec<Value> = Vec::new();
     let mut reflected: BTreeMap<String, usize> = BTreeMap::new();
@@ -1823,6 +1831,27 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
             gaps.push(g);
         }
         let (from, to) = (hv.get(r, "from"), hv.get(r, "to"));
+        // 🔴 取引が見つからない・契約期間が読めない・交代日が読めない行は前後を数えられない（null）。
+        //    0 回として並べない
+        let cmp = match super::date10(hv.get(r, "date")) {
+            Some(day) if d.is_some() && cx.has_span(deal_id) => {
+                let c = cx.compare(deal_id, day);
+                let event = cx.event_key(deal_id, day);
+                let mut j = c.json();
+                j["event"] = json!(event);
+                items.push(super::handover_contact::Item {
+                    event,
+                    cmp: c,
+                    from,
+                    to,
+                });
+                j
+            }
+            _ => {
+                cmp_unavailable += 1;
+                Value::Null
+            }
+        };
         rows.push(json!({
             "deal_id": deal_id,
             "name": d.map(|x| x.name.as_str()).unwrap_or(""),
@@ -1847,6 +1876,8 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
             },
             // いまの担当。交代の相手と食い違っていたら、その後さらに動いている
             "consultant": who.get(deal_id).map(|(n, _)| n.as_str()).unwrap_or(""),
+            // 交代の前後の接触（同じ交代の行には同じ値が入る）
+            "contact": cmp,
         }));
     }
 
@@ -1879,13 +1910,52 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
         "n_gap": gaps.len(),
         "gap_rule": "「記録の遅れ」は、実際に替わった日（MTG のホストが替わった日）と HubSpot の担当者欄が直された日の差です。プラスなら HubSpot のほうが後。マイナスは、先に欄だけ直して実務の引き継ぎが後になったことを表します",
         "source_rule": "交代日は MTG のホストが替わった日で取っています。HubSpot の担当者欄が直された日は交代日ではありません",
+        // 交代の前後の接触（2026-09-24 藤巻さんの要望。決まりごとは handover_contact.rs の頭）
+        "contact_cmp": contact_cmp_json(&cx, &items, cmp_unavailable),
     })
+}
+
+/// 担当の交代 →「交代の前後の接触」のまとめと、画面に出す決まりごと。
+fn contact_cmp_json(
+    cx: &super::handover_contact::Ctx,
+    items: &[super::handover_contact::Item],
+    n_unavailable: usize,
+) -> Value {
+    use super::handover_contact::{MIN_PERSON_N, MIN_WINDOW_DAYS, PER_DAYS, WINDOW_DAYS};
+    let mut v = super::handover_contact::summarize(items);
+    v["meta"] = json!({
+        "window_days": WINDOW_DAYS,
+        "min_window_days": MIN_WINDOW_DAYS,
+        "per_days": PER_DAYS,
+        "min_person_n": MIN_PERSON_N,
+        // 通話の記録が始まった日。これより前の日は窓に入れない
+        "call_from": cx.call_from.map(|d| d.to_string()),
+        // 数えた最後の日（データを取った日の前日）
+        "last_day": cx.last.to_string(),
+        // 取引が見つからない・契約期間が読めない・交代日が読めず、前後を数えられなかった行
+        "n_unavailable_rows": n_unavailable,
+        // 同じ拠点で契約期間の重なる本体案件が2件以上あり、付け先を決められず数えなかった接触
+        "n_ambiguous": cx.n_ambiguous,
+    });
+    v["not_causal"] = json!(
+        "交代が接触を減らした・増やした証拠ではありません。危ない案件だから担当を替えた可能性もあり、向きは決まりません    （過去の検証で、同じ取引に偽の交代日を置いた比較対象と並べると、前の接触の量をそろえたところで差が消えました）。    接触は検知専用で、多いほど良いという評価でもありません"
+    );
+    v["rule"] = json!(format!(
+        "交代ごとに、交代日の前{WINDOW_DAYS}日（前日まで）と、交代日からの{WINDOW_DAYS}日の接触を{PER_DAYS}日あたりに直して比べています。    接触 ＝ MTG または60秒超の通話（メールは数えない。通話の日付は日本時間）。    数える先は「担当者ごとの接触」と同じで、付いている取引の契約期間の外の接触を、その日に動いていた同じ拠点の本体案件に付け直しています。    窓に入れるのは、その日に同じ拠点で契約期間の中にある本体案件が1件だけの日です（オプション契約は除きます）。    交代の取引そのものの契約期間で切らないのは、交代が継続の切り替わりに合わせて起きることが多く、前の窓がほとんど前の契約に入るためです。    通話の記録が始まる前の日と、データを取った日から先の日は窓に入れていません。    比べた日数（前 N日 / 後 M日）を添えています。どちらかが{MIN_WINDOW_DAYS}日未満の交代は「比べるには短い」として、まとめから外して別に数えています。    後の窓にまだデータの無い日がある交代は途中（未確定）として、同じくまとめから外しています"
+    ));
+    v["dedupe_rule"] = json!(
+        "交代の記録は、同じ交代を拠点の取引ごとに1行ずつ書いています（前の契約・いまの契約・これからの継続の契約に同じ日の行があります）。    まとめでは、同じ拠点・同じ交代日の行を1件の交代と数えています。表の行には、その交代の値をそのまま出しています"
+    );
+    v["dir_rule"] = json!(format!(
+        "増えた・減ったは、{PER_DAYS}日あたりの値を丸めずに比べています（わずかな差でも増えた・減ったに入ります）。    大きさは「変化（後−前）」で見てください。担当者ごとのまとめは、比べられた交代だけで作り、同じ人の同じ交代は1件と数えています。    比べられた交代が {MIN_PERSON_N} 件未満の人には印を付け、図には出していません"
+    ));
+    v
 }
 
 /// メールアドレスか。担当の交代シートは、HubSpot の担当者一覧に無い人
 /// （退職してアーカイブされた担当など）を**メールアドレスのまま**書いてくる
 /// （Hubspot リポジトリ `scripts/consulting_owner/analyze_handover_reality.py` の `who()`）。
-fn is_mail(s: &str) -> bool {
+pub(super) fn is_mail(s: &str) -> bool {
     let t = s.trim();
     t.contains('@') && !t.contains(char::is_whitespace)
 }
