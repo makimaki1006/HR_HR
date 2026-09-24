@@ -3251,15 +3251,16 @@ function custBlocks(D, want) {
   if (want.has("deals")) {
   h += sec("表", "契約の系列（" + num(D.deals.length) + " 件）");
   /* 🔴 2026-09-24 実機（1440px）: 取引・ステージ・拠点が折り返さず、12列のうち右の4列（金額から先）が切れていた。
-     長い文字の列だけを折る（数字・日付の列は1行のまま） */
+     長い文字の列だけを折り、開始と満了は1つの列に2段で出す（取引名が2行に折れるので行の高さは変わらない。
+     折るだけでは本文の幅 1,117px に 35px 足りなかった） */
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "拠点", w: "s" }, { t: "種別" },
-                     { t: "開始" }, { t: "満了" }, { t: "継続", n: 1 }, { t: "金額", n: 1 },
+                     { t: "開始〜満了" }, { t: "継続", n: 1 }, { t: "金額", n: 1 },
                      { t: "応募", n: 1 }, { t: "面接", n: 1 }, { t: "承諾", n: 1 }, { t: "状態" }],
     D.deals.map((d) => [esc(d.name || d.deal_id),
       '<span class="muted small">' + esc(d.stage) + "</span>",
       '<span class="muted small">' + esc(d.site) + "</span>",
       '<span class="muted small">' + esc(d.kind) + "</span>",
-      esc(d.start), esc(d.expiration), nz(d.renewal_no), yen(d.amount),
+      (esc(d.start) || DASH) + "<br>〜" + (esc(d.expiration) || DASH), nz(d.renewal_no), yen(d.amount),
       nz(d.oubo), nz(d.mensetu), nz(d.syoudaku),
       (d.is_active ? "稼働中" : "") +
       (d.right_censored ? ' <span class="tag">未確定</span>' : "")])), 420);
