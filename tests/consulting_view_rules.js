@@ -1598,10 +1598,26 @@ check("図の部品: 接触の帯が全部の月で記録なしのとき、目�
   ok(/<text class="ax" x="[\d.]+" y="[\d.]+">2<\/text>/.test(some), "棒がある帯の目盛り（2）が消えた");
 });
 check("図の部品: 前回の値が 0 付近でも、前回の破線の枠を潰さず、本当の位置に縦の印を置く", () => {
+  /* 🔴 ループ4（2026-09-24 実機, focus）: 前は最低 5px の枠を描いていたが、破線の目が2つしか入らず
+     潰れた塊に見えた（本当の位置より右まで伸びてもいた）。狭い枠は描かず、縦の破線だけにする */
   const svg = run('svgBarH({ w: 680, fmt: F.int, rows: [{ label: "a", v: 900000, v0: 0 }] })');
-  const r = svg.match(/<rect x="[\d.]+" y="[\d.]+" width="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/);
-  ok(r && +r[1] >= 5, "前回の破線の枠が潰れている（幅 " + (r && r[1]) + "）");
+  const minW = run("V0_MIN_W");
+  const rs = [...svg.matchAll(/<rect x="[\d.]+" y="[\d.]+" width="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/g)];
+  ok(minW >= 8, "枠で描く最小の幅が小さすぎる（潰れた枠を描く）: " + minW);
+  ok(rs.every((m) => +m[1] >= minW), "前回の破線の枠が潰れている（幅 " + rs.map((m) => m[1]) + "）");
   ok(/<line data-v0tick="1"[^>]*><title>前回: 0<\/title>/.test(svg), "前回の本当の位置の縦の印が無い");
+  // 前回が 0 から離れていれば、枠は本当の幅で描く（縦の破線は出さない）
+  const wide = run('svgBarH({ w: 680, fmt: F.int, rows: [{ label: "a", v: 900000, v0: 450000 }] })');
+  const wr = wide.match(/<rect x="([\d.]+)" y="[\d.]+" width="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/);
+  ok(wr && +wr[2] > 100 && !/data-v0tick/.test(wide), "0 から離れた前回の枠が本当の幅で描かれていない: " + (wr && wr[2]));
+  // 棒の下に回した注記（compact）は、前回の印（棒の上下にはみ出す）にかからない（focus の「38.40倍」・renewal の n=）
+  const nar = drawAt('svgBarH({ w: 680, fmt: F.man, rows: [{ label: "三菱ケミカルテクニカ", v: 4320000, v0: 110000, txt: "432万", note: "38.40倍" }, { label: "宮崎商会 鹿児島工場", v: 680000, v0: 400000, txt: "68万", note: "13.60倍" }] })', 319);
+  const unders = [...nar.matchAll(/<text class="ax" data-under="1" x="[\d.]+" y="([\d.]+)"[^>]*>([^<]*)</g)];
+  const marks = [...nar.matchAll(/<line data-v0tick="1"[^>]*y2="([\d.]+)"|<rect x="[\d.]+" y="([\d.]+)" width="[\d.]+" height="([\d.]+)"[^>]*stroke-dasharray="3 2.4"/g)]
+    .map((m) => (m[1] != null ? +m[1] : +m[2] + +m[3]));
+  ok(unders.length === 2 && marks.length === 2, "注記か前回の印が取れない: " + unders.length + " / " + marks.length);
+  // 字の上端はベースラインから約 9px 上。前回の印の下端との間を 2px 以上あける
+  unders.forEach((u, i) => ok(+u[1] - 9 - marks[i] >= 2, "棒の下の注記「" + u[2] + "」が前回の印にかかる: 字 " + u[1] + " / 印の下端 " + marks[i]));
 });
 
 /* ================================================================ 図の部品（第3弾の検証の指摘, 2026-09-24） */
@@ -2022,6 +2038,295 @@ check("互換: 正規表現の後読みを使わない（Safari 16.4 より前�
   ok(!/\(\?<[=!]/.test(jsNoComment), "画面の JS に後読み (?<= / (?<! の正規表現がある");
   const lines = run('JSON.stringify(wrapText("あいう えお/かき", 9999))');
   ok(lines && lines.includes("あいう えお/かき"), "wrapText が1行に収まる文をそのまま返さない: " + lines);
+});
+
+/* ================================================================ 図の部品（ループ4 の実機確認, 2026-09-24） */
+check("ループ4: ラベルを省略するとき、見分けの語（日数・拠点名の固有部分）を残す", () => {
+  const w = 90;
+  ctx.__DS = ["MTGが90日以上途絶", "MTGが60〜89日途絶", "MTGが30〜59日途絶"];
+  const cut = run("__DS.map((s) => fitLab(s, " + w + "))");
+  ok(cut.every((s, i) => s.includes(["90日", "60〜89日", "30〜59日"][i])), "日数が消えた: " + cut.join(" / "));
+  ok(new Set(cut).size === 3, "省略した結果が同じになった: " + cut.join(" / "));
+  const tw = run("textW");
+  ok(cut.every((s) => tw(s) <= w), "幅に収まっていない: " + cut.join(" / "));
+  ctx.__SN = ["サブスク継続②＿ニッコン 富山営業所", "サブスク継続②＿ニッコン 岡山営業所", "ロンコ・ジャパンプラス事業部", "ロンコ・ジャパンコール事業部"];
+  const sn = run("__SN.map((s) => fitLab(s, " + w + "))");
+  ok(sn[0].includes("富山営業所") && sn[1].includes("岡山営業所"), "拠点名（最後の語）が残っていない: " + sn.join(" / "));
+  ok(sn[2].includes("プラス事業部") && sn[3].includes("コール事業部"), "区切りの無い拠点名で、末尾の語の手前が残っていない: " + sn.join(" / "));
+  ok(new Set(sn).size === 4, "省略した結果が同じになった: " + sn.join(" / "));
+});
+
+check("ループ4: 狭い枠（319px）の帯のラベルは、省略せずに2行に折り返す（today の「MTGが90日以上途絶」）", () => {
+  const code = "svgBarH({ w: 680, rows: [" + ["MTGが90日以上途絶", "MTGが60〜89日途絶", "直近30日にMTGあり", "立ち上がり期（契約開始30日以内）"]
+    .map((l, i) => '{ label: "' + l + '", v: ' + (10 + i) + ', txt: "' + (10 + i) + '件", note: "手を打つ" }').join(",") + "] })";
+  const svg = drawAt(code, 319);
+  ok(figW(svg) === 319 && /data-under/.test(svg), "319px の枠で注記を下に回して描いていない");
+  const parts = [...svg.matchAll(/<text class="axl"[^>]*data-wrap="2"[^>]*><tspan[^>]*>([^<]*)<\/tspan><tspan[^>]*>([^<]*)<\/tspan>/g)];
+  const labs = parts.map((m) => m[1] + m[2]);
+  ok(labs.length >= 3, "長いラベルが2行に折り返されていない: " + labs.join(" / "));
+  ok(labs.includes("MTGが90日以上途絶") && labs.includes("MTGが60〜89日途絶"), "折り返したラベルで字が落ちた: " + labs.join(" / "));
+  // 2行目の頭に閉じ括弧を置かない・数字の途中で切らない・行は欄に収まる
+  const tw = run("textW");
+  ok(parts.every((m) => !/^[）」、。]/.test(m[2]) && !(/[0-9〜]$/.test(m[1]) && /^[0-9〜日%]/.test(m[2]))), "折り返しの位置が数字・括弧の途中: " +
+    parts.map((m) => m[1] + " | " + m[2]).join(" / "));
+  ok(!/…/.test(labs.slice(0, 3).join("")), "2行に入るラベルを省略した: " + labs.join(" / "));
+  ok(parts.every((m) => tw(m[1]) <= 319 * .36), "折り返した行がラベルの欄に入っていない");
+  // 1行に入るラベルは折り返さない
+  ok(!/data-wrap/.test(drawAt('svgBarH({ w: 680, rows: [{ label: "初回", v: 1, note: "n=3" }] })', 319)), "収まるラベルまで折り返している");
+});
+
+check("ループ4: 前回の値が 0 付近で枠を描かなかった行も、houjin の採用単価では月割りの縦の線（墨）になる", () => {
+  // svgBarH は枠の代わりに縦の破線（data-v0tick）を置く。cpa3Bars がそれを月割りの線に描き替えないと、破線が残る
+  const rows = [{ label: "a", v: 9000000, v0: 20000, txt: "900万", color: "var(--ai)" }];
+  ctx.__R3 = rows;
+  const svg = run("cpa3Bars(svgBarH({ w: 680, fmt: F.man, rows: __R3 }), __R3)");
+  ok(!/data-v0tick/.test(svg), "月割りが 0 付近の行に、前回の縦の破線が残っている");
+  const m = svg.match(/<line x1="([\d.]+)"[^>]*data-mark="monthly">/);
+  const r = svg.match(/<rect x="([\d.]+)" y="[\d.]+" width="([\d.]+)" height="[\d.]+" rx="2" style="fill:/);
+  ok(m && r && Math.abs(+m[1] - (+r[1] + +r[2] * 20000 / 9000000)) < 0.6, "月割りの線が本当の位置に無い: " + (m && m[1]));
+});
+
+check("ループ4: 注記の折り返しは、数字・単位・括弧の途中で切らない（「50〜7 / 5%」「6.7 / 倍」「（決着済み / 1件中）」）", () => {
+  const W = (s, w) => run("wrapText(" + JSON.stringify(s) + ", " + w + ")");
+  const s1 = "進捗帯「後半にさしかかり（50〜75%）」の中央値 60万", s2 = "解約・充足 100%（決着済み 1件中）　2人";
+  const a = W(s1, 150), b = W(s2, 120), c = W("拠点3 / 取引6 / 開き 6.7倍", 60);
+  ok(a.some((l) => l.includes("50〜75%")), "「50〜75%」が割れた: " + a.join(" | "));
+  ok(b.some((l) => l.includes("（決着済み 1件中）")), "括弧の中で折れた: " + b.join(" | "));
+  ok(c.some((l) => l.includes("6.7倍")), "「6.7倍」が割れた: " + c.join(" | "));
+  // 切れ目が数字の途中・括弧の中にちょうど来る幅でも割らない
+  const d = run('wrapText("ああああ12.5倍いいい", textW("ああああ12."))');
+  ok(d.some((l) => l.includes("12.5倍")), "幅の境目が数字の途中に来ると「12.5倍」が割れる: " + d.join(" | "));
+  const e = run('wrapText("解約・充足 100%（決着済み 1件中）　2人", textW("解約・充足 100%（決着済み ") + 4)');
+  ok(e.some((l) => l.includes("（決着済み 1件中）")), "括弧の途中まで行に入る幅だと括弧の中で折れる: " + e.join(" | "));
+  ok(a.join("").replace(/\s/g, "") === s1.replace(/\s/g, "") && b.join("").replace(/\s/g, "") === s2.replace(/\s/g, ""),
+    "折り返しで字を落とした: " + a.join(" | ") + " / " + b.join(" | "));
+});
+
+check("ループ4: 箱ひげは 319px の枠に収め、軸の外の最大値は軸の右端の途切れの印と「最大 N（軸の外）」で示す。◇ を凡例で説明する", () => {
+  const rows = '[{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, mean: 12.9, n: 742 },' +
+    '{ label: "解約した", med: 5.1, q1: 2, q3: 8.2, min: 0, max: 74, mean: 8.3, n: 529 },' +
+    '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 121, mean: 16.4, n: 142 }]';
+  const svg = drawAt("svgBoxH({ w: 680, xFmt: F.d1, rows: " + rows + " })", 319);
+  ok(figW(svg) === 319, "319px の枠に収まっていない（横スクロールで箱と n= が奥に隠れる）: " + figW(svg));
+  ok(["n=742", "n=529", "n=142"].every((t) => svg.includes(">" + t + "<")), "n= が欠けた");
+  const boxes = textBoxes(svg);
+  ok(boxes.every((b) => b.x1 <= 319 + 1 && b.x0 >= -0.5), "枠の外に出る文字: " + boxes.filter((b) => b.x1 > 320 || b.x0 < -0.5).map((b) => b.s).join(" / "));
+  ok(!overlaps(svg).length, "文字が重なる: " + overlaps(svg).join(" / "));
+  // 軸の右端（いちばん右の目盛りの線）より右に途切れの印を置く
+  const gx = Math.max(...[...svg.matchAll(/<line class="gridline" x1="([\d.]+)"/g)].map((m) => +m[1]));
+  const marks = [...svg.matchAll(/<path data-boxout="1" d="M([\d.]+) /g)].map((m) => +m[1]);
+  ok(marks.length === 3 && marks.every((x) => x >= gx), "途切れの印が軸の右端に無い（軸の途中に置くと最大値の位置に見える）: " + marks + " / 軸の端 " + gx);
+  const mx = boxes.filter((b) => b.s.startsWith("最大"));
+  ok(mx.length === 3 && mx.every((b) => b.s.includes("軸の外")), "「最大 N（軸の外）」になっていない: " + mx.map((b) => b.s).join(" / "));
+  // 凡例: ◇（平均）と、軸の外の印の意味
+  const f = run('fig("応募数 ÷ 掲載数", "", svgBoxH({ w: 680, xFmt: F.d1, rows: ' + rows + " }))");
+  ok(f.includes("平均（") && f.includes("最大値が軸の右の外"), "箱ひげの凡例に ◇（平均）か軸の外の印の説明が無い");
+  // ひげの外でも軸の中に収まる最大値は、本当の位置に小さな丸を置く（軸の外とは書かない）
+  const inAx = run('svgBoxH({ w: 680, rows: [{ label: "a", med: 5, q1: 4, q3: 6, min: 3, max: 20, n: 40 }, { label: "b", med: 20, q1: 10, q3: 30, min: 0, max: 60, n: 40 }] })');
+  ok(/data-boxmax="1"/.test(inAx) && !/軸の外/.test(inAx.replace(/<title>[^<]*<\/title>/g, "")), "軸の中の最大値を「軸の外」と書いた・印が無い");
+});
+
+check("ループ4: 時間軸の図（契約の連なり・LTV・月次の継続率）は、開いた直後を新しい側に合わせる（data-xr）", () => {
+  const xr = (svg) => { const m = String(svg).match(/<svg [^>]*data-xr="(\d+)"/); return m ? +m[1] : null; };
+  const tl = drawAt('svgTimeline({ w: 940, lanes: [{ label: "a", note: "3回目 108万", marks: [{ d: "2025-01-01" }, { d: "2026-06-01" }] }] })', 319);
+  ok(xr(tl) === 940, "契約の連なりの data-xr が右端（新しい側・右の注記）でない: " + xr(tl));
+  const mx = JSON.stringify(monthsN(24));
+  const all = JSON.stringify(monthsN(24).map((_, i) => ({ v: 1000000 * (i + 1) })));
+  const col = drawAt("svgColStack({ w: 940, x: " + mx + ', series: [{ label: "s", color: "blue", vals: ' + all + ' }], yFmt: F.man, yLab: "累計金額（万円）" })', 319);
+  ok(xr(col) > 900, "LTV の推移の data-xr が最新の柱でない: " + xr(col));
+  const sl = col.match(/class="sticklab" viewBox="0 0 (\d+)/);
+  ok(sl && +sl[1] >= run('textW("累計金額（万円）")'), "新しい側に合わせた積み上げ縦棒で、縦軸の目盛りと題名を左に貼り付けていない（題名が切れる）");
+  const line = drawAt("svgLine({ x: " + mx + ", series: [{ pts: " + all + ' }], yLab: "継続率" })', 319);
+  ok(xr(line) > 600, "月次の継続率（折れ線）の data-xr が最新の月でない: " + xr(line));
+  // figToData は data-xr を x0 より優先し、その位置を右端に見せる
+  const b = { scrollWidth: 1000, clientWidth: 334, scrollLeft: 0 };
+  b.querySelector = () => ({ viewBox: { baseVal: { width: 1000 } }, getBoundingClientRect: () => ({ width: 1000 }),
+    getAttribute: (a) => (a === "data-xr" ? "900" : a === "data-x0" ? "10" : null) });
+  ctx.__EL = { querySelectorAll: () => [b] };
+  run("figToData(__EL)");
+  ok(b.scrollLeft === 900 - 334, "data-xr の位置を右端に見せていない: " + b.scrollLeft);
+});
+
+check("ループ4: 月が少ない帯を縦に積む図（甲賀＝1か月）は枠の幅で描き、「記録がありません」が左・右にはみ出さない", () => {
+  const svg = drawAt('svgStackLanes({ w: 940, months: ["25-09"], lanes: [' +
+    '{ type: "line", label: "応募", color: "blue", pts: [{ v: 19 }] },' +
+    '{ type: "dots", label: "定期NPS", empty: true, pts: [] },' +
+    '{ type: "bars", label: "接触（MTG・60秒超の通話）", color: "gray", fillLabel: "a", outLabel: "b", pts: [{ fill: 1, out: 2 }] }] })', 319);
+  ok(figW(svg) === 319, "1か月の図を枠の幅で描いていない: " + figW(svg));
+  ok(!/<svg [^>]*data-x0=/.test(svg), "枠の幅で描いた図に、横スクロールの位置合わせ（data-x0）が残っている");
+  const pl = +(svg.match(/class="sticklab" viewBox="0 0 ([\d.]+)/) || [0, 0])[1];
+  const em = [...svg.matchAll(/<text class="ax" data-empty="1" x="([\d.]+)"[^>]*>([^<]*)</g)];
+  const tw = run("textW");
+  ok(em.length >= 1 && em.every((m) => +m[1] >= pl && +m[1] + tw(m[2]) <= 319 + 1), "「記録がありません」がラベルの欄か枠の右にはみ出す: " +
+    em.map((m) => m[1] + ":" + m[2]).join(" / ") + "（ラベル欄 " + pl + "）");
+  const vals = textBoxes(svg).filter((b) => /^\d+$/.test(b.s));
+  ok(vals.length && vals.every((b) => b.x1 <= 319 + 1), "右端の目盛りの値が枠の外: " + vals.map((b) => b.s + "@" + b.x0.toFixed(0)).join(" "));
+});
+
+check("ループ4: 注力の点の図は枠の幅に合わせて並べる（1440px で左半分で終わらない・400px で右が奥に隠れない）", () => {
+  const code = 'svgDots({ total: 517, per: 37, groups: [{ v: 116, color: "blue", label: "注力" }] })';
+  const wide = figW(drawAt(code, 1116)), narrow = figW(drawAt(code, 319));
+  ok(wide > 1116 * .9 && wide <= 1116, "1116px の枠で点の図が広がらない: " + wide);
+  ok(narrow <= 319, "319px の枠から点の図がはみ出す: " + narrow);
+  ok((drawAt(code, 319).match(/<circle /g) || []).length === 517, "点の数が変わった");
+});
+
+check("ループ4: 散布図の横軸は 0 から始め、いちばん右の点を枠の端に置かない（outcome の最優先の広がり）", () => {
+  const svg = drawAt('svgScatter({ w: 680, pts: [{ x: 3, y: 60 }, { x: 57, y: 90 }, { x: 25, y: 300 }], xLab: "満了まで（日）" })', 319);
+  const tb = textBoxes(svg);
+  const axisY = Math.max(...tb.map((b) => b.y1));
+  const xt = [...svg.matchAll(/<text class="ax" x="[\d.]+" y="([\d.]+)"[^>]*>([^<]*)</g)].filter((m) => +m[1] + 2 >= axisY - 30).map((m) => m[2]);
+  ok(xt.includes("0"), "横軸に 0 が無い: " + xt.join(","));
+  const cx = Math.max(...[...svg.matchAll(/<circle cx="([\d.]+)"/g)].map((m) => +m[1]));
+  ok(cx <= 319 - 18 - 8, "いちばん右の点が枠の右端に寄っている（右の目盛りまで伸ばしていない）: " + cx);
+  ok(tb.every((b) => b.x1 <= 319 + 1), "目盛りの字が枠の外に出る");
+});
+
+/* ================================================================ 図の部品（ループ4 の検証の指摘, 2026-09-24） */
+check("ループ4 検証: labWrap は括弧の中・語の途中・助詞の手前で切らない（2行目が入るなら語の境目を選ぶ）", () => {
+  const W = (s, w) => { const r = run("labWrap(" + JSON.stringify(s) + ", " + w + ")"); return r ? r.join(" / ") : null; };
+  // 385px の実測で切れていた位置（outcome の箱ひげ・today の帯・名札の図）。枠 319px の帯のラベル欄はおよそ 115px
+  ok(W("充足（採れて終わった）", 114.8) === "充足 / （採れて終わった）", "括弧の中で切った: " + W("充足（採れて終わった）", 114.8));
+  ok(W("充足（採れて終わった）", 100) === "充足（採れて / 終わった）", "括弧の外で切れないとき、括弧の中でも語の境目を選んでいない: " + W("充足（採れて終わった）", 100));
+  ok(W("採用単価が同じ進捗帯の1.5倍以上", 114.8) === "採用単価が同じ / 進捗帯の1.5倍以上", "語の途中で切った: " + W("採用単価が同じ進捗帯の1.5倍以上", 114.8));
+  ok(W("立ち上がり期（契約開始30日以内）", 114.8) === "立ち上がり期（契約 / 開始30日以内）", "漢字の熟語の途中で切った: " + W("立ち上がり期（契約開始30日以内）", 114.8));
+  ok(W("満了90日前でMTGが30日以上途絶", 114.8) === "満了90日前で / MTGが30日以上途絶", "行の頭に助詞を置いた: " + W("満了90日前でMTGが30日以上途絶", 114.8));
+  // 助詞の後ろ（「が」）を優先する。英字・「以上」は割らない
+  ok(W("MTGが90日以上途絶", 100) === "MTGが / 90日以上途絶", "助詞の後ろで切っていない: " + W("MTGが90日以上途絶", 100));
+  // カタカナの語の途中（「アン / ケート」）より、語の境目（「アンケート / 未回答率」）を選ぶ
+  ok(W("NPSアンケート未回答率", 90) === "NPSアンケート / 未回答率", "カタカナの語の途中で切った: " + W("NPSアンケート未回答率", 90));
+  // 英字の語・「以上」は割らない（wordGlue）
+  ok(W("満了90日以上途絶", 65) === "満了90日 / 以上途絶", "「以 / 上」で割った: " + W("満了90日以上途絶", 65));
+  ok(!/[A-Za-z] \/ [A-Za-z]/.test(String(W("HubSpot登録", 50))), "英字の語の途中で切った: " + W("HubSpot登録", 50));
+});
+
+check("ループ4 検証: 1か月の図の「記録がありません」は語の途中で折らず、月の縦線が文字の上を通らない", () => {
+  const svg = drawAt('svgStackLanes({ w: 940, months: ["25-09"], lanes: [' +
+    '{ type: "line", label: "応募", color: "blue", pts: [{ v: 19 }] },' +
+    '{ type: "dots", label: "定期NPS", empty: true, pts: [] }] })', 319);
+  const em = [...svg.matchAll(/<text class="ax" data-empty="1" x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]*)</g)];
+  ok(em.map((m) => m[3]).join(" / ") === "— この顧客では / 記録がありません", "折り返しの位置が語の途中: " + em.map((m) => m[3]).join(" / "));
+  // 月の縦線（x=X(0)）が文字の範囲に入るなら、文字の下に地の四角を敷く
+  const gx = [...svg.matchAll(/<line class="gridline" x1="([\d.]+)"/g)].map((m) => +m[1]);
+  const tw = run("textW");
+  const bgs = [...svg.matchAll(/<rect data-emptybg="1" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)];
+  em.forEach((m) => {
+    const x0 = +m[1], x1 = x0 + tw(m[3]), y = +m[2];
+    if (!gx.some((x) => x > x0 && x < x1)) return;
+    ok(bgs.some((b) => +b[1] <= x0 && +b[1] + +b[3] >= x1 && +b[2] <= y - 9 && +b[2] + +b[4] >= y + 2),
+      "月の縦線が「" + m[3] + "」の上を通る（地の四角が無い）");
+  });
+  ok(bgs.length === em.length, "「記録がありません」の地の四角が行の数と合わない: " + bgs.length);
+});
+
+check("ループ4 検証: 箱ひげを狭い枠（319px）で描くとき、ラベル欄に入らないラベルは省略せずに2行に折り返す（outcome の「充足」）", () => {
+  const svg = drawAt('svgBoxH({ w: 680, xFmt: F.d1, rows: [' +
+    '{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, n: 742 },' +
+    '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 121, n: 142 }] })', 319);
+  const wr = [...svg.matchAll(/<text class="axl"[^>]*data-wrap="2"[^>]*><tspan[^>]*>([^<]*)<\/tspan><tspan[^>]*>([^<]*)<\/tspan>/g)];
+  ok(wr.length === 1 && wr[0][1] + wr[0][2] === "充足（採れて終わった）", "「充足（採れて終わった）」を2行に折り返していない: " +
+    [...svg.matchAll(/<text class="axl"[^>]*>(.*?)<\/text>/g)].map((m) => m[1].replace(/<[^>]*>/g, "|")).join(" / "));
+  // 行の高さ: 2行に折り返した行は 32px、軸の外の最大値がある行は「最大 N（軸の外）」の行のぶん 12px 足す
+  // （27 + 12 = 39）。足りないと2行目・「最大 N」が下の行や目盛りにかかる
+  const vh = (t) => +(t.match(/viewBox="0 0 [\d.]+ ([\d.]+)"/) || [0, 0])[1];
+  ok(vh(svg) === 22 + 26 + 39 + 39, "軸の外の行・2行のラベルの行の高さが足りない: " + vh(svg));
+  const inAx = drawAt('svgBoxH({ w: 680, xFmt: F.d1, rows: [' +
+    '{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 20, n: 742 },' +
+    '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 25, n: 142 }] })', 319);
+  ok(vh(inAx) === 22 + 26 + 27 + 32, "2行のラベルの行が 32px になっていない: " + vh(inAx));
+  // 軸の外の最大値: ひげの先から軸の右端（途切れの印）までを細い線でつなぐ（線が無いと、ひげの先が最大値に見える）
+  const outs = [...svg.matchAll(/<path data-boxout="1" d="M([\d.]+) ([\d.]+)/g)].map((m) => ({ x: +m[1] - 1, y: +m[2] - 4.5 }));
+  const thin = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="[\d.]+"[^>]*opacity="\.3"\/>/g)];
+  ok(outs.length === 2 && outs.every((o) => thin.some((t) => Math.abs(+t[3] - o.x) < .2 && Math.abs(+t[2] - o.y) < .2 && +t[1] < o.x - 5)),
+    "ひげの先から軸の端までの細い線が無い: 印 " + JSON.stringify(outs) + " / 線 " + thin.map((t) => t[1] + "→" + t[3]).join(","));
+});
+
+check("ループ4 検証: 最初の月からデータがある折れ線（renewal の月次の継続率）も、右端で開くなら縦軸の目盛りを左に貼り付ける", () => {
+  // x0 が小さい（最初の月から値がある）図では、貼り付けるかどうかを data-xr だけが決める
+  const mx = JSON.stringify(monthsN(24));
+  const all = JSON.stringify(monthsN(24).map((_, i) => ({ v: .5 + i / 100 })));
+  const line = drawAt("svgLine({ x: " + mx + ", series: [{ pts: " + all + ' }], yFmt: F.pct, yLab: "継続率" })', 319);
+  ok(+(line.match(/<svg [^>]*data-x0="(\d+)"/) || [0, 99])[1] < 60, "最初の月から値があるのに data-x0 が小さくない（条件を確かめられない）");
+  ok(/class="sticklab"/.test(line), "右端で開く折れ線で、縦軸の目盛りを左に貼り付けていない（開いた直後に目盛りが流れて見えない）");
+  // 貼り付けた目盛りの欄には地の色の四角を敷く（点・線が「50%」の字に重ならない）。
+  // 欄は目盛りの字を覆い、図の左端（最初の点 = 縦軸の線の位置）にはかからない
+  const bgOf = (svg) => { const st = (svg.match(/<svg [^>]*class="sticklab"[\s\S]*?<\/svg>/) || [""])[0];
+    const r = st.match(/<rect data-stickbg="1" x="0" y="0" width="([\d.]+)" height="([\d.]+)"/);
+    return { r: r ? { w: +r[1], h: +r[2] } : null, ticks: textBoxes(st).filter((b) => /^\d/.test(b.s)) }; };
+  const firstX = (svg) => Math.min(...[...svg.replace(/<svg [^>]*class="sticklab"[\s\S]*?<\/svg>/, "").matchAll(/<circle cx="([\d.]+)"/g)].map((m) => +m[1]));
+  const lb = bgOf(line);
+  ok(lb.r && lb.ticks.length && lb.ticks.every((b) => b.x1 <= lb.r.w + 1) && lb.r.w < firstX(line),
+    "折れ線の貼り付けた目盛りに地の四角が無い・字を覆わない・最初の点にかかる: " + JSON.stringify(lb.r) + " 最初の点 " + firstX(line));
+  const col = drawAt("svgColStack({ w: 940, x: " + mx + ', series: [{ label: "s", color: "blue", vals: ' +
+    JSON.stringify(monthsN(24).map((_, i) => ({ v: 1000000 * (i + 1) }))) + ' }], yFmt: F.man, yLab: "累計金額（万円）" })', 319);
+  const cb = bgOf(col);
+  const firstBar = Math.min(...[...col.replace(/<svg [^>]*class="sticklab"[\s\S]*?<\/svg>/, "").matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="[\d.]+" height="[\d.]+"[^>]*fill:blue/g)].map((m) => +m[1]));
+  ok(cb.r && cb.ticks.length && cb.ticks.every((b) => b.x1 <= cb.r.w + 1) && cb.r.w < firstBar,
+    "LTV の貼り付けた目盛りに地の四角が無い・字を覆わない・最初の棒にかかる: " + JSON.stringify(cb.r) + " 最初の棒 " + firstBar);
+  // 枠に収まる幅（1440px）では貼り付けない
+  ok(!/class="sticklab"/.test(drawAt("svgLine({ x: " + JSON.stringify(monthsN(6)) + ", series: [{ pts: " +
+    JSON.stringify(monthsN(6).map(() => ({ v: .5 }))) + ' }], yFmt: F.pct, yLab: "継続率" })', 1116)), "枠に収まる折れ線まで目盛りを貼り付けた");
+});
+
+check("ループ4 検証: 箱ひげの凡例（◇ 平均・軸の外の印）は「四分位 / 中央値」のすぐ後ろに並べ、説明の段落の後ろに回さない", () => {
+  ctx.__BX = 'svgBoxH({ w: 680, xFmt: F.d1, rows: [{ label: "a", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, mean: 12.9, n: 742 }] })';
+  const f = run('fig("応募数 ÷ 掲載数", "", eval(__BX), lg("quart", C.ai, "四分位") + lg("line", C.ai, "中央値") +' +
+    ' \'<i class="full">段落その1</i><i class="full">段落その2</i>\')');
+  const at = (t) => f.indexOf(t);
+  ok(at("中央値") >= 0 && at("平均（") > at("中央値") && at("最大値が軸の右の外") > at("中央値"), "箱ひげの凡例が出ていない");
+  ok(at("平均（") < at("段落その1") && at("最大値が軸の右の外") < at("段落その1"), "◇ 平均・軸の外の印の説明が、段落の後ろに離れている");
+  // 段落の無い凡例・凡例の無い図では、これまでどおり最後に付く
+  ok(run('fig("x", "", eval(__BX))').includes("平均（"), "凡例の無い図で箱ひげの凡例が出ない");
+});
+
+check("ループ4 検証: 箱ひげの軸の端を目盛りに合わせても、広い枠では軸を伸ばしすぎない（rampup の初回MTGまで: 0〜150 にしない）", () => {
+  // ひげの先 = 47 + 1.5 × 37 = 102.5。刻み 50 のまま1段足すと 0〜150 になり、箱とひげが左 2/3 に縮む
+  const code = 'svgBoxH({ w: 680, rows: [{ label: "初回MTGまで", med: 20, q1: 10, q3: 47, min: 0, max: 300, mean: 40, n: 500 }] })';
+  const axis = (svg) => [...svg.matchAll(/<line class="gridline" x1="[\d.]+"[^>]*\/><text class="ax"[^>]*>([^<]*)</g)].map((m) => +m[1].replace(/,/g, ""));
+  const wide = drawAt(code, 1116), tk = axis(wide);
+  ok(tk[tk.length - 1] >= 102.5 && tk[tk.length - 1] <= 120, "1116px の枠で軸の端がひげの先から離れすぎ: " + tk.join(","));
+  ok(!overlaps(wide).length, "目盛りの字が重なる: " + overlaps(wide).join(" / "));
+  // 狭い枠（319px）では字が詰まらないよう、刻みを細かくしない
+  const nar = drawAt(code, 319);
+  ok(!overlaps(nar).length && axis(nar).length <= 5, "319px の枠で目盛りが詰まった: " + axis(nar).join(","));
+});
+
+check("ループ4 検証: wrapText は語の中の開き括弧の手前で切り（続く開き括弧もまとめる）、1行に入らない語は今の行に続けてから切る", () => {
+  const W = (s, w) => run("wrapText(" + JSON.stringify(s) + ", " + w + ")");
+  // 空白の無い語の途中に括弧がある。幅の境目が括弧の中に来ても、括弧の手前で切る
+  const a = W("立ち上がり期（契約開始30日以内）の件数", run('textW("立ち上がり期（契約開始")'));
+  ok(a[0] === "立ち上がり期", "括弧の中で折れた: " + a.join(" | "));
+  // 開き括弧が2つ続く（「（）は2つ目だけで切ると、1行目の終わりに「「」が残る
+  const b = W("あいう「（えおかきくけこさしすせそ）」", run('textW("あいう「（えおか")'));
+  ok(b[0] === "あいう", "開き括弧で行を終えた: " + b.join(" | "));
+  // 次の語が1行に入らないときは、今の行に続けてから字の境目で切る（「合計」だけの短い行を作らない）
+  const c = W("合計 とてもながいながいながいながいことばです", 120);
+  ok(c[0].startsWith("合計 と"), "1行に入らない語の前で行を改め、短い行が残った: " + c.join(" | "));
+  ok(c.join("").replace(/\s/g, "") === "合計とてもながいながいながいながいことばです", "折り返しで字を落とした: " + c.join(" | "));
+});
+
+check("ループ4 検証: fitLab は省略したラベルの頭に1〜2字だけの切れ端（「サ…」「サブ…」）を残さない", () => {
+  const s = "サブスク継続②＿ニッコン 富山営業所";
+  [80, 85, 90].forEach((w) => {
+    const r = run("fitLab(" + JSON.stringify(s) + ", " + w + ")");
+    ok(!/^[^…]{1,2}…/.test(r) && r.includes("富山営業所"), w + "px で頭に字の切れ端が残る・拠点名が消えた: " + r);
+  });
+});
+
+check("ループ4 検証: 散布図の右端の目盛りは、中央ぞろえで枠の外に出るなら右ぞろえにする", () => {
+  const svg = drawAt('svgScatter({ w: 680, pts: [{ x: 300, y: 60 }, { x: 9500, y: 90 }], xLab: "金額" })', 319);
+  const last = [...svg.matchAll(/<text class="ax" x="([\d.]+)" y="[\d.]+" text-anchor="(\w+)">10,000</g)];
+  ok(last.length === 1 && last[0][2] === "end" && +last[0][1] <= 319, "右端の目盛り「10,000」を右ぞろえにしていない: " + JSON.stringify(last.map((m) => m.slice(1))));
+  ok(textBoxes(svg).every((b) => b.x1 <= 319 + 1), "目盛りの字が枠の外に出る");
+});
+
+check("ループ4 検証: 2行に折り返して省略したラベルも、図の下の「省略した名前の全文」に見えている字をつないで並べる", () => {
+  const body = '<svg viewBox="0 0 10 10"><text class="axl" x="9" y="9" text-anchor="end" data-wrap="2" data-full="長い拠点の名前の全文">' +
+    '<tspan x="9">長い拠点の</tspan><tspan x="9" dy="13">名前…全文</tspan><title>長い拠点の名前の全文</title></text></svg>';
+  ctx.__FB = body;
+  const f = run('fig("x", "", __FB)');
+  ok(/省略した名前の全文（1 件）/.test(f) && f.includes('<span class="muted">長い拠点の名前…全文</span> … 長い拠点の名前の全文'),
+    "2行のラベルが全文の一覧に出ない・見えている字が空: " + (f.match(/<li>.*?<\/li>/) || ["なし"])[0]);
 });
 
 Promise.all(pendingChecks).then(() => {
