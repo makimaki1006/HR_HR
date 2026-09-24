@@ -2894,7 +2894,8 @@ check("ループ5統合: 担当者ごとの接触の見出しの2行目も、数
     n_up: 0, n_down: 1, n_same: 0, n_short: 0, n_provisional: 0, median_change: -1, small: true }, o);
   HC.contact_cmp = {
     n_events: 4, n_ok: 2, n_up: 1, n_down: 1, n_same: 0, n_short: 1, n_provisional: 1,
-    short_why: { calls: 1, before: 0, after: 0 }, median_change: -0.3,
+    short_why: { calls: 1, before: 0, after: 0, overlap: 0 }, median_change: -0.3,
+    overlap_days: 10, overlap_events: 1,
     by_to: [
       person({ label: "担当P", n_events: 7, n_ok: 6, n_up: 2, n_down: 4, median_change: -0.8, small: false }),
       person({ label: "担当Q" }),
@@ -2945,7 +2946,9 @@ check("交代の前後: 同じ交代の行は1本にし、短い・途中・数�
   ok(!/拠点S3|拠点S4|拠点S5/.test(svg), "短い・途中・数えていない交代を図に出している");
   ok(p.includes("交代ごとの変化（比べられた 2 件）"), "図の見出しに比べられた件数が無い");
   const t = textOf(p);
-  ok(t.includes("比べるには短い 1 件") && t.includes("通話の記録が始まる前の日がかかる 1 件"), "短い交代の件数と理由を書いていない");
+  ok(t.includes("比べるには短い 1 件") && t.includes("通話の記録が始まる前の日 1 件"), "短い交代の件数と理由を書いていない");
+  ok(t.includes("本体案件が重なる日が多い") && t.includes("いちばん多い理由"), "短い理由に「重なり」が無い、または理由の決め方を書いていない");
+  ok(t.includes("窓から外した日が、交代 1 件で合わせて 10 日"), "重なりで外した日数を書いていない");
   ok(t.includes("途中 1 件") && t.includes("2026-09-13 まで"), "途中の件数と、数えた最後の日を書いていない");
   ok(/前 1\.50（60日）→ 後 0\.50（60日）/.test(svg), "比べた日数（前 N日 / 後 M日）を添えていない");
 });
@@ -2967,6 +2970,39 @@ check("交代の前後: 担当者のまとめは母数を添え、少ない人�
   ok(/氏名不明 1<\/span>/.test(tb) && /氏名不明 2<\/span>/.test(tb), "氏名の分からない担当が2人いるのに番号で分けていない");
   ok(!part.includes("HubSpotの担当者一覧に無い）"), "長い「氏名が分からない担当（…）」をそのまま出している");
   ok(!/@/.test(p), "メールアドレスが出ている");
+});
+
+/* 検証の指摘（2026-09-24）: 見出しの数字「比べられた交代」から母数（交代 N 件のうち）を消しても落ちなかった */
+check("交代の前後: 見出しの数字「比べられた交代」に母数（交代 N 件のうち）と外した件数を添える", () => {
+  const p = hocPart(run("renderHandover(__HOC)"));
+  const k = p.slice(p.indexOf('<div class="kpis">'), p.indexOf("交代ごとの変化"));
+  const box = k.slice(k.indexOf("比べられた交代"), k.indexOf("減った / 増えた"));
+  ok(box.length > 0, "「比べられた交代」の枠が無い");
+  ok(textOf(box).includes("交代 4 件のうち"), "比べられた交代に母数（交代 4 件のうち）が無い: " + textOf(box));
+  ok(textOf(box).includes("比べるには短い 1 件") && textOf(box).includes("途中 1 件"), "外した件数（短い・途中）が無い");
+  ok(textOf(k).includes("比べられた 2 件のうち"), "減った / 増えた に母数が無い");
+});
+
+/* 検証の指摘（2026-09-24）: 氏名不明の番号が、表は番号なし・まとめは側ごとに別の振り方だった */
+check("交代の前後: 氏名不明の番号はサーバの番号をそのまま出し、交代の表にも同じ番号を出す", () => {
+  const H = JSON.parse(JSON.stringify(ctx.__HOC));
+  H.meta.n_unresolved_people = 2;
+  H.rows[0].to_unresolved = true; H.rows[0].to_label = "氏名が分からない担当（HubSpotの担当者一覧に無い）"; H.rows[0].to_unresolved_no = 2;
+  H.contact_cmp.by_from = [{ label: "氏名が分からない担当（HubSpotの担当者一覧に無い）", unresolved: true, unresolved_no: 2, n_events: 1, n_ok: 1,
+    n_up: 0, n_down: 1, n_same: 0, n_short: 0, n_provisional: 0, median_change: -1, small: true }];
+  ctx.__HOU = H;
+  const h = run("renderHandover(__HOU)");
+  /* 引き継がれた側に氏名不明が1人だけでも、全体で2人いれば番号を出す（側ごとに数えない） */
+  const from = h.slice(h.indexOf("引き継がれた側（前の担当）（変化の中央値）"), h.indexOf("前後の比べ方"));
+  ok(/氏名不明 2<\/span>/.test(from), "引き継がれた側の氏名不明に、サーバの番号（2）を出していない");
+  const tbl = h.slice(h.lastIndexOf("<table"));
+  const body = tbl.slice(tbl.indexOf("<tbody>"));
+  const row = body.slice(body.indexOf("拠点S1の前の契約"), body.indexOf("</tr>", body.indexOf("拠点S1の前の契約")));
+  ok(/氏名不明 2<\/span>/.test(row), "交代の表の氏名不明に番号が無い: " + row);
+  ok(h.includes("上の担当者ごとのまとめと同じ人に同じ番号"), "番号が表とまとめで共通だと書いていない");
+  /* 1人だけなら番号は出さない */
+  H.meta.n_unresolved_people = 1; ctx.__HOU = H;
+  ok(!/氏名不明 [0-9]/.test(run("renderHandover(__HOU)")), "氏名不明が1人なのに番号を出している");
 });
 
 check("交代の前後: 交代の表に「接触の前後」の列を足し、既存の列（記録の遅れ・反映・状態）は残す", () => {
