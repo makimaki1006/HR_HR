@@ -601,7 +601,10 @@ fn 開始日が空の取引を契約後に接触ゼロと言い切らない() {
     let row = |id: &str| top.iter().find(|r| r["deal_id"] == id).unwrap().clone();
 
     let a = row("空");
-    assert_eq!(a["never_after_start"], false, "開始日が空なのに契約後ゼロの印が立っている: {a}");
+    assert_eq!(
+        a["never_after_start"], false,
+        "開始日が空なのに契約後ゼロの印が立っている: {a}"
+    );
     assert_eq!(a["no_start"], true);
     assert_ne!(a["ax3w"], "契約後に一度も接触していない", "{a}");
     // 件数は動かさない（赤のまま）

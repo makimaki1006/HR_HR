@@ -641,7 +641,11 @@ fn efficiency(deals: &[Deal], act: &[&Deal]) -> Value {
 /// 🔴 **3軸目の「無い」を一括で扱わない。** 2つの状態を分ける:
 ///   - 接触の記録が1つも無い … 真の未測定 → **赤にしない**
 ///   - 記録はあるが契約後がゼロ … **赤のまま**（いちばん拾うべきもの）
-pub(super) fn risk(act: &[&Deal], contacts: &HashMap<String, Vec<NaiveDate>>, today: NaiveDate) -> Value {
+pub(super) fn risk(
+    act: &[&Deal],
+    contacts: &HashMap<String, Vec<NaiveDate>>,
+    today: NaiveDate,
+) -> Value {
     let mut rows = Vec::new();
     // (白, 赤, 未測定)
     let mut a3 = (0usize, 0usize, 0usize);
@@ -665,7 +669,10 @@ pub(super) fn risk(act: &[&Deal], contacts: &HashMap<String, Vec<NaiveDate>>, to
             //    落ちていて、表でも「接触の記録 N件・すべて契約前」と言い切っていた（2026-09-24 検証）。
             //    赤か未測定かは数え方の判断なので、ここでは赤のまま（件数を動かさない）で、文だけ本当のことにする
             a3.1 += 1;
-            ("赤", "契約開始日が空で、契約後の接触を切り出せない".to_string())
+            (
+                "赤",
+                "契約開始日が空で、契約後の接触を切り出せない".to_string(),
+            )
         } else if last_post.is_none() {
             a3.1 += 1;
             ("赤", "契約後に一度も接触していない".to_string())
