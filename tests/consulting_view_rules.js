@@ -2575,6 +2575,9 @@ check("ループ5: ファネル（houjin の応募 → 面接 → 採用）は 3
   ok(tb.filter((b) => b.s.startsWith("前段の")).length === 2, "「前段の N%」が2つ出ていない");
   ok(tb.every((b) => b.x0 >= -0.5 && b.x1 <= 319 + 1), "枠の外に出る文字: " + tb.filter((b) => b.x1 > 320).map((b) => b.s).join(" / "));
   ok(!overlaps(svg).length, "文字が重なる: " + overlaps(svg).join(" / "));
+  // 縦のスクロールバーなどでさらに狭い枠（285px, chromium 実測）でも収める
+  const s285 = drawAt(code, 285);
+  ok(figW(s285) === 285 && textBoxes(s285).every((b) => b.x1 <= 285 + 1), "285px の枠でファネルが収まらない: " + figW(s285));
   // 広い枠では広げない（段が3つの図を 1,000px に伸ばしても読みやすくならない）。1回目（枠が分からない）は 420px のまま
   ok(figW(drawAt(code, 1116)) === 420 && figW(drawAt(code, null)) === 420, "広い枠・1回目で 420px のままでない");
   ok(/<svg [^>]*data-fk="\d+"/.test(drawAt(code, null)), "枠の幅を測る印（data-fk）が無い（paintFigs が描き直さない）");
