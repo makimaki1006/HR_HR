@@ -1790,6 +1790,8 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
     let cx = super::handover_contact::Ctx::new(sheets, today, &mains, &all);
     let mut items: Vec<super::handover_contact::Item> = Vec::new();
     let mut cmp_unavailable = 0usize;
+    // 氏名の分からない担当（メールアドレスのまま書かれた人）の番号。表・引き継いだ側・引き継がれた側で共通
+    let unresolved_no = unresolved_numbers(hv, &by_id);
 
     let mut rows: Vec<Value> = Vec::new();
     let mut reflected: BTreeMap<String, usize> = BTreeMap::new();
@@ -1864,6 +1866,9 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
             "to_label": person_label(to),
             "from_unresolved": is_mail(from),
             "to_unresolved": is_mail(to),
+            // 氏名の分からない担当の番号（`unresolved_numbers`。担当者のまとめと同じ番号）
+            "from_unresolved_no": unresolved_no.get(from.trim()),
+            "to_unresolved_no": unresolved_no.get(to.trim()),
             "to_retired": retired,
             "reflected": rf,
             "record_gap_days": gap,
@@ -1900,6 +1905,8 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
             "n_option_excluded": option_excluded,
             // 取引のシートに見つからなかった交代（表には残す）
             "n_unknown_deal": unknown_deal,
+            // 氏名の分からない担当の人数（2人以上なら画面は「氏名不明 N」と番号で分ける）
+            "n_unresolved_people": unresolved_no.len(),
             "not_counted": "※ 交代が良かったか悪かったかは判定していません。記録を並べているだけです。オプション契約の交代は、ほかの画面と同じく外しています",
         },
         "rows": rows,
@@ -1911,8 +1918,50 @@ pub fn build_handover(sheets: &Sheets, today: NaiveDate) -> Value {
         "gap_rule": "「記録の遅れ」は、実際に替わった日（MTG のホストが替わった日）と HubSpot の担当者欄が直された日の差です。プラスなら HubSpot のほうが後。マイナスは、先に欄だけ直して実務の引き継ぎが後になったことを表します",
         "source_rule": "交代日は MTG のホストが替わった日で取っています。HubSpot の担当者欄が直された日は交代日ではありません",
         // 交代の前後の接触（2026-09-24 藤巻さんの要望。決まりごとは handover_contact.rs の頭）
-        "contact_cmp": contact_cmp_json(&cx, &items, cmp_unavailable),
+        "contact_cmp": contact_cmp_json(&cx, &items, cmp_unavailable, &unresolved_no),
     })
+}
+
+/// 氏名の分からない担当（`is_mail`）に振る番号（1から）。
+///
+/// 🔴 検証の指摘（2026-09-24）: 以前は引き継いだ側・引き継がれた側のまとめで別々に、しかも
+/// 比べられた件数の順に番号を振っていたので、2つの表の「氏名不明 1」が別の人になり得て、
+/// データが増えると同じ人の番号も入れ替わった。交代の表は番号なしで、突き合わせられなかった。
+/// いまは交代の記録全体（オプション契約の行は外す）で1回だけ振り、表とまとめで同じ番号を使う。
+/// 順は**交代の記録に初めて出てきた日**の順（同じ日ならアドレスの順、日付の無い人は最後）。
+/// 新しく出てきた人は後ろの番号になるので、データが増えても前からいる人の番号は変わらない
+/// （古い記録が消えて出てくる日が変わったときだけ変わる）。
+fn unresolved_numbers<'a>(
+    hv: &'a SheetData,
+    by_id: &HashMap<&str, &Deal>,
+) -> HashMap<&'a str, usize> {
+    let mut first: HashMap<&'a str, &'a str> = HashMap::new();
+    for r in &hv.rows {
+        if by_id
+            .get(hv.get(r, "deal_id"))
+            .is_some_and(|x| x.is_option())
+        {
+            continue;
+        }
+        let day = hv.get(r, "date").trim();
+        for p in [hv.get(r, "from"), hv.get(r, "to")] {
+            let p = p.trim();
+            if !is_mail(p) {
+                continue;
+            }
+            let e = first.entry(p).or_insert(day);
+            // 日付の無い行より、日付のある行を先にとる
+            if e.is_empty() || (!day.is_empty() && day < *e) {
+                *e = day;
+            }
+        }
+    }
+    let mut v: Vec<(&str, &str)> = first.into_iter().collect();
+    v.sort_by_key(|&(p, d)| (d.is_empty(), d, p));
+    v.into_iter()
+        .enumerate()
+        .map(|(i, (p, _))| (p, i + 1))
+        .collect()
 }
 
 /// 担当の交代 →「交代の前後の接触」のまとめと、画面に出す決まりごと。
@@ -1920,9 +1969,10 @@ fn contact_cmp_json(
     cx: &super::handover_contact::Ctx,
     items: &[super::handover_contact::Item],
     n_unavailable: usize,
+    unresolved_no: &HashMap<&str, usize>,
 ) -> Value {
     use super::handover_contact::{MIN_PERSON_N, MIN_WINDOW_DAYS, PER_DAYS, WINDOW_DAYS};
-    let mut v = super::handover_contact::summarize(items);
+    let mut v = super::handover_contact::summarize(items, unresolved_no);
     v["meta"] = json!({
         "window_days": WINDOW_DAYS,
         "min_window_days": MIN_WINDOW_DAYS,

@@ -4588,7 +4588,7 @@ fn 交代の前後の担当者のまとめは5件ちょうどで印を外し件�
             to: "ん",
         });
     }
-    let v = summarize(&items);
+    let v = summarize(&items, &std::collections::HashMap::new());
     let to = v["by_to"].as_array().unwrap();
     let names: Vec<&str> = to.iter().map(|r| r["label"].as_str().unwrap()).collect();
     assert_eq!(names, ["ん", "あ"], "比べられた件数の多い順");
@@ -4599,6 +4599,87 @@ fn 交代の前後の担当者のまとめは5件ちょうどで印を外し件�
     // 引き継がれた側は1人に 9件
     assert_eq!(v["by_from"][0]["n_ok"], 9);
     assert_eq!(v["by_from"][0]["small"], false);
+}
+
+/// 検証の指摘（2026-09-24）: 「氏名不明 N」の番号を引き継いだ側・引き継がれた側で別々に、
+/// 比べられた件数の順で振っていて、2つの表の「氏名不明 1」が別の人になり得た。交代の表は番号なしだった。
+/// 番号は交代の記録全体で1回、初めて出てきた日の順（アドレスの順ではない）に振り、表とまとめで同じにする。
+#[test]
+fn 交代の氏名不明の番号は表と両側のまとめで同じ人に同じ番号() {
+    let hh = [
+        "date",
+        "from",
+        "to",
+        "to_retired",
+        "reflected",
+        "record_gap_days",
+        "deal_id",
+    ];
+    let sh = Sheets {
+        handover: tiny(
+            &hh,
+            &[
+                // z は 07-01 に初めて出る（アドレスの順なら a が先だが、出てきた日の順で z が 1）
+                &[
+                    "2026-07-01",
+                    "佐藤",
+                    "z@example.co.jp",
+                    "FALSE",
+                    "",
+                    "",
+                    "c1",
+                ],
+                &[
+                    "2026-08-01",
+                    "z@example.co.jp",
+                    "a@example.co.jp",
+                    "FALSE",
+                    "",
+                    "",
+                    "d1",
+                ],
+                // a は引き継いだ側で2件（件数の順なら a が先に並ぶ）
+                &[
+                    "2026-08-02",
+                    "佐藤",
+                    "a@example.co.jp",
+                    "FALSE",
+                    "",
+                    "",
+                    "e1",
+                ],
+            ],
+        ),
+        ..handover_tiny()
+    };
+    let v = build_handover(&sh, fixture_day());
+    assert_eq!(v["meta"]["n_unresolved_people"], 2);
+    // 交代の表
+    assert_eq!(ho_row(&v, "c1")["to_unresolved_no"], 1);
+    assert_eq!(ho_row(&v, "c1")["from_unresolved_no"], Value::Null);
+    assert_eq!(ho_row(&v, "d1")["from_unresolved_no"], 1);
+    assert_eq!(ho_row(&v, "d1")["to_unresolved_no"], 2);
+    // まとめ: 引き継いだ側では a と z が同じ件数（1件ずつ）で並ぶが、番号は並びで振らない
+    let c = &v["contact_cmp"];
+    let no = |side: &str| -> Vec<i64> {
+        let mut n: Vec<i64> = c[side]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["unresolved"] == true)
+            .map(|r| r["unresolved_no"].as_i64().unwrap())
+            .collect();
+        n.sort();
+        n
+    };
+    assert_eq!(no("by_to"), [1, 2]);
+    // 件数の多い順に並べて先頭に来る a（2件）が 2、z（1件）が 1
+    let to = c["by_to"].as_array().unwrap();
+    assert_eq!(to[0]["n_events"], 2);
+    assert_eq!(to[0]["unresolved_no"], 2);
+    assert_eq!(to[1]["unresolved_no"], 1);
+    assert_eq!(no("by_from"), [1], "引き継がれた側の z も 1");
+    assert!(!c.to_string().contains("@example.co.jp"));
 }
 
 /// 画面に出す断り（交代が接触を増減させた証拠ではない・向きは決まらない）と決まりごと。

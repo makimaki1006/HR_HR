@@ -375,7 +375,8 @@ impl Tally {
 }
 
 /// 交代ごと（同じ交代は1件）と、担当者ごと（引き継いだ側 / 引き継がれた側）のまとめ。
-pub fn summarize(items: &[Item]) -> Value {
+/// `unresolved_no` は氏名の分からない担当の番号（routes.rs `unresolved_numbers`。交代の表と同じ番号）。
+pub fn summarize(items: &[Item], unresolved_no: &HashMap<&str, usize>) -> Value {
     // 交代ごと。同じ交代の行は同じ値なので、最初の1行で数える
     let mut events: BTreeMap<&str, &Cmp> = BTreeMap::new();
     for it in items {
@@ -416,13 +417,17 @@ pub fn summarize(items: &[Item]) -> Value {
         "overlap_days": overlap_days,
         "overlap_events": overlap_events,
         "median_change": median_of(all.changes),
-        "by_to": side(items, |it| it.to),
-        "by_from": side(items, |it| it.from),
+        "by_to": side(items, |it| it.to, unresolved_no),
+        "by_from": side(items, |it| it.from, unresolved_no),
     })
 }
 
 /// 担当者ごと（`pick` で引き継いだ側か引き継がれた側かを選ぶ）。
-fn side<'r>(items: &[Item<'r>], pick: fn(&Item<'r>) -> &'r str) -> Vec<Value> {
+fn side<'r>(
+    items: &[Item<'r>],
+    pick: fn(&Item<'r>) -> &'r str,
+    unresolved_no: &HashMap<&str, usize>,
+) -> Vec<Value> {
     // 人ごと・交代ごとに1件（同じ人の同じ交代を行の数だけ数えない）
     let mut seen: BTreeMap<(&str, &str), &Cmp> = BTreeMap::new();
     for it in items {
@@ -444,18 +449,15 @@ fn side<'r>(items: &[Item<'r>], pick: fn(&Item<'r>) -> &'r str) -> Vec<Value> {
             .then(y.1.n_events.cmp(&x.1.n_events))
             .then(x.0.cmp(y.0))
     });
-    let mut unresolved_no = 0usize;
     rows.into_iter()
         .map(|(p, t)| {
             let unresolved = super::routes::is_mail(p);
-            if unresolved {
-                unresolved_no += 1;
-            }
             json!({
                 "label": person_label(p),
                 "unresolved": unresolved,
-                // 氏名の分からない担当が何人かいるとき、画面で見分ける番号（1から）
-                "unresolved_no": unresolved.then_some(unresolved_no),
+                // 氏名の分からない担当が何人かいるとき、画面で見分ける番号（1から）。
+                // 🔴 この側の並びで振らない。交代の表・もう一方の側と同じ番号（`unresolved_no`）
+                "unresolved_no": if unresolved { unresolved_no.get(p).copied() } else { None },
                 "n_events": t.n_events,
                 "n_ok": t.n_ok,
                 "n_up": t.n_up,
