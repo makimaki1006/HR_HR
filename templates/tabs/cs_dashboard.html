@@ -1522,7 +1522,10 @@ function svgBarH(o) {
   /* 🔴 右の欄の上限を「棒の欄を 160px 残すところまで」にする。前の上限 max(320, w×.5) では、
      長い注記（「63/65 か月　案件22　担当交代あり 2 回（直近 2026-08）」, 幅 326px）で欄が足りず、
      注記を右端に寄せた位置が値ラベル（96.9%）の上に重なっていた（2026-09-23 検証, w=720） */
-  const pad = { l: padL, t: 8, b: 22,
+  /* 軸の題名（xLab）を出すときは、目盛りの下にもう1段空ける。
+     🔴 2026-09-24（ループ4）: 呼び出し側は「採用単価（万円）」を渡していたのに、この部品が xLab を描かず
+     軸に単位が出ていなかった（houjin の3つの出し方・事業所どうし、focus の採用単価） */
+  const pad = { l: padL, t: 8, b: o.xLab ? 36 : 22,
                 r: compact ? Math.ceil(valW + 4)
                            : o.padR || Math.max(0, Math.min(w - padL - 160, padR0)) };
   /* 注記を下の行に回すとき（compact）は、棒の欄の左端から右端までの幅で折り返す */
@@ -1570,6 +1573,7 @@ function svgBarH(o) {
          `<text class="ax" x="${X(t).toFixed(1)}" y="${h - pad.b + 14}" text-anchor="middle">${esc(fmt(t))}</text>`;
   });
   g += `<line class="axisline" x1="${x0.toFixed(1)}" y1="${pad.t}" x2="${x0.toFixed(1)}" y2="${h - pad.b + 2}"/>`;
+  if (o.xLab) g += `<text class="ax" data-xlab="1" x="${(pad.l + iw).toFixed(1)}" y="${h - 4}" text-anchor="end">${esc(o.xLab)}</text>`;
   rows.forEach((r, i) => {
     const y = rowTop[i] + rh / 2, bh = Math.min(14, rh - 8);
     const col = r.color || C.ai;
@@ -1661,7 +1665,13 @@ function wrapText(s, maxW) {
          どこでも切れない（1語が全部数字）ときは、入るところで切る */
       const k0 = k;
       /* 開き括弧があれば、その手前で切る（括弧の中を割らない） */
-      for (let j = k; j > 1; j--) if (NO_TAIL.test(ch[j]) && textW(ch.slice(0, j).join("").replace(/[ 　]+$/, "")) > 0) { k = j; break; }
+      /* 🔴 切れ目 k の時点でまだ閉じていない括弧だけを対象にする。前は行の頭まで遡って、とうに閉じた括弧
+         （「採用単価（万円）は…」の「（」）の手前で切り、1行目が「採用単価」だけの極端に短い行になっていた
+         （2026-09-24 ループ4 横断レビュー B） */
+      for (let j = k; j > 1; j--) {
+        if (/[）)」』】〕]/.test(ch[j] || "")) break;   // 閉じ括弧を越えて遡らない
+        if (NO_TAIL.test(ch[j]) && textW(ch.slice(0, j).join("").replace(/[ 　]+$/, "")) > 0) { k = j; break; }
+      }
       while (k > 1 && (NO_HEAD.test(ch[k] || "") || NO_TAIL.test(ch[k - 1] || "") || numGlue(ch[k - 1], ch[k]))) k--;
       if (k <= 1) { k = k0; while (k > 1 && NO_HEAD.test(ch[k] || "")) k--; }
       if (k < 1) break;
