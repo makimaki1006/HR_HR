@@ -32,5 +32,8 @@ pub fn router() -> Router<Arc<AppState>> {
         // 県の行を開いたときに差し込む推移。表は最新月しか持たないので、
         // 開いた県の 14 か月ぶんだけをここで引く
         .route("/tab/indeed/title/pref", get(title::tab_indeed_title_pref))
+        // 求人票を作る画面から引く語の手引き（試作 2026-09-24）。
+        // 画面の HTML ではなく JSON。工程⑦の GenSpec.guide へ渡すのが用途。
+        .route("/api/indeed/wordbrief", get(title::api_wordbrief))
         .route("/report/indeed", get(report::report_indeed))
 }
