@@ -1357,3 +1357,15 @@ select.filter-control {
 .hover\:bg-navy-600:hover { background-color: #263449; }
 .hover\:text-cyan-300:hover { color: #67e8f9; }
 .hover\:text-blue-200:hover { color: #bfdbfe; }
+
+/* 表の行を目で追えるようにする（2026-09-24 試作）。
+   職種の一覧は 127 行 9 列あり、6.6 画面ぶんの高さがある。
+   Playwright で 4 行目にカーソルを当てて計ったところ、地色は
+   rgba(0,0,0,0) のまま変わらなかった。行に class が付いておらず、
+   .data-table の行ホバー規則にも当たっていない。
+   横に目を滑らせたときに行がずれても気づけない状態だった。
+   カードの地 #1e293b の上で 1 段明るくする。 */
+.indeed-with-nav table tbody tr:hover,
+.indeed-with-nav table tbody tr:hover > th {
+  background-color: #2c3a4f;
+}
