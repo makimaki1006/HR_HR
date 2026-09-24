@@ -1884,6 +1884,13 @@ function svgStackLanes(o) {
   /* 月が1つだけの図は、その点が真ん中（右の奥）に来るので、最初の月でも合わせる。
      枠の幅で描いた図（narrow）は横にスクロールしないので合わせない */
   if (first < n && !narrow) marks.x0 = X(first) - padL - 20;
+  /* 開いた直後は最新の側（値がある最後の月と、右の目盛りの欄）を右端に見せる（figToData の data-xr。x0 より優先）。
+     🔴 2026-09-24 実機（ループ5, 400px, series「サブスク継続①＿日本梱包運輸倉庫 筑…」）: 他の推移の図は
+     ループ4 で新しい側から開くようにしたが、この図だけ x0 のままで、開いた直後が古い側（scrollLeft=0/543）だった。
+     左のラベルは stickyLabels で貼り付いたまま残る */
+  let last = -1;
+  lanes.forEach((L) => { if (!L.empty) (L.pts || []).forEach((p, i) => { if (has(p) && i > last) last = i; }); });
+  if (last >= 0 && !narrow) marks.xr = Math.min(w, X(last) + padR);
   return stickyLabels(w, padL, Math.round(h - padB), labs,
     svgHead(w, h.toFixed(0), o.alt || "系列を縦に積んだ図", marks) + `${g}</svg>`);
 }
