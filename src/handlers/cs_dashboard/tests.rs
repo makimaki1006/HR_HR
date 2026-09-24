@@ -555,6 +555,68 @@ fn 接触の記録が無いものは赤にしない() {
     assert_eq!(never, 6, "契約後に一度も接触していない最優先案件");
 }
 
+/// 🔴 契約開始日が空の取引を「契約後に一度も接触していない」と言い切らないこと。
+///
+/// 開始日が空だと `last_post` が作れず、以前は「契約後に一度も接触していない」に落ちて
+/// `never_after_start` が立っていた。画面の表はその行に「すべて契約前」と書くので、
+/// 接触が契約の前か後か分からない行でも言い切ってしまっていた（2026-09-24 検証）。
+/// 赤のまま（件数は動かさない）だが、文と印は「切り出せない」に分ける。
+#[test]
+fn 開始日が空の取引を契約後に接触ゼロと言い切らない() {
+    use chrono::NaiveDate;
+    let today = NaiveDate::from_ymd_opt(2026, 9, 18).unwrap();
+    let mk = |id: &str, start: &str| super::Deal {
+        id: id.into(),
+        name: id.into(),
+        stage: String::new(),
+        stage_label: String::new(),
+        contract_kind: String::new(),
+        // 満了40日後・金額100万 → 収益の軸も赤（最優先に入る）
+        contract_expiration_date: "2026-10-28".into(),
+        contract_start_date: start.into(),
+        kyoten_key: String::new(),
+        kyoten_name: String::new(),
+        houjin_resolved: String::new(),
+        houjin_source: String::new(),
+        renewal_no: None,
+        is_active: true,
+        right_censored: false,
+        oubo: None,
+        mensetu: None,
+        syoudaku: None,
+        saiyomokuhyou: None,
+        keisaisu: None,
+        amount: Some(1_000_000.0),
+        contract_period: None,
+    };
+    let no_start = mk("空", "");
+    let before = mk("前だけ", "2026-06-01");
+    let mut contacts = std::collections::HashMap::new();
+    let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    contacts.insert("空".to_string(), vec![d("2026-03-01"), d("2026-08-01")]);
+    contacts.insert("前だけ".to_string(), vec![d("2026-03-01")]);
+
+    let v = super::routes::risk(&[&no_start, &before], &contacts, today);
+    let top = v["top"].as_array().unwrap();
+    let row = |id: &str| top.iter().find(|r| r["deal_id"] == id).unwrap().clone();
+
+    let a = row("空");
+    assert_eq!(
+        a["never_after_start"], false,
+        "開始日が空なのに契約後ゼロの印が立っている: {a}"
+    );
+    assert_eq!(a["no_start"], true);
+    assert_ne!(a["ax3w"], "契約後に一度も接触していない", "{a}");
+    // 件数は動かさない（赤のまま）
+    assert_eq!(v["ax3"]["赤"], 2);
+
+    // 開始日がある「契約前だけ」は、これまでどおり契約後ゼロの印が立つ
+    let b = row("前だけ");
+    assert_eq!(b["never_after_start"], true, "{b}");
+    assert_eq!(b["no_start"], false);
+    assert_eq!(b["ax3w"], "契約後に一度も接触していない");
+}
+
 /// 最優先の並びは金額の降順。**機械が付けた順であって優先順位ではない**ので、
 /// 並びが変わったことに気づけるようにしておく。
 #[test]

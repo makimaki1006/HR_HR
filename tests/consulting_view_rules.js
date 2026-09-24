@@ -689,7 +689,10 @@ check("図の部品(3): 月次継続率の右端でラベルが重ならず、n=
   ok(hidden.length > 0, "この入力では横軸のラベルを出さない月があるはず（見張りの前提が崩れている）");
   // 値が無い月（n=0）で線が切れることを、凡例で説明している（fig の data-gap）
   ok(/<svg [^>]*data-gap="1"/.test(svg), "n=0 の月で線が切れるのに、図に「切れ目あり」の印（data-gap）が無い");
-  ok(run("renderRenewal(__RN)").includes("線が途切れているところは、その月の値が無いところです"),
+  // 🔴 n<30 の月は値があっても点を打たないので、決まり文句（その月の値が無い）ではなく
+  //    この図の理由で説明する（ループ4 renewal の見張りで文の中身を見る）
+  const rnTxt = run("renderRenewal(__RN)");
+  ok(/線が途切れているところは、[^<]*（0 ではありません）/.test(rnTxt),
     "月次継続率の図の凡例に、線の切れ目の説明が無い");
 });
 
@@ -1186,7 +1189,8 @@ check("法人番号で見る: 末尾の「集計の基準日と件数」に件�
   const h = run('foot({ today: "2026-09-18" }, false, houjinCounts([{ is_active: true }, { is_active: false }], new Set(["a"])))');
   ok(h.includes("集計の基準日と件数") && h.includes("この法人の取引 2 件（稼働中 1 件）"), "件数が無い: " + h);
   const body = html.split("function renderHoujin(D)")[1].split("\nfunction ")[0];
-  ok((body.match(/foot\(D\.meta, false, houjinCounts\(all, ids\)\)/g) || []).length === 2,
+  /* ループ4: not_counted は頭の「いま見ている粒度」の枠で出すので、末尾は said=true（基準日と件数だけ） */
+  ok((body.match(/foot\(D\.meta, true, houjinCounts\(all, ids\)\)/g) || []).length === 2,
     "renderHoujin の2つの末尾が件数を渡していない");
 });
 
@@ -1213,8 +1217,7 @@ check("KPI: 最終満了を折り返さない・電話の61件の色をそろえ
   const D2 = JSON.parse(JSON.stringify(ctx.__D));
   D2.owner_rule = "担当は consultant が正本です（hubspot_owner_id ではありません）。" +
     "取引ごとに、担当履歴のいちばん新しい行を採っています。" +
-    "同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています。" +
-    "採り方を変えると担当が変わる取引があるので、その件数を出しています";
+    "同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています";
   ctx.__D2 = D2;
   const rule = textOf(run("renderTeam(__D2)")).split("この一覧の決まりごと")[1] || "";
   const dup = (rule.match(/シートで後に来る行/g) || []).length;
@@ -1279,7 +1282,8 @@ check("byowner: 担当を選ぶ前の持ち件数は、見えない絞り込み�
     const cnt = (name) => ((tbl.match(new RegExp('data-c="' + name + '"[^>]*>' + name + "</a></td><td[^>]*>([0-9,]+)<")) || [])[1]);
     ok(cnt("田中") === "2" && cnt("佐藤") === "1",
       "持ち件数が隠れた絞り込みで減っている: 田中 " + cnt("田中") + " / 佐藤 " + cnt("佐藤") + "（稼働中の全件は 2 / 1）");
-    ok(h.includes("稼働中 3 件"), "見出しの件数が稼働中の全件でない");
+    /* ループ4: 見出しから「稼働中 N 件」を外した（頭の1行と重なる）。人数が隠れた絞り込みで減らないことを見る */
+    ok(h.includes("担当者ごとの持ち件数（2 名）"), "見出しの人数が稼働中の全件の担当者数でない");
   } finally {
     run('boardFilter = { consultant: "", flag: "", expiry: "", q: "" }; cur = { menu: "deal", view: "today" };');
   }
@@ -2327,6 +2331,204 @@ check("ループ4 検証: 2行に折り返して省略したラベルも、図�
   const f = run('fig("x", "", __FB)');
   ok(/省略した名前の全文（1 件）/.test(f) && f.includes('<span class="muted">長い拠点の名前…全文</span> … 長い拠点の名前の全文'),
     "2行のラベルが全文の一覧に出ない・見えている字が空: " + (f.match(/<li>.*?<\/li>/) || ["なし"])[0]);
+});
+
+/* ================================================================ ループ4: 文言と表（2026-09-24 実機） */
+check("ループ4 phone: 多対多の注記は1回だけ。沈黙している取引の表は取引・ステージを折り返す", () => {
+  const D = JSON.parse(JSON.stringify(ctx.__PH));
+  D.silent = { n: 1, rule: "接触が1本も無い", excluded_marketing: 0, rows: [{ deal_id: "1", name: "サブスク継続①＿山陰パナソニック株式会社 モバイルソリューション部門",
+    stage: "ロヨミ:20%（継続意思不明だが提案中）", amount: 3600000, n_calls: 0, n_contact: 0, last_contact: null, days_since: null }] };
+  ctx.__PH4 = D;
+  const h = run("renderPhone(__PH4)");
+  const n = textOf(h).split("複数の取引に結び付いて").length - 1;
+  ok(n === 1, "「1本の通話が複数の取引に結び付いて…」が " + n + " 回出ている（内訳の図の1回にする）");
+  const head = h.slice(h.lastIndexOf("<thead>"), h.lastIndexOf("</thead>"));
+  ok(head.includes('<th class="wl">取引</th>') && head.includes('<th class="ws">ステージ</th>'),
+    "沈黙している取引の表で、取引・ステージが折り返す列になっていない（1440px で右端が切れる）");
+});
+
+check("ループ4 houjin: 本部アプローチは見出しと本文を重ねず、10法人の図ごとの注記と基準日を繰り返さない", () => {
+  const hq = JSON.parse(JSON.stringify(ctx.__HQ));
+  hq.rows = [0, 1, 2].map((i) => Object.assign({}, ctx.__HQ.rows[0], { houjin: "法人" + i }));
+  ctx.__HQ4 = hq;
+  const h = run("renderHq(__HQ4)");
+  const n = (h.match(/率だけで判断しないでください/g) || []).length;
+  ok(n === 1, "「解約率が 40% 以上の拠点は…率だけで判断しないでください」が " + n + " 回出ている（1回にする）");
+  ok(!/<span class="hd">親法人の合計ではありません<\/span><p>親法人の合計ではありません/.test(h),
+    "枠の見出しと本文の頭が同じ文（親法人の合計ではありません）");
+  const head = (h.match(/<span class="hd">([^<]*)<\/span><p>([^<。]*)/) || []);
+  ok(head[1] && head[2] && !head[2].startsWith(head[1]), "枠の見出しと本文の1文目が同じ: " + head[1]);
+  ok(!h.includes("集計の基準日"), "本部アプローチの末尾にも基準日の枠がある（法人番号で見るの末尾と2つ続く）");
+  ok(!h.includes('<span class="no">問い</span>'), "本部アプローチが自分の問いの見出しを出している（法人番号で見るの見出しの下が空に見える）");
+  ok(h.includes("採用単価（万円）"), "事業所どうしを比べる図で採用単価の単位（万円）が分からない");
+});
+
+check("ループ4 focus: どちらも無い（灰の帯）の KPI を山吹にしない・採用単価の単位・KPI 見出しの折り返し", () => {
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  fo.mtg_layers.neither = 115;
+  fo.cpa = { worse: 1, judged: 1, skipped_censored: 0, note: "",
+    rows: [{ site: "k1", site_name: "拠点1", prev: 1000000, last: 2000000, ratio: 2 }] };
+  ctx.__FO4 = fo;
+  const h = run("renderFocus(__FO4)");
+  const k = h.split('<div class="kpi').find((x) => x.includes("MTG の記録がどちらも無い")) || "";
+  ok(!/^ is-(warn|bad)/.test(k), "「MTG の記録がどちらも無い」の KPI に色が付いている（帯では灰）: " + k.slice(0, 30));
+  ok(h.includes("今回（万円）") && h.includes("横軸は万円"), "採用単価の悪化の図で単位（万円）が分からない");
+  ok(/\.kpi \.lbl\{[^}]*text-wrap:balance/.test(html), "KPI の見出しが最後の1文字だけ次の行に落ちうる（text-wrap:balance が無い）");
+});
+
+check("ループ4 team: 読み方の見出しと本文を重ねず、件数で見ない理由・担当の割れを1回ずつにする", () => {
+  const D = JSON.parse(JSON.stringify(ctx.__D));
+  D.meta.not_counted = "※ 担当者の評価ではありません。手が足りていない場所を見つけるための画面です。順位を付けていますが、良し悪しの判断は人がします";
+  // routes.rs build_consultants の contact_rule / owner_rule そのもの
+  D.contact_rule = "接触 ＝ MTG または60秒超の通話（メールは数えない）。接触率 ＝ 接触があった月 ÷（案件 × 経過月）。" +
+    "件数ではなく率で見るのは、件数だと持ち案件が多い人ほど大きく出て、手が回っているかが分からなくなるため";
+  D.owner_rule = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8")
+    .split('"owner_rule": "')[1].split('",')[0].replace(/\\\r?\n\s*/g, "");
+  ok(!/[\\\r\n]/.test(D.owner_rule) && D.owner_rule.includes("シートで後に来る行"), "routes.rs の owner_rule を読み取れない: " + D.owner_rule);
+  ctx.__D4 = D;
+  const h = run("renderTeam(__D4)");
+  const t = textOf(h);
+  ok(!/これは担当者の評価ではありません\s+担当者の評価ではありません/.test(t), "読み方の見出しと本文の1文目が同じ文");
+  const n = (t.match(/持ち案件が多い人ほど大きく出て/g) || []).length;
+  ok(n === 1, "件数で見ない理由が " + n + " 回出ている（1回にする）");
+  ok(!/件数では見ていません/.test(t), "「件数では見ていません」が理由（contact_rule）と別に出ている");
+  const rule = t.split("この一覧の決まりごと")[1] || "";
+  ok(!rule.includes("その件数を出しています"), "決まりごとで「その件数を出しています」と「担当が割れている…N 件あります」が2文続く");
+  ok(rule.includes("担当が割れている稼働中の案件が 38 件"), "担当の割れの件数が決まりごとから消えた");
+});
+
+check("ループ4 byowner: 「稼働中 N 件」を表の見出しと末尾で繰り返さない（担当を選ぶ前は末尾の1か所だけ）", () => {
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "" };');
+  try {
+    const h = run("renderBoard(__BD)");
+    // 🔴 担当を選ぶ前の頭の1行には件数が無い。見出しと末尾から消すと0か所になっていた（2026-09-24 検証）
+    const nAct = (textOf(h).match(/稼働中 3 件/g) || []).length;
+    ok(nAct === 1, "担当を選ぶ前の画面で「稼働中 3 件」が " + nAct + " 回出ている（1回にする）");
+    ok(h.includes("担当者ごとの持ち件数（2 名）") && h.includes("担当者 2 名"), "表の見出し・末尾にこの画面の数（担当者の人数）が無い");
+    run('boardFilter.consultant = "田中";');
+    const h2 = run("renderBoard(__BD)");
+    ok(!/稼働中 3 件/.test(textOf(h2)), "担当を選んだ後の末尾に「稼働中 3 件」が出ている（頭の1行・N 件中 M 件と重なる）");
+  } finally {
+    run('boardFilter = { consultant: "", flag: "", expiry: "", q: "" }; cur = { menu: "deal", view: "today" };');
+  }
+});
+
+check("ループ4 dq: 記入率の偏りを図の注記と「まずい」の箱で2回言わない", () => {
+  const D = JSON.parse(JSON.stringify(ctx.__DQ));
+  // routes.rs build_data_quality の outcome_bias.note そのもの
+  D.outcome_bias.note = "うまくいかなかった契約ほど数字が記録されていない可能性があります。「継続するほど成果が良い」という見え方を押し上げる方向に効きます";
+  ctx.__DQ4 = D;
+  const t = textOf(run("renderDq(__DQ4)"));
+  const n = (t.match(/うまくいかなかった契約ほど/g) || []).length;
+  ok(n === 1, "「うまくいかなかった契約ほど…」が " + n + " 回出ている（まずいの箱の1回にする）");
+  const m = (t.match(/押し上げる方向に効きます/g) || []).length;
+  ok(m === 1, "「押し上げる方向に効きます」が " + m + " 回出ている（箱の見出しと本文で重ねない）");
+});
+
+check("ループ4 handover: 担当者一覧に無い担当を表では「氏名不明」と短く出し、意味を title と表の上で補う", () => {
+  const HO = JSON.parse(JSON.stringify(ctx.__HO));
+  // routes.rs person_label の文そのもの
+  HO.rows[1].from_label = "氏名が分からない担当（HubSpotの担当者一覧に無い）";
+  HO.rows[1].from_unresolved = true;
+  ctx.__HO4 = HO;
+  const h = run("renderHandover(__HO4)");
+  const body = h.slice(h.lastIndexOf("<tbody>"));
+  ok(!body.includes("HubSpotの担当者一覧に無い）"), "表の中に長い「氏名が分からない担当（…）」が出ている（行が高くなる）");
+  ok(/<span class="n0" title="HubSpot の担当者一覧に無い担当[^"]*">氏名不明<\/span>/.test(body), "表の「氏名不明」に意味の title が無い");
+  ok(textOf(h.slice(0, h.lastIndexOf("<table"))).includes("「氏名不明」は HubSpot の担当者一覧に無い担当"), "表の上に「氏名不明」の意味が書いていない");
+  ok(!run("renderHandover(__HO)").includes("「氏名不明」は"), "氏名不明の行が無いのに説明の1文を出している");
+});
+
+check("ループ4 handover: 「次の担当」の側も、担当者一覧に無い担当は表で「氏名不明」と短く出す", () => {
+  // 上の見張りは「前の担当」の側しか入れていなかった（to 側を元の長い表記に戻しても通っていた。2026-09-24 検証）
+  const HO = JSON.parse(JSON.stringify(ctx.__HO));
+  HO.rows[1].to_label = "氏名が分からない担当（HubSpotの担当者一覧に無い）";
+  HO.rows[1].to_unresolved = true;
+  ctx.__HO5 = HO;
+  const h = run("renderHandover(__HO5)");
+  const body = h.slice(h.lastIndexOf("<tbody>"));
+  ok(!body.includes("HubSpotの担当者一覧に無い）"), "「次の担当」に長い「氏名が分からない担当（…）」が出ている");
+  ok(/<span class="n0" title="HubSpot の担当者一覧に無い担当[^"]*">氏名不明<\/span>/.test(body), "「次の担当」の「氏名不明」に意味の title が無い");
+  ok(textOf(h.slice(0, h.lastIndexOf("<table"))).includes("「氏名不明」は HubSpot の担当者一覧に無い担当"), "次の担当だけが氏名不明のとき、表の上に意味が書いていない");
+});
+
+check("ループ4 renewal: 月次継続率で n<30 の月（右端 27-01 n=1 の 0%）に点を打たず、打たない理由を書く", () => {
+  const h = run("renderRenewal(__RN)");
+  const svg = firstSvg(h);
+  const tt = [...svg.matchAll(/<circle [^>]*><title>([^<]*)<\/title>/g)].map((m) => m[1]);
+  ok(tt.length > 0 && tt.some((t) => t.startsWith("26-09")), "見張りの前提: 点の title が「月…」で始まっていない: " + tt.slice(-2).join(" / "));
+  ok(!tt.some((t) => t.startsWith("27-01") || t.startsWith("26-10")), "n<30 の月（26-10 n=8 / 27-01 n=1）に点を打っている: " + tt.slice(-3).join(" / "));
+  ok(svg.includes(">27-01<") && svg.includes(">n=1<"), "n<30 の月を横軸から消している（月と件数は残す）");
+  ok(textOf(h).includes("30 件に届かない 2 か月は点を打っていません"), "n<30 で点を打たなかった月のことが書かれていない");
+});
+
+check("ループ4 renewal: n<30 で点を打たない月があるとき、線の切れ目を「値が無い」とだけ言わない", () => {
+  const h = run("renderRenewal(__RN)");
+  const t = textOf(h);
+  ok(t.includes("30 件に届かない 2 か月は点を打っていません"), "見張りの前提: n<30 の月が無い入力になっている");
+  ok(!t.includes("線が途切れているところは、その月の値が無いところです"),
+    "n<30 の月（値はある）があるのに「その月の値が無いところです」と書いている（点を打たない理由と食い違う）");
+  ok(t.includes("線が途切れているところは、点を打っていない月（決着が 30 件に届かない月）か、率が出せない月です"),
+    "線の切れ目に n<30 の月が入ることを書いていない");
+  // 決まり文句そのものは、ほかの図では残す（fig の gapNote）
+  ok(run('fig("x", "", svgLine({ w: 300, h: 120, x: ["a","b","c"], series: [{ color: "#000", pts: [{ v: 1 }, null, { v: 2 }] }] }), "")')
+    .includes("線が途切れているところは、その月の値が無いところです"), "ほかの図から「値が無い」の決まり文句まで消えた");
+});
+
+check("ループ4 outcome: 「契約後に一度も接触していない」の行の接触の件数は、契約前のものだと書く", () => {
+  const O = JSON.parse(JSON.stringify(ctx.__OUT));
+  // routes.rs build_outcome の top の形。n_contact は契約前も含めた件数
+  O.risk.top = [
+    { name: "案件A", stage: "定期1", amount: 1800000, days_to_expiry: 40, ax3w: "契約後に一度も接触していない", n_contact: 23, never_after_start: true },
+    { name: "案件B", stage: "定期2", amount: 900000, days_to_expiry: 20, ax3w: "契約後の最終接触から 45日", n_contact: 5, never_after_start: false }];
+  ctx.__OUT4 = O;
+  const h = run("renderOutcome(__OUT4)");
+  const tb = h.slice(h.lastIndexOf("<tbody>"));
+  const rowA = tb.slice(tb.indexOf("案件A"), tb.indexOf("</tr>", tb.indexOf("案件A")));
+  const rowB = tb.slice(tb.indexOf("案件B"), tb.indexOf("</tr>", tb.indexOf("案件B")));
+  ok(rowA.includes("23件") && rowA.includes("すべて契約前"), "契約後に接触ゼロの行で、接触 23 件が契約前のものだと書いていない");
+  ok(!rowB.includes("契約前"), "契約後に接触がある行にまで「契約前」と書いている");
+  ok(textOf(h).includes("「接触の記録」は契約の前も含めた件数です"), "表の上で「接触の記録」の数え方を書いていない");
+});
+
+check("ループ4 outcome: 契約開始日が空の行（no_start）では「すべて契約前」と言い切らず、散布図の色も分ける", () => {
+  const O = JSON.parse(JSON.stringify(ctx.__OUT));
+  // routes.rs risk() の開始日が空の行の形（never_after_start は立たない。tests.rs で見張る）
+  O.risk.top = [
+    { name: "案件C", stage: "定期1", amount: 1200000, days_to_expiry: 30, ax3w: "契約開始日が空で、契約後の接触を切り出せない",
+      n_contact: 7, never_after_start: false, no_start: true }];
+  ctx.__OUT5 = O;
+  const h = run("renderOutcome(__OUT5)");
+  const tb = h.slice(h.lastIndexOf("<tbody>"));
+  ok(tb.includes("7件") && !tb.includes("契約前"), "開始日が空の行で接触が契約前だと言い切っている");
+  ok(tb.includes("契約後の接触を切り出せない"), "開始日が空の行で、放置の軸の理由が出ていない");
+  ok(textOf(h).includes("契約開始日が空（契約後を切り出せない）"), "散布図の凡例に開始日が空の点の意味が無い");
+  ok(!textOf(run("renderOutcome(__OUT4)")).includes("契約開始日が空（"), "開始日が空の行が無いのに凡例を出している");
+});
+
+check("ループ4 採用単価の棒: 万円の目盛りを出す svgBarH の呼び出しは、軸の題名（xLab）を渡す", () => {
+  // 🔴 svgBarH がまだ xLab を描かない（部品の側で対応中）ため、画面では副題と凡例の「万円」だけが効いている。
+  //    部品が描くようになったとき、呼び出し側から xLab が消えていると単位が出ないので、呼び出し側を見張る
+  //    （2026-09-24 検証: 副題だけを見ていて、xLab だけを消しても通っていた）
+  const calls = [...html.matchAll(/svgBarH\(\{[^\n]*/g)].map((m) => m[0]).filter((x) => x.includes("fmt: F.man"));
+  ok(calls.length >= 3, "見張りの前提: 万円の svgBarH の呼び出しが 3 つ見つからない（" + calls.length + "）");
+  const bad = calls.filter((x) => !/xLab: "採用単価（万円）"/.test(x));
+  ok(!bad.length, "万円の svgBarH に軸の題名（xLab）を渡していない: " + bad.join(" / "));
+});
+
+check("ループ4 series: 契約の系列の表は折り返しの幅を詰め（table.ser）、1440px の本文に余白を残す", () => {
+  // 11列が本文 1,117px にちょうど収まるだけで、長い取引名・拠点名・ステージで右端（状態）が切れた
+  // （2026-09-24 検証。40字・20字・15字にすると 47px 超）。既定の 22em / 11em より狭くする
+  ctx.__SER = { meta: { found: true, houjin: "H1", today: "2026-09-23" },
+    customer: { name: "x", ltv: 1, deals: 1, sites: 1, active: 1, max_renewal_no: 0, last_expiration: "2027-01-31" },
+    focus: null, mtgs: [], cpa3: [], cpa_by_site: [], monthly: [], handover: [], contacts: [], funnel: {},
+    deals: [{ deal_id: "d1", name: "取引", stage: "定期1", site: "拠点", kind: "定期", start: "2025-01-01",
+      expiration: "2025-12-31", renewal_no: 1, amount: 100, oubo: 1, mensetu: 1, syoudaku: 1, is_active: true }] };
+  const h = run('custBlocks(__SER, new Set(["deals"]))');
+  ok(/<table class="ser"><thead><tr><th class="wl">取引<\/th>/.test(h), "契約の系列の表に class=\"ser\" が付いていない");
+  const em = (re) => { const m = html.match(re); return m ? parseFloat(m[1]) : NaN; };
+  const l = em(/table\.ser td\.wl\{\s*max-width:([\d.]+)em/), s2 = em(/table\.ser td\.ws\{\s*max-width:([\d.]+)em/);
+  ok(l <= 16 && s2 <= 9, "契約の系列の表の折り返しの幅が詰まっていない（wl " + l + "em / ws " + s2 + "em）");
 });
 
 Promise.all(pendingChecks).then(() => {
