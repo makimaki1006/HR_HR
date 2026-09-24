@@ -400,6 +400,11 @@
   /* 折り返す列（table() の列の w）。幅は字数で決める（本文 12.5px） */
   td.wl{ white-space:normal; min-width:12em; max-width:22em; line-height:1.6; overflow-wrap:anywhere; }
   td.ws{ white-space:normal; min-width:6em; max-width:11em; line-height:1.6; overflow-wrap:anywhere; }
+  /* 契約の系列の表（custBlocks の deals）は11列あり、1440px の本文 1,117px にちょうど収まるだけで余白が無かった。
+     取引名・拠点名・ステージが長い法人では右端（状態）が切れた（2026-09-24 検証: 40字・20字・15字で 47px 超）。
+     この表だけ折り返しの幅を詰める */
+  table.ser td.wl{ max-width:15em; }
+  table.ser td.ws{ max-width:8em; }
   tr.clickable{ cursor:pointer; }
   caption{ caption-side:bottom; text-align:left; padding:var(--space-2) var(--space-3); font-size:11.5px;
            color:var(--ink-2); }
@@ -3272,7 +3277,7 @@ function custBlocks(D, want) {
       (esc(d.start) || DASH) + "<br>〜" + (esc(d.expiration) || DASH), nz(d.renewal_no), yen(d.amount),
       nz(d.oubo), nz(d.mensetu), nz(d.syoudaku),
       (d.is_active ? "稼働中" : "") +
-      (d.right_censored ? ' <span class="tag">未確定</span>' : "")])), 420);
+      (d.right_censored ? ' <span class="tag">未確定</span>' : "")]), "ser"), 420);
   }
 
   if (want.has("mtgs")) {
