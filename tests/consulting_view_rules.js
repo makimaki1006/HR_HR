@@ -2024,6 +2024,20 @@ check("互換: 正規表現の後読みを使わない（Safari 16.4 より前�
   ok(lines && lines.includes("あいう えお/かき"), "wrapText が1行に収まる文をそのまま返さない: " + lines);
 });
 
+/* ================================================================ ループ4: 文言と表（2026-09-24 実機） */
+check("ループ4 phone: 多対多の注記は1回だけ。沈黙している取引の表は取引・ステージを折り返す", () => {
+  const D = JSON.parse(JSON.stringify(ctx.__PH));
+  D.silent = { n: 1, rule: "接触が1本も無い", excluded_marketing: 0, rows: [{ deal_id: "1", name: "サブスク継続①＿山陰パナソニック株式会社 モバイルソリューション部門",
+    stage: "ロヨミ:20%（継続意思不明だが提案中）", amount: 3600000, n_calls: 0, n_contact: 0, last_contact: null, days_since: null }] };
+  ctx.__PH4 = D;
+  const h = run("renderPhone(__PH4)");
+  const n = textOf(h).split("複数の取引に結び付いて").length - 1;
+  ok(n === 1, "「1本の通話が複数の取引に結び付いて…」が " + n + " 回出ている（内訳の図の1回にする）");
+  const head = h.slice(h.lastIndexOf("<thead>"), h.lastIndexOf("</thead>"));
+  ok(head.includes('<th class="wl">取引</th>') && head.includes('<th class="ws">ステージ</th>'),
+    "沈黙している取引の表で、取引・ステージが折り返す列になっていない（1440px で右端が切れる）");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
