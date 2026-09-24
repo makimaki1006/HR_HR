@@ -4782,7 +4782,8 @@ function renderBoard(D) {
         "名札・満了まで・案件名での絞り込みは、担当を選んだ後に出ます。" +
         "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は " + goLink("deal", "board") + " にあります）。");
       /* 🔴 「稼働中 604 件」が画面の頭の1行・この見出し・末尾の枠の3か所に出ていた（2026-09-24 実機）。
-         件数は頭の1行に任せ、ここと末尾はこの画面の数（担当者の人数）だけにする */
+         ただし担当を選ぶ前の頭の1行（上の lede）には件数が無く、見出しと末尾から消すと0か所になった
+         （2026-09-24 検証）。見出しは担当者の人数だけにし、稼働中の件数は末尾の1か所に出す */
       h += sec("表", "担当者ごとの持ち件数（" + num(ks.length) + " 名）");
       /* 名前を押すと担当で絞る。②担当者の一覧の表（TEAM_COLS）と同じ作り（a.drill）。
          担当が空の行は選択欄にも無いので押せるようにしない */
@@ -4792,7 +4793,7 @@ function renderBoard(D) {
           ? '<a href="#" class="drill" data-c="' + esc(k) + '" title="この担当の案件だけを見る">' + esc(k) + "</a>"
           : DASH,
           num(per[k].n), num(per[k].flagged), num(per[k].focus)]), "", "owner-tbl"), 640);
-      return h + foot(D.meta, false, "担当者 " + num(ks.length) + " 名");
+      return h + foot(D.meta, false, "担当者 " + num(ks.length) + " 名・稼働中 " + num(D.rows.length) + " 件");
     }
     h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
       "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
