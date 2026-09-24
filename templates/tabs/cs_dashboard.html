@@ -2636,22 +2636,32 @@ function renderRenewal(D) {
   const cutTail = [];
   while (mrRows.length && !mrRows[mrRows.length - 1].denom) cutTail.unshift(mrRows.pop());
   const shaky = (r) => r.pending > 0 || r.denom < MIN_N;
+  /* 🔴 n<30 の月は点を打たない（規律「n<30 は図に載せず、載せない理由を書く」）。
+     2026-09-24 実機: 右端の 27-01（n=1）の 0% が中空の点で描かれ、継続率が急落したように見えた。
+     中空・破線は「結果待ちが残っていて率がまだ動く」の意味で、件数が少なくて振れる月とは別の話。
+     横軸の月と n= は残すので、その月があること・件数が少ないことは読める。率は下の表に出す */
+  const fewN = mrRows.filter((r) => r.denom > 0 && r.denom < MIN_N);
   h += fig("継続率 ＝ 継続済 ÷（継続済 ＋ 解約 ＋ 充足）",
     "<b>充足も分母に入れています</b>",
     svgLine({ w: 680, h: 240, labelPts: true,
       x: mrRows.map((r) => r.month.slice(2)),
       xSub: mrRows.map((r) => "n=" + r.denom),
-      series: [{ color: C.ai, pts: mrRows.map((r) => (!r.denom || r.rate == null)
+      series: [{ color: C.ai, pts: mrRows.map((r) => (!r.denom || r.rate == null || r.denom < MIN_N)
         ? null
         : { v: r.rate / 100, censored: shaky(r),
-            note: [r.pending > 0 ? "結果待ち" + r.pending : "",
-                   r.denom < MIN_N ? "n<" + MIN_N : ""].filter(Boolean).join(" ") }) }],
+            note: r.pending > 0 ? "結果待ち" + r.pending : "" }) }],
       yFmt: F.pct, yLab: "継続率", alt: "月次の継続率" }),
     lg("dot", C.ai, "確定した月（結果待ち0件・n " + MIN_N + " 以上）") +
-    lg("ring", C.ai, "未確定（結果待ちがある月・n " + MIN_N + " 未満の月）") +
-    '<i class="full">中空・破線の月は、結果待ちがまだ残っているか、決着した件数が ' + MIN_N +
-    " 件に届いていない月です。<b>確定値と同じには読まないでください。</b>" +
+    lg("ring", C.ai, "未確定（結果待ちがある月）") +
+    '<i class="full">中空・破線の月は、結果待ちがまだ残っていて率が動く月です。' +
+    "<b>確定値と同じには読まないでください。</b>" +
     "点の下の n は決着した件数です。" +
+    (fewN.length
+      ? "<b>決着した件数が " + MIN_N + " 件に届かない " + num(fewN.length) +
+        " か月は点を打っていません</b>（" + fewN.slice(0, 3).map((r) => esc(r.month) + " n=" + num(r.denom)).join("、") +
+        (fewN.length > 3 ? " ほか" : "") + "）。件数が少ない月の率はたまたまで大きく振れるためです" +
+        "（率は下の表に出しています）。"
+      : "") +
     (cutTail.length
       ? "決着が1件も無い " + num(cutTail.length) + " か月（" + esc(cutTail[0].month) +
         (cutTail.length > 1 ? "〜" + esc(cutTail[cutTail.length - 1].month) : "") +
@@ -4171,7 +4181,11 @@ function renderOutcome(D) {
      （2026-09-23 実機, V21 の残り）。散布図には並びが無いので、表の側だけに出す */
 
   h += sec("表", "最優先（2軸とも赤・" + num(R.top.length) + " 件）");
-  h += '<div class="lede">金額が大きい順。' + esc(R.order_note) + "</div>";
+  /* 🔴 放置の軸が「契約後に一度も接触していない」の行に「接触の記録 23件」と出て、矛盾して見えた
+     （2026-09-24 実機）。接触の記録は契約前も含めた件数（routes.rs build_outcome の n_contact）。
+     その行では「すべて契約前」と書き、列の意味も表の上で言う */
+  h += '<div class="lede">金額が大きい順。' + esc(R.order_note) +
+    "「接触の記録」は契約の前も含めた件数です。</div>";
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
                      { t: "満了まで", n: 1 }, { t: "放置の軸", w: "s" }, { t: "接触の記録", n: 1 }],
     R.top.map((r) => [esc(r.name || r.deal_id),
@@ -4179,7 +4193,9 @@ function renderOutcome(D) {
       r.days_to_expiry == null ? DASH : num(r.days_to_expiry) + "日",
       (r.never_after_start ? '<b style="color:var(--hi)">' : "<span>") + esc(r.ax3w) +
         (r.never_after_start ? " &#9650;</b>" : "</span>"),
-      r.n_contact ? num(r.n_contact) + "件" : DASH])), 420);
+      r.n_contact
+        ? num(r.n_contact) + "件" + (r.never_after_start ? '<br><span class="muted small">すべて契約前</span>' : "")
+        : DASH])), 420);
   return h + foot(D.meta, true);   /* 数えていないものは頭の枠で書いた（V21: 上下で2回出ていた） */
 }
 

@@ -604,7 +604,12 @@ check("N5", "月次継続率: 結果待ちがある月・n<30 を実線にせず
   const svg = h.slice(h.indexOf("<svg"), h.indexOf("</svg>"));
   const solid = count(svg, /<circle [^>]*r="4\.2"/g), hollow = count(svg, /<circle [^>]*r="4\.6"/g);
   if (solid !== 2) throw new Error("確定の点（結果待ち0・n>=30）は2つのはずが " + solid);
-  if (hollow !== 2) throw new Error("未確定の点（結果待ち2件の月・n=10 の月）は2つのはずが " + hollow);
+  // ループ4: n<30 の月（2026-08, n=10）は点を打たない（規律「n<30 は図に載せない」。前は中空で描いていた）
+  if (hollow !== 1) throw new Error("未確定の点（結果待ち2件の月）は1つのはずが " + hollow);
+  if (/<circle [^>]*><title>26-08/.test(svg)) throw new Error("n<30 の月（26-08, n=10）に点を打っている");
+  if (svg.indexOf(">26-08<") < 0) throw new Error("n<30 の月（26-08）を横軸から消している（月があることは残す）");
+  if (h.indexOf("30 件に届かない 1 か月は点を打っていません") < 0 || h.indexOf("2026-08 n=10") < 0)
+    throw new Error("n<30 で点を打たなかった月とその理由が書かれていない");
   if (svg.indexOf("27-02") >= 0) throw new Error("n=0 の月（27-02）が図に残っている");
   if (h.indexOf("決着が1件も無い 1 か月") < 0) throw new Error("n=0 で外した月のことが書かれていない");
   // 下の表。図の注記が表へ誘うので、表でも未確定を確定と同じ太字にしない
