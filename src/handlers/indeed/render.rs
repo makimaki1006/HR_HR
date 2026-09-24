@@ -809,6 +809,86 @@ pub fn band_chart(
     )
 }
 
+/// 組み上がった面の HTML を通して、カードに `id` と見出しの印を付ける。
+///
+/// # なぜ後から通すのか
+/// カードは 11 か所でばらばらに組まれている。生成側を 11 か所書き換えると
+/// 必ずどれか取りこぼすうえ、今後カードが増えたときにも同じ作業が要る。
+/// 出来上がりを 1 回通すほうが、取りこぼしが起きない。
+///
+/// # 何をするか
+/// `<h3 class="text-slate-100 text-lg font-bold ...">見出し</h3>` を見つけ、
+/// その直前の `<div class="bg-navy-700 ...">` に `id="sec-N"` を足す。
+/// 併せて、拾った見出しを順に返す（左の並びを作るのに使う）。
+///
+/// タグを解釈せず、決まった形の文字列だけを探す。HTML パーサは入れない。
+pub fn add_section_ids(html: &str) -> (String, Vec<(String, String)>) {
+    // カードの外枠は実測で 4 種類あった（bg-navy-700 / 同 max-w-2xl /
+    // bg-navy-800/60 border-amber-500 / border-l-4 shadow-md）。
+    // 外枠を当てにすると増えるたびに取りこぼす。**見出しを起点にする**。
+    //
+    // 見出しのクラスも揺れている:
+    //   text-slate-100 text-lg font-bold mb-1   ほとんどのカード
+    //   text-slate-100 text-lg font-bold mb-2   「なぜそうなったか」
+    //   text-slate-100 text-lg font-bold        「職種の一覧」
+    //   text-teal-400  text-lg font-bold mb-2   「要点（全国）」
+    // 共通するのは「text-lg font-bold」だけなので、それで拾う。
+    //
+    // id は見出しの直前に置いた印の span に振る。カードの div を書き換えないので、
+    // 外枠が何種類あっても影響を受けない。
+    const H3_MARK: &str = "text-lg font-bold";
+
+    let mut out = String::with_capacity(html.len() + 512);
+    let mut sections: Vec<(String, String)> = Vec::new();
+    let mut rest = html;
+    let mut n = 0usize;
+
+    while let Some(pos) = rest.find("<h3 ") {
+        let t = &rest[pos..];
+        let Some(gt) = t.find('>') else {
+            break;
+        };
+        if !t[..gt].contains(H3_MARK) {
+            out.push_str(&rest[..pos + gt + 1]);
+            rest = &rest[pos + gt + 1..];
+            continue;
+        }
+        let Some(close) = t.find("</h3>") else {
+            break;
+        };
+        // 中のタグを落として文字だけ取る
+        let raw = &t[gt + 1..close];
+        let mut label = String::new();
+        let mut skip = false;
+        for c in raw.chars() {
+            match c {
+                '<' => skip = true,
+                '>' => skip = false,
+                _ if !skip => label.push(c),
+                _ => {}
+            }
+        }
+        let label = label.trim().to_string();
+        if label.is_empty() {
+            out.push_str(&rest[..pos + gt + 1]);
+            rest = &rest[pos + gt + 1..];
+            continue;
+        }
+        n += 1;
+        let id = format!("sec-{n}");
+        out.push_str(&rest[..pos]);
+        // 見出しの直前に、飛び先だけの印を置く
+        out.push_str(&format!(
+            "<span id=\"{id}\" class=\"indeed-sec-anchor\"></span>"
+        ));
+        out.push_str(&t[..close + 5]);
+        sections.push((id, label));
+        rest = &t[close + 5..];
+    }
+    out.push_str(rest);
+    (out, sections)
+}
+
 /// 目盛りの刻みを 1 / 2 / 5 × 10^n のはしごから選び、データを包む最小の窓を返す。
 ///
 /// 返すのは `(下端, 上端, 刻み)`。決められないときは `None`（呼び出し側で 0 起点に戻す）。
