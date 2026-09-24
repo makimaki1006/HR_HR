@@ -3034,6 +3034,50 @@ check("交代の前後: 左へ長く伸びた負の棒の値をラベル欄に�
   ok(small.a === "end" && small.x < x0, "短い負の棒の値は今までどおり棒の左に置く");
 });
 
+/* 検証の指摘（2026-09-24, 400px）: 0 を中心にした軸の目盛りが「-10.0-5.0 0.0 5.0 10.0」と詰まってつながり、
+   負号が ASCII のハイフンで棒の値の「−」と揃っていなかった */
+check("0 を中心にした横棒: 目盛りの負号は「−」で、狭い幅でも隣の目盛りの文字と重ねない", () => {
+  for (const w of [360, 400, 480, 680, 1000]) {
+    const svg = run('svgBarH({ w: ' + w + ', padL: 120, fmt: F.d1, diverging: true, rows: [' +
+      '{ label: "a", v: -7, txt: "−7.00 減った", color: C.ai },' +
+      '{ label: "b", v: 1, txt: "+1.00 増えた", color: C.ai }] })');
+    const labs = [...svg.matchAll(/<text class="ax" x="([0-9.]+)" y="[0-9.]+" text-anchor="middle">([^<]*)<\/text>/g)]
+      .map((m) => ({ x: +m[1], s: m[2] }));
+    ok(labs.length >= 3, "w=" + w + ": 目盛りの文字が両端と 0 より少ない");
+    ok(labs.every((l) => !/^-/.test(l.s)), "w=" + w + ": 目盛りの負号が ASCII のハイフン: " + labs.map((l) => l.s).join(" "));
+    ok(labs.some((l) => /^−/.test(l.s)), "w=" + w + ": 負の目盛りが無い");
+    for (let i = 1; i < labs.length; i++) {
+      const gap = labs[i].x - labs[i - 1].x - (run("textW")(labs[i].s) + run("textW")(labs[i - 1].s)) / 2;
+      ok(gap >= 4, "w=" + w + ": 目盛り「" + labs[i - 1].s + "」と「" + labs[i].s + "」が詰まっている（間 " + gap.toFixed(1) + "px）");
+    }
+  }
+});
+
+/* 検証の指摘（2026-09-24, 1440px）: 棒の左に余白があるのに「−7.00 減った」だけが 0 の線の右に出た。
+   ラベル欄の右端（padL − 9）から 5px 空けて入るなら棒の左、入らないときだけ 0 の線の右 */
+check("0 を中心にした横棒: 負の値の文字は、入るなら棒の左に置き、入らないときだけ 0 の線の右に置く", () => {
+  let left = 0, right = 0;
+  for (let w = 400; w <= 1440; w += 20) {
+    const padL = 200;
+    const svg = run('svgBarH({ w: ' + w + ', padL: ' + padL + ', fmt: F.d1, diverging: true, rows: [' +
+      '{ label: "2026-06-01 (伏字)1109", v: -7, txt: "−7.00 減った", color: C.ai },' +
+      '{ label: "2026-07-08 (伏字)3241", v: 7.4, txt: "+7.40 増えた", color: C.ai }] })');
+    const x0 = +(/<line class="axisline" x1="([0-9.]+)"/.exec(svg) || [])[1];
+    const bar = +(/<rect x="([0-9.]+)"[^>]*style="fill:var\(--ai\)"/.exec(svg) || [])[1];
+    const m = /<text class="vl" x="([0-9.]+)"[^>]*text-anchor="(start|end)">−7\.00/.exec(svg);
+    ok(m && x0 > 0 && bar > 0, "w=" + w + ": 値の文字・0 の線・棒が取れない");
+    const fits = bar - 6 - run("textW")("−7.00 減った") >= padL - 4;
+    if (fits) {
+      left++;
+      ok(m[2] === "end" && +m[1] < x0, "w=" + w + ": 棒の左に入るのに 0 の線の右に置いている（棒の左端 " + bar + "）");
+    } else {
+      right++;
+      ok(m[2] === "start" && +m[1] > x0, "w=" + w + ": 棒の左に入らないのに棒の左（ラベル欄側）に置いている");
+    }
+  }
+  ok(left > 0 && right > 0, "左に置く幅と右に置く幅の両方を通っていない（left " + left + " / right " + right + "）");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
