@@ -2234,6 +2234,11 @@ check("ループ4 検証: 箱ひげを狭い枠（319px）で描くとき、ラ�
     '{ label: "継続した", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 20, n: 742 },' +
     '{ label: "充足（採れて終わった）", med: 9.8, q1: 5, q3: 17.3, min: 0.5, max: 25, n: 142 }] })', 319);
   ok(vh(inAx) === 22 + 26 + 27 + 32, "2行のラベルの行が 32px になっていない: " + vh(inAx));
+  // 軸の外の最大値: ひげの先から軸の右端（途切れの印）までを細い線でつなぐ（線が無いと、ひげの先が最大値に見える）
+  const outs = [...svg.matchAll(/<path data-boxout="1" d="M([\d.]+) ([\d.]+)/g)].map((m) => ({ x: +m[1] - 1, y: +m[2] - 4.5 }));
+  const thin = [...svg.matchAll(/<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="[\d.]+"[^>]*opacity="\.3"\/>/g)];
+  ok(outs.length === 2 && outs.every((o) => thin.some((t) => Math.abs(+t[3] - o.x) < .2 && Math.abs(+t[2] - o.y) < .2 && +t[1] < o.x - 5)),
+    "ひげの先から軸の端までの細い線が無い: 印 " + JSON.stringify(outs) + " / 線 " + thin.map((t) => t[1] + "→" + t[3]).join(","));
 });
 
 Promise.all(pendingChecks).then(() => {
