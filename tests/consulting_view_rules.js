@@ -2605,6 +2605,31 @@ check("ループ5: 図の見出しの補足（.hint）で、数字と単位（�
   ok(/figcaption \.hint \.nw\{\s*white-space:nowrap/.test(html), ".hint .nw に white-space:nowrap の CSS が無い");
 });
 
+check("ループ5 outcome: 契約開始日が空（no_start）の点は、赤に数えているとおり赤系の中空で描く（灰＝記録なしの色にしない）", () => {
+  const O = JSON.parse(JSON.stringify(ctx.__OUT));
+  // routes.rs risk() は開始日が空の行を放置の軸の赤に数え、2軸とも赤（最優先）の行に入れる
+  O.risk.top = [
+    { name: "案件C", stage: "定期1", amount: 1200000, days_to_expiry: 30, ax3w: "契約開始日が空で、契約後の接触を切り出せない",
+      n_contact: 7, never_after_start: false, no_start: true },
+    { name: "案件D", stage: "定期1", amount: 900000, days_to_expiry: 40, ax3w: "最後の接触から45日",
+      n_contact: 3, never_after_start: false, no_start: false }];
+  ctx.__OUT6 = O;
+  const h = run("renderOutcome(__OUT6)");
+  const hi = run("C.hi"), ghost = run("C.ghost");
+  const c = h.match(/<circle[^>]*>(?=<title>案件C)/);
+  ok(c, "散布図に開始日が空の点（案件C）が無い");
+  ok(!c[0].includes(ghost), "開始日が空の点を灰（記録なし・未確定の色）で描いている: " + c[0]);
+  ok(c[0].includes("stroke:" + hi) && c[0].includes("fill:var(--panel)") && !/stroke-dasharray/.test(c[0]),
+    "開始日が空の点が赤の中空・実線の丸になっていない（赤に数えた件数と見た目が合わない）: " + c[0]);
+  // 開始日がある行（接触から30日超）は塗りの点のまま
+  const d = h.match(/<circle[^>]*>(?=<title>案件D)/);
+  ok(d && /style="fill:/.test(d[0]) && !/data-open/.test(d[0]), "開始日がある行の点まで中空にした: " + (d && d[0]));
+  // 凡例も同じ印（赤の中空）で、赤に数えていることを書く
+  const lgs = [...h.matchAll(/<i><svg [^>]*>((?:(?!<\/svg>)[\s\S])*)<\/svg>([^<]*)<\/i>/g)].filter((m) => m[2].startsWith("契約開始日が空"));
+  ok(lgs.length === 1 && lgs[0][1].includes("stroke:" + hi) && !lgs[0][1].includes(ghost) && lgs[0][2].includes("赤に数えています"),
+    "凡例の印・説明が点と合っていない: " + (lgs[0] ? lgs[0][0] : "無し"));
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
