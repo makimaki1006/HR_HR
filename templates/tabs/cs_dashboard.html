@@ -1102,7 +1102,13 @@ function fig(caption, hint, body, legend) {
   const boxNote = (/<svg [^>]*data-mean="1"/.test(body) ? lg("mean", C.ink3, "平均（中央値とずれるほど、裾に大きな値がある）") : "") +
     (/<svg [^>]*data-boxmax="1"/.test(body) ? lg("boxmax", C.ink3, "最大値（ひげの先より外。印は本当の位置）") : "") +
     (/<svg [^>]*data-boxout="1"/.test(body) ? lg("boxout", C.ink3, "最大値が軸の右の外（軸の端で切っています。値は「最大 N（軸の外）」の文字）") : "");
-  legend = (legend || "") + boxNote + noneNote + gapNote + shiftNote;
+  /* 箱ひげの印は、呼び出し側の「四分位 / 中央値」の粒のすぐ後ろ（最初の1行まるごとの注記 i.full の手前）に置く。
+     🔴 2026-09-24 検証（385px / 1440px, outcome「応募数 ÷ 掲載数」・renewal「応募数の散らばり」）: 前は凡例の最後に
+     つないでいて、「四分位 / 中央値」→ 説明の段落2つ →「◇ 平均」「// 軸の外」と、段落をはさんで離れていた */
+  legend = legend || "";
+  const para = legend.indexOf('<i class="full"');
+  legend = (para > 0 ? legend.slice(0, para) + boxNote + legend.slice(para) : legend + boxNote) +
+    noneNote + gapNote + shiftNote;
   return `<figure class="fig"><figcaption>${esc(caption)}` +
     (hint ? `<span class="hint">${hint}</span>` : "") + `</figcaption>` +
     (scroll ? `<div class="figscroll" style="--minw:${Math.ceil(minW)}px">← 図を横にスクロールできます →</div>` : "") +

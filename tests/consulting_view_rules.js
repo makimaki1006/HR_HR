@@ -2268,6 +2268,17 @@ check("ループ4 検証: 最初の月からデータがある折れ線（renewa
     JSON.stringify(monthsN(6).map(() => ({ v: .5 }))) + ' }], yFmt: F.pct, yLab: "継続率" })', 1116)), "枠に収まる折れ線まで目盛りを貼り付けた");
 });
 
+check("ループ4 検証: 箱ひげの凡例（◇ 平均・軸の外の印）は「四分位 / 中央値」のすぐ後ろに並べ、説明の段落の後ろに回さない", () => {
+  ctx.__BX = 'svgBoxH({ w: 680, xFmt: F.d1, rows: [{ label: "a", med: 7.4, q1: 3.3, q3: 11.4, min: 0.1, max: 163.7, mean: 12.9, n: 742 }] })';
+  const f = run('fig("応募数 ÷ 掲載数", "", eval(__BX), lg("quart", C.ai, "四分位") + lg("line", C.ai, "中央値") +' +
+    ' \'<i class="full">段落その1</i><i class="full">段落その2</i>\')');
+  const at = (t) => f.indexOf(t);
+  ok(at("中央値") >= 0 && at("平均（") > at("中央値") && at("最大値が軸の右の外") > at("中央値"), "箱ひげの凡例が出ていない");
+  ok(at("平均（") < at("段落その1") && at("最大値が軸の右の外") < at("段落その1"), "◇ 平均・軸の外の印の説明が、段落の後ろに離れている");
+  // 段落の無い凡例・凡例の無い図では、これまでどおり最後に付く
+  ok(run('fig("x", "", eval(__BX))').includes("平均（"), "凡例の無い図で箱ひげの凡例が出ない");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
