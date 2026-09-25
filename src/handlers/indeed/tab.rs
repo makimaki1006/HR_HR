@@ -627,7 +627,7 @@ fn sort_selector(current: &SortSpec) -> String {
 /// 動かすほうは [`SEARCH_BOX_SCRIPT`]。**表より後ろ**に出す。
 const SEARCH_BOX: &str = r#"<div class="mt-3 mb-2 flex items-center gap-3">
 <input id="indeed-title-find" data-indeed-find type="search" oninput="indeedFilterTitles(this.value, this)"
- placeholder="職種名・分類・業界で絞り込み"
+ placeholder="職種名・分類・業界・動き方で絞り込み"
  class="flex-1 px-3 py-1.5 bg-navy-900 border border-slate-700 rounded text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none">
 <span id="indeed-title-count" data-indeed-count class="text-slate-400 text-xs tabular-nums"></span></div>
 <p id="indeed-title-empty" data-indeed-empty class="text-amber-300 text-sm mb-2"></p>"#;
@@ -710,6 +710,31 @@ fn search_box_script(token: u64) -> String {
 }
 
 /// 職種の一覧。全国なら全職種、県を選んでいればその県の職種。
+/// 職種の一覧の絞り込みが見る文字列。
+///
+/// # 決まりごと: 表に出ている列は引ける
+/// 表には 職種名 / 分類 / 業界 / 動き方 が出る。人はそこに見えている語で
+/// 探そうとするので、見えている列は全部ここに入れる。
+///
+/// 実測（全 126 行・2026-09-25）では、動き方を入れる前はこうだった:
+///
+/// ```text
+/// 「事務」        15 行   引ける
+/// 「運輸」        17 行   引ける
+/// 「増え続けている」 0 行   ← 列に出ているのに引けない
+/// 「振れながら」    0 行
+/// ```
+///
+/// 126 行を上から読む以外に、その動き方の職種だけを見る手が無かった。
+///
+/// # 数字は入れない
+/// 求人数や人数は入れていない。「1000」と打って 1,000 件の職種だけが出るなら
+/// 分かりやすいが、部分一致なので 10,000 や 21,000 も当たる。
+/// 数の大小は並べ替え（8 種類）の役目にする。
+fn find_key(name: &str, cat: &str, industry: &str, trend: &str) -> String {
+    format!("{name} {cat} {industry} {trend}")
+}
+
 fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> String {
     let months = &snap.meta.months;
     let spec = sort_spec(sort);
@@ -938,11 +963,18 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
              <td class=\"{td} tabular-nums text-slate-400\" style=\"text-align:right\">{mb}</td>\
              <td class=\"{td} text-slate-300 whitespace-nowrap\">{t}</td></tr>",
             n = esc(name),
-            // 検索欄が見る文字列。職種・分類・業界をまとめて 1 つの属性に入れる
-            find = esc(&format!(
-                "{name} {cat} {ind}",
-                ind = crate::indeed::industry::of_category(cat)
-                    .unwrap_or(crate::indeed::industry::OUTSIDE)
+            // 検索欄が見る文字列。職種・分類・業界・動き方をまとめて 1 つの属性に入れる。
+            //
+            // 動き方を入れているのは、**表に出ている列は引けて当然**だから。
+            // 実測（全 126 行）では「事務」15 行・「運輸」17 行は引けるのに、
+            // 列に出ている「増え続けている」「振れながら増えた」は 0 行だった。
+            // 126 行を上から読む以外に、その動き方の職種だけを見る手が無かった。
+            find = esc(&find_key(
+                name,
+                cat,
+                crate::indeed::industry::of_category(cat)
+                    .unwrap_or(crate::indeed::industry::OUTSIDE),
+                o.job.label_trend,
             )),
             q = url_query(name),
             pq = pq,
@@ -2016,5 +2048,59 @@ mod season_tests {
         );
         // 検索数が多い職種の数を数えて書く
         assert!(h.contains("月 1000 回以上の 20 職種"));
+    }
+}
+
+#[cfg(test)]
+mod find_key_tests {
+    use super::*;
+
+    /// 表に出ている列の語が、すべて絞り込みの対象に入っていること。
+    ///
+    /// データを見ない検査にしてある。実データの中身が変わっても
+    /// 「表に出ている列は引ける」という決まりごとは変わらない。
+    #[test]
+    fn 表に出ている四つの列すべてで引ける() {
+        let k = find_key("一般事務", "事務・管理", "オフィス", "増え続けている");
+        for part in ["一般事務", "事務・管理", "オフィス", "増え続けている"] {
+            assert!(k.contains(part), "「{part}」で引けない: {k}");
+        }
+    }
+
+    /// 動き方の語は [`crate::indeed::wording`] が返す実物を使う。
+    /// 文言が変わったらここが落ちて気づける。
+    #[test]
+    fn 動き方の語が変わったら気づける() {
+        // wording.rs が返しうる形。ここを直に書いているのは、
+        // 「絞り込みに入れるべき語の一覧」を 1 か所に見えるようにするため。
+        for trend in [
+            "データ不足",
+            "月ごとにばらつく",
+            "振れながら増えた",
+            "振れながら減った",
+            "増え続けている",
+        ] {
+            let k = find_key("職種", "分類", "業界", trend);
+            assert!(k.contains(trend), "「{trend}」が絞り込みに入らない");
+        }
+    }
+
+    #[test]
+    fn 語どうしがくっつかない() {
+        // 区切りが無いと「事務管理」で「事務」「管理」の両方に当たってしまう。
+        let k = find_key("事務", "管理", "オフィス", "月ごとにばらつく");
+        assert!(!k.contains("事務管理"), "語が連結している: {k}");
+        assert_eq!(
+            k.split(' ').count(),
+            4,
+            "欄は 4 つなので空白で 4 つに割れる: {k}"
+        );
+    }
+
+    #[test]
+    fn 空の欄があっても壊れない() {
+        // 分類や業界が取れない職種がある（「5 業界の外」など）。
+        let k = find_key("職種", "", "", "データ不足");
+        assert!(k.contains("職種") && k.contains("データ不足"), "{k}");
     }
 }
