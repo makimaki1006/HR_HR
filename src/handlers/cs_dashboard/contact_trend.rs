@@ -208,6 +208,77 @@ fn owners_during(tl: &[OwnerEntry], a: NaiveDate, b: NaiveDate) -> Vec<&str> {
 /// 付け直したあとの接触。`(日, 付け直したか)`。日の昇順。
 pub type Attached = HashMap<String, Vec<(NaiveDate, bool)>>;
 
+/// 接触1件の付け先（モジュールの頭の「付け直し」の決まり）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target<'a> {
+    /// 付いている本体案件の契約期間の中。そのまま
+    Own,
+    /// 同じ拠点で、その日が契約期間に入る本体案件が1件だけあった。そこへ付け直す
+    Moved(&'a str),
+    /// 同じ拠点で、その日が契約期間に入る本体案件が2件以上。決められないので数えない
+    Ambiguous,
+    /// 拠点が分からない・その日に動いている本体案件が無い。数えない
+    Dropped,
+}
+
+/// 付け直しの索引。**付け先の決まりはここ1か所だけに置く**
+/// （「担当者ごとの接触」「担当の交代」「案件の詳細」が同じ決まりで付け直す）。
+///
+/// - `all`: オプションも含む全取引（付いている取引の拠点を引くため）
+/// - `spans`: 本体案件の契約期間（`main_spans`）
+pub struct AttachIndex<'a> {
+    own: HashMap<&'a str, (NaiveDate, NaiveDate)>,
+    site: HashMap<&'a str, &'a str>,
+    by_site: HashMap<&'a str, Vec<(&'a str, NaiveDate, NaiveDate)>>,
+}
+
+impl<'a> AttachIndex<'a> {
+    pub fn new(all: &'a [Deal], spans: &[(&'a str, NaiveDate, NaiveDate)]) -> Self {
+        let own: HashMap<&str, (NaiveDate, NaiveDate)> =
+            spans.iter().map(|&(id, s, e)| (id, (s, e))).collect();
+        let site: HashMap<&str, &str> = all
+            .iter()
+            .map(|d| (d.id.as_str(), d.kyoten_key.trim()))
+            .collect();
+        let mut by_site: HashMap<&str, Vec<(&str, NaiveDate, NaiveDate)>> = HashMap::new();
+        for &(id, s, e) in spans {
+            if let Some(k) = site.get(id).filter(|k| !k.is_empty()) {
+                by_site.entry(k).or_default().push((id, s, e));
+            }
+        }
+        Self { own, site, by_site }
+    }
+
+    /// 取引の拠点キー（空なら `None`）。
+    pub fn site_of(&self, id: &str) -> Option<&'a str> {
+        self.site.get(id).copied().filter(|k| !k.is_empty())
+    }
+
+    /// `id` に付いている `d` の日の接触を、どこに付けるか。
+    pub fn target(&self, id: &str, d: NaiveDate) -> Target<'a> {
+        // 付いている本体案件の契約期間の中なら、そのまま
+        if self.own.get(id).is_some_and(|&(s, e)| s <= d && d <= e) {
+            return Target::Own;
+        }
+        let Some(k) = self.site_of(id) else {
+            return Target::Dropped; // 拠点が分からない。付け直さない
+        };
+        let mut hit = self
+            .by_site
+            .get(k)
+            .into_iter()
+            .flatten()
+            .filter(|&&(_, s, e)| s <= d && d <= e);
+        match (hit.next(), hit.next()) {
+            (Some(&(to, _, _)), None) => Target::Moved(to),
+            // 🔴 どれに付けるか決められない。推測で選ばない
+            (Some(_), Some(_)) => Target::Ambiguous,
+            // 初めての契約の開始前・契約と契約のすき間。持っている案件が無い
+            (None, _) => Target::Dropped,
+        }
+    }
+}
+
 /// 接触を、その日に動いていた本体案件に付ける（モジュールの頭の「付け直し」）。
 ///
 /// - `raw`: `contacts_by_deal` の結果（接触の定義はそのまま）
@@ -221,43 +292,16 @@ pub fn attach_contacts(
     all: &[Deal],
     spans: &[(&str, NaiveDate, NaiveDate)],
 ) -> (Attached, usize) {
-    let own: HashMap<&str, (NaiveDate, NaiveDate)> =
-        spans.iter().map(|&(id, s, e)| (id, (s, e))).collect();
-    let site: HashMap<&str, &str> = all
-        .iter()
-        .map(|d| (d.id.as_str(), d.kyoten_key.trim()))
-        .collect();
-    let mut by_site: HashMap<&str, Vec<(&str, NaiveDate, NaiveDate)>> = HashMap::new();
-    for &(id, s, e) in spans {
-        if let Some(k) = site.get(id).filter(|k| !k.is_empty()) {
-            by_site.entry(k).or_default().push((id, s, e));
-        }
-    }
+    let ix = AttachIndex::new(all, spans);
     let mut out: Attached = HashMap::new();
     let mut ambiguous = 0usize;
     for (id, days) in raw {
         for &d in days {
-            // 付いている本体案件の契約期間の中なら、そのまま
-            if own.get(id.as_str()).is_some_and(|&(s, e)| s <= d && d <= e) {
-                out.entry(id.clone()).or_default().push((d, false));
-                continue;
-            }
-            let Some(k) = site.get(id.as_str()).filter(|k| !k.is_empty()) else {
-                continue; // 拠点が分からない。付け直さない
-            };
-            let mut hit = by_site
-                .get(k)
-                .into_iter()
-                .flatten()
-                .filter(|&&(_, s, e)| s <= d && d <= e);
-            match (hit.next(), hit.next()) {
-                (Some(&(to, _, _)), None) => {
-                    out.entry(to.to_string()).or_default().push((d, true));
-                }
-                // 🔴 どれに付けるか決められない。推測で選ばない
-                (Some(_), Some(_)) => ambiguous += 1,
-                // 初めての契約の開始前・契約と契約のすき間。持っている案件が無い
-                (None, _) => {}
+            match ix.target(id, d) {
+                Target::Own => out.entry(id.clone()).or_default().push((d, false)),
+                Target::Moved(to) => out.entry(to.to_string()).or_default().push((d, true)),
+                Target::Ambiguous => ambiguous += 1,
+                Target::Dropped => {}
             }
         }
     }

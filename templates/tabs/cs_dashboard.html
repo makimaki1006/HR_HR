@@ -600,6 +600,44 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
 /* 本題の見出しは共通部のすぐ下に出す。間の 40px は節どうしの区切りの値で、
    ページの頭には要らない */
 .pane > .ctlbar + h2.sec{ margin-top:var(--space-4); }
+
+/* ---------------------------------------------------------------- 案件の詳細（2026-09-26）
+   表の案件名から開く。名前は長いので golink と違って折り返してよい（nowrap にしない。
+   1440px の表で案件名の列が伸びて右端の列が切れた件を繰り返さない） */
+a.deallink{ color:var(--ai); text-decoration:underline; text-underline-offset:2px; overflow-wrap:anywhere; }
+a.deallink:hover{ background:var(--ai-soft); }
+a.deallink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+/* 取引の基本。見出しと値の組を並べる */
+.dd-kv{ display:grid; gap:var(--space-1) var(--space-4); margin:var(--space-3) 0;
+        grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));
+        background:var(--panel); border:1px solid var(--rule); border-radius:var(--radius-lg);
+        padding:var(--space-3) var(--space-4); }
+.dd-kv div{ min-width:0; overflow-wrap:anywhere; }
+.dd-kv span.k{ display:block; font-size:11.5px; color:var(--ink-2); }
+.dd-kv .nw{ white-space:nowrap; }   /* 「（3か月）」を「（3か / 月）」と割らない */
+/* 縦のタイムライン。左に日付、その右に種類の印と中身 */
+ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px solid var(--rule-strong); }
+.tl li{ position:relative; display:grid; grid-template-columns:7.5em 1fr; gap:var(--space-3);
+        padding:var(--space-2) 0 var(--space-2) var(--space-3); border-bottom:1px solid var(--rule-2); }
+/* 点の形で事実と推定を分ける（色だけにしない）: 事実は塗りの丸、推定は中空の菱形 */
+.tl li::before{ content:""; position:absolute; left:-7px; top:14px; width:12px; height:12px;
+                border-radius:50%; background:var(--ai); border:2px solid var(--panel); }
+.tl li.est::before{ border-radius:1px; transform:rotate(45deg); background:var(--panel);
+                    border:2px dashed var(--ink-2); }
+.tl li.k-handover::before{ background:var(--murasaki); }
+.tl .when{ font-variant-numeric:tabular-nums; font-size:12.5px; color:var(--ink-2); line-height:1.5; }
+.tl .when b{ color:var(--ink); font-weight:600; display:block; }
+.tl .what{ min-width:0; overflow-wrap:anywhere; font-size:13px; line-height:1.7; }
+.tl .mark{ display:inline-block; font-size:11px; font-weight:700; padding:0 var(--space-2);
+           border:1px solid var(--ink-3); border-radius:3px; margin-right:var(--space-2); letter-spacing:.04em; }
+.tl li.est .mark{ border-style:dashed; font-weight:400; }
+.tl dl{ display:grid; grid-template-columns:max-content 1fr; gap:2px var(--space-3); margin:var(--space-1) 0 0; }
+.tl dt{ color:var(--ink-2); font-size:12px; }
+.tl dd{ margin:0; min-width:0; }
+.tl .via{ display:block; margin-top:2px; font-size:12px; color:var(--ink-2); }
+@media (max-width:600px){
+  .tl li{ grid-template-columns:1fr; gap:2px; }
+}
 </style>
 </head>
 <body>
@@ -3826,7 +3864,7 @@ function custBlocks(D, want) {
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "拠点", w: "s" }, { t: "種別" },
                      { t: "開始〜満了" }, { t: "継続", n: 1 }, { t: "金額", n: 1 },
                      { t: "応募", n: 1 }, { t: "面接", n: 1 }, { t: "承諾", n: 1 }, { t: "状態" }],
-    D.deals.map((d) => [esc(d.name || d.deal_id),
+    D.deals.map((d) => [dealLink(d.deal_id, d.name || d.deal_id),
       '<span class="muted small">' + esc(d.stage) + "</span>",
       '<span class="muted small">' + esc(d.site) + "</span>",
       '<span class="muted small">' + esc(d.kind) + "</span>",
@@ -4942,7 +4980,8 @@ function cpaBandNote(meta) {
 }
 
 const BOARD_COLS = [
-  { k: "name",       t: "案件",        n: 0, fmt: (r) => esc(r.name || r.deal_id) +
+  /* 案件名から「案件の詳細」へ（戻るでこの表へ戻る） */
+  { k: "name",       t: "案件",        n: 0, fmt: (r) => dealLink(r.deal_id, r.name || r.deal_id) +
       (r.focus ? ' <span class="tag">注力</span>' : "") },
   { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
   /* 🔴 並べ替えは画面に出ている順に合わせる（sv）。「満了後」の行は数字を出していないのに、
@@ -5730,6 +5769,284 @@ function renderHandover(D) {
 }
 
 /* ---------------------------------------------------------------- 定義と検証 */
+/* ---------------------------------------------------------------- 案件の詳細（2026-09-26）
+
+   藤巻さんの要望: 個別の案件のページに、どんな MTG をして、どんな接触をしたのかをまとめ、
+   電話の内容の要約（MiniMax-M3）も出す。時系列で並べる。
+   🔴 事実（録画・通話記録）と推定（メール由来の MTG 実施日）は、点の形・印の枠・文の3つで分ける（色だけにしない）。
+   🔴 取引の指定はハッシュの後ろ（#deal/detail?id=<取引ID>）。表の案件名のリンクから来て、戻るで元の画面へ戻る。 */
+let detailId = "";            /* 見ている取引。空なら探す欄を出す */
+let detailQ = "";             /* 探す欄の言葉 */
+/* 種類の絞り込み。既定は全部 */
+const DETAIL_KINDS = [
+  { k: "mtg", t: "MTG" }, { k: "call", t: "電話" }, { k: "handover", t: "交代" },
+];
+let detailKinds = { mtg: true, call: true, handover: true };
+/* 電話は 60秒超だけ（接触と数えるもの）か、全部か。既定は 60秒超だけ（短い呼び出しで埋まらないように） */
+let detailAllCalls = false;
+
+/** 表の案件名から「案件の詳細」へのリンク。行き先が無い（ID が空）ときはリンクにしない */
+function dealLink(id, name) {
+  const label = esc(name || "取引名なし");
+  if (!id) return label;
+  return '<a class="deallink" href="#deal/detail?id=' + encodeURIComponent(id) + '">' + label + "</a>";
+}
+
+/* 秒を「3分12秒」に。値が無ければ —（0秒にしない） */
+function durText(sec) {
+  if (sec == null) return DASH;
+  const s = Math.round(+sec);
+  return s < 60 ? s + "秒" : Math.floor(s / 60) + "分" + (s % 60 ? (s % 60) + "秒" : "");
+}
+
+/* 付け直しの説明（どこから来たか・どこの期間の出来事か）。e は行そのもの（接触に数えない行は文を変える） */
+const MOVED_FROM_WORD = { later: "継続の取引", earlier: "前の契約の取引", option: "同じ拠点のオプション契約", unknown: "同じ拠点の別の取引" };
+function attachNote(a, e) {
+  if (!a || a.state === "own") return "";
+  /* 🔴 60秒以下の電話とメール由来の MTG は、どの取引でも接触に数えない。「〜の記録として数えています」とは書かない */
+  const why = !e ? "" : e.kind === "call" && !e.contact ? "60秒以下なので" :
+    e.kind === "mail_mtg" ? "メール由来の MTG なので" : "";
+  if (a.state === "moved_in") {
+    const f = a.moved_from || {};
+    const word = MOVED_FROM_WORD[f.relation] || MOVED_FROM_WORD.unknown;
+    /* 🔴 オプション契約には詳細の画面が無いので、リンクにしない（押しても先へ進めない） */
+    const name = f.relation === "option" ? esc(f.name || "取引名なし") : dealLink(f.deal_id, f.name);
+    return '<span class="via">&#8618; 付け直し: ' + word + "「" + name +
+      "」に付いていた記録です。この契約の期間の日なので、ここに並べています</span>";
+  }
+  if (a.state === "moved_out") {
+    return '<span class="via">&#9888; この取引に付いていますが、契約期間の外の日です。「' +
+      dealLink(a.moved_to && a.moved_to.deal_id, a.moved_to && a.moved_to.name) +
+      (why ? "」の期間の出来事です（" + why + "、接触には数えていません）</span>"
+        : "」の期間の記録として数えています</span>");
+  }
+  if (a.state === "ambiguous") {
+    return '<span class="via">&#9888; 契約期間の外の日です。同じ拠点でその日に動いている契約が2件以上あり、' +
+      (why ? "どの契約の期間の出来事か決められません（" + why + "、接触には数えていません）</span>"
+        : "どの契約の記録か決められないので、接触には数えていません</span>");
+  }
+  return '<span class="via">&#9888; 契約期間の外の日です（その日に動いている同じ拠点の契約がありません）。' +
+    "接触には数えていません</span>";
+}
+
+/* 1件ぶんの中身 */
+function detailItem(e) {
+  const when = "<b>" + esc(e.date) + "</b>" + (e.time ? esc(e.time) : "");
+  let what = "";
+  let cls = "k-" + (e.kind === "mail_mtg" ? "mtg" : e.kind);
+  if (e.kind === "mtg") {
+    what = '<span class="mark">MTG</span><span class="muted small">' + esc(e.source_label) + "</span>" +
+      (e.minutes != null ? "　" + num(e.minutes) + "分" : "") +
+      (e.host ? '　<span class="muted small">ホスト ' + esc(e.host) + "</span>" : "") +
+      (e.mtg_type ? '　<span class="tag">' + esc(e.mtg_type) + "</span>" : "");
+    /* 🔴 録画があったことは事実。この取引の録画だという点は推定（確度 高・中） */
+    if (e.link_certainty && e.link_certainty !== "高") {
+      what += '<span class="via"><span class="tag d">取引への結び付け: 確度 ' + esc(e.link_certainty) + "</span>" +
+        "録画があったことは事実ですが、この取引の MTG だという結び付けは推定で、確かさは中です" +
+        (e.link_reason ? "（" + esc(e.link_reason) + "）" : "") + "</span>";
+    }
+    if (e.extracted) {
+      const rows = [["やること", e.todo], ["顧客の懸念", e.concern], ["前向きシグナル", e.positive],
+        ["リスク判定", e.risk ? e.risk + (e.risk_reason ? "（" + e.risk_reason + "）" : "") : null],
+        ["次回予定", e.next]];
+      what += "<dl>" + rows.map(([k, v]) => "<dt>" + esc(k) + "</dt><dd>" +
+        (v ? esc(v) : DASH) + "</dd>").join("") + "</dl>";
+    } else {
+      /* 🔴 空なのは「まだ抽出していない」。記録が無いのとは違う */
+      what += '<span class="via"><span class="tag d">未抽出</span>やること・懸念などはまだ抽出していません' +
+        "（記録が無いのではありません）</span>";
+    }
+  } else if (e.kind === "mail_mtg") {
+    cls += " est";
+    what = '<span class="mark">MTG（推定）</span><span class="muted small">' + esc(e.source_label) + "</span>" +
+      '<span class="via">メールの文面から起こした実施日です。' + esc(e.certainty || "推定") +
+      "。録画のような中身はありません" +
+      (e.same_day_recording ? "。<b>同じ日に録画の MTG があります</b>（同じ MTG の見込みが高い）" : "") +
+      "</span>";
+  } else if (e.kind === "call") {
+    /* 話した人は Zoom の表示名をそろえたもの（handler_label）。元の書き方は title に残す */
+    const who = e.handler_label || e.handler || e.owner;
+    what = '<span class="mark">電話</span><span class="muted small">' + esc(e.source_label) + "</span>" +
+      "　" + durText(e.duration_sec) +
+      (e.contact ? "" : '　<span class="tag d">60秒以下</span>') +
+      (e.direction === "outbound" ? "　発信" : e.direction === "inbound" ? "　着信" : "") +
+      (who ? '　<span class="muted small"' + (e.handler ? ' title="Zoom の表示名: ' + esc(e.handler) + '"' : "") + ">" +
+        (e.handler ? "話した人 " : "担当 ") + esc(who) + "</span>" : "") +
+      '　<span class="muted small">文字起こし' + (e.has_transcript ? "あり" : "なし") + "</span>";
+    const s = e.summary;
+    if (s && s.summary) {
+      /* 🔴 AI 要約は取り違えを含む（2026-09-26 検証: 手で突き合わせた約11件中2件が誤り。
+         受付と相手・別の候補者の取り違え）。機械の検証では防げないので、要約の見出しで必ず断る */
+      what += "<dl><dt>AI 要約（誤りを含むことがあります）</dt><dd>" + esc(s.summary) + "</dd>" +
+        "<dt>次にやること</dt><dd>" + (s.next_action ? esc(s.next_action) : DASH) + "</dd>" +
+        "<dt>顧客の懸念</dt><dd>" + (s.concern ? esc(s.concern) : DASH) + "</dd></dl>" +
+        '<span class="via">要約: ' + esc(s.model || "") + (s.generated_at ? "（" + esc(s.generated_at) + " 作成）" : "") +
+        "。話された内容の要約で、評価ではありません</span>";
+    } else {
+      what += '<span class="via"><span class="tag d">要約なし</span></span>';
+    }
+  } else if (e.kind === "handover") {
+    what = '<span class="mark">交代</span><span class="muted small">' + esc(e.source_label) + "</span>" +
+      '<span class="via">' + (esc(e.from) || "（不明）") + " &#8594; " + (esc(e.to) || "（不明）") +
+      (e.to_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "") +
+      (e.reflected ? "　HubSpot への反映: " + esc(e.reflected) : "") +
+      (e.record_gap_days != null ? "（担当欄の書き換えとのずれ " + num(e.record_gap_days) + "日）" : "") +
+      "</span>";
+  }
+  return '<li class="' + cls + '"><div class="when">' + when + '</div><div class="what">' +
+    what + attachNote(e.attach, e) + "</div></li>";
+}
+
+/* 絞り込みに当たるか */
+function detailShown(e) {
+  const k = e.kind === "mail_mtg" ? "mtg" : e.kind;
+  if (!detailKinds[k]) return false;
+  if (e.kind === "call" && !detailAllCalls && !e.contact) return false;
+  return true;
+}
+
+/* 探す欄（取引を指定していないとき） */
+function renderDetailSearch(D) {
+  const S = D.search || { q: "", rows: [], n_match: 0 };
+  let h = sec("問い", "どの案件の中身を見るか");
+  h += '<div class="lede">案件名か拠点名の一部を上の欄に入れて「探す」を押してください。' +
+    "「案件そのもの」「今日動く先」「継続を追いかける」「法人番号で見る」の表の案件名からも開けます。</div>";
+  if (!S.q) return h;
+  if (!S.rows.length) return h + '<div class="empty">「' + esc(S.q) + "」に当たる案件はありません。</div>";
+  h += sec("表", "「" + S.q + "」に当たる案件（" + num(S.n_match) + " 件）");
+  h += '<div class="lede">稼働中を先に、同じなら開始日の新しい順。' +
+    (S.n_match > S.rows.length ? "<b>上位 " + num(S.rows.length) + " 件だけ出しています。</b>言葉を足して絞ってください。" : "") +
+    "</div>";
+  h += scroll(table([{ t: "案件", w: "l" }, { t: "拠点", w: "s" }, { t: "ステージ", w: "s" },
+                     { t: "開始〜満了" }, { t: "継続", n: 1 }, { t: "担当", w: "s" }, { t: "状態" }],
+    S.rows.map((r) => [dealLink(r.deal_id, r.name), esc(r.site) || DASH,
+      '<span class="muted small">' + esc(r.stage) + "</span>",
+      (esc(r.start) || DASH) + "<br>〜" + (esc(r.expiration) || DASH),
+      nz(r.renewal_no), esc(r.consultant) || DASH,
+      r.is_active ? '<span class="tag e">稼働中</span>' : ""])), 520, S.n_match);
+  return h;
+}
+
+function renderDetail(D) {
+  if (!D.meta.deal_id) return renderDetailSearch(D);
+  if (!D.meta.found) {
+    return sec("問い", "この案件の中身") +
+      note("warn", "この案件は出せません", esc(D.meta.reason || "見つかりません。")) +
+      renderDetailSearch(D);
+  }
+  const d = D.deal, c = D.counts, ch = D.chain;
+  let h = sec("案件", d.name || "取引名なし") +
+    '<div class="lede">この案件で、いつどんな MTG・電話・担当の交代があったかを新しい順に並べています。</div>';
+
+  /* ---- 取引の基本 ---- */
+  const kv = (k, v) => '<div><span class="k">' + esc(k) + "</span>" + v + "</div>";
+  h += '<div class="dd-kv">' +
+    kv("拠点", esc(d.site) || '<span class="n0">拠点名なし</span>') +
+    kv("ステージ", esc(d.stage) || DASH) +
+    kv("契約期間", (esc(d.start) || DASH) + " 〜 " + (esc(d.expiration) || DASH) +
+      (d.period != null ? '<span class="muted small nw">（' + num(d.period) + "か月）</span>" : "")) +
+    kv("担当", (esc(d.consultant) || DASH) +
+      (d.consultant_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "")) +
+    kv("金額", yen(d.amount)) +
+    kv("継続回数", d.renewal_no == null ? DASH : d.renewal_no === 0 ? "初回" : num(d.renewal_no) + "回目") +
+    kv("状態", (d.is_active ? '<span class="tag e">稼働中</span>' : "稼働中ではない") +
+      (d.right_censored ? ' <span class="tag">未確定</span>' : "")) +
+    kv("名札", d.flags == null ? '<span class="muted small">稼働中の案件にだけ付けています</span>'
+      : d.flags.length ? d.flags.map((f) => '<span class="tag">' + esc(f) + "</span>").join("")
+      : '<span class="muted small">なし</span>') +
+    "</div>";
+
+  /* ---- 契約の連なり ---- */
+  const rows = (ch && ch.rows) || [];
+  if (rows.length > 1) {
+    h += sec("表", "同じ拠点の契約の連なり（" + num(rows.length) + " 件）");
+    h += '<div class="lede">開始の古い順。前後の契約へは案件名から移れます' +
+      (ch.prev || ch.next ? "（" + (ch.prev ? "前の契約あり" : "前の契約なし") + "・" +
+        (ch.next ? "次の契約あり" : "次の契約なし") + "）" : "") + "。</div>";
+    h += scroll(table([{ t: "案件", w: "l" }, { t: "ステージ", w: "s" }, { t: "開始〜満了" },
+                       { t: "継続", n: 1 }, { t: "金額", n: 1 }, { t: "状態" }],
+      rows.map((r) => [r.current ? "<b>" + esc(r.name) + '</b> <span class="tag e">いま見ている</span>'
+          : dealLink(r.deal_id, r.name),
+        '<span class="muted small">' + esc(r.stage) + "</span>",
+        (esc(r.start) || DASH) + "<br>〜" + (esc(r.expiration) || DASH),
+        nz(r.renewal_no), yen(r.amount), r.is_active ? '<span class="tag e">稼働中</span>' : ""])), 320);
+  } else if (ch && !ch.has_site) {
+    h += '<div class="lede">拠点が入っていないので、前後の契約はたどれません。</div>';
+  }
+
+  /* ---- 時系列 ---- */
+  h += sec("図", "時系列（新しい順）");
+  if (D.meta.summary_sheet !== "ok") {
+    /* 🔴 読めない理由は「まだ作られていない」とは限らない（一時的な失敗もある）。決めつけない */
+    h += note("info", "電話の要約はまだありません",
+      (D.meta.summary_sheet === "missing"
+        ? "電話の要約（Zoom Phone の文字起こしを MiniMax-M3 で要約したもの）のシートを読めませんでした" +
+          "（まだ作られていないか、一時的に読めません。「読み直す」で取り直します）"
+        : "電話の要約（Zoom Phone の文字起こしを MiniMax-M3 で要約したもの）は、まだ作られていません" +
+          "（要約のシートに行がありません）") +
+      "。電話は日時・長さ・文字起こしの有無だけ出しています。");
+  }
+  const all = D.events || [];
+  const shown = all.filter(detailShown);
+  h += '<div class="ctlbar" id="dd-ctl"><span class="act" role="group" aria-label="出す種類">出す種類:' +
+    DETAIL_KINDS.map((k) => '<label class="act"><input type="checkbox" id="dd-k-' + k.k + '" data-dk="' + k.k + '"' +
+      (detailKinds[k.k] ? " checked" : "") + ">" + esc(k.t) + "</label>").join("") + "</span>" +
+    '<span class="act" role="group" aria-label="電話">電話:' +
+    '<button type="button" class="act" id="dd-c-contact" aria-pressed="' + (!detailAllCalls) + '">60秒超だけ</button>' +
+    '<button type="button" class="act" id="dd-c-all" aria-pressed="' + detailAllCalls + '">全部</button></span></div>';
+  const filtered = shown.length < all.length;
+  h += '<div class="count-line' + (filtered ? " on" : "") + '" id="dd-count"><b>' + num(all.length) + " 件中 " +
+    num(shown.length) + " 件</b>を表示" + (filtered ? "（絞り込み中）" : "（全部出しています）") +
+    '<span class="muted">　MTG 録画 ' + num(c.mtg) + " 件（抽出済み " + num(c.mtg_extracted) +
+    (c.mtg_link_not_high ? "・結び付けの確度が中 " + num(c.mtg_link_not_high) : "") + "）／ MTG 推定 " +
+    num(c.mail_mtg) + " 件（うち契約期間の外 " + num(c.mail_outside || 0) + "）／ 電話 " + num(c.call) +
+    " 件（60秒超 " + num(c.call_contact) + "・要約あり " +
+    num(c.call_summarized) + "）／ 交代 " + num(c.handover) + " 件</span></div>";
+  h += '<div class="legend"><i>&#9679; 事実（録画・通話記録・交代の記録）</i>' +
+    "<i>&#9671; 推定（メール由来の MTG。印の枠は破線）</i></div>";
+  h += shown.length ? '<ol class="tl" id="dd-tl">' + shown.map(detailItem).join("") + "</ol>"
+    : '<div class="empty">この条件で出せる出来事はありません。' +
+      (all.length ? "上の絞り込みを変えると出ます。" : "この案件には MTG・電話・交代の記録がありません。") + "</div>";
+  /* 付け直して来たもの・契約期間の外のもの（種類ごと）。元は継続の取引とは限らない（オプション契約・前の契約もある） */
+  const mv = [["電話", c.call_moved_in, c.call_outside], ["録画 MTG", c.mtg_moved_in, c.mtg_outside],
+    ["MTG 推定", c.mail_moved_in, c.mail_outside]].filter((x) => x[1] || x[2]);
+  if (mv.length) {
+    h += '<div class="lede">' + mv.map((x) => esc(x[0]) + "は " + num(x[1] || 0) + " 件が同じ拠点の別の取引から付け直したもの、" +
+      num(x[2] || 0) + " 件がこの取引に付いているが契約期間の外のもの").join("。") +
+      "です（行ごとに印を付けています）。</div>";
+  }
+  const nh = (c.mail_not_held || []).filter((x) => x.n > 0);
+  if (nh.length) {
+    h += '<div class="lede">メール由来のうち、実施ではないもの（' +
+      nh.map((x) => esc(x.kind) + " " + num(x.n) + " 件").join("・") + "）は並べていません。</div>";
+  }
+
+  const R = D.rules || {};
+  h += note("def", "並べ方の決まり", [R.fact, R.link, R.attach, R.contact, R.summary, R.extracted, R.handler, R.handover]
+    .filter(Boolean).map(esc).join("<br>"));
+  return h + foot(D.meta, true, "");
+}
+
+function wireDetail() {
+  const qi = document.getElementById("dd-q");
+  const run = () => {
+    detailQ = (qi && qi.value || "").trim();
+    detailId = "";
+    go("deal", "detail");
+  };
+  if (qi) qi.onkeydown = (ev) => { if (ev && ev.key === "Enter") run(); };
+  const b = document.getElementById("dd-go");
+  if (b) b.onclick = run;
+  DETAIL_KINDS.forEach((k) => {
+    const cb = document.getElementById("dd-k-" + k.k);
+    if (cb) cb.onchange = () => { detailKinds[k.k] = cb.checked; redrawMain(lastPayload); };
+  });
+  const ca = document.getElementById("dd-c-all");
+  if (ca) ca.onclick = () => { detailAllCalls = true; redrawMain(lastPayload); };
+  const cc = document.getElementById("dd-c-contact");
+  if (cc) cc.onclick = () => { detailAllCalls = false; redrawMain(lastPayload); };
+}
+
 /* 🔴 ここに新しい主張を書かない。画面の他の場所に既に出ている決まりごとを、
    1か所で読めるようにまとめただけ。数字は出さない（数字は各画面が母数つきで出す）。 */
 function renderDefs() {
@@ -5870,6 +6187,10 @@ const MENUS = [
         render: (D) => renderSeries(D) },
       { key: "houjin",   label: "法人番号で見る",   path: "/api/consulting/customer",
         render: (D) => renderHoujin(D) },
+      /* 2026-09-26 藤巻さんの要望で足した。取引1件の MTG・電話（要約つき）・交代を時系列で。
+         取引はハッシュの後ろ（#deal/detail?id=…）で指定する。表の案件名から来る */
+      { key: "detail",   label: "案件の詳細",       path: "/api/consulting/deal-detail",
+        render: (D) => renderDetail(D) },
     ] },
   { key: "consultant", no: "\u2461", label: "コンサルタント",
     lead: "人の側から見る画面です。担当者の評価ではありません。",
@@ -5975,7 +6296,9 @@ function go(menu, view, refresh, how) {
         （2026-09-23 実機: 2回移動しても history.length が増えない, U5）。
         開いた直後の位置合わせと、戻る・進むで来たときだけは積まない（how = "replace"）。
         積むと「戻る」を押すたびに同じ場所が増えて、いつまでも戻れなくなる。 */
-  const hash = "#" + m.key + "/" + v.key;
+  /* 案件の詳細は、見ている取引をハッシュの後ろに残す（貼れば同じ案件が開く・戻るで前の案件へ） */
+  const hash = "#" + m.key + "/" + v.key +
+    (v.key === "detail" && detailId ? "?id=" + encodeURIComponent(detailId) : "");
   if (location.hash !== hash) {
     if (how === "replace") history.replaceState(null, "", hash);
     else history.pushState(null, "", hash);
@@ -5988,11 +6311,18 @@ function go(menu, view, refresh, how) {
 
 /* 開いたときの位置を URL から決める。無ければ既定 */
 function fromHash() {
-  const p = (location.hash || "").replace(/^#/, "").split("/");
+  /* 「#deal/detail?id=123」の ? から後ろは取引の指定。画面の場所は ? の前だけで決める */
+  const raw = (location.hash || "").replace(/^#/, "");
+  const qi = raw.indexOf("?");
+  const p = (qi >= 0 ? raw.slice(0, qi) : raw).split("/");
   const m = menuOf(p[0]);
   if (!m) return { menu: "deal", view: "today" };
   const v = viewOf(m.key, p[1]);
-  return { menu: m.key, view: (v || m.views[0]).key };
+  let id = "";
+  if (qi >= 0) {
+    try { id = new URLSearchParams(raw.slice(qi + 1)).get("id") || ""; } catch (_) { id = ""; }
+  }
+  return { menu: m.key, view: (v || m.views[0]).key, id: id };
 }
 
 /* ================================================================ 取得 */
@@ -6061,6 +6391,10 @@ async function load(refresh) {
   if (refresh) q.set("refresh", "1");
   if (cur.view === "renewal" && renewalExcludeCensored) q.set("exclude_right_censored", "1");
   if (isCustView(cur.view) && customerHoujin) q.set("houjin", customerHoujin);
+  if (cur.view === "detail") {
+    if (detailId) q.set("deal_id", detailId);
+    else if (detailQ) q.set("q", detailQ);
+  }
 
   /* 取り直しの間は本文が「読み込み中」に置き換わるので、触っていた部品を覚えておいて戻す（U9） */
   const fe = document.activeElement;
@@ -6132,6 +6466,11 @@ function ctlbar(v, D) {
         '" aria-pressed="' + (contactUnit === u.k ? "true" : "false") + '">' + esc(u.t) + "</button>").join("") +
       "</span>";
   }
+  /* 案件の詳細: 案件名・拠点名で探す。取引を開いているときも出す（別の案件へ移るため） */
+  if (v.key === "detail") {
+    h += '<input type="search" id="dd-q" class="act" aria-label="案件名か拠点名で探す" placeholder="案件名か拠点名で探す" value="' +
+      esc(detailQ) + '"><button type="button" class="act" id="dd-go">探す</button>';
+  }
   if (v.path) h += '<button type="button" class="act" id="cs-reload">読み直す</button>';
   if (D && D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
   return h + "</div>";
@@ -6144,6 +6483,7 @@ function wire(v) {
   if (v.key === "board" || v.key === "byowner") wireBoard();
   if (v.key === "series") wireSeries();
   if (v.key === "houjin") wireHoujin();
+  if (v.key === "detail") wireDetail();
   const rl = document.getElementById("cs-reload");
   if (rl) rl.onclick = () => load(true);
   const sel = document.getElementById("cs-houjin");
@@ -6226,7 +6566,10 @@ let hqKeep = null;
    🔴 ここから go() するときは履歴に積まない（積むと「戻る」が効かなくなる）。 */
 const followUrl = () => {
   const h = fromHash();
-  if (h.menu !== cur.menu || h.view !== cur.view) go(h.menu, h.view, false, "replace");
+  /* 案件の詳細どうしの移動（連なりの前後の契約・付け直し元へのリンク）は、画面の場所が同じで取引だけ変わる */
+  const idChanged = h.view === "detail" && (h.id || "") !== detailId;
+  if (h.view === "detail") detailId = h.id || "";
+  if (h.menu !== cur.menu || h.view !== cur.view || idChanged) go(h.menu, h.view, false, "replace");
 };
 window.addEventListener("popstate", followUrl);
 window.addEventListener("hashchange", followUrl);
@@ -6261,7 +6604,11 @@ function refitOpened(d) {
 window.addEventListener("toggle", (ev) => { markScrollAll(); refitOpened(ev && ev.target); }, true);
 
 /* 開いた時点で URL にも位置を残す。そのまま貼れば同じ場所が開く */
-(() => { const h = fromHash(); go(h.menu, h.view, false, "replace"); })();
+(() => {
+  const h = fromHash();
+  if (h.view === "detail") detailId = h.id || "";
+  go(h.menu, h.view, false, "replace");
+})();
 </script>
 </body>
 </html>
