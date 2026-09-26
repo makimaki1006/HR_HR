@@ -5187,6 +5187,26 @@ fn 案件の詳細は取引が無いときは探す欄を返し_オプション�
         act.windows(2).all(|w| w[0] >= w[1]),
         "稼働中が先に来ていない"
     );
+    // 大文字小文字を問わずに当て、画面には打った言葉のまま返す
+    let v = build_deal_detail(&sh, Some(&s), None, Some(" 伏字）12 "), fixture_day());
+    assert_eq!(v["search"]["q"], "伏字）12");
+    let sh2 = Sheets {
+        deal: tiny(
+            &[
+                "deal_id",
+                "dealname",
+                "dealstage",
+                "contract_kind",
+                "is_active",
+            ],
+            &[&["x1", "ABC商事", "s", "(新規)", "TRUE"]],
+        ),
+        ..sheets()
+    };
+    let v = build_deal_detail(&sh2, None, None, Some("abc"), fixture_day());
+    assert_eq!(v["search"]["n_match"], 1);
+    let v = build_deal_detail(&sh2, None, None, Some("ABC"), fixture_day());
+    assert_eq!(v["search"]["q"], "ABC");
     // 見つからない
     let v = build_deal_detail(&sh, Some(&s), Some("0"), None, fixture_day());
     assert_eq!(v["meta"]["found"], false);
