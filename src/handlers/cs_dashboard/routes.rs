@@ -70,6 +70,7 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/contact-trend", get(contact_trend))
         .route("/api/consulting/deals", get(deal_board))
         .route("/api/consulting/today", get(today_board))
+        .route("/api/consulting/deal-detail", get(deal_detail))
 }
 
 #[derive(Template)]
@@ -222,6 +223,44 @@ async fn customer_detail(
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
     let v = build_customer(&sheets, q.houjin.as_deref(), today_jst());
+    Ok(Json(freshen(v, &sheets, today_jst())).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+struct DealDetailQuery {
+    /// 取引ID。無ければ `q` で探す
+    deal_id: Option<String>,
+    /// 案件名・拠点名の一部（取引の指定が無いときに探す）
+    q: Option<String>,
+    /// `1` でキャッシュを捨てて読み直す。
+    refresh: Option<String>,
+}
+
+/// ①案件 →「案件の詳細」。作りは `simple_handler!` と同じ（認証の内側・`freshen` で母集団と鮮度）。
+/// 違うのは、取引の指定を受け取ることと、`CS_通話要約` を読めなくても続けること。
+async fn deal_detail(
+    Query(q): Query<DealDetailQuery>,
+    session: Session,
+) -> Result<Response, CqError> {
+    let _ = session;
+    let state = cq_state()?;
+    if q.refresh.as_deref() == Some("1") {
+        // 🔴 `invalidate(None)` にしない（架電クオリティ・営業KPI のキャッシュまで消える）
+        for name in super::SHEETS.iter().chain([&super::SHEET_CALL_SUMMARY]) {
+            state.store.invalidate(Some(name)).await;
+        }
+    }
+    let sheets = load(&state.client, &state.store)
+        .await
+        .map_err(|e| CqError::from_anyhow("consulting", e))?;
+    let summary = super::load_call_summary(&state.client, &state.store).await;
+    let v = super::deal_detail::build_deal_detail(
+        &sheets,
+        summary.as_deref(),
+        q.deal_id.as_deref(),
+        q.q.as_deref(),
+        today_jst(),
+    );
     Ok(Json(freshen(v, &sheets, today_jst())).into_response())
 }
 
@@ -2730,7 +2769,7 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
 /// 🔴 **スコアや確率を出さない。** 契約開始時点の AUC は 0.583 で、順位付けの
 /// 根拠にならない。代わりに**名札**（NPS4以下・満了が近い・接触が空いている等）を
 /// 立てて、その**本数**で並べる。何で上に来たかが画面で説明できる形にする。
-fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
+pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let who = consultant_of(&sheets.owner_hist);

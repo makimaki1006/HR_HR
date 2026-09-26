@@ -83,6 +83,7 @@ async fn コンサルダッシュボードのパスが配線されている() {
         "/api/consulting/outcome",
         "/api/consulting/data-quality",
         "/api/consulting/contact-trend",
+        "/api/consulting/deal-detail",
     ] {
         let res = app
             .clone()
@@ -157,6 +158,9 @@ async fn コンサルダッシュボードは認証の内側にある() {
         "/api/consulting/focus",
         "/api/consulting/customer",
         "/api/consulting/contact-trend",
+        // 2026-09-26 追加。案件ごとの電話の要約・MTG の中身を返す
+        "/api/consulting/deal-detail",
+        "/api/consulting/deal-detail?deal_id=1",
     ] {
         let res = app
             .clone()
