@@ -16,15 +16,21 @@
 //!   メール由来は `kind` が「実施」の行だけ出す（予定・候補・取り下げは実施ではない。件数は `counts` で返す）。
 //! - 🔴 **接触の付け直し**（`contact_trend::AttachIndex`、「担当者ごとの接触」と同じ決まり）。
 //!   通話は、その日に動いていた契約ではなく**あとから作られた継続先の取引**に付いていることが多い。
-//!   そこで、同じ拠点の別の取引に付いた電話・録画 MTG のうち、付け直すとこの取引に来るもの
+//!   そこで、同じ拠点の別の取引（継続先・前の契約・オプション契約）に付いた電話・録画 MTG・メール由来の MTG のうち、付け直すとこの取引に来るもの
 //!   （その日にこの取引の契約期間の中で、同じ拠点に動いている本体案件がこの取引だけ）も並べ、
 //!   `attach.moved_from` に元の取引を書く。
 //!   逆に、この取引に付いているが契約期間の外のものも**消さずに**並べ、付け直し先（`attach.moved_to`）か、
 //!   決められない（`attach.state`）ことを書く。
 //!   決まりは接触（60秒超の通話と MTG）を数えるためのものだが、ここでは 60秒以下の通話にも同じ決まりで印を付ける
 //!   （どの契約の期間の出来事かを示すだけで、数え方は変えていない）。
+//!   `attach.moved_from.relation` は元の取引との関係（`later` 継続先 / `earlier` 前の契約 /
+//!   `option` オプション契約 / `unknown`）。元は継続先とは限らないので、画面の文はこれで選ぶ。
+//! - メール由来の MTG も同じ決まりで付け直す（2026-09-26 検証の指摘。付け直さないと前の契約の MTG が
+//!   この契約の出来事に見え、前の契約の詳細には出なかった）。同じ日の行は1回だけ出す。
+//! - 録画 MTG の `確度`（取引への結び付けの確かさ）を `link_certainty` で返す。録画は事実だが、
+//!   この取引の録画だという点は推定なので、「高」以外は画面で印を付ける。
 //! - 1つの通話が複数の取引に付いているとき（`CS_通話明細` は多対多）は `call_id` で1回だけ出す。
-//!   この取引に直接付いている行を優先する。
+//!   この取引に直接付いている行を優先し、次に本体契約の行（オプション契約の行より先）。
 //! - 電話の要約は `call_id` で結ぶ。同じ通話に取引ごとの行があるときは、元の取引の行を優先する
 //!   （中身は通話ごとなので、どの行でも同じはず）。要約の行が無い通話は `summary: null`（画面は「要約なし」）。
 //!   シートが読めないときは `meta.summary_sheet = "missing"`（画面は「電話の要約はまだありません」）。
@@ -91,21 +97,42 @@ fn text(s: &str) -> Value {
     }
 }
 
+/// 付け直して来た元の取引が、見ている取引から見て何か。
+/// `option`（同じ拠点のオプション契約。詳細の画面は無い）/ `later`（あとに始まった本体契約。継続先）/
+/// `earlier`（前に始まった本体契約）/ `unknown`（開始日が読めない）。
+fn relation(all: &HashMap<&str, &Deal>, from: &str, me: &str) -> &'static str {
+    let (Some(f), Some(m)) = (all.get(from), all.get(me)) else {
+        return "unknown";
+    };
+    if f.is_option() {
+        return "option";
+    }
+    match (
+        date10(&f.contract_start_date),
+        date10(&m.contract_start_date),
+    ) {
+        (Some(a), Some(b)) if a > b => "later",
+        (Some(a), Some(b)) if a < b => "earlier",
+        _ => "unknown",
+    }
+}
+
 /// 付け先の説明。`id` はこの行が付いている取引、`me` は詳細を見ている取引。
 fn attach_json(
     ix: &AttachIndex,
-    names: &HashMap<&str, &str>,
+    by_id: &HashMap<&str, &Deal>,
     id: &str,
     me: &str,
     d: NaiveDate,
 ) -> Value {
-    let name = |x: &str| names.get(x).copied().unwrap_or("");
+    let name = |x: &str| by_id.get(x).map(|x| x.name.as_str()).unwrap_or("");
     if id != me {
-        // 別の取引から付け直して来たもの（呼ぶ側が Moved(me) を確かめてある）
+        // 別の取引から付け直して来たもの（呼ぶ側が Moved(me) を確かめてある）。
+        // 🔴 元は継続先とは限らない（同じ拠点のオプション契約から来るものも多い）。関係を返し、文は画面が選ぶ
         return json!({
             "state": "moved_in",
             "in_span": true,
-            "moved_from": {"deal_id": id, "name": name(id)},
+            "moved_from": {"deal_id": id, "name": name(id), "relation": relation(by_id, id, me)},
             "moved_to": null,
         });
     }
@@ -152,6 +179,37 @@ fn summary_json(sh: &SheetData, row: usize) -> Value {
         "model": text(g("model")),
         "generated_at": text(g("generated_at")),
     })
+}
+
+/// 付け先の数え上げ。`moved_in` と、この取引に付いているが契約期間の外（`moved_out`・`ambiguous`・`outside`）。
+fn count_attach(a: &Value, moved_in: &mut usize, outside: &mut usize) {
+    match a["state"].as_str() {
+        Some("moved_in") => *moved_in += 1,
+        Some("own") | None => {}
+        Some(_) => *outside += 1,
+    }
+}
+
+/// 電話の「話した人」（Zoom の表示名）を画面用にそろえる。
+/// - 社名・部署の接頭辞（`リクロジ＿氏名`・`リクロジ_氏名`）は `＿`/`_` より後ろだけ残す。
+///   `リクロジ事業部　氏名` は「事業部」までを取る
+/// - 空白（半角・全角）は取る（`星川 輝羅` と `松野日向子` の書き方をそろえる）
+///
+/// 姓と名の順が逆の表示名（名が先）は直せない（どちらが姓か決められない。推測で並べ替えない）。
+pub fn handler_label(raw: &str) -> String {
+    let t = raw.trim();
+    let t = t
+        .rsplit(['＿', '_'])
+        .next()
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+        .unwrap_or(t);
+    // 部署名の接頭辞（`リクロジ事業部　氏名`）。空白の前が「事業部」で終わるときだけ取る
+    let t = match t.split_once(char::is_whitespace) {
+        Some((head, rest)) if head.ends_with("事業部") && !rest.trim().is_empty() => rest,
+        _ => t,
+    };
+    t.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 /// 取引の指定が無いときの「探す」。本体案件だけ。案件名・拠点名の部分一致（大文字小文字を問わない）。
@@ -234,10 +292,7 @@ pub fn build_deal_detail(
     }
     meta["found"] = json!(true);
 
-    let names: HashMap<&str, &str> = all
-        .iter()
-        .map(|x| (x.id.as_str(), x.name.as_str()))
-        .collect();
+    let by_id: HashMap<&str, &Deal> = all.iter().map(|x| (x.id.as_str(), x)).collect();
     let (spans, _) = main_spans(&deals);
     let ix = AttachIndex::new(&all, &spans);
     let my_site = ix.site_of(id);
@@ -250,13 +305,14 @@ pub fn build_deal_detail(
             .collect(),
         None => HashSet::new(),
     };
+    let is_opt = |x: &str| by_id.get(x).is_some_and(|d| d.is_option());
     // この行を並べるか。並べるなら付け先の説明を返す
     let pick = |row_deal: &str, day: NaiveDate| -> Option<Value> {
         if row_deal == id {
-            return Some(attach_json(&ix, &names, row_deal, id, day));
+            return Some(attach_json(&ix, &by_id, row_deal, id, day));
         }
         if same_site.contains(row_deal) && ix.target(row_deal, day) == Target::Moved(id) {
-            return Some(attach_json(&ix, &names, row_deal, id, day));
+            return Some(attach_json(&ix, &by_id, row_deal, id, day));
         }
         None
     };
@@ -267,6 +323,7 @@ pub fn build_deal_detail(
     let mtg = &sheets.mtg;
     let mut n_mtg = 0usize;
     let mut n_mtg_extracted = 0usize;
+    let (mut n_mtg_moved_in, mut n_mtg_outside, mut n_mtg_link_not_high) = (0usize, 0usize, 0usize);
     let mut rec_days: HashSet<NaiveDate> = HashSet::new();
     for (i, r) in mtg.rows.iter().enumerate() {
         let g = |c: &str| mtg.get(r, c);
@@ -285,6 +342,13 @@ pub fn build_deal_detail(
         if extracted {
             n_mtg_extracted += 1;
         }
+        count_attach(&attach, &mut n_mtg_moved_in, &mut n_mtg_outside);
+        // 🔴 録画があったことは事実だが、どの取引の録画かは推定（CS_MTG の「確度」高・中）。
+        //    確度が「高」以外は数えて、画面で印を付ける
+        let link_certainty = g("確度").trim();
+        if link_certainty != "高" {
+            n_mtg_link_not_high += 1;
+        }
         rec_days.insert(day);
         let time = hhmm(g("開催日時(JST)"));
         events.push((
@@ -302,28 +366,53 @@ pub fn build_deal_detail(
                 "todo": text(g("やること")), "concern": text(g("顧客の懸念")),
                 "positive": text(g("前向きシグナル")), "risk": text(g("リスク判定")),
                 "risk_reason": text(g("リスク理由")), "next": text(g("次回予定")),
+                // 取引への結び付けの確かさ（録画そのものではなく、この取引の録画だという点）
+                "link_certainty": text(link_certainty), "link_reason": text(g("紐づけの理由")),
                 "attach": attach,
             }),
         ));
     }
 
-    // ---- MTG（メール由来・推定）。この取引の行だけ。付け直さない ----
+    // ---- MTG（メール由来・推定）----
+    // 🔴 電話・録画と同じ決まりで付け直す（2026-09-26 検証の指摘: 付け直さずに並べると、
+    //    前の契約の MTG がこの契約の出来事に見え、前の契約の詳細には出なかった）。
+    //    同じ拠点の別の取引に付いた行も、この契約の期間の日なら並べる。
+    //    同じ日の行が複数の取引に付いているときは1回だけ（この取引の行を優先、次に本体契約）。
     let mail = &sheets.mail_mtg;
-    let mut n_mail = 0usize;
+    let (mut n_mail, mut n_mail_moved_in, mut n_mail_outside) = (0usize, 0usize, 0usize);
     let mut mail_other: HashMap<String, usize> = HashMap::new();
+    let mut mail_order: Vec<usize> = Vec::new();
+    let mut mail_later: Vec<(bool, usize)> = Vec::new();
     for (i, r) in mail.rows.iter().enumerate() {
-        if mail.get(r, "deal_id").trim() != id {
-            continue;
+        let did = mail.get(r, "deal_id").trim();
+        if did == id {
+            let kind = mail.get(r, "kind").trim();
+            if kind != "実施" {
+                // 実施ではないもの（予定・候補・取り下げ）は並べず、この取引の分だけ数を返す
+                *mail_other.entry(kind.to_string()).or_insert(0) += 1;
+                continue;
+            }
+            mail_order.push(i);
+        } else if same_site.contains(did) && mail.get(r, "kind").trim() == "実施" {
+            mail_later.push((is_opt(did), i));
         }
-        let kind = mail.get(r, "kind").trim();
-        if kind != "実施" {
-            *mail_other.entry(kind.to_string()).or_insert(0) += 1;
-            continue;
-        }
+    }
+    mail_later.sort(); // 本体契約（false）を先に。同じなら行の順
+    mail_order.extend(mail_later.into_iter().map(|(_, i)| i));
+    let mut mail_days: HashSet<NaiveDate> = HashSet::new();
+    for i in mail_order {
+        let r = &mail.rows[i];
         let Some(day) = date10(mail.get(r, "date")) else {
             continue;
         };
+        let Some(attach) = pick(mail.get(r, "deal_id").trim(), day) else {
+            continue;
+        };
+        if !mail_days.insert(day) {
+            continue; // 同じ日のメール由来の MTG を2回出さない
+        }
         n_mail += 1;
+        count_attach(&attach, &mut n_mail_moved_in, &mut n_mail_outside);
         let cert = mail.get(r, "certainty").trim();
         events.push((
             day,
@@ -337,6 +426,7 @@ pub fn build_deal_detail(
                 "certainty": if cert.is_empty() { "推定".to_string() } else { cert.to_string() },
                 // 同じ日に録画もある（同じ MTG を2回数えている見込みが高い）
                 "same_day_recording": rec_days.contains(&day),
+                "attach": attach,
             }),
         ));
     }
@@ -346,16 +436,19 @@ pub fn build_deal_detail(
     let sidx = summary.map(summary_index).unwrap_or_default();
     // 🔴 この取引に直接付いた行を先に見る（同じ通話が付け直しでも来るときは直接の行を採る）
     let mut order: Vec<usize> = Vec::new();
-    let mut later: Vec<usize> = Vec::new();
+    let mut later: Vec<(bool, usize)> = Vec::new();
     for (i, r) in call.rows.iter().enumerate() {
         let did = call.get(r, "deal_id").trim();
         if did == id {
             order.push(i);
         } else if same_site.contains(did) {
-            later.push(i);
+            later.push((is_opt(did), i));
         }
     }
-    order.extend(later);
+    // 🔴 同じ通話が本体契約とオプション契約の両方に付いているときは、本体契約の行を元にする
+    //    （シートの行の順で元が変わらないように。オプション契約には詳細の画面が無い）
+    later.sort();
+    order.extend(later.into_iter().map(|(_, i)| i));
     let mut seen: HashSet<&str> = HashSet::new();
     let (mut n_call, mut n_contact, mut n_sum, mut n_tr, mut n_moved_in, mut n_outside) =
         (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
@@ -397,11 +490,7 @@ pub fn build_deal_detail(
         if !sj.is_null() {
             n_sum += 1;
         }
-        match attach["state"].as_str() {
-            Some("moved_in") => n_moved_in += 1,
-            Some("own") | None => {}
-            Some(_) => n_outside += 1,
-        }
+        count_attach(&attach, &mut n_moved_in, &mut n_outside);
         let time = call_time_jst(ts);
         events.push((
             day,
@@ -414,7 +503,10 @@ pub fn build_deal_detail(
                 "call_id": cid, "duration_sec": secs, "contact": contact,
                 "direction": text(g("direction")),
                 // 話した人（Zoom）。無ければ HubSpot の担当
-                "handler": text(g("handler")), "owner": text(g("owner")),
+                // 🔴 Zoom の表示名は書き方がそろっていない（社名の接頭辞・空白の有無）。
+                //    画面に出す名前は `handler_label` でそろえ、元の値は `handler` に残す
+                "handler": text(g("handler")), "handler_label": text(&handler_label(g("handler"))),
+                "owner": text(g("owner")),
                 "has_transcript": transcript,
                 "summary": sj,
                 "attach": attach,
@@ -510,7 +602,11 @@ pub fn build_deal_detail(
         },
         "counts": {
             "mtg": n_mtg, "mtg_extracted": n_mtg_extracted,
+            // 取引への結び付けの確度が「高」ではない録画 MTG
+            "mtg_link_not_high": n_mtg_link_not_high,
+            "mtg_moved_in": n_mtg_moved_in, "mtg_outside": n_mtg_outside,
             "mail_mtg": n_mail,
+            "mail_moved_in": n_mail_moved_in, "mail_outside": n_mail_outside,
             // メール由来のうち、実施ではないので並べていないもの（予定・候補・取り下げ）
             "mail_not_held": mail_other.iter().map(|(k, n)| json!({"kind": k, "n": n})).collect::<Vec<_>>(),
             "call": n_call, "call_contact": n_contact, "call_transcript": n_tr,
@@ -523,11 +619,17 @@ pub fn build_deal_detail(
         "rules": {
             "fact": "録画の MTG と通話記録は事実です。メール由来の MTG は、メールの文面から実施日を起こした推定です\
     （録画と突き合わせると ±1日で83.3% が一致）。同じ日に録画があるメール由来の行は、同じ MTG の見込みが高いです",
-            "attach": "電話は、その日に動いていた契約ではなく、あとから作られた継続の取引に付いていることがよくあります。\
-    そこで、同じ拠点の別の取引に付いた電話・録画 MTG のうち、その日にこの取引の契約期間の中にあるもの\
+            "attach": "電話や MTG は、その日に動いていた契約ではなく、あとから作られた継続の取引や、\
+    同じ拠点のオプション契約に付いていることがよくあります。\
+    そこで、同じ拠点の別の取引に付いた電話・録画 MTG・メール由来の MTG のうち、その日にこの取引の契約期間の中にあるもの\
     （同じ拠点で動いている本体案件がこの取引だけの日）も並べ、どこから付け直したかを書いています\
     （「担当者ごとの接触」と同じ決まり）。この取引に付いていても契約期間の外のものは、消さずに印を付けています",
-            "contact": "接触 ＝ MTG または60秒超の通話（メールは数えない）。通話の日時は日本時間です",
+            "contact": "接触 ＝ MTG または60秒超の通話（メールは数えない）。通話の日時は日本時間です。\
+    60秒以下の通話は、どの取引でも接触には数えません（どの契約の期間の日かの印だけ付けています）",
+            "link": "録画の MTG は、録画があったこと自体は事実ですが、どの取引の録画かは録画の情報から結び付けた推定です\
+    （確度 高・中）。確度が中のものには印を付けています",
+            "handler": "電話の「話した人」は Zoom の表示名です。社名の接頭辞と空白を取ってそろえていますが、\
+    名が先に書かれた表示名はそのままなので、担当欄（HubSpot）と書き方が違うことがあります",
             "summary": "電話の要約は、Zoom Phone の文字起こしを MiniMax-M3 で要約したものです（日次更新で作成）。\
     文字起こしが取れない・短すぎる通話には要約がありません。要約は話された内容の要約で、評価ではありません",
             "extracted": "MTG の抽出項目（やること・顧客の懸念・前向きシグナル・リスク判定）が空なのは、\

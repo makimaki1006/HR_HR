@@ -5020,7 +5020,11 @@ fn 通話要約のfixtureは合成で伏字の決まりを守っている() {
 /// （付け直しの決まりを Python で書き直し、同じ fixture から数えた。2026-09-26）。
 ///
 /// | 電話 | 60秒超 | 要約あり | 付け直して来た | 契約期間の外 | 録画 MTG | メール MTG（実施） | 交代 |
-/// |  38  |   24   |    3     |       2        |      19      |    2     |        17          |  1   |
+/// |  38  |   24   |    3     |       2        |      19      |    2     |        19          |  1   |
+///
+/// メール MTG の 19 の内訳（2026-09-26 付け直しを入れてから Python で数え直し）: この契約の期間の中 3、
+/// 継続先・前の契約から付け直して来た 2、この取引に付いているが契約期間の外 14
+/// （別の取引の期間 11・動いている契約が無い日 3）。
 #[test]
 fn 案件の詳細は電話_mtg_交代を新しい順に1本で並べる() {
     let v = detail("61098080280");
@@ -5033,12 +5037,24 @@ fn 案件の詳細は電話_mtg_交代を新しい順に1本で並べる() {
     assert_eq!(c["call_moved_in"], 2, "付け直して来た電話");
     assert_eq!(c["call_outside"], 19, "この取引に付いているが契約期間の外");
     assert_eq!(c["mtg"], 2, "録画の MTG");
-    assert_eq!(c["mail_mtg"], 17, "メール由来（実施）");
+    assert_eq!(c["mail_mtg"], 19, "メール由来（実施）");
+    assert_eq!(c["mail_moved_in"], 2, "メール由来で付け直して来た");
+    assert_eq!(c["mail_outside"], 14, "メール由来で契約期間の外");
     assert_eq!(c["handover"], 1, "担当の交代");
     let ev = v["events"].as_array().unwrap();
-    assert_eq!(ev.len(), 38 + 2 + 17 + 1, "時系列の件数");
+    assert_eq!(ev.len(), 38 + 2 + 19 + 1, "時系列の件数");
     assert_eq!(events_of(&v, "call").len(), 38);
-    assert_eq!(events_of(&v, "mail_mtg").len(), 17);
+    let mail = events_of(&v, "mail_mtg");
+    assert_eq!(mail.len(), 19);
+    // 🔴 メール由来にも付け先の印がある（期間外の行を、この契約の出来事に見せない）
+    let st = |k: &str| mail.iter().filter(|e| e["attach"]["state"] == k).count();
+    assert_eq!(st("own"), 3, "この契約の期間の中");
+    assert_eq!(st("moved_in"), 2);
+    assert_eq!(st("moved_out"), 11, "別の取引の期間");
+    assert_eq!(st("outside"), 3, "動いている契約が無い日");
+    let days: std::collections::HashSet<&str> =
+        mail.iter().map(|e| e["date"].as_str().unwrap()).collect();
+    assert_eq!(days.len(), 19, "同じ日のメール由来の MTG を2回出さない");
     // 新しい順。同じ日は時刻の新しい順（時刻の無いものは後ろ）
     assert_eq!(ev[0]["date"], "2026-09-18", "いちばん上がいちばん新しい日");
     for w in ev.windows(2) {
@@ -5109,6 +5125,11 @@ fn 案件の詳細は継続先に付いた電話をこの契約の期間なら�
             "{d} が契約期間 {st}〜{ex} の外"
         );
     }
+    // 🔴 同じ通話が継続先と求人追加（オプション）の両方に付いているときは、本体契約（継続先）を元にする。
+    //    Python の数え直しで、117 件すべての元が継続先（あとに始まった本体契約）
+    for e in events_of(&v, "call") {
+        assert_eq!(e["attach"]["moved_from"]["relation"], "later", "{e}");
+    }
     let rows = v["chain"]["rows"].as_array().unwrap();
     assert!(rows.iter().any(|r| r["deal_id"] == "51831964246"));
     assert_eq!(rows.iter().filter(|r| r["current"] == true).count(), 1);
@@ -5146,7 +5167,7 @@ fn 案件の詳細は通話要約をcall_idで結び_無いときも開く() {
     assert_eq!(none["counts"]["call_summarized"], 0);
     assert_eq!(
         none["events"].as_array().unwrap().len(),
-        58,
+        60,
         "要約が無くても残りは出す"
     );
     // シートはあるが空
@@ -5394,4 +5415,101 @@ fn 案件の詳細の付け直しの印と要約の結合を小さなシート�
         .unwrap();
     let i_mail = ev.iter().position(|e| e["kind"] == "mail_mtg").unwrap();
     assert!(i_rec < i_mail);
+}
+
+/// メール由来の MTG の付け直し。61098080280 に付いていた期間外の行のうち 11 件は、
+/// 前の契約 44675364955（3 件）と 58208343561（8 件）の詳細に並ぶ（Python の数え直し）。
+#[test]
+fn 案件の詳細はメール由来のmtgも付け直して前の契約に並べる() {
+    for (id, n) in [("44675364955", 3), ("58208343561", 8)] {
+        let v = detail(id);
+        let c = &v["counts"];
+        assert_eq!(c["mail_mtg"], n, "{id}");
+        assert_eq!(c["mail_moved_in"], n, "{id}");
+        for e in events_of(&v, "mail_mtg") {
+            assert_eq!(e["attach"]["state"], "moved_in", "{e}");
+            assert_eq!(e["fact"], false, "付け直しても推定のまま");
+            let me = &v["deal"];
+            let d = e["date"].as_str().unwrap();
+            assert!(me["start"].as_str().unwrap() <= d && d <= me["expiration"].as_str().unwrap());
+        }
+    }
+}
+
+/// 付け直しの元がオプション契約のとき。56611938826 の電話 39 件は全部、同じ拠点のオプション契約から
+/// 付け直して来たもの（Python の数え直し）。元の関係を `option` で返す（画面は「継続の取引」と書かない）。
+#[test]
+fn 案件の詳細は付け直しの元がオプション契約ならそう返す() {
+    let v = detail("56611938826");
+    assert_eq!(v["counts"]["call"], 39);
+    assert_eq!(v["counts"]["call_moved_in"], 39);
+    for e in events_of(&v, "call") {
+        let f = &e["attach"]["moved_from"];
+        assert_eq!(f["relation"], "option", "{e}");
+        let opt = super::deals_all_of(&sheets().deal)
+            .into_iter()
+            .find(|d| d.id == f["deal_id"].as_str().unwrap())
+            .unwrap();
+        assert!(opt.is_option());
+    }
+}
+
+/// 抽出済みの録画 MTG の結合と、取引への結び付けの確度（fixture の実データ 15873742655）。
+/// 2件とも抽出済みで、2025-09-03 の1件は確度「中」。
+#[test]
+fn 案件の詳細は抽出済みmtgの項目と結び付けの確度を返す() {
+    let v = detail("15873742655");
+    let c = &v["counts"];
+    assert_eq!(c["mtg"], 2);
+    assert_eq!(c["mtg_extracted"], 2);
+    assert_eq!(c["mtg_link_not_high"], 1);
+    let m = events_of(&v, "mtg");
+    assert_eq!(m.len(), 2);
+    let aug = m.iter().find(|e| e["date"] == "2025-08-01").unwrap();
+    assert_eq!(aug["extracted"], true);
+    assert_eq!(aug["link_certainty"], "高");
+    assert_eq!(aug["todo"], "次回定期ミーティングの実施");
+    assert!(aug["concern"]
+        .as_str()
+        .unwrap()
+        .starts_with("面接まで繋がらなかった"));
+    assert!(aug["positive"]
+        .as_str()
+        .unwrap()
+        .starts_with("面接した方が"));
+    assert_eq!(aug["next"], "9月3日10時");
+    assert_eq!(aug["risk"], "高");
+    let sep = m.iter().find(|e| e["date"] == "2025-09-03").unwrap();
+    assert_eq!(sep["link_certainty"], "中");
+    assert_eq!(sep["todo"], Value::Null, "空は null");
+    assert!(sep["risk_reason"]
+        .as_str()
+        .unwrap()
+        .starts_with("契約満了に伴い"));
+    assert_eq!(sep["fact"], true, "録画そのものは事実");
+}
+
+#[test]
+fn 話した人の表示名は接頭辞と空白を取ってそろえる() {
+    use super::deal_detail::handler_label;
+    assert_eq!(handler_label("リクロジ＿及川流奈"), "及川流奈");
+    assert_eq!(handler_label("リクロジ_山口智輝"), "山口智輝");
+    assert_eq!(handler_label("星川 輝羅"), "星川輝羅");
+    assert_eq!(handler_label("平野　明日香"), "平野明日香");
+    assert_eq!(handler_label("リクロジ事業部　嶋貫明仁"), "嶋貫明仁");
+    assert_eq!(handler_label("松野日向子"), "松野日向子");
+    assert_eq!(handler_label(""), "");
+    // 接頭辞だけで名前が無いものは元のまま（名前を消さない）
+    assert_eq!(handler_label("リクロジ＿"), "リクロジ＿");
+    // fixture の電話は全部、表示名があれば handler_label もある
+    let v = detail("61098080280");
+    for e in events_of(&v, "call") {
+        assert_eq!(e["handler"].is_null(), e["handler_label"].is_null(), "{e}");
+        if let Some(h) = e["handler_label"].as_str() {
+            assert!(
+                !h.contains(' ') && !h.contains('　') && !h.contains('＿'),
+                "{h}"
+            );
+        }
+    }
 }
