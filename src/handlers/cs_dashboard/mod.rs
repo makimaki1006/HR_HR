@@ -50,6 +50,7 @@
 //! 定義の正本: `.claude\skills\call-quality-metrics\SKILL.md`
 
 pub mod contact_trend;
+pub mod deal_detail;
 pub mod handover_contact;
 pub mod routes;
 
@@ -85,6 +86,20 @@ pub const SHEET_OWNER_HIST: &str = "CS_担当履歴";
 /// 🔴 **計算の基準日（今日）とは別物。** シートは手で作り直しているので、
 ///    基準日だけ今日になっていて中身は何日も前、ということが起きる。
 pub const SHEET_META: &str = "CS_メタ";
+/// 電話の要約（1行 = 1通話 × 取引）。Hubspot リポジトリの日次更新
+/// （`scripts/consulting_call/summarize_calls.py`: Zoom Phone の文字起こし → MiniMax-M3）が書く。
+///
+/// 列: `call_id / deal_id / ts / duration_sec / summary / next_action / concern /
+/// n_utterances / model / generated_at / source`。1通話が複数の取引に付くときは
+/// `CS_通話明細` と同じく取引ごとに1行（call_id が重複してよい）。
+/// 文字起こしが取れない・短すぎる通話は行が無い（画面は「要約なし」）。
+///
+/// 🔴 **読めなくても落とさない**（`CS_メタ` と同じ扱い）。2026-09-26 時点で本番にまだ無い。
+/// 🔴 **`SHEETS`（先読み・全画面の読み込み）には入れない。** 読むのは案件の詳細だけ。
+///    `SheetStore` は取れなかったことを覚えないので、全画面の `load` に入れると、
+///    シートが無いあいだ**どの画面を開いても毎回 Sheets に取りに行って失敗する**（その分遅くなる）。
+///    `load_call_summary` が失敗を少しのあいだ覚えて、取りに行く回数を抑える。
+pub const SHEET_CALL_SUMMARY: &str = "CS_通話要約";
 
 /// 定期NPS のプロパティ名。回ごとに別プロパティになっている。
 pub const NPS_PROPS: &[&str] = &[
@@ -588,6 +603,41 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
         },
         all_cached: cached,
     })
+}
+
+/// 取れなかったとき、次に取りに行くまで待つ時間。
+const CALL_SUMMARY_RETRY: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// `CS_通話要約` を読む。**読めなければ `None`**（画面は「電話の要約はまだありません」と出す）。
+///
+/// 🔴 エラーにしない（`CS_メタ` と同じ）。要約が無くても、案件の詳細の残り（MTG・電話の記録・交代）は出す。
+/// 🔴 失敗したら `CALL_SUMMARY_RETRY` のあいだは取りに行かない（無いシートを毎回取りに行って遅くしない）。
+pub async fn load_call_summary(
+    client: &SheetsClient,
+    store: &SheetStore,
+) -> Option<Arc<SheetData>> {
+    static LAST_MISS: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    let recently_missed = LAST_MISS
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .is_some_and(|t| t.elapsed() < CALL_SUMMARY_RETRY);
+    if recently_missed {
+        return None;
+    }
+    match store.get(client, SHEET_CALL_SUMMARY).await {
+        Ok((data, _)) => Some(data),
+        Err(e) => {
+            tracing::warn!(
+                "シート「{}」が読めません（電話の要約は出しません）: {e:#}",
+                SHEET_CALL_SUMMARY
+            );
+            if let Ok(mut g) = LAST_MISS.lock() {
+                *g = Some(std::time::Instant::now());
+            }
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------- 接触
