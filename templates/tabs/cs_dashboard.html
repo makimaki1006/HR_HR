@@ -5799,22 +5799,31 @@ function durText(sec) {
   return s < 60 ? s + "秒" : Math.floor(s / 60) + "分" + (s % 60 ? (s % 60) + "秒" : "");
 }
 
-/* 付け直しの説明（どこから来たか・どこの期間として数えているか） */
-function attachNote(a) {
+/* 付け直しの説明（どこから来たか・どこの期間の出来事か）。e は行そのもの（接触に数えない行は文を変える） */
+const MOVED_FROM_WORD = { later: "継続の取引", earlier: "前の契約の取引", option: "同じ拠点のオプション契約", unknown: "同じ拠点の別の取引" };
+function attachNote(a, e) {
   if (!a || a.state === "own") return "";
+  /* 🔴 60秒以下の電話とメール由来の MTG は、どの取引でも接触に数えない。「〜の記録として数えています」とは書かない */
+  const why = !e ? "" : e.kind === "call" && !e.contact ? "60秒以下なので" :
+    e.kind === "mail_mtg" ? "メール由来の MTG なので" : "";
   if (a.state === "moved_in") {
-    return '<span class="via">&#8618; 付け直し: 継続の取引「' +
-      dealLink(a.moved_from && a.moved_from.deal_id, a.moved_from && a.moved_from.name) +
+    const f = a.moved_from || {};
+    const word = MOVED_FROM_WORD[f.relation] || MOVED_FROM_WORD.unknown;
+    /* 🔴 オプション契約には詳細の画面が無いので、リンクにしない（押しても先へ進めない） */
+    const name = f.relation === "option" ? esc(f.name || "取引名なし") : dealLink(f.deal_id, f.name);
+    return '<span class="via">&#8618; 付け直し: ' + word + "「" + name +
       "」に付いていた記録です。この契約の期間の日なので、ここに並べています</span>";
   }
   if (a.state === "moved_out") {
     return '<span class="via">&#9888; この取引に付いていますが、契約期間の外の日です。「' +
       dealLink(a.moved_to && a.moved_to.deal_id, a.moved_to && a.moved_to.name) +
-      "」の期間の記録として数えています</span>";
+      (why ? "」の期間の出来事です（" + why + "、接触には数えていません）</span>"
+        : "」の期間の記録として数えています</span>");
   }
   if (a.state === "ambiguous") {
     return '<span class="via">&#9888; 契約期間の外の日です。同じ拠点でその日に動いている契約が2件以上あり、' +
-      "どの契約の記録か決められないので、接触には数えていません</span>";
+      (why ? "どの契約の期間の出来事か決められません（" + why + "、接触には数えていません）</span>"
+        : "どの契約の記録か決められないので、接触には数えていません</span>");
   }
   return '<span class="via">&#9888; 契約期間の外の日です（その日に動いている同じ拠点の契約がありません）。' +
     "接触には数えていません</span>";
@@ -5830,6 +5839,12 @@ function detailItem(e) {
       (e.minutes != null ? "　" + num(e.minutes) + "分" : "") +
       (e.host ? '　<span class="muted small">ホスト ' + esc(e.host) + "</span>" : "") +
       (e.mtg_type ? '　<span class="tag">' + esc(e.mtg_type) + "</span>" : "");
+    /* 🔴 録画があったことは事実。この取引の録画だという点は推定（確度 高・中） */
+    if (e.link_certainty && e.link_certainty !== "高") {
+      what += '<span class="via"><span class="tag d">取引への結び付け: 確度 ' + esc(e.link_certainty) + "</span>" +
+        "録画があったことは事実ですが、この取引の MTG だという結び付けは推定で、確かさは中です" +
+        (e.link_reason ? "（" + esc(e.link_reason) + "）" : "") + "</span>";
+    }
     if (e.extracted) {
       const rows = [["やること", e.todo], ["顧客の懸念", e.concern], ["前向きシグナル", e.positive],
         ["リスク判定", e.risk ? e.risk + (e.risk_reason ? "（" + e.risk_reason + "）" : "") : null],
@@ -5849,12 +5864,14 @@ function detailItem(e) {
       (e.same_day_recording ? "。<b>同じ日に録画の MTG があります</b>（同じ MTG の見込みが高い）" : "") +
       "</span>";
   } else if (e.kind === "call") {
-    const who = e.handler || e.owner;
+    /* 話した人は Zoom の表示名をそろえたもの（handler_label）。元の書き方は title に残す */
+    const who = e.handler_label || e.handler || e.owner;
     what = '<span class="mark">電話</span><span class="muted small">' + esc(e.source_label) + "</span>" +
       "　" + durText(e.duration_sec) +
       (e.contact ? "" : '　<span class="tag d">60秒以下</span>') +
       (e.direction === "outbound" ? "　発信" : e.direction === "inbound" ? "　着信" : "") +
-      (who ? '　<span class="muted small">' + (e.handler ? "話した人 " : "担当 ") + esc(who) + "</span>" : "") +
+      (who ? '　<span class="muted small"' + (e.handler ? ' title="Zoom の表示名: ' + esc(e.handler) + '"' : "") + ">" +
+        (e.handler ? "話した人 " : "担当 ") + esc(who) + "</span>" : "") +
       '　<span class="muted small">文字起こし' + (e.has_transcript ? "あり" : "なし") + "</span>";
     const s = e.summary;
     if (s && s.summary) {
@@ -5875,7 +5892,7 @@ function detailItem(e) {
       "</span>";
   }
   return '<li class="' + cls + '"><div class="when">' + when + '</div><div class="what">' +
-    what + attachNote(e.attach) + "</div></li>";
+    what + attachNote(e.attach, e) + "</div></li>";
 }
 
 /* 絞り込みに当たるか */
@@ -5958,9 +5975,13 @@ function renderDetail(D) {
   /* ---- 時系列 ---- */
   h += sec("図", "時系列（新しい順）");
   if (D.meta.summary_sheet !== "ok") {
+    /* 🔴 読めない理由は「まだ作られていない」とは限らない（一時的な失敗もある）。決めつけない */
     h += note("info", "電話の要約はまだありません",
-      "電話の要約（Zoom Phone の文字起こしを MiniMax-M3 で要約したもの）は、まだ作られていません" +
-      (D.meta.summary_sheet === "missing" ? "（要約のシートが読めません）" : "（要約のシートに行がありません）") +
+      (D.meta.summary_sheet === "missing"
+        ? "電話の要約（Zoom Phone の文字起こしを MiniMax-M3 で要約したもの）のシートを読めませんでした" +
+          "（まだ作られていないか、一時的に読めません。「読み直す」で取り直します）"
+        : "電話の要約（Zoom Phone の文字起こしを MiniMax-M3 で要約したもの）は、まだ作られていません" +
+          "（要約のシートに行がありません）") +
       "。電話は日時・長さ・文字起こしの有無だけ出しています。");
   }
   const all = D.events || [];
@@ -5974,17 +5995,23 @@ function renderDetail(D) {
   const filtered = shown.length < all.length;
   h += '<div class="count-line' + (filtered ? " on" : "") + '" id="dd-count"><b>' + num(all.length) + " 件中 " +
     num(shown.length) + " 件</b>を表示" + (filtered ? "（絞り込み中）" : "（全部出しています）") +
-    '<span class="muted">　MTG 録画 ' + num(c.mtg) + " 件（抽出済み " + num(c.mtg_extracted) + "）／ MTG 推定 " +
-    num(c.mail_mtg) + " 件 ／ 電話 " + num(c.call) + " 件（60秒超 " + num(c.call_contact) + "・要約あり " +
+    '<span class="muted">　MTG 録画 ' + num(c.mtg) + " 件（抽出済み " + num(c.mtg_extracted) +
+    (c.mtg_link_not_high ? "・結び付けの確度が中 " + num(c.mtg_link_not_high) : "") + "）／ MTG 推定 " +
+    num(c.mail_mtg) + " 件（うち契約期間の外 " + num(c.mail_outside || 0) + "）／ 電話 " + num(c.call) +
+    " 件（60秒超 " + num(c.call_contact) + "・要約あり " +
     num(c.call_summarized) + "）／ 交代 " + num(c.handover) + " 件</span></div>";
   h += '<div class="legend"><i>&#9679; 事実（録画・通話記録・交代の記録）</i>' +
     "<i>&#9671; 推定（メール由来の MTG。印の枠は破線）</i></div>";
   h += shown.length ? '<ol class="tl" id="dd-tl">' + shown.map(detailItem).join("") + "</ol>"
     : '<div class="empty">この条件で出せる出来事はありません。' +
       (all.length ? "上の絞り込みを変えると出ます。" : "この案件には MTG・電話・交代の記録がありません。") + "</div>";
-  if (c.call_moved_in || c.call_outside) {
-    h += '<div class="lede">電話のうち ' + num(c.call_moved_in) + " 件は継続の取引から付け直したもの、" +
-      num(c.call_outside) + " 件はこの取引に付いているが契約期間の外のものです（行ごとに印を付けています）。</div>";
+  /* 付け直して来たもの・契約期間の外のもの（種類ごと）。元は継続の取引とは限らない（オプション契約・前の契約もある） */
+  const mv = [["電話", c.call_moved_in, c.call_outside], ["録画 MTG", c.mtg_moved_in, c.mtg_outside],
+    ["MTG 推定", c.mail_moved_in, c.mail_outside]].filter((x) => x[1] || x[2]);
+  if (mv.length) {
+    h += '<div class="lede">' + mv.map((x) => esc(x[0]) + "は " + num(x[1] || 0) + " 件が同じ拠点の別の取引から付け直したもの、" +
+      num(x[2] || 0) + " 件がこの取引に付いているが契約期間の外のもの").join("。") +
+      "です（行ごとに印を付けています）。</div>";
   }
   const nh = (c.mail_not_held || []).filter((x) => x.n > 0);
   if (nh.length) {
@@ -5993,7 +6020,7 @@ function renderDetail(D) {
   }
 
   const R = D.rules || {};
-  h += note("def", "並べ方の決まり", [R.fact, R.attach, R.contact, R.summary, R.extracted, R.handover]
+  h += note("def", "並べ方の決まり", [R.fact, R.link, R.attach, R.contact, R.summary, R.extracted, R.handler, R.handover]
     .filter(Boolean).map(esc).join("<br>"));
   return h + foot(D.meta, true, "");
 }
