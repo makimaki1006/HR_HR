@@ -23,6 +23,7 @@ pub mod industry;
 pub mod keywords;
 pub mod season;
 pub mod trend;
+pub mod wordbrief;
 pub mod wording;
 
 /// 顧客レポートを外部に出してよいかの切り替え。

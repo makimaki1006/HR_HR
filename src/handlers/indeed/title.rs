@@ -13,6 +13,7 @@ use axum::{
     extract::{Query, State},
     http::HeaderMap,
     response::Html,
+    Json,
 };
 use serde::Deserialize;
 
@@ -331,6 +332,125 @@ fn rank_block(s: &crate::indeed::detail::PrefSeries) -> String {
     )
 }
 
+/// 求人票を作る画面から引くための口（試作 2026-09-24）。
+///
+/// `GET /api/indeed/wordbrief?title=一般事務`
+///
+/// # なぜ画面の HTML ではなく JSON で出すか
+/// 求人票生成（`src/job_gen/`）は別の画面で、いまは Indeed のデータを
+/// 1 行も見ていない。`GenSpec.guide`（`hrhacker.rs:148-153`）の
+/// 「Indeed表示職種名: 12字前後の職種名。30字以内」に、
+/// 求職者が実際に打っている語を足すのがこの口の用途。
+///
+/// # 返すもの
+/// * `guide` … LLM へそのまま渡してよい 1 文。**数字を含まない**
+/// * `titles` / `koyou` / `joken` … 語を書く場所で分けたもの
+/// * `moved` … 14 か月の向き（画面用。LLM には渡さない）
+///
+/// # 渡す側の責任
+/// `guide` は「語と向き」しか書いていない。工程⑦の `validate_generated` は
+/// 原文に無い数字を弾くので、数字の入った文を混ぜると原稿ごと差し戻される。
+pub async fn api_wordbrief(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<NameQuery>,
+) -> Json<serde_json::Value> {
+    use crate::indeed::wordbrief::{kind_of, Kind};
+
+    let Some(title) = q.title.as_deref().filter(|s| !s.is_empty()) else {
+        return Json(serde_json::json!({"found": false, "reason": "title が要ります"}));
+    };
+    let Some(db) = state.indeed_db.as_ref() else {
+        return Json(
+            serde_json::json!({"found": false, "reason": "Indeed の分析データが読めません"}),
+        );
+    };
+    let b = match crate::indeed::wordbrief::load(db, title) {
+        Ok(Some(b)) => b,
+        Ok(None) => {
+            return Json(serde_json::json!({
+                "found": false, "title": title,
+                "reason": "この職種の検索語は取れていません"
+            }))
+        }
+        Err(e) => {
+            tracing::error!("wordbrief api failed for {title}: {e}");
+            return Json(
+                serde_json::json!({"found": false, "title": title, "reason": "読めませんでした"}),
+            );
+        }
+    };
+
+    let pick = |k: Kind| -> Vec<serde_json::Value> {
+        b.current
+            .iter()
+            .filter(|c| kind_of(&c.term) == k)
+            .map(|c| {
+                serde_json::json!({
+                    "term": c.term,
+                    "pct": c.pct,
+                    "clicks": c.clicks,
+                    // 求人票に書ける語か。false のものは guide に入っていない
+                    "writable": crate::indeed::wordbrief::is_writable(&c.term),
+                })
+            })
+            .collect()
+    };
+    let moved: Vec<serde_json::Value> = b
+        .rising
+        .iter()
+        .chain(b.falling.iter())
+        .map(|m| {
+            serde_json::json!({
+                "term": m.term,
+                "start_pct": m.start_pct,
+                "end_pct": m.end_pct,
+                "diff_pt": m.diff_pt,
+                "monotonic": m.monotonic,
+                "kind": match kind_of(&m.term) {
+                    Kind::Title => "title",
+                    Kind::Koyou => "koyou",
+                    Kind::Joken => "joken",
+                },
+            })
+        })
+        .collect();
+
+    // いま出している職種名が渡されていれば、市場の語と突き合わせる。
+    // 生成より監査のほうが効くという実測（A/B で差が出なかった）に基づく。
+    let audit: Vec<serde_json::Value> = q
+        .posted
+        .as_deref()
+        .map(|p| crate::indeed::wordbrief::audit_title(p, &b))
+        .unwrap_or_default()
+        .iter()
+        .map(|f| serde_json::json!({"text": f.text, "term": f.term, "level": f.level}))
+        .collect();
+
+    Json(serde_json::json!({
+        "found": true,
+        "title": b.title,
+        "first_month": b.first_month,
+        "last_month": b.last_month,
+        "months": b.months,
+        "guide": b.guide_line(),
+        "titles": pick(Kind::Title),
+        "koyou": pick(Kind::Koyou),
+        "joken": pick(Kind::Joken),
+        "moved": moved,
+        "hidden_terms": b.hidden_terms,
+        "audit": audit,
+        "note": "guide は数字を含みません。原稿の数値照合に掛からないようにするためです。"
+    }))
+}
+
+/// 職種名だけを受け取る問い合わせ。
+#[derive(Deserialize, Default)]
+pub struct NameQuery {
+    pub title: Option<String>,
+    /// いま求人票に書いてある職種名。渡すと監査の指摘が返る。
+    pub posted: Option<String>,
+}
+
 pub async fn tab_indeed_title(
     State(state): State<Arc<AppState>>,
     session: tower_sessions::Session,
@@ -379,6 +499,14 @@ pub async fn tab_indeed_title(
         Err(e) => {
             tracing::error!("indeed snapshot failed: {e}");
             return Html(note("Indeed 分析データを読めませんでした。", &back));
+        }
+    };
+    // 語の向き。読めなくても詳細そのものは出す（カードが 1 枚出ないだけ）。
+    let wb = match crate::indeed::wordbrief::load(db, name) {
+        Ok(x) => x,
+        Err(e) => {
+            tracing::warn!("indeed wordbrief failed for {name}: {e}");
+            None
         }
     };
     let d = match detail::load(db, name) {
@@ -450,6 +578,7 @@ pub async fn tab_indeed_title(
         season.as_ref(),
         pref,
         sort.as_deref(),
+        wb.as_ref(),
     ))
 }
 
@@ -530,6 +659,7 @@ fn render(
     season: Option<&crate::indeed::season::TitleSeason>,
     pref: Option<&str>,
     sort: Option<&str>,
+    wb: Option<&crate::indeed::wordbrief::WordBrief>,
 ) -> String {
     let mut h = String::with_capacity(120_000);
     h.push_str(GUARD);
@@ -612,6 +742,7 @@ fn render(
     h.push_str(&pref_bar(d, ov.and_then(|o| o.spp.latest)));
     h.push_str(&pref_table(d, w));
     h.push_str(&keywords_block(d));
+    h.push_str(&wordbrief_block(wb));
     h.push_str(&attrs_block(d, attrs));
     h.push_str(&volume_block(d));
 
@@ -762,6 +893,180 @@ fn pref_table(d: &TitleDetail, w: &MinWages) -> String {
 }
 
 /// 検索語。いま何で探されていて、何が増えたか。
+/// 求人票を書き直すときに使う語（試作 2026-09-24）。
+///
+/// # 既存の「探すときに使われた言葉」との違い
+/// あちらは**最新月の合計**。多い順に並べるだけで、向きが分からない。
+/// 「事務」は最新月でも 26.8% で 1 位なので、あの表では何も起きていないように見える。
+/// 実際には 14 か月で 45.3% → 26.8% と落ち続けており、
+/// 代わりに「一般事務」が 5.3% → 19.9% に伸びている。
+///
+/// 求人票の職種名を決めるのに要るのは**向き**のほうなので、別のカードにする。
+///
+/// # 判定はコード側で確定させる
+/// `crate::indeed::wordbrief` が「どの語が伸びて、どの語が落ちたか」まで決める。
+/// ここは出すだけ。LLM には結果の語しか渡さない。
+fn wordbrief_block(b: Option<&crate::indeed::wordbrief::WordBrief>) -> String {
+    let Some(b) = b else {
+        return String::new();
+    };
+    if b.current.is_empty() && b.rising.is_empty() && b.falling.is_empty() {
+        return String::new();
+    }
+    let mut h = format!(
+        "<div class=\"{CARD}\"><h3 class=\"text-slate-100 text-lg font-bold mb-1\">\
+         求人票の職種名を決めるための語</h3>\
+         <p class=\"text-slate-400 text-xs mb-3\">\
+         {first} 〜 {last} の {n} か月。上の「探すときに使われた言葉」は最新月の多い順ですが、\
+         ここは<b>向き</b>です。14 か月ずっと上位に出ていた語だけを見ています\
+         （途中で 10 位より下に落ちた月がある語は判定から外しています）。</p>",
+        first = esc(&b.first_month),
+        last = esc(&b.last_month),
+        n = b.months
+    );
+
+    // この職種の呼び名そのものを突き合わせる。
+    // 「ホールスタッフ」は 2.0% しか打たれておらず、「カフェ」が 10.8% ある、
+    // のような食い違いは、この画面で最初に見たいこと。
+    let findings = crate::indeed::wordbrief::audit_title(&b.title, b);
+    if !findings.is_empty() {
+        h.push_str(
+            "<div class=\"bg-navy-700 border border-amber-500 rounded p-3 mb-3\">\
+             <p class=\"text-amber-300 text-sm font-bold mb-2\">この呼び名と、探されている語の食い違い</p>",
+        );
+        for f in &findings {
+            let (mark, cls) = if f.level >= 2 {
+                ("直す", "text-amber-300")
+            } else {
+                ("見る", "text-slate-400")
+            };
+            h.push_str(&format!(
+                "<p class=\"text-slate-200 text-sm mb-1\">\
+                 <span class=\"{cls} text-xs\">［{mark}］</span> {t}</p>",
+                t = esc(&f.text)
+            ));
+        }
+        h.push_str(
+            "<p class=\"text-slate-400 text-xs mt-2\">\
+             この指摘はデータだけで出しています（文章を書く AI は使っていません）。</p></div>",
+        );
+    }
+
+    if !b.current.is_empty() {
+        h.push_str(
+            "<p class=\"text-slate-300 text-sm font-bold mb-1\">いま打たれている語（求人票のどこに書くか付き）</p>\
+             <div style=\"overflow-x:auto\" class=\"mb-3\"><table class=\"w-full text-sm\">\
+             <tbody>",
+        );
+        for c in &b.current {
+            // 語の種類を並べて出す。求人票のどこに書く語なのかが違うので、
+            // 混ぜたまま渡すと「ネイルok」が職種名になる。
+            let (kind_label, kind_cls) = match crate::indeed::wordbrief::kind_of(&c.term) {
+                crate::indeed::wordbrief::Kind::Title => ("職種名", "text-blue-300"),
+                crate::indeed::wordbrief::Kind::Koyou => ("雇用形態", "text-amber-300"),
+                crate::indeed::wordbrief::Kind::Joken => ("条件", "text-teal-400"),
+            };
+            // 求職者は打っているが、求人票には書けない語がある
+            // （「主婦パート」は性別差別表示で法令 NG）。
+            // 画面には残して、書けないことだけを印で出す。
+            let (kind_label, kind_cls) = if crate::indeed::wordbrief::is_writable(&c.term) {
+                (kind_label, kind_cls)
+            } else {
+                ("書けない", "text-red-400")
+            };
+            h.push_str(&format!(
+                "<tr><td class=\"{TD}\">{t}</td>\
+                 <td class=\"{TD} text-xs {kc}\">{kl}</td>\
+                 <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{p}%</td>\
+                 <td class=\"{TD} tabular-nums text-slate-400\" style=\"text-align:right\">{c}</td></tr>",
+                t = esc(&c.term),
+                kl = kind_label,
+                kc = kind_cls,
+                p = format!("{:.1}", c.pct),
+                c = num_opt(Some(c.clicks as f64))
+            ));
+        }
+        h.push_str("</tbody></table></div>");
+        if b.current
+            .iter()
+            .any(|c| !crate::indeed::wordbrief::is_writable(&c.term))
+        {
+            h.push_str(
+                "<p class=\"text-slate-400 text-xs mb-3\">\
+                 「書けない」の語は、求職者は実際に打っていますが、\
+                 求人票に書くと法令上の NG になります（性別・年齢で応募を絞る表示）。\
+                 求人票を作る画面へは渡していません。</p>",
+            );
+        }
+    }
+
+    let row = |m: &crate::indeed::wordbrief::Moved| -> String {
+        let arrow = if m.diff_pt > 0.0 { "▲" } else { "▼" };
+        // text-rose-400 は配布 CSS に無い（実測 0 件）。あるのは red 系。
+        let color = if m.diff_pt > 0.0 {
+            "text-emerald-400"
+        } else {
+            "text-red-400"
+        };
+        let tag = if m.is_koyou {
+            "<span class=\"text-amber-300 text-xs\">雇用形態</span>"
+        } else {
+            ""
+        };
+        format!(
+            "<tr><td class=\"{TD}\">{t} {tag}</td>\
+             <td class=\"{TD} tabular-nums text-slate-400\" style=\"text-align:right\">{s}%→{e}%</td>\
+             <td class=\"{TD} tabular-nums {color}\" style=\"text-align:right\">{arrow} {d}pt</td>\
+             <td class=\"{TD} tabular-nums text-slate-400\" style=\"text-align:right\">一貫 {m}%</td></tr>",
+            t = esc(&m.term),
+            s = format!("{:.1}", m.start_pct),
+            e = format!("{:.1}", m.end_pct),
+            d = format!("{:+.1}", m.diff_pt),
+            m = (m.monotonic * 100.0).round() as i64,
+        )
+    };
+
+    if !b.rising.is_empty() || !b.falling.is_empty() {
+        h.push_str(
+            "<p class=\"text-slate-300 text-sm font-bold mb-1\">14 か月で動いた語</p>\
+             <div style=\"overflow-x:auto\" class=\"mb-2\"><table class=\"w-full text-sm\"><tbody>",
+        );
+        for m in b.rising.iter().chain(b.falling.iter()) {
+            h.push_str(&row(m));
+        }
+        h.push_str("</tbody></table></div>");
+        h.push_str(
+            "<p class=\"text-slate-400 text-xs mb-3\">\
+             「一貫」は、隣り合う月の差のうち全体と同じ向きだったものの割合です。\
+             100% なら 14 か月とも同じ向きに動いています。\
+             3pt 未満の動きと、一貫が 60% 未満のものは月ごとの揺れと区別が付かないので出していません。</p>",
+        );
+    }
+
+    let guide = b.guide_line();
+    if !guide.is_empty() {
+        h.push_str(&format!(
+            "<div class=\"bg-navy-700 border border-slate-600 rounded p-3\">\
+             <p class=\"text-slate-400 text-xs mb-1\">求人票を作る画面へ渡す文（この文だけが渡ります）</p>\
+             <p class=\"text-slate-200 text-sm\">{g}</p>\
+             <p class=\"text-slate-400 text-xs mt-2\">\
+             数字は渡しません。求人票の検査が「元の原稿に無い数字」を弾くためで、\
+             ここの %% が原稿に混ざると根拠のない数字になります。渡すのは語と向きだけです。</p></div>",
+            g = esc(&guide)
+        ));
+    }
+
+    if b.hidden_terms > 0 {
+        h.push_str(&format!(
+            "<p class=\"text-slate-400 text-xs mt-2\">\
+             社名・施設名を含む語 {n} 件は伏せています。</p>",
+            n = b.hidden_terms
+        ));
+    }
+    h.push_str("</div>");
+    h
+}
+
 fn keywords_block(d: &TitleDetail) -> String {
     // 県ごとの上位語を足し合わせて、この職種の全国の姿にする
     let mut total: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
@@ -2695,6 +3000,7 @@ mod detail_display_tests {
             None,
             Some("東京都"),
             Some("mobile"),
+            None,
         );
         assert!(h.contains("view=titles"), "戻り先が面を持っていない");
         assert!(
@@ -2705,7 +3011,20 @@ mod detail_display_tests {
         assert!(h.contains("hx-push-url=\"true\""), "URL が更新されない");
 
         // 全国・並べ替え無しのときは余計なものを付けない
-        let h = render(&d, None, &[], &w, &[], &[], &[], None, None, None, None);
+        let h = render(
+            &d,
+            None,
+            &[],
+            &w,
+            &[],
+            &[],
+            &[],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
         assert!(h.contains("view=titles"));
         assert!(!h.contains("&pref="), "全国なのに県が付いている");
         assert!(!h.contains("&sort="), "選んでいない並べ替えが付いている");

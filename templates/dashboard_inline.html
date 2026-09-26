@@ -300,6 +300,41 @@
             });
         });
     })();
+
+    // HASH_AFTER_LOAD: 節を指した URL を開いたら、その節まで送る (2026-09-24 試作)
+    //
+    // 実測の不具合: まっさらな文脈で `/?tab=...#sec-4` を開くと
+    // scrollY=0 のまま。印は DOM にあるのに画面は先頭だった。
+    //
+    // ブラウザが送ろうとする時点では #content がまだ「読み込み中...」で、
+    // 印が DOM に無い。中身は htmx.ajax で後から届き、そのあと誰も送り直さない。
+    //
+    // ハッシュは読み込み直後に捕まえておく。htmx の hx-push-url は
+    // フラグメント無しの URL を push するので、あとから location.hash を
+    // 見ても消えていることがある。
+    //
+    // 1 回で使い切る。面を切り替えるたびに飛ぶと、押した人の意図と違う。
+    // 上のスクロール維持より**後に登録する**。向こうも requestAnimationFrame を
+    // 使うので、後に積んだほうが後に動く。
+    (function() {
+        var want = location.hash && location.hash.length > 1 ? location.hash.slice(1) : '';
+        if (!want) return;
+        var used = false;
+        document.body.addEventListener('htmx:afterSettle', function(e) {
+            if (used) return;
+            var c = document.getElementById('content');
+            if (!c || !e.detail || e.detail.target !== c) return;
+            var el = document.getElementById(want);
+            if (!el) return;   // まだ来ていない。次の afterSettle を待つ
+            used = true;
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    var el2 = document.getElementById(want);
+                    if (el2) el2.scrollIntoView();
+                });
+            });
+        });
+    })();
     </script>
     <script src="/static/js/charts.js?v={{ASSET_V}}"></script>
     <!-- 2026-08-10: 各タブ見出しへ「印刷 / 画像保存」バーを自動注入する export.js の
