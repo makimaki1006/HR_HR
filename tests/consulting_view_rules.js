@@ -3193,6 +3193,172 @@ check("横棒（svgBarH）: 右の注記が枠に入らないときも、どの�
   }
 });
 
+/* ================================================================ 案件の詳細（2026-09-26） */
+/* 入力の形は deal_detail.rs build_deal_detail のまま。値は見張りのために置いたもの（名前は合成） */
+function ddPayload() {
+  const at = (state, extra) => Object.assign({ state, in_span: false, moved_from: null, moved_to: null }, extra || {});
+  const call = (id, a, x) => Object.assign({ kind: "call", date: "2026-09-10", time: "10:00", fact: true,
+    source_label: "通話記録（事実）", call_id: id, duration_sec: 90, contact: true, direction: "inbound",
+    handler: null, owner: "担当B", has_transcript: false, summary: null, attach: a }, x || {});
+  return {
+    meta: { today: "2026-09-18", found: true, deal_id: "80000000001", reason: null, summary_sheet: "ok" },
+    deal: { deal_id: "80000000001", name: "見張りの案件 <b>太字</b>", site: null, stage: "解約済", kind: "(新規)",
+      start: "2026-01-01", expiration: "2026-06-30", period: null, consultant: null, consultant_retired: false,
+      amount: null, renewal_no: 0, is_active: false, right_censored: false, flags: null },
+    chain: { has_site: false, position: 0, prev: null, next: null, rows: [] },
+    counts: { mtg: 1, mtg_extracted: 0, mail_mtg: 2, mail_not_held: [], call: 4, call_contact: 4, call_transcript: 0,
+      call_summarized: 0, handover: 0, call_moved_in: 1, call_outside: 3 },
+    events: [
+      call("k1", at("moved_in", { in_span: true, moved_from: { deal_id: "80000000002", name: "継続の契約", relation: "later" } }), { date: "2026-06-01" }),
+      call("k2", at("moved_out", { moved_to: { deal_id: "80000000002", name: "継続の契約" } }), { date: "2026-08-01" }),
+      call("k3", at("ambiguous"), { date: "2026-07-20" }),
+      call("k4", at("outside"), { date: "2025-12-01" }),
+      { kind: "mail_mtg", date: "2026-03-10", time: null, fact: false, source_label: "メール由来（推定）",
+        certainty: "推定(±1日 83.3%)", same_day_recording: false },
+      { kind: "mail_mtg", date: "2026-03-11", time: null, fact: false, source_label: "メール由来（推定）",
+        certainty: "推定(±1日 83.3%)", same_day_recording: true },
+      { kind: "mtg", date: "2026-03-10", time: "10:00", fact: true, source_label: "Zoom 録画（事実）", subject: null,
+        host: null, minutes: null, mtg_type: null, extracted: false, todo: null, concern: null, positive: null,
+        risk: null, risk_reason: null, next: null, attach: at("own", { in_span: true }) },
+    ],
+    rules: { fact: "事実と推定の決まり", attach: "付け直しの決まり" },
+  };
+}
+const ddItems = (h) => h.slice(h.indexOf('<ol class="tl"'), h.indexOf("</ol>")).split("<li ").slice(1);
+
+check("案件の詳細: 推定（メール由来）の行は必ず推定の印と確かさを付け、事実の行には付けない", () => {
+  ctx.__DD = ddPayload();
+  const h = run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }");
+  const items = ddItems(h);
+  ok(items.length === 7, "7 行のはずが " + items.length);
+  for (const it of items) {
+    const est = /^class="[^"]*\best\b/.test(it);
+    const isMail = it.indexOf("MTG（推定）") >= 0;
+    ok(est === isMail, "推定の印（est）とメール由来が一致しない: " + it.slice(0, 80));
+    if (isMail) ok(it.indexOf("推定(±1日 83.3%)") >= 0 && it.indexOf("録画のような中身はありません") >= 0,
+      "メール由来の行に確かさか断りが無い");
+    else ok(it.indexOf("推定") < 0, "事実の行に「推定」が混ざっている: " + it.slice(0, 80));
+  }
+  // 凡例は形と文で（色だけにしない）
+  ok(/<div class="legend"><i>&#9679; 事実[^<]*<\/i><i>&#9671; 推定/.test(h), "凡例に事実（●）と推定（◇）の文が無い");
+});
+
+check("案件の詳細: 付け直しの印は4通りを言い分け、そのままの行には何も付けない", () => {
+  ctx.__DD = ddPayload();
+  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
+  ok(/付け直し: 継続の取引「<a class="deallink" href="#deal\/detail\?id=80000000002">継続の契約<\/a>」/.test(by("2026-06-01")),
+    "付け直して来た行に、元の取引へのリンクが無い");
+  ok(by("2026-08-01").indexOf("の期間の記録として数えています") >= 0, "出ていった行の印が無い");
+  ok(by("2026-07-20").indexOf("決められない") >= 0, "決められない行の印が無い");
+  ok(by("2025-12-01").indexOf("その日に動いている同じ拠点の契約がありません") >= 0, "期間の外の行の印が無い");
+  const own = by("2026-03-10");
+  ok(own && own.indexOf('class="via">&#8618;') < 0 && own.indexOf("&#9888;") < 0, "そのままの行に付け直しの印が付いている");
+});
+
+check("案件の詳細: 抽出前の MTG は「未抽出」と出し、空の項目を — で並べない（記録が無いと読ませない）", () => {
+  ctx.__DD = ddPayload();
+  const items = ddItems(run("renderDetail(__DD)"));
+  const m = items.find((x) => x.indexOf('<span class="mark">MTG</span>') >= 0);
+  ok(m, "録画の MTG の行が無い");
+  ok(m.indexOf("未抽出") >= 0 && m.indexOf("記録が無いのではありません") >= 0, "未抽出と書いていない");
+  ok(m.indexOf("<dl>") < 0, "未抽出なのに項目の表（— の並び）を出している");
+});
+
+check("案件の詳細: 名前はエスケープし、値の無い項目は — や断りで出す（undefined・null・取引IDを出さない）", () => {
+  ctx.__DD = ddPayload();
+  const h = run("renderDetail(__DD)");
+  ok(h.indexOf("<b>太字</b>") < 0 && h.indexOf("&lt;b&gt;太字&lt;/b&gt;") >= 0, "案件名をエスケープしていない");
+  ok(!/undefined|NaN|>null</.test(h), "undefined / NaN / null が出ている");
+  ok(h.indexOf("稼働中の案件にだけ付けています") >= 0, "名札が無い理由を書いていない");
+  ok(h.indexOf("拠点名なし") >= 0 && h.indexOf("前後の契約はたどれません") >= 0, "拠点が無いときの断りが無い");
+  ok(!/>[^<]*80000000001[^<]*</.test(h), "取引ID が画面の文字に出ている");
+  ok(h.indexOf("初回") >= 0, "継続回数 0 を「初回」と出していない");
+});
+
+check("案件の詳細: 表の案件名（案件そのもの・継続を追いかける・法人番号で見る）は案件の詳細へのリンク", () => {
+  const b = run('BOARD_COLS.find((c) => c.k === "name").fmt({ deal_id: "80000000001", name: "A&B" })');
+  ok(b.indexOf('<a class="deallink" href="#deal/detail?id=80000000001">A&amp;B</a>') === 0, "案件の立ち位置の案件名がリンクでない: " + b);
+  ctx.__CD = { meta: { found: true, houjin: "H1" }, customer: null, deals: [{ deal_id: "80000000003", name: "系列の契約",
+    stage: "定期1", site: "S", kind: "サブスク", start: "2026-01-01", expiration: "2026-06-30", renewal_no: 0, amount: null,
+    oubo: null, mensetu: null, syoudaku: null, is_active: true, right_censored: false }], mtgs: [] };
+  const s = run('custBlocks(__CD, new Set(["deals"]))');
+  ok(s.indexOf('href="#deal/detail?id=80000000003"') >= 0, "契約の系列の表の案件名がリンクでない");
+  // リンクは折り返す（golink の nowrap を使うと長い案件名の列が伸びて右端の列が切れる）
+  ok(/a\.deallink\{[^}]*overflow-wrap:anywhere/.test(html) && !/a\.deallink\{[^}]*nowrap/.test(html),
+    "案件名のリンクが折り返さない");
+});
+
+check("案件の詳細: 付け直しの元は関係で言い分け、オプション契約はリンクにしない（押しても詳細が無い）", () => {
+  const P = ddPayload();
+  const mk = (rel, id, name) => ({ state: "moved_in", in_span: true, moved_to: null,
+    moved_from: { deal_id: id, name: name, relation: rel } });
+  P.events = [
+    Object.assign({}, P.events[0], { call_id: "r1", date: "2026-06-04", attach: mk("later", "80000000002", "継続の契約") }),
+    Object.assign({}, P.events[0], { call_id: "r2", date: "2026-06-03", attach: mk("earlier", "80000000000", "前の契約") }),
+    Object.assign({}, P.events[0], { call_id: "r3", date: "2026-06-02", attach: mk("option", "80000000009", "求人追加の契約") }),
+  ];
+  ctx.__DD = P;
+  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
+  ok(/付け直し: 継続の取引「<a class="deallink" href="#deal\/detail\?id=80000000002">/.test(by("2026-06-04")), "継続先の文かリンクが無い");
+  ok(/付け直し: 前の契約の取引「<a class="deallink" href="#deal\/detail\?id=80000000000">/.test(by("2026-06-03")),
+    "前の契約から来た行を「前の契約」と書いていない");
+  const o = by("2026-06-02");
+  ok(o.indexOf("付け直し: 同じ拠点のオプション契約「求人追加の契約」") >= 0, "オプション契約から来た行をそう書いていない");
+  ok(o.indexOf("80000000009") < 0 && o.indexOf("継続の取引") < 0, "オプション契約をリンクにしている、または「継続の取引」と書いている");
+});
+
+check("案件の詳細: 接触に数えない行（60秒以下の電話・メール由来の MTG）には「数えています」と書かない", () => {
+  const P = ddPayload();
+  const out = { state: "moved_out", in_span: false, moved_from: null, moved_to: { deal_id: "80000000002", name: "継続の契約" } };
+  P.events = [
+    Object.assign({}, P.events[0], { call_id: "s1", date: "2026-08-03", duration_sec: 30, contact: false, attach: out }),
+    Object.assign({}, P.events[0], { call_id: "s2", date: "2026-08-02", duration_sec: 90, contact: true, attach: out }),
+    { kind: "mail_mtg", date: "2026-08-01", time: null, fact: false, source_label: "メール由来（推定）",
+      certainty: "推定(±1日 83.3%)", same_day_recording: false, attach: out },
+    Object.assign({}, P.events[0], { call_id: "s3", date: "2026-07-31", duration_sec: 20, contact: false,
+      attach: { state: "ambiguous", in_span: false, moved_from: null, moved_to: null } }),
+  ];
+  ctx.__DD = P;
+  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
+  ok(by("2026-08-03").indexOf("数えています") < 0 && by("2026-08-03").indexOf("60秒以下なので、接触には数えていません") >= 0,
+    "60秒以下の電話に「数えています」と書いている");
+  ok(by("2026-08-02").indexOf("の期間の記録として数えています") >= 0, "60秒超の電話の文が変わっている");
+  ok(by("2026-08-01").indexOf("数えています") < 0 && by("2026-08-01").indexOf("メール由来の MTG なので") >= 0,
+    "メール由来の MTG に「数えています」と書いている、または付け先の印が無い");
+  ok(by("2026-07-31").indexOf("60秒以下なので") >= 0, "決められない 60秒以下の電話の理由が違う");
+});
+
+check("案件の詳細: 録画 MTG の取引への結び付けが確度「中」なら印と文を付け、「高」には付けない", () => {
+  const P = ddPayload();
+  const base = P.events.find((e) => e.kind === "mtg");
+  P.events = [
+    Object.assign({}, base, { date: "2026-03-12", link_certainty: "中", link_reason: "件名が近い" }),
+    Object.assign({}, base, { date: "2026-03-11", link_certainty: "高", link_reason: "取引名と一致" }),
+  ];
+  ctx.__DD = P;
+  const items = ddItems(run("renderDetail(__DD)"));
+  const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
+  ok(by("2026-03-12").indexOf("確度 中") >= 0 && by("2026-03-12").indexOf("結び付けは推定") >= 0 &&
+    by("2026-03-12").indexOf("件名が近い") >= 0, "確度が中の録画 MTG に印か文が無い");
+  ok(by("2026-03-11").indexOf("確度") < 0, "確度が高の録画 MTG に印が付いている");
+});
+
+check("案件の詳細: 話した人はそろえた表示名（handler_label）を出し、元の書き方は title に残す", () => {
+  const P = ddPayload();
+  P.events = [Object.assign({}, P.events[0], { handler: "リクロジ＿見張り 太郎", handler_label: "見張り太郎", attach: { state: "own" } })];
+  ctx.__DD = P;
+  const it = ddItems(run("renderDetail(__DD)"))[0] || "";
+  ok(it.indexOf("話した人 見張り太郎") >= 0, "そろえた表示名を出していない: " + it.slice(0, 200));
+  ok(it.indexOf('title="Zoom の表示名: リクロジ＿見張り 太郎"') >= 0, "元の表示名を title に残していない");
+});
+
+check("案件の詳細: 電話の AI 要約には「誤りを含むことがあります」の断りを付ける（取り違えは機械の検証で防げない）", () => {
+  ok(jsNoComment.includes("AI 要約（誤りを含むことがあります）"), "要約の見出しに AI 要約の断りが無い");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);

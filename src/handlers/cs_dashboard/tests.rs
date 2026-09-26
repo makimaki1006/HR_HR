@@ -4954,3 +4954,562 @@ fn 交代の前後の接触は証拠ではないと書く() {
         assert!(!s.contains("  "), "{k} に空白の連続が混ざっている: {s}");
     }
 }
+
+// ================================================================ 案件の詳細
+
+use super::deal_detail::build_deal_detail;
+
+/// `CS_通話要約` の fixture は**合成**（本番にまだ無いシート）。個人が特定できる文字列は入れていない。
+/// 作り方: `CS_通話明細` の fixture のうち、文字起こしあり・60秒超の行（1,345行）から、
+/// `call_id` が 10 で割り切れるもの（文字起こしが短すぎて行を作らない通話を真似る）を除いた 1,202行。
+/// summary / next_action / concern は `call_id % 5` で決まる5通りの定型文、`ts` と `duration_sec` は通話明細の写し。
+/// 同じ通話が複数の取引に付いているときは、通話明細と同じく取引ごとに1行ある。
+fn call_summary() -> Arc<SheetData> {
+    load_tsv("CS_通話要約")
+}
+
+fn detail(id: &str) -> Value {
+    build_deal_detail(
+        &sheets(),
+        Some(&call_summary()),
+        Some(id),
+        None,
+        fixture_day(),
+    )
+}
+
+fn events_of<'a>(v: &'a Value, kind: &str) -> Vec<&'a Value> {
+    v["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .filter(|e| e["kind"] == kind)
+        .collect()
+}
+
+#[test]
+fn 通話要約のfixtureは合成で伏字の決まりを守っている() {
+    let s = call_summary();
+    assert_eq!(s.rows.len(), 1_202, "合成の行数");
+    for c in [
+        "call_id",
+        "deal_id",
+        "ts",
+        "duration_sec",
+        "summary",
+        "next_action",
+        "concern",
+        "n_utterances",
+        "model",
+        "generated_at",
+        "source",
+    ] {
+        assert!(s.col(c).is_some(), "列「{c}」が無い");
+    }
+    // 1通話が複数の取引に付くときは取引ごとに1行（call_id が重複してよい）
+    let ids: std::collections::HashSet<&str> = s.rows.iter().map(|r| s.get(r, "call_id")).collect();
+    assert!(ids.len() < s.rows.len(), "call_id の重複が1件も無い");
+    // 60秒以下の通話には行を作らない。要約は200字まで
+    for r in &s.rows {
+        assert!(super::opt_num(s.get(r, "duration_sec")).unwrap() > super::CONTACT_SEC);
+        assert!(s.get(r, "summary").chars().count() <= 200);
+    }
+}
+
+/// 全部の種類がそろう取引（fixture で1件だけ）。数は Python で別に数え直した値
+/// （付け直しの決まりを Python で書き直し、同じ fixture から数えた。2026-09-26）。
+///
+/// | 電話 | 60秒超 | 要約あり | 付け直して来た | 契約期間の外 | 録画 MTG | メール MTG（実施） | 交代 |
+/// |  38  |   24   |    3     |       2        |      19      |    2     |        19          |  1   |
+///
+/// メール MTG の 19 の内訳（2026-09-26 付け直しを入れてから Python で数え直し）: この契約の期間の中 3、
+/// 継続先・前の契約から付け直して来た 2、この取引に付いているが契約期間の外 14
+/// （別の取引の期間 11・動いている契約が無い日 3）。
+#[test]
+fn 案件の詳細は電話_mtg_交代を新しい順に1本で並べる() {
+    let v = detail("61098080280");
+    assert_eq!(v["meta"]["found"], true);
+    assert_eq!(v["meta"]["summary_sheet"], "ok");
+    let c = &v["counts"];
+    assert_eq!(c["call"], 38, "電話");
+    assert_eq!(c["call_contact"], 24, "60秒超");
+    assert_eq!(c["call_summarized"], 3, "要約あり");
+    assert_eq!(c["call_moved_in"], 2, "付け直して来た電話");
+    assert_eq!(c["call_outside"], 19, "この取引に付いているが契約期間の外");
+    assert_eq!(c["mtg"], 2, "録画の MTG");
+    assert_eq!(c["mail_mtg"], 19, "メール由来（実施）");
+    assert_eq!(c["mail_moved_in"], 2, "メール由来で付け直して来た");
+    assert_eq!(c["mail_outside"], 14, "メール由来で契約期間の外");
+    assert_eq!(c["handover"], 1, "担当の交代");
+    let ev = v["events"].as_array().unwrap();
+    assert_eq!(ev.len(), 38 + 2 + 19 + 1, "時系列の件数");
+    assert_eq!(events_of(&v, "call").len(), 38);
+    let mail = events_of(&v, "mail_mtg");
+    assert_eq!(mail.len(), 19);
+    // 🔴 メール由来にも付け先の印がある（期間外の行を、この契約の出来事に見せない）
+    let st = |k: &str| mail.iter().filter(|e| e["attach"]["state"] == k).count();
+    assert_eq!(st("own"), 3, "この契約の期間の中");
+    assert_eq!(st("moved_in"), 2);
+    assert_eq!(st("moved_out"), 11, "別の取引の期間");
+    assert_eq!(st("outside"), 3, "動いている契約が無い日");
+    let days: std::collections::HashSet<&str> =
+        mail.iter().map(|e| e["date"].as_str().unwrap()).collect();
+    assert_eq!(days.len(), 19, "同じ日のメール由来の MTG を2回出さない");
+    // 新しい順。同じ日は時刻の新しい順（時刻の無いものは後ろ）
+    assert_eq!(ev[0]["date"], "2026-09-18", "いちばん上がいちばん新しい日");
+    for w in ev.windows(2) {
+        let k = |e: &Value| {
+            (
+                e["date"].as_str().unwrap().to_string(),
+                e["time"].as_str().unwrap_or("").to_string(),
+            )
+        };
+        assert!(
+            k(&w[0]) >= k(&w[1]),
+            "並びが新しい順でない: {:?} → {:?}",
+            k(&w[0]),
+            k(&w[1])
+        );
+    }
+    // 事実と推定を分ける
+    for e in ev {
+        let fact = e["fact"].as_bool().unwrap();
+        assert_eq!(fact, e["kind"] != "mail_mtg", "{e}");
+        if e["kind"] != "handover" {
+            let want = if fact { "事実" } else { "推定" };
+            assert!(e["source_label"].as_str().unwrap().contains(want), "{e}");
+        }
+    }
+    for e in events_of(&v, "mail_mtg") {
+        assert!(e["certainty"].as_str().unwrap().contains("83.3%"));
+    }
+    // 取引の基本と名札（稼働中なので名札の配列がある）
+    assert!(v["deal"]["flags"].is_array());
+    assert!(v["deal"]["stage"].as_str().is_some_and(|s| !s.is_empty()));
+    // 同じ call_id を2回出さない
+    let ids: Vec<&str> = events_of(&v, "call")
+        .iter()
+        .map(|e| e["call_id"].as_str().unwrap())
+        .collect();
+    let uniq: std::collections::HashSet<&&str> = ids.iter().collect();
+    assert_eq!(uniq.len(), ids.len(), "同じ通話が2回出ている");
+}
+
+/// 付け直し。この取引には直接付いた電話が1本も無く、継続先の取引に付いた電話を付け直して並べる。
+/// Python の数え直し: 電話 117（全部付け直し。同じ通話の重複を除いた数で、行では 228）、60秒超 63、録画 MTG 3、交代 1。
+#[test]
+fn 案件の詳細は継続先に付いた電話をこの契約の期間なら付け直して並べる() {
+    let v = detail("51831964246");
+    let c = &v["counts"];
+    assert_eq!(c["call"], 117);
+    assert_eq!(c["call_moved_in"], 117);
+    assert_eq!(c["call_contact"], 63);
+    assert_eq!(c["mtg"], 3);
+    assert_eq!(c["handover"], 1);
+    let me = &v["deal"];
+    let st = me["start"].as_str().unwrap().to_string();
+    let ex = me["expiration"].as_str().unwrap().to_string();
+    for e in events_of(&v, "call") {
+        let a = &e["attach"];
+        assert_eq!(a["state"], "moved_in", "{e}");
+        let from = a["moved_from"]["deal_id"].as_str().unwrap();
+        assert_ne!(from, "51831964246");
+        assert!(
+            !a["moved_from"]["name"].as_str().unwrap().is_empty(),
+            "どこから付け直したかの名前が無い"
+        );
+        // 付け直して来たものは、この取引の契約期間の中の日だけ
+        let d = e["date"].as_str().unwrap();
+        assert!(
+            st.as_str() <= d && d <= ex.as_str(),
+            "{d} が契約期間 {st}〜{ex} の外"
+        );
+    }
+    // 🔴 同じ通話が継続先と求人追加（オプション）の両方に付いているときは、本体契約（継続先）を元にする。
+    //    Python の数え直しで、117 件すべての元が継続先（あとに始まった本体契約）
+    for e in events_of(&v, "call") {
+        assert_eq!(e["attach"]["moved_from"]["relation"], "later", "{e}");
+    }
+    let rows = v["chain"]["rows"].as_array().unwrap();
+    assert!(rows.iter().any(|r| r["deal_id"] == "51831964246"));
+    assert_eq!(rows.iter().filter(|r| r["current"] == true).count(), 1);
+}
+
+/// 要約の結合: 要約がある電話は項目が出て、要約の行が無い電話は null。
+/// シートが読めないときは全部 null のまま、残りは同じに出す。
+#[test]
+fn 案件の詳細は通話要約をcall_idで結び_無いときも開く() {
+    let v = detail("61098080280");
+    let s = call_summary();
+    let have: std::collections::HashSet<&str> =
+        s.rows.iter().map(|r| s.get(r, "call_id")).collect();
+    let mut n = 0;
+    for e in events_of(&v, "call") {
+        let cid = e["call_id"].as_str().unwrap();
+        if have.contains(cid) {
+            n += 1;
+            let sm = &e["summary"];
+            assert!(sm["summary"].as_str().is_some_and(|x| !x.is_empty()), "{e}");
+            assert_eq!(sm["model"], "MiniMax-M3");
+            assert!(e["has_transcript"].as_bool().unwrap());
+        } else {
+            assert!(
+                e["summary"].is_null(),
+                "要約の行が無いのに summary がある: {e}"
+            );
+        }
+    }
+    assert_eq!(n, 3);
+
+    // シートが読めない
+    let none = build_deal_detail(&sheets(), None, Some("61098080280"), None, fixture_day());
+    assert_eq!(none["meta"]["summary_sheet"], "missing");
+    assert_eq!(none["counts"]["call_summarized"], 0);
+    assert_eq!(
+        none["events"].as_array().unwrap().len(),
+        60,
+        "要約が無くても残りは出す"
+    );
+    // シートはあるが空
+    let empty = tiny(&["call_id", "deal_id"], &[]);
+    let e = build_deal_detail(
+        &sheets(),
+        Some(&empty),
+        Some("61098080280"),
+        None,
+        fixture_day(),
+    );
+    assert_eq!(e["meta"]["summary_sheet"], "empty");
+}
+
+#[test]
+fn 案件の詳細は取引が無いときは探す欄を返し_オプションは出さない() {
+    let sh = sheets();
+    let s = call_summary();
+    // 指定なし・検索語なし
+    let v = build_deal_detail(&sh, Some(&s), None, None, fixture_day());
+    assert_eq!(v["meta"]["found"], false);
+    assert_eq!(v["search"]["n_match"], 0);
+    // 検索語あり（fixture の取引名は「（伏字）N」）
+    let v = build_deal_detail(&sh, Some(&s), None, Some("伏字）12"), fixture_day());
+    let rows = v["search"]["rows"].as_array().unwrap();
+    assert!(!rows.is_empty());
+    assert!(rows.len() <= super::deal_detail::SEARCH_LIMIT);
+    for r in rows {
+        let hit = r["name"].as_str().unwrap_or("").contains("伏字）12")
+            || r["site"].as_str().unwrap_or("").contains("伏字）12");
+        assert!(hit, "検索語を含まない行: {r}");
+    }
+    let act: Vec<bool> = rows
+        .iter()
+        .map(|r| r["is_active"].as_bool().unwrap())
+        .collect();
+    assert!(
+        act.windows(2).all(|w| w[0] >= w[1]),
+        "稼働中が先に来ていない"
+    );
+    // 大文字小文字を問わずに当て、画面には打った言葉のまま返す
+    let v = build_deal_detail(&sh, Some(&s), None, Some(" 伏字）12 "), fixture_day());
+    assert_eq!(v["search"]["q"], "伏字）12");
+    let sh2 = Sheets {
+        deal: tiny(
+            &[
+                "deal_id",
+                "dealname",
+                "dealstage",
+                "contract_kind",
+                "is_active",
+            ],
+            &[&["x1", "ABC商事", "s", "(新規)", "TRUE"]],
+        ),
+        ..sheets()
+    };
+    let v = build_deal_detail(&sh2, None, None, Some("abc"), fixture_day());
+    assert_eq!(v["search"]["n_match"], 1);
+    let v = build_deal_detail(&sh2, None, None, Some("ABC"), fixture_day());
+    assert_eq!(v["search"]["q"], "ABC");
+    // 見つからない
+    let v = build_deal_detail(&sh, Some(&s), Some("0"), None, fixture_day());
+    assert_eq!(v["meta"]["found"], false);
+    assert!(v["meta"]["reason"].is_string());
+    // オプション契約は出さない
+    let opt = super::deals_all_of(&sh.deal)
+        .into_iter()
+        .find(|d| d.is_option())
+        .expect("オプション契約");
+    let v = build_deal_detail(&sh, Some(&s), Some(&opt.id), None, fixture_day());
+    assert_eq!(v["meta"]["found"], false);
+    assert!(v["meta"]["reason"].as_str().unwrap().contains("オプション"));
+    assert!(v.get("events").is_none());
+}
+
+/// 小さなシートで、付け直しの印（来た / 出ていった / 決められない / 期間の外）・
+/// 同じ通話の重複・要約の取引の選び方・MTG の未抽出・メールの実施以外を1つずつ確かめる。
+#[test]
+fn 案件の詳細の付け直しの印と要約の結合を小さなシートで確かめる() {
+    let empty = |h: &[&str]| tiny(h, &[]);
+    let sh = Sheets {
+        deal: tiny(
+            &[
+                "deal_id",
+                "dealname",
+                "dealstage",
+                "contract_kind",
+                "contract_start_date",
+                "contract_expiration_date",
+                "kyoten_key",
+                "is_active",
+            ],
+            &[
+                // 前の契約（見る取引）と継続の契約。同じ拠点 K
+                &[
+                    "a",
+                    "前の契約",
+                    "x",
+                    "(新規)",
+                    "2026-01-01",
+                    "2026-06-30",
+                    "K",
+                    "FALSE",
+                ],
+                &[
+                    "b",
+                    "継続の契約",
+                    "x",
+                    "サブスク継続",
+                    "2026-07-01",
+                    "2026-12-31",
+                    "K",
+                    "TRUE",
+                ],
+                // 同じ拠点で、継続の契約と期間が重なる別の本体（7/15〜8/15 は b と c のどちらか決められない）
+                &[
+                    "c",
+                    "重なる契約",
+                    "x",
+                    "(新規)",
+                    "2026-07-15",
+                    "2026-08-15",
+                    "K",
+                    "FALSE",
+                ],
+            ],
+        ),
+        call: tiny(
+            &[
+                "call_id",
+                "ts",
+                "duration_sec",
+                "deal_id",
+                "has_transcript",
+                "handler",
+            ],
+            &[
+                // b に付いているが 3/10（a の期間）→ a へ付け直して来る
+                &["c1", "2026-03-10T01:00:00Z", "120", "b", "TRUE", "話者1"],
+                // 同じ通話が a にも直接付いている → 直接の行を採り、1回だけ
+                &["c2", "2026-03-11T01:00:00Z", "90", "b", "TRUE", ""],
+                &["c2", "2026-03-11T01:00:00Z", "90", "a", "TRUE", ""],
+                // a に付いているが 9/1（b だけの期間）→ b へ出ていった印
+                &["c3", "2026-09-01T01:00:00Z", "30", "a", "FALSE", ""],
+                // a に付いているが 7/20（a の期間の外で、b と c が重なる）→ 決められない
+                &["c4", "2026-07-20T01:00:00Z", "200", "a", "FALSE", ""],
+                // a に付いているが契約の前 → 期間の外
+                &["c5", "2025-12-01T01:00:00Z", "200", "a", "FALSE", ""],
+                // b に付いていて b の期間 → a には来ない
+                &["c6", "2026-08-02T01:00:00Z", "200", "b", "FALSE", ""],
+                // UTC 3/31 16:00 ＝ 日本時間 4/1 01:00
+                &["c7", "2026-03-31T16:00:00Z", "61", "a", "TRUE", ""],
+            ],
+        ),
+        mtg: tiny(
+            &["開催日", "開催日時(JST)", "deal_id", "やること", "抽出"],
+            &[
+                &["2026-03-10", "2026-03-10 10:00", "a", "", ""],
+                &["2026-02-01", "2026-02-01 09:00", "a", "資料を送る", "{}"],
+            ],
+        ),
+        history: empty(&["deal_id"]),
+        customer: empty(&["houjin"]),
+        mail_mtg: tiny(
+            &["deal_id", "date", "kind", "certainty"],
+            &[
+                &["a", "2026-03-10", "実施", "推定(±1日 83.3%)"],
+                &["a", "2026-03-20", "予定", "推定(±1日 83.3%)"],
+                &["a", "2026-03-21", "候補", "推定(±1日 83.3%)"],
+            ],
+        ),
+        handover: tiny(
+            &["date", "from", "to", "deal_id"],
+            &[&["2026-03-15", "前任", "後任", "a"]],
+        ),
+        owner_hist: empty(&["date", "owner", "retired", "deal_id"]),
+        meta: empty(&["key", "value"]),
+        all_cached: false,
+    };
+    let summ = tiny(
+        &[
+            "call_id",
+            "deal_id",
+            "summary",
+            "next_action",
+            "concern",
+            "model",
+        ],
+        &[
+            // 同じ通話の b の行と a の行。元の取引（a）の行を採る
+            &["c2", "b", "bの行", "", "", "MiniMax-M3"],
+            &["c2", "a", "aの行", "次", "", "MiniMax-M3"],
+            &["c1", "b", "c1の要約", "", "懸念", "MiniMax-M3"],
+        ],
+    );
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 9, 25).unwrap();
+    let v = build_deal_detail(&sh, Some(&summ), Some("a"), None, day);
+    let calls = events_of(&v, "call");
+    let by = |id: &str| -> &Value {
+        calls
+            .iter()
+            .find(|e| e["call_id"] == id)
+            .unwrap_or_else(|| panic!("{id} が無い"))
+    };
+    assert_eq!(calls.len(), 6, "c1〜c5 と c7（c6 は来ない・c2 は1回）");
+    assert_eq!(by("c1")["attach"]["state"], "moved_in");
+    assert_eq!(by("c1")["attach"]["moved_from"]["name"], "継続の契約");
+    assert_eq!(by("c1")["summary"]["summary"], "c1の要約");
+    assert_eq!(by("c1")["summary"]["concern"], "懸念");
+    assert_eq!(by("c1")["handler"], "話者1");
+    assert_eq!(by("c2")["attach"]["state"], "own", "直接の行を採る");
+    assert_eq!(
+        by("c2")["summary"]["summary"],
+        "aの行",
+        "元の取引の要約の行を採る"
+    );
+    assert_eq!(by("c3")["attach"]["state"], "moved_out");
+    assert_eq!(by("c3")["attach"]["moved_to"]["name"], "継続の契約");
+    assert_eq!(by("c3")["contact"], false, "60秒以下は接触ではない");
+    assert!(by("c3")["summary"].is_null());
+    assert_eq!(by("c4")["attach"]["state"], "ambiguous");
+    assert_eq!(by("c5")["attach"]["state"], "outside");
+    assert_eq!(by("c7")["date"], "2026-04-01", "日付は日本時間");
+    assert_eq!(by("c7")["time"], "01:00");
+    assert_eq!(v["counts"]["call_moved_in"], 1);
+    assert_eq!(v["counts"]["call_outside"], 3);
+    // MTG: 未抽出と抽出済み。メールは実施だけ並べ、それ以外は数だけ
+    let m = events_of(&v, "mtg");
+    assert_eq!(m.len(), 2);
+    assert_eq!(m.iter().filter(|e| e["extracted"] == false).count(), 1);
+    let mail = events_of(&v, "mail_mtg");
+    assert_eq!(mail.len(), 1);
+    assert_eq!(mail[0]["same_day_recording"], true, "同じ日に録画がある");
+    assert_eq!(v["counts"]["mail_not_held"].as_array().unwrap().len(), 2);
+    assert_eq!(events_of(&v, "handover").len(), 1);
+    // 連なり: a の次は b（開始順）。稼働中でないので名札は null
+    assert_eq!(v["chain"]["next"], "b");
+    assert!(v["chain"]["prev"].is_null());
+    assert!(v["deal"]["flags"].is_null());
+    // 同じ日（3/10）は時刻のある行が先、時刻の無いメール由来は後
+    let ev = v["events"].as_array().unwrap();
+    let i_rec = ev
+        .iter()
+        .position(|e| e["kind"] == "mtg" && e["date"] == "2026-03-10")
+        .unwrap();
+    let i_mail = ev.iter().position(|e| e["kind"] == "mail_mtg").unwrap();
+    assert!(i_rec < i_mail);
+}
+
+/// メール由来の MTG の付け直し。61098080280 に付いていた期間外の行のうち 11 件は、
+/// 前の契約 44675364955（3 件）と 58208343561（8 件）の詳細に並ぶ（Python の数え直し）。
+#[test]
+fn 案件の詳細はメール由来のmtgも付け直して前の契約に並べる() {
+    for (id, n) in [("44675364955", 3), ("58208343561", 8)] {
+        let v = detail(id);
+        let c = &v["counts"];
+        assert_eq!(c["mail_mtg"], n, "{id}");
+        assert_eq!(c["mail_moved_in"], n, "{id}");
+        for e in events_of(&v, "mail_mtg") {
+            assert_eq!(e["attach"]["state"], "moved_in", "{e}");
+            assert_eq!(e["fact"], false, "付け直しても推定のまま");
+            let me = &v["deal"];
+            let d = e["date"].as_str().unwrap();
+            assert!(me["start"].as_str().unwrap() <= d && d <= me["expiration"].as_str().unwrap());
+        }
+    }
+}
+
+/// 付け直しの元がオプション契約のとき。56611938826 の電話 39 件は全部、同じ拠点のオプション契約から
+/// 付け直して来たもの（Python の数え直し）。元の関係を `option` で返す（画面は「継続の取引」と書かない）。
+#[test]
+fn 案件の詳細は付け直しの元がオプション契約ならそう返す() {
+    let v = detail("56611938826");
+    assert_eq!(v["counts"]["call"], 39);
+    assert_eq!(v["counts"]["call_moved_in"], 39);
+    for e in events_of(&v, "call") {
+        let f = &e["attach"]["moved_from"];
+        assert_eq!(f["relation"], "option", "{e}");
+        let opt = super::deals_all_of(&sheets().deal)
+            .into_iter()
+            .find(|d| d.id == f["deal_id"].as_str().unwrap())
+            .unwrap();
+        assert!(opt.is_option());
+    }
+}
+
+/// 抽出済みの録画 MTG の結合と、取引への結び付けの確度（fixture の実データ 15873742655）。
+/// 2件とも抽出済みで、2025-09-03 の1件は確度「中」。
+#[test]
+fn 案件の詳細は抽出済みmtgの項目と結び付けの確度を返す() {
+    let v = detail("15873742655");
+    let c = &v["counts"];
+    assert_eq!(c["mtg"], 2);
+    assert_eq!(c["mtg_extracted"], 2);
+    assert_eq!(c["mtg_link_not_high"], 1);
+    let m = events_of(&v, "mtg");
+    assert_eq!(m.len(), 2);
+    let aug = m.iter().find(|e| e["date"] == "2025-08-01").unwrap();
+    assert_eq!(aug["extracted"], true);
+    assert_eq!(aug["link_certainty"], "高");
+    assert_eq!(aug["todo"], "次回定期ミーティングの実施");
+    assert!(aug["concern"]
+        .as_str()
+        .unwrap()
+        .starts_with("面接まで繋がらなかった"));
+    assert!(aug["positive"]
+        .as_str()
+        .unwrap()
+        .starts_with("面接した方が"));
+    assert_eq!(aug["next"], "9月3日10時");
+    assert_eq!(aug["risk"], "高");
+    let sep = m.iter().find(|e| e["date"] == "2025-09-03").unwrap();
+    assert_eq!(sep["link_certainty"], "中");
+    assert_eq!(sep["todo"], Value::Null, "空は null");
+    assert!(sep["risk_reason"]
+        .as_str()
+        .unwrap()
+        .starts_with("契約満了に伴い"));
+    assert_eq!(sep["fact"], true, "録画そのものは事実");
+}
+
+#[test]
+fn 話した人の表示名は接頭辞と空白を取ってそろえる() {
+    use super::deal_detail::handler_label;
+    assert_eq!(handler_label("リクロジ＿及川流奈"), "及川流奈");
+    assert_eq!(handler_label("リクロジ_山口智輝"), "山口智輝");
+    assert_eq!(handler_label("星川 輝羅"), "星川輝羅");
+    assert_eq!(handler_label("平野　明日香"), "平野明日香");
+    assert_eq!(handler_label("リクロジ事業部　嶋貫明仁"), "嶋貫明仁");
+    assert_eq!(handler_label("松野日向子"), "松野日向子");
+    assert_eq!(handler_label(""), "");
+    // 接頭辞だけで名前が無いものは元のまま（名前を消さない）
+    assert_eq!(handler_label("リクロジ＿"), "リクロジ＿");
+    // fixture の電話は全部、表示名があれば handler_label もある
+    let v = detail("61098080280");
+    for e in events_of(&v, "call") {
+        assert_eq!(e["handler"].is_null(), e["handler_label"].is_null(), "{e}");
+        if let Some(h) = e["handler_label"].as_str() {
+            assert!(
+                !h.contains(' ') && !h.contains('　') && !h.contains('＿'),
+                "{h}"
+            );
+        }
+    }
+}

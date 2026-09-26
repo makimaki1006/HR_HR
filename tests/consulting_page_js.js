@@ -109,7 +109,8 @@ for (const rel of TEMPLATES) {
 const unNw = (h) => String(h).replace(/<span class="nw">([^<]*)<\/span>/g, "$1");
 
 /** 1つの見張りごとに、まっさらな画面を作る（状態の変数を持ち越さない） */
-function boot() {
+/** hash: 開いた時点の URL のハッシュ（貼った URL で直接開く経路を見張る） */
+function boot(hash) {
   const reg = {};        // getElementById が返すもの
   const qs = {};         // querySelector が返すもの
   const qsa = {};        // querySelectorAll が返すもの
@@ -140,7 +141,7 @@ function boot() {
   doc.activeElement = doc.body;
   ["cs-fresh", "cs-menu", "cs-side", "cs-main", "cs-error"].forEach((id) => { reg[id] = new El(id); });
 
-  const loc = { hash: "", href: "http://test.local/consulting", pathname: "/consulting" };
+  const loc = { hash: hash || "", href: "http://test.local/consulting", pathname: "/consulting" };
   const ctx = {
     console, URL, URLSearchParams, Promise,
     document: doc,
@@ -1216,6 +1217,222 @@ check("H1", "担当の交代: 開くと handover を取り、交代の前後の�
     if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
   if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
   if (h.indexOf('href="#consultant/contact"') < 0) throw new Error("担当者ごとの接触へのリンクが無い");
+});
+
+/* ================================================================ D 案件の詳細（2026-09-26） */
+/* 形は deal_detail.rs build_deal_detail のまま。値は見張りのために置いたもの（取引名は合成） */
+function detailPayload(o) {
+  const at = (state, extra) => Object.assign({ state, in_span: state === "own" || state === "moved_in",
+    moved_from: null, moved_to: null }, extra || {});
+  const call = (x) => Object.assign({ kind: "call", date: "2026-09-10", time: "10:00", fact: true,
+    source_label: "通話記録（事実）", call_id: "c", duration_sec: 125, contact: true, direction: "outbound",
+    handler: "話者1", owner: null, has_transcript: true, summary: null, attach: at("own") }, x);
+  return Object.assign({
+    meta: { today: "2026-09-18", found: true, deal_id: "70000000001", reason: null, summary_sheet: "ok",
+            summary_rows: 3, contact_sec: 60 },
+    deal: { deal_id: "70000000001", name: "詳細テスト案件", site: "拠点A", stage: "定期2", kind: "サブスク継続",
+            start: "2026-04-01", expiration: "2026-09-30", period: 6, consultant: "担当A", consultant_retired: false,
+            amount: 1200000, renewal_no: 1, is_active: true, right_censored: false, flags: ["満了まで60日以内"] },
+    chain: { has_site: true, position: 1, prev: "70000000000", next: "70000000002", rows: [
+      { deal_id: "70000000000", name: "前の契約", stage: "継続済", start: "2025-10-01", expiration: "2026-03-31", renewal_no: 0, amount: 1000000, is_active: false, current: false },
+      { deal_id: "70000000001", name: "詳細テスト案件", stage: "定期2", start: "2026-04-01", expiration: "2026-09-30", renewal_no: 1, amount: 1200000, is_active: true, current: true },
+      { deal_id: "70000000002", name: "次の契約", stage: "定期1", start: "2026-10-01", expiration: "2027-03-31", renewal_no: 2, amount: 1200000, is_active: true, current: false }] },
+    counts: { mtg: 2, mtg_extracted: 1, mail_mtg: 1, mail_not_held: [{ kind: "予定", n: 2 }], call: 3,
+              call_contact: 2, call_transcript: 2, call_summarized: 1, handover: 1, call_moved_in: 1, call_outside: 0,
+              mtg_link_not_high: 0, mtg_moved_in: 0, mtg_outside: 0, mail_moved_in: 0, mail_outside: 0 },
+    events: [
+      call({ call_id: "c1", date: "2026-09-12", time: "15:30",
+             summary: { summary: "求人票の修正点を確認した。", next_action: "修正案を送る", concern: null,
+                        n_utterances: 30, model: "MiniMax-M3", generated_at: "2026-09-18 06:00:00" } }),
+      call({ call_id: "c2", date: "2026-09-11", duration_sec: 30, contact: false, has_transcript: false }),
+      call({ call_id: "c3", date: "2026-09-10", attach: at("moved_in", { moved_from: { deal_id: "70000000002", name: "次の契約", relation: "later" } }) }),
+      { kind: "mtg", date: "2026-08-20", time: "10:00", fact: true, source_label: "Zoom 録画（事実）", subject: null,
+        host: "担当A", minutes: 45, mtg_type: null, extracted: true, todo: "資料を送る", concern: "応募が少ない",
+        positive: "面接が決まった", risk: "中", risk_reason: "応募が少ない", next: "9月", attach: at("own") },
+      { kind: "mail_mtg", date: "2026-08-20", time: null, fact: false, source_label: "メール由来（推定）",
+        certainty: "推定(±1日 83.3%)", same_day_recording: true },
+      { kind: "handover", date: "2026-07-01", time: null, fact: true, source_label: "担当の交代（MTG のホストが替わった日）",
+        from: "前任", to: "担当A", to_retired: false, reflected: "人の操作で反映", record_gap_days: 5 },
+      { kind: "mtg", date: "2026-05-01", time: "09:00", fact: true, source_label: "Zoom 録画（事実）", subject: null,
+        host: "前任", minutes: 30, mtg_type: null, extracted: false, todo: null, concern: null, positive: null,
+        risk: null, risk_reason: null, next: null, attach: at("own") },
+    ],
+    rules: { fact: "事実と推定", attach: "付け直し", contact: "接触", summary: "要約", extracted: "抽出", handover: "交代" },
+  }, o || {});
+}
+/** ハッシュを書き換えて、ブラウザと同じく hashchange / popstate を送る（リンクを押した・戻るを押した） */
+function navHash(t, h) {
+  t.loc.hash = h;
+  (t.listeners.popstate || []).concat(t.listeners.hashchange || []).forEach((f) => f({}));
+}
+async function openDetail(t, payload) {
+  navHash(t, "#deal/detail?id=70000000001");
+  const req = t.fetched[t.fetched.length - 1];
+  if (!req || req.url.indexOf("/api/consulting/deal-detail?") !== 0)
+    throw new Error("案件の詳細で deal-detail を取りに行っていない: " + (req && req.url));
+  if (req.url.indexOf("deal_id=70000000001") < 0) throw new Error("取引の指定を付けていない: " + req.url);
+  req.resolve(jsonRes(payload || detailPayload()));
+  await tick(); await tick();
+  return t.reg["cs-main"].innerHTML;
+}
+
+check("D1", "案件の詳細: ハッシュの ?id= で取引を指定して開き、MTG・電話・交代を新しい順の1本に並べる", async () => {
+  const t = boot();
+  const h = await openDetail(t);
+  if (t.R("cur.view") !== "detail" || t.R("detailId") !== "70000000001")
+    throw new Error("ハッシュの取引で案件の詳細が開いていない");
+  if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
+  const tl = h.slice(h.indexOf('<ol class="tl"'), h.indexOf("</ol>"));
+  // 既定は電話 60秒超だけ → c2（30秒）は出ない。残り 6件が新しい順
+  const dates = [...tl.matchAll(/<div class="when"><b>([0-9-]+)<\/b>/g)].map((m) => m[1]);
+  const want = ["2026-09-12", "2026-09-10", "2026-08-20", "2026-08-20", "2026-07-01", "2026-05-01"];
+  if (JSON.stringify(dates) !== JSON.stringify(want)) throw new Error("並びが違う: " + dates.join(","));
+  for (const w of ["求人票の修正点を確認した。", "修正案を送る", "付け直し", "次の契約", "資料を送る", "未抽出",
+    "交代", "前任 &#8594; 担当A", "詳細テスト案件", "満了まで60日以内", "前の契約"])
+    if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
+  // 付け直し元・連なりの前後へのリンクは案件の詳細へ
+  if (h.indexOf('href="#deal/detail?id=70000000002"') < 0) throw new Error("付け直し元・次の契約へのリンクが無い");
+  if (h.indexOf('href="#deal/detail?id=70000000000"') < 0) throw new Error("前の契約へのリンクが無い");
+  // 取引ID を文字として出さない（リンク先にだけ使う）
+  if (/>[^<]*70000000001[^<]*</.test(h)) throw new Error("取引ID が画面の文字に出ている");
+});
+
+check("D2", "案件の詳細: 事実と推定を印（点の形・枠）と文で分け、要約が無い電話は「要約なし」と出す", async () => {
+  const t = boot();
+  const h = await openDetail(t);
+  const items = h.split("<li ").slice(1);
+  const mail = items.filter((x) => x.indexOf("MTG（推定）") >= 0);
+  if (mail.length !== 1 || !/^class="[^"]*\best\b/.test(mail[0])) throw new Error("メール由来の行に推定の印（est）が無い");
+  if (mail[0].indexOf("推定(±1日 83.3%)") < 0) throw new Error("メール由来の行に確かさが書かれていない");
+  if (mail[0].indexOf("同じ日に録画の MTG があります") < 0) throw new Error("同じ日の録画のことを書いていない");
+  const facts = items.filter((x) => x.indexOf("MTG（推定）") < 0);
+  if (facts.some((x) => /^class="[^"]*\best\b/.test(x))) throw new Error("事実の行に推定の印が付いている");
+  if (!facts.every((x) => x.indexOf("事実") >= 0 || x.indexOf("交代") >= 0)) throw new Error("事実の行に「事実」と書いていない");
+  // 全部出す → 30秒の電話は「要約なし」「60秒以下」
+  t.R("detailAllCalls = true; redrawMain(lastPayload)");
+  const h2 = t.reg["cs-main"].innerHTML;
+  const c2 = h2.split("<li ").find((x) => x.indexOf("30秒") >= 0);
+  if (!c2) throw new Error("「全部」にしても60秒以下の電話が出ない");
+  if (c2.indexOf("要約なし") < 0 || c2.indexOf("60秒以下") < 0) throw new Error("要約の無い電話に「要約なし」「60秒以下」が無い");
+  // 要約のシートが無い
+  const t2 = boot();
+  const P = detailPayload();
+  P.meta.summary_sheet = "missing";
+  const h3 = await openDetail(t2, P);
+  if (h3.indexOf("電話の要約はまだありません") < 0) throw new Error("要約のシートが無いときの断りが無い");
+  // 🔴 読めない理由は決めつけない（一時的な失敗もある）。「読み直す」で取り直せることを書く
+  if (h3.indexOf("一時的に読めません") < 0) throw new Error("読めないときに「まだ作られていない」と決めつけている");
+  // シートはあるが行が無い（見出しだけのシートが先に作られた）ときも断る
+  const t3 = boot();
+  const P3 = detailPayload();
+  P3.meta.summary_sheet = "empty";
+  const h4 = await openDetail(t3, P3);
+  if (h4.indexOf("電話の要約はまだありません") < 0 || h4.indexOf("要約のシートに行がありません") < 0)
+    throw new Error("要約のシートに行が無いときの断りが無い");
+  // 要約がそろっている（ok）ときは断らない
+  const t4 = boot();
+  const h5 = await openDetail(t4);
+  if (h5.indexOf("電話の要約はまだありません") >= 0) throw new Error("要約のシートがあるのに断りを出している");
+});
+
+check("D3", "案件の詳細: 種類の絞り込みと電話の 60秒超だけ／全部は、取り直さずに描き直し、件数の行が追従する", async () => {
+  const t = boot();
+  await openDetail(t);
+  const n = t.fetched.length;
+  const cb = new t.El("dd-k-call"); t.reg["dd-k-call"] = cb;
+  const all = new t.El("dd-c-all"); t.reg["dd-c-all"] = all;
+  t.R("wire(viewOf('deal', 'detail'))");
+  if (typeof cb.onchange !== "function" || typeof all.onclick !== "function")
+    throw new Error("絞り込みの部品に操作が付いていない");
+  all.onclick();
+  let h = t.reg["cs-main"].innerHTML;
+  if (!/7 件中 7 件<\/b>を表示/.test(h)) throw new Error("全部にしたのに 7 件中 7 件になっていない");
+  if (!/id="dd-c-all"[^>]*aria-pressed="true"/.test(h)) throw new Error("「全部」が押された状態で出ていない");
+  cb.checked = false; cb.onchange();
+  h = t.reg["cs-main"].innerHTML;
+  if (/<span class="mark">電話<\/span>/.test(h)) throw new Error("電話を外しても電話が出る");
+  if (!/7 件中 4 件<\/b>を表示（絞り込み中）/.test(h)) throw new Error("電話を外した件数が 7 件中 4 件になっていない");
+  if (t.fetched.length !== n) throw new Error("絞り込みで取り直している");
+  t.R("detailKinds = { mtg: true, call: true, handover: true }; detailAllCalls = false;");
+});
+
+check("D4", "表の案件名から案件の詳細へ移り、戻るで元の表（案件そのもの）へ戻る", async () => {
+  const t = boot();
+  t.R('go("deal", "board")');
+  const req = t.fetched[t.fetched.length - 1];
+  req.resolve(jsonRes({ meta: { flag_counts: [] }, rows: [boardRow({ deal_id: "70000000001", name: "詳細テスト案件" })] }));
+  await tick(); await tick();
+  const h = t.reg["cs-main"].innerHTML;
+  if (h.indexOf('<a class="deallink" href="#deal/detail?id=70000000001">詳細テスト案件</a>') < 0)
+    throw new Error("案件そのものの案件名が案件の詳細へのリンクになっていない");
+  // 押す（ブラウザがハッシュを変えて履歴を積む）
+  await openDetail(t);
+  if (t.R("cur.view") !== "detail") throw new Error("リンクで案件の詳細に移っていない");
+  // 戻る
+  navHash(t, "#deal/board");
+  if (t.R("cur.view") !== "board") throw new Error("戻るで案件そのものに戻らない");
+  // 連なりの別の契約へ（画面は同じで取引だけ変わる）も取り直す
+  const t2 = boot();
+  await openDetail(t2);
+  navHash(t2, "#deal/detail?id=70000000002");
+  const last = t2.fetched[t2.fetched.length - 1].url;
+  if (last.indexOf("deal_id=70000000002") < 0) throw new Error("同じ画面で取引だけ変えたときに取り直していない: " + last);
+});
+
+check("D5", "取引を指定しないと探す欄を出し、Enter で案件名を送って探す（取引の指定は外す）", async () => {
+  const t = boot();
+  t.R('go("deal", "detail")');
+  let req = t.fetched[t.fetched.length - 1];
+  if (req.url.indexOf("deal_id=") >= 0) throw new Error("取引を選んでいないのに deal_id を付けている");
+  req.resolve(jsonRes({ meta: { today: "2026-09-18", found: false, deal_id: null, summary_sheet: "ok" },
+    search: { q: "", n_match: 0, limit: 50, rows: [] } }));
+  await tick(); await tick();
+  const h = t.reg["cs-main"].innerHTML;
+  if (h.indexOf('id="dd-q"') < 0 || h.indexOf("案件名か拠点名") < 0) throw new Error("探す欄が出ていない");
+  const qi = new t.El("dd-q"); t.reg["dd-q"] = qi;
+  t.R("wire(viewOf('deal', 'detail'))");
+  qi.value = "テスト";
+  qi.onkeydown({ key: "Enter" });
+  req = t.fetched[t.fetched.length - 1];
+  if (req.url.indexOf("q=%E3%83%86%E3%82%B9%E3%83%88") < 0) throw new Error("探す言葉を送っていない: " + req.url);
+  req.resolve(jsonRes({ meta: { today: "2026-09-18", found: false, deal_id: null, summary_sheet: "ok" },
+    search: { q: "テスト", n_match: 1, limit: 50, rows: [{ deal_id: "70000000001", name: "詳細テスト案件",
+      site: "拠点A", stage: "定期2", start: "2026-04-01", expiration: "2026-09-30", is_active: true, renewal_no: 1, consultant: "担当A" }] } }));
+  await tick(); await tick();
+  if (t.reg["cs-main"].innerHTML.indexOf('href="#deal/detail?id=70000000001"') < 0)
+    throw new Error("探した結果の案件名が案件の詳細へのリンクになっていない");
+});
+
+check("D6", "貼った URL（#deal/detail?id=…）で直接開くと、その取引を取りに行き、ハッシュの id を消さない", async () => {
+  const t = boot("#deal/detail?id=70000000001");
+  if (t.R("cur.view") !== "detail") throw new Error("直接開いたのに案件の詳細になっていない");
+  if (t.R("detailId") !== "70000000001") throw new Error("直接開いた URL の取引を覚えていない");
+  const req = t.fetched[t.fetched.length - 1];
+  if (!req || req.url.indexOf("deal_id=70000000001") < 0)
+    throw new Error("直接開いた URL の取引で取りに行っていない: " + (req && req.url));
+  if (t.loc.hash.indexOf("?id=70000000001") < 0) throw new Error("開いた直後にハッシュの id が消えた: " + t.loc.hash);
+  req.resolve(jsonRes(detailPayload()));
+  await tick(); await tick();
+  if (t.reg["cs-main"].innerHTML.indexOf('id="dd-q"') >= 0 && t.reg["cs-main"].innerHTML.indexOf("詳細テスト案件") < 0)
+    throw new Error("案件ではなく探す欄が出ている");
+});
+
+check("D7", "案件を開いたまま探す欄で探すと、見ている取引の指定を外して探す（戻るで元の案件へ）", async () => {
+  const t = boot();
+  await openDetail(t);
+  const qi = new t.El("dd-q"); t.reg["dd-q"] = qi;
+  t.R("wire(viewOf('deal', 'detail'))");
+  qi.value = "ABC";
+  qi.onkeydown({ key: "Enter" });
+  if (t.R("detailId") !== "") throw new Error("探したのに見ている取引の指定が残っている");
+  const req = t.fetched[t.fetched.length - 1];
+  if (req.url.indexOf("deal_id=") >= 0) throw new Error("探したのに今の案件（deal_id）で取りに行っている: " + req.url);
+  if (req.url.indexOf("q=ABC") < 0) throw new Error("探す言葉を送っていない: " + req.url);
+  if (t.loc.hash.indexOf("id=70000000001") >= 0) throw new Error("探したのにハッシュに今の案件が残っている: " + t.loc.hash);
+  // 戻る → 元の案件を取り直す
+  navHash(t, "#deal/detail?id=70000000001");
+  const back = t.fetched[t.fetched.length - 1];
+  if (back.url.indexOf("deal_id=70000000001") < 0) throw new Error("戻るで元の案件に戻らない: " + back.url);
 });
 
 (async () => {

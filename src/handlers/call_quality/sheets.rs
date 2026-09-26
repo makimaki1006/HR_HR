@@ -160,6 +160,9 @@ pub const KNOWN_SHEETS: &[&str] = &[
     // 2026-09-22 追加: このデータをいつ作ったか。
     //   毎朝見る画面なので、古いデータを新しいものと誤認させないために出す。
     "CS_メタ",
+    // 2026-09-26 追加: 電話の要約（Zoom Phone の文字起こし → MiniMax-M3）。
+    //   案件の詳細（/api/consulting/deal-detail）だけが読む。本番に無くても画面は開く
+    "CS_通話要約",
 ];
 
 /// 1シートぶんの内容。ヘッダと行を分けて持つ。
@@ -229,6 +232,17 @@ impl SheetStore {
         let arc = Arc::new(data);
         g.insert(sheet.to_string(), Arc::clone(&arc));
         Ok((arc, false))
+    }
+
+    /// キャッシュが生きていれば返す。**取りに行かない**（読み取りロックだけ）。
+    ///
+    /// 先読み（`SHEETS`）に入れないシートを、`get` の「書き込みロックを持ったまま取りに行く」経路に
+    /// 乗せないために使う。無ければ呼ぶ側が `refresh`（取得中にロックを持たない）で取る。
+    pub async fn fresh(&self, sheet: &str) -> Option<Arc<SheetData>> {
+        let g = self.inner.read().await;
+        g.get(sheet)
+            .filter(|d| d.fetched_at.elapsed() < CACHE_TTL)
+            .map(Arc::clone)
     }
 
     /// 取り直して差し替える。**取得のあいだロックを持たない。**
@@ -595,9 +609,10 @@ mod tests {
         // 2026-09-07: 84 → 85。週次スナップショット（KPI営業_週次）を足した。
         // 2026-09-07: 85 → 86。架電リストの担当者別（KPI営業_架電リスト_担当別）を足した。
         // 2026-09-11: 86 → 87。決定者・決裁者の入力状況（KPI営業_決定者）を足した。
+        // 2026-09-26: 97 → 98。電話の要約（CS_通話要約。案件の詳細が読む）を足した。
         assert_eq!(
             KNOWN_SHEETS.len(),
-            97,
+            98,
             "KNOWN_SHEETS の枚数が変わっている。増やしたのが意図的なら、
              タブが実際に読んでいるかを確認したうえでこの数を更新すること"
         );
