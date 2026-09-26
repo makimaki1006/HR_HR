@@ -702,6 +702,8 @@ fn サイドバーの項目がそろっている() {
                 "案件そのもの",     // 案件 = 取引1件
                 "継続を追いかける", // 事業所（契約の連なり）
                 "法人番号で見る",   // 法人（拠点をまたぐ）
+                // 2026-09-26 追加。取引1件の MTG・電話（要約つき）・交代を時系列で。表の案件名から来る
+                "案件の詳細",
             ],
         ),
         (
@@ -729,9 +731,9 @@ fn サイドバーの項目がそろっている() {
         ),
     ];
     assert_eq!(m.len(), want.len(), "メニューの数が違う");
-    // 🔴 項目は全部で16。増やす・減らすときはここも意図して直す
+    // 🔴 項目は全部で17（2026-09-26 に「案件の詳細」を足して 16 → 17）。増やす・減らすときはここも意図して直す
     let total: usize = m.iter().map(|(_, v)| v.len()).sum();
-    assert_eq!(total, 16, "サイドバーの項目の数が 16 でない");
+    assert_eq!(total, 17, "サイドバーの項目の数が 17 でない");
     for ((got_name, got_views), (want_name, want_views)) in m.iter().zip(want) {
         assert_eq!(got_name, want_name);
         let got: Vec<&str> = got_views.iter().map(|x| x.as_str()).collect();
