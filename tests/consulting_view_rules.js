@@ -3355,6 +3355,10 @@ check("案件の詳細: 話した人はそろえた表示名（handler_label）�
   ok(it.indexOf('title="Zoom の表示名: リクロジ＿見張り 太郎"') >= 0, "元の表示名を title に残していない");
 });
 
+check("案件の詳細: 電話の AI 要約には「誤りを含むことがあります」の断りを付ける（取り違えは機械の検証で防げない）", () => {
+  ok(jsNoComment.includes("AI 要約（誤りを含むことがあります）"), "要約の見出しに AI 要約の断りが無い");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);

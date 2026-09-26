@@ -5875,7 +5875,9 @@ function detailItem(e) {
       '　<span class="muted small">文字起こし' + (e.has_transcript ? "あり" : "なし") + "</span>";
     const s = e.summary;
     if (s && s.summary) {
-      what += "<dl><dt>要約</dt><dd>" + esc(s.summary) + "</dd>" +
+      /* 🔴 AI 要約は取り違えを含む（2026-09-26 検証: 手で突き合わせた約11件中2件が誤り。
+         受付と相手・別の候補者の取り違え）。機械の検証では防げないので、要約の見出しで必ず断る */
+      what += "<dl><dt>AI 要約（誤りを含むことがあります）</dt><dd>" + esc(s.summary) + "</dd>" +
         "<dt>次にやること</dt><dd>" + (s.next_action ? esc(s.next_action) : DASH) + "</dd>" +
         "<dt>顧客の懸念</dt><dd>" + (s.concern ? esc(s.concern) : DASH) + "</dd></dl>" +
         '<span class="via">要約: ' + esc(s.model || "") + (s.generated_at ? "（" + esc(s.generated_at) + " 作成）" : "") +
