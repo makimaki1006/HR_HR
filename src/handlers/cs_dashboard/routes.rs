@@ -253,7 +253,8 @@ async fn deal_detail(
     let sheets = load(&state.client, &state.store)
         .await
         .map_err(|e| CqError::from_anyhow("consulting", e))?;
-    let summary = super::load_call_summary(&state.client, &state.store).await;
+    let force = q.refresh.as_deref() == Some("1");
+    let summary = super::load_call_summary(&state.client, &state.store, force).await;
     let v = super::deal_detail::build_deal_detail(
         &sheets,
         summary.as_deref(),

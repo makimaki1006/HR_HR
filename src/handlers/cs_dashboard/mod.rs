@@ -612,21 +612,37 @@ const CALL_SUMMARY_RETRY: std::time::Duration = std::time::Duration::from_secs(6
 ///
 /// 🔴 エラーにしない（`CS_メタ` と同じ）。要約が無くても、案件の詳細の残り（MTG・電話の記録・交代）は出す。
 /// 🔴 失敗したら `CALL_SUMMARY_RETRY` のあいだは取りに行かない（無いシートを毎回取りに行って遅くしない）。
+///    ただし `force`（画面の「読み直す」）のときは待たずに取りに行く
+///    （本番にシートを作った直後に読み直しても、最大10分「まだありません」が出続けないように）。
+/// 🔴 `store.get` は使わない。`get` はキャッシュ切れのとき**書き込みロックを持ったまま**取りに行くので、
+///    そのあいだ同じストアを読む他の画面（架電クオリティ・営業KPI・コンサル）が待たされる。
+///    生きたキャッシュを読み取りロックだけで見て、無ければ `refresh`（取得中にロックを持たない）で取る。
 pub async fn load_call_summary(
     client: &SheetsClient,
     store: &SheetStore,
+    force: bool,
 ) -> Option<Arc<SheetData>> {
     static LAST_MISS: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
-    let recently_missed = LAST_MISS
-        .lock()
-        .ok()
-        .and_then(|g| *g)
-        .is_some_and(|t| t.elapsed() < CALL_SUMMARY_RETRY);
-    if recently_missed {
-        return None;
+    if !force {
+        if let Some(d) = store.fresh(SHEET_CALL_SUMMARY).await {
+            return Some(d);
+        }
+        let recently_missed = LAST_MISS
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .is_some_and(|t| t.elapsed() < CALL_SUMMARY_RETRY);
+        if recently_missed {
+            return None;
+        }
     }
-    match store.get(client, SHEET_CALL_SUMMARY).await {
-        Ok((data, _)) => Some(data),
+    match store.refresh(client, SHEET_CALL_SUMMARY).await {
+        Ok(data) => {
+            if let Ok(mut g) = LAST_MISS.lock() {
+                *g = None;
+            }
+            Some(data)
+        }
         Err(e) => {
             tracing::warn!(
                 "シート「{}」が読めません（電話の要約は出しません）: {e:#}",
