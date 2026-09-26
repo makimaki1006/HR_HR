@@ -234,6 +234,17 @@ impl SheetStore {
         Ok((arc, false))
     }
 
+    /// キャッシュが生きていれば返す。**取りに行かない**（読み取りロックだけ）。
+    ///
+    /// 先読み（`SHEETS`）に入れないシートを、`get` の「書き込みロックを持ったまま取りに行く」経路に
+    /// 乗せないために使う。無ければ呼ぶ側が `refresh`（取得中にロックを持たない）で取る。
+    pub async fn fresh(&self, sheet: &str) -> Option<Arc<SheetData>> {
+        let g = self.inner.read().await;
+        g.get(sheet)
+            .filter(|d| d.fetched_at.elapsed() < CACHE_TTL)
+            .map(Arc::clone)
+    }
+
     /// 取り直して差し替える。**取得のあいだロックを持たない。**
     ///
     /// `get` は TTL が切れていると書き込みロックを持ったまま取りに行くので、
