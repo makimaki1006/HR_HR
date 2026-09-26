@@ -200,6 +200,38 @@ fn view_of(v: Option<&str>) -> &str {
 /// # 使えるクラスだけ
 /// `pl-3` は配布 CSS に無い（あるのは pl-2 / pl-4 / pl-6）。
 /// `hover:bg-slate-600` `hover:text-slate-200` は dashboard.css 側に定義がある。
+/// 節を押したあとの URL を、人に送れる形にする script。
+///
+/// # なぜ要るか
+/// `?tab=` は読み込み直後に `history.replaceState` で消される
+/// （`templates/dashboard_inline.html`。履歴を汚さないため）。
+/// どのタブを見ていたかは `sessionStorage` が覚えているので画面としては困らない。
+///
+/// ただし**その URL を人に送ると困る**。実測（2026-09-26）:
+///
+/// ```text
+/// 節を押した後の URL   /#sec-1
+/// 別の文脈で開くと      媒体分析が出る（既定のタブ）
+///                     sec-1 の印が無いので hash は空振り
+/// ```
+///
+/// 節へ飛べるようにした以上、押したあとの URL は送れる形であるべきなので、
+/// 押したときだけ `?tab=` を書き戻す。
+///
+/// # pushState ではなく replaceState
+/// 節を 5 つ見て戻るときに 5 回戻らされるのは煩わしい。節の行き来は履歴に積まない。
+fn sec_link_script(tab_url: &str) -> String {
+    let t = serde_json::to_string(tab_url).unwrap_or_else(|_| "\"/tab/indeed\"".to_string());
+    format!(
+        "<script>(function(){{var t={t};\
+         document.addEventListener('click',function(e){{\
+         var a=e.target&&e.target.closest?e.target.closest('a.indeed-sec-link'):null;\
+         if(!a)return;var h=a.getAttribute('href')||'';if(h.charAt(0)!=='#')return;\
+         setTimeout(function(){{try{{history.replaceState(history.state,'',\
+         '/?tab='+encodeURIComponent(t)+h);}}catch(_){{}}}},0);}});}})();</script>"
+    )
+}
+
 fn side_nav(
     current: &str,
     pref: Option<&str>,
@@ -583,9 +615,18 @@ fn render_tab(
     // 節が 3 つ未満の面では並びを出さない（1 本の列のまま）。
     let (h, sections) = crate::handlers::indeed::render::add_section_ids(&h);
     let nav = side_nav(view, pref, sort, &sections);
+    // 節を押したあとの URL に載せる「いまの面」。side_nav のリンクと同じ形にする。
+    let mut tab_url = format!("/tab/indeed?view={view}");
+    if let Some(p) = pref.filter(|x| !x.is_empty()) {
+        tab_url.push_str(&format!("&pref={}", url_query(p)));
+    }
+    if let Some(x) = sort.filter(|x| !x.is_empty()) {
+        tab_url.push_str(&format!("&sort={}", url_query(x)));
+    }
+    let script = sec_link_script(&tab_url);
     format!(
         "<div class=\"indeed-with-nav flex gap-4\">{nav}\
-         <div class=\"flex-1 min-w-0\">{h}</div></div>"
+         <div class=\"flex-1 min-w-0\">{h}</div></div>{script}"
     )
 }
 
