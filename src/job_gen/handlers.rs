@@ -320,11 +320,114 @@ fn body_str(body: &Value, key: &str) -> String {
 
 /// Gemini を1回呼ぶ共通ヘルパ (キー未設定はエラー)。
 /// media_engine::gemini 経由なのでプロセス共通の 12回/分予算を消費する。
+/// スキーマの `required` に挙げたキーのうち、返りに無いものを並べる。
+///
+/// # なぜ要るか
+/// MiniMax-M3 は `response_format` に `strict: true` で json_schema を渡しても、
+/// **キー名をサーバ側で強制しない**。実測でこう化けた（2026-09-24）:
+///
+/// ```text
+/// bottlenecks → bottenecks / botttlenecks / botllenecks / botlenecks
+/// indeed_job_title → in
+/// ```
+///
+/// 1 文字欠落・重複・置換が毎回違う形で混ざるので、**既知の誤綴りリストでは追いつかない**。
+///
+/// 化ける率は**プロンプトの長さと一緒に上がる**（同一スキーマ・同一設定での実測）:
+///
+/// ```text
+/// プロンプト実寸   パース数   化け   率
+///    489字          66       0     0%
+///    745字           3       0     0%
+///  1,265字          17       1    5.9%
+/// 19,587字          11       4    36%
+/// ```
+///
+/// 工程②（`jobgen_analyze`）は `knowledge::bundle_to_text` の職種知識束
+/// 18,802 字を**全職種で必ず注入する**ので、常に長い側にいる。
+/// そして化けるキー `bottlenecks` は工程③以降へ流れる値。
+///
+/// `get` でキーを引く作りだと、化けたキーは**無言で欠落**する。
+/// ここで気づかないと、原稿が 1 項目足りないまま最後まで進む。
+///
+/// # Gemini では起きていない
+/// この化けは M3 での実測。現行の既定は Gemini なので、いまの本番で
+/// 起きているとは限らない。ただし**検査しても害が無く、起きたら黙って壊れる**
+/// 種類の欠陥なので、モデルに関係なく掛けておく。
+fn missing_required_keys(schema: &Value, got: &Value) -> Vec<String> {
+    let Some(req) = schema.get("required").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let Some(obj) = got.as_object() else {
+        // オブジェクトですらない。required 全部が無い扱いにする
+        return req
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+    };
+    req.iter()
+        .filter_map(Value::as_str)
+        .filter(|k| !obj.contains_key(*k))
+        .map(str::to_string)
+        .collect()
+}
+
+/// 戦略工程の LLM 呼び出し。**キーが欠けていたら 1 回だけやり直す。**
+///
+/// # なぜやり直すのか
+/// [`missing_required_keys`] の実測のとおり、長いプロンプトでは
+/// スキーマに挙げたキーが化けて返ることがある（工程②の寸法で 36%）。
+/// 検証して弾くだけだと、その工程がまるごと失敗して先に進めない。
+///
+/// やり直しは **1 回だけ**。工程⑦の再生成（`handlers.rs` の
+/// `jobgen_hrhacker`）と同じ回数に揃える。2 回目も駄目なら、
+/// **欠けたキーの名前を添えて失敗を返す**。
+/// 「それっぽい値で埋めない」のはこのリポジトリ共通の方針。
+///
+/// 2 回目のプロンプトには、化けたキーを名指しで直す指示を足す。
+/// 同じプロンプトをそのまま投げ直すより当たる見込みがある
+/// （工程⑦の再生成も前回の問題点を足す作りになっている）。
 async fn jobgen_llm(prompt: &str, schema: &Value, temperature: f64) -> anyhow::Result<Value> {
     let key = gemini_api_key();
     anyhow::ensure!(!key.is_empty(), "GEMINI_API_KEY が未設定です");
     let model = gemini_model();
-    gemini::generate_json(prompt, Some(schema), &key, &model, temperature).await
+
+    let first = gemini::generate_json(prompt, Some(schema), &key, &model, temperature).await?;
+    let missing = missing_required_keys(schema, &first);
+    if missing.is_empty() {
+        return Ok(first);
+    }
+    tracing::warn!(
+        "jobgen: 返りに必要なキーが無い（{}）。1 回だけやり直す",
+        missing.join(", ")
+    );
+
+    let retry_prompt = format!(
+        "{prompt}\n\n         # 前回の出力の問題点（必ず直すこと）\n         次のキーが返りに含まれていませんでした: {keys}\n         キー名は 1 文字も変えずに、上の指定どおりに出力してください。",
+        keys = missing.join(" / ")
+    );
+    let second = gemini::generate_json(&retry_prompt, Some(schema), &key, &model, temperature)
+        .await
+        .unwrap_or(Value::Null);
+    let missing2 = missing_required_keys(schema, &second);
+    if missing2.is_empty() {
+        tracing::info!("jobgen: やり直しで揃った");
+        return Ok(second);
+    }
+
+    // 欠けが少ないほうを見るが、どちらも欠けているなら失敗として返す。
+    // 中途半端な形を先の工程へ流すと、そこで無言に欠落する。
+    let worse = if missing2.len() < missing.len() {
+        &missing2
+    } else {
+        &missing
+    };
+    anyhow::bail!(
+        "LLM の返りに必要なキーがありません（2 回試行）: {}。\
+         キー名が化けている可能性があります",
+        worse.join(", ")
+    )
 }
 
 /// jobgen 用認証: APIトークン一致なら通し、なければ HR_HR セッション認証へ委ねる。
@@ -3283,4 +3386,91 @@ fn strings_at(arr: &Value, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod key_guard_tests {
+    use super::*;
+
+    #[test]
+    fn 化けたキーを欠落として見つける() {
+        // 実測で出た化け方（2026-09-24、MiniMax-M3）。
+        // 1 文字欠落・重複・置換が毎回違う形で混ざるので、
+        // 誤綴りリストではなく「required に挙げた名前があるか」で見る。
+        let schema = crate::job_gen::strategy::analyze_schema();
+        for bad in ["bottenecks", "botttlenecks", "botllenecks", "botlenecks"] {
+            let got = json!({
+                "surface_strengths": [],
+                "hidden_strengths": [],
+                bad: [],
+            });
+            let m = missing_required_keys(&schema, &got);
+            assert_eq!(
+                m,
+                vec!["bottlenecks".to_string()],
+                "化け「{bad}」を拾えていない"
+            );
+        }
+    }
+
+    #[test]
+    fn 揃っていれば何も返さない() {
+        let schema = crate::job_gen::strategy::analyze_schema();
+        let got = json!({
+            "surface_strengths": ["a"],
+            "hidden_strengths": ["b"],
+            "bottlenecks": ["c"],
+        });
+        assert!(missing_required_keys(&schema, &got).is_empty());
+    }
+
+    #[test]
+    fn 余分なキーがあっても欠落とは言わない() {
+        // 化けたキーは余分なキーとしても残る。
+        // 欠落だけを報せる（余分は先の工程が読まないので害が無い）。
+        let schema = crate::job_gen::strategy::analyze_schema();
+        let got = json!({
+            "surface_strengths": [],
+            "hidden_strengths": [],
+            "bottlenecks": [],
+            "bottenecks": [],
+        });
+        assert!(missing_required_keys(&schema, &got).is_empty());
+    }
+
+    #[test]
+    fn オブジェクトでなければ全部欠落にする() {
+        let schema = crate::job_gen::strategy::analyze_schema();
+        for got in [json!(null), json!([1, 2]), json!("文字列")] {
+            let m = missing_required_keys(&schema, &got);
+            assert_eq!(m.len(), 3, "{got:?} のとき required 3 件すべてを欠落にする");
+        }
+    }
+
+    #[test]
+    fn requiredが無いスキーマは検査しない() {
+        // required を持たないスキーマもある。そこで全部落とすと、
+        // 検査のつもりが壊す側に回る。
+        let schema = json!({"type": "object", "properties": {"a": {"type": "string"}}});
+        assert!(missing_required_keys(&schema, &json!({})).is_empty());
+    }
+
+    #[test]
+    fn 工程七の五列も同じ検査に掛かる() {
+        // 実測で indeed_job_title が "in" に化けた。
+        // 工程⑦は別経路（validate_generated）だが、スキーマを持つ工程は
+        // すべて同じ関数で見る形にしてある。
+        let schema = json!({
+            "type": "object",
+            "required": ["project_name", "job_description", "catch_copy", "merit", "indeed_job_title"]
+        });
+        let got = json!({
+            "project_name": "a", "job_description": "b",
+            "catch_copy": "c", "merit": "d", "in": "e",
+        });
+        assert_eq!(
+            missing_required_keys(&schema, &got),
+            vec!["indeed_job_title".to_string()]
+        );
+    }
 }

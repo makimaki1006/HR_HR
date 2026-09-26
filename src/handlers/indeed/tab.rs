@@ -157,6 +157,138 @@ fn view_of(v: Option<&str>) -> &str {
     }
 }
 
+/// 左の列。面の選択と、いま見ている面の節を 1 本にまとめる（試作 2026-09-24）。
+///
+/// # なぜ節だけの並びでは足りなかったか
+/// 最初は「面の中の節へ飛ぶ並び」として作った。実測すると:
+///
+/// ```text
+/// 面          高さ    画面数  節  図  表の行  文字
+/// 全体       2139px   2.4    4   4      0   1896
+/// 職種       5978px   6.6    2   1    127   7175   ← いちばん長いのに節が最少
+/// 業界・分類  4035px   4.5    3   6     29   4065
+/// 求職者     1708px   1.9    2   2      0    781
+/// ```
+///
+/// 長さと節の数が逆だった。いちばん辛い「職種」は節が 2 つで、
+/// 中身は 127 行の表 1 枚。節へ飛ぶ並びでは何も解決しない。
+/// また節が 3 つ未満の面では並びが出ないので、面を移るたびに
+/// 左の列が出たり消えたりして、画面の幅まで変わっていた。
+///
+/// # 作り
+/// 上の帯（媒体分析／キーワード需要／求人票作成／調べる）は機能の選択。
+/// その中の「どの面を見るか」は詳細の選択なので、左に移す。
+/// 左の列は常に 4 面ぶん出るので、面を移っても幅が変わらない。
+///
+/// ```text
+/// ┌─────────┬────────────────────────┐
+/// │ 見るもの  │                         │
+/// │ ● 全体   │   選んだ面の中身          │
+/// │   ├ 要点 │                         │
+/// │   ├ なぜ │                         │
+/// │   └ 動き │                         │
+/// │ ○ 職種   │                         │
+/// │ ○ 業界   │                         │
+/// │ ○ 求職者 │                         │
+/// └─────────┴────────────────────────┘
+/// ```
+///
+/// # 節は「飛ぶ」だけで「隠さない」
+/// 隠すと `offsetHeight === 0` になり app.js が ECharts を作らない
+/// （`0 !== t.offsetHeight` の判定）。表示は全部出したまま、印へ飛ばす。
+///
+/// # 使えるクラスだけ
+/// `pl-3` は配布 CSS に無い（あるのは pl-2 / pl-4 / pl-6）。
+/// `hover:bg-slate-600` `hover:text-slate-200` は dashboard.css 側に定義がある。
+/// 節を押したあとの URL を、人に送れる形にする script。
+///
+/// # なぜ要るか
+/// `?tab=` は読み込み直後に `history.replaceState` で消される
+/// （`templates/dashboard_inline.html`。履歴を汚さないため）。
+/// どのタブを見ていたかは `sessionStorage` が覚えているので画面としては困らない。
+///
+/// ただし**その URL を人に送ると困る**。実測（2026-09-26）:
+///
+/// ```text
+/// 節を押した後の URL   /#sec-1
+/// 別の文脈で開くと      媒体分析が出る（既定のタブ）
+///                     sec-1 の印が無いので hash は空振り
+/// ```
+///
+/// 節へ飛べるようにした以上、押したあとの URL は送れる形であるべきなので、
+/// 押したときだけ `?tab=` を書き戻す。
+///
+/// # pushState ではなく replaceState
+/// 節を 5 つ見て戻るときに 5 回戻らされるのは煩わしい。節の行き来は履歴に積まない。
+fn sec_link_script(tab_url: &str) -> String {
+    let t = serde_json::to_string(tab_url).unwrap_or_else(|_| "\"/tab/indeed\"".to_string());
+    format!(
+        "<script>(function(){{var t={t};\
+         document.addEventListener('click',function(e){{\
+         var a=e.target&&e.target.closest?e.target.closest('a.indeed-sec-link'):null;\
+         if(!a)return;var h=a.getAttribute('href')||'';if(h.charAt(0)!=='#')return;\
+         setTimeout(function(){{try{{history.replaceState(history.state,'',\
+         '/?tab='+encodeURIComponent(t)+h);}}catch(_){{}}}},0);}});}})();</script>"
+    )
+}
+
+fn side_nav(
+    current: &str,
+    pref: Option<&str>,
+    sort: Option<&str>,
+    sections: &[(String, String)],
+) -> String {
+    let mut h = String::from(
+        "<nav class=\"indeed-sidenav\" aria-label=\"見るもの\">\
+         <div>\
+         <div class=\"indeed-nav-head text-slate-400 text-xs px-2 pb-1\">見るもの</div>",
+    );
+    // 県はここ 1 か所だけに出す。左の列は sticky なので、
+    // 職種の一覧 127 行のどこを見ていても画面に残る。
+    h.push_str(&format!(
+        "<div class=\"indeed-nav-head flex items-center gap-2 px-2 pb-2\">\
+         <span class=\"px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-sm font-bold\">{w}</span>\
+         <span id=\"indeed-loading\" class=\"htmx-indicator text-slate-400 text-xs\">読み込み中…</span></div>",
+        w = esc(pref.unwrap_or("全国"))
+    ));
+    for (key, label) in VIEWS {
+        let on = key == current;
+        let cls = if on {
+            "px-3 py-2 text-sm font-bold text-blue-300 bg-navy-700 rounded"
+        } else {
+            "px-3 py-2 text-sm text-slate-300 hover:bg-slate-600 hover:text-slate-200 rounded"
+        };
+        let mut q = format!("?view={key}");
+        if let Some(p) = pref.filter(|x| !x.is_empty()) {
+            q.push_str(&format!("&pref={}", url_query(p)));
+        }
+        if let Some(x) = sort.filter(|x| !x.is_empty()) {
+            q.push_str(&format!("&sort={}", url_query(x)));
+        }
+        h.push_str(&format!(
+            "<a class=\"{cls}\" href=\"/tab/indeed{q}\" hx-get=\"/tab/indeed{q}\" \
+             hx-target=\"#content\" hx-swap=\"innerHTML show:top\" hx-push-url=\"true\" \
+             hx-indicator=\"#indeed-loading\" aria-current=\"{ac}\">{l}</a>",
+            ac = if on { "page" } else { "false" },
+            l = esc(label)
+        ));
+        // いま見ている面の下にだけ、節をぶら下げる
+        if on {
+            for (id, s) in sections {
+                h.push_str(&format!(
+                    "<a class=\"indeed-sec-link ml-2 pl-2 border-l border-slate-600 px-2 py-1 text-xs \
+                     text-slate-400 hover:bg-slate-600 hover:text-slate-200 rounded truncate\" \
+                     href=\"#{id}\">{s}</a>",
+                    id = esc(id),
+                    s = esc(s)
+                ));
+            }
+        }
+    }
+    h.push_str("</div></nav>");
+    h
+}
+
 /// 面を切り替える帯。県と並べ替えを持ち回る。
 fn view_tabs(current: &str, pref: Option<&str>, sort: Option<&str>) -> String {
     // 面の切り替えと「いまどこを見ているか」を 1 本の帯にまとめ、画面上部に貼る。
@@ -187,41 +319,12 @@ fn view_tabs(current: &str, pref: Option<&str>, sort: Option<&str>) -> String {
     // カードに対して 5.71:1 で、どちらから見ても 3:1 を超える
     // （UI 部品の境界は WCAG 1.4.11 で 3:1）。precompiled に border-slate-400 が
     // 無いので色だけ style 属性で上書きしている（太さは border-b のまま）。
-    let mut h = String::from(
-        "<div class=\"sticky top-0 z-10 bg-slate-700 shadow-md border-b border-slate-500 \
-         flex flex-wrap items-center gap-2\" style=\"border-bottom-color:#94a3b8\">\
-         <div class=\"flex flex-wrap gap-1\" role=\"tablist\">",
-    );
-    for (key, label) in VIEWS {
-        let on = key == current;
-        let cls = if on {
-            "px-4 py-2 text-sm font-bold text-blue-300 border-b-2 border-blue-400"
-        } else {
-            "px-4 py-2 text-sm text-slate-400 hover:text-slate-200 border-b-2 border-transparent"
-        };
-        let mut q = format!("?view={key}");
-        if let Some(p) = pref.filter(|x| !x.is_empty()) {
-            q.push_str(&format!("&pref={}", url_query(p)));
-        }
-        if let Some(x) = sort.filter(|x| !x.is_empty()) {
-            q.push_str(&format!("&sort={}", url_query(x)));
-        }
-        h.push_str(&format!(
-            "<a class=\"{cls}\" role=\"tab\" aria-selected=\"{on}\" href=\"/tab/indeed{q}\" \
-             hx-get=\"/tab/indeed{q}\" hx-target=\"#content\" hx-swap=\"innerHTML show:top\" \
-             hx-push-url=\"true\" hx-indicator=\"#indeed-loading\">{l}</a>",
-            l = esc(label)
-        ));
-    }
-    h.push_str("</div>");
-    // サブタブのすぐ右。いま見ている県はここ 1 か所だけに出す。
-    // 帯の右端に離して置くと、視線が左から入るぶん気づくのが一拍遅れる。
-    h.push_str(&format!(
-        "<div class=\"flex items-center gap-2 ml-2\">\
-         <span class=\"px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-sm font-bold\">{w}</span>\
-         <span id=\"indeed-loading\" class=\"htmx-indicator text-slate-400 text-sm\">読み込み中…</span></div>",
-        w = esc(pref.unwrap_or("全国"))
-    ));
+    // 帯は畳んだ。面の選択は左の列へ移り、残ったのは「全国」の札ひとつだけで、
+    // 同じ事実が画面上部の「現在の表示: 全国」にも出ていた（実測 y=192 と y=444）。
+    // 高さ 25px の空の棒が 1 本増えるだけだったので消す。
+    // 県と読み込み表示は左の列の頭へ移した（左の列は sticky なので、
+    // 職種の一覧 127 行を送っても見え続ける。帯と同じ役目を果たす）。
+    let mut h = String::new();
     h.push_str(&format!(
         "<input type=\"hidden\" name=\"view\" value=\"{}\">",
         esc(current)
@@ -236,7 +339,6 @@ fn view_tabs(current: &str, pref: Option<&str>, sort: Option<&str>) -> String {
             esc(p)
         ));
     }
-    h.push_str("</div>");
     h
 }
 
@@ -506,7 +608,26 @@ fn render_tab(
     }
 
     h.push_str("</div>");
-    h
+
+    // 面の中の節に id を振り、左の並びから飛べるようにする（2026-09-24 試作）。
+    //
+    // 生成側の 11 か所を書き換えず、出来上がりを 1 回通す。
+    // 節が 3 つ未満の面では並びを出さない（1 本の列のまま）。
+    let (h, sections) = crate::handlers::indeed::render::add_section_ids(&h);
+    let nav = side_nav(view, pref, sort, &sections);
+    // 節を押したあとの URL に載せる「いまの面」。side_nav のリンクと同じ形にする。
+    let mut tab_url = format!("/tab/indeed?view={view}");
+    if let Some(p) = pref.filter(|x| !x.is_empty()) {
+        tab_url.push_str(&format!("&pref={}", url_query(p)));
+    }
+    if let Some(x) = sort.filter(|x| !x.is_empty()) {
+        tab_url.push_str(&format!("&sort={}", url_query(x)));
+    }
+    let script = sec_link_script(&tab_url);
+    format!(
+        "<div class=\"indeed-with-nav flex gap-4\">{nav}\
+         <div class=\"flex-1 min-w-0\">{h}</div></div>{script}"
+    )
 }
 
 fn pref_selector(prefs: &[String], current: Option<&str>) -> String {
@@ -903,7 +1024,7 @@ fn title_section(snap: &Snapshot, pref: Option<&str>, sort: Option<&str>) -> Str
     // クラス名ではなくこの表専用の <style> をその場で吐く。
     // htmx は #content を innerHTML ごと入れ替えるので、重複して溜まることはない。
     h.push_str(
-        "<style>[data-indeed-empty]:empty{display:none}#indeed-title-wrap{overflow-x:visible}#indeed-title-wrap table{min-width:1100px}#indeed-title-wrap thead th{position:sticky;top:39px;z-index:5;background:#1e293b;box-shadow:inset 0 -1px 0 #64748b}[data-indeed-narrow],[data-indeed-narrow-2],[data-indeed-narrow-3]{display:none}@media (max-width:1239px){#indeed-title-wrap table{min-width:0}#indeed-title-wrap tr>:nth-child(3),#indeed-title-wrap tr>:nth-child(8){display:none}[data-indeed-narrow]{display:block}}@media (max-width:1049px){#indeed-title-wrap tr>:nth-child(2){display:none}[data-indeed-narrow-2]{display:inline}}@media (max-width:899px){#indeed-title-wrap tr>:nth-child(7),#indeed-title-wrap tr>:nth-child(9){display:none}[data-indeed-narrow-3]{display:inline}}</style><p data-indeed-narrow class=\"text-amber-300 text-xs mb-2 leading-relaxed max-w-lg\">画面の幅が足りないので「業界」「スマホ」<span data-indeed-narrow-2>「分類」</span><span data-indeed-narrow-3>「その変化」「動き方」</span>の列を省いています。全部見るには画面を広げてください。</p><div id=\"indeed-title-wrap\"><table class=\"w-full text-sm\"><thead><tr>",
+        "<style>[data-indeed-empty]:empty{display:none}#indeed-title-wrap{overflow-x:visible}#indeed-title-wrap table{min-width:1100px}#indeed-title-wrap thead th{position:sticky;top:0;z-index:5;background:#1e293b;box-shadow:inset 0 -1px 0 #64748b}[data-indeed-narrow],[data-indeed-narrow-2],[data-indeed-narrow-3]{display:none}@container indeedbody (max-width:1191px){#indeed-title-wrap table{min-width:0}#indeed-title-wrap tr>:nth-child(3),#indeed-title-wrap tr>:nth-child(8){display:none}[data-indeed-narrow]{display:block}}@container indeedbody (max-width:1001px){#indeed-title-wrap tr>:nth-child(2){display:none}[data-indeed-narrow-2]{display:inline}}@container indeedbody (max-width:851px){#indeed-title-wrap tr>:nth-child(7),#indeed-title-wrap tr>:nth-child(9){display:none}[data-indeed-narrow-3]{display:inline}}</style><p data-indeed-narrow class=\"text-amber-300 text-xs mb-2 leading-relaxed max-w-lg\">画面の幅が足りないので「業界」「スマホ」<span data-indeed-narrow-2>「分類」</span><span data-indeed-narrow-3>「その変化」「動き方」</span>の列を省いています。全部見るには画面を広げてください。</p><div id=\"indeed-title-wrap\"><table class=\"w-full text-sm\"><thead><tr>",
     );
     for (name, align) in [
         ("職種", "left"),
