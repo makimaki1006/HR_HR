@@ -156,7 +156,9 @@ fn summary_json(sh: &SheetData, row: usize) -> Value {
 
 /// 取引の指定が無いときの「探す」。本体案件だけ。案件名・拠点名の部分一致（大文字小文字を問わない）。
 fn search(deals: &[Deal], who: &HashMap<String, (String, bool)>, q: &str) -> Value {
-    let q = q.trim().to_lowercase();
+    // 画面に返すのは打った言葉のまま。比べるときだけ小文字にそろえる
+    let shown = q.trim();
+    let q = shown.to_lowercase();
     if q.is_empty() {
         return json!({"q": "", "n_match": 0, "limit": SEARCH_LIMIT, "rows": []});
     }
@@ -185,7 +187,7 @@ fn search(deals: &[Deal], who: &HashMap<String, (String, bool)>, q: &str) -> Val
             })
         })
         .collect();
-    json!({"q": q, "n_match": n, "limit": SEARCH_LIMIT, "rows": rows})
+    json!({"q": shown, "n_match": n, "limit": SEARCH_LIMIT, "rows": rows})
 }
 
 /// 案件の詳細。`summary` は `CS_通話要約`（読めなければ `None`）。

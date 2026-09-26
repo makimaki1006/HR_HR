@@ -614,6 +614,7 @@ a.deallink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
         padding:var(--space-3) var(--space-4); }
 .dd-kv div{ min-width:0; overflow-wrap:anywhere; }
 .dd-kv span.k{ display:block; font-size:11.5px; color:var(--ink-2); }
+.dd-kv .nw{ white-space:nowrap; }   /* 「（3か月）」を「（3か / 月）」と割らない */
 /* 縦のタイムライン。左に日付、その右に種類の印と中身 */
 ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px solid var(--rule-strong); }
 .tl li{ position:relative; display:grid; grid-template-columns:7.5em 1fr; gap:var(--space-3);
@@ -5924,7 +5925,7 @@ function renderDetail(D) {
     kv("拠点", esc(d.site) || '<span class="n0">拠点名なし</span>') +
     kv("ステージ", esc(d.stage) || DASH) +
     kv("契約期間", (esc(d.start) || DASH) + " 〜 " + (esc(d.expiration) || DASH) +
-      (d.period != null ? '<span class="muted small">（' + num(d.period) + "か月）</span>" : "")) +
+      (d.period != null ? '<span class="muted small nw">（' + num(d.period) + "か月）</span>" : "")) +
     kv("担当", (esc(d.consultant) || DASH) +
       (d.consultant_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "")) +
     kv("金額", yen(d.amount)) +
