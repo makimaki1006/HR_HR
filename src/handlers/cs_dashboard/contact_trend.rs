@@ -363,13 +363,25 @@ pub(super) fn cutoff_of(sheets: &Sheets, today: NaiveDate) -> NaiveDate {
         .unwrap_or(today)
 }
 
-/// 通話の記録が始まった日（日本時間）。長さを問わず、いちばん古い通話の日。
+/// 全部の取引の通話を取っている最初の日（日本時間）。
+///
+/// 🔴 2026-09-27: CS_通話明細 に、今も稼働中の案件の契約期間中の通話だけを 2025-10-07 まで遡って足した。
+///    それより前の通話は「今も稼働中の案件」の分しか無い（もう終わった案件の通話は取っていない）ので、
+///    いちばん古い行の日を始まりにすると、2025-11〜2026-03 の月が 1件あたり 0.37〜1.03回と低く出て、
+///    接触が増えたように見えてしまう（実測。4月以降は 2.4〜3.2回）。全件を取っている最初の日で止める。
+pub const FULL_CAPTURE_FROM: NaiveDate = match NaiveDate::from_ymd_opt(2026, 3, 23) {
+    Some(d) => d,
+    None => panic!("FULL_CAPTURE_FROM"),
+};
+
+/// 通話の記録が始まった日（日本時間）。いちばん古い通話の日と FULL_CAPTURE_FROM の遅いほう。
 /// 1本も無ければ `None`（どの期間も通話が数えられない）。
 pub fn call_from(call: &SheetData) -> Option<NaiveDate> {
     call.rows
         .iter()
         .filter_map(|r| call_date_jst(call.get(r, "ts")))
         .min()
+        .map(|d| d.max(FULL_CAPTURE_FROM))
 }
 
 fn period_json(unit: Unit, p: &Period, cutoff: NaiveDate, calls: Option<NaiveDate>) -> Value {

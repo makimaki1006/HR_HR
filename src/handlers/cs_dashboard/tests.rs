@@ -5513,3 +5513,27 @@ fn 話した人の表示名は接頭辞と空白を取ってそろえる() {
         }
     }
 }
+
+/// 🔴 2026-09-27: CS_通話明細 に、今も稼働中の案件の通話だけを 2025-10 まで遡って足した。
+/// いちばん古い行の日を「通話の記録が始まった日」にすると、全件を取っていない月が低く出る。
+/// 全件を取っている最初の日（FULL_CAPTURE_FROM）より前には戻さない。
+#[test]
+fn 通話の記録の始まりは全件を取っている最初の日より前に戻さない() {
+    use super::contact_trend::{call_from, FULL_CAPTURE_FROM};
+    let sheet = |tss: &[&str]| SheetData {
+        header: vec!["ts".to_string()],
+        rows: tss.iter().map(|t| vec![Arc::from(*t)]).collect(),
+        fetched_at: Instant::now(),
+    };
+    // 遡った古い行がある（2025-10-07）→ 3/23 で止まる
+    let old = sheet(&["2025-10-07T01:00:00Z", "2026-05-01T01:00:00Z"]);
+    assert_eq!(call_from(&old), Some(FULL_CAPTURE_FROM));
+    // いちばん古い行が 3/23 より後 → その日のまま
+    let late = sheet(&["2026-04-02T01:00:00Z"]);
+    assert_eq!(
+        call_from(&late).map(|d| d.to_string()),
+        Some("2026-04-02".to_string())
+    );
+    // 1本も無ければ None
+    assert_eq!(call_from(&sheet(&[])), None);
+}
