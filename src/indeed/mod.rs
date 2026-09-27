@@ -21,8 +21,10 @@ pub mod data;
 pub mod detail;
 pub mod industry;
 pub mod keywords;
+pub mod searchstyle;
 pub mod season;
 pub mod trend;
+pub mod wagespread;
 pub mod wordbrief;
 pub mod wording;
 
