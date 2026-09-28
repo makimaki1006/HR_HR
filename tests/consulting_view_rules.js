@@ -4140,6 +4140,25 @@ check("S-12: 表の枠は、実際にはみ出しているときだけ Tab で�
   ok(!/tabindex|role="region"/.test(run('scroll(table([{ t: "a" }], [[1]]), 400)')), "描いた時点で tabindex / role を付けている");
 });
 
+/* ================================================================ UI/UX 改善 段2「状態と URL」（2026-09-28、handover 08 の M-6 / M-7） */
+check("M-6/M-7: 本文へ飛ぶ・読み上げの領域（#cs-status）・main の tabindex/aria-busy・失敗の枠の role=alert・骨組みは数字を出さない", () => {
+  /* 2026-09-28 診断: aria-live / aria-busy / role=status / role=alert が 0 件、スキップリンクが無く、本題まで Tab 10〜15 回 */
+  ok(/<a class="skip" id="cs-skip" href="#cs-main">本文へ飛ぶ<\/a>/.test(html), "先頭に「本文へ飛ぶ」が無い");
+  ok(/<div id="cs-status" class="sr" role="status" aria-live="polite"><\/div>/.test(html), "読み上げの領域（#cs-status、role=status / aria-live=polite）が無い");
+  ok(/<main class="pane on" id="cs-main" tabindex="-1" aria-busy="false">/.test(html), "本文（main）に tabindex=-1 / aria-busy が無い（移動の後に focus() で止まれない）");
+  ok(/<div id="cs-error" style="display:none" role="alert" tabindex="-1">/.test(html), "失敗の枠に role=alert / tabindex=-1 が無い");
+  ok(/a\.skip:focus\{/.test(html) && /#cs-main:focus-visible/.test(html), "「本文へ飛ぶ」の focus 時の見え方、本文の focus-visible の定義が無い");
+  /* 読み上げの領域は本文（#cs-main）の外に置く。中に置くと innerHTML の差し替えで消えて、変化が伝わらない */
+  ok(html.indexOf('id="cs-status"') < html.indexOf('id="cs-main"'), "読み上げの領域が本文の中にある、または本文より後にある");
+  const sk = run('cur = { menu: "deal", view: "today" }; skeleton(viewOf("deal", "today"), false)');
+  ok(sk.includes('<h2 class="sec mincho"><span class="no">案件</span>今日動く先</h2>'), "骨組みに画面名の見出しが無い: " + sk);
+  ok(sk.includes('<div class="loading" id="cs-loading">今日動く先 を読み込み中…</div>'), "骨組みに状態の 1 行が無い: " + sk);
+  ok(sk.includes('<div class="skel" aria-hidden="true">'), "骨組みの空箱が読み上げに出る（aria-hidden が無い）");
+  ok(!/\d/.test(sk.replace(/<[^>]+>/g, "")), "骨組みに数字が出ている（空箱に 0 を出すと「0 件」と読まれる）: " + sk.replace(/<[^>]+>/g, ""));
+  const sk2 = run('skeleton(viewOf("deal", "today"), true)');
+  ok(sk2.includes("取り直し中") && sk2.includes("20 秒"), "取り直し中の骨組みに待つ理由と長さ（20 秒）が無い（S-11）");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
