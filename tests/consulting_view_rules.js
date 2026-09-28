@@ -2375,7 +2375,8 @@ check("ループ4 houjin: 本部アプローチは見出しと本文を重ねず
   ok(n === 1, "「解約率が 40% 以上の拠点は…率だけで判断しないでください」が " + n + " 回出ている（1回にする）");
   ok(!/<span class="hd">親法人の合計ではありません<\/span><p>親法人の合計ではありません/.test(h),
     "枠の見出しと本文の頭が同じ文（親法人の合計ではありません）");
-  const head = (h.match(/<span class="hd">([^<]*)<\/span><p>([^<。]*)/) || []);
+  // 頭の枠は畳み（M-5 の foldNote: summary が見出し、中の箱は見出しを持たない）。summary の文と本文（<p>）の 1 文目が同じでないこと
+  const head = (h.match(/<details class="fold notefold"><summary>([^<　]*)[\s\S]*?<div class="note [^"]*"><p>([^<。]*)/) || []);
   ok(head[1] && head[2] && !head[2].startsWith(head[1]), "枠の見出しと本文の1文目が同じ: " + head[1]);
   ok(!h.includes("集計の基準日"), "本部アプローチの末尾にも基準日の枠がある（法人番号で見るの末尾と2つ続く）");
   ok(!h.includes('<span class="no">問い</span>'), "本部アプローチが自分の問いの見出しを出している（法人番号で見るの見出しの下が空に見える）");
@@ -3498,7 +3499,8 @@ check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週�
   ok(/<div class="kpi"><span class="lbl">稼働中の全件[\s\S]*?<a class="golink"/.test(h), "稼働中の全件はリンクを添えた div のまま（button の中に a を入れない）");
   ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(h), "button の中に a がある（押せるものの入れ子）");
   ok((h.match(/<span class="act">/g) || []).length === 4, "行き先の小さな文（.act）が 4 枚に付いていない");
-  ok(h.includes('<h2 class="sec mincho" id="td-today-h" tabindex="-1">') && h.includes('<h2 class="sec mincho" id="td-soon-h" tabindex="-1">'),
+  // 表の見出しは部品の題（class part。M-5 で問い＝mincho と分けた）。id と tabindex=-1 が付いていることが要点
+  ok(h.includes('<h2 class="sec part" id="td-today-h" tabindex="-1">') && h.includes('<h2 class="sec part" id="td-soon-h" tabindex="-1">'),
     "飛ぶ先の見出しに id / tabindex が無い");
   // 行き先の無い札（act 無し）は div のまま。見出しに id を渡さないときは前と同じ形
   ok(run('kpi("LTV 中央値", "1", "", "")') === '<div class="kpi"><span class="lbl">LTV 中央値</span><span class="big">1</span></div>', "act 無しの kpi が div でない");
@@ -3750,7 +3752,7 @@ check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を�
   run('cur = { menu: "deal", view: "board" }');
   const b = run("renderBoard(__BD)");
   ok(!textOf(b).includes("案件の立ち位置"), "案件そのものの表の見出しが「案件の立ち位置」のまま");
-  ok(/<h2 class="sec mincho"><span class="no">表<\/span>稼働中の案件/.test(b), "表の見出しが無い（消しただけになっている）");
+  ok(/<h2 class="sec part"><span class="no">表<\/span>稼働中の案件/.test(b), "表の見出しが無い（消しただけになっている）");
   /* 画面に出る文字列（コメントを除いた JS のリテラル）に、この名前を残さない */
   ok(!/["'][^"'\n]*案件の立ち位置/.test(jsNoComment), "JS の文字列（画面に出るもの）に「案件の立ち位置」が残っている");
   const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "名札が 2 本以上ついた 243 件から", order_rule: "", mtg_gap: {} } })');
