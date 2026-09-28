@@ -87,24 +87,33 @@ const TEAM_ROWS = [
 ];
 ctx.__TEAM = TEAM_ROWS;
 
-check("V2: 接触率の最下位候補から母数が小さい人を外す", () => {
-  const p = run("pickWorstContact(__TEAM)");
-  ok(p.worst && p.worst.consultant === "h9821a39368fe",
-    "最下位が " + (p.worst && p.worst.consultant) + "。母数が小さい h6e0d…（0/11か月）を拾っていないか");
+// 2026-09-28（S-10）: KPI は「いちばん低い」人の名指しをやめて「40% 未満の人数」にした。母数が小さい人を外す性質（V2）は同じ
+check("V2: 接触率 40% 未満の人数から母数が小さい人を外す", () => {
+  const p = run("pickLowContact(__TEAM)");
+  ok(p.n === 1 && p.deals === 28,
+    "40% 未満が " + p.n + " 名・持ち案件 " + p.deals + " 件（期待 1 名・28 件）。母数が小さい h6e0d…（0/11か月）を数えていないか");
   ok(p.skipped === 5, "外した人数が " + p.skipped + "（期待 5）");
 });
 
-check("V2: KPI に外した人数を書き、母数が小さい人の名前を出さない", () => {
+check("V2/S-10: KPI に外した人数を書き、担当者の名前を一人も出さない（名指しの順位表にしない）", () => {
   ctx.__D = {
     rows: TEAM_ROWS, meta: { n_consultant: 27, n_active: 604, unknown_owner: 0, retired_deals: 0,
       retired_people: 0, owner_ties: 38, not_counted: "※ 担当者の評価ではありません" },
     contact_rule: "", small_n_rule: "", focus_rule: "", owner_rule: "担当は consultant が正本です",
   };
   const h = run("renderTeam(__D)");
-  const kpi = h.split('<div class="kpis">')[1].split("</div>")[0] + h.split('<div class="kpis">')[1].split("</div>")[1];
-  ok(kpi.includes("h9821a39368fe"), "KPI に母数の足りる最下位が出ていない");
-  ok(!kpi.includes("h6e0d76778594"), "KPI に母数が小さい人（0/11か月）が出ている");
+  const kpi = h.slice(h.indexOf('<div class="kpis">'), h.indexOf("<h2", h.indexOf('<div class="kpis">')));
+  for (const r of TEAM_ROWS) ok(!kpi.includes(r.consultant), "KPI に担当者の名前が出ている: " + r.consultant);
+  ok(/接触率 40% 未満の担当者（母数が小さい人を除く）<\/span><span class="big">1<span class="u">名/.test(kpi), "40% 未満の人数（1 名）の KPI が無い");
+  ok(kpi.includes("持ち案件 28 件"), "40% 未満の人たちの持ち案件の合計が無い");
   ok(kpi.includes("母数が小さい 5 名は候補から外しています"), "外した人数が KPI に書かれていない");
+  ok(/注力案件を持つ担当者<\/span><span class="big">3<span class="u">名/.test(kpi) && kpi.includes("いちばん多い人で 16 件"),
+    "注力案件の KPI が人数（3 名・最多 16 件）でない");
+  ok(/class="kpi is-bad"><span class="lbl">接触率 40% 未満/.test(kpi), "40% 未満が 1 名以上なのに赤でない");
+  // 0 名なら赤にしない（赤は「増えるとまずい件数」だけ）
+  ctx.__D0 = Object.assign({}, ctx.__D, { rows: TEAM_ROWS.filter((r) => r.small_n || r.contact_rate >= 40) });
+  const h0 = run("renderTeam(__D0)");
+  ok(/class="kpi"><span class="lbl">接触率 40% 未満の担当者（母数が小さい人を除く）<\/span><span class="big">0</.test(h0), "0 名の KPI が赤、または 0 でない");
 });
 
 /* ================================================================ V3 */
@@ -2019,7 +2028,7 @@ check("採用単価の図: 採れた人数を値の横に括弧で付ける（�
 check("team: 稼働中の件数を KPI と末尾で繰り返さず、KPI の見出しに「母数が小さい人を除く」と書く", () => {
   const h = run("renderTeam(__D)");
   ok(!h.includes("稼働中 604 件（オプション契約を除く）"), "稼働中の件数を画面の中で繰り返している（頭の1行に任せる）");
-  ok(h.includes("接触率がいちばん低い（母数が小さい人を除く）"), "KPI の見出しが表の先頭（0.0%）と食い違って見える");
+  ok(h.includes("接触率 40% 未満の担当者（母数が小さい人を除く）"), "KPI の見出しが表の先頭（0.0%）と食い違って見える");
   ok(h.split('<div class="note def">').pop().includes("担当者 27 名"), "末尾の枠にこの画面の数（担当者の人数）が無い");
   ok(h.includes("この担当の案件だけを「担当者ごとの案件」で見る"), "名前の title が行き先の画面名と合っていない");
 });
@@ -2915,8 +2924,11 @@ check("ループ5統合: 担当者ごとの接触の見出しの2行目も、数
   };
   ctx.__HOC = HC;
 }
-/* 新しい節（問い〜「反映されたか」の手前）だけを切り出す */
-const hocPart = (h) => h.slice(h.indexOf("交代の前後で、接触は増えたか減ったか"), h.indexOf("HubSpot の担当者欄に反映されたか"));
+/* 交代の前後の節（問い〜末尾）だけを切り出す。2026-09-28（S-8）に表「交代の記録」・図「反映されたか」の後ろへ
+   移したので、後ろに残るのは末尾の枠（foot）だけ。前は「反映されたか」の手前で切っていた */
+const hocPart = (h) => h.slice(h.indexOf("交代の前後で、接触は増えたか減ったか"));
+/* 表「交代の記録」（#ho-tbl）だけを切り出す。前は最後の <table> を取っていたが、S-8 で交代の前後の節（表を含む）が後ろに来た */
+const hoTable = (h) => { const i = h.indexOf('<table id="ho-tbl"'); return i < 0 ? "" : h.slice(i, h.indexOf("</table>", i)); };
 
 check("交代の前後: 図より前に「交代の効果の証拠ではない・向きは決まらない」と断る", () => {
   const p = hocPart(run("renderHandover(__HOC)"));
@@ -3040,7 +3052,8 @@ check("交代の前後: 氏名不明の番号はサーバの番号をそのま�
   /* 引き継がれた側に氏名不明が1人だけでも、全体で2人いれば番号を出す（側ごとに数えない） */
   const from = h.slice(h.indexOf("引き継がれた側（前の担当）（変化の中央値）"), h.indexOf("前後の比べ方"));
   ok(/氏名不明 2<\/span>/.test(from), "引き継がれた側の氏名不明に、サーバの番号（2）を出していない");
-  const tbl = h.slice(h.lastIndexOf("<table"));
+  const tbl = hoTable(h);
+  ok(tbl.length > 0, "交代の記録の表（#ho-tbl）が無い");
   const body = tbl.slice(tbl.indexOf("<tbody>"));
   const row = body.slice(body.indexOf("拠点S1の前の契約"), body.indexOf("</tr>", body.indexOf("拠点S1の前の契約")));
   ok(/氏名不明 2<\/span>/.test(row), "交代の表の氏名不明に番号が無い: " + row);
@@ -3052,7 +3065,8 @@ check("交代の前後: 氏名不明の番号はサーバの番号をそのま�
 
 check("交代の前後: 交代の表に「接触の前後」の列を足し、既存の列（記録の遅れ・反映・状態）は残す", () => {
   const h = run("renderHandover(__HOC)");
-  const tbl = h.slice(h.lastIndexOf("<table"));
+  const tbl = hoTable(h);
+  ok(tbl.length > 0, "交代の記録の表（#ho-tbl）が無い");
   const head = tbl.slice(0, tbl.indexOf("</thead>"));
   for (const c of ["交代日", "前の担当", "次の担当", "いまの担当", "接触の前後（30日あたり）", "記録の遅れ", "反映", "状態"])
     ok(head.includes(">" + c + "<"), "表の列「" + c + "」が無い");
@@ -3419,7 +3433,7 @@ function todayFixture() {
 }
 
 check("S-1: 今日動く先は 問い → 担当の欄 → KPI → 表 今日動く先 → 表 今週満了 → 今週始まった（畳み） → 図 名札 → 図 MTG途絶 → 読むときの注意 の順", () => {
-  run("todayConsultant = ''; todayStartedOpen = false;");
+  run("todayConsultant = '';");   // todayStartedOpen は触らない（既定で閉じていることを見る）
   ctx.__TD5 = todayFixture();
   const h = run("renderToday(__TD5)");
   const at = (s) => { const i = h.indexOf(s); ok(i >= 0, "「" + s + "」が無い"); return i; };
@@ -3514,6 +3528,35 @@ check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全
   run("todayConsultant = '担当A';");
   ok(run("renderToday(__TD6)").includes("候補1"), "candidates の無い応答で rows から絞れていない");
   run("todayConsultant = '';");
+});
+
+check("S-8: 表が主役の画面（案件そのもの・担当者ごとの案件・担当者の一覧・担当の交代）では表を図より先に出す", () => {
+  const before = (h, a, b, msg) => {
+    const i = h.indexOf(a), j = h.indexOf(b);
+    ok(i >= 0 && j >= 0, msg + "（" + (i < 0 ? a : b) + " が無い）");
+    ok(i < j, msg);
+  };
+  run('cur = { menu: "deal", view: "board" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
+  const b = run("renderBoard(__BD)");
+  before(b, 'id="board-filter"', 'id="board-count"', "案件そのもの: 絞り込み → 件数行 の順でない");
+  before(b, 'id="board-count"', 'id="board-tbl"', "案件そのもの: 件数行 → 表 の順でない");
+  before(b, 'id="board-tbl"', "<figure", "案件そのもの: 表が図の下");
+  before(b, 'id="board-tbl"', "並びのきまりXYZ", "案件そのもの: 並びの決まりが表の前にある");
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "田中", flag: "", expiry: "", q: "", band: "" };');
+  const o = run("renderBoard(__BD)");
+  before(o, 'id="board-count"', 'id="board-tbl"', "担当者ごとの案件: 件数行 → 表 の順でない");
+  before(o, 'id="board-tbl"', "<figure", "担当者ごとの案件: 表が図の下");
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" }; cur = { menu: "deal", view: "today" };');
+  ctx.__TM = { rows: TEAM_ROWS, meta: { n_consultant: 8, n_active: 604, unknown_owner: 0, retired_deals: 0, retired_people: 0,
+    owner_ties: 0, not_counted: "※ 担当者の評価ではありません" }, contact_rule: "", small_n_rule: "", focus_rule: "", owner_rule: "" };
+  const t = run("renderTeam(__TM)");
+  before(t, '<div class="kpis">', 'id="team-tbl"', "担当者の一覧: KPI → 表 の順でない");
+  before(t, 'id="team-tbl"', "<figure", "担当者の一覧: 表が図の下");
+  const hv = run("renderHandover(__HOC)");
+  before(hv, '<div class="kpis">', "交代の記録（", "担当の交代: KPI → 表 の順でない");
+  before(hv, "交代の記録（", "<figure", "担当の交代: 表が図の下");
+  before(hv, "HubSpot の担当者欄に反映されたか", "交代の前後で、接触は増えたか減ったか", "担当の交代: 2 つ目の問い（前後比較）が末尾でない");
+  ok(hv.lastIndexOf('<div class="note def">') > hv.indexOf("交代の前後で、接触は増えたか減ったか"), "担当の交代: 末尾の枠（基準日と件数）が消えている");
 });
 
 Promise.all(pendingChecks).then(() => {
