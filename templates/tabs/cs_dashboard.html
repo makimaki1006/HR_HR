@@ -243,6 +243,13 @@
   h2.sec .no{ font-size:12px; letter-spacing:.14em; color:var(--ink-3);
               font-family:"BIZ UDPGothic","Yu Gothic UI",sans-serif; flex:none; }
   h2.sec::after{ content:""; flex:1; height:1px; background:var(--rule); }
+  /* 見出しの階層（M-5、2026-09-28 診断）: 問いと個々の図・表が同じ 19px 明朝で、主題と部品が同格に見えていた。
+     問い（画面の題。1 画面に 1 つ）は 24px 明朝、図・表（部品の題）は 15px ゴシック太字＋藍の縦棒（h3.sub と同じ書式）。
+     sec() の第 1 引数で分ける。タグは h2 のまま（見出しの並びを見る見張り・枠の読み上げ名 scrollName は H2/H3 を見る） */
+  h2.sec.mincho{ font-size:24px; line-height:1.3; }
+  h2.sec.part{ font-size:15px; font-weight:700; letter-spacing:.03em; line-height:1.4; margin:24px 0 var(--space-2); }
+  h2.sec.part::before{ content:""; width:4px; height:15px; background:var(--ai); border-radius:1px; flex:none; align-self:center; }
+  h2.sec.part::after{ display:none; }   /* 罫線は問いだけ。部品の題には引かない */
   h2.sec + .lede{ color:var(--ink-2); font-size:12.5px; margin:0 0 var(--space-4); max-width:76ch; }
   h3.sub{ font-size:14.5px; font-weight:700; margin:30px 0 10px; letter-spacing:.03em;
           display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
@@ -603,6 +610,11 @@ details.popnote > summary b{ font-weight:700; }
 .fresh details.fold.inl > .muted{ margin-left:var(--space-2); }
 /* 凡例は折りたたみの中。開いたときに summary との間を空けすぎない */
 details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
+/* 決まりごと・読み方の箱の畳み（M-5、foldNote）。summary の keep は畳まない 1 文（本文と同じ濃さ・太さ）。
+   開いた箱は見出しを持たない（summary が見出し） */
+details.fold.notefold{ margin:var(--space-2) 0 var(--space-3); }
+details.fold.notefold > summary .keep{ color:var(--ink); font-weight:400; margin-left:var(--space-3); }
+details.fold.notefold > .note{ margin:var(--space-2) 0 0; }
 
 /* 「決まりごと」の枠（V21）。
    info の見出しには「— 読み方」が付くが、中身が**読み方ではなく取り決め・条件**の枠
@@ -660,11 +672,11 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
    ページ幅が 621px に広がっていた（.pickbox の最小幅 330px ＋ 余白）。 */
 @media (max-width:600px){
   .wrap{ padding:0 var(--space-4) 80px; }
-  .masthead{ padding:var(--space-3) 0 var(--space-2); gap:var(--space-1); }
-  .masthead h1{ font-size:20px; }
-  .masthead h1 span{ display:none; }
-  .rule-thin{ margin:0 0 var(--space-2); }
-  .tabs{ margin:0 0 var(--space-3); }
+  /* 題字の行は 400px では 2〜3 行に折れる（題字 → 鮮度 → 色と印の意味＋利用者）。行の間は 4px */
+  .masthead{ gap:var(--space-1) var(--space-3); }
+  .masthead h1{ font-size:16px; }
+  /* 問い（24px）は 400px の本文幅（368px）で 2 行に折れる（2026-09-28 検証: 「今日・今週、どこに連絡す／るか」）。20px にする */
+  h2.sec.mincho{ font-size:20px; }
   .tabs button{ padding:8px 12px 7px; }
   /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す */
   .side ul{ flex-wrap:wrap; overflow-x:visible; }
@@ -2664,14 +2676,35 @@ function kpi(label, big, fine, kind, act) {
   return '<button type="button" class="' + cls + '"' + to + ">" + inner +
     '<span class="act">' + esc(act.text || "一覧を見る") + "</span></button>";
 }
-/* id: 見出しに id を付ける（KPI から表へ飛ぶ先。S-2）。付けたときは focus() で止まれるよう tabindex=-1 も付ける */
+/* id: 見出しに id を付ける（KPI から表へ飛ぶ先。S-2）。付けたときは focus() で止まれるよう tabindex=-1 も付ける。
+   M-5: 図・表（部品の題）は class part（15px ゴシック太字）、問い・案件（画面の題）は mincho（24px 明朝）。CSS の h2.sec.part */
 function sec(no, title, id) {
-  return '<h2 class="sec mincho"' + (id ? ' id="' + esc(id) + '" tabindex="-1"' : "") + '><span class="no">' +
-    esc(no) + "</span>" + esc(title) + "</h2>";
+  const part = no !== "問い" && no !== "案件";
+  return '<h2 class="sec ' + (part ? "part" : "mincho") + '"' + (id ? ' id="' + esc(id) + '" tabindex="-1"' : "") +
+    '><span class="no">' + esc(no) + "</span>" + esc(title) + "</h2>";
 }
 function note(kind, head, body) {
   return '<div class="note ' + kind + '"><span class="hd">' + esc(head) + "</span><p>" +
     body + "</p></div>";
+}
+/* 決まりごと・読み方の箱を畳む（M-5、2026-09-28 診断: 17 画面中 12 で問いの直下が決まりごとの箱で、1 箱 100〜140px。
+   担当者の一覧では読み方の箱 110px のぶん、名前を押せる表の 1 行目が 1 画面目の外だった）。
+   summary に見出しと、畳んではいけない 1 文（keep。「担当者の評価ではありません」など）を残す。中の箱は見出し（.hd）を持たない
+   （summary が見出し。同じ文を 2 回出さない）。extra は箱の後ろに続ける HTML（採用単価の比べ方の箱など）。
+   🔴 畳むのは取り決め・比べ方・線引きの数字だけ。母数・外した件数・n<30 の理由・未確定・分母 0 を書いた箱は畳まない
+   （08 の 2.4。電話・MTG の品質・いま見るべき顧客の頭の箱は外した件数を含むので note() のまま） */
+function foldNote(kind, head, body, keep, id, extra) {
+  const what = kind === "info" ? "読み方" : "決まりごと";
+  return '<details class="fold notefold"' + (id ? ' id="' + esc(id) + '"' : "") + "><summary>" + esc(head) +
+    (keep ? '<span class="keep">' + keep + "</span>" : "") +
+    '　<span class="when-closed">' + what + 'を開く</span><span class="when-open">' + what + "を閉じる</span></summary>" +
+    '<div class="note ' + kind + ' nohd"><p>' + body + "</p></div>" + (extra || "") + "</details>";
+}
+/** 文を最初の句点で 2 つに分ける（foldNote の keep と本文）。句点が無ければ全文が keep */
+function firstSentence(t) {
+  const s = String(t == null ? "" : t);
+  const cut = s.indexOf("。");
+  return cut >= 0 ? [s.slice(0, cut), s.slice(cut + 1)] : [s, ""];
 }
 /* 表は最後の手段。個別の行を特定したいときだけ使う。
    列の w: 折り返す列。"l" は案件名・自由記述（12〜22字で折る）、"s" は人名・ステージ・短い説明（6〜11字）。
@@ -2929,8 +2962,10 @@ function renderTeam(D) {
      「担当者の評価ではありません」）が同じで、続けて2回出ていた。見出しは本文と別のことを言う。
      「件数では見ていません」も、この枠の太字・サーバの contact_rule（件数ではなく率で見るのは…）・
      下の図の注記の3か所にあった。理由まで書いてある contact_rule の1か所にする */
-  h += note("info", "何のための画面か",
-    esc(D.meta.not_counted).replace("※ ", "") + "<br>" + esc(D.contact_rule));
+  /* M-5: 読み方の箱は畳む。「担当者の評価ではありません」の 1 文だけは畳まず summary に残す（規律「評価と誤読させない」）。
+     2026-09-28 診断（fixture 1440×900）: この箱が 110px を取り、名前を押せる表の 1 行目が 1 画面目の外だった（S-8 の残り） */
+  const ncTeam = firstSentence(esc(D.meta.not_counted).replace("※ ", ""));
+  h += foldNote("info", "何のための画面か", [ncTeam[1], esc(D.contact_rule)].filter(Boolean).join("<br>"), ncTeam[0]);
 
   /* 🔴 2026-09-28 診断（08 の S-10。07 の V2 の残り）: 画面でいちばん目立つ要素（29px・赤・太字）が「接触率がいちばん低い」
      人の名前で、読み方の箱に「評価ではありません」と書きながら見え方は順位表だった（本番では実名になる）。
@@ -3106,9 +3141,9 @@ function renderContact(D) {
     "<b>上の「" + what + "ごと / " + (unit === "month" ? "週" : "月") + "ごと」で切り替わります。</b>" +
     "1人1枚の図で、縦軸の目盛りは全員そろえてあります。</div>";
 
-  /* 見出しは本文と別のことを言う（担当者の一覧と同じ作り） */
-  h += note("info", "何のための画面か",
-    esc(D.meta.not_counted || "").replace("※ ", "") + "<br>" + esc(D.contact_rule || ""));
+  /* 見出しは本文と別のことを言う（担当者の一覧と同じ作り）。M-5: 畳む。1 文目（接触は検知専用です）は畳まず summary に */
+  const ncCt = firstSentence(esc(D.meta.not_counted || "").replace("※ ", ""));
+  h += foldNote("info", "何のための画面か", [ncCt[1], esc(D.contact_rule || "")].filter(Boolean).join("<br>"), ncCt[0]);
 
   /* ---- 図（1人1枚）---- */
   h += sec("図", "持ち案件1件あたりの接触（" + what + "ごと）");
@@ -3903,7 +3938,7 @@ function custBlocks(D, want) {
   /* ---- 応募・面接・採用の推移 ---- */
   if (want.has("monthly")) {
   h += sec("図", "応募・面接・採用の推移");
-  h += note("info", "現在値ではなく、プロパティの変更履歴を使っています",
+  h += foldNote("info", "現在値ではなく、プロパティの変更履歴を使っています",   /* M-5: 読み方の箱（4 行）を畳む */
     "HubSpot のプロパティは上書きで履歴が残らないため、現在値を時系列に並べると" +
     "<b>決着後に入力された値が契約中に伸びたように見えます</b>" +
     "（実測で応募数の変更の 30.4%・採用数の 35.2% が決着日より後）。<br>" +
@@ -4107,7 +4142,8 @@ function renderSeries(D) {
   const F2 = custFilter(D, ids);
 
   let h = sec("問い", "この事業所は契約を重ねてこられたか");
-  h += note("info", "いま見ている粒度は「事業所」です",
+  /* M-5: 粒度の 1 文は見出しそのものなので summary に残り、説明だけ畳む */
+  h += foldNote("info", "いま見ている粒度は「事業所」です",
     "<b>拠点をまたいでいません。</b>決裁は事業所単位なので、" +
     "同じ法人でも拠点が違えば別の契約の流れとして見ます。" +
     "拠点をまたいで比べたいときは " + goLink("deal", "houjin") + " を使ってください。");
@@ -4245,7 +4281,7 @@ function renderHoujin(D) {
   /* 🔴 「拠点をまたいで1本の線にしない」を、この枠・採用単価の推移の前の「1本の線にまとめない理由」・
      末尾の「読むときの注意」（サーバの not_counted）の3か所で言っていた（2026-09-24 実機）。
      この枠の1回にし、文の正本はサーバの not_counted にする（末尾は foot(…, true) で基準日と件数だけ） */
-  h += note("info", "いま見ている粒度は「法人」です",
+  h += foldNote("info", "いま見ている粒度は「法人」です",   /* M-5: 粒度の 1 文は summary に残り、説明だけ畳む */
     "<b>拠点をまたいで並べています。</b>ふだんの判断は事業所単位なので、" +
     "1つの事業所の流れを追うときは " + goLink("deal", "series") + " を使ってください。<br>" +
     notCounted(D.meta).replace(/<br>$/, ""));
@@ -4540,8 +4576,8 @@ function renderHq(D) {
      🔴 枠の見出しを「親法人の合計ではありません」にしていて、本文の頭（サーバの not_counted）と
      同じ文が続けて2回出ていた（2026-09-24 実機）。見出しは本文と別のことを言う */
   let h =
-    /* 取り決めを書いた枠なので def（V21 検証: info の「読み方」のまま残っていた） */
-    note("def", "比べる単位は事業所",
+    /* 取り決めを書いた枠なので def（V21 検証: info の「読み方」のまま残っていた）。M-5: 畳む（見出しが取り決めの 1 文） */
+    foldNote("def", "比べる単位は事業所",
       notCounted(D.meta) + "本部に持っていくのは「事業所どうしの差」そのものです。");
 
   /* ---- 法人ごとの開き ---- */
@@ -4788,7 +4824,7 @@ function renderPhone(D) {
 function renderRampup(D) {
   const ph = D.phase, f = D.first_mtg, nm = D.no_mtg;
   let h = sec("問い", "最初の契約を乗り切れているか") +
-    note("def", "この画面で数えていないもの",
+    foldNote("def", "この画面で数えていないもの",   /* M-5: 取り決めだけの箱なので畳む */
       "成約率・売上・担当者の評価ではありません。<b>契約が始まってから最初の MTG までに" +
       "何日かかったか</b>だけを見ています。良し悪しの判断は人がします。<br>" +
       "ここの「初回MTG」は<b>MTG だけ</b>で、電話は入っていません" +
@@ -4880,7 +4916,7 @@ const goalBandOpen = (label) => /^(50|1〜|0%)/.test(String(label || ""));
 function renderOutcome(D) {
   const ga = D.goal_act, gl = D.goal_all, ef = D.efficiency, R = D.risk, cs = D.contact_source;
   let h = sec("問い", "成果は出ているか、どこが危ないか") +
-    note("def", "この画面で数えていないもの",
+    foldNote("def", "この画面で数えていないもの",   /* M-5: 取り決めだけの箱なので畳む */
       "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
       "メールは数えていません。<b>接触は検知にだけ使っています。処方には使いません。</b>" +
       "中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。");
@@ -5772,8 +5808,8 @@ function renderBoard(D) {
       ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
       : '<div class="empty">この条件に当てはまる案件はありません。' +
         "「絞り込みを外す」で戻せます。</div>";
-    h += note("def", "この並びについて", esc(D.meta.order_rule));
-    h += cpaBandNote(D.meta);
+    /* M-5: 並びと採用単価の比べ方は取り決めなので 1 つの畳みに */
+    h += foldNote("def", "この並びについて", esc(D.meta.order_rule), "", "", cpaBandNote(D.meta));
     h += sec("図", "名札の分布");
     h += flagFig(D, on ? shown : null);
     /* 稼働中の件数は頭の1行と「N 件中 M 件を表示」にあるので、末尾では繰り返さない */
@@ -5803,8 +5839,8 @@ function renderBoard(D) {
     ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
     : '<div class="empty">この条件に当てはまる案件はありません。' +
       "「絞り込みを外す」で戻せます。</div>";
-  h += note("def", "この並びについて", esc(D.meta.order_rule));
-  h += cpaBandNote(D.meta);
+  /* M-5: 並びと採用単価の比べ方は取り決めなので 1 つの畳みに */
+  h += foldNote("def", "この並びについて", esc(D.meta.order_rule), "", "", cpaBandNote(D.meta));
 
   h += sec("図", "名札の分布");
   h += flagFig(D, on ? shown : null);
@@ -6127,7 +6163,7 @@ function renderHandover(D) {
   /* 決まりごと（採り方・記録の遅れの数え方）は表の直下。🔴 2026-09-28 検証（fixture 1440×900）: 問いと KPI の間に
      置いていて 142px（435-577）を取り、表の見出し行が y=813 と 1 画面目の下端近くだった（08 の S-8 の順は
      問い1 → KPI → 表）。表の読み方なので、表を読んでから目に入る位置に置く */
-  h += note("def", "この一覧の決まりごと",
+  h += foldNote("def", "この一覧の決まりごと",   /* M-5: 取り決め（採り方・遅れの数え方）だけの箱なので畳む */
     esc(D.source_rule) + "<br>" + esc(D.gap_rule));
 
   const rd = D.reflected_dist || [];
