@@ -1709,6 +1709,32 @@ check("M-8", "案件そのものの絞り込み・並び替えは #board-body �
   if (main2 === main1 || !main2.includes("担当者ごとの持ち件数")) throw new Error("担当を外したのに本文全体を描き直していない（持ち件数の表に戻らない）");
 });
 
+/* ================================================================ 段2 S-2 の残り（2026-09-28） */
+check("S-2", "今日動く先以外の画面でも、KPI の札を押すと同じ画面の行き先へフォーカスが移り、畳みなら開く（wire が結ぶ）", async () => {
+  const t = boot();
+  t.R('cur = { menu: "consultant", view: "team" }');
+  const b1 = new t.El(""); b1.dataset = { jump: "tm-tbl-h" };
+  const b2 = new t.El(""); b2.dataset = { jump: "x-fold" };
+  t.qsa["#cs-main button.kpi[data-jump]"] = [b1, b2];
+  const h = new t.El("tm-tbl-h"); t.reg["tm-tbl-h"] = h;
+  const d = new t.El("x-fold"); d.open = false; t.reg["x-fold"] = d;   // 畳み（details）の行き先
+  t.R("wire(viewOf('consultant', 'team'))");
+  if (typeof b1.onclick !== "function") throw new Error("担当者の一覧の札に操作が付いていない");
+  b1.onclick();
+  if (!h.focused) throw new Error("押しても行き先にフォーカスが移らない");
+  b2.onclick();
+  if (d.open !== true || !d.focused) throw new Error("畳みの行き先が開かない・フォーカスが移らない");
+  /* 今日動く先の札（wireToday が todayJump で結ぶ）も、同じ画面の表へ移る */
+  const t2 = boot();
+  t2.R('cur = { menu: "deal", view: "today" }');
+  const b3 = new t2.El(""); b3.dataset = { jump: "td-today-h" };
+  t2.qsa["#cs-main button.kpi[data-jump]"] = [b3];
+  const h3 = new t2.El("td-today-h"); t2.reg["td-today-h"] = h3;
+  t2.R("wire(viewOf('deal', 'today'))");
+  b3.onclick();
+  if (!h3.focused) throw new Error("今日動く先の札が表へ移らない");
+});
+
 (async () => {
   if (mainJs == null) {
     console.error("FAIL 動きの見張り: 画面の <script> が取り出せない");
