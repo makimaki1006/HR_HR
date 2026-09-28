@@ -1522,6 +1522,37 @@ check("S-2", "今日動く先の数字の札を押すと、同じ画面の表へ
   cl.onclick();
   if (t.R("boardFilter.band") !== "") throw new Error("絞り込みを外しても帯が残っている");
 });
+check("D-1a", "担当を選んでいるときに MTG 途絶の札を押すと、その担当のその帯で「担当者ごとの案件」を開く（札の数字と行き先の母集団を揃える）", async () => {
+  const t = boot();
+  const D = todayPayload([boardRow({ deal_id: "a", name: "上位", consultant: "担当A", n_flags: 2, flags: ["x", "y"], mtg_band: "critical" })]);
+  D.candidates = D.rows.slice();
+  // 担当A の帯の実数は 2（候補の中では 1）。2026-09-28 検証: 候補の中で数えると帯の実数と合わない担当が fixture で 27 名中 5 名
+  D.meta.mtg_gap = { bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 5, alert: true }], critical_by_consultant: { "担当A": 2 } };
+  t.ctx.__D = D;
+  t.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = "担当A";');
+  t.reg["cs-main"].innerHTML = t.R("renderToday(__D)");
+  const main0 = t.reg["cs-main"].innerHTML;
+  if (!/data-band="critical" data-consultant="担当A"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">2</.test(main0)) throw new Error("札が担当の実数（2）と担当を添えた形でない");
+  const band = new t.El(""); band.dataset = { band: "critical", consultant: "担当A" };
+  t.qsa["#cs-main button.kpi[data-band]"] = [band];
+  t.R("wire(viewOf('deal', 'today'))");
+  band.onclick();
+  const at = t.R("cur.menu + '/' + cur.view");
+  if (at !== "consultant/byowner") throw new Error("担当者ごとの案件へ移っていない（案件そのものは入るときに担当の絞り込みを外す）: " + at);
+  if (t.R("boardFilter.consultant") !== "担当A" || t.R("boardFilter.band") !== "critical") throw new Error("担当と帯の絞り込みが両方立っていない");
+  if (t.loc.hash !== "#consultant/byowner") throw new Error("URL が担当者ごとの案件でない: " + t.loc.hash);
+  // 届いた応答で、担当と帯の両方で絞った表と「絞り込み中: 担当 …, MTG途絶 …」が出る
+  const B = { meta: { today: "2026-09-18", n_active: 3, order_rule: "", flag_counts: [],
+      mtg_gap: { bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 2, alert: true }] } },
+    rows: [boardRow({ deal_id: "a", name: "途絶A", consultant: "担当A", mtg_band: "critical" }),
+           boardRow({ deal_id: "b", name: "途絶B", consultant: "担当B", mtg_band: "critical" }),
+           boardRow({ deal_id: "c", name: "元気A", consultant: "担当A", mtg_band: "recent" })] };
+  t.fetched[t.fetched.length - 1].resolve(jsonRes(B)); await tick(); await tick();
+  const main = t.reg["cs-main"].innerHTML;
+  if (main.indexOf("3 件中 1 件") < 0 || main.indexOf("担当 担当A") < 0 || main.indexOf("MTG途絶 MTGが90日以上途絶") < 0) throw new Error("担当と帯で絞った件数と言葉が出ていない");
+  if (main.indexOf("途絶A") < 0 || main.indexOf("途絶B") >= 0 || main.indexOf("元気A") >= 0) throw new Error("担当か帯の外の行が残っている");
+  t.R('todayConsultant = ""; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
+});
 
 (async () => {
   if (mainJs == null) {

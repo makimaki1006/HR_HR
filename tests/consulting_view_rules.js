@@ -3405,7 +3405,11 @@ check("S-3: 今日動く先の3表は8列（案件・名札・担当・満了ま
   const bh = b.split("</thead>")[0];
   ok((bh.match(/<th[\s>]/g) || []).length === 15, "案件そのものの表が 15 列でない");
   ok(bh.indexOf('data-k="n_flags"') < bh.indexOf('data-k="consultant"'), "案件そのものの表で名札が担当より後ろにある");
-  ok(!/<td class="wl">/.test(b), "案件そのものの表まで折り返す列にしている（15 列は枠の横スクロールのまま）");
+  // 名札だけは折り返す列（wl）。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を折り返さないままにしたら列の幅が
+  // 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列に減った。案件名ほかの 14 列は折り返さない（横スクロールのまま）
+  ok(/<th class="wl sortable"[^>]*><button[^>]*data-k="n_flags"/.test(bh), "案件そのものの名札の列が折り返す列（wl）でない（名札が 799px の 1 行になる）");
+  ok((bh.match(/class="wl sortable"/g) || []).length === 1, "案件そのものの表で名札以外の列まで折り返す列にしている");
+  ok(!/<td class="wl"><a class="deallink"/.test(b), "案件そのものの案件名の列まで折り返す列にしている（15 列は枠の横スクロールのまま）");
 });
 
 /* ================================================================ 段1 S-1 / S-2 / D-1a（2026-09-28） */
@@ -3447,7 +3451,14 @@ check("S-1: 今日動く先は 問い → 担当の欄 → KPI → 表 今日動
   ok(rule > at('id="td-today-h"') && rule < at('id="today-tbl"'), "決まりごとの畳みが表の見出しの直下に無い");
   const ruleBox = h.slice(rule, h.indexOf("</details>", rule));
   ok(ruleBox.includes("絞った条件の文") && ruleBox.includes("並びの文"), "絞った条件・並びの決まりが畳みの中に無い");
-  ok(ruleBox.includes("<summary>名札2本以上の 4 件から 2 件"), "畳みの 1 行目（summary）に母数が無い");
+  // 母数（4 件から 2 件）は畳まず表の上に出す。言うのは枠の案内（scroll-cap の「2 行を出しています（全 4 件のうち）」）の 1 回だけで、
+  // 畳みの summary は同じ 1 行（caprow）に並べて繰り返さない（2026-09-28 検証: summary と案内が同じ「243 件から 24 件」を
+  // 40px の間に 2 回言い、その分 表の見出し行が下がって 1 画面目に完全な行が 0 行だった）
+  const caprow = h.slice(h.indexOf('<div class="caprow">'), at('id="today-tbl"'));
+  ok(caprow.startsWith('<div class="caprow"><details class="fold" id="td-rule"><summary>'), "決まりごとの畳みが枠の案内と同じ行（caprow）の先頭に無い");
+  ok(/<\/details><div class="scroll-cap"><b>2<\/b> 行を出しています（全 4 件のうち）/.test(caprow), "枠の案内（母数）が畳みの直後・同じ行に無い");
+  ok((caprow.match(/全 4 件のうち|4 件から 2 件/g) || []).length === 1, "母数（4 件 → 2 件）が表の上に 2 回出ている");
+  ok(/<summary>名札の本数順（同じ本数なら金額順）　<span class="when-closed">決まりごとを開く<\/span>/.test(ruleBox), "畳みの 1 行目（summary）が並びの決まりでない: " + ruleBox.slice(0, 160));
   ok(h.indexOf('<div class="note def"><span class="hd">絞った条件') > rule, "絞った条件の箱が畳みの外（表より前）に出ている");
   // 今週始まった契約は畳み（summary に件数）。既定は閉じている
   ok(!/<details class="fold" id="td-started" open/.test(h), "今週始まった契約の畳みが既定で開いている");
@@ -3555,8 +3566,86 @@ check("S-8: 表が主役の画面（案件そのもの・担当者ごとの案�
   const hv = run("renderHandover(__HOC)");
   before(hv, '<div class="kpis">', "交代の記録（", "担当の交代: KPI → 表 の順でない");
   before(hv, "交代の記録（", "<figure", "担当の交代: 表が図の下");
+  // 決まりごとの箱は表の直下（2026-09-28 検証: 問いと KPI の間に 142px の箱があり、表の見出し行が y=813 だった）
+  before(hv, 'id="ho-tbl"', "この一覧の決まりごと", "担当の交代: 決まりごとの箱が表より前にある（問い1 → KPI → 表 の間に入る）");
+  before(hv, "この一覧の決まりごと", "<figure", "担当の交代: 決まりごとの箱が図より後ろ");
   before(hv, "HubSpot の担当者欄に反映されたか", "交代の前後で、接触は増えたか減ったか", "担当の交代: 2 つ目の問い（前後比較）が末尾でない");
   ok(hv.lastIndexOf('<div class="note def">') > hv.indexOf("交代の前後で、接触は増えたか減ったか"), "担当の交代: 末尾の枠（基準日と件数）が消えている");
+});
+
+/* ================================================================ 段1 D-1a の検証（2026-09-28）で見つかった分 */
+check("D-1a の検証: 担当の選択欄の顔ぶれは選んだ担当で変わらない（絞る前の応答から集める）。サーバの consultants があれば候補 0 件の担当も選べる", () => {
+  const F = todayFixture();
+  // 担当D は候補（candidates）に無く、今週始まった契約にだけ居る（fixture の habc7b05f19ea と同じ形。稼働 1 件・名札 1 本）
+  F.started_this_week.push(TD_ROW({ deal_id: "s2", name: "新規2", consultant: "担当D", start: "2026-09-16", flags: ["x"], n_flags: 1 }));
+  ctx.__TD7 = F;
+  const opts = (h) => [...h.slice(h.indexOf('<select id="td-consultant">'), h.indexOf("</select>")).matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]).join(",");
+  run("todayConsultant = '';");
+  ok(opts(run("renderToday(__TD7)")) === ",担当A,担当B,担当C,担当D", "全員のときの顔ぶれが違う: " + opts(run("renderToday(__TD7)")));
+  run("todayConsultant = '担当A';");
+  const a = run("renderToday(__TD7)");
+  // 2026-09-28 検証（fixture）: 絞った後の応答を渡していて、担当A を選んだ瞬間に担当D が欄から消えた（25 択 → 24 択）
+  ok(opts(a) === ",担当A,担当B,担当C,担当D", "担当A を選ぶと欄から他の担当が消える（絞った後の応答から集めている）: " + opts(a));
+  ok(!a.includes("新規2") && a.includes("新規1"), "担当A を選んでいるのに今週始まった契約が担当で絞られていない");
+  // サーバの consultants（稼働中の全件の担当）があればそれが顔ぶれ。候補 0 件の担当E も選べ、選ぶと 0 件の理由が出る
+  F.consultants = ["担当A", "担当B", "担当C", "担当D", "担当E"];
+  run("todayConsultant = '担当B';");
+  const b = run("renderToday(__TD7)");
+  ok(opts(b) === ",担当A,担当B,担当C,担当D,担当E", "consultants の顔ぶれになっていない: " + opts(b));
+  run("todayConsultant = '担当E';");
+  const e = run("renderToday(__TD7)");
+  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には名札が2本以上ついた案件がありません") && e.includes("今日動く先（0 件）"),
+    "候補 0 件の担当を選んだときに、選ばれた状態と 0 件の理由が無い");
+  run("todayConsultant = '';");
+});
+
+check("D-1a の検証: 担当を選んだときの KPI「MTGが90日以上途絶」はサーバの担当ごとの実数（critical_by_consultant）で、押すとその担当のその帯へ。絞った条件にはこの表が何かを 1 文", () => {
+  const F = todayFixture();
+  // 担当C の候補の中の critical は 1 件（候補3）だが、帯の実数は 3 件（名札が MTG途絶の 1 本だけの行は候補に入らない）
+  F.meta.mtg_gap.critical_by_consultant = { "担当A": 1, "担当C": 3 };
+  ctx.__TD8 = F;
+  run("todayConsultant = '担当C';");
+  const h = run("renderToday(__TD8)");
+  const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
+  ok(/<button type="button" class="kpi is-bad" data-band="critical" data-consultant="担当C"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">3<span class="u">件/.test(kp),
+    "担当を選んだときの MTG 途絶が担当ごとの実数（3）で、担当を添えた button になっていない: " + kp.slice(kp.indexOf("MTGが90日以上途絶") - 110, kp.indexOf("MTGが90日以上途絶") + 120));
+  ok(textOf(kp).includes("この担当の稼働中の案件で。全社では 9 件") && textOf(kp).includes("この担当の一覧を見る"), "母集団（稼働中の案件）と行き先（この担当の一覧）が書いていない");
+  // 担当を選んでいるときの「絞った条件」: サーバの文（全社の説明）の前に、この表が全件・切っていないことを 1 文
+  const rb = h.slice(h.indexOf('id="td-rule"'), h.indexOf("</details>", h.indexOf('id="td-rule"')));
+  ok(rb.includes("<b>担当C を選んでいるので、この担当の名札2本以上の候補を全件（2 件）出しています。2 件には切っていません。</b>全社の決まり: 絞った条件の文"),
+    "担当を選んだときの絞った条件が全社の説明のまま: " + rb.slice(rb.indexOf("絞った条件"), rb.indexOf("絞った条件") + 160));
+  ok(/<summary>担当C の候補（名札2本以上、2 件に切らず全件）。名札の本数順　<span class="when-closed">/.test(rb), "担当を選んだときの summary が違う: " + rb.slice(0, 160));
+  // 全員のときは今までどおり帯の件数（9）・全社の一覧（担当を添えない）
+  run("todayConsultant = '';");
+  const all = run("renderToday(__TD8)");
+  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">9<span class="u">件/.test(all) && textOf(all).includes("全社の一覧を見る"),
+    "全員のときの MTG 途絶が帯の件数（9）でない、または担当を添えている");
+  // 古い応答（critical_by_consultant が無い）は候補の中で数え、そう断る。行き先は全社（担当を添えない）
+  ctx.__TD9 = todayFixture();
+  run("todayConsultant = '担当C';");
+  const old = run("renderToday(__TD9)");
+  ok(/data-band="critical"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">1<span class="u">件/.test(old) && textOf(old).includes("この担当の候補（名札2本以上）の中で。全社では 9 件"),
+    "古い応答で候補の中の件数（1）と、その断りが無い");
+  run("todayConsultant = '';");
+});
+
+check("畳みの summary の文は開閉で替わる（表を開く ↔ 表を閉じる、決まりごとを開く ↔ 閉じる）。JS でなく CSS の [open] で見せる方を替える", () => {
+  run("todayConsultant = ''; todayStartedOpen = false;");
+  ctx.__TDs = todayFixture();
+  const h = run("renderToday(__TDs)");
+  ok(/<details class="fold" id="td-started"><summary>今週始まった契約（1 件）　<span class="when-closed">表を開く<\/span><span class="when-open">表を閉じる<\/span><\/summary>/.test(h),
+    "今週始まった契約の summary に開閉の 2 つの文が無い");
+  ok(/<details class="fold" id="td-rule"><summary>[^<]*<span class="when-closed">決まりごとを開く<\/span><span class="when-open">決まりごとを閉じる<\/span><\/summary>/.test(h),
+    "決まりごとの summary に開閉の 2 つの文が無い");
+  ok(/summary \.when-open\{\s*display:none/.test(html) && /details\[open\] > summary \.when-open\{\s*display:inline/.test(html) &&
+     /details\[open\] > summary \.when-closed\{\s*display:none/.test(html), "開閉で見せる方を替える CSS（when-open / when-closed）が無い");
+  // 0 件のときは「表を開く」を出さない（開いても表が無い）
+  const F = todayFixture(); F.started_this_week = []; ctx.__TDz = F;
+  ok(/<details class="fold" id="td-started"><summary>今週始まった契約（0 件）<\/summary>/.test(run("renderToday(__TDz)")), "0 件でも「表を開く」が出ている");
+});
+
+check("KPI から Enter で飛んだ先の見出し（tabindex=-1 の h2.sec）にも藍の focus-visible を定義する（UA 既定の黒い太枠を出さない）", () => {
+  ok(/h2\.sec:focus-visible\{\s*outline:2px solid var\(--ai\)/.test(html), "h2.sec:focus-visible の定義が無い（2026-09-28 検証: この画面で唯一の黒枠だった）");
 });
 
 Promise.all(pendingChecks).then(() => {

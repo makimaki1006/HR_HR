@@ -292,6 +292,9 @@
   button.kpi{ font:inherit; text-align:left; cursor:pointer; width:100%; color:inherit; }
   button.kpi:hover{ border-color:var(--ai); transform:translateY(-1px); }
   button.kpi:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+  /* KPI から Enter で飛んだ先の見出し（sec() の tabindex=-1）。2026-09-28 検証: 定義が無く UA 既定の黒い太枠が出て、
+     この画面で唯一の黒枠だった。他の focus-visible と同じ藍の 2px に揃える */
+  h2.sec:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   button.kpi{ transition:transform .12s ease, border-color .12s ease; }
   button.kpi[aria-pressed="true"]{ border-color:var(--ai); background:var(--ai-soft);
                                    box-shadow:inset 0 0 0 1px var(--ai); }
@@ -530,6 +533,11 @@ details.fold{ margin:0 0 var(--space-2); border:none; border-radius:0; padding:0
 details.fold[open]{ padding-bottom:0; }
 details.fold > summary{ padding:3px 0; font-size:12px; font-weight:600; color:var(--ai); }
 details.fold > summary b{ color:var(--ink); }
+/* summary の文を開閉で切り替える（「表を開く」→「表を閉じる」）。2026-09-28 検証: 開いた後も「表を開く」のままで、
+   状態は▸の向きだけで伝わっていた。JS で書き換えず、[open] で見せる方を替える（描き直しても崩れない） */
+summary .when-open{ display:none; }
+details[open] > summary .when-open{ display:inline; }
+details[open] > summary .when-closed{ display:none; }
 /* 母集団の注記は1行目（稼働中 N 件）だけを summary に出す。内訳は開いたときだけ */
 details.popnote.fold{ padding:4px var(--space-4); margin:0 0 var(--space-2);
   border-left:3px solid var(--ink-3); background:var(--panel-2);
@@ -556,6 +564,14 @@ details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
 .scroll-cap{ font-size:11.5px; color:var(--ink-2); margin:var(--space-3) 0 calc(-1 * var(--space-2));
              font-variant-numeric:tabular-nums; }
 .scroll-cap b{ color:var(--ink); }
+/* 枠の案内（scroll-cap）と決まりごとの畳みを 1 行に並べる（今日動く先。scroll() の side）。
+   2026-09-28 検証（fixture 1440×900）: 畳みの summary（706-735）と scroll-cap（747-765）が同じ「243 件から 24 件」を
+   40px の間に 2 回言い、その分だけ表の見出し行（772）が下がって 1 画面目に完全な行が 0 行だった。
+   畳みを開いたときは畳みが 1 行を取り、案内は表の直上（次の行）へ下がる */
+.caprow{ display:flex; flex-wrap:wrap; align-items:baseline; gap:0 var(--space-4); margin:var(--space-3) 0 calc(-1 * var(--space-2)); }
+.caprow > .scroll-cap{ flex:1 1 auto; margin:0; }
+.caprow > details.fold{ flex:0 1 auto; margin:0; }
+.caprow > details.fold[open]{ flex-basis:100%; margin-bottom:var(--space-2); }
 /* 枠の端の影（V12 の残り、2026-09-23 実機）。文で「スクロールします」と書いても、
    右端の列が切れて見えるだけで続きがあると分からなかった。
    横にまだ続きがある側にだけ影を出す（more-r / more-l は markScroll が付け外しする）。
@@ -2536,7 +2552,9 @@ function kpi(label, big, fine, kind, act) {
     (fine ? '<span class="fine">' + fine + "</span>" : "");
   const cls = "kpi" + (kind ? " is-" + kind : "");
   if (!act) return '<div class="' + cls + '">' + inner + "</div>";
-  const to = act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"' : "";
+  /* consultant: 帯で絞るときに担当も添える（今日動く先で担当を選んでいるとき。数字と行き先の母集団を揃える） */
+  const to = (act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"' : "") +
+    (act.consultant ? ' data-consultant="' + esc(act.consultant) + '"' : "");
   return '<button type="button" class="' + cls + '"' + to + ">" + inner +
     '<span class="act">' + esc(act.text || "一覧を見る") + "</span></button>";
 }
@@ -2598,13 +2616,15 @@ function sortTh(c, key, asc) {
    🔴 数えられるのは画面に出した行だけなので、200 件で切った表にも「全 200 行」と出て、
    切った後の件数が全件のように読めていた（V12 検証。NPS低・法人の一覧・今日動く先は
    n_hit 件から 24 件だけ）。切っている表は total を渡し、「N 行を出しています（全 T 件のうち）」にする。 */
-function scroll(inner, max, total) {
+function scroll(inner, max, total, side) {
   /* max: 枠の高さ（px）。省くと CSS の既定（70vh）。"none" なら高さを制限しない。
      🔴 2026-09-28 診断（08 の S-3、fixture 1440px）: 今日動く先の 24 行が 640px の枠で 15 行目から枠内スクロールになり、
-     「上から順に潰す」のにページ・枠の縦・枠の横の三重スクロールだった。毎朝の表だけ高さの制限を外す（24 行で約 1,000px） */
+     「上から順に潰す」のにページ・枠の縦・枠の横の三重スクロールだった。毎朝の表だけ高さの制限を外す（24 行で約 1,000px）
+     side: 枠の案内（scroll-cap）と同じ 1 行に並べる HTML（今日動く先の決まりごとの畳み）。案内の前に置く（.caprow） */
   const noCap = max === "none";
   const style = noCap ? ' style="max-height:none"' : max ? ' style="max-height:' + max + 'px"' : "";
-  return scrollCap(inner, total, noCap) + '<div class="scroll-wrap">' +
+  const cap = scrollCap(inner, total, noCap);
+  return (side ? '<div class="caprow">' + side + cap + "</div>" : cap) + '<div class="scroll-wrap">' +
     '<div class="scroll"' + style + ">" + inner + "</div></div>";
 }
 /** 枠の左右に続きがあるかを見て、影の印（more-l / more-r）を付け外しする。
@@ -5005,8 +5025,11 @@ const BOARD_COLS = [
       (r.focus ? ' <span class="tag">注力</span>' : "") },
   /* 🔴 名札は並びの根拠（既定は本数順）なのに 15 列目にあり、1440px でも横スクロールの外で
      「何で上がってきたか」が行を見ても分からなかった（2026-09-28 診断、08 の S-3）。案件名の隣に置く。
-     並べ替え（sv）は変えていない */
-  { k: "n_flags",    t: "名札",        n: 0, fmt: (r) => tags(r.flags) },
+     並べ替え（sv）は変えていない。
+     🔴 折り返す列（w:"l"、td.wl は最大 22em）にする。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を
+     折り返さないままにしたら列の幅が 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列
+     （案件・名札・担当）に減っていた。満了まで・定期NPS・最後の接触・最後のMTG が横スクロールの外 */
+  { k: "n_flags",    t: "名札",        n: 0, w: "l", fmt: (r) => tags(r.flags) },
   { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
   /* 🔴 並べ替えは画面に出ている順に合わせる（sv）。「満了後」の行は数字を出していないのに、
      内部の months（15 など）で他の行の間に並んでいた（fixture 20件）。
@@ -5157,10 +5180,12 @@ function drillToBoard(name) {
   go("consultant", "byowner");
 }
 /* ①今日動く先の KPI から③へ。MTG 途絶の帯で絞った状態で開く（S-2。裁定: KPI を押したら案件そのものを絞って開く）。
-   go() が①に入るときに担当の絞り込みを外すので、全社のその帯が出る */
-function drillToBand(band) {
-  boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: band };
-  go("deal", "board");
+   go() が①に入るときに担当の絞り込みを外すので、全社のその帯が出る。
+   consultant: 今日動く先で担当を選んでいるとき。札の数字はその担当の実数（critical_by_consultant）なので、行き先も
+   その担当のその帯にする。案件そのものは入るときに担当を外すので、「担当者ごとの案件」で開く（同じ表・同じ絞り込み欄） */
+function drillToBand(band, consultant) {
+  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band };
+  if (consultant) go("consultant", "byowner"); else go("deal", "board");
 }
 
 /* いま開いている項目を描き直す（並び替え・絞り込みのたびに使う）。
@@ -5334,12 +5359,19 @@ function todayScope(D) {
   });
 }
 
-/* 担当の選択欄（D-1a）。名前は名札2本以上の全候補・今週満了・今週始まった から集める
-   （24 件に切った後の rows だけだと fixture で 27 名中 11 名しか出ない。08 の M-4）。
-   覚えている担当が今日の候補に無くても選択肢に残す（消えると、なぜ 0 件なのかが分からない） */
-function todayOwnerBar(D) {
+/* 担当の選択欄（D-1a）。名前はサーバの consultants（稼働中の全件の担当。fixture 27 名）から。
+   🔴 D0 = 担当で絞る前の応答を渡す。2026-09-28 検証（fixture）: 絞った後の D を渡していたため、候補（candidates）には
+   居らず今週満了・今週始まった にだけ居る担当（habc7b05f19ea）が、別の担当を選んだ瞬間に欄から消えた
+   （全員で 25 択 → 1 名選ぶと 24 択。その人へ切り替えるには一度「全員」に戻すしかない）。
+   古い応答（consultants が無い）では候補・今週満了・今週始まった から集める（24 件に切った後の rows だけだと
+   fixture で 27 名中 11 名しか出ない。08 の M-4）。ただし候補が 0 件の担当（fixture で 3 名）はこの集め方では出ない。
+   覚えている担当が欄に無くても選択肢に残す（消えると、なぜ 0 件なのかが分からない） */
+function todayOwnerBar(D0) {
+  const D = D0;
   const src = (D.candidates || D.rows || []).concat(D.expiring_this_week || [], D.started_this_week || []);
-  const names = Array.from(new Set(src.map((r) => r.consultant).filter(Boolean)));
+  const names = Array.isArray(D.consultants) && D.consultants.length
+    ? D.consultants.filter(Boolean).slice()
+    : Array.from(new Set(src.map((r) => r.consultant).filter(Boolean)));
   if (todayConsultant && names.indexOf(todayConsultant) < 0) names.push(todayConsultant);
   names.sort((a, b) => a.localeCompare(b, "ja"));
   const opt = (v, t) => '<option value="' + esc(v) + '"' + (todayConsultant === v ? " selected" : "") + ">" + esc(t) + "</option>";
@@ -5375,22 +5407,27 @@ function renderToday(D0) {
   let h = sec("問い", "今日・今週、どこに連絡するか") +
     '<div class="lede">毎朝ここだけ見れば動ける長さに絞っています。' +
     "上から順に潰していってください。</div>";
-  h += todayOwnerBar(D);
+  /* 欄の顔ぶれは絞る前の応答（D0）から。絞った後の D を渡すと、選んだ担当以外が欄から消える（todayOwnerBar） */
+  h += todayOwnerBar(D0);
 
   /* ---------------- 今日の数字（KPI）。押せる札は表へ（S-2） ----------------
      🔴 2026-09-28 診断（08 の S-1・S-2）: 赤の札が 2 枚（今日出す先・MTG 途絶）あって「増えるとまずい件数」が
-     どちらか読めなかった。赤は MTG 途絶だけにする。担当を選んでいるときの MTG 途絶は、その人の候補（名札2本以上）
-     の中で数え、全社の数（帯の件数）を添える */
-  const crit = c ? D.rows.filter((r) => r.mtg_band === "critical").length : bandN("critical");
+     どちらか読めなかった。赤は MTG 途絶だけにする。
+     担当を選んでいるときの MTG 途絶は、サーバが稼働中の全件から担当ごとに数えた実数（critical_by_consultant）。
+     🔴 その人の候補（名札2本以上）の中で数えると、名札が MTG途絶の 1 本だけの行が落ちて帯の実数と合わない
+     （2026-09-28 検証: fixture の帯 102 件のうち名札 1 本が 5 件、担当 27 名中 5 名で 1 件ずれる）。
+     古い応答（critical_by_consultant が無い）だけ候補の中で数え、そう書く。全社の数（帯の件数）はどちらでも添える */
+  const CB = G.critical_by_consultant;
+  const crit = !c ? bandN("critical") : CB ? (CB[c] || 0) : D.rows.filter((r) => r.mtg_band === "critical").length;
   h += '<div class="kpis">' +
     kpi("今日出す先", num(D.rows.length) + '<span class="u">件</span>',
         c ? "名札が2本以上ついた候補のうち、この担当のもの。全社は " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件"
           : "名札が2本以上ついた " + num(D.meta.n_hit) + " 件から",
         "", { jump: "td-today-h", text: "表へ" }) +
     kpi("MTGが90日以上途絶", num(crit) + '<span class="u">件</span>',
-        c ? "この担当の候補の中で。全社では " + num(bandN("critical")) + " 件"
+        c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（名札2本以上）の中で。") + "全社では " + num(bandN("critical")) + " 件"
           : "うち " + num(G.forced_by_expiry) + " 件は満了90日前の途絶で引き上げたもの",
-        crit ? "bad" : "", { band: "critical", text: "全社の一覧を見る" }) +
+        crit ? "bad" : "", { band: "critical", consultant: c && CB ? c : "", text: c && CB ? "この担当の一覧を見る" : "全社の一覧を見る" }) +
     kpi("今週満了する", num(soon.length) + '<span class="u">件</span>',
         "名札の本数に関わらず落としていません" +
         (c ? "（全社では " + num((D0.expiring_this_week || []).length) + " 件）" : ""),
@@ -5408,12 +5445,18 @@ function renderToday(D0) {
      決まりごと（絞った条件・並び・採用単価の比べ方）は取り決めなので、見出しの直下の 1 行に畳む（開けば全文）。
      母数（n_hit 件から n_shown 件）は畳まず、その 1 行目に書く */
   h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）", "td-today-h");
-  h += '<details class="fold" id="td-rule"><summary>' +
-    (c ? esc(c) + " の候補 " + num(D.rows.length) + " 件（名札2本以上、全件）。全社は " + num(D.meta.n_hit) +
-         " 件から " + num(D.meta.n_shown) + " 件"
-       : "名札2本以上の " + num(D.meta.n_hit) + " 件から " + num(D.meta.n_shown) + " 件。名札の本数順（同じなら金額順）") +
-    "　決まりごとを開く</summary>" +
-    note("def", "絞った条件", esc(D.meta.filter_rule)) +
+  /* 決まりごとの畳み。母数（n_hit 件から n_shown 件）は枠の案内（scroll-cap の「N 行を出しています（全 T 件のうち）」）が
+     言うので、summary では繰り返さない。🔴 2026-09-28 検証（fixture 1440×900）: summary と scroll-cap が同じ
+     「243 件から 24 件」を 40px の間に 2 回言い、表の見出し行が 772 で 1 画面目に完全な行が 0 行だった。
+     畳みと案内は scroll() の side で同じ 1 行（.caprow）に並べる。
+     担当を選んでいるときは、絞った条件（サーバの filter_rule は全社の説明）の前に、この表が何かを 1 文書く */
+  const rule = '<details class="fold" id="td-rule"><summary>' +
+    (c ? esc(c) + " の候補（名札2本以上、" + num(D.meta.n_shown) + " 件に切らず全件）。名札の本数順"
+       : "名札の本数順（同じ本数なら金額順）") +
+    '　<span class="when-closed">決まりごとを開く</span><span class="when-open">決まりごとを閉じる</span></summary>' +
+    note("def", "絞った条件",
+      (c ? "<b>" + esc(c) + " を選んでいるので、この担当の名札2本以上の候補を全件（" + num(D.rows.length) + " 件）出しています。" +
+           num(D.meta.n_shown) + " 件には切っていません。</b>全社の決まり: " : "") + esc(D.meta.filter_rule)) +
     note("def", "この並びについて", esc(D.meta.order_rule)) +
     cpaBandNote(D.meta) + "</details>";
   if (c && !D.rows.length)
@@ -5421,8 +5464,8 @@ function renderToday(D0) {
       num(D.meta.n_shown) + " 件が出ます。</div>";
   /* サーバが n_hit 件から keep 件に絞っている（routes.rs KEEP）。絞る前の件数を渡す（V12）。
      担当で絞ったときは切っていないので渡さない。並びは表ごとに持つ todaySort（U6）。
-     8 列の TODAY_COLS。高さの制限は外す（24 行を一望する。08 の S-3） */
-  h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl", TODAY_COLS), "none", c ? null : D.meta.n_hit);
+     8 列の TODAY_COLS。高さの制限は外す（24 行を一望する。08 の S-3）。決まりごとの畳みは案内と同じ行に（side） */
+  h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl", TODAY_COLS), "none", c ? null : D.meta.n_hit, rule);
 
   /* ---------------- 今週満了（行動。名札に関わらず出す。開いたまま） ---------------- */
   h += sec("表", "今週満了（" + num(soon.length) + " 件）", "td-soon-h");
@@ -5433,7 +5476,8 @@ function renderToday(D0) {
 
   /* ---------------- 今週始まった契約（立ち上がりの確認。畳む。件数は summary に） ---------------- */
   h += '<details class="fold" id="td-started"' + (todayStartedOpen ? " open" : "") + "><summary>今週始まった契約（" +
-    num(started.length) + " 件）" + (started.length ? "　表を開く" : "") + "</summary>";
+    num(started.length) + " 件）" +
+    (started.length ? '　<span class="when-closed">表を開く</span><span class="when-open">表を閉じる</span>' : "") + "</summary>";
   h += '<div class="muted small">' + esc(D.meta.new_deal_rule || "") + "</div>";
   h += started.length
     ? scroll(boardTable(started, todaySort["new-tbl"], "new-tbl", TODAY_COLS), 320)
@@ -5675,7 +5719,7 @@ function wireToday() {
     b.onclick = () => todayJump(b.dataset.jump);
   });
   document.querySelectorAll("#cs-main button.kpi[data-band]").forEach((b) => {
-    b.onclick = () => drillToBand(b.dataset.band);
+    b.onclick = () => drillToBand(b.dataset.band, b.dataset.consultant || "");
   });
   /* 担当の選択欄（D-1a）。選んだら端末に覚えて、手元のデータで描き直す（取り直さない）。
      欄は描き直しで作り直されるが、redrawMain が同じ id の欄へフォーカスを戻す（U9） */
@@ -5880,8 +5924,6 @@ function renderHandoverContact(D) {
 function renderHandover(D) {
   let h = sec("問い", "担当はいつ、どう替わったか") +
     '<div class="lede">1行1回の交代。<b>新しい順</b>に並べています。</div>';
-  h += note("def", "この一覧の決まりごと",
-    esc(D.source_rule) + "<br>" + esc(D.gap_rule));
 
   h += '<div class="kpis">' +
     kpi("記録された交代", num(D.meta.n) + '<span class="u">件</span>',
@@ -5902,6 +5944,11 @@ function renderHandover(D) {
   /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表「交代の記録」が 2 つ目の問い（交代の前後の接触）と図 3 つの下
      （y=4,131）だった。問い1 → KPI → 表 交代の記録 → 図 反映 → 問い2（前後比較。「証拠ではありません」）の順にする */
   h += renderHandoverTable(D);
+  /* 決まりごと（採り方・記録の遅れの数え方）は表の直下。🔴 2026-09-28 検証（fixture 1440×900）: 問いと KPI の間に
+     置いていて 142px（435-577）を取り、表の見出し行が y=813 と 1 画面目の下端近くだった（08 の S-8 の順は
+     問い1 → KPI → 表）。表の読み方なので、表を読んでから目に入る位置に置く */
+  h += note("def", "この一覧の決まりごと",
+    esc(D.source_rule) + "<br>" + esc(D.gap_rule));
 
   const rd = D.reflected_dist || [];
   h += sec("図", "HubSpot の担当者欄に反映されたか");
