@@ -3393,6 +3393,99 @@ check("S-4: 集計の4表（NPS低・沈黙・MTG未実施・最優先）の案�
   ok(!/>[^<]*80000000011[^<]*</.test(f2) && f2.includes("取引名なし"), "取引名が空の行で取引IDが画面の文字に出ている");
 });
 
+check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で開く」。取引IDは href の中だけ・新しいタブ・rel=noopener", () => {
+  /* portal_id は API の meta.hubspot_portal_id（routes.rs freshen、既定 23708633）から load() が覚える。
+     ここでは変数に直接入れる。URL の形は取引ページ https://app.hubspot.com/contacts/<portal>/record/0-3/<deal_id>/ */
+  const HS = 'href="https://app.hubspot.com/contacts/23708633/record/0-3/80000000001/"';
+  run('hsPortal = "23708633"');
+  try {
+    const b = run('dealLink("80000000001", "A&B")');
+    ok(b.indexOf('<a class="deallink" href="#deal/detail?id=80000000001">A&amp;B</a>') === 0, "案件名のリンクが変わった: " + b);
+    const hs = b.slice(b.indexOf("<a class=\"hslink"));
+    ok(hs.includes(HS), "HS の href が取引ページの形でない: " + hs);
+    ok(/target="_blank"/.test(hs) && /rel="noopener"/.test(hs), "HS が新しいタブ＋rel=noopener でない: " + hs);
+    ok(/>HS<\/a>/.test(hs) && /aria-label="HubSpot でこの取引を開く（新しいタブ）"/.test(hs), "表の横の印が小さな「HS」（読み上げは aria-label）でない: " + hs);
+    /* 🔴 .sr（position:absolute）を表の行に入れると、表の枠（.scroll）に切られずページの高さを伸ばす
+       （2026-09-28 実測: 案件そのもの 604 行で全高 2,280px → 25,656px）。読み上げ用の文は属性で持つ */
+    ok(!hs.includes('class="sr"'), "HS の中に絶対配置の読み上げ用 span がある（表の枠を突き抜けてページが伸びる）: " + hs);
+    ok(!/>[^<]*80000000001[^<]*</.test(hs), "取引IDが画面の文字に出ている（href の中だけにする）: " + hs);
+    /* 数字でない ID には HubSpot の URL を作らない（HubSpot のオブジェクトIDは数字） */
+    ok(!run('dealLink("abc", "x")').includes("hslink"), "数字でない取引IDに HubSpot のリンクを作っている");
+    /* 案件の詳細: 見出しの直下に「HubSpot で開く」 */
+    ctx.__DD = ddPayload();
+    const h = run("renderDetail(__DD)");
+    const open = h.slice(h.indexOf("<a class=\"hslink lg\""), h.indexOf("</a>", h.indexOf("<a class=\"hslink lg\"")) + 4);
+    ok(open.includes(HS) && open.includes("HubSpot で開く"), "案件の詳細に「HubSpot で開く」が無い: " + open);
+    ok(open.indexOf("<a class") < h.indexOf('<div class="dd-kv">'), "「HubSpot で開く」が取引の基本より下にある");
+    ok(!/>[^<]*80000000001[^<]*</.test(h), "案件の詳細で取引IDが画面の文字に出ている");
+    /* 文の中の付け直しの注記（「継続の取引「…」に付いていた記録」）には HS を混ぜない */
+    const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+    const moved = items.find((x) => x.indexOf("<b>2026-06-01</b>") >= 0) || "";
+    ok(moved.includes("継続の契約</a>」") && !moved.includes("hslink"), "付け直しの注記の文の中に HS が混ざっている");
+  } finally { run('hsPortal = ""'); }
+  /* portal_id を覚える前（API の応答がまだ無い）はリンクを出さない。推測で埋めない */
+  ok(!run('dealLink("80000000001", "A")').includes("hslink"), "portal_id が無いのに HubSpot のリンクを出している");
+  ok(!run("renderDetail(__DD)").includes("HubSpot で開く"), "portal_id が無いのに「HubSpot で開く」を出している");
+});
+
+check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を出さず、今日動く先の「絞った条件」は全件への行き先を名前で添える", () => {
+  /* 直す前: 左「案件そのもの」／表の見出し「案件の立ち位置」／サーバの文「「案件」の中の「案件の立ち位置」」の3つ */
+  run('cur = { menu: "deal", view: "board" }');
+  const b = run("renderBoard(__BD)");
+  ok(!textOf(b).includes("案件の立ち位置"), "案件そのものの表の見出しが「案件の立ち位置」のまま");
+  ok(/<h2 class="sec mincho"><span class="no">表<\/span>稼働中の案件/.test(b), "表の見出しが無い（消しただけになっている）");
+  /* 画面に出る文字列（コメントを除いた JS のリテラル）に、この名前を残さない */
+  ok(!/["'][^"'\n]*案件の立ち位置/.test(jsNoComment), "JS の文字列（画面に出るもの）に「案件の立ち位置」が残っている");
+  const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "名札が 2 本以上ついた 243 件から", order_rule: "", mtg_gap: {} } })');
+  const box = td.slice(td.indexOf("絞った条件"), td.indexOf("</p>", td.indexOf("絞った条件")));
+  ok(box.includes('<a class="golink" href="#deal/board">案件 → 案件そのもの</a>'), "絞った条件に全件への行き先（名前のリンク）が無い: " + box);
+  ok(box.includes("名札が 2 本以上ついた 243 件から"), "サーバの文（filter_rule）を落としている");
+});
+
+check("S-7: 左の項目名の後ろの番号と、上のメニューの丸数字を出さない", () => {
+  run('cur = { menu: "study", view: "phone" }; drawMenu(); drawSide();');
+  const menu = run('document.getElementById("cs-menu").innerHTML');
+  const side = run('document.getElementById("cs-side").innerHTML');
+  ok(menu.includes(">案件</button>") && menu.includes(">集計</button>"), "上のメニューの名前が出ていない: " + menu);
+  ok(!menu.includes('class="no"') && !/[①-⑩]/.test(menu), "上のメニューに丸数字が残っている: " + menu);
+  ok(side.includes(">電話</button>") && side.includes(">定義と検証</button>"), "左の項目名が出ていない: " + side);
+  ok(!side.includes('class="n"') && !/>\d+<\/span>/.test(side), "左の項目名の後ろに番号が残っている（件数に見える）: " + side);
+  ok(/aria-current="page">電話</.test(side), "いま見ている項目の印（aria-current）が無い");
+  run('cur = { menu: "deal", view: "today" }');
+});
+
+check("S-11: 「読み直す」は操作列の右端の文字リンクで、代償（20 秒・他の人も止まる）を書き、鮮度が緑でないときだけ目立つ", () => {
+  const v = run('viewOf("deal", "today")');
+  const fresh = run('ctlbar(viewOf("deal", "today"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 } })');
+  ok(v.path, "前提: 今日動く先は API を持つ");
+  const sp = fresh.slice(fresh.indexOf('<span class="reload'), fresh.lastIndexOf("</span></span>") + 14);
+  ok(sp.includes('id="cs-reload"') && sp.includes(">読み直す</button>"), "読み直すのボタンが無い: " + fresh);
+  ok(/title="[^"]*20 秒[^"]*他の人の画面[^"]*"/.test(sp), "title に代償（20 秒・他の人の画面）が無い: " + sp);
+  ok(/<span class="muted small">[^<]*20 秒[^<]*他の人の画面[^<]*<\/span>/.test(sp), "隣の小さな文に代償が無い: " + sp);
+  ok(sp.startsWith('<span class="reload">'), "鮮度が緑（昨日）なのに目立たせている: " + sp.slice(0, 40));
+  /* 右端: 読み直すの後ろには「キャッシュから表示」の注記以外を置かない */
+  ok(/<\/span><\/span>(<span class="muted small">キャッシュから表示<\/span>)?<\/div>$/.test(fresh), "読み直すが操作列の右端でない: " + fresh.slice(-120));
+  ok(/\.ctlbar \.reload\{[^}]*margin-left:auto/.test(html), "CSS で右端に寄せていない（margin-left:auto）");
+  ok(/\.ctlbar \.reload button\.act\.link\{[^}]*text-decoration:underline/.test(html), "文字リンクの見た目でない");
+  /* 4日前（bad）・何日前か分からない（warn）→ 目立たせる。応答がまだ無い（定義と検証を最初に開いた）→ 目立たせない */
+  ok(run('ctlbar(viewOf("deal", "today"), { meta: { source_as_of: "2026-09-14 22:00", source_age_days: 4 } })').includes('<span class="reload urge">'),
+    "4日前のデータなのに読み直すを目立たせていない");
+  ok(run('ctlbar(viewOf("deal", "today"), { meta: { generated_at: "2026-09-14 22:00", source_age_days: null } })').includes('<span class="reload urge">'),
+    "何日前か分からないのに読み直すを目立たせていない");
+  ok(!run('ctlbar(viewOf("deal", "today"), {})').includes("urge"), "応答が無いのに目立たせている");
+  /* API を持たない「定義と検証」には読み直すを置かない（読み直すものが無い） */
+  ok(!run('ctlbar(viewOf("study", "defs"), {})').includes("cs-reload"), "定義と検証に読み直すが出ている");
+});
+
+check("S-13: 今日動く先に Ctrl+クリックの案内、担当者ごとの接触は「マウスを重ねる」を前提にしない", () => {
+  const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "", mtg_gap: {} } })');
+  const lede = td.slice(td.indexOf('<div class="lede">'), td.indexOf("</div>", td.indexOf('<div class="lede">')));
+  ok(lede.includes("Ctrl+クリック") && lede.includes("&#8984;"), "今日動く先の lede に Ctrl+クリック（Mac は ⌘）の案内が無い: " + lede);
+  const ct = textOf(run('contactUnit = "month"; renderContact(__CT)'));
+  ok(!ct.includes("点にマウスを重ねると"), "担当者ごとの接触の図の注記が「点にマウスを重ねると」のまま（タッチでは title が出ない）");
+  ok(ct.includes("下の表にあります"), "値のある場所（下の表）を案内していない");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
