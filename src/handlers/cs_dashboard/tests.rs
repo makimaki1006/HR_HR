@@ -2779,7 +2779,10 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     let (o24, oall) = (owners(rows), owners(cand));
     assert_eq!(o24.len(), 11, "24 件に出る担当者の数");
     assert_eq!(oall.len(), 23, "候補に出る担当者の数");
-    assert!(o24.is_subset(&oall), "24 件の担当者が候補の担当者に含まれない");
+    assert!(
+        o24.is_subset(&oall),
+        "24 件の担当者が候補の担当者に含まれない"
+    );
 }
 
 /// N13: 通話の ts（UTC）は日本時間の日付にする。
