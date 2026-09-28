@@ -235,6 +235,11 @@
                   border-bottom:3px solid transparent; border-radius:0; }
     .side button[aria-current="page"]{ border-left-color:transparent;
                   border-bottom-color:var(--ai); background:none; }
+    /* 段1レビュー C（2026-09-28 検証 400px）: 貼り付けた側柱が 125px（項目が 2〜3 行に折れる）で、本文を読む間ずっと画面を
+       占めていた。下へ送っている間は上へ引き上げて隠し、上へ戻したら出す（sideAwayOnScroll が side-away を付け外し）。
+       項目は消さない。キーボードで側柱に入っているときは隠さない */
+    .side.side-away{ transform:translateY(-100%); transition:transform .18s ease; }
+    .side.side-away:focus-within{ transform:none; }
   }
 
   /* ---------------- 見出し ---------------- */
@@ -517,6 +522,13 @@
        white-space:nowrap; }
   @media (prefers-reduced-motion:reduce){ *{ animation:none !important;
        transition:none !important; } }
+  /* 強制カラー（Windows のハイコントラスト。M-12）: 地の色・枠の色・上の帯の色が消えるので、
+     「いま見ている項目」には下線と枠、「まずい KPI」には ▲（色と印の意味と同じ印）と太い上の罫を足す */
+  @media (forced-colors:active){
+    .side button[aria-current="page"], .tabs button.on{ text-decoration:underline; outline:2px solid CanvasText; outline-offset:-2px; }
+    .kpi.is-bad{ border-top-width:6px; }
+    .kpi.is-bad .big::after{ content:" \25B2"; font-size:14px; }
+  }
 /* ---------------------------------------------------------------- 本番用の小物
    モックには無いもの（戻り導線・読み直し・取得失敗の表示）だけをここに足す。
    色と間隔は上のトークンから引く。新しい値を持ち込まない。 */
@@ -641,6 +653,12 @@ details.fold.notefold > .note{ margin:var(--space-2) 0 0; }
 .caprow > details.fold[open]{ flex-basis:100%; margin-bottom:var(--space-2); }
 /* 600px 以下用の文（cap-sp）は PC では出さない（@media (max-width:600px) で入れ替える。S-12） */
 .scroll-cap .cap-sp{ display:none; }
+/* 枠がはみ出していないとき（markScroll が測って .fit を付ける）はスクロールの文を出さない。件数の文は残る（段1レビュー F。
+   2026-09-28 検証: 1440px で担当者の一覧・沈黙している取引などがはみ出さないのに「入り切らない分は…」を常に出していた） */
+.scroll-cap.fit .cap-pc, .scroll-cap.fit .cap-sp, .scroll-cap.fit .cap-x{ display:none; }
+/* 先頭 RC_CAP 行だけ出す仕組み（rowCap。段1レビュー B）は 600px 以下だけ。PC では文もボタンも出さない */
+.scroll-cap .cap-rc{ display:none; }
+.rc-more{ display:none; }
 /* 枠の端の影（V12 の残り、2026-09-23 実機）。文で「スクロールします」と書いても、
    右端の列が切れて見えるだけで続きがあると分からなかった。
    横にまだ続きがある側にだけ影を出す（more-r / more-l は markScroll が付け外しする）。
@@ -702,6 +720,16 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
      スクロールの入れ物（overflow-x:auto なら overflow-y も auto に計算される）で、th を画面に貼り付ける手は CSS には無い。
      枠の上の案内（scrollCap）はこの見え方に合わせて言い分ける */
   .scroll{ max-height:none !important; }
+  /* 🔴 引き換えに長い表のページが極端に長くなった（段1レビュー B。2026-09-28 検証 400px: 案件そのもの 604 行で 37,579px、
+     担当の交代 358 行で 58,806px）。表が 1 つの枠では先頭 20 行（RC_CAP。scroll() の rowCap が data-rc を付ける）だけ出し、
+     残りは表の下の「残り N 行を出す」で出す。枠内の縦スクロールには戻さない（スクロールの罠）。隠している行数は案内（cap-rc）にも書く */
+  .scroll-wrap.rc-cut:not(.rc-open) tr[data-rc]{ display:none; }
+  .scroll-wrap.rc-cut:not(.rc-open) > .rc-more{ display:block; width:100%; margin:var(--space-2) 0 0; min-height:40px;
+    font:inherit; font-size:12.5px; color:var(--ai); background:var(--panel-2); border:1px solid var(--rule-strong);
+    border-radius:var(--radius-md); padding:8px var(--space-3); cursor:pointer; }
+  .scroll-wrap.rc-cut > .rc-more:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+  .scroll-cap .cap-rc{ display:inline; }
+  .scroll-cap.rc-open .cap-rc{ display:none; }
   /* 枠の上の案内は PC 用（縦・横とも枠の中、見出しは残る）と 600px 以下用（横だけ枠の中、1列目は残る）を言い分ける。
      scrollCap() が両方の文を出し、ここで片方だけ見せる（描いた後に窓の幅が変わっても追従する） */
   .scroll-cap .cap-pc{ display:none; }
@@ -1302,7 +1330,8 @@ function fig(caption, hint, body, legend) {
       (shiftM[1] === "edge" ? "軸の端（0 やいちばん上）で重なった線は、軸の内側へずらしているので、0 の線も軸より少し上に、いちばん上の線は少し下に見えます。" : "") +
       /* ずらすのは重なった月の点だけ。前後の月との間の線が傾いて、値が動いたように見えることを断る */
       "ずらすのは重なった月の点だけなので、その前後の線が少し傾いて見えることがあります。" +
-      "点にマウスを重ねると本当の値が出ます。</i>" : "";
+      /* マウスの案内は PC だけに出す（.pconly。タッチでは title が出ないので、常に出すと事実と違う。段1レビュー F） */
+      '<span class="pconly">点にマウスを重ねると本当の値が出ます。</span></i>' : "";
   /* 箱ひげの印（svgBoxH の marks）。◇ と途切れの印は呼び出し側の凡例に無かった（ループ4, 2026-09-24 実機） */
   const boxNote = (/<svg [^>]*data-mean="1"/.test(body) ? lg("mean", C.ink3, "平均（中央値とずれるほど、裾に大きな値がある）") : "") +
     (/<svg [^>]*data-boxmax="1"/.test(body) ? lg("boxmax", C.ink3, "最大値（ひげの先より外。印は本当の位置）") : "") +
@@ -2762,9 +2791,53 @@ function scroll(inner, max, total, side) {
      side: 枠の案内（scroll-cap）と同じ 1 行に並べる HTML（今日動く先の決まりごとの畳み）。案内の前に置く（.caprow） */
   const noCap = max === "none";
   const style = noCap ? ' style="max-height:none"' : max ? ' style="max-height:' + max + 'px"' : "";
-  const cap = scrollCap(inner, total, noCap);
-  return (side ? '<div class="caprow">' + side + cap + "</div>" : cap) + '<div class="scroll-wrap">' +
-    '<div class="scroll"' + style + ">" + inner + "</div></div>";
+  /* 600px 以下で先頭 RC_CAP 行だけ出す印（rowCap）。高さを制限していない表（今日動く先）には付けない（24 行を一望する） */
+  const rc = noCap ? { html: String(inner), hidden: 0 } : rowCap(inner);
+  const cap = scrollCap(inner, total, noCap, rc.hidden);
+  const more = rc.hidden
+    ? '<button type="button" class="rc-more">残り ' + num(rc.hidden) + " 行を出す（ページが長くなります）</button>" : "";
+  return (side ? '<div class="caprow">' + side + cap + "</div>" : cap) +
+    '<div class="scroll-wrap' + (rc.hidden ? " rc-cut" : "") + '">' +
+    '<div class="scroll"' + style + ">" + rc.html + "</div>" + more + "</div>";
+}
+/* 600px 以下で最初に出す行数（段1レビュー B）。
+   🔴 2026-09-28 検証（fixture 400px）: S-12 で枠内の縦スクロールを外したら、案件そのもの（604 行）の全高が 2,960 → 37,579px、
+   担当の交代（358 行）が 7,518 → 58,806px になった（1 列目 40vw の折り返しで 1 行 60〜160px）。行は名札の本数順・新しい順
+   なので先頭が大事。先頭 RC_CAP 行だけ出し、残りは表の下のボタンで出す。黙って隠さない: 枠の案内（cap-rc）とボタンに残りの行数を書く。
+   PC（>600px）は 640px の枠内スクロールのままで、この印には CSS が効かない（隠さない） */
+const RC_CAP = 20;
+/** 本文の行（tbody の tr）の RC_CAP 行目より後ろに data-rc="1" を付ける。表が 1 つでない・隠せるのが 10 行以下なら何もしない */
+function rowCap(inner) {
+  const s = String(inner);
+  const ti = s.indexOf("<tbody>");
+  if (ti < 0 || (s.match(/<table[\s>]/g) || []).length !== 1) return { html: s, hidden: 0 };
+  let n = 0;
+  const body = s.slice(ti).replace(/<tr(?=[\s>])/g, (m) => (++n > RC_CAP ? '<tr data-rc="1"' : m));
+  if (n <= RC_CAP + 10) return { html: s, hidden: 0 };
+  return { html: s.slice(0, ti) + body, hidden: n - RC_CAP };
+}
+/** 枠（.scroll-wrap）の直前の案内（.scroll-cap）。今日動く先では .caprow の中にある。無ければ null */
+function capOf(w) {
+  const p = w && w.previousElementSibling;
+  if (!p || !p.classList) return null;
+  if (p.classList.contains("scroll-cap")) return p;
+  if (p.classList.contains("caprow") && p.querySelector) return p.querySelector(".scroll-cap");
+  return null;
+}
+/** 「残り N 行を出す」（rowCap のボタン）。描き直しで作り直されるので window で捕捉して受ける。
+    押したら枠に rc-open を付けて隠した行を出し、案内の「先頭 N 行を出しています」も消す。ボタンは消えるのでフォーカスを枠へ */
+function rcMoreClick(ev) {
+  const t = ev && ev.target;
+  const b = t && t.closest ? t.closest(".rc-more") : null;
+  if (!b) return;
+  const w = b.closest(".scroll-wrap");
+  if (!w || !w.classList) return;
+  w.classList.add("rc-open");
+  const cap = capOf(w);
+  if (cap && cap.classList) cap.classList.add("rc-open");
+  markScroll(w);
+  const s = w.querySelector && w.querySelector(".scroll");
+  if (s && s.focus && s.getAttribute && s.getAttribute("tabindex") != null) s.focus({ preventScroll: true });
 }
 /** 枠の左右に続きがあるかを見て、影の印（more-l / more-r）を付け外しする。
     描いた直後（wire）・枠を横に動かしたとき・窓の幅が変わったときに呼ぶ */
@@ -2786,6 +2859,11 @@ function markScroll(w) {
   } else {
     s.removeAttribute("tabindex"); s.removeAttribute("role"); s.removeAttribute("aria-label");
   }
+  /* 枠の上の案内（scroll-cap）のスクロールの文は、実際にはみ出しているときだけ見せる（.fit を付け外し。CSS が隠す）。
+     段1レビュー F（2026-09-28）: 1440px で表がはみ出さないのに「横に入り切らない分は…」を常に出していた。
+     件数の文（全 N 行 × M 列）は残す。描いた時点では測れないので、ここ（wire・scroll・resize・toggle）で決める */
+  const cap = capOf(w);
+  if (cap && cap.classList) cap.classList.toggle("fit", !over);
 }
 /** 表の枠の読み上げ名。直前の見出し（h2 / h3。間に scroll-cap や注記が挟まる）の文。無ければ「表」。
     見出しは「表」の札（span）と題が並ぶので、子ごとに区切って空白でつなぐ（textContent だと「表案件の立ち位置」と続く。2026-09-28 実測）。
@@ -2827,7 +2905,8 @@ function markScrollAll() {
   document.querySelectorAll(".scroll-wrap").forEach(markScroll);
   document.querySelectorAll("figure.fig .figbody[data-cap]").forEach(markFig);
 }
-function scrollCap(inner, total, noCap) {
+function scrollCap(inner, total, noCap, hidden) {
+  /* hidden: 600px 以下で隠している行数（rowCap）。0 なら「先頭 N 行」の文を出さない */
   const s = String(inner);
   const body = s.split("<tbody>").slice(1).join("");
   const rows = (body.match(/<tr[\s>]/g) || []).length;
@@ -2846,9 +2925,12 @@ function scrollCap(inner, total, noCap) {
        そのまま出ていて、縦は枠の中で動かず見出しも消える、と2つとも事実と違っていた。
        高さを制限していない枠（今日動く先の3表。S-3）は幅に関わらず縦には流れないので「縦にスクロール」と書かず、
        横の案内だけ 1 文にする（1列目が左に残るのは全幅で同じ。S-12 の sticky） */
-    (noCap ? "横に入り切らない分は枠の中で横にスクロールします（1列目は左に残ります）。"
+    /* スクロールの文は span に入れ、実際にはみ出していない枠では markScroll が付ける .fit で隠す（段1レビュー F） */
+    (noCap ? '<span class="cap-x">横に入り切らない分は枠の中で横にスクロールします（1列目は左に残ります）。</span>'
            : '<span class="cap-pc">入り切らない分は枠の中で縦・横にスクロールします（見出しは上に残ります）。</span>' +
              '<span class="cap-sp">横に入り切らない分は枠の中で横にスクロールします（1列目は左に残ります）。縦はページと一緒に流れます（見出しの行は残りません）。</span>') +
+    /* 600px 以下で先頭 RC_CAP 行だけ出しているとき（rowCap）。PC では CSS が隠す（行を隠していないので） */
+    (hidden ? '<span class="cap-rc">先頭 ' + num(RC_CAP) + " 行を出しています（残り " + num(hidden) + " 行は表の下のボタンで）。</span>" : "") +
     "</div>";
 }
 /* n が小さい図は出さない。出さない理由は図の直下に書く */
@@ -7142,6 +7224,23 @@ window.addEventListener("scroll", (ev) => {
   const t = ev.target;
   if (t && t.classList && t.classList.contains("scroll") && t.parentNode) markScroll(t.parentNode);
 }, true);
+/* 「残り N 行を出す」（600px 以下の表。rowCap）。描き直しで作り直されるので window で捕捉して受ける */
+window.addEventListener("click", rcMoreClick, true);
+/* 900px 以下の側柱（段1レビュー C）: ページを下へ送っている間は上へ引き上げて隠し、上へ戻したら出す。
+   側柱の高さ＋80px より上（開いた直後の 1 画面目）では隠さない。PC（>900px）では印を外すだけ。
+   🔴 ページのスクロールは document で受ける（window の捕捉リスナーは表の枠の scroll 用で、見張りが 1 本だけを期待している） */
+let sideLastY = 0;
+function sideAwayOnScroll() {
+  const side = document.getElementById("cs-side");
+  if (!side || !side.classList) return;
+  const narrow = typeof matchMedia === "function" && matchMedia("(max-width:900px)").matches;
+  const y = window.scrollY || 0;
+  if (!narrow) { side.classList.remove("side-away"); sideLastY = y; return; }
+  if (y > sideLastY + 8 && y > (side.offsetHeight || 0) + 80) side.classList.add("side-away");
+  else if (y < sideLastY - 8 || y <= 0) side.classList.remove("side-away");
+  if (Math.abs(y - sideLastY) > 8 || y <= 0) sideLastY = y;
+}
+if (document.addEventListener) document.addEventListener("scroll", sideAwayOnScroll, { passive: true });
 /* 窓の幅が変わったら、影を付け直し、図を新しい枠の幅で描き直す（paintFigs）。
    描き直すのは本文の幅が 24px 以上変わったときだけ（縦だけ変わる・スクロールバーの出入りでは描かない） */
 let refitTimer = 0;
