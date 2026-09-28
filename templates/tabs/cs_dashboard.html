@@ -212,7 +212,11 @@
      1タップ遠くなる。横に流して**全部たどれる状態のまま**にした。 */
   @media (max-width:900px){
     .layout{ grid-template-columns:minmax(0,1fr); gap:var(--space-3); }
-    .side{ position:static; max-height:none; overflow:visible;
+    /* 🔴 S-12（2026-09-28 診断）: static だと本文を下へ送った後、項目を切り替えるのに先頭まで戻るしかなかった。
+       上に貼り付ける（sticky、top:0）。PC（>900px）は左の列に居座る今までどおり。
+       地の色を持たせないと、下を流れる本文が透けて読めない */
+    .side{ position:sticky; top:0; z-index:5; background:var(--paper);
+           max-height:none; overflow:visible;
            border-right:none; border-bottom:1px solid var(--rule);
            padding:0 0 var(--space-2); }
     .side ul{ display:flex; gap:var(--space-1); overflow-x:auto;
@@ -400,6 +404,20 @@
   tbody tr:hover{ background:var(--ai-soft); }
   tbody tr:last-child td{ border-bottom:none; }
   td:first-child{ font-weight:600; }
+  /* 1列目（案件名・担当者名など、行を特定する列）を横に送っても左に残す（S-12）。
+     2026-09-28 診断（400px）: 表を横に送ると案件名が消え、どの行の数字か分からなくなっていた。
+     PC でも横に続く表（案件そのもの 15列）で同じ。はみ出していない表では見え方は変わらない。
+     行の地の色（縞・ホバー）を貼り付けた列にも持たせる。透明のままだと下を流れる列が透けて読めない。
+     th は上（top:0、z-index:2）にも貼り付いているので、左上の角はその上（z-index:3）に置く */
+  th:first-child, td:first-child{ position:sticky; left:0; z-index:1; background:var(--panel); }
+  th:first-child{ z-index:3; background:var(--panel-3); }
+  tbody tr:nth-child(even) td:first-child{ background:var(--panel-2); }
+  tbody tr:hover td:first-child{ background:var(--ai-soft); }
+  /* 横に送っている間（more-l）は貼り付けた列の右端に影を落とし、その下に列が隠れていることを示す */
+  .scroll-wrap.more-l th:first-child, .scroll-wrap.more-l td:first-child{
+    box-shadow:4px 0 8px -4px var(--edge-shade); }
+  /* 表の枠にキーボードで止まったとき（markScroll がはみ出す枠だけに tabindex を付ける）、どこにいるか見えるようにする */
+  .scroll:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   td.t{ white-space:normal; min-width:180px; max-width:330px; line-height:1.6; }
   /* 折り返す列（table() の列の w）。幅は字数で決める（本文 12.5px） */
   td.wl{ white-space:normal; min-width:12em; max-width:22em; line-height:1.6; overflow-wrap:anywhere; }
@@ -488,6 +506,8 @@
    色と間隔は上のトークンから引く。新しい値を持ち込まない。 */
 a.backlink{ color:var(--ink-2); font-size:12px; text-decoration:none; margin-left:var(--space-3); }
 a.backlink:hover{ color:var(--ai); text-decoration:underline; }
+/* 他の押せるものと同じ見え方で、Tab で止まったことが分かるようにする（S-12。ここだけ抜けていた） */
+a.backlink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 .ctlbar{ display:flex; align-items:center; gap:var(--space-3);
          flex-wrap:wrap; margin:var(--space-3) 0; }
 /* 操作列の部品。いままで素の見た目のままで、枠が 1.20:1 しかなかった。
@@ -556,6 +576,18 @@ details.popnote > summary{ color:var(--ink); font-weight:400; padding:2px 0; }
 details.popnote > summary b{ font-weight:700; }
 .fresh details.fold{ margin:2px 0 0; }
 .fresh details.fold > summary{ font-weight:400; font-size:12px; }
+/* 緑（今日／昨日）のときは内訳の畳みを1行目の続きに置き、帯を1行にする（S-9）。
+   2026-09-28 実測（1440px）: 帯は2行で 65px、全画面の頭で本題を下へ押していた。
+   開くと内訳は次の行に出る（Chromium では details の中身（::details-content）が block のまま。
+   2026-09-28 実測: summary top=109 / 内訳 top=130）。黄・赤のときは今までどおり2行目に畳みが出る。
+   summary は inline-block にし、上下 6px・左右 4px の余白を負の margin で打ち消す。行の高さは変えずに
+   押せる範囲だけ広げる（inline のままだと 72×12px で、S-12 で 40px に広げた側柱・操作列と釣り合わなかった） */
+.fresh details.fold.inl{ display:inline; margin:0 0 0 var(--space-3); }
+.fresh details.fold.inl > summary{ display:inline-block; padding:6px var(--space-1); margin:-6px calc(-1 * var(--space-1)); }
+.fresh details.fold.inl > summary::-webkit-details-marker{ display:none; }
+.fresh details.fold.inl > summary::before{ content:"\25B8 "; }
+.fresh details.fold.inl[open] > summary::before{ content:"\25BE "; }
+.fresh details.fold.inl > .muted{ margin-left:var(--space-2); }
 /* 凡例は折りたたみの中。開いたときに summary との間を空けすぎない */
 details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
 
@@ -582,6 +614,8 @@ details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
 .caprow > .scroll-cap{ flex:1 1 auto; margin:0; }
 .caprow > details.fold{ flex:0 1 auto; margin:0; }
 .caprow > details.fold[open]{ flex-basis:100%; margin-bottom:var(--space-2); }
+/* 600px 以下用の文（cap-sp）は PC では出さない（@media (max-width:600px) で入れ替える。S-12） */
+.scroll-cap .cap-sp{ display:none; }
 /* 枠の端の影（V12 の残り、2026-09-23 実機）。文で「スクロールします」と書いても、
    右端の列が切れて見えるだけで続きがあると分からなかった。
    横にまだ続きがある側にだけ影を出す（more-r / more-l は markScroll が付け外しする）。
@@ -589,16 +623,18 @@ details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
    🔴 影の色を rgba(0,0,0,.2) の固定にしていて、暗い表示の枠の地 #1d2026 の上では
       20% の黒を重ねても約 rgb(23,26,30) で、地との差がほとんど無かった（2026-09-23 検証、
       prefers-color-scheme: dark の Playwright）。色は --edge-shade にして、暗い表示では
-      14% の白（重ねると約 rgb(61,63,68)）にする */
+      14% の白（重ねると約 rgb(61,63,68)）にする
+   🔴 左端の帯（::before）は S-12 で1列目を貼り付けたときに外した。貼り付いた列は隠れていないのに、
+      その上に「下に列が隠れている」印が乗り、しかも見出しのセル（z-index:3）にだけ乗らなかった
+      （2026-09-28 検証: 1440px・400px とも scrollLeft=300 で td の左端の画素 (221,221,221)、同じ列の th は地のまま）。
+      左に隠れている列は、貼り付けた列の右端の影（上の .more-l td:first-child の box-shadow）で示す。右端はそのまま */
 .scroll-wrap{ position:relative; margin:var(--space-3) 0; }
 .scroll-wrap > .scroll{ margin:0; }
-.scroll-wrap::before, .scroll-wrap::after{ content:""; position:absolute; top:1px; bottom:1px; width:28px;
-  pointer-events:none; opacity:0; transition:opacity .15s; z-index:3; }
-.scroll-wrap::before{ left:1px; border-radius:var(--radius-lg) 0 0 var(--radius-lg);
-  background:linear-gradient(to right, var(--edge-shade), transparent); }
-.scroll-wrap::after{ right:1px; border-radius:0 var(--radius-lg) var(--radius-lg) 0;
+.scroll-wrap::after{ content:""; position:absolute; top:1px; bottom:1px; right:1px; width:28px;
+  pointer-events:none; opacity:0; transition:opacity .15s; z-index:3;
+  border-radius:0 var(--radius-lg) var(--radius-lg) 0;
   background:linear-gradient(to left, var(--edge-shade), transparent); }
-.scroll-wrap.more-l::before, .scroll-wrap.more-r::after{ opacity:1; }
+.scroll-wrap.more-r::after{ opacity:1; }
 /* 文を読ませる表（定義と検証）。🔴 td は既定で折り返さないので、「なぜ」の長い文が
    1行のまま右へ伸びて枠の右端で切れていた（2026-09-23 実機）。この表だけ折り返す */
 .scroll > table.prose{ min-width:0; }
@@ -619,9 +655,41 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   .tabs button{ padding:8px 12px 7px; }
   /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す */
   .side ul{ flex-wrap:wrap; overflow-x:visible; }
-  .side button{ padding:6px var(--space-2); min-height:30px; }
+  /* タップの的（S-12）。サイドの項目は 30px、操作列は 28px で、指では隣を押しやすかった。
+     40px は Android の 48dp と WCAG 2.2 AA（24px）の間。PC（>600px）は今までどおり */
+  .side button{ padding:6px var(--space-2); min-height:40px; }
+  .ctlbar select, .ctlbar input, .ctlbar button.act{ min-height:40px; }
+  th,td{ padding:10px 12px; }
+  th button.sort{ padding:10px 12px; }
   .ctl input[type=search]{ min-width:0; width:100%; }
   .ctlbar select{ max-width:100%; }
+  /* iOS Safari は 16px 未満の入力欄に触れると画面を拡大する。入力欄だけ 16px にする（本文は 14px のまま）。
+     🔴 要素自身に class="act" を持つ欄（法人を選ぶ #cs-houjin、案件名か拠点名で探す #dd-q）は
+     .ctlbar .act{ font-size:12.5px }（詳細度 0,2,0）が .ctlbar select（0,1,1）に勝って 12.5px のままだった
+     （2026-09-28 検証: 400px で computed 12.5px。<label class="act"> の中の bf-* は select 自身が .act でないので 16px）。
+     .ctlbar select.act / input.act（0,2,1）を並べて勝たせる */
+  .ctl input, .ctl select, .ctlbar input, .ctlbar select, .ctlbar input.act, .ctlbar select.act{ font-size:16px; }
+  /* 🔴 枠内の縦スクロールをやめる（S-12）。指でページを送るつもりが枠の中だけ動き、先へ進めない罠になっていた。
+     scroll() が style="max-height:640px" を枠に直書きするので、ここだけ !important で上書きする。
+     横は枠の中でスクロールしたまま（1列目は貼り付く）。
+     🔴 引き換えに、見出しの行（th の sticky）は .scroll の中でしか貼り付かないので、本文を読んでいる間は画面の外に出る
+     （2026-09-28 検証: 400px、今日動く先の13行目で th の bottom=-101px）。横スクロールを枠の中に残す限り .scroll は
+     スクロールの入れ物（overflow-x:auto なら overflow-y も auto に計算される）で、th を画面に貼り付ける手は CSS には無い。
+     枠の上の案内（scrollCap）はこの見え方に合わせて言い分ける */
+  .scroll{ max-height:none !important; }
+  /* 枠の上の案内は PC 用（縦・横とも枠の中、見出しは残る）と 600px 以下用（横だけ枠の中、1列目は残る）を言い分ける。
+     scrollCap() が両方の文を出し、ここで片方だけ見せる（描いた後に窓の幅が変わっても追従する） */
+  .scroll-cap .cap-pc{ display:none; }
+  .scroll-cap .cap-sp{ display:inline; }
+  /* 貼り付けた1列目が枠の大半を取らないようにする。2026-09-28 検証（400px、枠 367px）: 担当者の一覧の1列目 246px（残り 121px）、
+     案件の詳細の契約の連なり 192px（残り 175px）。上限を 40vw（400px で 160px）にして折り返す。見出し（th）は短いので折り返さない。
+     PC は変えない（td.wl の 12〜22em のまま） */
+  td:first-child{ white-space:normal; overflow-wrap:anywhere; max-width:40vw; }
+  td.wl:first-child{ min-width:min(12em,40vw); max-width:40vw; }
+  td.t:first-child{ min-width:min(180px,40vw); max-width:40vw; }
+  /* 緑の帯を 400px でも1行にする（S-9）。「（HubSpot から落とした時刻）」を足すと 368px では折り返して 58px になっていた（2026-09-28 検証）。
+     この語は畳んだ内訳の1文目（「元データを落としたのは …」）が同じことを言っているので、狭い画面では1行目から外す（黙って消してはいない） */
+  .fresh.ok .src{ display:none; }
 }
 /* 本題の見出しは共通部のすぐ下に出す。間の 40px は節どうしの区切りの値で、
    ページの頭には要らない */
@@ -671,6 +739,9 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
 .tl .via{ display:block; margin-top:2px; font-size:12px; color:var(--ink-2); }
 @media (max-width:600px){
   .tl li{ grid-template-columns:1fr; gap:2px; }
+  /* 要約の見出し（dt）と本文（dd）を縦に積む（S-12）。2026-09-28 診断: 400px で左列（dt）が
+     約 200px を取り、本文が細い列で折り返されていた。読む順（見出し→本文）はそのまま */
+  .tl dl{ grid-template-columns:1fr; }
 }
 </style>
 </head>
@@ -2655,6 +2726,38 @@ function markScroll(w) {
   const max = s.scrollWidth - s.clientWidth;
   w.classList.toggle("more-r", max > 1 && s.scrollLeft < max - 1);
   w.classList.toggle("more-l", max > 1 && s.scrollLeft > 1);
+  /* 表の枠が実際にはみ出している（横か縦）ときだけ Tab で止まれるようにし、読み上げ名を付ける（S-12）。
+     図の枠（markFig）と同じ条件。はみ出していない表まで止まると、キーボードの移動が1つ増えるだけ（F1 の教訓）。
+     🔴 描いた時点では付けない。枠の大きさは描いた後にしか測れない（この関数は wire・scroll・resize・toggle で呼ばれる） */
+  if (!s.setAttribute) return;
+  const over = max > 1 || s.scrollHeight - s.clientHeight > 1;
+  if (over) {
+    s.setAttribute("tabindex", "0");
+    s.setAttribute("role", "region");
+    s.setAttribute("aria-label", scrollName(w) + "（スクロールできる表の枠）");
+  } else {
+    s.removeAttribute("tabindex"); s.removeAttribute("role"); s.removeAttribute("aria-label");
+  }
+}
+/** 表の枠の読み上げ名。直前の見出し（h2 / h3。間に scroll-cap や注記が挟まる）の文。無ければ「表」。
+    見出しは「表」の札（span）と題が並ぶので、子ごとに区切って空白でつなぐ（textContent だと「表案件の立ち位置」と続く。2026-09-28 実測）。
+    🔴 2026-09-28 検証: 図の見出しの下に表が続く場所（担当の交代の担当者のまとめ）では「図 …（スクロールできる表の枠）」と
+    読み上げていた。札が「図」なら「<題> の表」にする。畳み（details）の中の表（継続回数×成果の満了月ごとの内訳）は
+    同じ階層に見出しが無く「表」になっていたので、見つからなければ親の階層で探し直す（本文の入れ物 #cs-main まで、3階層） */
+function scrollName(w) {
+  for (let start = w, depth = 0; start && depth < 3; start = start.parentNode, depth++) {
+    if (start.id === "cs-main") break;
+    let e = start;
+    for (let i = 0; e && i < 8; i++) {
+      e = e.previousElementSibling;
+      if (!e || !/^H[23]$/.test(e.tagName || "")) continue;
+      const parts = e.childNodes ? [...e.childNodes].map((n) => (n.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean) : [];
+      const name = parts[0] === "図" && parts.length > 1 ? parts.slice(1).join(" ") + " の表"
+        : parts.length ? parts.join(" ") : (e.textContent || "").replace(/\s+/g, " ").trim();
+      return name.slice(0, 60) || "表";
+    }
+  }
+  return "表";
 }
 /** 図の枠（fig の .figbody[data-cap]）が実際に横へはみ出しているときだけ、Tab で止まれるようにし
     （tabindex）、「横にスクロールできる枠」の読み上げ名を付ける。文の案内（.figscroll）も同じ条件で出す。
@@ -2689,9 +2792,16 @@ function scrollCap(inner, total, noCap) {
     (cut ? "<b>" + num(rows) + "</b> 行を出しています（全 " + num(total) + " 件のうち）× " +
            num(cols) + " 列。"
      : one ? "全 <b>" + num(rows) + "</b> 行 × " + num(cols) + " 列。" : "") +
-    /* 高さを制限していない枠（今日動く先）は縦には流れない。縦にスクロールすると書かない */
-    (noCap ? "横に入り切らない分は枠の中で横にスクロールします。"
-           : "入り切らない分は枠の中で縦・横にスクロールします（見出しは上に残ります）。") + "</div>";
+    /* 枠の見え方は幅で違う（S-12）。PC は縦・横とも枠の中で、見出しの行は上に残る。600px 以下は縦の枠内スクロールを
+       やめたので、縦はページと一緒に流れて見出しの行は残らず、横だけ枠の中（1列目は左に残る）。両方の文を出し、
+       CSS（.cap-pc / .cap-sp）で片方だけ見せる。2026-09-28 検証: 400px で「縦・横にスクロールします（見出しは上に残ります）」が
+       そのまま出ていて、縦は枠の中で動かず見出しも消える、と2つとも事実と違っていた。
+       高さを制限していない枠（今日動く先の3表。S-3）は幅に関わらず縦には流れないので「縦にスクロール」と書かず、
+       横の案内だけ 1 文にする（1列目が左に残るのは全幅で同じ。S-12 の sticky） */
+    (noCap ? "横に入り切らない分は枠の中で横にスクロールします（1列目は左に残ります）。"
+           : '<span class="cap-pc">入り切らない分は枠の中で縦・横にスクロールします（見出しは上に残ります）。</span>' +
+             '<span class="cap-sp">横に入り切らない分は枠の中で横にスクロールします（1列目は左に残ります）。縦はページと一緒に流れます（見出しの行は残りません）。</span>') +
+    "</div>";
 }
 /* n が小さい図は出さない。出さない理由は図の直下に書く */
 const MIN_N = 30;
@@ -6435,9 +6545,18 @@ function renderDefs() {
 /* ================================================================ データの鮮度 */
 /* 🔴 この画面は毎朝見るもの。**古いデータを新しいものと誤認させないのは画面の責任**。
    meta.today は「計算に使った基準日」で、シートを作り直した日時とは**別物**。
-   シートは今のところ手で作り直しているので、基準日だけ今日になっていて
-   中身は何日も前、ということが実際に起きる。だから作成日時のほうを主に出す。
-   取れないときは「分かりません」と書く。推測で埋めない。 */
+   日次更新が止まると（2026-09-23〜28 に実際に5日止まった。00 の項目68）、基準日だけ今日になっていて
+   中身は何日も前、ということが起きる。だから作成日時のほうを主に出す。
+   取れないときは「分かりません」と書く。推測で埋めない。
+   🔴 S-9（2026-09-28）: 更新は毎晩タスクスケジューラで回るようになった。帯の文言をそれに合わせ、
+   予定の時刻は meta.update_schedule（CS_メタ か環境変数。無ければ null）から出す。直書きしない。
+   緑（今日／昨日）のときは1行に畳む（帯が毎画面の頭で2行＝約65px を使っていた）。
+   黄・赤のときは今までどおり2行で、抜けている日数を太字で出す。 */
+/** 「yyyy-MM-dd HH:mm:ss」を「MM-dd HH:mm」に。緑の1行目だけで使う（年は「今日／昨日」で決まる。
+    全文は畳んだ内訳に残す）。形が違えばそのまま返す */
+function shortWhen(s) {
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s || "") ? s.slice(5, 16) : (s || "");
+}
 function setFresh(meta) {
   const box = document.getElementById("cs-fresh");
   if (!box) return;
@@ -6445,6 +6564,7 @@ function setFresh(meta) {
   const srcAge = meta && meta.source_age_days;
   const gen = meta && meta.generated_at;      /* シートを作り直した時刻 */
   const base = meta && meta.today;            /* 計算に使った今日 */
+  const sched = meta && meta.update_schedule; /* 自動更新の予定（例「毎日 21:30」）。無ければ時刻を言わない */
 
   /* 🔴 取れないときは「分かりません」と書く。推測で埋めない */
   if (!src && !gen) {
@@ -6467,24 +6587,44 @@ function setFresh(meta) {
   else                { word = age + "日前"; cls = "bad"; }
   box.className = "fresh " + cls;
 
-  let h = "このデータは <b>" + (word ? word + "　" : "") +
-    (src ? esc(src) : esc(gen)) + "</b> 時点のものです";
-  h += src ? "（HubSpot から落とした時刻）。" : "（シートを作った時刻）。";
-  if (age != null && age >= 4) {
-    h += "<b>" + age + "日分の動きが入っていません。</b>";
+  const when = src || gen;
+  const oneLine = cls === "ok";   /* 緑は1行。内訳（details）を行の続きに置く */
+  let h;
+  if (oneLine) {
+    /* 「（HubSpot から落とした時刻）」は span.src に入れ、600px 以下では出さない（畳んだ内訳の1文目が同じことを言う。
+       400px では帯が2行（58px）になっていた。2026-09-28 検証） */
+    h = "<b>" + word + "　" + esc(shortWhen(when)) + "</b> 時点のデータ" +
+      '<span class="src">' + (src ? "（HubSpot から落とした時刻）" : "（シートを作った時刻）") + "</span>";
+  } else {
+    h = "このデータは <b>" + (word ? word + "　" : "") + esc(when) + "</b> 時点のものです" +
+      (src ? "（HubSpot から落とした時刻）。" : "（シートを作った時刻）。");
+    if (age != null && age >= 4) {
+      h += "<b>" + age + "日分の動きが入っていません。</b>";
+    }
   }
   /* 🔴 1行目（何日前・いつ時点・何日分が抜けているか）は畳まない。毎朝まず読むもの。
-     残りの時刻の内訳だけ畳む（V1: 全画面の頭で2行を使い、本題を下へ押していた） */
-  h += '<details class="fold"><summary>ほかの時刻（シートの作成・計算の基準日）</summary>' +
+     残りの時刻の内訳だけ畳む（V1: 全画面の頭で2行を使い、本題を下へ押していた）。
+     緑のときは畳みを行の続き（inl）に置いて、帯を1行にする */
+  h += '<details class="fold' + (oneLine ? " inl" : "") + '"><summary>ほかの時刻' +
+    (oneLine ? "" : "（シートの作成・計算の基準日）") + "</summary>" +
     '<span class="muted">';
+  /* 1行目を短くしたときだけ、元の全文をここに残す（黙って削らない） */
+  if (oneLine && when) h += (src ? "元データを落としたのは " : "シートを作ったのは ") + esc(when) + "。";
   if (gen && src && gen.slice(0, 10) !== src.slice(0, 10)) {
     /* 🔴 3つの時刻は別物。混ぜないで並べる */
     h += "シートを作り直したのは " + esc(gen) + "（元データはそれより前のもの）。";
-  } else if (gen) {
+  } else if (gen && (!oneLine || src)) {
     h += "シートを作り直したのは " + esc(gen) + "。";
   }
   if (base) h += "計算の基準日は " + esc(base) + "（データの新しさとは別物）。";
-  h += "更新は手で回しています（自動ではありません）。</span></details>";
+  /* 🔴 予定は meta から。無ければ自動更新のことは何も言わない（推測で 21:30 と書かない。
+     「自動で回しています」を HTML に直書きすると、スケジューラを外した日から帯が嘘を言う。S-9「無ければ文言を出さない」）。
+     赤の線引き（4日以上前）はこの関数の上の判定と同じ値。すでに赤いときは「止まると赤くなります」ではなく、いま赤い理由を言う */
+  if (sched) h += "自動更新: " + esc(sched) + "（タスクスケジューラ）。";
+  h += (cls === "bad"
+    ? "元データが4日以上前なので、この帯を赤くしています（" +
+      (sched ? "予定「" + esc(sched) + "」の更新が入っていません" : "更新が止まっている可能性があります") + "）。"
+    : "更新が止まると、この帯が赤くなります（元データが4日以上前）。") + "</span></details>";
   box.innerHTML = h;
 }
 
