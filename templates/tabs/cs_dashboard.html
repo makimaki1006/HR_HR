@@ -627,6 +627,9 @@ details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
 details.fold.notefold{ margin:var(--space-2) 0 var(--space-3); }
 details.fold.notefold > summary .keep{ color:var(--ink); font-weight:400; margin-left:var(--space-3); }
 details.fold.notefold > .note{ margin:var(--space-2) 0 0; }
+/* 見出し（.hd）を持たない箱。本文の上の 5px（見出しとの間）は要らない。
+   🔴 定義が無いクラス名は tests/css_classes_exist.rs が落とす（2026-09-28 に nohd で落ちた） */
+.note.nohd > p{ margin:0; }
 
 /* 「決まりごと」の枠（V21）。
    info の見出しには「— 読み方」が付くが、中身が**読み方ではなく取り決め・条件**の枠
