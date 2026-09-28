@@ -3087,6 +3087,11 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         .cloned()
         .collect();
     let n_hit = picked.len();
+    // D-1a（2026-09-28 藤巻さんの判断。08_UIUX改善案 M-4 の最小版）: 画面が担当で絞れるように、
+    // 名札2本以上の全候補も `candidates` で返す。fixture では候補 243 件・23 名に対して、24 件に
+    // 切った後は 11 名しか出ず、16 名は自分の案件が 1 件も無かった。
+    // `rows` は今までどおり上から KEEP 件（担当を選んでいないときの見え方は変えない）
+    let candidates = picked.clone();
     let mut top = picked;
     top.truncate(KEEP);
 
@@ -3131,6 +3136,8 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         )));
         m.insert("n_hit".into(), json!(n_hit));
         m.insert("n_shown".into(), json!(top.len()));
+        // 画面が「担当を選んでいないときは何件に切るか」を知るため（候補は candidates に全件ある）
+        m.insert("keep".into(), json!(KEEP));
         m.insert("n_started_this_week".into(), json!(started.len()));
         m.insert("n_not_started".into(), json!(not_started.len()));
         m.insert(
@@ -3148,6 +3155,7 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
     json!({
         "meta": meta,
         "rows": top,
+        "candidates": candidates,
         "expiring_this_week": soon,
         "started_this_week": started,
         "not_started": not_started,
