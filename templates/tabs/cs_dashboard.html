@@ -422,6 +422,14 @@
   /* 折り返す列（table() の列の w）。幅は字数で決める（本文 12.5px） */
   td.wl{ white-space:normal; min-width:12em; max-width:22em; line-height:1.6; overflow-wrap:anywhere; }
   td.ws{ white-space:normal; min-width:6em; max-width:11em; line-height:1.6; overflow-wrap:anywhere; }
+  /* 今日動く先の名札の列（w:"f"。段2 A）。名札は 4〜5 本つく行がほとんどで（fixture 24 行中 22 行が 4 本、2 行が 5 本）、
+     22em の wl では長い名札が 1 本ずつ折れて 1 行が 79〜100px、24 行で 2,252px、1440×900 の 1 画面目に完全な行が 0 行だった
+     （2026-09-28 段1レビュー A、fixture 1440px 実測）。短い書き方（tagsShort）を詰めた枡（.tag.c）で並べ、列を 24em まで取って
+     1 行に 2〜3 本入れる。行の高さは line-height 1.5（wl の 1.6 より詰める）。8 列で 1440px の本文幅（1,149px）に入る */
+  td.wf{ white-space:normal; min-width:14em; max-width:24em; line-height:1.5; overflow-wrap:anywhere; }
+  .tag.c{ padding:0 5px; margin-right:2px; line-height:1.4; }
+  /* 短い名札は <abbr>（正式な名札を title に）。UA の点線の下線は枡の枠と重なるので消す */
+  abbr.tag{ text-decoration:none; }
   /* 契約の系列の表（custBlocks の deals）は11列あり、1440px の本文 1,117px にちょうど収まるだけで余白が無かった。
      取引名・拠点名・ステージが長い法人では右端（状態）が切れた（2026-09-24 検証: 40字・20字・15字で 47px 超）。
      この表だけ折り返しの幅を詰める */
@@ -5062,14 +5070,55 @@ function renderDq(D) {
 /* ================================================================ 案件の立ち位置 / 今日動く先 */
 
 /* 名札。🔴 これの本数で並べる。スコアは出さない */
+/* 枡の色は図の分類（flagGroup）と同じ決め方にする。
+   🔴 前はここに別の判定があり、「MTGが90日以上途絶」が図では緋（関係が危ない）なのに表の枡では紫（成果が出ていない）、
+   「満了90日前でMTGが30日以上途絶」が図では緋なのに枡では山吹だった（2026-09-28 段2 A で気づいた。fixture 1440px の実機）。
+   分類の言葉（word）は title に添える（色だけで伝えない） */
+const tagColor = (f) => flagGroup(f).color === C.hi ? "hi" : flagGroup(f).color === C.ki ? "ki" : "murasaki";
 function tags(fs) {
   if (!fs || !fs.length) return '<span class="n0">—</span>';
   return fs.map((f) => {
-    const col = f.indexOf("NPS") >= 0 || f.indexOf("退職") >= 0 ? "hi" :
-                f.indexOf("満了") >= 0 || f.indexOf("接触") >= 0 ? "ki" : "murasaki";
+    const col = tagColor(f);
     return '<span class="tag" style="border-color:var(--' + col +
-      ');color:var(--' + col + ')">' + esc(f) + "</span>";
+      ');color:var(--' + col + ')" title="' + esc(flagGroup(f).word) + '">' + esc(f) + "</span>";
   }).join(" ");
+}
+/* 今日動く先の名札の短い書き方（段2 A）。名札の文の正本はサーバ（routes.rs build_deal_rows の flags.push と mod.rs MtgBand::label）で、
+   ここは表示を詰めるだけ。表に無い名札はそのまま出す（黙って落とさない・略さない）。正式な名札は <abbr> の title と、
+   表の決まりごとの畳み（todayFlagLegend）に書く。サーバが名札を足したら、ここにも足す（tests/consulting_view_rules.js が
+   Rust の文字列と突き合わせる） */
+const FLAG_SHORT = {
+  "NPSが4以下": "NPS4以下",
+  "満了まで60日以内": "満了60日以内",
+  "接触の記録が無い": "接触記録なし",
+  "接触が30日以上空いている": "接触30日以上空き",
+  "採用単価が同じ進捗帯の1.5倍以上": "採用単価1.5倍以上",
+  "担当が退職者のまま": "担当が退職者",
+  "満了90日前でMTGが30日以上途絶": "満了前MTG30日途絶",
+  "採用目標の半分に届いていない": "採用目標の半分未満",
+  "MTGが90日以上途絶": "MTG90日以上途絶",
+  "MTGが60〜89日途絶": "MTG60〜89日途絶",
+  "MTGが30〜59日途絶": "MTG30〜59日途絶",
+};
+function tagsShort(fs) {
+  if (!fs || !fs.length) return '<span class="n0">—</span>';
+  return fs.map((f) => {
+    const col = tagColor(f), s = FLAG_SHORT[f];
+    const style = ' style="border-color:var(--' + col + ');color:var(--' + col + ')"';
+    return s
+      ? '<abbr class="tag c"' + style + ' title="' + esc(f) + "（" + esc(flagGroup(f).word) + '）">' + esc(s) + "</abbr>"
+      : '<span class="tag c"' + style + ' title="' + esc(flagGroup(f).word) + '">' + esc(f) + "</span>";
+  }).join(" ");
+}
+/** 今日動く先の決まりごとに置く「名札の略し方」。3 表に出ている名札のうち短くしたものだけを並べる（無ければ空） */
+function todayFlagLegend(rowsList) {
+  const seen = new Set();
+  rowsList.forEach((rs) => (rs || []).forEach((r) => (r.flags || []).forEach((f) => { if (FLAG_SHORT[f]) seen.add(f); })));
+  if (!seen.size) return "";
+  return note("def", "名札の略し方",
+    "表では名札を短く書いています（正式な名札は枡に重ねても出ます）。<b>短い名札 ＝ 正式な名札</b>: " +
+    Array.from(seen).map((f) => esc(FLAG_SHORT[f]) + " ＝ " + esc(f)).join(" ／ ") + "。" +
+    "枡の色は下の図「何で上がってきたか」の分類と同じです（言葉でも書いているので、色が見分けられなくても読めます）。");
 }
 /* 履歴から取った値。🔴 その月に書き換えが無ければ「持越」と出す */
 function numCarry(v, carry) {
@@ -5211,11 +5260,15 @@ const BOARD_COLS = [
    表の幅は本文の約 2.6 倍だった。毎朝の表に要るのは「何で上がってきたか（名札）」「誰の」「いつまで」
    「最後にいつ触ったか（接触・MTG）」「NPS（0 と 4 で緊急度が違う）」「金額（並びの第2キー。見えないと順が読めない）」の8列。
    応募・面接・採用・採用目標・接触率・採用単価・何ヶ月目は案件そのもの（BOARD_COLS）に残す。
-   案件名と名札は折り返す（w:"l"、td.wl は 12〜22 字）。8列で 1440px の本文幅（約 1,150px）に入る */
+   案件名は折り返す（w:"l"、td.wl は 12〜22 字）。8列で 1440px の本文幅（約 1,150px）に入る。
+   🔴 名札は短い書き方（tagsShort）を 24em の列（w:"f"、td.wf）に詰める（段2 A）。wl の 22em に正式な名札のままだと
+   1 本ずつ折れて 1 行が 79〜100px で、1440×900 の 1 画面目に完全な行が 0 行だった（2026-09-28 fixture 実測） */
 const TODAY_COLS = ["name", "n_flags", "consultant", "days_left", "days_since_contact", "mtg_days", "nps", "amount"]
   .map((k) => {
     const c = BOARD_COLS.find((x) => x.k === k);
-    return k === "name" || k === "n_flags" ? Object.assign({}, c, { w: "l" }) : c;
+    if (k === "name") return Object.assign({}, c, { w: "l" });
+    if (k === "n_flags") return Object.assign({}, c, { w: "f", fmt: (r) => tagsShort(r.flags) });
+    return c;
   });
 
 let boardSort = { key: "n_flags", asc: false };
@@ -5611,7 +5664,9 @@ function renderToday(D0) {
       /* サーバの文に画面名は無い。全件への行き先（案件そのもの）は todayFilterRule が goLink で添える（S-6） */
       todayFilterRule(D.meta)) +
     note("def", "この並びについて", esc(D.meta.order_rule)) +
-    cpaBandNote(D.meta) + "</details>";
+    cpaBandNote(D.meta) +
+    /* 名札の略し方（段2 A）。短くした名札の正式な文は、枡の title（ホバー）だけでなくここにも書く（黙って隠さない） */
+    todayFlagLegend([D.rows, soon, started]) + "</details>";
   if (c && !D.rows.length)
     h += '<div class="empty">この担当には名札が2本以上ついた案件がありません。「全員」に戻すと全社の ' +
       num(D.meta.n_shown) + " 件が出ます。</div>";
