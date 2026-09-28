@@ -4142,6 +4142,207 @@ check("S-12: 表の枠は、実際にはみ出しているときだけ Tab で�
   ok(!/tabindex|role="region"/.test(run('scroll(table([{ t: "a" }], [[1]]), 400)')), "描いた時点で tabindex / role を付けている");
 });
 
+/* ================================================================ 段2 枠と見出し（M-1 / M-5 / M-12 / 段1レビュー B・C・F、2026-09-28） */
+// 診断（fixture 1440×900）: 題字 75px・鮮度 65px・色と印の意味 40px・上のメニュー 45px・母集団 40px・操作列 40px で本題が y≈357。
+// 400px では S-12 で枠の高さ制限を外した結果、案件そのものの全高が 37,579px・担当の交代 58,806px。側柱 125px が常に画面を占める。
+check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ、黄・赤の帯は題字の下の行に戻す。母集団の 1 行は操作列の中", () => {
+  const head = html.slice(html.indexOf('<header class="masthead">'), html.indexOf("</header>"));
+  ok(head.includes('<div id="cs-fresh" class="fresh"></div>'), "鮮度の帯（#cs-fresh）が題字の行（header.masthead）の中に無い");
+  ok(head.includes('<details class="fold" id="cs-legend">'), "「色と印の意味」の畳みが題字の行の中に無い");
+  ok(head.indexOf('id="cs-fresh"') < head.indexOf('id="cs-legend"') && head.indexOf('id="cs-legend"') < head.indexOf('class="stamp"'),
+    "題字の行の並びが 題字 → 鮮度 → 色と印の意味 → 利用者 でない");
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/\.masthead h1\{ font-size:18px;/.test(css), "題字が 18px でない（27px の行が 75px を取っていた）");
+  ok(/\.masthead \.fresh\.ok\{ flex:0 1 auto;/.test(css), "緑の帯が題字の行の中の 1 語（flex の項目）でない");
+  // 🔴 黄・赤は消さない: 全幅の行にして題字の下へ（規律「いつのデータか」）
+  ok(/\.masthead \.fresh\.warn, \.masthead \.fresh\.bad\{ flex:1 1 100%; order:5; \}/.test(css), "黄・赤の帯が題字の下の全幅の行に戻らない");
+  ok(/\.masthead > details\.fold\[open\]\{ flex:1 1 100%;/.test(css), "「色と印の意味」を開いたとき全幅の行にならない（題字の行の中で開く）");
+  ok(/\.tabs\{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 var\(--space-3\);/.test(css), "上のメニューの下の余白が 26px のまま");
+  ok(/\.rule-thin\{[^}]*margin:0 0 var\(--space-2\);/.test(css), "二重罫の下の余白が 18px のまま");
+  ok(/\.layout\{ display:grid; grid-template-columns:160px minmax\(0,1fr\);/.test(css), "側柱が 160px でない（M-12）");
+  // 母集団の 1 行（popline）は操作列の先頭。畳み方（1 行目は summary）は V1 のまま
+  const bar = run('ctlbar(viewOf("deal", "today"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 }, population: { active: 604, active_all: 703, active_option: 99, deals: 3432, deals_all: 3656, deals_option: 224 } })');
+  ok(bar.startsWith('<div class="ctlbar"><details class="popnote fold"><summary>稼働中 <b>604</b>'), "母集団の 1 行が操作列（.ctlbar）の先頭に無い: " + bar.slice(0, 120));
+  ok(bar.indexOf("</details>") < bar.indexOf('id="cs-reload"'), "母集団の畳みが読み直すより後ろにある");
+  ok(/\.ctlbar > details\.popnote\.fold\{ margin:0; flex:0 1 auto;/.test(css) && /\.ctlbar > details\.popnote\.fold\[open\]\{ flex-basis:100%; \}/.test(css),
+    "操作列の中の母集団の畳みの CSS（開いたら全幅）が無い");
+  ok(/\.pane > \.ctlbar \+ h2\.sec\{ margin-top:var\(--space-3\); \}/.test(css), "操作列と問いの間が 12px でない");
+  // 400px: 題字は 16px（20px だった）。h1 の中の span は無くなったので、その CSS も残さない
+  ok(/\.masthead h1\{ font-size:16px; \}/.test(media600(css).inside.join("\n")), "400px の題字が 16px でない");
+  ok(!/\.masthead h1 span/.test(css), "無くなった h1 の中の span の CSS が残っている");
+});
+
+check("M-5: 問い・案件は 24px 明朝（画面の題）、図・表・顧客は 15px ゴシック（部品の題）。sec() の第 1 引数で分ける", () => {
+  ok(run('sec("問い", "x")') === '<h2 class="sec mincho"><span class="no">問い</span>x</h2>', "問いの形が変わった（見張り S-2 と同じ形）");
+  ok(run('sec("案件", "x")').startsWith('<h2 class="sec mincho">'), "案件の詳細の題（案件 …）が画面の題（mincho）でない");
+  for (const no of ["図", "表", "顧客"])
+    ok(run("sec(" + JSON.stringify(no) + ", \"x\", \"i1\")") === '<h2 class="sec part" id="i1" tabindex="-1"><span class="no">' + no + "</span>x</h2>",
+      no + " の見出しが部品の題（class part）でない、または id / tabindex が付かない: " + run("sec(" + JSON.stringify(no) + ", \"x\", \"i1\")"));
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/h2\.sec\.mincho\{ font-size:24px;/.test(css), "問いが 24px でない");
+  ok(/h2\.sec\.part\{ font-size:15px; font-weight:700;/.test(css) && /h2\.sec\.part::after\{ display:none; \}/.test(css),
+    "図・表の見出しが 15px ゴシック太字（罫線なし）でない");
+  // 400px では問いを 20px に（24px だと本文幅 368px で 2 行に折れた。2026-09-28 検証）
+  ok(/h2\.sec\.mincho\{ font-size:20px; \}/.test(media600(css).inside.join("\n")), "600px 以下で問いが 20px でない");
+});
+
+check("M-5: 決まりごと・読み方の箱を畳む（foldNote）。畳まない 1 文（評価ではありません）は summary に残し、本文で繰り返さない。外した件数を含む箱は畳まない", () => {
+  // 部品そのもの
+  const f = run('foldNote("def", "見出し<", "本文", "残す文", "fid", "<i>後ろ</i>")');
+  ok(f === '<details class="fold notefold" id="fid"><summary>見出し&lt;<span class="keep">残す文</span>　<span class="when-closed">決まりごとを開く</span><span class="when-open">決まりごとを閉じる</span></summary>' +
+           '<div class="note def nohd"><p>本文</p></div><i>後ろ</i></details>', "foldNote の形が違う: " + f);
+  ok(run('foldNote("info", "h", "b")').includes("読み方を開く") && !run('foldNote("info", "h", "b")').includes('class="keep"'), "読み方の箱の summary が「読み方を開く」でない、または keep 無しで空の span を出す");
+  ok(JSON.stringify(run('firstSentence("一文目。二文目。")')) === '["一文目","二文目。"]' && JSON.stringify(run('firstSentence("句点なし")')) === '["句点なし",""]',
+    "firstSentence が最初の句点で分けない");
+  // 担当者の一覧: 「担当者の評価ではありません」は畳まず summary に。本文は残りの文＋contact_rule で、同じ文を繰り返さない
+  const D = JSON.parse(JSON.stringify(ctx.__D));
+  D.meta.not_counted = "※ 担当者の評価ではありません。手が足りていない場所を見つけるための画面です";
+  D.contact_rule = "接触 ＝ MTG または60秒超の通話";
+  ctx.__M5T = D;
+  const t = run("renderTeam(__M5T)");
+  const box = t.slice(t.indexOf('<details class="fold notefold">'), t.indexOf("</details>", t.indexOf('<details class="fold notefold">')));
+  ok(box.startsWith('<details class="fold notefold"><summary>何のための画面か<span class="keep">担当者の評価ではありません</span>　<span class="when-closed">読み方を開く</span>'),
+    "担当者の一覧の読み方の箱が畳みでない、または「評価ではありません」が summary に無い: " + box.slice(0, 200));
+  ok(box.includes('<div class="note info nohd"><p>手が足りていない場所を見つけるための画面です<br>接触 ＝ MTG または60秒超の通話</p></div>'),
+    "畳んだ本文が「残りの文 + contact_rule」でない（1 文目を繰り返している、または見出し .hd を持つ）: " + box);
+  ok((t.match(/担当者の評価ではありません/g) || []).length === 1, "「担当者の評価ではありません」が summary と本文で 2 回出ている");
+  ok(t.indexOf('<details class="fold notefold">') < t.indexOf('<div class="kpis">'), "読み方の畳みが KPI より後ろ");
+  // 畳んだ画面: 事業所・法人（粒度の 1 文が summary）、成果とリスク・立ち上がり（数えていないもの）、担当の交代（一覧の決まりごと）、本部アプローチ
+  ok(run("renderSeries(__SER)").includes('<details class="fold notefold"><summary>いま見ている粒度は「事業所」です　<span class="when-closed">読み方を開く'),
+    "継続を追いかけるの粒度の箱が畳みでない（粒度の 1 文は summary に残る）");
+  ok(run("renderOutcome(__OUT)").includes('<details class="fold notefold"><summary>この画面で数えていないもの　<span class="when-closed">決まりごとを開く'),
+    "成果とリスクの決まりごとが畳みでない");
+  ok(run("renderRampup(__RU)").includes('<details class="fold notefold"><summary>この画面で数えていないもの　'), "立ち上がりの決まりごとが畳みでない");
+  const hv = run("renderHandover(__HOC)");
+  ok(hv.includes('<details class="fold notefold"><summary>この一覧の決まりごと　') && hv.indexOf('<summary>この一覧の決まりごと') > hv.indexOf('id="ho-tbl"'),
+    "担当の交代の決まりごとが畳みでない、または表より前");
+  ok(run("renderHq(__HQ)").startsWith('<details class="fold notefold"><summary>比べる単位は事業所　'), "本部アプローチの頭の箱が畳みでない");
+  run('cur = { menu: "deal", view: "board" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
+  const b = run("renderBoard(__BD)");
+  run('cur = { menu: "deal", view: "today" };');
+  ok(b.includes('<details class="fold notefold"><summary>この並びについて　') && b.indexOf("<summary>この並びについて") > b.indexOf('id="board-tbl"'),
+    "案件そのものの並びの決まりが畳みでない、または表より前");
+  // 🔴 畳まないもの: 外した件数を書いた箱（電話の「オプション契約の通話 N 行は数えていません」、MTG の品質）はそのまま
+  const ph = JSON.parse(JSON.stringify(ctx.__PH)); ph.reach.option_rows_excluded = 12; ctx.__M5P = ph;
+  const p = run("renderPhone(__M5P)");
+  ok(/<div class="note def"><span class="hd">接触 ＝ 60 秒より長い通話<\/span><p>[^<]*<b>/.test(p) || p.includes('<div class="note def"><span class="hd">接触 ＝ 60 秒より長い通話</span>'),
+    "電話の頭の箱（外した件数を含む）まで畳んでいる");
+  ok(p.indexOf("オプション契約の通話 12 行は数えていません") > 0 && p.lastIndexOf('<details class="fold notefold">', p.indexOf("オプション契約の通話 12 行")) < 0 ||
+     p.lastIndexOf("</details>", p.indexOf("オプション契約の通話 12 行")) > p.lastIndexOf('<details class="fold notefold">', p.indexOf("オプション契約の通話 12 行")),
+    "外した件数（オプション契約の通話 12 行）が畳みの中に入っている");
+  ok(run("renderMtgQ(__MQ)").includes('<div class="note def"><span class="hd">読むときの注意</span>'), "MTG の品質の頭の箱（外した件数を含む）まで畳んでいる");
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/details\.fold\.notefold > summary \.keep\{ color:var\(--ink\); font-weight:400;/.test(css), "summary の残す文（keep）の CSS が無い（本文と同じ濃さにする）");
+});
+
+check("段1レビュー B: 600px 以下では表の先頭 20 行だけ出し、残りは「残り N 行を出す」で出す。高さを制限しない表・行の少ない表・PC では何もしない", () => {
+  const cols = [{ t: "名前" }, { t: "値", n: 1 }];
+  const rows = (n) => Array.from({ length: n }, (_, i) => ["行" + i, i]);
+  ctx.__RB = rows(40); ctx.__RC = cols;
+  const h = run("scroll(table(__RC, __RB), 640)");
+  ok(run("RC_CAP") === 20, "先頭に出す行数が 20 でない: " + run("RC_CAP"));
+  ok(h.includes('<div class="scroll-wrap rc-cut">'), "隠す行のある枠に rc-cut が付かない");
+  ok((h.match(/<tr data-rc="1">/g) || []).length === 20 && (h.match(/<tr>/g) || []).length === 21, "21 行目からに data-rc が付かない（見出しの 1 行 + 本文 20 行は付けない）: " + h.slice(0, 300));
+  ok(h.indexOf('<tr data-rc="1">') > h.indexOf("行19</td>") && h.indexOf('<tr data-rc="1">') < h.indexOf("行20</td>"), "data-rc の付き始めが 21 行目でない");
+  ok(/<\/div><button type="button" class="rc-more">残り 20 行を出す（ページが長くなります）<\/button><\/div>$/.test(h), "「残り 20 行を出す」のボタンが枠の直後に無い: " + h.slice(-160));
+  ok(/<span class="cap-rc">先頭 20 行を出しています（残り 20 行は表の下のボタンで）。<\/span><\/div>/.test(h), "枠の案内に隠している行数が無い（黙って隠さない）: " + h.slice(0, 400));
+  // 隠せるのが 10 行以下（25 行）・高さを制限しない表（今日動く先）・表が 1 つでない枠には付けない
+  ctx.__RB2 = rows(30);
+  const h2 = run("scroll(table(__RC, __RB2), 640)");
+  ok(!h2.includes("data-rc") && !h2.includes("rc-more") && !h2.includes("cap-rc"), "30 行（隠せるのは 10 行）の表にも先頭 20 行の仕組みを付けている");
+  const h3 = run('scroll(table(__RC, __RB), "none")');
+  ok(!h3.includes("data-rc") && !h3.includes("rc-more"), "高さを制限しない表（今日動く先の 24 行を一望する）まで 20 行で切っている");
+  const h4 = run("scroll(table(__RC, __RB) + table(__RC, __RB), 640)");
+  ok(!h4.includes("data-rc"), "表が 2 つある枠に付けている（行数が数えられない）");
+  // CSS: 隠すのは 600px 以下だけ。PC では文もボタンも出さない
+  const css = html.slice(0, html.indexOf("</style>"));
+  const inside = media600(css).inside.join("\n"), outside = media600(css).outside;
+  ok(/\.scroll-wrap\.rc-cut:not\(\.rc-open\) tr\[data-rc\]\{ display:none; \}/.test(inside), "600px 以下で 21 行目からを隠す CSS が無い");
+  ok(/\.scroll-wrap\.rc-cut:not\(\.rc-open\) > \.rc-more\{ display:block;[^}]*min-height:40px/.test(inside), "600px 以下でボタンを出す CSS（40px の的）が無い");
+  ok(/\.scroll-cap \.cap-rc\{ display:inline; \}/.test(inside) && /\.scroll-cap\.rc-open \.cap-rc\{ display:none; \}/.test(inside), "600px 以下で案内の文を出し、開いたら消す CSS が無い");
+  ok(/\.rc-more\{ display:none; \}/.test(outside) && /\.scroll-cap \.cap-rc\{ display:none; \}/.test(outside), "PC でボタン・案内の文を隠す CSS が無い");
+  ok(!/tr\[data-rc\]/.test(outside), "PC でも 21 行目からを隠している");
+  ok(/\.scroll\{ max-height:none !important; \}/.test(inside), "枠内の縦スクロールをやめる S-12 の CSS が消えている（先頭 20 行はその代わり）");
+  // 押したら枠と案内に rc-open が付く（window の捕捉で受ける。描き直しで作り直されるため）
+  const wrapCls = new Set(), capCls = new Set();
+  const inner = { scrollWidth: 400, clientWidth: 400, scrollLeft: 0, scrollHeight: 300, clientHeight: 300, setAttribute() {}, removeAttribute() {}, getAttribute: () => null };
+  const cap = { classList: { contains: (c) => c === "scroll-cap", toggle: (c, on) => { if (on) capCls.add(c); else capCls.delete(c); }, add: (c) => capCls.add(c) } };
+  const wrap = { querySelector: () => inner, previousElementSibling: cap,
+    classList: { add: (c) => wrapCls.add(c), toggle: (c, on) => { if (on) wrapCls.add(c); else wrapCls.delete(c); } } };
+  const btn = { closest: (s) => (s === ".rc-more" ? btn : s === ".scroll-wrap" ? wrap : null) };
+  ctx.__EV = { target: btn };
+  run("rcMoreClick(__EV)");
+  ok(wrapCls.has("rc-open") && capCls.has("rc-open"), "押しても枠と案内に rc-open が付かない: " + [...wrapCls] + " / " + [...capCls]);
+  const clicks = winListeners.filter((l) => l.type === "click");
+  ok(clicks.length === 1 && clicks[0].capture === true && clicks[0].fn === run("rcMoreClick"), "ボタンの click を window の捕捉で受けていない");
+  ok(!run("rcMoreClick({ target: { closest: () => null } })"), "ボタン以外を押したときに落ちる");
+});
+
+check("段1レビュー F: 枠の上のスクロールの案内は、実際にはみ出しているときだけ見せる（markScroll が .fit を付け外し）。マウスの案内は PC だけ", () => {
+  const capCls = new Set();
+  const inner = { scrollWidth: 400, clientWidth: 400, scrollLeft: 0, scrollHeight: 300, clientHeight: 300, setAttribute() {}, removeAttribute() {} };
+  const cap = { classList: { contains: (c) => c === "scroll-cap", toggle: (c, on) => { if (on) capCls.add(c); else capCls.delete(c); } } };
+  ctx.__FW = { querySelector: () => inner, previousElementSibling: cap, classList: { toggle() {} } };
+  run("markScroll(__FW)");   // はみ出していない
+  ok(capCls.has("fit"), "はみ出していない枠の案内に fit が付かない（「入り切らない分は…」が常に出る）");
+  inner.scrollWidth = 1000; run("markScroll(__FW)");   // 横にはみ出す
+  ok(!capCls.has("fit"), "横にはみ出しているのに fit が残る（案内が消える）");
+  inner.scrollWidth = 400; inner.scrollHeight = 900; run("markScroll(__FW)");   // 縦にはみ出す（PC の 640px の枠）
+  ok(!capCls.has("fit"), "縦にはみ出しているのに fit が残る");
+  // 今日動く先: 案内は .caprow の中（畳みと同じ行）。そこでも見つける
+  inner.scrollHeight = 300;
+  const capCls2 = new Set();
+  const cap2 = { classList: { contains: (c) => c === "scroll-cap", toggle: (c, on) => { if (on) capCls2.add(c); else capCls2.delete(c); } } };
+  ctx.__FW2 = { querySelector: () => inner, classList: { toggle() {} },
+    previousElementSibling: { classList: { contains: (c) => c === "caprow" }, querySelector: (s) => (s === ".scroll-cap" ? cap2 : null) } };
+  run("markScroll(__FW2)");
+  ok(capCls2.has("fit"), "caprow の中の案内に fit が付かない");
+  // 見出しなど classList の無い前の要素でも落ちない（S-12 の見張りの偽の枠と同じ形）
+  ctx.__FW3 = { querySelector: () => inner, classList: { toggle() {} }, previousElementSibling: { tagName: "H2", textContent: "表" } };
+  run("markScroll(__FW3)");
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/\.scroll-cap\.fit \.cap-pc, \.scroll-cap\.fit \.cap-sp, \.scroll-cap\.fit \.cap-x\{ display:none; \}/.test(css), "fit のときに案内の文を隠す CSS が無い");
+  // 高さを制限しない枠の文も span（cap-x）に入れる（隠せるように）。件数の文はそのまま
+  const h = run('scroll(table([{ t: "a" }, { t: "b" }], [[1, 2]]), "none")');
+  ok(h.includes('全 <b>1</b> 行 × 2 列。<span class="cap-x">横に入り切らない分は枠の中で横にスクロールします（1列目は左に残ります）。</span>'), "高さを制限しない枠の案内が span（cap-x）でない: " + h.slice(0, 300));
+  // 図の「点にマウスを重ねると本当の値が出ます」は PC だけ（.pconly。タッチでは title が出ない）
+  const fig = run('fig("c", "", \'<svg data-shift="1" style="--fw:600px"></svg>\', "")');
+  ok(fig.includes('<span class="pconly">点にマウスを重ねると本当の値が出ます。</span>'), "ずらしの断りのマウスの案内が .pconly に入っていない: " + fig.slice(fig.indexOf("figlegend")));
+});
+
+check("段1レビュー C: 900px 以下の側柱は、下へ送っている間は上へ引き上げて隠し、上へ戻したら出す（sideAwayOnScroll）。PC では何もしない", () => {
+  const cls = new Set();
+  const side = ctx.document.getElementById("cs-side");
+  side.classList = { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) };
+  side.offsetHeight = 125;
+  let narrow = true;
+  ctx.matchMedia = () => ({ matches: narrow });
+  const at = (y) => { ctx.window.scrollY = y; run("sideAwayOnScroll()"); return cls.has("side-away"); };
+  run("sideLastY = 0");
+  ok(!at(0) && !at(100), "開いた直後（側柱の高さ + 80px より上）で隠している");
+  ok(at(300), "300px 下へ送っても隠れない");
+  ok(at(304), "4px の揺れで出てしまう（8px の遊びが無い）");
+  ok(!at(280), "上へ戻しても出てこない");
+  ok(at(600) && !at(0), "先頭へ戻しても出てこない");
+  narrow = false;
+  at(50); at(600);
+  ok(!cls.has("side-away"), "PC（>900px）でも隠している");
+  ok(html.includes('document.addEventListener("scroll", sideAwayOnScroll, { passive: true })'), "ページのスクロールを document で受けていない");
+  const m = html.match(/@media \(max-width:900px\)\{([\s\S]*?)\n  \}/);
+  ok(m && /\.side\.side-away\{ transform:translateY\(-100%\);/.test(m[1]) && /\.side\.side-away:focus-within\{ transform:none; \}/.test(m[1]),
+    "900px 以下で側柱を引き上げる CSS（キーボードで入っているときは出す）が無い");
+  ok(!/\.side\.side-away/.test(html.slice(0, html.indexOf("@media (max-width:900px){"))), "側柱を隠す CSS が PC にも効いている");
+  delete ctx.matchMedia; delete side.classList; delete side.offsetHeight;
+});
+
+check("M-12: 強制カラーで「いま見ている項目」と「まずい KPI」に形と文字を足す", () => {
+  const css = html.slice(0, html.indexOf("</style>"));
+  const m = css.match(/@media \(forced-colors:active\)\{([\s\S]*?)\n  \}/);
+  ok(m, "forced-colors の @media が無い");
+  ok(/\.side button\[aria-current="page"\], \.tabs button\.on\{ text-decoration:underline; outline:2px solid CanvasText;/.test(m[1]), "いま見ている項目に下線と枠が付かない");
+  ok(/\.kpi\.is-bad \.big::after\{ content:" \\25B2";/.test(m[1]), "まずい KPI に ▲（色と印の意味と同じ印）が付かない");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
