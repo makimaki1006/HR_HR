@@ -3394,6 +3394,128 @@ check("S-3: 今日動く先の3表は8列（案件・名札・担当・満了ま
   ok(!/<td class="wl">/.test(b), "案件そのものの表まで折り返す列にしている（15 列は枠の横スクロールのまま）");
 });
 
+/* ================================================================ 段1 S-1 / S-2 / D-1a（2026-09-28） */
+// fixture（2026-09-18）の形を小さくしたもの。候補（名札2本以上）は 4 件・担当 3 名で、上位 2 件だけを rows に（サーバの keep）
+const TD_ROW = (o) => Object.assign({ deal_id: "d", name: "案件", consultant: "担当A", flags: ["x", "y"], n_flags: 2,
+  amount: 100000, days_left: 30, mtg_band: "recent" }, o);
+function todayFixture() {
+  const cand = [
+    TD_ROW({ deal_id: "c1", name: "候補1", consultant: "担当A", flags: ["x", "y", "z"], n_flags: 3, amount: 300000, mtg_band: "critical" }),
+    TD_ROW({ deal_id: "c2", name: "候補2", consultant: "担当B", amount: 200000 }),
+    TD_ROW({ deal_id: "c3", name: "候補3", consultant: "担当C", amount: 150000, mtg_band: "critical" }),
+    TD_ROW({ deal_id: "c4", name: "候補4", consultant: "担当C", amount: 100000 }),
+  ];
+  return {
+    rows: cand.slice(0, 2), candidates: cand,
+    expiring_this_week: [TD_ROW({ deal_id: "e1", name: "満了1", consultant: "担当C", days_left: 3 })],
+    started_this_week: [TD_ROW({ deal_id: "s1", name: "新規1", consultant: "担当A", start: "2026-09-15" })],
+    meta: { n_hit: 4, n_shown: 2, keep: 2, n_active: 604, n_not_started: 5, filter_rule: "絞った条件の文", order_rule: "並びの文",
+      new_deal_rule: "新規の文", not_counted: "※ 予測ではありません", today: "2026-09-18",
+      mtg_gap: { rule: "", no_record_note: "", source_note: "", coverage: {}, forced_by_expiry: 1, n_judged: 0,
+        bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 9, alert: true },
+                { band: "recent", label: "直近30日にMTGあり", n: 40, alert: false },
+                { band: "onboarding", label: "立ち上がり期", n: 7, alert: false }] } },
+  };
+}
+
+check("S-1: 今日動く先は 問い → 担当の欄 → KPI → 表 今日動く先 → 表 今週満了 → 今週始まった（畳み） → 図 名札 → 図 MTG途絶 → 読むときの注意 の順", () => {
+  run("todayConsultant = ''; todayStartedOpen = false;");
+  ctx.__TD5 = todayFixture();
+  const h = run("renderToday(__TD5)");
+  const at = (s) => { const i = h.indexOf(s); ok(i >= 0, "「" + s + "」が無い"); return i; };
+  const order = ["今日・今週、どこに連絡するか", 'id="td-consultant"', '<div class="kpis">', 'id="td-today-h"', 'id="today-tbl"',
+    'id="td-soon-h"', 'id="soon-tbl"', '<details class="fold" id="td-started"', 'id="new-tbl"', "何で上がってきたか",
+    "MTG が途絶えている先", "読むときの注意"];
+  const pos = order.map(at);
+  for (let i = 1; i < pos.length; i++) ok(pos[i] > pos[i - 1], "順が違う: 「" + order[i] + "」が「" + order[i - 1] + "」より前にある");
+  // 決まりごとの箱は表の見出しの直下の畳みの中（表より前に開いた箱で出さない）。母数は畳みの 1 行目（summary）に残す
+  const rule = h.indexOf('<details class="fold" id="td-rule">');
+  ok(rule > at('id="td-today-h"') && rule < at('id="today-tbl"'), "決まりごとの畳みが表の見出しの直下に無い");
+  const ruleBox = h.slice(rule, h.indexOf("</details>", rule));
+  ok(ruleBox.includes("絞った条件の文") && ruleBox.includes("並びの文"), "絞った条件・並びの決まりが畳みの中に無い");
+  ok(ruleBox.includes("<summary>名札2本以上の 4 件から 2 件"), "畳みの 1 行目（summary）に母数が無い");
+  ok(h.indexOf('<div class="note def"><span class="hd">絞った条件') > rule, "絞った条件の箱が畳みの外（表より前）に出ている");
+  // 今週始まった契約は畳み（summary に件数）。既定は閉じている
+  ok(!/<details class="fold" id="td-started" open/.test(h), "今週始まった契約の畳みが既定で開いている");
+  const st = h.slice(h.indexOf('id="td-started"'), h.indexOf("</details>", h.indexOf('id="td-started"')));
+  ok(st.includes("<summary>今週始まった契約（1 件）"), "summary に件数が無い");
+  ok(st.includes('id="new-tbl"'), "今週始まった契約の表が畳みの中に無い");
+  // 赤は「増えるとまずい件数」の MTG 途絶だけ。今日出す先は赤にしない
+  const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
+  const cards = kp.split(/<(?:button|div)[^>]*class="kpi[" ]/).slice(1);
+  ok(cards.length === 5, "KPI が 5 枚でない: " + cards.length);
+  ok(!/^[^>]*is-bad/.test(cards[0]) && cards[0].includes("今日出す先"), "今日出す先が赤（is-bad）");
+  ok(/^[^>]*is-bad/.test(cards[1]) && cards[1].includes("MTGが90日以上途絶"), "MTG 途絶が赤（is-bad）でない");
+  // MTG 途絶の図は手を打つ帯だけ棒にし、残りは件数の 1 行に（黙って落とさない）
+  const g = h.split("<figcaption>最終MTGからの経過日数で分けた帯")[1].split("</figure>")[0];
+  const svg = g.slice(g.indexOf("<svg"), g.indexOf("</svg>"));
+  ok(svg.includes("MTGが90日以上途絶") && !svg.includes("立ち上がり期") && !svg.includes("直近30日にMTGあり"),
+    "帯を付けていない帯まで棒にしている（または手を打つ帯が棒に無い）");
+  const leg = g.split('<div class="figlegend">')[1] || "";
+  ok(leg.includes("直近30日にMTGあり 40件") && leg.includes("立ち上がり期 7件"), "棒にしていない帯の件数が注記に無い");
+});
+
+check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週満了・今週始まったは同じ画面の表へ、MTG 途絶は案件そのものを帯で絞って開く", () => {
+  run("todayConsultant = '';");
+  ctx.__TD5 = todayFixture();
+  const h = run("renderToday(__TD5)");
+  ok(/<button type="button" class="kpi" data-jump="td-today-h"><span class="lbl">今日出す先/.test(h), "今日出す先の札が表へ飛ぶ button でない");
+  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上途絶/.test(h), "MTG 途絶の札が帯で絞る button でない");
+  ok(/<button type="button" class="kpi is-warn" data-jump="td-soon-h"><span class="lbl">今週満了する/.test(h), "今週満了の札が表へ飛ぶ button でない");
+  ok(/<button type="button" class="kpi" data-jump="td-started"><span class="lbl">今週始まった契約/.test(h), "今週始まった契約の札が畳みを開く button でない");
+  ok(/<div class="kpi"><span class="lbl">稼働中の全件[\s\S]*?<a class="golink"/.test(h), "稼働中の全件はリンクを添えた div のまま（button の中に a を入れない）");
+  ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(h), "button の中に a がある（押せるものの入れ子）");
+  ok((h.match(/<span class="act">/g) || []).length === 4, "行き先の小さな文（.act）が 4 枚に付いていない");
+  ok(h.includes('<h2 class="sec mincho" id="td-today-h" tabindex="-1">') && h.includes('<h2 class="sec mincho" id="td-soon-h" tabindex="-1">'),
+    "飛ぶ先の見出しに id / tabindex が無い");
+  // 行き先の無い札（act 無し）は div のまま。見出しに id を渡さないときは前と同じ形
+  ok(run('kpi("LTV 中央値", "1", "", "")') === '<div class="kpi"><span class="lbl">LTV 中央値</span><span class="big">1</span></div>', "act 無しの kpi が div でない");
+  ok(run('sec("問い", "x")') === '<h2 class="sec mincho"><span class="no">問い</span>x</h2>', "id 無しの sec の形が変わった");
+  // 案件そのものの絞り込みに MTG 途絶の帯が加わり、行の mtg_band で落とす。内部の鍵は画面の言葉に出さない
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "critical" };');
+  const kept = run("boardApply(__TD5.candidates).map((r) => r.deal_id).join(',')");
+  ok(kept === "c1,c3", "帯で絞れていない: " + kept);
+  ok(run("boardFilterOn()") === true, "帯だけの絞り込みが「絞り込みなし」になる");
+  const words = run("boardFilterWords(__TD5)");
+  ok(words === "MTG途絶 MTGが90日以上途絶", "絞り込みの言葉に帯の名前が無い: " + words);
+  ok(run("boardFilterWords({})") === "MTG途絶 の帯", "帯の名前が引けないときに内部の鍵（critical）を出している: " + run("boardFilterWords({})"));
+  const bar = run("boardFilterBar(__TD5)");
+  ok(/<select id="bf-band"><option value="">すべて<\/option><option value="critical" selected>MTGが90日以上途絶（9）<\/option>/.test(bar),
+    "MTG 途絶の選択欄が無い、または帯の名前と件数でない");
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
+});
+
+check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全件出し、今週満了・今週始まった・KPI も追従する。未選択は今までどおり上位 keep 件", () => {
+  ctx.__TD5 = todayFixture();
+  run("todayConsultant = '';");
+  const all = run("renderToday(__TD5)");
+  ok(/<select id="td-consultant"><option value="" selected>全員<\/option><option value="担当A">担当A<\/option><option value="担当B">担当B<\/option><option value="担当C">担当C<\/option><\/select>/.test(all),
+    "担当の選択欄が候補の全員（rows の 2 名ではなく、候補・満了・新規の 3 名）でない");
+  ok(all.includes("今日動く先（2 件）") && all.includes("全 4 件のうち"), "未選択のときにサーバの上位 keep 件でない");
+  ok(!all.includes("候補3"), "未選択のときに候補の全件を出している");
+  run("todayConsultant = '担当C';");
+  const mine = run("renderToday(__TD5)");
+  ok(mine.includes("今日動く先（2 件）") && mine.includes("候補3") && mine.includes("候補4") && !mine.includes("候補1"),
+    "担当で絞ると、その人の候補を全件（keep 件に切る前の candidates から）出していない");
+  ok(!mine.includes("件のうち"), "担当で絞った表に「N 件のうち」（切っている顔）が残っている");
+  ok(mine.includes('<option value="担当C" selected>'), "選んだ担当が欄で選ばれていない");
+  const kp = mine.slice(mine.indexOf('<div class="kpis">'), mine.indexOf('id="td-today-h"'));
+  const big = [...kp.matchAll(/<span class="big">(\d+)<span class="u">件<\/span><\/span>/g)].map((m) => m[1]);
+  ok(big.join(",") === "2,1,1,0,604", "担当で絞ったときの KPI の数字（今日出す先・MTG途絶・今週満了・今週始まった・全件）が違う: " + big.join(","));
+  ok(textOf(kp).includes("全社では 9 件") && textOf(kp).includes("全社は 4 件から 2 件"), "全社の数を添えていない");
+  ok(mine.includes("満了1") && !mine.includes("新規1"), "今週満了・今週始まった契約が担当で絞られていない");
+  // 覚えている担当が今日の候補に無い: 欄に残し、0 件の理由を書く
+  run("todayConsultant = '担当Z';");
+  const none = run("renderToday(__TD5)");
+  ok(none.includes('<option value="担当Z" selected>'), "覚えている担当が候補に無いときに欄から消えている");
+  ok(none.includes("この担当には名札が2本以上ついた案件がありません") && none.includes("今日動く先（0 件）"), "0 件の理由が無い");
+  // 古い応答（candidates が無い）でも rows から絞れる
+  const old = todayFixture(); delete old.candidates; ctx.__TD6 = old;
+  run("todayConsultant = '担当A';");
+  ok(run("renderToday(__TD6)").includes("候補1"), "candidates の無い応答で rows から絞れていない");
+  run("todayConsultant = '';");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
