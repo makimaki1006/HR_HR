@@ -538,6 +538,15 @@ details.popnote > summary{ color:var(--ink); font-weight:400; padding:2px 0; }
 details.popnote > summary b{ font-weight:700; }
 .fresh details.fold{ margin:2px 0 0; }
 .fresh details.fold > summary{ font-weight:400; font-size:12px; }
+/* 緑（今日／昨日）のときは内訳の畳みを1行目の続きに置き、帯を1行にする（S-9）。
+   2026-09-28 実測（1440px）: 帯は2行で 65px、全画面の頭で本題を下へ押していた。
+   開いたときは内訳がそのまま行の続きに流れる（黄・赤のときは今までどおり2行目に出る） */
+.fresh details.fold.inl{ display:inline; margin:0 0 0 var(--space-3); }
+.fresh details.fold.inl > summary{ display:inline; padding:0; }
+.fresh details.fold.inl > summary::-webkit-details-marker{ display:none; }
+.fresh details.fold.inl > summary::before{ content:"\25B8 "; }
+.fresh details.fold.inl[open] > summary::before{ content:"\25BE "; }
+.fresh details.fold.inl > .muted{ margin-left:var(--space-2); }
 /* 凡例は折りたたみの中。開いたときに summary との間を空けすぎない */
 details.fold .legend{ padding:var(--space-1) 0 var(--space-2); }
 
@@ -6110,9 +6119,18 @@ function renderDefs() {
 /* ================================================================ データの鮮度 */
 /* 🔴 この画面は毎朝見るもの。**古いデータを新しいものと誤認させないのは画面の責任**。
    meta.today は「計算に使った基準日」で、シートを作り直した日時とは**別物**。
-   シートは今のところ手で作り直しているので、基準日だけ今日になっていて
-   中身は何日も前、ということが実際に起きる。だから作成日時のほうを主に出す。
-   取れないときは「分かりません」と書く。推測で埋めない。 */
+   日次更新が止まると（2026-09-23〜28 に実際に5日止まった。00 の項目68）、基準日だけ今日になっていて
+   中身は何日も前、ということが起きる。だから作成日時のほうを主に出す。
+   取れないときは「分かりません」と書く。推測で埋めない。
+   🔴 S-9（2026-09-28）: 更新は毎晩タスクスケジューラで回るようになった。帯の文言をそれに合わせ、
+   予定の時刻は meta.update_schedule（CS_メタ か環境変数。無ければ null）から出す。直書きしない。
+   緑（今日／昨日）のときは1行に畳む（帯が毎画面の頭で2行＝約65px を使っていた）。
+   黄・赤のときは今までどおり2行で、抜けている日数を太字で出す。 */
+/** 「yyyy-MM-dd HH:mm:ss」を「MM-dd HH:mm」に。緑の1行目だけで使う（年は「今日／昨日」で決まる。
+    全文は畳んだ内訳に残す）。形が違えばそのまま返す */
+function shortWhen(s) {
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s || "") ? s.slice(5, 16) : (s || "");
+}
 function setFresh(meta) {
   const box = document.getElementById("cs-fresh");
   if (!box) return;
@@ -6120,6 +6138,7 @@ function setFresh(meta) {
   const srcAge = meta && meta.source_age_days;
   const gen = meta && meta.generated_at;      /* シートを作り直した時刻 */
   const base = meta && meta.today;            /* 計算に使った今日 */
+  const sched = meta && meta.update_schedule; /* 自動更新の予定（例「毎日 21:30」）。無ければ時刻を言わない */
 
   /* 🔴 取れないときは「分かりません」と書く。推測で埋めない */
   if (!src && !gen) {
@@ -6142,24 +6161,38 @@ function setFresh(meta) {
   else                { word = age + "日前"; cls = "bad"; }
   box.className = "fresh " + cls;
 
-  let h = "このデータは <b>" + (word ? word + "　" : "") +
-    (src ? esc(src) : esc(gen)) + "</b> 時点のものです";
-  h += src ? "（HubSpot から落とした時刻）。" : "（シートを作った時刻）。";
-  if (age != null && age >= 4) {
-    h += "<b>" + age + "日分の動きが入っていません。</b>";
+  const when = src || gen;
+  const oneLine = cls === "ok";   /* 緑は1行。内訳（details）を行の続きに置く */
+  let h;
+  if (oneLine) {
+    h = "<b>" + word + "　" + esc(shortWhen(when)) + "</b> 時点のデータ" +
+      (src ? "（HubSpot から落とした時刻）" : "（シートを作った時刻）");
+  } else {
+    h = "このデータは <b>" + (word ? word + "　" : "") + esc(when) + "</b> 時点のものです" +
+      (src ? "（HubSpot から落とした時刻）。" : "（シートを作った時刻）。");
+    if (age != null && age >= 4) {
+      h += "<b>" + age + "日分の動きが入っていません。</b>";
+    }
   }
   /* 🔴 1行目（何日前・いつ時点・何日分が抜けているか）は畳まない。毎朝まず読むもの。
-     残りの時刻の内訳だけ畳む（V1: 全画面の頭で2行を使い、本題を下へ押していた） */
-  h += '<details class="fold"><summary>ほかの時刻（シートの作成・計算の基準日）</summary>' +
+     残りの時刻の内訳だけ畳む（V1: 全画面の頭で2行を使い、本題を下へ押していた）。
+     緑のときは畳みを行の続き（inl）に置いて、帯を1行にする */
+  h += '<details class="fold' + (oneLine ? " inl" : "") + '"><summary>ほかの時刻' +
+    (oneLine ? "" : "（シートの作成・計算の基準日）") + "</summary>" +
     '<span class="muted">';
+  /* 1行目を短くしたときだけ、元の全文をここに残す（黙って削らない） */
+  if (oneLine && when) h += (src ? "元データを落としたのは " : "シートを作ったのは ") + esc(when) + "。";
   if (gen && src && gen.slice(0, 10) !== src.slice(0, 10)) {
     /* 🔴 3つの時刻は別物。混ぜないで並べる */
     h += "シートを作り直したのは " + esc(gen) + "（元データはそれより前のもの）。";
-  } else if (gen) {
+  } else if (gen && (!oneLine || src)) {
     h += "シートを作り直したのは " + esc(gen) + "。";
   }
   if (base) h += "計算の基準日は " + esc(base) + "（データの新しさとは別物）。";
-  h += "更新は手で回しています（自動ではありません）。</span></details>";
+  /* 🔴 予定の時刻は meta から。無ければ「自動で回しています」だけ（推測で 21:30 と書かない）。
+     赤の線引き（4日以上前）はこの関数の上の判定と同じ値 */
+  h += (sched ? "自動更新: " + esc(sched) + "（タスクスケジューラ）。" : "更新は自動で回しています（タスクスケジューラ）。") +
+    "更新が止まると、この帯が赤くなります（元データが4日以上前）。</span></details>";
   box.innerHTML = h;
 }
 

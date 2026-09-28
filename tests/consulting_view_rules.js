@@ -3359,6 +3359,55 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
   ok(jsNoComment.includes("AI 要約（誤りを含むことがあります）"), "要約の見出しに AI 要約の断りが無い");
 });
 
+/* ================================================================ S-9（2026-09-28 UI/UX 改善・段1） */
+// 鮮度の帯。日次更新を 2026-09-28 にタスクスケジューラ（毎日 21:30）へ登録したので、
+// 「更新は手で回しています（自動ではありません）」は翌朝から嘘になる。予定の時刻は meta.update_schedule
+// （CS_メタ か環境変数。無ければ null）から出し、コードに直書きしない。
+// 緑（今日／昨日）は1行（1440px 実測で帯は 65px → 約 37px）、黄・赤は今までどおり2行。
+check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行のまま、文言は自動更新（タスクスケジューラ）に合わせる", () => {
+  const box = ctx.document.getElementById("cs-fresh");
+  run('setFresh({ today: "2026-09-29", generated_at: "2026-09-28 21:41:00", source_as_of: "2026-09-28 21:30:00", source_age_days: 1, update_schedule: "毎日 21:30" })');
+  let h = box.innerHTML;
+  ok(box.className === "fresh ok", "昨日のデータが緑でない: " + box.className);
+  ok(/^<b>昨日　09-28 21:30<\/b> 時点のデータ（HubSpot から落とした時刻）<details class="fold inl">/.test(h),
+    "緑の1行目が「昨日 09-28 21:30 時点のデータ … ▸ ほかの時刻」の形でない: " + h.slice(0, 160));
+  ok(/元データを落としたのは 2026-09-28 21:30:00。/.test(h), "1行目を短くした分の全文（年・秒）を内訳に残していない（黙って削っている）");
+  ok(/シートを作り直したのは 2026-09-28 21:41:00。計算の基準日は 2026-09-29/.test(h), "内訳の3つの時刻が出ていない: " + h);
+  ok(/自動更新: 毎日 21:30（タスクスケジューラ）。/.test(h), "meta の更新の予定が出ていない");
+  ok(!/手で回して|自動ではありません/.test(h), "文言が古い運用（手で回す）のまま");
+  ok(/更新が止まると、この帯が赤くなります/.test(h), "止まったときの見え方（赤くなる）を書いていない");
+  // 予定が無いとき: 時刻を推測で埋めない（「21:30」と直書きしていたら落ちる）
+  run('setFresh({ today: "2026-09-29", generated_at: "2026-09-29 06:10:00", source_as_of: "2026-09-29 06:00:00", source_age_days: 0, update_schedule: null })');
+  h = box.innerHTML;
+  ok(/^<b>今日　09-29 06:00<\/b> 時点のデータ/.test(h), "今日のデータの1行目が違う: " + h.slice(0, 80));
+  ok(!/21:30|自動更新:/.test(h) && /更新は自動で回しています（タスクスケジューラ）。/.test(h),
+    "予定が無いのに時刻を出している／自動で回している旨が無い: " + h);
+  // 赤（4日前）: 今までどおり2行。1行目は全文の時刻、抜けている日数を太字で
+  run('setFresh({ today: "2026-09-28", generated_at: "2026-09-24 06:10:00", source_as_of: "2026-09-24 06:00:00", source_age_days: 4, update_schedule: "毎日 21:30" })');
+  h = box.innerHTML;
+  ok(box.className === "fresh bad", "4日前が赤でない: " + box.className);
+  ok(/^このデータは <b>4日前　2026-09-24 06:00:00<\/b> 時点のものです（HubSpot から落とした時刻）。<b>4日分の動きが入っていません。<\/b><details class="fold"><summary>ほかの時刻（シートの作成・計算の基準日）<\/summary>/.test(h),
+    "赤の2行の形が変わっている（1行目は全文の時刻、次に畳み）: " + h.slice(0, 220));
+  ok(!/fold inl/.test(h), "赤のときに内訳を行の続きに畳んでいる（2行のままにする）");
+  ok(!/元データを落としたのは/.test(h), "赤のとき、1行目に出ている全文の時刻を内訳でも繰り返している");
+  ok(/自動更新: 毎日 21:30（タスクスケジューラ）。更新が止まると、この帯が赤くなります（元データが4日以上前）。/.test(h), "赤のときも更新の予定と線引き（4日以上前）を出す: " + h);
+  // 黄（2日前）も2行のまま
+  run('setFresh({ today: "2026-09-28", source_as_of: "2026-09-26 06:00:00", source_age_days: 2 })');
+  ok(box.className === "fresh warn" && !/fold inl/.test(box.innerHTML) &&
+     /^このデータは <b>2日前　2026-09-26 06:00:00<\/b> 時点のものです/.test(box.innerHTML),
+    "2日前（黄）の形が違う: " + box.className + " " + box.innerHTML.slice(0, 120));
+  // 分からないとき（CS_メタ が読めない）は今までどおり「分かりません」
+  run('setFresh({ today: "2026-09-28" })');
+  ok(box.className === "fresh bad" && /このデータがいつのものか分かりません/.test(box.innerHTML), "メタが読めないときに「分かりません」と言わない");
+  // 時刻の形が違えば縮めずにそのまま出す（推測で切らない）
+  ok(run('shortWhen("2026-09-28 21:30:00")') === "09-28 21:30" && run('shortWhen("9/28 夜")') === "9/28 夜" && run("shortWhen(null)") === "",
+    "shortWhen が yyyy-MM-dd HH:mm:ss 以外の形を壊す");
+  // CSS: inl は行の続き（inline）。緑以外の details は今までどおり（.fresh details.fold）
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/\.fresh details\.fold\.inl\{ display:inline;/.test(css) && /\.fresh details\.fold\.inl > summary\{ display:inline;/.test(css),
+    "緑の畳みを行の続きにする CSS（.inl）が無い");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
