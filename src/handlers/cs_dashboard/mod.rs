@@ -1492,3 +1492,27 @@ pub fn data_age_days(meta: &SheetData, today: NaiveDate) -> Option<i64> {
     let at = data_as_of(meta)?;
     date10(&at).map(|d| (today - d).num_days())
 }
+
+/// 自動更新の予定（鮮度の帯に出す文言。例「毎日 21:30」）。
+///
+/// 2026-09-28 に日次更新をタスクスケジューラ（`\Consulting\Consulting-daily-collect`、
+/// 毎日 21:30）へ登録した。それまで帯は「更新は手で回しています」と出していて、
+/// 登録した翌朝から嘘になる（S-9）。
+///
+/// 🔴 **予定の時刻はコードに直書きしない。** スケジューラの時刻を変えたときに画面だけが
+/// 古い時刻を言い続けるため。出どころは2つ、優先順に:
+/// 1. `CS_メタ` の「更新の予定」（`run_daily.py` が書く。2026-09-28 時点ではまだ書いていない）
+/// 2. 環境変数 `CS_UPDATE_SCHEDULE`（サーバの設定。値はそのまま画面に出す）
+///
+/// どちらも無ければ `None`。画面は時刻を出さず「自動で回しています」だけを出す。
+/// **推測で埋めない**（「毎日 21:30」を既定にすると、変えたときに気づけない）。
+pub fn update_schedule(meta: &SheetData) -> Option<String> {
+    update_schedule_from(meta, std::env::var("CS_UPDATE_SCHEDULE").ok())
+}
+
+/// `update_schedule` の本体。環境変数を引数にしてあるのは、テストで環境を汚さずに
+/// 「メタが勝つ」「無ければ環境変数」「両方無ければ None」を見るため。
+pub fn update_schedule_from(meta: &SheetData, env: Option<String>) -> Option<String> {
+    meta_value(meta, "更新の予定")
+        .or_else(|| env.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+}
