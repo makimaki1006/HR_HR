@@ -2544,8 +2544,10 @@ function note(kind, head, body) {
    「氏名が分からない担当（HubSpotの担当者一覧に無い）」の幅がそのまま列の幅になり、
    担当の交代は8列中4列しか見えなかった（いま見るべき顧客・成果とリスクの表も右端が切れていた）。
    長い文字の列だけを折り返し、数字・日付の列は1行のまま残す（400px は横スクロールのまま） */
+/* 列の class（n: 右寄せの数字、w: 折り返す列）。table() と boardTable()・sortTh() で同じ決め方にする */
+const colClass = (c) => [c && c.n ? "n" : "", c && c.w ? "w" + c.w : ""].filter(Boolean).join(" ");
 function table(cols, rows, cls, id) {
-  const cc = (c) => [c && c.n ? "n" : "", c && c.w ? "w" + c.w : ""].filter(Boolean).join(" ");
+  const cc = colClass;
   let h = '<table' + (id ? ' id="' + id + '"' : "") + (cls ? ' class="' + cls + '"' : "") + "><thead><tr>";
   for (const c of cols) h += '<th' + (cc(c) ? ' class="' + cc(c) + '"' : "") + ">" + esc(c.t || c) + "</th>";
   h += "</tr></thead><tbody>";
@@ -2569,7 +2571,7 @@ function sortTh(c, key, asc) {
   const say = on
     ? "（いまこの列で" + (asc ? "小さい順" : "大きい順") + "。押すと逆になります）"
     : "（押すとこの列で並び替わります）";
-  return '<th class="' + (c.n ? "n " : "") + 'sortable"' +
+  return '<th class="' + (colClass(c) ? colClass(c) + " " : "") + 'sortable"' +
     (on ? ' aria-sort="' + (asc ? "ascending" : "descending") + '"' : "") + ">" +
     '<button type="button" class="sort" data-k="' + c.k + '">' +
     esc(c.t) + arrow + '<span class="sr">' + esc(say) + "</span>" +
@@ -2586,8 +2588,13 @@ function sortTh(c, key, asc) {
    切った後の件数が全件のように読めていた（V12 検証。NPS低・法人の一覧・今日動く先は
    n_hit 件から 24 件だけ）。切っている表は total を渡し、「N 行を出しています（全 T 件のうち）」にする。 */
 function scroll(inner, max, total) {
-  return scrollCap(inner, total) + '<div class="scroll-wrap">' +
-    '<div class="scroll"' + (max ? ' style="max-height:' + max + 'px"' : "") + ">" + inner + "</div></div>";
+  /* max: 枠の高さ（px）。省くと CSS の既定（70vh）。"none" なら高さを制限しない。
+     🔴 2026-09-28 診断（08 の S-3、fixture 1440px）: 今日動く先の 24 行が 640px の枠で 15 行目から枠内スクロールになり、
+     「上から順に潰す」のにページ・枠の縦・枠の横の三重スクロールだった。毎朝の表だけ高さの制限を外す（24 行で約 1,000px） */
+  const noCap = max === "none";
+  const style = noCap ? ' style="max-height:none"' : max ? ' style="max-height:' + max + 'px"' : "";
+  return scrollCap(inner, total, noCap) + '<div class="scroll-wrap">' +
+    '<div class="scroll"' + style + ">" + inner + "</div></div>";
 }
 /** 枠の左右に続きがあるかを見て、影の印（more-l / more-r）を付け外しする。
     描いた直後（wire）・枠を横に動かしたとき・窓の幅が変わったときに呼ぶ */
@@ -2618,7 +2625,7 @@ function markScrollAll() {
   document.querySelectorAll(".scroll-wrap").forEach(markScroll);
   document.querySelectorAll("figure.fig .figbody[data-cap]").forEach(markFig);
 }
-function scrollCap(inner, total) {
+function scrollCap(inner, total, noCap) {
   const s = String(inner);
   const body = s.split("<tbody>").slice(1).join("");
   const rows = (body.match(/<tr[\s>]/g) || []).length;
@@ -2631,7 +2638,9 @@ function scrollCap(inner, total) {
     (cut ? "<b>" + num(rows) + "</b> 行を出しています（全 " + num(total) + " 件のうち）× " +
            num(cols) + " 列。"
      : one ? "全 <b>" + num(rows) + "</b> 行 × " + num(cols) + " 列。" : "") +
-    "入り切らない分は枠の中で縦・横にスクロールします（見出しは上に残ります）。</div>";
+    /* 高さを制限していない枠（今日動く先）は縦には流れない。縦にスクロールすると書かない */
+    (noCap ? "横に入り切らない分は枠の中で横にスクロールします。"
+           : "入り切らない分は枠の中で縦・横にスクロールします（見出しは上に残ります）。") + "</div>";
 }
 /* n が小さい図は出さない。出さない理由は図の直下に書く */
 const MIN_N = 30;
@@ -4983,6 +4992,10 @@ const BOARD_COLS = [
   /* 案件名から「案件の詳細」へ（戻るでこの表へ戻る） */
   { k: "name",       t: "案件",        n: 0, fmt: (r) => dealLink(r.deal_id, r.name || r.deal_id) +
       (r.focus ? ' <span class="tag">注力</span>' : "") },
+  /* 🔴 名札は並びの根拠（既定は本数順）なのに 15 列目にあり、1440px でも横スクロールの外で
+     「何で上がってきたか」が行を見ても分からなかった（2026-09-28 診断、08 の S-3）。案件名の隣に置く。
+     並べ替え（sv）は変えていない */
+  { k: "n_flags",    t: "名札",        n: 0, fmt: (r) => tags(r.flags) },
   { k: "consultant", t: "担当",        n: 0, fmt: (r) => esc(r.consultant) || DASH },
   /* 🔴 並べ替えは画面に出ている順に合わせる（sv）。「満了後」の行は数字を出していないのに、
      内部の months（15 など）で他の行の間に並んでいた（fixture 20件）。
@@ -5020,8 +5033,19 @@ const BOARD_COLS = [
     } },
   { k: "cpa",        t: "採用単価",    n: 1, fmt: cpaCell },
   { k: "amount",     t: "金額",        n: 1, fmt: (r) => yen(r.amount) },
-  { k: "n_flags",    t: "名札",        n: 0, fmt: (r) => tags(r.flags) },
 ];
+
+/* 今日動く先の3表（今日・今週満了・今週始まった）の列。
+   🔴 2026-09-28 診断（08 の S-3、fixture 1440px）: 15 列の BOARD_COLS を3表で共用していて、名札が横スクロールの外、
+   表の幅は本文の約 2.6 倍だった。毎朝の表に要るのは「何で上がってきたか（名札）」「誰の」「いつまで」
+   「最後にいつ触ったか（接触・MTG）」「NPS（0 と 4 で緊急度が違う）」「金額（並びの第2キー。見えないと順が読めない）」の8列。
+   応募・面接・採用・採用目標・接触率・採用単価・何ヶ月目は案件そのもの（BOARD_COLS）に残す。
+   案件名と名札は折り返す（w:"l"、td.wl は 12〜22 字）。8列で 1440px の本文幅（約 1,150px）に入る */
+const TODAY_COLS = ["name", "n_flags", "consultant", "days_left", "days_since_contact", "mtg_days", "nps", "amount"]
+  .map((k) => {
+    const c = BOARD_COLS.find((x) => x.k === k);
+    return k === "name" || k === "n_flags" ? Object.assign({}, c, { w: "l" }) : c;
+  });
 
 let boardSort = { key: "n_flags", asc: false };
 
@@ -5147,10 +5171,12 @@ function refocus(k) {
   if (e && e.focus) e.focus({ preventScroll: true });
 }
 
-function boardTable(rows, sort, id) {
+/* cols: 列の定義。省くと BOARD_COLS（案件そのもの・担当者ごとの案件）。今日動く先は TODAY_COLS を渡す */
+function boardTable(rows, sort, id, cols) {
+  cols = cols || BOARD_COLS;
   const rs = rows.slice();
   const k = sort.key, asc = sort.asc;
-  const col = BOARD_COLS.find((c) => c.k === k);
+  const col = cols.find((c) => c.k === k);
   const val = col && col.sv ? col.sv : (r) => r[k];
   rs.sort((a, b) => {
     const x = val(a), y = val(b);
@@ -5161,11 +5187,11 @@ function boardTable(rows, sort, id) {
     return asc ? c : -c;
   });
   let t = '<table id="' + id + '"><thead><tr>';
-  for (const c of BOARD_COLS) t += sortTh(c, k, asc);
+  for (const c of cols) t += sortTh(c, k, asc);
   t += "</tr></thead><tbody>";
   for (const r of rs) {
     t += "<tr>";
-    for (const c of BOARD_COLS) t += '<td' + (c.n ? ' class="n"' : "") + ">" + c.fmt(r) + "</td>";
+    for (const c of cols) t += '<td' + (colClass(c) ? ' class="' + colClass(c) + '"' : "") + ">" + c.fmt(r) + "</td>";
     t += "</tr>";
   }
   return t + "</tbody></table>";
@@ -5307,7 +5333,7 @@ function renderToday(D) {
   if (started.length) {
     h += sec("表", "今週始まった契約（" + num(started.length) + " 件）");
     h += '<div class="lede">' + esc(D.meta.new_deal_rule || "") + "</div>";
-    h += scroll(boardTable(started, todaySort["new-tbl"], "new-tbl"), 320);
+    h += scroll(boardTable(started, todaySort["new-tbl"], "new-tbl", TODAY_COLS), 320);
   } else {
     h += sec("表", "今週始まった契約");
     h += '<div class="empty">直近7日に始まった契約はありません。</div>';
@@ -5316,7 +5342,7 @@ function renderToday(D) {
   if (soon.length) {
     h += sec("表", "今週満了（" + num(soon.length) + " 件）");
     h += '<div class="lede">残り7日以内。名札の本数に関わらず出しています。</div>';
-    h += scroll(boardTable(soon, todaySort["soon-tbl"], "soon-tbl"), 320);
+    h += scroll(boardTable(soon, todaySort["soon-tbl"], "soon-tbl", TODAY_COLS), 320);
   }
 
   /* 🔴 図はこれ1つだけ。毎朝の画面なので、表が主役のままにする。
@@ -5345,7 +5371,8 @@ function renderToday(D) {
   h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）");
   /* サーバが n_hit 件から 24 件に絞っている（routes.rs KEEP）。絞る前の件数を渡す（V12）。
      並びは表ごとに持つ todaySort（U6） */
-  h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl"), 640, D.meta.n_hit);
+  /* 8 列の TODAY_COLS。高さの制限は外す（24 行を一望する。08 の S-3） */
+  h += scroll(boardTable(D.rows, todaySort["today-tbl"], "today-tbl", TODAY_COLS), "none", D.meta.n_hit);
   h += note("def", "この並びについて", esc(D.meta.order_rule));
   h += cpaBandNote(D.meta);
   return h + foot(D.meta);
