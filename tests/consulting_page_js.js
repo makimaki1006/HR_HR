@@ -1670,6 +1670,45 @@ check("S-13", "案件名の検索欄は IME の変換中に絞り込まず確定
   if (t2.fetched.length !== m0 + 1) throw new Error("確定後の Enter で探しに行かない");
 });
 
+/* ================================================================ 段2 M-8（2026-09-28） */
+check("M-8", "案件そのものの絞り込み・並び替えは #board-body だけ描き直し、本文と検索欄を作り直さない。担当を外して形が変わるときは本文全体", async () => {
+  const t = boot();
+  const rows = [0, 1, 2].map((i) => boardRow({ deal_id: "r" + i, name: "案件" + i, consultant: i ? "担当B" : "担当A", n_flags: i, amount: i * 100 }));
+  t.ctx.__D = { meta: { flag_counts: [], mtg_gap: { bands: [] }, order_rule: "" }, rows };
+  t.R('cur = { menu: "deal", view: "board" }; boardCache = __D; lastPayload = __D; boardShowAll = false; ' +
+      'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" }; boardSort = { key: "n_flags", asc: false };');
+  t.reg["cs-main"].innerHTML = t.R("renderBoard(__D)");
+  const main0 = t.reg["cs-main"].innerHTML;
+  /* 描いた本文の中の部品。偽の DOM は innerHTML を解釈しないので、ここで登録する */
+  const body = new t.El("board-body"); t.reg["board-body"] = body;
+  const q = new t.El("bf-q"); t.reg["bf-q"] = q;
+  const sel = new t.El("bf-consultant"); t.reg["bf-consultant"] = sel;
+  const btn = new t.El(""); btn.dataset = { k: "amount" };
+  t.qsa["#board-tbl th.sortable button.sort"] = [btn];
+  t.R("wire(viewOf('deal', 'board'))");
+  q.focus();
+  q.value = "案件2"; q.oninput({});
+  t.timers[t.timers.length - 1]();   // 260ms 後に当たる
+  if (t.reg["cs-main"].innerHTML !== main0) throw new Error("検索で本文全体を作り直している（検索欄が新しい要素になり、IME の窓が閉じる）");
+  if (!body.innerHTML.includes("<b>3 件中 1 件</b>を表示") || !body.innerHTML.includes(">案件2</a>") || body.innerHTML.includes(">案件1</a>"))
+    throw new Error("#board-body に絞り込んだ表が出ない: " + body.innerHTML.slice(0, 200));
+  if (t.doc.activeElement !== q) throw new Error("検索した後にフォーカスが検索欄から外れた");
+  /* 並び替えも #board-body だけ。見出しの button は描き直しで付け直される */
+  if (typeof btn.onclick !== "function") throw new Error("表の見出しに並び替えが付いていない");
+  btn.onclick();
+  if (t.reg["cs-main"].innerHTML !== main0) throw new Error("並び替えで本文全体を作り直している");
+  if (t.R("boardSort.key") !== "amount") throw new Error("並び替えが状態に入らない");
+  /* 担当者ごとの案件で担当を外す → 持ち件数の表に形が変わるので本文全体を描き直す */
+  t.R('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "担当B", flag: "", expiry: "", q: "", band: "" };');
+  t.reg["cs-main"].innerHTML = t.R("renderBoard(__D)");
+  const main1 = t.reg["cs-main"].innerHTML;
+  if (!main1.includes('<div id="board-body">')) throw new Error("担当を選んだ担当者ごとの案件に #board-body が無い");
+  t.R("wire(viewOf('consultant', 'byowner'))");
+  sel.value = ""; sel.onchange();
+  const main2 = t.reg["cs-main"].innerHTML;
+  if (main2 === main1 || !main2.includes("担当者ごとの持ち件数")) throw new Error("担当を外したのに本文全体を描き直していない（持ち件数の表に戻らない）");
+});
+
 (async () => {
   if (mainJs == null) {
     console.error("FAIL 動きの見張り: 画面の <script> が取り出せない");

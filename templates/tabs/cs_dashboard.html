@@ -539,6 +539,8 @@ a.backlink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 .multi figure.fig > figcaption .hint{ flex-basis:100%; }
 .ctlbar select:focus-visible, .ctlbar input:focus-visible,
 .ctlbar button.act:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+/* 表の下の「残りも出す」（案件そのもの。段2 M-8）。枠の直下に寄せ、説明は同じ行に流す */
+.ctlbar.board-more{ margin:var(--space-2) 0 var(--space-3); }
 /* 「読み直す」は右端に寄せ、文字リンク程度にする（S-11）。鮮度が緑でないとき（.urge）だけ元の枡の見た目に戻して目立たせる */
 .ctlbar .reload{ margin-left:auto; display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
 .ctlbar .reload button.act.link{ border-color:transparent; background:none; text-decoration:underline; text-underline-offset:2px;
@@ -5288,11 +5290,16 @@ const EXPIRY_BANDS = [
 ];
 
 /* 絞り込みを当てる。**行を落とすのはここだけ** */
+/* 🔴 同じ応答（rows の同一性）・同じ条件なら同じ配列を返す（段2 M-8）。paintFigs は図の幅を枠に合わせるために本文を 2 回組むので、
+   ここが毎回新しい配列を返すと boardTable の覚え書き（配列の同一性で「同じ行の並び」を見る）が効かない */
+const boardApplyMemo = { src: null, key: "", out: null };
 function boardApply(rows) {
   const f = boardFilter;
+  const key = JSON.stringify(f);
+  if (boardApplyMemo.src === rows && boardApplyMemo.key === key) return boardApplyMemo.out;
   const band = EXPIRY_BANDS.find((b) => b.k === f.expiry);
   const q = f.q.trim().toLowerCase();
-  return rows.filter((r) => {
+  const out = rows.filter((r) => {
     if (f.consultant && (r.consultant || "") !== f.consultant) return false;
     if (f.flag && !(r.flags || []).some((x) => x === f.flag)) return false;
     /* MTG 途絶の帯（行の mtg_band）。今日動く先の KPI「MTGが90日以上途絶 N 件」から来る（S-2） */
@@ -5301,6 +5308,8 @@ function boardApply(rows) {
     if (q && String(r.name || r.deal_id || "").toLowerCase().indexOf(q) < 0) return false;
     return true;
   });
+  boardApplyMemo.src = rows; boardApplyMemo.key = key; boardApplyMemo.out = out;
+  return out;
 }
 
 function boardFilterOn() {
@@ -5418,9 +5427,20 @@ function refocus(k) {
   if (e && e.focus) e.focus({ preventScroll: true });
 }
 
-/* cols: 列の定義。省くと BOARD_COLS（案件そのもの・担当者ごとの案件）。今日動く先は TODAY_COLS を渡す */
-function boardTable(rows, sort, id, cols) {
+/* cols: 列の定義。省くと BOARD_COLS（案件そのもの・担当者ごとの案件）。今日動く先は TODAY_COLS を渡す
+   limit: 並べた後に出す行数の上限（案件そのものの上位 BOARD_KEEP 行。省くか 0 なら全件）。切ったことは呼び出し側が
+   scroll() の total（「N 行を出しています（全 T 件のうち）」）と boardMoreBar で言う
+   🔴 同じ行の配列（同一性）・同じ並び・同じ上限・同じ列なら、組んだ HTML をそのまま返す（段2 M-8）。paintFigs が図の幅を
+   枠に合わせるために本文を 2 回組むが、表は枠の幅と無関係。604 行 × 15 列の案件そのものは 1 回組むのに約 0.5 秒かかる
+   （2026-09-28 fixture 1440px 実測: 2 回組みの描き直し 1,197ms）。表ごと（id）に 1 つだけ覚える */
+const boardTblMemo = {};
+let BOARD_TBL_BUILDS = 0;   /* 組んだ回数。見張り（tests/consulting_view_rules.js「段2 M-8」）と描画時間の計測で読む */
+function boardTable(rows, sort, id, cols, limit) {
   cols = cols || BOARD_COLS;
+  const key = sort.key + "|" + (sort.asc ? 1 : 0) + "|" + (limit || 0) + "|" + cols.map((c) => c.k).join(",");
+  const m = boardTblMemo[id];
+  if (m && m.rows === rows && m.key === key) return m.html;
+  BOARD_TBL_BUILDS++;
   const rs = rows.slice();
   const k = sort.key, asc = sort.asc;
   const col = cols.find((c) => c.k === k);
@@ -5433,15 +5453,92 @@ function boardTable(rows, sort, id, cols) {
     const c = typeof x === "string" ? x.localeCompare(y, "ja") : x - y;
     return asc ? c : -c;
   });
+  const shown = limit > 0 && rs.length > limit ? rs.slice(0, limit) : rs;
   let t = '<table id="' + id + '"><thead><tr>';
   for (const c of cols) t += sortTh(c, k, asc);
   t += "</tr></thead><tbody>";
-  for (const r of rs) {
+  for (const r of shown) {
     t += "<tr>";
     for (const c of cols) t += '<td' + (colClass(c) ? ' class="' + colClass(c) + '"' : "") + ">" + c.fmt(r) + "</td>";
     t += "</tr>";
   }
-  return t + "</tbody></table>";
+  t += "</tbody></table>";
+  boardTblMemo[id] = { rows, key, html: t };
+  return t;
+}
+
+/* 案件そのもの・担当者ごとの案件の表は既定で上位 BOARD_KEEP 行（段2 M-8）。604 行を一度に描くと本番で Chrome の画面キャプチャが
+   30 秒応答しなかった（00 項目68）。400px では全行を出すページが 35,142px になっていた（2026-09-28 fixture 実測）。
+   切っていることは枠の案内（scrollCap の「N 行を出しています（全 T 件のうち）」）と、表の下の boardMoreBar で言う。
+   全件は「残りも出す」で出る（黙って隠さない） */
+const BOARD_KEEP = 100;
+let boardShowAll = false;
+function boardMoreBar(n) {
+  if (n <= BOARD_KEEP) return "";
+  return '<div class="ctlbar board-more">' +
+    (boardShowAll
+      ? '<button type="button" class="act" id="board-more" data-all="0">上位 ' + num(BOARD_KEEP) + " 行だけにする</button>" +
+        '<span class="muted small">全 ' + num(n) + " 行を出しています。</span>"
+      : '<button type="button" class="act" id="board-more" data-all="1">残りの ' + num(n - BOARD_KEEP) + " 行も出す</button>" +
+        '<span class="muted small">いまの並びで上位 ' + num(BOARD_KEEP) + " 行だけ出しています（全 " + num(n) +
+        " 行）。全件を一度に描くと重いためです。絞り込むか、表の見出しで並びを変えると上位が入れ替わります。</span>") +
+    "</div>";
+}
+
+/* 案件そのもの・担当者ごとの案件のうち、絞り込み・並び替えで変わる部分（件数の行 → 表 → 決まりごと → 名札の図）。
+   renderBoard が <div id="board-body"> に入れ、boardRepaint はここだけ描き直す（段2 M-8）。
+   絞り込みの欄（boardFilterBar）はこの外にあるので、打っている途中の検索欄が作り直されない */
+function boardBody(D, shown, on) {
+  const byOwner = cur.view === "byowner";
+  /* 🔴 絞り込んだら、何件中の何件を見ているのかを必ず出す。
+     絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐ。 */
+  let h = '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
+    "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
+    (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + "</div>";
+  /* 表が主役の画面なので表を先に、図はその下（08 の S-8）。
+     🔴 見出しは画面名（左の「案件そのもの」）と重ならない語にする。前は「案件の立ち位置」で、
+     画面名が3つ（左・見出し・サーバの文）あり、初見の人が別画面と誤認していた（S-6） */
+  h += sec("表", byOwner ? "この担当者の案件" : "稼働中の案件（1行が取引1件）");
+  /* 🔴 14列あるので、枠に入れないと**ページ全体が横に流れる**
+     （2026-09-22 実測: 1440px幅で document が 2640px になっていた）。
+     表は枠の中だけで横スクロールさせる。上位 BOARD_KEEP 行に切るので、切る前の件数（shown.length）を渡す（V12） */
+  h += shown.length
+    ? scroll(boardTable(shown, boardSort, "board-tbl", BOARD_COLS, boardShowAll ? 0 : BOARD_KEEP), 640, shown.length) +
+      boardMoreBar(shown.length)
+    : '<div class="empty">この条件に当てはまる案件はありません。' +
+      "「絞り込みを外す」で戻せます。</div>";
+  h += note("def", "この並びについて", esc(D.meta.order_rule));
+  h += cpaBandNote(D.meta);
+  h += sec("図", "名札の分布");
+  h += flagFig(D, on ? shown : null);
+  return h;
+}
+
+/* 並び替え・絞り込み・「残りも出す」で、#board-body だけ描き直す（段2 M-8）。
+   🔴 前は redrawMain で本文全体（操作列・絞り込みの欄・604 行の表 × 2 回）を作り直していて、検索欄の 1 文字ごとに
+   約 1 秒かかり、欄そのものが新しい要素になるのでフォーカスと IME の窓を戻す手当てが要った。
+   #board-body が無い形（担当者ごとの案件で担当を選ぶ前の持ち件数の表）や、担当を外して持ち件数の表に戻るときは、
+   形が変わるので本文全体を描き直す */
+function boardRepaint() {
+  const box = document.getElementById("board-body");
+  if (!box || !boardCache || (cur.view === "byowner" && !boardFilter.consultant)) { redrawMain(boardCache); return; }
+  const fk = focusKey(document.activeElement);
+  const D = boardCache, shown = boardApply(D.rows);
+  paintFigs(box, () => boardBody(D, shown, boardFilterOn()));   /* 名札の図の幅を枠に合わせる（2回描き。表は覚え書きで 1 回） */
+  wireBoardBody();
+  markScrollAll();
+  refocus(fk);
+}
+/* #board-body の中の部品（表の見出しの並び替え・残りも出す）。描き直すたびに付け直す */
+function wireBoardBody() {
+  document.querySelectorAll("#board-tbl th.sortable button.sort").forEach((th) => {
+    th.onclick = () => {
+      boardSort = nextSort(boardSort, th.dataset.k);
+      boardRepaint();
+    };
+  });
+  const more = document.getElementById("board-more");
+  if (more) more.onclick = () => { boardShowAll = more.dataset.all === "1"; boardRepaint(); };
 }
 
 /* 名札を3つの意味に分ける。
@@ -5803,19 +5900,8 @@ function renderBoard(D) {
           num(per[k].n), num(per[k].flagged), num(per[k].focus)]), "", "owner-tbl"), 640);
       return h + foot(D.meta, false, "担当者 " + num(ks.length) + " 名・稼働中 " + num(D.rows.length) + " 件");
     }
-    h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
-      "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
-      (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + "</div>";
-    /* 表が主役の画面なので表を先に、図はその下（08 の S-8。案件そのものと同じ順） */
-    h += sec("表", "この担当者の案件");
-    h += shown.length
-      ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
-      : '<div class="empty">この条件に当てはまる案件はありません。' +
-        "「絞り込みを外す」で戻せます。</div>";
-    h += note("def", "この並びについて", esc(D.meta.order_rule));
-    h += cpaBandNote(D.meta);
-    h += sec("図", "名札の分布");
-    h += flagFig(D, on ? shown : null);
+    /* 件数の行 → 表 → 決まりごと → 図 は boardBody（S-8 の順。絞り込みで描き直す部分。段2 M-8） */
+    h += '<div id="board-body">' + boardBody(D, shown, on) + "</div>";
     /* 稼働中の件数は頭の1行と「N 件中 M 件を表示」にあるので、末尾では繰り返さない */
     return h + foot(D.meta, false, "");
   }
@@ -5825,36 +5911,16 @@ function renderBoard(D) {
     "<b>担当・名札・MTG途絶の帯・満了までの期間・案件名で絞り込めます。</b></div>";
 
   h += boardFilterBar(D);
-  /* 🔴 絞り込んだら、何件中の何件を見ているのかを必ず出す。
-     絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐ。 */
-  h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
-    "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
-    (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + "</div>";
-
   /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表が図「名札の分布」の下（y=1,391）で、行を特定する画面なのに
-     1 画面目に表が無かった。絞り込み → 件数行 → 表 → 図 の順にする。決まりごと（並び・採用単価の比べ方）は表の直下に */
-  /* 🔴 見出しは画面名（左の「案件そのもの」）と重ならない語にする。前は「案件の立ち位置」で、
-     画面名が3つ（左・見出し・サーバの文）あり、初見の人が別画面と誤認していた（S-6） */
-  h += sec("表", "稼働中の案件（1行が取引1件）");
-  /* 🔴 14列あるので、枠に入れないと**ページ全体が横に流れる**
-     （2026-09-22 実測: 1440px幅で document が 2640px になっていた）。
-     表は枠の中だけで横スクロールさせる。 */
-  h += shown.length
-    ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
-    : '<div class="empty">この条件に当てはまる案件はありません。' +
-      "「絞り込みを外す」で戻せます。</div>";
-  h += note("def", "この並びについて", esc(D.meta.order_rule));
-  h += cpaBandNote(D.meta);
-
-  h += sec("図", "名札の分布");
-  h += flagFig(D, on ? shown : null);
+     1 画面目に表が無かった。絞り込み → 件数行 → 表 → 図 の順にする（boardBody）。決まりごと（並び・採用単価の比べ方）は表の直下に。
+     絞り込み・並び替えは boardRepaint が #board-body だけ描き直す（段2 M-8） */
+  h += '<div id="board-body">' + boardBody(D, shown, on) + "</div>";
   return h + foot(D.meta);
 }
 
 function wireBoard() {
-  const redraw = () => {
-    redrawMain(boardCache);
-  };
+  /* 絞り込みは #board-body だけ描き直す（段2 M-8）。形が変わるとき（担当者ごとの案件で担当を外す）は boardRepaint が本文全体に戻す */
+  const redraw = boardRepaint;
   const pick = (id, key) => {
     const e = document.getElementById(id);
     if (e) e.onchange = () => { boardFilter[key] = e.value; redraw(); };
@@ -5866,7 +5932,8 @@ function wireBoard() {
      いま選ばれた担当が出ている選択欄（#bf-consultant）へ移す */
   document.querySelectorAll("#owner-tbl a.drill").forEach((a) => {
     a.onclick = (ev) => {
-      ev.preventDefault(); boardFilter.consultant = a.dataset.c; redraw(); refocus("#bf-consultant");
+      /* 持ち件数の表 → 案件の表は形が変わるので本文全体を描き直す */
+      ev.preventDefault(); boardFilter.consultant = a.dataset.c; redrawMain(boardCache); refocus("#bf-consultant");
     };
   });
   pick("bf-flag", "flag");
@@ -5874,15 +5941,15 @@ function wireBoard() {
   pick("bf-expiry", "expiry");
   const q = document.getElementById("bf-q");
   if (q) {
-    /* 1文字ごとに 703 行を組み直すと重い。打ち終わってから当てる */
+    /* 1文字ごとに組み直すと重い。打ち終わってから当てる。
+       🔴 検索欄は #board-body の外にあり、boardRepaint では作り直されない（段2 M-8）。前は本文全体を作り直していたので、
+       新しい欄を探してフォーカスと入力位置を戻す手当てがここにあった。要素がそのまま残るので要らない */
     let t = null;
     const apply = () => {
       clearTimeout(t);
       t = setTimeout(() => {
         boardFilter.q = q.value;
         redraw();
-        const e = document.getElementById("bf-q");
-        if (e) { e.focus(); e.setSelectionRange(e.value.length, e.value.length); }
       }, 260);
     };
     /* 🔴 IME の変換中（isComposing）は当てない。変換の途中で本文を作り直すと入力欄が消えて候補の窓が閉じる。
@@ -5901,12 +5968,7 @@ function wireBoard() {
     boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };
     redraw();
   };
-  document.querySelectorAll("#board-tbl th.sortable button.sort").forEach((th) => {
-    th.onclick = () => {
-      boardSort = nextSort(boardSort, th.dataset.k);
-      redrawMain(boardCache);
-    };
-  });
+  wireBoardBody();   /* 表の見出しの並び替え・残りも出す（段2 M-8） */
 }
 let boardCache = null;
 
