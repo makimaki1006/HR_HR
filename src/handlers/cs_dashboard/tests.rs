@@ -2749,7 +2749,8 @@ fn 今日動く先の並びは名札の本数が先() {
 
 /// D-1a（2026-09-28 藤巻さんの判断）: 今日動く先を担当で絞れるように、名札2本以上の全候補を
 /// `candidates` で返し、`rows` はその先頭 `meta.keep` 件のまま。fixture では候補 243 件・23 名に
-/// 対して 24 件には 11 名しか出ず、16 名は自分の案件が 1 件も無かった（08_UIUX改善案 M-4）。
+/// 対して 24 件には 11 名しか出ず、12 名は自分の案件が 1 件も 24 件に入らなかった（08_UIUX改善案 M-4。
+/// 候補を 1 件も持たない 4 名を足すと 27 名中 16 名）。
 /// 画面は担当を選んだときだけ candidates から出す（選んでいないときの見え方は変えない）。
 #[test]
 fn 今日動く先は名札2本以上の全候補も返す() {
@@ -2782,6 +2783,99 @@ fn 今日動く先は名札2本以上の全候補も返す() {
     assert!(
         o24.is_subset(&oall),
         "24 件の担当者が候補の担当者に含まれない"
+    );
+}
+
+/// D-1a の検証（2026-09-28）: 担当の選択欄を候補・今週満了・今週始まった から集めると、稼働中の
+/// 案件を持っていても候補が 0 件の担当（fixture で 27 名中 3 名）が自分を選べない。稼働中の全件の
+/// 担当を `consultants` で返す（08_UIUX改善案 M-4 は案件そのものと同じ全担当を想定していた）。
+/// 同じ検証で、担当を選んだときの KPI「MTGが90日以上途絶」を候補の中で数えると、名札が MTG途絶の
+/// 1 本だけの行が落ちて帯の実数と合わない担当が 27 名中 5 名いた。担当ごとの実数を
+/// `meta.mtg_gap.critical_by_consultant` で返す。
+#[test]
+fn 今日動く先は全担当と担当ごとのmtg途絶の実数も返す() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let v = build_today_board(&sheets(), fixture_day());
+    let names = |rs: &[Value]| -> BTreeSet<String> {
+        rs.iter()
+            .filter_map(|r| r["consultant"].as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let consultants: Vec<&str> = v["consultants"]
+        .as_array()
+        .expect("consultants が無い")
+        .iter()
+        .map(|x| x.as_str().expect("担当の名前が文字列でない"))
+        .collect();
+    // 案件そのもの（稼働中の全件）の担当と同じ顔ぶれ。空（氏名が分からない担当）は載せない
+    let board = build_deal_board(&sheets(), fixture_day());
+    let all = names(board["rows"].as_array().unwrap());
+    assert_eq!(consultants.len(), 27, "稼働中の全件の担当者の数");
+    assert_eq!(
+        consultants
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<_>>(),
+        all,
+        "consultants が案件そのものの担当の顔ぶれと違う"
+    );
+    assert!(
+        consultants.iter().all(|s| !s.is_empty()),
+        "空の担当が選択肢に入っている"
+    );
+    let mut sorted = consultants.clone();
+    sorted.sort_unstable();
+    assert_eq!(consultants, sorted, "consultants が並んでいない");
+    // この項目が要る理由: 候補・満了・新規から集めた顔ぶれには 3 名足りない
+    let arr = |k: &str| v[k].as_array().cloned().unwrap_or_default();
+    let mut seen = names(&arr("candidates"));
+    seen.extend(names(&arr("expiring_this_week")));
+    seen.extend(names(&arr("started_this_week")));
+    let missing: Vec<_> = all.difference(&seen).cloned().collect();
+    assert_eq!(
+        missing.len(),
+        3,
+        "候補・満了・新規に出ない担当（稼働中の案件はある）の数が fixture と違う: {missing:?}"
+    );
+
+    // 担当ごとの MTG途絶（critical）の実数。合計は帯の件数（102）と一致する
+    let cb = v["meta"]["mtg_gap"]["critical_by_consultant"]
+        .as_object()
+        .expect("critical_by_consultant が無い");
+    let total: u64 = cb.values().map(|n| n.as_u64().unwrap()).sum();
+    let band_n = v["meta"]["mtg_gap"]["bands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["band"] == "critical")
+        .map(|b| b["n"].as_u64().unwrap())
+        .unwrap();
+    assert_eq!(band_n, 102, "帯 critical の件数（fixture）");
+    assert_eq!(total, band_n, "担当ごとの実数の合計が帯の件数と合わない");
+    // この項目が要る理由: 候補（名札2本以上）の中で数えると 5 名の担当で実数より少なくなる
+    let mut in_cand: BTreeMap<&str, u64> = BTreeMap::new();
+    for r in v["candidates"].as_array().unwrap() {
+        if r["mtg_band"] == "critical" {
+            *in_cand
+                .entry(r["consultant"].as_str().unwrap_or(""))
+                .or_insert(0) += 1;
+        }
+    }
+    let off: Vec<&String> = cb
+        .iter()
+        .filter(|(k, n)| in_cand.get(k.as_str()).copied().unwrap_or(0) != n.as_u64().unwrap())
+        .map(|(k, _)| k)
+        .collect();
+    assert_eq!(
+        off.len(),
+        5,
+        "候補の中の件数と帯の実数がずれる担当の数が fixture と違う: {off:?}"
+    );
+    assert!(
+        cb.values().all(|n| n.as_u64().unwrap() > 0),
+        "0 件の担当が入っている（引けなければ 0 にするのは画面側）"
     );
 }
 
