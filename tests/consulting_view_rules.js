@@ -1262,7 +1262,13 @@ check("いま見るべき顧客: 「法人 N」は本部アプローチ・法人
 check("V12 の残り: 表の枠の端に、横の続きがある側だけ影を出す", () => {
   const h = run('scroll(table([{ t: "a" }], [[1]]), 400)');
   ok(/<div class="scroll-wrap"><div class="scroll"/.test(h), "枠が影を描く包み（scroll-wrap）に入っていない");
-  ok(/\.scroll-wrap\.more-l::before, \.scroll-wrap\.more-r::after\{ opacity:1; \}/.test(html), "影を出す CSS が無い");
+  ok(/\.scroll-wrap\.more-r::after\{ opacity:1; \}/.test(html), "右に続きがあるときの影（::after）を出す CSS が無い");
+  // 🔴 左端の帯（::before）は出さない。S-12 で1列目を貼り付けてから、貼り付いた＝隠れていない列の上に「下に列が隠れている」印が
+  //    乗っていた（2026-09-28 検証: scrollLeft=300 で td の左端の画素 (221,221,221)、同じ列の th は地のまま）。
+  //    左に隠れている列は貼り付けた列の右端の影（more-l の box-shadow）で示す
+  ok(!/\.scroll-wrap(\.more-l)?::before/.test(html), "枠の左端の帯（::before）が残っている（貼り付けた1列目の上に被る）");
+  ok(/\.scroll-wrap\.more-l th:first-child, \.scroll-wrap\.more-l td:first-child\{\s*box-shadow:4px 0 8px -4px var\(--edge-shade\)/.test(html),
+    "左に続きがあるとき、貼り付けた1列目の右端に影が無い");
   const cls = new Set();
   const inner = { scrollWidth: 1000, clientWidth: 400, scrollLeft: 0 };
   ctx.__W = { querySelector: () => inner,
@@ -1380,7 +1386,8 @@ check("V12 の残り: 本部アプローチの枠を差し込んだ後（持っ�
 
 check("V12 の残り: 暗い表示でも枠の端の影が地と見分けられる（明るい表示と同じくらいの差）", () => {
   const css = html.split("<style>")[1].split("</style>")[0];
-  ok(/linear-gradient\(to right, var\(--edge-shade\)/.test(css) && /linear-gradient\(to left, var\(--edge-shade\)/.test(css),
+  // 右端の影（::after）と、左に続きがあるときの貼り付けた1列目の影（box-shadow）。左端の帯（::before）は S-12 で外した
+  ok(/linear-gradient\(to left, var\(--edge-shade\)/.test(css) && /td:first-child\{\s*box-shadow:[^;]*var\(--edge-shade\)/.test(css),
     "影の色がテーマの値（--edge-shade）でなく固定の色");
   // 3 か所（明るい :root / prefers-color-scheme:dark / data-theme="dark"）の --panel と --edge-shade を読む
   const [light, rest] = [css.split("@media (prefers-color-scheme:dark)")[0], css.split("@media (prefers-color-scheme:dark)")[1]];
@@ -3369,8 +3376,9 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行の
   run('setFresh({ today: "2026-09-29", generated_at: "2026-09-28 21:41:00", source_as_of: "2026-09-28 21:30:00", source_age_days: 1, update_schedule: "毎日 21:30" })');
   let h = box.innerHTML;
   ok(box.className === "fresh ok", "昨日のデータが緑でない: " + box.className);
-  ok(/^<b>昨日　09-28 21:30<\/b> 時点のデータ（HubSpot から落とした時刻）<details class="fold inl">/.test(h),
-    "緑の1行目が「昨日 09-28 21:30 時点のデータ … ▸ ほかの時刻」の形でない: " + h.slice(0, 160));
+  // 「（HubSpot から落とした時刻）」は span.src。600px 以下では出さない（400px で帯が2行 58px になっていた。内訳の1文目が同じことを言う）
+  ok(/^<b>昨日　09-28 21:30<\/b> 時点のデータ<span class="src">（HubSpot から落とした時刻）<\/span><details class="fold inl">/.test(h),
+    "緑の1行目が「昨日 09-28 21:30 時点のデータ（HubSpot から落とした時刻）▸ ほかの時刻」の形でない: " + h.slice(0, 200));
   ok(/元データを落としたのは 2026-09-28 21:30:00。/.test(h), "1行目を短くした分の全文（年・秒）を内訳に残していない（黙って削っている）");
   ok(/シートを作り直したのは 2026-09-28 21:41:00。計算の基準日は 2026-09-29/.test(h), "内訳の3つの時刻が出ていない: " + h);
   ok(/自動更新: 毎日 21:30（タスクスケジューラ）。/.test(h), "meta の更新の予定が出ていない");
@@ -3380,8 +3388,11 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行の
   run('setFresh({ today: "2026-09-29", generated_at: "2026-09-29 06:10:00", source_as_of: "2026-09-29 06:00:00", source_age_days: 0, update_schedule: null })');
   h = box.innerHTML;
   ok(/^<b>今日　09-29 06:00<\/b> 時点のデータ/.test(h), "今日のデータの1行目が違う: " + h.slice(0, 80));
-  ok(!/21:30|自動更新:/.test(h) && /更新は自動で回しています（タスクスケジューラ）。/.test(h),
-    "予定が無いのに時刻を出している／自動で回している旨が無い: " + h);
+  // 🔴 「更新は自動で回しています」も出さない。自動かどうかは運用の事実で、HTML の定数に書くとスケジューラを外した日から嘘になる
+  //    （S-9「無ければ文言を出さない」。2026-09-28 検証で直書きが残っていた）
+  ok(!/21:30|自動更新:|自動で回して|タスクスケジューラ/.test(h),
+    "予定（meta.update_schedule）が無いのに、時刻か「自動で回している」旨を HTML の直書きで出している: " + h);
+  ok(/更新が止まると、この帯が赤くなります（元データが4日以上前）。/.test(h), "予定が無くても、止まったときの見え方（赤くなる）は書く");
   // 赤（4日前）: 今までどおり2行。1行目は全文の時刻、抜けている日数を太字で
   run('setFresh({ today: "2026-09-28", generated_at: "2026-09-24 06:10:00", source_as_of: "2026-09-24 06:00:00", source_age_days: 4, update_schedule: "毎日 21:30" })');
   h = box.innerHTML;
@@ -3390,7 +3401,15 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行の
     "赤の2行の形が変わっている（1行目は全文の時刻、次に畳み）: " + h.slice(0, 220));
   ok(!/fold inl/.test(h), "赤のときに内訳を行の続きに畳んでいる（2行のままにする）");
   ok(!/元データを落としたのは/.test(h), "赤のとき、1行目に出ている全文の時刻を内訳でも繰り返している");
-  ok(/自動更新: 毎日 21:30（タスクスケジューラ）。更新が止まると、この帯が赤くなります（元データが4日以上前）。/.test(h), "赤のときも更新の予定と線引き（4日以上前）を出す: " + h);
+  // すでに赤いときは「止まると赤くなります」（仮定形）ではなく、いま赤い理由を言う（2026-09-28 検証で仮定形のままだった）
+  ok(/自動更新: 毎日 21:30（タスクスケジューラ）。元データが4日以上前なので、この帯を赤くしています（予定「毎日 21:30」の更新が入っていません）。/.test(h),
+    "赤のときに、更新の予定と、いま赤い理由（4日以上前・予定の更新が入っていない）を出していない: " + h);
+  ok(!/更新が止まると/.test(h), "すでに赤いのに「更新が止まると赤くなります」と仮定形で書いている");
+  // 赤で予定も無いとき: 自動とは言わず、止まっている可能性だけ書く
+  run('setFresh({ today: "2026-09-28", source_as_of: "2026-09-24 06:00:00", source_age_days: 4 })');
+  h = box.innerHTML;
+  ok(!/自動|タスクスケジューラ/.test(h) && /元データが4日以上前なので、この帯を赤くしています（更新が止まっている可能性があります）。/.test(h),
+    "赤で予定が無いときの文が違う: " + h);
   // 黄（2日前）も2行のまま
   run('setFresh({ today: "2026-09-28", source_as_of: "2026-09-26 06:00:00", source_age_days: 2 })');
   ok(box.className === "fresh warn" && !/fold inl/.test(box.innerHTML) &&
@@ -3402,10 +3421,17 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行の
   // 時刻の形が違えば縮めずにそのまま出す（推測で切らない）
   ok(run('shortWhen("2026-09-28 21:30:00")') === "09-28 21:30" && run('shortWhen("9/28 夜")') === "9/28 夜" && run("shortWhen(null)") === "",
     "shortWhen が yyyy-MM-dd HH:mm:ss 以外の形を壊す");
-  // CSS: inl は行の続き（inline）。緑以外の details は今までどおり（.fresh details.fold）
+  // CSS: inl は行の続き（inline）。緑以外の details は今までどおり（.fresh details.fold）。
+  // summary は inline-block で上下 6px・左右 4px の余白を負の margin で打ち消す: 行の高さは変えず、押せる範囲だけ広げる
+  // （inline のままだと 72×12px で指では押しにくかった。2026-09-28 検証）
   const css = html.slice(0, html.indexOf("</style>"));
-  ok(/\.fresh details\.fold\.inl\{ display:inline;/.test(css) && /\.fresh details\.fold\.inl > summary\{ display:inline;/.test(css),
-    "緑の畳みを行の続きにする CSS（.inl）が無い");
+  ok(/\.fresh details\.fold\.inl\{ display:inline;/.test(css), "緑の畳みを行の続きにする CSS（.inl）が無い");
+  ok(/\.fresh details\.fold\.inl > summary\{ display:inline-block; padding:6px var\(--space-1\); margin:-6px calc\(-1 \* var\(--space-1\)\); \}/.test(css),
+    "緑の「▸ ほかの時刻」の押せる範囲が広がっていない（inline-block＋余白＋負の margin）");
+  // 600px 以下では「（HubSpot から落とした時刻）」を1行目から外す（帯を1行に。内訳の1文目に同じことが書いてある）
+  const sp = [...css.matchAll(/@media \(max-width:600px\)\{([\s\S]*?)\n\}/g)].map((m) => m[1]).join("\n");
+  ok(/\.fresh\.ok \.src\{ display:none; \}/.test(sp), "600px 以下で緑の帯の「（HubSpot から落とした時刻）」を外していない（帯が2行になる）");
+  ok(!/\.src\{ display:none/.test(css.replace(/@media \(max-width:600px\)\{[\s\S]*?\n\}/g, "")), "PC でも「（HubSpot から落とした時刻）」を消している");
 });
 
 /* ================================================================ S-12（2026-09-28 UI/UX 改善・段1） */
@@ -3431,7 +3457,15 @@ check("S-12: 600px 以下だけ、枠内の縦スクロールをやめ・入力�
   ok(blocks.length >= 2, "600px 以下の @media が見つからない: " + blocks.length);
   const inside = blocks.join("\n");
   ok(/\.scroll\{ max-height:none !important; \}/.test(inside), "600px 以下で枠内の縦スクロール（max-height）を外していない（scroll() の直書きに勝つには !important）");
-  ok(/\.ctl input, \.ctl select, \.ctlbar input, \.ctlbar select\{ font-size:16px; \}/.test(inside), "600px 以下で入力欄が 16px でない（iOS が自動で拡大する）");
+  ok(/\.ctl input, \.ctl select, \.ctlbar input, \.ctlbar select, \.ctlbar input\.act, \.ctlbar select\.act\{ font-size:16px; \}/.test(inside),
+    "600px 以下で入力欄が 16px でない（iOS が自動で拡大する）");
+  // 枠の上の案内: PC 用（縦・横とも枠の中・見出しは残る）と 600px 以下用（横だけ枠の中・1列目は残る・見出しは残らない）を言い分ける
+  ok(/\.scroll-cap \.cap-pc\{ display:none; \}/.test(inside) && /\.scroll-cap \.cap-sp\{ display:inline; \}/.test(inside),
+    "600px 以下で枠の上の案内を入れ替えていない（「縦・横にスクロールします（見出しは上に残ります）」のままなら2つとも事実と違う）");
+  // 貼り付けた1列目が枠の大半を取らない（400px 実測: 担当者の一覧 246/367px、案件の詳細 192/367px）。40vw を上限に折り返す
+  ok(/td:first-child\{ white-space:normal; overflow-wrap:anywhere; max-width:40vw; \}/.test(inside) &&
+     /td\.wl:first-child\{ min-width:min\(12em,40vw\); max-width:40vw; \}/.test(inside),
+    "600px 以下で貼り付けた1列目の幅を抑えていない（残りの列を見る幅が 121px しか残らない）");
   ok(/\.side button\{[^}]*min-height:40px/.test(inside), "600px 以下でサイドの項目が 40px に届かない");
   ok(/\.ctlbar select, \.ctlbar input, \.ctlbar button\.act\{ min-height:40px; \}/.test(inside), "600px 以下で操作列の部品が 40px に届かない");
   ok(/th,td\{ padding:10px 12px; \}/.test(inside) && /th button\.sort\{ padding:10px 12px; \}/.test(inside),
@@ -3440,10 +3474,128 @@ check("S-12: 600px 以下だけ、枠内の縦スクロールをやめ・入力�
   // 🔴 PC の見た目は変えない: これらは @media の外に書かない
   const outside = css.replace(/@media \(max-width:600px\)\{[\s\S]*?\n\}/g, "");
   ok(!/font-size:16px/.test(outside), "16px の入力欄が PC にも効いている");
+  ok(/\.scroll-cap \.cap-sp\{ display:none; \}/.test(outside) && !/\.cap-pc\{ display:none/.test(outside),
+    "PC で枠の上の案内が 600px 以下用の文になっている、または PC 用の文が消えている");
+  ok(!/td:first-child\{ white-space:normal/.test(outside), "1列目の折り返し（40vw の上限）が PC にも効いている");
   ok(!/max-height:none !important/.test(outside), "枠の縦スクロールを PC でも外している（640px の枠に 24 行を収める設計が崩れる）");
   ok(!/min-height:40px/.test(outside), "40px の当たりが PC にも効いている");
   ok(/\.side button\{[^}]*min-height:34px/.test(outside) && /\.ctlbar select, \.ctlbar input, \.ctlbar button\.act\{[^}]*min-height:28px/.test(outside),
     "PC のサイドの項目 34px・操作列 28px が変わっている");
+});
+
+// 🔴 CSS の文字列があるだけでは足りない（2026-09-28 検証: .ctlbar .act{ font-size:12.5px }（詳細度 0,2,0）が
+//    .ctlbar select{ font-size:16px }（0,1,1）に勝ち、要素自身に class="act" を持つ #cs-houjin・#dd-q は 12.5px のままだった）。
+//    ここでは簡易の cascade（詳細度 → 書いた順）で、実際の要素の連なりに当たる font-size の勝ちを決めて見る。
+//    対応するのは子孫結合子（空白・>）とタグ・クラス・#id・[attr=値] だけ。疑似クラスを含む選択子は「当たらない」と扱う（font-size を持つものは無い）
+function cssRules(css) {
+  css = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const out = []; let order = 0;
+  const walk = (s, media) => {
+    let depth = 0, selStart = 0, sel = "", bodyStart = 0;
+    for (let k = 0; k < s.length; k++) {
+      const ch = s[k];
+      if (ch === "{") { if (depth === 0) { sel = s.slice(selStart, k).trim(); bodyStart = k + 1; } depth++; }
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const body = s.slice(bodyStart, k);
+          if (/^@media/.test(sel)) walk(body, sel.replace(/^@media\s*/, ""));
+          else if (!/^@/.test(sel)) out.push({ sel, body, media, order: order++ });
+          selStart = k + 1;
+        }
+      }
+    }
+  };
+  walk(css, null);
+  return out;
+}
+function specificity(sel) {
+  const pe = (sel.match(/::[\w-]+/g) || []).length;
+  let s = sel.replace(/::[\w-]+/g, "");
+  const a = (s.match(/#[\w-]+/g) || []).length;
+  const b = (s.match(/\.[\w-]+|\[[^\]]*\]|:[\w-]+(\([^)]*\))?/g) || []).length;
+  s = s.replace(/#[\w-]+|\.[\w-]+|\[[^\]]*\]|:[\w-]+(\([^)]*\))?/g, " ");
+  const c = (s.match(/(^|[\s>+~])([a-zA-Z][\w-]*)/g) || []).length + pe;
+  return a * 10000 + b * 100 + c;
+}
+/* 1つの複合選択子（例 "select.act"）が要素 el {tag, classes, attrs} に当たるか */
+function compoundMatches(comp, el) {
+  if (/:/.test(comp)) return false;
+  const tag = (comp.match(/^[a-zA-Z][\w-]*|^\*/) || [""])[0];
+  if (tag && tag !== "*" && tag !== el.tag) return false;
+  for (const m of comp.matchAll(/\.([\w-]+)/g)) if (!(el.classes || []).includes(m[1])) return false;
+  for (const m of comp.matchAll(/#([\w-]+)/g)) if ((el.attrs || {}).id !== m[1]) return false;
+  for (const m of comp.matchAll(/\[([\w-]+)(?:=["']?([^"'\]]*)["']?)?\]/g)) {
+    const v = (el.attrs || {})[m[1]];
+    if (v == null || (m[2] != null && v !== m[2])) return false;
+  }
+  return true;
+}
+/* 選択子（子孫結合子だけ）が要素の連なり chain（先祖 → 対象）に当たるか。右から左へ、先祖は飛ばしてもよい */
+function selectorMatches(sel, chain) {
+  const comps = sel.trim().split(/\s*>\s*|\s+/).filter(Boolean);
+  if (!compoundMatches(comps[comps.length - 1], chain[chain.length - 1])) return false;
+  let ci = chain.length - 2;
+  for (let i = comps.length - 2; i >= 0; i--) {
+    while (ci >= 0 && !compoundMatches(comps[i], chain[ci])) ci--;
+    if (ci < 0) return false;
+    ci--;
+  }
+  return true;
+}
+/* chain に当たる font-size の勝ち。narrow=true なら (max-width:600px) の @media も効く */
+function winningFontSize(rules, chain, narrow) {
+  let best = null;
+  for (const r of rules) {
+    if (r.media && !(narrow && /max-width:\s*600px/.test(r.media))) continue;
+    const fs = r.body.match(/(?:^|;)\s*font-size:\s*([^;!]+)(!important)?/);
+    if (!fs) continue;
+    const hit = r.sel.split(",").filter((s) => selectorMatches(s, chain));
+    if (!hit.length) continue;
+    const spec = Math.max(...hit.map(specificity)) + (fs[2] ? 1e6 : 0);
+    if (!best || spec > best.spec || (spec === best.spec && r.order > best.order)) best = { spec, order: r.order, value: fs[1].trim(), sel: r.sel };
+  }
+  return best;
+}
+
+check("S-12: 入力欄 16px は、要素自身に class=\"act\" を持つ欄（法人を選ぶ・案件名か拠点名で探す）にも cascade で勝つ。PC は 12.5px のまま", () => {
+  const rules = cssRules(html.slice(html.indexOf("<style>") + 7, html.indexOf("</style>")));
+  ok(rules.length > 100, "CSS の規則が読めていない: " + rules.length);
+  const bar = { tag: "div", classes: ["ctlbar"] };
+  const chains = {
+    "法人を選ぶ #cs-houjin（select.act）": [bar, { tag: "select", classes: ["act"], attrs: { id: "cs-houjin" } }],
+    "案件名か拠点名で探す #dd-q（input.act）": [bar, { tag: "input", classes: ["act"], attrs: { id: "dd-q", type: "search" } }],
+    "案件そのもの #bf-consultant（label.act の中の select）": [bar, { tag: "label", classes: ["act"] }, { tag: "select", attrs: { id: "bf-consultant" } }],
+    "案件そのもの #bf-q（label.act の中の input）": [bar, { tag: "label", classes: ["act"] }, { tag: "input", attrs: { id: "bf-q", type: "search" } }],
+  };
+  for (const [name, chain] of Object.entries(chains)) {
+    const pc = winningFontSize(rules, chain, false), sp = winningFontSize(rules, chain, true);
+    ok(pc && pc.value === "12.5px", name + " の PC の font-size が 12.5px でない: " + JSON.stringify(pc));
+    ok(sp && sp.value === "16px", name + " の 600px 以下の font-size が 16px でない（iOS が自動で拡大する）: " + JSON.stringify(sp));
+  }
+  // 実際の操作列に、その要素があること（選択子だけ合っていても要素が別の形なら意味が無い）
+  run("detailQ = ''");
+  const detail = run('ctlbar({ key: "detail", path: "/api/consulting/deal-detail" }, { meta: {} })');
+  ok(/<input type="search" id="dd-q" class="act"/.test(detail), "案件の詳細の探す欄が input.act の形でない: " + detail.slice(0, 300));
+  const series = run('ctlbar({ key: "series", path: "/api/consulting/customer" }, { meta: {} })');
+  ok(/<select id="cs-houjin" class="act"/.test(series), "法人を選ぶ欄が select.act の形でない: " + series.slice(0, 300));
+  // 簡易 cascade そのものの見張り（詳細度の数え方が壊れると上の判定が空回りする）
+  ok(specificity(".ctlbar .act") === 200 && specificity(".ctlbar select") === 101 && specificity(".ctlbar select.act") === 201 &&
+     specificity("#cs-houjin") === 10000 && specificity("th button.sort:focus-visible") === 202,
+    "詳細度の数え方が違う: " + [".ctlbar .act", ".ctlbar select", ".ctlbar select.act", "#cs-houjin", "th button.sort:focus-visible"].map(specificity));
+  ok(selectorMatches(".ctlbar select.act", chains["法人を選ぶ #cs-houjin（select.act）"]) &&
+     !selectorMatches(".ctlbar select.act", chains["案件そのもの #bf-consultant（label.act の中の select）"]) &&
+     selectorMatches(".ctlbar .act select", chains["案件そのもの #bf-consultant（label.act の中の select）"]),
+    "選択子の当たり判定が違う");
+});
+
+check("S-12: 枠の上の案内（scrollCap）は PC 用と 600px 以下用の両方の文を出し、事実に合う方だけ CSS で見せる", () => {
+  const h = run('scroll(table([{ t: "a" }, { t: "b" }], [[1, 2], [3, 4]]), 640)');
+  ok(/<span class="cap-pc">入り切らない分は枠の中で縦・横にスクロールします（見出しは上に残ります）。<\/span>/.test(h),
+    "PC 用の文（縦・横とも枠の中、見出しは上に残る）が無い: " + h.slice(0, 400));
+  ok(/<span class="cap-sp">横に入り切らない分は枠の中で横にスクロールします（1列目は左に残ります）。縦はページと一緒に流れます（見出しの行は残りません）。<\/span>/.test(h),
+    "600px 以下用の文（横だけ枠の中、1列目は残る、見出しの行は残らない）が無い: " + h.slice(0, 400));
+  ok(/全 <b>2<\/b> 行 × 2 列。<span class="cap-pc">/.test(h), "件数の文の直後に案内が続いていない");
 });
 
 check("S-12: 900px 以下ではサイドバーを上に貼り付け（sticky）、どこまで送っても項目を切り替えられる", () => {
@@ -3484,6 +3636,28 @@ check("S-12: 表の枠は、実際にはみ出しているときだけ Tab で�
       childNodes: [{ textContent: "表" }, { textContent: "\n  " }, { textContent: "案件の立ち位置" }] } };
   run("markScroll(__W5)");
   ok(attrs["aria-label"] === "表 案件の立ち位置（スクロールできる表の枠）", "札と題が続けて読まれる: " + attrs["aria-label"]);
+  // 🔴 図の見出しの下に表が続く場所（担当の交代の担当者のまとめ: h2「図 …」→ figure → scroll-cap → 枠）は
+  //    「図 …（スクロールできる表の枠）」と読み上げていた（2026-09-28 検証）。札が「図」なら「<題> の表」にする
+  const figHead = { tagName: "H2", childNodes: [{ textContent: "図" }, { textContent: "引き継いだ側（次の担当）（変化の中央値）" }] };
+  const figure = { tagName: "FIGURE", previousElementSibling: figHead };
+  ctx.__W6 = { querySelector: () => inner, classList: { toggle() {} },
+    previousElementSibling: { tagName: "DIV", previousElementSibling: figure } };
+  run("markScroll(__W6)");
+  ok(attrs["aria-label"] === "引き継いだ側（次の担当）（変化の中央値） の表（スクロールできる表の枠）",
+    "図の見出しの下の表が「図 …」と読み上げられる: " + attrs["aria-label"]);
+  // 🔴 畳み（details）の中の表（継続回数×成果の満了月ごとの内訳: h2「表 …」→ details > summary + 枠）は同じ階層に見出しが無く
+  //    「表」になっていた。見つからなければ親の階層で探し直す（#cs-main まで）
+  const tblHead = { tagName: "H2", childNodes: [{ textContent: "表" }, { textContent: "満了月ごとの内訳" }] };
+  const details = { tagName: "DETAILS", previousElementSibling: tblHead, parentNode: { id: "cs-main" } };
+  ctx.__W7 = { querySelector: () => inner, classList: { toggle() {} },
+    previousElementSibling: { tagName: "SUMMARY" }, parentNode: details };
+  run("markScroll(__W7)");
+  ok(attrs["aria-label"] === "表 満了月ごとの内訳（スクロールできる表の枠）", "畳みの中の表の読み上げ名が親の見出しを拾わない: " + attrs["aria-label"]);
+  // 本文の入れ物（#cs-main）より上へは探しに行かない（別の画面の見出しを拾わない）
+  ctx.__W8 = { querySelector: () => inner, classList: { toggle() {} },
+    parentNode: { id: "cs-main", previousElementSibling: { tagName: "H2", childNodes: [{ textContent: "問い" }, { textContent: "別の見出し" }] } } };
+  run("markScroll(__W8)");
+  ok(attrs["aria-label"] === "表（スクロールできる表の枠）", "#cs-main の外の見出しを拾っている: " + attrs["aria-label"]);
   // 描いた時点（scroll()）では付けない。枠の大きさは描いた後にしか測れない
   ok(!/tabindex|role="region"/.test(run('scroll(table([{ t: "a" }], [[1]]), 400)')), "描いた時点で tabindex / role を付けている");
 });
