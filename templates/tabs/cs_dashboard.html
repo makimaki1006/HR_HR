@@ -2702,16 +2702,15 @@ function droppedNote(rows, nOf, labelOf) {
    ================================================================ */
 let teamSort = { key: "contact_rate", asc: true };
 
-/** 接触率の帯。表・図・KPI で同じ切り方を使う */
-const contactKind = (v) => (v == null ? "" : v < 40 ? "bad" : v < 70 ? "warn" : "");
-/** KPI「接触率がいちばん低い」の候補選び。
-    母数が小さい（small_n）人は図に載せていないので、ここでも候補にしない。
-    返り値 skipped は外した人数（率が出ている人のうち）。 */
-function pickWorstContact(rows) {
+/** KPI「接触率 40% 未満の担当者」の数え方（S-10。前は「いちばん低い」人を名指ししていた）。
+    母数が小さい（small_n）人は図に載せていないので、ここでも数えない（V2）。
+    n: 40% 未満の人数 ／ deals: その人たちの持ち案件の合計 ／ skipped: 外した人数（率が出ている人のうち）。
+    線の 40% は表（TEAM_COLS）・図の帯と同じ取り決め（事実ではない） */
+function pickLowContact(rows) {
   const has = (rows || []).filter((r) => r.contact_rate != null);
-  const ok = has.filter((r) => !r.small_n)
-    .sort((a, b) => a.contact_rate - b.contact_rate);
-  return { worst: ok[0] || null, skipped: has.length - ok.length };
+  const ok = has.filter((r) => !r.small_n);
+  const low = ok.filter((r) => r.contact_rate < 40);
+  return { n: low.length, deals: low.reduce((s, r) => s + (r.n_active || 0), 0), skipped: has.length - ok.length };
 }
 
 const TEAM_COLS = [
@@ -2768,14 +2767,14 @@ function renderTeam(D) {
   h += note("info", "何のための画面か",
     esc(D.meta.not_counted).replace("※ ", "") + "<br>" + esc(D.contact_rule));
 
-  /* 🔴 「いちばん低い」は**図と同じ母数の人から**選ぶ（V2）。
-     2026-09-23 実測: 母数が小さいとして図から外した人（0.0%・0/11か月）を拾い、
-     赤の大きな文字で個人名を出していた。図では「分母が小さいので載せない」と
-     言っているのに、KPI では最下位として名指しする、という食い違い。
+  /* 🔴 2026-09-28 診断（08 の S-10。07 の V2 の残り）: 画面でいちばん目立つ要素（29px・赤・太字）が「接触率がいちばん低い」
+     人の名前で、読み方の箱に「評価ではありません」と書きながら見え方は順位表だった（本番では実名になる）。
+     KPI は名指しをやめて**件数**にする。誰かは下の図（低い順）と表で読める。
+     母数が小さい人は図と同じく数えない（V2。2026-09-23 実測: 0.0%・0/11か月 の人を最下位として拾っていた）。
      外した人数は KPI の下に書く（黙って落とさない）。 */
-  const worstPick = pickWorstContact(rows);
-  const worst = worstPick.worst;
-  const focusTop = D.rows.slice().sort((a, b) => b.focus - a.focus)[0];
+  const low = pickLowContact(rows);
+  const withFocus = rows.filter((r) => (r.focus || 0) > 0);
+  const focusMax = withFocus.reduce((m, r) => Math.max(m, r.focus || 0), 0);
   h += '<div class="kpis">' +
     kpi("担当者", num(D.meta.n_consultant) + '<span class="u">名</span>',
         /* 🔴 上の数字と下の表の合計が合うように、外した分をここに書く。
@@ -2786,23 +2785,38 @@ function renderTeam(D) {
           ? "稼働中のうち担当が取れない " + num(D.meta.unknown_owner) + " 件は下の表に出していません"
           : "稼働中の案件を持っている担当者") +
     /* 🔴 母数が小さい人を外した結果なので、見出しにそう書く。書かないと、表の先頭（0.0%）と
-       食い違って見えた（2026-09-24 実機） */
-    kpi("接触率がいちばん低い（母数が小さい人を除く）", worst ? esc(worst.consultant) : DASH,
-        (worst ? pct1(worst.contact_rate) + "（" + num(worst.contact_touched) + "/" +
-                 num(worst.contact_months) + " か月）" : "") +
-        (worstPick.skipped
-          ? "<br>母数が小さい " + num(worstPick.skipped) + " 名は候補から外しています（下の図と同じ扱い）"
+       食い違って見えた（2026-09-24 実機）。線（40%）は下の図の帯と同じ取り決め */
+    kpi("接触率 40% 未満の担当者（母数が小さい人を除く）", num(low.n) + '<span class="u">名</span>',
+        (low.n ? "持ち案件 " + num(low.deals) + " 件。" : "") + "線（40%）は下の図の帯と同じ取り決めです" +
+        (low.skipped
+          ? "<br>母数が小さい " + num(low.skipped) + " 名は候補から外しています（下の図と同じ扱い）"
           : ""),
-        /* 色は表・図と同じ帯で付ける（40%未満=赤 / 70%未満=山吹）。最下位だから赤、にはしない */
-        worst ? contactKind(worst.contact_rate) : "") +
-    kpi("注力案件をいちばん持っている", focusTop ? esc(focusTop.consultant) : DASH,
-        focusTop ? num(focusTop.focus) + " 件" : "") +
+        /* 赤は「増えるとまずい件数」だけ。0 名なら色を付けない */
+        low.n ? "bad" : "") +
+    kpi("注力案件を持つ担当者", num(withFocus.length) + '<span class="u">名</span>',
+        withFocus.length ? "いちばん多い人で " + num(focusMax) + " 件" : "注力案件を持つ担当者はいません") +
     /* 🔴 補足に「同じ日に複数行あって担当が割れる取引 38 件」（退職者とは別の話）が混ざっていた
        （2026-09-23 実機）。担当の割れは下の「この一覧の決まりごと」に移した */
     kpi("退職者のまま", num(D.meta.retired_deals) + '<span class="u">件</span>',
         "担当が退職者のままの稼働中の案件（その担当 " + num(D.meta.retired_people) + " 名）",
         D.meta.retired_deals ? "warn" : "") +
     "</div>";
+
+  /* ---- 一覧（本題）。図より先に出す ----
+     🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 名前を押せる表が KPI 4 枚と図の下（y=1,693）で、
+     マネージャーの流れ（一覧 → 名前 → 担当者ごとの案件）が 1 画面目から始まらなかった。KPI → 表 → 図 の順にする */
+  h += sec("表", "コンサルタント一覧");
+  /* 列が増えたときにページ全体が流れないよう、③と同じく枠の中で収める */
+  let t = '<table id="team-tbl"><thead><tr>';
+  for (const c of TEAM_COLS) t += sortTh(c, k, asc);
+  t += "</tr></thead><tbody>";
+  for (const r of rows) {
+    t += "<tr>";
+    for (const c of TEAM_COLS) t += '<td' + (c.n ? ' class="n"' : "") + ">" + c.fmt(r) + "</td>";
+    t += "</tr>";
+  }
+  t += "</tbody></table>";
+  h += scroll(t, 680);
 
   /* ---- 接触率の横棒（低い順）---- */
   h += sec("図", "接触率（低い順）");
@@ -2833,20 +2847,6 @@ function renderTeam(D) {
         dropped.map((r) => esc(r.consultant) + " " + num(r.contact_months) + "か月").join(" / ") +
         "）。" + esc(D.small_n_rule || "") + "</i>"
       : ""));
-
-  /* ---- 一覧（本題）---- */
-  h += sec("表", "コンサルタント一覧");
-  /* 列が増えたときにページ全体が流れないよう、③と同じく枠の中で収める */
-  let t = '<table id="team-tbl"><thead><tr>';
-  for (const c of TEAM_COLS) t += sortTh(c, k, asc);
-  t += "</tr></thead><tbody>";
-  for (const r of rows) {
-    t += "<tr>";
-    for (const c of TEAM_COLS) t += '<td' + (c.n ? ' class="n"' : "") + ">" + c.fmt(r) + "</td>";
-    t += "</tr>";
-  }
-  t += "</tbody></table>";
-  h += scroll(t, 680);
 
   h += note("def", "この一覧の決まりごと",
     esc(dispText(D.owner_rule)) + "<br>" + esc(D.focus_rule) +
@@ -5554,23 +5554,23 @@ function renderBoard(D) {
     h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
       "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
       (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + "</div>";
-    h += sec("図", "名札の分布");
-    h += flagFig(D, on ? shown : null);
+    /* 表が主役の画面なので表を先に、図はその下（08 の S-8。案件そのものと同じ順） */
     h += sec("表", "この担当者の案件");
-    h += note("def", "この並びについて", esc(D.meta.order_rule));
-    h += cpaBandNote(D.meta);
     h += shown.length
       ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
       : '<div class="empty">この条件に当てはまる案件はありません。' +
         "「絞り込みを外す」で戻せます。</div>";
+    h += note("def", "この並びについて", esc(D.meta.order_rule));
+    h += cpaBandNote(D.meta);
+    h += sec("図", "名札の分布");
+    h += flagFig(D, on ? shown : null);
     /* 稼働中の件数は頭の1行と「N 件中 M 件を表示」にあるので、末尾では繰り返さない */
     return h + foot(D.meta, false, "");
   }
   let h = sec("問い", "いま、それぞれの案件はどこにいるか") +
     '<div class="lede">稼働中 ' + num(D.rows.length) +
     " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。" +
-    "<b>担当・名札・満了までの期間・案件名で絞り込めます。</b></div>";
-  h += note("def", "この並びについて", esc(D.meta.order_rule));
+    "<b>担当・名札・MTG途絶の帯・満了までの期間・案件名で絞り込めます。</b></div>";
 
   h += boardFilterBar(D);
   /* 🔴 絞り込んだら、何件中の何件を見ているのかを必ず出す。
@@ -5579,10 +5579,9 @@ function renderBoard(D) {
     "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
     (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + "</div>";
 
-  h += sec("図", "名札の分布");
-  h += flagFig(D, on ? shown : null);
+  /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表が図「名札の分布」の下（y=1,391）で、行を特定する画面なのに
+     1 画面目に表が無かった。絞り込み → 件数行 → 表 → 図 の順にする。決まりごと（並び・採用単価の比べ方）は表の直下に */
   h += sec("表", "案件の立ち位置");
-  h += cpaBandNote(D.meta);
   /* 🔴 14列あるので、枠に入れないと**ページ全体が横に流れる**
      （2026-09-22 実測: 1440px幅で document が 2640px になっていた）。
      表は枠の中だけで横スクロールさせる。 */
@@ -5590,6 +5589,11 @@ function renderBoard(D) {
     ? scroll(boardTable(shown, boardSort, "board-tbl"), 640)
     : '<div class="empty">この条件に当てはまる案件はありません。' +
       "「絞り込みを外す」で戻せます。</div>";
+  h += note("def", "この並びについて", esc(D.meta.order_rule));
+  h += cpaBandNote(D.meta);
+
+  h += sec("図", "名札の分布");
+  h += flagFig(D, on ? shown : null);
   return h + foot(D.meta);
 }
 
@@ -5895,7 +5899,9 @@ function renderHandover(D) {
         "差が取れた " + num(D.n_gap) + " 件で") +
     "</div>";
 
-  h += renderHandoverContact(D);
+  /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表「交代の記録」が 2 つ目の問い（交代の前後の接触）と図 3 つの下
+     （y=4,131）だった。問い1 → KPI → 表 交代の記録 → 図 反映 → 問い2（前後比較。「証拠ではありません」）の順にする */
+  h += renderHandoverTable(D);
 
   const rd = D.reflected_dist || [];
   h += sec("図", "HubSpot の担当者欄に反映されたか");
@@ -5910,7 +5916,15 @@ function renderHandover(D) {
     '<i class="full">棒の左に経緯の言葉が書いてあります。' +
     "<b>色が見分けられなくても読めます。</b></i>");
 
-  h += sec("表", "交代の記録（" + num(D.rows.length) + " 件）");
+  /* 2 つ目の問い（交代の前後で接触は増えたか減ったか）は末尾に。毎朝見る表ではなく、読み物の側 */
+  h += renderHandoverContact(D);
+  /* 末尾も同じ。meta.n_active は「交代のうち案件が稼働中のもの」で、全体の稼働中ではない */
+  return h + foot(D.meta, false, "記録された交代 " + num(D.meta.n) + " 件（うち、案件がいまも稼働中のもの " +
+    num(D.meta.n_active) + " 件）");
+}
+/* 表「交代の記録」。renderHandover が KPI の直後に置く（S-8） */
+function renderHandoverTable(D) {
+  let h = sec("表", "交代の記録（" + num(D.rows.length) + " 件）");
   /* 氏名不明が2人以上なら番号で分ける。番号は「交代の前後の接触」の担当者のまとめと同じ人に同じ番号 */
   const manyU = !!(D.meta && D.meta.n_unresolved_people > 1);
   if (D.rows.some((r) => r.from_unresolved || r.to_unresolved))
@@ -5934,10 +5948,8 @@ function renderHandover(D) {
       /* 🔴 状態の言葉はサーバの state_label を使う。is_active だけで分けると、
          取引が見つからない行まで「決着済」と出ていた（N7 の残り） */
       stateTag(r),
-    ])), 640);
-  /* 末尾も同じ。meta.n_active は「交代のうち案件が稼働中のもの」で、全体の稼働中ではない */
-  return h + foot(D.meta, false, "記録された交代 " + num(D.meta.n) + " 件（うち、案件がいまも稼働中のもの " +
-    num(D.meta.n_active) + " 件）");
+    ]), "", "ho-tbl"), 640);
+  return h;
 }
 
 /* ---------------------------------------------------------------- 定義と検証 */
