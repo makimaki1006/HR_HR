@@ -24,8 +24,11 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 
+/* 逆証明用: CS_PAGE_TEMPLATE に別のファイル（直す前の版など）を渡すと、そちらを検査する（consulting_page_js.js と同じ）。
+   直す前の版で新しい見張りが落ちなければ、その見張りは何も守っていない */
 const html = fs.readFileSync(
-  path.join(__dirname, "..", "templates/tabs/cs_dashboard.html"), "utf-8");
+  process.env.CS_PAGE_TEMPLATE ? path.resolve(process.env.CS_PAGE_TEMPLATE)
+    : path.join(__dirname, "..", "templates/tabs/cs_dashboard.html"), "utf-8");
 const js = [...html.replace(/\{\{[^}]*\}\}/g, '"__askama__"')
   .matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
 
@@ -3398,7 +3401,8 @@ check("S-3: 今日動く先の3表は8列（案件・名札・担当・満了ま
     const t = h.slice(at, h.indexOf("</table>", at));
     const ths = (t.split("</thead>")[0].match(/<th[\s>]/g) || []).length;
     ok(ths === 8, id + " の列数が " + ths + "（8 でない）");
-    ok(/<th class="wl sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の名札の列が折り返す列（wl）でない");
+    // 名札は折り返す列。段2 A で wl（22em）から今日動く先だけの wf（24em・短い名札）に変えた。折り返す性質は同じ
+    ok(/<th class="wf sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の名札の列が折り返す列（wf）でない");
     const tds = t.split("<tbody>")[1].split("</tr>")[0];
     ok(/<td class="wl"><a class="deallink"/.test(tds), id + " の案件名の列が折り返す列（wl）でない: " + tds.slice(0, 120));
   }
@@ -4138,6 +4142,55 @@ check("S-12: 表の枠は、実際にはみ出しているときだけ Tab で�
   ok(attrs["aria-label"] === "表（スクロールできる表の枠）", "#cs-main の外の見出しを拾っている: " + attrs["aria-label"]);
   // 描いた時点（scroll()）では付けない。枠の大きさは描いた後にしか測れない
   ok(!/tabindex|role="region"/.test(run('scroll(table([{ t: "a" }], [[1]]), 400)')), "描いた時点で tabindex / role を付けている");
+});
+
+/* ================================================================ 段2 表と図（2026-09-28）: A / M-8 / M-11 / S-2 の残り */
+check("段2 A: 今日動く先の名札は短い書き方（正式名は title と決まりごとの畳み）を詰めた枡（tag c）で 24em の列（wf）に並べる。案件そのものは正式な名札のまま", () => {
+  const row = TD_ROW({ deal_id: "a1", name: "案件A", n_flags: 5, flags: ["NPSが4以下", "接触が30日以上空いている",
+    "採用単価が同じ進捗帯の1.5倍以上", "MTGが90日以上途絶", "採用目標の半分に届いていない"] });
+  const odd = TD_ROW({ deal_id: "a2", name: "案件B", n_flags: 1, flags: ["見たことのない名札"] });
+  ctx.__A1 = { rows: [row, odd], expiring_this_week: [], started_this_week: [],
+    meta: { n_hit: 2, n_shown: 2, n_active: 604, filter_rule: "", order_rule: "", new_deal_rule: "", mtg_gap: {} } };
+  run("todayConsultant = '';");
+  const h = run("renderToday(__A1)");
+  const t = h.slice(h.indexOf('<table id="today-tbl"'), h.indexOf("</table>", h.indexOf('<table id="today-tbl"')));
+  // 短い名札。正式な名札と分類の言葉を title に持つ abbr。色は図の分類（flagGroup）と同じ（MTG 途絶は緋）
+  ok(/<td class="wf"><abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="NPSが4以下（関係が危ない）">NPS4以下<\/abbr>/.test(t),
+    "NPSが4以下 が短い名札（abbr.tag.c、title に正式名と分類）になっていない: " + t.slice(t.indexOf('<td class="wf">'), t.indexOf('<td class="wf">') + 200));
+  ok(/<abbr class="tag c" style="border-color:var\(--hi\);color:var\(--hi\)" title="MTGが90日以上途絶（関係が危ない）">MTG90日以上途絶<\/abbr>/.test(t),
+    "MTGが90日以上途絶 の枡が図の分類（緋・関係が危ない）と食い違う（前は紫だった）");
+  ok(/title="接触が30日以上空いている（時間が迫っている）">接触30日以上空き<\/abbr>/.test(t) &&
+     /title="採用目標の半分に届いていない（成果が出ていない）">採用目標の半分未満<\/abbr>/.test(t) &&
+     /title="採用単価が同じ進捗帯の1.5倍以上（成果が出ていない）">採用単価1.5倍以上<\/abbr>/.test(t), "短い名札の書き方が違う");
+  // 表に無い名札は略さず・落とさず、そのまま（span）。分類の言葉は title に
+  ok(/<span class="tag c" style="[^"]*" title="成果が出ていない">見たことのない名札<\/span>/.test(t), "知らない名札を略している・落としている");
+  ok(!t.includes('class="tag"'), "今日動く先に詰めていない枡（.tag）が残っている");
+  // 決まりごとの畳みに略し方の一覧（短い ＝ 正式）。表に出ている名札だけ
+  const rule = h.slice(h.indexOf('id="td-rule"'), h.indexOf("</details>", h.indexOf('id="td-rule"')));
+  ok(rule.includes("名札の略し方") && rule.includes("NPS4以下 ＝ NPSが4以下") && rule.includes("MTG90日以上途絶 ＝ MTGが90日以上途絶"),
+    "決まりごとの畳みに名札の略し方が無い");
+  ok(!rule.includes("満了60日以内 ＝"), "表に出ていない名札まで略し方に並べている");
+  ok(rule.includes("色が見分けられなくても読めます"), "色だけで伝えていないことが書かれていない");
+  // 案件そのもの（BOARD_COLS）は正式な名札のまま。枡の色は今日動く先と同じ決め方（flagGroup）
+  const b = run('boardTable(__A1.rows, { key: "n_flags", asc: false }, "board-tbl")');
+  ok(b.includes('<td class="wl"><span class="tag" style="border-color:var(--hi);color:var(--hi)" title="関係が危ない">NPSが4以下</span>'),
+    "案件そのものの名札が正式名のままでない、または枡の色が図の分類と違う");
+  ok(b.includes('style="border-color:var(--hi);color:var(--hi)" title="関係が危ない">MTGが90日以上途絶</span>'),
+    "案件そのものの MTG 途絶の枡が図の分類（緋）でない");
+  ok(run('tags(["満了90日前でMTGが30日以上途絶"])').includes('border-color:var(--hi)'), "満了90日前でMTGが30日以上途絶 の枡が図の分類（緋。MTG を先に見る）と食い違う");
+  ok(!b.includes("tag c") && !b.includes("<abbr"), "案件そのものまで短い名札にしている（15 列の表は横スクロールなので要らない）");
+  // 名札の文の正本はサーバ。Rust が出せる名札は全部 FLAG_SHORT にある（新しい名札が正式名のまま長く出るのを見張る）
+  const rs = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/routes.rs"), "utf-8");
+  const md = fs.readFileSync(path.join(__dirname, "..", "src/handlers/cs_dashboard/mod.rs"), "utf-8");
+  const labels = [...rs.matchAll(/flags\.push\("([^"]+)"\)/g)].map((m) => m[1])
+    .concat([...md.matchAll(/MtgBand::(?:Critical|Red|Yellow) => "([^"]+)"/g)].map((m) => m[1]));
+  ok(labels.length >= 10, "Rust から名札の文が拾えない（形が変わった？）: " + labels.length);
+  const missing = labels.filter((l) => !run("FLAG_SHORT[" + JSON.stringify(l) + "]"));
+  ok(!missing.length, "サーバの名札に短い書き方が無い: " + missing.join(" / "));
+  // CSS: 列（wf）と枡（tag c）の定義がある。文字は 11px を下回らない
+  const css = html.split("<style>")[1].split("</style>")[0];
+  ok(/td\.wf\{[^}]*white-space:normal;[^}]*max-width:24em/.test(css), "td.wf の定義が無い（24em で折り返す）");
+  ok(/\.tag\.c\{[^}]*padding:0 5px/.test(css) && /abbr\.tag\{[^}]*text-decoration:none/.test(css), ".tag.c / abbr.tag の定義が無い");
 });
 
 Promise.all(pendingChecks).then(() => {
