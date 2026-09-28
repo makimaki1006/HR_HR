@@ -124,8 +124,15 @@ function boot(hash, extra) {
     constructor(id) {
       this.id = id; this.innerHTML = ""; this.style = {}; this.className = "";
       this.dataset = {}; this.value = ""; this.checked = false; this.focused = 0;
+      this.listeners = {};   // addEventListener で付いたもの（compositionend など、on〜 の属性が無いイベント）
+      this._disabled = false;
     }
     focus() { this.focused++; doc.activeElement = this; }
+    /* 🔴 Chromium は disabled になった要素からフォーカスを外す（activeElement が body になる）。
+       「読み直す」を押した後にフォーカスが戻らなかった原因がこれなので、偽 DOM でも同じに振る舞わせる（2026-09-28） */
+    get disabled() { return this._disabled; }
+    set disabled(v) { this._disabled = !!v; if (v && doc.activeElement === this) doc.activeElement = doc.body; }
+    addEventListener(k, f) { (this.listeners[k] = this.listeners[k] || []).push(f); }
     getAttribute(k) { return k === "id" ? this.id : null; }
     querySelectorAll() { return []; }
     closest() { return null; }
@@ -1552,6 +1559,115 @@ check("D-1a", "担当を選んでいるときに MTG 途絶の札を押すと、
   if (main.indexOf("3 件中 1 件") < 0 || main.indexOf("担当 担当A") < 0 || main.indexOf("MTG途絶 MTGが90日以上途絶") < 0) throw new Error("担当と帯で絞った件数と言葉が出ていない");
   if (main.indexOf("途絶A") < 0 || main.indexOf("途絶B") >= 0 || main.indexOf("元気A") >= 0) throw new Error("担当か帯の外の行が残っている");
   t.R('todayConsultant = ""; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
+});
+
+/* ================================================================ UI/UX 改善 段1（2026-09-28、handover 08） */
+check("S-5", "API の meta.hubspot_portal_id を最初の応答で覚え、表の案件名の横に HubSpot への HS が付く", async () => {
+  const t = boot();
+  t.R('go("deal", "board")');
+  const req = t.fetched[t.fetched.length - 1];
+  req.resolve(jsonRes({ meta: { flag_counts: [], hubspot_portal_id: "23708633" },
+    rows: [boardRow({ deal_id: "70000000001", name: "詳細テスト案件" })] }));
+  await tick(); await tick();
+  if (t.R("hsPortal") !== "23708633") throw new Error("meta.hubspot_portal_id を覚えていない: " + t.R("hsPortal"));
+  const h = t.reg["cs-main"].innerHTML;
+  const cell = h.slice(h.indexOf('<a class="deallink" href="#deal/detail?id=70000000001">'));
+  const hs = cell.slice(cell.indexOf('<a class="hslink"'), cell.indexOf("</a>", cell.indexOf('<a class="hslink"')) + 4);
+  if (!hs.includes('href="https://app.hubspot.com/contacts/23708633/record/0-3/70000000001/"'))
+    throw new Error("案件名の横の HS が HubSpot の取引ページを指していない: " + hs);
+  if (!/target="_blank"/.test(hs) || !/rel="noopener"/.test(hs)) throw new Error("HS が新しいタブ＋noopener でない: " + hs);
+  /* 応答に portal_id が無ければ（古いサーバ）リンクを出さない。前の値も消さない（同じサーバの応答は全部同じ値） */
+  const t2 = boot();
+  t2.R('go("deal", "board")');
+  t2.fetched[t2.fetched.length - 1].resolve(jsonRes({ meta: { flag_counts: [] }, rows: [boardRow({ deal_id: "70000000001", name: "X" })] }));
+  await tick(); await tick();
+  if (t2.reg["cs-main"].innerHTML.indexOf("hslink") >= 0) throw new Error("portal_id の無い応答で HubSpot のリンクを出している");
+});
+
+check("S-7", "上のメニューを押すと、そのメニューで最後に開いた項目へ戻る（初めてなら先頭）", async () => {
+  const t = boot();
+  t.R('go("study", "phone")');
+  if (t.R("cur.view") !== "phone") throw new Error("前提: 電話を開けていない");
+  t.R('go("deal", null)');   // 上のメニュー「案件」を押す（初めてなので先頭＝今日動く先）
+  if (t.R("cur.view") !== "today") throw new Error("案件を初めて押したのに先頭（今日動く先）でない: " + t.R("cur.view"));
+  t.R('go("study", null)');  // 上のメニュー「集計」を押す → 最後に見ていた「電話」へ
+  if (t.R("cur.view") !== "phone") throw new Error("集計を押し直したのに最後に見た「電話」へ戻らない: " + t.R("cur.view"));
+  if (t.loc.hash !== "#study/phone") throw new Error("URL が最後に見た項目になっていない: " + t.loc.hash);
+  /* 項目を名指しした移動（goLink・左の項目）はそのまま効く */
+  t.R('go("study", "dq")');
+  if (t.R("cur.view") !== "dq") throw new Error("項目を名指ししたのに別の項目が開く");
+  t.R('go("deal", null)');
+  t.R('go("study", null)');
+  if (t.R("cur.view") !== "dq") throw new Error("最後に見た項目が更新されていない: " + t.R("cur.view"));
+});
+
+check("S-11", "「読み直す」を押すと押せなくなり（取り直し中…）、refresh=1 で1回だけ取り直す", async () => {
+  const t = boot();
+  t.R('cur = { menu: "deal", view: "today" }');
+  const rl = new t.El("cs-reload"); t.reg["cs-reload"] = rl;
+  t.R("wire(viewOf('deal', 'today'))");
+  if (typeof rl.onclick !== "function") throw new Error("読み直すに操作が付いていない");
+  const n0 = t.fetched.length;
+  rl.onclick();
+  if (rl.disabled !== true) throw new Error("押した後に押せる状態のまま");
+  if (rl.textContent !== "取り直し中…") throw new Error("押した後の文言が「取り直し中…」でない: " + rl.textContent);
+  const u = t.fetched[t.fetched.length - 1].url;
+  if (t.fetched.length !== n0 + 1 || u.indexOf("refresh=1") < 0) throw new Error("refresh=1 で取り直していない: " + u);
+  if (t.reg["cs-main"].innerHTML.indexOf("取り直し中") < 0 || t.reg["cs-main"].innerHTML.indexOf("20 秒") < 0)
+    throw new Error("本文に取り直し中の断り（20 秒ほど）が出ていない: " + t.reg["cs-main"].innerHTML);
+  rl.onclick(); rl.onclick();   // 連打
+  if (t.fetched.length !== n0 + 1) throw new Error("連打で取り直しが " + (t.fetched.length - n0) + " 回走った");
+});
+
+check("S-11", "キーボード（Enter）で「読み直す」を押しても、取り直した後にフォーカスが読み直すへ戻る（U9 の仕組みを壊さない）", async () => {
+  /* 🔴 直す前は onclick が load(true) より先に disabled にしていた。Chromium は disabled になった要素からフォーカスを
+     外すので、load() が覚える activeElement が body になり、描き直した後に戻す先（focusKey）が無かった
+     （2026-09-28 Playwright 1440px 実測: before=cs-reload → after=BODY。直す前の 8a1c5b3 は cs-reload に戻っていた） */
+  const t = boot();
+  t.R('cur = { menu: "deal", view: "today" }');
+  const rl = new t.El("cs-reload"); t.reg["cs-reload"] = rl;
+  t.R("wire(viewOf('deal', 'today'))");
+  rl.focus();                  // Tab で読み直すに止まっている
+  rl.onclick();                // Enter
+  // 描き直すと DOM が入れ替わる。新しい読み直すは別の要素になる
+  const rl2 = new t.El("cs-reload");
+  t.qs["#cs-reload"] = rl2; t.reg["cs-reload"] = rl2;
+  t.fetched[t.fetched.length - 1].resolve(jsonRes(todayPayload([])));
+  await tick(); await tick(); await tick();
+  if (!rl2.focused) throw new Error("取り直した後、フォーカスが読み直すへ戻らない（body に落ちる）");
+});
+
+check("S-13", "案件名の検索欄は IME の変換中に絞り込まず確定で当てる。案件の詳細の探す欄は変換確定の Enter で探さない", async () => {
+  const t = boot();
+  t.R('cur = { menu: "deal", view: "board" }; boardCache = { meta: { flag_counts: [] }, rows: [] };');
+  const q = new t.El("bf-q"); t.reg["bf-q"] = q;
+  t.R("wire(viewOf('deal', 'board'))");
+  if (typeof q.oninput !== "function") throw new Error("検索欄に oninput が付いていない");
+  const n0 = t.timers.length;
+  q.value = "か"; q.oninput({ isComposing: true });
+  if (t.timers.length !== n0) throw new Error("IME の変換中（isComposing）に絞り込みを予約している");
+  /* 🔴 compositionend は addEventListener で付いていること。`q.oncompositionend = …` は HTML の GlobalEventHandlers に
+     無い（Chromium で 'oncompositionend' in input → false）ので一度も呼ばれず、IME で確定しても絞り込みが当たらなかった
+     （2026-09-28 CDP 実測: 確定後も 604 行のまま）。前の見張りは typeof q.oncompositionend を見ていて、その壊れた
+     書き方を固定していた。コメントを除いた JS に、その書き方が無いことも見る */
+  const ce = (q.listeners.compositionend || [])[0];
+  if (typeof ce !== "function") throw new Error("変換の確定（compositionend）を addEventListener で受けていない");
+  const noComment = mainJs.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  if (/\.oncompositionend\s*=/.test(noComment)) throw new Error("`.oncompositionend =` が残っている（この属性は無く、一度も呼ばれない）");
+  q.value = "介護"; ce({ type: "compositionend" });
+  if (t.timers.length !== n0 + 1) throw new Error("変換の確定で絞り込みを予約していない");
+  q.oninput({});   // 英数の直接入力（変換なし）
+  if (t.timers.length !== n0 + 2) throw new Error("変換の無い入力で絞り込みを予約していない");
+  /* 案件の詳細の探す欄 */
+  const t2 = boot();
+  t2.R('go("deal", "detail")');
+  const qi = new t2.El("dd-q"); t2.reg["dd-q"] = qi;
+  t2.R("wire(viewOf('deal', 'detail'))");
+  const m0 = t2.fetched.length;
+  qi.value = "てすと"; qi.onkeydown({ key: "Enter", isComposing: true });
+  if (t2.fetched.length !== m0) throw new Error("変換を確定する Enter で探しに行っている");
+  qi.onkeydown({ key: "Enter" });
+  if (t2.fetched.length !== m0 + 1) throw new Error("確定後の Enter で探しに行かない");
 });
 
 (async () => {

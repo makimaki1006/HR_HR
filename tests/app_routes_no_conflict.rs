@@ -652,14 +652,16 @@ fn menus(html: &str) -> Vec<(String, Vec<String>)> {
         if !t.starts_with("{ key:") || !t.contains("label:") {
             continue;
         }
-        // メニューの行だけが丸数字（no:）を持ち、項目の行は path: を持つ
-        if t.contains(" no: ") {
-            out.push((take_label(t), Vec::new()));
-        } else if t.contains("path:") {
+        // 項目の行だけが path: を持つ（API を持たない「定義と検証」も path: null で持つ）。
+        // 残りがメニューの行。前はメニューの行を丸数字（no:）で見分けていたが、
+        // 番号は 2026-09-28 に画面から外した（UI/UX 改善 S-7）
+        if t.contains("path:") {
             out.last_mut()
                 .expect("メニューより先に項目が出てきた")
                 .1
                 .push(take_label(t));
+        } else {
+            out.push((take_label(t), Vec::new()));
         }
     }
     out
@@ -763,6 +765,37 @@ fn 開いたときの既定が今日動く先() {
     assert!(
         html.contains("|| m.views[0]"),
         "項目を省いたときに先頭を開く作りが無い"
+    );
+}
+
+/// 🔴 左の項目名の後ろの番号（「今日動く先 1」）と上のメニューの丸数字（①②③）を出さないこと。
+///
+/// 番号は件数に見え（400px では次の項目とくっついていた）、体系が2つあって本文は名前で
+/// 参照する方針（goLink）と揃わなかった（2026-09-28 UI/UX 改善 S-7、handover 08）。
+/// 上のメニューを押したときは、そのメニューで最後に開いた項目へ戻る（`lastView`）。
+#[test]
+fn サイドバーと上のメニューに番号を出さない() {
+    let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    let js = html.split_once("<script>").map(|(_, r)| r).unwrap_or(&html);
+    assert!(
+        !js.contains(r#"<span class="n" aria-hidden="true">"#),
+        "左の項目名の後ろに番号（.n）が残っている"
+    );
+    assert!(
+        !js.contains(r#"'<span class="no">' + m.no"#),
+        "上のメニューに丸数字（m.no）が残っている"
+    );
+    // MENUS に丸数字の欄（no:）を持たせない（画面に出ないものを持たない）
+    let menus = js
+        .split_once("const MENUS = [")
+        .and_then(|(_, r)| r.split_once("\n];"))
+        .map(|(m, _)| m)
+        .expect("MENUS");
+    assert!(!menus.contains(" no: "), "MENUS に no: が残っている");
+    // 上のメニューは最後に開いた項目へ戻す。項目を省いたときの既定（先頭）は残す
+    assert!(
+        html.contains("viewOf(m.key, lastView[m.key]) || m.views[0]"),
+        "上のメニューが最後に開いた項目へ戻る作り（lastView）が無い"
     );
 }
 
