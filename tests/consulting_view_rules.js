@@ -3359,6 +3359,40 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
   ok(jsNoComment.includes("AI 要約（誤りを含むことがあります）"), "要約の見出しに AI 要約の断りが無い");
 });
 
+/* ================================================================ UI/UX 改善 段1（2026-09-28、handover 08 の S-4〜S-13） */
+check("S-4: 集計の4表（NPS低・沈黙・MTG未実施・最優先）の案件名が案件の詳細へのリンク", () => {
+  /* 直す前は 4 か所とも esc(r.name || r.deal_id) の文字だけで行き止まりだった（08 の S-4）。
+     入力は上の __FO / __PH / __RU / __OUT を複製し、行だけ差し替える（形は routes.rs の build_* のまま） */
+  const link = (id, name) => '<a class="deallink" href="#deal/detail?id=' + id + '">' + name + "</a>";
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  fo.nps_low.rows = [{ deal_id: "80000000011", name: "NPS低の案件", stage: "定期1", nps: 0, nps_month: "2026-09",
+    amount: 100000, days_to_expiry: 10, n_contact: 1 }];
+  fo.nps_low.n = 1;
+  ctx.__S4FO = fo;
+  const f = run("renderFocus(__S4FO)");
+  ok(f.includes(link("80000000011", "NPS低の案件")), "いま見るべき顧客（NPS低）の案件名がリンクでない");
+  const ph = JSON.parse(JSON.stringify(ctx.__PH));
+  ph.silent = { n: 1, rule: "", rows: [{ deal_id: "80000000012", name: "沈黙の案件", stage: "定期1", amount: 100000,
+    n_calls: 0, n_contact: 0, last_contact: null, days_since: null }] };
+  ctx.__S4PH = ph;
+  ok(run("renderPhone(__S4PH)").includes(link("80000000012", "沈黙の案件")), "電話（沈黙している取引）の案件名がリンクでない");
+  const ru = JSON.parse(JSON.stringify(ctx.__RU));
+  ru.no_mtg = { n: 1, first_active: 10, rate: 10, note: "", rows: [{ deal_id: "80000000013", name: "MTG未実施の案件",
+    stage: "定期1", amount: 100000, days_since_start: 40 }] };
+  ctx.__S4RU = ru;
+  ok(run("renderRampup(__S4RU)").includes(link("80000000013", "MTG未実施の案件")), "立ち上がり（MTG未実施）の案件名がリンクでない");
+  const out = JSON.parse(JSON.stringify(ctx.__OUT));
+  out.risk.top = [{ deal_id: "80000000014", name: "最優先の案件", stage: "定期1", amount: 100000, days_to_expiry: 10,
+    ax3w: "放置", never_after_start: false, n_contact: 0 }];
+  ctx.__S4OUT = out;
+  ok(run("renderOutcome(__S4OUT)").includes(link("80000000014", "最優先の案件")), "成果とリスク（最優先）の案件名がリンクでない");
+  /* 取引名が空の行は、前は取引ID（内部ID）をそのまま画面に出していた。dealLink は「取引名なし」と書く */
+  fo.nps_low.rows[0].name = null;
+  ctx.__S4FO2 = fo;
+  const f2 = run("renderFocus(__S4FO2)");
+  ok(!/>[^<]*80000000011[^<]*</.test(f2) && f2.includes("取引名なし"), "取引名が空の行で取引IDが画面の文字に出ている");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
