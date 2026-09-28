@@ -113,17 +113,28 @@
   .mincho{ font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif; }
   .wrap{ max-width:1560px; margin:0 auto; padding:0 26px 120px; }
 
-  /* ---------------- 紙の上端 ---------------- */
-  .masthead{ border-bottom:1px solid var(--ink); margin:0 0 var(--space-1); padding:26px 0 var(--space-3);
-             display:flex; align-items:flex-end; justify-content:space-between;
-             gap:20px; flex-wrap:wrap; }
-  .masthead h1{ font-size:27px; margin:0; font-weight:600; letter-spacing:.06em;
-                line-height:1.25; }
-  /* データの鮮度。毎朝見る画面なので、見出しのすぐ下に固定で出す */
+  /* ---------------- 紙の上端 ----------------
+     M-1（2026-09-28 診断、fixture 1440×900）: 題字 27px の行が 75px、その下に鮮度の帯 65px・色と印の意味 40px・
+     上のメニュー 45px・母集団 40px・操作列 40px と積んで、本題の見出しが y≈357（400px では 1 画面目がほぼ共通枠）。
+     題字を 18px の 1 行にし、鮮度（緑のとき）と「色と印の意味」の畳みを同じ行に並べる。
+     🔴 鮮度が黄・赤のときは 2 行の帯を題字の下に戻す（flex-basis:100% で次の行へ）。消さない（規律「いつのデータか」） */
+  .masthead{ border-bottom:1px solid var(--ink); margin:0 0 var(--space-1); padding:var(--space-3) 0 var(--space-2);
+             display:flex; align-items:center; justify-content:flex-start;
+             gap:var(--space-1) var(--space-4); flex-wrap:wrap; }
+  .masthead h1{ font-size:18px; margin:0; font-weight:600; letter-spacing:.06em;
+                line-height:1.3; }
+  .masthead .stamp{ margin-left:auto; }
+  /* データの鮮度。毎朝見る画面なので、題字と同じ行（緑）か、そのすぐ下（黄・赤）に固定で出す */
   .fresh{ font-size:12.5px; line-height:1.7; padding:7px 11px; margin:0 0 var(--space-2);
     border:1px solid var(--rule); border-left-width:3px; background:var(--panel);
     color:var(--ink-2); font-variant-numeric:tabular-nums; }
   .fresh:empty{ display:none; }
+  .masthead .fresh{ margin:0; }
+  .masthead .fresh.ok{ flex:0 1 auto; padding:3px 10px; }
+  .masthead .fresh.warn, .masthead .fresh.bad{ flex:1 1 100%; order:5; }
+  /* 「色と印の意味」の畳みは題字の行の 1 語。開いたら次の行に全幅で出す（鮮度の帯より後ろ） */
+  .masthead > details.fold{ margin:0; flex:0 0 auto; }
+  .masthead > details.fold[open]{ flex:1 1 100%; order:6; }
   .fresh b{ color:var(--ink); font-weight:600; }
   .fresh.ok{ border-left-color:var(--midori); }
   .fresh.warn{ border-left-color:var(--ki); }
@@ -148,15 +159,11 @@
   .pick input:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   .pick span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .count-line b{ color:var(--ink); }
-  .masthead h1 span{ font-size:12px; letter-spacing:.22em; color:var(--ink-2);
-                     border:1px solid var(--rule); border-radius:3px;
-                     padding:2px var(--space-2); margin-left:var(--space-3); vertical-align:5px;
-                     font-family:"BIZ UDPGothic","Yu Gothic UI",sans-serif; }
   .stamp{ font-size:11.5px; color:var(--ink-2); text-align:right; line-height:1.7;
           font-variant-numeric:tabular-nums; }
   .stamp b{ color:var(--ink); font-weight:600; }
   .rule-thin{ height:3px; border-top:1px solid var(--ink); border-bottom:1px solid var(--rule);
-              margin:0 0 18px; }
+              margin:0 0 var(--space-2); }   /* 18px → 8px（M-1。共通枠を詰める） */
 
   /* ---------------- 凡例 ---------------- */
   .legend{ display:flex; gap:18px; flex-wrap:wrap; align-items:center;
@@ -168,10 +175,11 @@
   .legend i.full{ flex:1 0 100%; display:block; line-height:1.7; }
 
   /* ---------------- タブ ---------------- */
-  .tabs{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 26px;
+  /* 下の余白 26px → 12px、押せる範囲 11/10px → 8/7px（M-1。約 36px で WCAG 2.2 AA の 24px は満たす） */
+  .tabs{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 var(--space-3);
          border-bottom:1px solid var(--rule); }
   .tabs button{ background:none; border:none; border-bottom:2px solid transparent;
-    padding:11px 18px 10px; font-size:13.5px; color:var(--ink-2); cursor:pointer;
+    padding:8px 16px 7px; font-size:13.5px; color:var(--ink-2); cursor:pointer;
     font-family:inherit; margin-bottom:-1px; letter-spacing:.03em; }
   .tabs button:hover{ color:var(--ink); background:var(--panel-2); }
   .tabs button:focus-visible{ outline:2px solid var(--ai); outline-offset:-2px; }
@@ -183,7 +191,8 @@
   /* ---------------- 上のメニュー1つ ＋ 左のサイドバー ----------------
      上で「案件 / コンサルタント / 集計」を選び、左で中の項目を選ぶ。
      一度に見せる選択肢を減らして、どこを見ているかを分かりやすくする。 */
-  .layout{ display:grid; grid-template-columns:212px minmax(0,1fr); gap:26px;
+  /* 側柱 212px → 160px（M-12）。項目はいちばん長い「担当者ごとの案件」（8 字、約 127px）で、160px に入る。本文が 52px 広がる */
+  .layout{ display:grid; grid-template-columns:160px minmax(0,1fr); gap:26px;
            align-items:start; }
   /* 🔴 **position:fixed を使わない。** fixed だと本文に重なって先頭の節が隠れる。
      sticky なら grid の列の中に居座るので、本文の幅を食うだけで重ならない。
@@ -509,7 +518,11 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
 /* 他の押せるものと同じ見え方で、Tab で止まったことが分かるようにする（S-12。ここだけ抜けていた） */
 a.backlink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 .ctlbar{ display:flex; align-items:center; gap:var(--space-3);
-         flex-wrap:wrap; margin:var(--space-3) 0; }
+         flex-wrap:wrap; margin:var(--space-2) 0; }
+/* 母集団の 1 行（popline）を操作列の先頭に入れて同じ行にする（M-1。前は別の行で 40px）。
+   開いたら内訳が全幅を取り、部品は次の行へ回る。1 行目（稼働中 N 件）は畳まない（規律「母集団を黙って隠さない」） */
+.ctlbar > details.popnote.fold{ margin:0; flex:0 1 auto; max-width:100%; }
+.ctlbar > details.popnote.fold[open]{ flex-basis:100%; }
 /* 操作列の部品。いままで素の見た目のままで、枠が 1.20:1 しかなかった。
    高さは 28px（WCAG 2.2 AA の web 基準 24px を満たす。iOS の 44pt は
    この画面の前提ではない＝毎朝PCで見るもの）。 */
@@ -692,8 +705,8 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   .fresh.ok .src{ display:none; }
 }
 /* 本題の見出しは共通部のすぐ下に出す。間の 40px は節どうしの区切りの値で、
-   ページの頭には要らない */
-.pane > .ctlbar + h2.sec{ margin-top:var(--space-4); }
+   ページの頭には要らない（16px → 12px、M-1） */
+.pane > .ctlbar + h2.sec{ margin-top:var(--space-3); }
 
 /* ---------------------------------------------------------------- 案件の詳細（2026-09-26）
    表の案件名から開く。名前は長いので golink と違って折り返してよい（nowrap にしない。
@@ -748,18 +761,17 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
 <body>
 <div class="wrap">
 
+<!-- 題字の行（M-1、2026-09-28 診断）: 題字 75px・鮮度 65px・色と印の意味 40px が別々の行で、どの画面でも本題が y≈357 から
+     始まっていた（900px の 40% が共通枠）。題字を 1 行（27px → 18px）にし、鮮度（緑のとき）と「色と印の意味」の畳みを
+     同じ行に並べる。鮮度が黄・赤のときだけ、帯は題字の下の 1 行に戻る（CSS の .masthead .fresh.warn / .bad。消さない） -->
 <header class="masthead">
   <h1 class="mincho">コンサルダッシュボード</h1>
-  <div class="stamp" id="sub">{{ user }}<a class="backlink" href="/">&#8592; ダッシュボードへ戻る</a></div>
-</header>
-<div class="rule-thin"></div>
-
-<!-- 🔴 この画面は毎朝見るもの。古いデータを新しいものと誤認させないために、
-     「シートをいつ作り直したか」を常に出す。基準日（計算に使った今日）とは別物。 -->
-<div id="cs-fresh" class="fresh"></div>
-
-<!-- 色の凡例は毎回読むものではないので畳む（V1）。「定義と検証」にも同じ表がある -->
-<details class="fold" id="cs-legend"><summary>色と印の意味</summary>
+  <!-- 🔴 この画面は毎朝見るもの。古いデータを新しいものと誤認させないために、
+       「シートをいつ作り直したか」を常に出す。基準日（計算に使った今日）とは別物。 -->
+  <div id="cs-fresh" class="fresh"></div>
+  <!-- 色の凡例は毎回読むものではないので畳む（V1）。「定義と検証」にも同じ表がある。
+       M-1: 独立した行（40px）から題字の行へ。開くと次の行に全幅で出る -->
+  <details class="fold" id="cs-legend"><summary>色と印の意味</summary>
 <div class="legend">
   <i><b style="background:var(--ai)"></b>触れるところ・主系列</i>
   <!-- 🔴 2026-09-24 実機: ▲/▼ が値の上がり下がりに読め、接触率のように上がると良い指標では逆の意味に
@@ -774,6 +786,9 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
   <i class="full">表の見出しの &#9650; / &#9660; は並び順（小さい順 / 大きい順）で、良し悪しではありません。</i>
 </div>
 </details>
+  <div class="stamp" id="sub">{{ user }}<a class="backlink" href="/">&#8592; ダッシュボードへ戻る</a></div>
+</header>
+<div class="rule-thin"></div>
 
 <nav class="tabs" id="cs-menu" aria-label="見るものの切り替え"></nav>
 
@@ -6929,7 +6944,8 @@ function popline(D) {
 /* 項目ごとの操作列。「継続回数 × 成果」は右側打ち切りの切り替え、
    「顧客ごとに見る」は法人の選択 */
 function ctlbar(v, D) {
-  let h = popline(D) + '<div class="ctlbar">';
+  /* 母集団の 1 行は操作列の中（先頭）に置いて同じ行にする（M-1。前は操作列の上の別の行で、共通枠を 40px 使っていた） */
+  let h = '<div class="ctlbar">' + popline(D);
   if (v.key === "renewal") {
     h += '<label class="act"><input type="checkbox" id="cs-censor"' +
       (renewalExcludeCensored ? " checked" : "") + ">" +
