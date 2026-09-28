@@ -177,6 +177,11 @@ pub struct TitleDetail {
     pub shifts: Vec<TermShift>,
     pub attrs: Option<Attrs>,
     pub volumes: Vec<SearchVolume>,
+    /// その職種がどう探されるか（`insight_title.search_style`）。
+    /// 職種名の監査を出す相手を絞るのに使う
+    pub search_style: Option<crate::indeed::searchstyle::SearchStyle>,
+    /// 給与形態ごとの広がり。給与で差を付けられるかの判断に使う
+    pub wage_spreads: Vec<crate::indeed::wagespread::WageSpread>,
 }
 
 /// 「語:回数;語:回数」の形をほどく。
@@ -226,6 +231,45 @@ pub fn load(db: &LocalDb, title: &str) -> Result<Option<TitleDetail>, String> {
             wage.insert(get_str(&r, "prefecture"), v);
         }
     }
+
+    // その職種がどう探されるか。読めなければ None（勝手に既定値へ倒さない）
+    let search_style = db
+        .query(
+            "SELECT search_style FROM insight_title WHERE norm_title = ?1",
+            &[&title],
+        )?
+        .first()
+        .map(|r| get_str(r, "search_style"))
+        .and_then(|v| crate::indeed::searchstyle::SearchStyle::parse(&v));
+
+    // 給与の広がり。給与形態ごとに、県が 20 以上そろっているものだけ出す。
+    // いままで中央値しか使っておらず、min/max は 4,761 行すべてにあるのに眠っていた。
+    let mut by_period: std::collections::HashMap<String, Vec<(f64, f64, f64)>> =
+        std::collections::HashMap::new();
+    for r in db.query(
+        "SELECT salary_period, min_salary, median_salary, max_salary FROM insight_salary \
+         WHERE norm_title = ?1 \
+           AND snapshot_month = (SELECT MAX(snapshot_month) FROM insight_salary)",
+        &[&title],
+    )? {
+        let (Some(lo), Some(md), Some(hi)) = (
+            get_f64_opt(&r, "min_salary"),
+            get_f64_opt(&r, "median_salary"),
+            get_f64_opt(&r, "max_salary"),
+        ) else {
+            continue;
+        };
+        by_period
+            .entry(get_str(&r, "salary_period"))
+            .or_default()
+            .push((lo, md, hi));
+    }
+    let mut wage_spreads: Vec<crate::indeed::wagespread::WageSpread> = by_period
+        .iter()
+        .filter_map(|(p, v)| crate::indeed::wagespread::spread_of(p, v))
+        .collect();
+    // 県が多くそろっているものを先に出す（時給が最も揃う）
+    wage_spreads.sort_by(|a, b| b.prefs.cmp(&a.prefs));
 
     let mut prefs: Vec<PrefRow> = db
         .query(
@@ -331,6 +375,8 @@ pub fn load(db: &LocalDb, title: &str) -> Result<Option<TitleDetail>, String> {
         shifts,
         attrs,
         volumes,
+        search_style,
+        wage_spreads,
     }))
 }
 
