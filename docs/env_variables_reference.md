@@ -52,6 +52,18 @@
 
 ---
 
+## 2b. handler 直接読出 (1 個、config.rs 統合違反、2026-09-28 追加)
+
+| # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照行 |
+|---|------|----------|------|-------------|--------|
+| 20 | `HUBSPOT_PORTAL_ID` | `23708633` (リクロジ事業部) | コンサルダッシュボードの「HubSpot で開く」「HS」リンク先 `https://app.hubspot.com/contacts/<portal_id>/record/0-3/<deal_id>/` の portal_id。全 `/api/consulting/*` の `meta.hubspot_portal_id` に載せる | 既定値を使う（公開して困る値ではない。2026-09-28 藤巻さん確認）。空白だけでも既定値 | `src/handlers/cs_dashboard/routes.rs` `hubspot_portal_id()` |
+
+`freshen()`（全 API の meta を組む関数）は `AppState` を受け取らず `Sheets` だけで動くため、`AppConfig` を通さず `std::env::var` を直接読んでいる。統合するなら `freshen` の 7 か所の呼び出しに config を通す必要がある（UI/UX 改善の範囲外として据え置き）。
+
+> ⚠ この文書の見出しの「19 個」は 2026-04-26 時点の数。その後 `config.rs` に Turso 系が入り（§2 の 4 個は今は `AppConfig::from_env` にある）、`src/` の `env::var` の名前は 2026-09-28 時点で 43 個。全体の棚卸しは別作業。
+
+---
+
 ## 3. ハードコード定数
 
 ### 3.1 `UPLOAD_BODY_LIMIT_BYTES`

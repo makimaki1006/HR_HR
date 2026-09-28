@@ -5669,3 +5669,68 @@ fn 通話の記録の始まりは全件を取っている最初の日より前�
     // 1本も無ければ None
     assert_eq!(call_from(&sheet(&[])), None);
 }
+
+/// 🔴 2026-09-28 UI/UX 改善 S-5: HubSpot へのリンク用の portal_id。環境変数 `HUBSPOT_PORTAL_ID` で
+/// 上書きでき、未設定・空白だけなら既定（23708633）。環境変数そのものはテストで触らない（並列で走るため）。
+#[test]
+fn hubspot_portal_idは環境変数で上書きでき未設定なら既定() {
+    use super::routes::{hubspot_portal_id_from, HUBSPOT_PORTAL_ID_DEFAULT};
+    assert_eq!(HUBSPOT_PORTAL_ID_DEFAULT, "23708633");
+    assert_eq!(hubspot_portal_id_from(None), HUBSPOT_PORTAL_ID_DEFAULT);
+    assert_eq!(hubspot_portal_id_from(Some("")), HUBSPOT_PORTAL_ID_DEFAULT);
+    assert_eq!(
+        hubspot_portal_id_from(Some("   ")),
+        HUBSPOT_PORTAL_ID_DEFAULT
+    );
+    assert_eq!(hubspot_portal_id_from(Some(" 12345 ")), "12345");
+}
+
+/// 画面は最初に来た応答の meta から portal_id を覚えるので、**どの API でも** `freshen` が載せていること。
+/// 案件の詳細（deal_detail）と集計（今日動く先・いま見るべき顧客）の3本で見る。
+#[test]
+fn 全apiのmetaにhubspot_portal_idが載る() {
+    let sh = sheets();
+    let day = fixture_day();
+    let f = |v: Value| super::routes::freshen(v, &sh, day);
+    let screens = [
+        ("今日動く先", f(build_today_board(&sh, day))),
+        ("いま見るべき顧客", f(build_focus(&sh, day))),
+        (
+            "案件の詳細",
+            f(super::deal_detail::build_deal_detail(
+                &sh,
+                None,
+                Some("61098080280"),
+                None,
+                day,
+            )),
+        ),
+    ];
+    for (name, v) in screens {
+        let id = v["meta"]["hubspot_portal_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name}: meta.hubspot_portal_id が無い"));
+        assert!(
+            !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()),
+            "{name}: portal_id が数字でない: {id}"
+        );
+    }
+}
+
+/// 🔴 2026-09-28 UI/UX 改善 S-6: 今日動く先の「絞った条件」に画面名を書かない。
+/// 前は「全件は「案件」の中の「案件の立ち位置」で見られます」と、左のメニューに無い名前
+/// （左は「案件そのもの」）を案内していた。全件への行き先は画面側が MENUS の名前で添える。
+#[test]
+fn 今日動く先の絞った条件に画面名を書かない() {
+    let v = build_today_board(&sheets(), fixture_day());
+    let rule = v["meta"]["filter_rule"].as_str().unwrap();
+    assert!(
+        !rule.contains("案件の立ち位置") && !rule.contains("「案件」の中の"),
+        "画面名が残っている: {rule}"
+    );
+    // 決まりの中身（何件から何件・線引きは取り決め）は残す
+    assert!(
+        rule.contains("件を出しています") && rule.contains("線引きは取り決めです"),
+        "{rule}"
+    );
+}

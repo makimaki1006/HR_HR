@@ -384,6 +384,12 @@ python scripts/compute_v2_phase2.py
 | `SALESNOW_TURSO_URL` | SalesNow URL | 企業検索 / 採用診断 Panel 4 / 地図 labor-flow / company-markers 空応答 |
 | `SALESNOW_TURSO_TOKEN` | SalesNow トークン | 同上 |
 
+### 8.2b handler 直接読出 (1 個、2026-09-28 追加)
+
+| 変数 | デフォルト | 用途 | 未設定時影響 |
+|------|----------|------|-------------|
+| `HUBSPOT_PORTAL_ID` | `23708633` | コンサルダッシュボードの HubSpot 取引ページへのリンク（`src/handlers/cs_dashboard/routes.rs hubspot_portal_id()`、全 `/api/consulting/*` の `meta.hubspot_portal_id`） | 既定値を使う（公開して困る値ではない） |
+
 ### 8.3 アップロード上限
 
 `UPLOAD_BODY_LIMIT_BYTES = 20 * 1024 * 1024` (20MB、`src/lib.rs:39`)。`/api/survey/upload` のみ適用。20MB 超は 413 即拒否。

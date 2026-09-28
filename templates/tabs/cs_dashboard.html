@@ -176,7 +176,7 @@
   .tabs button:hover{ color:var(--ink); background:var(--panel-2); }
   .tabs button:focus-visible{ outline:2px solid var(--ai); outline-offset:-2px; }
   .tabs button.on{ color:var(--ink); border-bottom-color:var(--ai); font-weight:700; }
-  .tabs button .no{ color:var(--ai); font-weight:700; margin-right:5px; }
+  /* 上のメニューの丸数字（.tabs button .no）は 2026-09-28 に外した（S-7）。番号は本文で参照しない */
   .pane{ display:none; } .pane.on{ display:block; animation:fade .18s ease-out; }
   @keyframes fade{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; } }
 
@@ -205,8 +205,7 @@
   /* いまどこを見ているか。色だけでなく**太さと左の帯**でも示す */
   .side button[aria-current="page"]{ background:var(--ai-soft); color:var(--ai);
     font-weight:700; border-left-color:var(--ai); }
-  .side .n{ color:var(--ink-3); font-size:11px; margin-left:5px;
-            font-variant-numeric:tabular-nums; font-weight:400; }
+  /* 項目の末尾の番号（.side .n）は 2026-09-28 に外した（S-7）。件数に見えていた */
 
   /* 🔴 狭い画面ではサイドバーを本文の上に回して横に並べる（畳まない）。
      集計は項目が9つあり、開閉の一手間を挟むと「毎朝いちばん見るもの」が
@@ -512,6 +511,17 @@ a.backlink:hover{ color:var(--ai); text-decoration:underline; }
 .multi figure.fig > figcaption .hint{ flex-basis:100%; }
 .ctlbar select:focus-visible, .ctlbar input:focus-visible,
 .ctlbar button.act:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+/* 「読み直す」は右端に寄せ、文字リンク程度にする（S-11）。鮮度が緑でないとき（.urge）だけ元の枡の見た目に戻して目立たせる */
+.ctlbar .reload{ margin-left:auto; display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.ctlbar .reload button.act.link{ border-color:transparent; background:none; text-decoration:underline; text-underline-offset:2px;
+  color:var(--ink-2); padding-left:4px; padding-right:4px; }
+.ctlbar .reload button.act.link:hover{ color:var(--ai); background:var(--ai-soft); }
+.ctlbar .reload button.act.link:disabled{ cursor:wait; text-decoration:none; color:var(--ink-3); }
+.ctlbar .reload.urge button.act.link{ border-color:var(--ki); background:var(--panel); text-decoration:none; color:var(--ink); font-weight:700; }
+@media (max-width:600px){ .ctlbar .reload{ margin-left:0; width:100%; justify-content:flex-start; } }
+/* PC（マウス・キーボード）にしか当てはまらない案内（今日動く先の Ctrl+クリック）。≤600px はタッチ前提なので出さない。
+   400px で1画面目の2行を使っていた（2026-09-28 実測）。データや母数の注記には使わない（黙って隠さない） */
+@media (max-width:600px){ .pconly{ display:none; } }
 /* 母集団の注記。全部の項目の頭に、同じ文言で出る。
    数字は本文と同じ濃さ、内訳は一段落として読ませる。 */
 .popnote{ margin:0 0 var(--space-3); padding:7px var(--space-4);
@@ -623,6 +633,14 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
 a.deallink{ color:var(--ai); text-decoration:underline; text-underline-offset:2px; overflow-wrap:anywhere; }
 a.deallink:hover{ background:var(--ai-soft); }
 a.deallink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+/* 表の案件名の横の小さな「HS」（HubSpot へ・新しいタブ）。案件名のリンクと見分けがつくように、下線ではなく小さな枡にする（S-5）。
+   .lg は案件の詳細の「HubSpot で開く」 */
+a.hslink, span.hslink{ display:inline-block; font-size:11px; line-height:1; padding:3px 6px; margin-left:2px; vertical-align:middle;
+  border:1px solid var(--rule); border-radius:var(--radius-pill); color:var(--ink-2); text-decoration:none; white-space:nowrap; }
+/* span.hslink は凡例（ヘッダの「色と印の意味」・定義と検証）の見本。押せないので hover / focus の見た目は付けない */
+a.hslink:hover{ border-color:var(--ai); color:var(--ai); background:var(--ai-soft); }
+a.hslink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+a.hslink.lg{ font-size:12.5px; padding:5px 12px; margin-left:0; color:var(--ai); border-color:var(--ai); }
 /* 取引の基本。見出しと値の組を並べる */
 .dd-kv{ display:grid; gap:var(--space-1) var(--space-4); margin:var(--space-3) 0;
         grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));
@@ -680,6 +698,8 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
   <i><b style="background:var(--midori)"></b>&#9660; 良い / 改善</i>
   <i><b style="background:var(--ghost)"></b><span class="n0">&#8212;</span> 値が無い（0 ではない）</i>
   <i><b style="border:1px dashed var(--ghost);background:none"></b>&#9675; 未確定（右側打ち切り）</i>
+  <!-- 案件名の横の「HS」の意味は title にしか無く、タッチでは読めなかった（2026-09-28 検証の指摘、S-5）。他の印と同じくここに載せる -->
+  <i><span class="hslink">HS</span> 案件名の横。HubSpot でその取引を開く（新しいタブ）</i>
   <i class="full">表の見出しの &#9650; / &#9660; は並び順（小さい順 / 大きい順）で、良し悪しではありません。</i>
 </div>
 </details>
@@ -3013,7 +3033,8 @@ function renderContact(D) {
     h += '<div class="multi">' +
       small("全体（担当が決まった案件の合計）", hintOf(U.team || []), U.team || [],
         lg("line", C.ai, "確定した" + what) + lg("ring", C.ai, "未確定（いまの" + what + "。途中なので低く出ます）") +
-        '<i class="full">点にマウスを重ねると、持ち案件と接触の回数が出ます。</i>') +
+        /* 🔴 タッチでは title（点に重ねて出る吹き出し）が出ない。値のある場所（下の表）を先に言う（S-13） */
+        '<i class="full">持ち案件と接触の回数は下の表にあります（マウスなら点に重ねても出ます）。</i>') +
       /* 見出しは「担当者: 名前」。本番は実名、fixture は伏字（ハッシュ）なので、語を添えて何の名前か分かるようにする */
       drawable.map((r) => small("担当者: " + (r.consultant || "（名前なし）") + (r.retired ? "（退職者のまま）" : ""),
         hintOf(r.cells), r.cells, "")).join("") +
@@ -3134,7 +3155,9 @@ function renderFocus(D) {
     [{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "NPS", n: 1 }, { t: "回答月" },
      { t: "金額", n: 1 }, { t: "満了まで", n: 1 }, { t: "接触の記録", n: 1 }],
     n.rows.slice(0, 200).map((r) => [
-      esc(r.name || r.deal_id),
+      /* 🔴 2026-09-28 UI/UX 改善 S-4: 文字だけで行き止まりだった（名前を覚えて案件の詳細の探す欄に打ち直す4手順）。
+         データに deal_id があるので、案件そのものの表と同じ dealLink で詳細へ */
+      dealLink(r.deal_id, r.name),
       '<span class="muted small">' + esc(r.stage) + "</span>",
       /* 🔴 この表は全行が「4以下」なので、全行を同じ印で出す。2026-09-24 実機で「0 は赤・1 は黒」に
          見えた（同じ緋の太字でも、細い「1」は字の面が小さく黒に見える）。色だけに頼らず ▲ を添える */
@@ -3904,7 +3927,8 @@ function custBlocks(D, want) {
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "拠点", w: "s" }, { t: "種別" },
                      { t: "開始〜満了" }, { t: "継続", n: 1 }, { t: "金額", n: 1 },
                      { t: "応募", n: 1 }, { t: "面接", n: 1 }, { t: "承諾", n: 1 }, { t: "状態" }],
-    D.deals.map((d) => [dealLink(d.deal_id, d.name || d.deal_id),
+    /* 取引名が空なら dealLink が「取引名なし」と書く。取引ID（内部ID）を名前に流し込まない（画面に内部IDを出さない） */
+    D.deals.map((d) => [dealLink(d.deal_id, d.name),
       '<span class="muted small">' + esc(d.stage) + "</span>",
       '<span class="muted small">' + esc(d.site) + "</span>",
       '<span class="muted small">' + esc(d.kind) + "</span>",
@@ -4626,7 +4650,8 @@ function renderPhone(D) {
   /* 🔴 2026-09-24 実機（1440px）: 取引・ステージが折り返さず、接触から右の列が切れていた。長い文字の列を折る */
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
                      { t: "通話", n: 1 }, { t: "接触", n: 1 }, { t: "最後の接触" }, { t: "経過", n: 1 }],
-    D.silent.rows.map((x) => [esc(x.name || x.deal_id),
+    /* 案件名は案件の詳細へのリンク（S-4。前は文字だけで行き止まりだった） */
+    D.silent.rows.map((x) => [dealLink(x.deal_id, x.name),
       '<span class="muted small">' + esc(x.stage) + "</span>", yen(x.amount),
       num(x.n_calls), num(x.n_contact),
       x.last_contact == null ? '<b style="color:var(--hi)">一度も無い</b>' : esc(x.last_contact),
@@ -4699,7 +4724,8 @@ function renderRampup(D) {
     (nm.excluded_marketing ? "。「マーケ関連」の " + num(nm.excluded_marketing) +
       " 件は MTG をしないのが普通なので、この表と母数から外しています" : "") + "</div>";
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 }, { t: "契約開始から", n: 1 }],
-    nm.rows.map((r) => [esc(r.name || r.deal_id),
+    /* 案件名は案件の詳細へのリンク（S-4。前は文字だけで行き止まりだった） */
+    nm.rows.map((r) => [dealLink(r.deal_id, r.name),
       '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
       r.days_since_start == null ? DASH : num(r.days_since_start) + "日"])), 420);
   h += note("info", "継続率はこの画面にありません",
@@ -4848,7 +4874,8 @@ function renderOutcome(D) {
     "「接触の記録」は契約の前も含めた件数です。</div>";
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
                      { t: "満了まで", n: 1 }, { t: "放置の軸", w: "s" }, { t: "接触の記録", n: 1 }],
-    R.top.map((r) => [esc(r.name || r.deal_id),
+    /* 案件名は案件の詳細へのリンク（S-4。前は文字だけで行き止まりだった） */
+    R.top.map((r) => [dealLink(r.deal_id, r.name),
       '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
       r.days_to_expiry == null ? DASH : num(r.days_to_expiry) + "日",
       (r.never_after_start ? '<b style="color:var(--hi)">' : "<span>") + esc(r.ax3w) +
@@ -5020,8 +5047,8 @@ function cpaBandNote(meta) {
 }
 
 const BOARD_COLS = [
-  /* 案件名から「案件の詳細」へ（戻るでこの表へ戻る） */
-  { k: "name",       t: "案件",        n: 0, fmt: (r) => dealLink(r.deal_id, r.name || r.deal_id) +
+  /* 案件名から「案件の詳細」へ（戻るでこの表へ戻る）。取引名が空なら dealLink が「取引名なし」と書く（取引IDを出さない） */
+  { k: "name",       t: "案件",        n: 0, fmt: (r) => dealLink(r.deal_id, r.name) +
       (r.focus ? ' <span class="tag">注力</span>' : "") },
   /* 🔴 名札は並びの根拠（既定は本数順）なのに 15 列目にあり、1440px でも横スクロールの外で
      「何で上がってきたか」が行を見ても分からなかった（2026-09-28 診断、08 の S-3）。案件名の隣に置く。
@@ -5341,6 +5368,16 @@ function saveTodayConsultant(v) {
 let todayConsultant = loadTodayConsultant();
 /* 「今週始まった契約」の畳みを開いているか。描き直し（並び替え・担当の切り替え）で閉じないように覚える */
 let todayStartedOpen = false;
+/** 「絞った条件」の文。サーバの文（routes.rs filter_rule）には画面名を入れず、全件への行き先はここで
+    goLink（MENUS の名前）で添える（2026-09-28 UI/UX 改善 S-6）。
+    🔴 前はサーバの文が「全件は「案件」の中の「案件の立ち位置」で見られます」と、メニューに無い名前を
+    案内していた（左は「案件そのもの」、表の見出しは「案件の立ち位置」、サーバの文が3つ目の名前）。
+    名前を変えるときの追従先を MENUS の1か所にする */
+function todayFilterRule(meta) {
+  /* サーバの文が無い・空のときは句点から始めない（前は「。全件は …」と出た。サーバは必ず載せるが、応答の形に頼らない） */
+  const rule = esc((meta && meta.filter_rule) || "");
+  return (rule ? rule + "。" : "") + "全件は " + goLink("deal", "board") + " で見られます。";
+}
 
 /* 選んだ担当で応答を絞った写し。サーバは名札2本以上の全候補（candidates、fixture 243 件）と、その上位 keep 件
    （rows、24 件）を返す（routes.rs build_today_board）。
@@ -5406,7 +5443,11 @@ function renderToday(D0) {
   const bandN = (k) => ((G.bands || []).find((b) => b.band === k) || {}).n || 0;
   let h = sec("問い", "今日・今週、どこに連絡するか") +
     '<div class="lede">毎朝ここだけ見れば動ける長さに絞っています。' +
-    "上から順に潰していってください。</div>";
+    "上から順に潰していってください。" +
+    /* 案件名は通常の <a href> なので、別タブに開ける。戻ると先頭へ戻される（M-2 まで）ので、その回避策を1文（S-13）。
+       Ctrl+クリックはタッチ端末には当てはまらない案内で、400px では1画面目の2行を使っていた（2026-09-28 実測）。
+       ≤600px では出さない（.pconly）。スマホは長押しで開けるので、失うものは無い */
+    '<span class="pconly">案件名は Ctrl+クリック（Mac は &#8984;+クリック）で別のタブに開けます。</span></div>';
   /* 欄の顔ぶれは絞る前の応答（D0）から。絞った後の D を渡すと、選んだ担当以外が欄から消える（todayOwnerBar） */
   h += todayOwnerBar(D0);
 
@@ -5456,7 +5497,9 @@ function renderToday(D0) {
     '　<span class="when-closed">決まりごとを開く</span><span class="when-open">決まりごとを閉じる</span></summary>' +
     note("def", "絞った条件",
       (c ? "<b>" + esc(c) + " を選んでいるので、この担当の名札2本以上の候補を全件（" + num(D.rows.length) + " 件）出しています。" +
-           num(D.meta.n_shown) + " 件には切っていません。</b>全社の決まり: " : "") + esc(D.meta.filter_rule)) +
+           num(D.meta.n_shown) + " 件には切っていません。</b>全社の決まり: " : "") +
+      /* サーバの文に画面名は無い。全件への行き先（案件そのもの）は todayFilterRule が goLink で添える（S-6） */
+      todayFilterRule(D.meta)) +
     note("def", "この並びについて", esc(D.meta.order_rule)) +
     cpaBandNote(D.meta) + "</details>";
   if (c && !D.rows.length)
@@ -5625,7 +5668,9 @@ function renderBoard(D) {
 
   /* 🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 表が図「名札の分布」の下（y=1,391）で、行を特定する画面なのに
      1 画面目に表が無かった。絞り込み → 件数行 → 表 → 図 の順にする。決まりごと（並び・採用単価の比べ方）は表の直下に */
-  h += sec("表", "案件の立ち位置");
+  /* 🔴 見出しは画面名（左の「案件そのもの」）と重ならない語にする。前は「案件の立ち位置」で、
+     画面名が3つ（左・見出し・サーバの文）あり、初見の人が別画面と誤認していた（S-6） */
+  h += sec("表", "稼働中の案件（1行が取引1件）");
   /* 🔴 14列あるので、枠に入れないと**ページ全体が横に流れる**
      （2026-09-22 実測: 1440px幅で document が 2640px になっていた）。
      表は枠の中だけで横スクロールさせる。 */
@@ -5666,7 +5711,7 @@ function wireBoard() {
   if (q) {
     /* 1文字ごとに 703 行を組み直すと重い。打ち終わってから当てる */
     let t = null;
-    q.oninput = () => {
+    const apply = () => {
       clearTimeout(t);
       t = setTimeout(() => {
         boardFilter.q = q.value;
@@ -5675,6 +5720,16 @@ function wireBoard() {
         if (e) { e.focus(); e.setSelectionRange(e.value.length, e.value.length); }
       }, 260);
     };
+    /* 🔴 IME の変換中（isComposing）は当てない。変換の途中で本文を作り直すと入力欄が消えて候補の窓が閉じる。
+       確定（compositionend）で当て直す（2026-09-28 UI/UX 改善 S-13。前は isComposing の判定が 0 件）。
+       🔴 compositionend は addEventListener で付ける。`q.oncompositionend = …` は HTML の GlobalEventHandlers に無く
+       （Chromium で 'oncompositionend' in input → false）ただの変数になって一度も呼ばれない。Chromium の IME は
+       input(isComposing=true)… → compositionend で終わり、その後に isComposing=false の input は来ないので、
+       確定しても絞り込みが当たらなかった（2026-09-28 CDP で実測: 確定後も 604 行のまま）。Firefox は確定後に
+       input(isComposing=false) も来るが、260ms の予約が二重を1回にまとめる。
+       検索欄は描き直すたびに新しい要素になる（redraw → wireBoard）ので、付け直しで二重にはならない */
+    q.oninput = (ev) => { if (ev && ev.isComposing) return; apply(); };
+    q.addEventListener("compositionend", apply);
   }
   const cl = document.getElementById("bf-clear");
   if (cl) cl.onclick = () => {
@@ -6016,11 +6071,43 @@ let detailKinds = { mtg: true, call: true, handover: true };
 /* 電話は 60秒超だけ（接触と数えるもの）か、全部か。既定は 60秒超だけ（短い呼び出しで埋まらないように） */
 let detailAllCalls = false;
 
-/** 表の案件名から「案件の詳細」へのリンク。行き先が無い（ID が空）ときはリンクにしない */
-function dealLink(id, name) {
+/* HubSpot の portal_id。API の meta.hubspot_portal_id（サーバの環境変数 HUBSPOT_PORTAL_ID、既定 23708633）を
+   最初に来た応答で覚える（load）。覚える前は HubSpot へのリンクを出さない（推測で埋めない）。
+   🔴 2026-09-28 UI/UX 改善 S-5: deal_id は HubSpot の取引IDそのものなのに、HubSpot へのリンクが画面のどこにも無く、
+   詳細を読んだ後に別タブで HubSpot を開いて案件名を検索し直していた */
+let hsPortal = "";
+/** HubSpot の取引ページの URL。取引IDは数字だけ（HubSpot のオブジェクトID）。そうでない値には作らない */
+function hsUrl(id) {
+  if (!hsPortal || !/^\d+$/.test(String(id == null ? "" : id))) return "";
+  return "https://app.hubspot.com/contacts/" + encodeURIComponent(hsPortal) + "/record/0-3/" +
+    encodeURIComponent(String(id)) + "/";
+}
+/** HubSpot へのリンク。新しいタブで開く（rel=noopener）。取引IDは href の中だけで、画面の文字には出さない。
+    text を省くと表の案件名の横に置く小さな「HS」。読み上げには aria-label で行き先と新しいタブで開くことを伝える。
+    🔴 読み上げ用の文を <span class="sr">（position:absolute）で中に入れない。表の枠（.scroll）は位置指定が無く、
+       絶対配置の span は枠の外（.scroll-wrap）を基準に置かれて枠に切られず、604 行ぶんがページの高さを伸ばした
+       （2026-09-28 実測: 案件そのものの全高が 2,280px → 25,656px）。属性なら箱を作らない */
+function hsLink(id, text, cls) {
+  const u = hsUrl(id);
+  if (!u) return "";
+  /* 🔴 読み上げ名は見た目の文字で始める（WCAG 2.5.3 Label in Name）。前は「HubSpot でこの取引を開く（新しいタブ）」で
+     見た目の「HS」を含まず、音声操作で「HS」と言っても一致しなかった（2026-09-28 検証の指摘）。
+     矢印（&#8599;）は文字ではなく印なので読み上げ名から外す。text はこのファイルの中の決まった文言だけ（利用者の入力は来ない） */
+  const shown = String(text || "HS").replace(/\s*&#8599;/g, "");
+  const label = (text ? shown : shown + ": HubSpot でこの取引を開く") + "（新しいタブ）";
+  return '<a class="hslink' + (cls ? " " + cls : "") + '" href="' + u + '" target="_blank" rel="noopener"' +
+    ' title="HubSpot でこの取引を開く（新しいタブ）" aria-label="' + label + '">' +
+    (text || "HS") + "</a>";
+}
+
+/** 表の案件名から「案件の詳細」へのリンク。行き先が無い（ID が空）ときはリンクにしない。
+    横に小さく HubSpot への「HS」を添える（S-5）。文の中で使うとき（付け直しの注記）は noHs で外す */
+function dealLink(id, name, noHs) {
   const label = esc(name || "取引名なし");
   if (!id) return label;
-  return '<a class="deallink" href="#deal/detail?id=' + encodeURIComponent(id) + '">' + label + "</a>";
+  const hs = noHs ? "" : hsLink(id);
+  return '<a class="deallink" href="#deal/detail?id=' + encodeURIComponent(id) + '">' + label + "</a>" +
+    (hs ? " " + hs : "");
 }
 
 /* 秒を「3分12秒」に。値が無ければ —（0秒にしない） */
@@ -6041,13 +6128,13 @@ function attachNote(a, e) {
     const f = a.moved_from || {};
     const word = MOVED_FROM_WORD[f.relation] || MOVED_FROM_WORD.unknown;
     /* 🔴 オプション契約には詳細の画面が無いので、リンクにしない（押しても先へ進めない） */
-    const name = f.relation === "option" ? esc(f.name || "取引名なし") : dealLink(f.deal_id, f.name);
+    const name = f.relation === "option" ? esc(f.name || "取引名なし") : dealLink(f.deal_id, f.name, true);
     return '<span class="via">&#8618; 付け直し: ' + word + "「" + name +
       "」に付いていた記録です。この契約の期間の日なので、ここに並べています</span>";
   }
   if (a.state === "moved_out") {
     return '<span class="via">&#9888; この取引に付いていますが、契約期間の外の日です。「' +
-      dealLink(a.moved_to && a.moved_to.deal_id, a.moved_to && a.moved_to.name) +
+      dealLink(a.moved_to && a.moved_to.deal_id, a.moved_to && a.moved_to.name, true) +
       (why ? "」の期間の出来事です（" + why + "、接触には数えていません）</span>"
         : "」の期間の記録として数えています</span>");
   }
@@ -6166,8 +6253,12 @@ function renderDetail(D) {
       renderDetailSearch(D);
   }
   const d = D.deal, c = D.counts, ch = D.chain;
+  /* 「HubSpot で開く」（S-5）。記録を書く・電話をかける先は HubSpot なので、詳細から1クリックで行けるようにする。
+     電話番号・連絡先はこの画面のデータに無く、HubSpot 側で見る */
+  const hsOpen = hsLink(d.deal_id, "HubSpot で開く &#8599;", "lg");
   let h = sec("案件", d.name || "取引名なし") +
-    '<div class="lede">この案件で、いつどんな MTG・電話・担当の交代があったかを新しい順に並べています。</div>';
+    '<div class="lede">この案件で、いつどんな MTG・電話・担当の交代があったかを新しい順に並べています。' +
+    (hsOpen ? " " + hsOpen : "") + "</div>";
 
   /* ---- 取引の基本 ---- */
   const kv = (k, v) => '<div><span class="k">' + esc(k) + "</span>" + v + "</div>";
@@ -6265,7 +6356,8 @@ function wireDetail() {
     detailId = "";
     go("deal", "detail");
   };
-  if (qi) qi.onkeydown = (ev) => { if (ev && ev.key === "Enter") run(); };
+  /* IME の変換を確定する Enter（isComposing）では探しに行かない。変換の途中の文字で探してしまう（S-13） */
+  if (qi) qi.onkeydown = (ev) => { if (ev && ev.key === "Enter" && !ev.isComposing) run(); };
   const b = document.getElementById("dd-go");
   if (b) b.onclick = run;
   DETAIL_KINDS.forEach((k) => {
@@ -6298,7 +6390,9 @@ function renderDefs() {
       "良い / 改善"],
      ["表の見出しの &#9650; / &#9660;", "並び順（小さい順 / 大きい順）。良し悪しではありません"],
      ['<span class="n0">&#8212;</span>', "値が無い。<b>0 ではない</b>"],
-     ["&#9675;", "未確定（右側打ち切り）。結果がまだ出ていない"]]));
+     ["&#9675;", "未確定（右側打ち切り）。結果がまだ出ていない"],
+     /* 案件名の横の「HS」（S-5）。ヘッダの「色と印の意味」と同じ文 */
+     ['<span class="hslink">HS</span>', "案件名の横。HubSpot でその取引を開く（新しいタブ）。取引IDは画面には出しません"]]));
 
   h += sec("表", "この画面が守っていること");
   h += scroll(table([{ t: "決まりごと" }, { t: "なぜ" }],
@@ -6407,7 +6501,7 @@ const MENUS = [
   /* 🔴 ①の中は**粒度で分けてある**。同じ「顧客」でも、
      取引1件で見るのか / 事業所の契約の連なりで見るのか / 法人で拠点をまたいで見るのか で
      数字の意味が変わる。取り違えると読み間違えるので、画面を分けて粒度を明示する。 */
-  { key: "deal", no: "\u2460", label: "案件",
+  { key: "deal", label: "案件",
     lead: "案件そのものを見る画面です。",
     views: [
       { key: "today",    label: "今日動く先",       path: "/api/consulting/today",
@@ -6423,7 +6517,7 @@ const MENUS = [
       { key: "detail",   label: "案件の詳細",       path: "/api/consulting/deal-detail",
         render: (D) => renderDetail(D) },
     ] },
-  { key: "consultant", no: "\u2461", label: "コンサルタント",
+  { key: "consultant", label: "コンサルタント",
     lead: "人の側から見る画面です。担当者の評価ではありません。",
     views: [
       { key: "team",     label: "担当者の一覧",     path: "/api/consulting/consultants",
@@ -6436,7 +6530,7 @@ const MENUS = [
       { key: "contact",  label: "担当者ごとの接触", path: "/api/consulting/contact-trend",
         render: (D) => renderContact(D) },
     ] },
-  { key: "study", no: "\u2462", label: "集計",
+  { key: "study", label: "集計",
     lead: "調べた結果と定義です。一度読めば済む話をここに置いています。",
     views: [
       { key: "renewal", label: "継続回数 × 成果", path: "/api/consulting/renewal",
@@ -6489,7 +6583,9 @@ function drawMenu() {
   nav.innerHTML = MENUS.map((m) =>
     '<button type="button" data-m="' + m.key + '"' +
     (m.key === cur.menu ? ' class="on" aria-current="page"' : "") + ">" +
-    '<span class="no">' + m.no + "</span>" + esc(m.label) + "</button>").join("");
+    /* 🔴 丸数字（①②③）は出さない。左の番号と体系が2つになり、本文は名前で参照する方針（goLink）と
+       揃わなかった（2026-09-28 UI/UX 改善 S-7） */
+    esc(m.label) + "</button>").join("");
   nav.querySelectorAll("button").forEach((b) => {
     b.onclick = () => go(b.dataset.m, null);
   });
@@ -6503,19 +6599,26 @@ function drawSide() {
     m.views.map((v, i) =>
       "<li><button type=\"button\" data-v=\"" + v.key + "\"" +
       (v.key === cur.view ? ' aria-current="page"' : "") + ">" +
-      esc(v.label) + '<span class="n" aria-hidden="true">' + (i + 1) +
-      "</span></button></li>").join("") +
+      /* 🔴 名前の後ろの番号（「今日動く先 1」）は出さない。件数に見え、400px では次の項目とくっついていた
+         （2026-09-28 UI/UX 改善 S-7、診断 ①②③）。項目は名前で参照する（goLink） */
+      esc(v.label) + "</button></li>").join("") +
     "</ul>";
   box.querySelectorAll("button").forEach((b) => {
     b.onclick = () => go(cur.menu, b.dataset.v);
   });
 }
 
+/* メニューごとに「最後に開いた項目」を覚える（メモリ上。開き直せば消える）。
+   🔴 上のメニューを押すと常に1つ目が開いていた。③の1つ目は「継続回数 × 成果」で毎朝の画面ではなく、
+   ②③を行き来するたびに見ていた項目へ戻す一手が要った（2026-09-28 UI/UX 改善 S-7） */
+const lastView = {};
+
 /* ---------------------------------------------------------------- 移動
-   view を省いたら、そのメニューの先頭（＝既定）を開く */
+   view を省いたら、そのメニューで最後に開いた項目、まだ無ければ先頭（＝既定）を開く */
 function go(menu, view, refresh, how) {
   const m = menuOf(menu) || MENUS[0];
-  const v = (view && viewOf(m.key, view)) || m.views[0];
+  const v = (view && viewOf(m.key, view)) || viewOf(m.key, lastView[m.key]) || m.views[0];
+  lastView[m.key] = v.key;
   /* 🔴 ①「案件の立ち位置」は全件を見る場所。②から担当で絞った状態を
      持ち越すと、絞っていることに気づかないまま全件だと思い込む。
      ①へ入るときは担当の絞り込みだけ外す（名札・期間・検索は残す）。 */
@@ -6630,7 +6733,9 @@ async function load(refresh) {
   /* 取り直しの間は本文が「読み込み中」に置き換わるので、触っていた部品を覚えておいて戻す（U9） */
   const fe = document.activeElement;
   const fk = focusKey(fe);
-  main.innerHTML = '<div class="loading">読み込み中…</div>';
+  /* 「読み直す」で来たときは、待つ理由と長さを書く（S-11。20 秒は実測 18.7〜24.4 秒） */
+  main.innerHTML = '<div class="loading">' + (refresh
+    ? "取り直し中…　HubSpot のシートを読み直しています（20 秒ほどかかります）" : "読み込み中…") + "</div>";
   try {
     const res = await fetch(v.path + "?" + q.toString(), { credentials: "same-origin" });
     const body = await readJson(res);
@@ -6640,6 +6745,8 @@ async function load(refresh) {
     if (cur.view === "team") teamCache = body;
     if (cur.view === "board" || cur.view === "byowner") boardCache = body;
     lastPayload = body;   /* 絞り込みで描き直すときに使う。取り直しはしない */
+    /* HubSpot の portal_id は全 API の meta に同じ値で載る（routes.rs freshen）。最初の応答で覚える */
+    if (body.meta && body.meta.hubspot_portal_id) hsPortal = String(body.meta.hubspot_portal_id);
     setFresh(body.meta || {});
     paintFigs(main, () => ctlbar(v, body) + v.render(body));   /* 図の幅を枠に合わせる（2回描き） */
     wire(v);
@@ -6702,9 +6809,32 @@ function ctlbar(v, D) {
     h += '<input type="search" id="dd-q" class="act" aria-label="案件名か拠点名で探す" placeholder="案件名か拠点名で探す" value="' +
       esc(detailQ) + '"><button type="button" class="act" id="dd-go">探す</button>';
   }
-  if (v.path) h += '<button type="button" class="act" id="cs-reload">読み直す</button>';
+  /* 「読み直す」は操作列の右端に文字リンク程度で置く（2026-09-28 UI/UX 改善 S-11）。
+     🔴 押すと ?refresh=1 で共有キャッシュを全部捨てる（routes.rs）。押した本人は 20 秒ほど待ち（実測 18.7〜24.4 秒）、
+        その間は他の人の画面も止まる（mod.rs の読み直し）。代償が書かれておらず、本文の頭にあったので毎朝の作業で押されていた。
+        代償を title と隣の小さな文に書き、鮮度の帯が緑（今日・昨日）でないときだけ目立たせる（.urge） */
+  if (v.path) {
+    h += '<span class="reload' + (staleData(D) ? " urge" : "") + '">' +
+      '<button type="button" class="act link" id="cs-reload"' +
+      ' title="HubSpot のシートを読み直します。取り直しに 20 秒ほどかかり、その間は他の人の画面も一時的に止まります">読み直す</button>' +
+      /* 隣の文は 400px で読み直すと同じ行に収まる長さにする（前の 31 字は必ず次の行に折れ、操作列が 28px → 58px になった。
+         2026-09-28 実測。「一時的に」は title に残す） */
+      '<span class="muted small">取り直しに 20 秒ほど。他の人の画面も止まります</span></span>';
+  }
   if (D && D.meta && D.meta.all_cached) h += '<span class="muted small">キャッシュから表示</span>';
   return h + "</div>";
+}
+/** 鮮度の帯が緑（今日・昨日）でないか。線引きは setFresh と同じ（元データを落とした時刻から 2 日以上、
+    または何日前か分からない）。応答が無い（meta 自体が無い。定義と検証を最初に開いた）ときは目立たせない。
+    🔴 meta はあるのに source_as_of も generated_at も無いのは、帯が赤（「いつのものか分かりません」= CS_メタ が
+       読めていない）のときで、読み直す理由がいちばん強い。前はこの分岐を「応答が無い」と一緒に false にしていて、
+       赤い帯のときだけ読み直すが目立たなかった（2026-09-28 検証の指摘） */
+function staleData(D) {
+  const m = D && D.meta;
+  if (!m) return false;
+  if (!m.source_as_of && !m.generated_at) return true;
+  const age = m.source_age_days;
+  return age == null || age >= 2;
 }
 
 function wire(v) {
@@ -6716,7 +6846,18 @@ function wire(v) {
   if (v.key === "houjin") wireHoujin();
   if (v.key === "detail") wireDetail();
   const rl = document.getElementById("cs-reload");
-  if (rl) rl.onclick = () => load(true);
+  /* 押したら終わるまで押せない（S-11）。load() は同期で本文を「取り直し中…」に置き換えるので、押した直後には
+     このボタン自体が画面から消えている（2026-09-28 実測: 押した直後 button_exists=false）。連打はそれで防がれる。
+     🔴 disabled にするのは load(true) の**後**。Chromium は disabled になった要素からフォーカスを外すので、先に
+        disabled にすると load() が覚える activeElement（U9 の focusKey）が body になり、描き直した後に
+        読み直すへフォーカスが戻らなかった（2026-09-28 実測: Enter で押すと before=cs-reload → after=BODY）。
+        後ろに残す disabled と文言は、同じ要素への二度目の onclick を止める保険 */
+  if (rl) rl.onclick = () => {
+    if (rl.disabled) return;
+    load(true);
+    rl.disabled = true;
+    rl.textContent = "取り直し中…";
+  };
   const sel = document.getElementById("cs-houjin");
   if (sel && customerIndex) {
     /* 🔴 注力だけにしているときは、選択肢もそれに合わせる。
