@@ -313,8 +313,35 @@ pub(super) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value 
                 .map(Value::from)
                 .unwrap_or(Value::Null),
         );
+        // 🔴 HubSpot へのリンク（表の案件名の横の「HS」・案件の詳細の「HubSpot で開く」）に使う
+        //    portal_id。取引ID（deal_id）は HubSpot の取引IDそのものなので、これだけあれば
+        //    取引ページへ飛べる（2026-09-28 UI/UX 改善 S-5）。全 API の meta に載せて、
+        //    画面は最初に来た応答から覚える。
+        m.insert(
+            "hubspot_portal_id".into(),
+            Value::String(hubspot_portal_id()),
+        );
     }
     v
+}
+
+/// HubSpot の portal_id の既定値（リクロジ事業部）。取引ページ
+/// `https://app.hubspot.com/contacts/<portal_id>/record/0-3/<deal_id>/` の一部で、
+/// 公開して困る値ではない（2026-09-28 藤巻さん確認）。
+pub(super) const HUBSPOT_PORTAL_ID_DEFAULT: &str = "23708633";
+
+/// HubSpot の portal_id。環境変数 `HUBSPOT_PORTAL_ID` で上書きでき、
+/// 未設定・空白だけなら既定値。
+pub(super) fn hubspot_portal_id() -> String {
+    hubspot_portal_id_from(std::env::var("HUBSPOT_PORTAL_ID").ok().as_deref())
+}
+
+/// 環境変数の値から portal_id を決める（テストで環境変数を触らずに確かめるため分けてある）。
+pub(super) fn hubspot_portal_id_from(env: Option<&str>) -> String {
+    env.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| HUBSPOT_PORTAL_ID_DEFAULT.to_string())
 }
 
 // ================================================================ 集計
@@ -3124,10 +3151,12 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         .collect();
 
     if let Some(m) = meta.as_object_mut() {
+        // 🔴 この文に画面名を書かない。前は「全件は「案件」の中の「案件の立ち位置」で見られます」と
+        //    メニューに無い名前を案内していた（左は「案件そのもの」。2026-09-28 UI/UX 改善 S-6）。
+        //    全件への行き先は画面側が MENUS の名前で添える（cs_dashboard.html todayFilterRule）。
         m.insert("filter_rule".into(), json!(format!(
             "名札が {MIN_FLAGS} 本以上ついた {n_hit} 件から、名札の本数が多い順（同じ本数なら金額の大きい順）に {KEEP} 件を出しています。\
-毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} 本という線引きは取り決めです。\
-全件は「案件」の中の「案件の立ち位置」で見られます"
+毎朝ここだけ見れば動ける長さに絞るためで、{MIN_FLAGS} 本という線引きは取り決めです"
         )));
         m.insert("n_hit".into(), json!(n_hit));
         m.insert("n_shown".into(), json!(top.len()));
