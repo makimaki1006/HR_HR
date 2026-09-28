@@ -3408,6 +3408,86 @@ check("S-9: 鮮度の帯。緑（今日／昨日）は1行、黄・赤は2行の
     "緑の畳みを行の続きにする CSS（.inl）が無い");
 });
 
+/* ================================================================ S-12（2026-09-28 UI/UX 改善・段1） */
+// スマホと操作の安全な手当て。CSS 中心、PC の見た目は変えない。
+// 診断（400px）: 表を横に送ると案件名が消える／枠内の縦スクロールの罠／入力欄 12.5px で iOS が拡大／
+// 詳細の dl が左列 200px／サイドの項目 30px・操作列 28px はタップに小さい／≤900px で先頭へ戻れない。
+check("S-12: 表の1列目を左に貼り付け、行の地の色（縞・ホバー）も貼り付けた列に持たせる", () => {
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/th:first-child, td:first-child\{ position:sticky; left:0; z-index:1; background:var\(--panel\); \}/.test(css),
+    "1列目を左に貼り付ける CSS が無い（横に送ると案件名が消える）");
+  ok(/th:first-child\{ z-index:3; background:var\(--panel-3\); \}/.test(css), "左上の角（見出し行の1列目）が上の見出し（z-index:2）の下に潜る");
+  ok(/tbody tr:nth-child\(even\) td:first-child\{ background:var\(--panel-2\); \}/.test(css), "縞の行で貼り付けた列の地が行と違う（下の列が透ける）");
+  ok(/tbody tr:hover td:first-child\{ background:var\(--ai-soft\); \}/.test(css), "ホバーした行で貼り付けた列だけ色が変わらない");
+  ok(/\.scroll-wrap\.more-l th:first-child, \.scroll-wrap\.more-l td:first-child\{\s*box-shadow:/.test(css),
+    "横に送っている間、貼り付けた列の右端に影が無い（下に列が隠れていると分からない）");
+  ok(/\.scroll:focus-visible\{ outline:2px solid var\(--ai\)/.test(css), "表の枠にキーボードで止まったときの見え方（outline）が無い");
+  ok(/a\.backlink:focus-visible\{ outline:2px solid var\(--ai\)/.test(css), "「ダッシュボードへ戻る」に focus-visible が無い");
+});
+
+check("S-12: 600px 以下だけ、枠内の縦スクロールをやめ・入力欄 16px・タップの的 40px・詳細の dl を縦に積む。PC の見た目は変えない", () => {
+  const css = html.slice(0, html.indexOf("</style>"));
+  const blocks = [...css.matchAll(/@media \(max-width:600px\)\{([\s\S]*?)\n\}/g)].map((m) => m[1]);
+  ok(blocks.length >= 2, "600px 以下の @media が見つからない: " + blocks.length);
+  const inside = blocks.join("\n");
+  ok(/\.scroll\{ max-height:none !important; \}/.test(inside), "600px 以下で枠内の縦スクロール（max-height）を外していない（scroll() の直書きに勝つには !important）");
+  ok(/\.ctl input, \.ctl select, \.ctlbar input, \.ctlbar select\{ font-size:16px; \}/.test(inside), "600px 以下で入力欄が 16px でない（iOS が自動で拡大する）");
+  ok(/\.side button\{[^}]*min-height:40px/.test(inside), "600px 以下でサイドの項目が 40px に届かない");
+  ok(/\.ctlbar select, \.ctlbar input, \.ctlbar button\.act\{ min-height:40px; \}/.test(inside), "600px 以下で操作列の部品が 40px に届かない");
+  ok(/th,td\{ padding:10px 12px; \}/.test(inside) && /th button\.sort\{ padding:10px 12px; \}/.test(inside),
+    "600px 以下で表のセル（並び替えの見出しも）の当たりを広げていない");
+  ok(/\.tl dl\{ grid-template-columns:1fr; \}/.test(inside), "600px 以下で詳細の要約（dl）を縦に積んでいない（左列が 200px を取る）");
+  // 🔴 PC の見た目は変えない: これらは @media の外に書かない
+  const outside = css.replace(/@media \(max-width:600px\)\{[\s\S]*?\n\}/g, "");
+  ok(!/font-size:16px/.test(outside), "16px の入力欄が PC にも効いている");
+  ok(!/max-height:none !important/.test(outside), "枠の縦スクロールを PC でも外している（640px の枠に 24 行を収める設計が崩れる）");
+  ok(!/min-height:40px/.test(outside), "40px の当たりが PC にも効いている");
+  ok(/\.side button\{[^}]*min-height:34px/.test(outside) && /\.ctlbar select, \.ctlbar input, \.ctlbar button\.act\{[^}]*min-height:28px/.test(outside),
+    "PC のサイドの項目 34px・操作列 28px が変わっている");
+});
+
+check("S-12: 900px 以下ではサイドバーを上に貼り付け（sticky）、どこまで送っても項目を切り替えられる", () => {
+  const css = html.slice(0, html.indexOf("</style>"));
+  const m = css.match(/@media \(max-width:900px\)\{([\s\S]*?)\n  \}/);
+  ok(m, "900px 以下の @media が見つからない");
+  ok(/\.side\{ position:sticky; top:0; z-index:5; background:var\(--paper\);/.test(m[1]),
+    "900px 以下でサイドバーが上に貼り付いていない（static だと先頭まで戻るしかない）、または地の色が無い（本文が透ける）");
+  ok(!/\.side\{[^}]*position:static/.test(m[1]), "サイドバーが static に戻っている");
+  // PC は左の列に居座る今までどおり
+  ok(/\.side\{ position:sticky; top:var\(--space-3\); align-self:start;/.test(css), "PC のサイドバー（左の列に sticky）が変わっている");
+});
+
+check("S-12: 表の枠は、実際にはみ出しているときだけ Tab で止まり、直前の見出しの読み上げ名が付く（図の枠と同じ条件）", () => {
+  const attrs = {}, cls = new Set();
+  const inner = { scrollWidth: 1000, clientWidth: 400, scrollLeft: 0, scrollHeight: 300, clientHeight: 300,
+    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } };
+  /* 枠の前には scroll-cap（件数の1行）が挟まり、その前に h2 の見出しがある */
+  const cap = { tagName: "DIV", previousElementSibling: { tagName: "H2", textContent: " 表 \n 今日動く先（24 件） " } };
+  ctx.__W3 = { querySelector: () => inner, previousElementSibling: cap,
+    classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); } } };
+  run("markScroll(__W3)");   // 400px 幅: 横にはみ出している
+  ok(attrs.tabindex === "0" && attrs.role === "region" && attrs["aria-label"] === "表 今日動く先（24 件）（スクロールできる表の枠）",
+    "はみ出している枠に tabindex / 読み上げ名が無い、または見出しを拾えていない: " + JSON.stringify(attrs));
+  ok(cls.has("more-r"), "影の付け外し（more-r）が止まっている: " + [...cls]);
+  inner.scrollWidth = 400; run("markScroll(__W3)");   // 1440px 幅: 収まった
+  ok(!("tabindex" in attrs) && !("role" in attrs) && !("aria-label" in attrs),
+    "はみ出していない枠に tabindex が残っている（キーボードの移動が1つ増える, F1 と同じ）: " + JSON.stringify(attrs));
+  inner.scrollHeight = 900; run("markScroll(__W3)");   // PC の枠 640px に 24 行: 縦にはみ出す
+  ok(attrs.tabindex === "0" && attrs.role === "region", "縦にはみ出している枠で Tab で止まれない: " + JSON.stringify(attrs));
+  // 見出しが見つからなければ「表」
+  ctx.__W4 = { querySelector: () => inner, classList: { toggle() {} } };
+  run("markScroll(__W4)");
+  ok(attrs["aria-label"] === "表（スクロールできる表の枠）", "見出しが無いときの読み上げ名: " + attrs["aria-label"]);
+  // 見出しは「表」の札（span）と題が並ぶ。子ごとに区切って空白でつなぐ（textContent だと「表案件の立ち位置」と続く。2026-09-28 実測）
+  ctx.__W5 = { querySelector: () => inner, classList: { toggle() {} },
+    previousElementSibling: { tagName: "H2", textContent: "表案件の立ち位置",
+      childNodes: [{ textContent: "表" }, { textContent: "\n  " }, { textContent: "案件の立ち位置" }] } };
+  run("markScroll(__W5)");
+  ok(attrs["aria-label"] === "表 案件の立ち位置（スクロールできる表の枠）", "札と題が続けて読まれる: " + attrs["aria-label"]);
+  // 描いた時点（scroll()）では付けない。枠の大きさは描いた後にしか測れない
+  ok(!/tabindex|role="region"/.test(run('scroll(table([{ t: "a" }], [[1]]), 400)')), "描いた時点で tabindex / role を付けている");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);

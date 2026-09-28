@@ -213,7 +213,11 @@
      1タップ遠くなる。横に流して**全部たどれる状態のまま**にした。 */
   @media (max-width:900px){
     .layout{ grid-template-columns:minmax(0,1fr); gap:var(--space-3); }
-    .side{ position:static; max-height:none; overflow:visible;
+    /* 🔴 S-12（2026-09-28 診断）: static だと本文を下へ送った後、項目を切り替えるのに先頭まで戻るしかなかった。
+       上に貼り付ける（sticky、top:0）。PC（>900px）は左の列に居座る今までどおり。
+       地の色を持たせないと、下を流れる本文が透けて読めない */
+    .side{ position:sticky; top:0; z-index:5; background:var(--paper);
+           max-height:none; overflow:visible;
            border-right:none; border-bottom:1px solid var(--rule);
            padding:0 0 var(--space-2); }
     .side ul{ display:flex; gap:var(--space-1); overflow-x:auto;
@@ -398,6 +402,20 @@
   tbody tr:hover{ background:var(--ai-soft); }
   tbody tr:last-child td{ border-bottom:none; }
   td:first-child{ font-weight:600; }
+  /* 1列目（案件名・担当者名など、行を特定する列）を横に送っても左に残す（S-12）。
+     2026-09-28 診断（400px）: 表を横に送ると案件名が消え、どの行の数字か分からなくなっていた。
+     PC でも横に続く表（案件そのもの 15列）で同じ。はみ出していない表では見え方は変わらない。
+     行の地の色（縞・ホバー）を貼り付けた列にも持たせる。透明のままだと下を流れる列が透けて読めない。
+     th は上（top:0、z-index:2）にも貼り付いているので、左上の角はその上（z-index:3）に置く */
+  th:first-child, td:first-child{ position:sticky; left:0; z-index:1; background:var(--panel); }
+  th:first-child{ z-index:3; background:var(--panel-3); }
+  tbody tr:nth-child(even) td:first-child{ background:var(--panel-2); }
+  tbody tr:hover td:first-child{ background:var(--ai-soft); }
+  /* 横に送っている間（more-l）は貼り付けた列の右端に影を落とし、その下に列が隠れていることを示す */
+  .scroll-wrap.more-l th:first-child, .scroll-wrap.more-l td:first-child{
+    box-shadow:4px 0 8px -4px var(--edge-shade); }
+  /* 表の枠にキーボードで止まったとき（markScroll がはみ出す枠だけに tabindex を付ける）、どこにいるか見えるようにする */
+  .scroll:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   td.t{ white-space:normal; min-width:180px; max-width:330px; line-height:1.6; }
   /* 折り返す列（table() の列の w）。幅は字数で決める（本文 12.5px） */
   td.wl{ white-space:normal; min-width:12em; max-width:22em; line-height:1.6; overflow-wrap:anywhere; }
@@ -486,6 +504,8 @@
    色と間隔は上のトークンから引く。新しい値を持ち込まない。 */
 a.backlink{ color:var(--ink-2); font-size:12px; text-decoration:none; margin-left:var(--space-3); }
 a.backlink:hover{ color:var(--ai); text-decoration:underline; }
+/* 他の押せるものと同じ見え方で、Tab で止まったことが分かるようにする（S-12。ここだけ抜けていた） */
+a.backlink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 .ctlbar{ display:flex; align-items:center; gap:var(--space-3);
          flex-wrap:wrap; margin:var(--space-3) 0; }
 /* 操作列の部品。いままで素の見た目のままで、枠が 1.20:1 しかなかった。
@@ -602,9 +622,20 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   .tabs button{ padding:8px 12px 7px; }
   /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す */
   .side ul{ flex-wrap:wrap; overflow-x:visible; }
-  .side button{ padding:6px var(--space-2); min-height:30px; }
+  /* タップの的（S-12）。サイドの項目は 30px、操作列は 28px で、指では隣を押しやすかった。
+     40px は Android の 48dp と WCAG 2.2 AA（24px）の間。PC（>600px）は今までどおり */
+  .side button{ padding:6px var(--space-2); min-height:40px; }
+  .ctlbar select, .ctlbar input, .ctlbar button.act{ min-height:40px; }
+  th,td{ padding:10px 12px; }
+  th button.sort{ padding:10px 12px; }
   .ctl input[type=search]{ min-width:0; width:100%; }
   .ctlbar select{ max-width:100%; }
+  /* iOS Safari は 16px 未満の入力欄に触れると画面を拡大する。入力欄だけ 16px にする（本文は 14px のまま） */
+  .ctl input, .ctl select, .ctlbar input, .ctlbar select{ font-size:16px; }
+  /* 🔴 枠内の縦スクロールをやめる（S-12）。指でページを送るつもりが枠の中だけ動き、先へ進めない罠になっていた。
+     scroll() が style="max-height:640px" を枠に直書きするので、ここだけ !important で上書きする。
+     横は枠の中でスクロールしたまま（1列目は貼り付く） */
+  .scroll{ max-height:none !important; }
 }
 /* 本題の見出しは共通部のすぐ下に出す。間の 40px は節どうしの区切りの値で、
    ページの頭には要らない */
@@ -646,6 +677,9 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
 .tl .via{ display:block; margin-top:2px; font-size:12px; color:var(--ink-2); }
 @media (max-width:600px){
   .tl li{ grid-template-columns:1fr; gap:2px; }
+  /* 要約の見出し（dt）と本文（dd）を縦に積む（S-12）。2026-09-28 診断: 400px で左列（dt）が
+     約 200px を取り、本文が細い列で折り返されていた。読む順（見出し→本文）はそのまま */
+  .tl dl{ grid-template-columns:1fr; }
 }
 </style>
 </head>
@@ -2606,6 +2640,31 @@ function markScroll(w) {
   const max = s.scrollWidth - s.clientWidth;
   w.classList.toggle("more-r", max > 1 && s.scrollLeft < max - 1);
   w.classList.toggle("more-l", max > 1 && s.scrollLeft > 1);
+  /* 表の枠が実際にはみ出している（横か縦）ときだけ Tab で止まれるようにし、読み上げ名を付ける（S-12）。
+     図の枠（markFig）と同じ条件。はみ出していない表まで止まると、キーボードの移動が1つ増えるだけ（F1 の教訓）。
+     🔴 描いた時点では付けない。枠の大きさは描いた後にしか測れない（この関数は wire・scroll・resize・toggle で呼ばれる） */
+  if (!s.setAttribute) return;
+  const over = max > 1 || s.scrollHeight - s.clientHeight > 1;
+  if (over) {
+    s.setAttribute("tabindex", "0");
+    s.setAttribute("role", "region");
+    s.setAttribute("aria-label", scrollName(w) + "（スクロールできる表の枠）");
+  } else {
+    s.removeAttribute("tabindex"); s.removeAttribute("role"); s.removeAttribute("aria-label");
+  }
+}
+/** 表の枠の読み上げ名。直前の見出し（h2 / h3。間に scroll-cap や注記が挟まる）の文。無ければ「表」。
+    見出しは「表」の札（span）と題が並ぶので、子ごとに区切って空白でつなぐ（textContent だと「表案件の立ち位置」と続く。2026-09-28 実測） */
+function scrollName(w) {
+  let e = w;
+  for (let i = 0; e && i < 8; i++) {
+    e = e.previousElementSibling;
+    if (!e || !/^H[23]$/.test(e.tagName || "")) continue;
+    const parts = e.childNodes ? [...e.childNodes].map((n) => (n.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean) : [];
+    const name = parts.length ? parts.join(" ") : (e.textContent || "").replace(/\s+/g, " ").trim();
+    return name.slice(0, 60) || "表";
+  }
+  return "表";
 }
 /** 図の枠（fig の .figbody[data-cap]）が実際に横へはみ出しているときだけ、Tab で止まれるようにし
     （tabindex）、「横にスクロールできる枠」の読み上げ名を付ける。文の案内（.figscroll）も同じ条件で出す。
