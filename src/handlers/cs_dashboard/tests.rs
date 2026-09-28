@@ -1790,6 +1790,17 @@ fn 全画面で母集団の件数が一致する() {
         assert_eq!(p["active_option"], 99, "{name} の外したオプション");
         assert_eq!(p["deals"], 3432, "{name} の全取引（オプション除く）");
         assert_eq!(p["deals_all"], 3659, "{name} の全取引（オプション込み）");
+        // 🔴 自動更新の予定（S-9）も freshen が全画面の meta に載せる。無いときも null のキーとして載せる
+        //    （画面は「キーが無い」と「null」を区別しない＝配線が外れても黙って時刻なしに退化する。
+        //    2026-09-28 検証: この6行の insert を消しても lib・app_routes・view_rules のどれも落ちなかった）。
+        //    fixture の CS_メタ に「更新の予定」は無いので、環境変数 CS_UPDATE_SCHEDULE が無ければ null、あればその文字列
+        let sched = v["meta"].get("update_schedule").unwrap_or_else(|| {
+            panic!("{name} の meta に update_schedule が載っていない（freshen の配線）")
+        });
+        assert!(
+            sched.is_null() || sched.as_str().is_some_and(|s| !s.trim().is_empty()),
+            "{name} の update_schedule が null か空でない文字列でない: {sched}"
+        );
     }
 
     // 画面が自分で数えている件数も、同じ母集団を指していること

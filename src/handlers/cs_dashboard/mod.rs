@@ -1504,7 +1504,8 @@ pub fn data_age_days(meta: &SheetData, today: NaiveDate) -> Option<i64> {
 /// 1. `CS_メタ` の「更新の予定」（`run_daily.py` が書く。2026-09-28 時点ではまだ書いていない）
 /// 2. 環境変数 `CS_UPDATE_SCHEDULE`（サーバの設定。値はそのまま画面に出す）
 ///
-/// どちらも無ければ `None`。画面は時刻を出さず「自動で回しています」だけを出す。
+/// どちらも無ければ `None`。画面は自動更新のことを何も言わない（「自動で回しています」も
+/// 運用の事実で、HTML に直書きするとスケジューラを外した日から嘘になる。2026-09-28 検証で直した）。
 /// **推測で埋めない**（「毎日 21:30」を既定にすると、変えたときに気づけない）。
 pub fn update_schedule(meta: &SheetData) -> Option<String> {
     update_schedule_from(meta, std::env::var("CS_UPDATE_SCHEDULE").ok())
