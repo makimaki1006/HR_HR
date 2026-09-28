@@ -29,7 +29,7 @@
 //! 補間する方式に変えると**モックと数字が合わなくなる**ので、変えるときは
 //! 両方そろえること。
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use askama::Template;
 use axum::extract::Query;
@@ -3089,11 +3089,33 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
     let n_hit = picked.len();
     // D-1a（2026-09-28 藤巻さんの判断。08_UIUX改善案 M-4 の最小版）: 画面が担当で絞れるように、
     // 名札2本以上の全候補も `candidates` で返す。fixture では候補 243 件・23 名に対して、24 件に
-    // 切った後は 11 名しか出ず、16 名は自分の案件が 1 件も無かった。
+    // 切った後は 11 名しか出ず、12 名は自分の案件が 1 件も 24 件に入らなかった（候補を 1 件も
+    // 持たない 4 名を足すと 27 名中 16 名）。
     // `rows` は今までどおり上から KEEP 件（担当を選んでいないときの見え方は変えない）
     let candidates = picked.clone();
     let mut top = picked;
     top.truncate(KEEP);
+
+    // 担当の選択欄に載せる名前（D-1a の検証、2026-09-28）。候補・今週満了・今週始まった から集めると、
+    // 稼働中の案件を持っていても候補が 0 件の担当（fixture で 27 名中 3 名）が自分を選べず、
+    // 「自分は今日 0 件」を確かめられない。稼働中の全件の担当を返す（08 の M-4 は案件そのものと
+    // 同じ全担当を想定していた）。氏名が分からない担当（空）は選択肢にしない
+    let consultants: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r["consultant"].as_str())
+        .filter(|s| !s.is_empty())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    // 担当を選んだときの KPI「MTGが90日以上途絶」の実数。候補（名札2本以上）の中で数えると、名札が
+    // MTG途絶の 1 本だけの行が落ちて帯の件数と合わない（fixture: 帯 critical 102 件のうち名札 1 本の
+    // 行が 5 件、担当 27 名中 5 名で 1 件ずれる）。稼働中の全件から担当ごとに数える
+    let mut critical_by_consultant: BTreeMap<&str, usize> = BTreeMap::new();
+    for r in rows.iter().filter(|r| r["mtg_band"] == "critical") {
+        *critical_by_consultant
+            .entry(r["consultant"].as_str().unwrap_or(""))
+            .or_insert(0) += 1;
+    }
 
     // 今週満了するもの（名札の本数に関わらず落とさない）
     let soon: Vec<Value> = rows
@@ -3138,6 +3160,12 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         m.insert("n_shown".into(), json!(top.len()));
         // 画面が「担当を選んでいないときは何件に切るか」を知るため（候補は candidates に全件ある）
         m.insert("keep".into(), json!(KEEP));
+        if let Some(g) = m.get_mut("mtg_gap").and_then(Value::as_object_mut) {
+            g.insert(
+                "critical_by_consultant".into(),
+                json!(critical_by_consultant),
+            );
+        }
         m.insert("n_started_this_week".into(), json!(started.len()));
         m.insert("n_not_started".into(), json!(not_started.len()));
         m.insert(
@@ -3156,6 +3184,7 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         "meta": meta,
         "rows": top,
         "candidates": candidates,
+        "consultants": consultants,
         "expiring_this_week": soon,
         "started_this_week": started,
         "not_started": not_started,
