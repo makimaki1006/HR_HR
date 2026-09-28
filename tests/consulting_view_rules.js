@@ -87,24 +87,33 @@ const TEAM_ROWS = [
 ];
 ctx.__TEAM = TEAM_ROWS;
 
-check("V2: 接触率の最下位候補から母数が小さい人を外す", () => {
-  const p = run("pickWorstContact(__TEAM)");
-  ok(p.worst && p.worst.consultant === "h9821a39368fe",
-    "最下位が " + (p.worst && p.worst.consultant) + "。母数が小さい h6e0d…（0/11か月）を拾っていないか");
+// 2026-09-28（S-10）: KPI は「いちばん低い」人の名指しをやめて「40% 未満の人数」にした。母数が小さい人を外す性質（V2）は同じ
+check("V2: 接触率 40% 未満の人数から母数が小さい人を外す", () => {
+  const p = run("pickLowContact(__TEAM)");
+  ok(p.n === 1 && p.deals === 28,
+    "40% 未満が " + p.n + " 名・持ち案件 " + p.deals + " 件（期待 1 名・28 件）。母数が小さい h6e0d…（0/11か月）を数えていないか");
   ok(p.skipped === 5, "外した人数が " + p.skipped + "（期待 5）");
 });
 
-check("V2: KPI に外した人数を書き、母数が小さい人の名前を出さない", () => {
+check("V2/S-10: KPI に外した人数を書き、担当者の名前を一人も出さない（名指しの順位表にしない）", () => {
   ctx.__D = {
     rows: TEAM_ROWS, meta: { n_consultant: 27, n_active: 604, unknown_owner: 0, retired_deals: 0,
       retired_people: 0, owner_ties: 38, not_counted: "※ 担当者の評価ではありません" },
     contact_rule: "", small_n_rule: "", focus_rule: "", owner_rule: "担当は consultant が正本です",
   };
   const h = run("renderTeam(__D)");
-  const kpi = h.split('<div class="kpis">')[1].split("</div>")[0] + h.split('<div class="kpis">')[1].split("</div>")[1];
-  ok(kpi.includes("h9821a39368fe"), "KPI に母数の足りる最下位が出ていない");
-  ok(!kpi.includes("h6e0d76778594"), "KPI に母数が小さい人（0/11か月）が出ている");
+  const kpi = h.slice(h.indexOf('<div class="kpis">'), h.indexOf("<h2", h.indexOf('<div class="kpis">')));
+  for (const r of TEAM_ROWS) ok(!kpi.includes(r.consultant), "KPI に担当者の名前が出ている: " + r.consultant);
+  ok(/接触率 40% 未満の担当者（母数が小さい人を除く）<\/span><span class="big">1<span class="u">名/.test(kpi), "40% 未満の人数（1 名）の KPI が無い");
+  ok(kpi.includes("持ち案件 28 件"), "40% 未満の人たちの持ち案件の合計が無い");
   ok(kpi.includes("母数が小さい 5 名は候補から外しています"), "外した人数が KPI に書かれていない");
+  ok(/注力案件を持つ担当者<\/span><span class="big">3<span class="u">名/.test(kpi) && kpi.includes("いちばん多い人で 16 件"),
+    "注力案件の KPI が人数（3 名・最多 16 件）でない");
+  ok(/class="kpi is-bad"><span class="lbl">接触率 40% 未満/.test(kpi), "40% 未満が 1 名以上なのに赤でない");
+  // 0 名なら赤にしない（赤は「増えるとまずい件数」だけ）
+  ctx.__D0 = Object.assign({}, ctx.__D, { rows: TEAM_ROWS.filter((r) => r.small_n || r.contact_rate >= 40) });
+  const h0 = run("renderTeam(__D0)");
+  ok(/class="kpi"><span class="lbl">接触率 40% 未満の担当者（母数が小さい人を除く）<\/span><span class="big">0</.test(h0), "0 名の KPI が赤、または 0 でない");
 });
 
 /* ================================================================ V3 */
@@ -2019,7 +2028,7 @@ check("採用単価の図: 採れた人数を値の横に括弧で付ける（�
 check("team: 稼働中の件数を KPI と末尾で繰り返さず、KPI の見出しに「母数が小さい人を除く」と書く", () => {
   const h = run("renderTeam(__D)");
   ok(!h.includes("稼働中 604 件（オプション契約を除く）"), "稼働中の件数を画面の中で繰り返している（頭の1行に任せる）");
-  ok(h.includes("接触率がいちばん低い（母数が小さい人を除く）"), "KPI の見出しが表の先頭（0.0%）と食い違って見える");
+  ok(h.includes("接触率 40% 未満の担当者（母数が小さい人を除く）"), "KPI の見出しが表の先頭（0.0%）と食い違って見える");
   ok(h.split('<div class="note def">').pop().includes("担当者 27 名"), "末尾の枠にこの画面の数（担当者の人数）が無い");
   ok(h.includes("この担当の案件だけを「担当者ごとの案件」で見る"), "名前の title が行き先の画面名と合っていない");
 });
@@ -2915,8 +2924,11 @@ check("ループ5統合: 担当者ごとの接触の見出しの2行目も、数
   };
   ctx.__HOC = HC;
 }
-/* 新しい節（問い〜「反映されたか」の手前）だけを切り出す */
-const hocPart = (h) => h.slice(h.indexOf("交代の前後で、接触は増えたか減ったか"), h.indexOf("HubSpot の担当者欄に反映されたか"));
+/* 交代の前後の節（問い〜末尾）だけを切り出す。2026-09-28（S-8）に表「交代の記録」・図「反映されたか」の後ろへ
+   移したので、後ろに残るのは末尾の枠（foot）だけ。前は「反映されたか」の手前で切っていた */
+const hocPart = (h) => h.slice(h.indexOf("交代の前後で、接触は増えたか減ったか"));
+/* 表「交代の記録」（#ho-tbl）だけを切り出す。前は最後の <table> を取っていたが、S-8 で交代の前後の節（表を含む）が後ろに来た */
+const hoTable = (h) => { const i = h.indexOf('<table id="ho-tbl"'); return i < 0 ? "" : h.slice(i, h.indexOf("</table>", i)); };
 
 check("交代の前後: 図より前に「交代の効果の証拠ではない・向きは決まらない」と断る", () => {
   const p = hocPart(run("renderHandover(__HOC)"));
@@ -3040,7 +3052,8 @@ check("交代の前後: 氏名不明の番号はサーバの番号をそのま�
   /* 引き継がれた側に氏名不明が1人だけでも、全体で2人いれば番号を出す（側ごとに数えない） */
   const from = h.slice(h.indexOf("引き継がれた側（前の担当）（変化の中央値）"), h.indexOf("前後の比べ方"));
   ok(/氏名不明 2<\/span>/.test(from), "引き継がれた側の氏名不明に、サーバの番号（2）を出していない");
-  const tbl = h.slice(h.lastIndexOf("<table"));
+  const tbl = hoTable(h);
+  ok(tbl.length > 0, "交代の記録の表（#ho-tbl）が無い");
   const body = tbl.slice(tbl.indexOf("<tbody>"));
   const row = body.slice(body.indexOf("拠点S1の前の契約"), body.indexOf("</tr>", body.indexOf("拠点S1の前の契約")));
   ok(/氏名不明 2<\/span>/.test(row), "交代の表の氏名不明に番号が無い: " + row);
@@ -3052,7 +3065,8 @@ check("交代の前後: 氏名不明の番号はサーバの番号をそのま�
 
 check("交代の前後: 交代の表に「接触の前後」の列を足し、既存の列（記録の遅れ・反映・状態）は残す", () => {
   const h = run("renderHandover(__HOC)");
-  const tbl = h.slice(h.lastIndexOf("<table"));
+  const tbl = hoTable(h);
+  ok(tbl.length > 0, "交代の記録の表（#ho-tbl）が無い");
   const head = tbl.slice(0, tbl.indexOf("</thead>"));
   for (const c of ["交代日", "前の担当", "次の担当", "いまの担当", "接触の前後（30日あたり）", "記録の遅れ", "反映", "状態"])
     ok(head.includes(">" + c + "<"), "表の列「" + c + "」が無い");
@@ -3357,6 +3371,281 @@ check("案件の詳細: 話した人はそろえた表示名（handler_label）�
 
 check("案件の詳細: 電話の AI 要約には「誤りを含むことがあります」の断りを付ける（取り違えは機械の検証で防げない）", () => {
   ok(jsNoComment.includes("AI 要約（誤りを含むことがあります）"), "要約の見出しに AI 要約の断りが無い");
+});
+
+/* ================================================================ 段1（2026-09-28、08_UIUX改善案の S-3） */
+check("S-3: 今日動く先の3表は8列（案件・名札・担当・満了まで・最後の接触・最後のMTG・定期NPS・金額）で、名札が2列目", () => {
+  const cols = run("TODAY_COLS.map((c) => c.t)");
+  ok(JSON.stringify(cols) === JSON.stringify(["案件", "名札", "担当", "満了まで", "最後の接触", "最後のMTG", "定期NPS", "金額"]),
+    "今日動く先の列が違う: " + cols.join(" / "));
+  // 案件そのものは 15 列のまま。名札（並びの根拠）だけ案件名の隣へ
+  ok(run("BOARD_COLS[1].k") === "n_flags", "案件そのものの名札の列が2列目でない");
+  ok(run("BOARD_COLS.length") === 15, "案件そのものの列数が 15 でない（列を落としていないか）");
+  const row = { deal_id: "a", name: "案件A", consultant: "担当A", flags: ["x", "y"], n_flags: 2, amount: 100000, days_left: 12, nps: 3 };
+  ctx.__TD3 = { rows: [row], expiring_this_week: [row], started_this_week: [row],
+    meta: { n_hit: 1, n_shown: 1, filter_rule: "", order_rule: "", mtg_gap: {}, new_deal_rule: "" } };
+  const h = run("renderToday(__TD3)");
+  for (const id of ["today-tbl", "soon-tbl", "new-tbl"]) {
+    const at = h.indexOf('<table id="' + id + '"');
+    ok(at >= 0, id + " の表が無い");
+    const t = h.slice(at, h.indexOf("</table>", at));
+    const ths = (t.split("</thead>")[0].match(/<th[\s>]/g) || []).length;
+    ok(ths === 8, id + " の列数が " + ths + "（8 でない）");
+    ok(/<th class="wl sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の名札の列が折り返す列（wl）でない");
+    const tds = t.split("<tbody>")[1].split("</tr>")[0];
+    ok(/<td class="wl"><a class="deallink"/.test(tds), id + " の案件名の列が折り返す列（wl）でない: " + tds.slice(0, 120));
+  }
+  // 今日動く先の枠だけ高さの制限を外す（24 行を一望）。今週満了・今週始まったは 320px の枠のまま
+  const capOf = (id) => h.slice(h.lastIndexOf('<div class="scroll-cap">', h.indexOf('id="' + id + '"')), h.indexOf('id="' + id + '"'));
+  ok(capOf("today-tbl").includes('<div class="scroll" style="max-height:none">'), "今日動く先の枠に高さの制限が残っている");
+  ok(!capOf("today-tbl").includes("縦・横にスクロール"), "高さを制限していない枠に「縦にスクロール」と書いている");
+  ok(capOf("soon-tbl").includes('style="max-height:320px"') && capOf("soon-tbl").includes("縦・横にスクロール"),
+    "今週満了の枠が 320px の枠でない");
+  const b = run('boardTable([__TD3.rows[0]], { key: "n_flags", asc: false }, "board-tbl")');
+  const bh = b.split("</thead>")[0];
+  ok((bh.match(/<th[\s>]/g) || []).length === 15, "案件そのものの表が 15 列でない");
+  ok(bh.indexOf('data-k="n_flags"') < bh.indexOf('data-k="consultant"'), "案件そのものの表で名札が担当より後ろにある");
+  // 名札だけは折り返す列（wl）。2026-09-28 検証（fixture 1440px）: 2 列目に移した名札を折り返さないままにしたら列の幅が
+  // 799px になり、枠（1,149px）に最初から見える列が 8 列 → 3 列に減った。案件名ほかの 14 列は折り返さない（横スクロールのまま）
+  ok(/<th class="wl sortable"[^>]*><button[^>]*data-k="n_flags"/.test(bh), "案件そのものの名札の列が折り返す列（wl）でない（名札が 799px の 1 行になる）");
+  ok((bh.match(/class="wl sortable"/g) || []).length === 1, "案件そのものの表で名札以外の列まで折り返す列にしている");
+  ok(!/<td class="wl"><a class="deallink"/.test(b), "案件そのものの案件名の列まで折り返す列にしている（15 列は枠の横スクロールのまま）");
+});
+
+/* ================================================================ 段1 S-1 / S-2 / D-1a（2026-09-28） */
+// fixture（2026-09-18）の形を小さくしたもの。候補（名札2本以上）は 4 件・担当 3 名で、上位 2 件だけを rows に（サーバの keep）
+const TD_ROW = (o) => Object.assign({ deal_id: "d", name: "案件", consultant: "担当A", flags: ["x", "y"], n_flags: 2,
+  amount: 100000, days_left: 30, mtg_band: "recent" }, o);
+function todayFixture() {
+  const cand = [
+    TD_ROW({ deal_id: "c1", name: "候補1", consultant: "担当A", flags: ["x", "y", "z"], n_flags: 3, amount: 300000, mtg_band: "critical" }),
+    TD_ROW({ deal_id: "c2", name: "候補2", consultant: "担当B", amount: 200000 }),
+    TD_ROW({ deal_id: "c3", name: "候補3", consultant: "担当C", amount: 150000, mtg_band: "critical" }),
+    TD_ROW({ deal_id: "c4", name: "候補4", consultant: "担当C", amount: 100000 }),
+  ];
+  return {
+    rows: cand.slice(0, 2), candidates: cand,
+    expiring_this_week: [TD_ROW({ deal_id: "e1", name: "満了1", consultant: "担当C", days_left: 3 })],
+    started_this_week: [TD_ROW({ deal_id: "s1", name: "新規1", consultant: "担当A", start: "2026-09-15" })],
+    meta: { n_hit: 4, n_shown: 2, keep: 2, n_active: 604, n_not_started: 5, filter_rule: "絞った条件の文", order_rule: "並びの文",
+      new_deal_rule: "新規の文", not_counted: "※ 予測ではありません", today: "2026-09-18",
+      mtg_gap: { rule: "", no_record_note: "", source_note: "", coverage: {}, forced_by_expiry: 1, n_judged: 0,
+        bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 9, alert: true },
+                { band: "recent", label: "直近30日にMTGあり", n: 40, alert: false },
+                { band: "onboarding", label: "立ち上がり期", n: 7, alert: false }] } },
+  };
+}
+
+check("S-1: 今日動く先は 問い → 担当の欄 → KPI → 表 今日動く先 → 表 今週満了 → 今週始まった（畳み） → 図 名札 → 図 MTG途絶 → 読むときの注意 の順", () => {
+  run("todayConsultant = '';");   // todayStartedOpen は触らない（既定で閉じていることを見る）
+  ctx.__TD5 = todayFixture();
+  const h = run("renderToday(__TD5)");
+  const at = (s) => { const i = h.indexOf(s); ok(i >= 0, "「" + s + "」が無い"); return i; };
+  const order = ["今日・今週、どこに連絡するか", 'id="td-consultant"', '<div class="kpis">', 'id="td-today-h"', 'id="today-tbl"',
+    'id="td-soon-h"', 'id="soon-tbl"', '<details class="fold" id="td-started"', 'id="new-tbl"', "何で上がってきたか",
+    "MTG が途絶えている先", "読むときの注意"];
+  const pos = order.map(at);
+  for (let i = 1; i < pos.length; i++) ok(pos[i] > pos[i - 1], "順が違う: 「" + order[i] + "」が「" + order[i - 1] + "」より前にある");
+  // 決まりごとの箱は表の見出しの直下の畳みの中（表より前に開いた箱で出さない）。母数は畳みの 1 行目（summary）に残す
+  const rule = h.indexOf('<details class="fold" id="td-rule">');
+  ok(rule > at('id="td-today-h"') && rule < at('id="today-tbl"'), "決まりごとの畳みが表の見出しの直下に無い");
+  const ruleBox = h.slice(rule, h.indexOf("</details>", rule));
+  ok(ruleBox.includes("絞った条件の文") && ruleBox.includes("並びの文"), "絞った条件・並びの決まりが畳みの中に無い");
+  // 母数（4 件から 2 件）は畳まず表の上に出す。言うのは枠の案内（scroll-cap の「2 行を出しています（全 4 件のうち）」）の 1 回だけで、
+  // 畳みの summary は同じ 1 行（caprow）に並べて繰り返さない（2026-09-28 検証: summary と案内が同じ「243 件から 24 件」を
+  // 40px の間に 2 回言い、その分 表の見出し行が下がって 1 画面目に完全な行が 0 行だった）
+  const caprow = h.slice(h.indexOf('<div class="caprow">'), at('id="today-tbl"'));
+  ok(caprow.startsWith('<div class="caprow"><details class="fold" id="td-rule"><summary>'), "決まりごとの畳みが枠の案内と同じ行（caprow）の先頭に無い");
+  ok(/<\/details><div class="scroll-cap"><b>2<\/b> 行を出しています（全 4 件のうち）/.test(caprow), "枠の案内（母数）が畳みの直後・同じ行に無い");
+  ok((caprow.match(/全 4 件のうち|4 件から 2 件/g) || []).length === 1, "母数（4 件 → 2 件）が表の上に 2 回出ている");
+  ok(/<summary>名札の本数順（同じ本数なら金額順）　<span class="when-closed">決まりごとを開く<\/span>/.test(ruleBox), "畳みの 1 行目（summary）が並びの決まりでない: " + ruleBox.slice(0, 160));
+  ok(h.indexOf('<div class="note def"><span class="hd">絞った条件') > rule, "絞った条件の箱が畳みの外（表より前）に出ている");
+  // 今週始まった契約は畳み（summary に件数）。既定は閉じている
+  ok(!/<details class="fold" id="td-started" open/.test(h), "今週始まった契約の畳みが既定で開いている");
+  const st = h.slice(h.indexOf('id="td-started"'), h.indexOf("</details>", h.indexOf('id="td-started"')));
+  ok(st.includes("<summary>今週始まった契約（1 件）"), "summary に件数が無い");
+  ok(st.includes('id="new-tbl"'), "今週始まった契約の表が畳みの中に無い");
+  // 赤は「増えるとまずい件数」の MTG 途絶だけ。今日出す先は赤にしない
+  const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
+  const cards = kp.split(/<(?:button|div)[^>]*class="kpi[" ]/).slice(1);
+  ok(cards.length === 5, "KPI が 5 枚でない: " + cards.length);
+  ok(!/^[^>]*is-bad/.test(cards[0]) && cards[0].includes("今日出す先"), "今日出す先が赤（is-bad）");
+  ok(/^[^>]*is-bad/.test(cards[1]) && cards[1].includes("MTGが90日以上途絶"), "MTG 途絶が赤（is-bad）でない");
+  // MTG 途絶の図は手を打つ帯だけ棒にし、残りは件数の 1 行に（黙って落とさない）
+  const g = h.split("<figcaption>最終MTGからの経過日数で分けた帯")[1].split("</figure>")[0];
+  const svg = g.slice(g.indexOf("<svg"), g.indexOf("</svg>"));
+  ok(svg.includes("MTGが90日以上途絶") && !svg.includes("立ち上がり期") && !svg.includes("直近30日にMTGあり"),
+    "帯を付けていない帯まで棒にしている（または手を打つ帯が棒に無い）");
+  const leg = g.split('<div class="figlegend">')[1] || "";
+  ok(leg.includes("直近30日にMTGあり 40件") && leg.includes("立ち上がり期 7件"), "棒にしていない帯の件数が注記に無い");
+});
+
+check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週満了・今週始まったは同じ画面の表へ、MTG 途絶は案件そのものを帯で絞って開く", () => {
+  run("todayConsultant = '';");
+  ctx.__TD5 = todayFixture();
+  const h = run("renderToday(__TD5)");
+  ok(/<button type="button" class="kpi" data-jump="td-today-h"><span class="lbl">今日出す先/.test(h), "今日出す先の札が表へ飛ぶ button でない");
+  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上途絶/.test(h), "MTG 途絶の札が帯で絞る button でない");
+  ok(/<button type="button" class="kpi is-warn" data-jump="td-soon-h"><span class="lbl">今週満了する/.test(h), "今週満了の札が表へ飛ぶ button でない");
+  ok(/<button type="button" class="kpi" data-jump="td-started"><span class="lbl">今週始まった契約/.test(h), "今週始まった契約の札が畳みを開く button でない");
+  ok(/<div class="kpi"><span class="lbl">稼働中の全件[\s\S]*?<a class="golink"/.test(h), "稼働中の全件はリンクを添えた div のまま（button の中に a を入れない）");
+  ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(h), "button の中に a がある（押せるものの入れ子）");
+  ok((h.match(/<span class="act">/g) || []).length === 4, "行き先の小さな文（.act）が 4 枚に付いていない");
+  ok(h.includes('<h2 class="sec mincho" id="td-today-h" tabindex="-1">') && h.includes('<h2 class="sec mincho" id="td-soon-h" tabindex="-1">'),
+    "飛ぶ先の見出しに id / tabindex が無い");
+  // 行き先の無い札（act 無し）は div のまま。見出しに id を渡さないときは前と同じ形
+  ok(run('kpi("LTV 中央値", "1", "", "")') === '<div class="kpi"><span class="lbl">LTV 中央値</span><span class="big">1</span></div>', "act 無しの kpi が div でない");
+  ok(run('sec("問い", "x")') === '<h2 class="sec mincho"><span class="no">問い</span>x</h2>', "id 無しの sec の形が変わった");
+  // 案件そのものの絞り込みに MTG 途絶の帯が加わり、行の mtg_band で落とす。内部の鍵は画面の言葉に出さない
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "critical" };');
+  const kept = run("boardApply(__TD5.candidates).map((r) => r.deal_id).join(',')");
+  ok(kept === "c1,c3", "帯で絞れていない: " + kept);
+  ok(run("boardFilterOn()") === true, "帯だけの絞り込みが「絞り込みなし」になる");
+  const words = run("boardFilterWords(__TD5)");
+  ok(words === "MTG途絶 MTGが90日以上途絶", "絞り込みの言葉に帯の名前が無い: " + words);
+  ok(run("boardFilterWords({})") === "MTG途絶 の帯", "帯の名前が引けないときに内部の鍵（critical）を出している: " + run("boardFilterWords({})"));
+  const bar = run("boardFilterBar(__TD5)");
+  ok(/<select id="bf-band"><option value="">すべて<\/option><option value="critical" selected>MTGが90日以上途絶（9）<\/option>/.test(bar),
+    "MTG 途絶の選択欄が無い、または帯の名前と件数でない");
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
+});
+
+check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全件出し、今週満了・今週始まった・KPI も追従する。未選択は今までどおり上位 keep 件", () => {
+  ctx.__TD5 = todayFixture();
+  run("todayConsultant = '';");
+  const all = run("renderToday(__TD5)");
+  ok(/<select id="td-consultant"><option value="" selected>全員<\/option><option value="担当A">担当A<\/option><option value="担当B">担当B<\/option><option value="担当C">担当C<\/option><\/select>/.test(all),
+    "担当の選択欄が候補の全員（rows の 2 名ではなく、候補・満了・新規の 3 名）でない");
+  ok(all.includes("今日動く先（2 件）") && all.includes("全 4 件のうち"), "未選択のときにサーバの上位 keep 件でない");
+  ok(!all.includes("候補3"), "未選択のときに候補の全件を出している");
+  run("todayConsultant = '担当C';");
+  const mine = run("renderToday(__TD5)");
+  ok(mine.includes("今日動く先（2 件）") && mine.includes("候補3") && mine.includes("候補4") && !mine.includes("候補1"),
+    "担当で絞ると、その人の候補を全件（keep 件に切る前の candidates から）出していない");
+  ok(!mine.includes("件のうち"), "担当で絞った表に「N 件のうち」（切っている顔）が残っている");
+  ok(mine.includes('<option value="担当C" selected>'), "選んだ担当が欄で選ばれていない");
+  const kp = mine.slice(mine.indexOf('<div class="kpis">'), mine.indexOf('id="td-today-h"'));
+  const big = [...kp.matchAll(/<span class="big">(\d+)<span class="u">件<\/span><\/span>/g)].map((m) => m[1]);
+  ok(big.join(",") === "2,1,1,0,604", "担当で絞ったときの KPI の数字（今日出す先・MTG途絶・今週満了・今週始まった・全件）が違う: " + big.join(","));
+  ok(textOf(kp).includes("全社では 9 件") && textOf(kp).includes("全社は 4 件から 2 件"), "全社の数を添えていない");
+  ok(mine.includes("満了1") && !mine.includes("新規1"), "今週満了・今週始まった契約が担当で絞られていない");
+  // 覚えている担当が今日の候補に無い: 欄に残し、0 件の理由を書く
+  run("todayConsultant = '担当Z';");
+  const none = run("renderToday(__TD5)");
+  ok(none.includes('<option value="担当Z" selected>'), "覚えている担当が候補に無いときに欄から消えている");
+  ok(none.includes("この担当には名札が2本以上ついた案件がありません") && none.includes("今日動く先（0 件）"), "0 件の理由が無い");
+  // 古い応答（candidates が無い）でも rows から絞れる
+  const old = todayFixture(); delete old.candidates; ctx.__TD6 = old;
+  run("todayConsultant = '担当A';");
+  ok(run("renderToday(__TD6)").includes("候補1"), "candidates の無い応答で rows から絞れていない");
+  run("todayConsultant = '';");
+});
+
+check("S-8: 表が主役の画面（案件そのもの・担当者ごとの案件・担当者の一覧・担当の交代）では表を図より先に出す", () => {
+  const before = (h, a, b, msg) => {
+    const i = h.indexOf(a), j = h.indexOf(b);
+    ok(i >= 0 && j >= 0, msg + "（" + (i < 0 ? a : b) + " が無い）");
+    ok(i < j, msg);
+  };
+  run('cur = { menu: "deal", view: "board" }; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
+  const b = run("renderBoard(__BD)");
+  before(b, 'id="board-filter"', 'id="board-count"', "案件そのもの: 絞り込み → 件数行 の順でない");
+  before(b, 'id="board-count"', 'id="board-tbl"', "案件そのもの: 件数行 → 表 の順でない");
+  before(b, 'id="board-tbl"', "<figure", "案件そのもの: 表が図の下");
+  before(b, 'id="board-tbl"', "並びのきまりXYZ", "案件そのもの: 並びの決まりが表の前にある");
+  run('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "田中", flag: "", expiry: "", q: "", band: "" };');
+  const o = run("renderBoard(__BD)");
+  before(o, 'id="board-count"', 'id="board-tbl"', "担当者ごとの案件: 件数行 → 表 の順でない");
+  before(o, 'id="board-tbl"', "<figure", "担当者ごとの案件: 表が図の下");
+  run('boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" }; cur = { menu: "deal", view: "today" };');
+  ctx.__TM = { rows: TEAM_ROWS, meta: { n_consultant: 8, n_active: 604, unknown_owner: 0, retired_deals: 0, retired_people: 0,
+    owner_ties: 0, not_counted: "※ 担当者の評価ではありません" }, contact_rule: "", small_n_rule: "", focus_rule: "", owner_rule: "" };
+  const t = run("renderTeam(__TM)");
+  before(t, '<div class="kpis">', 'id="team-tbl"', "担当者の一覧: KPI → 表 の順でない");
+  before(t, 'id="team-tbl"', "<figure", "担当者の一覧: 表が図の下");
+  const hv = run("renderHandover(__HOC)");
+  before(hv, '<div class="kpis">', "交代の記録（", "担当の交代: KPI → 表 の順でない");
+  before(hv, "交代の記録（", "<figure", "担当の交代: 表が図の下");
+  // 決まりごとの箱は表の直下（2026-09-28 検証: 問いと KPI の間に 142px の箱があり、表の見出し行が y=813 だった）
+  before(hv, 'id="ho-tbl"', "この一覧の決まりごと", "担当の交代: 決まりごとの箱が表より前にある（問い1 → KPI → 表 の間に入る）");
+  before(hv, "この一覧の決まりごと", "<figure", "担当の交代: 決まりごとの箱が図より後ろ");
+  before(hv, "HubSpot の担当者欄に反映されたか", "交代の前後で、接触は増えたか減ったか", "担当の交代: 2 つ目の問い（前後比較）が末尾でない");
+  ok(hv.lastIndexOf('<div class="note def">') > hv.indexOf("交代の前後で、接触は増えたか減ったか"), "担当の交代: 末尾の枠（基準日と件数）が消えている");
+});
+
+/* ================================================================ 段1 D-1a の検証（2026-09-28）で見つかった分 */
+check("D-1a の検証: 担当の選択欄の顔ぶれは選んだ担当で変わらない（絞る前の応答から集める）。サーバの consultants があれば候補 0 件の担当も選べる", () => {
+  const F = todayFixture();
+  // 担当D は候補（candidates）に無く、今週始まった契約にだけ居る（fixture の habc7b05f19ea と同じ形。稼働 1 件・名札 1 本）
+  F.started_this_week.push(TD_ROW({ deal_id: "s2", name: "新規2", consultant: "担当D", start: "2026-09-16", flags: ["x"], n_flags: 1 }));
+  ctx.__TD7 = F;
+  const opts = (h) => [...h.slice(h.indexOf('<select id="td-consultant">'), h.indexOf("</select>")).matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]).join(",");
+  run("todayConsultant = '';");
+  ok(opts(run("renderToday(__TD7)")) === ",担当A,担当B,担当C,担当D", "全員のときの顔ぶれが違う: " + opts(run("renderToday(__TD7)")));
+  run("todayConsultant = '担当A';");
+  const a = run("renderToday(__TD7)");
+  // 2026-09-28 検証（fixture）: 絞った後の応答を渡していて、担当A を選んだ瞬間に担当D が欄から消えた（25 択 → 24 択）
+  ok(opts(a) === ",担当A,担当B,担当C,担当D", "担当A を選ぶと欄から他の担当が消える（絞った後の応答から集めている）: " + opts(a));
+  ok(!a.includes("新規2") && a.includes("新規1"), "担当A を選んでいるのに今週始まった契約が担当で絞られていない");
+  // サーバの consultants（稼働中の全件の担当）があればそれが顔ぶれ。候補 0 件の担当E も選べ、選ぶと 0 件の理由が出る
+  F.consultants = ["担当A", "担当B", "担当C", "担当D", "担当E"];
+  run("todayConsultant = '担当B';");
+  const b = run("renderToday(__TD7)");
+  ok(opts(b) === ",担当A,担当B,担当C,担当D,担当E", "consultants の顔ぶれになっていない: " + opts(b));
+  run("todayConsultant = '担当E';");
+  const e = run("renderToday(__TD7)");
+  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には名札が2本以上ついた案件がありません") && e.includes("今日動く先（0 件）"),
+    "候補 0 件の担当を選んだときに、選ばれた状態と 0 件の理由が無い");
+  run("todayConsultant = '';");
+});
+
+check("D-1a の検証: 担当を選んだときの KPI「MTGが90日以上途絶」はサーバの担当ごとの実数（critical_by_consultant）で、押すとその担当のその帯へ。絞った条件にはこの表が何かを 1 文", () => {
+  const F = todayFixture();
+  // 担当C の候補の中の critical は 1 件（候補3）だが、帯の実数は 3 件（名札が MTG途絶の 1 本だけの行は候補に入らない）
+  F.meta.mtg_gap.critical_by_consultant = { "担当A": 1, "担当C": 3 };
+  ctx.__TD8 = F;
+  run("todayConsultant = '担当C';");
+  const h = run("renderToday(__TD8)");
+  const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
+  ok(/<button type="button" class="kpi is-bad" data-band="critical" data-consultant="担当C"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">3<span class="u">件/.test(kp),
+    "担当を選んだときの MTG 途絶が担当ごとの実数（3）で、担当を添えた button になっていない: " + kp.slice(kp.indexOf("MTGが90日以上途絶") - 110, kp.indexOf("MTGが90日以上途絶") + 120));
+  ok(textOf(kp).includes("この担当の稼働中の案件で。全社では 9 件") && textOf(kp).includes("この担当の一覧を見る"), "母集団（稼働中の案件）と行き先（この担当の一覧）が書いていない");
+  // 担当を選んでいるときの「絞った条件」: サーバの文（全社の説明）の前に、この表が全件・切っていないことを 1 文
+  const rb = h.slice(h.indexOf('id="td-rule"'), h.indexOf("</details>", h.indexOf('id="td-rule"')));
+  ok(rb.includes("<b>担当C を選んでいるので、この担当の名札2本以上の候補を全件（2 件）出しています。2 件には切っていません。</b>全社の決まり: 絞った条件の文"),
+    "担当を選んだときの絞った条件が全社の説明のまま: " + rb.slice(rb.indexOf("絞った条件"), rb.indexOf("絞った条件") + 160));
+  ok(/<summary>担当C の候補（名札2本以上、2 件に切らず全件）。名札の本数順　<span class="when-closed">/.test(rb), "担当を選んだときの summary が違う: " + rb.slice(0, 160));
+  // 全員のときは今までどおり帯の件数（9）・全社の一覧（担当を添えない）
+  run("todayConsultant = '';");
+  const all = run("renderToday(__TD8)");
+  ok(/<button type="button" class="kpi is-bad" data-band="critical"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">9<span class="u">件/.test(all) && textOf(all).includes("全社の一覧を見る"),
+    "全員のときの MTG 途絶が帯の件数（9）でない、または担当を添えている");
+  // 古い応答（critical_by_consultant が無い）は候補の中で数え、そう断る。行き先は全社（担当を添えない）
+  ctx.__TD9 = todayFixture();
+  run("todayConsultant = '担当C';");
+  const old = run("renderToday(__TD9)");
+  ok(/data-band="critical"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">1<span class="u">件/.test(old) && textOf(old).includes("この担当の候補（名札2本以上）の中で。全社では 9 件"),
+    "古い応答で候補の中の件数（1）と、その断りが無い");
+  run("todayConsultant = '';");
+});
+
+check("畳みの summary の文は開閉で替わる（表を開く ↔ 表を閉じる、決まりごとを開く ↔ 閉じる）。JS でなく CSS の [open] で見せる方を替える", () => {
+  run("todayConsultant = ''; todayStartedOpen = false;");
+  ctx.__TDs = todayFixture();
+  const h = run("renderToday(__TDs)");
+  ok(/<details class="fold" id="td-started"><summary>今週始まった契約（1 件）　<span class="when-closed">表を開く<\/span><span class="when-open">表を閉じる<\/span><\/summary>/.test(h),
+    "今週始まった契約の summary に開閉の 2 つの文が無い");
+  ok(/<details class="fold" id="td-rule"><summary>[^<]*<span class="when-closed">決まりごとを開く<\/span><span class="when-open">決まりごとを閉じる<\/span><\/summary>/.test(h),
+    "決まりごとの summary に開閉の 2 つの文が無い");
+  ok(/summary \.when-open\{\s*display:none/.test(html) && /details\[open\] > summary \.when-open\{\s*display:inline/.test(html) &&
+     /details\[open\] > summary \.when-closed\{\s*display:none/.test(html), "開閉で見せる方を替える CSS（when-open / when-closed）が無い");
+  // 0 件のときは「表を開く」を出さない（開いても表が無い）
+  const F = todayFixture(); F.started_this_week = []; ctx.__TDz = F;
+  ok(/<details class="fold" id="td-started"><summary>今週始まった契約（0 件）<\/summary>/.test(run("renderToday(__TDz)")), "0 件でも「表を開く」が出ている");
+});
+
+check("KPI から Enter で飛んだ先の見出し（tabindex=-1 の h2.sec）にも藍の focus-visible を定義する（UA 既定の黒い太枠を出さない）", () => {
+  ok(/h2\.sec:focus-visible\{\s*outline:2px solid var\(--ai\)/.test(html), "h2.sec:focus-visible の定義が無い（2026-09-28 検証: この画面で唯一の黒枠だった）");
 });
 
 Promise.all(pendingChecks).then(() => {

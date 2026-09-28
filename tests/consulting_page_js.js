@@ -109,8 +109,9 @@ for (const rel of TEMPLATES) {
 const unNw = (h) => String(h).replace(/<span class="nw">([^<]*)<\/span>/g, "$1");
 
 /** 1つの見張りごとに、まっさらな画面を作る（状態の変数を持ち越さない） */
-/** hash: 開いた時点の URL のハッシュ（貼った URL で直接開く経路を見張る） */
-function boot(hash) {
+/** hash: 開いた時点の URL のハッシュ（貼った URL で直接開く経路を見張る）
+    extra: 読み込む前から置いておく偽の部品（localStorage など。読み込み時に読むものはここで渡す） */
+function boot(hash, extra) {
   const reg = {};        // getElementById が返すもの
   const qs = {};         // querySelector が返すもの
   const qsa = {};        // querySelectorAll が返すもの
@@ -160,6 +161,7 @@ function boot(hash) {
     fetch: (url) => new Promise((resolve) => { fetched.push({ url: String(url), resolve }); }),
   };
   ctx.window.location = loc;
+  Object.assign(ctx, extra || {});
   vm.createContext(ctx);
   vm.runInContext(mainJs, ctx, { filename: "cs_dashboard.html#script" });
   const R = (expr) => vm.runInContext(expr, ctx);
@@ -1433,6 +1435,123 @@ check("D7", "案件を開いたまま探す欄で探すと、見ている取引�
   navHash(t, "#deal/detail?id=70000000001");
   const back = t.fetched[t.fetched.length - 1];
   if (back.url.indexOf("deal_id=70000000001") < 0) throw new Error("戻るで元の案件に戻らない: " + back.url);
+});
+
+/* ================================================================ 段1 D-1a / S-2（2026-09-28、08_UIUX改善案） */
+const fakeStore = () => {
+  const store = {};
+  return { store, ls: { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); },
+                        removeItem: (k) => { delete store[k]; } } };
+};
+check("D-1a", "今日動く先の担当の欄を選ぶと、端末（localStorage）に覚えて手元のデータで描き直す。覚えられない端末でも動く", async () => {
+  const t = boot();
+  const { store, ls } = fakeStore();
+  t.ctx.localStorage = ls;
+  const D = todayPayload([boardRow({ deal_id: "a", name: "上位", consultant: "担当A", n_flags: 3, flags: ["x", "y", "z"] })]);
+  D.candidates = D.rows.concat([boardRow({ deal_id: "b", name: "候補B", consultant: "担当B", n_flags: 2, flags: ["x", "y"] })]);
+  t.ctx.__D = D;
+  t.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = "";');
+  t.reg["cs-main"].innerHTML = t.R("renderToday(__D)");
+  const sel = new t.El("td-consultant"); t.reg["td-consultant"] = sel;
+  t.R("wire(viewOf('deal', 'today'))");
+  if (typeof sel.onchange !== "function") throw new Error("担当の欄に操作が付いていない");
+  const fetchedBefore = t.fetched.length;   // 読み込み時の go() → load() の 1 本は数えない
+  sel.value = "担当B"; sel.onchange();
+  if (store["cs.today.consultant"] !== "担当B") throw new Error("選んだ担当を端末に覚えていない: " + JSON.stringify(store));
+  if (t.fetched.length !== fetchedBefore) throw new Error("担当を選んだだけで取り直している");
+  const main = t.reg["cs-main"].innerHTML;
+  if (main.indexOf("候補B") < 0 || main.indexOf(">上位<") >= 0) throw new Error("選んだ担当の候補で描き直していない");
+  if (main.indexOf("この端末が覚えます") < 0) throw new Error("覚えたことを書いていない");
+  sel.value = ""; sel.onchange();
+  if ("cs.today.consultant" in store) throw new Error("全員に戻したのに端末に担当が残っている");
+  // 覚えられない端末（getItem / setItem が投げる）でも落ちず、覚えられないと書く
+  const blocked = () => { throw new Error("blocked"); };
+  t.ctx.localStorage = { getItem: blocked, setItem: blocked, removeItem: blocked };
+  sel.value = "担当B"; sel.onchange();
+  const m2 = t.reg["cs-main"].innerHTML;
+  if (m2.indexOf("候補B") < 0) throw new Error("覚えられない端末で担当の絞り込みが効かない");
+  if (m2.indexOf("この端末では覚えられません") < 0) throw new Error("覚えられないことを書いていない");
+});
+check("D-1a", "開いたときに端末が覚えている担当で始まる（localStorage が無い端末では全員）", async () => {
+  const { store, ls } = fakeStore();
+  store["cs.today.consultant"] = "担当B";
+  const t = boot("", { localStorage: ls });
+  if (t.R("todayConsultant") !== "担当B") throw new Error("端末が覚えている担当で始まっていない: " + t.R("todayConsultant"));
+  const D = todayPayload([boardRow({ deal_id: "a", name: "上位", consultant: "担当A" })]);
+  D.candidates = D.rows.concat([boardRow({ deal_id: "b", name: "候補B", consultant: "担当B", n_flags: 2, flags: ["x", "y"] })]);
+  t.ctx.__D = D;
+  const h = t.R("renderToday(__D)");
+  if (h.indexOf('<option value="担当B" selected>') < 0 || h.indexOf("候補B") < 0) throw new Error("覚えている担当で絞って開いていない");
+  const t2 = boot();   // localStorage そのものが無い
+  if (t2.R("todayConsultant") !== "") throw new Error("localStorage の無い端末で全員になっていない");
+});
+check("S-2", "今日動く先の数字の札を押すと、同じ画面の表へ飛ぶか、案件そのものを MTG 途絶の帯で絞って開く", async () => {
+  const t = boot();
+  const D = todayPayload([boardRow({ deal_id: "a", name: "上位", mtg_band: "critical" })]);
+  t.ctx.__D = D;
+  t.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = ""; todayStartedOpen = false;');
+  t.reg["cs-main"].innerHTML = t.R("renderToday(__D)");
+  const jump = new t.El(""); jump.dataset = { jump: "td-started" };
+  const band = new t.El(""); band.dataset = { band: "critical" };
+  t.qsa["#cs-main button.kpi[data-jump]"] = [jump];
+  t.qsa["#cs-main button.kpi[data-band]"] = [band];
+  const det = new t.El("td-started"); det.open = false; let scrolled = 0; det.scrollIntoView = () => { scrolled++; };
+  t.reg["td-started"] = det;
+  t.R("wire(viewOf('deal', 'today'))");
+  if (typeof jump.onclick !== "function" || typeof band.onclick !== "function") throw new Error("札に操作が付いていない");
+  jump.onclick();
+  if (!det.open || !scrolled) throw new Error("今週始まった契約の畳みを開いて飛んでいない");
+  if (t.R("todayStartedOpen") !== true) throw new Error("開いたことを覚えていない（描き直すと閉じる）");
+  band.onclick();
+  if (t.R("cur.menu + '/' + cur.view") !== "deal/board") throw new Error("案件そのものへ移っていない: " + t.R("cur.menu + '/' + cur.view"));
+  if (t.R("boardFilter.band") !== "critical") throw new Error("MTG 途絶の帯で絞っていない");
+  if (t.R("boardFilter.consultant") !== "") throw new Error("担当の絞り込みが残っている");
+  if (t.loc.hash !== "#deal/board") throw new Error("URL が案件そのものでない: " + t.loc.hash);
+  // 案件そのものが届いたら、帯で絞った表と「絞り込み中: MTG途絶 …」が出る
+  const B = { meta: { today: "2026-09-18", n_active: 2, order_rule: "", flag_counts: [],
+      mtg_gap: { bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 1, alert: true }] } },
+    rows: [boardRow({ deal_id: "a", name: "途絶の案件", mtg_band: "critical" }), boardRow({ deal_id: "b", name: "元気な案件", mtg_band: "recent" })] };
+  t.fetched[t.fetched.length - 1].resolve(jsonRes(B)); await tick(); await tick();
+  const main = t.reg["cs-main"].innerHTML;
+  if (main.indexOf("2 件中 1 件") < 0 || main.indexOf("MTG途絶 MTGが90日以上途絶") < 0) throw new Error("帯で絞った件数と言葉が出ていない");
+  if (main.indexOf("途絶の案件") < 0 || main.indexOf("元気な案件") >= 0) throw new Error("帯の外の行が残っている");
+  if (!/<select id="bf-band">[\s\S]*?<option value="critical" selected>/.test(main)) throw new Error("絞り込みの欄で帯が選ばれていない");
+  // 「絞り込みを外す」で帯も外れる
+  const cl = new t.El("bf-clear"); t.reg["bf-clear"] = cl;
+  t.R("wire(viewOf('deal', 'board'))");
+  cl.onclick();
+  if (t.R("boardFilter.band") !== "") throw new Error("絞り込みを外しても帯が残っている");
+});
+check("D-1a", "担当を選んでいるときに MTG 途絶の札を押すと、その担当のその帯で「担当者ごとの案件」を開く（札の数字と行き先の母集団を揃える）", async () => {
+  const t = boot();
+  const D = todayPayload([boardRow({ deal_id: "a", name: "上位", consultant: "担当A", n_flags: 2, flags: ["x", "y"], mtg_band: "critical" })]);
+  D.candidates = D.rows.slice();
+  // 担当A の帯の実数は 2（候補の中では 1）。2026-09-28 検証: 候補の中で数えると帯の実数と合わない担当が fixture で 27 名中 5 名
+  D.meta.mtg_gap = { bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 5, alert: true }], critical_by_consultant: { "担当A": 2 } };
+  t.ctx.__D = D;
+  t.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = "担当A";');
+  t.reg["cs-main"].innerHTML = t.R("renderToday(__D)");
+  const main0 = t.reg["cs-main"].innerHTML;
+  if (!/data-band="critical" data-consultant="担当A"><span class="lbl">MTGが90日以上途絶<\/span><span class="big">2</.test(main0)) throw new Error("札が担当の実数（2）と担当を添えた形でない");
+  const band = new t.El(""); band.dataset = { band: "critical", consultant: "担当A" };
+  t.qsa["#cs-main button.kpi[data-band]"] = [band];
+  t.R("wire(viewOf('deal', 'today'))");
+  band.onclick();
+  const at = t.R("cur.menu + '/' + cur.view");
+  if (at !== "consultant/byowner") throw new Error("担当者ごとの案件へ移っていない（案件そのものは入るときに担当の絞り込みを外す）: " + at);
+  if (t.R("boardFilter.consultant") !== "担当A" || t.R("boardFilter.band") !== "critical") throw new Error("担当と帯の絞り込みが両方立っていない");
+  if (t.loc.hash !== "#consultant/byowner") throw new Error("URL が担当者ごとの案件でない: " + t.loc.hash);
+  // 届いた応答で、担当と帯の両方で絞った表と「絞り込み中: 担当 …, MTG途絶 …」が出る
+  const B = { meta: { today: "2026-09-18", n_active: 3, order_rule: "", flag_counts: [],
+      mtg_gap: { bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 2, alert: true }] } },
+    rows: [boardRow({ deal_id: "a", name: "途絶A", consultant: "担当A", mtg_band: "critical" }),
+           boardRow({ deal_id: "b", name: "途絶B", consultant: "担当B", mtg_band: "critical" }),
+           boardRow({ deal_id: "c", name: "元気A", consultant: "担当A", mtg_band: "recent" })] };
+  t.fetched[t.fetched.length - 1].resolve(jsonRes(B)); await tick(); await tick();
+  const main = t.reg["cs-main"].innerHTML;
+  if (main.indexOf("3 件中 1 件") < 0 || main.indexOf("担当 担当A") < 0 || main.indexOf("MTG途絶 MTGが90日以上途絶") < 0) throw new Error("担当と帯で絞った件数と言葉が出ていない");
+  if (main.indexOf("途絶A") < 0 || main.indexOf("途絶B") >= 0 || main.indexOf("元気A") >= 0) throw new Error("担当か帯の外の行が残っている");
+  t.R('todayConsultant = ""; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
 });
 
 (async () => {
