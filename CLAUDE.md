@@ -557,3 +557,25 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 **改訂履歴**:
 - 2026-04-26: 全面再構成 (P4 / audit_2026_04_24 #10 対応)。9 タブ・Round 1-3・SalesNow・envvar 19 個・dead route 6 件・memory feedback 14 ルール 反映
 - 2026-03-14: 旧版 (8 タブ + サブタブ)
+
+
+---
+
+## 🔴 Frontend / Headless CRM architecture
+
+Frontend migration and Headless CRM design have separate authoritative documents.
+Before changing these areas, read all of the following:
+
+- @docs/architecture/frontend-react-migration.md
+- @docs/architecture/headless-crm-design.md
+- @docs/architecture/architecture-decisions.md
+
+Key rules:
+
+- Rust / Axum remains the backend.
+- Frontend moves gradually to React + TypeScript + Vite; no one-shot rewrite.
+- Headless CRM is React inside the existing HR_HR application.
+- HubSpot remains the CRM System of Record.
+- Do not add a separate CRM master DB by default.
+- Durable Retry / Pending Sync is required for HubSpot write failures, but storage technology is not yet decided.
+- Do not silently override accepted ADRs with generic best practices. Propose changes with explicit trade-offs.
