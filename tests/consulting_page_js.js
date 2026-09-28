@@ -1880,6 +1880,12 @@ check("M-6", "移動: 上のメニュー・側柱は作り直さず印だけ付�
   if (attrs["aria-busy"] !== "false") throw new Error("描いた後に aria-busy が false に戻らない");
   if (st.textContent.indexOf("担当者ごとの案件 を表示しました") !== 0) throw new Error("表示したことの読み上げ: " + st.textContent);
   if (t.doc.activeElement !== main) throw new Error("移動の後にフォーカスが本文（#cs-main）へ移らない");
+  /* 🔴 開いた直後（最初の読み込み）は本文へ移さない。移すと読み上げが鮮度の帯（赤の「N日分の動きが入っていません」）を
+     飛ばして本文から始まる（2026-09-28 Playwright 1440px で実測: 開いた直後の Tab が本文の中から始まっていた） */
+  const t0 = boot();
+  t0.fetched[t0.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({})])));
+  await tick(); await tick();
+  if (t0.doc.activeElement !== t0.doc.body) throw new Error("開いた直後の読み込みで本文へフォーカスを移している（鮮度の帯が読み上げから飛ぶ）");
   /* 側柱: 同じメニューの中の移動では作り直さない（メニューが変わったときは並べ直す） */
   const side = t.reg["cs-side"];
   const sideBtns = ["team", "byowner", "handover", "contact"].map((v) => mk({ v }));
