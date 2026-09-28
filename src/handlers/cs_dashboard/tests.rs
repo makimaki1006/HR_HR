@@ -2747,6 +2747,41 @@ fn 今日動く先の並びは名札の本数が先() {
     }
 }
 
+/// D-1a（2026-09-28 藤巻さんの判断）: 今日動く先を担当で絞れるように、名札2本以上の全候補を
+/// `candidates` で返し、`rows` はその先頭 `meta.keep` 件のまま。fixture では候補 243 件・23 名に
+/// 対して 24 件には 11 名しか出ず、16 名は自分の案件が 1 件も無かった（08_UIUX改善案 M-4）。
+/// 画面は担当を選んだときだけ candidates から出す（選んでいないときの見え方は変えない）。
+#[test]
+fn 今日動く先は名札2本以上の全候補も返す() {
+    let v = build_today_board(&sheets(), fixture_day());
+    let cand = v["candidates"].as_array().expect("candidates が無い");
+    let rows = v["rows"].as_array().unwrap();
+    assert_eq!(v["meta"]["keep"], 24, "meta.keep");
+    assert_eq!(cand.len(), 243, "名札2本以上の候補の件数");
+    assert_eq!(v["meta"]["n_hit"], 243, "n_hit は候補の件数");
+    assert_eq!(rows.len(), 24, "rows は今までどおり keep 件");
+    assert_eq!(
+        &cand[..rows.len()],
+        &rows[..],
+        "rows が candidates の先頭 keep 件になっていない"
+    );
+    for r in cand {
+        assert!(
+            r["n_flags"].as_u64().unwrap_or(0) >= 2,
+            "名札が2本未満の行が候補に入っている: {r}"
+        );
+    }
+    let owners = |rs: &[Value]| -> std::collections::BTreeSet<String> {
+        rs.iter()
+            .map(|r| r["consultant"].as_str().unwrap_or("").to_string())
+            .collect()
+    };
+    let (o24, oall) = (owners(rows), owners(cand));
+    assert_eq!(o24.len(), 11, "24 件に出る担当者の数");
+    assert_eq!(oall.len(), 23, "候補に出る担当者の数");
+    assert!(o24.is_subset(&oall), "24 件の担当者が候補の担当者に含まれない");
+}
+
 /// N13: 通話の ts（UTC）は日本時間の日付にする。
 #[test]
 fn 通話の日付は日本時間で取る() {
