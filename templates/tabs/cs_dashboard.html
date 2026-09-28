@@ -3094,7 +3094,9 @@ function renderFocus(D) {
     [{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "NPS", n: 1 }, { t: "回答月" },
      { t: "金額", n: 1 }, { t: "満了まで", n: 1 }, { t: "接触の記録", n: 1 }],
     n.rows.slice(0, 200).map((r) => [
-      esc(r.name || r.deal_id),
+      /* 🔴 2026-09-28 UI/UX 改善 S-4: 文字だけで行き止まりだった（名前を覚えて案件の詳細の探す欄に打ち直す4手順）。
+         データに deal_id があるので、案件そのものの表と同じ dealLink で詳細へ */
+      dealLink(r.deal_id, r.name),
       '<span class="muted small">' + esc(r.stage) + "</span>",
       /* 🔴 この表は全行が「4以下」なので、全行を同じ印で出す。2026-09-24 実機で「0 は赤・1 は黒」に
          見えた（同じ緋の太字でも、細い「1」は字の面が小さく黒に見える）。色だけに頼らず ▲ を添える */
@@ -4586,7 +4588,8 @@ function renderPhone(D) {
   /* 🔴 2026-09-24 実機（1440px）: 取引・ステージが折り返さず、接触から右の列が切れていた。長い文字の列を折る */
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
                      { t: "通話", n: 1 }, { t: "接触", n: 1 }, { t: "最後の接触" }, { t: "経過", n: 1 }],
-    D.silent.rows.map((x) => [esc(x.name || x.deal_id),
+    /* 案件名は案件の詳細へのリンク（S-4。前は文字だけで行き止まりだった） */
+    D.silent.rows.map((x) => [dealLink(x.deal_id, x.name),
       '<span class="muted small">' + esc(x.stage) + "</span>", yen(x.amount),
       num(x.n_calls), num(x.n_contact),
       x.last_contact == null ? '<b style="color:var(--hi)">一度も無い</b>' : esc(x.last_contact),
@@ -4659,7 +4662,8 @@ function renderRampup(D) {
     (nm.excluded_marketing ? "。「マーケ関連」の " + num(nm.excluded_marketing) +
       " 件は MTG をしないのが普通なので、この表と母数から外しています" : "") + "</div>";
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 }, { t: "契約開始から", n: 1 }],
-    nm.rows.map((r) => [esc(r.name || r.deal_id),
+    /* 案件名は案件の詳細へのリンク（S-4。前は文字だけで行き止まりだった） */
+    nm.rows.map((r) => [dealLink(r.deal_id, r.name),
       '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
       r.days_since_start == null ? DASH : num(r.days_since_start) + "日"])), 420);
   h += note("info", "継続率はこの画面にありません",
@@ -4808,7 +4812,8 @@ function renderOutcome(D) {
     "「接触の記録」は契約の前も含めた件数です。</div>";
   h += scroll(table([{ t: "取引", w: "l" }, { t: "ステージ", w: "s" }, { t: "金額", n: 1 },
                      { t: "満了まで", n: 1 }, { t: "放置の軸", w: "s" }, { t: "接触の記録", n: 1 }],
-    R.top.map((r) => [esc(r.name || r.deal_id),
+    /* 案件名は案件の詳細へのリンク（S-4。前は文字だけで行き止まりだった） */
+    R.top.map((r) => [dealLink(r.deal_id, r.name),
       '<span class="muted small">' + esc(r.stage) + "</span>", yen(r.amount),
       r.days_to_expiry == null ? DASH : num(r.days_to_expiry) + "日",
       (r.never_after_start ? '<b style="color:var(--hi)">' : "<span>") + esc(r.ax3w) +
