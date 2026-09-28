@@ -742,7 +742,8 @@ fn render(
     h.push_str(&pref_bar(d, ov.and_then(|o| o.spp.latest)));
     h.push_str(&pref_table(d, w));
     h.push_str(&keywords_block(d));
-    h.push_str(&wordbrief_block(wb));
+    h.push_str(&wordbrief_block(wb, d.search_style));
+    h.push_str(&wage_spread_block(d));
     h.push_str(&attrs_block(d, attrs));
     h.push_str(&volume_block(d));
 
@@ -906,7 +907,10 @@ fn pref_table(d: &TitleDetail, w: &MinWages) -> String {
 /// # 判定はコード側で確定させる
 /// `crate::indeed::wordbrief` が「どの語が伸びて、どの語が落ちたか」まで決める。
 /// ここは出すだけ。LLM には結果の語しか渡さない。
-fn wordbrief_block(b: Option<&crate::indeed::wordbrief::WordBrief>) -> String {
+fn wordbrief_block(
+    b: Option<&crate::indeed::wordbrief::WordBrief>,
+    style: Option<crate::indeed::searchstyle::SearchStyle>,
+) -> String {
     let Some(b) = b else {
         return String::new();
     };
@@ -925,10 +929,41 @@ fn wordbrief_block(b: Option<&crate::indeed::wordbrief::WordBrief>) -> String {
         n = b.months
     );
 
+    // その職種がどう探されるかで、出す指摘を変える。
+    //
+    // 実測（2026-09-27）: 125 職種のうち「条件で探される」が 20 職種ある。
+    // そこでは職種名を含む語のシェアが 2.2% しかなく（職種名で探される側は 10.7%）、
+    // 職種名を何に変えても見つけてもらえる量は変わりにくい。
+    // 効かない相手に効かない助言を出さないよう、ここで仕分ける。
+    if let Some(st) = style {
+        // border-teal-500 は配布 CSS に無い（実測）。あるのは amber / blue 系。
+        // 「条件で探される」は注意を向けたい側なので amber にする。
+        let cls = if st.title_audit_works() {
+            "bg-navy-700 border border-slate-600"
+        } else {
+            "bg-navy-700 border border-amber-500"
+        };
+        h.push_str(&format!(
+            "<div class=\"{cls} rounded p-3 mb-3\">\
+             <p class=\"text-slate-300 text-sm font-bold mb-1\">探され方: {l}</p>\
+             <p class=\"text-slate-200 text-sm\">{r}</p></div>",
+            l = esc(st.label()),
+            r = esc(st.reading())
+        ));
+    }
+
     // この職種の呼び名そのものを突き合わせる。
     // 「ホールスタッフ」は 2.0% しか打たれておらず、「カフェ」が 10.8% ある、
     // のような食い違いは、この画面で最初に見たいこと。
-    let findings = crate::indeed::wordbrief::audit_title(&b.title, b);
+    //
+    // ただし「条件で探される」職種には出さない。職種名を直しても効かないので、
+    // 出すと「直したのに変わらない」を招く。
+    let show_audit = style.map(|st| st.title_audit_works()).unwrap_or(true);
+    let findings = if show_audit {
+        crate::indeed::wordbrief::audit_title(&b.title, b)
+    } else {
+        Vec::new()
+    };
     if !findings.is_empty() {
         h.push_str(
             "<div class=\"bg-navy-700 border border-amber-500 rounded p-3 mb-3\">\
@@ -1061,6 +1096,57 @@ fn wordbrief_block(b: Option<&crate::indeed::wordbrief::WordBrief>) -> String {
             "<p class=\"text-slate-400 text-xs mt-2\">\
              社名・施設名を含む語 {n} 件は伏せています。</p>",
             n = b.hidden_terms
+        ));
+    }
+    h.push_str("</div>");
+    h
+}
+
+/// 給与の幅（2026-09-27）。
+///
+/// `insight_salary` の min/max は 4,761 行すべてに入っているのに、画面は
+/// 中央値しか使っていなかった。中央値だけだと「相場はいくらか」しか言えない。
+///
+/// 幅があると「その職種は給与で差を付けられるのか」が言える。
+/// 実測では 0.92 倍（用務スタッフ）〜3.74 倍（配送ドライバー）で 4 倍の開きがある。
+fn wage_spread_block(d: &TitleDetail) -> String {
+    if d.wage_spreads.is_empty() {
+        return String::new();
+    }
+    let mut h = format!(
+        "<div class=\"{CARD}\"><h3 class=\"text-slate-100 text-lg font-bold mb-1\">\
+         給与で差を付けられる職種か</h3>\
+         <p class=\"text-slate-400 text-xs mb-3\">\
+         同じ県の中で、他社が出している額が下から上までどれだけ開いているかです。\
+         県ごとに（上限−下限）÷中央値を出して、その中央値を取っています。\
+         県が {n} 県そろっている給与形態だけ出しています。</p>",
+        n = crate::indeed::wagespread::MIN_PREFS
+    );
+    h.push_str("<div style=\"overflow-x:auto\"><table class=\"w-full text-sm\"><tbody>");
+    for s in &d.wage_spreads {
+        let (mark, cls) = if s.is_wide() {
+            ("広い", "text-emerald-400")
+        } else {
+            ("狭い", "text-slate-400")
+        };
+        h.push_str(&format!(
+            "<tr><td class=\"{TD}\">{p}</td>\
+             <td class=\"{TD} tabular-nums\" style=\"text-align:right\">{m}</td>\
+             <td class=\"{TD} tabular-nums {cls}\" style=\"text-align:right\">{sp:.2} 倍</td>\
+             <td class=\"{TD} text-xs {cls}\">{mark}</td>\
+             <td class=\"{TD} text-slate-400 text-xs tabular-nums\" style=\"text-align:right\">{c} 県</td></tr>",
+            p = esc(crate::indeed::wagespread::period_label(&s.period)),
+            m = num_opt(Some(s.median)),
+            sp = s.spread,
+            c = s.prefs
+        ));
+    }
+    h.push_str("</tbody></table></div>");
+    // いちばん県がそろっている形態の読み方を 1 つだけ出す
+    if let Some(top) = d.wage_spreads.first() {
+        h.push_str(&format!(
+            "<p class=\"text-slate-200 text-sm mt-2\">{r}</p>",
+            r = esc(&top.reading())
         ));
     }
     h.push_str("</div>");
@@ -1493,6 +1579,10 @@ mod tests {
             shifts: vec![],
             attrs: None,
             volumes: vec![],
+            // 試しの職種は探され方も給与の幅も持たせない。
+            // 持たせると、この関数を使う既存テストの前提が変わってしまう
+            search_style: None,
+            wage_spreads: vec![],
         }
     }
 
