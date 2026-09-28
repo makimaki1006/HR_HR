@@ -3359,6 +3359,41 @@ check("案件の詳細: 電話の AI 要約には「誤りを含むことがあ�
   ok(jsNoComment.includes("AI 要約（誤りを含むことがあります）"), "要約の見出しに AI 要約の断りが無い");
 });
 
+/* ================================================================ 段1（2026-09-28、08_UIUX改善案の S-3） */
+check("S-3: 今日動く先の3表は8列（案件・名札・担当・満了まで・最後の接触・最後のMTG・定期NPS・金額）で、名札が2列目", () => {
+  const cols = run("TODAY_COLS.map((c) => c.t)");
+  ok(JSON.stringify(cols) === JSON.stringify(["案件", "名札", "担当", "満了まで", "最後の接触", "最後のMTG", "定期NPS", "金額"]),
+    "今日動く先の列が違う: " + cols.join(" / "));
+  // 案件そのものは 15 列のまま。名札（並びの根拠）だけ案件名の隣へ
+  ok(run("BOARD_COLS[1].k") === "n_flags", "案件そのものの名札の列が2列目でない");
+  ok(run("BOARD_COLS.length") === 15, "案件そのものの列数が 15 でない（列を落としていないか）");
+  const row = { deal_id: "a", name: "案件A", consultant: "担当A", flags: ["x", "y"], n_flags: 2, amount: 100000, days_left: 12, nps: 3 };
+  ctx.__TD3 = { rows: [row], expiring_this_week: [row], started_this_week: [row],
+    meta: { n_hit: 1, n_shown: 1, filter_rule: "", order_rule: "", mtg_gap: {}, new_deal_rule: "" } };
+  const h = run("renderToday(__TD3)");
+  for (const id of ["today-tbl", "soon-tbl", "new-tbl"]) {
+    const at = h.indexOf('<table id="' + id + '"');
+    ok(at >= 0, id + " の表が無い");
+    const t = h.slice(at, h.indexOf("</table>", at));
+    const ths = (t.split("</thead>")[0].match(/<th[\s>]/g) || []).length;
+    ok(ths === 8, id + " の列数が " + ths + "（8 でない）");
+    ok(/<th class="wl sortable"[^>]*><button[^>]*data-k="n_flags"/.test(t), id + " の名札の列が折り返す列（wl）でない");
+    const tds = t.split("<tbody>")[1].split("</tr>")[0];
+    ok(/<td class="wl"><a class="deallink"/.test(tds), id + " の案件名の列が折り返す列（wl）でない: " + tds.slice(0, 120));
+  }
+  // 今日動く先の枠だけ高さの制限を外す（24 行を一望）。今週満了・今週始まったは 320px の枠のまま
+  const capOf = (id) => h.slice(h.lastIndexOf('<div class="scroll-cap">', h.indexOf('id="' + id + '"')), h.indexOf('id="' + id + '"'));
+  ok(capOf("today-tbl").includes('<div class="scroll" style="max-height:none">'), "今日動く先の枠に高さの制限が残っている");
+  ok(!capOf("today-tbl").includes("縦・横にスクロール"), "高さを制限していない枠に「縦にスクロール」と書いている");
+  ok(capOf("soon-tbl").includes('style="max-height:320px"') && capOf("soon-tbl").includes("縦・横にスクロール"),
+    "今週満了の枠が 320px の枠でない");
+  const b = run('boardTable([__TD3.rows[0]], { key: "n_flags", asc: false }, "board-tbl")');
+  const bh = b.split("</thead>")[0];
+  ok((bh.match(/<th[\s>]/g) || []).length === 15, "案件そのものの表が 15 列でない");
+  ok(bh.indexOf('data-k="n_flags"') < bh.indexOf('data-k="consultant"'), "案件そのものの表で名札が担当より後ろにある");
+  ok(!/<td class="wl">/.test(b), "案件そのものの表まで折り返す列にしている（15 列は枠の横スクロールのまま）");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
