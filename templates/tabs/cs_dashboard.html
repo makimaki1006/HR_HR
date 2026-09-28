@@ -553,6 +553,34 @@ a.backlink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
       padding:var(--space-3) var(--space-4); border-radius:0 var(--radius-md) var(--radius-md) 0;
       color:var(--ink); font-size:13px; white-space:pre-wrap; margin:var(--space-3) 0; }
 .loading{ color:var(--ink-3); font-size:12px; }
+/* 待ち時間の見せ方（M-7、2026-09-28 UI/UX 改善 段2）。「読み込み中…」の 12px 1 行だけで、見込み時間・打ち切り・再試行が
+   無かった（デプロイ直後や TTL 切れは実測 18.7〜24.4 秒）。3 秒で見込み（.waitmore）、30 秒で「もう一度読み込む」の押し釦 */
+.loading .waitmore{ display:block; margin-top:var(--space-2); color:var(--ink-2); }
+.loading button.act, .err button.act{ font-family:inherit; font-size:12.5px; color:var(--ai); background:var(--panel-2);
+  border:1px solid var(--rule-strong); border-radius:var(--radius-md); padding:4px 9px; min-height:28px; cursor:pointer;
+  margin-left:var(--space-2); }
+.loading button.act:hover, .err button.act:hover{ background:var(--ai-soft); }
+.loading button.act:focus-visible, .err button.act:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+/* 読み込み中の骨組み（M-7）。見出し（画面名）と KPI・表の空箱を先に出し、本題がどこに来るかを予告する。
+   数字は入れない（空箱に 0 を出すと「0 件」と読まれる）。aria-hidden で読み上げには出さない。
+   高さ 96px は KPI の札（見出し 18 ＋ 数字 36 ＋ 補足 18 ＋ 余白 24）に合わせた値、240px は表の 6 行ぶん */
+.skel{ margin-top:var(--space-4); }
+.skel .skel-kpis{ display:grid; gap:var(--space-3); grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); }
+.skel .skel-kpis i{ display:block; height:96px; border:1px solid var(--rule); border-top:3px solid var(--rule);
+  border-radius:var(--radius-lg); background:var(--panel-2); }
+.skel .skel-tbl{ height:240px; margin-top:var(--space-4); border:1px solid var(--rule); border-radius:var(--radius-lg);
+  background:var(--panel-2); }
+@keyframes skel-pulse{ 50%{ opacity:.55; } }
+/* 動きを減らす設定（prefers-reduced-motion）は上の *{ animation:none } が止める */
+.skel .skel-kpis i, .skel .skel-tbl{ animation:skel-pulse 1.6s ease-in-out infinite; }
+/* 本文へ飛ぶ（M-6）。見えないが、Tab でフォーカスが当たったときだけ左上に出る */
+a.skip{ position:absolute; left:var(--space-4); top:-60px; z-index:20; font-size:12.5px; color:var(--ai); background:var(--panel);
+  border:2px solid var(--ai); border-radius:var(--radius-md); padding:6px 12px; text-decoration:none; }
+a.skip:focus{ top:var(--space-2); outline:none; }
+/* 移動の直後は本文（#cs-main、tabindex=-1）へフォーカスを移す（M-6）。マウスでは枡を出さず、キーボードのときだけ藍の枡。
+   取得の失敗（#cs-error）も同じ */
+#cs-main:focus, #cs-error:focus{ outline:none; }
+#cs-main:focus-visible, #cs-error:focus-visible{ outline:2px solid var(--ai); outline-offset:4px; }
 
 /* ---------------------------------------------------------------- 共通部を畳む（V1）
    🔴 2026-09-23 実測: 鮮度2行・色の凡例・母集団の3行ボックスが全画面の頭に並び、
@@ -747,6 +775,9 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
 </head>
 <body>
 <div class="wrap">
+<!-- 本文へ飛ぶ（M-6）。Tab の 1 つ目。押すと #cs-main へフォーカスを移す（ハッシュは画面の場所に使っているので、
+     followUrl は #cs-main を画面でないハッシュとして無視する）。2026-09-28 診断: 本題まで Tab 10〜15 回でスキップリンクが無かった -->
+<a class="skip" id="cs-skip" href="#cs-main">本文へ飛ぶ</a>
 
 <header class="masthead">
   <h1 class="mincho">コンサルダッシュボード</h1>
@@ -777,11 +808,16 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
 
 <nav class="tabs" id="cs-menu" aria-label="見るものの切り替え"></nav>
 
-<div id="cs-error" style="display:none"></div>
+<!-- 取得の失敗は読み上げに割り込む（role=alert）。出したときに focus() で止まる（tabindex=-1。M-6） -->
+<div id="cs-error" style="display:none" role="alert" tabindex="-1"></div>
+<!-- 画面が変わったこと・読み込み中であることを読み上げに伝える（M-6）。本文の innerHTML を差し替えても消えないよう、
+     本文の外に置く。中の文は load() の say() が書く（「今日動く先 を読み込み中」→「今日動く先 を表示しました」） -->
+<div id="cs-status" class="sr" role="status" aria-live="polite"></div>
 
 <div class="layout">
   <nav class="side" id="cs-side" aria-label="この中の切り替え"></nav>
-  <main class="pane on" id="cs-main"></main>
+  <!-- tabindex=-1: 移動の直後に go() → load() が focus() で止める（M-6）。aria-busy は読み込み中だけ true -->
+  <main class="pane on" id="cs-main" tabindex="-1" aria-busy="false"></main>
 </div>
 </div>
 <script>
@@ -5314,7 +5350,7 @@ function boardFilterBar(D, onlyOwner) {
 /* ②のコンサルタント名から③へ飛ぶ。担当で絞った状態で開く */
 function drillToBoard(name) {
   boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "" };
-  go("consultant", "byowner");
+  go("consultant", "byowner", false, undefined, "keep");   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2） */
 }
 /* ①今日動く先の KPI から③へ。MTG 途絶の帯で絞った状態で開く（S-2。裁定: KPI を押したら案件そのものを絞って開く）。
    go() が①に入るときに担当の絞り込みを外すので、全社のその帯が出る。
@@ -5322,7 +5358,8 @@ function drillToBoard(name) {
    その担当のその帯にする。案件そのものは入るときに担当を外すので、「担当者ごとの案件」で開く（同じ表・同じ絞り込み欄） */
 function drillToBand(band, consultant) {
   boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band };
-  if (consultant) go("consultant", "byowner"); else go("deal", "board");
+  /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2）。URL には #deal/board?band=critical の形で残る */
+  if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
 }
 
 /* いま開いている項目を描き直す（並び替え・絞り込みのたびに使う）。
@@ -5340,6 +5377,7 @@ function redrawMain(D, keep) {
   paintFigs(main, () => ctlbar(v, D) + v.render(D), keep);   /* 図の幅を枠に合わせる（2回描き） */
   wire(v);
   refocus(fk);
+  syncUrl();   /* 絞り込み・並び替え・担当・拠点の変更を URL に写す（M-2。履歴は積まない） */
 }
 
 /* 描き直しの前後でフォーカスを保つ。
@@ -6205,7 +6243,11 @@ function hsLink(id, text, cls) {
      矢印（&#8599;）は文字ではなく印なので読み上げ名から外す。text はこのファイルの中の決まった文言だけ（利用者の入力は来ない） */
   const shown = String(text || "HS").replace(/\s*&#8599;/g, "");
   const label = (text ? shown : shown + ": HubSpot でこの取引を開く") + "（新しいタブ）";
+  /* 🔴 表の横の小さな「HS」は Tab の順から外す（tabindex=-1。M-6、段1レビュー E）。1 行に案件名と HS の 2 リンクがあり、
+     今日動く先の 1 行目まで Tab 18 回だった。マウス・タッチでは前のまま押せる。キーボードでは案件名 → 案件の詳細の
+     「HubSpot で開く」（text を渡す形。こちらは Tab で止まる）から同じ取引を開ける */
   return '<a class="hslink' + (cls ? " " + cls : "") + '" href="' + u + '" target="_blank" rel="noopener"' +
+    (text ? "" : ' tabindex="-1"') +
     ' title="HubSpot でこの取引を開く（新しいタブ）" aria-label="' + label + '">' +
     (text || "HS") + "</a>";
 }
@@ -6464,7 +6506,7 @@ function wireDetail() {
   const run = () => {
     detailQ = (qi && qi.value || "").trim();
     detailId = "";
-    go("deal", "detail");
+    go("deal", "detail", false, undefined, "keep");   /* 探す言葉はここで入れた。go() に既定へ戻させない（M-2） */
   };
   /* IME の変換を確定する Enter（isComposing）では探しに行かない。変換の途中の文字で探してしまう（S-13） */
   if (qi) qi.onkeydown = (ev) => { if (ev && ev.key === "Enter" && !ev.isComposing) run(); };
@@ -6717,9 +6759,23 @@ function goLink(menu, view) {
     esc(m.label) + " → " + esc(v.label) + "</a>";
 }
 
+/* いま見ている項目の印（class / aria-current）を付け替える。
+   🔴 要素を作り直さない（M-6、2026-09-28 UI/UX 改善 段2）: 前は go() のたびに nav の innerHTML を組み直していたので、
+      Enter で押したボタンそのものが消えてフォーカスが body に落ち、Tab が文書の頭からやり直しになっていた
+      （本題まで Tab 10〜15 回）。印だけ付け替えれば、押したボタンにフォーカスが残る。
+   偽の DOM（テスト）は querySelectorAll が空を返すので、そのときは前のとおり組み直す（drawMenu / drawSide の分岐） */
+function markCurrent(b, on, cls) {
+  b.className = on ? cls : "";
+  if (on) { if (b.setAttribute) b.setAttribute("aria-current", "page"); }
+  else if (b.removeAttribute) b.removeAttribute("aria-current");
+}
+
 /* ---------------------------------------------------------------- 上のメニュー */
 function drawMenu() {
   const nav = document.getElementById("cs-menu");
+  const btns = nav.querySelectorAll ? Array.from(nav.querySelectorAll("button")) : [];
+  /* すでに並んでいれば印だけ付け替える（M-6） */
+  if (btns.length === MENUS.length) { btns.forEach((b) => markCurrent(b, b.dataset.m === cur.menu, "on")); return; }
   nav.innerHTML = MENUS.map((m) =>
     '<button type="button" data-m="' + m.key + '"' +
     (m.key === cur.menu ? ' class="on" aria-current="page"' : "") + ">" +
@@ -6735,6 +6791,12 @@ function drawMenu() {
 function drawSide() {
   const m = menuOf(cur.menu);
   const box = document.getElementById("cs-side");
+  const btns = box.querySelectorAll ? Array.from(box.querySelectorAll("button")) : [];
+  /* 同じメニューの項目がすでに並んでいれば印だけ付け替える（M-6）。メニューが変わったときは並べ直す */
+  if (box.dataset && box.dataset.menu === m.key && btns.length === m.views.length) {
+    btns.forEach((b) => markCurrent(b, b.dataset.v === cur.view, ""));
+    return;
+  }
   box.innerHTML = "<h2>" + esc(m.label) + "の中</h2><ul>" +
     m.views.map((v, i) =>
       "<li><button type=\"button\" data-v=\"" + v.key + "\"" +
@@ -6743,6 +6805,7 @@ function drawSide() {
          （2026-09-28 UI/UX 改善 S-7、診断 ①②③）。項目は名前で参照する（goLink） */
       esc(v.label) + "</button></li>").join("") +
     "</ul>";
+  if (box.dataset) box.dataset.menu = m.key;
   box.querySelectorAll("button").forEach((b) => {
     b.onclick = () => go(cur.menu, b.dataset.v);
   });
@@ -6753,58 +6816,257 @@ function drawSide() {
    ②③を行き来するたびに見ていた項目へ戻す一手が要った（2026-09-28 UI/UX 改善 S-7） */
 const lastView = {};
 
+/* ================================================================ URL に載せる状態（M-2、2026-09-28 UI/UX 改善 段2）
+   画面の状態（絞り込み・担当・法人・拠点・帯・並べ替え）をハッシュの ? 以降に載せる。
+   🔴 前は URL に残るのが画面名と詳細の取引ID（#deal/detail?id=）だけで、法人・拠点・担当・名札・満了・案件名・
+      月/週・打ち切りの切替は JS の変数だけだった。貼れない・再読込で消える・戻るで復元されない（2026-09-28 診断、08 の M-2）。
+   形: #<menu>/<view>?<名前>=<値>&…   値は名前ではなく鍵（法人番号・帯の鍵・列の鍵）。既定の値は載せない。名前は ABC 順。
+   古い形（#deal/board、#deal/detail?id=…、#study）はそのまま開ける（? の前で画面を決め、? の後ろは名前ごとに読む）。
+   名前:
+     c       担当（今日動く先・案件そのもの・担当者ごとの案件）。今日動く先では URL の c が端末の記憶（localStorage）より優先。
+             無ければ端末の記憶（D-1、段1レビュー D の裁定）
+     flag    名札 ／ band  MTG途絶の帯の鍵（critical など。画面には名前で出す） ／ expiry  満了までの帯の鍵（EXPIRY_BANDS.k）
+     q       案件名の部分一致（案件そのもの・担当者ごとの案件）、探す言葉（案件の詳細）
+     houjin  法人番号（継続を追いかける・法人番号で見る） ／ site  拠点の鍵（継続を追いかける） ／ focus=1  法人の選択欄を注力だけに
+     id      取引（案件の詳細。前からある形）
+     unit    week（担当者ごとの接触。month は既定なので載せない） ／ excl=1  右側打ち切りを代表値から外す（継続回数 × 成果）
+     sort    並び替え。列の鍵、先頭に - で大きい順（案件そのもの・担当者ごとの案件・担当者の一覧・今日動く先の表）
+   kind:
+     filter  その画面だけの絞り込み。左の項目・上のメニュー・本文のリンクから入り直すと既定に戻る
+             （段1レビュー D: KPI で帯を絞った後、側柱で案件そのものへ戻っても帯の絞り込みが残っていた）
+     ctx     画面をまたいで持ち越すもの（法人・担当・期間の単位・打ち切りの扱い・並び）。戻る・進むでは URL のとおりに戻す
+   他のチームへ: 別の画面へのリンクは hashFor(view, params) で作る（例 hashFor("board", { c: "担当A", band: "critical" })）。
+   名前は上の一覧のとおり。空・null・false・既定の値は載せない */
+const sortState = (get, set, cols, def) => ({
+  kind: "ctx",
+  get: () => { const s = get(); return s.key === def.key && s.asc === def.asc ? "" : (s.asc ? "" : "-") + s.key; },
+  set: (v) => {
+    const desc = v.charAt(0) === "-", k = desc ? v.slice(1) : v;
+    /* 列に無い鍵は無視して既定へ（貼られた URL の値をそのまま並びの鍵にしない） */
+    set(cols.some((c) => c.k === k) ? { key: k, asc: !desc } : { key: def.key, asc: def.asc });
+  },
+  reset: () => set({ key: def.key, asc: def.asc }),
+});
+const boardState = (k) => ({ kind: "filter", get: () => boardFilter[k] || "", set: (v) => { boardFilter[k] = v; },
+                             reset: () => { boardFilter[k] = ""; } });
+const flagState = (get, set) => ({ kind: "ctx", get: () => (get() ? "1" : ""), set: (v) => set(v === "1"), reset: () => set(false) });
+const BOARD_URL_STATE = {
+  c: boardState("consultant"), flag: boardState("flag"), band: boardState("band"),
+  expiry: { kind: "filter", get: () => boardFilter.expiry || "",
+            set: (v) => { boardFilter.expiry = EXPIRY_BANDS.some((b) => b.k === v) ? v : ""; },
+            reset: () => { boardFilter.expiry = ""; } },
+  q: boardState("q"),
+  sort: sortState(() => boardSort, (s) => { boardSort = s; }, BOARD_COLS, { key: "n_flags", asc: false }),
+};
+/* 法人は 2 画面（継続を追いかける・法人番号で見る）で共通（isCustView）。URL から入れたときは「既定で開いています」の注記を外す */
+const HOUJIN_URL_STATE = { kind: "ctx", get: () => customerHoujin,
+  set: (v) => { customerHoujin = v; customerReason = ""; }, reset: () => { customerHoujin = ""; customerReason = ""; } };
+const URL_STATE = {
+  today: {
+    /* URL の c ＞ 端末の記憶。URL に無いときだけ端末の記憶へ戻す（reset）。URL から入れても端末の記憶は書き換えない
+       （書き換えるのは人が欄で選んだとき＝wireToday。貼られた「あなたの分」のリンクを開いた人の端末を、他人の担当で上書きしない） */
+    c: { kind: "ctx", get: () => todayConsultant, set: (v) => { todayConsultant = v; }, reset: () => { todayConsultant = loadTodayConsultant(); } },
+    sort: sortState(() => todaySort["today-tbl"], (s) => { todaySort["today-tbl"] = s; }, TODAY_COLS, { key: "n_flags", asc: false }),
+  },
+  board: BOARD_URL_STATE,
+  byowner: BOARD_URL_STATE,
+  series: { houjin: HOUJIN_URL_STATE,
+            site: { kind: "filter", get: () => seriesSite, set: (v) => { seriesSite = v; }, reset: () => { seriesSite = ""; } } },
+  houjin: { houjin: HOUJIN_URL_STATE, focus: flagState(() => focusOnly, (b) => { focusOnly = b; }) },
+  detail: { id: { kind: "filter", get: () => detailId, set: (v) => { detailId = v; }, reset: () => { detailId = ""; } },
+            q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } } },
+  team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "contact_rate", asc: true }) },
+  contact: { unit: { kind: "ctx", get: () => (contactUnit === "month" ? "" : contactUnit),
+                     set: (v) => { contactUnit = CONTACT_UNITS.some((u) => u.k === v) ? v : "month"; },
+                     reset: () => { contactUnit = "month"; } } },
+  renewal: { excl: flagState(() => renewalExcludeCensored, (b) => { renewalExcludeCensored = b; }) },
+};
+
+/** 別の画面へのリンク、いまの状態の URL を作る（M-2。他のチームもこれで作る）。
+    view: "deal/board" か、view の key だけ（"board"。key は全メニューで一意）。無い名前は既定（案件 → 今日動く先）。
+    params: { c: "担当A", band: "critical" } のような名前と値。空・null・false・既定は載せない。true は "1"。名前は ABC 順に並べる
+    （同じ状態は同じ文字列になる。followUrl が「同じ場所か」を文字列で比べるため）。
+    例: hashFor("board", { c: "担当A", band: "critical" }) → "#deal/board?band=critical&c=%E6%8B%85%E5%BD%93A"
+        hashFor("detail", { id: "70000000001" })          → "#deal/detail?id=70000000001"（前からある形と同じ） */
+function hashFor(view, params) {
+  const s = String(view || ""), sl = s.indexOf("/");
+  let mk = s, vk = "";
+  if (sl >= 0) { mk = s.slice(0, sl); vk = s.slice(sl + 1); }
+  else { const hit = MENUS.find((m) => m.views.some((v) => v.key === s)); if (hit) { mk = hit.key; vk = s; } }
+  const m = menuOf(mk) || MENUS[0];
+  const v = viewOf(m.key, vk) || m.views[0];
+  const sp = new URLSearchParams();
+  Object.keys(params || {}).sort().forEach((k) => {
+    const val = params[k];
+    if (val == null || val === "" || val === false) return;
+    sp.set(k, val === true ? "1" : String(val));
+  });
+  const q = sp.toString();
+  return "#" + m.key + "/" + v.key + (q ? "?" + q : "");
+}
+/** いまの画面の、URL に載せる状態（既定の値は入れない） */
+function stateParams(vk) {
+  const spec = URL_STATE[vk] || {}, out = {};
+  Object.keys(spec).forEach((k) => { const v = spec[k].get(); if (v != null && v !== "") out[k] = v; });
+  return out;
+}
+/** いまの画面と状態のハッシュ */
+const hashHere = () => hashFor(cur.menu + "/" + cur.view, stateParams(cur.view));
+/** URLSearchParams → { 名前: 値 }（hashFor に渡す形） */
+function paramsObj(sp) {
+  const o = {};
+  if (sp && sp.forEach) sp.forEach((v, k) => { o[k] = v; });
+  return o;
+}
+/** URL の状態を変数に入れる。sp が null なら左の項目・上のメニューから入り直したとき（URL に何も無い）。
+    strict（戻る・進む）: URL に無い名前は既定へ戻す（URL がそのときの状態の全部）。
+    それ以外（リンク・貼った URL・入り直し）: filter だけ既定へ戻し、ctx（法人・担当・単位・並び）は持ち越す
+    （本文の「法人番号で見る」へのリンク（goLink）で、見ていた法人が既定の法人に戻らないように） */
+function applyState(vk, sp, strict) {
+  const spec = URL_STATE[vk] || {};
+  Object.keys(spec).forEach((k) => {
+    const s = spec[k];
+    if (sp && sp.has(k)) s.set(String(sp.get(k) || ""));
+    else if (strict || s.kind === "filter") s.reset();
+  });
+}
+/** いまの状態を URL に写す（履歴は積まない）。絞り込み・並び替え・法人の選び直しの後（redrawMain・load の描いた後）に呼ぶ */
+function syncUrl() {
+  const h = hashHere();
+  if (location.hash === h) return;
+  history.replaceState({ k: curKey, s: SESSION }, "", h);
+}
+
+/* 履歴の 1 件ごとの札（history.state = { k, s }）。戻る・進むで来たとき、離れる前の位置に戻し、同じ応答を取り直さないための鍵。
+   🔴 リンク（<a href="#deal/detail?id=…">）で移ったときはブラウザが札の無い履歴を作るので、着いたときに replaceState で札を付ける。
+   s はこの読み込みの印。再読込（F5）の後は前の札が history に残っているが、位置もデータも手元に無いので使わない */
+const SESSION = String(Date.now().toString(36)) + Math.floor(Math.random() * 1e6).toString(36);
+let keySeq = 0;
+let curKey = null;
+const posByKey = {};   /* 札 → 離れたときの位置（ページの scrollY、表の枠の scrollTop / scrollLeft、押していた案件名） */
+/** いまの位置。表の枠（.scroll）は本文の中の順番で覚える（同じ応答から描き直せば順番は同じ） */
+function capturePos() {
+  const boxes = [];
+  try {
+    document.querySelectorAll("#cs-main .scroll").forEach((s) => { boxes.push([s.scrollTop || 0, s.scrollLeft || 0]); });
+  } catch (_) { /* 偽の DOM。位置は無い */ }
+  const a = document.activeElement;
+  const href = a && a !== document.body && a.getAttribute ? a.getAttribute("href") || "" : "";
+  return {
+    y: typeof window.scrollY === "number" ? window.scrollY : 0,
+    x: typeof window.scrollX === "number" ? window.scrollX : 0,
+    boxes,
+    /* 押した案件名（詳細へのリンク）。戻ったとき同じ行にフォーカスを戻す（「元の行に戻す」） */
+    fk: focusKey(a) || (href.indexOf("#deal/detail?") === 0 ? '#cs-main a.deallink[href="' + href.replace(/"/g, "") + '"]' : null),
+  };
+}
+function restorePos(p) {
+  if (!p) return;
+  try {
+    document.querySelectorAll("#cs-main .scroll").forEach((s, i) => {
+      if (p.boxes[i]) { s.scrollTop = p.boxes[i][0]; s.scrollLeft = p.boxes[i][1]; }
+    });
+  } catch (_) { /* 偽の DOM */ }
+  window.scrollTo(p.x, p.y);
+}
+
 /* ---------------------------------------------------------------- 移動
-   view を省いたら、そのメニューで最後に開いた項目、まだ無ければ先頭（＝既定）を開く */
-function go(menu, view, refresh, how) {
+   view を省いたら、そのメニューで最後に開いた項目、まだ無ければ先頭（＝既定）を開く。
+   state（M-2）: 省く ＝ 左の項目・上のメニューから入り直す（その画面の絞り込みは既定に戻す。法人・担当などの持ち越すものは残す）
+                "keep" ＝ 呼ぶ側が変数を入れてある（KPI・担当者名から絞って開く drillTo*、案件の詳細の探す欄）
+                URLSearchParams ＝ URL から（貼った・戻る・進む・本文のリンク）。無い名前は既定（今日動く先の担当だけ端末の記憶）
+   trav: 戻る・進むで来たときの履歴の札（history.state.k）。同じ応答があれば取り直さず、離れたときの位置に戻す（load の opts） */
+function go(menu, view, refresh, how, state, trav) {
   const m = menuOf(menu) || MENUS[0];
   const v = (view && viewOf(m.key, view)) || viewOf(m.key, lastView[m.key]) || m.views[0];
   lastView[m.key] = v.key;
-  /* 🔴 ①「案件の立ち位置」は全件を見る場所。②から担当で絞った状態を
-     持ち越すと、絞っていることに気づかないまま全件だと思い込む。
-     ①へ入るときは担当の絞り込みだけ外す（名札・期間・検索は残す）。 */
-  if (m.key === "deal" && v.key === "board") boardFilter.consultant = "";
+  /* 離れる前に、いまの位置を履歴の札ごとに覚える（戻ってきたときに戻す） */
+  if (curKey != null) posByKey[curKey] = capturePos();
+  /* 🔴 前はここで「案件そのものへ入るときは担当の絞り込みだけ外す」としていた（②から担当で絞った状態を持ち越すと、
+     絞っていることに気づかないまま全件だと思い込む）。いまは入り直しで絞り込み（filter）を全部既定に戻すので、
+     その決まりも含む（段1レビュー D: 帯の絞り込みも同じ理由で残っていた）。URL に c= が書いてあるときだけ、そのとおり絞る
+     （絞っていることは件数の行「N 件中 M 件を表示（絞り込み中: 担当 …）」に出る） */
+  if (state !== "keep") applyState(v.key, state instanceof URLSearchParams ? state : null, trav != null);
   cur = { menu: m.key, view: v.key };
   /* URL に残す。共有と戻るボタンのため。
      🔴 画面の中の移動は履歴に**積む**（pushState）。replaceState だと何回移動しても
         履歴が増えず、戻るで画面そのものから出てしまっていた
         （2026-09-23 実機: 2回移動しても history.length が増えない, U5）。
         開いた直後の位置合わせと、戻る・進むで来たときだけは積まない（how = "replace"）。
-        積むと「戻る」を押すたびに同じ場所が増えて、いつまでも戻れなくなる。 */
-  /* 案件の詳細は、見ている取引をハッシュの後ろに残す（貼れば同じ案件が開く・戻るで前の案件へ） */
-  const hash = "#" + m.key + "/" + v.key +
-    (v.key === "detail" && detailId ? "?id=" + encodeURIComponent(detailId) : "");
-  if (location.hash !== hash) {
-    if (how === "replace") history.replaceState(null, "", hash);
-    else history.pushState(null, "", hash);
+        積むと「戻る」を押すたびに同じ場所が増えて、いつまでも戻れなくなる。
+     🔴 ハッシュが同じでも札（history.state）を付けるために replaceState する（リンクで来た履歴には札が無い） */
+  const hash = hashHere();
+  if (trav != null) {
+    curKey = trav;
+    if (location.hash !== hash) history.replaceState({ k: curKey, s: SESSION }, "", hash);
+  } else {
+    curKey = ++keySeq;
+    if (how === "replace" || location.hash === hash) history.replaceState({ k: curKey, s: SESSION }, "", hash);
+    else history.pushState({ k: curKey, s: SESSION }, "", hash);
   }
+  /* タブの名前に画面名を（M-6）。前は全画面「コンサルダッシュボード」で、タブを並べても・読み上げでも区別がつかなかった */
+  document.title = v.label + " — コンサルダッシュボード";
   drawMenu();
   drawSide();
-  window.scrollTo(0, 0);
-  load(refresh);
+  /* 戻る・進むは離れたときの位置へ戻す（描いた後、load が restorePos）。それ以外は頭から */
+  if (trav == null) window.scrollTo(0, 0);
+  load(refresh, { pos: trav != null ? posByKey[trav] || null : null, focusMain: true, trav: trav });
 }
 
-/* 開いたときの位置を URL から決める。無ければ既定 */
+/* 開いたときの位置を URL から決める。無ければ既定。
+   params: ? から後ろ（画面ごとの状態。URL_STATE）。id は前からの呼び出しのために残している（params.get("id") と同じ）。
+   known: 画面のハッシュか（"" と #<menu>… は true。#cs-main のような画面でないものは false。followUrl はそれを無視する） */
 function fromHash() {
-  /* 「#deal/detail?id=123」の ? から後ろは取引の指定。画面の場所は ? の前だけで決める */
   const raw = (location.hash || "").replace(/^#/, "");
   const qi = raw.indexOf("?");
   const p = (qi >= 0 ? raw.slice(0, qi) : raw).split("/");
+  let params;
+  try { params = new URLSearchParams(qi >= 0 ? raw.slice(qi + 1) : ""); } catch (_) { params = new URLSearchParams(); }
   const m = menuOf(p[0]);
-  if (!m) return { menu: "deal", view: "today" };
+  if (!m) return Object.assign(defaultPlace(), { id: "", params: params, known: !raw });
   const v = viewOf(m.key, p[1]);
-  let id = "";
-  if (qi >= 0) {
-    try { id = new URLSearchParams(raw.slice(qi + 1)).get("id") || ""; } catch (_) { id = ""; }
-  }
-  return { menu: m.key, view: (v || m.views[0]).key, id: id };
+  return { menu: m.key, view: (v || m.views[0]).key, id: params.get("id") || "", params: params, known: true };
+}
+/** URL が空・画面でないときの行き先。毎朝いちばん見る「案件 → 今日動く先」（見張り app_routes_no_conflict.rs） */
+function defaultPlace() {
+  return { menu: "deal", view: "today" };
 }
 
 /* ================================================================ 取得 */
-function showError(e) {
+/* retry: 「もう一度読み込む」で呼ぶもの（M-7）。ログイン切れには出さない（ログインし直す以外に手が無い）。
+   出したら focus() で止め、role=alert（HTML 側）で読み上げに割り込む（M-6） */
+function showError(e, retry) {
   const box = document.getElementById("cs-error");
   box.style.display = "";
   box.innerHTML = e && e.loginExpired ? LOGIN_EXPIRED_HTML
-    : '<div class="err">データを取得できませんでした。\n' + esc(e.message) + "</div>";
+    : '<div class="err">データを取得できませんでした。\n' + esc(e.message) +
+      (retry ? '<button type="button" class="act" id="cs-retry">もう一度読み込む</button>' : "") + "</div>";
+  const b = retry ? document.getElementById("cs-retry") : null;
+  if (b) b.onclick = retry;
+  if (box.focus) box.focus({ preventScroll: true });
+}
+/** 読み上げへの短い知らせ（#cs-status、role=status / aria-live=polite。M-6） */
+function say(text) {
+  const s = document.getElementById("cs-status");
+  if (s) s.textContent = text;
+}
+function setBusy(main, on) {
+  if (main && main.setAttribute) main.setAttribute("aria-busy", on ? "true" : "false");
+}
+/** 読み込み中の骨組み（M-7）。画面名の見出し・状態の 1 行・KPI と表の空箱。数字は入れない（0 と読まれる） */
+function skeleton(v, refresh) {
+  const m = menuOf(cur.menu) || MENUS[0];
+  return '<h2 class="sec mincho"><span class="no">' + esc(m.label) + "</span>" + esc(v.label) + "</h2>" +
+    '<div class="loading" id="cs-loading">' + (refresh
+      /* 「読み直す」で来たときは、待つ理由と長さを書く（S-11。20 秒は実測 18.7〜24.4 秒） */
+      ? "取り直し中…　HubSpot のシートを読み直しています（20 秒ほどかかります）"
+      : esc(v.label) + " を読み込み中…") + "</div>" +
+    '<div class="skel" aria-hidden="true"><div class="skel-kpis"><i></i><i></i><i></i><i></i></div><div class="skel-tbl"></div></div>';
+}
+/** 本文へフォーカスを移す（M-6）。移動の直後と「本文へ飛ぶ」 */
+function focusMainEl() {
+  const main = document.getElementById("cs-main");
+  if (main && main.focus) main.focus({ preventScroll: true });
 }
 
 /* ログインが切れたときに出す文。
@@ -6846,42 +7108,104 @@ let renewalExcludeCensored = false;
    いまの画面を上書きしていた（2026-09-23 実機: URL は byowner なのに中身が担当者の一覧, U3）。
    応答を描く前に「自分が最後の要求か」を番号で確かめ、古いものは捨てる。 */
 let loadSeq = 0;
+/* 取りに行っている fetch の打ち切り（M-7）。新しい要求を出すときと、60 秒で打ち切る（前は打ち切りが無く、待ち続けた） */
+let loadCtl = null;
+const LOAD_TIMEOUT_MS = 60000;
+/* 待ち時間の案内の予約（M-7）。3 秒で「20 秒ほどかかります」、30 秒で「もう一度読み込む」。描けたら消す */
+let waitTimers = [];
+function clearWait() { waitTimers.forEach((t) => clearTimeout(t)); waitTimers = []; }
+function startWait(my, refresh) {
+  clearWait();
+  if (typeof setTimeout !== "function") return;
+  const at = (ms, f) => { waitTimers.push(setTimeout(() => { if (my === loadSeq) f(); }, ms)); };
+  /* 3 秒: 見込み。「読み直す」で来たときは最初から 20 秒と書いてあるので重ねない */
+  if (!refresh) at(3000, () => {
+    const e = document.getElementById("cs-loading");
+    if (e) e.innerHTML += '<span class="waitmore">初めて開くとき・更新の直後は 20 秒ほどかかります（HubSpot のシートを読んでいます）。</span>';
+    say("まだ読み込み中です。20 秒ほどかかることがあります");
+  });
+  /* 30 秒: もう一度。押すと新しい要求（loadSeq が進む）になり、古い要求の応答は捨てられる */
+  at(30000, () => {
+    const e = document.getElementById("cs-loading");
+    if (e) e.innerHTML += '<span class="waitmore">30 秒たっても届いていません。' +
+      '<button type="button" class="act" id="cs-retry-wait">もう一度読み込む</button></span>';
+    const b = document.getElementById("cs-retry-wait");
+    if (b) b.onclick = () => load(refresh);
+    say("30 秒たっても届いていません。「もう一度読み込む」を押せます");
+  });
+}
+/* 戻る・進むで来たときに使う、画面ごとの直前の応答（M-2）。鍵は API の道と引数（refresh を除く）。
+   🔴 前は戻るのたびに取り直して「読み込み中」になり、ページと枠の位置が消えていた（24 件を上から潰すたび 3 画面戻る）。
+   使うのは戻る・進むのときだけ（左の項目・リンクからの移動は今までどおり取りに行く）。「読み直す」は必ず取り直す。
+   10 分より古いものは使わない（取り決め。データの時刻は鮮度の帯が応答の meta から出すので、古いものを新しいとは言わない） */
+const pageCache = {};
+const PAGE_CACHE_MS = 10 * 60 * 1000;
 
-async function load(refresh) {
+/** opts（省くと「同じ画面の取り直し」＝ 読み直す・法人の選び直し・打ち切りの切替。いまの位置を保つ）
+    pos:       描いた後に戻す位置（go が渡す。戻る・進むなら離れたときの位置、それ以外は null ＝ 頭。go が先に scrollTo(0,0) している）
+    focusMain: 描いた後に本文へフォーカスを移す（移動のとき。M-6）。取り直しでは触っていた部品へ戻す（U9）
+    trav:      戻る・進むの札。同じ応答が手元にあれば取り直さない */
+async function load(refresh, opts) {
   const my = ++loadSeq;
+  clearWait();
+  if (loadCtl) { try { loadCtl.abort(); } catch (_) { /* 打ち切れなくても新しい要求が勝つ（loadSeq） */ } loadCtl = null; }
   const v = viewOf(cur.menu, cur.view);
   const main = document.getElementById("cs-main");
   document.getElementById("cs-error").style.display = "none";
+  opts = opts || {};
+  /* 同じ画面の取り直しは、いまの位置（ページ・表の枠）を覚えて描いた後に戻す（M-2「再取得でも位置を失わない」） */
+  const pos = "pos" in opts ? opts.pos : capturePos();
+  const sameView = !("pos" in opts);
+  /* 取り直しの間は本文が「読み込み中」に置き換わるので、触っていた部品を覚えておいて戻す（U9） */
+  const fe = document.activeElement;
+  const fk = focusKey(fe);
+
+  /* 描いた後の共通の手当て。位置を戻す → フォーカス → URL → 読み上げ */
+  const settle = (fromCache) => {
+    clearWait();
+    setBusy(main, false);
+    main.style.minHeight = "";
+    if (pos) restorePos(pos);
+    /* 🔴 待つ間に人が別の場所へフォーカスを動かしていたら戻さない。遅い応答が来た瞬間に
+       前の部品へ引き戻すと、打っている途中の入力を奪う。描き直しで消えた部品は
+       フォーカスを失って body になるので、「body か、覚えた部品のまま」のときだけ戻す */
+    const now = document.activeElement;
+    if (!now || now === document.body || now === fe) {
+      if (opts.focusMain) {
+        /* 移動: 戻る・進むなら押していた案件名（同じ行）へ、無ければ本文へ（M-6。読み上げは #cs-status が伝える） */
+        if (pos && pos.fk) refocus(pos.fk);
+        const a = document.activeElement;
+        if (!a || a === document.body || a === fe) focusMainEl();
+      } else refocus(fk);
+    }
+    syncUrl();
+    /* 表示したことを読み上げに伝える。最初の表の行数も添える（偽の DOM では数えられないので省く） */
+    let n = null;
+    try { const tb = main.querySelector && main.querySelector("table tbody"); n = tb && tb.rows ? tb.rows.length : null; } catch (_) { n = null; }
+    say(v.label + " を表示しました" + (n != null ? "。最初の表は " + num(n) + " 行" : "") + (fromCache ? "（戻る前と同じデータ）" : ""));
+  };
 
   /* API を持たない項目（定義と検証）はその場で描く。
      母集団の注記だけは直前に読んだ応答から出す（画面共通の値なので同じ数字になる） */
   if (!v.path) {
     paintFigs(main, () => ctlbar(v, lastPayload || {}) + v.render());
     wire(v);
+    settle(false);
     return;
   }
 
   const q = new URLSearchParams();
-  if (refresh) q.set("refresh", "1");
   if (cur.view === "renewal" && renewalExcludeCensored) q.set("exclude_right_censored", "1");
   if (isCustView(cur.view) && customerHoujin) q.set("houjin", customerHoujin);
   if (cur.view === "detail") {
     if (detailId) q.set("deal_id", detailId);
     else if (detailQ) q.set("q", detailQ);
   }
+  const cacheKey = v.path + "?" + q.toString();
+  if (refresh) q.set("refresh", "1");
 
-  /* 取り直しの間は本文が「読み込み中」に置き換わるので、触っていた部品を覚えておいて戻す（U9） */
-  const fe = document.activeElement;
-  const fk = focusKey(fe);
-  /* 「読み直す」で来たときは、待つ理由と長さを書く（S-11。20 秒は実測 18.7〜24.4 秒） */
-  main.innerHTML = '<div class="loading">' + (refresh
-    ? "取り直し中…　HubSpot のシートを読み直しています（20 秒ほどかかります）" : "読み込み中…") + "</div>";
-  try {
-    const res = await fetch(v.path + "?" + q.toString(), { credentials: "same-origin" });
-    const body = await readJson(res);
-    if (my !== loadSeq) return;   /* 後から別の画面を頼んでいる。古い応答は描かない */
-    /* サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す */
-    if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
+  /* 応答を描く（取ってきたもの・手元のもの共通） */
+  const show = (body, fromCache) => {
     if (cur.view === "team") teamCache = body;
     if (cur.view === "board" || cur.view === "byowner") boardCache = body;
     lastPayload = body;   /* 絞り込みで描き直すときに使う。取り直しはしない */
@@ -6890,16 +7214,48 @@ async function load(refresh) {
     setFresh(body.meta || {});
     paintFigs(main, () => ctlbar(v, body) + v.render(body));   /* 図の幅を枠に合わせる（2回描き） */
     wire(v);
-    /* 🔴 待つ間に人が別の場所へフォーカスを動かしていたら戻さない。遅い応答が来た瞬間に
-       前の部品へ引き戻すと、打っている途中の入力を奪う。描き直しで消えた部品は
-       フォーカスを失って body になるので、「body か、覚えた部品のまま」のときだけ戻す */
-    const now = document.activeElement;
-    if (!now || now === document.body || now === fe) refocus(fk);
     loaded[cur.menu + "/" + cur.view] = true;
+    settle(fromCache);
+  };
+
+  /* 戻る・進む: 離れる前と同じ応答が手元にあれば取り直さない（M-2） */
+  const hit = opts.trav != null && !refresh ? pageCache[cacheKey] : null;
+  if (hit && Date.now() - hit.at < PAGE_CACHE_MS) { show(hit.body, true); return; }
+
+  /* 読み込み中（M-6 / M-7）: aria-busy、読み上げ、骨組み。同じ画面の取り直しでは本文の高さを保って、ページが縮んで
+     位置が消えないようにする（描いた後に元の位置へ戻す） */
+  setBusy(main, true);
+  say(v.label + " を読み込み中");
+  if (sameView && typeof main.offsetHeight === "number" && main.offsetHeight > 0) main.style.minHeight = main.offsetHeight + "px";
+  main.innerHTML = skeleton(v, refresh);
+  startWait(my, refresh);
+  try {
+    const ctl = typeof AbortController === "function" ? new AbortController() : null;
+    loadCtl = ctl;
+    /* 60 秒で打ち切る（M-7）。前は打ち切りが無く、応答が来ないと「読み込み中」のまま何もできなかった */
+    const killer = ctl && typeof setTimeout === "function" ? setTimeout(() => ctl.abort(), LOAD_TIMEOUT_MS) : 0;
+    let res;
+    try {
+      res = await fetch(v.path + "?" + q.toString(), { credentials: "same-origin", signal: ctl ? ctl.signal : undefined });
+    } catch (e) {
+      /* 打ち切り（60 秒か、新しい要求が出た）。新しい要求が出たときは下の loadSeq の確かめで抜ける */
+      if (e && e.name === "AbortError") throw new Error("60 秒待っても応答がありませんでした。サーバが混んでいるか、HubSpot のシートの読み直しに時間がかかっています。");
+      throw e;
+    } finally { if (killer) clearTimeout(killer); if (loadCtl === ctl) loadCtl = null; }
+    const body = await readJson(res);
+    if (my !== loadSeq) return;   /* 後から別の画面を頼んでいる。古い応答は描かない */
+    /* サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す */
+    if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
+    pageCache[cacheKey] = { body: body, at: Date.now() };
+    show(body, false);
   } catch (e) {
     if (my !== loadSeq) return;   /* 古い要求の失敗で、いまの画面を消さない */
+    clearWait();
+    setBusy(main, false);
+    main.style.minHeight = "";
     main.innerHTML = "";
-    showError(e);
+    say(v.label + " を読み込めませんでした");
+    showError(e, () => load(refresh));
   }
 }
 
@@ -7076,12 +7432,19 @@ let hqKeep = null;
       来ないことがある）。手で URL のハッシュを書き換えたときは hashchange が来る。
       両方で描き直す。どちらも位置が変わっていなければ何もしないので、2回来ても1回しか描かない。
    🔴 ここから go() するときは履歴に積まない（積むと「戻る」が効かなくなる）。 */
-const followUrl = () => {
+const followUrl = (ev) => {
   const h = fromHash();
-  /* 案件の詳細どうしの移動（連なりの前後の契約・付け直し元へのリンク）は、画面の場所が同じで取引だけ変わる */
-  const idChanged = h.view === "detail" && (h.id || "") !== detailId;
-  if (h.view === "detail") detailId = h.id || "";
-  if (h.menu !== cur.menu || h.view !== cur.view || idChanged) go(h.menu, h.view, false, "replace");
+  /* 画面でないハッシュ（「本文へ飛ぶ」の #cs-main など）では動かない */
+  if (!h.known) return;
+  /* 戻る・進むで来た（履歴に自分が付けた札がある）か、リンク・手打ちで来た（札が無い）か。
+     🔴 リンク（<a href="#…">）を押したときも Chromium は popstate を送るが、その履歴はブラウザが作ったもので札が無い。
+        札の有無で見分ける（型ではなく中身で見る）。s が違う札は前の読み込み（F5 の前）のもので、位置も応答も手元に無い */
+  const st = ev && ev.type === "popstate" ? ev.state : null;
+  const trav = st && st.s === SESSION && typeof st.k === "number" ? st.k : null;
+  /* 同じ場所（画面も状態も同じ）なら何もしない。popstate と hashchange が両方来ても 1 回しか描かない。
+     案件の詳細どうしの移動（連なりの前後の契約・付け直し元へのリンク）は画面が同じで取引（?id=）だけ違うので、ここで拾う */
+  if (hashFor(h.menu + "/" + h.view, paramsObj(h.params)) === hashHere()) return;
+  go(h.menu, h.view, false, "replace", h.params, trav);
 };
 window.addEventListener("popstate", followUrl);
 window.addEventListener("hashchange", followUrl);
@@ -7115,11 +7478,16 @@ function refitOpened(d) {
 /* 畳んだ表（details の中）は開くまで幅が 0 なので、開いたときに影を付け直し、図を描き直す */
 window.addEventListener("toggle", (ev) => { markScrollAll(); refitOpened(ev && ev.target); }, true);
 
-/* 開いた時点で URL にも位置を残す。そのまま貼れば同じ場所が開く */
+/* 開いた時点で URL にも位置を残す。そのまま貼れば同じ場所が開く。? 以降の状態（担当・法人・絞り込み）も変数に入る（M-2） */
 (() => {
+  /* 戻る・進むの位置はこちらで戻す（restorePos）。ブラウザ側の復元は、本文が「読み込み中」で短い間に走って届かず、
+     描いた後にもう一度ずれることがあるので止める */
+  try { if (typeof history !== "undefined" && "scrollRestoration" in history) history.scrollRestoration = "manual"; } catch (_) { /* 対応していないブラウザ */ }
+  /* 「本文へ飛ぶ」（M-6）。href の #cs-main はハッシュを画面の場所に使っているので、押したときは移動を止めて focus() だけ */
+  const sk = document.getElementById("cs-skip");
+  if (sk) sk.onclick = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); focusMainEl(); };
   const h = fromHash();
-  if (h.view === "detail") detailId = h.id || "";
-  go(h.menu, h.view, false, "replace");
+  go(h.menu, h.view, false, "replace", h.params);
 })();
 </script>
 </body>

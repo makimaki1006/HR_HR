@@ -1513,7 +1513,8 @@ check("S-2", "今日動く先の数字の札を押すと、同じ画面の表へ
   if (t.R("cur.menu + '/' + cur.view") !== "deal/board") throw new Error("案件そのものへ移っていない: " + t.R("cur.menu + '/' + cur.view"));
   if (t.R("boardFilter.band") !== "critical") throw new Error("MTG 途絶の帯で絞っていない");
   if (t.R("boardFilter.consultant") !== "") throw new Error("担当の絞り込みが残っている");
-  if (t.loc.hash !== "#deal/board") throw new Error("URL が案件そのものでない: " + t.loc.hash);
+  /* M-2（段2）から、絞り込みも URL に載る（#deal/board?band=critical）。画面が案件そのもので、帯が URL に残ることを見る */
+  if (t.loc.hash !== "#deal/board?band=critical") throw new Error("URL が案件そのもの＋帯の絞り込みでない: " + t.loc.hash);
   // 案件そのものが届いたら、帯で絞った表と「絞り込み中: MTG途絶 …」が出る
   const B = { meta: { today: "2026-09-18", n_active: 2, order_rule: "", flag_counts: [],
       mtg_gap: { bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 1, alert: true }] } },
@@ -1547,7 +1548,9 @@ check("D-1a", "担当を選んでいるときに MTG 途絶の札を押すと、
   const at = t.R("cur.menu + '/' + cur.view");
   if (at !== "consultant/byowner") throw new Error("担当者ごとの案件へ移っていない（案件そのものは入るときに担当の絞り込みを外す）: " + at);
   if (t.R("boardFilter.consultant") !== "担当A" || t.R("boardFilter.band") !== "critical") throw new Error("担当と帯の絞り込みが両方立っていない");
-  if (t.loc.hash !== "#consultant/byowner") throw new Error("URL が担当者ごとの案件でない: " + t.loc.hash);
+  /* M-2（段2）から、担当と帯も URL に載る（名前は ABC 順、値は URL エンコード）。貼れば同じ絞り込みで開く */
+  if (t.loc.hash !== "#consultant/byowner?band=critical&c=" + encodeURIComponent("担当A"))
+    throw new Error("URL が担当者ごとの案件＋担当と帯の絞り込みでない: " + t.loc.hash);
   // 届いた応答で、担当と帯の両方で絞った表と「絞り込み中: 担当 …, MTG途絶 …」が出る
   const B = { meta: { today: "2026-09-18", n_active: 3, order_rule: "", flag_counts: [],
       mtg_gap: { bands: [{ band: "critical", label: "MTGが90日以上途絶", n: 2, alert: true }] } },
