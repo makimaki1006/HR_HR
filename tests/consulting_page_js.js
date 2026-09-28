@@ -123,8 +123,15 @@ function boot(hash) {
     constructor(id) {
       this.id = id; this.innerHTML = ""; this.style = {}; this.className = "";
       this.dataset = {}; this.value = ""; this.checked = false; this.focused = 0;
+      this.listeners = {};   // addEventListener で付いたもの（compositionend など、on〜 の属性が無いイベント）
+      this._disabled = false;
     }
     focus() { this.focused++; doc.activeElement = this; }
+    /* 🔴 Chromium は disabled になった要素からフォーカスを外す（activeElement が body になる）。
+       「読み直す」を押した後にフォーカスが戻らなかった原因がこれなので、偽 DOM でも同じに振る舞わせる（2026-09-28） */
+    get disabled() { return this._disabled; }
+    set disabled(v) { this._disabled = !!v; if (v && doc.activeElement === this) doc.activeElement = doc.body; }
+    addEventListener(k, f) { (this.listeners[k] = this.listeners[k] || []).push(f); }
     getAttribute(k) { return k === "id" ? this.id : null; }
     querySelectorAll() { return []; }
     closest() { return null; }
@@ -1493,6 +1500,24 @@ check("S-11", "「読み直す」を押すと押せなくなり（取り直し�
   if (t.fetched.length !== n0 + 1) throw new Error("連打で取り直しが " + (t.fetched.length - n0) + " 回走った");
 });
 
+check("S-11", "キーボード（Enter）で「読み直す」を押しても、取り直した後にフォーカスが読み直すへ戻る（U9 の仕組みを壊さない）", async () => {
+  /* 🔴 直す前は onclick が load(true) より先に disabled にしていた。Chromium は disabled になった要素からフォーカスを
+     外すので、load() が覚える activeElement が body になり、描き直した後に戻す先（focusKey）が無かった
+     （2026-09-28 Playwright 1440px 実測: before=cs-reload → after=BODY。直す前の 8a1c5b3 は cs-reload に戻っていた） */
+  const t = boot();
+  t.R('cur = { menu: "deal", view: "today" }');
+  const rl = new t.El("cs-reload"); t.reg["cs-reload"] = rl;
+  t.R("wire(viewOf('deal', 'today'))");
+  rl.focus();                  // Tab で読み直すに止まっている
+  rl.onclick();                // Enter
+  // 描き直すと DOM が入れ替わる。新しい読み直すは別の要素になる
+  const rl2 = new t.El("cs-reload");
+  t.qs["#cs-reload"] = rl2; t.reg["cs-reload"] = rl2;
+  t.fetched[t.fetched.length - 1].resolve(jsonRes(todayPayload([])));
+  await tick(); await tick(); await tick();
+  if (!rl2.focused) throw new Error("取り直した後、フォーカスが読み直すへ戻らない（body に落ちる）");
+});
+
 check("S-13", "案件名の検索欄は IME の変換中に絞り込まず確定で当てる。案件の詳細の探す欄は変換確定の Enter で探さない", async () => {
   const t = boot();
   t.R('cur = { menu: "deal", view: "board" }; boardCache = { meta: { flag_counts: [] }, rows: [] };');
@@ -1502,8 +1527,15 @@ check("S-13", "案件名の検索欄は IME の変換中に絞り込まず確定
   const n0 = t.timers.length;
   q.value = "か"; q.oninput({ isComposing: true });
   if (t.timers.length !== n0) throw new Error("IME の変換中（isComposing）に絞り込みを予約している");
-  if (typeof q.oncompositionend !== "function") throw new Error("変換の確定（compositionend）で当て直す作りが無い");
-  q.value = "介護"; q.oncompositionend();
+  /* 🔴 compositionend は addEventListener で付いていること。`q.oncompositionend = …` は HTML の GlobalEventHandlers に
+     無い（Chromium で 'oncompositionend' in input → false）ので一度も呼ばれず、IME で確定しても絞り込みが当たらなかった
+     （2026-09-28 CDP 実測: 確定後も 604 行のまま）。前の見張りは typeof q.oncompositionend を見ていて、その壊れた
+     書き方を固定していた。コメントを除いた JS に、その書き方が無いことも見る */
+  const ce = (q.listeners.compositionend || [])[0];
+  if (typeof ce !== "function") throw new Error("変換の確定（compositionend）を addEventListener で受けていない");
+  const noComment = mainJs.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  if (/\.oncompositionend\s*=/.test(noComment)) throw new Error("`.oncompositionend =` が残っている（この属性は無く、一度も呼ばれない）");
+  q.value = "介護"; ce({ type: "compositionend" });
   if (t.timers.length !== n0 + 1) throw new Error("変換の確定で絞り込みを予約していない");
   q.oninput({});   // 英数の直接入力（変換なし）
   if (t.timers.length !== n0 + 2) throw new Error("変換の無い入力で絞り込みを予約していない");

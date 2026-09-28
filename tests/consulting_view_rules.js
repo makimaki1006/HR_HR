@@ -3391,6 +3391,17 @@ check("S-4: 集計の4表（NPS低・沈黙・MTG未実施・最優先）の案�
   ctx.__S4FO2 = fo;
   const f2 = run("renderFocus(__S4FO2)");
   ok(!/>[^<]*80000000011[^<]*</.test(f2) && f2.includes("取引名なし"), "取引名が空の行で取引IDが画面の文字に出ている");
+  /* 契約の系列（継続を追いかける／法人番号で見る）と案件そのもの（BOARD_COLS）も同じ。前は呼び出し側が
+     `d.name || d.deal_id` で取引IDを名前に流し込んでいて、dealLink の「取引名なし」に届かなかった（2026-09-28 検証の指摘） */
+  const ser = JSON.parse(JSON.stringify(ctx.__SER));
+  ser.deals[0].deal_id = "80000000015"; ser.deals[0].name = "";
+  ctx.__S4SER = ser;
+  const s = run('custBlocks(__S4SER, new Set(["deals"]))');
+  ok(s.includes(link("80000000015", "取引名なし")) && !/>[^<]*80000000015[^<]*</.test(s),
+    "契約の系列で取引名が空の行に取引IDが画面の文字に出ている");
+  const bc = run('BOARD_COLS.find((c) => c.k === "name").fmt({ deal_id: "80000000016", name: null, focus: false })');
+  ok(bc.includes(link("80000000016", "取引名なし")) && !/>[^<]*80000000016[^<]*</.test(bc),
+    "案件そのものの表で取引名が空の行に取引IDが画面の文字に出ている: " + bc);
 });
 
 check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で開く」。取引IDは href の中だけ・新しいタブ・rel=noopener", () => {
@@ -3404,7 +3415,16 @@ check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で�
     const hs = b.slice(b.indexOf("<a class=\"hslink"));
     ok(hs.includes(HS), "HS の href が取引ページの形でない: " + hs);
     ok(/target="_blank"/.test(hs) && /rel="noopener"/.test(hs), "HS が新しいタブ＋rel=noopener でない: " + hs);
-    ok(/>HS<\/a>/.test(hs) && /aria-label="HubSpot でこの取引を開く（新しいタブ）"/.test(hs), "表の横の印が小さな「HS」（読み上げは aria-label）でない: " + hs);
+    /* 読み上げ名は見た目の文字「HS」で始める（WCAG 2.5.3 Label in Name。音声操作で「HS」と言って一致する）。
+       前は「HubSpot でこの取引を開く（新しいタブ）」で見た目の語を含まなかった（2026-09-28 検証の指摘） */
+    ok(/>HS<\/a>/.test(hs) && /aria-label="HS: HubSpot でこの取引を開く（新しいタブ）"/.test(hs), "表の横の印が小さな「HS」（読み上げは「HS: …」で始まる aria-label）でない: " + hs);
+    /* 「HS」の意味は title だけでなく、他の印と同じく「色と印の意味」（ヘッダの畳みと定義と検証）に載せる（タッチでは title が出ない） */
+    const legend = html.slice(html.indexOf('<details class="fold" id="cs-legend">'), html.indexOf("</details>", html.indexOf('id="cs-legend"')));
+    ok(/<span class="hslink">HS<\/span> 案件名の横。HubSpot で/.test(legend), "ヘッダの「色と印の意味」に HS の項目が無い");
+    const defs = run("renderDefs()");
+    const dtab = defs.slice(defs.indexOf("色と印の意味"), defs.indexOf("この画面が守っていること"));
+    ok(/<td[^>]*><span class="hslink">HS<\/span><\/td><td[^>]*>案件名の横。HubSpot で/.test(dtab), "定義と検証の「色と印の意味」に HS の行が無い");
+    ok(/a\.hslink, span\.hslink\{/.test(html), "凡例の見本（span.hslink）に HS と同じ見た目が付いていない");
     /* 🔴 .sr（position:absolute）を表の行に入れると、表の枠（.scroll）に切られずページの高さを伸ばす
        （2026-09-28 実測: 案件そのもの 604 行で全高 2,280px → 25,656px）。読み上げ用の文は属性で持つ */
     ok(!hs.includes('class="sr"'), "HS の中に絶対配置の読み上げ用 span がある（表の枠を突き抜けてページが伸びる）: " + hs);
@@ -3416,6 +3436,7 @@ check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で�
     const h = run("renderDetail(__DD)");
     const open = h.slice(h.indexOf("<a class=\"hslink lg\""), h.indexOf("</a>", h.indexOf("<a class=\"hslink lg\"")) + 4);
     ok(open.includes(HS) && open.includes("HubSpot で開く"), "案件の詳細に「HubSpot で開く」が無い: " + open);
+    ok(/aria-label="HubSpot で開く（新しいタブ）"/.test(open), "「HubSpot で開く」の読み上げ名が見た目の文字で始まっていない（矢印は含めない）: " + open);
     ok(open.indexOf("<a class") < h.indexOf('<div class="dd-kv">'), "「HubSpot で開く」が取引の基本より下にある");
     ok(!/>[^<]*80000000001[^<]*</.test(h), "案件の詳細で取引IDが画面の文字に出ている");
     /* 文の中の付け直しの注記（「継続の取引「…」に付いていた記録」）には HS を混ぜない */
@@ -3440,6 +3461,10 @@ check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を�
   const box = td.slice(td.indexOf("絞った条件"), td.indexOf("</p>", td.indexOf("絞った条件")));
   ok(box.includes('<a class="golink" href="#deal/board">案件 → 案件そのもの</a>'), "絞った条件に全件への行き先（名前のリンク）が無い: " + box);
   ok(box.includes("名札が 2 本以上ついた 243 件から"), "サーバの文（filter_rule）を落としている");
+  ok(box.includes("243 件から。全件は "), "サーバの文と行き先の間に句点が無い");
+  /* サーバの文が空・無いとき、句点から始めない（前は「。全件は …」。2026-09-28 検証の指摘） */
+  const t0 = run("todayFilterRule({ filter_rule: \"\" })"), t1 = run("todayFilterRule({})");
+  ok(t0.startsWith("全件は ") && t1.startsWith("全件は "), "サーバの文が無いとき「。」から始まる: " + t0 + " / " + t1);
 });
 
 check("S-7: 左の項目名の後ろの番号と、上のメニューの丸数字を出さない", () => {
@@ -3473,14 +3498,31 @@ check("S-11: 「読み直す」は操作列の右端の文字リンクで、代�
   ok(run('ctlbar(viewOf("deal", "today"), { meta: { generated_at: "2026-09-14 22:00", source_age_days: null } })').includes('<span class="reload urge">'),
     "何日前か分からないのに読み直すを目立たせていない");
   ok(!run('ctlbar(viewOf("deal", "today"), {})').includes("urge"), "応答が無いのに目立たせている");
+  /* 帯が赤（meta はあるが source_as_of も generated_at も無い＝CS_メタ が読めない）→ 目立たせる。
+     前は「応答が無い」と一緒に false にしていて、赤い帯のときだけ目立たなかった（2026-09-28 検証の指摘） */
+  ok(run('ctlbar(viewOf("deal", "today"), { meta: { today: "2026-09-28", n_active: 604 } })').includes('<span class="reload urge">'),
+    "帯が赤（いつのものか分からない）なのに読み直すを目立たせていない");
   /* API を持たない「定義と検証」には読み直すを置かない（読み直すものが無い） */
   ok(!run('ctlbar(viewOf("study", "defs"), {})').includes("cs-reload"), "定義と検証に読み直すが出ている");
+  /* 右端は DOM の順序でも守る: 他の操作部品（案件の詳細の探す欄）がある画面で、読み直すがその後ろにあること。
+     今日動く先だけの見張りでは、読み直すの塊を操作列の先頭へ移しても落ちなかった（2026-09-28 逆証明） */
+  const det = run('ctlbar(viewOf("deal", "detail"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 } })');
+  ok(det.indexOf('id="dd-go"') >= 0 && det.indexOf('id="dd-go"') < det.indexOf('<span class="reload'),
+    "案件の詳細で読み直すが探す欄より前にある（右端でない）: " + det.slice(det.indexOf('<div class="ctlbar">'), det.indexOf('<div class="ctlbar">') + 160));
+  ok(/<\/span><\/span>(<span class="muted small">キャッシュから表示<\/span>)?<\/div>$/.test(det), "案件の詳細で読み直すが操作列の末尾でない: " + det.slice(-120));
 });
 
 check("S-13: 今日動く先に Ctrl+クリックの案内、担当者ごとの接触は「マウスを重ねる」を前提にしない", () => {
   const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "", mtg_gap: {} } })');
   const lede = td.slice(td.indexOf('<div class="lede">'), td.indexOf("</div>", td.indexOf('<div class="lede">')));
   ok(lede.includes("Ctrl+クリック") && lede.includes("&#8984;"), "今日動く先の lede に Ctrl+クリック（Mac は ⌘）の案内が無い: " + lede);
+  /* Ctrl+クリックはタッチ端末に当てはまらず、400px では1画面目の2行を使った（2026-09-28 検証の指摘）。≤600px では出さない */
+  ok(/<span class="pconly">案件名は Ctrl\+クリック[^<]*<\/span>/.test(lede), "Ctrl+クリックの案内が PC だけの印（.pconly）に入っていない: " + lede);
+  ok(/@media \(max-width:600px\)\{ \.pconly\{ display:none; \} \}/.test(html), "CSS が ≤600px で .pconly を隠していない");
+  /* 「読み直す」の隣の文は 400px で同じ行に収まる長さ（31 字は必ず折れて操作列が 28px → 58px になった） */
+  const rl = run('ctlbar(viewOf("deal", "today"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 } })');
+  const noteTxt = (rl.match(/<span class="muted small">([^<]*20 秒[^<]*)<\/span>/) || [])[1] || "";
+  ok(noteTxt && noteTxt.length <= 27, "読み直すの隣の文が長い（" + noteTxt.length + " 字。400px で次の行に折れる）: " + noteTxt);
   const ct = textOf(run('contactUnit = "month"; renderContact(__CT)'));
   ok(!ct.includes("点にマウスを重ねると"), "担当者ごとの接触の図の注記が「点にマウスを重ねると」のまま（タッチでは title が出ない）");
   ok(ct.includes("下の表にあります"), "値のある場所（下の表）を案内していない");
