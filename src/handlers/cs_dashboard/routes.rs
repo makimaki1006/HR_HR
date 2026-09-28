@@ -321,6 +321,14 @@ pub(super) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value 
             "hubspot_portal_id".into(),
             Value::String(hubspot_portal_id()),
         );
+        // 自動更新の予定（例「毎日 21:30」）。CS_メタ か環境変数から。無ければ null で、
+        // 画面は時刻を言わない（S-9。直書きすると、スケジューラを変えたときに画面が嘘をつく）
+        m.insert(
+            "update_schedule".into(),
+            super::update_schedule(&sheets.meta)
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
     }
     v
 }

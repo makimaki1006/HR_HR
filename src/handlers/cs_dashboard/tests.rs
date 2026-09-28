@@ -1584,6 +1584,41 @@ fn 生成時刻が無ければ分からないと返す() {
     );
 }
 
+/// 自動更新の予定（S-9）。時刻をコードに直書きせず、CS_メタ → 環境変数 の順で引き、
+/// どちらも無ければ None（画面は時刻を言わない）。
+///
+/// 🔴 「毎日 21:30」を既定値にすると、スケジューラを変えたときに画面だけが古い時刻を
+/// 言い続ける。fixture の CS_メタ に「更新の予定」は無い（2026-09-28 時点の本番と同じ）。
+#[test]
+fn 更新の予定はメタか環境変数から引き無ければ出さない() {
+    let sh = sheets();
+    assert!(
+        super::update_schedule_from(&sh.meta, None).is_none(),
+        "fixture の CS_メタ に「更新の予定」は無いのに、どこかの値を返した（推測で埋めている）"
+    );
+    assert_eq!(
+        super::update_schedule_from(&sh.meta, Some("  毎日 21:30 ".into())).as_deref(),
+        Some("毎日 21:30"),
+        "環境変数の値（前後の空白を除いたもの）が出ていない"
+    );
+    assert!(
+        super::update_schedule_from(&sh.meta, Some("   ".into())).is_none(),
+        "空白だけの環境変数を予定として返した"
+    );
+
+    // CS_メタ に書いてあればそちらが勝つ（シートを作った側が知っている予定のほうが正しい）
+    let with_meta = std::sync::Arc::new(SheetData {
+        header: vec!["key".into(), "value".into()],
+        rows: vec![vec!["更新の予定".into(), "毎日 06:00".into()]],
+        fetched_at: Instant::now(),
+    });
+    assert_eq!(
+        super::update_schedule_from(&with_meta, Some("毎日 21:30".into())).as_deref(),
+        Some("毎日 06:00"),
+        "CS_メタ の予定より環境変数を優先している"
+    );
+}
+
 /// 🔴 **まとめるのに使うキーを連番にしない。**
 ///
 /// fixture の伏字は「読めば分かる列」を潰すためのものだが、
@@ -1755,6 +1790,17 @@ fn 全画面で母集団の件数が一致する() {
         assert_eq!(p["active_option"], 99, "{name} の外したオプション");
         assert_eq!(p["deals"], 3432, "{name} の全取引（オプション除く）");
         assert_eq!(p["deals_all"], 3659, "{name} の全取引（オプション込み）");
+        // 🔴 自動更新の予定（S-9）も freshen が全画面の meta に載せる。無いときも null のキーとして載せる
+        //    （画面は「キーが無い」と「null」を区別しない＝配線が外れても黙って時刻なしに退化する。
+        //    2026-09-28 検証: この6行の insert を消しても lib・app_routes・view_rules のどれも落ちなかった）。
+        //    fixture の CS_メタ に「更新の予定」は無いので、環境変数 CS_UPDATE_SCHEDULE が無ければ null、あればその文字列
+        let sched = v["meta"].get("update_schedule").unwrap_or_else(|| {
+            panic!("{name} の meta に update_schedule が載っていない（freshen の配線）")
+        });
+        assert!(
+            sched.is_null() || sched.as_str().is_some_and(|s| !s.trim().is_empty()),
+            "{name} の update_schedule が null か空でない文字列でない: {sched}"
+        );
     }
 
     // 画面が自分で数えている件数も、同じ母集団を指していること
