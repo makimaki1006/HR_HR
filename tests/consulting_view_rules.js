@@ -112,11 +112,12 @@ check("V2/S-10: KPI に外した人数を書き、担当者の名前を一人も
   ok(kpi.includes("母数が小さい 5 名は候補から外しています"), "外した人数が KPI に書かれていない");
   ok(/注力案件を持つ担当者<\/span><span class="big">3<span class="u">名/.test(kpi) && kpi.includes("いちばん多い人で 16 件"),
     "注力案件の KPI が人数（3 名・最多 16 件）でない");
-  ok(/class="kpi is-bad"><span class="lbl">接触率 40% 未満/.test(kpi), "40% 未満が 1 名以上なのに赤でない");
+  // 札は押せる button（段2 S-2 の残り。data-jump が class の後ろに付く）。色（is-bad）の性質は前と同じ
+  ok(/class="kpi is-bad"[^>]*><span class="lbl">接触率 40% 未満/.test(kpi), "40% 未満が 1 名以上なのに赤でない");
   // 0 名なら赤にしない（赤は「増えるとまずい件数」だけ）
   ctx.__D0 = Object.assign({}, ctx.__D, { rows: TEAM_ROWS.filter((r) => r.small_n || r.contact_rate >= 40) });
   const h0 = run("renderTeam(__D0)");
-  ok(/class="kpi"><span class="lbl">接触率 40% 未満の担当者（母数が小さい人を除く）<\/span><span class="big">0</.test(h0), "0 名の KPI が赤、または 0 でない");
+  ok(/class="kpi"[^>]*><span class="lbl">接触率 40% 未満の担当者（母数が小さい人を除く）<\/span><span class="big">0</.test(h0), "0 名の KPI が赤、または 0 でない");
 });
 
 /* ================================================================ V3 */
@@ -918,7 +919,10 @@ check("図の部品(9): 横にスクロールしても左のラベルが残り�
 /* 描いた HTML から文字だけを取り出す（タグ・SVG を落とす） */
 /* 数字と単位を折れない塊にした <span class="nw">（fig() の keepNum）は、画面では字の間に何も挟まない。
    ほかのタグと同じく空白に置き換えると「同じ 3ヶ月 目でも」と、画面に無い空白で文が割れるので、外すだけにする */
+/* 図の数値の一覧（fig の figSay。段2 M-11: ul.sr と「数字で読む」の畳み）は SVG の吹き出し（title）をそのまま並べたもので、
+   SVG と同じく本文の文ではないので落とす（担当期間「（60日）」のような行ごとの値が、文言の見張りに掛からないように） */
 const textOf = (h) => String(h).replace(/<svg[\s\S]*?<\/svg>/g, " ")
+  .replace(/<ul class="sr">[\s\S]*?<\/ul>/g, " ").replace(/<details class="fold figsay">[\s\S]*?<\/details>/g, " ")
   .replace(/<span class="nw">([^<]*)<\/span>/g, "$1").replace(/<[^>]+>/g, " ");
 
 check("英語: 成果とリスク・定義と検証・電話に英語の用語を出さない", () => {
@@ -1220,7 +1224,8 @@ check("KPI: 最終満了を折り返さない・電話の61件の色をそろえ
   const c = run('custBlocks({ meta: { found: true, houjin: "H" }, customer: { name: "法人", deals: 1, active: 1, sites: 1, ltv: 1, max_renewal_no: 0, last_expiration: "2027-02-28" } }, new Set(["head"]))');
   ok(/<div class="kpi is-date"><span class="lbl">最終満了/.test(c), "最終満了の KPI が日付の型（is-date）になっていない");
   const ph = run("renderPhone(__PH)");
-  const card = ph.match(/<div class="kpi( is-[a-z]+)?"><span class="lbl">電話が1本も無い/);
+  /* 札は押せる button（段2 S-2 の残り）。見るのは色（is-bad）で、前と同じ */
+  const card = ph.match(/<(?:div|button type="button") class="kpi( is-[a-z]+)?"[^>]*><span class="lbl">電話が1本も無い/);
   ok(card && card[1] === " is-bad", "電話が1本も無いの KPI が赤でない: " + (card && card[1]));
   ok(/style="fill:var\(--hi\)"[^>]*><title>電話が1本も無い/.test(ph), "内訳の帯の「電話が1本も無い」が赤でない（KPI と色がそろわない）");
   const tm = run("renderTeam(__D)");
@@ -4247,6 +4252,76 @@ check("段2 M-8: 案件そのものは既定で上位 100 行＋「残りも出�
   run(reset);
   const td = run('boardTable(__M8.rows, { key: "n_flags", asc: false }, "today-tbl", TODAY_COLS)');
   ok((td.split("<tbody>")[1].match(/<tr>/g) || []).length === 130, "今日動く先の表まで切っている");
+});
+
+check("段2 M-11: 図の値を読み上げ用の一覧（ul.sr）と「数字で読む」の畳みで出す。折れ線は凡例の色から系列名を引いて 1 系列 1 行。省略したラベルの全文は混ぜない", () => {
+  const srOf = (h) => (h.match(/<ul class="sr">([\s\S]*?)<\/ul>/) || ["", ""])[1];
+  // 横棒: 1 本 1 行（吹き出しと同じ書き方。値の無い行は吹き出しが無いので出ない）
+  // 右の注記（note。接触率の母数「33/125 か月」）は吹き出しにも一覧にも入る（率に母数を添える）
+  const bar = run('fig("横棒の図", "", svgBarH({ rows: [{ label: "甲", v: 3, n: 10, note: "33/125 か月" }, { label: "乙", v: 1, tip: "補足" }, { label: "丙", v: null }], w: 600, fmt: F.int }), lg("box", C.ai, "件数"))');
+  ok(srOf(bar) === "<li>甲: 3 (n=10) / 33/125 か月</li><li>乙: 1 ／ 補足</li>", "横棒の読み上げ用の一覧が違う: " + srOf(bar));
+  ok(bar.includes('<details class="fold figsay"><summary>数字で読む（2 件）</summary><ul><li>甲: 3 (n=10) / 33/125 か月</li><li>乙: 1 ／ 補足</li></ul></details>'),
+    "「数字で読む」の畳みが無い、または一覧が読み上げ用と違う");
+  const fb = bar.indexOf('class="figbody"');
+  ok(bar.indexOf('<ul class="sr">') > bar.indexOf("</div>", fb) && bar.indexOf("figsay") < bar.indexOf('class="figlegend"'), "一覧の位置が図の直後・凡例の前でない");
+  // 折れ線: 系列ごとに 1 行、凡例の名前を頭に。未確定の点はそう書く（吹き出しと同じ）
+  const line = run('fig("折れ線", "", svgLine({ x: ["25-07", "25-08"], series: [{ color: C.ai, pts: [{ v: 1 }, { v: 2, censored: true }] }, { color: C.midori, pts: [{ v: 5 }, { v: 6 }] }], yFmt: F.int }), lg("line", C.ai, "通話") + lg("line", C.midori, "接触（60秒超）"))');
+  ok(srOf(line) === "<li>通話: 25-07: 1、25-08: 2 / 未確定</li><li>接触（60秒超）: 25-07: 5、25-08: 6</li>",
+    "折れ線の一覧が系列ごとでない、または系列名が無い: " + srOf(line));
+  // 同じ色に 2 つの名前がある凡例からは名前を引かない（間違った名前を付けない）
+  const amb = run('fig("折れ線", "", svgLine({ x: ["a", "b"], series: [{ color: C.ai, pts: [{ v: 1 }, { v: 2 }] }], yFmt: F.int }), lg("line", C.ai, "甲") + lg("dash", C.ai, "乙"))');
+  ok(srOf(amb) === "<li>a: 1、b: 2</li>", "同じ色に 2 つの名前があるのに系列名を付けている: " + srOf(amb));
+  // 省略したラベルの全文（labText の title）は数字の一覧に混ぜない（「省略した名前の全文」の畳みが別にある）
+  const longLab = run('fig("長い名前", "", svgBarH({ rows: [{ label: "とても長い長い長い長い長い長い長い長い長い長い名前", v: 2 }], w: 300, padL: 60 }), "")');
+  ok(longLab.includes("省略した名前の全文（1 件）"), "前提が崩れている（ラベルが省略されていない）");
+  ok(srOf(longLab) === "<li>とても長い長い長い長い長い長い長い長い長い長い名前: 2</li>", "省略したラベルの全文が数字の一覧に混ざる: " + srOf(longLab));
+  // 帯: 区分ごとに件数と %。箱ひげ: 1 行に中央値・四分位・最小最大・n
+  const st = run('fig("帯", "", svgStack({ parts: [{ label: "あ", v: 3, color: C.ai }, { label: "い", v: 1, color: C.ki }], w: 400 }), "")');
+  ok(srOf(st) === "<li>あ: 3 (75.0%)</li><li>い: 1 (25.0%)</li>", "帯の一覧が違う: " + srOf(st));
+  const bx = run('fig("箱", "", svgBoxH({ rows: [{ label: "経過日数", med: 10, q1: 5, q3: 20, min: 0, max: 30, n: 40, color: C.ai }], w: 500, xFmt: F.int }), lg("quart", C.ai, "四分位") + lg("line", C.ai, "中央値"))');
+  ok(srOf(bx) === "<li>経過日数: 中央値 10 / 四分位 5–20 / 最小 0 最大 30 / n=40</li>", "箱ひげの一覧が違う: " + srOf(bx));
+  // 同じ文が続く点（svgDots の群）は ×N にまとめる
+  const dots = run('fig("点", "", svgDots({ total: 5, groups: [{ label: "注力", v: 3, color: C.ai }, { label: "それ以外", v: 2, color: C.ghost }] }), lg("dot", C.ai, "注力") + lg("dot", C.ghost, "それ以外"))');
+  ok(srOf(dots) === "<li>注力（×3）</li><li>それ以外（×2）</li>", "点の図で同じ文の点を ×N にまとめていない、または名前を重ねている: " + srOf(dots));
+  // 値の無い図（empty）には付けない
+  ok(!run('fig("空", "", "<div class=\\"empty\\">x</div>", "")').includes("figsay"), "値の無い図に一覧を付けている");
+  // 重なった線をずらした断りは「マウスを重ねる」を前提にしない（タッチでは吹き出しが出ない）
+  const sh = run('fig("重なる", "", svgLine({ x: ["a", "b"], series: [{ color: C.ai, pts: [{ v: 1 }, { v: 1 }] }, { color: C.ki, pts: [{ v: 1 }, { v: 1 }] }], yFmt: F.int }), "")');
+  ok(sh.includes("data-shift"), "前提が崩れている（重なった線がずらされていない）");
+  ok(!sh.includes("マウスを重ねる") && sh.includes("図の下の「数字で読む」"), "ずらした断りが「マウスを重ねる」のまま");
+  // CSS
+  const css = html.split("<style>")[1].split("</style>")[0];
+  ok(/details\.fold\.figsay\{/.test(css) && /\.figsay ul\{/.test(css), "figsay の CSS が無い");
+});
+
+check("段2 S-2 の残り: 担当者の一覧・いま見るべき顧客・電話の KPI も、同じ画面に行き先がある札は button で、飛ぶ先の id が同じ画面にある。行き先の無い札は div のまま", () => {
+  const jumps = (h) => [...h.matchAll(/<button type="button" class="kpi[^"]*" data-jump="([^"]+)"><span class="lbl">([^<]*)</g)].map((m) => [m[2], m[1]]);
+  const hasId = (h, id) => h.includes(' id="' + id + '" tabindex="-1"');
+  const tm = run("renderTeam(__D)");
+  const tj = jumps(tm);
+  ok(JSON.stringify(tj) === JSON.stringify([["担当者", "tm-tbl-h"], ["接触率 40% 未満の担当者（母数が小さい人を除く）", "tm-fig-h"],
+    ["注力案件を持つ担当者", "tm-tbl-h"], ["退職者のまま", "tm-tbl-h"]]), "担当者の一覧の札の行き先が違う: " + JSON.stringify(tj));
+  tj.forEach(([, id]) => ok(hasId(tm, id), "担当者の一覧: 飛ぶ先 " + id + " が本文に無い"));
+  ok(tm.indexOf('id="tm-tbl-h"') < tm.indexOf('<table id="team-tbl"') && tm.indexOf('id="tm-fig-h"') < tm.indexOf("<figure") &&
+     tm.indexOf('<table id="team-tbl"') < tm.indexOf('id="tm-fig-h"'), "飛ぶ先の見出しが表・図の直前でない");
+  const fo = run("renderFocus(__FO)");
+  const fj = jumps(fo);
+  ok(JSON.stringify(fj) === JSON.stringify([["定期NPS が 4 以下", "fc-nps-tbl-h"], ["採用単価が悪化した拠点", "fc-cpa-h"],
+    ["MTG の記録がどちらも無い", "fc-mtg-h"], ["LTV 中央値", "fc-shape-h"]]), "いま見るべき顧客の札の行き先が違う: " + JSON.stringify(fj));
+  fj.forEach(([, id]) => ok(hasId(fo, id), "いま見るべき顧客: 飛ぶ先 " + id + " が本文に無い"));
+  ok(/<div class="kpi"><span class="lbl">NPS が入っている/.test(fo), "行き先の無い札（NPS が入っている）を button にしている");
+  const ph = run("renderPhone(__PH)");
+  const pj = jumps(ph);
+  ok(JSON.stringify(pj) === JSON.stringify([["電話が1本も無い", "ph-reach-h"], ["接触が1本も無い", "ph-reach-h"],
+    ["最後に話してから", "ph-days-h"], ["文字起こしがある", "ph-trans"]]), "電話の札の行き先が違う: " + JSON.stringify(pj));
+  pj.forEach(([, id]) => ok(hasId(ph, id), "電話: 飛ぶ先 " + id + " が本文に無い"));
+  ok(/<div class="kpi-target" id="ph-trans" tabindex="-1"><div class="note warn"><span class="hd">文字起こしの状況/.test(ph), "文字起こしの札の行き先（状況の枠）に id が無い");
+  // 行き先の小さな文（.act）は札ごとに 1 つ。button の中に a を入れない（押せるものの入れ子）
+  ok((tm.match(/<span class="act">/g) || []).length === 4 && (fo.match(/<span class="act">/g) || []).length === 4 && (ph.match(/<span class="act">/g) || []).length === 4,
+    "行き先の小さな文（.act）の数が札の数と合わない");
+  for (const h of [tm, fo, ph]) ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(h), "button.kpi の中に a がある");
+  const css = html.split("<style>")[1].split("</style>")[0];
+  ok(/\.kpi-target:focus-visible\{/.test(css), "見出しでない行き先（.kpi-target）の focus-visible が無い");
 });
 
 Promise.all(pendingChecks).then(() => {

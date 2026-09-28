@@ -298,6 +298,8 @@
   /* KPI から Enter で飛んだ先の見出し（sec() の tabindex=-1）。2026-09-28 検証: 定義が無く UA 既定の黒い太枠が出て、
      この画面で唯一の黒枠だった。他の focus-visible と同じ藍の 2px に揃える */
   h2.sec:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+  /* 見出しでない行き先（電話の「文字起こしの状況」の枠。段2 S-2）も同じ藍の枠で止まったことを見せる */
+  .kpi-target:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
   button.kpi{ transition:transform .12s ease, border-color .12s ease; }
   button.kpi[aria-pressed="true"]{ border-color:var(--ai); background:var(--ai-soft);
                                    box-shadow:inset 0 0 0 1px var(--ai); }
@@ -348,6 +350,13 @@
   details.fold.figfull{ margin:var(--space-1) 0 0; }
   details.fold.figfull > summary{ font-weight:400; font-size:11.5px; }
   .figfull ul{ margin:var(--space-1) 0 0; padding-left:1.4em; line-height:1.7; font-size:11.5px; color:var(--ink-2); }
+  /* 図の数値の一覧（fig の figSay。段2 M-11）。読み上げ用は ul.sr（面積を取らない）、目で見る用は畳み「数字で読む」。
+     省略した名前の全文（figfull）と同じ見え方。長い一覧（横棒 30 本・月 24 か月）は 22em の段に流す */
+  details.fold.figsay{ margin:var(--space-1) 0 0; }
+  details.fold.figsay > summary{ font-weight:400; font-size:11.5px; }
+  .figsay ul{ margin:var(--space-1) 0 0; padding-left:1.4em; line-height:1.7; font-size:11.5px; color:var(--ink-2);
+              columns:auto 22em; column-gap:var(--space-gap); }
+  .figsay li{ break-inside:avoid; overflow-wrap:anywhere; }
   /* 帯を縦に積む図・時間軸の図の左のラベルを、横にスクロールしても左に残す（stickyLabels）。
      🔴 2026-09-23 検証: 400px で約 2.6 画面ぶん横に動かすと、ラベルも一緒に流れて
      右側でどの帯の点か分からなくなっていた。ラベルだけを描いた SVG を重ねて左に貼り付ける。
@@ -1285,7 +1294,8 @@ function fig(caption, hint, body, legend) {
       (shiftM[1] === "edge" ? "軸の端（0 やいちばん上）で重なった線は、軸の内側へずらしているので、0 の線も軸より少し上に、いちばん上の線は少し下に見えます。" : "") +
       /* ずらすのは重なった月の点だけ。前後の月との間の線が傾いて、値が動いたように見えることを断る */
       "ずらすのは重なった月の点だけなので、その前後の線が少し傾いて見えることがあります。" +
-      "点にマウスを重ねると本当の値が出ます。</i>" : "";
+      /* 本当の値の在りかは、ホバー（title）だけでなくタップで開ける「数字で読む」も言う（段2 M-11。タッチでは title が出ない） */
+      "本当の値は点の吹き出しと、図の下の「数字で読む」にあります。</i>" : "";
   /* 箱ひげの印（svgBoxH の marks）。◇ と途切れの印は呼び出し側の凡例に無かった（ループ4, 2026-09-24 実機） */
   const boxNote = (/<svg [^>]*data-mean="1"/.test(body) ? lg("mean", C.ink3, "平均（中央値とずれるほど、裾に大きな値がある）") : "") +
     (/<svg [^>]*data-boxmax="1"/.test(body) ? lg("boxmax", C.ink3, "最大値（ひげの先より外。印は本当の位置）") : "") +
@@ -1297,6 +1307,12 @@ function fig(caption, hint, body, legend) {
   const para = legend.indexOf('<i class="full"');
   legend = (para > 0 ? legend.slice(0, para) + boxNote + legend.slice(para) : legend + boxNote) +
     noneNote + gapNote + shiftNote;
+  /* 図の数値の一覧（段2 M-11）。読み上げ用（ul.sr）と、タップで開ける「数字で読む」の畳みに同じ一覧を出す */
+  const say = figSay(body, legend);
+  const sayHtml = say.n
+    ? '<ul class="sr">' + say.li + "</ul>" +
+      '<details class="fold figsay"><summary>数字で読む（' + num(say.n) + " 件）</summary><ul>" + say.li + "</ul></details>"
+    : "";
   return `<figure class="fig"><figcaption>${esc(caption)}` +
     (hint ? `<span class="hint">${keepNum(hint)}</span>` : "") + `</figcaption>` +
     (scroll ? `<div class="figscroll" style="--minw:${Math.ceil(minW)}px">← 図を横にスクロールできます →</div>` : "") +
@@ -1306,10 +1322,61 @@ function fig(caption, hint, body, legend) {
        付けていたので、1440px で横に動かない図まで全部 Tab で止まっていた。ここでは候補の印（data-cap）だけ
        付け、描いた後・窓の幅が変わったときに markFig が実際のはみ出しを測って付け外しする */
     (scroll ? `<div class="figbody" data-cap="${esc(caption)}">`
-            : `<div class="figbody">`) + `${body}</div>` +
+            : `<div class="figbody">`) + `${body}</div>` + sayHtml +
     (fulls.length ? `<details class="fold figfull"><summary>省略した名前の全文（${fulls.length} 件）</summary>` +
                     `<ul>${fulls.join("")}</ul></details>` : "") +
     (legend ? `<div class="figlegend">${legend}</div>` : "") + `</figure>`;
+}
+/* 図の数値を読み上げとタップに届く形にする（段2 M-11）。
+   🔴 図の部品（svgBarH / svgLine / svgStack / svgBoxH …13 種）は値を <title>（マウスの吹き出し）にしか書かず、SVG は
+   role="img" aria-label="見出し" なので中の値が読み上げに出ず、タッチでは吹き出しも出なかった（2026-09-28 診断: 実機で SVG 224 個）。
+   部品が書いた <title> をそのまま一覧にする（部品の側は変えない。値の書き方は吹き出しと同じ）。
+   - 省略したラベルの全文（labText の <text> の title）は、別の畳み「省略した名前の全文」にあるので混ぜない
+   - 折れ線・散布図の点（circle）は title に系列の名前が無い。凡例の粒（lg）の色から名前を引いて頭に添え、系列ごとに 1 行にまとめる
+     （同じ色に 2 つの名前があるときは引かない）。同じ文が続く点（svgDots の群）は「×N」にまとめる
+   返り値: { n: 行数, li: <li> の並び }。title が無い図（値の無い .empty など）は n=0 */
+function figSay(body, legend) {
+  const s = String(body);
+  if (s.indexOf("<title>") < 0) return { n: 0, li: "" };
+  const names = {};
+  for (const m of String(legend || "").matchAll(/<i><svg [^>]*>([\s\S]*?)<\/svg>([\s\S]*?)<\/i>/g)) {
+    const cols = [...m[1].matchAll(/(?:fill|stroke):([^;"]+)/g)].map((x) => x[1]).filter((c) => c !== "var(--panel)");
+    const label = m[2].replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+    if (!cols.length || !label) continue;
+    names[cols[0]] = names[cols[0]] === undefined || names[cols[0]] === label ? label : null;
+  }
+  const items = [];      // 出す順（系列にまとめた点は、その系列の最初の点の位置）
+  const series = {};     // 点の色 → { at: items の位置, vals: [] }
+  const parts = s.split("<title>");
+  for (let i = 1; i < parts.length; i++) {
+    const t = parts[i].slice(0, parts[i].indexOf("</title>")).replace(/&#10;/g, " ／ ").trim();
+    if (!t) continue;
+    const prev = parts[i - 1];
+    const tag = prev.slice(prev.lastIndexOf("<"));
+    if (/^<(text|tspan|\/tspan)\b/.test(tag)) continue;
+    if (/^<circle\b/.test(tag) && tag.indexOf("data-boxmax") < 0) {
+      const cols = [...tag.matchAll(/(?:fill|stroke):([^;"]+)/g)].map((x) => x[1]).filter((c) => c !== "var(--panel)");
+      if (cols.length) {
+        const g = series[cols[0]] || (series[cols[0]] = { at: items.length, vals: [] });
+        if (g.at === items.length) items.push(null);
+        g.vals.push(t);
+        continue;
+      }
+    }
+    items.push(t);
+  }
+  Object.keys(series).forEach((col) => {
+    const g = series[col], vals = [];
+    g.vals.forEach((v) => {
+      const last = vals[vals.length - 1];
+      if (last && last.t === v) last.n++; else vals.push({ t: v, n: 1 });
+    });
+    /* 系列の名前が点の文そのもの（svgDots の群「注力」）なら、「注力: 注力（×3）」と重ねずに「注力（×3）」 */
+    const head = names[col] && !(vals.length === 1 && vals[0].t === names[col]) ? names[col] + ": " : "";
+    items[g.at] = head + vals.map((v) => v.t + (v.n > 1 ? "（×" + v.n + "）" : "")).join("、");
+  });
+  const rows = items.filter(Boolean);
+  return { n: rows.length, li: rows.map((x) => "<li>" + x + "</li>").join("") };
 }
 /* 図の中の塗りの濃さ（svg* の部品が使っている値）。凡例の粒を図と同じ濃さにするために使う。
    🔴 凡例は不透明の塗りで、図の中は半透明、という食い違いがあった（2026-09-23 実機:
@@ -1799,8 +1866,10 @@ function svgBarH(o) {
       g += `<text class="ax" x="${(x0 + 7).toFixed(1)}" y="${(y + 4).toFixed(1)}" style="fill:var(--ghost)">— 記録なし</text>`;
     } else {
       const xa = Math.min(x0, X(r.v)), bw = Math.max(1.5, Math.abs(X(r.v) - x0));
+      /* 吹き出し（title）にも右の注記（note。接触率の「33/125 か月　案件28」のような母数）を入れる（段2 M-11）。
+         図の下の「数字で読む」は title をそのまま並べるので、ここに無い母数は一覧にも出ない（率に母数を添える） */
       g += `<rect x="${xa.toFixed(1)}" y="${(y - bh / 2).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh}" rx="2" style="fill:${col}" opacity="${r.faint ? ".34" : ".82"}">` +
-           `<title>${esc(r.label)}: ${esc(fmt(r.v))}${r.n != null ? " (n=" + r.n + ")" : ""}${r.tip ? "&#10;" + esc(r.tip) : ""}</title></rect>`;
+           `<title>${esc(r.label)}: ${esc(fmt(r.v))}${r.n != null ? " (n=" + r.n + ")" : ""}${r.note ? " / " + esc(r.note) : ""}${r.tip ? "&#10;" + esc(r.tip) : ""}</title></rect>`;
       // 前の値を中空の棒で重ねる。どこからどこへ動いたかを1行で見せる
       if (r.v0 != null) {
         /* 🔴 前回が 0 付近だと枠の幅が 1.5px になり、縦の軸の線に隠れて見えなかった
@@ -2935,6 +3004,8 @@ function renderTeam(D) {
   const low = pickLowContact(rows);
   const withFocus = rows.filter((r) => (r.focus || 0) > 0);
   const focusMax = withFocus.reduce((m, r) => Math.max(m, r.focus || 0), 0);
+  /* 札は同じ画面の行き先へ押せる button（段2 S-2 の残り。今日動く先だけだったのを、この画面にも）。
+     担当者・注力案件・退職者のまま → 表（名前の列に印、注力案件の列）。接触率 40% 未満 → 図（低い順。母数が小さい人を外した同じ数え方） */
   h += '<div class="kpis">' +
     kpi("担当者", num(D.meta.n_consultant) + '<span class="u">名</span>',
         /* 🔴 上の数字と下の表の合計が合うように、外した分をここに書く。
@@ -2943,7 +3014,8 @@ function renderTeam(D) {
            3か所に同じ数が出ていた。件数は頭の1行に任せ、ここは表に出していない分だけを書く */
         D.meta.unknown_owner
           ? "稼働中のうち担当が取れない " + num(D.meta.unknown_owner) + " 件は下の表に出していません"
-          : "稼働中の案件を持っている担当者") +
+          : "稼働中の案件を持っている担当者",
+        "", { jump: "tm-tbl-h", text: "表へ" }) +
     /* 🔴 母数が小さい人を外した結果なので、見出しにそう書く。書かないと、表の先頭（0.0%）と
        食い違って見えた（2026-09-24 実機）。線（40%）は下の図の帯と同じ取り決め */
     kpi("接触率 40% 未満の担当者（母数が小さい人を除く）", num(low.n) + '<span class="u">名</span>',
@@ -2952,20 +3024,21 @@ function renderTeam(D) {
           ? "<br>母数が小さい " + num(low.skipped) + " 名は候補から外しています（下の図と同じ扱い）"
           : ""),
         /* 赤は「増えるとまずい件数」だけ。0 名なら色を付けない */
-        low.n ? "bad" : "") +
+        low.n ? "bad" : "", { jump: "tm-fig-h", text: "図へ（低い順）" }) +
     kpi("注力案件を持つ担当者", num(withFocus.length) + '<span class="u">名</span>',
-        withFocus.length ? "いちばん多い人で " + num(focusMax) + " 件" : "注力案件を持つ担当者はいません") +
+        withFocus.length ? "いちばん多い人で " + num(focusMax) + " 件" : "注力案件を持つ担当者はいません",
+        "", { jump: "tm-tbl-h", text: "表へ（注力案件の列）" }) +
     /* 🔴 補足に「同じ日に複数行あって担当が割れる取引 38 件」（退職者とは別の話）が混ざっていた
        （2026-09-23 実機）。担当の割れは下の「この一覧の決まりごと」に移した */
     kpi("退職者のまま", num(D.meta.retired_deals) + '<span class="u">件</span>',
         "担当が退職者のままの稼働中の案件（その担当 " + num(D.meta.retired_people) + " 名）",
-        D.meta.retired_deals ? "warn" : "") +
+        D.meta.retired_deals ? "warn" : "", { jump: "tm-tbl-h", text: "表へ（担当者の列に印）" }) +
     "</div>";
 
   /* ---- 一覧（本題）。図より先に出す ----
      🔴 2026-09-28 診断（08 の S-8、fixture 1440px）: 名前を押せる表が KPI 4 枚と図の下（y=1,693）で、
      マネージャーの流れ（一覧 → 名前 → 担当者ごとの案件）が 1 画面目から始まらなかった。KPI → 表 → 図 の順にする */
-  h += sec("表", "コンサルタント一覧");
+  h += sec("表", "コンサルタント一覧", "tm-tbl-h");
   /* 列が増えたときにページ全体が流れないよう、③と同じく枠の中で収める */
   let t = '<table id="team-tbl"><thead><tr>';
   for (const c of TEAM_COLS) t += sortTh(c, k, asc);
@@ -2979,7 +3052,7 @@ function renderTeam(D) {
   h += scroll(t, 680);
 
   /* ---- 接触率の横棒（低い順）---- */
-  h += sec("図", "接触率（低い順）");
+  h += sec("図", "接触率（低い順）", "tm-fig-h");
   /* 🔴 図からは母数の小さい担当者を外す。表には残す。扱いを変える理由は下に書く */
   const all = rows.filter((r) => r.contact_rate != null);
   const bar = all.filter((r) => !r.small_n)
@@ -3222,21 +3295,24 @@ function renderFocus(D) {
     '当たった顧客に手を打つかどうかは、' + goLink("deal", "series") + " か " +
     goLink("deal", "houjin") + " で中身を読んでから決めてください。</div>";
 
+  /* 札は同じ画面の行き先へ押せる button（段2 S-2 の残り）。NPS 4 以下 → その表、採用単価の悪化 → その図、
+     MTG の記録 → 事実と推定の帯、LTV 中央値 → LTV の散らばりの図。「NPS が入っている」（記入率）はそれを示す節が無いので div のまま */
   h += '<div class="kpis">' +
     /* 🔴 数えているのは取引（契約）。「社」と書くと法人数に読める（V20） */
     kpi("定期NPS が " + n.threshold + " 以下", num(n.n) + '<span class="u">件</span>',
-        "NPSの回答がある " + num(n.n_have_nps) + " 件のうち", "bad") +
+        "NPSの回答がある " + num(n.n_have_nps) + " 件のうち", "bad", { jump: "fc-nps-tbl-h", text: "表へ" }) +
     kpi("採用単価が悪化した拠点", num(c.worse) + '<span class="u">拠点</span>',
-        "確定した点どうしで比べられた " + num(c.judged) + " 拠点のうち", "bad") +
+        "確定した点どうしで比べられた " + num(c.judged) + " 拠点のうち", "bad", { jump: "fc-cpa-h", text: "図へ" }) +
     /* 🔴 同じ「どちらも無い 115件」が、ここでは山吹（warn）、下の MTG の記録の帯では灰だった
        （2026-09-24 実機）。山吹は帯の「メールだけ（推定）」の色なので、帯に合わせて色を付けない（灰） */
     kpi("MTG の記録がどちらも無い", num(m.neither) + '<span class="u">件</span>',
-        "稼働中 " + num(m.n_act) + " 件のうち") +
+        "稼働中 " + num(m.n_act) + " 件のうち", "", { jump: "fc-mtg-h", text: "図へ" }) +
     kpi("NPS が入っている", pct1(n.coverage),
         num(n.n_have_nps) + " / " + num(n.n_act) + " 件") +
     kpi("LTV 中央値", sh.ltv ? yen(sh.ltv.median) : DASH,
         /* 「Q3」と英字の略号のままだった（2026-09-24）。上位4分の1の境 */
-        sh.ltv ? "上位4分の1の境 " + yen(sh.ltv.q3) + " / 最大 " + yen(sh.ltv.max) : "") +
+        sh.ltv ? "上位4分の1の境 " + yen(sh.ltv.q3) + " / 最大 " + yen(sh.ltv.max) : "",
+        "", { jump: "fc-shape-h", text: "図へ" }) +
     "</div>";
 
   h += note("info", "この4つをシグナルにした理由",
@@ -3266,7 +3342,7 @@ function renderFocus(D) {
     '<i class="full">' + esc(n.note) + "</i>");
 
   /* ---- 表 NPSが低い顧客 ---- */
-  h += sec("表", "定期NPS が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）");
+  h += sec("表", "定期NPS が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）", "fc-nps-tbl-h");
   h += '<div class="lede">NPS の低い順、同じなら金額の大きい順。' +
     /* 🔴 200件で切っているのに書いていなかった（V20） */
     (n.rows.length > 200 ? "<b>上位200件だけ出しています（全 " + num(n.rows.length) + " 件）。</b>" : "") +
@@ -3289,7 +3365,7 @@ function renderFocus(D) {
     ])), 420, n.rows.length);   /* 200 件で切るので元の件数を渡す（V12） */
 
   /* ---- 図 採用単価の悪化 ---- */
-  h += sec("図", "採用単価の悪化（拠点ごと・確定した直近2点）");
+  h += sec("図", "採用単価の悪化（拠点ごと・確定した直近2点）", "fc-cpa-h");
   /* 表示名が無い拠点をキー（r.site）で埋めない（siteLabels） */
   const crows = (c.rows || []).slice(0, 20), cnames = siteLabels(crows);
   const cr = crows.map((r, i) => ({
@@ -3318,7 +3394,7 @@ function renderFocus(D) {
       : ""));
 
   /* ---- 図 MTG の記録（事実と推定） ---- */
-  h += sec("図", "MTG を実施した記録（事実と推定を分ける）");
+  h += sec("図", "MTG を実施した記録（事実と推定を分ける）", "fc-mtg-h");
   const mparts = [
     { label: "録画もメールもある", v: m.both, color: C.midori },
     { label: "録画だけ（事実）", v: m.only_recording, color: C.ai },
@@ -3334,7 +3410,7 @@ function renderFocus(D) {
     " 件（" + pct1(m.estimated_mail.rate) + "）</i>");
 
   /* ---- 図 顧客ぜんたいの形 ---- */
-  h += sec("図", "顧客ぜんたいの形");
+  h += sec("図", "顧客ぜんたいの形", "fc-shape-h");
   const lt = sh.ltv;
   h += fig("LTV の散らばり（" + esc(sh.display_label) + "）",
     "跡地（解約済・契約終了）も含めた全件",
@@ -4707,20 +4783,23 @@ function renderPhone(D) {
         ? "オプション契約の通話 " + num(r.option_rows_excluded) + " 行は数えていません。" : "") +
       "通話の日付・月は日本時間で数えています。");
 
+  /* 札は同じ画面の行き先へ押せる button（段2 S-2 の残り）。電話・接触が無い → 内訳の帯、最後に話してから → 経過日数の図、
+     文字起こし → 状況の枠（#ph-trans） */
   h += '<div class="kpis">' +
     /* 🔴 同じ「電話が1本も無い 61件」が、ここでは山吹（warn）、下の内訳の帯では赤だった
        （2026-09-23 実機）。帯（接触あり＝緑 / 電話はあるが接触なし＝山吹 / 電話が1本も無い＝赤）に合わせる */
     kpi("電話が1本も無い", num(r.no_call) + '<span class="u">件</span>',
-        pct1(r.no_call_rate) + " / 稼働中 " + num(D.meta.n_active), "bad") +
+        pct1(r.no_call_rate) + " / 稼働中 " + num(D.meta.n_active), "bad", { jump: "ph-reach-h", text: "図へ" }) +
     /* 🔴 率だけで母数が無かった（V20）。隣の KPI と同じく稼働中の件数を添える */
     kpi("接触が1本も無い", num(r.no_contact) + '<span class="u">件</span>',
-        pct1(r.no_contact_rate) + " / 稼働中 " + num(D.meta.n_active), "bad") +
+        pct1(r.no_contact_rate) + " / 稼働中 " + num(D.meta.n_active), "bad", { jump: "ph-reach-h", text: "図へ" }) +
     kpi("最後に話してから", D.days_since ? num(D.days_since.median) + '<span class="u">日</span>' : DASH,
-        D.days_since ? "四分位 " + num(D.days_since.q1) + "〜" + num(D.days_since.q3) + "日" : "") +
+        D.days_since ? "四分位 " + num(D.days_since.q1) + "〜" + num(D.days_since.q3) + "日" : "",
+        "", { jump: "ph-days-h", text: "図へ" }) +
     kpi("文字起こしがある", pct1(D.transcript.rate, 2),
-        num(D.transcript.n) + " / " + num(D.transcript.rows) + " 行", "warn") + "</div>";
+        num(D.transcript.n) + " / " + num(D.transcript.rows) + " 行", "warn", { jump: "ph-trans", text: "状況を見る" }) + "</div>";
 
-  h += sec("図", "電話は届いているか");
+  h += sec("図", "電話は届いているか", "ph-reach-h");
   const rp = [
     { label: "接触がある（60秒超）", v: D.meta.n_active - r.no_contact, color: C.midori },
     { label: "電話はあるが接触なし", v: r.no_contact - r.no_call, color: C.ki },
@@ -4730,7 +4809,7 @@ function renderPhone(D) {
     svgStack({ w: 680, parts: rp }), stackLegend(rp) +
     '<i class="full">' + esc(r.note) + "</i>");
 
-  h += sec("図", "最後に話してから何日たったか");
+  h += sec("図", "最後に話してから何日たったか", "ph-days-h");
   h += fig("経過日数の散らばり", "接触が1本も無い取引はここに入っていません（日数が出せないため）",
     D.days_since && D.days_since.n >= MIN_N
       ? svgBoxH({ w: 680, xFmt: F.int, rows: [{
@@ -4759,8 +4838,9 @@ function renderPhone(D) {
   /* 🔴 「1本の通話が複数の取引に結び付いて…取引ごとに数えています」を、上の内訳の図（サーバの reach.note）と
      この図の下で2回出していた（2026-09-24 実機）。内訳の図の注記の1回にする */
 
-  /* 見出しと本文の頭（サーバの transcript.note）が同じ文で、続けて2回出ていた（V21 の残り） */
-  h += note("warn", "文字起こしの状況", esc(D.transcript.note));
+  /* 見出しと本文の頭（サーバの transcript.note）が同じ文で、続けて2回出ていた（V21 の残り）。
+     KPI「文字起こしがある」の行き先なので、枠に id と tabindex=-1 を付けて止まれるようにする（段2 S-2） */
+  h += '<div class="kpi-target" id="ph-trans" tabindex="-1">' + note("warn", "文字起こしの状況", esc(D.transcript.note)) + "</div>";
 
   h += sec("表", "沈黙している取引（" + num(D.silent.n) + " 件）");
   h += '<div class="lede">' + esc(D.silent.rule) +
@@ -5682,6 +5762,24 @@ function todayOwnerBar(D0) {
         (kept ? "（この端末が覚えます。次に開いても同じ担当）" : "（この端末では覚えられません。開き直すと全員に戻ります）")
       : "全社の上位 " + num(D.meta.n_shown) + " 件。担当を選ぶと、その人の候補を全件出します") +
     "</span></div>";
+}
+
+/* KPI の札（button.kpi[data-jump]）から同じ画面の行き先へ（段2 S-2 の残り。今日動く先だけだったのを全画面に）。
+   行き先が畳み（details）なら開いてから summary に止まる。今日動く先の札は wireToday（todayJump）が先に結んでいるので、
+   結んであるものには触らない（wire() の順は画面ごとの wire* → wireKpiJumps） */
+function kpiJump(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isDetails = typeof el.open === "boolean";
+  if (isDetails) el.open = true;
+  if (el.scrollIntoView) el.scrollIntoView({ block: "start" });
+  const f = isDetails && el.querySelector ? (el.querySelector("summary") || el) : el;
+  if (f && f.focus) f.focus({ preventScroll: true });
+}
+function wireKpiJumps() {
+  document.querySelectorAll("#cs-main button.kpi[data-jump]").forEach((b) => {
+    if (!b.onclick) b.onclick = () => kpiJump(b.dataset.jump);
+  });
 }
 
 /* KPI から同じ画面の表へ（S-2）。畳んだ枠（今週始まった契約）は開いてから */
@@ -7102,6 +7200,7 @@ function wire(v) {
   if (v.key === "series") wireSeries();
   if (v.key === "houjin") wireHoujin();
   if (v.key === "detail") wireDetail();
+  wireKpiJumps();   /* KPI の札 → 同じ画面の行き先（段2 S-2 の残り。画面ごとの wire* の後） */
   const rl = document.getElementById("cs-reload");
   /* 押したら終わるまで押せない（S-11）。load() は同期で本文を「取り直し中…」に置き換えるので、押した直後には
      このボタン自体が画面から消えている（2026-09-28 実測: 押した直後 button_exists=false）。連打はそれで防がれる。
