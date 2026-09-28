@@ -4193,6 +4193,62 @@ check("段2 A: 今日動く先の名札は短い書き方（正式名は title �
   ok(/\.tag\.c\{[^}]*padding:0 5px/.test(css) && /abbr\.tag\{[^}]*text-decoration:none/.test(css), ".tag.c / abbr.tag の定義が無い");
 });
 
+check("段2 M-8: 案件そのものは既定で上位 100 行＋「残りも出す」。同じ応答・同じ条件なら表を組み直さない（2 回描きでも 1 回）。絞り込みで変わる部分は #board-body", () => {
+  const rows = [];
+  for (let i = 0; i < 130; i++)
+    rows.push({ deal_id: "b" + i, name: "案件" + i, consultant: "担当A", flags: [], n_flags: i % 5, amount: i * 1000, mtg_band: "recent" });
+  ctx.__M8 = { rows, meta: { flag_counts: [], mtg_gap: { bands: [] }, order_rule: "並びの文", n_active: 130, today: "2026-09-18" } };
+  const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" }; boardShowAll = false; boardSort = { key: "n_flags", asc: false };';
+  run('cur = { menu: "deal", view: "board" }; ' + reset);
+  const tblOf = (h) => h.slice(h.indexOf('<table id="board-tbl"'), h.indexOf("</table>", h.indexOf('<table id="board-tbl"')));
+  const nRows = (h) => (tblOf(h).split("<tbody>")[1].match(/<tr>/g) || []).length;
+  const n0 = run("BOARD_TBL_BUILDS");
+  const h = run("renderBoard(__M8)");
+  ok(nRows(h) === 100, "既定で上位 100 行でない: " + nRows(h));
+  ok(h.includes("<b>100</b> 行を出しています（全 130 件のうち）× 15 列"), "枠の案内が「100 行を出しています（全 130 件のうち）」でない");
+  ok(/<div class="ctlbar board-more"><button type="button" class="act" id="board-more" data-all="1">残りの 30 行も出す<\/button>/.test(h),
+    "表の下に「残りの 30 行も出す」が無い");
+  // 名札の本数順（既定）で切るので、名札 0 本の行（案件0, 5, 10, …）は 100 行の外。上位は 4 本の行
+  ok(tblOf(h).indexOf(">案件4</a>") >= 0 && tblOf(h).indexOf(">案件0</a>") < 0, "並べてから切っていない（名札 0 本の行が上位 100 行に入っている）");
+  // 絞り込みで描き直す部分（件数の行 → 表 → 決まりごと → 図）は #board-body の中。絞り込みの欄はその外
+  const at = h.indexOf('<div id="board-body">');
+  ok(at >= 0, "#board-body が無い");
+  ok(h.indexOf('id="board-filter"') < at, "絞り込みの欄が #board-body の中にある（描き直しで検索欄が消える）");
+  const body = h.slice(at);
+  ok(body.indexOf('id="board-count"') < body.indexOf('<table id="board-tbl"') && body.indexOf("</table>") < body.indexOf("この並びについて") &&
+     body.indexOf("この並びについて") < body.indexOf("名札の分布"), "#board-body の中の順（件数 → 表 → 決まりごと → 図）が違う");
+  // 同じ応答・同じ条件では組み直さない（paintFigs の 2 回描き）
+  const h2 = run("renderBoard(__M8)");
+  ok(run("BOARD_TBL_BUILDS") === n0 + 1, "同じ応答・同じ条件で表を組み直している: " + (run("BOARD_TBL_BUILDS") - n0) + " 回");
+  ok(h2 === h, "同じ応答・同じ条件で出力が変わる");
+  ok(run("boardApply(__M8.rows) === boardApply(__M8.rows)"), "boardApply が同じ条件で別の配列を返す（表の覚え書きが効かない）");
+  // 並びを変えると組み直し、切る前に並べる（金額の大きい順なら先頭は 案件129）
+  run('boardSort = { key: "amount", asc: false };');
+  const h3 = run("renderBoard(__M8)");
+  ok(run("BOARD_TBL_BUILDS") === n0 + 2, "並びを変えたのに表を組み直さない");
+  const t3 = tblOf(h3).split("<tbody>")[1];
+  ok(t3.indexOf(">案件129</a>") >= 0 && t3.indexOf(">案件129</a>") < t3.indexOf(">案件128</a>") && t3.indexOf(">案件0</a>") < 0, "並び替えが上位 100 行に効いていない");
+  // 「残りも出す」で全件。案内は「全 130 行」、ボタンは戻す側に
+  run("boardShowAll = true;");
+  const h4 = run("renderBoard(__M8)");
+  ok(nRows(h4) === 130, "残りも出すで全件にならない: " + nRows(h4));
+  ok(h4.includes("全 <b>130</b> 行 × 15 列") && /id="board-more" data-all="0">上位 100 行だけにする</.test(h4), "全件のときの案内・戻すボタンが違う");
+  // 絞り込みは切る前の件数で言い、100 行に満たなければ「残りも出す」を出さない
+  run('boardShowAll = false; boardFilter.q = "案件12";');
+  const h5 = run("renderBoard(__M8)");
+  ok(h5.includes("<b>130 件中 11 件</b>を表示") && h5.includes("全 <b>11</b> 行 × 15 列") && !h5.includes('id="board-more"'),
+    "絞り込み後の件数・案内が違う");
+  // 別の応答（別の配列）なら組み直す（古い表を出さない）
+  ctx.__M8b = { rows: rows.slice(0, 3), meta: ctx.__M8.meta };
+  run(reset);
+  const b1 = run("BOARD_TBL_BUILDS"); run("renderBoard(__M8b)");
+  ok(run("BOARD_TBL_BUILDS") === b1 + 1 && nRows(run("renderBoard(__M8b)")) === 3, "別の応答で表を組み直さない");
+  // 今日動く先の表（TODAY_COLS）は上限を渡していないので切らない
+  run(reset);
+  const td = run('boardTable(__M8.rows, { key: "n_flags", asc: false }, "today-tbl", TODAY_COLS)');
+  ok((td.split("<tbody>")[1].match(/<tr>/g) || []).length === 130, "今日動く先の表まで切っている");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
