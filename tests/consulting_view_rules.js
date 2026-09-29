@@ -3822,6 +3822,9 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   const nBtn = (side.match(/<button /g) || []).length;
   ok(nBtn === 11, "左の画面が 11 でない: " + nBtn);
   ok(side.includes(">電話</button>") && side.includes(">記録と数字の信頼度</button>"), "左の項目名が出ていない: " + side);
+  // 600px 以下は区切りと ul の箱を外して 1 つの流れに並べる（display:contents）。一覧であることは role="list" で読み上げに残す
+  ok((side.match(/<ul role="list" aria-labelledby="side-[a-z]+">/g) || []).length === 3, "区切りの ul に role=list と見出しとの結び付けが無い");
+  ok(/\.sidegrp, \.sidegrp ul\{ display:contents; \}/.test(html), "600px 以下で区切りを 1 つの流れに並べる CSS が無い（400px でメニューが 5 行 229px になる）");
   ok(!side.includes('class="n"') && !/>\d+<\/span>/.test(side), "左の項目名の後ろに番号が残っている（件数に見える）: " + side);
   ok(/aria-current="page">電話</.test(side), "いま見ている項目の印（aria-current）が無い");
   run('cur = { menu: "deal", view: "today" }');
