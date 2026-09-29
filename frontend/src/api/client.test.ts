@@ -54,7 +54,7 @@ describe('apiGet', () => {
     expect(url).toBe('/api/recruitment_diag/difficulty?prefecture=東京都');
     expect(init?.credentials).toBe('same-origin');
     expect(init?.method).toBe('GET');
-    expect(init?.headers).toEqual({ Accept: 'application/json' });
+    expect(init?.headers).toEqual({ Accept: 'application/json', 'X-Requested-With': 'fetch' });
   });
 
   it('case 2: maps a redirect to /login into AuthRequiredError', async () => {

@@ -1,0 +1,5 @@
+{
+  "_comment": "Verbatim copy of REQUIRED_PHRASES / FORBIDDEN_PHRASES in src/handlers/insight/phrase_validator.rs. phrases.test.ts fails when they drift; update both together.",
+  "required": ["傾向", "可能性", "見られ", "みられ", "示唆", "うかがえ", "推察", "思われ"],
+  "forbidden": ["確実に", "必ず", "100%", "絶対", "断定", "疑いの余地なく", "例外なく"]
+}
