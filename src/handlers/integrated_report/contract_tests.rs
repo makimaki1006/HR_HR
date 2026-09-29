@@ -102,6 +102,7 @@ fn test_state(db: LocalDb) -> Arc<AppState> {
         rate_limiter: crate::auth::session::RateLimiter::new(5, 60),
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
+        google_oidc: None,
     })
 }
 
@@ -327,6 +328,7 @@ async fn integrated_report_no_db_returns_minimal_error_page() {
         rate_limiter: crate::auth::session::RateLimiter::new(5, 60),
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
+        google_oidc: None,
     });
     let session = empty_session().await;
 
