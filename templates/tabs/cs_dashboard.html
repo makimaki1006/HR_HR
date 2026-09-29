@@ -2701,7 +2701,14 @@ function kpi(label, big, fine, kind, act) {
     '<span class="act">' + esc(act.text || "一覧を見る") + "</span></button>";
 }
 /* id: 見出しに id を付ける（KPI から表へ飛ぶ先。S-2）。付けたときは focus() で止まれるよう tabindex=-1 も付ける。
-   M-5: 図・表（部品の題）は class part（15px ゴシック太字）、問い・案件（画面の題）は mincho（24px 明朝）。CSS の h2.sec.part */
+   M-5: 図・表（部品の題）は class part（15px ゴシック太字）、問い・案件（画面の題）は mincho（24px 明朝）。CSS の h2.sec.part
+   🔴 M-5 の未完了（2026-09-29 検証の指摘。2fd289e は M-5 と題したが、入ったのは「見出しの階層」と「頭の決まりごとの箱を畳む」だけ）:
+     (a) 図の h2（sec("図", …)）をやめて figcaption を図の題にする — 未着手。44 か所の呼び出しで h2 と figcaption が別の文
+         （例: 立ち上がりの「図 いま、どのフェーズにいるか」＋「契約長に対する割合で見る」＋hint の 3 段）なので、画面ごとに
+         題を 1 つに決め直す必要がある。09 の組み替え（17→8＋3 画面）で render を作り直すときに合わせてやる
+     (b) 図の注記を「凡例＋1 行」までにし、残りを「この図の決まり」に畳む — 未着手。何を畳まないか（n<30 の理由・未確定・外した件数）を
+         図ごとに決める必要がある（08 の 2.4）。fig() は表と図の担当（M-11）も触るので、統合の後にやる
+     (c) foot() を画面末尾の 1 箱にまとめる — 未着手（18 か所） */
 function sec(no, title, id) {
   const part = no !== "問い" && no !== "案件";
   return '<h2 class="sec ' + (part ? "part" : "mincho") + '"' + (id ? ' id="' + esc(id) + '" tabindex="-1"' : "") +
