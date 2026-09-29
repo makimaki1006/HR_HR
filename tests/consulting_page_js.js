@@ -1303,15 +1303,20 @@ async function openDetail(t, payload) {
 
 check("D1", "案件の詳細: ハッシュの ?id= で取引を指定して開き、MTG・電話・交代を新しい順の1本に並べる", async () => {
   const t = boot();
-  const h = await openDetail(t);
+  let h = await openDetail(t);
   if (t.R("cur.view") !== "detail" || t.R("detailId") !== "70000000001")
     throw new Error("ハッシュの取引で案件の詳細が開いていない");
   if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
-  const tl = h.slice(h.indexOf('<ol class="tl"'), h.indexOf("</ol>"));
-  // 既定は電話 60秒超だけ → c2（30秒）は出ない。残り 6件が新しい順
-  const dates = [...tl.matchAll(/<div class="when"><b>([0-9-]+)<\/b>/g)].map((m) => m[1]);
-  const want = ["2026-09-12", "2026-09-10", "2026-08-20", "2026-08-20", "2026-07-01", "2026-05-01"];
-  if (JSON.stringify(dates) !== JSON.stringify(want)) throw new Error("並びが違う: " + dates.join(","));
+  const datesOf = (x) => [...x.slice(x.indexOf('<ol class="tl"'), x.indexOf("</ol>")).matchAll(/<div class="when"><b>([0-9-]+)<\/b>/g)].map((m) => m[1]);
+  // 既定は電話 60秒超だけ → c2（30秒）は出ない。残り 6件が新しい順。
+  // M-3 (4)（2026-09-29）: 既定は直近3か月（基準日 2026-09-18 → 2026-06-18 以降）。2026-05-01 は「もっと前を出す」の後
+  const want = ["2026-09-12", "2026-09-10", "2026-08-20", "2026-08-20", "2026-07-01"];
+  if (JSON.stringify(datesOf(h)) !== JSON.stringify(want)) throw new Error("並びが違う: " + datesOf(h).join(","));
+  if (h.indexOf('id="dd-older">もっと前を出す（2026-06-18 より前の 1 件）') < 0) throw new Error("直近3か月より前があることを件数つきで言っていない");
+  t.R("detailOlder = true; redrawMain(lastPayload)");
+  h = t.reg["cs-main"].innerHTML;
+  if (JSON.stringify(datesOf(h)) !== JSON.stringify(want.concat(["2026-05-01"]))) throw new Error("もっと前を出した後の並びが違う: " + datesOf(h).join(","));
+  t.R("detailOlder = false");
   for (const w of ["求人票の修正点を確認した。", "修正案を送る", "付け直し", "次の契約", "資料を送る", "未抽出",
     "交代", "前任 &#8594; 担当A", "詳細テスト案件", "満了まで60日以内", "前の契約"])
     if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
@@ -1328,7 +1333,9 @@ check("D2", "案件の詳細: 事実と推定を印（点の形・枠）と文�
   const items = h.split("<li ").slice(1);
   const mail = items.filter((x) => x.indexOf("MTG（推定）") >= 0);
   if (mail.length !== 1 || !/^class="[^"]*\best\b/.test(mail[0])) throw new Error("メール由来の行に推定の印（est）が無い");
-  if (mail[0].indexOf("推定(±1日 83.3%)") < 0) throw new Error("メール由来の行に確かさが書かれていない");
+  /* M-3 (4)（2026-09-29）: 確かさは凡例に1回（見える文字）と、行の札の title。行ごとに定型の断りを繰り返さない */
+  if (h.replace(/<[^>]*>/g, "").indexOf("メールの文面から起こした実施日です（推定(±1日 83.3%)）") < 0) throw new Error("凡例に確かさが書かれていない");
+  if (!/<span class="mark" title="[^"]*推定\(±1日 83\.3%\)[^"]*">MTG（推定）/.test(mail[0])) throw new Error("メール由来の行の札に確かさ（title）が無い");
   if (mail[0].indexOf("同じ日に録画の MTG があります") < 0) throw new Error("同じ日の録画のことを書いていない");
   const facts = items.filter((x) => x.indexOf("MTG（推定）") < 0);
   if (facts.some((x) => /^class="[^"]*\best\b/.test(x))) throw new Error("事実の行に推定の印が付いている");
@@ -1363,6 +1370,7 @@ check("D2", "案件の詳細: 事実と推定を印（点の形・枠）と文�
 check("D3", "案件の詳細: 種類の絞り込みと電話の 60秒超だけ／全部は、取り直さずに描き直し、件数の行が追従する", async () => {
   const t = boot();
   await openDetail(t);
+  t.R("detailOlder = true");   /* 件数は全期間で見る（直近3か月の窓は D1 と M-3 の見張り） */
   const n = t.fetched.length;
   const cb = new t.El("dd-k-call"); t.reg["dd-k-call"] = cb;
   const all = new t.El("dd-c-all"); t.reg["dd-c-all"] = all;
@@ -1376,9 +1384,9 @@ check("D3", "案件の詳細: 種類の絞り込みと電話の 60秒超だけ�
   cb.checked = false; cb.onchange();
   h = t.reg["cs-main"].innerHTML;
   if (/<span class="mark">電話<\/span>/.test(h)) throw new Error("電話を外しても電話が出る");
-  if (!/7 件中 4 件<\/b>を表示（絞り込み中）/.test(h)) throw new Error("電話を外した件数が 7 件中 4 件になっていない");
+  if (!/7 件中 4 件<\/b>を表示（種類・電話の絞り込み）/.test(h)) throw new Error("電話を外した件数が 7 件中 4 件になっていない");
   if (t.fetched.length !== n) throw new Error("絞り込みで取り直している");
-  t.R("detailKinds = { mtg: true, call: true, handover: true }; detailAllCalls = false;");
+  t.R("detailKinds = { mtg: true, call: true, handover: true }; detailAllCalls = false; detailOlder = false;");
 });
 
 check("D4", "表の案件名から案件の詳細へ移り、戻るで元の表（案件そのもの）へ戻る", async () => {
@@ -2354,6 +2362,104 @@ check("組替", "顧客: 本部アプローチ（成果と継続へ移すもの�
   t.R("lastPayload = __D; hqCache = null;");
   t.R("wire(viewOf('deal', 'customer'))");
   if (!t.fetched.some((f) => f.url.indexOf("/api/consulting/headquarters") === 0)) throw new Error("顧客の画面で本部アプローチを取りに行かない");
+});
+
+/* ================================================================ 画面の組み替え: 案件の詳細（09 の「3」、08 の M-3、2026-09-29） */
+check("M-3", "案件の詳細: 最後の接触・最後の MTG・直近の要約（次にやること・懸念）を時系列より上に出す。契約期間の外の記録は数えない", async () => {
+  const t = boot();
+  const P = detailPayload();
+  /* この取引に付いているが契約期間の外の電話（09-15）。最後の接触に数えてはいけない */
+  P.events.unshift({ kind: "call", date: "2026-09-15", time: "09:00", fact: true, source_label: "通話記録（事実）", call_id: "cx",
+    duration_sec: 300, contact: true, direction: "outbound", handler: null, owner: null, has_transcript: false,
+    summary: { summary: "別の契約の話", next_action: "期間外の約束", concern: "期間外の懸念" },
+    attach: { state: "outside", in_span: false, moved_from: null, moved_to: null } });
+  const h = await openDetail(t, P);
+  const tl = h.indexOf('<ol class="tl"');
+  const top = h.slice(0, tl);
+  if (!/<span class="k">最後の接触（MTG・60秒超の電話）<\/span><b>2026-09-12<\/b>（6日前） 電話 2分5秒/.test(top))
+    throw new Error("最後の接触（2026-09-12 の電話・6日前）が時系列より上に無い（期間外の 09-15 を拾っていないか）");
+  if (!/<span class="k">最後の MTG<\/span><b>2026-08-20<\/b>（29日前） 録画（事実）/.test(top))
+    throw new Error("最後の MTG（2026-08-20 録画・事実）が無い");
+  if (top.indexOf("直近の電話の AI 要約（誤りを含むことがあります。2026-09-12 の電話）") < 0 || top.indexOf("修正案を送る") < 0)
+    throw new Error("直近の要約の「次にやること」が時系列より上に無い（AI 要約の断りつきで）");
+  if (top.indexOf("期間外の約束") >= 0) throw new Error("契約期間の外の電話の要約を「直近」として出している");
+  if (!/<span class="k">満了まで<\/span>12日/.test(top)) throw new Error("満了までの日数が無い");
+  /* 要約も抽出も無い案件では、無いと書く（空の欄を出さない） */
+  const t2 = boot();
+  const P2 = detailPayload();
+  P2.events = P2.events.filter((e) => !(e.summary || e.extracted));
+  const h2 = await openDetail(t2, P2);
+  if (h2.indexOf("電話の要約・MTG の抽出はまだありません") < 0) throw new Error("要約も抽出も無いことを書いていない");
+});
+check("M-3", "案件の詳細: パンくず「法人 ＞ 拠点 ＞ この案件」は hashFor で顧客の画面へ。法人の一覧に無い法人はリンクにせず、法人番号を出さない。担当は案件一覧へ", async () => {
+  const t = boot();
+  const P = detailPayload();
+  Object.assign(P.deal, { houjin: "9990001112223", houjin_name: "法人エー", site_key: "kyoten-a" });
+  const h = await openDetail(t, P);
+  const nav = h.slice(h.indexOf('<nav class="crumbs"'), h.indexOf("</nav>", h.indexOf('<nav class="crumbs"')));
+  const esc = (x) => x.replace(/&/g, "&amp;");
+  if (nav.indexOf('<a href="' + esc(t.R('hashFor("customer", { houjin: "9990001112223" })')) + '">法人エー</a>') < 0)
+    throw new Error("法人名が顧客の画面（hashFor）へのリンクでない: " + nav);
+  if (nav.indexOf('<a href="' + esc(t.R('hashFor("customer", { houjin: "9990001112223", site: "kyoten-a" })')) + '">拠点A</a>') < 0)
+    throw new Error("拠点名が顧客の画面（法人＋拠点）へのリンクでない: " + nav);
+  if (nav.indexOf('<span aria-current="page">この案件（1回目の継続）</span>') < 0) throw new Error("パンくずの末尾（この案件）が無い");
+  if (/>[^<]*9990001112223/.test(h)) throw new Error("法人番号が画面の文字に出ている");
+  if (h.indexOf('<a href="' + esc(t.R('hashFor("board", { c: "担当A" })')) + '"') < 0) throw new Error("担当が案件一覧（?c=）へのリンクでない");
+  /* 法人の一覧に無い法人（houjin_name が null）はリンクにしない */
+  const t2 = boot();
+  const P2 = detailPayload();
+  Object.assign(P2.deal, { houjin: "9990001112223", houjin_name: null, site_key: "kyoten-a" });
+  const h2 = await openDetail(t2, P2);
+  const nav2 = h2.slice(h2.indexOf('<nav class="crumbs"'), h2.indexOf("</nav>", h2.indexOf('<nav class="crumbs"')));
+  if (nav2.indexOf("<a ") >= 0) throw new Error("法人の一覧に無い法人をリンクにしている（顧客の画面で見つかりません）");
+  if (nav2.indexOf("法人の一覧に無い法人") < 0 || /9990001112223/.test(nav2)) throw new Error("法人の一覧に無いことを書かず、法人番号を出している");
+});
+check("M-3", "案件の詳細: 契約の連なりは前後を1行、表は畳む。時系列の既定は直近3か月で「もっと前を出す」。案件を移ると既定へ戻る", async () => {
+  const t = boot();
+  const h = await openDetail(t);
+  if (!/同じ拠点の契約の連なり: 前の契約 <a class="deallink" href="#deal\/detail\?id=70000000000">前の契約<\/a> &#8592; <b>いま（2 件目 \/ 全 3 件）<\/b> &#8594; 次の契約 <a class="deallink" href="#deal\/detail\?id=70000000002">次の契約<\/a>/.test(h))
+    throw new Error("連なりの1行（前 ← いま → 次）が無い");
+  const fold = h.indexOf('<details class="fold" id="dd-chain">');
+  if (fold < 0 || h.indexOf("<table", fold) < 0 || h.indexOf("<table") < fold) throw new Error("連なりの表が畳みの中に無い");
+  /* 時系列の窓 */
+  if (h.indexOf("7 件中 5 件</b>を表示（直近3か月（2026-06-18 以降）だけ・種類・電話の絞り込み）") < 0)
+    throw new Error("件数の行に、直近3か月で切っていることが無い");
+  const b = new t.El("dd-older"); t.reg["dd-older"] = b;
+  t.R("wire(viewOf('deal', 'detail'))");
+  const n = t.fetched.length;
+  b.onclick();
+  if (t.R("detailOlder") !== true || t.fetched.length !== n) throw new Error("もっと前を出すが、取り直さずに描き直していない");
+  if (t.loc.hash !== "#deal/detail?id=70000000001&older=1") throw new Error("もっと前を出したことが URL に載らない: " + t.loc.hash);
+  if (t.reg["cs-main"].innerHTML.indexOf('id="dd-recent"') < 0) throw new Error("直近3か月に戻す口が無い");
+  /* 別の案件（連なりのリンク）へ移ると既定へ */
+  navHash(t, "#deal/detail?id=70000000002");
+  if (t.R("detailOlder") !== false) throw new Error("別の案件へ移っても「もっと前」のまま");
+});
+check("M-3", "案件の詳細: 開いた案件を端末に5件まで覚え（重ねない）、探す欄に「最近開いた案件」と「今日動く先へ戻る」を出す。覚えられない端末でも動く", async () => {
+  const { store, ls } = fakeStore();
+  const t = boot("", { localStorage: ls });
+  for (let i = 1; i <= 7; i++) {
+    const P = detailPayload();
+    P.deal.deal_id = "7000000000" + i; P.deal.name = "案件" + i;
+    t.R("lastPayload = " + JSON.stringify(P));
+    t.R("wireDetail()");
+  }
+  t.R("lastPayload = " + JSON.stringify(Object.assign(detailPayload(), { deal: Object.assign(detailPayload().deal, { deal_id: "70000000006", name: "案件6" }) })));
+  t.R("wireDetail()");
+  const saved = JSON.parse(store["cs.detail.recent"] || "[]");
+  if (JSON.stringify(saved.map((x) => x.name)) !== JSON.stringify(["案件6", "案件7", "案件5", "案件4", "案件3"]))
+    throw new Error("最近開いた案件が新しい順・5件・重ねない形でない: " + saved.map((x) => x.name).join(","));
+  const h = t.R('renderDetail({ meta: { today: "2026-09-18", deal_id: "" }, search: { q: "", rows: [], n_match: 0 } })');
+  if (h.indexOf('最近開いた案件（この端末で 5 件）: <a class="deallink" href="#deal/detail?id=70000000006">案件6</a>') < 0)
+    throw new Error("探す欄に最近開いた案件が出ていない");
+  if (h.indexOf('<a class="golink" href="#deal/today">今日動く先へ戻る</a>') < 0) throw new Error("今日動く先へ戻る口が無い");
+  /* 覚えられない端末（読み書きで投げる） */
+  const bad = { getItem: () => { throw new Error("denied"); }, setItem: () => { throw new Error("denied"); }, removeItem: () => {} };
+  const t2 = boot("", { localStorage: bad });
+  t2.R("lastPayload = " + JSON.stringify(detailPayload()));
+  t2.R("wireDetail()");
+  const h2 = t2.R('renderDetail({ meta: { today: "2026-09-18", deal_id: "" }, search: { q: "", rows: [], n_match: 0 } })');
+  if (h2.indexOf("最近開いた案件はまだありません") < 0) throw new Error("覚えられない端末で探す欄が壊れる");
 });
 
 (async () => {
