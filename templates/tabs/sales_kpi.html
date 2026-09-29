@@ -285,6 +285,13 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 <div id="ketteibox"></div>
 </div>
 
+<div id="tab-stock" role="tabpanel" hidden>
+<h2>リストの在庫</h2>
+<p class="lead" id="lead6"></p>
+<div class="chiprow" id="stockbands" style="margin-bottom:11px"></div>
+<div id="stockbox"></div>
+</div>
+
 </div>
 
 
@@ -338,6 +345,8 @@ const SHEETS={
            sheet:'②メンバー配置_入力'},
   exclude:{url:'https://docs.google.com/spreadsheets/d/1jrUspALKO6CNhSzSWJJoJ3VLuSnqfj_eTu3hocO-o2k/edit',
            sheet:'KPI営業_集計除外'},
+  listGroups:{url:'https://docs.google.com/spreadsheets/d/1jrUspALKO6CNhSzSWJJoJ3VLuSnqfj_eTu3hocO-o2k/edit',
+           sheet:'KPI営業_リスト区分'},
 };
 const sheetLink=(k,label)=>
   '<a href="'+SHEETS[k].url+'" target="_blank" rel="noopener">'+label+' ↗</a>';
@@ -1209,6 +1218,154 @@ function renderKettei(){
   box.appendChild(card);
 }
 
+// ---- リストの在庫 ----------------------------------------------------------
+//
+// 新規営業のリスト（リクロジ／大分）が、全体でどれだけあり、どれだけアクティブに
+// 回していて、どれだけ保管しているか（2026-09-29 現場要望）。
+// 🔴 誰がアクティブ／保管かは画面にもサーバにも書かない。運用シート
+//    `KPI営業_リスト区分` で決まり、ここはサーバが返した内訳をそのまま並べる。
+// 🔴 チーム・個人の絞り込みは効かない（担当者ごとではなく内訳ごとに数えているため）。
+const LS=D.list_stock||{};
+const LS_LISTS=LS.lists||[], LS_BANDS=LS.bands||[], LS_ALL=LS.all_band||'すべて';
+// 選んでいる企業人数の帯。全部選んでいる＝絞っていない。
+let stockBands=new Set(LS_BANDS);
+const stockAll=()=>stockBands.size===LS_BANDS.length;
+// 内訳の名前は人が編集するシート（KPI営業_リスト区分）から来るので、HTML として解釈させない。
+const escS=v=>String(v==null?'':v).replace(/[&<>"']/g,
+  ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+// 1つの数え上げ（{帯: 件数}）から、選んでいる帯ぶんを足す。
+// 絞っていないときは「すべて」を使う（帯に入らない値も含めた全体）。
+const stockVal=c=>{
+  c=c||{};
+  if(stockAll()) return c[LS_ALL]||0;
+  let n=0; stockBands.forEach(b=>{n+=c[b]||0;}); return n;
+};
+
+function renderStock(){
+  const kinds=['アクティブ','保管'];
+  const hasGroups=LS_LISTS.some(l=>(l.groups||[]).length);
+  // 🔴 このシートを書くのは朝の便（6:30）だけ。何時時点の数かを必ず出す。
+  $('lead6').innerHTML=
+    '新規営業のリストが<b>全体でどれだけあり、どれだけアクティブに回していて、'+
+    'どれだけ保管しているか</b>を数えたものです。<b>毎朝6:30 に取り直した数</b>'+
+    '（'+D.generated_at+' 時点）で、日中に動かしたぶんは翌朝に載ります。<br>'+
+    '<span style="color:var(--faint)">'+
+    '<b>リクロジ</b> = パイプライン「リクロジ受注管理_アポ前」、<b>大分</b> = パイプライン「bpo_リクロジ」。'+
+    'どちらも<b>全ステージ</b>を数えています（架電禁止・ターゲット外なども入っています）。'+
+    '「bpo_リクロジ（管理）」（要精査・完全廃棄など）は入れていません。<br>'+
+    '誰をアクティブ・保管とするかは '+sheetLink('listGroups','KPI営業_リスト区分')+
+    ' で決まります。どこにも当てはまらない担当者と、担当者が入っていない取引は「その他」に入れています。<br>'+
+    '<b>上のチーム・個人・担当者のチェックは、この表には効きません</b>'+
+    '（担当者ごとではなく、区分ごとに数えているため）。</span>';
+
+  // ---- 企業人数の帯 ----
+  const bar=$('stockbands'); bar.innerHTML='';
+  const lab=document.createElement('span');
+  lab.textContent='企業人数（企業全体人数）:';
+  lab.style.cssText='font-size:12.5px;color:var(--sub);align-self:center';
+  bar.appendChild(lab);
+  const chip=(label,on,onclick)=>{
+    const c=document.createElement('button'); c.type='button';
+    c.className='chip'+(on?' on':''); c.textContent=label;
+    c.setAttribute('aria-pressed',on?'true':'false');
+    c.onclick=onclick; bar.appendChild(c);
+  };
+  chip('すべて',stockAll(),()=>{stockBands=new Set(LS_BANDS); renderStock();});
+  LS_BANDS.forEach(b=>chip(b,!stockAll()&&stockBands.has(b),()=>{
+    // 「すべて」の状態から帯を押したら、その帯だけにする。
+    // 絞っている状態で押したら足し引きする（空になったら「すべて」に戻す）。
+    if(stockAll()) stockBands=new Set([b]);
+    else if(stockBands.has(b)) stockBands.delete(b);
+    else stockBands.add(b);
+    if(!stockBands.size) stockBands=new Set(LS_BANDS);
+    renderStock();}));
+
+  const box=$('stockbox'); box.innerHTML='';
+  const card=document.createElement('div'); card.className='c';
+  const tw=document.createElement('div'); tw.className='tw'; tw.style.maxHeight='none';
+  const t=document.createElement('table');
+  t.innerHTML='<thead><tr><th>区分</th><th>誰が持っているか</th>'+
+    LS_LISTS.map(l=>'<th class="n">'+escS(l.name)+'</th>').join('')+
+    '<th class="n">計</th></tr></thead>';
+  const tb=document.createElement('tbody');
+  const whole=LS_LISTS.map(l=>stockVal(l.total));
+  const wholeSum=whole.reduce((a,b)=>a+b,0);
+  // 全体に占める割合。母数（全体の件数）はいちばん下の「全体」の行に出ている。
+  const share=(n,d)=>d?'<span class="sm">全体の '+pct(n/d*100)+'</span>':'';
+  const addRow=(kind,who,vals,bold)=>{
+    const sum=vals.reduce((a,b)=>a+b,0);
+    const cell=(n,d)=>'<td class="n">'+(bold?'<b>'+fmt(n)+'</b>'+share(n,d):fmt(n))+'</td>';
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+kind+'</td><td>'+who+'</td>'+
+      vals.map((n,i)=>cell(n,whole[i])).join('')+cell(sum,wholeSum);
+    tb.appendChild(tr);
+  };
+  kinds.forEach(kind=>{
+    // 内訳の名前はリストをまたいで同じものを1行にまとめる（並びは最初に出てきた順）。
+    const names=[];
+    LS_LISTS.forEach(l=>(l.groups||[]).forEach(g=>{
+      if(g.kind===kind&&!names.includes(g.name)) names.push(g.name);}));
+    if(!names.length) return;
+    const valOf=(l,name)=>
+      stockVal(((l.groups||[]).find(g=>g.kind===kind&&g.name===name)||{}).counts);
+    names.forEach(name=>addRow(kind,escS(name),LS_LISTS.map(l=>valOf(l,name)),false));
+    addRow(kind,'<b>'+kind+'の計</b>',
+      LS_LISTS.map(l=>names.reduce((a,name)=>a+valOf(l,name),0)),true);
+  });
+  addRow('その他','どの区分にも当てはまらない担当者・担当者なし'+
+    '<span class="sm">区分シートに書かれていない人のぶん</span>',
+    LS_LISTS.map(l=>stockVal(l.other)),true);
+  t.appendChild(tb);
+  const tf=document.createElement('tfoot');
+  tf.innerHTML='<tr><td>全体</td><td>'+
+    (stockAll()?'企業人数で絞っていない':'選んでいる企業人数の帯')+'</td>'+
+    whole.map(n=>'<td class="n">'+fmt(n)+'</td>').join('')+
+    '<td class="n">'+fmt(wholeSum)+'</td></tr>';
+  t.appendChild(tf);
+  tw.appendChild(t); card.appendChild(tw);
+
+  const notes=[];
+  if(!hasGroups){
+    notes.push('<b style="color:var(--warn)">区分がまだ決まっていません。</b>'+
+      sheetLink('listGroups','KPI営業_リスト区分')+
+      ' に「区分（アクティブ／保管）・内訳・種別（ownerId／名簿チーム／HubSpotチーム）・値」を書くと、'+
+      '翌朝から分けて出します。いまは全部「その他」に入っています。');
+  }
+  // 帯に入らない値（マイナスなど）。帯で絞ると、そのぶんはどの帯にも出てこない。
+  const gaps=LS_LISTS.filter(l=>l.band_gap);
+  if(!stockAll()&&gaps.length){
+    notes.push('企業人数がどの帯にも入らない取引が '+
+      gaps.map(l=>escS(l.name)+' '+fmt(l.band_gap)+'件').join('／')+
+      ' あります。帯で絞るとこのぶんは出てきません。');
+  }
+  // 前の週の記録。残っているのは企業人数で絞らない数だけなので、絞っていないときだけ出す。
+  const tr=LS.trend;
+  if(!tr){
+    notes.push('前の週の記録がまだ無いので、増減はまだ出せません。');
+  }else if(!stockAll()){
+    notes.push('前の週との増減は、企業人数で絞っていないときだけ出します'+
+      '（記録に残しているのが全体の数だけのため）。');
+  }else{
+    const parts=LS_LISTS.map(l=>{
+      const p=(tr.lists||{})[l.name]; if(!p) return null;
+      const now={'全体':stockVal(l.total)};
+      kinds.forEach(k=>{now[k]=(l.groups||[]).filter(g=>g.kind===k)
+        .reduce((a,g)=>a+stockVal(g.counts),0);});
+      return '<b>'+escS(l.name)+'</b> '+['全体'].concat(kinds)
+        .map(k=>k+' '+growText(now[k]-(p[k]||0))).join(' ／ ');
+    }).filter(Boolean);
+    if(parts.length){
+      notes.push(escS(tr.week)+' の記録（'+md(tr.week_start)+' の週）からの増減: '+parts.join('　')+
+        '<br>リストはパイプラインの間・担当者の間で毎月まとまった件数が動きます。'+
+        '増減の理由まではこの画面では判定できません。');
+    }
+  }
+  const hint=document.createElement('div'); hint.className='hint'; hint.style.marginTop='10px';
+  hint.innerHTML=notes.join('<br>');
+  card.appendChild(hint);
+  box.appendChild(card);
+}
+
 // ---- タブの切り替え --------------------------------------------------------
 //
 // 「見たい人が違うから、今のに足すのではなく切り替えで見れるようにしたい」
@@ -1221,6 +1378,8 @@ const TABS=[{key:'kpi',label:'営業KPI',el:'tab-kpi'}];
 // 決定者のシートがまだ無い／空のときは、タブごと出さない。
 // 空の表を出しても読む人が判断できないため。
 if(HAVE_KETTEI) TABS.push({key:'kettei',label:'決定者・決裁者',el:'tab-kettei'});
+// リストの在庫のシートがまだ無いときも、タブごと出さない（決定者と同じ扱い）。
+if(LS_LISTS.length) TABS.push({key:'stock',label:'リストの在庫',el:'tab-stock'});
 let tab='kpi';
 if(TABS.length>1){
   const tbar=$('tabs'); tbar.hidden=false;
@@ -1240,6 +1399,8 @@ function drawTabs(){
 }
 
 render();
+// リストの在庫は上の絞り込みに連動しないので、render() の外で1回だけ描く。
+if(LS_LISTS.length) renderStock();
 drawTabs();
 
 $('foot').innerHTML=

@@ -25,6 +25,7 @@
 //!   KPI営業_取得条件  いつ・どの範囲で取ったか
 //!   KPI営業_週次      週に1行の記録（唯一、集計済みの値を持つシート）
 //!   KPI営業_決定者    決定者・決裁者の入力状況を、日 × 担当者で持つ
+//!   KPI営業_リスト在庫 新規営業のリスト（リクロジ／大分）を、誰が持っているか × 企業人数で数えたもの
 //!
 //! **仕分け（実施/未実施/未処理/予定）はシートに入っていない。ここで判定する。**
 //! 現場ヒアリングで判定が変わる見込みがあり、変わるたびにシートを作り直したくないため。
@@ -103,6 +104,10 @@ pub const SHEET_WEEKLY: &str = "KPI営業_週次";
 /// **無いことがある**（2026-09-11 に足したので、日次同期が新しい版で1度も走っていない
 /// 環境ではシート自体が存在しない）。週次と同じく、無ければ空で通す。
 pub const SHEET_KETTEI: &str = "KPI営業_決定者";
+/// 新規営業のリストの在庫（`リスト / 区分 / 内訳 / 企業人数 / 件数`）。
+/// **無いことがある**（2026-09-29 に足したので、日次同期が新しい版で1度も走っていない
+/// 環境ではシート自体が存在しない）。週次と同じく、無ければ空で通す。
+pub const SHEET_LIST_STOCK: &str = "KPI営業_リスト在庫";
 
 // ---------------------------------------------------------------- 取引
 
@@ -246,6 +251,8 @@ pub struct Sheets {
     pub weekly: Arc<SheetData>,
     /// 決定者・決裁者の入力状況。**まだ1度も書かれていないことがある**ので、無ければ空。
     pub kettei: Arc<SheetData>,
+    /// リストの在庫。**まだ1度も書かれていないことがある**ので、無ければ空。
+    pub list_stock: Arc<SheetData>,
     /// 全部キャッシュから返せたか（画面に鮮度を出すため）
     pub all_cached: bool,
 }
@@ -295,6 +302,7 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
     let weekly = optional!(SHEET_WEEKLY, "週次");
     let kaden_by_owner = optional!(SHEET_KADEN_BY_OWNER, "架電リストの担当者別");
     let kettei = optional!(SHEET_KETTEI, "決定者・決裁者");
+    let list_stock = optional!(SHEET_LIST_STOCK, "リストの在庫");
     Ok(Sheets {
         shodan: fetch!(SHEET_SHODAN),
         apo: fetch!(SHEET_APO),
@@ -306,6 +314,7 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
         meta: fetch!(SHEET_META),
         weekly,
         kettei,
+        list_stock,
         all_cached: cached,
     })
 }
@@ -437,10 +446,49 @@ pub fn snapshots_of(sheet: &SheetData) -> Vec<serde_json::Value> {
             "week_partial".into(),
             json!(sheet.get(row, "週_集計中") == "集計中"),
         );
+        item.insert("list_stock".into(), weekly_list_stock(sheet, row));
         out.push((week, Value::Object(item)));
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     out.into_iter().map(|(_, v)| v).collect()
+}
+
+/// 週次シートの「リスト_<リスト名>_<全体|アクティブ|保管>」列を
+/// `{リスト名: {全体, アクティブ, 保管}}` にする。
+///
+/// 🔴 リスト名はここに書かない。見出しから拾う（Python 側 `LIST_PIPELINES` が
+/// 列を作るので、リストが増えてもここは直さずに済む）。
+/// 2026-09-29 より前に書かれた行にはこの列が無い（値が空）。0 にすると画面が
+/// 「在庫が0だった」と嘘をつくので、そのリストの「全体」が読めなければ入れない。
+/// 1つも無ければ `null`。
+fn weekly_list_stock(sheet: &SheetData, row: &[Arc<str>]) -> serde_json::Value {
+    use serde_json::{json, Map, Value};
+    let mut out: Map<String, Value> = Map::new();
+    for col in &sheet.header {
+        let Some(rest) = col.strip_prefix("リスト_") else {
+            continue;
+        };
+        let Some(name) = rest.strip_suffix("_全体") else {
+            continue;
+        };
+        let Some(whole) = cell_num(sheet.get(row, col)) else {
+            continue;
+        };
+        let mut m = Map::new();
+        m.insert("全体".into(), json!(whole));
+        for kind in ["アクティブ", "保管"] {
+            m.insert(
+                kind.into(),
+                json!(cell_num(sheet.get(row, &format!("リスト_{name}_{kind}"))).unwrap_or(0)),
+            );
+        }
+        out.insert(name.to_string(), Value::Object(m));
+    }
+    if out.is_empty() {
+        Value::Null
+    } else {
+        Value::Object(out)
+    }
 }
 
 pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
@@ -572,6 +620,107 @@ pub fn kaden_by_owner_of(sheet: &SheetData) -> BTreeMap<String, Counts> {
         }
     }
     out
+}
+
+// ------------------------------------------------- リストの在庫
+
+/// 企業人数で絞らない数を表す帯の名前。Python 側 `STOCK_ALL_BANDS` と対。
+pub const STOCK_ALL_BANDS: &str = "すべて";
+
+/// `KPI営業_リスト在庫` を、画面がそのまま使える形にする。
+///
+/// シートは `リスト / 区分 / 内訳 / 企業人数 / 件数` の縦持ち。区分は
+/// `合計`（リスト全体）・`アクティブ`・`保管` のどれか。
+///
+/// 🔴 **「その他」はシートに無い。ここで 合計 − 内訳の和 として出す。**
+/// どの内訳にも当てはまらない担当者（区分シートに書かれていない人）と、
+/// 担当者が入っていない取引。黙って落とすと、内訳の和が全体に届かない理由が
+/// 画面から読めなくなる。
+///
+/// 🔴 リスト名・内訳名・帯の名前はここに書かない。全部シートの並びのまま返す
+/// （内訳は運用シート `KPI営業_リスト区分` で決まり、ここは読むだけ）。
+///
+/// `band_gap` は「企業人数=すべて」と帯の合計の差。どの帯にも入らない値
+/// （マイナスなど）があれば 0 にならない。画面はこれを出して、帯で絞ったときに
+/// 足りなくなる理由を隠さない。
+pub fn list_stock_of(sheet: &SheetData) -> serde_json::Value {
+    use serde_json::{json, Value};
+
+    #[derive(Default)]
+    struct List {
+        total: Counts,
+        groups: Vec<(String, String, Counts)>,
+    }
+    let mut bands: Vec<String> = Vec::new();
+    let mut lists: Vec<(String, List)> = Vec::new();
+    for row in &sheet.rows {
+        let name = sheet.get(row, "リスト").trim();
+        let kind = sheet.get(row, "区分").trim();
+        let label = sheet.get(row, "内訳").trim();
+        let band = sheet.get(row, "企業人数").trim();
+        if name.is_empty() || kind.is_empty() || band.is_empty() {
+            continue;
+        }
+        let n = cell_num(sheet.get(row, "件数")).unwrap_or(0);
+        if band != STOCK_ALL_BANDS && !bands.iter().any(|b| b == band) {
+            bands.push(band.to_string());
+        }
+        let list = match lists.iter().position(|(n, _)| n == name) {
+            Some(i) => &mut lists[i].1,
+            None => {
+                lists.push((name.to_string(), List::default()));
+                &mut lists.last_mut().expect("直前に足した").1
+            }
+        };
+        let counts = if kind == "合計" {
+            &mut list.total
+        } else {
+            match list
+                .groups
+                .iter()
+                .position(|(k, l, _)| k == kind && l == label)
+            {
+                Some(i) => &mut list.groups[i].2,
+                None => {
+                    list.groups
+                        .push((kind.to_string(), label.to_string(), Counts::new()));
+                    &mut list.groups.last_mut().expect("直前に足した").2
+                }
+            }
+        };
+        *counts.entry(band.to_string()).or_insert(0) += n;
+    }
+
+    let mut all_bands: Vec<String> = vec![STOCK_ALL_BANDS.to_string()];
+    all_bands.extend(bands.iter().cloned());
+    let out: Vec<Value> = lists
+        .into_iter()
+        .map(|(name, list)| {
+            let get = |c: &Counts, b: &str| c.get(b).copied().unwrap_or(0);
+            let other: Counts = all_bands
+                .iter()
+                .map(|b| {
+                    let parts: i64 = list.groups.iter().map(|(_, _, c)| get(c, b)).sum();
+                    (b.clone(), get(&list.total, b) - parts)
+                })
+                .collect();
+            let banded: i64 = bands.iter().map(|b| get(&list.total, b)).sum();
+            json!({
+                "name": name,
+                "total": list.total,
+                "groups": list.groups.iter().map(|(kind, label, counts)| json!({
+                    "kind": kind, "name": label, "counts": counts,
+                })).collect::<Vec<_>>(),
+                "other": other,
+                "band_gap": get(&list.total, STOCK_ALL_BANDS) - banded,
+            })
+        })
+        .collect();
+    json!({
+        "all_band": STOCK_ALL_BANDS,
+        "bands": bands,
+        "lists": out,
+    })
 }
 
 // ------------------------------------------------- 決定者・決裁者
