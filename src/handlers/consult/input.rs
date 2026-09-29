@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 /// 顧客の任意入力 (面談前に与えられる範囲のみ。§5.2 E `client_context` の部分集合)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClientInput {
-    /// 顧客提示給与の下限 (円。時給モードCSVなら円/時、月給モードなら円/月として扱う)
+    /// 顧客提示給与の下限 (円。時給モードCSVなら円/時、月給モードなら円/月として扱う)。
+    /// 市場分布 (salary_values、円/月) との比較前に `ConsultInput::client_salary_monthly_equiv`
+    /// で月給換算する (時給モードで 5 万円未満の値だけ ×167h)。
     pub target_salary_min: Option<i64>,
     /// 顧客提示給与の上限
     pub target_salary_max: Option<i64>,
@@ -170,6 +172,41 @@ impl ConsultInput {
         }
         let below = self.salary_values.iter().filter(|&&v| v <= value).count();
         Some(below as f64 / self.salary_values.len() as f64 * 100.0)
+    }
+
+    /// 顧客提示給与を `salary_values` (月給換算、円/月) と比べられる値にする。
+    ///
+    /// 時給モードで月給としてありえない額 (5 万円未満 = `MIN_MONTHLY_SALARY` 未満) は時給
+    /// (円/時) とみなし、aggregator と同じ ×167h で月給換算する。戻り値の bool は換算したか。
+    /// 2026-09-29: 以前は円/時の入力を円/月の分布と直接比べ、常に下位 0% になっていた。
+    pub fn client_salary_monthly_equiv(&self, value: i64) -> (i64, bool) {
+        use crate::handlers::survey::aggregator::{HOURLY_TO_MONTHLY_HOURS, MIN_MONTHLY_SALARY};
+        if self.is_hourly && value > 0 && value < MIN_MONTHLY_SALARY {
+            (value * HOURLY_TO_MONTHLY_HOURS, true)
+        } else {
+            (value, false)
+        }
+    }
+
+    /// 判定根拠の注記用: 「提示給与 X 円」または「提示給与 X 円/時 (×167h = Y 円/月)」
+    pub fn client_salary_label(&self, value: i64) -> String {
+        match self.client_salary_monthly_equiv(value) {
+            (m, true) => {
+                let digits = m.to_string();
+                let mut grouped = String::new();
+                for (i, c) in digits.chars().enumerate() {
+                    if i > 0 && (digits.len() - i) % 3 == 0 {
+                        grouped.push(',');
+                    }
+                    grouped.push(c);
+                }
+                format!(
+                    "提示給与 {} 円/時 (×167h = {} 円/月 で月給換算の分布と比較)",
+                    value, grouped
+                )
+            }
+            _ => format!("提示給与 {} 円", value),
+        }
     }
 
     /// 新着求人比率 (0.0-1.0)。総件数0なら None。
