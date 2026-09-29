@@ -1708,6 +1708,42 @@ check("M-8", "案件そのものの絞り込み・並び替えは #board-body �
   const main2 = t.reg["cs-main"].innerHTML;
   if (main2 === main1 || !main2.includes("担当者ごとの持ち件数")) throw new Error("担当を外したのに本文全体を描き直していない（持ち件数の表に戻らない）");
 });
+check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す（本文全体を描き直す）。「残りも出す」は絞り込みを変える・外す・画面に入り直すと既定の上位 100 行に戻る", async () => {
+  const t = boot();
+  const rows = [0, 1, 2].map((i) => boardRow({ deal_id: "r" + i, name: "株式" + i, consultant: "担当A", n_flags: 1, flags: ["札X"] }));
+  t.ctx.__D = { meta: { flag_counts: [{ label: "札X", n: 3 }], mtg_gap: { bands: [] }, order_rule: "" }, rows };
+  t.R('cur = { menu: "deal", view: "board" }; boardCache = __D; lastPayload = __D; boardShowAll = true; ' +
+      'boardFilter = { consultant: "", flag: "札X", expiry: "", q: "株式", band: "" }; boardSort = { key: "n_flags", asc: false };');
+  t.reg["cs-main"].innerHTML = t.R("renderBoard(__D)");
+  const main0 = t.reg["cs-main"].innerHTML;
+  if (!/<option value="札X" selected>/.test(main0) || main0.indexOf('id="bf-q" placeholder="部分一致" value="株式"') < 0)
+    throw new Error("前提が崩れている（欄に絞り込みの値が入っていない）");
+  const body = new t.El("board-body"); t.reg["board-body"] = body;
+  const cl = new t.El("bf-clear"); t.reg["bf-clear"] = cl;
+  t.R("wire(viewOf('deal', 'board'))");
+  cl.onclick();
+  const main1 = t.reg["cs-main"].innerHTML;
+  /* 🔴 2026-09-29 検証: 前は #board-body だけ描き直し、件数の行は「絞り込みなし」なのに欄は前の値のままだった */
+  if (main1 === main0) throw new Error("絞り込みを外しても本文全体（絞り込みの欄）を描き直していない。欄に前の値が残る");
+  if (/<option value="札X" selected>/.test(main1) || main1.indexOf('value="株式"') >= 0) throw new Error("欄に前の絞り込みの値が残っている");
+  if (main1.indexOf("（絞り込みなし）") < 0) throw new Error("件数の行が絞り込みなしでない");
+  if (t.R("boardShowAll") !== false) throw new Error("絞り込みを外しても「残りも出す」が戻らない");
+  /* 絞り込みの欄を変えたら「残りも出す」は既定に戻る */
+  const fl = new t.El("bf-flag"); t.reg["bf-flag"] = fl;
+  t.R("wire(viewOf('deal', 'board'))");
+  t.R("boardShowAll = true"); fl.value = "札X"; fl.onchange();
+  if (t.R("boardShowAll") !== false) throw new Error("名札で絞っても「残りも出す」が戻らない");
+  /* 並び替えでは戻さない（全件を並べ替えて見る使い方） */
+  const btn = new t.El(""); btn.dataset = { k: "amount" };
+  t.qsa["#board-tbl th.sortable button.sort"] = [btn];
+  t.R("boardShowAll = true; wireBoardBody()");
+  btn.onclick();
+  if (t.R("boardShowAll") !== true) throw new Error("並び替えで「残りも出す」が戻っている");
+  /* 画面に入り直したら既定に戻る（担当者ごとの案件へ移る） */
+  t.R('go("consultant", "byowner")');
+  t.fetched[t.fetched.length - 1].resolve(jsonRes(t.ctx.__D)); await tick(); await tick();
+  if (t.R("boardShowAll") !== false) throw new Error("画面を移っても「残りも出す」が戻らない");
+});
 
 /* ================================================================ 段2 S-2 の残り（2026-09-28） */
 check("S-2", "今日動く先以外の画面でも、KPI の札を押すと同じ画面の行き先へフォーカスが移り、畳みなら開く（wire が結ぶ）", async () => {

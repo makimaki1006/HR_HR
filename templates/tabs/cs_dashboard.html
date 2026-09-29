@@ -433,9 +433,12 @@
   td.ws{ white-space:normal; min-width:6em; max-width:11em; line-height:1.6; overflow-wrap:anywhere; }
   /* 今日動く先の名札の列（w:"f"。段2 A）。名札は 4〜5 本つく行がほとんどで（fixture 24 行中 22 行が 4 本、2 行が 5 本）、
      22em の wl では長い名札が 1 本ずつ折れて 1 行が 79〜100px、24 行で 2,252px、1440×900 の 1 画面目に完全な行が 0 行だった
-     （2026-09-28 段1レビュー A、fixture 1440px 実測）。短い書き方（tagsShort）を詰めた枡（.tag.c）で並べ、列を 24em まで取って
-     1 行に 2〜3 本入れる。行の高さは line-height 1.5（wl の 1.6 より詰める）。8 列で 1440px の本文幅（1,149px）に入る */
-  td.wf{ white-space:normal; min-width:14em; max-width:24em; line-height:1.5; overflow-wrap:anywhere; }
+     （2026-09-28 段1レビュー A、fixture 1440px 実測）。短い書き方（tagsShort）を詰めた枡（.tag.c）で並べ、列を 24em（のちに 25.5em）まで取って
+     1 行に 2〜3 本入れる。行の高さは line-height 1.5（wl の 1.6 より詰める）。8 列で 1440px の本文幅（1,149px）に入る。
+     🔴 25.5em: 短い名札「満了90日前MTG30日以上途絶」（前は「満了前MTG30日途絶」で範囲が落ちていた。2026-09-29 検証）が
+     24em では 24 行中 11 行を 3 段に折り、1 行 54px → 73px に戻った。25.5em で先頭行 73px・残り 54px（直す前と同じ）、
+     表の幅は 1,149px のまま枠に収まる。26em では 1,153px になり枠から 4px はみ出す（いずれも fixture 1440px 実測） */
+  td.wf{ white-space:normal; min-width:14em; max-width:25.5em; line-height:1.5; overflow-wrap:anywhere; }
   .tag.c{ padding:0 5px; margin-right:2px; line-height:1.4; }
   /* 短い名札は <abbr>（正式な名札を title に）。UA の点線の下線は枡の枠と重なるので消す */
   abbr.tag{ text-decoration:none; }
@@ -680,6 +683,9 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   .ctlbar select, .ctlbar input, .ctlbar button.act{ min-height:40px; }
   th,td{ padding:10px 12px; }
   th button.sort{ padding:10px 12px; }
+  /* 今日動く先の名札の列（td.wf）。枡の左右の余白が広いぶん 25.5em では 24 行中 8 行が 3 段に折れて 77px になった。
+     表は枠の中で横に動くので列を 26em まで取る（全行 58px。2026-09-29 fixture 400px 実測） */
+  td.wf{ max-width:26em; }
   .ctl input[type=search]{ min-width:0; width:100%; }
   .ctlbar select{ max-width:100%; }
   /* iOS Safari は 16px 未満の入力欄に触れると画面を拡大する。入力欄だけ 16px にする（本文は 14px のまま）。
@@ -1334,6 +1340,12 @@ function fig(caption, hint, body, legend) {
    - 省略したラベルの全文（labText の <text> の title）は、別の畳み「省略した名前の全文」にあるので混ぜない
    - 折れ線・散布図の点（circle）は title に系列の名前が無い。凡例の粒（lg）の色から名前を引いて頭に添え、系列ごとに 1 行にまとめる
      （同じ色に 2 つの名前があるときは引かない）。同じ文が続く点（svgDots の群）は「×N」にまとめる
+   - 帯を縦に積む図（svgStackLanes）・時間軸の図（svgTimeline）は、系列の名前が凡例ではなく左のラベル（data-lane の <text>）にある。
+     直前の行ラベルの名前を値の頭に付ける。🔴 2026-09-29 検証（fixture deal/series）: 前は「25-09: 19 || 25-09: 3 || 25-09: 1」と
+     名前の無い月と値だけが並び、応募・面接・採用のどれか分からなかった
+   - 前の値（svgBarH の中空の棒「前回: 」、法人番号で見る図の「月割り: 」）は、直前の棒の行に括弧で添える。
+     独立した行にすると、どの行の前回か分からなかった（2026-09-29 検証「初回: 58.1% / n=1,650 || 前回: 46.8%」）
+   - 重なった点をずらした断り（「/ 重なるので上へ 4px ずらして表示」）は描き方の話で数値ではないので、一覧からは除く（吹き出しには残す）
    返り値: { n: 行数, li: <li> の並び }。title が無い図（値の無い .empty など）は n=0 */
 function figSay(body, legend) {
   const s = String(body);
@@ -1346,33 +1358,46 @@ function figSay(body, legend) {
     names[cols[0]] = names[cols[0]] === undefined || names[cols[0]] === label ? label : null;
   }
   const items = [];      // 出す順（系列にまとめた点は、その系列の最初の点の位置）
-  const series = {};     // 点の色 → { at: items の位置, vals: [] }
+  const series = {};     // 点の色（行ラベルの中なら 行ラベル＋色）→ { at: items の位置, vals: [], name }
   const parts = s.split("<title>");
+  let lane = null;       // いま読んでいる行ラベル（data-lane）の名前。左に貼り付けた複製（data-sticky）は数えない
   for (let i = 1; i < parts.length; i++) {
-    const t = parts[i].slice(0, parts[i].indexOf("</title>")).replace(/&#10;/g, " ／ ").trim();
-    if (!t) continue;
     const prev = parts[i - 1];
+    /* 2 行に折り返したラベル（<tspan> 2 つ）もあるので、</text> か <title> までの文字をつなぐ。省略したラベルは data-full の全文 */
+    for (const m of prev.matchAll(/<text ([^>]*)>([\s\S]*?)(?:<title>|<\/text>|$)/g)) {
+      if (m[1].indexOf('data-lane="1"') < 0 || m[1].indexOf("data-sticky") >= 0) continue;
+      const full = m[1].match(/ data-full="([^"]*)"/);
+      lane = (full ? full[1] : m[2].replace(/<[^>]*>/g, "")).trim() || lane;
+    }
+    if (prev.lastIndexOf("</svg>") > prev.lastIndexOf('data-lane="1"')) lane = null;   /* 図が変わった */
+    const t = parts[i].slice(0, parts[i].indexOf("</title>")).replace(/&#10;/g, " ／ ")
+      .replace(/ \/ 重なるので[上下]へ [0-9]+px ずらして表示/g, "").trim();
+    if (!t) continue;
     const tag = prev.slice(prev.lastIndexOf("<"));
     if (/^<(text|tspan|\/tspan)\b/.test(tag)) continue;
     if (/^<circle\b/.test(tag) && tag.indexOf("data-boxmax") < 0) {
       const cols = [...tag.matchAll(/(?:fill|stroke):([^;"]+)/g)].map((x) => x[1]).filter((c) => c !== "var(--panel)");
       if (cols.length) {
-        const g = series[cols[0]] || (series[cols[0]] = { at: items.length, vals: [] });
+        const key = lane ? lane + "|" + cols[0] : cols[0];
+        const g = series[key] || (series[key] = { at: items.length, vals: [], name: lane || names[cols[0]] });
         if (g.at === items.length) items.push(null);
         g.vals.push(t);
         continue;
       }
     }
-    items.push(t);
+    /* 前の値は直前の棒の行に添える（直前が系列にまとめた点の行なら添えない） */
+    const last = items[items.length - 1];
+    if (/^(前回|月割り): /.test(t) && typeof last === "string") { items[items.length - 1] = last + "（" + t + "）"; continue; }
+    items.push(lane && t.indexOf(lane) !== 0 ? lane + " " + t : t);
   }
-  Object.keys(series).forEach((col) => {
-    const g = series[col], vals = [];
+  Object.keys(series).forEach((key) => {
+    const g = series[key], vals = [];
     g.vals.forEach((v) => {
       const last = vals[vals.length - 1];
       if (last && last.t === v) last.n++; else vals.push({ t: v, n: 1 });
     });
     /* 系列の名前が点の文そのもの（svgDots の群「注力」）なら、「注力: 注力（×3）」と重ねずに「注力（×3）」 */
-    const head = names[col] && !(vals.length === 1 && vals[0].t === names[col]) ? names[col] + ": " : "";
+    const head = g.name && !(vals.length === 1 && vals[0].t === g.name) ? g.name + ": " : "";
     items[g.at] = head + vals.map((v) => v.t + (v.n > 1 ? "（×" + v.n + "）" : "")).join("、");
   });
   const rows = items.filter(Boolean);
@@ -2045,7 +2070,8 @@ function svgStackLanes(o) {
   lanes.forEach(L => {
     const lh = L.empty ? hEmpty : H[L.type];
     const top = y, bot = y + lh;
-    const lab = labText(padL - 10, (top + lh / 2 + 4).toFixed(1), L.label, padL - 14, "", L.full);
+    /* data-lane: 図の下の「数字で読む」（figSay）が、続く値の頭にこの帯の名前を付けるための印（段2 M-11） */
+    const lab = labText(padL - 10, (top + lh / 2 + 4).toFixed(1), L.label, padL - 14, ' data-lane="1"', L.full);
     g += lab; labs += lab;
     if (L.empty) {
       const y0 = top + lh / 2 + 4 - 6.5 * (emptyLines.length - 1);
@@ -2442,7 +2468,8 @@ function svgTimeline(o) {
   let labs = "";
   lanes.forEach((l, i) => {
     const y = padT + i * rh + rh / 2;
-    const lab = labText(padL - 9, (y + 4).toFixed(1), l.label, padL - 12, "", l.full);
+    /* data-lane: figSay が続く印の頭にこの行の名前を付けるための印（段2 M-11。帯を縦に積む図と同じ） */
+    const lab = labText(padL - 9, (y + 4).toFixed(1), l.label, padL - 12, ' data-lane="1"', l.full);
     labs += lab;
     g += lab +
          `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w - padR}" y2="${y.toFixed(1)}" style="stroke:var(--rule)" stroke-width="1"/>`;
@@ -3032,7 +3059,8 @@ function renderTeam(D) {
        （2026-09-23 実機）。担当の割れは下の「この一覧の決まりごと」に移した */
     kpi("退職者のまま", num(D.meta.retired_deals) + '<span class="u">件</span>',
         "担当が退職者のままの稼働中の案件（その担当 " + num(D.meta.retired_people) + " 名）",
-        D.meta.retired_deals ? "warn" : "", { jump: "tm-tbl-h", text: "表へ（担当者の列に印）" }) +
+        /* 0 件のときは飛ばない（div）。飛んだ先の表に印が 1 つも無いため（2026-09-29 検証、fixture 0 件・0 名で「表へ」が出ていた） */
+        D.meta.retired_deals ? "warn" : "", D.meta.retired_deals ? { jump: "tm-tbl-h", text: "表へ（担当者の列に印）" } : null) +
     "</div>";
 
   /* ---- 一覧（本題）。図より先に出す ----
@@ -4209,7 +4237,8 @@ function renderSeries(D) {
              空であることを文字で書く（0 円として描かない） */
           note: (d.renewal_no ? num(d.renewal_no) + "回目" : "初回") +
                 "　" + (d.amount != null ? yen(d.amount) : "金額なし"),
-          marks: [d.start, d.expiration].filter(Boolean).map((x) => ({ d: x, thick: true })),
+          /* t: 何の日付か。吹き出しと「数字で読む」に日付だけが並び、開始か満了か分からなかった（2026-09-29 検証 M-11） */
+          marks: [{ d: d.start, t: "開始" }, { d: d.expiration, t: "満了" }].filter((m) => m.d).map((m) => ({ d: m.d, t: m.t, thick: true })),
         })) })
       : '<div class="empty">この拠点に契約がありません。</div>',
     lg("dot", C.ai, "稼働中") + lg("dot", C.ghost, "決着済") +
@@ -5168,7 +5197,10 @@ function tags(fs) {
 /* 今日動く先の名札の短い書き方（段2 A）。名札の文の正本はサーバ（routes.rs build_deal_rows の flags.push と mod.rs MtgBand::label）で、
    ここは表示を詰めるだけ。表に無い名札はそのまま出す（黙って落とさない・略さない）。正式な名札は <abbr> の title と、
    表の決まりごとの畳み（todayFlagLegend）に書く。サーバが名札を足したら、ここにも足す（tests/consulting_view_rules.js が
-   Rust の文字列と突き合わせる） */
+   Rust の文字列と突き合わせる）。
+   🔴 詰めるのは「が」「で」「まで」などの助詞と送り仮名だけ。条件の範囲を決める数（90日前・30日）と「以上・以下・以内」は落とさない。
+   前は「満了90日前でMTGが30日以上途絶」を「満了前MTG30日途絶」にしていて、表の上では何日前・何日以上かが読めなかった
+   （2026-09-29 検証。見張りは tests/consulting_view_rules.js の段2 A） */
 const FLAG_SHORT = {
   "NPSが4以下": "NPS4以下",
   "満了まで60日以内": "満了60日以内",
@@ -5176,7 +5208,7 @@ const FLAG_SHORT = {
   "接触が30日以上空いている": "接触30日以上空き",
   "採用単価が同じ進捗帯の1.5倍以上": "採用単価1.5倍以上",
   "担当が退職者のまま": "担当が退職者",
-  "満了90日前でMTGが30日以上途絶": "満了前MTG30日途絶",
+  "満了90日前でMTGが30日以上途絶": "満了90日前MTG30日以上途絶",
   "採用目標の半分に届いていない": "採用目標の半分未満",
   "MTGが90日以上途絶": "MTG90日以上途絶",
   "MTGが60〜89日途絶": "MTG60〜89日途絶",
@@ -5200,7 +5232,11 @@ function todayFlagLegend(rowsList) {
   return note("def", "名札の略し方",
     "表では名札を短く書いています（正式な名札は枡に重ねても出ます）。<b>短い名札 ＝ 正式な名札</b>: " +
     Array.from(seen).map((f) => esc(FLAG_SHORT[f]) + " ＝ " + esc(f)).join(" ／ ") + "。" +
-    "枡の色は下の図「何で上がってきたか」の分類と同じです（言葉でも書いているので、色が見分けられなくても読めます）。");
+    /* 🔴 前は「言葉でも書いているので、色が見分けられなくても読めます」と書いていたが、分類の言葉を書いているのは下の図で、
+       表の枡では title（マウスを重ねたとき）にしか無く、タッチでは出ない（2026-09-29 検証）。どこに何を書いているかをそのまま言う */
+    "枡の色は下の図「何で上がってきたか」の分類（関係が危ない・時間が迫っている・成果が出ていない）と同じです。" +
+    "分類の言葉は下の図の棒の右に書いています。表の枡に書いているのは名札の言葉だけなので、" +
+    "色が見分けられなくても読めますが、分類は図で確かめてください。");
 }
 /* 履歴から取った値。🔴 その月に書き換えが無ければ「持越」と出す */
 function numCarry(v, carry) {
@@ -5343,7 +5379,7 @@ const BOARD_COLS = [
    「最後にいつ触ったか（接触・MTG）」「NPS（0 と 4 で緊急度が違う）」「金額（並びの第2キー。見えないと順が読めない）」の8列。
    応募・面接・採用・採用目標・接触率・採用単価・何ヶ月目は案件そのもの（BOARD_COLS）に残す。
    案件名は折り返す（w:"l"、td.wl は 12〜22 字）。8列で 1440px の本文幅（約 1,150px）に入る。
-   🔴 名札は短い書き方（tagsShort）を 24em の列（w:"f"、td.wf）に詰める（段2 A）。wl の 22em に正式な名札のままだと
+   🔴 名札は短い書き方（tagsShort）を 25.5em の列（w:"f"、td.wf）に詰める（段2 A）。wl の 22em に正式な名札のままだと
    1 本ずつ折れて 1 行が 79〜100px で、1440×900 の 1 画面目に完全な行が 0 行だった（2026-09-28 fixture 実測） */
 const TODAY_COLS = ["name", "n_flags", "consultant", "days_left", "days_since_contact", "mtg_days", "nps", "amount"]
   .map((k) => {
@@ -5552,6 +5588,8 @@ function boardTable(rows, sort, id, cols, limit) {
    切っていることは枠の案内（scrollCap の「N 行を出しています（全 T 件のうち）」）と、表の下の boardMoreBar で言う。
    全件は「残りも出す」で出る（黙って隠さない） */
 const BOARD_KEEP = 100;
+/* 「残りも出す」の状態。絞り込みを変えたとき・外したとき・画面に入り直したとき（load）に既定へ戻す。
+   並び替えでは戻さない（全件を出して並べ替えて見る使い方を、押すたびに 100 行へ戻して邪魔しない） */
 let boardShowAll = false;
 function boardMoreBar(n) {
   if (n <= BOARD_KEEP) return "";
@@ -6021,7 +6059,7 @@ function wireBoard() {
   const redraw = boardRepaint;
   const pick = (id, key) => {
     const e = document.getElementById(id);
-    if (e) e.onchange = () => { boardFilter[key] = e.value; redraw(); };
+    if (e) e.onchange = () => { boardFilter[key] = e.value; boardShowAll = false; redraw(); };
   };
   pick("bf-consultant", "consultant");
   /* 担当を選ぶ前の持ち件数の表。名前を押したらその担当で絞る（②の表と同じ作り）。
@@ -6031,7 +6069,7 @@ function wireBoard() {
   document.querySelectorAll("#owner-tbl a.drill").forEach((a) => {
     a.onclick = (ev) => {
       /* 持ち件数の表 → 案件の表は形が変わるので本文全体を描き直す */
-      ev.preventDefault(); boardFilter.consultant = a.dataset.c; redrawMain(boardCache); refocus("#bf-consultant");
+      ev.preventDefault(); boardFilter.consultant = a.dataset.c; boardShowAll = false; redrawMain(boardCache); refocus("#bf-consultant");
     };
   });
   pick("bf-flag", "flag");
@@ -6047,6 +6085,7 @@ function wireBoard() {
       clearTimeout(t);
       t = setTimeout(() => {
         boardFilter.q = q.value;
+        boardShowAll = false;
         redraw();
       }, 260);
     };
@@ -6057,14 +6096,22 @@ function wireBoard() {
        input(isComposing=true)… → compositionend で終わり、その後に isComposing=false の input は来ないので、
        確定しても絞り込みが当たらなかった（2026-09-28 CDP で実測: 確定後も 604 行のまま）。Firefox は確定後に
        input(isComposing=false) も来るが、260ms の予約が二重を1回にまとめる。
-       検索欄は描き直すたびに新しい要素になる（redraw → wireBoard）ので、付け直しで二重にはならない */
+       compositionend を addEventListener で付けても二重にならないのは、wireBoard が本文全体を描いたとき
+       （redrawMain・load → wire）にしか呼ばれず、そのたびに検索欄が新しい要素になるため。
+       boardRepaint（絞り込み・並び替え）は wireBoardBody だけを付け直し、検索欄には触らない（段2 M-8） */
     q.oninput = (ev) => { if (ev && ev.isComposing) return; apply(); };
     q.addEventListener("compositionend", apply);
   }
   const cl = document.getElementById("bf-clear");
+  /* 🔴 絞り込みを外すときは本文全体を描き直す（redrawMain）。絞り込みの欄（#board-filter）は #board-body の外にあり、
+     boardRepaint では作り直されない。前は boardRepaint だけで、件数の行は「絞り込みなし」なのに
+     名札・案件名の欄に前の値が残り、次に別の欄を変えると見えない条件で絞られた（2026-09-29 検証、fixture 1440px:
+     名札＋案件名「株式」で 0 件 → 押すと件数の行は 604 件、#bf-flag・#bf-q は前の値のまま）。
+     欄だけ値を戻す手もあるが、選択肢の件数・既定値の組み立ては boardFilterBar 1 か所に置いておく。押す頻度は低い */
   if (cl) cl.onclick = () => {
     boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };
-    redraw();
+    boardShowAll = false;
+    redrawMain(boardCache);
   };
   wireBoardBody();   /* 表の見出しの並び替え・残りも出す（段2 M-8） */
 }
@@ -7098,7 +7145,9 @@ async function load(refresh) {
     /* サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す */
     if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
     if (cur.view === "team") teamCache = body;
-    if (cur.view === "board" || cur.view === "byowner") boardCache = body;
+    /* 「残りも出す」（boardShowAll）は画面に入り直したら既定の上位 100 行に戻す（段2 M-8 の検証 2026-09-29。
+       前は一度押すと、画面を移っても担当を替えても全件描画のままだった） */
+    if (cur.view === "board" || cur.view === "byowner") { boardCache = body; boardShowAll = false; }
     lastPayload = body;   /* 絞り込みで描き直すときに使う。取り直しはしない */
     /* HubSpot の portal_id は全 API の meta に同じ値で載る（routes.rs freshen）。最初の応答で覚える */
     if (body.meta && body.meta.hubspot_portal_id) hsPortal = String(body.meta.hubspot_portal_id);
