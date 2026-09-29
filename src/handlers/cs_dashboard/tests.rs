@@ -22,7 +22,7 @@ use serde_json::Value;
 use super::routes::{
     build_consultants, build_customer, build_data_quality, build_deal_board, build_focus,
     build_handover, build_headquarters, build_mtg_quality, build_outcome, build_phone,
-    build_rampup, build_renewal, build_today_board,
+    build_rampup, build_renewal, build_results, build_team, build_today_board,
 };
 use super::Sheets;
 use crate::handlers::call_quality::sheets::SheetData;
@@ -1776,6 +1776,8 @@ fn 全画面で母集団の件数が一致する() {
         ("案件そのもの", f(build_deal_board(&sh, day))),
         ("今日動く先", f(build_today_board(&sh, day))),
         ("顧客ごとに見る", f(build_customer(&sh, None, day))),
+        ("チームと担当", f(build_team(&sh, day))),
+        ("成果と継続", f(build_results(&sh, false, day))),
     ];
 
     let want = 604;
@@ -5779,4 +5781,129 @@ fn 今日動く先の絞った条件に画面名を書かない() {
         rule.contains("件を出しています") && rule.contains("線引きは取り決めです"),
         "{rule}"
     );
+}
+
+/// 09 の 6「チームと担当」: 担当者 × 状態の表の数は、押した先（今日動く先の候補・案件そのものの名札）と同じ行から数える。
+/// 🔴 表の「名札2本以上 N 件」を押すと今日動く先をその担当で開く。数え方が違うと押した先の件数と合わない
+///    （担当者の一覧の no_contact は開始前も数え、名札は開始前に立てない。fixture で数が違う担当がいる）。
+#[test]
+fn team_status_matches_today_and_board() {
+    let sh = sheets();
+    let day = fixture_day();
+    let team = build_team(&sh, day);
+    let today = build_today_board(&sh, day);
+    let board = build_deal_board(&sh, day);
+    let st = &team["status"];
+    let rows = st["rows"].as_array().expect("status.rows");
+    let board_rows = board["rows"].as_array().unwrap();
+    let cands = today["candidates"].as_array().unwrap();
+    // 全体: 名札2本以上 ＝ 今日動く先の候補の数（n_hit）、持ち件数の合計＋担当なし ＝ 稼働中
+    assert_eq!(
+        st["meta"]["n_flags2"], today["meta"]["n_hit"],
+        "名札2本以上の合計が今日動く先の候補と違う"
+    );
+    let sum = |k: &str| rows.iter().map(|r| r[k].as_u64().unwrap()).sum::<u64>();
+    assert_eq!(
+        sum("n_active") + st["meta"]["unknown"]["n_active"].as_u64().unwrap(),
+        board_rows.len() as u64
+    );
+    assert_eq!(
+        sum("n_flags2") + st["meta"]["unknown"]["n_flags2"].as_u64().unwrap(),
+        cands.len() as u64
+    );
+    // 今週満了 ＝ 今日動く先の「今週満了」
+    assert_eq!(
+        st["meta"]["expiring_week"].as_u64().unwrap(),
+        today["expiring_this_week"].as_array().unwrap().len() as u64
+    );
+    let labels = &st["meta"]["flag_labels"];
+    let has = |r: &Value, f: &Value| r["flags"].as_array().unwrap().iter().any(|x| x == f);
+    let mut diff_def = 0;
+    let cons = build_consultants(&sh, day);
+    for r in rows {
+        let c = &r["consultant"];
+        let mine: Vec<&Value> = board_rows
+            .iter()
+            .filter(|b| &b["consultant"] == c)
+            .collect();
+        assert_eq!(
+            r["n_active"].as_u64().unwrap(),
+            mine.len() as u64,
+            "{c}: 持ち件数"
+        );
+        assert_eq!(
+            r["n_flags2"].as_u64().unwrap(),
+            cands.iter().filter(|b| &b["consultant"] == c).count() as u64,
+            "{c}: 名札2本以上（今日動く先の候補）"
+        );
+        assert_eq!(
+            r["mtg_critical"].as_u64().unwrap(),
+            mine.iter().filter(|b| b["mtg_band"] == "critical").count() as u64,
+            "{c}: MTG 途絶（重大）"
+        );
+        for (k, lk) in [
+            ("no_contact", "no_contact"),
+            ("expiring60", "expiring60"),
+            ("nps_low", "nps_low"),
+        ] {
+            assert_eq!(
+                r[k].as_u64().unwrap(),
+                mine.iter().filter(|b| has(b, &labels[lk])).count() as u64,
+                "{c}: {k}（案件そのものの名札 {}）",
+                labels[lk]
+            );
+        }
+        // 担当者の一覧（接触率の人）と同じ人の並び。no_contact は定義が違う（開始前も数える）ので、違う人がいることも確かめる
+        let cr = cons["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| &x["consultant"] == c)
+            .unwrap_or_else(|| panic!("{c} が担当者の一覧に無い"));
+        assert_eq!(
+            cr["n_active"], r["n_active"],
+            "{c}: 担当者の一覧と持ち件数が違う"
+        );
+        if cr["no_contact"] != r["no_contact"] {
+            diff_def += 1;
+        }
+    }
+    assert_eq!(
+        rows.len(),
+        cons["rows"].as_array().unwrap().len(),
+        "担当者の人数"
+    );
+    // 名札の文字が本当に deal_rows の名札にある（文字がずれると 0 件のまま黙る）
+    for lk in ["no_contact", "expiring60", "nps_low"] {
+        assert!(
+            board_rows.iter().any(|b| has(b, &labels[lk])),
+            "名札 {} が案件そのものに1件も無い",
+            labels[lk]
+        );
+    }
+    assert!(
+        diff_def > 0,
+        "担当者の一覧の no_contact と名札の数が全員同じ（定義の違いを確かめる前提が崩れた）"
+    );
+    // 束ねた中身は元の集計と同じ（作り直していない）
+    assert_eq!(team["consultants"], cons);
+    assert_eq!(team["handover"], build_handover(&sh, day));
+}
+
+/// 09 の 7「成果と継続」: 束ねた中身は元の集計そのもの（定義を作り直していない）。打ち切りの切り替えも渡る
+#[test]
+fn results_bundles_existing_aggregates() {
+    let sh = sheets();
+    let day = fixture_day();
+    for excl in [false, true] {
+        let v = build_results(&sh, excl, day);
+        assert_eq!(v["renewal"], build_renewal(&sh, excl), "打ち切り {excl}");
+        assert_eq!(v["meta"]["exclude_right_censored"], excl);
+    }
+    let v = build_results(&sh, false, day);
+    assert_eq!(v["outcome"], build_outcome(&sh, day));
+    assert_eq!(v["focus"], build_focus(&sh, day));
+    assert_eq!(v["rampup"], build_rampup(&sh, day));
+    assert_eq!(v["headquarters"], build_headquarters(&sh, day));
+    assert_eq!(v["phone"], build_phone(&sh, day));
 }
