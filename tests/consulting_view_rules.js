@@ -3264,24 +3264,30 @@ const ddItems = (h) => h.slice(h.indexOf('<ol class="tl"'), h.indexOf("</ol>")).
 
 check("案件の詳細: 推定（メール由来）の行は必ず推定の印と確かさを付け、事実の行には付けない", () => {
   ctx.__DD = ddPayload();
-  const h = run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }");
+  const h = run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }");
   const items = ddItems(h);
   ok(items.length === 7, "7 行のはずが " + items.length);
   for (const it of items) {
     const est = /^class="[^"]*\best\b/.test(it);
     const isMail = it.indexOf("MTG（推定）") >= 0;
     ok(est === isMail, "推定の印（est）とメール由来が一致しない: " + it.slice(0, 80));
-    if (isMail) ok(it.indexOf("推定(±1日 83.3%)") >= 0 && it.indexOf("録画のような中身はありません") >= 0,
-      "メール由来の行に確かさか断りが無い");
+    /* M-3 (4)（2026-09-29）: 確かさと断りは凡例に1回。行には札（MTG（推定））と◇、札の title に同じ文 */
+    if (isMail) ok(/<span class="mark" title="[^"]*推定\(±1日 83\.3%\)[^"]*録画のような中身はありません[^"]*">MTG（推定）<\/span>/.test(it),
+      "メール由来の行の札に確かさか断り（title）が無い");
+    if (isMail) ok(it.replace(/<[^>]*>/g, "").indexOf("メールの文面から起こした") < 0, "メール由来の行ごとに定型の断りを繰り返している");
     else ok(it.indexOf("推定") < 0, "事実の行に「推定」が混ざっている: " + it.slice(0, 80));
   }
   // 凡例は形と文で（色だけにしない）
   ok(/<div class="legend"><i>&#9679; 事実[^<]*<\/i><i>&#9671; 推定/.test(h), "凡例に事実（●）と推定（◇）の文が無い");
+  // 確かさと断りは凡例に1回だけ（見える文字として。行の title は数えない）
+  const vis = h.replace(/<[^>]*>/g, "");
+  ok((vis.match(/メールの文面から起こした実施日です（推定\(±1日 83\.3%\)）。録画のような中身はありません/g) || []).length === 1,
+    "凡例に確かさと断りが1回だけ出ていない");
 });
 
 check("案件の詳細: 付け直しの印は4通りを言い分け、そのままの行には何も付けない", () => {
   ctx.__DD = ddPayload();
-  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const items = ddItems(run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }"));
   const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
   ok(/付け直し: 継続の取引「<a class="deallink" href="#deal\/detail\?id=80000000002">継続の契約<\/a>」/.test(by("2026-06-01")),
     "付け直して来た行に、元の取引へのリンクが無い");
@@ -3294,7 +3300,7 @@ check("案件の詳細: 付け直しの印は4通りを言い分け、そのま�
 
 check("案件の詳細: 抽出前の MTG は「未抽出」と出し、空の項目を — で並べない（記録が無いと読ませない）", () => {
   ctx.__DD = ddPayload();
-  const items = ddItems(run("renderDetail(__DD)"));
+  const items = ddItems(run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }"));
   const m = items.find((x) => x.indexOf('<span class="mark">MTG</span>') >= 0);
   ok(m, "録画の MTG の行が無い");
   ok(m.indexOf("未抽出") >= 0 && m.indexOf("記録が無いのではありません") >= 0, "未抽出と書いていない");
@@ -3303,7 +3309,7 @@ check("案件の詳細: 抽出前の MTG は「未抽出」と出し、空の項
 
 check("案件の詳細: 名前はエスケープし、値の無い項目は — や断りで出す（undefined・null・取引IDを出さない）", () => {
   ctx.__DD = ddPayload();
-  const h = run("renderDetail(__DD)");
+  const h = run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }");
   ok(h.indexOf("<b>太字</b>") < 0 && h.indexOf("&lt;b&gt;太字&lt;/b&gt;") >= 0, "案件名をエスケープしていない");
   ok(!/undefined|NaN|>null</.test(h), "undefined / NaN / null が出ている");
   ok(h.indexOf("稼働中の案件にだけ付けています") >= 0, "名札が無い理由を書いていない");
@@ -3335,7 +3341,7 @@ check("案件の詳細: 付け直しの元は関係で言い分け、オプシ�
     Object.assign({}, P.events[0], { call_id: "r3", date: "2026-06-02", attach: mk("option", "80000000009", "求人追加の契約") }),
   ];
   ctx.__DD = P;
-  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const items = ddItems(run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }"));
   const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
   ok(/付け直し: 継続の取引「<a class="deallink" href="#deal\/detail\?id=80000000002">/.test(by("2026-06-04")), "継続先の文かリンクが無い");
   ok(/付け直し: 前の契約の取引「<a class="deallink" href="#deal\/detail\?id=80000000000">/.test(by("2026-06-03")),
@@ -3357,7 +3363,7 @@ check("案件の詳細: 接触に数えない行（60秒以下の電話・メー
       attach: { state: "ambiguous", in_span: false, moved_from: null, moved_to: null } }),
   ];
   ctx.__DD = P;
-  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const items = ddItems(run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }"));
   const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
   ok(by("2026-08-03").indexOf("数えています") < 0 && by("2026-08-03").indexOf("60秒以下なので、接触には数えていません") >= 0,
     "60秒以下の電話に「数えています」と書いている");
@@ -3375,7 +3381,7 @@ check("案件の詳細: 録画 MTG の取引への結び付けが確度「中」
     Object.assign({}, base, { date: "2026-03-11", link_certainty: "高", link_reason: "取引名と一致" }),
   ];
   ctx.__DD = P;
-  const items = ddItems(run("renderDetail(__DD)"));
+  const items = ddItems(run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }"));
   const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
   ok(by("2026-03-12").indexOf("確度 中") >= 0 && by("2026-03-12").indexOf("結び付けは推定") >= 0 &&
     by("2026-03-12").indexOf("件名が近い") >= 0, "確度が中の録画 MTG に印か文が無い");
@@ -3386,7 +3392,7 @@ check("案件の詳細: 話した人はそろえた表示名（handler_label）�
   const P = ddPayload();
   P.events = [Object.assign({}, P.events[0], { handler: "リクロジ＿見張り 太郎", handler_label: "見張り太郎", attach: { state: "own" } })];
   ctx.__DD = P;
-  const it = ddItems(run("renderDetail(__DD)"))[0] || "";
+  const it = ddItems(run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }"))[0] || "";
   ok(it.indexOf("話した人 見張り太郎") >= 0, "そろえた表示名を出していない: " + it.slice(0, 200));
   ok(it.indexOf('title="Zoom の表示名: リクロジ＿見張り 太郎"') >= 0, "元の表示名を title に残していない");
 });
@@ -3746,20 +3752,20 @@ check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で�
     ok(!run('dealLink("abc", "x")').includes("hslink"), "数字でない取引IDに HubSpot のリンクを作っている");
     /* 案件の詳細: 見出しの直下に「HubSpot で開く」 */
     ctx.__DD = ddPayload();
-    const h = run("renderDetail(__DD)");
+    const h = run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }");
     const open = h.slice(h.indexOf("<a class=\"hslink lg\""), h.indexOf("</a>", h.indexOf("<a class=\"hslink lg\"")) + 4);
     ok(open.includes(HS) && open.includes("HubSpot で開く"), "案件の詳細に「HubSpot で開く」が無い: " + open);
     ok(/aria-label="HubSpot で開く（新しいタブ）"/.test(open), "「HubSpot で開く」の読み上げ名が見た目の文字で始まっていない（矢印は含めない）: " + open);
     ok(open.indexOf("<a class") < h.indexOf('<div class="dd-kv">'), "「HubSpot で開く」が取引の基本より下にある");
     ok(!/>[^<]*80000000001[^<]*</.test(h), "案件の詳細で取引IDが画面の文字に出ている");
     /* 文の中の付け直しの注記（「継続の取引「…」に付いていた記録」）には HS を混ぜない */
-    const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+    const items = ddItems(run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }"));
     const moved = items.find((x) => x.indexOf("<b>2026-06-01</b>") >= 0) || "";
     ok(moved.includes("継続の契約</a>」") && !moved.includes("hslink"), "付け直しの注記の文の中に HS が混ざっている");
   } finally { run('hsPortal = ""'); }
   /* portal_id を覚える前（API の応答がまだ無い）はリンクを出さない。推測で埋めない */
   ok(!run('dealLink("80000000001", "A")').includes("hslink"), "portal_id が無いのに HubSpot のリンクを出している");
-  ok(!run("renderDetail(__DD)").includes("HubSpot で開く"), "portal_id が無いのに「HubSpot で開く」を出している");
+  ok(!run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }").includes("HubSpot で開く"), "portal_id が無いのに「HubSpot で開く」を出している");
 });
 
 check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を出さず、今日動く先の「絞った条件」は全件への行き先を名前で添える", () => {

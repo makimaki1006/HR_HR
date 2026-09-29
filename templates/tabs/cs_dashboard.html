@@ -829,6 +829,10 @@ a.hslink.lg{ font-size:12.5px; padding:5px 12px; margin-left:0; color:var(--ai);
 .dd-kv div{ min-width:0; overflow-wrap:anywhere; }
 .dd-kv span.k{ display:block; font-size:11.5px; color:var(--ink-2); }
 .dd-kv .nw{ white-space:nowrap; }   /* 「（3か月）」を「（3か / 月）」と割らない */
+/* 案件の詳細のパンくず「法人 ＞ 拠点 ＞ この案件」（M-3）。長い法人名は折り返す */
+.crumbs{ margin:var(--space-1) 0 var(--space-2); font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.crumbs a{ color:var(--ai); text-decoration:underline; text-underline-offset:2px; }
+.crumbs .sep{ margin:0 var(--space-2); color:var(--ink-3); }
 /* 縦のタイムライン。左に日付、その右に種類の印と中身 */
 ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px solid var(--rule-strong); }
 .tl li{ position:relative; display:grid; grid-template-columns:7.5em 1fr; gap:var(--space-3);
@@ -6741,6 +6745,39 @@ const DETAIL_KINDS = [
 let detailKinds = { mtg: true, call: true, handover: true };
 /* 電話は 60秒超だけ（接触と数えるもの）か、全部か。既定は 60秒超だけ（短い呼び出しで埋まらないように） */
 let detailAllCalls = false;
+/* 時系列を直近3か月より前も出すか（M-3 (4)、08 の M-3）。既定は直近3か月。案件を移ると既定へ（URL の older。filter） */
+let detailOlder = false;
+const DETAIL_RECENT_MONTHS = 3;
+/* 最近開いた案件（M-3 (5)）。この端末（localStorage）に5件まで。名前と取引だけ（取引は href の中だけで画面に出さない）。
+   覚えられない端末（私的モード・保存の禁止）では空のまま動く（読み書きは try の中） */
+const DETAIL_RECENT_KEY = "cs.detail.recent";
+const DETAIL_RECENT_MAX = 5;
+function loadRecentDeals() {
+  try {
+    const v = JSON.parse(localStorage.getItem(DETAIL_RECENT_KEY) || "[]");
+    return Array.isArray(v) ? v.filter((x) => x && x.id).slice(0, DETAIL_RECENT_MAX) : [];
+  } catch (_) { return []; }
+}
+function rememberRecentDeal(id, name) {
+  try {
+    const l = loadRecentDeals().filter((x) => x.id !== String(id));
+    l.unshift({ id: String(id), name: String(name || "") });
+    localStorage.setItem(DETAIL_RECENT_KEY, JSON.stringify(l.slice(0, DETAIL_RECENT_MAX)));
+  } catch (_) { /* 覚えられない端末。一覧が出ないだけ */ }
+}
+/** "YYYY-MM-DD" どうしの日数（b − a）。読めなければ null */
+function dayDiff(a, b) {
+  const p = (x) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(x || "")); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null; };
+  const x = p(a), y = p(b);
+  return x == null || y == null ? null : Math.round((y - x) / 86400000);
+}
+/** today から n か月前の日（"YYYY-MM-DD"）。読めなければ ""（絞らない） */
+function monthsBefore(today, n) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(today || ""));
+  if (!m) return "";
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1 - n, +m[3]));
+  return d.toISOString().slice(0, 10);
+}
 
 /* HubSpot の portal_id。API の meta.hubspot_portal_id（サーバの環境変数 HUBSPOT_PORTAL_ID、既定 23708633）を
    最初に来た応答で覚える（load）。覚える前は HubSpot へのリンクを出さない（推測で埋めない）。
@@ -6804,8 +6841,8 @@ function attachNote(a, e) {
     const word = MOVED_FROM_WORD[f.relation] || MOVED_FROM_WORD.unknown;
     /* 🔴 オプション契約には詳細の画面が無いので、リンクにしない（押しても先へ進めない） */
     const name = f.relation === "option" ? esc(f.name || "取引名なし") : dealLink(f.deal_id, f.name, true);
-    return '<span class="via">&#8618; 付け直し: ' + word + "「" + name +
-      "」に付いていた記録です。この契約の期間の日なので、ここに並べています</span>";
+    /* M-3 (4): 「この契約の期間の日なので、ここに並べています」は凡例に1回（detailLegend）。行には元の取引だけ */
+    return '<span class="via">&#8618; 付け直し: ' + word + "「" + name + "」から</span>";
   }
   if (a.state === "moved_out") {
     return '<span class="via">&#9888; この取引に付いていますが、契約期間の外の日です。「' +
@@ -6820,6 +6857,22 @@ function attachNote(a, e) {
   }
   return '<span class="via">&#9888; 契約期間の外の日です（その日に動いている同じ拠点の契約がありません）。' +
     "接触には数えていません</span>";
+}
+
+/** メール由来の MTG の断り（凡例と札の title）。確かさはサーバの certainty（例「推定(±1日 83.3%)」） */
+const mailMtgNote = (c) => "メール由来の MTG は、メールの文面から起こした実施日です（" + (c || "推定") + "）。録画のような中身はありません";
+/** 時系列の凡例（M-3 (4)）。事実と推定の形の見本に加えて、出している行にある定型の断りを1回だけ書く */
+function detailLegend(shown) {
+  const certs = [...new Set(shown.filter((e) => e.kind === "mail_mtg").map((e) => e.certainty || "推定"))];
+  const st = (e) => (e.attach && e.attach.state) || "own";
+  const moved = shown.some((e) => st(e) === "moved_in");
+  const outs = shown.some((e) => st(e) !== "own" && st(e) !== "moved_in");
+  return '<div class="legend"><i>&#9679; 事実（録画・通話記録・交代の記録）</i>' +
+    "<i>&#9671; 推定（メール由来の MTG。印の枠は破線）</i>" +
+    (certs.length ? '<i class="full">&#9671; ' + esc(mailMtgNote(certs.join("／"))) + "。</i>" : "") +
+    (moved ? '<i class="full">&#8618; 付け直し: 同じ拠点の別の取引に付いていた記録のうち、その日がこの契約の期間の中にあるものを並べています（行に元の取引を書いています）。</i>' : "") +
+    (outs ? '<i class="full">&#9888; この取引に付いているが、契約期間の外の日の記録です。消さずに印を付けています（接触に数えるかは行ごとに書いています）。</i>' : "") +
+    "</div>";
 }
 
 /* 1件ぶんの中身 */
@@ -6851,11 +6904,12 @@ function detailItem(e) {
     }
   } else if (e.kind === "mail_mtg") {
     cls += " est";
-    what = '<span class="mark">MTG（推定）</span><span class="muted small">' + esc(e.source_label) + "</span>" +
-      '<span class="via">メールの文面から起こした実施日です。' + esc(e.certainty || "推定") +
-      "。録画のような中身はありません" +
-      (e.same_day_recording ? "。<b>同じ日に録画の MTG があります</b>（同じ MTG の見込みが高い）" : "") +
-      "</span>";
+    /* M-3 (4): 定型の断り（メールの文面から起こした実施日・確かさ・録画のような中身は無い）は凡例に1回（detailLegend）。
+       前は行ごとに出していて、推定の行が続く案件では同じ文が並んだ（08 の M-3: 60 件で 5,600px）。
+       行には札（MTG（推定））と◇の点、同じ日の録画だけ。札の title にも同じ文を残す（PC でマウスを重ねたとき） */
+    what = '<span class="mark" title="' + esc(mailMtgNote(e.certainty)) + '">MTG（推定）</span><span class="muted small">' +
+      esc(e.source_label) + "</span>" +
+      (e.same_day_recording ? '<span class="via"><b>同じ日に録画の MTG があります</b>（同じ MTG の見込みが高い）</span>' : "");
   } else if (e.kind === "call") {
     /* 話した人は Zoom の表示名をそろえたもの（handler_label）。元の書き方は title に残す */
     const who = e.handler_label || e.handler || e.owner;
@@ -6903,7 +6957,13 @@ function renderDetailSearch(D) {
   const S = D.search || { q: "", rows: [], n_match: 0 };
   let h = sec("問い", "どの案件の中身を見るか");
   h += '<div class="lede">案件名か拠点名の一部を上の欄に入れて「探す」を押してください。' +
-    "「案件そのもの」「今日動く先」「継続を追いかける」「法人番号で見る」の表の案件名からも開けます。</div>";
+    "「案件そのもの」「今日動く先」「顧客」の表の案件名からも開けます。</div>";
+  /* M-3 (5): サイドバーから直接来たときの戻り口。最近開いた案件（この端末）と今日動く先へ */
+  const rc = loadRecentDeals();
+  h += '<div class="lede">' + (rc.length
+    ? "最近開いた案件（この端末で " + num(rc.length) + " 件）: " + rc.map((x) => dealLink(x.id, x.name, true)).join(" ／ ")
+    : "最近開いた案件はまだありません（この端末で開いた案件を " + num(DETAIL_RECENT_MAX) + " 件まで覚えます）") +
+    "　" + '<a class="golink" href="' + esc(hashFor("today")) + '">今日動く先へ戻る</a></div>';
   if (!S.q) return h;
   if (!S.rows.length) return h + '<div class="empty">「' + esc(S.q) + "」に当たる案件はありません。</div>";
   h += sec("表", "「" + S.q + "」に当たる案件（" + num(S.n_match) + " 件）");
@@ -6931,48 +6991,35 @@ function renderDetail(D) {
   /* 「HubSpot で開く」（S-5）。記録を書く・電話をかける先は HubSpot なので、詳細から1クリックで行けるようにする。
      電話番号・連絡先はこの画面のデータに無く、HubSpot 側で見る */
   const hsOpen = hsLink(d.deal_id, "HubSpot で開く &#8599;", "lg");
-  let h = sec("案件", d.name || "取引名なし") +
-    '<div class="lede">この案件で、いつどんな MTG・電話・担当の交代があったかを新しい順に並べています。' +
-    (hsOpen ? " " + hsOpen : "") + "</div>";
+  let h = sec("案件", d.name || "取引名なし");
+  h += detailCrumbs(d) + (hsOpen ? '<div class="lede">' + hsOpen + "</div>" : "");
+  /* ---- 次の行動に要るもの（M-3 (1)）。電話の前に読む3つ（最後にいつ話したか・何を約束したか・何を気にしていたか）を1画面目に ---- */
+  h += detailNext(D);
 
-  /* ---- 取引の基本 ---- */
-  const kv = (k, v) => '<div><span class="k">' + esc(k) + "</span>" + v + "</div>";
-  h += '<div class="dd-kv">' +
-    kv("拠点", esc(d.site) || '<span class="n0">拠点名なし</span>') +
-    kv("ステージ", esc(d.stage) || DASH) +
-    kv("契約期間", (esc(d.start) || DASH) + " 〜 " + (esc(d.expiration) || DASH) +
-      (d.period != null ? '<span class="muted small nw">（' + num(d.period) + "か月）</span>" : "")) +
-    kv("担当", (esc(d.consultant) || DASH) +
-      (d.consultant_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "")) +
-    kv("金額", yen(d.amount)) +
-    kv("継続回数", d.renewal_no == null ? DASH : d.renewal_no === 0 ? "初回" : num(d.renewal_no) + "回目") +
-    kv("状態", (d.is_active ? '<span class="tag e">稼働中</span>' : "稼働中ではない") +
-      (d.right_censored ? ' <span class="tag">未確定</span>' : "")) +
-    kv("名札", d.flags == null ? '<span class="muted small">稼働中の案件にだけ付けています</span>'
-      : d.flags.length ? d.flags.map((f) => '<span class="tag">' + esc(f) + "</span>").join("")
-      : '<span class="muted small">なし</span>') +
-    "</div>";
-
-  /* ---- 契約の連なり ---- */
+  /* ---- 契約の連なり（M-3 (3)）: 前後の契約を1行、表は畳む ---- */
   const rows = (ch && ch.rows) || [];
   if (rows.length > 1) {
-    h += sec("表", "同じ拠点の契約の連なり（" + num(rows.length) + " 件）");
-    h += '<div class="lede">開始の古い順。前後の契約へは案件名から移れます' +
-      (ch.prev || ch.next ? "（" + (ch.prev ? "前の契約あり" : "前の契約なし") + "・" +
-        (ch.next ? "次の契約あり" : "次の契約なし") + "）" : "") + "。</div>";
-    h += scroll(table([{ t: "案件", w: "l" }, { t: "ステージ", w: "s" }, { t: "開始〜満了" },
-                       { t: "継続", n: 1 }, { t: "金額", n: 1 }, { t: "状態" }],
-      rows.map((r) => [r.current ? "<b>" + esc(r.name) + '</b> <span class="tag e">いま見ている</span>'
-          : dealLink(r.deal_id, r.name),
-        '<span class="muted small">' + esc(r.stage) + "</span>",
-        (esc(r.start) || DASH) + "<br>〜" + (esc(r.expiration) || DASH),
-        nz(r.renewal_no), yen(r.amount), r.is_active ? '<span class="tag e">稼働中</span>' : ""])), 320);
+    const at = rows.findIndex((r) => r.current);
+    const prev = at > 0 ? rows[at - 1] : null, next = at >= 0 ? rows[at + 1] : null;
+    h += '<div class="lede">同じ拠点の契約の連なり: ' +
+      (prev ? "前の契約 " + dealLink(prev.deal_id, prev.name, true) : "前の契約なし") + " &#8592; " +
+      "<b>いま（" + (at >= 0 ? num(at + 1) + " 件目" : "位置不明") + " / 全 " + num(rows.length) + " 件）</b> &#8594; " +
+      (next ? "次の契約 " + dealLink(next.deal_id, next.name, true) : "次の契約なし") + "</div>";
+    h += '<details class="fold" id="dd-chain"><summary>同じ拠点の契約の連なりを表で見る（' + num(rows.length) + " 件・開始の古い順）</summary>" +
+      scroll(table([{ t: "案件", w: "l" }, { t: "ステージ", w: "s" }, { t: "開始〜満了" },
+                    { t: "継続", n: 1 }, { t: "金額", n: 1 }, { t: "状態" }],
+        rows.map((r) => [r.current ? "<b>" + esc(r.name) + '</b> <span class="tag e">いま見ている</span>'
+            : dealLink(r.deal_id, r.name),
+          '<span class="muted small">' + esc(r.stage) + "</span>",
+          (esc(r.start) || DASH) + "<br>〜" + (esc(r.expiration) || DASH),
+          nz(r.renewal_no), yen(r.amount), r.is_active ? '<span class="tag e">稼働中</span>' : ""])), 320) +
+      "</details>";
   } else if (ch && !ch.has_site) {
     h += '<div class="lede">拠点が入っていないので、前後の契約はたどれません。</div>';
   }
 
   /* ---- 時系列 ---- */
-  h += sec("図", "時系列（新しい順）");
+  h += sec("図", "時系列（新しい順）", "dd-tl-h");
   if (D.meta.summary_sheet !== "ok") {
     /* 🔴 読めない理由は「まだ作られていない」とは限らない（一時的な失敗もある）。決めつけない */
     h += note("info", "電話の要約はまだありません",
@@ -6984,7 +7031,13 @@ function renderDetail(D) {
       "。電話は日時・長さ・文字起こしの有無だけ出しています。");
   }
   const all = D.events || [];
-  const shown = all.filter(detailShown);
+  const byKind = all.filter(detailShown);
+  /* M-3 (4): 既定は直近3か月（計算の基準日から）。前は全部を出していて、1画面目の外まで数千 px 続いた。
+     切ったことは件数の行と「もっと前を出す」の件数で言う（黙って隠さない） */
+  const cut = monthsBefore(D.meta.today, DETAIL_RECENT_MONTHS);
+  const shown = detailOlder || !cut ? byKind : byKind.filter((e) => String(e.date || "") >= cut);
+  const nOlder = byKind.length - shown.length;
+  const nOlderAll = cut ? byKind.filter((e) => String(e.date || "") < cut).length : 0;
   h += '<div class="ctlbar" id="dd-ctl"><span class="act" role="group" aria-label="出す種類">出す種類:' +
     DETAIL_KINDS.map((k) => '<label class="act"><input type="checkbox" id="dd-k-' + k.k + '" data-dk="' + k.k + '"' +
       (detailKinds[k.k] ? " checked" : "") + ">" + esc(k.t) + "</label>").join("") + "</span>" +
@@ -6992,18 +7045,28 @@ function renderDetail(D) {
     '<button type="button" class="act" id="dd-c-contact" aria-pressed="' + (!detailAllCalls) + '">60秒超だけ</button>' +
     '<button type="button" class="act" id="dd-c-all" aria-pressed="' + detailAllCalls + '">全部</button></span></div>';
   const filtered = shown.length < all.length;
+  const why = [nOlder ? "直近" + DETAIL_RECENT_MONTHS + "か月（" + esc(cut) + " 以降）だけ" : "",
+               byKind.length < all.length ? "種類・電話の絞り込み" : ""].filter(Boolean).join("・");
   h += '<div class="count-line' + (filtered ? " on" : "") + '" id="dd-count"><b>' + num(all.length) + " 件中 " +
-    num(shown.length) + " 件</b>を表示" + (filtered ? "（絞り込み中）" : "（全部出しています）") +
+    num(shown.length) + " 件</b>を表示" + (filtered ? "（" + (why || "絞り込み中") + "）" : "（全部出しています）") +
     '<span class="muted">　MTG 録画 ' + num(c.mtg) + " 件（抽出済み " + num(c.mtg_extracted) +
     (c.mtg_link_not_high ? "・結び付けの確度が中 " + num(c.mtg_link_not_high) : "") + "）／ MTG 推定 " +
     num(c.mail_mtg) + " 件（うち契約期間の外 " + num(c.mail_outside || 0) + "）／ 電話 " + num(c.call) +
     " 件（60秒超 " + num(c.call_contact) + "・要約あり " +
     num(c.call_summarized) + "）／ 交代 " + num(c.handover) + " 件</span></div>";
-  h += '<div class="legend"><i>&#9679; 事実（録画・通話記録・交代の記録）</i>' +
-    "<i>&#9671; 推定（メール由来の MTG。印の枠は破線）</i></div>";
+  h += detailLegend(shown);
   h += shown.length ? '<ol class="tl" id="dd-tl">' + shown.map(detailItem).join("") + "</ol>"
-    : '<div class="empty">この条件で出せる出来事はありません。' +
-      (all.length ? "上の絞り込みを変えると出ます。" : "この案件には MTG・電話・交代の記録がありません。") + "</div>";
+    : '<div class="empty">' + (nOlder
+      ? "直近" + DETAIL_RECENT_MONTHS + "か月（" + esc(cut) + " 以降）に出せる出来事はありません。下の「もっと前を出す」で " + num(nOlder) + " 件出ます。"
+      : "この条件で出せる出来事はありません。" +
+        (all.length ? "上の絞り込みを変えると出ます。" : "この案件には MTG・電話・交代の記録がありません。")) + "</div>";
+  if (nOlder) {
+    h += '<div class="ctlbar"><button type="button" class="act" id="dd-older">もっと前を出す（' +
+      esc(cut) + " より前の " + num(nOlder) + " 件）</button></div>";
+  } else if (detailOlder && nOlderAll) {
+    h += '<div class="ctlbar"><button type="button" class="act" id="dd-recent">直近' + DETAIL_RECENT_MONTHS +
+      "か月だけに戻す</button></div>";
+  }
   /* 付け直して来たもの・契約期間の外のもの（種類ごと）。元は継続の取引とは限らない（オプション契約・前の契約もある） */
   const mv = [["電話", c.call_moved_in, c.call_outside], ["録画 MTG", c.mtg_moved_in, c.mtg_outside],
     ["MTG 推定", c.mail_moved_in, c.mail_outside]].filter((x) => x[1] || x[2]);
@@ -7021,7 +7084,81 @@ function renderDetail(D) {
   const R = D.rules || {};
   h += note("def", "並べ方の決まり", [R.fact, R.link, R.attach, R.contact, R.summary, R.extracted, R.handler, R.handover]
     .filter(Boolean).map(esc).join("<br>"));
+  /* 戻り道（09 の 3 の 5）。担当を選んでいれば今日動く先はその担当で開く（c は持ち越す状態。hashFor に載せない） */
+  h += '<div class="lede"><a class="golink" href="' + esc(hashFor("today")) + '">今日動く先へ戻る</a></div>';
   return h + foot(D.meta, true, "");
+}
+
+/** パンくず「法人 ＞ 拠点 ＞ この案件」（09 の 3、08 の M-3 (2)）。法人・拠点は顧客の画面（#deal/customer?houjin=&site=）へ。
+    🔴 法人番号・拠点の鍵は href の中だけ（画面の文字は法人名・拠点の表示名）。法人の一覧（CS_顧客）に無い法人はリンクにしない
+       （顧客の画面で「見つかりません」になる。サーバは houjin_name を null で返す） */
+function detailCrumbs(d) {
+  const link = !!(d.houjin && d.houjin_name);
+  const hj = link
+    ? '<a href="' + esc(hashFor("customer", { houjin: d.houjin })) + '">' + esc(d.houjin_name) + "</a>"
+    : '<span class="muted">' + (d.houjin ? "法人の一覧に無い法人" : "法人が入っていない") + "</span>";
+  const siteText = esc(d.site) || "拠点名なし";
+  const st = link && d.site_key
+    ? '<a href="' + esc(hashFor("customer", { houjin: d.houjin, site: d.site_key })) + '">' + siteText + "</a>"
+    : '<span class="muted">' + siteText + "</span>";
+  const nth = d.renewal_no == null ? "" : d.renewal_no === 0 ? "（初回）" : "（" + num(d.renewal_no) + "回目の継続）";
+  const sep = '<span class="sep" aria-hidden="true">＞</span>';
+  return '<nav class="crumbs" aria-label="この案件の位置">' + hj + sep + st + sep +
+    '<span aria-current="page">この案件' + nth + "</span></nav>";
+}
+
+/** 次の行動に要るもの（08 の M-3 (1)）: 最後の接触・最後の MTG・満了まで・担当、直近の要約の「次にやること」「顧客の懸念」。
+    D.events（新しい順）から引く。🔴 この契約の期間の出来事だけで見る（付け直して来たものは入れ、この取引に付いていても
+    契約期間の外のものは入れない）。接触の定義は他の画面と同じ（MTG または60秒超の電話。メール由来の MTG は数えない） */
+function detailNext(D) {
+  const d = D.deal, ev = D.events || [], today = D.meta.today;
+  const own = (e) => !e.attach || e.attach.state === "own" || e.attach.state === "moved_in";
+  const ago = (dt) => { const n = dayDiff(dt, today); return n == null ? "" : n <= 0 ? "（今日）" : "（" + num(n) + "日前）"; };
+  const ct = ev.find((e) => own(e) && (e.kind === "mtg" || (e.kind === "call" && e.contact)));
+  const mt = ev.find((e) => own(e) && (e.kind === "mtg" || e.kind === "mail_mtg"));
+  const sm = ev.find((e) => own(e) && ((e.kind === "call" && e.summary && (e.summary.next_action || e.summary.concern)) ||
+    (e.kind === "mtg" && e.extracted && (e.todo || e.concern))));
+  const kv = (k, v) => '<div><span class="k">' + esc(k) + "</span>" + v + "</div>";
+  const left = dayDiff(today, d.expiration);
+  const exp = '<span class="muted small nw">（' + esc(d.expiration) + "）</span>";
+  let h = '<div class="dd-kv">' +
+    kv("最後の接触（MTG・60秒超の電話）", ct
+      ? "<b>" + esc(ct.date) + "</b>" + ago(ct.date) + " " + (ct.kind === "mtg" ? "MTG（録画）" : "電話 " + durText(ct.duration_sec))
+      : '<span class="muted small">この契約の期間に接触の記録がありません</span>') +
+    kv("最後の MTG", mt
+      ? "<b>" + esc(mt.date) + "</b>" + ago(mt.date) + " " + (mt.kind === "mtg" ? "録画（事実）" : "メール由来（推定）")
+      : '<span class="muted small">この契約の期間に MTG の記録がありません</span>') +
+    kv("満了まで", left == null ? DASH : left >= 0 ? num(left) + "日" + exp : "満了日を過ぎています" + exp) +
+    kv("担当", (d.consultant
+      ? '<a href="' + esc(hashFor("board", { c: d.consultant })) + '" title="この担当の案件を案件そのもので見る">' + esc(d.consultant) + "</a>"
+      : DASH) +
+      (d.consultant_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "")) +
+    kv("ステージ", esc(d.stage) || DASH) +
+    kv("契約期間", (esc(d.start) || DASH) + " 〜 " + (esc(d.expiration) || DASH) +
+      (d.period != null ? '<span class="muted small nw">（' + num(d.period) + "か月）</span>" : "")) +
+    kv("金額", yen(d.amount)) +
+    kv("継続回数", d.renewal_no == null ? DASH : d.renewal_no === 0 ? "初回" : num(d.renewal_no) + "回目") +
+    kv("状態", (d.is_active ? '<span class="tag e">稼働中</span>' : "稼働中ではない") +
+      (d.right_censored ? ' <span class="tag">未確定</span>' : "")) +
+    kv("名札", d.flags == null ? '<span class="muted small">稼働中の案件にだけ付けています</span>'
+      : d.flags.length ? d.flags.map((f) => '<span class="tag">' + esc(f) + "</span>").join("")
+      : '<span class="muted small">なし</span>') +
+    "</div>";
+  if (sm && sm.kind === "call") {
+    /* 🔴 AI 要約は取り違えを含む（2026-09-26 検証: 手で突き合わせた約11件中2件が誤り）。見出しで必ず断る */
+    h += note("info", "直近の電話の AI 要約（誤りを含むことがあります。" + sm.date + " の電話）",
+      "<b>次にやること</b>: " + (sm.summary.next_action ? esc(sm.summary.next_action) : DASH) + "<br>" +
+      "<b>顧客の懸念</b>: " + (sm.summary.concern ? esc(sm.summary.concern) : DASH) +
+      '<br><span class="muted small">話された内容の要約で、評価ではありません。全文は下の時系列にあります。</span>');
+  } else if (sm) {
+    h += note("info", "直近の MTG から抽出した項目（" + sm.date + " の録画 MTG）",
+      "<b>やること</b>: " + (sm.todo ? esc(sm.todo) : DASH) + "<br>" +
+      "<b>顧客の懸念</b>: " + (sm.concern ? esc(sm.concern) : DASH) +
+      '<br><span class="muted small">全部の項目は下の時系列にあります。</span>');
+  } else {
+    h += '<div class="lede">この契約の期間の電話の要約・MTG の抽出はまだありません（「次にやること」「顧客の懸念」を出せません）。</div>';
+  }
+  return h;
 }
 
 function wireDetail() {
@@ -7043,6 +7180,13 @@ function wireDetail() {
   if (ca) ca.onclick = () => { detailAllCalls = true; redrawMain(lastPayload); };
   const cc = document.getElementById("dd-c-contact");
   if (cc) cc.onclick = () => { detailAllCalls = false; redrawMain(lastPayload); };
+  const old = document.getElementById("dd-older");
+  if (old) old.onclick = () => { detailOlder = true; redrawMain(lastPayload); };
+  const rec = document.getElementById("dd-recent");
+  if (rec) rec.onclick = () => { detailOlder = false; redrawMain(lastPayload); };
+  /* 開いた案件を「最近開いた案件」に覚える（M-3 (5)） */
+  const P = lastPayload;
+  if (P && P.meta && P.meta.found && P.deal) rememberRecentDeal(P.deal.deal_id, P.deal.name);
 }
 
 /* 🔴 ここに新しい主張を書かない。画面の他の場所に既に出ている決まりごとを、
@@ -7354,7 +7498,7 @@ const lastView = {};
      flag    名札 ／ band  MTG途絶の帯の鍵（critical など。画面には名前で出す） ／ expiry  満了までの帯の鍵（EXPIRY_BANDS.k）
      q       案件名の部分一致（案件そのもの・担当者ごとの案件）、探す言葉（案件の詳細）
      houjin  法人番号（顧客） ／ site  拠点の鍵（顧客の「事業所」の節） ／ focus=1  法人の選択欄を注力だけに
-     id      取引（案件の詳細。前からある形）
+     id      取引（案件の詳細。前からある形） ／ older=1  案件の詳細の時系列を直近3か月より前も出す
      unit    week（担当者ごとの接触。month は既定なので載せない） ／ excl=1  右側打ち切りを代表値から外す（継続回数 × 成果）
      sort    並び替え。列の鍵、先頭に - で大きい順（案件そのもの・担当者ごとの案件・担当者の一覧・今日動く先の表）
    kind:
@@ -7406,7 +7550,10 @@ const URL_STATE = {
               site: { kind: "filter", get: () => custSite, set: (v) => { custSite = v; }, reset: () => { custSite = ""; } },
               focus: flagState(() => focusOnly, (b) => { focusOnly = b; }) },
   detail: { id: { kind: "filter", get: () => detailId, set: (v) => { detailId = v; }, reset: () => { detailId = ""; } },
-            q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } } },
+            q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } },
+            /* 時系列を直近3か月より前も出す（M-3）。別の案件へ移ると既定（直近3か月）へ */
+            older: { kind: "filter", get: () => (detailOlder ? "1" : ""), set: (v) => { detailOlder = v === "1"; },
+                     reset: () => { detailOlder = false; } } },
   team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "contact_rate", asc: true }) },
   contact: { unit: { kind: "ctx", get: () => (contactUnit === "month" ? "" : contactUnit),
                      set: (v) => { contactUnit = CONTACT_UNITS.some((u) => u.k === v) ? v : "month"; },
