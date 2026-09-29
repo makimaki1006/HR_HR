@@ -6220,6 +6220,72 @@ fn latest_mtg_risk_skips_unjudged_and_prefers_the_heavier_on_the_same_day() {
     assert_eq!(m.len(), 3);
 }
 
+/// 案件の行（`deal_rows`）は覚えたものを返すが、覚えずに数えたものと同じで、シートを取り直せば数え直す。
+/// all_cached だけは今回の値（覚えた値を返さない）。
+/// 🔴 2026-09-29 磨き込み: 今日動く先・案件一覧・チームと担当などが同じ行を毎回数え直していた（fixture・debug で 1 回 約 1.2〜1.7 秒）
+#[test]
+fn deal_rows_memo_matches_uncached_and_follows_refetch() {
+    let sh = sheets();
+    let d = fixture_day();
+    let (r0, m0) = super::routes::deal_rows_uncached(&sh, d);
+    let (r1, m1) = super::routes::deal_rows(&sh, d);
+    let (r2, m2) = super::routes::deal_rows(&sh, d);
+    assert_eq!(r1, r0, "覚えた行が覚えずに数えた行と違う");
+    assert_eq!(r2, r0, "2回目（覚えたもの）の行が違う");
+    assert_eq!(m1, m0);
+    assert_eq!(m2, m0);
+    // 同じシートで all_cached だけ違う: 行は同じ、all_cached は今回の値
+    let flip = Sheets {
+        all_cached: !sh.all_cached,
+        deal: sh.deal.clone(),
+        call: sh.call.clone(),
+        mtg: sh.mtg.clone(),
+        history: sh.history.clone(),
+        customer: sh.customer.clone(),
+        mail_mtg: sh.mail_mtg.clone(),
+        handover: sh.handover.clone(),
+        owner_hist: sh.owner_hist.clone(),
+        meta: sh.meta.clone(),
+    };
+    let (rf, mf) = super::routes::deal_rows(&flip, d);
+    assert_eq!(rf, r0);
+    assert_eq!(
+        mf["all_cached"],
+        serde_json::json!(!sh.all_cached),
+        "all_cached を覚えた値で返している"
+    );
+    // 取引シートを取り直した（稼働中の行を 1 件減らした）: 覚えたものを返さず数え直す
+    let first_active = r0[0]["deal_id"].as_str().unwrap().to_string();
+    let id_col = sh
+        .deal
+        .header
+        .iter()
+        .position(|h| h == "deal_id")
+        .expect("deal_id 列");
+    let deal2 = Arc::new(SheetData {
+        header: sh.deal.header.clone(),
+        rows: sh
+            .deal
+            .rows
+            .iter()
+            .filter(|r| r.get(id_col).map(|x| x.as_ref()) != Some(first_active.as_str()))
+            .cloned()
+            .collect(),
+        fetched_at: Instant::now(),
+    });
+    let sh2 = Sheets {
+        deal: deal2,
+        ..flip
+    };
+    let (rn, _) = super::routes::deal_rows(&sh2, d);
+    assert_eq!(
+        rn.len() + 1,
+        r0.len(),
+        "取り直したシートで覚えた行を返している"
+    );
+    assert!(rn.iter().all(|r| r["deal_id"] != first_active.as_str()));
+}
+
 /// 見方の突き合わせは、同じシート（同じ Arc）と基準日なら覚えたものを返し、シートを取り直すか日が変わったら数え直す。
 /// 🔴 2026-09-29 検証: 案件一覧を開くたびに電話の集計ごと回していた（fixture・debug で deal_rows 約 990ms に 約 580ms 上乗せ）
 #[test]
