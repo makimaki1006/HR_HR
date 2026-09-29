@@ -100,6 +100,10 @@ fn fixture_sheets() -> Sheets {
         meta: load_tsv("KPI営業_取得条件"),
         weekly: load_tsv("KPI営業_週次"),
         kettei: load_tsv("KPI営業_決定者"),
+        // 🔴 これだけは本番から落としていない。「内訳」に実名が入るので
+        //    `make_fixture.py` の対象に入れておらず、2026-09-29 の実測値（HubSpot を
+        //    読み取りで数えたもの）から、内訳の実名を「保管担当01」等に置き換えて置いた。
+        list_stock: load_tsv("KPI営業_リスト在庫"),
         all_cached: true,
     }
 }
@@ -1692,4 +1696,378 @@ fn 決定者は日が飛んでいても前の記録と比べる() {
         Some(3),
         "43 - 40 = 3 になっていない"
     );
+}
+
+// ---------------------------------------------------------------- リストの在庫
+//
+// 新規営業のリスト（リクロジ／大分）を、誰が持っているか（アクティブ／保管）×
+// 企業人数で数えたもの（2026-09-29 現場要望）。「その他」はシートに無く、
+// Rust が 合計 − 内訳の和 で出す。そこが崩れると内訳の和が全体に届かない理由が
+// 画面から消えるので、ここで見張る。
+
+fn list_stock(body: &Value) -> &Value {
+    &body["list_stock"]
+}
+
+/// シートから、あるリスト・区分・帯の件数を足す（期待値を直書きしないため）。
+fn stock_sum(sheet: &SheetData, list: &str, kind: &str, band: &str) -> i64 {
+    sum_col(sheet, "件数", |r| {
+        sheet.get(r, "リスト") == list
+            && sheet.get(r, "区分") == kind
+            && sheet.get(r, "企業人数") == band
+    })
+}
+
+#[test]
+fn リストの在庫は内訳とその他で全体に一致する() {
+    let sheets = fixture_sheets();
+    let body = build_payload(&sheets, fixture_day());
+    let ls = list_stock(&body);
+    let lists = ls["lists"].as_array().expect("lists");
+    let names: Vec<&str> = lists.iter().map(|l| l["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        names,
+        ["リクロジ", "大分"],
+        "リストの並びがシートの順になっていない"
+    );
+
+    let mut bands: Vec<String> = vec![ls["all_band"].as_str().unwrap().to_string()];
+    bands.extend(
+        ls["bands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b.as_str().unwrap().to_string()),
+    );
+    assert_eq!(bands.len(), 7, "帯は「すべて」＋6つ");
+
+    for l in lists {
+        let name = l["name"].as_str().unwrap();
+        for band in &bands {
+            let total = l["total"][band].as_i64().unwrap();
+            assert_eq!(total, stock_sum(&sheets.list_stock, name, "合計", band));
+            let parts: i64 = l["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|g| g["counts"][band].as_i64().unwrap())
+                .sum();
+            let want_parts = stock_sum(&sheets.list_stock, name, "アクティブ", band)
+                + stock_sum(&sheets.list_stock, name, "保管", band);
+            assert_eq!(
+                parts, want_parts,
+                "{name}/{band}: 内訳の和がシートと合わない"
+            );
+            assert_eq!(
+                l["other"][band].as_i64().unwrap(),
+                total - parts,
+                "{name}/{band}: その他が 合計 − 内訳の和 になっていない"
+            );
+        }
+        // 本番の実測では帯の合計と「すべて」がぴったり一致した（差 0）
+        assert_eq!(
+            l["band_gap"].as_i64(),
+            Some(0),
+            "{name}: 帯の合計が全体と合わない"
+        );
+    }
+
+    // 2026-09-29 実測（HubSpot を読み取りで数えた値）。上の検算とは別に、
+    // その他が本当に出ていること（0 に潰れていないこと）を実数で押さえる。
+    let rikuroji = &lists[0];
+    assert_eq!(rikuroji["total"]["すべて"].as_i64(), Some(164_159));
+    assert_eq!(rikuroji["other"]["すべて"].as_i64(), Some(30_784));
+    let oita = &lists[1];
+    assert_eq!(oita["total"]["すべて"].as_i64(), Some(96_105));
+    assert_eq!(oita["other"]["すべて"].as_i64(), Some(6_548));
+}
+
+#[test]
+fn 担当者名ありも内訳とその他で全体に一致する() {
+    let sheets = fixture_sheets();
+    let body = build_payload(&sheets, fixture_day());
+    let ls = list_stock(&body);
+    assert_eq!(ls["has_named"], true);
+    let named = |list: &str, kind: &str, band: &str| -> i64 {
+        sum_col(&sheets.list_stock, "担当者名あり", |r| {
+            sheets.list_stock.get(r, "リスト") == list
+                && sheets.list_stock.get(r, "区分") == kind
+                && sheets.list_stock.get(r, "企業人数") == band
+        })
+    };
+    for l in ls["lists"].as_array().unwrap() {
+        let name = l["name"].as_str().unwrap();
+        for band in ["すべて", "未入力", "50〜99人"] {
+            let total = l["total_named"][band].as_i64().unwrap();
+            assert_eq!(total, named(name, "合計", band));
+            let parts: i64 = l["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|g| g["named"][band].as_i64().unwrap())
+                .sum();
+            assert_eq!(l["other_named"][band].as_i64().unwrap(), total - parts);
+            // 担当者名ありは件数の内側に収まる
+            assert!(total <= l["total"][band].as_i64().unwrap(), "{name}/{band}");
+        }
+        assert_eq!(l["band_gap_named"].as_i64(), Some(0));
+    }
+    // 2026-09-29 実測。リクロジ 164,159件のうち人の名前が入っているのは 92,442件
+    assert_eq!(
+        ls["lists"][0]["total_named"]["すべて"].as_i64(),
+        Some(92_442)
+    );
+}
+
+#[test]
+fn 担当者名あり列が無い古いシートでは絞り込みを出さない() {
+    let text = "リスト	区分	内訳	企業人数	件数
+                リクロジ	合計		すべて	100
+";
+    let body = build_payload(
+        &Sheets {
+            list_stock: Arc::new(sheet_from_tsv(text)),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    );
+    assert_eq!(list_stock(&body)["has_named"], false);
+}
+
+#[test]
+fn リストの在庫の内訳はシートの並びと区分のまま出す() {
+    let body = payload();
+    let g = &list_stock(&body)["lists"][0]["groups"];
+    let got: Vec<(&str, &str)> = g
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| (x["kind"].as_str().unwrap(), x["name"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("アクティブ", "FSメンバー"),
+            ("アクティブ", "パートナー"),
+            ("保管", "保管担当01"),
+            ("保管", "保管担当02"),
+            ("保管", "保管担当03"),
+        ]
+    );
+}
+
+#[test]
+fn リストの在庫は帯と区分のどちら向きに足しても全体に一致する() {
+    // 画面は 行=区分・内訳 × 列=企業人数の帯 の表を、件数と名前ありの2段で出す
+    // （2026-09-29「切り替えだと比較できない」を受けて並べる形にした）。
+    // 縦に足しても（区分の計＋その他）横に足しても（帯の和）全体に戻ること、
+    // 名前ありが件数を超えないことを、升目1つずつ見る。
+    let body = payload();
+    let ls = list_stock(&body);
+    let all = ls["all_band"].as_str().unwrap();
+    let bands: Vec<&str> = ls["bands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b.as_str().unwrap())
+        .collect();
+    let n = |c: &Value, b: &str| c[b].as_i64().unwrap_or(0);
+    for l in ls["lists"].as_array().unwrap() {
+        let name = l["name"].as_str().unwrap();
+        // 行: 内訳ごと＋その他。(件数, 名前あり) の組。
+        let mut rows: Vec<(String, &Value, &Value)> = l["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| {
+                (
+                    format!(
+                        "{}/{}",
+                        g["kind"].as_str().unwrap(),
+                        g["name"].as_str().unwrap()
+                    ),
+                    &g["counts"],
+                    &g["named"],
+                )
+            })
+            .collect();
+        rows.push(("その他".into(), &l["other"], &l["other_named"]));
+        rows.push(("全体".into(), &l["total"], &l["total_named"]));
+        for (row, counts, named) in &rows {
+            for pick in [counts, named] {
+                let across: i64 = bands.iter().map(|b| n(pick, b)).sum();
+                assert_eq!(
+                    across,
+                    n(pick, all),
+                    "{name}/{row}: 帯の和が「計」と合わない"
+                );
+            }
+            for b in bands.iter().copied().chain([all]) {
+                assert!(
+                    n(named, b) <= n(counts, b),
+                    "{name}/{row}/{b}: 名前ありが件数を超えている"
+                );
+                assert!(n(counts, b) >= 0, "{name}/{row}/{b}: 件数がマイナス");
+            }
+        }
+        // 縦: 内訳（アクティブ・保管）＋その他 ＝ 全体。帯ごと・件数と名前ありの両方。
+        let parts = &rows[..rows.len() - 1];
+        for b in bands.iter().copied().chain([all]) {
+            let down: i64 = parts.iter().map(|(_, c, _)| n(c, b)).sum();
+            assert_eq!(
+                down,
+                n(&l["total"], b),
+                "{name}/{b}: 区分の和が全体と合わない"
+            );
+            let down_named: i64 = parts.iter().map(|(_, _, m)| n(m, b)).sum();
+            assert_eq!(
+                down_named,
+                n(&l["total_named"], b),
+                "{name}/{b}: 名前ありの区分の和が全体と合わない"
+            );
+        }
+    }
+}
+
+#[test]
+fn リストの在庫の画面は切り替えでなく並べて出す() {
+    // 🔴 2026-09-29「これだと比較できないよね」。企業人数の帯と担当者名を
+    //    ボタンで切り替える作りだと、押した1つの状態しか見えなかった。
+    //    帯は列に、名前ありは升目の2段目に並べる。ボタンを戻したら落とす。
+    let html = include_str!("../../../templates/tabs/sales_kpi.html");
+    let start = html
+        .find("// ---- リストの在庫 ----")
+        .expect("在庫の JS が無い");
+    let end = html
+        .find("// ---- タブの切り替え ----")
+        .expect("タブの JS が無い");
+    let js = &html[start..end];
+    for bad in [
+        "chip(",
+        "onclick",
+        "aria-pressed",
+        "stockNamed",
+        "stockBands",
+    ] {
+        assert!(!js.contains(bad), "在庫の画面に切り替えが戻っている: {bad}");
+    }
+    assert!(
+        !html.contains("id=\"stockbands\""),
+        "帯の切り替えの置き場が残っている"
+    );
+    for need in [
+        "id=\"stockbox\"",
+        "id=\"stockbybands\"",
+        // 帯の表の列 = 帯＋計（すべて）
+        "LS_BANDS.concat([LS_ALL])",
+        // 全体の比較の表で、件数と名前ありを並べた列
+        "<th class=\"n\">件数</th><th class=\"n\">名前あり</th>",
+        // 1列目を止める（400px で横に流したとき区分が見えなくなる）
+        ".stk .fc{position:sticky",
+    ] {
+        assert!(html.contains(need), "在庫の画面の形が崩れている: {need}");
+    }
+}
+
+#[test]
+fn リスト区分がまだ空なら全部その他に入る() {
+    // 区分シートが見出しだけのとき、同期は「合計」の行しか書かない
+    let text = "リスト\t区分\t内訳\t企業人数\t件数\n\
+                リクロジ\t合計\t\tすべて\t100\n\
+                リクロジ\t合計\t\t未入力\t30\n\
+                リクロジ\t合計\t\t〜49人\t60\n";
+    let body = build_payload(
+        &Sheets {
+            list_stock: Arc::new(sheet_from_tsv(text)),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    );
+    let l = &list_stock(&body)["lists"][0];
+    assert_eq!(l["groups"].as_array().map(Vec::len), Some(0));
+    assert_eq!(l["other"]["すべて"].as_i64(), Some(100));
+    // 帯の合計（90）が全体（100）に届かない。黙って落とさず差として出す
+    assert_eq!(l["band_gap"].as_i64(), Some(10));
+}
+
+#[test]
+fn リストの在庫のシートが無くても落ちない() {
+    let body = build_payload(
+        &Sheets {
+            list_stock: super::empty_sheet(),
+            weekly: super::empty_sheet(),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    );
+    let ls = list_stock(&body);
+    assert_eq!(
+        ls["lists"].as_array().map(Vec::len),
+        Some(0),
+        "無いのに行を作っている"
+    );
+    assert_eq!(ls["trend"], Value::Null);
+}
+
+/// 週次に「リスト_」列がある版の見出しと行。fixture_day() の週は 2026-08-31 はじまり。
+fn weekly_with_stock(rows: &[(&str, &str, &str, &str)]) -> Value {
+    let head = WEEKLY_HEAD.trim_end_matches('\n').to_string()
+        + "\tリスト_リクロジ_全体\tリスト_リクロジ_アクティブ\tリスト_リクロジ_保管\
+           \tリスト_大分_全体\tリスト_大分_アクティブ\tリスト_大分_保管\n";
+    let body: String = rows
+        .iter()
+        .map(|(week, taken, start, stock)| {
+            weekly_row(week, taken, start, 129_869)
+                .trim_end_matches('\n')
+                .to_string()
+                + stock
+                + "\n"
+        })
+        .collect();
+    build_payload(
+        &Sheets {
+            weekly: Arc::new(sheet_from_tsv(&format!("{head}{body}"))),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    )
+}
+
+#[test]
+fn リストの在庫は前の週の記録と並べる() {
+    let body = weekly_with_stock(&[
+        (
+            "2026-W35",
+            "2026-08-28",
+            "2026-08-24",
+            "\t160000\t50000\t80000\t90000\t40000\t20000",
+        ),
+        // 今週の行。これ自身とは比べない
+        ("2026-W36", "2026-09-04", "2026-08-31", "\t1\t1\t1\t1\t1\t1"),
+    ]);
+    let t = &list_stock(&body)["trend"];
+    assert_eq!(t["week"], "2026-W35", "今週の行と比べてしまっている");
+    assert_eq!(t["lists"]["リクロジ"]["全体"].as_i64(), Some(160_000));
+    assert_eq!(t["lists"]["大分"]["保管"].as_i64(), Some(20_000));
+}
+
+#[test]
+fn リスト列が無い古い週次の行は在庫を出さない() {
+    // 🔴 2026-09-29 より前の行には「リスト_」列が無い（または空）。
+    //    0 と読むと「在庫が0だった」と嘘をつくので、在庫の記録は無いものとして扱う。
+    let body = weekly_with_stock(&[("2026-W35", "2026-08-28", "2026-08-24", "\t\t\t\t\t\t")]);
+    assert_eq!(list_stock(&body)["trend"], Value::Null);
+    let snaps = body["snapshots"].as_array().unwrap();
+    assert_eq!(snaps[0]["list_stock"], Value::Null);
+
+    // 列そのものが無い今の fixture でも同じ
+    let body = payload();
+    for s in body["snapshots"].as_array().unwrap() {
+        assert_eq!(
+            s["list_stock"],
+            Value::Null,
+            "{}: 列が無いのに在庫を作った",
+            s["week"]
+        );
+    }
 }
