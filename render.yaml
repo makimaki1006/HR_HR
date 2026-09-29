@@ -15,6 +15,16 @@ services:
         value: info
       - key: AUTH_PASSWORD
         sync: false
+      # Google Workspace OIDC ログイン (ADR-017)。4 つ全部入れたときだけ有効。
+      # 値は Render のダッシュボードで設定する（リポジトリに置かない）。
+      - key: GOOGLE_OIDC_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OIDC_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OIDC_REDIRECT_URL
+        sync: false
+      - key: GOOGLE_OIDC_HOSTED_DOMAIN
+        sync: false
       - key: ALLOWED_DOMAINS
         value: "f-a-c.co.jp"
       - key: HELLOWORK_DB_PATH
