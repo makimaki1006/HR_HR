@@ -7237,9 +7237,12 @@ function renderTrust(D) {
 
 /* ---------------------------------------------------------------- 仮のつなぎ（他のチームの描画が入るまで）
    🔴 中身を黙って消さないため、前の画面の描画を節として並べる。問いは 09 の新しい画面のもの。
-   他のチームの関数（renderCustomer / renderRenewalPipe / renderResults / renderTeamPage）が入れば MENUS がそちらを呼ぶ */
+   他のチームの関数（renderCustomer / renderRenewalPipe / renderResults / renderTeamPage）が入れば MENUS がそちらを呼ぶ。
+   🔴 画面の問いは、すぐ下の節の問いと同じ文にしない（続けて 2 回読ませない。記録と数字の信頼度と同じ手当て）。
+      前は節の問いをつないだだけで、「この法人は拠点ごとにどう違うか」「どこに手が回っていないか」「継続を重ねると成果は落ちる」を
+      画面の問いと最初の節で 2 回読ませていた（2026-09-29 検証 1440px）。見張り consulting_view_rules.js */
 function customerInterim(D) {
-  return sec("問い", "この法人は拠点ごとにどう違うか。この事業所は契約を重ねてこられたか") +
+  return sec("問い", "この顧客とは、どこで・どれだけ契約を続けてきたか") +
     '<div class="lede">前の「法人番号で見る」（法人の層）と「継続を追いかける」（事業所の層）を順に並べています。' +
     "法人を選ぶと両方が切り替わります。</div>" +
     toc([["cust-houjin", "法人番号で見る"], ["cust-series", "継続を追いかける"]]) +
@@ -7248,7 +7251,7 @@ function customerInterim(D) {
 }
 function teamInterim(D) {
   const C = moreOf(D, "contact"), H = moreOf(D, "handover");
-  return sec("問い", "どこに手が回っていないか。接触はどう動いているか。担当はどう替わったか") +
+  return sec("問い", "担当ごとの持ち案件・接触・交代は、いまどうなっているか") +
     /* 09 の 6: 問いの直下に畳まない 1 行 */
     '<div class="lede"><b>仕事量の一覧で、担当者の評価ではありません。</b>' +
     "前の「担当者の一覧」「担当者ごとの接触」「担当の交代」を順に並べています。</div>" +
@@ -7259,7 +7262,7 @@ function teamInterim(D) {
 }
 function resultsInterim(D) {
   const O = moreOf(D, "outcome"), R = moreOf(D, "rampup");
-  return sec("問い", "継続を重ねると成果は落ちるか。成果は出ているか") +
+  return sec("問い", "契約の回数と成果・立ち上がりは、全体でどうなっているか") +
     '<div class="lede">月に 1 回見る集計です。前の「継続回数 × 成果」「成果とリスク」「立ち上がり」を順に並べています。</div>' +
     toc([["results-renewal", "継続回数 × 成果"], ["results-outcome", "成果とリスク"], ["results-rampup", "立ち上がり"]]) +
     partSec(renderRenewal(D), "継続回数 × 成果", "results-renewal") +

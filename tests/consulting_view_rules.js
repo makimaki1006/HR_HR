@@ -2011,6 +2011,43 @@ check("記録と数字の信頼度: データ品質・MTG の品質・定義と�
   ok(h2.includes('id="trust-mtgq"') && h2.includes("MTG の品質 のデータがありません"), "MTG の品質の応答が無いのに黙って節を消している");
 });
 
+// 2026-09-29 組み替え 段A の検証: 前の画面を節として並べた画面（顧客・チームと担当・成果と継続・記録と数字の信頼度）で、
+// 画面の問いがすぐ下の節の問いとほぼ同じ文だと、続けて 2 回読ませる（顧客「この法人は拠点ごとにどう違うか」、
+// チームと担当「どこに手が回っていないか」）。画面の問いと、並べた節の描画の問いが、7 字以上続けて同じにならないこと。
+// 🔴 句読点・中黒・空白は外して比べる（「継続を重ねると、成果は落ちるのか」と「継続を重ねると成果は落ちるか」を同じと見る）
+check("組み替えた画面の問いが、並べた節の問いと同じ文になっていない（続けて 2 回読ませない）", () => {
+  const bodyOf = (name) => {
+    const i = html.indexOf("\nfunction " + name + "(");
+    ok(i >= 0, "関数 " + name + " が無い");
+    return html.slice(i + 1).split("\nfunction ")[0];
+  };
+  const firstQ = (body) => { const m = body.match(/sec\("問い", "([^"]+)"\)/); return m ? m[1] : ""; };
+  const norm = (q) => q.replace(/[、。・\s—-]/g, "");
+  const common = (a, b) => {
+    let best = "";
+    for (let i = 0; i < a.length; i++)
+      for (let j = i + best.length + 1; j <= a.length; j++) { if (b.includes(a.slice(i, j))) best = a.slice(i, j); else break; }
+    return best;
+  };
+  const screens = [
+    ["customerInterim", ["renderHoujin", "renderSeries"]],
+    ["teamInterim", ["renderTeam", "renderContact", "renderHandover"]],
+    ["resultsInterim", ["renderRenewal", "renderOutcome", "renderRampup"]],
+    ["renderTrust", ["renderDq", "renderMtgQ", "renderDefs"]],
+  ];
+  for (const [scr, parts] of screens) {
+    const body = bodyOf(scr), q = firstQ(body);
+    ok(q, scr + " に画面の問いが無い");
+    for (const pt of parts) {
+      ok(body.includes(pt + "("), "前提: " + scr + " が " + pt + " を並べていない");
+      const pq = firstQ(bodyOf(pt));
+      ok(pq, "前提: " + pt + " に問いが無い");
+      const c = common(norm(q), norm(pq));
+      ok(c.length < 7, scr + " の問い「" + q + "」が、節 " + pt + " の問い「" + pq + "」と「" + c + "」まで同じ");
+    }
+  }
+});
+
 check("凡例: MTG の品質・データ品質で、図に出ていない色を凡例に出さない", () => {
   const q = run("renderMtgQ(__MQ)");   // filled は rate 10% の1項目だけ
   const qf = q.split("<figcaption>抽出の進み具合")[1].split("</figure>")[0];
