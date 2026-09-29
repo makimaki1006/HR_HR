@@ -1857,6 +1857,119 @@ fn リストの在庫の内訳はシートの並びと区分のまま出す() {
 }
 
 #[test]
+fn リストの在庫は帯と区分のどちら向きに足しても全体に一致する() {
+    // 画面は 行=区分・内訳 × 列=企業人数の帯 の表を、件数と名前ありの2段で出す
+    // （2026-09-29「切り替えだと比較できない」を受けて並べる形にした）。
+    // 縦に足しても（区分の計＋その他）横に足しても（帯の和）全体に戻ること、
+    // 名前ありが件数を超えないことを、升目1つずつ見る。
+    let body = payload();
+    let ls = list_stock(&body);
+    let all = ls["all_band"].as_str().unwrap();
+    let bands: Vec<&str> = ls["bands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b.as_str().unwrap())
+        .collect();
+    let n = |c: &Value, b: &str| c[b].as_i64().unwrap_or(0);
+    for l in ls["lists"].as_array().unwrap() {
+        let name = l["name"].as_str().unwrap();
+        // 行: 内訳ごと＋その他。(件数, 名前あり) の組。
+        let mut rows: Vec<(String, &Value, &Value)> = l["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| {
+                (
+                    format!(
+                        "{}/{}",
+                        g["kind"].as_str().unwrap(),
+                        g["name"].as_str().unwrap()
+                    ),
+                    &g["counts"],
+                    &g["named"],
+                )
+            })
+            .collect();
+        rows.push(("その他".into(), &l["other"], &l["other_named"]));
+        rows.push(("全体".into(), &l["total"], &l["total_named"]));
+        for (row, counts, named) in &rows {
+            for pick in [counts, named] {
+                let across: i64 = bands.iter().map(|b| n(pick, b)).sum();
+                assert_eq!(
+                    across,
+                    n(pick, all),
+                    "{name}/{row}: 帯の和が「計」と合わない"
+                );
+            }
+            for b in bands.iter().copied().chain([all]) {
+                assert!(
+                    n(named, b) <= n(counts, b),
+                    "{name}/{row}/{b}: 名前ありが件数を超えている"
+                );
+                assert!(n(counts, b) >= 0, "{name}/{row}/{b}: 件数がマイナス");
+            }
+        }
+        // 縦: 内訳（アクティブ・保管）＋その他 ＝ 全体。帯ごと・件数と名前ありの両方。
+        let parts = &rows[..rows.len() - 1];
+        for b in bands.iter().copied().chain([all]) {
+            let down: i64 = parts.iter().map(|(_, c, _)| n(c, b)).sum();
+            assert_eq!(
+                down,
+                n(&l["total"], b),
+                "{name}/{b}: 区分の和が全体と合わない"
+            );
+            let down_named: i64 = parts.iter().map(|(_, _, m)| n(m, b)).sum();
+            assert_eq!(
+                down_named,
+                n(&l["total_named"], b),
+                "{name}/{b}: 名前ありの区分の和が全体と合わない"
+            );
+        }
+    }
+}
+
+#[test]
+fn リストの在庫の画面は切り替えでなく並べて出す() {
+    // 🔴 2026-09-29「これだと比較できないよね」。企業人数の帯と担当者名を
+    //    ボタンで切り替える作りだと、押した1つの状態しか見えなかった。
+    //    帯は列に、名前ありは升目の2段目に並べる。ボタンを戻したら落とす。
+    let html = include_str!("../../../templates/tabs/sales_kpi.html");
+    let start = html
+        .find("// ---- リストの在庫 ----")
+        .expect("在庫の JS が無い");
+    let end = html
+        .find("// ---- タブの切り替え ----")
+        .expect("タブの JS が無い");
+    let js = &html[start..end];
+    for bad in [
+        "chip(",
+        "onclick",
+        "aria-pressed",
+        "stockNamed",
+        "stockBands",
+    ] {
+        assert!(!js.contains(bad), "在庫の画面に切り替えが戻っている: {bad}");
+    }
+    assert!(
+        !html.contains("id=\"stockbands\""),
+        "帯の切り替えの置き場が残っている"
+    );
+    for need in [
+        "id=\"stockbox\"",
+        "id=\"stockbybands\"",
+        // 帯の表の列 = 帯＋計（すべて）
+        "LS_BANDS.concat([LS_ALL])",
+        // 全体の比較の表で、件数と名前ありを並べた列
+        "<th class=\"n\">件数</th><th class=\"n\">名前あり</th>",
+        // 1列目を止める（400px で横に流したとき区分が見えなくなる）
+        ".stk .fc{position:sticky",
+    ] {
+        assert!(html.contains(need), "在庫の画面の形が崩れている: {need}");
+    }
+}
+
+#[test]
 fn リスト区分がまだ空なら全部その他に入る() {
     // 区分シートが見出しだけのとき、同期は「合計」の行しか書かない
     let text = "リスト\t区分\t内訳\t企業人数\t件数\n\
