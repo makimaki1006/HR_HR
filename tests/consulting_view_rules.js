@@ -5395,6 +5395,100 @@ check("磨き込み(3): id の無い並べ替えられる表も、並べ替え�
   run("rcOpen.clear()");
 });
 
+/* ---------------- M-5 の残り（08）: 図の題を 1 つに・図の注記の上限・foot を画面末尾の 1 箱に ---------------- */
+// 🔴 2026-09-28 診断: 図 1 つに h2 の題＋figcaption＋hint の 3 段。2026-09-29 実測（fixture 1440px）: 記録と数字の信頼度に foot が 3 箱、画面の途中に
+check("M-5 (a): 図の見出し（h2「図 …」）の直後に図が 1 つだけ続くとき、見出しを図の中の題にする（id・tabindex・見出しの働きは残す）", () => {
+  const f1 = run('sec("図", "電話は届いているか", "ph-reach-h") + fig("稼働中 604 件の内訳", "説明の1行", "<svg></svg>", "")');
+  const t = run("figTitles(" + JSON.stringify(f1) + ")");
+  ok(!/<h2[^>]*><span class="no">図<\/span>/.test(t), "図の見出しの h2 が残っている（題が 2 段のまま）: " + t.slice(0, 200));
+  ok(t.startsWith('<figure class="fig titled" id="ph-reach-h" tabindex="-1"><figcaption><span class="figttl" role="heading" aria-level="2">電話は届いているか</span>稼働中 604 件の内訳<span class="hint">'),
+    "図の題（見出しの文）・前の figcaption の文・id / tabindex / 見出しの働き（role=heading）の形が違う: " + t.slice(0, 260));
+  // 前の figcaption の文が見出しと同じなら 1 回だけ
+  const same = run('figTitles(sec("図", "月ごとの件数") + fig("月ごとの件数", "", "<svg></svg>", ""))');
+  ok((same.match(/月ごとの件数/g) || []).length === 1, "同じ題を 2 回書いている: " + same.slice(0, 200));
+  // 見出しの後ろに図が 2 つ続く（まとめの題）・図でないものが続くときは、見出しのまま
+  const grp = run('sec("図", "まとめ") + fig("一つ目", "", "<svg></svg>", "") + fig("二つ目", "", "<svg></svg>", "")');
+  ok(run("figTitles(" + JSON.stringify(grp) + ")") === grp, "図が 2 つ続く見出し（まとめの題）を 1 つ目の図に入れている");
+  ctx.__LEDE = run('sec("図", "前置きあり")') + '<div class="lede">x</div>' + run('fig("図", "", "<svg></svg>", "")');
+  ok(run("figTitles(__LEDE)") === ctx.__LEDE, "図の前に文がある見出しまで図に入れている");
+  // 実際の画面（電話）: 図の見出しが 3 つとも図の中の題になる。KPI の行き先の id は図に付く
+  const ph = run("figTitles(renderPhone(__PH))");
+  ok(!/<span class="no">図<\/span>/.test(ph) && (ph.match(/<figure class="fig titled"/g) || []).length === 3, "電話の図の見出しが図の中に入っていない");
+  ok(/<figure class="fig titled" id="ph-reach-h" tabindex="-1">/.test(ph) && /<figure class="fig titled" id="ph-days-h" tabindex="-1">/.test(ph), "KPI の行き先（ph-reach-h / ph-days-h）が図に付いていない");
+  // 画面に流す 3 か所（redrawMain・読み込み中・読み込んだ後）は finishView を通す
+  const src = html.slice(html.indexOf("<script>"));
+  ok((src.match(/paintFigs\(main, \(\) => finishView\(ctlbar\(/g) || []).length === 3 && !/paintFigs\(main, \(\) => ctlbar\(/.test(src),
+    "画面に流すところで finishView を通していない（図の題が 2 段のまま・foot が途中に残る）");
+  // 表の枠の読み上げ名: 図の題が図の中に入った後も「<題> の表」
+  const attrs = {};
+  const inner = { scrollWidth: 900, clientWidth: 400, scrollLeft: 0, scrollHeight: 300, clientHeight: 300,
+    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } };
+  const figEl = { tagName: "FIGURE", querySelector: (q) => (q === ".figttl" ? { textContent: "引き継いだ側（次の担当）" } : null) };
+  ctx.__WF = { querySelector: () => inner, classList: { toggle() {} }, previousElementSibling: { tagName: "DIV", previousElementSibling: figEl } };
+  run("markScroll(__WF)");
+  ok(attrs["aria-label"] === "引き継いだ側（次の担当） の表（スクロールできる表の枠）", "図の中の題の下の表の読み上げ名が「表」になる: " + attrs["aria-label"]);
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/figure\.fig\.titled > figcaption \.figttl\{[^}]*font-size:15px; font-weight:700;/.test(css), "図の中の題が部品の題（15px 太字）の見た目でない");
+  ok(/figure\.fig:focus-visible\{ outline:2px solid var\(--ai\);/.test(css), "KPI の札から図へ飛んだとき、止まったことが見えない");
+});
+
+check("M-5 (b): 図の注記は凡例＋1 行まで。取り決め・描き方は「この図の決まり」に畳み、2.4 の畳まないもの（母数・未確定・評価でない・n<30 の理由・分母 0）は見せたまま", () => {
+  // focus の採用単価の図（fixture の注記 3 段）: 色の線引きは畳み、未確定・上位 20（全 111）は見せる
+  ctx.__FL = run('lg("box", C.ai, "今回（万円）")') + '<i class="full">右の「N倍」が 1.5倍以上のものは赤で出しています。</i>' +
+    '<i class="full">未確定（稼働中）の点は判定に使っていません</i><i class="full">倍率の大きい上位 20 拠点だけ出しています（悪化した拠点は全 111 拠点）。</i>';
+  const f = run('fig("c", "", "<svg></svg>", __FL)');
+  const at = f.indexOf('<div class="figlegend">');
+  const shown = f.slice(at, f.indexOf("</div>", at));
+  const rule = f.slice(f.indexOf('<details class="fold figrule">'));
+  ok(shown.includes("今回（万円）"), "凡例（色の粒）を畳んでいる");
+  ok(shown.includes("未確定（稼働中）") && shown.includes("全 111 拠点"), "未確定・母数の注記を畳んでいる（08 の 2.4 の畳まないもの）: " + shown);
+  ok(!shown.includes("1.5倍以上"), "取り決め（色の線引き）が見えたまま（凡例＋1 行を超えている）");
+  ok(/<summary>この図の決まり（1 件）<\/summary>/.test(rule) && rule.includes("1.5倍以上"), "畳んだ注記が「この図の決まり」に無い（黙って消している）: " + rule.slice(0, 200));
+  // どれも畳まないものでなければ、最初の 1 段は見せる（凡例＋1 行）
+  ctx.__FR1 = '<i class="full">棒の右に分類の言葉も書いています。</i><i class="full">名前は Zoom に登録された名前のままです。</i>';
+  const one = run("figRules(__FR1)");
+  ok(one.shown.includes("棒の右に") && !one.shown.includes("Zoom") && one.folded.length === 1, "凡例＋1 行（最初の段）を見せていない、または 2 段目を畳んでいない");
+  // 注記が 1 段だけなら何も畳まない。点を打たない理由の段落（data-gapwhy）・「良し悪しではありません」は畳まない
+  ctx.__FR2 = '<i class="full">描き方の説明。</i>';
+  ok(run("figRules(__FR2).folded.length") === 0, "1 段しかない注記を畳んでいる");
+  ctx.__FR3 = '<i class="full">一つ目。</i><i class="full" data-gapwhy="1">点の理由。</i><i class="full">これは行動量です。良し悪しではありません。</i><i class="full">色の決まり。</i>';
+  const g = run("figRules(__FR3)");
+  ok(g.shown.includes("点の理由") && g.shown.includes("良し悪し") && g.folded.length === 2, "点を打たない理由・評価でないの段落を畳んでいる、または取り決めを畳んでいない: " + g.shown);
+  // 段落の中に入れ子の <i> があっても段落の境目を取り違えない
+  ctx.__FR4 = '<i class="full">前置き <i>粒</i> 続き。</i><i class="full">色の決まり。</i>';
+  const n = run("figRules(__FR4)");
+  ok(n.shown === '<i class="full">前置き <i>粒</i> 続き。</i>' && n.folded.join("") === '<i class="full">色の決まり。</i>', "入れ子の <i> で段落を切り違えた: " + JSON.stringify(n));
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/details\.fold\.figrule > summary\{/.test(css), "「この図の決まり」の畳みの見た目が無い");
+});
+
+check("M-5 (c): foot（基準日・件数・読むときの注意）は画面の末尾の 1 箱。2 箱以上なら節の名前を添え、同じ文は 1 回", () => {
+  ok(run('foot({ today: "2026-09-18" })').startsWith('<div class="note def" data-foot="1">'), "foot の箱に印（data-foot）が無い");
+  // 記録と数字の信頼度（3 つの節がそれぞれ foot を出す。fixture 1440px で画面の途中に 3 箱あった）
+  const tr = run("oneFoot(renderTrust(Object.assign({}, __DQ, { _more: { mtgq: __MQ } })))");
+  ok((tr.match(/data-foot="1"/g) || []).length === 1, "foot が 1 箱でない: " + (tr.match(/data-foot="1"/g) || []).length);
+  const last = tr.lastIndexOf('<div class="note def" data-foot="1">');
+  ok(last >= 0 && tr.lastIndexOf("<div") === last && tr.endsWith("</p></div>"), "foot の箱が画面の末尾に無い");
+  ok(/<b>データ品質<\/b>: /.test(tr.slice(last)), "2 箱以上をまとめたのに、どの節の文かを添えていない: " + tr.slice(last));
+  // 同じ文は 1 回。末尾に置く
+  ctx.__OF2 = '<h2 class="sec mincho mid"><span class="no">甲</span>x</h2>' + run('foot({ today: "2026-09-18" })') +
+    '<p>中</p><h2 class="sec mincho mid"><span class="no">乙</span>y</h2>' + run('foot({ today: "2026-09-18" })');
+  const two = run("oneFoot(__OF2)");
+  ok((two.match(/基準日 2026-09-18/g) || []).length === 1 && two.endsWith("</p></div>") && two.indexOf("<p>中</p>") < two.indexOf("data-foot"),
+    "同じ文を 2 回書いている、または末尾に無い: " + two);
+  // 見出しは中身どおり（読むときの注意の文が無ければそう書かない）
+  ctx.__OF3 = run('foot({ today: "2026-09-18", not_counted: "予測ではありません" })') + "<p>x</p>" + run('foot({ today: "2026-09-18", n_deals: 3 })');
+  const mix = run("oneFoot(__OF3)");
+  ok(mix.includes('<span class="hd">読むときの注意と集計の基準日と件数</span>') && mix.includes("予測ではありません") && mix.includes("取引 3 件"), "まとめた箱の見出しか中身が違う: " + mix);
+  ctx.__OF4 = run('foot({ today: "2026-09-18", n_deals: 3 })') + "<p>x</p>" + run('foot({ today: "2026-09-17" }, true)');
+  ok(run("oneFoot(__OF4)").includes('<span class="hd">集計の基準日と件数</span>'), "読むときの注意の文が無いのに見出しに書いている");
+  // foot が 1 箱で末尾にある画面は変えない。foot が無ければそのまま
+  const one = run("renderPhone(__PH)");
+  ctx.__P1 = one;   /* 同じ文字列で比べる（描くたびに図の番号 data-fk が進む） */
+  ok(run("oneFoot(__P1)") === one, "foot が 1 つで末尾にある画面の中身を変えている");
+  ok(run('oneFoot("<p>a</p>")') === "<p>a</p>", "foot の無い画面を変えている");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);

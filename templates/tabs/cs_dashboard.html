@@ -356,6 +356,17 @@
               margin:0 0 2px; display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; }
   figure.fig > figcaption .hint{ font-weight:400; color:var(--ink-2); font-size:11.5px;
               letter-spacing:0; }
+  /* 図の題（figTitles が h2「図 …」を図の中へ入れたもの。M-5 の (a)）。部品の題（h2.sec.part）と同じ 15px ゴシック太字＋藍の縦棒。
+     その下の 1 行が、前の figcaption の文（何を描いたか）と hint */
+  figure.fig.titled > figcaption .figttl{ flex:1 0 100%; display:flex; align-items:center; gap:var(--space-3);
+              font-size:15px; font-weight:700; line-height:1.4; letter-spacing:.03em; margin:0 0 2px; }
+  figure.fig.titled > figcaption .figttl::before{ content:""; width:4px; height:15px; background:var(--ai); border-radius:1px; flex:none; }
+  /* KPI の札・目次から図へ飛んだとき（id と tabindex=-1 は figure に移した）。見出しと同じ藍の枠 */
+  figure.fig:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+  /* 図の注記のうち、取り決め・描き方の段落（figRules が畳んだもの）。省略した名前の全文（figfull）と同じ見え方 */
+  details.fold.figrule{ margin:var(--space-1) 0 0; }
+  details.fold.figrule > summary{ font-weight:400; font-size:11.5px; }
+  details.fold.figrule > .figlegend{ border-top:none; margin-top:var(--space-1); padding-top:0; }
   /* 数字と単位（「6.7倍」「12 件」）を行の途中で割らない（fig() の keepNum が包む） */
   figure.fig > figcaption .hint .nw{ white-space:nowrap; }
   /* 🔴 2026-09-23 実機（400px 幅）: 図が縮むだけで文字が 4〜5px になっていた。
@@ -1498,6 +1509,9 @@ function fig(caption, hint, body, legend) {
     noneNote + gapNote + shiftNote;
   /* 図の数値の一覧（段2 M-11）。読み上げ用（ul.sr）と、タップで開ける「数字で読む」の畳みに同じ一覧を出す */
   const say = figSay(body, legend);
+  /* 図の注記は「凡例＋1 行」まで。残りは「この図の決まり」に畳む（M-5 の (b)。figRules） */
+  const R = figRules(legend);
+  legend = R.shown;
   const sayHtml = say.n
     ? '<ul class="sr">' + say.li + "</ul>" +
       '<details class="fold figsay"><summary>数字で読む（' + num(say.n) + " 件）</summary><ul>" + say.li + "</ul></details>"
@@ -1514,7 +1528,41 @@ function fig(caption, hint, body, legend) {
             : `<div class="figbody">`) + `${body}</div>` + sayHtml +
     (fulls.length ? `<details class="fold figfull"><summary>省略した名前の全文（${fulls.length} 件）</summary>` +
                     `<ul>${fulls.join("")}</ul></details>` : "") +
-    (legend ? `<div class="figlegend">${legend}</div>` : "") + `</figure>`;
+    (legend ? `<div class="figlegend">${legend}</div>` : "") +
+    (R.folded.length ? `<details class="fold figrule"><summary>この図の決まり（${R.folded.length} 件）</summary>` +
+                       `<div class="figlegend">${R.folded.join("")}</div></details>` : "") + `</figure>`;
+}
+/** 図の注記（凡例の中の 1 行まるごとの段落 i.full）を、見せるものと「この図の決まり」に畳むものに分ける（M-5 の (b)）。
+    🔴 2026-09-28 診断（08 の M-5）: 図 1 つに凡例＋注記 2〜3 段で、MTG 途絶の図は図本体 270px に対して注記 260px だった。
+    上限は「凡例＋1 行」。ただし 08 の 2.4 の「畳まないもの」（母数・外した件数、「評価ではありません」、n<30 で載せない理由、
+    未確定、分母 0、いつ時点か）を言う段落は、何段でも畳まない（FIG_KEEP の語で見分ける。data-gapwhy の段落＝点を打たない理由も）。
+    どれも当たらなければ最初の 1 段を見せる。畳むのは取り決め・描き方・色の線引き（「1.5倍以上は赤」「上下に 4px ずらした」など）。
+    色の粒（凡例の項目）は畳まない */
+const FIG_KEEP = /評価ではありません|良し悪し|母数|分母|のうち|外して|外れ|除いて|除き|入っていません|入れていません|含めていません|落としていません|全 [\d,]+|件に届かない|件未満|点を打って|載せていません|出していません|未確定|途中の値|結果待ち|確定していない|中空|0 ではありません|0 で割って|0で割って|時点/;
+function figRules(legend) {
+  const s = String(legend || "");
+  const paras = [];
+  let out = "", i = 0;
+  for (;;) {
+    const at = s.indexOf('<i class="full"', i);
+    if (at < 0) { out += s.slice(i); break; }
+    /* 閉じの </i> は入れ子の <i> を数えて探す（段落の中に色の粒が入っていることがある） */
+    let k = at + 2, depth = 1;
+    while (depth > 0) {
+      const o = s.indexOf("<i", k), c = s.indexOf("</i>", k);
+      if (c < 0) { k = s.length; break; }
+      if (o >= 0 && o < c && /^<i[\s>]/.test(s.slice(o, o + 3))) { depth++; k = o + 2; } else { depth--; k = c + 4; }
+    }
+    out += s.slice(i, at) + "\u0000" + paras.length + "\u0000";
+    paras.push(s.slice(at, k));
+    i = k;
+  }
+  const text = (p) => p.replace(/<[^>]*>/g, "");
+  const keep = paras.map((p) => /data-gapwhy="1"|data-keep="1"/.test(p) || FIG_KEEP.test(text(p)));
+  if (paras.length && !keep.some(Boolean)) keep[0] = true;
+  const folded = paras.filter((p, n) => !keep[n]);
+  const shown = out.replace(/\u0000(\d+)\u0000/g, (m0, n) => (keep[+n] ? paras[+n] : ""));
+  return { shown, folded };
 }
 /* 図の数値を読み上げとタップに届く形にする（段2 M-11）。
    🔴 図の部品（svgBarH / svgLine / svgStack / svgBoxH …13 種）は値を <title>（マウスの吹き出し）にしか書かず、SVG は
@@ -2941,13 +2989,11 @@ function kpi(label, big, fine, kind, act) {
 }
 /* id: 見出しに id を付ける（KPI から表へ飛ぶ先。S-2）。付けたときは focus() で止まれるよう tabindex=-1 も付ける。
    M-5: 図・表（部品の題）は class part（15px ゴシック太字）、問い・案件（画面の題）は mincho（24px 明朝）。CSS の h2.sec.part
-   🔴 M-5 の未完了（2026-09-29 検証の指摘。2fd289e は M-5 と題したが、入ったのは「見出しの階層」と「頭の決まりごとの箱を畳む」だけ）:
-     (a) 図の h2（sec("図", …)）をやめて figcaption を図の題にする — 未着手。44 か所の呼び出しで h2 と figcaption が別の文
-         （例: 立ち上がりの「図 いま、どのフェーズにいるか」＋「契約長に対する割合で見る」＋hint の 3 段）なので、画面ごとに
-         題を 1 つに決め直す必要がある。09 の組み替え（17→8＋3 画面）で render を作り直すときに合わせてやる
-     (b) 図の注記を「凡例＋1 行」までにし、残りを「この図の決まり」に畳む — 未着手。何を畳まないか（n<30 の理由・未確定・外した件数）を
-         図ごとに決める必要がある（08 の 2.4）。fig() は表と図の担当（M-11）も触るので、統合の後にやる
-     (c) foot() を画面末尾の 1 箱にまとめる — 未着手（18 か所） */
+   M-5 の残り（2026-09-29 磨き込みで入れた。2fd289e で入ったのは「見出しの階層」と「頭の決まりごとの箱を畳む」だけだった）:
+     (a) 図の h2（sec("図", …)）の直後に図が 1 つだけ続くときは、画面に流す前に h2 を図の中の題（figcaption の .figttl）にする
+         （finishView → figTitles。呼び出し 41 か所は書き換えない。図が 2 つ以上続く・文を挟む見出しはまとめの題なので h2 のまま）
+     (b) 図の注記は「凡例＋1 行」まで。残りは「この図の決まり」に畳む（fig() → figRules。畳まないものは FIG_KEEP、08 の 2.4）
+     (c) foot() は画面末尾の 1 箱（finishView → oneFoot） */
 function sec(no, title, id) {
   const part = no !== "問い" && no !== "案件";
   return '<h2 class="sec ' + (part ? "part" : "mincho") + '"' + (id ? ' id="' + esc(id) + '" tabindex="-1"' : "") +
@@ -3147,6 +3193,9 @@ function scrollName(w) {
     let e = start;
     for (let i = 0; e && i < 8; i++) {
       e = e.previousElementSibling;
+      /* 図の題を図の中に入れた後（figTitles）は、見出しが図の中（.figttl）にある。「<題> の表」にする（h2「図 …」と同じ読み方） */
+      const ft = e && e.tagName === "FIGURE" && e.querySelector ? e.querySelector(".figttl") : null;
+      if (ft) return ((ft.textContent || "").replace(/\s+/g, " ").trim() + " の表").slice(0, 60);
       if (!e || !/^H[23]$/.test(e.tagName || "")) continue;
       const parts = e.childNodes ? [...e.childNodes].map((n) => (n.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean) : [];
       const name = parts[0] === "図" && parts.length > 1 ? parts.slice(1).join(" ") + " の表"
@@ -3860,11 +3909,78 @@ function foot(meta, said, counts) {
   const cnt = counts != null ? counts
     : (meta.n_deals ? "取引 " + num(meta.n_deals) + " 件" : "") +
       (meta.n_active ? "（稼働中 " + num(meta.n_active) + " 件）" : "");
-  return '<div class="note def"><span class="hd">' +
+  /* data-foot: 画面の末尾の 1 箱にまとめる印（oneFoot。M-5 の (c)） */
+  return '<div class="note def" data-foot="1"><span class="hd">' +
     (nc ? "読むときの注意" : cnt ? "集計の基準日と件数" : "集計の基準日") + "</span><p>" +
     esc(nc) +
     (meta.today ? (nc ? "<br>" : "") + "基準日 " + esc(meta.today) : "") +
     (cnt ? "　" + cnt : "") + "</p></div>";
+}
+
+/* ---------------------------------------------------------------- 描いた画面の仕上げ（M-5 の残り、2026-09-29 磨き込み）
+   画面の描画（v.render）の後、本文に流す前に 1 回だけ通す（paintFigs に渡す 3 か所）。描画関数の中身は変えない
+   （3 チームが同じ描画関数を触るので、呼び出し 41 か所を書き換えない。描画関数を直接呼ぶ見張りは今までの形のまま通る）。
+   (a) figTitles: 図の見出し（h2「図 …」）と figcaption の 2 段の題を、図の中の 1 つの題にする
+   (c) oneFoot: foot() の箱（基準日・件数・読むときの注意）を画面の末尾の 1 箱にまとめる
+   (b) 図の注記の上限は fig() の中（figRules）でやる */
+function finishView(html) {
+  return oneFoot(figTitles(html));
+}
+/** (a) 図の見出し（sec("図", 題, id)）のすぐ後ろに図（fig()）が 1 つだけ続くとき、見出しを図の題（figcaption の頭の .figttl）にする。
+    🔴 2026-09-28 診断（08 の M-5）: 図 1 つに h2 の題＋figcaption＋hint の 3 段で、題が 2 つあった。h2 の文（問いの形の題）を題にし、
+       前の figcaption の文（何を描いたか）は題の下の 1 行（hint と同じ行）に下げる。同じ文なら 1 つにする。
+    見出しとしての働きは残す（role=heading aria-level=2。読み上げの見出しの一覧から消さない）。id と tabindex は figure に移す
+    （KPI の札・目次の行き先。jumpTo が focus() で止まる）。
+    見出しの後ろに図が 2 つ以上続く（継続回数ごとの成果のばらつき＝3 枚、本部アプローチの小さな図の並び）・図でないものが続くときは
+    見出しがまとめの題なので、そのまま残す */
+function figTitles(html) {
+  const s = String(html == null ? "" : html);
+  const H = /<h2 class="sec part"(?: id="([^"]*)" tabindex="-1")?><span class="no">図<\/span>([^<]*)<\/h2><figure class="fig"><figcaption>/g;
+  const FIG = '<figure class="fig">';
+  let out = "", last = 0, m;
+  while ((m = H.exec(s))) {
+    const after = m.index + m[0].length;
+    const end = s.indexOf("</figure>", after);
+    if (end < 0 || s.startsWith(FIG, end + "</figure>".length)) continue;   /* 図が続く＝まとめの題 */
+    const title = m[2];
+    const hintAt = s.indexOf('<span class="hint">', after), capEnd = s.indexOf("</figcaption>", after);
+    const cut = hintAt >= 0 && hintAt < capEnd ? hintAt : capEnd;
+    const cap = s.slice(after, cut);
+    out += s.slice(last, m.index) + '<figure class="fig titled"' + (m[1] ? ' id="' + m[1] + '" tabindex="-1"' : "") + "><figcaption>" +
+      '<span class="figttl" role="heading" aria-level="2">' + title + "</span>" + (cap.trim() === title.trim() ? "" : cap);
+    last = cut;
+  }
+  return out + s.slice(last);
+}
+/** (c) foot() の箱（data-foot）を全部抜き出し、画面の末尾に 1 箱で置く。
+    🔴 2026-09-29 実測（fixture 1440px）: 記録と数字の信頼度は 3 つの節がそれぞれ foot を出し、「集計の基準日と件数」「読むときの注意」
+       「集計の基準日」が画面の途中に 3 箱あった。箱が 2 つ以上なら、どの節の文かを節の名前（partSec の左の小さな字）で添える。
+       同じ文は 1 回だけ書く。文は削らない（08 の 2.4: 基準日・件数・読むときの注意は畳まない。箱は開いたまま） */
+function oneFoot(html) {
+  const s = String(html == null ? "" : html);
+  const FOOT = /<div class="note def" data-foot="1"><span class="hd">([^<]*)<\/span><p>([\s\S]*?)<\/p><\/div>/g;
+  const parts = [];
+  let rest = "", last = 0, m;
+  while ((m = FOOT.exec(s))) {
+    /* 節の名前: この箱より前で最後の節の見出し（h2.sec.mincho.mid の .no） */
+    const before = s.slice(0, m.index);
+    const secAt = before.lastIndexOf('<h2 class="sec mincho mid"');
+    const nm = secAt >= 0 ? (before.slice(secAt).match(/<span class="no">([^<]*)<\/span>/) || [])[1] : "";
+    parts.push({ hd: m[1], body: m[2], sec: nm || "" });
+    rest += s.slice(last, m.index);
+    last = m.index + m[0].length;
+  }
+  if (!parts.length) return s;
+  rest += s.slice(last);
+  const uniq = [];
+  parts.forEach((p) => { if (!uniq.some((u) => u.body === p.body)) uniq.push(p); });
+  const hds = Array.from(new Set(uniq.map((p) => p.hd)));
+  /* 見出しは中身どおりに（読むときの注意の文が無いのに「読むときの注意」と書かない） */
+  const base = hds.indexOf("集計の基準日と件数") >= 0 ? "集計の基準日と件数" : "集計の基準日";
+  const hd = hds.length === 1 ? hds[0] : hds.indexOf("読むときの注意") >= 0 ? "読むときの注意と" + base : base;
+  const body = uniq.length === 1 ? uniq[0].body
+    : uniq.map((p) => (p.sec ? "<b>" + p.sec + "</b>: " : "") + p.body).join("<br>");
+  return rest + '<div class="note def" data-foot="1"><span class="hd">' + hd + "</span><p>" + body + "</p></div>";
 }
 
 /* ================================================================ 成果と継続（09 の 7、2026-09-29 組み替え）
@@ -6149,7 +6265,7 @@ function redrawMain(D, keep) {
      wireHq が描き直すときに開き直す（幅の描き直しのときだけ。絞り込みでは覚えない） */
   const hq = keep ? document.getElementById("hq-box") : null;
   hqKeep = hq && hq.querySelectorAll ? openDetails(hq) : null;
-  paintFigs(main, () => ctlbar(v, D) + v.render(D), keep);   /* 図の幅を枠に合わせる（2回描き） */
+  paintFigs(main, () => finishView(ctlbar(v, D) + v.render(D)), keep);   /* 図の幅を枠に合わせる（2回描き） */
   wire(v);
   refocus(fk);
   syncUrl();   /* 絞り込み・並び替え・担当・拠点の変更を URL に写す（M-2。履歴は積まない） */
@@ -8733,7 +8849,7 @@ async function load(refresh, opts) {
   /* API を持たない項目（定義と検証）はその場で描く。
      母集団の注記だけは直前に読んだ応答から出す（画面共通の値なので同じ数字になる） */
   if (!v.path) {
-    paintFigs(main, () => ctlbar(v, lastPayload || {}) + v.render());
+    paintFigs(main, () => finishView(ctlbar(v, lastPayload || {}) + v.render()));
     wire(v);
     settle(false);
     return;
@@ -8760,7 +8876,7 @@ async function load(refresh, opts) {
     /* HubSpot の portal_id は全 API の meta に同じ値で載る（routes.rs freshen）。最初の応答で覚える */
     if (body.meta && body.meta.hubspot_portal_id) hsPortal = String(body.meta.hubspot_portal_id);
     setFresh(body.meta || {});
-    paintFigs(main, () => ctlbar(v, body) + v.render(body));   /* 図の幅を枠に合わせる（2回描き） */
+    paintFigs(main, () => finishView(ctlbar(v, body) + v.render(body)));   /* 図の幅を枠に合わせる（2回描き） */
     wire(v);
     loaded[cur.menu + "/" + cur.view] = true;
     settle(fromCache);
