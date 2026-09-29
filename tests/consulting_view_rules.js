@@ -5375,6 +5375,26 @@ check("磨き込み(2): 400px の案件一覧の見方のボタンは 2 列（4 
   ok((bar.match(/<button /g) || []).length === 4, "見方のボタンが 4 つ出ていない: " + bar);
 });
 
+// 🔴 並べ替えられる見出し（sortTh）は向きの印と読み上げの文が並べ替えのたびに変わる。id の無い表でそれを印に含めていたので、
+//    並べ替えた後の描き直しで「残り N 行を出す」で開いた表が先頭 20 行に戻った（id のある案件一覧だけは戻らなかった）
+check("磨き込み(3): id の無い並べ替えられる表も、並べ替えの後に開いたまま（rcKey は向きの印・読み上げの文を見ない）", () => {
+  const cols = [{ t: "名前", k: "name" }, { t: "値", k: "v", n: 1 }];
+  ctx.__RK = Array.from({ length: 40 }, (_, i) => ["行" + i, i]);
+  const tbl = (key, asc) => "<table><thead><tr>" + cols.map((c) => run("sortTh(" + JSON.stringify(c) + ", " + JSON.stringify(key) + ", " + asc + ")")).join("") +
+    "</tr></thead><tbody>" + ctx.__RK.map((r) => "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td></tr>").join("") + "</tbody></table>";
+  run('rcOpen.clear(); cur = { menu: "research", view: "team" };');
+  ctx.__T1 = tbl("name", true); ctx.__T2 = tbl("v", false); ctx.__T3 = tbl("name", false);
+  const k1 = run("rcKey(__T1)"), k2 = run("rcKey(__T2)"), k3 = run("rcKey(__T3)");
+  ok(k1 === k2 && k1 === k3, "並べ替えの列・向きで表の印が変わる（押して開いた表が並べ替えで先頭 20 行に戻る）: " + [k1, k2, k3].join(" / "));
+  ok(/名前/.test(k1) && /値/.test(k1), "表の印に見出しの文字が入っていない（別の表と見分けられない）: " + k1);
+  ctx.__T4 = "<table><thead><tr><th>別</th><th>表</th></tr></thead><tbody>" + ctx.__RK.map((r) => "<tr><td>" + r[0] + "</td><td>1</td></tr>").join("") + "</tbody></table>";
+  ok(run("rcKey(__T4)") !== k1, "見出しの違う別の表と同じ印になっている");
+  // 押す → 別の列で並べ替えて描き直す → 開いたまま
+  run("rcOpen.add(rcKey(__T1))");
+  ok(/<div class="scroll-wrap rc-cut rc-open"/.test(run("scroll(__T2, 640)")), "並べ替えた後の描き直しで先頭 20 行に戻る");
+  run("rcOpen.clear()");
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
