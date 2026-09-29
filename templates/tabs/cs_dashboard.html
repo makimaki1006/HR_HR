@@ -5503,7 +5503,8 @@ function flagFig(D, subset) {
 /* ---------------------------------------------------------------- 3 今日動く先 */
 /* 今日動く先で選んだ担当（D-1a、2026-09-28 藤巻さんの判断）。空は全員。
    端末（localStorage）に覚える。覚えられない端末（私的モード・保存の禁止）では全員表示に戻るだけで、画面は動く。
-   🔴 サーバには送らない。担当の絞り込みは画面の中だけ（M-2 で URL に載せるまでは端末が覚える） */
+   🔴 サーバには送らない。担当の絞り込みは画面の中だけ。URL（?c=）にも載る（M-2）。URL の c ＞ 端末の記憶で、
+      URL から入れた担当では端末の記憶を書き換えない（URL_STATE.today.c） */
 const TODAY_OWNER_KEY = "cs.today.consultant";
 function loadTodayConsultant() {
   try { return String(localStorage.getItem(TODAY_OWNER_KEY) || ""); } catch (_) { return ""; }
@@ -5514,6 +5515,11 @@ function saveTodayConsultant(v) {
   } catch (_) { /* 覚えられない端末。全員表示で動く（todayOwnerBar が「覚えられません」と出す） */ }
 }
 let todayConsultant = loadTodayConsultant();
+/* いまの担当が URL（?c=）から入ったものか。todayOwnerBar が「端末の記憶とずれている理由」を書き分けるのに使う。
+   🔴 前はずれていれば一律「この端末では覚えられません。開き直すと全員に戻ります」と出していた。URL から入れたときは
+      端末の記憶をわざと書き換えないのでずれるのが正しく、保存できる端末でも・同じ URL を開き直しても同じ担当なのに
+      事実と違う文が出た（2026-09-29 検証 Playwright: #deal/today?c=… を再読込、localStorage は書ける端末） */
+let todayFromUrl = false;
 /* 「今週始まった契約」の畳みを開いているか。描き直し（並び替え・担当の切り替え）で閉じないように覚える */
 let todayStartedOpen = false;
 /** 「絞った条件」の文。サーバの文（routes.rs filter_rule）には画面名を入れず、全件への行き先はここで
@@ -5560,14 +5566,18 @@ function todayOwnerBar(D0) {
   if (todayConsultant && names.indexOf(todayConsultant) < 0) names.push(todayConsultant);
   names.sort((a, b) => a.localeCompare(b, "ja"));
   const opt = (v, t) => '<option value="' + esc(v) + '"' + (todayConsultant === v ? " selected" : "") + ">" + esc(t) + "</option>";
-  /* 覚えられたかは読み返して確かめる（書けたつもりで「覚えます」と言わない） */
+  /* 覚えられたかは読み返して確かめる（書けたつもりで「覚えます」と言わない）。URL から入った担当は端末に書いていないので、
+     ずれていても「覚えられない」ではない（todayFromUrl の注記） */
   const kept = !todayConsultant || loadTodayConsultant() === todayConsultant;
+  const fromUrl = !kept && todayFromUrl;
   return '<div class="ctlbar" id="today-filter"><label class="act">担当 <select id="td-consultant">' +
     opt("", "全員") + names.map((n) => opt(n, n)).join("") + "</select></label>" +
     '<span class="muted small">' +
     (todayConsultant
       ? "この担当の候補を全件出しています" +
-        (kept ? "（この端末が覚えます。次に開いても同じ担当）" : "（この端末では覚えられません。開き直すと全員に戻ります）")
+        (kept ? "（この端末が覚えます。次に開いても同じ担当）"
+          : fromUrl ? "（リンクの担当で開いています。この端末が覚えている担当は変えていません。欄で選び直すと、この端末が覚えます）"
+          : "（この端末では覚えられません。開き直すと全員に戻ります）")
       : "全社の上位 " + num(D.meta.n_shown) + " 件。担当を選ぶと、その人の候補を全件出します") +
     "</span></div>";
 }
@@ -5929,6 +5939,7 @@ function wireToday() {
   const sel = document.getElementById("td-consultant");
   if (sel) sel.onchange = () => {
     todayConsultant = sel.value;
+    todayFromUrl = false;
     saveTodayConsultant(sel.value);
     redrawMain(lastPayload);
   };
@@ -6858,14 +6869,19 @@ const BOARD_URL_STATE = {
   q: boardState("q"),
   sort: sortState(() => boardSort, (s) => { boardSort = s; }, BOARD_COLS, { key: "n_flags", asc: false }),
 };
-/* 法人は 2 画面（継続を追いかける・法人番号で見る）で共通（isCustView）。URL から入れたときは「既定で開いています」の注記を外す */
-const HOUJIN_URL_STATE = { kind: "ctx", get: () => customerHoujin,
+/* 法人は 2 画面（継続を追いかける・法人番号で見る）で共通（isCustView）。URL から入れたときは「既定で開いています」の注記を外す。
+   🔴 既定で開いた法人（customerReason が立っている）は URL に載せない（既定の値は載せない、と同じ）。前は初回の描画の後に
+      syncUrl が ?houjin=… と書き、戻る・再読込でその値が「人が選んだ法人」として入って注記が消えていた
+      （2026-09-29 検証 Playwright 1440px: 注記の位置 初回 98948 → 戻る -1・再読込 -1。選んでいない法人を選んだように見せる）。
+      載せなければ、戻る・再読込は URL に法人が無い ＝ reset → custIndex がもう一度既定を開き、注記も出る */
+const HOUJIN_URL_STATE = { kind: "ctx", get: () => (customerReason ? "" : customerHoujin),
   set: (v) => { customerHoujin = v; customerReason = ""; }, reset: () => { customerHoujin = ""; customerReason = ""; } };
 const URL_STATE = {
   today: {
     /* URL の c ＞ 端末の記憶。URL に無いときだけ端末の記憶へ戻す（reset）。URL から入れても端末の記憶は書き換えない
        （書き換えるのは人が欄で選んだとき＝wireToday。貼られた「あなたの分」のリンクを開いた人の端末を、他人の担当で上書きしない） */
-    c: { kind: "ctx", get: () => todayConsultant, set: (v) => { todayConsultant = v; }, reset: () => { todayConsultant = loadTodayConsultant(); } },
+    c: { kind: "ctx", get: () => todayConsultant, set: (v) => { todayConsultant = v; todayFromUrl = true; },
+         reset: () => { todayConsultant = loadTodayConsultant(); todayFromUrl = false; } },
     sort: sortState(() => todaySort["today-tbl"], (s) => { todaySort["today-tbl"] = s; }, TODAY_COLS, { key: "n_flags", asc: false }),
   },
   board: BOARD_URL_STATE,
@@ -7117,6 +7133,12 @@ let loadSeq = 0;
 /* 取りに行っている fetch の打ち切り（M-7）。新しい要求を出すときと、60 秒で打ち切る（前は打ち切りが無く、待ち続けた） */
 let loadCtl = null;
 const LOAD_TIMEOUT_MS = 60000;
+/* 「もう一度読み込む」（待ちの 30 秒・失敗の枠）で取り直すときの opts。描けたら本文へフォーカスを移す（M-6）。
+   🔴 前は load(refresh) と opts なしで呼んでいた。押した釦は消える（失敗の枠は display:none、待ちの枠は骨組みで上書き）ので
+      フォーカスが body に落ち、focusMain も立たないので描けた後も body のまま、次の Tab は側柱の先頭からだった
+      （2026-09-29 検証 Playwright: #cs-retry を Enter → 描けた後 activeElement = BODY、次の Tab は data-v="team"）。
+      pos は渡さない（同じ画面の取り直しとして、いまの位置を保つ） */
+const RETRY_OPTS = { focusMain: true };
 /* 待ち時間の案内の予約（M-7）。3 秒で「20 秒ほどかかります」、30 秒で「もう一度読み込む」。描けたら消す */
 let waitTimers = [];
 function clearWait() { waitTimers.forEach((t) => clearTimeout(t)); waitTimers = []; }
@@ -7136,7 +7158,7 @@ function startWait(my, refresh) {
     if (e) e.innerHTML += '<span class="waitmore">30 秒たっても届いていません。' +
       '<button type="button" class="act" id="cs-retry-wait">もう一度読み込む</button></span>';
     const b = document.getElementById("cs-retry-wait");
-    if (b) b.onclick = () => load(refresh);
+    if (b) b.onclick = () => load(refresh, RETRY_OPTS);
     say("30 秒たっても届いていません。「もう一度読み込む」を押せます");
   });
 }
@@ -7261,7 +7283,7 @@ async function load(refresh, opts) {
     main.style.minHeight = "";
     main.innerHTML = "";
     say(v.label + " を読み込めませんでした");
-    showError(e, () => load(refresh));
+    showError(e, () => load(refresh, RETRY_OPTS));
   }
 }
 
