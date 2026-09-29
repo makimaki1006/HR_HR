@@ -184,7 +184,13 @@ pub(super) fn render_section_executive_summary(
             match &agg.enhanced_stats {
                 Some(s) if s.count > 0 => {
                     if agg.is_hourly {
-                        format!("時給 {} 円 (CSV 全件)", format_number(s.median))
+                        // 2026-09-29: enhanced_stats.median は月給換算値のため時給表示に使わない
+                        match super::salary_summary::SalaryHeadline::from_aggregation(agg)
+                            .hourly_native_median_yen
+                        {
+                            Some(h) => format!("時給 {} 円 (時給求人の下限)", format_number(h)),
+                            None => "算出不能 (時給求人なし)".to_string(),
+                        }
                     } else {
                         let n = super::salary_summary::normalize_monthly_salary(s.median);
                         let suffix = if n.was_normalized {
