@@ -220,7 +220,7 @@ W2 以降は担当チームを分けて並行で進める(2026-09-29 の体制�
 | **W3** | 職種辞典、資格辞書、キーワード需要、ガイド | wave-a | session フィルタを読まない画面なので、フィルタ共有の問題を避けつつ「React 画面をナビに載せる」経路を先に作れる | Shell v1 と、旧シェルとの相互リンク |
 | **W4** | 地域分析、企業検索、採用市場 | wave-b | HTML partial を JSON にする作業の中心。採用市場は既存の E2E 3 本を旧新比較に使える | フィルタの受け渡し(§2.2)、DataTable / KpiCard / Note、§2.8 の手順 |
 | **W5** | 地図 | wave-c | 技術リスクがいちばん大きい(Leaflet のライフサイクル、元ソースの無い minified JS 25KB) | LeafletMap と EChart のラッパ |
-| **W6** | 媒体分析の画面部分 | wave-c(W5 の後) | POST・multipart・ジョブ待ちが要る。survey-team が同じ画面に競合調査を追加実装中なので、その作業と時期を合わせる(team-lead の指示で「Phase B の後」) | client の POST / upload / pollJob |
+| **W6** | 媒体分析の画面部分 | wave-c(W5 の後) | POST・multipart・ジョブ待ちが要る。survey-team が同じ画面に競合調査を追加実装中なので、その作業と時期を合わせる(survey-team の Indeed 競合調査 Phase B の後。Phase B は、媒体分析のアップロード画面に職種 `norm_title` の選択欄を足し、Indeed の市場データ `insight_*` を §05B に結合する作業) | client の POST / upload / pollJob |
 | **W7** | コンサルKPI | 未定(後で割り当て) | 規模が XL で、UI/UX 改修が進行中。**着手条件は「改修が落ち着いた合意」かつ「`cs_dashboard.html` に 2 週間変更が無い」**(F-3) | Shell、DataTable、KpiCard |
 | **W8** | 架電クオリティ(全 16 タブ。未実装の 14 タブは雛形のまま移して `hidden`)、consult の画面 2 つ、admin 4、my 2、求人票作成 | wave-d | 利用者が限られる画面と、JSON API が既にそろっている画面(架電・求人票作成) | POST client。OIDC の後なら権限表示も |
 | **Wh** | 非表示 8 タブ(市場概況・地域カルテ・詳細分析・総合診断・トレンド・都道府県比較・条件診断・求人検索)、dead route 4、proposal-mock | wave-h | 削除せず React に移し、`hidden` で隠す(いつ復活させるか分からないため)。詳細分析(XL)と総合診断(L)を含む | Shell の `hidden` フラグ、§2.8 の手順、フィルタの受け渡し |
