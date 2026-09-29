@@ -1529,16 +1529,65 @@ function fig(caption, hint, body, legend) {
     (fulls.length ? `<details class="fold figfull"><summary>省略した名前の全文（${fulls.length} 件）</summary>` +
                     `<ul>${fulls.join("")}</ul></details>` : "") +
     (legend ? `<div class="figlegend">${legend}</div>` : "") +
-    (R.folded.length ? `<details class="fold figrule"><summary>この図の決まり（${R.folded.length} 件）</summary>` +
+    (R.folded.length ? `<details class="fold figrule"><summary>この図の決まり（${R.n} 件）</summary>` +
                        `<div class="figlegend">${R.folded.join("")}</div></details>` : "") + `</figure>`;
 }
 /** 図の注記（凡例の中の 1 行まるごとの段落 i.full）を、見せるものと「この図の決まり」に畳むものに分ける（M-5 の (b)）。
     🔴 2026-09-28 診断（08 の M-5）: 図 1 つに凡例＋注記 2〜3 段で、MTG 途絶の図は図本体 270px に対して注記 260px だった。
     上限は「凡例＋1 行」。ただし 08 の 2.4 の「畳まないもの」（母数・外した件数、「評価ではありません」、n<30 で載せない理由、
-    未確定、分母 0、いつ時点か）を言う段落は、何段でも畳まない（FIG_KEEP の語で見分ける。data-gapwhy の段落＝点を打たない理由も）。
-    どれも当たらなければ最初の 1 段を見せる。畳むのは取り決め・描き方・色の線引き（「1.5倍以上は赤」「上下に 4px ずらした」など）。
-    色の粒（凡例の項目）は畳まない */
-const FIG_KEEP = /評価ではありません|良し悪し|母数|分母|のうち|外して|外れ|除いて|除き|入っていません|入れていません|含めていません|落としていません|全 [\d,]+|件に届かない|件未満|点を打って|載せていません|出していません|未確定|途中の値|結果待ち|確定していない|中空|0 ではありません|0 で割って|0で割って|時点/;
+    未確定、分母 0、いつ時点か）は畳まない。色の粒（凡例の項目）も畳まない。
+    🔴 2026-09-30 検証: 前は段落ごとに見分けていて、段落に FIG_KEEP の語が 1 つでも当たると段落まるごと残した（語も「のうち」「外れ」
+       「時点」など広かった）。fixture 400px の 47 図で畳まれたのは 4 段だけで、月次の継続率は図本体 221px に対して注記 665px
+       （点を打たなかった 12 か月の率と件数の列挙、「…だからです」の理由まで見えたまま）、目標に対する進捗は本体 48px に対して 325px のままだった。
+    いまは文（句点「。」。括弧とタグの中の句点では切らない）ごとに見分ける。FIG_KEEP に当たる文だけ見せ、ほかの文は畳む。
+    FIG_KEEP は括弧の外の文字で見る（括弧の中は補足・列挙。「（n=5。継続 1・…・結果待ち 105）」のような月ごとの列挙が、
+    括弧の中の「結果待ち」で残っていた）。
+    どの文も当たらない図は、最初の段落を見せる（凡例＋1 行）。点を打たない理由の段落（data-gapwhy）・data-keep の段落はまるごと見せる。
+    読み違いを防ぐ注意（色の意味「1.5倍以上は赤」、Zoom の名前の並び）も見せる（色だけで伝えない・別人と取り違えない）。
+    中身の空の段落（c.note が空の <i class="full"></i>）は数えない（中身の無い「この図の決まり（1 件）」が出ていた） */
+const FIG_KEEP = new RegExp([
+  /* 評価ではありません */ "評価ではありません", "良し悪し", "＝良い、ではありません", "行動量です", "とは読めません", "とは言えません", "ではなく",
+  /* 母数・外した件数 */ "母数", "分母", "n は", "全 [0-9,]+", "全件", "だけ出しています", "だけです", "外して", "除いて", "除き",
+  "入っていません", "入れていません", "含めていません", "混ぜていません", "落としていません", "載せていません", "まとめていません",
+  /* n<30 */ "件に届かない", "件未満", "点を打っていません",
+  /* 未確定・鮮度 */ "未確定", "途中の値", "時点までの", "結果待ち", "確定していない", "確定しておらず", "中空", "打ち切り",
+  /* 分母 0 */ "0 ではありません", "0 で割って", "0で割って", "で割っていません", "率が出せない", "出せません", "出していません",
+  /* 代表値の数字（「　中央値（稼働中）0.0%」）は説明ではないので畳まない */ "中央値",
+  /* 事実と推定・読み違い */ "推定", "赤で", "緋", "並びと違う", "並びが違う"].join("|"));
+/** 段落の中身を文に切る。句点「。」で切るが、括弧（（）・()）の中とタグの中（入れ子の <i> の色の粒など）では切らない */
+function figSentences(inner) {
+  const out = [];
+  let depth = 0, paren = 0, start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === "<") {
+      const e = inner.indexOf(">", i);
+      if (e < 0) break;
+      const tag = inner.slice(i, e + 1);
+      if (tag[1] === "/") depth--;
+      else if (!/\/>$/.test(tag) && !/^<(br|wbr|img|hr)[\s>]/i.test(tag)) depth++;
+      i = e;
+    } else if (ch === "（" || ch === "(") paren++;
+    else if ((ch === "）" || ch === ")") && paren > 0) paren--;
+    else if (ch === "。" && paren === 0) {
+      /* 文まるごとを太字にした「<b>…。</b>」は、句点の直後の閉じタグまでを 1 文にする（月次の継続率の「確定値と同じには
+         読まないでください。」が次の文とつながり、理由の文まで見えたままだった） */
+      let j = i + 1, d = depth;
+      while (d > 0 && inner.startsWith("</", j)) { const e = inner.indexOf(">", j); if (e < 0) break; j = e + 1; d--; }
+      if (d === 0) { out.push(inner.slice(start, j)); start = j; depth = 0; i = j - 1; }
+    }
+  }
+  const rest = inner.slice(start);
+  if (rest.replace(/<[^>]*>/g, "").trim() || !out.length) out.push(rest); else out[out.length - 1] += rest;
+  return out;
+}
+/** 文の地の文（タグと括弧の中を除いた文字）。FIG_KEEP はこれで見る */
+function figPlain(h) {
+  let t = String(h).replace(/<[^>]*>/g, ""), prev;
+  do { prev = t; t = t.replace(/（[^（）]*）|\([^()]*\)/g, ""); } while (t !== prev);
+  return t;
+}
+/** 返り値: { shown: 凡例（色の粒＋見せる文）, folded: 畳む段落（i.full）の並び, n: 畳んだ文の数 } */
 function figRules(legend) {
   const s = String(legend || "");
   const paras = [];
@@ -1557,12 +1606,32 @@ function figRules(legend) {
     paras.push(s.slice(at, k));
     i = k;
   }
-  const text = (p) => p.replace(/<[^>]*>/g, "");
-  const keep = paras.map((p) => /data-gapwhy="1"|data-keep="1"/.test(p) || FIG_KEEP.test(text(p)));
-  if (paras.length && !keep.some(Boolean)) keep[0] = true;
-  const folded = paras.filter((p, n) => !keep[n]);
-  const shown = out.replace(/\u0000(\d+)\u0000/g, (m0, n) => (keep[+n] ? paras[+n] : ""));
-  return { shown, folded };
+  /* 段落ごと: open（<i class="full" …>）・文の並び・文ごとに見せるか */
+  const P = paras.map((p) => {
+    const ot = p.slice(0, p.indexOf(">") + 1);
+    const inner = p.slice(ot.length, p.endsWith("</i>") ? -4 : p.length);
+    const empty = !inner.replace(/<[^>]*>/g, "").trim();
+    const whole = /data-gapwhy="1"|data-keep="1"/.test(ot);
+    const sen = empty ? [] : figSentences(inner);
+    /* 在りかを指すだけの文（「…の件数は、図の下の「数字で読む」にあります。」）は事実ではないので畳む。
+       語（結果待ち）が当たって残り、月次の継続率で 2 行を使っていた */
+    return { p, ot, empty, sen, keep: sen.map((x) => whole || (FIG_KEEP.test(figPlain(x)) && !/にあります。?\s*$/.test(figPlain(x)))) };
+  });
+  const live = P.filter((q) => !q.empty);
+  if (live.length && !live.some((q) => q.keep.some(Boolean))) live[0].keep = live[0].sen.map(() => true);
+  const folded = [];
+  let n = 0;
+  const shownOf = P.map((q) => {
+    if (q.empty) return "";
+    const off = q.sen.filter((x, j) => !q.keep[j]);
+    if (!off.length) return q.p;
+    n += off.length;
+    folded.push(q.ot + off.join("") + "</i>");
+    const on = q.sen.filter((x, j) => q.keep[j]);
+    return on.length ? q.ot + on.join("") + "</i>" : "";
+  });
+  const shown = out.replace(/\u0000(\d+)\u0000/g, (m0, k) => shownOf[+k]);
+  return { shown, folded, n };
 }
 /* 図の数値を読み上げとタップに届く形にする（段2 M-11）。
    🔴 図の部品（svgBarH / svgLine / svgStack / svgBoxH …13 種）は値を <title>（マウスの吹き出し）にしか書かず、SVG は
