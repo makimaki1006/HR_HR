@@ -1775,11 +1775,63 @@ fn リストの在庫は内訳とその他で全体に一致する() {
     // 2026-09-29 実測（HubSpot を読み取りで数えた値）。上の検算とは別に、
     // その他が本当に出ていること（0 に潰れていないこと）を実数で押さえる。
     let rikuroji = &lists[0];
-    assert_eq!(rikuroji["total"]["すべて"].as_i64(), Some(164_179));
-    assert_eq!(rikuroji["other"]["すべて"].as_i64(), Some(30_787));
+    assert_eq!(rikuroji["total"]["すべて"].as_i64(), Some(164_159));
+    assert_eq!(rikuroji["other"]["すべて"].as_i64(), Some(30_784));
     let oita = &lists[1];
-    assert_eq!(oita["total"]["すべて"].as_i64(), Some(96_104));
-    assert_eq!(oita["other"]["すべて"].as_i64(), Some(29_314));
+    assert_eq!(oita["total"]["すべて"].as_i64(), Some(96_105));
+    assert_eq!(oita["other"]["すべて"].as_i64(), Some(6_548));
+}
+
+#[test]
+fn 担当者名ありも内訳とその他で全体に一致する() {
+    let sheets = fixture_sheets();
+    let body = build_payload(&sheets, fixture_day());
+    let ls = list_stock(&body);
+    assert_eq!(ls["has_named"], true);
+    let named = |list: &str, kind: &str, band: &str| -> i64 {
+        sum_col(&sheets.list_stock, "担当者名あり", |r| {
+            sheets.list_stock.get(r, "リスト") == list
+                && sheets.list_stock.get(r, "区分") == kind
+                && sheets.list_stock.get(r, "企業人数") == band
+        })
+    };
+    for l in ls["lists"].as_array().unwrap() {
+        let name = l["name"].as_str().unwrap();
+        for band in ["すべて", "未入力", "50〜99人"] {
+            let total = l["total_named"][band].as_i64().unwrap();
+            assert_eq!(total, named(name, "合計", band));
+            let parts: i64 = l["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|g| g["named"][band].as_i64().unwrap())
+                .sum();
+            assert_eq!(l["other_named"][band].as_i64().unwrap(), total - parts);
+            // 担当者名ありは件数の内側に収まる
+            assert!(total <= l["total"][band].as_i64().unwrap(), "{name}/{band}");
+        }
+        assert_eq!(l["band_gap_named"].as_i64(), Some(0));
+    }
+    // 2026-09-29 実測。リクロジ 164,159件のうち人の名前が入っているのは 92,442件
+    assert_eq!(
+        ls["lists"][0]["total_named"]["すべて"].as_i64(),
+        Some(92_442)
+    );
+}
+
+#[test]
+fn 担当者名あり列が無い古いシートでは絞り込みを出さない() {
+    let text = "リスト	区分	内訳	企業人数	件数
+                リクロジ	合計		すべて	100
+";
+    let body = build_payload(
+        &Sheets {
+            list_stock: Arc::new(sheet_from_tsv(text)),
+            ..fixture_sheets()
+        },
+        fixture_day(),
+    );
+    assert_eq!(list_stock(&body)["has_named"], false);
 }
 
 #[test]
@@ -1799,6 +1851,7 @@ fn リストの在庫の内訳はシートの並びと区分のまま出す() {
             ("アクティブ", "パートナー"),
             ("保管", "保管担当01"),
             ("保管", "保管担当02"),
+            ("保管", "保管担当03"),
         ]
     );
 }
