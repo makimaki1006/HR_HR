@@ -1799,7 +1799,9 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
   try {
     run("paintFigs = __PF; wire = () => {}; renderHq = () => '';");
     // 定義と検証（API の無い項目）の load
-    run('cur = { menu: MENUS.find((m) => m.views.some((v) => v.key === "defs")).key, view: "defs" }; load()');
+    // 2026-09-29 組み替え 段A で API を持たない画面（定義と検証）は「記録と数字の信頼度」の節になり、MENUS から無くなった。
+    // load の API 無しの分岐は残っているので、仮の画面を 1 つ足して同じ性質を見る
+    run('MENUS[2].views.push({ key: "zz-noapi", label: "API の無い仮の画面", path: null, render: () => renderDefs() }); cur = { menu: "monthly", view: "zz-noapi" }; load(); MENUS[2].views.pop()');
     ok(calls.length === 1 && calls[0].el === main, "API の無い項目の load が paintFigs で描いていない");
     // 絞り込み・幅の描き直し（redrawMain）は keep をそのまま渡す
     calls.length = 0;
@@ -1935,14 +1937,23 @@ check("goLink: 本文の「別の画面へ」は、行き先がすべて MENUS �
   ok(calls.length >= 10, "goLink の呼び出しが拾えていない: " + calls.length);
   ok(!/goLink\((?!"[a-z]+",\s*"[a-z0-9]+"\))/.test(jsNoComment.replace(/function goLink\(/, "")),
     "goLink に文字列の直書き以外を渡している（この見張りで行き先を確かめられない）");
+  /* 2026-09-29 組み替え 段A: 消えた画面の鍵（renewal など）は移り先の画面（と節 ?at=）へのリンクになる（resolveView）。
+     href の区切り/画面が MENUS に実在し、文がその画面の名前で始まることを見る */
+  const keysOf = JSON.parse(run("JSON.stringify(MENUS.map((m) => [m.key, m.views.map((x) => [x.key, x.label])]))"));
   for (const [m, v] of calls) {
     const a = run("goLink(" + JSON.stringify(m) + ", " + JSON.stringify(v) + ")");
-    ok(a.startsWith('<a class="golink" href="#' + m + "/" + v + '">'), "行き先が MENUS に無い: " + m + "/" + v + " → " + a);
+    const mm = a.match(/^<a class="golink" href="#([a-z]+)\/([a-z]+)(\?at=[a-z-]+)?">([^<]+)<\/a>$/);
+    const grp = mm && keysOf.find((g) => g[0] === mm[1]);
+    const view = grp && grp[1].find((x) => x[0] === mm[2]);
+    ok(view && mm[4].startsWith(view[1]), "行き先が MENUS に無い: " + m + "/" + v + " → " + a);
   }
-  ok(run('goLink("study", "renewal")') === '<a class="golink" href="#study/renewal">集計 → 継続回数 × 成果</a>',
-    "リンクの文が「メニュー → 画面」の名前になっていない: " + run('goLink("study", "renewal")'));
+  ok(run('goLink("study", "renewal")') === '<a class="golink" href="#monthly/results?at=results-renewal">成果と継続 → 継続回数 × 成果</a>',
+    "消えた画面へのリンクが「移り先の画面 → 前の画面の節」の名前になっていない: " + run('goLink("study", "renewal")'));
+  ok(run('goLink("monthly", "trust")') === '<a class="golink" href="#monthly/trust">記録と数字の信頼度</a>',
+    "リンクの文が画面の名前になっていない: " + run('goLink("monthly", "trust")'));
   ok(!run('goLink("study", "nope")').includes("<a"), "行き先が無いのにリンクにしている");
-  for (const bad of ['goLink("study", "nope")', 'goLink("nope", "renewal")'])
+  // 区切りの鍵は省いてよくなった（画面の鍵は全区切りで一意）ので、区切りだけ無い形ではなく、画面も無い形で見る
+  for (const bad of ['goLink("study", "nope")', 'goLink("nope", "nope2")'])
     ok(!/[a-z]{3,}/.test(run(bad)), "行き先が無いときに内部の key（英字）を本文に出している: " + run(bad));
   // サーバが作って画面に出す文（routes.rs の文字列）にも、古い丸数字を残さない。
   // goLink は JS の文しか直さないので、サーバの文は別に見る（2026-09-24: houjin の既定の理由に「①今日動く先」）
@@ -2055,7 +2066,7 @@ check("色と印の意味: ▲▼ は良し悪しの向きで、表の見出し�
   ok(/&#9650;<\/td><td[^>]*>まずい \/ 悪化。<b>値の上がり下がりではなく良し悪しの向き<\/b>/.test(dLeg) || dLeg.includes("まずい / 悪化。<b>値の上がり下がりではなく良し悪しの向き</b>"),
     "凡例（定義と検証の色と印の意味）に ▲ の意味の断りが無い");
   ok(dLeg.includes("表の見出しの &#9650; / &#9660;") && dLeg.includes("並び順（小さい順 / 大きい順）。良し悪しではありません"), "凡例に表の見出しの ▲▼ の断りが無い");
-  ok(html.includes('<a class="golink" id="cs-legend" href="#study/defs" title="定義と検証の「色と印の意味」の表へ">色と印の意味 →</a>'), "ヘッダから凡例（定義と検証）へのリンクが無い");
+  ok(html.includes('<a class="golink" id="cs-legend" href="#monthly/trust?at=trust-defs" title="記録と数字の信頼度の「色と印の意味」の表へ">色と印の意味 →</a>'), "ヘッダから凡例（定義と検証）へのリンクが無い");
   // その注記（<i class="full">）が1行まるごと使う。.figlegend 用の定義しか無く、横に並んでいた（2026-09-24 検証）
   ok(/\.legend i\.full\{[^}]*flex:1 0 100%/.test(html), "「色と印の意味」の注記（.legend i.full）が1行を占める CSS が無い");
   const d = run("renderDefs()");
@@ -2770,7 +2781,7 @@ check("担当者ごとの接触: 担当が決められない行・決まりご�
   }
   ok(t.includes("付け直して数えた接触はのべ 7 回"), "付け直して数えた接触の数（出す期間の合計 4+3）を書いていない");
   ok(t.includes("契約の開始日か満了日が読めない案件 3 件"), "開始日・満了日が読めない案件の数（n_no_span）を書いていない");
-  ok(/<a class="golink" href="#consultant\/handover">/.test(h.slice(h.indexOf("この画面の決まりごと"))), "担当の交代へのリンクが無い");
+  ok(/<a class="golink" href="#research\/team\?at=team-handover">/.test(h.slice(h.indexOf("この画面の決まりごと"))), "担当の交代（チームと担当の節）へのリンクが無い");
 });
 
 check("担当者ごとの接触: 持ち案件があって接触0回のますは 0.00（— にしない）", () => {
@@ -3732,7 +3743,7 @@ check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で�
     ok(/>HS<\/a>/.test(hs) && /aria-label="HS: HubSpot でこの取引を開く（新しいタブ）"/.test(hs), "表の横の印が小さな「HS」（読み上げは「HS: …」で始まる aria-label）でない: " + hs);
     /* 「HS」の意味は title だけでなく、他の印と同じく「色と印の意味」に載せる（タッチでは title が出ない）。
        M-1 の (3)（2026-09-29）: ヘッダの畳みは定義と検証へのリンクになったので、どの画面からも 1 押しでその表へ行けることを見る */
-    ok(html.includes('<a class="golink" id="cs-legend" href="#study/defs" title="定義と検証の「色と印の意味」の表へ">色と印の意味 →</a>'), "ヘッダから「色と印の意味」（定義と検証）へのリンクが無い");
+    ok(html.includes('<a class="golink" id="cs-legend" href="#monthly/trust?at=trust-defs" title="記録と数字の信頼度の「色と印の意味」の表へ">色と印の意味 →</a>'), "ヘッダから「色と印の意味」（定義と検証）へのリンクが無い");
     const defs = run("renderDefs()");
     const dtab = defs.slice(defs.indexOf("色と印の意味"), defs.indexOf("この画面が守っていること"));
     ok(/<td[^>]*><span class="hslink">HS<\/span><\/td><td[^>]*>案件名の横。HubSpot で/.test(dtab), "定義と検証の「色と印の意味」に HS の行が無い");
@@ -3771,7 +3782,7 @@ check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を�
   ok(!/["'][^"'\n]*案件の立ち位置/.test(jsNoComment), "JS の文字列（画面に出るもの）に「案件の立ち位置」が残っている");
   const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "名札が 2 本以上ついた 243 件から", order_rule: "", mtg_gap: {} } })');
   const box = td.slice(td.indexOf("絞った条件"), td.indexOf("</p>", td.indexOf("絞った条件")));
-  ok(box.includes('<a class="golink" href="#deal/board">案件 → 案件そのもの</a>'), "絞った条件に全件への行き先（名前のリンク）が無い: " + box);
+  ok(box.includes('<a class="golink" href="#deal/board">案件一覧</a>'), "絞った条件に全件への行き先（名前のリンク）が無い: " + box);
   ok(box.includes("名札が 2 本以上ついた 243 件から"), "サーバの文（filter_rule）を落としている");
   ok(box.includes("243 件から。全件は "), "サーバの文と行き先の間に句点が無い");
   /* サーバの文が空・無いとき、句点から始めない（前は「。全件は …」。2026-09-28 検証の指摘） */
@@ -3779,13 +3790,17 @@ check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を�
   ok(t0.startsWith("全件は ") && t1.startsWith("全件は "), "サーバの文が無いとき「。」から始まる: " + t0 + " / " + t1);
 });
 
-check("S-7: 左の項目名の後ろの番号と、上のメニューの丸数字を出さない", () => {
-  run('cur = { menu: "study", view: "phone" }; drawMenu(); drawSide();');
-  const menu = run('document.getElementById("cs-menu").innerHTML');
+check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出さない（1 列・3 区切り・11 画面）", () => {
+  // 2026-09-29 組み替え 段A: 上のメニューは無くし、左に 1 列で 3 区切り（見出し）と 11 画面を並べる（handover 09 の 3章・10章）
+  ok(!html.includes('id="cs-menu"'), "上のメニュー（#cs-menu）が残っている");
+  run('cur = { menu: "research", view: "phone" }; document.getElementById("cs-side").innerHTML = ""; drawSide();');
   const side = run('document.getElementById("cs-side").innerHTML');
-  ok(menu.includes(">案件</button>") && menu.includes(">集計</button>"), "上のメニューの名前が出ていない: " + menu);
-  ok(!menu.includes('class="no"') && !/[①-⑩]/.test(menu), "上のメニューに丸数字が残っている: " + menu);
-  ok(side.includes(">電話</button>") && side.includes(">定義と検証</button>"), "左の項目名が出ていない: " + side);
+  const heads = [...side.matchAll(/<h2 id="side-[a-z]+">([^<]+)<\/h2>/g)].map((m) => m[1]);
+  ok(JSON.stringify(heads) === JSON.stringify(["毎日", "調べる", "月1・確かめる"]), "区切りの見出しが 毎日 / 調べる / 月1・確かめる でない: " + heads);
+  ok(!side.includes('class="no"') && !/[①-⑩]/.test(side), "区切りに丸数字が残っている: " + side);
+  const nBtn = (side.match(/<button /g) || []).length;
+  ok(nBtn === 11, "左の画面が 11 でない: " + nBtn);
+  ok(side.includes(">電話</button>") && side.includes(">記録と数字の信頼度</button>"), "左の項目名が出ていない: " + side);
   ok(!side.includes('class="n"') && !/>\d+<\/span>/.test(side), "左の項目名の後ろに番号が残っている（件数に見える）: " + side);
   ok(/aria-current="page">電話</.test(side), "いま見ている項目の印（aria-current）が無い");
   run('cur = { menu: "deal", view: "today" }');
@@ -3815,7 +3830,8 @@ check("S-11: 「読み直す」は操作列の右端の文字リンクで、代�
   ok(run('ctlbar(viewOf("deal", "today"), { meta: { today: "2026-09-28", n_active: 604 } })').includes('<span class="reload urge">'),
     "帯が赤（いつのものか分からない）なのに読み直すを目立たせていない");
   /* API を持たない「定義と検証」には読み直すを置かない（読み直すものが無い） */
-  ok(!run('ctlbar(viewOf("study", "defs"), {})').includes("cs-reload"), "定義と検証に読み直すが出ている");
+  // 2026-09-29 組み替え 段A で API の無い画面（定義と検証）は節になった。API の無い画面の形（path: null）で同じ性質を見る
+  ok(!run('ctlbar({ key: "zz-noapi", path: null }, {})').includes("cs-reload"), "API の無い画面に読み直すが出ている");
   /* 右端は DOM の順序でも守る: 他の操作部品（案件の詳細の探す欄）がある画面で、読み直すがその後ろにあること。
      今日動く先だけの見張りでは、読み直すの塊を操作列の先頭へ移しても落ちなかった（2026-09-28 逆証明） */
   const det = run('ctlbar(viewOf("deal", "detail"), { meta: { source_as_of: "2026-09-27 21:30", source_age_days: 1 } })');
@@ -4071,7 +4087,7 @@ check("S-12: 入力欄 16px は、要素自身に class=\"act\" を持つ欄（�
   run("detailQ = ''");
   const detail = run('ctlbar({ key: "detail", path: "/api/consulting/deal-detail" }, { meta: {} })');
   ok(/<input type="search" id="dd-q" class="act"/.test(detail), "案件の詳細の探す欄が input.act の形でない: " + detail.slice(0, 300));
-  const series = run('ctlbar({ key: "series", path: "/api/consulting/customer" }, { meta: {} })');
+  const series = run('ctlbar({ key: "customer", path: "/api/consulting/customer" }, { meta: {} })');
   ok(/<select id="cs-houjin" class="act"/.test(series), "法人を選ぶ欄が select.act の形でない: " + series.slice(0, 300));
   // 簡易 cascade そのものの見張り（詳細度の数え方が壊れると上の判定が空回りする）
   ok(specificity(".ctlbar .act") === 200 && specificity(".ctlbar select") === 101 && specificity(".ctlbar select.act") === 201 &&
@@ -4167,8 +4183,8 @@ check("M-6/M-7: 本文へ飛ぶ・読み上げの領域（#cs-status）・main �
   /* 読み上げの領域は本文（#cs-main）の外に置く。中に置くと innerHTML の差し替えで消えて、変化が伝わらない */
   ok(html.indexOf('id="cs-status"') < html.indexOf('id="cs-main"'), "読み上げの領域が本文の中にある、または本文より後にある");
   const sk = run('cur = { menu: "deal", view: "today" }; skeleton(viewOf("deal", "today"), false)');
-  ok(sk.includes('<h2 class="sec mincho"><span class="no">案件</span>今日動く先</h2>'), "骨組みに画面名の見出しが無い: " + sk);
-  ok(sk.includes('<div class="loading" id="cs-loading">今日動く先 を読み込み中…</div>'), "骨組みに状態の 1 行が無い: " + sk);
+  ok(sk.includes('<h2 class="sec mincho"><span class="no">毎日</span>今日</h2>'), "骨組みに画面名の見出しが無い: " + sk);
+  ok(sk.includes('<div class="loading" id="cs-loading">今日 を読み込み中…</div>'), "骨組みに状態の 1 行が無い: " + sk);
   ok(sk.includes('<div class="skel" aria-hidden="true">'), "骨組みの空箱が読み上げに出る（aria-hidden が無い）");
   ok(!/\d/.test(sk.replace(/<[^>]+>/g, "")), "骨組みに数字が出ている（空箱に 0 を出すと「0 件」と読まれる）: " + sk.replace(/<[^>]+>/g, ""));
   const sk2 = run('skeleton(viewOf("deal", "today"), true)');
@@ -4182,9 +4198,13 @@ check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ�
   const head = html.slice(html.indexOf('<header class="masthead">'), html.indexOf("</header>"));
   ok(head.includes('<div id="cs-fresh" class="fresh"></div>'), "鮮度の帯（#cs-fresh）が題字の行（header.masthead）の中に無い");
   // M-1 の (3): 「色と印の意味」は全画面の畳みをやめ、定義と検証への 1 語のリンク（2026-09-29 検証: 畳みのまま残っていて案と違った）
-  ok(head.includes('<a class="golink" id="cs-legend" href="#study/defs" title="定義と検証の「色と印の意味」の表へ">色と印の意味 →</a>'), "「色と印の意味」が題字の行の中の定義と検証へのリンクでない");
+  ok(head.includes('<a class="golink" id="cs-legend" href="#monthly/trust?at=trust-defs" title="記録と数字の信頼度の「色と印の意味」の表へ">色と印の意味 →</a>'), "「色と印の意味」が題字の行の中の定義と検証へのリンクでない");
   ok(!/<details[^>]*id="cs-legend"/.test(html) && !head.includes('<div class="legend">'), "「色と印の意味」の畳み（凡例の中身）がヘッダに残っている");
-  ok(run('MENUS.find((m) => m.key === "study").views.some((v) => v.key === "defs")'), "リンク先（#study/defs）の画面が無い");
+  // 2026-09-29 組み替え 段A: 定義と検証は「記録と数字の信頼度」の最後の節（id=trust-defs）。リンク先の画面と節が実在すること
+  ok(run('MENUS.find((m) => m.key === "monthly").views.some((v) => v.key === "trust")'), "リンク先（#monthly/trust）の画面が無い");
+  const tr = run("renderTrust(Object.assign({}, __DQ, { _more: { mtgq: __MQ } }))");
+  const at = tr.indexOf('id="trust-defs"');
+  ok(at >= 0 && tr.indexOf("色と印の意味", at) > at, "リンク先の節（id=trust-defs、色と印の意味の表）が記録と数字の信頼度に無い");
   ok(head.indexOf('id="cs-fresh"') < head.indexOf('id="cs-legend"') && head.indexOf('id="cs-legend"') < head.indexOf('class="stamp"'),
     "題字の行の並びが 題字 → 鮮度 → 色と印の意味 → 利用者 でない");
   const css = html.slice(0, html.indexOf("</style>"));
