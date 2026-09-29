@@ -5360,6 +5360,51 @@ fn 案件の詳細は通話要約をcall_idで結び_無いときも開く() {
     assert_eq!(e["meta"]["summary_sheet"], "empty");
 }
 
+/// 案件の詳細のパンくず（法人 ＞ 拠点 ＞ この案件、09 の 3・08 の M-3）の鍵。
+/// 法人名は CS_顧客 から引き、拠点の鍵は顧客の応答（build_customer）の `deals[].site` と同じ値であること
+/// （画面は `#deal/customer?houjin=…&site=…` でその拠点を開く。鍵がずれると別の拠点・既定の拠点が開く）。
+/// CS_顧客 に無い法人番号には名前を返さない（画面はリンクにしない。開くと「見つかりません」になるため）。
+#[test]
+fn 案件の詳細は法人と拠点の鍵を顧客の画面と同じ値で返す() {
+    let sh = sheets();
+    let cust = super::customers_of(&sh.customer);
+    let deals = super::deals_of(&sh.deal);
+    let d = deals
+        .iter()
+        .find(|d| !d.kyoten_key.is_empty() && cust.iter().any(|c| c.houjin == d.houjin_resolved))
+        .expect("fixture に法人と拠点のそろった取引がある");
+    let v = build_deal_detail(&sh, None, Some(&d.id), None, fixture_day());
+    let want = &cust
+        .iter()
+        .find(|c| c.houjin == d.houjin_resolved)
+        .unwrap()
+        .name;
+    assert_eq!(v["deal"]["houjin"], d.houjin_resolved.as_str());
+    assert_eq!(v["deal"]["houjin_name"], want.as_str());
+    assert_eq!(v["deal"]["site_key"], d.kyoten_key.as_str());
+    // 顧客の画面の応答に、同じ鍵の拠点がある
+    let c = build_customer(&sh, Some(&d.houjin_resolved), fixture_day());
+    assert!(
+        c["deals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["deal_id"] == d.id.as_str() && x["site"] == d.kyoten_key.as_str()),
+        "顧客の応答の deals[].site と site_key が合わない"
+    );
+    // CS_顧客 に無い法人番号には名前を返さない
+    let lone = deals.iter().find(|d| {
+        !d.houjin_resolved.is_empty() && !cust.iter().any(|c| c.houjin == d.houjin_resolved)
+    });
+    if let Some(x) = lone {
+        let v = build_deal_detail(&sh, None, Some(&x.id), None, fixture_day());
+        assert!(
+            v["deal"]["houjin_name"].is_null(),
+            "CS_顧客 に無い法人に名前がある"
+        );
+    }
+}
+
 #[test]
 fn 案件の詳細は取引が無いときは探す欄を返し_オプションは出さない() {
     let sh = sheets();
