@@ -84,6 +84,8 @@ async fn コンサルダッシュボードのパスが配線されている() {
         "/api/consulting/data-quality",
         "/api/consulting/contact-trend",
         "/api/consulting/deal-detail",
+        // 2026-09-29 段B。満了と継続（09 の 5）
+        "/api/consulting/renewal-pipe",
     ] {
         let res = app
             .clone()
@@ -161,6 +163,8 @@ async fn コンサルダッシュボードは認証の内側にある() {
         // 2026-09-26 追加。案件ごとの電話の要約・MTG の中身を返す
         "/api/consulting/deal-detail",
         "/api/consulting/deal-detail?deal_id=1",
+        // 2026-09-29 段B。取引ごとの金額と、会社全体の満了する金額を返す
+        "/api/consulting/renewal-pipe",
     ] {
         let res = app
             .clone()
