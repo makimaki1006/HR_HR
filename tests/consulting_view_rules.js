@@ -4997,7 +4997,7 @@ check("09 の 7 成果と継続: 満了月ごとの約60行の表の代わりの
   ok((fg.match(/class="fold figsay"/g) || []).length === 1 && (fg.match(/<ul class="sr">/g) || []).length === 1, "「数字で読む」が二重に出ている");
 });
 
-check("09 の 7 成果と継続: 札（月次の継続率は結果がそろった月で分母つき・採用目標に届いた件数は母数つき）。金額の札は出さない", () => {
+check("09 の 7 成果と継続: 札（月次の継続率は結果がそろった月で分母つき・採用目標に届いた件数は母数つき）。money の無い応答では金額の札を出さない", () => {
   const h = run("renderResults(__RS)");
   const k = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="rs-renewal"'));
   ok(h.indexOf('<nav class="toc"') < h.indexOf('<div class="kpis">') && h.indexOf('<div class="kpis">') < h.indexOf('id="rs-renewal"'),
@@ -5008,7 +5008,8 @@ check("09 の 7 成果と継続: 札（月次の継続率は結果がそろっ�
   ok(textOf(k).includes("採用目標に届いた稼働中の契約") && /目標と承諾数が入っている 345 件のうち/.test(textOf(k)),
     "採用目標の札に母数が無い: " + textOf(k));
   ok(!/(^|[^0-9.])0\.0%/.test(textOf(k)), "採用目標の札に中央値 0.0% を出している（達成できていないと読める）");
-  ok(!/金額/.test(textOf(k)), "金額の札が出ている（段B）");
+  /* 段B で金額の札を足した（下の見張り）。money の無い応答（古いキャッシュ）では、数えていない金額を出さない */
+  ok(!/金額/.test(textOf(k)), "money が無いのに金額の札が出ている");
 });
 
 check("09 の 6 チームと担当: 定義1 は画面の中で 1 つの名前（接触した月の割合）。決まりごとは表のすぐ下", () => {
@@ -5025,6 +5026,131 @@ check("09 の 6 チームと担当: 定義1 は画面の中で 1 つの名前（
   const at = (s) => h.indexOf(s);
   ok(at("</table>") < at("担当者 × 状態の決まりごと") && at("担当者 × 状態の決まりごと") < at('id="tm-ct-h"'),
     "担当者 × 状態の決まりごとが表のすぐ下に無い（接触の推移・担当の交代の後ろにある）");
+});
+
+/* ================================================================ 段B（2026-09-29）: 満了と継続・金額の札（09 の 5・7、10 章④）
+   数字は fixture（基準日 2026-09-18）の /api/consulting/renewal-pipe と results.money の実測（money.rs）:
+   今月〜再来月 62 / 105 / 118 件（計 285 件・25,859 万）・先月以前に満了日を過ぎてまだ稼働中 10 件・再来月より先 309 件・満了日なし 0 件、
+   稼働中 604 件の合計 67,761 万（金額が空 2 件）。ステージと一覧の行は数を減らして抜き出した */
+ctx.__RP = {
+  meta: { today: "2026-09-18", n_active: 604, window: ["2026-09", "2026-10", "2026-11"],
+    amount_basis: "金額は HubSpot の取引の金額（amount）で、契約期間全体の額です（月額ではありません。期間の長い契約ほど大きくなります）。ステージの確度は掛けていません。人ごとの金額は出していません",
+    not_counted: "※ 予測ではありません。満了日と今のステージをそのまま数えています。ステージの確度を掛けた見込みの金額は出していません" },
+  months: [
+    { month: "2026-09", n: 62, amount: 53754000, amount_n: 62, amount_missing: 0,
+      stages: [{ label: "求人出稿完了", n: 5 }, { label: "Cヨミ：50％（担当者の継続意思あり）", n: 5 }] },
+    { month: "2026-10", n: 105, amount: 93088800, amount_n: 105, amount_missing: 0,
+      stages: [{ label: "求人出稿完了", n: 29 }, { label: "Cヨミ：50％（担当者の継続意思あり）", n: 4 }] },
+    { month: "2026-11", n: 118, amount: 111750000, amount_n: 118, amount_missing: 0,
+      stages: [{ label: "求人出稿完了", n: 45 }, { label: "Cヨミ：50％（担当者の継続意思あり）", n: 3 }] },
+  ],
+  stages: ["求人出稿完了", "Cヨミ：50％（担当者の継続意思あり）"],
+  window_total: { n: 285, amount: 258592800, amount_n: 285, amount_missing: 0 },
+  active_total: { n: 604, amount: 677609694, amount_n: 602, amount_missing: 2 },
+  overdue_before: { sum: { n: 10, amount: 1271903, amount_n: 10, amount_missing: 0 },
+    rows: [{ deal_id: "9", name: "過ぎた案件", expiry: "2026-07-31", days_left: -49, stage: "定期2", amount: 300000, consultant: "担当C", flags: [] }] },
+  later: 309, no_expiry: 0,
+  rows: [
+    { deal_id: "1", name: "案件あ", expiry: "2026-09-10", days_left: -8, stage: "Cヨミ：50％（担当者の継続意思あり）", amount: 900000, consultant: "担当A", flags: ["満了まで60日以内"] },
+    { deal_id: "2", name: "案件い", expiry: "2026-09-30", days_left: 12, stage: "求人出稿完了", amount: 450000, consultant: "担当B", flags: [] },
+    { deal_id: "3", name: "案件う", expiry: "2026-10-05", days_left: 17, stage: "", amount: null, consultant: "担当A", flags: [] },
+  ],
+};
+
+check("段B 満了と継続: メニューは /api/consulting/renewal-pipe を読み、仮のつなぎ（renewalPipeInterim）は残っていない", () => {
+  const M = JSON.parse(run("JSON.stringify(MENUS.map((x) => [x.key, x.views.map((v) => [v.key, v.label, v.path])]))"));
+  const v = M.find((x) => x[0] === "research")[1].find((x) => x[0] === "renewalpipe");
+  ok(v && v[1] === "満了と継続" && v[2] === "/api/consulting/renewal-pipe", "満了と継続の API が違う: " + JSON.stringify(v));
+  ok(run("typeof renewalPipeInterim") === "undefined", "仮のつなぎが残っている");
+});
+
+check("段B 満了と継続: 満了月ごとの件数・金額（空の件数つき）と、母数の内訳（どこにも入らない契約が無い）を畳まずに出す", () => {
+  const h = run("renderRenewalPipe(__RP)");
+  const tx = textOf(h);
+  const k = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('<div class="note'));
+  const lbls = [...k.matchAll(/<span class="lbl">([^<]*)<\/span>/g)].map((m) => m[1]);
+  ok(JSON.stringify(lbls) === JSON.stringify(["今月 2026-09 に満了", "来月 2026-10 に満了", "再来月 2026-11 に満了", "先月以前に満了日を過ぎて、まだ稼働中"]),
+    "札が今月・来月・再来月・先月以前でない: " + lbls.join(" / "));
+  ok(textOf(k).includes("5,375万（金額が空 0 件）。うち満了日を過ぎてまだ稼働中 1 件"), "今月の札に金額・空の件数・過ぎた件数が無い: " + textOf(k));
+  /* 母数の箱は note（畳まない）。4 つの行き先の件数を全部書く */
+  const i = h.indexOf("何を数えているか（母数）");
+  ok(i >= 0 && !/<details[^>]*>(?:(?!<\/details>)[\s\S])*$/.test(h.slice(0, i)), "母数の箱が無い、または畳まれている");
+  const bt = textOf(h.slice(i, h.indexOf("</div>", i)));
+  for (const s of ["稼働中 604 件", "今月〜再来月に満了 285 件", "先月以前に満了日を過ぎてまだ稼働中 10 件", "再来月より先に満了 309 件", "満了日が入っていない 0 件",
+    "契約期間全体の額です（月額ではありません", "確度は掛けていません"])
+    ok(bt.includes(s), "母数の箱に「" + s + "」が無い: " + bt);
+  ok((tx.match(/予測ではありません/g) || []).length === 1, "予測ではない、を書いていない、または 2 回書いている（頭と末尾）");
+});
+
+check("段B 満了と継続: ステージは件数だけ（確度を掛けない・名前の％は掛けていないと書く）。人ごとの金額を出さない", () => {
+  const h = run("renderRenewalPipe(__RP)");
+  const st = h.slice(h.indexOf('<table id="rp-stage-tbl"'), h.indexOf("</table>", h.indexOf('<table id="rp-stage-tbl"')));
+  const rows = [...st.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map((c) => textOf(c[1]).trim()));
+  ok(rows.length === 1 + 2 + 1, "ステージの表の行が 見出し＋2 ステージ＋計 でない: " + rows.length);
+  ok(JSON.stringify(rows[1]) === JSON.stringify(["求人出稿完了", "5", "29", "45", "79"]), "ステージの件数が月ごとに並んでいない: " + rows[1]);
+  ok(JSON.stringify(rows[3]) === JSON.stringify(["計", "62", "105", "118", "285"]), "計の行が月の件数と合わない: " + rows[3]);
+  ok(!/万/.test(textOf(st)), "ステージの表に金額（確度を掛けた見込みに読める）が入っている");
+  ok(textOf(h).includes("件数にも金額にも掛けていません"), "ステージ名の％を掛けていないと書いていない");
+  /* 担当ごとに金額を足した数を出さない。一覧の金額は取引 1 件の値だけ */
+  const list = h.slice(h.indexOf('<table id="rp-tbl"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl"')));
+  ok((list.match(/<tr>/g) || []).length === 1 + 3, "一覧の行数が違う");
+  /* 担当の名前が出てよいのは取引 1 件ずつの一覧（rp-tbl・rp-over-tbl）の中だけ。札・母数の箱・ステージの表（足した数）には出さない */
+  const outside = h.replace(/<table id="rp-(?:over-)?tbl"[\s\S]*?<\/table>/g, "");
+  ok(!/担当[ABC]/.test(outside), "一覧の外（足した数の場所）に担当の名前が出ている");
+  ok(textOf(h).includes("担当ごとの合計は出していません"), "担当ごとの金額を出していないと書いていない");
+});
+
+check("段B 満了と継続: 一覧は満了日・満了まで（過ぎたものは文字で）・案件（詳細へ）・担当・ステージ・金額・名札。先月以前の分は畳んで残す", () => {
+  const h = run("renderRenewalPipe(__RP)");
+  const list = h.slice(h.indexOf('<table id="rp-tbl"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl"')));
+  const th = [...list.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map((m) => m[1]);
+  ok(JSON.stringify(th) === JSON.stringify(["満了日", "満了まで", "案件", "担当", "ステージ", "金額", "名札"]), "一覧の列が違う: " + th.join(","));
+  ok(list.includes("満了を8日過ぎている"), "満了を過ぎた行を文字で言っていない（色だけ）");
+  ok(list.includes('href="#deal/detail?id=1"'), "案件名が案件の詳細へのリンクでない");
+  ok(list.includes("ステージ名なし") && !/>\d{6,}</.test(list), "ステージが空の行・内部IDの扱いが違う");
+  ok(list.indexOf("案件あ") < list.indexOf("案件い") && list.indexOf("案件い") < list.indexOf("案件う"), "満了の近い順でない");
+  const ov = h.slice(h.indexOf('id="rp-over"'));
+  ok(ov.includes('<details class="fold"><summary>表を開く') && ov.includes("過ぎた案件"), "先月以前に満了日を過ぎた契約を畳んで残していない");
+  const toc = h.slice(h.indexOf('<nav class="toc"'), h.indexOf("</nav>"));
+  const js = [...toc.matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
+  ok(JSON.stringify(js) === JSON.stringify(["rp-list", "rp-over", "rp-stage"]), "目次の行き先が違う: " + js.join(","));
+  js.forEach((id) => ok(h.includes(' id="' + id + '" tabindex="-1"'), "目次の行き先 " + id + " が本文に無い"));
+  /* 先月以前が 0 件なら札も節も目次も出さない（空の畳みを出さない） */
+  const z = JSON.parse(JSON.stringify(ctx.__RP));
+  z.overdue_before = { sum: { n: 0, amount: null, amount_n: 0, amount_missing: 0 }, rows: [] };
+  ctx.__RPZ = z;
+  const hz = run("renderRenewalPipe(__RPZ)");
+  ok(!hz.includes('id="rp-over"') && !hz.includes('data-jump="rp-over"'), "0 件なのに先月以前の節がある");
+  /* 一覧（毎週の仕事）がステージの内訳より前（ステージ 18 種を先に置くと 1440px で一覧が 1 画面目の外だった） */
+  ok(h.indexOf('id="rp-list"') < h.indexOf('id="rp-stage"'), "一覧がステージの内訳より後ろにある");
+});
+
+check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満了・金額で見た継続率）は会社全体だけ。継続率は件数の札と同じ月で、満了した金額を並べる", () => {
+  const RS = JSON.parse(JSON.stringify(ctx.__RS));
+  RS.money = {
+    active_total: { n: 604, amount: 677609694, amount_n: 602, amount_missing: 2 },
+    window: { months: ["2026-09", "2026-10", "2026-11"], sum: { n: 285, amount: 258592800, amount_n: 285, amount_missing: 0 } },
+    retention: { rows: [
+      { month: "2026-06", keep: 52614000, cancel: 30237000, fill: 8700000, denom: 91551000, pending: 0, settled_n: 107, settled_missing: 0, rate: 57.4696 },
+      { month: "2026-09", keep: 40000000, cancel: 15000000, fill: 5504000, denom: 60504000, pending: 0, settled_n: 60, settled_missing: 1, rate: 66.11 },
+    ] },
+    amount_basis: "",
+  };
+  ctx.__RSM = RS;
+  const h = run("renderResults(__RSM)");
+  const k = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="rs-renewal"'));
+  const lbls = [...k.matchAll(/<span class="lbl">([^<]*)<\/span>/g)].map((m) => m[1]);
+  ok(JSON.stringify(lbls) === JSON.stringify(["稼働中の契約の金額（会社全体）", "今月〜再来月に満了する金額", "月次の継続率（2026-09 に満了）",
+    "金額で見た継続率（2026-09 に満了）", "採用目標に届いた稼働中の契約"]), "札の顔ぶれ・並びが違う: " + lbls.join(" / "));
+  const tk = textOf(k);
+  ok(tk.includes("67,761万") && tk.includes("稼働中 604 件の合計・金額が空の 2 件は足していません") && tk.includes("月額ではありません"),
+    "稼働中の金額に母数・空の件数・月額でないことが無い: " + tk);
+  ok(tk.includes("25,859万") && tk.includes("285 件（2026-09〜2026-11 に満了）") && tk.includes("確度は掛けていません"), "満了する金額の札: " + tk);
+  ok(k.includes('href="#research/renewalpipe"'), "満了する金額から満了と継続へ行けない");
+  ok(tk.includes("66.1%") && tk.includes("満了した金額 6,050万（継続 4,000万・解約 1,500万・充足 550万）") && tk.includes("金額が空の 1 件は入れていません"),
+    "金額の継続率が件数の札と同じ月（2026-09）・満了した金額の内訳つきでない: " + tk);
+  ok(!/見込み/.test(tk), "札に見込み（確度を掛けた金額に読める）と書いている");
+  ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(k), "button.kpi の中に a がある");
 });
 
 Promise.all(pendingChecks).then(() => {

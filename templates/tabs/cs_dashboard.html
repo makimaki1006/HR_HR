@@ -3824,7 +3824,8 @@ function foot(meta, said, counts) {
       この画面の末尾に畳んで残す（09 の 10 章②。揃えたら消す。黙って消さない）。4つ目の MTG でリスク高は一覧がまだ無いと書き、
       定期NPS 4以下は名札と同じ集合なので名札へのリンクにする（resultsActTables）。
    🔴 1ページが長いので目次を付ける（09 の 7「目次」）。
-   🔴 人ごとの数字は出さない。金額の札（稼働中の契約金額・今後3か月に満了する金額）は段B（API を足してから。09 の 8 章）。
+   🔴 人ごとの数字は出さない。金額の札（稼働中の契約金額・今月〜再来月に満了する金額・金額で見た継続率）は段B で足した
+      （resultsMoneyKpis。会社全体だけ、確度は掛けない。10 章④）。
    ================================================================ */
 function renderResults(D) {
   const pop = D.population || {};
@@ -3859,12 +3860,15 @@ function renderResults(D) {
   return h + foot(D.meta || {}, true);
 }
 
-/** 成果と継続の札（09 の 7 の札4枚のうち、API を変えずに出せる2枚）。金額の2枚（稼働中の契約金額・今後3か月に満了する金額）は
-    段B（amount の意味を確かめて API を足してから。10 章④）。
+/** 成果と継続の札（09 の 7）。
     🔴 2026-09-29 検証: 札が1枚も無かった。
     - 月次の継続率: 結果がそろった（結果待ち 0 件）で n が MIN_N 以上の、いちばん新しい満了月。未確定の月の率は札にしない（右側打ち切り）
     - 採用目標に対する進捗: 目標に届いた（達成率 100% 以上）稼働中の契約の件数。途中の値なので「達成できなかった」とは読ませない。
-      母数（目標と承諾数が入っている件数）を添える */
+      母数（目標と承諾数が入っている件数）を添える
+    段B（2026-09-29、10 章④「金額は出す。会社全体だけ」）で金額の札を足した（D.money。money.rs build_money）:
+    - 稼働中の契約の金額・今月〜再来月に満了する金額（満了と継続と同じ数。見張り tests.rs money_matches_pipe_and_count_retention）
+    - 金額で見た継続率: 件数の札と**同じ満了月**・同じ取引を金額で足したもの。母数（満了した金額と、継続・解約・充足の内訳）を並べる
+    🔴 金額は契約期間全体の額（月額ではない）と札に書く。確度を掛けた見込み・人ごとの金額は出さない */
 function resultsKpis(D) {
   const mr = ((D.renewal || {}).monthly_retention || {}).rows || [];
   let last = null;
@@ -3873,18 +3877,44 @@ function resultsKpis(D) {
   /* 🔴 中央値（fixture 0.0%）は札にしない。稼働中の半分以上が「実績ゼロ」（始まったばかりの契約を含む）で、
      大きな 0.0% は「達成できていない」と読める（2026-09-29 撮影）。届いた件数と母数（目標・承諾数が入っている件数）を出す */
   const reached = ga.both ? (ga.bands || []).find((b) => String(b.label).startsWith("100%")) || { n: 0 } : null;
-  return '<div class="kpis">' +
+  return '<div class="kpis">' + resultsMoneyKpis(D.money, last, "before") +
     (last
       ? kpi("月次の継続率（" + last.month + " に満了）", pct1(last.rate),
           "n=" + num(last.denom) + "（継続 " + num(last.keep) + "・解約 " + num(last.cancel) + "・充足 " + num(last.fill) +
           "）。結果がそろった最新の満了月です", "", { jump: "rs-renewal", text: "月ごとの推移へ" })
       : kpi("月次の継続率", DASH, "結果がそろい n が " + MIN_N + " 以上の満了月がありません")) +
+    resultsMoneyKpis(D.money, last, "rate") +
     (reached
       ? kpi("採用目標に届いた稼働中の契約", num(reached.n) + '<span class="u">件</span>',
           "目標と承諾数が入っている " + num(ga.both) + " 件のうち（目標が入っているのは稼働中 " + num(ga.has_goal) + " / " + num(ga.pop) +
           " 件）。途中の値で、届いていない契約はまだ伸びます", "", { jump: "rs-outcome", text: "帯の図へ" })
       : kpi("採用目標に届いた稼働中の契約", DASH, "目標が入っている稼働中の契約がありません")) +
     "</div>";
+}
+
+/** 成果と継続の金額の札（段B）。part="before" は件数の札の前に置く 2 枚（稼働中・今月〜再来月に満了）、
+    part="rate" は件数の継続率の隣に置く金額の継続率（last: 件数の札が選んだ満了月。同じ月にそろえる）。
+    money が無い（古い応答）ときは出さない（数えていない金額を 0 と書かない） */
+function resultsMoneyKpis(M, last, part) {
+  if (!M) return "";
+  const basis = "契約期間全体の額（月額ではありません）";
+  const miss = (s) => (s.amount_missing ? "・金額が空の " + num(s.amount_missing) + " 件は足していません" : "");
+  if (part === "before") {
+    const a = M.active_total || {}, w = (M.window || {}).sum || {}, ms = (M.window || {}).months || [];
+    return kpi("稼働中の契約の金額（会社全体）", yen(a.amount),
+        "稼働中 " + num(a.n) + " 件の合計" + miss(a) + "。" + basis) +
+      /* 満了と継続（別の画面）への行き先は文字リンクで添える（button の中に a を入れない。kpi の決まり） */
+      kpi("今月〜再来月に満了する金額", yen(w.amount),
+        num(w.n) + " 件" + (ms.length ? "（" + esc(ms[0]) + "〜" + esc(ms[ms.length - 1]) + " に満了）" : "") + miss(w) +
+        "。確度は掛けていません。内訳は " + goLink("research", "renewalpipe"));
+  }
+  const r = last && ((M.retention || {}).rows || []).find((x) => x.month === last.month);
+  if (!r || r.rate == null)
+    return kpi("金額で見た継続率", DASH, last ? last.month + " に満了した金額がありません" : "結果がそろい n が " + MIN_N + " 以上の満了月がありません");
+  return kpi("金額で見た継続率（" + r.month + " に満了）", pct1(r.rate),
+    "満了した金額 " + yen(r.denom) + "（継続 " + yen(r.keep) + "・解約 " + yen(r.cancel) + "・充足 " + yen(r.fill) + "）" +
+    (r.settled_missing ? "。金額が空の " + num(r.settled_missing) + " 件は入れていません" : "") +
+    "。件数の継続率と同じ契約を金額で足しています（長い契約ほど重く効きます）", "", { jump: "rs-renewal", text: "件数の推移へ" });
 }
 
 /** 成果と継続の末尾「手を打つ先の表」。🔴 段B（名札への寄せ直し）までの仮置き。
@@ -7716,22 +7746,91 @@ function renderTrust(D) {
   return h;
 }
 
-/* ---------------------------------------------------------------- 仮のつなぎ（満了と継続の描画が入るまで）
-   顧客・チームと担当・成果と継続の仮のつなぎ（前の画面の描画を節として並べていた customerInterim / teamInterim /
-   resultsInterim）は、段A の統合（2026-09-29）で各チームの描画（renderCustomer / renderTeam / renderResults）に替えて外した。
-   🔴 画面の問いは、すぐ下の節の問いと同じ文にしない（続けて 2 回読ませない。記録と数字の信頼度と同じ手当て）。
-      前は節の問いをつないだだけで、「この法人は拠点ごとにどう違うか」「どこに手が回っていないか」「継続を重ねると成果は落ちる」を
-      画面の問いと最初の節で 2 回読ませていた（2026-09-29 検証 1440px）。見張り consulting_view_rules.js */
-/** 満了と継続（新しい画面）は前の画面に当たるものが無い。🔴 件数・金額を仮に数えて出さない（amount が月額か契約総額かを
-    確かめるまで金額は出さない。09 の 10章④）。案件一覧を満了までの日数で絞った行き先を置く */
-function renewalPipeInterim(D) {
-  return sec("問い", "今月・来月・再来月に満了するのはどれか") +
-    note("info", "この画面は作っている途中です",
-      "満了月ごとの件数・金額・ステージは、金額（amount）が月額か契約総額かをデータで確かめてから出します。" +
-      "それまでは案件一覧を満了までの日数で絞って見てください: " +
-      EXPIRY_BANDS.filter((b) => b.k !== "far" && b.k !== "none").map((b) =>
-        '<a class="golink" href="' + hashFor("board", { expiry: b.k }) + '">' + esc(b.t) + "</a>").join(" ／ ") + "。") +
-    (D && D.meta ? foot(D.meta) : "");
+/* ---------------------------------------------------------------- 5 満了と継続（09 の 5、段B 2026-09-29）
+   今月・来月・再来月に満了する稼働中の契約を、満了月ごとの件数・金額・ステージ別の件数と、満了の近い順の一覧
+   （満了前の働きかけ＝毎週の仕事）で見る。応答は /api/consulting/renewal-pipe（money.rs build_renewal_pipe）。
+   🔴 金額は契約期間全体の額（amount。月額ではない）。3か月 45万・6か月 90万・12か月 180万（中央値）で期間に比例することを
+      実データで確かめた（money.rs の頭。見張り tests.rs amount_is_contract_total_not_monthly）。画面にも毎回書く（meta.amount_basis）。
+   🔴 ステージの確度を掛けた見込みの金額は出さない（10 章④）。ステージは件数（実数）だけ。
+      ステージ名に「50％」などが入っているが、HubSpot のステージの名前で、金額には掛けていないと書く。
+   🔴 人ごとの金額は出さない（10 章④）。一覧の金額は取引 1 件の金額で、担当で足した数はどこにも出さない。
+   🔴 黙って落とさない: 稼働中の契約は 3 か月の各月・先月以前に満了日を過ぎた・再来月より先・満了日なしのどれか 1 つに入り、
+      その内訳を母数の箱に全部書く（見張り tests.rs renewal_pipe_partitions_active）。先月以前に過ぎたものは畳んだ表で残す。
+   🔴 画面の問いは節の見出しと同じ文にしない（続けて 2 回読ませない） */
+/** 満了と継続の一覧の列（今日の表と同じ書き方: 満了までは「満了を N 日過ぎている」を文字で、名札は短い書き方） */
+const PIPE_COLS = [
+  { t: "満了日", fmt: (r) => esc(r.expiry) || DASH },
+  { t: "満了まで", n: 1, fmt: (r) => BOARD_COLS.find((c) => c.k === "days_left").fmt(r) },
+  { t: "案件", w: "l", fmt: (r) => dealLink(r.deal_id, r.name) },
+  { t: "担当", fmt: (r) => esc(r.consultant) || DASH },
+  { t: "ステージ", w: "s", fmt: (r) => esc(r.stage) || '<span class="muted small">ステージ名なし</span>' },
+  { t: "金額", n: 1, fmt: (r) => yen(r.amount) },
+  { t: "名札", w: "f", fmt: (r) => tagsShort(r.flags) },
+];
+const pipeTable = (rows, id) => table(PIPE_COLS, rows.map((r) => PIPE_COLS.map((c) => c.fmt(r))), "", id);
+/** 月の見出し（「今月 2026-09」）。window は今月・来月・再来月の順 */
+const PIPE_WORDS = ["今月", "来月", "再来月"];
+/** 金額の書き方（合計と、空の件数）。空の件数は 0 でも書く（入っていないものが無いことも事実） */
+function pipeAmount(s) {
+  return (s.amount == null ? "金額なし" : yen(s.amount)) + "（金額が空 " + num(s.amount_missing) + " 件）";
+}
+function renderRenewalPipe(D) {
+  const M = D.meta || {};
+  const win = M.window || [];
+  const months = D.months || [];
+  const rows = D.rows || [];
+  const ov = D.overdue_before || { sum: { n: 0, amount_missing: 0 }, rows: [] };
+  const wt = D.window_total || { n: 0, amount_missing: 0 };
+  const at = D.active_total || { n: 0, amount_missing: 0 };
+  const word = (i) => (PIPE_WORDS[i] || "") + " " + (win[i] || "");
+  /* 今月のうちに満了日を過ぎて、まだ稼働中（今月の件数に入っている。黙って混ぜず内訳で言う） */
+  const pastThis = rows.filter((r) => r.days_left != null && r.days_left < 0).length;
+  let h = sec("問い", "今月・来月・再来月に満了するのはどれで、いくらか") +
+    '<div class="lede">毎週見る画面です。<b>今月・来月・再来月</b>に満了する稼働中の契約を、満了月ごとの件数・金額と、' +
+    "満了の近い順の一覧で出します。" + notCounted(M).replace(/<br>$/, "") + "</div>" +
+    pageToc([["rp-list", "満了の近い順の一覧"]].concat(ov.sum.n ? [["rp-over", "満了日を過ぎてまだ稼働中"]] : []).concat([["rp-stage", "ステージ別の件数"]]),
+      goLink("deal", "board") + goLink("monthly", "results"));
+  h += '<div class="kpis">' + months.map((m, i) =>
+    kpi(word(i) + " に満了", num(m.n) + '<span class="u">件</span>',
+      pipeAmount(m) + (i === 0 && pastThis ? "。うち満了日を過ぎてまだ稼働中 " + num(pastThis) + " 件" : ""),
+      "", { jump: "rp-list", text: "一覧へ" })).join("") +
+    (ov.sum.n
+      ? kpi("先月以前に満了日を過ぎて、まだ稼働中", num(ov.sum.n) + '<span class="u">件</span>', pipeAmount(ov.sum) +
+          "。ステージが満了の後も動いていない契約です", "", { jump: "rp-over", text: "一覧へ" })
+      : "") + "</div>";
+  /* 母数の箱は畳まない（外した件数・空の件数を書いた箱。08 の 2.4） */
+  h += note("info", "何を数えているか（母数）",
+    "稼働中 " + num(M.n_active) + " 件（オプション契約を除く）のうち、今月〜再来月に満了 " + num(wt.n) + " 件・" +
+    "先月以前に満了日を過ぎてまだ稼働中 " + num(ov.sum.n) + " 件・再来月より先に満了 " + num(D.later) + " 件・" +
+    "満了日が入っていない " + num(D.no_expiry) + " 件です（どの契約もどれか 1 つにだけ入ります）。" +
+    "今月〜再来月の金額の合計は " + pipeAmount(wt) + "、稼働中の全部では " + pipeAmount(at) + "。<br>" +
+    esc(M.amount_basis || "") + "。満了月は満了日（契約の満了日）で決めています。");
+  h += sec("表", "満了の近い順の一覧（今月〜再来月、" + num(rows.length) + " 件）", "rp-list");
+  h += rows.length
+    ? scroll(pipeTable(rows, "rp-tbl"), 640, rows.length)
+    : '<p class="muted">今月〜再来月に満了する稼働中の契約はありません。</p>';
+  h += '<p class="muted small">案件名は案件の詳細へのリンクです。金額は取引 1 件の金額で、担当ごとの合計は出していません。' +
+    "名札は案件一覧・今日と同じものです。</p>";
+  if (ov.sum.n) {
+    h += sec("表", "先月以前に満了日を過ぎて、まだ稼働中の契約（" + num(ov.sum.n) + " 件）", "rp-over") +
+      '<details class="fold"><summary>表を開く（満了の古い順）</summary>' + scroll(pipeTable(ov.rows || [], "rp-over-tbl"), 640, ov.sum.n) +
+      "</details>";
+  }
+  /* ステージ別の件数。一覧（毎週の仕事）の後ろに置く: 09 の 5 の並びは「満了月ごとの件数・金額・ステージ別の件数 → 母数 → 表」だが、
+     ステージは fixture で 18 種あり、先に置くと 1440px で一覧の見出しが y=1,592（1 画面目の外）だった（2026-09-29 撮影）。
+     月ごとの件数・金額は札（1 画面目）に出ているので、ステージの内訳を一覧の後ろへ回した。
+     🔴 確度は掛けない。3 か月を並べて比べるので、並びは 3 か月の合計の多い順で固定（サーバが決める） */
+  h += sec("表", "ステージ別の件数（満了月ごと・実数）", "rp-stage");
+  const st = D.stages || [];
+  const cnt = (m, s) => ((m.stages || []).find((x) => x.label === s) || { n: 0 }).n;
+  h += scroll(table([{ t: "ステージ" , w: "s" }].concat(months.map((m, i) => ({ t: word(i), n: 1 }))).concat([{ t: "3か月の計", n: 1 }]),
+    st.map((s) => [esc(s)].concat(months.map((m) => num(cnt(m, s)))).concat([num(months.reduce((a, m) => a + cnt(m, s), 0))]))
+      .concat([["<b>計</b>"].concat(months.map((m) => "<b>" + num(m.n) + "</b>")).concat(["<b>" + num(wt.n) + "</b>"])]),
+    "", "rp-stage-tbl"), "none") +
+    '<p class="muted small">件数だけを数えています。ステージ名に入っている「50％」などは HubSpot のステージの名前の一部で、' +
+    "件数にも金額にも掛けていません。</p>";
+  /* 読むときの注意（not_counted）は画面の頭で書いた（said=true。同じ文を 2 回出さない） */
+  return h + foot(M, true, "稼働中 " + num(M.n_active) + " 件");
 }
 
 /* ================================================================ 画面の並び
@@ -7760,7 +7859,7 @@ function renewalPipeInterim(D) {
 
    ---- 各画面の描画（段A の統合 2026-09-29） ----
    顧客は renderCustomer、チームと担当は renderTeam（/api/consulting/team の束）、成果と継続は renderResults
-   （/api/consulting/results の束）。満了と継続（renderRenewalPipe）だけは、関数が無ければ仮のつなぎ（renewalPipeInterim）。
+   （/api/consulting/results の束）。満了と継続は renderRenewalPipe（/api/consulting/renewal-pipe。段B で仮のつなぎを外した）。
    旧ハッシュからの転送は、移り先の画面の中の節の id（cust-site・tm-ct-h・rs-renewal など。LEGACY の at）へ飛ぶ。
 
    🔴 **開いた項目だけ取りに行く。** 並べ替えただけで全部読むと重くなる。
@@ -7790,9 +7889,9 @@ const MENUS = [
       /* 10章⑤: 削除せず残す。置き場所は顧客の次 */
       { key: "focus",    label: "いま見るべき顧客", path: "/api/consulting/focus",
         render: (D) => renderFocus(D) },
-      /* 新しい画面（09 の 5）。材料は案件の行（amount・stage・days_left） */
-      { key: "renewalpipe", label: "満了と継続",    path: "/api/consulting/deals",
-        render: (D) => (typeof renderRenewalPipe === "function" ? renderRenewalPipe(D) : renewalPipeInterim(D)) },
+      /* 新しい画面（09 の 5）。今月・来月・再来月に満了する件数・金額・ステージと一覧（段B。money.rs build_renewal_pipe） */
+      { key: "renewalpipe", label: "満了と継続",    path: "/api/consulting/renewal-pipe",
+        render: (D) => renderRenewalPipe(D) },
       /* 前の「担当者の一覧」「担当者ごとの接触」「担当の交代」を 1 つに（09 の 6）。
          /api/consulting/team は担当者の一覧・接触の推移・交代・名札の件数を束ねて返す（1 本で取る。more は使わない） */
       { key: "team",     label: "チームと担当",     path: "/api/consulting/team",
