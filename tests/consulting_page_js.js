@@ -2369,6 +2369,37 @@ check("N8", "転送先の節（?at=）へ描いた後に送り、URL からは�
   if (dq.scrolled !== 1) throw new Error("前の節へもう一度送っている（at は 1 回だけ）");
 });
 
+check("N8", "送った節に留める: 同じ画面を後から描き直しても（既定の法人を取り直す 2 回目の load）同じ節へ送り直し、人が動かしたら・別の画面へ移ったらやめる", async () => {
+  /* 🔴 2026-09-29 検証: #deal/series と本文のリンク ?at=cust-series が「継続を追いかける」に着かなかった。
+     顧客の画面は描いた後にも中身が伸び（既定の法人の取り直し・本部アプローチの後読み・図の 2 回描き）、飛ぶのは最初の 1 回だけだった
+     （fixture 実測 1440px: cust-series の top +11165）。ここでは 2 回目の load の道筋を見る（大きさの変化は ResizeObserver。偽の DOM には無い） */
+  const D = fixedDate("2026-09-30T09:00:00+09:00");
+  const t = boot("#deal/series", { Date: D });
+  t.R("viewOf('research', 'customer').render = () => '<h2 id=\"cust-houjin\"></h2><h2 id=\"cust-series\"></h2>'");
+  const el = new t.El("cust-series"); el.scrolled = 0; el.scrollIntoView = () => { el.scrolled++; }; t.reg["cust-series"] = el;
+  const answer = async () => { t.fetched[t.fetched.length - 1].resolve(jsonRes({ meta: {} })); for (let i = 0; i < 5; i++) await tick(); };
+  if (t.fetched[t.fetched.length - 1].url.indexOf("/api/consulting/customer") !== 0) throw new Error("前提: 顧客の API を取っていない");
+  await answer();
+  if (el.scrolled !== 1) throw new Error("旧ハッシュ #deal/series で節（cust-series）へ送っていない: " + el.scrolled);
+  /* 既定の法人を取り直す 2 回目の load（custIndex の setTimeout と同じ呼び方） */
+  t.R("load(false)");
+  await answer();
+  if (el.scrolled !== 2) throw new Error("同じ画面を描き直した後、送った節へ送り直していない（上の節が伸びると行き先が押し出される）: " + el.scrolled);
+  /* 人が動かしたら（ホイール）やめる */
+  (t.listeners.wheel || []).forEach((f) => f({ type: "wheel" }));
+  t.R("load(false)");
+  await answer();
+  if (el.scrolled !== 2) throw new Error("人がホイールで動かした後も節へ引き戻している");
+  /* 別の画面へ移ったらやめる（戻ってきた描き直しで前の節へ送らない） */
+  const t2 = boot("#deal/series", { Date: D });
+  t2.R("viewOf('research', 'customer').render = () => '<h2 id=\"cust-series\"></h2>'");
+  const e2 = new t2.El("cust-series"); e2.scrolled = 0; e2.scrollIntoView = () => { e2.scrolled++; }; t2.reg["cust-series"] = e2;
+  t2.fetched[t2.fetched.length - 1].resolve(jsonRes({ meta: {} })); for (let i = 0; i < 5; i++) await tick();
+  t2.R('go("research", "customer")');
+  t2.fetched[t2.fetched.length - 1].resolve(jsonRes({ meta: {} })); for (let i = 0; i < 5; i++) await tick();
+  if (e2.scrolled !== 1) throw new Error("左のメニューから入り直した後も前に送った節へ送っている: " + e2.scrolled);
+});
+
 check("more", "1 画面が複数の API を読む（MENUS の more）: どれかが失敗したら画面ごと失敗にしてどの API かを書く。読み直すは主の 1 本だけ refresh=1 で、more は主の後に取る", async () => {
   const t = boot();
   t.R('go("research", "team")');
