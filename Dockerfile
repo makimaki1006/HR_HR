@@ -1,3 +1,19 @@
+# ===== フロントエンド (React) ビルドステージ (Phase 0-5, 2026-09-29) =====
+# frontend/ を Vite でビルドし、成果物 (static/app/ = ハッシュ付き JS/CSS + .vite/manifest.json)
+# だけをランタイムに渡す。Node 本体と node_modules はランタイムに入らない。
+# Rust の builder とは依存が無いので、BuildKit なら並列に走る。
+# node のメジャーは CI (.github/workflows/ci.yml の frontend ジョブ) の 22 と揃える。
+# vite.config.ts の outDir は '../static/app' なので、リポジトリと同じ並び
+# (/src/frontend → /src/static/app) で置く。
+FROM node:22-bookworm-slim AS web
+WORKDIR /src/frontend
+# package*.json が変わらない限り npm ci の層はキャッシュに乗る
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build \
+    && test -f /src/static/app/.vite/manifest.json
+
 # ===== ビルドステージ =====
 # ベースを固定する理由が 2 つある。
 #  1) glibc: rust:latest は Debian 13 (trixie/glibc 2.41) に上がっており、
@@ -82,6 +98,10 @@ COPY templates/ templates/
 COPY static/css/ static/css/
 COPY static/js/ static/js/
 COPY static/guide/ static/guide/
+
+# React 画面のビルド成果物。/app/{screen} が起動時に static/app/.vite/manifest.json を読む。
+# 無いと /app/* は「フロントエンド未ビルド」の注記を返す (起動は止まらない)。
+COPY --from=web /src/static/app/ static/app/
 
 # 圧縮データ（起動時に自動解凍）
 COPY data/geojson_gz/ data/geojson_gz/

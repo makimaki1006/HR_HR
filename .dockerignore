@@ -13,6 +13,7 @@
 #
 # ランタイムステージが COPY するもの (これも除外しない):
 #   templates/  static/css/  static/js/  static/guide/
+#   frontend/ (web ステージが npm ci / npm run build する。node_modules だけは除外)
 #   data/geojson_gz/  data/media_engine/  data/indeed_insights.db.gz
 #   scripts/download_db.sh
 
@@ -24,6 +25,12 @@
 target/
 target-*/
 node_modules/
+# .dockerignore のパターンはコンテキストのルート基準。上の行は ./node_modules だけに効く。
+# frontend/node_modules (Windows 等のホスト用バイナリ入り) を送ると、Dockerfile の
+# COPY frontend/ が npm ci 済みの node_modules を上書きしてしまうので明示的に外す。
+**/node_modules/
+# React のビルド成果物はイメージ内の web ステージで作る (手元の古いビルドを送らない)
+static/app/
 out/
 *.exe
 
