@@ -48,6 +48,7 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::contact_trend::build_contact_trend;
+use super::money::{build_money, build_renewal_pipe};
 use super::{
     consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, focus_of, latest_nps,
     load, opt_num, Deal, Outcome, Sheets,
@@ -73,6 +74,8 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/deal-detail", get(deal_detail))
         .route("/api/consulting/team", get(team))
         .route("/api/consulting/results", get(results))
+        // 満了と継続（09 の 5、段B）。今月・来月・再来月に満了する稼働中の契約の件数・金額・ステージ
+        .route("/api/consulting/renewal-pipe", get(renewal_pipe))
 }
 
 #[derive(Template)]
@@ -208,6 +211,7 @@ simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
 simple_handler!(today_board, build_today_board);
 simple_handler!(team, build_team);
+simple_handler!(renewal_pipe, build_renewal_pipe);
 
 /// 「成果と継続」。継続回数 × 成果の右側打ち切りの切り替え（`exclude_right_censored`）を受け取るので
 /// `simple_handler!` ではなく `renewal()` と同じ形にしている。読むシートは全部（束ねた6つの集計が全部を使う）
@@ -3392,5 +3396,7 @@ pub fn build_results(sheets: &Sheets, exclude_right_censored: bool, today: Naive
         "rampup": build_rampup(sheets, today),
         "headquarters": build_headquarters(sheets, today),
         "phone": build_phone(sheets, today),
+        // 金額の札（稼働中の合計・今月〜再来月に満了する金額・金額で見た継続率）。会社全体だけ（10 章④。段B）
+        "money": build_money(sheets, today),
     })
 }
