@@ -7,6 +7,9 @@ mod fetch;
 mod handlers;
 mod render;
 
+#[cfg(test)]
+mod golden_tests;
+
 // lib.rs から handlers::regional_analysis::* として参照
 pub use handlers::{
     regional_company_matrix, regional_foreign_residents, regional_industry_structure,
