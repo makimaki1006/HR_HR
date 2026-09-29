@@ -5969,7 +5969,26 @@ fn results_bundles_existing_aggregates() {
         hv["rows"].as_array().map(Vec::len),
         hq["rows"].as_array().map(Vec::len)
     );
-    assert_eq!(v["phone"], build_phone(&sh, day));
+    // 🔴 段B（2026-09-29）: 電話は「手を打つ先」の表を畳んで残すためだけに束ねていた。見方の印に移したので外す。
+    //    戻す（束ね直す）と、成果と継続の応答に使わない電話の集計が毎回乗る
+    assert!(
+        v.get("phone").is_none(),
+        "成果と継続に電話の集計がまだ束ねられている"
+    );
+    // 手を打つ先は案件一覧の見方へのリンクになった。鍵と名前は案件一覧の見方と同じもの（画面はこの鍵で ?view= を作る）
+    let keys = |x: &Value| -> Vec<(String, String)> {
+        x.as_array()
+            .expect("act_views")
+            .iter()
+            .map(|v| (v["key"].to_string(), v["label"].to_string()))
+            .collect()
+    };
+    let board = build_deal_board(&sh, day);
+    assert_eq!(
+        keys(&v["meta"]["act_views"]),
+        keys(&board["meta"]["act_views"])
+    );
+    assert_eq!(keys(&v["meta"]["act_views"]).len(), 4);
 }
 
 /// 09 の 7・10 章②: 成果と継続は「定期NPS 4以下」の表を段B の仮置きに入れず、名札「NPSが4以下」への
@@ -6007,5 +6026,256 @@ fn results_nps_low_is_the_same_set_as_the_deal_flag() {
         tbl,
         ids(&tagged),
         "定期NPS 4以下の表と名札「{flag}」の集合が違う"
+    );
+}
+
+// ================================================================ 見方の印（段B、09 の 10 章②）
+
+fn has_str(v: &Value, x: &str) -> bool {
+    v.as_array().is_some_and(|a| a.iter().any(|y| y == x))
+}
+
+/// 見方の印は名札・帯・行の値だけで決まる（定義の見張り）。
+/// 🔴 印の定義を変えたら落ちる。変えるときは 09 の 10 章②の判断と画面の定義の1行（ACT_VIEWS.rule）も一緒に直す
+#[test]
+fn act_views_are_defined_by_the_deal_flags() {
+    let sh = sheets();
+    let b = build_deal_board(&sh, fixture_day());
+    let rows = b["rows"].as_array().unwrap();
+    let (mut top, mut silent, mut no_mtg, mut risk) = (0, 0, 0, 0);
+    for r in rows {
+        let f = &r["flags"];
+        let views = &r["views"];
+        let contact = has_str(f, "接触の記録が無い") || has_str(f, "接触が30日以上空いている");
+        let want_top = has_str(f, "満了まで60日以内")
+            && contact
+            && r["amount"].as_f64().is_some_and(|a| a >= 500_000.0);
+        let want_silent = has_str(f, "接触の記録が無い")
+            || (has_str(f, "接触が30日以上空いている")
+                && r["days_since_contact"].as_i64().is_some_and(|x| x > 90));
+        let want_no_mtg = r["renewal_no"] == 0 && r["mtg_band"] == "no_record";
+        let want_risk = r["mtg_risk"] == "高";
+        assert_eq!(has_str(views, "top"), want_top, "最優先 {}", r["deal_id"]);
+        assert_eq!(
+            has_str(views, "silent"),
+            want_silent,
+            "接触90日超 {}",
+            r["deal_id"]
+        );
+        assert_eq!(
+            has_str(views, "no_mtg"),
+            want_no_mtg,
+            "初回MTG無し {}",
+            r["deal_id"]
+        );
+        assert_eq!(
+            has_str(views, "mtg_risk"),
+            want_risk,
+            "MTGリスク高 {}",
+            r["deal_id"]
+        );
+        // 最優先・接触90日超に入った案件は、必ず名札を持っている（名札に寄せた、の意味）
+        if want_top || want_silent {
+            assert!(r["n_flags"].as_u64().unwrap_or(0) >= 1, "{}", r["deal_id"]);
+        }
+        // 見方の印は名札の本数に入れない（今日動く先の「名札2本以上」を動かさない）
+        assert_eq!(
+            r["n_flags"].as_u64(),
+            f.as_array().map(|a| a.len() as u64),
+            "{}",
+            r["deal_id"]
+        );
+        top += usize::from(want_top);
+        silent += usize::from(want_silent);
+        no_mtg += usize::from(want_no_mtg);
+        risk += usize::from(want_risk);
+    }
+    // meta の件数は行の印の数と同じ（画面はボタンの件数に meta を使う）
+    let n_of = |k: &str| {
+        b["meta"]["act_views"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["key"] == k)
+            .and_then(|v| v["n"].as_u64())
+            .unwrap_or_else(|| panic!("見方 {k} が meta に無い")) as usize
+    };
+    assert_eq!(
+        (
+            n_of("top"),
+            n_of("silent"),
+            n_of("no_mtg"),
+            n_of("mtg_risk")
+        ),
+        (top, silent, no_mtg, risk)
+    );
+}
+
+/// 前の定義の集合と新しい印の集合の突き合わせ（fixture・基準日 2026-09-18 の実測）。
+/// 🔴 件数が変わったら落ちる。定義か fixture が変わったということなので、画面の「外れました」の文と 09 の記録も見直す。
+///    本番のシート（2026-09-28 取得・基準日 2026-09-29）では 最優先 37→46（外れ0・入った9）、
+///    接触90日超 89→66（外れ33・入った10）、初回MTG無し 113→23（外れ100・入った10）、MTGリスク高 4件
+#[test]
+fn act_view_diff_counts_on_fixture() {
+    let sh = sheets();
+    let b = build_deal_board(&sh, fixture_day());
+    let rows = b["rows"].as_array().unwrap();
+    let diff = b["meta"]["act_view_diff"]
+        .as_array()
+        .expect("act_view_diff");
+    let get = |k: &str| {
+        diff.iter()
+            .find(|v| v["key"] == k)
+            .unwrap_or_else(|| panic!("{k}"))
+    };
+    // (新しい件数, 前の件数, 残った, 外れた, 入った)
+    let want = [
+        ("top", 35, 26, 26, 0, 9),
+        ("silent", 78, 107, 68, 39, 10),
+        ("no_mtg", 21, 104, 11, 93, 10),
+    ];
+    for (k, n, old, kept, dropped, added) in want {
+        let v = get(k);
+        let o = &v["old"];
+        assert_eq!(
+            (
+                v["n"].as_i64(),
+                o["n"].as_i64(),
+                o["kept"].as_i64(),
+                o["dropped"].as_i64(),
+                o["added"].as_i64()
+            ),
+            (Some(n), Some(old), Some(kept), Some(dropped), Some(added)),
+            "見方 {k}"
+        );
+        // 恒等式: 前 ＝ 残った ＋ 外れた、新 ＝ 残った ＋ 入った
+        assert_eq!(old, kept + dropped);
+        assert_eq!(n, kept + added);
+        // 外れた行は全件ある（黙って消さない）。どれも今の印を持たず、理由が書いてある
+        let dr = o["dropped_rows"].as_array().unwrap();
+        assert_eq!(dr.len() as i64, dropped, "見方 {k} の外れた行");
+        for d in dr {
+            let id = d["deal_id"].as_str().unwrap();
+            let r = rows
+                .iter()
+                .find(|r| r["deal_id"] == id)
+                .unwrap_or_else(|| panic!("{id}"));
+            assert!(
+                !has_str(&r["views"], k),
+                "外れたはずの {id} が見方 {k} に入っている"
+            );
+            assert!(
+                !d["reason"].as_str().unwrap_or("").is_empty(),
+                "{id} の理由が空"
+            );
+            assert!(!d["name"].is_null(), "{id} の案件名が無い");
+        }
+    }
+    // 前の一覧が無い見方は、突き合わせを出さない（0 件の比べものを作らない）
+    let r = get("mtg_risk");
+    assert!(r["old"].is_null());
+    assert_eq!(r["n"], 0);
+    // 外れた理由の内訳（fixture）。接触90日超: 開始前 8・MTG を含めると90日以内 31
+    let reasons = |k: &str, pat: &str| {
+        get(k)["old"]["dropped_rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["reason"].as_str().unwrap_or("").contains(pat))
+            .count()
+    };
+    assert_eq!(reasons("silent", "契約開始前"), 8);
+    assert_eq!(reasons("silent", "90日以内"), 31);
+    // 初回MTG無し: 立ち上がり期 38・メール由来の実施日がある 55
+    assert_eq!(reasons("no_mtg", "立ち上がり期"), 38);
+    assert_eq!(reasons("no_mtg", "メール由来"), 55);
+}
+
+/// MTG のリスク判定は「判定のある MTG のうちいちばん新しいもの」。fixture の稼働中には「高」が 0 件なので、
+/// 決まりごとは作ったシートで確かめる（判定が空の新しい MTG で前の「高」が消えない・同じ日は重い方）
+#[test]
+fn latest_mtg_risk_skips_unjudged_and_prefers_the_heavier_on_the_same_day() {
+    let header: Vec<String> = ["deal_id", "開催日", "リスク判定"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let row = |a: &str, b: &str, c: &str| -> Vec<Arc<str>> { vec![a.into(), b.into(), c.into()] };
+    let mtg = SheetData {
+        header,
+        rows: vec![
+            row("A", "2026-08-01", "高"),
+            row("A", "2026-09-01", ""), // 抽出前。飛ばす
+            row("B", "2026-08-01", "高"),
+            row("B", "2026-09-01", "低"), // 新しい判定が勝つ
+            row("C", "2026-09-01", "低"),
+            row("C", "2026-09-01", "高"), // 同じ日は重い方
+            row("", "2026-09-01", "高"),  // 取引に結べていない
+        ],
+        fetched_at: Instant::now(),
+    };
+    let m = super::routes::latest_mtg_risk_by_deal(&mtg);
+    assert_eq!(m.get("A").map(|x| x.1.as_str()), Some("高"));
+    assert_eq!(m.get("B").map(|x| x.1.as_str()), Some("低"));
+    assert_eq!(m.get("C").map(|x| x.1.as_str()), Some("高"));
+    assert_eq!(m.len(), 3);
+}
+
+/// 見方の突き合わせは、同じシート（同じ Arc）と基準日なら覚えたものを返し、シートを取り直すか日が変わったら数え直す。
+/// 🔴 2026-09-29 検証: 案件一覧を開くたびに電話の集計ごと回していた（fixture・debug で deal_rows 約 990ms に 約 580ms 上乗せ）
+#[test]
+fn act_view_diff_memo_reuses_only_for_the_same_sheets_and_day() {
+    use std::cell::Cell;
+    let memo: super::routes::DiffMemo = std::sync::Mutex::new(None);
+    let sh = sheets();
+    let d = fixture_day();
+    let calls = Cell::new(0);
+    let run = |sh: &Sheets, d: chrono::NaiveDate, v: i64| {
+        super::routes::act_view_diff_memo_in(&memo, sh, d, || {
+            calls.set(calls.get() + 1);
+            serde_json::json!(v)
+        })
+    };
+    assert_eq!(run(&sh, d, 1), serde_json::json!(1));
+    // 同じシート・同じ日: 数え直さない
+    assert_eq!(run(&sh, d, 2), serde_json::json!(1));
+    assert_eq!(calls.get(), 1);
+    // 日が変わった: 数え直す
+    assert_eq!(
+        run(&sh, d + chrono::Duration::days(1), 3),
+        serde_json::json!(3)
+    );
+    assert_eq!(calls.get(), 2);
+    // 通話明細だけ取り直した（中身が同じでも別の Arc）: 数え直す
+    let sh2 = Sheets {
+        deal: sh.deal.clone(),
+        call: Arc::new(SheetData {
+            header: sh.call.header.clone(),
+            rows: sh.call.rows.clone(),
+            fetched_at: Instant::now(),
+        }),
+        mtg: sh.mtg.clone(),
+        history: sh.history.clone(),
+        customer: sh.customer.clone(),
+        mail_mtg: sh.mail_mtg.clone(),
+        handover: sh.handover.clone(),
+        owner_hist: sh.owner_hist.clone(),
+        meta: sh.meta.clone(),
+        all_cached: sh.all_cached,
+    };
+    assert_eq!(
+        run(&sh2, d + chrono::Duration::days(1), 4),
+        serde_json::json!(4)
+    );
+    assert_eq!(calls.get(), 3);
+    // 覚えているのは最後の1つだけ（古いシートに戻ったら数え直す）
+    assert_eq!(run(&sh, d, 5), serde_json::json!(5));
+    assert_eq!(calls.get(), 4);
+    // 案件一覧の応答は、覚えたものを返しても数え直しても同じ（fixture で2回続けて同じ）
+    let a = build_deal_board(&sh, d);
+    let b = build_deal_board(&sh, d);
+    assert_eq!(a["meta"]["act_view_diff"], b["meta"]["act_view_diff"]);
+    assert_eq!(
+        a["meta"]["act_view_diff"],
+        super::routes::act_view_diff(&sh, d, a["rows"].as_array().unwrap())
     );
 }
