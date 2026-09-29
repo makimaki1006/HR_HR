@@ -535,6 +535,10 @@
   a.golink{ color:var(--ai); text-decoration:underline; text-underline-offset:2px; white-space:nowrap; }
   a.golink:hover{ background:var(--ai-soft); }
   a.golink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
+  /* 1 本で 1 行を占める長いリンク（成果と継続の「手を打つ先」の見方へのリンクなど）は折り返す。
+     🔴 2026-09-29 段B 統合後の撮影: 見方の名前が長く、nowrap のままだと 400px で右へ 54px はみ出し横スクロールが出た
+     （「見方「最優先（満了が近く、接触も空いている）」で絞った案件一覧」の幅 398px）。文の中の短いリンクは nowrap のまま */
+  a.golink.wrap{ white-space:normal; overflow-wrap:anywhere; }
   /* 画面の中の目次（チームと担当・成果と継続。09 の 6・7「冒頭にページ内リンク」）と、本文の中の「同じ画面の節へ」。
      押すと同じ画面の見出しへ移る（kpiJump。URL のハッシュは画面の場所に使っているので、a href="#…" にしない）。
      押せる高さは a.drill と同じ 24px（WCAG 2.2 AA） */
@@ -3938,13 +3942,13 @@ function resultsActTables(D) {
     '<div class="lede">前はここに畳んでいた手を打つ先の表は、<b>定義を案件一覧の名札に揃えて、案件一覧の「見方」に移しました</b>。' +
     "揃えたことで前の定義から外れた案件は、見方を押すと件数と一覧で出ます。</div>" +
     (V.length
-      ? '<ul>' + V.map((v) => '<li><a class="golink" href="' + esc(hashFor("board", { view: v.key })) + '">見方「' +
+      ? '<ul>' + V.map((v) => '<li><a class="golink wrap" href="' + esc(hashFor("board", { view: v.key })) + '">見方「' +
           esc(v.label) + "」で絞った案件一覧</a>" + (v.old ? '<span class="muted small">（前は ' + esc(v.old) + "）</span>" : "") + "</li>").join("") + "</ul>"
       : '<p class="muted small">見方の一覧が届いていません。' + goLink("deal", "board") + " で見られます。</p>") +
     '<p class="muted small"><b>定期NPS が ' + esc(n.threshold) + " 以下の顧客（" + num(n.n) + " 件）</b>は、" +
     (flag
       ? '案件一覧の名札「' + esc(flag) + "」と同じ集合です。" +
-        '<a class="golink" href="' + esc(hashFor("board", { flag: flag })) + '">名札「' + esc(flag) + "」で絞った案件一覧</a>・"
+        '<a class="golink wrap" href="' + esc(hashFor("board", { flag: flag })) + '">名札「' + esc(flag) + "」で絞った案件一覧</a>・"
       : "") +
     goLink("research", "focus") + " の表で見られます。</p>";
 }
