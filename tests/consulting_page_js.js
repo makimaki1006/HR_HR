@@ -2400,6 +2400,37 @@ check("N8", "送った節に留める: 同じ画面を後から描き直して�
   if (e2.scrolled !== 1) throw new Error("左のメニューから入り直した後も前に送った節へ送っている: " + e2.scrolled);
 });
 
+check("N8", "戻るで旧ハッシュの転送先へ帰ったとき、帯（#cs-moved）の高さの差を足し引きして、離れる前と同じ内容の位置に戻す", async () => {
+  /* 🔴 2026-09-29 検証: 帯ありの #study/defs で scrollY 4577、今日へ移って戻ると帯は消えていて 4478（差 99px ＝ 帯の高さ）。
+     位置は帯を付け外しする前に、帯の高さと一緒に覚える（go の capturePos → showMoved の順）。
+     偽の DOM にはスクロールの錨が無いので、錨の無いブラウザと同じく、覚えた scrollY をそのまま戻すと 99px ずれる */
+  const D = fixedDate("2026-09-30T09:00:00+09:00");
+  const t = boot("#study/defs", { Date: D });
+  /* 描画は見張りの対象ではないので、節の見出しだけ出す仮の描画にする */
+  t.R("viewOf('monthly', 'trust').render = () => '<h2 id=\"trust-defs\"></h2>'");
+  const scrolled = [];
+  t.ctx.window.scrollTo = (x, y) => { scrolled.push([x, y]); };
+  t.fetched.slice(-2).forEach((q) => q.resolve(jsonRes({ meta: {} })));
+  await tick(); await tick(); await tick(); await tick();
+  const box = t.reg["cs-moved"];
+  if (box.hidden !== false) throw new Error("前提: 旧ハッシュで帯が出ていない");
+  box.offsetHeight = 99;
+  /* 開いた直後の札（fromHash → go が replaceState で付ける。keepStates はその後に付けたので変数から読む） */
+  const kTrust = { k: t.R("curKey"), s: t.R("SESSION") };
+  if (typeof kTrust.k !== "number" || t.loc.hash !== "#monthly/trust") throw new Error("前提: 転送先に札が無い");
+  t.ctx.window.scrollY = 4577;
+  t.R('go("deal", "today")');
+  if (box.hidden !== true) throw new Error("前提: 別の画面へ移っても帯が残る");
+  box.offsetHeight = 0;
+  t.fetched[t.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({})])));
+  await tick(); await tick();
+  scrolled.length = 0;
+  travel(t, "#monthly/trust", kTrust);
+  await tick(); await tick(); await tick(); await tick();
+  if (!scrolled.some((p) => p[1] === 4478)) throw new Error("帯の高さの差（99px）を足し引きして戻していない: " + JSON.stringify(scrolled));
+  if (scrolled.some((p) => p[1] === 4577)) throw new Error("帯がある時の scrollY をそのまま戻している（内容が帯の高さぶん下にずれる）");
+});
+
 check("more", "1 画面が複数の API を読む（MENUS の more）: どれかが失敗したら画面ごと失敗にしてどの API かを書く。読み直すは主の 1 本だけ refresh=1 で、more は主の後に取る", async () => {
   const t = boot();
   t.R('go("research", "team")');

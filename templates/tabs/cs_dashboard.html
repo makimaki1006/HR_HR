@@ -225,6 +225,9 @@
         font-size:12.5px; color:var(--ink-2); margin:var(--space-2) 0; }
   /* 旧ハッシュから来たときの帯（showMoved）。hidden の間は場所を取らない */
   #cs-moved[hidden]{ display:none; }
+  /* 中の帯（.note）の上下の余白を箱の中に収める。戻るで位置を戻すとき、帯が取っている高さを offsetHeight で測るため
+     （movedHeight。余白が外へはみ出すと 78px と測れて、実際にずれる 98px と合わなかった。2026-09-29 fixture 1440px） */
+  #cs-moved{ display:flow-root; }
 
   /* 🔴 狭い画面ではサイドバーを本文の上に回して横に並べる（畳まない）。
      集計は項目が9つあり、開閉の一手間を挟むと「毎朝いちばん見るもの」が
@@ -7626,6 +7629,7 @@ function capturePos() {
   const href = a && a !== document.body && a.getAttribute ? a.getAttribute("href") || "" : "";
   return {
     y: typeof window.scrollY === "number" ? window.scrollY : 0,
+    mh: movedHeight(),   /* そのときの帯の高さ（restorePos が差を足し引きする） */
     x: typeof window.scrollX === "number" ? window.scrollX : 0,
     boxes,
     /* 押した案件名（詳細へのリンク）だけ覚える。戻ったとき同じ行にフォーカスを戻す（「元の行に戻す」）。
@@ -7640,7 +7644,12 @@ function restorePos(p) {
       if (p.boxes[i]) { s.scrollTop = p.boxes[i][0]; s.scrollLeft = p.boxes[i][1]; }
     });
   } catch (_) { /* 偽の DOM */ }
-  window.scrollTo(p.x, p.y);
+  window.scrollTo(p.x, Math.max(0, p.y - (p.mh || 0) + movedHeight()));
+}
+/** 「この画面は○○に移りました」の帯（#cs-moved）がいま取っている高さ。出していなければ 0 */
+function movedHeight() {
+  const b = document.getElementById("cs-moved");
+  return b && !b.hidden && typeof b.offsetHeight === "number" ? b.offsetHeight : 0;
 }
 
 /* ---------------------------------------------------------------- 移動
@@ -7660,9 +7669,12 @@ function go(menu, view, refresh, how, state, trav, moved) {
      （離れたときの位置へ戻すのが先） */
   pendingAt = trav != null ? "" :
     (state instanceof URLSearchParams && state.get("at")) || (moved && moved.at) || (r.moved && r.moved.at) || "";
-  showMoved(moved || null, v);
-  /* 離れる前に、いまの位置を履歴の札ごとに覚える（戻ってきたときに戻す） */
+  /* 離れる前に、いまの位置を履歴の札ごとに覚える（戻ってきたときに戻す）。
+     🔴 帯（showMoved）を付け外しする**前**に覚える。帯の高さも一緒に覚え、戻したときの帯との差を restorePos が足し引きする
+     （2026-09-29 検証: 帯ありの #study/defs で scrollY 4577 → 戻ると帯は消えていて 4478。Chromium は帯を消したときの
+      スクロールの錨で内容の位置を保っていたが、錨の無いブラウザでは帯の高さ 99px ぶん下にずれる） */
   if (curKey != null) posByKey[curKey] = capturePos();
+  showMoved(moved || null, v);
   /* 🔴 前はここで「案件そのものへ入るときは担当の絞り込みだけ外す」としていた（②から担当で絞った状態を持ち越すと、
      絞っていることに気づかないまま全件だと思い込む）。いまは入り直しで絞り込み（filter）を全部既定に戻すので、
      その決まりも含む（段1レビュー D: 帯の絞り込みも同じ理由で残っていた）。URL に c= が書いてあるときだけ、そのとおり絞る
