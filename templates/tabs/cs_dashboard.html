@@ -437,6 +437,10 @@
   tbody tr:hover{ background:var(--ai-soft); }
   tbody tr:last-child td{ border-bottom:none; }
   td:first-child{ font-weight:600; }
+  /* チームと担当の担当者 × 状態（09 の 6）。PC では枡の上下を詰めて、1画面目に入る人数を増やす。
+     2026-09-29 実測（1440×900, fixture 27 名）: 1 行 41px・表の 1 行目 y≈694 で、900px までに 4 行だった。
+     スマホ（600px 以下）は押しやすさ（40px 前後）を優先して詰めない */
+  @media (min-width:601px){ #team-tbl td{ padding-top:var(--space-1); padding-bottom:var(--space-1); } }
   /* 1列目（案件名・担当者名など、行を特定する列）を横に送っても左に残す（S-12）。
      2026-09-28 診断（400px）: 表を横に送ると案件名が消え、どの行の数字か分からなくなっていた。
      PC でも横に続く表（案件そのもの 15列）で同じ。はみ出していない表では見え方は変わらない。
@@ -3211,6 +3215,14 @@ function teamDrill(n, href, what) {
   if (!n) return num(n);
   return '<a class="drill" href="' + esc(href) + '" title="' + esc(what) + '">' + num(n) + "</a>";
 }
+/** チームと担当の中で、サーバの決まりごとの文（担当者の一覧・担当者ごとの接触の時の文）に残る「接触率」を、
+    表の列と同じ名前「接触した月の割合」に読み替える（09 の 10 章③「名前で区別して並べる」を画面の中で揃える）。
+    🔴 2026-09-29 検証: 「何のための画面か」の本文が「接触率 ＝ 接触があった月 ÷（案件 × 経過月）」のままで、
+    表の列・定義の説明の「接触した月の割合」と、同じ定義1に名前が2つ出ていた。サーバの文は他の画面でも使うので画面の側で読み替える */
+function teamRateName(s) {
+  return String(s || "").replace("接触率 ＝", "接触した月の割合（前の担当者の一覧の「接触率」）＝")
+    .replace("担当者の一覧の接触率", "表の「接触した月の割合」");
+}
 /* 列。数を押すと、その担当とその印で絞った一覧が開く（hashFor。URL の形は hashFor の注記のとおり） */
 const TEAM_COLS = [
   /* 名前は折り返さない（2026-09-29 実測 1440px: 折り返す列（w:"s"）にすると伏字の名前が 2 行になり、1 行 64px だった） */
@@ -3237,7 +3249,9 @@ const TEAM_COLS = [
       ' <span class="muted small">' + num(r.contact_touched) + "/" + num(r.contact_months) + " か月</span>" +
       /* 「母数が小さい」の印は 2 行目（2026-09-29 実測 1440px: 1 行に並べると列が広がり、10 列目の「1件あたり」が枠の外だった） */
       (r.small_n ? '<br><span class="tag" title="分母（案件 × 経過月）が小さく、たまたまで大きく振れます">母数が小さい</span>' : "") },
-  /* 人ごとの接触 定義2。前の担当者ごとの接触の値（いちばん新しい確定した月）。見出しの月は renderTeam が書き足す */
+  /* 人ごとの接触 定義2。前の担当者ごとの接触の値（いちばん新しい確定した月）。どの月の値かは、列の見出しではなく
+     表のすぐ上のリード文と、表の下の2つの定義の説明に renderTeam が書く（teamLastFixed）。
+     見出しに月を足すと列が約 70px 広がり、1440px で 2 つの接触の列を並べて読めなくなる（注力案件の列を右端に寄せたのと同じ理由） */
   { k: "per_deal", t: "1件あたりの接触回数", n: 1, fmt: (r) => contactCell(r.per_cell) },
   /* 注力案件は右端（2026-09-29 実測 1440px: 2 つの接触の列の前に置くと、1件あたりの接触回数が枠の外に出て、2 つの定義を並べて読めなかった） */
   { k: "focus", t: "注力案件", n: 1, fmt: (r) => nz(r.focus) },
@@ -3285,7 +3299,7 @@ function renderTeam(D) {
   /* 🔴 畳まない 1 行（09 の 6「仕事量の一覧で、担当者の評価ではありません」）。文の正本はサーバの not_counted の最初の文
      （routes.rs build_consultants）で、閉じた畳みでも見える summary（keep）に出す。本文（残りの文と接触の定義）だけ畳む（M-5） */
   const ncTeam = firstSentence(esc(D.meta.not_counted).replace("※ ", ""));
-  h += foldNote("info", "何のための画面か", [ncTeam[1], esc(C.contact_rule)].filter(Boolean).join("<br>"), ncTeam[0]);
+  h += foldNote("info", "何のための画面か", [ncTeam[1], esc(teamRateName(C.contact_rule))].filter(Boolean).join("<br>"), ncTeam[0]);
   h += pageToc([["tm-tbl-h", "担当者 × 状態"], ["tm-ct-h", "接触の推移"], ["tm-ho-h", "担当の交代"]],
     goLink("consultant", "byowner") + goLink("study", "phone"));
 
@@ -3342,13 +3356,9 @@ function renderTeam(D) {
     "<br>どちらも接触 ＝ MTG または60秒超の通話で、メールは数えていません。持ち案件の数え方が違うので、2つの値は揃いません" +
     "（割合は稼働中の案件の通算、回数はその月に持っていた案件）。");
 
-  /* ---- 接触の推移 ---- */
-  h += teamContact(D);
-
-  /* ---- 担当の交代 ---- */
-  h += renderHandover(D.handover || { rows: [], meta: {} }, "tm-ho-h");
-
-  /* 題は「担当者 × 状態の決まりごと」。同じ画面の担当の交代にも「この一覧の決まりごと」があるので、どの表の決まりか分かる名前にする */
+  /* 表の決まりごとは表のすぐ下（2つの定義の説明の次）に置く。
+     🔴 2026-09-29 検証（1440px）: 前は担当の交代の後ろ（全高 8,076px の末尾 y≈7,822）にあり、表（y≈656）から離れていた。
+     題は「担当者 × 状態の決まりごと」。同じ画面の担当の交代にも「この一覧の決まりごと」があるので、どの表の決まりか分かる名前にする */
   h += foldNote("def", "担当者 × 状態の決まりごと",
     esc(dispText(C.owner_rule || "")) + "<br>" + esc(C.focus_rule || "") +
     /* 担当の割れ（mod.rs consultant_ties）。ここでは件数だけ書く。どちらを採ったかは owner_rule（routes.rs）が書いている（F2） */
@@ -3359,6 +3369,13 @@ function renderTeam(D) {
     "<br>「名札2本以上」「接触の記録が無い」「満了まで60日以内」「NPS 4以下」「MTG 90日以上途絶」は、" +
     "案件そのもの・今日動く先と同じ行（名札）から数えています。" +
     "<b>「接触の記録が無い」は開始前の案件を数えていません</b>（開始前は名札を立てないため）。");
+
+  /* ---- 接触の推移 ---- */
+  h += teamContact(D);
+
+  /* ---- 担当の交代 ---- */
+  h += renderHandover(D.handover || { rows: [], meta: {} }, "tm-ho-h");
+
   return h + foot(D.meta, true, "担当者 " + num(D.meta.n_consultant) + " 名");
 }
 
@@ -3537,7 +3554,7 @@ function teamContact(D) {
   h += note("def", "接触の推移の決まりごと",
     esc(CT.denom_rule || "") +
     "<br>" + esc(CT.contact_rule || "") +
-    "<br>" + esc(CT.attach_rule || "") +
+    "<br>" + esc(teamRateName(CT.attach_rule)) +
     (movedN ? "（この表の" + what + "で、付け直して数えた接触はのべ " + num(movedN) + " 回）" : "") +
     (CM.n_ambiguous ? "（付け先を決められず数えなかった接触 " + num(CM.n_ambiguous) + " 回）" : "") +
     "<br>" + esc(dispText(CT.owner_rule || "")) +
@@ -3762,8 +3779,9 @@ function foot(meta, said, counts) {
    🔴 答えを先に: 継続回数ごとの解約率を先頭に置く（前は継続回数 × 成果の 1440px で y=1,103）。
    🔴 満了月ごとの内訳（約60行の表）は外した（09 の 7。折れ線と同じ中身）。件数は点の説明（M-11 の「数字で読む」）と
       図の下の文に移した（renderRenewal。黙って隠さない）。
-   🔴 手を打つ先の表4つ（最優先・NPS 4以下・電話で沈黙・初回で MTG 無し）は、段B で名札（deal_rows の印）に揃えるまで
-      この画面の末尾に畳んで残す（09 の 10 章②。揃えたら消す。黙って消さない）。
+   🔴 手を打つ先の表（最優先・電話で沈黙・初回で MTG 無し）は、段B で名札（deal_rows の印）に揃えるまで
+      この画面の末尾に畳んで残す（09 の 10 章②。揃えたら消す。黙って消さない）。4つ目の MTG でリスク高は一覧がまだ無いと書き、
+      定期NPS 4以下は名札と同じ集合なので名札へのリンクにする（resultsActTables）。
    🔴 1ページが長いので目次を付ける（09 の 7「目次」）。
    🔴 人ごとの数字は出さない。金額の札（稼働中の契約金額・今後3か月に満了する金額）は段B（API を足してから。09 の 8 章）。
    ================================================================ */
@@ -3777,8 +3795,9 @@ function renderResults(D) {
     '<div class="lede">月に1回、全体を確かめる画面です。<b>答え（継続回数ごとの解約率）を先頭に</b>置き、' +
     "その下に成果とリスク・顧客の様子・立ち上がり・本部アプローチを続けています。人ごとの数字はこの画面にありません。</div>";
   h += pageToc([["rs-renewal", "継続回数と解約率"], ["rs-outcome", "成果とリスク"], ["rs-focus", "NPS・採用単価・MTG の記録・LTV"],
-    ["rs-rampup", "立ち上がり"], ["rs-hq", "本部アプローチ"], ["rs-act", "手を打つ先の表（4つ）"]],
+    ["rs-rampup", "立ち上がり"], ["rs-hq", "本部アプローチ"], ["rs-act", "手を打つ先の表"]],
     goLink("study", "focus") + goLink("study", "phone"));
+  h += resultsKpis(D);
   h += renderRenewal(part(D.renewal), "rs-renewal");
   h += renderOutcome(part(D.outcome), "rs-outcome");
   /* いま見るべき顧客の図（09 の 7「NPS・採用単価の悪化・LTV の散らばり」）。画面そのもの（札・表）は残っている（10 章⑤） */
@@ -3797,22 +3816,65 @@ function renderResults(D) {
   return h + foot(D.meta || {}, true);
 }
 
-/** 成果と継続の末尾「手を打つ先の表（4つ）」。🔴 段B（名札への寄せ直し）までの仮置き。
+/** 成果と継続の札（09 の 7 の札4枚のうち、API を変えずに出せる2枚）。金額の2枚（稼働中の契約金額・今後3か月に満了する金額）は
+    段B（amount の意味を確かめて API を足してから。10 章④）。
+    🔴 2026-09-29 検証: 札が1枚も無かった。
+    - 月次の継続率: 結果がそろった（結果待ち 0 件）で n が MIN_N 以上の、いちばん新しい満了月。未確定の月の率は札にしない（右側打ち切り）
+    - 採用目標に対する進捗: 目標に届いた（達成率 100% 以上）稼働中の契約の件数。途中の値なので「達成できなかった」とは読ませない。
+      母数（目標と承諾数が入っている件数）を添える */
+function resultsKpis(D) {
+  const mr = ((D.renewal || {}).monthly_retention || {}).rows || [];
+  let last = null;
+  for (const r of mr) if (r.denom >= MIN_N && !(r.pending > 0) && r.rate != null) last = r;
+  const ga = (D.outcome || {}).goal_act || {};
+  /* 🔴 中央値（fixture 0.0%）は札にしない。稼働中の半分以上が「実績ゼロ」（始まったばかりの契約を含む）で、
+     大きな 0.0% は「達成できていない」と読める（2026-09-29 撮影）。届いた件数と母数（目標・承諾数が入っている件数）を出す */
+  const reached = ga.both ? (ga.bands || []).find((b) => String(b.label).startsWith("100%")) || { n: 0 } : null;
+  return '<div class="kpis">' +
+    (last
+      ? kpi("月次の継続率（" + last.month + " に満了）", pct1(last.rate),
+          "n=" + num(last.denom) + "（継続 " + num(last.keep) + "・解約 " + num(last.cancel) + "・充足 " + num(last.fill) +
+          "）。結果がそろった最新の満了月です", "", { jump: "rs-renewal", text: "月ごとの推移へ" })
+      : kpi("月次の継続率", DASH, "結果がそろい n が " + MIN_N + " 以上の満了月がありません")) +
+    (reached
+      ? kpi("採用目標に届いた稼働中の契約", num(reached.n) + '<span class="u">件</span>',
+          "目標と承諾数が入っている " + num(ga.both) + " 件のうち（目標が入っているのは稼働中 " + num(ga.has_goal) + " / " + num(ga.pop) +
+          " 件）。途中の値で、届いていない契約はまだ伸びます", "", { jump: "rs-outcome", text: "帯の図へ" })
+      : kpi("採用目標に届いた稼働中の契約", DASH, "目標が入っている稼働中の契約がありません")) +
+    "</div>";
+}
+
+/** 成果と継続の末尾「手を打つ先の表」。🔴 段B（名札への寄せ直し）までの仮置き。
+    10 章②で名札に揃える4つは 最優先・電話で沈黙・初回で MTG 無し・MTG でリスク高。
+    - 表があるのは前の 3 つだけ。ここに畳んで残す（定義は今のまま）
+    - MTG でリスク高は、いま一覧が無い（MTG の品質は分布だけ。09 の 2 の見方「新」）。無いことを文で言う
+    - 定期NPS 4以下は名札「NPSが4以下」と同じ集合（fixture 41 件、deal_id 41/41 一致。tests.rs の見張り）なので、
+      段B の仮置きには入れず、その名札で絞った案件一覧へのリンクにする。
+      🔴 2026-09-29 検証: 前は NPS の表をここに入れ「名札とは別の数え方、段B で揃える予定」と書いていて事実と合わず、
+      MTG でリスク高は抜けていた
     寄せるときは、外れる案件を件数つきで画面に出す（09 の 10 章②「黙って消さない」）。揃えたらこの関数ごと消す */
 function resultsActTables(D) {
   const R = (D.outcome || {}).risk || { top: [] };
   const n = (D.focus || {}).nps_low || { rows: [], n: 0, threshold: 4 };
   const P = D.phone || { silent: { rows: [], n: 0 } };
   const nm = (D.rampup || {}).no_mtg || { rows: [], n: 0 };
+  const flag = (D.meta || {}).nps_flag;
   const box = (title, body) => '<details class="fold"><summary>' + esc(title) + "</summary>" + body + "</details>";
-  return sec("表", "手を打つ先の表（4つ）", "rs-act") +
+  return sec("表", "手を打つ先の表（段B で名札に揃えるもの）", "rs-act") +
     '<div class="lede">前は集計の画面ごとにあった、手を打つ先の表です。定義がそれぞれ違い（名札とは別の数え方）、' +
     "<b>段B で案件一覧の名札に揃える予定</b>です。揃えるまでは今の定義のまま、ここに畳んで残しています。" +
     "揃えたときに外れる案件は、件数を画面に出します（黙って消しません）。案件名は案件の詳細へのリンクです。</div>" +
     box("最優先（2軸とも赤・" + num(R.top.length) + " 件）", outcomeTopTable(R)) +
-    box("定期NPS が " + n.threshold + " 以下の顧客（" + num(n.n) + " 件）", focusNpsTable(n)) +
     box("電話で沈黙している取引（" + num(P.silent.n) + " 件）", phoneSilentTable(P, "電話の画面の件数")) +
-    box("契約開始から MTG の記録がまだ無い初回契約（" + num(nm.n) + " 件）", rampupNoMtgTable(nm));
+    box("契約開始から MTG の記録がまだ無い初回契約（" + num(nm.n) + " 件）", rampupNoMtgTable(nm)) +
+    '<p class="muted small"><b>MTG でリスク高の案件</b>は、いまは一覧がありません（' + goLink("study", "mtgq") +
+    " はリスク判定の分布だけです）。段B で案件一覧の名札として足す予定です。</p>" +
+    '<p class="muted small"><b>定期NPS が ' + esc(n.threshold) + " 以下の顧客（" + num(n.n) + " 件）</b>は、" +
+    (flag
+      ? '案件一覧の名札「' + esc(flag) + "」と同じ集合なので、ここには畳んでいません。" +
+        '<a class="golink" href="' + esc(hashFor("board", { flag: flag })) + '">名札「' + esc(flag) + "」で絞った案件一覧</a>・"
+      : "") +
+    goLink("study", "focus") + " の表で見られます。</p>";
 }
 
 /* ================================================================ 2 継続回数 × 成果 */
@@ -3865,7 +3927,7 @@ function renderRenewal(D, id) {
   const cnt = (r) => "継続 " + num(r.keep) + "・解約 " + num(r.cancel) + "・充足 " + num(r.fill) +
     (r.pending > 0 ? "・結果待ち " + num(r.pending) : "");
   const pendAll = mr.rows.reduce((a, r) => a + (r.pending || 0), 0);
-  h += fig("継続率 ＝ 継続済 ÷（継続済 ＋ 解約 ＋ 充足）",
+  const mrFig = fig("継続率 ＝ 継続済 ÷（継続済 ＋ 解約 ＋ 充足）",
     "<b>充足も分母に入れています</b>",
     svgLine({ w: 680, h: 240, labelPts: true,
       x: mrRows.map((r) => r.month.slice(2)),
@@ -3905,6 +3967,19 @@ function renderRenewal(D, id) {
     "「継続しなかった」という結果だからです。オプション契約 " +
     num((D.population || {}).deals_option) +
     " 件は母数から外しています（月ごとの偏りが大きく、含めると月次比較が歪むため）。</i>");
+  /* 「数字で読む」（M-11）を満了月ごとの 1 行に差し替える（外した約60行の表の代わり）。
+     🔴 2026-09-29 検証（Playwright 1440px, fixture 2026-09-18）: 共通の figSay は折れ線 1 本を 1 行にまとめるので、
+     「数字で読む（1 件）」の下に 34 か月分が読点でつながった 1 行になり、月を拾えず読み上げも 1 項目で長かった。
+     figSay は他の図と共通（担当外）なので、この図の出力だけを置き換える。点を打たない月（n<30・決着 0 件）も 1 行ずつ入れる */
+  const mrLi = mrRows.map((r) => "<li>" + esc(r.month) + "（n=" + num(r.denom) + "）: " +
+    (r.denom && r.rate != null ? pct1(r.rate) : "率なし（決着 0 件）") + " / " + cnt(r) +
+    (r.pending > 0 ? " / 未確定" : "") +
+    (r.denom > 0 && r.denom < MIN_N ? " / 決着が " + MIN_N + " 件未満のため点は打っていません" : "") + "</li>").join("");
+  h += mrFig.replace(/<ul class="sr">[\s\S]*?<\/ul><details class="fold figsay">[\s\S]*?<\/details>/, "")
+    .replace('<div class="figlegend">', () => (mrRows.length
+      ? '<ul class="sr">' + mrLi + "</ul>" +
+        '<details class="fold figsay"><summary>数字で読む（満了月ごと ' + num(mrRows.length) + " か月）</summary><ul>" + mrLi + "</ul></details>"
+      : "") + '<div class="figlegend">');
 
   h += sec("図", "継続回数ごとの成果のばらつき");
   for (const [key, name, fmt] of [["oubo", "応募数", F.int], ["syoudaku", "採用数", F.int],
