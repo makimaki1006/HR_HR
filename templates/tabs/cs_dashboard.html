@@ -7116,6 +7116,17 @@ function setFresh(meta) {
    上で3つ（案件 / コンサルタント / 集計）を選び、左のサイドバーで中の項目を選ぶ。
    1画面に出す選択肢を減らして、いまどこを見ているかを分かりやすくするため。
 
+   ---- 画面の組み替え（段A、2026-09-29。handover 09 の 3章・10章）で使う画面キー ----
+   メニューは 1 列・3 区切り・計 11 画面。ハッシュは #<区切りの鍵>/<画面の鍵>?<状態>（形は今までと同じ）。
+   画面の鍵は全区切りで一意なので、hashFor("team") / goLink(任意, "team") / go(任意, "team") は区切りを省いてよい。
+     区切り deal     「毎日」         today 今日 ／ board 案件一覧 ／ byowner 担当者ごとの案件 ／ detail 案件の詳細
+     区切り research 「調べる」       customer 顧客 ／ focus いま見るべき顧客 ／ renewalpipe 満了と継続 ／ team チームと担当 ／ phone 電話
+     区切り monthly  「月1・確かめる」 results 成果と継続 ／ trust 記録と数字の信頼度
+   🔴 区切り「毎日」の鍵を deal のままにするのは、#deal/detail?id=… と #deal/board・#deal/today を
+      変えないため（表の案件名のリンク・貼られた URL・見張りがこの形を持っている）。
+   消える画面の鍵（旧ハッシュ。転送する）: series・houjin → customer ／ contact・handover → team ／
+     renewal・outcome・rampup → results ／ mtgq・dq・defs → trust。区切りだけ変わるもの: team・byowner・focus・phone
+
    🔴 **開いた項目だけ取りに行く。** 並べ替えただけで全部読むと重くなる。
    🔴 **折りたたみは使わない。** 左に並べば一望できるので、箱に隠す理由が無い。
    🔴 中身（図・表・数字）は前のまま。置き場所だけ変えている。
