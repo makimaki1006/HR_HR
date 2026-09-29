@@ -132,9 +132,8 @@
   .masthead .fresh{ margin:0; }
   .masthead .fresh.ok{ flex:0 1 auto; padding:3px 10px; }
   .masthead .fresh.warn, .masthead .fresh.bad{ flex:1 1 100%; order:5; }
-  /* 「色と印の意味」の畳みは題字の行の 1 語。開いたら次の行に全幅で出す（鮮度の帯より後ろ） */
-  .masthead > details.fold{ margin:0; flex:0 0 auto; }
-  .masthead > details.fold[open]{ flex:1 1 100%; order:6; }
+  /* 「色と印の意味」は題字の行の 1 語のリンク（定義と検証へ。M-1 の (3)）。折り返さない */
+  .masthead > a.golink{ flex:0 0 auto; font-size:12.5px; }
   .fresh b{ color:var(--ink); font-weight:600; }
   .fresh.ok{ border-left-color:var(--midori); }
   .fresh.warn{ border-left-color:var(--ki); }
@@ -761,7 +760,7 @@ a.deallink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
    .lg は案件の詳細の「HubSpot で開く」 */
 a.hslink, span.hslink{ display:inline-block; font-size:11px; line-height:1; padding:3px 6px; margin-left:2px; vertical-align:middle;
   border:1px solid var(--rule); border-radius:var(--radius-pill); color:var(--ink-2); text-decoration:none; white-space:nowrap; }
-/* span.hslink は凡例（ヘッダの「色と印の意味」・定義と検証）の見本。押せないので hover / focus の見た目は付けない */
+/* span.hslink は凡例（定義と検証の「色と印の意味」）の見本。押せないので hover / focus の見た目は付けない */
 a.hslink:hover{ border-color:var(--ai); color:var(--ai); background:var(--ai-soft); }
 a.hslink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
 a.hslink.lg{ font-size:12.5px; padding:5px 12px; margin-left:0; color:var(--ai); border-color:var(--ai); }
@@ -806,29 +805,17 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
 
 <!-- 題字の行（M-1、2026-09-28 診断）: 題字 75px・鮮度 65px・色と印の意味 40px が別々の行で、どの画面でも本題が y≈357 から
      始まっていた（900px の 40% が共通枠）。題字を 1 行（27px → 18px）にし、鮮度（緑のとき）と「色と印の意味」の畳みを
-     同じ行に並べる。鮮度が黄・赤のときだけ、帯は題字の下の 1 行に戻る（CSS の .masthead .fresh.warn / .bad。消さない） -->
+     同じ行に並べる（色と印の意味は定義と検証へのリンク。2026-09-29）。鮮度が黄・赤のときだけ、帯は題字の下の 1 行に戻る（CSS の .masthead .fresh.warn / .bad。消さない） -->
 <header class="masthead">
   <h1 class="mincho">コンサルダッシュボード</h1>
   <!-- 🔴 この画面は毎朝見るもの。古いデータを新しいものと誤認させないために、
        「シートをいつ作り直したか」を常に出す。基準日（計算に使った今日）とは別物。 -->
   <div id="cs-fresh" class="fresh"></div>
-  <!-- 色の凡例は毎回読むものではないので畳む（V1）。「定義と検証」にも同じ表がある。
-       M-1: 独立した行（40px）から題字の行へ。開くと次の行に全幅で出る -->
-  <details class="fold" id="cs-legend"><summary>色と印の意味</summary>
-<div class="legend">
-  <i><b style="background:var(--ai)"></b>触れるところ・主系列</i>
-  <!-- 🔴 2026-09-24 実機: ▲/▼ が値の上がり下がりに読め、接触率のように上がると良い指標では逆の意味に
-       取れた。▲▼ は良し悪しの向きであることと、表の見出しの ▲▼（並び順）とは別であることを書く -->
-  <i><b style="background:var(--hi)"></b>&#9650; まずい / 悪化（値の上がり下がりではなく良し悪し。上がると良い指標が下がったときも &#9650;）</i>
-  <i><b style="background:var(--ki)"></b>読むのに注意が要る</i>
-  <i><b style="background:var(--midori)"></b>&#9660; 良い / 改善</i>
-  <i><b style="background:var(--ghost)"></b><span class="n0">&#8212;</span> 値が無い（0 ではない）</i>
-  <i><b style="border:1px dashed var(--ghost);background:none"></b>&#9675; 未確定（右側打ち切り）</i>
-  <!-- 案件名の横の「HS」の意味は title にしか無く、タッチでは読めなかった（2026-09-28 検証の指摘、S-5）。他の印と同じくここに載せる -->
-  <i><span class="hslink">HS</span> 案件名の横。HubSpot でその取引を開く（新しいタブ）</i>
-  <i class="full">表の見出しの &#9650; / &#9660; は並び順（小さい順 / 大きい順）で、良し悪しではありません。</i>
-</div>
-</details>
+  <!-- 色の凡例は毎回読むものではない（V1）。M-1 の (3)（08・09 の見取り図）: 全画面の畳みをやめ、同じ表がある
+       「定義と検証」の頭の表（色と印の意味）への 1 語のリンクにする。
+       🔴 2026-09-29 検証: 前の版は畳みを題字の行に移して残しており、案（08 の M-1 (3)・09 の 1 画面目の見取り図）と違っていた。
+       ▲▼ が良し悪しの向きで並び順とは別であること・HS の意味は、定義と検証の表に同じ文がある（見張りあり） -->
+  <a class="golink" id="cs-legend" href="#study/defs">色と印の意味 → 定義と検証</a>
   <div class="stamp" id="sub">{{ user }}<a class="backlink" href="/">&#8592; ダッシュボードへ戻る</a></div>
 </header>
 <div class="rule-thin"></div>
@@ -6666,7 +6653,7 @@ function renderDefs() {
      ["表の見出しの &#9650; / &#9660;", "並び順（小さい順 / 大きい順）。良し悪しではありません"],
      ['<span class="n0">&#8212;</span>', "値が無い。<b>0 ではない</b>"],
      ["&#9675;", "未確定（右側打ち切り）。結果がまだ出ていない"],
-     /* 案件名の横の「HS」（S-5）。ヘッダの「色と印の意味」と同じ文 */
+     /* 案件名の横の「HS」（S-5）。題字の行の「色と印の意味 → 定義と検証」のリンクはこの表へ来る（M-1 の (3)） */
      ['<span class="hslink">HS</span>', "案件名の横。HubSpot でその取引を開く（新しいタブ）。取引IDは画面には出しません"]]));
 
   h += sec("表", "この画面が守っていること");
