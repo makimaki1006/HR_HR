@@ -30,7 +30,7 @@ use tempfile::NamedTempFile;
 use tower_sessions::{MemoryStore, Session};
 
 /// 最小限の hw_db を tempfile で作成
-fn create_test_hw_db() -> (NamedTempFile, LocalDb) {
+pub(super) fn create_test_hw_db() -> (NamedTempFile, LocalDb) {
     let tmp = NamedTempFile::new().unwrap();
     let path = tmp.path().to_str().unwrap();
 
@@ -96,7 +96,12 @@ fn create_test_hw_db() -> (NamedTempFile, LocalDb) {
 }
 
 /// テスト用 AppState 構築（Turso/SalesNow/監査は全て None）
-fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
+pub(super) fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
+    test_app_state_opt(Some(hw_db))
+}
+
+/// `hw_db` を None にもできる版 (DB 未接続分岐のテスト用)
+pub(super) fn test_app_state_opt(hw_db: Option<LocalDb>) -> Arc<AppState> {
     let cfg = AppConfig {
         port: 0,
         auth_password: String::new(),
@@ -123,7 +128,7 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
     };
     Arc::new(AppState {
         config: cfg,
-        hw_db: Some(hw_db),
+        hw_db,
         indeed_db: None,
         turso_db: None,
         salesnow_db: None,
@@ -137,7 +142,7 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
 }
 
 /// 空のセッションを作成
-async fn empty_session() -> Session {
+pub(super) async fn empty_session() -> Session {
     let store = MemoryStore::default();
     Session::new(None, Arc::new(store), None)
 }
@@ -159,7 +164,12 @@ async fn panel1_difficulty_shape_contains_required_keys() {
         citycode: None,
     };
 
-    let v = serde_json::to_value(handlers::api_difficulty_score(State(state), session, Query(params)).await.0).unwrap();
+    let v = serde_json::to_value(
+        handlers::api_difficulty_score(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend renderer が参照する key が存在すること
     assert!(v.get("metrics").is_some(), "metrics key missing, got: {v}");
@@ -230,7 +240,12 @@ async fn panel2_talent_pool_shape_contains_required_keys() {
         year: None,
     };
 
-    let v = serde_json::to_value(handlers::api_talent_pool(State(state), session, Query(params)).await.0).unwrap();
+    let v = serde_json::to_value(
+        handlers::api_talent_pool(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend が読む keys
     assert!(v.get("metrics").is_some(), "metrics missing");
@@ -270,7 +285,12 @@ async fn panel3_inflow_shape_when_citycode_missing_returns_error() {
         year: None,
     };
 
-    let v = serde_json::to_value(handlers::api_inflow_analysis(State(state), session, Query(params)).await.0).unwrap();
+    let v = serde_json::to_value(
+        handlers::api_inflow_analysis(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // citycode なしは error_body を返す契約
     assert!(
@@ -292,7 +312,12 @@ async fn panel3_inflow_shape_contains_breakdown() {
         year: None,
     };
 
-    let v = serde_json::to_value(handlers::api_inflow_analysis(State(state), session, Query(params)).await.0).unwrap();
+    let v = serde_json::to_value(
+        handlers::api_inflow_analysis(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // error でなければ breakdown フィールド必須
     if v.get("error").is_none() {
@@ -318,7 +343,12 @@ async fn panel5_condition_gap_shape_and_reverse_proof() {
         company_annual_holidays: Some(115.0),
     };
 
-    let v = serde_json::to_value(condition_gap::condition_gap(State(state), Query(params)).await.0).unwrap();
+    let v = serde_json::to_value(
+        condition_gap::condition_gap(State(state), Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend renderer が読む key
     assert!(
@@ -378,7 +408,12 @@ async fn panel6_market_trend_shape_when_no_turso() {
         months: None,
     };
 
-    let v = serde_json::to_value(market_trend::market_trend(State(state), Query(params)).await.0).unwrap();
+    let v = serde_json::to_value(
+        market_trend::market_trend(State(state), Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // Turso なし → エラーまたは空データだが、frontend が読む key を返すこと
     if v.get("error").is_none() {
@@ -401,7 +436,12 @@ async fn panel7_opportunity_map_shape() {
     };
 
     let session = empty_session().await;
-    let v = serde_json::to_value(opportunity_map::opportunity_map(State(state), session, Query(params)).await.0).unwrap();
+    let v = serde_json::to_value(
+        opportunity_map::opportunity_map(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend renderer が読む key
     if v.get("error").is_none() {
@@ -427,7 +467,12 @@ async fn panel8_insights_shape() {
     };
 
     let session = empty_session().await;
-    let v = serde_json::to_value(insights::insights(State(state), session, Query(params)).await.0).unwrap();
+    let v = serde_json::to_value(
+        insights::insights(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend が読む key
     assert!(v.get("insights").is_some(), "insights missing: {v}");

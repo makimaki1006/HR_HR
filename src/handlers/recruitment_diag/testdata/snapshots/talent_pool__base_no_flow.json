@@ -1,0 +1,22 @@
+{
+  "panel": "talent_pool",
+  "inputs": {
+    "prefecture": "岩手県",
+    "municipality": "盛岡市",
+    "citycode": 3201,
+    "year": 2021
+  },
+  "metrics": {
+    "day_population": 0.0,
+    "night_population": 0.0,
+    "commuter_inflow": 0.0,
+    "day_night_ratio": 0.0
+  },
+  "so_what": "Agoop データが未投入の市区町村。別エリアで再試行してください。",
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "data_source": "国土交通省 全国の人流オープンデータ（Agoop社提供）mesh1km",
+    "method": "平日 昼(timezone=0)・深夜(timezone=1) を SUM / 月数で月平均化。集計値(2) は double count 防止のため不使用。"
+  }
+}

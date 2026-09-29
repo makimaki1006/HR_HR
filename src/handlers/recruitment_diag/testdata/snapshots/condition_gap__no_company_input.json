@@ -1,0 +1,38 @@
+{
+  "prefecture": "岩手県",
+  "municipality": "盛岡市",
+  "job_type": "飲食業",
+  "emp_type": "正社員",
+  "industry_median": {
+    "annual_income": 3045000.0,
+    "annual_holidays": 110.0,
+    "bonus_months": 2.5,
+    "sample_size": 10
+  },
+  "all_industry_median": {
+    "annual_income": 3045000.0,
+    "annual_holidays": 110.0,
+    "bonus_months": 2.5,
+    "sample_size": 10
+  },
+  "company": {
+    "annual_income_estimated": 0.0,
+    "annual_holidays": 0.0,
+    "bonus_months": 0.0,
+    "salary_min": 0.0
+  },
+  "gap_industry": {
+    "annual_income_diff": -3045000.0,
+    "annual_income_pct": -100.0,
+    "annual_holidays_diff": -110.0,
+    "bonus_months_diff": -2.5
+  },
+  "gap_all": {
+    "annual_income_diff": -3045000.0,
+    "annual_income_pct": -100.0,
+    "annual_holidays_diff": -110.0,
+    "bonus_months_diff": -2.5
+  },
+  "interpretation": "【岩手県・飲食業】御社推定年収は業界中央値より 3045000円 (100.0%) 下回る傾向。年間休日は業界中央値より 110日少ない傾向。サンプル数 10件。※中央値は HW 掲載求人のみから算出。市場全体の実勢ではない。",
+  "warning": "⚠️ HW求人データの限界:\n- HW掲載求人のみを対象。全求人市場ではない。\n- HW求人は市場実勢より給与を低めに設定する慣習あり。\n- 外部統計 (賃金構造基本統計調査など) との直接比較は注意。\n- 相関は示せても因果は証明できない。傾向として解釈すること。"
+}
