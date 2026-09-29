@@ -385,9 +385,10 @@ pub struct CompetitorAnalysis {
     /// Indeed (PC / SP) 由来の件数 (重複排除後)。0 なら章を出さない。
     pub indeed_count: usize,
     /// 取り込み順 (row_index 昇順、重複排除後) の先頭 `COMPETITOR_HEAD_MAX` 件のタグ列。
-    /// 分解規則は by_tags と同じ (`split_tags`)。
+    /// 分解規則は by_tags と同じ (`split_tags`) だが、1 求人内の重複タグは 1 つにまとめる (`record_tags`)。
     pub head_tags: Vec<Vec<String>>,
-    /// 全件のタグ出現数 (by_tags と同じ規則、上位での切り詰めなし)。件数降順 → タグ名昇順。
+    /// タグを付けた求人の件数 (求人単位で重複排除、上位での切り詰めなし)。件数降順 → タグ名昇順。
+    /// by_tags (出現回数) とは異なり、件数 ≤ 求人数 が常に成り立つ (占有率 ≤ 100%)。
     pub tag_counts_all: Vec<(String, usize)>,
     /// 人気比較の単位。true = 時給求人のみ (円/時)、false = 月給求人のみ (円/月)。
     /// SurveyAggregation::is_hourly と同じ値 (ネイティブ単位配列と同じ方針)。
@@ -412,6 +413,18 @@ pub(crate) fn split_tags(tags_raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// 1 求人のタグ (split_tags と同じ分解、同じタグは初出の 1 つだけ残す)。
+/// 競合調査章の占有率 (= そのタグを付けた求人の割合) の分子に使う。
+pub(crate) fn record_tags(tags_raw: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in split_tags(tags_raw) {
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    out
+}
+
 /// §05 人気度と同じ判定 (`,` 区切り + 厳密一致)。戻り値 (超人気, 人気)。
 fn popularity_signal(tags_raw: &str) -> (bool, bool) {
     let tokens: Vec<&str> = tags_raw.split(',').map(|s| s.trim()).collect();
@@ -432,12 +445,12 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
     let head_tags: Vec<Vec<String>> = order
         .iter()
         .take(COMPETITOR_HEAD_MAX)
-        .map(|r| split_tags(&r.tags_raw))
+        .map(|r| record_tags(&r.tags_raw))
         .collect();
 
     let mut tag_map: HashMap<String, usize> = HashMap::new();
     for r in records {
-        for t in split_tags(&r.tags_raw) {
+        for t in record_tags(&r.tags_raw) {
             *tag_map.entry(t).or_default() += 1;
         }
     }
