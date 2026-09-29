@@ -391,3 +391,89 @@ fn integration_hourly_mode_renders_fuyou_table_3h() {
         "表 3-H のタイトル '扶養範囲到達時給' が含まれる"
     );
 }
+
+// ============================================================
+// 2026-09-29 時給/月給混在: 実データ fixture を通した HTML の逆証明
+//   - 表紙 / §03 冒頭の「時給中央値」が月給換算値 (1250×167=208750) に
+//     「円/時」を付けて出ていた (追加A)
+//   - 表2-E が月給換算の平均を「円/時」列に出していた (追加B)
+//   - §03 冒頭の n= が分布の実件数と一致しなかった (疑い3)
+// ============================================================
+
+fn render_fixture_report(salary_lines: &str, location: &str) -> String {
+    use super::super::aggregator::{aggregate_records, salary_fixture};
+    use super::super::job_seeker::analyze_job_seeker;
+    let recs = salary_fixture::records(salary_lines, location);
+    let agg = aggregate_records(&recs);
+    let seeker = analyze_job_seeker(&recs);
+    super::render_survey_report_page_for_vrt(
+        &agg,
+        &seeker,
+        &agg.by_company,
+        &agg.by_emp_type_salary,
+        &agg.salary_min_values,
+        &agg.salary_max_values,
+        None,
+        super::ReportVariant::Full,
+    )
+}
+
+/// f1 (時給 751 + 月給 1): 表紙・§03 冒頭の時給中央値は時給求人の下限中央値 1,250 円/時
+#[test]
+fn mix_f1_cover_and_lede_show_native_hourly_median() {
+    use super::super::aggregator::salary_fixture;
+    let html = render_fixture_report(salary_fixture::F1_HOURLY_MOSTLY, "東京都 板橋区");
+    assert!(
+        !html.contains("208750"),
+        "月給換算値 208,750 (=1,250×167) が円/時として出ている"
+    );
+    assert!(
+        html.contains("1250円/時"),
+        "§03 冒頭の代表値に時給中央値 1250円/時 が必要"
+    );
+}
+
+/// f1: 表2-E / 表3-B の円/時の列に月給換算値 (平均 216,518 / 中央値 208,750) が出ないこと
+#[test]
+fn mix_f1_prefecture_table_uses_hourly_values() {
+    use super::super::aggregator::salary_fixture;
+    let html = render_fixture_report(salary_fixture::F1_HOURLY_MOSTLY, "東京都 板橋区");
+    assert!(
+        !html.contains("216,518"),
+        "月給換算平均 216,518 が円/時として出ている"
+    );
+    assert!(
+        !html.contains("208,750"),
+        "表3-B に月給換算中央値 208,750 が円/時として出ている"
+    );
+    let start = html
+        .find("平均給与 (円/時)")
+        .expect("表2-E (時給モード) が必要");
+    let table = &html[start..start + html[start..].find("</table>").unwrap()];
+    // 時給求人 751 件の代表時給 (下限・上限の中間) の平均。月給 1 件は含めない
+    assert!(
+        table.contains("<td class=\"num\">751</td>"),
+        "表2-E の n は時給求人数 751: {table}"
+    );
+    assert!(
+        table.contains("<td class=\"num bold\">1,296</td>"),
+        "表2-E の東京都 平均時給 1,296 円/時: {table}"
+    );
+}
+
+/// f2 (月給 567 + 年俸/年収 24): §03 冒頭の n は分布に使った 567 件、除外 24 件を注記
+#[test]
+fn mix_f2_lede_n_matches_distribution_count() {
+    use super::super::aggregator::salary_fixture;
+    let html = render_fixture_report(salary_fixture::F2_MONTHLY_WITH_ANNUAL, "大阪府 大阪市");
+    // §02 のサンプル件数 (CSV 全行 591) は別指標なので、§03 冒頭の書式で判定する
+    assert!(
+        !html.contains("サンプル <strong>n=591</strong> ("),
+        "n=591 (給与解析件数) が §03 の分布件数として表示されている"
+    );
+    assert!(
+        html.contains("サンプル <strong>n=567</strong> (月給換算できた求人の下限給与)"),
+        "§03 冒頭 n は月給分布の実件数 567"
+    );
+    assert!(html.contains("24 件"), "除外 24 件の注記が必要");
+}

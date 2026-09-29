@@ -2432,12 +2432,14 @@ mod ui2_contract_tests {
                 count: 70,
                 avg_salary: 260_000,
                 median_salary: 255_000,
+                ..Default::default()
             },
             EmpTypeSalary {
                 emp_type: "パート".to_string(),
                 count: 30,
                 avg_salary: 180_000,
                 median_salary: 175_000,
+                ..Default::default()
             },
         ];
         // 同名市区町村のテスト用に伊達市を 2 件含める
@@ -2470,12 +2472,14 @@ mod ui2_contract_tests {
                 count: 60,
                 avg_salary: 280_000,
                 avg_min_salary: 240_000,
+                ..Default::default()
             },
             PrefectureSalaryAgg {
                 name: "高知県".to_string(),
                 count: 5,
                 avg_salary: 170_000,
                 avg_min_salary: 155_000,
+                ..Default::default()
             },
         ];
         agg.by_tag_salary = vec![TagSalaryAgg {
@@ -3722,12 +3726,14 @@ mod variant_indicator_tests {
                 count: 130,
                 avg_salary: 280_000,
                 avg_min_salary: 250_000,
+                ..Default::default()
             },
             crate::handlers::survey::aggregator::PrefectureSalaryAgg {
                 name: "埼玉県".to_string(),
                 count: 45,
                 avg_salary: 300_000,
                 avg_min_salary: 270_000,
+                ..Default::default()
             },
         ];
         agg.salary_values = vec![

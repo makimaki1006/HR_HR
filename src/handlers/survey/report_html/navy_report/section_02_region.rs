@@ -384,18 +384,38 @@ pub(crate) fn render_navy_section_02_region(
 // - 件数加重平均で算出 (件数の少ない県が同等に扱われないように)。
 // - 月給/時給の単位は is_hourly フラグで切り替える。
 fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) -> String {
-    let total_rows: Vec<&super::super::super::aggregator::PrefectureSalaryAgg> =
-        agg.by_prefecture_salary.iter().collect();
+    // 2026-09-29: 時給モードは時給求人だけの平均時給 (円/時) を使う。以前は月給換算の
+    //   avg_salary を「円/時」列に出していた (f1 実データで 216,518 円/時)。
+    //   (件数, 平均) を行ごとにモードで切り替え、時給求人 0 件の県は時給モードでは出さない。
+    let row_n = |p: &super::super::super::aggregator::PrefectureSalaryAgg| -> usize {
+        if is_hourly {
+            p.hourly_count
+        } else {
+            p.count
+        }
+    };
+    let row_avg = |p: &super::super::super::aggregator::PrefectureSalaryAgg| -> i64 {
+        if is_hourly {
+            p.avg_hourly_salary
+        } else {
+            p.avg_salary
+        }
+    };
+    let total_rows: Vec<&super::super::super::aggregator::PrefectureSalaryAgg> = agg
+        .by_prefecture_salary
+        .iter()
+        .filter(|p| !is_hourly || p.hourly_count > 0)
+        .collect();
     if total_rows.is_empty() {
         return "<p class=\"caption dim\">CSV から都道府県別給与を抽出できませんでした。</p>\n"
             .to_string();
     }
 
     // 件数加重 全体平均 (CSV 内)
-    let total_n: i64 = total_rows.iter().map(|p| p.count as i64).sum();
+    let total_n: i64 = total_rows.iter().map(|p| row_n(p) as i64).sum();
     let weighted_sum: i64 = total_rows
         .iter()
-        .map(|p| p.avg_salary * p.count as i64)
+        .map(|p| row_avg(p) * row_n(p) as i64)
         .sum();
     let overall_avg: i64 = if total_n > 0 {
         weighted_sum / total_n
@@ -405,7 +425,7 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
 
     // 件数降順 (Round 1-K 2026-06-03: 同件数時は name asc で順序確定)
     let mut sorted: Vec<&super::super::super::aggregator::PrefectureSalaryAgg> = total_rows.clone();
-    sorted.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+    sorted.sort_by(|a, b| row_n(b).cmp(&row_n(a)).then_with(|| a.name.cmp(&b.name)));
 
     let unit_label = if is_hourly { "円/時" } else { "万円" };
     let fmt_val = |yen: i64| -> String {
@@ -436,7 +456,7 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
 
     // 先頭 10 県表示
     for (i, p) in sorted.iter().take(10).enumerate() {
-        let diff = p.avg_salary - overall_avg;
+        let diff = row_avg(p) - overall_avg;
         // Round 1-K (2026-06-03): safe_pct_like ガード - 差分 % は負数あり得るので clamp なし版
         let diff_pct = if overall_avg > 0 {
             safe_pct_like(diff as f64 / overall_avg as f64 * 100.0)
@@ -465,8 +485,8 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
             row_class,
             i + 1,
             escape_html(&p.name),
-            format_number(p.count as i64),
-            fmt_val(p.avg_salary),
+            format_number(row_n(p) as i64),
+            fmt_val(row_avg(p)),
             diff_sign,
             fmt_val(diff.abs()),
             diff_pct,
@@ -475,6 +495,21 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
         ));
     }
     s.push_str("</tbody></table>\n");
+    if is_hourly {
+        let all_n: usize = agg.by_prefecture_salary.iter().map(|p| p.count).sum();
+        let hourly_n: usize = agg
+            .by_prefecture_salary
+            .iter()
+            .map(|p| p.hourly_count)
+            .sum();
+        let excluded = all_n.saturating_sub(hourly_n);
+        s.push_str(&format!(
+            "<p class=\"caption\">時給モード: n と平均給与は時給表示の求人のみ \
+             (平均給与 = 下限・上限の中間値の平均、円/時)。\
+             月給など時給以外の求人 {} 件は本表に含めていません。</p>\n",
+            format_number(excluded as i64)
+        ));
+    }
     s.push_str(&format!(
         "<p class=\"caption\">基準: CSV 内 件数加重 全体平均給与 <strong>{} {}</strong>。\
          <strong>「全体」はアップロード CSV 内の県群を対象とした集計</strong>であり、\
