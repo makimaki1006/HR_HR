@@ -477,3 +477,282 @@ fn mix_f2_lede_n_matches_distribution_count() {
     );
     assert!(html.contains("24 件"), "除外 24 件の注記が必要");
 }
+
+// ============================================================
+// 2026-09-29 (続き) 時給/月給混在の横展開: §03 表3-E/3-F/3-G、§07 表9-E/F/H/I、
+//   §09 KPI、本編 (SP) 結論帯・表3-SP の逆証明。
+//   f1 (時給 751 + 月給 1) を東京都の公的統計 (最低賃金 1,163 円/時) と組み合わせる。
+// ============================================================
+
+/// 東京都の最低賃金 (2024 年度 1,163 円/時)・家計支出・家賃 m² 単価を持つ最小 ctx
+fn tokyo_ctx() -> crate::handlers::insight::fetch::InsightContext {
+    use serde_json::Value;
+    let row = |pairs: &[(&str, Value)]| -> crate::handlers::helpers::Row {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect()
+    };
+    let rent = |pref: &str, muni: &str, rate: i64| {
+        row(&[
+            ("prefecture", Value::from(pref)),
+            ("municipality", Value::from(muni)),
+            ("structure", Value::from("総数")),
+            ("area_class", Value::from("総数")),
+            ("rental_total_units", Value::Null),
+            ("median_rent_jpy", Value::from(rate)),
+            ("as_of", Value::from("2023")),
+        ])
+    };
+    crate::handlers::insight::fetch::InsightContext {
+        pref: "東京都".to_string(),
+        muni: "板橋区".to_string(),
+        ext_min_wage: vec![
+            row(&[
+                ("fiscal_year", Value::from(2023)),
+                ("hourly_min_wage", Value::from(1113)),
+            ]),
+            row(&[
+                ("fiscal_year", Value::from(2024)),
+                ("hourly_min_wage", Value::from(1163)),
+            ]),
+        ],
+        ext_household_spending: vec![row(&[
+            ("category", Value::from("消費支出")),
+            ("monthly_amount", Value::from(300_000)),
+        ])],
+        ext_rental_housing: vec![rent("全国", "", 1_500), rent("東京都", "板橋区", 2_500)],
+        ..Default::default()
+    }
+}
+
+fn render_fixture_report_ctx(
+    salary_lines: &str,
+    location: &str,
+    ctx: Option<&crate::handlers::insight::fetch::InsightContext>,
+    variant: super::ReportVariant,
+) -> String {
+    use super::super::aggregator::{aggregate_records, salary_fixture};
+    use super::super::job_seeker::analyze_job_seeker;
+    let recs = salary_fixture::records(salary_lines, location);
+    let agg = aggregate_records(&recs);
+    let seeker = analyze_job_seeker(&recs);
+    super::render_survey_report_page_for_vrt(
+        &agg,
+        &seeker,
+        &agg.by_company,
+        &agg.by_emp_type_salary,
+        &agg.salary_min_values,
+        &agg.salary_max_values,
+        ctx,
+        variant,
+    )
+}
+
+/// `marker` の出現位置から次の block-title (無ければ 6,000 byte) までを切り出す
+fn block_after<'a>(html: &'a str, marker: &str) -> &'a str {
+    let start = html
+        .find(marker)
+        .unwrap_or_else(|| panic!("{marker} が見つからない"));
+    let rest = &html[start + marker.len()..];
+    let mut end = rest
+        .find("class=\"block-title")
+        .unwrap_or_else(|| rest.len().min(6_000));
+    while !rest.is_char_boundary(end) {
+        end -= 1;
+    }
+    &html[start..start + marker.len() + end]
+}
+
+/// 「円/時」の直前にある数値 (タグ・空白・カンマを除去) をすべて返す
+fn yen_per_hour_values(html: &str) -> Vec<i64> {
+    let mut out = Vec::new();
+    for (pos, _) in html.match_indices("円/時") {
+        let mut pre = html[..pos].trim_end();
+        // `1250<span class="kpi-unit">円/時` のようにタグを挟む書式に対応
+        while pre.ends_with('>') {
+            match pre.rfind('<') {
+                Some(i) => pre = pre[..i].trim_end(),
+                None => break,
+            }
+        }
+        let tail: Vec<char> = pre
+            .chars()
+            .rev()
+            .take_while(|c| c.is_ascii_digit() || *c == ',')
+            .collect();
+        let digits: String = tail.iter().rev().filter(|c| c.is_ascii_digit()).collect();
+        if let Ok(v) = digits.parse::<i64>() {
+            out.push(v);
+        }
+    }
+    out
+}
+
+/// f1 全 variant: 「円/時」を付けた数値に月給換算の桁 (1 万以上) が 1 つも無いこと
+#[test]
+fn mix_f1_no_monthly_value_labelled_yen_per_hour_in_any_variant() {
+    use super::super::aggregator::salary_fixture;
+    let ctx = tokyo_ctx();
+    for variant in [
+        super::ReportVariant::Full,
+        super::ReportVariant::MarketIntelligence,
+        super::ReportVariant::Sp,
+    ] {
+        let html = render_fixture_report_ctx(
+            salary_fixture::F1_HOURLY_MOSTLY,
+            "東京都 板橋区",
+            Some(&ctx),
+            variant,
+        );
+        let bad: Vec<i64> = yen_per_hour_values(&html)
+            .into_iter()
+            .filter(|v| *v >= 10_000)
+            .collect();
+        assert!(
+            bad.is_empty(),
+            "{:?}: 円/時 に月給換算の桁の値が出ている: {:?}",
+            variant,
+            bad
+        );
+    }
+}
+
+/// NG4: 表9-E は時給求人の下限中央値 1,250 円/時、東京都最賃 1,163 との比は 1.07 倍
+#[test]
+fn mix_f1_minwage_table_uses_hourly_lower_median() {
+    use super::super::aggregator::salary_fixture;
+    let ctx = tokyo_ctx();
+    let html = render_fixture_report_ctx(
+        salary_fixture::F1_HOURLY_MOSTLY,
+        "東京都 板橋区",
+        Some(&ctx),
+        super::ReportVariant::Full,
+    );
+    let block = block_after(&html, "表 9-E");
+    assert!(block.contains("1,163 円/時"), "最賃 1,163: {block}");
+    assert!(
+        block.contains("1,250 円/時"),
+        "求人下限中央値 1,250 円/時: {block}"
+    );
+    // 1250 / 1163 = 1.0748
+    assert!(block.contains("1.07 倍"), "最賃比 1.07 倍: {block}");
+    assert!(block.contains("差額 +87 円"), "差額 1250-1163=+87: {block}");
+}
+
+/// NG5: 表9-F / 9-H は 1,250×167 = 208,750 円/月 を 1 回だけ換算して使う (二重換算しない)
+#[test]
+fn mix_f1_monthly_tables_do_not_double_convert() {
+    use super::super::aggregator::salary_fixture;
+    let ctx = tokyo_ctx();
+    let html = render_fixture_report_ctx(
+        salary_fixture::F1_HOURLY_MOSTLY,
+        "東京都 板橋区",
+        Some(&ctx),
+        super::ReportVariant::Full,
+    );
+    // 二重換算値 208,750 × 167 = 34,861,250
+    assert!(
+        !html.contains("34,861,250"),
+        "月給換算値をさらに ×167 している"
+    );
+    let f = block_after(&html, "表 9-F");
+    assert!(f.contains("208,750"), "表9-F 月給換算 208,750: {f}");
+    // 消費支出 300,000 / 208,750 = 143.7%
+    assert!(f.contains("143.7%"), "表9-F カバー率 143.7%: {f}");
+    let h = block_after(&html, "表 9-H");
+    // 想定 50m² 家賃 2,500×50 = 125,000、208,750 / 125,000 = 167%
+    assert!(h.contains("125,000"), "表9-H 想定家賃 125,000: {h}");
+    assert!(h.contains("167%"), "表9-H 月給カバー率 167%: {h}");
+}
+
+/// NG6: §09 KPI「求人給与」は 1250 円/時、最低賃金比の給与水準は 1250/1163×100 = 107
+#[test]
+fn mix_f1_market_intelligence_kpi_uses_hourly_median() {
+    use super::super::aggregator::salary_fixture;
+    let ctx = tokyo_ctx();
+    let html = render_fixture_report_ctx(
+        salary_fixture::F1_HOURLY_MOSTLY,
+        "東京都 板橋区",
+        Some(&ctx),
+        super::ReportVariant::MarketIntelligence,
+    );
+    let start = html.find("求人給与</div>").expect("§09 KPI 求人給与が必要");
+    let kpi = &html[start..start + 120];
+    assert!(
+        kpi.contains("<div class=\"kpi-value\">1250<span class=\"kpi-unit\">円/時</span>"),
+        "KPI 求人給与 1250 円/時: {kpi}"
+    );
+    let start = html.find("最低賃金比の給与水準</div>").expect("KPI 必要");
+    let kpi = &html[start..start + 120];
+    assert!(
+        kpi.contains("<div class=\"kpi-value\">107<span"),
+        "最低賃金比 107 (上限 200 張り付きではない): {kpi}"
+    );
+}
+
+/// NG7: 本編 (SP) 表3-SP の中央値は 1,250 円/時 (時給求人の下限)
+#[test]
+fn mix_f1_sp_quartiles_use_hourly_values() {
+    use super::super::aggregator::salary_fixture;
+    let ctx = tokyo_ctx();
+    let html = render_fixture_report_ctx(
+        salary_fixture::F1_HOURLY_MOSTLY,
+        "東京都 板橋区",
+        Some(&ctx),
+        super::ReportVariant::Sp,
+    );
+    // 結論帯: 時給求人の下限 P25/P50/P75 (円/時)
+    assert!(
+        html.contains("時給求人の下限時給は中央値 1,250円/時"),
+        "§03 結論帯は時給求人の下限時給"
+    );
+    let block = block_after(&html, "表 3-SP");
+    assert!(block.contains("n=751"), "時給求人 751 件: {block}");
+    assert!(
+        block.contains(">1,250 円/時</td>"),
+        "中央値 1,250 円/時: {block}"
+    );
+}
+
+/// NG3 / NG2: 表3-E・図3-5・表3-F は月給換算 (万円) と明記し、円/時 を付けない
+#[test]
+fn mix_f1_cluster_tables_are_labelled_monthly_equivalent() {
+    use super::super::aggregator::salary_fixture;
+    let html = render_fixture_report_ctx(
+        salary_fixture::F1_HOURLY_MOSTLY,
+        "東京都 板橋区",
+        None,
+        super::ReportVariant::Full,
+    );
+    assert!(
+        !html.contains("時給換算表示 (月給/167h)"),
+        "値は万円のままなのに見出しが時給換算表示"
+    );
+    let e = block_after(&html, "表 3-E");
+    assert!(e.contains("月給換算"), "表3-E 見出しに月給換算: {e}");
+    let f = block_after(&html, "表 3-F");
+    assert!(!f.contains("円/時"), "表3-F に円/時: {f}");
+    assert!(f.contains("万円"), "表3-F は万円表示: {f}");
+}
+
+/// 要確認10: §02 市区町村表の中央値は月給換算。時給モードでは注記を付ける (月給モードは不変)
+#[test]
+fn mix_f1_region_table_notes_monthly_equivalent_in_hourly_mode() {
+    use super::super::aggregator::salary_fixture;
+    let note = "時給モードでも本表の中央値は月給換算";
+    let f1 = render_fixture_report_ctx(
+        salary_fixture::F1_HOURLY_MOSTLY,
+        "東京都 板橋区",
+        None,
+        super::ReportVariant::Full,
+    );
+    assert!(f1.contains(note), "時給モードの市区町村表に月給換算の注記");
+    let f2 = render_fixture_report_ctx(
+        salary_fixture::F2_MONTHLY_WITH_ANNUAL,
+        "大阪府 大阪市",
+        None,
+        super::ReportVariant::Full,
+    );
+    assert!(!f2.contains(note), "月給モードには出さない");
+}

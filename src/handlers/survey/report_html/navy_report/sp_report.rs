@@ -77,15 +77,28 @@ fn fmt_money(yen: i64, is_hourly: bool) -> String {
     }
 }
 
+/// §03 結論帯・表3-SP で使う給与系列と主語 (2026-09-29)。
+///
+/// - 月給モード: `salary_values` (代表給与の月給換算、円/月)。従来どおり。
+/// - 時給モード: `salary_min_values_native` (時給表示の求人の下限時給、円/時)。
+///   以前は時給モードでも `salary_values` (円/月) に「円/時」を付けて出していた
+///   (f1 実データで中央値 208,750「円/時」)。
+fn sp_salary_series(agg: &SurveyAggregation) -> (&[i64], &'static str) {
+    if agg.is_hourly {
+        (&agg.salary_min_values_native, "時給求人の下限時給")
+    } else {
+        (&agg.salary_values, "給与")
+    }
+}
+
 /// 給与分布から「相場の中での位置づけ」の結論を組み立てる (§03)。
 ///
 /// 賃金センサス等の外部相場は本 fixture 経路では未接続のため、ここでは
 /// **サンプル内の四分位** (P25/P50/P75) の広がりから「レンジの広さ」を可能性表現で述べる。
 fn conclusion_salary(agg: &SurveyAggregation) -> Conclusion {
     let is_hourly = agg.is_hourly;
-    if let Some(s) =
-        compute_distribution_stats(&agg.salary_values, if is_hourly { 50 } else { 10_000 })
-    {
+    let (values, subject) = sp_salary_series(agg);
+    if let Some(s) = compute_distribution_stats(values, if is_hourly { 50 } else { 10_000 }) {
         // レンジ幅 (P75 - P25) を中央値で正規化して「広い/狭い」を判定。
         let spread = if s.median > 0 {
             (s.p75 - s.p25) as f64 / s.median as f64
@@ -98,8 +111,9 @@ fn conclusion_salary(agg: &SurveyAggregation) -> Conclusion {
                 sev: "warn",
                 section: "03",
                 sentence: format!(
-                    "給与は中央値 {} を中心に P25 {} 〜 P75 {} と幅が広めで、\
+                    "{}は中央値 {} を中心に P25 {} 〜 P75 {} と幅が広めで、\
                      求人ごとの条件差が大きい可能性があります。",
+                    subject,
                     fmt_money(s.median, is_hourly),
                     fmt_money(s.p25, is_hourly),
                     fmt_money(s.p75, is_hourly),
@@ -116,8 +130,9 @@ fn conclusion_salary(agg: &SurveyAggregation) -> Conclusion {
                 sev: "pos",
                 section: "03",
                 sentence: format!(
-                    "給与は中央値 {} を中心に P25 {} 〜 P75 {} とまとまっており、\
+                    "{}は中央値 {} を中心に P25 {} 〜 P75 {} とまとまっており、\
                      条件面を提示しやすい状態とみられます。",
+                    subject,
                     fmt_money(s.median, is_hourly),
                     fmt_money(s.p25, is_hourly),
                     fmt_money(s.p75, is_hourly),
@@ -562,10 +577,12 @@ pub(crate) fn render_sp_conclusion_band(
 ///
 /// aggregator の分布データ (compute_distribution_stats) から P25/P50/P75 を算出する。
 /// salary_values が空 (有効値なし) の場合は何も出さない (graceful skip)。
+/// 2026-09-29: 時給モードは時給表示の求人の下限時給 (円/時) を使う (`sp_salary_series`)。
 pub(crate) fn render_sp_salary_quartiles(html: &mut String, agg: &SurveyAggregation) {
     let is_hourly = agg.is_hourly;
     let step = if is_hourly { 50 } else { 10_000 };
-    let s = match compute_distribution_stats(&agg.salary_values, step) {
+    let (values, _) = sp_salary_series(agg);
+    let s = match compute_distribution_stats(values, step) {
         Some(s) => s,
         None => return, // 有効値なし → skip
     };
@@ -584,8 +601,13 @@ pub(crate) fn render_sp_salary_quartiles(html: &mut String, agg: &SurveyAggregat
     html.push_str("<section class=\"page-navy sp-quartile-page\" role=\"region\" aria-label=\"代表給与の四分位\">\n");
     html.push_str("<div class=\"block-title block-title-spaced\">表 3-SP &nbsp;代表給与の四分位 (25/50/75 パーセンタイル)</div>\n");
     html.push_str(&format!(
-        "<p class=\"caption\">代表給与 n={} の分布を四分位で示します。求人を安い順に並べたとき、\
+        "<p class=\"caption\">{} n={} の分布を四分位で示します。求人を安い順に並べたとき、\
          P25 は下から1/4、P50 はちょうど真ん中、P75 は下から3/4 (高い方から1/4) の位置にあたる金額です。</p>\n",
+        if is_hourly {
+            "時給表示の求人の下限時給 (月給など時給以外の求人は含めない)"
+        } else {
+            "代表給与"
+        },
         format_number(s.n as i64)
     ));
     // 列幅を明示 (区分/給与を圧縮、読み方に最大幅)。他表と同じ .table-navy を使う。

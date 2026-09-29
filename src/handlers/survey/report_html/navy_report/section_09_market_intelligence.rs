@@ -485,17 +485,25 @@ fn render_mi_9c_wage_attractiveness(
         .filter(|v| *v > 0.0);
 
     // agg から月給中央値 / 時給中央値を取得 (silent fallback 防御: median が 0 / 欠損は None)
-    let salary_median = agg
-        .enhanced_stats
-        .as_ref()
-        .map(|s| s.median)
-        .filter(|v| *v > 0);
+    // 2026-09-29: enhanced_stats.median は月給換算 (円/月)。以前は時給モードでもこれに
+    //   「円/時」を付けて表示し、最低賃金比は常に上限 200 に張り付いていた。
+    //   時給モードは時給求人の下限時給の中央値 (円/時、表紙・§03 と同じ値) を使う。
     let is_hourly = agg.is_hourly;
+    let salary_median = if is_hourly {
+        super::super::salary_summary::SalaryHeadline::from_aggregation(agg).hourly_native_median_yen
+    } else {
+        agg.enhanced_stats.as_ref().map(|s| s.median)
+    }
+    .filter(|v| *v > 0);
 
     html.push_str("<div class=\"kpi-row kpi-row-3\">\n");
     {
         let (val, unit, foot) = match salary_median {
-            Some(m) if is_hourly => (format!("{}", m), "円/時", "求人給与 中央値".to_string()),
+            Some(m) if is_hourly => (
+                format!("{}", m),
+                "円/時",
+                "求人給与 中央値 (時給求人の下限)".to_string(),
+            ),
             Some(m) => (
                 format!("{:.1}", (m as f64) / 10_000.0),
                 "万円",

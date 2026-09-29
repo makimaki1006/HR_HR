@@ -376,14 +376,15 @@ pub(crate) fn render_navy_section_03_salary(
     //   設計メモ §7-8 (給与構造クラスタリング) + §10 (適正値 P25/P50/P60/P75/P90) 準拠
     //
     //   Phase 2-A (2026-05-29): クラスタ計算は **常に scatter_min_max (月給換算済)** で実施。
-    //   時給モードでは表示時に月給→時給逆換算 (/HOURLY_TO_MONTHLY_HOURS) し caption で
-    //   「時給換算」と注記。クラスタ分類自体は monthly 基準のほうがレンジ分類 P33/P66 の
+    //   クラスタ分類自体は monthly 基準のほうがレンジ分類 P33/P66 の
     //   信頼性が高い (時給のみだとパート/アルバイトに偏ってクラスタ数が減るため)。
+    //   2026-09-29: 表示も月給換算の万円のまま (逆換算はしていない)。以前は時給モードの見出しに
+    //   「時給換算表示 (月給/167h)」と書いていたが値と矛盾していたため、月給換算と明記する。
     let pairs: Vec<(i64, i64)> = agg.scatter_min_max.iter().map(|p| (p.x, p.y)).collect();
     let clusters = super::super::helpers::compute_salary_clusters(&pairs);
     if !clusters.is_empty() {
         let cluster_table_caption = if is_hourly {
-            "時給換算表示 (月給/167h)"
+            "月給換算 (万円。時給は ×167h)"
         } else {
             "月給"
         };
@@ -872,13 +873,15 @@ fn build_navy_tag_premium_top10_table(
             .to_string();
     }
 
-    let unit_label = if is_hourly { "円/時" } else { "万円" };
-    let fmt_val = |yen: i64| -> String {
-        if is_hourly {
-            format_number(yen)
-        } else {
-            format_mm(yen)
-        }
+    // 2026-09-29: by_tag_salary.avg_salary は月給換算 (unified_monthly、円/月)。
+    //   以前は時給モードで円のまま「円/時」と表示していた。時給求人だけの円/時は
+    //   集計に無いため、時給モードでも万円 (月給換算) で表示し、注記で明示する。
+    let unit_label = "万円";
+    let fmt_val = |yen: i64| -> String { format_mm(yen) };
+    let hourly_note = if is_hourly {
+        "時給の求人も &times;167h で月給換算した値で集計しています (時給モードでも単位は万円)。"
+    } else {
+        ""
     };
 
     let mut s = String::from(
@@ -931,11 +934,12 @@ fn build_navy_tag_premium_top10_table(
     }
     s.push_str("</tbody></table>\n");
     s.push_str(&format!(
-        "<p class=\"caption\">基準: 全体加重平均給与 <strong>{} {}</strong>。プレミアム率 = (タグ平均 - 全体平均) / 全体平均 &times; 100%。\
+        "<p class=\"caption\">基準: 全体加重平均給与 <strong>{} {}</strong>。{}プレミアム率 = (タグ平均 - 全体平均) / 全体平均 &times; 100%。\
          n &ge; 10 のタグに限定 (統計的揺らぎ抑制)。\
          <strong>相関であって因果ではありません</strong>: タグが給与を高めるのではなく、給与が高い求人にこのタグが付与されやすい傾向を示します。</p>\n",
         fmt_val(overall_mean),
-        unit_label
+        unit_label,
+        hourly_note
     ));
     s
 }
@@ -1414,7 +1418,7 @@ fn build_navy_cluster_table(
 //   - 各求人を nearest_cluster (P50 距離) で割り当て
 //   - 判定: lower < P25 → 低め (tag-warn) / P25 <= lower <= P75 → 適正 (tag-pos) /
 //           lower > P75 → 高め (tag-neu)
-//   - 月給/時給で表示単位切替 (is_hourly)
+//   - 表示は常に月給換算の万円 (2026-09-29、時給モードはキャプションで明示)
 //
 // 仕様 (将来):
 //   - 求人タイトル列は scatter_min_max に title フィールド無いため "求人 #N" 連番表記。
@@ -1446,13 +1450,15 @@ fn build_navy_cluster_fitting_table(
     sorted_postings.sort_by(|a, b| b.x.cmp(&a.x).then_with(|| b.y.cmp(&a.y)));
     sorted_postings.truncate(10);
 
-    let unit_label = if is_hourly { "円/時" } else { "万円" };
-    let fmt_val = |yen: i64| -> String {
-        if is_hourly {
-            format_number(yen)
-        } else {
-            format_mm(yen)
-        }
+    // 2026-09-29: scatter_min_max と clusters は月給換算 (円/月)。以前は時給モードで
+    //   円のまま「円/時」と表示していた (f1 実データで 300,600「円/時」)。表3-E と同じく
+    //   時給モードでも万円 (月給換算) で表示し、キャプションで明示する。
+    let unit_label = "万円";
+    let fmt_val = |yen: i64| -> String { format_mm(yen) };
+    let unit_caption = if is_hourly {
+        "万円 (月給換算。時給の求人は &times;167h で換算)"
+    } else {
+        "万円"
     };
 
     let mut s = String::new();
@@ -1549,7 +1555,7 @@ fn build_navy_cluster_fitting_table(
          クラスタ割当は P50 距離最小ルール。\
          求人タイトルは元データに含まれないため \"求人 #N\" 連番表記。\
          <strong>※ 推定値。参考値として扱ってください。</strong></p>\n",
-        unit_label
+        unit_caption
     ));
     s
 }
@@ -2502,5 +2508,18 @@ mod tests {
             "dash fallback row missing: {}",
             html
         );
+    }
+
+    /// NG1 (2026-09-29): by_tag_salary は月給換算 (円/月)。時給モードでも「円/時」を付けず
+    /// 万円 (月給換算) で表示する。修正前は 260,000「円/時」と表示していた。
+    #[test]
+    fn mix_tag_premium_hourly_mode_shows_monthly_equivalent() {
+        let items = vec![make_tag("交通費支給", 12, 260_000, 10_000, 4.0)];
+        let html = build_navy_tag_premium_top10_table(&items, 250_000, true);
+        assert!(!html.contains("円/時"), "月給換算値に円/時: {html}");
+        assert!(!html.contains("260,000"), "円のまま表示: {html}");
+        assert!(html.contains("平均給与 (万円)"), "列見出し 万円: {html}");
+        assert!(html.contains(">26.0<"), "260,000 円 = 26.0 万円: {html}");
+        assert!(html.contains("月給換算"), "月給換算の注記: {html}");
     }
 }
