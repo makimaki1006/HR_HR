@@ -1230,6 +1230,13 @@ const LS_LISTS=LS.lists||[], LS_BANDS=LS.bands||[], LS_ALL=LS.all_band||'すべ�
 // 選んでいる企業人数の帯。全部選んでいる＝絞っていない。
 let stockBands=new Set(LS_BANDS);
 const stockAll=()=>stockBands.size===LS_BANDS.length;
+// 担当者名に人の名前が入っているものだけを数えるか。列が無い古いシートでは出さない。
+let stockNamed=false;
+// 件数か「担当者名あり」か、いま見ている方の数え上げを取り出す。
+const lsTotal=l=>stockNamed?l.total_named:l.total;
+const lsOther=l=>stockNamed?l.other_named:l.other;
+const lsGroup=g=>stockNamed?g.named:g.counts;
+const lsGap=l=>stockNamed?l.band_gap_named:l.band_gap;
 // 内訳の名前は人が編集するシート（KPI営業_リスト区分）から来るので、HTML として解釈させない。
 const escS=v=>String(v==null?'':v).replace(/[&<>"']/g,
   ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -1255,6 +1262,9 @@ function renderStock(){
     '「bpo_リクロジ（管理）」（要精査・完全廃棄など）は入れていません。<br>'+
     '誰をアクティブ・保管とするかは '+sheetLink('listGroups','KPI営業_リスト区分')+
     ' で決まります。どこにも当てはまらない担当者と、担当者が入っていない取引は「その他」に入れています。<br>'+
+    '「担当者名が入っているものだけ」は、担当者名に<b>人の名前</b>が入っている取引です。'+
+    '空・「不明」・「担当」を含むもの（担当者・採用担当者 など）・役職や性別だけ（社長・女性 など）・'+
+    '記号だけの値は除いています。<br>'+
     '<b>上のチーム・個人・担当者のチェックは、この表には効きません</b>'+
     '（担当者ごとではなく、区分ごとに数えているため）。</span>';
 
@@ -1279,6 +1289,16 @@ function renderStock(){
     else stockBands.add(b);
     if(!stockBands.size) stockBands=new Set(LS_BANDS);
     renderStock();}));
+  if(LS.has_named){
+    // 企業人数の帯とは別の絞り込みなので、行を改めて置く。
+    const br=document.createElement('span'); br.style.cssText='flex-basis:100%;height:0';
+    bar.appendChild(br);
+    const sep=document.createElement('span');
+    sep.textContent='担当者名:'; sep.style.cssText='font-size:12.5px;color:var(--sub);align-self:center';
+    bar.appendChild(sep);
+    chip('問わない',!stockNamed,()=>{stockNamed=false; renderStock();});
+    chip('名前が入っているものだけ',stockNamed,()=>{stockNamed=true; renderStock();});
+  }
 
   const box=$('stockbox'); box.innerHTML='';
   const card=document.createElement('div'); card.className='c';
@@ -1288,7 +1308,7 @@ function renderStock(){
     LS_LISTS.map(l=>'<th class="n">'+escS(l.name)+'</th>').join('')+
     '<th class="n">計</th></tr></thead>';
   const tb=document.createElement('tbody');
-  const whole=LS_LISTS.map(l=>stockVal(l.total));
+  const whole=LS_LISTS.map(l=>stockVal(lsTotal(l)));
   const wholeSum=whole.reduce((a,b)=>a+b,0);
   // 全体に占める割合。母数（全体の件数）はいちばん下の「全体」の行に出ている。
   const share=(n,d)=>d?'<span class="sm">全体の '+pct(n/d*100)+'</span>':'';
@@ -1307,18 +1327,19 @@ function renderStock(){
       if(g.kind===kind&&!names.includes(g.name)) names.push(g.name);}));
     if(!names.length) return;
     const valOf=(l,name)=>
-      stockVal(((l.groups||[]).find(g=>g.kind===kind&&g.name===name)||{}).counts);
+      stockVal(lsGroup((l.groups||[]).find(g=>g.kind===kind&&g.name===name)||{}));
     names.forEach(name=>addRow(kind,escS(name),LS_LISTS.map(l=>valOf(l,name)),false));
     addRow(kind,'<b>'+kind+'の計</b>',
       LS_LISTS.map(l=>names.reduce((a,name)=>a+valOf(l,name),0)),true);
   });
   addRow('その他','どの区分にも当てはまらない担当者・担当者なし'+
     '<span class="sm">区分シートに書かれていない人のぶん</span>',
-    LS_LISTS.map(l=>stockVal(l.other)),true);
+    LS_LISTS.map(l=>stockVal(lsOther(l))),true);
   t.appendChild(tb);
   const tf=document.createElement('tfoot');
   tf.innerHTML='<tr><td>全体</td><td>'+
-    (stockAll()?'企業人数で絞っていない':'選んでいる企業人数の帯')+'</td>'+
+    (stockAll()?'企業人数で絞っていない':'選んでいる企業人数の帯')+
+    (stockNamed?'・担当者名が入っているものだけ':'')+'</td>'+
     whole.map(n=>'<td class="n">'+fmt(n)+'</td>').join('')+
     '<td class="n">'+fmt(wholeSum)+'</td></tr>';
   t.appendChild(tf);
@@ -1332,25 +1353,25 @@ function renderStock(){
       '翌朝から分けて出します。いまは全部「その他」に入っています。');
   }
   // 帯に入らない値（マイナスなど）。帯で絞ると、そのぶんはどの帯にも出てこない。
-  const gaps=LS_LISTS.filter(l=>l.band_gap);
+  const gaps=LS_LISTS.filter(l=>lsGap(l));
   if(!stockAll()&&gaps.length){
     notes.push('企業人数がどの帯にも入らない取引が '+
-      gaps.map(l=>escS(l.name)+' '+fmt(l.band_gap)+'件').join('／')+
+      gaps.map(l=>escS(l.name)+' '+fmt(lsGap(l))+'件').join('／')+
       ' あります。帯で絞るとこのぶんは出てきません。');
   }
   // 前の週の記録。残っているのは企業人数で絞らない数だけなので、絞っていないときだけ出す。
   const tr=LS.trend;
   if(!tr){
     notes.push('前の週の記録がまだ無いので、増減はまだ出せません。');
-  }else if(!stockAll()){
-    notes.push('前の週との増減は、企業人数で絞っていないときだけ出します'+
+  }else if(!stockAll()||stockNamed){
+    notes.push('前の週との増減は、企業人数・担当者名で絞っていないときだけ出します'+
       '（記録に残しているのが全体の数だけのため）。');
   }else{
     const parts=LS_LISTS.map(l=>{
       const p=(tr.lists||{})[l.name]; if(!p) return null;
-      const now={'全体':stockVal(l.total)};
+      const now={'全体':stockVal(lsTotal(l))};
       kinds.forEach(k=>{now[k]=(l.groups||[]).filter(g=>g.kind===k)
-        .reduce((a,g)=>a+stockVal(g.counts),0);});
+        .reduce((a,g)=>a+stockVal(lsGroup(g)),0);});
       return '<b>'+escS(l.name)+'</b> '+['全体'].concat(kinds)
         .map(k=>k+' '+growText(now[k]-(p[k]||0))).join(' ／ ');
     }).filter(Boolean);

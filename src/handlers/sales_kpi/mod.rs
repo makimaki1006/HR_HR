@@ -629,7 +629,7 @@ pub const STOCK_ALL_BANDS: &str = "すべて";
 
 /// `KPI営業_リスト在庫` を、画面がそのまま使える形にする。
 ///
-/// シートは `リスト / 区分 / 内訳 / 企業人数 / 件数` の縦持ち。区分は
+/// シートは `リスト / 区分 / 内訳 / 企業人数 / 件数 / 担当者名あり` の縦持ち。区分は
 /// `合計`（リスト全体）・`アクティブ`・`保管` のどれか。
 ///
 /// 🔴 **「その他」はシートに無い。ここで 合計 − 内訳の和 として出す。**
@@ -646,11 +646,20 @@ pub const STOCK_ALL_BANDS: &str = "すべて";
 pub fn list_stock_of(sheet: &SheetData) -> serde_json::Value {
     use serde_json::{json, Value};
 
+    /// 1つの升目の数え上げ。`n` が件数、`named` がそのうち担当者名に人の名前が入っている件数。
+    #[derive(Default, Clone)]
+    struct Cell {
+        n: Counts,
+        named: Counts,
+    }
     #[derive(Default)]
     struct List {
-        total: Counts,
-        groups: Vec<(String, String, Counts)>,
+        total: Cell,
+        groups: Vec<(String, String, Cell)>,
     }
+    // 「担当者名あり」列は 2026-09-29 の2版目で足した。無い版のシートでは画面に
+    // 絞り込みを出さない（0 と読むと「名前が1件も無い」と嘘をつく）。
+    let has_named = sheet.header.iter().any(|h| h == "担当者名あり");
     let mut bands: Vec<String> = Vec::new();
     let mut lists: Vec<(String, List)> = Vec::new();
     for row in &sheet.rows {
@@ -662,6 +671,7 @@ pub fn list_stock_of(sheet: &SheetData) -> serde_json::Value {
             continue;
         }
         let n = cell_num(sheet.get(row, "件数")).unwrap_or(0);
+        let named = cell_num(sheet.get(row, "担当者名あり")).unwrap_or(0);
         if band != STOCK_ALL_BANDS && !bands.iter().any(|b| b == band) {
             bands.push(band.to_string());
         }
@@ -672,7 +682,7 @@ pub fn list_stock_of(sheet: &SheetData) -> serde_json::Value {
                 &mut lists.last_mut().expect("直前に足した").1
             }
         };
-        let counts = if kind == "合計" {
+        let cell = if kind == "合計" {
             &mut list.total
         } else {
             match list
@@ -683,42 +693,52 @@ pub fn list_stock_of(sheet: &SheetData) -> serde_json::Value {
                 Some(i) => &mut list.groups[i].2,
                 None => {
                     list.groups
-                        .push((kind.to_string(), label.to_string(), Counts::new()));
+                        .push((kind.to_string(), label.to_string(), Cell::default()));
                     &mut list.groups.last_mut().expect("直前に足した").2
                 }
             }
         };
-        *counts.entry(band.to_string()).or_insert(0) += n;
+        *cell.n.entry(band.to_string()).or_insert(0) += n;
+        *cell.named.entry(band.to_string()).or_insert(0) += named;
     }
 
     let mut all_bands: Vec<String> = vec![STOCK_ALL_BANDS.to_string()];
     all_bands.extend(bands.iter().cloned());
+    let get = |c: &Counts, b: &str| c.get(b).copied().unwrap_or(0);
     let out: Vec<Value> = lists
         .into_iter()
         .map(|(name, list)| {
-            let get = |c: &Counts, b: &str| c.get(b).copied().unwrap_or(0);
-            let other: Counts = all_bands
-                .iter()
-                .map(|b| {
-                    let parts: i64 = list.groups.iter().map(|(_, _, c)| get(c, b)).sum();
-                    (b.clone(), get(&list.total, b) - parts)
-                })
-                .collect();
-            let banded: i64 = bands.iter().map(|b| get(&list.total, b)).sum();
+            // 合計 − 内訳の和。件数と担当者名ありの両方で出す。
+            let rest = |pick: fn(&Cell) -> &Counts| -> Counts {
+                all_bands
+                    .iter()
+                    .map(|b| {
+                        let parts: i64 = list.groups.iter().map(|(_, _, c)| get(pick(c), b)).sum();
+                        (b.clone(), get(pick(&list.total), b) - parts)
+                    })
+                    .collect()
+            };
+            let gap = |c: &Counts| -> i64 {
+                get(c, STOCK_ALL_BANDS) - bands.iter().map(|b| get(c, b)).sum::<i64>()
+            };
             json!({
                 "name": name,
-                "total": list.total,
-                "groups": list.groups.iter().map(|(kind, label, counts)| json!({
-                    "kind": kind, "name": label, "counts": counts,
+                "total": list.total.n,
+                "total_named": list.total.named,
+                "groups": list.groups.iter().map(|(kind, label, cell)| json!({
+                    "kind": kind, "name": label, "counts": cell.n, "named": cell.named,
                 })).collect::<Vec<_>>(),
-                "other": other,
-                "band_gap": get(&list.total, STOCK_ALL_BANDS) - banded,
+                "other": rest(|c| &c.n),
+                "other_named": rest(|c| &c.named),
+                "band_gap": gap(&list.total.n),
+                "band_gap_named": gap(&list.total.named),
             })
         })
         .collect();
     json!({
         "all_band": STOCK_ALL_BANDS,
         "bands": bands,
+        "has_named": has_named,
         "lists": out,
     })
 }
