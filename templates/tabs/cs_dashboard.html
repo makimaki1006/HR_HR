@@ -610,6 +610,12 @@ a.backlink:focus-visible{ outline:2px solid var(--ai); outline-offset:1px; }
   border:1px solid var(--rule-strong); border-radius:var(--radius-md);
   padding:4px 9px; min-height:28px; }
 .ctlbar input[type=search]{ min-width:160px; max-width:100%; }
+/* 部品の名前（「名札」「MTG途絶」）を折らない。🔴 2026-09-29 横断レビュー（400px の案件一覧）: 選択肢の長い select が幅を取り、
+   名前の字が 1 字ずつ縦に折れていた。名前は折らずに残し、縮めるのは select のほう（中の字は選べば全部読める）。
+   案件一覧・担当者ごとの案件の絞り込み（#board-filter）に限る。操作列の label.act 全部にすると、文の長いチェックボックス
+   （成果と継続の「右側打ち切りを外す」）まで折れなくなり、400px で横にはみ出した（438px。同日実測） */
+#board-filter label.act{ white-space:nowrap; max-width:100%; }
+#board-filter label.act > select{ min-width:0; }
 .ctlbar button.act{ cursor:pointer; color:var(--ai); }
 .ctlbar button.act:hover{ background:var(--ai-soft); }
 /* 切り替えの押している側（担当者ごとの接触の 月ごと / 週ごと）。色だけでなく太字と枠の太さでも示す */
@@ -4125,6 +4131,7 @@ function custIndex(D, question, lede) {
   if (D.default_houjin && !customerHoujin) {
     customerHoujin = D.default_houjin;
     customerReason = D.default_reason || "";
+    atRedraw = true;   /* 節（?at= / 旧ハッシュの移り先）はこの後の 2 回目の描画で送る（settle） */
     setTimeout(() => load(false), 0);
     return '<div class="loading">既定の顧客を開いています…</div>';
   }
@@ -4654,8 +4661,9 @@ function custBlocks(D, want) {
       決裁は事業所単位なので、契約の連なり・応募面接採用の推移・こちらの動き・MTG の履歴は拠点を1つ選んで見る。
    🔴 全拠点を縦に積む描き方はやめた。前の「継続を追いかける」は既定で全拠点の契約ごとの図を積み、既定の法人で
       26,520px あった（09 の 5章）。拠点は1つずつ選ぶ。選んでいないときは既定の1拠点を開き、そうしていると書く。
-   本部アプローチ（他の法人と比べる）は「成果と継続」へ移す（09 の 4章）。部品は hqSection() / wireHq()。
-   成果と継続の画面ができるまでは、この画面の末尾に置く（黙って消さない）。
+   本部アプローチ（他の法人と比べる）は「成果と継続」の節（rs-hq。/api/consulting/results の headquarters）へ移した（09 の 4章）。
+   🔴 2026-09-29 横断レビュー: 成果と継続に移した後もこの画面の末尾に残っていて、同じ中身が 2 か所にあった。この画面からは外し、
+      「この画面の中」の列の後ろに成果と継続の節へのリンクを置く（黙って消さない）。hqSection() / wireHq() はどの画面も呼んでいない
 */
 let custSite = "";   /* 人が選んだ拠点（siteOf の鍵）。空・この法人に無い鍵なら既定の拠点（custDefaultSite）。URL の site */
 /* URL の site から拠点を入れたか（詳細のパンくずの拠点・貼られた URL で来たとき）。描いた後に「事業所」の節へ移す（wireCustomer）。
@@ -5073,17 +5081,17 @@ function renderCustomer(D) {
   /* この画面の中の行き先（09 の「目次」）。🔴 a href="#…" にしない。ハッシュは画面の場所（URL の状態）に使っているので、
      押すと URL が画面でないハッシュに変わり、再読込で別の画面が開く。button で kpiJump（見出しへ移ってフォーカス） */
   h += '<nav class="ctlbar" aria-label="この画面の中"><span class="muted small">この画面の中:</span>' +
-    [["cust-sites", "拠点を比べる"], ["cust-site", "事業所（拠点1つ）"], ["cust-houjin", "拠点をまたいだ図"],
-     ["hq-sec", "他の法人と比べる"]].map(([id, t]) =>
-      '<button type="button" class="act" data-cjump="' + id + '">' + esc(t) + "</button>").join("") + "</nav>";
+    [["cust-sites", "拠点を比べる"], ["cust-site", "事業所（拠点1つ）"], ["cust-houjin", "拠点をまたいだ図"]].map(([id, t]) =>
+      '<button type="button" class="act" data-cjump="' + id + '">' + esc(t) + "</button>").join("") +
+    /* 他の法人と比べる（本部アプローチ）は成果と継続へ移した。前の置き場から辿れるように、移り先の節へのリンクを置く */
+    '<a class="golink wrap" id="cust-to-hq" href="' + hashFor("results", { at: "rs-hq" }) + '">他の法人と比べる（本部アプローチ）は「成果と継続」へ →</a>' +
+    "</nav>";
   h += focusToggle(D);
   /* KPI は法人の全契約（案件のチェックは法人の節の図だけに効く。custHoujinLayer） */
   h += custBlocks(custFilter(D, new Set(all.map((d) => d.deal_id))), new Set(["head"]));
   h += custSiteTable(D, sites, now);
   h += custSiteLayer(D, sites, now, now === custSite);
   h += custHoujinLayer(D);
-  /* 本部アプローチ。09 の 4章で「成果と継続」へ移す。移したらこの1行と wireCustomer の wireHq() を外す */
-  h += hqSection();
   return h + foot(D.meta, true, houjinCounts(all, ids));
 }
 /** 顧客の画面の末尾の件数。🔴 応答の meta には全体の件数が無く、末尾の枠が
@@ -5094,7 +5102,8 @@ function houjinCounts(all, ids) {
 }
 
 /** 本部アプローチ（他の法人と比べる）の見出しと枠。中身は wireHq() が /api/consulting/headquarters を取って描く。
-    他のチームへ: 09 の 4章で「成果と継続」へ移すもの。移す側の render でこれを、wire で wireHq() を呼ぶ。
+    🔴 2026-09-29 からどの画面も呼んでいない（成果と継続は束ねた応答の headquarters を renderHq で直接描く。顧客からは外した）。
+    後から描く枠の部品として残している。
     🔴 「図 他の法人と比べる」の見出しのすぐ下に renderHq の「問い」の見出しが続き、図の見出しの下が空に見えた
        （2026-09-24 実機）。見出しはここの1つにし、renderHq は見出しを出さない。
     data-paint-own: 中身は wireHq が後から描く。本文の描き直しで開いた details を数えない（ownDetails） */
@@ -6287,7 +6296,13 @@ function boardViewNote(D, who) {
     "URL の見方がこの画面の見方の一覧にありません。「絞り込みを外す」で戻せます。");
   const d = (((D.meta || {}).act_view_diff) || []).find((x) => x.key === k);
   const o = d && d.old;
-  let body = esc(v.rule) + "。<br>稼働中" + (who ? "（全担当）" : "") + " " + num(D.rows.length) + " 件のうち " + num(v.n) + " 件です" +
+  /* 🔴 MTG でリスク高は、リスク判定のある案件の中でしか立たない。0 件のとき「稼働中 N 件のうち 0 件」だけだと、
+     判定のある案件が無いのか、あっても「高」が無いのかが分からない（2026-09-29 横断レビュー）。判定のある案件の数を母数として添える。
+     数えるのは同じ応答の行（mtg_risk はサーバが見方の印を決めたのと同じ値。routes.rs deal_rows） */
+  const judged = k === "mtg_risk" ? (D.rows || []).filter((r) => r.mtg_risk).length : null;
+  let body = esc(v.rule) + "。<br>稼働中" + (who ? "（全担当）" : "") + " " + num(D.rows.length) + " 件のうち" +
+    (judged != null ? "、リスク判定のある案件は " + num(judged) + " 件、そのうちいちばん新しい判定が「高」の案件は " + num(v.n) + " 件です"
+      : " " + num(v.n) + " 件です") +
     "（担当・名札などの絞り込みを一緒に掛けると、下の件数はそれより少なくなります）。";
   if (o) {
     body += "<br><b>定義を名札に揃えたため、以前の" + esc(o.where) + " " + num(o.n) + " 件のうち " + num(o.dropped) +
@@ -7377,18 +7392,24 @@ function detailShown(e) {
   return true;
 }
 
+/** 案件の詳細から「今日」へ戻るリンク。🔴 文言はメニューの名前（MENUS の今日の label）から作る。
+    前は「今日動く先へ戻る」で、左のメニューの「今日」と名前が揃っていなかった（2026-09-29 横断レビュー） */
+function backToToday() {
+  const v = viewOf("deal", "today");
+  return '<a class="golink" href="' + esc(hashFor("today")) + '">「' + esc(v ? v.label : "今日") + "」へ戻る</a>";
+}
 /* 探す欄（取引を指定していないとき） */
 function renderDetailSearch(D) {
   const S = D.search || { q: "", rows: [], n_match: 0 };
   let h = sec("問い", "どの案件の中身を見るか");
   h += '<div class="lede">案件名か拠点名の一部を上の欄に入れて「探す」を押してください。' +
-    "「案件そのもの」「今日動く先」「顧客」の表の案件名からも開けます。</div>";
+    "「案件一覧」「今日」「顧客」の表の案件名からも開けます。</div>";
   /* M-3 (5): サイドバーから直接来たときの戻り口。最近開いた案件（この端末）と今日動く先へ */
   const rc = loadRecentDeals();
   h += '<div class="lede">' + (rc.length
     ? "最近開いた案件（この端末で " + num(rc.length) + " 件）: " + rc.map((x) => dealLink(x.id, x.name, true)).join(" ／ ")
     : "最近開いた案件はまだありません（この端末で開いた案件を " + num(DETAIL_RECENT_MAX) + " 件まで覚えます）") +
-    "　" + '<a class="golink" href="' + esc(hashFor("today")) + '">今日動く先へ戻る</a></div>';
+    "　" + backToToday() + "</div>";
   if (!S.q) return h;
   if (!S.rows.length) return h + '<div class="empty">「' + esc(S.q) + "」に当たる案件はありません。</div>";
   h += sec("表", "「" + S.q + "」に当たる案件（" + num(S.n_match) + " 件）");
@@ -7511,7 +7532,7 @@ function renderDetail(D) {
   }
 
   /* 戻り道（09 の 3 の 5）。担当を選んでいれば今日動く先はその担当で開く（c は持ち越す状態。hashFor に載せない） */
-  h += '<div class="lede"><a class="golink" href="' + esc(hashFor("today")) + '">今日動く先へ戻る</a></div>';
+  h += '<div class="lede">' + backToToday() + "</div>";
   return h + foot(D.meta, true, "");
 }
 
@@ -8332,6 +8353,8 @@ function go(menu, view, refresh, how, state, trav, moved) {
      （離れたときの位置へ戻すのが先） */
   pendingAt = trav != null ? "" :
     (state instanceof URLSearchParams && state.get("at")) || (moved && moved.at) || (r.moved && r.moved.at) || "";
+  atRedraw = false;
+  pendingAtFocus = false;
   /* 離れる前に、いまの位置を履歴の札ごとに覚える（戻ってきたときに戻す）。
      🔴 帯（showMoved）を付け外しする**前**に覚える。帯の高さも一緒に覚え、戻したときの帯との差を restorePos が足し引きする
      （2026-09-29 検証: 帯ありの #study/defs で scrollY 4577 → 戻ると帯は消えていて 4478。Chromium は帯を消したときの
@@ -8394,33 +8417,49 @@ function fromHash() {
    旧ハッシュから来たときだけ、本文の上に「この画面は○○に移りました」を出す（MOVED_NOTICE_UNTIL まで。端末で初めて開いた日から 14 日）。
    次に別の画面へ移ったら消す（go が毎回 showMoved を呼ぶ）。🔴 帯を出さなくなった後も転送は続ける（ブックマークを壊さない） */
 let pendingAt = "";
+/* 描いた直後にもう一度描く予定がある（顧客の画面で、既定の法人を取り直す 2 回目の load。custIndex が立てる）。
+   🔴 顧客の画面は最初の描画に節が無い（「既定の顧客を開いています…」だけ）。前は最初の settle で pendingAt を捨てていたので、
+      #deal/series・#deal/houjin・本文の ?at=cust-houjin / cust-site が節まで送られず scrollY 0 のまま止まり、
+      帯には「その場所まで送っています」と出ていた（2026-09-29 横断レビュー）。
+      これが立っている描画で節が無ければ、節の指定を次の描画（2 回目）まで持ち越す。settle のたびに下ろす（持ち越すのは 1 回だけ） */
+let atRedraw = false;
+let pendingAtFocus = false;
+/* 帯の中身を決めたときの引数（節が見つからなかったときに文を書き直すため） */
+let movedShown = null;
 function localDay() {
   const d = new Date();
   const z = (n) => (n < 10 ? "0" : "") + n;
   return d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate());
 }
-function showMoved(moved, v) {
+/** missing: 移り先の節（moved.at）が描いた画面に無く、送れなかった（settle が最後の描画で見つけられなかったとき）。
+    「その場所まで送っています」と書いたまま頭で止まらないよう、送れなかったことを書く */
+function showMoved(moved, v, missing) {
   const box = document.getElementById("cs-moved");
+  movedShown = moved ? { moved: moved, v: v } : null;
   if (!box) return;
   if (!moved || (MOVED_NOTICE_UNTIL && localDay() > MOVED_NOTICE_UNTIL)) { box.innerHTML = ""; box.hidden = true; return; }
   box.hidden = false;
   box.innerHTML = note("info", "この画面は「" + v.label + "」に移りました",
     "開いたアドレス（ブックマークなど）は、画面を組み替える前の「" + esc(moved.was) + "」のものです。" +
-    "いまは「" + esc(v.label) + "」" + (moved.at ? "の中にあり、その場所まで送っています" : "で見られます") +
+    "いまは「" + esc(v.label) + "」" + (!moved.at ? "で見られます"
+      : missing ? "の中にありますが、その場所がこの画面に見つからなかったので、画面の頭を出しています"
+      : "の中にあり、その場所まで送っています") +
     "。ブックマークを付け直してください" +
     (MOVED_NOTICE_UNTIL ? "（この案内は " + esc(MOVED_NOTICE_UNTIL) + " まで出します）" : "") + "。");
 }
-/** 画面の中の節（id）へ送る。focus: フォーカスも移す（開いた直後は移さない。読み上げが鮮度の帯を飛ばさないように） */
+/** 画面の中の節（id）へ送る。focus: フォーカスも移す（開いた直後は移さない。読み上げが鮮度の帯を飛ばさないように）。
+    節が無ければ false（settle が次の描画まで持ち越すか、帯に送れなかったと書く） */
 function jumpTo(id, focus) {
   const el = document.getElementById(id);
-  if (!el) return;
+  if (!el) return false;
   if (typeof el.open === "boolean") el.open = true;
   if (el.scrollIntoView) el.scrollIntoView({ block: "start" });
   if (focus && el.focus) el.focus({ preventScroll: true });
   atPin = { id: id, until: Date.now() + AT_PIN_MS };
+  return true;
 }
 /* 送った節に留める（N8 の検証 2026-09-29）。
-   🔴 顧客の画面は描いた後にも中身が伸びる（既定の法人を取り直す 2 回目の load、本部アプローチ #hq-box の後読み）。
+   🔴 顧客の画面は描いた後にも中身が伸びる（既定の法人を取り直す 2 回目の load、図の 2 回描き。前は本部アプローチ #hq-box の後読みも）。
       飛ぶのは最初の描画の 1 回だけなので、上の節が伸びると行き先が押し出されていた
       （fixture 実測: #deal/series で cust-series の画面上の top 1440px +6481〜+11165・400px +19099。本文のリンク ?at=cust-series も +11165）。
    送った後しばらくは、本文の大きさが変わるたび（ResizeObserver）と同じ画面の描き直しのたび（settle）に、同じ節へ送り直す。
@@ -8616,8 +8655,19 @@ async function load(refresh, opts) {
       } else refocus(fk);
     }
     /* 節へ（?at=・旧ハッシュの転送）。1 回だけ。URL からは syncUrl が外す（at は状態ではない） */
-    if (pendingAt) { const at = pendingAt; pendingAt = ""; jumpTo(at, !!opts.focusMain); }
-    else holdAt();   /* 既定の法人を取り直した 2 回目の描画など。送った節に留める（atPin） */
+    /* 🔴 節がまだ無く、この後にもう一度描く予定（atRedraw）なら持ち越す。フォーカスを移すかは最初の移動（go）の分を覚えておく */
+    if (pendingAt) {
+      const at = pendingAt;
+      const focusAt = !!opts.focusMain || pendingAtFocus;
+      if (jumpTo(at, focusAt)) { pendingAt = ""; pendingAtFocus = false; }
+      else if (atRedraw) pendingAtFocus = focusAt;
+      else {
+        pendingAt = ""; pendingAtFocus = false;
+        /* 最後の描画でも節が無い。帯の「その場所まで送っています」を、送れなかった文に書き直す */
+        if (movedShown && movedShown.moved.at === at) showMoved(movedShown.moved, movedShown.v, true);
+      }
+    } else holdAt();   /* 本部アプローチの後読みなど。送った節に留める（atPin） */
+    atRedraw = false;
     syncUrl();
     /* 表示したことを読み上げに伝える。最初の表の行数も添える（偽の DOM では数えられないので省く） */
     let n = null;
@@ -8845,7 +8895,7 @@ function wire(v) {
   markScrollAll();   /* 表の枠の端の影（V12 の残り） */
 }
 
-/* 顧客: 拠点の選択（選択欄・拠点を比べる表の拠点名）、画面の中の行き先、案件のチェック、本部アプローチの遅延読み */
+/* 顧客: 拠点の選択（選択欄・拠点を比べる表の拠点名）、画面の中の行き先、案件のチェック */
 function wireCustomer() {
   const redraw = () => redrawMain(lastPayload);
   const st = document.getElementById("cs-site");
@@ -8877,11 +8927,9 @@ function wireCustomer() {
   if (a) a.onclick = () => setAll(true);
   const n = document.getElementById("hj-none");
   if (n) n.onclick = () => setAll(false);
-  /* 本部アプローチ。成果と継続へ移したら外す（hqSection の注記） */
-  wireHq();
 }
 
-/* 本部アプローチ（#hq-box）の遅延読み。他のチームへ: hqSection() を描いた画面の wire で呼ぶ */
+/* 本部アプローチ（#hq-box）の遅延読み。hqSection() を描いた画面の wire で呼ぶ（2026-09-29 からどの画面も描いていない。hqSection の注記） */
 function wireHq() {
   /* 本部アプローチは別のデータ。この項目を開いたときだけ取りに行く */
   const box = document.getElementById("hq-box");
