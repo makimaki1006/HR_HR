@@ -100,22 +100,28 @@ pub const AMOUNT_BASIS: &str =
 期間の長い契約ほど大きくなります）。ステージの確度は掛けていません。人ごとの金額は出していません";
 
 /// 稼働中の契約の金額と、今月・来月・再来月に満了する金額（会社全体）。
-/// 満了と継続（件数の内訳）と成果と継続（札）が同じ数を出すように、1か所で数える
-fn active_money(act: &[&Deal], window: &[String]) -> (Sum, Vec<Sum>, Sum) {
+/// 満了と継続（件数の内訳）と成果と継続（札）が同じ数を出すように、1か所で数える。
+/// 4つ目は先月以前に満了日を過ぎて、まだ稼働中の契約（3か月の金額には入らない。
+/// 🔴 2026-09-29 検証: 成果と継続の札がこれを数えておらず、外していることが札から読めなかった
+/// （fixture 10 件・127 万、実データ CS_取引.tsv でも 10 件）。札に件数と金額を書くために返す）
+fn active_money(act: &[&Deal], window: &[String]) -> (Sum, Vec<Sum>, Sum, Sum) {
     let mut total = Sum::default();
     let mut by: Vec<Sum> = window.iter().map(|_| Sum::default()).collect();
     let mut win = Sum::default();
+    let mut before = Sum::default();
     for d in act {
         total.add(d);
-        if let Some(i) = d
-            .manryou_month()
-            .and_then(|m| window.iter().position(|w| w == m))
-        {
+        let Some(m) = d.manryou_month() else {
+            continue;
+        };
+        if let Some(i) = window.iter().position(|w| w == m) {
             by[i].add(d);
             win.add(d);
+        } else if window.first().is_some_and(|f| m < f.as_str()) {
+            before.add(d);
         }
     }
-    (total, by, win)
+    (total, by, win, before)
 }
 
 /// 「満了と継続」（`/api/consulting/renewal-pipe`）。
@@ -127,7 +133,7 @@ pub fn build_renewal_pipe(sheets: &Sheets, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let window = months_from(today, PIPE_MONTHS);
-    let (total, by, win) = active_money(&act, &window);
+    let (total, by, win, _) = active_money(&act, &window);
     let first = window[0].as_str();
 
     // ステージ別の件数（月ごと）。🔴 確度は掛けない。名前が空のものは「ステージ名なし」（内部IDは出さない）
@@ -243,13 +249,14 @@ pub fn build_renewal_pipe(sheets: &Sheets, today: NaiveDate) -> Value {
 ///
 /// - `active_total`: 稼働中の契約の金額の合計
 /// - `window`: 今月・来月・再来月に満了する稼働中の契約の金額（満了と継続と同じ数）
+/// - `overdue_before`: 先月以前に満了日を過ぎて、まだ稼働中の契約（`window` に入れていない分。札で外したと書く）
 /// - `retention`: 満了月ごとの金額の継続率。件数の継続率（`monthly_retention`）と同じ取引を金額で足す。
 ///   画面は件数の札と**同じ満了月**を選んで、並べて出す
 pub fn build_money(sheets: &Sheets, today: NaiveDate) -> Value {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let window = months_from(today, PIPE_MONTHS);
-    let (total, _, win) = active_money(&act, &window);
+    let (total, _, win, before) = active_money(&act, &window);
 
     #[derive(Default)]
     struct M {
@@ -307,6 +314,8 @@ pub fn build_money(sheets: &Sheets, today: NaiveDate) -> Value {
     json!({
         "active_total": total.json(),
         "window": { "months": window, "sum": win.json() },
+        // 先月以前に満了日を過ぎて、まだ稼働中（3か月の金額に入れていない分。満了と継続の overdue_before.sum と同じ数）
+        "overdue_before": before.json(),
         "retention": {
             "rows": rows,
             "rule": "金額で見た継続率 ＝ 継続済の金額 ÷（継続済 ＋ 解約 ＋ 充足の金額）。取引は件数の継続率と同じ（満了月が該当月で決着済み、オプション契約は除く）。金額が空の取引は分子にも分母にも入れていません",

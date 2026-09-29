@@ -5086,34 +5086,49 @@ check("段B 満了と継続: ステージは件数だけ（確度を掛けない
   const h = run("renderRenewalPipe(__RP)");
   const st = h.slice(h.indexOf('<table id="rp-stage-tbl"'), h.indexOf("</table>", h.indexOf('<table id="rp-stage-tbl"')));
   const rows = [...st.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map((c) => textOf(c[1]).trim()));
-  ok(rows.length === 1 + 2 + 1, "ステージの表の行が 見出し＋2 ステージ＋計 でない: " + rows.length);
+  ok(rows.length === 1 + 2, "ステージの表の行が 見出し＋2 ステージ でない（計を表の行に入れると枠の案内が 1 行多く数える）: " + rows.length);
   ok(JSON.stringify(rows[1]) === JSON.stringify(["求人出稿完了", "5", "29", "45", "79"]), "ステージの件数が月ごとに並んでいない: " + rows[1]);
-  ok(JSON.stringify(rows[3]) === JSON.stringify(["計", "62", "105", "118", "285"]), "計の行が月の件数と合わない: " + rows[3]);
+  /* 🔴 2026-09-29 検証: 計の行が tbody にあり、枠の案内が「全 19 行」（ステージは 18 種）と出ていた。案内はステージの数と同じ */
+  const sti = h.indexOf('id="rp-stage"');
+  const cap = textOf(h.slice(h.indexOf('<div class="scroll-cap">', sti), h.indexOf('<table id="rp-stage-tbl"')));
+  ok(cap.replace(/\s+/g, "").includes("全2行×5列"), "ステージの表の枠の案内がステージの数（2）でない: " + cap);
+  const after = textOf(h.slice(h.indexOf("</table>", h.indexOf('<table id="rp-stage-tbl"')), h.indexOf("件数だけを数えています")));
+  ok(after.replace(/\s+/g, "").includes("計:今月2026-0962件・来月2026-10105件・再来月2026-11118件、3か月で285件（ステージ2種）"),
+    "表の下の計が月の件数と合わない: " + after);
   ok(!/万/.test(textOf(st)), "ステージの表に金額（確度を掛けた見込みに読める）が入っている");
   ok(textOf(h).includes("件数にも金額にも掛けていません"), "ステージ名の％を掛けていないと書いていない");
   /* 担当ごとに金額を足した数を出さない。一覧の金額は取引 1 件の値だけ */
-  const list = h.slice(h.indexOf('<table id="rp-tbl"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl"')));
-  ok((list.match(/<tr>/g) || []).length === 1 + 3, "一覧の行数が違う");
-  /* 担当の名前が出てよいのは取引 1 件ずつの一覧（rp-tbl・rp-over-tbl）の中だけ。札・母数の箱・ステージの表（足した数）には出さない */
-  const outside = h.replace(/<table id="rp-(?:over-)?tbl"[\s\S]*?<\/table>/g, "");
+  const lt = (i) => h.slice(h.indexOf('<table id="rp-tbl-' + i + '"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl-' + i + '"')));
+  ok((lt(0).match(/<tr>/g) || []).length === 1 + 2 && (lt(1).match(/<tr>/g) || []).length === 1 + 1, "月ごとの一覧の行数が違う");
+  /* 担当の名前が出てよいのは取引 1 件ずつの一覧（rp-tbl-N・rp-over-tbl）の中だけ。札・母数の箱・ステージの表（足した数）には出さない */
+  const outside = h.replace(/<table id="rp-(?:over-tbl|tbl-\w)"[\s\S]*?<\/table>/g, "");
   ok(!/担当[ABC]/.test(outside), "一覧の外（足した数の場所）に担当の名前が出ている");
   ok(textOf(h).includes("担当ごとの合計は出していません"), "担当ごとの金額を出していないと書いていない");
 });
 
 check("段B 満了と継続: 一覧は満了日・満了まで（過ぎたものは文字で）・案件（詳細へ）・担当・ステージ・金額・名札。先月以前の分は畳んで残す", () => {
   const h = run("renderRenewalPipe(__RP)");
-  const list = h.slice(h.indexOf('<table id="rp-tbl"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl"')));
+  const list = h.slice(h.indexOf('<table id="rp-tbl-0"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl-0"')));
   const th = [...list.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map((m) => m[1]);
   ok(JSON.stringify(th) === JSON.stringify(["満了日", "満了まで", "案件", "担当", "ステージ", "金額", "名札"]), "一覧の列が違う: " + th.join(","));
   ok(list.includes("満了を8日過ぎている"), "満了を過ぎた行を文字で言っていない（色だけ）");
   ok(list.includes('href="#deal/detail?id=1"'), "案件名が案件の詳細へのリンクでない");
-  ok(list.includes("ステージ名なし") && !/>\d{6,}</.test(list), "ステージが空の行・内部IDの扱いが違う");
-  ok(list.indexOf("案件あ") < list.indexOf("案件い") && list.indexOf("案件い") < list.indexOf("案件う"), "満了の近い順でない");
+  const l1 = h.slice(h.indexOf('<table id="rp-tbl-1"'), h.indexOf("</table>", h.indexOf('<table id="rp-tbl-1"')));
+  ok(l1.includes("ステージ名なし") && !/>\d{6,}</.test(list + l1), "ステージが空の行・内部IDの扱いが違う");
+  ok(list.indexOf("案件あ") >= 0 && list.indexOf("案件あ") < list.indexOf("案件い"), "満了の近い順でない");
+  /* 🔴 2026-09-29 検証: 3 枚の札がどれも 3 か月を 1 つにした一覧の頭へ飛び、来月の行は 63 行目からだった。
+     札はその月の表へ飛び、表にはその月の行だけがある */
+  const kj = [...h.slice(h.indexOf('<div class="kpis">'), h.indexOf('<div class="note')).matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
+  ok(JSON.stringify(kj) === JSON.stringify(["rp-m0", "rp-m1", "rp-m2", "rp-over"]), "札の行き先が月ごとでない: " + kj.join(","));
+  ok(!list.includes("案件う") && l1.includes("案件う") && !l1.includes("案件あ"), "月の表に別の月の行が入っている");
+  ok(textOf(h).includes("来月 2026-10 に満了する契約（満了の近い順、1 件）"), "月の表の見出しに月と件数が無い");
+  ok(h.includes('id="rp-m2"') && textOf(h).includes("この月に満了する稼働中の契約はありません"), "行の無い月の節が無い（札の行き先が消える）");
+  ok(!h.includes('id="rp-stray"'), "どの月にも合う行なのに、合わない行の節が出ている");
   const ov = h.slice(h.indexOf('id="rp-over"'));
   ok(ov.includes('<details class="fold"><summary>表を開く') && ov.includes("過ぎた案件"), "先月以前に満了日を過ぎた契約を畳んで残していない");
   const toc = h.slice(h.indexOf('<nav class="toc"'), h.indexOf("</nav>"));
   const js = [...toc.matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
-  ok(JSON.stringify(js) === JSON.stringify(["rp-list", "rp-over", "rp-stage"]), "目次の行き先が違う: " + js.join(","));
+  ok(JSON.stringify(js) === JSON.stringify(["rp-m0", "rp-m1", "rp-m2", "rp-over", "rp-stage"]), "目次の行き先が違う: " + js.join(","));
   js.forEach((id) => ok(h.includes(' id="' + id + '" tabindex="-1"'), "目次の行き先 " + id + " が本文に無い"));
   /* 先月以前が 0 件なら札も節も目次も出さない（空の畳みを出さない） */
   const z = JSON.parse(JSON.stringify(ctx.__RP));
@@ -5122,7 +5137,7 @@ check("段B 満了と継続: 一覧は満了日・満了まで（過ぎたもの
   const hz = run("renderRenewalPipe(__RPZ)");
   ok(!hz.includes('id="rp-over"') && !hz.includes('data-jump="rp-over"'), "0 件なのに先月以前の節がある");
   /* 一覧（毎週の仕事）がステージの内訳より前（ステージ 18 種を先に置くと 1440px で一覧が 1 画面目の外だった） */
-  ok(h.indexOf('id="rp-list"') < h.indexOf('id="rp-stage"'), "一覧がステージの内訳より後ろにある");
+  ok(h.indexOf('id="rp-m0"') < h.indexOf('id="rp-stage"'), "一覧がステージの内訳より後ろにある");
 });
 
 check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満了・金額で見た継続率）は会社全体だけ。継続率は件数の札と同じ月で、満了した金額を並べる", () => {
@@ -5130,6 +5145,7 @@ check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満
   RS.money = {
     active_total: { n: 604, amount: 677609694, amount_n: 602, amount_missing: 2 },
     window: { months: ["2026-09", "2026-10", "2026-11"], sum: { n: 285, amount: 258592800, amount_n: 285, amount_missing: 0 } },
+    overdue_before: { n: 10, amount: 1271903, amount_n: 10, amount_missing: 0 },
     retention: { rows: [
       { month: "2026-06", keep: 52614000, cancel: 30237000, fill: 8700000, denom: 91551000, pending: 0, settled_n: 107, settled_missing: 0, rate: 57.4696 },
       { month: "2026-09", keep: 40000000, cancel: 15000000, fill: 5504000, denom: 60504000, pending: 0, settled_n: 60, settled_missing: 1, rate: 66.11 },
@@ -5147,6 +5163,8 @@ check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満
     "稼働中の金額に母数・空の件数・月額でないことが無い: " + tk);
   ok(tk.includes("25,859万") && tk.includes("285 件（2026-09〜2026-11 に満了）") && tk.includes("確度は掛けていません"), "満了する金額の札: " + tk);
   ok(k.includes('href="#research/renewalpipe"'), "満了する金額から満了と継続へ行けない");
+  /* 🔴 2026-09-29 検証: 先月以前に満了日を過ぎてまだ稼働中の契約（fixture 10 件）を外していることが札に無かった */
+  ok(tk.includes("先月以前に満了日を過ぎてまだ稼働中の 10 件（127万）は入れていません"), "満了する金額の札が、外した先月以前の分を書いていない: " + tk);
   ok(tk.includes("66.1%") && tk.includes("満了した金額 6,050万（継続 4,000万・解約 1,500万・充足 550万）") && tk.includes("金額が空の 1 件は入れていません"),
     "金額の継続率が件数の札と同じ月（2026-09）・満了した金額の内訳つきでない: " + tk);
   ok(!/見込み/.test(tk), "札に見込み（確度を掛けた金額に読める）と書いている");
