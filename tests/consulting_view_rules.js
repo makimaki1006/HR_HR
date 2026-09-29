@@ -1987,6 +1987,30 @@ check("today: MTG 途絶の数え方に中の仕組みの名前（GAS・no_mtg_a
   ok(!run('mtgCell({ mtg_band: "yellow", mtg_days: 40 })').includes("murasaki"), "表の「最後のMTG」で注意を紫にしている");
 });
 
+// 2026-09-29 組み替え 段A（handover 09 の 3章 8）: 「データ品質」「MTG の品質」「定義と検証」を 1 画面「記録と数字の信頼度」に。
+// 🔴 中身は全部残す。前の 3 画面の描画の中身（見出しを除く）がそのまま入り、画面の問いは 1 つ、節は 09 の順（欠け・偏り → MTG → 定義）
+check("記録と数字の信頼度: データ品質・MTG の品質・定義と検証の中身を全部、09 の順で 1 画面に。画面の問いは 1 つで、節へ飛ぶ目次がある", () => {
+  ctx.__TRd = Object.assign({}, ctx.__DQ, { _more: { mtgq: ctx.__MQ } });
+  const h = run("viewOf('monthly', 'trust').render(__TRd)");
+  /* 図の番号（data-fk。描いた順の通し番号）は描くたびに変わるので外して比べる */
+  const noHead = (s) => s.replace(/<h2 [^>]*>[\s\S]*?<\/h2>/g, "").replace(/ data-fk="\d+"/g, "");
+  for (const [name, code] of [["データ品質", "renderDq(__DQ)"], ["MTG の品質", "renderMtgQ(__MQ)"], ["定義と検証", "renderDefs()"]]) {
+    const part = run(code);
+    ok(noHead(h).includes(noHead(part)), name + " の中身が欠けている（見出し以外が一致しない）");
+    for (const m of part.matchAll(/<h2 [^>]*>(?:<span class="no">[^<]*<\/span>)?([^<]+)<\/h2>/g))
+      ok(h.includes(m[1] + "</h2>"), name + " の見出し「" + m[1] + "」が無い");
+  }
+  ok((h.match(/<h2 class="sec mincho"/g) || []).length === 1, "画面の問い（h2.sec.mincho で .mid でないもの）が 1 つでない");
+  const ids = ["trust-dq", "trust-mtgq", "trust-defs"].map((id) => h.indexOf('<h2 class="sec mincho mid" id="' + id + '"'));
+  ok(ids.every((i) => i > 0) && ids[0] < ids[1] && ids[1] < ids[2], "節（trust-dq → trust-mtgq → trust-defs）の順が違うか、節の見出しが無い: " + ids);
+  for (const id of ["trust-dq", "trust-mtgq", "trust-defs"])
+    ok(h.indexOf('data-jump="' + id + '"') > 0 && h.indexOf('data-jump="' + id + '"') < ids[0], "頭の目次に " + id + " への行き先が無い");
+  ok(/\.toc\{/.test(html) && /h2\.sec\.mincho\.mid\{/.test(html), "目次（.toc）・節の見出し（h2.sec.mincho.mid）の CSS が無い");
+  // MTG の品質の応答が無いとき（形の違う応答）は、黙って節を消さず、無いと書く
+  const h2 = run("viewOf('monthly', 'trust').render(__DQ)");
+  ok(h2.includes('id="trust-mtgq"') && h2.includes("MTG の品質 のデータがありません"), "MTG の品質の応答が無いのに黙って節を消している");
+});
+
 check("凡例: MTG の品質・データ品質で、図に出ていない色を凡例に出さない", () => {
   const q = run("renderMtgQ(__MQ)");   // filled は rate 10% の1項目だけ
   const qf = q.split("<figcaption>抽出の進み具合")[1].split("</figure>")[0];
