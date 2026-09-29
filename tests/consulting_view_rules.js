@@ -5395,6 +5395,62 @@ check("磨き込み(3): id の無い並べ替えられる表も、並べ替え�
   run("rcOpen.clear()");
 });
 
+// 🔴 2026-09-30 検証（fixture 400px、research/team）: id の無い表で見出しが同じ 2 つ（引き継いだ側・引き継がれた側）は印も同じで、
+//    片方の「残り N 行を出す」を押すと、描き直しの後にもう片方（357 行）まで開いた。描いた後に上から数えて 2 つ目からに番号を付ける
+check("磨き込み(3) の続き: 見出しが同じ id の無い表は、押した方だけ開いたまま（rcRestore が画面の何番目かで見分ける）", () => {
+  const mk = (key, cut) => {
+    const cls = new Set(cut ? ["scroll-wrap", "rc-cut"] : ["scroll-wrap"]), capCls = new Set();
+    const cap = { classList: { contains: (c) => c === "scroll-cap", add: (c) => capCls.add(c), toggle: (c, on) => { if (on) capCls.add(c); else capCls.delete(c); } } };
+    const w = { attrs: { "data-rck": key }, cls, capCls, previousElementSibling: cap,
+      getAttribute(a) { return this.attrs[a] == null ? null : this.attrs[a]; }, setAttribute(a, v) { this.attrs[a] = v; },
+      classList: { contains: (c) => cls.has(c), toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); } } };
+    return w;
+  };
+  const K = "research/team |||担当||比べられた交代||";
+  const a = mk(K, true), b = mk(K, true), c = mk("research/team #other", true);
+  ctx.__RR = { querySelectorAll: (q) => (q === ".scroll-wrap[data-rck]" ? [a, b, c] : []) };
+  run("rcOpen.clear()");
+  run("rcOpen.add(" + JSON.stringify(K) + ")");   /* 1 つ目の表を押した */
+  run("rcRestore(__RR)");
+  ok(a.attrs["data-rck"] === K && b.attrs["data-rck"] === K + " #2", "見出しが同じ 2 つ目の表に番号が付かない: " + b.attrs["data-rck"]);
+  ok(a.cls.has("rc-open") && a.capCls.has("rc-open"), "押した 1 つ目の表が開いていない");
+  ok(!b.cls.has("rc-open") && !b.capCls.has("rc-open"), "押していない見出しの同じ 2 つ目の表まで開いている");
+  ok(!c.cls.has("rc-open"), "別の表まで開いている");
+  // 2 つ目を押した（押したときに読む印は番号つき）→ 描き直し（scroll() はまた番号なしの印を出す）→ 2 つ目だけ開く
+  run("rcOpen.clear()");
+  const btn = { closest: (s) => (s === ".rc-more" ? btn : s === ".scroll-wrap" ? b2 : null) };
+  const b2 = Object.assign(b, { querySelector: () => null });
+  b2.classList.add = (x) => b.cls.add(x);
+  ctx.__RRE = { target: btn };
+  run("rcMoreClick(__RRE)");
+  ok(run("rcOpen.has(" + JSON.stringify(K + " #2") + ")") && !run("rcOpen.has(" + JSON.stringify(K) + ")"), "押した 2 つ目の表を番号つきの印で覚えていない");
+  a.attrs["data-rck"] = K; b.attrs["data-rck"] = K; a.cls.delete("rc-open"); b.cls.delete("rc-open");
+  run("rcRestore(__RR)");
+  ok(!a.cls.has("rc-open") && b.cls.has("rc-open") && b.attrs["data-rck"] === K + " #2", "描き直した後に押した 2 つ目だけが開いていない");
+  run("rcRestore(__RR)");
+  ok(b.attrs["data-rck"] === K + " #2" && b.cls.has("rc-open"), "2 回呼ぶと番号・開き方が変わる");
+  // 描いた後に必ず通る（markScrollAll の頭）
+  const src = html.slice(html.indexOf("<script>"));
+  ok(/function markScrollAll\(\) \{\s*rcRestore\(document\);/.test(src), "markScrollAll が rcRestore を呼んでいない（描き直しの後に見出しの同じ表を見分けない）");
+  run("rcOpen.clear()");
+});
+
+// 🔴 2026-09-30 検証（Playwright 400px、#deal/board）: 並べ替え・絞り込み・「残りも出す」の後、図「名札の分布」の題が h2＋figcaption の 2 段に戻った。
+//    boardRepaint が #board-body だけを finishView を通さずに描いていた。画面に流す paintFigs はどれも finishView を通す
+check("M-5 (a) の続き: 部分の描き直し（案件一覧の本体・本部アプローチ・自分の接触）も finishView を通す", () => {
+  const src = html.slice(html.indexOf("<script>"));
+  const calls = src.match(/paintFigs\([^,]+, \(\) => [^;]*/g) || [];
+  ok(calls.length >= 7, "paintFigs の呼び出しが数えられない: " + calls.length);
+  const bad = calls.filter((c) => !/\(\) => finishView\(/.test(c));
+  ok(!bad.length, "finishView を通さずに描いているところがある（図の題が 2 段に戻る）: " + bad.join(" / "));
+  // 案件一覧の本体（boardBody）は図の見出し「名札の分布」を持つ。finishView を通すと図の中の題になる
+  run("boardCache = __BD");
+  const raw = run("boardBody(__BD, __BD.rows, false)");
+  ok(/<span class="no">図<\/span>名札の分布/.test(raw), "前提: boardBody に図の見出しが無い（見張りの前提が変わった）");
+  const fv = run("finishView(boardBody(__BD, __BD.rows, false))");
+  ok(!/<span class="no">図<\/span>/.test(fv) && fv.includes('<span class="figttl" role="heading" aria-level="2">名札の分布</span>'), "finishView を通しても名札の分布の題が図の中に入らない");
+});
+
 /* ---------------- M-5 の残り（08）: 図の題を 1 つに・図の注記の上限・foot を画面末尾の 1 箱に ---------------- */
 // 🔴 2026-09-28 診断: 図 1 つに h2 の題＋figcaption＋hint の 3 段。2026-09-29 実測（fixture 1440px）: 記録と数字の信頼度に foot が 3 箱、画面の途中に
 check("M-5 (a): 図の見出し（h2「図 …」）の直後に図が 1 つだけ続くとき、見出しを図の中の題にする（id・tabindex・見出しの働きは残す）", () => {
