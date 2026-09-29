@@ -2083,8 +2083,8 @@ check("組み替えた画面の問いが、並べた節の問いと同じ文に�
   };
   const screens = [
     /* 顧客は 2026-09-29 の統合で仮のつなぎ（前の 2 画面を並べる customerInterim）から renderCustomer に替わった。
-       前の画面の描画は並べないが、画面の中に問いを持つ節（本部アプローチ）があるので、同じ性質をそこで見る */
-    ["renderCustomer", ["hqSection"]],
+       問いを持つ節（本部アプローチ hqSection）を並べていたが、成果と継続へ移したので顧客からは外した（2026-09-29 横断レビュー）。
+       顧客の画面に並べる節で問いを持つものは無い */
     /* チームと担当・成果と継続も段A の統合で仮のつなぎ（teamInterim / resultsInterim）から各チームの描画に替わった。
        並べる節は描画の中で呼ぶもの */
     ["renderTeam", ["teamContact", "renderHandover"]],
@@ -5035,6 +5035,16 @@ check("段B 案件一覧: 見方のボタン（押している見方は aria-pre
     run('boardFilter.view = "mtg_risk";');
     const hr = textOf(run("renderBoard(__BV)"));
     ok(hr.includes("前は一覧が無かった見方です") && !hr.includes("は外れました"), "前に一覧が無い見方で外れた件数を作っている");
+    /* 🔴 MTG でリスク高が 0 件のとき、判定のある案件の数を母数として添える（「稼働中 3 件のうち 0 件」だけだと、判定が無いのか
+       「高」が無いのかが分からない。2026-09-29 横断レビュー）。判定のある行（mtg_risk）は 3 件中 2 件 */
+    ctx.__BV.rows[0].mtg_risk = "中"; ctx.__BV.rows[2].mtg_risk = "低";
+    const hm = textOf(run("renderBoard(__BV)"));
+    delete ctx.__BV.rows[0].mtg_risk; delete ctx.__BV.rows[2].mtg_risk;
+    ok(hm.includes("稼働中 3 件のうち、リスク判定のある案件は 2 件、そのうちいちばん新しい判定が「高」の案件は 0 件です"),
+      "MTG でリスク高で、判定のある案件の数（母数）が出ない: " + hm.slice(0, 400));
+    /* 他の見方は判定の数を添えない（判定と関係の無い見方に母数を混ぜない） */
+    run('boardFilter.view = "silent";');
+    ok(!textOf(run("renderBoard(__BV)")).includes("リスク判定のある案件は"), "MTG と関係の無い見方にリスク判定の数を添えている");
     /* 外れた件数 0 のときは 0 件と書き、空の畳みを出さない */
     run('boardFilter.view = "top";');
     const ht = run("renderBoard(__BV)");
@@ -5205,6 +5215,16 @@ check("段B 満了と継続: 満了月ごとの件数・金額（空の件数つ
     "契約期間全体の額です（月額ではありません", "確度は掛けていません"])
     ok(bt.includes(s), "母数の箱に「" + s + "」が無い: " + bt);
   ok((tx.match(/予測ではありません/g) || []).length === 1, "予測ではない、を書いていない、または 2 回書いている（頭と末尾）");
+});
+
+check("案件一覧の絞り込み: 部品の名前（名札・MTG途絶）を折らず、縮めるのは select。長い文のチェックボックスには掛けない", () => {
+  /* 🔴 2026-09-29 横断レビュー（400px の案件一覧）: 「名札」「MTG途絶」の字が縦に折れていた（Playwright 実測: 名前の文字の行 2・枠 46px）。
+     操作列の label.act 全部に掛けると、成果と継続の「右側打ち切り」のチェックボックスの文が折れず 400px で 438px にはみ出したので、
+     #board-filter に限る。見た目そのものは Playwright で見る（ここは規則が消えたこと・広がったことを捕まえる） */
+  const css = html.slice(0, html.indexOf("</style>"));
+  ok(/#board-filter label\.act\{[^}]*white-space:nowrap/.test(css), "案件一覧の絞り込みの名前が折れる（white-space:nowrap が無い）");
+  ok(/#board-filter label\.act > select\{[^}]*min-width:0/.test(css), "案件一覧の絞り込みの select が縮まない（min-width:0 が無い）");
+  ok(!/(^|[\s,}])\.ctlbar label\.act\{[^}]*white-space:nowrap/.test(css), "操作列の label.act 全部を折れなくしている（長い文のチェックボックスがはみ出す）");
 });
 
 check("段B 満了と継続: ステージは件数だけ（確度を掛けない・名前の％は掛けていないと書く）。人ごとの金額を出さない", () => {
