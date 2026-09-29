@@ -4210,9 +4210,10 @@ check("M-5: 決まりごと・読み方の箱を畳む（foldNote）。畳まな
   // 畳んだ画面: 事業所・法人（粒度の 1 文が summary）、成果とリスク・立ち上がり（数えていないもの）、担当の交代（一覧の決まりごと）、本部アプローチ
   ok(run("renderSeries(__SER)").includes('<details class="fold notefold"><summary>いま見ている粒度は「事業所」です　<span class="when-closed">読み方を開く'),
     "継続を追いかけるの粒度の箱が畳みでない（粒度の 1 文は summary に残る）");
-  ok(run("renderOutcome(__OUT)").includes('<details class="fold notefold"><summary>この画面で数えていないもの　<span class="when-closed">決まりごとを開く'),
+  // 成果とリスク・立ち上がりは summary に規律の 1 文（keep）が付く（下の「担当者ごとの接触・立ち上がり・成果とリスク」の見張り）
+  ok(run("renderOutcome(__OUT)").includes('<details class="fold notefold"><summary>この画面で数えていないもの<span class="keep">'),
     "成果とリスクの決まりごとが畳みでない");
-  ok(run("renderRampup(__RU)").includes('<details class="fold notefold"><summary>この画面で数えていないもの　'), "立ち上がりの決まりごとが畳みでない");
+  ok(run("renderRampup(__RU)").includes('<details class="fold notefold"><summary>この画面で数えていないもの<span class="keep">'), "立ち上がりの決まりごとが畳みでない");
   const hv = run("renderHandover(__HOC)");
   ok(hv.includes('<details class="fold notefold"><summary>この一覧の決まりごと　') && hv.indexOf('<summary>この一覧の決まりごと') > hv.indexOf('id="ho-tbl"'),
     "担当の交代の決まりごとが畳みでない、または表より前");
@@ -4233,6 +4234,35 @@ check("M-5: 決まりごと・読み方の箱を畳む（foldNote）。畳まな
   ok(run("renderMtgQ(__MQ)").includes('<div class="note def"><span class="hd">読むときの注意</span>'), "MTG の品質の頭の箱（外した件数を含む）まで畳んでいる");
   const css = html.slice(0, html.indexOf("</style>"));
   ok(/details\.fold\.notefold > summary \.keep\{ color:var\(--ink\); font-weight:400;/.test(css), "summary の残す文（keep）の CSS が無い（本文と同じ濃さにする）");
+});
+
+// 🔴 2026-09-29 検証: 担当者の一覧しか見ていなかったので、担当者ごとの接触（最初の句点で切って評価の文が畳みの中）と
+// 立ち上がり（keep 無し）で「評価ではありません」が閉じた畳みの中に入っても落ちなかった。成果とリスクの「処方には使いません」も丸ごと畳まれていた。
+// 閉じたままでも見える summary（keep）に規律の 1 文があること、本文で繰り返さないことを見る
+check("M-5: 担当者ごとの接触・立ち上がり・成果とリスクでも「評価ではありません」「処方には使いません」は閉じた畳みの summary に出る", () => {
+  const keepOf = (h) => {
+    const i = h.indexOf('<details class="fold notefold">');
+    ok(i >= 0, "頭の決まりごとが畳みでない: " + h.slice(0, 200));
+    const sum = h.slice(i, h.indexOf("</summary>", i));
+    return { sum, keep: (sum.match(/<span class="keep">([\s\S]*?)<\/span>/) || [])[1] || "",
+      body: h.slice(h.indexOf("</summary>", i), h.indexOf("</details>", i)) };
+  };
+  const ct = keepOf(run('contactUnit = "month"; renderContact(__CT)'));
+  ok(ct.keep.includes("接触は検知専用です") && ct.keep.includes("担当者の評価ではありません"),
+    "担当者ごとの接触の summary に「担当者の評価ではありません」が無い（畳みの中に隠れている）: " + ct.sum);
+  ok(!ct.body.includes("評価ではありません") && ct.body.includes("もめている案件ほど"),
+    "担当者ごとの接触の本文が評価の文を繰り返している、または残りの文が無い: " + ct.body);
+  const ru = keepOf(run("renderRampup(__RU)"));
+  ok(ru.keep.includes("担当者の評価ではありません") && ru.keep.includes("良し悪しの判断は人がします"),
+    "立ち上がりの summary に「担当者の評価ではありません」が無い（畳みの中に隠れている）: " + ru.sum);
+  ok(!ru.body.includes("評価ではありません") && ru.body.includes("最初の MTG までに何日かかったか"),
+    "立ち上がりの本文が評価の文を繰り返している、または何を見ているかが無い: " + ru.body);
+  const oc = keepOf(run("renderOutcome(__OUT)"));
+  ok(oc.keep.includes("接触は検知にだけ使っています。処方には使いません"), "成果とリスクの summary に「処方には使いません」が無い: " + oc.sum);
+  ok(!oc.body.includes("処方には使いません"), "成果とリスクの本文が「処方には使いません」を繰り返している");
+  // 部品: upTo の語を含む文まで残す。語が無ければ最初の句点
+  ok(JSON.stringify(run('firstSentence("一。二に評価。三。", "評価")')) === '["一。二に評価","三。"]' &&
+     JSON.stringify(run('firstSentence("一。二。", "無い語")')) === '["一","二。"]', "firstSentence の upTo が効かない");
 });
 
 check("段1レビュー B: 600px 以下では表の先頭 20 行だけ出し、残りは「残り N 行を出す」で出す。高さを制限しない表・行の少ない表・PC では何もしない", () => {
