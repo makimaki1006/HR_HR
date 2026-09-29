@@ -1968,7 +1968,10 @@ check("goLink: 本文の「別の画面へ」は、行き先がすべて MENUS �
     ok(!jsNoComment.includes(w), "本文に古い番号・たどり方「" + w + "」が残っている");
 });
 
-check("today: MTG 途絶の図に中の仕組みの名前（GAS・no_mtg_alerter）を出さない。凡例は図に出た帯だけ", () => {
+// 🔴 図「MTG が途絶えている先」は 2026-09-29 の組み替え（段A、handover 09 の 3章 1）で今日から外した（案件一覧の帯の絞り込みと同じ中身）。
+//    図にだけ書いていたこと（線引き・帯を付けていない件数・母数）は畳み「MTG 途絶の数え方と母数」（todayMtgNote）に移したので、
+//    同じ性質（中の仕組みの名前を出さない・出す帯は件数のあるものだけ）をそこで見る。凡例の色（紫にしない）は図と一緒に無くなった
+check("today: MTG 途絶の数え方に中の仕組みの名前（GAS・no_mtg_alerter）を出さない。件数 0 の帯は書かない", () => {
   ctx.__TDg = { rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "",
     mtg_gap: { rule: "", no_record_note: "", source_note: "", coverage: {},
       bands: [{ band: "critical", label: "重大 90日以上", n: 3, alert: true },
@@ -1977,15 +1980,10 @@ check("today: MTG 途絶の図に中の仕組みの名前（GAS・no_mtg_alerter
   const h = run("renderToday(__TDg)");
   ok(!/GAS|no_mtg_alerter/.test(h), "today に内部の仕組みの名前が出ている");
   ok(h.includes("毎朝 Slack に届く MTG 途絶の警告と同じ"), "線引きが何と同じかを現場の言葉で書いていない");
-  const g = h.split("<figcaption>最終MTGからの経過日数で分けた帯")[1].split("</figure>")[0];
-  const leg = g.split('<div class="figlegend">')[1] || "";
-  ok(leg.includes("90日以上") && leg.includes("30〜59日"), "図に出た帯が凡例に無い");
-  ok(!leg.includes("60〜89日") && !leg.includes("直近30日にあり") && !leg.includes("帯を付けていない"),
-    "図に出ていない帯を凡例に出している");
-  // 注意（30〜59日）は紫にしない（名札の図で紫は「成果が出ていない」）。山吹を薄く
-  ok(!g.includes("var(--murasaki)"), "MTG 途絶の図に紫が残っている");
-  const y = legendSwatch(leg, "30〜59日");
-  ok(y && y.fill === "var(--ki)" && +y.op < 0.5, "注意の凡例が薄い山吹でない: " + JSON.stringify(y));
+  ok(!h.includes("<figcaption>最終MTGからの経過日数で分けた帯"), "外した図（MTG 途絶の帯）が残っている");
+  const g = h.slice(h.indexOf('id="td-mtg-note"'), h.indexOf("</details>", h.indexOf('id="td-mtg-note"')));
+  ok(g.includes("重大 90日以上 3件") && g.includes("注意 30〜59日 5件"), "件数のある帯が数え方の畳みに無い: " + g);
+  ok(!g.includes("60〜89日"), "件数 0 の帯を書いている");
   ok(!run('mtgCell({ mtg_band: "yellow", mtg_days: 40 })').includes("murasaki"), "表の「最後のMTG」で注意を紫にしている");
 });
 
@@ -3469,14 +3467,16 @@ function todayFixture() {
   };
 }
 
-check("S-1: 今日動く先は 問い → 担当の欄 → KPI → 表 今日動く先 → 表 今週満了 → 今週始まった（畳み） → 図 名札 → 図 MTG途絶 → 読むときの注意 の順", () => {
+// 2026-09-29 組み替え 段A（handover 09 の 3章 1）: 図 2 つ（名札の内訳・MTG 途絶の帯）を外し、数え方は畳みに、その下に自分の接触
+check("S-1: 今日は 問い → 担当の欄 → KPI → 表 今日動く先 → 表 今週満了 → 今週始まった（畳み） → MTG 途絶の数え方（畳み） → 自分の接触 → 読むときの注意 の順", () => {
   run("todayConsultant = '';");   // todayStartedOpen は触らない（既定で閉じていることを見る）
   ctx.__TD5 = todayFixture();
   const h = run("renderToday(__TD5)");
   const at = (s) => { const i = h.indexOf(s); ok(i >= 0, "「" + s + "」が無い"); return i; };
   const order = ["今日・今週、どこに連絡するか", 'id="td-consultant"', '<div class="kpis">', 'id="td-today-h"', 'id="today-tbl"',
-    'id="td-soon-h"', 'id="soon-tbl"', '<details class="fold" id="td-started"', 'id="new-tbl"', "何で上がってきたか",
-    "MTG が途絶えている先", "読むときの注意"];
+    'id="td-soon-h"', 'id="soon-tbl"', '<details class="fold" id="td-started"', 'id="new-tbl"', 'id="td-mtg-note"',
+    "担当を選ぶと、その人の持ち案件1件あたりの接触", "読むときの注意"];
+  ok(!h.includes("何で上がってきたか") && !h.includes("MTG が途絶えている先"), "外した図が残っている");
   const pos = order.map(at);
   for (let i = 1; i < pos.length; i++) ok(pos[i] > pos[i - 1], "順が違う: 「" + order[i] + "」が「" + order[i - 1] + "」より前にある");
   // 決まりごとの箱は表の見出しの直下の畳みの中（表より前に開いた箱で出さない）。母数は畳みの 1 行目（summary）に残す
@@ -3504,13 +3504,10 @@ check("S-1: 今日動く先は 問い → 担当の欄 → KPI → 表 今日動
   ok(cards.length === 5, "KPI が 5 枚でない: " + cards.length);
   ok(!/^[^>]*is-bad/.test(cards[0]) && cards[0].includes("今日出す先"), "今日出す先が赤（is-bad）");
   ok(/^[^>]*is-bad/.test(cards[1]) && cards[1].includes("MTGが90日以上途絶"), "MTG 途絶が赤（is-bad）でない");
-  // MTG 途絶の図は手を打つ帯だけ棒にし、残りは件数の 1 行に（黙って落とさない）
-  const g = h.split("<figcaption>最終MTGからの経過日数で分けた帯")[1].split("</figure>")[0];
-  const svg = g.slice(g.indexOf("<svg"), g.indexOf("</svg>"));
-  ok(svg.includes("MTGが90日以上途絶") && !svg.includes("立ち上がり期") && !svg.includes("直近30日にMTGあり"),
-    "帯を付けていない帯まで棒にしている（または手を打つ帯が棒に無い）");
-  const leg = g.split('<div class="figlegend">')[1] || "";
-  ok(leg.includes("直近30日にMTGあり 40件") && leg.includes("立ち上がり期 7件"), "棒にしていない帯の件数が注記に無い");
+  // 帯を付けていない帯の件数も、図を外した後の畳みに残す（黙って落とさない）。手を打つ帯と区別して書く
+  const g = h.slice(h.indexOf('id="td-mtg-note"'), h.indexOf("</details>", h.indexOf('id="td-mtg-note"')));
+  ok(g.includes("MTGが90日以上途絶") && !/MTGが90日以上途絶 \d+件（帯を付けていない）/.test(g), "手を打つ帯が数え方の畳みに無い（または帯を付けていない扱い）");
+  ok(g.includes("直近30日にMTGあり 40件（帯を付けていない）") && g.includes("立ち上がり期 7件（帯を付けていない）"), "帯を付けていない帯の件数が畳みに無い: " + g);
 });
 
 check("S-2: 数字の札は押せる（button.kpi）。今日出す先・今週満了・今週始まったは同じ画面の表へ、MTG 途絶は案件そのものを帯で絞って開く", () => {

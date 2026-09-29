@@ -845,12 +845,15 @@ check("V7", "採用単価の悪化の図を20件で切ったら必ず注記す�
 });
 
 /* ================================================================ V8 */
-check("V8", "今日動く先の図の注記に件数を直書きしない", async () => {
+// 🔴 図「名札の内訳」は 2026-09-29 の組み替え（段A、handover 09 の 3章 1）で今日から外した。同じ性質（件数を直書きせず、
+//    その日の件数を出す）は、残った表の見出しで見る
+check("V8", "今日の画面に件数を直書きしない（その日の件数を出す）", async () => {
   const t = boot();
   const h = t.R("renderToday")(todayPayload([boardRow({ flags: ["a"] }), boardRow({ flags: ["b"] }),
                                              boardRow({ flags: ["a"] })]));
-  if (h.indexOf("24件") >= 0) throw new Error("「24件」と直書きしている（3件の日）");
-  if (h.indexOf("この 3 件だけの内訳") < 0) throw new Error("実際の件数が出ていない");
+  if (h.indexOf("24件") >= 0 || h.indexOf("24 件") >= 0) throw new Error("「24件」と直書きしている（3件の日）");
+  if (h.indexOf("今日動く先（3 件）") < 0) throw new Error("実際の件数が出ていない");
+  if (h.indexOf("何で上がってきたか") >= 0) throw new Error("外した図（名札の内訳）が残っている");
 });
 
 /* ================================================================ V18 */
@@ -2388,6 +2391,42 @@ check("more", "1 画面が複数の API を読む（MENUS の more）: どれか
   const rest = t.fetched.slice(n + 1);
   if (rest.length !== 2 || rest.some((q) => q.url.indexOf("refresh") >= 0))
     throw new Error("more を主の後に refresh なしで取っていない: " + rest.map((q) => q.url).join(" "));
+});
+
+check("N5", "今日: 担当を選んだときだけ、その人の持ち案件1件あたりの接触を contact-trend から出す（他の人・全体と並べない）。描き直しでは取り直さず、読み直すで取り直す", async () => {
+  /* 担当を選んでいない: 取りに行かない。選べば出ることを 1 行で言う */
+  const t0 = boot();
+  t0.fetched[t0.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({})])));
+  await tick(); await tick();
+  if (t0.fetched.some((q) => q.url.indexOf("/api/consulting/contact-trend") === 0)) throw new Error("担当を選んでいないのに接触を取りに行っている");
+  if (t0.reg["cs-main"].innerHTML.indexOf("担当を選ぶと、その人の持ち案件1件あたりの接触") < 0) throw new Error("担当を選べば出ることを書いていない");
+  /* 担当を選んでいる（URL の c）: 今日の応答を描いた後に 1 回だけ取りに行き、その人の分だけ描く */
+  const t = boot("#deal/today?c=" + encodeURIComponent("担当A"));
+  const box = new t.El("td-contact"); t.reg["td-contact"] = box;
+  t.fetched[t.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({ consultant: "担当A" })])));
+  await tick(); await tick();
+  const reqs = () => t.fetched.filter((q) => q.url.indexOf("/api/consulting/contact-trend") === 0);
+  if (reqs().length !== 1) throw new Error("担当を選んでいるのに接触を 1 回取りに行っていない: " + reqs().length);
+  if (t.reg["cs-main"].innerHTML.indexOf("持ち案件1件あたりの接触（担当A、直近6か月）") < 0) throw new Error("見出しに担当の名前と期間が無い");
+  const P = contactPayload();
+  P.month.rows.push({ consultant: "担当Z", retired: false, cells: [{ deals: 9, contacts: 90, avg: 10, small_n: false }, { deals: 9, contacts: 9, avg: 1, small_n: false }] });
+  reqs()[0].resolve(jsonRes(P));
+  await tick(); await tick(); await tick();
+  const h = box.innerHTML;
+  if (h.indexOf("担当A の持ち案件1件あたりの接触") < 0 && h.indexOf("担当Aの持ち案件1件あたりの接触") < 0) throw new Error("担当A の図が無い: " + h.slice(0, 200));
+  if (/担当Z|担当W|全体（担当が決まった/.test(h)) throw new Error("他の人・全体と並べている");
+  if (h.indexOf("2.00 ") < 0 || h.indexOf("20/10件") < 0) throw new Error("値（1件あたり・接触/持ち案件）が表に無い: " + h);
+  if (h.indexOf("接触率") < 0 || h.indexOf("別の数え方") < 0) throw new Error("担当者の一覧の「接触率」とは別の定義だと書いていない（09 の 10章③）");
+  if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
+  /* 描き直し（担当の切り替え・並び替え）では取り直さない */
+  t.R("wire(viewOf('deal', 'today'))");
+  if (reqs().length !== 1) throw new Error("描き直しで接触を取り直している");
+  if (box.innerHTML.indexOf("20/10件") < 0) throw new Error("描き直しで手元の応答から描いていない");
+  /* 読み直す（load(true)）: 手元の応答を捨てて取り直す */
+  t.R("load(true)");
+  t.fetched.filter((q) => q.url.indexOf("/api/consulting/today") === 0).pop().resolve(jsonRes(todayPayload([boardRow({ consultant: "担当A" })])));
+  await tick(); await tick();
+  if (reqs().length !== 2) throw new Error("読み直しても接触を取り直していない: " + reqs().length);
 });
 
 (async () => {
