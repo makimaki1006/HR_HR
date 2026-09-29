@@ -187,6 +187,13 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 .pick .mini{background:none; border:0; color:var(--accent); font-size:12px; cursor:pointer;
   font-family:inherit; padding:0}
 .tw{overflow:auto; max-height:420px; max-width:100%}
+/* リストの在庫の表。横に長いので枠の中で横に流し、1列目（区分・内訳）は止めておく。
+   背景を塗らないと、流れてきた数字が1列目の下に透けて重なる。 */
+.stk .fc{position:sticky; left:0; z-index:1; background:var(--card); min-width:128px}
+.stk tfoot .fc,.stk .sub .fc{font-weight:700}
+/* 区分の計・その他の行。太字と「〜の計」の名前で分かるようにし、地の色は補助 */
+.stk .sub td{background:var(--bg)}
+.stk td.n .sm{white-space:nowrap}
 .c{min-width:0}
 .cards{min-width:0}
 .tip{position:fixed; pointer-events:none; z-index:99; background:var(--card); color:var(--text);
@@ -288,8 +295,11 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 <div id="tab-stock" role="tabpanel" hidden>
 <h2>リストの在庫</h2>
 <p class="lead" id="lead6"></p>
-<div class="chiprow" id="stockbands" style="margin-bottom:11px"></div>
 <div id="stockbox"></div>
+
+<h2>企業人数の帯ごと</h2>
+<p class="lead" id="lead7"></p>
+<div id="stockbybands"></div>
 </div>
 
 </div>
@@ -1225,31 +1235,58 @@ function renderKettei(){
 // 🔴 誰がアクティブ／保管かは画面にもサーバにも書かない。運用シート
 //    `KPI営業_リスト区分` で決まり、ここはサーバが返した内訳をそのまま並べる。
 // 🔴 チーム・個人の絞り込みは効かない（担当者ごとではなく内訳ごとに数えているため）。
+// 🔴 企業人数・担当者名は**切り替えにしない**。1つ押すと1つの状態しか見えず、
+//    帯どうし・全件と名前ありを見比べられなかった（2026-09-29 ユーザー指摘
+//    「これだと比較できないよね」）。帯は列に、名前ありは升目の2段目に並べる。
 const LS=D.list_stock||{};
 const LS_LISTS=LS.lists||[], LS_BANDS=LS.bands||[], LS_ALL=LS.all_band||'すべて';
-// 選んでいる企業人数の帯。全部選んでいる＝絞っていない。
-let stockBands=new Set(LS_BANDS);
-const stockAll=()=>stockBands.size===LS_BANDS.length;
-// 担当者名に人の名前が入っているものだけを数えるか。列が無い古いシートでは出さない。
-let stockNamed=false;
-// 件数か「担当者名あり」か、いま見ている方の数え上げを取り出す。
-const lsTotal=l=>stockNamed?l.total_named:l.total;
-const lsOther=l=>stockNamed?l.other_named:l.other;
-const lsGroup=g=>stockNamed?g.named:g.counts;
-const lsGap=l=>stockNamed?l.band_gap_named:l.band_gap;
+const LS_KINDS=['アクティブ','保管'];
+// 「担当者名あり」列が無い古いシートでは、名前ありを出さない（0 と読むと嘘になる）。
+const LS_NAMED=!!LS.has_named;
 // 内訳の名前は人が編集するシート（KPI営業_リスト区分）から来るので、HTML として解釈させない。
 const escS=v=>String(v==null?'':v).replace(/[&<>"']/g,
   ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-// 1つの数え上げ（{帯: 件数}）から、選んでいる帯ぶんを足す。
-// 絞っていないときは「すべて」を使う（帯に入らない値も含めた全体）。
-const stockVal=c=>{
-  c=c||{};
-  if(stockAll()) return c[LS_ALL]||0;
-  let n=0; stockBands.forEach(b=>{n+=c[b]||0;}); return n;
+const lsGet=(c,b)=>(c||{})[b]||0;
+// 2つの数え上げ（{帯: 件数}）を足す。
+const lsAdd=(a,b)=>{const o=Object.assign({},a);
+  Object.keys(b||{}).forEach(k=>{o[k]=(o[k]||0)+b[k];}); return o;};
+// 割合。母数が 0 なら出さない（0% と書くと「無い」と「数えられない」が区別できない）。
+const lsPct=(n,d)=>d?pct(n/d*100):'—';
+
+// 内訳の名前。リストをまたいで同じものを1行にまとめる（並びは最初に出てきた順）。
+// どのリストでも同じ行の並びにするので、リクロジと大分の表を上下で見比べられる。
+const lsNames=kind=>{
+  const names=[];
+  LS_LISTS.forEach(l=>(l.groups||[]).forEach(g=>{
+    if(g.kind===kind&&!names.includes(g.name)) names.push(g.name);}));
+  return names;
 };
+// 1つのリストの行。内訳 → 区分の計 → その他。`sub` の行が「区分の計」と「その他」で、
+// この3つ（アクティブの計・保管の計・その他）を足すとリストの全体になる。
+function lsRows(l){
+  const rows=[];
+  LS_KINDS.forEach(kind=>{
+    const names=lsNames(kind);
+    if(!names.length) return;
+    let n={}, named={};
+    names.forEach(name=>{
+      const g=(l.groups||[]).find(x=>x.kind===kind&&x.name===name)||{};
+      rows.push({label:escS(name), note:kind, n:g.counts||{}, named:g.named||{}});
+      n=lsAdd(n,g.counts); named=lsAdd(named,g.named);
+    });
+    rows.push({label:kind+'の計', sub:true, key:kind, n:n, named:named});
+  });
+  rows.push({label:'その他', note:'区分シートに書かれていない人・担当者なし',
+    sub:true, key:'その他', n:l.other||{}, named:l.other_named||{}});
+  return rows;
+}
+// 1列目（区分・内訳）の升目。横に流しても止まっている。
+const lsHead=r=>'<td class="fc">'+r.label+(r.note?'<span class="sm">'+escS(r.note)+'</span>':'')+'</td>';
+// 「担当者名あり」の2段目。割合の母数はその升目の件数。
+const lsNamedLine=(named,n)=>LS_NAMED
+  ?'<span class="sm">名前あり '+fmt(named)+'</span><span class="sm">件数の '+lsPct(named,n)+'</span>':'';
 
 function renderStock(){
-  const kinds=['アクティブ','保管'];
   const hasGroups=LS_LISTS.some(l=>(l.groups||[]).length);
   // 🔴 このシートを書くのは朝の便（6:30）だけ。何時時点の数かを必ず出す。
   $('lead6').innerHTML=
@@ -1262,86 +1299,49 @@ function renderStock(){
     '「bpo_リクロジ（管理）」（要精査・完全廃棄など）は入れていません。<br>'+
     '誰をアクティブ・保管とするかは '+sheetLink('listGroups','KPI営業_リスト区分')+
     ' で決まります。どこにも当てはまらない担当者と、担当者が入っていない取引は「その他」に入れています。<br>'+
-    '「担当者名が入っているものだけ」は、担当者名に<b>人の名前</b>が入っている取引です。'+
-    '空・「不明」・「担当」を含むもの（担当者・採用担当者 など）・役職や性別だけ（社長・女性 など）・'+
-    '記号だけの値は除いています。<br>'+
+    (LS_NAMED?'「名前あり」は、担当者名に<b>人の名前</b>が入っている取引です。'+
+      '空・「不明」・「担当」を含むもの（担当者・採用担当者 など）・役職や性別だけ（社長・女性 など）・'+
+      '記号だけの値は除いています。<br>':'')+
     '<b>上のチーム・個人・担当者のチェックは、この表には効きません</b>'+
     '（担当者ごとではなく、区分ごとに数えているため）。</span>';
 
-  // ---- 企業人数の帯 ----
-  const bar=$('stockbands'); bar.innerHTML='';
-  const lab=document.createElement('span');
-  lab.textContent='企業人数（企業全体人数）:';
-  lab.style.cssText='font-size:12.5px;color:var(--sub);align-self:center';
-  bar.appendChild(lab);
-  const chip=(label,on,onclick)=>{
-    const c=document.createElement('button'); c.type='button';
-    c.className='chip'+(on?' on':''); c.textContent=label;
-    c.setAttribute('aria-pressed',on?'true':'false');
-    c.onclick=onclick; bar.appendChild(c);
-  };
-  chip('すべて',stockAll(),()=>{stockBands=new Set(LS_BANDS); renderStock();});
-  LS_BANDS.forEach(b=>chip(b,!stockAll()&&stockBands.has(b),()=>{
-    // 「すべて」の状態から帯を押したら、その帯だけにする。
-    // 絞っている状態で押したら足し引きする（空になったら「すべて」に戻す）。
-    if(stockAll()) stockBands=new Set([b]);
-    else if(stockBands.has(b)) stockBands.delete(b);
-    else stockBands.add(b);
-    if(!stockBands.size) stockBands=new Set(LS_BANDS);
-    renderStock();}));
-  if(LS.has_named){
-    // 企業人数の帯とは別の絞り込みなので、行を改めて置く。
-    const br=document.createElement('span'); br.style.cssText='flex-basis:100%;height:0';
-    bar.appendChild(br);
-    const sep=document.createElement('span');
-    sep.textContent='担当者名:'; sep.style.cssText='font-size:12.5px;color:var(--sub);align-self:center';
-    bar.appendChild(sep);
-    chip('問わない',!stockNamed,()=>{stockNamed=false; renderStock();});
-    chip('名前が入っているものだけ',stockNamed,()=>{stockNamed=true; renderStock();});
-  }
-
+  // ---- リクロジと大分の比較（企業人数で絞らない数） ----
   const box=$('stockbox'); box.innerHTML='';
   const card=document.createElement('div'); card.className='c';
   const tw=document.createElement('div'); tw.className='tw'; tw.style.maxHeight='none';
-  const t=document.createElement('table');
-  t.innerHTML='<thead><tr><th>区分</th><th>誰が持っているか</th>'+
-    LS_LISTS.map(l=>'<th class="n">'+escS(l.name)+'</th>').join('')+
-    '<th class="n">計</th></tr></thead>';
+  const t=document.createElement('table'); t.className='stk';
+  // 列 = リストごと（と計）に「件数」と「名前あり」を並べる。
+  const cols=LS_LISTS.map(l=>escS(l.name)).concat(['計']);
+  const per=LS_NAMED?2:1;
+  t.innerHTML='<thead><tr><th class="fc" rowspan="'+per+'">区分・内訳</th>'+
+    cols.map(c=>'<th class="n'+(LS_NAMED?' grp':'')+'" colspan="'+per+'">'+c+'</th>').join('')+'</tr>'+
+    (LS_NAMED?'<tr>'+cols.map(()=>'<th class="n">件数</th><th class="n">名前あり</th>').join('')+'</tr>':'')+
+    '</thead>';
+  const rowsBy=LS_LISTS.map(lsRows);
+  const whole=LS_LISTS.map(l=>lsGet(l.total,LS_ALL));
+  const wholeNamed=LS_LISTS.map(l=>lsGet(l.total_named,LS_ALL));
+  whole.push(whole.reduce((a,b)=>a+b,0));
+  wholeNamed.push(wholeNamed.reduce((a,b)=>a+b,0));
+  // 件数の升目。区分の計・その他の行には、そのリストの全体に占める割合を添える
+  // （母数はいちばん下の「全体」の行に出ている）。名前ありの割合の母数は隣の件数。
+  const pair=(n,named,d,sub)=>
+    '<td class="n">'+(sub?'<b>'+fmt(n)+'</b><span class="sm">全体の '+lsPct(n,d)+'</span>':fmt(n))+'</td>'+
+    (LS_NAMED?'<td class="n">'+fmt(named)+'<span class="sm">件数の '+lsPct(named,n)+'</span></td>':'');
   const tb=document.createElement('tbody');
-  const whole=LS_LISTS.map(l=>stockVal(lsTotal(l)));
-  const wholeSum=whole.reduce((a,b)=>a+b,0);
-  // 全体に占める割合。母数（全体の件数）はいちばん下の「全体」の行に出ている。
-  const share=(n,d)=>d?'<span class="sm">全体の '+pct(n/d*100)+'</span>':'';
-  const addRow=(kind,who,vals,bold)=>{
-    const sum=vals.reduce((a,b)=>a+b,0);
-    const cell=(n,d)=>'<td class="n">'+(bold?'<b>'+fmt(n)+'</b>'+share(n,d):fmt(n))+'</td>';
-    const tr=document.createElement('tr');
-    tr.innerHTML='<td>'+kind+'</td><td>'+who+'</td>'+
-      vals.map((n,i)=>cell(n,whole[i])).join('')+cell(sum,wholeSum);
+  (rowsBy[0]||[]).forEach((r,i)=>{
+    const ns=rowsBy.map(rs=>lsGet(rs[i].n,LS_ALL));
+    const ms=rowsBy.map(rs=>lsGet(rs[i].named,LS_ALL));
+    ns.push(ns.reduce((a,b)=>a+b,0)); ms.push(ms.reduce((a,b)=>a+b,0));
+    const tr=document.createElement('tr'); if(r.sub) tr.className='sub';
+    tr.innerHTML=lsHead(r)+ns.map((n,j)=>pair(n,ms[j],whole[j],r.sub)).join('');
     tb.appendChild(tr);
-  };
-  kinds.forEach(kind=>{
-    // 内訳の名前はリストをまたいで同じものを1行にまとめる（並びは最初に出てきた順）。
-    const names=[];
-    LS_LISTS.forEach(l=>(l.groups||[]).forEach(g=>{
-      if(g.kind===kind&&!names.includes(g.name)) names.push(g.name);}));
-    if(!names.length) return;
-    const valOf=(l,name)=>
-      stockVal(lsGroup((l.groups||[]).find(g=>g.kind===kind&&g.name===name)||{}));
-    names.forEach(name=>addRow(kind,escS(name),LS_LISTS.map(l=>valOf(l,name)),false));
-    addRow(kind,'<b>'+kind+'の計</b>',
-      LS_LISTS.map(l=>names.reduce((a,name)=>a+valOf(l,name),0)),true);
   });
-  addRow('その他','どの区分にも当てはまらない担当者・担当者なし'+
-    '<span class="sm">区分シートに書かれていない人のぶん</span>',
-    LS_LISTS.map(l=>stockVal(lsOther(l))),true);
   t.appendChild(tb);
   const tf=document.createElement('tfoot');
-  tf.innerHTML='<tr><td>全体</td><td>'+
-    (stockAll()?'企業人数で絞っていない':'選んでいる企業人数の帯')+
-    (stockNamed?'・担当者名が入っているものだけ':'')+'</td>'+
-    whole.map(n=>'<td class="n">'+fmt(n)+'</td>').join('')+
-    '<td class="n">'+fmt(wholeSum)+'</td></tr>';
+  tf.innerHTML='<tr><td class="fc">全体<span class="sm">企業人数で絞っていない</span></td>'+
+    whole.map((n,j)=>'<td class="n">'+fmt(n)+'</td>'+
+      (LS_NAMED?'<td class="n">'+fmt(wholeNamed[j])+'<span class="sm">件数の '+lsPct(wholeNamed[j],n)+'</span></td>':'')).join('')+
+    '</tr>';
   t.appendChild(tf);
   tw.appendChild(t); card.appendChild(tw);
 
@@ -1352,31 +1352,21 @@ function renderStock(){
       ' に「区分（アクティブ／保管）・内訳・種別（ownerId／名簿チーム／HubSpotチーム）・値」を書くと、'+
       '翌朝から分けて出します。いまは全部「その他」に入っています。');
   }
-  // 帯に入らない値（マイナスなど）。帯で絞ると、そのぶんはどの帯にも出てこない。
-  const gaps=LS_LISTS.filter(l=>lsGap(l));
-  if(!stockAll()&&gaps.length){
-    notes.push('企業人数がどの帯にも入らない取引が '+
-      gaps.map(l=>escS(l.name)+' '+fmt(lsGap(l))+'件').join('／')+
-      ' あります。帯で絞るとこのぶんは出てきません。');
-  }
-  // 前の週の記録。残っているのは企業人数で絞らない数だけなので、絞っていないときだけ出す。
-  const tr=LS.trend;
-  if(!tr){
+  // 前の週の記録。残っているのは企業人数・担当者名で絞らない数だけなので、この表の件数と比べる。
+  const trd=LS.trend;
+  if(!trd){
     notes.push('前の週の記録がまだ無いので、増減はまだ出せません。');
-  }else if(!stockAll()||stockNamed){
-    notes.push('前の週との増減は、企業人数・担当者名で絞っていないときだけ出します'+
-      '（記録に残しているのが全体の数だけのため）。');
   }else{
-    const parts=LS_LISTS.map(l=>{
-      const p=(tr.lists||{})[l.name]; if(!p) return null;
-      const now={'全体':stockVal(lsTotal(l))};
-      kinds.forEach(k=>{now[k]=(l.groups||[]).filter(g=>g.kind===k)
-        .reduce((a,g)=>a+stockVal(lsGroup(g)),0);});
-      return '<b>'+escS(l.name)+'</b> '+['全体'].concat(kinds)
-        .map(k=>k+' '+growText(now[k]-(p[k]||0))).join(' ／ ');
+    const parts=LS_LISTS.map((l,i)=>{
+      const p=(trd.lists||{})[l.name]; if(!p) return null;
+      const now={'全体':lsGet(l.total,LS_ALL)};
+      rowsBy[i].filter(r=>r.sub&&LS_KINDS.includes(r.key))
+        .forEach(r=>{now[r.key]=lsGet(r.n,LS_ALL);});
+      return '<b>'+escS(l.name)+'</b> '+['全体'].concat(LS_KINDS)
+        .map(k=>k+' '+growText((now[k]||0)-(p[k]||0))).join(' ／ ');
     }).filter(Boolean);
     if(parts.length){
-      notes.push(escS(tr.week)+' の記録（'+md(tr.week_start)+' の週）からの増減: '+parts.join('　')+
+      notes.push(escS(trd.week)+' の記録（'+md(trd.week_start)+' の週）からの件数の増減: '+parts.join('　')+
         '<br>リストはパイプラインの間・担当者の間で毎月まとまった件数が動きます。'+
         '増減の理由まではこの画面では判定できません。');
     }
@@ -1385,6 +1375,62 @@ function renderStock(){
   hint.innerHTML=notes.join('<br>');
   card.appendChild(hint);
   box.appendChild(card);
+
+  renderStockByBands(rowsBy);
+}
+
+// ---- 企業人数の帯ごと（リストごとに1つの表） ----
+// 列 = 企業人数の帯＋計、行 = 区分・内訳。升目は「件数」と、その下に「名前あり」。
+// 区分の計・その他の行には、その帯の全体に占める割合（構成比）を添える。
+// アクティブの計・保管の計・その他の3つを足すと、帯ごとに 100% になる。
+function renderStockByBands(rowsBy){
+  $('lead7').innerHTML=
+    '上の表を、企業人数（企業全体人数）の帯に分けたものです。リストごとに1つの表で、'+
+    '<b>帯を横に並べて</b>見比べられるようにしています。<br>'+
+    '<span style="color:var(--faint)">'+
+    '升目のいちばん上の数が件数です。'+
+    '<b>アクティブの計・保管の計・その他</b>の行の「全体の ○%」は、<b>その列（帯）の全体</b>'+
+    '（いちばん下の行）に占める割合で、3つを足すと 100% になります。'+
+    (LS_NAMED?'「名前あり」はそのうち担当者名に人の名前が入っている件数で、'+
+      '「件数の ○%」の母数は<b>同じ升目の件数</b>です。':'')+
+    '「計」の列は企業人数で絞らない数です。</span>';
+  const host=$('stockbybands'); host.innerHTML='';
+  const cols=LS_BANDS.concat([LS_ALL]);
+  const colLabel=b=>b===LS_ALL?'計':escS(b);
+  LS_LISTS.forEach((l,i)=>{
+    const card=document.createElement('div'); card.className='c'; card.style.marginTop=i?'12px':'0';
+    card.innerHTML='<div class="ph"><b>'+escS(l.name)+'</b></div>';
+    const tw=document.createElement('div'); tw.className='tw'; tw.style.maxHeight='none';
+    const t=document.createElement('table'); t.className='stk';
+    t.innerHTML='<thead><tr><th class="fc">区分・内訳</th>'+
+      cols.map(b=>'<th class="n">'+colLabel(b)+'</th>').join('')+'</tr></thead>';
+    const tb=document.createElement('tbody');
+    rowsBy[i].forEach(r=>{
+      const tr=document.createElement('tr'); if(r.sub) tr.className='sub';
+      tr.innerHTML=lsHead(r)+cols.map(b=>{
+        const n=lsGet(r.n,b), named=lsGet(r.named,b);
+        return '<td class="n">'+(r.sub
+          ?'<b>'+fmt(n)+'</b><span class="sm">全体の '+lsPct(n,lsGet(l.total,b))+'</span>'
+          :fmt(n))+lsNamedLine(named,n)+'</td>';
+      }).join('');
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    const tf=document.createElement('tfoot');
+    tf.innerHTML='<tr><td class="fc">全体</td>'+cols.map(b=>
+      '<td class="n">'+fmt(lsGet(l.total,b))+lsNamedLine(lsGet(l.total_named,b),lsGet(l.total,b))+'</td>'
+    ).join('')+'</tr>';
+    t.appendChild(tf);
+    tw.appendChild(t); card.appendChild(tw);
+    // 帯に入らない値（マイナスなど）。あると帯の和が「計」に届かないので、差を隠さず出す。
+    if(l.band_gap){
+      const h=document.createElement('div'); h.className='hint'; h.style.marginTop='10px';
+      h.innerHTML='企業人数がどの帯にも入らない取引が '+fmt(l.band_gap)+'件 あります'+
+        '（帯の列を足しても「計」にこのぶん届きません）。';
+      card.appendChild(h);
+    }
+    host.appendChild(card);
+  });
 }
 
 // ---- タブの切り替え --------------------------------------------------------
