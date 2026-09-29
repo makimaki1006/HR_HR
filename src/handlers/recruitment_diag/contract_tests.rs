@@ -25,7 +25,6 @@ use crate::db::local_sqlite::LocalDb;
 use crate::handlers::jobmap::company_markers::CompanyGeoEntry;
 use crate::{config::AppConfig, db::cache::AppCache, AppState};
 use axum::extract::{Query, State};
-use axum::Json;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tower_sessions::{MemoryStore, Session};
@@ -160,7 +159,7 @@ async fn panel1_difficulty_shape_contains_required_keys() {
         citycode: None,
     };
 
-    let Json(v) = handlers::api_difficulty_score(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(handlers::api_difficulty_score(State(state), session, Query(params)).await.0).unwrap();
 
     // frontend renderer が参照する key が存在すること
     assert!(v.get("metrics").is_some(), "metrics key missing, got: {v}");
@@ -231,7 +230,7 @@ async fn panel2_talent_pool_shape_contains_required_keys() {
         year: None,
     };
 
-    let Json(v) = handlers::api_talent_pool(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(handlers::api_talent_pool(State(state), session, Query(params)).await.0).unwrap();
 
     // frontend が読む keys
     assert!(v.get("metrics").is_some(), "metrics missing");
@@ -271,7 +270,7 @@ async fn panel3_inflow_shape_when_citycode_missing_returns_error() {
         year: None,
     };
 
-    let Json(v) = handlers::api_inflow_analysis(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(handlers::api_inflow_analysis(State(state), session, Query(params)).await.0).unwrap();
 
     // citycode なしは error_body を返す契約
     assert!(
@@ -293,7 +292,7 @@ async fn panel3_inflow_shape_contains_breakdown() {
         year: None,
     };
 
-    let Json(v) = handlers::api_inflow_analysis(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(handlers::api_inflow_analysis(State(state), session, Query(params)).await.0).unwrap();
 
     // error でなければ breakdown フィールド必須
     if v.get("error").is_none() {
@@ -319,7 +318,7 @@ async fn panel5_condition_gap_shape_and_reverse_proof() {
         company_annual_holidays: Some(115.0),
     };
 
-    let Json(v) = condition_gap::condition_gap(State(state), Query(params)).await;
+    let v = serde_json::to_value(condition_gap::condition_gap(State(state), Query(params)).await.0).unwrap();
 
     // frontend renderer が読む key
     assert!(
@@ -379,7 +378,7 @@ async fn panel6_market_trend_shape_when_no_turso() {
         months: None,
     };
 
-    let Json(v) = market_trend::market_trend(State(state), Query(params)).await;
+    let v = serde_json::to_value(market_trend::market_trend(State(state), Query(params)).await.0).unwrap();
 
     // Turso なし → エラーまたは空データだが、frontend が読む key を返すこと
     if v.get("error").is_none() {
@@ -402,7 +401,7 @@ async fn panel7_opportunity_map_shape() {
     };
 
     let session = empty_session().await;
-    let Json(v) = opportunity_map::opportunity_map(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(opportunity_map::opportunity_map(State(state), session, Query(params)).await.0).unwrap();
 
     // frontend renderer が読む key
     if v.get("error").is_none() {
@@ -428,7 +427,7 @@ async fn panel8_insights_shape() {
     };
 
     let session = empty_session().await;
-    let Json(v) = insights::insights(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(insights::insights(State(state), session, Query(params)).await.0).unwrap();
 
     // frontend が読む key
     assert!(v.get("insights").is_some(), "insights missing: {v}");
