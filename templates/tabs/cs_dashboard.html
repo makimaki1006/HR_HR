@@ -1186,7 +1186,7 @@ function figAvail(el) {
 }
 /** el の details のうち、el の中の「別に描く枠」（data-paint-own。本部アプローチの #hq-box）の中に無いもの。
     🔴 2026-09-24 検証: 前は #hq-box の中の details（全法人の内訳）も数えていた。本文を描き直す時点の
-    #hq-box は「読み込み中」の空の枠で、中身は後から wireHoujin が描くので、番号がずれて別の details を
+    #hq-box は「読み込み中」の空の枠で、中身は後から wireHq が描くので、番号がずれて別の details を
     開いたり、#hq-box の中の details が畳まれたりした。#hq-box の中は hqKeep で別に覚える */
 function ownDetails(el) {
   return Array.from(el.querySelectorAll("details")).filter((d) => {
@@ -3516,8 +3516,7 @@ function renderFocus(D) {
   const n = D.nps_low, c = D.cpa, m = D.mtg_layers, sh = D.shape;
   let h = sec("問い", "いま、どの顧客に手を打つべきか");
   h += '<div class="lede">予測モデルは使っていません。<b>既にあるデータを数えただけ</b>です。' +
-    '当たった顧客に手を打つかどうかは、' + goLink("deal", "series") + " か " +
-    goLink("deal", "houjin") + " で中身を読んでから決めてください。</div>";
+    '当たった顧客に手を打つかどうかは、' + goLink("deal", "customer") + " で中身を読んでから決めてください。</div>";
 
   /* 札は同じ画面の行き先へ押せる button（段2 S-2 の残り）。NPS 4 以下 → その表、採用単価の悪化 → その図、
      MTG の記録 → 事実と推定の帯、LTV 中央値 → LTV の散らばりの図。「NPS が入っている」（記入率）はそれを示す節が無いので div のまま */
@@ -4350,7 +4349,8 @@ function custBlocks(D, want) {
     /* 取引名が空なら dealLink が「取引名なし」と書く。取引ID（内部ID）を名前に流し込まない（画面に内部IDを出さない） */
     D.deals.map((d) => [dealLink(d.deal_id, d.name),
       '<span class="muted small">' + esc(d.stage) + "</span>",
-      '<span class="muted small">' + esc(d.site) + "</span>",
+      /* 拠点は表示名（site_name）。site は照合用の鍵で人が読む名前ではない（2026-09-29 応答に site_name を足した） */
+      '<span class="muted small">' + esc(d.site_name || d.site) + "</span>",
       '<span class="muted small">' + esc(d.kind) + "</span>",
       (esc(d.start) || DASH) + "<br>〜" + (esc(d.expiration) || DASH), nz(d.renewal_no), yen(d.amount),
       nz(d.oubo), nz(d.mensetu), nz(d.syoudaku),
@@ -4370,56 +4370,106 @@ function custBlocks(D, want) {
   return h;
 }
 
-/* ================================================================ 継続を追いかける（事業所）
+/* ================================================================ 顧客（法人と事業所）
 
-   🔴 粒度は**事業所（拠点）**。決裁は事業所単位なので、ふだん見るのはこちら。
-      同じ事業所が契約を重ねてきた流れ（サブスク継続①②③…）を時系列で追う。
+   2026-09-29 画面の組み替え（handover 09 の 3章「4 顧客」・4章の 3 と 4）。前の「継続を追いかける」（事業所）と
+   「法人番号で見る」の前半（法人）を1画面にした。どちらも同じ /api/consulting/customer を読み、同じ部品で描いていた
+   （09 の 2.1「同じ API・同じ部品」）。
+   🔴 粒度は画面の中で分けて明示する。上＝法人（拠点を比べる表）、「事業所」の節＝拠点1つ、「法人」の節＝拠点をまたいだ図。
+      決裁は事業所単位なので、契約の連なり・応募面接採用の推移・こちらの動き・MTG の履歴は拠点を1つ選んで見る。
+   🔴 全拠点を縦に積む描き方はやめた。前の「継続を追いかける」は既定で全拠点の契約ごとの図を積み、既定の法人で
+      26,520px あった（09 の 5章）。拠点は1つずつ選ぶ。選んでいないときは既定の1拠点を開き、そうしていると書く。
+   本部アプローチ（他の法人と比べる）は「成果と継続」へ移す（09 の 4章）。部品は hqSection() / wireHq()。
+   成果と継続の画面ができるまでは、この画面の末尾に置く（黙って消さない）。
 */
-let seriesSite = "";          /* 選んでいる拠点。空なら全部 */
-/* 拠点が空の取引の選択肢の値。🔴 空文字のままだと「すべての拠点」と同じ value になり、
-   選んでも全部が出る（2026-09-23 実機: value が空の選択肢が1つあった, U13）。
+let custSite = "";   /* 人が選んだ拠点（siteOf の鍵）。空・この法人に無い鍵なら既定の拠点（custDefaultSite）。URL の site */
+/* 拠点が空の取引の選択肢の値。🔴 空文字のままだと「選んでいない」と同じ value になり、
+   選んでも既定の拠点が出る（2026-09-23 実機: value が空の選択肢が1つあった, U13）。
    拠点キーには出てこない文字列にしておく（NUL は HTML の属性値で U+FFFD に化けるので使わない）。 */
 const NO_SITE = "__no_site__";
 const siteOf = (d) => d.site || NO_SITE;
 
-function siteLabel(D, key) {
-  if (!key) return "すべての拠点";
-  const n = (D.deals || []).filter((d) => siteOf(d) === key).length;
-  return (key === NO_SITE ? "拠点が入っていない" : shortName(key, 28)) +
-    "（契約 " + num(n) + " 件）";
+/** 拠点ごとのまとめ（拠点を比べる表・選択欄・既定の拠点で共通）。
+    並びは契約の多い順、同じなら最後に始まった契約の新しい順（同じなら鍵の順。描くたびに並びが変わらないように）。
+    🔴 採用は値が入っている契約だけ足す（nSyou がその件数）。入っていない契約を 0 として足さない（母数が変わる） */
+function custSites(D) {
+  const by = new Map();
+  for (const d of D.deals || []) {
+    const k = siteOf(d);
+    const s = by.get(k) || { key: k, name: "", deals: [], active: 0, maxRenewal: 0, amount: null,
+                             syou: null, nSyou: 0, first: "", last: "", lastStart: "" };
+    s.deals.push(d);
+    if (!s.name && d.site_name) s.name = d.site_name;
+    if (d.is_active) s.active++;
+    s.maxRenewal = Math.max(s.maxRenewal, d.renewal_no || 0);
+    if (d.amount != null) s.amount = (s.amount || 0) + d.amount;
+    if (d.syoudaku != null) { s.syou = (s.syou || 0) + d.syoudaku; s.nSyou++; }
+    const st = String(d.start || ""), ex = String(d.expiration || "");
+    if (st && (!s.first || st < s.first)) s.first = st;
+    if (st > s.lastStart) s.lastStart = st;
+    if (ex > s.last) s.last = ex;
+    by.set(k, s);
+  }
+  return [...by.values()].sort((a, b) => b.deals.length - a.deals.length ||
+    b.lastStart.localeCompare(a.lastStart) || a.key.localeCompare(b.key));
+}
+/** 拠点の名前。表示名（応答の site_name）を使う。鍵（site）は照合用に正規化した値で人が読む名前ではないが、
+    表示名が空の拠点は前の画面と同じく鍵を短くして出す（黙って「名前なし」にまとめると拠点の区別がつかない） */
+function custSiteLabel(s) {
+  if (!s) return "";
+  return s.key === NO_SITE ? "拠点が入っていない" : shortName(s.name || s.key, 28);
+}
+/** 既定で開く拠点。いちばん新しく契約が始まった拠点（同じなら custSites の並びで先の拠点＝契約の多い拠点）。
+    いま動いている事業所を先に見るため。🔴 選んでいないことは件数の行に書く（custSiteLayer） */
+function custDefaultSite(sites) {
+  let best = null;
+  for (const s of sites) if (!best || s.lastStart > best.lastStart) best = s;
+  return best ? best.key : "";
+}
+/** いま見る拠点。人が選んだ拠点がこの法人に無ければ既定（別の法人へ移ったとき・貼られた URL の鍵が古いとき） */
+function custSiteNow(sites) {
+  return sites.some((s) => s.key === custSite) ? custSite : custDefaultSite(sites);
 }
 
-function renderSeries(D) {
-  if (D.index) {
-    return custIndex(D, "この事業所は契約を重ねてこられたか",
-      "<b>粒度は事業所です。</b>決裁は事業所単位なので、ふだん見るのはこちらです。");
-  }
-  const sites = [...new Set((D.deals || []).map(siteOf))].sort();
-  if (seriesSite && !sites.includes(seriesSite)) seriesSite = "";
-  const ids = new Set((D.deals || [])
-    .filter((d) => !seriesSite || siteOf(d) === seriesSite)
-    .map((d) => d.deal_id));
+/** 拠点を比べる表（法人の層）。拠点名を押すと下の「事業所」の節がその拠点になる（wireCustomer）。
+    リンクは hashFor で作る（貼る・別タブで開くと、その拠点の画面が開く） */
+function custSiteTable(D, sites, now) {
+  let h = sec("表", "拠点を比べる（" + num(sites.length) + " 拠点）", "cust-sites");
+  h += '<div class="lede">契約の多い順です。拠点名を押すと、下の「事業所」の節がその拠点に切り替わります。' +
+    "金額と採用は値が入っている契約だけを足しています（入っていない契約を 0 として足していません。n は採用が入っている契約の数）。</div>";
+  h += scroll(table([{ t: "拠点", w: "l" }, { t: "契約", n: 1 }, { t: "稼働中", n: 1 }, { t: "継続（最大）" },
+                     { t: "金額の合計", n: 1 }, { t: "採用の合計", n: 1 }, { t: "最初の開始" }, { t: "最後の満了" }],
+    sites.map((s) => [
+      s.key === now
+        ? "<b>" + esc(custSiteLabel(s)) + '</b> <span class="tag e">いま見ている</span>'
+        : '<a data-site="' + esc(s.key) + '" href="' +
+          esc(hashFor("customer", Object.assign(stateParams("customer"), { site: s.key }))) + '">' +
+          esc(custSiteLabel(s)) + "</a>",
+      num(s.deals.length), num(s.active),
+      s.maxRenewal ? num(s.maxRenewal) + "回目" : "初回",
+      yen(s.amount),
+      s.syou == null ? DASH : num(s.syou) + ' <span class="muted small">(n=' + num(s.nSyou) + ")</span>",
+      esc(s.first) || DASH, esc(s.last) || DASH])), 420);
+  return h;
+}
+
+/** 事業所の層（拠点1つ）。前の「継続を追いかける」の中身を、選んだ1拠点だけで描く。
+    picked: 人が選んだ拠点か（false なら既定で開いていると書く） */
+function custSiteLayer(D, sites, now, picked) {
+  const s = sites.find((x) => x.key === now);
+  const all = D.deals || [];
+  const ids = new Set(s ? s.deals.map((d) => d.deal_id) : []);
   const F2 = custFilter(D, ids);
-
-  let h = sec("問い", "この事業所は契約を重ねてこられたか");
-  /* M-5: 粒度の 1 文は見出しそのものなので summary に残り、説明だけ畳む */
-  h += foldNote("info", "いま見ている粒度は「事業所」です",
-    "<b>拠点をまたいでいません。</b>決裁は事業所単位なので、" +
-    "同じ法人でも拠点が違えば別の契約の流れとして見ます。" +
-    "拠点をまたいで比べたいときは " + goLink("deal", "houjin") + " を使ってください。");
-
-  /* 拠点の選択。件数が多いので選択式にする */
-  h += '<div class="ctlbar"><label class="act">拠点 <select id="cs-site">' +
-    '<option value=""' + (seriesSite ? "" : " selected") + ">" +
-    esc(siteLabel(D, "")) + "（" + num((D.deals || []).length) + " 件）</option>" +
-    sites.map((k) => '<option value="' + esc(k) + '"' +
-      (k === seriesSite ? " selected" : "") + ">" + esc(siteLabel(D, k)) +
-      "</option>").join("") + "</select></label></div>";
-  h += '<div class="count-line' + (seriesSite ? " on" : "") + '">' +
-    "<b>" + num((D.deals || []).length) + " 件中 " + num(F2.deals.length) +
-    " 件</b>を表示" + (seriesSite ? "（" + (seriesSite === NO_SITE ? "拠点が入っていない契約"
-                                  : "拠点 " + esc(shortName(seriesSite, 28))) + "）"
-                                  : "（拠点で絞っていません）") + "</div>";
+  let h = sec("事業所", s ? custSiteLabel(s) : "拠点がありません", "cust-site");
+  h += '<div class="ctlbar"><label class="act">拠点を選ぶ <select id="cs-site">' +
+    sites.map((x) => '<option value="' + esc(x.key) + '"' + (x.key === now ? " selected" : "") + ">" +
+      esc(custSiteLabel(x)) + "（契約 " + num(x.deals.length) + " 件）</option>").join("") +
+    "</select></label></div>";
+  /* 🔴 拠点1つに絞っていることを必ず書く。法人全体だと読むのが、この種の画面でいちばん起きる事故 */
+  h += '<div class="count-line on"><b>この法人の契約 ' + num(all.length) + " 件のうち、この拠点の " +
+    num(F2.deals.length) + " 件</b>を表示" +
+    (picked ? "" : "（拠点を選んでいないので、いちばん新しく契約が始まった拠点を開いています。上の表か、この欄で選び直せます）") +
+    "</div>";
 
   /* 契約の連なり。何回目か・間が空いていないか */
   h += sec("図", "契約の連なり");
@@ -4443,15 +4493,9 @@ function renderSeries(D) {
     "<b>間が空いていれば、その分だけ契約が途切れています。</b></i>");
 
   h += custBlocks(F2, new Set(["monthly", "timeline", "deals", "mtgs"]));
-  return h + foot(D.meta);
+  return h;
 }
 
-/* ================================================================ 法人番号で見る（法人）
-
-   🔴 粒度は**法人**。拠点をまたいで並べる。本部に持っていく話のとき用。
-   🔴 案件はチェックで出し入れできる。**既定は全表示**。
-      チェックを外したら図・表・KPI・合計の**全部**が追従する。
-*/
 let houjinPick = null;        /* deal_id -> true。null なら「まだ決めていない＝全部」 */
 /* 上の「法人を選ぶ」を注力だけにするか。
    🔴 注力は**法人の大きさ**で決まる性質（日々変わらない）。
@@ -4515,41 +4559,44 @@ function monthRange(a, b) {
    案件ごとの線（CASE_LINE）と同じ並び（CASE_COLORS）を使う */
 const CASE_COLORS = [C.ai, C.murasaki, C.ink, C.botan, C.sora];
 const SITE_COLORS = CASE_COLORS;
-function siteSeries(sites, valsOf, order) {
+/** 拠点の鍵 → 表示名（応答の deals[].site_name）。無ければ鍵のまま（前と同じ見え方）。
+    🔴 2026-09-29: 図の凡例に照合用の鍵（kyoten_key）がそのまま出ていた。表示名があるときは表示名にする */
+function siteNameOf(deals, k) {
+  const d = (deals || []).find((x) => siteOf(x) === k && x.site_name);
+  return d ? d.site_name : k;
+}
+/* nameOf: 鍵 → 表示名（省くと鍵のまま） */
+function siteSeries(sites, valsOf, order, nameOf) {
   /* 並べ替えの基準は拠点ごとに1回だけ計算する。比較のたびに order() を呼ぶと
      O(n log n) 回の計算し直しになり、合成データの 200案件・100拠点で 272ms かかった（N8） */
   const key = new Map(sites.map((s) => [s, order(s)]));
   const sorted = sites.slice().sort((a, b) => key.get(b) - key.get(a));
   const head = sorted.slice(0, SITE_COLORS.length);
   const rest = sorted.slice(SITE_COLORS.length);
-  const out = head.map((s, i) => ({ label: s === NO_SITE ? "拠点が入っていない" : shortName(s, 16),
+  const out = head.map((s, i) => ({ label: s === NO_SITE ? "拠点が入っていない" : shortName(nameOf ? nameOf(s) : s, 16),
                                     color: SITE_COLORS[i], vals: valsOf([s]) }));
   if (rest.length)
     out.push({ label: "その他の拠点（" + rest.length + " か所）", color: C.ghost, vals: valsOf(rest) });
   return out;
 }
 
-function renderHoujin(D) {
-  if (D.index) {
-    return custIndex(D, "この法人は拠点ごとにどう違うか",
-      "<b>粒度は法人です。</b>拠点をまたいで並べます。本部に持っていく話のとき用です。");
-  }
+
+/** 法人の層（拠点をまたいだ図）。前の「法人番号で見る」の図を、この節の中だけで描く。
+    🔴 案件のチェック（houjinPick）が効くのはこの節の図だけ。上の拠点の表・KPI・事業所の節は法人の全契約で出す
+       （前はチェックが画面の全部に効いていた。拠点を1つずつ見る形にしたので、チェックは線を選ぶためだけに残す）。 */
+function custHoujinLayer(D) {
+  const all = D.deals || [];
   const ids = houjinIds(D);
   const F2 = custFilter(D, ids);
-  const all = D.deals || [];
-
-  let h = sec("問い", "この法人は拠点ごとにどう違うか");
-  /* 🔴 「拠点をまたいで1本の線にしない」を、この枠・採用単価の推移の前の「1本の線にまとめない理由」・
-     末尾の「読むときの注意」（サーバの not_counted）の3か所で言っていた（2026-09-24 実機）。
-     この枠の1回にし、文の正本はサーバの not_counted にする（末尾は foot(…, true) で基準日と件数だけ） */
-  h += foldNote("info", "いま見ている粒度は「法人」です",   /* M-5: 粒度の 1 文は summary に残り、説明だけ畳む */
-    "<b>拠点をまたいで並べています。</b>ふだんの判断は事業所単位なので、" +
-    "1つの事業所の流れを追うときは " + goLink("deal", "series") + " を使ってください。<br>" +
+  let h = sec("法人", "拠点をまたいだ図（この法人の全拠点）", "cust-houjin");
+  /* 🔴 「拠点をまたいで1本の線にしない」はこの枠の1回にし、文の正本はサーバの not_counted（末尾は foot(…, true)） */
+  h += foldNote("info", "ここから下は拠点をまたいで並べています",
+    "ふだんの判断は事業所単位なので、1つの事業所の流れは上の「事業所」の節で見てください。<br>" +
     notCounted(D.meta).replace(/<br>$/, ""));
-  h += focusSection(D);
 
   /* ---- 案件のチェック ---- */
-  h += sec("表", "見る案件を選ぶ");
+  h += sec("表", "図に入れる案件を選ぶ");
+  h += '<div class="lede">この節の図だけに効きます（上の拠点の表と「事業所」の節は、この法人の全契約で出しています）。</div>';
   h += '<div class="ctlbar" id="hj-ctl">' +
     '<button type="button" class="act" id="hj-all">全部選ぶ</button>' +
     '<button type="button" class="act" id="hj-none">全部外す</button></div>';
@@ -4557,7 +4604,7 @@ function renderHoujin(D) {
     '<label class="pick"><input type="checkbox" data-d="' + esc(d.deal_id) + '"' +
     (houjinPick[d.deal_id] ? " checked" : "") + ">" +
     "<span>" + esc(shortName(d.name || d.deal_id, 34)) +
-    '<span class="muted small">　' + esc(shortName(d.site, 14)) +
+    '<span class="muted small">　' + esc(shortName(d.site_name || d.site, 14)) +
     (d.amount != null ? "　" + yen(d.amount) : "") +
     (d.is_active ? '　<span class="tag e">稼働中</span>' : "") +
     "</span></span></label>").join("") + "</div>";
@@ -4565,17 +4612,17 @@ function renderHoujin(D) {
   /* class の中に式を書かない（CSS の静的検査がクラス名と読み違える） */
   const picked = ids.size < all.length;
   h += '<div class="count-line' + (picked ? " on" : "") + '" id="hj-count">' +
-    "<b>" + num(all.length) + " 件中 " + num(ids.size) + " 件</b>を表示" +
-    (picked ? "（チェックを外している案件があります）" : "（全部出しています）") +
+    "<b>" + num(all.length) + " 件中 " + num(ids.size) + " 件</b>を図に入れています" +
+    (picked ? "（チェックを外している案件があります）" : "（全部入れています）") +
     "</div>";
 
   if (!ids.size) {
     h += note("warn", "案件が1つも選ばれていません",
       "上のチェックを1つ以上入れてください。「全部選ぶ」で戻せます。");
-    return h + foot(D.meta, true, houjinCounts(all, ids));
+    return h + focusSection(D);
   }
 
-  h += custBlocks(F2, new Set(["head", "funnel", "cpa3"]));
+  h += custBlocks(F2, new Set(["funnel", "cpa3"]));
 
   /* ---- 案件ごとの推移 ---- */
   /* 案件ごとに契約開始日が違うので、月番号を暦の月に直してから横軸をそろえる */
@@ -4670,7 +4717,7 @@ function renderHoujin(D) {
       const r = syoudakuAt(mm, dealOf[mm.deal_id], mo);
       return r.v != null && r.v > mx ? r.v : mx;
     }, 0), 0);
-  const synSer = siteSeries(synSites, synVals, synOrder);
+  const synSer = siteSeries(synSites, synVals, synOrder, (k) => siteNameOf(F2.deals, k));
   /* 柱は拠点ごとに2段: 下が書き換えのあった契約（塗り）、上が持ち越し（中空・破線）。
      凡例は拠点ごとに1つ（synSer から作る） */
   const synBars = [];
@@ -4712,7 +4759,7 @@ function renderHoujin(D) {
     return got.length ? { v: got.reduce((s, d) => s + d.amount, 0) } : { v: null };
   });
   const ltSer = siteSeries([...new Set(lt.map(siteOf))], ltVals,
-    (s) => lt.filter((d) => siteOf(d) === s).reduce((a, d) => a + d.amount, 0));
+    (s) => lt.filter((d) => siteOf(d) === s).reduce((a, d) => a + d.amount, 0), (k) => siteNameOf(F2.deals, k));
   h += fig("LTV の推移（契約金額の累計）", "契約が増えるたびに積み上がる。拠点ごとに積んでいます",
     ltAxis.length >= 2
       ? svgColStack({ w: 940, h: 230, x: ltAxis.map((m) => m.slice(2)), series: ltSer,
@@ -4724,21 +4771,56 @@ function renderHoujin(D) {
     "金額が入っていない契約は足していません" +
     "（0 として足すと母数が変わるため）。横軸は契約の開始月です。</i>");
 
-  h += custBlocks(F2, new Set(["cpasite", "deals"]));
+  h += custBlocks(F2, new Set(["cpasite"]));
+  /* 注力は法人の大きさで決まる性質。法人の層に置く（案件の節に置くと「この案件が注力」と読まれる） */
+  h += focusSection(D);
+  return h;
+}
 
-  /* ---- 他の法人と比べる（本部アプローチ）---- */
-  /* 🔴 「図 他の法人と比べる」の見出しのすぐ下に renderHq の「問い」の見出しが続き、
-     図の見出しの下が空に見えた（2026-09-24 実機）。見出しはここの1つにし、renderHq は見出しを出さない */
-  h += sec("問い", "他の法人と比べる — 本部に何を持っていくか");
-  /* data-paint-own: 中身は wireHoujin が後から描く。本文の描き直しで開いた details を数えない（ownDetails） */
-  h += '<div id="hq-box" data-paint-own="1"><span class="loading">読み込み中…</span></div>';
+const CUST_Q = "この法人は拠点ごとにどう違うか。その事業所は契約を重ねてこられたか";
+/** 顧客（法人と事業所）。法人を選ぶ（上の選択欄）→ 拠点を比べる表 → 拠点を1つ選ぶ（事業所の節）→ 拠点をまたいだ図。
+    他のチームへ: 画面の鍵は "customer"（#deal/customer?houjin=&site=&focus=1）。前の鍵 series / houjin は VIEW_ALIAS でここへ送る */
+function renderCustomer(D) {
+  if (D.index) {
+    return custIndex(D, CUST_Q,
+      "<b>上で法人（拠点を比べる）、下で事業所（拠点を1つ）を見ます。</b>決裁は事業所単位です。");
+  }
+  let h = sec("問い", CUST_Q);
+  if (!D.meta.found) return h + custBlocks(D, new Set()) + foot(D.meta);
+  const all = D.deals || [];
+  const sites = custSites(D);
+  const now = custSiteNow(sites);
+  const ids = houjinIds(D);
+  /* この画面の中の行き先（09 の「目次」）。🔴 a href="#…" にしない。ハッシュは画面の場所（URL の状態）に使っているので、
+     押すと URL が画面でないハッシュに変わり、再読込で別の画面が開く。button で kpiJump（見出しへ移ってフォーカス） */
+  h += '<nav class="ctlbar" aria-label="この画面の中"><span class="muted small">この画面の中:</span>' +
+    [["cust-sites", "拠点を比べる"], ["cust-site", "事業所（拠点1つ）"], ["cust-houjin", "拠点をまたいだ図"],
+     ["hq-sec", "他の法人と比べる"]].map(([id, t]) =>
+      '<button type="button" class="act" data-cjump="' + id + '">' + esc(t) + "</button>").join("") + "</nav>";
+  /* KPI は法人の全契約（案件のチェックは法人の節の図だけに効く。custHoujinLayer） */
+  h += custBlocks(custFilter(D, new Set(all.map((d) => d.deal_id))), new Set(["head"]));
+  h += custSiteTable(D, sites, now);
+  h += custSiteLayer(D, sites, now, now === custSite);
+  h += custHoujinLayer(D);
+  /* 本部アプローチ。09 の 4章で「成果と継続」へ移す。移したらこの1行と wireCustomer の wireHq() を外す */
+  h += hqSection();
   return h + foot(D.meta, true, houjinCounts(all, ids));
 }
-/** 法人番号で見るの末尾の件数。🔴 応答の meta には全体の件数が無く、末尾の枠が
+/** 顧客の画面の末尾の件数。🔴 応答の meta には全体の件数が無く、末尾の枠が
     「集計の基準日と件数」なのに件数が出ていなかった（2026-09-23 実機）。この法人の件数を書く */
 function houjinCounts(all, ids) {
   return "この法人の取引 " + num(all.length) + " 件（稼働中 " +
-    num(all.filter((d) => d.is_active).length) + " 件）のうち、" + num(ids.size) + " 件を選んでいます";
+    num(all.filter((d) => d.is_active).length) + " 件）。拠点をまたいだ図には " + num(ids.size) + " 件を入れています";
+}
+
+/** 本部アプローチ（他の法人と比べる）の見出しと枠。中身は wireHq() が /api/consulting/headquarters を取って描く。
+    他のチームへ: 09 の 4章で「成果と継続」へ移すもの。移す側の render でこれを、wire で wireHq() を呼ぶ。
+    🔴 「図 他の法人と比べる」の見出しのすぐ下に renderHq の「問い」の見出しが続き、図の見出しの下が空に見えた
+       （2026-09-24 実機）。見出しはここの1つにし、renderHq は見出しを出さない。
+    data-paint-own: 中身は wireHq が後から描く。本文の描き直しで開いた details を数えない（ownDetails） */
+function hqSection() {
+  return sec("問い", "他の法人と比べる — 本部に何を持っていくか", "hq-sec") +
+    '<div id="hq-box" data-paint-own="1"><span class="loading">読み込み中…</span></div>';
 }
 
 /** 契約開始からの月番号 `m` を暦の "YYYY-MM" に直す。
@@ -5714,7 +5796,7 @@ function redrawMain(D, keep) {
   const main = document.getElementById("cs-main");
   const fk = focusKey(document.activeElement);
   /* 本部アプローチの枠（#hq-box）の中は本文と別に描くので、開いている details も別に覚えて、
-     wireHoujin が描き直すときに開き直す（幅の描き直しのときだけ。絞り込みでは覚えない） */
+     wireHq が描き直すときに開き直す（幅の描き直しのときだけ。絞り込みでは覚えない） */
   const hq = keep ? document.getElementById("hq-box") : null;
   hqKeep = hq && hq.querySelectorAll ? openDetails(hq) : null;
   paintFigs(main, () => ctlbar(v, D) + v.render(D), keep);   /* 図の幅を枠に合わせる（2回描き） */
@@ -7131,10 +7213,10 @@ const MENUS = [
         render: (D) => renderToday(D) },
       { key: "board",    label: "案件そのもの",     path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
-      { key: "series",   label: "継続を追いかける", path: "/api/consulting/customer",
-        render: (D) => renderSeries(D) },
-      { key: "houjin",   label: "法人番号で見る",   path: "/api/consulting/customer",
-        render: (D) => renderHoujin(D) },
+      /* 2026-09-29 画面の組み替え（handover 09 の「4 顧客」）: 前の「継続を追いかける」（事業所）と「法人番号で見る」の前半（法人）を
+         1画面に。粒度は画面の中で「法人」「事業所（拠点1つ）」の節に分けて明示する。前の鍵（series / houjin）は VIEW_ALIAS で送る */
+      { key: "customer", label: "顧客",             path: "/api/consulting/customer",
+        render: (D) => renderCustomer(D) },
       /* 2026-09-26 藤巻さんの要望で足した。取引1件の MTG・電話（要約つき）・交代を時系列で。
          取引はハッシュの後ろ（#deal/detail?id=…）で指定する。表の案件名から来る */
       { key: "detail",   label: "案件の詳細",       path: "/api/consulting/deal-detail",
@@ -7182,9 +7264,12 @@ const loaded = {};
 let lastPayload = null;
 
 const menuOf = (k) => MENUS.find((m) => m.key === k);
-/* 法人を選んで見る項目。🔴 2つあるので、片方だけ直して取りこぼさないよう1か所で判定する */
-const isCustView = (k) => k === "series" || k === "houjin";
-const viewOf = (m, v) => (menuOf(m) || MENUS[0]).views.find((x) => x.key === v);
+/* 法人を選んで見る項目。🔴 前は2つ（継続を追いかける・法人番号で見る）あったので1か所で判定していた。いまは顧客の1つ */
+const isCustView = (k) => k === "customer";
+/* 前の画面の鍵 → いまの画面の鍵（2026-09-29 画面の組み替え）。貼られた URL・ブックマーク（#deal/series?houjin=…&site=…、
+   #deal/houjin?focus=1）を、同じ状態のまま顧客の画面で開く。? の後ろの名前（houjin・site・focus）は顧客の画面でも同じ */
+const VIEW_ALIAS = { series: "customer", houjin: "customer" };
+const viewOf = (m, v) => (menuOf(m) || MENUS[0]).views.find((x) => x.key === (VIEW_ALIAS[v] || v));
 /** 本文から別の画面を指すときの書き方。「集計 → 成果とリスク」のように名前で書き、押すとそこへ移る。
     🔴 2026-09-24 実機（第2弾の後）: 本文に「⑧成果」「NPS は①で」「③顧客詳細」と、画面を並べ替える前の
     番号が残っていた。左のメニューは上が ①案件 ②コンサルタント ③集計、中が 1〜8 で、どれとも合わない。
@@ -7268,7 +7353,7 @@ const lastView = {};
              無ければ端末の記憶（D-1、段1レビュー D の裁定）
      flag    名札 ／ band  MTG途絶の帯の鍵（critical など。画面には名前で出す） ／ expiry  満了までの帯の鍵（EXPIRY_BANDS.k）
      q       案件名の部分一致（案件そのもの・担当者ごとの案件）、探す言葉（案件の詳細）
-     houjin  法人番号（継続を追いかける・法人番号で見る） ／ site  拠点の鍵（継続を追いかける） ／ focus=1  法人の選択欄を注力だけに
+     houjin  法人番号（顧客） ／ site  拠点の鍵（顧客の「事業所」の節） ／ focus=1  法人の選択欄を注力だけに
      id      取引（案件の詳細。前からある形）
      unit    week（担当者ごとの接触。month は既定なので載せない） ／ excl=1  右側打ち切りを代表値から外す（継続回数 × 成果）
      sort    並び替え。列の鍵、先頭に - で大きい順（案件そのもの・担当者ごとの案件・担当者の一覧・今日動く先の表）
@@ -7299,7 +7384,7 @@ const BOARD_URL_STATE = {
   q: boardState("q"),
   sort: sortState(() => boardSort, (s) => { boardSort = s; }, BOARD_COLS, { key: "n_flags", asc: false }),
 };
-/* 法人は 2 画面（継続を追いかける・法人番号で見る）で共通（isCustView）。URL から入れたときは「既定で開いています」の注記を外す。
+/* 法人は顧客の画面（isCustView。前は継続を追いかける・法人番号で見るの 2 画面で共通）。URL から入れたときは「既定で開いています」の注記を外す。
    🔴 既定で開いた法人（customerReason が立っている）は URL に載せない（既定の値は載せない、と同じ）。前は初回の描画の後に
       syncUrl が ?houjin=… と書き、戻る・再読込でその値が「人が選んだ法人」として入って注記が消えていた
       （2026-09-29 検証 Playwright 1440px: 注記の位置 初回 98948 → 戻る -1・再読込 -1。選んでいない法人を選んだように見せる）。
@@ -7316,9 +7401,10 @@ const URL_STATE = {
   },
   board: BOARD_URL_STATE,
   byowner: BOARD_URL_STATE,
-  series: { houjin: HOUJIN_URL_STATE,
-            site: { kind: "filter", get: () => seriesSite, set: (v) => { seriesSite = v; }, reset: () => { seriesSite = ""; } } },
-  houjin: { houjin: HOUJIN_URL_STATE, focus: flagState(() => focusOnly, (b) => { focusOnly = b; }) },
+  /* 顧客: 拠点（site）は選んだときだけ載せる（既定の拠点は載せない。custSiteNow）。法人を選び直すと拠点は既定に戻る（wire の cs-houjin） */
+  customer: { houjin: HOUJIN_URL_STATE,
+              site: { kind: "filter", get: () => custSite, set: (v) => { custSite = v; }, reset: () => { custSite = ""; } },
+              focus: flagState(() => focusOnly, (b) => { focusOnly = b; }) },
   detail: { id: { kind: "filter", get: () => detailId, set: (v) => { detailId = v; }, reset: () => { detailId = ""; } },
             q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } } },
   team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "contact_rate", asc: true }) },
@@ -7338,7 +7424,7 @@ function hashFor(view, params) {
   const s = String(view || ""), sl = s.indexOf("/");
   let mk = s, vk = "";
   if (sl >= 0) { mk = s.slice(0, sl); vk = s.slice(sl + 1); }
-  else { const hit = MENUS.find((m) => m.views.some((v) => v.key === s)); if (hit) { mk = hit.key; vk = s; } }
+  else { const k = VIEW_ALIAS[s] || s, hit = MENUS.find((m) => m.views.some((v) => v.key === k)); if (hit) { mk = hit.key; vk = k; } }
   const m = menuOf(mk) || MENUS[0];
   const v = viewOf(m.key, vk) || m.views[0];
   const sp = new URLSearchParams();
@@ -7799,8 +7885,7 @@ function wire(v) {
   if (v.key === "contact") wireContact();
   if (v.key === "today") wireToday();
   if (v.key === "board" || v.key === "byowner") wireBoard();
-  if (v.key === "series") wireSeries();
-  if (v.key === "houjin") wireHoujin();
+  if (v.key === "customer") wireCustomer();
   if (v.key === "detail") wireDetail();
   wireKpiJumps();   /* KPI の札 → 同じ画面の行き先（段2 S-2 の残り。画面ごとの wire* の後） */
   const rl = document.getElementById("cs-reload");
@@ -7821,10 +7906,10 @@ function wire(v) {
     /* 🔴 注力だけにしているときは、選択肢もそれに合わせる。
        図だけ絞って選択肢が全件のままだと、絞ったつもりで全件から選んでしまう。
        いま開いている法人は、注力でなくても選択肢に残す（選んだものが消えると戻れない）。
-       🔴 絞るのは「法人番号で見る」だけ。注力の切り替えはそちらの画面にしか無いので、
-          「継続を追いかける」まで絞ると、そちらでは解除できなくなる
-          （2026-09-23 実機: 401 → 117 のまま引き継がれ、トグルは無い, U4）。 */
-    const list = focusOnly && v.key === "houjin"
+       🔴 絞るのは注力の切り替え（hj-focus-only）がある顧客の画面だけ。前は「法人番号で見る」の絞り込みが
+          切り替えの無い「継続を追いかける」まで持ち越され、解除できなかった（2026-09-23 実機: 401 → 117, U4）。
+          2026-09-29 に2画面を顧客の1画面にしたので、切り替えと選択欄はいつも同じ画面にある */
+    const list = focusOnly && v.key === "customer"
       ? customerIndex.filter((r) => r.focus || r.houjin === customerHoujin)
       : customerIndex;
     /* 🔴 件数で切らない。400件で切っていて、全517法人のうち117法人が選べなかった（U8）。
@@ -7840,19 +7925,28 @@ function wire(v) {
   if (cz) cz.onchange = () => { renewalExcludeCensored = cz.checked; load(false); };
   const hj = document.getElementById("cs-houjin");
   /* 人が選び直したら「既定で開いています」の注記は外す。前は別の法人を選んだ後も残っていた（U12） */
-  if (hj) hj.onchange = () => { customerHoujin = hj.value; customerReason = ""; load(false); };
+  /* 拠点は法人ごとの鍵なので、法人を選び直したら既定の拠点に戻す（前の法人の拠点の鍵を URL に残さない） */
+  if (hj) hj.onchange = () => { customerHoujin = hj.value; customerReason = ""; custSite = ""; load(false); };
   markScrollAll();   /* 表の枠の端の影（V12 の残り） */
 }
 
-/* 「継続を追いかける」の拠点選択 */
-function wireSeries() {
-  const st = document.getElementById("cs-site");
-  if (st) st.onchange = () => { seriesSite = st.value; redrawMain(lastPayload); };
-}
-
-/* 「法人番号で見る」のチェックと、本部アプローチの遅延読み */
-function wireHoujin() {
+/* 顧客: 拠点の選択（選択欄・拠点を比べる表の拠点名）、画面の中の行き先、案件のチェック、本部アプローチの遅延読み */
+function wireCustomer() {
   const redraw = () => redrawMain(lastPayload);
+  const st = document.getElementById("cs-site");
+  if (st) st.onchange = () => { custSite = st.value; redraw(); };
+  /* 表の拠点名は hashFor のリンク（貼れる・別タブで開ける）。同じタブで押したときは取り直さず、手元の応答で描き直して
+     「事業所」の節へ移る（ハッシュの移動に任せると load() で取り直し、ページの頭へ戻される） */
+  document.querySelectorAll("#cs-main a[data-site]").forEach((a) => {
+    a.onclick = (ev) => {
+      if (ev && (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button === 1)) return;   /* 別タブ・別窓はそのまま */
+      if (ev && ev.preventDefault) ev.preventDefault();
+      custSite = a.dataset.site;
+      redraw();
+      kpiJump("cust-site");
+    };
+  });
+  document.querySelectorAll("#cs-main button[data-cjump]").forEach((b) => { b.onclick = () => kpiJump(b.dataset.cjump); });
   const fo = document.getElementById("hj-focus-only");
   if (fo) fo.onchange = () => { focusOnly = fo.checked; redraw(); };
   document.querySelectorAll("#hj-pick input[type=checkbox]").forEach((cb) => {
@@ -7866,7 +7960,12 @@ function wireHoujin() {
   if (a) a.onclick = () => setAll(true);
   const n = document.getElementById("hj-none");
   if (n) n.onclick = () => setAll(false);
+  /* 本部アプローチ。成果と継続へ移したら外す（hqSection の注記） */
+  wireHq();
+}
 
+/* 本部アプローチ（#hq-box）の遅延読み。他のチームへ: hqSection() を描いた画面の wire で呼ぶ */
+function wireHq() {
   /* 本部アプローチは別のデータ。この項目を開いたときだけ取りに行く */
   const box = document.getElementById("hq-box");
   if (!box) return;

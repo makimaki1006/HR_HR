@@ -1204,13 +1204,14 @@ check("読み方の枠: 成果とリスクの並びの注記・立ち上がり�
   ok(n === 1, "「同じ3ヶ月目でも」が " + n + " 回出ている");
 });
 
-check("法人番号で見る: 末尾の「集計の基準日と件数」に件数を書く", () => {
+check("顧客（前の法人番号で見る）: 末尾の「集計の基準日と件数」に件数を書く", () => {
   const h = run('foot({ today: "2026-09-18" }, false, houjinCounts([{ is_active: true }, { is_active: false }], new Set(["a"])))');
   ok(h.includes("集計の基準日と件数") && h.includes("この法人の取引 2 件（稼働中 1 件）"), "件数が無い: " + h);
-  const body = html.split("function renderHoujin(D)")[1].split("\nfunction ")[0];
-  /* ループ4: not_counted は頭の「いま見ている粒度」の枠で出すので、末尾は said=true（基準日と件数だけ） */
-  ok((body.match(/foot\(D\.meta, true, houjinCounts\(all, ids\)\)/g) || []).length === 2,
-    "renderHoujin の2つの末尾が件数を渡していない");
+  const body = html.split("function renderCustomer(D)")[1].split("\nfunction ")[0];
+  /* ループ4: not_counted は「法人」の節の粒度の枠で出すので、末尾は said=true（基準日と件数だけ）。
+     2026-09-29 顧客の1画面にしてから、明細の末尾は1つ（案件が選ばれていないときも法人の節の中で止め、末尾は共通） */
+  ok((body.match(/foot\(D\.meta, true, houjinCounts\(all, ids\)\)/g) || []).length === 1,
+    "renderCustomer の末尾が件数を渡していない");
 });
 
 check("KPI: 最終満了を折り返さない・電話の61件の色をそろえる・退職者の補足に別の話を混ぜない", () => {
@@ -1385,7 +1386,7 @@ check("V12 の残り: 本部アプローチの枠を差し込んだ後（持っ�
     // 持っているとき（hqCache）
     const w1 = fakeWrap();
     run("hqCache = { x: 1 }");
-    withWraps(w1, () => run("wireHoujin()"));
+    withWraps(w1, () => run("wireHq()"));
     ok(w1.cls.has("more-r"), "hqCache から差し込んだ後に影を付けていない");
   } catch (e) { restore(); throw e; }
   // 取りに行ったとき（fetch の後）
@@ -1393,7 +1394,7 @@ check("V12 の残り: 本部アプローチの枠を差し込んだ後（持っ�
   const w2 = fakeWrap();
   ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: 1 }) });
   ctx.document.querySelectorAll = (s) => (s === ".scroll-wrap" ? [w2.el] : []);
-  run("wireHoujin()");
+  run("wireHq()");
   const tick = () => new Promise((res) => setImmediate(res));
   return tick().then(tick).then(() => {
     restore();
@@ -1808,7 +1809,7 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     // 本部アプローチ（持っているとき）
     calls.length = 0;
     els["hq-box"] = fakeEl();
-    run("hqCache = { x: 1 }; wireHoujin()");
+    run("hqCache = { x: 1 }; wireHq()");
     ok(calls.length === 1 && calls[0].el === els["hq-box"], "本部アプローチの枠を paintFigs で描いていない");
     // 窓の幅が変わった（resize → refitSoon → redrawMain(lastPayload, openDetails(main))）
     const rd = [];
@@ -1836,7 +1837,7 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     // 本部アプローチを取りに行った後も paintFigs で描く
     const hb = fakeEl();
     els["hq-box"] = hb;
-    run("hqCache = null; wireHoujin()");
+    run("hqCache = null; wireHq()");
     const tick = () => new Promise((res) => setImmediate(res));
     return p.then(tick).then(tick).then(() => {
       restore();
@@ -1868,14 +1869,14 @@ check("本部アプローチ: 幅の描き直しで、#hq-box の中の開いた
     run("paintFigs = __PF; wire = () => {}; renderHq = () => ''; hqCache = { x: 1 };");
     run("redrawMain({}, [])");
     els["hq-box"] = fakeEl();   // 本文を描き直すと #hq-box は新しい枠になる
-    run("wireHoujin()");
+    run("wireHq()");
     const hq = calls.find((c) => c.el === els["hq-box"]);
     ok(hq && JSON.stringify(hq.keep) === "[1]", "#hq-box を開いていた details のまま描き直していない: " + JSON.stringify(hq && hq.keep));
     calls.length = 0;
     els["hq-box"] = hb;
     run("redrawMain({})");   // 絞り込みの描き直しは覚えない（行が変わると番号が別の行を指す）
     els["hq-box"] = fakeEl();
-    run("wireHoujin()");
+    run("wireHq()");
     const hq2 = calls.find((c) => c.el === els["hq-box"]);
     ok(hq2 && !(hq2.keep && hq2.keep.length), "絞り込みの描き直しでも #hq-box の details を開き直している");
   } finally {
@@ -4071,7 +4072,7 @@ check("S-12: 入力欄 16px は、要素自身に class=\"act\" を持つ欄（�
   run("detailQ = ''");
   const detail = run('ctlbar({ key: "detail", path: "/api/consulting/deal-detail" }, { meta: {} })');
   ok(/<input type="search" id="dd-q" class="act"/.test(detail), "案件の詳細の探す欄が input.act の形でない: " + detail.slice(0, 300));
-  const series = run('ctlbar({ key: "series", path: "/api/consulting/customer" }, { meta: {} })');
+  const series = run('ctlbar({ key: "customer", path: "/api/consulting/customer" }, { meta: {} })');
   ok(/<select id="cs-houjin" class="act"/.test(series), "法人を選ぶ欄が select.act の形でない: " + series.slice(0, 300));
   // 簡易 cascade そのものの見張り（詳細度の数え方が壊れると上の判定が空回りする）
   ok(specificity(".ctlbar .act") === 200 && specificity(".ctlbar select") === 101 && specificity(".ctlbar select.act") === 201 &&
@@ -4245,8 +4246,8 @@ check("M-5: 決まりごと・読み方の箱を畳む（foldNote）。畳まな
   ok((t.match(/担当者の評価ではありません/g) || []).length === 1, "「担当者の評価ではありません」が summary と本文で 2 回出ている");
   ok(t.indexOf('<details class="fold notefold">') < t.indexOf('<div class="kpis">'), "読み方の畳みが KPI より後ろ");
   // 畳んだ画面: 事業所・法人（粒度の 1 文が summary）、成果とリスク・立ち上がり（数えていないもの）、担当の交代（一覧の決まりごと）、本部アプローチ
-  ok(run("renderSeries(__SER)").includes('<details class="fold notefold"><summary>いま見ている粒度は「事業所」です　<span class="when-closed">読み方を開く'),
-    "継続を追いかけるの粒度の箱が畳みでない（粒度の 1 文は summary に残る）");
+  ok(run("renderCustomer(__SER)").includes('<details class="fold notefold"><summary>ここから下は拠点をまたいで並べています　<span class="when-closed">読み方を開く'),
+    "顧客の画面の粒度の箱（法人の節）が畳みでない（粒度の 1 文は summary に残る）");
   // 成果とリスク・立ち上がりは summary に規律の 1 文（keep）が付く（下の「担当者ごとの接触・立ち上がり・成果とリスク」の見張り）
   ok(run("renderOutcome(__OUT)").includes('<details class="fold notefold"><summary>この画面で数えていないもの<span class="keep">'),
     "成果とリスクの決まりごとが畳みでない");
