@@ -29,8 +29,8 @@ use crate::SESSION_USER_KEY;
 
 use super::{
     classify, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_of, kaden_period,
-    kettei_days_of, load, members_of, person_of, snapshots_of, Counts, Deal, DealRow, Kind, Person,
-    Sheets, KADEN_CLASSES, KETTEI_COLS, SHEET_META,
+    kettei_days_of, list_stock_of, load, members_of, person_of, snapshots_of, Counts, Deal,
+    DealRow, Kind, Person, Sheets, KADEN_CLASSES, KETTEI_COLS, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -133,6 +133,7 @@ async fn data(Query(q): Query<DataQuery>, session: Session) -> Result<Response, 
             SHEET_META,
             super::SHEET_WEEKLY,
             super::SHEET_KETTEI,
+            super::SHEET_LIST_STOCK,
         ] {
             state.store.invalidate(Some(name)).await;
         }
@@ -372,6 +373,11 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     //    この表にだけ現れて、絞り込みから漏れる（架電リスト・Zoom架電と同じ扱い）。
     let kettei = kettei_block(&sheets.kettei, &members, &mut people);
 
+    // ---- リストの在庫 -----------------------------------------------------
+    // 担当者ごとではなく内訳（アクティブ／保管）ごとの数なので、`people` には控えない。
+    // チーム・個人の絞り込みは効かない（画面にもそう書く）。
+    let list_stock = list_stock_block(&sheets.list_stock, &sheets.weekly, &ymd(wk));
+
     // ---- 取得条件 ---------------------------------------------------------
     // 架電より先に読む。「架電の最終日が途中かどうか」は取得条件に入っている。
     let mut meta: BTreeMap<String, String> = BTreeMap::new();
@@ -514,6 +520,9 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         // 決定者・決裁者の入力状況（担当者ごと）。シートがまだ無ければ rows は空配列。
         // 画面はそのときタブごと出さない。
         "kettei": kettei,
+        // 新規営業のリストの在庫（リクロジ／大分 × アクティブ／保管 × 企業人数）。
+        // シートがまだ無ければ lists は空配列。画面はそのときタブごと出さない。
+        "list_stock": list_stock,
         "calls": calls,
         // 週に1行の記録。Python の日次同期（Hubspot リポジトリ
         // `scripts/sales_kpi/sync_daily.py` の `sync_weekly()`）が
@@ -590,6 +599,37 @@ fn kaden_base_trend(
         }),
         None => Value::Null,
     }
+}
+
+/// リストの在庫に、前の週の記録を添える。
+///
+/// 比べる相手は `kaden_base_trend` と同じく「今週ではない、いちばん新しい記録」。
+/// 記録に残っているのは企業人数で絞らない数だけなので、画面は企業人数で絞っていない
+/// ときにだけ差を出す。記録が無ければ `trend` は `null`。
+fn list_stock_block(
+    sheet: &crate::handlers::call_quality::sheets::SheetData,
+    weekly: &crate::handlers::call_quality::sheets::SheetData,
+    this_week_start: &str,
+) -> Value {
+    let mut block = list_stock_of(sheet);
+    // snapshots_of は週の昇順。後ろから探して最初に当たるのが「今週ではない、いちばん新しい記録」。
+    let prev = snapshots_of(weekly).into_iter().rfind(|s| {
+        !s["list_stock"].is_null() && s["week_start"].as_str().unwrap_or("") != this_week_start
+    });
+    if let Some(obj) = block.as_object_mut() {
+        obj.insert(
+            "trend".into(),
+            match prev {
+                Some(s) => json!({
+                    "week": s["week"],
+                    "week_start": s["week_start"],
+                    "lists": s["list_stock"],
+                }),
+                None => Value::Null,
+            },
+        );
+    }
+    block
 }
 
 /// 架電リストの状態（未架電／未接触／接触済み）と入力状況をまとめる。

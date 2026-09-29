@@ -68,6 +68,8 @@ fn main() -> anyhow::Result<()> {
         meta: load_tsv("KPI営業_取得条件"),
         weekly: load_tsv("KPI営業_週次"),
         kettei: load_tsv("KPI営業_決定者"),
+        // 2026-09-29 追加。
+        list_stock: load_tsv("KPI営業_リスト在庫"),
         all_cached: true,
     };
     let body = build_payload(&sheets, day);
