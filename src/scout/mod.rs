@@ -89,6 +89,16 @@ pub fn router() -> Router<Arc<AppState>> {
             "/scout/api/admin/reset-password",
             post(admin_reset_password),
         )
+        // 1社複数ユーザー: 自分の workspace の担当者を管理する(master のセッションが要る)。
+        .route(
+            "/scout/api/admin/members",
+            get(admin_list_members).post(admin_add_member),
+        )
+        .route("/scout/api/admin/members/remove", post(admin_remove_member))
+        .route(
+            "/scout/api/admin/members/disabled",
+            post(admin_set_member_disabled),
+        )
 }
 
 // ===== 型・共通ヘルパー =====
@@ -192,14 +202,25 @@ fn current_user(db: &TursoDb, token: &str) -> Option<SessionUser> {
     }
     // role 列を後付けする（一度だけ ALTER）。JOIN で u.role を引く前に必須。
     ensure_user_role_column(db);
+    ensure_workspace_members_table(db);
     let t = token.to_string();
     let params: [&dyn ToSqlTurso; 1] = [&t];
-    // role はユーザーの最新値を users から解決（session 発行後の role 変更も即反映）。
+    // role は**そのセッションが入っている workspace での役割**を解決する
+    // （session 発行後の変更も即反映）。users.role だけを見ると、role 列を
+    // 後付けした時点で既に居た所有者が既定値の 'member' になり、その会社の
+    // 管理者が担当者管理をできなくなる。所有者は master として扱う。
     let rows = db
         .query(
             "SELECT s.user_id,s.email,s.name,s.workspace_id,s.expires_at,\
-             COALESCE(u.role,'member') AS role \
-             FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token=?",
+             COALESCE(m.role, \
+                      CASE WHEN w.owner_user_id=s.user_id THEN 'master' END, \
+                      u.role, 'member') AS role \
+             FROM auth_sessions s \
+             LEFT JOIN users u ON u.id=s.user_id \
+             LEFT JOIN workspaces w ON w.id=s.workspace_id \
+             LEFT JOIN workspace_members m \
+                    ON m.workspace_id=s.workspace_id AND m.user_id=s.user_id \
+             WHERE s.token=?",
             &params,
         )
         .ok()?;
@@ -262,6 +283,77 @@ fn ensure_user_role_column(db: &TursoDb) {
             &[],
         );
     });
+}
+
+/// `workspace_members` テーブルを用意する(1社に複数の担当者を置くため)。プロセス生存中に一度だけ。
+///
+/// これが無いと、user と workspace の紐付けが `workspaces.owner_user_id` の1本しかなく、
+/// 所有者は1人しか書けないため**1 workspace に2人目を置けない**。
+/// 実運用では複数PCで新卒媒体と中途媒体を分けて同時に回しており、担当者ごとの
+/// アカウントが要る。※同期。spawn_blocking 内で呼ぶこと。
+fn ensure_workspace_members_table(db: &TursoDb) {
+    static ENSURED: OnceLock<()> = OnceLock::new();
+    ENSURED.get_or_init(|| {
+        let _ = db.execute(
+            "CREATE TABLE IF NOT EXISTS workspace_members(\
+             workspace_id TEXT NOT NULL, user_id TEXT NOT NULL, \
+             role TEXT NOT NULL DEFAULT 'member', added_at TEXT, \
+             PRIMARY KEY(workspace_id, user_id))",
+            &[],
+        );
+    });
+}
+
+/// `users.last_login` 列を後付けする(使われていないアカウントを見分けるため)。
+fn ensure_user_last_login_column(db: &TursoDb) {
+    static ENSURED: OnceLock<()> = OnceLock::new();
+    ENSURED.get_or_init(|| {
+        let _ = db.execute("ALTER TABLE users ADD COLUMN last_login TEXT", &[]);
+    });
+}
+
+/// `send_history.user_id` 列を後付けする(どの担当者の送信かを残すため)。
+///
+/// 1社複数ユーザーにする以上、これが無いと人数だけ増えて**誰が送ったか追えない**。
+/// 既存行は NULL のまま(遡って埋められないので偽らない)。
+fn ensure_send_history_user_column(db: &TursoDb) {
+    static ENSURED: OnceLock<()> = OnceLock::new();
+    ENSURED.get_or_init(|| {
+        let _ = db.execute("ALTER TABLE send_history ADD COLUMN user_id TEXT", &[]);
+    });
+}
+
+/// このユーザーが入る workspace と、そこでの役割を解決する。
+///
+/// 所有者であるものと、メンバーであるものの**両方**を見る。所有者を優先して返す。
+/// 所有者も拾うのは互換のため: `workspace_members` は後から足した表なので、
+/// 既存顧客は所有者行しか持たない。members だけを見ると**既存顧客が全員
+/// ログインできなくなる**。
+///
+/// 役割も workspace ごとに決まる。`users.role` だけを見ると、role 列を後付けした
+/// 時点で既に居た所有者が既定値の 'member' になり、**その会社の管理者が
+/// 担当者管理をできなくなる**(ローカルアプリ側の実装で実際に踏んだ)。
+/// ※同期。spawn_blocking 内で呼ぶこと。
+fn resolve_workspace_for_user(db: &TursoDb, user_id: &str) -> Result<(String, String), CoreErr> {
+    ensure_workspace_members_table(db);
+    let uid = user_id.to_string();
+    let p: [&dyn ToSqlTurso; 4] = [&uid, &uid, &uid, &uid];
+    let rows = db
+        .query(
+            "SELECT w.id AS id, \
+             CASE WHEN w.owner_user_id=? THEN 1 ELSE 0 END AS is_owner, \
+             COALESCE(m.role, CASE WHEN w.owner_user_id=? THEN 'master' END, 'member') AS role \
+             FROM workspaces w \
+             LEFT JOIN workspace_members m ON m.workspace_id=w.id AND m.user_id=? \
+             WHERE w.owner_user_id=? OR m.user_id IS NOT NULL \
+             ORDER BY is_owner DESC, w.created_at LIMIT 1",
+            &p,
+        )
+        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    match rows.first() {
+        Some(r) => Ok((get_str(r, "id"), get_str(r, "role"))),
+        None => Ok((String::new(), "member".to_string())),
+    }
 }
 
 /// kill_switches を参照し、global もしくは当該 workspace の送信が無効化されているか判定。
@@ -349,16 +441,19 @@ fn login_core(db: &TursoDb, email: String, password: String) -> Result<Value, Co
     }
     let user_id = get_str(row, "id");
     let name = get_str(row, "name");
-    let role = get_str(row, "role");
 
-    let p2: [&dyn ToSqlTurso; 1] = [&user_id];
-    let wrows = db
-        .query(
-            "SELECT id FROM workspaces WHERE owner_user_id=? LIMIT 1",
-            &p2,
-        )
-        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-    let workspace_id = wrows.first().map(|r| get_str(r, "id")).unwrap_or_default();
+    // 所有者としてだけでなく、担当者(workspace_members)としても workspace を解決する。
+    // 以前は `WHERE owner_user_id=?` だけを見ていたため、担当者を追加しても
+    // ログインがそれを無視し、1社複数ユーザーが成立しなかった。
+    // 役割もここで決まる(所有者=master、メンバー=members 行の role)。
+    let (workspace_id, role) = resolve_workspace_for_user(db, &user_id)?;
+
+    // 最終ログイン。使われていないアカウントを見分ける唯一の手がかり。
+    // 記録できないことはログインを拒む理由にならないので、失敗は無視する。
+    ensure_user_last_login_column(db);
+    let now_login = now_str();
+    let pl: [&dyn ToSqlTurso; 2] = [&now_login, &user_id];
+    let _ = db.execute("UPDATE users SET last_login=? WHERE id=?", &pl);
 
     let token = new_token();
     let created = now_str();
@@ -1015,7 +1110,10 @@ async fn sent(
             return Ok(json!({ "ok": true, "already": true }));
         }
         let now = now_str();
-        let pi: [&dyn ToSqlTurso; 7] = [
+        // どの担当者の送信か。1社複数ユーザーでは、これが無いと人数だけ増えて
+        // 「誰が送ったか」を後から示せない。
+        ensure_send_history_user_column(&dbh);
+        let pi: [&dyn ToSqlTurso; 8] = [
             &campaign_id,
             &candidate,
             &platform,
@@ -1023,9 +1121,10 @@ async fn sent(
             &subject_chars,
             &body_chars,
             &u.workspace_id,
+            &u.user_id,
         ];
         dbh.execute(
-            "INSERT INTO send_history(campaign_id,candidate_web_id,platform,sent_at,subject_chars,body_chars,workspace_id) VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO send_history(campaign_id,candidate_web_id,platform,sent_at,subject_chars,body_chars,workspace_id,user_id) VALUES(?,?,?,?,?,?,?,?)",
             &pi,
         )
         .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
@@ -1310,13 +1409,28 @@ async fn provision(
         "master" => "master".to_string(),
         _ => "member".to_string(),
     };
+    // 既存の会社に担当者を足す場合だけ指定する。空なら新しい会社として作る。
+    let workspace_id = body
+        .get("workspace_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let dbh = match take_db(&state) {
         Ok(d) => d,
         Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
     };
-    run(move || provision_core(&dbh, company, email, password, name, role)).await
+    run(move || provision_core(&dbh, company, email, password, name, role, workspace_id)).await
 }
 
+/// 顧客(会社)アカウントを作る。`workspace_id` を渡すと**既存の会社に担当者を追加**する。
+///
+/// `workspace_id` が空なら従来どおり新しい会社として workspace を作り、その人を master にする。
+///
+/// **既存 workspace に足すときに新しい workspace を作ってはいけない。**
+/// `daily_counters` と `send_history` はどちらも workspace 単位なので、同じ会社が
+/// 2つの workspace を持つと日次上限が実質2倍になり、**同じ候補者へ2通送られる**。
+/// 取り消せない事故なので、存在しない workspace_id は作らずに 404 で返す。
 fn provision_core(
     db: &TursoDb,
     company: String,
@@ -1324,6 +1438,7 @@ fn provision_core(
     password: String,
     name: String,
     role: String,
+    workspace_id: String,
 ) -> Result<Value, CoreErr> {
     if company.is_empty() || email.is_empty() || password.len() < 8 {
         return Err(cerr(
@@ -1340,38 +1455,81 @@ fn provision_core(
         return Err(cerr(StatusCode::CONFLICT, "既に登録済みのメールです"));
     }
 
+    ensure_workspace_members_table(db);
     let user_id = new_id();
-    let ws_id = new_id();
     let now = now_str();
     let hash = bcrypt::hash(&password, bcrypt::DEFAULT_COST)
         .map_err(|_| cerr(StatusCode::INTERNAL_SERVER_ERROR, "ハッシュ生成失敗"))?;
 
-    let pw: [&dyn ToSqlTurso; 4] = [&ws_id, &company, &user_id, &now];
-    db.execute(
-        "INSERT INTO workspaces(id,name,owner_user_id,created_at) VALUES(?,?,?,?)",
-        &pw,
-    )
-    .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-    let pu: [&dyn ToSqlTurso; 6] = [&user_id, &email, &hash, &name, &now, &role];
+    let joining = !workspace_id.trim().is_empty();
+    let ws_id = if joining {
+        // 既存 workspace への追加。**存在しない id で新規作成しない**
+        // (作ると会社が2つの workspace を持ち、上限が実質2倍になる)。
+        let wid = workspace_id.trim().to_string();
+        let pq: [&dyn ToSqlTurso; 1] = [&wid];
+        let found = db
+            .query("SELECT id FROM workspaces WHERE id=?", &pq)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        if found.is_empty() {
+            return Err(cerr(
+                StatusCode::NOT_FOUND,
+                "指定された workspace がありません",
+            ));
+        }
+        wid
+    } else {
+        let wid = new_id();
+        let pw: [&dyn ToSqlTurso; 4] = [&wid, &company, &user_id, &now];
+        db.execute(
+            "INSERT INTO workspaces(id,name,owner_user_id,created_at) VALUES(?,?,?,?)",
+            &pw,
+        )
+        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        wid
+    };
+
+    // 新しい会社の1人目は master。member だと担当者を追加できる人が誰も居なくなる。
+    let effective_role = if joining {
+        role.clone()
+    } else {
+        "master".to_string()
+    };
+
+    let pu: [&dyn ToSqlTurso; 6] = [&user_id, &email, &hash, &name, &now, &effective_role];
     db.execute(
         "INSERT INTO users(id,email,password_hash,name,created_at,role) VALUES(?,?,?,?,?,?)",
         &pu,
     )
     .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-    let key = CONFIG_KEY.to_string();
-    let cfg = DEFAULT_CONFIG_JSON.to_string();
-    let pc: [&dyn ToSqlTurso; 3] = [&ws_id, &key, &cfg];
-    let _ = db.execute(
-        "INSERT OR REPLACE INTO kv_settings(workspace_id,key,value) VALUES(?,?,?)",
-        &pc,
-    );
+
+    let pm: [&dyn ToSqlTurso; 4] = [&ws_id, &user_id, &effective_role, &now];
+    db.execute(
+        "INSERT INTO workspace_members(workspace_id,user_id,role,added_at) VALUES(?,?,?,?) \
+         ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=excluded.role",
+        &pm,
+    )
+    .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    // 既定 config は新しい会社のときだけ。既存 workspace に入れると、
+    // その会社が登録済みのキャンペーンを空で上書きしてしまう。
+    if !joining {
+        let key = CONFIG_KEY.to_string();
+        let cfg = DEFAULT_CONFIG_JSON.to_string();
+        let pc: [&dyn ToSqlTurso; 3] = [&ws_id, &key, &cfg];
+        let _ = db.execute(
+            "INSERT OR REPLACE INTO kv_settings(workspace_id,key,value) VALUES(?,?,?)",
+            &pc,
+        );
+    }
 
     Ok(json!({
         "ok": true,
         "company": company,
         "email": email,
+        "user_id": user_id,
         "workspace_id": ws_id,
-        "role": role,
+        "role": effective_role,
+        "joined_existing": joining,
     }))
 }
 
@@ -1461,13 +1619,33 @@ async fn admin_create_user(
         "master" => "master".to_string(),
         _ => "member".to_string(),
     };
+    // 既存の会社に担当者を足す場合だけ指定する。空なら新しい会社として作る。
+    let workspace_id = body
+        .get("workspace_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let dbh = match take_db(&state) {
         Ok(d) => d,
         Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
     };
     run(move || {
-        require_master(&dbh, &token)?;
-        provision_core(&dbh, company, email, password, name, role)
+        // master が自分の workspace に担当者を足す場合は、その workspace へ入れる。
+        // 指定が無ければ従来どおり新しい会社として作る。
+        let me = require_master(&dbh, &token)?;
+        let ws = if workspace_id.is_empty() {
+            String::new()
+        } else if workspace_id == me.workspace_id {
+            workspace_id.clone()
+        } else {
+            // 他社の workspace へ勝手に人を入れられないようにする。
+            return Err(cerr(
+                StatusCode::FORBIDDEN,
+                "自分の workspace 以外には追加できません",
+            ));
+        };
+        provision_core(&dbh, company, email, password, name, role, ws)
     })
     .await
 }
@@ -1863,4 +2041,244 @@ mod credential_tests {
         assert_eq!(error.0, StatusCode::UNAUTHORIZED);
         assert!(require_credentials_token("session-token").is_ok());
     }
+}
+
+// ==== 担当者(workspace メンバー)管理 ====
+// 1社に複数の担当者を置くための API。実運用では複数PCで新卒媒体と中途媒体を
+// 分けて同時に回しており、誰の送信かを残すために担当者ごとのアカウントが要る。
+// 認証は master のログインセッション(末端顧客の配布物に管理トークンは入れない)。
+
+/// 自分の workspace の担当者一覧。所有者も含める。
+///
+/// 所有者も拾うのは互換のため: `workspace_members` は後から足した表なので、
+/// 既存顧客は所有者行しか持たない。members だけを見ると**既存顧客が
+/// 「担当者0人」に見える**。
+fn list_members_core(db: &TursoDb, workspace_id: &str) -> Result<Value, CoreErr> {
+    ensure_workspace_members_table(db);
+    ensure_user_disabled_column(db);
+    ensure_user_role_column(db);
+    ensure_user_last_login_column(db);
+    let wid = workspace_id.to_string();
+    let p: [&dyn ToSqlTurso; 2] = [&wid, &wid];
+    let rows = db
+        .query(
+            "SELECT u.id,u.email,u.name,u.last_login,\
+             COALESCE(u.disabled,0) AS disabled,\
+             COALESCE(m.role, CASE WHEN w.owner_user_id=u.id THEN 'master' END, 'member') AS role,\
+             m.added_at,\
+             CASE WHEN w.owner_user_id=u.id THEN 1 ELSE 0 END AS is_owner \
+             FROM users u \
+             LEFT JOIN workspace_members m ON m.user_id=u.id AND m.workspace_id=? \
+             LEFT JOIN workspaces w ON w.id=? \
+             WHERE m.user_id IS NOT NULL OR w.owner_user_id=u.id \
+             ORDER BY is_owner DESC, u.email",
+            &p,
+        )
+        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let members: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "user_id": get_str(r, "id"),
+                "email": get_str(r, "email"),
+                "name": get_str(r, "name"),
+                "role": get_str(r, "role"),
+                "disabled": r.get("disabled").and_then(|v| v.as_i64()).unwrap_or(0) != 0,
+                "last_login": get_str(r, "last_login"),
+                "added_at": get_str(r, "added_at"),
+                "is_owner": r.get("is_owner").and_then(|v| v.as_i64()).unwrap_or(0) != 0,
+            })
+        })
+        .collect();
+    Ok(json!({ "ok": true, "workspace_id": workspace_id, "members": members }))
+}
+
+async fn admin_list_members(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult {
+    let token = token_from(&headers);
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let me = require_master(&dbh, &token)?;
+        list_members_core(&dbh, &me.workspace_id)
+    })
+    .await
+}
+
+/// 既存ユーザーを自分の workspace の担当者に加える。
+///
+/// ここでユーザーを新規作成しないのは、作成が provision / admin_create_user に
+/// 閉じているから。作成経路を増やすと、パスワードのハッシュ方式がまた食い違う。
+async fn admin_add_member(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let token = token_from(&headers);
+    let email = body
+        .get("email")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    let role = match body
+        .get("role")
+        .and_then(|v| v.as_str())
+        .unwrap_or("member")
+        .trim()
+    {
+        "master" => "master".to_string(),
+        _ => "member".to_string(),
+    };
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let me = require_master(&dbh, &token)?;
+        if email.is_empty() {
+            return Err(cerr(StatusCode::BAD_REQUEST, "email が必要です"));
+        }
+        ensure_workspace_members_table(&dbh);
+        let pe: [&dyn ToSqlTurso; 1] = [&email];
+        let rows = dbh
+            .query("SELECT id FROM users WHERE email=?", &pe)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        let uid = rows
+            .first()
+            .map(|r| get_str(r, "id"))
+            .ok_or_else(|| cerr(StatusCode::NOT_FOUND, "そのメールのアカウントがありません"))?;
+        let now = now_str();
+        let pm: [&dyn ToSqlTurso; 4] = [&me.workspace_id, &uid, &role, &now];
+        dbh.execute(
+            "INSERT INTO workspace_members(workspace_id,user_id,role,added_at) VALUES(?,?,?,?) \
+             ON CONFLICT(workspace_id,user_id) DO UPDATE SET role=excluded.role",
+            &pm,
+        )
+        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        list_members_core(&dbh, &me.workspace_id)
+    })
+    .await
+}
+
+/// 担当者を外す。所有者は外せない。
+///
+/// 所有者を外せると、設定も履歴も残ったまま**誰も入れない workspace** ができる。
+async fn admin_remove_member(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let token = token_from(&headers);
+    let target = body
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let me = require_master(&dbh, &token)?;
+        if target.is_empty() {
+            return Err(cerr(StatusCode::BAD_REQUEST, "user_id が必要です"));
+        }
+        ensure_workspace_members_table(&dbh);
+        let pw: [&dyn ToSqlTurso; 1] = [&me.workspace_id];
+        let wrows = dbh
+            .query("SELECT owner_user_id FROM workspaces WHERE id=?", &pw)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        if wrows
+            .first()
+            .map(|r| get_str(r, "owner_user_id"))
+            .unwrap_or_default()
+            == target
+        {
+            return Err(cerr(
+                StatusCode::BAD_REQUEST,
+                "所有者は担当者から外せません",
+            ));
+        }
+        let pd: [&dyn ToSqlTurso; 2] = [&me.workspace_id, &target];
+        dbh.execute(
+            "DELETE FROM workspace_members WHERE workspace_id=? AND user_id=?",
+            &pd,
+        )
+        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        // 外した人のセッションを失効させる(次の要求から入れなくなる)。
+        let ps: [&dyn ToSqlTurso; 1] = [&target];
+        let _ = dbh.execute("DELETE FROM auth_sessions WHERE user_id=?", &ps);
+        list_members_core(&dbh, &me.workspace_id)
+    })
+    .await
+}
+
+/// 担当者の利用を停止/再開する。
+///
+/// **削除ではない。** 削除すると send_history.user_id が宛先を失い、過去の送信が
+/// 誰のものだったか辿れなくなる。退職者は停止して残す。
+async fn admin_set_member_disabled(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let token = token_from(&headers);
+    let target = body
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let disabled = body
+        .get("disabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let me = require_master(&dbh, &token)?;
+        if target.is_empty() {
+            return Err(cerr(StatusCode::BAD_REQUEST, "user_id が必要です"));
+        }
+        if target == me.user_id && disabled {
+            // 自分を止めると、他に master が居なければ誰も担当者管理できなくなる。
+            return Err(cerr(
+                StatusCode::BAD_REQUEST,
+                "自分自身を停止することはできません",
+            ));
+        }
+        ensure_workspace_members_table(&dbh);
+        ensure_user_disabled_column(&dbh);
+        // 自分の workspace の担当者だけを対象にする(他社のユーザーを止めさせない)。
+        // 所有者も対象に含める: members 行を持たない既存顧客の所有者を取りこぼさないため。
+        let pb: [&dyn ToSqlTurso; 4] = [&me.workspace_id, &target, &me.workspace_id, &target];
+        let belongs = dbh
+            .query(
+                "SELECT 1 AS x FROM workspace_members WHERE workspace_id=? AND user_id=? \
+                 UNION SELECT 1 AS x FROM workspaces WHERE id=? AND owner_user_id=?",
+                &pb,
+            )
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        if belongs.is_empty() {
+            return Err(cerr(
+                StatusCode::NOT_FOUND,
+                "その担当者はこの workspace にいません",
+            ));
+        }
+        let flag: i64 = if disabled { 1 } else { 0 };
+        let pu: [&dyn ToSqlTurso; 2] = [&flag, &target];
+        dbh.execute("UPDATE users SET disabled=? WHERE id=?", &pu)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        if disabled {
+            let ps: [&dyn ToSqlTurso; 1] = [&target];
+            let _ = dbh.execute("DELETE FROM auth_sessions WHERE user_id=?", &ps);
+        }
+        list_members_core(&dbh, &me.workspace_id)
+    })
+    .await
 }

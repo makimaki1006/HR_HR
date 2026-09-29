@@ -47,6 +47,7 @@ fn bare_state() -> Arc<AppState> {
         rate_limiter,
         company_geo_cache: None,
         audit: None,
+        google_oidc: None,
     })
 }
 
