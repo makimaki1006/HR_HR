@@ -7,6 +7,7 @@ pub mod db;
 pub mod gemini;
 pub mod geo;
 pub mod handlers;
+pub mod hubspot;
 /// Indeed 採用市場データ。社内タブと顧客レポートが同じ集計を使う
 pub mod indeed;
 pub mod job_gen;
@@ -83,6 +84,9 @@ pub struct AppState {
     /// Google Workspace OIDC ログイン (ADR-017)。GOOGLE_OIDC_* が 4 つ揃っていなければ None で、
     /// ログイン画面にボタンを出さず /auth/google/* は 404。
     pub google_oidc: Option<Arc<auth::google_oidc::GoogleOidc>>,
+    /// HubSpot CRM API (読み取り、Headless CRM)。`HUBSPOT_ACCESS_TOKEN` 未設定なら None で、
+    /// `/api/crm/*` は 503 `not_configured`。
+    pub hubspot: Option<Arc<hubspot::HubSpotClient>>,
 }
 
 /// アプリケーションRouter構築

@@ -196,6 +196,7 @@ fn make_test_state(hw_db: LocalDb) -> Arc<AppState> {
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
         google_oidc: None,
+        hubspot: None,
     })
 }
 
