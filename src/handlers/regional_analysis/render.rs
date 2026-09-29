@@ -18,6 +18,132 @@ use super::fetch::{
 use crate::handlers::competitive::escape_html;
 use crate::handlers::overview::format_number;
 
+// ============================================================
+// 文言・書式 (HTML partial と JSON API (`api.rs`) で共有する)
+// ============================================================
+
+pub(crate) const PREF_REQUIRED_MESSAGE: &str = "都道府県を選択してください。";
+pub(crate) const AGGREGATION_FAILED_MESSAGE: &str = "集計処理に失敗しました。";
+pub(crate) const DB_UNAVAILABLE_MESSAGE: &str = "外部統計データベースに接続できません。";
+pub(crate) const COMPANY_DATA_UNAVAILABLE_MESSAGE: &str = "外部企業データに接続できません。";
+
+pub(crate) const JOB_OPENINGS_RATIO_TITLE: &str = "有効求人倍率 推移";
+pub(crate) const JOB_OPENINGS_RATIO_NOTE: &str = "出典: e-Stat 政府統計コード 00450091 (一般職業紹介状況)。有効求人倍率 (全体)。当該都道府県の公共職業安定所管内における集計値です。";
+pub(crate) const LABOR_STATS_TITLE: &str = "労働統計指標";
+pub(crate) const LABOR_STATS_NOTE: &str = "出典: e-Stat 社会人口統計体系 (v2_external_labor_stats)。労働政策研究・研修機構。最新年度の値を表示。";
+pub(crate) const INDUSTRY_STRUCTURE_TITLE: &str = "産業構造";
+pub(crate) const POPULATION_PYRAMID_TITLE: &str = "人口ピラミッド";
+pub(crate) const WAGE_COMPARISON_TITLE: &str = "地域別最低賃金";
+pub(crate) const WAGE_COMPARISON_NOTE: &str = "出典: 厚生労働省 地域別最低賃金 (v2_external_minimum_wage、都道府県値)。最低賃金は都道府県単位の値であり、市区町村別の差はありません。";
+pub(crate) const COMPANY_MATRIX_TITLE: &str = "企業成長マトリックス (外部企業データ)";
+pub(crate) const COMPANY_MATRIX_NOTE: &str = "出典: 外部企業データ (法人単位の従業員規模・増減率)。各点は1社を表します。増減率と規模の関係を示すものであり、因果関係を示すものではありません。";
+/// 企業成長マトリックスの表に出す社数 (散布図は全点)。
+pub(crate) const COMPANY_MATRIX_TABLE_LIMIT: usize = 20;
+pub(crate) const FOREIGN_RESIDENTS_TITLE: &str = "在留外国人 (在留資格別)";
+pub(crate) const FOREIGN_RESIDENTS_NOTE: &str = "出典: 住民基本台帳 (SSDSE-A、都道府県値)。在留資格別の外国人数。外国人材の採用可能性・多文化対応ニーズの把握用であり、求人・求職の人数ではありません。";
+/// 在留外国人のチャートに載せる在留資格数 (表は全行)。
+pub(crate) const FOREIGN_RESIDENTS_CHART_LIMIT: usize = 12;
+pub(crate) const INTERNET_USAGE_TITLE: &str = "インターネット利用";
+pub(crate) const INTERNET_USAGE_NOTE: &str =
+    "出典: 通信利用動向 (都道府県値)。採用チャネル (SNS / WEB 求人) の有効性を判断する参考指標です。";
+pub(crate) const OCCUPATION_TITLE: &str = "職業別就業者";
+
+pub(crate) fn industry_structure_note(granularity: &str) -> String {
+    format!(
+        "出典: 総務省統計局 国勢調査 (v2_external_industry_structure)。集計粒度: {}。集計不能コード除外。従業者数は当該地域の産業構成を示す参考値です。",
+        granularity
+    )
+}
+
+pub(crate) fn population_pyramid_note(granularity: &str) -> String {
+    format!(
+        "出典: 国勢調査 (v2_external_population_pyramid)。集計粒度: {}。左 (青) = 男性 / 右 (橙) = 女性。これは地域の実人口統計であり、求人・求職の人数ではありません。",
+        granularity
+    )
+}
+
+pub(crate) fn occupation_note(granularity: &str) -> String {
+    format!(
+        "出典: 国勢調査 (従業地ベース・男女計)。集計粒度: {}。当該地域で働く人の職業構成 (就業者数) であり、求人・求職の人数ではありません。",
+        granularity
+    )
+}
+
+/// データなしの文言 (エスケープ前)。
+pub(crate) fn no_data_message(label: &str) -> String {
+    format!("{label} に該当するデータがありません。条件を変更してください。")
+}
+
+/// 構成比 (%)。total が 0 以下なら 0。
+pub(crate) fn share_pct(part: i64, total: i64) -> f64 {
+    if total > 0 {
+        part as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    }
+}
+
+/// 有効求人倍率をチャート用に小数 2 桁へ丸める。
+pub(crate) fn round_ratio(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+/// 従業員増減率を散布図用に小数 1 桁へ丸める。
+pub(crate) fn round_growth(v: f64) -> f64 {
+    (v * 10.0).round() / 10.0
+}
+
+pub(crate) fn fmt_opt_f64(v: Option<f64>, unit: &str) -> String {
+    match v {
+        Some(x) => format!("{:.2}{}", x, unit),
+        None => "-".to_string(),
+    }
+}
+
+/// 月収は v2_external_labor_stats では「千円」単位で格納されている (例: 390.0 → 39.0万円)
+pub(crate) fn fmt_monthly_salary(v: Option<f64>) -> String {
+    match v {
+        Some(x) => format!("{:.1}万円", x / 10.0),
+        None => "-".to_string(),
+    }
+}
+
+/// 時給は「円」単位で格納されている (例: 2084.0 → 2,084円/時)
+pub(crate) fn fmt_hourly_wage(v: Option<f64>) -> String {
+    match v {
+        Some(x) => format!("{}円/時", format_number(x.round() as i64)),
+        None => "-".to_string(),
+    }
+}
+
+pub(crate) fn fmt_pct1(v: Option<f64>) -> String {
+    match v {
+        Some(x) => format!("{:.1}%", x),
+        None => "-".to_string(),
+    }
+}
+
+/// インターネット利用の年ラベル (例 `2023年`、年なしは空)。
+pub(crate) fn internet_year_label(year: Option<i64>) -> String {
+    year.map(|y| format!("{y}年")).unwrap_or_default()
+}
+
+/// 人口ピラミッドの階級を年齢の若い順に並べる。
+pub(crate) fn sorted_bands(bands: &[PyramidBand]) -> Vec<&PyramidBand> {
+    let mut v: Vec<&PyramidBand> = bands.iter().collect();
+    v.sort_by_key(|b| age_sort_key(&b.age_group));
+    v
+}
+
+/// 企業成長マトリックスの件数注記 (エスケープ不要な固定文 + 数字)。
+pub(crate) fn company_matrix_count_note(n: usize) -> String {
+    format!(
+        "対象企業数: {}社 (従業員数の多い順、上限あり)。表は上位{}社。",
+        format_number(n as i64),
+        COMPANY_MATRIX_TABLE_LIMIT
+    )
+}
+
 /// 外部統計用の見出し + body + 任意出典脚注ラッパ。
 fn wrap_panel_with_note(title: &str, scope_escaped: &str, body: &str, note: &str) -> String {
     format!(
@@ -38,8 +164,8 @@ fn wrap_panel_with_note(title: &str, scope_escaped: &str, body: &str, note: &str
 /// データなしメッセージ (外部統計系パネル用)。
 fn no_data_external(label: &str) -> String {
     format!(
-        r#"<div class="text-slate-400 text-sm py-3">{} に該当するデータがありません。条件を変更してください。</div>"#,
-        escape_html(label)
+        r#"<div class="text-slate-400 text-sm py-3">{}</div>"#,
+        escape_html(&no_data_message(label))
     )
 }
 
@@ -55,10 +181,10 @@ pub(crate) fn render_job_openings_ratio(
     data: &JobOpeningsRatioData,
 ) -> String {
     let scope = filter.scope_label();
-    let note = "出典: e-Stat 政府統計コード 00450091 (一般職業紹介状況)。有効求人倍率 (全体)。当該都道府県の公共職業安定所管内における集計値です。";
+    let note = JOB_OPENINGS_RATIO_NOTE;
     if !data.has_data || data.points.is_empty() {
         return wrap_panel_with_note(
-            "有効求人倍率 推移",
+            JOB_OPENINGS_RATIO_TITLE,
             &scope,
             &no_data_external("有効求人倍率"),
             note,
@@ -73,7 +199,7 @@ pub(crate) fn render_job_openings_ratio(
     let ratios: Vec<serde_json::Value> = data
         .points
         .iter()
-        .map(|p| serde_json::json!((p.ratio * 100.0).round() / 100.0))
+        .map(|p| serde_json::json!(round_ratio(p.ratio)))
         .collect();
     let years_json = serde_json::to_string(&years).unwrap_or_else(|_| "[]".to_string());
     let ratios_json = serde_json::to_string(&ratios).unwrap_or_else(|_| "[]".to_string());
@@ -106,7 +232,7 @@ pub(crate) fn render_job_openings_ratio(
         r#"<div class="echart" style="height:300px;" data-chart-config='{config}'></div>"#,
         config = config,
     );
-    wrap_panel_with_note("有効求人倍率 推移", &scope, &body, note)
+    wrap_panel_with_note(JOB_OPENINGS_RATIO_TITLE, &scope, &body, note)
 }
 
 /// 労働統計指標カード行 (最新年度 1 行)。
@@ -114,37 +240,16 @@ pub(crate) fn render_job_openings_ratio(
 /// 出典: e-Stat 社会人口統計体系 / 労働政策研究・研修機構。
 pub(crate) fn render_labor_stats(filter: &RegionalFilter, row: Option<&LaborStatsRow>) -> String {
     let scope = filter.scope_label();
-    let note = "出典: e-Stat 社会人口統計体系 (v2_external_labor_stats)。労働政策研究・研修機構。最新年度の値を表示。";
+    let note = LABOR_STATS_NOTE;
     let row = match row {
         Some(r) => r,
         None => {
             return wrap_panel_with_note(
-                "労働統計指標",
+                LABOR_STATS_TITLE,
                 &scope,
                 &no_data_external("労働統計"),
                 note,
             );
-        }
-    };
-
-    let fmt_opt_f64 = |v: Option<f64>, unit: &str| -> String {
-        match v {
-            Some(x) => format!("{:.2}{}", x, unit),
-            None => "-".to_string(),
-        }
-    };
-    // 月収は v2_external_labor_stats では「千円」単位で格納されている (例: 390.0 → 39.0万円)
-    let fmt_monthly_salary = |v: Option<f64>| -> String {
-        match v {
-            Some(x) => format!("{:.1}万円", x / 10.0),
-            None => "-".to_string(),
-        }
-    };
-    // パート時給は「円」単位で格納されている (例: 2084.0 → 2,084円/時)
-    let fmt_hourly_wage = |v: Option<f64>| -> String {
-        match v {
-            Some(x) => format!("{}円/時", format_number(x.round() as i64)),
-            None => "-".to_string(),
         }
     };
 
@@ -170,7 +275,7 @@ pub(crate) fn render_labor_stats(filter: &RegionalFilter, row: Option<&LaborStat
         pt_m = fmt_hourly_wage(row.part_time_wage_male),
         pt_f = fmt_hourly_wage(row.part_time_wage_female),
     );
-    wrap_panel_with_note("労働統計指標", &scope, &body, note)
+    wrap_panel_with_note(LABOR_STATS_TITLE, &scope, &body, note)
 }
 
 /// 産業構造テーブル (横棒グラフ + 表)。
@@ -181,12 +286,14 @@ pub(crate) fn render_industry_structure(
     data: &IndustryStructure,
 ) -> String {
     let scope = filter.scope_label();
-    let note = format!(
-        "出典: 総務省統計局 国勢調査 (v2_external_industry_structure)。集計粒度: {}。集計不能コード除外。従業者数は当該地域の産業構成を示す参考値です。",
-        data.granularity
-    );
+    let note = industry_structure_note(&data.granularity);
     if !data.has_data || data.rows.is_empty() {
-        return wrap_panel_with_note("産業構造", &scope, &no_data_external("産業構造"), &note);
+        return wrap_panel_with_note(
+            INDUSTRY_STRUCTURE_TITLE,
+            &scope,
+            &no_data_external("産業構造"),
+            &note,
+        );
     }
 
     // 横棒グラフ: 従業者数の多い順 (昇順表示で視認性向上)。
@@ -229,11 +336,7 @@ pub(crate) fn render_industry_structure(
         </tr></thead><tbody>"#,
     );
     for r in &data.rows {
-        let pct = if data.total > 0 {
-            r.employees as f64 / data.total as f64 * 100.0
-        } else {
-            0.0
-        };
+        let pct = share_pct(r.employees, data.total);
         write!(
             table,
             r#"<tr><td>{ind}</td><td class="text-right">{emp}</td><td class="text-right">{pct:.1}%</td></tr>"#,
@@ -252,7 +355,7 @@ pub(crate) fn render_industry_structure(
     table.push_str("</tbody></table></div>");
 
     let body = format!("{}{}", chart, table);
-    wrap_panel_with_note("産業構造", &scope, &body, &note)
+    wrap_panel_with_note(INDUSTRY_STRUCTURE_TITLE, &scope, &body, &note)
 }
 
 // ============================================================
@@ -265,21 +368,17 @@ pub(crate) fn render_population_pyramid(
     pyramid: &PopulationPyramid,
 ) -> String {
     let scope = filter.scope_label();
-    let note = format!(
-        "出典: 国勢調査 (v2_external_population_pyramid)。集計粒度: {}。左 (青) = 男性 / 右 (橙) = 女性。これは地域の実人口統計であり、求人・求職の人数ではありません。",
-        pyramid.granularity
-    );
+    let note = population_pyramid_note(&pyramid.granularity);
     if !pyramid.has_data || pyramid.bands.is_empty() {
         return wrap_panel_with_note(
-            "人口ピラミッド",
+            POPULATION_PYRAMID_TITLE,
             &scope,
             &no_data_external("人口ピラミッド"),
             &note,
         );
     }
 
-    let mut bands: Vec<&PyramidBand> = pyramid.bands.iter().collect();
-    bands.sort_by_key(|b| age_sort_key(&b.age_group));
+    let bands = sorted_bands(&pyramid.bands);
 
     let categories: Vec<serde_json::Value> = bands
         .iter()
@@ -320,7 +419,7 @@ pub(crate) fn render_population_pyramid(
         h = chart_h,
         config = config,
     );
-    wrap_panel_with_note("人口ピラミッド", &scope, &body, &note)
+    wrap_panel_with_note(POPULATION_PYRAMID_TITLE, &scope, &body, &note)
 }
 
 /// age_group ("0〜4歳", "5〜9歳", "85歳以上" 等) を昇順ソートするキー。
@@ -338,20 +437,17 @@ fn age_sort_key(label: &str) -> i64 {
 /// postings 由来の給与中央値を削除。最低賃金のみ表示。
 pub(crate) fn render_wage_comparison(filter: &RegionalFilter, cmp: &WageComparison) -> String {
     let scope = filter.scope_label();
-    let note = "出典: 厚生労働省 地域別最低賃金 (v2_external_minimum_wage、都道府県値)。最低賃金は都道府県単位の値であり、市区町村別の差はありません。";
+    let note = WAGE_COMPARISON_NOTE;
     if !cmp.has_data {
         return wrap_panel_with_note(
-            "地域別最低賃金",
+            WAGE_COMPARISON_TITLE,
             &scope,
             &no_data_external("最低賃金"),
             note,
         );
     }
 
-    let min_wage_str = match cmp.hourly_min_wage {
-        Some(w) => format!("{}円/時", format_number(w.round() as i64)),
-        None => "-".to_string(),
-    };
+    let min_wage_str = fmt_hourly_wage(cmp.hourly_min_wage);
 
     let body = format!(
         r#"<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -361,7 +457,7 @@ pub(crate) fn render_wage_comparison(filter: &RegionalFilter, cmp: &WageComparis
         min_wage = min_wage_str,
     );
 
-    wrap_panel_with_note("地域別最低賃金", &scope, &body, note)
+    wrap_panel_with_note(WAGE_COMPARISON_TITLE, &scope, &body, note)
 }
 
 // ============================================================
@@ -372,10 +468,10 @@ pub(crate) fn render_wage_comparison(filter: &RegionalFilter, cmp: &WageComparis
 /// UI に "SalesNow" 固有名は出さない (「外部企業データ」表記)。
 pub(crate) fn render_company_matrix(filter: &RegionalFilter, points: &[CompanyPoint]) -> String {
     let scope = filter.scope_label();
-    let note = "出典: 外部企業データ (法人単位の従業員規模・増減率)。各点は1社を表します。増減率と規模の関係を示すものであり、因果関係を示すものではありません。";
+    let note = COMPANY_MATRIX_NOTE;
     if points.is_empty() {
         return wrap_panel_with_note(
-            "企業成長マトリックス (外部企業データ)",
+            COMPANY_MATRIX_TITLE,
             &scope,
             &no_data_external("企業成長マトリックス"),
             note,
@@ -386,7 +482,7 @@ pub(crate) fn render_company_matrix(filter: &RegionalFilter, points: &[CompanyPo
         .iter()
         .map(|p| {
             serde_json::json!([
-                (p.growth_rate_1y * 10.0).round() / 10.0,
+                round_growth(p.growth_rate_1y),
                 p.employee_count,
                 escape_html(&p.company_name),
                 escape_html(&p.industry),
@@ -424,7 +520,7 @@ pub(crate) fn render_company_matrix(filter: &RegionalFilter, points: &[CompanyPo
           <th class="text-right">増減率(%/年)</th>
         </tr></thead><tbody>"#,
     );
-    for p in points.iter().take(20) {
+    for p in points.iter().take(COMPANY_MATRIX_TABLE_LIMIT) {
         write!(
             table,
             r#"<tr><td>{name}</td><td>{ind}</td><td class="text-right">{emp}</td><td class="text-right">{rate:+.1}</td></tr>"#,
@@ -438,12 +534,12 @@ pub(crate) fn render_company_matrix(filter: &RegionalFilter, points: &[CompanyPo
     table.push_str("</tbody></table></div>");
 
     let count_note = format!(
-        r#"<p class="text-xs text-slate-500">対象企業数: {}社 (従業員数の多い順、上限あり)。表は上位20社。</p>"#,
-        format_number(points.len() as i64)
+        r#"<p class="text-xs text-slate-500">{}</p>"#,
+        company_matrix_count_note(points.len())
     );
 
     let body = format!("{}{}{}", chart, table, count_note);
-    wrap_panel_with_note("企業成長マトリックス (外部企業データ)", &scope, &body, note)
+    wrap_panel_with_note(COMPANY_MATRIX_TITLE, &scope, &body, note)
 }
 
 // ============================================================
@@ -453,16 +549,17 @@ pub(crate) fn render_company_matrix(filter: &RegionalFilter, points: &[CompanyPo
 /// 在留外国人 (在留資格別 横棒 + 表)。
 pub(crate) fn render_foreign_residents(filter: &RegionalFilter, fr: &ForeignResidents) -> String {
     let scope = filter.scope_label();
-    let note = "出典: 住民基本台帳 (SSDSE-A、都道府県値)。在留資格別の外国人数。外国人材の採用可能性・多文化対応ニーズの把握用であり、求人・求職の人数ではありません。";
+    let note = FOREIGN_RESIDENTS_NOTE;
     if !fr.has_data || fr.rows.is_empty() {
         return wrap_panel_with_note(
-            "在留外国人 (在留資格別)",
+            FOREIGN_RESIDENTS_TITLE,
             &scope,
             &no_data_external("在留外国人"),
             note,
         );
     }
-    let mut asc: Vec<&ForeignResidentRow> = fr.rows.iter().take(12).collect();
+    let mut asc: Vec<&ForeignResidentRow> =
+        fr.rows.iter().take(FOREIGN_RESIDENTS_CHART_LIMIT).collect();
     asc.reverse();
     let labels: Vec<serde_json::Value> = asc
         .iter()
@@ -497,11 +594,7 @@ pub(crate) fn render_foreign_residents(filter: &RegionalFilter, fr: &ForeignResi
         </tr></thead><tbody>"#,
     );
     for r in &fr.rows {
-        let pct = if fr.total > 0 {
-            r.count as f64 / fr.total as f64 * 100.0
-        } else {
-            0.0
-        };
+        let pct = share_pct(r.count, fr.total);
         write!(
             table,
             r#"<tr><td>{vs}</td><td class="text-right">{cnt}</td><td class="text-right">{pct:.1}%</td></tr>"#,
@@ -519,26 +612,23 @@ pub(crate) fn render_foreign_residents(filter: &RegionalFilter, fr: &ForeignResi
     .unwrap();
     table.push_str("</tbody></table></div>");
     let body = format!("{}{}", chart, table);
-    wrap_panel_with_note("在留外国人 (在留資格別)", &scope, &body, note)
+    wrap_panel_with_note(FOREIGN_RESIDENTS_TITLE, &scope, &body, note)
 }
 
 /// インターネット利用 (利用率・スマホ保有率 スタットカード)。
 pub(crate) fn render_internet_usage(filter: &RegionalFilter, iu: &InternetUsage) -> String {
     let scope = filter.scope_label();
-    let note = "出典: 通信利用動向 (都道府県値)。採用チャネル (SNS / WEB 求人) の有効性を判断する参考指標です。";
+    let note = INTERNET_USAGE_NOTE;
     if !iu.has_data {
         return wrap_panel_with_note(
-            "インターネット利用",
+            INTERNET_USAGE_TITLE,
             &scope,
             &no_data_external("インターネット利用"),
             note,
         );
     }
-    let fmt = |v: Option<f64>| match v {
-        Some(x) => format!("{:.1}%", x),
-        None => "-".to_string(),
-    };
-    let year = iu.year.map(|y| format!("{y}年")).unwrap_or_default();
+    let fmt = fmt_pct1;
+    let year = internet_year_label(iu.year);
     let body = format!(
         r#"<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
   <div class="stat-card"><div class="text-xs text-slate-400">インターネット利用率 {year}</div><div class="text-2xl text-white font-bold">{usage}</div></div>
@@ -548,19 +638,16 @@ pub(crate) fn render_internet_usage(filter: &RegionalFilter, iu: &InternetUsage)
         usage = fmt(iu.usage_rate),
         sp = fmt(iu.smartphone_rate),
     );
-    wrap_panel_with_note("インターネット利用", &scope, &body, note)
+    wrap_panel_with_note(INTERNET_USAGE_TITLE, &scope, &body, note)
 }
 
 /// 職業別就業者 (従業地ベース実測、横棒 + 表)。
 pub(crate) fn render_occupation(filter: &RegionalFilter, occ: &OccupationDist) -> String {
     let scope = filter.scope_label();
-    let note = format!(
-        "出典: 国勢調査 (従業地ベース・男女計)。集計粒度: {}。当該地域で働く人の職業構成 (就業者数) であり、求人・求職の人数ではありません。",
-        occ.granularity
-    );
+    let note = occupation_note(&occ.granularity);
     if !occ.has_data || occ.rows.is_empty() {
         return wrap_panel_with_note(
-            "職業別就業者",
+            OCCUPATION_TITLE,
             &scope,
             &no_data_external("職業別就業者"),
             &note,
@@ -601,11 +688,7 @@ pub(crate) fn render_occupation(filter: &RegionalFilter, occ: &OccupationDist) -
         </tr></thead><tbody>"#,
     );
     for r in &occ.rows {
-        let pct = if occ.total > 0 {
-            r.population as f64 / occ.total as f64 * 100.0
-        } else {
-            0.0
-        };
+        let pct = share_pct(r.population, occ.total);
         write!(
             table,
             r#"<tr><td>{occ}</td><td class="text-right">{pop}</td><td class="text-right">{pct:.1}%</td></tr>"#,
@@ -623,7 +706,7 @@ pub(crate) fn render_occupation(filter: &RegionalFilter, occ: &OccupationDist) -
     .unwrap();
     table.push_str("</tbody></table></div>");
     let body = format!("{}{}", chart, table);
-    wrap_panel_with_note("職業別就業者", &scope, &body, &note)
+    wrap_panel_with_note(OCCUPATION_TITLE, &scope, &body, &note)
 }
 
 #[cfg(test)]

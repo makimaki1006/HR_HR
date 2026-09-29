@@ -1,0 +1,15 @@
+<div class="stat-card space-y-2">
+  <div class="flex items-center justify-between gap-2 flex-wrap">
+    <h3 class="text-sm text-white font-semibold">職業別就業者 <span class="text-slate-400 text-xs font-normal">— 東京都 新宿区&lt;b&gt;</span></h3>
+  </div>
+  <div class="echart" style="height:180px;" data-chart-config='{
+  "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+  "grid": {"left": "2%", "right": "12%", "bottom": "4%", "top": "4%", "containLabel": true},
+  "xAxis": {"type": "value", "name": "就業者数(人)"},
+  "yAxis": {"type": "category", "data": ["販売従事者","事務従事者"], "axisLabel": {"fontSize": 11}},
+  "series": [{"type": "bar", "data": [1000,3000], "barWidth": "60%", "itemStyle": {"color": "#0072B2", "borderRadius": [0, 4, 4, 0]}, "label": {"show": true, "position": "right", "fontSize": 10, "color": "#cbd5e1"}}]
+}'></div><div class="overflow-x-auto mt-2"><table class="data-table"><thead><tr>
+          <th>職業</th><th class="text-right">就業者数</th><th class="text-right">構成比</th>
+        </tr></thead><tbody><tr><td>事務従事者</td><td class="text-right">3,000</td><td class="text-right">75.0%</td></tr><tr><td>販売従事者</td><td class="text-right">1,000</td><td class="text-right">25.0%</td></tr><tr class="font-semibold"><td>合計</td><td class="text-right">4,000</td><td class="text-right">100.0%</td></tr></tbody></table></div>
+  <p class="text-xs text-slate-500">出典: 国勢調査 (従業地ベース・男女計)。集計粒度: 市区町村。当該地域で働く人の職業構成 (就業者数) であり、求人・求職の人数ではありません。</p>
+</div>
