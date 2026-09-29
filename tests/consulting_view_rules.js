@@ -5359,7 +5359,7 @@ check("磨き込み(1): メニューを 1 行で横に流しても、いま見�
   run("sideShowCurrent(__SB3)");
   ok(ctx.__SB3.scrollLeft === 0, "はみ出していない（PC の縦の列）のに動かしている");
   ok(!/scrollIntoView/.test(run("sideShowCurrent.toString()")), "scrollIntoView を使っている（ページまで縦に動く）");
-  ok(/sideShowCurrent\(box\); return; \}/.test(run("drawSide.toString()")) && /\n  sideShowCurrent\(box\);\n\}$/.test(run("drawSide.toString()")),
+  ok(/sideShowCurrent\(box\); return; \}/.test(run("drawSide.toString()")) && /\r?\n  sideShowCurrent\(box\);\r?\n\}$/.test(run("drawSide.toString()")),
     "drawSide が印の付け替え・組み直しのどちらかで sideShowCurrent を呼んでいない");
 });
 
@@ -5419,6 +5419,10 @@ check("M-5 (a): 図の見出し（h2「図 …」）の直後に図が 1 つだ�
   const src = html.slice(html.indexOf("<script>"));
   ok((src.match(/paintFigs\(main, \(\) => finishView\(ctlbar\(/g) || []).length === 3 && !/paintFigs\(main, \(\) => ctlbar\(/.test(src),
     "画面に流すところで finishView を通していない（図の題が 2 段のまま・foot が途中に残る）");
+  // finishView は (a) と (c) の両方を通す（片方を外すと、画面に流すものが元に戻る）
+  const fv = run('finishView(sec("図", "題の文") + fig("描いたもの", "", "<svg></svg>", "") + foot({ today: "2026-09-18" }) + "<p>後ろ</p>")');
+  ok(fv.includes('<span class="figttl" role="heading" aria-level="2">題の文</span>') && !/<span class="no">図<\/span>/.test(fv), "finishView が図の題を図の中に入れていない: " + fv.slice(0, 200));
+  ok(fv.endsWith('基準日 2026-09-18</p></div>') && fv.indexOf("<p>後ろ</p>") < fv.indexOf("data-foot"), "finishView が foot を画面の末尾に寄せていない: " + fv.slice(-200));
   // 表の枠の読み上げ名: 図の題が図の中に入った後も「<題> の表」
   const attrs = {};
   const inner = { scrollWidth: 900, clientWidth: 400, scrollLeft: 0, scrollHeight: 300, clientHeight: 300,
