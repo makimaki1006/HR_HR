@@ -982,8 +982,11 @@ fn mtgが結べていない初回契約が出る() {
         .iter()
         .all(|r| r["stage"] != "マーケ関連"));
     assert!(nm["rate"].as_f64().is_some());
-    // 記録が無いことと、やっていないことを分けて書いているか
-    assert!(nm["note"].as_str().unwrap().contains("記録が無いことと"));
+    // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
+    //    「していない」ではなく「記録が欠けている」と読め、欠ける理由の候補が添えてあるか
+    let note = nm["note"].as_str().unwrap();
+    assert!(note.contains("見つからない") && note.contains("記録が欠けている"), "{note}");
+    assert!(note.contains("台帳") && note.contains("録画なし") && note.contains("紐づいていない"), "{note}");
 }
 
 // ================================================================ タブ6 電話
@@ -2115,11 +2118,13 @@ fn mtgの記録なしは赤にせず両方のソースで数える() {
         .iter()
         .filter_map(|x| x["label"].as_str())
         .collect();
+    // 帯の名前は MtgBand::NoRecord.label() から取る（言い方を変えても見張りが空振りしないように）
+    let no_rec = super::MtgBand::NoRecord.label();
     assert!(
         !names
             .iter()
-            .any(|x| x.contains("記録が無い") && x.contains("MTG")),
-        "「MTGの記録が無い」が名札になっている: {names:?}"
+            .any(|x| x.contains(no_rec) || (x.contains("記録が無い") && x.contains("MTG"))),
+        "「{no_rec}」が名札になっている: {names:?}"
     );
 
     // 🔴 メール由来を足した効果。録画だけだと記録なしが 191件になる
@@ -6189,6 +6194,73 @@ fn act_view_diff_counts_on_fixture() {
     // 初回MTG無し: 立ち上がり期 38・メール由来の実施日がある 55
     assert_eq!(reasons("no_mtg", "立ち上がり期"), 38);
     assert_eq!(reasons("no_mtg", "メール由来"), 55);
+}
+
+/// 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
+/// 見方「初回契約で MTG の記録が…」に残る案件は「していない」ではなく「記録が欠けている」と読む。
+/// 見方の名前・定義文・前の定義の名前、帯の名前、今日の畳みの注記（no_record_note）、立ち上がりの注記を同じ言い方にそろえ、
+/// どれにも「MTG の記録が無い」（していないと読める）を残さない。欠ける理由の候補（台帳の遅れ・録画なし・紐付け漏れ）を添える。
+#[test]
+fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
+    let sh = sheets();
+    let b = build_deal_board(&sh, fixture_day());
+    let v = b["meta"]["act_views"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["key"] == "no_mtg")
+        .expect("見方 no_mtg");
+    let label = v["label"].as_str().unwrap();
+    let rule = v["rule"].as_str().unwrap();
+    assert_eq!(label, "初回契約で MTG の記録が見つからない");
+    for c in ["記録が欠けている", "台帳", "録画なし", "紐づいていない"] {
+        assert!(rule.contains(c), "見方の定義に「{c}」が無い: {rule}");
+    }
+    // 前の定義の名前（外れた件数の文に出る）も同じ言い方
+    let d = b["meta"]["act_view_diff"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["key"] == "no_mtg")
+        .unwrap();
+    let old_where = d["old"]["where"].as_str().unwrap();
+    assert!(old_where.contains("見つからない"), "{old_where}");
+    // 帯の名前（案件一覧の帯・今日の畳み・外れた理由に出る）
+    let band = super::MtgBand::NoRecord.label();
+    assert_eq!(band, "MTGの記録が見つからない");
+    assert!(rule.contains(band), "見方の定義が帯の名前と食い違う: {rule}");
+    // 今日の畳みに出る注記
+    let t = build_today_board(&sh, fixture_day());
+    let note = t["meta"]["mtg_gap"]["no_record_note"].as_str().unwrap();
+    for c in ["見つからない", "記録が欠けている", "台帳", "録画なし"] {
+        assert!(note.contains(c), "今日の注記に「{c}」が無い: {note}");
+    }
+    let bl = t["meta"]["mtg_gap"]["bands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["band"] == "no_record")
+        .unwrap()["label"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(bl, band);
+    // 立ち上がりの注記
+    let r = build_rampup(&sh, fixture_day());
+    let rn = r["no_mtg"]["note"].as_str().unwrap().to_string();
+    // どれにも「MTG の記録が無い」「MTGの記録が無い」「記録が1件も無い」を残さない
+    for (what, s) in [
+        ("見方の名前", label),
+        ("見方の定義", rule),
+        ("前の定義の名前", old_where),
+        ("今日の注記", note),
+        ("帯の名前", bl.as_str()),
+        ("立ち上がりの注記", rn.as_str()),
+    ] {
+        for bad in ["MTG の記録が無い", "MTGの記録が無い", "記録が1件も無い", "記録がまだ無い"] {
+            assert!(!s.contains(bad), "{what}に「{bad}」が残っている: {s}");
+        }
+    }
 }
 
 /// MTG のリスク判定は「判定のある MTG のうちいちばん新しいもの」。fixture の稼働中には「高」が 0 件なので、
