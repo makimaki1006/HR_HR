@@ -40,6 +40,9 @@ pub mod market_trend;
 pub mod insights;
 pub mod opportunity_map;
 
+// レスポンス型の共通部品 (Phase 1A-1)
+pub mod types;
+
 // Panel 9 (CR-8): 通勤圏人材プール試算
 pub mod talent_pool_expansion;
 
