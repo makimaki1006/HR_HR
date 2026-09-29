@@ -5392,6 +5392,14 @@ fn 案件の詳細は法人と拠点の鍵を顧客の画面と同じ値で返�
             .any(|x| x["deal_id"] == d.id.as_str() && x["site"] == d.kyoten_key.as_str()),
         "顧客の応答の deals[].site と site_key が合わない"
     );
+    // 顧客の画面の拠点の名前は表示名（site_name）。照合用の鍵（site）を名前に使わない
+    let row = c["deals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["deal_id"] == d.id.as_str())
+        .unwrap();
+    assert_eq!(row["site_name"].as_str(), d.site_name());
     // CS_顧客 に無い法人番号には名前を返さない
     let lone = deals.iter().find(|d| {
         !d.houjin_resolved.is_empty() && !cust.iter().any(|c| c.houjin == d.houjin_resolved)

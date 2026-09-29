@@ -2628,6 +2628,8 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "oubo": d.oubo, "mensetu": d.mensetu, "syoudaku": d.syoudaku,
             "is_active": d.is_active, "right_censored": d.right_censored,
             "site": d.kyoten_key,
+            // 拠点の表示名（顧客の画面の拠点の表・選択欄）。site は照合用の鍵で人が読む名前ではない（Deal::site_name）
+            "site_name": d.site_name(),
         })).collect::<Vec<_>>(),
         "mtgs": mtgs,
         "cpa_by_site": by_site.iter().map(|(k, v)| json!({"site": k, "points": v}))
