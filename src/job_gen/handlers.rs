@@ -2982,15 +2982,20 @@ pub async fn jobgen_normalize(Json(body): Json<Value>) -> Json<Value> {
         .and_then(Value::as_str)
         .map(String::from);
     match inputs::normalize(kind, text, url, b64).await {
-        Ok(jobs) => Json(json!({
-            "status": "ok",
-            "jobs": jobs
-                .iter()
-                .map(|j| json!({"title_hint": j.title_hint, "source_text": j.source_text}))
-                .collect::<Vec<_>>(),
-        })),
+        Ok(jobs) => Json(normalize_ok_response(&jobs)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// `/api/jobgen/normalize` の成功応答 (純粋)。形は [`crate::job_gen::contract::NormalizeResponse`]。
+pub(crate) fn normalize_ok_response(jobs: &[inputs::NormalizedJob]) -> Value {
+    json!({
+        "status": "ok",
+        "jobs": jobs
+            .iter()
+            .map(|j| json!({"title_hint": j.title_hint, "source_text": j.source_text}))
+            .collect::<Vec<_>>(),
+    })
 }
 
 /// `POST /api/jobgen/extract` — 工程①: 事実抽出+引用実在チェック (コード照合)。
@@ -3002,13 +3007,17 @@ pub async fn jobgen_extract(Json(body): Json<Value>) -> Json<Value> {
     let prompt = fact_extract::build_extract_prompt(&source);
     let schema = fact_extract::response_schema();
     match jobgen_llm(&prompt, &schema, 0.0).await {
-        Ok(raw) => {
-            let facts = fact_extract::verify(&source, &raw);
-            let facts_text = job_types::facts_to_text(&facts);
-            Json(json!({"status":"ok","facts": facts, "facts_text": facts_text}))
-        }
+        Ok(raw) => Json(extract_ok_response(&source, &raw)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// 工程①の成功応答 (純粋)。LLM の生出力 `raw` を原文と照合してから組む。
+/// 形は [`crate::job_gen::contract::ExtractResponse`]。
+pub(crate) fn extract_ok_response(source: &str, raw: &Value) -> Value {
+    let facts = fact_extract::verify(source, raw);
+    let facts_text = job_types::facts_to_text(&facts);
+    json!({"status":"ok","facts": facts, "facts_text": facts_text})
 }
 
 /// `POST /api/jobgen/analyze` — 工程②: 市場分析 (該当職種の知識のみ注入)。
@@ -3030,14 +3039,20 @@ pub async fn jobgen_analyze(Json(body): Json<Value>) -> Json<Value> {
     let prompt = strategy::build_analyze_prompt(&source, &knowledge_text);
     let schema = strategy::analyze_schema();
     match jobgen_llm(&prompt, &schema, 0.4).await {
-        Ok(v) => Json(json!({
-            "status":"ok",
-            "category": bundle.category,
-            "knowledge_used": knowledge_used,
-            "analysis": v,
-        })),
+        Ok(v) => Json(analyze_ok_response(&bundle.category, knowledge_used, v)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// 工程②の成功応答 (純粋)。`analysis` は LLM 出力をそのまま通す。
+/// 形は [`crate::job_gen::contract::AnalyzeResponse`]。
+pub(crate) fn analyze_ok_response(category: &str, knowledge_used: bool, analysis: Value) -> Value {
+    json!({
+        "status":"ok",
+        "category": category,
+        "knowledge_used": knowledge_used,
+        "analysis": analysis,
+    })
 }
 
 /// `POST /api/jobgen/personas` — 工程③: ペルソナ設計 (3〜5案)。
@@ -3052,11 +3067,14 @@ pub async fn jobgen_personas(Json(body): Json<Value>) -> Json<Value> {
     let prompt = strategy::build_personas_prompt(&source, &analysis, count);
     let schema = strategy::personas_schema();
     match jobgen_llm(&prompt, &schema, 0.7).await {
-        Ok(v) => Json(
-            json!({"status":"ok","personas": v.get("personas").cloned().unwrap_or(Value::Null)}),
-        ),
+        Ok(v) => Json(personas_ok_response(&v)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// 工程③の成功応答 (純粋)。形は [`crate::job_gen::contract::PersonasResponse`]。
+pub(crate) fn personas_ok_response(v: &Value) -> Value {
+    json!({"status":"ok","personas": v.get("personas").cloned().unwrap_or(Value::Null)})
 }
 
 /// `POST /api/jobgen/copy` — 工程④: キャッチコピー (1ペルソナ分)。
@@ -3070,23 +3088,27 @@ pub async fn jobgen_copy(Json(body): Json<Value>) -> Json<Value> {
     let prompt = strategy::build_copy_prompt(&persona, &analysis, &source);
     let schema = strategy::copy_schema();
     match jobgen_llm(&prompt, &schema, 0.9).await {
-        Ok(v) => {
-            let copies = v.get("copies").cloned().unwrap_or(Value::Null);
-            let texts = strings_at(&copies, "text");
-            let (ng, expr, r1) = ng_and_expression_gate(&texts);
-            let (num, num_check, r2) = number_gate(&source, &texts);
-            Json(json!({
-                "status": "ok",
-                "copies": copies,
-                "ng_violations": ng,
-                "expression_warnings": expr,
-                "number_violations": num,
-                "number_check": num_check,
-                "review_required": r1 || r2,
-            }))
-        }
+        Ok(v) => Json(copy_ok_response(&source, &v)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// 工程④の成功応答 (純粋)。法令NG・表現レビュー・数値照合の各ゲートを掛ける。
+/// 形は [`crate::job_gen::contract::CopyResponse`]。
+pub(crate) fn copy_ok_response(source: &str, v: &Value) -> Value {
+    let copies = v.get("copies").cloned().unwrap_or(Value::Null);
+    let texts = strings_at(&copies, "text");
+    let (ng, expr, r1) = ng_and_expression_gate(&texts);
+    let (num, num_check, r2) = number_gate(source, &texts);
+    json!({
+        "status": "ok",
+        "copies": copies,
+        "ng_violations": ng,
+        "expression_warnings": expr,
+        "number_violations": num,
+        "number_check": num_check,
+        "review_required": r1 || r2,
+    })
 }
 
 /// `POST /api/jobgen/images` — 工程⑤: 画像ディレクション。
@@ -3099,20 +3121,23 @@ pub async fn jobgen_images(Json(body): Json<Value>) -> Json<Value> {
     let prompt = strategy::build_images_prompt(&personas, &source);
     let schema = strategy::images_schema();
     match jobgen_llm(&prompt, &schema, 0.7).await {
-        Ok(v) => {
-            let directions = v.get("directions").cloned().unwrap_or(Value::Null);
-            let texts = strings_at(&directions, "direction");
-            let (num, num_check, review) = number_gate(&source, &texts);
-            Json(json!({
-                "status": "ok",
-                "directions": directions,
-                "number_violations": num,
-                "number_check": num_check,
-                "review_required": review,
-            }))
-        }
+        Ok(v) => Json(images_ok_response(&source, &v)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// 工程⑤の成功応答 (純粋)。形は [`crate::job_gen::contract::ImagesResponse`]。
+pub(crate) fn images_ok_response(source: &str, v: &Value) -> Value {
+    let directions = v.get("directions").cloned().unwrap_or(Value::Null);
+    let texts = strings_at(&directions, "direction");
+    let (num, num_check, review) = number_gate(source, &texts);
+    json!({
+        "status": "ok",
+        "directions": directions,
+        "number_violations": num,
+        "number_check": num_check,
+        "review_required": review,
+    })
 }
 
 /// `POST /api/jobgen/image_prompts` — 工程⑤b: ディレクション文を画像生成AI用の
@@ -3138,20 +3163,23 @@ pub async fn jobgen_image_prompts(Json(body): Json<Value>) -> Json<Value> {
     let prompt = strategy::build_image_prompts_prompt(&directions, &personas, &source);
     let schema = strategy::image_prompts_schema();
     match jobgen_llm(&prompt, &schema, 0.4).await {
-        Ok(v) => {
-            let prompts = v.get("prompts").cloned().unwrap_or(Value::Null);
-            let texts = strings_at(&prompts, "prompt");
-            let (num, num_check, review) = number_gate(&source, &texts);
-            Json(json!({
-                "status": "ok",
-                "prompts": prompts,
-                "number_violations": num,
-                "number_check": num_check,
-                "review_required": review,
-            }))
-        }
+        Ok(v) => Json(image_prompts_ok_response(&source, &v)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// 工程⑤b の成功応答 (純粋)。形は [`crate::job_gen::contract::ImagePromptsResponse`]。
+pub(crate) fn image_prompts_ok_response(source: &str, v: &Value) -> Value {
+    let prompts = v.get("prompts").cloned().unwrap_or(Value::Null);
+    let texts = strings_at(&prompts, "prompt");
+    let (num, num_check, review) = number_gate(source, &texts);
+    json!({
+        "status": "ok",
+        "prompts": prompts,
+        "number_violations": num,
+        "number_check": num_check,
+        "review_required": review,
+    })
 }
 
 /// `POST /api/jobgen/mobile` — 工程⑥: スマホ原稿 (1ペルソナ分)。
@@ -3165,33 +3193,37 @@ pub async fn jobgen_mobile(Json(body): Json<Value>) -> Json<Value> {
     let prompt = strategy::build_mobile_prompt(&persona, &facts_text);
     let schema = strategy::mobile_schema();
     match jobgen_llm(&prompt, &schema, 0.8).await {
-        Ok(v) => {
-            let lines: Vec<String> = v
-                .get("lines")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect()
-                })
-                .unwrap_or_default();
-            let joined = lines.join("\n");
-            let texts = vec![joined];
-            let (ng, expr, r1) = ng_and_expression_gate(&texts);
-            let (num, num_check, r2) = number_gate(&source, &texts);
-            Json(json!({
-                "status": "ok",
-                "lines": lines,
-                "ng_violations": ng,
-                "expression_warnings": expr,
-                "number_violations": num,
-                "number_check": num_check,
-                "review_required": r1 || r2,
-            }))
-        }
+        Ok(v) => Json(mobile_ok_response(&source, &v)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// 工程⑥の成功応答 (純粋)。`lines` を結合した本文にゲートを掛ける。
+/// 形は [`crate::job_gen::contract::MobileResponse`]。
+pub(crate) fn mobile_ok_response(source: &str, v: &Value) -> Value {
+    let lines: Vec<String> = v
+        .get("lines")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    let joined = lines.join("\n");
+    let texts = vec![joined];
+    let (ng, expr, r1) = ng_and_expression_gate(&texts);
+    let (num, num_check, r2) = number_gate(source, &texts);
+    json!({
+        "status": "ok",
+        "lines": lines,
+        "ng_violations": ng,
+        "expression_warnings": expr,
+        "number_violations": num,
+        "number_check": num_check,
+        "review_required": r1 || r2,
+    })
 }
 
 /// `POST /api/jobgen/hrhacker` — 工程⑦: 84列原稿+数値照合[E]+文字数+NGワード。
@@ -3260,7 +3292,18 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
         }
     }
     let generated = best.unwrap_or_default();
-    let row = hrhacker::assemble_row(&facts, &generated);
+    Json(hrhacker_ok_response(&source, &facts, &generated, attempts))
+}
+
+/// 工程⑦の成功応答 (純粋)。検証済み `generated` と事実から 84 列を組み立てる。
+/// 形は [`crate::job_gen::contract::HrhackerResponse`]。
+pub(crate) fn hrhacker_ok_response(
+    source: &str,
+    facts: &job_types::ExtractedFacts,
+    generated: &std::collections::BTreeMap<String, hrhacker::GeneratedField>,
+    attempts: usize,
+) -> Value {
+    let row = hrhacker::assemble_row(facts, generated);
     // 列順の正本は HRHACKER_COLUMNS (serde_json preserve_order で挿入順のままUIへ届く)。
     let mut ordered = serde_json::Map::new();
     for col in hrhacker::HRHACKER_COLUMNS {
@@ -3280,8 +3323,8 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
         .collect();
     // 転記充足率と未割当ヒント (レビュー指摘[B5]: 生成列の検証と転記の充足を分けて示す)。
     let fill_stats = hrhacker::fill_stats(&row);
-    let unassigned_hints = hrhacker::detect_unassigned_hints(&source, &row);
-    Json(json!({
+    let unassigned_hints = hrhacker::detect_unassigned_hints(source, &row);
+    json!({
         "status":"ok",
         "attempts": attempts,
         "row": Value::Object(ordered),
@@ -3290,7 +3333,7 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
         "unsupported_numbers": unsupported,
         "fill_stats": fill_stats,
         "unassigned_hints": unassigned_hints,
-    }))
+    })
 }
 
 /// `POST /api/jobgen/ab` — 工程⑧: A/Bテスト助言。
@@ -3304,35 +3347,38 @@ pub async fn jobgen_ab(Json(body): Json<Value>) -> Json<Value> {
     let prompt = strategy::build_ab_prompt(&summary, &source);
     let schema = strategy::ab_schema();
     match jobgen_llm(&prompt, &schema, 0.4).await {
-        Ok(v) => {
-            let steps = v.get("steps").cloned().unwrap_or(Value::Null);
-            // metric と action を結合した文を検証対象にする。
-            let texts: Vec<String> = steps
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .map(|s| {
-                            let m = s.get("metric").and_then(Value::as_str).unwrap_or("");
-                            let ac = s.get("action").and_then(Value::as_str).unwrap_or("");
-                            format!("{m} {ac}")
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let (ng, expr, r1) = ng_and_expression_gate(&texts);
-            let (num, num_check, r2) = number_gate(&source, &texts);
-            Json(json!({
-                "status": "ok",
-                "steps": steps,
-                "ng_violations": ng,
-                "expression_warnings": expr,
-                "number_violations": num,
-                "number_check": num_check,
-                "review_required": r1 || r2,
-            }))
-        }
+        Ok(v) => Json(ab_ok_response(&source, &v)),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
+}
+
+/// 工程⑧の成功応答 (純粋)。形は [`crate::job_gen::contract::AbResponse`]。
+pub(crate) fn ab_ok_response(source: &str, v: &Value) -> Value {
+    let steps = v.get("steps").cloned().unwrap_or(Value::Null);
+    // metric と action を結合した文を検証対象にする。
+    let texts: Vec<String> = steps
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|s| {
+                    let m = s.get("metric").and_then(Value::as_str).unwrap_or("");
+                    let ac = s.get("action").and_then(Value::as_str).unwrap_or("");
+                    format!("{m} {ac}")
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let (ng, expr, r1) = ng_and_expression_gate(&texts);
+    let (num, num_check, r2) = number_gate(source, &texts);
+    json!({
+        "status": "ok",
+        "steps": steps,
+        "ng_violations": ng,
+        "expression_warnings": expr,
+        "number_violations": num,
+        "number_check": num_check,
+        "review_required": r1 || r2,
+    })
 }
 
 /// `POST /api/jobgen/ng_check` — NGワード一括チェック (掲載中求人の点検用バッチ入口)。
