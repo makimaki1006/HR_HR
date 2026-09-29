@@ -133,6 +133,7 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
         rate_limiter: crate::auth::session::RateLimiter::new(5, 60),
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
+        google_oidc: None,
     })
 }
 
