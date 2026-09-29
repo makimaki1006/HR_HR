@@ -3859,9 +3859,16 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   const nBtn = (side.match(/<button /g) || []).length;
   ok(nBtn === 11, "左の画面が 11 でない: " + nBtn);
   ok(side.includes(">電話</button>") && side.includes(">記録と数字の信頼度</button>"), "左の項目名が出ていない: " + side);
-  // 600px 以下は区切りと ul の箱を外して 1 つの流れに並べる（display:contents）。一覧であることは role="list" で読み上げに残す
+  // 600px 以下は ul の箱を外して、区切りの見出しと項目を同じ流れに並べる（display:contents。見出しを別の行にすると 5 行 229px）。
+  // 一覧であることは role="list" で読み上げに残す。
+  // 🔴 区切りの箱は外さない（2026-09-29 検証 400px: 3 区切りを 1 つの流れにしていたので、境目が行の途中に来て
+  //    「月1・確かめる」が「チームと担当 電話」と同じ行に付いた）。区切りごとに行を改め、区切りの間に線を引く
   ok((side.match(/<ul role="list" aria-labelledby="side-[a-z]+">/g) || []).length === 3, "区切りの ul に role=list と見出しとの結び付けが無い");
-  ok(/\.sidegrp, \.sidegrp ul\{ display:contents; \}/.test(html), "600px 以下で区切りを 1 つの流れに並べる CSS が無い（400px でメニューが 5 行 229px になる）");
+  const narrow = html.split("@media (max-width:600px){").slice(1).map((x) => x.split("\n}\n")[0]).join("\n");
+  ok(/\.sidegrp ul\{ display:contents; \}/.test(narrow), "600px 以下で見出しと項目を同じ流れに並べる CSS が無い（400px でメニューが 5 行 229px になる）");
+  ok(!/\.sidegrp\s*,[^{]*\{ display:contents/.test(narrow) && /\.sidegrp\{ display:flex; flex-wrap:wrap;/.test(narrow),
+    "600px 以下で区切りの箱を外している（区切りの境目が行の途中に来る）か、区切りの中で折り返していない");
+  ok(/\.sidegrp \+ \.sidegrp\{ border-top:1px solid var\(--rule\); \}/.test(narrow), "600px 以下で区切りの間に線が無い（区切りが字の大きさでしか分からない）");
   ok(!side.includes('class="n"') && !/>\d+<\/span>/.test(side), "左の項目名の後ろに番号が残っている（件数に見える）: " + side);
   ok(/aria-current="page">電話</.test(side), "いま見ている項目の印（aria-current）が無い");
   run('cur = { menu: "deal", view: "today" }');
