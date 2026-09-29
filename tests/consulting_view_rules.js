@@ -4271,7 +4271,7 @@ check("段1レビュー B: 600px 以下では表の先頭 20 行だけ出し、�
   ctx.__RB = rows(40); ctx.__RC = cols;
   const h = run("scroll(table(__RC, __RB), 640)");
   ok(run("RC_CAP") === 20, "先頭に出す行数が 20 でない: " + run("RC_CAP"));
-  ok(h.includes('<div class="scroll-wrap rc-cut">'), "隠す行のある枠に rc-cut が付かない");
+  ok(/<div class="scroll-wrap rc-cut" data-rck="[^"]+">/.test(h), "隠す行のある枠に rc-cut（と押したことを覚える印 data-rck）が付かない: " + h.slice(0, 400));
   ok((h.match(/<tr data-rc="1">/g) || []).length === 20 && (h.match(/<tr>/g) || []).length === 21, "21 行目からに data-rc が付かない（見出しの 1 行 + 本文 20 行は付けない）: " + h.slice(0, 300));
   ok(h.indexOf('<tr data-rc="1">') > h.indexOf("行19</td>") && h.indexOf('<tr data-rc="1">') < h.indexOf("行20</td>"), "data-rc の付き始めが 21 行目でない");
   ok(/<\/div><button type="button" class="rc-more">残り 20 行を出す（ページが長くなります）<\/button><\/div>$/.test(h), "「残り 20 行を出す」のボタンが枠の直後に無い: " + h.slice(-160));
@@ -4306,6 +4306,33 @@ check("段1レビュー B: 600px 以下では表の先頭 20 行だけ出し、�
   const clicks = winListeners.filter((l) => l.type === "click");
   ok(clicks.length === 1 && clicks[0].capture === true && clicks[0].fn === run("rcMoreClick"), "ボタンの click を window の捕捉で受けていない");
   ok(!run("rcMoreClick({ target: { closest: () => null } })"), "ボタン以外を押したときに落ちる");
+});
+
+// 🔴 2026-09-29 検証（Playwright 400px、#deal/board）: 「残り N 行を出す」で 604 行を出した後、列の見出しで並べ替えると
+// 描き直しで rc-open が消えて 20 行に戻った。押したことを覚えて（rcOpen）、描き直しても開いたまま描く
+check("段1レビュー B の残り: 「残り N 行を出す」を押した表は、並べ替え・絞り込みで描き直しても開いたまま（別の表・別の画面には移らない）", () => {
+  const cols = [{ t: "名前" }, { t: "値", n: 1 }];
+  ctx.__RO = Array.from({ length: 40 }, (_, i) => ["行" + i, i]); ctx.__ROC = cols;
+  run('rcOpen.clear(); cur = { menu: "deal", view: "board" };');
+  const before = run('scroll(table(__ROC, __RO, "", "ro-tbl"), 640)');
+  const key = (before.match(/data-rck="([^"]+)"/) || [])[1];
+  ok(key && !before.includes("rc-open"), "押す前から開いている、または印が無い: " + before.slice(0, 300));
+  // ボタンを押す（偽の枠。data-rck を返す）
+  const wrap = { querySelector: () => null, previousElementSibling: null, classList: { add() {}, toggle() {} },
+    getAttribute: (a) => (a === "data-rck" ? key.replace(/&amp;/g, "&") : null) };
+  const btn = { closest: (s) => (s === ".rc-more" ? btn : s === ".scroll-wrap" ? wrap : null) };
+  ctx.__EVO = { target: btn };
+  run("rcMoreClick(__EVO)");
+  // 並べ替えた後の描き直し（行の順が変わっても同じ表）
+  ctx.__RO2 = ctx.__RO.slice().reverse();
+  const after = run('scroll(table(__ROC, __RO2, "", "ro-tbl"), 640)');
+  ok(/<div class="scroll-wrap rc-cut rc-open" data-rck=/.test(after), "描き直すと 20 行に戻る（枠に rc-open が付かない）: " + after.slice(0, 300));
+  ok(after.includes('<div class="scroll-cap rc-open">'), "描き直すと案内に「先頭 20 行を出しています」が戻る（案内に rc-open が付かない）");
+  // id の無い表は見出しの行で見分ける。別の表・別の画面には移らない
+  ok(!run('scroll(table(__ROC, __RO, "", "other-tbl"), 640)').includes("rc-open"), "押していない別の表まで開いている");
+  run('cur = { menu: "deal", view: "today" };');
+  ok(!run('scroll(table(__ROC, __RO, "", "ro-tbl"), 640)').includes("rc-open"), "別の画面の同じ id の表まで開いている");
+  run("rcOpen.clear()");
 });
 
 check("段1レビュー F: 枠の上のスクロールの案内は、実際にはみ出しているときだけ見せる（markScroll が .fit を付け外し）。マウスの案内は PC だけ", () => {

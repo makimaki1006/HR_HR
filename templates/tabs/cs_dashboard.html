@@ -2801,11 +2801,16 @@ function scroll(inner, max, total, side) {
   const style = noCap ? ' style="max-height:none"' : max ? ' style="max-height:' + max + 'px"' : "";
   /* 600px 以下で先頭 RC_CAP 行だけ出す印（rowCap）。高さを制限していない表（今日動く先）には付けない（24 行を一望する） */
   const rc = noCap ? { html: String(inner), hidden: 0 } : rowCap(inner);
-  const cap = scrollCap(inner, total, noCap, rc.hidden);
+  /* 「残り N 行を出す」を押した表は、描き直し（並べ替え・絞り込み・窓の幅の変化の paintFigs）の後も開いたまま描く（rcOpen） */
+  const key = rc.hidden ? rcKey(rc.html) : "";
+  const open = key !== "" && rcOpen.has(key);
+  let cap = scrollCap(inner, total, noCap, rc.hidden);
+  if (open) cap = cap.replace('<div class="scroll-cap">', '<div class="scroll-cap rc-open">');
   const more = rc.hidden
     ? '<button type="button" class="rc-more">残り ' + num(rc.hidden) + " 行を出す（ページが長くなります）</button>" : "";
   return (side ? '<div class="caprow">' + side + cap + "</div>" : cap) +
-    '<div class="scroll-wrap' + (rc.hidden ? " rc-cut" : "") + '">' +
+    '<div class="scroll-wrap' + (rc.hidden ? " rc-cut" + (open ? " rc-open" : "") : "") + '"' +
+    (key ? ' data-rck="' + esc(key) + '"' : "") + ">" +
     '<div class="scroll"' + style + ">" + rc.html + "</div>" + more + "</div>";
 }
 /* 600px 以下で最初に出す行数（段1レビュー B）。
@@ -2824,6 +2829,18 @@ function rowCap(inner) {
   if (n <= RC_CAP + 10) return { html: s, hidden: 0 };
   return { html: s.slice(0, ti) + body, hidden: n - RC_CAP };
 }
+/* 「残り N 行を出す」を押した表の印（rcKey）。
+   🔴 2026-09-29 検証（Playwright 400px、#deal/board）: 押して 604 行を出した後に列の見出しで並べ替えると、描き直しで
+   rc-open が消えて 20 行に戻り、並べ替えるたびに押し直すことになっていた。押したことを覚えておき、scroll() が開いたまま描く。
+   覚えるのはこのページを開いている間だけ（読み込み直すと先頭 20 行に戻る） */
+const rcOpen = new Set();
+/** 表の印: 画面（cur）＋表の id。id の無い表は見出しの行の文字（並べ替えで変わらない）で見分ける */
+function rcKey(inner) {
+  const s = String(inner);
+  const id = (s.match(/<table id="([^"]+)"/) || [])[1];
+  const head = id ? "#" + id : s.slice(s.indexOf("<thead>"), s.indexOf("</thead>")).replace(/<[^>]*>/g, "|");
+  return (cur ? cur.menu + "/" + cur.view : "") + " " + head;
+}
 /** 枠（.scroll-wrap）の直前の案内（.scroll-cap）。今日動く先では .caprow の中にある。無ければ null */
 function capOf(w) {
   const p = w && w.previousElementSibling;
@@ -2841,6 +2858,8 @@ function rcMoreClick(ev) {
   const w = b.closest(".scroll-wrap");
   if (!w || !w.classList) return;
   w.classList.add("rc-open");
+  const key = w.getAttribute && w.getAttribute("data-rck");
+  if (key) rcOpen.add(key);   /* 描き直しの後も開いたまま（rcOpen） */
   const cap = capOf(w);
   if (cap && cap.classList) cap.classList.add("rc-open");
   markScroll(w);
