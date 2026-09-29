@@ -3072,11 +3072,17 @@ function rowCap(inner) {
    rc-open が消えて 20 行に戻り、並べ替えるたびに押し直すことになっていた。押したことを覚えておき、scroll() が開いたまま描く。
    覚えるのはこのページを開いている間だけ（読み込み直すと先頭 20 行に戻る） */
 const rcOpen = new Set();
-/** 表の印: 画面（cur）＋表の id。id の無い表は見出しの行の文字（並べ替えで変わらない）で見分ける */
+/** 表の印: 画面（cur）＋表の id。id の無い表は見出しの行の文字で見分ける。
+    🔴 2026-09-29 磨き込み: 並べ替えられる見出し（sortTh）は、向きの印（▲▼↕、aria-hidden）と読み上げの文（span.sr「いまこの列で
+    小さい順…」）が並べ替えのたびに変わる。id の無い表でそれを印に含めると、並べ替えた後の描き直しで別の表と見なされ、
+    押して開いた表が先頭 20 行に戻る（今の fixture で 30 行を超える表は id 付きの案件一覧だけだが、本番の件数では他の表も超えうる）。
+    向きの印と読み上げの文を外し（印の前の空白も並べている列にだけ付くので空白も外す）、見出しの文字を取る */
 function rcKey(inner) {
   const s = String(inner);
   const id = (s.match(/<table id="([^"]+)"/) || [])[1];
-  const head = id ? "#" + id : s.slice(s.indexOf("<thead>"), s.indexOf("</thead>")).replace(/<[^>]*>/g, "|");
+  const head = id ? "#" + id : s.slice(s.indexOf("<thead>"), s.indexOf("</thead>"))
+    .replace(/<span class="sr">[^<]*<\/span>/g, "").replace(/<span[^>]*aria-hidden="true"[^>]*>[^<]*<\/span>/g, "")
+    .replace(/<[^>]*>/g, "|").replace(/\s+/g, "");
   return (cur ? cur.menu + "/" + cur.view : "") + " " + head;
 }
 /** 枠（.scroll-wrap）の直前の案内（.scroll-cap）。今日動く先では .caprow の中にある。無ければ null */
