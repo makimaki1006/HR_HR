@@ -94,10 +94,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/scout/api/admin/members",
             get(admin_list_members).post(admin_add_member),
         )
-        .route(
-            "/scout/api/admin/members/remove",
-            post(admin_remove_member),
-        )
+        .route("/scout/api/admin/members/remove", post(admin_remove_member))
         .route(
             "/scout/api/admin/members/disabled",
             post(admin_set_member_disabled),
@@ -1492,7 +1489,11 @@ fn provision_core(
     };
 
     // 新しい会社の1人目は master。member だと担当者を追加できる人が誰も居なくなる。
-    let effective_role = if joining { role.clone() } else { "master".to_string() };
+    let effective_role = if joining {
+        role.clone()
+    } else {
+        "master".to_string()
+    };
 
     let pu: [&dyn ToSqlTurso; 6] = [&user_id, &email, &hash, &name, &now, &effective_role];
     db.execute(
@@ -2264,7 +2265,10 @@ async fn admin_set_member_disabled(
             )
             .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
         if belongs.is_empty() {
-            return Err(cerr(StatusCode::NOT_FOUND, "その担当者はこの workspace にいません"));
+            return Err(cerr(
+                StatusCode::NOT_FOUND,
+                "その担当者はこの workspace にいません",
+            ));
         }
         let flag: i64 = if disabled { 1 } else { 0 };
         let pu: [&dyn ToSqlTurso; 2] = [&flag, &target];
