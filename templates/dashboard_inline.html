@@ -134,25 +134,20 @@
              中のサブタブに移動した。URL・handler は不変で、サブタブは従来どおり
              #content を直接 swap する（reloadActiveTab / ?tab= 復元 / tabcache が
              .tab-btn.active の hx-get に依存しているため、この構造を崩さない）。 -->
-        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">媒体分析</button>
-        {{KEYWORDS_TAB}}
-        {{JOBGEN_TAB}}
-        <button type="button" id="explore-group-btn" class="tab-btn-group" aria-expanded="false"
-            aria-controls="explore-subnav" onclick="toggleExploreGroup()">調べる ▾</button>
-        <!-- ここから先は #content に差し込むのではなく、独立したページへ移動する。
-             中身がフルHTML（自前の <style> と <script> を持つ）なので、HTMX で
-             swap すると <html> が二重になって壊れる。だから <a> にしてある。
-             営業が毎朝見るものなので「調べる」の中には入れず、表に出しておく。
-
-             🔴 架電クオリティ(/call-quality) はここに出さない。
-             「まだ見えなくてよい」というユーザー判断（2026-09-07）。
-             ページ自体は残してあるので、URL を直接叩けば見られる。 -->
-        <span class="tab-sep" aria-hidden="true"></span>
-        <a class="tab-btn tab-link" href="/sales-kpi"
-           title="今月の商談と架電。営業の現場が毎朝見る画面">営業KPI</a>
-        <a class="tab-btn tab-link" href="/consulting"
-           title="契約の継続と成果、いま手を打つべき顧客。コンサルが見る画面">コンサルKPI</a>
+        <!-- 2026-09-30: ナビの項目は src/handlers/nav.rs の NAV_DEFS から Rust が組み立てて
+             ここに差し込む（React シェルの /api/nav も同じ定義を返す）。出るもの:
+               媒体分析 / キーワード需要（Google Ads 資格情報がある環境のみ）/
+               求人票作成（Gemini キーがある環境のみ）/ 調べる ▾（#explore-subnav の開閉）/
+               区切り / 営業KPI / コンサルKPI
+             営業KPI・コンサルKPI は #content に差し込むのではなく独立したページへ移動する
+             <a>（中身がフル HTML で、HTMX で swap すると <html> が二重になる）。
+             営業が毎朝見るものなので「調べる」の中には入れず、表に出している。
+             上の 2026-05-15 / 2026-07-28 の非表示タブ、架電クオリティ (/call-quality、
+             「まだ見えなくてよい」ユーザー判断 2026-09-07)、proposal-mock は NAV_DEFS で
+             hidden にしてあり、hidden を外せばここと /api/nav の両方に戻る。
+             要素の形（class / role / hx-get / onclick / title の並び）は差し替え前と同じ
+             （src/handlers/nav.rs のテストが置き換え前の HTML と要素列で照合する）。 -->
+{{NAV_TOP_ITEMS}}
     </nav>
 
     <!-- 「調べる」グループのサブタブ列（既定は非表示）
@@ -173,18 +168,9 @@
             手を付けていない（2026-09-11 の判断）。 -->
     <div id="explore-subnav" class="hidden bg-navy-800/80 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto"
          role="tablist" aria-label="調べる（サブタブ）" style="-webkit-overflow-scrolling:touch;scrollbar-width:thin">
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">地図</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/regional_analysis" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">地域分析</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/company" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">企業検索</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/driver" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">職種辞典</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/license" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">資格辞書</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/indeed" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)" title="求人媒体の掲載データから見た、職種別・地域別の採用市場の動き">採用市場</button>
+        <!-- 2026-09-30: 中身（地図 / 地域分析 / 企業検索 / 職種辞典 / 資格辞書 / 採用市場）は
+             src/handlers/nav.rs の NAV_DEFS で group: "explore" の項目。上のナビと同じく Rust が差し込む。 -->
+{{NAV_EXPLORE_ITEMS}}
     </div>
 
     <!-- ブレッドクラム: 現在の選択状態を表示 -->

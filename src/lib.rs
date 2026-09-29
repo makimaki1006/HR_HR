@@ -90,6 +90,10 @@ pub struct AppState {
 // 起動だけできない状態で main に入り、本番が21時間出せなかった。
 #[cfg(test)]
 mod router_startup_test;
+// 2026-09-30: 共通基盤 (/api/nav, /api/filters/current, /api/* の 401 JSON, CSRF) を
+// 本物の build_app() + ログイン済み cookie で通す結合テスト。
+#[cfg(test)]
+mod platform_api_tests;
 
 pub fn build_app(state: Arc<AppState>) -> Router {
     let session_store = MemoryStore::default();
@@ -681,6 +685,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         ))
         // 2026-09-29: React 画面用の JSON API (/api/app/*)。応答型は ts-rs で TS に生成。要ログイン。
         .merge(handlers::app_api::router())
+        // 2026-09-30: 共通基盤 (platform-team)。ナビ定義 /api/nav と ヘッダーフィルタ /api/filters/current。
+        // どちらも旧シェル (dashboard_page) と同じ定義・同じ session キーを読む。要ログイン。
+        .merge(handlers::nav::router())
+        .merge(handlers::filters::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。
@@ -917,8 +925,43 @@ const ALLOWED_ORIGINS: &[&str] = &[
     "http://127.0.0.1:8080",
 ];
 
-/// CSRF保護: POSTリクエストに対してOrigin/Refererヘッダーを検証
+/// Origin も Referer も付けずに書き込みできる「機械向け経路」 (パスの前方一致)。
+///
+/// 2026-09-30 の棚卸しでは該当が無かった。理由:
+/// - `/scout/*` (独自トークン)・`/login`・`/auth/google/*`・`/api/v1/*` (GET のみ) は
+///   そもそも `auth_middleware` の外にあり、この検査を通らない。
+/// - `/api/jobgen/*` の掲載点検スクリプト (`scripts/journey_smoke.py`、`X-Api-Token`) は
+///   `jobgen_auth_middleware` がトークン一致で先に通すので、この検査に来ない。
+/// - Python の `scripts/` と `e2e_*.py` が POST する先は Turso / e-Stat か、ブラウザ内の
+///   `fetch` (Origin 付き) で、この検査を素通りで頼っているものは無い。
+/// 空のまま置いておくのは、今後トークン認証の機械経路を足すときに
+/// 「Origin 無しを通す条件」をここに書かせるため (`check_csrf_with` のテストが規則を押さえる)。
+pub(crate) const CSRF_HEADERLESS_ALLOWLIST: &[&str] = &[];
+
+/// React (`frontend/src/api/client.ts`) と `filterApi.ts` が全リクエストに付けるヘッダー。
+/// クロスサイトのフォーム送信では付けられない (カスタムヘッダーは CORS preflight が要る) ので、
+/// Origin / Referer が無い書き込みでもこれがあれば同一オリジンの JS からと判断できる。
+pub(crate) const CSRF_REQUESTED_WITH_VALUE: &str = "fetch";
+
+/// CSRF保護: 書き込み系リクエストに対して Origin / Referer ヘッダーを検証する。
+///
+/// 規則 (2026-09-30、F-5):
+/// 1. GET / HEAD / OPTIONS は対象外。
+/// 2. Origin (無ければ Referer の origin 部分) があれば `ALLOWED_ORIGINS` と照合。
+///    一致 → 通す、不一致 → 403。**ここは従来と同じ**。
+/// 3. Origin も Referer も無い書き込みは、`X-Requested-With: fetch` (React) か
+///    `HX-Request` (HTMX) が付いているときだけ通す。どちらも無ければ 403。
+///    (従来は無条件で通していた = curl 等で cookie さえあれば書けた穴)
+/// 4. `CSRF_HEADERLESS_ALLOWLIST` に載る機械向け経路だけは 3 の例外。
 pub(crate) fn check_csrf(request: &axum::extract::Request) -> Result<(), &'static str> {
+    check_csrf_with(request, CSRF_HEADERLESS_ALLOWLIST)
+}
+
+/// `check_csrf` の本体。allowlist を差し替えられるようにしてテストで規則を押さえる。
+pub(crate) fn check_csrf_with(
+    request: &axum::extract::Request,
+    headerless_allowlist: &[&str],
+) -> Result<(), &'static str> {
     // GET/HEAD/OPTIONSは安全メソッドなのでスキップ
     let method = request.method();
     if method == axum::http::Method::GET
@@ -963,10 +1006,29 @@ pub(crate) fn check_csrf(request: &axum::extract::Request) -> Result<(), &'stati
             Err("CSRF: invalid origin")
         }
         None => {
-            // Origin/Referer無し = curl/API client/モバイルアプリ等からのリクエスト
-            // ブラウザからのsame-originは Origin ヘッダーが付くため、これが無い場合は
-            // スクリプト経由アクセスとみなして通す。認証はAuth middlewareで別途チェック済み。
-            Ok(())
+            // Origin/Referer 無し。ブラウザの same-origin な書き込みには Origin が付くので、
+            // ここに来るのは (a) JS の fetch/XHR が Referrer-Policy 等で両方落とした場合、
+            // (b) curl / スクリプト等の非ブラウザ。(a) は React / HTMX が付ける
+            // カスタムヘッダーで見分け、(b) は allowlist に載せた機械向け経路だけ通す。
+            // 2026-09-30 まではここを無条件で通していた (F-5 で閉じた)。
+            let requested_with_fetch = headers
+                .get("x-requested-with")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.trim().eq_ignore_ascii_case(CSRF_REQUESTED_WITH_VALUE));
+            let hx_request = headers.contains_key("hx-request");
+            if requested_with_fetch || hx_request {
+                return Ok(());
+            }
+            let path = request.uri().path();
+            if headerless_allowlist.iter().any(|p| path.starts_with(p)) {
+                return Ok(());
+            }
+            tracing::warn!(
+                "CSRF: rejected headerless write: {} {} (no Origin/Referer, no X-Requested-With: fetch / HX-Request)",
+                method,
+                path
+            );
+            Err("CSRF: missing origin")
         }
     }
 }
@@ -1535,43 +1597,26 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // 2026-05-22 セキュリティ修正 (Agent A3 M2): user_email を escape_html 通過。
     // session 由来だが email validation が緩い経路で stored XSS のリスク。
     let user_email_safe = crate::handlers::helpers::escape_html(&user_email);
-    // キーワード需要ビューア (2026-07-24): Google Ads 資格情報がある環境でのみ表示。
-    // 2026-08-04: 別ブラウザタブへ飛ばすのをやめ、アプリ内タブ (iframe) に統合。
-    let keywords_tab = if media_engine::handlers::media_engine_enabled() {
-        r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/keyword_tools" hx-target="#content" hx-swap="innerHTML" onclick="setActiveTab(this)" title="検索キーワードの需要をアプリ内で確認">キーワード需要</button>"##
-    } else {
-        ""
-    };
-    // 求人票作成 (2026-07-24): Gemini キーがある環境でのみ表示。
-    // 2026-08-04: 求人票生成・競合比較・ジャーニー診断の3画面を1タブに統合
-    // (タブ内サブナビ + 同一オリジン iframe)。別ウィンドウで開く導線は断片内に残す。
-    let jobgen_tab = if !media_engine::config::gemini_api_key().is_empty() {
-        r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobgen_tools" hx-target="#content" hx-swap="innerHTML" onclick="setActiveTab(this)" title="求人票生成・競合比較・応募者ジャーニー診断">求人票作成</button>"##
-    } else {
-        ""
-    };
+    // 2026-09-30: ナビは handlers::nav の定義 (NAV_DEFS) から組み立てる。React シェルの
+    // /api/nav も同じ定義を返す。キーワード需要 (Google Ads 資格情報がある環境のみ) と
+    // 求人票作成 (Gemini キーがある環境のみ) の出し分けは NavFeatures::from_env() が行う。
+    // 非表示タブは定義の hidden で隠し、hidden を外せば旧新両方のナビに戻る。
+    let nav_items = handlers::nav::nav_items(
+        handlers::nav::NAV_DEFS,
+        &handlers::nav::NavFeatures::from_env(),
+    );
+    let legacy_nav = handlers::nav::render_legacy_nav(&nav_items);
     // 2026-08-10: 「履歴」(自分の操作履歴だけが見える画面) はヘッダーから外し、
     // 管理者にだけ「管理」リンクを出す。他ユーザーを含む利用状況は /admin/usage で見る。
-    let admin_link = {
-        // 管理者判定は config の admin_emails で行う（DB 往復を避けるため）。
-        // upsert_account は「昇格のみ」なので、config に載っている限り DB 側も
-        // admin になる。実際の入場ゲートは require_admin_mw（DB の role を見る）
-        // なので、ここでの判定はリンクの出し分けだけに使う。
-        let is_admin = state
-            .config
-            .admin_emails
-            .iter()
-            .any(|a| a.eq_ignore_ascii_case(&user_email));
-        if is_admin {
-            r#"<a href="/admin/usage" class="text-slate-400 hover:text-white text-sm transition" title="利用状況・ユーザー管理">管理</a>"#
-        } else {
-            ""
-        }
-    };
+    // 管理者判定は handlers::nav::is_admin (/api/nav と共通、config の admin_emails で判定)。
+    let admin_link =
+        handlers::nav::render_legacy_admin_link(handlers::nav::is_admin(&state.config, &user_email));
 
     let html = include_str!("../templates/dashboard_inline.html")
         .replace("{{ASSET_V}}", asset_version())
-        .replace("{{ADMIN_LINK}}", admin_link)
+        .replace("{{NAV_TOP_ITEMS}}", &legacy_nav.top)
+        .replace("{{NAV_EXPLORE_ITEMS}}", &legacy_nav.explore)
+        .replace("{{ADMIN_LINK}}", &admin_link)
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
         .replace("{{SELECTED_JOB_TYPES_JSON}}", &selected_job_types_json)
@@ -1580,9 +1625,7 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
             &selected_industry_raws_json,
         )
         .replace("{{USER_EMAIL}}", &user_email_safe)
-        .replace("{{TURSO_WARNING}}", &db_warning)
-        .replace("{{KEYWORDS_TAB}}", keywords_tab)
-        .replace("{{JOBGEN_TAB}}", jobgen_tab);
+        .replace("{{TURSO_WARNING}}", &db_warning);
 
     Html(html)
 }
