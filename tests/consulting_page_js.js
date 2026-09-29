@@ -2544,6 +2544,47 @@ check("組替", "顧客: 法人の KPI は法人の全契約で描くので、�
   if (k.indexOf("この法人の全契約の金額の合計（オプション契約を除く）") < 0 || k.indexOf("この法人の全契約の満了日の最大") < 0)
     throw new Error("KPI の説明が法人の全契約だと書いていない");
 });
+check("M-3", "案件の詳細: 09 の3章の順（パンくず → 属性の1行と最後の接触… → 時系列 → 契約の連なり → 今日動く先へ戻る）。属性を10項目の枠にしない", async () => {
+  /* 前は属性を10項目の枠で出し、連なりを時系列より上に置いて、時系列の最初の行が 1440×900 でも1画面目の外（y=960） */
+  const t = boot();
+  const h = await openDetail(t);
+  const pos = [h.indexOf('<nav class="crumbs"'), h.indexOf('id="dd-attr"'), h.indexOf('<div class="dd-kv">'),
+    h.indexOf('id="dd-tl-h"'), h.indexOf('<ol class="tl"'), h.indexOf("同じ拠点の契約の連なり: "),
+    h.indexOf('<details class="fold" id="dd-chain">'), h.indexOf('<a class="golink" href="#deal/today">今日動く先へ戻る</a>')];
+  if (pos.some((x) => x < 0)) throw new Error("欠けている部品がある: " + pos.join(","));
+  for (let i = 1; i < pos.length; i++) if (pos[i - 1] > pos[i]) throw new Error("並びが 09 の3章と違う（" + i + " 番目）: " + pos.join(","));
+  const kv = h.slice(pos[2], h.indexOf("</div></div>", pos[2]) + 12);
+  if (count(kv, /<span class="k">/g) !== 4) throw new Error("枠が電話の前に読む4つ（最後の接触・最後の MTG・満了まで・担当）でない: " + count(kv, /<span class="k">/g));
+  const attr = h.slice(pos[1], h.indexOf('<div class="dd-kv">', pos[1]));
+  for (const w of ["ステージ 定期2", "2026-04-01 〜 2026-09-30", "金額 ", "稼働中", "満了まで60日以内"])
+    if (attr.indexOf(w) < 0) throw new Error("属性の1行に「" + w + "」が無い: " + attr);
+});
+check("M-3", "案件の詳細: 最後の接触は 60秒以下の電話を数えない。最後の MTG は契約期間の外の記録を数えない（他の画面の接触の定義とそろえる）", async () => {
+  const t = boot();
+  const P = detailPayload();
+  const out = { state: "outside", in_span: false, moved_from: null, moved_to: null };
+  /* 基準日の前日の 30 秒の電話（接触ではない）と、契約期間の外の録画 MTG。どちらも一番新しい */
+  P.events.unshift({ kind: "call", date: "2026-09-17", time: "09:00", fact: true, source_label: "通話記録（事実）", call_id: "cs",
+    duration_sec: 30, contact: false, direction: "outbound", handler: null, owner: null, has_transcript: false, summary: null,
+    attach: { state: "own", in_span: true, moved_from: null, moved_to: null } });
+  P.events.unshift({ kind: "mtg", date: "2026-09-18", time: "10:00", fact: true, source_label: "Zoom 録画（事実）", subject: null,
+    host: "担当A", minutes: 30, mtg_type: null, extracted: false, attach: out });
+  const h = await openDetail(t, P);
+  const top = h.slice(0, h.indexOf('<ol class="tl"'));
+  if (!/<span class="k">最後の接触（MTG・60秒超の電話）<\/span><b>2026-09-12<\/b>/.test(top))
+    throw new Error("最後の接触に 60 秒以下の電話か契約期間の外の MTG を数えている");
+  if (!/<span class="k">最後の MTG<\/span><b>2026-08-20<\/b>/.test(top)) throw new Error("最後の MTG に契約期間の外の録画を数えている");
+});
+check("M-3", "案件の詳細: 直近3か月の窓の始まり（monthsBefore）は月末の日付で次の月へ繰り上がらない", async () => {
+  const t = boot();
+  const cases = [["2026-05-31", 3, "2026-02-28"], ["2024-05-31", 3, "2024-02-29"], ["2026-03-31", 1, "2026-02-28"],
+    ["2026-09-18", 3, "2026-06-18"], ["2026-01-31", 3, "2025-10-31"], ["2026-12-31", 3, "2026-09-30"], ["読めない", 3, ""]];
+  for (const [d, n, want] of cases) {
+    const got = t.R("monthsBefore(" + JSON.stringify(d) + ", " + n + ")");
+    if (got !== want) throw new Error("monthsBefore(" + d + ", " + n + ") = " + got + "（" + want + " のはず）");
+  }
+});
+
 (async () => {
   if (mainJs == null) {
     console.error("FAIL 動きの見張り: 画面の <script> が取り出せない");
