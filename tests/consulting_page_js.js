@@ -215,6 +215,7 @@ const todayPayload = (rows) => ({
 });
 
 /* ================================================================ U1 */
+/* 2026-09-29 組み替え（09 の 7）: 継続回数 × 成果は「成果と継続」（monthly/results）の中の節になった。切り替えは成果と継続の操作列にある */
 check("U1", "右側打ち切りのチェックが描き直しても残り、外すと含める側で取り直す", async () => {
   const t = boot();
   // 2026-09-29 組み替え 段A: 継続回数 × 成果は「成果と継続」（results）の節になった。チェックは API（renewal）を読む画面に出る
@@ -226,11 +227,9 @@ check("U1", "右側打ち切りのチェックが描き直しても残り、外�
   const on = t.R("ctlbar(viewOf('monthly', 'results'), {})");
   if (!/id="cs-censor"[^>]*checked/.test(on))
     throw new Error("押した後に描き直すとチェックが外れた表示になる");
-  // 成果と継続は renewal・outcome・rampup を並べて取る。打ち切りの引数は renewal にだけ付く（queryFor）
-  const lastRenewal = () => t.fetched.filter((f) => f.url.indexOf("/api/consulting/renewal") === 0).pop().url;
+  // 成果と継続は /api/consulting/results の束を 1 本で取る（2026-09-29 統合）。打ち切りの引数はそこに付く（queryFor）
+  const lastRenewal = () => t.fetched.filter((f) => f.url.indexOf("/api/consulting/results?") === 0).pop().url;
   const u1 = lastRenewal();
-  if (t.fetched.slice(-3).some((f) => f.url.indexOf("/api/consulting/renewal") !== 0 && f.url.indexOf("exclude_right_censored") >= 0))
-    throw new Error("打ち切りの引数を renewal 以外の API にも付けている");
   if (u1.indexOf("exclude_right_censored=1") < 0) throw new Error("外す側で取り直していない: " + u1);
   // 描き直した後の要素は checked が外れた新しいもの。そこから外す操作をする
   const cz2 = new t.El("cs-censor"); t.reg["cs-censor"] = cz2;
@@ -263,12 +262,12 @@ check("U2", "系列を縦に並べる図の接触の帯に棒が立つ", async (
 /* ================================================================ U3 */
 check("U3", "素早く切り替えると、前の画面の遅い応答で上書きされない", async () => {
   const t = boot();
-  // チームと担当は consultants・contact-trend・handover を並べて取る（2026-09-29 組み替え 段A）。3 本とも遅い側
+  // チームと担当は /api/consulting/team の束を 1 本で取る（2026-09-29 段A の統合）。それが遅い側
   t.R('go("research", "team")');
-  const slows = t.fetched.slice(-3);
+  const slows = t.fetched.slice(-1);
   t.R('go("deal", "byowner")');
   const fast = t.fetched[t.fetched.length - 1];
-  if (slows[0].url.indexOf("/api/consulting/consultants") !== 0 ||
+  if (slows[0].url.indexOf("/api/consulting/team") !== 0 ||
       fast.url.indexOf("/api/consulting/deals") !== 0) throw new Error("想定の URL を叩いていない");
   fast.resolve(jsonRes({ meta: { flag_counts: [] }, rows: [boardRow({})] }));
   await tick(); await tick();
@@ -276,14 +275,14 @@ check("U3", "素早く切り替えると、前の画面の遅い応答で上書�
   await tick(); await tick(); await tick();
   const main = t.reg["cs-main"].innerHTML;
   if (main.indexOf("この担当者は、どの案件を持っているか") < 0 ||
-      main.indexOf("いま、どこに手が回っていないか") >= 0)
-    throw new Error("URL は担当者ごとの案件なのに、中身が担当者の一覧で上書きされた");
+      main.indexOf("どこに手が回っていないか") >= 0)
+    throw new Error("URL は担当者ごとの案件なのに、中身がチームと担当で上書きされた");
 });
 
 check("U3", "前の画面の遅い要求が失敗しても、いまの画面を消さずエラーも出さない", async () => {
   const t = boot();
   t.R('go("research", "team")');
-  const slows = t.fetched.slice(-3);
+  const slows = t.fetched.slice(-1);
   t.R('go("deal", "byowner")');
   const fast = t.fetched[t.fetched.length - 1];
   fast.resolve(jsonRes({ meta: { flag_counts: [] }, rows: [boardRow({})] }));
@@ -643,7 +642,11 @@ check("N5", "月次継続率: 結果待ちがある月・n<30 を実線にせず
     ] },
     by_renewal: [], missingness: [],
   };
-  const h = t.R("renderRenewal")(D);
+  const h0 = t.R("renderRenewal")(D);
+  /* 2026-09-29 組み替え（09 の 7「答えを先に」）: 継続回数ごとの解約率が先頭になったので、月次の継続率の図から見る */
+  const h = h0.slice(h0.indexOf("月次の継続率（満了月ベース"));
+  if (h0.indexOf("継続回数ごとの解約率") < 0 || h0.indexOf("継続回数ごとの解約率") > h0.indexOf("月次の継続率（満了月ベース"))
+    throw new Error("継続回数ごとの解約率が月次の継続率より先に無い（09 の 7「解約率を先頭」）");
   const svg = h.slice(h.indexOf("<svg"), h.indexOf("</svg>"));
   const solid = count(svg, /<circle [^>]*r="4\.2"/g), hollow = count(svg, /<circle [^>]*r="4\.6"/g);
   if (solid !== 2) throw new Error("確定の点（結果待ち0・n>=30）は2つのはずが " + solid);
@@ -651,19 +654,27 @@ check("N5", "月次継続率: 結果待ちがある月・n<30 を実線にせず
   if (hollow !== 1) throw new Error("未確定の点（結果待ち2件の月）は1つのはずが " + hollow);
   if (/<circle [^>]*><title>26-08/.test(svg)) throw new Error("n<30 の月（26-08, n=10）に点を打っている");
   if (svg.indexOf(">26-08<") < 0) throw new Error("n<30 の月（26-08）を横軸から消している（月があることは残す）");
-  if (h.indexOf("30 件に届かない 1 か月は点を打っていません") < 0 || h.indexOf("2026-08 n=10") < 0)
+  if (h.indexOf("30 件に届かない 1 か月は点を打っていません") < 0)
     throw new Error("n<30 で点を打たなかった月とその理由が書かれていない");
   if (svg.indexOf("27-02") >= 0) throw new Error("n=0 の月（27-02）が図に残っている");
   if (h.indexOf("決着が1件も無い 1 か月") < 0) throw new Error("n=0 で外した月のことが書かれていない");
-  // 下の表。図の注記が表へ誘うので、表でも未確定を確定と同じ太字にしない
-  const tb = h.slice(h.indexOf("満了月ごとの内訳"));
-  const tbl = tb.slice(0, tb.indexOf("</table>"));
-  const bold = [...tbl.matchAll(/<b>([\d.]+%)<\/b>/g)].map((m) => m[1]);
-  if (bold.join(",") !== "50.0%,75.0%")
-    throw new Error("表で太字にしているのが確定の月（50.0% と 75.0%）だけではない: " + bold.join(","));
-  if (count(tbl, /未確定（/g) !== 2) throw new Error("表の未確定の月（結果待ち2件・n=10）に「未確定」が付いていない");
-  const row07 = tbl.slice(tbl.indexOf("<td>2026-07</td>"), tbl.indexOf("</tr>", tbl.indexOf("<td>2026-07</td>")));
-  if (!row07 || row07.indexOf("%") >= 0) throw new Error("n=0 の月（2026-07）の率を 0.0% と出している");
+  /* 🔴 2026-09-29 組み替え（09 の 7）: 満了月ごとの内訳（約60行の表）を外した。前はこの表で、点を打たない月の率と
+     月ごとの継続・解約・充足・結果待ちを読ませていた。黙って隠さないよう、図の下の文と点の説明（数字で読む）に移したことを見る */
+  if (h.indexOf("満了月ごとの内訳") >= 0) throw new Error("満了月ごとの内訳の表が残っている（09 の 7 で外す）");
+  const leg = unNw(h.slice(h.indexOf("</svg>")));
+  if (leg.indexOf("2026-08 70.0%（n=10。継続 7・解約 3・充足 0）") < 0)
+    throw new Error("点を打たなかった n<30 の月の率と件数が図の下に書かれていない");
+  if (leg.indexOf("決着が 0 件で率が出せない月: 2026-07（結果待ち 3 件）") < 0)
+    throw new Error("途中にある n=0 の月（2026-07）と結果待ちの件数が書かれていない");
+  if (/2026-07 0\.0%/.test(leg)) throw new Error("n=0 の月（2026-07）の率を 0.0% と出している");
+  if (leg.indexOf("2027-02 5 件") < 0) throw new Error("末尾の n=0 の月（2027-02）の結果待ちの件数が書かれていない");
+  if (leg.indexOf("結果待ちは分母に入れていません（全部で 10 件）") < 0) throw new Error("結果待ちを分母に入れないことと合計が書かれていない");
+  /* 点の説明（吹き出し・数字で読む）に月ごとの件数。確定の点も未確定の点も */
+  if (!/<title>26-05（n=40）: 50% \/ 継続 20・解約 15・充足 5<\/title>/.test(svg))
+    throw new Error("確定の点の説明に継続・解約・充足の件数が無い");
+  if (!/<title>26-06（n=40）: 60% \/ 継続 24・解約 12・充足 4・結果待ち 2 \/ 未確定<\/title>/.test(svg))
+    throw new Error("未確定の点の説明に結果待ちの件数・未確定が無い");
+  if (h.indexOf("数字で読む（") < 0) throw new Error("図の下の「数字で読む」（M-11）が無い");
 });
 
 /* ================================================================ N8 */
@@ -1187,28 +1198,28 @@ function contactPayload() {
             team: [cell(8, 4), cell(8, 1)], undetermined: [cell(0, 0), cell(0, 0)], shared: [0, 0] },
   };
 }
-/* チームと担当（2026-09-29 組み替え 段A）は consultants・contact-trend・handover を並べて取る。3 本に応答を返す */
-function teamPayload() {
-  return { meta: { n_consultant: 1, not_counted: "※ 担当者の評価ではありません。", retired_deals: 0, retired_people: 0, unknown_owner: 0 },
-    contact_rule: "接触率", rows: [{ consultant: "担当T", n_active: 3, contact_rate: 50, contact_touched: 1, contact_months: 2,
-      atv_max: null, focus: 0, expiring: 0, nps_low: 0, no_contact: 0 }] };
+/* チームと担当（09 の 6、2026-09-29 組み替え）の応答。routes.rs build_team の形（consultants / status / contact / handover を束ねる） */
+function teamPayload(o) {
+  return Object.assign({
+    meta: { today: "2026-09-18", n_consultant: 0, n_active: 0, unknown_owner: 0, retired_deals: 0, retired_people: 0,
+            owner_ties: 0, not_counted: "※ 担当者の評価ではありません。" },
+    consultants: { meta: {}, rows: [], contact_rule: "", focus_rule: "", owner_rule: "", small_n_rule: "" },
+    status: { rows: [], meta: { n_active: 0, n_flags2: 0, expiring_week: 0, min_flags: 2, week_days: 7, unknown: {},
+              flag_labels: { no_contact: "接触の記録が無い", expiring60: "満了まで60日以内", nps_low: "NPSが4以下" } } },
+    contact: contactPayload(),
+    handover: { meta: { n: 0, n_active: 0 }, rows: [], reflected_dist: [], to_retired: 0, median_gap_days: null, n_gap: 0 },
+  }, o || {});
 }
-async function openTeam(t, over) {
-  const n = t.fetched.length;
-  t.R('go("research", "team")');
-  const reqs = t.fetched.slice(n);
-  const want = ["/api/consulting/consultants", "/api/consulting/contact-trend", "/api/consulting/handover"];
-  for (const w of want)
-    if (!reqs.some((q) => q.url.indexOf(w + "?") === 0)) throw new Error("チームと担当で " + w + " を取りに行っていない: " + reqs.map((q) => q.url).join(" "));
-  if (reqs.length !== 3) throw new Error("チームと担当で取りに行く数が 3 でない: " + reqs.length);
-  const body = Object.assign({ consultants: teamPayload(), "contact-trend": contactPayload(), handover: handoverPayload() }, over || {});
-  reqs.forEach((q) => { const k = want.find((w) => q.url.indexOf(w + "?") === 0).split("/").pop(); q.resolve(jsonRes(body[k])); });
-  await tick(); await tick(); await tick(); await tick();
-  return reqs;
-}
-check("C1", "担当者ごとの接触（チームと担当の節）: 開くと contact-trend を1回だけ取り、週ごとに切り替えても取り直さずに描き直す", async () => {
+/* 2026-09-29 組み替え（09 の 6）: 担当者ごとの接触は「チームと担当」（/api/consulting/team）の中の節「接触の推移」になった。
+   応答に月・週の両方が入っているので、切り替えで取り直さない性質は同じ */
+check("C1", "担当者ごとの接触: 開くと contact-trend を1回だけ取り、週ごとに切り替えても取り直さずに描き直す", async () => {
   const t = boot();
-  await openTeam(t);
+  t.R('go("research", "team")');
+  const req = t.fetched[t.fetched.length - 1];
+  if (!req || req.url.indexOf("/api/consulting/team") !== 0)
+    throw new Error("チームと担当で team を取りに行っていない: " + (req && req.url));
+  req.resolve(jsonRes(teamPayload()));
+  await tick(); await tick();
   const main = t.reg["cs-main"];
   if (t.reg["cs-error"].innerHTML) throw new Error("描けていない: " + t.reg["cs-error"].innerHTML);
   if (main.innerHTML.indexOf("担当A") < 0 || main.innerHTML.indexOf("担当W") >= 0)
@@ -1259,16 +1270,26 @@ function handoverPayload() {
     },
   };
 }
-check("H1", "担当の交代（チームと担当の節）: 開くと handover を取り、交代の前後の接触を描く（undefined・NaN を出さない）", async () => {
+/* 2026-09-29 組み替え（09 の 6）: 担当の交代は「チームと担当」の中の節になった（応答の handover） */
+check("H1", "担当の交代: 開くと handover を取り、交代の前後の接触を描く（undefined・NaN を出さない）", async () => {
   const t = boot();
-  await openTeam(t);
+  t.R('go("research", "team")');
+  const req = t.fetched[t.fetched.length - 1];
+  if (!req || req.url.indexOf("/api/consulting/team") !== 0)
+    throw new Error("チームと担当で team を取りに行っていない: " + (req && req.url));
+  req.resolve(jsonRes(teamPayload({ handover: handoverPayload() })));
+  await tick(); await tick();
   const h = t.reg["cs-main"].innerHTML;
   for (const w of ["交代の前後で、接触は増えたか減ったか", "証拠ではありません", "引き継いだ側（次の担当）", "引き継がれた側（前の担当）",
     "接触の前後（30日あたり）", "記録の遅れ", "それぞれの担当期間の全体（通期）", "変化の平均 / 中央値", "担当中"])
     if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
   if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
-  // 担当者ごとの接触は同じ画面の節になった。本文のリンクはその節へ飛ぶ形（?at=）
-  if (h.indexOf('href="#research/team?at=team-contact"') < 0) throw new Error("担当者ごとの接触（節）へのリンクが無い");
+  /* 担当者ごとの接触は同じ画面の節（接触の推移）。そこへ移るボタン（URL のハッシュは変えない） */
+  if (h.indexOf('<button type="button" class="tojump" data-jump="tm-ct-h">接触の推移</button>') < 0 || h.indexOf('id="tm-ct-h"') < 0)
+    throw new Error("担当者ごとの接触（同じ画面の接触の推移）への行き先が無い");
+  /* 交代の表の案件名は案件の詳細へ（09 の 3「担当の交代の表の案件名もリンクにする」） */
+  if (h.indexOf('<a class="deallink" href="#deal/detail?id=40000000001">案件X</a>') < 0)
+    throw new Error("交代の表の案件名が案件の詳細へのリンクでない");
 });
 
 /* ================================================================ D 案件の詳細（2026-09-26） */
@@ -1780,11 +1801,15 @@ check("M-2", "貼った URL の状態で開く（案件そのもの: 担当・�
   if (boot("#consultant/contact?unit=zzz").R("contactUnit") !== "month") throw new Error("単位に無い値（zzz）をそのまま入れている");
   const t5 = boot("#study/renewal?excl=1");
   if (t5.R("renewalExcludeCensored") !== true) throw new Error("右側打ち切りを外す指定が URL から入らない");
-  const u5 = t5.fetched.filter((f) => f.url.indexOf("/api/consulting/renewal?") === 0).pop();
+  const u5 = t5.fetched.filter((f) => f.url.indexOf("/api/consulting/results?") === 0).pop();
   if (!u5 || u5.url.indexOf("exclude_right_censored=1") < 0) throw new Error("URL の指定で外す側で取りに行っていない");
   if (boot("#monthly/results?excl=1").R("renewalExcludeCensored") !== true) throw new Error("新しい形の URL で打ち切りの指定が入らない");
-  /* 古い形はそのまま開ける（#study は前の「集計」の先頭＝継続回数 × 成果 → 成果と継続） */
+  /* 古い形はそのまま開ける（#study は前の「集計」の先頭＝継続回数 × 成果 → 成果と継続）。
+     画面が無くなった古いハッシュ（担当者ごとの接触・継続回数 × 成果・担当の交代）は、まとめた先の画面で状態ごと開く */
   if (boot("#study").R("cur.view") !== "results" || boot("#deal/board").R("cur.view") !== "board") throw new Error("古い形（#study、#deal/board）が開かない");
+  const t7 = boot("#study/renewal?excl=1");
+  if (t7.R("cur.view") !== "results" || t7.R("renewalExcludeCensored") !== true) throw new Error("古い #study/renewal?excl=1 が成果と継続（打ち切りを外す）で開かない");
+  if (boot("#consultant/handover").R("cur.view") !== "team") throw new Error("古い #consultant/handover がチームと担当で開かない");
 });
 
 check("M-2", "左の項目・本文のリンクから入り直すと、その画面の絞り込みだけ既定に戻る（段1レビュー D）。法人・並び（持ち越すもの）は残る", async () => {
@@ -2485,26 +2510,29 @@ check("N8", "戻るで旧ハッシュの転送先へ帰ったとき、帯（#cs-
 });
 
 check("more", "1 画面が複数の API を読む（MENUS の more）: どれかが失敗したら画面ごと失敗にしてどの API かを書く。読み直すは主の 1 本だけ refresh=1 で、more は主の後に取る", async () => {
+  /* 2026-09-29 段A の統合: チームと担当・成果と継続は束ねた API 1 本になったので、more を使うのは記録と数字の信頼度
+     （data-quality ＋ mtg-quality）。同じ性質をそこで見る */
   const t = boot();
-  t.R('go("research", "team")');
-  const reqs = t.fetched.slice(-3);
-  reqs[0].resolve(jsonRes(teamPayload()));
-  reqs[1].resolve(jsonRes(contactPayload()));
-  reqs[2].resolve(jsonRes({ error: true, message: "交代のシートが読めません" }));
+  t.R('go("monthly", "trust")');
+  const reqs = t.fetched.slice(-2);
+  if (reqs.length !== 2 || reqs[0].url.indexOf("/api/consulting/data-quality?") !== 0 || reqs[1].url.indexOf("/api/consulting/mtg-quality?") !== 0)
+    throw new Error("前提: 記録と数字の信頼度で主と more を並べて取っていない: " + reqs.map((q) => q.url).join(" "));
+  reqs[0].resolve(jsonRes({ meta: {} }));
+  reqs[1].resolve(jsonRes({ error: true, message: "MTG のシートが読めません" }));
   await tick(); await tick(); await tick(); await tick();
   const err = t.reg["cs-error"].innerHTML;
-  if (err.indexOf("/api/consulting/handover") < 0 || err.indexOf("交代のシートが読めません") < 0)
+  if (err.indexOf("/api/consulting/mtg-quality") < 0 || err.indexOf("MTG のシートが読めません") < 0)
     throw new Error("more の失敗が、どの API かとサーバの文つきで出ていない: " + err);
-  if (t.reg["cs-main"].innerHTML.indexOf("いま、どこに手が回っていないか") >= 0) throw new Error("more が失敗したのに、節を欠いたまま描いている");
+  if (t.reg["cs-main"].innerHTML.indexOf("どの記録が欠け・偏っていて") >= 0) throw new Error("more が失敗したのに、節を欠いたまま描いている");
   /* 読み直す（load(true)）: まず主の 1 本だけ refresh=1。返ってから more を refresh なしで取る */
   const n = t.fetched.length;
   t.R("load(true)");
-  if (t.fetched.length - n !== 1 || t.fetched[n].url.indexOf("/api/consulting/consultants?") !== 0 || t.fetched[n].url.indexOf("refresh=1") < 0)
+  if (t.fetched.length - n !== 1 || t.fetched[n].url.indexOf("/api/consulting/data-quality?") !== 0 || t.fetched[n].url.indexOf("refresh=1") < 0)
     throw new Error("読み直すで主の 1 本だけを refresh=1 で先に取っていない: " + t.fetched.slice(n).map((q) => q.url).join(" "));
-  t.fetched[n].resolve(jsonRes(teamPayload()));
+  t.fetched[n].resolve(jsonRes({ meta: {} }));
   await tick(); await tick();
   const rest = t.fetched.slice(n + 1);
-  if (rest.length !== 2 || rest.some((q) => q.url.indexOf("refresh") >= 0))
+  if (rest.length !== 1 || rest[0].url.indexOf("/api/consulting/mtg-quality?") !== 0 || rest.some((q) => q.url.indexOf("refresh") >= 0))
     throw new Error("more を主の後に refresh なしで取っていない: " + rest.map((q) => q.url).join(" "));
 });
 
