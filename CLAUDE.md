@@ -59,7 +59,7 @@ memory 参照は MEMORY.md (auto memory) ベースで管理。各ルール → �
 | 認証 | bcrypt (Cargo.toml `bcrypt = "0.16"`) / 平文 / 外部期限付きパスワード + ドメイン許可 + IP レート制限 |
 | 雇用形態 | 正社員 / パート / その他 (3 値、survey は 4 値、jobmap は 4 値) |
 | ポート | 9216 (デフォルト、`PORT` env で上書き) |
-| デプロイ | Render Free / Docker / `hr-hw.onrender.com` |
+| デプロイ | Render(有料プラン。プラン名はダッシュボード参照。`render.yaml` の `plan: free` は実態と違う。2026-09-29 ユーザー確認) / Docker / `hr-hw.onrender.com` |
 
 ---
 
@@ -569,6 +569,7 @@ Before changing these areas, read all of the following:
 - @docs/architecture/frontend-react-migration.md
 - @docs/architecture/headless-crm-design.md
 - @docs/architecture/architecture-decisions.md
+- `docs/architecture/react-full-migration-plan.md` (全画面移行の波・完了条件・撤去手順。画面を React に移すときに読む。分量が多いので自動読み込みはしない)
 
 Key rules:
 
