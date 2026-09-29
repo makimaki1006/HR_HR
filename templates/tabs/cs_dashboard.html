@@ -6789,11 +6789,15 @@ function dayDiff(a, b) {
   const x = p(a), y = p(b);
   return x == null || y == null ? null : Math.round((y - x) / 86400000);
 }
-/** today から n か月前の日（"YYYY-MM-DD"）。読めなければ ""（絞らない） */
+/** today から n か月前の日（"YYYY-MM-DD"）。読めなければ ""（絞らない）。
+    🔴 日はその月の末日で止める。前は Date.UTC に日をそのまま渡し、月末の日付で次の月へ繰り上がっていた
+       （today=2026-05-31 の3か月前が 2026-02-31 → 2026-03-03 になり、窓が 3 日短かった。2026-09-29 検証） */
 function monthsBefore(today, n) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(today || ""));
   if (!m) return "";
-  const d = new Date(Date.UTC(+m[1], +m[2] - 1 - n, +m[3]));
+  const y = +m[1], mo = +m[2] - 1 - n;
+  const last = new Date(Date.UTC(y, mo + 1, 0)).getUTCDate();   /* その月の末日（0 日目 = 前の月の末日） */
+  const d = new Date(Date.UTC(y, mo, Math.min(+m[3], last)));
   return d.toISOString().slice(0, 10);
 }
 
@@ -7014,28 +7018,6 @@ function renderDetail(D) {
   /* ---- 次の行動に要るもの（M-3 (1)）。電話の前に読む3つ（最後にいつ話したか・何を約束したか・何を気にしていたか）を1画面目に ---- */
   h += detailNext(D);
 
-  /* ---- 契約の連なり（M-3 (3)）: 前後の契約を1行、表は畳む ---- */
-  const rows = (ch && ch.rows) || [];
-  if (rows.length > 1) {
-    const at = rows.findIndex((r) => r.current);
-    const prev = at > 0 ? rows[at - 1] : null, next = at >= 0 ? rows[at + 1] : null;
-    h += '<div class="lede">同じ拠点の契約の連なり: ' +
-      (prev ? "前の契約 " + dealLink(prev.deal_id, prev.name, true) : "前の契約なし") + " &#8592; " +
-      "<b>いま（" + (at >= 0 ? num(at + 1) + " 件目" : "位置不明") + " / 全 " + num(rows.length) + " 件）</b> &#8594; " +
-      (next ? "次の契約 " + dealLink(next.deal_id, next.name, true) : "次の契約なし") + "</div>";
-    h += '<details class="fold" id="dd-chain"><summary>同じ拠点の契約の連なりを表で見る（' + num(rows.length) + " 件・開始の古い順）</summary>" +
-      scroll(table([{ t: "案件", w: "l" }, { t: "ステージ", w: "s" }, { t: "開始〜満了" },
-                    { t: "継続", n: 1 }, { t: "金額", n: 1 }, { t: "状態" }],
-        rows.map((r) => [r.current ? "<b>" + esc(r.name) + '</b> <span class="tag e">いま見ている</span>'
-            : dealLink(r.deal_id, r.name),
-          '<span class="muted small">' + esc(r.stage) + "</span>",
-          (esc(r.start) || DASH) + "<br>〜" + (esc(r.expiration) || DASH),
-          nz(r.renewal_no), yen(r.amount), r.is_active ? '<span class="tag e">稼働中</span>' : ""])), 320) +
-      "</details>";
-  } else if (ch && !ch.has_site) {
-    h += '<div class="lede">拠点が入っていないので、前後の契約はたどれません。</div>';
-  }
-
   /* ---- 時系列 ---- */
   h += sec("図", "時系列（新しい順）", "dd-tl-h");
   if (D.meta.summary_sheet !== "ok") {
@@ -7102,6 +7084,29 @@ function renderDetail(D) {
   const R = D.rules || {};
   h += note("def", "並べ方の決まり", [R.fact, R.link, R.attach, R.contact, R.summary, R.extracted, R.handler, R.handover]
     .filter(Boolean).map(esc).join("<br>"));
+  /* ---- 契約の連なり（M-3 (3)）: 前後の契約を1行、表は畳む ----
+     🔴 09 の 3章の順（時系列の後）。前は時系列より上にあり、時系列を1画面目から押し出していた（2026-09-29 検証） */
+  const rows = (ch && ch.rows) || [];
+  if (rows.length > 1) {
+    const at = rows.findIndex((r) => r.current);
+    const prev = at > 0 ? rows[at - 1] : null, next = at >= 0 ? rows[at + 1] : null;
+    h += '<div class="lede">同じ拠点の契約の連なり: ' +
+      (prev ? "前の契約 " + dealLink(prev.deal_id, prev.name, true) : "前の契約なし") + " &#8592; " +
+      "<b>いま（" + (at >= 0 ? num(at + 1) + " 件目" : "位置不明") + " / 全 " + num(rows.length) + " 件）</b> &#8594; " +
+      (next ? "次の契約 " + dealLink(next.deal_id, next.name, true) : "次の契約なし") + "</div>";
+    h += '<details class="fold" id="dd-chain"><summary>同じ拠点の契約の連なりを表で見る（' + num(rows.length) + " 件・開始の古い順）</summary>" +
+      scroll(table([{ t: "案件", w: "l" }, { t: "ステージ", w: "s" }, { t: "開始〜満了" },
+                    { t: "継続", n: 1 }, { t: "金額", n: 1 }, { t: "状態" }],
+        rows.map((r) => [r.current ? "<b>" + esc(r.name) + '</b> <span class="tag e">いま見ている</span>'
+            : dealLink(r.deal_id, r.name),
+          '<span class="muted small">' + esc(r.stage) + "</span>",
+          (esc(r.start) || DASH) + "<br>〜" + (esc(r.expiration) || DASH),
+          nz(r.renewal_no), yen(r.amount), r.is_active ? '<span class="tag e">稼働中</span>' : ""])), 320) +
+      "</details>";
+  } else if (ch && !ch.has_site) {
+    h += '<div class="lede">拠点が入っていないので、前後の契約はたどれません。</div>';
+  }
+
   /* 戻り道（09 の 3 の 5）。担当を選んでいれば今日動く先はその担当で開く（c は持ち越す状態。hashFor に載せない） */
   h += '<div class="lede"><a class="golink" href="' + esc(hashFor("today")) + '">今日動く先へ戻る</a></div>';
   return h + foot(D.meta, true, "");
@@ -7139,7 +7144,23 @@ function detailNext(D) {
   const kv = (k, v) => '<div><span class="k">' + esc(k) + "</span>" + v + "</div>";
   const left = dayDiff(today, d.expiration);
   const exp = '<span class="muted small nw">（' + esc(d.expiration) + "）</span>";
-  let h = '<div class="dd-kv">' +
+  /* 🔴 09 の 3章の 2「属性の1行＋最後の接触…」。前は属性を10項目の枠（dd-kv）で出し、時系列の最初の行が
+     1440×900 でも1画面目の外だった（2026-09-29 検証: 時系列の見出し y=699・最初の行 y=960）。
+     枠は電話の前に読む4つ（最後の接触・最後の MTG・満了まで・担当）だけにし、残りの属性は1行にする。
+     継続回数はパンくずの「この案件（N回目の継続）」に出ているので、この行には重ねない */
+  const sepA = '<span class="muted small" aria-hidden="true">・</span>';
+  const attr = [
+    "ステージ " + (esc(d.stage) || DASH),
+    "契約 " + (esc(d.start) || DASH) + " 〜 " + (esc(d.expiration) || DASH) +
+      (d.period != null ? '<span class="muted small nw">（' + num(d.period) + "か月）</span>" : ""),
+    "金額 " + yen(d.amount),
+    (d.is_active ? '<span class="tag e">稼働中</span>' : "稼働中ではない") +
+      (d.right_censored ? ' <span class="tag">未確定</span>' : ""),
+    "名札 " + (d.flags == null ? '<span class="muted small">稼働中の案件にだけ付けています</span>'
+      : d.flags.length ? d.flags.map((f) => '<span class="tag">' + esc(f) + "</span>").join("")
+      : '<span class="muted small">なし</span>')];
+  let h = '<div class="lede" id="dd-attr">' + attr.join(sepA) + "</div>" +
+    '<div class="dd-kv">' +
     kv("最後の接触（MTG・60秒超の電話）", ct
       ? "<b>" + esc(ct.date) + "</b>" + ago(ct.date) + " " + (ct.kind === "mtg" ? "MTG（録画）" : "電話 " + durText(ct.duration_sec))
       : '<span class="muted small">この契約の期間に接触の記録がありません</span>') +
@@ -7151,16 +7172,6 @@ function detailNext(D) {
       ? '<a href="' + esc(hashFor("board", { c: d.consultant })) + '" title="この担当の案件を案件そのもので見る">' + esc(d.consultant) + "</a>"
       : DASH) +
       (d.consultant_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "")) +
-    kv("ステージ", esc(d.stage) || DASH) +
-    kv("契約期間", (esc(d.start) || DASH) + " 〜 " + (esc(d.expiration) || DASH) +
-      (d.period != null ? '<span class="muted small nw">（' + num(d.period) + "か月）</span>" : "")) +
-    kv("金額", yen(d.amount)) +
-    kv("継続回数", d.renewal_no == null ? DASH : d.renewal_no === 0 ? "初回" : num(d.renewal_no) + "回目") +
-    kv("状態", (d.is_active ? '<span class="tag e">稼働中</span>' : "稼働中ではない") +
-      (d.right_censored ? ' <span class="tag">未確定</span>' : "")) +
-    kv("名札", d.flags == null ? '<span class="muted small">稼働中の案件にだけ付けています</span>'
-      : d.flags.length ? d.flags.map((f) => '<span class="tag">' + esc(f) + "</span>").join("")
-      : '<span class="muted small">なし</span>') +
     "</div>";
   if (sm && sm.kind === "call") {
     /* 🔴 AI 要約は取り違えを含む（2026-09-26 検証: 手で突き合わせた約11件中2件が誤り）。見出しで必ず断る */
