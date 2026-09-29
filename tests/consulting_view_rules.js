@@ -5579,6 +5579,15 @@ check("M-5 (c): foot（基準日・件数・読むときの注意）は画面の
   ok(mix.includes('<span class="hd">読むときの注意と集計の基準日と件数</span>') && mix.includes("予測ではありません") && mix.includes("取引 3 件"), "まとめた箱の見出しか中身が違う: " + mix);
   ctx.__OF4 = run('foot({ today: "2026-09-18", n_deals: 3 })') + "<p>x</p>" + run('foot({ today: "2026-09-17" }, true)');
   ok(run("oneFoot(__OF4)").includes('<span class="hd">集計の基準日と件数</span>'), "読むときの注意の文が無いのに見出しに書いている");
+  // 🔴 2026-09-30 検証（monthly/trust）: 基準日が同じなら頭に 1 回だけ。基準日しか無い節の行は残さない
+  ctx.__OF5 = '<h2 class="sec mincho mid"><span class="no">データ品質</span>x</h2>' + run('foot({ today: "2026-09-18", n_deals: 3432, n_active: 604 })') +
+    '<p>中</p><h2 class="sec mincho mid"><span class="no">MTG の品質</span>y</h2>' + run('foot({ today: "2026-09-18" })');
+  const d5 = run("oneFoot(__OF5)");
+  ok((d5.match(/2026-09-18/g) || []).length === 1 && d5.includes("<p>基準日 2026-09-18<br><b>データ品質</b>: 取引 3,432 件（稼働中 604 件）</p>") && !d5.includes("MTG の品質</b>"),
+    "同じ基準日を節ごとに書いている、または件数が消えた: " + d5.slice(d5.indexOf("data-foot")));
+  // 基準日が違えば、節ごとに書いたまま（どちらがいつかを消さない）
+  const d4 = run("oneFoot(__OF4)");
+  ok(d4.includes("2026-09-18") && d4.includes("2026-09-17"), "基準日の違う節の日付を消している: " + d4);
   // foot が 1 箱で末尾にある画面は変えない。foot が無ければそのまま
   const one = run("renderPhone(__PH)");
   ctx.__P1 = one;   /* 同じ文字列で比べる（描くたびに図の番号 data-fk が進む） */

@@ -4069,8 +4069,18 @@ function oneFoot(html) {
   /* 見出しは中身どおりに（読むときの注意の文が無いのに「読むときの注意」と書かない） */
   const base = hds.indexOf("集計の基準日と件数") >= 0 ? "集計の基準日と件数" : "集計の基準日";
   const hd = hds.length === 1 ? hds[0] : hds.indexOf("読むときの注意") >= 0 ? "読むときの注意と" + base : base;
+  /* 基準日が全部同じなら頭に 1 回だけ書く。🔴 2026-09-30 検証（fixture 1440px、monthly/trust）: 前は
+     「データ品質: 基準日 2026-09-18　取引 3,432 件…／MTG の品質: 基準日 2026-09-18」と同じ日を 2 回書いていた。
+     基準日しか無かった節（MTG の品質）は、その行ごと消える（言うことが基準日だけで、頭に書いたので） */
+  const DAY = /(?:<br>)?基準日 (\d{4}-\d{2}-\d{2})　?/;
+  const days = uniq.map((p) => (p.body.match(DAY) || [])[1] || "");
+  const oneDay = uniq.length > 1 && days[0] && days.every((d) => d === days[0]) ? days[0] : "";
+  const rows = oneDay
+    ? uniq.map((p) => Object.assign({}, p, { body: p.body.replace(DAY, "").replace(/(<br>)+$/, "") })).filter((p) => p.body.trim())
+    : uniq;
   const body = uniq.length === 1 ? uniq[0].body
-    : uniq.map((p) => (p.sec ? "<b>" + p.sec + "</b>: " : "") + p.body).join("<br>");
+    : (oneDay ? "基準日 " + oneDay + (rows.length ? "<br>" : "") : "") +
+      rows.map((p) => (p.sec ? "<b>" + p.sec + "</b>: " : "") + p.body).join("<br>");
   return rest + '<div class="note def" data-foot="1"><span class="hd">' + hd + "</span><p>" + body + "</p></div>";
 }
 
