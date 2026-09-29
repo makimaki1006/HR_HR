@@ -2293,7 +2293,7 @@ check("S-2", "今日動く先以外の画面でも、KPI の札を押すと同�
 
 /* ================================================================ 画面の組み替え 段A（2026-09-29、handover 09 の 3章・5章 N8・10章）
    17 画面 → 1 列・3 区切り・11 画面。旧ハッシュは新しい画面へ送り、2 週間「この画面は○○に移りました」の帯を出す。
-   🔴 帯を出す期限（MOVED_NOTICE_UNTIL）を過ぎても転送は続ける。見張りは日付を固定して見る（実行した日で結果が変わらないように） */
+   🔴 帯を出す期限（MOVED_NOTICE_UNTIL。端末で初めて開いた日から 14 日）を過ぎても転送は続ける。見張りは日付を固定して見る（実行した日で結果が変わらないように） */
 const fixedDate = (iso) => class extends Date {
   constructor(...a) { if (a.length) super(...a); else super(iso); }
   static now() { return new Date(iso).getTime(); }
@@ -2332,11 +2332,31 @@ check("N8", "旧ハッシュ 17 本（と区切りだけの #consultant・#study
   const t2 = boot("#study/dq", { Date: D });
   t2.R('go("deal", "today")');
   if (t2.reg["cs-moved"].innerHTML || t2.reg["cs-moved"].hidden !== true) throw new Error("別の画面へ移っても帯が残る");
+  /* 帯を出すのは、その端末で組み替えた後の画面を初めて開いた日から 14 日（N8「2週間」）。
+     🔴 前は固定の日付（2026-10-13）で、本番に入れるのが遅れると短くなり、過ぎてから入れると一度も出なかった（2026-09-29 検証）。
+     初めて開いた日を端末に覚え、そこから数える */
+  const seenOn = (iso, seen) => {
+    const { store, ls } = fakeStore();
+    if (seen) store["cs.layoutSeen.1"] = seen;
+    return { t: boot("#study/dq", { Date: fixedDate(iso), localStorage: ls }), store };
+  };
+  const first = seenOn("2026-09-30T09:00:00+09:00", null);
+  if (first.store["cs.layoutSeen.1"] !== "2026-09-30") throw new Error("初めて開いた日を端末に覚えていない: " + JSON.stringify(first.store));
+  if (first.t.reg["cs-moved"].innerHTML.indexOf("2026-10-13 まで") < 0) throw new Error("初めて開いた日（9/30）から 14 日目（10/13）までと書いていない: " + first.t.reg["cs-moved"].innerHTML);
+  if (seenOn("2026-10-13T09:00:00+09:00", "2026-09-30").t.reg["cs-moved"].hidden !== false) throw new Error("14 日目（最後の日）に帯を出していない");
   /* 期限の後は帯を出さないが、転送は続ける（ブックマークを壊さない） */
-  const t3 = boot("#study/dq", { Date: fixedDate("2026-10-14T09:00:00+09:00") });
+  const t3 = seenOn("2026-10-14T09:00:00+09:00", "2026-09-30").t;
   if (t3.R("cur.view") !== "trust") throw new Error("期限の後に転送をやめている");
   if (t3.reg["cs-moved"].innerHTML) throw new Error("期限（MOVED_NOTICE_UNTIL）の後も帯を出している");
-  if (t3.R("MOVED_NOTICE_UNTIL") !== "2026-10-13") throw new Error("前提: 帯の期限が 2026-10-13 でない（変えたらこの見張りの日付も直す）");
+  /* 本番に入れるのが遅れた（固定の日付なら過ぎている 11/20 に初めて開いた）: そこから 14 日出す */
+  const late = seenOn("2026-11-20T09:00:00+09:00", null).t;
+  if (late.reg["cs-moved"].hidden !== false || late.reg["cs-moved"].innerHTML.indexOf("2026-12-03 まで") < 0)
+    throw new Error("初めて開いたのが遅い日でも、その日から 14 日出していない: " + late.reg["cs-moved"].innerHTML);
+  /* 端末に覚えられない（私的モード）: 期限を決められないので帯を出す（案内を黙って消さない）。日付は書かない */
+  const blocked = () => { throw new Error("SecurityError"); };
+  const tb = boot("#study/dq", { Date: fixedDate("2027-03-01T09:00:00+09:00"), localStorage: { getItem: blocked, setItem: blocked, removeItem: blocked } });
+  if (tb.R("cur.view") !== "trust" || tb.reg["cs-moved"].hidden !== false || /まで出します/.test(tb.reg["cs-moved"].innerHTML))
+    throw new Error("端末に覚えられないとき、帯を出していない・期限の日付を書いている: " + tb.reg["cs-moved"].innerHTML);
   /* 貼られた旧ハッシュで、いま同じ画面を開いていても書き直して帯を出す（同じ場所として無視しない） */
   const t4 = boot("#research/team", { Date: D });
   navHash(t4, "#consultant/contact");

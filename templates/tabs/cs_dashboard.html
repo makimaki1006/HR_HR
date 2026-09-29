@@ -7402,9 +7402,25 @@ Object.keys(LEGACY).forEach((k) => {
   const vk = k.indexOf("/") >= 0 ? k.split("/")[1] : "";
   if (vk && !menuHaving(vk)) LEGACY_VIEW[vk] = LEGACY[k];
 });
-/* 「この画面は○○に移りました」の帯を出す最後の日（N8「2週間」）。🔴 本番に入れた日から 2 週間にする。
-   入れる日が決まったらここを直す（過ぎた後も転送は続け、帯だけ出さない） */
-const MOVED_NOTICE_UNTIL = "2026-10-13";
+/* 「この画面は○○に移りました」の帯を出す期間（N8「2週間」）。過ぎた後も転送は続け、帯だけ出さない。
+   🔴 前は最後の日を固定の日付（"2026-10-13"）で書いていた。本番に入れるのが遅れるとその分だけ短くなり、
+      その日より後に入れると帯は一度も出なかった（2026-09-29 検証。統合する側が直し忘れれば黙って消える）。
+      その端末で組み替えた後の画面を初めて開いた日（端末に覚える）から 14 日にする。毎日開く人には本番に入れた日と同じ日になる。
+      覚えられない端末（私的モード・保存の禁止）では期限を決められないので、帯を出す側に倒す（案内を黙って消さない） */
+const MOVED_NOTICE_DAYS = 14;
+const LAYOUT_SEEN_KEY = "cs.layoutSeen.1";
+/** 帯を出す最後の日（YYYY-MM-DD）。端末に覚えられなければ ""（期限なしで出す） */
+const MOVED_NOTICE_UNTIL = (() => {
+  let seen = "";
+  try {
+    seen = String(localStorage.getItem(LAYOUT_SEEN_KEY) || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(seen)) { seen = localDay(); localStorage.setItem(LAYOUT_SEEN_KEY, seen); }
+  } catch (_) { return ""; }
+  const p = seen.split("-").map(Number);
+  const d = new Date(p[0], p[1] - 1, p[2] + MOVED_NOTICE_DAYS - 1);
+  const z = (n) => (n < 10 ? "0" : "") + n;
+  return d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate());
+})();
 
 /** 区切りの鍵と画面の鍵から、開く画面を決める（go・hashFor・goLink・fromHash が共通で使う）。
     返り値 { m: 区切り, v: 画面, moved: 旧ハッシュの転送（LEGACY の 1 行）か null, exact: 鍵が見つかったか }。
@@ -7728,7 +7744,7 @@ function fromHash() {
   return { menu: m.key, view: (v || m.views[0]).key, id: params.get("id") || "", params: params, known: true, moved: null };
 }
 /* ---------------------------------------------------------------- 移ったことの帯と節への移動（N8）
-   旧ハッシュから来たときだけ、本文の上に「この画面は○○に移りました」を出す（MOVED_NOTICE_UNTIL まで）。
+   旧ハッシュから来たときだけ、本文の上に「この画面は○○に移りました」を出す（MOVED_NOTICE_UNTIL まで。端末で初めて開いた日から 14 日）。
    次に別の画面へ移ったら消す（go が毎回 showMoved を呼ぶ）。🔴 帯を出さなくなった後も転送は続ける（ブックマークを壊さない） */
 let pendingAt = "";
 function localDay() {
@@ -7739,12 +7755,13 @@ function localDay() {
 function showMoved(moved, v) {
   const box = document.getElementById("cs-moved");
   if (!box) return;
-  if (!moved || localDay() > MOVED_NOTICE_UNTIL) { box.innerHTML = ""; box.hidden = true; return; }
+  if (!moved || (MOVED_NOTICE_UNTIL && localDay() > MOVED_NOTICE_UNTIL)) { box.innerHTML = ""; box.hidden = true; return; }
   box.hidden = false;
   box.innerHTML = note("info", "この画面は「" + v.label + "」に移りました",
     "開いたアドレス（ブックマークなど）は、画面を組み替える前の「" + esc(moved.was) + "」のものです。" +
     "いまは「" + esc(v.label) + "」" + (moved.at ? "の中にあり、その場所まで送っています" : "で見られます") +
-    "。ブックマークを付け直してください（この案内は " + esc(MOVED_NOTICE_UNTIL) + " まで出します）。");
+    "。ブックマークを付け直してください" +
+    (MOVED_NOTICE_UNTIL ? "（この案内は " + esc(MOVED_NOTICE_UNTIL) + " まで出します）" : "") + "。");
 }
 /** 画面の中の節（id）へ送る。focus: フォーカスも移す（開いた直後は移さない。読み上げが鮮度の帯を飛ばさないように） */
 function jumpTo(id, focus) {
