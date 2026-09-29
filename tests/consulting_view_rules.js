@@ -2041,8 +2041,13 @@ check("team: 稼働中の件数を KPI と末尾で繰り返さず、KPI の見�
 });
 
 check("色と印の意味: ▲▼ は良し悪しの向きで、表の見出しの ▲▼（並び順）とは別だと書く", () => {
-  ok(html.includes("&#9650; まずい / 悪化（値の上がり下がりではなく良し悪し"), "凡例に ▲ の意味の断りが無い");
-  ok(html.includes("表の見出しの &#9650; / &#9660; は並び順"), "凡例に表の見出しの ▲▼ の断りが無い");
+  // M-1 の (3)（2026-09-29）: 「色と印の意味」はヘッダの畳みから定義と検証の表へ 1 か所に。断りはその表で見る
+  const dl = run("renderDefs()");
+  const dLeg = dl.slice(dl.indexOf("色と印の意味"), dl.indexOf("この画面が守っていること"));
+  ok(/&#9650;<\/td><td[^>]*>まずい \/ 悪化。<b>値の上がり下がりではなく良し悪しの向き<\/b>/.test(dLeg) || dLeg.includes("まずい / 悪化。<b>値の上がり下がりではなく良し悪しの向き</b>"),
+    "凡例（定義と検証の色と印の意味）に ▲ の意味の断りが無い");
+  ok(dLeg.includes("表の見出しの &#9650; / &#9660;") && dLeg.includes("並び順（小さい順 / 大きい順）。良し悪しではありません"), "凡例に表の見出しの ▲▼ の断りが無い");
+  ok(html.includes('href="#study/defs">色と印の意味 → 定義と検証</a>'), "ヘッダから凡例（定義と検証）へのリンクが無い");
   // その注記（<i class="full">）が1行まるごと使う。.figlegend 用の定義しか無く、横に並んでいた（2026-09-24 検証）
   ok(/\.legend i\.full\{[^}]*flex:1 0 100%/.test(html), "「色と印の意味」の注記（.legend i.full）が1行を占める CSS が無い");
   const d = run("renderDefs()");
@@ -3716,9 +3721,9 @@ check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で�
     /* 読み上げ名は見た目の文字「HS」で始める（WCAG 2.5.3 Label in Name。音声操作で「HS」と言って一致する）。
        前は「HubSpot でこの取引を開く（新しいタブ）」で見た目の語を含まなかった（2026-09-28 検証の指摘） */
     ok(/>HS<\/a>/.test(hs) && /aria-label="HS: HubSpot でこの取引を開く（新しいタブ）"/.test(hs), "表の横の印が小さな「HS」（読み上げは「HS: …」で始まる aria-label）でない: " + hs);
-    /* 「HS」の意味は title だけでなく、他の印と同じく「色と印の意味」（ヘッダの畳みと定義と検証）に載せる（タッチでは title が出ない） */
-    const legend = html.slice(html.indexOf('<details class="fold" id="cs-legend">'), html.indexOf("</details>", html.indexOf('id="cs-legend"')));
-    ok(/<span class="hslink">HS<\/span> 案件名の横。HubSpot で/.test(legend), "ヘッダの「色と印の意味」に HS の項目が無い");
+    /* 「HS」の意味は title だけでなく、他の印と同じく「色と印の意味」に載せる（タッチでは title が出ない）。
+       M-1 の (3)（2026-09-29）: ヘッダの畳みは定義と検証へのリンクになったので、どの画面からも 1 押しでその表へ行けることを見る */
+    ok(/<a class="golink" id="cs-legend" href="#study\/defs">色と印の意味 → 定義と検証<\/a>/.test(html), "ヘッダから「色と印の意味」（定義と検証）へのリンクが無い");
     const defs = run("renderDefs()");
     const dtab = defs.slice(defs.indexOf("色と印の意味"), defs.indexOf("この画面が守っていること"));
     ok(/<td[^>]*><span class="hslink">HS<\/span><\/td><td[^>]*>案件名の横。HubSpot で/.test(dtab), "定義と検証の「色と印の意味」に HS の行が無い");
@@ -4148,7 +4153,10 @@ check("S-12: 表の枠は、実際にはみ出しているときだけ Tab で�
 check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ、黄・赤の帯は題字の下の行に戻す。母集団の 1 行は操作列の中", () => {
   const head = html.slice(html.indexOf('<header class="masthead">'), html.indexOf("</header>"));
   ok(head.includes('<div id="cs-fresh" class="fresh"></div>'), "鮮度の帯（#cs-fresh）が題字の行（header.masthead）の中に無い");
-  ok(head.includes('<details class="fold" id="cs-legend">'), "「色と印の意味」の畳みが題字の行の中に無い");
+  // M-1 の (3): 「色と印の意味」は全画面の畳みをやめ、定義と検証への 1 語のリンク（2026-09-29 検証: 畳みのまま残っていて案と違った）
+  ok(head.includes('<a class="golink" id="cs-legend" href="#study/defs">色と印の意味 → 定義と検証</a>'), "「色と印の意味」が題字の行の中の定義と検証へのリンクでない");
+  ok(!/<details[^>]*id="cs-legend"/.test(html) && !head.includes('<div class="legend">'), "「色と印の意味」の畳み（凡例の中身）がヘッダに残っている");
+  ok(run('MENUS.find((m) => m.key === "study").views.some((v) => v.key === "defs")'), "リンク先（#study/defs）の画面が無い");
   ok(head.indexOf('id="cs-fresh"') < head.indexOf('id="cs-legend"') && head.indexOf('id="cs-legend"') < head.indexOf('class="stamp"'),
     "題字の行の並びが 題字 → 鮮度 → 色と印の意味 → 利用者 でない");
   const css = html.slice(0, html.indexOf("</style>"));
@@ -4156,7 +4164,8 @@ check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ�
   ok(/\.masthead \.fresh\.ok\{ flex:0 1 auto;/.test(css), "緑の帯が題字の行の中の 1 語（flex の項目）でない");
   // 🔴 黄・赤は消さない: 全幅の行にして題字の下へ（規律「いつのデータか」）
   ok(/\.masthead \.fresh\.warn, \.masthead \.fresh\.bad\{ flex:1 1 100%; order:5; \}/.test(css), "黄・赤の帯が題字の下の全幅の行に戻らない");
-  ok(/\.masthead > details\.fold\[open\]\{ flex:1 1 100%;/.test(css), "「色と印の意味」を開いたとき全幅の行にならない（題字の行の中で開く）");
+  ok(/\.masthead > a\.golink\{ flex:0 0 auto;/.test(css) && !/\.masthead > details\.fold/.test(css),
+    "「色と印の意味」のリンクが題字の行の 1 語（折り返さない flex の項目）でない、または使わなくなった畳みの CSS が残っている");
   ok(/\.tabs\{ display:flex; gap:0; flex-wrap:wrap; margin:0 0 var\(--space-3\);/.test(css), "上のメニューの下の余白が 26px のまま");
   ok(/\.rule-thin\{[^}]*margin:0 0 var\(--space-2\);/.test(css), "二重罫の下の余白が 18px のまま");
   ok(/\.layout\{ display:grid; grid-template-columns:160px minmax\(0,1fr\);/.test(css), "側柱が 160px でない（M-12）");
