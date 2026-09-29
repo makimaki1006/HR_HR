@@ -6219,3 +6219,63 @@ fn latest_mtg_risk_skips_unjudged_and_prefers_the_heavier_on_the_same_day() {
     assert_eq!(m.get("C").map(|x| x.1.as_str()), Some("高"));
     assert_eq!(m.len(), 3);
 }
+
+/// 見方の突き合わせは、同じシート（同じ Arc）と基準日なら覚えたものを返し、シートを取り直すか日が変わったら数え直す。
+/// 🔴 2026-09-29 検証: 案件一覧を開くたびに電話の集計ごと回していた（fixture・debug で deal_rows 約 990ms に 約 580ms 上乗せ）
+#[test]
+fn act_view_diff_memo_reuses_only_for_the_same_sheets_and_day() {
+    use std::cell::Cell;
+    let memo: super::routes::DiffMemo = std::sync::Mutex::new(None);
+    let sh = sheets();
+    let d = fixture_day();
+    let calls = Cell::new(0);
+    let run = |sh: &Sheets, d: chrono::NaiveDate, v: i64| {
+        super::routes::act_view_diff_memo_in(&memo, sh, d, || {
+            calls.set(calls.get() + 1);
+            serde_json::json!(v)
+        })
+    };
+    assert_eq!(run(&sh, d, 1), serde_json::json!(1));
+    // 同じシート・同じ日: 数え直さない
+    assert_eq!(run(&sh, d, 2), serde_json::json!(1));
+    assert_eq!(calls.get(), 1);
+    // 日が変わった: 数え直す
+    assert_eq!(
+        run(&sh, d + chrono::Duration::days(1), 3),
+        serde_json::json!(3)
+    );
+    assert_eq!(calls.get(), 2);
+    // 通話明細だけ取り直した（中身が同じでも別の Arc）: 数え直す
+    let sh2 = Sheets {
+        deal: sh.deal.clone(),
+        call: Arc::new(SheetData {
+            header: sh.call.header.clone(),
+            rows: sh.call.rows.clone(),
+            fetched_at: Instant::now(),
+        }),
+        mtg: sh.mtg.clone(),
+        history: sh.history.clone(),
+        customer: sh.customer.clone(),
+        mail_mtg: sh.mail_mtg.clone(),
+        handover: sh.handover.clone(),
+        owner_hist: sh.owner_hist.clone(),
+        meta: sh.meta.clone(),
+        all_cached: sh.all_cached,
+    };
+    assert_eq!(
+        run(&sh2, d + chrono::Duration::days(1), 4),
+        serde_json::json!(4)
+    );
+    assert_eq!(calls.get(), 3);
+    // 覚えているのは最後の1つだけ（古いシートに戻ったら数え直す）
+    assert_eq!(run(&sh, d, 5), serde_json::json!(5));
+    assert_eq!(calls.get(), 4);
+    // 案件一覧の応答は、覚えたものを返しても数え直しても同じ（fixture で2回続けて同じ）
+    let a = build_deal_board(&sh, d);
+    let b = build_deal_board(&sh, d);
+    assert_eq!(a["meta"]["act_view_diff"], b["meta"]["act_view_diff"]);
+    assert_eq!(
+        a["meta"]["act_view_diff"],
+        super::routes::act_view_diff(&sh, d, a["rows"].as_array().unwrap())
+    );
+}

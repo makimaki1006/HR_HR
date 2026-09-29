@@ -3433,9 +3433,78 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
 pub fn build_deal_board(sheets: &Sheets, today: NaiveDate) -> Value {
     let (rows, mut meta) = deal_rows(sheets, today);
     if let Some(m) = meta.as_object_mut() {
-        m.insert("act_view_diff".into(), act_view_diff(sheets, today, &rows));
+        m.insert(
+            "act_view_diff".into(),
+            act_view_diff_memo(sheets, today, || act_view_diff(sheets, today, &rows)),
+        );
     }
     json!({"meta": meta, "rows": rows})
+}
+
+/// 見方の突き合わせを覚えておく鍵。読んだシート9枚（の置き場所）と基準日。
+///
+/// 🔴 シートは `SheetStore` がキャッシュした `Arc` をそのまま渡してくるので、取り直すまでは同じ `Arc` になる。
+///    `Weak` で持つのは、覚えている間にシートの割り当てが解放されて同じ番地が別のシートに使われ、
+///    違うデータを同じ鍵と見なすのを防ぐため（`Weak` は中身を持ち続けない。取り直した後の古い中身は解放される）。
+pub(super) type DiffKey = (NaiveDate, [std::sync::Weak<SheetData>; 9]);
+
+fn diff_key(sheets: &Sheets, today: NaiveDate) -> DiffKey {
+    let w = std::sync::Arc::downgrade;
+    (
+        today,
+        [
+            w(&sheets.deal),
+            w(&sheets.call),
+            w(&sheets.mtg),
+            w(&sheets.history),
+            w(&sheets.customer),
+            w(&sheets.mail_mtg),
+            w(&sheets.handover),
+            w(&sheets.owner_hist),
+            w(&sheets.meta),
+        ],
+    )
+}
+
+/// `act_view_diff` を、シートを取り直すか日が変わるまで覚えておく。
+///
+/// 🔴 2026-09-29 検証の指摘: 前の定義の集合を取るのに電話の集計（`build_phone`）ごと回していて、案件一覧を開くたびに
+///    重くなっていた。fixture の実測（debug ビルド・5回平均）で `deal_rows` 約 990ms に対し `act_view_diff` 約 580ms、
+///    うち `build_phone` 約 350ms。前の定義は前の関数そのものから取る決まり（`act_view_diff` の説明）は変えず、
+///    同じシートと基準日なら結果は同じなので、覚えておいて使い回す。
+///    突き合わせは `deal_rows` の行から作るが、行もシートと基準日だけで決まるので、鍵はシートと基準日で足りる。
+///    生成時刻のシートが読めなかったときは毎回新しい空のシートになるので、覚えたものは使われない（前と同じく毎回数える）。
+fn act_view_diff_memo(sheets: &Sheets, today: NaiveDate, make: impl FnOnce() -> Value) -> Value {
+    static MEMO: DiffMemo = std::sync::Mutex::new(None);
+    act_view_diff_memo_in(&MEMO, sheets, today, make)
+}
+
+pub(super) type DiffMemo = std::sync::Mutex<Option<(DiffKey, Value)>>;
+
+/// 覚えておく場所を渡せる形（テストは自分の場所を使う。並んで走るほかのテストと取り合わない）
+pub(super) fn act_view_diff_memo_in(
+    memo: &DiffMemo,
+    sheets: &Sheets,
+    today: NaiveDate,
+    make: impl FnOnce() -> Value,
+) -> Value {
+    let key = diff_key(sheets, today);
+    let same = |a: &DiffKey, b: &DiffKey| {
+        a.0 == b.0 && a.1.iter().zip(b.1.iter()).all(|(x, y)| x.ptr_eq(y))
+    };
+    if let Ok(g) = memo.lock() {
+        if let Some((k, v)) = g.as_ref() {
+            if same(k, &key) {
+                return v.clone();
+            }
+        }
+    }
+    // 計算は鍵を放してから（重い計算の間、ほかの応答を待たせない）
+    let v = make();
+    if let Ok(mut g) = memo.lock() {
+        *g = Some((key, v.clone()));
+    }
+    v
 }
 
 /// ③今日動く先。
