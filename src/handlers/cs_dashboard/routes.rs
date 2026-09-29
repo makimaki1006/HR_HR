@@ -2432,7 +2432,7 @@ fn focus_shape(
     条件は重なるので、内訳を足しても注力の社数にはなりません。\
     この線引きはシートに入っている値をそのまま読んでいて、画面で決めていません",
         "not_layer": "これは法人の大きさの話で、法人ごとに決まります。日々は変わりません。\
-    日々変わる状態は「今日動く先」の MTG途絶の帯のほうです。混ぜて読まないでください",
+    日々変わる状態は「今日」の MTG途絶の帯のほうです。混ぜて読まないでください",
     })
 }
 
@@ -2468,7 +2468,7 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "meta": {"today": today.to_string(), "all_cached": sheets.all_cached},
             "default_houjin": default_houjin,
             "default_reason": "取引がいちばん多い法人を既定で開いています。\
-        「案件 → 今日動く先」の1件目にしていないのは、あちらが日によって変わるので\
+        「毎日 → 今日」の1件目にしていないのは、あちらが日によって変わるので\
         「昨日と同じ顧客を続けて見る」ができなくなるためです",
             "index": list.iter().map(|c| {
                 let f = fflags.get(&c.houjin).copied().unwrap_or_default();

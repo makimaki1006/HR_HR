@@ -875,7 +875,7 @@ check("V8", "今日の画面に件数を直書きしない（その日の件数�
   const h = t.R("renderToday")(todayPayload([boardRow({ flags: ["a"] }), boardRow({ flags: ["b"] }),
                                              boardRow({ flags: ["a"] })]));
   if (h.indexOf("24件") >= 0 || h.indexOf("24 件") >= 0) throw new Error("「24件」と直書きしている（3件の日）");
-  if (h.indexOf("今日動く先（3 件）") < 0) throw new Error("実際の件数が出ていない");
+  if (h.indexOf("今日の案件（3 件）") < 0) throw new Error("実際の件数が出ていない");
   if (h.indexOf("何で上がってきたか") >= 0) throw new Error("外した図（名札の内訳）が残っている");
 });
 

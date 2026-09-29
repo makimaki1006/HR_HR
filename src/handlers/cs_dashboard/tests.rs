@@ -6594,3 +6594,55 @@ fn amount_is_contract_total_not_monthly() {
     let text = super::money::AMOUNT_BASIS;
     assert!(text.contains("契約期間全体の額") && text.contains("月額ではありません"));
 }
+
+/// 2026-09-29 画面の組み替え（11画面・3区切り）の後も、サーバの文に前の画面名が残っていた
+/// （顧客の not_layer「「今日動く先」の MTG途絶の帯」・default_reason「「案件 → 今日動く先」の1件目」）。
+/// 左のメニューに無い名前を案内しない。全部の応答を文字列にして、前の名前が無いことを確かめる
+/// （画面の JS の文字列は consulting_view_rules.js「前の画面名（今日動く先・…）を画面の文に出さない」が見る）
+#[test]
+fn old_screen_names_not_in_server_text() {
+    use super::routes::*;
+    let sh = sheets();
+    let day = fixture_day();
+    let board = build_deal_board(&sh, day);
+    let id = board["rows"][0]["deal_id"].as_str().map(|s| s.to_string());
+    let all: Vec<(&str, Value)> = vec![
+        ("renewal", build_renewal(&sh, false)),
+        ("outcome", build_outcome(&sh, day)),
+        ("focus", build_focus(&sh, day)),
+        ("rampup", build_rampup(&sh, day)),
+        ("phone", build_phone(&sh, day)),
+        ("headquarters", build_headquarters(&sh, day)),
+        ("mtg-quality", build_mtg_quality(&sh, day)),
+        ("data-quality", build_data_quality(&sh, day)),
+        ("customer", build_customer(&sh, None, day)),
+        ("consultants", build_consultants(&sh, day)),
+        ("handover", build_handover(&sh, day)),
+        (
+            "contact-trend",
+            super::contact_trend::build_contact_trend(&sh, day),
+        ),
+        ("deals", board.clone()),
+        ("today", build_today_board(&sh, day)),
+        (
+            "deal-detail",
+            super::deal_detail::build_deal_detail(&sh, None, id.as_deref(), None, day),
+        ),
+        ("team", build_team(&sh, day)),
+        ("results", build_results(&sh, false, day)),
+        ("renewal-pipe", super::money::build_renewal_pipe(&sh, day)),
+    ];
+    // 顧客の「日々変わる状態」の文が今のメニュー名を指しているか（名前だけ消して行き先を失っていない）
+    let cust = &all.iter().find(|(k, _)| *k == "customer").unwrap().1;
+    let nl = cust["focus"]["not_layer"].as_str().unwrap_or("");
+    assert!(nl.contains("「今日」の MTG途絶の帯"), "{nl}");
+    for (k, v) in &all {
+        let s = v.to_string();
+        for bad in ["今日動く先", "案件そのもの", "案件の立ち位置"] {
+            assert!(
+                !s.contains(bad),
+                "{k} の応答に前の画面名「{bad}」が残っている"
+            );
+        }
+    }
+}
