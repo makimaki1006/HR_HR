@@ -20,3 +20,19 @@ export function assertNoForbiddenPhrase(text: string): void {
     );
   }
 }
+
+/**
+ * Vitest helper: fails when `text` contains a forbidden assertive phrase.
+ * Same rule as assertNoForbiddenPhrase; named for use in screen tests.
+ */
+export function assertValidPhrase(text: string): void {
+  assertNoForbiddenPhrase(text);
+}
+
+/**
+ * Optional check for analysis wording: true when `text` has at least one hedge phrase
+ * (REQUIRED_PHRASES, e.g. 傾向 / 可能性). Not for labels or notes.
+ */
+export function hasHedgePhrase(text: string): boolean {
+  return REQUIRED_PHRASES.some((p) => text.includes(p));
+}

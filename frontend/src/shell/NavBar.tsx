@@ -29,11 +29,12 @@ function NavLink({ item, screen, small }: { item: NavItem; screen: string; small
 type TopEntry = { type: 'item'; item: NavItem } | { type: 'group'; id: string };
 
 export function NavBar({ nav, screen, openGroup, onToggleGroup }: NavBarProps) {
+  const visibleItems = nav.items.filter((i) => !i.hidden);
   const groupLabel = new Map(nav.groups.map((g) => [g.id, g.label]));
   const groupItems = new Map<string, NavItem[]>();
   // Top row: ungrouped items in order; a group is one button placed at its first item.
   const top: TopEntry[] = [];
-  for (const item of nav.items) {
+  for (const item of visibleItems) {
     if (item.group === null) {
       top.push({ type: 'item', item });
       continue;
@@ -45,7 +46,7 @@ export function NavBar({ nav, screen, openGroup, onToggleGroup }: NavBarProps) {
       top.push({ type: 'group', id: item.group });
     }
   }
-  const activeGroup = nav.items.find((i) => i.group !== null && isActive(i, screen))?.group ?? null;
+  const activeGroup = visibleItems.find((i) => i.group !== null && isActive(i, screen))?.group ?? null;
   const opened = openGroup ?? activeGroup;
   const subItems = opened === null ? [] : (groupItems.get(opened) ?? []);
 

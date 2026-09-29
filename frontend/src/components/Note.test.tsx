@@ -30,7 +30,7 @@ describe('Note', () => {
   });
 
   it('no kind renders a forbidden phrase', () => {
-    const kinds: NoteKind[] = ['hw-scope', 'correlation', 'custom'];
+    const kinds: NoteKind[] = ['hw-scope', 'correlation', 'source', 'custom'];
     for (const kind of kinds) {
       const html = renderToStaticMarkup(<Note kind={kind}>補足</Note>);
       for (const phrase of FORBIDDEN_PHRASES) {
@@ -40,5 +40,12 @@ describe('Note', () => {
     for (const text of Object.values(NOTE_TEXT)) {
       for (const phrase of FORBIDDEN_PHRASES) expect(text).not.toContain(phrase);
     }
+  });
+
+  it('source renders 出典: followed by the source name', () => {
+    const html = renderToStaticMarkup(<Note kind="source">ハローワーク求人データ</Note>);
+    expect(html).toBe(
+      '<p class="hw-note" role="note" data-note-kind="source"><span>出典: </span>ハローワーク求人データ</p>',
+    );
   });
 });

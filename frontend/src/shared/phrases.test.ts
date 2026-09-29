@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import rules from './phrase_rules.json';
-import { FORBIDDEN_PHRASES, REQUIRED_PHRASES, assertNoForbiddenPhrase, findForbiddenPhrase } from './phrases';
+import { FORBIDDEN_PHRASES, REQUIRED_PHRASES, assertNoForbiddenPhrase, assertValidPhrase, findForbiddenPhrase, hasHedgePhrase } from './phrases';
 
 const RUST_SOURCE = fileURLToPath(
   new URL('../../../src/handlers/insight/phrase_validator.rs', import.meta.url),
@@ -48,5 +48,19 @@ describe('assertNoForbiddenPhrase', () => {
   it('findForbiddenPhrase returns the first hit or null', () => {
     expect(findForbiddenPhrase('必ず100%成功')).toBe('必ず');
     expect(findForbiddenPhrase('可能性があります')).toBeNull();
+  });
+
+  it('assertValidPhrase throws on forbidden words, passes otherwise', () => {
+    expect(() => {
+      assertValidPhrase('この施策で必ず改善する');
+    }).toThrow(/必ず/);
+    expect(() => {
+      assertValidPhrase('改善する傾向がみられる');
+    }).not.toThrow();
+  });
+
+  it('hasHedgePhrase is true only when a REQUIRED phrase is present', () => {
+    expect(hasHedgePhrase('増加する傾向')).toBe(true);
+    expect(hasHedgePhrase('件数は120件')).toBe(false);
   });
 });

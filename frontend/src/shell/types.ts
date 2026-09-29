@@ -11,6 +11,10 @@ export interface NavItem {
   kind: NavKind;
   href: string;
   group: string | null;
+  /** true = registered but not shown in the nav (screen stays reachable by URL). */
+  hidden: boolean;
+  hidden_reason: string | null;
+  hidden_since: string | null;
 }
 
 export interface NavGroup {

@@ -1,16 +1,17 @@
 import type { ReactNode } from 'react';
 
-export type NoteKind = 'hw-scope' | 'correlation' | 'custom';
+export type NoteKind = 'hw-scope' | 'correlation' | 'source' | 'custom';
 
 /** Fixed wording per kind. Must stay free of FORBIDDEN_PHRASES (see Note.test.tsx). */
 export const NOTE_TEXT = {
   'hw-scope': 'ハローワーク掲載求人のみが対象で、全求人市場ではありません。',
   correlation: '相関関係であり、因果関係を示すものではありません。',
+  source: '出典: ',
 } as const;
 
 export interface NoteProps {
   kind: NoteKind;
-  /** Required in practice for 'custom'; appended after the fixed text for the other kinds. */
+  /** Required in practice for 'custom'; for 'source' it is the source name (after "出典: "). */
   children?: ReactNode;
 }
 

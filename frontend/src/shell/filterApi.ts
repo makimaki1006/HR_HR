@@ -5,7 +5,9 @@
 //   CSRF: the Rust middleware accepts `X-Requested-With: fetch` in place of a token.
 // - GET /api/prefectures and /api/municipalities_cascade answer <option> HTML fragments, not JSON.
 //
-// postSetFilter is the single place to swap for apiPostForm from src/api/client.ts at integration.
+// postSetFilter goes through apiPostForm (src/api/client.ts) with expect: 'text'.
+
+import { AuthRequiredError, apiPostForm } from '../api/client';
 
 export type SetFilterName = 'prefecture' | 'municipality' | 'job_type' | 'industry_filter';
 
@@ -39,17 +41,10 @@ export async function postSetFilter(
   name: SetFilterName,
   fields: Record<string, string>,
 ): Promise<void> {
-  const res = await fetch(`/api/set_${name}`, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'X-Requested-With': 'fetch',
-    },
-    body: new URLSearchParams(fields).toString(),
-  });
-  if (redirectedToLogin(res)) throw new ShellAuthError('login required');
-  if (!res.ok) throw new Error(`HTTP ${String(res.status)}`);
+  const result = await apiPostForm<string>(`/api/set_${name}`, fields, { expect: 'text' });
+  if (result.ok) return;
+  if (result.error instanceof AuthRequiredError) throw new ShellAuthError('login required');
+  throw result.error;
 }
 
 /** Parse `<option value="x" data-citycode="y">label</option>` fragments. */

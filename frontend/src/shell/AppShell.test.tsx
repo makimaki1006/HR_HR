@@ -15,7 +15,17 @@ const item = (
   href: string,
   group: string | null = null,
   title: string | null = null,
-): NavItem => ({ id, label, title, kind, href, group });
+): NavItem => ({
+  id,
+  label,
+  title,
+  kind,
+  href,
+  group,
+  hidden: false,
+  hidden_reason: null,
+  hidden_since: null,
+});
 
 const NAV: NavResponse = {
   user_email: 'sales@example.co.jp',
@@ -238,6 +248,37 @@ describe('AppShell header / nav', () => {
     expect(within(sub).getByRole('link', { name: '画面X' }).getAttribute('aria-current')).toBeNull();
   });
 
+  it('does not render hidden items (top level or inside a group) but keeps visible ones', async () => {
+    const hiddenTop: NavItem = {
+      ...item('insight', '総合診断', 'legacy_tab', '/?tab=/tab/insight'),
+      hidden: true,
+      hidden_reason: 'not in use',
+      hidden_since: '2026-09-29',
+    };
+    const hiddenInGroup: NavItem = {
+      ...item('trend', 'トレンド', 'legacy_tab', '/?tab=/tab/trend', 'explore'),
+      hidden: true,
+      hidden_reason: null,
+      hidden_since: null,
+    };
+    mockFetch({ nav: { ...NAV, items: [...NAV.items, hiddenTop, hiddenInGroup] } });
+    render(
+      <AppShell screen="company">
+        <p>child</p>
+      </AppShell>,
+    );
+    await screen.findByText('媒体分析');
+    expect(document.querySelector('[data-nav-id="insight"]')).toBeNull();
+    expect(document.querySelector('[data-nav-id="trend"]')).toBeNull();
+    expect(document.querySelector('[data-nav-id="survey"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /調べる/ }));
+    const sub = await screen.findByRole('navigation', { name: '調べる' });
+    expect(within(sub).getAllByRole('link').map((a) => a.textContent)).toEqual([
+      '地図',
+      '企業検索',
+    ]);
+  });
+
   it('still renders children when /api/nav fails (graceful)', async () => {
     vi.stubGlobal(
       'fetch',
@@ -298,7 +339,7 @@ describe('AppShell filters', () => {
     ]);
     for (const c of p) {
       expect(c.headers['X-Requested-With']).toBe('fetch');
-      expect(c.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+      expect(c.headers['Content-Type']).toBe('application/x-www-form-urlencoded;charset=UTF-8');
     }
   });
 
