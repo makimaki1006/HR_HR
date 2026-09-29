@@ -1011,7 +1011,8 @@ async fn react画面のシェルは認証の内側にある() {
     use tower::ServiceExt;
 
     let app = build_app(bare_state());
-    for path in ["/app/dummy", "/app/unknown"] {
+    // /api/app/ping (Phase 0-4) も同じく認証の内側。
+    for path in ["/app/dummy", "/app/unknown", "/api/app/ping"] {
         let res = app
             .clone()
             .oneshot(

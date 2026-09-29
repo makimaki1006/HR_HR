@@ -22,6 +22,9 @@ askama_axum = "0.4"
 # 全域の JSON キー順が「辞書順→挿入順」に変わるため、統合時に全テストで回帰確認済み。
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+# React 画面向けレスポンス型を TypeScript に書き出す (Phase 0-4, 2026-09-29)。
+# derive(TS) のため通常依存。出力は cargo test 時のみ (src/handlers/app_api.rs の export_ts_bindings)。
+ts-rs = "12.0.1"
 
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
