@@ -1778,6 +1778,22 @@ check("M-2", "絞り込み・並び替え・担当を変えると URL が追従�
   t.R("wire(viewOf('deal', 'board'))");
   th.onclick();
   if (t.loc.hash !== "#deal/board?band=critical&sort=-amount") throw new Error("並び替えが URL に載らない: " + t.loc.hash);
+  /* 🔴 2026-09-29 統合（段2 M-2 × M-8）: M-8 で絞り込み・並び替えは #board-body だけ描き直す（boardRepaint）ようになり、
+     redrawMain を通らないので syncUrl が呼ばれず、URL が絞り込みに追従しなくなっていた。上の分は偽の DOM に #board-body が無く
+     redrawMain へ落ちるので通っていた。#board-body がある（実際の画面と同じ）形でも追従することを見る */
+  const bb = new t.El("board-body"); t.reg["board-body"] = bb;
+  const main0 = t.reg["cs-main"].innerHTML;
+  t.R("wire(viewOf('deal', 'board'))");
+  sel.value = ""; sel.onchange();
+  if (t.reg["cs-main"].innerHTML !== main0 || !bb.innerHTML.includes('id="board-count"'))
+    throw new Error("前提が崩れている（#board-body だけの描き直しになっていない）");
+  if (t.loc.hash !== "#deal/board?sort=-amount") throw new Error("#board-body だけの描き直しで、絞り込みを外しても URL が追従しない: " + t.loc.hash);
+  const th2 = new t.El(""); th2.dataset = { k: "name" };
+  t.qsa["#board-tbl th.sortable button.sort"] = [th2];
+  t.R("wireBoardBody()");
+  th2.onclick();
+  if (!/^#deal\/board\?sort=-?name$/.test(t.loc.hash)) throw new Error("#board-body だけの描き直しで、並び替えが URL に載らない: " + t.loc.hash);
+  if (t.hist.push !== pushes) throw new Error("#board-body だけの描き直しで履歴を積んでいる");
   const t2 = boot();
   t2.R('go("deal", "today")');
   t2.fetched[t2.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({ consultant: "担当A" })])));
