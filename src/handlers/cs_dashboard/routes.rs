@@ -148,6 +148,43 @@ fn today_jst() -> NaiveDate {
         .date_naive()
 }
 
+/// 先読み・定期更新でシートを取り直した後に、案件の行（`deal_rows`）と見方の突き合わせ（`act_view_diff`）を
+/// 数えて覚えさせておく。`prefetch` がシートを取り終えるたびに呼ぶ。
+///
+/// 🔴 2026-09-30 検証の指摘: 覚えておく仕組み（`deal_rows` の説明）は2回目からしか効かず、シートを取り直した直後の
+///    1回目の `/api/consulting/deals` は前と同じく1秒を超えていた。fixture の実測（debug ビルド・5回）で
+///    1回目 約 2.2〜3.1 秒（行 約 1.3〜1.7 秒＋突き合わせ 約 0.7〜1.1 秒）、覚えた後 約 0.15〜0.25 秒。
+///    定期更新は 45 分ごとにシートを差し替えるので、その直後に開いた人が毎回この 1 回目を引いていた。
+///    取り直したのはサーバなので、数えるのもサーバが先に済ませる（開いた人に待たせない）。
+/// 🔴 画面の「読み直す」（`?refresh=1`）は押した人のためにその場で取り直すので、その 1 回は今も数えてから返す。
+///    日付が変わった直後も、次の定期更新まではその日の 1 回目が数える（鍵に基準日が入っているため）。
+/// 🔴 数えるのは `spawn_blocking` の中（数秒かかる計算で、非同期の実行スレッドを止めない）。失敗してもログだけ。
+pub(super) async fn warm_deal_rows() {
+    let Ok(state) = cq_state() else {
+        return;
+    };
+    let sheets = match load(&state.client, &state.store).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("コンサル: 案件の行を先に数えられない（シートが読めない）: {e:#}");
+            return;
+        }
+    };
+    let started = std::time::Instant::now();
+    let done = tokio::task::spawn_blocking(move || {
+        // 行と突き合わせの両方を覚える（今日動く先・チームと担当なども同じ行を使う）
+        let _ = build_deal_board(&sheets, today_jst());
+    })
+    .await;
+    match done {
+        Ok(()) => tracing::info!(
+            "コンサル: 案件の行を先に数えた {:.1}秒",
+            started.elapsed().as_secs_f64()
+        ),
+        Err(e) => tracing::warn!("コンサル: 案件の行を先に数えられなかった: {e}"),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct FocusQuery {
     refresh: Option<String>,
@@ -3114,7 +3151,8 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
 ///    行はシートと基準日だけで決まり、今日動く先・案件一覧・チームと担当・満了と継続・案件の詳細が同じ行を毎回数え直していた。
 ///    fixture の実測（debug ビルド、ほかのビルドと同時に走らせた値）で `deal_rows` 1 回 約 1.2〜1.7 秒、
 ///    案件一覧の応答（組み立て＋JSON 化、突き合わせは覚えた後）約 1.6〜1.9 秒のうちほとんどがここだった。
-///    覚えた後は同じ条件で 約 0.17〜0.34 秒（5回）。シートを取り直した直後の1回目は前と同じく数える
+///    覚えた後は同じ条件で 約 0.17〜0.34 秒（5回）。シートを取り直した直後の1回目は、先読み・定期更新の後に
+///    サーバが先に数えておく（`warm_deal_rows`）。画面の「読み直す」の1回だけは今もその場で数える
 pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     static MEMO: DiffMemo<(Vec<Value>, Value)> = std::sync::Mutex::new(None);
     let (rows, mut meta) =
