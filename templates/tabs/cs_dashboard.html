@@ -5849,6 +5849,9 @@ function boardRepaint() {
   wireBoardBody();
   markScrollAll();
   refocus(fk);
+  /* 絞り込み・並び替えを URL に写す（段2 M-2）。🔴 2026-09-29 統合: M-2 は redrawMain の最後で syncUrl していたが、
+     M-8 でここは redrawMain を通らなくなり、案件そのものの絞り込み・並び替えが URL に載らなくなっていた */
+  syncUrl();
 }
 /* #board-body の中の部品（表の見出しの並び替え・残りも出す）。描き直すたびに付け直す */
 function wireBoardBody() {
