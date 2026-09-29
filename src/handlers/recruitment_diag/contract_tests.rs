@@ -138,6 +138,7 @@ pub(super) fn test_app_state_opt(hw_db: Option<LocalDb>) -> Arc<AppState> {
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
         google_oidc: None,
+        hubspot: None,
     })
 }
 

@@ -142,6 +142,7 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
         google_oidc: None,
+        hubspot: None,
     })
 }
 
@@ -296,6 +297,7 @@ async fn api_region_karte_handles_missing_db() {
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
         google_oidc: None,
+        hubspot: None,
     });
 
     let resp = api_region_karte(State(state), Path(13101i64)).await;

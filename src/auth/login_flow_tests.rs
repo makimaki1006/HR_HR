@@ -242,6 +242,7 @@ fn test_state(oidc: Option<Arc<GoogleOidc>>, audit: Option<AuditDb>) -> Arc<AppS
         company_geo_cache: None,
         audit,
         google_oidc: oidc,
+        hubspot: None,
     })
 }
 
