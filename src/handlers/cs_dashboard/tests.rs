@@ -6156,6 +6156,13 @@ fn money_matches_pipe_and_count_retention() {
         "3か月に満了する金額が画面で違う"
     );
     assert_eq!(m["window"]["months"], p["meta"]["window"]);
+    // 先月以前に満了日を過ぎてまだ稼働中（3か月の金額に入れていない分）も、札と満了と継続で同じ数。
+    // 🔴 2026-09-29 検証: 札が外した分を数えておらず、外したことが札から読めなかった（fixture 10 件）
+    assert_eq!(
+        m["overdue_before"], p["overdue_before"]["sum"],
+        "先月以前に満了日を過ぎた分が画面で違う"
+    );
+    assert_eq!(m["overdue_before"]["n"], 10);
     assert_eq!(m["active_total"]["n"], 604);
     assert!(
         m["active_total"]["amount"].as_f64().unwrap() > 0.0,

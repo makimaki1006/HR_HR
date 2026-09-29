@@ -3901,12 +3901,18 @@ function resultsMoneyKpis(M, last, part) {
   const miss = (s) => (s.amount_missing ? "・金額が空の " + num(s.amount_missing) + " 件は足していません" : "");
   if (part === "before") {
     const a = M.active_total || {}, w = (M.window || {}).sum || {}, ms = (M.window || {}).months || [];
+    /* 🔴 2026-09-29 検証: 先月以前に満了日を過ぎてまだ稼働中の契約（fixture 10 件・127 万、実データ CS_取引.tsv でも 10 件）は
+       この金額に入らないが、札に書いていなかった（満了と継続では別の区分で出している）。外した件数と金額を札に書く */
+    const ob = M.overdue_before || { n: 0 };
     return kpi("稼働中の契約の金額（会社全体）", yen(a.amount),
         "稼働中 " + num(a.n) + " 件の合計" + miss(a) + "。" + basis) +
       /* 満了と継続（別の画面）への行き先は文字リンクで添える（button の中に a を入れない。kpi の決まり） */
       kpi("今月〜再来月に満了する金額", yen(w.amount),
         num(w.n) + " 件" + (ms.length ? "（" + esc(ms[0]) + "〜" + esc(ms[ms.length - 1]) + " に満了）" : "") + miss(w) +
-        "。確度は掛けていません。内訳は " + goLink("research", "renewalpipe"));
+        "。確度は掛けていません" +
+        (ob.n ? "。先月以前に満了日を過ぎてまだ稼働中の " + num(ob.n) + " 件（" +
+          (ob.amount == null ? "金額なし" : yen(ob.amount)) + "）は入れていません" : "") +
+        "。内訳は " + goLink("research", "renewalpipe"));
   }
   const r = last && ((M.retention || {}).rows || []).find((x) => x.month === last.month);
   if (!r || r.rate == null)
@@ -7788,12 +7794,16 @@ function renderRenewalPipe(D) {
   let h = sec("問い", "今月・来月・再来月に満了するのはどれで、いくらか") +
     '<div class="lede">毎週見る画面です。<b>今月・来月・再来月</b>に満了する稼働中の契約を、満了月ごとの件数・金額と、' +
     "満了の近い順の一覧で出します。" + notCounted(M).replace(/<br>$/, "") + "</div>" +
-    pageToc([["rp-list", "満了の近い順の一覧"]].concat(ov.sum.n ? [["rp-over", "満了日を過ぎてまだ稼働中"]] : []).concat([["rp-stage", "ステージ別の件数"]]),
+    pageToc(months.map((m, i) => ["rp-m" + i, word(i) + " に満了"])
+      .concat(ov.sum.n ? [["rp-over", "満了日を過ぎてまだ稼働中"]] : []).concat([["rp-stage", "ステージ別の件数"]]),
       goLink("deal", "board") + goLink("monthly", "results"));
+  /* 札はその月の表へ飛ぶ（rp-m0〜2）。
+     🔴 2026-09-29 検証: 前は 3 枚とも 3 か月を 1 つにした一覧（fixture 285 行・640px の枠）の頭へ飛び、
+     「来月 に満了」を押しても今月の 62 行から始まって、来月の行は 63 行目からだった（札と行き先の中身が違う） */
   h += '<div class="kpis">' + months.map((m, i) =>
     kpi(word(i) + " に満了", num(m.n) + '<span class="u">件</span>',
       pipeAmount(m) + (i === 0 && pastThis ? "。うち満了日を過ぎてまだ稼働中 " + num(pastThis) + " 件" : ""),
-      "", { jump: "rp-list", text: "一覧へ" })).join("") +
+      "", { jump: "rp-m" + i, text: "この月の一覧へ" })).join("") +
     (ov.sum.n
       ? kpi("先月以前に満了日を過ぎて、まだ稼働中", num(ov.sum.n) + '<span class="u">件</span>', pipeAmount(ov.sum) +
           "。ステージが満了の後も動いていない契約です", "", { jump: "rp-over", text: "一覧へ" })
@@ -7805,10 +7815,20 @@ function renderRenewalPipe(D) {
     "満了日が入っていない " + num(D.no_expiry) + " 件です（どの契約もどれか 1 つにだけ入ります）。" +
     "今月〜再来月の金額の合計は " + pipeAmount(wt) + "、稼働中の全部では " + pipeAmount(at) + "。<br>" +
     esc(M.amount_basis || "") + "。満了月は満了日（契約の満了日）で決めています。");
-  h += sec("表", "満了の近い順の一覧（今月〜再来月、" + num(rows.length) + " 件）", "rp-list");
-  h += rows.length
-    ? scroll(pipeTable(rows, "rp-tbl"), 640, rows.length)
-    : '<p class="muted">今月〜再来月に満了する稼働中の契約はありません。</p>';
+  /* 一覧は満了月ごとに分ける（札の行き先。月の中は満了の近い順）。月は満了日の頭 7 文字で決める（サーバの manryou_month と同じ） */
+  const byMonth = win.map((w) => rows.filter((r) => String(r.expiry || "").slice(0, 7) === w));
+  win.forEach((w, i) => {
+    const rs = byMonth[i];
+    h += sec("表", word(i) + " に満了する契約（満了の近い順、" + num(rs.length) + " 件）", "rp-m" + i);
+    h += rs.length
+      ? scroll(pipeTable(rs, "rp-tbl-" + i), 640, rs.length)
+      : '<p class="muted">この月に満了する稼働中の契約はありません。</p>';
+  });
+  /* どの月にも入らない行（サーバとずれたとき）は黙って落とさず、最後に出す */
+  const stray = rows.filter((r) => !win.includes(String(r.expiry || "").slice(0, 7)));
+  if (stray.length)
+    h += sec("表", "満了月が今月〜再来月のどれにも合わない行（" + num(stray.length) + " 件）", "rp-stray") +
+      scroll(pipeTable(stray, "rp-tbl-x"), 640, stray.length);
   h += '<p class="muted small">案件名は案件の詳細へのリンクです。金額は取引 1 件の金額で、担当ごとの合計は出していません。' +
     "名札は案件一覧・今日と同じものです。</p>";
   if (ov.sum.n) {
@@ -7823,10 +7843,13 @@ function renderRenewalPipe(D) {
   h += sec("表", "ステージ別の件数（満了月ごと・実数）", "rp-stage");
   const st = D.stages || [];
   const cnt = (m, s) => ((m.stages || []).find((x) => x.label === s) || { n: 0 }).n;
+  /* 🔴 計は表の外の 1 行に書く。2026-09-29 検証: 計を表の本文の行に入れていたので、枠の案内（scrollCap は tbody の tr を数える）が
+     「全 19 行」と出て、ステージ（fixture 18 種）より 1 行多く読めた。月ごとの計は札と同じ数 */
   h += scroll(table([{ t: "ステージ" , w: "s" }].concat(months.map((m, i) => ({ t: word(i), n: 1 }))).concat([{ t: "3か月の計", n: 1 }]),
-    st.map((s) => [esc(s)].concat(months.map((m) => num(cnt(m, s)))).concat([num(months.reduce((a, m) => a + cnt(m, s), 0))]))
-      .concat([["<b>計</b>"].concat(months.map((m) => "<b>" + num(m.n) + "</b>")).concat(["<b>" + num(wt.n) + "</b>"])]),
+    st.map((s) => [esc(s)].concat(months.map((m) => num(cnt(m, s)))).concat([num(months.reduce((a, m) => a + cnt(m, s), 0))])),
     "", "rp-stage-tbl"), "none") +
+    '<p class="small">計: ' + months.map((m, i) => esc(word(i)) + " <b>" + num(m.n) + "</b> 件").join("・") +
+    "、3 か月で <b>" + num(wt.n) + "</b> 件（ステージ " + num(st.length) + " 種）</p>" +
     '<p class="muted small">件数だけを数えています。ステージ名に入っている「50％」などは HubSpot のステージの名前の一部で、' +
     "件数にも金額にも掛けていません。</p>";
   /* 読むときの注意（not_counted）は画面の頭で書いた（said=true。同じ文を 2 回出さない） */
