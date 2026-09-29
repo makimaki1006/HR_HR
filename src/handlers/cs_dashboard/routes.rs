@@ -400,24 +400,11 @@ pub(super) fn freshen(mut v: Value, sheets: &Sheets, today: NaiveDate) -> Value 
     v
 }
 
-/// HubSpot の portal_id の既定値（リクロジ事業部）。取引ページ
-/// `https://app.hubspot.com/contacts/<portal_id>/record/0-3/<deal_id>/` の一部で、
-/// 公開して困る値ではない（2026-09-28 藤巻さん確認）。
-pub(super) const HUBSPOT_PORTAL_ID_DEFAULT: &str = "23708633";
-
-/// HubSpot の portal_id。環境変数 `HUBSPOT_PORTAL_ID` で上書きでき、
-/// 未設定・空白だけなら既定値。
-pub(crate) fn hubspot_portal_id() -> String {
-    hubspot_portal_id_from(std::env::var("HUBSPOT_PORTAL_ID").ok().as_deref())
-}
-
-/// 環境変数の値から portal_id を決める（テストで環境変数を触らずに確かめるため分けてある）。
-pub(super) fn hubspot_portal_id_from(env: Option<&str>) -> String {
-    env.map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| HUBSPOT_PORTAL_ID_DEFAULT.to_string())
-}
+// HubSpot の portal_id（環境変数 `HUBSPOT_PORTAL_ID`、未設定・空白なら既定値 23708633）。
+// 実装と経緯のコメントは共通モジュール `crate::hubspot::deep_link` に移した。
+pub(crate) use crate::hubspot::deep_link::hubspot_portal_id;
+#[cfg(test)]
+pub(super) use crate::hubspot::deep_link::{hubspot_portal_id_from, HUBSPOT_PORTAL_ID_DEFAULT};
 
 // ================================================================ 集計
 
