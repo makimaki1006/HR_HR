@@ -6162,68 +6162,110 @@ function renderToday(D0) {
     : '<div class="empty">直近7日に' + (c ? "この担当で" : "") + "始まった契約はありません。</div>";
   h += "</details>";
 
-  /* ---------------- 図 名札の内訳（表の下。08 の S-1） ----------------
-     🔴 図はこれと MTG 途絶の 2 つだけ。毎朝の画面なので、表が主役で図はその下。
-     件数の推移は作らない（スナップショットが無いので、作ると嘘になる）。 */
-  h += sec("図", "何で上がってきたか（今日出す先 " + num(D.rows.length) + " 件の名札）");
-  const fc = {};
-  for (const r of D.rows) for (const f of (r.flags || [])) fc[f] = (fc[f] || 0) + 1;
-  const fr = Object.entries(fc).sort((a, b) => b[1] - a[1]);
-  h += fig("名札ごとの件数", "1つの案件に複数つきます",
-    fr.length
-      ? svgBarH({ w: 700, fmt: F.int, rh: 24,
-          rows: fr.map(([label, n]) => ({
-            label: tail(label, 26), full: label, v: n, txt: num(n) + "件",
-            note: flagGroup(label).word, color: flagGroup(label).color })) })
-      : '<div class="empty">名札の付いた案件がありません。</div>',
-    lg("box", C.hi, "関係が危ない") + lg("box", C.ki, "時間が迫っている") +
-    lg("box", C.murasaki, "成果が出ていない") +
-    '<i class="full">棒の右に分類の言葉も書いています。' +
-    "<b>色が見分けられなくても読めます。</b></i>" +
-    /* 件数は直書きしない。24件は 2026-09-23 のたまたまの値で、日によって変わる（V8） */
-    '<i class="full">この ' + num(D.rows.length) + " 件だけの内訳です。稼働中の全件の内訳は" +
-    goLink("deal", "board") + " にあります。" +
-    "<b>件数の推移は出していません。</b>日ごとの記録を持っていないので、" +
-    "作ると嘘になります。</i>");
+  /* ---------------- 図 2 つ（名札の内訳・MTG 途絶の帯）は外した（2026-09-29 組み替え 段A、handover 09 の 3章 1） ----------------
+     どちらも案件一覧の名札の分布・帯の絞り込みと同じ中身で、毎朝の画面の表の下に 2 つの図が続いていた。
+     🔴 図にしか書いていなかったこと（帯を付けていない件数・帯の線引き・最終MTG日が分かった割合）は黙って消さず、
+        下の畳み「MTG 途絶の数え方と母数」に文で残す（件数は応答のまま。数え直さない） */
+  h += todayMtgNote(D);
 
-  /* ---------------- MTG途絶の帯（全社）。手を打つ帯だけ棒にし、帯を付けていない分は件数の 1 行に ----------------
-     🔴 2026-09-28 診断（08 の S-1）: 6 本の棒のうち手を打つのは 3 本で、残り（直近30日にあり 241・記録なし 44・
-     立ち上がり期 188）が図の高さの半分を取っていた。棒は手を打つ帯だけにし、残りは件数だけ凡例の下に書く（黙って落とさない）。
-     母数（何件を見て作ったか）は別の枠だったが、図の注記の 1 行にする（消さない） */
-  h += sec("図", "MTG が途絶えている先（全社）");
-  const allBands = (G.bands || []).filter((b) => b.n > 0);
-  const bands = allBands.filter((b) => b.alert);
-  const rest = allBands.filter((b) => !b.alert);
+  /* ---------------- 自分の接触（担当を選んだときだけ。09 の 3章 1 の 6、N5） ----------------
+     /api/consulting/contact-trend を担当で絞る（API の変更なし）。他の人とは並べない（評価と誤読させない）。
+     応答は描いた後に wireToday → fillTodayContact が取りに行く（今日の表を待たせない） */
+  if (c) {
+    h += sec("図", "持ち案件1件あたりの接触（" + c + "、直近6か月）", "td-contact-h");
+    h += '<div id="td-contact"><div class="loading">接触の推移を読み込み中…</div></div>';
+  } else {
+    h += '<p class="muted small">担当を選ぶと、その人の持ち案件1件あたりの接触（直近6か月）がここに出ます。</p>';
+  }
+
+  return h + foot(D.meta);
+}
+
+/** 今日の畳み「MTG 途絶の数え方と母数」。前は図「MTG が途絶えている先（全社）」の注記に書いていた（2026-09-29 に図を外した）。
+    帯の件数そのものは案件一覧の帯の絞り込みで見る（行き先を添える） */
+function todayMtgNote(D) {
+  const G = D.meta.mtg_gap || {};
+  const bands = (G.bands || []).filter((b) => b.n > 0);
+  const bandN = (k) => ((G.bands || []).find((b) => b.band === k) || {}).n || 0;
   const cov = G.coverage || {};
-  h += fig("最終MTGからの経過日数で分けた帯",
-    /* 🔴 2026-09-24 実機: 副題と注記に「GAS（no_mtg_alerter）」と中の仕組みの名前が出ていた。
-       現場の人が知っているのは「毎朝 Slack に届く MTG 途絶の警告」のほう（NO_MTG_ALERTER_README） */
-    "線引きは、毎朝 Slack に届く MTG 途絶の警告と同じ",
-    bands.length
-      ? svgBarH({ w: 700, fmt: F.int, rh: 26,
-          rows: bands.map((b) => ({
-            label: b.label, v: b.n, txt: num(b.n) + "件", note: "手を打つ",
-            color: MTG_BAND_COLOR[b.band] || C.ghost, faint: !!MTG_BAND_FAINT[b.band] })) })
-      : '<div class="empty">手を打つ帯に入る案件はありません。</div>',
-    /* 凡例は図に出ている帯だけ（使っていない色を残さない）。粒の濃さは棒と同じ */
-    [["critical", "90日以上"], ["red", "60〜89日"], ["yellow", "30〜59日"]]
-      .filter(([k]) => bands.some((b) => b.band === k))
-      .map(([k, t]) => lg("box", MTG_BAND_COLOR[k], t, MTG_BAND_FAINT[k] ? BAR_FAINT_OP : BAR_OP)).join("") +
-    (rest.length
-      ? '<i class="full">帯を付けていない（棒にしていない）: ' +
-        rest.map((b) => esc(b.label) + " " + num(b.n) + "件").join(" ／ ") + "</i>" : "") +
-    '<i class="full">' + esc(G.rule || "") + "</i>" +
-    '<i class="full">' + esc(G.no_record_note || "") + "</i>" +
-    /* 被覆。🔴 何件を実際に見られているのかを出さないと、帯の件数を信じてよいか分からない */
+  const body =
+    (bands.length
+      ? "帯ごとの件数（全社）: " + bands.map((b) => esc(b.label) + " " + num(b.n) + "件" + (b.alert ? "" : "（帯を付けていない）")).join(" ／ ") + "。"
+      : "") +
+    "帯ごとの案件は " + goLink("deal", "board") + " の「MTG途絶」で絞って見られます。" +
+    (G.rule ? "<br>" + esc(G.rule) : "") +
+    (G.no_record_note ? "<br>" + esc(G.no_record_note) : "") +
     (G.n_judged
-      ? '<i class="full">帯を付けた母数は <b>' + num(G.n_judged) + " 件</b>（稼働中 " + num(D.meta.n_active) +
+      ? "<br>帯を付けた母数は <b>" + num(G.n_judged) + " 件</b>（稼働中 " + num(D.meta.n_active) +
         " 件から立ち上がり期 " + num(bandN("onboarding")) + " 件を外したもの）。そのうち最終MTG日が分かったのは <b>" +
         num(cov.either) + " 件（" + pct1(cov.either_rate) + "）</b>。内訳は 録画 " + num(cov.recording) + " 件（" +
         pct1(cov.recording_rate) + "） ／ メール由来 " + num(cov.mail) + " 件（" + pct1(cov.mail_rate) + "）。" +
-        esc(G.source_note || "") + "</i>"
-      : ""));
+        esc(G.source_note || "")
+      : "");
+  /* 線引きは毎朝 Slack に届く警告と同じ、の 1 文は畳まない（何の帯かが分からなくなる） */
+  return foldNote("def", "MTG 途絶の数え方と母数", body, "線引きは、毎朝 Slack に届く MTG 途絶の警告と同じ", "td-mtg-note");
+}
 
-  return h + foot(D.meta);
+/* 今日の「自分の接触」（N5）。contact-trend の応答は画面をまたいで 10 分だけ覚える（担当の切り替え・並び替えの描き直しで取り直さない）。
+   「読み直す」を押したら捨てる（load の refresh） */
+let todayContactCache = null;
+function fillTodayContact() {
+  const box = document.getElementById("td-contact");
+  if (!box || !todayConsultant) return;
+  const draw = (body) => {
+    const b = document.getElementById("td-contact");
+    if (!b || !todayConsultant) return;
+    paintFigs(b, () => renderMyContact(body, todayConsultant));
+    markScrollAll();
+  };
+  if (todayContactCache && Date.now() - todayContactCache.at < PAGE_CACHE_MS) { draw(todayContactCache.body); return; }
+  fetch("/api/consulting/contact-trend", { credentials: "same-origin" })
+    .then(readJson)   /* ログイン切れを見分ける（U10） */
+    .then((body) => {
+      if (body.error) throw new Error(body.message || "取得できません");
+      todayContactCache = { at: Date.now(), body: body };
+      draw(body);
+    })
+    .catch((e) => {
+      const b = document.getElementById("td-contact");
+      if (b) b.innerHTML = e.loginExpired ? LOGIN_EXPIRED_HTML
+        : '<div class="err">接触の推移を読み込めませんでした。' + esc(e.message) + "</div>";
+    });
+}
+/** 選んだ担当の持ち案件1件あたりの接触（月ごと、通話の記録がある月の直近 6 か月）。🔴 本人の線だけ。他の人・全体と並べない
+    （09 の 3章 1「他の人と並べない」。順位や評価と読ませない）。定義は担当者ごとの接触と同じ（名前もそちらに揃える。09 の 10章③:
+    人ごとの接触の 2 つの定義は名前で区別する。担当者の一覧の「接触率」とは別のもの） */
+function renderMyContact(CT, name) {
+  const U = (CT && CT.month) || { periods: [], rows: [] };
+  const periods = U.periods || [];
+  const idx = periods.map((p, i) => i).filter((i) => !periods[i].calls_missing).slice(-6);
+  const row = (U.rows || []).find((r) => r.consultant === name);
+  const ncCt = firstSentence(esc((CT && CT.meta && CT.meta.not_counted) || "").replace("※ ", ""), "評価ではありません");
+  const more = "全員の推移と決まりごとは " + goLink("research", "team") + " にあります。";
+  if (!row || !idx.some((i) => row.cells[i] && row.cells[i].deals > 0))
+    return '<div class="empty">' + esc(name) + " には、直近 " + num(idx.length) + " か月に持ち案件がありません（接触を数える月の中で）。" + more + "</div>";
+  /* 縦軸の上端は確定した月の最大（途中の月の値で伸ばさない。担当者ごとの接触と同じ決まり） */
+  const topOf = (withProv) => idx.reduce((t, i) => {
+    const c = row.cells[i];
+    return c && c.avg != null && !c.small_n && (withProv || !periods[i].provisional) && c.avg > t ? c.avg : t;
+  }, 0);
+  const top = topOf(false) || topOf(true);
+  const pts = contactPts(row.cells, idx, periods, top);
+  const minDeals = (CT.meta && CT.meta.min_deals) || 3;
+  const svg = pts.some((p) => p)
+    ? svgLine({ w: 320, h: 160, x: idx.map((i) => contactX(periods[i], "month")), yFmt: F.d2, yTickAuto: true, fit: true,
+        pad: { l: 34 }, yMax: top, yTicks: 3, alt: name + "の持ち案件1件あたりの接触（月ごと）", series: [{ pts: pts, color: C.ai }] })
+    : '<div class="empty">どの月も持ち案件が ' + num(minDeals) + " 件未満なので、点を打っていません（値は下の表）。</div>";
+  const tbl = table([{ t: "月", w: "s" }].concat(idx.map((i) => ({ t: periods[i].label + (periods[i].provisional ? "（途中）" : ""), n: 1 }))),
+    [["1件あたり（接触/持ち案件）"].concat(idx.map((i) => contactCell(row.cells[i])))], "", "td-contact-tbl");
+  return '<p class="muted small"><b>' + ncCt[0] + "</b></p>" +
+    fig("月ごと", "本人の分だけ。他の人とは並べていません", svg,
+      lg("line", C.ai, "確定した月") + lg("ring", C.ai, "未確定（いまの月。途中なので低く出ます）") +
+      (pts.some((p) => p == null) ? '<i class="full">線が切れている月は、持ち案件が 0 件か ' + num(minDeals) + " 件未満です（値は下の表）。</i>" : "") +
+      '<i class="full">値は下の表にあります（マウスなら点に重ねても出ます）。</i>') +
+    scroll(tbl, "none") +
+    '<p class="muted small">1件あたりの接触 ＝ その月の接触の回数 ÷ その月に持っていた案件の数（担当者の一覧の「接触率」とは別の数え方）。' +
+    esc((CT && CT.contact_rule) || "") + more + "</p>";
 }
 
 /* ---------------------------------------------------------------- 2 案件の立ち位置 */
@@ -6397,6 +6439,7 @@ function wireToday() {
   /* 今週始まった契約の畳みを開閉したら覚える（並び替え・担当の切り替えの描き直しで閉じない） */
   const ds = document.getElementById("td-started");
   if (ds) ds.ontoggle = () => { todayStartedOpen = !!ds.open; };
+  fillTodayContact();   /* 担当を選んでいるときだけ、自分の接触を取りに行く（手元にあれば取らない） */
 }
 
 /* ---------------------------------------------------------------- 5 調査と定義 */
@@ -7888,6 +7931,8 @@ async function load(refresh, opts) {
     return path + "?" + q.toString();
   };
   const cacheKey = parts.map((p) => urlOf(p[1], false)).join(" ");
+  /* 読み直すは、画面が後から取りに行く応答（今日の自分の接触）も捨てる */
+  if (refresh) todayContactCache = null;
 
   /* 応答を描く（取ってきたもの・手元のもの共通） */
   const show = (body, fromCache) => {
