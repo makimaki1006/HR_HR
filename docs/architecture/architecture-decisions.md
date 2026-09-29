@@ -177,3 +177,21 @@ Status: Accepted
 API / Seat 条件が将来変わって採算が悪化した場合、Core Seat 運用へ戻せる。
 
 Vendor pricing を予測し切ることより、設計の可逆性を維持する。
+
+---
+
+## ADR-017 — 社内ユーザーのログインを Google Workspace OIDC にする
+
+Status: Accepted
+
+社員・BPO アルバイトとも会社発行の Google Workspace アカウント (f-a-c.co.jp) を持つ。
+Headless CRM の RBAC と操作者記録 (headless-crm-design §9, §13) には
+本人確認済みの identity が必要で、現行の「許可ドメインのメール + 共有パスワード」では担保できない。
+
+- ID token の検証は Rust 側で行う (署名・aud・`hd` = f-a-c.co.jp・`email_verified`)
+- Client secret は Browser に渡さない
+- 社外向けの期限付きパスワード (AUTH_PASSWORDS_EXTRA / ALLOWED_DOMAINS_EXTRA) は当面残す。廃止は別途決定
+- 役割 (admin / consultant / BPO 等) の保持先は未決定。候補:
+  - 既存 audit Turso の accounts.role (列は既存)
+  - Google グループ (Workspace 管理側での設定が必要)
+  - 環境変数 (ADMIN_EMAILS と同じ方式。変更に再デプロイが要る)
