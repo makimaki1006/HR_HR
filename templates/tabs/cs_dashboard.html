@@ -2732,10 +2732,15 @@ function foldNote(kind, head, body, keep, id, extra) {
     '　<span class="when-closed">' + what + 'を開く</span><span class="when-open">' + what + "を閉じる</span></summary>" +
     '<div class="note ' + kind + ' nohd"><p>' + body + "</p></div>" + (extra || "") + "</details>";
 }
-/** 文を最初の句点で 2 つに分ける（foldNote の keep と本文）。句点が無ければ全文が keep */
-function firstSentence(t) {
+/** 文を最初の句点で 2 つに分ける（foldNote の keep と本文）。句点が無ければ全文が keep。
+    upTo: この語を含む文までを keep にする（語が無ければ最初の句点で切る）。
+    🔴 2026-09-29 検証: 担当者ごとの接触の not_counted は「接触は検知専用です。多いほど良いという評価ではありません
+    （担当者の評価ではありません）。…」で、最初の句点で切ると評価の文が閉じた畳みの中に入り、1440px の 1 画面目に
+    「評価ではありません」が無かった（08 の 2.4「畳まないもの」） */
+function firstSentence(t, upTo) {
   const s = String(t == null ? "" : t);
-  const cut = s.indexOf("。");
+  const at = upTo ? s.indexOf(upTo) : -1;
+  const cut = s.indexOf("。", at < 0 ? 0 : at);
   return cut >= 0 ? [s.slice(0, cut), s.slice(cut + 1)] : [s, ""];
 }
 /* 表は最後の手段。個別の行を特定したいときだけ使う。
@@ -3226,8 +3231,9 @@ function renderContact(D) {
     "<b>上の「" + what + "ごと / " + (unit === "month" ? "週" : "月") + "ごと」で切り替わります。</b>" +
     "1人1枚の図で、縦軸の目盛りは全員そろえてあります。</div>";
 
-  /* 見出しは本文と別のことを言う（担当者の一覧と同じ作り）。M-5: 畳む。1 文目（接触は検知専用です）は畳まず summary に */
-  const ncCt = firstSentence(esc(D.meta.not_counted || "").replace("※ ", ""));
+  /* 見出しは本文と別のことを言う（担当者の一覧と同じ作り）。M-5: 畳む。「接触は検知専用です」から「評価ではありません」の文までは
+     畳まず summary に（規律「評価と誤読させない」。最初の句点で切ると評価の文が畳みの中に入った。2026-09-29 検証） */
+  const ncCt = firstSentence(esc(D.meta.not_counted || "").replace("※ ", ""), "評価ではありません");
   h += foldNote("info", "何のための画面か", [ncCt[1], esc(D.contact_rule || "")].filter(Boolean).join("<br>"), ncCt[0]);
 
   /* ---- 図（1人1枚）---- */
@@ -4909,11 +4915,13 @@ function renderPhone(D) {
 function renderRampup(D) {
   const ph = D.phase, f = D.first_mtg, nm = D.no_mtg;
   let h = sec("問い", "最初の契約を乗り切れているか") +
-    foldNote("def", "この画面で数えていないもの",   /* M-5: 取り決めだけの箱なので畳む */
-      "成約率・売上・担当者の評価ではありません。<b>契約が始まってから最初の MTG までに" +
-      "何日かかったか</b>だけを見ています。良し悪しの判断は人がします。<br>" +
+    /* M-5: 取り決めだけの箱なので畳む。「担当者の評価ではありません」は畳まず summary に（keep。2026-09-29 検証:
+       keep が無く、1440px の 1 画面目に評価の文が無かった） */
+    foldNote("def", "この画面で数えていないもの",
+      "<b>契約が始まってから最初の MTG までに何日かかったか</b>だけを見ています。<br>" +
       "ここの「初回MTG」は<b>MTG だけ</b>で、電話は入っていません" +
-      "（MTGと電話を束ねた最終接触は " + goLink("study", "outcome") + " にあります）。");
+      "（MTGと電話を束ねた最終接触は " + goLink("study", "outcome") + " にあります）。",
+      "成約率・売上・担当者の評価ではありません。良し悪しの判断は人がします");
 
   h += sec("図", "いま、どのフェーズにいるか");
   /* 🔴 SERIES を並び順で回していたので「序盤」が緑（＝良い）、別の日には赤にもなり得た（V9）。
@@ -5001,10 +5009,12 @@ const goalBandOpen = (label) => /^(50|1〜|0%)/.test(String(label || ""));
 function renderOutcome(D) {
   const ga = D.goal_act, gl = D.goal_all, ef = D.efficiency, R = D.risk, cs = D.contact_source;
   let h = sec("問い", "成果は出ているか、どこが危ないか") +
-    foldNote("def", "この画面で数えていないもの",   /* M-5: 取り決めだけの箱なので畳む */
+    /* M-5: 取り決めだけの箱なので畳む。「接触は検知にだけ…処方には使いません」は畳まず summary に（keep）。
+       担当者ごとの接触が「接触は検知専用です」を summary に残すのと揃える（2026-09-29 検証: 丸ごと畳まれていた） */
+    foldNote("def", "この画面で数えていないもの",
       "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
-      "メールは数えていません。<b>接触は検知にだけ使っています。処方には使いません。</b>" +
-      "中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。");
+      "メールは数えていません。中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。",
+      "接触は検知にだけ使っています。処方には使いません");
 
   h += sec("図", "目標に対する進捗");
   /* 🔴 真ん中の帯を SERIES で順に塗っていたので、「50〜100%」が赤・「1〜50%」が緑になり、
