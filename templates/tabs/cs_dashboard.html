@@ -774,12 +774,16 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す */
   .side ul{ flex-wrap:wrap; overflow-x:visible; }
   /* 1 列・3 区切り・11 画面（2026-09-29 組み替え 段A）を 400px で区切りごとの行にすると 5 行（229px。fixture 実測）になり、
-     問いが y=539 まで下がった。区切りの見出しを小さな字にして、項目と同じ 1 つの流れに並べる（3 行ほど）。
-     区切りと ul の箱は外すが（display:contents）、ul には role="list" を付けて一覧であることは読み上げに残す */
-  .side{ display:flex; flex-wrap:wrap; align-items:center; column-gap:var(--space-1); }
-  .sidegrp, .sidegrp ul{ display:contents; }
-  .sidegrp h2{ min-width:0; font-size:11px; letter-spacing:.06em; margin:0 0 0 var(--space-2); }
-  .sidegrp:first-child h2{ margin-left:0; }
+     問いが y=539 まで下がった。区切りの見出しを小さな字にして、項目と同じ流れに並べる。
+     🔴 前は 3 区切りを 1 つの流れにしていたので、区切りの境目が行の途中に来た（「チームと担当 電話 月1・確かめる 成果と継続」
+        の次の行に「記録と数字の信頼度」だけ。2026-09-29 検証 400px）。区切りごとに行を改め（折り返しは区切りの中だけ）、
+        区切りの間に線を引く。見出しは字の大きさだけでなく、行の頭・太字・線で区切りと分かるようにする。
+     ul の箱は外すが（display:contents）、ul には role="list" を付けて一覧であることは読み上げに残す */
+  .side{ display:block; }
+  .sidegrp{ display:flex; flex-wrap:wrap; align-items:center; column-gap:var(--space-1); }
+  .sidegrp + .sidegrp{ border-top:1px solid var(--rule); }
+  .sidegrp ul{ display:contents; }
+  .sidegrp h2{ min-width:0; font-size:11px; letter-spacing:.06em; margin:0 var(--space-1) 0 0; }
   /* タップの的（S-12）。サイドの項目は 30px、操作列は 28px で、指では隣を押しやすかった。
      40px は Android の 48dp と WCAG 2.2 AA（24px）の間。PC（>600px）は今までどおり */
   .side button{ padding:6px var(--space-2); min-height:40px; }
