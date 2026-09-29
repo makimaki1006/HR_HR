@@ -25,6 +25,10 @@ services:
         sync: false
       - key: GOOGLE_OIDC_HOSTED_DOMAIN
         sync: false
+      # HubSpot CRM API の Bearer トークン (Headless CRM、/api/crm/*)。
+      # 未設定なら /api/crm/* だけ 503。値は Render のダッシュボードで設定する（リポジトリに置かない）。
+      - key: HUBSPOT_ACCESS_TOKEN
+        sync: false
       - key: ALLOWED_DOMAINS
         value: "f-a-c.co.jp"
       # Server-only HubSpot metadata; never expose this token in frontend assets.

@@ -56,7 +56,7 @@
 
 | # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照行 |
 |---|------|----------|------|-------------|--------|
-| 20 | `HUBSPOT_PORTAL_ID` | `23708633` (リクロジ事業部) | コンサルダッシュボードの「HubSpot で開く」「HS」リンク先 `https://app.hubspot.com/contacts/<portal_id>/record/0-3/<deal_id>/` の portal_id。全 `/api/consulting/*` の `meta.hubspot_portal_id` に載せる | 既定値を使う（公開して困る値ではない。2026-09-28 藤巻さん確認）。空白だけでも既定値 | `src/handlers/cs_dashboard/routes.rs` `hubspot_portal_id()` |
+| 20 | `HUBSPOT_PORTAL_ID` | `23708633` (リクロジ事業部) | コンサルダッシュボードの「HubSpot で開く」「HS」リンク先 `https://app.hubspot.com/contacts/<portal_id>/record/0-3/<deal_id>/` の portal_id。全 `/api/consulting/*` の `meta.hubspot_portal_id` に載せる。`/api/crm/*` の `deep_link` (`record/0-1|0-2|0-3/{id}/`) にも使う | 既定値を使う（公開して困る値ではない。2026-09-28 藤巻さん確認）。空白だけでも既定値 | `src/hubspot/deep_link.rs` `hubspot_portal_id()` (cs_dashboard からはここを経由) |
 
 `freshen()`（全 API の meta を組む関数）は `AppState` を受け取らず `Sheets` だけで動くため、`AppConfig` を通さず `std::env::var` を直接読んでいる。統合するなら `freshen` の 7 か所の呼び出しに config を通す必要がある（UI/UX 改善の範囲外として据え置き）。
 
@@ -73,6 +73,16 @@
 | 25 | `CSRF_EXTRA_ORIGINS_DEBUG` | `""` | **debug ビルド専用** (release では読まない)。CSRF の許可 Origin に追加する (カンマ区切り、例 `http://localhost:9217`)。PR 時 E2E の POST 用 | 追加なし | `src/lib.rs` (`origin_allowed`) |
 
 ユーザー側の準備 (Google Cloud): OAuth 同意画面を「内部」で作成 → OAuth クライアント ID (ウェブアプリ) を作成 → 承認済みリダイレクト URI に上の URL を登録 → 4 つを Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
+
+## 2d. HubSpot CRM API (1 個、2026-09-29 追加、Headless CRM PR2)
+
+`src/config.rs` `HubSpotApiConfig::from_env()` が読む。前後の空白は落とし、空文字は未設定扱い。`Debug` 出力ではトークンを `***` に伏せる。
+
+| # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照 |
+|---|------|----------|------|-------------|------|
+| 25 | `HUBSPOT_ACCESS_TOKEN` | `""` | HubSpot CRM API の Bearer トークン (`Authorization: Bearer`)。Legacy Private App / static auth アプリ / Service Key のどれでも同じ形で扱う。スコープは読み取りのみ (`crm.objects.contacts.read` / `crm.objects.companies.read` / `crm.objects.deals.read` / `crm.objects.owners.read`) を推奨し、書き込みスコープは PR4 まで付けない。秘密情報のためログ・API 応答に出さない | `/api/crm/*` は 503 `not_configured`。他機能には影響なし | `src/config.rs` / `src/hubspot/` / `src/crm/` |
+
+鍵は既存の HubSpot Service Key (sales-automation-api) を共有する (2026-09-29 ユーザー決定 P-2。HR_HR 専用キーは発行しない)。既存バッチ群とレート上限 (10 秒あたりの上限、Search 5 req/秒/アカウント) を共有するため、クライアントは Search を 1 req/秒に絞り、429 は Retry-After (無ければ最低 1 秒) を待って最大 2 回だけ retry する。ユーザー側の準備: 同じ値を Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
 
 > ⚠ この文書の見出しの「19 個」は 2026-04-26 時点の数。その後 `config.rs` に Turso 系が入り（§2 の 4 個は今は `AppConfig::from_env` にある）、`src/` の `env::var` の名前は 2026-09-28 時点で 43 個。全体の棚卸しは別作業。
 
@@ -133,6 +143,7 @@ cargo run
 | `AUDIT_IP_SALT` | UUID 生成 (sync:false) |
 | `ADMIN_EMAILS` | 管理者メール |
 | `GOOGLE_OIDC_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URL` / `_HOSTED_DOMAIN` | Google ログイン (§2c、sync:false) |
+| `HUBSPOT_ACCESS_TOKEN` | HubSpot CRM API 読み取り (§2d、sync:false) |
 
 ⚠ Docker Build Argument: `GITHUB_TOKEN` (download_db.sh のレート制限回避)
 
