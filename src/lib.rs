@@ -677,6 +677,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                 handlers::spa_shell::MANIFEST_PATH,
             )),
         ))
+        // 2026-09-29: React 画面用の JSON API (/api/app/*)。応答型は ts-rs で TS に生成。要ログイン。
+        .merge(handlers::app_api::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。

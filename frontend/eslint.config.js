@@ -5,7 +5,8 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig([
-  globalIgnores(['node_modules/', 'dist/']),
+  // src/generated/ is written by ts-rs (cargo test); its style is not ours to lint.
+  globalIgnores(['node_modules/', 'dist/', 'src/generated/']),
   {
     files: ['src/**/*.{ts,tsx}'],
     extends: [
