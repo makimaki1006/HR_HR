@@ -7655,6 +7655,7 @@ function go(menu, view, refresh, how, state, trav, moved) {
   const r = resolveView(menu, view);
   const m = r.m, v = r.v;
   lastView[m.key] = v.key;
+  atPin = null;   /* 前の画面で送った節に留めるのはやめる（holdAt） */
   /* 節へ飛ぶ（?at= か、消えた画面の鍵で呼ばれたときの移り先の節）。描いた後に load の settle が飛ぶ。戻る・進むでは飛ばない
      （離れたときの位置へ戻すのが先） */
   pendingAt = trav != null ? "" :
@@ -7740,6 +7741,28 @@ function jumpTo(id, focus) {
   if (typeof el.open === "boolean") el.open = true;
   if (el.scrollIntoView) el.scrollIntoView({ block: "start" });
   if (focus && el.focus) el.focus({ preventScroll: true });
+  atPin = { id: id, until: Date.now() + AT_PIN_MS };
+}
+/* 送った節に留める（N8 の検証 2026-09-29）。
+   🔴 顧客の画面は描いた後にも中身が伸びる（既定の法人を取り直す 2 回目の load、本部アプローチ #hq-box の後読み）。
+      飛ぶのは最初の描画の 1 回だけなので、上の節が伸びると行き先が押し出されていた
+      （fixture 実測: #deal/series で cust-series の画面上の top 1440px +6481〜+11165・400px +19099。本文のリンク ?at=cust-series も +11165）。
+   送った後しばらくは、本文の大きさが変わるたび（ResizeObserver）と同じ画面の描き直しのたび（settle）に、同じ節へ送り直す。
+   人が動かしたら（ホイール・タッチ・キー・押す）やめる。別の画面へ移ったとき（go）と 30 秒後もやめる
+   （本部アプローチは読み直しの直後で 20 秒ほどかかる。人の操作を奪い続けない上限） */
+let atPin = null;
+const AT_PIN_MS = 30000;
+function holdAt() {
+  if (!atPin) return;
+  if (Date.now() > atPin.until) { atPin = null; return; }
+  const el = document.getElementById(atPin.id);
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
+}
+["wheel", "touchstart", "keydown", "pointerdown"].forEach((k) =>
+  window.addEventListener(k, () => { atPin = null; }, { passive: true, capture: true }));
+if (typeof ResizeObserver === "function") {
+  const mainEl = document.getElementById("cs-main");
+  if (mainEl) new ResizeObserver(() => holdAt()).observe(mainEl);
 }
 
 /** URL が空・画面でないときの行き先。毎朝いちばん見る「毎日 → 今日」（見張り app_routes_no_conflict.rs） */
@@ -7916,6 +7939,7 @@ async function load(refresh, opts) {
     }
     /* 節へ（?at=・旧ハッシュの転送）。1 回だけ。URL からは syncUrl が外す（at は状態ではない） */
     if (pendingAt) { const at = pendingAt; pendingAt = ""; jumpTo(at, !!opts.focusMain); }
+    else holdAt();   /* 既定の法人を取り直した 2 回目の描画など。送った節に留める（atPin） */
     syncUrl();
     /* 表示したことを読み上げに伝える。最初の表の行数も添える（偽の DOM では数えられないので省く） */
     let n = null;
