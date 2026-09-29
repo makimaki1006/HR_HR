@@ -50,8 +50,8 @@ use serde_json::{json, Value};
 
 use super::contact_trend::{main_spans, AttachIndex, Target};
 use super::{
-    call_date_jst, consultant_of, date10, deals_all_of, deals_of, flag_true, opt_num, Deal, Sheets,
-    CONTACT_SEC,
+    call_date_jst, consultant_of, customers_of, date10, deals_all_of, deals_of, flag_true, opt_num,
+    Deal, Sheets, CONTACT_SEC,
 };
 use crate::handlers::call_quality::sheets::SheetData;
 
@@ -571,6 +571,16 @@ pub fn build_deal_detail(
         None
     };
 
+    // ---- パンくず（法人 ＞ 拠点 ＞ この案件）の行き先。画面の「顧客」を法人・拠点の鍵で開くため ----
+    // 🔴 法人名は CS_顧客 にある法人だけ返す。無い法人番号で「顧客」を開くと「見つかりません」になるので、
+    //    名前が引けないときは null（画面はリンクにしない）。法人番号・拠点の鍵は URL にだけ使い、画面の文字には出さない
+    let houjin_name = customers_of(&sheets.customer)
+        .into_iter()
+        .find(|c| !d.houjin_resolved.is_empty() && c.houjin == d.houjin_resolved)
+        .map(|c| c.name)
+        .filter(|n| !n.trim().is_empty());
+    let nonempty = |s: &str| (!s.trim().is_empty()).then(|| s.to_string());
+
     let (owner, retired) = who.get(id).cloned().unwrap_or_default();
     let mut mail_other: Vec<(String, usize)> = mail_other.into_iter().collect();
     mail_other.sort();
@@ -587,6 +597,10 @@ pub fn build_deal_detail(
             "amount": d.amount, "renewal_no": d.renewal_no,
             "is_active": d.is_active, "right_censored": d.right_censored,
             "flags": flags,
+            // 顧客の画面（#deal/customer?houjin=&site=）の鍵。site_key は顧客の応答の deals[].site と同じ値（kyoten_key）
+            "houjin": nonempty(&d.houjin_resolved),
+            "houjin_name": houjin_name,
+            "site_key": nonempty(&d.kyoten_key),
         },
         "chain": {
             "has_site": my_site.is_some(),
