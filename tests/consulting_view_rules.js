@@ -1228,9 +1228,11 @@ check("読み方の枠: 末尾の見出しを中身に合わせる（予測で�
 });
 
 check("読み方の枠: 成果とリスクの並びの注記・立ち上がりの「同じ3ヶ月目でも」を2回出さない", () => {
-  const h = run("renderOutcome(__OUT2)");
-  ok((h.match(/この並びは機械が付けた順/g) || []).length === 1,
-    "order_note が " + (h.match(/この並びは機械が付けた順/g) || []).length + " 回出ている");
+  /* 段B（2026-09-29）で最優先の表を案件一覧の見方に移したので、並びの注記（表の頭）は成果と継続には 0 回。
+     散布図の側に戻して 1 回に見せかけない（散布図には並びが無い） */
+  const h = run("renderOutcome(__OUT2, 'rs-outcome')");
+  ok((h.match(/この並びは機械が付けた順/g) || []).length === 0,
+    "order_note が " + (h.match(/この並びは機械が付けた順/g) || []).length + " 回出ている（表は見方に移した）");
   const r = JSON.parse(JSON.stringify(ctx.__RU));
   // rampup.json の phase.rule（2026-09-23 実測）
   r.phase = { rule: "契約長に対する割合。< 0.34 序盤 / < 0.67 中盤 / <= 1.05 終盤 / 超 満了超過。同じ3ヶ月目でも、3ヶ月契約なら満了・12ヶ月契約なら序盤",
@@ -2140,9 +2142,16 @@ check("表: 長い文字の列だけ折り返し（1440px で右端が切れな�
   ok(ho.includes('<th class="wl">案件</th>'), "担当の交代の表で「案件」の列が折り返さない");
   for (const c of ["前の担当", "次の担当", "いまの担当"])
     ok(ho.includes('<th class="ws">' + c + "</th>"), "担当の交代の表で「" + c + "」が折り返さない");
-  // いま見るべき顧客・成果とリスクの表も、取引名の列を折り返す
+  // いま見るべき顧客の表と、見方で外れた案件の表（段B で成果とリスクの最優先の表の代わりになったもの）も、取引名の列を折り返す
   ok(run("renderFocus(__FO)").includes('<th class="wl">取引</th>'), "いま見るべき顧客の表で取引名が折り返さない");
-  ok(run("renderOutcome(__OUT)").includes('<th class="wl">取引</th>'), "成果とリスクの表で取引名が折り返さない");
+  ctx.__WLV = { rows: [], meta: { act_views: [{ key: "top", label: "L", rule: "R", n: 0 }],
+    act_view_diff: [{ key: "top", n: 0, old: { where: "W", n: 1, kept: 0, dropped: 1, added: 0,
+      dropped_rows: [{ deal_id: "d1", name: "外れた案件", consultant: "田中", reason: "理由" }] } }] } };
+  const saved = run("JSON.stringify(boardFilter)");
+  try {
+    run('boardFilter = Object.assign({}, boardFilter, { view: "top" });');
+    ok(run("boardViewNote(__WLV)").includes('<th class="wl">取引</th>'), "見方で外れた案件の表で取引名が折り返さない");
+  } finally { run("boardFilter = " + saved + ";"); }
 });
 
 check("series: 推移の図で、契約の頭に変更履歴が無い月を黙って欠けさせない", () => {
@@ -2632,7 +2641,10 @@ check("ループ4 renewal: n<30 で点を打たない月があるとき、線の
     .includes("線が途切れているところは、その月の値が無いところです"), "ほかの図から「値が無い」の決まり文句まで消えた");
 });
 
-check("ループ4 outcome: 「契約後に一度も接触していない」の行の接触の件数は、契約前のものだと書く", () => {
+/* 🔴 段B（2026-09-29）: 最優先の表は案件一覧の見方に移し、成果とリスクの表を描く分岐（outcomeTopTable）は外した。
+   この表だけにあった「放置の軸」「接触の記録（すべて契約前）」の列は見方には無い（段B で失ったもの）。
+   前の見張り（行ごとに「すべて契約前」と書く）は届く画面が無くなったので、表が戻っていないことと、行き先を見張る */
+check("ループ4 outcome: 最優先の表は成果と継続に出さず、見方へ案内する（接触の記録の列は段B で外れた）", () => {
   const O = JSON.parse(JSON.stringify(ctx.__OUT));
   // routes.rs build_outcome の top の形。n_contact は契約前も含めた件数
   O.risk.top = [
@@ -2640,12 +2652,9 @@ check("ループ4 outcome: 「契約後に一度も接触していない」の�
     { name: "案件B", stage: "定期2", amount: 900000, days_to_expiry: 20, ax3w: "契約後の最終接触から 45日", n_contact: 5, never_after_start: false }];
   ctx.__OUT4 = O;
   const h = run("renderOutcome(__OUT4)");
-  const tb = h.slice(h.lastIndexOf("<tbody>"));
-  const rowA = tb.slice(tb.indexOf("案件A"), tb.indexOf("</tr>", tb.indexOf("案件A")));
-  const rowB = tb.slice(tb.indexOf("案件B"), tb.indexOf("</tr>", tb.indexOf("案件B")));
-  ok(rowA.includes("23件") && rowA.includes("すべて契約前"), "契約後に接触ゼロの行で、接触 23 件が契約前のものだと書いていない");
-  ok(!rowB.includes("契約前"), "契約後に接触がある行にまで「契約前」と書いている");
-  ok(textOf(h).includes("「接触の記録」は契約の前も含めた件数です"), "表の上で「接触の記録」の数え方を書いていない");
+  ok(!h.includes("<tbody>") && !textOf(h).includes("すべて契約前"), "最優先の表が成果と継続に戻っている");
+  ok(h.includes('href="' + run('esc(hashFor("board", { view: "top" }))') + '"') && textOf(h).includes("この 2 件（2軸とも赤）の表は"),
+    "最優先の件数と見方への行き先が無い");
 });
 
 check("ループ4 outcome: 契約開始日が空の行（no_start）では「すべて契約前」と言い切らず、散布図の色も分ける", () => {
@@ -2655,10 +2664,9 @@ check("ループ4 outcome: 契約開始日が空の行（no_start）では「す
     { name: "案件C", stage: "定期1", amount: 1200000, days_to_expiry: 30, ax3w: "契約開始日が空で、契約後の接触を切り出せない",
       n_contact: 7, never_after_start: false, no_start: true }];
   ctx.__OUT5 = O;
+  /* 表（行ごとの「すべて契約前」）は段B で見方に移した（上の見張り）。散布図の凡例と点の側だけが残る */
   const h = run("renderOutcome(__OUT5)");
-  const tb = h.slice(h.lastIndexOf("<tbody>"));
-  ok(tb.includes("7件") && !tb.includes("契約前"), "開始日が空の行で接触が契約前だと言い切っている");
-  ok(tb.includes("契約後の接触を切り出せない"), "開始日が空の行で、放置の軸の理由が出ていない");
+  ok(!textOf(h).includes("すべて契約前"), "開始日が空の行で接触が契約前だと言い切っている");
   ok(textOf(h).includes("契約開始日が空（契約後を切り出せない）"), "散布図の凡例に開始日が空の点の意味が無い");
   ok(!textOf(run("renderOutcome(__OUT4)")).includes("契約開始日が空（"), "開始日が空の行が無いのに凡例を出している");
 });
@@ -3832,12 +3840,19 @@ check("S-4: 集計の4表（NPS低・沈黙・MTG未実施・最優先）の案�
   ru.no_mtg = { n: 1, first_active: 10, rate: 10, note: "", rows: [{ deal_id: "80000000013", name: "MTG未実施の案件",
     stage: "定期1", amount: 100000, days_since_start: 40 }] };
   ctx.__S4RU = ru;
-  ok(run("renderRampup(__S4RU)").includes(link("80000000013", "MTG未実施の案件")), "立ち上がり（MTG未実施）の案件名がリンクでない");
+  /* 立ち上がり（MTG未実施）と成果とリスク（最優先）の表は段B で案件一覧の見方に移した。案件名は見方の「外れた案件」の表で
+     案件の詳細へのリンク（段B 案件一覧の見張り）。ここでは節が見方へ案内していることを見る */
+  const hr = run("renderRampup(__S4RU)");
+  ok(!hr.includes("MTG未実施の案件") && hr.includes('href="' + run('esc(hashFor("board", { view: "no_mtg" }))') + '"'),
+    "立ち上がり（MTG未実施）の表が残っているか、見方への行き先が無い");
   const out = JSON.parse(JSON.stringify(ctx.__OUT));
   out.risk.top = [{ deal_id: "80000000014", name: "最優先の案件", stage: "定期1", amount: 100000, days_to_expiry: 10,
     ax3w: "放置", never_after_start: false, n_contact: 0 }];
   ctx.__S4OUT = out;
-  ok(run("renderOutcome(__S4OUT)").includes(link("80000000014", "最優先の案件")), "成果とリスク（最優先）の案件名がリンクでない");
+  const ho = run("renderOutcome(__S4OUT)");
+  // 散布図の点の title には案件名が出る（図の側）。表の行（案件の詳細へのリンク）が無いことを見る
+  ok(!ho.includes(link("80000000014", "最優先の案件")) && !ho.includes("<tbody>") && ho.includes('href="' + run('esc(hashFor("board", { view: "top" }))') + '"'),
+    "成果とリスク（最優先）の表が残っているか、見方への行き先が無い");
   /* 取引名が空の行は、前は取引ID（内部ID）をそのまま画面に出していた。dealLink は「取引名なし」と書く */
   fo.nps_low.rows[0].name = null;
   ctx.__S4FO2 = fo;
@@ -5026,6 +5041,47 @@ check("段B 案件一覧: 見方のボタン（押している見方は aria-pre
   } finally {
     run(reset + ' cur = { menu: "deal", view: "today" };');
   }
+});
+
+check("段B 検証の指摘: 担当者ごとの案件でも見方の定義と外れた件数を出し、外れた案件はその担当者の分に絞る", () => {
+  /* 2026-09-29 検証: byowner は ?view= で絞れるのに、件数の行に「見方 X」と出るだけで外れた案件を知る手段が無かった */
+  const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" }; boardShowAll = false;';
+  try {
+    run('cur = { menu: "consultant", view: "byowner" }; ' + reset + ' boardFilter.consultant = "田中"; boardFilter.view = "silent";');
+    const h = run("renderBoard(__BV)");
+    const tx = textOf(h);
+    ok(!h.includes('id="board-views"'), "担当者ごとの案件に見方のボタンを置いている");
+    ok(tx.includes("定義S") && tx.includes("稼働中（全担当） 3 件のうち 2 件です"), "担当者ごとの案件で定義の1行と母数（全担当）が出ない");
+    ok(tx.includes("定義を名札に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "担当者ごとの案件で外れた件数の文が無い");
+    const fold = h.slice(h.indexOf('id="board-view-dropped"'));
+    ok(fold.includes("外れた 2 件（全担当）のうち、この担当者の 1 件を確かめる"), "外れた案件をその担当者の分に絞っていない");
+    ok(fold.includes('href="#deal/detail?id=d8"') && !fold.includes("d9"), "その担当者の外れた案件だけを出していない");
+    /* その担当者の分が 0 件なら、0 件と書いて空の畳みを出さない */
+    run('boardFilter.consultant = "鈴木";');
+    const h0 = run("renderBoard(__BV)");
+    ok(textOf(h0).includes("外れた 2 件（全担当）のうち、この担当者の案件はありません。") && !h0.includes('id="board-view-dropped"'),
+      "その担当者の外れた案件が 0 件の扱いが違う");
+  } finally {
+    run(reset + ' cur = { menu: "deal", view: "today" };');
+  }
+});
+
+check("段B 検証の指摘: 立ち上がりの節は、見方と件数が違う主な理由（立ち上がり期は入らない）を書く", () => {
+  /* 2026-09-29 検証: 「メール由来の実施日も見るので」だけで、fixture で外れた 93 件のうち 38 件の理由（立ち上がり期）を書いていなかった */
+  const t = textOf(run("renderRampup(__RU, 'rs-rampup')"));
+  ok(t.includes("見方には立ち上がり期（契約開始30日以内）の案件が入りません"), "立ち上がり期が見方に入らないことを書いていない: " + t.slice(-300));
+  ok(t.includes("外れた案件を確かめる") && t.includes("メール由来の実施日"), "外れた案件の行き先か、メール由来の理由が無い");
+  ok(t.indexOf("立ち上がり期（契約開始30日以内）の案件が入りません") < t.indexOf("メール由来の実施日"), "主な理由（立ち上がり期）を先に書いていない");
+});
+
+check("段B 検証の指摘: 電話の「沈黙している取引」は、案件一覧の見方と定義が違うことと行き先を書く", () => {
+  /* 2026-09-29 検証: fixture で電話の表 107 件・見方 78 件。定義の違う2つの一覧が説明なしに並んでいた */
+  const h = run("renderPhone(__PH)");
+  const i = h.indexOf("沈黙している取引（");
+  const tail = h.slice(i);
+  ok(i >= 0 && tail.includes("案件一覧の見方とは定義が違います"), "電話の沈黙の表に見方との違いの枠が無い");
+  ok(tail.includes('href="' + run('esc(hashFor("board", { view: "silent" }))') + '"'), "見方（接触90日超）への行き先が無い");
+  ok(textOf(tail).includes("同じ案件の集まりではないので、件数は合いません"), "件数が合わないことを書いていない");
 });
 
 check("09 の 7 成果と継続: 定期NPS 4以下は名札と同じ集合なので「別の数え方・段B で揃える」に入れず、名札で絞った案件一覧へ", () => {
