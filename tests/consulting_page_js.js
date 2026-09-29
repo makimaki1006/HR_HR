@@ -148,7 +148,7 @@ function boot(hash, extra) {
     createElement: () => new El(""),
   };
   doc.activeElement = doc.body;
-  ["cs-fresh", "cs-menu", "cs-side", "cs-main", "cs-error"].forEach((id) => { reg[id] = new El(id); });
+  ["cs-fresh", "cs-side", "cs-main", "cs-error", "cs-moved"].forEach((id) => { reg[id] = new El(id); });
 
   const loc = { hash: hash || "", href: "http://test.local/consulting", pathname: "/consulting" };
   const ctx = {
@@ -217,23 +217,28 @@ const todayPayload = (rows) => ({
 /* ================================================================ U1 */
 check("U1", "右側打ち切りのチェックが描き直しても残り、外すと含める側で取り直す", async () => {
   const t = boot();
-  t.R('cur = { menu: "study", view: "renewal" }');
+  // 2026-09-29 組み替え 段A: 継続回数 × 成果は「成果と継続」（results）の節になった。チェックは API（renewal）を読む画面に出る
+  t.R('cur = { menu: "monthly", view: "results" }');
   const cz = new t.El("cs-censor"); t.reg["cs-censor"] = cz;
-  t.R("wire(viewOf('study', 'renewal'))");
+  t.R("wire(viewOf('monthly', 'results'))");
   if (typeof cz.onchange !== "function") throw new Error("チェックに onchange が付いていない");
   cz.checked = true; cz.onchange();
-  const on = t.R("ctlbar(viewOf('study', 'renewal'), {})");
+  const on = t.R("ctlbar(viewOf('monthly', 'results'), {})");
   if (!/id="cs-censor"[^>]*checked/.test(on))
     throw new Error("押した後に描き直すとチェックが外れた表示になる");
-  const u1 = t.fetched[t.fetched.length - 1].url;
+  // 成果と継続は renewal・outcome・rampup を並べて取る。打ち切りの引数は renewal にだけ付く（queryFor）
+  const lastRenewal = () => t.fetched.filter((f) => f.url.indexOf("/api/consulting/renewal") === 0).pop().url;
+  const u1 = lastRenewal();
+  if (t.fetched.slice(-3).some((f) => f.url.indexOf("/api/consulting/renewal") !== 0 && f.url.indexOf("exclude_right_censored") >= 0))
+    throw new Error("打ち切りの引数を renewal 以外の API にも付けている");
   if (u1.indexOf("exclude_right_censored=1") < 0) throw new Error("外す側で取り直していない: " + u1);
   // 描き直した後の要素は checked が外れた新しいもの。そこから外す操作をする
   const cz2 = new t.El("cs-censor"); t.reg["cs-censor"] = cz2;
-  t.R("wire(viewOf('study', 'renewal'))");
+  t.R("wire(viewOf('monthly', 'results'))");
   cz2.checked = false; cz2.onchange();
-  const u2 = t.fetched[t.fetched.length - 1].url;
+  const u2 = lastRenewal();
   if (u2.indexOf("exclude_right_censored") >= 0) throw new Error("「含める」に戻せない: " + u2);
-  if (/id="cs-censor"[^>]*checked/.test(t.R("ctlbar(viewOf('study', 'renewal'), {})")))
+  if (/id="cs-censor"[^>]*checked/.test(t.R("ctlbar(viewOf('monthly', 'results'), {})")))
     throw new Error("外した後もチェックが付いたまま描かれる");
 });
 
@@ -258,16 +263,17 @@ check("U2", "系列を縦に並べる図の接触の帯に棒が立つ", async (
 /* ================================================================ U3 */
 check("U3", "素早く切り替えると、前の画面の遅い応答で上書きされない", async () => {
   const t = boot();
-  t.R('go("consultant", "team")');
-  const slow = t.fetched[t.fetched.length - 1];
-  t.R('go("consultant", "byowner")');
+  // チームと担当は consultants・contact-trend・handover を並べて取る（2026-09-29 組み替え 段A）。3 本とも遅い側
+  t.R('go("research", "team")');
+  const slows = t.fetched.slice(-3);
+  t.R('go("deal", "byowner")');
   const fast = t.fetched[t.fetched.length - 1];
-  if (slow.url.indexOf("/api/consulting/consultants") !== 0 ||
+  if (slows[0].url.indexOf("/api/consulting/consultants") !== 0 ||
       fast.url.indexOf("/api/consulting/deals") !== 0) throw new Error("想定の URL を叩いていない");
   fast.resolve(jsonRes({ meta: { flag_counts: [] }, rows: [boardRow({})] }));
   await tick(); await tick();
-  slow.resolve(jsonRes({ meta: {}, rows: [] }));
-  await tick(); await tick();
+  slows.forEach((slow) => slow.resolve(jsonRes({ meta: {}, rows: [] })));
+  await tick(); await tick(); await tick();
   const main = t.reg["cs-main"].innerHTML;
   if (main.indexOf("この担当者は、どの案件を持っているか") < 0 ||
       main.indexOf("いま、どこに手が回っていないか") >= 0)
@@ -276,17 +282,17 @@ check("U3", "素早く切り替えると、前の画面の遅い応答で上書�
 
 check("U3", "前の画面の遅い要求が失敗しても、いまの画面を消さずエラーも出さない", async () => {
   const t = boot();
-  t.R('go("consultant", "team")');
-  const slow = t.fetched[t.fetched.length - 1];
-  t.R('go("consultant", "byowner")');
+  t.R('go("research", "team")');
+  const slows = t.fetched.slice(-3);
+  t.R('go("deal", "byowner")');
   const fast = t.fetched[t.fetched.length - 1];
   fast.resolve(jsonRes({ meta: { flag_counts: [] }, rows: [boardRow({})] }));
   await tick(); await tick();
   // 遅い方は失敗で返る。🔴 応答を読む段階で投げる形（ゲートウェイの 502 の HTML）にする。
   //    JSON の error で返す形だと、try の中の番号の確かめで先に抜けてしまい、
   //    catch 側の確かめを消しても落ちない
-  slow.resolve({ ok: false, status: 502, redirected: false, url: "http://test.local/api",
-    headers: { get: () => "text/html" }, json: async () => { throw new SyntaxError("x"); } });
+  slows.forEach((slow) => slow.resolve({ ok: false, status: 502, redirected: false, url: "http://test.local/api",
+    headers: { get: () => "text/html" }, json: async () => { throw new SyntaxError("x"); } }));
   await tick(); await tick(); await tick();
   if (t.reg["cs-main"].innerHTML.indexOf("この担当者は、どの案件を持っているか") < 0)
     throw new Error("古い要求の失敗で、いまの画面（担当者ごとの案件）が消された");
@@ -301,24 +307,33 @@ function houjinIndex(n, focusEvery) {
     out.push({ houjin: "H" + i, name: "法人" + i, deals: 1, sites: 1, focus: i % focusEvery === 0 });
   return out;
 }
-check("U4", "注力だけの絞り込みが「継続を追いかける」の法人選択に持ち越されない", async () => {
+// 🔴 前の形: 「継続を追いかける」と「法人番号で見る」が別の画面で、注力の切り替えは後者にしか無かったので、前者まで絞ると
+//    解除できなかった（U4）。2026-09-29 の組み替え（段A）で 2 つは「顧客」1 画面になり、切り替えと選択欄が同じ画面に並ぶ。
+//    同じ性質（注力で絞っても、その画面で解除できる・解除すれば全件に戻る）を新しい形で見る
+check("U4", "注力だけの絞り込みは、切り替えのある画面（顧客）で効き、同じ画面で解除すると全件に戻る", async () => {
   const t = boot();
   const sel = new t.El("cs-houjin"); t.reg["cs-houjin"] = sel;
   t.ctx.__idx = houjinIndex(40, 4);
   t.R("customerIndex = __idx; focusOnly = true;");
-  t.R("wire(viewOf('deal', 'series'))");
-  const nSeries = count(sel.innerHTML, /<option /g);
-  t.R("wire(viewOf('deal', 'houjin'))");
-  const nHoujin = count(sel.innerHTML, /<option /g);
-  if (nSeries !== 41) throw new Error("継続を追いかけるの選択肢が " + nSeries + "（全40法人＋見出しのはず）");
-  if (nHoujin !== 11) throw new Error("法人番号で見るで注力だけに絞れていない: " + nHoujin);
+  t.R("wire(viewOf('research', 'customer'))");
+  const nOn = count(sel.innerHTML, /<option /g);
+  if (nOn !== 11) throw new Error("顧客で注力だけに絞れていない: " + nOn);
+  // 切り替え（#hj-focus-only）が同じ画面にある: 顧客の描画に出る
+  t.ctx.__D = customerPayload([deal({ deal_id: "d1" })], {
+    focus: { rule: "注力の条件", not_layer: "層", n_focus: 10, n_display: 40, display_label: "表示中の法人" } });
+  const h = t.R("viewOf('research', 'customer').render(__D)");
+  if (h.indexOf('id="hj-focus-only"') < 0) throw new Error("注力の切り替えが、絞った選択欄と同じ画面に無い（解除できない）");
+  t.R("focusOnly = false;");
+  t.R("wire(viewOf('research', 'customer'))");
+  const nOff = count(sel.innerHTML, /<option /g);
+  if (nOff !== 41) throw new Error("解除しても全件に戻らない: " + nOff + "（全40法人＋見出しのはず）");
 });
 check("U8", "法人の選択肢を件数で切らない（517法人すべて選べる）", async () => {
   const t = boot();
   const sel = new t.El("cs-houjin"); t.reg["cs-houjin"] = sel;
   t.ctx.__idx = houjinIndex(517, 1000);
   t.R("customerIndex = __idx; focusOnly = false;");
-  t.R("wire(viewOf('deal', 'houjin'))");
+  t.R("wire(viewOf('research', 'customer'))");
   const n = count(sel.innerHTML, /<option /g);
   if (n !== 518) throw new Error("選択肢が " + n + "（517＋見出しのはず）");
 });
@@ -331,21 +346,21 @@ check("U5", "画面の中の移動が履歴に積まれ、戻るで前の画面�
     throw new Error("開いた直後の位置合わせで履歴を積んでいる（push " + t.hist.push +
       " / replace " + t.hist.replace + "）");
   const base = t.hist.push;
-  t.R('go("consultant", "team")');
-  t.R('go("study", "renewal")');
+  t.R('go("research", "team")');
+  t.R('go("monthly", "results")');
   if (t.hist.push - base !== 2) throw new Error("2回移動して履歴が " + (t.hist.push - base) + " 件しか増えない");
   // 戻る: ブラウザが URL を戻してから popstate（hashchange が来ないこともある）を送る
-  t.loc.hash = "#consultant/team";
+  t.loc.hash = "#research/team";
   const pop = (t.listeners.popstate || []).concat(t.listeners.hashchange || []);
   if (!pop.length) throw new Error("戻る・進むを受ける処理が無い");
   pop.forEach((f) => f({}));
   if (t.R("cur.view") !== "team") throw new Error("戻っても画面が描き直されない");
   // 🔴 上の戻るは URL が go() の書く形と同じなので、go() は push も replace も呼ばない。
   //    それだけでは「戻るで積まない」を確かめられない（前の版はここが素通りだった）。
-  //    view の無い URL（#study）へ戻った場合は、go() が #study/<既定> に書き直す。そこで積むかを見る
-  t.loc.hash = "#study";
+  //    view の無い URL（#monthly）へ戻った場合は、go() が #monthly/<既定> に書き直す。そこで積むかを見る
+  t.loc.hash = "#monthly";
   pop.forEach((f) => f({}));
-  if (t.R("cur.menu") !== "study") throw new Error("戻っても画面が描き直されない（#study）");
+  if (t.R("cur.menu") !== "monthly") throw new Error("戻っても画面が描き直されない（#monthly）");
   if (t.hist.push - base !== 2) throw new Error("戻るで履歴を積み直している（戻れなくなる）");
 });
 
@@ -437,11 +452,11 @@ check("U9", "選択欄を操作して描き直しても、フォーカスがそ�
 async function houjinReselect(t) {
   t.ctx.__idx = houjinIndex(3, 1);
   t.R('customerIndex = __idx; customerHoujin = "H0";');
-  t.R('go("deal", "houjin")');
+  t.R('go("research", "customer")');
   t.fetched[t.fetched.length - 1].resolve(jsonRes(customerPayload([deal({})])));
   await tick(); await tick();
   const sel = new t.El("cs-houjin"); t.reg["cs-houjin"] = sel;
-  t.R("wire(viewOf('deal', 'houjin'))");
+  t.R("wire(viewOf('research', 'customer'))");
   sel.focus();
   sel.value = "H2"; sel.onchange();   // → load()。ここで取り直しに行く
   // 描き直すと DOM が入れ替わる。新しい選択欄は別の要素になる
@@ -469,7 +484,7 @@ check("U9", "応答を待つ間に別の場所へ動かしたフォーカスを�
 /* ================================================================ U10 */
 check("U10", "ログインが切れていたら「ログインし直してください」とリンクを出す", async () => {
   const t = boot();
-  t.R('go("study", "phone")');
+  t.R('go("research", "phone")');
   const f = t.fetched[t.fetched.length - 1];
   f.resolve({
     ok: true, status: 200, redirected: true, url: "http://test.local/login",
@@ -489,7 +504,7 @@ check("U10", "401・JSON 以外の応答・本部アプローチの取得でも�
   // ① 401（リダイレクトされずに返る形）
   {
     const t = boot();
-    t.R('go("study", "phone")');
+    t.R('go("research", "phone")');
     t.fetched[t.fetched.length - 1].resolve({ ok: false, status: 401, redirected: false,
       url: "http://test.local/api/consulting/phone", headers: { get: () => "application/json" },
       json: async () => ({}) });
@@ -500,7 +515,7 @@ check("U10", "401・JSON 以外の応答・本部アプローチの取得でも�
   // ② JSON 以外（プロキシのエラーページなど。リダイレクトではない 502）
   {
     const t = boot();
-    t.R('go("study", "phone")');
+    t.R('go("research", "phone")');
     t.fetched[t.fetched.length - 1].resolve({ ok: false, status: 502, redirected: false,
       url: "http://test.local/api/consulting/phone", headers: html, json: badJson });
     await tick(); await tick(); await tick();
@@ -570,8 +585,8 @@ check("U12", "別の法人を選んだら「既定で開いています」の注
   const t = boot();
   const sel = new t.El("cs-houjin"); t.reg["cs-houjin"] = sel;
   t.ctx.__idx = houjinIndex(3, 1);
-  t.R('cur = { menu: "deal", view: "houjin" }; customerIndex = __idx; customerHoujin = "H0"; customerReason = "取引がいちばん多い法人";');
-  t.R("wire(viewOf('deal', 'houjin'))");
+  t.R('cur = { menu: "research", view: "customer" }; customerIndex = __idx; customerHoujin = "H0"; customerReason = "取引がいちばん多い法人";');
+  t.R("wire(viewOf('research', 'customer'))");
   sel.value = "H2"; sel.onchange();
   const h = t.R("custBlocks")(customerPayload([deal({})]), new Set(["head"]));
   if (h.indexOf("この顧客を既定で開いています") >= 0) throw new Error("選び直した後も注記が残る");
@@ -1157,15 +1172,30 @@ function contactPayload() {
             team: [cell(8, 4), cell(8, 1)], undetermined: [cell(0, 0), cell(0, 0)], shared: [0, 0] },
   };
 }
-check("C1", "担当者ごとの接触: 開くと contact-trend を1回だけ取り、週ごとに切り替えても取り直さずに描き直す", async () => {
+/* チームと担当（2026-09-29 組み替え 段A）は consultants・contact-trend・handover を並べて取る。3 本に応答を返す */
+function teamPayload() {
+  return { meta: { n_consultant: 1, not_counted: "※ 担当者の評価ではありません。", retired_deals: 0, retired_people: 0, unknown_owner: 0 },
+    contact_rule: "接触率", rows: [{ consultant: "担当T", n_active: 3, contact_rate: 50, contact_touched: 1, contact_months: 2,
+      atv_max: null, focus: 0, expiring: 0, nps_low: 0, no_contact: 0 }] };
+}
+async function openTeam(t, over) {
+  const n = t.fetched.length;
+  t.R('go("research", "team")');
+  const reqs = t.fetched.slice(n);
+  const want = ["/api/consulting/consultants", "/api/consulting/contact-trend", "/api/consulting/handover"];
+  for (const w of want)
+    if (!reqs.some((q) => q.url.indexOf(w + "?") === 0)) throw new Error("チームと担当で " + w + " を取りに行っていない: " + reqs.map((q) => q.url).join(" "));
+  if (reqs.length !== 3) throw new Error("チームと担当で取りに行く数が 3 でない: " + reqs.length);
+  const body = Object.assign({ consultants: teamPayload(), "contact-trend": contactPayload(), handover: handoverPayload() }, over || {});
+  reqs.forEach((q) => { const k = want.find((w) => q.url.indexOf(w + "?") === 0).split("/").pop(); q.resolve(jsonRes(body[k])); });
+  await tick(); await tick(); await tick(); await tick();
+  return reqs;
+}
+check("C1", "担当者ごとの接触（チームと担当の節）: 開くと contact-trend を1回だけ取り、週ごとに切り替えても取り直さずに描き直す", async () => {
   const t = boot();
-  t.R('go("consultant", "contact")');
-  const req = t.fetched[t.fetched.length - 1];
-  if (!req || req.url.indexOf("/api/consulting/contact-trend") !== 0)
-    throw new Error("担当者ごとの接触で contact-trend を取りに行っていない: " + (req && req.url));
-  req.resolve(jsonRes(contactPayload()));
-  await tick(); await tick();
+  await openTeam(t);
   const main = t.reg["cs-main"];
+  if (t.reg["cs-error"].innerHTML) throw new Error("描けていない: " + t.reg["cs-error"].innerHTML);
   if (main.innerHTML.indexOf("担当A") < 0 || main.innerHTML.indexOf("担当W") >= 0)
     throw new Error("既定（月ごと）で描いていない");
   if (!/id="ct-unit-month"[^>]*aria-pressed="true"/.test(main.innerHTML))
@@ -1173,7 +1203,7 @@ check("C1", "担当者ごとの接触: 開くと contact-trend を1回だけ取�
   // 週ごとのボタンを押す
   const wk = new t.El("ct-unit-week"); wk.dataset.u = "week";
   t.qsa["#ct-unit button[data-u]"] = [wk];
-  t.R("wire(viewOf('consultant', 'contact'))");
+  t.R("wire(viewOf('research', 'team'))");
   const n = t.fetched.length;
   if (typeof wk.onclick !== "function") throw new Error("週ごとのボタンに onclick が付いていない");
   wk.onclick();
@@ -1214,20 +1244,16 @@ function handoverPayload() {
     },
   };
 }
-check("H1", "担当の交代: 開くと handover を取り、交代の前後の接触を描く（undefined・NaN を出さない）", async () => {
+check("H1", "担当の交代（チームと担当の節）: 開くと handover を取り、交代の前後の接触を描く（undefined・NaN を出さない）", async () => {
   const t = boot();
-  t.R('go("consultant", "handover")');
-  const req = t.fetched[t.fetched.length - 1];
-  if (!req || req.url.indexOf("/api/consulting/handover") !== 0)
-    throw new Error("担当の交代で handover を取りに行っていない: " + (req && req.url));
-  req.resolve(jsonRes(handoverPayload()));
-  await tick(); await tick();
+  await openTeam(t);
   const h = t.reg["cs-main"].innerHTML;
   for (const w of ["交代の前後で、接触は増えたか減ったか", "証拠ではありません", "引き継いだ側（次の担当）", "引き継がれた側（前の担当）",
     "接触の前後（30日あたり）", "記録の遅れ", "それぞれの担当期間の全体（通期）", "変化の平均 / 中央値", "担当中"])
     if (h.indexOf(w) < 0) throw new Error("「" + w + "」が描かれていない");
   if (/undefined|NaN/.test(h)) throw new Error("undefined か NaN が出ている");
-  if (h.indexOf('href="#consultant/contact"') < 0) throw new Error("担当者ごとの接触へのリンクが無い");
+  // 担当者ごとの接触は同じ画面の節になった。本文のリンクはその節へ飛ぶ形（?at=）
+  if (h.indexOf('href="#research/team?at=team-contact"') < 0) throw new Error("担当者ごとの接触（節）へのリンクが無い");
 });
 
 /* ================================================================ D 案件の詳細（2026-09-26） */
@@ -1548,10 +1574,10 @@ check("D-1a", "担当を選んでいるときに MTG 途絶の札を押すと、
   t.R("wire(viewOf('deal', 'today'))");
   band.onclick();
   const at = t.R("cur.menu + '/' + cur.view");
-  if (at !== "consultant/byowner") throw new Error("担当者ごとの案件へ移っていない（案件そのものは入るときに担当の絞り込みを外す）: " + at);
+  if (at !== "deal/byowner") throw new Error("担当者ごとの案件へ移っていない（案件そのものは入るときに担当の絞り込みを外す）: " + at);
   if (t.R("boardFilter.consultant") !== "担当A" || t.R("boardFilter.band") !== "critical") throw new Error("担当と帯の絞り込みが両方立っていない");
   /* M-2（段2）から、担当と帯も URL に載る（名前は ABC 順、値は URL エンコード）。貼れば同じ絞り込みで開く */
-  if (t.loc.hash !== "#consultant/byowner?band=critical&c=" + encodeURIComponent("担当A"))
+  if (t.loc.hash !== "#deal/byowner?band=critical&c=" + encodeURIComponent("担当A"))
     throw new Error("URL が担当者ごとの案件＋担当と帯の絞り込みでない: " + t.loc.hash);
   // 届いた応答で、担当と帯の両方で絞った表と「絞り込み中: 担当 …, MTG途絶 …」が出る
   const B = { meta: { today: "2026-09-18", n_active: 3, order_rule: "", flag_counts: [],
@@ -1589,21 +1615,23 @@ check("S-5", "API の meta.hubspot_portal_id を最初の応答で覚え、表�
   if (t2.reg["cs-main"].innerHTML.indexOf("hslink") >= 0) throw new Error("portal_id の無い応答で HubSpot のリンクを出している");
 });
 
-check("S-7", "上のメニューを押すと、そのメニューで最後に開いた項目へ戻る（初めてなら先頭）", async () => {
+// 🔴 上のメニューは 2026-09-29 の組み替え（段A）で無くなった。同じ性質（区切りだけを指したら、その区切りで最後に開いた項目、
+//    初めてなら先頭）は、区切りだけのハッシュ（#research）と go(区切り, null) で残っている
+check("S-7", "区切りだけを指すと、その区切りで最後に開いた項目へ戻る（初めてなら先頭）", async () => {
   const t = boot();
-  t.R('go("study", "phone")');
+  t.R('go("research", "phone")');
   if (t.R("cur.view") !== "phone") throw new Error("前提: 電話を開けていない");
-  t.R('go("deal", null)');   // 上のメニュー「案件」を押す（初めてなので先頭＝今日動く先）
-  if (t.R("cur.view") !== "today") throw new Error("案件を初めて押したのに先頭（今日動く先）でない: " + t.R("cur.view"));
-  t.R('go("study", null)');  // 上のメニュー「集計」を押す → 最後に見ていた「電話」へ
-  if (t.R("cur.view") !== "phone") throw new Error("集計を押し直したのに最後に見た「電話」へ戻らない: " + t.R("cur.view"));
-  if (t.loc.hash !== "#study/phone") throw new Error("URL が最後に見た項目になっていない: " + t.loc.hash);
+  t.R('go("deal", null)');   // 区切り「毎日」（初めてなので先頭＝今日）
+  if (t.R("cur.view") !== "today") throw new Error("毎日を初めて指したのに先頭（今日）でない: " + t.R("cur.view"));
+  t.R('go("research", null)');  // 区切り「調べる」 → 最後に見ていた「電話」へ
+  if (t.R("cur.view") !== "phone") throw new Error("調べるを指し直したのに最後に見た「電話」へ戻らない: " + t.R("cur.view"));
+  if (t.loc.hash !== "#research/phone") throw new Error("URL が最後に見た項目になっていない: " + t.loc.hash);
   /* 項目を名指しした移動（goLink・左の項目）はそのまま効く */
-  t.R('go("study", "dq")');
-  if (t.R("cur.view") !== "dq") throw new Error("項目を名指ししたのに別の項目が開く");
+  t.R('go("research", "team")');
+  if (t.R("cur.view") !== "team") throw new Error("項目を名指ししたのに別の項目が開く");
   t.R('go("deal", null)');
-  t.R('go("study", null)');
-  if (t.R("cur.view") !== "dq") throw new Error("最後に見た項目が更新されていない: " + t.R("cur.view"));
+  t.R('go("research", null)');
+  if (t.R("cur.view") !== "team") throw new Error("最後に見た項目が更新されていない: " + t.R("cur.view"));
 });
 
 check("S-11", "「読み直す」を押すと押せなくなり（取り直し中…）、refresh=1 で1回だけ取り直す", async () => {
@@ -1690,9 +1718,12 @@ check("M-2", "hashFor: 画面と状態からハッシュを作る。既定・空
   if (t.R('hashFor("today")') !== "#deal/today") throw new Error("状態なしのハッシュ: " + t.R('hashFor("today")'));
   if (t.R('hashFor("detail", { id: "70000000001" })') !== "#deal/detail?id=70000000001")
     throw new Error("案件の詳細の古い形（?id=）と同じ文字列にならない: " + t.R('hashFor("detail", { id: "70000000001" })'));
-  if (t.R('hashFor("houjin", { houjin: "H1", focus: true })') !== "#deal/houjin?focus=1&houjin=H1")
-    throw new Error("true を 1 にしていない: " + t.R('hashFor("houjin", { houjin: "H1", focus: true })'));
-  if (t.R('hashFor("nowhere")') !== "#deal/today") throw new Error("無い画面の名前で既定（案件 → 今日動く先）に落ちない");
+  if (t.R('hashFor("customer", { houjin: "H1", focus: true })') !== "#research/customer?focus=1&houjin=H1")
+    throw new Error("true を 1 にしていない: " + t.R('hashFor("customer", { houjin: "H1", focus: true })'));
+  /* 消えた画面の鍵（前の版の本文・他のチームのコード）は移り先の画面になる（2026-09-29 組み替え 段A） */
+  if (t.R('hashFor("houjin", { houjin: "H1" })') !== "#research/customer?houjin=H1")
+    throw new Error("消えた画面の鍵（houjin）が移り先（顧客）にならない: " + t.R('hashFor("houjin", { houjin: "H1" })'));
+  if (t.R('hashFor("nowhere")') !== "#deal/today") throw new Error("無い画面の名前で既定（毎日 → 今日）に落ちない");
   /* 表の案件名のリンク（dealLink）と同じ形。ずれると followUrl が「同じ場所」を見分けられない */
   t.R('hsPortal = ""');
   if (t.R('dealLink("70000000001", "A")').indexOf('href="' + t.R('hashFor("detail", { id: "70000000001" })') + '"') < 0)
@@ -1707,19 +1738,24 @@ check("M-2", "貼った URL の状態で開く（案件そのもの: 担当・�
   if (t.R("boardFilter.expiry") !== "") throw new Error("満了の帯に無い値（zzz）をそのまま入れている");
   /* 開いた直後に URL を正規の形に直す（無い値は消え、名前は ABC 順） */
   if (t.loc.hash !== "#deal/board?band=critical&c=" + C_A + "&sort=-amount") throw new Error("開いた直後の URL: " + t.loc.hash);
+  // 旧ハッシュ（継続を追いかける）は顧客へ転送し、法人・拠点はそのまま渡す（N8）
   const t2 = boot("#deal/series?houjin=H1&site=S1");
+  if (t2.R("cur.view") !== "customer") throw new Error("旧ハッシュ #deal/series が顧客へ転送されない: " + t2.R("cur.view"));
   if (t2.R("customerHoujin") !== "H1" || t2.R("seriesSite") !== "S1") throw new Error("法人・拠点が URL から入らない");
   const u = t2.fetched[t2.fetched.length - 1].url;
   if (u.indexOf("/api/consulting/customer?") !== 0 || u.indexOf("houjin=H1") < 0) throw new Error("URL の法人で取りに行っていない: " + u);
   if (t2.R("customerReason") !== "") throw new Error("URL の法人で開いたのに「既定で開いています」の注記が残る");
   const t3 = boot("#consultant/contact?unit=week");
-  if (t3.R("contactUnit") !== "week") throw new Error("週ごとが URL から入らない");
+  if (t3.R("contactUnit") !== "week" || t3.R("cur.view") !== "team") throw new Error("週ごとが URL から入らない（旧ハッシュ → チームと担当）");
+  if (boot("#research/team?unit=week").R("contactUnit") !== "week") throw new Error("週ごとが新しい形の URL から入らない");
   if (boot("#consultant/contact?unit=zzz").R("contactUnit") !== "month") throw new Error("単位に無い値（zzz）をそのまま入れている");
   const t5 = boot("#study/renewal?excl=1");
   if (t5.R("renewalExcludeCensored") !== true) throw new Error("右側打ち切りを外す指定が URL から入らない");
-  if (t5.fetched[t5.fetched.length - 1].url.indexOf("exclude_right_censored=1") < 0) throw new Error("URL の指定で外す側で取りに行っていない");
-  /* 古い形はそのまま開ける */
-  if (boot("#study").R("cur.view") !== "renewal" || boot("#deal/board").R("cur.view") !== "board") throw new Error("古い形（#study、#deal/board）が開かない");
+  const u5 = t5.fetched.filter((f) => f.url.indexOf("/api/consulting/renewal?") === 0).pop();
+  if (!u5 || u5.url.indexOf("exclude_right_censored=1") < 0) throw new Error("URL の指定で外す側で取りに行っていない");
+  if (boot("#monthly/results?excl=1").R("renewalExcludeCensored") !== true) throw new Error("新しい形の URL で打ち切りの指定が入らない");
+  /* 古い形はそのまま開ける（#study は前の「集計」の先頭＝継続回数 × 成果 → 成果と継続） */
+  if (boot("#study").R("cur.view") !== "results" || boot("#deal/board").R("cur.view") !== "board") throw new Error("古い形（#study、#deal/board）が開かない");
 });
 
 check("M-2", "左の項目・本文のリンクから入り直すと、その画面の絞り込みだけ既定に戻る（段1レビュー D）。法人・並び（持ち越すもの）は残る", async () => {
@@ -1730,18 +1766,18 @@ check("M-2", "左の項目・本文のリンクから入り直すと、その画
   if (t.R("boardFilter.band") !== "") throw new Error("側柱で案件そのものへ戻っても帯の絞り込みが残っている（段1レビュー D）");
   if (t.R("boardSort.key") !== "amount") throw new Error("並び（持ち越すもの）まで既定に戻した");
   if (t.loc.hash !== "#deal/board?sort=-amount") throw new Error("入り直した後の URL: " + t.loc.hash);
-  t.R('go("deal", "series")');
+  t.R('go("research", "customer")');
   if (t.R("customerHoujin") !== "H9") throw new Error("法人（持ち越すもの）が側柱の移動で消えた");
-  if (t.loc.hash !== "#deal/series?houjin=H9") throw new Error("法人が URL に載らない: " + t.loc.hash);
-  /* 本文のリンク（goLink → ハッシュだけ変わる。履歴の札なし）でも法人は持ち越し、その画面の絞り込みは既定へ */
-  t.R('seriesSite = "S1"');
-  navHash(t, "#deal/houjin");
-  if (t.R("cur.view") !== "houjin" || t.R("customerHoujin") !== "H9") throw new Error("本文のリンクで法人が消えた");
-  if (t.loc.hash !== "#deal/houjin?houjin=H9") throw new Error("本文のリンクで着いた URL: " + t.loc.hash);
-  navHash(t, "#deal/series");
-  if (t.R("seriesSite") !== "") throw new Error("継続を追いかけるへ入り直しても拠点の絞り込みが残っている");
+  if (t.loc.hash !== "#research/customer?houjin=H9") throw new Error("法人が URL に載らない: " + t.loc.hash);
+  /* 本文のリンク（goLink → ハッシュだけ変わる。履歴の札なし）でも法人は持ち越し、その画面の絞り込み（拠点）は既定へ */
+  t.R('seriesSite = "S1"; syncUrl()');
+  t.R('go("deal", "today")');
+  navHash(t, "#research/customer");
+  if (t.R("cur.view") !== "customer" || t.R("customerHoujin") !== "H9") throw new Error("本文のリンクで法人が消えた");
+  if (t.loc.hash !== "#research/customer?houjin=H9") throw new Error("本文のリンクで着いた URL: " + t.loc.hash);
+  if (t.R("seriesSite") !== "") throw new Error("顧客へ入り直しても拠点の絞り込みが残っている");
   /* ②で担当を選んだ状態から側柱で案件そのものへ: 担当の絞り込みは外れる（前からの決まり） */
-  const t2 = boot("#consultant/byowner?c=" + C_A);
+  const t2 = boot("#deal/byowner?c=" + C_A);
   if (t2.R("boardFilter.consultant") !== "担当A") throw new Error("前提: 担当で絞れていない");
   t2.R('go("deal", "board")');
   if (t2.R("boardFilter.consultant") !== "") throw new Error("案件そのものへ入るときに担当の絞り込みが残る");
@@ -1873,24 +1909,29 @@ check("M-2", "同じ画面の取り直し（読み直す）でも、ページの
   if (scrolled.some((p) => p[1] === 0)) throw new Error("取り直しで頭（0）へ送っている");
 });
 
-check("M-6", "移動: 上のメニュー・側柱は作り直さず印だけ付け替え、本文（#cs-main）へフォーカス、aria-busy、読み上げ（#cs-status）、タブの名前、骨組み（M-7）", async () => {
+check("M-6", "移動: 左のメニューは作り直さず印だけ付け替え、本文（#cs-main）へフォーカス、aria-busy、読み上げ（#cs-status）、タブの名前、骨組み（M-7）", async () => {
   const t = boot();
   const st = new t.El("cs-status"); t.reg["cs-status"] = st;
   const main = t.reg["cs-main"]; const attrs = {}; main.setAttribute = (k, v) => { attrs[k] = v; };
   const mk = (ds) => { const b = new t.El(""); b.dataset = ds; b.attrs = {};
     b.setAttribute = (k, v) => { b.attrs[k] = v; }; b.removeAttribute = (k) => { delete b.attrs[k]; }; return b; };
-  const menuBtns = ["deal", "consultant", "study"].map((m) => mk({ m }));
-  t.reg["cs-menu"].querySelectorAll = () => menuBtns;
-  t.reg["cs-menu"].innerHTML = "BUILT";
-  t.R('go("consultant", "byowner")');
-  if (t.reg["cs-menu"].innerHTML !== "BUILT") throw new Error("移動のたびに上のメニューを作り直している（押したボタンが消えてフォーカスが body に落ちる）");
-  if (menuBtns[1].attrs["aria-current"] !== "page" || menuBtns[1].className !== "on" || "aria-current" in menuBtns[0].attrs)
-    throw new Error("いま見ているメニューの印（class / aria-current）が付け替わらない");
+  /* 左のメニューは 1 列・3 区切り・11 画面（2026-09-29 組み替え 段A）。区切りをまたぐ移動でも作り直さない */
+  const side = t.reg["cs-side"];
+  const keys = t.R("MENUS.map((m) => m.views.map((v) => v.key)).flat()");
+  if (keys.length !== 11) throw new Error("左のメニューの画面が 11 でない: " + keys.length);
+  const sideBtns = keys.map((v) => mk({ v }));
+  side.querySelectorAll = () => sideBtns;
+  side.innerHTML = "SIDE";
+  const iOf = (k) => keys.indexOf(k);
+  t.R('go("deal", "byowner")');
+  if (side.innerHTML !== "SIDE") throw new Error("移動のたびに左のメニューを作り直している（押したボタンが消えてフォーカスが body に落ちる）");
+  if (sideBtns[iOf("byowner")].attrs["aria-current"] !== "page" || "aria-current" in sideBtns[iOf("today")].attrs)
+    throw new Error("いま見ている画面の印（aria-current）が付け替わらない");
   if (t.doc.title !== "担当者ごとの案件 — コンサルダッシュボード") throw new Error("タブの名前に画面名が入らない: " + t.doc.title);
   if (attrs["aria-busy"] !== "true") throw new Error("読み込み中に main の aria-busy が true でない");
   if (st.textContent !== "担当者ごとの案件 を読み込み中") throw new Error("読み込み中の読み上げ: " + st.textContent);
   const sk = main.innerHTML;
-  if (sk.indexOf('<h2 class="sec mincho"><span class="no">コンサルタント</span>担当者ごとの案件</h2>') < 0 ||
+  if (sk.indexOf('<h2 class="sec mincho"><span class="no">毎日</span>担当者ごとの案件</h2>') < 0 ||
       sk.indexOf("担当者ごとの案件 を読み込み中…") < 0 || sk.indexOf('<div class="skel" aria-hidden="true">') < 0)
     throw new Error("読み込み中に骨組み（画面名の見出し・状態の 1 行・空箱）が出ていない: " + sk);
   t.fetched[t.fetched.length - 1].resolve(jsonRes({ meta: { flag_counts: [] }, rows: [boardRow({})] }));
@@ -1904,16 +1945,11 @@ check("M-6", "移動: 上のメニュー・側柱は作り直さず印だけ付�
   t0.fetched[t0.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({})])));
   await tick(); await tick();
   if (t0.doc.activeElement !== t0.doc.body) throw new Error("開いた直後の読み込みで本文へフォーカスを移している（鮮度の帯が読み上げから飛ぶ）");
-  /* 側柱: 同じメニューの中の移動では作り直さない（メニューが変わったときは並べ直す） */
-  const side = t.reg["cs-side"];
-  const sideBtns = ["team", "byowner", "handover", "contact"].map((v) => mk({ v }));
-  side.querySelectorAll = () => sideBtns;
-  side.innerHTML = "SIDE";
-  t.R('go("consultant", "team")');
-  if (side.innerHTML !== "SIDE") throw new Error("同じメニューの中の移動で側柱を作り直している");
-  if (sideBtns[0].attrs["aria-current"] !== "page" || "aria-current" in sideBtns[1].attrs) throw new Error("側柱のいま見ている印が付け替わらない");
-  t.R('go("study", "phone")');
-  if (side.innerHTML === "SIDE") throw new Error("メニューが変わったのに側柱を並べ直していない");
+  /* 区切りをまたぐ移動（毎日 → 調べる）でも作り直さず、印だけ移る */
+  t.R('go("research", "phone")');
+  if (side.innerHTML !== "SIDE") throw new Error("区切りをまたぐ移動で左のメニューを作り直している");
+  if (sideBtns[iOf("phone")].attrs["aria-current"] !== "page" || "aria-current" in sideBtns[iOf("byowner")].attrs)
+    throw new Error("区切りをまたいだとき、いま見ている印が付け替わらない");
   /* 待つ間に人が別の場所へフォーカスを動かしていたら、本文へは移さない（U9 と同じ決まり） */
   t.R('go("deal", "board")');
   const other = new t.El("elsewhere"); other.focus();
@@ -1933,7 +1969,7 @@ check("M-7", "3 秒で見込み、30 秒で「もう一度読み込む」、60 �
   });
   const t = boot("", { AbortController: AC, fetch: fetchFake });
   const err = t.reg["cs-error"];
-  t.R('go("study", "phone")');
+  t.R('go("research", "phone")');
   const n1 = t.timers.length;
   if (n1 < 3) throw new Error("待ち時間の予約が " + n1 + " 件（3 秒・30 秒・60 秒の 3 件のはず）");
   const ld = new t.El("cs-loading"); t.reg["cs-loading"] = ld;
@@ -1970,7 +2006,7 @@ check("M-6/E", "表の小さな HS は Tab の順から外す（tabindex=-1。1 
   const big = t.R('hsLink("70000000001", "HubSpot で開く &#8599;", "lg")');
   if (/tabindex="-1"/.test(big)) throw new Error("案件の詳細の「HubSpot で開く」まで Tab の順から外している: " + big);
   /* 「本文へ飛ぶ」の #cs-main は画面のハッシュではないので、followUrl は動かない（今日動く先へ戻ってしまわない） */
-  t.R('go("study", "phone")');
+  t.R('go("research", "phone")');
   navHash(t, "#cs-main");
   if (t.R("cur.view") !== "phone") throw new Error("#cs-main（本文へ飛ぶ）で画面が動いた: " + t.R("cur.view"));
 });
@@ -2010,21 +2046,21 @@ check("M-2", "既定で開いた法人は URL に載せない。戻る・再読�
   const hasNote = (t) => t.R("customerReason") !== "" && t.reg["cs-main"].innerHTML.indexOf("この顧客を既定で開いています") >= 0;
   const t = boot();
   const states = keepStates(t);   /* 札を控えるのは boot の後から。側柱で法人番号で見るへ入る */
-  t.R('go("deal", "houjin")');
+  t.R('go("research", "customer")');
   await openDefault(t);
   if (!hasNote(t)) throw new Error("前提: 既定で開いた注記が出ていない");
-  if (t.loc.hash !== "#deal/houjin") throw new Error("既定で開いた法人を URL に書いている（戻る・再読込で「選んだ法人」になる）: " + t.loc.hash);
+  if (t.loc.hash !== "#research/customer") throw new Error("既定で開いた法人を URL に書いている（戻る・再読込で「選んだ法人」になる）: " + t.loc.hash);
   /* 再読込: いまの URL で開き直す */
   const t2 = boot(t.loc.hash);
   await openDefault(t2);
   if (!hasNote(t2)) throw new Error("再読込で「この顧客を既定で開いています」の注記が消えた");
   /* 戻る: 側柱で今日動く先へ移ってから、札つきで戻る */
-  const kH = states["#deal/houjin"];
+  const kH = states["#research/customer"];
   t.R('go("deal", "today")');
   t.fetched[t.fetched.length - 1].resolve(jsonRes(todayPayload([boardRow({})])));
   await tick(); await tick();
   const n = t.fetched.length;
-  travel(t, "#deal/houjin", kH);
+  travel(t, "#research/customer", kH);
   await tick(); await tick();
   if (t.fetched.length > n) await openDefault(t);   /* 手元の応答が無ければ取り直す（どちらでも注記は残るはず） */
   else t.delays.forEach((ms, i) => { const f = t.timers[i]; if (ms === 0 && f && !f.ran) { f.ran = true; f(); } });
@@ -2034,10 +2070,10 @@ check("M-2", "既定で開いた法人は URL に載せない。戻る・再読�
   }
   if (!kH || !kH.s) throw new Error("前提: 法人番号で見るの履歴に札が無い");
   if (!hasNote(t)) throw new Error("戻るで「この顧客を既定で開いています」の注記が消えた");
-  if (t.loc.hash !== "#deal/houjin") throw new Error("戻った後に既定の法人を URL に書いた: " + t.loc.hash);
+  if (t.loc.hash !== "#research/customer") throw new Error("戻った後に既定の法人を URL に書いた: " + t.loc.hash);
   /* 人が選んだ法人は URL に載る（前からの決まり） */
   t.R('customerHoujin = "H2"; customerReason = ""; syncUrl()');
-  if (t.loc.hash !== "#deal/houjin?houjin=H2") throw new Error("選んだ法人が URL に載らない: " + t.loc.hash);
+  if (t.loc.hash !== "#research/customer?houjin=H2") throw new Error("選んだ法人が URL に載らない: " + t.loc.hash);
 });
 
 check("M-2", "今日動く先の担当を URL（?c=）から入れたとき「覚えられません」と書かない（保存できる端末で、同じ URL なら同じ担当）。欄で選び直せば端末が覚える", async () => {
@@ -2118,7 +2154,7 @@ check("M-7", "待ち時間の値: 見込み 3 秒・もう一度 30 秒・打ち
   const t = boot("", { AbortController: AC });
   if (t.ctx.history.scrollRestoration !== "manual") throw new Error("history.scrollRestoration を manual にしていない（ブラウザと画面の位置戻しが競る）");
   const d0 = t.delays.length;
-  t.R('go("study", "phone")');
+  t.R('go("research", "phone")');
   const ds = t.delays.slice(d0).filter((ms) => ms > 0).sort((a, b) => a - b);
   if (JSON.stringify(ds) !== JSON.stringify([3000, 30000, 60000])) throw new Error("待ち時間の予約が 3 秒・30 秒・60 秒でない: " + JSON.stringify(ds));
   /* 手元の応答の期限: 10 分未満なら取り直さず、10 分を過ぎたら取り直す */
@@ -2180,11 +2216,11 @@ check("M-8", "案件そのものの絞り込み・並び替えは #board-body �
   if (t.reg["cs-main"].innerHTML !== main0) throw new Error("並び替えで本文全体を作り直している");
   if (t.R("boardSort.key") !== "amount") throw new Error("並び替えが状態に入らない");
   /* 担当者ごとの案件で担当を外す → 持ち件数の表に形が変わるので本文全体を描き直す */
-  t.R('cur = { menu: "consultant", view: "byowner" }; boardFilter = { consultant: "担当B", flag: "", expiry: "", q: "", band: "" };');
+  t.R('cur = { menu: "deal", view: "byowner" }; boardFilter = { consultant: "担当B", flag: "", expiry: "", q: "", band: "" };');
   t.reg["cs-main"].innerHTML = t.R("renderBoard(__D)");
   const main1 = t.reg["cs-main"].innerHTML;
   if (!main1.includes('<div id="board-body">')) throw new Error("担当を選んだ担当者ごとの案件に #board-body が無い");
-  t.R("wire(viewOf('consultant', 'byowner'))");
+  t.R("wire(viewOf('deal', 'byowner'))");
   sel.value = ""; sel.onchange();
   const main2 = t.reg["cs-main"].innerHTML;
   if (main2 === main1 || !main2.includes("担当者ごとの持ち件数")) throw new Error("担当を外したのに本文全体を描き直していない（持ち件数の表に戻らない）");
@@ -2221,7 +2257,7 @@ check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す
   btn.onclick();
   if (t.R("boardShowAll") !== true) throw new Error("並び替えで「残りも出す」が戻っている");
   /* 画面に入り直したら既定に戻る（担当者ごとの案件へ移る） */
-  t.R('go("consultant", "byowner")');
+  t.R('go("deal", "byowner")');
   t.fetched[t.fetched.length - 1].resolve(jsonRes(t.ctx.__D)); await tick(); await tick();
   if (t.R("boardShowAll") !== false) throw new Error("画面を移っても「残りも出す」が戻らない");
 });
@@ -2229,13 +2265,13 @@ check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す
 /* ================================================================ 段2 S-2 の残り（2026-09-28） */
 check("S-2", "今日動く先以外の画面でも、KPI の札を押すと同じ画面の行き先へフォーカスが移り、畳みなら開く（wire が結ぶ）", async () => {
   const t = boot();
-  t.R('cur = { menu: "consultant", view: "team" }');
+  t.R('cur = { menu: "research", view: "team" }');
   const b1 = new t.El(""); b1.dataset = { jump: "tm-tbl-h" };
   const b2 = new t.El(""); b2.dataset = { jump: "x-fold" };
   t.qsa["#cs-main button.kpi[data-jump]"] = [b1, b2];
   const h = new t.El("tm-tbl-h"); t.reg["tm-tbl-h"] = h;
   const d = new t.El("x-fold"); d.open = false; t.reg["x-fold"] = d;   // 畳み（details）の行き先
-  t.R("wire(viewOf('consultant', 'team'))");
+  t.R("wire(viewOf('research', 'team'))");
   if (typeof b1.onclick !== "function") throw new Error("担当者の一覧の札に操作が付いていない");
   b1.onclick();
   if (!h.focused) throw new Error("押しても行き先にフォーカスが移らない");
@@ -2250,6 +2286,108 @@ check("S-2", "今日動く先以外の画面でも、KPI の札を押すと同�
   t2.R("wire(viewOf('deal', 'today'))");
   b3.onclick();
   if (!h3.focused) throw new Error("今日動く先の札が表へ移らない");
+});
+
+/* ================================================================ 画面の組み替え 段A（2026-09-29、handover 09 の 3章・5章 N8・10章）
+   17 画面 → 1 列・3 区切り・11 画面。旧ハッシュは新しい画面へ送り、2 週間「この画面は○○に移りました」の帯を出す。
+   🔴 帯を出す期限（MOVED_NOTICE_UNTIL）を過ぎても転送は続ける。見張りは日付を固定して見る（実行した日で結果が変わらないように） */
+const fixedDate = (iso) => class extends Date {
+  constructor(...a) { if (a.length) super(...a); else super(iso); }
+  static now() { return new Date(iso).getTime(); }
+};
+check("N8", "旧ハッシュ 17 本（と区切りだけの #consultant・#study）を新しい画面へ送り、URL を新しい形に書き直し、帯「この画面は○○に移りました」を出す。? 以降の状態は渡す", async () => {
+  /* [旧ハッシュ, 新しい画面の鍵, 帯に出る前の画面の名前（null はハッシュが変わらないので帯を出さない）] */
+  const cases = [
+    ["#deal/today", "today", null], ["#deal/board", "board", null], ["#deal/detail?id=70000000001", "detail", null],
+    ["#deal/series?houjin=H1&site=S1", "customer", "継続を追いかける"], ["#deal/houjin?houjin=H1", "customer", "法人番号で見る"],
+    ["#consultant/team", "team", "担当者の一覧"], ["#consultant/byowner?c=" + encodeURIComponent("担当A"), "byowner", "担当者ごとの案件"],
+    ["#consultant/handover", "team", "担当の交代"], ["#consultant/contact?unit=week", "team", "担当者ごとの接触"],
+    ["#study/renewal?excl=1", "results", "継続回数 × 成果"], ["#study/outcome", "results", "成果とリスク"],
+    ["#study/focus", "focus", "いま見るべき顧客"], ["#study/rampup", "results", "立ち上がり"], ["#study/phone", "phone", "電話"],
+    ["#study/mtgq", "trust", "MTG の品質"], ["#study/dq", "trust", "データ品質"], ["#study/defs", "trust", "定義と検証"],
+    ["#consultant", "team", "担当者の一覧"], ["#study", "results", "継続回数 × 成果"],
+  ];
+  const D = fixedDate("2026-09-30T09:00:00+09:00");
+  for (const [old, want, was] of cases) {
+    const t = boot(old, { Date: D });
+    const v = t.R("cur.view"), m = t.R("cur.menu");
+    if (v !== want) throw new Error(old + " の行き先が " + v + "（" + want + " のはず）");
+    if (t.R("menuHaving(" + JSON.stringify(want) + ").key") !== m) throw new Error(old + " の区切りが違う: " + m);
+    if (t.loc.hash.indexOf("#" + m + "/" + v) !== 0) throw new Error(old + " の URL を新しい形に書き直していない: " + t.loc.hash);
+    const box = t.reg["cs-moved"];
+    if (was) {
+      if (box.hidden !== false || box.innerHTML.indexOf("「" + was + "」") < 0 || box.innerHTML.indexOf("移りました") < 0 ||
+          box.innerHTML.indexOf("「" + t.R("viewOf(cur.menu, cur.view).label") + "」") < 0)
+        throw new Error(old + " で帯（前の名前・移り先の名前・移りました）が出ていない: " + box.innerHTML);
+    } else if (box.innerHTML || box.hidden !== true) throw new Error(old + " はハッシュが変わらないのに帯を出している: " + box.innerHTML);
+  }
+  /* ? 以降の状態はそのまま渡す */
+  const tc = boot("#consultant/byowner?c=" + encodeURIComponent("担当A"), { Date: D });
+  if (tc.R("boardFilter.consultant") !== "担当A") throw new Error("旧ハッシュの担当（c）が渡っていない");
+  if (boot("#study/renewal?excl=1", { Date: D }).R("renewalExcludeCensored") !== true) throw new Error("旧ハッシュの打ち切りの指定（excl）が渡っていない");
+  /* 次に別の画面へ移ったら帯は消える */
+  const t2 = boot("#study/dq", { Date: D });
+  t2.R('go("deal", "today")');
+  if (t2.reg["cs-moved"].innerHTML || t2.reg["cs-moved"].hidden !== true) throw new Error("別の画面へ移っても帯が残る");
+  /* 期限の後は帯を出さないが、転送は続ける（ブックマークを壊さない） */
+  const t3 = boot("#study/dq", { Date: fixedDate("2026-10-14T09:00:00+09:00") });
+  if (t3.R("cur.view") !== "trust") throw new Error("期限の後に転送をやめている");
+  if (t3.reg["cs-moved"].innerHTML) throw new Error("期限（MOVED_NOTICE_UNTIL）の後も帯を出している");
+  if (t3.R("MOVED_NOTICE_UNTIL") !== "2026-10-13") throw new Error("前提: 帯の期限が 2026-10-13 でない（変えたらこの見張りの日付も直す）");
+  /* 貼られた旧ハッシュで、いま同じ画面を開いていても書き直して帯を出す（同じ場所として無視しない） */
+  const t4 = boot("#research/team", { Date: D });
+  navHash(t4, "#consultant/contact");
+  if (t4.loc.hash.indexOf("#research/team") !== 0 || t4.reg["cs-moved"].innerHTML.indexOf("担当者ごとの接触") < 0)
+    throw new Error("同じ画面へ送る旧ハッシュを無視している: " + t4.loc.hash);
+});
+
+check("N8", "転送先の節（?at=）へ描いた後に送り、URL からは外す。開いた直後はフォーカスを動かさず、画面の中の移動では節へ移す", async () => {
+  const D = fixedDate("2026-09-30T09:00:00+09:00");
+  const t = boot("#study/dq", { Date: D });
+  /* 描画は見張りの対象ではないので、節の見出しだけ出す仮の描画にする（道筋: fromHash → go → load → settle → jumpTo） */
+  t.R("viewOf('monthly', 'trust').render = () => '<h2 id=\"trust-dq\"></h2><h2 id=\"trust-defs\"></h2>'");
+  const mk = (id) => { const el = new t.El(id); el.scrolled = 0; el.scrollIntoView = () => { el.scrolled++; }; t.reg[id] = el; return el; };
+  const dq = mk("trust-dq"), defs = mk("trust-defs");
+  const reqs = t.fetched.slice(-2);
+  if (reqs.length !== 2 || reqs[0].url.indexOf("/api/consulting/data-quality?") !== 0 || reqs[1].url.indexOf("/api/consulting/mtg-quality?") !== 0)
+    throw new Error("記録と数字の信頼度で data-quality と mtg-quality を並べて取っていない: " + reqs.map((q) => q.url).join(" "));
+  reqs.forEach((q) => q.resolve(jsonRes({ meta: {} })));
+  await tick(); await tick(); await tick(); await tick();
+  if (t.reg["cs-error"].innerHTML) throw new Error("描けていない: " + t.reg["cs-error"].innerHTML);
+  if (dq.scrolled !== 1) throw new Error("旧ハッシュ #study/dq で、移り先の節（trust-dq）へ送っていない");
+  if (dq.focused) throw new Error("開いた直後に節へフォーカスを動かしている（読み上げが鮮度の帯を飛ばす）");
+  if (t.loc.hash !== "#monthly/trust") throw new Error("節の指定を URL から外していない: " + t.loc.hash);
+  /* 本文のリンク（?at=）で来たとき: 節へ送り、フォーカスも移す */
+  navHash(t, "#monthly/trust?at=trust-defs");
+  t.fetched.slice(-2).forEach((q) => q.resolve(jsonRes({ meta: {} })));
+  await tick(); await tick(); await tick(); await tick();
+  if (defs.scrolled !== 1 || !defs.focused) throw new Error("?at=trust-defs で節へ送っていない・フォーカスを移していない");
+  if (t.loc.hash !== "#monthly/trust") throw new Error("?at= を URL から外していない: " + t.loc.hash);
+  if (dq.scrolled !== 1) throw new Error("前の節へもう一度送っている（at は 1 回だけ）");
+});
+
+check("more", "1 画面が複数の API を読む（MENUS の more）: どれかが失敗したら画面ごと失敗にしてどの API かを書く。読み直すは主の 1 本だけ refresh=1 で、more は主の後に取る", async () => {
+  const t = boot();
+  t.R('go("research", "team")');
+  const reqs = t.fetched.slice(-3);
+  reqs[0].resolve(jsonRes(teamPayload()));
+  reqs[1].resolve(jsonRes(contactPayload()));
+  reqs[2].resolve(jsonRes({ error: true, message: "交代のシートが読めません" }));
+  await tick(); await tick(); await tick(); await tick();
+  const err = t.reg["cs-error"].innerHTML;
+  if (err.indexOf("/api/consulting/handover") < 0 || err.indexOf("交代のシートが読めません") < 0)
+    throw new Error("more の失敗が、どの API かとサーバの文つきで出ていない: " + err);
+  if (t.reg["cs-main"].innerHTML.indexOf("いま、どこに手が回っていないか") >= 0) throw new Error("more が失敗したのに、節を欠いたまま描いている");
+  /* 読み直す（load(true)）: まず主の 1 本だけ refresh=1。返ってから more を refresh なしで取る */
+  const n = t.fetched.length;
+  t.R("load(true)");
+  if (t.fetched.length - n !== 1 || t.fetched[n].url.indexOf("/api/consulting/consultants?") !== 0 || t.fetched[n].url.indexOf("refresh=1") < 0)
+    throw new Error("読み直すで主の 1 本だけを refresh=1 で先に取っていない: " + t.fetched.slice(n).map((q) => q.url).join(" "));
+  t.fetched[n].resolve(jsonRes(teamPayload()));
+  await tick(); await tick();
+  const rest = t.fetched.slice(n + 1);
+  if (rest.length !== 2 || rest.some((q) => q.url.indexOf("refresh") >= 0))
+    throw new Error("more を主の後に refresh なしで取っていない: " + rest.map((q) => q.url).join(" "));
 });
 
 (async () => {
