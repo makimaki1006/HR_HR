@@ -985,8 +985,14 @@ fn mtgが結べていない初回契約が出る() {
     // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
     //    「していない」ではなく「記録が欠けている」と読め、欠ける理由の候補が添えてあるか
     let note = nm["note"].as_str().unwrap();
-    assert!(note.contains("見つからない") && note.contains("記録が欠けている"), "{note}");
-    assert!(note.contains("台帳") && note.contains("録画なし") && note.contains("紐づいていない"), "{note}");
+    assert!(
+        note.contains("見つからない") && note.contains("記録が欠けている"),
+        "{note}"
+    );
+    assert!(
+        note.contains("台帳") && note.contains("録画なし") && note.contains("紐づいていない"),
+        "{note}"
+    );
 }
 
 // ================================================================ タブ6 電話
@@ -6228,7 +6234,10 @@ fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
     // 帯の名前（案件一覧の帯・今日の畳み・外れた理由に出る）
     let band = super::MtgBand::NoRecord.label();
     assert_eq!(band, "MTGの記録が見つからない");
-    assert!(rule.contains(band), "見方の定義が帯の名前と食い違う: {rule}");
+    assert!(
+        rule.contains(band),
+        "見方の定義が帯の名前と食い違う: {rule}"
+    );
     // 今日の畳みに出る注記
     let t = build_today_board(&sh, fixture_day());
     let note = t["meta"]["mtg_gap"]["no_record_note"].as_str().unwrap();
@@ -6257,7 +6266,12 @@ fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
         ("帯の名前", bl.as_str()),
         ("立ち上がりの注記", rn.as_str()),
     ] {
-        for bad in ["MTG の記録が無い", "MTGの記録が無い", "記録が1件も無い", "記録がまだ無い"] {
+        for bad in [
+            "MTG の記録が無い",
+            "MTGの記録が無い",
+            "記録が1件も無い",
+            "記録がまだ無い",
+        ] {
             assert!(!s.contains(bad), "{what}に「{bad}」が残っている: {s}");
         }
     }
