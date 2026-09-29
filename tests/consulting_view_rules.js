@@ -4975,6 +4975,11 @@ check("段B 成果と継続: 手を打つ先の表3つは消し、案件一覧�
     ok(act.includes('href="' + href + '">見方「' + label + "」で絞った案件一覧</a>"), "見方 " + k + " へのリンクが無い");
   }
   ok(textOf(act).includes("前は 前の出どころA"), "前の定義の出どころを書いていない");
+  /* 2026-09-29 段B 統合後の撮影: 見方へのリンクは文が長く、golink の nowrap のままだと 400px で横スクロールが出た（右端 454px）。
+     1 本で 1 行を占めるリンクは折り返す印（golink wrap）を付け、その印の CSS が nowrap を打ち消していること */
+  const actLinks = act.match(/<a class="[^"]*" href="[^"]*view=[^"]*">見方「/g) || [];
+  ok(actLinks.length === 4 && actLinks.every((a) => a.startsWith('<a class="golink wrap"')), "見方へのリンクが折り返せない（400px で横にはみ出す）");
+  ok(/a\.golink\.wrap\{[^}]*white-space:normal/.test(html), "golink wrap の CSS が無い（nowrap のまま）");
   ok(textOf(act).includes("前の定義から外れた案件は、見方を押すと件数と一覧で出ます"), "外れた案件の行き先を言っていない（黙って消す）");
   /* 節（成果とリスク・立ち上がり）の表があった場所から、見方へ行ける */
   const body = h.slice(0, h.indexOf('id="rs-act"'));
