@@ -7,8 +7,15 @@
 //   fetch follows the redirect and yields 200 text/html, so we map
 //   "redirected to /login" and "non-JSON body" to AuthRequiredError.
 // - Some handlers answer HTTP 200 with `{"error": "..."}`; that becomes ApiDataError.
+// - Rust also answers an explicit 401 `{"error":"auth_required","login_url":"/login"}`
+//   for unauthenticated fetch requests; that is AuthRequiredError too.
+// - Every request carries `X-Requested-With: fetch` so the server can tell fetch calls
+//   (401 JSON) apart from browser navigation (303 -> /login).
+// - POST /api/set_* style endpoints answer `Html("OK")`: use `expect: 'text'` for them.
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
+/** Uploads (survey CSV up to 20 MB) get a longer default than plain requests. */
+export const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
 
 export class ApiError extends Error {
   override name = 'ApiError';
@@ -68,6 +75,9 @@ export class ApiNetworkError extends ApiError {
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError };
 
+/** `json` (default): body must be JSON. `text`: a non-JSON 2xx body is returned as a string. */
+export type ApiExpect = 'json' | 'text';
+
 export interface ApiGetOptions {
   /** Defaults to DEFAULT_TIMEOUT_MS. */
   timeoutMs?: number;
@@ -75,7 +85,35 @@ export interface ApiGetOptions {
   signal?: AbortSignal;
 }
 
+export interface ApiRequestOptions extends ApiGetOptions {
+  /** Defaults to 'json'. */
+  expect?: ApiExpect;
+}
+
+export interface UploadProgress {
+  loaded: number;
+  total: number;
+  /** loaded / total, 0..1. */
+  ratio: number;
+}
+
+export interface ApiUploadOptions extends ApiRequestOptions {
+  /** Called on upload progress (only when the browser knows the total size). */
+  onProgress?: (progress: UploadProgress) => void;
+}
+
+export interface PollJobOptions<T> {
+  /** Delay between two polls, after a response that is not done yet. */
+  intervalMs: number;
+  /** Overall deadline for the whole polling loop. */
+  timeoutMs: number;
+  /** Receives each successful (2xx JSON) body; return true to stop polling. */
+  isDone: (body: T) => boolean;
+  signal?: AbortSignal;
+}
+
 const LOGIN_PATH = '/login';
+const REQUESTED_WITH = { 'X-Requested-With': 'fetch' } as const;
 
 function isSameOriginPath(path: string): boolean {
   // Only absolute paths on this origin; rejects "//host" and full URLs so that
@@ -92,11 +130,6 @@ function redirectedToLogin(res: Response): boolean {
   }
 }
 
-function isJsonContentType(res: Response): boolean {
-  const ct = res.headers.get('content-type') ?? '';
-  return /^application\/(?:[\w.+-]+\+)?json\b/i.test(ct.trim());
-}
-
 function extractDataError(body: unknown): string | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
   if (!('error' in body)) return null;
@@ -104,6 +137,138 @@ function extractDataError(body: unknown): string | null {
   if (value === null || value === undefined || value === false) return null;
   return typeof value === 'string' ? value : JSON.stringify(value);
 }
+
+// ---------------------------------------------------------------------------
+// Shared internals
+// ---------------------------------------------------------------------------
+
+/** Timeout + caller-cancellation bundled into one AbortSignal. */
+interface Deadline {
+  signal: AbortSignal;
+  /** Non-null once aborted: timeout and caller cancellation are told apart. */
+  aborted: () => ApiResult<never> | null;
+  dispose: () => void;
+}
+
+function startDeadline(timeoutMs: number, external: AbortSignal | undefined): Deadline {
+  const controller = new AbortController();
+  const timeoutError = new ApiTimeoutError(timeoutMs);
+  const timer = setTimeout(() => {
+    controller.abort(timeoutError);
+  }, timeoutMs);
+  const onExternalAbort = (): void => {
+    controller.abort();
+  };
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener('abort', onExternalAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    aborted: () => {
+      if (!controller.signal.aborted) return null;
+      return controller.signal.reason === timeoutError
+        ? { ok: false, error: timeoutError }
+        : { ok: false, error: new ApiAbortedError('request aborted') };
+    },
+    dispose: () => {
+      clearTimeout(timer);
+      external?.removeEventListener('abort', onExternalAbort);
+    },
+  };
+}
+
+/** Status-level failures shared by fetch and XHR: login redirect, 401, other non-2xx. */
+function classifyStatus(status: number, redirectedToLoginPage: boolean): ApiError | null {
+  if (redirectedToLoginPage) return new AuthRequiredError('login required (redirected to /login)');
+  if (status === 401) return new AuthRequiredError('login required (HTTP 401)');
+  if (status < 200 || status >= 300) return new ApiHttpError(status);
+  return null;
+}
+
+function isJsonContentType(contentType: string): boolean {
+  return /^application\/(?:[\w.+-]+\+)?json\b/i.test(contentType.trim());
+}
+
+/** Turns a 2xx body into a result. `contentType` is the raw header value ('' if none). */
+function parseBody<T>(contentType: string, text: string, expect: ApiExpect): ApiResult<T> {
+  if (!isJsonContentType(contentType)) {
+    if (expect === 'text') return { ok: true, data: text as T };
+    return {
+      ok: false,
+      error: new AuthRequiredError(
+        `login required (non-JSON response: ${contentType === '' ? 'none' : contentType})`,
+      ),
+    };
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch (e) {
+    return {
+      ok: false,
+      error: new ApiInvalidResponseError(e instanceof Error ? e.message : String(e)),
+    };
+  }
+  const dataError = extractDataError(body);
+  if (dataError !== null) return { ok: false, error: new ApiDataError(dataError, body) };
+  return { ok: true, data: body as T };
+}
+
+interface FetchInit {
+  method: 'GET' | 'POST';
+  headers: Record<string, string>;
+  body?: string;
+}
+
+async function sendFetch<T>(
+  path: string,
+  init: FetchInit,
+  options: ApiRequestOptions,
+): Promise<ApiResult<T>> {
+  if (!isSameOriginPath(path)) {
+    return { ok: false, error: new ApiError(`path must be same-origin absolute: ${path}`) };
+  }
+  const deadline = startDeadline(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, options.signal);
+  try {
+    let res: Response;
+    try {
+      res = await fetch(path, {
+        method: init.method,
+        credentials: 'same-origin',
+        headers: init.headers,
+        ...(init.body === undefined ? {} : { body: init.body }),
+        signal: deadline.signal,
+      });
+    } catch (e) {
+      const aborted = deadline.aborted();
+      if (aborted) return aborted;
+      return { ok: false, error: new ApiNetworkError(e instanceof Error ? e.message : String(e)) };
+    }
+
+    const statusError = classifyStatus(res.status, redirectedToLogin(res));
+    if (statusError) return { ok: false, error: statusError };
+
+    let text: string;
+    try {
+      text = await res.text();
+    } catch (e) {
+      const aborted = deadline.aborted();
+      if (aborted) return aborted;
+      return {
+        ok: false,
+        error: new ApiInvalidResponseError(e instanceof Error ? e.message : String(e)),
+      };
+    }
+    return parseBody<T>(res.headers.get('content-type') ?? '', text, options.expect ?? 'json');
+  } finally {
+    deadline.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 /**
  * GET a JSON endpoint on the same origin. Never throws; all failures are
@@ -113,82 +278,171 @@ function extractDataError(body: unknown): string | null {
  * (generated types arrive in Phase 0-4).
  */
 export async function apiGet<T>(path: string, options: ApiGetOptions = {}): Promise<ApiResult<T>> {
+  return sendFetch<T>(
+    path,
+    { method: 'GET', headers: { Accept: 'application/json', ...REQUESTED_WITH } },
+    options,
+  );
+}
+
+/** POST a JSON body. Same result/error contract as apiGet. */
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<T>> {
+  return sendFetch<T>(
+    path,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...REQUESTED_WITH,
+      },
+      body: JSON.stringify(body),
+    },
+    options,
+  );
+}
+
+/**
+ * POST application/x-www-form-urlencoded (existing `/api/set_*` handlers).
+ * Those answer `Html("OK")`, so pass `{ expect: 'text' }` to accept it as success.
+ */
+export async function apiPostForm<T>(
+  path: string,
+  form: URLSearchParams | Record<string, string>,
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<T>> {
+  return sendFetch<T>(
+    path,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        ...REQUESTED_WITH,
+      },
+      body: new URLSearchParams(form).toString(),
+    },
+    options,
+  );
+}
+
+/**
+ * POST multipart/form-data with upload progress. XMLHttpRequest is used because
+ * fetch has no upload progress. The Content-Type (with boundary) is set by the browser.
+ */
+export function apiUpload<T>(
+  path: string,
+  form: FormData,
+  options: ApiUploadOptions = {},
+): Promise<ApiResult<T>> {
   if (!isSameOriginPath(path)) {
-    return { ok: false, error: new ApiError(`path must be same-origin absolute: ${path}`) };
+    return Promise.resolve({
+      ok: false,
+      error: new ApiError(`path must be same-origin absolute: ${path}`),
+    });
   }
+  const deadline = startDeadline(options.timeoutMs ?? DEFAULT_UPLOAD_TIMEOUT_MS, options.signal);
+  const expect = options.expect ?? 'json';
 
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timeoutError = new ApiTimeoutError(timeoutMs);
-  const timer = setTimeout(() => {
-    controller.abort(timeoutError);
-  }, timeoutMs);
-  // Abort reason tells timeout and caller cancellation apart.
-  const abortedResult = (): ApiResult<never> | null => {
-    if (!controller.signal.aborted) return null;
-    return controller.signal.reason === timeoutError
-      ? { ok: false, error: timeoutError }
-      : { ok: false, error: new ApiAbortedError('request aborted') };
-  };
+  return new Promise<ApiResult<T>>((resolve) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    const finish = (result: ApiResult<T>): void => {
+      if (settled) return;
+      settled = true;
+      deadline.signal.removeEventListener('abort', onAbort);
+      deadline.dispose();
+      resolve(result);
+    };
+    const abortedResult = (): ApiResult<T> =>
+      deadline.aborted() ?? { ok: false, error: new ApiAbortedError('request aborted') };
+    const onAbort = (): void => {
+      xhr.abort();
+      finish(abortedResult());
+    };
 
-  const external = options.signal;
-  const onExternalAbort = (): void => {
-    controller.abort();
-  };
-  if (external) {
-    if (external.aborted) controller.abort();
-    else external.addEventListener('abort', onExternalAbort, { once: true });
-  }
+    xhr.open('POST', path);
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.setRequestHeader('X-Requested-With', REQUESTED_WITH['X-Requested-With']);
+    xhr.responseType = 'text';
 
+    const onProgress = options.onProgress;
+    if (onProgress) {
+      xhr.upload.onprogress = (ev: ProgressEvent): void => {
+        if (!ev.lengthComputable || ev.total === 0) return;
+        onProgress({ loaded: ev.loaded, total: ev.total, ratio: ev.loaded / ev.total });
+      };
+    }
+    xhr.onerror = (): void => {
+      finish({ ok: false, error: new ApiNetworkError('network error during upload') });
+    };
+    xhr.onabort = (): void => {
+      finish(abortedResult());
+    };
+    xhr.onload = (): void => {
+      let onLoginPage: boolean;
+      try {
+        onLoginPage = xhr.responseURL !== '' && new URL(xhr.responseURL).pathname === LOGIN_PATH;
+      } catch {
+        onLoginPage = false;
+      }
+      const statusError = classifyStatus(xhr.status, onLoginPage);
+      if (statusError) {
+        finish({ ok: false, error: statusError });
+        return;
+      }
+      finish(parseBody<T>(xhr.getResponseHeader('content-type') ?? '', xhr.responseText, expect));
+    };
+
+    if (deadline.signal.aborted) {
+      onAbort();
+      return;
+    }
+    deadline.signal.addEventListener('abort', onAbort, { once: true });
+    xhr.send(form);
+  });
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const done = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
+
+/**
+ * Poll a GET endpoint until `isDone(body)` is true (async jobs such as survey analysis).
+ * The first request goes out immediately. Any request failure (including 401) ends the
+ * loop with that error; exceeding `timeoutMs` overall gives ApiTimeoutError, the caller's
+ * signal gives ApiAbortedError.
+ */
+export async function pollJob<T>(path: string, options: PollJobOptions<T>): Promise<ApiResult<T>> {
+  const deadline = startDeadline(options.timeoutMs, options.signal);
   try {
-    let res: Response;
-    try {
-      res = await fetch(path, {
-        method: 'GET',
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
-        signal: controller.signal,
-      });
-    } catch (e) {
-      const aborted = abortedResult();
+    for (;;) {
+      const res = await apiGet<T>(path, { signal: deadline.signal });
+      const aborted = deadline.aborted();
       if (aborted) return aborted;
-      return { ok: false, error: new ApiNetworkError(e instanceof Error ? e.message : String(e)) };
+      if (!res.ok) return res;
+      if (options.isDone(res.data)) return res;
+      await sleep(options.intervalMs, deadline.signal);
+      const abortedAfterSleep = deadline.aborted();
+      if (abortedAfterSleep) return abortedAfterSleep;
     }
-
-    if (redirectedToLogin(res)) {
-      return { ok: false, error: new AuthRequiredError('login required (redirected to /login)') };
-    }
-    if (!res.ok) {
-      return { ok: false, error: new ApiHttpError(res.status) };
-    }
-    if (!isJsonContentType(res)) {
-      return {
-        ok: false,
-        error: new AuthRequiredError(
-          `login required (non-JSON response: ${res.headers.get('content-type') ?? 'none'})`,
-        ),
-      };
-    }
-
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch (e) {
-      const aborted = abortedResult();
-      if (aborted) return aborted;
-      return {
-        ok: false,
-        error: new ApiInvalidResponseError(e instanceof Error ? e.message : String(e)),
-      };
-    }
-
-    const dataError = extractDataError(body);
-    if (dataError !== null) {
-      return { ok: false, error: new ApiDataError(dataError, body) };
-    }
-    return { ok: true, data: body as T };
   } finally {
-    clearTimeout(timer);
-    external?.removeEventListener('abort', onExternalAbort);
+    deadline.dispose();
   }
 }
