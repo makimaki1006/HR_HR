@@ -509,6 +509,9 @@ fn 押せるところが小さすぎない() {
 ///
 /// 名札の図は3つの意味を色で分けている。棒の右に分類の言葉も書くので、
 /// 色が見分けられなくても、白黒に印刷しても読める。
+///
+/// 2026-09-29 画面の組み替え 段A（handover 09 の 3章 1）で、今日の図「名札の内訳」を外した（案件一覧の名札の分布と同じ中身）。
+/// 名札の色で塗る図は案件一覧の 1 つになったので、「2 つ以上」ではなく「名札の色で塗る図の全部が分類の言葉も書く」で見る。
 #[test]
 fn 図は色だけで意味を伝えない() {
     let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
@@ -516,9 +519,14 @@ fn 図は色だけで意味を伝えない() {
         html.contains("function flagGroup("),
         "名札の分類が1か所にまとまっていない"
     );
+    let colored = html.matches("color: flagGroup(").count();
     assert!(
-        html.matches("note: flagGroup(").count() >= 2,
-        "分類の言葉を棒に書いていない（①と③の両方に要る）"
+        colored >= 1,
+        "名札の色で塗る図が見つからない（見張りが空振りしている）"
+    );
+    assert!(
+        html.matches("note: flagGroup(").count() >= colored,
+        "名札の色で塗る図のどれかが、分類の言葉を棒に書いていない"
     );
     assert!(
         html.contains("色が見分けられなくても"),
