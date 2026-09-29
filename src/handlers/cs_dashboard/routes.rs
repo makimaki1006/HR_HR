@@ -3578,6 +3578,26 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
             .entry(r["consultant"].as_str().unwrap_or(""))
             .or_insert(0) += 1;
     }
+    // 札「接触の記録が無い」（09 の 3章 1 の 2、2026-09-29 磨き込み）。名札（`deal_rows` の flags）と同じ集合を、
+    // MTG途絶と同じ理由で稼働中の全件から数える（候補＝名札2本以上の中だと、名札がこの 1 本だけの行が落ちる）。
+    // 🔴 母数は開始済みの稼働中。開始前は名札を立てない（`deal_rows` の not_started）ので、稼働中の全件で割ると
+    //    「開始前なのに接触が無い」を数えていないのに数えたように読める。開始前の件数は別に返す
+    let mut no_contact_by: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    let (mut no_contact_n, mut no_contact_base) = (0usize, 0usize);
+    for r in rows.iter().filter(|r| r["not_started"] != true) {
+        let hit = r["flags"]
+            .as_array()
+            .is_some_and(|fs| fs.iter().any(|f| f == TEAM_FLAG_NO_CONTACT));
+        let e = no_contact_by
+            .entry(r["consultant"].as_str().unwrap_or(""))
+            .or_insert((0, 0));
+        e.1 += 1;
+        no_contact_base += 1;
+        if hit {
+            e.0 += 1;
+            no_contact_n += 1;
+        }
+    }
 
     // 今週満了するもの（名札の本数に関わらず落とさない）
     let soon: Vec<Value> = rows
@@ -3630,6 +3650,17 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
                 json!(critical_by_consultant),
             );
         }
+        m.insert(
+            "no_contact".into(),
+            json!({
+                "label": TEAM_FLAG_NO_CONTACT,
+                "n": no_contact_n,
+                "base": no_contact_base,
+                "by_consultant": no_contact_by.iter()
+                    .map(|(k, (n, base))| (k.to_string(), json!({"n": n, "base": base})))
+                    .collect::<serde_json::Map<String, Value>>(),
+            }),
+        );
         m.insert("n_started_this_week".into(), json!(started.len()));
         m.insert("n_not_started".into(), json!(not_started.len()));
         m.insert(

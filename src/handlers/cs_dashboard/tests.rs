@@ -2927,6 +2927,82 @@ fn 今日動く先は全担当と担当ごとのmtg途絶の実数も返す() {
     );
 }
 
+/// 今日の札「接触の記録が無い」（09 の 3章 1 の 2、2026-09-29 磨き込み）。
+/// 押すと案件一覧をその名札で開くので、札の件数は案件一覧の名札の件数（flag_counts）と同じ集合でなければならない。
+/// 母数は開始済みの稼働中（開始前は名札を立てない）。担当ごとの件数は、候補（名札2本以上）の中ではなく稼働中の全件から数える
+#[test]
+fn 今日の接触の記録が無いの札は名札と同じ集合を開始済みの母数で数える() {
+    use std::collections::BTreeMap;
+    let v = build_today_board(&sheets(), fixture_day());
+    let nc = &v["meta"]["no_contact"];
+    assert_eq!(nc["label"], "接触の記録が無い");
+    let board = build_deal_board(&sheets(), fixture_day());
+    let rows = board["rows"].as_array().unwrap();
+    let has = |r: &Value| {
+        r["flags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "接触の記録が無い")
+    };
+    let flag_n = board["meta"]["flag_counts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["label"] == "接触の記録が無い")
+        .map(|x| x["n"].as_u64().unwrap())
+        .unwrap();
+    assert_eq!(
+        nc["n"].as_u64().unwrap(),
+        flag_n,
+        "札の件数が案件一覧の名札の件数と違う"
+    );
+    assert_eq!(
+        flag_n, 61,
+        "fixture の開始済み・接触ゼロの稼働中（routes.rs の名札の注記と同じ 61 件）"
+    );
+    let started = rows.iter().filter(|r| r["not_started"] != true).count() as u64;
+    assert_eq!(
+        nc["base"].as_u64().unwrap(),
+        started,
+        "母数が開始済みの稼働中でない"
+    );
+    assert!(
+        started < rows.len() as u64,
+        "前提: fixture に開始前の稼働中が無い（母数を分けた意味が確かめられない）"
+    );
+    // 担当ごと: 稼働中の全件から数えた実数。合計は全社と一致し、候補の中で数えた数とはずれる担当がいる
+    let by = nc["by_consultant"]
+        .as_object()
+        .expect("by_consultant が無い");
+    let sum: u64 = by.values().map(|x| x["n"].as_u64().unwrap()).sum();
+    let sum_base: u64 = by.values().map(|x| x["base"].as_u64().unwrap()).sum();
+    assert_eq!(sum, flag_n, "担当ごとの合計が全社と合わない");
+    assert_eq!(
+        sum_base, started,
+        "担当ごとの母数の合計が全社の母数と合わない"
+    );
+    let mut in_cand: BTreeMap<&str, u64> = BTreeMap::new();
+    for r in v["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| has(r))
+    {
+        *in_cand
+            .entry(r["consultant"].as_str().unwrap_or(""))
+            .or_insert(0) += 1;
+    }
+    let off = by
+        .iter()
+        .filter(|(k, x)| in_cand.get(k.as_str()).copied().unwrap_or(0) != x["n"].as_u64().unwrap())
+        .count();
+    assert!(
+        off > 0,
+        "候補の中で数えても同じなら、全件から数える理由の前提が崩れている"
+    );
+}
+
 /// N13: 通話の ts（UTC）は日本時間の日付にする。
 #[test]
 fn 通話の日付は日本時間で取る() {

@@ -5329,6 +5329,96 @@ check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満
   ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(k), "button.kpi の中に a がある");
 });
 
+/* ================================================================ 磨き込み「中身の抜け」（2026-09-29、09 の 3章 1・2 と 10 章②） */
+check("09 の 3章 1: 今日の札「接触の記録が無い」は件数に母数（開始済みの稼働中）と率を添え、赤にせず、名札で絞った案件一覧へ。古い応答では出さない", () => {
+  const F = todayFixture();
+  F.meta.no_contact = { label: "接触の記録が無い", n: 61, base: 590, by_consultant: { "担当C": { n: 4, base: 30 } } };
+  ctx.__TNC = F;
+  run("todayConsultant = '';");
+  const h = run("renderToday(__TNC)");
+  const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
+  const i = kp.indexOf('data-flag="接触の記録が無い"');
+  ok(i >= 0, "札が無いか、名札で絞る行き先が無い");
+  const btn = kp.slice(kp.lastIndexOf("<button", i), kp.indexOf("</button>", i));
+  ok(/class="kpi"/.test(btn), "札を赤（is-bad）などで塗っている（接触の記録が無いのは未測定。色で良し悪しを言わない）: " + btn.slice(0, 80));
+  const tb = textOf(btn);
+  ok(/61\s*件/.test(tb) && tb.includes("開始済みの稼働中 590 件のうち（10.3%）") && tb.includes("開始前の契約は数えていません") && tb.includes("案件一覧で見る"),
+    "件数・母数・率・開始前を数えていないこと・行き先が無い: " + tb);
+  // 札の並び: 今日動く先 → 今週満了 → MTG途絶 → 接触の記録が無い（09 の 3章 1 の 2）。今日のコードは MTG 途絶の直後に置く
+  ok(kp.indexOf("MTGが90日以上途絶") < i, "MTG 途絶より前に置いている");
+  // 担当を選ぶと、その担当の実数と母数、全社の数を添える
+  run("todayConsultant = '担当C';");
+  const hc = run("renderToday(__TNC)");
+  const kc = hc.slice(hc.indexOf('<div class="kpis">'), hc.indexOf('id="td-today-h"'));
+  const ic = kc.indexOf('data-flag="接触の記録が無い" data-consultant="担当C"');
+  ok(ic >= 0, "担当を選んだときに担当を添えた行き先になっていない");
+  const tc = textOf(kc.slice(ic, kc.indexOf("</button>", ic)));
+  ok(/4\s*件/.test(tc) && tc.includes("この担当の開始済みの稼働中 30 件のうち（13.3%）") && tc.includes("全社では 61 / 590 件"), "担当の実数・母数・全社の数が無い: " + tc);
+  // 担当の分が無い（稼働中が 0 件の担当）は 0 / 0 で、率を作らない
+  run("todayConsultant = '担当Z';");
+  const tz = textOf(run("renderToday(__TNC)"));
+  ok(tz.includes("この担当の開始済みの稼働中 0 件のうち。") && !/0 件のうち（/.test(tz), "母数 0 で率を作っている");
+  // 古い応答（no_contact が無い）では出さない（数えていないものを 0 と書かない）
+  run("todayConsultant = '';");
+  ctx.__TNC0 = todayFixture();
+  ok(!run("renderToday(__TNC0)").includes("data-flag="), "古い応答で接触の札を出している");
+});
+
+check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの帯にも入れず件数を別に出し、欄の名前は契約総額（月額ではない）", () => {
+  const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
+  ctx.__BA = { meta: ctx.__BD.meta, rows: [
+    { deal_id: "a1", name: "小", consultant: "田中", flags: [], amount: 300000 },
+    { deal_id: "a2", name: "中", consultant: "田中", flags: [], amount: 500000 },
+    { deal_id: "a3", name: "大", consultant: "佐藤", flags: [], amount: 2000000 },
+    { deal_id: "a4", name: "空", consultant: "佐藤", flags: [], amount: null },
+    { deal_id: "a5", name: "空文字", consultant: "佐藤", flags: [], amount: "" },
+    { deal_id: "a6", name: "ゼロ", consultant: "佐藤", flags: [], amount: 0 }] };
+  try {
+    run('cur = { menu: "deal", view: "board" }; ' + reset);
+    const bar = run("boardFilterBar(__BA)");
+    const sel = bar.slice(bar.indexOf('id="bf-amount"'), bar.indexOf("</select>", bar.indexOf('id="bf-amount"')));
+    ok(sel.length > 0 && /title="契約期間全体の額（月額ではありません）">契約総額 <select id="bf-amount"/.test(bar), "欄の名前が契約総額でない、または月額でないことが無い");
+    const opts = [...sel.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => m[1] + "=" + m[2]);
+    ok(JSON.stringify(opts) === JSON.stringify(["=すべて", "lt50=50万円未満（2）", "50-100=50万〜100万円未満（1）", "100-200=100万〜200万円未満（0）",
+      "ge200=200万円以上（1）", "none=金額が空（2）"]), "帯と件数が違う（空を 0 円の帯に混ぜている？）: " + opts.join(" / "));
+    const ids = (k) => run('boardFilter.amount = "' + k + '"; boardApply(__BA.rows).map((r) => r.deal_id).join()');
+    ok(ids("lt50") === "a1,a6", "50万円未満: " + ids("lt50"));
+    ok(ids("50-100") === "a2" && ids("ge200") === "a3" && ids("none") === "a4,a5", "帯の境目か空の扱いが違う");
+    run('boardFilter.amount = "lt50";');
+    ok(run("boardFilterOn()") === true, "契約総額で絞っても絞り込み中にならない");
+    ok(run("boardFilterWords(__BA)") === "契約総額 50万円未満（金額が空の 2 件は入りません）", "絞った文に空の件数が無い: " + run("boardFilterWords(__BA)"));
+    run('boardFilter.amount = "none";');
+    ok(run("boardFilterWords(__BA)") === "契約総額 金額が空", "空で絞ったときに空の件数を添えている");
+    ok(/6 件中 2 件\s*を表示/.test(textOf(run("renderBoard(__BA)"))), "件数の行が絞った件数でない");
+    ok(run("JSON.stringify(stateParams('board'))") === JSON.stringify({ amt: "none" }), "契約総額が URL に載らない");
+  } finally {
+    run(reset + ' cur = { menu: "deal", view: "today" };');
+  }
+});
+
+check("10 章②: 担当者ごとの案件で担当を選ぶ前でも、?view= の見方は案件一覧と同じ定義の1行と外れた件数を出し、持ち件数に掛けていないことを書く", () => {
+  const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
+  try {
+    run('cur = { menu: "consultant", view: "byowner" }; ' + reset + ' boardFilter.view = "silent";');
+    const h = run("renderBoard(__BV)");
+    const tx = textOf(h);
+    ok(tx.includes("定義S") && tx.includes("稼働中 3 件のうち 2 件です"), "担当を選ぶ前に見方の定義と母数が出ない（黙って絞る）");
+    ok(tx.includes("定義を名札に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "担当を選ぶ前に外れた件数の文が無い");
+    ok(h.includes('id="byowner-pending"') && tx.includes("絞り込み（見方 接触90日超X）は、下の持ち件数には掛けていません。") &&
+       tx.includes("担当を選ぶと、その担当の案件にこの絞り込みを掛けて出します。"), "持ち件数に掛けていないこと・選ぶと掛かることが無い");
+    ok(h.split('id="bf-clear"').length - 1 === 1, "絞り込みを外すボタンが 1 つでない");
+    // 持ち件数は見えない条件で減らさない（田中 2・佐藤 1 のまま）
+    const tbl = h.slice(h.indexOf('id="owner-tbl"'));
+    ok(/田中<\/a><\/td><td[^>]*>2</.test(tbl) && /佐藤<\/a><\/td><td[^>]*>1</.test(tbl), "持ち件数を見方で減らしている: " + textOf(tbl).slice(0, 120));
+    // 何も絞っていなければ、どちらも出さない
+    run(reset);
+    const h0 = run("renderBoard(__BV)");
+    ok(!h0.includes('id="byowner-pending"') && !textOf(h0).includes("の定義"), "絞っていないのに持ち越しの文か見方の定義が出る");
+  } finally {
+    run(reset + ' cur = { menu: "deal", view: "today" };');
+  }
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
