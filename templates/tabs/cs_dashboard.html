@@ -3281,7 +3281,7 @@ const TEAM_COLS = [
       (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") },
   { k: "n_active", t: "持ち件数", n: 1, fmt: (r) => num(r.n_active) },
   { k: "n_flags2", t: "名札2本以上", n: 1, fmt: (r, L) =>
-      teamDrill(r.n_flags2, hashFor("today", { c: r.consultant }), "この担当の「今日動く先」を開く（名札2本以上の全件）") },
+      teamDrill(r.n_flags2, hashFor("today", { c: r.consultant }), "この担当で「今日」を開く（名札2本以上の全件）") },
   { k: "mtg_critical", t: "MTG 90日以上途絶", n: 1, fmt: (r) =>
       teamDrill(r.mtg_critical, hashFor("byowner", { band: "critical", c: r.consultant }), "この担当の MTG 途絶（重大）の案件を開く") },
   { k: "no_contact", t: "接触の記録が無い", n: 1, fmt: (r, L) =>
@@ -3364,9 +3364,9 @@ function renderTeam(D) {
           : "稼働中の案件を持っている担当者",
         "", { jump: "tm-tbl-h", text: "表へ" }) +
     kpi("名札が " + num(SM.min_flags) + " 本以上の案件", num(SM.n_flags2) + '<span class="u">件</span>',
-        "稼働中 " + num(SM.n_active) + " 件のうち。今日動く先の候補と同じ数え方です", "", { jump: "tm-tbl-h", text: "表へ（名札2本以上の列）" }) +
+        "稼働中 " + num(SM.n_active) + " 件のうち。「今日」の案件と同じ数え方です", "", { jump: "tm-tbl-h", text: "表へ（名札2本以上の列）" }) +
     kpi("今週満了", num(SM.expiring_week) + '<span class="u">件</span>',
-        "満了まで " + num(SM.week_days) + " 日以内。今日動く先の「今週満了」と同じ数え方です") +
+        "満了まで " + num(SM.week_days) + " 日以内。「今日」の「今週満了」と同じ数え方です") +
     kpi("退職者のまま", num(D.meta.retired_deals) + '<span class="u">件</span>',
         "担当が退職者のままの稼働中の案件（その担当 " + num(D.meta.retired_people) + " 名）",
         /* 0 件のときは飛ばない（div）。飛んだ先の表に印が 1 つも無いため（2026-09-29 検証） */
@@ -3377,7 +3377,7 @@ function renderTeam(D) {
   h += sec("表", "担当者 × 状態（" + num(rows.length) + " 名）", "tm-tbl-h");
   h += '<div class="lede">1行1担当者。<b>既定は名前の順</b>です（見出しを押すと並び替わります）。' +
     (lfLabel ? "「1件あたりの接触回数」は確定した最新の月（" + esc(lfLabel) + "）の値です。" : "") +
-    "数を押すと、その担当とその印で絞った一覧が開きます（名札2本以上は「今日動く先」、ほかは「担当者ごとの案件」）。" +
+    "数を押すと、その担当とその印で絞った一覧が開きます（名札2本以上は「今日」、ほかは「担当者ごとの案件」）。" +
     "持ち件数はそれぞれの数の母数です。</div>";
   let t = '<table id="team-tbl"><thead><tr>';
   for (const c of TEAM_COLS) {
@@ -3419,7 +3419,7 @@ function renderTeam(D) {
     (D.meta.unknown_owner ? "<br>担当が取れない取引が " + num(D.meta.unknown_owner) +
       " 件あります。<b>「その他」に混ぜていません</b>（件数だけ出しています）。" : "") +
     "<br>「名札2本以上」「接触の記録が無い」「満了まで60日以内」「NPS 4以下」「MTG 90日以上途絶」は、" +
-    "案件そのもの・今日動く先と同じ行（名札）から数えています。" +
+    "案件一覧・今日と同じ行（名札）から数えています。" +
     "<b>「接触の記録が無い」は開始前の案件を数えていません</b>（開始前は名札を立てないため）。");
 
   /* ---- 接触の推移 ---- */
@@ -6570,7 +6570,8 @@ function renderToday(D0) {
      答えに着くのに 3 画面スクロールしていた（400px では y≈3,960）。問い → KPI → この表 の順にする。
      決まりごと（絞った条件・並び・採用単価の比べ方）は取り決めなので、見出しの直下の 1 行に畳む（開けば全文）。
      母数（n_hit 件から n_shown 件）は畳まず、その 1 行目に書く */
-  h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）", "td-today-h");
+  /* 見出しは今のメニュー名（今日）に合わせる。前は「今日動く先」で、左のメニューに無い名前だった（2026-09-29） */
+  h += sec("表", "今日の案件（" + num(D.rows.length) + " 件）", "td-today-h");
   /* 決まりごとの畳み。母数（n_hit 件から n_shown 件）は枠の案内（scroll-cap の「N 行を出しています（全 T 件のうち）」）が
      言うので、summary では繰り返さない。🔴 2026-09-28 検証（fixture 1440×900）: summary と scroll-cap が同じ
      「243 件から 24 件」を 40px の間に 2 回言い、表の見出し行が 772 で 1 画面目に完全な行が 0 行だった。
@@ -7598,7 +7599,7 @@ function detailNext(D) {
       : '<span class="muted small">この契約の期間に MTG の記録がありません</span>') +
     kv("満了まで", left == null ? DASH : left >= 0 ? num(left) + "日" + exp : "満了日を過ぎています" + exp) +
     kv("担当", (d.consultant
-      ? '<a href="' + esc(hashFor("board", { c: d.consultant })) + '" title="この担当の案件を案件そのもので見る">' + esc(d.consultant) + "</a>"
+      ? '<a href="' + esc(hashFor("board", { c: d.consultant })) + '" title="この担当の案件を案件一覧で見る">' + esc(d.consultant) + "</a>"
       : DASH) +
       (d.consultant_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "")) +
     "</div>";

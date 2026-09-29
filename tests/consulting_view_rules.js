@@ -3688,11 +3688,11 @@ check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全
   const all = run("renderToday(__TD5)");
   ok(/<select id="td-consultant"><option value="" selected>全員<\/option><option value="担当A">担当A<\/option><option value="担当B">担当B<\/option><option value="担当C">担当C<\/option><\/select>/.test(all),
     "担当の選択欄が候補の全員（rows の 2 名ではなく、候補・満了・新規の 3 名）でない");
-  ok(all.includes("今日動く先（2 件）") && all.includes("全 4 件のうち"), "未選択のときにサーバの上位 keep 件でない");
+  ok(all.includes("今日の案件（2 件）") && all.includes("全 4 件のうち"), "未選択のときにサーバの上位 keep 件でない");
   ok(!all.includes("候補3"), "未選択のときに候補の全件を出している");
   run("todayConsultant = '担当C';");
   const mine = run("renderToday(__TD5)");
-  ok(mine.includes("今日動く先（2 件）") && mine.includes("候補3") && mine.includes("候補4") && !mine.includes("候補1"),
+  ok(mine.includes("今日の案件（2 件）") && mine.includes("候補3") && mine.includes("候補4") && !mine.includes("候補1"),
     "担当で絞ると、その人の候補を全件（keep 件に切る前の candidates から）出していない");
   ok(!mine.includes("件のうち"), "担当で絞った表に「N 件のうち」（切っている顔）が残っている");
   ok(mine.includes('<option value="担当C" selected>'), "選んだ担当が欄で選ばれていない");
@@ -3705,7 +3705,7 @@ check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全
   run("todayConsultant = '担当Z';");
   const none = run("renderToday(__TD5)");
   ok(none.includes('<option value="担当Z" selected>'), "覚えている担当が候補に無いときに欄から消えている");
-  ok(none.includes("この担当には名札が2本以上ついた案件がありません") && none.includes("今日動く先（0 件）"), "0 件の理由が無い");
+  ok(none.includes("この担当には名札が2本以上ついた案件がありません") && none.includes("今日の案件（0 件）"), "0 件の理由が無い");
   // 古い応答（candidates が無い）でも rows から絞れる
   const old = todayFixture(); delete old.candidates; ctx.__TD6 = old;
   run("todayConsultant = '担当A';");
@@ -3768,7 +3768,7 @@ check("D-1a の検証: 担当の選択欄の顔ぶれは選んだ担当で変わ
   ok(opts(b) === ",担当A,担当B,担当C,担当D,担当E", "consultants の顔ぶれになっていない: " + opts(b));
   run("todayConsultant = '担当E';");
   const e = run("renderToday(__TD7)");
-  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には名札が2本以上ついた案件がありません") && e.includes("今日動く先（0 件）"),
+  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には名札が2本以上ついた案件がありません") && e.includes("今日の案件（0 件）"),
     "候補 0 件の担当を選んだときに、選ばれた状態と 0 件の理由が無い");
   run("todayConsultant = '';");
 });
@@ -5339,6 +5339,19 @@ check("MTG の記録が無い案件を「していない」と読ませない（
   const f = textOf(run("renderFocus(__FOw)"));
   ok(f.includes("MTG の記録がどちらにも見つからない") && f.includes("どちらにも見つからない"), "いま見るべき顧客の札・図の区分");
   ok(!/どちらも無い/.test(f), "いま見るべき顧客に「どちらも無い」が残っている");
+});
+
+/* 2026-09-29 画面の組み替え（11画面・3区切り）の後も、画面の文に前の名前「今日動く先」「案件そのもの」「案件の立ち位置」が残っていた
+   （チームと担当の札・表の案内・数の行き先の title、今日の表の見出し、案件の詳細の担当のリンク）。左のメニューに無い名前を案内しない。
+   関数名・内部キー・コメントは変えない（画面に出る JS の文字列だけを見る。サーバの文は tests.rs old_screen_names_not_in_server_text） */
+check("前の画面名（今日動く先・案件そのもの・案件の立ち位置）を画面の文に出さない。今のメニュー名（今日・案件一覧）で書く", () => {
+  const lits = jsNoComment.match(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g) || [];
+  ["今日動く先", "案件そのもの", "案件の立ち位置"].forEach((w) => {
+    const hit = lits.filter((x) => x.includes(w));
+    ok(hit.length === 0, "画面に出る文字列に「" + w + "」が残っている: " + hit.slice(0, 3).join(" ／ "));
+  });
+  const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "", mtg_gap: {} } })');
+  ok(/<span class="no">表<\/span>今日の案件（0 件）/.test(td), "今日の表の見出しが今のメニュー名（今日）に合っていない");
 });
 
 Promise.all(pendingChecks).then(() => {
