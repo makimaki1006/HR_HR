@@ -1413,34 +1413,37 @@ check("V12 の残り: 枠を横に動かす（scroll の捕捉）・窓の幅・
    renderHq を戻すときは、差し替え前に覚えたこの値を使う */
 const HQ_ORIG = run("renderHq");
 
-check("V12 の残り: 本部アプローチの枠を差し込んだ後（持っているとき・取りに行った後）に影を付ける", () => {
-  const saved = { rh: run("renderHq"), rj: run("readJson"), fetch: ctx.fetch, qsa: ctx.document.querySelectorAll };
-  const restore = () => {
-    ctx.__rh = saved.rh; ctx.__rj = saved.rj;
-    run("renderHq = __rh; readJson = __rj; hqCache = null;");
-    ctx.fetch = saved.fetch; ctx.document.querySelectorAll = saved.qsa; delete els["hq-box"];
-  };
-  ctx.__noop = () => "";
-  run("renderHq = __noop; readJson = (r) => r.json();");
-  els["hq-box"] = fakeEl();
+/* 成果と継続の束（/api/consulting/results）の最小形。本部アプローチ（rs-hq）は束の headquarters を本文と一緒に描く。
+   2026-09-30 に後読みの部品（hqSection / wireHq）を消したので、前の見張り（#hq-box に差し込んだ後の影・paintFigs・
+   開いた details）は、同じ性質を rs-hq の節で確かめる形に移した（緩めていない） */
+function resultsWithHq() {
+  return { meta: { today: "2026-09-18", exclude_right_censored: false }, population: { deals_option: 99 },
+    renewal: ctx.__RN, outcome: ctx.__OUT, focus: ctx.__FO, rampup: ctx.__RU, headquarters: ctx.__HQ, phone: ctx.__PH };
+}
+/** 本文の rs-hq の節（見出しから次の節の前まで） */
+function rsHqPart(h) {
+  const i = h.indexOf('id="rs-hq"');
+  ok(i >= 0, "成果と継続に本部アプローチの節（rs-hq）が無い");
+  const j = h.indexOf('id="rs-act"', i);
+  return h.slice(i, j > i ? j : h.length);
+}
+
+check("V12 の残り: 本部アプローチ（成果と継続の rs-hq）を描いた後に影を付ける。束の中から描き、別に取りに行かない", () => {
+  ok(!/function (hqSection|wireHq)\b/.test(js), "消した後読みの部品（hqSection / wireHq）が残っている");
+  ok(!js.includes('"/api/consulting/headquarters"'), "画面が本部アプローチを別に取りに行く道が残っている");
+  const v = run('JSON.stringify(viewOf("monthly", "results"))');
+  ok(v && JSON.parse(v).path === "/api/consulting/results" && !JSON.parse(v).more, "成果と継続が束（/api/consulting/results）1 本で取っていない: " + v);
+  ctx.__RSX = resultsWithHq();
+  const part = rsHqPart(run("renderResults(__RSX)"));
+  ok(part.includes("解約・充足 50.0%（決着済み 4件中）"), "rs-hq の節に束の headquarters（renderHq の中身）が描かれていない");
+  /* 描いた後の wire が影を付ける（前は wireHq が差し込んだ後に付けていた） */
+  const saved = run('JSON.stringify(cur)');
+  const w = fakeWrap();
   try {
-    // 持っているとき（hqCache）
-    const w1 = fakeWrap();
-    run("hqCache = { x: 1 }");
-    withWraps(w1, () => run("wireHq()"));
-    ok(w1.cls.has("more-r"), "hqCache から差し込んだ後に影を付けていない");
-  } catch (e) { restore(); throw e; }
-  // 取りに行ったとき（fetch の後）
-  run("hqCache = null");
-  const w2 = fakeWrap();
-  ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: 1 }) });
-  ctx.document.querySelectorAll = (s) => (s === ".scroll-wrap" ? [w2.el] : []);
-  run("wireHq()");
-  const tick = () => new Promise((res) => setImmediate(res));
-  return tick().then(tick).then(() => {
-    restore();
-    ok(w2.cls.has("more-r"), "本部アプローチを取りに行って差し込んだ後に影を付けていない");
-  }, (e) => { restore(); throw e; });
+    run('cur = { menu: "monthly", view: "results" }');
+    withWraps(w, () => run('wire(viewOf("monthly", "results"))'));
+  } finally { ctx.__cur0 = saved; run("cur = JSON.parse(__cur0)"); }
+  ok(w.cls.has("more-r"), "成果と継続を描いた後に影を付けていない（rs-hq の表の枠）");
 });
 
 check("V12 の残り: 暗い表示でも枠の端の影が地と見分けられる（明るい表示と同じくらいの差）", () => {
@@ -1834,10 +1837,12 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
   const qsa0 = main.querySelectorAll, qs0 = main.querySelector;
   const restore = () => {
     ctx.__rs = saved;
-    run("paintFigs = __rs.pf; redrawMain = __rs.rd; wire = __rs.wire; renderHq = __rs.rh; cur = JSON.parse(__rs.cur); hqCache = null; hqKeep = null; lastPayload = null; paintedW = 0;");
+    run("paintFigs = __rs.pf; redrawMain = __rs.rd; wire = __rs.wire; renderHq = __rs.rh; cur = JSON.parse(__rs.cur); lastPayload = null; paintedW = 0;");
     ctx.setTimeout = saved.st; ctx.fetch = saved.fetch;
-    main.querySelectorAll = qsa0; main.querySelector = qs0; delete main.clientWidth; delete els["hq-box"];
+    main.querySelectorAll = qsa0; main.querySelector = qs0; delete main.clientWidth;
   };
+  ctx.__rs = saved;
+  ctx.__PF0 = ctx.__PF;
   try {
     run("paintFigs = __PF; wire = () => {}; renderHq = () => '';");
     // 定義と検証（API の無い項目）の load
@@ -1849,11 +1854,14 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     calls.length = 0;
     run("redrawMain({}, [2])");
     ok(calls.length === 1 && JSON.stringify(calls[0].keep) === "[2]", "redrawMain が keep を paintFigs に渡していない: " + JSON.stringify(calls[0] && calls[0].keep));
-    // 本部アプローチ（持っているとき）
+    // 本部アプローチ（成果と継続の rs-hq）: 本文と同じ paintFigs で 1 回描く（前は #hq-box を別に paintFigs で描いていた）
     calls.length = 0;
-    els["hq-box"] = fakeEl();
-    run("hqCache = { x: 1 }; wireHq()");
-    ok(calls.length === 1 && calls[0].el === els["hq-box"], "本部アプローチの枠を paintFigs で描いていない");
+    ctx.__RSX = resultsWithHq();
+    ctx.__PF = (el, make, keep) => { calls.push({ el, keep, html: make() }); };
+    run('paintFigs = __PF; renderHq = __rs.rh; cur = { menu: "monthly", view: "results" }; redrawMain(__RSX, [0])');
+    ok(calls.length === 1 && calls[0].el === main && JSON.stringify(calls[0].keep) === "[0]", "成果と継続の描き直しが本文の paintFigs 1 回でない");
+    ok(rsHqPart(calls[0].html).includes("解約・充足 50.0%（決着済み 4件中）"), "本部アプローチを本文の paintFigs の中で描いていない");
+    run("paintFigs = __PF0; renderHq = () => ''");
     // 窓の幅が変わった（resize → refitSoon → redrawMain(lastPayload, openDetails(main))）
     const rd = [];
     ctx.__RD = (D, keep) => rd.push(keep);
@@ -1867,8 +1875,8 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     ok(JSON.stringify(rd[0]) === "[1]", "幅の描き直しで開いている details を渡していない: " + JSON.stringify(rd[0]));
   } catch (e) { restore(); throw e; }
   restore();
-  /* ここから先は応答を待つ。先に走った見張り（本部アプローチの取得）が終わってから差し替える。
-     終わる前に差し替えると、その見張りの paintFigs・#hq-box の片付けと混ざる */
+  /* ここから先は応答を待つ。先に走った見張り（fetch の後を見るもの）が終わってから差し替える。
+     終わる前に差し替えると、その見張りの paintFigs・片付けと混ざる */
   return Promise.all(pendingChecks.slice()).then(() => {
     // API のある項目の load（応答の後）も paintFigs で描く
     const calls2 = [];
@@ -1877,55 +1885,53 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     ctx.fetch = () => Promise.resolve({ ok: true, status: 200, url: "/api/x", headers: { get: () => "application/json" }, json: () => Promise.resolve({ meta: {} }) });
     run('cur = { menu: "deal", view: "today" }');
     const p = run("load()");
-    // 本部アプローチを取りに行った後も paintFigs で描く
-    const hb = fakeEl();
-    els["hq-box"] = hb;
-    run("hqCache = null; wireHq()");
     const tick = () => new Promise((res) => setImmediate(res));
     return p.then(tick).then(tick).then(() => {
       restore();
       ok(calls2.filter((el) => el === main).length === 1, "応答の後の load が paintFigs で描いていない");
-      ok(calls2.includes(hb), "本部アプローチを取りに行った後、paintFigs で描いていない");
     }, (e) => { restore(); throw e; });
   });
 });
 
-check("本部アプローチ: 幅の描き直しで、#hq-box の中の開いた details を数え違えず、描き直した後に開き直す", () => {
-  // 🔴 検証の指摘: openDetails(main) が #hq-box の中の details も数え、本文の描き直しの時点では #hq-box が空なので
-  //    番号がずれ、#hq-box の中身（wireHoujin が keep 無しで描く）は畳まれていた
+check("本部アプローチ（rs-hq）: 幅の描き直しで、節の中の開いた details を本文の details として数え、描き直した後に開き直す", () => {
+  // 🔴 検証の指摘（2026-09-24）: openDetails(main) が後読みの枠（#hq-box）の中の details も数え、本文の描き直しの時点では枠が空なので
+  //    番号がずれ、枠の中身は畳まれていた。2026-09-30 に後読みの枠を消し、本部アプローチは成果と継続の本文（rs-hq）に描く。
+  //    同じ性質（本部アプローチの中の開いた details が、幅の描き直しの後も開いたまま）を、今の形で確かめる
+  // 別に描く枠（data-paint-own）の中の details は本文の番号に混ぜない（部品の決まりは残っている）
   const hqd = { open: true }, own = { open: true }, own0 = { open: false };
-  const hqEl = { id: "hq-box", querySelectorAll: (s) => (s === "details" ? [hqd] : []) };
-  hqd.closest = (s) => (s === "[data-paint-own]" ? hqEl : null);
+  const boxEl = { id: "own-box", querySelectorAll: (s) => (s === "details" ? [hqd] : []) };
+  hqd.closest = (s) => (s === "[data-paint-own]" ? boxEl : null);
   own.closest = own0.closest = () => null;
   ctx.__M = { querySelectorAll: (s) => (s === "details" ? [own0, hqd, own] : []) };
-  ok(run("JSON.stringify(openDetails(__M))") === "[1]", "本文の details の番号に #hq-box の中の details が混ざっている: " + run("JSON.stringify(openDetails(__M))"));
-  ctx.__H = hqEl;
-  ok(run("JSON.stringify(openDetails(__H))") === "[0]", "#hq-box 自身の details を数えていない");
-  ok(html.includes('<div id="hq-box" data-paint-own="1">'), "#hq-box に data-paint-own が無い（本文の details に数えられる）");
-  // redrawMain(keep) が #hq-box の開いた details を覚え、wireHoujin がその keep で描く
-  const saved = { pf: run("paintFigs"), wire: run("wire"), rh: HQ_ORIG };
+  ok(run("JSON.stringify(openDetails(__M))") === "[1]", "本文の details の番号に別に描く枠の中の details が混ざっている: " + run("JSON.stringify(openDetails(__M))"));
+  ctx.__H = boxEl;
+  ok(run("JSON.stringify(openDetails(__H))") === "[0]", "別に描く枠自身の details を数えていない");
+  // 成果と継続: rs-hq の details は本文の一部（別に描く枠に入れていない）なので、本文の番号で覚えて開き直せる
+  ctx.__RSX = resultsWithHq();
+  const h = run("renderResults(__RSX)");
+  ok(!h.includes("data-paint-own") && !h.includes('id="hq-box"'), "成果と継続に後読みの枠（別に描く枠）が残っている");
+  const part = rsHqPart(h);
+  ok(part.includes("<details"), "前提: rs-hq の節に details が無い（見張りが空振りする）");
+  const idx = (h.slice(0, h.indexOf('id="rs-hq"')).match(/<details/g) || []).length;   // rs-hq の最初の details の番号
+  const n = (h.match(/<details/g) || []).length;
+  const ds = Array.from({ length: n }, (_, i) => ({ open: i === idx, closest: () => null }));
+  ctx.__M2 = { querySelectorAll: (s) => (s === "details" ? ds : []) };
+  ok(run("JSON.stringify(openDetails(__M2))") === JSON.stringify([idx]), "rs-hq の開いた details を本文の番号で覚えていない: " + run("JSON.stringify(openDetails(__M2))"));
+  // 幅の描き直し（redrawMain(D, keep)）は、その番号を本文の paintFigs に渡す。絞り込みの描き直し（keep 無し）は渡さない
+  const saved = { pf: run("paintFigs"), wire: run("wire"), cur: run("JSON.stringify(cur)") };
   const calls = [];
   ctx.__PF = (el, make, keep) => calls.push({ el, keep });
-  const hb = fakeEl(); hb.querySelectorAll = (s) => (s === "details" ? [{ open: false }, { open: true }] : []);
-  els["hq-box"] = hb;
   try {
-    run("paintFigs = __PF; wire = () => {}; renderHq = () => ''; hqCache = { x: 1 };");
-    run("redrawMain({}, [])");
-    els["hq-box"] = fakeEl();   // 本文を描き直すと #hq-box は新しい枠になる
-    run("wireHq()");
-    const hq = calls.find((c) => c.el === els["hq-box"]);
-    ok(hq && JSON.stringify(hq.keep) === "[1]", "#hq-box を開いていた details のまま描き直していない: " + JSON.stringify(hq && hq.keep));
+    run('paintFigs = __PF; wire = () => {}; cur = { menu: "monthly", view: "results" };');
+    ctx.__K = [idx];
+    run("redrawMain(__RSX, __K)");
+    ok(calls.length === 1 && JSON.stringify(calls[0].keep) === JSON.stringify([idx]), "幅の描き直しで rs-hq の開いた details を渡していない: " + JSON.stringify(calls[0] && calls[0].keep));
     calls.length = 0;
-    els["hq-box"] = hb;
-    run("redrawMain({})");   // 絞り込みの描き直しは覚えない（行が変わると番号が別の行を指す）
-    els["hq-box"] = fakeEl();
-    run("wireHq()");
-    const hq2 = calls.find((c) => c.el === els["hq-box"]);
-    ok(hq2 && !(hq2.keep && hq2.keep.length), "絞り込みの描き直しでも #hq-box の details を開き直している");
+    run("redrawMain(__RSX)");
+    ok(calls.length === 1 && !(calls[0].keep && calls[0].keep.length), "絞り込みの描き直しでも details を開き直している");
   } finally {
     ctx.__rs = saved;
-    run("paintFigs = __rs.pf; wire = __rs.wire; renderHq = __rs.rh; hqCache = null; hqKeep = null;");
-    delete els["hq-box"];
+    run("paintFigs = __rs.pf; wire = __rs.wire; cur = JSON.parse(__rs.cur);");
   }
 });
 

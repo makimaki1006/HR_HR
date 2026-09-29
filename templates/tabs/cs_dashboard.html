@@ -1242,10 +1242,11 @@ function figAvail(el) {
   });
   return avail;
 }
-/** el の details のうち、el の中の「別に描く枠」（data-paint-own。本部アプローチの #hq-box）の中に無いもの。
-    🔴 2026-09-24 検証: 前は #hq-box の中の details（全法人の内訳）も数えていた。本文を描き直す時点の
-    #hq-box は「読み込み中」の空の枠で、中身は後から wireHq が描くので、番号がずれて別の details を
-    開いたり、#hq-box の中の details が畳まれたりした。#hq-box の中は hqKeep で別に覚える */
+/** el の details のうち、el の中の「別に描く枠」（data-paint-own）の中に無いもの。
+    🔴 2026-09-24 検証: 前は本部アプローチの後読みの枠（#hq-box）の中の details も数えていた。本文を描き直す時点の
+    枠は「読み込み中」の空の枠で、中身は後から描くので、番号がずれて別の details を開いたり、枠の中の details が畳まれたりした。
+    2026-09-30 に後読みの枠は消した（本部アプローチは成果と継続の本文 rs-hq の中に描くので、本文の details として数える）。
+    後から別に描く枠を足すときは data-paint-own を付ける */
 function ownDetails(el) {
   return Array.from(el.querySelectorAll("details")).filter((d) => {
     const b = d.closest ? d.closest("[data-paint-own]") : null;
@@ -4664,7 +4665,7 @@ function custBlocks(D, want) {
       26,520px あった（09 の 5章）。拠点は1つずつ選ぶ。選んでいないときは既定の1拠点を開き、そうしていると書く。
    本部アプローチ（他の法人と比べる）は「成果と継続」の節（rs-hq。/api/consulting/results の headquarters）へ移した（09 の 4章）。
    🔴 2026-09-29 横断レビュー: 成果と継続に移した後もこの画面の末尾に残っていて、同じ中身が 2 か所にあった。この画面からは外し、
-      「この画面の中」の列の後ろに成果と継続の節へのリンクを置く（黙って消さない）。hqSection() / wireHq() はどの画面も呼んでいない
+      「この画面の中」の列の後ろに成果と継続の節へのリンクを置く（黙って消さない）。前の後読みの部品（hqSection / wireHq）は 2026-09-30 に消した（成果と継続は束ねた応答の headquarters を renderHq で直接描く）
 */
 let custSite = "";   /* 人が選んだ拠点（siteOf の鍵）。空・この法人に無い鍵なら既定の拠点（custDefaultSite）。URL の site */
 /* URL の site から拠点を入れたか（詳細のパンくずの拠点・貼られた URL で来たとき）。描いた後に「事業所」の節へ移す（wireCustomer）。
@@ -5102,17 +5103,6 @@ function houjinCounts(all, ids) {
     num(all.filter((d) => d.is_active).length) + " 件）。拠点をまたいだ図には " + num(ids.size) + " 件を入れています";
 }
 
-/** 本部アプローチ（他の法人と比べる）の見出しと枠。中身は wireHq() が /api/consulting/headquarters を取って描く。
-    🔴 2026-09-29 からどの画面も呼んでいない（成果と継続は束ねた応答の headquarters を renderHq で直接描く。顧客からは外した）。
-    後から描く枠の部品として残している。
-    🔴 「図 他の法人と比べる」の見出しのすぐ下に renderHq の「問い」の見出しが続き、図の見出しの下が空に見えた
-       （2026-09-24 実機）。見出しはここの1つにし、renderHq は見出しを出さない。
-    data-paint-own: 中身は wireHq が後から描く。本文の描き直しで開いた details を数えない（ownDetails） */
-function hqSection() {
-  return sec("問い", "他の法人と比べる — 本部に何を持っていくか", "hq-sec") +
-    '<div id="hq-box" data-paint-own="1"><span class="loading">読み込み中…</span></div>';
-}
-
 /** 契約開始からの月番号 `m` を暦の "YYYY-MM" に直す。
     🔴 サーバ側と同じ数え方（始月を1ヶ月目とする）。 */
 function monthAdd(start, m) {
@@ -5205,7 +5195,7 @@ function siteLabels(rows) {
 }
 
 function renderHq(D) {
-  /* 見出し（問い）は法人番号で見るの側（#hq-box の上）に置く。
+  /* 見出し（問い）は呼ぶ側（成果と継続の rs-hq の節）に置く。
      🔴 枠の見出しを「親法人の合計ではありません」にしていて、本文の頭（サーバの not_counted）と
      同じ文が続けて2回出ていた（2026-09-24 実機）。見出しは本文と別のことを言う */
   let h =
@@ -6105,10 +6095,6 @@ function redrawMain(D, keep) {
   const v = viewOf(cur.menu, cur.view);
   const main = document.getElementById("cs-main");
   const fk = focusKey(document.activeElement);
-  /* 本部アプローチの枠（#hq-box）の中は本文と別に描くので、開いている details も別に覚えて、
-     wireHq が描き直すときに開き直す（幅の描き直しのときだけ。絞り込みでは覚えない） */
-  const hq = keep ? document.getElementById("hq-box") : null;
-  hqKeep = hq && hq.querySelectorAll ? openDetails(hq) : null;
   paintFigs(main, () => ctlbar(v, D) + v.render(D), keep);   /* 図の幅を枠に合わせる（2回描き） */
   wire(v);
   refocus(fk);
@@ -8935,29 +8921,6 @@ function wireCustomer() {
   if (n) n.onclick = () => setAll(false);
 }
 
-/* 本部アプローチ（#hq-box）の遅延読み。hqSection() を描いた画面の wire で呼ぶ（2026-09-29 からどの画面も描いていない。hqSection の注記） */
-function wireHq() {
-  /* 本部アプローチは別のデータ。この項目を開いたときだけ取りに行く */
-  const box = document.getElementById("hq-box");
-  if (!box) return;
-  const keep = hqKeep; hqKeep = null;   /* redrawMain が覚えた #hq-box の開いた details */
-  if (hqCache) { paintFigs(box, () => renderHq(hqCache), keep); markScrollAll(); return; }
-  fetch("/api/consulting/headquarters", { credentials: "same-origin" })
-    .then(readJson)   /* ログイン切れを見分ける（U10）。r.json() だと構文エラーの文がそのまま出る */
-    .then((body) => {
-      if (body.error) throw new Error(body.message || "取得できません");
-      hqCache = body;
-      const b2 = document.getElementById("hq-box");
-      if (b2) { paintFigs(b2, () => renderHq(body)); markScrollAll(); }
-    })
-    .catch((e) => {
-      const b2 = document.getElementById("hq-box");
-      if (b2) b2.innerHTML = e.loginExpired ? LOGIN_EXPIRED_HTML
-        : '<div class="err">' + esc(e.message) + "</div>";
-    });
-}
-let hqCache = null;
-let hqKeep = null;
 
 /* 戻る・進むでも同じところへ。
    🔴 pushState で積んだ履歴を戻るときは popstate が来る（hashchange はブラウザによって
