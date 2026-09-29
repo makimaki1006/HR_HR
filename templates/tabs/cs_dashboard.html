@@ -28,8 +28,12 @@
        🔴 2026-09-24 実機（第2弾後）: 5本目・4本目を --ink-3 / --ink-2 の灰色どうしにしていて
        （#686d75 と #5b6168）、houjin の案件の線と拠点の積み上げで見分けられなかった。
        赤＝まずい・緑＝良い・山吹＝注意の色は使わない。牡丹（赤紫）と空（明るい青）を足す。
-       白地で 牡丹 6.2:1 / 空 3.6:1（図形の境界に要る 3:1 以上） */
-    --botan:#9b3f82;   --sora:#2d8fc9;
+       白地で 牡丹 6.2:1 / 空 3.6:1（図形の境界に要る 3:1 以上）
+       🔴 M-12（08）: 帯の中の白文字（svgStack、11.5px 太字）は空の上で 3.57:1（塗りの .85 を掛けると 2.89:1）で 4.5:1 に届かない。
+       空の上の文字だけ --sora-text にする（明るい表示は墨で 6.02:1、暗い表示は地の色で 6.62:1。どちらも塗り .85 込みの計算値）。
+       空そのものは変えない（藍 --ai と見分けるための明るい青。#1f7fb8 に落としても白文字は 4.39:1 で届かない）。
+       2026-09-29 時点で空を svgStack に渡している画面は無い（CASE_COLORS は線と積み上げ縦棒だけで、文字を載せない） */
+    --botan:#9b3f82;   --sora:#2d8fc9; --sora-text:var(--ink);
     --grid:#e3e8ee;
     /* 🔴 2026-09-22 実測: #a9b2bc は 1.98:1 しかなかった。ghost は「値が無い（0 ではない）」を
        示す — や「記録なし」に使っていて、**読ませる文字**なので 4.5:1 が要る。4.54:1 にした。
@@ -72,7 +76,7 @@
       --ki:#e0b063;      --ki-soft:#2c2214;
       --midori:#5fc79c;  --midori-soft:#112c24;
       --murasaki:#a294d8;
-      --botan:#e59ad2;   --sora:#5ccbe8;
+      --botan:#e59ad2;   --sora:#5ccbe8; --sora-text:var(--panel);   /* 空の上の文字（svgStack）。6.62:1 */
       --grid:#2d3138; --ghost:#888f99;   /* 2.69:1 → 4.53:1 */
       --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
       --edge-shade:rgba(255,255,255,.14);   /* 表の枠の端の影。下の .scroll-wrap を参照 */
@@ -87,7 +91,7 @@
     --ki:#e0b063;      --ki-soft:#2c2214;
     --midori:#5fc79c;  --midori-soft:#112c24;
     --murasaki:#a294d8;
-    --botan:#e59ad2;   --sora:#5ccbe8;
+    --botan:#e59ad2;   --sora:#5ccbe8; --sora-text:var(--panel);
     --grid:#2d3138; --ghost:#888f99;
     --shadow-card:0 1px 2px rgba(0,0,0,.3), 0 8px 22px -14px rgba(0,0,0,.7);
     --edge-shade:rgba(255,255,255,.14);
@@ -2182,8 +2186,9 @@ function svgStack(o) {
     // 🔴 細い区間に文字を置くと必ず隣と重なる。帯の中は「入るときだけ」。
     //    ラベルと件数は下の凡例(stackLegend)で全件そろえる
     // 🔴 薄く塗った区間に白文字を載せると読めない。文字色を地の濃さで切り替える
+    //    空（--sora）の上の白文字は 2.89:1 しかない（M-12）。空の上だけ --sora-text（墨／暗い表示は地の色）
     if (pw > 46)
-      g += `<text x="${(x + pw / 2).toFixed(1)}" y="${(6 + bh / 2 + 4).toFixed(1)}" text-anchor="middle" style="fill:${p.faint || p.open ? "var(--ink-2)" : "var(--panel)"};font-size:11.5px;font-weight:700">${(p.v / total * 100).toFixed(1)}%</text>`;
+      g += `<text x="${(x + pw / 2).toFixed(1)}" y="${(6 + bh / 2 + 4).toFixed(1)}" text-anchor="middle" style="fill:${p.faint || p.open ? "var(--ink-2)" : col === C.sora ? "var(--sora-text)" : "var(--panel)"};font-size:11.5px;font-weight:700">${(p.v / total * 100).toFixed(1)}%</text>`;
     x += pw;
   });
   return svgHead(w, h, o.alt || "構成比", { fk: slot.k }) + `${g}</svg>`;

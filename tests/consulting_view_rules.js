@@ -4409,6 +4409,33 @@ check("M-12: 強制カラーで「いま見ている項目」と「まずい KPI
   ok(/\.kpi\.is-bad \.big::after\{ content:" \\25B2";/.test(m[1]), "まずい KPI に ▲（色と印の意味と同じ印）が付かない");
 });
 
+// 🔴 2026-09-29 検証: M-12 の「帯の中の白文字（11.5px）が空色 --sora の上で 3.57:1」が手付かずだった。
+// 空の上の文字だけ --sora-text にする。3 つの色のブロック（明るい・暗い（OS）・暗い（指定））で、塗りの .85 を掛けた空の上で 4.5:1 以上
+check("M-12: 帯（svgStack）の中の文字は、空（--sora）の上でも 4.5:1 以上（空の上だけ --sora-text）", () => {
+  const svg = run('svgStack({ w: 660, parts: [{ label: "空", v: 50, color: C.sora }, { label: "藍", v: 50, color: C.ai }] })');
+  const texts = [...svg.matchAll(/<text [^>]*style="fill:([^;]+);font-size:11\.5px/g)].map((x) => x[1]);
+  ok(texts.length === 2 && texts[0] === "var(--sora-text)" && texts[1] === "var(--panel)", "空の上の文字が --sora-text でない（藍の上は白のまま）: " + texts);
+  const css = html.split("<style>")[1].split("</style>")[0];
+  const [light, rest] = [css.split("@media (prefers-color-scheme:dark)")[0], css.split("@media (prefers-color-scheme:dark)")[1]];
+  const blocks = [light, rest.split(':root[data-theme="dark"]')[0], rest.split(':root[data-theme="dark"]')[1].split("}")[0]];
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const lum = (c) => {
+    const f = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+  };
+  const val = (b, k) => (b.match(new RegExp("--" + k + ":(#[0-9a-f]{6}|var\\(--[a-z0-9-]+\\))")) || [])[1];
+  blocks.forEach((b, i) => {
+    const panel = val(b, "panel"), sora = val(b, "sora");
+    let t = val(b, "sora-text");
+    ok(panel && sora && t, "ブロック " + i + " に --sora-text が無い");
+    if (/^var\(/.test(t)) t = val(b, t.slice(6, -1));
+    const bg = hex(sora).map((v, j) => v * 0.85 + hex(panel)[j] * 0.15);   /* 帯の塗りは opacity .85 */
+    const [a, z] = [lum(bg), lum(hex(t))];
+    const r = (Math.max(a, z) + 0.05) / (Math.min(a, z) + 0.05);
+    ok(r >= 4.5, "ブロック " + i + " の空の上の文字 " + r.toFixed(2) + ":1 が 4.5:1 未満");
+  });
+});
+
 Promise.all(pendingChecks).then(() => {
   console.log("\n" + passed + " 件通過 / " + failed + " 件失敗");
   if (failed) process.exit(1);
