@@ -419,7 +419,8 @@ fn judge_offer_competitiveness(input: &ConsultInput, store: &mut EvidenceStore) 
         .target_salary_max
         .or(input.client.target_salary_min);
     if let Some(salary) = client_salary {
-        if let Some(pct) = input.salary_percentile_of(salary) {
+        // 2026-09-29: 時給モードの円/時入力は ×167h で月給換算してから比較する
+        if let Some(pct) = input.salary_percentile_of(input.client_salary_monthly_equiv(salary).0) {
             let eid = store.add(
                 EvidenceKind::Aggregated,
                 "提示給与の市場内パーセンタイル",
@@ -430,8 +431,9 @@ fn judge_offer_competitiveness(input: &ConsultInput, store: &mut EvidenceStore) 
                 Some(input.salary_n),
                 Some(input.as_of.clone()),
                 &format!(
-                    "顧客提示給与 {} 円を今回CSVの給与分布 (n={}) と比較",
-                    salary, input.salary_n
+                    "顧客{}を今回CSVの給与分布 (n={}) と比較",
+                    input.client_salary_label(salary),
+                    input.salary_n
                 ),
             );
             evidence_ids.push(eid);
@@ -622,6 +624,22 @@ mod tests {
         input.client.target_salary_max = Some(200_000); // 分布下位
         let j = judge_offer_competitiveness(&input, &mut store);
         assert_eq!(j.level, AxisLevel::Low);
+    }
+
+    /// 2026-09-29: 時給モードの顧客入力 (円/時) を月給換算の分布と直接比べて常に下位 0% に
+    /// なっていた。時給 1,500 円 × 167h = 250,500 円/月 → 分布 (200,000〜299,000) の 51%。
+    #[test]
+    fn mix_offer_hourly_client_salary_is_converted_before_percentile() {
+        let mut input = base_input();
+        input.is_hourly = true;
+        input.client = ClientInput {
+            target_salary_max: Some(1_500),
+            ..Default::default()
+        };
+        let mut store = EvidenceStore::new();
+        let j = judge_offer_competitiveness(&input, &mut store);
+        assert_eq!(j.level, AxisLevel::Medium, "{}", j.reason);
+        assert!(j.reason.contains("51%"), "{}", j.reason);
     }
 
     #[test]
