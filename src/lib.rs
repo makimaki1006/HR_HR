@@ -557,6 +557,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::company::company_report),
         )
         .route("/tab/guide", get(handlers::guide::tab_guide))
+        .route("/api/guide", get(handlers::guide::api_guide))
         .route("/api/geojson/{filename}", get(handlers::api::get_geojson))
         .route("/api/markers", get(handlers::api::get_markers))
         .route("/api/set_job_type", post(set_job_type))

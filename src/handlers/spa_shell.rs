@@ -39,6 +39,7 @@ pub const KNOWN_SCREENS: &[&str] = &[
     "dummy", "jobgen",
     // W8 (2026-09-29): 管理 (/app/admin) と個人設定 (/app/my)。画面内は ?view= で切り替える
     "admin", "my",
+    "guide",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。
