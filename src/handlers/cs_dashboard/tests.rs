@@ -5918,3 +5918,41 @@ fn results_bundles_existing_aggregates() {
     );
     assert_eq!(v["phone"], build_phone(&sh, day));
 }
+
+/// 09 の 7・10 章②: 成果と継続は「定期NPS 4以下」の表を段B の仮置きに入れず、名札「NPSが4以下」への
+/// リンクにしている。その前提（2つが同じ集合）が崩れたら落とす。名札の文字も同じものを渡していること
+#[test]
+fn results_nps_low_is_the_same_set_as_the_deal_flag() {
+    let sh = sheets();
+    let day = fixture_day();
+    let v = build_results(&sh, false, day);
+    let flag = v["meta"]["nps_flag"].as_str().expect("nps_flag が無い");
+    let ids = |rows: &[Value]| {
+        let mut x: Vec<String> = rows.iter().map(|r| r["deal_id"].to_string()).collect();
+        x.sort();
+        x
+    };
+    let tbl = ids(v["focus"]["nps_low"]["rows"].as_array().unwrap());
+    let board = build_deal_board(&sh, day);
+    let tagged: Vec<Value> = board["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| {
+            r["flags"]
+                .as_array()
+                .is_some_and(|f| f.iter().any(|x| x.as_str() == Some(flag)))
+        })
+        .cloned()
+        .collect();
+    assert!(
+        !tbl.is_empty(),
+        "定期NPS 4以下が 0 件（確かめる前提が無い）"
+    );
+    assert_eq!(v["focus"]["nps_low"]["n"], Value::from(tbl.len()));
+    assert_eq!(
+        tbl,
+        ids(&tagged),
+        "定期NPS 4以下の表と名札「{flag}」の集合が違う"
+    );
+}
