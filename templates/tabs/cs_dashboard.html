@@ -3880,7 +3880,20 @@ function custIndex(D, question, lede) {
       D.index.length);   /* 200 法人で切るので元の件数を渡す（V12） */
 }
 
-/* 注力の内訳と、注力だけに絞る操作。
+/** 「法人を選ぶ」を注力だけにする切り替え。顧客の画面の頭、法人を選ぶ欄のすぐ下に置く（renderCustomer）。
+    🔴 前（2026-09-29 の組み替えの直後）は注力の内訳（focusSection）の中にあり、法人の節の末尾へ一緒に移って、
+       効く先の選択欄（y=180）から約 8,600px 下にあった（1440px 実測 y=8782。文言は「上の…」のまま）。
+       組み替えの前も「法人番号で見る」の先頭近くにあった */
+function focusToggle(D) {
+  const f = D.focus;
+  if (!f) return "";
+  return '<div class="ctlbar"><label class="act">' +
+    '<input type="checkbox" id="hj-focus-only"' + (focusOnly ? " checked" : "") + ">" +
+    "上の「法人を選ぶ」を注力だけにする（" + num(f.n_focus) + " / " +
+    num(f.n_display) + " 社）</label></div>";
+}
+
+/* 注力の内訳（注力だけに絞る操作は focusToggle。画面の頭に置く）。
    🔴 **置き場所は法人の画面。** 注力は法人単位の性質なので、案件単位の画面に置くと
       「この案件が注力」と読まれる。
    🔴 条件は重なる（1社が2つ3つに当たる）ので、内訳を足しても社数にはならない。
@@ -3900,10 +3913,8 @@ function focusSection(D) {
       : "3つの条件のどれにも当てはまっていません。") +
     "<br>" + esc(f.rule) + "<br>" + esc(f.not_layer));
 
-  h += '<div class="ctlbar"><label class="act">' +
-    '<input type="checkbox" id="hj-focus-only"' + (focusOnly ? " checked" : "") + ">" +
-    "上の「法人を選ぶ」を注力だけにする（" + num(f.n_focus) + " / " +
-    num(f.n_display) + " 社）</label></div>";
+  /* 切り替えそのものは画面の頭（focusToggle）。この節は法人の節の末尾にあり、選択欄から遠い */
+  h += '<div class="lede">法人を選ぶ欄を注力だけにする切り替えは、画面の頭（法人を選ぶ欄のすぐ下）にあります。</div>';
 
   const rest = f.n_display - f.n_focus;
   h += fig("1点が1社（" + esc(f.display_label) + " " + num(f.n_display) + " 社）",
@@ -4071,6 +4082,8 @@ function custBlocks(D, want) {
   if (!D.meta.found) return note("warn", "見つかりません", "この法人の取引がありません。");
   const c = D.customer;
   let h = "";
+  /* 🔴 head（KPI）は顧客の画面でいつも法人の全契約で描く（renderCustomer）。案件のチェックは法人の節の図だけに効く。
+     前は札の説明が「選んだ契約の…」のままで、チェックで KPI も変わるように読めた（2026-09-29 検証） */
   if (want.has("head")) h += sec("顧客", c && c.name ? c.name : D.meta.houjin) +
     (customerReason
       ? note("info", "この顧客を既定で開いています", esc(customerReason) +
@@ -4082,16 +4095,16 @@ function custBlocks(D, want) {
     kpi("LTV", yen(c.ltv),
         /* 🔴 一覧の LTV と食い違う理由を書く。黙って別の値を出すと「どちらが正しいか」になる */
         c.ltv_index != null && c.ltv_index !== c.ltv
-          ? "選んだ契約の金額の合計（オプション契約を除く）。法人一覧の LTV " +
+          ? "この法人の全契約の金額の合計（オプション契約を除く）。法人一覧の LTV " +
             yen(c.ltv_index) + " はオプション契約も含みます"
-          : "選んだ契約の金額の合計") +
+          : "この法人の全契約の金額の合計") +
     kpi("継続回数（最大）", num(c.max_renewal_no), "") +
     /* 🔴 29px の数字の大きさのままだと「2027-02-」「28」で折り返していた（2026-09-23 実機、
        1440px でも 400px でも）。日付は小さめの字で1行に収める（.kpi.is-date） */
     kpi("最終満了", esc(c.last_expiration || "—"),
         /* 🔴 LTV と同じ理由で食い違う。オプション契約の満了日が本体より遅い法人だけ */
         c.last_expiration_index && c.last_expiration_index !== c.last_expiration
-          ? "選んだ契約の満了日の最大（オプション契約を除く）。法人一覧の最終満了 " +
+          ? "この法人の全契約の満了日の最大（オプション契約を除く）。法人一覧の最終満了 " +
             esc(c.last_expiration_index) + " は全取引（オプション契約を含む）の最大です"
           : "", "date") + "</div>";
 
@@ -4387,6 +4400,10 @@ function custBlocks(D, want) {
    成果と継続の画面ができるまでは、この画面の末尾に置く（黙って消さない）。
 */
 let custSite = "";   /* 人が選んだ拠点（siteOf の鍵）。空・この法人に無い鍵なら既定の拠点（custDefaultSite）。URL の site */
+/* URL の site から拠点を入れたか（詳細のパンくずの拠点・貼られた URL で来たとき）。描いた後に「事業所」の節へ移す（wireCustomer）。
+   🔴 前は表の拠点名を押したときだけ節へ移り、パンくずから来ると頭に着いていた。拠点が多い法人では節が 1 画面目の外
+   （2026-09-29 検証 1440×900・32 拠点: #cust-site y=1064）。戻る・進むは離れたときの位置へ戻すので、その後の restorePos が勝つ */
+let custLand = false;
 /* 拠点が空の取引の選択肢の値。🔴 空文字のままだと「選んでいない」と同じ value になり、
    選んでも既定の拠点が出る（2026-09-23 実機: value が空の選択肢が1つあった, U13）。
    拠点キーには出てこない文字列にしておく（NUL は HTML の属性値で U+FFFD に化けるので使わない）。 */
@@ -4801,6 +4818,7 @@ function renderCustomer(D) {
     [["cust-sites", "拠点を比べる"], ["cust-site", "事業所（拠点1つ）"], ["cust-houjin", "拠点をまたいだ図"],
      ["hq-sec", "他の法人と比べる"]].map(([id, t]) =>
       '<button type="button" class="act" data-cjump="' + id + '">' + esc(t) + "</button>").join("") + "</nav>";
+  h += focusToggle(D);
   /* KPI は法人の全契約（案件のチェックは法人の節の図だけに効く。custHoujinLayer） */
   h += custBlocks(custFilter(D, new Set(all.map((d) => d.deal_id))), new Set(["head"]));
   h += custSiteTable(D, sites, now);
@@ -7547,7 +7565,7 @@ const URL_STATE = {
   byowner: BOARD_URL_STATE,
   /* 顧客: 拠点（site）は選んだときだけ載せる（既定の拠点は載せない。custSiteNow）。法人を選び直すと拠点は既定に戻る（wire の cs-houjin） */
   customer: { houjin: HOUJIN_URL_STATE,
-              site: { kind: "filter", get: () => custSite, set: (v) => { custSite = v; }, reset: () => { custSite = ""; } },
+              site: { kind: "filter", get: () => custSite, set: (v) => { custSite = v; custLand = !!v; }, reset: () => { custSite = ""; custLand = false; } },
               focus: flagState(() => focusOnly, (b) => { focusOnly = b; }) },
   detail: { id: { kind: "filter", get: () => detailId, set: (v) => { detailId = v; }, reset: () => { detailId = ""; } },
             q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } },
@@ -8094,6 +8112,8 @@ function wireCustomer() {
     };
   });
   document.querySelectorAll("#cs-main button[data-cjump]").forEach((b) => { b.onclick = () => kpiJump(b.dataset.cjump); });
+  /* URL に拠点があって来た（custLand）。取り直して描いた最初の1回だけ節へ移す（チェック等の描き直しでは移さない） */
+  if (custLand) { custLand = false; if (custSite) kpiJump("cust-site"); }
   const fo = document.getElementById("hj-focus-only");
   if (fo) fo.onchange = () => { focusOnly = fo.checked; redraw(); };
   document.querySelectorAll("#hj-pick input[type=checkbox]").forEach((cb) => {
