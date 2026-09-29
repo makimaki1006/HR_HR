@@ -3952,9 +3952,16 @@ check("S-7: 左の項目名の後ろの番号と、区切りの丸数字を出�
   ok((side.match(/<ul role="list" aria-labelledby="side-[a-z]+">/g) || []).length === 3, "区切りの ul に role=list と見出しとの結び付けが無い");
   const narrow = html.split("@media (max-width:600px){").slice(1).map((x) => x.split("\n}\n")[0]).join("\n");
   ok(/\.sidegrp ul\{ display:contents; \}/.test(narrow), "600px 以下で見出しと項目を同じ流れに並べる CSS が無い（400px でメニューが 5 行 229px になる）");
-  ok(!/\.sidegrp\s*,[^{]*\{ display:contents/.test(narrow) && /\.sidegrp\{ display:flex; flex-wrap:wrap;/.test(narrow),
-    "600px 以下で区切りの箱を外している（区切りの境目が行の途中に来る）か、区切りの中で折り返していない");
-  ok(/\.sidegrp \+ \.sidegrp\{ border-top:1px solid var\(--rule\); \}/.test(narrow), "600px 以下で区切りの間に線が無い（区切りが字の大きさでしか分からない）");
+  // 🔴 2026-09-29 磨き込み: 区切りごとの行でも 4 行 170px で、今日の表の頭が 400px で y=1,228 だった。メニューは 1 行にして横に流す。
+  //    区切りの箱は外さない（見出しと項目の組は区切りごとのまま）。区切りの境目は行の途中に来るので、縦の線で分ける
+  ok(!/\.sidegrp\s*,[^{]*\{ display:contents/.test(narrow) && /\.sidegrp\{ display:flex; flex-wrap:nowrap; flex:none;/.test(narrow),
+    "600px 以下で区切りの箱を外している（区切りの境目が分からない）か、区切りの中で折り返している（メニューが 2 行以上になる）");
+  ok(/\.sidegrp \+ \.sidegrp\{ border-left:1px solid var\(--rule-strong\);/.test(narrow), "600px 以下で区切りの間に線が無い（区切りが字の大きさでしか分からない）");
+  // 1 行で横に流す。続きがある側の端に影（図の枠と同じ local / scroll の重ね）。項目は消さない・畳まない
+  const sideCss = (narrow.match(/\.side\{ display:flex;[^}]*\}/) || [""])[0];
+  ok(/flex-wrap:nowrap/.test(sideCss) && /overflow-x:auto/.test(sideCss), "600px 以下でメニューを 1 行にして横に流していない: " + sideCss);
+  ok(/no-repeat local/.test(sideCss) && /no-repeat scroll/.test(sideCss), "600px 以下のメニューに、続きがある側の影が無い（右の項目があることに気づけない）");
+  ok(!/\.side[^{]*\{[^}]*display:none/.test(narrow) && !/\.sidegrp[^{]*\{[^}]*display:none/.test(narrow), "600px 以下でメニューの項目を隠している");
   ok(!side.includes('class="n"') && !/>\d+<\/span>/.test(side), "左の項目名の後ろに番号が残っている（件数に見える）: " + side);
   ok(/aria-current="page">電話</.test(side), "いま見ている項目の印（aria-current）が無い");
   run('cur = { menu: "deal", view: "today" }');
@@ -5314,6 +5321,58 @@ check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満
     "金額の継続率が件数の札と同じ月（2026-09）・満了した金額の内訳つきでない: " + tk);
   ok(!/見込み/.test(tk), "札に見込み（確度を掛けた金額に読める）と書いている");
   ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(k), "button.kpi の中に a がある");
+});
+
+/* ================================================================ 磨き込み「見た目とスマホ」（2026-09-29、pol/layout） */
+// 🔴 fixture 400×900 の実測: 今日の表の頭が y=1,228（題字と鮮度 183px・メニュー 4 行 170px・札 5 枚が 2 列 3 段 425px・担当の欄 74px）で、
+//    1 画面目に表が入らなかった。直した後は表の 1 行目の下端が y=868（鮮度が赤の 2 行のとき。緑ならさらに上）
+check("磨き込み(1): 400px の今日の 1 画面目に表の見出しと 1 行目 — メニューは 1 行で横に流し、札は 1 行で横に流し、担当の欄は 1 行", () => {
+  const css = html.slice(0, html.indexOf("</style>"));
+  const inside = media600(css).inside.join("\n"), outside = media600(css).outside;
+  // 札: 600px 以下は 1 行で横に流す。札の幅は半分未満（3 枚目の端が見えて、続きがあると分かる）。中身は削らない
+  const kpis = (inside.match(/\.kpis\{ display:flex;[^}]*\}/) || [""])[0];
+  ok(/overflow-x:auto/.test(kpis) && /no-repeat local/.test(kpis), "600px 以下で札を横に流していない、または続きの影が無い: " + kpis);
+  const basis = +((inside.match(/\.kpis > \.kpi\{ flex:0 0 (\d+)%/) || [])[1] || 0);
+  ok(basis > 0 && basis < 50, "600px 以下の札の幅が半分以上（3 枚目の端が見えず、続きがあると分からない）: " + basis);
+  ok(!/\.kpi[^{]*\{[^}]*display:none/.test(inside) && !/\.kpi \.fine\{[^}]*(display:none|-webkit-line-clamp)/.test(inside), "600px 以下で札の中身（母数の文など）を隠している");
+  ok(!/\.kpis\{ display:flex/.test(outside), "PC でも札を横に流している（PC は格子のまま）");
+  // 担当の欄: 欄と案内の文を 1 行に（前は 2 段で 74px）。案内の文は消さない
+  ok(/#today-filter\{ flex-wrap:nowrap;/.test(inside) && /#today-filter > \.muted\.small\{[^}]*min-width:0;/.test(inside), "600px 以下で担当の欄と案内の文が 1 行でない");
+  ok(!/#today-filter[^{]*\{[^}]*display:none/.test(inside), "600px 以下で担当の欄の案内の文を隠している");
+  ok(!/#today-filter/.test(outside), "担当の欄の詰め方が PC にも効いている");
+});
+
+// 🔴 メニューを 1 行にすると、右の方の画面（記録と数字の信頼度など）を開いたとき、その項目が画面の外にあってどこにいるか読めない。
+//    描いたとき・印を付け替えたときに、いま見ている項目を行の中へ送る（ページは動かさない: scrollIntoView は使わない）
+check("磨き込み(1): メニューを 1 行で横に流しても、いま見ている項目は行の中に見える（sideShowCurrent）", () => {
+  const mk = (left, right) => ({ getBoundingClientRect: () => ({ left, right, width: right - left }) });
+  const btn = mk(520, 640);
+  const box = Object.assign(mk(16, 384), { scrollWidth: 1100, clientWidth: 368, scrollLeft: 0, querySelector: (q) => (q === 'button[aria-current="page"]' ? btn : null) });
+  ctx.__SB = box;
+  run("sideShowCurrent(__SB)");
+  // ボタンの中心を枠の中心へ: 520 - 16 - (368 - 120) / 2 = 380
+  ok(box.scrollLeft === 380, "いま見ている項目が行の外のまま（scrollLeft " + box.scrollLeft + "）");
+  box.scrollLeft = 0; ctx.__SB2 = Object.assign({}, box, { querySelector: () => mk(60, 120) });
+  run("sideShowCurrent(__SB2)");
+  ok(ctx.__SB2.scrollLeft === 0, "見えている項目なのに行を動かしている");
+  ctx.__SB3 = Object.assign({}, box, { scrollWidth: 368, scrollLeft: 0 });
+  run("sideShowCurrent(__SB3)");
+  ok(ctx.__SB3.scrollLeft === 0, "はみ出していない（PC の縦の列）のに動かしている");
+  ok(!/scrollIntoView/.test(run("sideShowCurrent.toString()")), "scrollIntoView を使っている（ページまで縦に動く）");
+  ok(/sideShowCurrent\(box\); return; \}/.test(run("drawSide.toString()")) && /\n  sideShowCurrent\(box\);\n\}$/.test(run("drawSide.toString()")),
+    "drawSide が印の付け替え・組み直しのどちらかで sideShowCurrent を呼んでいない");
+});
+
+// 🔴 400px の案件一覧で見方のボタン 4 つが 1 つずつの行に落ちて 196px（fixture 実測。直した後 119px）
+check("磨き込み(2): 400px の案件一覧の見方のボタンは 2 列（4 つとも見えたまま。畳まない・隠さない）", () => {
+  const css = html.slice(0, html.indexOf("</style>"));
+  const inside = media600(css).inside.join("\n"), outside = media600(css).outside;
+  ok(/#board-views\{ display:grid; grid-template-columns:repeat\(2,minmax\(0,1fr\)\);/.test(inside), "600px 以下で見方のボタンが 2 列でない");
+  ok(/#board-views > button\.act\{ white-space:normal;/.test(inside), "600px 以下で見方のボタンの中で名前を折り返していない（2 列に入らない）");
+  ok(!/#board-views[^{]*\{[^}]*(display:none|overflow:hidden)/.test(inside), "600px 以下で見方のボタンを隠している");
+  ok(!/#board-views/.test(outside), "見方の 2 列が PC にも効いている（PC は 1 行）");
+  const bar = run('boardViewBar({ meta: { act_views: [{ key: "a", label: "甲", n: 1 }, { key: "b", label: "乙", n: 2 }, { key: "c", label: "丙", n: 3 }, { key: "d", label: "丁", n: 4 }] } })');
+  ok((bar.match(/<button /g) || []).length === 4, "見方のボタンが 4 つ出ていない: " + bar);
 });
 
 Promise.all(pendingChecks).then(() => {
