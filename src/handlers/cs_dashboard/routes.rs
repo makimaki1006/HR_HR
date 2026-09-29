@@ -71,6 +71,8 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/deals", get(deal_board))
         .route("/api/consulting/today", get(today_board))
         .route("/api/consulting/deal-detail", get(deal_detail))
+        .route("/api/consulting/team", get(team))
+        .route("/api/consulting/results", get(results))
 }
 
 #[derive(Template)]
@@ -205,6 +207,30 @@ simple_handler!(handover, build_handover);
 simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
 simple_handler!(today_board, build_today_board);
+simple_handler!(team, build_team);
+
+/// 「成果と継続」。継続回数 × 成果の右側打ち切りの切り替え（`exclude_right_censored`）を受け取るので
+/// `simple_handler!` ではなく `renewal()` と同じ形にしている。読むシートは全部（束ねた6つの集計が全部を使う）
+async fn results(Query(q): Query<RenewalQuery>, session: Session) -> Result<Response, CqError> {
+    let _ = session;
+    let state = cq_state()?;
+    if q.refresh.as_deref() == Some("1") {
+        // 🔴 `invalidate(None)` にしない（架電クオリティ・営業KPI のキャッシュまで消える）
+        for name in super::SHEETS {
+            state.store.invalidate(Some(name)).await;
+        }
+    }
+    let sheets = load(&state.client, &state.store)
+        .await
+        .map_err(|e| CqError::from_anyhow("consulting", e))?;
+    let excl = q.exclude_right_censored.as_deref() == Some("1");
+    Ok(Json(freshen(
+        build_results(&sheets, excl, today_jst()),
+        &sheets,
+        today_jst(),
+    ))
+    .into_response())
+}
 
 #[derive(Debug, Deserialize)]
 struct CustomerQuery {
@@ -2778,8 +2804,10 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
             // 同じ日に複数行あって、どちらを採るかで担当が変わる取引
             "owner_ties": ties,
             "all_cached": sheets.all_cached,
-            "not_counted": "※ 担当者の評価ではありません。手が足りていない場所を見つけるための画面です。\
-    順位を付けていますが、良し悪しの判断は人がします",
+            // 🔴 最初の文はチームと担当の頭で畳まずに出る（画面の foldNote の keep）。09 の 6「仕事量の一覧で、担当者の評価ではありません」。
+            //    「順位を付けていますが」は外した（2026-09-29 組み替えで表は名前順が既定になり、順位を付けていない）
+            "not_counted": "※ 仕事量の一覧で、担当者の評価ではありません。手が足りていない場所を見つけるための画面です。\
+    良し悪しの判断は人がします",
         },
         "contact_rule": "接触 ＝ MTG または60秒超の通話（メールは数えない）。\
     接触率 ＝ 接触があった月 ÷（案件 × 経過月）。件数ではなく率で見るのは、\
@@ -3227,5 +3255,142 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         "expiring_this_week": soon,
         "started_this_week": started,
         "not_started": not_started,
+    })
+}
+
+// ================================================================ チームと担当 / 成果と継続（09 の組み替え）
+
+/// 「名札2本以上」の線。🔴 今日動く先（`build_today_board` の `MIN_FLAGS`）と同じ値にする。
+/// チームと担当の「名札2本以上」を押すと今日動く先をその担当で開くので、数がずれると押した先の件数と合わない
+/// （見張り tests.rs `team_status_matches_today_and_board`）
+const TEAM_MIN_FLAGS: u64 = 2;
+/// 「今週満了」の日数。今日動く先の「今週満了」（`build_today_board` の 0..=7）と同じ
+const TEAM_EXPIRY_WEEK_DAYS: i64 = 7;
+/// 担当者 × 状態の表で数える名札。文字は `deal_rows` の名札そのもの（画面はこの文字で案件そのものを絞る）
+const TEAM_FLAG_NO_CONTACT: &str = "接触の記録が無い";
+const TEAM_FLAG_EXPIRY60: &str = "満了まで60日以内";
+const TEAM_FLAG_NPS_LOW: &str = "NPSが4以下";
+
+/// 「チームと担当」（09 の 6）。担当者の一覧・担当者ごとの接触・担当の交代を1画面にまとめる。
+///
+/// 🔴 中身は今までの集計をそのまま束ねる（`consultants` / `contact` / `handover`）。定義を作り直さない。
+///    足したのは担当者 × 状態の表（`status`）だけで、数は `deal_rows`（案件そのもの・今日動く先と同じ行）から数える。
+///    表の数を押すと案件そのもの・今日動く先をその担当と名札で開くので、同じ行から数えないと押した先の件数と合わない。
+/// 🔴 「接触の記録なし」は名札（開始前は立てない）で数える。担当者の一覧の `no_contact`（開始前も数える）とは別の数なので、
+///    画面は名札の方だけを出す（押した先の件数と合わせるため）。
+/// 🔴 人ごとの金額は出さない（2026-09-29 藤巻さんの判断④「金額は会社全体だけ」）。ATV 最大はここでは使わない。
+pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
+    let consultants = build_consultants(sheets, today);
+    let (rows, _) = deal_rows(sheets, today);
+
+    #[derive(Default)]
+    struct S {
+        n: usize,
+        flags2: usize,
+        critical: usize,
+        no_contact: usize,
+        expiring60: usize,
+        expiring_week: usize,
+        nps_low: usize,
+        retired: bool,
+    }
+    let mut by: BTreeMap<String, S> = BTreeMap::new();
+    let mut unknown = S::default();
+    let (mut flags2_all, mut week_all) = (0usize, 0usize);
+    for r in &rows {
+        let name = r["consultant"].as_str().unwrap_or("");
+        let has = |f: &str| {
+            r["flags"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|x| x == f))
+        };
+        let flags2 = r["n_flags"].as_u64().unwrap_or(0) >= TEAM_MIN_FLAGS;
+        let week =
+            matches!(r["days_left"].as_i64(), Some(x) if (0..=TEAM_EXPIRY_WEEK_DAYS).contains(&x));
+        if flags2 {
+            flags2_all += 1;
+        }
+        if week {
+            week_all += 1;
+        }
+        // 担当が取れない行は人の行に混ぜない（担当者の一覧と同じ。件数は別に返す）
+        let e = if name.is_empty() {
+            &mut unknown
+        } else {
+            by.entry(name.to_string()).or_default()
+        };
+        e.n += 1;
+        e.flags2 += usize::from(flags2);
+        e.critical += usize::from(r["mtg_band"] == "critical");
+        e.no_contact += usize::from(has(TEAM_FLAG_NO_CONTACT));
+        e.expiring60 += usize::from(has(TEAM_FLAG_EXPIRY60));
+        e.expiring_week += usize::from(week);
+        e.nps_low += usize::from(has(TEAM_FLAG_NPS_LOW));
+        e.retired |= r["retired"] == true;
+    }
+    let status_rows: Vec<Value> = by
+        .iter()
+        .map(|(name, s)| {
+            json!({
+                "consultant": name,
+                "n_active": s.n,
+                "n_flags2": s.flags2,
+                "mtg_critical": s.critical,
+                "no_contact": s.no_contact,
+                "expiring60": s.expiring60,
+                "expiring_week": s.expiring_week,
+                "nps_low": s.nps_low,
+                "retired": s.retired,
+            })
+        })
+        .collect();
+
+    json!({
+        // 画面の頭（担当者の人数・退職者・担当が取れない件数）と末尾の基準日は担当者の一覧と同じ meta を使う
+        "meta": consultants["meta"].clone(),
+        "consultants": consultants,
+        "status": {
+            "rows": status_rows,
+            "meta": {
+                "n_active": rows.len(),
+                "n_flags2": flags2_all,
+                "expiring_week": week_all,
+                "min_flags": TEAM_MIN_FLAGS,
+                "week_days": TEAM_EXPIRY_WEEK_DAYS,
+                "mtg_critical_days": super::MTG_GAP_CRITICAL_DAYS,
+                // 担当が取れない行の数（人の行には入れていない）
+                "unknown": { "n_active": unknown.n, "n_flags2": unknown.flags2,
+                             "mtg_critical": unknown.critical, "no_contact": unknown.no_contact,
+                             "expiring60": unknown.expiring60, "nps_low": unknown.nps_low },
+                // 画面が案件そのものを絞るときの名札の文字（画面に直書きしない）
+                "flag_labels": { "no_contact": TEAM_FLAG_NO_CONTACT, "expiring60": TEAM_FLAG_EXPIRY60,
+                                 "nps_low": TEAM_FLAG_NPS_LOW },
+            },
+        },
+        "contact": build_contact_trend(sheets, today),
+        "handover": build_handover(sheets, today),
+    })
+}
+
+/// 「成果と継続」（09 の 7、月1）。継続回数 × 成果・成果とリスク・いま見るべき顧客の図・立ち上がり・
+/// 本部アプローチを1画面に束ねる。🔴 中身は今までの集計そのまま（定義を作り直さない）。
+/// 電話（`phone`）は「手を打つ先」の表（沈黙している取引）を畳んで残すためだけに入れている
+/// （段B で名札に揃えたら外す。09 の 10 章②）。
+pub fn build_results(sheets: &Sheets, exclude_right_censored: bool, today: NaiveDate) -> Value {
+    json!({
+        "meta": {
+            "today": today.to_string(),
+            "all_cached": sheets.all_cached,
+            "exclude_right_censored": exclude_right_censored,
+            // 定期NPS 4以下の表（focus.nps_low）は名札「NPSが4以下」と同じ集合（fixture で 41 件、deal_id 41/41 一致）。
+            // 画面は表を畳みに入れず、この名札で絞った案件一覧へのリンクにする。名札の文字は正本（deal_rows）から渡す
+            "nps_flag": TEAM_FLAG_NPS_LOW,
+        },
+        "renewal": build_renewal(sheets, exclude_right_censored),
+        "outcome": build_outcome(sheets, today),
+        "focus": build_focus(sheets, today),
+        "rampup": build_rampup(sheets, today),
+        "headquarters": build_headquarters(sheets, today),
+        "phone": build_phone(sheets, today),
     })
 }
