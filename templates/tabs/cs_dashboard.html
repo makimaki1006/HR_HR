@@ -3200,6 +3200,27 @@ function rcKey(inner) {
     .replace(/<[^>]*>/g, "|").replace(/\s+/g, "");
   return (cur ? cur.menu + "/" + cur.view : "") + " " + head;
 }
+/** 見出しの同じ表を見分ける（rcKey の続き。描いた後に markScrollAll から呼ぶ）。
+    🔴 2026-09-30 検証（fixture 400px、research/team）: id の無い表で見出しが同じもの（引き継いだ側・引き継がれた側の表。どちらも
+    「担当｜比べられた交代｜…」）は印（data-rck）も同じで、片方の「残り N 行を出す」を押すと、描き直しの後にもう片方（357 行）まで
+    開いた。scroll() は 1 つの表しか見ないので、画面の中の何番目かは描いた後にしか分からない。
+    root の中の枠を上から数え、同じ印の 2 つ目からに「 #2」「 #3」…を付け、開いているか（rcOpen）を付け直す。
+    画面ごとの表の並びは描き直しても変わらないので、番号は描き直しをまたいで同じ表を指す */
+function rcRestore(root) {
+  const seen = {};
+  const ws = root && root.querySelectorAll ? root.querySelectorAll(".scroll-wrap[data-rck]") : [];
+  Array.prototype.forEach.call(ws, (w) => {
+    const base = String(w.getAttribute("data-rck") || "").replace(/ #\d+$/, "");
+    const n = (seen[base] = (seen[base] || 0) + 1);
+    const key = n > 1 ? base + " #" + n : base;
+    if (w.getAttribute("data-rck") !== key) w.setAttribute("data-rck", key);
+    if (!w.classList.contains("rc-cut")) return;
+    const open = rcOpen.has(key);
+    w.classList.toggle("rc-open", open);
+    const cap = capOf(w);
+    if (cap && cap.classList) cap.classList.toggle("rc-open", open);
+  });
+}
 /** 枠（.scroll-wrap）の直前の案内（.scroll-cap）。今日動く先では .caprow の中にある。無ければ null */
 function capOf(w) {
   const p = w && w.previousElementSibling;
@@ -3291,6 +3312,7 @@ function markFig(b) {
   if (f && f.classList) { f.classList.add("fig-measured"); f.classList.toggle("fig-over", over); }
 }
 function markScrollAll() {
+  rcRestore(document);
   document.querySelectorAll(".scroll-wrap").forEach(markScroll);
   document.querySelectorAll("figure.fig .figbody[data-cap]").forEach(markFig);
 }
@@ -6466,7 +6488,9 @@ function boardRepaint() {
   if (!box || !boardCache || (cur.view === "byowner" && !boardFilter.consultant)) { redrawMain(boardCache); return; }
   const fk = focusKey(document.activeElement);
   const D = boardCache, shown = boardApply(D.rows);
-  paintFigs(box, () => boardBody(D, shown, boardFilterOn()));   /* 名札の図の幅を枠に合わせる（2回描き。表は覚え書きで 1 回） */
+  /* 🔴 2026-09-30 検証（Playwright 400px、#deal/board）: 前は boardBody をそのまま流していて、並べ替え・絞り込みの後は図「名札の分布」の
+     題が h2＋figcaption の 2 段に戻っていた（M-5 (a) は finishView を通る 3 か所だけに効いていた）。本文の描き直しと同じく finishView を通す */
+  paintFigs(box, () => finishView(boardBody(D, shown, boardFilterOn())));   /* 名札の図の幅を枠に合わせる（2回描き。表は覚え書きで 1 回） */
   wireBoardBody();
   markScrollAll();
   refocus(fk);
@@ -6891,7 +6915,7 @@ function fillTodayContact() {
   const draw = (body) => {
     const b = document.getElementById("td-contact");
     if (!b || !todayConsultant) return;
-    paintFigs(b, () => renderMyContact(body, todayConsultant));
+    paintFigs(b, () => finishView(renderMyContact(body, todayConsultant)));
     markScrollAll();
   };
   if (todayContactCache && Date.now() - todayContactCache.at < PAGE_CACHE_MS) { draw(todayContactCache.body); return; }
@@ -9175,14 +9199,15 @@ function wireHq() {
   const box = document.getElementById("hq-box");
   if (!box) return;
   const keep = hqKeep; hqKeep = null;   /* redrawMain が覚えた #hq-box の開いた details */
-  if (hqCache) { paintFigs(box, () => renderHq(hqCache), keep); markScrollAll(); return; }
+  /* 本部アプローチの枠も、本文と同じく図の題を 1 つにする（finishView。図の見出し「拠点どうしで採用単価…」が 2 段に戻らないように） */
+  if (hqCache) { paintFigs(box, () => finishView(renderHq(hqCache)), keep); markScrollAll(); return; }
   fetch("/api/consulting/headquarters", { credentials: "same-origin" })
     .then(readJson)   /* ログイン切れを見分ける（U10）。r.json() だと構文エラーの文がそのまま出る */
     .then((body) => {
       if (body.error) throw new Error(body.message || "取得できません");
       hqCache = body;
       const b2 = document.getElementById("hq-box");
-      if (b2) { paintFigs(b2, () => renderHq(body)); markScrollAll(); }
+      if (b2) { paintFigs(b2, () => finishView(renderHq(body))); markScrollAll(); }
     })
     .catch((e) => {
       const b2 = document.getElementById("hq-box");
