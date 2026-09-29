@@ -1,6 +1,6 @@
 // Registers only the ECharts pieces this app uses. Loaded via dynamic import from
 // EChart.tsx so screens without charts never download echarts.
-import { BarChart, LineChart, PieChart, RadarChart, ScatterChart } from 'echarts/charts';
+import { BarChart, LineChart, PieChart, RadarChart, SankeyChart, ScatterChart } from 'echarts/charts';
 import {
   DataZoomComponent,
   DatasetComponent,
@@ -23,6 +23,7 @@ echarts.use([
   LineChart,
   PieChart,
   RadarChart,
+  SankeyChart,
   ScatterChart,
   DataZoomComponent,
   DatasetComponent,
