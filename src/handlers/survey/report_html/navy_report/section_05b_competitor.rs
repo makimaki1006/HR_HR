@@ -23,6 +23,8 @@ use super::common::push_page_head;
 pub(crate) const TOP_N_DEFAULT: usize = 45;
 /// 人気比較で値を出す最小件数 (§05 人気度と同じ)。
 const N_MIN: usize = 5;
+/// 図 5B-1 / 表 5B-B に出すタグの最大行数 (by_tags と同じ上位 30)。
+const TAG_ROWS_MAX: usize = 30;
 /// 図 5B-2 / 表 5B-C に出すタグの最大行数。
 const HEAD_ROWS_MAX: usize = 30;
 
@@ -240,13 +242,16 @@ fn render_tag_ranking(html: &mut String, agg: &SurveyAggregation) {
     html.push_str(
         "<div class=\"block-title block-title-spaced\">§05B-3 &nbsp;タグ全体の出現数ランキング (図 5B-1 / 表 5B-B)</div>\n",
     );
-    if agg.by_tags.is_empty() {
+    // 2026-09-29: 占有率 = そのタグを付けた求人の割合。分子は求人単位で重複排除した件数
+    //   (CompetitorAnalysis::tag_counts_all)。by_tags は出現回数 (他画面用) のため使わない。
+    let all = &agg.competitor.tag_counts_all;
+    let tags = &all[..all.len().min(TAG_ROWS_MAX)];
+    if tags.is_empty() {
         html.push_str("<p class=\"note\">※ 今回の CSV からタグを取得できませんでした。</p>\n");
         return;
     }
     let total = agg.total_count;
-    let items: Vec<(String, f64, String)> = agg
-        .by_tags
+    let items: Vec<(String, f64, String)> = tags
         .iter()
         .map(|(t, c)| {
             (
@@ -263,7 +268,7 @@ fn render_tag_ranking(html: &mut String, agg: &SurveyAggregation) {
          <thead><tr><th style=\"text-align:right;\">順位</th><th>タグ</th>\
          <th style=\"text-align:right;\">件数</th><th style=\"text-align:right;\">占有率</th></tr></thead>\n<tbody>\n",
     );
-    for (i, (t, c)) in agg.by_tags.iter().enumerate() {
+    for (i, (t, c)) in tags.iter().enumerate() {
         html.push_str(&format!(
             "<tr><td class=\"num\">{}</td><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{:.1}%</td></tr>\n",
             i + 1,
@@ -274,10 +279,11 @@ fn render_tag_ranking(html: &mut String, agg: &SurveyAggregation) {
     }
     html.push_str("</tbody></table>\n");
     html.push_str(&format!(
-        "<p class=\"note\">※ 占有率 = タグの件数 ÷ 重複排除後の求人数 (n={})。上位 {} タグまで表示。\
+        "<p class=\"note\">※ 件数 = そのタグを付けた求人の数 (1 求人に同じタグが複数あっても 1 件)。\
+         占有率 = 件数 ÷ 重複排除後の求人数 (n={})。上位 {} タグまで表示。\
          タグは CSV のタグ列をすべて結合して数えています (Excel 版のような 9 枠の制限はありません)。</p>\n",
         format_number(total as i64),
-        agg.by_tags.len(),
+        tags.len(),
     ));
 }
 
@@ -329,7 +335,6 @@ fn render_head_tags(html: &mut String, agg: &SurveyAggregation, top_n: usize) {
         agg.competitor
             .tag_counts_all
             .iter()
-            .chain(agg.by_tags.iter())
             .find(|(t, _)| t == tag)
             .map(|(_, c)| *c)
     };
@@ -731,6 +736,81 @@ mod tests {
         assert!(!sec.contains("174,515"));
         assert!(!sec.contains("万円</td>"));
         assert!(!sec.contains("300,000"));
+    }
+
+    /// 同じ求人に同じタグが 2 回あっても 1 件 (占有率 = そのタグを付けた求人の割合)。
+    #[test]
+    fn duplicate_tag_in_one_record_counts_once() {
+        let s = "月給 25万円 ~ 30万円";
+        let agg = aggregate_records(&recs(&[(s, "交通費支給,交通費支給"), (s, "資格不問")]));
+        assert!(agg
+            .competitor
+            .tag_counts_all
+            .contains(&("交通費支給".to_string(), 1)));
+        assert_eq!(
+            head_tag_counts(&agg, 45).0[0],
+            ("交通費支給".to_string(), 1)
+        );
+        let html = render(&agg, 45);
+        assert!(html.contains(
+            "<td>交通費支給</td><td class=\"num\">1</td><td class=\"num\">50.0%</td></tr>"
+        ));
+        assert!(
+            !html.contains("100.0%</td>"),
+            "2 件中 1 件なので 100% にならない"
+        );
+    }
+
+    /// 表 5B-B / 5B-C の占有率 (%) をすべて取り出す。
+    fn share_cells(html: &str) -> Vec<f64> {
+        let sec = &html[html.find("§05B-3").unwrap()..];
+        sec.split("<td class=\"num\">")
+            .skip(1)
+            .filter_map(|c| c.split("%</td>").next().filter(|v| !v.contains('<')))
+            .filter_map(|v| v.parse::<f64>().ok())
+            .collect()
+    }
+
+    /// 不変条件: 全タグの占有率は 0〜100%。実データの給与原文 (f1: 時給 751 行 /
+    /// f2: 月給 567 + 年俸 24 行) に、同一求人内の重複タグを含むタグを付けて確認する。
+    #[test]
+    fn all_tag_shares_within_0_100() {
+        for (lines, loc) in [
+            (salary_fixture::F1_HOURLY_MOSTLY, "東京都 板橋区"),
+            (salary_fixture::F2_MONTHLY_WITH_ANNUAL, "大阪府 大阪市"),
+        ] {
+            let mut r = salary_fixture::records(lines, loc);
+            for (i, rec) in r.iter_mut().enumerate() {
+                rec.tags_raw = match i % 4 {
+                    0 => "交通費支給,交通費支給,駅近",
+                    1 => "交通費支給,資格不問,資格不問",
+                    2 => "交通費支給、交通費支給/駅近",
+                    _ => "交通費支給",
+                }
+                .to_string();
+            }
+            let agg = aggregate_records(&r);
+            let total = agg.total_count;
+            for (t, c) in &agg.competitor.tag_counts_all {
+                assert!(*c <= total, "{t}: {c} > {total}");
+            }
+            for top_n in [1, 45, 200] {
+                let (counts, denom) = head_tag_counts(&agg, top_n);
+                for (t, c) in counts {
+                    assert!(c <= denom, "{t}: {c} > {denom} (top_n={top_n})");
+                }
+                let shares = share_cells(&render(&agg, top_n));
+                assert!(!shares.is_empty());
+                for v in shares {
+                    assert!((0.0..=100.0).contains(&v), "占有率 {v}% (top_n={top_n})");
+                }
+            }
+            // 全件に付いている「交通費支給」は 100.0% ちょうど
+            assert_eq!(
+                agg.competitor.tag_counts_all[0],
+                ("交通費支給".to_string(), total)
+            );
+        }
     }
 
     /// Indeed 以外 (求人ボックス等) だけの CSV では章を出さない。
