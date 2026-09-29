@@ -2047,7 +2047,7 @@ check("色と印の意味: ▲▼ は良し悪しの向きで、表の見出し�
   ok(/&#9650;<\/td><td[^>]*>まずい \/ 悪化。<b>値の上がり下がりではなく良し悪しの向き<\/b>/.test(dLeg) || dLeg.includes("まずい / 悪化。<b>値の上がり下がりではなく良し悪しの向き</b>"),
     "凡例（定義と検証の色と印の意味）に ▲ の意味の断りが無い");
   ok(dLeg.includes("表の見出しの &#9650; / &#9660;") && dLeg.includes("並び順（小さい順 / 大きい順）。良し悪しではありません"), "凡例に表の見出しの ▲▼ の断りが無い");
-  ok(html.includes('href="#study/defs">色と印の意味 → 定義と検証</a>'), "ヘッダから凡例（定義と検証）へのリンクが無い");
+  ok(html.includes('<a class="golink" id="cs-legend" href="#study/defs" title="定義と検証の「色と印の意味」の表へ">色と印の意味 →</a>'), "ヘッダから凡例（定義と検証）へのリンクが無い");
   // その注記（<i class="full">）が1行まるごと使う。.figlegend 用の定義しか無く、横に並んでいた（2026-09-24 検証）
   ok(/\.legend i\.full\{[^}]*flex:1 0 100%/.test(html), "「色と印の意味」の注記（.legend i.full）が1行を占める CSS が無い");
   const d = run("renderDefs()");
@@ -3723,7 +3723,7 @@ check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で�
     ok(/>HS<\/a>/.test(hs) && /aria-label="HS: HubSpot でこの取引を開く（新しいタブ）"/.test(hs), "表の横の印が小さな「HS」（読み上げは「HS: …」で始まる aria-label）でない: " + hs);
     /* 「HS」の意味は title だけでなく、他の印と同じく「色と印の意味」に載せる（タッチでは title が出ない）。
        M-1 の (3)（2026-09-29）: ヘッダの畳みは定義と検証へのリンクになったので、どの画面からも 1 押しでその表へ行けることを見る */
-    ok(/<a class="golink" id="cs-legend" href="#study\/defs">色と印の意味 → 定義と検証<\/a>/.test(html), "ヘッダから「色と印の意味」（定義と検証）へのリンクが無い");
+    ok(html.includes('<a class="golink" id="cs-legend" href="#study/defs" title="定義と検証の「色と印の意味」の表へ">色と印の意味 →</a>'), "ヘッダから「色と印の意味」（定義と検証）へのリンクが無い");
     const defs = run("renderDefs()");
     const dtab = defs.slice(defs.indexOf("色と印の意味"), defs.indexOf("この画面が守っていること"));
     ok(/<td[^>]*><span class="hslink">HS<\/span><\/td><td[^>]*>案件名の横。HubSpot で/.test(dtab), "定義と検証の「色と印の意味」に HS の行が無い");
@@ -4154,7 +4154,7 @@ check("M-1: 題字の行に鮮度（緑）と「色と印の意味」を並べ�
   const head = html.slice(html.indexOf('<header class="masthead">'), html.indexOf("</header>"));
   ok(head.includes('<div id="cs-fresh" class="fresh"></div>'), "鮮度の帯（#cs-fresh）が題字の行（header.masthead）の中に無い");
   // M-1 の (3): 「色と印の意味」は全画面の畳みをやめ、定義と検証への 1 語のリンク（2026-09-29 検証: 畳みのまま残っていて案と違った）
-  ok(head.includes('<a class="golink" id="cs-legend" href="#study/defs">色と印の意味 → 定義と検証</a>'), "「色と印の意味」が題字の行の中の定義と検証へのリンクでない");
+  ok(head.includes('<a class="golink" id="cs-legend" href="#study/defs" title="定義と検証の「色と印の意味」の表へ">色と印の意味 →</a>'), "「色と印の意味」が題字の行の中の定義と検証へのリンクでない");
   ok(!/<details[^>]*id="cs-legend"/.test(html) && !head.includes('<div class="legend">'), "「色と印の意味」の畳み（凡例の中身）がヘッダに残っている");
   ok(run('MENUS.find((m) => m.key === "study").views.some((v) => v.key === "defs")'), "リンク先（#study/defs）の画面が無い");
   ok(head.indexOf('id="cs-fresh"') < head.indexOf('id="cs-legend"') && head.indexOf('id="cs-legend"') < head.indexOf('class="stamp"'),
