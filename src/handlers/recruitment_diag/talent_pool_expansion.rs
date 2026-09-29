@@ -31,17 +31,157 @@
 
 use axum::extract::{Query, State};
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_sessions::Session;
+use ts_rs::TS;
 
 use crate::db::local_sqlite::LocalDb;
 use crate::handlers::helpers::{get_i64, get_str};
 use crate::handlers::overview::get_session_filters;
 use crate::AppState;
 
+use super::types::RdNotes;
 use super::{CAUSATION_NOTE, HW_SCOPE_NOTE};
+
+// ======== Response Types ========
+
+/// 選択中の市区町村。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdTalentPoolCurrent {
+    /// 都道府県名。
+    pub prefecture: String,
+    /// 市区町村名。
+    pub municipality: String,
+}
+
+/// 通勤圏内の市区町村 1 件分 (`NeighborEntry` の応答形)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdCommuteTierEntry {
+    /// 都道府県名 (流入元)。
+    pub prefecture: String,
+    /// 市区町村名 (流入元)。
+    pub municipality: String,
+    /// 通勤者数 (流入元 → 選択市区町村)。
+    pub commuters: i64,
+    /// 失業者数 (人材プールの代理指標)。
+    pub unemployment: i64,
+    /// HW 求人件数。
+    pub hw_postings: i64,
+}
+
+/// 通勤圏 1 段階分の集計 (30 分圏 / 60 分圏)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdCommuteTier {
+    /// 市区町村数。
+    pub municipality_count: usize,
+    /// 失業者プール合計。
+    pub unemployment_pool: i64,
+    /// HW 求人件数合計。
+    pub hw_postings: i64,
+    /// 内訳 (通勤者数の降順)。
+    pub breakdown: Vec<RdCommuteTierEntry>,
+}
+
+impl RdCommuteTier {
+    /// エラー応答用の空の tier。
+    fn empty() -> Self {
+        Self {
+            municipality_count: 0,
+            unemployment_pool: 0,
+            hw_postings: 0,
+            breakdown: Vec::new(),
+        }
+    }
+}
+
+/// 成功時の注記 (`hw_scope` / `causation` に出典・前提を足したもの)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdTalentPoolNotes {
+    /// HW 掲載求人のみが対象である旨。
+    pub hw_scope: String,
+    /// 相関であって因果ではない旨。
+    pub causation: String,
+    /// 通勤 OD の出典 (国勢調査年)。
+    pub data_source_od: String,
+    /// 失業者数の出典。
+    pub data_source_unemployment: String,
+    /// HW 求人件数の出典。
+    pub data_source_hw: String,
+    /// 30 分圏 / 60 分圏の定義。
+    pub tier_definition: String,
+    /// 失業者プールに関する注意。
+    pub caveat_pool: String,
+    /// 分圏の名称に関する注意。
+    pub caveat_distance: String,
+}
+
+impl RdTalentPoolNotes {
+    fn standard() -> Self {
+        Self {
+            hw_scope: HW_SCOPE_NOTE.to_string(),
+            causation: CAUSATION_NOTE.to_string(),
+            data_source_od: format!(
+                "国勢調査 通勤 OD ({} 年、5年遅れ、市区町村間1:1)",
+                COMMUTE_OD_REFERENCE_YEAR
+            ),
+            data_source_unemployment:
+                "SSDSE-A 労働力統計 v2_external_labor_force.unemployed (国勢調査ベース)".to_string(),
+            data_source_hw: "HW 掲載求人 postings テーブル".to_string(),
+            tier_definition: format!(
+                "30 分圏 = OD volume 上位 {} 件、60 分圏 = 30 分圏を除いた次の {} 件 (実距離ではなく通勤者数ベースの固定件数)",
+                TIER_30MIN_COUNT, TIER_60MIN_ADDITIONAL_COUNT
+            ),
+            caveat_pool:
+                "失業者プール拡大は通勤可能性の理論値であり、実際の応募意向を保証するものではない"
+                    .to_string(),
+            caveat_distance:
+                "30/60 分圏という名称は便宜的な分類であり、実走行時間ではない".to_string(),
+        }
+    }
+}
+
+/// Panel 9 成功時の本体。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdTalentPoolExpansionResponse {
+    /// パネル識別子 (常に "talent_pool_expansion")。
+    pub panel: String,
+    /// 選択中の市区町村。
+    pub current: RdTalentPoolCurrent,
+    /// 30 分圏 (OD 上位 5 件)。
+    pub tier_30min: RdCommuteTier,
+    /// 60 分圏 (30 分圏を除く次の 7 件)。
+    pub tier_60min: RdCommuteTier,
+    /// OD データが 1 件以上取得できたか。
+    pub is_data_available: bool,
+    /// 注記。
+    pub notes: RdTalentPoolNotes,
+}
+
+/// Panel 9 エラー本体 (空の tier を含み、UI がそのまま描画できる形)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdTalentPoolExpansionError {
+    /// エラー内容。
+    pub error: String,
+    /// パネル識別子 (常に "talent_pool_expansion")。
+    pub panel: String,
+    /// 30 分圏 (常に空)。
+    pub tier_30min: RdCommuteTier,
+    /// 60 分圏 (常に空)。
+    pub tier_60min: RdCommuteTier,
+    /// 常に false。
+    pub is_data_available: bool,
+    /// 注記。
+    pub notes: RdNotes,
+}
+
+/// Panel 9 のレスポンス。TS では `RdTalentPoolExpansionResponse | RdTalentPoolExpansionError`。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(untagged)]
+pub enum RdTalentPoolExpansionResult {
+    Ok(RdTalentPoolExpansionResponse),
+    Err(RdTalentPoolExpansionError),
+}
 
 /// 30 分圏として扱う OD volume 上位市区町村件数 (固定値)
 pub(crate) const TIER_30MIN_COUNT: usize = 5;
@@ -102,7 +242,7 @@ pub async fn api_talent_pool_expansion(
     State(state): State<Arc<AppState>>,
     session: Session,
     Query(params): Query<TalentPoolExpansionParams>,
-) -> Json<Value> {
+) -> Json<RdTalentPoolExpansionResult> {
     // 入力解決: パラメータが空ならセッションフィルタにフォールバック
     let filters = get_session_filters(&session).await;
     let pref = if params.prefecture.is_empty() {
@@ -139,32 +279,34 @@ pub async fn api_talent_pool_expansion(
     // → fail-soft で empty breakdown を返す (404 ではなく 200 + 空)
     let (tier_30, tier_60) = split_into_tiers(&entries);
 
-    Json(json!({
-        "panel": "talent_pool_expansion",
-        "current": {
-            "prefecture": pref,
-            "municipality": muni,
+    Json(RdTalentPoolExpansionResult::Ok(build_response(
+        pref,
+        muni,
+        &tier_30,
+        &tier_60,
+        !entries.is_empty(),
+    )))
+}
+
+/// 成功本体を組み立てる。
+fn build_response(
+    pref: String,
+    muni: String,
+    tier_30: &[NeighborEntry],
+    tier_60: &[NeighborEntry],
+    is_data_available: bool,
+) -> RdTalentPoolExpansionResponse {
+    RdTalentPoolExpansionResponse {
+        panel: "talent_pool_expansion".to_string(),
+        current: RdTalentPoolCurrent {
+            prefecture: pref,
+            municipality: muni,
         },
-        "tier_30min": tier_to_json(&tier_30),
-        "tier_60min": tier_to_json(&tier_60),
-        "is_data_available": !entries.is_empty(),
-        "notes": {
-            "hw_scope": HW_SCOPE_NOTE,
-            "causation": CAUSATION_NOTE,
-            "data_source_od": format!(
-                "国勢調査 通勤 OD ({} 年、5年遅れ、市区町村間1:1)",
-                COMMUTE_OD_REFERENCE_YEAR
-            ),
-            "data_source_unemployment": "SSDSE-A 労働力統計 v2_external_labor_force.unemployed (国勢調査ベース)",
-            "data_source_hw": "HW 掲載求人 postings テーブル",
-            "tier_definition": format!(
-                "30 分圏 = OD volume 上位 {} 件、60 分圏 = 30 分圏を除いた次の {} 件 (実距離ではなく通勤者数ベースの固定件数)",
-                TIER_30MIN_COUNT, TIER_60MIN_ADDITIONAL_COUNT
-            ),
-            "caveat_pool": "失業者プール拡大は通勤可能性の理論値であり、実際の応募意向を保証するものではない",
-            "caveat_distance": "30/60 分圏という名称は便宜的な分類であり、実走行時間ではない",
-        },
-    }))
+        tier_30min: build_tier(tier_30),
+        tier_60min: build_tier(tier_60),
+        is_data_available,
+        notes: RdTalentPoolNotes::standard(),
+    }
 }
 
 // ========================================================================
@@ -277,40 +419,34 @@ pub(crate) fn aggregate_tier(tier: &[NeighborEntry]) -> (i64, i64, usize) {
     (unemployment, hw_postings, tier.len())
 }
 
-/// tier を JSON Value に変換 (集計値 + breakdown)
-fn tier_to_json(tier: &[NeighborEntry]) -> Value {
+/// tier を応答用の型に変換 (集計値 + breakdown)
+fn build_tier(tier: &[NeighborEntry]) -> RdCommuteTier {
     let (unemployment_pool, hw_postings, count) = aggregate_tier(tier);
-    let breakdown: Vec<Value> = tier
-        .iter()
-        .map(|e| {
-            json!({
-                "prefecture": e.prefecture,
-                "municipality": e.municipality,
-                "commuters": e.commuters,
-                "unemployment": e.unemployment,
-                "hw_postings": e.hw_postings,
+    RdCommuteTier {
+        municipality_count: count,
+        unemployment_pool,
+        hw_postings,
+        breakdown: tier
+            .iter()
+            .map(|e| RdCommuteTierEntry {
+                prefecture: e.prefecture.clone(),
+                municipality: e.municipality.clone(),
+                commuters: e.commuters,
+                unemployment: e.unemployment,
+                hw_postings: e.hw_postings,
             })
-        })
-        .collect();
-    json!({
-        "municipality_count": count,
-        "unemployment_pool": unemployment_pool,
-        "hw_postings": hw_postings,
-        "breakdown": breakdown,
-    })
+            .collect(),
+    }
 }
 
-fn error_body(msg: &str) -> Value {
-    json!({
-        "error": msg,
-        "panel": "talent_pool_expansion",
-        "tier_30min": {"municipality_count": 0, "unemployment_pool": 0, "hw_postings": 0, "breakdown": []},
-        "tier_60min": {"municipality_count": 0, "unemployment_pool": 0, "hw_postings": 0, "breakdown": []},
-        "is_data_available": false,
-        "notes": {
-            "hw_scope": HW_SCOPE_NOTE,
-            "causation": CAUSATION_NOTE,
-        },
+fn error_body(msg: &str) -> RdTalentPoolExpansionResult {
+    RdTalentPoolExpansionResult::Err(RdTalentPoolExpansionError {
+        error: msg.to_string(),
+        panel: "talent_pool_expansion".to_string(),
+        tier_30min: RdCommuteTier::empty(),
+        tier_60min: RdCommuteTier::empty(),
+        is_data_available: false,
+        notes: RdNotes::standard(),
     })
 }
 
@@ -451,7 +587,7 @@ mod tests {
     /// **必須テスト 5**: error_body は notes と空 tier を含む (UI が安全に描画できる)
     #[test]
     fn error_body_contains_safe_defaults() {
-        let v = error_body("test");
+        let v = serde_json::to_value(error_body("test")).unwrap();
         assert_eq!(v["error"], "test");
         assert_eq!(v["is_data_available"], false);
         assert_eq!(v["tier_30min"]["municipality_count"], 0);
@@ -464,7 +600,7 @@ mod tests {
     /// JSON レスポンスの notes に "2020" "OD" 文字列が含まれること
     #[test]
     fn notes_include_census_year_and_od_keyword() {
-        // tier_to_json にも notes は含まれないため、本文の format! 出力で確認
+        // build_tier にも notes は含まれないため、本文の format! 出力で確認
         let data_source_msg = format!(
             "国勢調査 通勤 OD ({} 年、5年遅れ、市区町村間1:1)",
             COMMUTE_OD_REFERENCE_YEAR
@@ -474,16 +610,16 @@ mod tests {
         assert_eq!(COMMUTE_OD_REFERENCE_YEAR, 2020);
     }
 
-    /// **必須テスト 7**: tier_to_json の breakdown 並び順は入力順 (= OD volume 降順) を保つ
+    /// **必須テスト 7**: build_tier の breakdown 並び順は入力順 (= OD volume 降順) を保つ
     #[test]
-    fn tier_to_json_preserves_descending_order() {
+    fn build_tier_preserves_descending_order() {
         let entries = vec![
             mk_entry("X県", "A市", 1000, 100, 10),
             mk_entry("X県", "B市", 800, 80, 8),
             mk_entry("X県", "C市", 500, 50, 5),
         ];
         let (tier30, _) = split_into_tiers(&entries);
-        let v = tier_to_json(&tier30);
+        let v = serde_json::to_value(build_tier(&tier30)).unwrap();
         let bd = v["breakdown"].as_array().unwrap();
         assert_eq!(bd.len(), 3);
         assert_eq!(bd[0]["municipality"], "A市");
@@ -524,5 +660,181 @@ mod tests {
         assert_eq!(c, 4);
         assert_eq!(u, 10 + 9 + 8 + 7);
         assert_eq!(h, 4);
+    }
+
+    // ======== 旧 json!() との等価テスト (Phase 1A-1) ========
+
+    fn legacy_tier_to_json(tier: &[NeighborEntry]) -> serde_json::Value {
+        let (unemployment_pool, hw_postings, count) = aggregate_tier(tier);
+        let breakdown: Vec<serde_json::Value> = tier
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "prefecture": e.prefecture,
+                    "municipality": e.municipality,
+                    "commuters": e.commuters,
+                    "unemployment": e.unemployment,
+                    "hw_postings": e.hw_postings,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "municipality_count": count,
+            "unemployment_pool": unemployment_pool,
+            "hw_postings": hw_postings,
+            "breakdown": breakdown,
+        })
+    }
+
+    fn legacy_error_body(msg: &str) -> serde_json::Value {
+        serde_json::json!({
+            "error": msg,
+            "panel": "talent_pool_expansion",
+            "tier_30min": {"municipality_count": 0, "unemployment_pool": 0, "hw_postings": 0, "breakdown": []},
+            "tier_60min": {"municipality_count": 0, "unemployment_pool": 0, "hw_postings": 0, "breakdown": []},
+            "is_data_available": false,
+            "notes": {
+                "hw_scope": HW_SCOPE_NOTE,
+                "causation": CAUSATION_NOTE,
+            },
+        })
+    }
+
+    fn legacy_success(
+        pref: String,
+        muni: String,
+        tier_30: &[NeighborEntry],
+        tier_60: &[NeighborEntry],
+        available: bool,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "panel": "talent_pool_expansion",
+            "current": {
+                "prefecture": pref,
+                "municipality": muni,
+            },
+            "tier_30min": legacy_tier_to_json(tier_30),
+            "tier_60min": legacy_tier_to_json(tier_60),
+            "is_data_available": available,
+            "notes": {
+                "hw_scope": HW_SCOPE_NOTE,
+                "causation": CAUSATION_NOTE,
+                "data_source_od": format!(
+                    "国勢調査 通勤 OD ({} 年、5年遅れ、市区町村間1:1)",
+                    COMMUTE_OD_REFERENCE_YEAR
+                ),
+                "data_source_unemployment": "SSDSE-A 労働力統計 v2_external_labor_force.unemployed (国勢調査ベース)",
+                "data_source_hw": "HW 掲載求人 postings テーブル",
+                "tier_definition": format!(
+                    "30 分圏 = OD volume 上位 {} 件、60 分圏 = 30 分圏を除いた次の {} 件 (実距離ではなく通勤者数ベースの固定件数)",
+                    TIER_30MIN_COUNT, TIER_60MIN_ADDITIONAL_COUNT
+                ),
+                "caveat_pool": "失業者プール拡大は通勤可能性の理論値であり、実際の応募意向を保証するものではない",
+                "caveat_distance": "30/60 分圏という名称は便宜的な分類であり、実走行時間ではない",
+            },
+        })
+    }
+
+    fn s<T: serde::Serialize>(v: &T) -> String {
+        serde_json::to_string(v).unwrap()
+    }
+
+    fn sample_entries(n: usize) -> Vec<NeighborEntry> {
+        (0..n)
+            .map(|i| {
+                mk_entry(
+                    if i % 2 == 0 { "北海道" } else { "" },
+                    &format!("市{}", i),
+                    (n - i) as i64 * 1000,
+                    if i == 1 { 0 } else { 100 * i as i64 },
+                    if i == 2 { 0 } else { i as i64 },
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tier_matches_legacy_json() {
+        for n in [0usize, 1, 5, 12] {
+            let e = sample_entries(n);
+            assert_eq!(s(&build_tier(&e)), s(&legacy_tier_to_json(&e)), "n={n}");
+        }
+    }
+
+    #[test]
+    fn success_matches_legacy_json() {
+        for (n, pref, muni) in [
+            (0usize, "北海道", "札幌市"),
+            (3, "", ""),
+            (12, "東京都", "千代田区"),
+        ] {
+            let entries = sample_entries(n);
+            let (t30, t60) = split_into_tiers(&entries);
+            let new = build_response(
+                pref.to_string(),
+                muni.to_string(),
+                &t30,
+                &t60,
+                !entries.is_empty(),
+            );
+            let legacy = legacy_success(
+                pref.to_string(),
+                muni.to_string(),
+                &t30,
+                &t60,
+                !entries.is_empty(),
+            );
+            assert_eq!(
+                s(&RdTalentPoolExpansionResult::Ok(new)),
+                s(&legacy),
+                "n={n}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_matches_legacy_json() {
+        for msg in [
+            "hellowork.db 未接続",
+            "prefecture および municipality が必要です",
+            "",
+        ] {
+            assert_eq!(s(&error_body(msg)), s(&legacy_error_body(msg)));
+        }
+    }
+
+    #[test]
+    fn ts_decl_has_expected_fields() {
+        let cfg = super::super::types::ts_config();
+        let result = RdTalentPoolExpansionResult::decl(&cfg);
+        assert!(
+            result.contains("RdTalentPoolExpansionResponse | RdTalentPoolExpansionError"),
+            "{result}"
+        );
+        let resp = RdTalentPoolExpansionResponse::decl(&cfg);
+        for f in [
+            "panel: string",
+            "current: RdTalentPoolCurrent",
+            "tier_30min: RdCommuteTier",
+            "tier_60min: RdCommuteTier",
+            "is_data_available: boolean",
+            "notes: RdTalentPoolNotes",
+        ] {
+            assert!(resp.contains(f), "missing `{f}` in {resp}");
+        }
+        let tier = RdCommuteTier::decl(&cfg);
+        for f in [
+            "municipality_count: number",
+            "unemployment_pool: number",
+            "hw_postings: number",
+            "breakdown: Array<RdCommuteTierEntry>",
+        ] {
+            assert!(tier.contains(f), "missing `{f}` in {tier}");
+        }
+        let err = RdTalentPoolExpansionError::decl(&cfg);
+        assert!(
+            err.contains("error: string") && err.contains("notes: RdNotes"),
+            "{err}"
+        );
     }
 }

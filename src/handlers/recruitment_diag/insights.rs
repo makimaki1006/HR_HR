@@ -49,14 +49,125 @@
 
 use axum::extract::{Query, State};
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_sessions::Session;
+use ts_rs::TS;
 
-use crate::handlers::insight::fetch::InsightContext;
-use crate::handlers::insight::helpers::Insight;
+use crate::handlers::insight::helpers::{Evidence, Insight, InsightId};
 use crate::AppState;
+
+/// 成功時の `note` (HW 範囲 + 因果注記)。
+const INSIGHTS_NOTE: &str = "HW掲載求人のみ対象（全求人市場ではない）。示唆は統計的傾向であり因果関係を示すものではありません。";
+
+/// エラー時の `note`。Panel 7 (opportunity_map) と共通。
+pub(crate) const ERROR_NOTE: &str = "HW掲載求人のみ対象（全求人市場ではない）。";
+
+// ======== Response Types ========
+
+/// `{"error", "note"}` の形のエラー本体 (Panel 7 opportunity_map / Panel 8 insights 共通)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdErrorNote {
+    /// エラー内容 (例: "DB未接続"、"invalid prefcode: 0 (must be 1-47)")。
+    pub error: String,
+    /// HW 掲載求人のみが対象である旨。
+    pub note: String,
+}
+
+impl RdErrorNote {
+    pub fn new(msg: &str) -> Self {
+        Self {
+            error: msg.to_string(),
+            note: ERROR_NOTE.to_string(),
+        }
+    }
+}
+
+/// リクエストで受け取った絞り込み条件 (表示用にそのまま返す)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdInsightsFilters {
+    /// 職種 (未指定なら null)。
+    pub job_type: Option<String>,
+    /// 雇用形態 (未指定なら null)。
+    pub emp_type: Option<String>,
+}
+
+/// 示唆の根拠となる指標 1 件 (`insight::helpers::Evidence` と同じ形)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdInsightEvidence {
+    /// 指標名 (例: "欠員補充率")。
+    pub metric: String,
+    /// 指標値 (単位は `unit`)。
+    pub value: f64,
+    /// 単位 (空文字のことがある)。
+    pub unit: String,
+    /// 補足文脈 (空文字のことがある)。
+    pub context: String,
+}
+
+impl From<&Evidence> for RdInsightEvidence {
+    fn from(e: &Evidence) -> Self {
+        Self {
+            metric: e.metric.clone(),
+            value: e.value,
+            unit: e.unit.clone(),
+            context: e.context.clone(),
+        }
+    }
+}
+
+/// HR 文脈で残した示唆 1 件 + 採用アクション提案。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdInsightItem {
+    /// パターン ID ("HS-1" / "SW-F01" 等)。`InsightId` の Serialize で文字列になる。
+    #[ts(type = "string")]
+    pub pattern_id: InsightId,
+    /// カテゴリ表示名 (`InsightCategory::label()`)。
+    pub category: String,
+    /// 重要度表示名 ("重大" / "注意" / "情報" / "良好")。
+    pub severity: String,
+    /// 重要度の順位 (0=重大, 1=注意, 2=情報, 3=良好)。
+    pub severity_rank: i32,
+    /// 見出し。
+    pub title: String,
+    /// 本文 (`Insight::body`)。
+    pub message: String,
+    /// 根拠指標。
+    pub evidence: Vec<RdInsightEvidence>,
+    /// 関連タブ ID。
+    pub related_tabs: Vec<String>,
+    /// 採用アクション提案 (仮説表現)。
+    pub hr_action: String,
+}
+
+/// Panel 8 成功時の本体。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdInsightsResponse {
+    /// 都道府県コード (1-47)。
+    pub prefcode: i32,
+    /// 市区町村コード (未指定なら null)。
+    pub citycode: Option<u32>,
+    /// 都道府県名。
+    pub pref: String,
+    /// 市区町村名 (未指定・他県コード・解決失敗なら空文字)。
+    pub municipality: String,
+    /// 受け取った絞り込み条件。
+    pub filters: RdInsightsFilters,
+    /// 示唆一覧 (insight エンジンの生成順)。
+    pub insights: Vec<RdInsightItem>,
+    /// 件数サマリ文。
+    pub summary: String,
+    /// HW 範囲・因果の注記。
+    pub note: String,
+}
+
+/// Panel 8 のレスポンス。TS では `RdInsightsResponse | RdErrorNote`。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(untagged)]
+pub enum RdInsightsResult {
+    Ok(RdInsightsResponse),
+    Err(RdErrorNote),
+}
 
 // ======== Query Params ========
 
@@ -82,7 +193,7 @@ pub async fn insights(
     State(state): State<Arc<AppState>>,
     _session: Session,
     Query(params): Query<InsightsParams>,
-) -> Json<Value> {
+) -> Json<RdInsightsResult> {
     let db = match &state.hw_db {
         Some(d) => d.clone(),
         None => return Json(error_response("DB未接続")),
@@ -120,27 +231,44 @@ pub async fn insights(
         // HR文脈で有効なものだけに絞る
         all.into_iter()
             .filter(|i| is_hr_relevant(i.id.as_str()))
-            .map(|i| enrich_with_hr_action(&i, &ctx))
-            .collect::<Vec<Value>>()
+            .map(|i| enrich_with_hr_action(&i))
+            .collect::<Vec<RdInsightItem>>()
     })
     .await
     .unwrap_or_default();
 
-    let summary = build_summary(&insights);
+    Json(RdInsightsResult::Ok(build_response(
+        params.prefcode,
+        params.citycode,
+        pref_name,
+        muni_name,
+        params.job_type,
+        params.emp_type,
+        insights,
+    )))
+}
 
-    Json(json!({
-        "prefcode": params.prefcode,
-        "citycode": params.citycode,
-        "pref": pref_name,
-        "municipality": muni_name,
-        "filters": {
-            "job_type": params.job_type,
-            "emp_type": params.emp_type,
-        },
-        "insights": insights,
-        "summary": summary,
-        "note": "HW掲載求人のみ対象（全求人市場ではない）。示唆は統計的傾向であり因果関係を示すものではありません。",
-    }))
+/// 成功本体を組み立てる (summary は `insights` から算出)。
+fn build_response(
+    prefcode: i32,
+    citycode: Option<u32>,
+    pref_name: String,
+    muni_name: String,
+    job_type: Option<String>,
+    emp_type: Option<String>,
+    insights: Vec<RdInsightItem>,
+) -> RdInsightsResponse {
+    let summary = build_summary(&insights);
+    RdInsightsResponse {
+        prefcode,
+        citycode,
+        pref: pref_name,
+        municipality: muni_name,
+        filters: RdInsightsFilters { job_type, emp_type },
+        insights,
+        summary,
+        note: INSIGHTS_NOTE.to_string(),
+    }
 }
 
 // ======== HR文脈フィルタ ========
@@ -163,21 +291,25 @@ pub fn is_hr_relevant(id: &str) -> bool {
     HR_PREFIXES.iter().any(|p| id.starts_with(p))
 }
 
-/// Insight に HR 視点のアクション提案を付与して JSON 化
-fn enrich_with_hr_action(insight: &Insight, _ctx: &InsightContext) -> Value {
+/// Insight に HR 視点のアクション提案を付与して応答用の型にする
+fn enrich_with_hr_action(insight: &Insight) -> RdInsightItem {
     let hr_action = hr_action_for(insight.id.as_str(), insight);
-    json!({
+    RdInsightItem {
         // InsightId は serde::Serialize で "HS-1" 等の文字列に変換される
-        "pattern_id": insight.id,
-        "category": insight.category.label(),
-        "severity": severity_label(&insight.severity),
-        "severity_rank": severity_rank(&insight.severity),
-        "title": insight.title,
-        "message": insight.body,
-        "evidence": insight.evidence,
-        "related_tabs": insight.related_tabs,
-        "hr_action": hr_action,
-    })
+        pattern_id: insight.id.clone(),
+        category: insight.category.label().to_string(),
+        severity: severity_label(&insight.severity).to_string(),
+        severity_rank: severity_rank(&insight.severity),
+        title: insight.title.clone(),
+        message: insight.body.clone(),
+        evidence: insight
+            .evidence
+            .iter()
+            .map(RdInsightEvidence::from)
+            .collect(),
+        related_tabs: insight.related_tabs.iter().map(|s| s.to_string()).collect(),
+        hr_action,
+    }
 }
 
 /// パターンID毎の採用アクション提案（断定回避、仮説表現）
@@ -220,7 +352,7 @@ fn hr_action_for(id: &str, insight: &Insight) -> String {
 
 // ======== サマリ生成 ========
 
-fn build_summary(insights: &[Value]) -> String {
+fn build_summary(insights: &[RdInsightItem]) -> String {
     if insights.is_empty() {
         return "このエリアでは有効な示唆が検出されませんでした。データ未整備の可能性があります。"
             .to_string();
@@ -231,7 +363,7 @@ fn build_summary(insights: &[Value]) -> String {
     let mut info = 0;
     let mut positive = 0;
     for i in insights {
-        match i.get("severity").and_then(|v| v.as_str()).unwrap_or("") {
+        match i.severity.as_str() {
             "重大" => critical += 1,
             "注意" => warning += 1,
             "情報" => info += 1,
@@ -331,11 +463,8 @@ fn build_reverse_map() -> std::collections::HashMap<u32, (String, String)> {
     reverse
 }
 
-fn error_response(msg: &str) -> Value {
-    json!({
-        "error": msg,
-        "note": "HW掲載求人のみ対象（全求人市場ではない）。",
-    })
+fn error_response(msg: &str) -> RdInsightsResult {
+    RdInsightsResult::Err(RdErrorNote::new(msg))
 }
 
 // ======== テスト ========
@@ -420,13 +549,13 @@ mod tests {
     /// summary は件数を反映する
     #[test]
     fn summary_reflects_counts() {
-        let empty: Vec<Value> = vec![];
+        let empty: Vec<RdInsightItem> = vec![];
         assert!(build_summary(&empty).contains("検出されませんでした"));
 
         let some = vec![
-            json!({"severity": "重大"}),
-            json!({"severity": "注意"}),
-            json!({"severity": "情報"}),
+            enrich_with_hr_action(&dummy_insight("HS-1", Severity::Critical)),
+            enrich_with_hr_action(&dummy_insight("HS-2", Severity::Warning)),
+            enrich_with_hr_action(&dummy_insight("HS-3", Severity::Info)),
         ];
         let s = build_summary(&some);
         assert!(s.contains("3件"));
@@ -453,5 +582,248 @@ mod tests {
         let action = hr_action_for(ins.id.as_str(), &ins);
         assert!(!action.is_empty());
         assert!(action.contains("検討") || action.contains("余地") || action.contains("可能性"));
+    }
+
+    // ======== 旧 json!() との等価テスト (Phase 1A-1) ========
+    //
+    // 置き換え前の json!() 式をそのまま残し、同じ入力で文字列完全一致を確認する。
+
+    fn legacy_enrich_with_hr_action(insight: &Insight) -> serde_json::Value {
+        let hr_action = hr_action_for(insight.id.as_str(), insight);
+        serde_json::json!({
+            // InsightId は serde::Serialize で "HS-1" 等の文字列に変換される
+            "pattern_id": insight.id,
+            "category": insight.category.label(),
+            "severity": severity_label(&insight.severity),
+            "severity_rank": severity_rank(&insight.severity),
+            "title": insight.title,
+            "message": insight.body,
+            "evidence": insight.evidence,
+            "related_tabs": insight.related_tabs,
+            "hr_action": hr_action,
+        })
+    }
+
+    fn legacy_build_summary(insights: &[serde_json::Value]) -> String {
+        if insights.is_empty() {
+            return "このエリアでは有効な示唆が検出されませんでした。データ未整備の可能性があります。"
+                .to_string();
+        }
+        let mut critical = 0;
+        let mut warning = 0;
+        let mut info = 0;
+        let mut positive = 0;
+        for i in insights {
+            match i.get("severity").and_then(|v| v.as_str()).unwrap_or("") {
+                "重大" => critical += 1,
+                "注意" => warning += 1,
+                "情報" => info += 1,
+                "良好" => positive += 1,
+                _ => {}
+            }
+        }
+        format!(
+            "採用戦略上のシグナル {}件検出（重大{}、注意{}、情報{}、良好{}）。重大・注意シグナルを優先して検討することを推奨します。",
+            insights.len(),
+            critical,
+            warning,
+            info,
+            positive
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn legacy_success(
+        prefcode: i32,
+        citycode: Option<u32>,
+        pref_name: String,
+        muni_name: String,
+        job_type: Option<String>,
+        emp_type: Option<String>,
+        insights: Vec<serde_json::Value>,
+    ) -> serde_json::Value {
+        let summary = legacy_build_summary(&insights);
+        serde_json::json!({
+            "prefcode": prefcode,
+            "citycode": citycode,
+            "pref": pref_name,
+            "municipality": muni_name,
+            "filters": {
+                "job_type": job_type,
+                "emp_type": emp_type,
+            },
+            "insights": insights,
+            "summary": summary,
+            "note": "HW掲載求人のみ対象（全求人市場ではない）。示唆は統計的傾向であり因果関係を示すものではありません。",
+        })
+    }
+
+    fn legacy_error_response(msg: &str) -> serde_json::Value {
+        serde_json::json!({
+            "error": msg,
+            "note": "HW掲載求人のみ対象（全求人市場ではない）。",
+        })
+    }
+
+    fn s<T: serde::Serialize>(v: &T) -> String {
+        serde_json::to_string(v).unwrap()
+    }
+
+    /// 0 / 小数 / 整数値の f64 / 空文字 / 空配列 / 全 severity を含む示唆群
+    fn varied_insights() -> Vec<InsightType> {
+        let ev = |metric: &str, value: f64, unit: &str, context: &str| Evidence {
+            metric: metric.into(),
+            value,
+            unit: unit.into(),
+            context: context.into(),
+        };
+        vec![
+            InsightType {
+                id: InsightId::from_str("HS-1").unwrap(),
+                category: InsightCategory::HiringStructure,
+                severity: Severity::Critical,
+                title: "慢性的人材不足".into(),
+                body: "本文".into(),
+                evidence: vec![
+                    ev("欠員補充率", 0.25, "%", "県平均比"),
+                    ev("件数", 0.0, "", ""),
+                ],
+                related_tabs: vec!["analysis", "market"],
+            },
+            InsightType {
+                id: InsightId::from_str("SW-F07").unwrap(),
+                category: InsightCategory::HiringStructure,
+                severity: Severity::Warning,
+                title: "".into(),
+                body: "".into(),
+                evidence: vec![],
+                related_tabs: vec![],
+            },
+            InsightType {
+                id: InsightId::from_str("RC-2").unwrap(),
+                category: InsightCategory::HiringStructure,
+                severity: Severity::Info,
+                title: "t".into(),
+                body: "b".into(),
+                evidence: vec![ev("m", 2.0, "人", "c"), ev("neg", -0.0, "", "")],
+                related_tabs: vec!["overview"],
+            },
+            InsightType {
+                id: InsightId::from_str("GE-1").unwrap(),
+                category: InsightCategory::HiringStructure,
+                severity: Severity::Positive,
+                title: "良好".into(),
+                body: "b".into(),
+                evidence: vec![ev("密度", 1234.5678, "人/km2", "")],
+                related_tabs: vec!["jobmap"],
+            },
+        ]
+    }
+
+    #[test]
+    fn enrich_matches_legacy_json() {
+        for ins in varied_insights() {
+            assert_eq!(
+                s(&enrich_with_hr_action(&ins)),
+                s(&legacy_enrich_with_hr_action(&ins)),
+                "id {}",
+                ins.id.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn success_matches_legacy_json() {
+        let cases: Vec<(
+            i32,
+            Option<u32>,
+            &str,
+            &str,
+            Option<&str>,
+            Option<&str>,
+            bool,
+        )> = vec![
+            (
+                3,
+                Some(3201),
+                "岩手県",
+                "盛岡市",
+                Some("飲食業"),
+                Some("正社員"),
+                true,
+            ),
+            (13, None, "東京都", "", None, None, true),
+            (1, Some(0), "北海道", "", Some(""), Some(""), false),
+            (47, None, "沖縄県", "", None, Some("パート"), false),
+        ];
+        for (pc, cc, pref, muni, jt, et, with_items) in cases {
+            let items: Vec<InsightType> = if with_items {
+                varied_insights()
+            } else {
+                vec![]
+            };
+            let new = build_response(
+                pc,
+                cc,
+                pref.to_string(),
+                muni.to_string(),
+                jt.map(String::from),
+                et.map(String::from),
+                items.iter().map(enrich_with_hr_action).collect(),
+            );
+            let legacy = legacy_success(
+                pc,
+                cc,
+                pref.to_string(),
+                muni.to_string(),
+                jt.map(String::from),
+                et.map(String::from),
+                items.iter().map(legacy_enrich_with_hr_action).collect(),
+            );
+            assert_eq!(s(&RdInsightsResult::Ok(new)), s(&legacy));
+        }
+    }
+
+    #[test]
+    fn error_matches_legacy_json() {
+        for msg in ["DB未接続", "invalid prefcode: 0 (must be 1-47)", ""] {
+            assert_eq!(s(&error_response(msg)), s(&legacy_error_response(msg)));
+        }
+    }
+
+    #[test]
+    fn ts_decl_has_expected_fields() {
+        let cfg = super::super::types::ts_config();
+        let result = RdInsightsResult::decl(&cfg);
+        assert!(
+            result.contains("RdInsightsResponse | RdErrorNote"),
+            "{result}"
+        );
+        let resp = RdInsightsResponse::decl(&cfg);
+        for f in [
+            "prefcode: number",
+            "citycode: number | null",
+            "filters: RdInsightsFilters",
+            "insights: Array<RdInsightItem>",
+            "summary: string",
+            "note: string",
+        ] {
+            assert!(resp.contains(f), "missing `{f}` in {resp}");
+        }
+        let item = RdInsightItem::decl(&cfg);
+        for f in [
+            "pattern_id: string",
+            "severity_rank: number",
+            "evidence: Array<RdInsightEvidence>",
+            "related_tabs: Array<string>",
+            "hr_action: string",
+        ] {
+            assert!(item.contains(f), "missing `{f}` in {item}");
+        }
+        let err = RdErrorNote::decl(&cfg);
+        assert!(
+            err.contains("error: string") && err.contains("note: string"),
+            "{err}"
+        );
     }
 }
