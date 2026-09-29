@@ -2536,8 +2536,11 @@ check("ループ4 focus: どちらも無い（灰の帯）の KPI を山吹に�
     rows: [{ site: "k1", site_name: "拠点1", prev: 1000000, last: 2000000, ratio: 2 }] };
   ctx.__FO4 = fo;
   const h = run("renderFocus(__FO4)");
-  const k = h.split('<div class="kpi').find((x) => x.includes("MTG の記録がどちらも無い")) || "";
-  ok(!/^ is-(warn|bad)/.test(k), "「MTG の記録がどちらも無い」の KPI に色が付いている（帯では灰）: " + k.slice(0, 30));
+  /* 2026-09-29 札の名前を「どちらにも見つからない」に変えた（藤巻さんの判断: MTG はしていて記録が欠けていると読む）。
+     札が見つからないと k が空で素通りするので、見つかることも確かめる */
+  const k = h.split('<div class="kpi').find((x) => x.includes("MTG の記録がどちらにも見つからない")) || "";
+  ok(k !== "", "「MTG の記録がどちらにも見つからない」の KPI が無い");
+  ok(!/^ is-(warn|bad)/.test(k), "「MTG の記録がどちらにも見つからない」の KPI に色が付いている（帯では灰）: " + k.slice(0, 30));
   ok(h.includes("今回（万円）") && h.includes("横軸は万円"), "採用単価の悪化の図で単位（万円）が分からない");
   ok(/\.kpi \.lbl\{[^}]*text-wrap:balance/.test(html), "KPI の見出しが最後の1文字だけ次の行に落ちうる（text-wrap:balance が無い）");
 });
@@ -4835,7 +4838,7 @@ check("段2 S-2 の残り: 担当者の一覧・いま見るべき顧客・電�
   const fo = run("renderFocus(__FO)");
   const fj = jumps(fo);
   ok(JSON.stringify(fj) === JSON.stringify([["定期NPS が 4 以下", "fc-nps-tbl-h"], ["採用単価が悪化した拠点", "fc-cpa-h"],
-    ["MTG の記録がどちらも無い", "fc-mtg-h"], ["LTV 中央値", "fc-shape-h"]]), "いま見るべき顧客の札の行き先が違う: " + JSON.stringify(fj));
+    ["MTG の記録がどちらにも見つからない", "fc-mtg-h"], ["LTV 中央値", "fc-shape-h"]]), "いま見るべき顧客の札の行き先が違う: " + JSON.stringify(fj));
   fj.forEach(([, id]) => ok(hasId(fo, id), "いま見るべき顧客: 飛ぶ先 " + id + " が本文に無い"));
   ok(/<div class="kpi"><span class="lbl">NPS が入っている/.test(fo), "行き先の無い札（NPS が入っている）を button にしている");
   const ph = run("renderPhone(__PH)");
@@ -5314,6 +5317,28 @@ check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満
     "金額の継続率が件数の札と同じ月（2026-09）・満了した金額の内訳つきでない: " + tk);
   ok(!/見込み/.test(tk), "札に見込み（確度を掛けた金額に読める）と書いている");
   ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(k), "button.kpi の中に a がある");
+});
+
+/* 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。MTG の記録が無い案件は「していない」ではなく
+   「記録が欠けている」と読む。画面が自分で書く文（行の最後の MTG・立ち上がりの末尾・いま見るべき顧客の札と図）を
+   「見つからない」にそろえ、「MTG をしていない」と読める「記録なし」「記録がまだ無い」「どちらも無い」を残さない
+   （サーバの文は tests.rs mtg_no_record_reads_as_missing_record_not_as_not_held が見る） */
+check("MTG の記録が無い案件を「していない」と読ませない（見つからない・欠ける理由の候補）", () => {
+  const c = run('mtgCell({ mtg_band: "no_record", mtg_days: null })');
+  ok(c.includes("記録が見つからない") && !c.includes("記録なし"), "行の最後の MTG が「記録なし」のまま: " + c);
+  ctx.__RUw = { meta: {}, phase: { rows: [], rule: "" },
+    first_mtg: { n: 0, pre_contract: 0, stats: null, buckets: [] },
+    no_mtg: { n: 104, first_active: 254, rate: 40.9, note: "", rows: [] } };
+  const t = textOf(run("renderRampup(__RUw)"));
+  ok(t.includes("MTG の記録がまだ見つからない初回契約 104 件") && !t.includes("記録がまだ無い"), "立ち上がりの末尾の文: " + t.slice(-400));
+  ok(t.includes("記録が欠けている") && t.includes("台帳") && t.includes("録画なし") && t.includes("紐づいていない"),
+    "立ち上がりの末尾に、記録が欠ける理由の候補が無い: " + t.slice(-400));
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  fo.mtg_layers.neither = 115;
+  ctx.__FOw = fo;
+  const f = textOf(run("renderFocus(__FOw)"));
+  ok(f.includes("MTG の記録がどちらにも見つからない") && f.includes("どちらにも見つからない"), "いま見るべき顧客の札・図の区分");
+  ok(!/どちらも無い/.test(f), "いま見るべき顧客に「どちらも無い」が残っている");
 });
 
 Promise.all(pendingChecks).then(() => {

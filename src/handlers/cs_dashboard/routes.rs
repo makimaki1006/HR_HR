@@ -1259,7 +1259,7 @@ fn first_mtg(deals: &[Deal], mtg_first: &HashMap<String, NaiveDate>) -> Value {
     })
 }
 
-/// 稼働中の初回契約で、まだMTGをしていないもの。
+/// 稼働中の初回契約で、MTG の記録がまだ見つからないもの（していないのではなく記録が欠けていると読む。2026-09-29 藤巻さん）。
 fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDate) -> Value {
     // 🔴 「マーケ関連」（紹介料・マーケ施策の計上）は MTG をしないのが普通なので、
     //    この表と、その分母（稼働中の初回契約）から外す。件数は返す（黙って消さない）
@@ -1293,7 +1293,9 @@ fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDat
         "n": rows.len(),
         "rate": rate(rows.len() as f64, first_time.len() as f64),
         "rows": rows,
-        "note": "稼働中の初回契約のうち、MTG の記録が1件も無いもの。記録が無いことと、やっていないことは別です",
+        // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。「していない」と読ませない
+        "note": "稼働中の初回契約のうち、MTG の記録が1件も見つからないもの。MTG はしていて、記録が欠けていると読みます\
+（欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない）",
     })
 }
 
@@ -2877,10 +2879,14 @@ pub(super) const ACT_VIEWS: [ActView; 4] = [
     },
     ActView {
         key: "no_mtg",
-        label: "初回契約で MTG の記録が無い",
-        rule: "初回契約で、MTG途絶の帯が「MTGの記録が無い」の案件（録画とメール由来の実施日のどちらにも無い）。\
-立ち上がり期（契約開始30日以内）と開始前は帯を付けないので入りません。記録が無いことと、やっていないことは別です",
-        old: Some("立ち上がりの「MTG の記録がまだ無い初回契約」（録画だけで数え、マーケ関連を外していた）"),
+        // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。ここに残る案件は
+        //    「していない」ではなく「記録が欠けている」と読む。名前・定義文とも「見つからない」にそろえる
+        label: "初回契約で MTG の記録が見つからない",
+        rule: "初回契約で、MTG途絶の帯が「MTGの記録が見つからない」の案件（録画とメール由来の実施日のどちらにも見つからない）。\
+立ち上がり期（契約開始30日以内）と開始前は帯を付けないので入りません。\
+初回契約で MTG をしないことは実務上ないので、MTG はしていて記録が欠けていると読みます。\
+欠ける理由の候補は、MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない、です",
+        old: Some("立ち上がりの「MTG の記録がまだ見つからない初回契約」（録画だけで数え、マーケ関連を外していた）"),
     },
     ActView {
         key: "mtg_risk",
@@ -3330,7 +3336,7 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
             "cpa_band": cband.map(|b| CPA_BANDS[b].0),
             "flags": flags,
             "n_flags": flags.len(),
-            // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が無い」の材料
+            // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が見つからない」の材料
             "renewal_no": d.renewal_no,
             // 判定のある MTG のうち、いちばん新しいもののリスク判定と開催日（無ければ null）
             "mtg_risk": mrisk.map(|(_, r)| r.clone()),
@@ -3403,8 +3409,10 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
                 super::MTG_GAP_RED_DAYS, super::MTG_GAP_CRITICAL_DAYS - 1,
                 super::MTG_GAP_CRITICAL_DAYS, super::MTG_ONBOARDING_GRACE_DAYS,
                 super::MTG_PRE_TERMINATION_DAYS, super::MTG_PRE_TERMINATION_GAP_DAYS),
-            "no_record_note": "「記録が無い」は「MTGをしていない」という意味ではありません。\
-    録画が取引に紐づいていないぶんを含みます。だから名札は立てていません。\
+            // 🔴 2026-09-29 藤巻さんの判断: MTG はしているはず。記録が欠ける理由の候補を添える
+            "no_record_note": "「記録が見つからない」は「MTGをしていない」という意味ではありません。\
+    MTG はしていて、記録が欠けていると読みます（欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・\
+    録画が取引に紐づいていない）。だから名札は立てていません。\
     録画（事実）とメール由来の実施日（推定・±1日で83.3%）の両方を見たうえで、\
     それでも見つからなかったものだけがここに入ります",
             "source_note": "行ごとに、その日付をどちらから取ったかを出しています。\
