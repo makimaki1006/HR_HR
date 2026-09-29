@@ -675,6 +675,9 @@ async fn search_calls_are_spaced() {
     let interval = opts.search_min_interval;
     let c = client(&base, opts);
     let body = json!({"filterGroups": [], "limit": 10});
+    // 先に 1 本送って接続を張っておく (初回だけ TCP 接続の時間が到着時刻に乗り、
+    // 到着間隔が見かけ上縮むため。2026-09-30 に初回込みの計測で 1 回落ちた)
+    c.search("calls", body.clone()).await.unwrap();
     // 同時に 3 本投げても開始は間隔を空ける
     let (a, b, d) = tokio::join!(
         c.search("calls", body.clone()),
@@ -686,12 +689,12 @@ async fn search_calls_are_spaced() {
     d.unwrap();
 
     let calls = fake.calls();
-    assert_eq!(calls.len(), 3);
+    assert_eq!(calls.len(), 4);
     assert!(calls
         .iter()
         .all(|c| c.method == "POST" && c.path == "/crm/v3/objects/calls/search"));
-    assert_eq!(calls[0].body, body);
-    let spread = calls[2].at.duration_since(calls[0].at);
+    assert_eq!(calls[1].body, body);
+    let spread = calls[3].at.duration_since(calls[1].at);
     assert!(spread >= interval * 2, "spread {spread:?}");
 }
 
