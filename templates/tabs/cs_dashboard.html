@@ -2896,7 +2896,9 @@ function kpi(label, big, fine, kind, act) {
   const cls = "kpi" + (kind ? " is-" + kind : "");
   if (!act) return '<div class="' + cls + '">' + inner + "</div>";
   /* consultant: 帯で絞るときに担当も添える（今日動く先で担当を選んでいるとき。数字と行き先の母集団を揃える） */
-  const to = (act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"' : "") +
+  /* flag: 名札で絞って案件一覧を開く（今日の札「接触の記録が無い」。09 の 3章 1 の 2） */
+  const to = (act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"'
+    : act.flag ? ' data-flag="' + esc(act.flag) + '"' : "") +
     (act.consultant ? ' data-consultant="' + esc(act.consultant) + '"' : "");
   return '<button type="button" class="' + cls + '"' + to + ">" + inner +
     '<span class="act">' + esc(act.text || "一覧を見る") + "</span></button>";
@@ -5990,7 +5992,7 @@ let boardSort = { key: "n_flags", asc: false };
 
 /* ③の絞り込み。②から担当者を押して来たときも、ここに入る。
    🔴 絞ったら必ず「◯件中 N件を表示」を出す（全件を見ていると誤認させない）。 */
-let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" };
+let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
 
 /* 満了までの帯。値は days_left（null は「満了日が入っていない」） */
 const EXPIRY_BANDS = [
@@ -6002,6 +6004,19 @@ const EXPIRY_BANDS = [
   { k: "none", t: "満了日が入っていない", hit: (d) => d == null },
 ];
 
+/* 契約総額の帯（09 の 3章 2「金額」、2026-09-29 磨き込み）。値は行の amount（CS_取引の amount。契約期間全体の額で、
+   月額ではない＝段B で実データを見て確かめた。money.rs）。null は「金額が空」。
+   線は fixture の稼働中の金額の四分位（25% 45万・中央 81万・75% 120万・90% 180万）から丸めた取り決め。
+   🔴 金額が空の案件はどの帯にも入れない（0 円として「50万円未満」に落とさない）。空の件数は選択肢と絞った文で別に出す */
+const AMOUNT_BANDS = [
+  { k: "lt50",   t: "50万円未満",       hit: (a) => a != null && a < 500000 },
+  { k: "50-100", t: "50万〜100万円未満",  hit: (a) => a != null && a >= 500000 && a < 1000000 },
+  { k: "100-200", t: "100万〜200万円未満", hit: (a) => a != null && a >= 1000000 && a < 2000000 },
+  { k: "ge200",  t: "200万円以上",      hit: (a) => a != null && a >= 2000000 },
+  { k: "none",   t: "金額が空",         hit: (a) => a == null },
+];
+const amountOf = (r) => (r.amount == null || r.amount === "" || !isFinite(Number(r.amount)) ? null : Number(r.amount));
+
 /* 絞り込みを当てる。**行を落とすのはここだけ** */
 /* 🔴 同じ応答（rows の同一性）・同じ条件なら同じ配列を返す（段2 M-8）。paintFigs は図の幅を枠に合わせるために本文を 2 回組むので、
    ここが毎回新しい配列を返すと boardTable の覚え書き（配列の同一性で「同じ行の並び」を見る）が効かない */
@@ -6011,6 +6026,7 @@ function boardApply(rows) {
   const key = JSON.stringify(f);
   if (boardApplyMemo.src === rows && boardApplyMemo.key === key) return boardApplyMemo.out;
   const band = EXPIRY_BANDS.find((b) => b.k === f.expiry);
+  const amt = AMOUNT_BANDS.find((b) => b.k === f.amount);
   const q = f.q.trim().toLowerCase();
   const out = rows.filter((r) => {
     if (f.consultant && (r.consultant || "") !== f.consultant) return false;
@@ -6020,6 +6036,7 @@ function boardApply(rows) {
     /* 見方の印（段B、09 の 10 章②。行の views に routes.rs ACT_VIEWS の鍵が入っている） */
     if (f.view && !(r.views || []).some((x) => x === f.view)) return false;
     if (band && !band.hit(r.days_left)) return false;
+    if (amt && !amt.hit(amountOf(r))) return false;
     if (q && String(r.name || r.deal_id || "").toLowerCase().indexOf(q) < 0) return false;
     return true;
   });
@@ -6029,7 +6046,7 @@ function boardApply(rows) {
 
 function boardFilterOn() {
   const f = boardFilter;
-  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.q.trim());
+  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.amount || f.q.trim());
 }
 
 /* いま何で絞っているかを日本語で並べる。D は帯の名前（meta.mtg_gap.bands の label）を引くため */
@@ -6051,6 +6068,12 @@ function boardFilterWords(D) {
   if (f.expiry) {
     const b = EXPIRY_BANDS.find((x) => x.k === f.expiry);
     if (b) w.push("満了まで " + b.t);
+  }
+  if (f.amount) {
+    const b = AMOUNT_BANDS.find((x) => x.k === f.amount);
+    /* 金額の帯で絞ったときは、金額が空で入らない件数を添える（黙って落とさない。空はどの帯にも入れていない） */
+    const nNone = f.amount === "none" ? 0 : (((D || {}).rows) || []).filter((r) => amountOf(r) == null).length;
+    if (b) w.push("契約総額 " + b.t + (nNone ? "（金額が空の " + nNone + " 件は入りません）" : ""));
   }
   if (f.q.trim()) w.push("案件名に " + f.q.trim());
   return w.join(" / ");
@@ -6086,6 +6109,13 @@ function boardFilterBar(D, onlyOwner) {
   h += '<label class="act">満了まで <select id="bf-expiry">' +
     opt("", "すべて", boardFilter.expiry) +
     EXPIRY_BANDS.map((b) => opt(b.k, b.t, boardFilter.expiry)).join("") + "</select></label>";
+  /* 契約総額（09 の 3章 2）。選択肢に件数を添え、金額が空の件数は「金額が空（N）」で別に出す（帯に混ぜない）。
+     欄の名前に「契約総額」と書く（月額と読ませない。月額は CS_取引の別の列） */
+  const amtN = {};
+  for (const r of D.rows) for (const b of AMOUNT_BANDS) if (b.hit(amountOf(r))) amtN[b.k] = (amtN[b.k] || 0) + 1;
+  h += '<label class="act" title="契約期間全体の額（月額ではありません）">契約総額 <select id="bf-amount">' +
+    opt("", "すべて", boardFilter.amount || "") +
+    AMOUNT_BANDS.map((b) => opt(b.k, b.t + "（" + num(amtN[b.k] || 0) + "）", boardFilter.amount || "")).join("") + "</select></label>";
   /* 幅は CSS の min-width / max-width で決める。ここに px を書かない */
   h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
     'value="' + esc(boardFilter.q) + '"></label>';
@@ -6095,7 +6125,7 @@ function boardFilterBar(D, onlyOwner) {
 
 /* ②のコンサルタント名から③へ飛ぶ。担当で絞った状態で開く */
 function drillToBoard(name) {
-  boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "", view: "" };
+  boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
   go("consultant", "byowner", false, undefined, "keep");   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2） */
 }
 /* ①今日動く先の KPI から③へ。MTG 途絶の帯で絞った状態で開く（S-2。裁定: KPI を押したら案件そのものを絞って開く）。
@@ -6103,8 +6133,14 @@ function drillToBoard(name) {
    consultant: 今日動く先で担当を選んでいるとき。札の数字はその担当の実数（critical_by_consultant）なので、行き先も
    その担当のその帯にする。案件そのものは入るときに担当を外すので、「担当者ごとの案件」で開く（同じ表・同じ絞り込み欄） */
 function drillToBand(band, consultant) {
-  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band, view: "" };
+  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band, view: "", amount: "" };
   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2）。URL には #deal/board?band=critical の形で残る */
+  if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
+}
+/* 今日の札「接触の記録が無い」から、その名札で絞った案件一覧へ（09 の 3章 1 の 2）。担当を選んでいるときは drillToBand と同じ理由で
+   担当者ごとの案件をその担当で開く（札の数字はその担当の実数。行き先の母集団を揃える） */
+function drillToFlag(flag, consultant) {
+  boardFilter = { consultant: consultant || "", flag: flag, expiry: "", q: "", band: "", view: "", amount: "" };
   if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
 }
 
@@ -6564,6 +6600,7 @@ function renderToday(D0) {
         c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（名札2本以上）の中で。") + "全社では " + num(bandN("critical")) + " 件"
           : "うち " + num(G.forced_by_expiry) + " 件は満了90日前の途絶で引き上げたもの",
         crit ? "bad" : "", { band: "critical", consultant: c && CB ? c : "", text: c && CB ? "この担当の一覧を見る" : "全社の一覧を見る" }) +
+    todayNoContactKpi(D0, c) +
     kpi("今週満了する", num(soon.length) + '<span class="u">件</span>',
         "名札の本数に関わらず落としていません" +
         (c ? "（全社では " + num((D0.expiring_this_week || []).length) + " 件）" : ""),
@@ -6641,6 +6678,25 @@ function renderToday(D0) {
   }
 
   return h + foot(D.meta);
+}
+
+/** 今日の札「接触の記録が無い」（09 の 3章 1 の 2、2026-09-29 磨き込み）。押すと案件一覧をその名札で開く。
+    数はサーバが稼働中の全件から数えた実数（routes.rs build_today_board の meta.no_contact）。候補（名札2本以上）の中で数えると
+    名札がこの 1 本だけの案件が落ちる（MTG途絶の札と同じ理由）。
+    🔴 母数は開始済みの稼働中（開始前は名札を立てない）。率だけにせず件数と母数を並べる。
+    🔴 赤にしない。接触の記録が無いことは未測定で、放置とは別（成果と継続の 2軸リスクと同じ扱い。色で良し悪しを言わない）。
+    古い応答（no_contact が無い）では出さない（数えていないものを 0 と書かない） */
+function todayNoContactKpi(D0, c) {
+  const nc = (D0.meta || {}).no_contact;
+  if (!nc || !nc.label) return "";
+  const mine = c ? ((nc.by_consultant || {})[c] || { n: 0, base: 0 }) : null;
+  const n = mine ? mine.n : nc.n, base = mine ? mine.base : nc.base;
+  return kpi(nc.label, num(n) + '<span class="u">件</span>',
+    (mine ? "この担当の" : "") + "開始済みの稼働中 " + num(base) + " 件のうち" +
+      (base ? "（" + pct1(n / base * 100) + "）" : "") + "。" +
+      (mine ? "全社では " + num(nc.n) + " / " + num(nc.base) + " 件。" : "") +
+      "開始前の契約は数えていません",
+    "", { flag: nc.label, consultant: c || "", text: c ? "この担当の一覧を見る" : "案件一覧で見る" });
 }
 
 /** 今日の畳み「MTG 途絶の数え方と母数」。前は図「MTG が途絶えている先（全社）」の注記に書いていた（2026-09-29 に図を外した）。
@@ -6762,8 +6818,19 @@ function renderBoard(D) {
       const ks = Object.keys(per).sort((a, b) => per[b].n - per[a].n || a.localeCompare(b, "ja"));
       h += note("info", "担当者を選んでください",
         "上の「担当」で選ぶか、下の表で名前を押すと、その人の案件の表が出ます。" +
-        "名札・満了まで・案件名での絞り込みは、担当を選んだ後に出ます。" +
+        "名札・満了まで・契約総額・案件名での絞り込みは、担当を選んだ後に出ます。" +
         "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は " + goLink("deal", "board") + " にあります）。");
+      /* 🔴 担当を選ぶ前でも、URL（?view=・?flag= など）や案件一覧から持ってきた絞り込みは残っていて、担当を選んだ瞬間に掛かる。
+         前は何も書かずに持ち越していた（2026-09-29 磨き込み。#deal/byowner?view=silent を開くと持ち件数の表だけが出て、
+         選んだ後の表が見方で絞られる理由がどこにも無かった＝黙って絞る）。見方は案件一覧と同じ定義の1行と外れた件数を出し、
+         持ち件数には掛けていないことと、選ぶと掛かることを書く（持ち件数は見えない条件で減らさない、は変えない） */
+      /* ここでは担当が空なので、boardFilterOn・boardFilterWords は担当以外の絞り込みだけを見る */
+      if (boardFilter.view) h += boardViewNote(D);
+      if (boardFilterOn()) {
+        h += '<p class="muted small" id="byowner-pending">絞り込み（' + esc(boardFilterWords(D)) + "）は、下の持ち件数には掛けていません。" +
+          "担当を選ぶと、その担当の案件にこの絞り込みを掛けて出します。" +
+          '<button type="button" class="act" id="bf-clear">絞り込みを外す</button></p>';
+      }
       /* 🔴 「稼働中 604 件」が画面の頭の1行・この見出し・末尾の枠の3か所に出ていた（2026-09-24 実機）。
          ただし担当を選ぶ前の頭の1行（上の lede）には件数が無く、見出しと末尾から消すと0か所になった
          （2026-09-24 検証）。見出しは担当者の人数だけにし、稼働中の件数は末尾の1か所に出す */
@@ -6786,7 +6853,7 @@ function renderBoard(D) {
   let h = sec("問い", "いま、それぞれの案件はどこにいるか") +
     '<div class="lede">稼働中 ' + num(D.rows.length) +
     " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。" +
-    "<b>担当・名札・MTG途絶の帯・満了までの期間・案件名で絞り込めます。</b>" +
+    "<b>担当・名札・MTG途絶の帯・満了までの期間・契約総額・案件名で絞り込めます。</b>" +
     /* 段B: 手を打つ先（前は集計の画面ごとの表）は見方のボタンで出す。見方の名前はボタンの側（サーバの文）にだけ書く */
     "手を打つ先は「見方」のボタンで出せます（押すと定義と件数が出ます）。</div>";
 
@@ -6819,6 +6886,7 @@ function wireBoard() {
   pick("bf-flag", "flag");
   pick("bf-band", "band");
   pick("bf-expiry", "expiry");
+  pick("bf-amount", "amount");
   const q = document.getElementById("bf-q");
   if (q) {
     /* 1文字ごとに組み直すと重い。打ち終わってから当てる。
@@ -6853,7 +6921,7 @@ function wireBoard() {
      名札＋案件名「株式」で 0 件 → 押すと件数の行は 604 件、#bf-flag・#bf-q は前の値のまま）。
      欄だけ値を戻す手もあるが、選択肢の件数・既定値の組み立ては boardFilterBar 1 か所に置いておく。押す頻度は低い */
   if (cl) cl.onclick = () => {
-    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" };
+    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
     boardShowAll = false;
     redrawMain(boardCache);
   };
@@ -6891,6 +6959,9 @@ function wireToday() {
   });
   document.querySelectorAll("#cs-main button.kpi[data-band]").forEach((b) => {
     b.onclick = () => drillToBand(b.dataset.band, b.dataset.consultant || "");
+  });
+  document.querySelectorAll("#cs-main button.kpi[data-flag]").forEach((b) => {
+    b.onclick = () => drillToFlag(b.dataset.flag, b.dataset.consultant || "");
   });
   /* 担当の選択欄（D-1a）。選んだら端末に覚えて、手元のデータで描き直す（取り直さない）。
      欄は描き直しで作り直されるが、redrawMain が同じ id の欄へフォーカスを戻す（U9） */
@@ -8215,6 +8286,10 @@ const BOARD_URL_STATE = {
   expiry: { kind: "filter", get: () => boardFilter.expiry || "",
             set: (v) => { boardFilter.expiry = EXPIRY_BANDS.some((b) => b.k === v) ? v : ""; },
             reset: () => { boardFilter.expiry = ""; } },
+  /* 契約総額の帯（09 の 3章 2）。知らない鍵（貼られた URL）は既定へ */
+  amt: { kind: "filter", get: () => boardFilter.amount || "",
+         set: (v) => { boardFilter.amount = AMOUNT_BANDS.some((b) => b.k === v) ? v : ""; },
+         reset: () => { boardFilter.amount = ""; } },
   q: boardState("q"),
   sort: sortState(() => boardSort, (s) => { boardSort = s; }, BOARD_COLS, { key: "n_flags", asc: false }),
 };

@@ -1634,6 +1634,52 @@ check("D-1a", "担当を選んでいるときに MTG 途絶の札を押すと、
   t.R('todayConsultant = ""; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
 });
 
+/* 2026-09-29 磨き込み（09 の 3章 1 の 2）: 今日の札「接触の記録が無い」。押すと案件一覧をその名札で開く。
+   担当を選んでいるときは MTG 途絶の札と同じく、その担当で「担当者ごとの案件」を開く（札の数字と行き先の母集団を揃える） */
+check("09-1", "今日の札「接触の記録が無い」を押すと、案件一覧をその名札で開き URL に ?flag= が載る。担当を選んでいればその担当の担当者ごとの案件へ", async () => {
+  const L = "接触の記録が無い";
+  const t = boot();
+  const D = todayPayload([boardRow({ deal_id: "a", name: "上位", consultant: "担当A" })]);
+  D.meta.no_contact = { label: L, n: 7, base: 90, by_consultant: { "担当A": { n: 2, base: 10 } } };
+  t.ctx.__D = D;
+  t.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = "";');
+  const main0 = t.R("renderToday(__D)");
+  if (!/<button type="button" class="kpi" data-flag="接触の記録が無い"><span class="lbl">接触の記録が無い<\/span><span class="big">7</.test(main0))
+    throw new Error("札が名札で絞る button（全社 7 件）になっていない");
+  t.reg["cs-main"].innerHTML = main0;
+  const b = new t.El(""); b.dataset = { flag: L };
+  t.qsa["#cs-main button.kpi[data-flag]"] = [b];
+  t.R("wire(viewOf('deal', 'today'))");
+  if (typeof b.onclick !== "function") throw new Error("札に操作が付いていない");
+  b.onclick();
+  if (t.R("cur.menu + '/' + cur.view") !== "deal/board") throw new Error("案件一覧へ移っていない: " + t.R("cur.menu + '/' + cur.view"));
+  if (t.R("boardFilter.flag") !== L || t.R("boardFilter.consultant") !== "") throw new Error("名札だけで絞っていない");
+  if (t.loc.hash !== "#deal/board?flag=" + encodeURIComponent(L)) throw new Error("URL が案件一覧＋名札でない: " + t.loc.hash);
+  // 担当を選んでいるとき: 札はその担当の実数（2）で、押すとその担当の担当者ごとの案件をその名札で
+  const t2 = boot();
+  t2.ctx.__D = D;
+  t2.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = "担当A";');
+  const m2 = t2.R("renderToday(__D)");
+  if (!/data-flag="接触の記録が無い" data-consultant="担当A"><span class="lbl">接触の記録が無い<\/span><span class="big">2</.test(m2))
+    throw new Error("担当を選んだときの札が担当の実数（2）と担当を添えた形でない");
+  const b2 = new t2.El(""); b2.dataset = { flag: L, consultant: "担当A" };
+  t2.qsa["#cs-main button.kpi[data-flag]"] = [b2];
+  t2.R("wire(viewOf('deal', 'today'))");
+  b2.onclick();
+  if (t2.R("cur.menu + '/' + cur.view") !== "deal/byowner") throw new Error("担当者ごとの案件へ移っていない");
+  if (t2.loc.hash !== "#deal/byowner?c=" + encodeURIComponent("担当A") + "&flag=" + encodeURIComponent(L)) throw new Error("URL: " + t2.loc.hash);
+  t2.R('todayConsultant = "";');
+});
+check("09-2", "契約総額の帯は URL（?amt=）に載り、貼った URL で入る。帯に無い値は既定へ", async () => {
+  const t = boot("#deal/board?amt=50-100");
+  if (t.R("boardFilter.amount") !== "50-100") throw new Error("契約総額の帯が URL から入らない: " + t.R("boardFilter.amount"));
+  if (t.loc.hash !== "#deal/board?amt=50-100") throw new Error("開いた直後の URL: " + t.loc.hash);
+  if (t.R("hashFor('board', stateParams('board'))") !== "#deal/board?amt=50-100") throw new Error("hashFor に載らない");
+  const t2 = boot("#deal/board?amt=zzz");
+  if (t2.R("boardFilter.amount") !== "") throw new Error("帯に無い値（zzz）をそのまま入れている");
+  if (t2.loc.hash !== "#deal/board") throw new Error("無い値を URL から消していない: " + t2.loc.hash);
+});
+
 /* ================================================================ UI/UX 改善 段1（2026-09-28、handover 08） */
 check("S-5", "API の meta.hubspot_portal_id を最初の応答で覚え、表の案件名の横に HubSpot への HS が付く", async () => {
   const t = boot();
