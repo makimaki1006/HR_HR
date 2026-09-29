@@ -1382,3 +1382,23 @@ fn auto_table_guard_demo_hashmap_order_not_stable() {
         assert_ne!(h1, h2, "guard_demo: sort なし版で列順不安定を実証");
     }
 }
+
+/// 2026-09-29: wage_mode=both (native_unit="混合") では月給 (円/月) と時給 (円/時) が
+/// 同じ列に混ざり、どちらも「万円」で表示されていた (時給 1,200 円 → 0.1 万円)。
+/// 表 7-G / 7-H は出さずに理由を示す。
+#[test]
+fn mix_company_salary_tables_skip_mixed_wage_unit() {
+    let mut a = make_csv_company("月給病院", 3, 25.0, 30.0);
+    a.native_unit = "混合".to_string();
+    let mut b = make_csv_company("時給商店", 3, 0.12, 0.15);
+    b.native_unit = "混合".to_string();
+    let ranking = vec![a, b];
+    let g = build_navy_csv_company_salary_table(&ranking, 10);
+    assert!(g.contains("表 7-G"), "見出しは残す: {g}");
+    assert!(g.contains("単位を揃えられません"), "理由の注記: {g}");
+    assert!(!g.contains("時給商店"), "混在した行を出さない: {g}");
+    assert!(!g.contains("0.1"), "時給を万円で表示しない: {g}");
+    let h = build_navy_notable_companies_block(&ranking, 5);
+    assert!(h.contains("単位を揃えられません"), "表 7-H も注記: {h}");
+    assert!(!h.contains("時給商店"), "混在した行を出さない: {h}");
+}

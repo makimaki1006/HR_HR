@@ -826,7 +826,7 @@ fn render_consult_prep_panel(session_id: &str) -> String {
                            class="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-sm text-white placeholder-slate-500">
                 </div>
                 <div>
-                    <label class="block text-[11px] text-slate-400 mb-1">自社の給与条件 (任意、円)</label>
+                    <label class="block text-[11px] text-slate-400 mb-1">自社の給与条件 (任意、月給は円/月・時給は円/時)</label>
                     <div class="flex items-center gap-2">
                         <input type="number" id="consult-salary-min" min="0" placeholder="下限 例: 250000"
                                class="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-sm text-white placeholder-slate-500" aria-label="自社給与の下限">
