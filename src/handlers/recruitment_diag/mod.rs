@@ -30,6 +30,8 @@ mod render;
 
 #[cfg(test)]
 mod contract_tests;
+#[cfg(test)]
+mod snapshot_tests;
 
 // Panel 4-6 (担当B)
 pub mod competitors;
