@@ -3109,7 +3109,26 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
 /// 🔴 **スコアや確率を出さない。** 契約開始時点の AUC は 0.583 で、順位付けの
 /// 根拠にならない。代わりに**名札**（NPS4以下・満了が近い・接触が空いている等）を
 /// 立てて、その**本数**で並べる。何で上に来たかが画面で説明できる形にする。
+///
+/// 🔴 2026-09-29 磨き込み: シートを取り直すか日が変わるまで覚えておく（鍵は `act_view_diff_memo` と同じシート9枚と基準日）。
+///    行はシートと基準日だけで決まり、今日動く先・案件一覧・チームと担当・満了と継続・案件の詳細が同じ行を毎回数え直していた。
+///    fixture の実測（debug ビルド、ほかのビルドと同時に走らせた値）で `deal_rows` 1 回 約 1.2〜1.7 秒、
+///    案件一覧の応答（組み立て＋JSON 化、突き合わせは覚えた後）約 1.6〜1.9 秒のうちほとんどがここだった。
+///    覚えた後は同じ条件で 約 0.17〜0.34 秒（5回）。シートを取り直した直後の1回目は前と同じく数える
 pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
+    static MEMO: DiffMemo<(Vec<Value>, Value)> = std::sync::Mutex::new(None);
+    let (rows, mut meta) =
+        act_view_diff_memo_in(&MEMO, sheets, today, || deal_rows_uncached(sheets, today));
+    // 🔴 all_cached だけはシートの中身でなく「今回キャッシュから返せたか」なので、覚えた値でなく今回の値にする
+    //    （取り直した直後に覚えた false を、次の応答からもずっと返さない）
+    if let Some(m) = meta.as_object_mut() {
+        m.insert("all_cached".into(), json!(sheets.all_cached));
+    }
+    (rows, meta)
+}
+
+/// `deal_rows` の中身（覚えずに毎回数える）
+pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let who = consultant_of(&sheets.owner_hist);
@@ -3483,15 +3502,17 @@ fn act_view_diff_memo(sheets: &Sheets, today: NaiveDate, make: impl FnOnce() -> 
     act_view_diff_memo_in(&MEMO, sheets, today, make)
 }
 
-pub(super) type DiffMemo = std::sync::Mutex<Option<(DiffKey, Value)>>;
+pub(super) type DiffMemo<T = Value> = std::sync::Mutex<Option<(DiffKey, T)>>;
 
 /// 覚えておく場所を渡せる形（テストは自分の場所を使う。並んで走るほかのテストと取り合わない）
-pub(super) fn act_view_diff_memo_in(
-    memo: &DiffMemo,
+///
+/// 案件の行（`deal_rows`）も同じ鍵で覚えるので、中身の型は選べる（`T`）
+pub(super) fn act_view_diff_memo_in<T: Clone>(
+    memo: &DiffMemo<T>,
     sheets: &Sheets,
     today: NaiveDate,
-    make: impl FnOnce() -> Value,
-) -> Value {
+    make: impl FnOnce() -> T,
+) -> T {
     let key = diff_key(sheets, today);
     let same = |a: &DiffKey, b: &DiffKey| {
         a.0 == b.0 && a.1.iter().zip(b.1.iter()).all(|(x, y)| x.ptr_eq(y))
