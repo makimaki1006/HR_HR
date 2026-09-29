@@ -403,3 +403,5 @@ Core Seat 運用へ戻すことは可能。
 - HubSpot custom properties の追加有無
 - React App Shell / route layout
 - Rust API schema / OpenAPI generation 手段
+- 役割 (RBAC role) の保持先 (ADR-017 の候補から選ぶ)
+- Pending Sync Queue の保存先候補に「既存 audit Turso への表追加」を含める (AGENTS.md rule 7)
