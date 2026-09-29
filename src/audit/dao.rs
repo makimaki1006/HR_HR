@@ -106,6 +106,23 @@ pub fn upsert_account(
     Ok(id)
 }
 
+/// `is_email_disabled` の SQL (テストで本物の SQLite に流すため定数にしている)
+pub(crate) const IS_EMAIL_DISABLED_SQL: &str = "SELECT disabled_at FROM accounts \
+     WHERE lower(email) = lower(?1) AND disabled_at IS NOT NULL AND disabled_at <> '' \
+     LIMIT 1";
+
+/// email のアカウントが無効化 (`disabled_at` に値あり) されているか。
+///
+/// ログイン時 (OIDC・パスワードとも) に呼ぶ。email は大文字小文字を区別せずに照合する
+/// (パスワードログインでは入力どおりの表記で accounts に入っているため)。
+/// 未登録なら `Ok(false)`。
+pub fn is_email_disabled(turso: &TursoDb, email: &str) -> Result<bool, String> {
+    let rows = turso.query(IS_EMAIL_DISABLED_SQL, &[&email])?;
+    Ok(rows
+        .first()
+        .is_some_and(|r| !get_str(r, "disabled_at").trim().is_empty()))
+}
+
 /// アカウント全件取得 (管理者画面用、最大 limit 件)。
 pub fn list_accounts(turso: &TursoDb, limit: i64) -> Vec<AccountRow> {
     let rows = turso

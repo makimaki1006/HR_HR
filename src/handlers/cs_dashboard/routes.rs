@@ -48,6 +48,7 @@ use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::contact_trend::build_contact_trend;
+use super::money::{build_money, build_renewal_pipe};
 use super::{
     consultant_of, contacts_by_deal, cpa, customers_of, date10, deals_of, focus_of, latest_nps,
     load, opt_num, Deal, Outcome, Sheets,
@@ -71,6 +72,10 @@ pub fn router() -> Router<std::sync::Arc<AppState>> {
         .route("/api/consulting/deals", get(deal_board))
         .route("/api/consulting/today", get(today_board))
         .route("/api/consulting/deal-detail", get(deal_detail))
+        .route("/api/consulting/team", get(team))
+        .route("/api/consulting/results", get(results))
+        // 満了と継続（09 の 5、段B）。今月・来月・再来月に満了する稼働中の契約の件数・金額・ステージ
+        .route("/api/consulting/renewal-pipe", get(renewal_pipe))
 }
 
 #[derive(Template)]
@@ -205,6 +210,31 @@ simple_handler!(handover, build_handover);
 simple_handler!(contact_trend, build_contact_trend);
 simple_handler!(deal_board, build_deal_board);
 simple_handler!(today_board, build_today_board);
+simple_handler!(team, build_team);
+simple_handler!(renewal_pipe, build_renewal_pipe);
+
+/// 「成果と継続」。継続回数 × 成果の右側打ち切りの切り替え（`exclude_right_censored`）を受け取るので
+/// `simple_handler!` ではなく `renewal()` と同じ形にしている。読むシートは全部（束ねた6つの集計が全部を使う）
+async fn results(Query(q): Query<RenewalQuery>, session: Session) -> Result<Response, CqError> {
+    let _ = session;
+    let state = cq_state()?;
+    if q.refresh.as_deref() == Some("1") {
+        // 🔴 `invalidate(None)` にしない（架電クオリティ・営業KPI のキャッシュまで消える）
+        for name in super::SHEETS {
+            state.store.invalidate(Some(name)).await;
+        }
+    }
+    let sheets = load(&state.client, &state.store)
+        .await
+        .map_err(|e| CqError::from_anyhow("consulting", e))?;
+    let excl = q.exclude_right_censored.as_deref() == Some("1");
+    Ok(Json(freshen(
+        build_results(&sheets, excl, today_jst()),
+        &sheets,
+        today_jst(),
+    ))
+    .into_response())
+}
 
 #[derive(Debug, Deserialize)]
 struct CustomerQuery {
@@ -2628,6 +2658,8 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "oubo": d.oubo, "mensetu": d.mensetu, "syoudaku": d.syoudaku,
             "is_active": d.is_active, "right_censored": d.right_censored,
             "site": d.kyoten_key,
+            // 拠点の表示名（顧客の画面の拠点の表・選択欄）。site は照合用の鍵で人が読む名前ではない（Deal::site_name）
+            "site_name": d.site_name(),
         })).collect::<Vec<_>>(),
         "mtgs": mtgs,
         "cpa_by_site": by_site.iter().map(|(k, v)| json!({"site": k, "points": v}))
@@ -2776,8 +2808,10 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
             // 同じ日に複数行あって、どちらを採るかで担当が変わる取引
             "owner_ties": ties,
             "all_cached": sheets.all_cached,
-            "not_counted": "※ 担当者の評価ではありません。手が足りていない場所を見つけるための画面です。\
-    順位を付けていますが、良し悪しの判断は人がします",
+            // 🔴 最初の文はチームと担当の頭で畳まずに出る（画面の foldNote の keep）。09 の 6「仕事量の一覧で、担当者の評価ではありません」。
+            //    「順位を付けていますが」は外した（2026-09-29 組み替えで表は名前順が既定になり、順位を付けていない）
+            "not_counted": "※ 仕事量の一覧で、担当者の評価ではありません。手が足りていない場所を見つけるための画面です。\
+    良し悪しの判断は人がします",
         },
         "contact_rule": "接触 ＝ MTG または60秒超の通話（メールは数えない）。\
     接触率 ＝ 接触があった月 ÷（案件 × 経過月）。件数ではなく率で見るのは、\
@@ -2796,6 +2830,276 @@ pub fn build_consultants(sheets: &Sheets, today: NaiveDate) -> Value {
     同じ日に複数行ある取引では、シートで後に来る行（＝追記順で新しい方）を採っています",
         "rows": rows,
     })
+}
+
+// ================================================================ 見方の印（段B、09 の 10 章②）
+
+/// 名札「接触が30日以上空いている」。文字は `deal_rows` の名札そのもの
+const FLAG_CONTACT_GAP30: &str = "接触が30日以上空いている";
+/// 見方「最優先」の金額の線。前の成果とリスクの軸（満了60日以内 かつ 50万円以上）と同じ
+const ACT_TOP_MIN_AMOUNT: f64 = 500_000.0;
+/// 見方「接触が90日を超えて無い」の日数。前の電話の「沈黙している取引」（最後の接触から90日超）と同じ
+const ACT_SILENT_DAYS: i64 = 90;
+/// MTG のリスク判定で「高」とする値（CS_MTG の `リスク判定` 列の値そのもの）
+const MTG_RISK_HIGH: &str = "高";
+
+/// 案件一覧の「見方」1つ。
+pub(super) struct ActView {
+    /// URL の `?view=` と行の `views` に入る鍵
+    pub key: &'static str,
+    /// 画面に出す名前
+    pub label: &'static str,
+    /// 定義の1行（画面にそのまま出る）
+    pub rule: &'static str,
+    /// 前の定義の出どころ（画面に出す）。前に一覧が無かったものは None
+    pub old: Option<&'static str>,
+}
+
+/// 集計の「手を打つ先」の表4つを、名札（`deal_rows` の印）に寄せ直したもの。
+///
+/// 🔴 2026-09-29 藤巻さんの判断（09 の 10 章②）: 表ごとに違っていた定義を、案件一覧の名札と帯に揃える。
+///    前の定義で入っていて外れる案件は、`act_view_diff` が件数と理由つきで返す（黙って消さない）。
+///    どれも名札・帯・行の値だけで決まる（行を見れば、なぜ入ったかが分かる）。
+pub(super) const ACT_VIEWS: [ActView; 4] = [
+    ActView {
+        key: "top",
+        label: "最優先（満了が近く、接触も空いている）",
+        rule: "名札「満了まで60日以内」と、接触の名札（「接触の記録が無い」か「接触が30日以上空いている」）の\
+両方がつき、金額が50万円以上の案件",
+        old: Some("成果とリスクの「最優先（2軸とも赤）」"),
+    },
+    ActView {
+        key: "silent",
+        label: "接触が90日を超えて無い",
+        rule: "名札「接触の記録が無い」、または名札「接触が30日以上空いている」のうち最後の接触から90日を超える案件。\
+接触は MTG または60秒超の通話です（電話だけでは数えません）。契約開始前の案件は名札と同じく入れていません",
+        old: Some("電話の「沈黙している取引」（60秒超の通話だけで数え、マーケ関連を外していた）"),
+    },
+    ActView {
+        key: "no_mtg",
+        label: "初回契約で MTG の記録が無い",
+        rule: "初回契約で、MTG途絶の帯が「MTGの記録が無い」の案件（録画とメール由来の実施日のどちらにも無い）。\
+立ち上がり期（契約開始30日以内）と開始前は帯を付けないので入りません。記録が無いことと、やっていないことは別です",
+        old: Some("立ち上がりの「MTG の記録がまだ無い初回契約」（録画だけで数え、マーケ関連を外していた）"),
+    },
+    ActView {
+        key: "mtg_risk",
+        label: "MTG でリスク高",
+        rule: "リスク判定のある MTG のうち、いちばん新しいものの判定が「高」の案件。\
+抽出を通していない MTG は判定が無いので、その前の判定を見ています",
+        old: None,
+    },
+];
+
+/// 見方の印を決める材料（`deal_rows` の1行ぶん）。
+pub(super) struct ActFacts<'a> {
+    pub flags: &'a [&'a str],
+    pub amount: Option<f64>,
+    pub not_started: bool,
+    pub days_since_contact: Option<i64>,
+    pub renewal_no: Option<i64>,
+    pub band: super::MtgBand,
+    pub mtg_risk: Option<&'a str>,
+}
+
+/// 1件の案件に立つ見方の鍵（`ACT_VIEWS` の順）。🔴 名札・帯・行の値だけで決める（別の数え方を持ち込まない）
+pub(super) fn act_views_of(f: &ActFacts) -> Vec<&'static str> {
+    let has = |x: &str| f.flags.contains(&x);
+    let contact_flag = has(TEAM_FLAG_NO_CONTACT) || has(FLAG_CONTACT_GAP30);
+    let mut out = Vec::new();
+    if has(TEAM_FLAG_EXPIRY60)
+        && contact_flag
+        && matches!(f.amount, Some(a) if a >= ACT_TOP_MIN_AMOUNT)
+    {
+        out.push("top");
+    }
+    // 開始前は接触の名札が立たないので、ここも入らない（not_started は念のため明示）
+    if !f.not_started
+        && (has(TEAM_FLAG_NO_CONTACT)
+            || (has(FLAG_CONTACT_GAP30)
+                && matches!(f.days_since_contact, Some(x) if x > ACT_SILENT_DAYS)))
+    {
+        out.push("silent");
+    }
+    if f.renewal_no == Some(0) && f.band == super::MtgBand::NoRecord {
+        out.push("no_mtg");
+    }
+    if f.mtg_risk == Some(MTG_RISK_HIGH) {
+        out.push("mtg_risk");
+    }
+    out
+}
+
+/// 取引ごとに、リスク判定のある MTG のうちいちばん新しいものの（開催日, 判定）。
+///
+/// 🔴 判定が空の MTG は「まだ抽出を通していない」（`build_mtg_quality` の filled_note）ので飛ばす。
+///    空を「判定なし＝リスクなし」にすると、抽出が遅れているだけの案件が前の「高」から外れる。
+///    同じ日に複数ある取引は、重い方（高 ＞ 中 ＞ 低 ＞ その他）を採る（軽い方を採って見落とさない）。
+pub(super) fn latest_mtg_risk_by_deal(mtg: &SheetData) -> HashMap<String, (NaiveDate, String)> {
+    let weight = |v: &str| match v {
+        "高" => 3,
+        "中" => 2,
+        "低" => 1,
+        _ => 0,
+    };
+    let mut out: HashMap<String, (NaiveDate, String)> = HashMap::new();
+    for row in &mtg.rows {
+        let deal = mtg.get(row, "deal_id");
+        let v = mtg.get(row, "リスク判定").trim();
+        if deal.is_empty() || v.is_empty() {
+            continue;
+        }
+        let Some(d) = date10(mtg.get(row, "開催日")) else {
+            continue;
+        };
+        let e = out
+            .entry(deal.to_string())
+            .or_insert_with(|| (d, v.to_string()));
+        if d > e.0 || (d == e.0 && weight(v) > weight(&e.1)) {
+            *e = (d, v.to_string());
+        }
+    }
+    out
+}
+
+/// 見方ごとに、前の定義の集合と新しい印の集合を deal_id で突き合わせる。
+///
+/// 🔴 寄せ直した最初の版では、前の定義で入っていて外れた案件を**件数と理由つきで**画面に出す（09 の 10 章②）。
+///    前の集合は前の関数そのもの（`risk` / `build_phone` / `no_mtg`）から取る。ここで前の定義を書き直さない。
+///    理由は、その案件の行（名札・帯・日数）から「新しい定義のどこに当たらなかったか」を言うだけにする（推定を足さない）。
+pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -> Value {
+    let deals = deals_of(&sheets.deal);
+    let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
+    let (contacts, _, _) = contacts_by_deal(&sheets.call, &sheets.mtg);
+    let ids = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|r| r["deal_id"].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let old_top = ids(&risk(&act, &contacts, today)["top"]);
+    let old_silent = ids(&build_phone(sheets, today)["silent"]["rows"]);
+    let old_no_mtg = ids(&no_mtg(&act, &first_mtg_by_deal(&sheets.mtg), today)["rows"]);
+
+    let by_id: HashMap<&str, &Value> = rows
+        .iter()
+        .filter_map(|r| r["deal_id"].as_str().map(|id| (id, r)))
+        .collect();
+    let has_flag = |r: &Value, f: &str| {
+        r["flags"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|x| x == f))
+    };
+    // 外れた案件1件の理由。新しい定義のうち当たらなかった条件を並べる
+    let reason = |key: &str, r: &Value| -> String {
+        let mut why: Vec<String> = Vec::new();
+        let days = r["days_since_contact"].as_i64();
+        let contact_words = || match days {
+            Some(x) => format!("最後の接触（MTG か60秒超の通話）から {x}日"),
+            None => "接触の記録が無い".to_string(),
+        };
+        match key {
+            "top" => {
+                if !has_flag(r, TEAM_FLAG_EXPIRY60) {
+                    why.push("名札「満了まで60日以内」が無い".into());
+                }
+                if r["not_started"] == true {
+                    why.push("契約開始前（接触の名札を立てない）".into());
+                } else if !has_flag(r, TEAM_FLAG_NO_CONTACT) && !has_flag(r, FLAG_CONTACT_GAP30) {
+                    why.push(format!(
+                        "接触の名札が無い（{}。契約前の接触も数えるため）",
+                        contact_words()
+                    ));
+                }
+                if !matches!(r["amount"].as_f64(), Some(a) if a >= ACT_TOP_MIN_AMOUNT) {
+                    why.push("金額が50万円未満か空".into());
+                }
+            }
+            "silent" => {
+                if r["not_started"] == true {
+                    why.push("契約開始前（接触の名札を立てない）".into());
+                } else {
+                    why.push(format!("{}（90日以内）", contact_words()));
+                }
+            }
+            "no_mtg" => {
+                if r["renewal_no"].as_i64() != Some(0) {
+                    why.push("初回契約ではない".into());
+                }
+                let band = r["mtg_band_label"].as_str().unwrap_or("");
+                if r["mtg_band"] != "no_record" {
+                    let src = r["mtg_source_label"].as_str().unwrap_or("");
+                    why.push(if r["mtg_last"].is_null() {
+                        format!("MTG途絶の帯が「{band}」")
+                    } else {
+                        format!("MTG途絶の帯が「{band}」（最終 MTG の出どころ: {src}）")
+                    });
+                }
+            }
+            _ => {}
+        }
+        if why.is_empty() {
+            why.push("新しい定義の条件に当たらない".into());
+        }
+        why.join("・")
+    };
+
+    let out: Vec<Value> = ACT_VIEWS
+        .iter()
+        .map(|v| {
+            let now: Vec<&str> = rows
+                .iter()
+                .filter(|r| {
+                    r["views"]
+                        .as_array()
+                        .is_some_and(|a| a.iter().any(|x| x == v.key))
+                })
+                .filter_map(|r| r["deal_id"].as_str())
+                .collect();
+            let old: Option<&Vec<String>> = match v.key {
+                "top" => Some(&old_top),
+                "silent" => Some(&old_silent),
+                "no_mtg" => Some(&old_no_mtg),
+                _ => None,
+            };
+            let Some(old) = old else {
+                return json!({ "key": v.key, "label": v.label, "n": now.len(), "old": null });
+            };
+            let now_set: HashSet<&str> = now.iter().copied().collect();
+            let old_set: HashSet<&str> = old.iter().map(String::as_str).collect();
+            let dropped: Vec<Value> = old
+                .iter()
+                .filter(|id| !now_set.contains(id.as_str()))
+                .map(|id| {
+                    let r = by_id.get(id.as_str());
+                    json!({
+                        "deal_id": id,
+                        "name": r.map(|r| r["name"].clone()).unwrap_or(Value::Null),
+                        "consultant": r.map(|r| r["consultant"].clone()).unwrap_or(Value::Null),
+                        "reason": r.map(|r| reason(v.key, r))
+                            .unwrap_or_else(|| "案件一覧（稼働中）に無い".to_string()),
+                    })
+                })
+                .collect();
+            let added = now.iter().filter(|id| !old_set.contains(*id)).count();
+            json!({
+                "key": v.key, "label": v.label, "n": now.len(),
+                "old": {
+                    "where": v.old,
+                    "n": old.len(),
+                    "kept": old.len() - dropped.len(),
+                    "dropped": dropped.len(),
+                    // 前の定義には無く、新しい印で入った件数
+                    "added": added,
+                    "dropped_rows": dropped,
+                },
+            })
+        })
+        .collect();
+    json!(out)
 }
 
 // ================================================================ 案件の立ち位置 / 今日動く先
@@ -2850,6 +3154,8 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
     let mut cover_rec = 0usize;
     let mut cover_mail = 0usize;
     let mut cover_any = 0usize;
+    let mut view_count: BTreeMap<&str, usize> = BTreeMap::new();
+    let mtg_risk = latest_mtg_risk_by_deal(&sheets.mtg);
     for d in &act {
         let (owner, retired) = who
             .get(&d.id)
@@ -2959,6 +3265,21 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
             *flag_count.entry(f).or_insert(0) += 1;
         }
 
+        // ---- 見方の印（段B、09 の 10 章②）。🔴 上の名札と帯から作る。名札の本数（n_flags）には入れない ----
+        let mrisk = mtg_risk.get(d.id.as_str());
+        let views = act_views_of(&ActFacts {
+            flags: &flags,
+            amount: d.amount,
+            not_started,
+            days_since_contact: days_since,
+            renewal_no: d.renewal_no,
+            band: gap.band,
+            mtg_risk: mrisk.map(|(_, r)| r.as_str()),
+        });
+        for v in &views {
+            *view_count.entry(v).or_insert(0) += 1;
+        }
+
         let oubo = hist_last(d, "oubo");
         let mensetu = hist_last(d, "mensetu");
         let syoudaku = hist_last(d, "syoudaku");
@@ -3009,6 +3330,13 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
             "cpa_band": cband.map(|b| CPA_BANDS[b].0),
             "flags": flags,
             "n_flags": flags.len(),
+            // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が無い」の材料
+            "renewal_no": d.renewal_no,
+            // 判定のある MTG のうち、いちばん新しいもののリスク判定と開催日（無ければ null）
+            "mtg_risk": mrisk.map(|(_, r)| r.clone()),
+            "mtg_risk_date": mrisk.map(|(dt, _)| dt.to_string()),
+            // 見方の印（ACT_VIEWS の key）。案件一覧の「見方」ボタンはこれで絞る
+            "views": views,
         }));
     }
 
@@ -3095,14 +3423,92 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
     （0.5 で当て推量と同じ）で、順位付けの根拠になりません。何で上に来たかは、その行の名札を見れば分かります",
         "not_counted": "※ 予測ではありません。既にあるデータに名札を付けて並べただけです。\
     手を打つかどうかは中身を読んで決めてください",
+        // 見方の印（段B）。定義の1行と件数。画面は並びをこの順に出す
+        "act_views": ACT_VIEWS.iter().map(|v| json!({
+            "key": v.key, "label": v.label, "rule": v.rule,
+            "n": view_count.get(v.key).copied().unwrap_or(0),
+        })).collect::<Vec<_>>(),
     });
     (rows, meta)
 }
 
 /// ②案件の立ち位置。稼働中の全件を返す（画面で並び替える）。
+/// 🔴 見方の突き合わせ（`act_view_diff`）はここだけで返す（今日動く先・チームと担当には要らない）。
 pub fn build_deal_board(sheets: &Sheets, today: NaiveDate) -> Value {
-    let (rows, meta) = deal_rows(sheets, today);
+    let (rows, mut meta) = deal_rows(sheets, today);
+    if let Some(m) = meta.as_object_mut() {
+        m.insert(
+            "act_view_diff".into(),
+            act_view_diff_memo(sheets, today, || act_view_diff(sheets, today, &rows)),
+        );
+    }
     json!({"meta": meta, "rows": rows})
+}
+
+/// 見方の突き合わせを覚えておく鍵。読んだシート9枚（の置き場所）と基準日。
+///
+/// 🔴 シートは `SheetStore` がキャッシュした `Arc` をそのまま渡してくるので、取り直すまでは同じ `Arc` になる。
+///    `Weak` で持つのは、覚えている間にシートの割り当てが解放されて同じ番地が別のシートに使われ、
+///    違うデータを同じ鍵と見なすのを防ぐため（`Weak` は中身を持ち続けない。取り直した後の古い中身は解放される）。
+pub(super) type DiffKey = (NaiveDate, [std::sync::Weak<SheetData>; 9]);
+
+fn diff_key(sheets: &Sheets, today: NaiveDate) -> DiffKey {
+    let w = std::sync::Arc::downgrade;
+    (
+        today,
+        [
+            w(&sheets.deal),
+            w(&sheets.call),
+            w(&sheets.mtg),
+            w(&sheets.history),
+            w(&sheets.customer),
+            w(&sheets.mail_mtg),
+            w(&sheets.handover),
+            w(&sheets.owner_hist),
+            w(&sheets.meta),
+        ],
+    )
+}
+
+/// `act_view_diff` を、シートを取り直すか日が変わるまで覚えておく。
+///
+/// 🔴 2026-09-29 検証の指摘: 前の定義の集合を取るのに電話の集計（`build_phone`）ごと回していて、案件一覧を開くたびに
+///    重くなっていた。fixture の実測（debug ビルド・5回平均）で `deal_rows` 約 990ms に対し `act_view_diff` 約 580ms、
+///    うち `build_phone` 約 350ms。前の定義は前の関数そのものから取る決まり（`act_view_diff` の説明）は変えず、
+///    同じシートと基準日なら結果は同じなので、覚えておいて使い回す。
+///    突き合わせは `deal_rows` の行から作るが、行もシートと基準日だけで決まるので、鍵はシートと基準日で足りる。
+///    生成時刻のシートが読めなかったときは毎回新しい空のシートになるので、覚えたものは使われない（前と同じく毎回数える）。
+fn act_view_diff_memo(sheets: &Sheets, today: NaiveDate, make: impl FnOnce() -> Value) -> Value {
+    static MEMO: DiffMemo = std::sync::Mutex::new(None);
+    act_view_diff_memo_in(&MEMO, sheets, today, make)
+}
+
+pub(super) type DiffMemo = std::sync::Mutex<Option<(DiffKey, Value)>>;
+
+/// 覚えておく場所を渡せる形（テストは自分の場所を使う。並んで走るほかのテストと取り合わない）
+pub(super) fn act_view_diff_memo_in(
+    memo: &DiffMemo,
+    sheets: &Sheets,
+    today: NaiveDate,
+    make: impl FnOnce() -> Value,
+) -> Value {
+    let key = diff_key(sheets, today);
+    let same = |a: &DiffKey, b: &DiffKey| {
+        a.0 == b.0 && a.1.iter().zip(b.1.iter()).all(|(x, y)| x.ptr_eq(y))
+    };
+    if let Ok(g) = memo.lock() {
+        if let Some((k, v)) = g.as_ref() {
+            if same(k, &key) {
+                return v.clone();
+            }
+        }
+    }
+    // 計算は鍵を放してから（重い計算の間、ほかの応答を待たせない）
+    let v = make();
+    if let Ok(mut g) = memo.lock() {
+        *g = Some((key, v.clone()));
+    }
+    v
 }
 
 /// ③今日動く先。
@@ -3225,5 +3631,146 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
         "expiring_this_week": soon,
         "started_this_week": started,
         "not_started": not_started,
+    })
+}
+
+// ================================================================ チームと担当 / 成果と継続（09 の組み替え）
+
+/// 「名札2本以上」の線。🔴 今日動く先（`build_today_board` の `MIN_FLAGS`）と同じ値にする。
+/// チームと担当の「名札2本以上」を押すと今日動く先をその担当で開くので、数がずれると押した先の件数と合わない
+/// （見張り tests.rs `team_status_matches_today_and_board`）
+const TEAM_MIN_FLAGS: u64 = 2;
+/// 「今週満了」の日数。今日動く先の「今週満了」（`build_today_board` の 0..=7）と同じ
+const TEAM_EXPIRY_WEEK_DAYS: i64 = 7;
+/// 担当者 × 状態の表で数える名札。文字は `deal_rows` の名札そのもの（画面はこの文字で案件そのものを絞る）
+const TEAM_FLAG_NO_CONTACT: &str = "接触の記録が無い";
+const TEAM_FLAG_EXPIRY60: &str = "満了まで60日以内";
+const TEAM_FLAG_NPS_LOW: &str = "NPSが4以下";
+
+/// 「チームと担当」（09 の 6）。担当者の一覧・担当者ごとの接触・担当の交代を1画面にまとめる。
+///
+/// 🔴 中身は今までの集計をそのまま束ねる（`consultants` / `contact` / `handover`）。定義を作り直さない。
+///    足したのは担当者 × 状態の表（`status`）だけで、数は `deal_rows`（案件そのもの・今日動く先と同じ行）から数える。
+///    表の数を押すと案件そのもの・今日動く先をその担当と名札で開くので、同じ行から数えないと押した先の件数と合わない。
+/// 🔴 「接触の記録なし」は名札（開始前は立てない）で数える。担当者の一覧の `no_contact`（開始前も数える）とは別の数なので、
+///    画面は名札の方だけを出す（押した先の件数と合わせるため）。
+/// 🔴 人ごとの金額は出さない（2026-09-29 藤巻さんの判断④「金額は会社全体だけ」）。ATV 最大はここでは使わない。
+pub fn build_team(sheets: &Sheets, today: NaiveDate) -> Value {
+    let consultants = build_consultants(sheets, today);
+    let (rows, _) = deal_rows(sheets, today);
+
+    #[derive(Default)]
+    struct S {
+        n: usize,
+        flags2: usize,
+        critical: usize,
+        no_contact: usize,
+        expiring60: usize,
+        expiring_week: usize,
+        nps_low: usize,
+        retired: bool,
+    }
+    let mut by: BTreeMap<String, S> = BTreeMap::new();
+    let mut unknown = S::default();
+    let (mut flags2_all, mut week_all) = (0usize, 0usize);
+    for r in &rows {
+        let name = r["consultant"].as_str().unwrap_or("");
+        let has = |f: &str| {
+            r["flags"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|x| x == f))
+        };
+        let flags2 = r["n_flags"].as_u64().unwrap_or(0) >= TEAM_MIN_FLAGS;
+        let week =
+            matches!(r["days_left"].as_i64(), Some(x) if (0..=TEAM_EXPIRY_WEEK_DAYS).contains(&x));
+        if flags2 {
+            flags2_all += 1;
+        }
+        if week {
+            week_all += 1;
+        }
+        // 担当が取れない行は人の行に混ぜない（担当者の一覧と同じ。件数は別に返す）
+        let e = if name.is_empty() {
+            &mut unknown
+        } else {
+            by.entry(name.to_string()).or_default()
+        };
+        e.n += 1;
+        e.flags2 += usize::from(flags2);
+        e.critical += usize::from(r["mtg_band"] == "critical");
+        e.no_contact += usize::from(has(TEAM_FLAG_NO_CONTACT));
+        e.expiring60 += usize::from(has(TEAM_FLAG_EXPIRY60));
+        e.expiring_week += usize::from(week);
+        e.nps_low += usize::from(has(TEAM_FLAG_NPS_LOW));
+        e.retired |= r["retired"] == true;
+    }
+    let status_rows: Vec<Value> = by
+        .iter()
+        .map(|(name, s)| {
+            json!({
+                "consultant": name,
+                "n_active": s.n,
+                "n_flags2": s.flags2,
+                "mtg_critical": s.critical,
+                "no_contact": s.no_contact,
+                "expiring60": s.expiring60,
+                "expiring_week": s.expiring_week,
+                "nps_low": s.nps_low,
+                "retired": s.retired,
+            })
+        })
+        .collect();
+
+    json!({
+        // 画面の頭（担当者の人数・退職者・担当が取れない件数）と末尾の基準日は担当者の一覧と同じ meta を使う
+        "meta": consultants["meta"].clone(),
+        "consultants": consultants,
+        "status": {
+            "rows": status_rows,
+            "meta": {
+                "n_active": rows.len(),
+                "n_flags2": flags2_all,
+                "expiring_week": week_all,
+                "min_flags": TEAM_MIN_FLAGS,
+                "week_days": TEAM_EXPIRY_WEEK_DAYS,
+                "mtg_critical_days": super::MTG_GAP_CRITICAL_DAYS,
+                // 担当が取れない行の数（人の行には入れていない）
+                "unknown": { "n_active": unknown.n, "n_flags2": unknown.flags2,
+                             "mtg_critical": unknown.critical, "no_contact": unknown.no_contact,
+                             "expiring60": unknown.expiring60, "nps_low": unknown.nps_low },
+                // 画面が案件そのものを絞るときの名札の文字（画面に直書きしない）
+                "flag_labels": { "no_contact": TEAM_FLAG_NO_CONTACT, "expiring60": TEAM_FLAG_EXPIRY60,
+                                 "nps_low": TEAM_FLAG_NPS_LOW },
+            },
+        },
+        "contact": build_contact_trend(sheets, today),
+        "handover": build_handover(sheets, today),
+    })
+}
+
+/// 「成果と継続」（09 の 7、月1）。継続回数 × 成果・成果とリスク・いま見るべき顧客の図・立ち上がり・
+/// 本部アプローチを1画面に束ねる。🔴 中身は今までの集計そのまま（定義を作り直さない）。
+/// 🔴 電話（`phone`）は外した（段B、2026-09-29）。「手を打つ先」の表（沈黙している取引）を畳んで残すためだけに
+///    入れていたもので、手を打つ先は案件一覧の見方の印（`ACT_VIEWS`）に移った。電話の画面そのものは残っている（10 章⑤）。
+pub fn build_results(sheets: &Sheets, exclude_right_censored: bool, today: NaiveDate) -> Value {
+    json!({
+        "meta": {
+            "today": today.to_string(),
+            "all_cached": sheets.all_cached,
+            "exclude_right_censored": exclude_right_censored,
+            // 定期NPS 4以下の表（focus.nps_low）は名札「NPSが4以下」と同じ集合（fixture で 41 件、deal_id 41/41 一致）。
+            // 画面は表を畳みに入れず、この名札で絞った案件一覧へのリンクにする。名札の文字は正本（deal_rows）から渡す
+            "nps_flag": TEAM_FLAG_NPS_LOW,
+            // 手を打つ先は案件一覧の見方に移った（段B）。画面はこの鍵と名前で案件一覧へのリンクを作る（件数は案件一覧で数える）
+            "act_views": ACT_VIEWS.iter().map(|v| json!({"key": v.key, "label": v.label, "old": v.old}))
+                .collect::<Vec<_>>(),
+        },
+        "renewal": build_renewal(sheets, exclude_right_censored),
+        "outcome": build_outcome(sheets, today),
+        "focus": build_focus(sheets, today),
+        "rampup": build_rampup(sheets, today),
+        "headquarters": build_headquarters(sheets, today),
+        // 金額の札（稼働中の合計・今月〜再来月に満了する金額・金額で見た継続率）。会社全体だけ（10 章④。段B）
+        "money": build_money(sheets, today),
     })
 }

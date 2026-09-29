@@ -286,6 +286,20 @@ async fn main() {
 
     // 監査DB (audit) は上の tokio::join! で turso_db / salesnow_db と並列に初期化済み。
 
+    // Google Workspace OIDC (ADR-017)。起動時には Google と通信しない
+    // (Discovery / JWKS は最初のログイン時に取得してキャッシュ)。
+    let google_oidc = rust_dashboard::config::GoogleOidcConfig::from_env().map(|cfg| {
+        tracing::info!(
+            "Google OIDC ログイン: 有効 (hd={}, redirect={})",
+            cfg.hosted_domain,
+            cfg.redirect_url
+        );
+        Arc::new(rust_dashboard::auth::google_oidc::GoogleOidc::new(cfg))
+    });
+    if google_oidc.is_none() {
+        tracing::info!("Google OIDC ログイン: 無効 (GOOGLE_OIDC_* 未設定)");
+    }
+
     let state = Arc::new(AppState {
         config,
         hw_db,
@@ -297,6 +311,7 @@ async fn main() {
         rate_limiter,
         company_geo_cache,
         audit,
+        google_oidc,
     });
 
     // Phase 3-C: 監査ログ自動削除バッチ (1年より古い entry を削除)

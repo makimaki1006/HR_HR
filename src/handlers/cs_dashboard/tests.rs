@@ -22,7 +22,7 @@ use serde_json::Value;
 use super::routes::{
     build_consultants, build_customer, build_data_quality, build_deal_board, build_focus,
     build_handover, build_headquarters, build_mtg_quality, build_outcome, build_phone,
-    build_rampup, build_renewal, build_today_board,
+    build_rampup, build_renewal, build_results, build_team, build_today_board,
 };
 use super::Sheets;
 use crate::handlers::call_quality::sheets::SheetData;
@@ -1776,6 +1776,8 @@ fn 全画面で母集団の件数が一致する() {
         ("案件そのもの", f(build_deal_board(&sh, day))),
         ("今日動く先", f(build_today_board(&sh, day))),
         ("顧客ごとに見る", f(build_customer(&sh, None, day))),
+        ("チームと担当", f(build_team(&sh, day))),
+        ("成果と継続", f(build_results(&sh, false, day))),
     ];
 
     let want = 604;
@@ -5360,6 +5362,59 @@ fn 案件の詳細は通話要約をcall_idで結び_無いときも開く() {
     assert_eq!(e["meta"]["summary_sheet"], "empty");
 }
 
+/// 案件の詳細のパンくず（法人 ＞ 拠点 ＞ この案件、09 の 3・08 の M-3）の鍵。
+/// 法人名は CS_顧客 から引き、拠点の鍵は顧客の応答（build_customer）の `deals[].site` と同じ値であること
+/// （画面は `#deal/customer?houjin=…&site=…` でその拠点を開く。鍵がずれると別の拠点・既定の拠点が開く）。
+/// CS_顧客 に無い法人番号には名前を返さない（画面はリンクにしない。開くと「見つかりません」になるため）。
+#[test]
+fn 案件の詳細は法人と拠点の鍵を顧客の画面と同じ値で返す() {
+    let sh = sheets();
+    let cust = super::customers_of(&sh.customer);
+    let deals = super::deals_of(&sh.deal);
+    let d = deals
+        .iter()
+        .find(|d| !d.kyoten_key.is_empty() && cust.iter().any(|c| c.houjin == d.houjin_resolved))
+        .expect("fixture に法人と拠点のそろった取引がある");
+    let v = build_deal_detail(&sh, None, Some(&d.id), None, fixture_day());
+    let want = &cust
+        .iter()
+        .find(|c| c.houjin == d.houjin_resolved)
+        .unwrap()
+        .name;
+    assert_eq!(v["deal"]["houjin"], d.houjin_resolved.as_str());
+    assert_eq!(v["deal"]["houjin_name"], want.as_str());
+    assert_eq!(v["deal"]["site_key"], d.kyoten_key.as_str());
+    // 顧客の画面の応答に、同じ鍵の拠点がある
+    let c = build_customer(&sh, Some(&d.houjin_resolved), fixture_day());
+    assert!(
+        c["deals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["deal_id"] == d.id.as_str() && x["site"] == d.kyoten_key.as_str()),
+        "顧客の応答の deals[].site と site_key が合わない"
+    );
+    // 顧客の画面の拠点の名前は表示名（site_name）。照合用の鍵（site）を名前に使わない
+    let row = c["deals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["deal_id"] == d.id.as_str())
+        .unwrap();
+    assert_eq!(row["site_name"].as_str(), d.site_name());
+    // CS_顧客 に無い法人番号には名前を返さない
+    let lone = deals.iter().find(|d| {
+        !d.houjin_resolved.is_empty() && !cust.iter().any(|c| c.houjin == d.houjin_resolved)
+    });
+    if let Some(x) = lone {
+        let v = build_deal_detail(&sh, None, Some(&x.id), None, fixture_day());
+        assert!(
+            v["deal"]["houjin_name"].is_null(),
+            "CS_顧客 に無い法人に名前がある"
+        );
+    }
+}
+
 #[test]
 fn 案件の詳細は取引が無いときは探す欄を返し_オプションは出さない() {
     let sh = sheets();
@@ -5779,4 +5834,677 @@ fn 今日動く先の絞った条件に画面名を書かない() {
         rule.contains("件を出しています") && rule.contains("線引きは取り決めです"),
         "{rule}"
     );
+}
+
+/// 09 の 6「チームと担当」: 担当者 × 状態の表の数は、押した先（今日動く先の候補・案件そのものの名札）と同じ行から数える。
+/// 🔴 表の「名札2本以上 N 件」を押すと今日動く先をその担当で開く。数え方が違うと押した先の件数と合わない
+///    （担当者の一覧の no_contact は開始前も数え、名札は開始前に立てない。fixture で数が違う担当がいる）。
+#[test]
+fn team_status_matches_today_and_board() {
+    let sh = sheets();
+    let day = fixture_day();
+    let team = build_team(&sh, day);
+    let today = build_today_board(&sh, day);
+    let board = build_deal_board(&sh, day);
+    let st = &team["status"];
+    let rows = st["rows"].as_array().expect("status.rows");
+    let board_rows = board["rows"].as_array().unwrap();
+    let cands = today["candidates"].as_array().unwrap();
+    // 全体: 名札2本以上 ＝ 今日動く先の候補の数（n_hit）、持ち件数の合計＋担当なし ＝ 稼働中
+    assert_eq!(
+        st["meta"]["n_flags2"], today["meta"]["n_hit"],
+        "名札2本以上の合計が今日動く先の候補と違う"
+    );
+    let sum = |k: &str| rows.iter().map(|r| r[k].as_u64().unwrap()).sum::<u64>();
+    assert_eq!(
+        sum("n_active") + st["meta"]["unknown"]["n_active"].as_u64().unwrap(),
+        board_rows.len() as u64
+    );
+    assert_eq!(
+        sum("n_flags2") + st["meta"]["unknown"]["n_flags2"].as_u64().unwrap(),
+        cands.len() as u64
+    );
+    // 今週満了 ＝ 今日動く先の「今週満了」
+    assert_eq!(
+        st["meta"]["expiring_week"].as_u64().unwrap(),
+        today["expiring_this_week"].as_array().unwrap().len() as u64
+    );
+    let labels = &st["meta"]["flag_labels"];
+    let has = |r: &Value, f: &Value| r["flags"].as_array().unwrap().iter().any(|x| x == f);
+    let mut diff_def = 0;
+    let cons = build_consultants(&sh, day);
+    for r in rows {
+        let c = &r["consultant"];
+        let mine: Vec<&Value> = board_rows
+            .iter()
+            .filter(|b| &b["consultant"] == c)
+            .collect();
+        assert_eq!(
+            r["n_active"].as_u64().unwrap(),
+            mine.len() as u64,
+            "{c}: 持ち件数"
+        );
+        assert_eq!(
+            r["n_flags2"].as_u64().unwrap(),
+            cands.iter().filter(|b| &b["consultant"] == c).count() as u64,
+            "{c}: 名札2本以上（今日動く先の候補）"
+        );
+        assert_eq!(
+            r["mtg_critical"].as_u64().unwrap(),
+            mine.iter().filter(|b| b["mtg_band"] == "critical").count() as u64,
+            "{c}: MTG 途絶（重大）"
+        );
+        for (k, lk) in [
+            ("no_contact", "no_contact"),
+            ("expiring60", "expiring60"),
+            ("nps_low", "nps_low"),
+        ] {
+            assert_eq!(
+                r[k].as_u64().unwrap(),
+                mine.iter().filter(|b| has(b, &labels[lk])).count() as u64,
+                "{c}: {k}（案件そのものの名札 {}）",
+                labels[lk]
+            );
+        }
+        // 担当者の一覧（接触率の人）と同じ人の並び。no_contact は定義が違う（開始前も数える）ので、違う人がいることも確かめる
+        let cr = cons["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| &x["consultant"] == c)
+            .unwrap_or_else(|| panic!("{c} が担当者の一覧に無い"));
+        assert_eq!(
+            cr["n_active"], r["n_active"],
+            "{c}: 担当者の一覧と持ち件数が違う"
+        );
+        if cr["no_contact"] != r["no_contact"] {
+            diff_def += 1;
+        }
+    }
+    assert_eq!(
+        rows.len(),
+        cons["rows"].as_array().unwrap().len(),
+        "担当者の人数"
+    );
+    // 名札の文字が本当に deal_rows の名札にある（文字がずれると 0 件のまま黙る）
+    for lk in ["no_contact", "expiring60", "nps_low"] {
+        assert!(
+            board_rows.iter().any(|b| has(b, &labels[lk])),
+            "名札 {} が案件そのものに1件も無い",
+            labels[lk]
+        );
+    }
+    assert!(
+        diff_def > 0,
+        "担当者の一覧の no_contact と名札の数が全員同じ（定義の違いを確かめる前提が崩れた）"
+    );
+    // 束ねた中身は元の集計と同じ（作り直していない）
+    assert_eq!(team["consultants"], cons);
+    assert_eq!(team["handover"], build_handover(&sh, day));
+}
+
+/// 09 の 7「成果と継続」: 束ねた中身は元の集計そのもの（定義を作り直していない）。打ち切りの切り替えも渡る
+#[test]
+fn results_bundles_existing_aggregates() {
+    let sh = sheets();
+    let day = fixture_day();
+    for excl in [false, true] {
+        let v = build_results(&sh, excl, day);
+        assert_eq!(v["renewal"], build_renewal(&sh, excl), "打ち切り {excl}");
+        assert_eq!(v["meta"]["exclude_right_censored"], excl);
+    }
+    let v = build_results(&sh, false, day);
+    assert_eq!(v["outcome"], build_outcome(&sh, day));
+    assert_eq!(v["focus"], build_focus(&sh, day));
+    assert_eq!(v["rampup"], build_rampup(&sh, day));
+    // 🔴 本部アプローチは呼ぶたびに中身の並びが変わる（build_headquarters は法人・拠点を HashMap で集めるので、
+    //    同じ値どうしの順と、上位で切る境目の法人が決まらない。2026-09-29 この見張りを書いて気づいた。直すのは担当外）。
+    //    束ねたかどうかは、並びに依らない値（meta・件数・切ったか）で見る
+    let hq = build_headquarters(&sh, day);
+    let hv = &v["headquarters"];
+    assert_eq!(hv["meta"], hq["meta"]);
+    assert_eq!(hv["multi_site"], hq["multi_site"]);
+    assert_eq!(hv["truncated"], hq["truncated"]);
+    assert_eq!(
+        hv["rows"].as_array().map(Vec::len),
+        hq["rows"].as_array().map(Vec::len)
+    );
+    // 🔴 段B（2026-09-29）: 電話は「手を打つ先」の表を畳んで残すためだけに束ねていた。見方の印に移したので外す。
+    //    戻す（束ね直す）と、成果と継続の応答に使わない電話の集計が毎回乗る
+    assert!(
+        v.get("phone").is_none(),
+        "成果と継続に電話の集計がまだ束ねられている"
+    );
+    // 手を打つ先は案件一覧の見方へのリンクになった。鍵と名前は案件一覧の見方と同じもの（画面はこの鍵で ?view= を作る）
+    let keys = |x: &Value| -> Vec<(String, String)> {
+        x.as_array()
+            .expect("act_views")
+            .iter()
+            .map(|v| (v["key"].to_string(), v["label"].to_string()))
+            .collect()
+    };
+    let board = build_deal_board(&sh, day);
+    assert_eq!(
+        keys(&v["meta"]["act_views"]),
+        keys(&board["meta"]["act_views"])
+    );
+    assert_eq!(keys(&v["meta"]["act_views"]).len(), 4);
+}
+
+/// 09 の 7・10 章②: 成果と継続は「定期NPS 4以下」の表を段B の仮置きに入れず、名札「NPSが4以下」への
+/// リンクにしている。その前提（2つが同じ集合）が崩れたら落とす。名札の文字も同じものを渡していること
+#[test]
+fn results_nps_low_is_the_same_set_as_the_deal_flag() {
+    let sh = sheets();
+    let day = fixture_day();
+    let v = build_results(&sh, false, day);
+    let flag = v["meta"]["nps_flag"].as_str().expect("nps_flag が無い");
+    let ids = |rows: &[Value]| {
+        let mut x: Vec<String> = rows.iter().map(|r| r["deal_id"].to_string()).collect();
+        x.sort();
+        x
+    };
+    let tbl = ids(v["focus"]["nps_low"]["rows"].as_array().unwrap());
+    let board = build_deal_board(&sh, day);
+    let tagged: Vec<Value> = board["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| {
+            r["flags"]
+                .as_array()
+                .is_some_and(|f| f.iter().any(|x| x.as_str() == Some(flag)))
+        })
+        .cloned()
+        .collect();
+    assert!(
+        !tbl.is_empty(),
+        "定期NPS 4以下が 0 件（確かめる前提が無い）"
+    );
+    assert_eq!(v["focus"]["nps_low"]["n"], Value::from(tbl.len()));
+    assert_eq!(
+        tbl,
+        ids(&tagged),
+        "定期NPS 4以下の表と名札「{flag}」の集合が違う"
+    );
+}
+
+// ================================================================ 見方の印（段B、09 の 10 章②）
+
+fn has_str(v: &Value, x: &str) -> bool {
+    v.as_array().is_some_and(|a| a.iter().any(|y| y == x))
+}
+
+/// 見方の印は名札・帯・行の値だけで決まる（定義の見張り）。
+/// 🔴 印の定義を変えたら落ちる。変えるときは 09 の 10 章②の判断と画面の定義の1行（ACT_VIEWS.rule）も一緒に直す
+#[test]
+fn act_views_are_defined_by_the_deal_flags() {
+    let sh = sheets();
+    let b = build_deal_board(&sh, fixture_day());
+    let rows = b["rows"].as_array().unwrap();
+    let (mut top, mut silent, mut no_mtg, mut risk) = (0, 0, 0, 0);
+    for r in rows {
+        let f = &r["flags"];
+        let views = &r["views"];
+        let contact = has_str(f, "接触の記録が無い") || has_str(f, "接触が30日以上空いている");
+        let want_top = has_str(f, "満了まで60日以内")
+            && contact
+            && r["amount"].as_f64().is_some_and(|a| a >= 500_000.0);
+        let want_silent = has_str(f, "接触の記録が無い")
+            || (has_str(f, "接触が30日以上空いている")
+                && r["days_since_contact"].as_i64().is_some_and(|x| x > 90));
+        let want_no_mtg = r["renewal_no"] == 0 && r["mtg_band"] == "no_record";
+        let want_risk = r["mtg_risk"] == "高";
+        assert_eq!(has_str(views, "top"), want_top, "最優先 {}", r["deal_id"]);
+        assert_eq!(
+            has_str(views, "silent"),
+            want_silent,
+            "接触90日超 {}",
+            r["deal_id"]
+        );
+        assert_eq!(
+            has_str(views, "no_mtg"),
+            want_no_mtg,
+            "初回MTG無し {}",
+            r["deal_id"]
+        );
+        assert_eq!(
+            has_str(views, "mtg_risk"),
+            want_risk,
+            "MTGリスク高 {}",
+            r["deal_id"]
+        );
+        // 最優先・接触90日超に入った案件は、必ず名札を持っている（名札に寄せた、の意味）
+        if want_top || want_silent {
+            assert!(r["n_flags"].as_u64().unwrap_or(0) >= 1, "{}", r["deal_id"]);
+        }
+        // 見方の印は名札の本数に入れない（今日動く先の「名札2本以上」を動かさない）
+        assert_eq!(
+            r["n_flags"].as_u64(),
+            f.as_array().map(|a| a.len() as u64),
+            "{}",
+            r["deal_id"]
+        );
+        top += usize::from(want_top);
+        silent += usize::from(want_silent);
+        no_mtg += usize::from(want_no_mtg);
+        risk += usize::from(want_risk);
+    }
+    // meta の件数は行の印の数と同じ（画面はボタンの件数に meta を使う）
+    let n_of = |k: &str| {
+        b["meta"]["act_views"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["key"] == k)
+            .and_then(|v| v["n"].as_u64())
+            .unwrap_or_else(|| panic!("見方 {k} が meta に無い")) as usize
+    };
+    assert_eq!(
+        (
+            n_of("top"),
+            n_of("silent"),
+            n_of("no_mtg"),
+            n_of("mtg_risk")
+        ),
+        (top, silent, no_mtg, risk)
+    );
+}
+
+/// 前の定義の集合と新しい印の集合の突き合わせ（fixture・基準日 2026-09-18 の実測）。
+/// 🔴 件数が変わったら落ちる。定義か fixture が変わったということなので、画面の「外れました」の文と 09 の記録も見直す。
+///    本番のシート（2026-09-28 取得・基準日 2026-09-29）では 最優先 37→46（外れ0・入った9）、
+///    接触90日超 89→66（外れ33・入った10）、初回MTG無し 113→23（外れ100・入った10）、MTGリスク高 4件
+#[test]
+fn act_view_diff_counts_on_fixture() {
+    let sh = sheets();
+    let b = build_deal_board(&sh, fixture_day());
+    let rows = b["rows"].as_array().unwrap();
+    let diff = b["meta"]["act_view_diff"]
+        .as_array()
+        .expect("act_view_diff");
+    let get = |k: &str| {
+        diff.iter()
+            .find(|v| v["key"] == k)
+            .unwrap_or_else(|| panic!("{k}"))
+    };
+    // (新しい件数, 前の件数, 残った, 外れた, 入った)
+    let want = [
+        ("top", 35, 26, 26, 0, 9),
+        ("silent", 78, 107, 68, 39, 10),
+        ("no_mtg", 21, 104, 11, 93, 10),
+    ];
+    for (k, n, old, kept, dropped, added) in want {
+        let v = get(k);
+        let o = &v["old"];
+        assert_eq!(
+            (
+                v["n"].as_i64(),
+                o["n"].as_i64(),
+                o["kept"].as_i64(),
+                o["dropped"].as_i64(),
+                o["added"].as_i64()
+            ),
+            (Some(n), Some(old), Some(kept), Some(dropped), Some(added)),
+            "見方 {k}"
+        );
+        // 恒等式: 前 ＝ 残った ＋ 外れた、新 ＝ 残った ＋ 入った
+        assert_eq!(old, kept + dropped);
+        assert_eq!(n, kept + added);
+        // 外れた行は全件ある（黙って消さない）。どれも今の印を持たず、理由が書いてある
+        let dr = o["dropped_rows"].as_array().unwrap();
+        assert_eq!(dr.len() as i64, dropped, "見方 {k} の外れた行");
+        for d in dr {
+            let id = d["deal_id"].as_str().unwrap();
+            let r = rows
+                .iter()
+                .find(|r| r["deal_id"] == id)
+                .unwrap_or_else(|| panic!("{id}"));
+            assert!(
+                !has_str(&r["views"], k),
+                "外れたはずの {id} が見方 {k} に入っている"
+            );
+            assert!(
+                !d["reason"].as_str().unwrap_or("").is_empty(),
+                "{id} の理由が空"
+            );
+            assert!(!d["name"].is_null(), "{id} の案件名が無い");
+        }
+    }
+    // 前の一覧が無い見方は、突き合わせを出さない（0 件の比べものを作らない）
+    let r = get("mtg_risk");
+    assert!(r["old"].is_null());
+    assert_eq!(r["n"], 0);
+    // 外れた理由の内訳（fixture）。接触90日超: 開始前 8・MTG を含めると90日以内 31
+    let reasons = |k: &str, pat: &str| {
+        get(k)["old"]["dropped_rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["reason"].as_str().unwrap_or("").contains(pat))
+            .count()
+    };
+    assert_eq!(reasons("silent", "契約開始前"), 8);
+    assert_eq!(reasons("silent", "90日以内"), 31);
+    // 初回MTG無し: 立ち上がり期 38・メール由来の実施日がある 55
+    assert_eq!(reasons("no_mtg", "立ち上がり期"), 38);
+    assert_eq!(reasons("no_mtg", "メール由来"), 55);
+}
+
+/// MTG のリスク判定は「判定のある MTG のうちいちばん新しいもの」。fixture の稼働中には「高」が 0 件なので、
+/// 決まりごとは作ったシートで確かめる（判定が空の新しい MTG で前の「高」が消えない・同じ日は重い方）
+#[test]
+fn latest_mtg_risk_skips_unjudged_and_prefers_the_heavier_on_the_same_day() {
+    let header: Vec<String> = ["deal_id", "開催日", "リスク判定"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let row = |a: &str, b: &str, c: &str| -> Vec<Arc<str>> { vec![a.into(), b.into(), c.into()] };
+    let mtg = SheetData {
+        header,
+        rows: vec![
+            row("A", "2026-08-01", "高"),
+            row("A", "2026-09-01", ""), // 抽出前。飛ばす
+            row("B", "2026-08-01", "高"),
+            row("B", "2026-09-01", "低"), // 新しい判定が勝つ
+            row("C", "2026-09-01", "低"),
+            row("C", "2026-09-01", "高"), // 同じ日は重い方
+            row("", "2026-09-01", "高"),  // 取引に結べていない
+        ],
+        fetched_at: Instant::now(),
+    };
+    let m = super::routes::latest_mtg_risk_by_deal(&mtg);
+    assert_eq!(m.get("A").map(|x| x.1.as_str()), Some("高"));
+    assert_eq!(m.get("B").map(|x| x.1.as_str()), Some("低"));
+    assert_eq!(m.get("C").map(|x| x.1.as_str()), Some("高"));
+    assert_eq!(m.len(), 3);
+}
+
+/// 見方の突き合わせは、同じシート（同じ Arc）と基準日なら覚えたものを返し、シートを取り直すか日が変わったら数え直す。
+/// 🔴 2026-09-29 検証: 案件一覧を開くたびに電話の集計ごと回していた（fixture・debug で deal_rows 約 990ms に 約 580ms 上乗せ）
+#[test]
+fn act_view_diff_memo_reuses_only_for_the_same_sheets_and_day() {
+    use std::cell::Cell;
+    let memo: super::routes::DiffMemo = std::sync::Mutex::new(None);
+    let sh = sheets();
+    let d = fixture_day();
+    let calls = Cell::new(0);
+    let run = |sh: &Sheets, d: chrono::NaiveDate, v: i64| {
+        super::routes::act_view_diff_memo_in(&memo, sh, d, || {
+            calls.set(calls.get() + 1);
+            serde_json::json!(v)
+        })
+    };
+    assert_eq!(run(&sh, d, 1), serde_json::json!(1));
+    // 同じシート・同じ日: 数え直さない
+    assert_eq!(run(&sh, d, 2), serde_json::json!(1));
+    assert_eq!(calls.get(), 1);
+    // 日が変わった: 数え直す
+    assert_eq!(
+        run(&sh, d + chrono::Duration::days(1), 3),
+        serde_json::json!(3)
+    );
+    assert_eq!(calls.get(), 2);
+    // 通話明細だけ取り直した（中身が同じでも別の Arc）: 数え直す
+    let sh2 = Sheets {
+        deal: sh.deal.clone(),
+        call: Arc::new(SheetData {
+            header: sh.call.header.clone(),
+            rows: sh.call.rows.clone(),
+            fetched_at: Instant::now(),
+        }),
+        mtg: sh.mtg.clone(),
+        history: sh.history.clone(),
+        customer: sh.customer.clone(),
+        mail_mtg: sh.mail_mtg.clone(),
+        handover: sh.handover.clone(),
+        owner_hist: sh.owner_hist.clone(),
+        meta: sh.meta.clone(),
+        all_cached: sh.all_cached,
+    };
+    assert_eq!(
+        run(&sh2, d + chrono::Duration::days(1), 4),
+        serde_json::json!(4)
+    );
+    assert_eq!(calls.get(), 3);
+    // 覚えているのは最後の1つだけ（古いシートに戻ったら数え直す）
+    assert_eq!(run(&sh, d, 5), serde_json::json!(5));
+    assert_eq!(calls.get(), 4);
+    // 案件一覧の応答は、覚えたものを返しても数え直しても同じ（fixture で2回続けて同じ）
+    let a = build_deal_board(&sh, d);
+    let b = build_deal_board(&sh, d);
+    assert_eq!(a["meta"]["act_view_diff"], b["meta"]["act_view_diff"]);
+    assert_eq!(
+        a["meta"]["act_view_diff"],
+        super::routes::act_view_diff(&sh, d, a["rows"].as_array().unwrap())
+    );
+}
+
+// ================================================================ 満了と継続・金額（09 の 5・7、段B 2026-09-29）
+
+/// 09 の 5「満了と継続」: 稼働中の契約は、今月・来月・再来月の各月・先月以前（満了日を過ぎてまだ稼働中）・
+/// 再来月より先・満了日なしのどれか1つにだけ入る（黙って落とす契約が無い）。母数は全画面と同じ 604 件。
+/// 月の件数・金額・ステージ別の件数は、一覧の行を数え直したものと一致する（画面の数字と表の行が食い違わない）
+#[test]
+fn renewal_pipe_partitions_active() {
+    use super::money::build_renewal_pipe;
+    let sh = sheets();
+    let day = fixture_day();
+    let v = super::routes::freshen(build_renewal_pipe(&sh, day), &sh, day);
+    let n_active = v["meta"]["n_active"].as_u64().unwrap();
+    assert_eq!(n_active, 604, "満了と継続の稼働中（オプション除く）");
+    assert_eq!(v["population"]["active"], 604);
+    assert_eq!(
+        v["meta"]["window"],
+        serde_json::json!(["2026-09", "2026-10", "2026-11"]),
+        "今月・来月・再来月（暦の月）"
+    );
+    let months = v["months"].as_array().unwrap();
+    let rows = v["rows"].as_array().unwrap();
+    let in_months: u64 = months.iter().map(|m| m["n"].as_u64().unwrap()).sum();
+    let overdue = v["overdue_before"]["sum"]["n"].as_u64().unwrap();
+    let later = v["later"].as_u64().unwrap();
+    let none = v["no_expiry"].as_u64().unwrap();
+    assert_eq!(
+        in_months + overdue + later + none,
+        n_active,
+        "3か月・先月以前・再来月より先・満了日なしの合計が稼働中と合わない（落としている契約がある）"
+    );
+    assert!(
+        in_months > 0 && later > 0,
+        "前提（3か月にも先にも契約がある）が崩れた"
+    );
+    assert_eq!(rows.len() as u64, in_months, "一覧の行数と3か月の件数");
+    assert_eq!(v["window_total"]["n"].as_u64().unwrap(), in_months);
+    assert_eq!(
+        v["overdue_before"]["rows"].as_array().unwrap().len() as u64,
+        overdue
+    );
+    // 月ごとの件数・金額・ステージ別の件数を、一覧の行から数え直す
+    let stages: Vec<&str> = v["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    for m in months {
+        let month = m["month"].as_str().unwrap();
+        let mine: Vec<&Value> = rows
+            .iter()
+            .filter(|r| r["expiry"].as_str().unwrap().starts_with(month))
+            .collect();
+        assert_eq!(
+            m["n"].as_u64().unwrap(),
+            mine.len() as u64,
+            "{month} の件数"
+        );
+        let amt: f64 = mine.iter().filter_map(|r| r["amount"].as_f64()).sum();
+        let with_amt = mine.iter().filter(|r| r["amount"].is_number()).count() as u64;
+        assert_eq!(
+            m["amount_n"].as_u64().unwrap(),
+            with_amt,
+            "{month} の金額あり"
+        );
+        assert_eq!(
+            m["amount_missing"].as_u64().unwrap(),
+            mine.len() as u64 - with_amt,
+            "{month} の金額が空"
+        );
+        assert!(
+            (m["amount"].as_f64().unwrap_or(0.0) - amt).abs() < 0.5,
+            "{month} の金額の合計"
+        );
+        let st = m["stages"].as_array().unwrap();
+        let labels: Vec<&str> = st.iter().map(|s| s["label"].as_str().unwrap()).collect();
+        assert_eq!(
+            labels, stages,
+            "{month} のステージの並びが画面全体の並びと違う"
+        );
+        for s in st {
+            let want = mine.iter().filter(|r| r["stage"] == s["label"]).count() as u64;
+            assert_eq!(s["n"].as_u64().unwrap(), want, "{month} の {}", s["label"]);
+        }
+        // 🔴 確度を掛けた見込み（10 章④）を足していない。月の応答はこの形だけ
+        let mut keys: Vec<&str> = m.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "amount",
+                "amount_missing",
+                "amount_n",
+                "month",
+                "n",
+                "stages"
+            ],
+            "{month} の応答に知らない値が増えた（確度を掛けた見込みを出さない）"
+        );
+    }
+    // 🔴 内部ID（ステージの値）を出さない
+    assert!(
+        stages
+            .iter()
+            .all(|s| !s.chars().all(|c| c.is_ascii_digit())),
+        "ステージが内部IDのまま: {stages:?}"
+    );
+    // 満了の近い順
+    let exp: Vec<&str> = rows.iter().map(|r| r["expiry"].as_str().unwrap()).collect();
+    let mut sorted = exp.clone();
+    sorted.sort_unstable();
+    assert_eq!(exp, sorted, "一覧が満了の近い順でない");
+    // 担当・名札は案件一覧と同じ行から引いている（名札の定義を作り直していない）
+    let board = build_deal_board(&sh, day);
+    let bid: std::collections::HashMap<&str, &Value> = board["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["deal_id"].as_str().unwrap(), r))
+        .collect();
+    for r in rows {
+        let b = bid[r["deal_id"].as_str().unwrap()];
+        assert_eq!(r["flags"], b["flags"]);
+        assert_eq!(r["consultant"], b["consultant"]);
+        assert_eq!(r["days_left"], b["days_left"]);
+    }
+}
+
+/// 10 章④: 金額は会社全体だけ。成果と継続の札（build_money）と満了と継続は同じ数を出し、
+/// 金額の継続率は件数の継続率と同じ取引（満了月・決着済み）を金額で足したもの。人ごとの金額を返さない
+#[test]
+fn money_matches_pipe_and_count_retention() {
+    use super::money::{build_money, build_renewal_pipe};
+    let sh = sheets();
+    let day = fixture_day();
+    let m = build_money(&sh, day);
+    let p = build_renewal_pipe(&sh, day);
+    assert_eq!(
+        m["active_total"], p["active_total"],
+        "稼働中の合計が画面で違う"
+    );
+    assert_eq!(
+        m["window"]["sum"], p["window_total"],
+        "3か月に満了する金額が画面で違う"
+    );
+    assert_eq!(m["window"]["months"], p["meta"]["window"]);
+    // 先月以前に満了日を過ぎてまだ稼働中（3か月の金額に入れていない分）も、札と満了と継続で同じ数。
+    // 🔴 2026-09-29 検証: 札が外した分を数えておらず、外したことが札から読めなかった（fixture 10 件）
+    assert_eq!(
+        m["overdue_before"], p["overdue_before"]["sum"],
+        "先月以前に満了日を過ぎた分が画面で違う"
+    );
+    assert_eq!(m["overdue_before"]["n"], 10);
+    assert_eq!(m["active_total"]["n"], 604);
+    assert!(
+        m["active_total"]["amount"].as_f64().unwrap() > 0.0,
+        "稼働中の金額が無い"
+    );
+    // 件数の継続率と同じ取引: 月ごとの決着件数が一致する
+    let r = build_renewal(&sh, false);
+    let cnt: std::collections::HashMap<&str, &Value> = r["monthly_retention"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| (x["month"].as_str().unwrap(), x))
+        .collect();
+    let rows = m["retention"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), cnt.len(), "満了月の数が件数の継続率と違う");
+    let mut checked = 0;
+    for x in rows {
+        let month = x["month"].as_str().unwrap();
+        let c = cnt[month];
+        assert_eq!(x["settled_n"], c["denom"], "{month} の決着件数");
+        let (k, ca, f) = (
+            x["keep"].as_f64().unwrap(),
+            x["cancel"].as_f64().unwrap(),
+            x["fill"].as_f64().unwrap(),
+        );
+        assert!((x["denom"].as_f64().unwrap() - (k + ca + f)).abs() < 0.5);
+        if k + ca + f > 0.0 {
+            let want = k / (k + ca + f) * 100.0;
+            assert!((x["rate"].as_f64().unwrap() - want).abs() < 1e-9, "{month}");
+            checked += 1;
+        } else {
+            // 満了した金額が 0 なら率は空（0% にしない）
+            assert!(x["rate"].is_null(), "{month} の率が 0% になっている");
+        }
+    }
+    assert!(
+        checked > 10,
+        "金額の継続率が出ている月が少なすぎる（前提が崩れた）"
+    );
+    // 🔴 人ごとの金額を返さない（担当の名前も担当ごとの合計も持たない）
+    let s = m.to_string();
+    assert!(!s.contains("consultant"), "金額の札に担当が入っている");
+    // 成果と継続がこの札を束ねている
+    assert_eq!(build_results(&sh, false, day)["money"], m);
+}
+
+/// 🔴 画面に「金額は契約期間全体の額（月額ではない）」と書いている根拠が fixture でも成り立つこと。
+/// 2026-09-29 実データ（Hubspot data の CS_取引.tsv）で、中央値が 3か月 45万・6か月 90万・12か月 180万（期間に比例）。
+/// 月額なら期間で伸びない。データの意味が変わったら（月額に替わったら）ここで落として、画面の文を直す
+#[test]
+fn amount_is_contract_total_not_monthly() {
+    let deals = super::deals_of(&sheets().deal);
+    let med = |p: f64| {
+        super::routes::median_of(
+            deals
+                .iter()
+                .filter(|d| d.contract_period == Some(p))
+                .filter_map(|d| d.amount)
+                .collect(),
+        )
+        .unwrap_or_else(|| panic!("{p}か月の契約に金額が無い"))
+    };
+    let (m3, m6, m12) = (med(3.0), med(6.0), med(12.0));
+    for (name, r, want) in [
+        ("6か月÷3か月", m6 / m3, 2.0),
+        ("12か月÷3か月", m12 / m3, 4.0),
+    ] {
+        assert!(
+            (r - want).abs() / want < 0.15,
+            "{name} の中央値の比が {r:.2}（契約総額なら {want} 前後。月額なら 1 前後）"
+        );
+    }
+    let text = super::money::AMOUNT_BASIS;
+    assert!(text.contains("契約期間全体の額") && text.contains("月額ではありません"));
 }

@@ -70,6 +70,7 @@ mod tests {
             rate_limiter: crate::auth::session::RateLimiter::new(5, 60),
             company_geo_cache: None,
             audit: None,
+            google_oidc: None,
         })
     }
 
