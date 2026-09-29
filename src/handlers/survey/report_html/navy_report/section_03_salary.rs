@@ -120,12 +120,40 @@ pub(crate) fn render_navy_section_03_salary(
     let total = agg.total_count;
     // 2026-05-14: 給与解析率の表記は撤去。n は給与解析できた件数を直接表示する。
     let parsed_n = (agg.total_count as f64 * agg.salary_parse_rate).round() as i64;
+    // 2026-09-29: n は図3-1 以降の分布・統計に実際に使った件数 (下限給与の件数) にする。
+    //   以前は給与解析件数 (parsed_n) を出しており、年俸 24 件を除外した月給分布 (567 件) に
+    //   n=591 と表示されていた。除外件数は注記する。
+    let used_n = stats_min.as_ref().map(|s| s.n as i64).unwrap_or(0);
+    let excluded_n = (parsed_n - used_n).max(0);
+    let (scope_text, excluded_reason) = if is_hourly {
+        (
+            "時給表示の求人の下限給与",
+            "月給・日給など時給以外の給与形態、または対象外の値",
+        )
+    } else {
+        (
+            "月給換算できた求人の下限給与",
+            "年俸・年収など月給換算の対象外、または月給 5 万〜200 万円の範囲外",
+        )
+    };
+    let excluded_note = if excluded_n > 0 {
+        format!(
+            "給与解析できた {} 件のうち {} 件は{}のため分布から除外。",
+            format_number(parsed_n),
+            format_number(excluded_n),
+            excluded_reason
+        )
+    } else {
+        String::new()
+    };
 
     // -- exec-headline 風: 給与代表値を冒頭で 1 行に集約
     let lede = format!(
-        "サンプル <strong>n={}</strong> (給与解析できた求人)。\
+        "サンプル <strong>n={}</strong> ({})。{}\
          代表値: <strong>{} {}{}</strong>。本ページでは下限・上限給与それぞれの分布を確認します。",
-        format_number(parsed_n),
+        format_number(used_n),
+        scope_text,
+        escape_html(&excluded_note),
         escape_html(&headline.label),
         escape_html(&headline.value_text),
         escape_html(&headline.unit),
@@ -655,17 +683,49 @@ pub(crate) fn build_navy_fuyou_table(median_hourly_native: i64) -> String {
 /// - 月給モード: `format_mm` で万円換算、キャプション「単位: 万円 (月給換算済み)」
 /// - 時給モード: `format_number` で円のまま、キャプション「単位: 円/時 (時給換算済み)」
 ///
-/// 注意: 値そのものは agg.by_emp_type_salary の avg_salary / median_salary を使う。
-/// 時給モードでは aggregator が時給値を保持 (HOURLY_TO_MONTHLY_HOURS で除算 / 一部レコードは
-/// 月給→時給換算) する想定。本関数は表示単位のみを切替える役割。
+/// 値: 月給モードは avg_salary / median_salary (月給換算)。
+/// 時給モードは hourly_count / avg_hourly_salary / median_hourly_salary (時給求人のみ、円/時)。
+/// 2026-09-29: 以前は時給モードでも月給換算値に「円/時」を付けて表示していた
+/// (f1 実データで平均 216,518 / 中央値 208,750「円/時」)。
 fn build_navy_emp_type_salary_table(
     items: &[super::super::super::aggregator::EmpTypeSalary],
     total_count: usize,
     is_hourly: bool,
 ) -> String {
+    type Emp = super::super::super::aggregator::EmpTypeSalary;
+    let row_n = |e: &Emp| -> usize {
+        if is_hourly {
+            e.hourly_count
+        } else {
+            e.count
+        }
+    };
+    let row_avg = |e: &Emp| -> i64 {
+        if is_hourly {
+            e.avg_hourly_salary
+        } else {
+            e.avg_salary
+        }
+    };
+    let row_median = |e: &Emp| -> i64 {
+        if is_hourly {
+            e.median_hourly_salary
+        } else {
+            e.median_salary
+        }
+    };
+    let excluded_n: usize = if is_hourly {
+        items
+            .iter()
+            .map(|e| e.count - e.hourly_count.min(e.count))
+            .sum()
+    } else {
+        0
+    };
+    let items: Vec<&Emp> = items.iter().filter(|e| row_n(e) > 0).collect();
     // 全体加重平均を計算 (差分タグの基準)
-    let total_n_with_salary: i64 = items.iter().map(|e| e.count as i64).sum();
-    let weighted_sum: i64 = items.iter().map(|e| e.avg_salary * e.count as i64).sum();
+    let total_n_with_salary: i64 = items.iter().map(|e| row_n(e) as i64).sum();
+    let weighted_sum: i64 = items.iter().map(|e| row_avg(e) * row_n(e) as i64).sum();
     let overall_avg = if total_n_with_salary > 0 {
         weighted_sum / total_n_with_salary
     } else {
@@ -692,21 +752,21 @@ fn build_navy_emp_type_salary_table(
     s.push_str("</tr></thead>\n<tbody>\n");
 
     // 件数降順 (Round 1-K 2026-06-03: 同件数時は emp_type asc で順序確定)
-    let mut sorted: Vec<&super::super::super::aggregator::EmpTypeSalary> = items.iter().collect();
+    let mut sorted: Vec<&Emp> = items.clone();
     sorted.sort_by(|a, b| {
-        b.count
-            .cmp(&a.count)
+        row_n(b)
+            .cmp(&row_n(a))
             .then_with(|| a.emp_type.cmp(&b.emp_type))
     });
 
     for (i, e) in sorted.iter().enumerate() {
         let pct = if total_count > 0 {
-            e.count as f64 / total_count as f64 * 100.0
+            row_n(e) as f64 / total_count as f64 * 100.0
         } else {
             0.0
         };
         let diff_pct = if overall_avg > 0 {
-            (e.avg_salary - overall_avg) as f64 / overall_avg as f64 * 100.0
+            (row_avg(e) - overall_avg) as f64 / overall_avg as f64 * 100.0
         } else {
             0.0
         };
@@ -739,10 +799,10 @@ fn build_navy_emp_type_salary_table(
             row_class,
             i + 1,
             escape_html(&e.emp_type),
-            format_number(e.count as i64),
+            format_number(row_n(e) as i64),
             pct,
-            fmt_val(e.avg_salary),
-            fmt_val(e.median_salary),
+            fmt_val(row_avg(e)),
+            fmt_val(row_median(e)),
             tag,
             tag_label,
             diff_pct,
@@ -755,9 +815,16 @@ fn build_navy_emp_type_salary_table(
         ("万円", format_mm(overall_avg))
     };
     let unit_note = if is_hourly {
-        "(時給)"
+        if excluded_n > 0 {
+            format!(
+                "(時給表示の求人のみ。値は下限・上限の中間値。月給など時給以外の求人 {} 件は含めない)",
+                format_number(excluded_n as i64)
+            )
+        } else {
+            "(時給表示の求人のみ。値は下限・上限の中間値)".to_string()
+        }
     } else {
-        "(月給換算済み)"
+        "(月給換算済み)".to_string()
     };
     s.push_str(&format!(
         "<p class=\"caption\">単位: {} {}。差分: 全体加重平均給与 ({}{}) との比較。+10% 以上 = 高給与, -10% 以下 = 低給与。</p>\n",
@@ -2072,6 +2139,7 @@ mod tests {
             count,
             avg_salary: avg,
             median_salary: median,
+            ..Default::default()
         }
     }
 
