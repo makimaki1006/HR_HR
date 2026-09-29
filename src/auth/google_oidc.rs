@@ -44,6 +44,19 @@ use crate::AppState;
 /// Google の Discovery document
 pub const GOOGLE_DISCOVERY_URL: &str =
     "https://accounts.google.com/.well-known/openid-configuration";
+/// Discovery の取得先。debug ビルドに限り `GOOGLE_OIDC_DISCOVERY_URL_DEBUG` で
+/// 手元の偽 Google に向けられる (ローカルのブラウザ E2E 用)。release ビルドにはこの分岐自体が入らない。
+fn discovery_url() -> String {
+    #[cfg(debug_assertions)]
+    if let Ok(url) = std::env::var("GOOGLE_OIDC_DISCOVERY_URL_DEBUG") {
+        if !url.is_empty() {
+            tracing::warn!("GOOGLE_OIDC_DISCOVERY_URL_DEBUG により Discovery を {url} に向けています (debug ビルドのみ)");
+            return url;
+        }
+    }
+    GOOGLE_DISCOVERY_URL.to_string()
+}
+
 pub const LOGIN_PATH: &str = "/auth/google/login";
 pub const CALLBACK_PATH: &str = "/auth/google/callback";
 /// state / nonce / PKCE verifier を運ぶ短命 Cookie
@@ -267,7 +280,7 @@ pub struct GoogleOidc {
 
 impl GoogleOidc {
     pub fn new(cfg: GoogleOidcConfig) -> Self {
-        Self::build(cfg, GOOGLE_DISCOVERY_URL.to_string(), None)
+        Self::build(cfg, discovery_url(), None)
     }
 
     /// Discovery を使わず、エンドポイントを直接与える (テストの偽 Google 用)
