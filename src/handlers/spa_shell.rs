@@ -198,6 +198,7 @@ mod tests {
             rate_limiter,
             company_geo_cache: None,
             audit: None,
+            google_oidc: None,
         })
     }
 
