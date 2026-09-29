@@ -28,6 +28,7 @@ pub mod recruitment_diag;
 pub mod region;
 pub mod regional_analysis;
 pub mod sales_kpi; // 2026-09-05: 営業KPI（現場版）
+pub mod spa_shell; // 2026-09-29: React 画面の HTML シェル (/app/{screen})
 pub mod survey;
 pub mod trend;
 pub mod types;

@@ -670,6 +670,13 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .merge(handlers::sales_kpi::routes::router())
         // コンサルダッシュボード（納品管理PL）。同じ SheetStore を借りる。
         .merge(handlers::cs_dashboard::routes::router())
+        // 2026-09-29: React 画面の HTML シェル (/app/{screen})。manifest はここ (起動時) で読む。
+        // 未ビルドなら「フロントエンド未ビルド」の注記を返す。要ログイン。
+        .merge(handlers::spa_shell::router(
+            handlers::spa_shell::load_manifest(std::path::Path::new(
+                handlers::spa_shell::MANIFEST_PATH,
+            )),
+        ))
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。

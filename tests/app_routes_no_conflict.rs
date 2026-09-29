@@ -998,3 +998,42 @@ fn 粒度が画面に書いてある() {
         "法人の粒度が明示されていない"
     );
 }
+
+/// 🔴 React 画面のシェル `/app/{screen}` (2026-09-29, Phase 0-3) が**認証の内側**にあること。
+///
+/// 未ログインなら既存の画面と同じく 303 で `/login` へ飛ぶ。
+/// 画面名の検査 (404) より認証が先に効くので、不正な名前でも 303 になる
+/// (ルートに当たらない `/app/` は 404)。
+#[tokio::test]
+async fn react画面のシェルは認証の内側にある() {
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use tower::ServiceExt;
+
+    let app = build_app(bare_state());
+    for path in ["/app/dummy", "/app/unknown"] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("リクエストを組めない"),
+            )
+            .await
+            .expect("ルータが応答しない");
+        assert_eq!(
+            res.status(),
+            StatusCode::SEE_OTHER,
+            "{path} が {} を返した。未ログインなら 303 のはず",
+            res.status()
+        );
+        assert_eq!(
+            res.headers()
+                .get(header::LOCATION)
+                .and_then(|v| v.to_str().ok()),
+            Some("/login"),
+            "{path} のリダイレクト先が /login でない"
+        );
+    }
+}
