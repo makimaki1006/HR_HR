@@ -6279,3 +6279,232 @@ fn act_view_diff_memo_reuses_only_for_the_same_sheets_and_day() {
         super::routes::act_view_diff(&sh, d, a["rows"].as_array().unwrap())
     );
 }
+
+// ================================================================ 満了と継続・金額（09 の 5・7、段B 2026-09-29）
+
+/// 09 の 5「満了と継続」: 稼働中の契約は、今月・来月・再来月の各月・先月以前（満了日を過ぎてまだ稼働中）・
+/// 再来月より先・満了日なしのどれか1つにだけ入る（黙って落とす契約が無い）。母数は全画面と同じ 604 件。
+/// 月の件数・金額・ステージ別の件数は、一覧の行を数え直したものと一致する（画面の数字と表の行が食い違わない）
+#[test]
+fn renewal_pipe_partitions_active() {
+    use super::money::build_renewal_pipe;
+    let sh = sheets();
+    let day = fixture_day();
+    let v = super::routes::freshen(build_renewal_pipe(&sh, day), &sh, day);
+    let n_active = v["meta"]["n_active"].as_u64().unwrap();
+    assert_eq!(n_active, 604, "満了と継続の稼働中（オプション除く）");
+    assert_eq!(v["population"]["active"], 604);
+    assert_eq!(
+        v["meta"]["window"],
+        serde_json::json!(["2026-09", "2026-10", "2026-11"]),
+        "今月・来月・再来月（暦の月）"
+    );
+    let months = v["months"].as_array().unwrap();
+    let rows = v["rows"].as_array().unwrap();
+    let in_months: u64 = months.iter().map(|m| m["n"].as_u64().unwrap()).sum();
+    let overdue = v["overdue_before"]["sum"]["n"].as_u64().unwrap();
+    let later = v["later"].as_u64().unwrap();
+    let none = v["no_expiry"].as_u64().unwrap();
+    assert_eq!(
+        in_months + overdue + later + none,
+        n_active,
+        "3か月・先月以前・再来月より先・満了日なしの合計が稼働中と合わない（落としている契約がある）"
+    );
+    assert!(
+        in_months > 0 && later > 0,
+        "前提（3か月にも先にも契約がある）が崩れた"
+    );
+    assert_eq!(rows.len() as u64, in_months, "一覧の行数と3か月の件数");
+    assert_eq!(v["window_total"]["n"].as_u64().unwrap(), in_months);
+    assert_eq!(
+        v["overdue_before"]["rows"].as_array().unwrap().len() as u64,
+        overdue
+    );
+    // 月ごとの件数・金額・ステージ別の件数を、一覧の行から数え直す
+    let stages: Vec<&str> = v["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    for m in months {
+        let month = m["month"].as_str().unwrap();
+        let mine: Vec<&Value> = rows
+            .iter()
+            .filter(|r| r["expiry"].as_str().unwrap().starts_with(month))
+            .collect();
+        assert_eq!(
+            m["n"].as_u64().unwrap(),
+            mine.len() as u64,
+            "{month} の件数"
+        );
+        let amt: f64 = mine.iter().filter_map(|r| r["amount"].as_f64()).sum();
+        let with_amt = mine.iter().filter(|r| r["amount"].is_number()).count() as u64;
+        assert_eq!(
+            m["amount_n"].as_u64().unwrap(),
+            with_amt,
+            "{month} の金額あり"
+        );
+        assert_eq!(
+            m["amount_missing"].as_u64().unwrap(),
+            mine.len() as u64 - with_amt,
+            "{month} の金額が空"
+        );
+        assert!(
+            (m["amount"].as_f64().unwrap_or(0.0) - amt).abs() < 0.5,
+            "{month} の金額の合計"
+        );
+        let st = m["stages"].as_array().unwrap();
+        let labels: Vec<&str> = st.iter().map(|s| s["label"].as_str().unwrap()).collect();
+        assert_eq!(
+            labels, stages,
+            "{month} のステージの並びが画面全体の並びと違う"
+        );
+        for s in st {
+            let want = mine.iter().filter(|r| r["stage"] == s["label"]).count() as u64;
+            assert_eq!(s["n"].as_u64().unwrap(), want, "{month} の {}", s["label"]);
+        }
+        // 🔴 確度を掛けた見込み（10 章④）を足していない。月の応答はこの形だけ
+        let mut keys: Vec<&str> = m.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "amount",
+                "amount_missing",
+                "amount_n",
+                "month",
+                "n",
+                "stages"
+            ],
+            "{month} の応答に知らない値が増えた（確度を掛けた見込みを出さない）"
+        );
+    }
+    // 🔴 内部ID（ステージの値）を出さない
+    assert!(
+        stages
+            .iter()
+            .all(|s| !s.chars().all(|c| c.is_ascii_digit())),
+        "ステージが内部IDのまま: {stages:?}"
+    );
+    // 満了の近い順
+    let exp: Vec<&str> = rows.iter().map(|r| r["expiry"].as_str().unwrap()).collect();
+    let mut sorted = exp.clone();
+    sorted.sort_unstable();
+    assert_eq!(exp, sorted, "一覧が満了の近い順でない");
+    // 担当・名札は案件一覧と同じ行から引いている（名札の定義を作り直していない）
+    let board = build_deal_board(&sh, day);
+    let bid: std::collections::HashMap<&str, &Value> = board["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["deal_id"].as_str().unwrap(), r))
+        .collect();
+    for r in rows {
+        let b = bid[r["deal_id"].as_str().unwrap()];
+        assert_eq!(r["flags"], b["flags"]);
+        assert_eq!(r["consultant"], b["consultant"]);
+        assert_eq!(r["days_left"], b["days_left"]);
+    }
+}
+
+/// 10 章④: 金額は会社全体だけ。成果と継続の札（build_money）と満了と継続は同じ数を出し、
+/// 金額の継続率は件数の継続率と同じ取引（満了月・決着済み）を金額で足したもの。人ごとの金額を返さない
+#[test]
+fn money_matches_pipe_and_count_retention() {
+    use super::money::{build_money, build_renewal_pipe};
+    let sh = sheets();
+    let day = fixture_day();
+    let m = build_money(&sh, day);
+    let p = build_renewal_pipe(&sh, day);
+    assert_eq!(
+        m["active_total"], p["active_total"],
+        "稼働中の合計が画面で違う"
+    );
+    assert_eq!(
+        m["window"]["sum"], p["window_total"],
+        "3か月に満了する金額が画面で違う"
+    );
+    assert_eq!(m["window"]["months"], p["meta"]["window"]);
+    // 先月以前に満了日を過ぎてまだ稼働中（3か月の金額に入れていない分）も、札と満了と継続で同じ数。
+    // 🔴 2026-09-29 検証: 札が外した分を数えておらず、外したことが札から読めなかった（fixture 10 件）
+    assert_eq!(
+        m["overdue_before"], p["overdue_before"]["sum"],
+        "先月以前に満了日を過ぎた分が画面で違う"
+    );
+    assert_eq!(m["overdue_before"]["n"], 10);
+    assert_eq!(m["active_total"]["n"], 604);
+    assert!(
+        m["active_total"]["amount"].as_f64().unwrap() > 0.0,
+        "稼働中の金額が無い"
+    );
+    // 件数の継続率と同じ取引: 月ごとの決着件数が一致する
+    let r = build_renewal(&sh, false);
+    let cnt: std::collections::HashMap<&str, &Value> = r["monthly_retention"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| (x["month"].as_str().unwrap(), x))
+        .collect();
+    let rows = m["retention"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), cnt.len(), "満了月の数が件数の継続率と違う");
+    let mut checked = 0;
+    for x in rows {
+        let month = x["month"].as_str().unwrap();
+        let c = cnt[month];
+        assert_eq!(x["settled_n"], c["denom"], "{month} の決着件数");
+        let (k, ca, f) = (
+            x["keep"].as_f64().unwrap(),
+            x["cancel"].as_f64().unwrap(),
+            x["fill"].as_f64().unwrap(),
+        );
+        assert!((x["denom"].as_f64().unwrap() - (k + ca + f)).abs() < 0.5);
+        if k + ca + f > 0.0 {
+            let want = k / (k + ca + f) * 100.0;
+            assert!((x["rate"].as_f64().unwrap() - want).abs() < 1e-9, "{month}");
+            checked += 1;
+        } else {
+            // 満了した金額が 0 なら率は空（0% にしない）
+            assert!(x["rate"].is_null(), "{month} の率が 0% になっている");
+        }
+    }
+    assert!(
+        checked > 10,
+        "金額の継続率が出ている月が少なすぎる（前提が崩れた）"
+    );
+    // 🔴 人ごとの金額を返さない（担当の名前も担当ごとの合計も持たない）
+    let s = m.to_string();
+    assert!(!s.contains("consultant"), "金額の札に担当が入っている");
+    // 成果と継続がこの札を束ねている
+    assert_eq!(build_results(&sh, false, day)["money"], m);
+}
+
+/// 🔴 画面に「金額は契約期間全体の額（月額ではない）」と書いている根拠が fixture でも成り立つこと。
+/// 2026-09-29 実データ（Hubspot data の CS_取引.tsv）で、中央値が 3か月 45万・6か月 90万・12か月 180万（期間に比例）。
+/// 月額なら期間で伸びない。データの意味が変わったら（月額に替わったら）ここで落として、画面の文を直す
+#[test]
+fn amount_is_contract_total_not_monthly() {
+    let deals = super::deals_of(&sheets().deal);
+    let med = |p: f64| {
+        super::routes::median_of(
+            deals
+                .iter()
+                .filter(|d| d.contract_period == Some(p))
+                .filter_map(|d| d.amount)
+                .collect(),
+        )
+        .unwrap_or_else(|| panic!("{p}か月の契約に金額が無い"))
+    };
+    let (m3, m6, m12) = (med(3.0), med(6.0), med(12.0));
+    for (name, r, want) in [
+        ("6か月÷3か月", m6 / m3, 2.0),
+        ("12か月÷3か月", m12 / m3, 4.0),
+    ] {
+        assert!(
+            (r - want).abs() / want < 0.15,
+            "{name} の中央値の比が {r:.2}（契約総額なら {want} 前後。月額なら 1 前後）"
+        );
+    }
+    let text = super::money::AMOUNT_BASIS;
+    assert!(text.contains("契約期間全体の額") && text.contains("月額ではありません"));
+}
