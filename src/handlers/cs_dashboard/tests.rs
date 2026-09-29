@@ -5975,6 +5975,20 @@ fn results_bundles_existing_aggregates() {
         v.get("phone").is_none(),
         "成果と継続に電話の集計がまだ束ねられている"
     );
+    // 手を打つ先は案件一覧の見方へのリンクになった。鍵と名前は案件一覧の見方と同じもの（画面はこの鍵で ?view= を作る）
+    let keys = |x: &Value| -> Vec<(String, String)> {
+        x.as_array()
+            .expect("act_views")
+            .iter()
+            .map(|v| (v["key"].to_string(), v["label"].to_string()))
+            .collect()
+    };
+    let board = build_deal_board(&sh, day);
+    assert_eq!(
+        keys(&v["meta"]["act_views"]),
+        keys(&board["meta"]["act_views"])
+    );
+    assert_eq!(keys(&v["meta"]["act_views"]).len(), 4);
 }
 
 /// 09 の 7・10 章②: 成果と継続は「定期NPS 4以下」の表を段B の仮置きに入れず、名札「NPSが4以下」への

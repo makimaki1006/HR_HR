@@ -3688,6 +3688,9 @@ pub fn build_results(sheets: &Sheets, exclude_right_censored: bool, today: Naive
             // 定期NPS 4以下の表（focus.nps_low）は名札「NPSが4以下」と同じ集合（fixture で 41 件、deal_id 41/41 一致）。
             // 画面は表を畳みに入れず、この名札で絞った案件一覧へのリンクにする。名札の文字は正本（deal_rows）から渡す
             "nps_flag": TEAM_FLAG_NPS_LOW,
+            // 手を打つ先は案件一覧の見方に移った（段B）。画面はこの鍵と名前で案件一覧へのリンクを作る（件数は案件一覧で数える）
+            "act_views": ACT_VIEWS.iter().map(|v| json!({"key": v.key, "label": v.label, "old": v.old}))
+                .collect::<Vec<_>>(),
         },
         "renewal": build_renewal(sheets, exclude_right_censored),
         "outcome": build_outcome(sheets, today),
