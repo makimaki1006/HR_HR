@@ -218,6 +218,16 @@
   .side button[aria-current="page"]{ background:var(--ai-soft); color:var(--ai);
     font-weight:700; border-left-color:var(--ai); }
   /* 項目の末尾の番号（.side .n）は 2026-09-28 に外した（S-7）。件数に見えていた */
+  /* 区切り（毎日 / 調べる / 月1・確かめる。2026-09-29 組み替え 段A）。区切りの間は 12px あけ、見出しは押せない小さな字 */
+  .sidegrp + .sidegrp{ margin-top:var(--space-3); }
+  /* 画面の頭の目次（toc()）。押すと同じ画面の節へ。1 行に並べ、狭い画面では折り返す */
+  .toc{ display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--space-1) var(--space-3);
+        font-size:12.5px; color:var(--ink-2); margin:var(--space-2) 0; }
+  /* 旧ハッシュから来たときの帯（showMoved）。hidden の間は場所を取らない */
+  #cs-moved[hidden]{ display:none; }
+  /* 中の帯（.note）の上下の余白を箱の中に収める。戻るで位置を戻すとき、帯が取っている高さを offsetHeight で測るため
+     （movedHeight。余白が外へはみ出すと 78px と測れて、実際にずれる 98px と合わなかった。2026-09-29 fixture 1440px） */
+  #cs-moved{ display:flow-root; }
 
   /* 🔴 狭い画面ではサイドバーを本文の上に回して横に並べる（畳まない）。
      集計は項目が9つあり、開閉の一手間を挟むと「毎朝いちばん見るもの」が
@@ -243,6 +253,11 @@
        項目は消さない。キーボードで側柱に入っているときは隠さない */
     .side.side-away{ transform:translateY(-100%); transition:transform .18s ease; }
     .side.side-away:focus-within{ transform:none; }
+    /* 区切りは 1 行ずつ: 見出しを左に置き、同じ行に項目を並べる（見出しを別の行にすると 3 行ぶん高くなる） */
+    .sidegrp{ display:flex; align-items:baseline; gap:var(--space-2); }
+    .sidegrp + .sidegrp{ margin-top:0; }
+    .sidegrp h2{ flex:none; margin:0; min-width:5.5em; }
+    .sidegrp ul{ flex:1; min-width:0; }
   }
 
   /* ---------------- 見出し ---------------- */
@@ -258,6 +273,9 @@
   h2.sec.part{ font-size:15px; font-weight:700; letter-spacing:.03em; line-height:1.4; margin:24px 0 var(--space-2); }
   h2.sec.part::before{ content:""; width:4px; height:15px; background:var(--ai); border-radius:1px; flex:none; align-self:center; }
   h2.sec.part::after{ display:none; }   /* 罫線は問いだけ。部品の題には引かない */
+  /* 節（複数の画面を 1 つにした画面の、前の画面の問い。partSec）。画面の問い（24px）と部品（15px）の間の 19px。
+     左の小さな字（.no）は前の画面の名前 */
+  h2.sec.mincho.mid{ font-size:19px; margin-top:var(--space-6); }
   h2.sec + .lede{ color:var(--ink-2); font-size:12.5px; margin:0 0 var(--space-4); max-width:76ch; }
   h3.sub{ font-size:14.5px; font-weight:700; margin:30px 0 10px; letter-spacing:.03em;
           display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
@@ -751,9 +769,21 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   .masthead h1{ font-size:16px; }
   /* 問い（24px）は 400px の本文幅（368px）で 2 行に折れる（2026-09-28 検証: 「今日・今週、どこに連絡す／るか」）。20px にする */
   h2.sec.mincho{ font-size:20px; }
+  h2.sec.mincho.mid{ font-size:17px; }
   .tabs button{ padding:8px 12px 7px; }
   /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す */
   .side ul{ flex-wrap:wrap; overflow-x:visible; }
+  /* 1 列・3 区切り・11 画面（2026-09-29 組み替え 段A）を 400px で区切りごとの行にすると 5 行（229px。fixture 実測）になり、
+     問いが y=539 まで下がった。区切りの見出しを小さな字にして、項目と同じ流れに並べる。
+     🔴 前は 3 区切りを 1 つの流れにしていたので、区切りの境目が行の途中に来た（「チームと担当 電話 月1・確かめる 成果と継続」
+        の次の行に「記録と数字の信頼度」だけ。2026-09-29 検証 400px）。区切りごとに行を改め（折り返しは区切りの中だけ）、
+        区切りの間に線を引く。見出しは字の大きさだけでなく、行の頭・太字・線で区切りと分かるようにする。
+     ul の箱は外すが（display:contents）、ul には role="list" を付けて一覧であることは読み上げに残す */
+  .side{ display:block; }
+  .sidegrp{ display:flex; flex-wrap:wrap; align-items:center; column-gap:var(--space-1); }
+  .sidegrp + .sidegrp{ border-top:1px solid var(--rule); }
+  .sidegrp ul{ display:contents; }
+  .sidegrp h2{ min-width:0; font-size:11px; letter-spacing:.06em; margin:0 var(--space-1) 0 0; }
   /* タップの的（S-12）。サイドの項目は 30px、操作列は 28px で、指では隣を押しやすかった。
      40px は Android の 48dp と WCAG 2.2 AA（24px）の間。PC（>600px）は今までどおり */
   .side button{ padding:6px var(--space-2); min-height:40px; }
@@ -872,16 +902,18 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
        「シートをいつ作り直したか」を常に出す。基準日（計算に使った今日）とは別物。 -->
   <div id="cs-fresh" class="fresh"></div>
   <!-- 色の凡例は毎回読むものではない（V1）。M-1 の (3)（08・09 の見取り図）: 全画面の畳みをやめ、同じ表がある
-       「定義と検証」の頭の表（色と印の意味）への 1 語のリンクにする。
+       「定義と検証」の頭の表（色と印の意味）への 1 語のリンクにする（2026-09-29 の組み替えで、定義と検証は「記録と数字の信頼度」の
+       最後の節。?at=trust-defs でそこへ飛ぶ）。
        400px で「色と印の意味 → 定義と検証」と書くと題字の行が 1 行増えた（実測 +19px）ので、行き先は「→」と title で示す。
        2026-09-29 検証: 前の版は畳みを題字の行に移して残しており、案（08 の M-1 (3)・09 の 1 画面目の見取り図）と違っていた。
        ▲▼ が良し悪しの向きで並び順とは別であること・HS の意味は、定義と検証の表に同じ文がある（見張りあり） -->
-  <a class="golink" id="cs-legend" href="#study/defs" title="定義と検証の「色と印の意味」の表へ">色と印の意味 →</a>
+  <a class="golink" id="cs-legend" href="#monthly/trust?at=trust-defs" title="記録と数字の信頼度の「色と印の意味」の表へ">色と印の意味 →</a>
   <div class="stamp" id="sub">{{ user }}<a class="backlink" href="/">&#8592; ダッシュボードへ戻る</a></div>
 </header>
 <div class="rule-thin"></div>
 
-<nav class="tabs" id="cs-menu" aria-label="見るものの切り替え"></nav>
+<!-- 上のメニュー（案件 / コンサルタント / 集計）は 2026-09-29 の組み替え（段A、handover 09）で無くした。
+     左のメニューが 1 列・3 区切りで全 11 画面を並べる -->
 
 <!-- 取得の失敗は読み上げに割り込む（role=alert）。出したときに focus() で止まる（tabindex=-1。M-6） -->
 <div id="cs-error" style="display:none" role="alert" tabindex="-1"></div>
@@ -889,8 +921,11 @@ ol.tl{ list-style:none; margin:var(--space-3) 0; padding:0; border-left:2px soli
      本文の外に置く。中の文は load() の say() が書く（「今日動く先 を読み込み中」→「今日動く先 を表示しました」） -->
 <div id="cs-status" class="sr" role="status" aria-live="polite"></div>
 
+<!-- 旧ハッシュ（組み替え前の 17 画面のブックマーク）から来たときだけ「この画面は○○に移りました」を出す（N8。showMoved） -->
+<div id="cs-moved" hidden></div>
+
 <div class="layout">
-  <nav class="side" id="cs-side" aria-label="この中の切り替え"></nav>
+  <nav class="side" id="cs-side" aria-label="画面の切り替え"></nav>
   <!-- tabindex=-1: 移動の直後に go() → load() が focus() で止める（M-6）。aria-busy は読み込み中だけ true -->
   <main class="pane on" id="cs-main" tabindex="-1" aria-busy="false"></main>
 </div>
@@ -6141,68 +6176,111 @@ function renderToday(D0) {
     : '<div class="empty">直近7日に' + (c ? "この担当で" : "") + "始まった契約はありません。</div>";
   h += "</details>";
 
-  /* ---------------- 図 名札の内訳（表の下。08 の S-1） ----------------
-     🔴 図はこれと MTG 途絶の 2 つだけ。毎朝の画面なので、表が主役で図はその下。
-     件数の推移は作らない（スナップショットが無いので、作ると嘘になる）。 */
-  h += sec("図", "何で上がってきたか（今日出す先 " + num(D.rows.length) + " 件の名札）");
-  const fc = {};
-  for (const r of D.rows) for (const f of (r.flags || [])) fc[f] = (fc[f] || 0) + 1;
-  const fr = Object.entries(fc).sort((a, b) => b[1] - a[1]);
-  h += fig("名札ごとの件数", "1つの案件に複数つきます",
-    fr.length
-      ? svgBarH({ w: 700, fmt: F.int, rh: 24,
-          rows: fr.map(([label, n]) => ({
-            label: tail(label, 26), full: label, v: n, txt: num(n) + "件",
-            note: flagGroup(label).word, color: flagGroup(label).color })) })
-      : '<div class="empty">名札の付いた案件がありません。</div>',
-    lg("box", C.hi, "関係が危ない") + lg("box", C.ki, "時間が迫っている") +
-    lg("box", C.murasaki, "成果が出ていない") +
-    '<i class="full">棒の右に分類の言葉も書いています。' +
-    "<b>色が見分けられなくても読めます。</b></i>" +
-    /* 件数は直書きしない。24件は 2026-09-23 のたまたまの値で、日によって変わる（V8） */
-    '<i class="full">この ' + num(D.rows.length) + " 件だけの内訳です。稼働中の全件の内訳は" +
-    goLink("deal", "board") + " にあります。" +
-    "<b>件数の推移は出していません。</b>日ごとの記録を持っていないので、" +
-    "作ると嘘になります。</i>");
+  /* ---------------- 図 2 つ（名札の内訳・MTG 途絶の帯）は外した（2026-09-29 組み替え 段A、handover 09 の 3章 1） ----------------
+     どちらも案件一覧の名札の分布・帯の絞り込みと同じ中身で、毎朝の画面の表の下に 2 つの図が続いていた。
+     🔴 図にしか書いていなかったこと（帯を付けていない件数・帯の線引き・最終MTG日が分かった割合）は黙って消さず、
+        下の畳み「MTG 途絶の数え方と母数」に文で残す（件数は応答のまま。数え直さない） */
+  h += todayMtgNote(D);
 
-  /* ---------------- MTG途絶の帯（全社）。手を打つ帯だけ棒にし、帯を付けていない分は件数の 1 行に ----------------
-     🔴 2026-09-28 診断（08 の S-1）: 6 本の棒のうち手を打つのは 3 本で、残り（直近30日にあり 241・記録なし 44・
-     立ち上がり期 188）が図の高さの半分を取っていた。棒は手を打つ帯だけにし、残りは件数だけ凡例の下に書く（黙って落とさない）。
-     母数（何件を見て作ったか）は別の枠だったが、図の注記の 1 行にする（消さない） */
-  h += sec("図", "MTG が途絶えている先（全社）");
-  const allBands = (G.bands || []).filter((b) => b.n > 0);
-  const bands = allBands.filter((b) => b.alert);
-  const rest = allBands.filter((b) => !b.alert);
+  /* ---------------- 自分の接触（担当を選んだときだけ。09 の 3章 1 の 6、N5） ----------------
+     /api/consulting/contact-trend を担当で絞る（API の変更なし）。他の人とは並べない（評価と誤読させない）。
+     応答は描いた後に wireToday → fillTodayContact が取りに行く（今日の表を待たせない） */
+  if (c) {
+    h += sec("図", "持ち案件1件あたりの接触（" + c + "、直近6か月）", "td-contact-h");
+    h += '<div id="td-contact"><div class="loading">接触の推移を読み込み中…</div></div>';
+  } else {
+    h += '<p class="muted small">担当を選ぶと、その人の持ち案件1件あたりの接触（直近6か月）がここに出ます。</p>';
+  }
+
+  return h + foot(D.meta);
+}
+
+/** 今日の畳み「MTG 途絶の数え方と母数」。前は図「MTG が途絶えている先（全社）」の注記に書いていた（2026-09-29 に図を外した）。
+    帯の件数そのものは案件一覧の帯の絞り込みで見る（行き先を添える） */
+function todayMtgNote(D) {
+  const G = D.meta.mtg_gap || {};
+  const bands = (G.bands || []).filter((b) => b.n > 0);
+  const bandN = (k) => ((G.bands || []).find((b) => b.band === k) || {}).n || 0;
   const cov = G.coverage || {};
-  h += fig("最終MTGからの経過日数で分けた帯",
-    /* 🔴 2026-09-24 実機: 副題と注記に「GAS（no_mtg_alerter）」と中の仕組みの名前が出ていた。
-       現場の人が知っているのは「毎朝 Slack に届く MTG 途絶の警告」のほう（NO_MTG_ALERTER_README） */
-    "線引きは、毎朝 Slack に届く MTG 途絶の警告と同じ",
-    bands.length
-      ? svgBarH({ w: 700, fmt: F.int, rh: 26,
-          rows: bands.map((b) => ({
-            label: b.label, v: b.n, txt: num(b.n) + "件", note: "手を打つ",
-            color: MTG_BAND_COLOR[b.band] || C.ghost, faint: !!MTG_BAND_FAINT[b.band] })) })
-      : '<div class="empty">手を打つ帯に入る案件はありません。</div>',
-    /* 凡例は図に出ている帯だけ（使っていない色を残さない）。粒の濃さは棒と同じ */
-    [["critical", "90日以上"], ["red", "60〜89日"], ["yellow", "30〜59日"]]
-      .filter(([k]) => bands.some((b) => b.band === k))
-      .map(([k, t]) => lg("box", MTG_BAND_COLOR[k], t, MTG_BAND_FAINT[k] ? BAR_FAINT_OP : BAR_OP)).join("") +
-    (rest.length
-      ? '<i class="full">帯を付けていない（棒にしていない）: ' +
-        rest.map((b) => esc(b.label) + " " + num(b.n) + "件").join(" ／ ") + "</i>" : "") +
-    '<i class="full">' + esc(G.rule || "") + "</i>" +
-    '<i class="full">' + esc(G.no_record_note || "") + "</i>" +
-    /* 被覆。🔴 何件を実際に見られているのかを出さないと、帯の件数を信じてよいか分からない */
+  const body =
+    (bands.length
+      ? "帯ごとの件数（全社）: " + bands.map((b) => esc(b.label) + " " + num(b.n) + "件" + (b.alert ? "" : "（帯を付けていない）")).join(" ／ ") + "。"
+      : "") +
+    "帯ごとの案件は " + goLink("deal", "board") + " の「MTG途絶」で絞って見られます。" +
+    (G.rule ? "<br>" + esc(G.rule) : "") +
+    (G.no_record_note ? "<br>" + esc(G.no_record_note) : "") +
     (G.n_judged
-      ? '<i class="full">帯を付けた母数は <b>' + num(G.n_judged) + " 件</b>（稼働中 " + num(D.meta.n_active) +
+      ? "<br>帯を付けた母数は <b>" + num(G.n_judged) + " 件</b>（稼働中 " + num(D.meta.n_active) +
         " 件から立ち上がり期 " + num(bandN("onboarding")) + " 件を外したもの）。そのうち最終MTG日が分かったのは <b>" +
         num(cov.either) + " 件（" + pct1(cov.either_rate) + "）</b>。内訳は 録画 " + num(cov.recording) + " 件（" +
         pct1(cov.recording_rate) + "） ／ メール由来 " + num(cov.mail) + " 件（" + pct1(cov.mail_rate) + "）。" +
-        esc(G.source_note || "") + "</i>"
-      : ""));
+        esc(G.source_note || "")
+      : "");
+  /* 線引きは毎朝 Slack に届く警告と同じ、の 1 文は畳まない（何の帯かが分からなくなる） */
+  return foldNote("def", "MTG 途絶の数え方と母数", body, "線引きは、毎朝 Slack に届く MTG 途絶の警告と同じ", "td-mtg-note");
+}
 
-  return h + foot(D.meta);
+/* 今日の「自分の接触」（N5）。contact-trend の応答は画面をまたいで 10 分だけ覚える（担当の切り替え・並び替えの描き直しで取り直さない）。
+   「読み直す」を押したら捨てる（load の refresh） */
+let todayContactCache = null;
+function fillTodayContact() {
+  const box = document.getElementById("td-contact");
+  if (!box || !todayConsultant) return;
+  const draw = (body) => {
+    const b = document.getElementById("td-contact");
+    if (!b || !todayConsultant) return;
+    paintFigs(b, () => renderMyContact(body, todayConsultant));
+    markScrollAll();
+  };
+  if (todayContactCache && Date.now() - todayContactCache.at < PAGE_CACHE_MS) { draw(todayContactCache.body); return; }
+  fetch("/api/consulting/contact-trend", { credentials: "same-origin" })
+    .then(readJson)   /* ログイン切れを見分ける（U10） */
+    .then((body) => {
+      if (body.error) throw new Error(body.message || "取得できません");
+      todayContactCache = { at: Date.now(), body: body };
+      draw(body);
+    })
+    .catch((e) => {
+      const b = document.getElementById("td-contact");
+      if (b) b.innerHTML = e.loginExpired ? LOGIN_EXPIRED_HTML
+        : '<div class="err">接触の推移を読み込めませんでした。' + esc(e.message) + "</div>";
+    });
+}
+/** 選んだ担当の持ち案件1件あたりの接触（月ごと、通話の記録がある月の直近 6 か月）。🔴 本人の線だけ。他の人・全体と並べない
+    （09 の 3章 1「他の人と並べない」。順位や評価と読ませない）。定義は担当者ごとの接触と同じ（名前もそちらに揃える。09 の 10章③:
+    人ごとの接触の 2 つの定義は名前で区別する。担当者の一覧の「接触率」とは別のもの） */
+function renderMyContact(CT, name) {
+  const U = (CT && CT.month) || { periods: [], rows: [] };
+  const periods = U.periods || [];
+  const idx = periods.map((p, i) => i).filter((i) => !periods[i].calls_missing).slice(-6);
+  const row = (U.rows || []).find((r) => r.consultant === name);
+  const ncCt = firstSentence(esc((CT && CT.meta && CT.meta.not_counted) || "").replace("※ ", ""), "評価ではありません");
+  const more = "全員の推移と決まりごとは " + goLink("research", "team") + " にあります。";
+  if (!row || !idx.some((i) => row.cells[i] && row.cells[i].deals > 0))
+    return '<div class="empty">' + esc(name) + " には、直近 " + num(idx.length) + " か月に持ち案件がありません（接触を数える月の中で）。" + more + "</div>";
+  /* 縦軸の上端は確定した月の最大（途中の月の値で伸ばさない。担当者ごとの接触と同じ決まり） */
+  const topOf = (withProv) => idx.reduce((t, i) => {
+    const c = row.cells[i];
+    return c && c.avg != null && !c.small_n && (withProv || !periods[i].provisional) && c.avg > t ? c.avg : t;
+  }, 0);
+  const top = topOf(false) || topOf(true);
+  const pts = contactPts(row.cells, idx, periods, top);
+  const minDeals = (CT.meta && CT.meta.min_deals) || 3;
+  const svg = pts.some((p) => p)
+    ? svgLine({ w: 320, h: 160, x: idx.map((i) => contactX(periods[i], "month")), yFmt: F.d2, yTickAuto: true, fit: true,
+        pad: { l: 34 }, yMax: top, yTicks: 3, alt: name + "の持ち案件1件あたりの接触（月ごと）", series: [{ pts: pts, color: C.ai }] })
+    : '<div class="empty">どの月も持ち案件が ' + num(minDeals) + " 件未満なので、点を打っていません（値は下の表）。</div>";
+  const tbl = table([{ t: "月", w: "s" }].concat(idx.map((i) => ({ t: periods[i].label + (periods[i].provisional ? "（途中）" : ""), n: 1 }))),
+    [["1件あたり（接触/持ち案件）"].concat(idx.map((i) => contactCell(row.cells[i])))], "", "td-contact-tbl");
+  return '<p class="muted small"><b>' + ncCt[0] + "</b></p>" +
+    fig("月ごと", "本人の分だけ。他の人とは並べていません", svg,
+      lg("line", C.ai, "確定した月") + lg("ring", C.ai, "未確定（いまの月。途中なので低く出ます）") +
+      (pts.some((p) => p == null) ? '<i class="full">線が切れている月は、持ち案件が 0 件か ' + num(minDeals) + " 件未満です（値は下の表）。</i>" : "") +
+      '<i class="full">値は下の表にあります（マウスなら点に重ねても出ます）。</i>') +
+    scroll(tbl, "none") +
+    '<p class="muted small">1件あたりの接触 ＝ その月の接触の回数 ÷ その月に持っていた案件の数（担当者の一覧の「接触率」とは別の数え方）。' +
+    /* サーバの文は句点で終わらないことがある（fixture: 「…接触だけです」）。次の文とつながらないよう句点を補う */
+    esc(((CT && CT.contact_rule) || "").replace(/([^。])$/, "$1。")) + more + "</p>";
 }
 
 /* ---------------------------------------------------------------- 2 案件の立ち位置 */
@@ -6376,6 +6454,7 @@ function wireToday() {
   /* 今週始まった契約の畳みを開閉したら覚える（並び替え・担当の切り替えの描き直しで閉じない） */
   const ds = document.getElementById("td-started");
   if (ds) ds.ontoggle = () => { todayStartedOpen = !!ds.open; };
+  fillTodayContact();   /* 担当を選んでいるときだけ、自分の接触を取りに行く（手元にあれば取らない） */
 }
 
 /* ---------------------------------------------------------------- 5 調査と定義 */
@@ -7111,150 +7190,316 @@ function setFresh(meta) {
   box.innerHTML = h;
 }
 
+/* ================================================================ 複数の画面を 1 つにした画面（段A、2026-09-29）
+   前の画面の描画（render*）を「節」として並べる。節の見出しは前の画面の問いを 1 段下げたもの（h2.sec.mid）で、
+   左の小さな字（.no）に前の画面の名前を出す（どこから移ってきたかが分かる。旧ハッシュの転送は ?at=<節の id> でここへ飛ぶ）。 */
+
+/** 前の画面の描画を節にする。先頭の問い（h2.sec.mincho）に id と前の画面の名前を付け、問いを 1 段下げる（h2.sec.mid）。
+    2 つ目以降の問い（担当の交代の「交代の前後で…」など）も同じ段に下げる（画面の問いは 1 つ）。
+    問いが無い描画には、節の見出しを頭に足す */
+function partSec(html, name, id) {
+  const Q = '<h2 class="sec mincho"><span class="no">問い</span>';
+  const s = String(html || "");
+  const i = s.indexOf(Q);
+  const head = '<h2 class="sec mincho mid" id="' + esc(id) + '" tabindex="-1"><span class="no">' + esc(name) + "</span>";
+  if (i < 0) return head + esc(name) + "</h2>" + s;
+  return s.slice(0, i) + head + s.slice(i + Q.length).split(Q).join('<h2 class="sec mincho mid"><span class="no">問い</span>');
+}
+/** 画面の頭の目次。押すと同じ画面の節へ（jumpTo）。🔴 <a href="#節"> にしない（ハッシュは画面の場所に使っている。
+    押すと URL が画面でないハッシュに変わり、再読込で既定の画面へ落ちる）。wire → wireToc が結ぶ */
+function toc(items) {
+  return '<nav class="toc" aria-label="この画面の中の節">この画面の中: ' +
+    items.map((x) => '<button type="button" class="act link" data-jump="' + esc(x[0]) + '">' + esc(x[1]) + "</button>").join("") +
+    "</nav>";
+}
+function wireToc() {
+  document.querySelectorAll("#cs-main .toc button[data-jump]").forEach((b) => {
+    if (!b.onclick) b.onclick = () => jumpTo(b.dataset.jump, true);
+  });
+}
+/** more で取った応答（load が _more に付ける）。無い（古いキャッシュ・テストの偽の応答）ときは null */
+const moreOf = (D, k) => (D && D._more && D._more[k]) || null;
+/** more が無いときの節（load は more の失敗で画面ごと失敗にするので、ここに来るのは応答の形が違うときだけ） */
+const missingPart = (name) => '<div class="err">' + esc(name) + " のデータがありません。「読み直す」を押してください。</div>";
+
+/* ---------------------------------------------------------------- 8 記録と数字の信頼度（09 の 3章 8）
+   前の「データ品質」「MTG の品質」「定義と検証」を 1 画面に。🔴 中身は全部残す（どの節も前の描画そのまま）。
+   順は 09 のとおり: データの欠け・偏り（法人番号の出どころ・記入率の偏り）→ MTG の記録の埋まり具合・リスク判定の分布 →
+   色と印の意味・守っていること・定義。題字の行の「色と印の意味 →」は ?at=trust-defs で最後の節へ飛ぶ */
+function renderTrust(D) {
+  const Q = moreOf(D, "mtgq");
+  /* 問いは節（データ品質の問い「この画面の数字を、どこまで信じてよいか」）と同じ文にしない（続けて 2 回読ませない） */
+  let h = sec("問い", "どの記録が欠け・偏っていて、数字はどう作っているか") +
+    '<div class="lede">データの欠けと偏り、MTG の記録の埋まり具合、色と印・定義をこの 1 画面にまとめています' +
+    "（前の「データ品質」「MTG の品質」「定義と検証」。中身は前のまま）。</div>" +
+    toc([["trust-dq", "データの欠けと偏り"], ["trust-mtgq", "MTG の記録"], ["trust-defs", "色と印・定義"]]);
+  h += partSec(renderDq(D), "データ品質", "trust-dq");
+  h += Q ? partSec(renderMtgQ(Q), "MTG の品質", "trust-mtgq") : partSec(missingPart("MTG の品質"), "MTG の品質", "trust-mtgq");
+  h += partSec(renderDefs(), "定義と検証", "trust-defs");
+  return h;
+}
+
+/* ---------------------------------------------------------------- 仮のつなぎ（他のチームの描画が入るまで）
+   🔴 中身を黙って消さないため、前の画面の描画を節として並べる。問いは 09 の新しい画面のもの。
+   他のチームの関数（renderCustomer / renderRenewalPipe / renderResults / renderTeamPage）が入れば MENUS がそちらを呼ぶ。
+   🔴 画面の問いは、すぐ下の節の問いと同じ文にしない（続けて 2 回読ませない。記録と数字の信頼度と同じ手当て）。
+      前は節の問いをつないだだけで、「この法人は拠点ごとにどう違うか」「どこに手が回っていないか」「継続を重ねると成果は落ちる」を
+      画面の問いと最初の節で 2 回読ませていた（2026-09-29 検証 1440px）。見張り consulting_view_rules.js */
+function customerInterim(D) {
+  return sec("問い", "この顧客とは、どこで・どれだけ契約を続けてきたか") +
+    '<div class="lede">前の「法人番号で見る」（法人の層）と「継続を追いかける」（事業所の層）を順に並べています。' +
+    "法人を選ぶと両方が切り替わります。</div>" +
+    toc([["cust-houjin", "法人番号で見る"], ["cust-series", "継続を追いかける"]]) +
+    partSec(renderHoujin(D), "法人番号で見る", "cust-houjin") +
+    partSec(renderSeries(D), "継続を追いかける", "cust-series");
+}
+function teamInterim(D) {
+  const C = moreOf(D, "contact"), H = moreOf(D, "handover");
+  return sec("問い", "担当ごとの持ち案件・接触・交代は、いまどうなっているか") +
+    /* 09 の 6: 問いの直下に畳まない 1 行 */
+    '<div class="lede"><b>仕事量の一覧で、担当者の評価ではありません。</b>' +
+    "前の「担当者の一覧」「担当者ごとの接触」「担当の交代」を順に並べています。</div>" +
+    toc([["team-list", "担当者の一覧"], ["team-contact", "接触の推移"], ["team-handover", "担当の交代"]]) +
+    partSec(renderTeam(D), "担当者の一覧", "team-list") +
+    partSec(C ? renderContact(C) : missingPart("担当者ごとの接触"), "担当者ごとの接触", "team-contact") +
+    partSec(H ? renderHandover(H) : missingPart("担当の交代"), "担当の交代", "team-handover");
+}
+function resultsInterim(D) {
+  const O = moreOf(D, "outcome"), R = moreOf(D, "rampup");
+  return sec("問い", "契約の回数と成果・立ち上がりは、全体でどうなっているか") +
+    '<div class="lede">月に 1 回見る集計です。前の「継続回数 × 成果」「成果とリスク」「立ち上がり」を順に並べています。</div>' +
+    toc([["results-renewal", "継続回数 × 成果"], ["results-outcome", "成果とリスク"], ["results-rampup", "立ち上がり"]]) +
+    partSec(renderRenewal(D), "継続回数 × 成果", "results-renewal") +
+    partSec(O ? renderOutcome(O) : missingPart("成果とリスク"), "成果とリスク", "results-outcome") +
+    partSec(R ? renderRampup(R) : missingPart("立ち上がり"), "立ち上がり", "results-rampup");
+}
+/** 満了と継続（新しい画面）は前の画面に当たるものが無い。🔴 件数・金額を仮に数えて出さない（amount が月額か契約総額かを
+    確かめるまで金額は出さない。09 の 10章④）。案件一覧を満了までの日数で絞った行き先を置く */
+function renewalPipeInterim(D) {
+  return sec("問い", "今月・来月・再来月に満了するのはどれか") +
+    note("info", "この画面は作っている途中です",
+      "満了月ごとの件数・金額・ステージは、金額（amount）が月額か契約総額かをデータで確かめてから出します。" +
+      "それまでは案件一覧を満了までの日数で絞って見てください: " +
+      EXPIRY_BANDS.filter((b) => b.k !== "far" && b.k !== "none").map((b) =>
+        '<a class="golink" href="' + hashFor("board", { expiry: b.k }) + '">' + esc(b.t) + "</a>").join(" ／ ") + "。") +
+    (D && D.meta ? foot(D.meta) : "");
+}
+
 /* ================================================================ 画面の並び
 
-   上で3つ（案件 / コンサルタント / 集計）を選び、左のサイドバーで中の項目を選ぶ。
-   1画面に出す選択肢を減らして、いまどこを見ているかを分かりやすくするため。
+   メニューは左に 1 列、使う間隔で 3 つに区切る（毎日 / 調べる / 月1・確かめる）。計 11 画面。
+   2026-09-29 画面の組み替え 段A（handover 09 の 3章・10章「藤巻さんの判断」）。
+   🔴 前は上のメニュー（案件 / コンサルタント / 集計）＋左のサイドバーの 2 段で、17 画面あった。
+      同じ API・同じ表が 2 か所にある、答えが 1 画面目に無い、毎日使う表が「集計」の奥にある（09 の 2章）。
+      8 画面の骨組みに、藤巻さんの判断で残す 3 画面（担当者ごとの案件・いま見るべき顧客・電話）を足して 11。
+      11 項目なら 1 列で一望できるので、2 段にしない（上のメニューは無くした）。
+
+   ---- 画面キー（他のチームはこの鍵で hashFor / goLink / go を呼ぶ） ----
+   ハッシュは #<区切りの鍵>/<画面の鍵>?<状態>（形は今までと同じ）。
+   画面の鍵は全区切りで一意なので、hashFor("team") / goLink(任意, "team") / go(任意, "team") は区切りを省いてよい。
+     区切り deal     「毎日」         today 今日 ／ board 案件一覧 ／ byowner 担当者ごとの案件 ／ detail 案件の詳細
+     区切り research 「調べる」       customer 顧客 ／ focus いま見るべき顧客 ／ renewalpipe 満了と継続 ／ team チームと担当 ／ phone 電話
+     区切り monthly  「月1・確かめる」 results 成果と継続 ／ trust 記録と数字の信頼度
+   🔴 区切り「毎日」の鍵を deal のままにするのは、#deal/detail?id=… と #deal/board・#deal/today を
+      変えないため（表の案件名のリンク・貼られた URL・見張りがこの形を持っている）。
+   消える画面の鍵（旧ハッシュ。LEGACY で転送する）: series・houjin → customer ／ contact・handover → team ／
+     renewal・outcome・rampup → results ／ mtgq・dq・defs → trust。区切りだけ変わるもの: team・byowner・focus・phone
+
+   ---- 1 つの画面が複数の API を読むとき（more） ----
+   { path: 主の API, more: { 名前: API, … } }。load() が全部を並べて取りに行き、主の応答に _more.名前 で付けて render に渡す。
+   どれか 1 つでも失敗したら画面ごと失敗にする（サーバの失敗を空の図にすり替えない、と同じ）。
+
+   ---- 他のチームの描画がまだ無い画面（仮のつなぎ） ----
+   顧客（renderCustomer）・満了と継続（renderRenewalPipe）・成果と継続（renderResults）は、関数が無ければ
+   前の画面の描画を節として並べる（中身を黙って消さない）。チームと担当は renderTeamPage があればそれ、無ければ
+   前の「担当者の一覧」「担当者ごとの接触」「担当の交代」を並べる。節には移ってきた元の画面の名前と id を付ける
+   （旧ハッシュからの転送はその節へ飛ぶ。?at=<節の id>）。
 
    🔴 **開いた項目だけ取りに行く。** 並べ替えただけで全部読むと重くなる。
    🔴 **折りたたみは使わない。** 左に並べば一望できるので、箱に隠す理由が無い。
-   🔴 中身（図・表・数字）は前のまま。置き場所だけ変えている。
 */
 const MENUS = [
-  /* 🔴 ①の中は**粒度で分けてある**。同じ「顧客」でも、
-     取引1件で見るのか / 事業所の契約の連なりで見るのか / 法人で拠点をまたいで見るのか で
-     数字の意味が変わる。取り違えると読み間違えるので、画面を分けて粒度を明示する。 */
-  { key: "deal", label: "案件",
-    lead: "案件そのものを見る画面です。",
+  { key: "deal", label: "毎日",
     views: [
-      { key: "today",    label: "今日動く先",       path: "/api/consulting/today",
+      /* 既定。毎朝いちばん見るもの */
+      { key: "today",    label: "今日",             path: "/api/consulting/today",
         render: (D) => renderToday(D) },
-      { key: "board",    label: "案件そのもの",     path: "/api/consulting/deals",
+      { key: "board",    label: "案件一覧",         path: "/api/consulting/deals",
         render: (D) => renderBoard(D) },
-      { key: "series",   label: "継続を追いかける", path: "/api/consulting/customer",
-        render: (D) => renderSeries(D) },
-      { key: "houjin",   label: "法人番号で見る",   path: "/api/consulting/customer",
-        render: (D) => renderHoujin(D) },
+      /* 10章⑤: 削除せず残す。置き場所は案件一覧の次 */
+      { key: "byowner",  label: "担当者ごとの案件", path: "/api/consulting/deals",
+        render: (D) => renderBoard(D) },
       /* 2026-09-26 藤巻さんの要望で足した。取引1件の MTG・電話（要約つき）・交代を時系列で。
          取引はハッシュの後ろ（#deal/detail?id=…）で指定する。表の案件名から来る */
       { key: "detail",   label: "案件の詳細",       path: "/api/consulting/deal-detail",
         render: (D) => renderDetail(D) },
     ] },
-  { key: "consultant", label: "コンサルタント",
-    lead: "人の側から見る画面です。担当者の評価ではありません。",
+  { key: "research", label: "調べる",
     views: [
-      { key: "team",     label: "担当者の一覧",     path: "/api/consulting/consultants",
-        render: (D) => renderTeam(D) },
-      { key: "byowner",  label: "担当者ごとの案件", path: "/api/consulting/deals",
-        render: (D) => renderBoard(D) },
-      { key: "handover", label: "担当の交代",       path: "/api/consulting/handover",
-        render: (D) => renderHandover(D) },
-      /* 2026-09-24 藤巻さんの要望で足した。接触は検知専用（多いほど良い、ではない） */
-      { key: "contact",  label: "担当者ごとの接触", path: "/api/consulting/contact-trend",
-        render: (D) => renderContact(D) },
-    ] },
-  { key: "study", label: "集計",
-    lead: "調べた結果と定義です。一度読めば済む話をここに置いています。",
-    views: [
-      { key: "renewal", label: "継続回数 × 成果", path: "/api/consulting/renewal",
-        render: (D) => renderRenewal(D) },
-      { key: "outcome", label: "成果とリスク",     path: "/api/consulting/outcome",
-        render: (D) => renderOutcome(D) },
-      { key: "focus",   label: "いま見るべき顧客", path: "/api/consulting/focus",
+      /* 前の「継続を追いかける」と「法人番号で見る」を 1 つに（09 の 4 顧客） */
+      { key: "customer", label: "顧客",             path: "/api/consulting/customer",
+        render: (D) => (typeof renderCustomer === "function" ? renderCustomer(D) : customerInterim(D)) },
+      /* 10章⑤: 削除せず残す。置き場所は顧客の次 */
+      { key: "focus",    label: "いま見るべき顧客", path: "/api/consulting/focus",
         render: (D) => renderFocus(D) },
-      { key: "rampup",  label: "立ち上がり",       path: "/api/consulting/rampup",
-        render: (D) => renderRampup(D) },
-      { key: "phone",   label: "電話",             path: "/api/consulting/phone",
+      /* 新しい画面（09 の 5）。材料は案件の行（amount・stage・days_left） */
+      { key: "renewalpipe", label: "満了と継続",    path: "/api/consulting/deals",
+        render: (D) => (typeof renderRenewalPipe === "function" ? renderRenewalPipe(D) : renewalPipeInterim(D)) },
+      /* 前の「担当者の一覧」「担当者ごとの接触」「担当の交代」を 1 つに（09 の 6） */
+      { key: "team",     label: "チームと担当",     path: "/api/consulting/consultants",
+        more: { contact: "/api/consulting/contact-trend", handover: "/api/consulting/handover" },
+        render: (D) => (typeof renderTeamPage === "function" ? renderTeamPage(D) : teamInterim(D)) },
+      /* 10章⑤: 削除せず残す。置き場所はチームと担当の次 */
+      { key: "phone",    label: "電話",             path: "/api/consulting/phone",
         render: (D) => renderPhone(D) },
-      { key: "mtgq",    label: "MTG の品質",       path: "/api/consulting/mtg-quality",
-        render: (D) => renderMtgQ(D) },
-      { key: "dq",      label: "データ品質",       path: "/api/consulting/data-quality",
-        render: (D) => renderDq(D) },
-      { key: "defs",    label: "定義と検証",       path: null,
-        render: () => renderDefs() },
+    ] },
+  { key: "monthly", label: "月1・確かめる",
+    views: [
+      /* 前の「継続回数 × 成果」「成果とリスク」「立ち上がり」を 1 つに（09 の 7） */
+      { key: "results",  label: "成果と継続",       path: "/api/consulting/renewal",
+        more: { outcome: "/api/consulting/outcome", rampup: "/api/consulting/rampup" },
+        render: (D) => (typeof renderResults === "function" ? renderResults(D) : resultsInterim(D)) },
+      /* 前の「データ品質」「MTG の品質」「定義と検証」を 1 つに（09 の 8。中身は全部残す） */
+      { key: "trust",    label: "記録と数字の信頼度", path: "/api/consulting/data-quality",
+        more: { mtgq: "/api/consulting/mtg-quality" },
+        render: (D) => renderTrust(D) },
     ] },
 ];
 
-/* いま見ているところ。既定は「案件 → 今日動く先」。毎朝いちばん見るもの */
+/* いま見ているところ。既定は「毎日 → 今日」。毎朝いちばん見るもの */
 let cur = { menu: "deal", view: "today" };
 const loaded = {};
 /* いま出している項目のデータ。チェックや絞り込みで描き直すときに使う */
 let lastPayload = null;
 
 const menuOf = (k) => MENUS.find((m) => m.key === k);
-/* 法人を選んで見る項目。🔴 2つあるので、片方だけ直して取りこぼさないよう1か所で判定する */
-const isCustView = (k) => k === "series" || k === "houjin";
+/* 法人を選んで見る項目。🔴 前は 2 つ（継続を追いかける・法人番号で見る）あった。1 か所で判定する */
+const isCustView = (k) => k === "customer";
 const viewOf = (m, v) => (menuOf(m) || MENUS[0]).views.find((x) => x.key === v);
-/** 本文から別の画面を指すときの書き方。「集計 → 成果とリスク」のように名前で書き、押すとそこへ移る。
+/** 画面の鍵から、それを持つ区切り（鍵は全区切りで一意） */
+const menuHaving = (vk) => MENUS.find((m) => m.views.some((x) => x.key === vk));
+
+/* ================================================================ 旧ハッシュの転送（N8、handover 09 の 5章）
+   組み替え前の 17 画面のハッシュ（ブックマーク・貼られた URL・前の版の本文のリンク）を新しい画面へ送る。
+   鍵は「区切り/画面」（区切りだけのものは区切りの鍵）。to は新しい画面の鍵、at は移り先の中の節の id（あれば飛ぶ）、
+   was は前の画面の名前（「この画面は○○に移りました」の帯に出す）。
+   今日・案件そのもの（→ 案件一覧）・案件の詳細はハッシュが変わらないので載せない（#deal/today・#deal/board・#deal/detail）。
+   ? 以降の状態（法人・拠点・担当・並び・単位）はそのまま渡す。受ける画面の URL_STATE に無い名前は読まれない */
+const LEGACY = {
+  "deal/series":         { to: "customer", at: "cust-series",     was: "継続を追いかける" },
+  "deal/houjin":         { to: "customer", at: "cust-houjin",     was: "法人番号で見る" },
+  "consultant":          { to: "team",                            was: "担当者の一覧" },
+  "consultant/team":     { to: "team",                            was: "担当者の一覧" },
+  "consultant/byowner":  { to: "byowner",                         was: "担当者ごとの案件" },
+  "consultant/handover": { to: "team",     at: "team-handover",   was: "担当の交代" },
+  "consultant/contact":  { to: "team",     at: "team-contact",    was: "担当者ごとの接触" },
+  "study":               { to: "results",                         was: "継続回数 × 成果" },
+  "study/renewal":       { to: "results",  at: "results-renewal", was: "継続回数 × 成果" },
+  "study/outcome":       { to: "results",  at: "results-outcome", was: "成果とリスク" },
+  "study/focus":         { to: "focus",                           was: "いま見るべき顧客" },
+  "study/rampup":        { to: "results",  at: "results-rampup",  was: "立ち上がり" },
+  "study/phone":         { to: "phone",                           was: "電話" },
+  "study/mtgq":          { to: "trust",    at: "trust-mtgq",      was: "MTG の品質" },
+  "study/dq":            { to: "trust",    at: "trust-dq",        was: "データ品質" },
+  "study/defs":          { to: "trust",    at: "trust-defs",      was: "定義と検証" },
+};
+/* 消えた画面の鍵だけで呼ばれたとき（hashFor("dq")・go(任意, "contact") など、前の版の本文・他のチームのコード）の行き先 */
+const LEGACY_VIEW = {};
+Object.keys(LEGACY).forEach((k) => {
+  const vk = k.indexOf("/") >= 0 ? k.split("/")[1] : "";
+  if (vk && !menuHaving(vk)) LEGACY_VIEW[vk] = LEGACY[k];
+});
+/* 「この画面は○○に移りました」の帯を出す期間（N8「2週間」）。過ぎた後も転送は続け、帯だけ出さない。
+   🔴 前は最後の日を固定の日付（"2026-10-13"）で書いていた。本番に入れるのが遅れるとその分だけ短くなり、
+      その日より後に入れると帯は一度も出なかった（2026-09-29 検証。統合する側が直し忘れれば黙って消える）。
+      その端末で組み替えた後の画面を初めて開いた日（端末に覚える）から 14 日にする。毎日開く人には本番に入れた日と同じ日になる。
+      覚えられない端末（私的モード・保存の禁止）では期限を決められないので、帯を出す側に倒す（案内を黙って消さない） */
+const MOVED_NOTICE_DAYS = 14;
+const LAYOUT_SEEN_KEY = "cs.layoutSeen.1";
+/** 帯を出す最後の日（YYYY-MM-DD）。端末に覚えられなければ ""（期限なしで出す） */
+const MOVED_NOTICE_UNTIL = (() => {
+  let seen = "";
+  try {
+    seen = String(localStorage.getItem(LAYOUT_SEEN_KEY) || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(seen)) { seen = localDay(); localStorage.setItem(LAYOUT_SEEN_KEY, seen); }
+  } catch (_) { return ""; }
+  const p = seen.split("-").map(Number);
+  const d = new Date(p[0], p[1] - 1, p[2] + MOVED_NOTICE_DAYS - 1);
+  const z = (n) => (n < 10 ? "0" : "") + n;
+  return d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate());
+})();
+
+/** 区切りの鍵と画面の鍵から、開く画面を決める（go・hashFor・goLink・fromHash が共通で使う）。
+    返り値 { m: 区切り, v: 画面, moved: 旧ハッシュの転送（LEGACY の 1 行）か null, exact: 鍵が見つかったか }。
+    - 区切りと画面がいまの MENUS にあればそのまま
+    - 旧ハッシュ（LEGACY の「区切り/画面」か区切りだけ）なら新しい画面へ
+    - 画面の鍵だけ合っていれば、その鍵を持つ区切りへ（区切りは省いてよい）
+    - 消えた画面の鍵（LEGACY_VIEW）なら新しい画面へ
+    - どれでもなければ、区切りの中で最後に開いた項目、まだ無ければ先頭（区切りも無ければ既定＝毎日の先頭） */
+function resolveView(menu, view) {
+  const mk = menu == null ? "" : String(menu), vk = view == null ? "" : String(view);
+  if (menuOf(mk) && vk && viewOf(mk, vk)) return { m: menuOf(mk), v: viewOf(mk, vk), moved: null, exact: true };
+  const lg = LEGACY[vk ? mk + "/" + vk : mk] || (vk && !menuHaving(vk) ? LEGACY_VIEW[vk] : null);
+  const key = lg ? lg.to : vk;
+  const hit = key ? menuHaving(key) : null;
+  if (hit) return { m: hit, v: viewOf(hit.key, key), moved: lg || null, exact: true };
+  const m = menuOf(mk) || MENUS[0];
+  return { m: m, v: viewOf(m.key, lastView[m.key]) || m.views[0], moved: null, exact: false };
+}
+
+/** 本文から別の画面を指すときの書き方。画面の名前で書き、押すとそこへ移る。
     🔴 2026-09-24 実機（第2弾の後）: 本文に「⑧成果」「NPS は①で」「③顧客詳細」と、画面を並べ替える前の
-    番号が残っていた。左のメニューは上が ①案件 ②コンサルタント ③集計、中が 1〜8 で、どれとも合わない。
-    番号は並べ替えのたびにずれるので本文には書かない。名前は MENUS から引く（名前を変えても本文が追従する）。
+    番号が残っていた。番号は並べ替えのたびにずれるので本文には書かない。名前は MENUS から引く（名前を変えても本文が追従する）。
     押すとハッシュが変わり、followUrl → go() でその画面が開く（戻るで元の画面へ戻れる）。
+    消えた画面の鍵（"dq" など）は移り先の画面へ、節があればその節へ（?at=）。
+    🔴 1 列のメニューになったので、区切りの名前（「毎日 →」）は付けない（メニューに出ているのは画面の名前だけ）。
     行き先が MENUS に無いときはリンクにしない（見張り consulting_view_rules.js が落とす） */
 function goLink(menu, view) {
-  const m = MENUS.find((x) => x.key === menu);
-  const v = m && m.views.find((x) => x.key === view);
+  const r = resolveView(menu, view);
   /* 行き先が無いときはリンクにしない。内部の key（英字）は画面に出さない（2026-09-24 検証） */
-  if (!v) return esc(m ? m.label : "別の画面");
-  return '<a class="golink" href="#' + m.key + "/" + v.key + '">' +
-    esc(m.label) + " → " + esc(v.label) + "</a>";
+  if (!r.exact) return esc(menuOf(menu) ? menuOf(menu).label : "別の画面");
+  /* 消えた画面の鍵で、移り先の中の節があるときは「顧客 → 法人番号で見る」の形で節まで書く（同じ画面へのリンクが
+     2 つ並んだとき「顧客 か 顧客」にならないように） */
+  const at = r.moved && r.moved.at;
+  return '<a class="golink" href="' + hashFor(r.v.key, at ? { at: at } : null) + '">' +
+    esc(r.v.label) + (at ? " → " + esc(r.moved.was) : "") + "</a>";
 }
 
 /* いま見ている項目の印（class / aria-current）を付け替える。
    🔴 要素を作り直さない（M-6、2026-09-28 UI/UX 改善 段2）: 前は go() のたびに nav の innerHTML を組み直していたので、
       Enter で押したボタンそのものが消えてフォーカスが body に落ち、Tab が文書の頭からやり直しになっていた
       （本題まで Tab 10〜15 回）。印だけ付け替えれば、押したボタンにフォーカスが残る。
-   偽の DOM（テスト）は querySelectorAll が空を返すので、そのときは前のとおり組み直す（drawMenu / drawSide の分岐） */
+   偽の DOM（テスト）は querySelectorAll が空を返すので、そのときは前のとおり組み直す（drawSide の分岐） */
 function markCurrent(b, on, cls) {
   b.className = on ? cls : "";
   if (on) { if (b.setAttribute) b.setAttribute("aria-current", "page"); }
   else if (b.removeAttribute) b.removeAttribute("aria-current");
 }
 
-/* ---------------------------------------------------------------- 上のメニュー */
-function drawMenu() {
-  const nav = document.getElementById("cs-menu");
-  const btns = nav.querySelectorAll ? Array.from(nav.querySelectorAll("button")) : [];
-  /* すでに並んでいれば印だけ付け替える（M-6） */
-  if (btns.length === MENUS.length) { btns.forEach((b) => markCurrent(b, b.dataset.m === cur.menu, "on")); return; }
-  nav.innerHTML = MENUS.map((m) =>
-    '<button type="button" data-m="' + m.key + '"' +
-    (m.key === cur.menu ? ' class="on" aria-current="page"' : "") + ">" +
-    /* 🔴 丸数字（①②③）は出さない。左の番号と体系が2つになり、本文は名前で参照する方針（goLink）と
-       揃わなかった（2026-09-28 UI/UX 改善 S-7） */
-    esc(m.label) + "</button>").join("");
-  nav.querySelectorAll("button").forEach((b) => {
-    b.onclick = () => go(b.dataset.m, null);
-  });
-}
-
-/* ---------------------------------------------------------------- 左のサイドバー */
+/* ---------------------------------------------------------------- 左のメニュー（1 列・3 区切り）
+   区切りの名前は見出し（h2）、画面はボタン。区切りの見出しは押せない（押して何も開かないものをボタンにしない） */
 function drawSide() {
-  const m = menuOf(cur.menu);
   const box = document.getElementById("cs-side");
   const btns = box.querySelectorAll ? Array.from(box.querySelectorAll("button")) : [];
-  /* 同じメニューの項目がすでに並んでいれば印だけ付け替える（M-6）。メニューが変わったときは並べ直す */
-  if (box.dataset && box.dataset.menu === m.key && btns.length === m.views.length) {
-    btns.forEach((b) => markCurrent(b, b.dataset.v === cur.view, ""));
-    return;
-  }
-  box.innerHTML = "<h2>" + esc(m.label) + "の中</h2><ul>" +
-    m.views.map((v, i) =>
+  const total = MENUS.reduce((a, m) => a + m.views.length, 0);
+  /* すでに並んでいれば印だけ付け替える（M-6） */
+  if (btns.length === total) { btns.forEach((b) => markCurrent(b, b.dataset.v === cur.view, "")); return; }
+  box.innerHTML = MENUS.map((m) =>
+    '<div class="sidegrp"><h2 id="side-' + m.key + '">' + esc(m.label) + '</h2><ul role="list" aria-labelledby="side-' + m.key + '">' +
+    m.views.map((v) =>
       "<li><button type=\"button\" data-v=\"" + v.key + "\"" +
       (v.key === cur.view ? ' aria-current="page"' : "") + ">" +
       /* 🔴 名前の後ろの番号（「今日動く先 1」）は出さない。件数に見え、400px では次の項目とくっついていた
          （2026-09-28 UI/UX 改善 S-7、診断 ①②③）。項目は名前で参照する（goLink） */
       esc(v.label) + "</button></li>").join("") +
-    "</ul>";
-  if (box.dataset) box.dataset.menu = m.key;
+    "</ul></div>").join("");
   box.querySelectorAll("button").forEach((b) => {
-    b.onclick = () => go(cur.menu, b.dataset.v);
+    b.onclick = () => go(null, b.dataset.v);
   });
 }
 
-/* メニューごとに「最後に開いた項目」を覚える（メモリ上。開き直せば消える）。
-   🔴 上のメニューを押すと常に1つ目が開いていた。③の1つ目は「継続回数 × 成果」で毎朝の画面ではなく、
-   ②③を行き来するたびに見ていた項目へ戻す一手が要った（2026-09-28 UI/UX 改善 S-7） */
+/* 区切りごとに「最後に開いた項目」を覚える（メモリ上。開き直せば消える）。
+   区切りだけのハッシュ（#research）で来たときに、その区切りで最後に見ていた項目へ戻す */
 const lastView = {};
 
 /* ================================================================ URL に載せる状態（M-2、2026-09-28 UI/UX 改善 段2）
@@ -7264,19 +7509,21 @@ const lastView = {};
    形: #<menu>/<view>?<名前>=<値>&…   値は名前ではなく鍵（法人番号・帯の鍵・列の鍵）。既定の値は載せない。名前は ABC 順。
    古い形（#deal/board、#deal/detail?id=…、#study）はそのまま開ける（? の前で画面を決め、? の後ろは名前ごとに読む）。
    名前:
-     c       担当（今日動く先・案件そのもの・担当者ごとの案件）。今日動く先では URL の c が端末の記憶（localStorage）より優先。
+     c       担当（今日・案件一覧・担当者ごとの案件）。今日では URL の c が端末の記憶（localStorage）より優先。
              無ければ端末の記憶（D-1、段1レビュー D の裁定）
      flag    名札 ／ band  MTG途絶の帯の鍵（critical など。画面には名前で出す） ／ expiry  満了までの帯の鍵（EXPIRY_BANDS.k）
-     q       案件名の部分一致（案件そのもの・担当者ごとの案件）、探す言葉（案件の詳細）
-     houjin  法人番号（継続を追いかける・法人番号で見る） ／ site  拠点の鍵（継続を追いかける） ／ focus=1  法人の選択欄を注力だけに
+     q       案件名の部分一致（案件一覧・担当者ごとの案件）、探す言葉（案件の詳細）
+     houjin  法人番号（顧客） ／ site  拠点の鍵（顧客） ／ focus=1  法人の選択欄を注力だけに（顧客）
      id      取引（案件の詳細。前からある形）
-     unit    week（担当者ごとの接触。month は既定なので載せない） ／ excl=1  右側打ち切りを代表値から外す（継続回数 × 成果）
-     sort    並び替え。列の鍵、先頭に - で大きい順（案件そのもの・担当者ごとの案件・担当者の一覧・今日動く先の表）
+     unit    week（チームと担当の接触の推移。month は既定なので載せない） ／ excl=1  右側打ち切りを代表値から外す（成果と継続）
+     sort    並び替え。列の鍵、先頭に - で大きい順（案件一覧・担当者ごとの案件・チームと担当の担当者の表・今日の表）
+     at      画面の中の節の id（旧ハッシュの転送・本文のリンクで、移り先の節へ飛ぶ）。一度飛んだら URL から外す（状態ではない）
    kind:
      filter  その画面だけの絞り込み。左の項目・上のメニュー・本文のリンクから入り直すと既定に戻る
              （段1レビュー D: KPI で帯を絞った後、側柱で案件そのものへ戻っても帯の絞り込みが残っていた）
      ctx     画面をまたいで持ち越すもの（法人・担当・期間の単位・打ち切りの扱い・並び）。戻る・進むでは URL のとおりに戻す
    他のチームへ: 別の画面へのリンクは hashFor(view, params) で作る（例 hashFor("board", { c: "担当A", band: "critical" })）。
+   画面の鍵は MENUS の上の一覧。消えた画面の鍵（"dq" など）を渡しても移り先の画面になる（resolveView）。
    名前は上の一覧のとおり。空・null・false・既定の値は載せない */
 const sortState = (get, set, cols, def) => ({
   kind: "ctx",
@@ -7299,7 +7546,7 @@ const BOARD_URL_STATE = {
   q: boardState("q"),
   sort: sortState(() => boardSort, (s) => { boardSort = s; }, BOARD_COLS, { key: "n_flags", asc: false }),
 };
-/* 法人は 2 画面（継続を追いかける・法人番号で見る）で共通（isCustView）。URL から入れたときは「既定で開いています」の注記を外す。
+/* 法人は顧客の画面（前は 2 画面: 継続を追いかける・法人番号で見る。isCustView）。URL から入れたときは「既定で開いています」の注記を外す。
    🔴 既定で開いた法人（customerReason が立っている）は URL に載せない（既定の値は載せない、と同じ）。前は初回の描画の後に
       syncUrl が ?houjin=… と書き、戻る・再読込でその値が「人が選んだ法人」として入って注記が消えていた
       （2026-09-29 検証 Playwright 1440px: 注記の位置 初回 98948 → 戻る -1・再読込 -1。選んでいない法人を選んだように見せる）。
@@ -7316,31 +7563,33 @@ const URL_STATE = {
   },
   board: BOARD_URL_STATE,
   byowner: BOARD_URL_STATE,
-  series: { houjin: HOUJIN_URL_STATE,
-            site: { kind: "filter", get: () => seriesSite, set: (v) => { seriesSite = v; }, reset: () => { seriesSite = ""; } } },
-  houjin: { houjin: HOUJIN_URL_STATE, focus: flagState(() => focusOnly, (b) => { focusOnly = b; }) },
+  /* 顧客: 前の「継続を追いかける」（site）と「法人番号で見る」（focus）の両方の状態を持つ */
+  customer: { houjin: HOUJIN_URL_STATE,
+              site: { kind: "filter", get: () => seriesSite, set: (v) => { seriesSite = v; }, reset: () => { seriesSite = ""; } },
+              focus: flagState(() => focusOnly, (b) => { focusOnly = b; }) },
   detail: { id: { kind: "filter", get: () => detailId, set: (v) => { detailId = v; }, reset: () => { detailId = ""; } },
             q:  { kind: "filter", get: () => detailQ,  set: (v) => { detailQ = v; },  reset: () => { detailQ = ""; } } },
-  team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "contact_rate", asc: true }) },
-  contact: { unit: { kind: "ctx", get: () => (contactUnit === "month" ? "" : contactUnit),
-                     set: (v) => { contactUnit = CONTACT_UNITS.some((u) => u.k === v) ? v : "month"; },
-                     reset: () => { contactUnit = "month"; } } },
-  renewal: { excl: flagState(() => renewalExcludeCensored, (b) => { renewalExcludeCensored = b; }) },
+  /* チームと担当: 前の「担当者の一覧」（sort）と「担当者ごとの接触」（unit）の両方 */
+  team: { sort: sortState(() => teamSort, (s) => { teamSort = s; }, TEAM_COLS, { key: "contact_rate", asc: true }),
+          unit: { kind: "ctx", get: () => (contactUnit === "month" ? "" : contactUnit),
+                  set: (v) => { contactUnit = CONTACT_UNITS.some((u) => u.k === v) ? v : "month"; },
+                  reset: () => { contactUnit = "month"; } } },
+  results: { excl: flagState(() => renewalExcludeCensored, (b) => { renewalExcludeCensored = b; }) },
 };
 
 /** 別の画面へのリンク、いまの状態の URL を作る（M-2。他のチームもこれで作る）。
-    view: "deal/board" か、view の key だけ（"board"。key は全メニューで一意）。無い名前は既定（案件 → 今日動く先）。
+    view: "deal/board" か、view の key だけ（"board"。key は全区切りで一意）。旧ハッシュの形・消えた鍵は移り先へ（resolveView）。
+    無い名前は既定（毎日 → 今日）。
     params: { c: "担当A", band: "critical" } のような名前と値。空・null・false・既定は載せない。true は "1"。名前は ABC 順に並べる
     （同じ状態は同じ文字列になる。followUrl が「同じ場所か」を文字列で比べるため）。
     例: hashFor("board", { c: "担当A", band: "critical" }) → "#deal/board?band=critical&c=%E6%8B%85%E5%BD%93A"
         hashFor("detail", { id: "70000000001" })          → "#deal/detail?id=70000000001"（前からある形と同じ） */
 function hashFor(view, params) {
   const s = String(view || ""), sl = s.indexOf("/");
-  let mk = s, vk = "";
-  if (sl >= 0) { mk = s.slice(0, sl); vk = s.slice(sl + 1); }
-  else { const hit = MENUS.find((m) => m.views.some((v) => v.key === s)); if (hit) { mk = hit.key; vk = s; } }
-  const m = menuOf(mk) || MENUS[0];
-  const v = viewOf(m.key, vk) || m.views[0];
+  /* 斜線が無ければ画面の鍵（消えた鍵も）か、区切りの鍵（旧 "study" も）。区切りだけなら、その区切りの最後に開いた項目か先頭 */
+  const grp = sl < 0 && (menuOf(s) || LEGACY[s]);
+  const r = sl >= 0 ? resolveView(s.slice(0, sl), s.slice(sl + 1)) : grp ? resolveView(s, "") : resolveView(null, s);
+  const m = r.m, v = r.v;
   const sp = new URLSearchParams();
   Object.keys(params || {}).sort().forEach((k) => {
     const val = params[k];
@@ -7403,6 +7652,7 @@ function capturePos() {
   const href = a && a !== document.body && a.getAttribute ? a.getAttribute("href") || "" : "";
   return {
     y: typeof window.scrollY === "number" ? window.scrollY : 0,
+    mh: movedHeight(),   /* そのときの帯の高さ（restorePos が差を足し引きする） */
     x: typeof window.scrollX === "number" ? window.scrollX : 0,
     boxes,
     /* 押した案件名（詳細へのリンク）だけ覚える。戻ったとき同じ行にフォーカスを戻す（「元の行に戻す」）。
@@ -7417,21 +7667,37 @@ function restorePos(p) {
       if (p.boxes[i]) { s.scrollTop = p.boxes[i][0]; s.scrollLeft = p.boxes[i][1]; }
     });
   } catch (_) { /* 偽の DOM */ }
-  window.scrollTo(p.x, p.y);
+  window.scrollTo(p.x, Math.max(0, p.y - (p.mh || 0) + movedHeight()));
+}
+/** 「この画面は○○に移りました」の帯（#cs-moved）がいま取っている高さ。出していなければ 0 */
+function movedHeight() {
+  const b = document.getElementById("cs-moved");
+  return b && !b.hidden && typeof b.offsetHeight === "number" ? b.offsetHeight : 0;
 }
 
 /* ---------------------------------------------------------------- 移動
-   view を省いたら、そのメニューで最後に開いた項目、まだ無ければ先頭（＝既定）を開く。
-   state（M-2）: 省く ＝ 左の項目・上のメニューから入り直す（その画面の絞り込みは既定に戻す。法人・担当などの持ち越すものは残す）
+   view を省いたら、その区切りで最後に開いた項目、まだ無ければ先頭（＝既定）を開く。
+   menu は省いてよい（画面の鍵は全区切りで一意）。旧ハッシュの形・消えた画面の鍵は移り先へ（resolveView）。
+   state（M-2）: 省く ＝ 左のメニューから入り直す（その画面の絞り込みは既定に戻す。法人・担当などの持ち越すものは残す）
                 "keep" ＝ 呼ぶ側が変数を入れてある（KPI・担当者名から絞って開く drillTo*、案件の詳細の探す欄）
                 URLSearchParams ＝ URL から（貼った・戻る・進む・本文のリンク）。無い名前は既定（今日動く先の担当だけ端末の記憶）
-   trav: 戻る・進むで来たときの履歴の札（history.state.k）。同じ応答があれば取り直さず、離れたときの位置に戻す（load の opts） */
-function go(menu, view, refresh, how, state, trav) {
-  const m = menuOf(menu) || MENUS[0];
-  const v = (view && viewOf(m.key, view)) || viewOf(m.key, lastView[m.key]) || m.views[0];
+   trav: 戻る・進むで来たときの履歴の札（history.state.k）。同じ応答があれば取り直さず、離れたときの位置に戻す（load の opts）
+   moved: 旧ハッシュから転送して来たとき（fromHash の moved）。「この画面は○○に移りました」の帯を出す（N8） */
+function go(menu, view, refresh, how, state, trav, moved) {
+  const r = resolveView(menu, view);
+  const m = r.m, v = r.v;
   lastView[m.key] = v.key;
-  /* 離れる前に、いまの位置を履歴の札ごとに覚える（戻ってきたときに戻す） */
+  atPin = null;   /* 前の画面で送った節に留めるのはやめる（holdAt） */
+  /* 節へ飛ぶ（?at= か、消えた画面の鍵で呼ばれたときの移り先の節）。描いた後に load の settle が飛ぶ。戻る・進むでは飛ばない
+     （離れたときの位置へ戻すのが先） */
+  pendingAt = trav != null ? "" :
+    (state instanceof URLSearchParams && state.get("at")) || (moved && moved.at) || (r.moved && r.moved.at) || "";
+  /* 離れる前に、いまの位置を履歴の札ごとに覚える（戻ってきたときに戻す）。
+     🔴 帯（showMoved）を付け外しする**前**に覚える。帯の高さも一緒に覚え、戻したときの帯との差を restorePos が足し引きする
+     （2026-09-29 検証: 帯ありの #study/defs で scrollY 4577 → 戻ると帯は消えていて 4478。Chromium は帯を消したときの
+      スクロールの錨で内容の位置を保っていたが、錨の無いブラウザでは帯の高さ 99px ぶん下にずれる） */
   if (curKey != null) posByKey[curKey] = capturePos();
+  showMoved(moved || null, v);
   /* 🔴 前はここで「案件そのものへ入るときは担当の絞り込みだけ外す」としていた（②から担当で絞った状態を持ち越すと、
      絞っていることに気づかないまま全件だと思い込む）。いまは入り直しで絞り込み（filter）を全部既定に戻すので、
      その決まりも含む（段1レビュー D: 帯の絞り込みも同じ理由で残っていた）。URL に c= が書いてあるときだけ、そのとおり絞る
@@ -7456,7 +7722,6 @@ function go(menu, view, refresh, how, state, trav) {
   }
   /* タブの名前に画面名を（M-6）。前は全画面「コンサルダッシュボード」で、タブを並べても・読み上げでも区別がつかなかった */
   document.title = v.label + " — コンサルダッシュボード";
-  drawMenu();
   drawSide();
   /* 戻る・進むは離れたときの位置へ戻す（描いた後、load が restorePos）。それ以外は頭から */
   if (trav == null) window.scrollTo(0, 0);
@@ -7467,7 +7732,8 @@ function go(menu, view, refresh, how, state, trav) {
 
 /* 開いたときの位置を URL から決める。無ければ既定。
    params: ? から後ろ（画面ごとの状態。URL_STATE）。id は前からの呼び出しのために残している（params.get("id") と同じ）。
-   known: 画面のハッシュか（"" と #<menu>… は true。#cs-main のような画面でないものは false。followUrl はそれを無視する） */
+   known: 画面のハッシュか（"" と #<menu>… は true。#cs-main のような画面でないものは false。followUrl はそれを無視する）
+   moved: 旧ハッシュ（組み替え前の 17 画面。LEGACY）から転送したとき、その 1 行。帯「この画面は○○に移りました」に使う */
 function fromHash() {
   const raw = (location.hash || "").replace(/^#/, "");
   const qi = raw.indexOf("?");
@@ -7475,11 +7741,67 @@ function fromHash() {
   let params;
   try { params = new URLSearchParams(qi >= 0 ? raw.slice(qi + 1) : ""); } catch (_) { params = new URLSearchParams(); }
   const m = menuOf(p[0]);
-  if (!m) return Object.assign(defaultPlace(), { id: "", params: params, known: !raw });
+  const lg = !(m && viewOf(m.key, p[1])) ? LEGACY[p[1] ? p[0] + "/" + p[1] : p[0]] : null;
+  if (lg) {
+    const hit = menuHaving(lg.to);
+    return { menu: hit.key, view: lg.to, id: params.get("id") || "", params: params, known: true, moved: lg };
+  }
+  if (!m) return Object.assign(defaultPlace(), { id: "", params: params, known: !raw, moved: null });
   const v = viewOf(m.key, p[1]);
-  return { menu: m.key, view: (v || m.views[0]).key, id: params.get("id") || "", params: params, known: true };
+  return { menu: m.key, view: (v || m.views[0]).key, id: params.get("id") || "", params: params, known: true, moved: null };
 }
-/** URL が空・画面でないときの行き先。毎朝いちばん見る「案件 → 今日動く先」（見張り app_routes_no_conflict.rs） */
+/* ---------------------------------------------------------------- 移ったことの帯と節への移動（N8）
+   旧ハッシュから来たときだけ、本文の上に「この画面は○○に移りました」を出す（MOVED_NOTICE_UNTIL まで。端末で初めて開いた日から 14 日）。
+   次に別の画面へ移ったら消す（go が毎回 showMoved を呼ぶ）。🔴 帯を出さなくなった後も転送は続ける（ブックマークを壊さない） */
+let pendingAt = "";
+function localDay() {
+  const d = new Date();
+  const z = (n) => (n < 10 ? "0" : "") + n;
+  return d.getFullYear() + "-" + z(d.getMonth() + 1) + "-" + z(d.getDate());
+}
+function showMoved(moved, v) {
+  const box = document.getElementById("cs-moved");
+  if (!box) return;
+  if (!moved || (MOVED_NOTICE_UNTIL && localDay() > MOVED_NOTICE_UNTIL)) { box.innerHTML = ""; box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = note("info", "この画面は「" + v.label + "」に移りました",
+    "開いたアドレス（ブックマークなど）は、画面を組み替える前の「" + esc(moved.was) + "」のものです。" +
+    "いまは「" + esc(v.label) + "」" + (moved.at ? "の中にあり、その場所まで送っています" : "で見られます") +
+    "。ブックマークを付け直してください" +
+    (MOVED_NOTICE_UNTIL ? "（この案内は " + esc(MOVED_NOTICE_UNTIL) + " まで出します）" : "") + "。");
+}
+/** 画面の中の節（id）へ送る。focus: フォーカスも移す（開いた直後は移さない。読み上げが鮮度の帯を飛ばさないように） */
+function jumpTo(id, focus) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (typeof el.open === "boolean") el.open = true;
+  if (el.scrollIntoView) el.scrollIntoView({ block: "start" });
+  if (focus && el.focus) el.focus({ preventScroll: true });
+  atPin = { id: id, until: Date.now() + AT_PIN_MS };
+}
+/* 送った節に留める（N8 の検証 2026-09-29）。
+   🔴 顧客の画面は描いた後にも中身が伸びる（既定の法人を取り直す 2 回目の load、本部アプローチ #hq-box の後読み）。
+      飛ぶのは最初の描画の 1 回だけなので、上の節が伸びると行き先が押し出されていた
+      （fixture 実測: #deal/series で cust-series の画面上の top 1440px +6481〜+11165・400px +19099。本文のリンク ?at=cust-series も +11165）。
+   送った後しばらくは、本文の大きさが変わるたび（ResizeObserver）と同じ画面の描き直しのたび（settle）に、同じ節へ送り直す。
+   人が動かしたら（ホイール・タッチ・キー・押す）やめる。別の画面へ移ったとき（go）と 30 秒後もやめる
+   （本部アプローチは読み直しの直後で 20 秒ほどかかる。人の操作を奪い続けない上限） */
+let atPin = null;
+const AT_PIN_MS = 30000;
+function holdAt() {
+  if (!atPin) return;
+  if (Date.now() > atPin.until) { atPin = null; return; }
+  const el = document.getElementById(atPin.id);
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
+}
+["wheel", "touchstart", "keydown", "pointerdown"].forEach((k) =>
+  window.addEventListener(k, () => { atPin = null; }, { passive: true, capture: true }));
+if (typeof ResizeObserver === "function") {
+  const mainEl = document.getElementById("cs-main");
+  if (mainEl) new ResizeObserver(() => holdAt()).observe(mainEl);
+}
+
+/** URL が空・画面でないときの行き先。毎朝いちばん見る「毎日 → 今日」（見張り app_routes_no_conflict.rs） */
 function defaultPlace() {
   return { menu: "deal", view: "today" };
 }
@@ -7599,6 +7921,21 @@ function startWait(my, refresh) {
 const pageCache = {};
 const PAGE_CACHE_MS = 10 * 60 * 1000;
 
+/** API ごとの引数（load）。🔴 前は画面の鍵で決めていた（cur.view === "renewal" など）。1 つの画面が複数の API を
+    読むようになったので（MENUS の more）、API の道で決める */
+function queryFor(path) {
+  const q = new URLSearchParams();
+  if (path === "/api/consulting/renewal" && renewalExcludeCensored) q.set("exclude_right_censored", "1");
+  if (path === "/api/consulting/customer" && customerHoujin) q.set("houjin", customerHoujin);
+  if (path === "/api/consulting/deal-detail") {
+    if (detailId) q.set("deal_id", detailId);
+    else if (detailQ) q.set("q", detailQ);
+  }
+  return q;
+}
+/** 画面がその API を読むか（主か more） */
+const usesApi = (v, path) => !!v && (v.path === path || Object.keys(v.more || {}).some((k) => v.more[k] === path));
+
 /** opts（省くと「同じ画面の取り直し」＝ 読み直す・法人の選び直し・打ち切りの切替。いまの位置を保つ）
     pos:       描いた後に戻す位置（go が渡す。戻る・進むなら離れたときの位置、それ以外は null ＝ 頭。go が先に scrollTo(0,0) している）
     focusMain: 描いた後に本文へフォーカスを移す（移動のとき。M-6）。取り直しでは触っていた部品へ戻す（U9）
@@ -7636,6 +7973,9 @@ async function load(refresh, opts) {
         if (!a || a === document.body || a === fe) focusMainEl();
       } else refocus(fk);
     }
+    /* 節へ（?at=・旧ハッシュの転送）。1 回だけ。URL からは syncUrl が外す（at は状態ではない） */
+    if (pendingAt) { const at = pendingAt; pendingAt = ""; jumpTo(at, !!opts.focusMain); }
+    else holdAt();   /* 既定の法人を取り直した 2 回目の描画など。送った節に留める（atPin） */
     syncUrl();
     /* 表示したことを読み上げに伝える。最初の表の行数も添える（偽の DOM では数えられないので省く） */
     let n = null;
@@ -7652,15 +7992,16 @@ async function load(refresh, opts) {
     return;
   }
 
-  const q = new URLSearchParams();
-  if (cur.view === "renewal" && renewalExcludeCensored) q.set("exclude_right_censored", "1");
-  if (isCustView(cur.view) && customerHoujin) q.set("houjin", customerHoujin);
-  if (cur.view === "detail") {
-    if (detailId) q.set("deal_id", detailId);
-    else if (detailQ) q.set("q", detailQ);
-  }
-  const cacheKey = v.path + "?" + q.toString();
-  if (refresh) q.set("refresh", "1");
+  /* 取りに行く API（主と more）と、それぞれの引数。引数は画面ではなく API で決める（1 つの画面が複数の API を読むため） */
+  const parts = [["", v.path]].concat(Object.keys(v.more || {}).map((k) => [k, v.more[k]]));
+  const urlOf = (path, withRefresh) => {
+    const q = queryFor(path);
+    if (withRefresh) q.set("refresh", "1");
+    return path + "?" + q.toString();
+  };
+  const cacheKey = parts.map((p) => urlOf(p[1], false)).join(" ");
+  /* 読み直すは、画面が後から取りに行く応答（今日の自分の接触）も捨てる */
+  if (refresh) todayContactCache = null;
 
   /* 応答を描く（取ってきたもの・手元のもの共通） */
   const show = (body, fromCache) => {
@@ -7694,18 +8035,41 @@ async function load(refresh, opts) {
     loadCtl = ctl;
     /* 60 秒で打ち切る（M-7）。前は打ち切りが無く、応答が来ないと「読み込み中」のまま何もできなかった */
     const killer = ctl && typeof setTimeout === "function" ? setTimeout(() => ctl.abort(), LOAD_TIMEOUT_MS) : 0;
-    let res;
+    let res, more = null;
     try {
-      res = await fetch(v.path + "?" + q.toString(), { credentials: "same-origin", signal: ctl ? ctl.signal : undefined });
+      /* 主と more を並べて取りに行く。🔴 「読み直す」（refresh=1）は主の 1 本だけに付け、more は主が返ってから取る。
+         サーバの読み直しは共有キャッシュを全部捨てるので（routes.rs）、more にも付けると同じ読み直しを 2〜3 回重ねて待ちが延び、
+         同時に出すと more が読み直す前の古いキャッシュを読む。読み直さないときは同時に出す */
+      const opt = { credentials: "same-origin", signal: ctl ? ctl.signal : undefined };
+      const rest = parts.slice(1);
+      if (refresh || !rest.length) {
+        res = await fetch(urlOf(v.path, refresh), opt);
+        if (rest.length) more = await Promise.all(rest.map((p) => fetch(urlOf(p[1], false), opt)));
+      } else {
+        const all = await Promise.all(parts.map((p) => fetch(urlOf(p[1], false), opt)));
+        res = all[0];
+        more = all.slice(1);
+      }
     } catch (e) {
       /* 打ち切り（60 秒か、新しい要求が出た）。新しい要求が出たときは下の loadSeq の確かめで抜ける */
       if (e && e.name === "AbortError") throw new Error("60 秒待っても応答がありませんでした。サーバが混んでいるか、HubSpot のシートの読み直しに時間がかかっています。");
       throw e;
     } finally { if (killer) clearTimeout(killer); if (loadCtl === ctl) loadCtl = null; }
-    const body = await readJson(res);
+    let body = await readJson(res);
     if (my !== loadSeq) return;   /* 後から別の画面を頼んでいる。古い応答は描かない */
     /* サーバは失敗を空配列にすり替えない。error が立っていれば中身を出す */
     if (!res.ok || body.error) throw new Error(body.message || "HTTP " + res.status);
+    if (more) {
+      /* more のどれかが失敗したら画面ごと失敗にする（空の節にすり替えない）。どの API かを文に書く */
+      const got = {};
+      for (let i = 0; i < more.length; i++) {
+        const b = await readJson(more[i]);
+        if (my !== loadSeq) return;
+        if (!more[i].ok || b.error) throw new Error("（" + parts[i + 1][1] + "）" + (b.message || "HTTP " + more[i].status));
+        got[parts[i + 1][0]] = b;
+      }
+      body = Object.assign({}, body, { _more: got });
+    }
     pageCache[cacheKey] = { body: body, at: Date.now() };
     show(body, false);
   } catch (e) {
@@ -7747,15 +8111,16 @@ function popline(D) {
 function ctlbar(v, D) {
   /* 母集団の 1 行は操作列の中（先頭）に置いて同じ行にする（M-1。前は操作列の上の別の行で、共通枠を 40px 使っていた） */
   let h = '<div class="ctlbar">' + popline(D);
-  if (v.key === "renewal") {
+  if (usesApi(v, "/api/consulting/renewal")) {
     h += '<label class="act"><input type="checkbox" id="cs-censor"' +
       (renewalExcludeCensored ? " checked" : "") + ">" +
       "右側打ち切りを代表値から外す（結果がまだ確定していない直近の契約）</label>";
   }
   /* 選択欄に名前が無く、読み上げでは何を選ぶ欄か分からなかった（V20） */
   if (isCustView(v.key)) h += '<select id="cs-houjin" class="act" aria-label="法人を選ぶ"></select>';
-  /* 担当者ごとの接触: 月ごと / 週ごと。押している方は aria-pressed と太字・枠で示す（色だけにしない） */
-  if (v.key === "contact") {
+  /* 担当者ごとの接触（チームと担当）: 月ごと / 週ごと。押している方は aria-pressed と太字・枠で示す（色だけにしない）。
+     今日も接触の API を読むが、そちらは本人の月ごとだけなので切り替えを出さない */
+  if (v.key === "team") {
     h += '<span class="act" id="ct-unit" role="group" aria-label="期間の単位">期間:' +
       CONTACT_UNITS.map((u) => '<button type="button" class="act" id="ct-unit-' + u.k + '" data-u="' + u.k +
         '" aria-pressed="' + (contactUnit === u.k ? "true" : "false") + '">' + esc(u.t) + "</button>").join("") +
@@ -7795,13 +8160,13 @@ function staleData(D) {
 }
 
 function wire(v) {
-  if (v.key === "team") wireTeam();
-  if (v.key === "contact") wireContact();
+  /* チームと担当・顧客は前の 2〜3 画面の部品を並べているので、それぞれの wire を呼ぶ（他のチームの描画に替わったら、その wire を足す） */
+  if (v.key === "team") { wireTeam(); wireContact(); }
   if (v.key === "today") wireToday();
   if (v.key === "board" || v.key === "byowner") wireBoard();
-  if (v.key === "series") wireSeries();
-  if (v.key === "houjin") wireHoujin();
+  if (v.key === "customer") { wireSeries(); wireHoujin(); }
   if (v.key === "detail") wireDetail();
+  wireToc();        /* 画面の頭の目次（.toc の data-jump）→ 同じ画面の節へ */
   wireKpiJumps();   /* KPI の札 → 同じ画面の行き先（段2 S-2 の残り。画面ごとの wire* の後） */
   const rl = document.getElementById("cs-reload");
   /* 押したら終わるまで押せない（S-11）。load() は同期で本文を「取り直し中…」に置き換えるので、押した直後には
@@ -7824,7 +8189,7 @@ function wire(v) {
        🔴 絞るのは「法人番号で見る」だけ。注力の切り替えはそちらの画面にしか無いので、
           「継続を追いかける」まで絞ると、そちらでは解除できなくなる
           （2026-09-23 実機: 401 → 117 のまま引き継がれ、トグルは無い, U4）。 */
-    const list = focusOnly && v.key === "houjin"
+    const list = focusOnly && v.key === "customer"
       ? customerIndex.filter((r) => r.focus || r.houjin === customerHoujin)
       : customerIndex;
     /* 🔴 件数で切らない。400件で切っていて、全517法人のうち117法人が選べなかった（U8）。
@@ -7905,8 +8270,9 @@ const followUrl = (ev) => {
   const trav = st && st.s === SESSION && typeof st.k === "number" ? st.k : null;
   /* 同じ場所（画面も状態も同じ）なら何もしない。popstate と hashchange が両方来ても 1 回しか描かない。
      案件の詳細どうしの移動（連なりの前後の契約・付け直し元へのリンク）は画面が同じで取引（?id=）だけ違うので、ここで拾う */
-  if (hashFor(h.menu + "/" + h.view, paramsObj(h.params)) === hashHere()) return;
-  go(h.menu, h.view, false, "replace", h.params, trav);
+  /* 旧ハッシュ（h.moved）は同じ画面でも描き直す（URL を新しい形に書き直し、移ったことの帯を出す） */
+  if (!h.moved && hashFor(h.menu + "/" + h.view, paramsObj(h.params)) === hashHere()) return;
+  go(h.menu, h.view, false, "replace", h.params, trav, h.moved);
 };
 window.addEventListener("popstate", followUrl);
 window.addEventListener("hashchange", followUrl);
@@ -7966,7 +8332,7 @@ window.addEventListener("toggle", (ev) => { markScrollAll(); refitOpened(ev && e
   const sk = document.getElementById("cs-skip");
   if (sk) sk.onclick = (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); focusMainEl(); };
   const h = fromHash();
-  go(h.menu, h.view, false, "replace", h.params);
+  go(h.menu, h.view, false, "replace", h.params, undefined, h.moved);
 })();
 </script>
 </body>
