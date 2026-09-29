@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod crm;
 pub mod db;
 pub mod gemini;
 pub mod geo;
@@ -707,6 +708,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // どちらも旧シェル (dashboard_page) と同じ定義・同じ session キーを読む。要ログイン。
         .merge(handlers::nav::router())
         .merge(handlers::filters::router())
+        // Headless CRM: HubSpot レコードの読み取り (/api/crm/{contacts|companies|deals}/{id})。
+        // 認可は crm::rbac (Google OIDC かつ役割)。/api/v1/* (認証不要) には置かない。
+        // route_layer(auth_middleware) より前に merge すること。
+        .merge(crm::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。
