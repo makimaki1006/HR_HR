@@ -311,6 +311,11 @@ pub struct SurveyAggregation {
     /// 同等以上に保守的なため安全。次回集計時に正しい集合が入る。
     #[serde(default)]
     pub municipality_presence: std::collections::HashSet<(String, String)>,
+
+    /// 2026-09-29: 競合調査章 (Indeed 掲載求人) 用の集計。
+    /// serde default で旧キャッシュ JSON と後方互換 (欠損時は空 = 章を出さない)。
+    #[serde(default)]
+    pub competitor: CompetitorAnalysis,
 }
 
 impl SurveyAggregation {
@@ -322,6 +327,162 @@ impl SurveyAggregation {
     pub fn has_municipality(&self, prefecture: &str, municipality: &str) -> bool {
         self.municipality_presence
             .contains(&(prefecture.to_string(), municipality.to_string()))
+    }
+}
+
+/// 競合調査章で「検索上位 N 件」として保持する最大件数 (N の上限と同じ)。
+pub const COMPETITOR_HEAD_MAX: usize = 200;
+
+/// 下限・上限それぞれの件数 / 平均 / 中央値 (競合調査章の人気比較用、2026-09-29)。
+///
+/// 単位は `CompetitorAnalysis::pop_is_hourly` に従う (true=円/時、false=円/月)。
+/// 下限と上限は独立に集計する (上限なしの求人は上限の n に入らない)。
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BoundStats {
+    pub min_n: usize,
+    pub min_mean: Option<i64>,
+    pub min_median: Option<i64>,
+    pub max_n: usize,
+    pub max_mean: Option<i64>,
+    pub max_median: Option<i64>,
+}
+
+impl BoundStats {
+    /// 下限値・上限値の配列から作る。平均は整数切り捨て (compute_salary_stats と同じ)。
+    pub fn from_values(mins: &[i64], maxs: &[i64]) -> Self {
+        fn mean_opt(v: &[i64]) -> Option<i64> {
+            if v.is_empty() {
+                None
+            } else {
+                let sum: i128 = v.iter().map(|&x| x as i128).sum();
+                Some((sum / v.len() as i128) as i64)
+            }
+        }
+        fn median_opt(v: &[i64]) -> Option<i64> {
+            if v.is_empty() {
+                None
+            } else {
+                Some(median_of(v))
+            }
+        }
+        Self {
+            min_n: mins.len(),
+            min_mean: mean_opt(mins),
+            min_median: median_opt(mins),
+            max_n: maxs.len(),
+            max_mean: mean_opt(maxs),
+            max_median: median_opt(maxs),
+        }
+    }
+}
+
+/// 競合調査章 (Indeed 掲載求人のスクレイプ) 用の集計 (2026-09-29)。
+///
+/// レコード本体はキャッシュされないため、レポート生成時に N (検索上位件数) を
+/// 変えられるよう、取り込み順の先頭 `COMPETITOR_HEAD_MAX` 件のタグ列を保持する。
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CompetitorAnalysis {
+    /// Indeed (PC / SP) 由来の件数 (重複排除後)。0 なら章を出さない。
+    pub indeed_count: usize,
+    /// 取り込み順 (row_index 昇順、重複排除後) の先頭 `COMPETITOR_HEAD_MAX` 件のタグ列。
+    /// 分解規則は by_tags と同じ (`split_tags`)。
+    pub head_tags: Vec<Vec<String>>,
+    /// 全件のタグ出現数 (by_tags と同じ規則、上位での切り詰めなし)。件数降順 → タグ名昇順。
+    pub tag_counts_all: Vec<(String, usize)>,
+    /// 人気比較の単位。true = 時給求人のみ (円/時)、false = 月給求人のみ (円/月)。
+    /// SurveyAggregation::is_hourly と同じ値 (ネイティブ単位配列と同じ方針)。
+    pub pop_is_hourly: bool,
+    /// Indeed (SP) 由来の全件 (人気・超人気・タグなし) の下限・上限統計
+    pub pop_all: BoundStats,
+    /// Indeed (SP) 由来のうち「人気」または「超人気」タグ付きの下限・上限統計
+    pub pop_popular: BoundStats,
+}
+
+/// tags_raw をタグに分解する (by_tags / 競合調査章で共通)。
+/// 区切り `,` `、` `/` タブ。危険 URL プレフィックスを除去し、空と 20 文字超は捨てる。
+pub(crate) fn split_tags(tags_raw: &str) -> Vec<String> {
+    use super::super::helpers::sanitize_tag_text;
+    if tags_raw.is_empty() {
+        return Vec::new();
+    }
+    tags_raw
+        .split([',', '、', '/', '\t'])
+        .map(sanitize_tag_text)
+        .filter(|t| !t.is_empty() && t.chars().count() <= 20)
+        .collect()
+}
+
+/// §05 人気度と同じ判定 (`,` 区切り + 厳密一致)。戻り値 (超人気, 人気)。
+fn popularity_signal(tags_raw: &str) -> (bool, bool) {
+    let tokens: Vec<&str> = tags_raw.split(',').map(|s| s.trim()).collect();
+    (tokens.contains(&"超人気"), tokens.contains(&"人気"))
+}
+
+/// 競合調査章の集計。`is_hourly` は SurveyAggregation::is_hourly と同じ値を渡す。
+fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAnalysis {
+    use super::upload::CsvSource;
+    let indeed_count = records
+        .iter()
+        .filter(|r| matches!(r.source, CsvSource::Indeed | CsvSource::IndeedSp))
+        .count();
+
+    // 取り込み順 (row_index) の先頭 N 件。records は通常すでにこの順だが明示的に並べる。
+    let mut order: Vec<&SurveyRecord> = records.iter().collect();
+    order.sort_by_key(|r| r.row_index);
+    let head_tags: Vec<Vec<String>> = order
+        .iter()
+        .take(COMPETITOR_HEAD_MAX)
+        .map(|r| split_tags(&r.tags_raw))
+        .collect();
+
+    let mut tag_map: HashMap<String, usize> = HashMap::new();
+    for r in records {
+        for t in split_tags(&r.tags_raw) {
+            *tag_map.entry(t).or_default() += 1;
+        }
+    }
+    let mut tag_counts_all: Vec<(String, usize)> = tag_map.into_iter().collect();
+    tag_counts_all.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    // 人気比較: §05 と同じく Indeed (SP) 由来のみが母数。単位はモードの主単位だけ
+    // (native_value_for_mode: 時給モード=時給求人の円/時、月給モード=月給求人の円/月)。
+    let (mut all_min, mut all_max, mut pop_min, mut pop_max) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for r in records {
+        if !matches!(r.source, CsvSource::IndeedSp) {
+            continue;
+        }
+        let (is_super, is_popular) = popularity_signal(&r.tags_raw);
+        let st = &r.salary_parsed.salary_type;
+        let lo = r
+            .salary_parsed
+            .min_value
+            .and_then(|v| native_value_for_mode(v, st, is_hourly));
+        let hi = r
+            .salary_parsed
+            .max_value
+            .and_then(|v| native_value_for_mode(v, st, is_hourly));
+        if let Some(v) = lo {
+            all_min.push(v);
+            if is_super || is_popular {
+                pop_min.push(v);
+            }
+        }
+        if let Some(v) = hi {
+            all_max.push(v);
+            if is_super || is_popular {
+                pop_max.push(v);
+            }
+        }
+    }
+
+    CompetitorAnalysis {
+        indeed_count,
+        head_tags,
+        tag_counts_all,
+        pop_is_hourly: is_hourly,
+        pop_all: BoundStats::from_values(&all_min, &all_max),
+        pop_popular: BoundStats::from_values(&pop_min, &pop_max),
     }
 }
 
@@ -876,21 +1037,18 @@ fn aggregate_records_core(
     by_employment_type.sort_by(|a, b| b.1.cmp(&a.1));
 
     // タグ別（カンマ/スペース区切りで分解、危険URLプレフィックスをサニタイズ）
+    // 2026-09-29: 分解規則を split_tags に切り出し (競合調査章と共通)。同数のタグは
+    //   タグ名昇順で並べる (旧: HashMap 順で同数の並びが実行ごとに変わっていた)。
     use super::super::helpers::sanitize_tag_text;
     // Finding #17 (2026-06-30): タグは 1 レコード平均 3 種程度を想定
     let mut tag_map: HashMap<String, usize> = HashMap::with_capacity(records.len() / 3 + 1);
     for r in records {
-        if !r.tags_raw.is_empty() {
-            for tag in r.tags_raw.split([',', '、', '/', '\t']) {
-                let sanitized = sanitize_tag_text(tag);
-                if !sanitized.is_empty() && sanitized.chars().count() <= 20 {
-                    *tag_map.entry(sanitized).or_default() += 1;
-                }
-            }
+        for tag in split_tags(&r.tags_raw) {
+            *tag_map.entry(tag).or_default() += 1;
         }
     }
     let mut by_tags: Vec<(String, usize)> = tag_map.into_iter().collect();
-    by_tags.sort_by(|a, b| b.1.cmp(&a.1));
+    by_tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     by_tags.truncate(30); // 上位30タグ
 
     // 給与統計
@@ -1556,9 +1714,7 @@ fn aggregate_records_core(
             indeed_sp_total += 1;
 
             // Finding #1: split + 厳密一致 (部分文字列マッチを廃止)。
-            let tokens: Vec<&str> = r.tags_raw.split(',').map(|s| s.trim()).collect();
-            let is_super = tokens.iter().any(|t| *t == "超人気");
-            let is_popular = tokens.iter().any(|t| *t == "人気");
+            let (is_super, is_popular) = popularity_signal(&r.tags_raw);
             let has_popular_signal = is_super || is_popular;
             // 判定順: 超人気 → 人気 (1 record は超人気 or 人気 のいずれか 1 つだけ計上)
             if is_super {
@@ -1739,6 +1895,8 @@ fn aggregate_records_core(
         card_briefs,
         // 2026-07-28: 市区町村在否集合 (0件ゲートの truncate 非依存判定用)
         municipality_presence,
+        // 2026-09-29: 競合調査章 (タグ全体 / 検索上位 N 件 / 人気比較)
+        competitor: compute_competitor(records, is_hourly),
     }
 }
 

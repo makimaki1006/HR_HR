@@ -367,6 +367,7 @@ fn build_agg(include_jobbox: bool) -> SurveyAggregation {
         card_briefs: vec![],
         // 2026-07-28: 市区町村在否集合。VRT fixture では 0件ゲート判定を通らないため空。
         municipality_presence: std::collections::HashSet::new(),
+        competitor: Default::default(),
     }
 }
 
