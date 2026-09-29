@@ -30,16 +30,17 @@ use super::fetch::{
 use super::render::{
     render_company_matrix, render_foreign_residents, render_industry_structure,
     render_internet_usage, render_job_openings_ratio, render_labor_stats, render_occupation,
-    render_population_pyramid, render_wage_comparison,
+    render_population_pyramid, render_wage_comparison, AGGREGATION_FAILED_MESSAGE,
+    COMPANY_DATA_UNAVAILABLE_MESSAGE, DB_UNAVAILABLE_MESSAGE, PREF_REQUIRED_MESSAGE,
 };
 use crate::handlers::competitive::escape_html;
 use crate::AppState;
 
 /// 企業成長マトリックスの取得上限 (散布点数)。
-const COMPANY_MATRIX_LIMIT: usize = 300;
+pub(crate) const COMPANY_MATRIX_LIMIT: usize = 300;
 
 /// 産業構造の表示上限 (産業数)。
-const INDUSTRY_STRUCTURE_LIMIT: usize = 20;
+pub(crate) const INDUSTRY_STRUCTURE_LIMIT: usize = 20;
 
 /// タブ本体: フィルタバー (都道府県→市区町村) + パネル枠。
 pub async fn tab_regional_analysis(
@@ -67,7 +68,7 @@ pub struct RegionalParams {
 }
 
 impl RegionalParams {
-    fn to_filter(&self) -> RegionalFilter {
+    pub(crate) fn to_filter(&self) -> RegionalFilter {
         RegionalFilter {
             prefecture: self.prefecture.clone().unwrap_or_default(),
             municipality: self.municipality.clone().unwrap_or_default(),
@@ -99,26 +100,26 @@ pub async fn regional_municipalities(
 
 /// 都道府県未選択時の共通レスポンス。
 fn pref_required() -> Html<String> {
-    Html(
-        r#"<div class="stat-card"><p class="text-amber-300 text-sm">都道府県を選択してください。</p></div>"#
-            .to_string(),
-    )
+    Html(format!(
+        r#"<div class="stat-card"><p class="text-amber-300 text-sm">{}</p></div>"#,
+        PREF_REQUIRED_MESSAGE
+    ))
 }
 
 /// 集計処理失敗時の共通レスポンス。
 fn aggregation_failed() -> Html<String> {
-    Html(
-        r#"<div class="stat-card"><p class="text-red-300 text-sm">集計処理に失敗しました。</p></div>"#
-            .to_string(),
-    )
+    Html(format!(
+        r#"<div class="stat-card"><p class="text-red-300 text-sm">{}</p></div>"#,
+        AGGREGATION_FAILED_MESSAGE
+    ))
 }
 
 /// DB 未接続時の共通レスポンス。
 fn db_unavailable() -> Html<String> {
-    Html(
-        r#"<div class="stat-card"><p class="text-red-300 text-sm">外部統計データベースに接続できません。</p></div>"#
-            .to_string(),
-    )
+    Html(format!(
+        r#"<div class="stat-card"><p class="text-red-300 text-sm">{}</p></div>"#,
+        DB_UNAVAILABLE_MESSAGE
+    ))
 }
 
 /// 有効求人倍率 推移 (e-Stat)。
@@ -254,10 +255,10 @@ pub async fn regional_company_matrix(
         return pref_required();
     }
     if state.salesnow_db.is_none() {
-        return Html(
-            r#"<div class="stat-card"><p class="text-amber-300 text-sm">外部企業データに接続できません。</p></div>"#
-                .to_string(),
-        );
+        return Html(format!(
+            r#"<div class="stat-card"><p class="text-amber-300 text-sm">{}</p></div>"#,
+            COMPANY_DATA_UNAVAILABLE_MESSAGE
+        ));
     }
     let st = state.clone();
     let f = filter.clone();
@@ -340,5 +341,27 @@ pub async fn regional_occupation(
     match occ {
         Some(d) => Html(render_occupation(&filter, &d)),
         None => aggregation_failed(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 文言を定数へ移した前後で、分岐ごとの HTML が 1 文字も変わっていないこと。
+    #[test]
+    fn status_cards_are_unchanged_after_moving_messages() {
+        assert_eq!(
+            pref_required().0,
+            r#"<div class="stat-card"><p class="text-amber-300 text-sm">都道府県を選択してください。</p></div>"#
+        );
+        assert_eq!(
+            aggregation_failed().0,
+            r#"<div class="stat-card"><p class="text-red-300 text-sm">集計処理に失敗しました。</p></div>"#
+        );
+        assert_eq!(
+            db_unavailable().0,
+            r#"<div class="stat-card"><p class="text-red-300 text-sm">外部統計データベースに接続できません。</p></div>"#
+        );
     }
 }

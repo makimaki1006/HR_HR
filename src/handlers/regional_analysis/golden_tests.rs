@@ -204,7 +204,10 @@ fn labor_stats_matches_golden() {
 
 #[test]
 fn industry_structure_matches_golden() {
-    check("industry_data", &render_industry_structure(&muni(), &industry()));
+    check(
+        "industry_data",
+        &render_industry_structure(&muni(), &industry()),
+    );
     check(
         "industry_empty",
         &render_industry_structure(
@@ -221,7 +224,10 @@ fn industry_structure_matches_golden() {
 
 #[test]
 fn population_pyramid_matches_golden() {
-    check("pyramid_data", &render_population_pyramid(&muni(), &pyramid()));
+    check(
+        "pyramid_data",
+        &render_population_pyramid(&muni(), &pyramid()),
+    );
     check(
         "pyramid_empty",
         &render_population_pyramid(
@@ -253,13 +259,19 @@ fn wage_comparison_matches_golden() {
 
 #[test]
 fn company_matrix_matches_golden() {
-    check("company_data", &render_company_matrix(&pref(), &companies()));
+    check(
+        "company_data",
+        &render_company_matrix(&pref(), &companies()),
+    );
     check("company_empty", &render_company_matrix(&muni(), &[]));
 }
 
 #[test]
 fn foreign_residents_matches_golden() {
-    check("foreign_data", &render_foreign_residents(&pref(), &foreign()));
+    check(
+        "foreign_data",
+        &render_foreign_residents(&pref(), &foreign()),
+    );
     check(
         "foreign_empty",
         &render_foreign_residents(&pref(), &ForeignResidents::default()),
@@ -268,7 +280,10 @@ fn foreign_residents_matches_golden() {
 
 #[test]
 fn internet_usage_matches_golden() {
-    check("internet_data", &render_internet_usage(&pref(), &internet()));
+    check(
+        "internet_data",
+        &render_internet_usage(&pref(), &internet()),
+    );
     check(
         "internet_empty",
         &render_internet_usage(&pref(), &InternetUsage::default()),
@@ -277,7 +292,10 @@ fn internet_usage_matches_golden() {
 
 #[test]
 fn occupation_matches_golden() {
-    check("occupation_data", &render_occupation(&muni(), &occupation()));
+    check(
+        "occupation_data",
+        &render_occupation(&muni(), &occupation()),
+    );
     check(
         "occupation_empty",
         &render_occupation(&pref(), &OccupationDist::default()),

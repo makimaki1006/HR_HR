@@ -94,6 +94,21 @@ mod tests {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend/src/generated");
         let cfg = ts_rs::Config::new().with_out_dir(&out_dir);
         AppPingResponse::export_all(&cfg).expect("AppPingResponse の TS 型を書き出せない");
+        // W4 地域分析 (/api/app/regional/*)
+        {
+            use crate::handlers::regional_analysis::api as ra;
+            ra::RegionalInitResponse::export_all(&cfg).expect("regional init");
+            ra::RegionalMunicipalitiesResponse::export_all(&cfg).expect("regional munis");
+            ra::RegionalPanel::<ra::JobOpeningsRatioJson>::export_all(&cfg).expect("regional jor");
+            ra::RegionalPanel::<ra::LaborStatsJson>::export_all(&cfg).expect("regional labor");
+            ra::RegionalPanel::<ra::IndustryStructureJson>::export_all(&cfg).expect("regional ind");
+            ra::RegionalPanel::<ra::PopulationPyramidJson>::export_all(&cfg).expect("regional pyr");
+            ra::RegionalPanel::<ra::WageComparisonJson>::export_all(&cfg).expect("regional wage");
+            ra::RegionalPanel::<ra::CompanyMatrixJson>::export_all(&cfg).expect("regional co");
+            ra::RegionalPanel::<ra::ForeignResidentsJson>::export_all(&cfg).expect("regional fr");
+            ra::RegionalPanel::<ra::InternetUsageJson>::export_all(&cfg).expect("regional iu");
+            ra::RegionalPanel::<ra::OccupationJson>::export_all(&cfg).expect("regional occ");
+        }
         let written = std::fs::read_to_string(out_dir.join("AppPingResponse.ts")).unwrap();
         assert!(
             written.contains("export type AppPingResponse = {"),

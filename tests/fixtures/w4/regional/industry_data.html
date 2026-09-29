@@ -1,0 +1,17 @@
+<div class="stat-card space-y-2">
+  <div class="flex items-center justify-between gap-2 flex-wrap">
+    <h3 class="text-sm text-white font-semibold">産業構造 <span class="text-slate-400 text-xs font-normal">— 東京都 新宿区&lt;b&gt;</span></h3>
+  </div>
+  <div class="echart" style="height:180px;" data-chart-config='{
+  "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+  "grid": {"left": "2%", "right": "12%", "bottom": "4%", "top": "4%", "containLabel": true},
+  "xAxis": {"type": "value", "name": "従業者数(人)"},
+  "yAxis": {"type": "category", "data": ["卸売業&lt;script&gt;","医療,福祉"], "axisLabel": {"fontSize": 10}},
+  "series": [{"type": "bar", "data": [6789,12345], "barWidth": "60%",
+    "itemStyle": {"color": "#0072B2", "borderRadius": [0, 4, 4, 0]},
+    "label": {"show": true, "position": "right", "fontSize": 10, "color": "#cbd5e1"}}]
+}'></div><div class="overflow-x-auto mt-2"><table class="data-table"><thead><tr>
+          <th>産業</th><th class="text-right">従業者数</th><th class="text-right">構成比</th>
+        </tr></thead><tbody><tr><td>医療,福祉</td><td class="text-right">12,345</td><td class="text-right">64.5%</td></tr><tr><td>卸売業&lt;script&gt;</td><td class="text-right">6,789</td><td class="text-right">35.5%</td></tr><tr class="font-semibold"><td>合計</td><td class="text-right">19,134</td><td class="text-right">100.0%</td></tr></tbody></table></div>
+  <p class="text-xs text-slate-500">出典: 総務省統計局 国勢調査 (v2_external_industry_structure)。集計粒度: 都道府県。集計不能コード除外。従業者数は当該地域の産業構成を示す参考値です。</p>
+</div>

@@ -681,6 +681,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         ))
         // 2026-09-29: React 画面用の JSON API (/api/app/*)。応答型は ts-rs で TS に生成。要ログイン。
         .merge(handlers::app_api::router())
+        // 2026-09-29 W4: 地域分析の JSON API (/api/app/regional/*)。旧 partial /api/regional/* と並走。
+        .merge(handlers::regional_analysis::api::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。

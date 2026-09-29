@@ -1,0 +1,17 @@
+<div class="stat-card space-y-2">
+  <div class="flex items-center justify-between gap-2 flex-wrap">
+    <h3 class="text-sm text-white font-semibold">人口ピラミッド <span class="text-slate-400 text-xs font-normal">— 東京都 新宿区&lt;b&gt;</span></h3>
+  </div>
+  <div class="echart" style="height:200px;" data-chart-config='{
+  "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+  "legend": {"data": ["男性", "女性"], "textStyle": {"color": "#cbd5e1"}, "top": 0},
+  "grid": {"left": "2%", "right": "4%", "bottom": "3%", "top": "12%", "containLabel": true},
+  "xAxis": {"type": "value", "axisLabel": {"formatter": "{value}"}},
+  "yAxis": {"type": "category", "data": ["0〜4歳","10〜14歳","85歳以上"], "axisLabel": {"fontSize": 10}},
+  "series": [
+    {"name": "男性", "type": "bar", "stack": "total", "data": [-500,-520,-100], "itemStyle": {"color": "#0072B2"}},
+    {"name": "女性", "type": "bar", "stack": "total", "data": [480,505,250], "itemStyle": {"color": "#E69F00"}}
+  ]
+}'></div>
+  <p class="text-xs text-slate-500">出典: 国勢調査 (v2_external_population_pyramid)。集計粒度: 市区町村。左 (青) = 男性 / 右 (橙) = 女性。これは地域の実人口統計であり、求人・求職の人数ではありません。</p>
+</div>

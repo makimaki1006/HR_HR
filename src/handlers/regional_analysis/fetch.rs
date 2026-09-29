@@ -24,14 +24,18 @@ pub(crate) struct RegionalFilter {
 impl RegionalFilter {
     /// スコープ表示ラベル (HTML escape 済み)。
     pub(crate) fn scope_label(&self) -> String {
-        let area = if !self.municipality.is_empty() {
+        escape_html(&self.scope_label_raw())
+    }
+
+    /// スコープ表示ラベル (エスケープ前。JSON API 用)。
+    pub(crate) fn scope_label_raw(&self) -> String {
+        if !self.municipality.is_empty() {
             format!("{} {}", self.prefecture, self.municipality)
         } else if !self.prefecture.is_empty() {
             self.prefecture.clone()
         } else {
             "未選択".to_string()
-        };
-        escape_html(&area)
+        }
     }
 }
 
