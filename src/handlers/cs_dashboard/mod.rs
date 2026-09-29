@@ -1003,6 +1003,8 @@ pub async fn prefetch() {
         "コンサル先読み: 完了 {ok}枚 / 失敗 {ng}枚 / {:.1}秒",
         started.elapsed().as_secs_f64()
     );
+    // 取り直した後の 1 回目を開いた人に数えさせない（理由と実測は `routes::warm_deal_rows`）
+    routes::warm_deal_rows().await;
 
     // 🔴 **TTL が切れる前に取り直し続ける。** 起動時の1回だけだと、1時間後に
     //    最初に開いた人が9枚の直列取得を待つ（初回は実測 18.7秒・2026-09-23 本番）。
@@ -1026,6 +1028,7 @@ pub async fn prefetch() {
             SHEETS.len(),
             started.elapsed().as_secs_f64()
         );
+        routes::warm_deal_rows().await;
     }
 }
 

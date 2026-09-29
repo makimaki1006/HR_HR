@@ -6650,3 +6650,52 @@ fn amount_is_contract_total_not_monthly() {
     let text = super::money::AMOUNT_BASIS;
     assert!(text.contains("契約期間全体の額") && text.contains("月額ではありません"));
 }
+
+/// (5) 2026-09-30 検証の指摘: 覚えておく仕組みは 2 回目からしか効かず、シートを取り直した直後の 1 回目の案件一覧は
+/// 1 秒を超えていた（fixture・debug で 約 2.2〜3.1 秒）。先読みと定期更新が取り終えるたびに、サーバが先に数えて覚えさせる。
+/// 行と突き合わせの両方が要るので、`deal_rows` だけでなく `build_deal_board` を回していることも見る。
+#[test]
+fn 取り直した後に案件の行を先に数えておく() {
+    let code = |src: &'static str| -> String {
+        src.lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let m = code(include_str!("mod.rs"));
+    let start = m.find("pub async fn prefetch()").expect("prefetch");
+    let end = m[start..]
+        .find("pub fn prefetch_interval")
+        .map(|e| start + e)
+        .expect("prefetch の終わり");
+    let body = &m[start..end];
+    let first = body
+        .find("コンサル先読み: 完了")
+        .expect("最初の先読みのログ");
+    let lp = body.find("loop {").expect("定期更新の loop");
+    let warm = "routes::warm_deal_rows().await";
+    assert!(
+        body[first..lp].contains(warm),
+        "最初の先読みの後に数えていない"
+    );
+    let refresh = body.find("コンサル定期更新:").expect("定期更新のログ");
+    assert!(
+        body[refresh..].contains(warm),
+        "定期更新でシートを取り直した後に数えていない"
+    );
+    let r = code(include_str!("routes.rs"));
+    let ws = r.find("async fn warm_deal_rows").expect("warm_deal_rows");
+    let we = r[ws..]
+        .find("\n}\n")
+        .map(|e| ws + e)
+        .expect("warm_deal_rows の終わり");
+    let wb = &r[ws..we];
+    assert!(
+        wb.contains("build_deal_board("),
+        "突き合わせまで覚えさせていない"
+    );
+    assert!(
+        wb.contains("spawn_blocking"),
+        "重い計算を非同期の実行スレッドで回している"
+    );
+}
