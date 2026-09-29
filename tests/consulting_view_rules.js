@@ -5242,6 +5242,10 @@ check("段B 満了と継続: ステージは件数だけ（確度を掛けない
   const rows = [...st.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map((c) => textOf(c[1]).trim()));
   ok(rows.length === 1 + 2, "ステージの表の行が 見出し＋2 ステージ でない（計を表の行に入れると枠の案内が 1 行多く数える）: " + rows.length);
   ok(JSON.stringify(rows[1]) === JSON.stringify(["求人出稿完了", "5", "29", "45", "79"]), "ステージの件数が月ごとに並んでいない: " + rows[1]);
+  /* 2026-09-30 並びは HubSpot のステージの並び（工程順。サーバの stages の順。tests.rs renewal_pipe_stages_in_pipeline_order）。
+     画面で件数順などに並べ替えず、並びの決まりを書く */
+  ok(JSON.stringify(rows.slice(1).map((r) => r[0])) === JSON.stringify(ctx.__RP.stages), "ステージの表がサーバの並び（工程順）のままでない: " + rows.slice(1).map((r) => r[0]));
+  ok(textOf(h).includes("並びは HubSpot のステージの並び（工程の順）です。件数の多い順ではありません。"), "ステージの表の並びの決まりを書いていない");
   /* 🔴 2026-09-29 検証: 計の行が tbody にあり、枠の案内が「全 19 行」（ステージは 18 種）と出ていた。案内はステージの数と同じ */
   const sti = h.indexOf('id="rp-stage"');
   const cap = textOf(h.slice(h.indexOf('<div class="scroll-cap">', sti), h.indexOf('<table id="rp-stage-tbl"')));

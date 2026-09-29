@@ -6622,7 +6622,7 @@ fn old_screen_names_not_in_server_text() {
             "contact-trend",
             super::contact_trend::build_contact_trend(&sh, day),
         ),
-        ("deals", board.clone()),
+        ("deals", board),
         ("today", build_today_board(&sh, day)),
         (
             "deal-detail",
@@ -6645,4 +6645,71 @@ fn old_screen_names_not_in_server_text() {
             );
         }
     }
+}
+
+/// 2026-09-30 満了と継続のステージ別の表を工程順に。前は 3か月の合計の多い順で、「定期2」が「定期1」より上・
+/// ヨミ（B/C/D/T）が工程の途中に挟まり、工程の流れで読めなかった。
+/// 並びの正本は HubSpot の納品管理パイプラインの displayOrder（money.rs DELIVERY_STAGE_ORDER。シートに並びの手掛かりが無いため）。
+/// fixture の 3か月に出るステージが、その並びの順（番号が増える向き）に出ること、並びに無いものは末尾に出ることを確かめる
+#[test]
+fn renewal_pipe_stages_in_pipeline_order() {
+    use super::money::{build_renewal_pipe, DELIVERY_STAGE_ORDER};
+    let sh = sheets();
+    let day = fixture_day();
+    let v = build_renewal_pipe(&sh, day);
+    let stages: Vec<String> = v["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap().to_string())
+        .collect();
+    // ステージ名 → 工程の位置（fixture の取引の dealstage から引く。名前は画面に出る dealstage_label）
+    let deals = super::deals_of(&sh.deal);
+    let pos_of = |label: &str| -> usize {
+        deals
+            .iter()
+            .filter(|d| d.stage_label.trim() == label)
+            .filter_map(|d| DELIVERY_STAGE_ORDER.iter().position(|s| *s == d.stage))
+            .min()
+            .unwrap_or(usize::MAX)
+    };
+    let pos: Vec<usize> = stages.iter().map(|s| pos_of(s)).collect();
+    assert!(
+        stages.len() >= 5,
+        "前提: 3か月に出るステージが少なすぎる: {stages:?}"
+    );
+    assert!(
+        pos.windows(2).all(|w| w[0] <= w[1]),
+        "ステージ別の表が工程順（HubSpot の並び）でない: {:?}",
+        stages.iter().zip(&pos).collect::<Vec<_>>()
+    );
+    // 工程の読み筋: 定期1 → 定期2 の順、ヨミは定期の後ろ
+    let at = |s: &str| stages.iter().position(|x| x == s);
+    if let (Some(a), Some(b)) = (at("定期1"), at("定期2")) {
+        assert!(a < b, "定期1 が 定期2 より後ろ: {stages:?}");
+    }
+    let last_teiki = stages.iter().rposition(|x| x.starts_with("定期"));
+    let first_yomi = stages.iter().position(|x| x.contains("ヨミ"));
+    if let (Some(t), Some(y)) = (last_teiki, first_yomi) {
+        assert!(t < y, "ヨミが定期の途中に挟まっている: {stages:?}");
+    }
+    // 各月の stages も同じ並び（表の列を月ごとに組み替えない）
+    for m in v["months"].as_array().unwrap() {
+        let ls: Vec<&str> = m["stages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(ls, stages.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    }
+    // 並びは HubSpot の 30 ステージで重なりが無い
+    let mut ids = DELIVERY_STAGE_ORDER.to_vec();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(
+        ids.len(),
+        DELIVERY_STAGE_ORDER.len(),
+        "並びに同じ ID が2回ある"
+    );
 }
