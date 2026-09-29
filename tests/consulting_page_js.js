@@ -2462,6 +2462,88 @@ check("M-3", "案件の詳細: 開いた案件を端末に5件まで覚え（重
   if (h2.indexOf("最近開いた案件はまだありません") < 0) throw new Error("覚えられない端末で探す欄が壊れる");
 });
 
+/* ================================================================ 画面の組み替え: 検証の指摘（2026-09-29） */
+check("組替", "顧客: URL に拠点があって来たら（詳細のパンくずの拠点・貼られた URL）、描いた後に「事業所」の節へ移る。拠点が無い・描き直しでは移らない", async () => {
+  /* 前は表の拠点名を押したときだけ移り、パンくずから来ると頭に着いた（32 拠点の法人で #cust-site y=1064 ＞ 900） */
+  const t = boot();
+  const head = new t.El("cust-site"); t.reg["cust-site"] = head;
+  navHash(t, "#deal/customer?houjin=H1&site=OLD");
+  const req = t.fetched[t.fetched.length - 1];
+  if (!req || req.url.indexOf("/api/consulting/customer?") !== 0) throw new Error("顧客の画面を取りに行っていない: " + (req && req.url));
+  req.resolve(jsonRes(twoSites()));
+  await tick(); await tick();
+  if (t.R("custSite") !== "OLD") throw new Error("URL の拠点が入っていない");
+  if (!head.focused) throw new Error("URL に拠点があって来たのに「事業所」の節へ移らない（頭に着く）");
+  /* 同じ画面の描き直し（チェック等）では、もう移らない */
+  head.focused = 0;
+  t.R("wire(viewOf('deal', 'customer'))");
+  if (head.focused) throw new Error("描き直しのたびに事業所の節へ引き戻している");
+  /* 拠点の無い URL（法人だけ）では移らない */
+  const t2 = boot();
+  const h2 = new t2.El("cust-site"); t2.reg["cust-site"] = h2;
+  navHash(t2, "#deal/customer?houjin=H1");
+  t2.fetched[t2.fetched.length - 1].resolve(jsonRes(twoSites()));
+  await tick(); await tick();
+  if (h2.focused) throw new Error("拠点を指定していないのに事業所の節へ移っている");
+});
+check("組替", "顧客: 「法人を選ぶ」を注力だけにする切り替えは画面の頭（KPI と拠点の表より上）に1つ。注力の内訳の節には置かない", async () => {
+  /* 前は注力の内訳（法人の節の末尾）の中にあり、効く先の選択欄から約 8,600px 下にあった（文言は「上の…」のまま） */
+  const t = boot();
+  const f = { rule: "条件", not_layer: "法人の性質", n_focus: 10, n_display: 40, display_label: "表示対象",
+    monthly_over_300k: 1, enterprise: 1, multi_site: 1, n_houjin: 40, n_focus_all: 10 };
+  t.ctx.__D = customerPayload([deal({})], { focus: f });
+  const h = t.R("renderCustomer(__D)");
+  const at = h.indexOf('id="hj-focus-only"');
+  if (at < 0) throw new Error("注力の切り替えが無い");
+  if (count(h, /id="hj-focus-only"/g) !== 1) throw new Error("注力の切り替えが1つでない");
+  if (!(at < h.indexOf('<div class="kpis">') && at < h.indexOf('id="cust-sites"')))
+    throw new Error("注力の切り替えが KPI・拠点の表より下にある（効く先の選択欄から遠い）");
+  if (t.R("focusSection(__D)").indexOf('id="hj-focus-only"') >= 0) throw new Error("注力の内訳の節（法人の節の末尾）に切り替えが残っている");
+});
+check("組替", "顧客: 画面の中の行き先は button（data-cjump）。a href=\"#…\" にしない（URL の状態が壊れ、再読込で別の画面が開く）", async () => {
+  const t = boot();
+  t.ctx.__D = twoSites();
+  const h = t.R("renderCustomer(__D)");
+  const nav = h.slice(h.indexOf('aria-label="この画面の中"'), h.indexOf("</nav>", h.indexOf('aria-label="この画面の中"')));
+  for (const id of ["cust-sites", "cust-site", "cust-houjin", "hq-sec"]) {
+    if (nav.indexOf('<button type="button" class="act" data-cjump="' + id + '">') < 0) throw new Error("行き先 " + id + " が button でない: " + nav);
+    if (h.indexOf('href="#' + id + '"') >= 0) throw new Error("行き先 " + id + " を a href=\"#…\" にしている");
+  }
+  const b = new t.El(""); b.dataset = { cjump: "cust-houjin" };
+  t.qsa["#cs-main button[data-cjump]"] = [b];
+  const to = new t.El("cust-houjin"); t.reg["cust-houjin"] = to;
+  t.R("lastPayload = __D");
+  t.R("wire(viewOf('deal', 'customer'))");
+  b.onclick();
+  if (!to.focused) throw new Error("行き先のボタンを押しても節へ移らない");
+});
+check("組替", "顧客: 既定の拠点は「いちばん新しく契約が始まった拠点」。表の先頭（契約の多い順）の拠点ではない", async () => {
+  /* 画面の文言（「いちばん新しく契約が始まった拠点を開いています」）と食い違わないこと */
+  const t = boot();
+  t.ctx.__D = customerPayload([
+    deal({ deal_id: "o1", name: "古い拠点の案件1", site: "OLD", site_name: "古い拠点", start: "2024-04-01" }),
+    deal({ deal_id: "o2", name: "古い拠点の案件2", site: "OLD", site_name: "古い拠点", start: "2025-04-01" }),
+    deal({ deal_id: "n1", name: "新しい拠点の案件", site: "NEW", site_name: "新しい拠点", start: "2026-02-01" }),
+  ]);
+  t.R('custSite = ""');
+  const h = t.R("renderCustomer(__D)");
+  const tbl = h.slice(h.indexOf('id="cust-sites"'), h.indexOf('id="cust-site"'));
+  if (!(tbl.indexOf("古い拠点") >= 0 && tbl.indexOf("古い拠点") < tbl.indexOf("新しい拠点"))) throw new Error("前提が崩れている（表の先頭が契約の多い OLD でない）");
+  if (t.R("custSiteNow(custSites(__D))") !== "NEW") throw new Error("既定の拠点が新しく始まった NEW でない: " + t.R("custSiteNow(custSites(__D))"));
+  const site = h.slice(h.indexOf('id="cust-site"'), h.indexOf('id="cust-houjin"'));
+  if (site.indexOf("この拠点の 1 件") < 0) throw new Error("事業所の節が NEW（1 件）でない");
+});
+check("組替", "顧客: 法人の KPI は法人の全契約で描くので、札の説明に「選んだ契約」と書かない（チェックで変わるように読める）", async () => {
+  const t = boot();
+  const D = customerPayload([deal({})]);
+  Object.assign(D.customer, { ltv: 100, ltv_index: 150, last_expiration: "2027-01-31", last_expiration_index: "2027-03-31" });
+  t.ctx.__D = D;
+  const h = t.R("renderCustomer(__D)");
+  const k = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="cust-sites"'));
+  if (k.indexOf("選んだ契約") >= 0) throw new Error("法人の全契約で描いた KPI に「選んだ契約」と書いている");
+  if (k.indexOf("この法人の全契約の金額の合計（オプション契約を除く）") < 0 || k.indexOf("この法人の全契約の満了日の最大") < 0)
+    throw new Error("KPI の説明が法人の全契約だと書いていない");
+});
 (async () => {
   if (mainJs == null) {
     console.error("FAIL 動きの見張り: 画面の <script> が取り出せない");
