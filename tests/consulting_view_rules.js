@@ -4938,17 +4938,30 @@ check("09 の 6 チームと担当: 接触の推移は全体の線に選んだ�
   run('contactUnit = "month"; teamPick = "";');
 });
 
-check("09 の 7 成果と継続: 答え（解約率）を先頭に、成果とリスク・顧客の図・立ち上がり・本部アプローチ・手を打つ先の表の順。目次と基準日の枠は1つ", () => {
+check("09 の 3章 7 成果と継続: 答え（解約率）→ 月次の継続率 → 目標と応募効率 → 立ち上がり → 2軸のリスク → 顧客の図 → 本部アプローチ → 手を打つ先の順。目次も同じ順で、基準日の枠は1つ", () => {
+  /* 2026-09-29 磨き込み: 前は立ち上がりが2軸のリスク（と顧客の図）の後にあった。09 の 3章 7 は「目標に対する進捗と応募効率 →
+     立ち上がり → 2軸のリスクと最優先の広がり → NPS・採用単価・LTV → 本部」 */
   ctx.__RS = { meta: { today: "2026-09-18", exclude_right_censored: false }, population: { deals_option: 99 },
     renewal: ctx.__RN, outcome: ctx.__OUT, focus: ctx.__FO, rampup: ctx.__RU, headquarters: ctx.__HQ, phone: ctx.__PH };
   const h = run("renderResults(__RS)");
   const at = (s) => { const i = h.indexOf(s); ok(i >= 0, "「" + s + "」が無い"); return i; };
   const order = [at('id="rs-renewal"'), at('<span class="no">図</span>継続回数ごとの解約率'), at("月次の継続率（満了月ベース"), at('id="rs-outcome"'),
-    at('id="rs-focus"'), at("定期NPS の散らばり"), at('id="rs-rampup"'), at('id="rs-hq"'), at('id="rs-act"')];
+    at("達成率 ＝ 承諾数 ÷ 採用目標数"), at("応募数 ÷ 掲載数"), at('id="rs-rampup"'), at("初回MTGまでの日数の散らばり"),
+    at('id="rs-risk"'), at("リスクは2軸だけで見る"), at("右上ほど金額が大きく満了が遠い"),
+    at('id="rs-focus"'), at("定期NPS の散らばり"), at('id="rs-hq"'), at('id="rs-act"')];
   ok(order.every((x, i) => !i || order[i - 1] < x), "節の並びが 09 の 7 と違う: " + order.join(","));
   const toc = h.slice(h.indexOf('<nav class="toc"'), h.indexOf("</nav>"));
   const js = [...toc.matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
-  ok(JSON.stringify(js) === JSON.stringify(["rs-renewal", "rs-outcome", "rs-focus", "rs-rampup", "rs-hq", "rs-act"]), "目次の行き先が違う: " + js.join(","));
+  ok(JSON.stringify(js) === JSON.stringify(["rs-renewal", "rs-outcome", "rs-rampup", "rs-risk", "rs-focus", "rs-hq", "rs-act"]), "目次の行き先が違う: " + js.join(","));
+  /* 節を分けても、リスクの図・目標の図・「この画面で数えていないもの」の畳みは1回ずつ（2回描かない） */
+  const cnt = (s) => h.split(s).length - 1;
+  /* 図の題は fig の中で aria などにも出るので、節の見出し（sec の「図」）の形で数える */
+  const risk = cnt('<span class="no">図</span>リスクは2軸だけで見る'), goal = cnt('<span class="no">図</span>目標に対する進捗');
+  const defs = cnt("この画面で数えていないもの");
+  ok(risk === 1 && goal === 1 && defs === 2,
+    "節を分けたことで図か畳みが重なった/消えた（リスク・目標・畳み。畳みは立ち上がりと成果の2つ）: " + [risk, goal, defs].join(","));
+  /* 立ち上がりの節から「MTGと電話を束ねた最終接触」への行き先は、リスクの節（rs-risk） */
+  ok(/data-jump="rs-risk"[^>]*>どこが危ないか/.test(h), "立ち上がりからリスクの節への行き先が無い");
   js.forEach((id) => ok(h.includes(' id="' + id + '" tabindex="-1"'), "目次の行き先 " + id + " が本文に無い"));
   ok(h.indexOf('<nav class="toc"') < order[0], "目次が冒頭に無い");
   ok(!h.includes("満了月ごとの内訳"), "満了月ごとの内訳（約60行の表）が残っている（09 の 7）");
