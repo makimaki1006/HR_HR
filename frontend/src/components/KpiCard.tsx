@@ -10,20 +10,25 @@ export interface KpiCardProps {
   /** Defaults to ja-JP digit grouping. */
   format?: (v: number) => string;
   note?: ReactNode;
+  /** Pre-formatted text shown instead of format(value) (unit is still appended). */
+  display?: string;
+  /** Text when there is no value (default "データなし"; pass "-" for a dash). */
+  emptyText?: string;
 }
 
 const defaultFormat = (v: number): string => v.toLocaleString('ja-JP');
 
-export function KpiCard({ label, value, unit, n, format = defaultFormat, note }: KpiCardProps) {
+export function KpiCard({ label, value, unit, n, format = defaultFormat, note, display, emptyText }: KpiCardProps) {
+  const shownValue = display ?? (value === null ? null : format(value));
   return (
     <section className="hw-kpi-card" aria-label={label}>
       <h3 className="hw-kpi-label">{label}</h3>
       <p className="hw-kpi-value" data-testid="kpi-value">
-        {value === null ? (
-          <span className="hw-kpi-empty">データなし</span>
+        {shownValue === null ? (
+          <span className="hw-kpi-empty">{emptyText ?? 'データなし'}</span>
         ) : (
           <>
-            <span>{format(value)}</span>
+            <span>{shownValue}</span>
             <span className="hw-kpi-unit">{unit}</span>
           </>
         )}

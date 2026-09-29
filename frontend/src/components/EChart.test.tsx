@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import type { EChartsType } from 'echarts/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +8,10 @@ const fake = vi.hoisted(() => {
     setOption: vi.fn(),
     resize: vi.fn(),
     dispose: vi.fn(),
+    // 'finished' fires asynchronously after the first render, like the real thing.
+    on: vi.fn((event: string, cb: () => void) => {
+      if (event === 'finished') setTimeout(cb, 0);
+    }),
   };
   return {
     instance,
@@ -64,6 +68,7 @@ describe('EChart', () => {
     expect(ready).toBe(root);
     expect(ready.getAttribute('data-chart-ready')).toBe('true');
     expect(fake.init).toHaveBeenCalledWith(root);
+    expect(fake.instance.on).toHaveBeenCalledWith('finished', expect.any(Function));
     expect(fake.instance.setOption).toHaveBeenCalledWith(optionA);
   });
 
@@ -118,5 +123,69 @@ describe('EChart', () => {
         resolve();
       }, 50);
     });
+  });
+
+  it('sets data-chart-ready only after the finished event, and announces onReady once', async () => {
+    let finish: (() => void) | undefined;
+    fake.instance.on.mockImplementationOnce((_e: string, cb: () => void) => {
+      finish = cb;
+    });
+    const onReady = vi.fn();
+    const { container } = render(<EChart option={optionA} testId="c" onReady={onReady} />);
+    const root = container.firstElementChild as HTMLElement;
+    await waitFor(() => {
+      expect(finish).toBeDefined();
+    });
+    expect(root.getAttribute('data-chart-ready')).toBeNull();
+    expect(onReady).not.toHaveBeenCalled();
+    act(() => {
+      finish?.();
+      finish?.();
+    });
+    expect(root.getAttribute('data-chart-ready')).toBe('true');
+    expect(onReady).toHaveBeenCalledTimes(1);
+  });
+
+  it('inits with the svg renderer only when asked, canvas (no extra args) otherwise', async () => {
+    const { findByTestId } = render(<EChart option={optionA} testId="svg" renderer="svg" />);
+    const root = await findByTestId('svg');
+    expect(fake.init).toHaveBeenCalledWith(root, undefined, { renderer: 'svg' });
+  });
+
+  it('printMode forces animation: false without mutating the caller option', async () => {
+    const opt = { ...optionA, animation: true };
+    const { findByTestId, rerender } = render(<EChart option={opt} testId="c" printMode />);
+    await findByTestId('c');
+    expect(fake.instance.setOption).toHaveBeenCalledWith({ ...opt, animation: false });
+    expect(opt.animation).toBe(true);
+    rerender(<EChart option={opt} testId="c" printMode={false} />);
+    await waitFor(() => {
+      expect(fake.instance.setOption).toHaveBeenLastCalledWith(opt, { notMerge: true });
+    });
+  });
+
+  it('resizes on matchMedia(print) change and exposes __echartsResizeAll for every instance', async () => {
+    const listeners: (() => void)[] = [];
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        matches: false,
+        addEventListener: (_t: string, cb: () => void) => listeners.push(cb),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    window.matchMedia = globalThis.matchMedia;
+    const first = render(<EChart option={optionA} testId="c1" />);
+    await first.findByTestId('c1');
+    const second = render(<EChart option={optionA} testId="c2" />);
+    await second.findByTestId('c2');
+    await waitFor(() => {
+      expect(listeners).toHaveLength(2);
+    });
+    listeners[0]?.();
+    expect(fake.instance.resize).toHaveBeenCalledTimes(1);
+    fake.instance.resize.mockClear();
+    window.__echartsResizeAll?.();
+    expect(fake.instance.resize).toHaveBeenCalledTimes(1);
   });
 });

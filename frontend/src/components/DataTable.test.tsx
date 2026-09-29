@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DataTable, ROW_HEIGHT_PX, type DataTableColumn } from './DataTable';
 
 interface Row {
@@ -93,5 +93,87 @@ describe('DataTable', () => {
     expect(cities()).toEqual(['C市', 'B市', 'A市']);
     fireEvent.click(getByRole('button', { name: /件数/ }));
     expect(cities()).toEqual(['B市', 'A市', 'C市']);
+  });
+
+  it('footerRow renders a tfoot with one aligned cell per column key', () => {
+    const { container } = render(
+      <DataTable
+        columns={columns}
+        rows={makeRows(3)}
+        rowKey={(r) => r.id}
+        footerRow={{ city: '合計', count: '60' }}
+      />,
+    );
+    const cells = Array.from(container.querySelectorAll<HTMLElement>('tfoot tr td'));
+    expect(cells.map((c) => c.textContent)).toEqual(['合計', '60']);
+    expect(cells[1]?.style.textAlign).toBe('right');
+    expect(bodyRows(container)).toHaveLength(3);
+  });
+
+  it('footer renders a single cell spanning all columns; footerRow wins over footer', () => {
+    const a = render(<DataTable columns={columns} rows={makeRows(1)} rowKey={(r) => r.id} footer="出典: HW" />);
+    const td = a.container.querySelector('tfoot td');
+    expect(td?.textContent).toBe('出典: HW');
+    expect(td?.getAttribute('colspan')).toBe('2');
+    cleanup();
+    const b = render(
+      <DataTable columns={columns} rows={makeRows(1)} rowKey={(r) => r.id} footer="x" footerRow={{ city: 'T' }} />,
+    );
+    expect(Array.from(b.container.querySelectorAll('tfoot td')).map((c) => c.textContent)).toEqual(['T', '']);
+  });
+
+  it('no tfoot without footer props', () => {
+    const { container } = render(<DataTable columns={columns} rows={makeRows(1)} rowKey={(r) => r.id} />);
+    expect(container.querySelector('tfoot')).toBeNull();
+  });
+
+  it("virtualize='never' renders all 1000 rows", () => {
+    const { container } = render(
+      <DataTable columns={columns} rows={makeRows(1000)} rowKey={(r) => r.id} virtualize="never" />,
+    );
+    expect(bodyRows(container)).toHaveLength(1000);
+    expect(container.querySelector('[data-virtualized]')).toBeNull();
+  });
+
+  it('auto: 1000 rows are windowed, all 1000 while printing, windowed again after afterprint', () => {
+    const { container } = render(<DataTable columns={columns} rows={makeRows(1000)} rowKey={(r) => r.id} />);
+    const windowed = bodyRows(container).length;
+    expect(windowed).toBeLessThan(100);
+    expect(container.querySelector('[data-virtualized]')).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new Event('beforeprint'));
+    });
+    expect(bodyRows(container)).toHaveLength(1000);
+    expect(container.querySelector('[data-virtualized]')).toBeNull();
+    act(() => {
+      window.dispatchEvent(new Event('afterprint'));
+    });
+    expect(bodyRows(container)).toHaveLength(windowed);
+  });
+
+  it('matchMedia(print) change also switches to full rendering', () => {
+    const listeners: ((e: { matches: boolean }) => void)[] = [];
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: (_t: string, cb: (e: { matches: boolean }) => void) => listeners.push(cb),
+      removeEventListener: () => undefined,
+    }));
+    try {
+      const { container } = render(<DataTable columns={columns} rows={makeRows(1000)} rowKey={(r) => r.id} />);
+      act(() => {
+        listeners.forEach((l) => {
+          l({ matches: true });
+        });
+      });
+      expect(bodyRows(container)).toHaveLength(1000);
+      act(() => {
+        listeners.forEach((l) => {
+          l({ matches: false });
+        });
+      });
+      expect(bodyRows(container).length).toBeLessThan(100);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

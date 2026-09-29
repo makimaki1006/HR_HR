@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export interface DataTableColumn<T> {
   key: string;
@@ -16,6 +16,12 @@ export interface DataTableProps<T> {
   rowKey: (row: T) => string;
   caption?: string;
   emptyText?: string;
+  /** Free-form tfoot content spanning all columns. Ignored when footerRow is given. */
+  footer?: ReactNode;
+  /** Totals row: one cell per column, looked up by column key (aligned like the column). */
+  footerRow?: Partial<Record<string, ReactNode>>;
+  /** 'auto' (default): windowed above VIRTUALIZE_THRESHOLD rows, but all rows while printing. */
+  virtualize?: 'auto' | 'never';
 }
 
 /** Above this many rows the body is windowed (only visible rows are in the DOM). */
@@ -49,9 +55,45 @@ function cellContent<T>(row: T, col: DataTableColumn<T>): ReactNode {
   return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
 }
 
-export function DataTable<T>({ columns, rows, rowKey, caption, emptyText }: DataTableProps<T>) {
+/** True between beforeprint and afterprint (also follows matchMedia('print')). */
+function usePrinting(): boolean {
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    const on = (): void => {
+      setPrinting(true);
+    };
+    const off = (): void => {
+      setPrinting(false);
+    };
+    window.addEventListener('beforeprint', on);
+    window.addEventListener('afterprint', off);
+    const query = typeof window.matchMedia === 'function' ? window.matchMedia('print') : null;
+    const onChange = (e: MediaQueryListEvent): void => {
+      setPrinting(e.matches);
+    };
+    query?.addEventListener('change', onChange);
+    return () => {
+      window.removeEventListener('beforeprint', on);
+      window.removeEventListener('afterprint', off);
+      query?.removeEventListener('change', onChange);
+    };
+  }, []);
+  return printing;
+}
+
+export function DataTable<T>({
+  columns,
+  rows,
+  rowKey,
+  caption,
+  emptyText,
+  footer,
+  footerRow,
+  virtualize = 'auto',
+}: DataTableProps<T>) {
   const [sort, setSort] = useState<SortState>(null);
   const [scrollTop, setScrollTop] = useState(0);
+  const printing = usePrinting();
 
   const sorted = useMemo(() => {
     if (sort === null) return rows;
@@ -74,7 +116,7 @@ export function DataTable<T>({ columns, rows, rowKey, caption, emptyText }: Data
     });
   };
 
-  const virtual = sorted.length > VIRTUALIZE_THRESHOLD;
+  const virtual = virtualize === 'auto' && !printing && sorted.length > VIRTUALIZE_THRESHOLD;
   let start = 0;
   let end = sorted.length;
   if (virtual) {
@@ -145,6 +187,23 @@ export function DataTable<T>({ columns, rows, rowKey, caption, emptyText }: Data
           </>
         )}
       </tbody>
+      {footerRow !== undefined ? (
+        <tfoot>
+          <tr>
+            {columns.map((col) => (
+              <td key={col.key} style={{ textAlign: col.align ?? 'left' }}>
+                {footerRow[col.key]}
+              </td>
+            ))}
+          </tr>
+        </tfoot>
+      ) : footer !== undefined ? (
+        <tfoot>
+          <tr>
+            <td colSpan={columns.length}>{footer}</td>
+          </tr>
+        </tfoot>
+      ) : null}
     </table>
   );
 

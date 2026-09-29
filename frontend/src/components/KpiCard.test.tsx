@@ -44,4 +44,22 @@ describe('KpiCard', () => {
     expect(html).toContain('<span>45.7</span>');
     expect(html).toContain('<div class="hw-kpi-note"><em>参考値</em></div>');
   });
+
+  it('display (pre-formatted string) wins over format(value), unit still appended', () => {
+    const html = renderToStaticMarkup(
+      <KpiCard label="平均月給" value={250000} display="25.0万" unit="円" n={10} />,
+    );
+    expect(html).toContain('<span>25.0万</span><span class="hw-kpi-unit">円</span>');
+    expect(html).not.toContain('250,000');
+  });
+
+  it('display is shown even when value is null; emptyText replaces データなし', () => {
+    const shown = renderToStaticMarkup(<KpiCard label="x" value={null} display="約10件" unit="" n={null} />);
+    expect(shown).toContain('約10件');
+    expect(shown).not.toContain('データなし');
+    const dash = renderToStaticMarkup(<KpiCard label="x" value={null} unit="円" n={null} emptyText="-" />);
+    expect(dash).toContain('<span class="hw-kpi-empty">-</span>');
+    expect(dash).not.toContain('データなし');
+    expect(dash).toContain('>n=不明<');
+  });
 });
