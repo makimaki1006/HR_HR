@@ -1204,13 +1204,14 @@ check("読み方の枠: 成果とリスクの並びの注記・立ち上がり�
   ok(n === 1, "「同じ3ヶ月目でも」が " + n + " 回出ている");
 });
 
-check("法人番号で見る: 末尾の「集計の基準日と件数」に件数を書く", () => {
+check("顧客（前の法人番号で見る）: 末尾の「集計の基準日と件数」に件数を書く", () => {
   const h = run('foot({ today: "2026-09-18" }, false, houjinCounts([{ is_active: true }, { is_active: false }], new Set(["a"])))');
   ok(h.includes("集計の基準日と件数") && h.includes("この法人の取引 2 件（稼働中 1 件）"), "件数が無い: " + h);
-  const body = html.split("function renderHoujin(D)")[1].split("\nfunction ")[0];
-  /* ループ4: not_counted は頭の「いま見ている粒度」の枠で出すので、末尾は said=true（基準日と件数だけ） */
-  ok((body.match(/foot\(D\.meta, true, houjinCounts\(all, ids\)\)/g) || []).length === 2,
-    "renderHoujin の2つの末尾が件数を渡していない");
+  const body = html.split("function renderCustomer(D)")[1].split("\nfunction ")[0];
+  /* ループ4: not_counted は「法人」の節の粒度の枠で出すので、末尾は said=true（基準日と件数だけ）。
+     2026-09-29 顧客の1画面にしてから、明細の末尾は1つ（案件が選ばれていないときも法人の節の中で止め、末尾は共通） */
+  ok((body.match(/foot\(D\.meta, true, houjinCounts\(all, ids\)\)/g) || []).length === 1,
+    "renderCustomer の末尾が件数を渡していない");
 });
 
 check("KPI: 最終満了を折り返さない・電話の61件の色をそろえる・退職者の補足に別の話を混ぜない", () => {
@@ -1385,7 +1386,7 @@ check("V12 の残り: 本部アプローチの枠を差し込んだ後（持っ�
     // 持っているとき（hqCache）
     const w1 = fakeWrap();
     run("hqCache = { x: 1 }");
-    withWraps(w1, () => run("wireHoujin()"));
+    withWraps(w1, () => run("wireHq()"));
     ok(w1.cls.has("more-r"), "hqCache から差し込んだ後に影を付けていない");
   } catch (e) { restore(); throw e; }
   // 取りに行ったとき（fetch の後）
@@ -1393,7 +1394,7 @@ check("V12 の残り: 本部アプローチの枠を差し込んだ後（持っ�
   const w2 = fakeWrap();
   ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: 1 }) });
   ctx.document.querySelectorAll = (s) => (s === ".scroll-wrap" ? [w2.el] : []);
-  run("wireHoujin()");
+  run("wireHq()");
   const tick = () => new Promise((res) => setImmediate(res));
   return tick().then(tick).then(() => {
     restore();
@@ -1810,7 +1811,7 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     // 本部アプローチ（持っているとき）
     calls.length = 0;
     els["hq-box"] = fakeEl();
-    run("hqCache = { x: 1 }; wireHoujin()");
+    run("hqCache = { x: 1 }; wireHq()");
     ok(calls.length === 1 && calls[0].el === els["hq-box"], "本部アプローチの枠を paintFigs で描いていない");
     // 窓の幅が変わった（resize → refitSoon → redrawMain(lastPayload, openDetails(main))）
     const rd = [];
@@ -1838,7 +1839,7 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     // 本部アプローチを取りに行った後も paintFigs で描く
     const hb = fakeEl();
     els["hq-box"] = hb;
-    run("hqCache = null; wireHoujin()");
+    run("hqCache = null; wireHq()");
     const tick = () => new Promise((res) => setImmediate(res));
     return p.then(tick).then(tick).then(() => {
       restore();
@@ -1870,14 +1871,14 @@ check("本部アプローチ: 幅の描き直しで、#hq-box の中の開いた
     run("paintFigs = __PF; wire = () => {}; renderHq = () => ''; hqCache = { x: 1 };");
     run("redrawMain({}, [])");
     els["hq-box"] = fakeEl();   // 本文を描き直すと #hq-box は新しい枠になる
-    run("wireHoujin()");
+    run("wireHq()");
     const hq = calls.find((c) => c.el === els["hq-box"]);
     ok(hq && JSON.stringify(hq.keep) === "[1]", "#hq-box を開いていた details のまま描き直していない: " + JSON.stringify(hq && hq.keep));
     calls.length = 0;
     els["hq-box"] = hb;
     run("redrawMain({})");   // 絞り込みの描き直しは覚えない（行が変わると番号が別の行を指す）
     els["hq-box"] = fakeEl();
-    run("wireHoujin()");
+    run("wireHq()");
     const hq2 = calls.find((c) => c.el === els["hq-box"]);
     ok(hq2 && !(hq2.keep && hq2.keep.length), "絞り込みの描き直しでも #hq-box の details を開き直している");
   } finally {
@@ -2021,7 +2022,14 @@ check("組み替えた画面の問いが、並べた節の問いと同じ文に�
     ok(i >= 0, "関数 " + name + " が無い");
     return html.slice(i + 1).split("\nfunction ")[0];
   };
-  const firstQ = (body) => { const m = body.match(/sec\("問い", "([^"]+)"\)/); return m ? m[1] : ""; };
+  /* 問いは文字列か、定数（顧客の画面の CUST_Q）で書かれる。定数ならその値を読む */
+  const firstQ = (body) => {
+    const m = body.match(/sec\("問い", (?:"([^"]+)"|([A-Z_]+))[,)]/);
+    if (!m) return "";
+    if (m[1]) return m[1];
+    const c = html.match(new RegExp("^const " + m[2] + " = \"([^\"]+)\"", "m"));
+    return c ? c[1] : "";
+  };
   const norm = (q) => q.replace(/[、。・\s—-]/g, "");
   const common = (a, b) => {
     let best = "";
@@ -2030,7 +2038,9 @@ check("組み替えた画面の問いが、並べた節の問いと同じ文に�
     return best;
   };
   const screens = [
-    ["customerInterim", ["renderHoujin", "renderSeries"]],
+    /* 顧客は 2026-09-29 の統合で仮のつなぎ（前の 2 画面を並べる customerInterim）から renderCustomer に替わった。
+       前の画面の描画は並べないが、画面の中に問いを持つ節（本部アプローチ）があるので、同じ性質をそこで見る */
+    ["renderCustomer", ["hqSection"]],
     ["teamInterim", ["renderTeam", "renderContact", "renderHandover"]],
     ["resultsInterim", ["renderRenewal", "renderOutcome", "renderRampup"]],
     ["renderTrust", ["renderDq", "renderMtgQ", "renderDefs"]],
@@ -3333,24 +3343,30 @@ const ddItems = (h) => h.slice(h.indexOf('<ol class="tl"'), h.indexOf("</ol>")).
 
 check("案件の詳細: 推定（メール由来）の行は必ず推定の印と確かさを付け、事実の行には付けない", () => {
   ctx.__DD = ddPayload();
-  const h = run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }");
+  const h = run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }");
   const items = ddItems(h);
   ok(items.length === 7, "7 行のはずが " + items.length);
   for (const it of items) {
     const est = /^class="[^"]*\best\b/.test(it);
     const isMail = it.indexOf("MTG（推定）") >= 0;
     ok(est === isMail, "推定の印（est）とメール由来が一致しない: " + it.slice(0, 80));
-    if (isMail) ok(it.indexOf("推定(±1日 83.3%)") >= 0 && it.indexOf("録画のような中身はありません") >= 0,
-      "メール由来の行に確かさか断りが無い");
+    /* M-3 (4)（2026-09-29）: 確かさと断りは凡例に1回。行には札（MTG（推定））と◇、札の title に同じ文 */
+    if (isMail) ok(/<span class="mark" title="[^"]*推定\(±1日 83\.3%\)[^"]*録画のような中身はありません[^"]*">MTG（推定）<\/span>/.test(it),
+      "メール由来の行の札に確かさか断り（title）が無い");
+    if (isMail) ok(it.replace(/<[^>]*>/g, "").indexOf("メールの文面から起こした") < 0, "メール由来の行ごとに定型の断りを繰り返している");
     else ok(it.indexOf("推定") < 0, "事実の行に「推定」が混ざっている: " + it.slice(0, 80));
   }
   // 凡例は形と文で（色だけにしない）
   ok(/<div class="legend"><i>&#9679; 事実[^<]*<\/i><i>&#9671; 推定/.test(h), "凡例に事実（●）と推定（◇）の文が無い");
+  // 確かさと断りは凡例に1回だけ（見える文字として。行の title は数えない）
+  const vis = h.replace(/<[^>]*>/g, "");
+  ok((vis.match(/メールの文面から起こした実施日です（推定\(±1日 83\.3%\)）。録画のような中身はありません/g) || []).length === 1,
+    "凡例に確かさと断りが1回だけ出ていない");
 });
 
 check("案件の詳細: 付け直しの印は4通りを言い分け、そのままの行には何も付けない", () => {
   ctx.__DD = ddPayload();
-  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const items = ddItems(run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }"));
   const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
   ok(/付け直し: 継続の取引「<a class="deallink" href="#deal\/detail\?id=80000000002">継続の契約<\/a>」/.test(by("2026-06-01")),
     "付け直して来た行に、元の取引へのリンクが無い");
@@ -3363,7 +3379,7 @@ check("案件の詳細: 付け直しの印は4通りを言い分け、そのま�
 
 check("案件の詳細: 抽出前の MTG は「未抽出」と出し、空の項目を — で並べない（記録が無いと読ませない）", () => {
   ctx.__DD = ddPayload();
-  const items = ddItems(run("renderDetail(__DD)"));
+  const items = ddItems(run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }"));
   const m = items.find((x) => x.indexOf('<span class="mark">MTG</span>') >= 0);
   ok(m, "録画の MTG の行が無い");
   ok(m.indexOf("未抽出") >= 0 && m.indexOf("記録が無いのではありません") >= 0, "未抽出と書いていない");
@@ -3372,7 +3388,7 @@ check("案件の詳細: 抽出前の MTG は「未抽出」と出し、空の項
 
 check("案件の詳細: 名前はエスケープし、値の無い項目は — や断りで出す（undefined・null・取引IDを出さない）", () => {
   ctx.__DD = ddPayload();
-  const h = run("renderDetail(__DD)");
+  const h = run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }");
   ok(h.indexOf("<b>太字</b>") < 0 && h.indexOf("&lt;b&gt;太字&lt;/b&gt;") >= 0, "案件名をエスケープしていない");
   ok(!/undefined|NaN|>null</.test(h), "undefined / NaN / null が出ている");
   ok(h.indexOf("稼働中の案件にだけ付けています") >= 0, "名札が無い理由を書いていない");
@@ -3404,7 +3420,7 @@ check("案件の詳細: 付け直しの元は関係で言い分け、オプシ�
     Object.assign({}, P.events[0], { call_id: "r3", date: "2026-06-02", attach: mk("option", "80000000009", "求人追加の契約") }),
   ];
   ctx.__DD = P;
-  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const items = ddItems(run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }"));
   const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
   ok(/付け直し: 継続の取引「<a class="deallink" href="#deal\/detail\?id=80000000002">/.test(by("2026-06-04")), "継続先の文かリンクが無い");
   ok(/付け直し: 前の契約の取引「<a class="deallink" href="#deal\/detail\?id=80000000000">/.test(by("2026-06-03")),
@@ -3426,7 +3442,7 @@ check("案件の詳細: 接触に数えない行（60秒以下の電話・メー
       attach: { state: "ambiguous", in_span: false, moved_from: null, moved_to: null } }),
   ];
   ctx.__DD = P;
-  const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+  const items = ddItems(run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }"));
   const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
   ok(by("2026-08-03").indexOf("数えています") < 0 && by("2026-08-03").indexOf("60秒以下なので、接触には数えていません") >= 0,
     "60秒以下の電話に「数えています」と書いている");
@@ -3444,7 +3460,7 @@ check("案件の詳細: 録画 MTG の取引への結び付けが確度「中」
     Object.assign({}, base, { date: "2026-03-11", link_certainty: "高", link_reason: "取引名と一致" }),
   ];
   ctx.__DD = P;
-  const items = ddItems(run("renderDetail(__DD)"));
+  const items = ddItems(run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }"));
   const by = (d) => items.find((x) => x.indexOf("<b>" + d + "</b>") >= 0) || "";
   ok(by("2026-03-12").indexOf("確度 中") >= 0 && by("2026-03-12").indexOf("結び付けは推定") >= 0 &&
     by("2026-03-12").indexOf("件名が近い") >= 0, "確度が中の録画 MTG に印か文が無い");
@@ -3455,7 +3471,7 @@ check("案件の詳細: 話した人はそろえた表示名（handler_label）�
   const P = ddPayload();
   P.events = [Object.assign({}, P.events[0], { handler: "リクロジ＿見張り 太郎", handler_label: "見張り太郎", attach: { state: "own" } })];
   ctx.__DD = P;
-  const it = ddItems(run("renderDetail(__DD)"))[0] || "";
+  const it = ddItems(run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }"))[0] || "";
   ok(it.indexOf("話した人 見張り太郎") >= 0, "そろえた表示名を出していない: " + it.slice(0, 200));
   ok(it.indexOf('title="Zoom の表示名: リクロジ＿見張り 太郎"') >= 0, "元の表示名を title に残していない");
 });
@@ -3814,20 +3830,20 @@ check("S-5: 表の案件名の横に「HS」、案件の詳細に「HubSpot で�
     ok(!run('dealLink("abc", "x")').includes("hslink"), "数字でない取引IDに HubSpot のリンクを作っている");
     /* 案件の詳細: 見出しの直下に「HubSpot で開く」 */
     ctx.__DD = ddPayload();
-    const h = run("renderDetail(__DD)");
+    const h = run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }");
     const open = h.slice(h.indexOf("<a class=\"hslink lg\""), h.indexOf("</a>", h.indexOf("<a class=\"hslink lg\"")) + 4);
     ok(open.includes(HS) && open.includes("HubSpot で開く"), "案件の詳細に「HubSpot で開く」が無い: " + open);
     ok(/aria-label="HubSpot で開く（新しいタブ）"/.test(open), "「HubSpot で開く」の読み上げ名が見た目の文字で始まっていない（矢印は含めない）: " + open);
     ok(open.indexOf("<a class") < h.indexOf('<div class="dd-kv">'), "「HubSpot で開く」が取引の基本より下にある");
     ok(!/>[^<]*80000000001[^<]*</.test(h), "案件の詳細で取引IDが画面の文字に出ている");
     /* 文の中の付け直しの注記（「継続の取引「…」に付いていた記録」）には HS を混ぜない */
-    const items = ddItems(run("detailAllCalls = true; try { renderDetail(__DD) } finally { detailAllCalls = false; }"));
+    const items = ddItems(run("detailAllCalls = true; detailOlder = true; try { renderDetail(__DD) } finally { detailAllCalls = false; detailOlder = false; }"));
     const moved = items.find((x) => x.indexOf("<b>2026-06-01</b>") >= 0) || "";
     ok(moved.includes("継続の契約</a>」") && !moved.includes("hslink"), "付け直しの注記の文の中に HS が混ざっている");
   } finally { run('hsPortal = ""'); }
   /* portal_id を覚える前（API の応答がまだ無い）はリンクを出さない。推測で埋めない */
   ok(!run('dealLink("80000000001", "A")').includes("hslink"), "portal_id が無いのに HubSpot のリンクを出している");
-  ok(!run("renderDetail(__DD)").includes("HubSpot で開く"), "portal_id が無いのに「HubSpot で開く」を出している");
+  ok(!run("detailOlder = true; try { renderDetail(__DD) } finally { detailOlder = false; }").includes("HubSpot で開く"), "portal_id が無いのに「HubSpot で開く」を出している");
 });
 
 check("S-6: 画面名は1つ。表の見出しに「案件の立ち位置」を出さず、今日動く先の「絞った条件」は全件への行き先を名前で添える", () => {
@@ -4333,8 +4349,8 @@ check("M-5: 決まりごと・読み方の箱を畳む（foldNote）。畳まな
   ok((t.match(/担当者の評価ではありません/g) || []).length === 1, "「担当者の評価ではありません」が summary と本文で 2 回出ている");
   ok(t.indexOf('<details class="fold notefold">') < t.indexOf('<div class="kpis">'), "読み方の畳みが KPI より後ろ");
   // 畳んだ画面: 事業所・法人（粒度の 1 文が summary）、成果とリスク・立ち上がり（数えていないもの）、担当の交代（一覧の決まりごと）、本部アプローチ
-  ok(run("renderSeries(__SER)").includes('<details class="fold notefold"><summary>いま見ている粒度は「事業所」です　<span class="when-closed">読み方を開く'),
-    "継続を追いかけるの粒度の箱が畳みでない（粒度の 1 文は summary に残る）");
+  ok(run("renderCustomer(__SER)").includes('<details class="fold notefold"><summary>ここから下は拠点をまたいで並べています　<span class="when-closed">読み方を開く'),
+    "顧客の画面の粒度の箱（法人の節）が畳みでない（粒度の 1 文は summary に残る）");
   // 成果とリスク・立ち上がりは summary に規律の 1 文（keep）が付く（下の「担当者ごとの接触・立ち上がり・成果とリスク」の見張り）
   ok(run("renderOutcome(__OUT)").includes('<details class="fold notefold"><summary>この画面で数えていないもの<span class="keep">'),
     "成果とリスクの決まりごとが畳みでない");
