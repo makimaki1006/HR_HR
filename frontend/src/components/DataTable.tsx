@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 
 export interface DataTableColumn<T> {
   key: string;
@@ -55,12 +56,18 @@ function cellContent<T>(row: T, col: DataTableColumn<T>): ReactNode {
   return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
 }
 
-/** True between beforeprint and afterprint (also follows matchMedia('print')). */
+/**
+ * True between beforeprint and afterprint (also follows matchMedia('print')).
+ * The browser prints right after beforeprint returns, so the switch to "all rows" is flushed
+ * synchronously (flushSync) instead of being left to React's batching.
+ */
 function usePrinting(): boolean {
   const [printing, setPrinting] = useState(false);
   useEffect(() => {
     const on = (): void => {
-      setPrinting(true);
+      flushSync(() => {
+        setPrinting(true);
+      });
     };
     const off = (): void => {
       setPrinting(false);
@@ -69,7 +76,13 @@ function usePrinting(): boolean {
     window.addEventListener('afterprint', off);
     const query = typeof window.matchMedia === 'function' ? window.matchMedia('print') : null;
     const onChange = (e: MediaQueryListEvent): void => {
-      setPrinting(e.matches);
+      if (e.matches) {
+        flushSync(() => {
+          setPrinting(true);
+        });
+      } else {
+        setPrinting(false);
+      }
     };
     query?.addEventListener('change', onChange);
     return () => {
@@ -94,6 +107,7 @@ export function DataTable<T>({
   const [sort, setSort] = useState<SortState>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const printing = usePrinting();
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const sorted = useMemo(() => {
     if (sort === null) return rows;
@@ -117,6 +131,11 @@ export function DataTable<T>({
   };
 
   const virtual = virtualize === 'auto' && !printing && sorted.length > VIRTUALIZE_THRESHOLD;
+  // The scroll container is re-created after printing (or when rows grow past the threshold):
+  // take its real scrollTop so the window matches what is on screen.
+  useLayoutEffect(() => {
+    setScrollTop(virtual && scrollRef.current ? scrollRef.current.scrollTop : 0);
+  }, [virtual]);
   let start = 0;
   let end = sorted.length;
   if (virtual) {
@@ -210,6 +229,7 @@ export function DataTable<T>({
   if (!virtual) return table;
   return (
     <div
+      ref={scrollRef}
       className="hw-data-table-scroll"
       data-virtualized="true"
       style={{ height: VIEWPORT_HEIGHT_PX, overflowY: 'auto' }}
