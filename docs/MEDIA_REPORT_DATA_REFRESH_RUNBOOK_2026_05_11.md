@@ -281,18 +281,18 @@ PDF 確認:
 
 更新タイミング:
 
-- 原則年1回。10月の都道府県別最低賃金改定後。
+- 年度ごとの公式額公表後。現行表は都道府県ごとの実際の発効日に合わせて更新する。
 
 反映:
 
 ```powershell
-python scripts\upload_minimum_wage_history.py --dry-run
-python scripts\upload_minimum_wage_history.py
+python scripts/update_minimum_wages.py --as-of 2026-10-01 --turso-inspect --output target/competitor-preview/minimum-wage-update.sql
 ```
 
 注意:
 
-- この script は既存実装上、対象テーブルを作り直す可能性がある。実行前に dry-run と対象テーブルを必ず確認する。
+- このコマンドは読み取り専用のスキーマ確認とSQL生成のみ。ユーザーが確認してDBクライアントで実行する。既存履歴を保持するUPSERTを使う。
+- 2026年度の手順・出典・発効日・派生データ更新は `docs/MINIMUM_WAGE_REFRESH_2026_10_01.md` を参照。
 - P2-C の実績では、福島県の DB 値 `1,033` が PDF に出て、旧 hardcode `1,038` が消えることで DB 接続を確認した。詳細は `docs/ROUND8_P2_C_COMPLETION_2026_05_10.md` を参照。
 
 PDF 確認:

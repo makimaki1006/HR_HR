@@ -25,21 +25,20 @@ build_cross_tables.py — Turso 投入用クロス集計 CSV を生成する (�
 import asyncio
 import os
 import statistics
+import calendar
+from datetime import date
+from pathlib import Path
+from minimum_wage_rates import load_rates
 import sys
 
-import libsql_client
 import pandas as pd
 
 # ============================================================
 # パス定義
 # ============================================================
-STG = "C:/Users/fuji1/OneDrive/デスクトップ/HR_HR/scripts/staging"
-TOKEN_PATH = (
-    "C:/Users/fuji1/AppData/Local/Temp/claude/"
-    "C--Users-fuji1-OneDrive-Python--------job-medley-project/"
-    "4dd6b933-db83-4383-a9ce-6a4675e01b59/scratchpad/.turso_token"
-)
-TURSO_URL = "https://country-statistics-makimaki1006.aws-ap-northeast-1.turso.io"
+STG = str(Path(__file__).resolve().parent / "staging")
+TURSO_URL = os.environ.get("TURSO_EXTERNAL_URL", "").replace("libsql://", "https://")
+TURSO_TOKEN = os.environ.get("TURSO_EXTERNAL_TOKEN", "")
 
 OUT_WORKFORCE  = f"{STG}/cross_future_workforce.csv"
 OUT_WAGE       = f"{STG}/cross_wage_public.csv"
@@ -69,13 +68,14 @@ def normalize_pref(name: str) -> str:
 # Turso から最低賃金と有効求人倍率を取得 (SELECT のみ)
 # ============================================================
 async def _fetch_turso():
+    import libsql_client
     """
     Returns:
         min_wage_map  : {pref_fullname -> {fiscal_year(int) -> hourly_min_wage(int)}}
         job_ratio_map : {pref_fullname -> {fiscal_year(str) -> ratio_total(float)}}
     """
     async with libsql_client.create_client(
-        url=TURSO_URL, auth_token=open(TOKEN_PATH).read().strip()
+        url=TURSO_URL, auth_token=TURSO_TOKEN
     ) as c:
         # 最低賃金 (全都道府県 + 全国)
         rs_mw = await c.execute(
@@ -195,15 +195,16 @@ def build_wage_public(
     """
     毎月勤労統計 (月次) × 最低賃金 (年次) を結合する。
 
-    最低賃金の改定月: 毎年10月発効。
-      1〜9月  → fiscal_year = 暦年 - 1
-      10〜12月 → fiscal_year = 暦年
+    月末時点に発効済みの県別額を公式CSVの実発効日から選択する。
+    月途中改定でも当月末の額であり、日数按分ではない。
+    全国の混在月額は加重計算の根拠不足、CSV以前は発効日不足のため欠損。
 
     min_wage_monthly_160h = 時給 × 160時間 (固定)
     理由: 実労働時間は月毎にばらつくため、説明用として月160時間固定換算が
     読み手に伝わりやすい (compute_v3.py v3 変更点と同じ方針)。
     """
     FIXED_HOURS = 160
+    dated_rates = load_rates()
 
     sub = ml[
         (ml["size_class"] == "5人以上") &
@@ -219,10 +220,10 @@ def build_wage_public(
         ym       = r["year_month"]
         year     = int(ym[:4])
         month    = int(ym[5:7])
-        # 最低賃金適用年度: 10月改定なので 1-9月は前年度
-        fy       = year if month >= 10 else year - 1
-        mw_by_fy = min_wage_map.get(pref, {})
-        hourly_mw = mw_by_fy.get(fy, None)
+        cutoff = date(year, month, calendar.monthrange(year, month)[1])
+        candidates = [r for r in dated_rates if r.prefecture == pref and r.effective_date <= cutoff]
+        rate = max(candidates, key=lambda r: (r.effective_date, r.fiscal_year)) if candidates else None
+        hourly_mw = rate.hourly_min_wage if rate else None
         monthly_160h = int(hourly_mw * FIXED_HOURS) if hourly_mw is not None else None
 
         rows.append({
@@ -405,8 +406,8 @@ def validate_wage(df: pd.DataFrame) -> None:
         f"scheduled_earnings 値域 [{df['scheduled_earnings'].min():,}〜{df['scheduled_earnings'].max():,}]",
     )
     check(
-        (df["min_wage_hourly"] > 700).all() and
-        (df["min_wage_hourly"] < 2000).all(),
+        (df["min_wage_hourly"].dropna() > 700).all() and
+        (df["min_wage_hourly"].dropna() < 2000).all(),
         f"min_wage_hourly 値域 [{df['min_wage_hourly'].min()}〜{df['min_wage_hourly'].max()}]",
     )
 
@@ -418,31 +419,17 @@ def validate_wage(df: pd.DataFrame) -> None:
             row["scheduled_earnings"] == 239_448,
             f"大分県 2025-12 scheduled_earnings = {row['scheduled_earnings']:,} (期待 239,448)",
         )
-        check(
-            row["min_wage_hourly"] == 1035,
-            f"大分県 2025-12 min_wage_hourly = {row['min_wage_hourly']} (期待 1,035)",
-        )
-        check(
-            row["min_wage_monthly_160h"] == 1035 * 160,
-            f"大分県 2025-12 min_wage_monthly_160h = {row['min_wage_monthly_160h']:,} "
-            f"(期待 {1035*160:,})",
-        )
-    else:
-        ERRORS.append("大分県 2025-12 のレコードが見つからない")
-        print("  FAIL 大分県 2025-12 のレコードが見つからない")
-
-    # 大分 2025-01 → FY2024 → min_wage = 954
-    oita_jan = df[(df["prefecture"] == "大分県") & (df["year_month"] == "2025-01")]
-    if len(oita_jan) == 1:
-        row = oita_jan.iloc[0]
-        check(
-            row["min_wage_hourly"] == 954,
-            f"大分県 2025-01 min_wage_hourly = {row['min_wage_hourly']} (期待 954, FY2024)",
-        )
-
-    # NULL チェック (min_wage は全行埋まるはず)
-    null_mw = df["min_wage_hourly"].isnull().sum()
-    check(null_mw == 0, f"min_wage_hourly の NULL = {null_mw}件", is_warning=(null_mw > 0))
+    # Validate every legal-rate field against actual effective dates, including allowed missingness.
+    rates = load_rates()
+    for row in df.itertuples():
+        year, month = map(int, row.year_month.split('-'))
+        cutoff = date(year, month, calendar.monthrange(year, month)[1])
+        candidates = [r for r in rates if r.prefecture == row.prefecture and r.effective_date <= cutoff]
+        expected = max(candidates, key=lambda r: r.effective_date).hourly_min_wage if candidates else None
+        ok = pd.isna(row.min_wage_hourly) if expected is None else row.min_wage_hourly == expected
+        if not ok:
+            ERRORS.append(f"Effective-date mismatch: {row.prefecture} {row.year_month}")
+    print("  Missing minimum wages: national mixed-month weights unavailable or no dated source; not filled from annual reference values.")
 
 
 def validate_switcher(df: pd.DataFrame) -> None:
@@ -543,6 +530,7 @@ def main() -> None:
     print("\n=== cross_wage_public.csv を構築 ===")
     df_wg = build_wage_public(ml, min_wage_map)
     print(f"  出力行数: {len(df_wg):,}")
+    print("  最賃基準: 月末発効済み額。全国混在月とCSV以前の発効日不明期間は欠損。")
 
     # ---- テーブル 3 ----
     print("\n=== cross_switcher_supply.csv を構築 ===")

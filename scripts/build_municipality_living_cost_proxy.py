@@ -25,6 +25,9 @@ CLI:
 from __future__ import annotations
 
 import argparse
+from datetime import date
+from minimum_wage_rates import load_rates, select_current, today_jst
+from update_minimum_wages import upsert
 import sqlite3
 import sys
 from pathlib import Path
@@ -41,7 +44,7 @@ LOCAL_DB = DEPLOY_ROOT / "data" / "hellowork.db"
 
 TABLE = "municipality_living_cost_proxy"
 SOURCE_NAME = "prefecture_price_index+min_wage_v1"
-SOURCE_YEAR = 2025  # min_wage 2025-10-01 基準
+PRICE_INDEX_YEAR = 2024  # compute_v2_external.py PRICE_INDEX_2024; distinct from wage fiscal year
 
 
 DDL = f"""
@@ -95,15 +98,18 @@ def fetch_master(conn: sqlite3.Connection) -> list[tuple[str, str, str]]:
     return [(r[0], r[1], r[2]) for r in rows]
 
 
-def build_records(conn: sqlite3.Connection) -> list[tuple]:
+def build_records(conn: sqlite3.Connection, as_of=None) -> list[tuple]:
     pref_cost = fetch_pref_price_index(conn)
-    pref_wage = fetch_pref_min_wage(conn)
+    cutoff = date.fromisoformat(as_of) if isinstance(as_of, str) else as_of or today_jst()
+    pref_rates = select_current(load_rates(), cutoff)
     master = fetch_master(conn)
 
     records: list[tuple] = []
     for code, pref, name in master:
         cost_index = pref_cost.get(pref)
-        min_wage = pref_wage.get(pref)
+        rate = pref_rates.get(pref)
+        min_wage = rate.hourly_min_wage if rate else None
+        metadata = f"{SOURCE_NAME};price_year={PRICE_INDEX_YEAR};wage_year={rate.fiscal_year if rate else 'unknown'};wage_effective={rate.effective_date if rate else 'unknown'};as_of={cutoff}"
         land_price_proxy = None  # local source 無し
         if cost_index is not None and min_wage is not None and cost_index > 0:
             salary_real = round(min_wage / (cost_index / 100.0), 2)
@@ -120,8 +126,8 @@ def build_records(conn: sqlite3.Connection) -> list[tuple]:
                 land_price_proxy,
                 salary_real,
                 "reference",          # data_label
-                SOURCE_NAME,
-                SOURCE_YEAR,
+                metadata,
+                cutoff.year,        # snapshot year; NOT the price/wage statistical year
                 "official",           # weight_source (実測ソース継承)
             )
         )
@@ -130,7 +136,6 @@ def build_records(conn: sqlite3.Connection) -> list[tuple]:
 
 def apply_to_local(conn: sqlite3.Connection, records: list[tuple]) -> int:
     cur = conn.cursor()
-    cur.execute(f"DROP TABLE IF EXISTS {TABLE}")
     cur.executescript(DDL)
     for idx_sql in INDEX_SQLS:
         cur.execute(idx_sql)
@@ -139,7 +144,11 @@ def apply_to_local(conn: sqlite3.Connection, records: list[tuple]) -> int:
         "municipality_code, prefecture, municipality_name, basis, "
         "cost_index, min_wage, land_price_proxy, salary_real_terms_proxy, "
         "data_label, source_name, source_year, weight_source"
-        ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+        ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(municipality_code,basis,source_year) DO UPDATE SET "
+        "prefecture=excluded.prefecture,municipality_name=excluded.municipality_name,"
+        "cost_index=excluded.cost_index,min_wage=excluded.min_wage,land_price_proxy=excluded.land_price_proxy,"
+        "salary_real_terms_proxy=excluded.salary_real_terms_proxy,data_label=excluded.data_label,"
+        "source_name=excluded.source_name,weight_source=excluded.weight_source,estimated_at=datetime('now')"
     )
     cur.executemany(insert_sql, records)
     conn.commit()
@@ -155,7 +164,8 @@ def verify(conn: sqlite3.Connection) -> None:
 
     # 1. 行数
     n = cur.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0]
-    ok1 = abs(n - 1917) <= 100
+    latest_n = cur.execute(f"SELECT COUNT(*) FROM {TABLE} WHERE source_year=(SELECT MAX(source_year) FROM {TABLE})").fetchone()[0]
+    ok1 = abs(latest_n - 1917) <= 100
     print(f"  1. row count       : {n:,}  (expect ~1917) {'OK' if ok1 else 'FAIL'}")
     if not ok1:
         fails += 1
@@ -224,7 +234,7 @@ def verify(conn: sqlite3.Connection) -> None:
     src_n = cur.execute(
         f"SELECT COUNT(DISTINCT source_name) FROM {TABLE}"
     ).fetchone()[0]
-    label_ok = (bad_label == 0) and (src_n == 1)
+    label_ok = (bad_label == 0)  # metadata varies by prefecture and snapshot
     print(f"  8. label/source    : non_ref={bad_label} distinct_source={src_n}  {'OK' if label_ok else 'FAIL'}")
     if not label_ok:
         fails += 1
@@ -248,24 +258,36 @@ def parse_args() -> argparse.Namespace:
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
     mode.add_argument("--verify", action="store_true")
+    p.add_argument("--as-of", help="ISO snapshot cutoff; price year/wage year remain separate metadata")
+    p.add_argument("--db", type=Path, default=LOCAL_DB)
+    p.add_argument("--output", type=Path, help="Generate limited SQL only during --dry-run")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    if not LOCAL_DB.exists():
-        raise SystemExit(f"[abort] local DB not found: {LOCAL_DB}")
+    if args.output and not args.dry_run:
+        raise SystemExit("--output requires --dry-run (no database writes)")
+    db_path = args.db
+    if not db_path.exists():
+        raise SystemExit(f"[abort] local DB not found: {db_path}")
 
     if args.verify:
-        conn = sqlite3.connect(f"file:{LOCAL_DB}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         verify(conn)
         return
 
-    conn = sqlite3.connect(LOCAL_DB)
-    records = build_records(conn)
+    conn = sqlite3.connect(db_path) if args.apply else sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True)
+    records = build_records(conn, args.as_of)
     print(f"  built {len(records):,} records from master + pref sources")
 
     if args.dry_run:
+        if args.output:
+            columns = ["municipality_code", "prefecture", "municipality_name", "basis", "cost_index", "min_wage", "land_price_proxy", "salary_real_terms_proxy", "data_label", "source_name", "source_year", "weight_source"]
+            sql = "-- Snapshot year differs from price statistical year and wage fiscal year; metadata records all three.\nBEGIN IMMEDIATE;\n"
+            sql += upsert(TABLE, columns, records, ["municipality_code", "basis", "source_year"])
+            sql += "COMMIT;\n"
+            args.output.write_text(sql, encoding="utf-8")
         # サンプル 3 行
         for r in records[:3]:
             print("   sample:", r)
@@ -281,7 +303,7 @@ def main() -> None:
     if args.apply:
         n = apply_to_local(conn, records)
         print(f"  applied {n:,} rows to local DB")
-        verify(sqlite3.connect(f"file:{LOCAL_DB}?mode=ro", uri=True))
+        verify(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True))
 
 
 if __name__ == "__main__":

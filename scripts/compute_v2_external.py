@@ -2,7 +2,7 @@
 V2独自分析: Phase 4 外部データ統合 事前計算スクリプト
 ====================================================
 4-1: 有効求人倍率（2026年1月データ埋め込み）
-4-4: 最低賃金マスタ（2025年度データ埋め込み）
+4-4: 最低賃金マスタ（公式CSV、都道府県ごとの実発効日を適用）
 4-5b: 最低賃金違反チェック（時給求人×最低賃金クロス集計）
 4-6: 地域間ベンチマーク（既存v2テーブル集約→レーダーチャート用、12軸）
 4-7: 都道府県別外部指標マスタ（完全失業率、転職希望者比率、非正規雇用比率、平均賃金、物価指数、充足率）
@@ -14,30 +14,13 @@ import os
 import sys
 from collections import defaultdict
 from hw_common import emp_group
+from minimum_wage_rates import load_rates, select_current
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hellowork.db")
 
 MIN_SAMPLE = 5  # 最小サンプルサイズ
 
-# ============================================================
-# 2025年度 地域別最低賃金（時間額・円）
-# 施行日: 2025-10-01
-# 全国加重平均: 1,121円
-# ============================================================
-MINIMUM_WAGE_2025 = {
-    "北海道": 1075, "青森県": 1029, "岩手県": 1031, "宮城県": 1038,
-    "秋田県": 1031, "山形県": 1032, "福島県": 1033, "茨城県": 1074,
-    "栃木県": 1068, "群馬県": 1063, "埼玉県": 1141, "千葉県": 1140,
-    "東京都": 1226, "神奈川県": 1225, "新潟県": 1050, "富山県": 1062,
-    "石川県": 1054, "福井県": 1053, "山梨県": 1052, "長野県": 1061,
-    "岐阜県": 1065, "静岡県": 1097, "愛知県": 1140, "三重県": 1087,
-    "滋賀県": 1080, "京都府": 1122, "大阪府": 1177, "兵庫県": 1116,
-    "奈良県": 1051, "和歌山県": 1045, "鳥取県": 1030, "島根県": 1033,
-    "岡山県": 1047, "広島県": 1085, "山口県": 1043, "徳島県": 1046,
-    "香川県": 1036, "愛媛県": 1033, "高知県": 1023, "福岡県": 1057,
-    "佐賀県": 1030, "長崎県": 1031, "熊本県": 1034, "大分県": 1035,
-    "宮崎県": 1023, "鹿児島県": 1026, "沖縄県": 1023,
-}
+# Minimum wages are loaded from data/minimum_wage_rates.csv by effective date.
 
 # ============================================================
 # 有効求人倍率（2026年1月・季節調整値）
@@ -244,39 +227,30 @@ def compute_job_opening_ratio(db):
 # 4-4: 最低賃金マスタ
 # ============================================================
 
-def compute_minimum_wage(db):
-    """4-4: 最低賃金マスタ
-    2025年度の都道府県別最低賃金をテーブルに格納。
-    """
-    print("4-4: 最低賃金マスタを作成中...")
+def compute_minimum_wage(db, as_of=None):
+    """Update only current rates; do not destroy existing tables or history.
 
-    db.execute("DROP TABLE IF EXISTS v2_external_minimum_wage")
+    Run by the user only. Rates are chosen using each prefecture's actual date.
+    """
+    current = select_current(load_rates(), as_of)
     db.execute("""
-        CREATE TABLE v2_external_minimum_wage (
+        CREATE TABLE IF NOT EXISTS v2_external_minimum_wage (
             prefecture TEXT NOT NULL PRIMARY KEY,
             hourly_min_wage INTEGER NOT NULL,
-            effective_date TEXT NOT NULL DEFAULT '2025-10-01',
-            fiscal_year INTEGER NOT NULL DEFAULT 2025
+            effective_date TEXT NOT NULL,
+            fiscal_year INTEGER NOT NULL
         )
     """)
-
-    insert_rows = [
-        (pref, wage, "2025-10-01", 2025)
-        for pref, wage in MINIMUM_WAGE_2025.items()
-    ]
-
     db.executemany("""
-        INSERT OR REPLACE INTO v2_external_minimum_wage
+        INSERT INTO v2_external_minimum_wage
+        (prefecture, hourly_min_wage, effective_date, fiscal_year)
         VALUES (?, ?, ?, ?)
-    """, insert_rows)
-
-    print(f"  → {len(insert_rows)} 都道府県の最低賃金を挿入")
-
-    highest = max(MINIMUM_WAGE_2025.items(), key=lambda x: x[1])
-    lowest = min(MINIMUM_WAGE_2025.items(), key=lambda x: x[1])
-    avg_wage = sum(MINIMUM_WAGE_2025.values()) / len(MINIMUM_WAGE_2025)
-    print(f"  最高: {highest[0]} {highest[1]}円 / 最低: {lowest[0]} {lowest[1]}円 / 単純平均: {avg_wage:.0f}円")
-    print(f"  全国加重平均: 1,121円")
+        ON CONFLICT(prefecture) DO UPDATE SET
+        hourly_min_wage=excluded.hourly_min_wage,
+        effective_date=excluded.effective_date, fiscal_year=excluded.fiscal_year
+    """, [(r.prefecture, r.hourly_min_wage, r.effective_date.isoformat(), r.fiscal_year)
+           for r in current.values()])
+    print(f"Updated {len(current)} effective prefecture rates; annual national averages are not mixed-date averages.")
 
 
 # ============================================================
@@ -418,7 +392,7 @@ def compute_prefecture_stats(db):
     """)
 
     insert_rows = []
-    for pref in MINIMUM_WAGE_2025.keys():
+    for pref in select_current(load_rates()).keys():
         unemp = UNEMPLOYMENT_RATE_2024.get(pref)
         desire = JOB_CHANGE_DESIRE_RATE_2022.get(pref)
         non_reg = NON_REGULAR_RATE_2022.get(pref)

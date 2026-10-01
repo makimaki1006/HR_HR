@@ -2443,56 +2443,8 @@ pub(super) fn render_dv2_cover_highlights(
 
 /// 都道府県別最低賃金（円/時間）
 pub(super) fn min_wage_for_prefecture(pref: &str) -> Option<i64> {
-    match pref {
-        "北海道" => Some(1075),
-        "青森県" => Some(1029),
-        "岩手県" => Some(1031),
-        "宮城県" => Some(1038),
-        "秋田県" => Some(1031),
-        "山形県" => Some(1032),
-        "福島県" => Some(1038),
-        "茨城県" => Some(1074),
-        "栃木県" => Some(1058),
-        "群馬県" => Some(1063),
-        "埼玉県" => Some(1141),
-        "千葉県" => Some(1140),
-        "東京都" => Some(1226),
-        "神奈川県" => Some(1225),
-        "新潟県" => Some(1050),
-        "富山県" => Some(1062),
-        "石川県" => Some(1054),
-        "福井県" => Some(1053),
-        "山梨県" => Some(1052),
-        "長野県" => Some(1061),
-        "岐阜県" => Some(1065),
-        "静岡県" => Some(1097),
-        "愛知県" => Some(1140),
-        "三重県" => Some(1087),
-        "滋賀県" => Some(1080),
-        "京都府" => Some(1122),
-        "大阪府" => Some(1177),
-        "兵庫県" => Some(1116),
-        "奈良県" => Some(1051),
-        "和歌山県" => Some(1045),
-        "鳥取県" => Some(1030),
-        "島根県" => Some(1033),
-        "岡山県" => Some(1047),
-        "広島県" => Some(1085),
-        "山口県" => Some(1043),
-        "徳島県" => Some(1046),
-        "香川県" => Some(1038),
-        "愛媛県" => Some(1033),
-        "高知県" => Some(1023),
-        "福岡県" => Some(1057),
-        "佐賀県" => Some(1030),
-        "長崎県" => Some(1031),
-        "熊本県" => Some(1034),
-        "大分県" => Some(1035),
-        "宮崎県" => Some(1023),
-        "鹿児島県" => Some(1026),
-        "沖縄県" => Some(1023),
-        _ => None,
-    }
+    crate::minimum_wage::official_at(pref, crate::minimum_wage::japan_today())
+        .map(|rate| rate.hourly_min_wage)
 }
 
 const _MIN_WAGE_NATIONAL_AVG: i64 = 1121;

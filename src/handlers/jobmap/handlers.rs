@@ -658,7 +658,16 @@ pub async fn jobmap_choropleth(
     };
 
     // キャッシュチェック
-    let cache_key = format!("choropleth_{}_{}", layer, pref);
+    let cache_key = if layer == "min_wage" {
+        format!(
+            "choropleth_{}_{}_{}",
+            layer,
+            pref,
+            crate::minimum_wage::japan_today()
+        )
+    } else {
+        format!("choropleth_{}_{}", layer, pref)
+    };
     if let Some(cached) = state.cache.get(&cache_key) {
         return Json(cached);
     }
@@ -701,6 +710,7 @@ fn choropleth_data(
     filters: &crate::handlers::overview::SessionFilters,
 ) -> serde_json::Value {
     use crate::handlers::overview::{get_f64, get_i64};
+    let mut minimum_wage_metadata = None;
     // 市区町村別の値を取得
     let muni_values: Vec<(String, f64)> = match layer {
         "posting_count" => {
@@ -837,7 +847,7 @@ fn choropleth_data(
         }
         "min_wage" => {
             // 都道府県単位の単一値 → 全市区町村に同じ値を設定
-            let sql = "SELECT hourly_min_wage FROM v2_external_minimum_wage WHERE prefecture = ?1";
+            let sql = "SELECT * FROM v2_external_minimum_wage WHERE prefecture = ?1";
             let params = vec![pref.to_string()];
             let rows = query_turso_or_local_choropleth(
                 turso,
@@ -846,13 +856,18 @@ fn choropleth_data(
                 &params,
                 "v2_external_minimum_wage",
             );
-            let wage = rows
-                .first()
-                .map(|r| get_f64(r, "hourly_min_wage"))
-                .unwrap_or(0.0);
-            if wage == 0.0 {
+            let Some(rate) = crate::minimum_wage::resolve(pref, rows.first()) else {
                 return empty_choropleth(pref);
-            }
+            };
+            let wage = rate.hourly_min_wage as f64;
+            minimum_wage_metadata = Some(serde_json::json!({
+                "hourly_min_wage":rate.hourly_min_wage,
+                "fiscal_year":rate.fiscal_year,
+                "effective_date":rate.effective_date.to_string(),
+                "source_url":rate.source_url,
+                "source":rate.source,
+                "as_of":crate::minimum_wage::japan_today().to_string()
+            }));
             // 市区町村一覧を取得して同じ値を返す
             let db = match hw_db {
                 Some(db) => db,
@@ -990,6 +1005,7 @@ fn choropleth_data(
         "layer": layer,
         "prefecture": pref,
         "count": muni_values.len(),
+        "minimum_wage": minimum_wage_metadata,
     })
 }
 

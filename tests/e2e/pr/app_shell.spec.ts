@@ -30,7 +30,7 @@ test.describe('AppShell', () => {
     const topLabels = visible.filter((i) => i.group === null).map((i) => i.label);
     const exploreLabels = visible.filter((i) => i.group === 'explore').map((i) => i.label);
     // fixture のサーバは GEMINI/キーワード系 env 無し・非 admin なので、隠しタブ・CRM・求人票作成は出ない
-    expect(topLabels).toEqual(['媒体分析', '営業KPI', 'コンサルKPI']);
+    expect(topLabels).toEqual(['媒体分析', '競合調査', '営業KPI', 'コンサルKPI']);
     expect(exploreLabels).toEqual(['地図', '地域分析', '企業検索', '職種辞典', '資格辞書', '採用市場']);
     expect(visible.map((i) => i.label)).not.toContain('市場概況');
 

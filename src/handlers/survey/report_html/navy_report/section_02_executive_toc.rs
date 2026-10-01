@@ -72,9 +72,6 @@ pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant, section
     if sections.shows("076") {
         items.push(("05", "人気度シグナル"));
     }
-    if sections.shows("077") {
-        items.push(("05B", "競合調査 (Indeed 掲載求人)"));
-    }
     if sections.shows("06") {
         items.push(("06", "人材デモグラフィック"));
     }

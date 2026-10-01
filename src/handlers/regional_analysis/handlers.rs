@@ -229,9 +229,6 @@ pub async fn regional_wage_comparison(
     if filter.prefecture.is_empty() {
         return pref_required();
     }
-    if state.turso_db.is_none() && state.hw_db.is_none() {
-        return db_unavailable();
-    }
     let st = state.clone();
     let f = filter.clone();
     let cmp = tokio::task::spawn_blocking(move || fetch_wage_comparison(&st, &f))

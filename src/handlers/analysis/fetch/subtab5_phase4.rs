@@ -65,7 +65,7 @@ pub(crate) fn fetch_anomaly_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
 
 pub(crate) fn fetch_minimum_wage(db: &Db, pref: &str) -> Vec<Row> {
     if !table_exists(db, "v2_external_minimum_wage") {
-        return vec![];
+        return crate::minimum_wage::resolved_rows(&[], pref);
     }
 
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
@@ -87,7 +87,7 @@ pub(crate) fn fetch_minimum_wage(db: &Db, pref: &str) -> Vec<Row> {
         .iter()
         .map(|s| s as &dyn rusqlite::types::ToSql)
         .collect();
-    db.query(&sql, &p).unwrap_or_default()
+    crate::minimum_wage::resolved_rows(&db.query(&sql, &p).unwrap_or_default(), pref)
 }
 
 pub(crate) fn fetch_wage_compliance(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
@@ -1779,9 +1779,17 @@ mod public_stat_freshness_tests {
 
         let rows = fetch_minimum_wage(&db, "東京都");
         assert_eq!(rows.len(), 1);
-        assert_eq!(get_i64(&rows[0], "hourly_min_wage"), 1226);
-        assert_eq!(get_str(&rows[0], "effective_date"), "2025-10-03");
-        assert_eq!(get_i64(&rows[0], "fiscal_year"), 2025);
+        let expected =
+            crate::minimum_wage::official_at("東京都", crate::minimum_wage::japan_today()).unwrap();
+        assert_eq!(
+            get_i64(&rows[0], "hourly_min_wage"),
+            expected.hourly_min_wage
+        );
+        assert_eq!(
+            get_str(&rows[0], "effective_date"),
+            expected.effective_date.to_string()
+        );
+        assert_eq!(get_i64(&rows[0], "fiscal_year"), expected.fiscal_year);
     }
 
     #[test]

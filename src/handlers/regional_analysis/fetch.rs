@@ -59,9 +59,15 @@ pub(crate) struct PopulationPyramid {
 }
 
 /// 最低賃金 (都道府県粒度・時給)。
+#[derive(Default)]
 pub(crate) struct WageComparison {
     /// 最低賃金 (時給, 円)。取得不能時 None。
     pub hourly_min_wage: Option<f64>,
+    pub fiscal_year: Option<i64>,
+    pub effective_date: Option<String>,
+    pub source_url: Option<String>,
+    pub source: Option<String>,
+    pub as_of: String,
     pub has_data: bool,
 }
 
@@ -331,20 +337,25 @@ pub(crate) fn fetch_wage_comparison(state: &AppState, filter: &RegionalFilter) -
         return WageComparison {
             hourly_min_wage: None,
             has_data: false,
+            ..Default::default()
         };
     }
 
-    let wage_sql = "SELECT hourly_min_wage FROM v2_external_minimum_wage WHERE prefecture = ?";
+    let wage_sql = "SELECT hourly_min_wage, fiscal_year, effective_date FROM v2_external_minimum_wage WHERE prefecture = ?";
     let wage_rows = query_external(state, wage_sql, &[filter.prefecture.clone()]);
-    let hourly_min_wage = wage_rows
-        .first()
-        .and_then(|r| r.get("hourly_min_wage"))
-        .and_then(|v| v.as_f64());
+    let as_of = crate::minimum_wage::japan_today();
+    let rate = crate::minimum_wage::resolve_at(&filter.prefecture, wage_rows.first(), as_of);
+    let hourly_min_wage = rate.as_ref().map(|r| r.hourly_min_wage as f64);
 
     let has_data = hourly_min_wage.is_some();
     WageComparison {
         hourly_min_wage,
         has_data,
+        fiscal_year: rate.as_ref().map(|r| r.fiscal_year),
+        effective_date: rate.as_ref().map(|r| r.effective_date.to_string()),
+        source_url: rate.as_ref().map(|r| r.source_url.clone()),
+        source: rate.as_ref().map(|r| r.source.clone()),
+        as_of: as_of.to_string(),
     }
 }
 

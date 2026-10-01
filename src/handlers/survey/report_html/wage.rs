@@ -179,26 +179,20 @@ pub(super) fn render_section_min_wage(
         return;
     }
 
-    // Round 8 P2-C (2026-05-10): DB 値優先 + ハードコード fallback。
-    // `v2_external_minimum_wage` (Local 47 行 / Turso 同期済) から SELECT、
-    // HashMap 化して per-prefecture lookup に使う。DB 接続不可 / 該当行なしの場合は
-    // helpers.rs の `min_wage_for_prefecture` ハードコード版にフォールバック。
-    let mut wage_map: HashMap<String, i64> = HashMap::new();
+    // 公式公表値とDBの年度・発効日を照合し、日本の基準日時点の施行済額を使用。
+    // DBが未更新でも公式CSVから改定額を取得できる。
+    let mut wage_map: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
     if let Some(d) = db {
         let rows = super::super::super::analysis::fetch::query_turso_or_local(
             turso,
             d,
-            "SELECT prefecture, hourly_min_wage FROM v2_external_minimum_wage",
+            "SELECT prefecture, hourly_min_wage, fiscal_year, effective_date FROM v2_external_minimum_wage",
             &[],
             "v2_external_minimum_wage",
         );
         for r in rows {
-            if let (Some(serde_json::Value::String(p)), Some(serde_json::Value::Number(w))) =
-                (r.get("prefecture"), r.get("hourly_min_wage"))
-            {
-                if let Some(v) = w.as_i64() {
-                    wage_map.insert(p.clone(), v);
-                }
+            if let Some(p) = r.get("prefecture").and_then(|v| v.as_str()) {
+                wage_map.insert(p.to_string(), r);
             }
         }
     }
@@ -216,10 +210,7 @@ pub(super) fn render_section_min_wage(
         .by_prefecture_salary
         .iter()
         .filter_map(|p| {
-            let mw = wage_map
-                .get(&p.name)
-                .copied()
-                .or_else(|| min_wage_for_prefecture(&p.name))?;
+            let mw = crate::minimum_wage::resolve(&p.name, wage_map.get(&p.name))?.hourly_min_wage;
             if p.avg_min_salary <= 0 {
                 return None;
             }
@@ -297,7 +288,7 @@ pub(super) fn render_section_min_wage(
     html.push_str(
         "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
         <strong>【読み方ガイド】</strong>月給を167h（8h×20.875日、厚労省基準）で割り時給換算して最低賃金と比較。\
-        全国加重平均: <strong>1,121円</strong>（2025年10月施行）\
+        全国加重平均の参考値: <strong>1,121円</strong>（2025年度公表値）。県別比較は基準日時点の施行済額を使用。\
     </p>\n",
     );
 
