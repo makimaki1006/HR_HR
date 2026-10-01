@@ -142,6 +142,7 @@ fn fast_opts() -> ClientOptions {
         max_retries: 2,
         retry_base_delay: Duration::from_millis(20),
         search_min_interval: Duration::from_millis(60),
+        rate_limited_min_wait: Duration::from_millis(20),
     }
 }
 
@@ -292,10 +293,10 @@ async fn retry_after_is_honored_over_base_delay() {
     assert!(calls[0].query.is_empty());
 }
 
-/// 429 で Retry-After が無いときは base delay (1ms) ではなく最低 1 秒待つ
-/// (鍵を既存バッチと共有しており 10 秒窓のため)。5xx は base delay のまま。
+/// 429 で Retry-After が無いときは base delay (1ms) ではなく rate_limited_min_wait (300ms) 待つ。
+/// 5xx は base delay のまま (最低待ちは 429 だけ)。
 #[tokio::test]
-async fn rate_limited_without_retry_after_waits_at_least_one_second() {
+async fn rate_limited_without_retry_after_waits_at_least_min_wait() {
     let responder: Responder = Arc::new(|i, rec| {
         let first_status = if rec.path.ends_with("/101") { 429 } else { 503 };
         if i % 2 == 0 {
@@ -309,6 +310,7 @@ async fn rate_limited_without_retry_after_waits_at_least_one_second() {
         &base,
         ClientOptions {
             retry_base_delay: Duration::from_millis(1),
+            rate_limited_min_wait: Duration::from_millis(300),
             ..fast_opts()
         },
     );
@@ -318,17 +320,56 @@ async fn rate_limited_without_retry_after_waits_at_least_one_second() {
     assert_eq!(calls.len(), 4);
     let gap_429 = calls[1].at.duration_since(calls[0].at);
     let gap_503 = calls[3].at.duration_since(calls[2].at);
-    assert!(
-        gap_429 >= Duration::from_millis(1000),
-        "429 gap {gap_429:?}"
+    assert!(gap_429 >= Duration::from_millis(300), "429 gap {gap_429:?}");
+    assert!(gap_503 < Duration::from_millis(250), "503 gap {gap_503:?}");
+}
+
+/// Retry-After: 0 でも最低待ち (150ms) を守る。逆証明: 最低待ちを 0 にすると即 retry になる。
+#[tokio::test]
+async fn retry_after_zero_still_waits_min_wait() {
+    let responder: Responder = Arc::new(|i, _| {
+        if i == 0 {
+            Resp::json(429, json!({})).header("retry-after", "0")
+        } else {
+            Resp::json(200, contact_json())
+        }
+    });
+    let (base, fake) = spawn_fake(responder.clone()).await;
+    let c = client(
+        &base,
+        ClientOptions {
+            retry_base_delay: Duration::from_millis(1),
+            rate_limited_min_wait: Duration::from_millis(150),
+            ..fast_opts()
+        },
     );
-    assert!(gap_503 < Duration::from_millis(500), "503 gap {gap_503:?}");
+    c.get_object("contacts", "101", &[]).await.unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    let gap = calls[1].at.duration_since(calls[0].at);
+    assert!(gap >= Duration::from_millis(150), "gap {gap:?}");
+
+    // 逆証明: 最低待ち 0 なら 150ms も待たない (= 上の待ちは min_wait によるもの)
+    let (base, fake) = spawn_fake(responder).await;
+    let c = client(
+        &base,
+        ClientOptions {
+            retry_base_delay: Duration::from_millis(1),
+            rate_limited_min_wait: Duration::ZERO,
+            ..fast_opts()
+        },
+    );
+    c.get_object("contacts", "101", &[]).await.unwrap();
+    let calls = fake.calls();
+    let gap = calls[1].at.duration_since(calls[0].at);
+    assert!(gap < Duration::from_millis(100), "gap {gap:?}");
 }
 
 #[test]
 fn default_options_are_conservative_for_shared_key() {
     let o = ClientOptions::default();
     assert_eq!(o.search_min_interval, Duration::from_millis(1000));
+    assert_eq!(o.rate_limited_min_wait, Duration::from_secs(1));
     assert_eq!(o.max_retries, 2);
     assert_eq!(o.timeout, Duration::from_secs(10));
 }
@@ -608,7 +649,9 @@ async fn token_never_appears_in_errors_debug_or_logs() {
     }
     errors.push(c.get_object("contacts", "1/2", &[]).await.unwrap_err());
     errors.push(c.get_object("../x", "1", &[]).await.unwrap_err());
-    // 接続失敗 (Transport): 閉じたポート
+    // 接続失敗: bind して local_addr を得てから listener を閉じたアドレス。
+    // OS が直後に別プロセスへ同じポートを割り当てる可能性は 0 ではないため、
+    // 判定は「Transport または Timeout」のどちらでもよい形にする (下の kinds 参照)。
     let closed = {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let a = l.local_addr().unwrap();
@@ -624,9 +667,19 @@ async fn token_never_appears_in_errors_debug_or_logs() {
             ..fast_opts()
         },
     );
-    errors.push(c2.get_object("contacts", "1", &[]).await.unwrap_err());
+    let conn_err = c2.get_object("contacts", "1", &[]).await.unwrap_err();
+    assert!(
+        matches!(conn_err, HubSpotError::Transport(_) | HubSpotError::Timeout),
+        "{conn_err:?}"
+    );
+    errors.push(conn_err);
 
     let kinds: Vec<&str> = errors.iter().map(|e| e.error_kind()).collect();
+    let (conn_kind, kinds) = kinds.split_last().unwrap();
+    assert!(
+        ["hubspot_transport", "hubspot_timeout"].contains(conn_kind),
+        "{conn_kind}"
+    );
     assert_eq!(
         kinds,
         vec![
@@ -640,7 +693,6 @@ async fn token_never_appears_in_errors_debug_or_logs() {
             "hubspot_timeout",
             "hubspot_decode",
             "hubspot_decode",
-            "hubspot_transport",
         ]
     );
 
@@ -662,6 +714,127 @@ async fn token_never_appears_in_errors_debug_or_logs() {
     );
     assert!(text.contains("HubSpot API を retry します"), "{text}");
     assert!(!text.contains(TOKEN), "token leaked in logs");
+}
+
+// ---------------------------------------------------------------------------
+// 本体 + 関連を 1 回で取る / v4 batch associations
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn get_object_with_associations_is_one_request() {
+    let mut body = contact_json();
+    body["associations"] = json!({
+        "companies": {"results": [{"id": "300", "type": "contact_to_company"}]},
+        "calls": {
+            "results": [
+                {"id": "1001", "type": "contact_to_call"},
+                {"id": "1001", "type": "contact_to_call_unlabeled"},
+                {"id": "1002", "type": "contact_to_call"}
+            ],
+            "paging": {"next": {"after": "2"}}
+        }
+    });
+    let (base, fake) = spawn_fake(always(200, body)).await;
+    let (rec, assocs) = client(&base, fast_opts())
+        .get_object_with_associations(
+            "contacts",
+            "101",
+            &["email"],
+            &["companies", "calls", "notes"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(rec.id, "101");
+    assert_eq!(
+        rec.properties["email"].as_deref(),
+        Some("yamada@example.com")
+    );
+    // 1 回だけ。associations は要求した型をカンマ連結
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "GET");
+    assert_eq!(calls[0].path, "/crm/v3/objects/contacts/101");
+    assert!(calls[0].query.contains(&(
+        "associations".to_string(),
+        "companies,calls,notes".to_string()
+    )));
+    assert!(calls[0]
+        .query
+        .contains(&("properties".to_string(), "email".to_string())));
+
+    let (companies, more) = &assocs["companies"];
+    assert_eq!(companies.len(), 1);
+    assert_eq!(companies[0].id, "300");
+    assert!(companies[0].labels.is_empty());
+    assert!(!more);
+    // 同じ id の重複は 1 件に、paging.next があれば truncated
+    let (calls_refs, more) = &assocs["calls"];
+    assert_eq!(
+        calls_refs.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+        vec!["1001", "1002"]
+    );
+    assert!(more);
+    // 応答に無い型も空で入っている
+    assert_eq!(assocs["notes"], (Vec::new(), false));
+}
+
+#[tokio::test]
+async fn get_object_with_associations_rejects_bad_type() {
+    let (base, fake) = spawn_fake(always(200, contact_json())).await;
+    let err = client(&base, fast_opts())
+        .get_object_with_associations("contacts", "101", &[], &["../x"])
+        .await
+        .unwrap_err();
+    assert_eq!(err.error_kind(), "hubspot_decode");
+    assert_eq!(fake.count(), 0);
+}
+
+#[tokio::test]
+async fn batch_associations_splits_by_100_and_maps_from_ids() {
+    // 受け取った inputs の各 id について、to を 1 件 (id + 10000) 返す。id "5" だけ関連なし
+    let responder: Responder = Arc::new(|_, rec| {
+        let results: Vec<Value> = rec.body["inputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["id"] != "5")
+            .map(|i| {
+                let n: u64 = i["id"].as_str().unwrap().parse().unwrap();
+                json!({"from": {"id": i["id"]},
+                       "to": [{"toObjectId": n + 10000, "associationTypes": [
+                           {"category": "HUBSPOT_DEFINED", "typeId": 194, "label": null}]}]})
+            })
+            .collect();
+        Resp::json(200, json!({"status": "COMPLETE", "results": results}))
+    });
+    let (base, fake) = spawn_fake(responder).await;
+    let ids: Vec<String> = (1..=150).map(|i| i.to_string()).collect();
+    let out = client(&base, fast_opts())
+        .batch_associations("contacts", "calls", &ids)
+        .await
+        .unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].method, "POST");
+    assert_eq!(
+        calls[0].path,
+        "/crm/v4/associations/contacts/calls/batch/read"
+    );
+    assert_eq!(calls[0].body["inputs"].as_array().unwrap().len(), 100);
+    assert_eq!(calls[1].body["inputs"].as_array().unwrap().len(), 50);
+    assert_eq!(out.len(), 149);
+    assert_eq!(out["1"][0].id, "10001");
+    assert_eq!(out["150"][0].id, "10150");
+    assert!(!out.contains_key("5"));
+
+    // 空なら送らない
+    let n = fake.count();
+    assert!(client(&base, fast_opts())
+        .batch_associations("contacts", "calls", &[])
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(fake.count(), n);
 }
 
 // ---------------------------------------------------------------------------
