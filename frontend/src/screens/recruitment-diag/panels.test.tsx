@@ -79,7 +79,7 @@ describe('Panel 1 difficulty', () => {
   });
 
   it('colors the rank label per label', () => {
-    expect(rankColor('非常に激戦')).toBe('text-red-400');
+    expect(rankColor('超激戦')).toBe('text-red-400');
     expect(rankColor('激戦')).toBe('text-orange-400');
     expect(rankColor('平均的')).toBe('text-yellow-300');
     expect(rankColor('穏やか')).toBe('text-green-400');
