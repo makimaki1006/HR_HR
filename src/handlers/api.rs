@@ -223,10 +223,7 @@ pub async fn get_municipalities_cascade(
             None => super::competitive::build_option(m, m),
         })
         .collect::<Vec<_>>()
-        .join(
-            "
-",
-        );
+        .join("\n");
 
     Html(html)
 }
