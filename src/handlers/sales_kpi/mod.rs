@@ -42,16 +42,21 @@
 //! 辞書順の比較が時刻順の比較と一致する。パースを挟まないぶん、
 //! タイムゾーンの取り違えが起きない。
 
+pub mod fixture;
+pub mod payload;
 pub mod routes;
 
 #[cfg(test)]
 mod tests;
+
+pub use payload::*;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use ts_rs::TS;
 
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
@@ -321,50 +326,6 @@ pub async fn load(client: &SheetsClient, store: &SheetStore) -> Result<Sheets> {
 
 // ---------------------------------------------------------------- 週次の記録
 
-/// 週次シートの列 → 画面が読むキー。`totals` の中に入るもの。
-///
-/// 🔴 左側は Python 側（Hubspot リポジトリ `scripts/sales_kpi/sync_daily.py` の
-/// `WEEKLY_HEADER`）と対で決まっている。片方だけ変えると値が 0 で並ぶ。
-///
-/// ここは**当月**に商談予定日があるもの。月内は積み上がり、月初に入れ替わる。
-/// その週ぶんは `WEEKLY_WEEK_TOTALS`（`week_totals`）にある。
-const WEEKLY_TOTALS: &[(&str, &str)] = &[
-    ("母集団", "pool"),
-    ("実施", "実施"),
-    ("未実施", "未実施"),
-    ("未処理", "未処理"),
-    ("これから", "これから"),
-    ("要判定", "要判定"),
-    ("取ったアポ", "apo"),
-    ("Cヨミ", "cyomi"),
-    ("BPO母集団", "bpo_pool"),
-];
-
-/// 週次シートの「週_」列 → 画面が読むキー。`week_totals` の中に入るもの。
-///
-/// 接頭辞の無い `WEEKLY_TOTALS` が**当月**に商談予定日があるもの（月内は積み上がり、
-/// 月初に入れ替わる）なのに対し、こちらは**その週（月〜日）**に商談予定日があるもの。
-/// 週次表に当月ぶんだけを並べると、月初の行で 1,064 → 537 と半減して見える
-/// （8月と9月を比べているだけ）。両方を持って、画面で選べるようにしている
-/// （2026-09-07 ユーザー判断）。
-const WEEKLY_WEEK_TOTALS: &[(&str, &str)] = &[
-    ("週_母集団", "pool"),
-    ("週_実施", "実施"),
-    ("週_未実施", "未実施"),
-    ("週_未処理", "未処理"),
-    ("週_これから", "これから"),
-    ("週_要判定", "要判定"),
-];
-
-/// 週次シートの列 → 画面が読むキー。`totals` の外に出るもの。
-const WEEKLY_NUMS: &[(&str, &str)] = &[
-    ("止まっている", "stale"),
-    ("アンケート未回収", "anq_missing"),
-    ("Cヨミ置きっぱなし", "cyomi_stale"),
-    ("架電リスト手をつけた", "kaden_called"),
-    ("架電リスト母数", "kaden_base"),
-];
-
 fn cell_num(text: &str) -> Option<i64> {
     let t = text.replace(',', "");
     let t = t.trim();
@@ -379,91 +340,81 @@ fn cell_num(text: &str) -> Option<i64> {
 /// 週が空の行は捨てる（シートの下に空行が残っていることがある）。
 /// 画面は古い順に並んでいる前提で末尾8週を出すので、ここで週の昇順に揃える。
 /// `2026-W07` のようにゼロ埋めしてあるので辞書順で週順になる。
-pub fn snapshots_of(sheet: &SheetData) -> Vec<serde_json::Value> {
-    use serde_json::{json, Map, Value};
-    let mut out: Vec<(String, Value)> = Vec::new();
+///
+/// 🔴 シートの見出し（`num("母集団")` 等の左側）は Python 側（Hubspot リポジトリ
+/// `scripts/sales_kpi/sync_daily.py` の `WEEKLY_HEADER`）と対で決まっている。
+/// 片方だけ変えると値が 0 で並ぶ。
+///
+/// `totals` は**当月**に商談予定日があるもの（月内は積み上がり、月初に入れ替わる）。
+/// `week_totals` は**その週（月〜日）**に商談予定日があるもの（2026-09-07 追加）。
+/// 週次表に当月ぶんだけを並べると、月初の行で 1,064 → 537 と半減して見える
+/// （8月と9月を比べているだけ）。両方を持って、画面で選べるようにしている
+/// （2026-09-07 ユーザー判断）。
+pub fn snapshots_of(sheet: &SheetData) -> Vec<Snapshot> {
+    let mut out: Vec<Snapshot> = Vec::new();
     for row in &sheet.rows {
         let week = sheet.get(row, "週").trim().to_string();
         if week.is_empty() {
             continue;
         }
-        let mut totals = Map::new();
-        for (col, key) in WEEKLY_TOTALS {
-            totals.insert(
-                (*key).to_string(),
-                json!(cell_num(sheet.get(row, col)).unwrap_or(0)),
-            );
-        }
-        let mut item = Map::new();
-        item.insert("week".into(), json!(week.clone()));
-        item.insert("taken_at".into(), json!(sheet.get(row, "記録日")));
-        item.insert("week_start".into(), json!(sheet.get(row, "週はじまり")));
-        item.insert("totals".into(), Value::Object(totals));
-        for (col, key) in WEEKLY_NUMS {
-            item.insert(
-                (*key).to_string(),
-                json!(cell_num(sheet.get(row, col)).unwrap_or(0)),
-            );
-        }
-        // 架電数だけは「まだ無い」と「0件」を分ける。画面は null を「—」で出す。
-        item.insert(
-            "zoom_called".into(),
-            match cell_num(sheet.get(row, "Zoom架電数")) {
-                Some(n) => json!(n),
-                None => Value::Null,
-            },
-        );
-        item.insert(
-            "zoom_days".into(),
-            json!(cell_num(sheet.get(row, "Zoom日数")).unwrap_or(0)),
-        );
-        item.insert(
-            "zoom_partial".into(),
-            json!(sheet.get(row, "Zoom集計中") == "集計中"),
-        );
+        let num = |col: &str| cell_num(sheet.get(row, col)).unwrap_or(0);
+        let totals = SnapshotTotals {
+            pool: num("母集団"),
+            done: num("実施"),
+            not_done: num("未実施"),
+            stuck: num("未処理"),
+            upcoming: num("これから"),
+            unknown: num("要判定"),
+            apo: num("取ったアポ"),
+            cyomi: num("Cヨミ"),
+            bpo_pool: num("BPO母集団"),
+        };
         // その週に予定された商談だけを数えた列（2026-09-07 追加）。
         // 🔴 それ以前に書かれた行にはこの列が無い。`SheetData::get()` は
         //    列が無ければ "" を返すので落ちはしないが、0 を入れると画面が
-        //    「その週は0件だった」と嘘をつく。母集団が読めない行は null にして
+        //    「その週は0件だった」と嘘をつく。母集団が読めない行は None にして
         //    画面に「—」を出させる。
-        item.insert(
-            "week_totals".into(),
-            match cell_num(sheet.get(row, "週_母集団")) {
-                Some(_) => {
-                    let mut m = Map::new();
-                    for (col, key) in WEEKLY_WEEK_TOTALS {
-                        m.insert(
-                            (*key).to_string(),
-                            json!(cell_num(sheet.get(row, col)).unwrap_or(0)),
-                        );
-                    }
-                    Value::Object(m)
-                }
-                None => Value::Null,
-            },
-        );
-        item.insert(
-            "week_partial".into(),
-            json!(sheet.get(row, "週_集計中") == "集計中"),
-        );
-        item.insert("list_stock".into(), weekly_list_stock(sheet, row));
-        out.push((week, Value::Object(item)));
+        let week_totals = cell_num(sheet.get(row, "週_母集団")).map(|_| SnapshotWeekTotals {
+            pool: num("週_母集団"),
+            done: num("週_実施"),
+            not_done: num("週_未実施"),
+            stuck: num("週_未処理"),
+            upcoming: num("週_これから"),
+            unknown: num("週_要判定"),
+        });
+        out.push(Snapshot {
+            week,
+            taken_at: sheet.get(row, "記録日").to_string(),
+            week_start: sheet.get(row, "週はじまり").to_string(),
+            totals,
+            stale: num("止まっている"),
+            anq_missing: num("アンケート未回収"),
+            cyomi_stale: num("Cヨミ置きっぱなし"),
+            kaden_called: num("架電リスト手をつけた"),
+            kaden_base: num("架電リスト母数"),
+            // 架電数だけは「まだ無い」と「0件」を分ける。画面は null を「—」で出す。
+            zoom_called: cell_num(sheet.get(row, "Zoom架電数")),
+            zoom_days: num("Zoom日数"),
+            zoom_partial: sheet.get(row, "Zoom集計中") == "集計中",
+            week_totals,
+            week_partial: sheet.get(row, "週_集計中") == "集計中",
+            list_stock: weekly_list_stock(sheet, row),
+        });
     }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out.into_iter().map(|(_, v)| v).collect()
+    out.sort_by(|a, b| a.week.cmp(&b.week));
+    out
 }
 
 /// 週次シートの「リスト_<リスト名>_<全体|アクティブ|保管>」列を
 /// `{リスト名: {全体, アクティブ, 保管}}` にする。
 ///
 /// 🔴 リスト名はここに書かない。見出しから拾う（Python 側 `LIST_PIPELINES` が
-/// 列を作るので、リストが増えてもここは直さずに済む）。
+/// 列を作るので、リストが増えてもここは直さずに済む）。並びは見出しの順（`OrderedMap`）。
 /// 2026-09-29 より前に書かれた行にはこの列が無い（値が空）。0 にすると画面が
 /// 「在庫が0だった」と嘘をつくので、そのリストの「全体」が読めなければ入れない。
-/// 1つも無ければ `null`。
-fn weekly_list_stock(sheet: &SheetData, row: &[Arc<str>]) -> serde_json::Value {
-    use serde_json::{json, Map, Value};
-    let mut out: Map<String, Value> = Map::new();
+/// 1つも無ければ `None`。
+fn weekly_list_stock(sheet: &SheetData, row: &[Arc<str>]) -> Option<OrderedMap<StockTrendList>> {
+    let mut out: OrderedMap<StockTrendList> = OrderedMap::new();
     for col in &sheet.header {
         let Some(rest) = col.strip_prefix("リスト_") else {
             continue;
@@ -474,20 +425,21 @@ fn weekly_list_stock(sheet: &SheetData, row: &[Arc<str>]) -> serde_json::Value {
         let Some(whole) = cell_num(sheet.get(row, col)) else {
             continue;
         };
-        let mut m = Map::new();
-        m.insert("全体".into(), json!(whole));
-        for kind in ["アクティブ", "保管"] {
-            m.insert(
-                kind.into(),
-                json!(cell_num(sheet.get(row, &format!("リスト_{name}_{kind}"))).unwrap_or(0)),
-            );
-        }
-        out.insert(name.to_string(), Value::Object(m));
+        let num =
+            |kind: &str| cell_num(sheet.get(row, &format!("リスト_{name}_{kind}"))).unwrap_or(0);
+        out.insert(
+            name.to_string(),
+            StockTrendList {
+                whole,
+                active: num("アクティブ"),
+                stored: num("保管"),
+            },
+        );
     }
     if out.is_empty() {
-        Value::Null
+        None
     } else {
-        Value::Object(out)
+        Some(out)
     }
 }
 
@@ -501,14 +453,16 @@ pub fn deals_of(sheet: &SheetData) -> Vec<Deal> {
 
 // ---------------------------------------------------------------- メンバー
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(rename = "SalesKpiPerson")]
 pub struct Person {
     pub id: String,
     pub name: String,
     pub team: String,
     /// HubSpot 側のチーム名（`BPO_リクロジ` など）。営業の名簿に載っていない人が
     /// 誰なのかを示す手掛かり。名簿のチームより粒度が粗いので、絞り込みには使わない。
-    #[serde(rename = "hsTeam", skip_serializing_if = "String::is_empty")]
+    /// 空なら JSON にキーごと出さない（TS では `hsTeam?: string`。`default` は ts-rs にそれを伝えるためのもの）。
+    #[serde(rename = "hsTeam", default, skip_serializing_if = "String::is_empty")]
     pub hs_team: String,
     /// 商談（①③②⑥⑨）の集計に入れるか。
     ///
@@ -643,9 +597,7 @@ pub const STOCK_ALL_BANDS: &str = "すべて";
 /// `band_gap` は「企業人数=すべて」と帯の合計の差。どの帯にも入らない値
 /// （マイナスなど）があれば 0 にならない。画面はこれを出して、帯で絞ったときに
 /// 足りなくなる理由を隠さない。
-pub fn list_stock_of(sheet: &SheetData) -> serde_json::Value {
-    use serde_json::{json, Value};
-
+pub fn list_stock_of(sheet: &SheetData) -> ListStock {
     /// 1つの升目の数え上げ。`n` が件数、`named` がそのうち担当者名に人の名前が入っている件数。
     #[derive(Default, Clone)]
     struct Cell {
@@ -705,7 +657,7 @@ pub fn list_stock_of(sheet: &SheetData) -> serde_json::Value {
     let mut all_bands: Vec<String> = vec![STOCK_ALL_BANDS.to_string()];
     all_bands.extend(bands.iter().cloned());
     let get = |c: &Counts, b: &str| c.get(b).copied().unwrap_or(0);
-    let out: Vec<Value> = lists
+    let out: Vec<StockList> = lists
         .into_iter()
         .map(|(name, list)| {
             // 合計 − 内訳の和。件数と担当者名ありの両方で出す。
@@ -721,26 +673,40 @@ pub fn list_stock_of(sheet: &SheetData) -> serde_json::Value {
             let gap = |c: &Counts| -> i64 {
                 get(c, STOCK_ALL_BANDS) - bands.iter().map(|b| get(c, b)).sum::<i64>()
             };
-            json!({
-                "name": name,
-                "total": list.total.n,
-                "total_named": list.total.named,
-                "groups": list.groups.iter().map(|(kind, label, cell)| json!({
-                    "kind": kind, "name": label, "counts": cell.n, "named": cell.named,
-                })).collect::<Vec<_>>(),
-                "other": rest(|c| &c.n),
-                "other_named": rest(|c| &c.named),
-                "band_gap": gap(&list.total.n),
-                "band_gap_named": gap(&list.total.named),
-            })
+            let groups: Vec<StockGroup> = list
+                .groups
+                .iter()
+                .map(|(kind, label, cell)| StockGroup {
+                    kind: kind.clone(),
+                    name: label.clone(),
+                    counts: cell.n.clone(),
+                    named: cell.named.clone(),
+                })
+                .collect();
+            let other = rest(|c| &c.n);
+            let other_named = rest(|c| &c.named);
+            let band_gap = gap(&list.total.n);
+            let band_gap_named = gap(&list.total.named);
+            StockList {
+                name,
+                total: list.total.n,
+                total_named: list.total.named,
+                groups,
+                other,
+                other_named,
+                band_gap,
+                band_gap_named,
+            }
         })
         .collect();
-    json!({
-        "all_band": STOCK_ALL_BANDS,
-        "bands": bands,
-        "has_named": has_named,
-        "lists": out,
-    })
+    ListStock {
+        all_band: STOCK_ALL_BANDS,
+        bands,
+        has_named,
+        lists: out,
+        // 前の週の記録は `routes::list_stock_block` が後から入れる。
+        trend: None,
+    }
 }
 
 // ------------------------------------------------- 決定者・決裁者
@@ -868,8 +834,9 @@ pub fn is_bpo(deal: &Deal, prev_month_start: &str, month_end: &str) -> bool {
         && deal.bpo_appo.as_str() < month_end
 }
 
-/// 画面に出す取引1件。
-#[derive(Debug, Serialize)]
+/// 画面に出す取引1件。`days` / `anq` / `past` は無いときキーごと出さない（TS では `?`）。
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(rename = "SalesKpiDealRow")]
 pub struct DealRow {
     pub id: String,
     pub name: String,
@@ -883,10 +850,13 @@ pub struct DealRow {
     pub kind: &'static str,
     pub why: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub days: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub anq: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub past: Option<bool>,
     /// HubSpot の取引ページ（object ID から作る。headless-crm-design §6）
     pub url: String,
@@ -1076,7 +1046,8 @@ pub fn kaden_of(sheet: &SheetData) -> Vec<KadenRow> {
 }
 
 /// 期間を切って、チーム別・個人別に足す。
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Clone, Serialize, TS)]
+#[ts(rename = "SalesKpiKadenPeriod")]
 pub struct KadenPeriod {
     pub days: Vec<String>,
     pub total: Counts,

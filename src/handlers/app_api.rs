@@ -163,6 +163,19 @@ mod tests {
                 );
             }
         }
+
+        // 営業KPI (React 移行 W2、2026-09-30)。`GET /api/sales-kpi/data` の応答型と、その依存型
+        // (SalesKpi* に前置して他画面と衝突させない)。i64 は JSON では普通の数なので bigint にしない。
+        let cfg_number = ts_rs::Config::new()
+            .with_out_dir(&out_dir)
+            .with_large_int("number");
+        crate::handlers::sales_kpi::SalesKpiData::export_all(&cfg_number)
+            .expect("SalesKpiData の TS 型を書き出せない");
+        let written = std::fs::read_to_string(out_dir.join("SalesKpiData.ts")).unwrap();
+        assert!(
+            written.contains("export type SalesKpiData = {"),
+            "{written}"
+        );
     }
 
     /// 生成される TS 型の中身。フィールド名・型が変わったらここも落ちる。
