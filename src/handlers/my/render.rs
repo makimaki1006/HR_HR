@@ -1,6 +1,9 @@
 //! ユーザー自己サービス画面の HTML レンダリング
+//!
+//! W8 (2026-09-29): 引数を `data.rs` の応答型にした (JSON と同じ値を描く)。
+//! 出力 HTML は分割前と同一 (`snapshot_tests.rs`)。
 
-use crate::audit::dao::{AccountRow, ActivityLogRow, LoginSessionRow};
+use super::data::{MyActivityResponse, MyProfileResponse};
 use crate::handlers::helpers::escape_html;
 
 fn layout(title: &str, body: &str) -> String {
@@ -48,7 +51,13 @@ pub fn not_linked_page() -> String {
     )
 }
 
-pub fn profile_page(acc: &AccountRow, flash: Option<&str>) -> String {
+/// `status` に応じて 3 ページのどれかを描く (旧ハンドラの分岐をそのまま移したもの)。
+pub fn profile_page(resp: &MyProfileResponse, flash: Option<&str>) -> String {
+    let acc = match resp {
+        MyProfileResponse::Ok { account } => account,
+        MyProfileResponse::AuditDisabled => return audit_disabled_page(),
+        MyProfileResponse::NotLinked => return not_linked_page(),
+    };
     let flash_html = flash
         .map(|m| {
             format!(
@@ -102,11 +111,17 @@ pub fn profile_page(acc: &AccountRow, flash: Option<&str>) -> String {
     layout("プロフィール", &body)
 }
 
-pub fn activity_page(
-    acc: &AccountRow,
-    sessions: &[LoginSessionRow],
-    activities: &[ActivityLogRow],
-) -> String {
+/// `status` に応じて 3 ページのどれかを描く (旧ハンドラの分岐をそのまま移したもの)。
+pub fn activity_page(resp: &MyActivityResponse) -> String {
+    let (acc, sessions, activities) = match resp {
+        MyActivityResponse::Ok {
+            account,
+            sessions,
+            activities,
+        } => (account, sessions, activities),
+        MyActivityResponse::AuditDisabled => return audit_disabled_page(),
+        MyActivityResponse::NotLinked => return not_linked_page(),
+    };
     let mut session_rows = String::new();
     for s in sessions {
         session_rows.push_str(&format!(

@@ -1,0 +1,28 @@
+{
+  "failures": [
+    {
+      "id": "fail-0001",
+      "account_id": "",
+      "attempted_email": "attacker@evil.example",
+      "started_at": "2026-09-28T00:00:10Z",
+      "ended_at": "",
+      "ip_hash": "ff00ff00ff00",
+      "user_agent": "python-requests/2.32",
+      "login_method": "password",
+      "success": 0,
+      "failure_reason": "invalid_domain"
+    },
+    {
+      "id": "fail-0002",
+      "account_id": "",
+      "attempted_email": "hanako@f-a-c.co.jp",
+      "started_at": "2026-09-28T00:00:05Z",
+      "ended_at": "",
+      "ip_hash": "ab12cd34ef56",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130",
+      "login_method": "password",
+      "success": 0,
+      "failure_reason": "wrong_password"
+    }
+  ]
+}
