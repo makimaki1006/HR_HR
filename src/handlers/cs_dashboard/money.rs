@@ -99,6 +99,45 @@ pub const AMOUNT_BASIS: &str =
     "金額は HubSpot の取引の金額（amount）で、契約期間全体の額です（月額ではありません。\
 期間の長い契約ほど大きくなります）。ステージの確度は掛けていません。人ごとの金額は出していません";
 
+/// 納品管理パイプライン（リクロジ_納品管理 21596025）のステージの並び（HubSpot の displayOrder の順）。
+/// 満了と継続のステージ別の表を工程順（運用MTG実施前 → 求人出稿 → 定期1〜11 → 継続MTG → ヨミ → 解約・継続済）に並べるのに使う。
+/// 🔴 シート（CS_取引 の dealstage / dealstage_label / stage_group）にもこのリポジトリのコードにも並びの手掛かりが無いので、
+///    データの出どころ（HubSpot の `GET /crm/v3/pipelines/deals/21596025`）から写した。2026-09-30 取得: 30 ステージ、
+///    displayOrder 0〜29 がこの並び（Hubspot の data/hubspot_enrichment/pipeline_stage_labels.json 2026-04-27 取得とも同じ順）。
+///    HubSpot でステージを足した・並べ替えたときはここを直す。ここに無いステージは表の末尾に件数の多い順で出す（落とさない）
+pub const DELIVERY_STAGE_ORDER: &[&str] = &[
+    "52016153",   // 運用MTG実施前
+    "52016154",   // 運用MTG実施済
+    "52016155",   // 求人出稿完了
+    "1281184160", // 継続_定期実施前（早巻き）
+    "1049738304", // オプション（求人追加・一次対応）
+    "121846962",  // 基本料プラン
+    "52016156",   // 定期1
+    "121846961",  // 定期2
+    "164378752",  // 定期3
+    "164378755",  // 定期4
+    "164378758",  // 定期5
+    "1177549843", // 定期6
+    "1177549844", // 定期7
+    "1177549845", // 定期8
+    "1177549846", // 定期9
+    "1177549847", // 定期10
+    "1177549848", // 定期11
+    "164378760",  // 継続MTG前_壁打ち済
+    "52016157",   // 継続MTG
+    "1216616080", // Tヨミ：10％未満
+    "1216616081", // Dヨミ：20％
+    "1216616082", // Cヨミ：50％
+    "1216616083", // Bヨミ：80％
+    "1281526627", // 満了済オプション（一次対応・追加）
+    "1016664339", // 解約済架電禁止先
+    "90598807",   // 解約済（充足）
+    "52016159",   // 解約済(成果不足)
+    "52016158",   // 解約済(会社方針・その他)
+    "66848546",   // 継続済
+    "1278456227", // マーケ関連
+];
+
 /// 稼働中の契約の金額と、今月・来月・再来月に満了する金額（会社全体）。
 /// 満了と継続（件数の内訳）と成果と継続（札）が同じ数を出すように、1か所で数える。
 /// 4つ目は先月以前に満了日を過ぎて、まだ稼働中の契約（3か月の金額には入らない。
@@ -148,6 +187,8 @@ pub fn build_renewal_pipe(sheets: &Sheets, today: NaiveDate) -> Value {
     let mut stage_n: Vec<BTreeMap<String, usize>> =
         window.iter().map(|_| BTreeMap::new()).collect();
     let mut stage_all: BTreeMap<String, usize> = BTreeMap::new();
+    // ステージ名ごとの工程の位置（DELIVERY_STAGE_ORDER の番号。同じ名前に ID が複数あれば前のほう）
+    let mut stage_pos: HashMap<String, usize> = HashMap::new();
     let mut overdue = Sum::default();
     let mut later = 0usize;
     let mut no_expiry = 0usize;
@@ -160,6 +201,12 @@ pub fn build_renewal_pipe(sheets: &Sheets, today: NaiveDate) -> Value {
                 if let Some(i) = window.iter().position(|w| w == m) {
                     *stage_n[i].entry(stage_of(d)).or_insert(0) += 1;
                     *stage_all.entry(stage_of(d)).or_insert(0) += 1;
+                    let pos = DELIVERY_STAGE_ORDER
+                        .iter()
+                        .position(|s| *s == d.stage)
+                        .unwrap_or(usize::MAX);
+                    let e = stage_pos.entry(stage_of(d)).or_insert(pos);
+                    *e = (*e).min(pos);
                     in_window.push(d);
                 } else if m < first {
                     overdue.add(d);
@@ -170,9 +217,17 @@ pub fn build_renewal_pipe(sheets: &Sheets, today: NaiveDate) -> Value {
             }
         }
     }
-    // ステージの並びは 3か月の合計の多い順（同数なら名前順）。毎月同じ並びで比べられるように1つに決める
+    // ステージの並びは HubSpot の工程順（DELIVERY_STAGE_ORDER）。毎月同じ並びで比べられるように1つに決める。
+    // 🔴 前は 3か月の合計の多い順で、「定期2」が「定期1」より上・ヨミが工程の途中に挟まるなど、工程の流れで読めなかった
+    //    （2026-09-30 磨き込みで工程順に）。並びに無いステージ（名前なしを含む）は末尾に、合計の多い順（同数なら名前順）
     let mut stages: Vec<(String, usize)> = stage_all.into_iter().collect();
-    stages.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    stages.sort_by(|a, b| {
+        let pa = stage_pos.get(&a.0).copied().unwrap_or(usize::MAX);
+        let pb = stage_pos.get(&b.0).copied().unwrap_or(usize::MAX);
+        pa.cmp(&pb)
+            .then_with(|| b.1.cmp(&a.1))
+            .then_with(|| a.0.cmp(&b.0))
+    });
 
     let months: Vec<Value> = window
         .iter()

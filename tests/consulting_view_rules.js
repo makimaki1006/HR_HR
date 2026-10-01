@@ -1413,34 +1413,37 @@ check("V12 の残り: 枠を横に動かす（scroll の捕捉）・窓の幅・
    renderHq を戻すときは、差し替え前に覚えたこの値を使う */
 const HQ_ORIG = run("renderHq");
 
-check("V12 の残り: 本部アプローチの枠を差し込んだ後（持っているとき・取りに行った後）に影を付ける", () => {
-  const saved = { rh: run("renderHq"), rj: run("readJson"), fetch: ctx.fetch, qsa: ctx.document.querySelectorAll };
-  const restore = () => {
-    ctx.__rh = saved.rh; ctx.__rj = saved.rj;
-    run("renderHq = __rh; readJson = __rj; hqCache = null;");
-    ctx.fetch = saved.fetch; ctx.document.querySelectorAll = saved.qsa; delete els["hq-box"];
-  };
-  ctx.__noop = () => "";
-  run("renderHq = __noop; readJson = (r) => r.json();");
-  els["hq-box"] = fakeEl();
+/* 成果と継続の束（/api/consulting/results）の最小形。本部アプローチ（rs-hq）は束の headquarters を本文と一緒に描く。
+   2026-09-30 に後読みの部品（hqSection / wireHq）を消したので、前の見張り（#hq-box に差し込んだ後の影・paintFigs・
+   開いた details）は、同じ性質を rs-hq の節で確かめる形に移した（緩めていない） */
+function resultsWithHq() {
+  return { meta: { today: "2026-09-18", exclude_right_censored: false }, population: { deals_option: 99 },
+    renewal: ctx.__RN, outcome: ctx.__OUT, focus: ctx.__FO, rampup: ctx.__RU, headquarters: ctx.__HQ, phone: ctx.__PH };
+}
+/** 本文の rs-hq の節（見出しから次の節の前まで） */
+function rsHqPart(h) {
+  const i = h.indexOf('id="rs-hq"');
+  ok(i >= 0, "成果と継続に本部アプローチの節（rs-hq）が無い");
+  const j = h.indexOf('id="rs-act"', i);
+  return h.slice(i, j > i ? j : h.length);
+}
+
+check("V12 の残り: 本部アプローチ（成果と継続の rs-hq）を描いた後に影を付ける。束の中から描き、別に取りに行かない", () => {
+  ok(!/function (hqSection|wireHq)\b/.test(js), "消した後読みの部品（hqSection / wireHq）が残っている");
+  ok(!js.includes('"/api/consulting/headquarters"'), "画面が本部アプローチを別に取りに行く道が残っている");
+  const v = run('JSON.stringify(viewOf("monthly", "results"))');
+  ok(v && JSON.parse(v).path === "/api/consulting/results" && !JSON.parse(v).more, "成果と継続が束（/api/consulting/results）1 本で取っていない: " + v);
+  ctx.__RSX = resultsWithHq();
+  const part = rsHqPart(run("renderResults(__RSX)"));
+  ok(part.includes("解約・充足 50.0%（決着済み 4件中）"), "rs-hq の節に束の headquarters（renderHq の中身）が描かれていない");
+  /* 描いた後の wire が影を付ける（前は wireHq が差し込んだ後に付けていた） */
+  const saved = run('JSON.stringify(cur)');
+  const w = fakeWrap();
   try {
-    // 持っているとき（hqCache）
-    const w1 = fakeWrap();
-    run("hqCache = { x: 1 }");
-    withWraps(w1, () => run("wireHq()"));
-    ok(w1.cls.has("more-r"), "hqCache から差し込んだ後に影を付けていない");
-  } catch (e) { restore(); throw e; }
-  // 取りに行ったとき（fetch の後）
-  run("hqCache = null");
-  const w2 = fakeWrap();
-  ctx.fetch = () => Promise.resolve({ status: 200, json: () => Promise.resolve({ ok: 1 }) });
-  ctx.document.querySelectorAll = (s) => (s === ".scroll-wrap" ? [w2.el] : []);
-  run("wireHq()");
-  const tick = () => new Promise((res) => setImmediate(res));
-  return tick().then(tick).then(() => {
-    restore();
-    ok(w2.cls.has("more-r"), "本部アプローチを取りに行って差し込んだ後に影を付けていない");
-  }, (e) => { restore(); throw e; });
+    run('cur = { menu: "monthly", view: "results" }');
+    withWraps(w, () => run('wire(viewOf("monthly", "results"))'));
+  } finally { ctx.__cur0 = saved; run("cur = JSON.parse(__cur0)"); }
+  ok(w.cls.has("more-r"), "成果と継続を描いた後に影を付けていない（rs-hq の表の枠）");
 });
 
 check("V12 の残り: 暗い表示でも枠の端の影が地と見分けられる（明るい表示と同じくらいの差）", () => {
@@ -1834,10 +1837,12 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
   const qsa0 = main.querySelectorAll, qs0 = main.querySelector;
   const restore = () => {
     ctx.__rs = saved;
-    run("paintFigs = __rs.pf; redrawMain = __rs.rd; wire = __rs.wire; renderHq = __rs.rh; cur = JSON.parse(__rs.cur); hqCache = null; hqKeep = null; lastPayload = null; paintedW = 0;");
+    run("paintFigs = __rs.pf; redrawMain = __rs.rd; wire = __rs.wire; renderHq = __rs.rh; cur = JSON.parse(__rs.cur); lastPayload = null; paintedW = 0;");
     ctx.setTimeout = saved.st; ctx.fetch = saved.fetch;
-    main.querySelectorAll = qsa0; main.querySelector = qs0; delete main.clientWidth; delete els["hq-box"];
+    main.querySelectorAll = qsa0; main.querySelector = qs0; delete main.clientWidth;
   };
+  ctx.__rs = saved;
+  ctx.__PF0 = ctx.__PF;
   try {
     run("paintFigs = __PF; wire = () => {}; renderHq = () => '';");
     // 定義と検証（API の無い項目）の load
@@ -1849,11 +1854,14 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     calls.length = 0;
     run("redrawMain({}, [2])");
     ok(calls.length === 1 && JSON.stringify(calls[0].keep) === "[2]", "redrawMain が keep を paintFigs に渡していない: " + JSON.stringify(calls[0] && calls[0].keep));
-    // 本部アプローチ（持っているとき）
+    // 本部アプローチ（成果と継続の rs-hq）: 本文と同じ paintFigs で 1 回描く（前は #hq-box を別に paintFigs で描いていた）
     calls.length = 0;
-    els["hq-box"] = fakeEl();
-    run("hqCache = { x: 1 }; wireHq()");
-    ok(calls.length === 1 && calls[0].el === els["hq-box"], "本部アプローチの枠を paintFigs で描いていない");
+    ctx.__RSX = resultsWithHq();
+    ctx.__PF = (el, make, keep) => { calls.push({ el, keep, html: make() }); };
+    run('paintFigs = __PF; renderHq = __rs.rh; cur = { menu: "monthly", view: "results" }; redrawMain(__RSX, [0])');
+    ok(calls.length === 1 && calls[0].el === main && JSON.stringify(calls[0].keep) === "[0]", "成果と継続の描き直しが本文の paintFigs 1 回でない");
+    ok(rsHqPart(calls[0].html).includes("解約・充足 50.0%（決着済み 4件中）"), "本部アプローチを本文の paintFigs の中で描いていない");
+    run("paintFigs = __PF0; renderHq = () => ''");
     // 窓の幅が変わった（resize → refitSoon → redrawMain(lastPayload, openDetails(main))）
     const rd = [];
     ctx.__RD = (D, keep) => rd.push(keep);
@@ -1867,8 +1875,8 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     ok(JSON.stringify(rd[0]) === "[1]", "幅の描き直しで開いている details を渡していない: " + JSON.stringify(rd[0]));
   } catch (e) { restore(); throw e; }
   restore();
-  /* ここから先は応答を待つ。先に走った見張り（本部アプローチの取得）が終わってから差し替える。
-     終わる前に差し替えると、その見張りの paintFigs・#hq-box の片付けと混ざる */
+  /* ここから先は応答を待つ。先に走った見張り（fetch の後を見るもの）が終わってから差し替える。
+     終わる前に差し替えると、その見張りの paintFigs・片付けと混ざる */
   return Promise.all(pendingChecks.slice()).then(() => {
     // API のある項目の load（応答の後）も paintFigs で描く
     const calls2 = [];
@@ -1877,55 +1885,53 @@ check("描き直し: 表示・絞り込み・本部アプローチ・窓の幅�
     ctx.fetch = () => Promise.resolve({ ok: true, status: 200, url: "/api/x", headers: { get: () => "application/json" }, json: () => Promise.resolve({ meta: {} }) });
     run('cur = { menu: "deal", view: "today" }');
     const p = run("load()");
-    // 本部アプローチを取りに行った後も paintFigs で描く
-    const hb = fakeEl();
-    els["hq-box"] = hb;
-    run("hqCache = null; wireHq()");
     const tick = () => new Promise((res) => setImmediate(res));
     return p.then(tick).then(tick).then(() => {
       restore();
       ok(calls2.filter((el) => el === main).length === 1, "応答の後の load が paintFigs で描いていない");
-      ok(calls2.includes(hb), "本部アプローチを取りに行った後、paintFigs で描いていない");
     }, (e) => { restore(); throw e; });
   });
 });
 
-check("本部アプローチ: 幅の描き直しで、#hq-box の中の開いた details を数え違えず、描き直した後に開き直す", () => {
-  // 🔴 検証の指摘: openDetails(main) が #hq-box の中の details も数え、本文の描き直しの時点では #hq-box が空なので
-  //    番号がずれ、#hq-box の中身（wireHoujin が keep 無しで描く）は畳まれていた
+check("本部アプローチ（rs-hq）: 幅の描き直しで、節の中の開いた details を本文の details として数え、描き直した後に開き直す", () => {
+  // 🔴 検証の指摘（2026-09-24）: openDetails(main) が後読みの枠（#hq-box）の中の details も数え、本文の描き直しの時点では枠が空なので
+  //    番号がずれ、枠の中身は畳まれていた。2026-09-30 に後読みの枠を消し、本部アプローチは成果と継続の本文（rs-hq）に描く。
+  //    同じ性質（本部アプローチの中の開いた details が、幅の描き直しの後も開いたまま）を、今の形で確かめる
+  // 別に描く枠（data-paint-own）の中の details は本文の番号に混ぜない（部品の決まりは残っている）
   const hqd = { open: true }, own = { open: true }, own0 = { open: false };
-  const hqEl = { id: "hq-box", querySelectorAll: (s) => (s === "details" ? [hqd] : []) };
-  hqd.closest = (s) => (s === "[data-paint-own]" ? hqEl : null);
+  const boxEl = { id: "own-box", querySelectorAll: (s) => (s === "details" ? [hqd] : []) };
+  hqd.closest = (s) => (s === "[data-paint-own]" ? boxEl : null);
   own.closest = own0.closest = () => null;
   ctx.__M = { querySelectorAll: (s) => (s === "details" ? [own0, hqd, own] : []) };
-  ok(run("JSON.stringify(openDetails(__M))") === "[1]", "本文の details の番号に #hq-box の中の details が混ざっている: " + run("JSON.stringify(openDetails(__M))"));
-  ctx.__H = hqEl;
-  ok(run("JSON.stringify(openDetails(__H))") === "[0]", "#hq-box 自身の details を数えていない");
-  ok(html.includes('<div id="hq-box" data-paint-own="1">'), "#hq-box に data-paint-own が無い（本文の details に数えられる）");
-  // redrawMain(keep) が #hq-box の開いた details を覚え、wireHoujin がその keep で描く
-  const saved = { pf: run("paintFigs"), wire: run("wire"), rh: HQ_ORIG };
+  ok(run("JSON.stringify(openDetails(__M))") === "[1]", "本文の details の番号に別に描く枠の中の details が混ざっている: " + run("JSON.stringify(openDetails(__M))"));
+  ctx.__H = boxEl;
+  ok(run("JSON.stringify(openDetails(__H))") === "[0]", "別に描く枠自身の details を数えていない");
+  // 成果と継続: rs-hq の details は本文の一部（別に描く枠に入れていない）なので、本文の番号で覚えて開き直せる
+  ctx.__RSX = resultsWithHq();
+  const h = run("renderResults(__RSX)");
+  ok(!h.includes("data-paint-own") && !h.includes('id="hq-box"'), "成果と継続に後読みの枠（別に描く枠）が残っている");
+  const part = rsHqPart(h);
+  ok(part.includes("<details"), "前提: rs-hq の節に details が無い（見張りが空振りする）");
+  const idx = (h.slice(0, h.indexOf('id="rs-hq"')).match(/<details/g) || []).length;   // rs-hq の最初の details の番号
+  const n = (h.match(/<details/g) || []).length;
+  const ds = Array.from({ length: n }, (_, i) => ({ open: i === idx, closest: () => null }));
+  ctx.__M2 = { querySelectorAll: (s) => (s === "details" ? ds : []) };
+  ok(run("JSON.stringify(openDetails(__M2))") === JSON.stringify([idx]), "rs-hq の開いた details を本文の番号で覚えていない: " + run("JSON.stringify(openDetails(__M2))"));
+  // 幅の描き直し（redrawMain(D, keep)）は、その番号を本文の paintFigs に渡す。絞り込みの描き直し（keep 無し）は渡さない
+  const saved = { pf: run("paintFigs"), wire: run("wire"), cur: run("JSON.stringify(cur)") };
   const calls = [];
   ctx.__PF = (el, make, keep) => calls.push({ el, keep });
-  const hb = fakeEl(); hb.querySelectorAll = (s) => (s === "details" ? [{ open: false }, { open: true }] : []);
-  els["hq-box"] = hb;
   try {
-    run("paintFigs = __PF; wire = () => {}; renderHq = () => ''; hqCache = { x: 1 };");
-    run("redrawMain({}, [])");
-    els["hq-box"] = fakeEl();   // 本文を描き直すと #hq-box は新しい枠になる
-    run("wireHq()");
-    const hq = calls.find((c) => c.el === els["hq-box"]);
-    ok(hq && JSON.stringify(hq.keep) === "[1]", "#hq-box を開いていた details のまま描き直していない: " + JSON.stringify(hq && hq.keep));
+    run('paintFigs = __PF; wire = () => {}; cur = { menu: "monthly", view: "results" };');
+    ctx.__K = [idx];
+    run("redrawMain(__RSX, __K)");
+    ok(calls.length === 1 && JSON.stringify(calls[0].keep) === JSON.stringify([idx]), "幅の描き直しで rs-hq の開いた details を渡していない: " + JSON.stringify(calls[0] && calls[0].keep));
     calls.length = 0;
-    els["hq-box"] = hb;
-    run("redrawMain({})");   // 絞り込みの描き直しは覚えない（行が変わると番号が別の行を指す）
-    els["hq-box"] = fakeEl();
-    run("wireHq()");
-    const hq2 = calls.find((c) => c.el === els["hq-box"]);
-    ok(hq2 && !(hq2.keep && hq2.keep.length), "絞り込みの描き直しでも #hq-box の details を開き直している");
+    run("redrawMain(__RSX)");
+    ok(calls.length === 1 && !(calls[0].keep && calls[0].keep.length), "絞り込みの描き直しでも details を開き直している");
   } finally {
     ctx.__rs = saved;
-    run("paintFigs = __rs.pf; wire = __rs.wire; renderHq = __rs.rh; hqCache = null; hqKeep = null;");
-    delete els["hq-box"];
+    run("paintFigs = __rs.pf; wire = __rs.wire; cur = JSON.parse(__rs.cur);");
   }
 });
 
@@ -2536,8 +2542,11 @@ check("ループ4 focus: どちらも無い（灰の帯）の KPI を山吹に�
     rows: [{ site: "k1", site_name: "拠点1", prev: 1000000, last: 2000000, ratio: 2 }] };
   ctx.__FO4 = fo;
   const h = run("renderFocus(__FO4)");
-  const k = h.split('<div class="kpi').find((x) => x.includes("MTG の記録がどちらも無い")) || "";
-  ok(!/^ is-(warn|bad)/.test(k), "「MTG の記録がどちらも無い」の KPI に色が付いている（帯では灰）: " + k.slice(0, 30));
+  /* 2026-09-29 札の名前を「どちらにも見つからない」に変えた（藤巻さんの判断: MTG はしていて記録が欠けていると読む）。
+     札が見つからないと k が空で素通りするので、見つかることも確かめる */
+  const k = h.split('<div class="kpi').find((x) => x.includes("MTG の記録がどちらにも見つからない")) || "";
+  ok(k !== "", "「MTG の記録がどちらにも見つからない」の KPI が無い");
+  ok(!/^ is-(warn|bad)/.test(k), "「MTG の記録がどちらにも見つからない」の KPI に色が付いている（帯では灰）: " + k.slice(0, 30));
   ok(h.includes("今回（万円）") && h.includes("横軸は万円"), "採用単価の悪化の図で単位（万円）が分からない");
   ok(/\.kpi \.lbl\{[^}]*text-wrap:balance/.test(html), "KPI の見出しが最後の1文字だけ次の行に落ちうる（text-wrap:balance が無い）");
 });
@@ -3685,11 +3694,11 @@ check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全
   const all = run("renderToday(__TD5)");
   ok(/<select id="td-consultant"><option value="" selected>全員<\/option><option value="担当A">担当A<\/option><option value="担当B">担当B<\/option><option value="担当C">担当C<\/option><\/select>/.test(all),
     "担当の選択欄が候補の全員（rows の 2 名ではなく、候補・満了・新規の 3 名）でない");
-  ok(all.includes("今日動く先（2 件）") && all.includes("全 4 件のうち"), "未選択のときにサーバの上位 keep 件でない");
+  ok(all.includes("今日の案件（2 件）") && all.includes("全 4 件のうち"), "未選択のときにサーバの上位 keep 件でない");
   ok(!all.includes("候補3"), "未選択のときに候補の全件を出している");
   run("todayConsultant = '担当C';");
   const mine = run("renderToday(__TD5)");
-  ok(mine.includes("今日動く先（2 件）") && mine.includes("候補3") && mine.includes("候補4") && !mine.includes("候補1"),
+  ok(mine.includes("今日の案件（2 件）") && mine.includes("候補3") && mine.includes("候補4") && !mine.includes("候補1"),
     "担当で絞ると、その人の候補を全件（keep 件に切る前の candidates から）出していない");
   ok(!mine.includes("件のうち"), "担当で絞った表に「N 件のうち」（切っている顔）が残っている");
   ok(mine.includes('<option value="担当C" selected>'), "選んだ担当が欄で選ばれていない");
@@ -3702,7 +3711,7 @@ check("D-1a: 担当を選ぶと、その人の候補（名札2本以上）を全
   run("todayConsultant = '担当Z';");
   const none = run("renderToday(__TD5)");
   ok(none.includes('<option value="担当Z" selected>'), "覚えている担当が候補に無いときに欄から消えている");
-  ok(none.includes("この担当には名札が2本以上ついた案件がありません") && none.includes("今日動く先（0 件）"), "0 件の理由が無い");
+  ok(none.includes("この担当には名札が2本以上ついた案件がありません") && none.includes("今日の案件（0 件）"), "0 件の理由が無い");
   // 古い応答（candidates が無い）でも rows から絞れる
   const old = todayFixture(); delete old.candidates; ctx.__TD6 = old;
   run("todayConsultant = '担当A';");
@@ -3765,7 +3774,7 @@ check("D-1a の検証: 担当の選択欄の顔ぶれは選んだ担当で変わ
   ok(opts(b) === ",担当A,担当B,担当C,担当D,担当E", "consultants の顔ぶれになっていない: " + opts(b));
   run("todayConsultant = '担当E';");
   const e = run("renderToday(__TD7)");
-  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には名札が2本以上ついた案件がありません") && e.includes("今日動く先（0 件）"),
+  ok(e.includes('<option value="担当E" selected>') && e.includes("この担当には名札が2本以上ついた案件がありません") && e.includes("今日の案件（0 件）"),
     "候補 0 件の担当を選んだときに、選ばれた状態と 0 件の理由が無い");
   run("todayConsultant = '';");
 });
@@ -4835,7 +4844,7 @@ check("段2 S-2 の残り: 担当者の一覧・いま見るべき顧客・電�
   const fo = run("renderFocus(__FO)");
   const fj = jumps(fo);
   ok(JSON.stringify(fj) === JSON.stringify([["定期NPS が 4 以下", "fc-nps-tbl-h"], ["採用単価が悪化した拠点", "fc-cpa-h"],
-    ["MTG の記録がどちらも無い", "fc-mtg-h"], ["LTV 中央値", "fc-shape-h"]]), "いま見るべき顧客の札の行き先が違う: " + JSON.stringify(fj));
+    ["MTG の記録がどちらにも見つからない", "fc-mtg-h"], ["LTV 中央値", "fc-shape-h"]]), "いま見るべき顧客の札の行き先が違う: " + JSON.stringify(fj));
   fj.forEach(([, id]) => ok(hasId(fo, id), "いま見るべき顧客: 飛ぶ先 " + id + " が本文に無い"));
   ok(/<div class="kpi"><span class="lbl">NPS が入っている/.test(fo), "行き先の無い札（NPS が入っている）を button にしている");
   const ph = run("renderPhone(__PH)");
@@ -5233,6 +5242,10 @@ check("段B 満了と継続: ステージは件数だけ（確度を掛けない
   const rows = [...st.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map((c) => textOf(c[1]).trim()));
   ok(rows.length === 1 + 2, "ステージの表の行が 見出し＋2 ステージ でない（計を表の行に入れると枠の案内が 1 行多く数える）: " + rows.length);
   ok(JSON.stringify(rows[1]) === JSON.stringify(["求人出稿完了", "5", "29", "45", "79"]), "ステージの件数が月ごとに並んでいない: " + rows[1]);
+  /* 2026-09-30 並びは HubSpot のステージの並び（工程順。サーバの stages の順。tests.rs renewal_pipe_stages_in_pipeline_order）。
+     画面で件数順などに並べ替えず、並びの決まりを書く */
+  ok(JSON.stringify(rows.slice(1).map((r) => r[0])) === JSON.stringify(ctx.__RP.stages), "ステージの表がサーバの並び（工程順）のままでない: " + rows.slice(1).map((r) => r[0]));
+  ok(textOf(h).includes("並びは HubSpot のステージの並び（工程の順）です。件数の多い順ではありません。"), "ステージの表の並びの決まりを書いていない");
   /* 🔴 2026-09-29 検証: 計の行が tbody にあり、枠の案内が「全 19 行」（ステージは 18 種）と出ていた。案内はステージの数と同じ */
   const sti = h.indexOf('id="rp-stage"');
   const cap = textOf(h.slice(h.indexOf('<div class="scroll-cap">', sti), h.indexOf('<table id="rp-stage-tbl"')));
@@ -5314,6 +5327,77 @@ check("段B 成果と継続: 金額の札（稼働中・今月〜再来月に満
     "金額の継続率が件数の札と同じ月（2026-09）・満了した金額の内訳つきでない: " + tk);
   ok(!/見込み/.test(tk), "札に見込み（確度を掛けた金額に読める）と書いている");
   ok(!/<button[^>]*class="kpi[^>]*>(?:(?!<\/button>)[\s\S])*<a /.test(k), "button.kpi の中に a がある");
+});
+
+/* 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。MTG の記録が無い案件は「していない」ではなく
+   「記録が欠けている」と読む。画面が自分で書く文（行の最後の MTG・立ち上がりの末尾・いま見るべき顧客の札と図）を
+   「見つからない」にそろえ、「MTG をしていない」と読める「記録なし」「記録がまだ無い」「どちらも無い」を残さない
+   （サーバの文は tests.rs mtg_no_record_reads_as_missing_record_not_as_not_held が見る） */
+check("MTG の記録が無い案件を「していない」と読ませない（見つからない・欠ける理由の候補）", () => {
+  const c = run('mtgCell({ mtg_band: "no_record", mtg_days: null })');
+  ok(c.includes("記録が見つからない") && !c.includes("記録なし"), "行の最後の MTG が「記録なし」のまま: " + c);
+  ctx.__RUw = { meta: {}, phase: { rows: [], rule: "" },
+    first_mtg: { n: 0, pre_contract: 0, stats: null, buckets: [] },
+    no_mtg: { n: 104, first_active: 254, rate: 40.9, note: "", rows: [] } };
+  const t = textOf(run("renderRampup(__RUw)"));
+  /* 🔴 2026-09-30 検証: 前の表の名前まで「まだ見つからない」に書き換えていて、画面に一度も出ていない名前を「前の表」と書いていた。
+     前の表の名前は当時のまま（「MTG の記録がまだ無い初回契約」）残し、当時の名前だと断る。旧名を除いた残りの文で、
+     「記録がまだ無い」を残さないことを同じように確かめる（検査は緩めない） */
+  const OLD_RU = "前の表「MTG の記録がまだ無い初回契約」（当時の名前のまま）104 件";
+  ok(t.includes(OLD_RU), "立ち上がりの末尾で、前の表の名前が当時のままでない: " + t.slice(-400));
+  ok(!t.replace(OLD_RU, "").includes("記録がまだ無い"), "立ち上がりの末尾の文: " + t.slice(-400));
+  ok(t.includes("記録が欠けている") && t.includes("台帳") && t.includes("録画なし") && t.includes("紐づいていない"),
+    "立ち上がりの末尾に、記録が欠ける理由の候補が無い: " + t.slice(-400));
+  const fo = JSON.parse(JSON.stringify(ctx.__FO));
+  fo.mtg_layers.neither = 115;
+  ctx.__FOw = fo;
+  const f = textOf(run("renderFocus(__FOw)"));
+  ok(f.includes("MTG の記録がどちらにも見つからない") && f.includes("どちらにも見つからない"), "いま見るべき顧客の札・図の区分");
+  ok(!/どちらも無い/.test(f), "いま見るべき顧客に「どちらも無い」が残っている");
+});
+
+/* 2026-09-29 画面の組み替え（11画面・3区切り）の後も、画面の文に前の名前「今日動く先」「案件そのもの」「案件の立ち位置」が残っていた
+   （チームと担当の札・表の案内・数の行き先の title、今日の表の見出し、案件の詳細の担当のリンク）。左のメニューに無い名前を案内しない。
+   関数名・内部キー・コメントは変えない（画面に出る JS の文字列だけを見る。サーバの文は tests.rs old_screen_names_not_in_server_text） */
+check("前の画面名（今日動く先・案件そのもの・案件の立ち位置）を画面の文に出さない。今のメニュー名（今日・案件一覧）で書く", () => {
+  const lits = jsNoComment.match(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g) || [];
+  ["今日動く先", "案件そのもの", "案件の立ち位置"].forEach((w) => {
+    const hit = lits.filter((x) => x.includes(w));
+    ok(hit.length === 0, "画面に出る文字列に「" + w + "」が残っている: " + hit.slice(0, 3).join(" ／ "));
+  });
+  const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "", mtg_gap: {} } })');
+  ok(/<span class="no">表<\/span>今日の案件（0 件）/.test(td), "今日の表の見出しが今のメニュー名（今日）に合っていない");
+});
+
+/* 🔴 2026-09-30 検証: 見方「初回契約で MTG の記録が見つからない」の表で、同じ行の「最後の MTG」は「記録が見つからない」なのに、
+   隣の「最後の接触」だけ「記録なし」で、接触していないと読めた（fixture の先頭 12 行のうち 5 行）。接触は MTG か60秒超の通話なので、
+   MTG の記録が欠ければ接触の記録も同じ理由で欠けうる。いま見るべき顧客の NPS の表の「接触の記録」も同じ。
+   案件の詳細の「最後の接触」「最後の MTG」も「記録がありません」と言い切っていた。
+   名札「接触の記録が無い」は残す（URL の絞り込みの値で、継続の期間は本当に接触していないこともある拾いたい印） */
+check("接触・MTG の記録が無い行を「していない」と読ませない（最後の接触・NPS の表・案件の詳細）", () => {
+  const tc = run("touchCell({ n_contact: 0 })");
+  ok(tc.includes("記録が見つからない") && !tc.includes("記録なし"), "最後の接触が「記録なし」のまま: " + tc);
+  const np = run('focusNpsTable({ rows: [{ deal_id: "1", name: "a", stage: "s", nps: 3, nps_month: "2026-08", amount: 1, days_to_expiry: 10, no_contact_record: true, n_contact: 0 }] })');
+  ok(textOf(np).includes("記録が見つからない") && !textOf(np).includes("記録なし"), "NPS の表の接触の記録が「記録なし」のまま");
+  const dn = textOf(run('detailNext({ deal: { stage: "s", start: "2026-01-01", expiration: "2026-12-31", amount: 1, flags: [] }, events: [], meta: { today: "2026-09-18" } })'));
+  ok(!dn.includes("記録がありません"), "案件の詳細が「記録がありません」と言い切っている: " + dn.slice(0, 300));
+  ok(dn.includes("接触の記録が見つかりません（接触していないとは限りません）"), "案件の詳細の最後の接触: " + dn.slice(0, 300));
+  ok(dn.includes("MTG の記録が見つかりません（MTG をしていないとは限りません") &&
+    dn.includes("台帳") && dn.includes("録画なし") && dn.includes("紐づいていない"), "案件の詳細の最後の MTG に、欠ける理由の候補が無い: " + dn.slice(0, 400));
+});
+
+/* 🔴 2026-09-30 検証: 前の画面名の見張りが3語だけで、旧画面の「担当者ごとの接触」「担当者の一覧」（09 の 4章の 6 と 9。いまは
+   チームと担当の中）が、今日の本人の接触の文に「前の」を付けずに残っていた。「前の担当者の一覧」と断ったもの（定義の名前の
+   読み替え）と、teamRateName がサーバの文を読み替えるための照合の文字列と、旧ハッシュの転送表（LEGACY の was。
+   「画面を組み替える前の「…」のものです」と前の名前として出す）は除く */
+check("前の画面名（担当者ごとの接触・担当者の一覧）を、前のものと断らずに画面の文に出さない", () => {
+  const lits = jsNoComment.match(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g) || [];
+  const was = new Set(run("Object.values(LEGACY).map((x) => x.was)").map((x) => JSON.stringify(x)));
+  ok(was.has('"担当者ごとの接触"') && was.has('"担当者の一覧"'), "旧ハッシュの転送表に前の画面名が無い（除く前提が崩れた）");
+  ["担当者ごとの接触", "担当者の一覧"].forEach((w) => {
+    const hit = lits.filter((x) => x !== '"担当者の一覧の接触率"' && !was.has(x) && x.split("前の" + w).join("").includes(w));
+    ok(hit.length === 0, "画面に出る文字列に「" + w + "」が残っている: " + hit.slice(0, 3).join(" ／ "));
+  });
 });
 
 Promise.all(pendingChecks).then(() => {
