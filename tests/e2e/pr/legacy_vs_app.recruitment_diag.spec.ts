@@ -77,7 +77,13 @@ interface Snapshot {
   trendChartPresent: boolean;
   opportunity: { seriesLength: number; scoresSorted: number[] };
   /** 分母の出典・単位の注記 (旧 == 新 == 既知の固定文)。 */
-  sources: { difficultyDenominator: string; opportunityDenominator: string; opportunityFormula: string };
+  sources: {
+    difficultyDenominator: string;
+    opportunityDenominator: string;
+    opportunityFormula: string;
+    difficultyThreshold: string;
+    opportunityThreshold: string;
+  };
   /** 各行に 示唆 ID / 見出し / 本文 / アクションが全部含まれるか (順番どおり)。 */
   insights: { count: number; ids: string[] };
   expansion: {
@@ -150,10 +156,15 @@ function expectedSnapshot(): Snapshot {
       scoresSorted: RD.opportunity.municipalities.map((m) => m.score).sort((a, b) => a - b),
     },
     sources: {
-      // 観光地補正なし (昼夜比 1.28 <= 1.5) なので平日昼の滞在人口
+      // 観光地補正なし (昼夜比 1.28 <= 1.5) なので平日昼の滞在人口。
+      // 観光地 (昼夜比 > 1.5) 側の文は E2E では比べない: fixture に観光地の市区町村を足すと
+      // 全国比・Panel 1 の既知値 (件数・人口・score) が動くため。文言は vitest (panels.test.tsx) で固定している。
       difficultyDenominator: '※ 分母: Agoop 人流データ 平日昼の滞在人口 (月平均)',
       opportunityDenominator:
-        '※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)。区分のしきい値・分母は Panel 1 と異なります。',
+        '※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)',
+      // Panel 1 と Panel 7 で同じ文言 (しきい値は handlers.rs classify_difficulty と opportunity_map.rs の定数)
+      difficultyThreshold: RD.thresholdNote,
+      opportunityThreshold: RD.thresholdNote,
       opportunityFormula:
         '※ スコア = HW求人数 ÷ 昼間人口 × 10,000（人口1万人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。',
     },
@@ -184,7 +195,9 @@ async function fillOwn(locator: Locator, value: string): Promise<void> {
 
 // ---------- 旧画面 ----------
 
-async function runLegacy(page: Page): Promise<void> {
+type OwnInput = { salaryMan: number; holidays: number; bonus: number };
+
+async function runLegacy(page: Page, own: OwnInput = RD.own): Promise<void> {
   await login(page);
   await page.goto('/?tab=' + encodeURIComponent('/tab/recruitment_diag'));
   await expect(page.locator('#rd-run-btn')).toBeVisible();
@@ -194,9 +207,9 @@ async function runLegacy(page: Page): Promise<void> {
   // 市区町村は都道府県の選択後に /api/municipalities_cascade から非同期で入る
   await expect(page.locator('#rd-city option', { hasText: RD.city })).toHaveCount(1);
   await page.selectOption('#rd-city', { label: RD.city });
-  await fillOwn(page.locator('#rd-own-salary'), String(RD.own.salaryMan));
-  await fillOwn(page.locator('#rd-own-holidays'), String(RD.own.holidays));
-  await fillOwn(page.locator('#rd-own-bonus'), String(RD.own.bonus));
+  await fillOwn(page.locator('#rd-own-salary'), String(own.salaryMan));
+  await fillOwn(page.locator('#rd-own-holidays'), String(own.holidays));
+  await fillOwn(page.locator('#rd-own-bonus'), String(own.bonus));
   await page.click('#rd-run-btn');
   // 固定 sleep ではなく、全パネルの状態文言が「待機中」「取得中...」から落ち着くのを待つ
   for (const name of PANELS) {
@@ -236,6 +249,8 @@ async function readLegacy(page: Page): Promise<Snapshot> {
       difficultyDenominator: t(body('difficulty').querySelector('[data-testid="rd-difficulty-denominator-source"]')),
       opportunityDenominator: t(body('opportunity_map').querySelector('[data-testid="rd-opportunity_map-denominator-source"]')),
       opportunityFormula: t(body('opportunity_map').querySelector('p')),
+      difficultyThreshold: t(body('difficulty').querySelector('[data-testid="rd-difficulty-threshold-note"]')),
+      opportunityThreshold: t(body('opportunity_map').querySelector('[data-testid="rd-opportunity_map-threshold-note"]')),
     };
     // Panel 2: 4 つのカードの .text-xl (昼 / 夜 / 差分 / 昼夜比)
     const talentPool = Array.from(body('talent_pool').querySelectorAll('.grid > div .text-xl')).map((e) => t(e));
@@ -369,7 +384,7 @@ async function readAppGaps(page: Page): Promise<string[][]> {
 const tid = (page: Page, id: string) => page.getByTestId(id);
 const tidText = async (page: Page, id: string): Promise<string> => collapse(await tid(page, id).textContent());
 
-async function runApp(page: Page): Promise<void> {
+async function runApp(page: Page, own: OwnInput = RD.own): Promise<void> {
   await login(page);
   await page.goto('/app/recruitment-diag');
   await expect(tid(page, 'rd-run')).toBeVisible();
@@ -378,9 +393,9 @@ async function runApp(page: Page): Promise<void> {
   await tid(page, 'rd-form-pref').selectOption({ label: RD.pref });
   await expect(tid(page, 'rd-form-city').locator('option', { hasText: RD.city })).toHaveCount(1);
   await tid(page, 'rd-form-city').selectOption({ label: RD.city });
-  await fillOwn(tid(page, 'rd-form-own-salary'), String(RD.own.salaryMan));
-  await fillOwn(tid(page, 'rd-form-own-holidays'), String(RD.own.holidays));
-  await fillOwn(tid(page, 'rd-form-own-bonus'), String(RD.own.bonus));
+  await fillOwn(tid(page, 'rd-form-own-salary'), String(own.salaryMan));
+  await fillOwn(tid(page, 'rd-form-own-holidays'), String(own.holidays));
+  await fillOwn(tid(page, 'rd-form-own-bonus'), String(own.bonus));
   await tid(page, 'rd-run').click();
   for (const name of PANELS) {
     await expect(tid(page, `rd-panel-${name}`)).toHaveAttribute('data-status', /^(done|error)$/);
@@ -492,6 +507,8 @@ async function readApp(page: Page): Promise<Snapshot> {
       difficultyDenominator: await T('rd-difficulty-denominator-source'),
       opportunityDenominator: await T('rd-opportunity_map-denominator-source'),
       opportunityFormula: collapse(await tid(page, 'rd-panel-opportunity_map').locator('p').first().textContent()),
+      difficultyThreshold: await T('rd-difficulty-threshold-note'),
+      opportunityThreshold: await T('rd-opportunity_map-threshold-note'),
     },
     insights: { count: insightCount, ids: insightIds },
     expansion: {
@@ -638,6 +655,36 @@ test.describe('採用診断: 旧画面と新画面の値一致', () => {
     expect(app.competitorsErrorShown).toBe(true);
     expect(app.marketTrendErrorShown).toBe(true);
     expect(app.trendChartPresent).toBe(false);
+  });
+});
+
+test.describe('採用診断: 自社条件を 0 で入力したとき', () => {
+  // 0 は「入力値 0」。未入力 (null) とは区別され、旧新とも差と文を出す。
+  // 手計算: 業界・全業界の中央値は 年収 3,500,000 / 年休 120 / 賞与 2.0 (make_fixture_db.py の docstring)。
+  // 自社 月給 0 → 推定年収 0 x (12 + 0) = 0 なので 年収差 -3,500,000 (-100.0%)、年休差 -120、賞与差 -2.0。
+  const ZERO: OwnInput = { salaryMan: 0, holidays: 0, bonus: 0 };
+
+  test('旧画面 == 新画面 == 既知値 (差と文)', async ({ page, browser }) => {
+    await runLegacy(page, ZERO);
+    const legacyGaps = await readLegacyGaps(page);
+    const legacyText = (
+      await page.locator('section[data-panel="condition_gap"] .rd-panel-body .border-blue-500').textContent()
+    )
+      ?.replace(/\s+/g, ' ')
+      .replace(/^\s*📝\s*/, '')
+      .trim();
+    const app = await withAppPage(browser, async (appPage) => {
+      await runApp(appPage, ZERO);
+      return {
+        gaps: await readAppGaps(appPage),
+        text: (await tidText(appPage, 'rd-condition_gap-interpretation')).replace(/^📝\s*/, ''),
+      };
+    });
+    const known = RD.conditionGapZero;
+    expect(legacyGaps).toEqual([known.gaps, known.gaps]);
+    expect(legacyText).toBe(known.interpretation);
+    expect(app.gaps).toEqual([known.gaps, known.gaps]);
+    expect(app.text).toBe(known.interpretation);
   });
 });
 
