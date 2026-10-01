@@ -94,7 +94,10 @@ mod tests {
         assert_eq!(urls.len(), RecordType::ALL.len());
         for r in RecordType::ALL {
             let url = record_url("1", r, "7");
-            assert!(url.contains(&format!("/record/{}/7/", r.type_id())), "{url}");
+            assert!(
+                url.contains(&format!("/record/{}/7/", r.type_id())),
+                "{url}"
+            );
         }
     }
 }
