@@ -17,7 +17,7 @@ test.describe('smoke', () => {
     await expect(header).toBeVisible();
     // templates/dashboard_inline.html のトップ段 (キーワード需要/求人票作成は env 依存なので対象外)
     const nav = page.locator('nav[aria-label="ダッシュボードタブ"]');
-    await expect(nav.locator('.tab-btn, .tab-btn-group')).toHaveText(['媒体分析', '調べる ▾', '営業KPI', 'コンサルKPI']);
+    await expect(nav.locator('.tab-btn, .tab-btn-group')).toHaveText(['媒体分析', '競合調査', '調べる ▾', '営業KPI', 'コンサルKPI']);
     // 「調べる」配下 (初期は非表示だが DOM にある)
     const sub = page.locator('#explore-subnav .tab-btn');
     await expect(sub).toHaveText(['地図', '地域分析', '企業検索', '職種辞典', '資格辞書', '採用市場']);

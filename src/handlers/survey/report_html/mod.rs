@@ -39,6 +39,7 @@ pub const SURVEY_FORBIDDEN_WORDS: [&str; 6] = [
     "間違いなく",
     "絶対に",
 ];
+pub(crate) use navy_report::render_competitor_report;
 // 2026-07-17: 解説資料 (?variant=guide) を handlers.rs から呼ぶための再公開。
 pub(crate) use navy_report::render_survey_guide_page;
 pub(crate) use navy_report::{
@@ -337,9 +338,8 @@ impl ReportVariant {
 /// 全セクションを出力する。この経路の出力は 1 バイトも変わらないこと。
 ///
 /// # コード体系
-/// 任意選択できるのは以下の 11 コード (掲載順):
-/// `"02","03","04","05","06","07","075","076","077","09","10"`。
-/// (`"077"` = 競合調査 §05B、2026-09-29 追加)
+/// 任意選択できるのは以下の 10 コード (掲載順):
+/// `"02","03","04","05","06","07","075","076","09","10"`。
 /// 表紙 / 目次 / 01 (Executive Summary) / 08 (注記・出典) は常時表示 (選択不可)。
 /// 不明なコードは無視する。空文字列は None (未指定) 扱い。
 #[derive(Debug, Clone)]
@@ -354,9 +354,8 @@ pub struct SectionSet {
 impl SectionSet {
     /// 任意選択できるセクションコード一覧 (掲載順)。
     /// UI のチェックボックス生成・TOC 掲載順の SSoT。
-    pub const OPTIONAL_CODES: &'static [&'static str] = &[
-        "02", "03", "04", "05", "06", "07", "075", "076", "077", "09", "10",
-    ];
+    pub const OPTIONAL_CODES: &'static [&'static str] =
+        &["02", "03", "04", "05", "06", "07", "075", "076", "09", "10"];
 
     /// クエリ文字列と variant から SectionSet を構築。
     ///
@@ -1128,11 +1127,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     if cfg.section_set.shows("076") {
         navy_report::render_navy_section_popularity(&mut html, cfg.agg);
     }
-    // 2026-09-29: 競合調査 (§05B)。CSV (Indeed 掲載求人) のみで作る章で HW を使わないため、
-    //   075/076 と同じく全 variant で出す。Indeed 由来 0 件なら関数内でスキップ。
-    if cfg.section_set.shows("077") {
-        navy_report::render_navy_section_competitor(&mut html, cfg.agg, cfg.top_n);
-    }
+    // 競合調査は /competitor で選ぶ独立機能。媒体分析には自動追加しない。
     if cfg.section_set.shows("06") {
         if cfg.variant.show_sp_sections() {
             navy_report::render_sp_conclusion_band(&mut html, "06", cfg.agg, cfg.hw_context);

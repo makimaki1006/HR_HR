@@ -59,6 +59,7 @@ COPY src/ src/
 COPY templates/ templates/
 # include_str! で driver/data.rs が wage_census → 国勢調査中分類のマッピングを参照
 COPY data/wage_census_to_occupation_middle_map.json data/wage_census_to_occupation_middle_map.json
+COPY data/minimum_wage_rates.csv data/minimum_wage_rates.csv
 # include_str! で media_engine/handlers.rs がキーワード需要ビューアの UI を埋め込む
 COPY static/keywords.html static/keywords.html
 # include_str! で job_gen が求人票生成 UI と知識データ (NGワード/職種知識) を埋め込む
@@ -68,6 +69,9 @@ COPY static/jobgen_applicant_journey_beta.html static/jobgen_applicant_journey_b
 COPY assets/ assets/
 # include_str! で採用提案の試作モックページを埋め込む
 COPY static/proposal_mock.html static/proposal_mock.html
+# include_str! で競合調査ダッシュボードのCSS・タブ操作を埋め込む
+COPY static/css/competitor-dashboard.css static/css/competitor-dashboard.css
+COPY static/js/competitor-tabs.js static/js/competitor-tabs.js
 
 # touch は上の cargo clean と同じ目的の二重の保険。COPY はコンテキスト側の mtime を
 # そのまま持ち込むため、キャッシュ層のビルド時刻より古いソースが来ることがある。

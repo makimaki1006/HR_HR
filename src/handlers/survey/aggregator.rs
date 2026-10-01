@@ -397,6 +397,9 @@ pub struct CompetitorAnalysis {
     pub pop_all: BoundStats,
     /// Indeed (SP) 由来のうち「人気」または「超人気」タグ付きの下限・上限統計
     pub pop_popular: BoundStats,
+    /// 実額の最頻値。同数の場合は低い金額を採用する。
+    #[serde(default)]
+    pub salary_modes: [Option<i64>; 4],
 }
 
 /// tags_raw をタグに分解する (by_tags / 競合調査章で共通)。
@@ -496,6 +499,22 @@ fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAn
         pop_is_hourly: is_hourly,
         pop_all: BoundStats::from_values(&all_min, &all_max),
         pop_popular: BoundStats::from_values(&pop_min, &pop_max),
+        salary_modes: [&all_min, &all_max, &pop_min, &pop_max].map(|values| {
+            let mut counts = std::collections::BTreeMap::new();
+            for value in values {
+                *counts.entry(*value).or_insert(0usize) += 1;
+            }
+            counts
+                .into_iter()
+                .fold(None, |best: Option<(i64, usize)>, item| {
+                    if best.is_none_or(|(_, count)| item.1 > count) {
+                        Some(item)
+                    } else {
+                        best
+                    }
+                })
+                .map(|(value, _)| value)
+        }),
     }
 }
 

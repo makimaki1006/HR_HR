@@ -140,9 +140,13 @@ pub(crate) fn fetch_living_cost_proxy(
         "SELECT municipality_code, prefecture, municipality_name, \
                 basis, cost_index, min_wage, land_price_proxy, salary_real_terms_proxy, \
                 data_label, source_name, source_year, weight_source, estimated_at \
-         FROM municipality_living_cost_proxy \
-         WHERE municipality_code IN ({placeholders}) \
-         ORDER BY municipality_code"
+         FROM municipality_living_cost_proxy AS cost \
+         WHERE cost.municipality_code IN ({placeholders}) \
+           AND cost.source_year = (SELECT MAX(latest.source_year) \
+               FROM municipality_living_cost_proxy AS latest \
+               WHERE latest.municipality_code = cost.municipality_code \
+                 AND latest.basis = cost.basis) \
+         ORDER BY cost.municipality_code"
     );
 
     let params: Vec<String> = municipality_codes.iter().map(|s| s.to_string()).collect();
@@ -2130,6 +2134,20 @@ mod tests {
         assert_eq!(dto.salary_real_terms_proxy, None);
         assert_eq!(dto.weight_source, None);
         assert_eq!(dto.source_year, Some(2024));
+        db.execute(
+            "INSERT INTO municipality_living_cost_proxy \
+             (municipality_code, prefecture, municipality_name, basis, cost_index, min_wage, \
+              data_label, source_name, source_year) \
+             VALUES ('01101', '北海道', '札幌市', 'reference', 98.5, 1131, \
+                     'reference', 'official_as_of_2026-10-01', 2026)",
+            &[],
+        )
+        .unwrap();
+        let latest = fetch_living_cost_proxy(&db, None, &["01101"]);
+        assert_eq!(latest.len(), 1, "履歴がある場合も最新年度を1行だけ取得");
+        let latest = LivingCostProxy::from_row(&latest[0]);
+        assert_eq!(latest.source_year, Some(2026));
+        assert_eq!(latest.min_wage, Some(1131));
         // 不変条件
         assert!(dto.is_data_label_in_set());
         assert!(dto.is_cost_index_realistic());

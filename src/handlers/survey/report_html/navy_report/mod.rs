@@ -13,6 +13,9 @@
 
 #![allow(dead_code)]
 
+mod competitor_report;
+pub(crate) use competitor_report::render_competitor_report;
+
 // A1 Commit 1 (γ Common Team, 2026-05-29): navy_report 横断 helper を common.rs に集約。
 //   抽出: SKEW 判定 / 給与分布統計 / フォーマッタ / SVG 描画 / 数値防衛 / HTML helper
 //   `pub(super) use common::*;` により mod.rs 内・test mod (`use super::*;`)
@@ -159,7 +162,7 @@ pub(super) use section_07_6_popularity::render_navy_section_popularity;
 // タグ全体の出現数 / 検索上位 N 件のタグ / 人気求人 vs 全体 (下限・上限別)。
 // Indeed 由来の求人が 0 件ならセクションごとスキップ。
 pub(super) mod section_05b_competitor;
-pub(crate) use section_05b_competitor::{parse_top_n, render_navy_section_competitor};
+pub(crate) use section_05b_competitor::parse_top_n;
 
 // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を独立モジュールに追加。
 // MarketIntelligence variant のときだけ 6 サブセクションを追加表示する。
