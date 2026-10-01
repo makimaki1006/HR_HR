@@ -2454,6 +2454,10 @@ fn ts型の宣言は画面が読む形になっている() {
 }
 
 /// `/api/sales-kpi/data` を fixture 経路（`SALES_KPI_FIXTURE_DIR`）で叩く。
+/// fixture の環境変数はプロセス全体で共有されるので、触るテストはこのロックで直列にする
+/// (並列実行だと片方の remove_var がもう片方の set_var を消し、たまに落ちていた)。
+static FIXTURE_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Sheets が無くても 200 の JSON になり、中身はスナップショットと同じバイト列。
 /// 旧画面 `/sales-kpi` と React 画面 `/app/sales-kpi` はどちらもこの JSON を読む。
 #[tokio::test]
@@ -2462,6 +2466,7 @@ async fn fixture経路でapiがスナップショットと同じjsonを返す() 
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
 
+    let _env = FIXTURE_ENV_LOCK.lock().await;
     std::env::set_var(super::fixture::ENV_DIR, fixture_dir());
     std::env::set_var(super::fixture::ENV_TODAY, "2026-09-04");
     let app: axum::Router = super::routes::router().with_state(test_state());
@@ -2500,6 +2505,7 @@ async fn fixture経路でapiがスナップショットと同じjsonを返す() 
 /// ここでは「落ちずに JSON が返る」ことだけを見る。
 #[test]
 fn fixtureの判定日は環境変数が無ければ読めない() {
+    let _env = FIXTURE_ENV_LOCK.blocking_lock();
     std::env::remove_var(super::fixture::ENV_TODAY);
     assert!(super::fixture::today_from_env().is_none());
     std::env::set_var(super::fixture::ENV_TODAY, "2026-09-04");
