@@ -6094,6 +6094,19 @@ function boardFilterWords(D) {
    🔴 選ぶ前の画面には件数の表しか無いのに、名札・満了まで・案件名の欄と
       「604 件中 604 件を表示（絞り込みなし）」が出ていて、担当を選ぶ前から
       表を絞り込めるように見えていた（2026-09-23 実機） */
+/* 契約総額の選択肢（件数つき）。「すべて（N）」の N と帯の件数は、契約総額以外の絞り込みを掛けた中の件数（boardRowsButAmount）。
+   🔴 担当・名札・満了まで・案件名を変えても欄（#board-filter）は作り直されない（boardRepaint は #board-body だけ描く）ので、
+   件数を欄を描くときだけ数えると、担当を選んでも括弧の件数が選ぶ前のまま残り、title の「絞り込みを掛けた中の件数」と食い違った
+   （2026-10-01 再検証）。boardRepaint からも呼んで、選択肢だけ入れ替える（欄ごと作り直すと検索欄のフォーカスと IME の窓が飛ぶ） */
+function boardAmountOptions(D) {
+  const amtBase = boardRowsButAmount(D.rows);
+  const amtN = {};
+  for (const r of amtBase) for (const b of AMOUNT_BANDS) if (b.hit(amountOf(r))) amtN[b.k] = (amtN[b.k] || 0) + 1;
+  const cur = boardFilter.amount || "";
+  const opt = (v, t) => '<option value="' + esc(v) + '"' + (cur === v ? " selected" : "") + ">" + esc(t) + "</option>";
+  return opt("", "すべて（" + num(amtBase.length) + "）") +
+    AMOUNT_BANDS.map((b) => opt(b.k, b.t + "（" + num(amtN[b.k] || 0) + "）")).join("");
+}
 function boardFilterBar(D, onlyOwner) {
   const names = Array.from(new Set(D.rows.map((r) => r.consultant).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b, "ja"));
@@ -6123,12 +6136,8 @@ function boardFilterBar(D, onlyOwner) {
      欄の名前に「契約総額」と書く（月額と読ませない。月額は CS_取引の別の列） */
   /* 件数は、契約総額の帯を外したほかの絞り込み（担当・名札など）の中で数える（boardRowsButAmount）。「すべて（N）」の N が
      その母数で、帯の件数と「金額が空」を足すと N になる（名札の件数は今までどおり全社の件数で、欄の title に書く） */
-  const amtBase = boardRowsButAmount(D.rows);
-  const amtN = {};
-  for (const r of amtBase) for (const b of AMOUNT_BANDS) if (b.hit(amountOf(r))) amtN[b.k] = (amtN[b.k] || 0) + 1;
   h += '<label class="act" title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・名札など）を掛けた中の件数です">契約総額 <select id="bf-amount">' +
-    opt("", "すべて（" + num(amtBase.length) + "）", boardFilter.amount || "") +
-    AMOUNT_BANDS.map((b) => opt(b.k, b.t + "（" + num(amtN[b.k] || 0) + "）", boardFilter.amount || "")).join("") + "</select></label>";
+    boardAmountOptions(D) + "</select></label>";
   /* 幅は CSS の min-width / max-width で決める。ここに px を書かない */
   h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
     'value="' + esc(boardFilter.q) + '"></label>';
@@ -6313,6 +6322,13 @@ function boardRepaint() {
   if (!box || !boardCache || (cur.view === "byowner" && !boardFilter.consultant)) { redrawMain(boardCache); return; }
   const fk = focusKey(document.activeElement);
   const D = boardCache, shown = boardApply(D.rows);
+  /* 契約総額の選択肢の件数を、いまの絞り込みで数え直す。選択肢の中身が変わるときだけ入れ替える
+     （自分の欄を変えたときは件数が変わらない＝触らない。開いている選択欄を壊さない） */
+  const amtSel = document.getElementById("bf-amount");
+  if (amtSel) {
+    const html = boardAmountOptions(D);
+    if (amtSel.innerHTML !== html) amtSel.innerHTML = html;
+  }
   paintFigs(box, () => boardBody(D, shown, boardFilterOn()));   /* 名札の図の幅を枠に合わせる（2回描き。表は覚え書きで 1 回） */
   wireBoardBody();
   markScrollAll();

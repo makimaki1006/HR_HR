@@ -5405,6 +5405,21 @@ check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの�
     // 契約総額で絞っていても、件数は契約総額を外して数える（選んだ帯以外の件数も見える）
     const b3 = run("boardFilterBar(__BA)");
     ok(b3.includes(">すべて（4）<") && b3.includes(">200万円以上（1）<"), "契約総額で絞った後に、ほかの帯の件数が 0 になっている");
+    // 🔴 2026-10-01 再検証: 上は欄を描き直す（boardFilterBar を直接呼ぶ）形だけを見ていた。画面で担当・名札などを変えると
+    //    boardRepaint が #board-body だけ描き直し、欄は作り直されないので、括弧の件数が選ぶ前のまま残っていた。
+    //    担当を変えて boardRepaint を通したあとの #bf-amount の選択肢が、その担当の中の件数になっていることを見る
+    run(reset + ' cur = { menu: "deal", view: "board" }; boardCache = __BA;');
+    els["board-body"] = fakeEl();
+    els["bf-amount"] = fakeEl();
+    run('boardFilter.consultant = "田中"; boardRepaint();');
+    const sel1 = els["bf-amount"].innerHTML;
+    ok(sel1.includes(">すべて（2）<") && sel1.includes(">50万円未満（1）<") && sel1.includes(">金額が空（0）<"),
+      "担当を変えて boardRepaint を通しても、契約総額の件数が数え直されない: " + sel1);
+    run('boardFilter.consultant = "佐藤"; boardRepaint();');
+    ok(els["bf-amount"].innerHTML.includes(">すべて（4）<") && els["bf-amount"].innerHTML.includes(">金額が空（2）<"),
+      "担当を佐藤に変えたあとの契約総額の件数が違う: " + els["bf-amount"].innerHTML);
+    run('boardFilter.amount = "lt50"; boardRepaint();');
+    ok(els["bf-amount"].innerHTML.includes('<option value="lt50" selected>'), "契約総額を選んだあとに選択が外れる");
   } finally {
     run(reset + ' cur = { menu: "deal", view: "today" };');
   }
