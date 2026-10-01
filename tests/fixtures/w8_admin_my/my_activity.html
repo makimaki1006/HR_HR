@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>自分の履歴</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{background:#0f172a;color:#e2e8f0;font-family:ui-sans-serif,system-ui;}</style>
+</head>
+<body class="min-h-screen p-6">
+<nav class="mb-6 flex items-center gap-4 text-sm">
+  <a href="/" class="text-slate-400 hover:text-white">← ダッシュボード</a>
+  <span class="text-slate-600">|</span>
+  <a href="/my/profile" class="text-blue-400 hover:text-blue-300">プロフィール</a>
+  <a href="/my/activity" class="text-blue-400 hover:text-blue-300">自分の履歴</a>
+  <a href="/logout" class="text-slate-400 hover:text-white ml-auto">ログアウト</a>
+</nav>
+<h1 class="text-2xl font-bold mb-2">hanako@f-a-c.co.jp</h1>
+<p class="text-slate-400 text-sm mb-6">ご自身の最近の利用履歴 (直近50ログイン / 直近100操作)</p>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  <section class="p-4 rounded bg-slate-800/40">
+    <h2 class="text-lg font-bold mb-3">ログイン履歴</h2>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-xs uppercase text-slate-400"><tr>
+        <th class="py-2 px-2 text-left">日時</th>
+        <th class="py-2 px-2 text-left">結果</th>
+        <th class="py-2 px-2 text-left">端末</th>
+      </tr></thead><tbody><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T09:00:00Z</td><td class="py-1 px-2"><span class="text-green-400">成功</span></td><td class="py-1 px-2 text-xs text-slate-500">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWeb</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T08:00:00Z</td><td class="py-1 px-2"><span class="text-red-400">失敗</span></td><td class="py-1 px-2 text-xs text-slate-500">curl/8.0</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2000-01-01T00:00:00Z</td><td class="py-1 px-2"><span class="text-green-400">成功</span></td><td class="py-1 px-2 text-xs text-slate-500">Safari/17</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="p-4 rounded bg-slate-800/40">
+    <h2 class="text-lg font-bold mb-3">操作履歴</h2>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-xs uppercase text-slate-400"><tr>
+        <th class="py-2 px-2 text-left">日時</th>
+        <th class="py-2 px-2 text-left">操作</th>
+        <th class="py-2 px-2 text-left">種別</th>
+        <th class="py-2 px-2 text-left">対象</th>
+      </tr></thead><tbody><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T09:30:00Z</td><td class="py-1 px-2">view_company_profile</td><td class="py-1 px-2 text-xs text-slate-400">company</td><td class="py-1 px-2 text-xs">1234567890123</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T09:20:00Z</td><td class="py-1 px-2">view_tab</td><td class="py-1 px-2 text-xs text-slate-400">tab</td><td class="py-1 px-2 text-xs">/tab/survey</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T09:10:00Z</td><td class="py-1 px-2">view_company_profile</td><td class="py-1 px-2 text-xs text-slate-400">company</td><td class="py-1 px-2 text-xs">9876543210987</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2000-01-01T00:00:00Z</td><td class="py-1 px-2">login</td><td class="py-1 px-2 text-xs text-slate-400"></td><td class="py-1 px-2 text-xs"></td></tr></tbody>
+    </table></div>
+  </section>
+</div>
+</body>
+</html>

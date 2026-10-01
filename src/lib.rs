@@ -649,6 +649,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::my::my_profile_get).post(handlers::my::my_profile_post),
         )
         .route("/my/activity", get(handlers::my::my_activity))
+        // W8 (2026-09-29): React 個人設定画面 (/app/my) 用 JSON。POST は旧 /my/profile と同じ書き込み経路
+        .route(
+            "/api/my/profile",
+            get(handlers::my::api_profile).post(handlers::my::api_profile_post),
+        )
+        .route("/api/my/activity", get(handlers::my::api_activity))
         // ======== 職種カルテタブ (driver / 職業情報) ========
         // 出典: 賃金構造基本統計調査 令和7年 + JILPT 職業情報データベース
         .merge(handlers::driver::router())
@@ -706,6 +712,17 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         )
         // 2026-08-10: 利用状況（誰が・どの機能を・どれだけ使ったか）
         .route("/admin/usage", get(handlers::admin::admin_usage))
+        // W8 (2026-09-29): React 管理画面 (/app/admin) 用 JSON。同じ require_admin の内側 (読み取りのみ)
+        .route("/api/admin/users", get(handlers::admin::api_users))
+        .route(
+            "/api/admin/users/{account_id}",
+            get(handlers::admin::api_user_detail),
+        )
+        .route(
+            "/api/admin/login-failures",
+            get(handlers::admin::api_login_failures),
+        )
+        .route("/api/admin/usage", get(handlers::admin::api_usage))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_admin_mw,
