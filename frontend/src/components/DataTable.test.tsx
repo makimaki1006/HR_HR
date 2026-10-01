@@ -151,6 +151,60 @@ describe('DataTable', () => {
     expect(bodyRows(container)).toHaveLength(windowed);
   });
 
+  it('beforeprint outside act(): all 1000 rows are in the DOM synchronously after dispatchEvent', () => {
+    const { container } = render(
+      <DataTable columns={columns} rows={makeRows(1000)} rowKey={(r) => r.id} />,
+    );
+    expect(bodyRows(container).length).toBeLessThan(100);
+    // No act(): the page is printed right after the beforeprint listeners return.
+    window.dispatchEvent(new Event('beforeprint'));
+    expect(bodyRows(container)).toHaveLength(1000);
+    window.dispatchEvent(new Event('afterprint'));
+  });
+
+  it('matchMedia(print) change to matches:true is flushed synchronously too', () => {
+    const listeners: ((e: { matches: boolean }) => void)[] = [];
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: (_t: string, cb: (e: { matches: boolean }) => void) => listeners.push(cb),
+      removeEventListener: () => undefined,
+    }));
+    try {
+      const { container } = render(
+        <DataTable columns={columns} rows={makeRows(1000)} rowKey={(r) => r.id} />,
+      );
+      listeners.forEach((l) => {
+        l({ matches: true });
+      });
+      expect(bodyRows(container)).toHaveLength(1000);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('after printing the window follows the real scrollTop of the new scroll container (0)', () => {
+    const { container } = render(
+      <DataTable columns={columns} rows={makeRows(1000)} rowKey={(r) => r.id} />,
+    );
+    const scroller = container.querySelector('[data-virtualized]') as HTMLElement;
+    act(() => {
+      scroller.scrollTop = 18_000; // row 500
+      fireEvent.scroll(scroller);
+    });
+    expect(container.querySelector('[data-spacer="top"]')).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new Event('beforeprint'));
+    });
+    act(() => {
+      window.dispatchEvent(new Event('afterprint'));
+    });
+    const fresh = container.querySelector('[data-virtualized]') as HTMLElement;
+    expect(fresh.scrollTop).toBe(0);
+    // Window starts at row 0 again: no top spacer, first row is the first data row.
+    expect(container.querySelector('[data-spacer="top"]')).toBeNull();
+    expect(bodyRows(container)[0]?.textContent).toContain('city0');
+  });
+
   it('matchMedia(print) change also switches to full rendering', () => {
     const listeners: ((e: { matches: boolean }) => void)[] = [];
     vi.stubGlobal('matchMedia', () => ({

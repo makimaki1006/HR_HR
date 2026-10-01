@@ -207,6 +207,189 @@ html {
     border-color: var(--color-blue-500);
     font-weight: 600;
   }
+  .hr-filter-status,
+  .hr-filter-error {
+    align-self: center;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .hr-filter-status {
+    color: var(--color-slate-400);
+  }
+  .hr-filter-error {
+    max-width: 22rem;
+    color: #fecaca;
+    background-color: rgb(127 29 29 / 0.45);
+    border: 1px solid rgb(248 113 113 / 0.6);
+    border-radius: 6px;
+    padding: 3px 8px;
+  }
+
+  /* ---- Shared parts (KpiCard / DataTable / Note); values follow dashboard.css .stat-card / .data-table ---- */
+  .hw-kpi-card {
+    background-color: var(--color-navy-700);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    min-width: 0;
+  }
+  .hw-kpi-label {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--color-slate-400);
+  }
+  .hw-kpi-value {
+    margin: 0.25rem 0 0;
+    font-size: 1.875rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--color-slate-100);
+    font-variant-numeric: tabular-nums;
+  }
+  .hw-kpi-unit {
+    margin-left: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-slate-400);
+  }
+  .hw-kpi-empty {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--color-slate-500);
+  }
+  .hw-kpi-n {
+    margin: 0.25rem 0 0;
+    font-size: 0.75rem;
+    color: var(--color-slate-500);
+  }
+  .hw-kpi-note {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--color-slate-400);
+  }
+
+  .hw-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .hw-data-table caption {
+    padding: 0 0 0.5rem;
+    text-align: left;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-slate-200);
+  }
+  .hw-data-table thead th {
+    padding: 0.625rem 0.75rem;
+    font-weight: 600;
+    color: var(--color-slate-400);
+    border-bottom: 1px solid var(--color-slate-700);
+    background-color: var(--color-navy-800);
+    white-space: nowrap;
+  }
+  .hw-data-table thead th button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    background: none;
+    border: 0;
+    padding: 0;
+  }
+  .hw-data-table thead th button:hover {
+    color: var(--color-slate-200);
+  }
+  .hw-data-table tbody td {
+    padding: 0.5rem 0.75rem;
+    color: var(--color-slate-200);
+    border-bottom: 1px solid rgb(255 255 255 / 0.04);
+  }
+  .hw-data-table tbody tr:hover {
+    background-color: rgb(59 130 246 / 0.05);
+  }
+  .hw-data-table tbody td.hw-data-table-empty {
+    text-align: center;
+    color: var(--color-slate-500);
+    padding: 1.25rem 0.75rem;
+  }
+  .hw-data-table tfoot td {
+    padding: 0.5rem 0.75rem;
+    font-weight: 600;
+    color: var(--color-slate-200);
+    border-top: 1px solid var(--color-slate-600);
+  }
+  .hw-data-table-scroll {
+    border: 1px solid var(--color-slate-700);
+    border-radius: 0.5rem;
+  }
+
+  .hw-note {
+    margin: 0.5rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--color-slate-400);
+  }
+
+  @media print {
+    .hw-kpi-card {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      box-shadow: none;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .hw-kpi-card,
+    .hw-kpi-card * {
+      color: #1e293b;
+    }
+    .hw-kpi-label,
+    .hw-kpi-n,
+    .hw-kpi-note,
+    .hw-kpi-unit,
+    .hw-note {
+      color: #64748b;
+    }
+    .hw-data-table thead {
+      display: table-header-group; /* repeat the header row on every printed page */
+    }
+    .hw-data-table tfoot {
+      display: table-footer-group;
+    }
+    .hw-data-table tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .hw-data-table thead th {
+      color: #1e293b;
+      background: #f1f5f9;
+      border-bottom: 2px solid #1e293b;
+    }
+    .hw-data-table tbody td {
+      color: #1e293b;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .hw-data-table tbody tr:hover {
+      background: none;
+    }
+    .hw-data-table tfoot td {
+      color: #1e293b;
+      border-top: 2px solid #1e293b;
+    }
+    .hw-data-table caption {
+      color: #1e293b;
+    }
+    .hw-data-table-scroll {
+      border: 0;
+      box-shadow: none;
+    }
+    .hr-filter-status,
+    .hr-filter-error {
+      display: none;
+    }
+  }
+
   @media (max-width: 700px) {
     .hr-nav {
       padding: 0 0.75rem;
