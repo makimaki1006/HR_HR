@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GeoMunicipalityOption } from '../../generated/GeoMunicipalityOption';
 import type { GeoPrefectureOption } from '../../generated/GeoPrefectureOption';
 import * as fx from './fixtures';
+import { makeFiltersProvider } from './testFilters';
 import { urlOf } from './testUtils';
 import { RecruitmentDiag } from './RecruitmentDiagScreen';
 
@@ -34,6 +35,15 @@ const OK_BODIES: Record<string, unknown> = {
   talent_pool_expansion: fx.expansion,
 };
 
+function renderDiag() {
+  const { Provider } = makeFiltersProvider();
+  return render(
+    <Provider>
+      <RecruitmentDiag />
+    </Provider>,
+  );
+}
+
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
 
 beforeEach(() => {
@@ -59,7 +69,7 @@ const diagUrls = (): string[] =>
 
 describe('RecruitmentDiag screen', () => {
   it('shows the scope notes at the top and the panels as idle before the first run', () => {
-    render(<RecruitmentDiag />);
+    renderDiag();
     expect(screen.getByTestId('rd-scope-notes').textContent).toContain('ハローワーク掲載求人のみが対象');
     expect(screen.getByTestId('rd-scope-notes').textContent).toContain('因果関係を示すものではありません');
     expect(screen.getByTestId('rd-panel-difficulty').getAttribute('data-status')).toBe('idle');
@@ -71,7 +81,7 @@ describe('RecruitmentDiag screen', () => {
   it('stops with an on-screen message (no alert, no request) when the industry or prefecture is missing', async () => {
     const alertSpy = vi.fn();
     vi.stubGlobal('alert', alertSpy);
-    render(<RecruitmentDiag />);
+    renderDiag();
     await waitFor(() => {
       expect(screen.getByTestId('rd-form-pref').querySelectorAll('option')).toHaveLength(3);
     });
@@ -89,7 +99,7 @@ describe('RecruitmentDiag screen', () => {
   });
 
   it('loads cities for the chosen prefecture, sends prefcode/citycode, and isolates the failing panel', async () => {
-    render(<RecruitmentDiag />);
+    renderDiag();
     await waitFor(() => {
       expect(screen.getByTestId('rd-form-pref').querySelectorAll('option')).toHaveLength(3);
     });
@@ -150,12 +160,15 @@ describe('RecruitmentDiag screen', () => {
       if (urlOf(input).startsWith('/api/recruitment_diag/condition_gap')) return Promise.resolve(json({ interpretation: 'x' }));
       return base ? base(input, init) : Promise.reject(new Error('no base'));
     });
-    render(<RecruitmentDiag />);
+    renderDiag();
     await waitFor(() => {
       expect(screen.getByTestId('rd-form-pref').querySelectorAll('option')).toHaveLength(3);
     });
     fireEvent.change(screen.getByTestId('rd-form-job-type'), { target: { value: '小売業' } });
     fireEvent.change(screen.getByTestId('rd-form-pref'), { target: { value: '東京都' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('rd-form-city').querySelectorAll('option')).toHaveLength(3);
+    });
     fireEvent.click(screen.getByTestId('rd-run'));
     await waitFor(() => {
       expect(screen.getByTestId('rd-global-status').textContent).toBe('診断完了');
