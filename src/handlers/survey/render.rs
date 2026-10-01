@@ -707,7 +707,7 @@ fn render_action_bar(session_id: &str) -> String {
                         <input type="radio" name="report_mode" value="all" class="mt-1" checked onchange="syncReportMode()">
                         <div>
                             <div class="text-sm font-bold text-white">すべて載せる</div>
-                            <div class="text-[11px] text-slate-400 mt-0.5">全10章。まずはこちらで問題ありません</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">全11章。まずはこちらで問題ありません</div>
                         </div>
                     </label>
                     <label class="report-mode-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors" data-mode="pick">
@@ -724,7 +724,7 @@ fn render_action_bar(session_id: &str) -> String {
                        data-variant="extended"
                        class="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-bold transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-400"
                        aria-label="レポートPDFを新しいタブで開く">
-                        <span class="text-base" aria-hidden="true">📊</span> レポートを作成（全10章）
+                        <span class="text-base" aria-hidden="true">📊</span> レポートを作成（全11章）
                     </a>
                 </div>
                 <div id="report-mode-pick" class="hidden">
@@ -740,6 +740,7 @@ fn render_action_bar(session_id: &str) -> String {
                         <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="03" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">給与の分布</span><br><span class="text-[10px] text-slate-400">下限と上限それぞれの分布と分位点、雇用形態別の給与</span></span></label>
                         <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="075" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">年間休日×給与の詳細</span><br><span class="text-[10px] text-slate-400">休日数別の給与、給与×休日の散布図、個別求人の具体例、セグメント別統計</span></span></label>
                         <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="076" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">人気求人の傾向</span><br><span class="text-[10px] text-slate-400">人気タグ別の月給・年間休日の比較（Indeed (SP) のCSVのときだけ出ます）</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="077" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">競合調査（Indeed）</span><br><span class="text-[10px] text-slate-400">よく使われているタグ、検索上位の求人のタグ、人気求人と全体の給与差（IndeedのCSVのときだけ出ます）</span></span></label>
                         <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="06" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">働き手の年齢・人口構成</span><br><span class="text-[10px] text-slate-400">人口構造の主要指標、年齢階級別の人口ピラミッド</span></span></label>
                         <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="05" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">地域の企業構造</span><br><span class="text-[10px] text-slate-400">規模×動向の法人セグメント、産業大分類の構成</span></span></label>
                         <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="04" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">採用市場の需給</span><br><span class="text-[10px] text-slate-400">採用難度の指標、事業所統計、開業率・廃業率</span></span></label>
@@ -753,7 +754,7 @@ fn render_action_bar(session_id: &str) -> String {
                                 aria-label="選んだ内容でレポートを新しいタブで開く">
                             <span class="text-base" aria-hidden="true">🧾</span> 選んだ内容でレポートを作成
                         </button>
-                        <span id="section-count" class="text-xs text-slate-300" aria-live="polite">選択中: 10 / 10 章</span>
+                        <span id="section-count" class="text-xs text-slate-300" aria-live="polite">選択中: 11 / 11 章</span>
                     </div>
                 </div>
                 <div class="mt-3 pt-2 border-t border-slate-700/60">
@@ -1924,17 +1925,19 @@ mod variant_ui_tests {
     // ---- セクション選択パネル (2026-07-10) ----
 
     #[test]
-    fn action_bar_section_picker_has_10_checkboxes() {
-        // 選択可能な 10 セクション分のチェックボックス (class=section-pick) が出る。
+    fn action_bar_section_picker_has_11_checkboxes() {
+        // 選択可能な 11 セクション分のチェックボックス (class=section-pick) が出る。
         let html = render_action_bar("sid");
         let count = html.matches("class=\"section-pick").count();
         assert_eq!(
-            count, 10,
-            "section picker should expose exactly 10 checkboxes (found {})",
+            count, 11,
+            "section picker should expose exactly 11 checkboxes (found {})",
             count
         );
         // 各コードの value が存在する
-        for code in ["02", "03", "04", "05", "06", "07", "075", "076", "09", "10"] {
+        for code in [
+            "02", "03", "04", "05", "06", "07", "075", "076", "077", "09", "10",
+        ] {
             assert!(
                 html.contains(&format!("value=\"{}\"", code)),
                 "checkbox for section {} missing",

@@ -1,0 +1,21 @@
+{
+  "error": "prefecture および municipality が必要です (citycode は補助的、名前指定が主)",
+  "panel": "talent_pool_expansion",
+  "tier_30min": {
+    "municipality_count": 0,
+    "unemployment_pool": 0,
+    "hw_postings": 0,
+    "breakdown": []
+  },
+  "tier_60min": {
+    "municipality_count": 0,
+    "unemployment_pool": 0,
+    "hw_postings": 0,
+    "breakdown": []
+  },
+  "is_data_available": false,
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。"
+  }
+}

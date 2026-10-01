@@ -1,0 +1,116 @@
+{
+  "panel": "talent_pool_expansion",
+  "current": {
+    "prefecture": "岩手県",
+    "municipality": "盛岡市"
+  },
+  "tier_30min": {
+    "municipality_count": 5,
+    "unemployment_pool": 4200,
+    "hw_postings": 8,
+    "breakdown": [
+      {
+        "prefecture": "岩手県",
+        "municipality": "滝沢市",
+        "commuters": 13000,
+        "unemployment": 1500,
+        "hw_postings": 0
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "花巻市",
+        "commuters": 12000,
+        "unemployment": 1200,
+        "hw_postings": 5
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "紫波町",
+        "commuters": 11000,
+        "unemployment": 600,
+        "hw_postings": 0
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "矢巾町",
+        "commuters": 10000,
+        "unemployment": 0,
+        "hw_postings": 0
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "宮古市",
+        "commuters": 9000,
+        "unemployment": 900,
+        "hw_postings": 3
+      }
+    ]
+  },
+  "tier_60min": {
+    "municipality_count": 7,
+    "unemployment_pool": 2400,
+    "hw_postings": 2,
+    "breakdown": [
+      {
+        "prefecture": "岩手県",
+        "municipality": "北上市",
+        "commuters": 8000,
+        "unemployment": 1100,
+        "hw_postings": 1
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "雫石町",
+        "commuters": 7000,
+        "unemployment": 0,
+        "hw_postings": 0
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "八幡平市",
+        "commuters": 6000,
+        "unemployment": 0,
+        "hw_postings": 0
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "一関市",
+        "commuters": 5000,
+        "unemployment": 1300,
+        "hw_postings": 0
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "奥州市",
+        "commuters": 4000,
+        "unemployment": 0,
+        "hw_postings": 0
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "遠野市",
+        "commuters": 3000,
+        "unemployment": 0,
+        "hw_postings": 1
+      },
+      {
+        "prefecture": "岩手県",
+        "municipality": "岩手町",
+        "commuters": 2000,
+        "unemployment": 0,
+        "hw_postings": 0
+      }
+    ]
+  },
+  "is_data_available": true,
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "data_source_od": "国勢調査 通勤 OD (2020 年、5年遅れ、市区町村間1:1)",
+    "data_source_unemployment": "SSDSE-A 労働力統計 v2_external_labor_force.unemployed (国勢調査ベース)",
+    "data_source_hw": "HW 掲載求人 postings テーブル",
+    "tier_definition": "30 分圏 = OD volume 上位 5 件、60 分圏 = 30 分圏を除いた次の 7 件 (実距離ではなく通勤者数ベースの固定件数)",
+    "caveat_pool": "失業者プール拡大は通勤可能性の理論値であり、実際の応募意向を保証するものではない",
+    "caveat_distance": "30/60 分圏という名称は便宜的な分類であり、実走行時間ではない"
+  }
+}

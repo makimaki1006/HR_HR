@@ -3,20 +3,22 @@
 use axum::extract::{Query, State};
 use axum::response::Html;
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::geo::{city_code, pref_name_to_code};
 use crate::handlers::competitive::{build_option, build_option_with_data, escape_html};
+use crate::handlers::helpers::Row;
 use crate::handlers::jobmap::fromto as fft;
 use crate::handlers::overview::get_session_filters;
 use crate::AppState;
 
 use super::fetch;
 use super::render;
+use super::types::RdErrorResponse;
 use super::{expand_employment_type, CAUSATION_NOTE, HW_SCOPE_NOTE};
+use ts_rs::TS;
 
 const DEFAULT_AGOOP_YEAR: i32 = 2021;
 const INFLOW_DATA_WARNING: &str =
@@ -115,6 +117,85 @@ pub struct DifficultyParams {
     pub citycode: Option<i64>,
 }
 
+/// Panel 1 の応答で、解決後の入力条件をそのまま返す部分。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdDifficultyInputs {
+    /// 業種 (クエリの `job_type` そのまま。空文字は全業種)。
+    pub job_type: String,
+    /// 雇用形態 (クエリの `emp_type` そのまま。展開前の UI 値)。
+    pub emp_type: String,
+    /// 都道府県名 (クエリ優先、空ならセッションの値)。
+    pub prefecture: String,
+    /// 市区町村名 (クエリ優先、空ならセッションの値)。
+    pub municipality: String,
+    /// 市区町村コード (数値。解決できなければ null)。
+    pub citycode: Option<i64>,
+}
+
+/// Panel 1 の数値部分。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdDifficultyMetrics {
+    /// 該当エリアの HW 掲載求人件数 (件)。
+    pub hw_count: i64,
+    /// スコアの分母に使った人口 (人、月平均)。観光地判定時は夜間、それ以外は昼間。
+    pub population: f64,
+    /// Agoop 平日昼滞在人口 (人、月平均)。citycode 未解決なら 0。
+    pub day_population: f64,
+    /// Agoop 平日深夜滞在人口 (人、月平均。居住人口の代理)。
+    pub night_population: f64,
+    /// 昼夜比 = 昼 ÷ 夜 (夜が 0 なら 0)。
+    pub day_night_ratio: f64,
+    /// 昼夜比が `notes.tourist_threshold` を超えたか (観光地・繁華街補正の有無)。
+    pub is_tourist_area: bool,
+    /// 採用難度スコア (人口 1 万人あたり HW 求人件数)。人口 0 なら 0。
+    pub score_per_10k: f64,
+    /// 同条件の全国 HW 掲載求人件数 (件)。
+    pub national_hw_count: i64,
+    /// 該当エリア件数 ÷ 全国件数 (0〜1 の比率。全国 0 件なら 0)。
+    pub area_share_of_national: f64,
+}
+
+/// Panel 1 の `notes`。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdDifficultyNotes {
+    /// HW 掲載求人のみが対象である旨。
+    pub hw_scope: String,
+    /// 相関であって因果ではない旨。
+    pub causation: String,
+    /// スコアの計算式 (観光地補正の有無で文言が変わる)。
+    pub calculation: String,
+    /// Agoop 人流データの年 (西暦)。
+    pub population_year: i32,
+    /// 観光地判定の昼夜比閾値 (この値を超えると補正)。
+    pub tourist_threshold: f64,
+}
+
+/// `GET /api/recruitment_diag/difficulty` の成功時の本体。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdDifficultyResponse {
+    /// 常に `"difficulty_score"`。
+    pub panel: String,
+    pub inputs: RdDifficultyInputs,
+    pub metrics: RdDifficultyMetrics,
+    /// 難度ランク 0〜5 (0 はデータ不足、1 穴場 〜 5 超激戦)。
+    pub rank: i32,
+    /// ランクの表示名 (例: "激戦")。
+    pub rank_label: String,
+    /// 示唆文 (傾向の提示)。
+    pub so_what: String,
+    /// 観光地補正を適用したときの注記。非適用なら null。
+    pub tourist_correction_note: Option<String>,
+    pub notes: RdDifficultyNotes,
+}
+
+/// `GET /api/recruitment_diag/difficulty` の応答 (TS: `RdDifficultyResponse | RdErrorResponse`)。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(untagged)]
+pub enum RdDifficultyResult {
+    Ok(RdDifficultyResponse),
+    Err(RdErrorResponse),
+}
+
 /// `GET /api/recruitment_diag/difficulty`
 ///
 /// 採用難度スコア = HW 該当求人件数 ÷ 昼間人口 × 10,000
@@ -125,7 +206,7 @@ pub async fn api_difficulty_score(
     State(state): State<Arc<AppState>>,
     session: Session,
     Query(params): Query<DifficultyParams>,
-) -> Json<Value> {
+) -> Json<RdDifficultyResult> {
     let filters = get_session_filters(&session).await;
     let pref = if params.prefecture.is_empty() {
         filters.prefecture.clone()
@@ -141,7 +222,9 @@ pub async fn api_difficulty_score(
     let db = match &state.hw_db {
         Some(d) => d.clone(),
         None => {
-            return Json(error_body("hellowork.db 未接続"));
+            return Json(RdDifficultyResult::Err(RdErrorResponse::new(
+                "hellowork.db 未接続",
+            )));
         }
     };
     let turso = state.turso_db.clone();
@@ -190,6 +273,29 @@ pub async fn api_difficulty_score(
 
     let (hw_count, day_population, night_population, national_hw) = result;
 
+    Json(RdDifficultyResult::Ok(build_difficulty_response(
+        RdDifficultyInputs {
+            job_type,
+            emp_type: params.emp_type,
+            prefecture: pref,
+            municipality: muni,
+            citycode,
+        },
+        hw_count,
+        day_population,
+        night_population,
+        national_hw,
+    )))
+}
+
+/// Panel 1 の成功応答を組み立てる (DB 取得後の計算部分。純粋関数)。
+fn build_difficulty_response(
+    inputs: RdDifficultyInputs,
+    hw_count: i64,
+    day_population: f64,
+    night_population: f64,
+    national_hw: i64,
+) -> RdDifficultyResponse {
     // F1 #3: 観光地・繁華街補正（compute_difficulty_score_with_tourist_correction を経由）
     //
     // 銀座・京都四条河原町などの繁華街は平日昼の外来滞在が膨張するため、
@@ -232,38 +338,32 @@ pub async fn api_difficulty_score(
         None
     };
 
-    Json(json!({
-        "panel": "difficulty_score",
-        "inputs": {
-            "job_type": job_type,
-            "emp_type": params.emp_type,
-            "prefecture": pref,
-            "municipality": muni,
-            "citycode": citycode,
+    RdDifficultyResponse {
+        panel: "difficulty_score".to_string(),
+        inputs,
+        metrics: RdDifficultyMetrics {
+            hw_count,
+            population,
+            day_population,
+            night_population,
+            day_night_ratio,
+            is_tourist_area,
+            score_per_10k: score,
+            national_hw_count: national_hw,
+            area_share_of_national: relative_vs_national,
         },
-        "metrics": {
-            "hw_count": hw_count,
-            "population": population,
-            "day_population": day_population,
-            "night_population": night_population,
-            "day_night_ratio": day_night_ratio,
-            "is_tourist_area": is_tourist_area,
-            "score_per_10k": score,
-            "national_hw_count": national_hw,
-            "area_share_of_national": relative_vs_national,
+        rank,
+        rank_label: rank_label.to_string(),
+        so_what,
+        tourist_correction_note: tourist_note,
+        notes: RdDifficultyNotes {
+            hw_scope: HW_SCOPE_NOTE.to_string(),
+            causation: CAUSATION_NOTE.to_string(),
+            calculation: calculation_note.to_string(),
+            population_year: DEFAULT_AGOOP_YEAR,
+            tourist_threshold: TOURIST_AREA_DAYNIGHT_RATIO,
         },
-        "rank": rank,
-        "rank_label": rank_label,
-        "so_what": so_what,
-        "tourist_correction_note": tourist_note,
-        "notes": {
-            "hw_scope": HW_SCOPE_NOTE,
-            "causation": CAUSATION_NOTE,
-            "calculation": calculation_note,
-            "population_year": DEFAULT_AGOOP_YEAR,
-            "tourist_threshold": TOURIST_AREA_DAYNIGHT_RATIO,
-        },
-    }))
+    }
 }
 
 /// F1 #3: 観光地補正後の採用難度スコア計算（純粋関数、ユニットテスト用）
@@ -389,6 +489,65 @@ pub struct TalentPoolParams {
     pub year: Option<i32>,
 }
 
+/// Panel 2 の応答で、解決後の入力条件を返す部分。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdTalentPoolInputs {
+    /// 都道府県名 (クエリ優先、空ならセッションの値)。
+    pub prefecture: String,
+    /// 市区町村名 (クエリ優先、空ならセッションの値)。
+    pub municipality: String,
+    /// 市区町村コード (数値。成功時は必ずある)。
+    pub citycode: i64,
+    /// Agoop 人流データの年 (西暦。既定 2021)。
+    pub year: i32,
+}
+
+/// Panel 2 の数値部分。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdTalentPoolMetrics {
+    /// Agoop 平日昼滞在人口 (人、月平均)。
+    pub day_population: f64,
+    /// Agoop 平日深夜滞在人口 (人、月平均)。
+    pub night_population: f64,
+    /// 通勤流入 = 昼 − 夜 (人。負ならベッドタウン型の流出超過)。
+    pub commuter_inflow: f64,
+    /// 昼夜比 = 昼 ÷ 夜 (夜が 0 なら 0)。
+    pub day_night_ratio: f64,
+}
+
+/// Panel 2 の `notes`。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdTalentPoolNotes {
+    /// HW 掲載求人のみが対象である旨。
+    pub hw_scope: String,
+    /// 相関であって因果ではない旨。
+    pub causation: String,
+    /// データの出典。
+    pub data_source: String,
+    /// 集計方法。
+    pub method: String,
+}
+
+/// `GET /api/recruitment_diag/talent_pool` の成功時の本体。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdTalentPoolResponse {
+    /// 常に `"talent_pool"`。
+    pub panel: String,
+    pub inputs: RdTalentPoolInputs,
+    pub metrics: RdTalentPoolMetrics,
+    /// 示唆文 (流入超過型 / ベッドタウン型 / 均衡型 / データ未投入)。
+    pub so_what: String,
+    pub notes: RdTalentPoolNotes,
+}
+
+/// `GET /api/recruitment_diag/talent_pool` の応答 (TS: `RdTalentPoolResponse | RdErrorResponse`)。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(untagged)]
+pub enum RdTalentPoolResult {
+    Ok(RdTalentPoolResponse),
+    Err(RdErrorResponse),
+}
+
 /// `GET /api/recruitment_diag/talent_pool`
 ///
 /// Agoop mesh1km で該当 citycode の昼夜人口を集計。
@@ -399,7 +558,7 @@ pub async fn api_talent_pool(
     State(state): State<Arc<AppState>>,
     session: Session,
     Query(params): Query<TalentPoolParams>,
-) -> Json<Value> {
+) -> Json<RdTalentPoolResult> {
     let filters = get_session_filters(&session).await;
     let pref = if params.prefecture.is_empty() {
         filters.prefecture.clone()
@@ -423,9 +582,9 @@ pub async fn api_talent_pool(
     let code = match citycode {
         Some(c) => c,
         None => {
-            return Json(error_body(
+            return Json(RdTalentPoolResult::Err(RdErrorResponse::new(
                 "市区町村が指定されていません (citycode or prefecture+municipality が必要)",
-            ));
+            )));
         }
     };
 
@@ -433,7 +592,11 @@ pub async fn api_talent_pool(
 
     let db = match &state.hw_db {
         Some(d) => d.clone(),
-        None => return Json(error_body("hellowork.db 未接続")),
+        None => {
+            return Json(RdTalentPoolResult::Err(RdErrorResponse::new(
+                "hellowork.db 未接続",
+            )))
+        }
     };
     let turso = state.turso_db.clone();
 
@@ -445,33 +608,46 @@ pub async fn api_talent_pool(
     .await
     .unwrap_or((0.0, 0.0));
 
+    Json(RdTalentPoolResult::Ok(build_talent_pool_response(
+        RdTalentPoolInputs {
+            prefecture: pref,
+            municipality: muni,
+            citycode: code,
+            year,
+        },
+        day,
+        night,
+    )))
+}
+
+/// Panel 2 の成功応答を組み立てる (DB 取得後の計算部分。純粋関数)。
+fn build_talent_pool_response(
+    inputs: RdTalentPoolInputs,
+    day: f64,
+    night: f64,
+) -> RdTalentPoolResponse {
     let commuter_inflow = day - night;
     let day_night_ratio = if night > 0.0 { day / night } else { 0.0 };
 
     let so_what = build_talent_pool_so_what(day, night, commuter_inflow, day_night_ratio);
 
-    Json(json!({
-        "panel": "talent_pool",
-        "inputs": {
-            "prefecture": pref,
-            "municipality": muni,
-            "citycode": code,
-            "year": year,
+    RdTalentPoolResponse {
+        panel: "talent_pool".to_string(),
+        inputs,
+        metrics: RdTalentPoolMetrics {
+            day_population: day,
+            night_population: night,
+            commuter_inflow,
+            day_night_ratio,
         },
-        "metrics": {
-            "day_population": day,
-            "night_population": night,
-            "commuter_inflow": commuter_inflow,
-            "day_night_ratio": day_night_ratio,
+        so_what,
+        notes: RdTalentPoolNotes {
+            hw_scope: HW_SCOPE_NOTE.to_string(),
+            causation: CAUSATION_NOTE.to_string(),
+            data_source: "国土交通省 全国の人流オープンデータ（Agoop社提供）mesh1km".to_string(),
+            method: "平日 昼(timezone=0)・深夜(timezone=1) を SUM / 月数で月平均化。集計値(2) は double count 防止のため不使用。".to_string(),
         },
-        "so_what": so_what,
-        "notes": {
-            "hw_scope": HW_SCOPE_NOTE,
-            "causation": CAUSATION_NOTE,
-            "data_source": "国土交通省 全国の人流オープンデータ（Agoop社提供）mesh1km",
-            "method": "平日 昼(timezone=0)・深夜(timezone=1) を SUM / 月数で月平均化。集計値(2) は double count 防止のため不使用。",
-        },
-    }))
+    }
 }
 
 fn build_talent_pool_so_what(day: f64, night: f64, inflow: f64, ratio: f64) -> String {
@@ -516,6 +692,72 @@ pub struct InflowParams {
     pub year: Option<i32>,
 }
 
+/// Panel 3 の応答で、解決後の入力条件を返す部分。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdInflowInputs {
+    /// 都道府県名 (クエリ優先、空ならセッションの値)。
+    pub prefecture: String,
+    /// 市区町村名 (クエリ優先、空ならセッションの値)。
+    pub municipality: String,
+    /// 市区町村コード (数値。成功時は必ずある)。
+    pub citycode: i64,
+    /// Agoop 人流データの年 (西暦。既定 2021)。
+    pub year: i32,
+}
+
+/// Panel 3 の流入元 1 区分。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdInflowBreakdownItem {
+    /// 流入元区分 (0 同一市区町村 / 1 同県別市 / 2 同地方別県 / 3 異地方)。
+    pub from_area: i64,
+    /// 区分の正式名 (例: "同一市区町村")。
+    pub area_name: String,
+    /// 区分の短縮名 (例: "同市区町村")。
+    pub short_name: String,
+    /// 流入人口 (人、平日昼の年合計)。
+    pub population: f64,
+    /// 全流入に占める割合 (0〜1 の比率。合計 0 なら 0)。
+    pub share: f64,
+}
+
+/// Panel 3 の `notes`。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdInflowNotes {
+    /// HW 掲載求人のみが対象である旨。
+    pub hw_scope: String,
+    /// 相関であって因果ではない旨。
+    pub causation: String,
+    /// データの出典。
+    pub data_source: String,
+    /// 集計方法。
+    pub method: String,
+}
+
+/// `GET /api/recruitment_diag/inflow` の成功時の本体。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdInflowResponse {
+    /// 常に `"inflow_analysis"`。
+    pub panel: String,
+    pub inputs: RdInflowInputs,
+    /// 流入元区分ごとの内訳 (取得できた区分のみ。0〜4 件)。
+    pub breakdown: Vec<RdInflowBreakdownItem>,
+    /// 流入人口の合計 (人)。内訳 0 件のときは -0.0 になる (f64 の空和)。
+    pub total_population: f64,
+    /// 示唆文 (傾向の提示)。
+    pub so_what: String,
+    /// `v2_flow_fromto_city` が約 83% のみ投入済みである旨の警告。
+    pub data_warning: String,
+    pub notes: RdInflowNotes,
+}
+
+/// `GET /api/recruitment_diag/inflow` の応答 (TS: `RdInflowResponse | RdErrorResponse`)。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(untagged)]
+pub enum RdInflowResult {
+    Ok(RdInflowResponse),
+    Err(RdErrorResponse),
+}
+
 /// `GET /api/recruitment_diag/inflow`
 ///
 /// `v2_flow_fromto_city` から from_area 4区分 (同市/同県別市/同地方別県/異地方) の流入量を取得。
@@ -524,7 +766,7 @@ pub async fn api_inflow_analysis(
     State(state): State<Arc<AppState>>,
     session: Session,
     Query(params): Query<InflowParams>,
-) -> Json<Value> {
+) -> Json<RdInflowResult> {
     let filters = get_session_filters(&session).await;
     let pref = if params.prefecture.is_empty() {
         filters.prefecture.clone()
@@ -548,9 +790,9 @@ pub async fn api_inflow_analysis(
     let code = match citycode {
         Some(c) => c,
         None => {
-            return Json(error_body(
+            return Json(RdInflowResult::Err(RdErrorResponse::new(
                 "市区町村が指定されていません (citycode or prefecture+municipality が必要)",
-            ));
+            )));
         }
     };
 
@@ -558,7 +800,11 @@ pub async fn api_inflow_analysis(
 
     let db = match &state.hw_db {
         Some(d) => d.clone(),
-        None => return Json(error_body("hellowork.db 未接続")),
+        None => {
+            return Json(RdInflowResult::Err(RdErrorResponse::new(
+                "hellowork.db 未接続",
+            )))
+        }
     };
     let turso = state.turso_db.clone();
 
@@ -568,49 +814,71 @@ pub async fn api_inflow_analysis(
     .await
     .unwrap_or_default();
 
+    Json(RdInflowResult::Ok(build_inflow_response(
+        RdInflowInputs {
+            prefecture: pref,
+            municipality: muni,
+            citycode: code,
+            year,
+        },
+        &rows,
+    )))
+}
+
+/// Panel 3 の成功応答を組み立てる (DB 取得後の計算部分。純粋関数)。
+fn build_inflow_response(inputs: RdInflowInputs, rows: &[Row]) -> RdInflowResponse {
     let total: f64 = rows
         .iter()
         .map(|r| crate::handlers::helpers::get_f64(r, "total_population"))
         .sum();
 
-    let mut breakdown: Vec<Value> = Vec::with_capacity(4);
-    for r in &rows {
+    let mut breakdown: Vec<RdInflowBreakdownItem> = Vec::with_capacity(4);
+    for r in rows {
         let from_area = crate::handlers::helpers::get_i64(r, "from_area");
         let pop = crate::handlers::helpers::get_f64(r, "total_population");
         let share = if total > 0.0 { pop / total } else { 0.0 };
-        breakdown.push(json!({
-            "from_area": from_area,
-            "area_name": fft::from_area_label(from_area),
-            "short_name": fft::from_area_short_label(from_area),
-            "population": pop,
-            "share": share,
-        }));
+        breakdown.push(RdInflowBreakdownItem {
+            from_area,
+            area_name: fft::from_area_label(from_area).to_string(),
+            short_name: fft::from_area_short_label(from_area).to_string(),
+            population: pop,
+            share,
+        });
     }
 
     let so_what = build_inflow_so_what(&breakdown, total);
 
-    Json(json!({
-        "panel": "inflow_analysis",
-        "inputs": {
-            "prefecture": pref,
-            "municipality": muni,
-            "citycode": code,
-            "year": year,
+    RdInflowResponse {
+        panel: "inflow_analysis".to_string(),
+        inputs,
+        breakdown,
+        total_population: total,
+        so_what,
+        data_warning: INFLOW_DATA_WARNING.to_string(),
+        notes: RdInflowNotes {
+            hw_scope: HW_SCOPE_NOTE.to_string(),
+            causation: CAUSATION_NOTE.to_string(),
+            data_source: "国土交通省 全国の人流オープンデータ（Agoop社提供）v2_flow_fromto_city"
+                .to_string(),
+            method: "平日昼(dayflag=1, timezone=0) の年合計。from_area は 4 区分（Agoop 地方ブロック粒度）。".to_string(),
         },
-        "breakdown": breakdown,
-        "total_population": total,
-        "so_what": so_what,
-        "data_warning": INFLOW_DATA_WARNING,
-        "notes": {
-            "hw_scope": HW_SCOPE_NOTE,
-            "causation": CAUSATION_NOTE,
-            "data_source": "国土交通省 全国の人流オープンデータ（Agoop社提供）v2_flow_fromto_city",
-            "method": "平日昼(dayflag=1, timezone=0) の年合計。from_area は 4 区分（Agoop 地方ブロック粒度）。",
-        },
-    }))
+    }
 }
 
-fn build_inflow_so_what(breakdown: &[Value], total: f64) -> String {
+/// 指定区分 (`from_area`) の最初の要素の share。無ければ 0。
+///
+/// 旧実装は `json!` 化した値から `as_f64()` で読んでいたため、非有限値 (NaN/inf) は
+/// JSON の null になり 0 扱いだった。その挙動を保つため非有限値も 0 にする。
+fn inflow_share_of(breakdown: &[RdInflowBreakdownItem], from_area: i64) -> f64 {
+    breakdown
+        .iter()
+        .find(|b| b.from_area == from_area)
+        .map(|b| b.share)
+        .filter(|s| s.is_finite())
+        .unwrap_or(0.0)
+}
+
+fn build_inflow_so_what(breakdown: &[RdInflowBreakdownItem], total: f64) -> String {
     if total <= 0.0 {
         return "該当市区町村の流入データが未投入（83% 投入済のうち残り 17% に該当する可能性）。\
                 別エリアで再試行してください。"
@@ -618,18 +886,10 @@ fn build_inflow_so_what(breakdown: &[Value], total: f64) -> String {
     }
 
     // 自市区町村率
-    let same_city = breakdown
-        .iter()
-        .find(|v| v["from_area"].as_i64() == Some(0))
-        .and_then(|v| v["share"].as_f64())
-        .unwrap_or(0.0);
+    let same_city = inflow_share_of(breakdown, 0);
 
     // 異地方率
-    let far_area = breakdown
-        .iter()
-        .find(|v| v["from_area"].as_i64() == Some(3))
-        .and_then(|v| v["share"].as_f64())
-        .unwrap_or(0.0);
+    let far_area = inflow_share_of(breakdown, 3);
 
     if same_city > 0.8 {
         format!(
@@ -648,31 +908,26 @@ fn build_inflow_so_what(breakdown: &[Value], total: f64) -> String {
             "同市区町村 {:.0}% + 同県別市 {:.0}% が中心。通勤圏内採用が主軸となる傾向。\
              県内他市区町村からの通勤訴求を推奨。",
             same_city * 100.0,
-            breakdown
-                .iter()
-                .find(|v| v["from_area"].as_i64() == Some(1))
-                .and_then(|v| v["share"].as_f64())
-                .unwrap_or(0.0)
-                * 100.0
+            inflow_share_of(breakdown, 1) * 100.0
         )
     }
-}
-
-// ========== 共通 ==========
-
-fn error_body(msg: &str) -> Value {
-    json!({
-        "error": msg,
-        "notes": {
-            "hw_scope": HW_SCOPE_NOTE,
-            "causation": CAUSATION_NOTE,
-        },
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, Value};
+
+    /// テスト用の inflow 内訳要素 (area_name 等は so_what に使わないので空)。
+    fn item(from_area: i64, share: f64, population: f64) -> RdInflowBreakdownItem {
+        RdInflowBreakdownItem {
+            from_area,
+            area_name: String::new(),
+            short_name: String::new(),
+            population,
+            share,
+        }
+    }
 
     #[test]
     fn classify_difficulty_no_data() {
@@ -757,10 +1012,10 @@ mod tests {
     fn inflow_so_what_local_dominant() {
         // from_area=0 が 90% を占める（同市区町村内完結型）
         let breakdown = vec![
-            json!({"from_area": 0, "share": 0.9, "population": 9000.0}),
-            json!({"from_area": 1, "share": 0.05, "population": 500.0}),
-            json!({"from_area": 2, "share": 0.03, "population": 300.0}),
-            json!({"from_area": 3, "share": 0.02, "population": 200.0}),
+            item(0, 0.9, 9000.0),
+            item(1, 0.05, 500.0),
+            item(2, 0.03, 300.0),
+            item(3, 0.02, 200.0),
         ];
         let s = build_inflow_so_what(&breakdown, 10000.0);
         assert!(s.contains("地域限定"));
@@ -771,18 +1026,415 @@ mod tests {
     fn inflow_so_what_wide_area() {
         // from_area=3 が 20% → 異地方流入の広域型
         let breakdown = vec![
-            json!({"from_area": 0, "share": 0.4, "population": 4000.0}),
-            json!({"from_area": 1, "share": 0.2, "population": 2000.0}),
-            json!({"from_area": 2, "share": 0.2, "population": 2000.0}),
-            json!({"from_area": 3, "share": 0.2, "population": 2000.0}),
+            item(0, 0.4, 4000.0),
+            item(1, 0.2, 2000.0),
+            item(2, 0.2, 2000.0),
+            item(3, 0.2, 2000.0),
         ];
         let s = build_inflow_so_what(&breakdown, 10000.0);
         assert!(s.contains("広域採用ポテンシャル"));
     }
 
+    // ========================================================================
+    // Phase 1A-1: struct 置き換え前の json!() との等価テスト
+    // 旧 json!() 式はそのまま `legacy_*` に残し、同じ入力の出力と文字列一致を見る。
+    // ========================================================================
+
+    /// 置き換え前の `error_body` (式はそのまま残す)
+    fn legacy_error_body(msg: &str) -> Value {
+        json!({
+            "error": msg,
+            "notes": {
+                "hw_scope": HW_SCOPE_NOTE,
+                "causation": CAUSATION_NOTE,
+            },
+        })
+    }
+
+    /// 置き換え前の Panel 1 成功時の組み立て (json!() 式はそのまま)
+    #[allow(clippy::too_many_arguments)]
+    fn legacy_difficulty_json(
+        job_type: String,
+        emp_type: String,
+        pref: String,
+        muni: String,
+        citycode: Option<i64>,
+        hw_count: i64,
+        day_population: f64,
+        night_population: f64,
+        national_hw: i64,
+    ) -> Value {
+        let (score, population, day_night_ratio, is_tourist_area) =
+            compute_difficulty_score_with_tourist_correction(
+                hw_count,
+                day_population,
+                night_population,
+            );
+        let relative_vs_national = if national_hw > 0 {
+            (hw_count as f64) / (national_hw as f64)
+        } else {
+            0.0
+        };
+        let (rank, rank_label, so_what) = classify_difficulty(score, hw_count, population);
+        let calculation_note = if is_tourist_area {
+            "score = (HW該当求人件数) ÷ (Agoop平日深夜滞在人口=居住人口代理) × 10,000 [F1 #3: 観光地補正適用、平日昼滞在は外来流入で膨張するため不採用]"
+        } else {
+            "score = (HW該当求人件数) ÷ (Agoop平日昼滞在人口) × 10,000"
+        };
+        let tourist_note = if is_tourist_area {
+            Some(format!(
+                "※観光地・繁華街判定（昼夜比 {:.2} > {:.1}）。昼間滞在膨張による『穴場』誤判定を避けるため、居住人口側で再算出した値です。",
+                day_night_ratio, TOURIST_AREA_DAYNIGHT_RATIO
+            ))
+        } else {
+            None
+        };
+        json!({
+            "panel": "difficulty_score",
+            "inputs": {
+                "job_type": job_type,
+                "emp_type": emp_type,
+                "prefecture": pref,
+                "municipality": muni,
+                "citycode": citycode,
+            },
+            "metrics": {
+                "hw_count": hw_count,
+                "population": population,
+                "day_population": day_population,
+                "night_population": night_population,
+                "day_night_ratio": day_night_ratio,
+                "is_tourist_area": is_tourist_area,
+                "score_per_10k": score,
+                "national_hw_count": national_hw,
+                "area_share_of_national": relative_vs_national,
+            },
+            "rank": rank,
+            "rank_label": rank_label,
+            "so_what": so_what,
+            "tourist_correction_note": tourist_note,
+            "notes": {
+                "hw_scope": HW_SCOPE_NOTE,
+                "causation": CAUSATION_NOTE,
+                "calculation": calculation_note,
+                "population_year": DEFAULT_AGOOP_YEAR,
+                "tourist_threshold": TOURIST_AREA_DAYNIGHT_RATIO,
+            },
+        })
+    }
+
+    /// 置き換え前の Panel 2 成功時の組み立て
+    fn legacy_talent_pool_json(
+        pref: String,
+        muni: String,
+        code: i64,
+        year: i32,
+        day: f64,
+        night: f64,
+    ) -> Value {
+        let commuter_inflow = day - night;
+        let day_night_ratio = if night > 0.0 { day / night } else { 0.0 };
+        let so_what = build_talent_pool_so_what(day, night, commuter_inflow, day_night_ratio);
+        json!({
+            "panel": "talent_pool",
+            "inputs": {
+                "prefecture": pref,
+                "municipality": muni,
+                "citycode": code,
+                "year": year,
+            },
+            "metrics": {
+                "day_population": day,
+                "night_population": night,
+                "commuter_inflow": commuter_inflow,
+                "day_night_ratio": day_night_ratio,
+            },
+            "so_what": so_what,
+            "notes": {
+                "hw_scope": HW_SCOPE_NOTE,
+                "causation": CAUSATION_NOTE,
+                "data_source": "国土交通省 全国の人流オープンデータ（Agoop社提供）mesh1km",
+                "method": "平日 昼(timezone=0)・深夜(timezone=1) を SUM / 月数で月平均化。集計値(2) は double count 防止のため不使用。",
+            },
+        })
+    }
+
+    /// 置き換え前の Panel 3 の so_what (Value 走査版。式はそのまま)
+    fn legacy_inflow_so_what(breakdown: &[Value], total: f64) -> String {
+        if total <= 0.0 {
+            return "該当市区町村の流入データが未投入（83% 投入済のうち残り 17% に該当する可能性）。\
+                    別エリアで再試行してください。"
+                .to_string();
+        }
+        let same_city = breakdown
+            .iter()
+            .find(|v| v["from_area"].as_i64() == Some(0))
+            .and_then(|v| v["share"].as_f64())
+            .unwrap_or(0.0);
+        let far_area = breakdown
+            .iter()
+            .find(|v| v["from_area"].as_i64() == Some(3))
+            .and_then(|v| v["share"].as_f64())
+            .unwrap_or(0.0);
+        if same_city > 0.8 {
+            format!(
+                "流入の {:.0}% が同市区町村内。採用は地域限定求人で完結する可能性が高い傾向。\
+                 広域求人媒体への出稿は費用対効果が低下する見込み。",
+                same_city * 100.0
+            )
+        } else if far_area > 0.15 {
+            format!(
+                "異地方からの流入が {:.0}%。広域採用ポテンシャルがあるエリアのため、\
+                 全国媒体・引越し支援の訴求で応募母集団を広げられる可能性。",
+                far_area * 100.0
+            )
+        } else {
+            format!(
+                "同市区町村 {:.0}% + 同県別市 {:.0}% が中心。通勤圏内採用が主軸となる傾向。\
+                 県内他市区町村からの通勤訴求を推奨。",
+                same_city * 100.0,
+                breakdown
+                    .iter()
+                    .find(|v| v["from_area"].as_i64() == Some(1))
+                    .and_then(|v| v["share"].as_f64())
+                    .unwrap_or(0.0)
+                    * 100.0
+            )
+        }
+    }
+
+    /// 置き換え前の Panel 3 成功時の組み立て
+    fn legacy_inflow_json(pref: String, muni: String, code: i64, year: i32, rows: &[Row]) -> Value {
+        let total: f64 = rows
+            .iter()
+            .map(|r| crate::handlers::helpers::get_f64(r, "total_population"))
+            .sum();
+        let mut breakdown: Vec<Value> = Vec::with_capacity(4);
+        for r in rows {
+            let from_area = crate::handlers::helpers::get_i64(r, "from_area");
+            let pop = crate::handlers::helpers::get_f64(r, "total_population");
+            let share = if total > 0.0 { pop / total } else { 0.0 };
+            breakdown.push(json!({
+                "from_area": from_area,
+                "area_name": fft::from_area_label(from_area),
+                "short_name": fft::from_area_short_label(from_area),
+                "population": pop,
+                "share": share,
+            }));
+        }
+        let so_what = legacy_inflow_so_what(&breakdown, total);
+        json!({
+            "panel": "inflow_analysis",
+            "inputs": {
+                "prefecture": pref,
+                "municipality": muni,
+                "citycode": code,
+                "year": year,
+            },
+            "breakdown": breakdown,
+            "total_population": total,
+            "so_what": so_what,
+            "data_warning": INFLOW_DATA_WARNING,
+            "notes": {
+                "hw_scope": HW_SCOPE_NOTE,
+                "causation": CAUSATION_NOTE,
+                "data_source": "国土交通省 全国の人流オープンデータ（Agoop社提供）v2_flow_fromto_city",
+                "method": "平日昼(dayflag=1, timezone=0) の年合計。from_area は 4 区分（Agoop 地方ブロック粒度）。",
+            },
+        })
+    }
+
+    fn s<T: Serialize>(v: &T) -> String {
+        serde_json::to_string(v).unwrap()
+    }
+
+    #[test]
+    fn error_response_matches_legacy_json() {
+        for msg in ["hellowork.db 未接続", "", "市区町村が指定されていません"] {
+            assert_eq!(
+                s(&RdDifficultyResult::Err(RdErrorResponse::new(msg))),
+                s(&legacy_error_body(msg))
+            );
+        }
+    }
+
+    #[test]
+    fn difficulty_response_matches_legacy_json() {
+        // (hw, day, night, national, citycode): 通常 / 観光地補正 / 人口 0 / 件数 0 / 小数 / 夜のみ
+        let cases: Vec<(i64, f64, f64, i64, Option<i64>)> = vec![
+            (50, 100_000.0, 90_000.0, 5000, Some(3201)),
+            (20, 30_000.0, 10_000.0, 100, Some(13101)),
+            (10, 0.0, 0.0, 0, None),
+            (0, 12_345.5, 6_000.25, 10, Some(1100)),
+            (7, 0.0, 8_000.0, 3, Some(2201)),
+            (1, 250_000.0, 0.0, 999_999, None),
+            (3, 1234.567, 1234.5, 7, Some(4202)),
+        ];
+        for (i, (hw, day, night, nat, code)) in cases.into_iter().enumerate() {
+            let (pref, muni) = if i % 2 == 0 {
+                ("岩手県", "盛岡市")
+            } else {
+                ("", "")
+            };
+            let new = RdDifficultyResult::Ok(build_difficulty_response(
+                RdDifficultyInputs {
+                    job_type: "飲食業".to_string(),
+                    emp_type: String::new(),
+                    prefecture: pref.to_string(),
+                    municipality: muni.to_string(),
+                    citycode: code,
+                },
+                hw,
+                day,
+                night,
+                nat,
+            ));
+            let legacy = legacy_difficulty_json(
+                "飲食業".to_string(),
+                String::new(),
+                pref.to_string(),
+                muni.to_string(),
+                code,
+                hw,
+                day,
+                night,
+                nat,
+            );
+            assert_eq!(s(&new), s(&legacy), "case {i}");
+        }
+    }
+
+    #[test]
+    fn talent_pool_response_matches_legacy_json() {
+        let cases: Vec<(f64, f64)> = vec![
+            (13_000.0, 10_000.0),
+            (8_000.0, 10_000.0),
+            (10_000.0, 10_000.0),
+            (0.0, 0.0),
+            (5_000.5, 0.0),
+            (0.0, 4_000.25),
+        ];
+        for (i, (day, night)) in cases.into_iter().enumerate() {
+            let new = RdTalentPoolResult::Ok(build_talent_pool_response(
+                RdTalentPoolInputs {
+                    prefecture: "東京都".to_string(),
+                    municipality: String::new(),
+                    citycode: 13101,
+                    year: 2021,
+                },
+                day,
+                night,
+            ));
+            let legacy = legacy_talent_pool_json(
+                "東京都".to_string(),
+                String::new(),
+                13101,
+                2021,
+                day,
+                night,
+            );
+            assert_eq!(s(&new), s(&legacy), "case {i}");
+        }
+    }
+
+    fn inflow_row(from_area: i64, pop: f64) -> Row {
+        let mut r = Row::new();
+        r.insert("from_area".to_string(), json!(from_area));
+        r.insert("total_population".to_string(), json!(pop));
+        r
+    }
+
+    #[test]
+    fn inflow_response_matches_legacy_json() {
+        let cases: Vec<Vec<Row>> = vec![
+            vec![],
+            vec![inflow_row(0, 0.0)],
+            vec![
+                inflow_row(0, 9000.0),
+                inflow_row(1, 500.0),
+                inflow_row(2, 300.0),
+                inflow_row(3, 200.0),
+            ],
+            vec![
+                inflow_row(0, 4000.0),
+                inflow_row(1, 2000.0),
+                inflow_row(2, 2000.0),
+                inflow_row(3, 2000.0),
+            ],
+            vec![inflow_row(1, 333.3), inflow_row(2, 100.1)],
+            vec![inflow_row(0, 1.0), inflow_row(3, 2.0), inflow_row(7, 3.0)],
+        ];
+        for (i, rows) in cases.iter().enumerate() {
+            let new = RdInflowResult::Ok(build_inflow_response(
+                RdInflowInputs {
+                    prefecture: "岩手県".to_string(),
+                    municipality: "盛岡市".to_string(),
+                    citycode: 3201,
+                    year: 2021,
+                },
+                rows,
+            ));
+            let legacy =
+                legacy_inflow_json("岩手県".to_string(), "盛岡市".to_string(), 3201, 2021, rows);
+            assert_eq!(s(&new), s(&legacy), "case {i}");
+        }
+    }
+
+    #[test]
+    fn inflow_so_what_matches_legacy_on_value_breakdown() {
+        let shares: Vec<Vec<(i64, f64)>> = vec![
+            vec![(0, 0.9), (1, 0.05), (2, 0.03), (3, 0.02)],
+            vec![(0, 0.4), (1, 0.2), (2, 0.2), (3, 0.2)],
+            vec![(1, 0.5), (2, 0.5)],
+            vec![(0, 0.8), (3, 0.15)],
+            vec![],
+        ];
+        for sh in shares {
+            let items: Vec<RdInflowBreakdownItem> =
+                sh.iter().map(|(a, sh)| item(*a, *sh, 100.0)).collect();
+            let values: Vec<Value> = sh
+                .iter()
+                .map(|(a, sh)| json!({"from_area": a, "share": sh, "population": 100.0}))
+                .collect();
+            for total in [0.0, 100.0] {
+                assert_eq!(
+                    build_inflow_so_what(&items, total),
+                    legacy_inflow_so_what(&values, total)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ts_decls_have_main_fields() {
+        let cfg = crate::handlers::recruitment_diag::types::ts_config();
+        let d = RdDifficultyResult::decl(&cfg);
+        assert!(d.contains("RdDifficultyResponse | RdErrorResponse"), "{d}");
+        let d = RdDifficultyResponse::decl(&cfg);
+        assert!(d.contains("rank: number"), "{d}");
+        assert!(d.contains("tourist_correction_note: string | null"), "{d}");
+        let d = RdDifficultyInputs::decl(&cfg);
+        assert!(d.contains("citycode: number | null"), "{d}");
+        let d = RdDifficultyMetrics::decl(&cfg);
+        assert!(d.contains("hw_count: number"), "{d}");
+        assert!(d.contains("is_tourist_area: boolean"), "{d}");
+        let d = RdTalentPoolResult::decl(&cfg);
+        assert!(d.contains("RdTalentPoolResponse | RdErrorResponse"), "{d}");
+        let d = RdTalentPoolMetrics::decl(&cfg);
+        assert!(d.contains("commuter_inflow: number"), "{d}");
+        let d = RdInflowResult::decl(&cfg);
+        assert!(d.contains("RdInflowResponse | RdErrorResponse"), "{d}");
+        let d = RdInflowResponse::decl(&cfg);
+        assert!(d.contains("breakdown: Array<RdInflowBreakdownItem>"), "{d}");
+        assert!(d.contains("total_population: number"), "{d}");
+        let d = RdInflowBreakdownItem::decl(&cfg);
+        assert!(d.contains("from_area: number"), "{d}");
+        assert!(d.contains("share: number"), "{d}");
+    }
+
     #[test]
     fn error_body_contains_notes() {
-        let b = error_body("test");
+        let b = serde_json::to_value(RdErrorResponse::new("test")).unwrap();
         assert_eq!(b["error"], "test");
         assert!(b["notes"]["hw_scope"].as_str().unwrap().contains("HW"));
     }

@@ -99,6 +99,7 @@ fn sample_aggregation() -> SurveyAggregation {
         card_briefs: vec![],
         // 2026-07-28: 市区町村在否集合 (0件ゲートの truncate 非依存判定用)
         municipality_presence: Default::default(),
+        competitor: Default::default(),
     }
 }
 
