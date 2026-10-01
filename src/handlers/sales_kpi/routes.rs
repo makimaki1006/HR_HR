@@ -24,13 +24,14 @@ use serde_json::{json, Value};
 use tower_sessions::Session;
 
 use crate::handlers::call_quality::routes::{cq_state, CqError};
+use crate::handlers::cs_dashboard::routes::hubspot_portal_id;
 use crate::AppState;
 use crate::SESSION_USER_KEY;
 
 use super::{
     classify, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_of, kaden_period,
-    kettei_days_of, list_stock_of, load, members_of, person_of, snapshots_of, Counts, Deal,
-    DealRow, Kind, Person, Sheets, KADEN_CLASSES, KETTEI_COLS, SHEET_META,
+    kettei_days_of, list_stock_of, load, members_of, person_of, snapshots_of, CardSrc, Counts,
+    Deal, DealRow, Kind, Person, Sheets, CARD_KEYS, KADEN_CLASSES, KETTEI_COLS, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -222,71 +223,91 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         })
         .collect();
 
-    for deal in &month {
-        let team = note(&mut people, &members, &deal.owner);
+    // 🔴 行を先に作り、件数はその行と `CARD_KEYS`（カードの述語の表）から数える。
+    //    カードの数字と内訳（`card_deals`）が同じ行・同じ述語から出るので、ずれない。
+    //    行は `keep_counted` 後の材料から作る（集計除外はここで落ちている。シートを読み直さない）。
+    //
+    //    BPO の窓はカードごとに違う:
+    //      ③系（②④⑥⑤ を含む）と ⑨ は前月＋当月（`bpo_of`）、
+    //      ① は当月に確定したアポなので当月の取得日だけ。
+    //    ④ は日付で切らない。`classify` の結果（これから以外）で切る。
+    let portal = hubspot_portal_id();
+    let pool_rows: Vec<DealRow> = month
+        .iter()
+        .map(|d| {
+            let (kind, why) = classify(d, &cutoff);
+            let mut row = deal_row(d, kind, why, &members, bpo_of(d), &portal);
+            row.anq = Some(d.has_survey);
+            row
+        })
+        .collect();
+    let apo_rows: Vec<DealRow> = apo_deals
+        .iter()
+        .map(|d| {
+            deal_row(
+                d,
+                Kind::Unknown,
+                String::new(),
+                &members,
+                is_bpo(d, &month_lo, &month_hi),
+                &portal,
+            )
+        })
+        .collect();
+    let cyomi_rows: Vec<DealRow> = cyomi_deals
+        .iter()
+        .map(|d| {
+            deal_row(
+                d,
+                Kind::Unknown,
+                String::new(),
+                &members,
+                bpo_of(d),
+                &portal,
+            )
+        })
+        .collect();
 
-        let (kind, _) = classify(deal, &cutoff);
-        let bpo = bpo_of(deal);
-        add(&team, &deal.owner, "pool");
-        add(&team, &deal.owner, kind.label());
-        if bpo {
-            add(&team, &deal.owner, "bpo_pool");
-            add(&team, &deal.owner, &format!("bpo_{}", kind.label()));
-            *bpo_total.entry("pool".into()).or_insert(0) += 1;
-            *bpo_total.entry(kind.label().into()).or_insert(0) += 1;
-        }
-
-        // ⑤ アンケートの分母は **④「日が過ぎた分」と同じ**にする（2026-09-10 ユーザー指示）。
-        //    ＝ これから以外（実施・未実施・未処理・要判定）。
-        //
-        //    以前は「商談予定日時 < 今日」という**日付**で切っていた。だが日付で切ると、
-        //    **予定日はまだ先なのに、もう実施した／やらないと決まったもの**が分母から漏れる。
-        //    2026-09-10 実測で48件（実施32・未実施16、予定日 9/10〜9/30、うち20件は回収済み）。
-        //    これらはもう回収する時間が無いので、分母に入れるのが正しい。
-        //
-        //    🔴 「これから」を分母に入れてはいけない。まだ回収する時間があるものまで
-        //       「未回収」に見えてしまう（2026-09-04 ユーザー指示。こちらは今も有効）。
-        if kind != Kind::Upcoming {
-            add(&team, &deal.owner, "anq_den");
-            if bpo {
-                add(&team, &deal.owner, "bpo_anq_den");
-            }
-            if deal.has_survey {
-                add(&team, &deal.owner, "anq_num");
-                if bpo {
-                    add(&team, &deal.owner, "bpo_anq_num");
+    // ⑤ アンケートの分母は **④「日が過ぎた分」と同じ**にする（2026-09-10 ユーザー指示）。
+    //    ＝ これから以外（実施・未実施・未処理・要判定）。日付ではなく区分で切る
+    //    （予定日は先でも実施・未実施が決まった取引が 48 件あった）。
+    //    🔴 「これから」を分母に入れてはいけない（2026-09-04 ユーザー指示。今も有効）。
+    for (src, rows) in [
+        (CardSrc::Pool, &pool_rows),
+        (CardSrc::Apo, &apo_rows),
+        (CardSrc::Cyomi, &cyomi_rows),
+    ] {
+        for r in rows {
+            note(&mut people, &members, &r.owner);
+            for c in CARD_KEYS.iter().filter(|c| c.src == src && (c.pred)(r)) {
+                add(&r.team, &r.owner, c.key);
+                if r.bpo {
+                    add(&r.team, &r.owner, c.bpo_key);
                 }
             }
         }
     }
-
-    // ---- ① 取ったアポ --------------------------------------------------
-    for deal in apo_deals {
-        let team = note(&mut people, &members, &deal.owner);
-        add(&team, &deal.owner, "apo");
-        // ① は当月に確定したアポなので、BPO 判定も当月の取得日に限る
-        if is_bpo(&deal, &month_lo, &month_hi) {
-            add(&team, &deal.owner, "bpo_apo");
+    for r in &pool_rows {
+        if r.bpo {
+            *bpo_total.entry("pool".into()).or_insert(0) += 1;
+            *bpo_total.entry(r.kind.into()).or_insert(0) += 1;
         }
     }
 
-    // ---- ⑨ Cヨミ --------------------------------------------------------
+    // ---- ⑨ Cヨミのまま置きっぱなし --------------------------------------
     let mut cyomi_stale: Vec<DealRow> = Vec::new();
-    for deal in cyomi_deals {
+    for deal in &cyomi_deals {
         let team = note(&mut people, &members, &deal.owner);
-        add(&team, &deal.owner, "cyomi");
-        if bpo_of(&deal) {
-            add(&team, &deal.owner, "bpo_cyomi");
-        }
         if let Some(days) = days_since(&deal.entered_c, today) {
             if days >= super::CYOMI_STALE_DAYS {
                 add(&team, &deal.owner, "cyomi_stale");
                 let mut row = deal_row(
-                    &deal,
+                    deal,
                     Kind::Unknown,
                     "Cヨミのまま".into(),
                     &members,
-                    bpo_of(&deal),
+                    bpo_of(deal),
+                    &portal,
                 );
                 row.days = Some(days);
                 cyomi_stale.push(row);
@@ -310,6 +331,7 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
                 "アポ日確定のまま".into(),
                 &members,
                 bpo_of(d),
+                &portal,
             )
         })
         .collect();
@@ -322,7 +344,7 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
             .filter(|d| d.scheduled.as_str() >= lo && d.scheduled.as_str() < hi)
             .map(|d| {
                 let (kind, why) = classify(d, &cutoff);
-                let mut row = deal_row(d, kind, why, &members, bpo_of(d));
+                let mut row = deal_row(d, kind, why, &members, bpo_of(d), &portal);
                 row.past = Some(d.scheduled.as_str() < cutoff.as_str());
                 row.anq = Some(d.has_survey);
                 row
@@ -512,6 +534,14 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         "next_week_deals": next_week,
         "anq_missing": anq_missing,
         "cyomi_stale": cyomi_stale,
+        // 「今月の成績」カードの内訳の行。件数（by_team / by_person）と同じ行・同じ述語から作る。
+        // pool = ③ 当月の母集団（②④⑥⑤ はここを kind / anq で切る）、
+        // apo = ① アポシートの全行、cyomi = ⑨ Cヨミシートの全行（いずれも集計除外後）。
+        "card_deals": {
+            "pool": pool_rows,
+            "apo": apo_rows,
+            "cyomi": cyomi_rows,
+        },
         // 商談の集計から外した件数。内訳は HubSpotチーム 別。
         // 🔴 チーム名はシート（KPI営業_集計除外）由来で、ここには書かれていない。
         "excluded": dropped,
