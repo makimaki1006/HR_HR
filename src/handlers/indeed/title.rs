@@ -59,53 +59,66 @@ pub struct TitleQuery {
 /// `regional_analysis::fetch::query_external` は Turso が空なら
 /// ローカルの hellowork.db に落ちる作りになっている。この機能では
 /// ハローワークのデータを入力に使わない方針なので、Turso だけを見る。
-/// 取れなければ列を「—」にするだけで、画面は成立する。
+/// DBが取得できなくても公式CSVの施行済み時間額を使用する。
 ///
 /// 出どころ: `v2_external_minimum_wage(prefecture, hourly_min_wage, fiscal_year)`
 /// （`src/handlers/analysis/fetch/subtab5_phase4.rs:74` と同じ表）
 struct MinWages {
     by_pref: std::collections::HashMap<String, f64>,
     fiscal_year: Option<i64>,
+    rates: std::collections::HashMap<String, crate::minimum_wage::Rate>,
 }
 
 fn load_min_wages(state: &AppState) -> MinWages {
-    let mut by_pref = std::collections::HashMap::new();
-    let mut fiscal_year = None;
-    let Some(tdb) = state.turso_db.as_ref() else {
-        return MinWages {
-            by_pref,
-            fiscal_year,
+    let rows = state
+        .turso_db
+        .as_ref()
+        .map(|tdb| {
+            tdb.query("SELECT * FROM v2_external_minimum_wage", &[])
+                .unwrap_or_else(|e| {
+                    tracing::warn!("最低賃金DB参照失敗、公式CSVを使用: {e}");
+                    Vec::new()
+                })
+        })
+        .unwrap_or_default();
+    min_wages_from_rows(&rows)
+}
+
+fn min_wages_from_rows(rows: &[std::collections::HashMap<String, serde_json::Value>]) -> MinWages {
+    let resolved = crate::minimum_wage::resolved_rows(rows, "");
+    let mut rates = std::collections::HashMap::new();
+    for row in &resolved {
+        let Some(pref) = row.get("prefecture").and_then(|v| v.as_str()) else {
+            continue;
         };
-    };
-    let rows = match tdb.query(
-        "SELECT prefecture, hourly_min_wage, fiscal_year FROM v2_external_minimum_wage",
-        &[],
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!("最低賃金を引けませんでした: {e}");
-            return MinWages {
-                by_pref,
-                fiscal_year,
-            };
-        }
-    };
-    for r in &rows {
-        let pref = r
-            .get("prefecture")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if let Some(w) = r.get("hourly_min_wage").and_then(|v| v.as_f64()) {
-            by_pref.insert(pref, w);
-        }
-        if fiscal_year.is_none() {
-            fiscal_year = r.get("fiscal_year").and_then(|v| v.as_i64());
+        if let Some(rate) = crate::minimum_wage::resolve(pref, Some(row)) {
+            rates.insert(pref.to_string(), rate);
         }
     }
+    let years: std::collections::BTreeSet<_> = rates.values().map(|r| r.fiscal_year).collect();
     MinWages {
-        by_pref,
-        fiscal_year,
+        by_pref: rates
+            .iter()
+            .map(|(p, r)| (p.clone(), r.hourly_min_wage as f64))
+            .collect(),
+        fiscal_year: if years.len() == 1 {
+            years.first().copied()
+        } else {
+            None
+        },
+        rates,
+    }
+}
+
+fn minimum_wage_period(w: &MinWages) -> String {
+    let label = match w.fiscal_year {
+        Some(year) => format!("{year} 年度"),
+        None => "都道府県ごとに施行済みの公表値（年度混在）".to_string(),
+    };
+    if w.rates.is_empty() {
+        label
+    } else {
+        format!("{label}・{} 時点", crate::minimum_wage::japan_today())
     }
 }
 
@@ -795,10 +808,7 @@ fn pref_table(d: &TitleDetail, w: &MinWages) -> String {
                 "　最低賃金は{y}の地域別最低賃金（時間額）です。\
                  「差」は掲示時給の中央値からこれを引いたもので、\
                  その県で相場が下限からどれだけ離れているかを見るためのものです。",
-                y = match w.fiscal_year {
-                    Some(y) => format!("{y} 年度"),
-                    None => "公表値".to_string(),
-                }
+                y = minimum_wage_period(w)
             )
         }
     );
@@ -877,7 +887,13 @@ fn pref_table(d: &TitleDetail, w: &MinWages) -> String {
                     "<td class=\"{TD} tabular-nums text-slate-400\" style=\"text-align:right\">{m}</td>\
                      <td class=\"{TD} tabular-nums {gc}\" style=\"text-align:right\">{g}</td>",
                     m = match mw {
-                        Some(v) => format!("{} 円", num_opt(Some(v))),
+                        Some(v) => {
+                            let metadata = w.rates.get(&p.prefecture).map(|r| format!(
+                                "<small class=\"block text-xs\" data-wage-source=\"{}\">{} 年度・{} 施行 <a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">出典</a></small>",
+                                esc(&r.source), r.fiscal_year, r.effective_date, esc(&r.source_url)
+                            )).unwrap_or_default();
+                            format!("{} 円{metadata}", num_opt(Some(v)))
+                        },
                         None => "—".to_string(),
                     },
                     gc = dir_class(gap, true),
@@ -1645,6 +1661,7 @@ mod tests {
             .map(|(p, v)| (p.to_string(), v))
             .collect(),
             fiscal_year: Some(2025),
+            rates: Default::default(),
         };
         let h = wage_gap_chart(&d, &w);
         let v = chart_config(&h);
@@ -1698,6 +1715,7 @@ mod tests {
         let w = MinWages {
             by_pref: [("東京都".to_string(), 1226.0)].into_iter().collect(),
             fiscal_year: Some(2025),
+            rates: Default::default(),
         };
         let html = pref_table(&d, &w);
         assert!(html.contains("最低賃金"), "見出しに最低賃金が無い");
@@ -1713,6 +1731,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn minimum_wage_official_fallback_retains_all_prefectures_and_current_rate() {
+        let w = min_wages_from_rows(&[]);
+        assert_eq!(w.by_pref.len(), 47);
+        let expected =
+            crate::minimum_wage::official_at("東京都", crate::minimum_wage::japan_today()).unwrap();
+        assert_eq!(w.by_pref["東京都"], expected.hourly_min_wage as f64);
+        assert_eq!(w.rates["東京都"].source, "official_csv");
+        assert_eq!(w.rates["東京都"].effective_date, expected.effective_date);
+    }
+
+    #[test]
+    fn mixed_effective_years_show_prefectural_dates_and_sources() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        let rates: std::collections::HashMap<_, _> = ["東京都", "京都府"]
+            .into_iter()
+            .map(|p| {
+                (
+                    p.to_string(),
+                    crate::minimum_wage::official_at(p, date).unwrap(),
+                )
+            })
+            .collect();
+        let w = MinWages {
+            by_pref: rates
+                .iter()
+                .map(|(p, r)| (p.clone(), r.hourly_min_wage as f64))
+                .collect(),
+            fiscal_year: None,
+            rates,
+        };
+        let d = detail(vec![
+            row("東京都", Some(1545.0)),
+            row("京都府", Some(1200.0)),
+        ]);
+        let html = pref_table(&d, &w);
+        assert!(html.contains("年度混在"));
+        assert!(html.contains("1,280 円"));
+        assert!(html.contains("1,122 円"));
+        assert!(html.contains("2026 年度・2026-10-01 施行"));
+        assert!(html.contains("2025 年度・2025-11-21 施行"));
+        assert!(html.contains("official_csv"));
+        assert!(html.contains("出典</a>"));
+    }
+
     /// 最低賃金が引けないときは、列そのものを出さないこと。
     ///
     /// 空欄の列が並ぶより、無いほうが読みやすい。
@@ -1722,6 +1785,7 @@ mod tests {
         let w = MinWages {
             by_pref: Default::default(),
             fiscal_year: None,
+            rates: Default::default(),
         };
         let html = pref_table(&d, &w);
         assert!(!html.contains("最低賃金"), "引けていないのに列が出ている");
@@ -1737,6 +1801,7 @@ mod tests {
         let w = MinWages {
             by_pref: Default::default(),
             fiscal_year: None,
+            rates: Default::default(),
         };
         let html = pref_table(&d, &w);
         assert!(
@@ -2542,10 +2607,7 @@ fn wage_gap_chart(d: &TitleDetail, w: &MinWages) -> String {
          時給で出ている求人だけが対象で、月給・日給の求人は含みません。\n         {cover}</p>{chart}\
          <p class=\"text-slate-300 text-sm mt-2 leading-relaxed\">\
          いちばん開いているのは{t}（{tv} 円）です。{tail}</p></div>",
-        y = match w.fiscal_year {
-            Some(y) => format!("{y} 年度"),
-            None => "公表値".to_string(),
-        },
+        y = minimum_wage_period(w),
         chart = dumbbell_chart(
             &labels,
             &low,
@@ -3077,6 +3139,7 @@ mod detail_display_tests {
         let w = MinWages {
             by_pref: Default::default(),
             fiscal_year: None,
+            rates: Default::default(),
         };
         let h = render(
             &d,

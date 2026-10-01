@@ -8,6 +8,9 @@ pub mod call_quality;
 pub mod company;
 pub mod comparison;
 pub mod competitive;
+pub mod competitor;
+#[cfg(test)]
+mod competitor_tests;
 pub mod consult;
 pub mod cs_dashboard; // 2026-09-21: コンサルKPI。上の consult（商談準備レポート）とは別物
 pub mod demographics;

@@ -338,13 +338,16 @@ fn age_sort_key(label: &str) -> i64 {
 /// postings 由来の給与中央値を削除。最低賃金のみ表示。
 pub(crate) fn render_wage_comparison(filter: &RegionalFilter, cmp: &WageComparison) -> String {
     let scope = filter.scope_label();
-    let note = "出典: 厚生労働省 地域別最低賃金 (v2_external_minimum_wage、都道府県値)。最低賃金は都道府県単位の値であり、市区町村別の差はありません。";
+    let note = format!("出典: 厚生労働省 地域別最低賃金（{}）。{}年度・発効日 {}・基準日 {}。最低賃金は都道府県単位の値であり、市区町村別の差はありません。",
+        if cmp.source.as_deref() == Some("official_csv") { "公式公表値" } else { "外部統計DB" },
+        cmp.fiscal_year.map(|y|y.to_string()).unwrap_or_else(||"未取得".to_string()),
+        cmp.effective_date.as_deref().unwrap_or("未取得"), cmp.as_of);
     if !cmp.has_data {
         return wrap_panel_with_note(
             "地域別最低賃金",
             &scope,
             &no_data_external("最低賃金"),
-            note,
+            &note,
         );
     }
 
@@ -361,7 +364,7 @@ pub(crate) fn render_wage_comparison(filter: &RegionalFilter, cmp: &WageComparis
         min_wage = min_wage_str,
     );
 
-    wrap_panel_with_note("地域別最低賃金", &scope, &body, note)
+    wrap_panel_with_note("地域別最低賃金", &scope, &body, &note)
 }
 
 // ============================================================
@@ -817,6 +820,7 @@ mod tests {
         let cmp = WageComparison {
             hourly_min_wage: None,
             has_data: false,
+            ..Default::default()
         };
         let html = render_wage_comparison(&pref_filter(), &cmp);
         assert!(html.contains("該当するデータがありません"));
@@ -827,6 +831,7 @@ mod tests {
         let cmp = WageComparison {
             hourly_min_wage: Some(1113.0),
             has_data: true,
+            ..Default::default()
         };
         let html = render_wage_comparison(&pref_filter(), &cmp);
         assert!(html.contains("1,113円/時"));
@@ -840,6 +845,7 @@ mod tests {
         let cmp = WageComparison {
             hourly_min_wage: Some(1000.0),
             has_data: true,
+            ..Default::default()
         };
         let html = render_wage_comparison(&pref_filter(), &cmp);
         for banned in ["劣位", "集中", "縮小"] {
