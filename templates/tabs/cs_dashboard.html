@@ -2897,7 +2897,9 @@ function kpi(label, big, fine, kind, act) {
   const cls = "kpi" + (kind ? " is-" + kind : "");
   if (!act) return '<div class="' + cls + '">' + inner + "</div>";
   /* consultant: 帯で絞るときに担当も添える（今日動く先で担当を選んでいるとき。数字と行き先の母集団を揃える） */
-  const to = (act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"' : "") +
+  /* flag: 名札で絞って案件一覧を開く（今日の札「接触の記録が無い」。09 の 3章 1 の 2） */
+  const to = (act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"'
+    : act.flag ? ' data-flag="' + esc(act.flag) + '"' : "") +
     (act.consultant ? ' data-consultant="' + esc(act.consultant) + '"' : "");
   return '<button type="button" class="' + cls + '"' + to + ">" + inner +
     '<span class="act">' + esc(act.text || "一覧を見る") + "</span></button>";
@@ -3849,13 +3851,19 @@ function renderResults(D) {
         下の節で同じ文をもう一度読ませる（段A の統合 2026-09-29、見張りが落ちた）。画面の問いは全体を 1 つで言う */
   let h = sec("問い", "全体で、契約の回数・成果・立ち上がりはどう動いているか。本部へ持っていく材料は何か") +
     '<div class="lede">月に1回、全体を確かめる画面です。<b>答え（継続回数ごとの解約率）を先頭に</b>置き、' +
-    "その下に成果とリスク・顧客の様子・立ち上がり・本部アプローチを続けています。人ごとの数字はこの画面にありません。</div>";
-  h += pageToc([["rs-renewal", "継続回数と解約率"], ["rs-outcome", "成果とリスク"], ["rs-focus", "NPS・採用単価・MTG の記録・LTV"],
-    ["rs-rampup", "立ち上がり"], ["rs-hq", "本部アプローチ"], ["rs-act", "手を打つ先"]],
+    "その下に目標に対する進捗・立ち上がり・リスク・顧客の様子・本部アプローチを続けています。人ごとの数字はこの画面にありません。</div>";
+  /* 並びは 09 の 3章 7 のとおり（2026-09-29 磨き込み）: 継続回数ごとの解約率・月次の継続率 → 目標に対する進捗と応募効率 →
+     立ち上がり → 2軸のリスクと最優先の広がり → NPS・採用単価・LTV → 本部アプローチ。
+     🔴 前は「成果とリスク」を1節で描いていたので、立ち上がりが2軸リスクの後（顧客の図のさらに後）にあった。
+        成果とリスクを「目標と応募効率」「リスク」の2節に分けて、間に立ち上がりを置く（renderOutcome の part） */
+  h += pageToc([["rs-renewal", "継続回数と解約率"], ["rs-outcome", "目標に対する進捗と応募効率"], ["rs-rampup", "立ち上がり"],
+    ["rs-risk", "リスクの2軸と最優先"], ["rs-focus", "NPS・採用単価・MTG の記録・LTV"], ["rs-hq", "本部アプローチ"], ["rs-act", "手を打つ先"]],
     goLink("research", "focus") + goLink("research", "phone"));
   h += resultsKpis(D);
   h += renderRenewal(part(D.renewal), "rs-renewal");
-  h += renderOutcome(part(D.outcome), "rs-outcome");
+  h += renderOutcome(part(D.outcome), "rs-outcome", "goal");
+  h += renderRampup(part(D.rampup), "rs-rampup");
+  h += renderOutcome(part(D.outcome), "rs-risk", "risk");
   /* いま見るべき顧客の図（09 の 7「NPS・採用単価の悪化・LTV の散らばり」）。画面そのもの（札・表）は残っている（10 章⑤） */
   h += sec("問い", "顧客はいまどうなっているか（NPS・採用単価・MTG の記録・LTV）", "rs-focus") +
     '<div class="lede">' + goLink("research", "focus") + " と同じ図です。" +
@@ -3865,7 +3873,6 @@ function renderResults(D) {
   if (F0.cpa) h += focusCpaFig(F0.cpa);
   if (F0.mtg_layers) h += focusMtgFig(F0.mtg_layers);
   if (F0.shape) h += focusShapeFig(F0.shape);
-  h += renderRampup(part(D.rampup), "rs-rampup");
   /* 本部アプローチ（前は法人番号で見るの2つ目の問い。09 の 4 章「本部アプローチ → 7 成果と継続」） */
   if (D.headquarters) h += sec("問い", "本部に何を持っていくか（事業所どうしの差）", "rs-hq") + renderHq(D.headquarters);
   h += resultsActTables(D);
@@ -5478,7 +5485,7 @@ function renderRampup(D, id) {
       "<b>契約が始まってから最初の MTG までに何日かかったか</b>だけを見ています。<br>" +
       "ここの「初回MTG」は<b>MTG だけ</b>で、電話は入っていません" +
       /* 前の「成果とリスク」は成果と継続の中の節になった（09 の 7）。同じ画面の節へ移る */
-      "（MTGと電話を束ねた最終接触は、この画面の " + jumpLink("rs-outcome", "成果は出ているか、どこが危ないか") + " にあります）。",
+      "（MTGと電話を束ねた最終接触は、この画面の " + jumpLink("rs-risk", "どこが危ないか（リスクの2軸）") + " にあります）。",
       "成約率・売上・担当者の評価ではありません。良し悪しの判断は人がします");
 
   h += sec("図", "いま、どのフェーズにいるか");
@@ -5574,15 +5581,21 @@ const goalBandOpen = (label) => /^(50|1〜|0%)/.test(String(label || ""));
     🔴 2026-09-29 段B: 表は案件一覧の見方（最優先）に移した。前は id の無い呼び方（成果とリスクの画面）で表を出す分岐と
        outcomeTopTable が残っていたが、呼び出しは成果と継続の1か所（id つき）だけで届かなかったので外した。
        表にあった「放置の軸」「接触の記録（すべて契約前）」の列は、見方の側には無い（段B で失ったもの） */
-function renderOutcome(D, id) {
+/** part: 成果と継続で節を分けて描くとき（09 の 3章 7 の並び。間に立ち上がりを挟む）。
+      "goal" = 目標に対する進捗と応募効率まで、"risk" = リスクの2軸と最優先の広がり（id はその節の見出しに付く）。
+      省くと1節で全部を描く（前と同じ形） */
+function renderOutcome(D, id, part) {
   const ga = D.goal_act, gl = D.goal_all, ef = D.efficiency, R = D.risk, cs = D.contact_source;
-  let h = sec("問い", "成果は出ているか、どこが危ないか", id) +
-    /* M-5: 取り決めだけの箱なので畳む。「接触は検知にだけ…処方には使いません」は畳まず summary に（keep）。
-       担当者ごとの接触が「接触は検知専用です」を summary に残すのと揃える（2026-09-29 検証: 丸ごと畳まれていた） */
-    foldNote("def", "この画面で数えていないもの",
-      "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
-      "メールは数えていません。中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。",
-      "接触は検知にだけ使っています。処方には使いません");
+  /* M-5: 取り決めだけの箱なので畳む。「接触は検知にだけ…処方には使いません」は畳まず summary に（keep）。
+     担当者ごとの接触が「接触は検知専用です」を summary に残すのと揃える（2026-09-29 検証: 丸ごと畳まれていた）。
+     節を分けたとき（part）は、接触を使うリスクの節の頭にだけ置く（同じ畳みを 2 回出さない） */
+  const defs = foldNote("def", "この画面で数えていないもの",
+    "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
+    "メールは数えていません。中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。",
+    "接触は検知にだけ使っています。処方には使いません");
+  if (part === "risk") return outcomeRisk(R, cs, sec("問い", "どこが危ないか（リスクの2軸と最優先の広がり）", id) + defs);
+  let h = sec("問い", part === "goal" ? "成果は出ているか（目標に対する進捗と応募効率）" : "成果は出ているか、どこが危ないか", id) +
+    (part === "goal" ? "" : defs);
 
   h += sec("図", "目標に対する進捗");
   /* 🔴 真ん中の帯を SERIES で順に塗っていたので、「50〜100%」が赤・「1〜50%」が緑になり、
@@ -5636,7 +5649,11 @@ function renderOutcome(D, id) {
   h += note("bad", "資料の「8.1 ≪ 14.5」は、そのままの値では再現しません",
     "向き（解約 ＜ 継続）は合っています。ただし群の代表値を比べただけで、平均は外れ値に引かれます。" +
     "<b>単独で解約を見分けられる指標かは、ここからは言えません</b>。");
+  return part === "goal" ? h : outcomeRisk(R, cs, h);
+}
 
+/** 成果とリスクのうち、リスクの2軸と最優先の広がり（h の後ろに足して返す）。成果と継続では立ち上がりの後に置く（09 の 3章 7） */
+function outcomeRisk(R, cs, h) {
   h += sec("図", "リスクは2軸だけで見る");
   h += note("info", "4軸のうち2軸を意図的に外しています。手抜きではありません",
     "<b>関係性の軸（NPS）</b>：稼働中の半分にしか値が無く、<b>構造的に発火しません</b>。" +
@@ -5977,7 +5994,7 @@ let boardSort = { key: "n_flags", asc: false };
 
 /* ③の絞り込み。②から担当者を押して来たときも、ここに入る。
    🔴 絞ったら必ず「◯件中 N件を表示」を出す（全件を見ていると誤認させない）。 */
-let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" };
+let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
 
 /* 満了までの帯。値は days_left（null は「満了日が入っていない」） */
 const EXPIRY_BANDS = [
@@ -5989,6 +6006,19 @@ const EXPIRY_BANDS = [
   { k: "none", t: "満了日が入っていない", hit: (d) => d == null },
 ];
 
+/* 契約総額の帯（09 の 3章 2「金額」、2026-09-29 磨き込み）。値は行の amount（CS_取引の amount。契約期間全体の額で、
+   月額ではない＝段B で実データを見て確かめた。money.rs）。null は「金額が空」。
+   線は fixture の稼働中の金額の四分位（25% 45万・中央 81万・75% 120万・90% 180万）から丸めた取り決め。
+   🔴 金額が空の案件はどの帯にも入れない（0 円として「50万円未満」に落とさない）。空の件数は選択肢と絞った文で別に出す */
+const AMOUNT_BANDS = [
+  { k: "lt50",   t: "50万円未満",       hit: (a) => a != null && a < 500000 },
+  { k: "50-100", t: "50万〜100万円未満",  hit: (a) => a != null && a >= 500000 && a < 1000000 },
+  { k: "100-200", t: "100万〜200万円未満", hit: (a) => a != null && a >= 1000000 && a < 2000000 },
+  { k: "ge200",  t: "200万円以上",      hit: (a) => a != null && a >= 2000000 },
+  { k: "none",   t: "金額が空",         hit: (a) => a == null },
+];
+const amountOf = (r) => (r.amount == null || r.amount === "" || !isFinite(Number(r.amount)) ? null : Number(r.amount));
+
 /* 絞り込みを当てる。**行を落とすのはここだけ** */
 /* 🔴 同じ応答（rows の同一性）・同じ条件なら同じ配列を返す（段2 M-8）。paintFigs は図の幅を枠に合わせるために本文を 2 回組むので、
    ここが毎回新しい配列を返すと boardTable の覚え書き（配列の同一性で「同じ行の並び」を見る）が効かない */
@@ -5997,9 +6027,16 @@ function boardApply(rows) {
   const f = boardFilter;
   const key = JSON.stringify(f);
   if (boardApplyMemo.src === rows && boardApplyMemo.key === key) return boardApplyMemo.out;
+  const out = rows.filter(boardHit(f));
+  boardApplyMemo.src = rows; boardApplyMemo.key = key; boardApplyMemo.out = out;
+  return out;
+}
+/** 絞り込み f に当たるかを返す関数（boardApply の中身。契約総額の件数を「ほかの絞り込みの中で」数えるのにも使う） */
+function boardHit(f) {
   const band = EXPIRY_BANDS.find((b) => b.k === f.expiry);
-  const q = f.q.trim().toLowerCase();
-  const out = rows.filter((r) => {
+  const amt = AMOUNT_BANDS.find((b) => b.k === f.amount);
+  const q = (f.q || "").trim().toLowerCase();
+  return (r) => {
     if (f.consultant && (r.consultant || "") !== f.consultant) return false;
     if (f.flag && !(r.flags || []).some((x) => x === f.flag)) return false;
     /* MTG 途絶の帯（行の mtg_band）。今日動く先の KPI「MTGが90日以上途絶 N 件」から来る（S-2） */
@@ -6007,16 +6044,21 @@ function boardApply(rows) {
     /* 見方の印（段B、09 の 10 章②。行の views に routes.rs ACT_VIEWS の鍵が入っている） */
     if (f.view && !(r.views || []).some((x) => x === f.view)) return false;
     if (band && !band.hit(r.days_left)) return false;
+    if (amt && !amt.hit(amountOf(r))) return false;
     if (q && String(r.name || r.deal_id || "").toLowerCase().indexOf(q) < 0) return false;
     return true;
-  });
-  boardApplyMemo.src = rows; boardApplyMemo.key = key; boardApplyMemo.out = out;
-  return out;
+  };
+}
+/** 契約総額の帯を外した、ほかの絞り込みに当たる行（契約総額の選択肢の件数と「金額が空の N 件」の母数）。
+    🔴 2026-09-30 検証: 前は稼働中の全件で数えていて、担当で絞っても「金額が空の 2 件は入りません」「50万円未満（99）」と
+       全社の件数が出た（fixture: 金額が空の 2 件は別の担当。その担当に空は 0 件なのに 2 件と出た）。件数の行と母数を揃える */
+function boardRowsButAmount(rows) {
+  return (rows || []).filter(boardHit(Object.assign({}, boardFilter, { amount: "" })));
 }
 
 function boardFilterOn() {
   const f = boardFilter;
-  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.q.trim());
+  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.amount || f.q.trim());
 }
 
 /* いま何で絞っているかを日本語で並べる。D は帯の名前（meta.mtg_gap.bands の label）を引くため */
@@ -6039,6 +6081,12 @@ function boardFilterWords(D) {
     const b = EXPIRY_BANDS.find((x) => x.k === f.expiry);
     if (b) w.push("満了まで " + b.t);
   }
+  if (f.amount) {
+    const b = AMOUNT_BANDS.find((x) => x.k === f.amount);
+    /* 金額の帯で絞ったときは、金額が空で入らない件数を添える（黙って落とさない。空はどの帯にも入れていない） */
+    const nNone = f.amount === "none" ? 0 : boardRowsButAmount((D || {}).rows).filter((r) => amountOf(r) == null).length;
+    if (b) w.push("契約総額 " + b.t + (nNone ? "（金額が空の " + nNone + " 件は入りません）" : ""));
+  }
   if (f.q.trim()) w.push("案件名に " + f.q.trim());
   return w.join(" / ");
 }
@@ -6048,6 +6096,19 @@ function boardFilterWords(D) {
    🔴 選ぶ前の画面には件数の表しか無いのに、名札・満了まで・案件名の欄と
       「604 件中 604 件を表示（絞り込みなし）」が出ていて、担当を選ぶ前から
       表を絞り込めるように見えていた（2026-09-23 実機） */
+/* 契約総額の選択肢（件数つき）。「すべて（N）」の N と帯の件数は、契約総額以外の絞り込みを掛けた中の件数（boardRowsButAmount）。
+   🔴 担当・名札・満了まで・案件名を変えても欄（#board-filter）は作り直されない（boardRepaint は #board-body だけ描く）ので、
+   件数を欄を描くときだけ数えると、担当を選んでも括弧の件数が選ぶ前のまま残り、title の「絞り込みを掛けた中の件数」と食い違った
+   （2026-10-01 再検証）。boardRepaint からも呼んで、選択肢だけ入れ替える（欄ごと作り直すと検索欄のフォーカスと IME の窓が飛ぶ） */
+function boardAmountOptions(D) {
+  const amtBase = boardRowsButAmount(D.rows);
+  const amtN = {};
+  for (const r of amtBase) for (const b of AMOUNT_BANDS) if (b.hit(amountOf(r))) amtN[b.k] = (amtN[b.k] || 0) + 1;
+  const cur = boardFilter.amount || "";
+  const opt = (v, t) => '<option value="' + esc(v) + '"' + (cur === v ? " selected" : "") + ">" + esc(t) + "</option>";
+  return opt("", "すべて（" + num(amtBase.length) + "）") +
+    AMOUNT_BANDS.map((b) => opt(b.k, b.t + "（" + num(amtN[b.k] || 0) + "）")).join("");
+}
 function boardFilterBar(D, onlyOwner) {
   const names = Array.from(new Set(D.rows.map((r) => r.consultant).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b, "ja"));
@@ -6059,7 +6120,7 @@ function boardFilterBar(D, onlyOwner) {
     opt("", "すべて", boardFilter.consultant) +
     names.map((n) => opt(n, n, boardFilter.consultant)).join("") + "</select></label>";
   if (onlyOwner) return h + "</div>";
-  h += '<label class="act">名札 <select id="bf-flag">' +
+  h += '<label class="act" title="括弧の件数は、稼働中の全件（全担当）で数えた件数です">名札 <select id="bf-flag">' +
     opt("", "すべて", boardFilter.flag) +
     flags.map((x) => opt(x.label, x.label + "（" + num(x.n) + "）", boardFilter.flag)).join("") +
     "</select></label>";
@@ -6073,6 +6134,12 @@ function boardFilterBar(D, onlyOwner) {
   h += '<label class="act">満了まで <select id="bf-expiry">' +
     opt("", "すべて", boardFilter.expiry) +
     EXPIRY_BANDS.map((b) => opt(b.k, b.t, boardFilter.expiry)).join("") + "</select></label>";
+  /* 契約総額（09 の 3章 2）。選択肢に件数を添え、金額が空の件数は「金額が空（N）」で別に出す（帯に混ぜない）。
+     欄の名前に「契約総額」と書く（月額と読ませない。月額は CS_取引の別の列） */
+  /* 件数は、契約総額の帯を外したほかの絞り込み（担当・名札など）の中で数える（boardRowsButAmount）。「すべて（N）」の N が
+     その母数で、帯の件数と「金額が空」を足すと N になる（名札の件数は今までどおり全社の件数で、欄の title に書く） */
+  h += '<label class="act" title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・名札など）を掛けた中の件数です">契約総額 <select id="bf-amount">' +
+    boardAmountOptions(D) + "</select></label>";
   /* 幅は CSS の min-width / max-width で決める。ここに px を書かない */
   h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
     'value="' + esc(boardFilter.q) + '"></label>';
@@ -6082,7 +6149,7 @@ function boardFilterBar(D, onlyOwner) {
 
 /* ②のコンサルタント名から③へ飛ぶ。担当で絞った状態で開く */
 function drillToBoard(name) {
-  boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "", view: "" };
+  boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
   go("consultant", "byowner", false, undefined, "keep");   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2） */
 }
 /* ①今日動く先の KPI から③へ。MTG 途絶の帯で絞った状態で開く（S-2。裁定: KPI を押したら案件そのものを絞って開く）。
@@ -6090,8 +6157,14 @@ function drillToBoard(name) {
    consultant: 今日動く先で担当を選んでいるとき。札の数字はその担当の実数（critical_by_consultant）なので、行き先も
    その担当のその帯にする。案件そのものは入るときに担当を外すので、「担当者ごとの案件」で開く（同じ表・同じ絞り込み欄） */
 function drillToBand(band, consultant) {
-  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band, view: "" };
+  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band, view: "", amount: "" };
   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2）。URL には #deal/board?band=critical の形で残る */
+  if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
+}
+/* 今日の札「接触の記録が無い」から、その名札で絞った案件一覧へ（09 の 3章 1 の 2）。担当を選んでいるときは drillToBand と同じ理由で
+   担当者ごとの案件をその担当で開く（札の数字はその担当の実数。行き先の母集団を揃える） */
+function drillToFlag(flag, consultant) {
+  boardFilter = { consultant: consultant || "", flag: flag, expiry: "", q: "", band: "", view: "", amount: "" };
   if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
 }
 
@@ -6195,6 +6268,18 @@ function boardMoreBar(n) {
 /* 案件そのもの・担当者ごとの案件のうち、絞り込み・並び替えで変わる部分（件数の行 → 表 → 決まりごと → 名札の図）。
    renderBoard が <div id="board-body"> に入れ、boardRepaint はここだけ描き直す（段2 M-8）。
    絞り込みの欄（boardFilterBar）はこの外にあるので、打っている途中の検索欄が作り直されない */
+/** 開始前の契約には立てない名札（meta.started_only_flags。接触の2本）で絞っているとき、件数の行に添える文。
+    🔴 2026-09-30 検証: 今日の札「接触の記録が無い」は「開始済みの稼働中 545 件のうち 61 件」、押した先の件数の行は
+       「604 件中 61 件を表示」で、同じ 61 件の分母が 2 通りに見えた（どちらも正しい。違いは開始前の 59 件）。
+       行き先でも、開始前の件数にはこの名札を立てていないことを書いて、2 つの分母をつなぐ。古い応答（欄が無い）では出さない */
+function boardStartedOnlyWords(D) {
+  const f = boardFilter.flag;
+  if (!f || !((D.meta || {}).started_only_flags || []).includes(f)) return "";
+  const pre = (D.rows || []).filter((r) => r.not_started).length;
+  if (!pre) return "";
+  return "。この名札は開始前の契約には立てていません（" + num(D.rows.length) + " 件のうち開始前 " + num(pre) +
+    " 件・開始済み " + num(D.rows.length - pre) + " 件）";
+}
 function boardBody(D, shown, on) {
   const byOwner = cur.view === "byowner";
   /* 見方（段B）。ボタンは案件一覧だけに置く。担当者ごとの案件も URL の ?view= で絞れるので、絞っているときは
@@ -6205,7 +6290,7 @@ function boardBody(D, shown, on) {
      絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐ。 */
   h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
     "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
-    (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + "</div>";
+    (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + boardStartedOnlyWords(D) + "</div>";
   /* 表が主役の画面なので表を先に、図はその下（08 の S-8）。
      🔴 見出しは画面名（左の「案件そのもの」）と重ならない語にする。前は「案件の立ち位置」で、
      画面名が3つ（左・見出し・サーバの文）あり、初見の人が別画面と誤認していた（S-6） */
@@ -6235,6 +6320,13 @@ function boardRepaint() {
   if (!box || !boardCache || (cur.view === "byowner" && !boardFilter.consultant)) { redrawMain(boardCache); return; }
   const fk = focusKey(document.activeElement);
   const D = boardCache, shown = boardApply(D.rows);
+  /* 契約総額の選択肢の件数を、いまの絞り込みで数え直す。選択肢の中身が変わるときだけ入れ替える
+     （自分の欄を変えたときは件数が変わらない＝触らない。開いている選択欄を壊さない） */
+  const amtSel = document.getElementById("bf-amount");
+  if (amtSel) {
+    const html = boardAmountOptions(D);
+    if (amtSel.innerHTML !== html) amtSel.innerHTML = html;
+  }
   paintFigs(box, () => boardBody(D, shown, boardFilterOn()));   /* 名札の図の幅を枠に合わせる（2回描き。表は覚え書きで 1 回） */
   wireBoardBody();
   markScrollAll();
@@ -6285,8 +6377,9 @@ function boardViewBar(D) {
 /** 見方を押しているときの定義の1行と母数、前の定義から外れた件数と、外れた案件の表。
     who: 担当者ごとの案件で選んでいる担当者。渡したときは、件数の文は全担当のまま（どの担当かで定義は変わらない）で、
     外れた案件の表だけその担当者の分に絞り、全担当の何件のうちの何件かを書く。
+    pending: 担当者ごとの案件で担当を選ぶ前（下は持ち件数の表）。下の件数の話はしない（byowner-pending が書く）。
     🔴 この箱は畳まない（外した件数を書いた箱は畳まない。08 の 2.4） */
-function boardViewNote(D, who) {
+function boardViewNote(D, who, pending) {
   const k = boardFilter.view;
   if (!k) return "";
   const v = actViewOf(D, k);
@@ -6301,7 +6394,10 @@ function boardViewNote(D, who) {
   let body = esc(v.rule) + "。<br>稼働中" + (who ? "（全担当）" : "") + " " + num(D.rows.length) + " 件のうち" +
     (judged != null ? "、リスク判定のある案件は " + num(judged) + " 件、そのうちいちばん新しい判定が「高」の案件は " + num(v.n) + " 件です"
       : " " + num(v.n) + " 件です") +
-    "（担当・名札などの絞り込みを一緒に掛けると、下の件数はそれより少なくなります）。";
+    /* pending: 担当者ごとの案件で担当を選ぶ前（下は持ち件数の表で、見方を掛けていない）。🔴 2026-09-30 検証: ここで
+       「下の件数はそれより少なくなります」と書くと、すぐ下の「下の持ち件数には掛けていません」（byowner-pending）と矛盾して読めた。
+       選ぶ前は下の件数の話をこの箱ではせず、byowner-pending の1か所に任せる */
+    (pending ? "。" : "（担当・名札などの絞り込みを一緒に掛けると、下の件数はそれより少なくなります）。");
   if (o) {
     body += "<br><b>定義を名札に揃えたため、以前の" + esc(o.where) + " " + num(o.n) + " 件のうち " + num(o.dropped) +
       " 件は外れました。</b>" +
@@ -6548,6 +6644,7 @@ function renderToday(D0) {
         c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（名札2本以上）の中で。") + "全社では " + num(bandN("critical")) + " 件"
           : "うち " + num(G.forced_by_expiry) + " 件は満了90日前の途絶で引き上げたもの",
         crit ? "bad" : "", { band: "critical", consultant: c && CB ? c : "", text: c && CB ? "この担当の一覧を見る" : "全社の一覧を見る" }) +
+    todayNoContactKpi(D0, c) +
     kpi("今週満了する", num(soon.length) + '<span class="u">件</span>',
         "名札の本数に関わらず落としていません" +
         (c ? "（全社では " + num((D0.expiring_this_week || []).length) + " 件）" : ""),
@@ -6626,6 +6723,25 @@ function renderToday(D0) {
   }
 
   return h + foot(D.meta);
+}
+
+/** 今日の札「接触の記録が無い」（09 の 3章 1 の 2、2026-09-29 磨き込み）。押すと案件一覧をその名札で開く。
+    数はサーバが稼働中の全件から数えた実数（routes.rs build_today_board の meta.no_contact）。候補（名札2本以上）の中で数えると
+    名札がこの 1 本だけの案件が落ちる（MTG途絶の札と同じ理由）。
+    🔴 母数は開始済みの稼働中（開始前は名札を立てない）。率だけにせず件数と母数を並べる。
+    🔴 赤にしない。接触の記録が無いことは未測定で、放置とは別（成果と継続の 2軸リスクと同じ扱い。色で良し悪しを言わない）。
+    古い応答（no_contact が無い）では出さない（数えていないものを 0 と書かない） */
+function todayNoContactKpi(D0, c) {
+  const nc = (D0.meta || {}).no_contact;
+  if (!nc || !nc.label) return "";
+  const mine = c ? ((nc.by_consultant || {})[c] || { n: 0, base: 0 }) : null;
+  const n = mine ? mine.n : nc.n, base = mine ? mine.base : nc.base;
+  return kpi(nc.label, num(n) + '<span class="u">件</span>',
+    (mine ? "この担当の" : "") + "開始済みの稼働中 " + num(base) + " 件のうち" +
+      (base ? "（" + pct1(n / base * 100) + "）" : "") + "。" +
+      (mine ? "全社では " + num(nc.n) + " / " + num(nc.base) + " 件。" : "") +
+      "開始前の契約は数えていません",
+    "", { flag: nc.label, consultant: c || "", text: c ? "この担当の一覧を見る" : "案件一覧で見る" });
 }
 
 /** 今日の畳み「MTG 途絶の数え方と母数」。前は図「MTG が途絶えている先（全社）」の注記に書いていた（2026-09-29 に図を外した）。
@@ -6747,8 +6863,22 @@ function renderBoard(D) {
       const ks = Object.keys(per).sort((a, b) => per[b].n - per[a].n || a.localeCompare(b, "ja"));
       h += note("info", "担当者を選んでください",
         "上の「担当」で選ぶか、下の表で名前を押すと、その人の案件の表が出ます。" +
-        "名札・満了まで・案件名での絞り込みは、担当を選んだ後に出ます。" +
+        /* 🔴 2026-09-30 検証: URL などから絞り込みを持ってきたときに「絞り込みは、担当を選んだ後に出ます」と書くと、すでに
+           掛かっている絞り込み（下の byowner-pending）と食い違って読める。出るのは「欄」なので欄と書き、持ってきたときは下を指す */
+        "名札・満了まで・契約総額・案件名で絞る欄は、担当を選んだ後に出ます" +
+        (boardFilterOn() ? "（いま持ってきている絞り込みは、下に書いています）。" : "。") +
         "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は " + goLink("deal", "board") + " にあります）。");
+      /* 🔴 担当を選ぶ前でも、URL（?view=・?flag= など）や案件一覧から持ってきた絞り込みは残っていて、担当を選んだ瞬間に掛かる。
+         前は何も書かずに持ち越していた（2026-09-29 磨き込み。#deal/byowner?view=silent を開くと持ち件数の表だけが出て、
+         選んだ後の表が見方で絞られる理由がどこにも無かった＝黙って絞る）。見方は案件一覧と同じ定義の1行と外れた件数を出し、
+         持ち件数には掛けていないことと、選ぶと掛かることを書く（持ち件数は見えない条件で減らさない、は変えない） */
+      /* ここでは担当が空なので、boardFilterOn・boardFilterWords は担当以外の絞り込みだけを見る */
+      if (boardFilter.view) h += boardViewNote(D, "", true);
+      if (boardFilterOn()) {
+        h += '<p class="muted small" id="byowner-pending">絞り込み（' + esc(boardFilterWords(D)) + "）は、下の持ち件数には掛けていません。" +
+          "担当を選ぶと、その担当の案件にこの絞り込みを掛けて出します。" +
+          '<button type="button" class="act" id="bf-clear">絞り込みを外す</button></p>';
+      }
       /* 🔴 「稼働中 604 件」が画面の頭の1行・この見出し・末尾の枠の3か所に出ていた（2026-09-24 実機）。
          ただし担当を選ぶ前の頭の1行（上の lede）には件数が無く、見出しと末尾から消すと0か所になった
          （2026-09-24 検証）。見出しは担当者の人数だけにし、稼働中の件数は末尾の1か所に出す */
@@ -6771,7 +6901,7 @@ function renderBoard(D) {
   let h = sec("問い", "いま、それぞれの案件はどこにいるか") +
     '<div class="lede">稼働中 ' + num(D.rows.length) +
     " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。" +
-    "<b>担当・名札・MTG途絶の帯・満了までの期間・案件名で絞り込めます。</b>" +
+    "<b>担当・名札・MTG途絶の帯・満了までの期間・契約総額・案件名で絞り込めます。</b>" +
     /* 段B: 手を打つ先（前は集計の画面ごとの表）は見方のボタンで出す。見方の名前はボタンの側（サーバの文）にだけ書く */
     "手を打つ先は「見方」のボタンで出せます（押すと定義と件数が出ます）。</div>";
 
@@ -6804,6 +6934,7 @@ function wireBoard() {
   pick("bf-flag", "flag");
   pick("bf-band", "band");
   pick("bf-expiry", "expiry");
+  pick("bf-amount", "amount");
   const q = document.getElementById("bf-q");
   if (q) {
     /* 1文字ごとに組み直すと重い。打ち終わってから当てる。
@@ -6838,7 +6969,7 @@ function wireBoard() {
      名札＋案件名「株式」で 0 件 → 押すと件数の行は 604 件、#bf-flag・#bf-q は前の値のまま）。
      欄だけ値を戻す手もあるが、選択肢の件数・既定値の組み立ては boardFilterBar 1 か所に置いておく。押す頻度は低い */
   if (cl) cl.onclick = () => {
-    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" };
+    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
     boardShowAll = false;
     redrawMain(boardCache);
   };
@@ -6876,6 +7007,9 @@ function wireToday() {
   });
   document.querySelectorAll("#cs-main button.kpi[data-band]").forEach((b) => {
     b.onclick = () => drillToBand(b.dataset.band, b.dataset.consultant || "");
+  });
+  document.querySelectorAll("#cs-main button.kpi[data-flag]").forEach((b) => {
+    b.onclick = () => drillToFlag(b.dataset.flag, b.dataset.consultant || "");
   });
   /* 担当の選択欄（D-1a）。選んだら端末に覚えて、手元のデータで描き直す（取り直さない）。
      欄は描き直しで作り直されるが、redrawMain が同じ id の欄へフォーカスを戻す（U9） */
@@ -8045,7 +8179,7 @@ const menuHaving = (vk) => MENUS.find((m) => m.views.some((x) => x.key === vk));
 /* ================================================================ 旧ハッシュの転送（N8、handover 09 の 5章）
    組み替え前の 17 画面のハッシュ（ブックマーク・貼られた URL・前の版の本文のリンク）を新しい画面へ送る。
    鍵は「区切り/画面」（区切りだけのものは区切りの鍵）。to は新しい画面の鍵、at は移り先の中の節の id（あれば飛ぶ）、
-   was は前の画面の名前（「この画面は○○に移りました」の帯に出す）。
+   was は前の画面の名前（「この画面は○○に移りました」の帯に出す）。also は前の画面が分かれたときに、残りの移り先を帯に書く文。
    今日・案件そのもの（→ 案件一覧）・案件の詳細はハッシュが変わらないので載せない（#deal/today・#deal/board・#deal/detail）。
    ? 以降の状態（法人・拠点・担当・並び・単位）はそのまま渡す。受ける画面の URL_STATE に無い名前は読まれない */
 const LEGACY = {
@@ -8058,7 +8192,10 @@ const LEGACY = {
   "consultant/contact":  { to: "team",     at: "tm-ct-h",         was: "担当者ごとの接触" },
   "study":               { to: "results",                         was: "継続回数 × 成果" },
   "study/renewal":       { to: "results",  at: "rs-renewal",      was: "継続回数 × 成果" },
-  "study/outcome":       { to: "results",  at: "rs-outcome",      was: "成果とリスク" },
+  /* 前の「成果とリスク」は、目標と応募効率（rs-outcome）とリスクの2軸（rs-risk）の 2 節に分かれ、間に立ち上がりが入った（09 の 3章）。
+     頭（目標）へ送り、後半がどこに移ったかは also で帯に書く（🔴 2026-09-30 検証: 前は何も書かず、リスクを探す人が迷う形だった） */
+  "study/outcome":       { to: "results",  at: "rs-outcome",      was: "成果とリスク",
+                           also: "前の画面の後半（リスクの2軸と最優先）は、同じ画面の下の節「リスクの2軸と最優先」に分けました（画面の頭の目次から飛べます）" },
   "study/focus":         { to: "focus",                           was: "いま見るべき顧客" },
   "study/rampup":        { to: "results",  at: "rs-rampup",       was: "立ち上がり" },
   "study/phone":         { to: "phone",                           was: "電話" },
@@ -8206,6 +8343,10 @@ const BOARD_URL_STATE = {
   expiry: { kind: "filter", get: () => boardFilter.expiry || "",
             set: (v) => { boardFilter.expiry = EXPIRY_BANDS.some((b) => b.k === v) ? v : ""; },
             reset: () => { boardFilter.expiry = ""; } },
+  /* 契約総額の帯（09 の 3章 2）。知らない鍵（貼られた URL）は既定へ */
+  amt: { kind: "filter", get: () => boardFilter.amount || "",
+         set: (v) => { boardFilter.amount = AMOUNT_BANDS.some((b) => b.k === v) ? v : ""; },
+         reset: () => { boardFilter.amount = ""; } },
   q: boardState("q"),
   sort: sortState(() => boardSort, (s) => { boardSort = s; }, BOARD_COLS, { key: "n_flags", asc: false }),
 };
@@ -8450,7 +8591,7 @@ function showMoved(moved, v, missing) {
     "いまは「" + esc(v.label) + "」" + (!moved.at ? "で見られます"
       : missing ? "の中にありますが、その場所がこの画面に見つからなかったので、画面の頭を出しています"
       : "の中にあり、その場所まで送っています") +
-    "。ブックマークを付け直してください" +
+    "。" + (moved.also ? esc(moved.also) + "。" : "") + "ブックマークを付け直してください" +
     (MOVED_NOTICE_UNTIL ? "（この案内は " + esc(MOVED_NOTICE_UNTIL) + " まで出します）" : "") + "。");
 }
 /** 画面の中の節（id）へ送る。focus: フォーカスも移す（開いた直後は移さない。読み上げが鮮度の帯を飛ばさないように）。

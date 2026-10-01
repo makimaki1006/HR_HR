@@ -1634,6 +1634,52 @@ check("D-1a", "担当を選んでいるときに MTG 途絶の札を押すと、
   t.R('todayConsultant = ""; boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "" };');
 });
 
+/* 2026-09-29 磨き込み（09 の 3章 1 の 2）: 今日の札「接触の記録が無い」。押すと案件一覧をその名札で開く。
+   担当を選んでいるときは MTG 途絶の札と同じく、その担当で「担当者ごとの案件」を開く（札の数字と行き先の母集団を揃える） */
+check("09-1", "今日の札「接触の記録が無い」を押すと、案件一覧をその名札で開き URL に ?flag= が載る。担当を選んでいればその担当の担当者ごとの案件へ", async () => {
+  const L = "接触の記録が無い";
+  const t = boot();
+  const D = todayPayload([boardRow({ deal_id: "a", name: "上位", consultant: "担当A" })]);
+  D.meta.no_contact = { label: L, n: 7, base: 90, by_consultant: { "担当A": { n: 2, base: 10 } } };
+  t.ctx.__D = D;
+  t.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = "";');
+  const main0 = t.R("renderToday(__D)");
+  if (!/<button type="button" class="kpi" data-flag="接触の記録が無い"><span class="lbl">接触の記録が無い<\/span><span class="big">7</.test(main0))
+    throw new Error("札が名札で絞る button（全社 7 件）になっていない");
+  t.reg["cs-main"].innerHTML = main0;
+  const b = new t.El(""); b.dataset = { flag: L };
+  t.qsa["#cs-main button.kpi[data-flag]"] = [b];
+  t.R("wire(viewOf('deal', 'today'))");
+  if (typeof b.onclick !== "function") throw new Error("札に操作が付いていない");
+  b.onclick();
+  if (t.R("cur.menu + '/' + cur.view") !== "deal/board") throw new Error("案件一覧へ移っていない: " + t.R("cur.menu + '/' + cur.view"));
+  if (t.R("boardFilter.flag") !== L || t.R("boardFilter.consultant") !== "") throw new Error("名札だけで絞っていない");
+  if (t.loc.hash !== "#deal/board?flag=" + encodeURIComponent(L)) throw new Error("URL が案件一覧＋名札でない: " + t.loc.hash);
+  // 担当を選んでいるとき: 札はその担当の実数（2）で、押すとその担当の担当者ごとの案件をその名札で
+  const t2 = boot();
+  t2.ctx.__D = D;
+  t2.R('cur = { menu: "deal", view: "today" }; lastPayload = __D; todayConsultant = "担当A";');
+  const m2 = t2.R("renderToday(__D)");
+  if (!/data-flag="接触の記録が無い" data-consultant="担当A"><span class="lbl">接触の記録が無い<\/span><span class="big">2</.test(m2))
+    throw new Error("担当を選んだときの札が担当の実数（2）と担当を添えた形でない");
+  const b2 = new t2.El(""); b2.dataset = { flag: L, consultant: "担当A" };
+  t2.qsa["#cs-main button.kpi[data-flag]"] = [b2];
+  t2.R("wire(viewOf('deal', 'today'))");
+  b2.onclick();
+  if (t2.R("cur.menu + '/' + cur.view") !== "deal/byowner") throw new Error("担当者ごとの案件へ移っていない");
+  if (t2.loc.hash !== "#deal/byowner?c=" + encodeURIComponent("担当A") + "&flag=" + encodeURIComponent(L)) throw new Error("URL: " + t2.loc.hash);
+  t2.R('todayConsultant = "";');
+});
+check("09-2", "契約総額の帯は URL（?amt=）に載り、貼った URL で入る。帯に無い値は既定へ", async () => {
+  const t = boot("#deal/board?amt=50-100");
+  if (t.R("boardFilter.amount") !== "50-100") throw new Error("契約総額の帯が URL から入らない: " + t.R("boardFilter.amount"));
+  if (t.loc.hash !== "#deal/board?amt=50-100") throw new Error("開いた直後の URL: " + t.loc.hash);
+  if (t.R("hashFor('board', stateParams('board'))") !== "#deal/board?amt=50-100") throw new Error("hashFor に載らない");
+  const t2 = boot("#deal/board?amt=zzz");
+  if (t2.R("boardFilter.amount") !== "") throw new Error("帯に無い値（zzz）をそのまま入れている");
+  if (t2.loc.hash !== "#deal/board") throw new Error("無い値を URL から消していない: " + t2.loc.hash);
+});
+
 /* ================================================================ UI/UX 改善 段1（2026-09-28、handover 08） */
 check("S-5", "API の meta.hubspot_portal_id を最初の応答で覚え、表の案件名の横に HubSpot への HS が付く", async () => {
   const t = boot();
@@ -2289,7 +2335,7 @@ check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す
   const rows = [0, 1, 2].map((i) => boardRow({ deal_id: "r" + i, name: "株式" + i, consultant: "担当A", n_flags: 1, flags: ["札X"] }));
   t.ctx.__D = { meta: { flag_counts: [{ label: "札X", n: 3 }], mtg_gap: { bands: [] }, order_rule: "" }, rows };
   t.R('cur = { menu: "deal", view: "board" }; boardCache = __D; lastPayload = __D; boardShowAll = true; ' +
-      'boardFilter = { consultant: "", flag: "札X", expiry: "", q: "株式", band: "" }; boardSort = { key: "n_flags", asc: false };');
+      'boardFilter = { consultant: "", flag: "札X", expiry: "d30", q: "株式", band: "critical", view: "silent", amount: "ge200" }; boardSort = { key: "n_flags", asc: false };');
   t.reg["cs-main"].innerHTML = t.R("renderBoard(__D)");
   const main0 = t.reg["cs-main"].innerHTML;
   if (!/<option value="札X" selected>/.test(main0) || main0.indexOf('id="bf-q" placeholder="部分一致" value="株式"') < 0)
@@ -2304,6 +2350,10 @@ check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す
   if (/<option value="札X" selected>/.test(main1) || main1.indexOf('value="株式"') >= 0) throw new Error("欄に前の絞り込みの値が残っている");
   if (main1.indexOf("（絞り込みなし）") < 0) throw new Error("件数の行が絞り込みなしでない");
   if (t.R("boardShowAll") !== false) throw new Error("絞り込みを外しても「残りも出す」が戻らない");
+  /* 🔴 2026-09-30 検証: 名札と案件名しか見ておらず、契約総額（amount）だけ残すように壊しても落ちなかった。全部の欄を見る */
+  const left = JSON.parse(t.R("JSON.stringify(boardFilter)"));
+  for (const k of ["consultant", "flag", "expiry", "q", "band", "view", "amount"])
+    if (left[k] !== "") throw new Error("絞り込みを外しても " + k + " が残っている: " + JSON.stringify(left));
   /* 絞り込みの欄を変えたら「残りも出す」は既定に戻る */
   const fl = new t.El("bf-flag"); t.reg["bf-flag"] = fl;
   t.R("wire(viewOf('deal', 'board'))");
@@ -2384,6 +2434,17 @@ check("N8", "旧ハッシュ 17 本（と区切りだけの #consultant・#study
   const tc = boot("#consultant/byowner?c=" + encodeURIComponent("担当A"), { Date: D });
   if (tc.R("boardFilter.consultant") !== "担当A") throw new Error("旧ハッシュの担当（c）が渡っていない");
   if (boot("#study/renewal?excl=1", { Date: D }).R("renewalExcludeCensored") !== true) throw new Error("旧ハッシュの打ち切りの指定（excl）が渡っていない");
+  /* 前の「成果とリスク」は 2 節に分かれた。頭（目標）へ送り、後半（リスクの2軸）の移り先を帯に書く。
+     🔴 2026-09-30 検証: 前は rs-outcome へ送るだけで、リスクを探して来た人に移り先が書かれていなかった。
+     帯の節の名前は目次の名前と同じ（目次から飛べると書くので、名前が違うと探せない） */
+  const to = boot("#study/outcome", { Date: D });
+  const tob = to.reg["cs-moved"].innerHTML;
+  if (to.R('LEGACY["study/outcome"].at') !== "rs-outcome") throw new Error("成果とリスクの送り先が目標の節でない");
+  if (tob.indexOf("前の画面の後半（リスクの2軸と最優先）") < 0 || tob.indexOf("「リスクの2軸と最優先」に分けました") < 0)
+    throw new Error("成果とリスクから来た人に、リスクの2軸の移り先を書いていない: " + tob);
+  if (!/\["rs-risk", "リスクの2軸と最優先"\]/.test(require("fs").readFileSync(require("path").join(__dirname, "..", "templates", "tabs", "cs_dashboard.html"), "utf8")))
+    throw new Error("目次の rs-risk の名前が帯に書いた名前と違う");
+  if (boot("#study/rampup", { Date: D }).reg["cs-moved"].innerHTML.indexOf("前の画面の後半") >= 0) throw new Error("分かれていない画面にも後半の文を出している");
   /* 次に別の画面へ移ったら帯は消える */
   const t2 = boot("#study/dq", { Date: D });
   t2.R('go("deal", "today")');

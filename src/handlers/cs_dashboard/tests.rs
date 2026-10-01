@@ -982,8 +982,9 @@ fn mtgが結べていない初回契約が出る() {
         .iter()
         .all(|r| r["stage"] != "マーケ関連"));
     assert!(nm["rate"].as_f64().is_some());
-    // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
+    // 🔴 2026-09-29 藤巻さんの判断（2026-10-01 再確認）: 初回契約で MTG をしないことは実務上ありえない。
     //    「していない」ではなく「記録が欠けている」と読め、欠ける理由の候補が添えてあるか
+    //    （前は「記録が無いことと、やっていないことは別です」で、やっていない可能性を残していた）
     let note = nm["note"].as_str().unwrap();
     assert!(
         note.contains("見つからない") && note.contains("記録が欠けている"),
@@ -993,6 +994,16 @@ fn mtgが結べていない初回契約が出る() {
         note.contains("台帳") && note.contains("録画なし") && note.contains("紐づいていない"),
         "{note}"
     );
+    assert!(!note.contains("やっていないことは別"), "{note}");
+    // 見方「初回契約で MTG の記録が見つからない」の定義の1行も同じ読み方。初回契約に限ることも書く
+    let rule = super::routes::ACT_VIEWS
+        .iter()
+        .find(|v| v.key == "no_mtg")
+        .expect("no_mtg")
+        .rule;
+    assert!(rule.contains("記録が欠けている"), "{rule}");
+    assert!(rule.contains("初回契約に限った"), "{rule}");
+    assert!(!rule.contains("やっていないことは別"), "{rule}");
 }
 
 // ================================================================ タブ6 電話
@@ -2935,6 +2946,82 @@ fn 今日動く先は全担当と担当ごとのmtg途絶の実数も返す() {
     assert!(
         cb.values().all(|n| n.as_u64().unwrap() > 0),
         "0 件の担当が入っている（引けなければ 0 にするのは画面側）"
+    );
+}
+
+/// 今日の札「接触の記録が無い」（09 の 3章 1 の 2、2026-09-29 磨き込み）。
+/// 押すと案件一覧をその名札で開くので、札の件数は案件一覧の名札の件数（flag_counts）と同じ集合でなければならない。
+/// 母数は開始済みの稼働中（開始前は名札を立てない）。担当ごとの件数は、候補（名札2本以上）の中ではなく稼働中の全件から数える
+#[test]
+fn 今日の接触の記録が無いの札は名札と同じ集合を開始済みの母数で数える() {
+    use std::collections::BTreeMap;
+    let v = build_today_board(&sheets(), fixture_day());
+    let nc = &v["meta"]["no_contact"];
+    assert_eq!(nc["label"], "接触の記録が無い");
+    let board = build_deal_board(&sheets(), fixture_day());
+    let rows = board["rows"].as_array().unwrap();
+    let has = |r: &Value| {
+        r["flags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "接触の記録が無い")
+    };
+    let flag_n = board["meta"]["flag_counts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["label"] == "接触の記録が無い")
+        .map(|x| x["n"].as_u64().unwrap())
+        .unwrap();
+    assert_eq!(
+        nc["n"].as_u64().unwrap(),
+        flag_n,
+        "札の件数が案件一覧の名札の件数と違う"
+    );
+    assert_eq!(
+        flag_n, 61,
+        "fixture の開始済み・接触ゼロの稼働中（routes.rs の名札の注記と同じ 61 件）"
+    );
+    let started = rows.iter().filter(|r| r["not_started"] != true).count() as u64;
+    assert_eq!(
+        nc["base"].as_u64().unwrap(),
+        started,
+        "母数が開始済みの稼働中でない"
+    );
+    assert!(
+        started < rows.len() as u64,
+        "前提: fixture に開始前の稼働中が無い（母数を分けた意味が確かめられない）"
+    );
+    // 担当ごと: 稼働中の全件から数えた実数。合計は全社と一致し、候補の中で数えた数とはずれる担当がいる
+    let by = nc["by_consultant"]
+        .as_object()
+        .expect("by_consultant が無い");
+    let sum: u64 = by.values().map(|x| x["n"].as_u64().unwrap()).sum();
+    let sum_base: u64 = by.values().map(|x| x["base"].as_u64().unwrap()).sum();
+    assert_eq!(sum, flag_n, "担当ごとの合計が全社と合わない");
+    assert_eq!(
+        sum_base, started,
+        "担当ごとの母数の合計が全社の母数と合わない"
+    );
+    let mut in_cand: BTreeMap<&str, u64> = BTreeMap::new();
+    for r in v["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| has(r))
+    {
+        *in_cand
+            .entry(r["consultant"].as_str().unwrap_or(""))
+            .or_insert(0) += 1;
+    }
+    let off = by
+        .iter()
+        .filter(|(k, x)| in_cand.get(k.as_str()).copied().unwrap_or(0) != x["n"].as_u64().unwrap())
+        .count();
+    assert!(
+        off > 0,
+        "候補の中で数えても同じなら、全件から数える理由の前提が崩れている"
     );
 }
 
@@ -6336,6 +6423,72 @@ fn latest_mtg_risk_skips_unjudged_and_prefers_the_heavier_on_the_same_day() {
     assert_eq!(m.len(), 3);
 }
 
+/// 案件の行（`deal_rows`）は覚えたものを返すが、覚えずに数えたものと同じで、シートを取り直せば数え直す。
+/// all_cached だけは今回の値（覚えた値を返さない）。
+/// 🔴 2026-09-29 磨き込み: 今日動く先・案件一覧・チームと担当などが同じ行を毎回数え直していた（fixture・debug で 1 回 約 1.2〜1.7 秒）
+#[test]
+fn deal_rows_memo_matches_uncached_and_follows_refetch() {
+    let sh = sheets();
+    let d = fixture_day();
+    let (r0, m0) = super::routes::deal_rows_uncached(&sh, d);
+    let (r1, m1) = super::routes::deal_rows(&sh, d);
+    let (r2, m2) = super::routes::deal_rows(&sh, d);
+    assert_eq!(r1, r0, "覚えた行が覚えずに数えた行と違う");
+    assert_eq!(r2, r0, "2回目（覚えたもの）の行が違う");
+    assert_eq!(m1, m0);
+    assert_eq!(m2, m0);
+    // 同じシートで all_cached だけ違う: 行は同じ、all_cached は今回の値
+    let flip = Sheets {
+        all_cached: !sh.all_cached,
+        deal: sh.deal.clone(),
+        call: sh.call.clone(),
+        mtg: sh.mtg.clone(),
+        history: sh.history.clone(),
+        customer: sh.customer.clone(),
+        mail_mtg: sh.mail_mtg.clone(),
+        handover: sh.handover.clone(),
+        owner_hist: sh.owner_hist.clone(),
+        meta: sh.meta.clone(),
+    };
+    let (rf, mf) = super::routes::deal_rows(&flip, d);
+    assert_eq!(rf, r0);
+    assert_eq!(
+        mf["all_cached"],
+        serde_json::json!(!sh.all_cached),
+        "all_cached を覚えた値で返している"
+    );
+    // 取引シートを取り直した（稼働中の行を 1 件減らした）: 覚えたものを返さず数え直す
+    let first_active = r0[0]["deal_id"].as_str().unwrap().to_string();
+    let id_col = sh
+        .deal
+        .header
+        .iter()
+        .position(|h| h == "deal_id")
+        .expect("deal_id 列");
+    let deal2 = Arc::new(SheetData {
+        header: sh.deal.header.clone(),
+        rows: sh
+            .deal
+            .rows
+            .iter()
+            .filter(|r| r.get(id_col).map(|x| x.as_ref()) != Some(first_active.as_str()))
+            .cloned()
+            .collect(),
+        fetched_at: Instant::now(),
+    });
+    let sh2 = Sheets {
+        deal: deal2,
+        ..flip
+    };
+    let (rn, _) = super::routes::deal_rows(&sh2, d);
+    assert_eq!(
+        rn.len() + 1,
+        r0.len(),
+        "取り直したシートで覚えた行を返している"
+    );
+    assert!(rn.iter().all(|r| r["deal_id"] != first_active.as_str()));
+}
+
 /// 見方の突き合わせは、同じシート（同じ Arc）と基準日なら覚えたものを返し、シートを取り直すか日が変わったら数え直す。
 /// 🔴 2026-09-29 検証: 案件一覧を開くたびに電話の集計ごと回していた（fixture・debug で deal_rows 約 990ms に 約 580ms 上乗せ）
 #[test]
@@ -6749,5 +6902,109 @@ fn renewal_pipe_stages_in_pipeline_order() {
         ids.len(),
         DELIVERY_STAGE_ORDER.len(),
         "並びに同じ ID が2回ある"
+    );
+}
+
+/// (5) 2026-09-30 検証の指摘: 覚えておく仕組みは 2 回目からしか効かず、シートを取り直した直後の 1 回目の案件一覧は
+/// 1 秒を超えていた（fixture・debug で 約 2.2〜3.1 秒）。先読みと定期更新が取り終えるたびに、サーバが先に数えて覚えさせる。
+/// 行と突き合わせの両方が要るので、`deal_rows` だけでなく `build_deal_board` を回していることも見る。
+#[test]
+fn 取り直した後に案件の行を先に数えておく() {
+    let code = |src: &'static str| -> String {
+        src.lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let m = code(include_str!("mod.rs"));
+    let start = m.find("pub async fn prefetch()").expect("prefetch");
+    let end = m[start..]
+        .find("pub fn prefetch_interval")
+        .map(|e| start + e)
+        .expect("prefetch の終わり");
+    let body = &m[start..end];
+    let first = body
+        .find("コンサル先読み: 完了")
+        .expect("最初の先読みのログ");
+    let lp = body.find("loop {").expect("定期更新の loop");
+    let warm = "routes::warm_deal_rows().await";
+    assert!(
+        body[first..lp].contains(warm),
+        "最初の先読みの後に数えていない"
+    );
+    let refresh = body.find("コンサル定期更新:").expect("定期更新のログ");
+    assert!(
+        body[refresh..].contains(warm),
+        "定期更新でシートを取り直した後に数えていない"
+    );
+    let r = code(include_str!("routes.rs"));
+    let ws = r.find("async fn warm_deal_rows").expect("warm_deal_rows");
+    let we = r[ws..]
+        .find("\n}\n")
+        .map(|e| ws + e)
+        .expect("warm_deal_rows の終わり");
+    let wb = &r[ws..we];
+    assert!(
+        wb.contains("build_deal_board("),
+        "突き合わせまで覚えさせていない"
+    );
+    assert!(
+        wb.contains("spawn_blocking"),
+        "重い計算を非同期の実行スレッドで回している"
+    );
+}
+
+/// 案件一覧の meta.started_only_flags（開始前には立てない名札）は、行の実際と合っている。
+/// 画面はこの名札で絞ったとき「開始前 N 件には立てていません」と書き、今日の札の分母（開始済み）と件数の行の分母（稼働中）をつなぐ。
+/// 🔴 2026-09-30 検証: 札「開始済みの稼働中 545 件のうち 61 件」と行き先「604 件中 61 件を表示」で分母が 2 通りに見えた
+#[test]
+fn 開始前に立てない名札は開始前の行に無く今日の札の分母とつながる() {
+    let sh = sheets();
+    let day = fixture_day();
+    let b = build_deal_board(&sh, day);
+    let only: Vec<&str> = b["meta"]["started_only_flags"]
+        .as_array()
+        .expect("started_only_flags")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(only, ["接触の記録が無い", "接触が30日以上空いている"]);
+    let rows = b["rows"].as_array().unwrap();
+    let pre: Vec<&Value> = rows.iter().filter(|r| r["not_started"] == true).collect();
+    assert!(
+        !pre.is_empty(),
+        "fixture に開始前の行が無い（確かめられない）"
+    );
+    for r in &pre {
+        let fs = r["flags"].as_array().unwrap();
+        for f in &only {
+            assert!(
+                !fs.iter().any(|x| x == f),
+                "開始前の行に {f} が立っている: {}",
+                r["deal_id"]
+            );
+        }
+    }
+    let t = build_today_board(&sh, day);
+    let nc = &t["meta"]["no_contact"];
+    assert_eq!(
+        nc["base"].as_u64().unwrap() as usize,
+        rows.len() - pre.len(),
+        "今日の札の分母が開始済みの件数でない"
+    );
+    let hit = rows
+        .iter()
+        .filter(|r| {
+            r["flags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|x| x == "接触の記録が無い")
+        })
+        .count();
+    assert_eq!(
+        nc["n"].as_u64().unwrap() as usize,
+        hit,
+        "札の件数と行き先の件数が違う"
     );
 }

@@ -4947,17 +4947,30 @@ check("09 の 6 チームと担当: 接触の推移は全体の線に選んだ�
   run('contactUnit = "month"; teamPick = "";');
 });
 
-check("09 の 7 成果と継続: 答え（解約率）を先頭に、成果とリスク・顧客の図・立ち上がり・本部アプローチ・手を打つ先の表の順。目次と基準日の枠は1つ", () => {
+check("09 の 3章 7 成果と継続: 答え（解約率）→ 月次の継続率 → 目標と応募効率 → 立ち上がり → 2軸のリスク → 顧客の図 → 本部アプローチ → 手を打つ先の順。目次も同じ順で、基準日の枠は1つ", () => {
+  /* 2026-09-29 磨き込み: 前は立ち上がりが2軸のリスク（と顧客の図）の後にあった。09 の 3章 7 は「目標に対する進捗と応募効率 →
+     立ち上がり → 2軸のリスクと最優先の広がり → NPS・採用単価・LTV → 本部」 */
   ctx.__RS = { meta: { today: "2026-09-18", exclude_right_censored: false }, population: { deals_option: 99 },
     renewal: ctx.__RN, outcome: ctx.__OUT, focus: ctx.__FO, rampup: ctx.__RU, headquarters: ctx.__HQ, phone: ctx.__PH };
   const h = run("renderResults(__RS)");
   const at = (s) => { const i = h.indexOf(s); ok(i >= 0, "「" + s + "」が無い"); return i; };
   const order = [at('id="rs-renewal"'), at('<span class="no">図</span>継続回数ごとの解約率'), at("月次の継続率（満了月ベース"), at('id="rs-outcome"'),
-    at('id="rs-focus"'), at("定期NPS の散らばり"), at('id="rs-rampup"'), at('id="rs-hq"'), at('id="rs-act"')];
+    at("達成率 ＝ 承諾数 ÷ 採用目標数"), at("応募数 ÷ 掲載数"), at('id="rs-rampup"'), at("初回MTGまでの日数の散らばり"),
+    at('id="rs-risk"'), at("リスクは2軸だけで見る"), at("右上ほど金額が大きく満了が遠い"),
+    at('id="rs-focus"'), at("定期NPS の散らばり"), at('id="rs-hq"'), at('id="rs-act"')];
   ok(order.every((x, i) => !i || order[i - 1] < x), "節の並びが 09 の 7 と違う: " + order.join(","));
   const toc = h.slice(h.indexOf('<nav class="toc"'), h.indexOf("</nav>"));
   const js = [...toc.matchAll(/data-jump="([^"]+)"/g)].map((x) => x[1]);
-  ok(JSON.stringify(js) === JSON.stringify(["rs-renewal", "rs-outcome", "rs-focus", "rs-rampup", "rs-hq", "rs-act"]), "目次の行き先が違う: " + js.join(","));
+  ok(JSON.stringify(js) === JSON.stringify(["rs-renewal", "rs-outcome", "rs-rampup", "rs-risk", "rs-focus", "rs-hq", "rs-act"]), "目次の行き先が違う: " + js.join(","));
+  /* 節を分けても、リスクの図・目標の図・「この画面で数えていないもの」の畳みは1回ずつ（2回描かない） */
+  const cnt = (s) => h.split(s).length - 1;
+  /* 図の題は fig の中で aria などにも出るので、節の見出し（sec の「図」）の形で数える */
+  const risk = cnt('<span class="no">図</span>リスクは2軸だけで見る'), goal = cnt('<span class="no">図</span>目標に対する進捗');
+  const defs = cnt("この画面で数えていないもの");
+  ok(risk === 1 && goal === 1 && defs === 2,
+    "節を分けたことで図か畳みが重なった/消えた（リスク・目標・畳み。畳みは立ち上がりと成果の2つ）: " + [risk, goal, defs].join(","));
+  /* 立ち上がりの節から「MTGと電話を束ねた最終接触」への行き先は、リスクの節（rs-risk） */
+  ok(/data-jump="rs-risk"[^>]*>どこが危ないか/.test(h), "立ち上がりからリスクの節への行き先が無い");
   js.forEach((id) => ok(h.includes(' id="' + id + '" tabindex="-1"'), "目次の行き先 " + id + " が本文に無い"));
   ok(h.indexOf('<nav class="toc"') < order[0], "目次が冒頭に無い");
   ok(!h.includes("満了月ごとの内訳"), "満了月ごとの内訳（約60行の表）が残っている（09 の 7）");
@@ -5398,6 +5411,159 @@ check("前の画面名（担当者ごとの接触・担当者の一覧）を、�
     const hit = lits.filter((x) => x !== '"担当者の一覧の接触率"' && !was.has(x) && x.split("前の" + w).join("").includes(w));
     ok(hit.length === 0, "画面に出る文字列に「" + w + "」が残っている: " + hit.slice(0, 3).join(" ／ "));
   });
+});
+
+/* ================================================================ 磨き込み「中身の抜け」（2026-09-29、09 の 3章 1・2 と 10 章②） */
+check("09 の 3章 1: 今日の札「接触の記録が無い」は件数に母数（開始済みの稼働中）と率を添え、赤にせず、名札で絞った案件一覧へ。古い応答では出さない", () => {
+  const F = todayFixture();
+  F.meta.no_contact = { label: "接触の記録が無い", n: 61, base: 590, by_consultant: { "担当C": { n: 4, base: 30 } } };
+  ctx.__TNC = F;
+  run("todayConsultant = '';");
+  const h = run("renderToday(__TNC)");
+  const kp = h.slice(h.indexOf('<div class="kpis">'), h.indexOf('id="td-today-h"'));
+  const i = kp.indexOf('data-flag="接触の記録が無い"');
+  ok(i >= 0, "札が無いか、名札で絞る行き先が無い");
+  const btn = kp.slice(kp.lastIndexOf("<button", i), kp.indexOf("</button>", i));
+  ok(/class="kpi"/.test(btn), "札を赤（is-bad）などで塗っている（接触の記録が無いのは未測定。色で良し悪しを言わない）: " + btn.slice(0, 80));
+  const tb = textOf(btn);
+  ok(/61\s*件/.test(tb) && tb.includes("開始済みの稼働中 590 件のうち（10.3%）") && tb.includes("開始前の契約は数えていません") && tb.includes("案件一覧で見る"),
+    "件数・母数・率・開始前を数えていないこと・行き先が無い: " + tb);
+  // 札の並び: 今日動く先 → 今週満了 → MTG途絶 → 接触の記録が無い（09 の 3章 1 の 2）。今日のコードは MTG 途絶の直後に置く
+  ok(kp.indexOf("MTGが90日以上途絶") < i, "MTG 途絶より前に置いている");
+  // 担当を選ぶと、その担当の実数と母数、全社の数を添える
+  run("todayConsultant = '担当C';");
+  const hc = run("renderToday(__TNC)");
+  const kc = hc.slice(hc.indexOf('<div class="kpis">'), hc.indexOf('id="td-today-h"'));
+  const ic = kc.indexOf('data-flag="接触の記録が無い" data-consultant="担当C"');
+  ok(ic >= 0, "担当を選んだときに担当を添えた行き先になっていない");
+  const tc = textOf(kc.slice(ic, kc.indexOf("</button>", ic)));
+  ok(/4\s*件/.test(tc) && tc.includes("この担当の開始済みの稼働中 30 件のうち（13.3%）") && tc.includes("全社では 61 / 590 件"), "担当の実数・母数・全社の数が無い: " + tc);
+  // 担当の分が無い（稼働中が 0 件の担当）は 0 / 0 で、率を作らない
+  run("todayConsultant = '担当Z';");
+  const tz = textOf(run("renderToday(__TNC)"));
+  ok(tz.includes("この担当の開始済みの稼働中 0 件のうち。") && !/0 件のうち（/.test(tz), "母数 0 で率を作っている");
+  // 古い応答（no_contact が無い）では出さない（数えていないものを 0 と書かない）
+  run("todayConsultant = '';");
+  ctx.__TNC0 = todayFixture();
+  ok(!run("renderToday(__TNC0)").includes("data-flag="), "古い応答で接触の札を出している");
+});
+
+check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの帯にも入れず件数を別に出し、欄の名前は契約総額（月額ではない）", () => {
+  const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
+  ctx.__BA = { meta: ctx.__BD.meta, rows: [
+    { deal_id: "a1", name: "小", consultant: "田中", flags: [], amount: 300000 },
+    { deal_id: "a2", name: "中", consultant: "田中", flags: [], amount: 500000 },
+    { deal_id: "a3", name: "大", consultant: "佐藤", flags: [], amount: 2000000 },
+    { deal_id: "a4", name: "空", consultant: "佐藤", flags: [], amount: null },
+    { deal_id: "a5", name: "空文字", consultant: "佐藤", flags: [], amount: "" },
+    { deal_id: "a6", name: "ゼロ", consultant: "佐藤", flags: [], amount: 0 }] };
+  try {
+    run('cur = { menu: "deal", view: "board" }; ' + reset);
+    const bar = run("boardFilterBar(__BA)");
+    const sel = bar.slice(bar.indexOf('id="bf-amount"'), bar.indexOf("</select>", bar.indexOf('id="bf-amount"')));
+    ok(sel.length > 0 && /title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・名札など）を掛けた中の件数です">契約総額 <select id="bf-amount"/.test(bar),
+      "欄の名前が契約総額でない、月額でないこと・件数の母数が無い");
+    const opts = [...sel.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => m[1] + "=" + m[2]);
+    ok(JSON.stringify(opts) === JSON.stringify(["=すべて（6）", "lt50=50万円未満（2）", "50-100=50万〜100万円未満（1）", "100-200=100万〜200万円未満（0）",
+      "ge200=200万円以上（1）", "none=金額が空（2）"]), "帯と件数が違う（空を 0 円の帯に混ぜている？）: " + opts.join(" / "));
+    const ids = (k) => run('boardFilter.amount = "' + k + '"; boardApply(__BA.rows).map((r) => r.deal_id).join()');
+    ok(ids("lt50") === "a1,a6", "50万円未満: " + ids("lt50"));
+    ok(ids("50-100") === "a2" && ids("ge200") === "a3" && ids("none") === "a4,a5", "帯の境目か空の扱いが違う");
+    run('boardFilter.amount = "lt50";');
+    ok(run("boardFilterOn()") === true, "契約総額で絞っても絞り込み中にならない");
+    ok(run("boardFilterWords(__BA)") === "契約総額 50万円未満（金額が空の 2 件は入りません）", "絞った文に空の件数が無い: " + run("boardFilterWords(__BA)"));
+    run('boardFilter.amount = "none";');
+    ok(run("boardFilterWords(__BA)") === "契約総額 金額が空", "空で絞ったときに空の件数を添えている");
+    ok(/6 件中 2 件\s*を表示/.test(textOf(run("renderBoard(__BA)"))), "件数の行が絞った件数でない");
+    ok(run("JSON.stringify(stateParams('board'))") === JSON.stringify({ amt: "none" }), "契約総額が URL に載らない");
+    // 🔴 2026-09-30 検証: 件数と「金額が空の N 件」は、担当などほかの絞り込みの中で数える（前は稼働中の全件で数え、
+    //    金額が空の案件を持たない担当でも「空の 2 件は入りません」と出た）。「すべて（N）」が母数で、帯と空を足すと N
+    run('boardFilter.amount = "lt50"; boardFilter.consultant = "田中";');
+    ok(run("boardFilterWords(__BA)") === "担当 田中 / 契約総額 50万円未満", "空の案件を持たない担当で空の件数を出している: " + run("boardFilterWords(__BA)"));
+    const opts2 = (() => { const b2 = run("boardFilterBar(__BA)"); const i = b2.indexOf('id="bf-amount"');
+      return [...b2.slice(i, b2.indexOf("</select>", i)).matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => m[1] + "=" + m[2]); })();
+    ok(JSON.stringify(opts2) === JSON.stringify(["=すべて（2）", "lt50=50万円未満（1）", "50-100=50万〜100万円未満（1）", "100-200=100万〜200万円未満（0）",
+      "ge200=200万円以上（0）", "none=金額が空（0）"]), "担当で絞っても全社の件数を出している: " + opts2.join(" / "));
+    run('boardFilter.consultant = "佐藤";');
+    ok(run("boardFilterWords(__BA)") === "担当 佐藤 / 契約総額 50万円未満（金額が空の 2 件は入りません）", "担当の中の空の件数でない: " + run("boardFilterWords(__BA)"));
+    // 契約総額で絞っていても、件数は契約総額を外して数える（選んだ帯以外の件数も見える）
+    const b3 = run("boardFilterBar(__BA)");
+    ok(b3.includes(">すべて（4）<") && b3.includes(">200万円以上（1）<"), "契約総額で絞った後に、ほかの帯の件数が 0 になっている");
+    // 🔴 2026-10-01 再検証: 上は欄を描き直す（boardFilterBar を直接呼ぶ）形だけを見ていた。画面で担当・名札などを変えると
+    //    boardRepaint が #board-body だけ描き直し、欄は作り直されないので、括弧の件数が選ぶ前のまま残っていた。
+    //    担当を変えて boardRepaint を通したあとの #bf-amount の選択肢が、その担当の中の件数になっていることを見る
+    run(reset + ' cur = { menu: "deal", view: "board" }; boardCache = __BA;');
+    els["board-body"] = fakeEl();
+    els["bf-amount"] = fakeEl();
+    run('boardFilter.consultant = "田中"; boardRepaint();');
+    const sel1 = els["bf-amount"].innerHTML;
+    ok(sel1.includes(">すべて（2）<") && sel1.includes(">50万円未満（1）<") && sel1.includes(">金額が空（0）<"),
+      "担当を変えて boardRepaint を通しても、契約総額の件数が数え直されない: " + sel1);
+    run('boardFilter.consultant = "佐藤"; boardRepaint();');
+    ok(els["bf-amount"].innerHTML.includes(">すべて（4）<") && els["bf-amount"].innerHTML.includes(">金額が空（2）<"),
+      "担当を佐藤に変えたあとの契約総額の件数が違う: " + els["bf-amount"].innerHTML);
+    run('boardFilter.amount = "lt50"; boardRepaint();');
+    ok(els["bf-amount"].innerHTML.includes('<option value="lt50" selected>'), "契約総額を選んだあとに選択が外れる");
+  } finally {
+    run(reset + ' cur = { menu: "deal", view: "today" };');
+  }
+});
+
+check("今日の札「接触の記録が無い」の分母（開始済み）と、押した先の件数の行（開始前を含む稼働中）をつなぐ", () => {
+  const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
+  const meta = Object.assign({}, ctx.__BD.meta, { started_only_flags: ["接触の記録が無い", "接触が30日以上空いている"] });
+  ctx.__BS = { meta, rows: [
+    { deal_id: "s1", name: "済1", consultant: "田中", flags: ["接触の記録が無い"], amount: 1 },
+    { deal_id: "s2", name: "済2", consultant: "田中", flags: [], amount: 1 },
+    { deal_id: "p1", name: "前1", consultant: "佐藤", flags: [], not_started: true, amount: 1 }] };
+  try {
+    run('cur = { menu: "deal", view: "board" }; ' + reset + ' boardFilter.flag = "接触の記録が無い";');
+    const tx = textOf(run("renderBoard(__BS)"));
+    ok(/3 件中 1 件\s*を表示/.test(tx) && tx.includes("この名札は開始前の契約には立てていません（3 件のうち開始前 1 件・開始済み 2 件）"),
+      "開始前には名札を立てていないこと（2 つの分母の違い）が件数の行に無い: " + tx.slice(0, 300));
+    // 開始前にも立つ名札・古い応答（started_only_flags が無い）・絞っていないときは出さない
+    run('boardFilter.flag = "札X";');
+    ok(!textOf(run("renderBoard(__BS)")).includes("開始前の契約には立てていません"), "開始前にも立つ名札で開始前の文を出している");
+    ctx.__BS0 = { meta: ctx.__BD.meta, rows: ctx.__BS.rows };
+    run('boardFilter.flag = "接触の記録が無い";');
+    ok(!textOf(run("renderBoard(__BS0)")).includes("開始前の契約には立てていません"), "古い応答で開始前の文を出している");
+  } finally {
+    run(reset + ' cur = { menu: "deal", view: "today" };');
+  }
+});
+
+check("10 章②: 担当者ごとの案件で担当を選ぶ前でも、?view= の見方は案件一覧と同じ定義の1行と外れた件数を出し、持ち件数に掛けていないことを書く", () => {
+  const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
+  try {
+    run('cur = { menu: "consultant", view: "byowner" }; ' + reset + ' boardFilter.view = "silent";');
+    const h = run("renderBoard(__BV)");
+    const tx = textOf(h);
+    ok(tx.includes("定義S") && tx.includes("稼働中 3 件のうち 2 件です"), "担当を選ぶ前に見方の定義と母数が出ない（黙って絞る）");
+    ok(tx.includes("定義を名札に揃えたため、以前の前の出どころB 3 件のうち 2 件は外れました。"), "担当を選ぶ前に外れた件数の文が無い");
+    ok(h.includes('id="byowner-pending"') && tx.includes("絞り込み（見方 接触90日超X）は、下の持ち件数には掛けていません。") &&
+       tx.includes("担当を選ぶと、その担当の案件にこの絞り込みを掛けて出します。"), "持ち件数に掛けていないこと・選ぶと掛かることが無い");
+    ok(h.split('id="bf-clear"').length - 1 === 1, "絞り込みを外すボタンが 1 つでない");
+    // 🔴 2026-09-30 検証: 選ぶ前の同じ画面に「下の件数はそれより少なくなります」（見方の箱）と「下の持ち件数には掛けていません」、
+    //    冒頭の「絞り込みは、担当を選んだ後に出ます」が並んで食い違って読めた。下の件数の話は byowner-pending の1か所だけにし、
+    //    冒頭は「欄」が後で出ると書いて、持ってきた絞り込みは下を指す
+    ok(!tx.includes("下の件数はそれより少なくなります"), "選ぶ前の見方の箱が、掛けていない持ち件数が減ると書いている");
+    ok(tx.includes("名札・満了まで・契約総額・案件名で絞る欄は、担当を選んだ後に出ます（いま持ってきている絞り込みは、下に書いています）。") &&
+       !tx.includes("での絞り込みは、担当を選んだ後に出ます"), "冒頭が、持ってきた絞り込みがまだ無いように読める");
+    // 担当を選んだ後は、見方の箱が下の件数（その担当の案件）との関係を書く（こちらは下の表に掛かっている）
+    run('boardFilter.consultant = "田中";');
+    ok(textOf(run("renderBoard(__BV)")).includes("下の件数はそれより少なくなります"), "担当を選んだ後の見方の箱から、下の件数との関係が消えた");
+    run('boardFilter.consultant = "";');
+    // 持ち件数は見えない条件で減らさない（田中 2・佐藤 1 のまま）
+    const tbl = h.slice(h.indexOf('id="owner-tbl"'));
+    ok(/田中<\/a><\/td><td[^>]*>2</.test(tbl) && /佐藤<\/a><\/td><td[^>]*>1</.test(tbl), "持ち件数を見方で減らしている: " + textOf(tbl).slice(0, 120));
+    // 何も絞っていなければ、どちらも出さない
+    run(reset);
+    const h0 = run("renderBoard(__BV)");
+    ok(!h0.includes('id="byowner-pending"') && !textOf(h0).includes("の定義"), "絞っていないのに持ち越しの文か見方の定義が出る");
+    ok(textOf(h0).includes("案件名で絞る欄は、担当を選んだ後に出ます。") && !textOf(h0).includes("いま持ってきている"), "絞っていないのに持ってきた絞り込みがあると書いている");
+  } finally {
+    run(reset + ' cur = { menu: "deal", view: "today" };');
+  }
 });
 
 Promise.all(pendingChecks).then(() => {
