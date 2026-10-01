@@ -101,6 +101,35 @@ mod tests {
             written.contains("export type AppPingResponse = {"),
             "{written}"
         );
+        // W8 (2026-09-29): admin / my。依存型 (AccountRow 等) も export_all が一緒に書き出す。
+        {
+            use crate::handlers::admin::{
+                AdminLoginFailuresResponse, AdminUsageResponse, AdminUserDetailResponse,
+                AdminUsersResponse,
+            };
+            use crate::handlers::my::{
+                MyActivityResponse, MyProfileResponse, MyProfileUpdateRequest,
+            };
+            AdminUsersResponse::export_all(&cfg).expect("AdminUsersResponse");
+            AdminUserDetailResponse::export_all(&cfg).expect("AdminUserDetailResponse");
+            AdminLoginFailuresResponse::export_all(&cfg).expect("AdminLoginFailuresResponse");
+            AdminUsageResponse::export_all(&cfg).expect("AdminUsageResponse");
+            MyProfileResponse::export_all(&cfg).expect("MyProfileResponse");
+            MyActivityResponse::export_all(&cfg).expect("MyActivityResponse");
+            MyProfileUpdateRequest::export_all(&cfg).expect("MyProfileUpdateRequest");
+            for f in [
+                "AccountRow.ts",
+                "LoginSessionRow.ts",
+                "ActivityLogRow.ts",
+                "AdminUserKpi30d.ts",
+                "AdminUsageEntry.ts",
+            ] {
+                assert!(
+                    out_dir.join(f).is_file(),
+                    "{f} が依存型として書き出されていない"
+                );
+            }
+        }
     }
 
     /// 生成される TS 型の中身。フィールド名・型が変わったらここも落ちる。

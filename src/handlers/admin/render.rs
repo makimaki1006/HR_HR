@@ -1,7 +1,12 @@
 //! 管理画面 HTML レンダリング
 //! Tailwind + minimal HTMX。既存テーマ (navy-900 背景) と整合。
+//!
+//! W8 (2026-09-29): 引数を `data.rs` の応答 struct にした (JSON と同じ値を描く)。
+//! 出力 HTML は分割前と同一 (`snapshot_tests.rs`)。
 
-use crate::audit::dao::{AccountRow, ActivityLogRow, LoginSessionRow};
+use super::data::{
+    AdminLoginFailuresResponse, AdminUsageResponse, AdminUserDetailResponse, AdminUsersResponse,
+};
 use crate::handlers::helpers::escape_html;
 
 fn layout(title: &str, body: &str) -> String {
@@ -54,7 +59,8 @@ pub fn not_found(id: &str) -> String {
     )
 }
 
-pub fn users_list_page(accounts: &[AccountRow]) -> String {
+pub fn users_list_page(resp: &AdminUsersResponse) -> String {
+    let accounts = &resp.accounts;
     let mut rows = String::new();
     for a in accounts {
         rows.push_str(&format!(
@@ -105,11 +111,10 @@ pub fn users_list_page(accounts: &[AccountRow]) -> String {
     layout("ユーザー一覧 - 管理", &body)
 }
 
-pub fn user_detail_page(
-    acc: &AccountRow,
-    sessions: &[LoginSessionRow],
-    activities: &[ActivityLogRow],
-) -> String {
+pub fn user_detail_page(resp: &AdminUserDetailResponse) -> String {
+    let acc = &resp.account;
+    let sessions = &resp.sessions;
+    let activities = &resp.activities;
     // プロフィール
     let profile = format!(
         r#"<section class="mb-6 p-4 rounded bg-slate-800/40">
@@ -148,27 +153,12 @@ pub fn user_detail_page(
         }
     );
 
-    // KPI: 先月のログイン数・操作数
+    // KPI: 先月のログイン数・操作数 (計算は data::kpi_30d)
     let kpis = {
-        let cutoff = (chrono::Utc::now() - chrono::Duration::days(30))
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string();
-        let login_30d = sessions
-            .iter()
-            .filter(|s| s.started_at.as_str() >= cutoff.as_str() && s.success == 1)
-            .count();
-        let fail_30d = sessions
-            .iter()
-            .filter(|s| s.started_at.as_str() >= cutoff.as_str() && s.success == 0)
-            .count();
-        let activity_30d = activities
-            .iter()
-            .filter(|a| a.at.as_str() >= cutoff.as_str())
-            .count();
-        let company_views_30d = activities
-            .iter()
-            .filter(|a| a.at.as_str() >= cutoff.as_str() && a.event_type == "view_company_profile")
-            .count();
+        let login_30d = resp.kpi_30d.login_ok;
+        let fail_30d = resp.kpi_30d.login_fail;
+        let activity_30d = resp.kpi_30d.activity;
+        let company_views_30d = resp.kpi_30d.company_views;
         format!(
             r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
   <div class="p-4 rounded bg-slate-800/40"><div class="text-slate-400 text-xs">直近30日 ログイン成功</div><div class="text-3xl font-bold">{login_30d}</div></div>
@@ -235,7 +225,8 @@ pub fn user_detail_page(
     layout(&format!("{} - 詳細", acc.email), &body)
 }
 
-pub fn login_failures_page(failures: &[LoginSessionRow]) -> String {
+pub fn login_failures_page(resp: &AdminLoginFailuresResponse) -> String {
+    let failures = &resp.failures;
     let mut rows = String::new();
     for f in failures {
         rows.push_str(&format!(
@@ -266,69 +257,12 @@ pub fn login_failures_page(failures: &[LoginSessionRow]) -> String {
 // 利用状況 (2026-08-10 追加)
 // ============================================================================
 
-/// 機能コード → 画面に出す日本語名。
-///
-/// 未知のコードはそのまま表示する（新しい記録を足したときに黙って消えないように）。
-fn event_label(event_type: &str, target_id: &str) -> String {
-    if event_type == "view_tab" {
-        let name = match target_id {
-            "/tab/survey" => "媒体分析",
-            "/tab/jobmap" => "地図",
-            "/tab/regional_analysis" => "地域分析",
-            "/tab/company" => "企業検索",
-            "/tab/driver" => "職種辞典",
-            "/tab/license" => "資格辞書",
-            "/tab/keyword_tools" => "キーワード需要",
-            "/tab/jobgen_tools" => "求人票作成",
-            "/tab/guide" => "使い方ガイド",
-            other => other,
-        };
-        return format!("タブを開く: {name}");
-    }
-    match event_type {
-        // 認証
-        "login" => "ログイン".to_string(),
-        "logout" => "ログアウト".to_string(),
-        // 検索・調査
-        "keyword_search" => "キーワード検索".to_string(),
-        "keyword_seed_compare" => "見え方チェック(比較)".to_string(),
-        "visibility_check" => "求人ページの見え方チェック".to_string(),
-        "serp_search" => "検索結果の取得".to_string(),
-        "view_company_profile" => "企業カルテを見る".to_string(),
-        "view_industry_companies" => "業種別の企業一覧".to_string(),
-        // 媒体分析
-        "upload_survey_csv" | "upload" => "CSV取込".to_string(),
-        "compare_public_jobs" => "公的求人データと比較".to_string(),
-        "generate_survey_report" => "媒体分析レポート生成".to_string(),
-        "generate_survey_guide" => "解説資料の生成".to_string(),
-        "view_survey_report" => "媒体分析レポートを開く".to_string(),
-        // レポート
-        "generate_integrated_report" => "統合レポート生成".to_string(),
-        "view_integrated_report" => "統合レポートを開く".to_string(),
-        "generate_insight_report" => "示唆レポート生成".to_string(),
-        // コンサル準備（社内用）
-        "generate_consult_brief" => "商談準備レポートの作成".to_string(),
-        "generate_consult_evidence_pack" => "証拠データJSONの出力".to_string(),
-        "generate_consult_hearing_sheet" => "ヒアリングシートの作成".to_string(),
-        "generate_consult_action_memo" => "アクションメモの作成".to_string(),
-        "view_consult_hearing_form" => "ヒアリング入力を開く".to_string(),
-        "save_consult_hearing" => "ヒアリング内容の保存".to_string(),
-        "view_consult_hypothesis_review" => "仮説の確認画面を開く".to_string(),
-        "save_consult_hypothesis_review" => "仮説の確認内容を保存".to_string(),
-        // その他
-        "download_csv" => "CSVダウンロード".to_string(),
-        "update_profile" => "プロフィール更新".to_string(),
-        // 未知のコードはそのまま出す（記録を足したときに黙って消えないように）
-        other => other.to_string(),
-    }
-}
-
-pub fn usage_page(
-    days: i64,
-    by_event: &[crate::audit::dao::UsageRow],
-    by_account: &[crate::audit::dao::UsageRow],
-    cross: &[crate::audit::dao::UsageRow],
-) -> String {
+/// 機能コードの日本語名は `data::event_label` (JSON の `label` と同じ値)。
+pub fn usage_page(resp: &AdminUsageResponse) -> String {
+    let days = resp.days;
+    let by_event = &resp.by_event;
+    let by_account = &resp.by_account;
+    let cross = &resp.cross;
     let period_links = [7_i64, 30, 90]
         .iter()
         .map(|d| {
@@ -346,7 +280,7 @@ pub fn usage_page(
     for r in by_event {
         event_rows.push_str(&format!(
             r#"<tr class="border-b border-slate-700"><td class="py-2 px-3">{name}</td><td class="py-2 px-3 text-right text-emerald-400">{cnt}</td><td class="py-2 px-3 text-slate-400 text-xs">{last}</td></tr>"#,
-            name = escape_html(&event_label(&r.event_type, &r.target_id)),
+            name = escape_html(&r.label),
             cnt = r.count,
             last = escape_html(&r.last_at),
         ));
@@ -374,7 +308,7 @@ pub fn usage_page(
         cross_rows.push_str(&format!(
             r#"<tr class="border-b border-slate-700"><td class="py-2 px-3">{email}</td><td class="py-2 px-3">{name}</td><td class="py-2 px-3 text-right text-emerald-400">{cnt}</td><td class="py-2 px-3 text-slate-400 text-xs">{last}</td></tr>"#,
             email = escape_html(if r.email.is_empty() { "(不明)" } else { &r.email }),
-            name = escape_html(&event_label(&r.event_type, &r.target_id)),
+            name = escape_html(&r.label),
             cnt = r.count,
             last = escape_html(&r.last_at),
         ));
@@ -423,6 +357,7 @@ pub fn usage_page(
 mod usage_render_tests {
     use super::*;
     use crate::audit::dao::UsageRow;
+    use crate::handlers::admin::data::usage_response;
 
     fn row(email: &str, ev: &str, cnt: i64) -> UsageRow {
         row_t(email, ev, "", cnt)
@@ -445,7 +380,7 @@ mod usage_render_tests {
         let by_event = vec![row("", "view_tab", 42), row("", "upload_survey_csv", 7)];
         let by_account = vec![row("a@f-a-c.co.jp", "", 49)];
         let cross = vec![row("a@f-a-c.co.jp", "view_tab", 42)];
-        let html = usage_page(30, &by_event, &by_account, &cross);
+        let html = usage_page(&usage_response(30, by_event, by_account, cross));
 
         assert!(html.contains(">42<"), "機能別の回数 42 が表示されること");
         assert!(
@@ -478,7 +413,7 @@ mod usage_render_tests {
             row_t("", "view_tab", "/tab/survey", 12),
             row_t("", "view_tab", "/tab/company", 5),
         ];
-        let html = usage_page(30, &by_event, &[], &[]);
+        let html = usage_page(&usage_response(30, by_event, vec![], vec![]));
         assert!(html.contains("タブを開く: 媒体分析"), "どのタブか出ること");
         assert!(
             html.contains("タブを開く: 企業検索"),
@@ -490,70 +425,13 @@ mod usage_render_tests {
         );
     }
 
-    /// 記録している全イベントが日本語名を持つ（内部コードの露出を防ぐ）
-    #[test]
-    fn every_recorded_event_has_a_japanese_label() {
-        let recorded = [
-            "login",
-            "logout",
-            "upload_survey_csv",
-            "generate_survey_report",
-            "generate_survey_guide",
-            "generate_integrated_report",
-            "generate_insight_report",
-            "generate_consult_brief",
-            "generate_consult_evidence_pack",
-            "generate_consult_hearing_sheet",
-            "generate_consult_action_memo",
-            "view_consult_hearing_form",
-            "save_consult_hearing",
-            "view_consult_hypothesis_review",
-            "save_consult_hypothesis_review",
-            "view_company_profile",
-            "view_industry_companies",
-            "download_csv",
-            "update_profile",
-            "view_tab",
-            "keyword_search",
-            "keyword_seed_compare",
-            "visibility_check",
-            "serp_search",
-            "view_survey_report",
-            "view_integrated_report",
-            "compare_public_jobs",
-        ];
-        for ev in recorded {
-            let label = event_label(ev, "/tab/survey");
-            assert_ne!(
-                label, ev,
-                "{ev} に日本語名が必要（内部コードが画面に出ている）"
-            );
-        }
-    }
-
-    /// タブ名は URL でなく日本語で出す
-    #[test]
-    fn tab_paths_are_shown_in_japanese() {
-        assert_eq!(
-            event_label("view_tab", "/tab/survey"),
-            "タブを開く: 媒体分析"
-        );
-        assert_eq!(
-            event_label("view_tab", "/tab/company"),
-            "タブを開く: 企業検索"
-        );
-        // 未知のパスは握り潰さずそのまま出す（記録が黙って消えないように）
-        assert_eq!(
-            event_label("view_tab", "/tab/unknown"),
-            "タブを開く: /tab/unknown"
-        );
-        assert_eq!(event_label("mystery_event", ""), "mystery_event");
-    }
+    // `every_recorded_event_has_a_japanese_label` / `tab_paths_are_shown_in_japanese` は
+    // event_label と一緒に data.rs へ移した。
 
     /// 記録が 0 件のときに空表ではなく説明を出す
     #[test]
     fn empty_usage_shows_explanation_not_blank_table() {
-        let html = usage_page(7, &[], &[], &[]);
+        let html = usage_page(&usage_response(7, vec![], vec![], vec![]));
         assert!(
             html.contains("この期間の記録はまだありません"),
             "0 件のとき空表にしない"
