@@ -185,7 +185,7 @@ def main() -> int:
         os.makedirs(a.shots, exist_ok=True)
     with sync_playwright() as pw:
         br = pw.chromium.launch(executable_path=CHROME)
-        ctx = br.new_context(viewport={"width": 1400, "height": 1000}, locale="ja-JP",
+        ctx = br.new_context(bypass_csp=True, viewport={"width": 1400, "height": 1000}, locale="ja-JP",
                              timezone_id="Asia/Tokyo")
         page = ctx.new_page()
         errors: list[str] = []
