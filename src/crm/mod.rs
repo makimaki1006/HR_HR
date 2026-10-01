@@ -12,4 +12,6 @@ pub mod routes;
 pub use routes::router;
 
 #[cfg(test)]
+mod real_hubspot_smoke;
+#[cfg(test)]
 mod routes_tests;
