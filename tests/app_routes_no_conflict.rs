@@ -930,19 +930,46 @@ fn 担当の交代は記録を並べるだけ() {
     );
 }
 
-/// 🔴 本部アプローチは**法人の粒度**なので、③集計ではなく①案件の中に置く。
+/// 🔴 本部アプローチは**法人の粒度**なので、単独の画面（メニューの項目）にしない。
+/// 2026-09-29 の組み替え（09 の 4 章）で「成果と継続」の節（rs-hq）へ移し、束（/api/consulting/results の headquarters）から描く。
+/// 2026-09-30 に顧客の画面の後読み（hqSection / wireHq が /api/consulting/headquarters を別に取る）を消したので、
+/// 前の「法人の画面から取りに行く」の確かめを、今の置き場（rs-hq）を確かめる形に移した（緩めていない）
 #[test]
-fn 本部アプローチが法人の画面にある() {
+fn 本部アプローチが成果と継続の節にある() {
     let html = std::fs::read_to_string("templates/tabs/cs_dashboard.html").expect("テンプレート");
+    let rs = std::fs::read_to_string("src/handlers/cs_dashboard/routes.rs").expect("routes");
     let m = menus(&html);
-    let study: Vec<&str> = m[2].1.iter().map(|x| x.as_str()).collect();
+    for (label, views) in &m {
+        assert!(
+            !views.iter().any(|x| x == "本部アプローチ"),
+            "本部アプローチが単独の画面として {label} に残っている"
+        );
+    }
+    let monthly: Vec<&str> = m[2].1.iter().map(|x| x.as_str()).collect();
     assert!(
-        !study.contains(&"本部アプローチ"),
-        "本部アプローチが集計に残っている"
+        monthly.contains(&"成果と継続"),
+        "置き場の「成果と継続」がメニューに無い: {monthly:?}"
+    );
+    // 成果と継続の本文に節（rs-hq）を置き、束の headquarters を描く。サーバの束に headquarters が入っている
+    assert!(
+        html.contains("\"rs-hq\") + renderHq(D.headquarters)"),
+        "成果と継続に本部アプローチの節（rs-hq）が無い"
     );
     assert!(
-        html.contains("fetch(\"/api/consulting/headquarters\""),
-        "本部アプローチを法人の画面から取りに行っていない"
+        rs.contains("\"headquarters\": build_headquarters(sheets, today)"),
+        "成果と継続の束（build_results）に本部アプローチが入っていない"
+    );
+    // 別に取りに行かない（束の中から描く。後読みの部品は消した）
+    assert!(
+        !html.contains("fetch(\"/api/consulting/headquarters\"")
+            && !html.contains("function wireHq(")
+            && !html.contains("function hqSection("),
+        "本部アプローチを別に取りに行く後読みが残っている"
+    );
+    // 顧客（法人の画面）からは黙って消さず、成果と継続の節へのリンクを置く
+    assert!(
+        html.contains("hashFor(\"results\", { at: \"rs-hq\" })"),
+        "顧客の画面から本部アプローチ（rs-hq）への行き先が無い"
     );
     assert!(
         html.contains("他の法人と比べる"),
