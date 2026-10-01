@@ -412,12 +412,12 @@
     const html =
       '<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4 mb-4">' +
         '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
-          '<div class="text-xs text-slate-400">採用難度スコア <span class="text-[10px] text-slate-500">(昼人口1万人あたり求人数)</span></div>' +
+          '<div class="text-xs text-slate-400">採用難度スコア <span class="text-[10px] text-slate-500">(分母の人口1万人あたり求人数)</span></div>' +
           '<div class="text-3xl font-bold text-white">' + score + '</div>' +
           '<div class="text-sm ' + levelColor + ' mt-1">' + escapeHtml(rankLabel) + '</div>' +
         '</div>' +
         '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
-          '<div class="text-xs text-slate-400">HW該当求人数 / 昼間人口</div>' +
+          '<div class="text-xs text-slate-400">HW該当求人数 / 分母の人口</div>' +
           '<div class="text-xl font-bold text-white">' + fmt(hwCount) + ' 件</div>' +
           '<div class="text-xs text-slate-400 mt-1">人口 ' + fmt(population) + '</div>' +
         '</div>' +
@@ -427,6 +427,15 @@
           '<div class="text-xs text-slate-400 mt-1">全国 ' + fmt(nationalHw) + ' 件</div>' +
         '</div>' +
       '</div>' +
+      '<div class="text-xs text-slate-500" data-testid="rd-difficulty-denominator-source">' +
+        (metrics.is_tourist_area
+          ? '※ 分母: Agoop 人流データ 平日深夜の滞在人口 (居住人口の代理、観光地補正)'
+          : '※ 分母: Agoop 人流データ 平日昼の滞在人口 (月平均)') +
+      '</div>' +
+      (metrics.is_tourist_area && data.tourist_correction_note
+        ? '<div class="mt-1 text-xs text-slate-500" data-testid="rd-difficulty-tourist-note">' +
+          escapeHtml(data.tourist_correction_note) + '</div>'
+        : '') +
       (data.so_what
         ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
           '📝 ' + escapeHtml(data.so_what) + '</div>'
@@ -553,7 +562,7 @@
     function toManYen(v) { return (v != null && v > 0) ? Math.round(v / 10000) : null; }
 
     function gapCell(ownV, benchV, unit, digits) {
-      if (ownV == null || benchV == null || ownV === 0 || benchV === 0) return '<span class="text-slate-500">—</span>';
+      if (ownV == null || benchV == null || benchV === 0) return '<span class="text-slate-500">—</span>';
       const diff = ownV - benchV;
       const cls = diff >= 0 ? 'text-green-400' : 'text-red-400';
       const sign = diff >= 0 ? '+' : '';
@@ -669,11 +678,11 @@
     const cities = Array.isArray(data.municipalities) ? data.municipalities : [];
     if (cities.length === 0) {
       setPanelBody('opportunity_map',
-        '<div class="text-sm text-slate-400 py-4">該当データなし。都道府県を選択してください。Agoop 人流データと HW求人の両方が必要です。</div>');
+        '<div class="text-sm text-slate-400 py-4">該当データなし。都道府県を選択してください。昼間人口 (国勢調査) と HW求人の両方が必要です。</div>');
       setPanelStatus('opportunity_map', '完了（0件）', 'text-slate-400');
       return;
     }
-    // score: 人口千人あたり求人数。小さい=穴場、大きい=激戦。Top = score 降順 なので昇順化（穴場上位）
+    // score: 人口1万人あたり求人数。小さい=穴場、大きい=激戦。Top = score 降順 なので昇順化（穴場上位）
     const sorted = cities.slice().sort(function(a, b) { return (a.score || 0) - (b.score || 0); });
     const top = sorted.slice(0, 25);
     const catColor = function(cat) {
@@ -684,7 +693,8 @@
 
     const html =
       '<div id="rd-chart-opportunity" style="width:100%;height:400px;"></div>' +
-      '<p class="text-xs text-slate-500 mt-2">※ スコア = HW求人数 ÷ 昼人口 × 1000（人口千人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。</p>' +
+      '<p class="text-xs text-slate-500 mt-2">※ スコア = HW求人数 ÷ 昼間人口 × 10,000（人口1万人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。</p>' +
+      '<p class="text-xs text-slate-500 mt-1" data-testid="rd-opportunity_map-denominator-source">※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)。区分のしきい値・分母は Panel 1 と異なります。</p>' +
       (data.note
         ? '<div class="mt-2 text-[10px] text-slate-500 italic">' + escapeHtml(data.note) + '</div>'
         : '');
@@ -705,7 +715,7 @@
           }
         },
         grid: { left: 160, right: 40, top: 20, bottom: 30 },
-        xAxis: { type: 'value', name: 'スコア（千人あたり求人数）', axisLabel: { color: '#94a3b8' } },
+        xAxis: { type: 'value', name: 'スコア（1万人あたり求人数）', axisLabel: { color: '#94a3b8' } },
         yAxis: {
           type: 'category',
           data: top.map(function(c) { return c.name; }),

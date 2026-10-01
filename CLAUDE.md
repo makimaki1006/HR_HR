@@ -338,16 +338,16 @@ python scripts/compute_v2_phase2.py
 
 | Panel | API | 内容 | 主データ |
 |-------|-----|------|---------|
-| 1 | `/api/recruitment_diag/difficulty` | 採用難度スコア (HW 求人数 / Agoop 平日昼滞在人口 × 10000) | postings + v2_flow_* |
+| 1 | `/api/recruitment_diag/difficulty` | 採用難度スコア (HW 求人数 / Agoop 平日昼の滞在人口 × 10000。昼夜比が閾値を超える観光地は平日深夜の滞在人口 (居住人口の代理) を分母に補正) | postings + v2_flow_* |
 | 2 | `/api/recruitment_diag/talent_pool` | 人材プール (day_pop - night_pop = 流入者) | v2_flow_* + v2_external_population |
 | 3 | `/api/recruitment_diag/inflow` | 流入元分析 (注: v2_flow_fromto_city は 83% のみ投入済) | v2_flow_fromto_city |
 | 4 | `/api/recruitment_diag/competitors` | 競合企業ランキング | v2_salesnow_companies + postings |
 | 5 | `/api/recruitment_diag/condition_gap` | 条件ギャップ (自社入力 vs 中央値) | postings (median by ORDER BY LIMIT OFFSET) |
 | 6 | `/api/recruitment_diag/market_trend` | 市場動向 (job_type 指定時は ts_turso_salary 由来サンプル件数) | ts_turso_* |
-| 7 | `/api/recruitment_diag/opportunity_map` | 穴場マップ (Panel 1 の市区町村展開) | postings + v2_flow_* |
+| 7 | `/api/recruitment_diag/opportunity_map` | 穴場マップ (市区町村別の HW 求人数 / 昼間人口 × 10000、人口 1 万人あたり。区分しきい値 5 / 20。分母は国勢調査の昼間人口で Panel 1 とは別出典) | postings + v2_external_daytime_population |
 | 8 | `/api/recruitment_diag/insights` | AI 示唆統合 (38 patterns 配信) | InsightContext |
 
-⚠ **Panel 5 emp_type フィルタは `expand_employment_type` 未経由**。UI 値そのままで postings.employment_type を検索するため、ヒット 0 で「データ不足」誤表示の可能性。
+Panel 5 の emp_type は `condition_gap.rs` で `emp_classifier::from_ui_value` → `expand_to_db_values` を通して DB 値に展開している (パート → パート労働者 等)。自社条件 (月給・賞与・年間休日) は未入力なら null で返り、未入力の項目の差と推定年収 (月給と賞与の両方が必要) は算出しない。0 は入力値 0 として扱う。
 
 ---
 

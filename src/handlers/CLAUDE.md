@@ -121,7 +121,7 @@
 | 4. 競合企業 | `/api/recruitment_diag/competitors` | `competitors.rs` | v2_salesnow_companies + postings |
 | 5. 条件ギャップ | `/api/recruitment_diag/condition_gap` | `condition_gap.rs` | postings (median by ORDER BY LIMIT OFFSET) |
 | 6. 市場動向 | `/api/recruitment_diag/market_trend` | `market_trend.rs` | ts_turso_* |
-| 7. 穴場マップ | `/api/recruitment_diag/opportunity_map` | `opportunity_map.rs` | postings + v2_flow_* |
+| 7. 穴場マップ | `/api/recruitment_diag/opportunity_map` | `opportunity_map.rs` | postings + v2_external_daytime_population (人口 1 万人あたり) |
 | 8. AI 示唆 | `/api/recruitment_diag/insights` | `insights.rs` | InsightContext (38 patterns) |
 
 ⚠ **2026-04-23 事故対応中核機能**: 8 panel 並列ロード時に JSON shape 契約違反で全滅。`contract_tests.rs` で逆証明テスト追加済。
