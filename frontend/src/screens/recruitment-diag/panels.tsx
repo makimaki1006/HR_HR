@@ -66,7 +66,7 @@ export function asArray(v: unknown): unknown[] | null {
 // ---- Panel 1: difficulty ----
 
 const RANK_COLOR: Record<string, string> = {
-  非常に激戦: 'text-red-400',
+  超激戦: 'text-red-400',
   激戦: 'text-orange-400',
   平均的: 'text-yellow-300',
   穏やか: 'text-green-400',
