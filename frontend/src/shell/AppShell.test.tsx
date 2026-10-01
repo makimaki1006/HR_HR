@@ -604,19 +604,33 @@ describe('AppShell filters', () => {
       </AppShell>,
     );
     await screen.findByTestId('probe');
+    // ctxBox is filled by an effect; do not assume it ran before the probe was found.
+    await waitFor(() => {
+      expect(() => getCtx()).not.toThrow();
+    });
     let both: Promise<unknown> = Promise.resolve();
     act(() => {
       const p = getCtx().setPrefecture('東京都');
       const m = getCtx().setMunicipality('新宿区');
       both = Promise.all([p, m]);
     });
-    // The municipality POST is not sent while the prefecture POST is pending.
-    await new Promise((r) => setTimeout(r, 20));
+    // Step 1: wait (no fixed sleep) until React has reflected the pending set_prefecture:
+    // syncing=true and the municipality select disabled. prefGate is still closed here.
+    await waitFor(() => {
+      expect(getCtx().syncing).toBe(true);
+      expect((screen.getByLabelText<HTMLSelectElement>('市区町村')).disabled).toBe(true);
+    });
+    // Step 2: with prefGate still closed, give a broken (non-serialised) implementation
+    // several macrotasks to leak set_municipality / municipalities_cascade before asserting.
+    for (let i = 0; i < 5; i += 1) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    // Step 3 (prefGate still closed): only set_prefecture was POSTed; the municipality POST
+    // and the municipality list request (legacy order) have not been sent.
     expect(posts().map((c) => c.url)).toEqual(['/api/set_prefecture']);
-    expect(getCtx().syncing).toBe(true);
-    // The municipality list is not requested before set_prefecture finishes (legacy order).
+    expect(arrival).toEqual([]);
     expect(calls.some((c) => c.url.startsWith('/api/municipalities_cascade'))).toBe(false);
-    expect((screen.getByLabelText<HTMLSelectElement>('市区町村')).disabled).toBe(true);
+    expect(getCtx().syncing).toBe(true);
     await act(async () => {
       releasePref();
       await both;
@@ -629,7 +643,9 @@ describe('AppShell filters', () => {
     await waitFor(() => {
       expect(calls.some((c) => c.url.startsWith('/api/municipalities_cascade'))).toBe(true);
     });
-    expect(getCtx().syncing).toBe(false);
+    await waitFor(() => {
+      expect(getCtx().syncing).toBe(false);
+    });
     expect(new URLSearchParams(window.location.search).get('muni')).toBe('新宿区');
   });
 });
