@@ -85,5 +85,25 @@ mod tests {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend/src/generated");
         let cfg = ts_config().with_out_dir(&out_dir);
         RdErrorResponse::export_all(&cfg).expect("RdErrorResponse");
+        crate::handlers::recruitment_diag::handlers::RdDifficultyResult::export_all(&cfg)
+            .expect("RdDifficultyResult");
+        crate::handlers::recruitment_diag::handlers::RdTalentPoolResult::export_all(&cfg)
+            .expect("RdTalentPoolResult");
+        crate::handlers::recruitment_diag::handlers::RdInflowResult::export_all(&cfg)
+            .expect("RdInflowResult");
+        crate::handlers::recruitment_diag::competitors::RdCompetitorsResult::export_all(&cfg)
+            .expect("RdCompetitorsResult");
+        crate::handlers::recruitment_diag::condition_gap::RdConditionGapResult::export_all(&cfg)
+            .expect("RdConditionGapResult");
+        crate::handlers::recruitment_diag::market_trend::RdMarketTrendResult::export_all(&cfg)
+            .expect("RdMarketTrendResult");
+        crate::handlers::recruitment_diag::opportunity_map::RdOpportunityMapResult::export_all(
+            &cfg,
+        )
+        .expect("RdOpportunityMapResult");
+        crate::handlers::recruitment_diag::insights::RdInsightsResult::export_all(&cfg)
+            .expect("RdInsightsResult");
+        crate::handlers::recruitment_diag::talent_pool_expansion::RdTalentPoolExpansionResult::export_all(&cfg)
+            .expect("RdTalentPoolExpansionResult");
     }
 }
