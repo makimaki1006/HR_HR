@@ -77,6 +77,51 @@ mod tests {
         assert_eq!(new, serde_json::to_string(&legacy).unwrap());
     }
 
+    /// TS の型名は `frontend/src/generated/{名前}.ts` のファイル名になるため、同名の型が 2 つあると
+    /// 後から書き出した方が黙って上書きする (Phase 1A-1 統合時に `RdTalentPoolNotes` が Panel 2 と
+    /// Panel 9 で衝突した)。recruitment_diag 配下の `pub struct/enum Rd*` と `#[ts(rename = "Rd*")]`
+    /// の名前が重複しないことを検査する。
+    #[test]
+    fn rd_ts_type_names_are_unique() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/handlers/recruitment_diag");
+        let mut seen: std::collections::HashMap<String, String> = Default::default();
+        let mut dups = Vec::new();
+        let mut total = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let file = path.file_name().unwrap().to_string_lossy().to_string();
+            for line in std::fs::read_to_string(&path).unwrap().lines() {
+                let t = line.trim_start();
+                let name = if let Some(rest) = t
+                    .strip_prefix("pub struct Rd")
+                    .or_else(|| t.strip_prefix("pub enum Rd"))
+                {
+                    rest.split(|c: char| !c.is_ascii_alphanumeric()).next()
+                } else if let Some(rest) = t.strip_prefix("#[ts(rename = \"Rd") {
+                    rest.split('"').next()
+                } else {
+                    None
+                };
+                if let Some(n) = name {
+                    total += 1;
+                    let n = format!("Rd{n}");
+                    if let Some(prev) = seen.insert(n.clone(), file.clone()) {
+                        dups.push(format!("{n} ({prev} / {file})"));
+                    }
+                }
+            }
+        }
+        assert!(
+            total >= 40,
+            "Rd 型の検出数が少ない ({total})。走査が壊れている"
+        );
+        assert!(dups.is_empty(), "TS 型名の重複: {dups:?}");
+    }
+
     /// 採用診断の TS 型を `frontend/src/generated/` に書き出す。依存する型も一緒に出る。
     /// 型を増やしたらここに 1 行足す。
     #[test]
