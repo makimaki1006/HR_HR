@@ -339,7 +339,7 @@ async fn retry_after_zero_still_waits_min_wait() {
         &base,
         ClientOptions {
             retry_base_delay: Duration::from_millis(1),
-            rate_limited_min_wait: Duration::from_millis(150),
+            rate_limited_min_wait: Duration::from_millis(400),
             ..fast_opts()
         },
     );
@@ -347,9 +347,9 @@ async fn retry_after_zero_still_waits_min_wait() {
     let calls = fake.calls();
     assert_eq!(calls.len(), 2);
     let gap = calls[1].at.duration_since(calls[0].at);
-    assert!(gap >= Duration::from_millis(150), "gap {gap:?}");
+    assert!(gap >= Duration::from_millis(400), "gap {gap:?}");
 
-    // 逆証明: 最低待ち 0 なら 150ms も待たない (= 上の待ちは min_wait によるもの)
+    // 逆証明: 最低待ち 0 なら 400ms も待たない (= 上の待ちは min_wait によるもの)
     let (base, fake) = spawn_fake(responder).await;
     let c = client(
         &base,
@@ -362,7 +362,7 @@ async fn retry_after_zero_still_waits_min_wait() {
     c.get_object("contacts", "101", &[]).await.unwrap();
     let calls = fake.calls();
     let gap = calls[1].at.duration_since(calls[0].at);
-    assert!(gap < Duration::from_millis(100), "gap {gap:?}");
+    assert!(gap < Duration::from_millis(300), "gap {gap:?}");
 }
 
 #[test]

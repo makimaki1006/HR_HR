@@ -234,7 +234,7 @@ pub struct CrmAssociation {
     pub deep_link: String,
 }
 
-/// 型ごとに「関連が 500 件を超えて打ち切ったか」。自分自身の型のキーは出さない。
+/// 型ごとに「関連の一覧が HubSpot 側で打ち切られたか」(v3 の応答に paging.next があった。上限件数は公式に記載なし)。自分自身の型のキーは出さない。
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct CrmAssociationsTruncated {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -302,7 +302,7 @@ pub struct CrmActivity {
 pub struct CrmMeta {
     pub hubspot_portal_id: String,
     pub data_scope: String,
-    /// 関連 500 件超 / 辿る Contact 数・型ごとの件数上限超えで、直近アクティビティが完全でない可能性がある
+    /// 関連の打ち切り / 辿る Contact 数・型ごとの件数上限超えで、直近アクティビティが完全でない可能性がある
     pub activities_truncated: bool,
     /// 取得できなかった部分 (無ければ空配列)
     pub partial: Vec<CrmPartial>,
@@ -480,6 +480,17 @@ pub async fn build_record_view(
     build_record_view_with_budget(client, rt, id, portal, MAX_HUBSPOT_CALLS_PER_REQUEST).await
 }
 
+/// 打ち切り前に ID を数値の降順 (= 新しい順とみなす) に並べる。
+/// HubSpot の ID が作成順に増えることは [推測] (公式の保証は確認していない)。
+/// 数値にできない ID は末尾 (validate 済みなので通常は無い)。
+fn sort_ids_newest_first(ids: &mut [String]) {
+    ids.sort_by(|a, b| {
+        let na = a.parse::<u64>().ok();
+        let nb = b.parse::<u64>().ok();
+        nb.cmp(&na).then_with(|| a.cmp(b))
+    });
+}
+
 /// 呼び出し回数の上限 `max_calls` を指定して組み立てる。本体の取得 (1 回目) は上限に関わらず行う。
 pub async fn build_record_view_with_budget(
     client: &HubSpotClient,
@@ -500,9 +511,23 @@ pub async fn build_record_view_with_budget(
         .chain(READ_ENGAGEMENTS.iter().map(|e| e.api_name()))
         .collect();
     budget.used += 1;
-    let (record, mut assocs) = client
+    let (record, mut assocs) = match client
         .get_object_with_associations(rt.api_name(), id, record_properties(rt), &to_types)
-        .await?;
+        .await
+    {
+        Ok(v) => v,
+        // 関連の型 (calls / notes / tasks / meetings 等) のどれかのスコープが共有鍵に無いと、
+        // 本体ごと 401/403 になる可能性がある [推測: 公式に記載なし、実データ未確認]。
+        // その場合は関連なしで本体だけ取り直し、関連とアクティビティは partial に出す。
+        Err(HubSpotError::Auth { .. }) if budget.take() => {
+            let rec = client
+                .get_object(rt.api_name(), id, record_properties(rt))
+                .await?;
+            partial.push(CrmPartial::new("associations", "hubspot_auth"));
+            (rec, Default::default())
+        }
+        Err(e) => return Err(e),
+    };
 
     // --- 関連レコード (自分と同じ型は除く)。v3 の応答は関連ラベルを返さないので labels は空 ---
     let mut associations = CrmAssociations::default();
@@ -533,6 +558,8 @@ pub async fn build_record_view_with_budget(
     if rt == RecordType::Deal && !deal_contact_ids.is_empty() {
         if deal_contact_ids.len() > MAX_DEAL_CONTACTS_FOR_CALLS {
             activities_truncated = true;
+            // 打ち切るときだけ新しい contact を残す (打ち切らないときは HubSpot の返した順のまま)
+            sort_ids_newest_first(&mut deal_contact_ids);
             deal_contact_ids.truncate(MAX_DEAL_CONTACTS_FOR_CALLS);
         }
         if budget.take() {
@@ -583,6 +610,8 @@ pub async fn build_record_view_with_budget(
         }
         if ids.len() > MAX_ENGAGEMENTS_PER_TYPE {
             activities_truncated = true;
+            // 直付き・contact 経由を区別せず新しいものを残す (直付きが多いと経由の新しい通話が全部落ちるため)
+            sort_ids_newest_first(&mut ids);
             ids.truncate(MAX_ENGAGEMENTS_PER_TYPE);
         }
         if ids.is_empty() {

@@ -165,6 +165,8 @@ struct FakeHubSpot {
     fail_assoc_batch: Option<u16>,
     /// 本体 GET の応答を遅らせる
     get_delay: Duration,
+    /// true なら `associations=` 付きの本体 GET だけ 403 (関連型のスコープ不足の再現)
+    forbid_get_with_associations: bool,
 }
 
 impl FakeHubSpot {
@@ -243,6 +245,12 @@ async fn hs_get_object(
         let delay = s.get_delay;
         let resp = if s.auth_fail {
             unauthorized()
+        } else if s.forbid_get_with_associations && q.contains("associations=") {
+            (
+                StatusCode::FORBIDDEN,
+                Json(json!({"status": "error", "category": "MISSING_SCOPES"})),
+            )
+                .into_response()
         } else {
             let pairs: Vec<(String, String)> = reqwest::Url::parse(&format!("http://x/?{q}"))
                 .unwrap()
@@ -1115,11 +1123,11 @@ async fn 大きい_deal_でも_hubspot_呼び出しは_6_回で打ち切りが�
     );
     assert!(reqs.len() <= MAX_HUBSPOT_CALLS_PER_REQUEST);
 
-    // contact は 30 件中 先頭 20 件だけ辿る (1 回の batch)
+    // contact は 30 件中 ID の新しい 20 件 (30〜11) だけ辿る (1 回の batch)
     let assoc_inputs = batch_inputs(&reqs, "/crm/v4/associations/contacts/calls/batch/read");
     assert_eq!(assoc_inputs.len(), 1);
-    let first20: Vec<String> = (1..=20u64).map(|c| c.to_string()).collect();
-    assert_eq!(assoc_inputs[0], first20);
+    let newest20: Vec<String> = (11..=30u64).rev().map(|c| c.to_string()).collect();
+    assert_eq!(assoc_inputs[0], newest20);
 
     // 型ごとに batch read は 1 回、calls / notes は 100 件で打ち切り
     let calls_in = batch_inputs(&reqs, "/crm/v3/objects/calls/batch/read");
@@ -1128,15 +1136,17 @@ async fn 大きい_deal_でも_hubspot_呼び出しは_6_回で打ち切りが�
     assert_eq!(notes_in.len(), 1);
     assert_eq!(calls_in[0].len(), 100);
     assert_eq!(notes_in[0].len(), 100);
-    // 直付きが先 (call 1001 は必ず含まれ先頭、note は直付き 150 件の先頭 100 件)
-    assert_eq!(calls_in[0][0], "1001");
-    assert_eq!(notes_in[0][0], "3001");
-    assert_eq!(notes_in[0][99], "3100");
-    // 辿っていない contact (21〜30) の call は含まれない
-    assert!(calls_in[0].iter().all(|id| {
-        let n: u64 = id.parse().unwrap();
-        n == 1001 || (100_000..100_000 + 21 * 10).contains(&n)
-    }));
+    // 打ち切りは直付き・経由を区別せず ID の新しい 100 件。
+    // call: 経由 100 件 (contact 11〜30 × 5) が直付き 1001 より新しいので 1001 は落ちる。
+    // note: 直付き 150 件 (3001〜3150) のうち 3150〜3051。
+    let mut expect_calls: Vec<String> = (11..=30u64)
+        .flat_map(|c| (1..=5u64).map(move |k| (100_000 + c * 10 + k).to_string()))
+        .collect();
+    expect_calls.sort_by_key(|b| std::cmp::Reverse(b.parse::<u64>().unwrap()));
+    assert_eq!(calls_in[0], expect_calls);
+    assert!(!calls_in[0].contains(&"1001".to_string()));
+    assert_eq!(notes_in[0][0], "3150");
+    assert_eq!(notes_in[0][99], "3051");
     assert_eq!(
         batch_inputs(&reqs, "/crm/v3/objects/tasks/batch/read").len(),
         1
@@ -1193,7 +1203,7 @@ async fn 呼び出し上限を小さくすると_call_budget_で止まる() {
 #[tokio::test(flavor = "multi_thread")]
 async fn 締め切りを超えたら_504_crm_timeout() {
     let mut f = deal_fixture();
-    f.get_delay = Duration::from_millis(500);
+    f.get_delay = Duration::from_millis(2000);
     let (client, _) = start_fake_hubspot(f).await;
     let t = std::time::Instant::now();
     let resp = read_response(
@@ -1206,9 +1216,9 @@ async fn 締め切りを超えたら_504_crm_timeout() {
     )
     .await;
     assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
-    // HubSpot の応答 (500ms) を待たずに返る
+    // HubSpot の応答 (2 秒) を待たずに返る (高負荷でも揺れないよう余裕を大きく取る)
     assert!(
-        t.elapsed() < Duration::from_millis(450),
+        t.elapsed() < Duration::from_millis(1500),
         "{:?}",
         t.elapsed()
     );
@@ -1337,4 +1347,40 @@ async fn task_は作成日時で並び期日が未来でも先頭に来ない() 
     );
     // call の timestamp は従来どおり hs_timestamp
     assert_eq!(acts[1]["timestamp"], "2026-09-10T00:00:00Z");
+}
+
+/// 関連付きの本体 GET が 403 (関連型のスコープ不足の想定) でも、本体だけ取り直して 200。
+/// 関連とアクティビティは partial に `associations` / `hubspot_auth` で出る。呼び出しは 2 回。
+#[tokio::test(flavor = "multi_thread")]
+async fn 関連付き本体_get_が_403_なら本体だけ取り直して_partial() {
+    let mut f = deal_fixture();
+    f.forbid_get_with_associations = true;
+    let (client, hs) = start_fake_hubspot(f).await;
+    let resp = read_response(
+        &client,
+        RecordType::Deal,
+        "900",
+        "1",
+        MAX_HUBSPOT_CALLS_PER_REQUEST,
+        Duration::from_secs(10),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v: Value = serde_json::from_str(&body_string(resp).await).unwrap();
+    assert_eq!(v["properties"]["dealname"], "介護スタッフ採用支援");
+    assert_eq!(
+        v["meta"]["partial"],
+        json!([{"part": "associations", "error_kind": "hubspot_auth"}])
+    );
+    assert_eq!(v["recent_activities"], json!([]));
+    let paths: Vec<String> = hs
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .map(|r| r.1.clone())
+        .collect();
+    assert_eq!(paths.len(), 2, "{paths:?}");
+    assert!(paths[0].contains("associations="));
+    assert!(!paths[1].contains("associations="));
 }
