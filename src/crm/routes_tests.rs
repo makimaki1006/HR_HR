@@ -5,8 +5,7 @@
 //!   (`crm::router()` + `auth::require_auth` + セッション層だけの小さなアプリ)
 //! - 監査 DB は偽 Turso (127.0.0.1)、HubSpot は偽 HubSpot (127.0.0.1)
 //!
-//! 偽 HubSpot を使う 200 系は HubSpotClient (担当 A) と deep_link (担当 B) の実装待ち。
-//! スタブ (todo!) の間は panic するので `#[ignore]` にしてある。
+//! 偽 HubSpot を使う 200 系は本物の HubSpotClient と deep_link を通す。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -721,7 +720,6 @@ fn deal_fixture() -> FakeHubSpot {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs hubspot client (A)"]
 async fn deal_200_は_contact_経由の_call_も含め重複を除いて時刻降順() {
     let (audit, _) = start_fake_audit().await;
     let (client, hs) = start_fake_hubspot(deal_fixture()).await;
@@ -834,7 +832,6 @@ async fn deal_200_は_contact_経由の_call_も含め重複を除いて時刻�
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs hubspot client (A)"]
 async fn contact_200_は具体値と直近_10_件() {
     let (audit, _) = start_fake_audit().await;
     let mut f = FakeHubSpot::default();
@@ -910,7 +907,6 @@ async fn contact_200_は具体値と直近_10_件() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs hubspot client (A)"]
 async fn hubspot_401_は_502_hubspot_auth_でトークンを出さない() {
     let (audit, _) = start_fake_audit().await;
     let mut f = deal_fixture();
@@ -930,7 +926,6 @@ async fn hubspot_401_は_502_hubspot_auth_でトークンを出さない() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs hubspot client (A)"]
 async fn 存在しない_id_は_404_not_found() {
     let (audit, _) = start_fake_audit().await;
     let (client, _) = start_fake_hubspot(deal_fixture()).await;
