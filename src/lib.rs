@@ -1149,6 +1149,22 @@ fn meaningful_activity(
     if path.starts_with("/app/") {
         return Some(("view_tab", "tab"));
     }
+    // HubSpot レコードの閲覧記録 (誰がどのレコードを見たか = 個人情報の閲覧記録)。
+    // path は id 込みでそのまま記録される。成功応答だけ記録 (下の activity_log_mw)。
+    // 記録は fire-and-forget のため記録漏れはありうる。
+    if let Some(rest) = path.strip_prefix("/api/crm/") {
+        let mut it = rest.split('/');
+        if let (Some(kind), Some(id), None) = (it.next(), it.next(), it.next()) {
+            if !id.is_empty() {
+                match kind {
+                    "contacts" => return Some(("crm_view_contact", "hubspot_contact")),
+                    "companies" => return Some(("crm_view_company", "hubspot_company")),
+                    "deals" => return Some(("crm_view_deal", "hubspot_deal")),
+                    _ => {}
+                }
+            }
+        }
+    }
     match path {
         "/api/keywords" => Some(("keyword_search", "keyword")),
         "/api/url-visibility-check" => Some(("visibility_check", "url")),
@@ -2377,6 +2393,42 @@ mod activity_log_tests {
                 Some(expected),
                 "{path} は {expected} として記録されるべき"
             );
+        }
+    }
+
+    /// HubSpot レコードの閲覧は event_type / target_type まで具体値で記録される
+    #[test]
+    fn logs_crm_record_views() {
+        let cases = [
+            (
+                "/api/crm/contacts/55",
+                "crm_view_contact",
+                "hubspot_contact",
+            ),
+            (
+                "/api/crm/companies/300",
+                "crm_view_company",
+                "hubspot_company",
+            ),
+            ("/api/crm/deals/900", "crm_view_deal", "hubspot_deal"),
+        ];
+        for (path, ev, tt) in cases {
+            assert_eq!(
+                meaningful_activity(&Method::GET, path),
+                Some((ev, tt)),
+                "{path}"
+            );
+            // GET 以外は記録しない
+            assert!(meaningful_activity(&Method::POST, path).is_none(), "{path}");
+        }
+        // 逆証明: 未知の種別・id 無し・余計なパスは記録しない
+        for path in [
+            "/api/crm/deals",
+            "/api/crm/deals/",
+            "/api/crm/owners/1",
+            "/api/crm/deals/900/extra",
+        ] {
+            assert!(meaningful_activity(&Method::GET, path).is_none(), "{path}");
         }
     }
 

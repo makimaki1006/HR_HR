@@ -6,16 +6,31 @@
 //! 3. HubSpot クライアント未設定 → 503 `not_configured`
 //! 4. レコード本体 + 関連 + 直近アクティビティを HubSpot から読む
 //!
-//! HubSpot 呼び出し回数の上限 (1 リクエストあたり、直列):
-//! - 本体 1 + 関連 (自分以外の 2 型) 2 + Engagement 関連 5 + Engagement batch read 最大 5
-//!   (1 型 100 件ごとに 1 回。関連は 1 型 500 件で打ち切り)
-//! - Deal はさらに `deal → contacts → calls`: 関連 Contact 最大 [`MAX_DEAL_CONTACTS_FOR_CALLS`] 件 ×
-//!   関連 1 回 + calls batch read (100 件ごと)
+//! HubSpot 呼び出し回数 (1 リクエストあたり。鍵を既存の営業自動化バッチと共有しており、
+//! 100 req/10 秒・Search 5 req/秒の枠をアカウントで共有するため、1 画面で食い尽くさない):
+//! 1. `get_object_with_associations` 1 回 = 本体 + 関連 ID
+//!    (自分以外の contacts/companies/deals + calls/notes/tasks/meetings)。
+//!    **emails は v1 では取らない** (共有鍵に email 読み取りスコープがあるか未確認で、
+//!    無いとレコード全体が 403 になりうるため)
+//! 2. Deal のみ: 関連 Contact (先頭 [`MAX_DEAL_CONTACTS_FOR_CALLS`] 件) の calls を
+//!    `batch_associations` 1 回 (`deal → contacts → calls`)。
+//!    注意: 同じ Contact の**別 Deal** の通話も混ざりうる (絞り込みは PR4 以降)
+//! 3. Engagement の型ごと (4 型) に ID を集め (直付き優先で重複除去)、型ごとに
+//!    [`MAX_ENGAGEMENTS_PER_TYPE`] 件まで `batch_read` 1 回
+//!
+//! 最大 1 + 1 + 4 = 6 回。さらに安全装置として [`MAX_HUBSPOT_CALLS_PER_REQUEST`] を超える呼び出しはしない
+//! (超えた分は `meta.partial` に `call_budget` として出す)。client 内部の retry は数えない
+//! (429 / 5xx 時のみ。回数は `max_retries` で別に抑えている)。
+//! ハンドラ全体は [`CRM_REQUEST_DEADLINE`] で打ち切り、504 `crm_timeout` を返す。
+//!
+//! 取得の一部 (Engagement の batch_read、contact 経由の calls) が失敗しても本体は 200 で返し、
+//! 失敗した部分を `meta.partial` に出す。本体レコード (手順 1) の失敗だけがエラー応答になる。
 //!
 //! 応答には `Cache-Control: no-store` を付ける (個人情報を中間キャッシュに残さない)。
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     extract::{Path, State},
@@ -79,8 +94,10 @@ pub const CALL_PROPERTIES: &[&str] = &[
     "hubspot_owner_id",
 ];
 pub const NOTE_PROPERTIES: &[&str] = &["hs_timestamp", "hs_note_body", "hubspot_owner_id"];
+/// Task の `hs_timestamp` は期日 (未来になりうる)。並べ替えには作成日時 `hs_createdate` を使う。
 pub const TASK_PROPERTIES: &[&str] = &[
     "hs_timestamp",
+    "hs_createdate",
     "hs_task_subject",
     "hs_task_status",
     "hubspot_owner_id",
@@ -91,10 +108,49 @@ pub const EMAIL_PROPERTIES: &[&str] = &["hs_timestamp", "hs_email_subject"];
 /// 直近アクティビティの最大件数
 pub const MAX_RECENT_ACTIVITIES: usize = 10;
 
-/// Deal の直近アクティビティで `deal → contacts → calls` を辿る Contact 数の上限。
-/// 1 Contact ごとに HubSpot 呼び出しが 1 回増えるため (直列)。超えた分は辿らず
-/// `meta.activities_truncated = true` にする。
+/// Deal の直近アクティビティで `deal → contacts → calls` を辿る Contact 数の上限
+/// (1 回の `batch_associations` に渡す件数)。超えた分は辿らず `meta.activities_truncated = true`。
 pub const MAX_DEAL_CONTACTS_FOR_CALLS: usize = 20;
+
+/// Engagement 1 型あたりに `batch_read` で読む ID の上限。超えた分は読まず
+/// `meta.activities_truncated = true`。HubSpot の返す順は時刻順とは限らないため、
+/// 上限を超えると最新 10 件を取りこぼす可能性がある (truncated はそれを示す)。
+pub const MAX_ENGAGEMENTS_PER_TYPE: usize = 100;
+
+/// 1 リクエストで HubSpot を呼ぶ回数の上限 (安全装置)。通常は最大 6 回。
+/// client 内部の retry は数えない。
+pub const MAX_HUBSPOT_CALLS_PER_REQUEST: usize = 10;
+
+/// ハンドラ全体の締め切り。超えたら 504 `crm_timeout`。
+pub const CRM_REQUEST_DEADLINE: Duration = Duration::from_secs(20);
+
+/// 直近アクティビティとして取る Engagement (email は共有鍵のスコープ未確認のため v1 では取らない)
+const READ_ENGAGEMENTS: [EngagementType; 4] = [
+    EngagementType::Call,
+    EngagementType::Note,
+    EngagementType::Task,
+    EngagementType::Meeting,
+];
+
+/// HubSpot 呼び出し回数のカウンタ。呼ぶ前に `take` し、false なら呼ばない。
+struct CallBudget {
+    used: usize,
+    max: usize,
+}
+
+impl CallBudget {
+    fn new(max: usize) -> Self {
+        Self { used: 0, max }
+    }
+    fn take(&mut self) -> bool {
+        if self.used >= self.max {
+            false
+        } else {
+            self.used += 1;
+            true
+        }
+    }
+}
 
 /// id の最大桁数 (HubSpot の ID は数字。u64 に収まる桁数)
 const MAX_ID_DIGITS: usize = 20;
@@ -235,7 +291,8 @@ pub struct CrmActivity {
     #[serde(rename = "type")]
     pub activity_type: EngagementType,
     pub id: String,
-    /// `hs_timestamp` の値 (HubSpot の文字列のまま)
+    /// 並べ替えに使った時刻 (HubSpot の文字列のまま)。Task は作成日時 `hs_createdate`、それ以外は `hs_timestamp`。
+    /// Task の期日 `hs_timestamp` は `properties` に残る
     pub timestamp: Option<String>,
     pub properties: BTreeMap<String, Option<String>>,
     pub via: CrmActivityVia,
@@ -245,8 +302,28 @@ pub struct CrmActivity {
 pub struct CrmMeta {
     pub hubspot_portal_id: String,
     pub data_scope: String,
-    /// 関連 500 件超 / 辿る Contact 数の上限超えで、直近アクティビティが完全でない可能性がある
+    /// 関連 500 件超 / 辿る Contact 数・型ごとの件数上限超えで、直近アクティビティが完全でない可能性がある
     pub activities_truncated: bool,
+    /// 取得できなかった部分 (無ければ空配列)
+    pub partial: Vec<CrmPartial>,
+}
+
+/// 取得できなかった部分 1 件
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CrmPartial {
+    /// `calls` / `notes` / `tasks` / `meetings` / `calls_via_contacts`
+    pub part: String,
+    /// `HubSpotError::error_kind()` の値、または `call_budget` (呼び出し回数の上限で取得しなかった)
+    pub error_kind: String,
+}
+
+impl CrmPartial {
+    fn new(part: &str, error_kind: &str) -> Self {
+        Self {
+            part: part.to_string(),
+            error_kind: error_kind.to_string(),
+        }
+    }
 }
 
 /// 成功応答 (200)
@@ -261,7 +338,7 @@ pub struct CrmRecordResponse {
     pub updated_at: Option<String>,
     pub deep_link: String,
     pub associations: CrmAssociations,
-    /// `hs_timestamp` 降順、最大 [`MAX_RECENT_ACTIVITIES`] 件
+    /// 上記 timestamp の降順、最大 [`MAX_RECENT_ACTIVITIES`] 件
     pub recent_activities: Vec<CrmActivity>,
     pub meta: CrmMeta,
 }
@@ -296,11 +373,54 @@ async fn handle(rt: RecordType, session: Session, state: Arc<AppState>, id: Stri
     let Some(client) = state.hubspot.clone() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
-    // 4) 読み取り
+    // 4) 読み取り (全体に締め切りを付ける)
     let portal = hubspot_portal_id();
-    match build_record_view(&client, rt, &id, &portal).await {
-        Ok(v) => Json(v).into_response(),
-        Err(e) => {
+    read_response(
+        &client,
+        rt,
+        &id,
+        &portal,
+        MAX_HUBSPOT_CALLS_PER_REQUEST,
+        CRM_REQUEST_DEADLINE,
+    )
+    .await
+}
+
+/// HubSpot から読んで応答にする。`max_calls` / `deadline` はテストで差し替えるため引数にしている。
+pub async fn read_response(
+    client: &HubSpotClient,
+    rt: RecordType,
+    id: &str,
+    portal: &str,
+    max_calls: usize,
+    deadline: Duration,
+) -> Response {
+    let result = tokio::time::timeout(
+        deadline,
+        build_record_view_with_budget(client, rt, id, portal, max_calls),
+    )
+    .await;
+    match result {
+        Err(_elapsed) => {
+            tracing::warn!(
+                error_kind = "crm_timeout",
+                object_type = rt.as_str(),
+                id = %id,
+                "crm read timed out"
+            );
+            (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(CrmErrorResponse {
+                    error_kind: "crm_timeout".to_string(),
+                    message: Some(
+                        "HubSpot からの取得に時間がかかりすぎたため中断しました".to_string(),
+                    ),
+                }),
+            )
+                .into_response()
+        }
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => {
             tracing::warn!(
                 error_kind = e.error_kind(),
                 object_type = rt.as_str(),
@@ -326,9 +446,11 @@ struct Activity {
     record: HubSpotRecord,
     via_type: RecordType,
     via_id: String,
+    /// 並べ替えに使った時刻 (Task は作成日時 `hs_createdate`、それ以外は `hs_timestamp`)
+    sort_ts: Option<String>,
 }
 
-/// `hs_timestamp` を並べ替え用の epoch ミリ秒にする。
+/// 時刻文字列を並べ替え用の epoch ミリ秒にする。
 /// HubSpot v3 は ISO 8601 (`2026-09-01T10:00:00Z` / `...00.123Z`) で返すが、
 /// 数字 (epoch ms) の場合も受ける。解釈できなければ None (末尾に並ぶ)。
 fn timestamp_millis(v: Option<&str>) -> Option<i64> {
@@ -339,31 +461,57 @@ fn timestamp_millis(v: Option<&str>) -> Option<i64> {
     s.parse::<i64>().ok()
 }
 
-fn hs_timestamp(r: &HubSpotRecord) -> Option<&str> {
-    r.properties.get("hs_timestamp").and_then(|v| v.as_deref())
+/// 並べ替えに使う時刻。Task の `hs_timestamp` は期日 (未来になりうる) なので作成日時を使う。
+fn sort_timestamp(et: EngagementType, r: &HubSpotRecord) -> Option<String> {
+    let prop = |k: &str| r.properties.get(k).and_then(|v| v.clone());
+    match et {
+        EngagementType::Task => prop("hs_createdate").or_else(|| r.created_at.clone()),
+        _ => prop("hs_timestamp"),
+    }
 }
 
-/// HubSpot から読んで応答を組み立てる。
+/// HubSpot から読んで応答を組み立てる (呼び出し回数の上限は既定値)。
 pub async fn build_record_view(
     client: &HubSpotClient,
     rt: RecordType,
     id: &str,
     portal: &str,
 ) -> Result<CrmRecordResponse, HubSpotError> {
-    let record = client
-        .get_object(rt.api_name(), id, record_properties(rt))
+    build_record_view_with_budget(client, rt, id, portal, MAX_HUBSPOT_CALLS_PER_REQUEST).await
+}
+
+/// 呼び出し回数の上限 `max_calls` を指定して組み立てる。本体の取得 (1 回目) は上限に関わらず行う。
+pub async fn build_record_view_with_budget(
+    client: &HubSpotClient,
+    rt: RecordType,
+    id: &str,
+    portal: &str,
+    max_calls: usize,
+) -> Result<CrmRecordResponse, HubSpotError> {
+    let mut budget = CallBudget::new(max_calls);
+    let mut partial: Vec<CrmPartial> = Vec::new();
+    let mut activities_truncated = false;
+
+    // 1) 本体 + 関連 ID を 1 回で (本体の失敗だけが全体のエラー)
+    let to_types: Vec<&str> = RecordType::ALL
+        .iter()
+        .filter(|o| **o != rt)
+        .map(|o| o.api_name())
+        .chain(READ_ENGAGEMENTS.iter().map(|e| e.api_name()))
+        .collect();
+    budget.used += 1;
+    let (record, mut assocs) = client
+        .get_object_with_associations(rt.api_name(), id, record_properties(rt), &to_types)
         .await?;
 
-    // --- 関連レコード (自分と同じ型は除く) ---
+    // --- 関連レコード (自分と同じ型は除く)。v3 の応答は関連ラベルを返さないので labels は空 ---
     let mut associations = CrmAssociations::default();
     let mut deal_contact_ids: Vec<String> = Vec::new();
     for other in RecordType::ALL {
         if other == rt {
             continue;
         }
-        let (refs, more) = client
-            .list_associations(rt.api_name(), id, other.api_name())
-            .await?;
+        let (refs, more) = assocs.remove(other.api_name()).unwrap_or_default();
         if rt == RecordType::Deal && other == RecordType::Contact {
             deal_contact_ids = refs.iter().map(|r| r.id.clone()).collect();
         }
@@ -378,85 +526,97 @@ pub async fn build_record_view(
         associations.set(other, items, more);
     }
 
-    // --- 直近アクティビティ ---
-    // Engagement は多対多なので同じ id が複数経路で現れる。先に見つけた方 (= 直付き) を残す。
-    let mut seen: HashSet<(EngagementType, String)> = HashSet::new();
-    let mut activities: Vec<Activity> = Vec::new();
-    let mut activities_truncated = false;
-
-    for et in EngagementType::ALL {
-        let (refs, more) = client
-            .list_associations(rt.api_name(), id, et.api_name())
-            .await?;
-        activities_truncated |= more;
-        let ids: Vec<String> = refs
-            .into_iter()
-            .map(|r| r.id)
-            .filter(|eid| seen.insert((et, eid.clone())))
-            .collect();
-        if ids.is_empty() {
-            continue;
+    // 2) Deal: 接触 (Call) は Deal より Contact に付くことが多い。deal → contacts → calls も辿る。
+    //    (同じ Contact の別 Deal の通話も混ざりうる。絞り込みは PR4 以降)
+    //    1 回の batch_associations で (call id, 経由した contact id) を得る。失敗しても本体は返す。
+    let mut contact_calls: Vec<(String, String)> = Vec::new();
+    if rt == RecordType::Deal && !deal_contact_ids.is_empty() {
+        if deal_contact_ids.len() > MAX_DEAL_CONTACTS_FOR_CALLS {
+            activities_truncated = true;
+            deal_contact_ids.truncate(MAX_DEAL_CONTACTS_FOR_CALLS);
         }
-        for rec in client
-            .batch_read(et.api_name(), &ids, engagement_properties(et))
-            .await?
-        {
-            activities.push(Activity {
-                et,
-                record: rec,
-                via_type: rt,
-                via_id: id.to_string(),
-            });
+        if budget.take() {
+            match client
+                .batch_associations(
+                    RecordType::Contact.api_name(),
+                    EngagementType::Call.api_name(),
+                    &deal_contact_ids,
+                )
+                .await
+            {
+                Ok(map) => {
+                    for cid in &deal_contact_ids {
+                        for r in map.get(cid).into_iter().flatten() {
+                            contact_calls.push((r.id.clone(), cid.clone()));
+                        }
+                    }
+                }
+                Err(e) => partial.push(CrmPartial::new("calls_via_contacts", e.error_kind())),
+            }
+        } else {
+            partial.push(CrmPartial::new("calls_via_contacts", "call_budget"));
         }
     }
 
-    // Deal: 接触 (Call) は Deal より Contact に付くことが多い。deal → contacts → calls も辿る。
-    if rt == RecordType::Deal {
-        if deal_contact_ids.len() > MAX_DEAL_CONTACTS_FOR_CALLS {
-            activities_truncated = true;
+    // 3) Engagement を型ごとに batch read。Engagement は多対多なので同じ id が複数経路で現れる。
+    //    直付きを先に入れ、後から来た contact 経由は重複なら捨てる (= 直付き優先)。
+    let mut activities: Vec<Activity> = Vec::new();
+    for et in READ_ENGAGEMENTS {
+        let (refs, more) = assocs.remove(et.api_name()).unwrap_or_default();
+        activities_truncated |= more;
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut ids: Vec<String> = Vec::new();
+        let mut via: HashMap<String, (RecordType, String)> = HashMap::new();
+        for r in refs {
+            if seen.insert(r.id.clone()) {
+                via.insert(r.id.clone(), (rt, id.to_string()));
+                ids.push(r.id);
+            }
         }
-        let mut call_ids: Vec<String> = Vec::new();
-        let mut call_via: BTreeMap<String, String> = BTreeMap::new();
-        for cid in deal_contact_ids.iter().take(MAX_DEAL_CONTACTS_FOR_CALLS) {
-            let (refs, more) = client
-                .list_associations(
-                    RecordType::Contact.api_name(),
-                    cid,
-                    EngagementType::Call.api_name(),
-                )
-                .await?;
-            activities_truncated |= more;
-            for r in refs {
-                if seen.insert((EngagementType::Call, r.id.clone())) {
-                    call_via.insert(r.id.clone(), cid.clone());
-                    call_ids.push(r.id);
+        if et == EngagementType::Call {
+            for (call_id, cid) in &contact_calls {
+                if seen.insert(call_id.clone()) {
+                    via.insert(call_id.clone(), (RecordType::Contact, cid.clone()));
+                    ids.push(call_id.clone());
                 }
             }
         }
-        if !call_ids.is_empty() {
-            for rec in client
-                .batch_read(
-                    EngagementType::Call.api_name(),
-                    &call_ids,
-                    engagement_properties(EngagementType::Call),
-                )
-                .await?
-            {
-                let via_id = call_via.get(&rec.id).cloned().unwrap_or_default();
-                activities.push(Activity {
-                    et: EngagementType::Call,
-                    record: rec,
-                    via_type: RecordType::Contact,
-                    via_id,
-                });
+        if ids.len() > MAX_ENGAGEMENTS_PER_TYPE {
+            activities_truncated = true;
+            ids.truncate(MAX_ENGAGEMENTS_PER_TYPE);
+        }
+        if ids.is_empty() {
+            continue;
+        }
+        if !budget.take() {
+            partial.push(CrmPartial::new(et.api_name(), "call_budget"));
+            continue;
+        }
+        match client
+            .batch_read(et.api_name(), &ids, engagement_properties(et))
+            .await
+        {
+            Ok(recs) => {
+                for rec in recs {
+                    let (via_type, via_id) =
+                        via.get(&rec.id).cloned().unwrap_or((rt, id.to_string()));
+                    activities.push(Activity {
+                        et,
+                        sort_ts: sort_timestamp(et, &rec),
+                        record: rec,
+                        via_type,
+                        via_id,
+                    });
+                }
             }
+            Err(e) => partial.push(CrmPartial::new(et.api_name(), e.error_kind())),
         }
     }
 
-    // hs_timestamp 降順 (無いものは末尾)。同時刻は id で安定化。
+    // 時刻降順 (無いものは末尾)。同時刻は id で安定化。
     activities.sort_by(|a, b| {
-        let ta = timestamp_millis(hs_timestamp(&a.record));
-        let tb = timestamp_millis(hs_timestamp(&b.record));
+        let ta = timestamp_millis(a.sort_ts.as_deref());
+        let tb = timestamp_millis(b.sort_ts.as_deref());
         tb.cmp(&ta).then_with(|| a.record.id.cmp(&b.record.id))
     });
     let recent_activities: Vec<CrmActivity> = activities
@@ -464,7 +624,7 @@ pub async fn build_record_view(
         .take(MAX_RECENT_ACTIVITIES)
         .map(|a| CrmActivity {
             activity_type: a.et,
-            timestamp: hs_timestamp(&a.record).map(str::to_string),
+            timestamp: a.sort_ts,
             id: a.record.id,
             properties: a.record.properties,
             via: CrmActivityVia {
@@ -487,6 +647,7 @@ pub async fn build_record_view(
             hubspot_portal_id: portal.to_string(),
             data_scope: DATA_SCOPE.to_string(),
             activities_truncated,
+            partial,
         },
     })
 }
@@ -571,6 +732,7 @@ mod tests {
                 hubspot_portal_id: "1".into(),
                 data_scope: DATA_SCOPE.into(),
                 activities_truncated: false,
+                partial: vec![CrmPartial::new("notes", "hubspot_auth")],
             },
         };
         let v = serde_json::to_value(&resp).unwrap();
@@ -596,7 +758,8 @@ mod tests {
                 }],
                 "meta": {"hubspot_portal_id": "1",
                          "data_scope": "HubSpot の読み取り結果。書き込みはしない",
-                         "activities_truncated": false}
+                         "activities_truncated": false,
+                         "partial": [{"part": "notes", "error_kind": "hubspot_auth"}]}
             })
         );
         // エラー: message が無いときはキーごと出さない

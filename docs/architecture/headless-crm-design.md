@@ -154,6 +154,9 @@ HR_HR が行うこと:
 - Call は Deal と多対多。1 件に潰さない
 - 接触は Deal より Contact に付くことが多い。Deal の直近アクティビティは Deal → Contact → Call も辿る
 - Call の系統は `hs_call_source` で区別する (`INTEGRATIONS_PLATFORM` = 純正連携)
+- Deal の contact 経由の通話には、同じ Contact の**別 Deal** の通話も混ざりうる (絞り込みは PR4 以降)
+- 読み取りは 1 リクエストあたり HubSpot 呼び出し最大 6 回 (本体+関連 1 / Deal の contact→calls 1 / Engagement 型ごと batch read 4)、安全装置で 10 回まで、全体 20 秒で 504 `crm_timeout`。鍵を既存バッチと共有しているため
+- emails は v1 では読まない (共有鍵に email 読み取りスコープがあるか未確認。無いとレコード全体が 403 になりうる)
 
 純正連携の全機能を HR_HR で再現しない。
 
@@ -407,7 +410,7 @@ Core Seat 運用へ戻すことは可能。
 決定済み (2026-09-29、ユーザー決定):
 
 - HubSpot の認証: 既存の Service Key (sales-automation-api) を共有して使う。環境変数は `HUBSPOT_ACCESS_TOKEN`。HR_HR 専用キーは発行しない
-- 読み取りの retry/backoff: 既存バッチとレート上限を共有するため、Search は HR_HR から 1 req/秒まで。429 は Retry-After (無ければ最低 1 秒) を待って最大 2 回、401/403 は retry しない
+- 読み取りの retry/backoff: 既存バッチとレート上限を共有するため、Search は HR_HR から 1 req/秒まで。429 は max(Retry-After, 最低 1 秒) を待って最大 2 回、401/403 は retry しない
 - 純正ログの再現: しない。純正連携が作った Call に紐づける (ADR-007 改訂、§7)
 - BPO も会社の Google Workspace アカウントを持つ。CRM の認可は Google ログインを前提にする
 - React App Shell と共通部品は platform-team が作り、CRM 画面はそれを使う (`/app/crm`)

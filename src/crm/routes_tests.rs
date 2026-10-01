@@ -24,11 +24,12 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 
+use super::routes::{read_response, MAX_HUBSPOT_CALLS_PER_REQUEST};
 use crate::audit::AuditDb;
 use crate::config::AppConfig;
 use crate::db::cache::AppCache;
 use crate::db::turso_http::TursoDb;
-use crate::hubspot::{ClientOptions, HubSpotClient};
+use crate::hubspot::{ClientOptions, HubSpotClient, RecordType};
 use crate::AppState;
 
 type Shared<T> = Arc<Mutex<T>>;
@@ -158,6 +159,12 @@ struct FakeHubSpot {
     auth_fail: bool,
     /// (method, path?query, Authorization, body)
     requests: Vec<(String, String, String, String)>,
+    /// object → HTTP status: その object の batch read だけ失敗させる
+    fail_batch_read: HashMap<String, u16>,
+    /// Some(status) なら v4 batch associations を失敗させる
+    fail_assoc_batch: Option<u16>,
+    /// 本体 GET の応答を遅らせる
+    get_delay: Duration,
 }
 
 impl FakeHubSpot {
@@ -215,37 +222,78 @@ fn unauthorized() -> Response {
         .into_response()
 }
 
+/// `GET /crm/v3/objects/{o}/{id}?properties=..&associations=a,b`。
+/// 関連は応答の `associations.{type}.results[].id` に入れる (client 実装と同じ形。
+/// [推測] の形であり、実データでの確認はユーザー承認後)。
 async fn hs_get_object(
     State(st): State<Shared<FakeHubSpot>>,
     Path((o, id)): Path<(String, String)>,
     RawQuery(q): RawQuery,
     headers: HeaderMap,
 ) -> Response {
-    let mut s = st.lock().unwrap();
-    let q = q.unwrap_or_default();
-    s.requests.push((
-        "GET".into(),
-        format!("/crm/v3/objects/{o}/{id}?{q}"),
-        auth_header(&headers),
-        String::new(),
-    ));
-    if s.auth_fail {
-        return unauthorized();
+    let (resp, delay) = {
+        let mut s = st.lock().unwrap();
+        let q = q.unwrap_or_default();
+        s.requests.push((
+            "GET".into(),
+            format!("/crm/v3/objects/{o}/{id}?{q}"),
+            auth_header(&headers),
+            String::new(),
+        ));
+        let delay = s.get_delay;
+        let resp = if s.auth_fail {
+            unauthorized()
+        } else {
+            let pairs: Vec<(String, String)> = reqwest::Url::parse(&format!("http://x/?{q}"))
+                .unwrap()
+                .query_pairs()
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect();
+            let split = |key: &str| -> Vec<String> {
+                pairs
+                    .iter()
+                    .filter(|(k, _)| k == key)
+                    .flat_map(|(_, v)| v.split(',').map(str::to_string).collect::<Vec<_>>())
+                    .collect()
+            };
+            let wanted = split("properties");
+            let want_assoc = split("associations");
+            match s.record_json(&o, &id, &wanted) {
+                Some(mut v) => {
+                    let mut assoc_obj = serde_json::Map::new();
+                    for t in &want_assoc {
+                        let targets = s
+                            .assocs
+                            .get(&(o.clone(), id.clone(), t.clone()))
+                            .cloned()
+                            .unwrap_or_default();
+                        if targets.is_empty() {
+                            continue; // 関連が無い型はキーごと出さない
+                        }
+                        let results: Vec<Value> = targets
+                            .iter()
+                            .map(|(i, _)| json!({"id": i.to_string(), "type": "x_to_y"}))
+                            .collect();
+                        assoc_obj.insert(t.clone(), json!({ "results": results }));
+                    }
+                    if !assoc_obj.is_empty() {
+                        v["associations"] = Value::Object(assoc_obj);
+                    }
+                    Json(v).into_response()
+                }
+                None => (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"status": "error", "category": "OBJECT_NOT_FOUND"})),
+                )
+                    .into_response(),
+            }
+        };
+        (resp, delay)
+    };
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
     }
-    let wanted: Vec<String> = reqwest::Url::parse(&format!("http://x/?{q}"))
-        .unwrap()
-        .query_pairs()
-        .filter(|(k, _)| k == "properties")
-        .flat_map(|(_, v)| v.split(',').map(str::to_string).collect::<Vec<_>>())
-        .collect();
-    match s.record_json(&o, &id, &wanted) {
-        Some(v) => Json(v).into_response(),
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"status": "error", "category": "OBJECT_NOT_FOUND"})),
-        )
-            .into_response(),
-    }
+    resp
 }
 
 async fn hs_batch_read(
@@ -263,6 +311,13 @@ async fn hs_batch_read(
     ));
     if s.auth_fail {
         return unauthorized();
+    }
+    if let Some(status) = s.fail_batch_read.get(&o) {
+        return (
+            StatusCode::from_u16(*status).unwrap(),
+            Json(json!({"status": "error", "category": "MISSING_SCOPES"})),
+        )
+            .into_response();
     }
     let wanted: Vec<String> = body["properties"]
         .as_array()
@@ -282,39 +337,52 @@ async fn hs_batch_read(
     Json(json!({"status": "COMPLETE", "results": results})).into_response()
 }
 
-async fn hs_assoc(
+/// `POST /crm/v4/associations/{from}/{to}/batch/read`。関連の無い from は結果に含めない
+async fn hs_assoc_batch(
     State(st): State<Shared<FakeHubSpot>>,
-    Path((from, id, to)): Path<(String, String, String)>,
-    RawQuery(q): RawQuery,
+    Path((from, to)): Path<(String, String)>,
     headers: HeaderMap,
+    Json(body): Json<Value>,
 ) -> Response {
     let mut s = st.lock().unwrap();
     s.requests.push((
-        "GET".into(),
-        format!(
-            "/crm/v4/objects/{from}/{id}/associations/{to}?{}",
-            q.unwrap_or_default()
-        ),
+        "POST".into(),
+        format!("/crm/v4/associations/{from}/{to}/batch/read"),
         auth_header(&headers),
-        String::new(),
+        body.to_string(),
     ));
     if s.auth_fail {
         return unauthorized();
     }
-    let results: Vec<Value> = s
-        .assocs
-        .get(&(from, id, to))
+    if let Some(status) = s.fail_assoc_batch {
+        return (
+            StatusCode::from_u16(status).unwrap(),
+            Json(json!({"status": "error", "category": "OBJECT_NOT_FOUND"})),
+        )
+            .into_response();
+    }
+    let results: Vec<Value> = body["inputs"]
+        .as_array()
         .cloned()
         .unwrap_or_default()
-        .into_iter()
-        .map(|(i, label)| {
-            json!({"toObjectId": i, "associationTypes": [
-                {"category": if label.is_some() { "USER_DEFINED" } else { "HUBSPOT_DEFINED" },
-                 "typeId": 4, "label": label}
-            ]})
+        .iter()
+        .filter_map(|i| {
+            let fid = i["id"].as_str().unwrap_or("").to_string();
+            let targets = s.assocs.get(&(from.clone(), fid.clone(), to.clone()))?;
+            if targets.is_empty() {
+                return None;
+            }
+            let to_list: Vec<Value> = targets
+                .iter()
+                .map(|(t, label)| {
+                    json!({"toObjectId": t, "associationTypes": [
+                        {"category": "HUBSPOT_DEFINED", "typeId": 194, "label": label}]})
+                })
+                .collect();
+            Some(json!({"from": {"id": fid}, "to": to_list}))
         })
         .collect();
-    Json(json!({"results": results})).into_response()
+    Json(json!({"status": "COMPLETE", "results": results})).into_response()
 }
 
 async fn start_fake_hubspot(fake: FakeHubSpot) -> (Arc<HubSpotClient>, Shared<FakeHubSpot>) {
@@ -324,8 +392,8 @@ async fn start_fake_hubspot(fake: FakeHubSpot) -> (Arc<HubSpotClient>, Shared<Fa
             .route("/crm/v3/objects/{o}/{id}", get(hs_get_object))
             .route("/crm/v3/objects/{o}/batch/read", post(hs_batch_read))
             .route(
-                "/crm/v4/objects/{from}/{id}/associations/{to}",
-                get(hs_assoc),
+                "/crm/v4/associations/{from}/{to}/batch/read",
+                post(hs_assoc_batch),
             )
             .with_state(st.clone()),
     )
@@ -338,6 +406,7 @@ async fn start_fake_hubspot(fake: FakeHubSpot) -> (Arc<HubSpotClient>, Shared<Fa
             max_retries: 0,
             retry_base_delay: Duration::from_millis(1),
             search_min_interval: Duration::from_millis(1),
+            rate_limited_min_wait: Duration::from_millis(1),
         },
     )
     .expect("client");
@@ -746,7 +815,8 @@ async fn deal_200_は_contact_経由の_call_も含め重複を除いて時刻�
     let assoc = &v["associations"];
     assert!(assoc.get("deals").is_none(), "{assoc}");
     assert_eq!(assoc["contacts"][0]["id"], "55");
-    assert_eq!(assoc["contacts"][0]["labels"], json!(["Decision maker"]));
+    // v3 の「本体 + 関連」形では関連ラベルは取れないので空 (ラベル付きは v4 の関連 API のみ)
+    assert_eq!(assoc["contacts"][0]["labels"], json!([]));
     assert_eq!(
         assoc["contacts"][0]["deep_link"],
         format!("https://app.hubspot.com/contacts/{portal}/record/0-1/55/")
@@ -803,28 +873,46 @@ async fn deal_200_は_contact_経由の_call_も含め重複を除いて時刻�
     );
     assert_eq!(v["meta"]["activities_truncated"], false);
 
-    // HubSpot への要求: Bearer トークン、contact → calls を 2 件とも辿った、Call は hs_call_source を要求
+    // HubSpot への要求: Bearer トークン、contact → calls は 1 回の batch で 2 件とも辿った、
+    // Call は hs_call_source を要求。回数は 本体 1 + contact→calls 1 + batch read (calls, notes) 2 = 4
     let reqs = hs.lock().unwrap().requests.clone();
+    assert_eq!(reqs.len(), 4, "{reqs:?}");
     assert!(reqs
         .iter()
         .all(|r| r.2 == format!("Bearer {HUBSPOT_TOKEN}")));
-    for cid in ["55", "56"] {
-        assert!(
-            reqs.iter().any(|r| r.1.starts_with(&format!(
-                "/crm/v4/objects/contacts/{cid}/associations/calls"
-            ))),
-            "{reqs:?}"
-        );
-    }
+    let assoc_batches: Vec<&(String, String, String, String)> = reqs
+        .iter()
+        .filter(|r| r.1 == "/crm/v4/associations/contacts/calls/batch/read")
+        .collect();
+    assert_eq!(assoc_batches.len(), 1);
+    let body: Value = serde_json::from_str(&assoc_batches[0].3).unwrap();
+    assert_eq!(body, json!({"inputs": [{"id": "55"}, {"id": "56"}]}));
+    // 本体の GET は 1 回で関連型をまとめて要求し、email は要求しない
+    let main_get = &reqs[0];
+    assert!(
+        main_get.1.starts_with("/crm/v3/objects/deals/900?"),
+        "{main_get:?}"
+    );
+    assert!(
+        main_get
+            .1
+            .contains("associations=contacts%2Ccompanies%2Ccalls%2Cnotes%2Ctasks%2Cmeetings")
+            || main_get
+                .1
+                .contains("associations=contacts,companies,calls,notes,tasks,meetings"),
+        "{main_get:?}"
+    );
+    assert!(!main_get.1.contains("emails"), "{main_get:?}");
     let call_batches: Vec<&String> = reqs
         .iter()
         .filter(|r| r.1 == "/crm/v3/objects/calls/batch/read")
         .map(|r| &r.3)
         .collect();
-    assert!(!call_batches.is_empty());
+    assert_eq!(call_batches.len(), 1);
     for b in call_batches {
         assert!(b.contains("hs_call_source"), "{b}");
     }
+    assert_eq!(v["meta"]["partial"], json!([]));
 
     // 本文にトークンが無い
     let text = v.to_string();
@@ -868,11 +956,13 @@ async fn contact_200_は具体値と直近_10_件() {
             &[("hs_timestamp", Some(&ts))],
         );
     }
-    let (client, _) = start_fake_hubspot(f).await;
+    let (client, hs) = start_fake_hubspot(f).await;
     let app = crm_app(test_state(Some(audit), Some(client)));
     let cookie = login_as(&app, "google_oidc", Some("acc-admin")).await;
     let (status, _, v) = get_json(&app, "/api/crm/contacts/55", &cookie).await;
     assert_eq!(status, StatusCode::OK, "{v}");
+    // 本体 1 + batch read (calls, notes) 2 = 3 回
+    assert_eq!(hs.lock().unwrap().requests.len(), 3);
     assert_eq!(v["object_type"], "contact");
     assert_eq!(v["properties"]["firstname"], "太郎");
     assert_eq!(v["properties"]["email"], "yamada@example.com");
@@ -934,4 +1024,317 @@ async fn 存在しない_id_は_404_not_found() {
     let (status, _, v) = get_json(&app, "/api/crm/companies/424242", &cookie).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(v["error_kind"], "not_found");
+}
+
+// ---------------------------------------------------------------------------
+// 呼び出し回数の上限・締め切り・部分失敗・並び順
+// ---------------------------------------------------------------------------
+
+/// Deal 900: contact 30 件 (各 5 call)、直付き call 1 / note 150 / task 1 / meeting 1
+fn big_deal_fixture() -> FakeHubSpot {
+    let mut f = FakeHubSpot::default();
+    f.obj("deals", "900", &[("dealname", Some("大きい Deal"))]);
+    let contacts: Vec<(u64, Option<&str>)> = (1..=30u64).map(|c| (c, None)).collect();
+    f.assoc("deals", "900", "contacts", &contacts);
+    for c in 1..=30u64 {
+        let calls: Vec<(u64, Option<&str>)> =
+            (1..=5u64).map(|k| (100_000 + c * 10 + k, None)).collect();
+        f.assoc("contacts", &c.to_string(), "calls", &calls);
+        for (cid, _) in &calls {
+            let ts = format!("2026-08-{:02}T00:00:00Z", (c % 28) + 1);
+            f.obj("calls", &cid.to_string(), &[("hs_timestamp", Some(&ts))]);
+        }
+    }
+    f.assoc("deals", "900", "calls", &[(1001, None)]);
+    f.obj(
+        "calls",
+        "1001",
+        &[("hs_timestamp", Some("2026-09-10T00:00:00Z"))],
+    );
+    let notes: Vec<(u64, Option<&str>)> = (3001..=3150u64).map(|i| (i, None)).collect();
+    f.assoc("deals", "900", "notes", &notes);
+    for (i, _) in &notes {
+        f.obj(
+            "notes",
+            &i.to_string(),
+            &[("hs_timestamp", Some("2026-07-01T00:00:00Z"))],
+        );
+    }
+    f.assoc("deals", "900", "tasks", &[(4001, None)]);
+    f.obj(
+        "tasks",
+        "4001",
+        &[("hs_createdate", Some("2026-09-01T00:00:00Z"))],
+    );
+    f.assoc("deals", "900", "meetings", &[(5001, None)]);
+    f.obj(
+        "meetings",
+        "5001",
+        &[("hs_timestamp", Some("2026-09-02T00:00:00Z"))],
+    );
+    f
+}
+
+fn batch_inputs(reqs: &[(String, String, String, String)], path: &str) -> Vec<Vec<String>> {
+    reqs.iter()
+        .filter(|r| r.1 == path)
+        .map(|r| {
+            let b: Value = serde_json::from_str(&r.3).unwrap();
+            b["inputs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["id"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 大きい_deal_でも_hubspot_呼び出しは_6_回で打ち切りが出る() {
+    let (client, hs) = start_fake_hubspot(big_deal_fixture()).await;
+    let resp = read_response(
+        &client,
+        RecordType::Deal,
+        "900",
+        "1",
+        MAX_HUBSPOT_CALLS_PER_REQUEST,
+        Duration::from_secs(10),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v: Value = serde_json::from_str(&body_string(resp).await).unwrap();
+
+    let reqs = hs.lock().unwrap().requests.clone();
+    // 期待値 = 本体 1 + contact→calls 1 + batch read 4 (calls / notes / tasks / meetings) = 6
+    assert_eq!(
+        reqs.len(),
+        6,
+        "{:?}",
+        reqs.iter().map(|r| &r.1).collect::<Vec<_>>()
+    );
+    assert!(reqs.len() <= MAX_HUBSPOT_CALLS_PER_REQUEST);
+
+    // contact は 30 件中 先頭 20 件だけ辿る (1 回の batch)
+    let assoc_inputs = batch_inputs(&reqs, "/crm/v4/associations/contacts/calls/batch/read");
+    assert_eq!(assoc_inputs.len(), 1);
+    let first20: Vec<String> = (1..=20u64).map(|c| c.to_string()).collect();
+    assert_eq!(assoc_inputs[0], first20);
+
+    // 型ごとに batch read は 1 回、calls / notes は 100 件で打ち切り
+    let calls_in = batch_inputs(&reqs, "/crm/v3/objects/calls/batch/read");
+    let notes_in = batch_inputs(&reqs, "/crm/v3/objects/notes/batch/read");
+    assert_eq!(calls_in.len(), 1);
+    assert_eq!(notes_in.len(), 1);
+    assert_eq!(calls_in[0].len(), 100);
+    assert_eq!(notes_in[0].len(), 100);
+    // 直付きが先 (call 1001 は必ず含まれ先頭、note は直付き 150 件の先頭 100 件)
+    assert_eq!(calls_in[0][0], "1001");
+    assert_eq!(notes_in[0][0], "3001");
+    assert_eq!(notes_in[0][99], "3100");
+    // 辿っていない contact (21〜30) の call は含まれない
+    assert!(calls_in[0].iter().all(|id| {
+        let n: u64 = id.parse().unwrap();
+        n == 1001 || (100_000..100_000 + 21 * 10).contains(&n)
+    }));
+    assert_eq!(
+        batch_inputs(&reqs, "/crm/v3/objects/tasks/batch/read").len(),
+        1
+    );
+    assert_eq!(
+        batch_inputs(&reqs, "/crm/v3/objects/meetings/batch/read").len(),
+        1
+    );
+
+    assert_eq!(v["meta"]["activities_truncated"], true);
+    assert_eq!(v["meta"]["partial"], json!([]));
+    assert_eq!(v["recent_activities"].as_array().unwrap().len(), 10);
+    // 関連 contact は 30 件ともそのまま表示 (打ち切るのはアクティビティ取得のための辿り先だけ)
+    assert_eq!(v["associations"]["contacts"].as_array().unwrap().len(), 30);
+}
+
+/// 逆証明: 上限を 2 にすると 2 回で止まり、取得しなかった部分が partial に call_budget で出る
+#[tokio::test(flavor = "multi_thread")]
+async fn 呼び出し上限を小さくすると_call_budget_で止まる() {
+    let (client, hs) = start_fake_hubspot(big_deal_fixture()).await;
+    let resp = read_response(
+        &client,
+        RecordType::Deal,
+        "900",
+        "1",
+        2,
+        Duration::from_secs(10),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v: Value = serde_json::from_str(&body_string(resp).await).unwrap();
+    let reqs = hs.lock().unwrap().requests.clone();
+    // 本体 1 + contact→calls 1 で上限 2。以降の batch read は呼ばない
+    assert_eq!(
+        reqs.len(),
+        2,
+        "{:?}",
+        reqs.iter().map(|r| &r.1).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        v["meta"]["partial"],
+        json!([
+            {"part": "calls", "error_kind": "call_budget"},
+            {"part": "notes", "error_kind": "call_budget"},
+            {"part": "tasks", "error_kind": "call_budget"},
+            {"part": "meetings", "error_kind": "call_budget"},
+        ])
+    );
+    assert_eq!(v["recent_activities"], json!([]));
+    // 本体と関連は返る (全体はエラーにしない)
+    assert_eq!(v["properties"]["dealname"], "大きい Deal");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 締め切りを超えたら_504_crm_timeout() {
+    let mut f = deal_fixture();
+    f.get_delay = Duration::from_millis(500);
+    let (client, _) = start_fake_hubspot(f).await;
+    let t = std::time::Instant::now();
+    let resp = read_response(
+        &client,
+        RecordType::Deal,
+        "900",
+        "1",
+        MAX_HUBSPOT_CALLS_PER_REQUEST,
+        Duration::from_millis(100),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+    // HubSpot の応答 (500ms) を待たずに返る
+    assert!(
+        t.elapsed() < Duration::from_millis(450),
+        "{:?}",
+        t.elapsed()
+    );
+    let v: Value = serde_json::from_str(&body_string(resp).await).unwrap();
+    assert_eq!(v["error_kind"], "crm_timeout");
+    assert!(v["message"].as_str().unwrap().contains("中断"));
+
+    // 逆証明: 締め切りを長くすれば同じ遅さでも 200
+    let resp = read_response(
+        &client,
+        RecordType::Deal,
+        "900",
+        "1",
+        MAX_HUBSPOT_CALLS_PER_REQUEST,
+        Duration::from_secs(5),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+/// notes の batch read だけ 403 でも全体は 200。calls は表示され、partial に notes / hubspot_auth
+#[tokio::test(flavor = "multi_thread")]
+async fn engagement_の_batch_read_失敗は_partial_で_200() {
+    let (audit, _) = start_fake_audit().await;
+    let mut f = deal_fixture();
+    f.fail_batch_read.insert("notes".into(), 403);
+    let (client, _) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(Some(audit), Some(client)));
+    let cookie = login_as(&app, "google_oidc", Some("acc-admin")).await;
+    let (status, _, v) = get_json(&app, "/api/crm/deals/900", &cookie).await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["meta"]["partial"],
+        json!([{"part": "notes", "error_kind": "hubspot_auth"}])
+    );
+    let ids: Vec<&str> = v["recent_activities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["1002", "1001", "1003"]);
+    assert_eq!(v["properties"]["dealname"], "介護スタッフ採用支援");
+}
+
+/// contact 経由の calls (v4 batch associations) が 404 でも全体は 200。直付きは表示される
+#[tokio::test(flavor = "multi_thread")]
+async fn contact_経由の_calls_の失敗は_partial_で_200() {
+    let (audit, _) = start_fake_audit().await;
+    let mut f = deal_fixture();
+    f.fail_assoc_batch = Some(404);
+    let (client, _) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(Some(audit), Some(client)));
+    let cookie = login_as(&app, "google_oidc", Some("acc-admin")).await;
+    let (status, _, v) = get_json(&app, "/api/crm/deals/900", &cookie).await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["meta"]["partial"],
+        json!([{"part": "calls_via_contacts", "error_kind": "not_found"}])
+    );
+    let ids: Vec<&str> = v["recent_activities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    // 直付きの call 1001 と note 2001 だけ (contact 経由の 1002 / 1003 は取れていない)
+    assert_eq!(ids, vec!["1001", "2001"]);
+}
+
+/// Task は期日 (hs_timestamp) ではなく作成日時 (hs_createdate) で並ぶ。
+/// 期日が未来の Task が先頭に来ない (逆証明: 期日で並べると 4001 が先頭になる)
+#[tokio::test(flavor = "multi_thread")]
+async fn task_は作成日時で並び期日が未来でも先頭に来ない() {
+    let (audit, _) = start_fake_audit().await;
+    let mut f = FakeHubSpot::default();
+    f.obj("contacts", "55", &[("firstname", Some("太郎"))]);
+    f.assoc("contacts", "55", "calls", &[(1001, None)]);
+    f.obj(
+        "calls",
+        "1001",
+        &[("hs_timestamp", Some("2026-09-10T00:00:00Z"))],
+    );
+    f.assoc("contacts", "55", "tasks", &[(4001, None), (4002, None)]);
+    // 4001: 期日が 2030 年 (未来)、作成は 09-01
+    f.obj(
+        "tasks",
+        "4001",
+        &[
+            ("hs_timestamp", Some("2030-01-01T00:00:00Z")),
+            ("hs_createdate", Some("2026-09-01T00:00:00Z")),
+            ("hs_task_subject", Some("期日が未来のタスク")),
+        ],
+    );
+    // 4002: 期日は 08-01 (過去)、作成は 09-15
+    f.obj(
+        "tasks",
+        "4002",
+        &[
+            ("hs_timestamp", Some("2026-08-01T00:00:00Z")),
+            ("hs_createdate", Some("2026-09-15T00:00:00Z")),
+        ],
+    );
+    let (client, _) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(Some(audit), Some(client)));
+    let cookie = login_as(&app, "google_oidc", Some("acc-admin")).await;
+    let (status, _, v) = get_json(&app, "/api/crm/contacts/55", &cookie).await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    let acts = v["recent_activities"].as_array().unwrap();
+    let ids: Vec<&str> = acts.iter().map(|a| a["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, vec!["4002", "1001", "4001"]);
+    // timestamp は並べ替えに使った作成日時、期日は properties に残る
+    assert_eq!(acts[0]["timestamp"], "2026-09-15T00:00:00Z");
+    assert_eq!(
+        acts[0]["properties"]["hs_timestamp"],
+        "2026-08-01T00:00:00Z"
+    );
+    assert_eq!(acts[2]["timestamp"], "2026-09-01T00:00:00Z");
+    assert_eq!(
+        acts[2]["properties"]["hs_timestamp"],
+        "2030-01-01T00:00:00Z"
+    );
+    assert_eq!(
+        acts[2]["properties"]["hs_task_subject"],
+        "期日が未来のタスク"
+    );
+    // call の timestamp は従来どおり hs_timestamp
+    assert_eq!(acts[1]["timestamp"], "2026-09-10T00:00:00Z");
 }

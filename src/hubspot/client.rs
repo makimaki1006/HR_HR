@@ -4,6 +4,7 @@
 //! - HubSpot の応答本文はエラーに載せない (入力値が反映される場合があるため)
 //! - 429 / 5xx / タイムアウトのみ `max_retries` 回まで retry (指数待ち。429 は Retry-After 優先)
 //! - `X-HubSpot-RateLimit-*` を最後の値として記録し、残りが 10% 未満なら warn
+//! - batch_read / search は POST だが読み取りのみ。retry しても副作用は無い (書き込み API はここに置かない)
 //! - Search API は `search_min_interval` 以上の間隔で開始する (5 req/s/アカウント)
 //! - object / id はパスに入るため、既知の api_name と ASCII 数字 (1〜20 桁) 以外は送らない
 
@@ -25,10 +26,6 @@ pub const DEFAULT_BASE_URL: &str = "https://api.hubapi.com";
 const BATCH_READ_LIMIT: usize = 100;
 /// Retry-After / 指数待ちの上限
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(10);
-/// 429 で Retry-After が無いときの最低待ち時間。
-/// 鍵を既存バッチと共有しているため (100 req/10 秒の窓をアカウントで共有)、
-/// 1 秒未満で retry しても枠は空いておらず無意味。
-const RATE_LIMITED_MIN_WAIT: Duration = Duration::from_secs(1);
 
 /// retry・タイムアウトの設定 (テストでは待ち時間を短くする)。
 #[derive(Debug, Clone)]
@@ -41,6 +38,10 @@ pub struct ClientOptions {
     /// Search API の開始間隔。HubSpot の上限は 5 req/s/アカウントだが、
     /// 鍵を既存バッチと共有しているため既定は 1000ms (当アプリは 1 req/s まで) に抑える
     pub search_min_interval: Duration,
+    /// 429 の retry の最低待ち時間。Retry-After が 0 や小さい値でも `max(Retry-After, これ)` 待つ。
+    /// 鍵を既存バッチと共有しているため (100 req/10 秒の窓をアカウントで共有)、
+    /// 1 秒未満で retry しても枠は空いておらず無意味。
+    pub rate_limited_min_wait: Duration,
 }
 
 impl Default for ClientOptions {
@@ -51,6 +52,7 @@ impl Default for ClientOptions {
             retry_base_delay: Duration::from_millis(500),
             // 鍵を既存バッチと共有しているため (5 req/s の枠を残しておく)
             search_min_interval: Duration::from_millis(1000),
+            rate_limited_min_wait: Duration::from_secs(1),
         }
     }
 }
@@ -276,6 +278,113 @@ impl HubSpotClient {
         Ok(out)
     }
 
+    /// `GET /crm/v3/objects/{object}/{id}?properties=..&associations=a,b,..`
+    /// 1 回の呼び出しで本体と関連 ID を取る (呼び出し回数を抑えるため)。
+    ///
+    /// 応答の `associations.{type}.results[].id` (文字列) を関連 ID として返す。`{type}` は
+    /// 要求した型名 (複数形: `contacts`, `calls` ...)。次ページがあれば
+    /// `associations.{type}.paging.next` が付く → truncated = true。
+    /// v3 のこの形では関連ラベルは取れないので `labels` は常に空 Vec。
+    /// 戻り値には要求した型すべてのキーが入る (関連が無ければ空 Vec・false)。
+    ///
+    /// [推測] 応答のキー名・paging の位置は HubSpot v3 の公開仕様からの想定で、
+    /// 実データでの確認はユーザー承認後。偽 HubSpot (テスト) も同じ形を使う。
+    pub async fn get_object_with_associations(
+        &self,
+        object: &str,
+        id: &str,
+        properties: &[&str],
+        to_types: &[&str],
+    ) -> Result<(HubSpotRecord, BTreeMap<String, (Vec<AssociationRef>, bool)>), HubSpotError> {
+        check_object(object)?;
+        check_id(id)?;
+        for t in to_types {
+            check_object(t)?;
+        }
+        let path = format!("/crm/v3/objects/{object}/{id}");
+        let mut query: Vec<(&str, String)> = Vec::new();
+        if !properties.is_empty() {
+            query.push(("properties", properties.join(",")));
+        }
+        if !to_types.is_empty() {
+            query.push(("associations", to_types.join(",")));
+        }
+        let v = self.send(Method::GET, &path, &query, None).await?;
+        let record = parse_record(&v)?;
+        let mut out: BTreeMap<String, (Vec<AssociationRef>, bool)> = to_types
+            .iter()
+            .map(|t| (t.to_string(), (Vec::new(), false)))
+            .collect();
+        for t in to_types {
+            let Some(entry) = v.pointer(&format!("/associations/{t}")) else {
+                continue;
+            };
+            let results = entry
+                .get("results")
+                .and_then(Value::as_array)
+                .ok_or_else(|| HubSpotError::Decode("associations without results".into()))?;
+            let mut refs: Vec<AssociationRef> = Vec::with_capacity(results.len());
+            for r in results {
+                let rid = r
+                    .get("id")
+                    .and_then(id_string)
+                    .ok_or_else(|| HubSpotError::Decode("association without id".into()))?;
+                // 関連タイプ違いで同じ id が繰り返されることがあるので 1 件にする
+                if !refs.iter().any(|x| x.id == rid) {
+                    refs.push(AssociationRef {
+                        id: rid,
+                        labels: Vec::new(),
+                    });
+                }
+            }
+            let more = entry.pointer("/paging/next").is_some_and(|n| !n.is_null());
+            out.insert(t.to_string(), (refs, more));
+        }
+        Ok((record, out))
+    }
+
+    /// `POST /crm/v4/associations/{from}/{to}/batch/read` (読み取り。100 件ずつに分割)。
+    /// 戻り値は from の ID → 関連 (ラベル付き)。関連の無い from は空 Vec か、キー自体が無い。
+    /// 1 from あたりの関連の次ページは追わない (1 ページ分のみ)。
+    pub async fn batch_associations(
+        &self,
+        from: &str,
+        to: &str,
+        ids: &[String],
+    ) -> Result<BTreeMap<String, Vec<AssociationRef>>, HubSpotError> {
+        check_object(from)?;
+        check_object(to)?;
+        for id in ids {
+            check_id(id)?;
+        }
+        let path = format!("/crm/v4/associations/{from}/{to}/batch/read");
+        let mut out: BTreeMap<String, Vec<AssociationRef>> = BTreeMap::new();
+        for chunk in ids.chunks(BATCH_READ_LIMIT) {
+            let body = json!({
+                "inputs": chunk.iter().map(|id| json!({ "id": id })).collect::<Vec<_>>(),
+            });
+            let v = self.send(Method::POST, &path, &[], Some(&body)).await?;
+            let results = v
+                .get("results")
+                .and_then(Value::as_array)
+                .ok_or_else(|| HubSpotError::Decode("batch associations without results".into()))?;
+            for r in results {
+                let from_id = r
+                    .pointer("/from/id")
+                    .and_then(id_string)
+                    .ok_or_else(|| HubSpotError::Decode("association without from id".into()))?;
+                let to_list = r
+                    .get("to")
+                    .and_then(Value::as_array)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                let (refs, _) = parse_associations(&json!({ "results": to_list }))?;
+                out.entry(from_id).or_default().extend(refs);
+            }
+        }
+        Ok(out)
+    }
+
     /// `GET /crm/v4/objects/{from}/{id}/associations/{to}?limit=500`。
     /// 多対多をそのまま返す (1 件に潰さない)。戻り値の bool は次ページが残っていたか。
     pub async fn list_associations(
@@ -336,21 +445,16 @@ impl HubSpotClient {
                     if attempt >= self.opts.max_retries {
                         return Err(err);
                     }
-                    let backoff = match wait {
-                        Some(w) => w,
-                        None => {
-                            let exp = self
-                                .opts
-                                .retry_base_delay
-                                .saturating_mul(2u32.saturating_pow(attempt));
-                            if err == HubSpotError::RateLimited {
-                                exp.max(RATE_LIMITED_MIN_WAIT)
-                            } else {
-                                exp
-                            }
-                            .min(MAX_RETRY_WAIT)
-                        }
-                    };
+                    let exp = self
+                        .opts
+                        .retry_base_delay
+                        .saturating_mul(2u32.saturating_pow(attempt));
+                    let mut backoff = wait.unwrap_or(exp);
+                    if err == HubSpotError::RateLimited {
+                        // Retry-After が 0 や小さい値でも最低待ち時間は守る
+                        backoff = backoff.max(self.opts.rate_limited_min_wait);
+                    }
+                    let backoff = backoff.min(MAX_RETRY_WAIT);
                     tracing::warn!(
                         error_kind = err.error_kind(),
                         attempt = attempt + 1,
