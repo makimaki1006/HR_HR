@@ -1,4 +1,5 @@
-import { ApiAbortedError, apiGet, type ApiResult } from '../../api/client';
+import { ApiAbortedError, AuthRequiredError, apiGet, type ApiResult } from '../../api/client';
+import { redirectToLogin } from '../../shell/navigation';
 import type { RdCompetitorsResponse } from '../../generated/RdCompetitorsResponse';
 import type { RdConditionGapResponse } from '../../generated/RdConditionGapResponse';
 import type { RdDifficultyResponse } from '../../generated/RdDifficultyResponse';
@@ -55,14 +56,32 @@ function req(path: string, query: string, signal: AbortSignal): [string, { signa
   return [`${API_BASE}/${path}?${query}`, { signal, timeoutMs: PANEL_TIMEOUT_MS }];
 }
 
+/** One redirect per run, however many panels notice the expired session. */
+const redirected = new WeakSet<AbortSignal>();
+
 /**
  * Turns one panel's result into a view; every failure becomes that panel's error view
- * (abort -> null, i.e. nothing to show).
+ * (abort -> null, i.e. nothing to show). A 401 / login redirect means the session expired: go to
+ * the login page like the shell does (useNav) instead of showing "取得失敗: login required".
  */
-function toView<T>(result: ApiResult<T>, render: (data: T) => PanelView): PanelView | null {
+function toView<T>(
+  result: ApiResult<T>,
+  render: (data: T) => PanelView,
+  signal: AbortSignal,
+): PanelView | null {
   if (!result.ok) {
     if (result.error instanceof ApiAbortedError) return null;
+    if (result.error instanceof AuthRequiredError) {
+      if (!redirected.has(signal)) {
+        redirected.add(signal);
+        redirectToLogin();
+      }
+      return null;
+    }
     // HTTP failure -> "HTTP 500"; HTTP 200 + {"error": ...} -> the error text (ApiDataError).
+    // Intended difference from the old page: for Panel 8 (insights) a 200 + {"error": "..."} body
+    // used to show "データ形式不正" (the old code only looked for an `insights` array); here, as in
+    // the other panels, the error text itself is shown, which says more.
     return errorView(result.error.message);
   }
   if (typeof result.data !== 'object' || result.data === null) return errorView('データ形式不正');
@@ -84,7 +103,7 @@ export const PANELS: readonly PanelDef[] = [
     title: '🎯 Panel 1: 採用難度スコア',
     load: (f, s) =>
       apiGet<RdDifficultyResponse>(...req('difficulty', buildCommonQuery(f), s)).then(
-        (r) => toView(r, renderDifficulty),
+        (r) => toView(r, renderDifficulty, s),
         thrown,
       ),
   },
@@ -93,7 +112,7 @@ export const PANELS: readonly PanelDef[] = [
     title: '👥 Panel 2: 人材プール診断',
     load: (f, s) =>
       apiGet<RdTalentPoolResponse>(...req('talent_pool', buildCommonQuery(f), s)).then(
-        (r) => toView(r, renderTalentPool),
+        (r) => toView(r, renderTalentPool, s),
         thrown,
       ),
   },
@@ -103,7 +122,7 @@ export const PANELS: readonly PanelDef[] = [
     title: '🏢 Panel 4: 競合企業ランキング',
     load: (f, s) =>
       apiGet<RdCompetitorsResponse>(...req('competitors', buildCompetitorsQuery(f), s)).then(
-        (r) => toView(r, renderCompetitors),
+        (r) => toView(r, renderCompetitors, s),
         thrown,
       ),
   },
@@ -112,7 +131,7 @@ export const PANELS: readonly PanelDef[] = [
     title: '💰 Panel 5: 条件ギャップ診断',
     load: (f, s) =>
       apiGet<RdConditionGapResponse>(...req('condition_gap', buildGapQuery(f), s)).then(
-        (r) => toView(r, renderConditionGap),
+        (r) => toView(r, renderConditionGap, s),
         thrown,
       ),
   },
@@ -121,7 +140,7 @@ export const PANELS: readonly PanelDef[] = [
     title: '📈 Panel 6: 市場動向',
     load: (f, s) =>
       apiGet<RdMarketTrendResponse>(...req('market_trend', buildCommonQuery(f), s)).then(
-        (r) => toView(r, renderMarketTrend),
+        (r) => toView(r, renderMarketTrend, s),
         thrown,
       ),
   },
@@ -130,7 +149,7 @@ export const PANELS: readonly PanelDef[] = [
     title: '🗺️ Panel 7: 穴場マップ（市区町村）',
     load: (f, s) =>
       apiGet<RdOpportunityMapResponse>(...req('opportunity_map', buildCommonQuery(f), s)).then(
-        (r) => toView(r, renderOpportunityMap),
+        (r) => toView(r, renderOpportunityMap, s),
         thrown,
       ),
   },
@@ -139,7 +158,7 @@ export const PANELS: readonly PanelDef[] = [
     title: '💡 Panel 8: AI 示唆（So What / Next Action）',
     load: (f, s) =>
       apiGet<RdInsightsResponse>(...req('insights', buildCommonQuery(f), s)).then(
-        (r) => toView(r, renderInsights),
+        (r) => toView(r, renderInsights, s),
         thrown,
       ),
   },
@@ -148,7 +167,7 @@ export const PANELS: readonly PanelDef[] = [
     title: '🚃 Panel 9: 通勤圏人材プール試算',
     load: (f, s) =>
       apiGet<RdTalentPoolExpansionResponse>(...req('talent_pool_expansion', buildCommonQuery(f), s)).then(
-        (r) => toView(r, renderTalentPoolExpansion),
+        (r) => toView(r, renderTalentPoolExpansion, s),
         thrown,
       ),
   },

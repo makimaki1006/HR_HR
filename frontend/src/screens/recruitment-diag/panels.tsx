@@ -11,7 +11,7 @@ import type { RdOpportunityMapResponse } from '../../generated/RdOpportunityMapR
 import type { RdTalentPoolExpansionResponse } from '../../generated/RdTalentPoolExpansionResponse';
 import type { RdTalentPoolResponse } from '../../generated/RdTalentPoolResponse';
 import { opportunityChartOption, trendChartOption } from './charts';
-import { fmt, signPrefix, toManYen } from './format';
+import { fmt, scale, signPrefix, toManYen } from './format';
 
 export type StatusTone = 'muted' | 'loading' | 'ok' | 'error';
 
@@ -109,7 +109,7 @@ export function renderDifficulty(d: RdDifficultyResponse): PanelView {
             className="text-2xl font-bold text-white"
             data-testid="rd-difficulty-metrics-area_share_of_national"
           >
-            {fmt(m.area_share_of_national * 100, 2)}
+            {fmt(scale(m.area_share_of_national, 100), 2)}
             <span className="ml-1 text-sm text-slate-400">%</span>
           </div>
           <div className="mt-1 text-xs text-slate-400" data-testid="rd-difficulty-metrics-national_hw_count">
@@ -572,20 +572,20 @@ function TierBox({
   return (
     <div className={CARD}>
       <div className={`mb-1 text-xs font-semibold ${color}`}>
-        {label} (上位 <span data-testid={t('municipality_count')}>{tier.municipality_count}</span>{' '}
+        {label} (上位 <span data-testid={t('municipality_count')}>{fmt(tier.municipality_count)}</span>{' '}
         市区町村)
       </div>
       <div className="grid grid-cols-2 gap-2 text-sm">
         <div>
           <div className="text-xs text-slate-400">失業者プール</div>
           <div className="text-xl font-bold text-white" data-testid={t('unemployment_pool')}>
-            +{fmt(tier.unemployment_pool)} <span className="text-xs text-slate-400">人</span>
+            {signPrefix(tier.unemployment_pool)}{fmt(tier.unemployment_pool)} <span className="text-xs text-slate-400">人</span>
           </div>
         </div>
         <div>
           <div className="text-xs text-slate-400">HW 求人</div>
           <div className="text-xl font-bold text-white" data-testid={t('hw_postings')}>
-            +{fmt(tier.hw_postings)} <span className="text-xs text-slate-400">件</span>
+            {signPrefix(tier.hw_postings)}{fmt(tier.hw_postings)} <span className="text-xs text-slate-400">件</span>
           </div>
         </div>
       </div>
@@ -654,7 +654,7 @@ export function renderTalentPoolExpansion(d: RdTalentPoolExpansionResponse): Pan
     <div data-testid={`rd-talent_pool_expansion-notes-${field}`}>※ {text}</div>
   );
   return done(
-    `完了（${String(total)} 市区町村）`,
+    `完了（${fmt(total)} 市区町村）`,
     <>
       <div className="mb-3 text-xs text-slate-400">
         現在地:{' '}

@@ -1,8 +1,9 @@
 import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
-import { ApiAbortedError, apiGet } from '../../api/client';
+import { ApiAbortedError, AuthRequiredError, apiGet, type ApiResult } from '../../api/client';
 import type { GeoMunicipalityOption } from '../../generated/GeoMunicipalityOption';
 import type { GeoPrefectureOption } from '../../generated/GeoPrefectureOption';
-import { AppShell } from '../../shell';
+import { AppShell, useFilters } from '../../shell';
+import { redirectToLogin } from '../../shell/navigation';
 import { loadAllPanels, PANELS, type PanelName } from './loader';
 import { errorView, ScopeNotes, TONE_CLASS, type PanelView, type StatusTone } from './panels';
 import {
@@ -123,18 +124,43 @@ function PanelSlotView({ name, title, slot }: { name: PanelName; title: string; 
 
 type GeoState<T> = { status: 'idle' | 'loading' | 'error' } | { status: 'ok'; list: T[] };
 
+/** Municipality list of one prefecture (the answer is only valid for that prefecture). */
+interface CityAnswer {
+  prefecture: string;
+  result: GeoState<GeoMunicipalityOption>;
+}
+
 export function RecruitmentDiagScreen() {
+  // filters: header bar (prefecture / municipality) on, children wait for the first sync.
   return (
-    <AppShell screen="recruitment-diag">
+    <AppShell screen="recruitment-diag" filters>
       <RecruitmentDiag />
     </AppShell>
   );
 }
 
+/** A geo response: sign-in expiry goes to the login page, an abort means "nobody is waiting". */
+function geoOutcome<T>(r: ApiResult<T[]>): GeoState<T> | null {
+  if (r.ok) return { status: 'ok', list: r.data };
+  if (r.error instanceof ApiAbortedError) return null;
+  if (r.error instanceof AuthRequiredError) {
+    redirectToLogin();
+    return null;
+  }
+  return { status: 'error' };
+}
+
+/**
+ * The session filters (useFilters, shared with the header bar) are the source of the prefecture
+ * and municipality: this screen only derives names -> prefcode / citycode from the geo lists and
+ * writes changes back with setPrefecture / setMunicipality (session + URL). The industry filter
+ * (job_types / industry_raws) is a different thing from this screen's 業種 and is not touched.
+ */
 export function RecruitmentDiag() {
-  const [form, setForm] = useState<DiagnosisForm>(EMPTY_FORM);
+  const { filters, ready, syncing, setPrefecture, setMunicipality } = useFilters();
+  const [fields, setFields] = useState<DiagnosisForm>(EMPTY_FORM);
   const [prefs, setPrefs] = useState<GeoState<GeoPrefectureOption>>({ status: 'loading' });
-  const [cities, setCities] = useState<GeoState<GeoMunicipalityOption>>({ status: 'idle' });
+  const [cityAnswer, setCityAnswer] = useState<CityAnswer | null>(null);
   const [slots, setSlots] = useState<PanelSlots>(() => initialSlots('idle'));
   const [started, setStarted] = useState(false);
   const [running, setRunning] = useState(false);
@@ -142,53 +168,89 @@ export function RecruitmentDiag() {
   const [message, setMessage] = useState<string | null>(null);
   const [runId, setRunId] = useState(0);
   const runController = useRef<AbortController | null>(null);
-  const cityController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     void apiGet<GeoPrefectureOption[]>(GEO_PREFECTURES_PATH, { signal: controller.signal }).then((r) => {
-      if (r.ok) setPrefs({ status: 'ok', list: r.data });
-      else if (!(r.error instanceof ApiAbortedError)) setPrefs({ status: 'error' });
+      if (controller.signal.aborted) return;
+      const next = geoOutcome(r);
+      if (next !== null) setPrefs(next);
     });
     return () => {
       controller.abort();
     };
   }, []);
 
+  // One request per prefecture. The cleanup aborts a superseded request, and the `aborted` check
+  // keeps a response that was already on its way (apiGet does not re-check after the body is
+  // read) from replacing the list of the newer prefecture.
+  useEffect(() => {
+    if (!ready || filters.prefecture === '') return;
+    const prefecture = filters.prefecture;
+    const controller = new AbortController();
+    void apiGet<GeoMunicipalityOption[]>(geoMunicipalitiesPath(prefecture), { signal: controller.signal }).then((r) => {
+      if (controller.signal.aborted) return;
+      const result = geoOutcome(r);
+      if (result !== null) setCityAnswer({ prefecture, result });
+    });
+    return () => {
+      controller.abort();
+    };
+  }, [ready, filters.prefecture]);
+
   useEffect(
     () => () => {
       runController.current?.abort();
-      cityController.current?.abort();
     },
     [],
   );
 
+  // Derived, never stored: a list that belongs to another prefecture counts as "loading".
+  const cities: GeoState<GeoMunicipalityOption> =
+    filters.prefecture === ''
+      ? { status: 'idle' }
+      : cityAnswer !== null && cityAnswer.prefecture === filters.prefecture
+        ? cityAnswer.result
+        : { status: 'loading' };
+
+  const prefcode =
+    prefs.status === 'ok' ? (prefs.list.find((p) => p.name === filters.prefecture)?.prefcode ?? null) : null;
+  const citycode =
+    cities.status === 'ok' && filters.municipality !== ''
+      ? (cities.list.find((c) => c.name === filters.municipality)?.citycode ?? null)
+      : null;
+  /** What the panels are asked with: the session's prefecture / municipality, nothing else. */
+  const form: DiagnosisForm = {
+    ...fields,
+    prefecture: filters.prefecture,
+    prefcode,
+    municipality: filters.municipality,
+    citycode,
+  };
+
+  // A session value the lists do not know is still shown, so what is displayed is what is sent.
+  const prefUnlisted =
+    form.prefecture !== '' &&
+    !(prefs.status === 'ok' && prefs.list.some((p) => p.name === form.prefecture));
+  const cityUnlisted =
+    cities.status === 'ok' &&
+    form.municipality !== '' &&
+    !cities.list.some((c) => c.name === form.municipality);
+
+  // No run while a run is in flight, a filter save is pending (the API falls back to the session
+  // for what it does not get), or the municipality list that gives the citycode is loading.
+  const runBlocked = running || syncing || cities.status === 'loading';
+
   const set = (patch: Partial<DiagnosisForm>): void => {
-    setForm((f) => ({ ...f, ...patch }));
+    setFields((f) => ({ ...f, ...patch }));
   };
 
   const onPrefChange = (name: string): void => {
-    const prefcode =
-      prefs.status === 'ok' ? (prefs.list.find((p) => p.name === name)?.prefcode ?? null) : null;
-    set({ prefecture: name, prefcode, municipality: '', citycode: null });
-    cityController.current?.abort();
-    if (name === '') {
-      setCities({ status: 'idle' });
-      return;
-    }
-    const controller = new AbortController();
-    cityController.current = controller;
-    setCities({ status: 'loading' });
-    void apiGet<GeoMunicipalityOption[]>(geoMunicipalitiesPath(name), { signal: controller.signal }).then((r) => {
-      if (r.ok) setCities({ status: 'ok', list: r.data });
-      else if (!(r.error instanceof ApiAbortedError)) setCities({ status: 'error' });
-    });
+    void setPrefecture(name);
   };
 
   const onCityChange = (name: string): void => {
-    const citycode =
-      cities.status === 'ok' ? (cities.list.find((c) => c.name === name)?.citycode ?? null) : null;
-    set({ municipality: name, citycode });
+    void setMunicipality(name);
   };
 
   const run = (): void => {
@@ -205,6 +267,8 @@ export function RecruitmentDiag() {
     setFinished(false);
     setSlots(initialSlots('loading'));
     void loadAllPanels(form, controller.signal, (name, view) => {
+      // A view that settles after this run was replaced or the screen closed is not painted.
+      if (controller.signal.aborted) return;
       setSlots((prev) => ({ ...prev, [name]: { status: 'view', view } }));
     }).then(() => {
       if (controller.signal.aborted) return;
@@ -302,6 +366,7 @@ export function RecruitmentDiag() {
                     </option>
                   ))
                 : null}
+              {prefUnlisted ? <option value={form.prefecture}>{form.prefecture}</option> : null}
             </select>
           </div>
           <div>
@@ -328,6 +393,7 @@ export function RecruitmentDiag() {
                       {c.name}
                     </option>
                   ))}
+                  {cityUnlisted ? <option value={form.municipality}>{form.municipality}</option> : null}
                 </>
               ) : null}
             </select>
@@ -335,9 +401,9 @@ export function RecruitmentDiag() {
           <button
             type="button"
             data-testid="rd-run"
-            disabled={running}
+            disabled={runBlocked}
             onClick={run}
-            className={`rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 ${running ? 'opacity-60' : ''}`}
+            className={`rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 ${runBlocked ? 'opacity-60' : ''}`}
           >
             🔍 診断実行
           </button>

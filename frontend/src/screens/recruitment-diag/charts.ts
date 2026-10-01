@@ -6,6 +6,8 @@ import { fmt } from './format';
 
 // The old page used echarts.init(el, 'dark'); the shared EChart has no theme, so the text colors
 // the dark theme provided are set here.
+// Intended difference from the old page: the 'dark' theme also painted a dark navy chart
+// background; here backgroundColor is 'transparent', so the chart takes the card's background.
 const TEXT = '#cbd5e1';
 const AXIS_LABEL = '#94a3b8';
 
@@ -81,7 +83,7 @@ export function opportunityChartOption(d: RdOpportunityMapResponse): EChartsCore
         label: {
           show: true,
           position: 'right',
-          formatter: (p: { value: number }): string => p.value.toFixed(2),
+          formatter: (p: { value: number }): string => fmt(p.value, 2),
           color: '#e2e8f0',
         },
       },
