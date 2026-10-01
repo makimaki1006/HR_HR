@@ -261,6 +261,7 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 <p class="lead">商談の予定日が過ぎたものだけで数えています（今日の商談はまだ終わっていないので入れません）。<br><span id="bporule"></span></p>
 <p class="scope" id="scope2" style="margin:-8px 0 12px"></p>
 <div class="cards" id="cards1"></div>
+<div class="panel hide" id="panel1"></div>
 
 <h2>いま手を打てること</h2>
 <p class="lead">数字を押すと、中身の一覧が開きます。そのままHubSpotを開けます。</p>
@@ -333,7 +334,7 @@ const fmt=n=>(n==null?'—':n.toLocaleString('ja-JP'));
 const pct=n=>(n==null?'—':n.toFixed(1)+'%');
 // 架電の期間の初期表示。🔴「今週」で固定（ユーザー指示 2026-09-10）。
 // 今日・昨日は途中経過なので初期表示に向かない。並び順は PL の定義順。
-let team='すべて', person='', openKey=null, weekOpen=false, dayKey=null, callPeriod='this_week';
+let team='すべて', person='', openKey=null, openCard=null, cardTeam=null, cardPerson=null, cardSeg=null, bpoOnly=false, weekOpen=false, dayKey=null, callPeriod='this_week';
 // 週次表をどちらの数え方で見るか。既定は「その週の商談」（週次表として自然なので）。
 // 'month' は当月の累積で、月初にゼロから数え直しになる。
 let snapMode='week';
@@ -371,7 +372,7 @@ $('range').textContent='2026年9月　／　今週 '+md(D.week.start)+'（'+wd(D
 ['すべて'].concat(D.teams).forEach(t=>{
   const b=document.createElement('button');
   b.className='chip'+(t===team?' on':''); b.textContent=t;
-  b.onclick=()=>{team=t;person='';openKey=null;syncPerson();
+  b.onclick=()=>{team=t;person='';openKey=null;openCard=null;syncPerson();
     [...$('teams').children].forEach(c=>c.classList.toggle('on',c.textContent===t));render();};
   $('teams').appendChild(b);
 });
@@ -406,8 +407,11 @@ function sumIf(byPerson, ok){
   return o;
 }
 // いま選んでいる範囲（チップ・プルダウン・チェックボックス）で足す。
-const sumScope=byPerson=>sumIf(byPerson,
-  id=>person? id===person : (team==='すべて'||TEAM_OF[id]===team));
+// 🔴 絞り込みの規則はここ 1 つ。カードの合計（sumScope）と、カードの内訳の行の絞り込み
+//    （cardRows）の両方がこれを使う。別々に書くとカードと内訳の合計がずれる。
+const inScope=id=>!hidden.has(id)&&
+  (person? id===person : (team==='すべて'||TEAM_OF[id]===team));
+const sumScope=byPerson=>sumIf(byPerson,inScope);
 // チーム（全社なら全チーム）で足す。個人の選択は見ない（平均の分子に使う）。
 const sumTeam=(byPerson,teamName)=>sumIf(byPerson,
   id=>!teamName||TEAM_OF[id]===teamName);
@@ -424,7 +428,7 @@ function syncPerson(){
   sel.value=person;
 }
 syncPerson();
-$('person').onchange=e=>{person=e.target.value;openKey=null;render();};
+$('person').onchange=e=>{person=e.target.value;openKey=null;openCard=null;render();};
 
 // ---- 担当者のチェックボックス ---------------------------------------------
 //
@@ -551,7 +555,7 @@ function cardEl(o){
   if(o.sub2)h+='<div class="sub2">'+o.sub2+'</div>';
   if(o.avg)h+='<div class="avg">'+o.avg+'</div>';
   if(o.wow)h+=o.wow;
-  if(o.onClick)h+='<div class="open">'+(openKey===o.key?'閉じる ▲':'一覧を見る ▾')+'</div>';
+  if(o.onClick)h+='<div class="open">'+((o.isOpen!=null?o.isOpen:openKey===o.key)?'閉じる ▲':'一覧を見る ▾')+'</div>';
   c.innerHTML=h;
   if(o.onClick)c.onclick=o.onClick;
   return c;
@@ -591,6 +595,149 @@ function bindTip(e,html){
   e.addEventListener('blur',hideTip);
 }
 addEventListener('scroll',hideTip,{passive:true});
+
+// ---- 今月の成績カードの内訳 --------------------------------------------------
+//
+// 行はサーバが返す（D.card_deals.{pool,apo,cyomi}）。件数（by_person）と同じ行・同じ述語から
+// 作っているので、**絞り込み（inScope）が同じなら、カードの値と内訳の合計は必ず一致する**。
+//   pool = ③ 当月の母集団。②④⑥⑤ はここを kind / anq で切る（④ は日付ではなく「これから以外」）
+//   apo  = ① アポシートの全行（予定日が来月でも入る）
+//   cyomi= ⑨ Cヨミシートの全行（予定日が空でも入る）
+const KINDS4=['実施','未実施','未処理','要判定'];
+const KIND_SEGS=KINDS4.map(k=>({k:k,pred:r=>r.kind===k}));
+const notUpcoming=r=>r.kind!=='これから';
+const CARD_CONF={
+  apo:{t:'① 取ったアポ',src:'apo',base:()=>true,
+    d:'今月アポ日が確定した取引です。商談の予定日が来月でも入ります。'},
+  pool:{t:'③ 商談の予定',src:'pool',base:()=>true,
+    d:'今月に商談日が入っている取引です。'},
+  den:{t:'④ 日が過ぎた分',src:'pool',base:notUpcoming,segs:KIND_SEGS,
+    d:'「これから」以外の取引です。予定日はまだ先でも、実施・未実施が決まった取引は入ります。区分を押すとその一覧が出ます。'},
+  done:{t:'② やった商談',src:'pool',base:r=>r.kind==='実施',
+    d:'ステージが先へ進んだ（実施した）取引です。'},
+  rate:{t:'⑥ 商談化率',src:'pool',base:notUpcoming,segs:KIND_SEGS,num:'実施',den:'④ 日が過ぎた分',
+    d:'分子は「実施」、分母は ④ 日が過ぎた分です。分母を 実施・未実施・未処理・要判定 に分けています。区分を押すとその一覧が出ます。'},
+  anqrate:{t:'⑤ アンケート回収率',src:'pool',base:notUpcoming,
+    segs:[{k:'回収済み',pred:r=>r.anq===true},{k:'未回収',pred:r=>r.anq!==true}],
+    num:'回収済み',den:'④ 日が過ぎた分',
+    d:'分子は事前アンケートの「回収済み」、分母は ④ 日が過ぎた分です。分母を 回収済み・未回収 に分けています。'},
+  cyomi:{t:'⑨ 持っているCヨミ',src:'cyomi',base:()=>true,
+    d:'Cヨミのシートにある取引です。予定日が空のものも入ります（日付は「—」）。'},
+};
+function toggleCard(k){
+  return ()=>{
+    openCard=openCard===k?null:k; cardTeam=null; cardPerson=null; cardSeg=null; bpoOnly=false;
+    openKey=null; dayKey=null; weekOpen=false; render();
+    if(openCard)setTimeout(()=>$('panel1').scrollIntoView({behavior:'smooth',block:'nearest'}),50);
+  };
+}
+// いまの絞り込み（inScope）に入る行だけ。カードの合計と同じ規則。
+const cardRows=(src,base)=>((D.card_deals||{})[src]||[]).filter(r=>inScope(r.owner)&&base(r));
+const groupBy=(rows,f)=>{const m=new Map();rows.forEach(r=>{const k=f(r);
+  if(!m.has(k))m.set(k,[]);m.get(k).push(r);});return m;};
+const byDateName=(a,b)=>(a.date||'9999').localeCompare(b.date||'9999')||(a.name||'').localeCompare(b.name||'','ja');
+function drawCardPanel(){
+  const P=$('panel1'); P.innerHTML=''; P.classList.toggle('hide',!openCard);
+  if(!openCard) return;
+  const conf=CARD_CONF[openCard];
+  const base=cardRows(conf.src,conf.base);       // 見出しの件数の元（絞り込み後）
+  const segs=conf.segs||[];
+  const segN=sg=>base.filter(sg.pred).length;
+  const bpoN=base.filter(r=>r.bpo).length;
+  // 見出し
+  const numSeg=conf.num?segs.find(x=>x.k===conf.num):null;
+  let title;
+  if(numSeg){
+    const n=segN(numSeg), m=base.length;
+    title=conf.t+(m?'　'+(n/m*100).toFixed(1)+'%':'')+'（分子 '+conf.num+' '+fmt(n)+'件 ÷ 分母 '+conf.den+' '+fmt(m)+'件）';
+  }else title=conf.t+'（'+fmt(base.length)+'件）';
+  const h=document.createElement('div'); h.className='ph';
+  const hb=document.createElement('b'); hb.id='panel1-title'; hb.textContent=title;
+  hb.dataset.total=base.length; hb.dataset.num=numSeg?segN(numSeg):'';
+  h.appendChild(hb);
+  const x=document.createElement('button'); x.className='close'; x.textContent='閉じる ✕';
+  x.onclick=()=>{openCard=null;render();}; h.appendChild(x); P.appendChild(h);
+  P.appendChild(Object.assign(document.createElement('p'),{className:'lead',textContent:conf.d}));
+  if(!base.length){P.insertAdjacentHTML('beforeend','<div class="empty"><b>該当はありません。</b></div>');return;}
+
+  const bar=document.createElement('div');
+  bar.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 8px';
+  // 内 BPO（押すと BPO の行だけにする）
+  if(bpoN||bpoOnly){
+    const b=document.createElement('button'); b.className='chip'+(bpoOnly?' on':''); b.id='panel1-bpo';
+    b.dataset.n=bpoN; b.textContent='内 BPO '+fmt(bpoN)+'件'+(bpoOnly?'（BPO だけ表示中）':'');
+    b.onclick=()=>{bpoOnly=!bpoOnly;cardTeam=null;cardPerson=null;render();}; bar.appendChild(b);
+  }
+  // 区分（④⑥⑤）
+  if(segs.length){
+    const all=document.createElement('button'); all.className='chip'+(cardSeg==null?' on':''); all.dataset.seg='';
+    all.textContent=(conf.den?'分母 '+conf.den+' すべて ':'すべて ')+fmt(base.length)+'件';
+    all.onclick=()=>{cardSeg=null;cardTeam=null;cardPerson=null;render();}; bar.appendChild(all);
+    segs.forEach(sg=>{
+      const b=document.createElement('button'); b.className='chip'+(cardSeg===sg.k?' on':''); b.dataset.seg=sg.k;
+      b.dataset.n=segN(sg);
+      b.textContent=(sg.k===conf.num?'分子 ':'')+sg.k+' '+fmt(segN(sg))+'件';
+      b.onclick=()=>{cardSeg=(cardSeg===sg.k?null:sg.k);cardTeam=null;cardPerson=null;render();}; bar.appendChild(b);
+    });
+  }
+  if(bar.children.length)P.appendChild(bar);
+
+  // いま見る行 = 絞り込み後の行 → 区分 → BPO
+  let rows=base;
+  if(cardSeg){const sg=segs.find(x=>x.k===cardSeg); if(sg) rows=rows.filter(sg.pred);}
+  if(bpoOnly) rows=rows.filter(r=>r.bpo);
+  const tof=r=>TEAM_OF[r.owner]||r.team;
+  const teamPick=team!=='すべて'?team:cardTeam;
+  const personPick=person||cardPerson;
+  const crumb=(txt,fn)=>{const b=document.createElement('button'); b.className='more'; b.textContent=txt; b.onclick=fn; return b;};
+  const table=(heads,groups,onPick)=>{
+    const t=document.createElement('table'); t.className='cdrill';
+    t.innerHTML='<thead><tr><th></th><th class="n">件数</th><th class="n">内 BPO</th></tr></thead>';
+    t.querySelector('th').textContent=heads;
+    const tb=document.createElement('tbody'); let sum=0, sumB=0;
+    groups.forEach(([name,rs])=>{
+      const tr=document.createElement('tr'); tr.style.cursor='pointer'; tr.dataset.name=name;
+      const nb=rs.filter(r=>r.bpo).length; sum+=rs.length; sumB+=nb;
+      tr.innerHTML='<td></td><td class="n"></td><td class="n"></td>';
+      const bt=document.createElement('button'); bt.className='more'; bt.style.padding='0'; bt.textContent=name;
+      tr.children[0].appendChild(bt); tr.children[1].textContent=fmt(rs.length); tr.children[2].textContent=nb?fmt(nb):'—';
+      tr.onclick=()=>onPick(name,rs); tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    const tf=document.createElement('tfoot'); tf.innerHTML='<tr><th>合計</th><th class="n"></th><th class="n"></th></tr>';
+    const cells=tf.children[0].children;
+    cells[1].textContent=fmt(sum); cells[1].dataset.sum=sum; cells[2].textContent=sumB?fmt(sumB):'—';
+    t.appendChild(tf);
+    return t;
+  };
+  if(!rows.length){P.insertAdjacentHTML('beforeend','<div class="empty">この条件に当てはまる取引はありません。</div>');return;}
+
+  if(!personPick && !teamPick){
+    // 全社: チーム別
+    const g=[...groupBy(rows,tof)].sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0],'ja'));
+    P.appendChild(table('チーム',g,name=>{cardTeam=name;render();}));
+  }else if(!personPick){
+    // チーム選択済み: 担当者別
+    const inTeam=rows.filter(r=>tof(r)===teamPick);
+    if(team==='すべて') P.appendChild(crumb('‹ チーム別に戻る',()=>{cardTeam=null;render();}));
+    const g=[...groupBy(inTeam,r=>r.owner)].map(([id,rs])=>[rs[0].ownerName,rs])
+      .sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0],'ja'));
+    P.appendChild(table('担当者（'+teamPick+'）',g,(name,rs)=>{cardPerson=rs[0].owner;render();}));
+  }else{
+    // 担当者選択済み: 取引一覧
+    const mine=rows.filter(r=>r.owner===personPick).sort(byDateName);
+    if(!person){
+      P.appendChild(crumb('‹ 担当者別に戻る',()=>{cardPerson=null;render();}));
+    }
+    const who=mine.length?mine[0].ownerName:'';
+    const hh=document.createElement('div'); hh.className='day'; hh.id='panel1-listhead';
+    hh.dataset.n=mine.length;
+    hh.textContent=who+'　'+mine.length+'件'+(cardSeg?'（'+cardSeg+'）':'')+(bpoOnly?'（BPO だけ）':'');
+    P.appendChild(hh);
+    if(!mine.length)P.insertAdjacentHTML('beforeend','<div class="empty">この担当者の該当はありません。</div>');
+    else P.appendChild(listOf(mine,{}));
+  }
+}
 
 function render(){
   syncPickCount();
@@ -643,26 +790,28 @@ function render(){
   const AB=avgBase(), TT=sumTeam(D.by_person, AB&&AB.team);
   const tden=(TT['実施']||0)+(TT['未実施']||0)+(TT['未処理']||0)+(TT['要判定']||0);
   [
-    {lab:'① 取ったアポ',val:a.apo||0,unit:'件',hint:'今月アポ日が確定した数',sub2:oi('apo'),
+    {key:'apo',lab:'① 取ったアポ',val:a.apo||0,unit:'件',hint:'今月アポ日が確定した数',sub2:oi('apo'),
      avg:avgLine(AB,TT.apo||0)},
-    {lab:'③ 商談の予定',val:a.pool||0,unit:'件',hint:'今月に商談日が入っている数',sub2:oi('pool'),
+    {key:'pool',lab:'③ 商談の予定',val:a.pool||0,unit:'件',hint:'今月に商談日が入っている数',sub2:oi('pool'),
      avg:avgLine(AB,TT.pool||0)},
-    {lab:'④ 日が過ぎた分',val:den,unit:'件',hint:'このうち下の率を計算',
+    {key:'den',lab:'④ 日が過ぎた分',val:den,unit:'件',hint:'このうち下の率を計算',
      avg:avgLine(AB,tden)},
-    {lab:'② やった商談',val:a['実施']||0,unit:'件',hint:'ステージが先へ進んだ数',sub2:oi('実施'),
+    {key:'done',lab:'② やった商談',val:a['実施']||0,unit:'件',hint:'ステージが先へ進んだ数',sub2:oi('実施'),
      avg:avgLine(AB,TT['実施']||0)},
-    {lab:'⑥ 商談化率',val:rate,pct:true,hint:fmt(a['実施']||0)+' ÷ '+fmt(den)+' 件'},
-    {lab:'⑤ アンケート回収率',val:anqDen?anqNum/anqDen*100:null,pct:true,
+    {key:'rate',lab:'⑥ 商談化率',val:rate,pct:true,hint:fmt(a['実施']||0)+' ÷ '+fmt(den)+' 件'},
+    {key:'anqrate',lab:'⑤ アンケート回収率',val:anqDen?anqNum/anqDen*100:null,pct:true,
      hint:fmt(anqNum)+' ÷ '+fmt(anqDen)+' 件（④ 日が過ぎた分と同じ母数）'},
-    {lab:'⑨ 持っているCヨミ',val:a.cyomi||0,unit:'件',hint:'決定者と合意できた案件',sub2:oi('cyomi'),
+    {key:'cyomi',lab:'⑨ 持っているCヨミ',val:a.cyomi||0,unit:'件',hint:'決定者と合意できた案件',sub2:oi('cyomi'),
      avg:avgLine(AB,TT.cyomi||0)},
-  ].forEach(o=>c1.appendChild(cardEl(o)));
+  ].forEach(o=>{o.isOpen=openCard===o.key;o.onClick=toggleCard(o.key);c1.appendChild(cardEl(o));});
+
+  drawCardPanel();
 
   // ---- いま手を打てること ----
   const stale=pick(D.stale), anq=pick(D.anq_missing), cys=pick(D.cyomi_stale),
         wk=pick(D.week_deals), nx=pick(D.next_week_deals);
   const c2=$('cards2'); c2.innerHTML='';
-  const toggle=k=>()=>{openKey=openKey===k?null:k;dayKey=null;weekOpen=false;render();
+  const toggle=k=>()=>{openKey=openKey===k?null:k;openCard=null;dayKey=null;weekOpen=false;render();
     if(openKey)setTimeout(()=>$('panel').scrollIntoView({behavior:'smooth',block:'nearest'}),50);};
   [
     {key:'stale',lab:'⑦ ステージが止まっている',val:stale.length,unit:'件',
