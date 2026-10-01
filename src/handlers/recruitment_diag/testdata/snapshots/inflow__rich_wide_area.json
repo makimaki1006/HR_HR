@@ -1,0 +1,48 @@
+{
+  "panel": "inflow_analysis",
+  "inputs": {
+    "prefecture": "東京都",
+    "municipality": "千代田区",
+    "citycode": 13101,
+    "year": 2021
+  },
+  "breakdown": [
+    {
+      "from_area": 0,
+      "area_name": "同一市区町村",
+      "short_name": "同市区町村",
+      "population": 4000.0,
+      "share": 0.4
+    },
+    {
+      "from_area": 1,
+      "area_name": "同一都道府県の別市区町村",
+      "short_name": "同県別市",
+      "population": 2000.0,
+      "share": 0.2
+    },
+    {
+      "from_area": 2,
+      "area_name": "同一地方ブロックの別都道府県",
+      "short_name": "同地方別県",
+      "population": 2000.0,
+      "share": 0.2
+    },
+    {
+      "from_area": 3,
+      "area_name": "異なる地方ブロック",
+      "short_name": "異地方",
+      "population": 2000.0,
+      "share": 0.2
+    }
+  ],
+  "total_population": 10000.0,
+  "so_what": "異地方からの流入が 20%。広域採用ポテンシャルがあるエリアのため、全国媒体・引越し支援の訴求で応募母集団を広げられる可能性。",
+  "data_warning": "v2_flow_fromto_city は Turso 書き込み制限により約83%のみ投入済み。残り17%は完全投入後に反映予定。",
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "data_source": "国土交通省 全国の人流オープンデータ（Agoop社提供）v2_flow_fromto_city",
+    "method": "平日昼(dayflag=1, timezone=0) の年合計。from_area は 4 区分（Agoop 地方ブロック粒度）。"
+  }
+}
