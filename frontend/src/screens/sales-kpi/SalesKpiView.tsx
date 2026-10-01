@@ -644,7 +644,14 @@ function KadenListSection({ data, ui, teamOf, hid, haveKettei }: { data: SalesKp
   const k = data.kaden;
   const sc = kv.scope;
   let lead: ReactNode;
-  let body: ReactNode = null;
+  // 旧画面は #cards3b / #listbar を常に持ち、担当者を選んだときは中身だけ空にする。
+  // 比較のため新画面も同じく空の入れ物を残す。
+  let body: ReactNode = (
+    <>
+      <div className="cards" id="cards3b" />
+      <div id="listbar" />
+    </>
+  );
   if (!sc) {
     lead = (
       <>
