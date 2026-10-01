@@ -109,10 +109,7 @@ async fn login(app: &Router, email: &str) -> String {
         "POST",
         "/login",
         None,
-        &[(
-            "content-type",
-            "application/x-www-form-urlencoded",
-        )],
+        &[("content-type", "application/x-www-form-urlencoded")],
         Some(&body),
     )
     .await;
@@ -135,7 +132,10 @@ const JSON: &[(&str, &str)] = &[
 async fn get_json(app: &Router, uri: &str, cookie: &str) -> Value {
     let res = send(app, "GET", uri, Some(cookie), JSON, None).await;
     assert_eq!(res.status(), StatusCode::OK, "{uri}");
-    let ct = res.headers()[header::CONTENT_TYPE].to_str().unwrap().to_string();
+    let ct = res.headers()[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .to_string();
     assert!(ct.starts_with("application/json"), "{uri}: {ct}");
     serde_json::from_str(&body_string(res).await).unwrap()
 }
@@ -165,10 +165,17 @@ async fn api_navはログイン済みなら定義どおりのjsonを返す() {
         .iter()
         .map(|l| l["id"].as_str().unwrap())
         .collect();
-    assert_eq!(header_ids, ["guide", "settings", "logout"], "非 admin に「管理」は出ない");
+    assert_eq!(
+        header_ids,
+        ["guide", "settings", "logout"],
+        "非 admin に「管理」は出ない"
+    );
     assert_eq!(v["header_links"][1]["href"], "/my/profile");
     assert_eq!(v["header_links"][2]["href"], "/logout");
-    assert_eq!(v["groups"], serde_json::json!([{"id": "explore", "label": "調べる"}]));
+    assert_eq!(
+        v["groups"],
+        serde_json::json!([{"id": "explore", "label": "調べる"}])
+    );
 
     // items は handlers::nav の定義そのもの (環境変数の出し分けは NavFeatures::from_env)
     let expected = serde_json::to_value(nav_items(NAV_DEFS, &NavFeatures::from_env())).unwrap();
@@ -183,16 +190,19 @@ async fn api_navはログイン済みなら定義どおりのjsonを返す() {
     assert_eq!(item(&v, "consulting")["kind"], "page");
     assert_eq!(item(&v, "market")["hidden"], true);
     assert_eq!(item(&v, "market")["hidden_since"], "2026-05-15");
-    assert_eq!(item(&v, "call_quality")["href"], "/call-quality");
-    assert_eq!(item(&v, "call_quality")["hidden_since"], "2026-09-07");
-    assert_eq!(item(&v, "proposal_mock")["href"], "/proposal-mock");
+    assert_eq!(item(&v, "call-quality")["href"], "/call-quality");
+    assert_eq!(item(&v, "call-quality")["hidden_since"], "2026-09-07");
+    assert_eq!(item(&v, "proposal-mock")["href"], "/proposal-mock");
     let hidden = v["items"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|i| i["hidden"] == true)
         .count();
-    assert_eq!(hidden, 15, "隠し対象 15 件 (8 タブ + 求人検索 + dead route 4 + proposal-mock + 架電)");
+    assert_eq!(
+        hidden, 15,
+        "隠し対象 15 件 (8 タブ + 求人検索 + dead route 4 + proposal-mock + 架電)"
+    );
     // 表示順: 先頭は媒体分析、可視の最後はコンサルKPI
     let visible: Vec<&str> = v["items"]
         .as_array()
@@ -203,7 +213,7 @@ async fn api_navはログイン済みなら定義どおりのjsonを返す() {
         .collect();
     assert_eq!(visible.first(), Some(&"survey"));
     assert_eq!(visible.last(), Some(&"consulting"));
-    assert_eq!(visible[visible.len() - 2], "sales_kpi");
+    assert_eq!(visible[visible.len() - 2], "sales-kpi");
 }
 
 #[tokio::test]
@@ -223,11 +233,29 @@ async fn api_navは管理者にだけ管理リンクを出す() {
     assert_eq!(admin["href"], "/admin/usage");
     assert_eq!(admin["kind"], "page");
     assert_eq!(v["header_links"].as_array().unwrap().len(), 4);
+    // CRM は admin のときだけ items に入る
+    let crm = item(&v, "crm");
+    assert_eq!(crm["label"], "CRM");
+    assert_eq!(crm["kind"], "app");
+    assert_eq!(crm["href"], "/app/crm");
+    assert_eq!(crm["hidden"], false);
 
     let cookie = login(&app, USER).await;
     let v = get_json(&app, "/api/nav", &cookie).await;
     assert_eq!(v["is_admin"], false);
-    assert!(v["header_links"].as_array().unwrap().iter().all(|l| l["id"] != "admin"));
+    assert!(v["header_links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|l| l["id"] != "admin"));
+    assert!(
+        v["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|i| i["id"] != "crm"),
+        "非 admin に CRM は出ない"
+    );
 }
 
 // ================================================================ 旧シェルと同じ定義
@@ -254,17 +282,23 @@ async fn 旧シェルのナビとapi_navは同じ定義から描く() {
             _ => format!(r#"href="{href}""#),
         };
         if i["hidden"] == true {
-            assert!(!html.contains(&needle), "{id}: hidden なのに旧シェルに {needle} がある");
+            assert!(
+                !html.contains(&needle),
+                "{id}: hidden なのに旧シェルに {needle} がある"
+            );
         } else {
             assert!(html.contains(&needle), "{id}: 旧シェルに {needle} が無い");
             let label = i["label"].as_str().unwrap();
-            assert!(html.contains(&format!(">{label}</")), "{id}: ラベル {label} が無い");
+            assert!(
+                html.contains(&format!(">{label}</")),
+                "{id}: ラベル {label} が無い"
+            );
         }
     }
     // キーワード需要 / 求人票作成の出し分けも両方で同じ (環境変数がどうであれ一致する)
     for (id, target) in [
-        ("keyword_tools", "/tab/keyword_tools"),
-        ("jobgen_tools", "/tab/jobgen_tools"),
+        ("keyword-tools", "/tab/keyword_tools"),
+        ("jobgen-tools", "/tab/jobgen_tools"),
     ] {
         let in_json = v["items"].as_array().unwrap().iter().any(|i| i["id"] == id);
         let in_html = html.contains(&format!(r#"hx-get="{target}""#));
@@ -273,7 +307,9 @@ async fn 旧シェルのナビとapi_navは同じ定義から描く() {
     // 旧 JS が頼る骨組み
     assert!(html.contains(r#"id="explore-group-btn""#));
     assert!(html.contains(r#"id="explore-subnav""#));
-    assert!(html.contains(r#"class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/survey""#));
+    assert!(html.contains(
+        r#"class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/survey""#
+    ));
     assert!(html.contains("function setActiveTab(el)"));
     assert!(html.contains("function toggleExploreGroup()"));
     // 管理リンクは admin だけ (dashboard_page と /api/nav が同じ is_admin を使う)
@@ -309,7 +345,11 @@ async fn 隠した画面のurl直アクセスはログイン済みで200のま�
     assert!(hidden.iter().any(|(_, u)| u == "/proposal-mock"));
     for (id, uri) in &hidden {
         let res = send(&app, "GET", uri, Some(&cookie), &[], None).await;
-        assert_eq!(res.status(), StatusCode::OK, "{id}: {uri} がログイン済みで 200 でない");
+        assert_eq!(
+            res.status(),
+            StatusCode::OK,
+            "{id}: {uri} がログイン済みで 200 でない"
+        );
     }
     // 未ログインなら従来どおり 303 /login
     for (_, uri) in &hidden {
@@ -375,8 +415,17 @@ async fn api_filters_currentはsessionの値を返しset_apiで変わる() {
 async fn 未ログインのapiはaccept_jsonかつhx_request無しのときだけ401json() {
     let app = app();
     // Accept json + HX-Request 無し → 401 + JSON body
-    for uri in ["/api/nav", "/api/filters/current", "/api/app/ping", "/api/set_prefecture"] {
-        let method = if uri == "/api/set_prefecture" { "POST" } else { "GET" };
+    for uri in [
+        "/api/nav",
+        "/api/filters/current",
+        "/api/app/ping",
+        "/api/set_prefecture",
+    ] {
+        let method = if uri == "/api/set_prefecture" {
+            "POST"
+        } else {
+            "GET"
+        };
         let mut headers = vec![("accept", "application/json")];
         if method == "POST" {
             // CSRF は認証より先に見るので、書き込みは Origin を付けて 401 まで到達させる
@@ -384,10 +433,21 @@ async fn 未ログインのapiはaccept_jsonかつhx_request無しのときだ�
         }
         let res = send(&app, method, uri, None, &headers, Some("")).await;
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "{uri}");
-        assert_eq!(res.headers()[header::CONTENT_TYPE], "application/json", "{uri}");
-        assert!(res.headers().get(header::LOCATION).is_none(), "{uri}: 401 に Location は要らない");
+        assert_eq!(
+            res.headers()[header::CONTENT_TYPE],
+            "application/json",
+            "{uri}"
+        );
+        assert!(
+            res.headers().get(header::LOCATION).is_none(),
+            "{uri}: 401 に Location は要らない"
+        );
         let v: Value = serde_json::from_str(&body_string(res).await).unwrap();
-        assert_eq!(v, serde_json::json!({"error": "auth_required", "login_url": "/login"}), "{uri}");
+        assert_eq!(
+            v,
+            serde_json::json!({"error": "auth_required", "login_url": "/login"}),
+            "{uri}"
+        );
     }
     // HX-Request: true → 従来どおり 303 /login (HTMX の既存呼び出し)
     let res = send(
@@ -410,13 +470,29 @@ async fn 未ログインのapiはaccept_jsonかつhx_request無しのときだ�
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     // /api/ 以外 (/tab/market、/、/app/dummy) は Accept json でも 303
     for uri in ["/tab/market", "/", "/app/dummy"] {
-        let res = send(&app, "GET", uri, None, &[("accept", "application/json")], None).await;
+        let res = send(
+            &app,
+            "GET",
+            uri,
+            None,
+            &[("accept", "application/json")],
+            None,
+        )
+        .await;
         assert_eq!(res.status(), StatusCode::SEE_OTHER, "{uri}");
         assert_eq!(res.headers()[header::LOCATION], "/login", "{uri}");
     }
     // ログイン済み → 200
     let cookie = login(&app, USER).await;
-    let res = send(&app, "GET", "/api/nav", Some(&cookie), &[("accept", "application/json")], None).await;
+    let res = send(
+        &app,
+        "GET",
+        "/api/nav",
+        Some(&cookie),
+        &[("accept", "application/json")],
+        None,
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     // /api/v1 (認証不要) は変わらない: 401 にも 303 にもならない
     let res = send(
@@ -496,10 +572,18 @@ async fn csrfはoriginが無い書き込みをfetchかhx_requestのときだけ�
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
     assert_eq!(body_string(res).await, "Forbidden: CSRF: invalid origin");
     // 不許可 Origin は X-Requested-With があっても 403 (Origin がある場合の判定は変えない)
-    let res = post(vec![("origin", "https://evil.example"), ("x-requested-with", "fetch")]).await;
+    let res = post(vec![
+        ("origin", "https://evil.example"),
+        ("x-requested-with", "fetch"),
+    ])
+    .await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
     // Referer だけ (Origin 無し) → origin 部分で判定 (従来どおり)
-    let res = post(vec![("referer", "https://hr-hw.onrender.com/?tab=/tab/survey")]).await;
+    let res = post(vec![(
+        "referer",
+        "https://hr-hw.onrender.com/?tab=/tab/survey",
+    )])
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     let res = post(vec![("referer", "https://evil.example/")]).await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
@@ -517,7 +601,15 @@ async fn csrfはoriginが無い書き込みをfetchかhx_requestのときだけ�
     let res = post(vec![("x-requested-with", "XMLHttpRequest")]).await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
     // GET は対象外
-    let res = send(&app, "GET", "/api/filters/current", Some(&cookie), &[], None).await;
+    let res = send(
+        &app,
+        "GET",
+        "/api/filters/current",
+        Some(&cookie),
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(res.status(), StatusCode::OK);
     // 未ログインでも CSRF が先: 何も無い書き込みは 403 (303 でも 401 でもない)
     let res = send(&app, "POST", "/api/set_prefecture", None, &[form], body).await;
@@ -535,21 +627,46 @@ fn csrf_allowlistの機械向け経路はorigin無しでも通る() {
         }
         b.body(Body::empty()).unwrap()
     };
-    assert!(CSRF_HEADERLESS_ALLOWLIST.is_empty(), "2026-09-30 の棚卸しでは機械向け経路は無い");
+    assert!(
+        CSRF_HEADERLESS_ALLOWLIST.is_empty(),
+        "2026-09-30 の棚卸しでは機械向け経路は無い"
+    );
     // 本番の規則
-    assert_eq!(check_csrf(&req("POST", "/api/hook", &[])), Err("CSRF: missing origin"));
-    assert_eq!(check_csrf(&req("GET", "/api/hook", &[])), Ok(()));
-    assert_eq!(check_csrf(&req("POST", "/api/hook", &[("x-requested-with", "fetch")])), Ok(()));
-    assert_eq!(check_csrf(&req("POST", "/api/hook", &[("x-requested-with", "Fetch")])), Ok(()));
-    assert_eq!(check_csrf(&req("POST", "/api/hook", &[("hx-request", "true")])), Ok(()));
     assert_eq!(
-        check_csrf(&req("POST", "/api/hook", &[("origin", "https://evil.example")])),
+        check_csrf(&req("POST", "/api/hook", &[])),
+        Err("CSRF: missing origin")
+    );
+    assert_eq!(check_csrf(&req("GET", "/api/hook", &[])), Ok(()));
+    assert_eq!(
+        check_csrf(&req("POST", "/api/hook", &[("x-requested-with", "fetch")])),
+        Ok(())
+    );
+    assert_eq!(
+        check_csrf(&req("POST", "/api/hook", &[("x-requested-with", "Fetch")])),
+        Ok(())
+    );
+    assert_eq!(
+        check_csrf(&req("POST", "/api/hook", &[("hx-request", "true")])),
+        Ok(())
+    );
+    assert_eq!(
+        check_csrf(&req(
+            "POST",
+            "/api/hook",
+            &[("origin", "https://evil.example")]
+        )),
         Err("CSRF: invalid origin")
     );
     // allowlist に載せた前方一致の経路だけ、Origin 無し・ヘッダー無しで通る
     let allow: &[&str] = &["/api/hook/"];
-    assert_eq!(check_csrf_with(&req("POST", "/api/hook/x", &[]), allow), Ok(()));
-    assert_eq!(check_csrf_with(&req("DELETE", "/api/hook/x?y=1", &[]), allow), Ok(()));
+    assert_eq!(
+        check_csrf_with(&req("POST", "/api/hook/x", &[]), allow),
+        Ok(())
+    );
+    assert_eq!(
+        check_csrf_with(&req("DELETE", "/api/hook/x?y=1", &[]), allow),
+        Ok(())
+    );
     assert_eq!(
         check_csrf_with(&req("POST", "/api/hook", &[]), allow),
         Err("CSRF: missing origin")
@@ -560,7 +677,57 @@ fn csrf_allowlistの機械向け経路はorigin無しでも通る() {
     );
     // allowlist でも不許可 Origin は 403 (Origin がある場合の判定は変えない)
     assert_eq!(
-        check_csrf_with(&req("POST", "/api/hook/x", &[("origin", "https://evil.example")]), allow),
+        check_csrf_with(
+            &req("POST", "/api/hook/x", &[("origin", "https://evil.example")]),
+            allow
+        ),
+        Err("CSRF: invalid origin")
+    );
+}
+
+/// `CSRF_EXTRA_ORIGINS_DEBUG` は debug ビルドだけが読む追加許可 Origin (PR 時 E2E のポート 9217 用)。
+/// 他のテストが 9217 / 9218 を使わないので、env を立てても競合しない。
+#[cfg(debug_assertions)]
+#[test]
+fn csrf_debug_envで追加したoriginだけ通る() {
+    use crate::check_csrf;
+    let req = |origin: &str| {
+        Request::builder()
+            .method("POST")
+            .uri("/api/set_prefecture")
+            .header("origin", origin)
+            .body(Body::empty())
+            .unwrap()
+    };
+    // 設定前は 403
+    assert_eq!(
+        check_csrf(&req("http://localhost:9217")),
+        Err("CSRF: invalid origin")
+    );
+    std::env::set_var(
+        "CSRF_EXTRA_ORIGINS_DEBUG",
+        "http://localhost:9217, http://127.0.0.1:9218",
+    );
+    assert_eq!(check_csrf(&req("http://localhost:9217")), Ok(()));
+    assert_eq!(
+        check_csrf(&req("http://127.0.0.1:9218")),
+        Ok(()),
+        "空白は trim される"
+    );
+    // 載っていない Origin は引き続き 403 (部分一致・前方一致で通らない)
+    assert_eq!(
+        check_csrf(&req("http://localhost:92170")),
+        Err("CSRF: invalid origin")
+    );
+    assert_eq!(
+        check_csrf(&req("https://evil.example")),
+        Err("CSRF: invalid origin")
+    );
+    // 既存の許可は変わらない
+    assert_eq!(check_csrf(&req("https://hr-hw.onrender.com")), Ok(()));
+    std::env::remove_var("CSRF_EXTRA_ORIGINS_DEBUG");
+    assert_eq!(
+        check_csrf(&req("http://localhost:9217")),
         Err("CSRF: invalid origin")
     );
 }

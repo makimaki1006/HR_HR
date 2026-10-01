@@ -52,8 +52,13 @@ pub fn wants_json_401(request: &Request) -> bool {
         .iter()
         .filter_map(|v| v.to_str().ok())
         .any(|v| {
-            v.split(',')
-                .any(|part| part.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("application/json"))
+            v.split(',').any(|part| {
+                part.split(';')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .eq_ignore_ascii_case("application/json")
+            })
         })
 }
 
@@ -282,12 +287,18 @@ mod tests {
     #[test]
     fn 三条件がそろったときだけ401json() {
         // /api/ + Accept json + HX-Request 無し → 401
-        assert!(wants_json_401(&req("/api/nav", &[("accept", "application/json")])));
+        assert!(wants_json_401(&req(
+            "/api/nav",
+            &[("accept", "application/json")]
+        )));
         assert!(wants_json_401(&req(
             "/api/nav?x=1",
             &[("accept", "text/html, application/json;q=0.9")]
         )));
-        assert!(wants_json_401(&req("/api/nav", &[("accept", "Application/JSON")])));
+        assert!(wants_json_401(&req(
+            "/api/nav",
+            &[("accept", "Application/JSON")]
+        )));
         // HX-Request があれば 303 (HTMX の既存呼び出し)
         assert!(!wants_json_401(&req(
             "/api/nav",
@@ -296,12 +307,27 @@ mod tests {
         // Accept 無し / */* だけ / text/html → 303
         assert!(!wants_json_401(&req("/api/nav", &[])));
         assert!(!wants_json_401(&req("/api/nav", &[("accept", "*/*")])));
-        assert!(!wants_json_401(&req("/api/nav", &[("accept", "text/html")])));
+        assert!(!wants_json_401(&req(
+            "/api/nav",
+            &[("accept", "text/html")]
+        )));
         // /api/ 以外 → 303 (Accept json でも)
-        assert!(!wants_json_401(&req("/tab/market", &[("accept", "application/json")])));
-        assert!(!wants_json_401(&req("/", &[("accept", "application/json")])));
-        assert!(!wants_json_401(&req("/app/dummy", &[("accept", "application/json")])));
-        assert!(!wants_json_401(&req("/apix", &[("accept", "application/json")])));
+        assert!(!wants_json_401(&req(
+            "/tab/market",
+            &[("accept", "application/json")]
+        )));
+        assert!(!wants_json_401(&req(
+            "/",
+            &[("accept", "application/json")]
+        )));
+        assert!(!wants_json_401(&req(
+            "/app/dummy",
+            &[("accept", "application/json")]
+        )));
+        assert!(!wants_json_401(&req(
+            "/apix",
+            &[("accept", "application/json")]
+        )));
     }
 
     #[tokio::test]

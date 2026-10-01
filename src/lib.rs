@@ -925,6 +925,27 @@ const ALLOWED_ORIGINS: &[&str] = &[
     "http://127.0.0.1:8080",
 ];
 
+/// `ALLOWED_ORIGINS` に載っているか。debug ビルドに限り、環境変数 `CSRF_EXTRA_ORIGINS_DEBUG`
+/// (カンマ区切り、例 `http://localhost:9217`) の Origin も許可する (PR 時 E2E が 9217 で debug
+/// ビルドを起動して POST を通すため)。`GOOGLE_OIDC_DISCOVERY_URL_DEBUG` と同じ方式で、
+/// release ビルドにはこの分岐自体が入らない (`#[cfg(debug_assertions)]`)。
+fn origin_allowed(origin: &str) -> bool {
+    if ALLOWED_ORIGINS.contains(&origin) {
+        return true;
+    }
+    #[cfg(debug_assertions)]
+    if let Ok(extra) = std::env::var("CSRF_EXTRA_ORIGINS_DEBUG") {
+        if extra
+            .split(',')
+            .map(str::trim)
+            .any(|o| !o.is_empty() && o == origin)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// Origin も Referer も付けずに書き込みできる「機械向け経路」 (パスの前方一致)。
 ///
 /// 2026-09-30 の棚卸しでは該当が無かった。理由:
@@ -932,8 +953,12 @@ const ALLOWED_ORIGINS: &[&str] = &[
 ///   そもそも `auth_middleware` の外にあり、この検査を通らない。
 /// - `/api/jobgen/*` の掲載点検スクリプト (`scripts/journey_smoke.py`、`X-Api-Token`) は
 ///   `jobgen_auth_middleware` がトークン一致で先に通すので、この検査に来ない。
-/// - Python の `scripts/` と `e2e_*.py` が POST する先は Turso / e-Stat か、ブラウザ内の
-///   `fetch` (Origin 付き) で、この検査を素通りで頼っているものは無い。
+/// - Python の `scripts/` が POST する先は Turso / e-Stat で、このアプリの書き込み API ではない。
+/// - 手元の検証スクリプト (`e2e_api_excel.py` / `e2e_final_verification.py` / `e2e_security.py`) は
+///   curl / `page.request` で Cookie だけを付けて `/api/survey/upload` 等へ POST しており、
+///   Origin 無しの書き込みはこの変更で 403 になる (本番の呼び出し元ではなく手動検証用。
+///   使うときは `-H "X-Requested-With: fetch"` を足す)。
+///
 /// 空のまま置いておくのは、今後トークン認証の機械経路を足すときに
 /// 「Origin 無しを通す条件」をここに書かせるため (`check_csrf_with` のテストが規則を押さえる)。
 pub(crate) const CSRF_HEADERLESS_ALLOWLIST: &[&str] = &[];
@@ -999,7 +1024,7 @@ pub(crate) fn check_csrf_with(
     let check_origin = origin.as_deref().or(referer_origin.as_deref());
 
     match check_origin {
-        Some(o) if ALLOWED_ORIGINS.contains(&o) => Ok(()),
+        Some(o) if origin_allowed(o) => Ok(()),
         Some(o) => {
             // 明示的に別オリジンを指定された場合のみ拒否（ブラウザからのCSRF攻撃対策）
             tracing::warn!("CSRF: rejected origin/referer: {}", o);
@@ -1609,8 +1634,10 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // 2026-08-10: 「履歴」(自分の操作履歴だけが見える画面) はヘッダーから外し、
     // 管理者にだけ「管理」リンクを出す。他ユーザーを含む利用状況は /admin/usage で見る。
     // 管理者判定は handlers::nav::is_admin (/api/nav と共通、config の admin_emails で判定)。
-    let admin_link =
-        handlers::nav::render_legacy_admin_link(handlers::nav::is_admin(&state.config, &user_email));
+    let admin_link = handlers::nav::render_legacy_admin_link(handlers::nav::is_admin(
+        &state.config,
+        &user_email,
+    ));
 
     let html = include_str!("../templates/dashboard_inline.html")
         .replace("{{ASSET_V}}", asset_version())

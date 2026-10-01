@@ -70,6 +70,7 @@
 | 22 | `GOOGLE_OIDC_CLIENT_SECRET` | `""` | 同クライアントのシークレット。code → token 交換でサーバだけが使う (ブラウザに渡さない。ログにも出さない) | 同上 | 同上 |
 | 23 | `GOOGLE_OIDC_REDIRECT_URL` | `""` | 承認済みリダイレクト URI と完全一致させる。本番 `https://hr-hw.onrender.com/auth/google/callback` | 同上 | 同上 |
 | 24 | `GOOGLE_OIDC_HOSTED_DOMAIN` | `""` | ID token の `hd` クレームと email のドメインをこれと照合 (例 `f-a-c.co.jp`)。`ALLOWED_DOMAINS` は流用しない (`*` 設定で hd 検証が無効化されるのを避けるため) | 同上 | 同上 |
+| 25 | `CSRF_EXTRA_ORIGINS_DEBUG` | `""` | **debug ビルド専用** (release では読まない)。CSRF の許可 Origin に追加する (カンマ区切り、例 `http://localhost:9217`)。PR 時 E2E の POST 用 | 追加なし | `src/lib.rs` (`origin_allowed`) |
 
 ユーザー側の準備 (Google Cloud): OAuth 同意画面を「内部」で作成 → OAuth クライアント ID (ウェブアプリ) を作成 → 承認済みリダイレクト URI に上の URL を登録 → 4 つを Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
 
