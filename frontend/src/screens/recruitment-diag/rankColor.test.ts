@@ -20,7 +20,7 @@ function apiRankLabels(): string[] {
   const start = src.indexOf('fn classify_difficulty');
   const end = src.indexOf('\n}\n', start);
   const body = src.slice(start, end);
-  const labels = [...body.matchAll(/^\s+"([^"]{1,12})",\s*$/gm)].map((m) => m[1]);
+  const labels = [...body.matchAll(/^\s+"([^"]{1,12})",\s*$/gm)].map((m) => m[1] ?? '');
   return [...new Set(labels)].filter((l) => !l.includes('データ不足'));
 }
 
@@ -29,7 +29,11 @@ function legacyLevelColor(): Record<string, string> {
   const src = readFileSync(LEGACY_TEMPLATE, 'utf-8');
   const m = /const levelColor = \(\{([\s\S]*?)\}\)\[rankLabel\]/.exec(src);
   if (!m) throw new Error('旧画面の levelColor が見つからない');
-  return Object.fromEntries([...m[1].matchAll(/'([^']+)':\s*'([^']+)'/g)].map((p) => [p[1], p[2]]));
+  const entries: [string, string][] = [...(m[1] ?? '').matchAll(/'([^']+)':\s*'([^']+)'/g)].map((p) => [
+    p[1] ?? '',
+    p[2] ?? '',
+  ]);
+  return Object.fromEntries(entries);
 }
 
 describe('Panel 1 のランク色', () => {
