@@ -19,6 +19,7 @@ export default defineConfig({
       // One entry per screen (multi-page). Add e.g. recruitmentDiag here in Phase 1A.
       input: {
         dummy: fromHere('src/entries/dummy.tsx'),
+        jobgen: fromHere('src/entries/jobgen.tsx'),
       },
     },
   },

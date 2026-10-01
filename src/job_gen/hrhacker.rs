@@ -20,6 +20,7 @@ use crate::job_gen::types::ExtractedFacts;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
 /// HRハッカーCSV 84列(列名・同順)。`hrhacker_columns.py` の `HRHACKER_COLUMNS` と一字一句一致。
 /// CSV 出力の列順はこの定数を正とする。
@@ -188,7 +189,9 @@ const SLOT_ASSIGNMENTS_V1: [SlotAssignment; 2] = [
 ];
 
 /// 生成1フィールドの検証結果。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+///
+/// `TS` は React 画面 (`/app/jobgen`) 向けの型出力用 (`src/job_gen/contract.rs`)。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
 pub struct GeneratedField {
     /// 対応するHRハッカー列名。
     pub column: String,
@@ -403,7 +406,7 @@ pub fn assemble_row(
 /// - `filled`/`total`: 84列のうち非空の列数(運用列=ID・応募動線・公開制御は元々空)。
 /// - `fact_mapped_*`: パイプラインが事実・生成から値を割り当てる列([`fact_mapped_columns`])
 ///   に限った充足率。「原文から必要項目を取得できたか」の実質指標。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 pub struct FillStats {
     /// 非空の列数(84列中)。
     pub filled: usize,
@@ -454,7 +457,7 @@ pub fn fill_stats(row: &BTreeMap<String, String>) -> FillStats {
 }
 
 /// 原文にキーワードがあるのに対応列が空の候補。移植元 レビュー指摘[B5]「未割当候補の表示」。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 pub struct UnassignedHint {
     /// 対応する84列の列名(実名)。
     pub column: String,
