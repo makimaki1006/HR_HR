@@ -3432,6 +3432,10 @@ pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Valu
         "all_cached": sheets.all_cached,
         "flag_counts": flag_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
             .collect::<Vec<_>>(),
+        // 開始前の契約には立てない名札（上の not_started）。案件一覧はこの名札で絞ったとき、開始前の件数を件数の行に添える。
+        // 🔴 2026-09-30 検証: 今日の札は「開始済みの稼働中 545 件のうち 61 件」、押した先は「604 件中 61 件を表示」で、
+        //    同じ 61 件の分母が 2 通りに見えた。どちらも正しいので、違いの 59 件（開始前）を行き先でも書く
+        "started_only_flags": [TEAM_FLAG_NO_CONTACT, FLAG_CONTACT_GAP30],
         "mtg_gap": {
             "bands": band_order.iter().map(|b| json!({
                 "band": b, "label": b.label(),

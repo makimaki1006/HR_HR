@@ -6261,6 +6261,18 @@ function boardMoreBar(n) {
 /* 案件そのもの・担当者ごとの案件のうち、絞り込み・並び替えで変わる部分（件数の行 → 表 → 決まりごと → 名札の図）。
    renderBoard が <div id="board-body"> に入れ、boardRepaint はここだけ描き直す（段2 M-8）。
    絞り込みの欄（boardFilterBar）はこの外にあるので、打っている途中の検索欄が作り直されない */
+/** 開始前の契約には立てない名札（meta.started_only_flags。接触の2本）で絞っているとき、件数の行に添える文。
+    🔴 2026-09-30 検証: 今日の札「接触の記録が無い」は「開始済みの稼働中 545 件のうち 61 件」、押した先の件数の行は
+       「604 件中 61 件を表示」で、同じ 61 件の分母が 2 通りに見えた（どちらも正しい。違いは開始前の 59 件）。
+       行き先でも、開始前の件数にはこの名札を立てていないことを書いて、2 つの分母をつなぐ。古い応答（欄が無い）では出さない */
+function boardStartedOnlyWords(D) {
+  const f = boardFilter.flag;
+  if (!f || !((D.meta || {}).started_only_flags || []).includes(f)) return "";
+  const pre = (D.rows || []).filter((r) => r.not_started).length;
+  if (!pre) return "";
+  return "。この名札は開始前の契約には立てていません（" + num(D.rows.length) + " 件のうち開始前 " + num(pre) +
+    " 件・開始済み " + num(D.rows.length - pre) + " 件）";
+}
 function boardBody(D, shown, on) {
   const byOwner = cur.view === "byowner";
   /* 見方（段B）。ボタンは案件一覧だけに置く。担当者ごとの案件も URL の ?view= で絞れるので、絞っているときは
@@ -6271,7 +6283,7 @@ function boardBody(D, shown, on) {
      絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐ。 */
   h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
     "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
-    (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + "</div>";
+    (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + boardStartedOnlyWords(D) + "</div>";
   /* 表が主役の画面なので表を先に、図はその下（08 の S-8）。
      🔴 見出しは画面名（左の「案件そのもの」）と重ならない語にする。前は「案件の立ち位置」で、
      画面名が3つ（左・見出し・サーバの文）あり、初見の人が別画面と誤認していた（S-6） */

@@ -5410,6 +5410,29 @@ check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの�
   }
 });
 
+check("今日の札「接触の記録が無い」の分母（開始済み）と、押した先の件数の行（開始前を含む稼働中）をつなぐ", () => {
+  const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
+  const meta = Object.assign({}, ctx.__BD.meta, { started_only_flags: ["接触の記録が無い", "接触が30日以上空いている"] });
+  ctx.__BS = { meta, rows: [
+    { deal_id: "s1", name: "済1", consultant: "田中", flags: ["接触の記録が無い"], amount: 1 },
+    { deal_id: "s2", name: "済2", consultant: "田中", flags: [], amount: 1 },
+    { deal_id: "p1", name: "前1", consultant: "佐藤", flags: [], not_started: true, amount: 1 }] };
+  try {
+    run('cur = { menu: "deal", view: "board" }; ' + reset + ' boardFilter.flag = "接触の記録が無い";');
+    const tx = textOf(run("renderBoard(__BS)"));
+    ok(/3 件中 1 件\s*を表示/.test(tx) && tx.includes("この名札は開始前の契約には立てていません（3 件のうち開始前 1 件・開始済み 2 件）"),
+      "開始前には名札を立てていないこと（2 つの分母の違い）が件数の行に無い: " + tx.slice(0, 300));
+    // 開始前にも立つ名札・古い応答（started_only_flags が無い）・絞っていないときは出さない
+    run('boardFilter.flag = "札X";');
+    ok(!textOf(run("renderBoard(__BS)")).includes("開始前の契約には立てていません"), "開始前にも立つ名札で開始前の文を出している");
+    ctx.__BS0 = { meta: ctx.__BD.meta, rows: ctx.__BS.rows };
+    run('boardFilter.flag = "接触の記録が無い";');
+    ok(!textOf(run("renderBoard(__BS0)")).includes("開始前の契約には立てていません"), "古い応答で開始前の文を出している");
+  } finally {
+    run(reset + ' cur = { menu: "deal", view: "today" };');
+  }
+});
+
 check("10 章②: 担当者ごとの案件で担当を選ぶ前でも、?view= の見方は案件一覧と同じ定義の1行と外れた件数を出し、持ち件数に掛けていないことを書く", () => {
   const reset = 'boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" }; boardShowAll = false;';
   try {
