@@ -1,0 +1,53 @@
+{
+  "prefcode": 3,
+  "filters": {
+    "job_type": null,
+    "emp_type": null
+  },
+  "municipalities": [
+    {
+      "name": "花巻市",
+      "citycode": 3205,
+      "hw_count": 5,
+      "population": 2000.0,
+      "score": 2.5,
+      "category": "激戦"
+    },
+    {
+      "name": "宮古市",
+      "citycode": 3202,
+      "hw_count": 3,
+      "population": 2000.0,
+      "score": 1.5,
+      "category": "標準"
+    },
+    {
+      "name": "盛岡市",
+      "citycode": 3201,
+      "hw_count": 10,
+      "population": 300000.0,
+      "score": 0.033,
+      "category": "穴場"
+    }
+  ],
+  "legend": {
+    "opportunity": {
+      "label": "穴場",
+      "max": 0.5,
+      "color": "#3b82f6"
+    },
+    "standard": {
+      "label": "標準",
+      "min": 0.5,
+      "max": 2.0,
+      "color": "#f59e0b"
+    },
+    "competitive": {
+      "label": "激戦",
+      "min": 2.0,
+      "color": "#ef4444"
+    },
+    "unit": "人口千人あたりHW求人数"
+  },
+  "note": "HW掲載求人のみ対象（全求人市場ではない）。スコアは比率指標であり因果関係を示すものではありません。"
+}

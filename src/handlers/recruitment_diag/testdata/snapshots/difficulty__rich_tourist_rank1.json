@@ -1,0 +1,32 @@
+{
+  "panel": "difficulty_score",
+  "inputs": {
+    "job_type": "製造業",
+    "emp_type": "正社員",
+    "prefecture": "東京都",
+    "municipality": "千代田区",
+    "citycode": 13101
+  },
+  "metrics": {
+    "hw_count": 2,
+    "population": 60000.0,
+    "day_population": 300000.0,
+    "night_population": 60000.0,
+    "day_night_ratio": 5.0,
+    "is_tourist_area": true,
+    "score_per_10k": 0.33333333333333337,
+    "national_hw_count": 2,
+    "area_share_of_national": 1.0
+  },
+  "rank": 1,
+  "rank_label": "穴場（競合ほぼなし）",
+  "so_what": "同エリア内に類似求人が少なく（0.3件/万人）、応募獲得の競争圧は低い傾向。一方で人材供給も限定的な可能性があるため、広域圏からの通勤可否の検証を推奨。",
+  "tourist_correction_note": "※観光地・繁華街判定（昼夜比 5.00 > 1.5）。昼間滞在膨張による『穴場』誤判定を避けるため、居住人口側で再算出した値です。",
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "calculation": "score = (HW該当求人件数) ÷ (Agoop平日深夜滞在人口=居住人口代理) × 10,000 [F1 #3: 観光地補正適用、平日昼滞在は外来流入で膨張するため不採用]",
+    "population_year": 2021,
+    "tourist_threshold": 1.5
+  }
+}

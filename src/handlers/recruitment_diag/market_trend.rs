@@ -32,9 +32,9 @@ use crate::handlers::recruitment_diag::competitors::{hw_data_scope_warning, pref
 use crate::AppState;
 use axum::extract::{Query, State};
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 #[derive(Deserialize)]
 pub struct MarketTrendQuery {
@@ -47,11 +47,104 @@ pub struct MarketTrendQuery {
     pub months: Option<usize>,
 }
 
+/// Panel 6 成功時の本体
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdMarketTrendResponse {
+    /// 都道府県名 (prefcode 不正・未指定は空文字 = 全国)
+    pub prefecture: String,
+    /// HW 職種名 (クエリの値そのまま。空文字 = 全業種)
+    pub job_type: String,
+    /// 雇用形態 (クエリの値そのまま)
+    pub emp_type: String,
+    /// 要求した月数 (2〜24 に丸めた値。既定 6)
+    pub months_requested: usize,
+    /// 月ラベル ("YYYY/MM"、古い順)
+    pub months: Vec<String>,
+    /// 各月の件数 (`months` と同じ並び)。job_type 指定時は業界サンプル件数
+    pub counts: Vec<i64>,
+    /// 最古月→最新月の増加率 (%)。2 点未満・最古 0 は 0.0
+    pub growth_rate_pct: f64,
+    /// 件数の意味 ("月次求人件数" または "業界サンプル件数")
+    pub metric_label: String,
+    /// true: job_type 指定で ts_turso_salary のサンプル件数を使用
+    pub is_sample: bool,
+    /// 参照したテーブルの説明
+    pub data_source: String,
+    /// 解釈テキスト
+    pub interpretation: String,
+    /// HW データ範囲の注意書き
+    pub warning: String,
+}
+
+/// Panel 6 エラー時の本体 (Turso DB 未接続)
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdMarketTrendError {
+    /// エラーメッセージ
+    pub error: String,
+    /// 常に空配列
+    pub months: Vec<String>,
+    /// 常に空配列
+    pub counts: Vec<i64>,
+    /// 常に 0.0
+    pub growth_rate_pct: f64,
+}
+
+/// Panel 6 の応答 (TS では `RdMarketTrendResponse | RdMarketTrendError`)
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(untagged)]
+pub enum RdMarketTrendResult {
+    Ok(RdMarketTrendResponse),
+    Err(RdMarketTrendError),
+}
+
+/// 成功本体を組み立てる (ハンドラから切り出した純関数)
+pub(crate) fn build_response(
+    prefecture: String,
+    job_type: String,
+    emp_type: String,
+    months: usize,
+    rows: &[Row],
+) -> RdMarketTrendResponse {
+    let (labels, counts) = extract_series(rows);
+    let growth_rate = compute_growth_rate(&counts);
+    // job_type 指定時は ts_turso_salary (給与統計サンプル) を参照。
+    // この場合の counts は「総求人件数」ではなく「業界サンプル件数」なので、
+    // 解釈文・メトリクスラベルを誤解を招かない表現に切替える。
+    let is_sample = !job_type.is_empty();
+    let interpretation =
+        build_interpretation(growth_rate, &counts, &prefecture, &job_type, is_sample);
+    let metric_label = if is_sample {
+        "業界サンプル件数"
+    } else {
+        "月次求人件数"
+    };
+    let data_source = if is_sample {
+        "ts_turso_salary（給与統計サンプル、業界大分類別）"
+    } else {
+        "ts_turso_counts（月次求人総数）"
+    };
+
+    RdMarketTrendResponse {
+        prefecture,
+        job_type,
+        emp_type,
+        months_requested: months,
+        months: labels,
+        counts,
+        growth_rate_pct: growth_rate,
+        metric_label: metric_label.to_string(),
+        is_sample,
+        data_source: data_source.to_string(),
+        interpretation,
+        warning: hw_data_scope_warning(),
+    }
+}
+
 /// GET /api/recruitment_diag/market_trend
 pub async fn market_trend(
     State(state): State<Arc<AppState>>,
     Query(q): Query<MarketTrendQuery>,
-) -> Json<Value> {
+) -> Json<RdMarketTrendResult> {
     let prefecture = prefcode_to_name(q.prefcode).unwrap_or_default();
     let months = q.months.unwrap_or(6).clamp(2, 24);
 
@@ -70,39 +163,9 @@ pub async fn market_trend(
     .await
     .unwrap_or_default();
 
-    let (labels, counts) = extract_series(&rows);
-    let growth_rate = compute_growth_rate(&counts);
-    // job_type 指定時は ts_turso_salary (給与統計サンプル) を参照。
-    // この場合の counts は「総求人件数」ではなく「業界サンプル件数」なので、
-    // 解釈文・メトリクスラベルを誤解を招かない表現に切替える。
-    let is_sample = !q.job_type.is_empty();
-    let interpretation =
-        build_interpretation(growth_rate, &counts, &prefecture, &q.job_type, is_sample);
-    let metric_label = if is_sample {
-        "業界サンプル件数"
-    } else {
-        "月次求人件数"
-    };
-    let data_source = if is_sample {
-        "ts_turso_salary（給与統計サンプル、業界大分類別）"
-    } else {
-        "ts_turso_counts（月次求人総数）"
-    };
-
-    Json(json!({
-        "prefecture": prefecture,
-        "job_type": q.job_type,
-        "emp_type": q.emp_type,
-        "months_requested": months,
-        "months": labels,
-        "counts": counts,
-        "growth_rate_pct": growth_rate,
-        "metric_label": metric_label,
-        "is_sample": is_sample,
-        "data_source": data_source,
-        "interpretation": interpretation,
-        "warning": hw_data_scope_warning(),
-    }))
+    Json(RdMarketTrendResult::Ok(build_response(
+        prefecture, q.job_type, q.emp_type, months, &rows,
+    )))
 }
 
 /// 月次求人数取得
@@ -353,12 +416,12 @@ pub(crate) fn classify_trend_sample(growth: f64) -> &'static str {
     }
 }
 
-fn error_response(msg: &str) -> Value {
-    json!({
-        "error": msg,
-        "months": [],
-        "counts": [],
-        "growth_rate_pct": 0.0,
+fn error_response(msg: &str) -> RdMarketTrendResult {
+    RdMarketTrendResult::Err(RdMarketTrendError {
+        error: msg.to_string(),
+        months: Vec::new(),
+        counts: Vec::new(),
+        growth_rate_pct: 0.0,
     })
 }
 
@@ -458,5 +521,146 @@ mod tests {
         let large = classify_trend_sample(50.0);
         assert!(large.contains("変動が大きい"));
         assert!(large.contains("サンプル偏り"));
+    }
+
+    // ============================================================
+    // Phase 1A-1: struct 置き換え前の json!() との等価テスト
+    // ============================================================
+
+    use serde_json::{json, Value};
+
+    /// 置き換え前の `market_trend` 成功時の組み立て (json!() 式はそのまま残す)
+    fn legacy_market_trend_json(
+        prefecture: String,
+        job_type: String,
+        emp_type: String,
+        months: usize,
+        rows: &[Row],
+    ) -> Value {
+        let (labels, counts) = extract_series(rows);
+        let growth_rate = compute_growth_rate(&counts);
+        let is_sample = !job_type.is_empty();
+        let interpretation =
+            build_interpretation(growth_rate, &counts, &prefecture, &job_type, is_sample);
+        let metric_label = if is_sample {
+            "業界サンプル件数"
+        } else {
+            "月次求人件数"
+        };
+        let data_source = if is_sample {
+            "ts_turso_salary（給与統計サンプル、業界大分類別）"
+        } else {
+            "ts_turso_counts（月次求人総数）"
+        };
+        json!({
+            "prefecture": prefecture,
+            "job_type": job_type,
+            "emp_type": emp_type,
+            "months_requested": months,
+            "months": labels,
+            "counts": counts,
+            "growth_rate_pct": growth_rate,
+            "metric_label": metric_label,
+            "is_sample": is_sample,
+            "data_source": data_source,
+            "interpretation": interpretation,
+            "warning": hw_data_scope_warning(),
+        })
+    }
+
+    /// 置き換え前の `error_response` (式はそのまま残す)
+    fn legacy_error_response(msg: &str) -> Value {
+        json!({
+            "error": msg,
+            "months": [],
+            "counts": [],
+            "growth_rate_pct": 0.0,
+        })
+    }
+
+    fn row(snapshot: Value, key: &str, count: i64) -> Row {
+        let mut r = Row::new();
+        r.insert("snapshot_id".to_string(), snapshot);
+        r.insert(key.to_string(), json!(count));
+        r
+    }
+
+    #[test]
+    fn market_trend_response_matches_legacy_json() {
+        // 文字列 snapshot + posting_count (総数モード)
+        let counts_rows = vec![
+            row(json!("2026-01"), "posting_count", 100),
+            row(json!("2026-02"), "posting_count", 103),
+            row(json!("2026-03"), "posting_count", 97),
+        ];
+        // 整数 snapshot (YYYYMM) + count (サンプルモード、0 始まり)
+        let salary_rows = vec![
+            row(json!(202512), "count", 0),
+            row(json!(202601), "count", 7),
+        ];
+        // 増加率が小数になる (3 → 4 = 33.33..%)
+        let frac_rows = vec![
+            row(json!("202601"), "posting_count", 3),
+            row(json!("202602"), "posting_count", 4),
+        ];
+        let single = vec![row(json!("2026-03"), "posting_count", 5)];
+        let empty: Vec<Row> = vec![];
+
+        let cases: Vec<(&str, &str, &str, usize, &[Row])> = vec![
+            ("岩手県", "", "正社員", 6, &counts_rows),
+            ("岩手県", "飲食業", "正社員", 24, &salary_rows),
+            ("", "", "", 2, &frac_rows),
+            ("東京都", "医療", "パート", 6, &single),
+            ("", "", "", 6, &empty),
+        ];
+        for (pref, jt, emp, months, rows) in cases {
+            let new = RdMarketTrendResult::Ok(build_response(
+                pref.to_string(),
+                jt.to_string(),
+                emp.to_string(),
+                months,
+                rows,
+            ));
+            let legacy = legacy_market_trend_json(
+                pref.to_string(),
+                jt.to_string(),
+                emp.to_string(),
+                months,
+                rows,
+            );
+            assert_eq!(
+                serde_json::to_string(&new).unwrap(),
+                serde_json::to_string(&legacy).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn market_trend_error_matches_legacy_json() {
+        for msg in ["Turso DB 未接続", ""] {
+            assert_eq!(
+                serde_json::to_string(&error_response(msg)).unwrap(),
+                serde_json::to_string(&legacy_error_response(msg)).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn market_trend_ts_decl_has_main_fields() {
+        let cfg = crate::handlers::recruitment_diag::types::ts_config();
+        let result = RdMarketTrendResult::decl(&cfg);
+        assert!(
+            result.contains("RdMarketTrendResponse | RdMarketTrendError"),
+            "{result}"
+        );
+        let ok = RdMarketTrendResponse::decl(&cfg);
+        assert!(ok.contains("months_requested: number"), "{ok}");
+        assert!(ok.contains("months: Array<string>"), "{ok}");
+        assert!(ok.contains("counts: Array<number>"), "{ok}");
+        assert!(ok.contains("growth_rate_pct: number"), "{ok}");
+        assert!(ok.contains("is_sample: boolean"), "{ok}");
+        let err = RdMarketTrendError::decl(&cfg);
+        assert!(err.contains("error: string"), "{err}");
+        assert!(err.contains("counts: Array<number>"), "{err}");
     }
 }

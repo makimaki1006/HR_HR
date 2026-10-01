@@ -1,0 +1,13 @@
+{
+  "prefcode": 3,
+  "citycode": null,
+  "pref": "岩手県",
+  "municipality": "",
+  "filters": {
+    "job_type": null,
+    "emp_type": null
+  },
+  "insights": [],
+  "summary": "このエリアでは有効な示唆が検出されませんでした。データ未整備の可能性があります。",
+  "note": "HW掲載求人のみ対象（全求人市場ではない）。示唆は統計的傾向であり因果関係を示すものではありません。"
+}
