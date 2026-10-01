@@ -982,8 +982,20 @@ fn mtgが結べていない初回契約が出る() {
         .iter()
         .all(|r| r["stage"] != "マーケ関連"));
     assert!(nm["rate"].as_f64().is_some());
-    // 記録が無いことと、やっていないことを分けて書いているか
-    assert!(nm["note"].as_str().unwrap().contains("記録が無いことと"));
+    // 🔴 2026-10-01 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。記録が欠けていると読む
+    //    （前は「記録が無いことと、やっていないことは別です」で、やっていない可能性を残していた）
+    let note = nm["note"].as_str().unwrap();
+    assert!(note.contains("記録が欠けている"), "{note}");
+    assert!(!note.contains("やっていないことは別"), "{note}");
+    // 見方「初回契約で MTG の記録が無い」の定義の1行も同じ読み方。初回契約に限ることも書く
+    let rule = super::routes::ACT_VIEWS
+        .iter()
+        .find(|v| v.key == "no_mtg")
+        .expect("no_mtg")
+        .rule;
+    assert!(rule.contains("記録が欠けている"), "{rule}");
+    assert!(rule.contains("初回契約に限った"), "{rule}");
+    assert!(!rule.contains("やっていないことは別"), "{rule}");
 }
 
 // ================================================================ タブ6 電話
