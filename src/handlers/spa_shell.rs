@@ -44,6 +44,8 @@ pub const KNOWN_SCREENS: &[&str] = &[
     "guide",
     // Phase 1A (2026-10-01): 採用診断 (/app/recruitment-diag)。旧 /tab/recruitment_diag は並走
     "recruitment-diag",
+    // Headless CRM (2026-10-02): 架電 CRM の MOC (/app/crm)。ナビは管理者のみ (nav.rs crm_visible)
+    "crm",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。

@@ -12,6 +12,7 @@ pub mod competitor;
 #[cfg(test)]
 mod competitor_tests;
 pub mod consult;
+pub mod crm_metadata; // Read-only HubSpot metadata, verified OIDC and explicit email allowlist.
 pub mod cs_dashboard; // 2026-09-21: コンサルKPI。上の consult（商談準備レポート）とは別物
 pub mod demographics;
 pub mod diagnostic;

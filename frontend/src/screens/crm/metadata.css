@@ -1,0 +1,11 @@
+.crm-metadata-panel { flex-shrink: 0; border: 1px solid #cbd6e2; background: #fff; border-radius: 6px; }
+.crm-metadata-panel > summary { cursor: pointer; padding: 8px 12px; font-weight: 600; font-size: 13px; }
+.crm-metadata-panel > summary span { margin-left: 12px; font-size: 12px; font-weight: 400; color: #526579; }
+.crm-metadata-content { padding: 0 12px 12px; font-size: 12px; max-height: 240px; overflow: auto; }
+.crm-metadata-content p { margin: 4px 0 8px; }
+.crm-metadata-actions, .crm-metadata-selectors { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.crm-metadata-actions button { padding: 6px 10px; border: 1px solid #a4b8cd; border-radius: 4px; background: #f5f8fa; color: #33475b; cursor: pointer; }
+.crm-metadata-actions button:disabled { opacity: .5; cursor: wait; }
+.crm-metadata-selectors label { display: grid; gap: 4px; min-width: 220px; }
+.crm-metadata-selectors select { padding: 6px; border: 1px solid #a4b8cd; border-radius: 4px; }
+.crm-metadata-content [role=alert] { color: #b42318; }
