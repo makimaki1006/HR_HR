@@ -194,21 +194,29 @@ async fn コンサルダッシュボードは認証の内側にある() {
 /// **既存レイアウトにリンクが無かった**ので、画面を見ている人には
 /// 存在しないのと同じだった。URL を直接叩けば出る、では使われない。
 ///
-/// ここではテンプレートの中身を見る。レンダリングを通さないのは、
-/// このナビが `{{JOBGEN_TAB}}` のような差し込みを含んでいて、
-/// 組み立てに `AppState` の中身が要るため。**リンクが書かれているか**だけを見る。
+/// 2026-09-30 から、ナビの項目はテンプレートに直書きせず `src/handlers/nav.rs` の
+/// `NAV_DEFS` から Rust が組み立てて `{{NAV_TOP_ITEMS}}` に差し込む (React の `/api/nav` と
+/// 同じ定義)。ここでは `AppState` 無しで組める `render_legacy_nav()` の出力を見る。
+/// 環境変数で出し分ける項目 (キーワード需要 / 求人票作成) は無い前提 (`NavFeatures::default()`)。
+/// **リンクが書かれているか**だけを見る。
 #[test]
 fn 既存の画面からコンサルへ行ける() {
-    let nav = include_str!("../templates/dashboard_inline.html");
+    use rust_dashboard::handlers::nav::{nav_items, render_legacy_nav, NavFeatures, NAV_DEFS};
+    let tpl = include_str!("../templates/dashboard_inline.html");
+    assert!(
+        tpl.contains("{{NAV_TOP_ITEMS}}"),
+        "templates/dashboard_inline.html にナビの差し込み口 {{{{NAV_TOP_ITEMS}}}} が無い"
+    );
+    let nav = render_legacy_nav(&nav_items(NAV_DEFS, &NavFeatures::default())).top;
     assert!(
         nav.contains(r#"href="/consulting""#),
-        "templates/dashboard_inline.html に /consulting へのリンクが無い。\
-ルートが生きていても、画面から辿れなければ存在しないのと同じ"
+        "旧シェルのナビ (handlers::nav::NAV_DEFS) に /consulting へのリンクが無い。\
+ルートが生きていても、画面から辿れなければ存在しないのと同じ: {nav}"
     );
     // 先例が消えていないことも一緒に見る（並びごと消える事故を捕まえる）
     assert!(
         nav.contains(r#"href="/sales-kpi""#),
-        "templates/dashboard_inline.html から /sales-kpi のリンクが消えている"
+        "旧シェルのナビから /sales-kpi のリンクが消えている: {nav}"
     );
 
     // 🔴 ラベルも固定する（2026-09-21 ユーザー指定「営業KPIの隣にコンサルKPI」）。
@@ -220,6 +228,17 @@ fn 既存の画面からコンサルへ行ける() {
     assert!(
         nav.contains("営業KPI"),
         "ナビから「営業KPI」のラベルが消えている"
+    );
+    // 並びも固定する: 営業KPI のすぐ後ろにコンサルKPI
+    let sales = nav.find("営業KPI").unwrap();
+    let consulting = nav.find("コンサルKPI").unwrap();
+    assert!(
+        sales < consulting,
+        "営業KPI の隣 (後ろ) にコンサルKPI が無い: {nav}"
+    );
+    assert!(
+        !nav[sales..consulting].contains("<button"),
+        "営業KPI とコンサルKPI の間に別のタブがある: {nav}"
     );
 }
 
@@ -1109,7 +1128,8 @@ async fn w8のadminとmyのjsonと画面は認証の内側にある() {
             "{path} のリダイレクト先が /login でない"
         );
     }
-    // POST /api/my/profile も同じ (書き込みは旧 /my/profile と同じ経路)
+    // POST /api/my/profile も同じ (書き込みは旧 /my/profile と同じ経路)。
+    // Origin が無い書き込みは認証より前の CSRF 検査で 403 になるので、ブラウザと同じく Origin を付ける。
     let res = app
         .clone()
         .oneshot(
@@ -1117,6 +1137,7 @@ async fn w8のadminとmyのjsonと画面は認証の内側にある() {
                 .method("POST")
                 .uri("/api/my/profile")
                 .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "http://localhost:8080")
                 .body(Body::from("{}"))
                 .expect("リクエストを組めない"),
         )
