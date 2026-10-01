@@ -6351,8 +6351,9 @@ function boardViewBar(D) {
 /** 見方を押しているときの定義の1行と母数、前の定義から外れた件数と、外れた案件の表。
     who: 担当者ごとの案件で選んでいる担当者。渡したときは、件数の文は全担当のまま（どの担当かで定義は変わらない）で、
     外れた案件の表だけその担当者の分に絞り、全担当の何件のうちの何件かを書く。
+    pending: 担当者ごとの案件で担当を選ぶ前（下は持ち件数の表）。下の件数の話はしない（byowner-pending が書く）。
     🔴 この箱は畳まない（外した件数を書いた箱は畳まない。08 の 2.4） */
-function boardViewNote(D, who) {
+function boardViewNote(D, who, pending) {
   const k = boardFilter.view;
   if (!k) return "";
   const v = actViewOf(D, k);
@@ -6367,7 +6368,10 @@ function boardViewNote(D, who) {
   let body = esc(v.rule) + "。<br>稼働中" + (who ? "（全担当）" : "") + " " + num(D.rows.length) + " 件のうち" +
     (judged != null ? "、リスク判定のある案件は " + num(judged) + " 件、そのうちいちばん新しい判定が「高」の案件は " + num(v.n) + " 件です"
       : " " + num(v.n) + " 件です") +
-    "（担当・名札などの絞り込みを一緒に掛けると、下の件数はそれより少なくなります）。";
+    /* pending: 担当者ごとの案件で担当を選ぶ前（下は持ち件数の表で、見方を掛けていない）。🔴 2026-09-30 検証: ここで
+       「下の件数はそれより少なくなります」と書くと、すぐ下の「下の持ち件数には掛けていません」（byowner-pending）と矛盾して読めた。
+       選ぶ前は下の件数の話をこの箱ではせず、byowner-pending の1か所に任せる */
+    (pending ? "。" : "（担当・名札などの絞り込みを一緒に掛けると、下の件数はそれより少なくなります）。");
   if (o) {
     body += "<br><b>定義を名札に揃えたため、以前の" + esc(o.where) + " " + num(o.n) + " 件のうち " + num(o.dropped) +
       " 件は外れました。</b>" +
@@ -6831,14 +6835,17 @@ function renderBoard(D) {
       const ks = Object.keys(per).sort((a, b) => per[b].n - per[a].n || a.localeCompare(b, "ja"));
       h += note("info", "担当者を選んでください",
         "上の「担当」で選ぶか、下の表で名前を押すと、その人の案件の表が出ます。" +
-        "名札・満了まで・契約総額・案件名での絞り込みは、担当を選んだ後に出ます。" +
+        /* 🔴 2026-09-30 検証: URL などから絞り込みを持ってきたときに「絞り込みは、担当を選んだ後に出ます」と書くと、すでに
+           掛かっている絞り込み（下の byowner-pending）と食い違って読める。出るのは「欄」なので欄と書き、持ってきたときは下を指す */
+        "名札・満了まで・契約総額・案件名で絞る欄は、担当を選んだ後に出ます" +
+        (boardFilterOn() ? "（いま持ってきている絞り込みは、下に書いています）。" : "。") +
         "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は " + goLink("deal", "board") + " にあります）。");
       /* 🔴 担当を選ぶ前でも、URL（?view=・?flag= など）や案件一覧から持ってきた絞り込みは残っていて、担当を選んだ瞬間に掛かる。
          前は何も書かずに持ち越していた（2026-09-29 磨き込み。#deal/byowner?view=silent を開くと持ち件数の表だけが出て、
          選んだ後の表が見方で絞られる理由がどこにも無かった＝黙って絞る）。見方は案件一覧と同じ定義の1行と外れた件数を出し、
          持ち件数には掛けていないことと、選ぶと掛かることを書く（持ち件数は見えない条件で減らさない、は変えない） */
       /* ここでは担当が空なので、boardFilterOn・boardFilterWords は担当以外の絞り込みだけを見る */
-      if (boardFilter.view) h += boardViewNote(D);
+      if (boardFilter.view) h += boardViewNote(D, "", true);
       if (boardFilterOn()) {
         h += '<p class="muted small" id="byowner-pending">絞り込み（' + esc(boardFilterWords(D)) + "）は、下の持ち件数には掛けていません。" +
           "担当を選ぶと、その担当の案件にこの絞り込みを掛けて出します。" +
