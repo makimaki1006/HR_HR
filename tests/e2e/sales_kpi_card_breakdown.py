@@ -179,9 +179,16 @@ def walk(page, fails, where) -> int:
         nonlocal total
         names = lv["names"]
         s = 0
+        if depth > 3:  # チーム → 担当者 → 一覧 の 2 段より深くなることは無い
+            fails.append(f"{where}: 表の段が深すぎる（再帰を打ち切り）")
+            return
         for name in names:
             click_row(name)
             nxt = level()
+            if nxt is not None and nxt["names"] == lv["names"]:
+                # 行を押したのに同じ表に留まった = 一覧が開かない
+                fails.append(f"{where}: 「{name}」の行を押しても一覧が開かない（同じ表に留まった）")
+                continue
             if nxt is None:
                 n = list_n() or 0
                 if items() != n:
@@ -202,6 +209,113 @@ def walk(page, fails, where) -> int:
     return total
 
 
+def serve_json(tpl_path: Path, D: dict, port: int, out: Path, name: str):
+    p = out / f"{name}.json"
+    p.write_text(json.dumps(D, ensure_ascii=False), encoding="utf-8")
+    return serve(tpl_path, p, port)
+
+
+def blank_owner_input(D: dict) -> dict:
+    """「担当なし」: チーム未設定の 1 人の id を空文字に書き換える（ownerId が空の取引）。"""
+    D = json.loads(json.dumps(D))
+    unset = [p for p in D["people"] if p["team"] == "チーム未設定"]
+    old = max(unset, key=lambda p: D["by_person"].get(p["id"], {}).get("pool", 0))["id"]
+
+    def rw(x):
+        if isinstance(x, dict):
+            return {("" if k == old else k): rw(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [rw(v) for v in x]
+        return "" if x == old else x
+
+    D = rw(D)
+    for p in D["people"]:
+        if p["id"] == "":
+            p["name"], p["team"] = "担当なし", "チーム未設定"
+    for r in D["card_deals"]["pool"] + D["card_deals"]["apo"] + D["card_deals"]["cyomi"]:
+        if r["owner"] == "":
+            r["ownerName"], r["team"] = "担当なし", "チーム未設定"
+    return D
+
+
+def scenario_blank_owner(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
+    """担当者表の「担当なし」（ownerId が空）を押すと取引一覧が開き、行数が合う。"""
+    D2 = blank_owner_input(D)
+    n_blank = sum(1 for r in D2["card_deals"]["pool"] if r["owner"] == "")
+    assert n_blank > 0, "fixture 書き換えに失敗（owner が空の行が無い）"
+    srv = serve_json(tpl, D2, port, out, "blank_owner")
+    ctx, page, errs = open_page(br, port)
+    # ③ → チーム未設定 → 担当なし
+    pool_i = CARDS.index("pool")
+    page.locator("#cards1 .c").nth(pool_i).click()
+    page.wait_for_selector("#panel1 table.cdrill")
+    page.locator("#panel1 table.cdrill tbody tr").filter(
+        has=page.get_by_role("button", name="チーム未設定", exact=True)).first.click()
+    page.locator("#panel1 table.cdrill tbody tr").filter(
+        has=page.get_by_role("button", name="担当なし", exact=True)).first.click()
+    got = page.locator("#panel1-listhead")
+    if got.count() == 0:
+        fails.append("担当なし: 行を押しても取引一覧が開かない")
+    else:
+        n = int(got.get_attribute("data-n"))
+        rows = page.locator("#panel1 .list a.item").count()
+        if n != n_blank or rows != n_blank:
+            fails.append(f"担当なし: 見出し {n} / 行 {rows} ≠ 期待 {n_blank}")
+        page.screenshot(path=str(out / "blank_owner_list.png"))
+    # 全カード・全表を降りても無限再帰せず合計が合う
+    ctx.close()
+    ctx, page, errs = open_page(br, port)
+    for i in range(len(CARDS)):
+        drill_check(page, i, "担当なし入力", fails)
+    if errs:
+        fails.append("pageerror(担当なし): " + "; ".join(errs))
+    ctx.close()
+    srv.shutdown()
+
+
+def scenario_row_team(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
+    """⑦⑤⑨ の行の team が名簿のチームと違っても、絞り込みはカード・内訳と同じ規則（名簿のチーム）。
+    名簿に居ない担当者の行は、行の team で絞る（消えない）。"""
+    D2 = json.loads(json.dumps(D))
+    teams = D2["teams"]
+    team_of = {p["id"]: p["team"] for p in D2["people"]}
+    keys = {"stale": "⑦", "anq_missing": "⑤", "cyomi_stale": "⑨"}
+    ghost_team = teams[1]
+    for k in keys:
+        rows = D2[k]
+        r0 = next(r for r in rows if r["owner"] in team_of and team_of[r["owner"]] != "チーム未設定")
+        other = next(t for t in teams if t not in (team_of[r0["owner"]], ghost_team, "チーム未設定"))
+        r0["team"] = other  # 名簿のチームと違う値
+        g = dict(r0)
+        g.update(id="9" * 11 + k[0], owner="ZZ999", ownerName="名簿外", team=ghost_team,
+                 url=f"https://app.hubspot.com/contacts/1/record/0-3/{'9' * 11 + k[0]}/")
+        rows.append(g)
+    srv = serve_json(tpl, D2, port, out, "row_team")
+    ctx, page, errs = open_page(br, port)
+    card_idx = {"stale": 0, "anq_missing": 1, "cyomi_stale": 2}
+    for t in ["すべて"] + teams:
+        if t != "すべて":
+            page.locator("#teams .chip", has_text=re.compile(f"^{re.escape(t)}$")).click()
+        for k, mark in keys.items():
+            exp = [r for r in D2[k] if t == "すべて" or team_of.get(r["owner"], r["team"]) == t]
+            card = page.locator("#cards2 .c").nth(card_idx[k])
+            val = num(card.locator(".v").text_content())
+            card.click()
+            hrefs = page.locator("#panel .list a.item").evaluate_all("els=>els.map(e=>e.href)")
+            ids = sorted(h.rstrip("/").split("/")[-1] for h in hrefs)
+            want = sorted(r["id"] for r in exp)
+            if val != len(want) or ids != want:
+                fails.append(f"[チーム={t}] {mark}: カード {val} / 一覧 {len(ids)} ≠ 名簿のチームで絞った {len(want)}"
+                             f"（差: {sorted(set(ids) ^ set(want))[:4]}）")
+            if k == "stale" and t == ghost_team:
+                page.screenshot(path=str(out / "row_team_stale_ghostteam.png"))
+            card.click()  # 閉じる
+    if errs:
+        fails.append("pageerror(row_team): " + "; ".join(errs))
+    ctx.close()
+    srv.shutdown()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", required=True)
@@ -209,6 +323,8 @@ def main():
     ap.add_argument("--template", default="templates/tabs/sales_kpi.html")
     ap.add_argument("--cards-only", default=None)
     ap.add_argument("--port", type=int, default=9317)
+    ap.add_argument("--only", choices=["main", "blank", "rowteam"], default=None,
+                    help="指定したケースだけ走らせる（既定は全部）")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -233,6 +349,17 @@ def main():
             srv.shutdown()
             return 0
 
+        if a.only in (None, "blank"):
+            scenario_blank_owner(br, Path(a.template), D, out, a.port + 1, fails)
+        if a.only in (None, "rowteam"):
+            scenario_row_team(br, Path(a.template), D, out, a.port + 2, fails)
+        if a.only in ("blank", "rowteam"):
+            br.close()
+            srv.shutdown()
+            print(f"NG {len(fails)} 件" if fails else "OK")
+            for f in fails[:40]:
+                print(" -", f)
+            return 1 if fails else 0
         # --- 1. 全社 ---
         ctx, page, errs = open_page(br, a.port)
         for i, k in enumerate(CARDS):
