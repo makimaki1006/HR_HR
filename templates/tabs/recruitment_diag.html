@@ -376,11 +376,11 @@
     const p = buildCommonParams();
     // 月給万円 → 円（backend は salary_min を円で受けて × (12 + bonus_months) で年収算出）
     const salaryMan = parseFloat(document.getElementById('rd-own-salary').value);
-    if (!isNaN(salaryMan) && salaryMan > 0) {
+    if (!isNaN(salaryMan) && salaryMan >= 0) {
       p.company_salary_min = Math.round(salaryMan * 10000);
     }
     const holidays = parseFloat(document.getElementById('rd-own-holidays').value);
-    if (!isNaN(holidays) && holidays > 0) {
+    if (!isNaN(holidays) && holidays >= 0) {
       p.company_annual_holidays = holidays;
     }
     const bonus = parseFloat(document.getElementById('rd-own-bonus').value);
@@ -429,9 +429,10 @@
       '</div>' +
       '<div class="text-xs text-slate-500" data-testid="rd-difficulty-denominator-source">' +
         (metrics.is_tourist_area
-          ? '※ 分母: Agoop 人流データ 平日深夜の滞在人口 (居住人口の代理、観光地補正)'
+          ? '※ 分母: Agoop 人流データ 平日深夜の滞在人口 (月平均、居住人口の代理、観光地補正)'
           : '※ 分母: Agoop 人流データ 平日昼の滞在人口 (月平均)') +
       '</div>' +
+      '<div class="mt-1 text-xs text-slate-500" data-testid="rd-difficulty-threshold-note">※ 区分の基準はパネルごとに異なります。Panel 1: 分母の人口1万人あたり求人数で 1 未満 穴場 / 3 未満 穏やか / 7 未満 平均的 / 15 未満 激戦 / 15 以上 超激戦。Panel 7: 昼間人口1万人あたり求人数で 5 未満 穴場 / 20 未満 標準 / 20 以上 激戦。</div>' +
       (metrics.is_tourist_area && data.tourist_correction_note
         ? '<div class="mt-1 text-xs text-slate-500" data-testid="rd-difficulty-tourist-note">' +
           escapeHtml(data.tourist_correction_note) + '</div>'
@@ -559,7 +560,8 @@
     const allHolidays = all.annual_holidays;
     const allBonus = all.bonus_months;
 
-    function toManYen(v) { return (v != null && v > 0) ? Math.round(v / 10000) : null; }
+    // allowZero: 自社の値は入力値 0 を 0 として扱う (基準側は 0 / null を「データなし」の — にする)
+    function toManYen(v, allowZero) { return (v != null && (v > 0 || (allowZero && v === 0))) ? Math.round(v / 10000) : null; }
 
     function gapCell(ownV, benchV, unit, digits) {
       if (ownV == null || benchV == null || benchV === 0) return '<span class="text-slate-500">—</span>';
@@ -577,7 +579,7 @@
           '<table class="w-full text-xs"><tbody>' +
             '<tr><td class="py-1 text-slate-400">年収</td>' +
               '<td class="py-1 text-right text-slate-200">' + fmt(toManYen(industrySalaryYen)) + '万</td>' +
-              '<td class="py-1 text-right">' + gapCell(toManYen(ownSalaryYen), toManYen(industrySalaryYen), '万') + '</td></tr>' +
+              '<td class="py-1 text-right">' + gapCell(toManYen(ownSalaryYen, true), toManYen(industrySalaryYen), '万') + '</td></tr>' +
             '<tr><td class="py-1 text-slate-400">年休</td>' +
               '<td class="py-1 text-right text-slate-200">' + fmt(industryHolidays) + '日</td>' +
               '<td class="py-1 text-right">' + gapCell(ownHolidays, industryHolidays, '日') + '</td></tr>' +
@@ -592,7 +594,7 @@
           '<table class="w-full text-xs"><tbody>' +
             '<tr><td class="py-1 text-slate-400">年収</td>' +
               '<td class="py-1 text-right text-slate-200">' + fmt(toManYen(allSalaryYen)) + '万</td>' +
-              '<td class="py-1 text-right">' + gapCell(toManYen(ownSalaryYen), toManYen(allSalaryYen), '万') + '</td></tr>' +
+              '<td class="py-1 text-right">' + gapCell(toManYen(ownSalaryYen, true), toManYen(allSalaryYen), '万') + '</td></tr>' +
             '<tr><td class="py-1 text-slate-400">年休</td>' +
               '<td class="py-1 text-right text-slate-200">' + fmt(allHolidays) + '日</td>' +
               '<td class="py-1 text-right">' + gapCell(ownHolidays, allHolidays, '日') + '</td></tr>' +
@@ -694,7 +696,8 @@
     const html =
       '<div id="rd-chart-opportunity" style="width:100%;height:400px;"></div>' +
       '<p class="text-xs text-slate-500 mt-2">※ スコア = HW求人数 ÷ 昼間人口 × 10,000（人口1万人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。</p>' +
-      '<p class="text-xs text-slate-500 mt-1" data-testid="rd-opportunity_map-denominator-source">※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)。区分のしきい値・分母は Panel 1 と異なります。</p>' +
+      '<p class="text-xs text-slate-500 mt-1" data-testid="rd-opportunity_map-denominator-source">※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)</p>' +
+      '<p class="text-xs text-slate-500 mt-1" data-testid="rd-opportunity_map-threshold-note">※ 区分の基準はパネルごとに異なります。Panel 1: 分母の人口1万人あたり求人数で 1 未満 穴場 / 3 未満 穏やか / 7 未満 平均的 / 15 未満 激戦 / 15 以上 超激戦。Panel 7: 昼間人口1万人あたり求人数で 5 未満 穴場 / 20 未満 標準 / 20 以上 激戦。</p>' +
       (data.note
         ? '<div class="mt-2 text-[10px] text-slate-500 italic">' + escapeHtml(data.note) + '</div>'
         : '');

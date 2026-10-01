@@ -119,8 +119,11 @@ export function renderDifficulty(d: RdDifficultyResponse): PanelView {
       </div>
       <div className="text-xs text-slate-500" data-testid="rd-difficulty-denominator-source">
         {m.is_tourist_area
-          ? '※ 分母: Agoop 人流データ 平日深夜の滞在人口 (居住人口の代理、観光地補正)'
+          ? '※ 分母: Agoop 人流データ 平日深夜の滞在人口 (月平均、居住人口の代理、観光地補正)'
           : '※ 分母: Agoop 人流データ 平日昼の滞在人口 (月平均)'}
+      </div>
+      <div className="mt-1 text-xs text-slate-500" data-testid="rd-difficulty-threshold-note">
+        ※ 区分の基準はパネルごとに異なります。Panel 1: 分母の人口1万人あたり求人数で 1 未満 穴場 / 3 未満 穏やか / 7 未満 平均的 / 15 未満 激戦 / 15 以上 超激戦。Panel 7: 昼間人口1万人あたり求人数で 5 未満 穴場 / 20 未満 標準 / 20 以上 激戦。
       </div>
       {m.is_tourist_area && d.tourist_correction_note ? (
         <div className="mt-1 text-xs text-slate-500" data-testid="rd-difficulty-tourist-note">
@@ -331,7 +334,7 @@ function GapBox({
   own: RdConditionGapResponse['company'];
 }) {
   const gapKey = panelKey === 'industry_median' ? 'gap_industry' : 'gap_all';
-  const ownSalary = toManYen(own.annual_income_estimated);
+  const ownSalary = toManYen(own.annual_income_estimated, true);
   const benchSalary = toManYen(stats.annual_income);
   const t = (field: string): string => `rd-condition_gap-${panelKey}-${field}`;
   const g = (field: string): string => `rd-condition_gap-${gapKey}-${field}`;
@@ -491,7 +494,10 @@ export function renderOpportunityMap(d: RdOpportunityMapResponse): PanelView {
         ※ スコア = HW求人数 ÷ 昼間人口 × 10,000（人口1万人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。
       </p>
       <p className="mt-1 text-xs text-slate-500" data-testid="rd-opportunity_map-denominator-source">
-        ※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)。区分のしきい値・分母は Panel 1 と異なります。
+        ※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)
+      </p>
+      <p className="mt-1 text-xs text-slate-500" data-testid="rd-opportunity_map-threshold-note">
+        ※ 区分の基準はパネルごとに異なります。Panel 1: 分母の人口1万人あたり求人数で 1 未満 穴場 / 3 未満 穏やか / 7 未満 平均的 / 15 未満 激戦 / 15 以上 超激戦。Panel 7: 昼間人口1万人あたり求人数で 5 未満 穴場 / 20 未満 標準 / 20 以上 激戦。
       </p>
       {d.note ? (
         <div className="mt-2 text-[10px] italic text-slate-500" data-testid="rd-opportunity_map-note">

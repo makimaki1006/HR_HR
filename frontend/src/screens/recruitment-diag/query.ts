@@ -78,15 +78,15 @@ export function buildCompetitorsQuery(f: DiagnosisForm): string {
   return `${buildCommonQuery(f)}&limit=100`;
 }
 
-/** Monthly salary in man-yen is sent in yen; holidays only when > 0; bonus when >= 0. */
+/** Monthly salary in man-yen is sent in yen. Blank / negative / non-numeric are not sent; an entered 0 is sent as 0. */
 export function buildGapQuery(f: DiagnosisForm): string {
   const params = commonParams(f);
   const salaryMan = parseFloat(f.ownSalaryMan);
-  if (!Number.isNaN(salaryMan) && salaryMan > 0) {
+  if (!Number.isNaN(salaryMan) && salaryMan >= 0) {
     params.push(['company_salary_min', Math.round(salaryMan * 10000)]);
   }
   const holidays = parseFloat(f.ownHolidays);
-  if (!Number.isNaN(holidays) && holidays > 0) params.push(['company_annual_holidays', holidays]);
+  if (!Number.isNaN(holidays) && holidays >= 0) params.push(['company_annual_holidays', holidays]);
   const bonus = parseFloat(f.ownBonus);
   if (!Number.isNaN(bonus) && bonus >= 0) params.push(['company_bonus_months', bonus]);
   return qs(params);
