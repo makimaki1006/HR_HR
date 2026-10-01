@@ -3,18 +3,15 @@
 // Contract with the current backend (see claudedocs plan §3 C-1 / C-3):
 // - Auth is a session cookie managed by Rust. This client never reads or stores
 //   cookies / tokens; it only sends them with `credentials: 'same-origin'`.
-// - When the session is missing, the current server answers 303 -> /login (HTML), even for
-//   /api/*. fetch follows the redirect and yields 200 text/html, so "redirected to /login",
-//   HTTP 401, and a text/html body containing the login form (form[action="/login"]) all map
-//   to AuthRequiredError. Any other 2xx non-JSON body (204, plain text, ...) is
-//   ApiInvalidResponseError, not an auth problem.
+// - When the session is missing, /api/* requests with `Accept: application/json` and no
+//   HX-Request get 401 `{"error":"auth_required","login_url":"/login"}` (src/auth/mod.rs);
+//   everything else still gets 303 -> /login (HTML), which fetch follows to 200 text/html.
+//   "redirected to /login", HTTP 401, and a text/html body containing the login form
+//   (form[action="/login"]) all map to AuthRequiredError. Any other 2xx non-JSON body
+//   (204, plain text, ...) is ApiInvalidResponseError, not an auth problem.
 // - Some handlers answer HTTP 200 with `{"error": "..."}`; that becomes ApiDataError.
-// - The explicit 401 `{"error":"auth_required","login_url":"/login"}` for unauthenticated
-//   fetch requests is not served yet: the Rust side is being implemented on
-//   feat/platform-hp_rust (migration plan section 2.3). This client already treats 401 as
-//   AuthRequiredError so nothing changes here when it lands.
-// - Every request sends `X-Requested-With: fetch` so the server can (once the above lands)
-//   tell fetch calls (401 JSON) apart from browser navigation (303 -> /login).
+// - Every request sends `X-Requested-With: fetch`. The CSRF check (src/lib.rs check_csrf)
+//   lets writes without Origin/Referer through only with this header or HX-Request.
 // - 4xx/5xx answers become ApiHttpError; when the body is JSON it is kept in `error.body`
 //   (e.g. {"error_kind": "hubspot_rate_limited", "message": "..."}).
 // - POST /api/set_* style endpoints answer `Html("OK")`: use `expect: 'text'` for them.
