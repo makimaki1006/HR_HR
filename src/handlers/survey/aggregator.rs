@@ -144,7 +144,15 @@ pub struct PrefectureSalaryAgg {
     pub name: String,
     pub count: usize,
     pub avg_salary: i64,
-    pub avg_min_salary: i64, // 下限給与の平均
+    /// 下限給与の平均 (月給換算、円/月)。時給×167 / 日給×21、年俸・週給・不明と
+    /// 5万〜200万円の範囲外は除外 (salary_min_values と同じ規則)
+    pub avg_min_salary: i64,
+    /// 時給求人の件数 (時給モードの表2-E 用、2026-09-29)
+    #[serde(default)]
+    pub hourly_count: usize,
+    /// 時給求人の代表時給 (下限・上限の中間、上限なしは下限) の平均 (円/時)
+    #[serde(default)]
+    pub avg_hourly_salary: i64,
 }
 
 /// 市区町村単位の公的統計 (表 2-D 市区町村化用, 2026-07-27)。
@@ -185,8 +193,19 @@ pub struct RegressionResult {
 pub struct EmpTypeSalary {
     pub emp_type: String,
     pub count: usize,
+    /// 月給換算 (unified_monthly) の平均
     pub avg_salary: i64,
+    /// 月給換算 (unified_monthly) の中央値
     pub median_salary: i64,
+    /// 時給求人の件数 (時給モードの表3-B 用、2026-09-29)
+    #[serde(default)]
+    pub hourly_count: usize,
+    /// 時給求人の代表時給 (下限・上限の中間、上限なしは下限) の平均 (円/時)
+    #[serde(default)]
+    pub avg_hourly_salary: i64,
+    /// 同 中央値 (円/時)
+    #[serde(default)]
+    pub median_hourly_salary: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -246,13 +265,14 @@ pub struct SurveyAggregation {
     //   - 後方互換: 既存 caller (E2E / 旧 test fixture) で新フィールドが
     //     空 Vec でも、月給モードでは旧フィールドを使うため動作崩れなし。
     // ============================================================
-    /// 下限給与 (ネイティブ単位): Hourly→円/時、Monthly→円/月 (換算なし)
+    /// 下限給与 (ネイティブ単位、換算なし)。2026-09-29 以降はモードの主単位のみ:
+    /// is_hourly=true なら Hourly の円/時だけ、false なら Monthly の円/月だけ (混在させない)
     #[serde(default)]
     pub salary_min_values_native: Vec<i64>,
-    /// 上限給与 (ネイティブ単位): Hourly→円/時、Monthly→円/月 (換算なし)
+    /// 上限給与 (ネイティブ単位)。単位の扱いは salary_min_values_native と同じ
     #[serde(default)]
     pub salary_max_values_native: Vec<i64>,
-    /// 散布図用 (下限, 上限) ペア。ネイティブ単位 (Hourly=円/時 or Monthly=円/月)
+    /// 散布図用 (下限, 上限) ペア。ネイティブ単位 (時給モード=Hourly の円/時のみ、月給モード=Monthly の円/月のみ)
     #[serde(default)]
     pub scatter_min_max_native: Vec<(i64, i64)>,
 
@@ -291,6 +311,11 @@ pub struct SurveyAggregation {
     /// 同等以上に保守的なため安全。次回集計時に正しい集合が入る。
     #[serde(default)]
     pub municipality_presence: std::collections::HashSet<(String, String)>,
+
+    /// 2026-09-29: 競合調査章 (Indeed 掲載求人) 用の集計。
+    /// serde default で旧キャッシュ JSON と後方互換 (欠損時は空 = 章を出さない)。
+    #[serde(default)]
+    pub competitor: CompetitorAnalysis,
 }
 
 impl SurveyAggregation {
@@ -302,6 +327,175 @@ impl SurveyAggregation {
     pub fn has_municipality(&self, prefecture: &str, municipality: &str) -> bool {
         self.municipality_presence
             .contains(&(prefecture.to_string(), municipality.to_string()))
+    }
+}
+
+/// 競合調査章で「検索上位 N 件」として保持する最大件数 (N の上限と同じ)。
+pub const COMPETITOR_HEAD_MAX: usize = 200;
+
+/// 下限・上限それぞれの件数 / 平均 / 中央値 (競合調査章の人気比較用、2026-09-29)。
+///
+/// 単位は `CompetitorAnalysis::pop_is_hourly` に従う (true=円/時、false=円/月)。
+/// 下限と上限は独立に集計する (上限なしの求人は上限の n に入らない)。
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BoundStats {
+    pub min_n: usize,
+    pub min_mean: Option<i64>,
+    pub min_median: Option<i64>,
+    pub max_n: usize,
+    pub max_mean: Option<i64>,
+    pub max_median: Option<i64>,
+}
+
+impl BoundStats {
+    /// 下限値・上限値の配列から作る。平均は整数切り捨て (compute_salary_stats と同じ)。
+    pub fn from_values(mins: &[i64], maxs: &[i64]) -> Self {
+        fn mean_opt(v: &[i64]) -> Option<i64> {
+            if v.is_empty() {
+                None
+            } else {
+                let sum: i128 = v.iter().map(|&x| x as i128).sum();
+                Some((sum / v.len() as i128) as i64)
+            }
+        }
+        fn median_opt(v: &[i64]) -> Option<i64> {
+            if v.is_empty() {
+                None
+            } else {
+                Some(median_of(v))
+            }
+        }
+        Self {
+            min_n: mins.len(),
+            min_mean: mean_opt(mins),
+            min_median: median_opt(mins),
+            max_n: maxs.len(),
+            max_mean: mean_opt(maxs),
+            max_median: median_opt(maxs),
+        }
+    }
+}
+
+/// 競合調査章 (Indeed 掲載求人のスクレイプ) 用の集計 (2026-09-29)。
+///
+/// レコード本体はキャッシュされないため、レポート生成時に N (検索上位件数) を
+/// 変えられるよう、取り込み順の先頭 `COMPETITOR_HEAD_MAX` 件のタグ列を保持する。
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CompetitorAnalysis {
+    /// Indeed (PC / SP) 由来の件数 (重複排除後)。0 なら章を出さない。
+    pub indeed_count: usize,
+    /// 取り込み順 (row_index 昇順、重複排除後) の先頭 `COMPETITOR_HEAD_MAX` 件のタグ列。
+    /// 分解規則は by_tags と同じ (`split_tags`) だが、1 求人内の重複タグは 1 つにまとめる (`record_tags`)。
+    pub head_tags: Vec<Vec<String>>,
+    /// タグを付けた求人の件数 (求人単位で重複排除、上位での切り詰めなし)。件数降順 → タグ名昇順。
+    /// by_tags (出現回数) とは異なり、件数 ≤ 求人数 が常に成り立つ (占有率 ≤ 100%)。
+    pub tag_counts_all: Vec<(String, usize)>,
+    /// 人気比較の単位。true = 時給求人のみ (円/時)、false = 月給求人のみ (円/月)。
+    /// SurveyAggregation::is_hourly と同じ値 (ネイティブ単位配列と同じ方針)。
+    pub pop_is_hourly: bool,
+    /// Indeed (SP) 由来の全件 (人気・超人気・タグなし) の下限・上限統計
+    pub pop_all: BoundStats,
+    /// Indeed (SP) 由来のうち「人気」または「超人気」タグ付きの下限・上限統計
+    pub pop_popular: BoundStats,
+}
+
+/// tags_raw をタグに分解する (by_tags / 競合調査章で共通)。
+/// 区切り `,` `、` `/` タブ。危険 URL プレフィックスを除去し、空と 20 文字超は捨てる。
+pub(crate) fn split_tags(tags_raw: &str) -> Vec<String> {
+    use super::super::helpers::sanitize_tag_text;
+    if tags_raw.is_empty() {
+        return Vec::new();
+    }
+    tags_raw
+        .split([',', '、', '/', '\t'])
+        .map(sanitize_tag_text)
+        .filter(|t| !t.is_empty() && t.chars().count() <= 20)
+        .collect()
+}
+
+/// 1 求人のタグ (split_tags と同じ分解、同じタグは初出の 1 つだけ残す)。
+/// 競合調査章の占有率 (= そのタグを付けた求人の割合) の分子に使う。
+pub(crate) fn record_tags(tags_raw: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in split_tags(tags_raw) {
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// §05 人気度と同じ判定 (`,` 区切り + 厳密一致)。戻り値 (超人気, 人気)。
+fn popularity_signal(tags_raw: &str) -> (bool, bool) {
+    let tokens: Vec<&str> = tags_raw.split(',').map(|s| s.trim()).collect();
+    (tokens.contains(&"超人気"), tokens.contains(&"人気"))
+}
+
+/// 競合調査章の集計。`is_hourly` は SurveyAggregation::is_hourly と同じ値を渡す。
+fn compute_competitor(records: &[SurveyRecord], is_hourly: bool) -> CompetitorAnalysis {
+    use super::upload::CsvSource;
+    let indeed_count = records
+        .iter()
+        .filter(|r| matches!(r.source, CsvSource::Indeed | CsvSource::IndeedSp))
+        .count();
+
+    // 取り込み順 (row_index) の先頭 N 件。records は通常すでにこの順だが明示的に並べる。
+    let mut order: Vec<&SurveyRecord> = records.iter().collect();
+    order.sort_by_key(|r| r.row_index);
+    let head_tags: Vec<Vec<String>> = order
+        .iter()
+        .take(COMPETITOR_HEAD_MAX)
+        .map(|r| record_tags(&r.tags_raw))
+        .collect();
+
+    let mut tag_map: HashMap<String, usize> = HashMap::new();
+    for r in records {
+        for t in record_tags(&r.tags_raw) {
+            *tag_map.entry(t).or_default() += 1;
+        }
+    }
+    let mut tag_counts_all: Vec<(String, usize)> = tag_map.into_iter().collect();
+    tag_counts_all.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    // 人気比較: §05 と同じく Indeed (SP) 由来のみが母数。単位はモードの主単位だけ
+    // (native_value_for_mode: 時給モード=時給求人の円/時、月給モード=月給求人の円/月)。
+    let (mut all_min, mut all_max, mut pop_min, mut pop_max) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for r in records {
+        if !matches!(r.source, CsvSource::IndeedSp) {
+            continue;
+        }
+        let (is_super, is_popular) = popularity_signal(&r.tags_raw);
+        let st = &r.salary_parsed.salary_type;
+        let lo = r
+            .salary_parsed
+            .min_value
+            .and_then(|v| native_value_for_mode(v, st, is_hourly));
+        let hi = r
+            .salary_parsed
+            .max_value
+            .and_then(|v| native_value_for_mode(v, st, is_hourly));
+        if let Some(v) = lo {
+            all_min.push(v);
+            if is_super || is_popular {
+                pop_min.push(v);
+            }
+        }
+        if let Some(v) = hi {
+            all_max.push(v);
+            if is_super || is_popular {
+                pop_max.push(v);
+            }
+        }
+    }
+
+    CompetitorAnalysis {
+        indeed_count,
+        head_tags,
+        tag_counts_all,
+        pop_is_hourly: is_hourly,
+        pop_all: BoundStats::from_values(&all_min, &all_max),
+        pop_popular: BoundStats::from_values(&pop_min, &pop_max),
     }
 }
 
@@ -704,6 +898,52 @@ pub fn compute_holiday_stats(values: &[i64]) -> HolidayStats {
     }
 }
 
+/// 給与 1 値を月給換算する (salary_min_values / salary_max_values / 都道府県別下限平均で共通)。
+/// 時給×167、日給×21、月給はそのまま。年俸・週給・不明は対象外 (None)。
+/// 5万〜200万円の範囲外は異常値として None。
+fn monthly_equiv_in_range(v: i64, salary_type: &super::salary_parser::SalaryType) -> Option<i64> {
+    use super::salary_parser::SalaryType;
+    let m = match salary_type {
+        SalaryType::Hourly => v * HOURLY_TO_MONTHLY_HOURS,
+        SalaryType::Daily => v * DAILY_TO_MONTHLY_DAYS,
+        SalaryType::Monthly => v,
+        _ => return None, // Annual / Weekly / Unknown は除外 (設計メモ §5 準拠)
+    };
+    (MIN_MONTHLY_SALARY..=MAX_MONTHLY_SALARY)
+        .contains(&m)
+        .then_some(m)
+}
+
+/// ネイティブ単位配列に入れる値。時給モードは Hourly (100 円/時以上) のみ、
+/// 月給モードは Monthly (MIN_MONTHLY_SALARY 以上) のみ。単位の違う値は混ぜない。
+fn native_value_for_mode(
+    v: i64,
+    salary_type: &super::salary_parser::SalaryType,
+    is_hourly: bool,
+) -> Option<i64> {
+    use super::salary_parser::SalaryType;
+    match salary_type {
+        SalaryType::Hourly if is_hourly && v >= 100 => Some(v),
+        SalaryType::Monthly if !is_hourly && v >= MIN_MONTHLY_SALARY => Some(v),
+        _ => None,
+    }
+}
+
+/// 時給求人の代表時給 (円/時)。下限・上限があれば中間値、片方のみならその値
+/// (salary_parser の unified_monthly と同じ基準値を換算前で取る)。100 円/時未満は除外。
+fn hourly_native_mid(r: &SurveyRecord) -> Option<i64> {
+    use super::salary_parser::SalaryType;
+    if r.salary_parsed.salary_type != SalaryType::Hourly {
+        return None;
+    }
+    let base = match (r.salary_parsed.min_value, r.salary_parsed.max_value) {
+        (Some(lo), Some(hi)) => (lo + hi) / 2,
+        (Some(v), None) | (None, Some(v)) => v,
+        (None, None) => return None,
+    };
+    (base >= 100).then_some(base)
+}
+
 /// パース済みレコードを集計
 /// 後方互換: 自動判定モードで集計
 pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
@@ -810,21 +1050,18 @@ fn aggregate_records_core(
     by_employment_type.sort_by(|a, b| b.1.cmp(&a.1));
 
     // タグ別（カンマ/スペース区切りで分解、危険URLプレフィックスをサニタイズ）
+    // 2026-09-29: 分解規則を split_tags に切り出し (競合調査章と共通)。同数のタグは
+    //   タグ名昇順で並べる (旧: HashMap 順で同数の並びが実行ごとに変わっていた)。
     use super::super::helpers::sanitize_tag_text;
     // Finding #17 (2026-06-30): タグは 1 レコード平均 3 種程度を想定
     let mut tag_map: HashMap<String, usize> = HashMap::with_capacity(records.len() / 3 + 1);
     for r in records {
-        if !r.tags_raw.is_empty() {
-            for tag in r.tags_raw.split([',', '、', '/', '\t']) {
-                let sanitized = sanitize_tag_text(tag);
-                if !sanitized.is_empty() && sanitized.chars().count() <= 20 {
-                    *tag_map.entry(sanitized).or_default() += 1;
-                }
-            }
+        for tag in split_tags(&r.tags_raw) {
+            *tag_map.entry(tag).or_default() += 1;
         }
     }
     let mut by_tags: Vec<(String, usize)> = tag_map.into_iter().collect();
-    by_tags.sort_by(|a, b| b.1.cmp(&a.1));
+    by_tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     by_tags.truncate(30); // 上位30タグ
 
     // 給与統計
@@ -894,6 +1131,26 @@ fn aggregate_records_core(
     by_tag_salary.sort_by(|a, b| b.diff_from_avg.cmp(&a.diff_from_avg));
     by_tag_salary.truncate(20);
 
+    // 時給モード判定
+    // 2026-09-29: ネイティブ単位配列と都道府県別集計で使うため、給与配列の計算前に移動。
+    // 時給レコードが過半数（半数超）の場合 true。
+    // 境界値（同数、例: 5-5）は整数割り算のため strict 比較で false となり、
+    // Monthly として扱う（より保守的な挙動）。
+    let hourly_count = records
+        .iter()
+        .filter(|r| r.salary_parsed.salary_type == super::salary_parser::SalaryType::Hourly)
+        .count();
+    let total_with_salary = records
+        .iter()
+        .filter(|r| r.salary_parsed.min_value.is_some())
+        .count();
+    use super::upload::WageMode;
+    let is_hourly = match wage_mode {
+        WageMode::Hourly => true,
+        WageMode::Monthly => false,
+        WageMode::Auto => total_with_salary > 0 && hourly_count > total_with_salary / 2,
+    };
+
     // 下限/上限給与（レポート用、月給換算）
     // Round 22 (2026-05-13): 設計メモ §5「salary_type はユーザー側で事前指定する前提」準拠。
     // Annual (年俸) は salary_type が大きく異なるため除外し、Monthly / Hourly / Daily のみ採用。
@@ -903,30 +1160,14 @@ fn aggregate_records_core(
     let salary_min_values: Vec<i64> = records
         .iter()
         .filter_map(|r| {
-            let v = r.salary_parsed.min_value?;
-            match r.salary_parsed.salary_type {
-                SalaryType::Hourly => Some(v * HOURLY_TO_MONTHLY_HOURS),
-                SalaryType::Daily => Some(v * DAILY_TO_MONTHLY_DAYS),
-                SalaryType::Annual => None, // 年俸はクラスタ分析対象外 (別途必要なら別経路で)
-                SalaryType::Monthly => Some(v),
-                _ => None, // Unknown / その他も除外 (設計メモ §5 準拠)
-            }
+            monthly_equiv_in_range(r.salary_parsed.min_value?, &r.salary_parsed.salary_type)
         })
-        .filter(|&v| (MIN_MONTHLY_SALARY..=MAX_MONTHLY_SALARY).contains(&v)) // 5万〜200万円の外は異常値として除外
         .collect();
     let salary_max_values: Vec<i64> = records
         .iter()
         .filter_map(|r| {
-            let v = r.salary_parsed.max_value?;
-            match r.salary_parsed.salary_type {
-                SalaryType::Hourly => Some(v * HOURLY_TO_MONTHLY_HOURS),
-                SalaryType::Daily => Some(v * DAILY_TO_MONTHLY_DAYS),
-                SalaryType::Annual => None,
-                SalaryType::Monthly => Some(v),
-                _ => None,
-            }
+            monthly_equiv_in_range(r.salary_parsed.max_value?, &r.salary_parsed.salary_type)
         })
-        .filter(|&v| (MIN_MONTHLY_SALARY..=MAX_MONTHLY_SALARY).contains(&v))
         .collect();
 
     // Phase 2-A (2026-05-29): ネイティブ単位 (時給=円/時、月給=円/月) の下限/上限給与
@@ -942,26 +1183,29 @@ fn aggregate_records_core(
     //
     // is_hourly モード時の散布図軸範囲 (800-2500 円/時) との整合性を確保するため、
     // Hourly 値は filter 後にそのまま push (×167 換算しない)。
+    //
+    // 2026-09-29: 単位混在の修正。以前は Hourly (円/時) と Monthly (円/月) を同じ配列に
+    // 入れていたため、時給モードの平均・分位点に月給値がそのまま混ざっていた
+    // (時給 1,100/1,200/1,300 + 月給 20万/30万 で平均 100,720「円/時」)。
+    // 配列はモードの主単位だけを持つ: 時給モード = Hourly のみ、月給モード = Monthly のみ。
     let salary_min_values_native: Vec<i64> = records
         .iter()
         .filter_map(|r| {
-            let v = r.salary_parsed.min_value?;
-            match r.salary_parsed.salary_type {
-                SalaryType::Hourly if v >= 100 => Some(v),
-                SalaryType::Monthly if v >= MIN_MONTHLY_SALARY => Some(v),
-                _ => None, // Daily / Weekly / Annual / Unknown は Phase 2-A 対象外
-            }
+            native_value_for_mode(
+                r.salary_parsed.min_value?,
+                &r.salary_parsed.salary_type,
+                is_hourly,
+            )
         })
         .collect();
     let salary_max_values_native: Vec<i64> = records
         .iter()
         .filter_map(|r| {
-            let v = r.salary_parsed.max_value?;
-            match r.salary_parsed.salary_type {
-                SalaryType::Hourly if v >= 100 => Some(v),
-                SalaryType::Monthly if v >= MIN_MONTHLY_SALARY => Some(v),
-                _ => None,
-            }
+            native_value_for_mode(
+                r.salary_parsed.max_value?,
+                &r.salary_parsed.salary_type,
+                is_hourly,
+            )
         })
         .collect();
 
@@ -1004,7 +1248,9 @@ fn aggregate_records_core(
     by_company.sort_by(|a, b| b.count.cmp(&a.count));
 
     // 雇用形態別給与
-    let mut emp_salary_map: HashMap<String, Vec<i64>> = HashMap::new();
+    // 2026-09-29: 時給モードの表示用に時給求人だけの代表時給 (円/時) も別系列で持つ。
+    //   月給換算値 (unified_monthly) と同じ配列には入れない。
+    let mut emp_salary_map: HashMap<String, (Vec<i64>, Vec<i64>)> = HashMap::new();
     for r in records {
         let emp = if r.employment_type.is_empty() {
             "不明".to_string()
@@ -1012,12 +1258,16 @@ fn aggregate_records_core(
             r.employment_type.clone()
         };
         if let Some(sal) = r.salary_parsed.unified_monthly {
-            emp_salary_map.entry(emp).or_default().push(sal);
+            let entry = emp_salary_map.entry(emp).or_default();
+            entry.0.push(sal);
+            if let Some(h) = hourly_native_mid(r) {
+                entry.1.push(h);
+            }
         }
     }
     let mut by_emp_type_salary: Vec<EmpTypeSalary> = emp_salary_map
         .into_iter()
-        .map(|(emp_type, salaries)| {
+        .map(|(emp_type, (salaries, hourly_values))| {
             let count = salaries.len();
             let avg_salary = if salaries.is_empty() {
                 0
@@ -1025,36 +1275,62 @@ fn aggregate_records_core(
                 salaries.iter().sum::<i64>() / count as i64
             };
             let median_salary = median_of(&salaries);
+            let hourly_count = hourly_values.len();
+            let avg_hourly_salary = if hourly_count == 0 {
+                0
+            } else {
+                hourly_values.iter().sum::<i64>() / hourly_count as i64
+            };
             EmpTypeSalary {
                 emp_type,
                 count,
                 avg_salary,
                 median_salary,
+                hourly_count,
+                avg_hourly_salary,
+                median_hourly_salary: median_of(&hourly_values),
             }
         })
         .collect();
     by_emp_type_salary.sort_by(|a, b| b.avg_salary.cmp(&a.avg_salary));
 
     // 都道府県別給与集計（最低賃金比較用）
-    let mut pref_salary_map: HashMap<String, (Vec<i64>, Vec<i64>)> = HashMap::new(); // (unified, min_values)
+    // 2026-09-29: min_values は月給換算 (salary_min_values と同じ規則: 時給×167 / 日給×21 /
+    //   年俸・週給・不明は除外 / 5万〜200万円の範囲外は除外)。以前は円/時・円/月・円/年を
+    //   単位のまま平均していた。hourly_values は時給求人の代表時給 (円/時、時給モード表示用)。
+    #[derive(Default)]
+    struct PrefAcc {
+        unified: Vec<i64>,
+        min_values: Vec<i64>,
+        hourly_values: Vec<i64>,
+    }
+    let mut pref_salary_map: HashMap<String, PrefAcc> = HashMap::new();
     for r in records {
         if let Some(pref) = &r.location_parsed.prefecture {
             let entry = pref_salary_map.entry(pref.clone()).or_default();
             if let Some(sal) = r.salary_parsed.unified_monthly {
                 if sal > 0 {
-                    entry.0.push(sal);
+                    entry.unified.push(sal);
                 }
             }
             if let Some(min_sal) = r.salary_parsed.min_value {
-                if min_sal > 0 {
-                    entry.1.push(min_sal);
+                if let Some(m) = monthly_equiv_in_range(min_sal, &r.salary_parsed.salary_type) {
+                    entry.min_values.push(m);
                 }
+            }
+            if let Some(h) = hourly_native_mid(r) {
+                entry.hourly_values.push(h);
             }
         }
     }
     let mut by_prefecture_salary: Vec<PrefectureSalaryAgg> = pref_salary_map
         .into_iter()
-        .map(|(name, (salaries, min_salaries))| {
+        .map(|(name, acc)| {
+            let PrefAcc {
+                unified: salaries,
+                min_values: min_salaries,
+                hourly_values,
+            } = acc;
             let count = salaries.len();
             let avg_salary = if salaries.is_empty() {
                 0
@@ -1066,34 +1342,23 @@ fn aggregate_records_core(
             } else {
                 min_salaries.iter().sum::<i64>() / min_salaries.len() as i64
             };
+            let hourly_count = hourly_values.len();
+            let avg_hourly_salary = if hourly_count == 0 {
+                0
+            } else {
+                hourly_values.iter().sum::<i64>() / hourly_count as i64
+            };
             PrefectureSalaryAgg {
                 name,
                 count,
                 avg_salary,
                 avg_min_salary,
+                hourly_count,
+                avg_hourly_salary,
             }
         })
         .collect();
     by_prefecture_salary.sort_by(|a, b| b.count.cmp(&a.count));
-
-    // 時給モード判定
-    // 時給レコードが過半数（半数超）の場合 true。
-    // 境界値（同数、例: 5-5）は整数割り算のため strict 比較で false となり、
-    // Monthly として扱う（より保守的な挙動）。
-    let hourly_count = records
-        .iter()
-        .filter(|r| r.salary_parsed.salary_type == super::salary_parser::SalaryType::Hourly)
-        .count();
-    let total_with_salary = records
-        .iter()
-        .filter(|r| r.salary_parsed.min_value.is_some())
-        .count();
-    use super::upload::WageMode;
-    let is_hourly = match wage_mode {
-        WageMode::Hourly => true,
-        WageMode::Monthly => false,
-        WageMode::Auto => total_with_salary > 0 && hourly_count > total_with_salary / 2,
-    };
 
     // 散布図データ（下限 vs 上限）
     // Round 22: クラスタ分析と整合させるため Annual / Unknown を除外し、Monthly/Hourly/Daily のみ採用。
@@ -1134,11 +1399,9 @@ fn aggregate_records_core(
         .filter_map(|r| {
             let raw_min = r.salary_parsed.min_value?;
             let raw_max = r.salary_parsed.max_value?;
-            let (min, max) = match r.salary_parsed.salary_type {
-                SalaryType::Hourly if raw_min >= 100 => (raw_min, raw_max),
-                SalaryType::Monthly if raw_min >= MIN_MONTHLY_SALARY => (raw_min, raw_max),
-                _ => return None, // Daily / Weekly / Annual / Unknown は Phase 2-A 対象外
-            };
+            // 2026-09-29: ネイティブ配列と同じくモードの主単位のみ (単位混在を防ぐ)
+            native_value_for_mode(raw_min, &r.salary_parsed.salary_type, is_hourly)?;
+            let (min, max) = (raw_min, raw_max);
             if min > 0 && max > 0 && max >= min {
                 Some((min, max))
             } else {
@@ -1464,9 +1727,7 @@ fn aggregate_records_core(
             indeed_sp_total += 1;
 
             // Finding #1: split + 厳密一致 (部分文字列マッチを廃止)。
-            let tokens: Vec<&str> = r.tags_raw.split(',').map(|s| s.trim()).collect();
-            let is_super = tokens.iter().any(|t| *t == "超人気");
-            let is_popular = tokens.iter().any(|t| *t == "人気");
+            let (is_super, is_popular) = popularity_signal(&r.tags_raw);
             let has_popular_signal = is_super || is_popular;
             // 判定順: 超人気 → 人気 (1 record は超人気 or 人気 のいずれか 1 つだけ計上)
             if is_super {
@@ -1647,6 +1908,8 @@ fn aggregate_records_core(
         card_briefs,
         // 2026-07-28: 市区町村在否集合 (0件ゲートの truncate 非依存判定用)
         municipality_presence,
+        // 2026-09-29: 競合調査章 (タグ全体 / 検索上位 N 件 / 人気比較)
+        competitor: compute_competitor(records, is_hourly),
     }
 }
 
@@ -1872,6 +2135,56 @@ mod desc_salary_tests {
         assert_eq!(extract_desc_salary_man("賞与3万円支給"), None);
         assert_eq!(extract_desc_salary_man("月収8万円のパート"), None);
         assert_eq!(extract_desc_salary_man("特になし"), None);
+    }
+}
+
+/// 実データ由来の給与原文 fixture から SurveyRecord を組み立てるテスト専用ヘルパー
+/// (2026-09-29 時給/月給混在不具合の逆証明用)。
+/// fixture は給与欄の原文のみ (1 行 1 求人)。所在地は全件 `location` を使う。
+#[cfg(test)]
+pub(crate) mod salary_fixture {
+    use super::super::location_parser::parse_location;
+    use super::super::salary_parser::{parse_salary, SalaryType};
+    use super::super::upload::{CsvSource, SurveyRecord};
+
+    /// f1: 時給 751 件 + 月給 1 件 (Indeed 実データの給与欄)
+    pub(crate) const F1_HOURLY_MOSTLY: &str =
+        include_str!("../../../tests/fixtures/survey_salary/f1_hourly_mostly.txt");
+    /// f2: 月給 567 件 + 年俸/年収 24 件 (Indeed 実データの給与欄)
+    pub(crate) const F2_MONTHLY_WITH_ANNUAL: &str =
+        include_str!("../../../tests/fixtures/survey_salary/f2_monthly_with_annual.txt");
+
+    pub(crate) fn records(salary_lines: &str, location: &str) -> Vec<SurveyRecord> {
+        salary_lines
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .enumerate()
+            .map(|(i, sal)| SurveyRecord {
+                row_index: i,
+                source: CsvSource::IndeedSp,
+                job_title: "t".to_string(),
+                company_name: format!("C{}", i),
+                location_raw: location.to_string(),
+                salary_raw: sal.to_string(),
+                employment_type: String::new(),
+                employment_type_inferred: false,
+                tags_raw: String::new(),
+                url: None,
+                is_new: false,
+                description: String::new(),
+                snippet: String::new(),
+                salary_parsed: parse_salary(sal, SalaryType::Monthly),
+                location_parsed: parse_location(location, None),
+                annual_holidays: None,
+                ai_monthly_holidays_min: None,
+                ai_monthly_holidays_max: None,
+                ai_bonus: None,
+                ai_bonus_times_per_year: None,
+                ai_paid_leave_rate: None,
+                ai_weekly_holiday_type: None,
+                ai_overtime_hours_monthly: None,
+            })
+            .collect()
     }
 }
 
@@ -3333,5 +3646,205 @@ mod tests {
             Some(200_000),
             "タイなら小さい方のビン (200k) を返す"
         );
+    }
+
+    // =========================================================================
+    // 2026-09-29 時給/月給混在の逆証明
+    //   疑い2: 時給モードのネイティブ配列 (円/時) に月給 (円/月) が混ざる
+    //   疑い1: 都道府県別 下限平均が時給・月給・年俸を単位混在のまま平均する
+    // =========================================================================
+
+    fn mixed_3h_2m() -> Vec<SurveyRecord> {
+        let mut v = Vec::new();
+        for (i, h) in [1100i64, 1200, 1300].iter().enumerate() {
+            v.push(mock_record(
+                &format!("H{i}"),
+                Some("東京都"),
+                Some("千代田区"),
+                Some(h * 167),
+                Some(*h),
+                Some(*h),
+                SalaryType::Hourly,
+                "パート",
+                "",
+            ));
+        }
+        for (i, m) in [200_000i64, 300_000].iter().enumerate() {
+            v.push(mock_record(
+                &format!("M{i}"),
+                Some("東京都"),
+                Some("千代田区"),
+                Some(*m),
+                Some(*m),
+                Some(*m),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ));
+        }
+        v
+    }
+
+    /// navy_report::common::compute_distribution_stats と同じ分位点定義
+    /// (idx = round((n-1)*p)) で (n, mean, median, p90) を返す
+    fn dist(values: &[i64]) -> (usize, i64, i64, i64) {
+        let mut v: Vec<i64> = values.iter().copied().filter(|x| *x > 0).collect();
+        v.sort_unstable();
+        let n = v.len();
+        assert!(n > 0, "空配列");
+        let pct = |p: f64| v[(((n as f64 - 1.0) * p).round() as usize).min(n - 1)];
+        (n, v.iter().sum::<i64>() / n as i64, pct(0.5), pct(0.9))
+    }
+
+    #[test]
+    fn mix_native_values_in_hourly_mode_are_hourly_only() {
+        let agg = aggregate_records(&mixed_3h_2m());
+        assert!(agg.is_hourly, "時給3 > 5/2 で時給モード");
+        // 修正前: median=1,300 / mean=100,720 (月給 20万/30万が円/時として混入)
+        assert_eq!(dist(&agg.salary_min_values_native), (3, 1200, 1200, 1300));
+        assert_eq!(agg.salary_min_values_native, vec![1100, 1200, 1300]);
+        assert_eq!(agg.salary_max_values_native, vec![1100, 1200, 1300]);
+        assert_eq!(
+            agg.scatter_min_max_native,
+            vec![(1100, 1100), (1200, 1200), (1300, 1300)]
+        );
+    }
+
+    #[test]
+    fn mix_native_values_in_monthly_mode_are_monthly_only() {
+        let agg =
+            aggregate_records_with_mode(&mixed_3h_2m(), super::super::upload::WageMode::Monthly);
+        assert!(!agg.is_hourly);
+        assert_eq!(agg.salary_min_values_native, vec![200_000, 300_000]);
+        assert_eq!(
+            agg.scatter_min_max_native,
+            vec![(200_000, 200_000), (300_000, 300_000)]
+        );
+        // 月給換算配列 (既存) は時給×167 を含む従来どおりの値
+        assert_eq!(
+            agg.salary_min_values,
+            vec![183_700, 200_400, 217_100, 200_000, 300_000]
+        );
+    }
+
+    #[test]
+    fn mix_prefecture_avg_min_salary_is_monthly_equivalent() {
+        let agg = aggregate_records(&mixed_3h_2m());
+        let tokyo = agg
+            .by_prefecture_salary
+            .iter()
+            .find(|p| p.name == "東京都")
+            .unwrap();
+        // 修正前: (1100+1200+1300+200000+300000)/5 = 100,720
+        // 月給換算: (183,700+200,400+217,100+200,000+300,000)/5 = 220,240
+        assert_eq!(tokyo.avg_min_salary, 220_240);
+    }
+
+    #[test]
+    fn mix_prefecture_avg_min_salary_excludes_annual() {
+        let recs = vec![
+            mock_record(
+                "A",
+                Some("大阪府"),
+                Some("大阪市"),
+                Some(250_000),
+                Some(250_000),
+                Some(250_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "B",
+                Some("大阪府"),
+                Some("大阪市"),
+                Some(4_000_000 / 12),
+                Some(4_000_000),
+                Some(4_000_000),
+                SalaryType::Annual,
+                "正社員",
+                "",
+            ),
+        ];
+        let agg = aggregate_records(&recs);
+        let osaka = agg
+            .by_prefecture_salary
+            .iter()
+            .find(|p| p.name == "大阪府")
+            .unwrap();
+        // 修正前: (250,000 + 4,000,000)/2 = 2,125,000
+        assert_eq!(osaka.avg_min_salary, 250_000);
+    }
+
+    /// 月給のみの入力: 既存の出力値が変わらないこと (回帰)
+    #[test]
+    fn mix_monthly_only_input_keeps_existing_values() {
+        let recs: Vec<SurveyRecord> = [
+            (200_000i64, 250_000i64),
+            (220_000, 300_000),
+            (300_000, 300_000),
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, (lo, hi))| {
+            mock_record(
+                &format!("M{i}"),
+                Some("東京都"),
+                Some("千代田区"),
+                Some((lo + hi) / 2),
+                Some(*lo),
+                Some(*hi),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            )
+        })
+        .collect();
+        let agg = aggregate_records(&recs);
+        assert!(!agg.is_hourly);
+        assert_eq!(agg.salary_min_values, vec![200_000, 220_000, 300_000]);
+        assert_eq!(agg.salary_max_values, vec![250_000, 300_000, 300_000]);
+        assert_eq!(
+            agg.salary_min_values_native,
+            vec![200_000, 220_000, 300_000]
+        );
+        assert_eq!(
+            agg.salary_max_values_native,
+            vec![250_000, 300_000, 300_000]
+        );
+        let tokyo = &agg.by_prefecture_salary[0];
+        assert_eq!(tokyo.avg_min_salary, 240_000); // (200,000+220,000+300,000)/3
+        assert_eq!(tokyo.avg_salary, 261_666); // (225,000+260,000+300,000)/3
+    }
+
+    /// f1 実データ (時給 751 + 月給 1): 時給モードの統計は時給求人だけで算出される
+    #[test]
+    fn mix_f1_real_data_hourly_stats_exclude_monthly() {
+        let recs = salary_fixture::records(salary_fixture::F1_HOURLY_MOSTLY, "東京都 板橋区");
+        let agg = aggregate_records(&recs);
+        assert!(agg.is_hourly);
+        let (n, mean, median, p90) = dist(&agg.salary_min_values_native);
+        eprintln!("f1 native_min: n={n} mean={mean} median={median} p90={p90}");
+        assert_eq!((n, mean, median, p90), (751, 1269, 1250, 1400));
+        assert!(
+            agg.salary_min_values_native.iter().all(|v| *v < 10_000),
+            "円/時の配列に月給値が残っている"
+        );
+    }
+
+    /// f2 実データ (月給 567 + 年俸/年収 24): 大阪の下限平均は年俸を除いた月給換算
+    #[test]
+    fn mix_f2_real_data_prefecture_avg_min_excludes_annual() {
+        let recs = salary_fixture::records(salary_fixture::F2_MONTHLY_WITH_ANNUAL, "大阪府 大阪市");
+        let agg = aggregate_records(&recs);
+        assert!(!agg.is_hourly);
+        let osaka = agg
+            .by_prefecture_salary
+            .iter()
+            .find(|p| p.name == "大阪府")
+            .unwrap();
+        eprintln!("f2 osaka avg_min_salary={}", osaka.avg_min_salary);
+        assert_eq!(agg.salary_min_values.len(), 567);
+        assert_eq!(osaka.avg_min_salary, 314_489);
     }
 }

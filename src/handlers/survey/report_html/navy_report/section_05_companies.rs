@@ -665,6 +665,20 @@ pub(super) fn confidence_score_from_posting_count(posting_count: i64) -> f64 {
     (posting_count as f64 / 12.0).min(1.0)
 }
 
+/// `fetch_csv_company_salary_ranking` が wage_mode="both" のときに付ける native_unit。
+/// 月給 (円/月) と時給 (円/時) の中央値が同じ列に混ざり、どちらも 1 万で割って「万円」と
+/// 表示されてしまうため、表 7-G / 7-H は出さずに理由を示す (2026-09-29)。
+const MIXED_WAGE_UNIT: &str = "混合";
+
+fn mixed_wage_unit_notice(title: &str) -> String {
+    format!(
+        "<div class=\"block-title block-title-spaced\">{}</div>\n\
+         <p class=\"caption dim\">月給と時給の求人が混在する集計 (wage_mode=both) のため、\
+         給与の単位を揃えられません。本表は表示しません (月給または時給のモードで再出力してください)。</p>\n",
+        title
+    )
+}
+
 /// 表 7-G: 企業別給与ランキング (高い方から limit 社、上限給与中央値 降順)
 pub(crate) fn build_navy_csv_company_salary_table(
     ranking: &[CsvCompanySalary],
@@ -677,6 +691,9 @@ pub(crate) fn build_navy_csv_company_salary_table(
         .first()
         .map(|c| c.native_unit.as_str())
         .unwrap_or("");
+    if native_unit == MIXED_WAGE_UNIT {
+        return mixed_wage_unit_notice("表 7-G &nbsp;企業別給与ランキング");
+    }
     let is_hourly = native_unit == "時給";
     let unit_label_short: &str = if is_hourly { "円/時" } else { "万円" };
     let unit_decimals: usize = if is_hourly { 0 } else { 1 };
@@ -783,6 +800,12 @@ pub(crate) fn build_navy_notable_companies_block(
     let notable = select_notable_companies(ranking, top_n);
     if notable.is_empty() {
         return String::new();
+    }
+    if notable
+        .first()
+        .is_some_and(|c| c.native_unit == MIXED_WAGE_UNIT)
+    {
+        return mixed_wage_unit_notice("表 7-H &nbsp;注目企業リスト");
     }
     // Phase 2-A: notable[0] の native_unit を見て表示単位を切替
     let is_hourly = notable

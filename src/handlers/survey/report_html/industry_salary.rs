@@ -16,9 +16,9 @@
 //!   - 信号 B (補助): `TagSalaryAgg.tag` → 産業マップ → 件数加重で `avg_salary` のみ
 //!   と段階的に拾う。`by_company` で十分カバーできる場合は B は使わない。
 //! - **数値ロジックは新規作成しない**: 月給換算は既に `aggregator` 経路で済んでいる
-//!   (`CompanyAgg.avg_salary` は CSV 集計時の `is_hourly` モードに従ったネイティブ単位)。
-//!   `is_hourly_overall` の場合は時給で表示し、ラベルで明示区別する
-//!   (`SalaryHeadline` と同じスコープ規約)。
+//!   (`CompanyAgg.avg_salary` / `TagSalaryAgg.avg_salary` は `is_hourly` に関係なく
+//!   月給換算 (unified_monthly、円/月)。2026-09-29 訂正: 以前は「ネイティブ単位」と
+//!   書いていたが誤り)。本モジュールの旧レンダラは本番未使用 (呼び出しはテストのみ)。
 //! - **件数 < 3 は「参考」**: 推定誤差・サンプル不足の業界は note 列で明示。
 //! - **MI variant 専用**: `mod.rs` で MI variant のみ呼び出し、Full / Public 不変。
 //!

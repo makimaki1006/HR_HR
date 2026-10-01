@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>アカウント未検出</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/static/js/vendor/htmx-v2.0.3.min.js"></script>
+<style>body{background:#0f172a;color:#e2e8f0;font-family:ui-sans-serif,system-ui;}</style>
+</head>
+<body class="min-h-screen p-6">
+<nav class="mb-6 flex items-center gap-4 text-sm">
+  <a href="/" class="text-slate-400 hover:text-white">← ダッシュボード</a>
+  <span class="text-slate-600">|</span>
+  <a href="/admin/usage" class="text-blue-400 hover:text-blue-300">利用状況</a>
+  <a href="/admin/users" class="text-blue-400 hover:text-blue-300">ユーザー一覧</a>
+  <a href="/admin/login-failures" class="text-blue-400 hover:text-blue-300">失敗監視</a>
+  <a href="/my/activity" class="text-blue-400 hover:text-blue-300 ml-auto">自分の履歴</a>
+</nav>
+<div class="p-8 rounded bg-amber-900/30 border border-amber-700">
+               <h1 class="text-xl font-bold mb-2">アカウントが見つかりません</h1>
+               <p class="text-slate-400">ID: acc-&lt;missing&gt;&amp;</p>
+            </div>
+</body>
+</html>

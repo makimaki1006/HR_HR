@@ -42,8 +42,9 @@ pub(super) mod distribution_candidates {
 pub(super) mod salary_labels {
     /// CSV 全件 月給統一中央値 (enhanced_stats.median 由来).
     pub const CSV_ALL_MONTHLY: &str = "月給中央値 (CSV 全件)";
-    /// CSV 全件 時給統一中央値 (is_hourly=true 時).
-    pub const CSV_ALL_HOURLY: &str = "時給中央値 (CSV 全件)";
+    /// 時給求人の下限時給 中央値 (is_hourly=true 時、円/時).
+    /// 2026-09-29: 月給求人は含めないため「CSV 全件」から改称。
+    pub const CSV_ALL_HOURLY: &str = "時給中央値 (時給求人の下限)";
     /// 件数最多 雇用形態グループのネイティブ単位中央値.
     pub const TOP_GROUP_NATIVE: &str = "中央値 (件数最多グループ・実測)";
     /// HW 比較用の市場中央値.

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ts_rs::TS;
 
 /// 不変項目の固定キー(Python 版 extracted_baseline.json と一致)。
 pub const FACT_KEYS: [&str; 8] = [
@@ -16,7 +17,9 @@ pub const FACT_KEYS: [&str; 8] = [
 ];
 
 /// 抽出された1項目。value と、原文のどこから取ったかの根拠引用。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+///
+/// `TS` は React 画面 (`/app/jobgen`) 向けの型出力用 (`src/job_gen/contract.rs`)。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
 pub struct FactField {
     /// 抽出値(原文の写し。要約・言い換え禁止)。
     #[serde(default)]

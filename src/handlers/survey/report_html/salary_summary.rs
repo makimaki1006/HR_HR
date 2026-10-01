@@ -42,8 +42,13 @@ use super::super::aggregator::{EmpGroupNativeAgg, SurveyAggregation};
 #[derive(Debug, Clone)]
 pub(super) struct SalaryHeadline {
     /// CSV 全件 月給統一中央値（円）。is_hourly=true の場合は時給×167h 換算済。
-    /// `enhanced_stats.median` を出所とする。
+    /// `enhanced_stats.median` を出所とする。時給モードの表示には使わない
+    /// (2026-09-29: 月換算値に「円/時」を付けて表紙に出ていたため)。
     pub csv_unified_monthly_median_yen: Option<i64>,
+    /// 時給求人の下限時給 中央値 (円/時)。is_hourly=true のときだけ Some。
+    /// `salary_min_values_native` (時給モードでは時給求人のみ) を出所とし、
+    /// §03 図3-1 の中央値と同じ分位点定義 (idx = round((n-1)*0.5)) で求める。
+    pub hourly_native_median_yen: Option<i64>,
     /// 件数最多 雇用形態グループのネイティブ単位 中央値.
     /// グループの native_unit が「月給」なら円、`時給」なら円/時。
     pub top_group_native_median: Option<TopGroupMedian>,
@@ -107,8 +112,15 @@ impl SalaryHeadline {
             csv_median.map_or(SalaryUnitWarning::None, classify_monthly_salary_warning)
         };
 
+        let hourly_native_median = if agg.is_hourly {
+            native_median(&agg.salary_min_values_native)
+        } else {
+            None
+        };
+
         SalaryHeadline {
             csv_unified_monthly_median_yen: csv_median,
+            hourly_native_median_yen: hourly_native_median,
             top_group_native_median: top_group,
             is_hourly_overall: agg.is_hourly,
             salary_unit_warning: warning,
@@ -120,6 +132,21 @@ impl SalaryHeadline {
     /// ラベルを必ず「月給中央値 (CSV 全件)」または「時給中央値 (CSV 全件)」と接尾辞付きで
     /// 統一する。表示単位 (万円 / 円/時) も同時に返す。
     pub(super) fn cover_highlight_text(&self) -> CoverHighlight {
+        // 時給モード: 時給求人の下限中央値 (円/時) だけを使う。月給換算値は表示しない。
+        if self.is_hourly_overall {
+            return match self.hourly_native_median_yen {
+                Some(yen) => CoverHighlight {
+                    label: super::labels::salary_labels::CSV_ALL_HOURLY.to_string(),
+                    value_text: format!("{}", yen),
+                    unit: "円/時".to_string(),
+                },
+                None => CoverHighlight {
+                    label: super::labels::salary_labels::CSV_ALL_HOURLY.to_string(),
+                    value_text: "-".to_string(),
+                    unit: String::new(),
+                },
+            };
+        }
         match self.csv_unified_monthly_median_yen {
             Some(yen) if !self.is_hourly_overall => {
                 let normalized = normalize_monthly_salary(yen);
@@ -134,11 +161,6 @@ impl SalaryHeadline {
                     unit: "万円".to_string(),
                 }
             }
-            Some(yen) if self.is_hourly_overall => CoverHighlight {
-                label: "時給中央値 (CSV 全件)".to_string(),
-                value_text: format!("{}", yen),
-                unit: "円/時".to_string(),
-            },
             _ => CoverHighlight {
                 label: "給与中央値 (CSV 全件)".to_string(),
                 value_text: "-".to_string(),
@@ -146,6 +168,18 @@ impl SalaryHeadline {
             },
         }
     }
+}
+
+/// 正値の中央値 (idx = round((n-1)*0.5)、navy_report の compute_distribution_stats と同じ定義)。
+fn native_median(values: &[i64]) -> Option<i64> {
+    let mut v: Vec<i64> = values.iter().copied().filter(|x| *x > 0).collect();
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_unstable();
+    let n = v.len();
+    let idx = ((n as f64 - 1.0) * 0.5).round() as usize;
+    Some(v[idx.min(n - 1)])
 }
 
 /// 表紙ハイライト KPI 用の表示構造体.
@@ -318,14 +352,26 @@ mod tests {
         assert_eq!(hl.unit, "万円");
     }
 
-    /// 時給ベース集計時はラベルが「時給中央値 (CSV 全件)」になる (月給と区別)
+    /// 時給ベース集計時はラベルが「時給中央値 (時給求人の下限)」になる (月給と区別)
     #[test]
     fn salary_headline_hourly_mode_uses_hourly_label() {
-        let agg = agg_with_stats(1_200, true);
+        let mut agg = agg_with_stats(1_200 * 167, true);
+        agg.salary_min_values_native = vec![1_100, 1_200, 1_300];
         let h = SalaryHeadline::from_aggregation(&agg);
         let hl = h.cover_highlight_text();
-        assert_eq!(hl.label, "時給中央値 (CSV 全件)");
+        assert_eq!(hl.label, "時給中央値 (時給求人の下限)");
         assert_eq!(hl.unit, "円/時");
+        // 2026-09-29: 月換算値 (200,400) ではなく時給求人の下限中央値
+        assert_eq!(hl.value_text, "1200");
+    }
+
+    /// 時給モードで時給求人が無いときは月換算値を出さず「-」
+    #[test]
+    fn salary_headline_hourly_mode_without_hourly_values_shows_dash() {
+        let agg = agg_with_stats(250_000, true);
+        let hl = SalaryHeadline::from_aggregation(&agg).cover_highlight_text();
+        assert_eq!(hl.value_text, "-");
+        assert!(!hl.unit.contains("円/時"));
     }
 
     /// PDF3 月給 63.6 万円 (年俸混入疑い) → 12 で除算され 5.3 万円相当に正規化される

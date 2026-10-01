@@ -8,6 +8,7 @@ Before changing Frontend architecture or implementing the Headless CRM, read:
 - `docs/architecture/frontend-react-migration.md`
 - `docs/architecture/headless-crm-design.md`
 - `docs/architecture/architecture-decisions.md`
+- `docs/architecture/react-full-migration-plan.md` (full-screen migration waves, completion criteria, removal steps)
 
 ## Mandatory architecture rules
 

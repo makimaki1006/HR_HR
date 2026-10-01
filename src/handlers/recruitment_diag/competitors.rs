@@ -19,9 +19,9 @@ use crate::models::job_seeker::PREFECTURE_ORDER;
 use crate::AppState;
 use axum::extract::{Query, State};
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ts_rs::TS;
 
 #[derive(Deserialize)]
 pub struct CompetitorsQuery {
@@ -39,24 +39,96 @@ pub struct CompetitorsQuery {
 }
 
 /// 競合企業 1 社のレスポンス DTO
-#[derive(serde::Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, TS)]
+#[ts(rename = "RdCompetitorItem")]
 pub struct CompetitorRow {
+    /// 法人番号 (SalesNow 由来の文字列)
     pub corporate_number: String,
+    /// 企業名 (SalesNow `company_name`)
     pub name: String,
+    /// 都道府県名
     pub prefecture: String,
+    /// SalesNow 業種名
     pub sn_industry: String,
+    /// 従業員数 (人。SalesNow 時点の静的値)
     pub employees: i64,
+    /// 売上高 (SalesNow `sales_amount` の値そのまま。未登録は 0)
     pub sales_amount: i64,
+    /// 売上規模レンジ (例: "10億〜50億")。未登録は空文字
     pub sales_range: String,
+    /// 信用スコア (SalesNow。未登録は 0.0)
     pub credit_score: f64,
+    /// HW 求人数 (件。facility_name 部分一致による推定値。HW DB 無しは 0)
     pub hw_postings_count: i64,
+}
+
+/// Panel 4 成功時の本体
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdCompetitorsResponse {
+    /// 都道府県名 (prefcode 不正・未指定は空文字)
+    pub prefecture: String,
+    /// 市区町村名 (クエリの値そのまま。未指定は空文字)
+    pub municipality: String,
+    /// HW 職種名 (クエリの値そのまま。未指定は空文字)
+    pub job_type: String,
+    /// 競合企業 (従業員数降順、最大 limit 社)
+    pub companies: Vec<CompetitorRow>,
+    /// 上位企業の解釈テキスト
+    pub top20_insight: String,
+    /// HW データ範囲の注意書き
+    pub warning: String,
+    /// 職種→SalesNow 業種マッピングの最上位 confidence (0.0〜1.0)。マッピング無しは null
+    pub mapping_confidence: Option<f64>,
+    /// マッピング失敗・精度低 (confidence < 0.7) のときの注記。問題なければ null
+    pub mapping_warning: Option<String>,
+}
+
+/// Panel 4 エラー時の本体 (SalesNow DB 未接続)
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdCompetitorsError {
+    /// エラーメッセージ
+    pub error: String,
+    /// 常に空配列
+    pub companies: Vec<CompetitorRow>,
+    /// 常に空文字
+    pub top20_insight: String,
+}
+
+/// Panel 4 の応答 (TS では `RdCompetitorsResponse | RdCompetitorsError`)
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(untagged)]
+pub enum RdCompetitorsResult {
+    Ok(RdCompetitorsResponse),
+    Err(RdCompetitorsError),
+}
+
+/// 成功本体を組み立てる (ハンドラから切り出した純関数)
+pub(crate) fn build_response(
+    prefecture: String,
+    municipality: String,
+    job_type: String,
+    companies: Vec<CompetitorRow>,
+    top20_insight: String,
+    mapping_confidence: Option<f64>,
+    mapping_warning: Option<String>,
+) -> RdCompetitorsResponse {
+    RdCompetitorsResponse {
+        prefecture,
+        municipality,
+        job_type,
+        companies,
+        top20_insight,
+        warning: hw_data_scope_warning(),
+        mapping_confidence,
+        mapping_warning,
+    }
 }
 
 /// GET /api/recruitment_diag/competitors
 pub async fn competitors(
     State(state): State<Arc<AppState>>,
     Query(q): Query<CompetitorsQuery>,
-) -> Json<Value> {
+) -> Json<RdCompetitorsResult> {
     let prefecture = prefcode_to_name(q.prefcode).unwrap_or_default();
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
 
@@ -89,16 +161,15 @@ pub async fn competitors(
 
     let top20_insight = build_top20_insight(&result, &prefecture, &q.job_type);
 
-    Json(json!({
-        "prefecture": prefecture,
-        "municipality": q.municipality,
-        "job_type": q.job_type,
-        "companies": result,
-        "top20_insight": top20_insight,
-        "warning": hw_data_scope_warning(),
-        "mapping_confidence": mapping_top_confidence,
-        "mapping_warning": mapping_warning,
-    }))
+    Json(RdCompetitorsResult::Ok(build_response(
+        prefecture,
+        q.municipality,
+        q.job_type,
+        result,
+        top20_insight,
+        mapping_top_confidence,
+        mapping_warning,
+    )))
 }
 
 /// SalesNow → HW 求人数付与までを同期実行
@@ -370,8 +441,12 @@ pub(crate) fn hw_data_scope_warning() -> String {
         .to_string()
 }
 
-fn error_response(msg: &str) -> Value {
-    json!({ "error": msg, "companies": [], "top20_insight": "" })
+fn error_response(msg: &str) -> RdCompetitorsResult {
+    RdCompetitorsResult::Err(RdCompetitorsError {
+        error: msg.to_string(),
+        companies: Vec::new(),
+        top20_insight: String::new(),
+    })
 }
 
 #[cfg(test)]
@@ -519,5 +594,155 @@ mod tests {
     fn fetch_salesnow_identity_for_ogori_city() {
         // 小郡市 は地名の一部に「郡」を含むが市名そのもの → strip しない
         assert_eq!(fetch_salesnow_like_pattern("小郡市"), "%小郡市%");
+    }
+
+    // ============================================================
+    // Phase 1A-1: struct 置き換え前の json!() との等価テスト
+    // ============================================================
+
+    use serde_json::{json, Value};
+
+    /// 置き換え前の `competitors` 成功時 json!() (式はそのまま残す)
+    fn legacy_competitors_json(
+        prefecture: String,
+        municipality: String,
+        job_type: String,
+        result: Vec<CompetitorRow>,
+        top20_insight: String,
+        mapping_top_confidence: Option<f64>,
+        mapping_warning: Option<String>,
+    ) -> Value {
+        json!({
+            "prefecture": prefecture,
+            "municipality": municipality,
+            "job_type": job_type,
+            "companies": result,
+            "top20_insight": top20_insight,
+            "warning": hw_data_scope_warning(),
+            "mapping_confidence": mapping_top_confidence,
+            "mapping_warning": mapping_warning,
+        })
+    }
+
+    /// 置き換え前の `error_response` (式はそのまま残す)
+    fn legacy_error_response(msg: &str) -> Value {
+        json!({ "error": msg, "companies": [], "top20_insight": "" })
+    }
+
+    fn sample_rows() -> Vec<CompetitorRow> {
+        vec![
+            CompetitorRow {
+                corporate_number: "1234567890123".into(),
+                name: "テスト飲食株式会社".into(),
+                prefecture: "岩手県".into(),
+                sn_industry: "飲食店".into(),
+                employees: 250,
+                sales_amount: 120_000,
+                sales_range: "10億〜50億".into(),
+                credit_score: 55.5,
+                hw_postings_count: 3,
+            },
+            CompetitorRow {
+                corporate_number: String::new(),
+                name: String::new(),
+                prefecture: String::new(),
+                sn_industry: String::new(),
+                employees: 0,
+                sales_amount: 0,
+                sales_range: String::new(),
+                credit_score: 0.0,
+                hw_postings_count: 0,
+            },
+        ]
+    }
+
+    type Case = (
+        &'static str,
+        &'static str,
+        &'static str,
+        Vec<CompetitorRow>,
+        Option<f64>,
+        Option<String>,
+    );
+
+    #[test]
+    fn competitors_response_matches_legacy_json() {
+        let cases: Vec<Case> = vec![
+            (
+                "岩手県",
+                "盛岡市",
+                "飲食業",
+                sample_rows(),
+                Some(0.85),
+                None,
+            ),
+            (
+                "東京都",
+                "",
+                "介護",
+                sample_rows(),
+                Some(0.65),
+                Some("※ マッピング精度低".to_string()),
+            ),
+            ("", "", "", vec![], None, Some(String::new())),
+            ("", "", "", vec![], Some(0.0), None),
+            ("", "", "", vec![], Some(1.0), None),
+        ];
+        for (pref, muni, jt, rows, conf, warn) in cases {
+            let insight = build_top20_insight(&rows, pref, jt);
+            let new = RdCompetitorsResult::Ok(build_response(
+                pref.to_string(),
+                muni.to_string(),
+                jt.to_string(),
+                rows.clone(),
+                insight.clone(),
+                conf,
+                warn.clone(),
+            ));
+            let legacy = legacy_competitors_json(
+                pref.to_string(),
+                muni.to_string(),
+                jt.to_string(),
+                rows,
+                insight,
+                conf,
+                warn,
+            );
+            assert_eq!(
+                serde_json::to_string(&new).unwrap(),
+                serde_json::to_string(&legacy).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn competitors_error_matches_legacy_json() {
+        for msg in ["SalesNow DB 未接続", ""] {
+            assert_eq!(
+                serde_json::to_string(&error_response(msg)).unwrap(),
+                serde_json::to_string(&legacy_error_response(msg)).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn competitors_ts_decl_has_main_fields() {
+        let cfg = crate::handlers::recruitment_diag::types::ts_config();
+        let result = RdCompetitorsResult::decl(&cfg);
+        assert!(
+            result.contains("RdCompetitorsResponse | RdCompetitorsError"),
+            "{result}"
+        );
+        let ok = RdCompetitorsResponse::decl(&cfg);
+        assert!(ok.contains("companies: Array<RdCompetitorItem>"), "{ok}");
+        assert!(ok.contains("mapping_confidence: number | null"), "{ok}");
+        assert!(ok.contains("mapping_warning: string | null"), "{ok}");
+        let item = CompetitorRow::decl(&cfg);
+        assert!(item.contains("type RdCompetitorItem"), "{item}");
+        assert!(item.contains("employees: number"), "{item}");
+        assert!(item.contains("credit_score: number"), "{item}");
+        let err = RdCompetitorsError::decl(&cfg);
+        assert!(err.contains("error: string"), "{err}");
+        assert!(err.contains("companies: Array<RdCompetitorItem>"), "{err}");
     }
 }
