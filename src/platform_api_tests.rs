@@ -233,12 +233,20 @@ async fn api_navは管理者にだけ管理リンクを出す() {
     assert_eq!(admin["href"], "/admin/usage");
     assert_eq!(admin["kind"], "page");
     assert_eq!(v["header_links"].as_array().unwrap().len(), 4);
-    // CRM は admin のときだけ items に入る
-    let crm = item(&v, "crm");
-    assert_eq!(crm["label"], "CRM");
-    assert_eq!(crm["kind"], "app");
-    assert_eq!(crm["href"], "/app/crm");
-    assert_eq!(crm["hidden"], false);
+    // CRM は admin かつ /app/crm が KNOWN_SCREENS に登録済みのときだけ items に入る
+    let has_crm = v["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|i| i["id"] == "crm");
+    assert_eq!(has_crm, crate::handlers::nav::crm_screen_registered());
+    if has_crm {
+        let crm = item(&v, "crm");
+        assert_eq!(crm["label"], "CRM");
+        assert_eq!(crm["kind"], "app");
+        assert_eq!(crm["href"], "/app/crm");
+        assert_eq!(crm["hidden"], false);
+    }
 
     let cookie = login(&app, USER).await;
     let v = get_json(&app, "/api/nav", &cookie).await;

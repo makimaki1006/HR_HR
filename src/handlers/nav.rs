@@ -116,9 +116,15 @@ impl NavFeatures {
 }
 
 /// CRM をナビに出す条件 (1 箇所)。**役割が決まったら差し替える**。
-/// 今は管理者 (`is_admin`) だけに出す。
+/// 今は管理者 (`is_admin`) だけに出す。さらに `/app/crm` が `KNOWN_SCREENS` に登録されるまでは
+/// 出さない (未登録のうちは 404 のリンクになるため。crm-team の画面 PR とマージ順を問わない)。
 pub fn crm_visible(is_admin: bool) -> bool {
-    is_admin
+    is_admin && crm_screen_registered()
+}
+
+/// `/app/crm` が React 画面として公開済みか (`spa_shell::KNOWN_SCREENS`)。
+pub fn crm_screen_registered() -> bool {
+    super::spa_shell::KNOWN_SCREENS.contains(&"crm")
 }
 
 /// 隠した理由と日付。
@@ -968,25 +974,39 @@ mod tests {
 
     #[test]
     fn crmは管理者のときだけitemsに入る() {
-        let admin = build_nav_response("a@f-a-c.co.jp".into(), true, &features(false, false));
-        let crm = admin
-            .items
+        // 項目の形と位置は、CRM を出す features で直接確かめる
+        let with_crm = nav_items(
+            NAV_DEFS,
+            &NavFeatures {
+                crm: true,
+                ..features(false, false)
+            },
+        );
+        let crm = with_crm
             .iter()
             .find(|i| i.id == "crm")
-            .expect("admin の items に crm が無い");
+            .expect("crm=true の items に crm が無い");
         assert_eq!(crm.label, "CRM");
         assert_eq!(crm.kind, NavKind::App);
         assert_eq!(crm.href, "/app/crm");
         assert!(!crm.hidden);
         assert_eq!(crm.group, None);
         // 位置: コンサルKPI の直後 (hidden 群の前)
-        let pos = |r: &NavResponse, id: &str| r.items.iter().position(|i| i.id == id).unwrap();
-        assert_eq!(pos(&admin, "crm"), pos(&admin, "consulting") + 1);
+        let pos = |items: &[NavItem], id: &str| items.iter().position(|i| i.id == id).unwrap();
+        assert_eq!(pos(&with_crm, "crm"), pos(&with_crm, "consulting") + 1);
+
+        // 実際に出すかは「管理者」かつ「/app/crm が KNOWN_SCREENS に登録済み」
+        let admin = build_nav_response("a@f-a-c.co.jp".into(), true, &features(false, false));
+        assert_eq!(
+            ids(&admin.items).contains(&"crm"),
+            crm_screen_registered(),
+            "admin の CRM 表示は /app/crm の登録有無と一致する"
+        );
         let user = build_nav_response("u@f-a-c.co.jp".into(), false, &features(false, false));
         assert!(!ids(&user.items).contains(&"crm"));
         // from_env() では crm は false (役割は build_nav_response が決める)
         assert!(!NavFeatures::from_env().crm);
-        assert!(crm_visible(true));
+        assert_eq!(crm_visible(true), crm_screen_registered());
         assert!(!crm_visible(false));
     }
 
