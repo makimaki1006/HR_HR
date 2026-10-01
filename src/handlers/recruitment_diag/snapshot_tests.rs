@@ -632,16 +632,16 @@ fn gap_query(
     emp_type: &str,
     prefcode: Option<i32>,
     muni: &str,
-    company: Option<(f64, f64, f64)>,
+    company: (Option<f64>, Option<f64>, Option<f64>),
 ) -> condition_gap::ConditionGapQuery {
     condition_gap::ConditionGapQuery {
         job_type: job_type.to_string(),
         emp_type: emp_type.to_string(),
         prefcode,
         municipality: muni.to_string(),
-        company_salary_min: company.map(|c| c.0),
-        company_bonus_months: company.map(|c| c.1),
-        company_annual_holidays: company.map(|c| c.2),
+        company_salary_min: company.0,
+        company_bonus_months: company.1,
+        company_annual_holidays: company.2,
     }
 }
 
@@ -663,7 +663,7 @@ async fn snap_condition_gap() {
             "正社員",
             Some(3),
             "盛岡市",
-            Some((220_000.0, 3.0, 115.0)),
+            (Some(220_000.0), Some(3.0), Some(115.0)),
         ),
     )
     .await;
@@ -678,7 +678,7 @@ async fn snap_condition_gap() {
             "正社員",
             Some(3),
             "盛岡市",
-            Some((180_000.0, 1.0, 100.0)),
+            (Some(180_000.0), Some(1.0), Some(100.0)),
         ),
     )
     .await;
@@ -693,17 +693,62 @@ async fn snap_condition_gap() {
             "正社員",
             Some(3),
             "盛岡市",
-            Some((210_000.0, 2.5, 110.0)),
+            (Some(210_000.0), Some(2.5), Some(110.0)),
         ),
     )
     .await;
 
-    // 自社条件未入力 → 自社年収 0
+    // 自社条件未入力 → 自社値・差はすべて null
     let (_t, db) = create_test_hw_db();
     run_gap(
         "condition_gap__no_company_input",
         Some(db),
-        gap_query("飲食業", "正社員", Some(3), "盛岡市", None),
+        gap_query("飲食業", "正社員", Some(3), "盛岡市", (None, None, None)),
+    )
+    .await;
+
+    // 一部入力: 月給 + 年休のみ (賞与なし → 推定年収 null、年休差だけ出る)
+    let (_t, db) = create_test_hw_db();
+    run_gap(
+        "condition_gap__partial_salary_holidays",
+        Some(db),
+        gap_query(
+            "飲食業",
+            "正社員",
+            Some(3),
+            "盛岡市",
+            (Some(220_000.0), None, Some(115.0)),
+        ),
+    )
+    .await;
+
+    // 一部入力: 賞与のみ (年収・年休の差は null、賞与差だけ出る)
+    let (_t, db) = create_test_hw_db();
+    run_gap(
+        "condition_gap__partial_bonus_only",
+        Some(db),
+        gap_query(
+            "飲食業",
+            "正社員",
+            Some(3),
+            "盛岡市",
+            (None, Some(3.0), None),
+        ),
+    )
+    .await;
+
+    // 賞与 0 は入力値 0 (未入力ではない): 年収 = 月給 × 12
+    let (_t, db) = create_test_hw_db();
+    run_gap(
+        "condition_gap__zero_bonus_input",
+        Some(db),
+        gap_query(
+            "飲食業",
+            "正社員",
+            Some(3),
+            "盛岡市",
+            (Some(200_000.0), Some(0.0), Some(100.0)),
+        ),
     )
     .await;
 
@@ -712,7 +757,13 @@ async fn snap_condition_gap() {
     run_gap(
         "condition_gap__national",
         Some(db),
-        gap_query("飲食業", "", None, "", Some((220_000.0, 3.0, 115.0))),
+        gap_query(
+            "飲食業",
+            "",
+            None,
+            "",
+            (Some(220_000.0), Some(3.0), Some(115.0)),
+        ),
     )
     .await;
 
@@ -726,7 +777,7 @@ async fn snap_condition_gap() {
             "正社員",
             Some(99),
             "",
-            Some((220_000.0, 3.0, 115.0)),
+            (Some(220_000.0), Some(3.0), Some(115.0)),
         ),
     )
     .await;
@@ -741,7 +792,7 @@ async fn snap_condition_gap() {
             "パート",
             Some(3),
             "盛岡市",
-            Some((220_000.0, 3.0, 115.0)),
+            (Some(220_000.0), Some(3.0), Some(115.0)),
         ),
     )
     .await;
@@ -756,7 +807,7 @@ async fn snap_condition_gap() {
             "アルバイト",
             Some(3),
             "盛岡市",
-            Some((220_000.0, 3.0, 115.0)),
+            (Some(220_000.0), Some(3.0), Some(115.0)),
         ),
     )
     .await;
@@ -770,7 +821,7 @@ async fn snap_condition_gap() {
             "正社員",
             Some(3),
             "盛岡市",
-            Some((220_000.0, 3.0, 115.0)),
+            (Some(220_000.0), Some(3.0), Some(115.0)),
         ),
     )
     .await;

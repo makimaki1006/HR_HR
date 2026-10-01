@@ -5,18 +5,18 @@
  */
 export type RdConditionGapDiff = { 
 /**
- * 年収差 (円)
+ * 年収差 (円)。自社の推定年収が算出できないときは null
  */
-annual_income_diff: number, 
+annual_income_diff: number | null, 
 /**
- * 年収差の中央値比 (%)。中央値 0 以下は 0.0
+ * 年収差の中央値比 (%)。年収差が null なら null。中央値 0 以下は 0.0
  */
-annual_income_pct: number, 
+annual_income_pct: number | null, 
 /**
- * 年間休日差 (日)
+ * 年間休日差 (日)。自社の年間休日が未入力なら null
  */
-annual_holidays_diff: number, 
+annual_holidays_diff: number | null, 
 /**
- * 賞与月数差 (ヶ月)
+ * 賞与月数差 (ヶ月)。自社の賞与月数が未入力なら null
  */
-bonus_months_diff: number, };
+bonus_months_diff: number | null, };
