@@ -97,7 +97,7 @@ impl RdCommuteTier {
 
 /// 成功時の注記 (`hw_scope` / `causation` に出典・前提を足したもの)。
 #[derive(Debug, Clone, Serialize, TS)]
-pub struct RdTalentPoolNotes {
+pub struct RdTalentPoolExpansionNotes {
     /// HW 掲載求人のみが対象である旨。
     pub hw_scope: String,
     /// 相関であって因果ではない旨。
@@ -116,7 +116,7 @@ pub struct RdTalentPoolNotes {
     pub caveat_distance: String,
 }
 
-impl RdTalentPoolNotes {
+impl RdTalentPoolExpansionNotes {
     fn standard() -> Self {
         Self {
             hw_scope: HW_SCOPE_NOTE.to_string(),
@@ -155,7 +155,7 @@ pub struct RdTalentPoolExpansionResponse {
     /// OD データが 1 件以上取得できたか。
     pub is_data_available: bool,
     /// 注記。
-    pub notes: RdTalentPoolNotes,
+    pub notes: RdTalentPoolExpansionNotes,
 }
 
 /// Panel 9 エラー本体 (空の tier を含み、UI がそのまま描画できる形)。
@@ -305,7 +305,7 @@ fn build_response(
         tier_30min: build_tier(tier_30),
         tier_60min: build_tier(tier_60),
         is_data_available,
-        notes: RdTalentPoolNotes::standard(),
+        notes: RdTalentPoolExpansionNotes::standard(),
     }
 }
 
@@ -818,7 +818,7 @@ mod tests {
             "tier_30min: RdCommuteTier",
             "tier_60min: RdCommuteTier",
             "is_data_available: boolean",
-            "notes: RdTalentPoolNotes",
+            "notes: RdTalentPoolExpansionNotes",
         ] {
             assert!(resp.contains(f), "missing `{f}` in {resp}");
         }
