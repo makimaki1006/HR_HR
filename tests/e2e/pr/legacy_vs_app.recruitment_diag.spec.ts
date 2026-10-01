@@ -1,6 +1,12 @@
 import { Browser, expect, Locator, Page, test } from '@playwright/test';
 import { RD_FIXTURE as RD } from './helpers/fixture_values';
+import { serveLegacyCdnLocally } from './helpers/legacy_cdn';
 import { getChartSeriesLengths, login } from './helpers/login';
+
+// 旧シェルの CDN (htmx / ECharts) はローカルの同版ファイルで返す (helpers/legacy_cdn.ts)。
+test.beforeEach(async ({ context }) => {
+  await serveLegacyCdnLocally(context);
+});
 
 /**
  * 採用診断の旧新一致 spec (Phase 1A-5)。
@@ -334,6 +340,19 @@ async function readLegacyGaps(page: Page): Promise<string[][]> {
 
 // ---------- 新画面 ----------
 
+/** 新画面の「自社との差」(業界 / 全業界 × 年収・年休・賞与)。testid は rd-condition_gap-{gap_industry|gap_all}-{項目}。 */
+async function readAppGaps(page: Page): Promise<string[][]> {
+  const out: string[][] = [];
+  for (const key of ['gap_industry', 'gap_all']) {
+    const row: string[] = [];
+    for (const f of ['annual_income', 'annual_holidays', 'bonus_months']) {
+      row.push(collapse(await page.getByTestId(`rd-condition_gap-${key}-${f}`).textContent()));
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 const tid = (page: Page, id: string) => page.getByTestId(id);
 const tidText = async (page: Page, id: string): Promise<string> => collapse(await tid(page, id).textContent());
 
@@ -492,6 +511,7 @@ test.describe('採用診断: 旧画面と新画面の値一致', () => {
   test('新画面の表示値が fixture の既知値と一致する', async ({ page }) => {
     await runApp(page);
     expect(await readApp(page)).toEqual(expectedSnapshot());
+    expect(await readAppGaps(page)).toEqual([RD.conditionGap.display.gaps, RD.conditionGap.display.gaps]);
   });
 
   test('旧画面 == 新画面 (全パネルの表示値)', async ({ page, browser }) => {
@@ -499,9 +519,9 @@ test.describe('採用診断: 旧画面と新画面の値一致', () => {
     const legacy = await readLegacy(page);
     const app = await withAppPage(browser, async (appPage) => {
       await runApp(appPage);
-      return readApp(appPage);
+      return { ...(await readApp(appPage)), gaps: await readAppGaps(appPage) };
     });
-    expect(app).toEqual(legacy);
+    expect(app).toEqual({ ...legacy, gaps: await readLegacyGaps(page) });
   });
 
   test('Panel 4 / Panel 6 は Turso・SalesNow 無しで旧新とも「エラー」になり、トレンドのグラフは出ない', async ({
@@ -541,12 +561,12 @@ test.describe('採用診断: 未選択で実行したとき', () => {
     await page.click('#rd-run-btn');
     await expect.poll(() => dialogs).toEqual(['業種を選択してください']);
 
-    // 新画面: 画面内メッセージ (testid は規約に無いので、alert が出ないこととパネルが done にならないことだけ確かめる)
+    // 新画面: alert ではなく画面内メッセージ (rd-form-message) に旧と同じ文言を出し、パネルは実行しない
     dialogs.length = 0;
     await page.goto('/app/recruitment-diag');
     await expect(tid(page, 'rd-run')).toBeVisible();
     await tid(page, 'rd-run').click();
-    await page.waitForTimeout(500); // 「何も起きない」ことの確認なので状態待ちができない (最大 0.5 秒)
+    await expect(tid(page, 'rd-form-message')).toHaveText('業種を選択してください');
     expect(dialogs).toEqual([]);
     const done = await page.locator('[data-testid^="rd-panel-"][data-status="done"]').count();
     expect(done).toBe(0);
