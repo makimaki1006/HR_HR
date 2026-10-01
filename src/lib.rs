@@ -882,6 +882,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // Google Workspace OIDC (/auth/google/login, /auth/google/callback)。未ログインで到達する必要がある
         .merge(auth::google_oidc::router())
         .merge(api_v1)
+        .merge(handlers::crm_metadata::router())
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(jobgen_routes)

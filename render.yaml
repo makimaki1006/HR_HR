@@ -27,6 +27,11 @@ services:
         sync: false
       - key: ALLOWED_DOMAINS
         value: "f-a-c.co.jp"
+      # Server-only HubSpot metadata; never expose this token in frontend assets.
+      - key: HUBSPOT_ACCESS_TOKEN
+        sync: false
+      - key: CRM_METADATA_ALLOWED_EMAILS
+        value: s_fujimaki@f-a-c.co.jp
       - key: HELLOWORK_DB_PATH
         value: "data/hellowork.db"
       # 架電クオリティ(/call-quality) と 営業KPI(/sales-kpi) が読む
