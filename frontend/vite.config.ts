@@ -23,6 +23,7 @@ export default defineConfig({
         // W8 (2026-09-29): admin (/app/admin) and my (/app/my)
         admin: fromHere('src/entries/admin.tsx'),
         my: fromHere('src/entries/my.tsx'),
+        guide: fromHere('src/entries/guide.tsx'),
       },
     },
   },
