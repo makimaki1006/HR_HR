@@ -15,13 +15,19 @@ const fake = vi.hoisted(() => {
   };
   return {
     instance,
-    init: vi.fn(() => instance),
+    failImport: false,
+    init: vi.fn((..._args: unknown[]) => instance),
     getInstanceByDom: vi.fn(() => instance),
   };
 });
 
 vi.mock('./echartsRegistry', () => ({
-  echarts: { init: fake.init, getInstanceByDom: fake.getInstanceByDom },
+  // A throwing getter makes the dynamic import().then(({ echarts }) => ...) path fail like a
+  // chunk that cannot be loaded.
+  get echarts() {
+    if (fake.failImport) throw new Error('Failed to fetch dynamically imported module');
+    return { init: fake.init, getInstanceByDom: fake.getInstanceByDom };
+  },
 }));
 
 import { EChart } from './EChart';
@@ -49,6 +55,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  fake.failImport = false;
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -187,5 +194,68 @@ describe('EChart', () => {
     fake.instance.resize.mockClear();
     window.__echartsResizeAll?.();
     expect(fake.instance.resize).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-creates the chart when the renderer changes after mount', async () => {
+    const { findByTestId, rerender, container } = render(
+      <EChart option={optionA} testId="c" renderer="canvas" />,
+    );
+    await findByTestId('c');
+    expect(fake.init).toHaveBeenCalledTimes(1);
+    rerender(<EChart option={optionA} testId="c" renderer="svg" />);
+    await waitFor(() => {
+      expect(fake.init).toHaveBeenCalledTimes(2);
+    });
+    const root = container.firstElementChild as HTMLElement;
+    expect(fake.init).toHaveBeenLastCalledWith(root, undefined, { renderer: 'svg' });
+    expect(fake.instance.dispose).toHaveBeenCalledTimes(1);
+    // The new instance becomes ready on its own finished event.
+    await findByTestId('c');
+  });
+
+  it('shows data-chart-error and a message when the chart module cannot be loaded', async () => {
+    fake.failImport = true;
+    const { container, findByText } = render(<EChart option={optionA} testId="c" />);
+    expect(await findByText('グラフを読み込めませんでした')).toBeTruthy();
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.getAttribute('data-chart-error')).toBe('true');
+    expect(root.getAttribute('data-chart-ready')).toBeNull();
+    expect(fake.init).not.toHaveBeenCalled();
+  });
+
+  it('shows data-chart-error when init itself throws', async () => {
+    fake.init.mockImplementationOnce(() => {
+      throw new Error('init failed');
+    });
+    const { container, findByText } = render(<EChart option={optionA} testId="c" />);
+    expect(await findByText('グラフを読み込めませんでした')).toBeTruthy();
+    expect((container.firstElementChild as HTMLElement).getAttribute('data-chart-error')).toBe('true');
+  });
+
+  it('after an option change data-chart-ready goes false until the next finished event', async () => {
+    const finishers: (() => void)[] = [];
+    fake.instance.on.mockImplementationOnce((_e: string, cb: () => void) => {
+      finishers.push(cb);
+    });
+    const { container, rerender } = render(<EChart option={optionA} testId="c" />);
+    const root = container.firstElementChild as HTMLElement;
+    await waitFor(() => {
+      expect(finishers).toHaveLength(1);
+    });
+    act(() => {
+      finishers[0]?.();
+    });
+    expect(root.getAttribute('data-chart-ready')).toBe('true');
+    const optionB = { ...optionA, series: [{ type: 'line', data: [2, 3] }] };
+    rerender(<EChart option={optionB} testId="c" />);
+    await waitFor(() => {
+      expect(fake.instance.setOption).toHaveBeenCalledWith(optionB, { notMerge: true });
+    });
+    expect(root.getAttribute('data-chart-ready')).toBeNull();
+    expect(root.getAttribute('data-testid')).toBeNull();
+    act(() => {
+      finishers[0]?.();
+    });
+    expect(root.getAttribute('data-chart-ready')).toBe('true');
   });
 });

@@ -325,6 +325,13 @@ html {
     border-radius: 0.5rem;
   }
 
+  .hw-chart-error {
+    margin: 0;
+    padding: 1rem;
+    font-size: 0.875rem;
+    color: #fecaca;
+  }
+
   .hw-note {
     margin: 0.5rem 0 0;
     font-size: 0.75rem;
