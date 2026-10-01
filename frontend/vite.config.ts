@@ -20,6 +20,9 @@ export default defineConfig({
       input: {
         dummy: fromHere('src/entries/dummy.tsx'),
         jobgen: fromHere('src/entries/jobgen.tsx'),
+        // W8 (2026-09-29): admin (/app/admin) and my (/app/my)
+        admin: fromHere('src/entries/admin.tsx'),
+        my: fromHere('src/entries/my.tsx'),
       },
     },
   },
