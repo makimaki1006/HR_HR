@@ -76,6 +76,8 @@ interface Snapshot {
   marketTrendErrorShown: boolean;
   trendChartPresent: boolean;
   opportunity: { seriesLength: number; scoresSorted: number[] };
+  /** 分母の出典・単位の注記 (旧 == 新 == 既知の固定文)。 */
+  sources: { difficultyDenominator: string; opportunityDenominator: string; opportunityFormula: string };
   /** 各行に 示唆 ID / 見出し / 本文 / アクションが全部含まれるか (順番どおり)。 */
   insights: { count: number; ids: string[] };
   expansion: {
@@ -146,6 +148,14 @@ function expectedSnapshot(): Snapshot {
     opportunity: {
       seriesLength: RD.opportunity.count,
       scoresSorted: RD.opportunity.municipalities.map((m) => m.score).sort((a, b) => a - b),
+    },
+    sources: {
+      // 観光地補正なし (昼夜比 1.28 <= 1.5) なので平日昼の滞在人口
+      difficultyDenominator: '※ 分母: Agoop 人流データ 平日昼の滞在人口 (月平均)',
+      opportunityDenominator:
+        '※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)。区分のしきい値・分母は Panel 1 と異なります。',
+      opportunityFormula:
+        '※ スコア = HW求人数 ÷ 昼間人口 × 10,000（人口1万人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。',
     },
     insights: { count: RD.insights.length, ids: RD.insights.map((i) => i.id) },
     expansion: {
@@ -222,6 +232,11 @@ async function readLegacy(page: Page): Promise<Snapshot> {
       national: t(dc[2]?.querySelector('.text-xs.mt-1')),
       soWhat: t(body('difficulty').querySelector('.border-blue-500')),
     };
+    const sources = {
+      difficultyDenominator: t(body('difficulty').querySelector('[data-testid="rd-difficulty-denominator-source"]')),
+      opportunityDenominator: t(body('opportunity_map').querySelector('[data-testid="rd-opportunity_map-denominator-source"]')),
+      opportunityFormula: t(body('opportunity_map').querySelector('p')),
+    };
     // Panel 2: 4 つのカードの .text-xl (昼 / 夜 / 差分 / 昼夜比)
     const talentPool = Array.from(body('talent_pool').querySelectorAll('.grid > div .text-xl')).map((e) => t(e));
     // Panel 5: 2 つの表 (業界 / 全業界)。各行は [項目, 中央値, 差]
@@ -256,7 +271,7 @@ async function readLegacy(page: Page): Promise<Snapshot> {
       typeof d === 'object' && d !== null ? (d as { value: number }).value : (d as number),
     );
     return {
-      statuses, bodies, difficulty, talentPool, conditionGap, insights, boxes, rows,
+      statuses, bodies, difficulty, talentPool, conditionGap, insights, boxes, rows, sources,
       chartValues, hasOpportunityChart: !!chart,
       trendChartPresent: !!document.getElementById('rd-chart-trend'),
     };
@@ -309,6 +324,7 @@ async function readLegacy(page: Page): Promise<Snapshot> {
       seriesLength: raw.chartValues.length,
       scoresSorted: [...raw.chartValues].sort((a, b) => a - b),
     },
+    sources: raw.sources,
     insights: { count: raw.insights.length, ids: insightIds },
     expansion: {
       tier30: {
@@ -471,6 +487,11 @@ async function readApp(page: Page): Promise<Snapshot> {
     opportunity: {
       seriesLength: opportunityLengths[0] ?? -1,
       scoresSorted: [...opportunityValues].sort((a, b) => a - b),
+    },
+    sources: {
+      difficultyDenominator: await T('rd-difficulty-denominator-source'),
+      opportunityDenominator: await T('rd-opportunity_map-denominator-source'),
+      opportunityFormula: collapse(await tid(page, 'rd-panel-opportunity_map').locator('p').first().textContent()),
     },
     insights: { count: insightCount, ids: insightIds },
     expansion: {

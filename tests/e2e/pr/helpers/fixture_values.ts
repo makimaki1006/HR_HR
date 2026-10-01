@@ -77,13 +77,14 @@ export const RD_FIXTURE = {
     interpretation:
       '【東京都・飲食業】御社推定年収は業界中央値より 560000円 (16.0%) 上回る傾向。年間休日は業界中央値より 5日多い傾向。サンプル数 5件。※中央値は HW 掲載求人のみから算出。市場全体の実勢ではない。',
   },
-  // Panel 7: 東京都 飲食業 正社員。千代田区 5件/昼間人口 4000 = 1.25 標準、港区 4/1600 = 2.5 激戦、新宿区 3/12000 = 0.25 穴場
+  // Panel 7: 東京都 飲食業 正社員 (人口 1 万人あたり)。千代田区 5件/昼間人口 4000 x 10000 = 12.5 標準 (5 以上 20 未満)、
+  //          港区 4/1600 x 10000 = 25 激戦 (20 以上)、新宿区 3/12000 x 10000 = 2.5 穴場 (5 未満)
   opportunity: {
     // API の並び (スコア降順)
     municipalities: [
-      { name: '港区', hwCount: 4, population: 1600, score: 2.5, category: '激戦' },
-      { name: '千代田区', hwCount: 5, population: 4000, score: 1.25, category: '標準' },
-      { name: '新宿区', hwCount: 3, population: 12000, score: 0.25, category: '穴場' },
+      { name: '港区', hwCount: 4, population: 1600, score: 25, category: '激戦' },
+      { name: '千代田区', hwCount: 5, population: 4000, score: 12.5, category: '標準' },
+      { name: '新宿区', hwCount: 3, population: 12000, score: 2.5, category: '穴場' },
     ],
     count: 3,
   },

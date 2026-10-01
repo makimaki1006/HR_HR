@@ -55,6 +55,24 @@ describe('Panel 1 difficulty', () => {
     expect(text('rd-difficulty-so_what')).toBe('📝 採用競合が多い傾向があります。');
   });
 
+  it('shows the denominator source: daytime stay population, or midnight stay population for tourist areas', () => {
+    mount(renderDifficulty(fx.difficulty));
+    expect(text('rd-difficulty-denominator-source')).toBe('※ 分母: Agoop 人流データ 平日昼の滞在人口 (月平均)');
+    expect(screen.queryByTestId('rd-difficulty-tourist-note')).toBeNull();
+    cleanup();
+    mount(
+      renderDifficulty({
+        ...fx.difficulty,
+        metrics: { ...fx.difficulty.metrics, is_tourist_area: true },
+        tourist_correction_note: '観光地補正を適用',
+      }),
+    );
+    expect(text('rd-difficulty-denominator-source')).toBe(
+      '※ 分母: Agoop 人流データ 平日深夜の滞在人口 (居住人口の代理、観光地補正)',
+    );
+    expect(text('rd-difficulty-tourist-note')).toBe('観光地補正を適用');
+  });
+
   it('colors the rank label per label', () => {
     expect(rankColor('非常に激戦')).toBe('text-red-400');
     expect(rankColor('激戦')).toBe('text-orange-400');
@@ -162,17 +180,37 @@ describe('Panel 5 condition gap', () => {
     expect(text('rd-condition_gap-interpretation')).toBe('📝 年収は業界中央値を下回る傾向があります。');
   });
 
-  it('shows dashes for every difference when no own conditions were entered', () => {
+  it('shows dashes for every difference when no own conditions were entered (null)', () => {
     mount(
       renderConditionGap({
         ...fx.conditionGap,
-        company: { annual_income_estimated: 0, annual_holidays: 0, bonus_months: 0, salary_min: 0 },
+        company: { annual_income_estimated: null, annual_holidays: null, bonus_months: null, salary_min: null },
+        gap_industry: { annual_income_diff: null, annual_income_pct: null, annual_holidays_diff: null, bonus_months_diff: null },
+        gap_all: { annual_income_diff: null, annual_income_pct: null, annual_holidays_diff: null, bonus_months_diff: null },
       }),
     );
     for (const id of ['annual_income', 'annual_holidays', 'bonus_months']) {
       expect(text(`rd-condition_gap-gap_industry-${id}`)).toBe('—');
       expect(text(`rd-condition_gap-gap_all-${id}`)).toBe('—');
     }
+  });
+});
+
+describe('Panel 5 condition gap partial input', () => {
+  it('shows a difference only for the entered items and treats 0 as an input value', () => {
+    mount(
+      renderConditionGap({
+        ...fx.conditionGap,
+        // salary + holidays entered, bonus not entered -> no estimated income
+        company: { annual_income_estimated: null, annual_holidays: 125, bonus_months: 0, salary_min: 250000 },
+      }),
+    );
+    expect(text('rd-condition_gap-gap_industry-annual_income')).toBe('—');
+    expect(text('rd-condition_gap-gap_industry-annual_holidays')).toBe('+10日');
+    // bonus 0 is an entered value: 0 - 2.4
+    expect(text('rd-condition_gap-gap_industry-bonus_months')).toBe('-2.4ヶ月');
+    // the all-industry bonus benchmark is 0 -> still no difference
+    expect(text('rd-condition_gap-gap_all-bonus_months')).toBe('—');
   });
 });
 
@@ -217,8 +255,24 @@ describe('Panel 7 opportunity map', () => {
       series: { data: { value: number; itemStyle: { color: string } }[] }[];
     };
     expect(option.yAxis.data).toEqual(['穴場区', '標準区', '激戦区']);
-    expect(option.series[0]?.data.map((d) => d.value)).toEqual([0.05, 1, 9.5]);
+    expect(option.series[0]?.data.map((d) => d.value)).toEqual([0.5, 10, 90]);
     expect(option.series[0]?.data.map((d) => d.itemStyle.color)).toEqual(['#22c55e', '#64748b', '#ef4444']);
+  });
+
+  it('states per-10,000 units and the census denominator source', () => {
+    mount(renderOpportunityMap(fx.opportunity));
+    expect(text('rd-opportunity_map-denominator-source')).toBe(
+      '※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)。区分のしきい値・分母は Panel 1 と異なります。',
+    );
+    expect(document.body.textContent).toContain('× 10,000（人口1万人あたり求人数）');
+    expect(document.body.textContent).not.toContain('千人');
+    const option = charts.byId['rd-chart-opportunity'] as { xAxis: { name: string } };
+    expect(option.xAxis.name).toBe('スコア（1万人あたり求人数）');
+  });
+
+  it('shows the census-based empty message', () => {
+    mount(renderOpportunityMap({ ...fx.opportunity, municipalities: [] }));
+    expect(document.body.textContent).toContain('昼間人口 (国勢調査) と HW求人の両方が必要です。');
   });
 
   it('keeps only the top 25 in the chart but counts all municipalities in the status', () => {
