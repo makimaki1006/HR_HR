@@ -1,5 +1,5 @@
 import { Browser, expect, Locator, Page, test } from '@playwright/test';
-import { RD_FIXTURE as RD } from './helpers/fixture_values';
+import { PR_BASE_URL, RD_FIXTURE as RD } from './helpers/fixture_values';
 import { serveLegacyCdnLocally } from './helpers/legacy_cdn';
 import { getChartSeriesLengths, login } from './helpers/login';
 
@@ -89,16 +89,13 @@ interface Snapshot {
 
 const collapse = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim();
 
-/** 先頭の数値 (カンマ・先頭の + を除く)。数値が無ければ空文字。 */
+/** 先頭の数値 (カンマを除き、符号 + / - は残す。Panel 2・9 の「+」も比べるため)。数値が無ければ空文字。 */
 function num(text: string | null | undefined): string {
   const m = (text ?? '').replace(/,/g, '').match(/[+-]?\d+(?:\.\d+)?/);
-  return m ? m[0].replace(/^\+/, '') : '';
+  return m ? m[0] : '';
 }
 
 /** 文字列中の数値を全部 (カンマ・先頭の + を除いて) 返す。 */
-function nums(text: string | null | undefined): string[] {
-  return ((text ?? '').replace(/,/g, '').match(/[+-]?\d+(?:\.\d+)?/g) ?? []).map((s) => s.replace(/^\+/, ''));
-}
 
 function expectedSnapshot(): Snapshot {
   const d = RD.difficulty;
@@ -134,7 +131,7 @@ function expectedSnapshot(): Snapshot {
     talentPool: {
       day: String(RD.talentPool.day),
       night: String(RD.talentPool.night),
-      inflow: String(RD.talentPool.inflow),
+      inflow: `+${RD.talentPool.inflow}`, // 旧新とも 0 以上は「+」付き
       ratio: String(RD.talentPool.ratio),
     },
     inflowShowsDeveloping: true,
@@ -152,8 +149,8 @@ function expectedSnapshot(): Snapshot {
     },
     insights: { count: RD.insights.length, ids: RD.insights.map((i) => i.id) },
     expansion: {
-      tier30: { count: String(x.tier30.count), pool: String(x.tier30.unemploymentPool), hw: String(x.tier30.hwPostings) },
-      tier60: { count: String(x.tier60.count), pool: String(x.tier60.unemploymentPool), hw: String(x.tier60.hwPostings) },
+      tier30: { count: String(x.tier30.count), pool: `+${x.tier30.unemploymentPool}`, hw: `+${x.tier30.hwPostings}` },
+      tier60: { count: String(x.tier60.count), pool: `+${x.tier60.unemploymentPool}`, hw: `+${x.tier60.hwPostings}` },
       rows: x.rows.map((r) => ({ name: r[0], nums: [String(r[1]), String(r[2]), String(r[3])] })),
     },
   };
@@ -329,7 +326,7 @@ async function readLegacy(page: Page): Promise<Snapshot> {
   };
 }
 
-/** 旧画面だけの追加確認: 差の表示 (符号つき)。新画面の規約には差の testid が無いので旧画面側のみ。 */
+/** 旧画面: Panel 5 の「自社との差」(符号つき)。新画面は readAppGaps (rd-condition_gap-{gap_industry|gap_all}-*) で同じ値を取る。 */
 async function readLegacyGaps(page: Page): Promise<string[][]> {
   return page.evaluate(() => {
     const t = (el: Element | null | undefined): string => ((el as HTMLElement | null)?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -395,7 +392,9 @@ async function getChartSeriesValues(page: Page, testId: string): Promise<number[
 async function readApp(page: Page): Promise<Snapshot> {
   const states = {} as Snapshot['states'];
   for (const n of PANELS) {
-    states[n] = ((await tid(page, `rd-panel-${n}`).getAttribute('data-status')) as 'done' | 'error') ?? 'done';
+    const st = await tid(page, `rd-panel-${n}`).getAttribute('data-status');
+    if (st !== 'done' && st !== 'error') throw new Error(`rd-panel-${n} の data-status が done / error でない: ${String(st)}`);
+    states[n] = st;
   }
   const T = (id: string) => tidText(page, id);
 
@@ -498,6 +497,65 @@ async function withAppPage<T>(browser: Browser, fn: (page: Page) => Promise<T>):
   }
 }
 
+
+// ---------- 色・並び順 (旧 == 新 == 既知値) ----------
+
+/** 色の区分は Tailwind の文字色クラス (旧画面と新画面で同じクラス名を使う) で比べる。 */
+type Marks = {
+  rankTone: string;
+  inflowTone: string;
+  /** Panel 7 の棒: 表示順 (下から上ではなく option の並び) の名前・値・色 */
+  opportunityBars: { name: string; value: number; color: string }[];
+};
+
+const toneOf = (cls: string | null | undefined): string => (cls ?? '').match(/\btext-(?:red|orange|yellow|green|blue|slate)-\d{3}\b/)?.[0] ?? '';
+
+const CATEGORY_COLOR: Record<string, string> = { 穴場: '#22c55e', 激戦: '#ef4444' };
+
+function expectedMarks(): Marks {
+  return {
+    rankTone: 'text-green-400', // rank_label「穏やか」(旧画面 renderDifficulty の levelColor)
+    inflowTone: 'text-blue-400', // commuter_inflow >= 0
+    // 旧画面は score 昇順 (穴場が上位) に並べ、区分で色を付ける
+    opportunityBars: [...RD.opportunity.municipalities]
+      .sort((a, b) => a.score - b.score)
+      .map((m) => ({ name: m.name, value: m.score, color: CATEGORY_COLOR[m.category] ?? '#64748b' })),
+  };
+}
+
+type BarOption = { yAxis?: { data?: string[] }[]; series?: { data?: { value: number; itemStyle?: { color?: string } }[] }[] };
+
+function barsOf(opt: BarOption | undefined): Marks['opportunityBars'] {
+  const names = opt?.yAxis?.[0]?.data ?? [];
+  const data = opt?.series?.[0]?.data ?? [];
+  return data.map((d, i) => ({ name: names[i] ?? '', value: d.value, color: d.itemStyle?.color ?? '' }));
+}
+
+async function readLegacyMarks(page: Page): Promise<Marks> {
+  const raw = await page.evaluate(() => {
+    const body = (n: string) => document.querySelector(`section[data-panel="${n}"] .rd-panel-body`) as HTMLElement;
+    const dc = body('difficulty').querySelectorAll('.grid > div');
+    const tp = body('talent_pool').querySelectorAll('.grid > div .text-xl');
+    const w = window as unknown as { _rdCharts?: Record<string, { getOption: () => unknown }> };
+    return {
+      rankCls: (dc[0]?.querySelector('.text-sm') as HTMLElement | null)?.className ?? '',
+      inflowCls: (tp[2] as HTMLElement | undefined)?.className ?? '',
+      opt: w._rdCharts?.['rd-chart-opportunity']?.getOption(),
+    };
+  });
+  return { rankTone: toneOf(raw.rankCls), inflowTone: toneOf(raw.inflowCls), opportunityBars: barsOf(raw.opt as BarOption) };
+}
+
+async function readAppMarks(page: Page): Promise<Marks> {
+  const rankCls = await page.getByTestId('rd-difficulty-rank_label').getAttribute('class');
+  const inflowCls = await page.getByTestId('rd-talent_pool-metrics-commuter_inflow').getAttribute('class');
+  const opt = await page.getByTestId('rd-chart-opportunity').evaluate((el) => {
+    const w = window as unknown as { __echarts_getInstanceByDom?: (d: HTMLElement) => { getOption: () => unknown } | undefined };
+    return w.__echarts_getInstanceByDom?.(el as HTMLElement)?.getOption();
+  });
+  return { rankTone: toneOf(rankCls), inflowTone: toneOf(inflowCls), opportunityBars: barsOf(opt as BarOption) };
+}
+
 // ---------- テスト ----------
 
 test.describe('採用診断: 旧画面と新画面の値一致', () => {
@@ -524,6 +582,18 @@ test.describe('採用診断: 旧画面と新画面の値一致', () => {
     expect(app).toEqual({ ...legacy, gaps: await readLegacyGaps(page) });
   });
 
+  test('色の区分 (Panel 1 ランク・Panel 2 差分) と Panel 7 の棒の並び順・色が 旧 == 新 == 既知値', async ({ page, browser }) => {
+    await runLegacy(page);
+    const legacy = await readLegacyMarks(page);
+    expect(legacy).toEqual(expectedMarks());
+    const app = await withAppPage(browser, async (appPage) => {
+      await runApp(appPage);
+      await expect(appPage.getByTestId('rd-chart-opportunity')).toHaveAttribute('data-chart-ready', 'true');
+      return readAppMarks(appPage);
+    });
+    expect(app).toEqual(legacy);
+  });
+
   test('Panel 4 / Panel 6 は Turso・SalesNow 無しで旧新とも「エラー」になり、トレンドのグラフは出ない', async ({
     page,
     browser,
@@ -545,6 +615,34 @@ test.describe('採用診断: 旧画面と新画面の値一致', () => {
     expect(app.competitorsErrorShown).toBe(true);
     expect(app.marketTrendErrorShown).toBe(true);
     expect(app.trendChartPresent).toBe(false);
+  });
+});
+
+test.describe('採用診断: セッションのフィルタ', () => {
+  test('セッションの市区町村が初期値になり、「すべて」を選ぶと都道府県全体で集計する (画面に無い市区町村で補わない)', async ({ page }) => {
+    await login(page);
+    // 旧シェルのヘッダーフィルタと同じ経路でセッションに 東京都 / 千代田区 を入れる
+    const headers = { Origin: PR_BASE_URL, 'X-Requested-With': 'fetch' };
+    expect((await page.request.post('/api/set_prefecture', { form: { prefecture: RD.pref }, headers })).ok()).toBe(true);
+    expect((await page.request.post('/api/set_municipality', { form: { municipality: RD.city }, headers })).ok()).toBe(true);
+
+    await page.goto('/app/recruitment-diag');
+    await expect(tid(page, 'rd-form-pref')).toHaveValue(RD.pref);
+    await expect(tid(page, 'rd-form-city')).toHaveValue(RD.city);
+
+    await tid(page, 'rd-form-job-type').selectOption({ label: RD.jobType });
+    await tid(page, 'rd-form-emp-type').selectOption({ label: RD.empType });
+    await tid(page, 'rd-form-city').selectOption({ value: '' }); // すべて（都道府県全体）
+    await expect(tid(page, 'rd-form-city')).toHaveValue('');
+    await tid(page, 'rd-run').click();
+    await expect(tid(page, 'rd-panel-difficulty')).toHaveAttribute('data-status', 'done');
+    // fixture: 東京都 正社員 24 行のうち job_type が 飲食業 (k が奇数) は 千代田区 5 + 港区 4 + 新宿区 3 = 12 件。千代田区だけなら 5 件
+    expect(num(await tidText(page, 'rd-difficulty-metrics-hw_count'))).toBe(String(RD.prefWideHwCount));
+
+    // セッションの市区町村も空になっている (画面とセッションが食い違わない)
+    const nav = await page.request.get('/api/filters/current', { headers: { Accept: 'application/json' } });
+    expect(nav.ok()).toBe(true);
+    expect(((await nav.json()) as { municipality: string }).municipality).toBe('');
   });
 });
 

@@ -28,6 +28,8 @@ export const PR_BASE_URL = `http://localhost:${PR_PORT}`;
  * 画面に出る文字列は、旧画面 (templates/tabs/recruitment_diag.html) の書式で数値だけ取り出して比べる。
  */
 export const RD_FIXTURE = {
+  /** 東京都全体 (市区町村なし) の 飲食業 / 正社員 の HW 件数: 千代田区 5 + 港区 4 + 新宿区 3 (各市区町村の正社員のうち k が奇数の行)。 */
+  prefWideHwCount: 12,
   jobType: '飲食業',
   empType: '正社員',
   pref: '東京都',
