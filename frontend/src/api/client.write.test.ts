@@ -3,6 +3,7 @@ import {
   ApiAbortedError,
   ApiDataError,
   ApiHttpError,
+  ApiInvalidResponseError,
   ApiNetworkError,
   ApiTimeoutError,
   AuthRequiredError,
@@ -97,12 +98,40 @@ describe('apiPost', () => {
     expect(result.error.message).toBe('login required (redirected to /login)');
   });
 
-  it('treats a non-JSON 200 as AuthRequiredError by default', async () => {
+  it('treats a plain non-JSON 200 as ApiInvalidResponseError and a login form as AuthRequiredError', async () => {
     fetchMock.mockResolvedValueOnce(textResponse('OK'));
+    const plain = await apiPost('/api/x', {});
+    expect(plain.ok).toBe(false);
+    if (!plain.ok) expect(plain.error).toBeInstanceOf(ApiInvalidResponseError);
+
+    fetchMock.mockResolvedValueOnce(
+      textResponse('<form action="/login" method="post"><input name="email"></form>'),
+    );
+    const login = await apiPost('/api/x', {});
+    expect(login.ok).toBe(false);
+    if (!login.ok) expect(login.error).toBeInstanceOf(AuthRequiredError);
+  });
+
+  it('keeps the JSON body of a 503 in ApiHttpError.body (error_kind)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error_kind: 'hubspot_rate_limited', message: 'slow down' }, 503),
+    );
+    const result = await apiPost('/api/crm/x', {});
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBeInstanceOf(ApiHttpError);
+    const err = result.error as ApiHttpError;
+    expect(err.status).toBe(503);
+    expect(err.body).toEqual({ error_kind: 'hubspot_rate_limited', message: 'slow down' });
+  });
+
+  it('leaves ApiHttpError.body undefined when the error body is not JSON', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse('<html>Bad Gateway</html>', 502));
     const result = await apiPost('/api/x', {});
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toBeInstanceOf(AuthRequiredError);
+    expect((result.error as ApiHttpError).status).toBe(502);
+    expect((result.error as ApiHttpError).body).toBeUndefined();
   });
 
   it('returns ApiDataError for 200 {"error"} and ApiHttpError for 500', async () => {
@@ -212,11 +241,11 @@ describe('apiPostForm', () => {
     if (!result.ok) expect(result.error).toBeInstanceOf(AuthRequiredError);
   });
 
-  it('without expect: text the "OK" body is treated as a lost session', async () => {
+  it('without expect: text the "OK" body is an invalid response (not a login page)', async () => {
     fetchMock.mockResolvedValueOnce(textResponse('OK'));
     const result = await apiPostForm('/api/set_prefecture', {});
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBeInstanceOf(AuthRequiredError);
+    if (!result.ok) expect(result.error).toBeInstanceOf(ApiInvalidResponseError);
   });
 });
 
@@ -324,6 +353,20 @@ describe('apiUpload', () => {
     if (result.ok) return;
     expect(result.error).toBeInstanceOf(AuthRequiredError);
     expect(result.error.message).toBe('login required (redirected to /login)');
+  });
+
+  it('keeps the JSON body of a 503 upload error and treats a non-JSON 2xx as invalid', async () => {
+    const p1 = apiUpload('/api/x', csvForm());
+    lastXhr().respond(503, '{"error_kind":"hubspot_rate_limited"}', 'application/json');
+    const r1 = await p1;
+    expect(r1.ok).toBe(false);
+    if (!r1.ok) expect((r1.error as ApiHttpError).body).toEqual({ error_kind: 'hubspot_rate_limited' });
+
+    const p2 = apiUpload('/api/x', csvForm());
+    lastXhr().respond(200, 'done', 'text/plain');
+    const r2 = await p2;
+    expect(r2.ok).toBe(false);
+    if (!r2.ok) expect(r2.error).toBeInstanceOf(ApiInvalidResponseError);
   });
 
   it('maps 413 to ApiHttpError and a network failure to ApiNetworkError', async () => {
