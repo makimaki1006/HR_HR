@@ -21,7 +21,7 @@ hw_count: number,
  */
 population: number, 
 /**
- * 人口千人あたり HW 求人数 (小数第 3 位に丸め)。
+ * 人口 1 万人あたり HW 求人数 (小数第 3 位に丸め)。
  */
 score: number, 
 /**
