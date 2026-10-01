@@ -23,6 +23,10 @@ const USER: &str = "hanako@f-a-c.co.jp";
 const ADMIN: &str = "boss@f-a-c.co.jp";
 const PASS: &str = "internal-pass";
 
+/// プロセスの環境変数を書き換えるテストを直列にするロック。cargo test はテストを並列に走らせるので、
+/// set_var / remove_var を同時に行わないようにする (営業KPI のテストで同種の競合による失敗が出た)。
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn test_config() -> AppConfig {
     AppConfig {
         port: 0,
@@ -562,8 +566,9 @@ async fn jobgen経路でも未ログインのapiは同じ条件で401json() {
 #[tokio::test]
 async fn csrfはトークン認証の書き込みを対象外にしcookieだけの書き込みは厳格化する() {
     const TOKEN: &str = "platform-api-test-token-7f3a";
-    // このテスト以外に API_AUTH_TOKEN を設定するテストは無い。トークン未提示の要求は値に関係なく
+    // 環境変数を書き換えるテストは ENV_LOCK で直列にする。トークン未提示の要求は値に関係なく
     // セッション認証に落ちるので、並行する他のテストの結果は変わらない。
+    let _env = ENV_LOCK.lock().await;
     std::env::set_var("API_AUTH_TOKEN", TOKEN);
     let app = app();
     let json = [("content-type", "application/json")];
@@ -762,6 +767,8 @@ fn csrf_allowlistの機械向け経路はorigin無しでも通る() {
 #[cfg(debug_assertions)]
 #[test]
 fn csrf_debug_envで追加したoriginだけ通る() {
+    // 環境変数を書き換えるので ENV_LOCK で他の書き換えテストと直列にする (同期テストなので blocking_lock)。
+    let _env = ENV_LOCK.blocking_lock();
     use crate::check_csrf;
     let req = |origin: &str| {
         Request::builder()
