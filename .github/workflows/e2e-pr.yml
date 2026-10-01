@@ -1,0 +1,65 @@
+# PR ごとの E2E (共通基盤)。fixture SQLite + ビルド済み Rust + React ビルド + Playwright (chromium)。
+# 各移行チームは tests/e2e/pr/ に spec を足す (使い方: tests/e2e/pr/playwright.pr.config.ts 冒頭)。
+# nightly の本番 smoke (regression.yml) とは別物。ci.yml は変更しない。
+#
+# cargo build は debug を使う: release は LTO/最適化で ci.yml の rust-test ジョブの
+# 「Build release」に相当する時間がかかる。E2E の fixture は 63 行で速度が要らないため。
+# (Swatinem/rust-cache のキーは ci.yml の debug 系ジョブと共有されないので、初回は全ビルド。)
+name: E2E (PR)
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build server (debug)
+        run: cargo build --bin rust_dashboard
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - name: Build frontend (static/app)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Generate fixture DB
+        run: python scripts/e2e/make_fixture_db.py "$RUNNER_TEMP/e2e-fixture/hellowork.db"
+
+      - name: Install Playwright (chromium only)
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run PR E2E
+        env:
+          E2E_BIN: ${{ github.workspace }}/target/debug/rust_dashboard
+          E2E_FIXTURE_DB: ${{ runner.temp }}/e2e-fixture/hellowork.db
+        run: npx playwright test -c tests/e2e/pr/playwright.pr.config.ts
+
+      - name: Upload traces and screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-pr-report
+          path: |
+            test-results-pr/
+            playwright-report-pr/
+          if-no-files-found: ignore
+          retention-days: 7
