@@ -10,7 +10,6 @@ use tower_sessions::Session;
 
 use super::helpers::escape_html;
 use super::overview::{format_number, get_i64, get_str};
-use crate::models::job_seeker::PREFECTURE_ORDER;
 use crate::AppState;
 
 #[derive(Deserialize)]
@@ -186,28 +185,7 @@ pub async fn get_prefectures(
     _session: Session,
     Query(_params): Query<PrefecturesQuery>,
 ) -> Html<String> {
-    let mut prefs = if let Some(db) = &state.hw_db {
-        let db = db.clone();
-        tokio::task::spawn_blocking(move || {
-            db.query(
-                "SELECT DISTINCT prefecture FROM postings WHERE prefecture IS NOT NULL AND prefecture != ''",
-                &[],
-            ).unwrap_or_default()
-            .iter()
-            .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .collect::<Vec<String>>()
-        }).await.unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-
-    // JIS北→南順にソート
-    prefs.sort_by_key(|p| {
-        PREFECTURE_ORDER
-            .iter()
-            .position(|&o| o == p.as_str())
-            .unwrap_or(99)
-    });
+    let prefs = super::geo_api::fetch_prefectures(state.hw_db.as_ref()).await;
 
     let html: String = prefs
         .iter()
@@ -234,34 +212,16 @@ pub async fn get_municipalities_cascade(
         return Html(String::new());
     }
 
-    let munis = if let Some(db) = &state.hw_db {
-        let db = db.clone();
-        let pref = prefecture.to_string();
-        tokio::task::spawn_blocking(move || {
-            db.query(
-                "SELECT DISTINCT municipality FROM postings WHERE prefecture = ?1 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
-                &[&pref as &dyn rusqlite::types::ToSql],
-            ).unwrap_or_default()
-            .iter()
-            .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .collect::<Vec<String>>()
-        }).await.unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let munis = super::geo_api::fetch_municipalities(state.hw_db.as_ref(), prefecture).await;
 
     let html: String = munis
         .iter()
-        .map(
-            |m| match crate::geo::city_code::city_name_to_code(prefecture, m) {
-                Some(code) => super::competitive::build_option_with_data(
-                    m,
-                    m,
-                    &[("citycode", code.to_string())],
-                ),
-                None => super::competitive::build_option(m, m),
-            },
-        )
+        .map(|(m, code)| match code {
+            Some(code) => {
+                super::competitive::build_option_with_data(m, m, &[("citycode", code.to_string())])
+            }
+            None => super::competitive::build_option(m, m),
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
