@@ -153,7 +153,12 @@ mod tests {
         }
     }
 
-    fn q(pref: Option<&str>, muni: Option<&str>, ind: Option<&str>, jt: Option<&str>) -> FilterQuery {
+    fn q(
+        pref: Option<&str>,
+        muni: Option<&str>,
+        ind: Option<&str>,
+        jt: Option<&str>,
+    ) -> FilterQuery {
         FilterQuery {
             pref: pref.map(str::to_string),
             muni: muni.map(str::to_string),
@@ -192,10 +197,16 @@ mod tests {
         assert_eq!(f.industry_raws, vec!["病院"]);
         // pref + muni
         let f = resolve_filters(&s, &q(Some("北海道"), Some("札幌市"), None, None));
-        assert_eq!((f.prefecture.as_str(), f.municipality.as_str()), ("北海道", "札幌市"));
+        assert_eq!(
+            (f.prefecture.as_str(), f.municipality.as_str()),
+            ("北海道", "札幌市")
+        );
         // muni だけ → pref は session
         let f = resolve_filters(&s, &q(None, Some("港区"), None, None));
-        assert_eq!((f.prefecture.as_str(), f.municipality.as_str()), ("東京都", "港区"));
+        assert_eq!(
+            (f.prefecture.as_str(), f.municipality.as_str()),
+            ("東京都", "港区")
+        );
         // pref= (空) → 全国に解除、muni も空
         let f = resolve_filters(&s, &q(Some(""), None, None, None));
         assert_eq!((f.prefecture.as_str(), f.municipality.as_str()), ("", ""));
@@ -281,9 +292,19 @@ mod tests {
         if let Some(c) = cookie {
             b = b.header("cookie", c);
         }
-        let res = app.clone().oneshot(b.body(Body::empty()).unwrap()).await.unwrap();
+        let res = app
+            .clone()
+            .oneshot(b.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         let status = res.status();
-        let ct = res.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+        let ct = res
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         assert!(ct.starts_with("application/json"), "{ct}");
         let body = to_bytes(res.into_body(), 64 * 1024).await.unwrap();
         (status, serde_json::from_slice(&body).unwrap())
@@ -298,7 +319,10 @@ mod tests {
             serde_json::json!({"prefecture": "", "municipality": "", "job_types": [], "industry_raws": []})
         );
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
-        assert_eq!(keys, ["prefecture", "municipality", "job_types", "industry_raws"]);
+        assert_eq!(
+            keys,
+            ["prefecture", "municipality", "job_types", "industry_raws"]
+        );
     }
 
     #[tokio::test]
@@ -318,7 +342,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
-        let cookie = res.headers()["set-cookie"].to_str().unwrap().split(';').next().unwrap().to_string();
+        let cookie = res.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
         let (status, v) = get_json(&app, Some(&cookie)).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
@@ -338,7 +368,13 @@ mod tests {
             )
             .await
             .unwrap();
-        let cookie = res.headers()["set-cookie"].to_str().unwrap().split(';').next().unwrap().to_string();
+        let cookie = res.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
         let (_, v) = get_json(&app, Some(&cookie)).await;
         assert_eq!(v["job_types"], serde_json::json!(["建設"]));
         assert_eq!(v["prefecture"], "");

@@ -83,6 +83,8 @@ pub enum Feature {
     KeywordTools,
     /// `GEMINI_API_KEY` がある (`media_engine::config::gemini_api_key`)。
     JobgenTools,
+    /// CRM (`/app/crm`)。今は管理者だけ (`crm_visible`)。
+    Crm,
 }
 
 /// 環境変数の判定結果。ハンドラは `from_env()`、テストは任意の値を渡す。
@@ -90,6 +92,8 @@ pub enum Feature {
 pub struct NavFeatures {
     pub keyword_tools: bool,
     pub jobgen_tools: bool,
+    /// CRM を出すか。環境変数ではなく利用者の役割で決まる (`crm_visible`)。`from_env()` では false。
+    pub crm: bool,
 }
 
 impl NavFeatures {
@@ -98,6 +102,7 @@ impl NavFeatures {
         Self {
             keyword_tools: crate::media_engine::handlers::media_engine_enabled(),
             jobgen_tools: !crate::media_engine::config::gemini_api_key().is_empty(),
+            crm: false,
         }
     }
 
@@ -105,8 +110,15 @@ impl NavFeatures {
         match f {
             Feature::KeywordTools => self.keyword_tools,
             Feature::JobgenTools => self.jobgen_tools,
+            Feature::Crm => self.crm,
         }
     }
+}
+
+/// CRM をナビに出す条件 (1 箇所)。**役割が決まったら差し替える**。
+/// 今は管理者 (`is_admin`) だけに出す。
+pub fn crm_visible(is_admin: bool) -> bool {
+    is_admin
 }
 
 /// 隠した理由と日付。
@@ -164,7 +176,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         hidden: None,
     },
     NavDef {
-        id: "keyword_tools",
+        id: "keyword-tools",
         label: "キーワード需要",
         title: Some("検索キーワードの需要をアプリ内で確認"),
         kind: NavKind::LegacyTab,
@@ -174,7 +186,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         hidden: None,
     },
     NavDef {
-        id: "jobgen_tools",
+        id: "jobgen-tools",
         label: "求人票作成",
         title: Some("求人票生成・競合比較・応募者ジャーニー診断"),
         kind: NavKind::LegacyTab,
@@ -195,7 +207,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         hidden: None,
     },
     NavDef {
-        id: "regional_analysis",
+        id: "regional-analysis",
         label: "地域分析",
         title: None,
         kind: NavKind::LegacyTab,
@@ -246,7 +258,7 @@ pub const NAV_DEFS: &[NavDef] = &[
     },
     // ---- 独立ページ (中身がフル HTML なので HTMX で swap せず <a> で移動する) ----
     NavDef {
-        id: "sales_kpi",
+        id: "sales-kpi",
         label: "営業KPI",
         title: Some("今月の商談と架電。営業の現場が毎朝見る画面"),
         kind: NavKind::Page,
@@ -265,6 +277,17 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: None,
         hidden: None,
     },
+    // CRM (React 画面 /app/crm)。`crm_visible` を満たすときだけ items に入る (今は管理者のみ)。
+    NavDef {
+        id: "crm",
+        label: "CRM",
+        title: None,
+        kind: NavKind::App,
+        target: "/app/crm",
+        group: None,
+        requires: Some(Feature::Crm),
+        hidden: None,
+    },
     // ---- 非表示 (削除しない。hidden を None にすれば旧新両方のナビに戻る) ----
     // 2026-05-15 に UI から外した 8 タブ (旧 dashboard_inline.html:122-127 のコメント)
     NavDef {
@@ -278,7 +301,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         hidden: Some(HIDDEN_2026_05_15),
     },
     NavDef {
-        id: "region_karte",
+        id: "region-karte",
         label: "地域カルテ",
         title: None,
         kind: NavKind::LegacyTab,
@@ -338,7 +361,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         hidden: Some(HIDDEN_2026_05_15),
     },
     NavDef {
-        id: "recruitment_diag",
+        id: "recruitment-diag",
         label: "採用診断",
         title: None,
         kind: NavKind::LegacyTab,
@@ -404,7 +427,7 @@ pub const NAV_DEFS: &[NavDef] = &[
     },
     // 採用提案パッケージの試作モック (2026-07-25 追加、2026-08-11 のナビ集約で外れた)
     NavDef {
-        id: "proposal_mock",
+        id: "proposal-mock",
         label: "提案パッケージ試作",
         title: Some("採用提案パッケージの試作モック (全数値ダミー)"),
         kind: NavKind::Page,
@@ -418,7 +441,7 @@ pub const NAV_DEFS: &[NavDef] = &[
     },
     // 架電クオリティ (「まだ見えなくてよい」ユーザー判断 2026-09-07)
     NavDef {
-        id: "call_quality",
+        id: "call-quality",
         label: "架電クオリティ",
         title: Some("架電の記録と品質。GAS 版ダッシュボードの移植先"),
         kind: NavKind::Page,
@@ -542,7 +565,15 @@ pub fn render_legacy_admin_link(is_admin: bool) -> String {
 }
 
 /// `/api/nav` の応答を組み立てる (ハンドラとテストの共通部分)。
-pub fn build_nav_response(user_email: String, is_admin: bool, features: &NavFeatures) -> NavResponse {
+pub fn build_nav_response(
+    user_email: String,
+    is_admin: bool,
+    features: &NavFeatures,
+) -> NavResponse {
+    let features = &NavFeatures {
+        crm: crm_visible(is_admin),
+        ..*features
+    };
     NavResponse {
         user_email,
         is_admin,
@@ -674,6 +705,7 @@ mod tests {
         NavFeatures {
             keyword_tools,
             jobgen_tools,
+            crm: false,
         }
     }
 
@@ -695,15 +727,19 @@ mod tests {
             visible,
             vec![
                 ("survey", "/?tab=/tab/survey", None),
-                ("keyword_tools", "/?tab=/tab/keyword_tools", None),
-                ("jobgen_tools", "/?tab=/tab/jobgen_tools", None),
+                ("keyword-tools", "/?tab=/tab/keyword_tools", None),
+                ("jobgen-tools", "/?tab=/tab/jobgen_tools", None),
                 ("jobmap", "/?tab=/tab/jobmap", Some("explore")),
-                ("regional_analysis", "/?tab=/tab/regional_analysis", Some("explore")),
+                (
+                    "regional-analysis",
+                    "/?tab=/tab/regional_analysis",
+                    Some("explore")
+                ),
                 ("company", "/?tab=/tab/company", Some("explore")),
                 ("driver", "/?tab=/tab/driver", Some("explore")),
                 ("license", "/?tab=/tab/license", Some("explore")),
                 ("indeed", "/?tab=/tab/indeed", Some("explore")),
-                ("sales_kpi", "/sales-kpi", None),
+                ("sales-kpi", "/sales-kpi", None),
                 ("consulting", "/consulting", None),
             ]
         );
@@ -720,7 +756,13 @@ mod tests {
             consulting.title.as_deref(),
             Some("契約の継続と成果、いま手を打つべき顧客。コンサルが見る画面")
         );
-        assert_eq!(nav_groups(), vec![NavGroup { id: "explore".into(), label: "調べる".into() }]);
+        assert_eq!(
+            nav_groups(),
+            vec![NavGroup {
+                id: "explore".into(),
+                label: "調べる".into()
+            }]
+        );
     }
 
     #[test]
@@ -733,7 +775,9 @@ mod tests {
                 (
                     i.id.as_str(),
                     i.href.as_str(),
-                    i.hidden_since.as_deref().expect("hidden なのに hidden_since が無い"),
+                    i.hidden_since
+                        .as_deref()
+                        .expect("hidden なのに hidden_since が無い"),
                 )
             })
             .collect();
@@ -741,20 +785,24 @@ mod tests {
             hidden,
             vec![
                 ("market", "/?tab=/tab/market", "2026-05-15"),
-                ("region_karte", "/?tab=/tab/region_karte", "2026-05-15"),
+                ("region-karte", "/?tab=/tab/region_karte", "2026-05-15"),
                 ("analysis", "/?tab=/tab/analysis", "2026-05-15"),
                 ("insight", "/?tab=/tab/insight", "2026-05-15"),
                 ("trend", "/?tab=/tab/trend", "2026-05-15"),
                 ("comparison", "/?tab=/tab/comparison", "2026-05-15"),
                 ("diagnostic", "/?tab=/tab/diagnostic", "2026-05-15"),
-                ("recruitment_diag", "/?tab=/tab/recruitment_diag", "2026-05-15"),
+                (
+                    "recruitment-diag",
+                    "/?tab=/tab/recruitment_diag",
+                    "2026-05-15"
+                ),
                 ("competitive", "/?tab=/tab/competitive", "2026-07-28"),
                 ("overview", "/?tab=/tab/overview", "2026-03-01"),
                 ("demographics", "/?tab=/tab/demographics", "2026-03-01"),
                 ("balance", "/?tab=/tab/balance", "2026-03-01"),
                 ("workstyle", "/?tab=/tab/workstyle", "2026-03-01"),
-                ("proposal_mock", "/proposal-mock", "2026-08-11"),
-                ("call_quality", "/call-quality", "2026-09-07"),
+                ("proposal-mock", "/proposal-mock", "2026-08-11"),
+                ("call-quality", "/call-quality", "2026-09-07"),
             ]
         );
         for i in items.iter().filter(|i| i.hidden) {
@@ -771,9 +819,13 @@ mod tests {
             assert_eq!(i.hidden_reason, None, "{}", i.id);
             assert_eq!(i.hidden_since, None, "{}", i.id);
         }
-        let call_quality = items.iter().find(|i| i.id == "call_quality").unwrap();
+        let call_quality = items.iter().find(|i| i.id == "call-quality").unwrap();
         assert!(
-            call_quality.hidden_reason.as_deref().unwrap().contains("2026-09-07"),
+            call_quality
+                .hidden_reason
+                .as_deref()
+                .unwrap()
+                .contains("2026-09-07"),
             "{call_quality:?}"
         );
     }
@@ -786,10 +838,18 @@ mod tests {
         }
         for d in NAV_DEFS {
             if let Some(g) = d.group {
-                assert!(NAV_GROUPS.iter().any(|(id, _)| *id == g), "{}: 未定義のグループ {g}", d.id);
+                assert!(
+                    NAV_GROUPS.iter().any(|(id, _)| *id == g),
+                    "{}: 未定義のグループ {g}",
+                    d.id
+                );
             }
             if d.kind == NavKind::LegacyTab {
-                assert!(d.target.starts_with("/tab/"), "{}: legacy_tab の target は /tab/ で始まる", d.id);
+                assert!(
+                    d.target.starts_with("/tab/"),
+                    "{}: legacy_tab の target は /tab/ で始まる",
+                    d.id
+                );
             }
         }
     }
@@ -797,13 +857,13 @@ mod tests {
     #[test]
     fn env出し分けはitemsから除外でhiddenとは別物() {
         let none = nav_items(NAV_DEFS, &features(false, false));
-        assert!(!ids(&none).contains(&"keyword_tools"));
-        assert!(!ids(&none).contains(&"jobgen_tools"));
+        assert!(!ids(&none).contains(&"keyword-tools"));
+        assert!(!ids(&none).contains(&"jobgen-tools"));
         let kw = nav_items(NAV_DEFS, &features(true, false));
-        assert!(ids(&kw).contains(&"keyword_tools"));
-        assert!(!ids(&kw).contains(&"jobgen_tools"));
+        assert!(ids(&kw).contains(&"keyword-tools"));
+        assert!(!ids(&kw).contains(&"jobgen-tools"));
         let both = nav_items(NAV_DEFS, &features(true, true));
-        assert_eq!(ids(&both)[..3], ["survey", "keyword_tools", "jobgen_tools"]);
+        assert_eq!(ids(&both)[..3], ["survey", "keyword-tools", "jobgen-tools"]);
         assert_eq!(ids(&none)[..2], ["survey", "jobmap"]);
         // 除外は hidden とは別: 除外された項目は items に存在しない (hidden=true で残るのではない)
         assert_eq!(both.len(), none.len() + 2);
@@ -859,30 +919,85 @@ mod tests {
         assert_eq!(r.user_email, "a@f-a-c.co.jp");
         assert!(r.is_admin);
         assert!(r.header_links.iter().any(|l| l.id == "admin"));
-        assert!(ids(&r.items).contains(&"jobgen_tools"));
-        assert!(!ids(&r.items).contains(&"keyword_tools"));
+        assert!(ids(&r.items).contains(&"jobgen-tools"));
+        assert!(!ids(&r.items).contains(&"keyword-tools"));
         let v = serde_json::to_value(&r).unwrap();
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
-        assert_eq!(keys, ["user_email", "is_admin", "header_links", "items", "groups"]);
-        let item_keys: Vec<&str> = v["items"][0].as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(
+            keys,
+            ["user_email", "is_admin", "header_links", "items", "groups"]
+        );
+        let item_keys: Vec<&str> = v["items"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         assert_eq!(
             item_keys,
-            ["id", "label", "title", "kind", "href", "group", "hidden", "hidden_reason", "hidden_since"]
+            [
+                "id",
+                "label",
+                "title",
+                "kind",
+                "href",
+                "group",
+                "hidden",
+                "hidden_reason",
+                "hidden_since"
+            ]
         );
         assert_eq!(v["items"][0]["kind"], "legacy_tab");
         assert_eq!(v["items"][0]["title"], serde_json::Value::Null);
-        let market = v["items"].as_array().unwrap().iter().find(|i| i["id"] == "market").unwrap();
+        let market = v["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == "market")
+            .unwrap();
         assert_eq!(market["hidden"], true);
         assert_eq!(market["hidden_since"], "2026-05-15");
-        let consulting = v["items"].as_array().unwrap().iter().find(|i| i["id"] == "consulting").unwrap();
+        let consulting = v["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == "consulting")
+            .unwrap();
         assert_eq!(consulting["kind"], "page");
+    }
+
+    #[test]
+    fn crmは管理者のときだけitemsに入る() {
+        let admin = build_nav_response("a@f-a-c.co.jp".into(), true, &features(false, false));
+        let crm = admin
+            .items
+            .iter()
+            .find(|i| i.id == "crm")
+            .expect("admin の items に crm が無い");
+        assert_eq!(crm.label, "CRM");
+        assert_eq!(crm.kind, NavKind::App);
+        assert_eq!(crm.href, "/app/crm");
+        assert!(!crm.hidden);
+        assert_eq!(crm.group, None);
+        // 位置: コンサルKPI の直後 (hidden 群の前)
+        let pos = |r: &NavResponse, id: &str| r.items.iter().position(|i| i.id == id).unwrap();
+        assert_eq!(pos(&admin, "crm"), pos(&admin, "consulting") + 1);
+        let user = build_nav_response("u@f-a-c.co.jp".into(), false, &features(false, false));
+        assert!(!ids(&user.items).contains(&"crm"));
+        // from_env() では crm は false (役割は build_nav_response が決める)
+        assert!(!NavFeatures::from_env().crm);
+        assert!(crm_visible(true));
+        assert!(!crm_visible(false));
     }
 
     #[test]
     fn ts型の宣言はreact側のtypes_tsと同じフィールド() {
         let cfg = ts_rs::Config::default();
         let kind = NavKind::decl(&cfg);
-        assert_eq!(kind, r#"type NavKind = "legacy_tab" | "page" | "app";"#, "{kind}");
+        assert_eq!(
+            kind, r#"type NavKind = "legacy_tab" | "page" | "app";"#,
+            "{kind}"
+        );
         let item = NavItem::decl(&cfg);
         for field in [
             "id: string,",
@@ -952,7 +1067,9 @@ mod tests {
 
     /// HTML を「要素 (タグ名, 属性の並び, テキスト)」の列にする。空白と HTML コメントは無視する。
     /// 属性の値・順序・onclick・title まで同じかを、字下げに左右されずに比べるため。
-    fn elements(html: &str) -> Vec<(String, Vec<(String, String)>, String)> {
+    type Element = (String, Vec<(String, String)>, String);
+
+    fn elements(html: &str) -> Vec<Element> {
         let mut out = Vec::new();
         let mut rest = html;
         while let Some(lt) = rest.find('<') {
@@ -993,7 +1110,10 @@ mod tests {
 
     fn old_top(keywords: bool, jobgen: bool) -> String {
         OLD_TOP
-            .replace("{{KEYWORDS_TAB}}", if keywords { OLD_KEYWORDS_TAB } else { "" })
+            .replace(
+                "{{KEYWORDS_TAB}}",
+                if keywords { OLD_KEYWORDS_TAB } else { "" },
+            )
             .replace("{{JOBGEN_TAB}}", if jobgen { OLD_JOBGEN_TAB } else { "" })
     }
 
@@ -1020,8 +1140,15 @@ mod tests {
         assert_ne!(a, elements(r#"<a class="x" href="/b">A</a>"#));
         assert_ne!(a, elements(r#"<a href="/a" class="x">A</a>"#));
         assert_ne!(a, elements(r#"<a class="x" href="/a">B</a>"#));
-        assert_eq!(a, elements("  <a class=\"x\"\n   href=\"/a\">A</a>\n<!-- c -->"));
-        assert_eq!(elements(&old_top(true, true)).len(), 7, "survey, kw, jobgen, group, sep, sales, consulting");
+        assert_eq!(
+            a,
+            elements("  <a class=\"x\"\n   href=\"/a\">A</a>\n<!-- c -->")
+        );
+        assert_eq!(
+            elements(&old_top(true, true)).len(),
+            7,
+            "survey, kw, jobgen, group, sep, sales, consulting"
+        );
         assert_eq!(elements(OLD_EXPLORE).len(), 6);
     }
 
@@ -1030,7 +1157,10 @@ mod tests {
         let items = nav_items(NAV_DEFS, &features(true, true));
         let nav = render_legacy_nav(&items);
         // setActiveTab / reloadActiveTab / applyActiveTab は .tab-btn の hx-get と onclick を見る
-        for (tag, attrs, _) in elements(&nav.top).iter().chain(elements(&nav.explore).iter()) {
+        for (tag, attrs, _) in elements(&nav.top)
+            .iter()
+            .chain(elements(&nav.explore).iter())
+        {
             let get = |n: &str| attrs.iter().find(|(k, _)| k == n).map(|(_, v)| v.as_str());
             match tag.as_str() {
                 "button" if get("hx-get").is_some() => {
@@ -1054,11 +1184,19 @@ mod tests {
         // 既定タブだけが active
         let active: Vec<_> = elements(&nav.top)
             .into_iter()
-            .filter(|(_, attrs, _)| attrs.iter().any(|(k, v)| k == "class" && v.contains("active")))
+            .filter(|(_, attrs, _)| {
+                attrs
+                    .iter()
+                    .any(|(k, v)| k == "class" && v.contains("active"))
+            })
             .collect();
         assert_eq!(active.len(), 1);
-        assert!(active[0].1.contains(&("hx-get".to_string(), DEFAULT_LEGACY_TAB.to_string())));
-        assert!(active[0].1.contains(&("aria-selected".to_string(), "true".to_string())));
+        assert!(active[0]
+            .1
+            .contains(&("hx-get".to_string(), DEFAULT_LEGACY_TAB.to_string())));
+        assert!(active[0]
+            .1
+            .contains(&("aria-selected".to_string(), "true".to_string())));
         // JS 側の既定タブと同じ値
         let tpl = include_str!("../../templates/dashboard_inline.html");
         assert!(
@@ -1080,7 +1218,12 @@ mod tests {
         assert!(!nav.top.contains(r#"hx-get="/tab/market""#), "{}", nav.top);
         assert!(!nav.explore.contains("/tab/market"));
         let json = serde_json::to_value(&items).unwrap();
-        let j = json.as_array().unwrap().iter().find(|i| i["id"] == "market").unwrap();
+        let j = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == "market")
+            .unwrap();
         assert_eq!(j["hidden"], true);
 
         // 定義の hidden を 1 か所外す → 旧シェル HTML と JSON の両方に出る
@@ -1091,14 +1234,21 @@ mod tests {
         let nav = render_legacy_nav(&items);
         assert!(
             nav.top.contains(
-                r#"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/market" hx-target="#content" hx-swap="innerHTML""#
+                r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/market" hx-target="#content" hx-swap="innerHTML""##
             ),
             "{}",
             nav.top
         );
-        assert!(nav.top.contains(r#"onclick="setActiveTab(this)">市場概況</button>"#));
+        assert!(nav
+            .top
+            .contains(r#"onclick="setActiveTab(this)">市場概況</button>"#));
         let json = serde_json::to_value(&items).unwrap();
-        let j = json.as_array().unwrap().iter().find(|i| i["id"] == "market").unwrap();
+        let j = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == "market")
+            .unwrap();
         assert_eq!(j["hidden"], false);
         assert_eq!(j["hidden_reason"], serde_json::Value::Null);
         assert_eq!(j["hidden_since"], serde_json::Value::Null);
@@ -1107,13 +1257,21 @@ mod tests {
         // 逆: 表示中の項目を hidden にすると両方から消える
         let mut defs: Vec<NavDef> = NAV_DEFS.to_vec();
         let d = defs.iter_mut().find(|d| d.id == "jobmap").unwrap();
-        d.hidden = Some(Hidden { reason: "テスト", since: "2026-09-30" });
+        d.hidden = Some(Hidden {
+            reason: "テスト",
+            since: "2026-09-30",
+        });
         let items = nav_items(&defs, &f);
         let nav = render_legacy_nav(&items);
         assert!(!nav.explore.contains("/tab/jobmap"), "{}", nav.explore);
         assert!(nav.explore.contains("/tab/regional_analysis"));
         let json = serde_json::to_value(&items).unwrap();
-        let j = json.as_array().unwrap().iter().find(|i| i["id"] == "jobmap").unwrap();
+        let j = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == "jobmap")
+            .unwrap();
         assert_eq!(j["hidden"], true);
         assert_eq!(j["hidden_reason"], "テスト");
         assert_eq!(j["hidden_since"], "2026-09-30");
@@ -1128,17 +1286,22 @@ mod tests {
     fn kindとhrefを変えれば旧シェルはaタグに切り替わる() {
         // 将来 React 画面に置き換わったとき: kind と target を 1 か所変えるだけ
         let mut defs: Vec<NavDef> = NAV_DEFS.to_vec();
-        let d = defs.iter_mut().find(|d| d.id == "recruitment_diag").unwrap();
+        let d = defs
+            .iter_mut()
+            .find(|d| d.id == "recruitment-diag")
+            .unwrap();
         d.kind = NavKind::App;
         d.target = "/app/recruitment-diag";
         d.hidden = None;
         let items = nav_items(&defs, &features(false, false));
-        let it = items.iter().find(|i| i.id == "recruitment_diag").unwrap();
+        let it = items.iter().find(|i| i.id == "recruitment-diag").unwrap();
         assert_eq!(it.href, "/app/recruitment-diag");
         assert_eq!(it.kind, NavKind::App);
         let nav = render_legacy_nav(&items);
         assert!(
-            nav.top.contains(r#"<a class="tab-btn tab-link" href="/app/recruitment-diag">採用診断</a>"#),
+            nav.top.contains(
+                r#"<a class="tab-btn tab-link" href="/app/recruitment-diag">採用診断</a>"#
+            ),
             "{}",
             nav.top
         );

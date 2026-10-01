@@ -108,7 +108,10 @@ mod tests {
             ("NavResponse.ts", "export type NavResponse = {"),
             ("NavItem.ts", "export type NavItem = {"),
             ("NavGroup.ts", "export type NavGroup = {"),
-            ("NavKind.ts", "export type NavKind = \"legacy_tab\" | \"page\" | \"app\";"),
+            (
+                "NavKind.ts",
+                "export type NavKind = \"legacy_tab\" | \"page\" | \"app\";",
+            ),
             ("FiltersCurrent.ts", "export type FiltersCurrent = {"),
         ] {
             let written = std::fs::read_to_string(out_dir.join(file)).unwrap();

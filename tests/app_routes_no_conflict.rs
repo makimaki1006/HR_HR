@@ -232,7 +232,10 @@ fn 既存の画面からコンサルへ行ける() {
     // 並びも固定する: 営業KPI のすぐ後ろにコンサルKPI
     let sales = nav.find("営業KPI").unwrap();
     let consulting = nav.find("コンサルKPI").unwrap();
-    assert!(sales < consulting, "営業KPI の隣 (後ろ) にコンサルKPI が無い: {nav}");
+    assert!(
+        sales < consulting,
+        "営業KPI の隣 (後ろ) にコンサルKPI が無い: {nav}"
+    );
     assert!(
         !nav[sales..consulting].contains("<button"),
         "営業KPI とコンサルKPI の間に別のタブがある: {nav}"
