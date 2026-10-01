@@ -1079,3 +1079,73 @@ async fn react画面のシェルは認証の内側にある() {
         );
     }
 }
+
+// ================================================================ W8: admin / my の React 化 (2026-09-29)
+
+/// 🔴 `/api/admin/*` `/api/my/*` `/app/admin` `/app/my` が配線され、かつ認証の内側にあること。
+///
+/// `/api/admin/*` は admin_routes (require_admin の内側)、`/api/my/*` は protected_routes に
+/// 追記した。未ログインで 303 → /login なら「配線済み かつ 認証の内側」。
+/// 200 なら認証の外、404 なら配線漏れ。
+#[tokio::test]
+async fn w8のadminとmyのjsonと画面は認証の内側にある() {
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use tower::ServiceExt;
+
+    let app = build_app(bare_state());
+    for path in [
+        "/api/admin/users",
+        "/api/admin/users/acc-1",
+        "/api/admin/login-failures",
+        "/api/admin/usage?days=30",
+        "/api/my/profile",
+        "/api/my/activity",
+        "/app/admin",
+        "/app/my",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("リクエストを組めない"),
+            )
+            .await
+            .expect("ルータが応答しない");
+        assert_eq!(
+            res.status(),
+            StatusCode::SEE_OTHER,
+            "{path} が {} を返した。未ログインなら 303 のはず (404 なら配線漏れ、200 なら認証の外)",
+            res.status()
+        );
+        assert_eq!(
+            res.headers()
+                .get(header::LOCATION)
+                .and_then(|v| v.to_str().ok()),
+            Some("/login"),
+            "{path} のリダイレクト先が /login でない"
+        );
+    }
+    // POST /api/my/profile も同じ (書き込みは旧 /my/profile と同じ経路)。
+    // Origin が無い書き込みは認証より前の CSRF 検査で 403 になるので、ブラウザと同じく Origin を付ける。
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/my/profile")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "http://localhost:8080")
+                .body(Body::from("{}"))
+                .expect("リクエストを組めない"),
+        )
+        .await
+        .expect("ルータが応答しない");
+    assert_eq!(
+        res.status(),
+        StatusCode::SEE_OTHER,
+        "POST /api/my/profile が認証の外にある"
+    );
+}

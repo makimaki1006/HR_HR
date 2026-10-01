@@ -94,6 +94,8 @@ mod tests {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend/src/generated");
         let cfg = ts_rs::Config::new().with_out_dir(&out_dir);
         AppPingResponse::export_all(&cfg).expect("AppPingResponse の TS 型を書き出せない");
+        // W8 求人票作成 (/app/jobgen): src/job_gen/contract.rs の要求・応答型
+        crate::job_gen::contract::export_ts(&cfg).expect("jobgen 契約型の TS 型を書き出せない");
         let written = std::fs::read_to_string(out_dir.join("AppPingResponse.ts")).unwrap();
         assert!(
             written.contains("export type AppPingResponse = {"),
@@ -121,6 +123,35 @@ mod tests {
         assert!(item.contains("hidden: boolean"), "{item}");
         assert!(item.contains("hidden_reason: string | null"), "{item}");
         assert!(item.contains("hidden_since: string | null"), "{item}");
+        // W8 (2026-09-29): admin / my。依存型 (AccountRow 等) も export_all が一緒に書き出す。
+        {
+            use crate::handlers::admin::{
+                AdminLoginFailuresResponse, AdminUsageResponse, AdminUserDetailResponse,
+                AdminUsersResponse,
+            };
+            use crate::handlers::my::{
+                MyActivityResponse, MyProfileResponse, MyProfileUpdateRequest,
+            };
+            AdminUsersResponse::export_all(&cfg).expect("AdminUsersResponse");
+            AdminUserDetailResponse::export_all(&cfg).expect("AdminUserDetailResponse");
+            AdminLoginFailuresResponse::export_all(&cfg).expect("AdminLoginFailuresResponse");
+            AdminUsageResponse::export_all(&cfg).expect("AdminUsageResponse");
+            MyProfileResponse::export_all(&cfg).expect("MyProfileResponse");
+            MyActivityResponse::export_all(&cfg).expect("MyActivityResponse");
+            MyProfileUpdateRequest::export_all(&cfg).expect("MyProfileUpdateRequest");
+            for f in [
+                "AccountRow.ts",
+                "LoginSessionRow.ts",
+                "ActivityLogRow.ts",
+                "AdminUserKpi30d.ts",
+                "AdminUsageEntry.ts",
+            ] {
+                assert!(
+                    out_dir.join(f).is_file(),
+                    "{f} が依存型として書き出されていない"
+                );
+            }
+        }
     }
 
     /// 生成される TS 型の中身。フィールド名・型が変わったらここも落ちる。

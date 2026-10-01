@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>プロフィール</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{background:#0f172a;color:#e2e8f0;font-family:ui-sans-serif,system-ui;}</style>
+</head>
+<body class="min-h-screen p-6">
+<nav class="mb-6 flex items-center gap-4 text-sm">
+  <a href="/" class="text-slate-400 hover:text-white">← ダッシュボード</a>
+  <span class="text-slate-600">|</span>
+  <a href="/my/profile" class="text-blue-400 hover:text-blue-300">プロフィール</a>
+  <a href="/my/activity" class="text-blue-400 hover:text-blue-300">自分の履歴</a>
+  <a href="/logout" class="text-slate-400 hover:text-white ml-auto">ログアウト</a>
+</nav>
+
+<h1 class="text-2xl font-bold mb-6">プロフィール</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  <section class="p-4 rounded bg-slate-800/40">
+    <h2 class="text-lg font-bold mb-3">基本情報（読み取り専用）</h2>
+    <dl class="grid grid-cols-3 gap-2 text-sm">
+      <dt class="text-slate-400">メール</dt><dd class="col-span-2">hanako@f-a-c.co.jp</dd>
+      <dt class="text-slate-400">権限</dt><dd class="col-span-2">user</dd>
+      <dt class="text-slate-400">初回ログイン</dt><dd class="col-span-2 text-slate-400 text-xs">2026-01-05T09:00:00Z</dd>
+      <dt class="text-slate-400">最終ログイン</dt><dd class="col-span-2 text-slate-400 text-xs">2026-09-28T01:23:45Z</dd>
+      <dt class="text-slate-400">ログイン回数</dt><dd class="col-span-2">12</dd>
+    </dl>
+  </section>
+
+  <section class="p-4 rounded bg-slate-800/40">
+    <h2 class="text-lg font-bold mb-3">編集可能</h2>
+    <form method="post" action="/my/profile" class="space-y-3">
+      <label class="block">
+        <span class="text-slate-400 text-sm">氏名</span>
+        <input type="text" name="display_name" maxlength="80" value="山田 花子"
+               class="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </label>
+      <label class="block">
+        <span class="text-slate-400 text-sm">会社</span>
+        <input type="text" name="company" maxlength="120" value="F&amp;A &lt;Consulting&gt;"
+               class="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </label>
+      <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded">保存</button>
+    </form>
+  </section>
+</div>
+</body>
+</html>
