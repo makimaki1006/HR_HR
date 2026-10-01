@@ -99,6 +99,28 @@ mod tests {
             written.contains("export type AppPingResponse = {"),
             "{written}"
         );
+        // 2026-09-30: 共通基盤 (platform-team)。NavResponse は NavItem / NavGroup / NavKind も一緒に書き出す。
+        crate::handlers::nav::NavResponse::export_all(&cfg)
+            .expect("NavResponse の TS 型を書き出せない");
+        crate::handlers::filters::FiltersCurrent::export_all(&cfg)
+            .expect("FiltersCurrent の TS 型を書き出せない");
+        for (file, head) in [
+            ("NavResponse.ts", "export type NavResponse = {"),
+            ("NavItem.ts", "export type NavItem = {"),
+            ("NavGroup.ts", "export type NavGroup = {"),
+            (
+                "NavKind.ts",
+                "export type NavKind = \"legacy_tab\" | \"page\" | \"app\";",
+            ),
+            ("FiltersCurrent.ts", "export type FiltersCurrent = {"),
+        ] {
+            let written = std::fs::read_to_string(out_dir.join(file)).unwrap();
+            assert!(written.contains(head), "{file}: {written}");
+        }
+        let item = std::fs::read_to_string(out_dir.join("NavItem.ts")).unwrap();
+        assert!(item.contains("hidden: boolean"), "{item}");
+        assert!(item.contains("hidden_reason: string | null"), "{item}");
+        assert!(item.contains("hidden_since: string | null"), "{item}");
     }
 
     /// 生成される TS 型の中身。フィールド名・型が変わったらここも落ちる。
