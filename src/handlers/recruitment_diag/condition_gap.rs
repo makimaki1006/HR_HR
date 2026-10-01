@@ -144,8 +144,19 @@ pub(crate) fn build_response(
         &all_industry_median,
     );
 
-    let interpretation =
-        build_interpretation(&gap_industry, &industry_median, &job_type, &prefecture);
+    let company = RdConditionGapCompany {
+        annual_income_estimated: company_annual_income,
+        annual_holidays: company_holidays,
+        bonus_months: company_bonus,
+        salary_min: company_salary_min,
+    };
+    let interpretation = build_interpretation(
+        &gap_industry,
+        &company,
+        &industry_median,
+        &job_type,
+        &prefecture,
+    );
 
     RdConditionGapResponse {
         prefecture,
@@ -154,12 +165,7 @@ pub(crate) fn build_response(
         emp_type,
         industry_median,
         all_industry_median,
-        company: RdConditionGapCompany {
-            annual_income_estimated: company_annual_income,
-            annual_holidays: company_holidays,
-            bonus_months: company_bonus,
-            salary_min: company_salary_min,
-        },
+        company,
         gap_industry,
         gap_all,
         interpretation,
@@ -208,7 +214,9 @@ pub async fn condition_gap(
 /// 自社条件の入力値の検証。非有限値 (NaN / inf) と負数は無効入力として None。
 /// 0 は入力値 0 として Some(0.0) のまま通す (未入力と区別する)。
 pub(crate) fn sanitize_input(v: Option<f64>) -> Option<f64> {
+    // -0.0 は 0.0 に正規化 (JSON に -0.0 を出さない)
     v.filter(|x| x.is_finite() && *x >= 0.0)
+        .map(|x| if x == 0.0 { 0.0 } else { x })
 }
 
 /// 年収 = 月給 × (12 + 賞与月数)
@@ -427,7 +435,13 @@ fn median_via_offset(
 ///
 /// 年収の文は年収差があるときだけ、休日の文は休日差があるときだけ出す。
 /// どちらも無いときは「未入力のため差は算出していません」とする。
-fn build_interpretation(gap: &Gap, median: &MedianStats, job_type: &str, pref: &str) -> String {
+fn build_interpretation(
+    gap: &Gap,
+    company: &RdConditionGapCompany,
+    median: &MedianStats,
+    job_type: &str,
+    pref: &str,
+) -> String {
     if median.sample_size == 0 {
         return "該当条件での HW 求人データが不足しており、比較できませんでした。".to_string();
     }
@@ -471,13 +485,40 @@ fn build_interpretation(gap: &Gap, median: &MedianStats, job_type: &str, pref: &
         }
     });
 
+    let (has_salary, has_bonus, has_holidays) = (
+        company.salary_min.is_some(),
+        company.bonus_months.is_some(),
+        company.annual_holidays.is_some(),
+    );
     let mut body = String::new();
-    for label in [income_label, holiday_label].into_iter().flatten() {
-        body.push_str(&label);
-        body.push('。');
-    }
-    if body.is_empty() {
+    if !has_salary && !has_bonus && !has_holidays {
         body.push_str("自社条件 (月給・賞与・年間休日) が未入力のため、差は算出していません。");
+    } else {
+        // 年収の差は月給と賞与の両方が必要。足りない項目だけを挙げる
+        match income_label {
+            Some(label) => {
+                body.push_str(&label);
+                body.push('。');
+            }
+            None => {
+                let missing: Vec<&str> = [(!has_salary, "月給"), (!has_bonus, "賞与")]
+                    .into_iter()
+                    .filter(|(m, _)| *m)
+                    .map(|(_, n)| n)
+                    .collect();
+                body.push_str(&format!(
+                    "{}が未入力のため、推定年収の差は算出していません (月給と賞与の両方が必要です)。",
+                    missing.join("・")
+                ));
+            }
+        }
+        match holiday_label {
+            Some(label) => {
+                body.push_str(&label);
+                body.push('。');
+            }
+            None => body.push_str("年間休日が未入力のため、年間休日の差は算出していません。"),
+        }
     }
 
     format!(
@@ -571,11 +612,20 @@ mod tests {
         assert_eq!(g.annual_income_pct, Some(0.0));
     }
 
+    fn company_none() -> RdConditionGapCompany {
+        RdConditionGapCompany {
+            annual_income_estimated: None,
+            annual_holidays: None,
+            bonus_months: None,
+            salary_min: None,
+        }
+    }
+
     #[test]
     fn interpretation_no_sample() {
         let gap = Gap::default();
         let median = MedianStats::default();
-        let msg = build_interpretation(&gap, &median, "医療", "東京都");
+        let msg = build_interpretation(&gap, &company_none(), &median, "医療", "東京都");
         assert!(msg.contains("不足"));
     }
 
@@ -594,7 +644,13 @@ mod tests {
             annual_holidays_diff: Some(12.0),
             bonus_months_diff: Some(0.0),
         };
-        let msg = build_interpretation(&gap, &median, "医療", "東京都");
+        let company = RdConditionGapCompany {
+            annual_income_estimated: Some(4_000_000.0),
+            annual_holidays: Some(120.0),
+            bonus_months: Some(2.5),
+            salary_min: Some(280_000.0),
+        };
+        let msg = build_interpretation(&gap, &company, &median, "医療", "東京都");
         assert!(msg.contains("上回る"));
         assert!(msg.contains("東京都"));
         assert!(msg.contains("医療"));
@@ -633,8 +689,19 @@ mod tests {
             Some(company_bonus),
             &all_industry_median,
         );
-        let interpretation =
-            build_interpretation(&gap_industry, &industry_median, &job_type, &prefecture);
+        let company = RdConditionGapCompany {
+            annual_income_estimated: Some(company_annual_income),
+            annual_holidays: Some(company_holidays),
+            bonus_months: Some(company_bonus),
+            salary_min: Some(company_salary_min),
+        };
+        let interpretation = build_interpretation(
+            &gap_industry,
+            &company,
+            &industry_median,
+            &job_type,
+            &prefecture,
+        );
         json!({
             "prefecture": prefecture,
             "municipality": municipality,
@@ -804,6 +871,14 @@ mod tests {
     const TAIL: &str =
         "サンプル数 10件。※中央値は HW 掲載求人のみから算出。市場全体の実勢ではない。";
     const MISSING: &str = "自社条件 (月給・賞与・年間休日) が未入力のため、差は算出していません。";
+    const INC: &str = "御社推定年収は業界中央値より 255000円 (8.4%) 上回る傾向。";
+    const HOL_MISS: &str = "年間休日が未入力のため、年間休日の差は算出していません。";
+    const INC_MISS_B: &str =
+        "賞与が未入力のため、推定年収の差は算出していません (月給と賞与の両方が必要です)。";
+    const INC_MISS_S: &str =
+        "月給が未入力のため、推定年収の差は算出していません (月給と賞与の両方が必要です)。";
+    const INC_MISS_SB: &str =
+        "月給・賞与が未入力のため、推定年収の差は算出していません (月給と賞与の両方が必要です)。";
 
     #[test]
     fn gap_all_missing_is_null_and_message() {
@@ -881,9 +956,7 @@ mod tests {
         assert!(v["company"]["annual_holidays"].is_null());
         assert_eq!(
             interp(&v),
-            format!(
-                "【岩手県・飲食業】御社推定年収は業界中央値より 255000円 (8.4%) 上回る傾向。{TAIL}"
-            )
+            format!("【岩手県・飲食業】{INC}{HOL_MISS}{TAIL}")
         );
     }
 
@@ -899,7 +972,9 @@ mod tests {
         assert_eq!(v["gap_industry"]["annual_holidays_diff"], -10.0);
         assert_eq!(
             interp(&v),
-            format!("【岩手県・飲食業】年間休日は業界中央値より 10日少ない傾向。{TAIL}")
+            format!(
+                "【岩手県・飲食業】{INC_MISS_B}年間休日は業界中央値より 10日少ない傾向。{TAIL}"
+            )
         );
     }
 
@@ -908,7 +983,10 @@ mod tests {
         let v = gap_json(Some(220_000.0), None, None);
         assert!(v["company"]["annual_income_estimated"].is_null());
         assert!(v["gap_industry"]["annual_income_diff"].is_null());
-        assert_eq!(interp(&v), format!("【岩手県・飲食業】{MISSING}{TAIL}"));
+        assert_eq!(
+            interp(&v),
+            format!("【岩手県・飲食業】{INC_MISS_B}{HOL_MISS}{TAIL}")
+        );
     }
 
     #[test]
@@ -921,7 +999,7 @@ mod tests {
         assert_eq!(v["gap_all"]["annual_holidays_diff"], 5.0);
         assert_eq!(
             interp(&v),
-            format!("【岩手県・飲食業】年間休日は業界中央値より 5日多い傾向。{TAIL}")
+            format!("【岩手県・飲食業】{INC_MISS_S}年間休日は業界中央値より 5日多い傾向。{TAIL}")
         );
     }
 
@@ -930,7 +1008,10 @@ mod tests {
         let v = gap_json(None, Some(3.0), None);
         assert_eq!(v["gap_industry"]["bonus_months_diff"], 0.5);
         assert!(v["gap_industry"]["annual_income_diff"].is_null());
-        assert_eq!(interp(&v), format!("【岩手県・飲食業】{MISSING}{TAIL}"));
+        assert_eq!(
+            interp(&v),
+            format!("【岩手県・飲食業】{INC_MISS_S}{HOL_MISS}{TAIL}")
+        );
     }
 
     #[test]
@@ -940,7 +1021,7 @@ mod tests {
         assert!(v["gap_industry"]["bonus_months_diff"].is_null());
         assert_eq!(
             interp(&v),
-            format!("【岩手県・飲食業】年間休日は業界中央値とほぼ同水準。{TAIL}")
+            format!("【岩手県・飲食業】{INC_MISS_SB}年間休日は業界中央値とほぼ同水準。{TAIL}")
         );
     }
 
@@ -957,6 +1038,83 @@ mod tests {
         assert_eq!(sanitize_input(Some(-0.5)), None);
         assert_eq!(sanitize_input(Some(f64::NEG_INFINITY)), None);
         assert_eq!(sanitize_input(None), None);
+    }
+
+    /// 3 項目 x 入力あり・なしの 8 通り全部で、表 (company / gap_industry / gap_all) と文が食い違わない
+    #[test]
+    fn table_and_sentence_agree_for_all_8_combinations() {
+        for mask in 0..8u8 {
+            let (s, b, h) = (mask & 1 != 0, mask & 2 != 0, mask & 4 != 0);
+            let v = gap_json(s.then_some(220_000.0), b.then_some(3.0), h.then_some(115.0));
+            let text = interp(&v);
+            let label = format!("S={s} B={b} H={h}");
+            // company: 入力した項目だけ値、推定年収は月給と賞与の両方があるときだけ
+            assert_eq!(!v["company"]["salary_min"].is_null(), s, "{label}");
+            assert_eq!(!v["company"]["bonus_months"].is_null(), b, "{label}");
+            assert_eq!(!v["company"]["annual_holidays"].is_null(), h, "{label}");
+            assert_eq!(
+                !v["company"]["annual_income_estimated"].is_null(),
+                s && b,
+                "{label}"
+            );
+            for g in ["gap_industry", "gap_all"] {
+                assert_eq!(!v[g]["annual_income_diff"].is_null(), s && b, "{label} {g}");
+                assert_eq!(!v[g]["annual_income_pct"].is_null(), s && b, "{label} {g}");
+                assert_eq!(!v[g]["annual_holidays_diff"].is_null(), h, "{label} {g}");
+                assert_eq!(!v[g]["bonus_months_diff"].is_null(), b, "{label} {g}");
+            }
+            // 文: 値のある差だけ述べ、無い差は「未入力」と述べる
+            assert_eq!(
+                text.contains("御社推定年収は業界中央値より"),
+                s && b,
+                "{label}: {text}"
+            );
+            assert_eq!(
+                text.contains("年間休日は業界中央値より"),
+                h,
+                "{label}: {text}"
+            );
+            assert_eq!(text.contains(HOL_MISS), !h && (s || b), "{label}: {text}");
+            let all_missing = !s && !b && !h;
+            assert_eq!(text.contains(MISSING), all_missing, "{label}: {text}");
+            // 期待する全文 (入力した項目を「未入力」と言わない)
+            let income_part = if s && b {
+                INC
+            } else if all_missing {
+                ""
+            } else if s {
+                INC_MISS_B
+            } else if b {
+                INC_MISS_S
+            } else {
+                INC_MISS_SB
+            };
+            let hol_part = if h {
+                "年間休日は業界中央値より 5日多い傾向。"
+            } else if all_missing {
+                ""
+            } else {
+                HOL_MISS
+            };
+            let body = if all_missing {
+                MISSING.to_string()
+            } else {
+                format!("{income_part}{hol_part}")
+            };
+            assert_eq!(text, format!("【岩手県・飲食業】{body}{TAIL}"), "{label}");
+        }
+    }
+
+    #[test]
+    fn negative_zero_is_normalized_to_zero() {
+        let z = sanitize_input(Some(-0.0)).unwrap();
+        assert_eq!(z, 0.0);
+        assert!(!z.is_sign_negative(), "-0.0 must become +0.0");
+        let v = gap_json(Some(-0.0), Some(-0.0), Some(-0.0));
+        assert_eq!(v["company"]["salary_min"].to_string(), "0.0");
+        assert_eq!(v["company"]["annual_holidays"].to_string(), "0.0");
+        assert_eq!(v["company"]["bonus_months"].to_string(), "0.0");
+        assert_eq!(v["company"]["annual_income_estimated"].to_string(), "0.0");
     }
 
     /// 禁止語 (断定表現) を含まないこと。validate_insight_phrase は「傾向」等の必須表現も要求するが、
@@ -1000,7 +1158,13 @@ mod tests {
         assert!(hedged > 0);
         check(
             "no sample",
-            &build_interpretation(&Gap::default(), &MedianStats::default(), "", ""),
+            &build_interpretation(
+                &Gap::default(),
+                &company_none(),
+                &MedianStats::default(),
+                "",
+                "",
+            ),
         );
     }
 }
