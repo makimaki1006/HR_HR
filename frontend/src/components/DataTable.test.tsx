@@ -186,7 +186,8 @@ describe('DataTable', () => {
     const { container } = render(
       <DataTable columns={columns} rows={makeRows(1000)} rowKey={(r) => r.id} />,
     );
-    const scroller = container.querySelector('[data-virtualized]') as HTMLElement;
+    const scroller = container.querySelector<HTMLElement>('[data-virtualized]');
+    if (!scroller) throw new Error('no scroll container');
     act(() => {
       scroller.scrollTop = 18_000; // row 500
       fireEvent.scroll(scroller);
@@ -198,7 +199,8 @@ describe('DataTable', () => {
     act(() => {
       window.dispatchEvent(new Event('afterprint'));
     });
-    const fresh = container.querySelector('[data-virtualized]') as HTMLElement;
+    const fresh = container.querySelector<HTMLElement>('[data-virtualized]');
+    if (!fresh) throw new Error('no scroll container after print');
     expect(fresh.scrollTop).toBe(0);
     // Window starts at row 0 again: no top spacer, first row is the first data row.
     expect(container.querySelector('[data-spacer="top"]')).toBeNull();
