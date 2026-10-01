@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from './AppShell';
 import { useFilters } from './filters';
@@ -322,14 +323,17 @@ function Probe() {
 }
 
 type Ctx = ReturnType<typeof useFilters>;
-let ctx: Ctx | null = null;
+const ctxBox: { current: Ctx | null } = { current: null };
 function CtxProbe() {
-  ctx = useFilters();
-  return <p data-testid="probe">{JSON.stringify(ctx.filters)}</p>;
+  const value = useFilters();
+  useEffect(() => {
+    ctxBox.current = value;
+  });
+  return <p data-testid="probe">{JSON.stringify(value.filters)}</p>;
 }
 const getCtx = (): Ctx => {
-  if (!ctx) throw new Error('no context');
-  return ctx;
+  if (!ctxBox.current) throw new Error('no context');
+  return ctxBox.current;
 };
 const errRes = (status: number): Response => new Response('boom', { status });
 const probed = (el: HTMLElement): FiltersCurrent => JSON.parse(el.textContent) as FiltersCurrent;
@@ -465,13 +469,13 @@ describe('AppShell filters', () => {
     );
     await screen.findByTestId('probe');
     await screen.findByRole('option', { name: '東京都' });
-    const select = screen.getByLabelText(/都道府県/) as HTMLSelectElement;
+    const select = screen.getByLabelText<HTMLSelectElement>(/都道府県/);
     expect(select.value).toBe('大阪府');
     fireEvent.change(select, { target: { value: '東京都' } });
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('HTTP 500');
     await waitFor(() => {
-      expect((screen.getByLabelText(/都道府県/) as HTMLSelectElement).value).toBe('大阪府');
+      expect((screen.getByLabelText<HTMLSelectElement>(/都道府県/)).value).toBe('大阪府');
     });
     expect(probed(screen.getByTestId('probe')).prefecture).toBe('大阪府');
     expect(new URLSearchParams(window.location.search).get('pref')).toBe('大阪府');
@@ -520,7 +524,7 @@ describe('AppShell filters', () => {
       const alert = await screen.findByRole('alert');
       expect(alert.textContent).toContain(`HTTP ${String(status)}`);
       expect(screen.queryByText('screen body')).toBeNull();
-      expect((screen.getByLabelText(/都道府県/) as HTMLSelectElement).disabled).toBe(true);
+      expect((screen.getByLabelText<HTMLSelectElement>(/都道府県/)).disabled).toBe(true);
       unmount();
     }
   });
@@ -528,7 +532,7 @@ describe('AppShell filters', () => {
   it('a failed set_municipality restores the previous municipality; a dependent queued call is dropped', async () => {
     mockFetch({
       override: (url, init) => {
-        if (url === '/api/set_municipality' && String(init?.body).includes('%E6%96%B0%E5%AE%BF')) {
+        if (url === '/api/set_municipality' && (typeof init?.body === 'string' ? init.body : '').includes('%E6%96%B0%E5%AE%BF')) {
           return errRes(500);
         }
         return undefined;
@@ -612,7 +616,7 @@ describe('AppShell filters', () => {
     expect(getCtx().syncing).toBe(true);
     // The municipality list is not requested before set_prefecture finishes (legacy order).
     expect(calls.some((c) => c.url.startsWith('/api/municipalities_cascade'))).toBe(false);
-    expect((screen.getByLabelText('市区町村') as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText<HTMLSelectElement>('市区町村')).disabled).toBe(true);
     await act(async () => {
       releasePref();
       await both;

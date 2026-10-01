@@ -63,21 +63,20 @@ export function useFilterState(enabled: boolean): FiltersContextValue {
     const isAborted = (): boolean => controller.signal.aborted;
     const q = readQueryFilters(window.location.search);
     void (async () => {
-      let base: FiltersCurrent = EMPTY_FILTERS;
       const cur = await apiGet<FiltersCurrent>('/api/filters/current', {
         signal: controller.signal,
       });
       if (isAborted()) return;
-      if (cur.ok) {
-        base = cur.data;
-      } else if (cur.error instanceof AuthRequiredError) {
-        redirectToLogin();
-        return;
-      } else {
-        // Do not pretend the filters are empty: stay not-ready and say why.
-        setError(describeFailure('絞り込み条件を取得できませんでした', cur.error));
+      if (!cur.ok) {
+        if (cur.error instanceof AuthRequiredError) {
+          redirectToLogin();
+        } else {
+          // Do not pretend the filters are empty: stay not-ready and say why.
+          setError(describeFailure('絞り込み条件を取得できませんでした', cur.error));
+        }
         return;
       }
+      const base = cur.data;
       let next = base;
       if (hasQueryFilters(q)) {
         next = {

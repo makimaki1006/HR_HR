@@ -16,7 +16,7 @@ const fake = vi.hoisted(() => {
   return {
     instance,
     failImport: false,
-    init: vi.fn((..._args: unknown[]) => instance),
+    init: vi.fn<(...args: unknown[]) => unknown>(() => instance),
     getInstanceByDom: vi.fn(() => instance),
   };
 });
