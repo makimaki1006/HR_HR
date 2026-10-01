@@ -5340,7 +5340,12 @@ check("MTG の記録が無い案件を「していない」と読ませない（
     first_mtg: { n: 0, pre_contract: 0, stats: null, buckets: [] },
     no_mtg: { n: 104, first_active: 254, rate: 40.9, note: "", rows: [] } };
   const t = textOf(run("renderRampup(__RUw)"));
-  ok(t.includes("MTG の記録がまだ見つからない初回契約 104 件") && !t.includes("記録がまだ無い"), "立ち上がりの末尾の文: " + t.slice(-400));
+  /* 🔴 2026-09-30 検証: 前の表の名前まで「まだ見つからない」に書き換えていて、画面に一度も出ていない名前を「前の表」と書いていた。
+     前の表の名前は当時のまま（「MTG の記録がまだ無い初回契約」）残し、当時の名前だと断る。旧名を除いた残りの文で、
+     「記録がまだ無い」を残さないことを同じように確かめる（検査は緩めない） */
+  const OLD_RU = "前の表「MTG の記録がまだ無い初回契約」（当時の名前のまま）104 件";
+  ok(t.includes(OLD_RU), "立ち上がりの末尾で、前の表の名前が当時のままでない: " + t.slice(-400));
+  ok(!t.replace(OLD_RU, "").includes("記録がまだ無い"), "立ち上がりの末尾の文: " + t.slice(-400));
   ok(t.includes("記録が欠けている") && t.includes("台帳") && t.includes("録画なし") && t.includes("紐づいていない"),
     "立ち上がりの末尾に、記録が欠ける理由の候補が無い: " + t.slice(-400));
   const fo = JSON.parse(JSON.stringify(ctx.__FO));
@@ -5362,6 +5367,37 @@ check("前の画面名（今日動く先・案件そのもの・案件の立ち�
   });
   const td = run('renderToday({ rows: [], meta: { n_hit: 0, n_shown: 0, filter_rule: "", order_rule: "", mtg_gap: {} } })');
   ok(/<span class="no">表<\/span>今日の案件（0 件）/.test(td), "今日の表の見出しが今のメニュー名（今日）に合っていない");
+});
+
+/* 🔴 2026-09-30 検証: 見方「初回契約で MTG の記録が見つからない」の表で、同じ行の「最後の MTG」は「記録が見つからない」なのに、
+   隣の「最後の接触」だけ「記録なし」で、接触していないと読めた（fixture の先頭 12 行のうち 5 行）。接触は MTG か60秒超の通話なので、
+   MTG の記録が欠ければ接触の記録も同じ理由で欠けうる。いま見るべき顧客の NPS の表の「接触の記録」も同じ。
+   案件の詳細の「最後の接触」「最後の MTG」も「記録がありません」と言い切っていた。
+   名札「接触の記録が無い」は残す（URL の絞り込みの値で、継続の期間は本当に接触していないこともある拾いたい印） */
+check("接触・MTG の記録が無い行を「していない」と読ませない（最後の接触・NPS の表・案件の詳細）", () => {
+  const tc = run("touchCell({ n_contact: 0 })");
+  ok(tc.includes("記録が見つからない") && !tc.includes("記録なし"), "最後の接触が「記録なし」のまま: " + tc);
+  const np = run('focusNpsTable({ rows: [{ deal_id: "1", name: "a", stage: "s", nps: 3, nps_month: "2026-08", amount: 1, days_to_expiry: 10, no_contact_record: true, n_contact: 0 }] })');
+  ok(textOf(np).includes("記録が見つからない") && !textOf(np).includes("記録なし"), "NPS の表の接触の記録が「記録なし」のまま");
+  const dn = textOf(run('detailNext({ deal: { stage: "s", start: "2026-01-01", expiration: "2026-12-31", amount: 1, flags: [] }, events: [], meta: { today: "2026-09-18" } })'));
+  ok(!dn.includes("記録がありません"), "案件の詳細が「記録がありません」と言い切っている: " + dn.slice(0, 300));
+  ok(dn.includes("接触の記録が見つかりません（接触していないとは限りません）"), "案件の詳細の最後の接触: " + dn.slice(0, 300));
+  ok(dn.includes("MTG の記録が見つかりません（MTG をしていないとは限りません") &&
+    dn.includes("台帳") && dn.includes("録画なし") && dn.includes("紐づいていない"), "案件の詳細の最後の MTG に、欠ける理由の候補が無い: " + dn.slice(0, 400));
+});
+
+/* 🔴 2026-09-30 検証: 前の画面名の見張りが3語だけで、旧画面の「担当者ごとの接触」「担当者の一覧」（09 の 4章の 6 と 9。いまは
+   チームと担当の中）が、今日の本人の接触の文に「前の」を付けずに残っていた。「前の担当者の一覧」と断ったもの（定義の名前の
+   読み替え）と、teamRateName がサーバの文を読み替えるための照合の文字列と、旧ハッシュの転送表（LEGACY の was。
+   「画面を組み替える前の「…」のものです」と前の名前として出す）は除く */
+check("前の画面名（担当者ごとの接触・担当者の一覧）を、前のものと断らずに画面の文に出さない", () => {
+  const lits = jsNoComment.match(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g) || [];
+  const was = new Set(run("Object.values(LEGACY).map((x) => x.was)").map((x) => JSON.stringify(x)));
+  ok(was.has('"担当者ごとの接触"') && was.has('"担当者の一覧"'), "旧ハッシュの転送表に前の画面名が無い（除く前提が崩れた）");
+  ["担当者ごとの接触", "担当者の一覧"].forEach((w) => {
+    const hit = lits.filter((x) => x !== '"担当者の一覧の接触率"' && !was.has(x) && x.split("前の" + w).join("").includes(w));
+    ok(hit.length === 0, "画面に出る文字列に「" + w + "」が残っている: " + hit.slice(0, 3).join(" ／ "));
+  });
 });
 
 Promise.all(pendingChecks).then(() => {

@@ -6229,8 +6229,21 @@ fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
         .iter()
         .find(|x| x["key"] == "no_mtg")
         .unwrap();
-    let old_where = d["old"]["where"].as_str().unwrap();
-    assert!(old_where.contains("見つからない"), "{old_where}");
+    let old_where_full = d["old"]["where"].as_str().unwrap();
+    // 🔴 前の表の名前は、画面に出ていたとおり（770ea8e の「MTG の記録がまだ無い初回契約」）に残す。
+    //    書き換えると覚えている人が照合できず、履歴として事実でなくなる。いまの読み方は括弧の中に添える。
+    //    旧名そのものは下の「残さない」の検査から外し、旧名を除いた残りの文で同じ検査をする（検査は緩めない）
+    const OLD_NAME: &str = "「MTG の記録がまだ無い初回契約」";
+    assert!(
+        old_where_full.contains(OLD_NAME),
+        "前の定義の名前が、画面に出ていた名前のままでない: {old_where_full}"
+    );
+    assert!(
+        old_where_full.contains("当時の名前") && old_where_full.contains("記録が見つからない"),
+        "前の定義の名前に、いまの読み方が添えられていない: {old_where_full}"
+    );
+    let old_where_rest = old_where_full.replacen(OLD_NAME, "", 1);
+    let old_where = old_where_rest.as_str();
     // 帯の名前（案件一覧の帯・今日の畳み・外れた理由に出る）
     let band = super::MtgBand::NoRecord.label();
     assert_eq!(band, "MTGの記録が見つからない");
@@ -6244,6 +6257,23 @@ fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
     for c in ["見つからない", "記録が欠けている", "台帳", "録画なし"] {
         assert!(note.contains(c), "今日の注記に「{c}」が無い: {note}");
     }
+    // 🔴 藤巻さんの判断は初回契約について。帯「MTGの記録が見つからない」には初回契約でない案件も入るので、
+    //    帯全体に「MTG はしていて記録が欠けている」と言い切らない（推定を事実のように書かない）。
+    //    前提: fixture で帯に初回契約でない案件がある（2026-09-18: 帯 44 件・うち初回契約 21 件）
+    let rows = b["rows"].as_array().unwrap();
+    let in_band = rows.iter().filter(|r| r["mtg_band"] == "no_record");
+    let (n_band, n_first) = in_band.fold((0, 0), |(a, f), r| {
+        (a + 1, f + usize::from(r["renewal_no"].as_i64() == Some(0)))
+    });
+    assert_eq!((n_band, n_first), (44, 21), "帯の件数・うち初回契約");
+    assert!(
+        note.contains("初回契約では") && note.contains("初回契約でない案件は"),
+        "今日の注記が、初回契約の判断を帯全体に広げている: {note}"
+    );
+    assert!(
+        !note.contains("という意味ではありません"),
+        "今日の注記が、帯全体で「MTG をしていない」を否定している: {note}"
+    );
     let bl = t["meta"]["mtg_gap"]["bands"]
         .as_array()
         .unwrap()
@@ -6638,7 +6668,15 @@ fn old_screen_names_not_in_server_text() {
     assert!(nl.contains("「今日」の MTG途絶の帯"), "{nl}");
     for (k, v) in &all {
         let s = v.to_string();
-        for bad in ["今日動く先", "案件そのもの", "案件の立ち位置"] {
+        // 🔴 2026-09-30 検証: 3語だけ見ていて、旧画面の「担当者ごとの接触」「担当者の一覧」（09 の 4章の 6 と 9。
+        //    いまはチームと担当の中）が案件の詳細・担当の交代・接触の推移の文に残っていたのを拾えなかった
+        for bad in [
+            "今日動く先",
+            "案件そのもの",
+            "案件の立ち位置",
+            "担当者ごとの接触",
+            "担当者の一覧",
+        ] {
             assert!(
                 !s.contains(bad),
                 "{k} の応答に前の画面名「{bad}」が残っている"
