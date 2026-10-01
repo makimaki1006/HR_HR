@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ログイン失敗 - 管理</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/static/js/vendor/htmx-v2.0.3.min.js"></script>
+<style>body{background:#0f172a;color:#e2e8f0;font-family:ui-sans-serif,system-ui;}</style>
+</head>
+<body class="min-h-screen p-6">
+<nav class="mb-6 flex items-center gap-4 text-sm">
+  <a href="/" class="text-slate-400 hover:text-white">← ダッシュボード</a>
+  <span class="text-slate-600">|</span>
+  <a href="/admin/usage" class="text-blue-400 hover:text-blue-300">利用状況</a>
+  <a href="/admin/users" class="text-blue-400 hover:text-blue-300">ユーザー一覧</a>
+  <a href="/admin/login-failures" class="text-blue-400 hover:text-blue-300">失敗監視</a>
+  <a href="/my/activity" class="text-blue-400 hover:text-blue-300 ml-auto">自分の履歴</a>
+</nav>
+<h1 class="text-2xl font-bold mb-4">ログイン失敗ログ (2 件)</h1>
+<p class="text-slate-400 text-sm mb-4">直近の失敗のみを表示。同一 ip_hash の連続失敗は不正アクセスの可能性があるため確認してください。</p>
+<div class="overflow-x-auto rounded bg-slate-800/30"><table class="w-full text-sm">
+  <thead class="bg-slate-800 text-xs uppercase text-slate-300"><tr>
+    <th class="py-2 px-2 text-left">日時</th><th class="py-2 px-2 text-left">試行メール</th>
+    <th class="py-2 px-2 text-left">失敗理由</th><th class="py-2 px-2 text-left">IPハッシュ</th>
+    <th class="py-2 px-2 text-left">User-Agent</th>
+  </tr></thead><tbody><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2026-09-28T00:00:10Z</td><td class="py-1 px-2">attacker@evil.example</td><td class="py-1 px-2 text-red-400 text-xs">invalid_domain</td><td class="py-1 px-2 text-xs text-slate-500">ff00ff00ff00</td><td class="py-1 px-2 text-xs text-slate-500">python-requests/2.32</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2026-09-28T00:00:05Z</td><td class="py-1 px-2">hanako@f-a-c.co.jp</td><td class="py-1 px-2 text-red-400 text-xs">wrong_password</td><td class="py-1 px-2 text-xs text-slate-500">ab12cd34ef56</td><td class="py-1 px-2 text-xs text-slate-500">Mozilla/5.0 (Windows NT 10.0; Win64; x64</td></tr></tbody>
+</table></div>
+</body>
+</html>

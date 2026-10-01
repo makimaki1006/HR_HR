@@ -35,7 +35,11 @@ const ASSET_BASE: &str = "/static/app/";
 
 /// React 化した画面の一覧。ここに無い名前は manifest の有無にかかわらず 404。
 /// 追加するときは `frontend/src/entries/{screen}.tsx` と vite.config.ts の input も足す。
-pub const KNOWN_SCREENS: &[&str] = &["dummy"];
+pub const KNOWN_SCREENS: &[&str] = &[
+    "dummy", "jobgen",
+    // W8 (2026-09-29): 管理 (/app/admin) と個人設定 (/app/my)。画面内は ?view= で切り替える
+    "admin", "my",
+];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。
 pub const NOT_BUILT_HEADING: &str = "フロントエンド未ビルド";
@@ -45,6 +49,12 @@ struct ManifestEntry {
     file: String,
     #[serde(default)]
     css: Vec<String>,
+    /// このチャンクが static import する他チャンクの manifest キー (`_shared-xxxx.js` 等)。
+    /// 複数エントリが同じ CSS を import すると、CSS は共有チャンク側の `css` に載り、
+    /// エントリ自身の `css` には出ない (Vite の backend integration ガイドどおり、
+    /// imports を再帰的に辿って集める必要がある。W8 で admin / my が w8.css を共有して発覚)。
+    #[serde(default)]
+    imports: Vec<String>,
     #[serde(default, rename = "isEntry")]
     is_entry: bool,
 }
@@ -67,6 +77,36 @@ impl AppManifest {
         self.entries
             .get(&format!("src/entries/{screen}.tsx"))
             .filter(|e| e.is_entry)
+    }
+
+    /// エントリと、そこから static import で辿れる全チャンクの CSS (重複なし、依存が先)。
+    /// 循環や欠落キーがあっても止まらない。
+    fn css_for(&self, entry: &ManifestEntry) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        self.collect_css(entry, &mut out, &mut seen);
+        out
+    }
+
+    fn collect_css<'a>(
+        &'a self,
+        entry: &'a ManifestEntry,
+        out: &mut Vec<String>,
+        seen: &mut std::collections::HashSet<&'a str>,
+    ) {
+        for key in &entry.imports {
+            if !seen.insert(key.as_str()) {
+                continue;
+            }
+            if let Some(dep) = self.entries.get(key) {
+                self.collect_css(dep, out, seen);
+            }
+        }
+        for c in &entry.css {
+            if !out.contains(c) {
+                out.push(c.clone());
+            }
+        }
     }
 }
 
@@ -122,15 +162,14 @@ fn render_screen(manifest: Option<&AppManifest>, screen: &str) -> Response {
     if !is_valid_screen_name(screen) || !KNOWN_SCREENS.contains(&screen) {
         return (StatusCode::NOT_FOUND, "Not Found").into_response();
     }
-    match manifest.and_then(|m| m.entry_for(screen)) {
-        Some(entry) => Html(shell_html(entry)).into_response(),
+    match manifest.and_then(|m| m.entry_for(screen).map(|e| (m, e))) {
+        Some((m, entry)) => Html(shell_html(entry, &m.css_for(entry))).into_response(),
         None => Html(not_built_html(screen)).into_response(),
     }
 }
 
-fn shell_html(entry: &ManifestEntry) -> String {
-    let css_links: String = entry
-        .css
+fn shell_html(entry: &ManifestEntry, css: &[String]) -> String {
+    let css_links: String = css
         .iter()
         .map(|c| {
             format!(
@@ -245,6 +284,56 @@ mod tests {
         );
     }
 
+    /// W8 (2026-09-29): 複数エントリが同じ CSS を import すると、Vite は CSS を共有チャンク
+    /// (`_w8-xxxx.js`) の `css` に載せ、エントリの `css` には出さない。imports を辿って集めること。
+    #[tokio::test]
+    async fn 共有チャンクのcssもimports経由でlinkに入る() {
+        let json = r#"{
+  "_jsx-runtime-P.js": {"file": "assets/jsx-runtime-P.js", "name": "jsx-runtime"},
+  "_w8-S.css": {"file": "assets/w8-S.css", "src": "_w8-S.css"},
+  "_w8-C.js": {"file": "assets/w8-C.js", "name": "w8", "imports": ["_jsx-runtime-P.js"], "css": ["assets/w8-S.css"]},
+  "src/entries/dummy.tsx": {"file": "assets/dummy-D.js", "isEntry": true,
+     "imports": ["_jsx-runtime-P.js", "_w8-C.js"], "css": ["assets/dummy-own.css"]}
+}"#;
+        let m = AppManifest::parse(json).unwrap();
+        let entry = m.entry_for("dummy").unwrap();
+        assert_eq!(
+            m.css_for(entry),
+            vec![
+                "assets/w8-S.css".to_string(),
+                "assets/dummy-own.css".to_string()
+            ],
+            "依存チャンクの CSS が先、エントリ自身の CSS が後"
+        );
+        let (status, body) = get_path(app(Some(m)), "/app/dummy").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains(r#"<link rel="stylesheet" href="/static/app/assets/w8-S.css">"#),
+            "{body}"
+        );
+        assert!(
+            body.contains(r#"<link rel="stylesheet" href="/static/app/assets/dummy-own.css">"#),
+            "{body}"
+        );
+        assert_eq!(
+            body.matches("<link rel=\"stylesheet\"").count(),
+            2,
+            "{body}"
+        );
+        // 循環参照や無いキーがあっても止まらない
+        let cyc = AppManifest::parse(
+            r#"{"_a.js":{"file":"a.js","imports":["_b.js"],"css":["a.css"]},
+                "_b.js":{"file":"b.js","imports":["_a.js","_missing.js"],"css":["b.css"]},
+                "src/entries/dummy.tsx":{"file":"d.js","isEntry":true,"imports":["_a.js"]}}"#,
+        )
+        .unwrap();
+        let e = cyc.entry_for("dummy").unwrap();
+        assert_eq!(
+            cyc.css_for(e),
+            vec!["b.css".to_string(), "a.css".to_string()]
+        );
+    }
+
     #[tokio::test]
     async fn manifestなしなら200で未ビルドの注記() {
         let dir = tempfile::tempdir().unwrap();
@@ -312,9 +401,10 @@ mod tests {
         let entry = ManifestEntry {
             file: "assets/x\"><script>alert(1)</script>.js".into(),
             css: vec![],
+            imports: vec![],
             is_entry: true,
         };
-        let html = shell_html(&entry);
+        let html = shell_html(&entry, &entry.css);
         assert_eq!(html.matches("<script").count(), 1, "{html}");
         assert!(html.contains("&quot;&gt;&lt;script&gt;"), "{html}");
     }

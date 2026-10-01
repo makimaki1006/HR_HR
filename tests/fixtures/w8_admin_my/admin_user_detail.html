@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>hanako@f-a-c.co.jp - 詳細</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/static/js/vendor/htmx-v2.0.3.min.js"></script>
+<style>body{background:#0f172a;color:#e2e8f0;font-family:ui-sans-serif,system-ui;}</style>
+</head>
+<body class="min-h-screen p-6">
+<nav class="mb-6 flex items-center gap-4 text-sm">
+  <a href="/" class="text-slate-400 hover:text-white">← ダッシュボード</a>
+  <span class="text-slate-600">|</span>
+  <a href="/admin/usage" class="text-blue-400 hover:text-blue-300">利用状況</a>
+  <a href="/admin/users" class="text-blue-400 hover:text-blue-300">ユーザー一覧</a>
+  <a href="/admin/login-failures" class="text-blue-400 hover:text-blue-300">失敗監視</a>
+  <a href="/my/activity" class="text-blue-400 hover:text-blue-300 ml-auto">自分の履歴</a>
+</nav>
+<section class="mb-6 p-4 rounded bg-slate-800/40">
+  <h2 class="text-xl font-bold mb-3">hanako@f-a-c.co.jp</h2>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+    <div><span class="text-slate-400 block">氏名</span>山田 花子</div>
+    <div><span class="text-slate-400 block">会社</span>F&amp;A &lt;Consulting&gt;</div>
+    <div><span class="text-slate-400 block">権限</span>user</div>
+    <div><span class="text-slate-400 block">ログイン回数</span>12</div>
+    <div><span class="text-slate-400 block">初回</span>2026-01-05T09:00:00Z</div>
+    <div><span class="text-slate-400 block">最終</span>2026-09-28T01:23:45Z</div>
+    <div><span class="text-slate-400 block">ID</span><code class="text-xs">acc-0001</code></div>
+    <div><span class="text-slate-400 block">状態</span><span class="text-green-400">有効</span></div>
+  </div>
+</section>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <div class="p-4 rounded bg-slate-800/40"><div class="text-slate-400 text-xs">直近30日 ログイン成功</div><div class="text-3xl font-bold">1</div></div>
+  <div class="p-4 rounded bg-slate-800/40"><div class="text-slate-400 text-xs">直近30日 ログイン失敗</div><div class="text-3xl font-bold text-red-400">1</div></div>
+  <div class="p-4 rounded bg-slate-800/40"><div class="text-slate-400 text-xs">直近30日 操作数</div><div class="text-3xl font-bold">3</div></div>
+  <div class="p-4 rounded bg-slate-800/40"><div class="text-slate-400 text-xs">直近30日 企業閲覧数</div><div class="text-3xl font-bold">2</div></div>
+</div>
+<section class="mb-6">
+  <h3 class="text-lg font-bold mb-2">ログイン履歴 (3 件)</h3>
+  <div class="overflow-x-auto rounded bg-slate-800/30"><table class="w-full text-sm">
+    <thead class="bg-slate-800 text-xs uppercase text-slate-300"><tr>
+      <th class="py-2 px-2 text-left">日時</th><th class="py-2 px-2 text-left">結果</th>
+      <th class="py-2 px-2 text-left">方式</th><th class="py-2 px-2 text-left">IPハッシュ</th>
+      <th class="py-2 px-2 text-left">User-Agent</th><th class="py-2 px-2 text-left">失敗理由</th>
+    </tr></thead>
+    <tbody><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T09:00:00Z</td><td class="py-1 px-2"><span class="text-green-400">成功</span></td><td class="py-1 px-2 text-xs">password_internal</td><td class="py-1 px-2 text-xs text-slate-500">ab12cd34ef56</td><td class="py-1 px-2 text-xs text-slate-500">Mozilla/5.0 (Windows NT 10.0; Win64; x64</td><td class="py-1 px-2 text-xs text-red-400"></td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T08:00:00Z</td><td class="py-1 px-2"><span class="text-red-400">失敗</span></td><td class="py-1 px-2 text-xs">password</td><td class="py-1 px-2 text-xs text-slate-500">ab12cd34ef56</td><td class="py-1 px-2 text-xs text-slate-500">curl/8.0</td><td class="py-1 px-2 text-xs text-red-400">wrong_password</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2000-01-01T00:00:00Z</td><td class="py-1 px-2"><span class="text-green-400">成功</span></td><td class="py-1 px-2 text-xs">google_oidc</td><td class="py-1 px-2 text-xs text-slate-500">0000aaaa1111</td><td class="py-1 px-2 text-xs text-slate-500">Safari/17</td><td class="py-1 px-2 text-xs text-red-400"></td></tr></tbody>
+  </table></div>
+</section>
+<section>
+  <h3 class="text-lg font-bold mb-2">操作履歴 (4 件)</h3>
+  <div class="overflow-x-auto rounded bg-slate-800/30"><table class="w-full text-sm">
+    <thead class="bg-slate-800 text-xs uppercase text-slate-300"><tr>
+      <th class="py-2 px-2 text-left">日時</th><th class="py-2 px-2 text-left">イベント</th>
+      <th class="py-2 px-2 text-left">対象種別</th><th class="py-2 px-2 text-left">対象ID</th>
+    </tr></thead>
+    <tbody><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T09:30:00Z</td><td class="py-1 px-2">view_company_profile</td><td class="py-1 px-2 text-xs text-slate-400">company</td><td class="py-1 px-2 text-xs">1234567890123</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T09:20:00Z</td><td class="py-1 px-2">view_tab</td><td class="py-1 px-2 text-xs text-slate-400">tab</td><td class="py-1 px-2 text-xs">/tab/survey</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2099-01-02T09:10:00Z</td><td class="py-1 px-2">view_company_profile</td><td class="py-1 px-2 text-xs text-slate-400">company</td><td class="py-1 px-2 text-xs">9876543210987</td></tr><tr class="border-b border-slate-700"><td class="py-1 px-2 text-xs">2000-01-01T00:00:00Z</td><td class="py-1 px-2">login</td><td class="py-1 px-2 text-xs text-slate-400"></td><td class="py-1 px-2 text-xs"></td></tr></tbody>
+  </table></div>
+</section>
+</body>
+</html>

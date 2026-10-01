@@ -55,10 +55,13 @@
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use unicode_normalization::UnicodeNormalization;
 
 /// 検出された1違反。`major`/`minor` は元ルールの表記、`matched` は元テキストの該当付近。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// `TS` は React 画面 (`/app/jobgen`) 向けの型出力用 (`src/job_gen/contract.rs`)。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 pub struct NgViolation {
     /// 違反区分(例:「性別差別表現」「年齢差別」)。
     pub reason: String,
