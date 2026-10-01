@@ -982,8 +982,17 @@ fn mtgが結べていない初回契約が出る() {
         .iter()
         .all(|r| r["stage"] != "マーケ関連"));
     assert!(nm["rate"].as_f64().is_some());
-    // 記録が無いことと、やっていないことを分けて書いているか
-    assert!(nm["note"].as_str().unwrap().contains("記録が無いことと"));
+    // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
+    //    「していない」ではなく「記録が欠けている」と読め、欠ける理由の候補が添えてあるか
+    let note = nm["note"].as_str().unwrap();
+    assert!(
+        note.contains("見つからない") && note.contains("記録が欠けている"),
+        "{note}"
+    );
+    assert!(
+        note.contains("台帳") && note.contains("録画なし") && note.contains("紐づいていない"),
+        "{note}"
+    );
 }
 
 // ================================================================ タブ6 電話
@@ -2115,11 +2124,13 @@ fn mtgの記録なしは赤にせず両方のソースで数える() {
         .iter()
         .filter_map(|x| x["label"].as_str())
         .collect();
+    // 帯の名前は MtgBand::NoRecord.label() から取る（言い方を変えても見張りが空振りしないように）
+    let no_rec = super::MtgBand::NoRecord.label();
     assert!(
         !names
             .iter()
-            .any(|x| x.contains("記録が無い") && x.contains("MTG")),
-        "「MTGの記録が無い」が名札になっている: {names:?}"
+            .any(|x| x.contains(no_rec) || (x.contains("記録が無い") && x.contains("MTG"))),
+        "「{no_rec}」が名札になっている: {names:?}"
     );
 
     // 🔴 メール由来を足した効果。録画だけだと記録なしが 191件になる
@@ -6191,6 +6202,111 @@ fn act_view_diff_counts_on_fixture() {
     assert_eq!(reasons("no_mtg", "メール由来"), 55);
 }
 
+/// 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
+/// 見方「初回契約で MTG の記録が…」に残る案件は「していない」ではなく「記録が欠けている」と読む。
+/// 見方の名前・定義文・前の定義の名前、帯の名前、今日の畳みの注記（no_record_note）、立ち上がりの注記を同じ言い方にそろえ、
+/// どれにも「MTG の記録が無い」（していないと読める）を残さない。欠ける理由の候補（台帳の遅れ・録画なし・紐付け漏れ）を添える。
+#[test]
+fn mtg_no_record_reads_as_missing_record_not_as_not_held() {
+    let sh = sheets();
+    let b = build_deal_board(&sh, fixture_day());
+    let v = b["meta"]["act_views"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["key"] == "no_mtg")
+        .expect("見方 no_mtg");
+    let label = v["label"].as_str().unwrap();
+    let rule = v["rule"].as_str().unwrap();
+    assert_eq!(label, "初回契約で MTG の記録が見つからない");
+    for c in ["記録が欠けている", "台帳", "録画なし", "紐づいていない"] {
+        assert!(rule.contains(c), "見方の定義に「{c}」が無い: {rule}");
+    }
+    // 前の定義の名前（外れた件数の文に出る）も同じ言い方
+    let d = b["meta"]["act_view_diff"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["key"] == "no_mtg")
+        .unwrap();
+    let old_where_full = d["old"]["where"].as_str().unwrap();
+    // 🔴 前の表の名前は、画面に出ていたとおり（770ea8e の「MTG の記録がまだ無い初回契約」）に残す。
+    //    書き換えると覚えている人が照合できず、履歴として事実でなくなる。いまの読み方は括弧の中に添える。
+    //    旧名そのものは下の「残さない」の検査から外し、旧名を除いた残りの文で同じ検査をする（検査は緩めない）
+    const OLD_NAME: &str = "「MTG の記録がまだ無い初回契約」";
+    assert!(
+        old_where_full.contains(OLD_NAME),
+        "前の定義の名前が、画面に出ていた名前のままでない: {old_where_full}"
+    );
+    assert!(
+        old_where_full.contains("当時の名前") && old_where_full.contains("記録が見つからない"),
+        "前の定義の名前に、いまの読み方が添えられていない: {old_where_full}"
+    );
+    let old_where_rest = old_where_full.replacen(OLD_NAME, "", 1);
+    let old_where = old_where_rest.as_str();
+    // 帯の名前（案件一覧の帯・今日の畳み・外れた理由に出る）
+    let band = super::MtgBand::NoRecord.label();
+    assert_eq!(band, "MTGの記録が見つからない");
+    assert!(
+        rule.contains(band),
+        "見方の定義が帯の名前と食い違う: {rule}"
+    );
+    // 今日の畳みに出る注記
+    let t = build_today_board(&sh, fixture_day());
+    let note = t["meta"]["mtg_gap"]["no_record_note"].as_str().unwrap();
+    for c in ["見つからない", "記録が欠けている", "台帳", "録画なし"] {
+        assert!(note.contains(c), "今日の注記に「{c}」が無い: {note}");
+    }
+    // 🔴 藤巻さんの判断は初回契約について。帯「MTGの記録が見つからない」には初回契約でない案件も入るので、
+    //    帯全体に「MTG はしていて記録が欠けている」と言い切らない（推定を事実のように書かない）。
+    //    前提: fixture で帯に初回契約でない案件がある（2026-09-18: 帯 44 件・うち初回契約 21 件）
+    let rows = b["rows"].as_array().unwrap();
+    let in_band = rows.iter().filter(|r| r["mtg_band"] == "no_record");
+    let (n_band, n_first) = in_band.fold((0, 0), |(a, f), r| {
+        (a + 1, f + usize::from(r["renewal_no"].as_i64() == Some(0)))
+    });
+    assert_eq!((n_band, n_first), (44, 21), "帯の件数・うち初回契約");
+    assert!(
+        note.contains("初回契約では") && note.contains("初回契約でない案件は"),
+        "今日の注記が、初回契約の判断を帯全体に広げている: {note}"
+    );
+    assert!(
+        !note.contains("という意味ではありません"),
+        "今日の注記が、帯全体で「MTG をしていない」を否定している: {note}"
+    );
+    let bl = t["meta"]["mtg_gap"]["bands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["band"] == "no_record")
+        .unwrap()["label"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(bl, band);
+    // 立ち上がりの注記
+    let r = build_rampup(&sh, fixture_day());
+    let rn = r["no_mtg"]["note"].as_str().unwrap().to_string();
+    // どれにも「MTG の記録が無い」「MTGの記録が無い」「記録が1件も無い」を残さない
+    for (what, s) in [
+        ("見方の名前", label),
+        ("見方の定義", rule),
+        ("前の定義の名前", old_where),
+        ("今日の注記", note),
+        ("帯の名前", bl.as_str()),
+        ("立ち上がりの注記", rn.as_str()),
+    ] {
+        for bad in [
+            "MTG の記録が無い",
+            "MTGの記録が無い",
+            "記録が1件も無い",
+            "記録がまだ無い",
+        ] {
+            assert!(!s.contains(bad), "{what}に「{bad}」が残っている: {s}");
+        }
+    }
+}
+
 /// MTG のリスク判定は「判定のある MTG のうちいちばん新しいもの」。fixture の稼働中には「高」が 0 件なので、
 /// 決まりごとは作ったシートで確かめる（判定が空の新しい MTG で前の「高」が消えない・同じ日は重い方）
 #[test]
@@ -6507,4 +6623,131 @@ fn amount_is_contract_total_not_monthly() {
     }
     let text = super::money::AMOUNT_BASIS;
     assert!(text.contains("契約期間全体の額") && text.contains("月額ではありません"));
+}
+
+/// 2026-09-29 画面の組み替え（11画面・3区切り）の後も、サーバの文に前の画面名が残っていた
+/// （顧客の not_layer「「今日動く先」の MTG途絶の帯」・default_reason「「案件 → 今日動く先」の1件目」）。
+/// 左のメニューに無い名前を案内しない。全部の応答を文字列にして、前の名前が無いことを確かめる
+/// （画面の JS の文字列は consulting_view_rules.js「前の画面名（今日動く先・…）を画面の文に出さない」が見る）
+#[test]
+fn old_screen_names_not_in_server_text() {
+    use super::routes::*;
+    let sh = sheets();
+    let day = fixture_day();
+    let board = build_deal_board(&sh, day);
+    let id = board["rows"][0]["deal_id"].as_str().map(|s| s.to_string());
+    let all: Vec<(&str, Value)> = vec![
+        ("renewal", build_renewal(&sh, false)),
+        ("outcome", build_outcome(&sh, day)),
+        ("focus", build_focus(&sh, day)),
+        ("rampup", build_rampup(&sh, day)),
+        ("phone", build_phone(&sh, day)),
+        ("headquarters", build_headquarters(&sh, day)),
+        ("mtg-quality", build_mtg_quality(&sh, day)),
+        ("data-quality", build_data_quality(&sh, day)),
+        ("customer", build_customer(&sh, None, day)),
+        ("consultants", build_consultants(&sh, day)),
+        ("handover", build_handover(&sh, day)),
+        (
+            "contact-trend",
+            super::contact_trend::build_contact_trend(&sh, day),
+        ),
+        ("deals", board),
+        ("today", build_today_board(&sh, day)),
+        (
+            "deal-detail",
+            super::deal_detail::build_deal_detail(&sh, None, id.as_deref(), None, day),
+        ),
+        ("team", build_team(&sh, day)),
+        ("results", build_results(&sh, false, day)),
+        ("renewal-pipe", super::money::build_renewal_pipe(&sh, day)),
+    ];
+    // 顧客の「日々変わる状態」の文が今のメニュー名を指しているか（名前だけ消して行き先を失っていない）
+    let cust = &all.iter().find(|(k, _)| *k == "customer").unwrap().1;
+    let nl = cust["focus"]["not_layer"].as_str().unwrap_or("");
+    assert!(nl.contains("「今日」の MTG途絶の帯"), "{nl}");
+    for (k, v) in &all {
+        let s = v.to_string();
+        // 🔴 2026-09-30 検証: 3語だけ見ていて、旧画面の「担当者ごとの接触」「担当者の一覧」（09 の 4章の 6 と 9。
+        //    いまはチームと担当の中）が案件の詳細・担当の交代・接触の推移の文に残っていたのを拾えなかった
+        for bad in [
+            "今日動く先",
+            "案件そのもの",
+            "案件の立ち位置",
+            "担当者ごとの接触",
+            "担当者の一覧",
+        ] {
+            assert!(
+                !s.contains(bad),
+                "{k} の応答に前の画面名「{bad}」が残っている"
+            );
+        }
+    }
+}
+
+/// 2026-09-30 満了と継続のステージ別の表を工程順に。前は 3か月の合計の多い順で、「定期2」が「定期1」より上・
+/// ヨミ（B/C/D/T）が工程の途中に挟まり、工程の流れで読めなかった。
+/// 並びの正本は HubSpot の納品管理パイプラインの displayOrder（money.rs DELIVERY_STAGE_ORDER。シートに並びの手掛かりが無いため）。
+/// fixture の 3か月に出るステージが、その並びの順（番号が増える向き）に出ること、並びに無いものは末尾に出ることを確かめる
+#[test]
+fn renewal_pipe_stages_in_pipeline_order() {
+    use super::money::{build_renewal_pipe, DELIVERY_STAGE_ORDER};
+    let sh = sheets();
+    let day = fixture_day();
+    let v = build_renewal_pipe(&sh, day);
+    let stages: Vec<String> = v["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap().to_string())
+        .collect();
+    // ステージ名 → 工程の位置（fixture の取引の dealstage から引く。名前は画面に出る dealstage_label）
+    let deals = super::deals_of(&sh.deal);
+    let pos_of = |label: &str| -> usize {
+        deals
+            .iter()
+            .filter(|d| d.stage_label.trim() == label)
+            .filter_map(|d| DELIVERY_STAGE_ORDER.iter().position(|s| *s == d.stage))
+            .min()
+            .unwrap_or(usize::MAX)
+    };
+    let pos: Vec<usize> = stages.iter().map(|s| pos_of(s)).collect();
+    assert!(
+        stages.len() >= 5,
+        "前提: 3か月に出るステージが少なすぎる: {stages:?}"
+    );
+    assert!(
+        pos.windows(2).all(|w| w[0] <= w[1]),
+        "ステージ別の表が工程順（HubSpot の並び）でない: {:?}",
+        stages.iter().zip(&pos).collect::<Vec<_>>()
+    );
+    // 工程の読み筋: 定期1 → 定期2 の順、ヨミは定期の後ろ
+    let at = |s: &str| stages.iter().position(|x| x == s);
+    if let (Some(a), Some(b)) = (at("定期1"), at("定期2")) {
+        assert!(a < b, "定期1 が 定期2 より後ろ: {stages:?}");
+    }
+    let last_teiki = stages.iter().rposition(|x| x.starts_with("定期"));
+    let first_yomi = stages.iter().position(|x| x.contains("ヨミ"));
+    if let (Some(t), Some(y)) = (last_teiki, first_yomi) {
+        assert!(t < y, "ヨミが定期の途中に挟まっている: {stages:?}");
+    }
+    // 各月の stages も同じ並び（表の列を月ごとに組み替えない）
+    for m in v["months"].as_array().unwrap() {
+        let ls: Vec<&str> = m["stages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(ls, stages.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    }
+    // 並びは HubSpot の 30 ステージで重なりが無い
+    let mut ids = DELIVERY_STAGE_ORDER.to_vec();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(
+        ids.len(),
+        DELIVERY_STAGE_ORDER.len(),
+        "並びに同じ ID が2回ある"
+    );
 }

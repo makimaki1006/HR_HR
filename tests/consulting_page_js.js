@@ -526,20 +526,20 @@ check("U10", "401・JSON 以外の応答・本部アプローチの取得でも�
     if (err.indexOf("Unexpected token") >= 0 || err.indexOf("JSON 以外") < 0)
       throw new Error("JSON 以外の応答で、構文エラーの文がそのまま出る: " + err.slice(0, 120));
   }
-  // ③ 本部アプローチ（法人番号で見るの下の遅延読み）
+  // ③ 本部アプローチ。2026-09-30 に後読み（wireHq が /api/consulting/headquarters を別に取る）を消し、
+  //    成果と継続の束（/api/consulting/results）の rs-hq に描く。同じ性質（本部アプローチの取得でログイン切れを出す）を束の取得で見る
   {
     const t = boot();
-    const box = new t.El("hq-box"); t.reg["hq-box"] = box;
-    t.ctx.__D = customerPayload([deal({})]);
-    t.R("lastPayload = __D; hqCache = null;");
-    t.R("wireHq()");
+    t.R('go("monthly", "results")');
     const f = t.fetched[t.fetched.length - 1];
-    if (f.url.indexOf("/api/consulting/headquarters") !== 0) throw new Error("本部アプローチを取りに行っていない");
+    if (f.url.indexOf("/api/consulting/results") !== 0) throw new Error("成果と継続（本部アプローチを含む束）を取りに行っていない: " + f.url);
+    if (t.fetched.some((x) => x.url.indexOf("/api/consulting/headquarters") === 0)) throw new Error("本部アプローチを別にまだ取りに行っている");
     f.resolve({ ok: true, status: 200, redirected: true, url: "http://test.local/login",
       headers: html, json: badJson });
     await tick(); await tick(); await tick();
-    if (box.innerHTML.indexOf("ログインし直してください") < 0)
-      throw new Error("本部アプローチでログイン切れの案内が出ない: " + box.innerHTML.slice(0, 120));
+    const err = t.reg["cs-error"].innerHTML;
+    if (err.indexOf("ログインし直してください") < 0 || err.indexOf("Unexpected token") >= 0)
+      throw new Error("成果と継続（本部アプローチ）の取得でログイン切れの案内が出ない: " + err.slice(0, 120));
   }
 });
 
@@ -875,7 +875,7 @@ check("V8", "今日の画面に件数を直書きしない（その日の件数�
   const h = t.R("renderToday")(todayPayload([boardRow({ flags: ["a"] }), boardRow({ flags: ["b"] }),
                                              boardRow({ flags: ["a"] })]));
   if (h.indexOf("24件") >= 0 || h.indexOf("24 件") >= 0) throw new Error("「24件」と直書きしている（3件の日）");
-  if (h.indexOf("今日動く先（3 件）") < 0) throw new Error("実際の件数が出ていない");
+  if (h.indexOf("今日の案件（3 件）") < 0) throw new Error("実際の件数が出ていない");
   if (h.indexOf("何で上がってきたか") >= 0) throw new Error("外した図（名札の内訳）が残っている");
 });
 
@@ -2694,8 +2694,8 @@ check("組替", "顧客: 本部アプローチは成果と継続へ移したの�
   t.ctx.__D = twoSites();
   const h = t.R("renderCustomer(__D)");
   if (/本部に何を持っていくか|id="hq-box"|id="hq-sec"|data-cjump="hq-sec"/.test(h)) throw new Error("顧客の画面に本部アプローチ（見出し・枠・行き先）が残っている");
-  t.R("lastPayload = __D; hqCache = null;");
-  t.reg["hq-box"] = new t.El("hq-box");   /* 枠があっても、顧客の wire は取りに行かない */
+  t.R("lastPayload = __D;");
+  t.reg["hq-box"] = new t.El("hq-box");   /* 前の枠が残っていても、顧客の wire は取りに行かない */
   t.R("wire(viewOf('research', 'customer'))");
   if (t.fetched.some((f) => f.url.indexOf("/api/consulting/headquarters") === 0)) throw new Error("顧客の画面で本部アプローチをまだ取りに行っている");
   /* 移り先へのリンク（黙って消さない）。移り先の節が成果と継続に実在すること */
