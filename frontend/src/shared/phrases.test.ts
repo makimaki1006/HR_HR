@@ -18,7 +18,7 @@ const RUST_SOURCE = fileURLToPath(
 );
 const SURVEY_SOURCE = fileURLToPath(
   new URL(
-    '../../../src/handlers/survey/report_html/navy_report/sp_report.rs',
+    '../../../src/handlers/survey/report_html/mod.rs',
     import.meta.url,
   ),
 );
@@ -71,9 +71,9 @@ describe('generated phrase_rules.json vs the Rust sources', () => {
     expect(rules.required).toHaveLength(8);
   });
 
-  it('survey FORBIDDEN_WORDS are identical (same order)', () => {
+  it('survey SURVEY_FORBIDDEN_WORDS are identical (same order)', () => {
     const source = readFileSync(SURVEY_SOURCE, 'utf-8');
-    expect(rustStringArray(source, 'FORBIDDEN_WORDS')).toEqual(rules.survey_forbidden);
+    expect(rustStringArray(source, 'SURVEY_FORBIDDEN_WORDS')).toEqual(rules.survey_forbidden);
     expect(rules.survey_forbidden).toHaveLength(6);
   });
 });
