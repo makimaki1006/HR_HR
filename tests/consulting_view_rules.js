@@ -5377,9 +5377,10 @@ check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの�
     run('cur = { menu: "deal", view: "board" }; ' + reset);
     const bar = run("boardFilterBar(__BA)");
     const sel = bar.slice(bar.indexOf('id="bf-amount"'), bar.indexOf("</select>", bar.indexOf('id="bf-amount"')));
-    ok(sel.length > 0 && /title="契約期間全体の額（月額ではありません）">契約総額 <select id="bf-amount"/.test(bar), "欄の名前が契約総額でない、または月額でないことが無い");
+    ok(sel.length > 0 && /title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・名札など）を掛けた中の件数です">契約総額 <select id="bf-amount"/.test(bar),
+      "欄の名前が契約総額でない、月額でないこと・件数の母数が無い");
     const opts = [...sel.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => m[1] + "=" + m[2]);
-    ok(JSON.stringify(opts) === JSON.stringify(["=すべて", "lt50=50万円未満（2）", "50-100=50万〜100万円未満（1）", "100-200=100万〜200万円未満（0）",
+    ok(JSON.stringify(opts) === JSON.stringify(["=すべて（6）", "lt50=50万円未満（2）", "50-100=50万〜100万円未満（1）", "100-200=100万〜200万円未満（0）",
       "ge200=200万円以上（1）", "none=金額が空（2）"]), "帯と件数が違う（空を 0 円の帯に混ぜている？）: " + opts.join(" / "));
     const ids = (k) => run('boardFilter.amount = "' + k + '"; boardApply(__BA.rows).map((r) => r.deal_id).join()');
     ok(ids("lt50") === "a1,a6", "50万円未満: " + ids("lt50"));
@@ -5391,6 +5392,19 @@ check("09 の 3章 2: 案件一覧の契約総額の帯。金額が空はどの�
     ok(run("boardFilterWords(__BA)") === "契約総額 金額が空", "空で絞ったときに空の件数を添えている");
     ok(/6 件中 2 件\s*を表示/.test(textOf(run("renderBoard(__BA)"))), "件数の行が絞った件数でない");
     ok(run("JSON.stringify(stateParams('board'))") === JSON.stringify({ amt: "none" }), "契約総額が URL に載らない");
+    // 🔴 2026-09-30 検証: 件数と「金額が空の N 件」は、担当などほかの絞り込みの中で数える（前は稼働中の全件で数え、
+    //    金額が空の案件を持たない担当でも「空の 2 件は入りません」と出た）。「すべて（N）」が母数で、帯と空を足すと N
+    run('boardFilter.amount = "lt50"; boardFilter.consultant = "田中";');
+    ok(run("boardFilterWords(__BA)") === "担当 田中 / 契約総額 50万円未満", "空の案件を持たない担当で空の件数を出している: " + run("boardFilterWords(__BA)"));
+    const opts2 = (() => { const b2 = run("boardFilterBar(__BA)"); const i = b2.indexOf('id="bf-amount"');
+      return [...b2.slice(i, b2.indexOf("</select>", i)).matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => m[1] + "=" + m[2]); })();
+    ok(JSON.stringify(opts2) === JSON.stringify(["=すべて（2）", "lt50=50万円未満（1）", "50-100=50万〜100万円未満（1）", "100-200=100万〜200万円未満（0）",
+      "ge200=200万円以上（0）", "none=金額が空（0）"]), "担当で絞っても全社の件数を出している: " + opts2.join(" / "));
+    run('boardFilter.consultant = "佐藤";');
+    ok(run("boardFilterWords(__BA)") === "担当 佐藤 / 契約総額 50万円未満（金額が空の 2 件は入りません）", "担当の中の空の件数でない: " + run("boardFilterWords(__BA)"));
+    // 契約総額で絞っていても、件数は契約総額を外して数える（選んだ帯以外の件数も見える）
+    const b3 = run("boardFilterBar(__BA)");
+    ok(b3.includes(">すべて（4）<") && b3.includes(">200万円以上（1）<"), "契約総額で絞った後に、ほかの帯の件数が 0 になっている");
   } finally {
     run(reset + ' cur = { menu: "deal", view: "today" };');
   }

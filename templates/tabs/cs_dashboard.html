@@ -6025,10 +6025,16 @@ function boardApply(rows) {
   const f = boardFilter;
   const key = JSON.stringify(f);
   if (boardApplyMemo.src === rows && boardApplyMemo.key === key) return boardApplyMemo.out;
+  const out = rows.filter(boardHit(f));
+  boardApplyMemo.src = rows; boardApplyMemo.key = key; boardApplyMemo.out = out;
+  return out;
+}
+/** 絞り込み f に当たるかを返す関数（boardApply の中身。契約総額の件数を「ほかの絞り込みの中で」数えるのにも使う） */
+function boardHit(f) {
   const band = EXPIRY_BANDS.find((b) => b.k === f.expiry);
   const amt = AMOUNT_BANDS.find((b) => b.k === f.amount);
-  const q = f.q.trim().toLowerCase();
-  const out = rows.filter((r) => {
+  const q = (f.q || "").trim().toLowerCase();
+  return (r) => {
     if (f.consultant && (r.consultant || "") !== f.consultant) return false;
     if (f.flag && !(r.flags || []).some((x) => x === f.flag)) return false;
     /* MTG 途絶の帯（行の mtg_band）。今日動く先の KPI「MTGが90日以上途絶 N 件」から来る（S-2） */
@@ -6039,9 +6045,13 @@ function boardApply(rows) {
     if (amt && !amt.hit(amountOf(r))) return false;
     if (q && String(r.name || r.deal_id || "").toLowerCase().indexOf(q) < 0) return false;
     return true;
-  });
-  boardApplyMemo.src = rows; boardApplyMemo.key = key; boardApplyMemo.out = out;
-  return out;
+  };
+}
+/** 契約総額の帯を外した、ほかの絞り込みに当たる行（契約総額の選択肢の件数と「金額が空の N 件」の母数）。
+    🔴 2026-09-30 検証: 前は稼働中の全件で数えていて、担当で絞っても「金額が空の 2 件は入りません」「50万円未満（99）」と
+       全社の件数が出た（fixture: 金額が空の 2 件は別の担当。その担当に空は 0 件なのに 2 件と出た）。件数の行と母数を揃える */
+function boardRowsButAmount(rows) {
+  return (rows || []).filter(boardHit(Object.assign({}, boardFilter, { amount: "" })));
 }
 
 function boardFilterOn() {
@@ -6072,7 +6082,7 @@ function boardFilterWords(D) {
   if (f.amount) {
     const b = AMOUNT_BANDS.find((x) => x.k === f.amount);
     /* 金額の帯で絞ったときは、金額が空で入らない件数を添える（黙って落とさない。空はどの帯にも入れていない） */
-    const nNone = f.amount === "none" ? 0 : (((D || {}).rows) || []).filter((r) => amountOf(r) == null).length;
+    const nNone = f.amount === "none" ? 0 : boardRowsButAmount((D || {}).rows).filter((r) => amountOf(r) == null).length;
     if (b) w.push("契約総額 " + b.t + (nNone ? "（金額が空の " + nNone + " 件は入りません）" : ""));
   }
   if (f.q.trim()) w.push("案件名に " + f.q.trim());
@@ -6095,7 +6105,7 @@ function boardFilterBar(D, onlyOwner) {
     opt("", "すべて", boardFilter.consultant) +
     names.map((n) => opt(n, n, boardFilter.consultant)).join("") + "</select></label>";
   if (onlyOwner) return h + "</div>";
-  h += '<label class="act">名札 <select id="bf-flag">' +
+  h += '<label class="act" title="括弧の件数は、稼働中の全件（全担当）で数えた件数です">名札 <select id="bf-flag">' +
     opt("", "すべて", boardFilter.flag) +
     flags.map((x) => opt(x.label, x.label + "（" + num(x.n) + "）", boardFilter.flag)).join("") +
     "</select></label>";
@@ -6111,10 +6121,13 @@ function boardFilterBar(D, onlyOwner) {
     EXPIRY_BANDS.map((b) => opt(b.k, b.t, boardFilter.expiry)).join("") + "</select></label>";
   /* 契約総額（09 の 3章 2）。選択肢に件数を添え、金額が空の件数は「金額が空（N）」で別に出す（帯に混ぜない）。
      欄の名前に「契約総額」と書く（月額と読ませない。月額は CS_取引の別の列） */
+  /* 件数は、契約総額の帯を外したほかの絞り込み（担当・名札など）の中で数える（boardRowsButAmount）。「すべて（N）」の N が
+     その母数で、帯の件数と「金額が空」を足すと N になる（名札の件数は今までどおり全社の件数で、欄の title に書く） */
+  const amtBase = boardRowsButAmount(D.rows);
   const amtN = {};
-  for (const r of D.rows) for (const b of AMOUNT_BANDS) if (b.hit(amountOf(r))) amtN[b.k] = (amtN[b.k] || 0) + 1;
-  h += '<label class="act" title="契約期間全体の額（月額ではありません）">契約総額 <select id="bf-amount">' +
-    opt("", "すべて", boardFilter.amount || "") +
+  for (const r of amtBase) for (const b of AMOUNT_BANDS) if (b.hit(amountOf(r))) amtN[b.k] = (amtN[b.k] || 0) + 1;
+  h += '<label class="act" title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・名札など）を掛けた中の件数です">契約総額 <select id="bf-amount">' +
+    opt("", "すべて（" + num(amtBase.length) + "）", boardFilter.amount || "") +
     AMOUNT_BANDS.map((b) => opt(b.k, b.t + "（" + num(amtN[b.k] || 0) + "）", boardFilter.amount || "")).join("") + "</select></label>";
   /* 幅は CSS の min-width / max-width で決める。ここに px を書かない */
   h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
