@@ -571,8 +571,9 @@ function TierBox({
   const t = (field: string): string => `rd-talent_pool_expansion-${name}-${field}`;
   return (
     <div className={CARD}>
-      <div className={`mb-1 text-xs font-semibold ${color}`} data-testid={t('municipality_count')}>
-        {label} (上位 {tier.municipality_count} 市区町村)
+      <div className={`mb-1 text-xs font-semibold ${color}`}>
+        {label} (上位 <span data-testid={t('municipality_count')}>{tier.municipality_count}</span>{' '}
+        市区町村)
       </div>
       <div className="grid grid-cols-2 gap-2 text-sm">
         <div>

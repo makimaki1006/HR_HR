@@ -274,7 +274,7 @@ describe('Panel 9 talent pool expansion', () => {
     mount(view);
     expect(view.statusText).toBe('完了（2 市区町村）');
     expect(text('rd-talent_pool_expansion-current')).toBe('東京都 新宿区');
-    expect(text('rd-talent_pool_expansion-tier_30min-municipality_count')).toBe('30 分圏 (上位 2 市区町村)');
+    expect(text('rd-talent_pool_expansion-tier_30min-municipality_count')).toBe('2');
     expect(text('rd-talent_pool_expansion-tier_30min-unemployment_pool')).toBe('+12,345 人');
     expect(text('rd-talent_pool_expansion-tier_30min-hw_postings')).toBe('+678 件');
     expect(text('rd-talent_pool_expansion-tier_60min-unemployment_pool')).toBe('+0 人');
