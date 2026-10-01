@@ -2,7 +2,7 @@ import { ChildProcess, execFileSync, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { E2E_PASSWORD, PR_PORT } from './helpers/fixture_values';
+import { E2E_PASSWORD, PR_BASE_URL, PR_PORT } from './helpers/fixture_values';
 
 /**
  * fixture DB を作り、ビルド済みバイナリを起動して /health を待つ。teardown で停止する。
@@ -43,6 +43,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       AUTH_PASSWORD: E2E_PASSWORD,
       ALLOWED_DOMAINS: 'f-a-c.co.jp',
       HELLOWORK_DB_PATH: db,
+      // debug ビルドだけが読む CSRF の追加許可 Origin (src/lib.rs)。ブラウザ内 fetch の POST を通す
+      CSRF_EXTRA_ORIGINS_DEBUG: PR_BASE_URL,
     },
   });
   let exited: number | null | undefined;

@@ -26,7 +26,6 @@ test.describe('smoke', () => {
   });
 
   test('未ログインで /api/nav (Accept: application/json) は 401 auth_required', async ({ request }) => {
-    test.fixme(true, '/api/nav は platform-team が並行実装中で、この worktree (d62c53d) には未実装。マージ後に fixme を外す');
     const r = await request.get('/api/nav', { headers: { Accept: 'application/json' }, maxRedirects: 0 });
     expect(r.status()).toBe(401);
     expect((await r.json()).error).toBe('auth_required');
