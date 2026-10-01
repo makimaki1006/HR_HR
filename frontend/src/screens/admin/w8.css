@@ -1,0 +1,306 @@
+/* W8 admin / my screens. Same dark theme as the old Rust pages (body #0f172a, slate text).
+   Plain CSS on purpose: the built Tailwind for /app/* is platform-team's job (plan §2.6). */
+:root {
+  color-scheme: dark;
+}
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.w8-page {
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.w8-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  font-size: 14px;
+}
+.w8-nav a {
+  color: #60a5fa;
+  text-decoration: none;
+}
+.w8-nav a:hover {
+  color: #93c5fd;
+}
+.w8-nav a.w8-nav-muted {
+  color: #94a3b8;
+}
+.w8-nav a.w8-nav-muted:hover {
+  color: #fff;
+}
+.w8-nav .w8-nav-sep {
+  color: #475569;
+}
+.w8-nav .w8-nav-right {
+  margin-left: auto;
+}
+h1.w8-h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 16px;
+}
+h2.w8-h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+h3.w8-h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.w8-subtle {
+  color: #94a3b8;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+.w8-note {
+  color: #475569;
+  font-size: 12px;
+  margin-top: 16px;
+}
+.w8-card {
+  padding: 16px;
+  border-radius: 4px;
+  background: rgba(30, 41, 59, 0.4);
+  margin-bottom: 24px;
+}
+.w8-alert {
+  padding: 32px;
+  border-radius: 4px;
+  border: 1px solid #b45309;
+  background: rgba(120, 53, 15, 0.3);
+}
+.w8-alert.w8-alert-red {
+  border-color: #b91c1c;
+  background: rgba(127, 29, 29, 0.3);
+}
+.w8-alert h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.w8-alert p {
+  margin: 0;
+  color: #cbd5e1;
+}
+.w8-flash {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 4px;
+  border: 1px solid #15803d;
+  background: rgba(20, 83, 45, 0.3);
+  color: #86efac;
+  font-size: 14px;
+}
+.w8-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+.w8-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  font-size: 14px;
+}
+.w8-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+@media (min-width: 768px) {
+  .w8-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .w8-grid-4,
+  .w8-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.w8-label {
+  display: block;
+  color: #94a3b8;
+}
+.w8-kpi {
+  padding: 16px;
+  border-radius: 4px;
+  background: rgba(30, 41, 59, 0.4);
+}
+.w8-kpi .w8-kpi-title {
+  color: #94a3b8;
+  font-size: 12px;
+}
+.w8-kpi .w8-kpi-value {
+  font-size: 30px;
+  font-weight: 700;
+}
+.w8-table-wrap {
+  overflow-x: auto;
+  border-radius: 4px;
+  background: rgba(30, 41, 59, 0.3);
+}
+table.w8-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+table.w8-table thead {
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+table.w8-table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+}
+table.w8-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #334155;
+}
+table.w8-table.w8-table-dense th,
+table.w8-table.w8-table-dense td {
+  padding: 4px 8px;
+}
+table.w8-table tbody tr:hover {
+  background: rgba(30, 41, 59, 0.5);
+}
+.w8-right {
+  text-align: right;
+}
+.w8-xs {
+  font-size: 12px;
+}
+.w8-muted {
+  color: #94a3b8;
+}
+.w8-dim {
+  color: #64748b;
+}
+.w8-green {
+  color: #4ade80;
+}
+.w8-red {
+  color: #f87171;
+}
+.w8-emerald {
+  color: #34d399;
+}
+.w8-link {
+  color: #60a5fa;
+  text-decoration: none;
+}
+.w8-link:hover {
+  text-decoration: underline;
+}
+.w8-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.w8-badge-admin {
+  background: #581c87;
+  color: #d8b4fe;
+}
+.w8-badge-disabled {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+.w8-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.w8-pill {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-decoration: none;
+  background: #334155;
+  color: #cbd5e1;
+}
+.w8-pill:hover {
+  background: #475569;
+}
+.w8-pill.w8-pill-active {
+  background: #1d4ed8;
+  color: #fff;
+}
+.w8-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin: 0 0 8px;
+}
+.w8-empty {
+  padding: 16px 12px;
+  color: #64748b;
+}
+dl.w8-dl {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+}
+dl.w8-dl dt {
+  color: #94a3b8;
+}
+dl.w8-dl dd {
+  margin: 0;
+}
+.w8-form label {
+  display: block;
+  margin-bottom: 12px;
+}
+.w8-form label span {
+  color: #94a3b8;
+  font-size: 14px;
+}
+.w8-form input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: #0f172a;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+}
+.w8-form input:focus {
+  outline: 2px solid #3b82f6;
+}
+.w8-button {
+  padding: 8px 16px;
+  background: #2563eb;
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.w8-button:hover {
+  background: #3b82f6;
+}
+.w8-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+code.w8-code {
+  font-size: 12px;
+}

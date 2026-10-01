@@ -1,0 +1,19 @@
+{
+  "panel": "inflow_analysis",
+  "inputs": {
+    "prefecture": "",
+    "municipality": "",
+    "citycode": 3205,
+    "year": 2021
+  },
+  "breakdown": [],
+  "total_population": -0.0,
+  "so_what": "該当市区町村の流入データが未投入（83% 投入済のうち残り 17% に該当する可能性）。別エリアで再試行してください。",
+  "data_warning": "v2_flow_fromto_city は Turso 書き込み制限により約83%のみ投入済み。残り17%は完全投入後に反映予定。",
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "data_source": "国土交通省 全国の人流オープンデータ（Agoop社提供）v2_flow_fromto_city",
+    "method": "平日昼(dayflag=1, timezone=0) の年合計。from_area は 4 区分（Agoop 地方ブロック粒度）。"
+  }
+}

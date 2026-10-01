@@ -1,0 +1,38 @@
+{
+  "prefecture": "岩手県",
+  "municipality": "盛岡市",
+  "job_type": "飲食業",
+  "emp_type": "アルバイト",
+  "industry_median": {
+    "annual_income": 0.0,
+    "annual_holidays": 0.0,
+    "bonus_months": 0.0,
+    "sample_size": 0
+  },
+  "all_industry_median": {
+    "annual_income": 0.0,
+    "annual_holidays": 0.0,
+    "bonus_months": 0.0,
+    "sample_size": 0
+  },
+  "company": {
+    "annual_income_estimated": 3300000.0,
+    "annual_holidays": 115.0,
+    "bonus_months": 3.0,
+    "salary_min": 220000.0
+  },
+  "gap_industry": {
+    "annual_income_diff": 3300000.0,
+    "annual_income_pct": 0.0,
+    "annual_holidays_diff": 115.0,
+    "bonus_months_diff": 3.0
+  },
+  "gap_all": {
+    "annual_income_diff": 3300000.0,
+    "annual_income_pct": 0.0,
+    "annual_holidays_diff": 115.0,
+    "bonus_months_diff": 3.0
+  },
+  "interpretation": "該当条件での HW 求人データが不足しており、比較できませんでした。",
+  "warning": "⚠️ HW求人データの限界:\n- HW掲載求人のみを対象。全求人市場ではない。\n- HW求人は市場実勢より給与を低めに設定する慣習あり。\n- 外部統計 (賃金構造基本統計調査など) との直接比較は注意。\n- 相関は示せても因果は証明できない。傾向として解釈すること。"
+}

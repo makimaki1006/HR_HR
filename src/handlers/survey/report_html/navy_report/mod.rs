@@ -155,6 +155,12 @@ pub(super) use section_07_5_jobbox_detail::render_navy_section_jobbox_detail;
 pub(super) mod section_07_6_popularity;
 pub(super) use section_07_6_popularity::render_navy_section_popularity;
 
+// 2026-09-29: Section 05B (競合調査 / Indeed 掲載求人) を独立モジュールとして追加。
+// タグ全体の出現数 / 検索上位 N 件のタグ / 人気求人 vs 全体 (下限・上限別)。
+// Indeed 由来の求人が 0 件ならセクションごとスキップ。
+pub(super) mod section_05b_competitor;
+pub(crate) use section_05b_competitor::{parse_top_n, render_navy_section_competitor};
+
 // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を独立モジュールに追加。
 // MarketIntelligence variant のときだけ 6 サブセクションを追加表示する。
 // 旧 `market_intelligence.rs` (handlers/survey/report_html/) は媒体分析タブ画面表示

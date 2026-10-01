@@ -461,7 +461,18 @@ pub(crate) fn render_navy_section_07_lifestyle(
     // -- 表 9-E 最低賃金 vs 求人給与 比較 (2026-05-23 #227 統合)
     //   求人下限給与中央値を時給換算 (167h) し、当該地域の最低賃金との比率を提示。
     //   既存「最低賃金推移」(図 9-2) を「求人とのギャップ」軸で補強する。
-    let median_min_salary: i64 = {
+    //
+    //   2026-09-29: median_min_salary の単位はモードで変わる (表9-E/F/H/I/J の各関数の契約):
+    //     - 時給モード: 時給求人の下限時給の中央値 (円/時、salary_min_values_native)。
+    //       表紙・§03 冒頭の時給中央値と同じ値。月額が要る表は各関数内で ×167h する。
+    //     - 月給モード: salary_min_values (月給換算、円/月) の中央値 (従来どおり)。
+    //   以前は時給モードでも月給換算値 (円/月) を渡していたため、表9-E が 208,750「円/時」、
+    //   表9-F/H/I が ×167 の二重換算 (34,861,250 円/月) になっていた。
+    let median_min_salary: i64 = if agg.is_hourly {
+        super::super::salary_summary::SalaryHeadline::from_aggregation(agg)
+            .hourly_native_median_yen
+            .unwrap_or(0)
+    } else {
         // salary_min_values の中央値 (>0 のみ)
         let mut v: Vec<i64> = agg
             .salary_min_values
@@ -965,6 +976,7 @@ fn build_navy_generation_fit_block(ctx: &InsightContext) -> String {
 //   当該地域 (pref) の最低賃金との比率を提示する。
 // - 単位は必ず時給 (円/時) で統一 (MEMORY: feedback_unit_consistency_audit.md)。
 // - is_hourly = true (時給ベース CSV) の場合は換算不要、median をそのまま使用。
+//   呼出側は時給モードで時給求人の下限時給中央値 (円/時) を渡す (2026-09-29)。
 // - 給与中央値が時給ベースで最賃の N 倍 になっているかを 1 行で示す。
 // - 「N 倍以上 = 余裕がある」とは断定しない (中立表現、
 //   MEMORY: feedback_neutral_expression_for_targets.md)。
@@ -1053,8 +1065,13 @@ fn build_navy_minwage_vs_salary_table(
     s.push_str(&format!(
         "<tr class=\"hl\"><td><strong>求人下限給与 中央値</strong></td>\
          <td class=\"num bold\">{}</td>\
-         <td><span class=\"dim\">CSV 集計 (月給は 167h で時給換算)</span></td></tr>\n",
-        median_repr
+         <td><span class=\"dim\">{}</span></td></tr>\n",
+        median_repr,
+        if is_hourly {
+            "CSV 集計 (時給表示の求人の下限時給。月給など時給以外の求人は含めない)"
+        } else {
+            "CSV 集計 (月給は 167h で時給換算)"
+        }
     ));
     s.push_str(&format!(
         "<tr><td><strong>最低賃金との比率</strong></td>\
@@ -1068,8 +1085,13 @@ fn build_navy_minwage_vs_salary_table(
     ));
     s.push_str("</tbody></table>\n");
     s.push_str(&format!(
-        "<p class=\"caption\">出典: 厚労省 v2_external_minimum_wage + CSV 集計 (median_min_salary)。月給を 167h (8h &times; 20.875 日, 厚労省基準) で割って時給換算。\
+        "<p class=\"caption\">出典: 厚労省 v2_external_minimum_wage + CSV 集計 (median_min_salary)。{}\
          <strong>判定:</strong> {}</p>\n",
+        if is_hourly {
+            "時給表示の求人の下限時給 (円/時) をそのまま最低賃金と比較。"
+        } else {
+            "月給を 167h (8h &times; 20.875 日, 厚労省基準) で割って時給換算。"
+        },
         note
     ));
     s

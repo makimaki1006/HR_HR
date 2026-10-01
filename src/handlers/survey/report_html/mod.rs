@@ -325,8 +325,9 @@ impl ReportVariant {
 /// 全セクションを出力する。この経路の出力は 1 バイトも変わらないこと。
 ///
 /// # コード体系
-/// 任意選択できるのは以下の 10 コード (掲載順):
-/// `"02","03","04","05","06","07","075","076","09","10"`。
+/// 任意選択できるのは以下の 11 コード (掲載順):
+/// `"02","03","04","05","06","07","075","076","077","09","10"`。
+/// (`"077"` = 競合調査 §05B、2026-09-29 追加)
 /// 表紙 / 目次 / 01 (Executive Summary) / 08 (注記・出典) は常時表示 (選択不可)。
 /// 不明なコードは無視する。空文字列は None (未指定) 扱い。
 #[derive(Debug, Clone)]
@@ -341,8 +342,9 @@ pub struct SectionSet {
 impl SectionSet {
     /// 任意選択できるセクションコード一覧 (掲載順)。
     /// UI のチェックボックス生成・TOC 掲載順の SSoT。
-    pub const OPTIONAL_CODES: &'static [&'static str] =
-        &["02", "03", "04", "05", "06", "07", "075", "076", "09", "10"];
+    pub const OPTIONAL_CODES: &'static [&'static str] = &[
+        "02", "03", "04", "05", "06", "07", "075", "076", "077", "09", "10",
+    ];
 
     /// クエリ文字列と variant から SectionSet を構築。
     ///
@@ -835,6 +837,8 @@ pub(crate) fn render_survey_report_page_with_sections(
     region_2d_stats: &[RegionMuniStat],
     // 2026-07-28: §02 表 2-C-2 通勤流出先 TOP3。空なら表非表示。
     commute_outflow_top3: &[(String, String, i64)],
+    // 2026-09-29: §05B 検索上位 N 件の N (?top_n=、parse_top_n 済み)。
+    top_n: usize,
 ) -> String {
     let cfg = RenderConfig::builder()
         .agg(agg)
@@ -860,8 +864,14 @@ pub(crate) fn render_survey_report_page_with_sections(
         .table2e(table2e)
         .region_2d_stats(region_2d_stats)
         .commute_outflow_top3(commute_outflow_top3)
+        .top_n(top_n)
         .build();
     render_survey_report_page_with_config(&cfg)
+}
+
+/// §05B 検索上位 N 件の `?top_n=` を件数に直す (handlers.rs 用の公開点)。
+pub(crate) fn parse_top_n(raw: Option<&str>) -> usize {
+    navy_report::parse_top_n(raw)
 }
 
 /// 求人市場 総合診断レポート HTML を生成する中核関数 (A3 リファクタ後の新 API)。
@@ -1105,6 +1115,11 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     }
     if cfg.section_set.shows("076") {
         navy_report::render_navy_section_popularity(&mut html, cfg.agg);
+    }
+    // 2026-09-29: 競合調査 (§05B)。CSV (Indeed 掲載求人) のみで作る章で HW を使わないため、
+    //   075/076 と同じく全 variant で出す。Indeed 由来 0 件なら関数内でスキップ。
+    if cfg.section_set.shows("077") {
+        navy_report::render_navy_section_competitor(&mut html, cfg.agg, cfg.top_n);
     }
     if cfg.section_set.shows("06") {
         if cfg.variant.show_sp_sections() {
@@ -2432,12 +2447,14 @@ mod ui2_contract_tests {
                 count: 70,
                 avg_salary: 260_000,
                 median_salary: 255_000,
+                ..Default::default()
             },
             EmpTypeSalary {
                 emp_type: "パート".to_string(),
                 count: 30,
                 avg_salary: 180_000,
                 median_salary: 175_000,
+                ..Default::default()
             },
         ];
         // 同名市区町村のテスト用に伊達市を 2 件含める
@@ -2470,12 +2487,14 @@ mod ui2_contract_tests {
                 count: 60,
                 avg_salary: 280_000,
                 avg_min_salary: 240_000,
+                ..Default::default()
             },
             PrefectureSalaryAgg {
                 name: "高知県".to_string(),
                 count: 5,
                 avg_salary: 170_000,
                 avg_min_salary: 155_000,
+                ..Default::default()
             },
         ];
         agg.by_tag_salary = vec![TagSalaryAgg {
@@ -3722,12 +3741,14 @@ mod variant_indicator_tests {
                 count: 130,
                 avg_salary: 280_000,
                 avg_min_salary: 250_000,
+                ..Default::default()
             },
             crate::handlers::survey::aggregator::PrefectureSalaryAgg {
                 name: "埼玉県".to_string(),
                 count: 45,
                 avg_salary: 300_000,
                 avg_min_salary: 270_000,
+                ..Default::default()
             },
         ];
         agg.salary_values = vec![

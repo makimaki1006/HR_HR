@@ -1,0 +1,15 @@
+{
+  "error": "HW DB 未接続",
+  "industry_median": {
+    "annual_income": 0.0,
+    "annual_holidays": 0.0,
+    "bonus_months": 0.0,
+    "sample_size": 0
+  },
+  "all_industry_median": {
+    "annual_income": 0.0,
+    "annual_holidays": 0.0,
+    "bonus_months": 0.0,
+    "sample_size": 0
+  }
+}

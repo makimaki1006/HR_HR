@@ -60,6 +60,19 @@
 
 `freshen()`（全 API の meta を組む関数）は `AppState` を受け取らず `Sheets` だけで動くため、`AppConfig` を通さず `std::env::var` を直接読んでいる。統合するなら `freshen` の 7 か所の呼び出しに config を通す必要がある（UI/UX 改善の範囲外として据え置き）。
 
+## 2c. Google Workspace OIDC ログイン (4 個、2026-09-29 追加、ADR-017)
+
+`src/config.rs` `GoogleOidcConfig::from_env()` が読む。**4 つ全部が空でないときだけ有効**。1 つでも欠けると OIDC は無効で、ログイン画面に Google ボタンを出さず `/auth/google/login` `/auth/google/callback` は 404、パスワードログインは従来どおり (一部だけ設定されていると起動時に warn)。
+
+| # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照 |
+|---|------|----------|------|-------------|------|
+| 21 | `GOOGLE_OIDC_CLIENT_ID` | `""` | Google Cloud の OAuth クライアント ID (ウェブアプリ)。ID token の `aud` と照合 | OIDC 無効 | `src/config.rs` / `src/auth/google_oidc.rs` |
+| 22 | `GOOGLE_OIDC_CLIENT_SECRET` | `""` | 同クライアントのシークレット。code → token 交換でサーバだけが使う (ブラウザに渡さない。ログにも出さない) | 同上 | 同上 |
+| 23 | `GOOGLE_OIDC_REDIRECT_URL` | `""` | 承認済みリダイレクト URI と完全一致させる。本番 `https://hr-hw.onrender.com/auth/google/callback` | 同上 | 同上 |
+| 24 | `GOOGLE_OIDC_HOSTED_DOMAIN` | `""` | ID token の `hd` クレームと email のドメインをこれと照合 (例 `f-a-c.co.jp`)。`ALLOWED_DOMAINS` は流用しない (`*` 設定で hd 検証が無効化されるのを避けるため) | 同上 | 同上 |
+
+ユーザー側の準備 (Google Cloud): OAuth 同意画面を「内部」で作成 → OAuth クライアント ID (ウェブアプリ) を作成 → 承認済みリダイレクト URI に上の URL を登録 → 4 つを Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
+
 > ⚠ この文書の見出しの「19 個」は 2026-04-26 時点の数。その後 `config.rs` に Turso 系が入り（§2 の 4 個は今は `AppConfig::from_env` にある）、`src/` の `env::var` の名前は 2026-09-28 時点で 43 個。全体の棚卸しは別作業。
 
 ---
@@ -118,6 +131,7 @@ cargo run
 | `AUDIT_TURSO_URL` / `_TOKEN` | (sync:false) |
 | `AUDIT_IP_SALT` | UUID 生成 (sync:false) |
 | `ADMIN_EMAILS` | 管理者メール |
+| `GOOGLE_OIDC_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URL` / `_HOSTED_DOMAIN` | Google ログイン (§2c、sync:false) |
 
 ⚠ Docker Build Argument: `GITHUB_TOKEN` (download_db.sh のレート制限回避)
 

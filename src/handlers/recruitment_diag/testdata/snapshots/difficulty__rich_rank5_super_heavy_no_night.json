@@ -1,0 +1,32 @@
+{
+  "panel": "difficulty_score",
+  "inputs": {
+    "job_type": "飲食業",
+    "emp_type": "正社員",
+    "prefecture": "岩手県",
+    "municipality": "盛岡市",
+    "citycode": 3203
+  },
+  "metrics": {
+    "hw_count": 10,
+    "population": 5000.0,
+    "day_population": 5000.0,
+    "night_population": 0.0,
+    "day_night_ratio": 0.0,
+    "is_tourist_area": false,
+    "score_per_10k": 20.0,
+    "national_hw_count": 20,
+    "area_share_of_national": 0.5
+  },
+  "rank": 5,
+  "rank_label": "超激戦",
+  "so_what": "1万人あたり 20.0 件と極めて高密度。採用単価・期間の大幅増加が見込まれる可能性。Panel 7 の穴場マップで隣接エリアへの射程拡大を強く推奨。",
+  "tourist_correction_note": null,
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "calculation": "score = (HW該当求人件数) ÷ (Agoop平日昼滞在人口) × 10,000",
+    "population_year": 2021,
+    "tourist_threshold": 1.5
+  }
+}

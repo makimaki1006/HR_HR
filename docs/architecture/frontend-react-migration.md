@@ -1,6 +1,6 @@
 # HR_HR フロントエンド React 移行方針
 
-更新日: 2026-09-28
+更新日: 2026-09-29
 
 ## 目的
 
@@ -183,6 +183,41 @@ HTMX 依存を段階縮小
 
 Headless CRM 自体を React 導入可否の実験台にはしない。
 先に小さな既存画面で React + Rust API + CI + E2E の経路を成立させる。
+(2026-09-29 補足: Phase 0 がマージされ、ビルド・配信・型生成・CI の経路が成立したので、Headless CRM の React 画面は Phase 1A と並行してよい。ADR-014 の補足を参照。)
+(2026-09-29 補足: 上の図の「最終: 共通 App Shell / HTMX 依存を段階縮小」は、全画面移行の計画で次のように具体化した。App Shell は W2 で先に作り、終点(W10)で HTMX 依存を撤去する。)
+
+### 全画面移行の計画(2026-09-29)
+
+全画面を移す波・完了条件・撤去手順の正本は `docs/architecture/react-full-migration-plan.md`。要約:
+
+| 波 | 対象 |
+|---|---|
+| W1 | Phase 1A 採用診断 + Headless CRM の React 画面(並行) |
+| W2 | 営業KPI + App Shell v1 |
+| W3 | 職種辞典・資格辞書・キーワード需要・ガイド(セッションのフィルタを読まない画面) |
+| W4 | 地域分析・企業検索・採用市場(HTML partial の JSON 化が中心) |
+| W5 | 地図(Leaflet) |
+| W6 | 媒体分析の画面部分 |
+| W7 | コンサルKPI(UI/UX 改修が落ち着いてから) |
+| W8 | 架電クオリティ・consult・admin / my・求人票作成 |
+| Wh | 非表示の画面(React に移し、`hidden` で隠す) |
+| W9 | レポート(React の印刷用画面 `/app/print/*` へ) |
+| W10 | HTMX・tabcache・旧シェル・旧テンプレート・`/api/set_*`・旧 `/tab/*`・CDN・precompiled CSS を撤去し、CSP から `'unsafe-inline'` を外す |
+
+W2 以降は担当チームを分けて並行で進める。
+
+先に作る共通基盤(platform-team が作り、Headless CRM と既存画面の移行で共用する):
+
+- App Shell: ナビは Rust の `/api/nav` が返し、旧シェルと共用する。非表示画面の隠し方は `hidden` フラグに統一する。
+- ヘッダーフィルタ: 移行中はセッションを正とし、URL クエリにも書く。最後は URL を正にする。
+- API client: POST / upload / ジョブのポーリングに対応する。
+- 認証: `/api/*` は 401 を JSON で返す(`HX-Request` の無い JSON 要求だけ)。React からの POST には `X-Requested-With` を必須にする。
+- 共通部品: DataTable / KpiCard / Note / EChart / LeafletMap。
+- スタイル: ビルド型 Tailwind。旧画面の CSS と二重に読み込まない。
+- 検証: PR ごとの E2E で、旧画面と新画面の表示値が一致することを確かめる。
+- HTML partial を JSON にする標準手順。
+
+範囲: レポートも非表示の画面も含めて全画面を移す。非表示の画面は削除せず、`/api/nav` の `hidden` フラグで隠す。login だけは Rust に残す(ADR-002 追記)。
 
 ## SPA 化判断の基準
 

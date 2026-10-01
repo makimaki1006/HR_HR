@@ -11,6 +11,78 @@ pub struct ExternalPassword {
     pub expires: String,
 }
 
+/// 本番 (Render) で動いているか。Cookie の Secure / SameSite の切替に使う。
+pub fn is_production_env() -> bool {
+    env::var("RENDER").is_ok() || env::var("RENDER_SERVICE_NAME").is_ok()
+}
+
+/// Google Workspace OIDC ログインの設定 (ADR-017)。
+///
+/// 4 つの環境変数が **すべて** 空でないときだけ `Some`。1 つでも欠けたら OIDC は無効で、
+/// ログイン画面にボタンを出さず `/auth/google/*` は 404 を返す (既存のパスワードログインは従来どおり)。
+///
+/// `hosted_domain` は ID token の `hd` クレームと email のドメインの照合にだけ使う。
+/// `ALLOWED_DOMAINS` は流用しない (`*` を設定すると hd 検証が骨抜きになるため)。
+#[derive(Clone)]
+pub struct GoogleOidcConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    /// Google Cloud に登録した承認済みリダイレクト URI と完全一致させる
+    /// (例 `https://hr-hw.onrender.com/auth/google/callback`)
+    pub redirect_url: String,
+    /// 小文字に正規化済み (例 `f-a-c.co.jp`)
+    pub hosted_domain: String,
+}
+
+impl std::fmt::Debug for GoogleOidcConfig {
+    // client_secret をログに出さない
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GoogleOidcConfig")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"***")
+            .field("redirect_url", &self.redirect_url)
+            .field("hosted_domain", &self.hosted_domain)
+            .finish()
+    }
+}
+
+impl GoogleOidcConfig {
+    /// 環境変数から読む。1 つでも未設定・空なら None (OIDC 無効)。
+    pub fn from_env() -> Option<Self> {
+        let raw = [
+            env::var("GOOGLE_OIDC_CLIENT_ID").ok(),
+            env::var("GOOGLE_OIDC_CLIENT_SECRET").ok(),
+            env::var("GOOGLE_OIDC_REDIRECT_URL").ok(),
+            env::var("GOOGLE_OIDC_HOSTED_DOMAIN").ok(),
+        ];
+        let any_set = raw.iter().flatten().any(|v| !v.trim().is_empty());
+        let [id, secret, redirect, hd] = raw;
+        let cfg = Self::from_values(id, secret, redirect, hd);
+        if cfg.is_none() && any_set {
+            tracing::warn!(
+                "GOOGLE_OIDC_* が一部だけ設定されています。4 つ全部揃うまで Google ログインは無効です"
+            );
+        }
+        cfg
+    }
+
+    /// 値から組み立てる (テストでも使う)。前後の空白は落とし、空文字は未設定扱い。
+    pub fn from_values(
+        client_id: Option<String>,
+        client_secret: Option<String>,
+        redirect_url: Option<String>,
+        hosted_domain: Option<String>,
+    ) -> Option<Self> {
+        let norm = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        Some(Self {
+            client_id: norm(client_id)?,
+            client_secret: norm(client_secret)?,
+            redirect_url: norm(redirect_url)?,
+            hosted_domain: norm(hosted_domain)?.to_lowercase(),
+        })
+    }
+}
+
 /// アプリケーション設定
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -246,5 +318,36 @@ mod tests {
         assert_eq!(config.turso_external_token, "tok123");
         env::remove_var("TURSO_EXTERNAL_URL");
         env::remove_var("TURSO_EXTERNAL_TOKEN");
+    }
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_string())
+    }
+
+    #[test]
+    fn google_oidc_is_enabled_only_when_all_four_values_are_set() {
+        let cfg = GoogleOidcConfig::from_values(
+            s("cid"),
+            s("secret"),
+            s("https://hr-hw.onrender.com/auth/google/callback"),
+            s(" F-A-C.co.jp "),
+        )
+        .expect("4 つ揃えば有効");
+        assert_eq!(cfg.hosted_domain, "f-a-c.co.jp");
+        assert_eq!(
+            cfg.redirect_url,
+            "https://hr-hw.onrender.com/auth/google/callback"
+        );
+        // Debug に secret が出ない
+        assert!(!format!("{cfg:?}").contains("secret\""));
+        assert!(format!("{cfg:?}").contains("***"));
+
+        // 1 つでも欠けたら無効
+        assert!(GoogleOidcConfig::from_values(None, s("x"), s("x"), s("x")).is_none());
+        assert!(GoogleOidcConfig::from_values(s("x"), None, s("x"), s("x")).is_none());
+        assert!(GoogleOidcConfig::from_values(s("x"), s("x"), None, s("x")).is_none());
+        assert!(GoogleOidcConfig::from_values(s("x"), s("x"), s("x"), None).is_none());
+        // 空白だけも未設定扱い
+        assert!(GoogleOidcConfig::from_values(s("x"), s("  "), s("x"), s("x")).is_none());
     }
 }

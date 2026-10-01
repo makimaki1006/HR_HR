@@ -128,6 +128,8 @@ pub(crate) struct RenderConfig<'a> {
     /// への追加は明示コンストラクタ多数を壊すため本 field 経由で個別に渡す。空 slice なら
     /// 表 2-C-2 は非表示 (既存 caller / テストは未指定 = `&[]` のため出力不変)。
     pub commute_outflow_top3: &'a [(String, String, i64)],
+    /// 2026-09-29: §05B 競合調査「検索上位 N 件」の N (1〜200、既定 45)。
+    pub top_n: usize,
 }
 
 impl<'a> RenderConfig<'a> {
@@ -172,6 +174,8 @@ pub(crate) struct RenderConfigBuilder<'a> {
     region_2d_stats: Option<&'a [RegionMuniStat]>,
     /// 2026-07-28: §02 表 2-C-2 通勤流出先 TOP3 (None → &[] = 表非表示)
     commute_outflow_top3: Option<&'a [(String, String, i64)]>,
+    /// 2026-09-29: §05B 検索上位 N 件 (None → 45)
+    top_n: Option<usize>,
 }
 
 impl<'a> RenderConfigBuilder<'a> {
@@ -301,6 +305,12 @@ impl<'a> RenderConfigBuilder<'a> {
         self
     }
 
+    /// 2026-09-29: §05B 検索上位 N 件 setter (未設定時は 45)。
+    pub fn top_n(mut self, v: usize) -> Self {
+        self.top_n = Some(v);
+        self
+    }
+
     /// `RenderConfig<'a>` を構築する。
     ///
     /// # Panics
@@ -364,6 +374,10 @@ impl<'a> RenderConfigBuilder<'a> {
             region_2d_stats: self.region_2d_stats.unwrap_or(&[]),
             // 2026-07-28: commute_outflow_top3 デフォルトは空 (表2-C-2 非表示)
             commute_outflow_top3: self.commute_outflow_top3.unwrap_or(&[]),
+            // 2026-09-29: §05B 検索上位 N 件 (既定 45)
+            top_n: self
+                .top_n
+                .unwrap_or(super::navy_report::section_05b_competitor::TOP_N_DEFAULT),
         }
     }
 }

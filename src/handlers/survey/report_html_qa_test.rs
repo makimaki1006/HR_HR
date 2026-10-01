@@ -140,6 +140,7 @@ fn minimal_agg() -> SurveyAggregation {
         count: 62,
         avg_salary: 260_000,
         median_salary: 255_000,
+        ..Default::default()
     }];
     agg.by_municipality_salary = vec![MunicipalitySalaryAgg {
         name: "千代田区".to_string(),
@@ -153,6 +154,7 @@ fn minimal_agg() -> SurveyAggregation {
         count: 60,
         avg_salary: 260_000,
         avg_min_salary: 230_000,
+        ..Default::default()
     }];
     agg.by_tag_salary = vec![TagSalaryAgg {
         tag: "賞与あり".to_string(),

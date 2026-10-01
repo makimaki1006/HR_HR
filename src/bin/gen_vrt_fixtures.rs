@@ -305,18 +305,21 @@ fn build_agg(include_jobbox: bool) -> SurveyAggregation {
                 count: 175,
                 avg_salary: 288_000,
                 median_salary: 285_000,
+                ..Default::default()
             },
             EmpTypeSalary {
                 emp_type: "契約社員".to_string(),
                 count: 30,
                 avg_salary: 252_000,
                 median_salary: 250_000,
+                ..Default::default()
             },
             EmpTypeSalary {
                 emp_type: "パート・アルバイト".to_string(),
                 count: 30,
                 avg_salary: 0,
                 median_salary: 0,
+                ..Default::default()
             },
         ],
         salary_min_values: vec![
@@ -364,6 +367,7 @@ fn build_agg(include_jobbox: bool) -> SurveyAggregation {
         card_briefs: vec![],
         // 2026-07-28: 市区町村在否集合。VRT fixture では 0件ゲート判定を通らないため空。
         municipality_presence: std::collections::HashSet::new(),
+        competitor: Default::default(),
     }
 }
 

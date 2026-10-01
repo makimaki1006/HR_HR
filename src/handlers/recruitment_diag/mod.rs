@@ -30,6 +30,8 @@ mod render;
 
 #[cfg(test)]
 mod contract_tests;
+#[cfg(test)]
+mod snapshot_tests;
 
 // Panel 4-6 (担当B)
 pub mod competitors;
@@ -39,6 +41,9 @@ pub mod market_trend;
 // Panel 7-8 (担当C)
 pub mod insights;
 pub mod opportunity_map;
+
+// レスポンス型の共通部品 (Phase 1A-1)
+pub mod types;
 
 // Panel 9 (CR-8): 通勤圏人材プール試算
 pub mod talent_pool_expansion;

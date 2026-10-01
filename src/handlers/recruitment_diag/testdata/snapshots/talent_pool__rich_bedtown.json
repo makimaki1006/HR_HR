@@ -1,0 +1,22 @@
+{
+  "panel": "talent_pool",
+  "inputs": {
+    "prefecture": "",
+    "municipality": "",
+    "citycode": 3202,
+    "year": 2021
+  },
+  "metrics": {
+    "day_population": 8000.0,
+    "night_population": 10000.0,
+    "commuter_inflow": -2000.0,
+    "day_night_ratio": 0.8
+  },
+  "so_what": "昼夜比 0.80 のベッドタウン型（流出超過 -2000 人）。居住者の多くは外へ通勤しているため、『自宅近接』『短時間シフト』訴求で潜在層の発掘余地がある可能性。",
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "data_source": "国土交通省 全国の人流オープンデータ（Agoop社提供）mesh1km",
+    "method": "平日 昼(timezone=0)・深夜(timezone=1) を SUM / 月数で月平均化。集計値(2) は double count 防止のため不使用。"
+  }
+}

@@ -1,3 +1,6 @@
+pub mod google_oidc;
+#[cfg(test)]
+mod login_flow_tests;
 pub mod session;
 
 use axum::{
@@ -15,6 +18,18 @@ pub const SESSION_MUNICIPALITY_KEY: &str = "current_municipality";
 /// 複数選択対応セッションキー（JSON配列文字列）
 pub const SESSION_JOB_TYPES_KEY: &str = "current_job_types";
 pub const SESSION_INDUSTRY_RAWS_KEY: &str = "current_industry_raws";
+/// ログイン方式 (`LOGIN_METHOD_*` のいずれか)。監査の login_sessions.login_method と同じ値。
+/// CRM の API はこの値が `google_oidc` のセッションだけを通す予定 (計画書 C-3)。
+pub const SESSION_LOGIN_METHOD_KEY: &str = "login_method";
+
+/// Google Workspace OIDC (本人確認済み)
+pub const LOGIN_METHOD_GOOGLE_OIDC: &str = "google_oidc";
+/// 社内パスワード (AUTH_PASSWORD / AUTH_PASSWORD_HASH、共有・無期限)
+pub const LOGIN_METHOD_PASSWORD_INTERNAL: &str = "password_internal";
+/// 外部の期限付きパスワード (AUTH_PASSWORDS_EXTRA)
+pub const LOGIN_METHOD_PASSWORD_EXTERNAL: &str = "password_external";
+/// パスワードログインの失敗記録用 (どちらのパスワードを狙ったかは分からない)
+pub const LOGIN_METHOD_PASSWORD: &str = "password";
 
 /// 認証ミドルウェア: ログイン済みでなければ /login へリダイレクト
 pub async fn require_auth(session: Session, request: Request, next: Next) -> Response {

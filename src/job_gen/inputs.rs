@@ -17,6 +17,7 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use ts_rs::TS;
 
 /// 一般的なブラウザを騙る User-Agent(素の reqwest だと 403 を返すサイトがある)。
 const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
@@ -53,7 +54,9 @@ pub enum InputKind {
 }
 
 /// 正規化後の1求人。後段はこの `source_text` のみを事実抽出の原文として扱う。
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+///
+/// `TS` は React 画面 (`/app/jobgen`) 向けの型出力用 (`src/job_gen/contract.rs`)。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, TS)]
 pub struct NormalizedJob {
     /// 職種名の当たり(知識ルックアップ・進捗表示用)。確定値ではない。
     pub title_hint: String,

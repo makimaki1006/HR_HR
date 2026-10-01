@@ -145,7 +145,10 @@ fn s02_client_salary_bottom_quartile(input: &ConsultInput, store: &mut EvidenceS
         .client
         .target_salary_max
         .or(input.client.target_salary_min);
-    match (salary, input.salary_percentile_of(salary.unwrap_or(0))) {
+    match (
+        salary,
+        input.salary_percentile_of(input.client_salary_monthly_equiv(salary.unwrap_or(0)).0),
+    ) {
         (Some(s), Some(pct)) => {
             let eid = store.add(
                 EvidenceKind::Aggregated,
@@ -156,7 +159,7 @@ fn s02_client_salary_bottom_quartile(input: &ConsultInput, store: &mut EvidenceS
                 granularity::CSV,
                 Some(input.salary_n),
                 Some(input.as_of.clone()),
-                &format!("提示給与 {} 円で判定", s),
+                &format!("{}で判定", input.client_salary_label(s)),
             );
             Signal {
                 id: ID.to_string(),
@@ -190,7 +193,10 @@ fn s03_client_salary_top_quartile(input: &ConsultInput, store: &mut EvidenceStor
         .client
         .target_salary_max
         .or(input.client.target_salary_min);
-    match (salary, input.salary_percentile_of(salary.unwrap_or(0))) {
+    match (
+        salary,
+        input.salary_percentile_of(input.client_salary_monthly_equiv(salary.unwrap_or(0)).0),
+    ) {
         (Some(s), Some(pct)) => {
             let eid = store.add(
                 EvidenceKind::Aggregated,
@@ -201,7 +207,7 @@ fn s03_client_salary_top_quartile(input: &ConsultInput, store: &mut EvidenceStor
                 granularity::CSV,
                 Some(input.salary_n),
                 Some(input.as_of.clone()),
-                &format!("提示給与 {} 円で判定", s),
+                &format!("{}で判定", input.client_salary_label(s)),
             );
             Signal {
                 id: ID.to_string(),
@@ -242,7 +248,7 @@ fn s04_min_wage_proximity(input: &ConsultInput, store: &mut EvidenceStore) -> Si
                     granularity::PREFECTURE,
                     Some(input.salary_n),
                     Some(input.as_of.clone()),
-                    "時給下限の中央値は参考値 (時給以外のレコードが混在する場合がある)",
+                    "時給表示の求人の下限時給の中央値 (月給など時給以外の求人は含めない)",
                 );
                 Signal {
                     id: ID.to_string(),
@@ -1431,6 +1437,33 @@ mod tests {
         input.client.target_salary_max = None;
         let s = s02_client_salary_bottom_quartile(&input, &mut store);
         assert!(!s.fired && !s.data_note.is_empty());
+    }
+
+    /// 2026-09-29: 時給モードの顧客入力 1,500 円/時 は ×167h = 250,500 円/月 として
+    /// 月給換算の分布 (200,000〜299,000) と比べる (51%)。修正前は 0% で S-02 が発火していた。
+    #[test]
+    fn mix_s02_s03_hourly_client_salary_is_converted() {
+        let mut input = base_input();
+        input.is_hourly = true;
+        input.client = ClientInput {
+            target_salary_max: Some(1_500),
+            ..Default::default()
+        };
+        let mut store = EvidenceStore::new();
+        let s02 = s02_client_salary_bottom_quartile(&input, &mut store);
+        assert!(!s02.fired, "1,500 円/時 = 250,500 円/月 は下位25%ではない");
+        assert!(!s03_client_salary_top_quartile(&input, &mut store).fired);
+        let ev = store
+            .items()
+            .iter()
+            .find(|e| e.metric_name == "提示給与の市場内パーセンタイル")
+            .expect("evidence");
+        assert_eq!(ev.value_text, "51");
+        assert!(
+            ev.note.contains("250,500"),
+            "換算後の月額を注記: {}",
+            ev.note
+        );
     }
 
     #[test]

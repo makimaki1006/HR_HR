@@ -1,12 +1,13 @@
 # Architecture Decision Records — Frontend / Headless CRM
 
-更新日: 2026-09-28
+更新日: 2026-09-29
 
 この文書は既決事項の短い索引。
 詳細は以下を参照。
 
 - `docs/architecture/frontend-react-migration.md`
 - `docs/architecture/headless-crm-design.md`
+- `docs/architecture/react-full-migration-plan.md`(全画面移行の波・完了条件・撤去手順)
 
 ---
 
@@ -34,6 +35,18 @@ Status: Accepted
 HTMX 採用当初は合理的だったが、HR_HR が Data / Operations Application 化し Client State が増えているため。
 
 全面一括 replacement はしない。
+
+### 追記(2026-09-29): 「全画面」の範囲
+
+ユーザー指示(2026-09-29): 「React に移行するのは、いずれは全部」「フロントエンドの React 化は決定事項で、全てにおいて実行する」。
+これにより、段階移行の終点を「全画面を React に移し、HTMX 依存と旧テンプレートを撤去する」と定める(本 ADR の本文は段階移行と一括置換の禁止だけを決めていた)。
+
+- 印刷・ダウンロード用のレポートも React に移す(`/app/print/*` の印刷用画面。SSR は使わない、ADR-015)。印刷品質(A4、改ページ、印刷時の再描画)を落とさない。
+- UI から外した非表示タブ(市場概況・地域カルテ・詳細分析・総合診断・トレンド・都道府県比較・条件診断・求人検索)、dead route(overview / demographics / balance / workstyle)、proposal-mock、架電クオリティの未実装タブも React に移す。削除はせず、ナビ定義 `/api/nav` の `hidden` フラグで隠す(いつ復活させるか分からないため)。
+- login / logout だけは Rust 側のサーバ HTML に残す(OIDC のコールバック・Cookie・レート制限が Rust にあるため)。admin / my は React に移す。
+- いま追加実装中のもの(媒体分析の競合調査、Headless CRM、コンサルKPI の UI/UX 改修)は、それぞれの作業が落ち着いてから扱う。Headless CRM は最初から React(ADR-003)。
+
+移す順番(W1〜W10)、完了条件、撤去手順は `react-full-migration-plan.md` を正とする。
 
 ---
 
@@ -158,6 +171,15 @@ Status: Accepted
 Headless CRMを React 導入可否の実験台にしない。
 
 React + Rust API + TypeScript contract + CI + Playwright の経路を小さな既存画面で先に成立させる。
+
+### 補足(2026-09-29): Headless CRM は Phase 1A の完了を待たない
+
+ユーザー判断(2026-09-29): 「HubSpot の能力をアプリ側に持たせる件は、HTMX で作ると React 移行時の実装コストが高いので、最初から React で作ってよい」。
+
+- Phase 0(PR #28、main にマージ済み ad7d918)で、Vite のビルド、`/app/{screen}` の配信、ts-rs の型生成、CI の frontend ジョブまでの経路は成立した。PR ごとの Playwright E2E はまだ無く、Phase 1A(1A-5)で整備中。
+- Headless CRM の React 画面は、Phase 1A(採用診断)と並行して Phase 0 の基盤の上で作ってよい。
+- 「CRM を React 導入可否の実験台にしない」という本 ADR の趣旨は変えない。導入可否は Phase 0 で判断済みとして扱う。
+- PR ごとの E2E の共通ジョブが整う前に CRM 画面を公開する場合は、CRM 側で E2E を持つ。
 
 ---
 

@@ -79,6 +79,9 @@ pub struct AppState {
     /// 監査DB (アカウント自動登録 + ログイン履歴 + 操作ログ)。
     /// AUDIT_TURSO_URL が未設定なら None (監査機能無効)
     pub audit: Option<audit::AuditDb>,
+    /// Google Workspace OIDC ログイン (ADR-017)。GOOGLE_OIDC_* が 4 つ揃っていなければ None で、
+    /// ログイン画面にボタンを出さず /auth/google/* は 404。
+    pub google_oidc: Option<Arc<auth::google_oidc::GoogleOidc>>,
 }
 
 /// アプリケーションRouter構築
@@ -93,8 +96,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
     // 2026-05-22 セキュリティ修正 (Agent A3 H1): 本番 (RENDER env 等) で
     // Secure=true / SameSite=Strict を強制。Render 環境変数 `RENDER` が
     // 設定されていれば本番判定 (Render 標準)。dev は従来通り Secure=false。
-    let is_production =
-        std::env::var("RENDER").is_ok() || std::env::var("RENDER_SERVICE_NAME").is_ok();
+    let is_production = config::is_production_env();
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(is_production)
         .with_same_site(if is_production {
@@ -555,6 +557,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::company::company_report),
         )
         .route("/tab/guide", get(handlers::guide::tab_guide))
+        .route("/api/guide", get(handlers::guide::api_guide))
         .route("/api/geojson/{filename}", get(handlers::api::get_geojson))
         .route("/api/markers", get(handlers::api::get_markers))
         .route("/api/set_job_type", post(set_job_type))
@@ -647,6 +650,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::my::my_profile_get).post(handlers::my::my_profile_post),
         )
         .route("/my/activity", get(handlers::my::my_activity))
+        // W8 (2026-09-29): React 個人設定画面 (/app/my) 用 JSON。POST は旧 /my/profile と同じ書き込み経路
+        .route(
+            "/api/my/profile",
+            get(handlers::my::api_profile).post(handlers::my::api_profile_post),
+        )
+        .route("/api/my/activity", get(handlers::my::api_activity))
         // ======== 職種カルテタブ (driver / 職業情報) ========
         // 出典: 賃金構造基本統計調査 令和7年 + JILPT 職業情報データベース
         .merge(handlers::driver::router())
@@ -670,6 +679,15 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .merge(handlers::sales_kpi::routes::router())
         // コンサルダッシュボード（納品管理PL）。同じ SheetStore を借りる。
         .merge(handlers::cs_dashboard::routes::router())
+        // 2026-09-29: React 画面の HTML シェル (/app/{screen})。manifest はここ (起動時) で読む。
+        // 未ビルドなら「フロントエンド未ビルド」の注記を返す。要ログイン。
+        .merge(handlers::spa_shell::router(
+            handlers::spa_shell::load_manifest(std::path::Path::new(
+                handlers::spa_shell::MANIFEST_PATH,
+            )),
+        ))
+        // 2026-09-29: React 画面用の JSON API (/api/app/*)。応答型は ts-rs で TS に生成。要ログイン。
+        .merge(handlers::app_api::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。
@@ -695,6 +713,17 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         )
         // 2026-08-10: 利用状況（誰が・どの機能を・どれだけ使ったか）
         .route("/admin/usage", get(handlers::admin::admin_usage))
+        // W8 (2026-09-29): React 管理画面 (/app/admin) 用 JSON。同じ require_admin の内側 (読み取りのみ)
+        .route("/api/admin/users", get(handlers::admin::api_users))
+        .route(
+            "/api/admin/users/{account_id}",
+            get(handlers::admin::api_user_detail),
+        )
+        .route(
+            "/api/admin/login-failures",
+            get(handlers::admin::api_login_failures),
+        )
+        .route("/api/admin/usage", get(handlers::admin::api_usage))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_admin_mw,
@@ -835,6 +864,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/health", get(health_check))
         .route("/login", get(login_page).post(login_submit))
         .route("/logout", get(logout))
+        // Google Workspace OIDC (/auth/google/login, /auth/google/callback)。未ログインで到達する必要がある
+        .merge(auth::google_oidc::router())
         .merge(api_v1)
         .merge(protected_routes)
         .merge(admin_routes)
@@ -968,6 +999,7 @@ async fn auth_middleware(
     // /scout/* は独自トークン認証(cookie/CSRF非依存)のため HR_HR 認証・CSRFを素通りさせる。
     if path == "/login"
         || path == "/logout"
+        || path.starts_with("/auth/google/")
         || path == "/health"
         || path.starts_with("/static")
         || path.starts_with("/scout")
@@ -1097,26 +1129,8 @@ async fn login_submit(
     session: Session,
     req: axum::extract::Request,
 ) -> impl IntoResponse {
-    let socket_ip = req
-        .extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|ci| ci.0.ip().to_string());
-
-    let client_ip = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-        .or(socket_ip)
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let req_ua = req
-        .headers()
-        .get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
+    let client_ip = request_client_ip(&req);
+    let req_ua = request_user_agent(&req);
 
     let Form(form) = match axum::extract::Form::<LoginForm>::from_request(req, &()).await {
         Ok(f) => f,
@@ -1143,31 +1157,15 @@ async fn login_submit(
         .collect();
     if !validate_email_domain(&form.email, &all_domains) {
         state.rate_limiter.record_failure(&client_ip);
-        if let Some(audit) = &state.audit {
-            let ip_hash = audit.hash_ip(&client_ip);
-            // AUDIT E P0-1: spawn_blocking で worker thread 解放
-            let audit_clone = audit.clone();
-            let email = form.email.clone();
-            let ua = req_ua.clone();
-            match tokio::task::spawn_blocking(move || {
-                audit::log_failed_login(
-                    &audit_clone,
-                    &email,
-                    &ip_hash,
-                    &ua,
-                    "internal",
-                    "domain_not_allowed",
-                )
-            })
-            .await
-            {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => tracing::warn!("log_failed_login (domain) failed: {e}"),
-                Err(e) => {
-                    tracing::warn!("log_failed_login (domain) spawn_blocking join failed: {e}")
-                }
-            }
-        }
+        record_failed_login(
+            &state,
+            &form.email,
+            &client_ip,
+            &req_ua,
+            auth::LOGIN_METHOD_PASSWORD,
+            "domain_not_allowed",
+        )
+        .await;
         return render_login(
             &state,
             Some("許可されていないメールドメインです".to_string()),
@@ -1195,53 +1193,175 @@ async fn login_submit(
             expired_msg.as_deref().unwrap_or("wrong_password"),
         );
         state.rate_limiter.record_failure(&client_ip);
-        if let Some(audit) = &state.audit {
-            let ip_hash = audit.hash_ip(&client_ip);
-            let reason = if expired_msg.is_some() {
-                "password_expired"
-            } else {
-                "wrong_password"
-            };
-            // AUDIT E P0-1: spawn_blocking で worker thread 解放
-            let audit_clone = audit.clone();
-            let email = form.email.clone();
-            let ua = req_ua.clone();
-            let reason_owned = reason.to_string();
-            match tokio::task::spawn_blocking(move || {
-                audit::log_failed_login(
-                    &audit_clone,
-                    &email,
-                    &ip_hash,
-                    &ua,
-                    "internal",
-                    &reason_owned,
-                )
-            })
-            .await
-            {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => tracing::warn!("log_failed_login (password) failed: {e}"),
-                Err(e) => {
-                    tracing::warn!("log_failed_login (password) spawn_blocking join failed: {e}")
-                }
-            }
-        }
+        let reason = if expired_msg.is_some() {
+            "password_expired"
+        } else {
+            "wrong_password"
+        };
+        record_failed_login(
+            &state,
+            &form.email,
+            &client_ip,
+            &req_ua,
+            auth::LOGIN_METHOD_PASSWORD,
+            reason,
+        )
+        .await;
         let msg = expired_msg.unwrap_or_else(|| "パスワードが正しくありません".to_string());
         return render_login(&state, Some(msg)).into_response();
     }
 
+    // どちらのパスワードで通ったか (verify_password_with_externals も社内パスワードを先に照合する)
+    let login_method = if auth::verify_password(
+        &form.password,
+        &state.config.auth_password,
+        &state.config.auth_password_hash,
+    ) {
+        auth::LOGIN_METHOD_PASSWORD_INTERNAL
+    } else {
+        auth::LOGIN_METHOD_PASSWORD_EXTERNAL
+    };
+
+    // 無効化されたアカウント (accounts.disabled_at に値あり) はパスワードが合っていても拒否
+    if account_is_disabled(&state, &form.email).await {
+        tracing::warn!("LOGIN_REJECTED_DISABLED: email={}", form.email);
+        record_failed_login(
+            &state,
+            &form.email,
+            &client_ip,
+            &req_ua,
+            login_method,
+            "account_disabled",
+        )
+        .await;
+        return render_login_status(
+            &state,
+            axum::http::StatusCode::FORBIDDEN,
+            "このアカウントは無効化されています。管理者にお問い合わせください。",
+        );
+    }
+
     state.rate_limiter.record_success(&client_ip);
     tracing::info!(
-        "LOGIN_SUCCESS: email={}, ip={}, user_agent={}",
+        "LOGIN_SUCCESS: email={}, ip={}, user_agent={}, method={}",
         form.email,
         client_ip,
         req_ua,
+        login_method,
     );
+    complete_login(
+        &state,
+        &session,
+        &form.email,
+        login_method,
+        &client_ip,
+        &req_ua,
+    )
+    .await;
+
+    Redirect::to("/").into_response()
+}
+
+/// ログイン要求の送信元 IP (X-Forwarded-For の先頭、無ければ接続元)
+pub(crate) fn request_client_ip(req: &axum::extract::Request) -> String {
+    let socket_ip = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip().to_string());
+    req.headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .or(socket_ip)
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+pub(crate) fn request_user_agent(req: &axum::extract::Request) -> String {
+    req.headers()
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+/// ログイン失敗を監査 DB の login_sessions に残す (監査無効なら何もしない)。
+/// 失敗しても本番動作に影響させない。
+pub(crate) async fn record_failed_login(
+    state: &AppState,
+    email: &str,
+    client_ip: &str,
+    ua: &str,
+    login_method: &str,
+    reason: &str,
+) {
+    let Some(audit) = &state.audit else { return };
+    let ip_hash = audit.hash_ip(client_ip);
+    // AUDIT E P0-1: spawn_blocking で worker thread 解放
+    let audit_clone = audit.clone();
+    let email = email.to_string();
+    let ua = ua.to_string();
+    let method = login_method.to_string();
+    let reason = reason.to_string();
+    match tokio::task::spawn_blocking(move || {
+        audit::log_failed_login(&audit_clone, &email, &ip_hash, &ua, &method, &reason)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("log_failed_login failed: {e}"),
+        Err(e) => tracing::warn!("log_failed_login spawn_blocking join failed: {e}"),
+    }
+}
+
+/// `accounts.disabled_at` が入っているアカウントか。
+///
+/// 監査 DB 未接続、または照会に失敗したときは false (ログインを止めない)。
+/// 監査 DB の障害で全員がログインできなくなるのを避けるための選択で、
+/// その間は無効化も効かない。
+pub(crate) async fn account_is_disabled(state: &AppState, email: &str) -> bool {
+    let Some(audit) = &state.audit else {
+        return false;
+    };
+    let audit_clone = audit.clone();
+    let email_owned = email.to_string();
+    match tokio::task::spawn_blocking(move || {
+        audit::dao::is_email_disabled(audit_clone.turso(), &email_owned)
+    })
+    .await
+    {
+        Ok(Ok(disabled)) => disabled,
+        Ok(Err(e)) => {
+            tracing::warn!("is_email_disabled failed (ログインは止めない): {e}");
+            false
+        }
+        Err(e) => {
+            tracing::warn!("is_email_disabled spawn_blocking join failed: {e}");
+            false
+        }
+    }
+}
+
+/// 認証に通ったあとのセッション確立 (パスワード・OIDC 共通)。
+///
+/// session fixation 対策の `cycle_id()` → user_email / login_method / 絞り込み初期値 →
+/// 監査 (アカウント自動登録 + login_session + 'login' イベント)。
+pub(crate) async fn complete_login(
+    state: &AppState,
+    session: &Session,
+    email: &str,
+    login_method: &str,
+    client_ip: &str,
+    ua: &str,
+) {
     // 2026-05-22 セキュリティ修正 (Agent A3 M1): session fixation 対策。
     // login 成功後に session id を再発行する。pre-login で attacker が取得した
     // session id を victim ログイン後も使い回せる脆弱性を防ぐ。
     let _ = session.cycle_id().await;
-    let _ = session.insert(SESSION_USER_KEY, &form.email).await;
+    let _ = session.insert(SESSION_USER_KEY, email).await;
+    let _ = session
+        .insert(auth::SESSION_LOGIN_METHOD_KEY, login_method)
+        .await;
     // デフォルト産業: 空（全産業）
     let _ = session.insert(SESSION_JOB_TYPE_KEY, "").await;
     let _ = session.insert(SESSION_PREFECTURE_KEY, "").await;
@@ -1252,24 +1372,23 @@ async fn login_submit(
     // AUDIT E P0-1: 同期 DAO 群を spawn_blocking に閉じ込めて worker thread を解放
     // セマンティクス保持のため session.insert(..).await を挟む箇所は 2 つに分割
     if let Some(audit) = &state.audit {
-        let ip_hash = audit.hash_ip(&client_ip);
-        let login_method = "internal";
+        let ip_hash = audit.hash_ip(client_ip);
 
         // 1) upsert_account + insert_login_session (依存連鎖) を 1 spawn_blocking でまとめる
         let audit_clone = audit.clone();
-        let email = form.email.clone();
+        let email = email.to_string();
         let admin_emails = state.config.admin_emails.clone();
-        let ua = req_ua.clone();
-        let ip_hash_clone = ip_hash.clone();
+        let ua = ua.to_string();
+        let method = login_method.to_string();
         let upsert_res = tokio::task::spawn_blocking(move || {
             match audit::upsert_account(&audit_clone, &email, &admin_emails) {
                 Ok(account_id) => {
                     let session_id_str = audit::insert_login_session(
                         &audit_clone,
                         &account_id,
-                        &ip_hash_clone,
+                        &ip_hash,
                         &ua,
-                        login_method,
+                        &method,
                     )
                     .unwrap_or_default();
                     Ok((account_id, session_id_str))
@@ -1311,8 +1430,6 @@ async fn login_submit(
             Err(e) => tracing::warn!("audit upsert spawn_blocking join failed: {e}"),
         }
     }
-
-    Redirect::to("/").into_response()
 }
 
 async fn logout(State(state): State<Arc<AppState>>, session: Session) -> Redirect {
@@ -1734,6 +1851,15 @@ pub fn asset_version() -> &'static str {
     })
 }
 
+/// ログイン画面をステータス付きで返す (OIDC の失敗や無効化アカウントの拒否用)
+pub(crate) fn render_login_status(
+    state: &AppState,
+    status: axum::http::StatusCode,
+    message: &str,
+) -> axum::response::Response {
+    (status, render_login(state, Some(message.to_string()))).into_response()
+}
+
 fn render_login(state: &AppState, error_message: Option<String>) -> Html<String> {
     let domains = state
         .config
@@ -1751,11 +1877,30 @@ fn render_login(state: &AppState, error_message: Option<String>) -> Html<String>
         })
         .unwrap_or_default();
 
+    // Google ログインのボタンは OIDC が設定されているときだけ出す。
+    // 開始は GET リンク (form POST → 302 だと CSP form-action 'self' で止まりうるため)
+    let google_html = match &state.google_oidc {
+        Some(oidc) => format!(
+            r#"<a href="{login}" id="google-login"
+            class="flex w-full items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-medium
+                   py-2.5 rounded-lg transition duration-200">
+            Google アカウント (@{domain}) でログイン
+        </a>
+        <div class="flex items-center gap-3 mt-6 mb-6 text-slate-500 text-xs">
+            <div class="flex-1 border-t border-slate-700"></div>または<div class="flex-1 border-t border-slate-700"></div>
+        </div>"#,
+            login = auth::google_oidc::LOGIN_PATH,
+            domain = handlers::helpers::escape_html(&oidc.config().hosted_domain),
+        ),
+        None => String::new(),
+    };
+
     // 2026-08-10: ログイン前の取扱説明書表示を廃止したため build_guide_html() は
     // 呼ばない（/tab/guide 側では引き続き使用）。
     let html = include_str!("../templates/login_inline.html")
         .replace("{{ASSET_V}}", asset_version())
         .replace("{{ERROR_HTML}}", &error_html)
+        .replace("{{GOOGLE_LOGIN_HTML}}", &google_html)
         .replace("{{DOMAINS}}", &domains);
 
     Html(html)

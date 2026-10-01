@@ -9,7 +9,13 @@
 //! セッション記録 + 操作記録の責務だけを持つ。
 
 pub mod dao;
+/// W8: SQLite で裏打ちした偽 Turso (DAO の SQL をそのまま流す contract テスト用)
+#[cfg(test)]
+pub mod fake_turso;
 pub mod schema;
+/// W8 (2026-09-29): admin / my の snapshot・contract テストで共用する fixture 行
+#[cfg(test)]
+pub mod test_fixtures;
 
 pub use dao::{
     insert_activity, insert_login_session, log_failed_login, purge_old_activity, upsert_account,

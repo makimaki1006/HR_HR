@@ -47,6 +47,7 @@ fn bare_state() -> Arc<AppState> {
         rate_limiter,
         company_geo_cache: None,
         audit: None,
+        google_oidc: None,
     })
 }
 
@@ -1044,5 +1045,113 @@ fn 粒度が画面に書いてある() {
     assert!(
         html.contains("ここから下は拠点をまたいで並べています"),
         "法人の節で、拠点をまたいでいることが明示されていない"
+    );
+}
+
+/// 🔴 React 画面のシェル `/app/{screen}` (2026-09-29, Phase 0-3) が**認証の内側**にあること。
+///
+/// 未ログインなら既存の画面と同じく 303 で `/login` へ飛ぶ。
+/// 画面名の検査 (404) より認証が先に効くので、不正な名前でも 303 になる
+/// (ルートに当たらない `/app/` は 404)。
+#[tokio::test]
+async fn react画面のシェルは認証の内側にある() {
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use tower::ServiceExt;
+
+    let app = build_app(bare_state());
+    // /api/app/ping (Phase 0-4) も同じく認証の内側。
+    for path in ["/app/dummy", "/app/unknown", "/api/app/ping"] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("リクエストを組めない"),
+            )
+            .await
+            .expect("ルータが応答しない");
+        assert_eq!(
+            res.status(),
+            StatusCode::SEE_OTHER,
+            "{path} が {} を返した。未ログインなら 303 のはず",
+            res.status()
+        );
+        assert_eq!(
+            res.headers()
+                .get(header::LOCATION)
+                .and_then(|v| v.to_str().ok()),
+            Some("/login"),
+            "{path} のリダイレクト先が /login でない"
+        );
+    }
+}
+
+// ================================================================ W8: admin / my の React 化 (2026-09-29)
+
+/// 🔴 `/api/admin/*` `/api/my/*` `/app/admin` `/app/my` が配線され、かつ認証の内側にあること。
+///
+/// `/api/admin/*` は admin_routes (require_admin の内側)、`/api/my/*` は protected_routes に
+/// 追記した。未ログインで 303 → /login なら「配線済み かつ 認証の内側」。
+/// 200 なら認証の外、404 なら配線漏れ。
+#[tokio::test]
+async fn w8のadminとmyのjsonと画面は認証の内側にある() {
+    use axum::body::Body;
+    use axum::http::{header, Request, StatusCode};
+    use tower::ServiceExt;
+
+    let app = build_app(bare_state());
+    for path in [
+        "/api/admin/users",
+        "/api/admin/users/acc-1",
+        "/api/admin/login-failures",
+        "/api/admin/usage?days=30",
+        "/api/my/profile",
+        "/api/my/activity",
+        "/app/admin",
+        "/app/my",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("リクエストを組めない"),
+            )
+            .await
+            .expect("ルータが応答しない");
+        assert_eq!(
+            res.status(),
+            StatusCode::SEE_OTHER,
+            "{path} が {} を返した。未ログインなら 303 のはず (404 なら配線漏れ、200 なら認証の外)",
+            res.status()
+        );
+        assert_eq!(
+            res.headers()
+                .get(header::LOCATION)
+                .and_then(|v| v.to_str().ok()),
+            Some("/login"),
+            "{path} のリダイレクト先が /login でない"
+        );
+    }
+    // POST /api/my/profile も同じ (書き込みは旧 /my/profile と同じ経路)
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/my/profile")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from("{}"))
+                .expect("リクエストを組めない"),
+        )
+        .await
+        .expect("ルータが応答しない");
+    assert_eq!(
+        res.status(),
+        StatusCode::SEE_OTHER,
+        "POST /api/my/profile が認証の外にある"
     );
 }

@@ -8,8 +8,15 @@ use super::{new_uuid, now_iso8601, AuditDb};
 use crate::db::turso_http::TursoDb;
 use crate::handlers::helpers::{get_i64, get_str};
 use serde::Serialize;
+use ts_rs::TS;
 
-#[derive(Debug, Default, Clone, Serialize)]
+// W8 (2026-09-29): 行の型は `/api/admin/*` `/api/my/*` の JSON にそのまま載るので
+// `TS` を derive し、`app_api::tests::export_ts_bindings` から (依存型として) TS に書き出す。
+// NULL の列は空文字 (`get_str`) で返る。i64 は `#[ts(type = "number")]` にする
+// (ts-rs 既定の `bigint` は JSON.parse が返す number と合わず、React 側の比較が型エラーになる)。
+
+/// accounts の 1 行。`disabled_at` が空でなければ無効化済み。
+#[derive(Debug, Default, Clone, Serialize, TS)]
 pub struct AccountRow {
     pub id: String,
     pub email: String,
@@ -18,11 +25,14 @@ pub struct AccountRow {
     pub role: String,
     pub first_seen_at: String,
     pub last_login_at: String,
+    #[ts(type = "number")]
     pub login_count: i64,
     pub disabled_at: String,
 }
 
-#[derive(Debug, Default, Clone, Serialize)]
+/// login_sessions の 1 行。`success` は 1 = 成功 / 0 = 失敗。失敗時は `account_id` が空で
+/// `attempted_email` にメールが残る。
+#[derive(Debug, Default, Clone, Serialize, TS)]
 pub struct LoginSessionRow {
     pub id: String,
     pub account_id: String,
@@ -32,11 +42,13 @@ pub struct LoginSessionRow {
     pub ip_hash: String,
     pub user_agent: String,
     pub login_method: String,
+    #[ts(type = "number")]
     pub success: i64,
     pub failure_reason: String,
 }
 
-#[derive(Debug, Default, Clone, Serialize)]
+/// activity_logs の 1 行 (意味のある操作のみ記録)。
+#[derive(Debug, Default, Clone, Serialize, TS)]
 pub struct ActivityLogRow {
     pub id: String,
     pub account_id: String,
@@ -104,6 +116,23 @@ pub fn upsert_account(
     )?;
     tracing::info!(email = %email, role = %role, "account auto-provisioned");
     Ok(id)
+}
+
+/// `is_email_disabled` の SQL (テストで本物の SQLite に流すため定数にしている)
+pub(crate) const IS_EMAIL_DISABLED_SQL: &str = "SELECT disabled_at FROM accounts \
+     WHERE lower(email) = lower(?1) AND disabled_at IS NOT NULL AND disabled_at <> '' \
+     LIMIT 1";
+
+/// email のアカウントが無効化 (`disabled_at` に値あり) されているか。
+///
+/// ログイン時 (OIDC・パスワードとも) に呼ぶ。email は大文字小文字を区別せずに照合する
+/// (パスワードログインでは入力どおりの表記で accounts に入っているため)。
+/// 未登録なら `Ok(false)`。
+pub fn is_email_disabled(turso: &TursoDb, email: &str) -> Result<bool, String> {
+    let rows = turso.query(IS_EMAIL_DISABLED_SQL, &[&email])?;
+    Ok(rows
+        .first()
+        .is_some_and(|r| !get_str(r, "disabled_at").trim().is_empty()))
 }
 
 /// アカウント全件取得 (管理者画面用、最大 limit 件)。

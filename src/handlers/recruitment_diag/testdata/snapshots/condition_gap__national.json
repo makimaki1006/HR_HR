@@ -1,0 +1,38 @@
+{
+  "prefecture": "",
+  "municipality": "",
+  "job_type": "飲食業",
+  "emp_type": "",
+  "industry_median": {
+    "annual_income": 3045000.0,
+    "annual_holidays": 110.0,
+    "bonus_months": 2.5,
+    "sample_size": 10
+  },
+  "all_industry_median": {
+    "annual_income": 3300000.0,
+    "annual_holidays": 110.0,
+    "bonus_months": 3.0,
+    "sample_size": 12
+  },
+  "company": {
+    "annual_income_estimated": 3300000.0,
+    "annual_holidays": 115.0,
+    "bonus_months": 3.0,
+    "salary_min": 220000.0
+  },
+  "gap_industry": {
+    "annual_income_diff": 255000.0,
+    "annual_income_pct": 8.374384236453201,
+    "annual_holidays_diff": 5.0,
+    "bonus_months_diff": 0.5
+  },
+  "gap_all": {
+    "annual_income_diff": 0.0,
+    "annual_income_pct": 0.0,
+    "annual_holidays_diff": 5.0,
+    "bonus_months_diff": 0.0
+  },
+  "interpretation": "【全国・飲食業】御社推定年収は業界中央値より 255000円 (8.4%) 上回る傾向。年間休日は業界中央値より 5日多い傾向。サンプル数 10件。※中央値は HW 掲載求人のみから算出。市場全体の実勢ではない。",
+  "warning": "⚠️ HW求人データの限界:\n- HW掲載求人のみを対象。全求人市場ではない。\n- HW求人は市場実勢より給与を低めに設定する慣習あり。\n- 外部統計 (賃金構造基本統計調査など) との直接比較は注意。\n- 相関は示せても因果は証明できない。傾向として解釈すること。"
+}
