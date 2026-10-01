@@ -547,6 +547,70 @@ async fn jobgen経路でも未ログインのapiは同じ条件で401json() {
 
 // ================================================================ CSRF
 
+/// トークン認証 (Cookie を使わない) の要求は CSRF の攻撃対象にならないので、Origin も目印ヘッダーも
+/// 無くても通る。Cookie セッションだけの要求は Origin 無し・目印ヘッダー無しなら 403。
+/// 本番でトークン認証される書き込み経路は `/api/jobgen/*` (`jobgen_auth_middleware`、`API_AUTH_TOKEN`)
+/// と `/scout/*` (auth_middleware の外) だけ。
+#[tokio::test]
+async fn csrfはトークン認証の書き込みを対象外にしcookieだけの書き込みは厳格化する() {
+    const TOKEN: &str = "platform-api-test-token-7f3a";
+    // このテスト以外に API_AUTH_TOKEN を設定するテストは無い。トークン未提示の要求は値に関係なく
+    // セッション認証に落ちるので、並行する他のテストの結果は変わらない。
+    std::env::set_var("API_AUTH_TOKEN", TOKEN);
+    let app = app();
+    let json = [("content-type", "application/json")];
+
+    // トークンのみ・Origin 無し・目印ヘッダー無し → CSRF も認証も通ってハンドラに届く
+    let mut h = json.to_vec();
+    h.push(("x-api-token", TOKEN));
+    let res = send(&app, "POST", "/api/jobgen/ab", None, &h, Some("{}")).await;
+    let status = res.status();
+    assert_ne!(
+        status,
+        StatusCode::FORBIDDEN,
+        "token の要求が CSRF で止まった"
+    );
+    assert_ne!(status, StatusCode::UNAUTHORIZED);
+    assert_ne!(status, StatusCode::SEE_OTHER);
+
+    // Authorization: Bearer でも同じ
+    let mut h = json.to_vec();
+    let bearer = format!("Bearer {TOKEN}");
+    h.push(("authorization", bearer.as_str()));
+    let res = send(&app, "POST", "/api/jobgen/ab", None, &h, Some("{}")).await;
+    assert_ne!(res.status(), StatusCode::FORBIDDEN);
+
+    // 違うトークン + Origin 無し + 目印ヘッダー無し → セッション経路の CSRF で 403
+    let mut h = json.to_vec();
+    h.push(("x-api-token", "wrong"));
+    let res = send(&app, "POST", "/api/jobgen/ab", None, &h, Some("{}")).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // ログイン済み Cookie のみ・Origin 無し・目印ヘッダー無し → 403
+    let cookie = login(&app, USER).await;
+    let res = send(
+        &app,
+        "POST",
+        "/api/jobgen/ab",
+        Some(&cookie),
+        &json,
+        Some("{}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let res = send(
+        &app,
+        "POST",
+        "/api/set_prefecture",
+        Some(&cookie),
+        &[("content-type", "application/x-www-form-urlencoded")],
+        Some("prefecture=%E6%9D%B1%E4%BA%AC%E9%83%BD"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    std::env::remove_var("API_AUTH_TOKEN");
+}
+
 #[tokio::test]
 async fn csrfはoriginが無い書き込みをfetchかhx_requestのときだけ通す() {
     let app = app();

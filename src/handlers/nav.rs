@@ -125,7 +125,8 @@ pub fn crm_visible(is_admin: bool) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hidden {
     pub reason: &'static str,
-    pub since: &'static str,
+    /// 隠した日付。記録が無いものは推測で埋めず `None`。
+    pub since: Option<&'static str>,
 }
 
 /// ナビ定義の 1 行。
@@ -154,12 +155,12 @@ pub const DEFAULT_LEGACY_TAB: &str = "/tab/survey";
 
 const HIDDEN_2026_05_15: Hidden = Hidden {
     reason: "2026-05-15 の整理で未使用タブとして UI から非表示 (handler/route は温存、URL 直アクセスは可)",
-    since: "2026-05-15",
+    since: Some("2026-05-15"),
 };
 
 const HIDDEN_DEAD_ROUTE: Hidden = Hidden {
     reason: "旧 templates/dashboard.html (V1 遺物) 専用のタブで、現行シェルにはリンクが無い (CLAUDE.md §3.2 dead route)",
-    since: "2026-03-01",
+    since: None,
 };
 
 /// ナビ定義 (表示順)。hidden の項目は表示される項目の後ろに、隠した順で並べる。
@@ -381,7 +382,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: None,
         hidden: Some(Hidden {
             reason: "2026-07-28 のタブ再編 (ユーザー指定順) で UI 非表示 (handler/URL 直アクセスは温存)",
-            since: "2026-07-28",
+            since: Some("2026-07-28"),
         }),
     },
     // dead route 4 (CLAUDE.md §3.2)。ラベルは各ハンドラの見出し
@@ -436,7 +437,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: None,
         hidden: Some(Hidden {
             reason: "2026-08-11 のナビ集約 (4 タブ化) でリンクを外した試作モック。全数値ダミー",
-            since: "2026-08-11",
+            since: Some("2026-08-11"),
         }),
     },
     // 架電クオリティ (「まだ見えなくてよい」ユーザー判断 2026-09-07)
@@ -450,7 +451,7 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: None,
         hidden: Some(Hidden {
             reason: "「まだ見えなくてよい」というユーザー判断 (2026-09-07)。ページは残してあり URL 直アクセスは可",
-            since: "2026-09-07",
+            since: Some("2026-09-07"),
         }),
     },
 ];
@@ -475,7 +476,7 @@ fn def_to_item(d: &NavDef) -> NavItem {
         group: d.group.map(str::to_string),
         hidden: d.hidden.is_some(),
         hidden_reason: d.hidden.map(|h| h.reason.to_string()),
-        hidden_since: d.hidden.map(|h| h.since.to_string()),
+        hidden_since: d.hidden.and_then(|h| h.since.map(str::to_string)),
     }
 }
 
@@ -768,47 +769,46 @@ mod tests {
     #[test]
     fn 隠し対象は全部hiddenで理由と日付を持つ() {
         let items = nav_items(NAV_DEFS, &features(true, true));
-        let hidden: Vec<(&str, &str, &str)> = items
+        let hidden: Vec<(&str, &str, Option<&str>)> = items
             .iter()
             .filter(|i| i.hidden)
-            .map(|i| {
-                (
-                    i.id.as_str(),
-                    i.href.as_str(),
-                    i.hidden_since
-                        .as_deref()
-                        .expect("hidden なのに hidden_since が無い"),
-                )
-            })
+            .map(|i| (i.id.as_str(), i.href.as_str(), i.hidden_since.as_deref()))
             .collect();
         assert_eq!(
             hidden,
             vec![
-                ("market", "/?tab=/tab/market", "2026-05-15"),
-                ("region-karte", "/?tab=/tab/region_karte", "2026-05-15"),
-                ("analysis", "/?tab=/tab/analysis", "2026-05-15"),
-                ("insight", "/?tab=/tab/insight", "2026-05-15"),
-                ("trend", "/?tab=/tab/trend", "2026-05-15"),
-                ("comparison", "/?tab=/tab/comparison", "2026-05-15"),
-                ("diagnostic", "/?tab=/tab/diagnostic", "2026-05-15"),
+                ("market", "/?tab=/tab/market", Some("2026-05-15")),
+                (
+                    "region-karte",
+                    "/?tab=/tab/region_karte",
+                    Some("2026-05-15")
+                ),
+                ("analysis", "/?tab=/tab/analysis", Some("2026-05-15")),
+                ("insight", "/?tab=/tab/insight", Some("2026-05-15")),
+                ("trend", "/?tab=/tab/trend", Some("2026-05-15")),
+                ("comparison", "/?tab=/tab/comparison", Some("2026-05-15")),
+                ("diagnostic", "/?tab=/tab/diagnostic", Some("2026-05-15")),
                 (
                     "recruitment-diag",
                     "/?tab=/tab/recruitment_diag",
-                    "2026-05-15"
+                    Some("2026-05-15")
                 ),
-                ("competitive", "/?tab=/tab/competitive", "2026-07-28"),
-                ("overview", "/?tab=/tab/overview", "2026-03-01"),
-                ("demographics", "/?tab=/tab/demographics", "2026-03-01"),
-                ("balance", "/?tab=/tab/balance", "2026-03-01"),
-                ("workstyle", "/?tab=/tab/workstyle", "2026-03-01"),
-                ("proposal-mock", "/proposal-mock", "2026-08-11"),
-                ("call-quality", "/call-quality", "2026-09-07"),
+                ("competitive", "/?tab=/tab/competitive", Some("2026-07-28")),
+                ("overview", "/?tab=/tab/overview", None),
+                ("demographics", "/?tab=/tab/demographics", None),
+                ("balance", "/?tab=/tab/balance", None),
+                ("workstyle", "/?tab=/tab/workstyle", None),
+                ("proposal-mock", "/proposal-mock", Some("2026-08-11")),
+                ("call-quality", "/call-quality", Some("2026-09-07")),
             ]
         );
         for i in items.iter().filter(|i| i.hidden) {
             let reason = i.hidden_reason.as_deref().unwrap_or("");
             assert!(!reason.is_empty(), "{}: hidden_reason が空", i.id);
-            let since = i.hidden_since.as_deref().unwrap();
+            // 日付の記録が無い dead route だけ None (推測の日付は入れない)
+            let Some(since) = i.hidden_since.as_deref() else {
+                continue;
+            };
             assert!(
                 chrono::NaiveDate::parse_from_str(since, "%Y-%m-%d").is_ok(),
                 "{}: hidden_since {since:?} が YYYY-MM-DD でない",
@@ -1259,7 +1259,7 @@ mod tests {
         let d = defs.iter_mut().find(|d| d.id == "jobmap").unwrap();
         d.hidden = Some(Hidden {
             reason: "テスト",
-            since: "2026-09-30",
+            since: Some("2026-09-30"),
         });
         let items = nav_items(&defs, &f);
         let nav = render_legacy_nav(&items);
