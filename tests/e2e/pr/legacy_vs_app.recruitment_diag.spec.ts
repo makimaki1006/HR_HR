@@ -465,7 +465,9 @@ async function readApp(page: Page): Promise<Snapshot> {
       interpretation: (await T('rd-condition_gap-interpretation')).replace(/^📝\s*/, ''),
     },
     marketTrendErrorShown: collapse(errTrend).includes(RD.marketTrendError),
-    trendChartPresent: (await page.getByTestId('rd-chart-trend').count()) > 0,
+    // EChart 部品は描画完了まで data-testid を付けないので、testid の件数では「未完了」を「無し」と取り違える。
+    // ECharts が init 時に付ける _echarts_instance_ 属性で、パネル内にグラフが作られたかを見る。
+    trendChartPresent: (await tid(page, 'rd-panel-market_trend').locator('[_echarts_instance_]').count()) > 0,
     opportunity: {
       seriesLength: opportunityLengths[0] ?? -1,
       scoresSorted: [...opportunityValues].sort((a, b) => a - b),
