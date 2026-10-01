@@ -16,13 +16,12 @@
 //! 2026-09-04 時点のもので、シートも同じ日の内容。
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use chrono::NaiveDate;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::routes::build_payload;
-use super::{members_of, Sheets};
+use super::{members_of, Counts, Sheets};
 use crate::handlers::call_quality::sheets::SheetData;
 
 /// Python 版を動かした日。ここを変えると期待値も変わる。
@@ -54,38 +53,30 @@ fn sum_col(sheet: &SheetData, col: &str, keep: impl Fn(&[Arc<str>]) -> bool) -> 
         .sum()
 }
 
-fn load_tsv(name: &str) -> Arc<SheetData> {
-    let path = format!(
-        "{}/tests/fixtures/sales_kpi/{name}.tsv",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("テストデータが読めません {path}: {e}"));
-    Arc::new(sheet_from_tsv(&text))
+fn fixture_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sales_kpi")
 }
 
-/// タブ区切りの文字列を1枚のシートにする。
+fn load_tsv(name: &str) -> Arc<SheetData> {
+    super::fixture::load_tsv(&fixture_dir(), name).unwrap_or_else(|e| panic!("{e:#}"))
+}
+
+/// タブ区切りの文字列を1枚のシートにする（`fixture::sheet_from_tsv` と同じ）。
 fn sheet_from_tsv(text: &str) -> SheetData {
-    let mut lines = text.lines();
-    let header: Vec<String> = lines
-        .next()
-        .expect("見出し行がありません")
-        .split('\t')
-        .map(|s| s.trim_start_matches('\u{feff}').to_string())
-        .collect();
-    let rows: Vec<Vec<Arc<str>>> = lines
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| {
-            let mut cells: Vec<Arc<str>> = l.split('\t').map(Arc::from).collect();
-            cells.resize(header.len(), Arc::from(""));
-            cells
-        })
-        .collect();
-    SheetData {
-        header,
-        rows,
-        fetched_at: Instant::now(),
-    }
+    super::fixture::sheet_from_tsv(text)
+}
+
+/// struct を JSON (`Value`) にする。テストはキー名で引くので、struct 化の前と同じ書き方で読める。
+fn payload_of(sheets: &Sheets, day: NaiveDate) -> Value {
+    serde_json::to_value(build_payload(sheets, day)).expect("JSON 化")
+}
+
+/// `snapshots_of` を JSON の配列にする（同上）。
+fn snapshots_json(sheet: &SheetData) -> Vec<Value> {
+    super::snapshots_of(sheet)
+        .iter()
+        .map(|s| serde_json::to_value(s).expect("JSON 化"))
+        .collect()
 }
 
 fn fixture_sheets() -> Sheets {
@@ -151,7 +142,7 @@ fn fixture_sheets_without_kettei() -> Sheets {
 }
 
 fn payload() -> Value {
-    build_payload(&fixture_sheets(), fixture_day())
+    payload_of(&fixture_sheets(), fixture_day())
 }
 
 /// チーム別の数え上げを全チーム分足す。
@@ -189,7 +180,7 @@ fn cヨミと置きっぱなしがpython版と一致する() {
     // 🔴 127 は「誰も外さない」ときの値。2026-09-08 に集計対象外
     // （HubSpotチーム＝コンサル営業）を入れたので、画面はそのぶん減る。
     // 数を直書きし直すのではなく、除外を無かったことにした版と突き合わせる。
-    let all_in = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
+    let all_in = payload_of(&fixture_sheets_counting_everyone(), fixture_day());
     assert_eq!(team_sum(&all_in, "cyomi"), 127);
     assert_eq!(
         team_sum(&body, "cyomi"),
@@ -515,7 +506,7 @@ fn 週ベースの列が無い古い行でも落ちない() {
                 架電リスト手をつけた\t架電リスト母数\tZoom架電数\tZoom日数\tZoom集計中\n\
                 2026-W37\t2026-09-07\t2026-09-07\t537\t166\t54\t8\t304\t5\t245\t126\t129\t\
                 13\t280\t41\t32817\t129867\t\t0\t集計中\n";
-    let snaps = super::snapshots_of(&sheet_from_tsv(text));
+    let snaps = snapshots_json(&sheet_from_tsv(text));
     assert_eq!(snaps.len(), 1);
     assert!(
         snaps[0]["week_totals"].is_null(),
@@ -537,7 +528,7 @@ fn 架電がまだ無い週は0でなく空で返す() {
                 架電リスト手をつけた\t架電リスト母数\tZoom架電数\tZoom日数\tZoom集計中\n\
                 2026-W37\t2026-09-07\t2026-09-07\t537\t166\t54\t8\t304\t5\t245\t126\t129\t\
                 13\t280\t41\t32817\t129867\t\t0\t集計中\n";
-    let snaps = super::snapshots_of(&sheet_from_tsv(text));
+    let snaps = snapshots_json(&sheet_from_tsv(text));
     assert_eq!(snaps.len(), 1);
     assert!(
         snaps[0]["zoom_called"].is_null(),
@@ -699,7 +690,7 @@ fn 未配布は誰が持っているかまで出す() {
 /// 担当者別シートが無い環境では、これまでどおりリスト全体を出す（分けようがない）。
 #[test]
 fn 担当者別シートが無ければリスト全体を出す() {
-    let body = build_payload(
+    let body = payload_of(
         &Sheets {
             kaden_by_owner: super::empty_sheet(),
             ..fixture_sheets()
@@ -794,7 +785,7 @@ fn 画面に出る担当者はすべて名前が引ける() {
 /// 担当者別シートが無くても（足す前の環境）画面は出る。
 #[test]
 fn 架電リストの担当者別が無くても画面は出る() {
-    let body = build_payload(
+    let body = payload_of(
         &Sheets {
             kaden_by_owner: super::empty_sheet(),
             ..fixture_sheets()
@@ -833,7 +824,7 @@ const WEEKLY_HEAD: &str =
 /// 週次シートを差し替えて payload を作る。fixture_day() は 2026-09-04（金）、
 /// その週のはじまりは 2026-08-31。
 fn payload_with_weekly(rows: &str) -> Value {
-    build_payload(
+    payload_of(
         &Sheets {
             weekly: Arc::new(sheet_from_tsv(&format!("{WEEKLY_HEAD}{rows}"))),
             ..fixture_sheets()
@@ -877,7 +868,7 @@ fn 前の週の記録が無ければ母数の比較を出さない() {
         "比べる相手が無いのに前週比を出している"
     );
     // 週次シートが丸ごと無くても落ちない
-    let body = build_payload(&fixture_sheets_without_weekly(), fixture_day());
+    let body = payload_of(&fixture_sheets_without_weekly(), fixture_day());
     assert_eq!(body["kaden"]["base_trend"], Value::Null);
 }
 
@@ -936,7 +927,7 @@ fn 集計対象外の担当者ぶんだけ商談が減る() {
     assert!(!out.is_empty(), "fixture に集計対象外の担当者が居ない");
 
     // 除外を無かったことにした版と比べる。差＝除外で落ちた件数のはず。
-    let all_in = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
+    let all_in = payload_of(&fixture_sheets_counting_everyone(), fixture_day());
     let body = payload();
 
     for (key, sheet) in [("apo", &sheets.apo), ("cyomi", &sheets.cyomi)] {
@@ -966,7 +957,7 @@ fn 集計対象外の担当者ぶんだけ商談が減る() {
 /// 除外しても「内BPO」は壊れない。BPO の人は外さないので数は変わらないはず。
 #[test]
 fn 除外しても内bpoの表示は変わらない() {
-    let all_in = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
+    let all_in = payload_of(&fixture_sheets_counting_everyone(), fixture_day());
     let body = payload();
     for key in ["pool", "実施"] {
         assert_eq!(
@@ -999,7 +990,7 @@ fn 集計対象外でも架電と架電リストには残る() {
 /// `集計対象` 列が無い古いシートでは、これまでどおり全員を数える。
 #[test]
 fn 集計対象の列が無ければ全員数える() {
-    let body = build_payload(&fixture_sheets_counting_everyone(), fixture_day());
+    let body = payload_of(&fixture_sheets_counting_everyone(), fixture_day());
     assert_eq!(body["excluded"]["件数"].as_i64().unwrap_or(0), 0);
     // Python 版の実測（除外を入れる前の値）に戻ること
     assert_eq!(team_sum(&body, "pool"), 537);
@@ -1048,7 +1039,7 @@ fn 名簿にもhubspotにも無いownerはidのまま出す() {
 fn 週次シートがまだ無くても画面は出る() {
     // 初回は Python がまだ1度も書いていないのでシート自体が存在しない。
     // ここで落とすと画面ごと出なくなる。
-    let body = build_payload(&fixture_sheets_without_weekly(), fixture_day());
+    let body = payload_of(&fixture_sheets_without_weekly(), fixture_day());
     assert_eq!(body["snapshots"].as_array().unwrap().len(), 0);
     // 週次が無いだけで、他の数字は変わらない
     assert_eq!(team_sum(&body, "pool"), 537);
@@ -1064,7 +1055,7 @@ fn 週次シートがまだ無くても画面は出る() {
 #[test]
 fn 月曜に開いても先週を今週として出さない() {
     let monday = NaiveDate::from_ymd_opt(2026, 9, 7).unwrap();
-    let body = build_payload(&fixture_sheets(), monday);
+    let body = payload_of(&fixture_sheets(), monday);
     let periods = &body["calls"]["periods"];
 
     let this_week: Vec<&str> = periods["this_week"]["days"]
@@ -1181,7 +1172,7 @@ fn 架電の最終日が途中かどうかを取得条件から渡す() {
     );
 
     let with_meta = |text: String| {
-        build_payload(
+        payload_of(
             &Sheets {
                 meta: Arc::new(sheet_from_tsv(&text)),
                 ..fixture_sheets()
@@ -1216,7 +1207,7 @@ fn 架電の最終日が途中かどうかを取得条件から渡す() {
 #[test]
 fn 架電をいつ取ったかを画面に渡す() {
     let with_meta = |text: &str| {
-        build_payload(
+        payload_of(
             &Sheets {
                 meta: Arc::new(sheet_from_tsv(text)),
                 ..fixture_sheets()
@@ -1489,7 +1480,7 @@ fn 前日の行が無ければ増加はnull() {
 /// シートがまだ無い環境でも落ちない。空配列を返して、画面はタブごと出さない。
 #[test]
 fn 決定者シートが無くても落ちない() {
-    let body = build_payload(&fixture_sheets_without_kettei(), fixture_day());
+    let body = payload_of(&fixture_sheets_without_kettei(), fixture_day());
     let k = kettei(&body);
     assert!(
         k["rows"].as_array().expect("rows が配列でない").is_empty(),
@@ -1565,7 +1556,7 @@ fn 決定者が1日ぶんしか無ければ増加は全部出せない() {
         kettei: Arc::new(sheet_from_tsv(&keep_kettei_days(&["2026-09-07"]))),
         ..fixture_sheets()
     };
-    let body = build_payload(&one_day, fixture_day());
+    let body = payload_of(&one_day, fixture_day());
     let k = kettei(&body);
     assert_eq!(k["date"].as_str(), Some("2026-09-07"));
     assert!(k["prev_date"].is_null(), "前日が無いのに日付が出ている");
@@ -1678,7 +1669,7 @@ fn 決定者は日が飛んでいても前の記録と比べる() {
          2026-09-12\tA\t10\t10\t10\t10\t40\n\
          2026-09-14\tA\t12\t11\t10\t10\t43\n",
     );
-    let body = build_payload(
+    let body = payload_of(
         &Sheets {
             kettei: Arc::new(sheet),
             ..fixture_sheets()
@@ -1721,7 +1712,7 @@ fn stock_sum(sheet: &SheetData, list: &str, kind: &str, band: &str) -> i64 {
 #[test]
 fn リストの在庫は内訳とその他で全体に一致する() {
     let sheets = fixture_sheets();
-    let body = build_payload(&sheets, fixture_day());
+    let body = payload_of(&sheets, fixture_day());
     let ls = list_stock(&body);
     let lists = ls["lists"].as_array().expect("lists");
     let names: Vec<&str> = lists.iter().map(|l| l["name"].as_str().unwrap()).collect();
@@ -1785,7 +1776,7 @@ fn リストの在庫は内訳とその他で全体に一致する() {
 #[test]
 fn 担当者名ありも内訳とその他で全体に一致する() {
     let sheets = fixture_sheets();
-    let body = build_payload(&sheets, fixture_day());
+    let body = payload_of(&sheets, fixture_day());
     let ls = list_stock(&body);
     assert_eq!(ls["has_named"], true);
     let named = |list: &str, kind: &str, band: &str| -> i64 {
@@ -1824,7 +1815,7 @@ fn 担当者名あり列が無い古いシートでは絞り込みを出さな�
     let text = "リスト	区分	内訳	企業人数	件数
                 リクロジ	合計		すべて	100
 ";
-    let body = build_payload(
+    let body = payload_of(
         &Sheets {
             list_stock: Arc::new(sheet_from_tsv(text)),
             ..fixture_sheets()
@@ -1976,7 +1967,7 @@ fn リスト区分がまだ空なら全部その他に入る() {
                 リクロジ\t合計\t\tすべて\t100\n\
                 リクロジ\t合計\t\t未入力\t30\n\
                 リクロジ\t合計\t\t〜49人\t60\n";
-    let body = build_payload(
+    let body = payload_of(
         &Sheets {
             list_stock: Arc::new(sheet_from_tsv(text)),
             ..fixture_sheets()
@@ -1992,7 +1983,7 @@ fn リスト区分がまだ空なら全部その他に入る() {
 
 #[test]
 fn リストの在庫のシートが無くても落ちない() {
-    let body = build_payload(
+    let body = payload_of(
         &Sheets {
             list_stock: super::empty_sheet(),
             weekly: super::empty_sheet(),
@@ -2024,7 +2015,7 @@ fn weekly_with_stock(rows: &[(&str, &str, &str, &str)]) -> Value {
                 + "\n"
         })
         .collect();
-    build_payload(
+    payload_of(
         &Sheets {
             weekly: Arc::new(sheet_from_tsv(&format!("{head}{body}"))),
             ..fixture_sheets()
@@ -2076,3 +2067,526 @@ fn リスト列が無い古い週次の行は在庫を出さない() {
 /// 「今月の成績」カードの内訳。実装前に書いた、落ちるテスト（設計書
 /// `claudedocs/SALES_KPI_CARD_BREAKDOWN_DESIGN_2026-10-02.md`）。
 mod card_breakdown;
+
+// ------------------------------------------------ JSON の形（struct 化・React 移行 W2、2026-09-30）
+//
+// `build_payload()` は `serde_json::Value` から `payload::SalesKpiData` に置き換えた。
+// 置き換えで JSON が変わっていないこと（スナップショット）と、React 画面
+// （`frontend/src/screens/sales-kpi/`）が頼るキー・具体値（契約）をここで留める。
+
+/// 🔴 `serde_json::Value` → struct の置き換えで JSON を **1 バイトも変えていない**ことの証明。
+///
+/// 期待値は置き換える**前**のコードで `payload_を書き出す` が書き出したもの
+/// （2026-09-30、判定日 2026-09-04）。キーの並び・数値・省略されるキー（`hsTeam` 等）まで
+/// 丸ごと一致しないと落ちる。fixture を取り直したときは、このファイルも
+/// `payload_を書き出す` で作り直す（置き換え前のコードはもう無いので、そのときは差分を目で確かめる）。
+#[test]
+fn payloadのjsonは置換前のスナップショットと一致する() {
+    let path = fixture_dir().join("payload_2026-09-04.json");
+    let expected = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("スナップショットが読めません {}: {e}", path.display()));
+    let actual =
+        serde_json::to_string(&build_payload(&fixture_sheets(), fixture_day())).expect("JSON 化");
+    if actual != expected {
+        let a = actual.as_bytes();
+        let e = expected.as_bytes();
+        let at = a
+            .iter()
+            .zip(e.iter())
+            .position(|(x, y)| x != y)
+            .unwrap_or(a.len().min(e.len()));
+        let show = |s: &[u8]| {
+            let lo = at.saturating_sub(120);
+            let hi = (at + 120).min(s.len());
+            String::from_utf8_lossy(&s[lo..hi]).to_string()
+        };
+        panic!(
+            "JSON が置換前と違う（{at} バイト目。actual {} / expected {} バイト）\n actual:   …{}…\n expected: …{}…",
+            a.len(),
+            e.len(),
+            show(a),
+            show(e)
+        );
+    }
+}
+
+/// 契約: トップレベルのキーの並びと基本の値。React 側の `SalesKpiData` はこの並びで生成される。
+#[test]
+fn 契約_トップレベルのキーと基本値() {
+    let body = payload();
+    let keys: Vec<&str> = body
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "generated_at",
+            "week",
+            "next_week",
+            "stale_days",
+            "bpo_rule",
+            "teams",
+            "by_team",
+            "by_person",
+            "people",
+            "bpo_total",
+            "stale",
+            "week_deals",
+            "next_week_deals",
+            "anq_missing",
+            "cyomi_stale",
+            "excluded",
+            "kaden",
+            "kaden_base",
+            "kettei",
+            "list_stock",
+            "calls",
+            "snapshots",
+            "meta",
+            "from_cache",
+        ]
+    );
+    assert_eq!(body["generated_at"], "2026-09-05 19:08");
+    assert_eq!(
+        body["week"],
+        json!({"start": "2026-08-31", "end": "2026-09-06"})
+    );
+    assert_eq!(
+        body["next_week"],
+        json!({"start": "2026-09-07", "end": "2026-09-13"})
+    );
+    assert_eq!(body["stale_days"], 60);
+    assert_eq!(
+        body["teams"],
+        json!([
+            "チーム未設定",
+            "伊壺チーム",
+            "平田チーム",
+            "櫻井チーム",
+            "野中チーム",
+            "野口チーム"
+        ])
+    );
+    assert_eq!(body["by_team"]["伊壺チーム"]["apo"], 31);
+    assert_eq!(body["by_team"]["伊壺チーム"]["pool"], 66);
+    assert_eq!(body["by_team"]["伊壺チーム"]["実施"], 19);
+    let len = |key: &str| body[key].as_array().expect(key).len();
+    assert_eq!(len("people"), 109);
+    assert_eq!(len("stale"), 9);
+    assert_eq!(len("week_deals"), 260);
+    assert_eq!(len("next_week_deals"), 213);
+    assert_eq!(len("anq_missing"), 267);
+    assert_eq!(len("cyomi_stale"), 36);
+    assert_eq!(body["excluded"], json!({"コンサル営業": 7, "件数": 7}));
+    assert_eq!(body["kaden_base"], 129869);
+    assert_eq!(body["from_cache"], true);
+}
+
+/// 契約: 担当者と取引の行。無いときにキーごと出さない項目（`hsTeam` / `days` / `anq` / `past`）。
+#[test]
+fn 契約_担当者と取引の行() {
+    let body = payload();
+    let people = body["people"].as_array().expect("people");
+    assert_eq!(
+        people[0],
+        json!({"id": "81558823", "name": "担当074", "team": "チーム未設定", "hsTeam": "BPO_リクロジ"})
+    );
+    assert_eq!(
+        people.iter().filter(|p| p.get("hsTeam").is_some()).count(),
+        103,
+        "hsTeam は空なら出さない"
+    );
+    assert!(
+        people.iter().all(|p| p.get("counted").is_none()),
+        "counted は画面に出さない"
+    );
+    let stale = &body["stale"][0];
+    assert_eq!(stale["id"], "15873734455");
+    assert_eq!(stale["date"], "2026-07-10");
+    assert_eq!(stale["ownerName"], "担当006");
+    assert_eq!(stale["team"], "伊壺チーム");
+    assert_eq!(stale["kind"], "未処理");
+    assert_eq!(stale["why"], "アポ日確定のまま");
+    for absent in ["days", "anq", "past"] {
+        assert!(
+            stale.get(absent).is_none(),
+            "{absent} は止まっている取引には無い"
+        );
+    }
+    let wk = &body["week_deals"][0];
+    assert_eq!(wk["date"], "2026-08-31");
+    assert_eq!(wk["anq"], false);
+    assert_eq!(wk["past"], true);
+    assert!(wk.get("days").is_none());
+    assert_eq!(body["cyomi_stale"][0]["days"], 282);
+    assert!(body["cyomi_stale"][0].get("past").is_none());
+}
+
+/// 契約: 架電リスト・決定者・在庫・架電・週次のキーの並びと値。
+#[test]
+fn 契約_架電リストと決定者と在庫と架電と週次() {
+    let body = payload();
+    let keys_of =
+        |v: &Value| -> Vec<String> { v.as_object().expect("object").keys().cloned().collect() };
+
+    let k = &body["kaden"];
+    assert_eq!(
+        keys_of(k),
+        [
+            "composition",
+            "base",
+            "cls",
+            "total",
+            "fill",
+            "all",
+            "unassigned",
+            "by_person",
+            "by_team",
+            "no_owner",
+            "counted_base",
+            "has_by_owner",
+            "base_trend"
+        ]
+    );
+    assert_eq!(k["base"], 43613);
+    assert_eq!(k["total"], 169549);
+    assert_eq!(k["has_by_owner"], true);
+    assert_eq!(
+        k["base_trend"],
+        json!({"week": "2026-W35", "week_start": "2026-08-24", "base": 129869, "diff": 0})
+    );
+    let p0 = &k["unassigned"]["people"][0];
+    assert_eq!(
+        keys_of(p0),
+        [
+            "id",
+            "name",
+            "team",
+            "hsTeam",
+            "base",
+            "未架電",
+            "未接触",
+            "接触済み"
+        ]
+    );
+    assert_eq!(p0["base"], 70176);
+
+    let ke = &body["kettei"];
+    assert_eq!(ke["date"], "2026-09-07");
+    assert_eq!(ke["prev_date"], "2026-09-05");
+    assert_eq!(
+        ke["cols"],
+        json!(["決定者名", "決定者役職", "決裁者名", "決裁者役職"])
+    );
+    assert_eq!(ke["rows"].as_array().expect("rows").len(), 6);
+    assert_eq!(
+        keys_of(&ke["rows"][0]),
+        [
+            "決定者名",
+            "決定者役職",
+            "決裁者名",
+            "決裁者役職",
+            "合計",
+            "増加",
+            "owner",
+            "ownerName",
+            "team",
+            "hsTeam"
+        ]
+    );
+    assert_eq!(ke["no_owner"]["合計"], 29);
+    assert_eq!(ke["no_owner"]["増加"], 3);
+
+    let ls = &body["list_stock"];
+    assert_eq!(
+        keys_of(ls),
+        ["all_band", "bands", "has_named", "lists", "trend"]
+    );
+    assert_eq!(ls["all_band"], "すべて");
+    assert_eq!(ls["has_named"], true);
+    let names: Vec<&str> = ls["lists"]
+        .as_array()
+        .expect("lists")
+        .iter()
+        .map(|l| l["name"].as_str().expect("name"))
+        .collect();
+    assert_eq!(names, ["リクロジ", "大分"]);
+    assert_eq!(ls["lists"][0]["groups"][0]["counts"]["すべて"], 48868);
+    assert!(ls["trend"].is_null());
+
+    let c = &body["calls"];
+    assert_eq!(
+        keys_of(&c["periods"]),
+        [
+            "today",
+            "yesterday",
+            "this_week",
+            "prev_week_same",
+            "prev_week",
+            "this_month"
+        ]
+    );
+    let tw = &c["periods"]["this_week"];
+    assert_eq!(
+        tw["days"],
+        json!([
+            "2026-08-31",
+            "2026-09-01",
+            "2026-09-02",
+            "2026-09-03",
+            "2026-09-04"
+        ])
+    );
+    assert_eq!(
+        tw["total"],
+        json!({"calls": 54098, "connected": 46137, "long": 1157})
+    );
+    assert_eq!(tw["matched"], 34295);
+    assert_eq!(
+        c["daily"][0],
+        json!({"date": "2026-08-25", "calls": 12291, "connected": 10528, "long": 246})
+    );
+    assert_eq!(c["last_day_partial"], true);
+
+    let s0 = &body["snapshots"][0];
+    assert_eq!(
+        keys_of(s0),
+        [
+            "week",
+            "taken_at",
+            "week_start",
+            "totals",
+            "stale",
+            "anq_missing",
+            "cyomi_stale",
+            "kaden_called",
+            "kaden_base",
+            "zoom_called",
+            "zoom_days",
+            "zoom_partial",
+            "week_totals",
+            "week_partial",
+            "list_stock"
+        ]
+    );
+    assert_eq!(
+        keys_of(&s0["totals"]),
+        [
+            "pool",
+            "実施",
+            "未実施",
+            "未処理",
+            "これから",
+            "要判定",
+            "apo",
+            "cyomi",
+            "bpo_pool"
+        ]
+    );
+    assert_eq!(s0["week"], "2026-W35");
+    assert_eq!(s0["kaden_base"], 129869);
+}
+
+/// `KetteiCells` のキーは `KETTEI_COLS` の右側と同じ並び + 合計 + 増加。
+/// 列を足すときは両方を直す（片方だけだと画面の表と行がずれる）。
+#[test]
+fn 決定者の升目のキーは列定数と同じ並び() {
+    let cells = super::KetteiCells::from_counts(&Counts::new(), None);
+    let v = serde_json::to_value(cells).expect("JSON 化");
+    let keys: Vec<&str> = v
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let expect: Vec<&str> = super::KETTEI_COLS
+        .iter()
+        .map(|(_, k)| *k)
+        .chain(["合計", "増加"])
+        .collect();
+    assert_eq!(keys, expect);
+}
+
+/// ts-rs が出す TS 型。React 側はこの名前・型で読む（`frontend/src/screens/sales-kpi/types.ts`）。
+/// 生成物そのものは `app_api::tests::export_ts_bindings` が書き、CI が差分ゼロを見る。
+#[test]
+fn ts型の宣言は画面が読む形になっている() {
+    use ts_rs::TS;
+    // i64 は JSON では普通の数。bigint にすると画面の足し算ができない。
+    let cfg = ts_rs::Config::new().with_large_int("number");
+    let d = super::SalesKpiData::decl(&cfg);
+    assert!(d.starts_with("type SalesKpiData = {"), "{d}");
+    for want in [
+        "generated_at: string,",
+        "stale_days: number,",
+        "teams: Array<string>,",
+        "by_team: { [key in string]: { [key in string]: number } },",
+        "people: Array<SalesKpiPerson>,",
+        "stale: Array<SalesKpiDealRow>,",
+        "kaden: SalesKpiKaden,",
+        "kettei: SalesKpiKettei,",
+        "list_stock: SalesKpiListStock,",
+        "calls: SalesKpiCalls,",
+        "snapshots: Array<SalesKpiSnapshot>,",
+        "from_cache: boolean,",
+    ] {
+        assert!(d.contains(want), "「{want}」が無い: {d}");
+    }
+    let p = super::Person::decl(&cfg);
+    assert!(p.contains("hsTeam?: string"), "{p}");
+    assert!(!p.contains("counted"), "{p}");
+    let r = super::DealRow::decl(&cfg);
+    assert!(r.contains("days?: number"), "{r}");
+    assert!(r.contains("past?: boolean"), "{r}");
+    let k = super::Kettei::decl(&cfg);
+    assert!(k.contains("no_owner: SalesKpiKetteiCells | null"), "{k}");
+    let s = super::Snapshot::decl(&cfg);
+    assert!(
+        s.contains("list_stock: { [key in string]: SalesKpiStockTrendList } | null"),
+        "{s}"
+    );
+    let row = super::KetteiRow::decl(&cfg);
+    assert!(row.contains("決定者名"), "{row}");
+    assert!(row.contains("ownerName: string"), "{row}");
+}
+
+/// `/api/sales-kpi/data` を fixture 経路（`SALES_KPI_FIXTURE_DIR`）で叩く。
+/// Sheets が無くても 200 の JSON になり、中身はスナップショットと同じバイト列。
+/// 旧画面 `/sales-kpi` と React 画面 `/app/sales-kpi` はどちらもこの JSON を読む。
+#[tokio::test]
+async fn fixture経路でapiがスナップショットと同じjsonを返す() {
+    use axum::body::{to_bytes, Body};
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    std::env::set_var(super::fixture::ENV_DIR, fixture_dir());
+    std::env::set_var(super::fixture::ENV_TODAY, "2026-09-04");
+    let app: axum::Router = super::routes::router().with_state(test_state());
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sales-kpi/data")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    std::env::remove_var(super::fixture::ENV_DIR);
+    std::env::remove_var(super::fixture::ENV_TODAY);
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let ct = res
+        .headers()
+        .get("content-type")
+        .expect("content-type")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(ct.starts_with("application/json"), "{ct}");
+    let body = to_bytes(res.into_body(), 4 * 1024 * 1024).await.unwrap();
+    let expected = std::fs::read(fixture_dir().join("payload_2026-09-04.json")).unwrap();
+    assert!(
+        body.as_ref() == expected.as_slice(),
+        "API の JSON がスナップショットと違う（{} / {} バイト）",
+        body.len(),
+        expected.len()
+    );
+}
+
+/// `SALES_KPI_FIXTURE_TODAY` が無ければ実際の今日で組む（fixture の日付から外れるので数字は変わる）。
+/// ここでは「落ちずに JSON が返る」ことだけを見る。
+#[test]
+fn fixtureの判定日は環境変数が無ければ読めない() {
+    std::env::remove_var(super::fixture::ENV_TODAY);
+    assert!(super::fixture::today_from_env().is_none());
+    std::env::set_var(super::fixture::ENV_TODAY, "2026-09-04");
+    assert_eq!(
+        super::fixture::today_from_env(),
+        Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 4).unwrap())
+    );
+    std::env::remove_var(super::fixture::ENV_TODAY);
+    assert!(
+        super::fixture::dir_from_env().is_none() || std::env::var(super::fixture::ENV_DIR).is_ok()
+    );
+}
+
+/// fixture 経路は、あとから足したシートのファイルが無くても空で通す（`load()` と同じ）。
+#[test]
+fn fixture経路は任意のシートが無くても組める() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for name in [
+        super::SHEET_SHODAN,
+        super::SHEET_APO,
+        super::SHEET_CYOMI,
+        super::SHEET_KADEN,
+        super::SHEET_KADEN_LIST,
+        super::SHEET_MEMBER,
+        super::SHEET_META,
+    ] {
+        std::fs::copy(
+            fixture_dir().join(format!("{name}.tsv")),
+            dir.path().join(format!("{name}.tsv")),
+        )
+        .expect("copy");
+    }
+    let sheets = super::fixture::sheets_from_dir(dir.path()).expect("sheets");
+    assert!(sheets.weekly.rows.is_empty());
+    assert!(sheets.kettei.rows.is_empty());
+    let body = serde_json::to_value(build_payload(&sheets, fixture_day())).expect("JSON 化");
+    assert_eq!(body["by_team"]["伊壺チーム"]["apo"], 31);
+    assert!(body["snapshots"].as_array().expect("snapshots").is_empty());
+    assert!(body["kettei"]["rows"].as_array().expect("rows").is_empty());
+    // 必須のシートが無ければ Err
+    std::fs::remove_file(dir.path().join(format!("{}.tsv", super::SHEET_SHODAN))).unwrap();
+    assert!(super::fixture::sheets_from_dir(dir.path()).is_err());
+}
+
+fn test_state() -> std::sync::Arc<crate::AppState> {
+    let config = crate::config::AppConfig::from_env();
+    let cache = crate::db::cache::AppCache::new(60, 10);
+    let rate_limiter = crate::auth::session::RateLimiter::new(5, 60);
+    std::sync::Arc::new(crate::AppState {
+        config,
+        hw_db: None,
+        indeed_db: None,
+        turso_db: None,
+        salesnow_db: None,
+        scout_db: None,
+        cache,
+        rate_limiter,
+        company_geo_cache: None,
+        audit: None,
+        google_oidc: None,
+    })
+}
+
+/// React 側の Vitest fixture（`frontend/src/screens/sales-kpi/__fixtures__/payload_2026-09-04.ts`）は
+/// この JSON を TS の文字列にしたもの。両方が同じ材料であることを、ここで留める
+/// （fixture を取り直したら両方を作り直す。片方だけだと画面のテストが古い形を通してしまう）。
+#[test]
+fn frontendのfixtureはスナップショットと同じjson() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("frontend/src/screens/sales-kpi/__fixtures__/payload_2026-09-04.ts");
+    let ts = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("React 側の fixture が読めません {}: {e}", path.display()));
+    let start = ts
+        .find("FIXTURE_PAYLOAD_TEXT")
+        .expect("FIXTURE_PAYLOAD_TEXT");
+    let open = ts[start..].find('`').expect("開き `") + start + 1;
+    let close = ts.rfind('`').expect("閉じ `");
+    // テンプレート文字列のエスケープを戻す（\\ → \、\` → `、\${ → ${）
+    let text = ts[open..close]
+        .replace("\\\\", "\\")
+        .replace("\\`", "`")
+        .replace("\\${", "${");
+    let expected = std::fs::read_to_string(fixture_dir().join("payload_2026-09-04.json")).unwrap();
+    assert!(
+        text == expected,
+        "React 側の fixture が Rust のスナップショットと違う（{} / {} 文字）",
+        text.chars().count(),
+        expected.chars().count()
+    );
+}
