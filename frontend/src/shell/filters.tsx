@@ -12,6 +12,10 @@ export interface FiltersContextValue {
   filters: FiltersCurrent;
   /** True once the initial sync (URL query -> session, or session -> state) finished. */
   ready: boolean;
+  /** True while a set_* request is in flight or queued (the queue serialises them). */
+  syncing: boolean;
+  /** Message of the last failed load/save of the filters (state was rolled back); null = none. */
+  error: string | null;
   setPrefecture: (prefecture: string) => Promise<void>;
   setMunicipality: (municipality: string) => Promise<void>;
   setIndustry: (jobTypes: string[], industryRaws: string[]) => Promise<void>;
