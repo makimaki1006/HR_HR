@@ -43,7 +43,10 @@ async fn ping() -> Json<AppPingResponse> {
 
 /// `/api/app/*` のルータ。`protected_routes` に merge する。
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route("/api/app/ping", get(ping))
+    Router::new()
+        .route("/api/app/ping", get(ping))
+        // 2026-10-01: 都道府県・市区町村の一覧 (geo_api.rs)
+        .merge(super::geo_api::router())
 }
 
 #[cfg(test)]
@@ -103,6 +106,10 @@ mod tests {
             written.contains("export type AppPingResponse = {"),
             "{written}"
         );
+        crate::handlers::geo_api::GeoPrefectureOption::export_all(&cfg)
+            .expect("GeoPrefectureOption の TS 型を書き出せない");
+        crate::handlers::geo_api::GeoMunicipalityOption::export_all(&cfg)
+            .expect("GeoMunicipalityOption の TS 型を書き出せない");
         // 2026-09-30: 共通基盤 (platform-team)。NavResponse は NavItem / NavGroup / NavKind も一緒に書き出す。
         crate::handlers::nav::NavResponse::export_all(&cfg)
             .expect("NavResponse の TS 型を書き出せない");

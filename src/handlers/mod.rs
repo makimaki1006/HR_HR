@@ -16,6 +16,7 @@ pub mod dict_cards;
 pub mod driver;
 pub mod emp_classifier;
 pub mod filters; // 2026-09-30: ヘッダーフィルタの読み出し (/api/filters/current) と resolve_filters
+pub mod geo_api; // 2026-10-01: 都道府県・市区町村の JSON 版 (/api/app/geo/*)。HTML 版 (api.rs) と取得関数を共有
 pub mod guide;
 pub mod helpers;
 pub mod indeed;
