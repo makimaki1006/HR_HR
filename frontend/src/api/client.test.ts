@@ -3,6 +3,7 @@ import {
   ApiAbortedError,
   ApiDataError,
   ApiHttpError,
+  ApiInvalidResponseError,
   ApiTimeoutError,
   AuthRequiredError,
   DEFAULT_TIMEOUT_MS,
@@ -68,9 +69,12 @@ describe('apiGet', () => {
     expect(result.error.message).toBe('login required (redirected to /login)');
   });
 
-  it('case 2b: maps a non-JSON 200 body (no redirect flag) into AuthRequiredError', async () => {
+  it('case 2b: a text/html 200 with the login form (no redirect flag) is AuthRequiredError', async () => {
     fetchMock.mockResolvedValueOnce(
-      new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      new Response('<html><form method="post" action="/login"></form></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
     );
 
     const result = await apiGet('/api/recruitment_diag/difficulty');
@@ -78,7 +82,26 @@ describe('apiGet', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBeInstanceOf(AuthRequiredError);
-    expect(result.error.message).toBe('login required (non-JSON response: text/html)');
+  });
+
+  it('case 2c: other non-JSON 2xx (html without a login form, 204) is ApiInvalidResponseError', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('<html><p>hello</p></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    const html = await apiGet('/api/x');
+    expect(html.ok).toBe(false);
+    if (!html.ok) {
+      expect(html.error).toBeInstanceOf(ApiInvalidResponseError);
+      expect(html.error).not.toBeInstanceOf(AuthRequiredError);
+    }
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const empty = await apiGet('/api/x');
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) expect(empty.error).toBeInstanceOf(ApiInvalidResponseError);
   });
 
   it('case 3: maps HTTP 200 {"error": ...} into ApiDataError with the exact message', async () => {

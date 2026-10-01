@@ -2,7 +2,9 @@
 //
 // - POST /api/set_prefecture | set_municipality | set_industry_filter answer Html("OK") and store
 //   the value in the server session (tower-sessions). Bodies are application/x-www-form-urlencoded.
-//   CSRF: the Rust middleware accepts `X-Requested-With: fetch` in place of a token.
+//   CSRF: the plan is for the Rust middleware to accept `X-Requested-With: fetch` in place of a
+//   token. That server change is not in place yet; it is being implemented on
+//   feat/platform-hp_rust (migration plan section 2.3). The client already sends the header.
 // - GET /api/prefectures and /api/municipalities_cascade answer <option> HTML fragments, not JSON.
 //
 // postSetFilter goes through apiPostForm (src/api/client.ts) with expect: 'text'.

@@ -3,14 +3,20 @@
 // Contract with the current backend (see claudedocs plan §3 C-1 / C-3):
 // - Auth is a session cookie managed by Rust. This client never reads or stores
 //   cookies / tokens; it only sends them with `credentials: 'same-origin'`.
-// - When the session is missing, Rust answers 303 -> /login (HTML), even for /api/*.
-//   fetch follows the redirect and yields 200 text/html, so we map
-//   "redirected to /login" and "non-JSON body" to AuthRequiredError.
+// - When the session is missing, the current server answers 303 -> /login (HTML), even for
+//   /api/*. fetch follows the redirect and yields 200 text/html, so "redirected to /login",
+//   HTTP 401, and a text/html body containing the login form (form[action="/login"]) all map
+//   to AuthRequiredError. Any other 2xx non-JSON body (204, plain text, ...) is
+//   ApiInvalidResponseError, not an auth problem.
 // - Some handlers answer HTTP 200 with `{"error": "..."}`; that becomes ApiDataError.
-// - Rust also answers an explicit 401 `{"error":"auth_required","login_url":"/login"}`
-//   for unauthenticated fetch requests; that is AuthRequiredError too.
-// - Every request carries `X-Requested-With: fetch` so the server can tell fetch calls
-//   (401 JSON) apart from browser navigation (303 -> /login).
+// - The explicit 401 `{"error":"auth_required","login_url":"/login"}` for unauthenticated
+//   fetch requests is not served yet: the Rust side is being implemented on
+//   feat/platform-hp_rust (migration plan section 2.3). This client already treats 401 as
+//   AuthRequiredError so nothing changes here when it lands.
+// - Every request sends `X-Requested-With: fetch` so the server can (once the above lands)
+//   tell fetch calls (401 JSON) apart from browser navigation (303 -> /login).
+// - 4xx/5xx answers become ApiHttpError; when the body is JSON it is kept in `error.body`
+//   (e.g. {"error_kind": "hubspot_rate_limited", "message": "..."}).
 // - POST /api/set_* style endpoints answer `Html("OK")`: use `expect: 'text'` for them.
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
@@ -37,14 +43,17 @@ export class ApiDataError extends ApiError {
   }
 }
 
-/** Non-2xx HTTP status (other than the login redirect). */
+/** Non-2xx HTTP status (other than the login redirect / 401). */
 export class ApiHttpError extends ApiError {
   override name = 'ApiHttpError';
   readonly status: number;
+  /** Parsed JSON body of the error response; undefined when absent or not valid JSON. */
+  readonly body?: unknown;
 
-  constructor(status: number) {
+  constructor(status: number, body?: unknown) {
     super(`HTTP ${String(status)}`);
     this.status = status;
+    if (body !== undefined) this.body = body;
   }
 }
 
@@ -190,14 +199,34 @@ function isJsonContentType(contentType: string): boolean {
   return /^application\/(?:[\w.+-]+\+)?json\b/i.test(contentType.trim());
 }
 
+const LOGIN_FORM_RE = /<form\b[^>]*\baction\s*=\s*["']?\/login["'\s>]/i;
+
+/** A text/html body that carries the login form (the session expired without a redirect flag). */
+function isLoginPage(contentType: string, text: string): boolean {
+  return /^text\/html\b/i.test(contentType.trim()) && LOGIN_FORM_RE.test(text);
+}
+
+/** Adds the parsed JSON body (if any) to an ApiHttpError. Other errors pass through. */
+function withErrorBody(error: ApiError, text: string): ApiError {
+  if (!(error instanceof ApiHttpError)) return error;
+  try {
+    return new ApiHttpError(error.status, JSON.parse(text) as unknown);
+  } catch {
+    return error;
+  }
+}
+
 /** Turns a 2xx body into a result. `contentType` is the raw header value ('' if none). */
 function parseBody<T>(contentType: string, text: string, expect: ApiExpect): ApiResult<T> {
+  if (isLoginPage(contentType, text)) {
+    return { ok: false, error: new AuthRequiredError('login required (login form returned)') };
+  }
   if (!isJsonContentType(contentType)) {
     if (expect === 'text') return { ok: true, data: text as T };
     return {
       ok: false,
-      error: new AuthRequiredError(
-        `login required (non-JSON response: ${contentType === '' ? 'none' : contentType})`,
+      error: new ApiInvalidResponseError(
+        `unexpected non-JSON response: ${contentType === '' ? 'none' : contentType}`,
       ),
     };
   }
@@ -247,6 +276,15 @@ async function sendFetch<T>(
     }
 
     const statusError = classifyStatus(res.status, redirectedToLogin(res));
+    if (statusError instanceof ApiHttpError) {
+      let errorText = '';
+      try {
+        errorText = await res.text();
+      } catch {
+        // Keep the plain status error when the body cannot be read.
+      }
+      return { ok: false, error: withErrorBody(statusError, errorText) };
+    }
     if (statusError) return { ok: false, error: statusError };
 
     let text: string;
@@ -392,7 +430,7 @@ export function apiUpload<T>(
       }
       const statusError = classifyStatus(xhr.status, onLoginPage);
       if (statusError) {
-        finish({ ok: false, error: statusError });
+        finish({ ok: false, error: withErrorBody(statusError, xhr.responseText) });
         return;
       }
       finish(parseBody<T>(xhr.getResponseHeader('content-type') ?? '', xhr.responseText, expect));
