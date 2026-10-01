@@ -23,6 +23,7 @@
 
 pub mod claim_audit;
 pub mod commute;
+pub mod contract;
 pub mod coverage_gate;
 pub mod customer_report;
 pub mod fact_extract;
