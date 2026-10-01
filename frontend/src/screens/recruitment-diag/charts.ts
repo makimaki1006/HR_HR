@@ -70,7 +70,7 @@ export function opportunityChartOption(d: RdOpportunityMapResponse): EChartsCore
       },
     },
     grid: { left: 160, right: 40, top: 20, bottom: 30 },
-    xAxis: { type: 'value', name: 'スコア（千人あたり求人数）', axisLabel: { color: AXIS_LABEL } },
+    xAxis: { type: 'value', name: 'スコア（1万人あたり求人数）', axisLabel: { color: AXIS_LABEL } },
     yAxis: {
       type: 'category',
       data: top.map((c) => c.name),
