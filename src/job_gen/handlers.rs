@@ -2766,12 +2766,33 @@ async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) 
     let db = match state.hw_db.clone() {
         Some(db) => db,
         None => {
+            let rate = crate::minimum_wage::resolve(&prefecture, None);
             return json!({
-                "available":false,
-                "reason":"統計参照用データベースに接続できないため、公的統計は未取得です。",
+                "available":rate.is_some(),
+                "reason":"統計参照用データベースに接続できないため、人口・労働統計は未取得です。最低賃金は公式CSVの施行済み金額を参照します。",
+                "caveat":"人口・労働統計はデータベース未接続のため未取得です。最低賃金は都道府県単位の施行済み公表値です。",
                 "prefecture":prefecture,
-                "municipality":municipality
-            })
+                "municipality":municipality,
+                "area":{"prefecture":prefecture,"municipality":municipality},
+                "source_details":rate.as_ref().map(|r| vec![json!({
+                    "label":"最低賃金",
+                    "source":"厚生労働省 地域別最低賃金",
+                    "effective_date":r.effective_date.to_string(),
+                    "fiscal_year":r.fiscal_year,
+                    "source_url":r.source_url,
+                    "data_source":r.source,
+                    "scope":prefecture
+                })]).unwrap_or_default(),
+                "sources":["厚生労働省 地域別最低賃金"],
+                "minimum_wage":rate.map(|r| json!({
+                    "hourly_yen":r.hourly_min_wage,
+                    "effective_date":r.effective_date.to_string(),
+                    "fiscal_year":r.fiscal_year,
+                    "source_url":r.source_url,
+                    "source":r.source,
+                    "as_of":crate::minimum_wage::japan_today().to_string()
+                }))
+            });
         }
     };
     let turso = state.turso_db.clone();
@@ -2904,6 +2925,8 @@ async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) 
                 "source":"厚生労働省 地域別最低賃金",
                 "effective_date":minimum_wage_effective_date,
                 "fiscal_year":minimum_wage_fiscal_year,
+                "source_url":minimum_wage_row.map(|row| get_str(row, "source_url")),
+                "data_source":minimum_wage_row.map(|row| get_str(row, "source")),
                 "scope":pref_for_query
             }));
         }
@@ -2940,6 +2963,9 @@ async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) 
                 "hourly_yen":minimum_wage_row.and_then(|row| get_i64_opt(row, "hourly_min_wage")),
                 "effective_date":minimum_wage_effective_date,
                 "fiscal_year":minimum_wage_fiscal_year,
+                "source_url":minimum_wage_row.map(|row| get_str(row, "source_url")),
+                "source":minimum_wage_row.map(|row| get_str(row, "source")),
+                "as_of":minimum_wage_row.map(|row| get_str(row, "as_of")),
                 "area_note":"最低賃金は都道府県単位。顧客求人の適法性判定には算入賃金と所定労働時間の確認が必要。"
             },
             "source_details":source_details,

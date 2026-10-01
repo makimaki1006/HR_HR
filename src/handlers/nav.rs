@@ -183,6 +183,16 @@ pub const NAV_DEFS: &[NavDef] = &[
         hidden: None,
     },
     NavDef {
+        id: "competitor",
+        label: "競合調査",
+        title: Some("Excel競合調査・検索需要・Indeed採用市場・人口統計"),
+        kind: NavKind::Page,
+        target: "/competitor",
+        group: None,
+        requires: None,
+        hidden: None,
+    },
+    NavDef {
         id: "keyword-tools",
         label: "キーワード需要",
         title: Some("検索キーワードの需要をアプリ内で確認"),
@@ -639,8 +649,8 @@ fn render_legacy_item(item: &NavItem, active: bool) -> String {
 /// - グループの項目は、最初の項目の位置にグループの開閉ボタンを 1 つ出し、中身は `explore` 側に出す。
 ///   旧シェルの JS (`toggleExploreGroup` / `syncExploreGroup`) は `#explore-group-btn` と
 ///   `#explore-subnav` だけを見るので、対応しているグループは `EXPLORE_GROUP` の 1 つ。
-/// - トップ行で最初の `page` / `app` の前に区切り (`.tab-sep`) を 1 つ出す
-///   (「ここから先は独立ページ」の目印。置き換え前のテンプレートと同じ)。
+/// - 「調べる」グループ後の最初の `page` / `app` の前に区切りを出す。
+///   グループ前の競合調査は媒体分析に隣接させる。
 /// - `DEFAULT_LEGACY_TAB` の項目に `active` を付ける (JS の `DEFAULT_TAB` と同じ画面)。
 pub fn render_legacy_nav(items: &[NavItem]) -> LegacyNav {
     let mut top = String::new();
@@ -670,7 +680,10 @@ pub fn render_legacy_nav(items: &[NavItem]) -> LegacyNav {
                 top.push_str(&render_legacy_item(item, false));
             }
             None => {
-                if matches!(item.kind, NavKind::Page | NavKind::App) && !sep_emitted {
+                if group_emitted
+                    && matches!(item.kind, NavKind::Page | NavKind::App)
+                    && !sep_emitted
+                {
                     sep_emitted = true;
                     top.push_str("        <span class=\"tab-sep\" aria-hidden=\"true\"></span>\n");
                 }
@@ -734,6 +747,7 @@ mod tests {
             visible,
             vec![
                 ("survey", "/?tab=/tab/survey", None),
+                ("competitor", "/competitor", None),
                 ("keyword-tools", "/?tab=/tab/keyword_tools", None),
                 ("jobgen-tools", "/?tab=/tab/jobgen_tools", None),
                 ("jobmap", "/?tab=/tab/jobmap", Some("explore")),
@@ -869,8 +883,11 @@ mod tests {
         assert!(ids(&kw).contains(&"keyword-tools"));
         assert!(!ids(&kw).contains(&"jobgen-tools"));
         let both = nav_items(NAV_DEFS, &features(true, true));
-        assert_eq!(ids(&both)[..3], ["survey", "keyword-tools", "jobgen-tools"]);
-        assert_eq!(ids(&none)[..2], ["survey", "jobmap"]);
+        assert_eq!(
+            ids(&both)[..4],
+            ["survey", "competitor", "keyword-tools", "jobgen-tools"]
+        );
+        assert_eq!(ids(&none)[..3], ["survey", "competitor", "jobmap"]);
         // 除外は hidden とは別: 除外された項目は items に存在しない (hidden=true で残るのではない)
         assert_eq!(both.len(), none.len() + 2);
         assert_eq!(
@@ -1142,8 +1159,17 @@ mod tests {
         for (kw, jg) in [(false, false), (true, false), (false, true), (true, true)] {
             let items = nav_items(NAV_DEFS, &features(kw, jg));
             let nav = render_legacy_nav(&items);
+            let top = elements(&nav.top);
+            let competitor: Vec<_> = top.iter().filter(|e| e.2 == "競合調査").collect();
+            assert_eq!(competitor.len(), 1);
+            assert_eq!(competitor[0].0, "a");
+            assert!(competitor[0]
+                .1
+                .contains(&("href".into(), "/competitor".into())));
             assert_eq!(
-                elements(&nav.top),
+                top.into_iter()
+                    .filter(|e| e.2 != "競合調査")
+                    .collect::<Vec<_>>(),
                 elements(&old_top(kw, jg)),
                 "top (keywords={kw}, jobgen={jg})\n--- 生成 ---\n{}",
                 nav.top

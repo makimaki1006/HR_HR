@@ -1801,7 +1801,7 @@ fn build_navy_occupation_salary_table(
 /// Phase 2-A (2026-05-29): `is_hourly` 引数追加。
 /// - `is_hourly = false` (月給モード): 全セル `format_mm()` で万円換算表示、キャプション「単位: 万円」
 /// - `is_hourly = true`  (時給モード): 全セル `format_number()` で円のまま表示、キャプション「単位: 円/時」
-fn build_navy_salary_summary_table(
+pub(super) fn build_navy_salary_summary_table(
     lo: &Option<DistStats>,
     hi: &Option<DistStats>,
     is_hourly: bool,

@@ -11,6 +11,7 @@ pub mod handlers;
 pub mod indeed;
 pub mod job_gen;
 pub mod media_engine;
+pub mod minimum_wage;
 pub mod models;
 pub mod scout;
 pub mod text_util;
@@ -384,6 +385,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // ======== P1-04: 47 都道府県横断比較ビュー（リサーチャー C 決定打）========
         .route("/tab/comparison", get(handlers::comparison::tab_comparison))
         .route("/tab/survey", get(handlers::survey::tab_survey))
+        .route("/competitor", get(handlers::competitor::page))
+        .route(
+            "/report/competitor",
+            post(handlers::competitor::report)
+                .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT_BYTES)),
+        )
         // 2026-08-04: 求人系ツールとキーワード需要のアプリ内タブ (iframe 統合)
         .route(
             "/tab/jobgen_tools",

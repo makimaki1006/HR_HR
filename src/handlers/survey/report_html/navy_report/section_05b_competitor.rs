@@ -399,7 +399,7 @@ fn render_head_tags(html: &mut String, agg: &SurveyAggregation, top_n: usize) {
         "<p class=\"note\">※ 上位 {d} 件 = CSV の取り込み順 (重複排除後) の先頭 {d} 件。\
          スクレイプ時の検索結果の並び順をそのまま使っており、Indeed の表示順位の仕組みを表すものではありません。\
          占有率の分母は {d} 件 (全体は n={t})。差 = 上位 {d} 件の占有率 − 全体の占有率。\
-         件数は URL の <code>top_n</code> (1〜{max}、既定 {def}) で変えられます。</p>\n",
+         件数は競合調査の入力画面 (1〜{max}、既定 {def}) で変えられます。</p>\n",
         d = denom,
         t = format_number(total as i64),
         max = COMPETITOR_HEAD_MAX,
@@ -823,9 +823,9 @@ mod tests {
         assert!(render(&agg, 45).is_empty());
     }
 
-    /// 全 variant で章と目次が出る (CSV のみの章、HW 不使用)。
+    /// 媒体分析の全 variant に競合調査を自動追加しない。
     #[test]
-    fn chapter_in_all_variants_with_toc() {
+    fn competitor_is_separate_from_all_survey_variants() {
         use super::super::super::{render_survey_report_page_for_vrt, ReportVariant};
         use crate::handlers::survey::job_seeker::analyze_job_seeker;
         let r = recs(&[("月給 25万円 ~ 30万円", "交通費支給"); 6]);
@@ -849,9 +849,9 @@ mod tests {
                 None,
                 v,
             );
-            assert!(html.contains("SECTION 05B"), "{:?}", v);
+            assert!(!html.contains("SECTION 05B"), "{:?}", v);
             assert!(
-                html.contains("<span class=\"t-no\">05B</span>"),
+                !html.contains("<span class=\"t-no\">05B</span>"),
                 "{:?} 目次",
                 v
             );

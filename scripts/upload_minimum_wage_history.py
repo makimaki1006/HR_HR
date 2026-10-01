@@ -1,26 +1,13 @@
+"""Generate history-only upsert SQL, without credentials, network or DB writes.
+
+User-only execution: inspect existing schema, review generated SQL, execute once
+with stop-on-error and rollback. Historical rows are retained, never DROPped.
+2025/2026 prefecture amounts and effective dates use the shared official CSV.
 """
-最低賃金の年度別推移データを Turso にアップロード
-==================================================
-v2_external_minimum_wage_history テーブルに以下を格納:
-  - 全国加重平均: 2016-2025 (10年分)
-  - 都道府県別: 2023-2025 (3年分)
-
-使い方:
-    python upload_minimum_wage_history.py --url <TURSO_URL> --token <TURSO_TOKEN>
-    python upload_minimum_wage_history.py --dry-run  # 確認のみ
-
-環境変数でも指定可:
-    TURSO_EXTERNAL_URL   Turso DB URL (https://...)
-    TURSO_EXTERNAL_TOKEN Turso Auth Token
-
-注意: 2025年の都道府県別データは既存テーブル v2_external_minimum_wage から取得する。
-"""
-import json
-import os
-import sys
 import argparse
-import urllib.request
-import urllib.error
+from pathlib import Path
+from minimum_wage_rates import DEFAULT_SOURCE, load_rates
+from update_minimum_wages import build_sql, inspect_schema
 
 # === 全国加重平均（2016-2025） ===
 NATIONAL_AVERAGES = {
@@ -33,7 +20,7 @@ NATIONAL_AVERAGES = {
     2022: 961,
     2023: 1004,
     2024: 1055,
-    2025: 1113,
+    2025: 1121,
 }
 
 # === 都道府県別データ（2023年度） ===
@@ -64,239 +51,29 @@ PREF_2024 = {
     "宮崎県": 952, "鹿児島県": 953, "沖縄県": 952,
 }
 
-# === 都道府県別データ（2025年度） ===
-# 出典: compute_v2_external.py MINIMUM_WAGE_2025
-PREF_2025 = {
-    "北海道": 1075, "青森県": 1029, "岩手県": 1031, "宮城県": 1038,
-    "秋田県": 1031, "山形県": 1032, "福島県": 1033, "茨城県": 1074,
-    "栃木県": 1068, "群馬県": 1063, "埼玉県": 1141, "千葉県": 1140,
-    "東京都": 1226, "神奈川県": 1225, "新潟県": 1050, "富山県": 1062,
-    "石川県": 1054, "福井県": 1053, "山梨県": 1052, "長野県": 1061,
-    "岐阜県": 1065, "静岡県": 1097, "愛知県": 1140, "三重県": 1087,
-    "滋賀県": 1080, "京都府": 1122, "大阪府": 1177, "兵庫県": 1116,
-    "奈良県": 1051, "和歌山県": 1045, "鳥取県": 1030, "島根県": 1033,
-    "岡山県": 1047, "広島県": 1085, "山口県": 1043, "徳島県": 1046,
-    "香川県": 1036, "愛媛県": 1033, "高知県": 1023, "福岡県": 1057,
-    "佐賀県": 1030, "長崎県": 1031, "熊本県": 1034, "大分県": 1035,
-    "宮崎県": 1023, "鹿児島県": 1026, "沖縄県": 1023,
-}
 
-TABLE_NAME = "v2_external_minimum_wage_history"
-
-CREATE_TABLE_SQL = f"""
-    CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-        fiscal_year INTEGER NOT NULL,
-        prefecture TEXT NOT NULL,
-        hourly_min_wage INTEGER NOT NULL,
-        PRIMARY KEY (fiscal_year, prefecture)
-    )
-"""
-
-
-def turso_pipeline(url, token, statements):
-    """Turso HTTP Pipeline API で複数SQLを一括実行（urllib版）"""
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-
-    requests_list = []
-    for sql, params in statements:
-        stmt = {"sql": sql}
-        if params:
-            stmt["args"] = [
-                {"type": "null", "value": None} if v is None
-                else {"type": "integer", "value": str(v)} if isinstance(v, int)
-                else {"type": "float", "value": v} if isinstance(v, float)
-                else {"type": "text", "value": str(v)}
-                for v in params
-            ]
-        requests_list.append({"type": "execute", "stmt": stmt})
-
-    requests_list.append({"type": "close"})
-
-    body = json.dumps({"requests": requests_list}).encode("utf-8")
-    req = urllib.request.Request(
-        f"{url}/v2/pipeline",
-        data=body,
-        headers=headers,
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        raise Exception(f"Turso API error {e.code}: {e.read().decode()[:300]}")
-
-    errors = [r for r in data.get("results", []) if r.get("type") == "error"]
-    if errors:
-        raise Exception(f"SQL errors: {errors[:3]}")
-
-    return data
-
-
-def fetch_2025_from_existing(url, token):
-    """既存テーブル v2_external_minimum_wage から2025年データを取得"""
-    sql = "SELECT prefecture, hourly_min_wage FROM v2_external_minimum_wage"
-    try:
-        data = turso_pipeline(url, token, [(sql, None)])
-        result = data["results"][0]["response"]["result"]
-        cols = [c["name"] for c in result["cols"]]
-        pref_idx = cols.index("prefecture")
-        wage_idx = cols.index("hourly_min_wage")
-
-        pref_wages = {}
-        for row in result["rows"]:
-            pref = row[pref_idx]["value"]
-            wage = int(row[wage_idx]["value"])
-            pref_wages[pref] = wage
-
-        print(f"  v2_external_minimum_wage から {len(pref_wages)} 都道府県の2025年データを取得")
-        return pref_wages
-    except Exception as e:
-        print(f"  WARNING: 2025年データ取得失敗 ({e})")
-        print(f"  → 全国平均のみ使用します")
-        return {}
-
-
-def build_rows(pref_2025):
-    """全挿入行を構築"""
-    rows = []
-
-    # 全国加重平均: 2016-2025
-    for year, wage in NATIONAL_AVERAGES.items():
-        rows.append((year, "全国", wage))
-
-    # 都道府県別: 2023
-    for pref, wage in PREF_2023.items():
-        rows.append((2023, pref, wage))
-
-    # 都道府県別: 2024
-    for pref, wage in PREF_2024.items():
-        rows.append((2024, pref, wage))
-
-    # 都道府県別: 2025（既存テーブルから取得）
-    for pref, wage in pref_2025.items():
-        rows.append((2025, pref, wage))
-
+def build_rows():
+    rows = [(year, "全国", wage) for year, wage in NATIONAL_AVERAGES.items()]
+    rows += [(2023, pref, wage) for pref, wage in PREF_2023.items()]
+    rows += [(2024, pref, wage) for pref, wage in PREF_2024.items()]
     return rows
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="最低賃金の年度別推移データをTursoにアップロード"
-    )
-    parser.add_argument("--url", default=os.environ.get("TURSO_EXTERNAL_URL", ""),
-                        help="Turso URL")
-    parser.add_argument("--token", default=os.environ.get("TURSO_EXTERNAL_TOKEN", ""),
-                        help="Turso Token")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="実際にはアップロードしない")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--as-of")
+    parser.add_argument("--schema-db", type=Path)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--dry-run", action="store_true", help="Compatibility flag: this script always generates SQL only")
+    parser.add_argument("--include-legacy", action="store_true", help="Opt-in 2016-2024 initialization from the legacy constants; review before use")
     args = parser.parse_args()
-
-    turso_url = args.url
-    turso_token = args.token
-
-    if not turso_url or not turso_token:
-        print("ERROR: --url と --token が必要です")
-        print("  （または環境変数 TURSO_EXTERNAL_URL, TURSO_EXTERNAL_TOKEN）")
-        sys.exit(1)
-
-    # libsql:// → https:// 変換
-    if turso_url.startswith("libsql://"):
-        turso_url = turso_url.replace("libsql://", "https://")
-
-    print(f"Turso:    {turso_url}")
-    print(f"Dry-run:  {args.dry_run}")
-    print()
-
-    # 2025年データ: まずハードコードを使用、Tursoにテーブルがあれば上書き
-    print("=== Step 1: 2025年都道府県データ取得 ===")
-    pref_2025 = dict(PREF_2025)  # ハードコードをデフォルトとして使用
-    turso_2025 = fetch_2025_from_existing(turso_url, turso_token)
-    if turso_2025:
-        pref_2025.update(turso_2025)  # Tursoデータで上書き
-    else:
-        print(f"  → ハードコードの2025年データを使用 ({len(pref_2025)} 都道府県)")
-
-    # 全行構築
-    all_rows = build_rows(pref_2025)
-    print(f"\n=== Step 2: データ構築完了 ===")
-    print(f"  全国平均: {len(NATIONAL_AVERAGES)} 年分 (2016-2025)")
-    print(f"  2023都道府県: {len(PREF_2023)} 件")
-    print(f"  2024都道府県: {len(PREF_2024)} 件")
-    print(f"  2025都道府県: {len(pref_2025)} 件")
-    print(f"  合計: {len(all_rows)} 行")
-
-    if args.dry_run:
-        print("\n[dry-run] 実際のアップロードはスキップしました")
-        # サンプル表示
-        print("\nサンプルデータ:")
-        for row in all_rows[:5]:
-            print(f"  {row}")
-        print("  ...")
-        for row in all_rows[-3:]:
-            print(f"  {row}")
-        return
-
-    # テーブル作成（DROP + CREATE で冪等性を確保）
-    print(f"\n=== Step 3: テーブル作成 ({TABLE_NAME}) ===")
-    turso_pipeline(turso_url, turso_token, [
-        (f"DROP TABLE IF EXISTS {TABLE_NAME}", None),
-        (CREATE_TABLE_SQL, None),
-    ])
-    print("  テーブル作成完了")
-
-    # バッチINSERT
-    print(f"\n=== Step 4: データ挿入 ===")
-    insert_sql = (
-        f"INSERT INTO {TABLE_NAME} (fiscal_year, prefecture, hourly_min_wage) "
-        f"VALUES (?1, ?2, ?3)"
-    )
-
-    BATCH_SIZE = 100
-    total = 0
-    for i in range(0, len(all_rows), BATCH_SIZE):
-        batch = all_rows[i:i + BATCH_SIZE]
-        stmts = [(insert_sql, list(row)) for row in batch]
-        turso_pipeline(turso_url, turso_token, stmts)
-        total += len(batch)
-        print(f"  {total}/{len(all_rows)} 行完了")
-
-    print(f"\n=== Step 5: 検証 ===")
-    # 行数検証
-    data = turso_pipeline(turso_url, turso_token, [
-        (f"SELECT COUNT(*) as cnt FROM {TABLE_NAME}", None),
-    ])
-    count = data["results"][0]["response"]["result"]["rows"][0][0]["value"]
-    print(f"  テーブル行数: {count}")
-
-    # 全国平均のサンプル検証
-    data = turso_pipeline(turso_url, turso_token, [
-        (f"SELECT fiscal_year, hourly_min_wage FROM {TABLE_NAME} "
-         f"WHERE prefecture = '全国' ORDER BY fiscal_year", None),
-    ])
-    result = data["results"][0]["response"]["result"]
-    print("  全国加重平均:")
-    for row in result["rows"]:
-        fy = row[0]["value"]
-        wage = row[1]["value"]
-        print(f"    {fy}年度: {wage}円")
-
-    # 都道府県サンプル（東京都）
-    data = turso_pipeline(turso_url, turso_token, [
-        (f"SELECT fiscal_year, hourly_min_wage FROM {TABLE_NAME} "
-         f"WHERE prefecture = '東京都' ORDER BY fiscal_year", None),
-    ])
-    result = data["results"][0]["response"]["result"]
-    print("  東京都:")
-    for row in result["rows"]:
-        fy = row[0]["value"]
-        wage = row[1]["value"]
-        print(f"    {fy}年度: {wage}円")
-
-    print(f"\n完了: {TABLE_NAME} に {total} 行アップロードしました")
+    schemas = inspect_schema(args.schema_db)[0] if args.schema_db else None
+    args.output.write_text(build_sql(load_rates(args.source), args.as_of, schemas,
+                                    history_only=True, legacy_history=build_rows() if args.include_legacy else ()), encoding="utf-8")
+    print(f"Generated {args.output}; no database writes. Existing history is preserved.")
+    if not schemas:
+        print("Schema not inspected; verify tables/keys before user execution.")
 
 
 if __name__ == "__main__":

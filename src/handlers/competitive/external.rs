@@ -263,11 +263,11 @@ pub async fn ext_min_wage(
 
     // テーブルには hourly_min_wage しかなく時系列は持たないため、
     // 全国順位を併載することで「相対的位置づけ」を可視化する。
-    let sql = "SELECT prefecture, hourly_min_wage \
+    let sql = "SELECT prefecture, hourly_min_wage, fiscal_year, effective_date \
                FROM v2_external_minimum_wage \
                ORDER BY hourly_min_wage DESC"
         .to_string();
-    let rows = query_external(&state, &sql, &[]);
+    let rows = crate::minimum_wage::resolved_rows(&query_external(&state, &sql, &[]), "");
     if rows.is_empty() {
         return Html(wrap_panel(
             "最低賃金 (時給ベース)",

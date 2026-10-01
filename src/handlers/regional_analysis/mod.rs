@@ -3,7 +3,7 @@
 //! 外部統計 (e-Stat / 国勢調査 / 公的統計) のみで構成される常設タブ。
 //! postings (HW 掲載求人) への依存なし。
 
-mod fetch;
+pub(crate) mod fetch;
 mod handlers;
 mod render;
 

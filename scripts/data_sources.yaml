@@ -459,7 +459,6 @@ sources:
     source_as_of: "mixed(2022-2026)"
     frequency: yearly
     manual_consts:
-      - MINIMUM_WAGE_2025
       - JOB_OPENING_RATIO_202601
       - UNEMPLOYMENT_RATE_2024
       - JOB_CHANGE_DESIRE_RATE_2022
@@ -467,7 +466,7 @@ sources:
       - AVG_MONTHLY_WAGE_2024
     tabs: [competitive, navy]
     status: report
-    notes: compute_v2_external.py 内 dict を年度更新。最賃は10月施行後。鮮度カラムなし(要改善)
+    notes: compute_v2_external.py 内 dict を年度更新。最賃はdata/minimum_wage_rates.csvの県別実発効日で適用。鮮度カラムなし(要改善)
   - name: minimum_wage_history
     source: e-stat
     fetch: null
@@ -475,9 +474,10 @@ sources:
     upload: upload_minimum_wage_history.py
     table: v2_external_minimum_wage_history
     granularity: prefecture
-    freshness_col: effective_date
+    freshness_col: fiscal_year
+    source_as_of: "2026 revised annual rates; current rates use actual effective dates"
     frequency: yearly
-    manual_consts: [PREF_2023, PREF_2024, PREF_2025]
+    manual_consts: [PREF_2023, PREF_2024]
     tabs: [trend]
     status: hidden
-    notes: upload_minimum_wage_history.py の年度別dict更新。実参照は trend/fetch.rs のみ (competitive は別テーブル v2_external_minimum_wage を使用)。Team E 監査 2026-06-08 で訂正
+    notes: "2025/2026はdata/minimum_wage_rates.csvを更新。update_minimum_wages.py --as-of YYYY-MM-DD --turso-inspect --output target/minimum-wage-update.sqlでreadonlyスキーマ検査・限定UPSERT SQL生成。履歴のみはupload_minimum_wage_history.py --output target/minimum-wage-history.sql。SQLはユーザー実行のみ、既存履歴は保持。履歴は年度改定後参考額、現行額は県別実発効日基準。"
