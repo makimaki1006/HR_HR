@@ -28,6 +28,7 @@ export default defineConfig({
         guide: fromHere('src/entries/guide.tsx'),
         // Phase 1A (2026-10-01): /app/recruitment-diag
         'recruitment-diag': fromHere('src/entries/recruitment-diag.tsx'),
+        'sales-kpi': fromHere('src/entries/sales-kpi.tsx'),
       },
     },
   },
