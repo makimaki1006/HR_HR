@@ -8,8 +8,15 @@ use super::{new_uuid, now_iso8601, AuditDb};
 use crate::db::turso_http::TursoDb;
 use crate::handlers::helpers::{get_i64, get_str};
 use serde::Serialize;
+use ts_rs::TS;
 
-#[derive(Debug, Default, Clone, Serialize)]
+// W8 (2026-09-29): 行の型は `/api/admin/*` `/api/my/*` の JSON にそのまま載るので
+// `TS` を derive し、`app_api::tests::export_ts_bindings` から (依存型として) TS に書き出す。
+// NULL の列は空文字 (`get_str`) で返る。i64 は `#[ts(type = "number")]` にする
+// (ts-rs 既定の `bigint` は JSON.parse が返す number と合わず、React 側の比較が型エラーになる)。
+
+/// accounts の 1 行。`disabled_at` が空でなければ無効化済み。
+#[derive(Debug, Default, Clone, Serialize, TS)]
 pub struct AccountRow {
     pub id: String,
     pub email: String,
@@ -18,11 +25,14 @@ pub struct AccountRow {
     pub role: String,
     pub first_seen_at: String,
     pub last_login_at: String,
+    #[ts(type = "number")]
     pub login_count: i64,
     pub disabled_at: String,
 }
 
-#[derive(Debug, Default, Clone, Serialize)]
+/// login_sessions の 1 行。`success` は 1 = 成功 / 0 = 失敗。失敗時は `account_id` が空で
+/// `attempted_email` にメールが残る。
+#[derive(Debug, Default, Clone, Serialize, TS)]
 pub struct LoginSessionRow {
     pub id: String,
     pub account_id: String,
@@ -32,11 +42,13 @@ pub struct LoginSessionRow {
     pub ip_hash: String,
     pub user_agent: String,
     pub login_method: String,
+    #[ts(type = "number")]
     pub success: i64,
     pub failure_reason: String,
 }
 
-#[derive(Debug, Default, Clone, Serialize)]
+/// activity_logs の 1 行 (意味のある操作のみ記録)。
+#[derive(Debug, Default, Clone, Serialize, TS)]
 pub struct ActivityLogRow {
     pub id: String,
     pub account_id: String,

@@ -1,0 +1,14 @@
+{
+  "status": "ok",
+  "account": {
+    "id": "acc-0001",
+    "email": "hanako@f-a-c.co.jp",
+    "display_name": "山田 花子",
+    "company": "F&A <Consulting>",
+    "role": "user",
+    "first_seen_at": "2026-01-05T09:00:00Z",
+    "last_login_at": "2026-09-28T01:23:45Z",
+    "login_count": 12,
+    "disabled_at": ""
+  }
+}

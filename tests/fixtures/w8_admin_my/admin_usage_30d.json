@@ -1,0 +1,81 @@
+{
+  "days": 30,
+  "by_event": [
+    {
+      "account_id": "",
+      "email": "",
+      "event_type": "view_tab",
+      "target_id": "/tab/survey",
+      "label": "タブを開く: 媒体分析",
+      "count": 42,
+      "last_at": "2026-08-10T09:00:00Z"
+    },
+    {
+      "account_id": "",
+      "email": "",
+      "event_type": "upload_survey_csv",
+      "target_id": "",
+      "label": "CSV取込",
+      "count": 7,
+      "last_at": "2026-08-10T09:00:00Z"
+    },
+    {
+      "account_id": "",
+      "email": "",
+      "event_type": "mystery_event",
+      "target_id": "",
+      "label": "mystery_event",
+      "count": 1,
+      "last_at": "2026-08-10T09:00:00Z"
+    }
+  ],
+  "by_account": [
+    {
+      "account_id": "acc-0001",
+      "email": "hanako@f-a-c.co.jp",
+      "event_type": "",
+      "target_id": "",
+      "label": "",
+      "count": 49,
+      "last_at": "2026-08-10T09:00:00Z"
+    },
+    {
+      "account_id": "acc-gone",
+      "email": "",
+      "event_type": "",
+      "target_id": "",
+      "label": "",
+      "count": 1,
+      "last_at": "2026-08-10T09:00:00Z"
+    }
+  ],
+  "cross": [
+    {
+      "account_id": "acc-0001",
+      "email": "hanako@f-a-c.co.jp",
+      "event_type": "view_tab",
+      "target_id": "/tab/survey",
+      "label": "タブを開く: 媒体分析",
+      "count": 42,
+      "last_at": "2026-08-10T09:00:00Z"
+    },
+    {
+      "account_id": "acc-0001",
+      "email": "hanako@f-a-c.co.jp",
+      "event_type": "upload_survey_csv",
+      "target_id": "",
+      "label": "CSV取込",
+      "count": 7,
+      "last_at": "2026-08-10T09:00:00Z"
+    },
+    {
+      "account_id": "acc-gone",
+      "email": "",
+      "event_type": "mystery_event",
+      "target_id": "",
+      "label": "mystery_event",
+      "count": 1,
+      "last_at": "2026-08-10T09:00:00Z"
+    }
+  ]
+}
