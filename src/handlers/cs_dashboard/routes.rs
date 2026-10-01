@@ -407,7 +407,7 @@ pub(super) const HUBSPOT_PORTAL_ID_DEFAULT: &str = "23708633";
 
 /// HubSpot の portal_id。環境変数 `HUBSPOT_PORTAL_ID` で上書きでき、
 /// 未設定・空白だけなら既定値。
-pub(super) fn hubspot_portal_id() -> String {
+pub(crate) fn hubspot_portal_id() -> String {
     hubspot_portal_id_from(std::env::var("HUBSPOT_PORTAL_ID").ok().as_deref())
 }
 

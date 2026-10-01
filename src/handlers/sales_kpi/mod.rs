@@ -888,7 +888,122 @@ pub struct DealRow {
     pub anq: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub past: Option<bool>,
+    /// HubSpot の取引ページ（object ID から作る。headless-crm-design §6）
+    pub url: String,
 }
+
+/// HubSpot の取引ページ。コンサルKPI と同じ形で、portal は呼び出し側が 1 回だけ読む。
+pub fn hubspot_deal_url(portal: &str, deal_id: &str) -> String {
+    format!("https://app.hubspot.com/contacts/{portal}/record/0-3/{deal_id}/")
+}
+
+/// 「今月の成績」カードの件数キー 1 つ。**件数と内訳の行を同じ述語で作る**ための表（1 か所）。
+/// `src` は行の出どころ（どのシート由来の配列か）、`pred` はその行がこのカードに入るか。
+pub struct CardKey {
+    pub key: &'static str,
+    pub bpo_key: &'static str,
+    pub src: CardSrc,
+    pub pred: fn(&DealRow) -> bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardSrc {
+    /// ③ 当月の母集団
+    Pool,
+    /// ① アポシートの全行
+    Apo,
+    /// ⑨ Cヨミシートの全行
+    Cyomi,
+}
+
+fn p_all(_: &DealRow) -> bool {
+    true
+}
+fn p_past(r: &DealRow) -> bool {
+    r.kind != Kind::Upcoming.label()
+}
+fn p_past_anq(r: &DealRow) -> bool {
+    p_past(r) && r.anq == Some(true)
+}
+fn p_done(r: &DealRow) -> bool {
+    r.kind == Kind::Done.label()
+}
+fn p_not_done(r: &DealRow) -> bool {
+    r.kind == Kind::NotDone.label()
+}
+fn p_stuck(r: &DealRow) -> bool {
+    r.kind == Kind::Stuck.label()
+}
+fn p_upcoming(r: &DealRow) -> bool {
+    r.kind == Kind::Upcoming.label()
+}
+fn p_unknown(r: &DealRow) -> bool {
+    r.kind == Kind::Unknown.label()
+}
+
+/// カードの件数キーの表。④ = これから以外（日付では切らない）、⑤ の分子 = ④ のうちアンケートあり。
+pub const CARD_KEYS: &[CardKey] = &[
+    CardKey {
+        key: "apo",
+        bpo_key: "bpo_apo",
+        src: CardSrc::Apo,
+        pred: p_all,
+    },
+    CardKey {
+        key: "pool",
+        bpo_key: "bpo_pool",
+        src: CardSrc::Pool,
+        pred: p_all,
+    },
+    CardKey {
+        key: "cyomi",
+        bpo_key: "bpo_cyomi",
+        src: CardSrc::Cyomi,
+        pred: p_all,
+    },
+    CardKey {
+        key: "実施",
+        bpo_key: "bpo_実施",
+        src: CardSrc::Pool,
+        pred: p_done,
+    },
+    CardKey {
+        key: "未実施",
+        bpo_key: "bpo_未実施",
+        src: CardSrc::Pool,
+        pred: p_not_done,
+    },
+    CardKey {
+        key: "未処理",
+        bpo_key: "bpo_未処理",
+        src: CardSrc::Pool,
+        pred: p_stuck,
+    },
+    CardKey {
+        key: "これから",
+        bpo_key: "bpo_これから",
+        src: CardSrc::Pool,
+        pred: p_upcoming,
+    },
+    CardKey {
+        key: "要判定",
+        bpo_key: "bpo_要判定",
+        src: CardSrc::Pool,
+        pred: p_unknown,
+    },
+    CardKey {
+        key: "anq_den",
+        bpo_key: "bpo_anq_den",
+        src: CardSrc::Pool,
+        pred: p_past,
+    },
+    CardKey {
+        key: "anq_num",
+        bpo_key: "bpo_anq_num",
+        src: CardSrc::Pool,
+        pred: p_past_anq,
+    },
+];
 
 pub fn deal_row(
     deal: &Deal,
@@ -896,6 +1011,7 @@ pub fn deal_row(
     why: String,
     members: &HashMap<String, Person>,
     bpo: bool,
+    portal: &str,
 ) -> DealRow {
     let person = person_of(members, &deal.owner);
     DealRow {
@@ -920,6 +1036,7 @@ pub fn deal_row(
         days: None,
         anq: None,
         past: None,
+        url: hubspot_deal_url(portal, &deal.id),
     }
 }
 
