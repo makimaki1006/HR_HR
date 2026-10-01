@@ -57,7 +57,15 @@ export function AppShell({ screen, filters = false, children }: AppShellProps) {
           />
         ) : null}
         <main id="content" className="p-6">
-          {filterState.ready ? children : <p className="text-slate-400">読み込み中...</p>}
+          {filterState.ready ? (
+            children
+          ) : (
+            <p className="text-slate-400" data-testid="shell-loading">
+              {filterState.error === null
+                ? '読み込み中...'
+                : '絞り込み条件を取得できないため、画面を表示できません。再読み込みしてください。'}
+            </p>
+          )}
         </main>
       </div>
     </FiltersContext.Provider>

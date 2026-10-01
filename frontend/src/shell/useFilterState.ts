@@ -25,22 +25,36 @@ async function pushSession(f: FiltersCurrent, q: ReturnType<typeof readQueryFilt
   }
 }
 
+const describeFailure = (what: string, e: unknown): string =>
+  `${what}: ${e instanceof Error ? e.message : String(e)}`;
+
 /**
  * Filter state for the shell. Startup: a URL query wins and is pushed to the session via
- * set_*; without one, GET /api/filters/current is the source. Later changes call set_*
- * and mirror the values into the URL with history.replaceState.
+ * set_*; without one, GET /api/filters/current is the source. Later changes are applied
+ * optimistically (state + URL via history.replaceState) and sent through ONE promise queue, so
+ * set_* requests always reach the server in call order (set_prefecture resets the municipality
+ * server-side; a municipality POST must not overtake it). When a request fails the state and
+ * the URL go back to the last server-confirmed filters, queued follow-ups that depended on the
+ * failed change are dropped, and `error` is set.
  * When `enabled` is false nothing is fetched and `ready` is true immediately.
  */
 export function useFilterState(enabled: boolean): FiltersContextValue {
   const [filters, setFilters] = useState<FiltersCurrent>(EMPTY_FILTERS);
   const [ready, setReady] = useState(!enabled);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const filtersRef = useRef(filters);
-  useEffect(() => {
-    filtersRef.current = filters;
-  }, [filters]);
+  /** Last filters the server acknowledged (what a revert goes back to). */
+  const confirmedRef = useRef(filters);
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingRef = useRef(0);
+  /** Bumped on every failure; operations queued before it are dropped. */
+  const epochRef = useRef(0);
 
-  const fail = useCallback((e: unknown): void => {
-    if (e instanceof ShellAuthError) redirectToLogin();
+  const show = useCallback((f: FiltersCurrent, url: boolean): void => {
+    filtersRef.current = f;
+    setFilters(f);
+    if (url) writeQueryFilters(f);
   }, []);
 
   useEffect(() => {
@@ -54,9 +68,14 @@ export function useFilterState(enabled: boolean): FiltersContextValue {
         signal: controller.signal,
       });
       if (isAborted()) return;
-      if (cur.ok) base = cur.data;
-      else if (cur.error instanceof AuthRequiredError) {
+      if (cur.ok) {
+        base = cur.data;
+      } else if (cur.error instanceof AuthRequiredError) {
         redirectToLogin();
+        return;
+      } else {
+        // Do not pretend the filters are empty: stay not-ready and say why.
+        setError(describeFailure('絞り込み条件を取得できませんでした', cur.error));
         return;
       }
       let next = base;
@@ -71,59 +90,100 @@ export function useFilterState(enabled: boolean): FiltersContextValue {
         try {
           await pushSession(next, q);
         } catch (e) {
-          fail(e);
+          if (isAborted()) return;
+          if (e instanceof ShellAuthError) {
+            redirectToLogin();
+            return;
+          }
+          // The session did not take the URL's filters: show what the server holds now.
+          const again = await apiGet<FiltersCurrent>('/api/filters/current', {
+            signal: controller.signal,
+          });
+          if (isAborted()) return;
+          next = again.ok ? again.data : base;
+          setError(describeFailure('URL の絞り込み条件を保存できませんでした', e));
         }
         if (isAborted()) return;
-        writeQueryFilters(next);
       }
-      setFilters(next);
+      confirmedRef.current = next;
+      show(next, hasQueryFilters(q));
       setReady(true);
     })();
     return () => {
       controller.abort();
     };
-  }, [enabled, fail]);
+  }, [enabled, show]);
 
   const apply = useCallback(
-    async (next: FiltersCurrent, run: () => Promise<void>): Promise<void> => {
-      setFilters(next);
-      writeQueryFilters(next);
-      try {
-        await run();
-      } catch (e) {
-        fail(e);
-      }
+    (
+      next: FiltersCurrent,
+      run: () => Promise<void>,
+      confirm: (c: FiltersCurrent) => FiltersCurrent,
+    ): Promise<void> => {
+      show(next, true);
+      setError(null);
+      const epoch = epochRef.current;
+      pendingRef.current += 1;
+      setSyncing(true);
+      const task = async (): Promise<void> => {
+        if (epochRef.current !== epoch) return; // an earlier change failed; this one depended on it
+        try {
+          await run();
+          confirmedRef.current = confirm(confirmedRef.current);
+        } catch (e) {
+          if (e instanceof ShellAuthError) {
+            redirectToLogin();
+            return;
+          }
+          epochRef.current += 1;
+          show(confirmedRef.current, true);
+          setError(describeFailure('絞り込みを保存できませんでした', e));
+        }
+      };
+      const result = queueRef.current.then(task).finally(() => {
+        pendingRef.current -= 1;
+        if (pendingRef.current === 0) setSyncing(false);
+      });
+      queueRef.current = result;
+      return result;
     },
-    [fail],
+    [show],
   );
 
   const setPrefecture = useCallback(
     (prefecture: string) =>
-      apply({ ...filtersRef.current, prefecture, municipality: '' }, () =>
-        postSetFilter('prefecture', { prefecture }),
+      apply(
+        { ...filtersRef.current, prefecture, municipality: '' },
+        () => postSetFilter('prefecture', { prefecture }),
+        (c) => ({ ...c, prefecture, municipality: '' }),
       ),
     [apply],
   );
   const setMunicipality = useCallback(
     (municipality: string) =>
-      apply({ ...filtersRef.current, municipality }, () =>
-        postSetFilter('municipality', { municipality }),
+      apply(
+        { ...filtersRef.current, municipality },
+        () => postSetFilter('municipality', { municipality }),
+        (c) => ({ ...c, municipality }),
       ),
     [apply],
   );
   const setIndustry = useCallback(
     (jobTypes: string[], industryRaws: string[]) =>
-      apply({ ...filtersRef.current, job_types: jobTypes, industry_raws: industryRaws }, () =>
-        postSetFilter('industry_filter', {
-          job_types: joinList(jobTypes),
-          industry_raws: joinList(industryRaws),
-        }),
+      apply(
+        { ...filtersRef.current, job_types: jobTypes, industry_raws: industryRaws },
+        () =>
+          postSetFilter('industry_filter', {
+            job_types: joinList(jobTypes),
+            industry_raws: joinList(industryRaws),
+          }),
+        (c) => ({ ...c, job_types: jobTypes, industry_raws: industryRaws }),
       ),
     [apply],
   );
 
   return useMemo(
-    () => ({ filters, ready, setPrefecture, setMunicipality, setIndustry }),
-    [filters, ready, setPrefecture, setMunicipality, setIndustry],
+    () => ({ filters, ready, syncing, error, setPrefecture, setMunicipality, setIndustry }),
+    [filters, ready, syncing, error, setPrefecture, setMunicipality, setIndustry],
   );
 }
