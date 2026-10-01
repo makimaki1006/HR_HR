@@ -381,8 +381,8 @@ pub const NAV_DEFS: &[NavDef] = &[
         id: "recruitment-diag",
         label: "採用診断",
         title: None,
-        kind: NavKind::LegacyTab,
-        target: "/tab/recruitment_diag",
+        kind: NavKind::App,
+        target: "/app/recruitment-diag",
         group: None,
         requires: None,
         hidden: Some(HIDDEN_2026_05_15),
@@ -810,7 +810,7 @@ mod tests {
                 ("diagnostic", "/?tab=/tab/diagnostic", Some("2026-05-15")),
                 (
                     "recruitment-diag",
-                    "/?tab=/tab/recruitment_diag",
+                    "/app/recruitment-diag",
                     Some("2026-05-15")
                 ),
                 ("competitive", "/?tab=/tab/competitive", Some("2026-07-28")),
@@ -1326,6 +1326,15 @@ mod tests {
         let nav = render_legacy_nav(&items);
         assert!(!nav.top.contains("/call-quality"));
         assert!(!nav.top.contains("/proposal-mock"));
+    }
+
+    #[test]
+    fn 採用診断はreact画面を指し非表示のまま() {
+        let items = nav_items(NAV_DEFS, &features(false, false));
+        let it = items.iter().find(|i| i.id == "recruitment-diag").unwrap();
+        assert_eq!(it.kind, NavKind::App);
+        assert_eq!(it.href, "/app/recruitment-diag");
+        assert!(it.hidden);
     }
 
     #[test]

@@ -36,9 +36,14 @@ const ASSET_BASE: &str = "/static/app/";
 /// React 化した画面の一覧。ここに無い名前は manifest の有無にかかわらず 404。
 /// 追加するときは `frontend/src/entries/{screen}.tsx` と vite.config.ts の input も足す。
 pub const KNOWN_SCREENS: &[&str] = &[
-    "dummy", "jobgen",
+    "dummy",
+    "jobgen",
     // W8 (2026-09-29): 管理 (/app/admin) と個人設定 (/app/my)。画面内は ?view= で切り替える
-    "admin", "my", "guide",
+    "admin",
+    "my",
+    "guide",
+    // Phase 1A (2026-10-01): 採用診断 (/app/recruitment-diag)。旧 /tab/recruitment_diag は並走
+    "recruitment-diag",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。
@@ -384,6 +389,11 @@ mod tests {
         // manifest が無くても、未知の画面名は注記ではなく 404
         let (status, _) = get_path(app(None), "/app/unknown").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn 採用診断は既知の画面に載っている() {
+        assert!(KNOWN_SCREENS.contains(&"recruitment-diag"));
     }
 
     #[test]
