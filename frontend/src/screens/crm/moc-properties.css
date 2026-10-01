@@ -1,0 +1,8 @@
+.batch-properties-grid select { display: block; width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #b5c4d3; border-radius: 3px; color: #33475b; background: white; font: inherit; }
+.batch-properties-grid output { display: block; padding: 8px 0; color: #526b80; overflow-wrap: anywhere; }
+.moc-property-checkboxes { margin: 12px 0; padding: 8px; border: 1px solid #d3dce5; border-radius: 3px; font-size: 11px; }
+.batch-properties-grid .moc-property-checkboxes label { display: flex; align-items: center; gap: 6px; margin: 7px 0; }
+.batch-properties-grid .moc-property-checkboxes input { width: auto; flex-shrink: 0; margin: 0; }
+.moc-next-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.moc-next-fields label { display: flex; flex-direction: column; font-size: 10px; color: #526b80; }.moc-next-fields select { padding: 6px; border: 1px solid #b5c4d3; border-radius: 3px; font: inherit; color: #33475b; }
+.moc-next-fields input { margin-top: 0; }.moc-change-preview { font-size: 10px; }.moc-change-preview div { display: flex; gap: 8px; margin: 4px 0; }.moc-change-preview dt { color: #526b80; }.moc-change-preview dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }

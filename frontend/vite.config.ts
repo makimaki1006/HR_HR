@@ -20,6 +20,7 @@ export default defineConfig({
       // One entry per screen (multi-page). Add e.g. recruitmentDiag here in Phase 1A.
       input: {
         dummy: fromHere('src/entries/dummy.tsx'),
+        crm: fromHere('src/entries/crm.tsx'),
         jobgen: fromHere('src/entries/jobgen.tsx'),
         // W8 (2026-09-29): admin (/app/admin) and my (/app/my)
         admin: fromHere('src/entries/admin.tsx'),

@@ -1,0 +1,4027 @@
+{
+  "retrieved_at": "2026-10-01T08:45:22.635007+00:00",
+  "source": "HubSpot public Properties API (definitions only)",
+  "objects": {
+    "contacts": {
+      "status": 200,
+      "properties": [
+        {
+          "name": "email",
+          "label": "Email",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "contactinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": true
+        },
+        {
+          "name": "firstname",
+          "label": "First Name",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "contactinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hs_lead_status",
+          "label": "Lead Status",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "sales_properties",
+          "options": [
+            {
+              "label": "New",
+              "value": "NEW",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "Open",
+              "value": "OPEN",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "In Progress",
+              "value": "IN_PROGRESS",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "Open Deal",
+              "value": "OPEN_DEAL",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "Unqualified",
+              "value": "UNQUALIFIED",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "Attempted to Contact",
+              "value": "ATTEMPTED_TO_CONTACT",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "Connected",
+              "value": "CONNECTED",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "Bad Timing",
+              "value": "BAD_TIMING",
+              "description": "",
+              "displayOrder": 7,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyOptions": false,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hubspot_owner_id",
+          "label": "Contact owner",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "sales_properties",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "jobtitle",
+          "label": "Job Title",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "contactinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "lastname",
+          "label": "Last Name",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "contactinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "mobilephone",
+          "label": "Mobile Phone Number",
+          "type": "string",
+          "fieldType": "phonenumber",
+          "groupName": "contactinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "phone",
+          "label": "Phone Number",
+          "type": "string",
+          "fieldType": "phonenumber",
+          "groupName": "contactinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        }
+      ],
+      "total_property_count": 419
+    },
+    "companies": {
+      "status": 200,
+      "properties": [
+        {
+          "name": "bpo_appo_date",
+          "label": "BPOアポ取得日",
+          "type": "date",
+          "fieldType": "date",
+          "groupName": "companyinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_appo_flag",
+          "label": "BPO取得アポ",
+          "type": "enumeration",
+          "fieldType": "booleancheckbox",
+          "groupName": "取引管理",
+          "options": [
+            {
+              "label": "はい",
+              "value": "true",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "いいえ",
+              "value": "false",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "city",
+          "label": "City",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "companyinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hubspot_owner_id",
+          "label": "Company owner",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "sales_properties",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "industry",
+          "label": "Industry",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "companyinformation",
+          "options": [
+            {
+              "label": "Accounting",
+              "value": "ACCOUNTING",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "Airlines/Aviation",
+              "value": "AIRLINES_AVIATION",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "Alternative Dispute Resolution",
+              "value": "ALTERNATIVE_DISPUTE_RESOLUTION",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "Alternative Medicine",
+              "value": "ALTERNATIVE_MEDICINE",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "Animation",
+              "value": "ANIMATION",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "Apparel & Fashion",
+              "value": "APPAREL_FASHION",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "Architecture & Planning",
+              "value": "ARCHITECTURE_PLANNING",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "Arts and Crafts",
+              "value": "ARTS_AND_CRAFTS",
+              "displayOrder": 7,
+              "hidden": false
+            },
+            {
+              "label": "Automotive",
+              "value": "AUTOMOTIVE",
+              "displayOrder": 8,
+              "hidden": false
+            },
+            {
+              "label": "Aviation & Aerospace",
+              "value": "AVIATION_AEROSPACE",
+              "displayOrder": 9,
+              "hidden": false
+            },
+            {
+              "label": "Banking",
+              "value": "BANKING",
+              "displayOrder": 10,
+              "hidden": false
+            },
+            {
+              "label": "Biotechnology",
+              "value": "BIOTECHNOLOGY",
+              "displayOrder": 11,
+              "hidden": false
+            },
+            {
+              "label": "Broadcast Media",
+              "value": "BROADCAST_MEDIA",
+              "displayOrder": 12,
+              "hidden": false
+            },
+            {
+              "label": "Building Materials",
+              "value": "BUILDING_MATERIALS",
+              "displayOrder": 13,
+              "hidden": false
+            },
+            {
+              "label": "Business Supplies and Equipment",
+              "value": "BUSINESS_SUPPLIES_AND_EQUIPMENT",
+              "displayOrder": 14,
+              "hidden": false
+            },
+            {
+              "label": "Capital Markets",
+              "value": "CAPITAL_MARKETS",
+              "displayOrder": 15,
+              "hidden": false
+            },
+            {
+              "label": "Chemicals",
+              "value": "CHEMICALS",
+              "displayOrder": 16,
+              "hidden": false
+            },
+            {
+              "label": "Civic & Social Organization",
+              "value": "CIVIC_SOCIAL_ORGANIZATION",
+              "displayOrder": 17,
+              "hidden": false
+            },
+            {
+              "label": "Civil Engineering",
+              "value": "CIVIL_ENGINEERING",
+              "displayOrder": 18,
+              "hidden": false
+            },
+            {
+              "label": "Commercial Real Estate",
+              "value": "COMMERCIAL_REAL_ESTATE",
+              "displayOrder": 19,
+              "hidden": false
+            },
+            {
+              "label": "Computer & Network Security",
+              "value": "COMPUTER_NETWORK_SECURITY",
+              "displayOrder": 20,
+              "hidden": false
+            },
+            {
+              "label": "Computer Games",
+              "value": "COMPUTER_GAMES",
+              "displayOrder": 21,
+              "hidden": false
+            },
+            {
+              "label": "Computer Hardware",
+              "value": "COMPUTER_HARDWARE",
+              "displayOrder": 22,
+              "hidden": false
+            },
+            {
+              "label": "Computer Networking",
+              "value": "COMPUTER_NETWORKING",
+              "displayOrder": 23,
+              "hidden": false
+            },
+            {
+              "label": "Computer Software",
+              "value": "COMPUTER_SOFTWARE",
+              "displayOrder": 24,
+              "hidden": false
+            },
+            {
+              "label": "Internet",
+              "value": "INTERNET",
+              "displayOrder": 25,
+              "hidden": false
+            },
+            {
+              "label": "Construction",
+              "value": "CONSTRUCTION",
+              "displayOrder": 26,
+              "hidden": false
+            },
+            {
+              "label": "Consumer Electronics",
+              "value": "CONSUMER_ELECTRONICS",
+              "displayOrder": 27,
+              "hidden": false
+            },
+            {
+              "label": "Consumer Goods",
+              "value": "CONSUMER_GOODS",
+              "displayOrder": 28,
+              "hidden": false
+            },
+            {
+              "label": "Consumer Services",
+              "value": "CONSUMER_SERVICES",
+              "displayOrder": 29,
+              "hidden": false
+            },
+            {
+              "label": "Cosmetics",
+              "value": "COSMETICS",
+              "displayOrder": 30,
+              "hidden": false
+            },
+            {
+              "label": "Dairy",
+              "value": "DAIRY",
+              "displayOrder": 31,
+              "hidden": false
+            },
+            {
+              "label": "Defense & Space",
+              "value": "DEFENSE_SPACE",
+              "displayOrder": 32,
+              "hidden": false
+            },
+            {
+              "label": "Design",
+              "value": "DESIGN",
+              "displayOrder": 33,
+              "hidden": false
+            },
+            {
+              "label": "Education Management",
+              "value": "EDUCATION_MANAGEMENT",
+              "displayOrder": 34,
+              "hidden": false
+            },
+            {
+              "label": "E-Learning",
+              "value": "E_LEARNING",
+              "displayOrder": 35,
+              "hidden": false
+            },
+            {
+              "label": "Electrical/Electronic Manufacturing",
+              "value": "ELECTRICAL_ELECTRONIC_MANUFACTURING",
+              "displayOrder": 36,
+              "hidden": false
+            },
+            {
+              "label": "Entertainment",
+              "value": "ENTERTAINMENT",
+              "displayOrder": 37,
+              "hidden": false
+            },
+            {
+              "label": "Environmental Services",
+              "value": "ENVIRONMENTAL_SERVICES",
+              "displayOrder": 38,
+              "hidden": false
+            },
+            {
+              "label": "Events Services",
+              "value": "EVENTS_SERVICES",
+              "displayOrder": 39,
+              "hidden": false
+            },
+            {
+              "label": "Executive Office",
+              "value": "EXECUTIVE_OFFICE",
+              "displayOrder": 40,
+              "hidden": false
+            },
+            {
+              "label": "Facilities Services",
+              "value": "FACILITIES_SERVICES",
+              "displayOrder": 41,
+              "hidden": false
+            },
+            {
+              "label": "Farming",
+              "value": "FARMING",
+              "displayOrder": 42,
+              "hidden": false
+            },
+            {
+              "label": "Financial Services",
+              "value": "FINANCIAL_SERVICES",
+              "displayOrder": 43,
+              "hidden": false
+            },
+            {
+              "label": "Fine Art",
+              "value": "FINE_ART",
+              "displayOrder": 44,
+              "hidden": false
+            },
+            {
+              "label": "Fishery",
+              "value": "FISHERY",
+              "displayOrder": 45,
+              "hidden": false
+            },
+            {
+              "label": "Food & Beverages",
+              "value": "FOOD_BEVERAGES",
+              "displayOrder": 46,
+              "hidden": false
+            },
+            {
+              "label": "Food Production",
+              "value": "FOOD_PRODUCTION",
+              "displayOrder": 47,
+              "hidden": false
+            },
+            {
+              "label": "Fund-Raising",
+              "value": "FUND_RAISING",
+              "displayOrder": 48,
+              "hidden": false
+            },
+            {
+              "label": "Furniture",
+              "value": "FURNITURE",
+              "displayOrder": 49,
+              "hidden": false
+            },
+            {
+              "label": "Gambling & Casinos",
+              "value": "GAMBLING_CASINOS",
+              "displayOrder": 50,
+              "hidden": false
+            },
+            {
+              "label": "Glass, Ceramics & Concrete",
+              "value": "GLASS_CERAMICS_CONCRETE",
+              "displayOrder": 51,
+              "hidden": false
+            },
+            {
+              "label": "Government Administration",
+              "value": "GOVERNMENT_ADMINISTRATION",
+              "displayOrder": 52,
+              "hidden": false
+            },
+            {
+              "label": "Government Relations",
+              "value": "GOVERNMENT_RELATIONS",
+              "displayOrder": 53,
+              "hidden": false
+            },
+            {
+              "label": "Graphic Design",
+              "value": "GRAPHIC_DESIGN",
+              "displayOrder": 54,
+              "hidden": false
+            },
+            {
+              "label": "Health, Wellness and Fitness",
+              "value": "HEALTH_WELLNESS_AND_FITNESS",
+              "displayOrder": 55,
+              "hidden": false
+            },
+            {
+              "label": "Higher Education",
+              "value": "HIGHER_EDUCATION",
+              "displayOrder": 56,
+              "hidden": false
+            },
+            {
+              "label": "Hospital & Health Care",
+              "value": "HOSPITAL_HEALTH_CARE",
+              "displayOrder": 57,
+              "hidden": false
+            },
+            {
+              "label": "Hospitality",
+              "value": "HOSPITALITY",
+              "displayOrder": 58,
+              "hidden": false
+            },
+            {
+              "label": "Human Resources",
+              "value": "HUMAN_RESOURCES",
+              "displayOrder": 59,
+              "hidden": false
+            },
+            {
+              "label": "Import and Export",
+              "value": "IMPORT_AND_EXPORT",
+              "displayOrder": 60,
+              "hidden": false
+            },
+            {
+              "label": "Individual & Family Services",
+              "value": "INDIVIDUAL_FAMILY_SERVICES",
+              "displayOrder": 61,
+              "hidden": false
+            },
+            {
+              "label": "Industrial Automation",
+              "value": "INDUSTRIAL_AUTOMATION",
+              "displayOrder": 62,
+              "hidden": false
+            },
+            {
+              "label": "Information Services",
+              "value": "INFORMATION_SERVICES",
+              "displayOrder": 63,
+              "hidden": false
+            },
+            {
+              "label": "Information Technology and Services",
+              "value": "INFORMATION_TECHNOLOGY_AND_SERVICES",
+              "displayOrder": 64,
+              "hidden": false
+            },
+            {
+              "label": "Insurance",
+              "value": "INSURANCE",
+              "displayOrder": 65,
+              "hidden": false
+            },
+            {
+              "label": "International Affairs",
+              "value": "INTERNATIONAL_AFFAIRS",
+              "displayOrder": 66,
+              "hidden": false
+            },
+            {
+              "label": "International Trade and Development",
+              "value": "INTERNATIONAL_TRADE_AND_DEVELOPMENT",
+              "displayOrder": 67,
+              "hidden": false
+            },
+            {
+              "label": "Investment Banking",
+              "value": "INVESTMENT_BANKING",
+              "displayOrder": 68,
+              "hidden": false
+            },
+            {
+              "label": "Investment Management",
+              "value": "INVESTMENT_MANAGEMENT",
+              "displayOrder": 69,
+              "hidden": false
+            },
+            {
+              "label": "Judiciary",
+              "value": "JUDICIARY",
+              "displayOrder": 70,
+              "hidden": false
+            },
+            {
+              "label": "Law Enforcement",
+              "value": "LAW_ENFORCEMENT",
+              "displayOrder": 71,
+              "hidden": false
+            },
+            {
+              "label": "Law Practice",
+              "value": "LAW_PRACTICE",
+              "displayOrder": 72,
+              "hidden": false
+            },
+            {
+              "label": "Legal Services",
+              "value": "LEGAL_SERVICES",
+              "displayOrder": 73,
+              "hidden": false
+            },
+            {
+              "label": "Legislative Office",
+              "value": "LEGISLATIVE_OFFICE",
+              "displayOrder": 74,
+              "hidden": false
+            },
+            {
+              "label": "Leisure, Travel & Tourism",
+              "value": "LEISURE_TRAVEL_TOURISM",
+              "displayOrder": 75,
+              "hidden": false
+            },
+            {
+              "label": "Libraries",
+              "value": "LIBRARIES",
+              "displayOrder": 76,
+              "hidden": false
+            },
+            {
+              "label": "Logistics and Supply Chain",
+              "value": "LOGISTICS_AND_SUPPLY_CHAIN",
+              "displayOrder": 77,
+              "hidden": false
+            },
+            {
+              "label": "Luxury Goods & Jewelry",
+              "value": "LUXURY_GOODS_JEWELRY",
+              "displayOrder": 78,
+              "hidden": false
+            },
+            {
+              "label": "Machinery",
+              "value": "MACHINERY",
+              "displayOrder": 79,
+              "hidden": false
+            },
+            {
+              "label": "Management Consulting",
+              "value": "MANAGEMENT_CONSULTING",
+              "displayOrder": 80,
+              "hidden": false
+            },
+            {
+              "label": "Maritime",
+              "value": "MARITIME",
+              "displayOrder": 81,
+              "hidden": false
+            },
+            {
+              "label": "Market Research",
+              "value": "MARKET_RESEARCH",
+              "displayOrder": 82,
+              "hidden": false
+            },
+            {
+              "label": "Marketing and Advertising",
+              "value": "MARKETING_AND_ADVERTISING",
+              "displayOrder": 83,
+              "hidden": false
+            },
+            {
+              "label": "Mechanical or Industrial Engineering",
+              "value": "MECHANICAL_OR_INDUSTRIAL_ENGINEERING",
+              "displayOrder": 84,
+              "hidden": false
+            },
+            {
+              "label": "Media Production",
+              "value": "MEDIA_PRODUCTION",
+              "displayOrder": 85,
+              "hidden": false
+            },
+            {
+              "label": "Medical Devices",
+              "value": "MEDICAL_DEVICES",
+              "displayOrder": 86,
+              "hidden": false
+            },
+            {
+              "label": "Medical Practice",
+              "value": "MEDICAL_PRACTICE",
+              "displayOrder": 87,
+              "hidden": false
+            },
+            {
+              "label": "Mental Health Care",
+              "value": "MENTAL_HEALTH_CARE",
+              "displayOrder": 88,
+              "hidden": false
+            },
+            {
+              "label": "Military",
+              "value": "MILITARY",
+              "displayOrder": 89,
+              "hidden": false
+            },
+            {
+              "label": "Mining & Metals",
+              "value": "MINING_METALS",
+              "displayOrder": 90,
+              "hidden": false
+            },
+            {
+              "label": "Motion Pictures and Film",
+              "value": "MOTION_PICTURES_AND_FILM",
+              "displayOrder": 91,
+              "hidden": false
+            },
+            {
+              "label": "Museums and Institutions",
+              "value": "MUSEUMS_AND_INSTITUTIONS",
+              "displayOrder": 92,
+              "hidden": false
+            },
+            {
+              "label": "Music",
+              "value": "MUSIC",
+              "displayOrder": 93,
+              "hidden": false
+            },
+            {
+              "label": "Nanotechnology",
+              "value": "NANOTECHNOLOGY",
+              "displayOrder": 94,
+              "hidden": false
+            },
+            {
+              "label": "Newspapers",
+              "value": "NEWSPAPERS",
+              "displayOrder": 95,
+              "hidden": false
+            },
+            {
+              "label": "Non-Profit Organization Management",
+              "value": "NON_PROFIT_ORGANIZATION_MANAGEMENT",
+              "displayOrder": 96,
+              "hidden": false
+            },
+            {
+              "label": "Oil & Energy",
+              "value": "OIL_ENERGY",
+              "displayOrder": 97,
+              "hidden": false
+            },
+            {
+              "label": "Online Media",
+              "value": "ONLINE_MEDIA",
+              "displayOrder": 98,
+              "hidden": false
+            },
+            {
+              "label": "Outsourcing/Offshoring",
+              "value": "OUTSOURCING_OFFSHORING",
+              "displayOrder": 99,
+              "hidden": false
+            },
+            {
+              "label": "Package/Freight Delivery",
+              "value": "PACKAGE_FREIGHT_DELIVERY",
+              "displayOrder": 100,
+              "hidden": false
+            },
+            {
+              "label": "Packaging and Containers",
+              "value": "PACKAGING_AND_CONTAINERS",
+              "displayOrder": 101,
+              "hidden": false
+            },
+            {
+              "label": "Paper & Forest Products",
+              "value": "PAPER_FOREST_PRODUCTS",
+              "displayOrder": 102,
+              "hidden": false
+            },
+            {
+              "label": "Performing Arts",
+              "value": "PERFORMING_ARTS",
+              "displayOrder": 103,
+              "hidden": false
+            },
+            {
+              "label": "Pharmaceuticals",
+              "value": "PHARMACEUTICALS",
+              "displayOrder": 104,
+              "hidden": false
+            },
+            {
+              "label": "Philanthropy",
+              "value": "PHILANTHROPY",
+              "displayOrder": 105,
+              "hidden": false
+            },
+            {
+              "label": "Photography",
+              "value": "PHOTOGRAPHY",
+              "displayOrder": 106,
+              "hidden": false
+            },
+            {
+              "label": "Plastics",
+              "value": "PLASTICS",
+              "displayOrder": 107,
+              "hidden": false
+            },
+            {
+              "label": "Political Organization",
+              "value": "POLITICAL_ORGANIZATION",
+              "displayOrder": 108,
+              "hidden": false
+            },
+            {
+              "label": "Primary/Secondary Education",
+              "value": "PRIMARY_SECONDARY_EDUCATION",
+              "displayOrder": 109,
+              "hidden": false
+            },
+            {
+              "label": "Printing",
+              "value": "PRINTING",
+              "displayOrder": 110,
+              "hidden": false
+            },
+            {
+              "label": "Professional Training & Coaching",
+              "value": "PROFESSIONAL_TRAINING_COACHING",
+              "displayOrder": 111,
+              "hidden": false
+            },
+            {
+              "label": "Program Development",
+              "value": "PROGRAM_DEVELOPMENT",
+              "displayOrder": 112,
+              "hidden": false
+            },
+            {
+              "label": "Public Policy",
+              "value": "PUBLIC_POLICY",
+              "displayOrder": 113,
+              "hidden": false
+            },
+            {
+              "label": "Public Relations and Communications",
+              "value": "PUBLIC_RELATIONS_AND_COMMUNICATIONS",
+              "displayOrder": 114,
+              "hidden": false
+            },
+            {
+              "label": "Public Safety",
+              "value": "PUBLIC_SAFETY",
+              "displayOrder": 115,
+              "hidden": false
+            },
+            {
+              "label": "Publishing",
+              "value": "PUBLISHING",
+              "displayOrder": 116,
+              "hidden": false
+            },
+            {
+              "label": "Railroad Manufacture",
+              "value": "RAILROAD_MANUFACTURE",
+              "displayOrder": 117,
+              "hidden": false
+            },
+            {
+              "label": "Ranching",
+              "value": "RANCHING",
+              "displayOrder": 118,
+              "hidden": false
+            },
+            {
+              "label": "Real Estate",
+              "value": "REAL_ESTATE",
+              "displayOrder": 119,
+              "hidden": false
+            },
+            {
+              "label": "Recreational Facilities and Services",
+              "value": "RECREATIONAL_FACILITIES_AND_SERVICES",
+              "displayOrder": 120,
+              "hidden": false
+            },
+            {
+              "label": "Religious Institutions",
+              "value": "RELIGIOUS_INSTITUTIONS",
+              "displayOrder": 121,
+              "hidden": false
+            },
+            {
+              "label": "Renewables & Environment",
+              "value": "RENEWABLES_ENVIRONMENT",
+              "displayOrder": 122,
+              "hidden": false
+            },
+            {
+              "label": "Research",
+              "value": "RESEARCH",
+              "displayOrder": 123,
+              "hidden": false
+            },
+            {
+              "label": "Restaurants",
+              "value": "RESTAURANTS",
+              "displayOrder": 124,
+              "hidden": false
+            },
+            {
+              "label": "Retail",
+              "value": "RETAIL",
+              "displayOrder": 125,
+              "hidden": false
+            },
+            {
+              "label": "Security and Investigations",
+              "value": "SECURITY_AND_INVESTIGATIONS",
+              "displayOrder": 126,
+              "hidden": false
+            },
+            {
+              "label": "Semiconductors",
+              "value": "SEMICONDUCTORS",
+              "displayOrder": 127,
+              "hidden": false
+            },
+            {
+              "label": "Shipbuilding",
+              "value": "SHIPBUILDING",
+              "displayOrder": 128,
+              "hidden": false
+            },
+            {
+              "label": "Sporting Goods",
+              "value": "SPORTING_GOODS",
+              "displayOrder": 129,
+              "hidden": false
+            },
+            {
+              "label": "Sports",
+              "value": "SPORTS",
+              "displayOrder": 130,
+              "hidden": false
+            },
+            {
+              "label": "Staffing and Recruiting",
+              "value": "STAFFING_AND_RECRUITING",
+              "displayOrder": 131,
+              "hidden": false
+            },
+            {
+              "label": "Supermarkets",
+              "value": "SUPERMARKETS",
+              "displayOrder": 132,
+              "hidden": false
+            },
+            {
+              "label": "Telecommunications",
+              "value": "TELECOMMUNICATIONS",
+              "displayOrder": 133,
+              "hidden": false
+            },
+            {
+              "label": "Textiles",
+              "value": "TEXTILES",
+              "displayOrder": 134,
+              "hidden": false
+            },
+            {
+              "label": "Think Tanks",
+              "value": "THINK_TANKS",
+              "displayOrder": 135,
+              "hidden": false
+            },
+            {
+              "label": "Tobacco",
+              "value": "TOBACCO",
+              "displayOrder": 136,
+              "hidden": false
+            },
+            {
+              "label": "Translation and Localization",
+              "value": "TRANSLATION_AND_LOCALIZATION",
+              "displayOrder": 137,
+              "hidden": false
+            },
+            {
+              "label": "Transportation/Trucking/Railroad",
+              "value": "TRANSPORTATION_TRUCKING_RAILROAD",
+              "displayOrder": 138,
+              "hidden": false
+            },
+            {
+              "label": "Utilities",
+              "value": "UTILITIES",
+              "displayOrder": 139,
+              "hidden": false
+            },
+            {
+              "label": "Venture Capital & Private Equity",
+              "value": "VENTURE_CAPITAL_PRIVATE_EQUITY",
+              "displayOrder": 140,
+              "hidden": false
+            },
+            {
+              "label": "Veterinary",
+              "value": "VETERINARY",
+              "displayOrder": 141,
+              "hidden": false
+            },
+            {
+              "label": "Warehousing",
+              "value": "WAREHOUSING",
+              "displayOrder": 142,
+              "hidden": false
+            },
+            {
+              "label": "Wholesale",
+              "value": "WHOLESALE",
+              "displayOrder": 143,
+              "hidden": false
+            },
+            {
+              "label": "Wine and Spirits",
+              "value": "WINE_AND_SPIRITS",
+              "displayOrder": 144,
+              "hidden": false
+            },
+            {
+              "label": "Wireless",
+              "value": "WIRELESS",
+              "displayOrder": 145,
+              "hidden": false
+            },
+            {
+              "label": "Writing and Editing",
+              "value": "WRITING_AND_EDITING",
+              "displayOrder": 146,
+              "hidden": false
+            },
+            {
+              "label": "Mobile Games",
+              "value": "MOBILE_GAMES",
+              "displayOrder": 147,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyOptions": false,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "name",
+          "label": "Company name",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "companyinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "name_of_person_in_charge",
+          "label": "担当者氏名",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "companyinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "numberofemployees",
+          "label": "Number of Employees",
+          "type": "number",
+          "fieldType": "number",
+          "groupName": "companyinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "phone",
+          "label": "Phone Number",
+          "type": "string",
+          "fieldType": "phonenumber",
+          "groupName": "companyinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "planned_number_of_hires",
+          "label": "採用予定人数",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "companyinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        }
+      ],
+      "total_property_count": 386
+    },
+    "deals": {
+      "status": 200,
+      "properties": [
+        {
+          "name": "bpo_1",
+          "label": "採用手法（現在）",
+          "type": "string",
+          "fieldType": "textarea",
+          "groupName": "商談管理",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_10",
+          "label": "不通時チェック",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "6回以上でなかった",
+              "value": "6回以上でなかった",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "現在使われておりません",
+              "value": "使われておりません",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "FAX音（コール音なし）",
+              "value": "FAX音（コール音なし）",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "常時通話中",
+              "value": "常時通話中",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "常時留守録（コール音なし）",
+              "value": "常時留守録（コール音なし）",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "常時即切電（コール音なし）",
+              "value": "即切電（コール音なし）",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "おつなぎできません",
+              "value": "おつなぎできません",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "その他 ※詳細記載必須",
+              "value": "その他",
+              "description": "",
+              "displayOrder": 7,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_11",
+          "label": "地方区分",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "北海道地方",
+              "value": "北海道地方",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "東北地方",
+              "value": "東北地方",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "関東地方",
+              "value": "関東地方",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "中部地方",
+              "value": "中部地方",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "近畿地方",
+              "value": "近畿地方",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "中国地方",
+              "value": "中国地方",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "四国地方",
+              "value": "四国地方",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "九州地方",
+              "value": "九州地方",
+              "description": "",
+              "displayOrder": 7,
+              "hidden": false
+            },
+            {
+              "label": "携帯番号",
+              "value": "携帯番号",
+              "description": "",
+              "displayOrder": 8,
+              "hidden": false
+            },
+            {
+              "label": "特殊番号",
+              "value": "特殊番号",
+              "description": "",
+              "displayOrder": 9,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_12",
+          "label": "募集職種の値",
+          "type": "enumeration",
+          "fieldType": "checkbox",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "〇",
+              "value": "〇",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "✕",
+              "value": "✕",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_13",
+          "label": "次回架電日",
+          "type": "date",
+          "fieldType": "date",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_14",
+          "label": "次回架電時間",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "8:00",
+              "value": "8:00",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "8:15",
+              "value": "8:15",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "8:30",
+              "value": "8:30",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "8:45",
+              "value": "8:45",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "9:00",
+              "value": "9:00",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "9:15",
+              "value": "9:15",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "9:30",
+              "value": "9:30",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "9:45",
+              "value": "9:45",
+              "description": "",
+              "displayOrder": 7,
+              "hidden": false
+            },
+            {
+              "label": "10:00",
+              "value": "10:00",
+              "description": "",
+              "displayOrder": 8,
+              "hidden": false
+            },
+            {
+              "label": "10:15",
+              "value": "10:15",
+              "description": "",
+              "displayOrder": 9,
+              "hidden": false
+            },
+            {
+              "label": "10:30",
+              "value": "10:30",
+              "description": "",
+              "displayOrder": 10,
+              "hidden": false
+            },
+            {
+              "label": "10:45",
+              "value": "10:45",
+              "description": "",
+              "displayOrder": 11,
+              "hidden": false
+            },
+            {
+              "label": "11:00",
+              "value": "11:00",
+              "description": "",
+              "displayOrder": 12,
+              "hidden": false
+            },
+            {
+              "label": "11:15",
+              "value": "11:15",
+              "description": "",
+              "displayOrder": 13,
+              "hidden": false
+            },
+            {
+              "label": "11:30",
+              "value": "11:30",
+              "description": "",
+              "displayOrder": 14,
+              "hidden": false
+            },
+            {
+              "label": "11:45",
+              "value": "11:45",
+              "description": "",
+              "displayOrder": 15,
+              "hidden": false
+            },
+            {
+              "label": "12:00",
+              "value": "12:00",
+              "description": "",
+              "displayOrder": 16,
+              "hidden": false
+            },
+            {
+              "label": "12:15",
+              "value": "12:15",
+              "description": "",
+              "displayOrder": 17,
+              "hidden": false
+            },
+            {
+              "label": "12:30",
+              "value": "12:30",
+              "description": "",
+              "displayOrder": 18,
+              "hidden": false
+            },
+            {
+              "label": "12:45",
+              "value": "12:45",
+              "description": "",
+              "displayOrder": 19,
+              "hidden": false
+            },
+            {
+              "label": "13:00",
+              "value": "13:00",
+              "description": "",
+              "displayOrder": 20,
+              "hidden": false
+            },
+            {
+              "label": "13:15",
+              "value": "13:15",
+              "description": "",
+              "displayOrder": 21,
+              "hidden": false
+            },
+            {
+              "label": "13:30",
+              "value": "13:30",
+              "description": "",
+              "displayOrder": 22,
+              "hidden": false
+            },
+            {
+              "label": "13:45",
+              "value": "13:45",
+              "description": "",
+              "displayOrder": 23,
+              "hidden": false
+            },
+            {
+              "label": "14:00",
+              "value": "14:00",
+              "description": "",
+              "displayOrder": 24,
+              "hidden": false
+            },
+            {
+              "label": "14:15",
+              "value": "14:15",
+              "description": "",
+              "displayOrder": 25,
+              "hidden": false
+            },
+            {
+              "label": "14:30",
+              "value": "14:30",
+              "description": "",
+              "displayOrder": 26,
+              "hidden": false
+            },
+            {
+              "label": "14:45",
+              "value": "14:45",
+              "description": "",
+              "displayOrder": 27,
+              "hidden": false
+            },
+            {
+              "label": "15:00",
+              "value": "15:00",
+              "description": "",
+              "displayOrder": 28,
+              "hidden": false
+            },
+            {
+              "label": "15:15",
+              "value": "15:15",
+              "description": "",
+              "displayOrder": 29,
+              "hidden": false
+            },
+            {
+              "label": "15:30",
+              "value": "15:30",
+              "description": "",
+              "displayOrder": 30,
+              "hidden": false
+            },
+            {
+              "label": "15:45",
+              "value": "15:45",
+              "description": "",
+              "displayOrder": 31,
+              "hidden": false
+            },
+            {
+              "label": "16:00",
+              "value": "16:00",
+              "description": "",
+              "displayOrder": 32,
+              "hidden": false
+            },
+            {
+              "label": "16:15",
+              "value": "16:15",
+              "description": "",
+              "displayOrder": 33,
+              "hidden": false
+            },
+            {
+              "label": "16:30",
+              "value": "16:30",
+              "description": "",
+              "displayOrder": 34,
+              "hidden": false
+            },
+            {
+              "label": "16:45",
+              "value": "16:45",
+              "description": "",
+              "displayOrder": 35,
+              "hidden": false
+            },
+            {
+              "label": "17:00",
+              "value": "17:00",
+              "description": "",
+              "displayOrder": 36,
+              "hidden": false
+            },
+            {
+              "label": "17:15",
+              "value": "17:15",
+              "description": "",
+              "displayOrder": 37,
+              "hidden": false
+            },
+            {
+              "label": "17:30",
+              "value": "17:30",
+              "description": "",
+              "displayOrder": 38,
+              "hidden": false
+            },
+            {
+              "label": "17:45",
+              "value": "17:45",
+              "description": "",
+              "displayOrder": 39,
+              "hidden": false
+            },
+            {
+              "label": "18:00",
+              "value": "18:00",
+              "description": "",
+              "displayOrder": 40,
+              "hidden": false
+            },
+            {
+              "label": "18:15",
+              "value": "18:15",
+              "description": "",
+              "displayOrder": 41,
+              "hidden": false
+            },
+            {
+              "label": "18:30",
+              "value": "18:30",
+              "description": "",
+              "displayOrder": 42,
+              "hidden": false
+            },
+            {
+              "label": "18:45",
+              "value": "18:45",
+              "description": "",
+              "displayOrder": 43,
+              "hidden": false
+            },
+            {
+              "label": "19:00",
+              "value": "19:00",
+              "description": "",
+              "displayOrder": 44,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_15",
+          "label": "資料送付有無",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "有",
+              "value": "有",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_16",
+          "label": "タスクメモ",
+          "type": "string",
+          "fieldType": "textarea",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_17",
+          "label": "タスク優先度",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "高",
+              "value": "高",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "中",
+              "value": "中",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "低",
+              "value": "低",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_18",
+          "label": "掲載元 ※編集不可",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_19",
+          "label": "ハロワ更新データ ※編集不可",
+          "type": "string",
+          "fieldType": "textarea",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_2",
+          "label": "採用手法（過去）",
+          "type": "string",
+          "fieldType": "textarea",
+          "groupName": "商談管理",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_20",
+          "label": "最終架電日",
+          "type": "date",
+          "fieldType": "date",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_20251",
+          "label": "商談方法",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_20252",
+          "label": "募集種別",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_20253",
+          "label": "有料媒体使用歴",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_21",
+          "label": "担当者名（漢字）",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_22",
+          "label": "担当者名（よみ）",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_23",
+          "label": "商談予定日",
+          "type": "date",
+          "fieldType": "date",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_24",
+          "label": "募集職種（現在）",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_25",
+          "label": "採用に関する課題感",
+          "type": "enumeration",
+          "fieldType": "checkbox",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "応募がない",
+              "value": "応募がない",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "定着しない",
+              "value": "定着しない",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "現場の高齢化",
+              "value": "現場の高齢化",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "採用まで至らない",
+              "value": "採用まで至らない",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "時間がない",
+              "value": "時間がない",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "課題無し",
+              "value": "課題無し",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "未聴取",
+              "value": "未聴取",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "その他（備考へ）",
+              "value": "その他（備考へ）",
+              "description": "",
+              "displayOrder": 7,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_26",
+          "label": "アポ獲得者",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_27",
+          "label": "商談時間予告",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "伝えた",
+              "value": "伝えた",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "伝えていない",
+              "value": "伝えていない",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_28",
+          "label": "伝えた商談時間",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_29",
+          "label": "担当者接続電話番号",
+          "type": "string",
+          "fieldType": "phonenumber",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_3",
+          "label": "架電禁止理由",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealstages",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_30",
+          "label": "リストランク",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "A",
+              "value": "A",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "B",
+              "value": "B",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "C",
+              "value": "C",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "D",
+              "value": "D",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "E",
+              "value": "E",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_31",
+          "label": "その他詳細",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_32",
+          "label": "URL_求人検索 ※編集不可",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_33",
+          "label": "商談方法（bpo用）",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "zoom",
+              "value": "zoom",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "zoom+電話",
+              "value": "zoom+電話",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "電話",
+              "value": "電話",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "Meet",
+              "value": "Meet",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "Teams",
+              "value": "Teams",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "訪問",
+              "value": "訪問",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "その他",
+              "value": "その他",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_34",
+          "label": "募集種別（bpo用）",
+          "type": "enumeration",
+          "fieldType": "checkbox",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "正社員",
+              "value": "正社員",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "パート",
+              "value": "パート",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "契約社員",
+              "value": "契約社員",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "未聴取",
+              "value": "未聴取",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_35",
+          "label": "有料サービス使用歴（bpo用）",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "〇",
+              "value": "〇",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "✕",
+              "value": "✕",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "未聴取",
+              "value": "未聴取",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_36",
+          "label": "募集背景",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_37",
+          "label": "インポート日",
+          "type": "date",
+          "fieldType": "date",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_39",
+          "label": "AI検索結果の真偽",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "真",
+              "value": "真",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "偽（同名異業社）",
+              "value": "偽（同名異業社）",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "偽（その他）",
+              "value": "偽（その他）",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_4",
+          "label": "ブロック理由",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "dealstages",
+          "options": [
+            {
+              "label": "リスト被り（架電被り）",
+              "value": "リスト被り",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "本部一括（別拠点一括）",
+              "value": "本部一括",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "成約企業（SVに報告）",
+              "value": "成約企業",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "商談済企業（SVに報告）",
+              "value": "商談済企業",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "廃業",
+              "value": "廃業",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "リスト不備",
+              "value": "リスト不備",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "非電話対応企業",
+              "value": "非電話対応企業",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "クレーム懸念案件",
+              "value": "クレーム懸念案件",
+              "description": "",
+              "displayOrder": 7,
+              "hidden": false
+            },
+            {
+              "label": "対象外企業",
+              "value": "対象外企業",
+              "description": "",
+              "displayOrder": 8,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_40",
+          "label": "接触結果",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "受付",
+              "value": "受付",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "担当者",
+              "value": "担当者",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_41",
+          "label": "担当者会話レベル",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "日程打診までできた",
+              "value": "日程打診までできた",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "それまでに断られた",
+              "value": "それまでに断られた",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_42",
+          "label": "担当者会話温度感",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "高（前向き）",
+              "value": "高（前向き）",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "中（検討余地あり）",
+              "value": "中（検討余地あり）",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "低（否定的）",
+              "value": "低（否定的）",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "聞く耳なし",
+              "value": "聞く耳なし",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_43",
+          "label": "現在利用中のサービス",
+          "type": "enumeration",
+          "fieldType": "checkbox",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "求人掲載（無料）",
+              "value": "求人掲載（無料）",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "求人掲載（有料）",
+              "value": "求人掲載（有料）",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "ハローワーク",
+              "value": "ハローワーク",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "人材紹介",
+              "value": "人材紹介",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "人材派遣",
+              "value": "人材派遣",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "RPO（採用代行）",
+              "value": "RPO（採用代行）",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "コンサル",
+              "value": "コンサル",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "利用なし",
+              "value": "利用なし",
+              "description": "",
+              "displayOrder": 7,
+              "hidden": false
+            },
+            {
+              "label": "その他",
+              "value": "その他",
+              "description": "",
+              "displayOrder": 8,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_44",
+          "label": "顧客の求めていること",
+          "type": "enumeration",
+          "fieldType": "checkbox",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "応募数を増やしたい",
+              "value": "応募数を増やしたい",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "応募者の質を上げたい",
+              "value": "応募者の質を上げたい",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "面接後の内定承諾率を上げたい",
+              "value": "面接後の内定承諾率を上げたい",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "採用の工数負担を減らしたい",
+              "value": "採用の工数負担を減らしたい",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "今使っているサービスよりも費用を削減したい",
+              "value": "今使っているサービスよりも費用を削減したい",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "どれがよいか分からない",
+              "value": "どれがよいか分からない",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "その他",
+              "value": "その他",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_45",
+          "label": "次アクション種別",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "再架電",
+              "value": "再架電",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "メール送付",
+              "value": "メール送付",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "資料送付",
+              "value": "資料送付",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "日程調整打診",
+              "value": "日程調整打診",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_46",
+          "label": "断り理由",
+          "type": "enumeration",
+          "fieldType": "checkbox",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "多忙",
+              "value": "多忙",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "充足・満足",
+              "value": "充足・満足",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "他社利用中",
+              "value": "他社利用中",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "費用面",
+              "value": "費用面",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "訪問のみ・リモート不可",
+              "value": "訪問のみ・リモート不可",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "その他",
+              "value": "その他",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_47",
+          "label": "アポ種別",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "新規",
+              "value": "新規",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "既存",
+              "value": "既存",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_48",
+          "label": "担当者名（リストデータ）",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_49",
+          "label": "募集人数（アポ用）",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_5",
+          "label": "タスク作成日",
+          "type": "date",
+          "fieldType": "date",
+          "groupName": "リスト情報",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_50",
+          "label": "担当者の役職（アポ用）",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_51",
+          "label": "接触",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "リスト情報",
+          "options": [
+            {
+              "label": "はい",
+              "value": "true",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_53",
+          "label": "ハロワ以外利用中",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "リスト情報",
+          "options": [
+            {
+              "label": "はい",
+              "value": "true",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_54",
+          "label": "合計接触数",
+          "type": "number",
+          "fieldType": "number",
+          "groupName": "リスト情報",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_55",
+          "label": "合計日程切り数",
+          "type": "number",
+          "fieldType": "number",
+          "groupName": "リスト情報",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_56",
+          "label": "接触入力者",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "リスト情報",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_57",
+          "label": "その他理由",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_6",
+          "label": "担当者名の値",
+          "type": "enumeration",
+          "fieldType": "checkbox",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "〇",
+              "value": "〇",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "✕",
+              "value": "✕",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_7",
+          "label": "担当者名入力日_自動",
+          "type": "date",
+          "fieldType": "date",
+          "groupName": "リスト情報",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_8",
+          "label": "補足（性別や営業時間等）",
+          "type": "string",
+          "fieldType": "textarea",
+          "groupName": "リスト情報",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_9",
+          "label": "役職",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "リスト情報",
+          "options": [
+            {
+              "label": "代表",
+              "value": "代表",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "社長",
+              "value": "社長",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "代表親族",
+              "value": "代表親族",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "専務",
+              "value": "専務",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "常務",
+              "value": "常務",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "執行役員",
+              "value": "執行役員",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "その他",
+              "value": "その他",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo__",
+          "label": "商談予定時間（bpo用）",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "8:00",
+              "value": "8:00",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "8:30",
+              "value": "8:30",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "9:00",
+              "value": "9:00",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "9:30",
+              "value": "9:30",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "10:00",
+              "value": "10:00",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "10:30",
+              "value": "10:30",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            },
+            {
+              "label": "11:00",
+              "value": "11:00",
+              "description": "",
+              "displayOrder": 6,
+              "hidden": false
+            },
+            {
+              "label": "11:30",
+              "value": "11:30",
+              "description": "",
+              "displayOrder": 7,
+              "hidden": false
+            },
+            {
+              "label": "12:00",
+              "value": "12:00",
+              "description": "",
+              "displayOrder": 8,
+              "hidden": false
+            },
+            {
+              "label": "12:30",
+              "value": "12:30",
+              "description": "",
+              "displayOrder": 9,
+              "hidden": false
+            },
+            {
+              "label": "13:00",
+              "value": "13:00",
+              "description": "",
+              "displayOrder": 10,
+              "hidden": false
+            },
+            {
+              "label": "13:30",
+              "value": "13:30",
+              "description": "",
+              "displayOrder": 11,
+              "hidden": false
+            },
+            {
+              "label": "14:00",
+              "value": "14:00",
+              "description": "",
+              "displayOrder": 12,
+              "hidden": false
+            },
+            {
+              "label": "14:30",
+              "value": "14:30",
+              "description": "",
+              "displayOrder": 13,
+              "hidden": false
+            },
+            {
+              "label": "15:00",
+              "value": "15:00",
+              "description": "",
+              "displayOrder": 14,
+              "hidden": false
+            },
+            {
+              "label": "15:30",
+              "value": "15:30",
+              "description": "",
+              "displayOrder": 15,
+              "hidden": false
+            },
+            {
+              "label": "16:00",
+              "value": "16:00",
+              "description": "",
+              "displayOrder": 16,
+              "hidden": false
+            },
+            {
+              "label": "16:30",
+              "value": "16:30",
+              "description": "",
+              "displayOrder": 17,
+              "hidden": false
+            },
+            {
+              "label": "17:00",
+              "value": "17:00",
+              "description": "",
+              "displayOrder": 18,
+              "hidden": false
+            },
+            {
+              "label": "17:30",
+              "value": "17:30",
+              "description": "",
+              "displayOrder": 19,
+              "hidden": false
+            },
+            {
+              "label": "18:00",
+              "value": "18:00",
+              "description": "",
+              "displayOrder": 20,
+              "hidden": false
+            },
+            {
+              "label": "18:30",
+              "value": "18:30",
+              "description": "",
+              "displayOrder": 21,
+              "hidden": false
+            },
+            {
+              "label": "19:00",
+              "value": "19:00",
+              "description": "",
+              "displayOrder": 22,
+              "hidden": false
+            },
+            {
+              "label": "19:30",
+              "value": "19:30",
+              "description": "",
+              "displayOrder": 23,
+              "hidden": false
+            },
+            {
+              "label": "20:00",
+              "value": "20:00",
+              "description": "",
+              "displayOrder": 24,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_apo_rikulogi",
+          "label": "BPO取得アポ",
+          "type": "enumeration",
+          "fieldType": "booleancheckbox",
+          "groupName": "商談管理",
+          "options": [
+            {
+              "label": "はい",
+              "value": "true",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "いいえ",
+              "value": "false",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_appo_date",
+          "label": "BPOアポ取得日",
+          "type": "date",
+          "fieldType": "date",
+          "groupName": "商談管理",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_hsurl",
+          "label": "BPO_HSURL",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpo_transactio_id",
+          "label": "BPO_取引ID",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "商談管理",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bpoapo",
+          "label": "BPOアポ",
+          "type": "bool",
+          "fieldType": "booleancheckbox",
+          "groupName": "クラウドサイン必須項目",
+          "options": [
+            {
+              "label": "はい",
+              "value": "true",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "いいえ",
+              "value": "false",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bposashimodoshi",
+          "label": "BPO差し戻し",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "差し戻し要",
+              "value": "true",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "FS一時追客",
+              "value": "false",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "リスト完全譲渡",
+              "value": "リスト完全譲渡",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "bposhoudanjisshikekka",
+          "label": "BPO商談実施結果",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [
+            {
+              "label": "Aヨミ",
+              "value": "Aヨミ",
+              "description": "",
+              "displayOrder": 0,
+              "hidden": false
+            },
+            {
+              "label": "Bヨミ",
+              "value": "Bヨミ",
+              "description": "",
+              "displayOrder": 1,
+              "hidden": false
+            },
+            {
+              "label": "Cヨミ",
+              "value": "Cヨミ",
+              "description": "",
+              "displayOrder": 2,
+              "hidden": false
+            },
+            {
+              "label": "Dヨミ",
+              "value": "Dヨミ",
+              "description": "",
+              "displayOrder": 3,
+              "hidden": false
+            },
+            {
+              "label": "進捗確認",
+              "value": "進捗確認",
+              "description": "",
+              "displayOrder": 4,
+              "hidden": false
+            },
+            {
+              "label": "失注",
+              "value": "失注",
+              "description": "",
+              "displayOrder": 5,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "company_name",
+          "label": "会社名",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "クラウドサイン必須項目",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "dealname",
+          "label": "Deal Name",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "dealstage",
+          "label": "Deal Stage",
+          "type": "enumeration",
+          "fieldType": "radio",
+          "groupName": "deal_activity",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyOptions": false,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hubspot_owner_id",
+          "label": "Deal owner",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "kigyouzentaininzuu",
+          "label": "企業全体人数（従業員数）",
+          "type": "number",
+          "fieldType": "number",
+          "groupName": "リスト情報",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "name_of_person_in_charge",
+          "label": "担当者氏名",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "クラウドサイン必須項目",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "pipeline",
+          "label": "Pipeline",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "deal_activity",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "planned_number_of_hires",
+          "label": "採用人数",
+          "type": "string",
+          "fieldType": "text",
+          "groupName": "dealinformation",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": false,
+            "readOnlyValue": false
+          },
+          "archived": false,
+          "calculated": false,
+          "hasUniqueValue": false
+        }
+      ],
+      "total_property_count": 1339
+    },
+    "calls": {
+      "status": 200,
+      "properties": [
+        {
+          "name": "hs_call_body",
+          "label": "Call notes",
+          "type": "string",
+          "fieldType": "html",
+          "groupName": "call",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hs_call_disposition",
+          "label": "Call outcome",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "call",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hs_call_duration",
+          "label": "Call duration",
+          "type": "number",
+          "fieldType": "number",
+          "groupName": "call",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hs_call_status",
+          "label": "Call status",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "call",
+          "options": [
+            {
+              "label": "Busy",
+              "value": "BUSY",
+              "displayOrder": 12,
+              "hidden": false
+            },
+            {
+              "label": "Calling CRM User",
+              "value": "CALLING_CRM_USER",
+              "displayOrder": 13,
+              "hidden": false
+            },
+            {
+              "label": "Canceled",
+              "value": "CANCELED",
+              "displayOrder": 14,
+              "hidden": false
+            },
+            {
+              "label": "Completed",
+              "value": "COMPLETED",
+              "displayOrder": 15,
+              "hidden": false
+            },
+            {
+              "label": "Connecting",
+              "value": "CONNECTING",
+              "displayOrder": 16,
+              "hidden": false
+            },
+            {
+              "label": "Failed",
+              "value": "FAILED",
+              "displayOrder": 17,
+              "hidden": false
+            },
+            {
+              "label": "In Progress",
+              "value": "IN_PROGRESS",
+              "displayOrder": 18,
+              "hidden": false
+            },
+            {
+              "label": "Missed",
+              "value": "MISSED",
+              "displayOrder": 19,
+              "hidden": false
+            },
+            {
+              "label": "No Answer",
+              "value": "NO_ANSWER",
+              "displayOrder": 20,
+              "hidden": false
+            },
+            {
+              "label": "Queued",
+              "value": "QUEUED",
+              "displayOrder": 21,
+              "hidden": false
+            },
+            {
+              "label": "Ringing",
+              "value": "RINGING",
+              "displayOrder": 22,
+              "hidden": false
+            },
+            {
+              "label": "On Hold",
+              "value": "HOLD",
+              "displayOrder": 11,
+              "hidden": false
+            }
+          ],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hs_timestamp",
+          "label": "Activity date",
+          "type": "datetime",
+          "fieldType": "date",
+          "groupName": "engagement",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        },
+        {
+          "name": "hubspot_owner_id",
+          "label": "Activity assigned to",
+          "type": "enumeration",
+          "fieldType": "select",
+          "groupName": "engagement",
+          "options": [],
+          "modificationMetadata": {
+            "archivable": true,
+            "readOnlyDefinition": true,
+            "readOnlyValue": false
+          },
+          "hubspotDefined": true,
+          "calculated": false,
+          "hasUniqueValue": false
+        }
+      ],
+      "total_property_count": 124
+    }
+  }
+}
