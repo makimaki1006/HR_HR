@@ -17,22 +17,22 @@
   },
   "company": {
     "annual_income_estimated": null,
-    "annual_holidays": null,
+    "annual_holidays": 115.0,
     "bonus_months": null,
-    "salary_min": null
+    "salary_min": 220000.0
   },
   "gap_industry": {
     "annual_income_diff": null,
     "annual_income_pct": null,
-    "annual_holidays_diff": null,
+    "annual_holidays_diff": 5.0,
     "bonus_months_diff": null
   },
   "gap_all": {
     "annual_income_diff": null,
     "annual_income_pct": null,
-    "annual_holidays_diff": null,
+    "annual_holidays_diff": 5.0,
     "bonus_months_diff": null
   },
-  "interpretation": "【岩手県・飲食業】自社条件 (月給・賞与・年間休日) が未入力のため、差は算出していません。サンプル数 10件。※中央値は HW 掲載求人のみから算出。市場全体の実勢ではない。",
+  "interpretation": "【岩手県・飲食業】賞与が未入力のため、推定年収の差は算出していません (月給と賞与の両方が必要です)。年間休日は業界中央値より 5日多い傾向。サンプル数 10件。※中央値は HW 掲載求人のみから算出。市場全体の実勢ではない。",
   "warning": "⚠️ HW求人データの限界:\n- HW掲載求人のみを対象。全求人市場ではない。\n- HW求人は市場実勢より給与を低めに設定する慣習あり。\n- 外部統計 (賃金構造基本統計調査など) との直接比較は注意。\n- 相関は示せても因果は証明できない。傾向として解釈すること。"
 }

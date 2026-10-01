@@ -16,9 +16,13 @@ export function scale(v: number | null | undefined, k: number): number | null {
   return v === null || v === undefined || !Number.isFinite(v) ? null : v * k;
 }
 
-/** Yen -> man-yen (rounded). Null when the value is missing or not positive (old toManYen). */
-export function toManYen(v: number | null | undefined): number | null {
-  return v !== null && v !== undefined && v > 0 ? Math.round(v / 10000) : null;
+/**
+ * Yen -> man-yen (rounded). Null when the value is missing or not positive (old toManYen).
+ * `allowZero` is for the company's own value: an entered 0 is a value, not "no data".
+ */
+export function toManYen(v: number | null | undefined, allowZero = false): number | null {
+  if (v === null || v === undefined || !Number.isFinite(v)) return null;
+  return v > 0 || (allowZero && v === 0) ? Math.round(v / 10000) : null;
 }
 
 /** "+" for >= 0 (old commuter inflow / gap cells), "" otherwise (the minus sign comes from fmt). */

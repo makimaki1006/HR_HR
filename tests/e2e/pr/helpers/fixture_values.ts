@@ -77,13 +77,24 @@ export const RD_FIXTURE = {
     interpretation:
       '【東京都・飲食業】御社推定年収は業界中央値より 560000円 (16.0%) 上回る傾向。年間休日は業界中央値より 5日多い傾向。サンプル数 5件。※中央値は HW 掲載求人のみから算出。市場全体の実勢ではない。',
   },
-  // Panel 7: 東京都 飲食業 正社員。千代田区 5件/昼間人口 4000 = 1.25 標準、港区 4/1600 = 2.5 激戦、新宿区 3/12000 = 0.25 穴場
+  // 自社条件を 0 で入力したとき (入力値 0)。年収 0 x (12 + 0) = 0 → 中央値 3,500,000 との差 -3,500,000 (-100.0%)、
+  // 年休 0 - 120 = -120、賞与 0 - 2.0 = -2.0。業界・全業界とも同じ中央値なので同じ差。
+  conditionGapZero: {
+    gaps: ['-350万', '-120日', '-2.0ヶ月'],
+    interpretation:
+      '【東京都・飲食業】御社推定年収は業界中央値より 3500000円 (100.0%) 下回る傾向。年間休日は業界中央値より 120日少ない傾向。サンプル数 5件。※中央値は HW 掲載求人のみから算出。市場全体の実勢ではない。',
+  },
+  // Panel 1 / Panel 7 共通の注記 (しきい値は handlers.rs classify_difficulty と opportunity_map.rs の定数から転記)
+  thresholdNote:
+    '※ 区分の基準はパネルごとに異なります。Panel 1: 分母の人口1万人あたり求人数で 1 未満 穴場 / 3 未満 穏やか / 7 未満 平均的 / 15 未満 激戦 / 15 以上 超激戦。Panel 7: 昼間人口1万人あたり求人数で 5 未満 穴場 / 20 未満 標準 / 20 以上 激戦。',
+  // Panel 7: 東京都 飲食業 正社員 (人口 1 万人あたり)。千代田区 5件/昼間人口 4000 x 10000 = 12.5 標準 (5 以上 20 未満)、
+  //          港区 4/1600 x 10000 = 25 激戦 (20 以上)、新宿区 3/12000 x 10000 = 2.5 穴場 (5 未満)
   opportunity: {
     // API の並び (スコア降順)
     municipalities: [
-      { name: '港区', hwCount: 4, population: 1600, score: 2.5, category: '激戦' },
-      { name: '千代田区', hwCount: 5, population: 4000, score: 1.25, category: '標準' },
-      { name: '新宿区', hwCount: 3, population: 12000, score: 0.25, category: '穴場' },
+      { name: '港区', hwCount: 4, population: 1600, score: 25, category: '激戦' },
+      { name: '千代田区', hwCount: 5, population: 4000, score: 12.5, category: '標準' },
+      { name: '新宿区', hwCount: 3, population: 12000, score: 2.5, category: '穴場' },
     ],
     count: 3,
   },

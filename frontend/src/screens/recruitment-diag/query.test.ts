@@ -74,11 +74,15 @@ describe('condition_gap query', () => {
     expect(q2).toContainEqual(['company_salary_min', '245679']);
   });
 
-  it('salary 0 / negative / blank are not sent; holidays only when > 0', () => {
-    for (const v of ['0', '-3', '', 'abc']) {
+  it('salary / holidays: blank, negative and non-numeric are not sent; an entered 0 is sent as 0', () => {
+    for (const v of ['-3', '', 'abc']) {
       expect(buildGapQuery({ ...base, ownSalaryMan: v })).not.toContain('company_salary_min');
     }
-    expect(buildGapQuery({ ...base, ownHolidays: '0' })).not.toContain('company_annual_holidays');
+    expect(decode(buildGapQuery({ ...base, ownSalaryMan: '0' }))).toContainEqual(['company_salary_min', '0']);
+    for (const v of ['-1', '', 'abc']) {
+      expect(buildGapQuery({ ...base, ownHolidays: v })).not.toContain('company_annual_holidays');
+    }
+    expect(decode(buildGapQuery({ ...base, ownHolidays: '0' }))).toContainEqual(['company_annual_holidays', '0']);
     expect(decode(buildGapQuery({ ...base, ownHolidays: '120' }))).toContainEqual([
       'company_annual_holidays',
       '120',

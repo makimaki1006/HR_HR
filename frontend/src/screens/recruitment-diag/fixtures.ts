@@ -117,15 +117,15 @@ export const opportunity = {
   prefcode: 13,
   filters: { job_type: '老人福祉・介護', emp_type: '正社員' },
   municipalities: [
-    { name: '激戦区', citycode: 13101, hw_count: 900, population: 100000, score: 9.5, category: '激戦' },
-    { name: '穴場区', citycode: 13102, hw_count: 10, population: 200000, score: 0.05, category: '穴場' },
-    { name: '標準区', citycode: 13103, hw_count: 100, population: 100000, score: 1, category: '標準' },
+    { name: '激戦区', citycode: 13101, hw_count: 900, population: 100000, score: 90, category: '激戦' },
+    { name: '穴場区', citycode: 13102, hw_count: 10, population: 200000, score: 0.5, category: '穴場' },
+    { name: '標準区', citycode: 13103, hw_count: 100, population: 100000, score: 10, category: '標準' },
   ],
   legend: {
-    opportunity: { label: '穴場', max: 0.5, color: '#22c55e' },
-    standard: { label: '標準', min: 0.5, max: 3, color: '#64748b' },
-    competitive: { label: '激戦', min: 3, color: '#ef4444' },
-    unit: '人口千人あたり',
+    opportunity: { label: '穴場', max: 5, color: '#22c55e' },
+    standard: { label: '標準', min: 5, max: 20, color: '#64748b' },
+    competitive: { label: '激戦', min: 20, color: '#ef4444' },
+    unit: '人口1万人あたり',
   },
   note: 'HW のみ',
 } satisfies RdOpportunityMapResponse;

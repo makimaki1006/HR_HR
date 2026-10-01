@@ -66,7 +66,7 @@ export function asArray(v: unknown): unknown[] | null {
 // ---- Panel 1: difficulty ----
 
 const RANK_COLOR: Record<string, string> = {
-  非常に激戦: 'text-red-400',
+  超激戦: 'text-red-400',
   激戦: 'text-orange-400',
   平均的: 'text-yellow-300',
   穏やか: 'text-green-400',
@@ -85,7 +85,7 @@ export function renderDifficulty(d: RdDifficultyResponse): PanelView {
       <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         <div className={CARD}>
           <div className="text-xs text-slate-400">
-            採用難度スコア <span className="text-[10px] text-slate-500">(昼人口1万人あたり求人数)</span>
+            採用難度スコア <span className="text-[10px] text-slate-500">(分母の人口1万人あたり求人数)</span>
           </div>
           <div className="text-3xl font-bold text-white" data-testid="rd-difficulty-metrics-score_per_10k">
             {fmt(m.score_per_10k, 1)}
@@ -95,7 +95,7 @@ export function renderDifficulty(d: RdDifficultyResponse): PanelView {
           </div>
         </div>
         <div className={CARD}>
-          <div className="text-xs text-slate-400">HW該当求人数 / 昼間人口</div>
+          <div className="text-xs text-slate-400">HW該当求人数 / 分母の人口</div>
           <div className="text-xl font-bold text-white" data-testid="rd-difficulty-metrics-hw_count">
             {fmt(m.hw_count)} 件
           </div>
@@ -117,6 +117,19 @@ export function renderDifficulty(d: RdDifficultyResponse): PanelView {
           </div>
         </div>
       </div>
+      <div className="text-xs text-slate-500" data-testid="rd-difficulty-denominator-source">
+        {m.is_tourist_area
+          ? '※ 分母: Agoop 人流データ 平日深夜の滞在人口 (月平均、居住人口の代理、観光地補正)'
+          : '※ 分母: Agoop 人流データ 平日昼の滞在人口 (月平均)'}
+      </div>
+      <div className="mt-1 text-xs text-slate-500" data-testid="rd-difficulty-threshold-note">
+        ※ 区分の基準はパネルごとに異なります。Panel 1: 分母の人口1万人あたり求人数で 1 未満 穴場 / 3 未満 穏やか / 7 未満 平均的 / 15 未満 激戦 / 15 以上 超激戦。Panel 7: 昼間人口1万人あたり求人数で 5 未満 穴場 / 20 未満 標準 / 20 以上 激戦。
+      </div>
+      {m.is_tourist_area && d.tourist_correction_note ? (
+        <div className="mt-1 text-xs text-slate-500" data-testid="rd-difficulty-tourist-note">
+          {d.tourist_correction_note}
+        </div>
+      ) : null}
       {d.so_what ? (
         <div className={SO_WHAT} data-testid="rd-difficulty-so_what">
           📝 {d.so_what}
@@ -289,7 +302,7 @@ function GapCell({
   digits?: number;
   testId: string;
 }) {
-  if (own === null || bench === null || own === 0 || bench === 0) {
+  if (own === null || bench === null || bench === 0) {
     return (
       <span className="text-slate-500" data-testid={testId}>
         —
@@ -321,7 +334,7 @@ function GapBox({
   own: RdConditionGapResponse['company'];
 }) {
   const gapKey = panelKey === 'industry_median' ? 'gap_industry' : 'gap_all';
-  const ownSalary = toManYen(own.annual_income_estimated);
+  const ownSalary = toManYen(own.annual_income_estimated, true);
   const benchSalary = toManYen(stats.annual_income);
   const t = (field: string): string => `rd-condition_gap-${panelKey}-${field}`;
   const g = (field: string): string => `rd-condition_gap-${gapKey}-${field}`;
@@ -468,7 +481,7 @@ export function renderOpportunityMap(d: RdOpportunityMapResponse): PanelView {
     return done(
       '完了（0件）',
       <div className={EMPTY}>
-        該当データなし。都道府県を選択してください。Agoop 人流データと HW求人の両方が必要です。
+        該当データなし。都道府県を選択してください。昼間人口 (国勢調査) と HW求人の両方が必要です。
       </div>,
       'muted',
     );
@@ -478,7 +491,13 @@ export function renderOpportunityMap(d: RdOpportunityMapResponse): PanelView {
     <>
       <OpportunityChart data={d} />
       <p className="mt-2 text-xs text-slate-500">
-        ※ スコア = HW求人数 ÷ 昼人口 × 1000（人口千人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。
+        ※ スコア = HW求人数 ÷ 昼間人口 × 10,000（人口1万人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。
+      </p>
+      <p className="mt-1 text-xs text-slate-500" data-testid="rd-opportunity_map-denominator-source">
+        ※ 分母: 国勢調査 昼夜間人口集計の昼間人口 (v2_external_daytime_population)
+      </p>
+      <p className="mt-1 text-xs text-slate-500" data-testid="rd-opportunity_map-threshold-note">
+        ※ 区分の基準はパネルごとに異なります。Panel 1: 分母の人口1万人あたり求人数で 1 未満 穴場 / 3 未満 穏やか / 7 未満 平均的 / 15 未満 激戦 / 15 以上 超激戦。Panel 7: 昼間人口1万人あたり求人数で 5 未満 穴場 / 20 未満 標準 / 20 以上 激戦。
       </p>
       {d.note ? (
         <div className="mt-2 text-[10px] italic text-slate-500" data-testid="rd-opportunity_map-note">

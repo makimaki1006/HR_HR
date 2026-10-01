@@ -8,21 +8,21 @@
   "legend": {
     "opportunity": {
       "label": "穴場",
-      "max": 0.5,
+      "max": 5.0,
       "color": "#3b82f6"
     },
     "standard": {
       "label": "標準",
-      "min": 0.5,
-      "max": 2.0,
+      "min": 5.0,
+      "max": 20.0,
       "color": "#f59e0b"
     },
     "competitive": {
       "label": "激戦",
-      "min": 2.0,
+      "min": 20.0,
       "color": "#ef4444"
     },
-    "unit": "人口千人あたりHW求人数"
+    "unit": "人口1万人あたりHW求人数"
   },
   "note": "HW掲載求人のみ対象（全求人市場ではない）。スコアは比率指標であり因果関係を示すものではありません。"
 }
