@@ -2335,7 +2335,7 @@ check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す
   const rows = [0, 1, 2].map((i) => boardRow({ deal_id: "r" + i, name: "株式" + i, consultant: "担当A", n_flags: 1, flags: ["札X"] }));
   t.ctx.__D = { meta: { flag_counts: [{ label: "札X", n: 3 }], mtg_gap: { bands: [] }, order_rule: "" }, rows };
   t.R('cur = { menu: "deal", view: "board" }; boardCache = __D; lastPayload = __D; boardShowAll = true; ' +
-      'boardFilter = { consultant: "", flag: "札X", expiry: "", q: "株式", band: "" }; boardSort = { key: "n_flags", asc: false };');
+      'boardFilter = { consultant: "", flag: "札X", expiry: "d30", q: "株式", band: "critical", view: "silent", amount: "ge200" }; boardSort = { key: "n_flags", asc: false };');
   t.reg["cs-main"].innerHTML = t.R("renderBoard(__D)");
   const main0 = t.reg["cs-main"].innerHTML;
   if (!/<option value="札X" selected>/.test(main0) || main0.indexOf('id="bf-q" placeholder="部分一致" value="株式"') < 0)
@@ -2350,6 +2350,10 @@ check("M-8", "「絞り込みを外す」は絞り込みの欄も既定に戻す
   if (/<option value="札X" selected>/.test(main1) || main1.indexOf('value="株式"') >= 0) throw new Error("欄に前の絞り込みの値が残っている");
   if (main1.indexOf("（絞り込みなし）") < 0) throw new Error("件数の行が絞り込みなしでない");
   if (t.R("boardShowAll") !== false) throw new Error("絞り込みを外しても「残りも出す」が戻らない");
+  /* 🔴 2026-09-30 検証: 名札と案件名しか見ておらず、契約総額（amount）だけ残すように壊しても落ちなかった。全部の欄を見る */
+  const left = JSON.parse(t.R("JSON.stringify(boardFilter)"));
+  for (const k of ["consultant", "flag", "expiry", "q", "band", "view", "amount"])
+    if (left[k] !== "") throw new Error("絞り込みを外しても " + k + " が残っている: " + JSON.stringify(left));
   /* 絞り込みの欄を変えたら「残りも出す」は既定に戻る */
   const fl = new t.El("bf-flag"); t.reg["bf-flag"] = fl;
   t.R("wire(viewOf('deal', 'board'))");
