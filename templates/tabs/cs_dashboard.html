@@ -200,6 +200,8 @@
   /* 🔴 **position:fixed を使わない。** fixed だと本文に重なって先頭の節が隠れる。
      sticky なら grid の列の中に居座るので、本文の幅を食うだけで重ならない。
      余白の打ち消し（padding-top を足す等）も要らなくなる。 */
+  /* メニューの端の区切りの名前（sideHints）は 600px 以下の 1 行のメニューだけ（PC の縦の列では出さない） */
+  .sidemore{ display:none; }
   .side{ position:sticky; top:var(--space-3); align-self:start;
          max-height:calc(100vh - 2 * var(--space-3)); overflow-y:auto;
          border-right:1px solid var(--rule); padding-right:var(--space-3); }
@@ -356,6 +358,17 @@
               margin:0 0 2px; display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; }
   figure.fig > figcaption .hint{ font-weight:400; color:var(--ink-2); font-size:11.5px;
               letter-spacing:0; }
+  /* 図の題（figTitles が h2「図 …」を図の中へ入れたもの。M-5 の (a)）。部品の題（h2.sec.part）と同じ 15px ゴシック太字＋藍の縦棒。
+     その下の 1 行が、前の figcaption の文（何を描いたか）と hint */
+  figure.fig.titled > figcaption .figttl{ flex:1 0 100%; display:flex; align-items:center; gap:var(--space-3);
+              font-size:15px; font-weight:700; line-height:1.4; letter-spacing:.03em; margin:0 0 2px; }
+  figure.fig.titled > figcaption .figttl::before{ content:""; width:4px; height:15px; background:var(--ai); border-radius:1px; flex:none; }
+  /* KPI の札・目次から図へ飛んだとき（id と tabindex=-1 は figure に移した）。見出しと同じ藍の枠 */
+  figure.fig:focus-visible{ outline:2px solid var(--ai); outline-offset:2px; }
+  /* 図の注記のうち、取り決め・描き方の段落（figRules が畳んだもの）。省略した名前の全文（figfull）と同じ見え方 */
+  details.fold.figrule{ margin:var(--space-1) 0 0; }
+  details.fold.figrule > summary{ font-weight:400; font-size:11.5px; }
+  details.fold.figrule > .figlegend{ border-top:none; margin-top:var(--space-1); padding-top:0; }
   /* 数字と単位（「6.7倍」「12 件」）を行の途中で割らない（fig() の keepNum が包む） */
   figure.fig > figcaption .hint .nw{ white-space:nowrap; }
   /* 🔴 2026-09-23 実機（400px 幅）: 図が縮むだけで文字が 4〜5px になっていた。
@@ -790,23 +803,69 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
   h2.sec.mincho{ font-size:20px; }
   h2.sec.mincho.mid{ font-size:17px; }
   .tabs button{ padding:8px 12px 7px; }
-  /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す */
+  /* 🔴 横スクロールに逃がすと3〜4個目が画面の外に出て、あることに気づけない。折り返す
+     （2026-09-29: ul は下で display:contents にするのでこの指定は効いていない。メニューの行は .side が横に送り、端の影で続きを示す） */
   .side ul{ flex-wrap:wrap; overflow-x:visible; }
   /* 1 列・3 区切り・11 画面（2026-09-29 組み替え 段A）を 400px で区切りごとの行にすると 5 行（229px。fixture 実測）になり、
      問いが y=539 まで下がった。区切りの見出しを小さな字にして、項目と同じ流れに並べる。
      🔴 前は 3 区切りを 1 つの流れにしていたので、区切りの境目が行の途中に来た（「チームと担当 電話 月1・確かめる 成果と継続」
         の次の行に「記録と数字の信頼度」だけ。2026-09-29 検証 400px）。区切りごとに行を改め（折り返しは区切りの中だけ）、
         区切りの間に線を引く。見出しは字の大きさだけでなく、行の頭・太字・線で区切りと分かるようにする。
-     ul の箱は外すが（display:contents）、ul には role="list" を付けて一覧であることは読み上げに残す */
-  .side{ display:block; }
-  .sidegrp{ display:flex; flex-wrap:wrap; align-items:center; column-gap:var(--space-1); }
-  .sidegrp + .sidegrp{ border-top:1px solid var(--rule); }
+     ul の箱は外すが（display:contents）、ul には role="list" を付けて一覧であることは読み上げに残す
+     🔴 2026-09-29 磨き込み（fixture 400×900）: 区切りごとの行でも 4 行 170px（調べるが 2 行に折れる）で、今日の表の頭が y=1,228、
+        1 画面目の 4 割が共通枠とメニューだった。メニューは 1 行にして横に流す（44px）。上の「折り返す」の懸念（3〜4 個目があることに
+        気づけない）には、続きがある側の端に影を出し（下の background。図の枠と同じ local / scroll の重ね。JS は使わない）、
+        いま見ている項目を行の中に送って見せる（sideShowCurrent）ことで答える。区切りは行の途中でも縦の線と太字の見出しで分かる。
+        項目は消さない・畳まない（押すのは 1 回のまま） */
+  .side{ display:flex; flex-wrap:nowrap; align-items:center; overflow-x:auto; overscroll-behavior-x:contain;
+         background:
+           linear-gradient(to right, var(--paper) 40%, transparent) left center / 28px 100% no-repeat local,
+           linear-gradient(to left, var(--paper) 40%, transparent) right center / 28px 100% no-repeat local,
+           linear-gradient(to right, color-mix(in srgb, var(--ink) 18%, transparent), transparent) left center / 12px 100% no-repeat scroll,
+           linear-gradient(to left, color-mix(in srgb, var(--ink) 18%, transparent), transparent) right center / 12px 100% no-repeat scroll,
+           var(--paper); }
+  .sidegrp{ display:flex; flex-wrap:nowrap; flex:none; align-items:center; column-gap:var(--space-1); }
+  /* 行の外にある区切りの名前（sideHints）。行の端に貼り付け（sticky）、下の項目の上に地の色で重ねる。2 つなら 2 行（行の高さ 44px の中） */
+  .side > .sidemore{ position:sticky; z-index:1; flex:none; align-self:stretch; align-items:center;
+                     padding:0 var(--space-2); font-size:11px; line-height:1.3; font-weight:700; letter-spacing:.04em;
+                     color:var(--ink); background:var(--paper); white-space:pre; cursor:pointer; }
+  .side > .sidemore.l{ left:0; border-right:1px solid var(--rule-strong); }
+  .side > .sidemore.r{ right:0; margin-left:auto; border-left:1px solid var(--rule-strong); }
+  /* 行の外に区切りが無いときは hidden（既定の display:none のまま。ここでは display を上書きしない） */
+  .side > .sidemore:not([hidden]){ display:flex; }
+  .sidegrp + .sidegrp{ border-left:1px solid var(--rule-strong); padding-left:var(--space-2); margin-left:var(--space-1); }
   .sidegrp ul{ display:contents; }
   .sidegrp h2{ min-width:0; font-size:11px; letter-spacing:.06em; margin:0 var(--space-1) 0 0; }
   /* タップの的（S-12）。サイドの項目は 30px、操作列は 28px で、指では隣を押しやすかった。
      40px は Android の 48dp と WCAG 2.2 AA（24px）の間。PC（>600px）は今までどおり */
   .side button{ padding:6px var(--space-2); min-height:40px; }
   .ctlbar select, .ctlbar input, .ctlbar button.act{ min-height:40px; }
+  /* 数字の札（KPI）は 1 行に並べて横に流す。🔴 2026-09-29 磨き込み（fixture 400×900）: 2 列の格子で今日の札 5 枚が 3 段 425px になり、
+     今日の表の頭が y=1,228 で 1 画面目に入らなかった。札の幅は 44%（2 枚と 3 枚目の端 30px ほどが見える。42% では MTG 途絶の母数の文が 3 行に折れて札が 18px 高く、46% では 3 枚目が 10px しか見えなかった。端が切れていることと右の影で
+     続きがあると分かる）。札の中身（見出し・数・母数の文・行き先）は削らない。Tab で止まった札はブラウザが行の中へ送る */
+  .kpis{ display:flex; overflow-x:auto; overscroll-behavior-x:contain; gap:var(--space-2); scroll-snap-type:x proximity;
+         margin:var(--space-2) 0 var(--space-1); padding:2px 2px var(--space-2);
+         background:
+           linear-gradient(to right, var(--paper) 40%, transparent) left center / 28px 100% no-repeat local,
+           linear-gradient(to left, var(--paper) 40%, transparent) right center / 28px 100% no-repeat local,
+           linear-gradient(to right, color-mix(in srgb, var(--ink) 18%, transparent), transparent) left center / 12px 100% no-repeat scroll,
+           linear-gradient(to left, color-mix(in srgb, var(--ink) 18%, transparent), transparent) right center / 12px 100% no-repeat scroll; }
+  .kpis > .kpi{ flex:0 0 44%; scroll-snap-align:start; padding:var(--space-2) var(--space-3); }
+  .kpi .big{ font-size:24px; }
+  button.kpi:hover{ transform:none; }
+  /* 今日の担当の欄。欄と案内の文を 1 行に並べる（案内は欄の右で折り返す）。前は 2 段で 74px（2026-09-29 fixture 400px） */
+  #today-filter{ flex-wrap:nowrap; align-items:center; gap:var(--space-2); }
+  #today-filter > label.act{ flex:none; white-space:nowrap; }
+  #today-filter > label.act > select{ width:8em; }
+  #today-filter > .muted.small{ flex:1 1 auto; min-width:0; font-size:11.5px; line-height:1.5; }
+  /* 案件一覧の見方のボタン（boardViewBar）を 2 列に並べる。🔴 2026-09-29 磨き込み（fixture 400px）: 4 つが 1 つずつの行に落ちて
+     196px（名前が長く、2 つが 1 行に入らない。最優先 284px・初回契約 243px）。ボタンの中で名前を折り返して 2 列にする。
+     4 つとも見えたまま（畳まない・横に流さない。どの見方があるかを一目で比べて選ぶ部品なので）。「見方」の字は 1 行目に */
+  #board-views{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-1) var(--space-2); align-items:stretch; }
+  #board-views > span.act{ grid-column:1 / -1; }
+  #board-views > button.act{ white-space:normal; text-align:left; line-height:1.4; padding:4px var(--space-2); overflow-wrap:anywhere; }
+  /* 部品の題（図・表）の上の余白 24px → 16px。1 画面目に今日の表の 1 行目を入れる分（2026-09-29 磨き込み） */
+  h2.sec.part{ margin-top:var(--space-4); }
   th,td{ padding:10px 12px; }
   th button.sort{ padding:10px 12px; }
   /* 今日動く先の名札の列（td.wf）。枡の左右の余白が広いぶん 25.5em では 24 行中 8 行が 3 段に折れて 77px になった。
@@ -1242,10 +1301,11 @@ function figAvail(el) {
   });
   return avail;
 }
-/** el の details のうち、el の中の「別に描く枠」（data-paint-own。本部アプローチの #hq-box）の中に無いもの。
-    🔴 2026-09-24 検証: 前は #hq-box の中の details（全法人の内訳）も数えていた。本文を描き直す時点の
-    #hq-box は「読み込み中」の空の枠で、中身は後から wireHq が描くので、番号がずれて別の details を
-    開いたり、#hq-box の中の details が畳まれたりした。#hq-box の中は hqKeep で別に覚える */
+/** el の details のうち、el の中の「別に描く枠」（data-paint-own）の中に無いもの。
+    🔴 2026-09-24 検証: 前は本部アプローチの後読みの枠（#hq-box）の中の details も数えていた。本文を描き直す時点の
+    枠は「読み込み中」の空の枠で、中身は後から描くので、番号がずれて別の details を開いたり、枠の中の details が畳まれたりした。
+    2026-09-30 に後読みの枠は消した（本部アプローチは成果と継続の本文 rs-hq の中に描くので、本文の details として数える）。
+    後から別に描く枠を足すときは data-paint-own を付ける */
 function ownDetails(el) {
   return Array.from(el.querySelectorAll("details")).filter((d) => {
     const b = d.closest ? d.closest("[data-paint-own]") : null;
@@ -1460,6 +1520,9 @@ function fig(caption, hint, body, legend) {
     noneNote + gapNote + shiftNote;
   /* 図の数値の一覧（段2 M-11）。読み上げ用（ul.sr）と、タップで開ける「数字で読む」の畳みに同じ一覧を出す */
   const say = figSay(body, legend);
+  /* 図の注記は「凡例＋1 行」まで。残りは「この図の決まり」に畳む（M-5 の (b)。figRules） */
+  const R = figRules(legend);
+  legend = R.shown;
   const sayHtml = say.n
     ? '<ul class="sr">' + say.li + "</ul>" +
       '<details class="fold figsay"><summary>数字で読む（' + num(say.n) + " 件）</summary><ul>" + say.li + "</ul></details>"
@@ -1476,7 +1539,110 @@ function fig(caption, hint, body, legend) {
             : `<div class="figbody">`) + `${body}</div>` + sayHtml +
     (fulls.length ? `<details class="fold figfull"><summary>省略した名前の全文（${fulls.length} 件）</summary>` +
                     `<ul>${fulls.join("")}</ul></details>` : "") +
-    (legend ? `<div class="figlegend">${legend}</div>` : "") + `</figure>`;
+    (legend ? `<div class="figlegend">${legend}</div>` : "") +
+    (R.folded.length ? `<details class="fold figrule"><summary>この図の決まり（${R.n} 件）</summary>` +
+                       `<div class="figlegend">${R.folded.join("")}</div></details>` : "") + `</figure>`;
+}
+/** 図の注記（凡例の中の 1 行まるごとの段落 i.full）を、見せるものと「この図の決まり」に畳むものに分ける（M-5 の (b)）。
+    🔴 2026-09-28 診断（08 の M-5）: 図 1 つに凡例＋注記 2〜3 段で、MTG 途絶の図は図本体 270px に対して注記 260px だった。
+    上限は「凡例＋1 行」。ただし 08 の 2.4 の「畳まないもの」（母数・外した件数、「評価ではありません」、n<30 で載せない理由、
+    未確定、分母 0、いつ時点か）は畳まない。色の粒（凡例の項目）も畳まない。
+    🔴 2026-09-30 検証: 前は段落ごとに見分けていて、段落に FIG_KEEP の語が 1 つでも当たると段落まるごと残した（語も「のうち」「外れ」
+       「時点」など広かった）。fixture 400px の 47 図で畳まれたのは 4 段だけで、月次の継続率は図本体 221px に対して注記 665px
+       （点を打たなかった 12 か月の率と件数の列挙、「…だからです」の理由まで見えたまま）、目標に対する進捗は本体 48px に対して 325px のままだった。
+    いまは文（句点「。」。括弧とタグの中の句点では切らない）ごとに見分ける。FIG_KEEP に当たる文だけ見せ、ほかの文は畳む。
+    FIG_KEEP は括弧の外の文字で見る（括弧の中は補足・列挙。「（n=5。継続 1・…・結果待ち 105）」のような月ごとの列挙が、
+    括弧の中の「結果待ち」で残っていた）。
+    どの文も当たらない図は、最初の段落を見せる（凡例＋1 行）。点を打たない理由の段落（data-gapwhy）・data-keep の段落はまるごと見せる。
+    読み違いを防ぐ注意（色の意味「1.5倍以上は赤」、Zoom の名前の並び）も見せる（色だけで伝えない・別人と取り違えない）。
+    中身の空の段落（c.note が空の <i class="full"></i>）は数えない（中身の無い「この図の決まり（1 件）」が出ていた） */
+const FIG_KEEP = new RegExp([
+  /* 評価ではありません */ "評価ではありません", "良し悪し", "＝良い、ではありません", "行動量です", "とは読めません", "とは言えません", "ではなく",
+  /* 母数・外した件数 */ "母数", "分母", "n は", "全 [0-9,]+", "全件", "だけ出しています", "だけです", "外して", "除いて", "除き",
+  "入っていません", "入れていません", "含めていません", "混ぜていません", "落としていません", "載せていません", "まとめていません",
+  /* n<30 */ "件に届かない", "件未満", "点を打っていません",
+  /* 未確定・鮮度 */ "未確定", "途中の値", "時点までの", "結果待ち", "確定していない", "確定しておらず", "中空", "打ち切り",
+  /* 分母 0 */ "0 ではありません", "0 で割って", "0で割って", "で割っていません", "率が出せない", "出せません", "出していません",
+  /* 代表値の数字（「　中央値（稼働中）0.0%」）は説明ではないので畳まない */ "中央値",
+  /* 事実と推定・読み違い */ "推定", "赤で", "緋", "並びと違う", "並びが違う"].join("|"));
+/** 段落の中身を文に切る。句点「。」で切るが、括弧（（）・()）の中とタグの中（入れ子の <i> の色の粒など）では切らない */
+function figSentences(inner) {
+  const out = [];
+  let depth = 0, paren = 0, start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === "<") {
+      const e = inner.indexOf(">", i);
+      if (e < 0) break;
+      const tag = inner.slice(i, e + 1);
+      if (tag[1] === "/") depth--;
+      else if (!/\/>$/.test(tag) && !/^<(br|wbr|img|hr)[\s>]/i.test(tag)) depth++;
+      i = e;
+    } else if (ch === "（" || ch === "(") paren++;
+    else if ((ch === "）" || ch === ")") && paren > 0) paren--;
+    else if (ch === "。" && paren === 0) {
+      /* 文まるごとを太字にした「<b>…。</b>」は、句点の直後の閉じタグまでを 1 文にする（月次の継続率の「確定値と同じには
+         読まないでください。」が次の文とつながり、理由の文まで見えたままだった） */
+      let j = i + 1, d = depth;
+      while (d > 0 && inner.startsWith("</", j)) { const e = inner.indexOf(">", j); if (e < 0) break; j = e + 1; d--; }
+      if (d === 0) { out.push(inner.slice(start, j)); start = j; depth = 0; i = j - 1; }
+    }
+  }
+  const rest = inner.slice(start);
+  if (rest.replace(/<[^>]*>/g, "").trim() || !out.length) out.push(rest); else out[out.length - 1] += rest;
+  return out;
+}
+/** 文の地の文（タグと括弧の中を除いた文字）。FIG_KEEP はこれで見る */
+function figPlain(h) {
+  let t = String(h).replace(/<[^>]*>/g, ""), prev;
+  do { prev = t; t = t.replace(/（[^（）]*）|\([^()]*\)/g, ""); } while (t !== prev);
+  return t;
+}
+/** 返り値: { shown: 凡例（色の粒＋見せる文）, folded: 畳む段落（i.full）の並び, n: 畳んだ文の数 } */
+function figRules(legend) {
+  const s = String(legend || "");
+  const paras = [];
+  let out = "", i = 0;
+  for (;;) {
+    const at = s.indexOf('<i class="full"', i);
+    if (at < 0) { out += s.slice(i); break; }
+    /* 閉じの </i> は入れ子の <i> を数えて探す（段落の中に色の粒が入っていることがある） */
+    let k = at + 2, depth = 1;
+    while (depth > 0) {
+      const o = s.indexOf("<i", k), c = s.indexOf("</i>", k);
+      if (c < 0) { k = s.length; break; }
+      if (o >= 0 && o < c && /^<i[\s>]/.test(s.slice(o, o + 3))) { depth++; k = o + 2; } else { depth--; k = c + 4; }
+    }
+    out += s.slice(i, at) + "\u0000" + paras.length + "\u0000";
+    paras.push(s.slice(at, k));
+    i = k;
+  }
+  /* 段落ごと: open（<i class="full" …>）・文の並び・文ごとに見せるか */
+  const P = paras.map((p) => {
+    const ot = p.slice(0, p.indexOf(">") + 1);
+    const inner = p.slice(ot.length, p.endsWith("</i>") ? -4 : p.length);
+    const empty = !inner.replace(/<[^>]*>/g, "").trim();
+    const whole = /data-gapwhy="1"|data-keep="1"/.test(ot);
+    const sen = empty ? [] : figSentences(inner);
+    /* 在りかを指すだけの文（「…の件数は、図の下の「数字で読む」にあります。」）は事実ではないので畳む。
+       語（結果待ち）が当たって残り、月次の継続率で 2 行を使っていた */
+    return { p, ot, empty, sen, keep: sen.map((x) => whole || (FIG_KEEP.test(figPlain(x)) && !/にあります。?\s*$/.test(figPlain(x)))) };
+  });
+  const live = P.filter((q) => !q.empty);
+  if (live.length && !live.some((q) => q.keep.some(Boolean))) live[0].keep = live[0].sen.map(() => true);
+  const folded = [];
+  let n = 0;
+  const shownOf = P.map((q) => {
+    if (q.empty) return "";
+    const off = q.sen.filter((x, j) => !q.keep[j]);
+    if (!off.length) return q.p;
+    n += off.length;
+    folded.push(q.ot + off.join("") + "</i>");
+    const on = q.sen.filter((x, j) => q.keep[j]);
+    return on.length ? q.ot + on.join("") + "</i>" : "";
+  });
+  const shown = out.replace(/\u0000(\d+)\u0000/g, (m0, k) => shownOf[+k]);
+  return { shown, folded, n };
 }
 /* 図の数値を読み上げとタップに届く形にする（段2 M-11）。
    🔴 図の部品（svgBarH / svgLine / svgStack / svgBoxH …13 種）は値を <title>（マウスの吹き出し）にしか書かず、SVG は
@@ -2896,20 +3062,20 @@ function kpi(label, big, fine, kind, act) {
   const cls = "kpi" + (kind ? " is-" + kind : "");
   if (!act) return '<div class="' + cls + '">' + inner + "</div>";
   /* consultant: 帯で絞るときに担当も添える（今日動く先で担当を選んでいるとき。数字と行き先の母集団を揃える） */
-  const to = (act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"' : "") +
+  /* flag: 名札で絞って案件一覧を開く（今日の札「接触の記録が無い」。09 の 3章 1 の 2） */
+  const to = (act.jump ? ' data-jump="' + esc(act.jump) + '"' : act.band ? ' data-band="' + esc(act.band) + '"'
+    : act.flag ? ' data-flag="' + esc(act.flag) + '"' : "") +
     (act.consultant ? ' data-consultant="' + esc(act.consultant) + '"' : "");
   return '<button type="button" class="' + cls + '"' + to + ">" + inner +
     '<span class="act">' + esc(act.text || "一覧を見る") + "</span></button>";
 }
 /* id: 見出しに id を付ける（KPI から表へ飛ぶ先。S-2）。付けたときは focus() で止まれるよう tabindex=-1 も付ける。
    M-5: 図・表（部品の題）は class part（15px ゴシック太字）、問い・案件（画面の題）は mincho（24px 明朝）。CSS の h2.sec.part
-   🔴 M-5 の未完了（2026-09-29 検証の指摘。2fd289e は M-5 と題したが、入ったのは「見出しの階層」と「頭の決まりごとの箱を畳む」だけ）:
-     (a) 図の h2（sec("図", …)）をやめて figcaption を図の題にする — 未着手。44 か所の呼び出しで h2 と figcaption が別の文
-         （例: 立ち上がりの「図 いま、どのフェーズにいるか」＋「契約長に対する割合で見る」＋hint の 3 段）なので、画面ごとに
-         題を 1 つに決め直す必要がある。09 の組み替え（17→8＋3 画面）で render を作り直すときに合わせてやる
-     (b) 図の注記を「凡例＋1 行」までにし、残りを「この図の決まり」に畳む — 未着手。何を畳まないか（n<30 の理由・未確定・外した件数）を
-         図ごとに決める必要がある（08 の 2.4）。fig() は表と図の担当（M-11）も触るので、統合の後にやる
-     (c) foot() を画面末尾の 1 箱にまとめる — 未着手（18 か所） */
+   M-5 の残り（2026-09-29 磨き込みで入れた。2fd289e で入ったのは「見出しの階層」と「頭の決まりごとの箱を畳む」だけだった）:
+     (a) 図の h2（sec("図", …)）の直後に図が 1 つだけ続くときは、画面に流す前に h2 を図の中の題（figcaption の .figttl）にする
+         （finishView → figTitles。呼び出し 41 か所は書き換えない。図が 2 つ以上続く・文を挟む見出しはまとめの題なので h2 のまま）
+     (b) 図の注記は「凡例＋1 行」まで。残りは「この図の決まり」に畳む（fig() → figRules。畳まないものは FIG_KEEP、08 の 2.4）
+     (c) foot() は画面末尾の 1 箱（finishView → oneFoot） */
 function sec(no, title, id) {
   const part = no !== "問い" && no !== "案件";
   return '<h2 class="sec ' + (part ? "part" : "mincho") + '"' + (id ? ' id="' + esc(id) + '" tabindex="-1"' : "") +
@@ -3034,12 +3200,39 @@ function rowCap(inner) {
    rc-open が消えて 20 行に戻り、並べ替えるたびに押し直すことになっていた。押したことを覚えておき、scroll() が開いたまま描く。
    覚えるのはこのページを開いている間だけ（読み込み直すと先頭 20 行に戻る） */
 const rcOpen = new Set();
-/** 表の印: 画面（cur）＋表の id。id の無い表は見出しの行の文字（並べ替えで変わらない）で見分ける */
+/** 表の印: 画面（cur）＋表の id。id の無い表は見出しの行の文字で見分ける。
+    🔴 2026-09-29 磨き込み: 並べ替えられる見出し（sortTh）は、向きの印（▲▼↕、aria-hidden）と読み上げの文（span.sr「いまこの列で
+    小さい順…」）が並べ替えのたびに変わる。id の無い表でそれを印に含めると、並べ替えた後の描き直しで別の表と見なされ、
+    押して開いた表が先頭 20 行に戻る（今の fixture で 30 行を超える表は id 付きの案件一覧だけだが、本番の件数では他の表も超えうる）。
+    向きの印と読み上げの文を外し（印の前の空白も並べている列にだけ付くので空白も外す）、見出しの文字を取る */
 function rcKey(inner) {
   const s = String(inner);
   const id = (s.match(/<table id="([^"]+)"/) || [])[1];
-  const head = id ? "#" + id : s.slice(s.indexOf("<thead>"), s.indexOf("</thead>")).replace(/<[^>]*>/g, "|");
+  const head = id ? "#" + id : s.slice(s.indexOf("<thead>"), s.indexOf("</thead>"))
+    .replace(/<span class="sr">[^<]*<\/span>/g, "").replace(/<span[^>]*aria-hidden="true"[^>]*>[^<]*<\/span>/g, "")
+    .replace(/<[^>]*>/g, "|").replace(/\s+/g, "");
   return (cur ? cur.menu + "/" + cur.view : "") + " " + head;
+}
+/** 見出しの同じ表を見分ける（rcKey の続き。描いた後に markScrollAll から呼ぶ）。
+    🔴 2026-09-30 検証（fixture 400px、research/team）: id の無い表で見出しが同じもの（引き継いだ側・引き継がれた側の表。どちらも
+    「担当｜比べられた交代｜…」）は印（data-rck）も同じで、片方の「残り N 行を出す」を押すと、描き直しの後にもう片方（357 行）まで
+    開いた。scroll() は 1 つの表しか見ないので、画面の中の何番目かは描いた後にしか分からない。
+    root の中の枠を上から数え、同じ印の 2 つ目からに「 #2」「 #3」…を付け、開いているか（rcOpen）を付け直す。
+    画面ごとの表の並びは描き直しても変わらないので、番号は描き直しをまたいで同じ表を指す */
+function rcRestore(root) {
+  const seen = {};
+  const ws = root && root.querySelectorAll ? root.querySelectorAll(".scroll-wrap[data-rck]") : [];
+  Array.prototype.forEach.call(ws, (w) => {
+    const base = String(w.getAttribute("data-rck") || "").replace(/ #\d+$/, "");
+    const n = (seen[base] = (seen[base] || 0) + 1);
+    const key = n > 1 ? base + " #" + n : base;
+    if (w.getAttribute("data-rck") !== key) w.setAttribute("data-rck", key);
+    if (!w.classList.contains("rc-cut")) return;
+    const open = rcOpen.has(key);
+    w.classList.toggle("rc-open", open);
+    const cap = capOf(w);
+    if (cap && cap.classList) cap.classList.toggle("rc-open", open);
+  });
 }
 /** 枠（.scroll-wrap）の直前の案内（.scroll-cap）。今日動く先では .caprow の中にある。無ければ null */
 function capOf(w) {
@@ -3103,6 +3296,9 @@ function scrollName(w) {
     let e = start;
     for (let i = 0; e && i < 8; i++) {
       e = e.previousElementSibling;
+      /* 図の題を図の中に入れた後（figTitles）は、見出しが図の中（.figttl）にある。「<題> の表」にする（h2「図 …」と同じ読み方） */
+      const ft = e && e.tagName === "FIGURE" && e.querySelector ? e.querySelector(".figttl") : null;
+      if (ft) return ((ft.textContent || "").replace(/\s+/g, " ").trim() + " の表").slice(0, 60);
       if (!e || !/^H[23]$/.test(e.tagName || "")) continue;
       const parts = e.childNodes ? [...e.childNodes].map((n) => (n.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean) : [];
       const name = parts[0] === "図" && parts.length > 1 ? parts.slice(1).join(" ") + " の表"
@@ -3129,6 +3325,7 @@ function markFig(b) {
   if (f && f.classList) { f.classList.add("fig-measured"); f.classList.toggle("fig-over", over); }
 }
 function markScrollAll() {
+  rcRestore(document);
   document.querySelectorAll(".scroll-wrap").forEach(markScroll);
   document.querySelectorAll("figure.fig .figbody[data-cap]").forEach(markFig);
 }
@@ -3281,7 +3478,7 @@ const TEAM_COLS = [
       (r.retired ? ' <span class="tag" style="color:var(--hi)">退職者のまま</span>' : "") },
   { k: "n_active", t: "持ち件数", n: 1, fmt: (r) => num(r.n_active) },
   { k: "n_flags2", t: "名札2本以上", n: 1, fmt: (r, L) =>
-      teamDrill(r.n_flags2, hashFor("today", { c: r.consultant }), "この担当の「今日動く先」を開く（名札2本以上の全件）") },
+      teamDrill(r.n_flags2, hashFor("today", { c: r.consultant }), "この担当で「今日」を開く（名札2本以上の全件）") },
   { k: "mtg_critical", t: "MTG 90日以上途絶", n: 1, fmt: (r) =>
       teamDrill(r.mtg_critical, hashFor("byowner", { band: "critical", c: r.consultant }), "この担当の MTG 途絶（重大）の案件を開く") },
   { k: "no_contact", t: "接触の記録が無い", n: 1, fmt: (r, L) =>
@@ -3364,9 +3561,9 @@ function renderTeam(D) {
           : "稼働中の案件を持っている担当者",
         "", { jump: "tm-tbl-h", text: "表へ" }) +
     kpi("名札が " + num(SM.min_flags) + " 本以上の案件", num(SM.n_flags2) + '<span class="u">件</span>',
-        "稼働中 " + num(SM.n_active) + " 件のうち。今日動く先の候補と同じ数え方です", "", { jump: "tm-tbl-h", text: "表へ（名札2本以上の列）" }) +
+        "稼働中 " + num(SM.n_active) + " 件のうち。「今日」の案件と同じ数え方です", "", { jump: "tm-tbl-h", text: "表へ（名札2本以上の列）" }) +
     kpi("今週満了", num(SM.expiring_week) + '<span class="u">件</span>',
-        "満了まで " + num(SM.week_days) + " 日以内。今日動く先の「今週満了」と同じ数え方です") +
+        "満了まで " + num(SM.week_days) + " 日以内。「今日」の「今週満了」と同じ数え方です") +
     kpi("退職者のまま", num(D.meta.retired_deals) + '<span class="u">件</span>',
         "担当が退職者のままの稼働中の案件（その担当 " + num(D.meta.retired_people) + " 名）",
         /* 0 件のときは飛ばない（div）。飛んだ先の表に印が 1 つも無いため（2026-09-29 検証） */
@@ -3377,7 +3574,7 @@ function renderTeam(D) {
   h += sec("表", "担当者 × 状態（" + num(rows.length) + " 名）", "tm-tbl-h");
   h += '<div class="lede">1行1担当者。<b>既定は名前の順</b>です（見出しを押すと並び替わります）。' +
     (lfLabel ? "「1件あたりの接触回数」は確定した最新の月（" + esc(lfLabel) + "）の値です。" : "") +
-    "数を押すと、その担当とその印で絞った一覧が開きます（名札2本以上は「今日動く先」、ほかは「担当者ごとの案件」）。" +
+    "数を押すと、その担当とその印で絞った一覧が開きます（名札2本以上は「今日」、ほかは「担当者ごとの案件」）。" +
     "持ち件数はそれぞれの数の母数です。</div>";
   let t = '<table id="team-tbl"><thead><tr>';
   for (const c of TEAM_COLS) {
@@ -3419,7 +3616,7 @@ function renderTeam(D) {
     (D.meta.unknown_owner ? "<br>担当が取れない取引が " + num(D.meta.unknown_owner) +
       " 件あります。<b>「その他」に混ぜていません</b>（件数だけ出しています）。" : "") +
     "<br>「名札2本以上」「接触の記録が無い」「満了まで60日以内」「NPS 4以下」「MTG 90日以上途絶」は、" +
-    "案件そのもの・今日動く先と同じ行（名札）から数えています。" +
+    "案件一覧・今日と同じ行（名札）から数えています。" +
     "<b>「接触の記録が無い」は開始前の案件を数えていません</b>（開始前は名札を立てないため）。");
 
   /* ---- 接触の推移 ---- */
@@ -3637,7 +3834,8 @@ function renderFocus(D) {
         "確定した点どうしで比べられた " + num(c.judged) + " 拠点のうち", "bad", { jump: "fc-cpa-h", text: "図へ" }) +
     /* 🔴 同じ「どちらも無い 115件」が、ここでは山吹（warn）、下の MTG の記録の帯では灰だった
        （2026-09-24 実機）。山吹は帯の「メールだけ（推定）」の色なので、帯に合わせて色を付けない（灰） */
-    kpi("MTG の記録がどちらも無い", num(m.neither) + '<span class="u">件</span>',
+    /* 🔴 2026-09-29 藤巻さんの判断: MTG はしているはずで、記録が見つからないと読む（「無い」は「していない」に読める） */
+    kpi("MTG の記録がどちらにも見つからない", num(m.neither) + '<span class="u">件</span>',
         "稼働中 " + num(m.n_act) + " 件のうち", "", { jump: "fc-mtg-h", text: "図へ" }) +
     kpi("NPS が入っている", pct1(n.coverage),
         num(n.n_have_nps) + " / " + num(n.n_act) + " 件") +
@@ -3707,7 +3905,8 @@ function focusNpsTable(n) {
       '<span class="muted">' + esc(r.nps_month) + "</span>",
       yen(r.amount),
       r.days_to_expiry == null ? DASH : num(r.days_to_expiry) + "日",
-      r.no_contact_record ? '<span class="n0">記録なし</span>' : num(r.n_contact) + "件",
+      /* 記録について言う（接触していないとは限らない）。案件一覧の「最後の接触」と同じ言い方 */
+      r.no_contact_record ? '<span class="n0">記録が見つからない</span>' : num(r.n_contact) + "件",
     ])), 420, n.rows.length);   /* 200 件で切るので元の件数を渡す（V12） */
   return h;
 }
@@ -3753,7 +3952,7 @@ function focusMtgFig(m) {
     { label: "録画もメールもある", v: m.both, color: C.midori },
     { label: "録画だけ（事実）", v: m.only_recording, color: C.ai },
     { label: "メールだけ（推定）", v: m.only_mail, color: C.ki, faint: true },
-    { label: "どちらも無い", v: m.neither, color: C.ghost, faint: true },
+    { label: "どちらにも見つからない", v: m.neither, color: C.ghost, faint: true },
   ];
   h += fig("稼働中 " + num(m.n_act) + " 件の内訳",
     "Zoom録画は事実、メール由来は推定（&plusmn;1日で83.3%）",
@@ -3816,11 +4015,88 @@ function foot(meta, said, counts) {
   const cnt = counts != null ? counts
     : (meta.n_deals ? "取引 " + num(meta.n_deals) + " 件" : "") +
       (meta.n_active ? "（稼働中 " + num(meta.n_active) + " 件）" : "");
-  return '<div class="note def"><span class="hd">' +
+  /* data-foot: 画面の末尾の 1 箱にまとめる印（oneFoot。M-5 の (c)） */
+  return '<div class="note def" data-foot="1"><span class="hd">' +
     (nc ? "読むときの注意" : cnt ? "集計の基準日と件数" : "集計の基準日") + "</span><p>" +
     esc(nc) +
     (meta.today ? (nc ? "<br>" : "") + "基準日 " + esc(meta.today) : "") +
     (cnt ? "　" + cnt : "") + "</p></div>";
+}
+
+/* ---------------------------------------------------------------- 描いた画面の仕上げ（M-5 の残り、2026-09-29 磨き込み）
+   画面の描画（v.render）の後、本文に流す前に 1 回だけ通す（paintFigs に渡す 3 か所）。描画関数の中身は変えない
+   （3 チームが同じ描画関数を触るので、呼び出し 41 か所を書き換えない。描画関数を直接呼ぶ見張りは今までの形のまま通る）。
+   (a) figTitles: 図の見出し（h2「図 …」）と figcaption の 2 段の題を、図の中の 1 つの題にする
+   (c) oneFoot: foot() の箱（基準日・件数・読むときの注意）を画面の末尾の 1 箱にまとめる
+   (b) 図の注記の上限は fig() の中（figRules）でやる */
+function finishView(html) {
+  return oneFoot(figTitles(html));
+}
+/** (a) 図の見出し（sec("図", 題, id)）のすぐ後ろに図（fig()）が 1 つだけ続くとき、見出しを図の題（figcaption の頭の .figttl）にする。
+    🔴 2026-09-28 診断（08 の M-5）: 図 1 つに h2 の題＋figcaption＋hint の 3 段で、題が 2 つあった。h2 の文（問いの形の題）を題にし、
+       前の figcaption の文（何を描いたか）は題の下の 1 行（hint と同じ行）に下げる。同じ文なら 1 つにする。
+    見出しとしての働きは残す（role=heading aria-level=2。読み上げの見出しの一覧から消さない）。id と tabindex は figure に移す
+    （KPI の札・目次の行き先。jumpTo が focus() で止まる）。
+    見出しの後ろに図が 2 つ以上続く（継続回数ごとの成果のばらつき＝3 枚、本部アプローチの小さな図の並び）・図でないものが続くときは
+    見出しがまとめの題なので、そのまま残す */
+function figTitles(html) {
+  const s = String(html == null ? "" : html);
+  const H = /<h2 class="sec part"(?: id="([^"]*)" tabindex="-1")?><span class="no">図<\/span>([^<]*)<\/h2><figure class="fig"><figcaption>/g;
+  const FIG = '<figure class="fig">';
+  let out = "", last = 0, m;
+  while ((m = H.exec(s))) {
+    const after = m.index + m[0].length;
+    const end = s.indexOf("</figure>", after);
+    if (end < 0 || s.startsWith(FIG, end + "</figure>".length)) continue;   /* 図が続く＝まとめの題 */
+    const title = m[2];
+    const hintAt = s.indexOf('<span class="hint">', after), capEnd = s.indexOf("</figcaption>", after);
+    const cut = hintAt >= 0 && hintAt < capEnd ? hintAt : capEnd;
+    const cap = s.slice(after, cut);
+    out += s.slice(last, m.index) + '<figure class="fig titled"' + (m[1] ? ' id="' + m[1] + '" tabindex="-1"' : "") + "><figcaption>" +
+      '<span class="figttl" role="heading" aria-level="2">' + title + "</span>" + (cap.trim() === title.trim() ? "" : cap);
+    last = cut;
+  }
+  return out + s.slice(last);
+}
+/** (c) foot() の箱（data-foot）を全部抜き出し、画面の末尾に 1 箱で置く。
+    🔴 2026-09-29 実測（fixture 1440px）: 記録と数字の信頼度は 3 つの節がそれぞれ foot を出し、「集計の基準日と件数」「読むときの注意」
+       「集計の基準日」が画面の途中に 3 箱あった。箱が 2 つ以上なら、どの節の文かを節の名前（partSec の左の小さな字）で添える。
+       同じ文は 1 回だけ書く。文は削らない（08 の 2.4: 基準日・件数・読むときの注意は畳まない。箱は開いたまま） */
+function oneFoot(html) {
+  const s = String(html == null ? "" : html);
+  const FOOT = /<div class="note def" data-foot="1"><span class="hd">([^<]*)<\/span><p>([\s\S]*?)<\/p><\/div>/g;
+  const parts = [];
+  let rest = "", last = 0, m;
+  while ((m = FOOT.exec(s))) {
+    /* 節の名前: この箱より前で最後の節の見出し（h2.sec.mincho.mid の .no） */
+    const before = s.slice(0, m.index);
+    const secAt = before.lastIndexOf('<h2 class="sec mincho mid"');
+    const nm = secAt >= 0 ? (before.slice(secAt).match(/<span class="no">([^<]*)<\/span>/) || [])[1] : "";
+    parts.push({ hd: m[1], body: m[2], sec: nm || "" });
+    rest += s.slice(last, m.index);
+    last = m.index + m[0].length;
+  }
+  if (!parts.length) return s;
+  rest += s.slice(last);
+  const uniq = [];
+  parts.forEach((p) => { if (!uniq.some((u) => u.body === p.body)) uniq.push(p); });
+  const hds = Array.from(new Set(uniq.map((p) => p.hd)));
+  /* 見出しは中身どおりに（読むときの注意の文が無いのに「読むときの注意」と書かない） */
+  const base = hds.indexOf("集計の基準日と件数") >= 0 ? "集計の基準日と件数" : "集計の基準日";
+  const hd = hds.length === 1 ? hds[0] : hds.indexOf("読むときの注意") >= 0 ? "読むときの注意と" + base : base;
+  /* 基準日が全部同じなら頭に 1 回だけ書く。🔴 2026-09-30 検証（fixture 1440px、monthly/trust）: 前は
+     「データ品質: 基準日 2026-09-18　取引 3,432 件…／MTG の品質: 基準日 2026-09-18」と同じ日を 2 回書いていた。
+     基準日しか無かった節（MTG の品質）は、その行ごと消える（言うことが基準日だけで、頭に書いたので） */
+  const DAY = /(?:<br>)?基準日 (\d{4}-\d{2}-\d{2})　?/;
+  const days = uniq.map((p) => (p.body.match(DAY) || [])[1] || "");
+  const oneDay = uniq.length > 1 && days[0] && days.every((d) => d === days[0]) ? days[0] : "";
+  const rows = oneDay
+    ? uniq.map((p) => Object.assign({}, p, { body: p.body.replace(DAY, "").replace(/(<br>)+$/, "") })).filter((p) => p.body.trim())
+    : uniq;
+  const body = uniq.length === 1 ? uniq[0].body
+    : (oneDay ? "基準日 " + oneDay + (rows.length ? "<br>" : "") : "") +
+      rows.map((p) => (p.sec ? "<b>" + p.sec + "</b>: " : "") + p.body).join("<br>");
+  return rest + '<div class="note def" data-foot="1"><span class="hd">' + hd + "</span><p>" + body + "</p></div>";
 }
 
 /* ================================================================ 成果と継続（09 の 7、2026-09-29 組み替え）
@@ -3846,13 +4122,19 @@ function renderResults(D) {
         下の節で同じ文をもう一度読ませる（段A の統合 2026-09-29、見張りが落ちた）。画面の問いは全体を 1 つで言う */
   let h = sec("問い", "全体で、契約の回数・成果・立ち上がりはどう動いているか。本部へ持っていく材料は何か") +
     '<div class="lede">月に1回、全体を確かめる画面です。<b>答え（継続回数ごとの解約率）を先頭に</b>置き、' +
-    "その下に成果とリスク・顧客の様子・立ち上がり・本部アプローチを続けています。人ごとの数字はこの画面にありません。</div>";
-  h += pageToc([["rs-renewal", "継続回数と解約率"], ["rs-outcome", "成果とリスク"], ["rs-focus", "NPS・採用単価・MTG の記録・LTV"],
-    ["rs-rampup", "立ち上がり"], ["rs-hq", "本部アプローチ"], ["rs-act", "手を打つ先"]],
+    "その下に目標に対する進捗・立ち上がり・リスク・顧客の様子・本部アプローチを続けています。人ごとの数字はこの画面にありません。</div>";
+  /* 並びは 09 の 3章 7 のとおり（2026-09-29 磨き込み）: 継続回数ごとの解約率・月次の継続率 → 目標に対する進捗と応募効率 →
+     立ち上がり → 2軸のリスクと最優先の広がり → NPS・採用単価・LTV → 本部アプローチ。
+     🔴 前は「成果とリスク」を1節で描いていたので、立ち上がりが2軸リスクの後（顧客の図のさらに後）にあった。
+        成果とリスクを「目標と応募効率」「リスク」の2節に分けて、間に立ち上がりを置く（renderOutcome の part） */
+  h += pageToc([["rs-renewal", "継続回数と解約率"], ["rs-outcome", "目標に対する進捗と応募効率"], ["rs-rampup", "立ち上がり"],
+    ["rs-risk", "リスクの2軸と最優先"], ["rs-focus", "NPS・採用単価・MTG の記録・LTV"], ["rs-hq", "本部アプローチ"], ["rs-act", "手を打つ先"]],
     goLink("research", "focus") + goLink("research", "phone"));
   h += resultsKpis(D);
   h += renderRenewal(part(D.renewal), "rs-renewal");
-  h += renderOutcome(part(D.outcome), "rs-outcome");
+  h += renderOutcome(part(D.outcome), "rs-outcome", "goal");
+  h += renderRampup(part(D.rampup), "rs-rampup");
+  h += renderOutcome(part(D.outcome), "rs-risk", "risk");
   /* いま見るべき顧客の図（09 の 7「NPS・採用単価の悪化・LTV の散らばり」）。画面そのもの（札・表）は残っている（10 章⑤） */
   h += sec("問い", "顧客はいまどうなっているか（NPS・採用単価・MTG の記録・LTV）", "rs-focus") +
     '<div class="lede">' + goLink("research", "focus") + " と同じ図です。" +
@@ -3862,7 +4144,6 @@ function renderResults(D) {
   if (F0.cpa) h += focusCpaFig(F0.cpa);
   if (F0.mtg_layers) h += focusMtgFig(F0.mtg_layers);
   if (F0.shape) h += focusShapeFig(F0.shape);
-  h += renderRampup(part(D.rampup), "rs-rampup");
   /* 本部アプローチ（前は法人番号で見るの2つ目の問い。09 の 4 章「本部アプローチ → 7 成果と継続」） */
   if (D.headquarters) h += sec("問い", "本部に何を持っていくか（事業所どうしの差）", "rs-hq") + renderHq(D.headquarters);
   h += resultsActTables(D);
@@ -4663,7 +4944,7 @@ function custBlocks(D, want) {
       26,520px あった（09 の 5章）。拠点は1つずつ選ぶ。選んでいないときは既定の1拠点を開き、そうしていると書く。
    本部アプローチ（他の法人と比べる）は「成果と継続」の節（rs-hq。/api/consulting/results の headquarters）へ移した（09 の 4章）。
    🔴 2026-09-29 横断レビュー: 成果と継続に移した後もこの画面の末尾に残っていて、同じ中身が 2 か所にあった。この画面からは外し、
-      「この画面の中」の列の後ろに成果と継続の節へのリンクを置く（黙って消さない）。hqSection() / wireHq() はどの画面も呼んでいない
+      「この画面の中」の列の後ろに成果と継続の節へのリンクを置く（黙って消さない）。前の後読みの部品（hqSection / wireHq）は 2026-09-30 に消した（成果と継続は束ねた応答の headquarters を renderHq で直接描く）
 */
 let custSite = "";   /* 人が選んだ拠点（siteOf の鍵）。空・この法人に無い鍵なら既定の拠点（custDefaultSite）。URL の site */
 /* URL の site から拠点を入れたか（詳細のパンくずの拠点・貼られた URL で来たとき）。描いた後に「事業所」の節へ移す（wireCustomer）。
@@ -5101,17 +5382,6 @@ function houjinCounts(all, ids) {
     num(all.filter((d) => d.is_active).length) + " 件）。拠点をまたいだ図には " + num(ids.size) + " 件を入れています";
 }
 
-/** 本部アプローチ（他の法人と比べる）の見出しと枠。中身は wireHq() が /api/consulting/headquarters を取って描く。
-    🔴 2026-09-29 からどの画面も呼んでいない（成果と継続は束ねた応答の headquarters を renderHq で直接描く。顧客からは外した）。
-    後から描く枠の部品として残している。
-    🔴 「図 他の法人と比べる」の見出しのすぐ下に renderHq の「問い」の見出しが続き、図の見出しの下が空に見えた
-       （2026-09-24 実機）。見出しはここの1つにし、renderHq は見出しを出さない。
-    data-paint-own: 中身は wireHq が後から描く。本文の描き直しで開いた details を数えない（ownDetails） */
-function hqSection() {
-  return sec("問い", "他の法人と比べる — 本部に何を持っていくか", "hq-sec") +
-    '<div id="hq-box" data-paint-own="1"><span class="loading">読み込み中…</span></div>';
-}
-
 /** 契約開始からの月番号 `m` を暦の "YYYY-MM" に直す。
     🔴 サーバ側と同じ数え方（始月を1ヶ月目とする）。 */
 function monthAdd(start, m) {
@@ -5204,7 +5474,7 @@ function siteLabels(rows) {
 }
 
 function renderHq(D) {
-  /* 見出し（問い）は法人番号で見るの側（#hq-box の上）に置く。
+  /* 見出し（問い）は呼ぶ側（成果と継続の rs-hq の節）に置く。
      🔴 枠の見出しを「親法人の合計ではありません」にしていて、本文の頭（サーバの not_counted）と
      同じ文が続けて2回出ていた（2026-09-24 実機）。見出しは本文と別のことを言う */
   let h =
@@ -5486,7 +5756,7 @@ function renderRampup(D, id) {
       "<b>契約が始まってから最初の MTG までに何日かかったか</b>だけを見ています。<br>" +
       "ここの「初回MTG」は<b>MTG だけ</b>で、電話は入っていません" +
       /* 前の「成果とリスク」は成果と継続の中の節になった（09 の 7）。同じ画面の節へ移る */
-      "（MTGと電話を束ねた最終接触は、この画面の " + jumpLink("rs-outcome", "成果は出ているか、どこが危ないか") + " にあります）。",
+      "（MTGと電話を束ねた最終接触は、この画面の " + jumpLink("rs-risk", "どこが危ないか（リスクの2軸）") + " にあります）。",
       "成約率・売上・担当者の評価ではありません。良し悪しの判断は人がします");
 
   h += sec("図", "いま、どのフェーズにいるか");
@@ -5546,11 +5816,17 @@ function renderRampup(D, id) {
         立ち上がり期 38 件・メール由来の実施日がある 55 件 = tests.rs act_view_diff_counts_on_fixture）
      🔴 前はここに「継続率はこの画面にありません（継続回数 × 成果にあります）」の枠があった。継続率は同じ画面の上の節に
         なったので外した（同じ数字を2か所で作らない、は変わらない） */
-  return h + '<p class="muted small">MTG の記録がまだ無い初回契約 ' + num(nm.n) + " 件（録画だけで数えた件数）の表は、" +
+  /* 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ない。「記録がまだ無い」は「していない」に読める。
+     ただし前の表の名前は、画面に出ていたとおり（「MTG の記録がまだ無い初回契約」）に残す。書き換えると覚えている人が
+     照合できず、履歴として事実でなくなる（2026-09-30 検証）。いまの読み方は文の末尾に添える */
+  return h + '<p class="muted small">前の表「MTG の記録がまだ無い初回契約」（当時の名前のまま）' + num(nm.n) +
+    " 件（録画だけで数えた件数）は、" +
     "名札に定義を揃えて " + '<a class="golink" href="' + esc(hashFor("board", { view: "no_mtg" })) + '">案件一覧の見方</a>' +
     " に移しました。件数は同じではありません。<b>見方には立ち上がり期（契約開始30日以内）の案件が入りません</b>" +
     "（MTG途絶の帯をこの期間は付けないためです）。前の表に入っていた立ち上がり期の案件は、見方の「外れた案件を確かめる」に" +
-    "理由つきで出ています。ほかに、見方はメール由来の実施日も MTG の記録として見ます。</p>";
+    "理由つきで出ています。ほかに、見方はメール由来の実施日も MTG の記録として見ます。" +
+    "記録が見つからないのは、MTG をしていないからではなく、記録が欠けているためと読みます" +
+    "（欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない）。</p>";
 }
 
 /* ================================================================ 8 成果とリスク */
@@ -5576,15 +5852,21 @@ const goalBandOpen = (label) => /^(50|1〜|0%)/.test(String(label || ""));
     🔴 2026-09-29 段B: 表は案件一覧の見方（最優先）に移した。前は id の無い呼び方（成果とリスクの画面）で表を出す分岐と
        outcomeTopTable が残っていたが、呼び出しは成果と継続の1か所（id つき）だけで届かなかったので外した。
        表にあった「放置の軸」「接触の記録（すべて契約前）」の列は、見方の側には無い（段B で失ったもの） */
-function renderOutcome(D, id) {
+/** part: 成果と継続で節を分けて描くとき（09 の 3章 7 の並び。間に立ち上がりを挟む）。
+      "goal" = 目標に対する進捗と応募効率まで、"risk" = リスクの2軸と最優先の広がり（id はその節の見出しに付く）。
+      省くと1節で全部を描く（前と同じ形） */
+function renderOutcome(D, id, part) {
   const ga = D.goal_act, gl = D.goal_all, ef = D.efficiency, R = D.risk, cs = D.contact_source;
-  let h = sec("問い", "成果は出ているか、どこが危ないか", id) +
-    /* M-5: 取り決めだけの箱なので畳む。「接触は検知にだけ…処方には使いません」は畳まず summary に（keep）。
-       担当者ごとの接触が「接触は検知専用です」を summary に残すのと揃える（2026-09-29 検証: 丸ごと畳まれていた） */
-    foldNote("def", "この画面で数えていないもの",
-      "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
-      "メールは数えていません。中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。",
-      "接触は検知にだけ使っています。処方には使いません");
+  /* M-5: 取り決めだけの箱なので畳む。「接触は検知にだけ…処方には使いません」は畳まず summary に（keep）。
+     担当者ごとの接触が「接触は検知専用です」を summary に残すのと揃える（2026-09-29 検証: 丸ごと畳まれていた）。
+     節を分けたとき（part）は、接触を使うリスクの節の頭にだけ置く（同じ畳みを 2 回出さない） */
+  const defs = foldNote("def", "この画面で数えていないもの",
+    "成約率・継続率・MTG件数・メール件数ではありません。<b>接触 ＝ MTG または60秒超の通話</b>で、" +
+    "メールは数えていません。中盤に接触が増えるのは「火消し」で、結果が原因より後に来ています。",
+    "接触は検知にだけ使っています。処方には使いません");
+  if (part === "risk") return outcomeRisk(R, cs, sec("問い", "どこが危ないか（リスクの2軸と最優先の広がり）", id) + defs);
+  let h = sec("問い", part === "goal" ? "成果は出ているか（目標に対する進捗と応募効率）" : "成果は出ているか、どこが危ないか", id) +
+    (part === "goal" ? "" : defs);
 
   h += sec("図", "目標に対する進捗");
   /* 🔴 真ん中の帯を SERIES で順に塗っていたので、「50〜100%」が赤・「1〜50%」が緑になり、
@@ -5638,7 +5920,11 @@ function renderOutcome(D, id) {
   h += note("bad", "資料の「8.1 ≪ 14.5」は、そのままの値では再現しません",
     "向き（解約 ＜ 継続）は合っています。ただし群の代表値を比べただけで、平均は外れ値に引かれます。" +
     "<b>単独で解約を見分けられる指標かは、ここからは言えません</b>。");
+  return part === "goal" ? h : outcomeRisk(R, cs, h);
+}
 
+/** 成果とリスクのうち、リスクの2軸と最優先の広がり（h の後ろに足して返す）。成果と継続では立ち上がりの後に置く（09 の 3章 7） */
+function outcomeRisk(R, cs, h) {
   h += sec("図", "リスクは2軸だけで見る");
   h += note("info", "4軸のうち2軸を意図的に外しています。手抜きではありません",
     "<b>関係性の軸（NPS）</b>：稼働中の半分にしか値が無く、<b>構造的に発火しません</b>。" +
@@ -5861,7 +6147,11 @@ function npsCell(r) {
     '<span class="muted small"> ' + esc(r.nps_month || "") + "</span>";
 }
 function touchCell(r) {
-  if (r.n_contact === 0) return '<b style="color:var(--hi)">記録なし</b>';
+  /* 🔴 2026-09-30 検証: 見方「初回契約で MTG の記録が見つからない」の表で、同じ行の「最後の MTG」は「記録が見つからない」、
+     この列だけ「記録なし」で、接触していないと読めた（fixture の先頭 12 行のうち 5 行）。接触は MTG か60秒超の通話なので、
+     MTG の記録が欠ければこちらも同じ理由で欠けうる。記録について言う「見つからない」に揃える。
+     名札「接触の記録が無い」は拾いたい印（継続の期間は本当に接触していないこともある）なので、赤の太字はそのまま */
+  if (r.n_contact === 0) return '<b style="color:var(--hi)">記録が見つからない</b>';
   if (r.days_since_contact == null) return DASH;
   const col = r.days_since_contact > 30 ? "hi" : r.days_since_contact > 14 ? "ki" : "ink-2";
   return '<b style="color:var(--' + col + ')">' + num(r.days_since_contact) +
@@ -5975,7 +6265,7 @@ let boardSort = { key: "n_flags", asc: false };
 
 /* ③の絞り込み。②から担当者を押して来たときも、ここに入る。
    🔴 絞ったら必ず「◯件中 N件を表示」を出す（全件を見ていると誤認させない）。 */
-let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" };
+let boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
 
 /* 満了までの帯。値は days_left（null は「満了日が入っていない」） */
 const EXPIRY_BANDS = [
@@ -5987,6 +6277,19 @@ const EXPIRY_BANDS = [
   { k: "none", t: "満了日が入っていない", hit: (d) => d == null },
 ];
 
+/* 契約総額の帯（09 の 3章 2「金額」、2026-09-29 磨き込み）。値は行の amount（CS_取引の amount。契約期間全体の額で、
+   月額ではない＝段B で実データを見て確かめた。money.rs）。null は「金額が空」。
+   線は fixture の稼働中の金額の四分位（25% 45万・中央 81万・75% 120万・90% 180万）から丸めた取り決め。
+   🔴 金額が空の案件はどの帯にも入れない（0 円として「50万円未満」に落とさない）。空の件数は選択肢と絞った文で別に出す */
+const AMOUNT_BANDS = [
+  { k: "lt50",   t: "50万円未満",       hit: (a) => a != null && a < 500000 },
+  { k: "50-100", t: "50万〜100万円未満",  hit: (a) => a != null && a >= 500000 && a < 1000000 },
+  { k: "100-200", t: "100万〜200万円未満", hit: (a) => a != null && a >= 1000000 && a < 2000000 },
+  { k: "ge200",  t: "200万円以上",      hit: (a) => a != null && a >= 2000000 },
+  { k: "none",   t: "金額が空",         hit: (a) => a == null },
+];
+const amountOf = (r) => (r.amount == null || r.amount === "" || !isFinite(Number(r.amount)) ? null : Number(r.amount));
+
 /* 絞り込みを当てる。**行を落とすのはここだけ** */
 /* 🔴 同じ応答（rows の同一性）・同じ条件なら同じ配列を返す（段2 M-8）。paintFigs は図の幅を枠に合わせるために本文を 2 回組むので、
    ここが毎回新しい配列を返すと boardTable の覚え書き（配列の同一性で「同じ行の並び」を見る）が効かない */
@@ -5995,9 +6298,16 @@ function boardApply(rows) {
   const f = boardFilter;
   const key = JSON.stringify(f);
   if (boardApplyMemo.src === rows && boardApplyMemo.key === key) return boardApplyMemo.out;
+  const out = rows.filter(boardHit(f));
+  boardApplyMemo.src = rows; boardApplyMemo.key = key; boardApplyMemo.out = out;
+  return out;
+}
+/** 絞り込み f に当たるかを返す関数（boardApply の中身。契約総額の件数を「ほかの絞り込みの中で」数えるのにも使う） */
+function boardHit(f) {
   const band = EXPIRY_BANDS.find((b) => b.k === f.expiry);
-  const q = f.q.trim().toLowerCase();
-  const out = rows.filter((r) => {
+  const amt = AMOUNT_BANDS.find((b) => b.k === f.amount);
+  const q = (f.q || "").trim().toLowerCase();
+  return (r) => {
     if (f.consultant && (r.consultant || "") !== f.consultant) return false;
     if (f.flag && !(r.flags || []).some((x) => x === f.flag)) return false;
     /* MTG 途絶の帯（行の mtg_band）。今日動く先の KPI「MTGが90日以上途絶 N 件」から来る（S-2） */
@@ -6005,16 +6315,21 @@ function boardApply(rows) {
     /* 見方の印（段B、09 の 10 章②。行の views に routes.rs ACT_VIEWS の鍵が入っている） */
     if (f.view && !(r.views || []).some((x) => x === f.view)) return false;
     if (band && !band.hit(r.days_left)) return false;
+    if (amt && !amt.hit(amountOf(r))) return false;
     if (q && String(r.name || r.deal_id || "").toLowerCase().indexOf(q) < 0) return false;
     return true;
-  });
-  boardApplyMemo.src = rows; boardApplyMemo.key = key; boardApplyMemo.out = out;
-  return out;
+  };
+}
+/** 契約総額の帯を外した、ほかの絞り込みに当たる行（契約総額の選択肢の件数と「金額が空の N 件」の母数）。
+    🔴 2026-09-30 検証: 前は稼働中の全件で数えていて、担当で絞っても「金額が空の 2 件は入りません」「50万円未満（99）」と
+       全社の件数が出た（fixture: 金額が空の 2 件は別の担当。その担当に空は 0 件なのに 2 件と出た）。件数の行と母数を揃える */
+function boardRowsButAmount(rows) {
+  return (rows || []).filter(boardHit(Object.assign({}, boardFilter, { amount: "" })));
 }
 
 function boardFilterOn() {
   const f = boardFilter;
-  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.q.trim());
+  return !!(f.consultant || f.flag || f.band || f.view || f.expiry || f.amount || f.q.trim());
 }
 
 /* いま何で絞っているかを日本語で並べる。D は帯の名前（meta.mtg_gap.bands の label）を引くため */
@@ -6037,6 +6352,12 @@ function boardFilterWords(D) {
     const b = EXPIRY_BANDS.find((x) => x.k === f.expiry);
     if (b) w.push("満了まで " + b.t);
   }
+  if (f.amount) {
+    const b = AMOUNT_BANDS.find((x) => x.k === f.amount);
+    /* 金額の帯で絞ったときは、金額が空で入らない件数を添える（黙って落とさない。空はどの帯にも入れていない） */
+    const nNone = f.amount === "none" ? 0 : boardRowsButAmount((D || {}).rows).filter((r) => amountOf(r) == null).length;
+    if (b) w.push("契約総額 " + b.t + (nNone ? "（金額が空の " + nNone + " 件は入りません）" : ""));
+  }
   if (f.q.trim()) w.push("案件名に " + f.q.trim());
   return w.join(" / ");
 }
@@ -6046,6 +6367,19 @@ function boardFilterWords(D) {
    🔴 選ぶ前の画面には件数の表しか無いのに、名札・満了まで・案件名の欄と
       「604 件中 604 件を表示（絞り込みなし）」が出ていて、担当を選ぶ前から
       表を絞り込めるように見えていた（2026-09-23 実機） */
+/* 契約総額の選択肢（件数つき）。「すべて（N）」の N と帯の件数は、契約総額以外の絞り込みを掛けた中の件数（boardRowsButAmount）。
+   🔴 担当・名札・満了まで・案件名を変えても欄（#board-filter）は作り直されない（boardRepaint は #board-body だけ描く）ので、
+   件数を欄を描くときだけ数えると、担当を選んでも括弧の件数が選ぶ前のまま残り、title の「絞り込みを掛けた中の件数」と食い違った
+   （2026-10-01 再検証）。boardRepaint からも呼んで、選択肢だけ入れ替える（欄ごと作り直すと検索欄のフォーカスと IME の窓が飛ぶ） */
+function boardAmountOptions(D) {
+  const amtBase = boardRowsButAmount(D.rows);
+  const amtN = {};
+  for (const r of amtBase) for (const b of AMOUNT_BANDS) if (b.hit(amountOf(r))) amtN[b.k] = (amtN[b.k] || 0) + 1;
+  const cur = boardFilter.amount || "";
+  const opt = (v, t) => '<option value="' + esc(v) + '"' + (cur === v ? " selected" : "") + ">" + esc(t) + "</option>";
+  return opt("", "すべて（" + num(amtBase.length) + "）") +
+    AMOUNT_BANDS.map((b) => opt(b.k, b.t + "（" + num(amtN[b.k] || 0) + "）")).join("");
+}
 function boardFilterBar(D, onlyOwner) {
   const names = Array.from(new Set(D.rows.map((r) => r.consultant).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b, "ja"));
@@ -6057,7 +6391,7 @@ function boardFilterBar(D, onlyOwner) {
     opt("", "すべて", boardFilter.consultant) +
     names.map((n) => opt(n, n, boardFilter.consultant)).join("") + "</select></label>";
   if (onlyOwner) return h + "</div>";
-  h += '<label class="act">名札 <select id="bf-flag">' +
+  h += '<label class="act" title="括弧の件数は、稼働中の全件（全担当）で数えた件数です">名札 <select id="bf-flag">' +
     opt("", "すべて", boardFilter.flag) +
     flags.map((x) => opt(x.label, x.label + "（" + num(x.n) + "）", boardFilter.flag)).join("") +
     "</select></label>";
@@ -6071,6 +6405,12 @@ function boardFilterBar(D, onlyOwner) {
   h += '<label class="act">満了まで <select id="bf-expiry">' +
     opt("", "すべて", boardFilter.expiry) +
     EXPIRY_BANDS.map((b) => opt(b.k, b.t, boardFilter.expiry)).join("") + "</select></label>";
+  /* 契約総額（09 の 3章 2）。選択肢に件数を添え、金額が空の件数は「金額が空（N）」で別に出す（帯に混ぜない）。
+     欄の名前に「契約総額」と書く（月額と読ませない。月額は CS_取引の別の列） */
+  /* 件数は、契約総額の帯を外したほかの絞り込み（担当・名札など）の中で数える（boardRowsButAmount）。「すべて（N）」の N が
+     その母数で、帯の件数と「金額が空」を足すと N になる（名札の件数は今までどおり全社の件数で、欄の title に書く） */
+  h += '<label class="act" title="契約期間全体の額（月額ではありません）。括弧の件数は、契約総額以外の絞り込み（担当・名札など）を掛けた中の件数です">契約総額 <select id="bf-amount">' +
+    boardAmountOptions(D) + "</select></label>";
   /* 幅は CSS の min-width / max-width で決める。ここに px を書かない */
   h += '<label class="act">案件名 <input type="search" id="bf-q" placeholder="部分一致" ' +
     'value="' + esc(boardFilter.q) + '"></label>';
@@ -6080,7 +6420,7 @@ function boardFilterBar(D, onlyOwner) {
 
 /* ②のコンサルタント名から③へ飛ぶ。担当で絞った状態で開く */
 function drillToBoard(name) {
-  boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "", view: "" };
+  boardFilter = { consultant: name, flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
   go("consultant", "byowner", false, undefined, "keep");   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2） */
 }
 /* ①今日動く先の KPI から③へ。MTG 途絶の帯で絞った状態で開く（S-2。裁定: KPI を押したら案件そのものを絞って開く）。
@@ -6088,8 +6428,14 @@ function drillToBoard(name) {
    consultant: 今日動く先で担当を選んでいるとき。札の数字はその担当の実数（critical_by_consultant）なので、行き先も
    その担当のその帯にする。案件そのものは入るときに担当を外すので、「担当者ごとの案件」で開く（同じ表・同じ絞り込み欄） */
 function drillToBand(band, consultant) {
-  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band, view: "" };
+  boardFilter = { consultant: consultant || "", flag: "", expiry: "", q: "", band: band, view: "", amount: "" };
   /* 絞り込みはここで入れた。go() に既定へ戻させない（M-2）。URL には #deal/board?band=critical の形で残る */
+  if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
+}
+/* 今日の札「接触の記録が無い」から、その名札で絞った案件一覧へ（09 の 3章 1 の 2）。担当を選んでいるときは drillToBand と同じ理由で
+   担当者ごとの案件をその担当で開く（札の数字はその担当の実数。行き先の母集団を揃える） */
+function drillToFlag(flag, consultant) {
+  boardFilter = { consultant: consultant || "", flag: flag, expiry: "", q: "", band: "", view: "", amount: "" };
   if (consultant) go("consultant", "byowner", false, undefined, "keep"); else go("deal", "board", false, undefined, "keep");
 }
 
@@ -6101,11 +6447,7 @@ function redrawMain(D, keep) {
   const v = viewOf(cur.menu, cur.view);
   const main = document.getElementById("cs-main");
   const fk = focusKey(document.activeElement);
-  /* 本部アプローチの枠（#hq-box）の中は本文と別に描くので、開いている details も別に覚えて、
-     wireHq が描き直すときに開き直す（幅の描き直しのときだけ。絞り込みでは覚えない） */
-  const hq = keep ? document.getElementById("hq-box") : null;
-  hqKeep = hq && hq.querySelectorAll ? openDetails(hq) : null;
-  paintFigs(main, () => ctlbar(v, D) + v.render(D), keep);   /* 図の幅を枠に合わせる（2回描き） */
+  paintFigs(main, () => finishView(ctlbar(v, D) + v.render(D)), keep);   /* 図の幅を枠に合わせる（2回描き） */
   wire(v);
   refocus(fk);
   syncUrl();   /* 絞り込み・並び替え・担当・拠点の変更を URL に写す（M-2。履歴は積まない） */
@@ -6197,6 +6539,18 @@ function boardMoreBar(n) {
 /* 案件そのもの・担当者ごとの案件のうち、絞り込み・並び替えで変わる部分（件数の行 → 表 → 決まりごと → 名札の図）。
    renderBoard が <div id="board-body"> に入れ、boardRepaint はここだけ描き直す（段2 M-8）。
    絞り込みの欄（boardFilterBar）はこの外にあるので、打っている途中の検索欄が作り直されない */
+/** 開始前の契約には立てない名札（meta.started_only_flags。接触の2本）で絞っているとき、件数の行に添える文。
+    🔴 2026-09-30 検証: 今日の札「接触の記録が無い」は「開始済みの稼働中 545 件のうち 61 件」、押した先の件数の行は
+       「604 件中 61 件を表示」で、同じ 61 件の分母が 2 通りに見えた（どちらも正しい。違いは開始前の 59 件）。
+       行き先でも、開始前の件数にはこの名札を立てていないことを書いて、2 つの分母をつなぐ。古い応答（欄が無い）では出さない */
+function boardStartedOnlyWords(D) {
+  const f = boardFilter.flag;
+  if (!f || !((D.meta || {}).started_only_flags || []).includes(f)) return "";
+  const pre = (D.rows || []).filter((r) => r.not_started).length;
+  if (!pre) return "";
+  return "。この名札は開始前の契約には立てていません（" + num(D.rows.length) + " 件のうち開始前 " + num(pre) +
+    " 件・開始済み " + num(D.rows.length - pre) + " 件）";
+}
 function boardBody(D, shown, on) {
   const byOwner = cur.view === "byowner";
   /* 見方（段B）。ボタンは案件一覧だけに置く。担当者ごとの案件も URL の ?view= で絞れるので、絞っているときは
@@ -6207,7 +6561,7 @@ function boardBody(D, shown, on) {
      絞ったことを忘れて「全件がこう見える」と読み違えるのを防ぐ。 */
   h += '<div class="count-line' + (on ? " on" : "") + '" id="board-count">' +
     "<b>" + num(D.rows.length) + " 件中 " + num(shown.length) + " 件</b>を表示" +
-    (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + "</div>";
+    (on ? "（絞り込み中: " + esc(boardFilterWords(D)) + "）" : "（絞り込みなし）") + boardStartedOnlyWords(D) + "</div>";
   /* 表が主役の画面なので表を先に、図はその下（08 の S-8）。
      🔴 見出しは画面名（左の「案件そのもの」）と重ならない語にする。前は「案件の立ち位置」で、
      画面名が3つ（左・見出し・サーバの文）あり、初見の人が別画面と誤認していた（S-6） */
@@ -6237,7 +6591,16 @@ function boardRepaint() {
   if (!box || !boardCache || (cur.view === "byowner" && !boardFilter.consultant)) { redrawMain(boardCache); return; }
   const fk = focusKey(document.activeElement);
   const D = boardCache, shown = boardApply(D.rows);
-  paintFigs(box, () => boardBody(D, shown, boardFilterOn()));   /* 名札の図の幅を枠に合わせる（2回描き。表は覚え書きで 1 回） */
+  /* 契約総額の選択肢の件数を、いまの絞り込みで数え直す。選択肢の中身が変わるときだけ入れ替える
+     （自分の欄を変えたときは件数が変わらない＝触らない。開いている選択欄を壊さない） */
+  const amtSel = document.getElementById("bf-amount");
+  if (amtSel) {
+    const html = boardAmountOptions(D);
+    if (amtSel.innerHTML !== html) amtSel.innerHTML = html;
+  }
+  /* 🔴 2026-09-30 検証（Playwright 400px、#deal/board）: 前は boardBody をそのまま流していて、並べ替え・絞り込みの後は図「名札の分布」の
+     題が h2＋figcaption の 2 段に戻っていた（M-5 (a) は finishView を通る 3 か所だけに効いていた）。本文の描き直しと同じく finishView を通す */
+  paintFigs(box, () => finishView(boardBody(D, shown, boardFilterOn())));   /* 名札の図の幅を枠に合わせる（2回描き。表は覚え書きで 1 回） */
   wireBoardBody();
   markScrollAll();
   refocus(fk);
@@ -6287,8 +6650,9 @@ function boardViewBar(D) {
 /** 見方を押しているときの定義の1行と母数、前の定義から外れた件数と、外れた案件の表。
     who: 担当者ごとの案件で選んでいる担当者。渡したときは、件数の文は全担当のまま（どの担当かで定義は変わらない）で、
     外れた案件の表だけその担当者の分に絞り、全担当の何件のうちの何件かを書く。
+    pending: 担当者ごとの案件で担当を選ぶ前（下は持ち件数の表）。下の件数の話はしない（byowner-pending が書く）。
     🔴 この箱は畳まない（外した件数を書いた箱は畳まない。08 の 2.4） */
-function boardViewNote(D, who) {
+function boardViewNote(D, who, pending) {
   const k = boardFilter.view;
   if (!k) return "";
   const v = actViewOf(D, k);
@@ -6303,7 +6667,10 @@ function boardViewNote(D, who) {
   let body = esc(v.rule) + "。<br>稼働中" + (who ? "（全担当）" : "") + " " + num(D.rows.length) + " 件のうち" +
     (judged != null ? "、リスク判定のある案件は " + num(judged) + " 件、そのうちいちばん新しい判定が「高」の案件は " + num(v.n) + " 件です"
       : " " + num(v.n) + " 件です") +
-    "（担当・名札などの絞り込みを一緒に掛けると、下の件数はそれより少なくなります）。";
+    /* pending: 担当者ごとの案件で担当を選ぶ前（下は持ち件数の表で、見方を掛けていない）。🔴 2026-09-30 検証: ここで
+       「下の件数はそれより少なくなります」と書くと、すぐ下の「下の持ち件数には掛けていません」（byowner-pending）と矛盾して読めた。
+       選ぶ前は下の件数の話をこの箱ではせず、byowner-pending の1か所に任せる */
+    (pending ? "。" : "（担当・名札などの絞り込みを一緒に掛けると、下の件数はそれより少なくなります）。");
   if (o) {
     body += "<br><b>定義を名札に揃えたため、以前の" + esc(o.where) + " " + num(o.n) + " 件のうち " + num(o.dropped) +
       " 件は外れました。</b>" +
@@ -6365,8 +6732,9 @@ const MTG_BAND_FAINT = { yellow: true };
 function mtgCell(r) {
   if (r.mtg_band === "onboarding")
     return '<span class="muted small">立ち上がり期</span>';
+  /* 🔴 2026-09-29 藤巻さんの判断: 「記録なし」は「MTG をしていない」に読める。記録が見つからない、と書く */
   if (r.mtg_days == null)
-    return '<span class="muted small">記録なし</span>';
+    return '<span class="muted small">記録が見つからない</span>';
   /* 注意（30〜59日）は警告と同じ山吹で、太字にしない（帯の図の薄い山吹と同じ扱い。紫は使わない） */
   const col = r.mtg_band === "critical" ? "hi"
             : r.mtg_band === "red" || r.mtg_band === "yellow" ? "ki" : "midori";
@@ -6549,6 +6917,7 @@ function renderToday(D0) {
         c ? (CB ? "この担当の稼働中の案件で。" : "この担当の候補（名札2本以上）の中で。") + "全社では " + num(bandN("critical")) + " 件"
           : "うち " + num(G.forced_by_expiry) + " 件は満了90日前の途絶で引き上げたもの",
         crit ? "bad" : "", { band: "critical", consultant: c && CB ? c : "", text: c && CB ? "この担当の一覧を見る" : "全社の一覧を見る" }) +
+    todayNoContactKpi(D0, c) +
     kpi("今週満了する", num(soon.length) + '<span class="u">件</span>',
         "名札の本数に関わらず落としていません" +
         (c ? "（全社では " + num((D0.expiring_this_week || []).length) + " 件）" : ""),
@@ -6565,7 +6934,8 @@ function renderToday(D0) {
      答えに着くのに 3 画面スクロールしていた（400px では y≈3,960）。問い → KPI → この表 の順にする。
      決まりごと（絞った条件・並び・採用単価の比べ方）は取り決めなので、見出しの直下の 1 行に畳む（開けば全文）。
      母数（n_hit 件から n_shown 件）は畳まず、その 1 行目に書く */
-  h += sec("表", "今日動く先（" + num(D.rows.length) + " 件）", "td-today-h");
+  /* 見出しは今のメニュー名（今日）に合わせる。前は「今日動く先」で、左のメニューに無い名前だった（2026-09-29） */
+  h += sec("表", "今日の案件（" + num(D.rows.length) + " 件）", "td-today-h");
   /* 決まりごとの畳み。母数（n_hit 件から n_shown 件）は枠の案内（scroll-cap の「N 行を出しています（全 T 件のうち）」）が
      言うので、summary では繰り返さない。🔴 2026-09-28 検証（fixture 1440×900）: summary と scroll-cap が同じ
      「243 件から 24 件」を 40px の間に 2 回言い、表の見出し行が 772 で 1 画面目に完全な行が 0 行だった。
@@ -6628,6 +6998,25 @@ function renderToday(D0) {
   return h + foot(D.meta);
 }
 
+/** 今日の札「接触の記録が無い」（09 の 3章 1 の 2、2026-09-29 磨き込み）。押すと案件一覧をその名札で開く。
+    数はサーバが稼働中の全件から数えた実数（routes.rs build_today_board の meta.no_contact）。候補（名札2本以上）の中で数えると
+    名札がこの 1 本だけの案件が落ちる（MTG途絶の札と同じ理由）。
+    🔴 母数は開始済みの稼働中（開始前は名札を立てない）。率だけにせず件数と母数を並べる。
+    🔴 赤にしない。接触の記録が無いことは未測定で、放置とは別（成果と継続の 2軸リスクと同じ扱い。色で良し悪しを言わない）。
+    古い応答（no_contact が無い）では出さない（数えていないものを 0 と書かない） */
+function todayNoContactKpi(D0, c) {
+  const nc = (D0.meta || {}).no_contact;
+  if (!nc || !nc.label) return "";
+  const mine = c ? ((nc.by_consultant || {})[c] || { n: 0, base: 0 }) : null;
+  const n = mine ? mine.n : nc.n, base = mine ? mine.base : nc.base;
+  return kpi(nc.label, num(n) + '<span class="u">件</span>',
+    (mine ? "この担当の" : "") + "開始済みの稼働中 " + num(base) + " 件のうち" +
+      (base ? "（" + pct1(n / base * 100) + "）" : "") + "。" +
+      (mine ? "全社では " + num(nc.n) + " / " + num(nc.base) + " 件。" : "") +
+      "開始前の契約は数えていません",
+    "", { flag: nc.label, consultant: c || "", text: c ? "この担当の一覧を見る" : "案件一覧で見る" });
+}
+
 /** 今日の畳み「MTG 途絶の数え方と母数」。前は図「MTG が途絶えている先（全社）」の注記に書いていた（2026-09-29 に図を外した）。
     帯の件数そのものは案件一覧の帯の絞り込みで見る（行き先を添える） */
 function todayMtgNote(D) {
@@ -6662,7 +7051,7 @@ function fillTodayContact() {
   const draw = (body) => {
     const b = document.getElementById("td-contact");
     if (!b || !todayConsultant) return;
-    paintFigs(b, () => renderMyContact(body, todayConsultant));
+    paintFigs(b, () => finishView(renderMyContact(body, todayConsultant)));
     markScrollAll();
   };
   if (todayContactCache && Date.now() - todayContactCache.at < PAGE_CACHE_MS) { draw(todayContactCache.body); return; }
@@ -6711,7 +7100,7 @@ function renderMyContact(CT, name) {
       (pts.some((p) => p == null) ? '<i class="full">線が切れている月は、持ち案件が 0 件か ' + num(minDeals) + " 件未満です（値は下の表）。</i>" : "") +
       '<i class="full">値は下の表にあります（マウスなら点に重ねても出ます）。</i>') +
     scroll(tbl, "none") +
-    '<p class="muted small">1件あたりの接触 ＝ その月の接触の回数 ÷ その月に持っていた案件の数（担当者の一覧の「接触率」とは別の数え方）。' +
+    '<p class="muted small">1件あたりの接触 ＝ その月の接触の回数 ÷ その月に持っていた案件の数（チームと担当の表の「接触した月の割合」（前の担当者の一覧の「接触率」）とは別の数え方）。' +
     /* サーバの文は句点で終わらないことがある（fixture: 「…接触だけです」）。次の文とつながらないよう句点を補う */
     esc(((CT && CT.contact_rule) || "").replace(/([^。])$/, "$1。")) + more + "</p>";
 }
@@ -6747,8 +7136,22 @@ function renderBoard(D) {
       const ks = Object.keys(per).sort((a, b) => per[b].n - per[a].n || a.localeCompare(b, "ja"));
       h += note("info", "担当者を選んでください",
         "上の「担当」で選ぶか、下の表で名前を押すと、その人の案件の表が出ます。" +
-        "名札・満了まで・案件名での絞り込みは、担当を選んだ後に出ます。" +
+        /* 🔴 2026-09-30 検証: URL などから絞り込みを持ってきたときに「絞り込みは、担当を選んだ後に出ます」と書くと、すでに
+           掛かっている絞り込み（下の byowner-pending）と食い違って読める。出るのは「欄」なので欄と書き、持ってきたときは下を指す */
+        "名札・満了まで・契約総額・案件名で絞る欄は、担当を選んだ後に出ます" +
+        (boardFilterOn() ? "（いま持ってきている絞り込みは、下に書いています）。" : "。") +
         "選ぶまでは担当者ごとの件数だけを出しています（稼働中の全件の表は " + goLink("deal", "board") + " にあります）。");
+      /* 🔴 担当を選ぶ前でも、URL（?view=・?flag= など）や案件一覧から持ってきた絞り込みは残っていて、担当を選んだ瞬間に掛かる。
+         前は何も書かずに持ち越していた（2026-09-29 磨き込み。#deal/byowner?view=silent を開くと持ち件数の表だけが出て、
+         選んだ後の表が見方で絞られる理由がどこにも無かった＝黙って絞る）。見方は案件一覧と同じ定義の1行と外れた件数を出し、
+         持ち件数には掛けていないことと、選ぶと掛かることを書く（持ち件数は見えない条件で減らさない、は変えない） */
+      /* ここでは担当が空なので、boardFilterOn・boardFilterWords は担当以外の絞り込みだけを見る */
+      if (boardFilter.view) h += boardViewNote(D, "", true);
+      if (boardFilterOn()) {
+        h += '<p class="muted small" id="byowner-pending">絞り込み（' + esc(boardFilterWords(D)) + "）は、下の持ち件数には掛けていません。" +
+          "担当を選ぶと、その担当の案件にこの絞り込みを掛けて出します。" +
+          '<button type="button" class="act" id="bf-clear">絞り込みを外す</button></p>';
+      }
       /* 🔴 「稼働中 604 件」が画面の頭の1行・この見出し・末尾の枠の3か所に出ていた（2026-09-24 実機）。
          ただし担当を選ぶ前の頭の1行（上の lede）には件数が無く、見出しと末尾から消すと0か所になった
          （2026-09-24 検証）。見出しは担当者の人数だけにし、稼働中の件数は末尾の1か所に出す */
@@ -6771,7 +7174,7 @@ function renderBoard(D) {
   let h = sec("問い", "いま、それぞれの案件はどこにいるか") +
     '<div class="lede">稼働中 ' + num(D.rows.length) +
     " 件。<b>列の見出しを押すと並び替わります。</b>既定は名札の本数が多い順。" +
-    "<b>担当・名札・MTG途絶の帯・満了までの期間・案件名で絞り込めます。</b>" +
+    "<b>担当・名札・MTG途絶の帯・満了までの期間・契約総額・案件名で絞り込めます。</b>" +
     /* 段B: 手を打つ先（前は集計の画面ごとの表）は見方のボタンで出す。見方の名前はボタンの側（サーバの文）にだけ書く */
     "手を打つ先は「見方」のボタンで出せます（押すと定義と件数が出ます）。</div>";
 
@@ -6804,6 +7207,7 @@ function wireBoard() {
   pick("bf-flag", "flag");
   pick("bf-band", "band");
   pick("bf-expiry", "expiry");
+  pick("bf-amount", "amount");
   const q = document.getElementById("bf-q");
   if (q) {
     /* 1文字ごとに組み直すと重い。打ち終わってから当てる。
@@ -6838,7 +7242,7 @@ function wireBoard() {
      名札＋案件名「株式」で 0 件 → 押すと件数の行は 604 件、#bf-flag・#bf-q は前の値のまま）。
      欄だけ値を戻す手もあるが、選択肢の件数・既定値の組み立ては boardFilterBar 1 か所に置いておく。押す頻度は低い */
   if (cl) cl.onclick = () => {
-    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "" };
+    boardFilter = { consultant: "", flag: "", expiry: "", q: "", band: "", view: "", amount: "" };
     boardShowAll = false;
     redrawMain(boardCache);
   };
@@ -6876,6 +7280,9 @@ function wireToday() {
   });
   document.querySelectorAll("#cs-main button.kpi[data-band]").forEach((b) => {
     b.onclick = () => drillToBand(b.dataset.band, b.dataset.consultant || "");
+  });
+  document.querySelectorAll("#cs-main button.kpi[data-flag]").forEach((b) => {
+    b.onclick = () => drillToFlag(b.dataset.flag, b.dataset.consultant || "");
   });
   /* 担当の選択欄（D-1a）。選んだら端末に覚えて、手元のデータで描き直す（取り直さない）。
      欄は描き直しで作り直されるが、redrawMain が同じ id の欄へフォーカスを戻す（U9） */
@@ -7587,13 +7994,17 @@ function detailNext(D) {
     '<div class="dd-kv">' +
     kv("最後の接触（MTG・60秒超の電話）", ct
       ? "<b>" + esc(ct.date) + "</b>" + ago(ct.date) + " " + (ct.kind === "mtg" ? "MTG（録画）" : "電話 " + durText(ct.duration_sec))
-      : '<span class="muted small">この契約の期間に接触の記録がありません</span>') +
+      /* 🔴 2026-09-30 検証: 「記録がありません」は、帯・見方の「記録が見つからない」と言い方が違い、MTG・接触が無いと読めた。
+         初回契約で MTG をしないことは実務上ない（2026-09-29 藤巻さん）。継続の期間はしていないこともあるので、
+         「していない」とも「していた」とも言い切らず、欠ける理由の候補を添える */
+      : '<span class="muted small">この契約の期間に接触の記録が見つかりません（接触していないとは限りません）</span>') +
     kv("最後の MTG", mt
       ? "<b>" + esc(mt.date) + "</b>" + ago(mt.date) + " " + (mt.kind === "mtg" ? "録画（事実）" : "メール由来（推定）")
-      : '<span class="muted small">この契約の期間に MTG の記録がありません</span>') +
+      : '<span class="muted small">この契約の期間に MTG の記録が見つかりません（MTG をしていないとは限りません。' +
+        "欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない）</span>") +
     kv("満了まで", left == null ? DASH : left >= 0 ? num(left) + "日" + exp : "満了日を過ぎています" + exp) +
     kv("担当", (d.consultant
-      ? '<a href="' + esc(hashFor("board", { c: d.consultant })) + '" title="この担当の案件を案件そのもので見る">' + esc(d.consultant) + "</a>"
+      ? '<a href="' + esc(hashFor("board", { c: d.consultant })) + '" title="この担当の案件を案件一覧で見る">' + esc(d.consultant) + "</a>"
       : DASH) +
       (d.consultant_retired ? ' <span class="tag" style="color:var(--hi)">退職者</span>' : "")) +
     "</div>";
@@ -7926,7 +8337,8 @@ function renderRenewalPipe(D) {
   /* ステージ別の件数。一覧（毎週の仕事）の後ろに置く: 09 の 5 の並びは「満了月ごとの件数・金額・ステージ別の件数 → 母数 → 表」だが、
      ステージは fixture で 18 種あり、先に置くと 1440px で一覧の見出しが y=1,592（1 画面目の外）だった（2026-09-29 撮影）。
      月ごとの件数・金額は札（1 画面目）に出ているので、ステージの内訳を一覧の後ろへ回した。
-     🔴 確度は掛けない。3 か月を並べて比べるので、並びは 3 か月の合計の多い順で固定（サーバが決める） */
+     🔴 確度は掛けない。3 か月を並べて比べるので、並びはサーバが 1 つに決める。2026-09-30 から HubSpot のステージの並び（工程順。
+        money.rs DELIVERY_STAGE_ORDER）。前は 3 か月の合計の多い順で、定期2 が定期1 より上・ヨミが定期の途中に挟まっていた */
   h += sec("表", "ステージ別の件数（満了月ごと・実数）", "rp-stage");
   const st = D.stages || [];
   const cnt = (m, s) => ((m.stages || []).find((x) => x.label === s) || { n: 0 }).n;
@@ -7937,7 +8349,8 @@ function renderRenewalPipe(D) {
     "", "rp-stage-tbl"), "none") +
     '<p class="small">計: ' + months.map((m, i) => esc(word(i)) + " <b>" + num(m.n) + "</b> 件").join("・") +
     "、3 か月で <b>" + num(wt.n) + "</b> 件（ステージ " + num(st.length) + " 種）</p>" +
-    '<p class="muted small">件数だけを数えています。ステージ名に入っている「50％」などは HubSpot のステージの名前の一部で、' +
+    '<p class="muted small">並びは HubSpot のステージの並び（工程の順）です。件数の多い順ではありません。' +
+    "件数だけを数えています。ステージ名に入っている「50％」などは HubSpot のステージの名前の一部で、" +
     "件数にも金額にも掛けていません。</p>";
   /* 読むときの注意（not_counted）は画面の頭で書いた（said=true。同じ文を 2 回出さない） */
   return h + foot(M, true, "稼働中 " + num(M.n_active) + " 件");
@@ -8039,7 +8452,7 @@ const menuHaving = (vk) => MENUS.find((m) => m.views.some((x) => x.key === vk));
 /* ================================================================ 旧ハッシュの転送（N8、handover 09 の 5章）
    組み替え前の 17 画面のハッシュ（ブックマーク・貼られた URL・前の版の本文のリンク）を新しい画面へ送る。
    鍵は「区切り/画面」（区切りだけのものは区切りの鍵）。to は新しい画面の鍵、at は移り先の中の節の id（あれば飛ぶ）、
-   was は前の画面の名前（「この画面は○○に移りました」の帯に出す）。
+   was は前の画面の名前（「この画面は○○に移りました」の帯に出す）。also は前の画面が分かれたときに、残りの移り先を帯に書く文。
    今日・案件そのもの（→ 案件一覧）・案件の詳細はハッシュが変わらないので載せない（#deal/today・#deal/board・#deal/detail）。
    ? 以降の状態（法人・拠点・担当・並び・単位）はそのまま渡す。受ける画面の URL_STATE に無い名前は読まれない */
 const LEGACY = {
@@ -8052,7 +8465,10 @@ const LEGACY = {
   "consultant/contact":  { to: "team",     at: "tm-ct-h",         was: "担当者ごとの接触" },
   "study":               { to: "results",                         was: "継続回数 × 成果" },
   "study/renewal":       { to: "results",  at: "rs-renewal",      was: "継続回数 × 成果" },
-  "study/outcome":       { to: "results",  at: "rs-outcome",      was: "成果とリスク" },
+  /* 前の「成果とリスク」は、目標と応募効率（rs-outcome）とリスクの2軸（rs-risk）の 2 節に分かれ、間に立ち上がりが入った（09 の 3章）。
+     頭（目標）へ送り、後半がどこに移ったかは also で帯に書く（🔴 2026-09-30 検証: 前は何も書かず、リスクを探す人が迷う形だった） */
+  "study/outcome":       { to: "results",  at: "rs-outcome",      was: "成果とリスク",
+                           also: "前の画面の後半（リスクの2軸と最優先）は、同じ画面の下の節「リスクの2軸と最優先」に分けました（画面の頭の目次から飛べます）" },
   "study/focus":         { to: "focus",                           was: "いま見るべき顧客" },
   "study/rampup":        { to: "results",  at: "rs-rampup",       was: "立ち上がり" },
   "study/phone":         { to: "phone",                           was: "電話" },
@@ -8140,7 +8556,7 @@ function drawSide() {
   const btns = box.querySelectorAll ? Array.from(box.querySelectorAll("button")) : [];
   const total = MENUS.reduce((a, m) => a + m.views.length, 0);
   /* すでに並んでいれば印だけ付け替える（M-6） */
-  if (btns.length === total) { btns.forEach((b) => markCurrent(b, b.dataset.v === cur.view, "")); return; }
+  if (btns.length === total) { btns.forEach((b) => markCurrent(b, b.dataset.v === cur.view, "")); sideShowCurrent(box); return; }
   box.innerHTML = MENUS.map((m) =>
     '<div class="sidegrp"><h2 id="side-' + m.key + '">' + esc(m.label) + '</h2><ul role="list" aria-labelledby="side-' + m.key + '">' +
     m.views.map((v) =>
@@ -8153,6 +8569,64 @@ function drawSide() {
   box.querySelectorAll("button").forEach((b) => {
     b.onclick = () => go(null, b.dataset.v);
   });
+  sideShowCurrent(box);
+}
+/** 600px 以下のメニュー（1 行で横に流す。CSS の .side）で、いま見ている項目が行の外にあれば行の中へ送る。
+    🔴 2026-09-29 磨き込み: 1 行にすると「記録と数字の信頼度」などを開いたとき、その項目が画面の右の外にあって、
+    どこを見ているかがメニューから読めなかった。ページは動かさない（scrollIntoView は縦にも送るので使わない。枠の scrollLeft だけ） */
+function sideShowCurrent(box) {
+  const b = box && box.querySelector ? box.querySelector('button[aria-current="page"]') : null;
+  if (b && b.getBoundingClientRect && box.getBoundingClientRect && box.scrollWidth > box.clientWidth) {
+    const r = b.getBoundingClientRect(), o = box.getBoundingClientRect();
+    if (!(r.left >= o.left && r.right <= o.right)) box.scrollLeft += r.left - o.left - (o.width - r.width) / 2;
+  }
+  sideHints(box);
+}
+/** 600px 以下のメニューの行で、行の外にある区切りの名前を行の端に出す（.sidemore。PC では CSS で出さない）。
+    🔴 2026-09-30 検証（fixture 400×900、今日）: 1 行にしたメニューは「毎日 今日 案件一覧 担当者ごとの案件 案件の詳細 | 調」で切れ、
+       見えるのは「調」の端と薄い影（ink 18%）だけで、「調べる」「月1・確かめる」の区切りがあることに気づきにくかった（.side の
+       scrollWidth 1,086 / clientWidth 368）。右の端に「調べる／月1・確かめる ▸」、左へ送ったときは左の端に「◂ 毎日」と、
+       見出しが行の外にある区切りの名前を出す。押すとその区切りの頭へ行を送る（画面は切り替えない）。
+    名前はメニューの見出しと同じ（読み上げは見出しと項目で足りるので aria-hidden。Tab でも止めない）。行の高さは変えない（端に重ねる） */
+function sideHints(box) {
+  if (!box || !box.querySelectorAll || !box.getBoundingClientRect || !box.insertAdjacentHTML) return;
+  let l = box.querySelector(".sidemore.l"), r = box.querySelector(".sidemore.r");
+  if (!l || !r) {
+    box.insertAdjacentHTML("afterbegin", '<span class="sidemore l" aria-hidden="true" hidden></span>');
+    box.insertAdjacentHTML("beforeend", '<span class="sidemore r" aria-hidden="true" hidden></span>');
+    l = box.querySelector(".sidemore.l"); r = box.querySelector(".sidemore.r");
+    const goGrp = (el) => () => {
+      const h = box.querySelector("#" + el.getAttribute("data-to"));
+      if (!h) return;
+      box.scrollLeft += h.getBoundingClientRect().left - box.getBoundingClientRect().left - (el === r ? 8 : l.offsetWidth + 8);
+    };
+    l.onclick = goGrp(l); r.onclick = goGrp(r);
+  }
+  if (!box.hasAttribute("data-hints")) {
+    box.setAttribute("data-hints", "1");
+    box.addEventListener("scroll", () => sideHints(box), { passive: true });
+    window.addEventListener("resize", () => sideHints(box));
+  }
+  const o = box.getBoundingClientRect();
+  const over = box.scrollWidth > box.clientWidth + 1;
+  /* 端に重ねた名前の幅（約 96px）の下にある見出しも「見えていない」と数える */
+  const EDGE = 96;
+  const left = [], right = [];
+  box.querySelectorAll(".sidegrp").forEach((g) => {
+    const h = g.querySelector("h2");
+    if (!h || !over) return;
+    const hr = h.getBoundingClientRect(), gr = g.getBoundingClientRect();
+    if (gr.right <= o.left + EDGE) left.push(h);
+    else if (hr.left >= o.right - EDGE) right.push(h);
+  });
+  const put = (el, hs, arrow) => {
+    el.hidden = !hs.length;
+    if (!hs.length) return;
+    const t = hs.map((h) => h.textContent).join(String.fromCharCode(10));   /* 区切りごとに 1 行（white-space:pre） */
+    el.textContent = arrow === "l" ? "◂ " + t : t + " ▸";
+    el.setAttribute("data-to", (arrow === "l" ? hs[hs.length - 1] : hs[0]).id);
+  };
+  put(l, left, "l"); put(r, right, "r");
 }
 
 /* 区切りごとに「最後に開いた項目」を覚える（メモリ上。開き直せば消える）。
@@ -8200,6 +8674,10 @@ const BOARD_URL_STATE = {
   expiry: { kind: "filter", get: () => boardFilter.expiry || "",
             set: (v) => { boardFilter.expiry = EXPIRY_BANDS.some((b) => b.k === v) ? v : ""; },
             reset: () => { boardFilter.expiry = ""; } },
+  /* 契約総額の帯（09 の 3章 2）。知らない鍵（貼られた URL）は既定へ */
+  amt: { kind: "filter", get: () => boardFilter.amount || "",
+         set: (v) => { boardFilter.amount = AMOUNT_BANDS.some((b) => b.k === v) ? v : ""; },
+         reset: () => { boardFilter.amount = ""; } },
   q: boardState("q"),
   sort: sortState(() => boardSort, (s) => { boardSort = s; }, BOARD_COLS, { key: "n_flags", asc: false }),
 };
@@ -8444,7 +8922,7 @@ function showMoved(moved, v, missing) {
     "いまは「" + esc(v.label) + "」" + (!moved.at ? "で見られます"
       : missing ? "の中にありますが、その場所がこの画面に見つからなかったので、画面の頭を出しています"
       : "の中にあり、その場所まで送っています") +
-    "。ブックマークを付け直してください" +
+    "。" + (moved.also ? esc(moved.also) + "。" : "") + "ブックマークを付け直してください" +
     (MOVED_NOTICE_UNTIL ? "（この案内は " + esc(MOVED_NOTICE_UNTIL) + " まで出します）" : "") + "。");
 }
 /** 画面の中の節（id）へ送る。focus: フォーカスも移す（開いた直後は移さない。読み上げが鮮度の帯を飛ばさないように）。
@@ -8678,7 +9156,7 @@ async function load(refresh, opts) {
   /* API を持たない項目（定義と検証）はその場で描く。
      母集団の注記だけは直前に読んだ応答から出す（画面共通の値なので同じ数字になる） */
   if (!v.path) {
-    paintFigs(main, () => ctlbar(v, lastPayload || {}) + v.render());
+    paintFigs(main, () => finishView(ctlbar(v, lastPayload || {}) + v.render()));
     wire(v);
     settle(false);
     return;
@@ -8705,7 +9183,7 @@ async function load(refresh, opts) {
     /* HubSpot の portal_id は全 API の meta に同じ値で載る（routes.rs freshen）。最初の応答で覚える */
     if (body.meta && body.meta.hubspot_portal_id) hsPortal = String(body.meta.hubspot_portal_id);
     setFresh(body.meta || {});
-    paintFigs(main, () => ctlbar(v, body) + v.render(body));   /* 図の幅を枠に合わせる（2回描き） */
+    paintFigs(main, () => finishView(ctlbar(v, body) + v.render(body)));   /* 図の幅を枠に合わせる（2回描き） */
     wire(v);
     loaded[cur.menu + "/" + cur.view] = true;
     settle(fromCache);
@@ -8929,29 +9407,6 @@ function wireCustomer() {
   if (n) n.onclick = () => setAll(false);
 }
 
-/* 本部アプローチ（#hq-box）の遅延読み。hqSection() を描いた画面の wire で呼ぶ（2026-09-29 からどの画面も描いていない。hqSection の注記） */
-function wireHq() {
-  /* 本部アプローチは別のデータ。この項目を開いたときだけ取りに行く */
-  const box = document.getElementById("hq-box");
-  if (!box) return;
-  const keep = hqKeep; hqKeep = null;   /* redrawMain が覚えた #hq-box の開いた details */
-  if (hqCache) { paintFigs(box, () => renderHq(hqCache), keep); markScrollAll(); return; }
-  fetch("/api/consulting/headquarters", { credentials: "same-origin" })
-    .then(readJson)   /* ログイン切れを見分ける（U10）。r.json() だと構文エラーの文がそのまま出る */
-    .then((body) => {
-      if (body.error) throw new Error(body.message || "取得できません");
-      hqCache = body;
-      const b2 = document.getElementById("hq-box");
-      if (b2) { paintFigs(b2, () => renderHq(body)); markScrollAll(); }
-    })
-    .catch((e) => {
-      const b2 = document.getElementById("hq-box");
-      if (b2) b2.innerHTML = e.loginExpired ? LOGIN_EXPIRED_HTML
-        : '<div class="err">' + esc(e.message) + "</div>";
-    });
-}
-let hqCache = null;
-let hqKeep = null;
 
 /* 戻る・進むでも同じところへ。
    🔴 pushState で積んだ履歴を戻るときは popstate が来る（hashchange はブラウザによって

@@ -148,6 +148,43 @@ fn today_jst() -> NaiveDate {
         .date_naive()
 }
 
+/// 先読み・定期更新でシートを取り直した後に、案件の行（`deal_rows`）と見方の突き合わせ（`act_view_diff`）を
+/// 数えて覚えさせておく。`prefetch` がシートを取り終えるたびに呼ぶ。
+///
+/// 🔴 2026-09-30 検証の指摘: 覚えておく仕組み（`deal_rows` の説明）は2回目からしか効かず、シートを取り直した直後の
+///    1回目の `/api/consulting/deals` は前と同じく1秒を超えていた。fixture の実測（debug ビルド・5回）で
+///    1回目 約 2.2〜3.1 秒（行 約 1.3〜1.7 秒＋突き合わせ 約 0.7〜1.1 秒）、覚えた後 約 0.15〜0.25 秒。
+///    定期更新は 45 分ごとにシートを差し替えるので、その直後に開いた人が毎回この 1 回目を引いていた。
+///    取り直したのはサーバなので、数えるのもサーバが先に済ませる（開いた人に待たせない）。
+/// 🔴 画面の「読み直す」（`?refresh=1`）は押した人のためにその場で取り直すので、その 1 回は今も数えてから返す。
+///    日付が変わった直後も、次の定期更新まではその日の 1 回目が数える（鍵に基準日が入っているため）。
+/// 🔴 数えるのは `spawn_blocking` の中（数秒かかる計算で、非同期の実行スレッドを止めない）。失敗してもログだけ。
+pub(super) async fn warm_deal_rows() {
+    let Ok(state) = cq_state() else {
+        return;
+    };
+    let sheets = match load(&state.client, &state.store).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("コンサル: 案件の行を先に数えられない（シートが読めない）: {e:#}");
+            return;
+        }
+    };
+    let started = std::time::Instant::now();
+    let done = tokio::task::spawn_blocking(move || {
+        // 行と突き合わせの両方を覚える（今日動く先・チームと担当なども同じ行を使う）
+        let _ = build_deal_board(&sheets, today_jst());
+    })
+    .await;
+    match done {
+        Ok(()) => tracing::info!(
+            "コンサル: 案件の行を先に数えた {:.1}秒",
+            started.elapsed().as_secs_f64()
+        ),
+        Err(e) => tracing::warn!("コンサル: 案件の行を先に数えられなかった: {e}"),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct FocusQuery {
     refresh: Option<String>,
@@ -1259,7 +1296,8 @@ fn first_mtg(deals: &[Deal], mtg_first: &HashMap<String, NaiveDate>) -> Value {
     })
 }
 
-/// 稼働中の初回契約で、まだMTGをしていないもの。
+/// 稼働中の初回契約で、MTG の記録がまだ見つからないもの（していないのではなく記録が欠けていると読む。2026-09-29 藤巻さん。
+/// 2026-10-01 に初回契約に限った判断であることを確かめた）。
 fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDate) -> Value {
     // 🔴 「マーケ関連」（紹介料・マーケ施策の計上）は MTG をしないのが普通なので、
     //    この表と、その分母（稼働中の初回契約）から外す。件数は返す（黙って消さない）
@@ -1293,7 +1331,11 @@ fn no_mtg(act: &[&Deal], mtg_first: &HashMap<String, NaiveDate>, today: NaiveDat
         "n": rows.len(),
         "rate": rate(rows.len() as f64, first_time.len() as f64),
         "rows": rows,
-        "note": "稼働中の初回契約のうち、MTG の記録が1件も無いもの。記録が無いことと、やっていないことは別です",
+        // 🔴 2026-09-29 藤巻さんの判断（2026-10-01 再確認）: 初回契約で MTG をしないことは実務上ありえない。「していない」と読ませない。
+        //    初回契約に限った判断（継続契約も含む MTG途絶の帯の no_record_note までは広げない）
+        "note": "稼働中の初回契約のうち、MTG の記録が1件も見つからないもの。初回契約で MTG をしないことは実務上ありません。\
+    MTG はしていて、記録が欠けていると読みます\
+    （欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない・メールに残っていない）",
     })
 }
 
@@ -2120,7 +2162,7 @@ fn contact_cmp_json(
     後の担当はまだ担当中（締め日までの通期）の交代も、比べた日数が{MIN_WINDOW_DAYS}日以上あれば比べています。\
     区切りは交代の記録（MTG のホストが替わった日）で取り、HubSpot の担当者欄の履歴は使っていません（欄が直された日は実際に替わった日とずれるため）。\
     接触 ＝ MTG または60秒超の通話（メールは数えない。通話の日付は日本時間）。\
-    数える先は「担当者ごとの接触」と同じで、付いている取引の契約期間の外の接触を、その日に動いていた同じ拠点の本体案件に付け直しています。\
+    数える先は「チームと担当」の接触の推移と同じで、付いている取引の契約期間の外の接触を、その日に動いていた同じ拠点の本体案件に付け直しています。\
     窓に入れるのは、その日に同じ拠点で契約期間の中にある本体案件が1件だけの日です（オプション契約は除きます）。\
     通話の記録が始まる前の日と、データを取った日から先の日は窓に入れていません。\
     比べた日数（前 N日 / 後 M日）を添えています。どちらかが{MIN_WINDOW_DAYS}日未満の交代は「比べるには短い」として、まとめから外して別に数えています。\
@@ -2430,7 +2472,7 @@ fn focus_shape(
     条件は重なるので、内訳を足しても注力の社数にはなりません。\
     この線引きはシートに入っている値をそのまま読んでいて、画面で決めていません",
         "not_layer": "これは法人の大きさの話で、法人ごとに決まります。日々は変わりません。\
-    日々変わる状態は「今日動く先」の MTG途絶の帯のほうです。混ぜて読まないでください",
+    日々変わる状態は「今日」の MTG途絶の帯のほうです。混ぜて読まないでください",
     })
 }
 
@@ -2466,7 +2508,7 @@ pub fn build_customer(sheets: &Sheets, houjin: Option<&str>, today: NaiveDate) -
             "meta": {"today": today.to_string(), "all_cached": sheets.all_cached},
             "default_houjin": default_houjin,
             "default_reason": "取引がいちばん多い法人を既定で開いています。\
-        「案件 → 今日動く先」の1件目にしていないのは、あちらが日によって変わるので\
+        「毎日 → 今日」の1件目にしていないのは、あちらが日によって変わるので\
         「昨日と同じ顧客を続けて見る」ができなくなるためです",
             "index": list.iter().map(|c| {
                 let f = fflags.get(&c.houjin).copied().unwrap_or_default();
@@ -2877,10 +2919,18 @@ pub(super) const ACT_VIEWS: [ActView; 4] = [
     },
     ActView {
         key: "no_mtg",
-        label: "初回契約で MTG の記録が無い",
-        rule: "初回契約で、MTG途絶の帯が「MTGの記録が無い」の案件（録画とメール由来の実施日のどちらにも無い）。\
-立ち上がり期（契約開始30日以内）と開始前は帯を付けないので入りません。記録が無いことと、やっていないことは別です",
-        old: Some("立ち上がりの「MTG の記録がまだ無い初回契約」（録画だけで数え、マーケ関連を外していた）"),
+        // 🔴 2026-09-29 藤巻さんの判断（2026-10-01 再確認）: 初回契約で MTG をしないことは実務上ありえない。ここに残る案件は
+        //    「していない」ではなく「記録が欠けている」と読む。名前・定義文とも「見つからない」にそろえる。
+        //    初回契約に限った判断なので、定義文にもそう書く（継続契約まで広げて言い切らない）
+        label: "初回契約で MTG の記録が見つからない",
+        rule: "初回契約で、MTG途絶の帯が「MTGの記録が見つからない」の案件（録画とメール由来の実施日のどちらにも見つからない）。\
+立ち上がり期（契約開始30日以内）と開始前は帯を付けないので入りません。\
+初回契約で MTG をしないことは実務上ないので、MTG はしていて記録が欠けていると読みます（初回契約に限った読み方です）。\
+欠ける理由の候補は、MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない・メールに残っていない、です",
+        // 🔴 前の表の名前は、画面に出ていたとおりに残す（書き換えると、覚えている人が照合できず、履歴として事実でなくなる）。
+        //    いまの読み方（していないのではなく、記録が見つからない）は括弧の中に添える
+        old: Some("立ち上がりの「MTG の記録がまだ無い初回契約」（当時の名前のまま。録画だけで数え、マーケ関連を外していた。\
+いまは「していない」ではなく「記録が見つからない」と読みます）"),
     },
     ActView {
         key: "mtg_risk",
@@ -3109,7 +3159,27 @@ pub(super) fn act_view_diff(sheets: &Sheets, today: NaiveDate, rows: &[Value]) -
 /// 🔴 **スコアや確率を出さない。** 契約開始時点の AUC は 0.583 で、順位付けの
 /// 根拠にならない。代わりに**名札**（NPS4以下・満了が近い・接触が空いている等）を
 /// 立てて、その**本数**で並べる。何で上に来たかが画面で説明できる形にする。
+///
+/// 🔴 2026-09-29 磨き込み: シートを取り直すか日が変わるまで覚えておく（鍵は `act_view_diff_memo` と同じシート9枚と基準日）。
+///    行はシートと基準日だけで決まり、今日動く先・案件一覧・チームと担当・満了と継続・案件の詳細が同じ行を毎回数え直していた。
+///    fixture の実測（debug ビルド、ほかのビルドと同時に走らせた値）で `deal_rows` 1 回 約 1.2〜1.7 秒、
+///    案件一覧の応答（組み立て＋JSON 化、突き合わせは覚えた後）約 1.6〜1.9 秒のうちほとんどがここだった。
+///    覚えた後は同じ条件で 約 0.17〜0.34 秒（5回）。シートを取り直した直後の1回目は、先読み・定期更新の後に
+///    サーバが先に数えておく（`warm_deal_rows`）。画面の「読み直す」の1回だけは今もその場で数える
 pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
+    static MEMO: DiffMemo<(Vec<Value>, Value)> = std::sync::Mutex::new(None);
+    let (rows, mut meta) =
+        act_view_diff_memo_in(&MEMO, sheets, today, || deal_rows_uncached(sheets, today));
+    // 🔴 all_cached だけはシートの中身でなく「今回キャッシュから返せたか」なので、覚えた値でなく今回の値にする
+    //    （取り直した直後に覚えた false を、次の応答からもずっと返さない）
+    if let Some(m) = meta.as_object_mut() {
+        m.insert("all_cached".into(), json!(sheets.all_cached));
+    }
+    (rows, meta)
+}
+
+/// `deal_rows` の中身（覚えずに毎回数える）
+pub(super) fn deal_rows_uncached(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value) {
     let deals = deals_of(&sheets.deal);
     let act: Vec<&Deal> = deals.iter().filter(|d| d.is_active).collect();
     let who = consultant_of(&sheets.owner_hist);
@@ -3330,7 +3400,7 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
             "cpa_band": cband.map(|b| CPA_BANDS[b].0),
             "flags": flags,
             "n_flags": flags.len(),
-            // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が無い」の材料
+            // 継続回数（0＝初回契約）。見方「初回契約で MTG の記録が見つからない」の材料
             "renewal_no": d.renewal_no,
             // 判定のある MTG のうち、いちばん新しいもののリスク判定と開催日（無ければ null）
             "mtg_risk": mrisk.map(|(_, r)| r.clone()),
@@ -3375,6 +3445,10 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
         "all_cached": sheets.all_cached,
         "flag_counts": flag_count.iter().map(|(k, v)| json!({"label": k, "n": v}))
             .collect::<Vec<_>>(),
+        // 開始前の契約には立てない名札（上の not_started）。案件一覧はこの名札で絞ったとき、開始前の件数を件数の行に添える。
+        // 🔴 2026-09-30 検証: 今日の札は「開始済みの稼働中 545 件のうち 61 件」、押した先は「604 件中 61 件を表示」で、
+        //    同じ 61 件の分母が 2 通りに見えた。どちらも正しいので、違いの 59 件（開始前）を行き先でも書く
+        "started_only_flags": [TEAM_FLAG_NO_CONTACT, FLAG_CONTACT_GAP30],
         "mtg_gap": {
             "bands": band_order.iter().map(|b| json!({
                 "band": b, "label": b.label(),
@@ -3403,8 +3477,14 @@ pub(super) fn deal_rows(sheets: &Sheets, today: NaiveDate) -> (Vec<Value>, Value
                 super::MTG_GAP_RED_DAYS, super::MTG_GAP_CRITICAL_DAYS - 1,
                 super::MTG_GAP_CRITICAL_DAYS, super::MTG_ONBOARDING_GRACE_DAYS,
                 super::MTG_PRE_TERMINATION_DAYS, super::MTG_PRE_TERMINATION_GAP_DAYS),
-            "no_record_note": "「記録が無い」は「MTGをしていない」という意味ではありません。\
-    録画が取引に紐づいていないぶんを含みます。だから名札は立てていません。\
+            // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ない。記録が欠ける理由の候補を添える。
+            //    ただし判断は初回契約について。帯には初回契約でない案件も入る（fixture 2026-09-18: 帯 44 件のうち
+            //    初回契約 21 件）。継続の期間まで「MTG はしていた」と言い切ると推定を事実のように書くので、分けて書く
+            "no_record_note": "「記録が見つからない」は「MTGをしていない」とは限りません。\
+    初回契約では MTG をしないことは実務上ないので、MTG はしていて、記録が欠けていると読みます\
+    （欠ける理由の候補: MTG 台帳への反映の遅れ・録画なし・録画が取引に紐づいていない）。\
+    初回契約でない案件は、MTG をしていない場合と記録が欠けている場合のどちらもありえ、このデータでは分けられません。\
+    どちらか決められないので、名札は立てていません。\
     録画（事実）とメール由来の実施日（推定・±1日で83.3%）の両方を見たうえで、\
     それでも見つからなかったものだけがここに入ります",
             "source_note": "行ごとに、その日付をどちらから取ったかを出しています。\
@@ -3483,15 +3563,17 @@ fn act_view_diff_memo(sheets: &Sheets, today: NaiveDate, make: impl FnOnce() -> 
     act_view_diff_memo_in(&MEMO, sheets, today, make)
 }
 
-pub(super) type DiffMemo = std::sync::Mutex<Option<(DiffKey, Value)>>;
+pub(super) type DiffMemo<T = Value> = std::sync::Mutex<Option<(DiffKey, T)>>;
 
 /// 覚えておく場所を渡せる形（テストは自分の場所を使う。並んで走るほかのテストと取り合わない）
-pub(super) fn act_view_diff_memo_in(
-    memo: &DiffMemo,
+///
+/// 案件の行（`deal_rows`）も同じ鍵で覚えるので、中身の型は選べる（`T`）
+pub(super) fn act_view_diff_memo_in<T: Clone>(
+    memo: &DiffMemo<T>,
     sheets: &Sheets,
     today: NaiveDate,
-    make: impl FnOnce() -> Value,
-) -> Value {
+    make: impl FnOnce() -> T,
+) -> T {
     let key = diff_key(sheets, today);
     let same = |a: &DiffKey, b: &DiffKey| {
         a.0 == b.0 && a.1.iter().zip(b.1.iter()).all(|(x, y)| x.ptr_eq(y))
@@ -3557,6 +3639,26 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
             .entry(r["consultant"].as_str().unwrap_or(""))
             .or_insert(0) += 1;
     }
+    // 札「接触の記録が無い」（09 の 3章 1 の 2、2026-09-29 磨き込み）。名札（`deal_rows` の flags）と同じ集合を、
+    // MTG途絶と同じ理由で稼働中の全件から数える（候補＝名札2本以上の中だと、名札がこの 1 本だけの行が落ちる）。
+    // 🔴 母数は開始済みの稼働中。開始前は名札を立てない（`deal_rows` の not_started）ので、稼働中の全件で割ると
+    //    「開始前なのに接触が無い」を数えていないのに数えたように読める。開始前の件数は別に返す
+    let mut no_contact_by: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    let (mut no_contact_n, mut no_contact_base) = (0usize, 0usize);
+    for r in rows.iter().filter(|r| r["not_started"] != true) {
+        let hit = r["flags"]
+            .as_array()
+            .is_some_and(|fs| fs.iter().any(|f| f == TEAM_FLAG_NO_CONTACT));
+        let e = no_contact_by
+            .entry(r["consultant"].as_str().unwrap_or(""))
+            .or_insert((0, 0));
+        e.1 += 1;
+        no_contact_base += 1;
+        if hit {
+            e.0 += 1;
+            no_contact_n += 1;
+        }
+    }
 
     // 今週満了するもの（名札の本数に関わらず落とさない）
     let soon: Vec<Value> = rows
@@ -3609,6 +3711,17 @@ pub fn build_today_board(sheets: &Sheets, today: NaiveDate) -> Value {
                 json!(critical_by_consultant),
             );
         }
+        m.insert(
+            "no_contact".into(),
+            json!({
+                "label": TEAM_FLAG_NO_CONTACT,
+                "n": no_contact_n,
+                "base": no_contact_base,
+                "by_consultant": no_contact_by.iter()
+                    .map(|(k, (n, base))| (k.to_string(), json!({"n": n, "base": base})))
+                    .collect::<serde_json::Map<String, Value>>(),
+            }),
+        );
         m.insert("n_started_this_week".into(), json!(started.len()));
         m.insert("n_not_started".into(), json!(not_started.len()));
         m.insert(

@@ -810,3 +810,255 @@ fn csrf_debug_envで追加したoriginだけ通る() {
         Err("CSRF: invalid origin")
     );
 }
+
+// ---- 2026-10-01: 都道府県・市区町村の JSON API (/api/app/geo/*) ----
+
+fn geo_app(db: Option<crate::db::local_sqlite::LocalDb>) -> Router {
+    build_app(Arc::new(AppState {
+        config: test_config(),
+        hw_db: db,
+        indeed_db: None,
+        turso_db: None,
+        salesnow_db: None,
+        scout_db: None,
+        cache: AppCache::new(60, 10),
+        rate_limiter: crate::auth::session::RateLimiter::new(50, 60),
+        company_geo_cache: None,
+        audit: None,
+        google_oidc: None,
+    }))
+}
+
+/// postings(prefecture, municipality) だけを持つ tempfile の SQLite。
+fn geo_db(
+    rows: &[(Option<&str>, Option<&str>)],
+) -> (tempfile::NamedTempFile, crate::db::local_sqlite::LocalDb) {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let conn = rusqlite::Connection::open(tmp.path()).unwrap();
+    conn.execute_batch("CREATE TABLE postings (prefecture TEXT, municipality TEXT);")
+        .unwrap();
+    for (p, m) in rows {
+        conn.execute(
+            "INSERT INTO postings VALUES (?1, ?2)",
+            rusqlite::params![p, m],
+        )
+        .unwrap();
+    }
+    drop(conn);
+    let db = crate::db::local_sqlite::LocalDb::new(tmp.path().to_str().unwrap()).unwrap();
+    (tmp, db)
+}
+
+fn all_prefs_reversed_rows() -> Vec<(Option<&'static str>, Option<&'static str>)> {
+    // 挿入順は逆順。重複行・空文字・NULL も混ぜる
+    let mut v: Vec<_> = crate::models::job_seeker::PREFECTURE_ORDER
+        .iter()
+        .rev()
+        .map(|p| (Some(*p), Some("X市")))
+        .collect();
+    v.push((Some("東京都"), Some("千代田区")));
+    v.push((Some(""), Some("空県市")));
+    v.push((None, Some("NULL県市")));
+    v
+}
+
+/// `<option value="V"[ data-citycode="N"]>` を (value, citycode) の列にする。
+fn parse_options(html: &str) -> Vec<(String, Option<u32>)> {
+    html.split("<option value=\"")
+        .skip(1)
+        .map(|chunk| {
+            let (value, rest) = chunk.split_once('"').unwrap();
+            let tag = rest.split_once('>').unwrap().0;
+            let code = tag
+                .split_once("data-citycode=\"")
+                .map(|(_, r)| r.split_once('"').unwrap().0.parse().unwrap());
+            (value.to_string(), code)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn geo_都道府県は47件でjis順_prefcodeは1から47() {
+    let (_tmp, db) = geo_db(&all_prefs_reversed_rows());
+    let app = geo_app(Some(db));
+    let cookie = login(&app, USER).await;
+    let v = get_json(&app, "/api/app/geo/prefectures", &cookie).await;
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 47);
+    assert_eq!(arr[0], serde_json::json!({"name":"北海道","prefcode":1}));
+    assert_eq!(arr[12], serde_json::json!({"name":"東京都","prefcode":13}));
+    assert_eq!(arr[46], serde_json::json!({"name":"沖縄県","prefcode":47}));
+    for (i, (o, p)) in arr
+        .iter()
+        .zip(crate::models::job_seeker::PREFECTURE_ORDER.iter())
+        .enumerate()
+    {
+        assert_eq!(o["name"], *p, "index {i}");
+        assert_eq!(o["prefcode"], (i + 1) as u64, "index {i}");
+    }
+}
+
+#[tokio::test]
+async fn geo_未知の都道府県名は末尾でprefcodeはnull() {
+    let (_tmp, db) = geo_db(&[
+        (Some("架空県"), Some("a")),
+        (Some("沖縄県"), Some("b")),
+        (Some("北海道"), Some("c")),
+    ]);
+    let app = geo_app(Some(db));
+    let cookie = login(&app, USER).await;
+    let v = get_json(&app, "/api/app/geo/prefectures", &cookie).await;
+    assert_eq!(
+        v,
+        serde_json::json!([
+            {"name":"北海道","prefcode":1},
+            {"name":"沖縄県","prefcode":47},
+            {"name":"架空県","prefcode":null}
+        ])
+    );
+}
+
+fn tokyo_rows() -> Vec<(Option<&'static str>, Option<&'static str>)> {
+    vec![
+        (Some("東京都"), Some("港区")),
+        (Some("東京都"), Some("新宿区")),
+        (Some("東京都"), Some("千代田区")),
+        (Some("東京都"), Some("千代田区")), // 重複
+        (Some("東京都"), Some("八王子市")),
+        (Some("東京都"), Some("架空市")), // マスタに無い
+        (Some("東京都"), Some("")),
+        (Some("東京都"), None),
+        (Some("大阪府"), Some("大阪市北区")), // 別県
+    ]
+}
+
+#[tokio::test]
+async fn geo_市区町村は東京都で5件_citycodeはマスタ値_架空はnull() {
+    let (_tmp, db) = geo_db(&tokyo_rows());
+    let app = geo_app(Some(db));
+    let cookie = login(&app, USER).await;
+    let v = get_json(
+        &app,
+        &format!(
+            "/api/app/geo/municipalities?prefecture={}",
+            urlencoding::encode("東京都")
+        ),
+        &cookie,
+    )
+    .await;
+    // 既存 SQL の ORDER BY municipality (UTF-8 バイト順)
+    assert_eq!(
+        v,
+        serde_json::json!([
+            {"name":"八王子市","citycode":13201},
+            {"name":"千代田区","citycode":13101},
+            {"name":"新宿区","citycode":13104},
+            {"name":"架空市","citycode":null},
+            {"name":"港区","citycode":13103}
+        ])
+    );
+    // 未指定・空は []
+    for uri in [
+        "/api/app/geo/municipalities",
+        "/api/app/geo/municipalities?prefecture=",
+    ] {
+        assert_eq!(
+            get_json(&app, uri, &cookie).await,
+            serde_json::json!([]),
+            "{uri}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn geo_既存html_apiとjsonが一致する() {
+    let mut rows = all_prefs_reversed_rows();
+    rows.extend(tokyo_rows());
+    rows.push((Some("架空県"), Some("z")));
+    let (_tmp, db) = geo_db(&rows);
+    let app = geo_app(Some(db));
+    let cookie = login(&app, USER).await;
+    let hx = [("hx-request", "true")];
+
+    let html =
+        body_string(send(&app, "GET", "/api/prefectures", Some(&cookie), &hx, None).await).await;
+    let html_names: Vec<String> = parse_options(&html).into_iter().map(|(v, _)| v).collect();
+    let json = get_json(&app, "/api/app/geo/prefectures", &cookie).await;
+    let json_names: Vec<String> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(html_names.len(), 48);
+    assert_eq!(html_names, json_names);
+
+    let uri = format!("prefecture={}", urlencoding::encode("東京都"));
+    let html = body_string(
+        send(
+            &app,
+            "GET",
+            &format!("/api/municipalities_cascade?{uri}"),
+            Some(&cookie),
+            &hx,
+            None,
+        )
+        .await,
+    )
+    .await;
+    let html_pairs = parse_options(&html);
+    let json = get_json(&app, &format!("/api/app/geo/municipalities?{uri}"), &cookie).await;
+    let json_pairs: Vec<(String, Option<u32>)> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| {
+            (
+                o["name"].as_str().unwrap().to_string(),
+                o["citycode"].as_u64().map(|n| n as u32),
+            )
+        })
+        .collect();
+    assert_eq!(html_pairs.len(), 6); // tokyo_rows の 5 件 + all_prefs_reversed_rows の「X市」
+    assert_eq!(html_pairs, json_pairs);
+    // 両方とも同じ関数を通るので、上の一致だけでは共通部分の回帰を検出できない。
+    // 旧 HTML の出力そのもの (区切りは "\n") を固定値で確かめる。
+    assert!(
+        html.contains("<option value=\"千代田区\" data-citycode=\"13101\">千代田区</option>\n"),
+        "{html}"
+    );
+    assert!(!html.contains('\r'), "{html:?}");
+}
+
+#[tokio::test]
+async fn geo_未ログインは401_dbなしは空配列() {
+    let (_tmp, db) = geo_db(&tokyo_rows());
+    let app = geo_app(Some(db));
+    for uri in [
+        "/api/app/geo/prefectures",
+        "/api/app/geo/municipalities?prefecture=%E6%9D%B1%E4%BA%AC%E9%83%BD",
+    ] {
+        let res = send(
+            &app,
+            "GET",
+            uri,
+            None,
+            &[("accept", "application/json")],
+            None,
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "{uri}");
+    }
+    let app = geo_app(None);
+    let cookie = login(&app, USER).await;
+    for uri in [
+        "/api/app/geo/prefectures",
+        "/api/app/geo/municipalities?prefecture=%E6%9D%B1%E4%BA%AC%E9%83%BD",
+    ] {
+        assert_eq!(
+            get_json(&app, uri, &cookie).await,
+            serde_json::json!([]),
+            "{uri}"
+        );
+    }
+}

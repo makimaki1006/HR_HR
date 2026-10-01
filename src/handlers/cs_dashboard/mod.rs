@@ -1003,6 +1003,8 @@ pub async fn prefetch() {
         "コンサル先読み: 完了 {ok}枚 / 失敗 {ng}枚 / {:.1}秒",
         started.elapsed().as_secs_f64()
     );
+    // 取り直した後の 1 回目を開いた人に数えさせない（理由と実測は `routes::warm_deal_rows`）
+    routes::warm_deal_rows().await;
 
     // 🔴 **TTL が切れる前に取り直し続ける。** 起動時の1回だけだと、1時間後に
     //    最初に開いた人が9枚の直列取得を待つ（初回は実測 18.7秒・2026-09-23 本番）。
@@ -1026,6 +1028,7 @@ pub async fn prefetch() {
             SHEETS.len(),
             started.elapsed().as_secs_f64()
         );
+        routes::warm_deal_rows().await;
     }
 }
 
@@ -1219,7 +1222,9 @@ impl MtgBand {
             MtgBand::Red => "MTGが60〜89日途絶",
             MtgBand::Yellow => "MTGが30〜59日途絶",
             MtgBand::Recent => "直近30日にMTGあり",
-            MtgBand::NoRecord => "MTGの記録が無い",
+            // 🔴 2026-09-29 藤巻さんの判断: 初回契約で MTG をしないことは実務上ありえない。
+            //    記録が欠けている（台帳の遅れ・録画なし・紐付け漏れ）と読めるよう「見つからない」にする
+            MtgBand::NoRecord => "MTGの記録が見つからない",
             MtgBand::Onboarding => "立ち上がり期（契約開始30日以内）",
         }
     }
@@ -1260,7 +1265,7 @@ impl MtgSource {
             MtgSource::Recording => "録画（事実）",
             MtgSource::Mail => "メール由来（推定・±1日で83.3%）",
             MtgSource::Both => "録画とメールの両方（事実）",
-            MtgSource::None => "記録なし",
+            MtgSource::None => "記録が見つからない",
         }
     }
 }
