@@ -36,8 +36,7 @@ const ASSET_BASE: &str = "/static/app/";
 /// React 化した画面の一覧。ここに無い名前は manifest の有無にかかわらず 404。
 /// 追加するときは `frontend/src/entries/{screen}.tsx` と vite.config.ts の input も足す。
 pub const KNOWN_SCREENS: &[&str] = &[
-    "dummy",
-    "jobgen",
+    "dummy", "jobgen",
     // W8 (2026-09-29): 管理 (/app/admin) と個人設定 (/app/my)。画面内は ?view= で切り替える
     "admin", "my",
 ];
