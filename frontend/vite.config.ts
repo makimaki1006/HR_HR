@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
@@ -9,7 +10,7 @@ const fromHere = (p: string): string => fileURLToPath(new URL(p, import.meta.url
 // Everything under /static is reachable without login: never import secrets into the bundle.
 export default defineConfig({
   base: '/static/app/',
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     outDir: fromHere('../static/app'),
     emptyOutDir: true,

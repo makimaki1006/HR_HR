@@ -15,6 +15,7 @@ pub mod diagnostic;
 pub mod dict_cards;
 pub mod driver;
 pub mod emp_classifier;
+pub mod filters; // 2026-09-30: ヘッダーフィルタの読み出し (/api/filters/current) と resolve_filters
 pub mod guide;
 pub mod helpers;
 pub mod indeed;
@@ -24,6 +25,7 @@ pub mod jobmap;
 pub mod license;
 pub mod market;
 pub mod my;
+pub mod nav; // 2026-09-30: ナビ定義 (旧シェルと React シェル共通、/api/nav、hidden フラグ)
 pub mod overview;
 pub mod recruitment_diag;
 pub mod region;

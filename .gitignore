@@ -151,3 +151,8 @@ test-results/
 
 # React frontend build output (Vite, frontend/ -> static/app/). Built in CI/Docker, not committed.
 static/app/
+
+# PR E2E (tests/e2e/pr)
+.e2e-bin/
+playwright-report-pr/
+test-results-pr/
