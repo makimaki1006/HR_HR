@@ -118,6 +118,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // Drop the context of the unmounted shell so getCtx() waits for the current test's CtxProbe.
+  ctxBox.current = null;
 });
 
 describe('AppShell header / nav', () => {
