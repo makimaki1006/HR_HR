@@ -516,7 +516,6 @@ w-0.5                           src/handlers/analysis/render/subtab5_anomaly.rs
 w-0.5                           src/handlers/analysis/render/subtab6_forecast.rs
 w-0.5                           src/handlers/diagnostic.rs
 w-1/2                           src/handlers/analysis/render/subtab5_anomaly.rs
-w-1/2                           src/handlers/guide.rs
 w-14                            src/handlers/analysis/render/subtab5_anomaly.rs
 w-14                            src/handlers/survey/render.rs
 w-28                            src/handlers/analysis/render/subtab5_anomaly.rs
