@@ -25,6 +25,8 @@ export default defineConfig({
         admin: fromHere('src/entries/admin.tsx'),
         my: fromHere('src/entries/my.tsx'),
         guide: fromHere('src/entries/guide.tsx'),
+        // Phase 1A (2026-10-01): /app/recruitment-diag
+        'recruitment-diag': fromHere('src/entries/recruitment-diag.tsx'),
       },
     },
   },
