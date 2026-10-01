@@ -1,0 +1,78 @@
+/* Guide screen. Scoped under .guide; colours follow the old dashboard (slate / cyan / amber). */
+.guide {
+  --g-bg: #0f172a;
+  --g-card: #1e293b;
+  --g-line: #334155;
+  --g-line-soft: #1e293b;
+  --g-text: #94a3b8;
+  --g-text-strong: #ffffff;
+  --g-text-mid: #cbd5e1;
+  --g-head: #22d3ee;
+  --g-sub: #67e8f9;
+  --g-warn: #fbbf24;
+  --g-callout-bg: rgba(120, 53, 15, 0.3);
+  --g-callout-text: #fcd34d;
+  --g-muted: #64748b;
+  --g-panel: rgba(30, 41, 59, 0.5);
+  background: var(--g-bg);
+  color: var(--g-text);
+  min-height: 100vh;
+  padding: 16px;
+  font-family: system-ui, 'Segoe UI', 'Hiragino Sans', 'Yu Gothic', sans-serif;
+  box-sizing: border-box;
+}
+.guide * { box-sizing: border-box; }
+.guide__root { display: flex; flex-direction: column; gap: 16px; max-width: 1100px; margin: 0 auto; }
+.guide__card { background: var(--g-card); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; }
+.guide__group--indent { margin: 8px 0 0 16px; }
+.guide__group--indent-spaced { margin: 8px 0 0 16px; display: flex; flex-direction: column; gap: 12px; }
+.guide__group--gap { margin-top: 12px; }
+.guide__group--gap-spaced,
+.guide__group--gap-spaced-small,
+.guide__group--gap-spaced-muted { margin-top: 12px; display: flex; flex-direction: column; gap: 16px; font-size: 14px; }
+.guide__group--panel { background: var(--g-panel); border-radius: 4px; padding: 12px; }
+.guide__group--callout { margin-top: 8px; padding: 8px; background: var(--g-callout-bg); color: var(--g-callout-text); border-radius: 4px; font-size: 12px; }
+.guide__details--tab { margin-left: 8px; }
+.guide__details--shots { margin-top: 16px; }
+.guide summary { cursor: pointer; }
+.guide summary:hover { color: var(--g-sub); }
+.guide__summary--card { font-size: 18px; font-weight: 700; color: var(--g-head); }
+.guide__summary--tab { font-weight: 600; color: var(--g-text-strong); }
+.guide__summary--shots { font-size: 14px; color: var(--g-text-mid); }
+.guide__heading { margin: 0; }
+.guide__heading--title { font-size: 20px; font-weight: 700; color: var(--g-text-strong); margin-bottom: 8px; }
+.guide__heading--section { font-size: 18px; font-weight: 700; color: var(--g-head); margin-bottom: 12px; }
+.guide__heading--sub { font-size: 16px; font-weight: 600; color: var(--g-text-strong); margin-bottom: 8px; }
+.guide__heading--sub-tight { font-size: 16px; font-weight: 600; color: var(--g-text-strong); margin-bottom: 4px; }
+.guide__heading--panel { font-size: 14px; font-weight: 600; color: var(--g-sub); margin-bottom: 8px; }
+.guide__para { margin: 0; }
+.guide__para--warn { margin-top: 8px; color: var(--g-warn); font-size: 12px; }
+.guide__para--warn-tight { margin-top: 4px; color: var(--g-warn); font-size: 12px; }
+.guide__para--lead { margin-top: 8px; color: var(--g-text-mid); }
+.guide__para--body { margin-top: 8px; font-size: 14px; }
+.guide__para--note { margin-top: 8px; color: var(--g-muted); font-size: 12px; }
+.guide__para--desc { margin-top: 4px; }
+.guide__para--intro { font-size: 14px; }
+.guide__para--intro-spaced { font-size: 14px; margin-bottom: 8px; }
+.guide__para--label { color: var(--g-text-strong); font-weight: 600; }
+.guide__para--caption { font-size: 12px; color: var(--g-muted); margin-bottom: 4px; }
+.guide__strong--white { color: var(--g-text-strong); }
+.guide__list { margin: 0; padding-left: 20px; }
+.guide__list--bullet-indent { list-style: disc; margin-left: 8px; }
+.guide__list--bullet-spaced { list-style: disc; margin-top: 4px; }
+.guide__list--bullet-spaced > li + li { margin-top: 4px; }
+.guide__list--numbered { list-style: decimal; font-size: 14px; }
+.guide__list--numbered > li + li { margin-top: 4px; }
+.guide__table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.guide__th { text-align: left; padding: 8px 12px; color: var(--g-text-mid); border-bottom: 1px solid var(--g-line); font-weight: 600; }
+.guide__table--dense .guide__th,
+.guide__table--dense .guide__td { padding: 4px 8px; }
+.guide__th--half { width: 50%; }
+.guide__td { padding: 8px 12px; vertical-align: top; }
+.guide__tr--sep .guide__td { border-bottom: 1px solid var(--g-line-soft); }
+.guide__td--white { color: var(--g-text-strong); }
+.guide__td--white-bold { color: var(--g-text-strong); font-weight: 600; }
+.guide__td--amber { color: var(--g-warn); }
+.guide__img { width: 100%; border-radius: 4px; border: 1px solid var(--g-line); }
+.guide__shots { display: flex; flex-direction: column; gap: 16px; margin-top: 12px; }
+.guide__status { padding: 16px; color: var(--g-text-mid); }
