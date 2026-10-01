@@ -200,6 +200,8 @@
   /* 🔴 **position:fixed を使わない。** fixed だと本文に重なって先頭の節が隠れる。
      sticky なら grid の列の中に居座るので、本文の幅を食うだけで重ならない。
      余白の打ち消し（padding-top を足す等）も要らなくなる。 */
+  /* メニューの端の区切りの名前（sideHints）は 600px 以下の 1 行のメニューだけ（PC の縦の列では出さない） */
+  .sidemore{ display:none; }
   .side{ position:sticky; top:var(--space-3); align-self:start;
          max-height:calc(100vh - 2 * var(--space-3)); overflow-y:auto;
          border-right:1px solid var(--rule); padding-right:var(--space-3); }
@@ -823,6 +825,14 @@ table.prose td{ white-space:normal; line-height:1.6; min-width:9em; }
            linear-gradient(to left, color-mix(in srgb, var(--ink) 18%, transparent), transparent) right center / 12px 100% no-repeat scroll,
            var(--paper); }
   .sidegrp{ display:flex; flex-wrap:nowrap; flex:none; align-items:center; column-gap:var(--space-1); }
+  /* 行の外にある区切りの名前（sideHints）。行の端に貼り付け（sticky）、下の項目の上に地の色で重ねる。2 つなら 2 行（行の高さ 44px の中） */
+  .side > .sidemore{ position:sticky; z-index:1; flex:none; align-self:stretch; align-items:center;
+                     padding:0 var(--space-2); font-size:11px; line-height:1.3; font-weight:700; letter-spacing:.04em;
+                     color:var(--ink); background:var(--paper); white-space:pre; cursor:pointer; }
+  .side > .sidemore.l{ left:0; border-right:1px solid var(--rule-strong); }
+  .side > .sidemore.r{ right:0; margin-left:auto; border-left:1px solid var(--rule-strong); }
+  /* 行の外に区切りが無いときは hidden（既定の display:none のまま。ここでは display を上書きしない） */
+  .side > .sidemore:not([hidden]){ display:flex; }
   .sidegrp + .sidegrp{ border-left:1px solid var(--rule-strong); padding-left:var(--space-2); margin-left:var(--space-1); }
   .sidegrp ul{ display:contents; }
   .sidegrp h2{ min-width:0; font-size:11px; letter-spacing:.06em; margin:0 var(--space-1) 0 0; }
@@ -8423,10 +8433,57 @@ function drawSide() {
     どこを見ているかがメニューから読めなかった。ページは動かさない（scrollIntoView は縦にも送るので使わない。枠の scrollLeft だけ） */
 function sideShowCurrent(box) {
   const b = box && box.querySelector ? box.querySelector('button[aria-current="page"]') : null;
-  if (!b || !b.getBoundingClientRect || !box.getBoundingClientRect || !(box.scrollWidth > box.clientWidth)) return;
-  const r = b.getBoundingClientRect(), o = box.getBoundingClientRect();
-  if (r.left >= o.left && r.right <= o.right) return;
-  box.scrollLeft += r.left - o.left - (o.width - r.width) / 2;
+  if (b && b.getBoundingClientRect && box.getBoundingClientRect && box.scrollWidth > box.clientWidth) {
+    const r = b.getBoundingClientRect(), o = box.getBoundingClientRect();
+    if (!(r.left >= o.left && r.right <= o.right)) box.scrollLeft += r.left - o.left - (o.width - r.width) / 2;
+  }
+  sideHints(box);
+}
+/** 600px 以下のメニューの行で、行の外にある区切りの名前を行の端に出す（.sidemore。PC では CSS で出さない）。
+    🔴 2026-09-30 検証（fixture 400×900、今日）: 1 行にしたメニューは「毎日 今日 案件一覧 担当者ごとの案件 案件の詳細 | 調」で切れ、
+       見えるのは「調」の端と薄い影（ink 18%）だけで、「調べる」「月1・確かめる」の区切りがあることに気づきにくかった（.side の
+       scrollWidth 1,086 / clientWidth 368）。右の端に「調べる／月1・確かめる ▸」、左へ送ったときは左の端に「◂ 毎日」と、
+       見出しが行の外にある区切りの名前を出す。押すとその区切りの頭へ行を送る（画面は切り替えない）。
+    名前はメニューの見出しと同じ（読み上げは見出しと項目で足りるので aria-hidden。Tab でも止めない）。行の高さは変えない（端に重ねる） */
+function sideHints(box) {
+  if (!box || !box.querySelectorAll || !box.getBoundingClientRect || !box.insertAdjacentHTML) return;
+  let l = box.querySelector(".sidemore.l"), r = box.querySelector(".sidemore.r");
+  if (!l || !r) {
+    box.insertAdjacentHTML("afterbegin", '<span class="sidemore l" aria-hidden="true" hidden></span>');
+    box.insertAdjacentHTML("beforeend", '<span class="sidemore r" aria-hidden="true" hidden></span>');
+    l = box.querySelector(".sidemore.l"); r = box.querySelector(".sidemore.r");
+    const goGrp = (el) => () => {
+      const h = box.querySelector("#" + el.getAttribute("data-to"));
+      if (!h) return;
+      box.scrollLeft += h.getBoundingClientRect().left - box.getBoundingClientRect().left - (el === r ? 8 : l.offsetWidth + 8);
+    };
+    l.onclick = goGrp(l); r.onclick = goGrp(r);
+  }
+  if (!box.hasAttribute("data-hints")) {
+    box.setAttribute("data-hints", "1");
+    box.addEventListener("scroll", () => sideHints(box), { passive: true });
+    window.addEventListener("resize", () => sideHints(box));
+  }
+  const o = box.getBoundingClientRect();
+  const over = box.scrollWidth > box.clientWidth + 1;
+  /* 端に重ねた名前の幅（約 96px）の下にある見出しも「見えていない」と数える */
+  const EDGE = 96;
+  const left = [], right = [];
+  box.querySelectorAll(".sidegrp").forEach((g) => {
+    const h = g.querySelector("h2");
+    if (!h || !over) return;
+    const hr = h.getBoundingClientRect(), gr = g.getBoundingClientRect();
+    if (gr.right <= o.left + EDGE) left.push(h);
+    else if (hr.left >= o.right - EDGE) right.push(h);
+  });
+  const put = (el, hs, arrow) => {
+    el.hidden = !hs.length;
+    if (!hs.length) return;
+    const t = hs.map((h) => h.textContent).join(String.fromCharCode(10));   /* 区切りごとに 1 行（white-space:pre） */
+    el.textContent = arrow === "l" ? "◂ " + t : t + " ▸";
+    el.setAttribute("data-to", (arrow === "l" ? hs[hs.length - 1] : hs[0]).id);
+  };
+  put(l, left, "l"); put(r, right, "r");
 }
 
 /* 区切りごとに「最後に開いた項目」を覚える（メモリ上。開き直せば消える）。

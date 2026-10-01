@@ -5363,6 +5363,39 @@ check("磨き込み(1): メニューを 1 行で横に流しても、いま見�
     "drawSide が印の付け替え・組み直しのどちらかで sideShowCurrent を呼んでいない");
 });
 
+// 🔴 2026-09-30 検証（fixture 400×900、今日）: 1 行のメニューは「… 案件の詳細 | 調」で切れ、「調べる」「月1・確かめる」の区切りがあることに
+//    気づきにくかった（見えるのは「調」の端と薄い影だけ）。行の外にある区切りの名前を行の端に出す（sideHints）
+check("磨き込み(1) の続き: 1 行のメニューで、行の外にある区切りの名前を端に出す（右は「調べる／月1・確かめる ▸」、左へ送ったら「◂ 毎日」）", () => {
+  const rect = (left, right) => ({ getBoundingClientRect: () => ({ left, right, width: right - left }) });
+  const hint = () => ({ hidden: true, textContent: "", attrs: {}, setAttribute(a, v) { this.attrs[a] = v; }, getAttribute(a) { return this.attrs[a]; } });
+  const l = hint(), r = hint();
+  const grp = (gl, gr, hl, name, id) => Object.assign(rect(gl, gr), { querySelector: (q) => (q === "h2" ? Object.assign(rect(hl, hl + 40), { textContent: name, id }) : null) });
+  const mkBox = (groups) => Object.assign(rect(16, 384), { scrollWidth: 1086, clientWidth: 368, attrs: { "data-hints": "1" },
+    hasAttribute(a) { return a in this.attrs; }, setAttribute(a, v) { this.attrs[a] = v; }, addEventListener() {}, insertAdjacentHTML() {},
+    querySelector: (q) => (q === ".sidemore.l" ? l : q === ".sidemore.r" ? r : null),
+    querySelectorAll: (q) => (q === ".sidegrp" ? groups : []) });
+  // 1 画面目（今日）: 毎日は見えている。調べるの見出しは右端（390px）、月1 は行の外
+  ctx.__SH = mkBox([grp(16, 380, 16, "毎日", "side-deal"), grp(385, 700, 390, "調べる", "side-research"), grp(705, 1086, 710, "月1・確かめる", "side-monthly")]);
+  run("sideHints(__SH)");
+  ok(!r.hidden && r.textContent === "調べる\n月1・確かめる ▸" && r.attrs["data-to"] === "side-research", "右の外にある区切りの名前を出していない: " + JSON.stringify(r));
+  ok(l.hidden, "左に外れた区切りが無いのに左の端に名前を出している");
+  // 右へ送った後（記録と数字の信頼度）: 毎日は左の外、月1 は見えている
+  ctx.__SH2 = mkBox([grp(-700, -220, -700, "毎日", "side-deal"), grp(-215, 150, -210, "調べる", "side-research"), grp(155, 380, 160, "月1・確かめる", "side-monthly")]);
+  run("sideHints(__SH2)");
+  ok(!l.hidden && l.textContent === "◂ 毎日" && r.hidden, "左の外にある区切りの名前を出していない、または右に出したまま: " + l.textContent + " / " + r.hidden);
+  // はみ出していない（PC の縦の列）ときは出さない
+  ctx.__SH3 = Object.assign(mkBox([grp(16, 380, 16, "毎日", "side-deal"), grp(385, 700, 390, "調べる", "side-research")]), { scrollWidth: 368 });
+  run("sideHints(__SH3)");
+  ok(l.hidden && r.hidden, "はみ出していないのに端に名前を出している");
+  // 描いたとき・印を付け替えたとき（sideShowCurrent）に必ず付け直す。CSS: PC では出さない・600px 以下は行の端に貼り付け
+  ok(/\n  sideHints\(box\);\r?\n\}$/.test(run("sideShowCurrent.toString()")), "sideShowCurrent の最後で sideHints を呼んでいない（いま見ている項目を送った後の端の名前が古いまま）");
+  const css = html.slice(0, html.indexOf("</style>"));
+  const inside = media600(css).inside.join("\n"), outside = media600(css).outside;
+  ok(/\.sidemore\{ display:none; \}/.test(outside), "PC（縦の列のメニュー）でも端の名前を出している");
+  ok(/\.side > \.sidemore\{ position:sticky;/.test(inside) && /\.side > \.sidemore\.r\{ right:0;/.test(inside) && /\.side > \.sidemore:not\(\[hidden\]\)\{ display:flex; \}/.test(inside),
+    "600px 以下で端の名前が行の端に貼り付いていない");
+});
+
 // 🔴 400px の案件一覧で見方のボタン 4 つが 1 つずつの行に落ちて 196px（fixture 実測。直した後 119px）
 check("磨き込み(2): 400px の案件一覧の見方のボタンは 2 列（4 つとも見えたまま。畳まない・隠さない）", () => {
   const css = html.slice(0, html.indexOf("</style>"));
