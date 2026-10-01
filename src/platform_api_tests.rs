@@ -1021,6 +1021,13 @@ async fn geo_既存html_apiとjsonが一致する() {
         .collect();
     assert_eq!(html_pairs.len(), 6); // tokyo_rows の 5 件 + all_prefs_reversed_rows の「X市」
     assert_eq!(html_pairs, json_pairs);
+    // 両方とも同じ関数を通るので、上の一致だけでは共通部分の回帰を検出できない。
+    // 旧 HTML の出力そのもの (区切りは "\n") を固定値で確かめる。
+    assert!(
+        html.contains("<option value=\"千代田区\" data-citycode=\"13101\">千代田区</option>\n"),
+        "{html}"
+    );
+    assert!(!html.contains('\r'), "{html:?}");
 }
 
 #[tokio::test]
