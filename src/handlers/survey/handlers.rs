@@ -430,6 +430,9 @@ pub struct IntegrateQuery {
     /// - "0": 非表示。
     /// Ver10 以外の variant では無視される。
     pub table2e: Option<String>,
+    /// 2026-09-29: §05B 競合調査「検索上位 N 件」の N (?top_n=45)。
+    /// 1〜200。未指定・数値でない・0 以下は 45、200 超は 200 に丸める。
+    pub top_n: Option<String>,
     /// 2026-07-27: 未選択クッションを通過して生成を続行するフラグ (?proceed_unselected=1)。
     /// 確認ページの [このまま作成する] から付与される。地域/業種が未選択でも生成する。
     pub proceed_unselected: Option<String>,
@@ -927,6 +930,7 @@ fn build_proceed_url(q: &IntegrateQuery) -> String {
         ("company", q.company.as_deref()),
         ("sections", q.sections.as_deref()),
         ("table2e", q.table2e.as_deref()),
+        ("top_n", q.top_n.as_deref()),
     ] {
         if let Some(val) = v {
             if !val.is_empty() {
@@ -1419,6 +1423,8 @@ async fn build_survey_report_inner(
         super::report_html::SectionSet::from_query(query.sections.as_deref(), variant);
     // 2026-07-13: Ver10 の表2-E 表示フラグ。?table2e=0 のときだけ非表示、それ以外は表示 (既定オン)。
     let table2e = query.table2e.as_deref() != Some("0");
+    // 2026-09-29: §05B 検索上位 N 件 (?top_n=、1〜200、既定 45)。
+    let top_n = super::report_html::parse_top_n(query.top_n.as_deref());
     progress("レポートを組版中");
     let html = super::report_html::render_survey_report_page_with_sections(
         &agg,
@@ -1454,6 +1460,8 @@ async fn build_survey_report_inner(
         &region_2d_stats,
         // 2026-07-28: 表 2-C-2 通勤流出先 TOP3 (選択市区町村 → 周辺地域)。
         &commute_outflow_top3,
+        // 2026-09-29: §05B 検索上位 N 件。
+        top_n,
     );
 
     Html(html)

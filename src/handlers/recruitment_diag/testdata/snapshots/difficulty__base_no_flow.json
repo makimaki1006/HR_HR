@@ -1,0 +1,32 @@
+{
+  "panel": "difficulty_score",
+  "inputs": {
+    "job_type": "飲食業",
+    "emp_type": "正社員",
+    "prefecture": "岩手県",
+    "municipality": "盛岡市",
+    "citycode": 3201
+  },
+  "metrics": {
+    "hw_count": 10,
+    "population": 0.0,
+    "day_population": 0.0,
+    "night_population": 0.0,
+    "day_night_ratio": 0.0,
+    "is_tourist_area": false,
+    "score_per_10k": 0.0,
+    "national_hw_count": 10,
+    "area_share_of_national": 1.0
+  },
+  "rank": 0,
+  "rank_label": "人口データ不足",
+  "so_what": "Agoop 人流データが未投入の市区町村。HW 件数のみで参照してください。",
+  "tourist_correction_note": null,
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "calculation": "score = (HW該当求人件数) ÷ (Agoop平日昼滞在人口) × 10,000",
+    "population_year": 2021,
+    "tourist_threshold": 1.5
+  }
+}

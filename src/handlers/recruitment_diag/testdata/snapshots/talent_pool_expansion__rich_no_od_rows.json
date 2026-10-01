@@ -1,0 +1,30 @@
+{
+  "panel": "talent_pool_expansion",
+  "current": {
+    "prefecture": "岩手県",
+    "municipality": "遠野市"
+  },
+  "tier_30min": {
+    "municipality_count": 0,
+    "unemployment_pool": 0,
+    "hw_postings": 0,
+    "breakdown": []
+  },
+  "tier_60min": {
+    "municipality_count": 0,
+    "unemployment_pool": 0,
+    "hw_postings": 0,
+    "breakdown": []
+  },
+  "is_data_available": false,
+  "notes": {
+    "hw_scope": "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、全求人市場の実態を示すものではない。",
+    "causation": "本スコア・示唆は相関に基づく『傾向』の提示であり、因果関係を保証するものではない。",
+    "data_source_od": "国勢調査 通勤 OD (2020 年、5年遅れ、市区町村間1:1)",
+    "data_source_unemployment": "SSDSE-A 労働力統計 v2_external_labor_force.unemployed (国勢調査ベース)",
+    "data_source_hw": "HW 掲載求人 postings テーブル",
+    "tier_definition": "30 分圏 = OD volume 上位 5 件、60 分圏 = 30 分圏を除いた次の 7 件 (実距離ではなく通勤者数ベースの固定件数)",
+    "caveat_pool": "失業者プール拡大は通勤可能性の理論値であり、実際の応募意向を保証するものではない",
+    "caveat_distance": "30/60 分圏という名称は便宜的な分類であり、実走行時間ではない"
+  }
+}

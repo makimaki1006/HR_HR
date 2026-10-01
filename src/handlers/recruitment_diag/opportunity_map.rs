@@ -28,14 +28,139 @@
 
 use axum::extract::{Query, State};
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_sessions::Session;
+use ts_rs::TS;
 
 use crate::db::local_sqlite::LocalDb;
 use crate::db::turso_http::TursoDb;
 use crate::AppState;
+
+pub(crate) use super::insights::RdErrorNote;
+
+// ======== Response Types ========
+
+/// リクエストで受け取った絞り込み条件 (表示用にそのまま返す)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdOpportunityFilters {
+    /// 職種 (未指定なら null)。
+    pub job_type: Option<String>,
+    /// 雇用形態 (未指定なら null)。
+    pub emp_type: Option<String>,
+}
+
+/// 市区町村 1 件分のスコア。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdOpportunityMunicipality {
+    /// 市区町村名。
+    pub name: String,
+    /// 市区町村コード (解決できなければ null)。
+    pub citycode: Option<u32>,
+    /// HW 求人件数。
+    pub hw_count: i64,
+    /// 昼間人口 (人)。
+    pub population: f64,
+    /// 人口千人あたり HW 求人数 (小数第 3 位に丸め)。
+    pub score: f64,
+    /// 穴場 / 標準 / 激戦。
+    pub category: String,
+}
+
+/// 凡例: 穴場の区間。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdLegendOpportunity {
+    /// 表示名。
+    pub label: String,
+    /// スコア上限 (この値未満)。
+    pub max: f64,
+    /// 表示色。
+    pub color: String,
+}
+
+/// 凡例: 標準の区間。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdLegendStandard {
+    /// 表示名。
+    pub label: String,
+    /// スコア下限 (この値以上)。
+    pub min: f64,
+    /// スコア上限 (この値未満)。
+    pub max: f64,
+    /// 表示色。
+    pub color: String,
+}
+
+/// 凡例: 激戦の区間。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdLegendCompetitive {
+    /// 表示名。
+    pub label: String,
+    /// スコア下限 (この値以上)。
+    pub min: f64,
+    /// 表示色。
+    pub color: String,
+}
+
+/// 凡例 (レンジ説明用)。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdOpportunityLegend {
+    /// 穴場。
+    pub opportunity: RdLegendOpportunity,
+    /// 標準。
+    pub standard: RdLegendStandard,
+    /// 激戦。
+    pub competitive: RdLegendCompetitive,
+    /// スコアの単位表記。
+    pub unit: String,
+}
+
+impl RdOpportunityLegend {
+    fn standard_legend() -> Self {
+        Self {
+            opportunity: RdLegendOpportunity {
+                label: "穴場".to_string(),
+                max: SCORE_OPPORTUNITY_MAX,
+                color: "#3b82f6".to_string(),
+            },
+            standard: RdLegendStandard {
+                label: "標準".to_string(),
+                min: SCORE_OPPORTUNITY_MAX,
+                max: SCORE_COMPETITIVE_MIN,
+                color: "#f59e0b".to_string(),
+            },
+            competitive: RdLegendCompetitive {
+                label: "激戦".to_string(),
+                min: SCORE_COMPETITIVE_MIN,
+                color: "#ef4444".to_string(),
+            },
+            unit: "人口千人あたりHW求人数".to_string(),
+        }
+    }
+}
+
+/// Panel 7 成功時の本体。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct RdOpportunityMapResponse {
+    /// 都道府県コード (1-47)。
+    pub prefcode: i32,
+    /// 受け取った絞り込み条件。
+    pub filters: RdOpportunityFilters,
+    /// 市区町村ごとのスコア (スコア降順)。
+    pub municipalities: Vec<RdOpportunityMunicipality>,
+    /// 凡例。
+    pub legend: RdOpportunityLegend,
+    /// HW 範囲・因果の注記。
+    pub note: String,
+}
+
+/// Panel 7 のレスポンス。TS では `RdOpportunityMapResponse | RdErrorNote`。
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(untagged)]
+pub enum RdOpportunityMapResult {
+    Ok(RdOpportunityMapResponse),
+    Err(RdErrorNote),
+}
 
 // ======== 閾値定数（テスト可能にするため pub） ========
 
@@ -70,7 +195,7 @@ pub async fn opportunity_map(
     State(state): State<Arc<AppState>>,
     _session: Session,
     Query(params): Query<OpportunityMapParams>,
-) -> Json<Value> {
+) -> Json<RdOpportunityMapResult> {
     let db = match &state.hw_db {
         Some(d) => d.clone(),
         None => return Json(error_response("DB未接続")),
@@ -106,24 +231,29 @@ pub async fn opportunity_map(
     .await
     .unwrap_or_default();
 
-    // 凡例（UI側でレンジ説明表示に使う）
-    let legend = json!({
-        "opportunity": { "label": "穴場", "max": SCORE_OPPORTUNITY_MAX, "color": "#3b82f6" },
-        "standard":    { "label": "標準", "min": SCORE_OPPORTUNITY_MAX, "max": SCORE_COMPETITIVE_MIN, "color": "#f59e0b" },
-        "competitive": { "label": "激戦", "min": SCORE_COMPETITIVE_MIN, "color": "#ef4444" },
-        "unit": "人口千人あたりHW求人数",
-    });
+    Json(RdOpportunityMapResult::Ok(build_response(
+        prefcode,
+        params.job_type,
+        params.emp_type,
+        municipalities,
+    )))
+}
 
-    Json(json!({
-        "prefcode": prefcode,
-        "filters": {
-            "job_type": params.job_type,
-            "emp_type": params.emp_type,
-        },
-        "municipalities": municipalities,
-        "legend": legend,
-        "note": "HW掲載求人のみ対象（全求人市場ではない）。スコアは比率指標であり因果関係を示すものではありません。",
-    }))
+/// 成功本体を組み立てる。
+fn build_response(
+    prefcode: i32,
+    job_type: Option<String>,
+    emp_type: Option<String>,
+    municipalities: Vec<RdOpportunityMunicipality>,
+) -> RdOpportunityMapResponse {
+    RdOpportunityMapResponse {
+        prefcode,
+        filters: RdOpportunityFilters { job_type, emp_type },
+        municipalities,
+        // 凡例（UI側でレンジ説明表示に使う）
+        legend: RdOpportunityLegend::standard_legend(),
+        note: "HW掲載求人のみ対象（全求人市場ではない）。スコアは比率指標であり因果関係を示すものではありません。".to_string(),
+    }
 }
 
 // ======== 内部集計ロジック ========
@@ -146,7 +276,7 @@ fn aggregate_opportunity(
     prefcode: i32,
     job_type: Option<&str>,
     emp_type: Option<&str>,
-) -> Vec<Value> {
+) -> Vec<RdOpportunityMunicipality> {
     // 1) HW求人件数を市区町村単位で集計
     let hw_map = collect_hw_counts_by_muni(db, pref_name, job_type, emp_type);
     if hw_map.is_empty() {
@@ -186,15 +316,13 @@ fn aggregate_opportunity(
     let _ = prefcode; // 現状は pref_name でフィルタ、将来 prefcode 連携用に残す
     result
         .iter()
-        .map(|m| {
-            json!({
-                "name": m.name,
-                "citycode": m.citycode,
-                "hw_count": m.hw_count,
-                "population": m.population,
-                "score": round3(m.score),
-                "category": m.category,
-            })
+        .map(|m| RdOpportunityMunicipality {
+            name: m.name.clone(),
+            citycode: m.citycode,
+            hw_count: m.hw_count,
+            population: m.population,
+            score: round3(m.score),
+            category: m.category.clone(),
         })
         .collect()
 }
@@ -298,11 +426,8 @@ fn round3(x: f64) -> f64 {
     (x * 1000.0).round() / 1000.0
 }
 
-fn error_response(msg: &str) -> Value {
-    json!({
-        "error": msg,
-        "note": "HW掲載求人のみ対象（全求人市場ではない）。",
-    })
+fn error_response(msg: &str) -> RdOpportunityMapResult {
+    RdOpportunityMapResult::Err(RdErrorNote::new(msg))
 }
 
 // ======== テスト ========
@@ -366,5 +491,165 @@ mod tests {
         assert_eq!(prefcode_to_name(47), Some("沖縄県"));
         assert_eq!(prefcode_to_name(48), None);
         assert_eq!(prefcode_to_name(0), None);
+    }
+
+    // ======== 旧 json!() との等価テスト (Phase 1A-1) ========
+
+    fn legacy_legend() -> serde_json::Value {
+        serde_json::json!({
+            "opportunity": { "label": "穴場", "max": SCORE_OPPORTUNITY_MAX, "color": "#3b82f6" },
+            "standard":    { "label": "標準", "min": SCORE_OPPORTUNITY_MAX, "max": SCORE_COMPETITIVE_MIN, "color": "#f59e0b" },
+            "competitive": { "label": "激戦", "min": SCORE_COMPETITIVE_MIN, "color": "#ef4444" },
+            "unit": "人口千人あたりHW求人数",
+        })
+    }
+
+    fn legacy_muni(m: &MuniScore) -> serde_json::Value {
+        serde_json::json!({
+            "name": m.name,
+            "citycode": m.citycode,
+            "hw_count": m.hw_count,
+            "population": m.population,
+            "score": round3(m.score),
+            "category": m.category,
+        })
+    }
+
+    fn legacy_success(
+        prefcode: i32,
+        job_type: Option<String>,
+        emp_type: Option<String>,
+        municipalities: Vec<serde_json::Value>,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "prefcode": prefcode,
+            "filters": {
+                "job_type": job_type,
+                "emp_type": emp_type,
+            },
+            "municipalities": municipalities,
+            "legend": legacy_legend(),
+            "note": "HW掲載求人のみ対象（全求人市場ではない）。スコアは比率指標であり因果関係を示すものではありません。",
+        })
+    }
+
+    fn legacy_error_response(msg: &str) -> serde_json::Value {
+        serde_json::json!({
+            "error": msg,
+            "note": "HW掲載求人のみ対象（全求人市場ではない）。",
+        })
+    }
+
+    fn s<T: serde::Serialize>(v: &T) -> String {
+        serde_json::to_string(v).unwrap()
+    }
+
+    fn scores() -> Vec<MuniScore> {
+        let mk = |name: &str, cc: Option<u32>, hw: i64, pop: f64, score: f64| MuniScore {
+            name: name.to_string(),
+            citycode: cc,
+            hw_count: hw,
+            population: pop,
+            score,
+            category: classify_score(score).to_string(),
+        };
+        vec![
+            mk("A市", Some(13101), 10, 5000.0, 2.0),
+            mk("B市", None, 0, 12345.5, 0.0),
+            mk("C町", Some(0), 7, 1000.0, 1.23456789),
+            mk("", None, 1, 99999.99, 0.4999),
+        ]
+    }
+
+    fn to_new(m: &MuniScore) -> RdOpportunityMunicipality {
+        RdOpportunityMunicipality {
+            name: m.name.clone(),
+            citycode: m.citycode,
+            hw_count: m.hw_count,
+            population: m.population,
+            score: round3(m.score),
+            category: m.category.clone(),
+        }
+    }
+
+    #[test]
+    fn legend_matches_legacy_json() {
+        assert_eq!(
+            s(&RdOpportunityLegend::standard_legend()),
+            s(&legacy_legend())
+        );
+    }
+
+    #[test]
+    fn municipality_matches_legacy_json() {
+        for m in scores() {
+            assert_eq!(s(&to_new(&m)), s(&legacy_muni(&m)));
+        }
+    }
+
+    #[test]
+    fn success_matches_legacy_json() {
+        let cases: Vec<(i32, Option<&str>, Option<&str>, bool)> = vec![
+            (13, Some("医療"), Some("正社員"), true),
+            (1, None, None, true),
+            (47, Some(""), Some(""), false),
+        ];
+        for (pc, jt, et, with) in cases {
+            let ms = if with { scores() } else { vec![] };
+            let new = build_response(
+                pc,
+                jt.map(String::from),
+                et.map(String::from),
+                ms.iter().map(to_new).collect(),
+            );
+            let legacy = legacy_success(
+                pc,
+                jt.map(String::from),
+                et.map(String::from),
+                ms.iter().map(legacy_muni).collect(),
+            );
+            assert_eq!(s(&RdOpportunityMapResult::Ok(new)), s(&legacy));
+        }
+    }
+
+    #[test]
+    fn error_matches_legacy_json() {
+        for msg in [
+            "DB未接続",
+            "invalid prefcode: 0 (must be 1-47)",
+            "prefcode 5 未対応",
+            "",
+        ] {
+            assert_eq!(s(&error_response(msg)), s(&legacy_error_response(msg)));
+        }
+    }
+
+    #[test]
+    fn ts_decl_has_expected_fields() {
+        let cfg = super::super::types::ts_config();
+        let result = RdOpportunityMapResult::decl(&cfg);
+        assert!(
+            result.contains("RdOpportunityMapResponse | RdErrorNote"),
+            "{result}"
+        );
+        let resp = RdOpportunityMapResponse::decl(&cfg);
+        for f in [
+            "prefcode: number",
+            "filters: RdOpportunityFilters",
+            "municipalities: Array<RdOpportunityMunicipality>",
+            "legend: RdOpportunityLegend",
+            "note: string",
+        ] {
+            assert!(resp.contains(f), "missing `{f}` in {resp}");
+        }
+        let m = RdOpportunityMunicipality::decl(&cfg);
+        for f in [
+            "citycode: number | null",
+            "hw_count: number",
+            "population: number",
+            "score: number",
+        ] {
+            assert!(m.contains(f), "missing `{f}` in {m}");
+        }
     }
 }

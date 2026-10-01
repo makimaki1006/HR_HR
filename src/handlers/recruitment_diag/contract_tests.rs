@@ -25,13 +25,12 @@ use crate::db::local_sqlite::LocalDb;
 use crate::handlers::jobmap::company_markers::CompanyGeoEntry;
 use crate::{config::AppConfig, db::cache::AppCache, AppState};
 use axum::extract::{Query, State};
-use axum::Json;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tower_sessions::{MemoryStore, Session};
 
 /// 最小限の hw_db を tempfile で作成
-fn create_test_hw_db() -> (NamedTempFile, LocalDb) {
+pub(super) fn create_test_hw_db() -> (NamedTempFile, LocalDb) {
     let tmp = NamedTempFile::new().unwrap();
     let path = tmp.path().to_str().unwrap();
 
@@ -97,7 +96,12 @@ fn create_test_hw_db() -> (NamedTempFile, LocalDb) {
 }
 
 /// テスト用 AppState 構築（Turso/SalesNow/監査は全て None）
-fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
+pub(super) fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
+    test_app_state_opt(Some(hw_db))
+}
+
+/// `hw_db` を None にもできる版 (DB 未接続分岐のテスト用)
+pub(super) fn test_app_state_opt(hw_db: Option<LocalDb>) -> Arc<AppState> {
     let cfg = AppConfig {
         port: 0,
         auth_password: String::new(),
@@ -124,7 +128,7 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
     };
     Arc::new(AppState {
         config: cfg,
-        hw_db: Some(hw_db),
+        hw_db,
         indeed_db: None,
         turso_db: None,
         salesnow_db: None,
@@ -138,7 +142,7 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
 }
 
 /// 空のセッションを作成
-async fn empty_session() -> Session {
+pub(super) async fn empty_session() -> Session {
     let store = MemoryStore::default();
     Session::new(None, Arc::new(store), None)
 }
@@ -160,7 +164,12 @@ async fn panel1_difficulty_shape_contains_required_keys() {
         citycode: None,
     };
 
-    let Json(v) = handlers::api_difficulty_score(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(
+        handlers::api_difficulty_score(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend renderer が参照する key が存在すること
     assert!(v.get("metrics").is_some(), "metrics key missing, got: {v}");
@@ -231,7 +240,12 @@ async fn panel2_talent_pool_shape_contains_required_keys() {
         year: None,
     };
 
-    let Json(v) = handlers::api_talent_pool(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(
+        handlers::api_talent_pool(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend が読む keys
     assert!(v.get("metrics").is_some(), "metrics missing");
@@ -271,7 +285,12 @@ async fn panel3_inflow_shape_when_citycode_missing_returns_error() {
         year: None,
     };
 
-    let Json(v) = handlers::api_inflow_analysis(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(
+        handlers::api_inflow_analysis(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // citycode なしは error_body を返す契約
     assert!(
@@ -293,7 +312,12 @@ async fn panel3_inflow_shape_contains_breakdown() {
         year: None,
     };
 
-    let Json(v) = handlers::api_inflow_analysis(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(
+        handlers::api_inflow_analysis(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // error でなければ breakdown フィールド必須
     if v.get("error").is_none() {
@@ -319,7 +343,12 @@ async fn panel5_condition_gap_shape_and_reverse_proof() {
         company_annual_holidays: Some(115.0),
     };
 
-    let Json(v) = condition_gap::condition_gap(State(state), Query(params)).await;
+    let v = serde_json::to_value(
+        condition_gap::condition_gap(State(state), Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend renderer が読む key
     assert!(
@@ -379,7 +408,12 @@ async fn panel6_market_trend_shape_when_no_turso() {
         months: None,
     };
 
-    let Json(v) = market_trend::market_trend(State(state), Query(params)).await;
+    let v = serde_json::to_value(
+        market_trend::market_trend(State(state), Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // Turso なし → エラーまたは空データだが、frontend が読む key を返すこと
     if v.get("error").is_none() {
@@ -402,7 +436,12 @@ async fn panel7_opportunity_map_shape() {
     };
 
     let session = empty_session().await;
-    let Json(v) = opportunity_map::opportunity_map(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(
+        opportunity_map::opportunity_map(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend renderer が読む key
     if v.get("error").is_none() {
@@ -428,8 +467,226 @@ async fn panel8_insights_shape() {
     };
 
     let session = empty_session().await;
-    let Json(v) = insights::insights(State(state), session, Query(params)).await;
+    let v = serde_json::to_value(
+        insights::insights(State(state), session, Query(params))
+            .await
+            .0,
+    )
+    .unwrap();
 
     // frontend が読む key
     assert!(v.get("insights").is_some(), "insights missing: {v}");
+}
+
+// ========== Panel 4: Competitors (1A-2) ==========
+//
+// renderer (recruitment_diag.html renderCompetitors) が読む key:
+//   data.error / data.companies (Array) / 各社 name, corporate_number, hw_postings_count,
+//   employees, sales_amount, sn_industry, sales_range, credit_score
+// SalesNow (Turso) 必須のため、Turso 無しで到達できるのは未接続エラーのみ。
+
+#[tokio::test]
+async fn panel4_competitors_without_salesnow_returns_error_with_empty_companies() {
+    let (_tmp, db) = create_test_hw_db();
+    let state = test_app_state(db);
+
+    let q = competitors::CompetitorsQuery {
+        job_type: "飲食業".to_string(),
+        prefcode: Some(3),
+        municipality: "盛岡市".to_string(),
+        limit: Some(100),
+    };
+    let v = serde_json::to_value(competitors::competitors(State(state), Query(q)).await.0).unwrap();
+
+    // renderer は data.error があればエラー表示する
+    assert_eq!(v["error"], "SalesNow DB 未接続", "got: {v}");
+    // error 時も companies は空配列 (renderer の Array.isArray チェックに通る形)
+    assert_eq!(v["companies"], serde_json::json!([]));
+    assert_eq!(v["top20_insight"], "");
+    // エラー本体はこの 3 key のみ
+    assert_eq!(v.as_object().unwrap().len(), 3, "got: {v}");
+}
+
+#[test]
+fn panel4_competitor_row_serializes_keys_read_by_renderer() {
+    let row = competitors::CompetitorRow {
+        corporate_number: "1234567890123".to_string(),
+        name: "テスト飲食株式会社".to_string(),
+        prefecture: "岩手県".to_string(),
+        sn_industry: "飲食店".to_string(),
+        employees: 250,
+        sales_amount: 120_000,
+        sales_range: "10億〜50億".to_string(),
+        credit_score: 55.5,
+        hw_postings_count: 3,
+    };
+    let v = serde_json::to_value(&row).unwrap();
+    assert_eq!(v["name"], "テスト飲食株式会社");
+    assert_eq!(v["corporate_number"], "1234567890123");
+    assert_eq!(v["hw_postings_count"].as_i64(), Some(3));
+    assert_eq!(v["employees"].as_i64(), Some(250));
+    assert_eq!(v["sales_amount"].as_i64(), Some(120_000));
+    assert_eq!(v["sn_industry"], "飲食店");
+    assert_eq!(v["sales_range"], "10億〜50億");
+    assert_eq!(v["credit_score"].as_f64(), Some(55.5));
+}
+
+// ========== Panel 9: Talent Pool Expansion (1A-2) ==========
+//
+// renderer (renderTalentPoolExpansion) が読む key:
+//   error / is_data_available / current.{prefecture,municipality} /
+//   tier_30min・tier_60min.{municipality_count,unemployment_pool,hw_postings,breakdown[]} /
+//   breakdown[].{prefecture,municipality,commuters,unemployment,hw_postings} /
+//   notes.{data_source_od,tier_definition,caveat_pool,hw_scope}
+
+/// 着地 岩手県盛岡市 に 7 origin の通勤 OD + 失業者 + 追加 postings を足す
+fn add_commute_fixture(tmp: &NamedTempFile) {
+    let conn = rusqlite::Connection::open(tmp.path()).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE v2_external_commute_od (
+            origin_pref TEXT, origin_muni TEXT, dest_pref TEXT, dest_muni TEXT,
+            total_commuters INTEGER
+        );
+        INSERT INTO v2_external_commute_od VALUES
+            ('岩手県', '盛岡市', '岩手県', '盛岡市', 99999),
+            ('岩手県', '滝沢市', '岩手県', '盛岡市', 7000),
+            ('岩手県', '花巻市', '岩手県', '盛岡市', 6000),
+            ('岩手県', '紫波町', '岩手県', '盛岡市', 5000),
+            ('岩手県', '矢巾町', '岩手県', '盛岡市', 4000),
+            ('岩手県', '宮古市', '岩手県', '盛岡市', 3000),
+            ('岩手県', '北上市', '岩手県', '盛岡市', 2000),
+            ('岩手県', '一関市', '岩手県', '盛岡市', 1000);
+        CREATE TABLE v2_external_labor_force (
+            prefecture TEXT, municipality TEXT, unemployed INTEGER
+        );
+        INSERT INTO v2_external_labor_force VALUES
+            ('岩手県', '滝沢市', 1500), ('岩手県', '花巻市', 1200),
+            ('岩手県', '北上市', 1100), ('岩手県', '一関市', 1300);
+        INSERT INTO postings (job_type, prefecture, municipality, employment_type) VALUES
+            ('飲食業', '岩手県', '花巻市', '正社員'),
+            ('飲食業', '岩手県', '花巻市', '正社員'),
+            ('飲食業', '岩手県', '北上市', '正社員');
+        "#,
+    )
+    .unwrap();
+}
+
+async fn call_talent_pool_expansion(
+    state: Arc<AppState>,
+    prefecture: &str,
+    municipality: &str,
+    citycode: Option<i64>,
+) -> serde_json::Value {
+    let params = talent_pool_expansion::TalentPoolExpansionParams {
+        prefecture: prefecture.to_string(),
+        municipality: municipality.to_string(),
+        citycode,
+    };
+    serde_json::to_value(
+        talent_pool_expansion::api_talent_pool_expansion(
+            State(state),
+            empty_session().await,
+            Query(params),
+        )
+        .await
+        .0,
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn panel9_talent_pool_expansion_splits_tiers_with_concrete_values() {
+    let (tmp, db) = create_test_hw_db();
+    add_commute_fixture(&tmp);
+    let state = test_app_state(db);
+
+    let v = call_talent_pool_expansion(state, "岩手県", "盛岡市", None).await;
+
+    assert!(v.get("error").is_none(), "unexpected error: {v}");
+    assert_eq!(v["is_data_available"], true);
+    assert_eq!(v["current"]["prefecture"], "岩手県");
+    assert_eq!(v["current"]["municipality"], "盛岡市");
+
+    // 30 分圏 = 上位 5 (自市区町村 盛岡市→盛岡市 は除外される)
+    let t30 = &v["tier_30min"];
+    assert_eq!(t30["municipality_count"].as_i64(), Some(5));
+    // 失業者: 滝沢 1500 + 花巻 1200 + 紫波 0 + 矢巾 0 + 宮古 0 = 2700
+    assert_eq!(t30["unemployment_pool"].as_i64(), Some(2700));
+    // HW: 花巻 2 件のみ
+    assert_eq!(t30["hw_postings"].as_i64(), Some(2));
+    let b30 = t30["breakdown"].as_array().unwrap();
+    assert_eq!(b30.len(), 5);
+    assert_eq!(b30[0]["prefecture"], "岩手県");
+    assert_eq!(b30[0]["municipality"], "滝沢市");
+    assert_eq!(b30[0]["commuters"].as_i64(), Some(7000));
+    assert_eq!(b30[0]["unemployment"].as_i64(), Some(1500));
+    assert_eq!(b30[0]["hw_postings"].as_i64(), Some(0));
+    assert_eq!(b30[1]["municipality"], "花巻市");
+    assert_eq!(b30[1]["hw_postings"].as_i64(), Some(2));
+    assert!(
+        b30.iter().all(|r| r["municipality"] != "盛岡市"),
+        "自市区町村が含まれている: {v}"
+    );
+
+    // 60 分圏 = 残り 2 (北上市, 一関市)
+    let t60 = &v["tier_60min"];
+    assert_eq!(t60["municipality_count"].as_i64(), Some(2));
+    assert_eq!(t60["unemployment_pool"].as_i64(), Some(2400));
+    assert_eq!(t60["hw_postings"].as_i64(), Some(1));
+    let b60 = t60["breakdown"].as_array().unwrap();
+    assert_eq!(b60.len(), 2);
+    assert_eq!(b60[0]["municipality"], "北上市");
+    assert_eq!(b60[1]["municipality"], "一関市");
+    assert_eq!(b60[1]["commuters"].as_i64(), Some(1000));
+
+    // renderer が注記に使う notes
+    let notes = &v["notes"];
+    assert_eq!(
+        notes["data_source_od"],
+        "国勢調査 通勤 OD (2020 年、5年遅れ、市区町村間1:1)"
+    );
+    assert!(notes["tier_definition"]
+        .as_str()
+        .unwrap()
+        .contains("上位 5 件、60 分圏 = 30 分圏を除いた次の 7 件"));
+    assert!(notes["caveat_pool"].as_str().unwrap().contains("応募意向"));
+    assert_eq!(notes["hw_scope"], HW_SCOPE_NOTE);
+}
+
+#[tokio::test]
+async fn panel9_talent_pool_expansion_without_od_table_is_not_available() {
+    let (_tmp, db) = create_test_hw_db();
+    let state = test_app_state(db);
+    let v = call_talent_pool_expansion(state, "岩手県", "盛岡市", None).await;
+
+    // fail-soft: error ではなく is_data_available=false (renderer は「データなし」表示)
+    assert!(v.get("error").is_none(), "got: {v}");
+    assert_eq!(v["is_data_available"], false);
+    assert_eq!(v["tier_30min"]["municipality_count"].as_i64(), Some(0));
+    assert_eq!(v["tier_60min"]["municipality_count"].as_i64(), Some(0));
+    assert_eq!(v["tier_30min"]["breakdown"], serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn panel9_talent_pool_expansion_missing_municipality_returns_error() {
+    let (_tmp, db) = create_test_hw_db();
+    let state = test_app_state(db);
+    // citycode だけでは不可 (名前指定が主)
+    let v = call_talent_pool_expansion(state, "岩手県", "", Some(3201)).await;
+
+    assert_eq!(
+        v["error"],
+        "prefecture および municipality が必要です (citycode は補助的、名前指定が主)"
+    );
+    assert_eq!(v["is_data_available"], false);
+    assert_eq!(v["tier_30min"]["unemployment_pool"].as_i64(), Some(0));
+}
+
+#[tokio::test]
+async fn panel9_talent_pool_expansion_without_db_returns_error() {
+    let state = test_app_state_opt(None);
+    let v = call_talent_pool_expansion(state, "岩手県", "盛岡市", None).await;
+    assert_eq!(v["error"], "hellowork.db 未接続");
+    assert_eq!(v["is_data_available"], false);
 }
