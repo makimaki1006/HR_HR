@@ -8145,7 +8145,7 @@ const menuHaving = (vk) => MENUS.find((m) => m.views.some((x) => x.key === vk));
 /* ================================================================ 旧ハッシュの転送（N8、handover 09 の 5章）
    組み替え前の 17 画面のハッシュ（ブックマーク・貼られた URL・前の版の本文のリンク）を新しい画面へ送る。
    鍵は「区切り/画面」（区切りだけのものは区切りの鍵）。to は新しい画面の鍵、at は移り先の中の節の id（あれば飛ぶ）、
-   was は前の画面の名前（「この画面は○○に移りました」の帯に出す）。
+   was は前の画面の名前（「この画面は○○に移りました」の帯に出す）。also は前の画面が分かれたときに、残りの移り先を帯に書く文。
    今日・案件そのもの（→ 案件一覧）・案件の詳細はハッシュが変わらないので載せない（#deal/today・#deal/board・#deal/detail）。
    ? 以降の状態（法人・拠点・担当・並び・単位）はそのまま渡す。受ける画面の URL_STATE に無い名前は読まれない */
 const LEGACY = {
@@ -8158,7 +8158,10 @@ const LEGACY = {
   "consultant/contact":  { to: "team",     at: "tm-ct-h",         was: "担当者ごとの接触" },
   "study":               { to: "results",                         was: "継続回数 × 成果" },
   "study/renewal":       { to: "results",  at: "rs-renewal",      was: "継続回数 × 成果" },
-  "study/outcome":       { to: "results",  at: "rs-outcome",      was: "成果とリスク" },
+  /* 前の「成果とリスク」は、目標と応募効率（rs-outcome）とリスクの2軸（rs-risk）の 2 節に分かれ、間に立ち上がりが入った（09 の 3章）。
+     頭（目標）へ送り、後半がどこに移ったかは also で帯に書く（🔴 2026-09-30 検証: 前は何も書かず、リスクを探す人が迷う形だった） */
+  "study/outcome":       { to: "results",  at: "rs-outcome",      was: "成果とリスク",
+                           also: "前の画面の後半（リスクの2軸と最優先）は、同じ画面の下の節「リスクの2軸と最優先」に分けました（画面の頭の目次から飛べます）" },
   "study/focus":         { to: "focus",                           was: "いま見るべき顧客" },
   "study/rampup":        { to: "results",  at: "rs-rampup",       was: "立ち上がり" },
   "study/phone":         { to: "phone",                           was: "電話" },
@@ -8554,7 +8557,7 @@ function showMoved(moved, v, missing) {
     "いまは「" + esc(v.label) + "」" + (!moved.at ? "で見られます"
       : missing ? "の中にありますが、その場所がこの画面に見つからなかったので、画面の頭を出しています"
       : "の中にあり、その場所まで送っています") +
-    "。ブックマークを付け直してください" +
+    "。" + (moved.also ? esc(moved.also) + "。" : "") + "ブックマークを付け直してください" +
     (MOVED_NOTICE_UNTIL ? "（この案内は " + esc(MOVED_NOTICE_UNTIL) + " まで出します）" : "") + "。");
 }
 /** 画面の中の節（id）へ送る。focus: フォーカスも移す（開いた直後は移さない。読み上げが鮮度の帯を飛ばさないように）。

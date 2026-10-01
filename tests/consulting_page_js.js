@@ -2430,6 +2430,17 @@ check("N8", "旧ハッシュ 17 本（と区切りだけの #consultant・#study
   const tc = boot("#consultant/byowner?c=" + encodeURIComponent("担当A"), { Date: D });
   if (tc.R("boardFilter.consultant") !== "担当A") throw new Error("旧ハッシュの担当（c）が渡っていない");
   if (boot("#study/renewal?excl=1", { Date: D }).R("renewalExcludeCensored") !== true) throw new Error("旧ハッシュの打ち切りの指定（excl）が渡っていない");
+  /* 前の「成果とリスク」は 2 節に分かれた。頭（目標）へ送り、後半（リスクの2軸）の移り先を帯に書く。
+     🔴 2026-09-30 検証: 前は rs-outcome へ送るだけで、リスクを探して来た人に移り先が書かれていなかった。
+     帯の節の名前は目次の名前と同じ（目次から飛べると書くので、名前が違うと探せない） */
+  const to = boot("#study/outcome", { Date: D });
+  const tob = to.reg["cs-moved"].innerHTML;
+  if (to.R('LEGACY["study/outcome"].at') !== "rs-outcome") throw new Error("成果とリスクの送り先が目標の節でない");
+  if (tob.indexOf("前の画面の後半（リスクの2軸と最優先）") < 0 || tob.indexOf("「リスクの2軸と最優先」に分けました") < 0)
+    throw new Error("成果とリスクから来た人に、リスクの2軸の移り先を書いていない: " + tob);
+  if (!/\["rs-risk", "リスクの2軸と最優先"\]/.test(require("fs").readFileSync(require("path").join(__dirname, "..", "templates", "tabs", "cs_dashboard.html"), "utf8")))
+    throw new Error("目次の rs-risk の名前が帯に書いた名前と違う");
+  if (boot("#study/rampup", { Date: D }).reg["cs-moved"].innerHTML.indexOf("前の画面の後半") >= 0) throw new Error("分かれていない画面にも後半の文を出している");
   /* 次に別の画面へ移ったら帯は消える */
   const t2 = boot("#study/dq", { Date: D });
   t2.R('go("deal", "today")');
