@@ -7,7 +7,7 @@
 //! debug_assert! で検証（本番ビルドでは警告ログ）。
 
 /// 必須表現（いずれか1つ以上含まれるべき）
-const REQUIRED_PHRASES: &[&str] = &[
+pub const REQUIRED_PHRASES: &[&str] = &[
     "傾向",
     "可能性",
     "見られ",
@@ -19,7 +19,7 @@ const REQUIRED_PHRASES: &[&str] = &[
 ];
 
 /// 禁止表現（相関を因果と誤認させる断定表現）
-const FORBIDDEN_PHRASES: &[&str] = &[
+pub const FORBIDDEN_PHRASES: &[&str] = &[
     "確実に",
     "必ず",
     "100%",
@@ -73,6 +73,37 @@ pub fn assert_valid_phrase(body: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 禁止語の正本を React 側 (`frontend/src/generated/phrase_rules.json`) と共有する。
+    /// 形: `{"required":[...],"forbidden":[...],"survey_forbidden":[...]}`、配列は Rust の順序どおり。
+    /// 内容が同じなら書き換えない (ts-rs の再生成と同じ扱い)。語を足したらこのテストを回して JSON をコミットする。
+    #[test]
+    fn export_phrase_rules_json() {
+        let value = serde_json::json!({
+            "required": REQUIRED_PHRASES,
+            "forbidden": FORBIDDEN_PHRASES,
+            "survey_forbidden": crate::handlers::survey::report_html::SURVEY_FORBIDDEN_WORDS,
+        });
+        let mut text = serde_json::to_string_pretty(&value).unwrap();
+        text.push('\n');
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("frontend/src/generated/phrase_rules.json");
+        let current = std::fs::read_to_string(&path).unwrap_or_default();
+        if current.replace("\r\n", "\n") != text {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &text).unwrap();
+        }
+        let written = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\r\n", "\n");
+        assert_eq!(written, text);
+        let parsed: serde_json::Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(parsed["required"].as_array().unwrap().len(), 8);
+        assert_eq!(parsed["forbidden"][0], "確実に");
+        assert_eq!(parsed["forbidden"].as_array().unwrap().len(), 7);
+        assert_eq!(parsed["survey_forbidden"].as_array().unwrap().len(), 6);
+        assert_eq!(parsed["survey_forbidden"][3], "証明されました");
+    }
 
     #[test]
     fn test_valid_with_tendency() {

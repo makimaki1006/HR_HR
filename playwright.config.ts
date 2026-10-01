@@ -16,6 +16,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  testIgnore: '**/pr/**', // PR 用 E2E は tests/e2e/pr/playwright.pr.config.ts で実行
   fullyParallel: false, // ログイン状態共有のため逐次実行
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

@@ -31,13 +31,65 @@ pub const LOGIN_METHOD_PASSWORD_EXTERNAL: &str = "password_external";
 /// パスワードログインの失敗記録用 (どちらのパスワードを狙ったかは分からない)
 pub const LOGIN_METHOD_PASSWORD: &str = "password";
 
+/// 未ログインの `/api/*` を 401 JSON にする条件 (2026-09-30、F-5)。
+///
+/// 3 つ全部を満たすときだけ 401 JSON、それ以外は従来どおり 303 `/login`:
+/// 1. パスが `/api/` で始まる
+/// 2. `HX-Request` ヘッダーが無い (HTMX の既存呼び出しは 303 のまま。HTMX は必ず付ける)
+/// 3. `Accept` に `application/json` を含む (React の client.ts は付ける。`*/*` だけなら 303)
+///
+/// `/api/v1/*` (認証不要) や `/scout/*` は `auth_middleware` に入らないので影響しない。
+pub fn wants_json_401(request: &Request) -> bool {
+    if !request.uri().path().starts_with("/api/") {
+        return false;
+    }
+    let headers = request.headers();
+    if headers.contains_key("hx-request") {
+        return false;
+    }
+    headers
+        .get_all(axum::http::header::ACCEPT)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|v| {
+            v.split(',').any(|part| {
+                part.split(';')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .eq_ignore_ascii_case("application/json")
+            })
+        })
+}
+
+/// 401 の JSON ボディ。React の `client.ts` はこの形 (`error: auth_required`) を `AuthRequiredError` にする。
+pub const AUTH_REQUIRED_JSON: &str = r#"{"error":"auth_required","login_url":"/login"}"#;
+
+/// 未ログイン時の応答。`require_auth` と `auth_middleware` (lib.rs) の両経路で共通。
+pub fn unauthenticated_response(request: &Request) -> Response {
+    if wants_json_401(request) {
+        (
+            axum::http::StatusCode::UNAUTHORIZED,
+            [(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static("application/json"),
+            )],
+            AUTH_REQUIRED_JSON,
+        )
+            .into_response()
+    } else {
+        Redirect::to("/login").into_response()
+    }
+}
+
 /// 認証ミドルウェア: ログイン済みでなければ /login へリダイレクト
+/// (`/api/*` + `Accept: application/json` + `HX-Request` 無しのときだけ 401 JSON、`unauthenticated_response`)
 pub async fn require_auth(session: Session, request: Request, next: Next) -> Response {
     let user: Option<String> = session.get(SESSION_USER_KEY).await.unwrap_or(None);
     if user.is_some() {
         next.run(request).await
     } else {
-        Redirect::to("/login").into_response()
+        unauthenticated_response(&request)
     }
 }
 
@@ -220,5 +272,85 @@ mod tests {
         let (ok, msg) = verify_password_with_externals("wrong", "", "", &externals);
         assert!(!ok);
         assert!(msg.is_none());
+    }
+
+    // ---- /api/* の 401 JSON 条件 (2026-09-30、F-5) ----
+
+    fn req(uri: &str, headers: &[(&str, &str)]) -> Request {
+        let mut b = axum::http::Request::builder().uri(uri);
+        for (k, v) in headers {
+            b = b.header(*k, *v);
+        }
+        b.body(axum::body::Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn 三条件がそろったときだけ401json() {
+        // /api/ + Accept json + HX-Request 無し → 401
+        assert!(wants_json_401(&req(
+            "/api/nav",
+            &[("accept", "application/json")]
+        )));
+        assert!(wants_json_401(&req(
+            "/api/nav?x=1",
+            &[("accept", "text/html, application/json;q=0.9")]
+        )));
+        assert!(wants_json_401(&req(
+            "/api/nav",
+            &[("accept", "Application/JSON")]
+        )));
+        // HX-Request があれば 303 (HTMX の既存呼び出し)
+        assert!(!wants_json_401(&req(
+            "/api/nav",
+            &[("accept", "application/json"), ("hx-request", "true")]
+        )));
+        // Accept 無し / */* だけ / text/html → 303
+        assert!(!wants_json_401(&req("/api/nav", &[])));
+        assert!(!wants_json_401(&req("/api/nav", &[("accept", "*/*")])));
+        assert!(!wants_json_401(&req(
+            "/api/nav",
+            &[("accept", "text/html")]
+        )));
+        // /api/ 以外 → 303 (Accept json でも)
+        assert!(!wants_json_401(&req(
+            "/tab/market",
+            &[("accept", "application/json")]
+        )));
+        assert!(!wants_json_401(&req(
+            "/",
+            &[("accept", "application/json")]
+        )));
+        assert!(!wants_json_401(&req(
+            "/app/dummy",
+            &[("accept", "application/json")]
+        )));
+        assert!(!wants_json_401(&req(
+            "/apix",
+            &[("accept", "application/json")]
+        )));
+    }
+
+    #[tokio::test]
+    async fn 未ログイン応答は401jsonか303login() {
+        use axum::http::{header, StatusCode};
+        let r = unauthenticated_response(&req("/api/nav", &[("accept", "application/json")]));
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(r.headers()[header::CONTENT_TYPE], "application/json");
+        let body = axum::body::to_bytes(r.into_body(), 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({"error": "auth_required", "login_url": "/login"})
+        );
+
+        let r = unauthenticated_response(&req(
+            "/api/nav",
+            &[("accept", "application/json"), ("hx-request", "true")],
+        ));
+        assert_eq!(r.status(), StatusCode::SEE_OTHER);
+        assert_eq!(r.headers()[header::LOCATION], "/login");
+        let r = unauthenticated_response(&req("/tab/market", &[]));
+        assert_eq!(r.status(), StatusCode::SEE_OTHER);
+        assert_eq!(r.headers()[header::LOCATION], "/login");
     }
 }

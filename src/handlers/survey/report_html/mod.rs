@@ -27,6 +27,18 @@ mod helpers;
 mod hw_enrichment;
 mod labels;
 mod navy_report;
+
+/// 媒体分析レポートに出してはならない断定・約束表現 (`lint_statistical_claims.py` と整合)。
+/// navy_report の結論バンドのテストが使い、React 側とは `phrase_rules.json` で共有する
+/// (`insight::phrase_validator::tests::export_phrase_rules_json`)。
+pub const SURVEY_FORBIDDEN_WORDS: [&str; 6] = [
+    "必ず",
+    "確実に",
+    "断言",
+    "証明されました",
+    "間違いなく",
+    "絶対に",
+];
 // 2026-07-17: 解説資料 (?variant=guide) を handlers.rs から呼ぶための再公開。
 pub(crate) use navy_report::render_survey_guide_page;
 pub(crate) use navy_report::{

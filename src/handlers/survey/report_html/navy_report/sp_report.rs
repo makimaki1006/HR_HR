@@ -872,15 +872,8 @@ mod tests {
 
     // ---- (b) 結論バンド: 可能性表現であり断定語を含まない ----
 
-    /// 断定・約束表現の禁止語リスト (lint_statistical_claims.py と整合)。
-    const FORBIDDEN_WORDS: [&str; 6] = [
-        "必ず",
-        "確実に",
-        "断言",
-        "証明されました",
-        "間違いなく",
-        "絶対に",
-    ];
+    /// 断定・約束表現の禁止語リスト (正本は `report_html::SURVEY_FORBIDDEN_WORDS`)。
+    use crate::handlers::survey::report_html::SURVEY_FORBIDDEN_WORDS as FORBIDDEN_WORDS;
 
     #[test]
     fn conclusion_band_uses_possibility_language_not_assertions() {
