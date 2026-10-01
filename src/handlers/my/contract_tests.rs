@@ -244,7 +244,7 @@ async fn my_api_requires_login() {
         assert_eq!(status, StatusCode::SEE_OTHER, "{p}");
         assert_eq!(headers[header::LOCATION], "/login");
     }
-    let (status, _) = post_json(
+    let (status, body) = post_json(
         &app,
         "/api/my/profile",
         None,
@@ -252,5 +252,11 @@ async fn my_api_requires_login() {
         &json!({"display_name": "x", "company": ""}),
     )
     .await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
+    // React の fetch (Accept: application/json、HX-Request 無し) は 303 ではなく 401 JSON
+    // (src/auth/mod.rs の unauthenticated_response)。
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"],
+        "auth_required"
+    );
 }

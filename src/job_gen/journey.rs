@@ -7622,9 +7622,24 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
         // CSP が同一オリジン埋め込みを許可していること (iframe 統合の前提)
         // タブボタンは setActiveTab を呼ばないとハイライトが切り替わらない
         // (2026-08-04 本番検証で発見した実バグの回帰)
+        // 2026-09-30: ナビは handlers::nav の定義から生成するので、生成 HTML で見る
+        let nav = crate::handlers::nav::render_legacy_nav(&crate::handlers::nav::nav_items(
+            crate::handlers::nav::NAV_DEFS,
+            &crate::handlers::nav::NavFeatures {
+                keyword_tools: true,
+                jobgen_tools: true,
+                crm: false,
+            },
+        ));
+        let tab_buttons: Vec<&str> = nav
+            .top
+            .split("</button>")
+            .filter(|b| b.contains("/tab/keyword_tools") || b.contains("/tab/jobgen_tools"))
+            .collect();
+        assert_eq!(tab_buttons.len(), 2);
         assert!(
-            lib_src.matches("setActiveTab(this)").count() >= 2,
-            "新タブボタン2つの両方が setActiveTab を呼ぶべき (片方の欠落も検出する)"
+            tab_buttons.iter().all(|b| b.contains("setActiveTab(this)")),
+            "新タブボタン2つの両方が setActiveTab を呼ぶべき (片方の欠落も検出する): {tab_buttons:?}"
         );
         assert!(
             lib_src.contains("frame-ancestors 'self'"),
