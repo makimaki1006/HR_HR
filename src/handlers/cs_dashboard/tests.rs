@@ -6699,3 +6699,58 @@ fn 取り直した後に案件の行を先に数えておく() {
         "重い計算を非同期の実行スレッドで回している"
     );
 }
+
+/// 案件一覧の meta.started_only_flags（開始前には立てない名札）は、行の実際と合っている。
+/// 画面はこの名札で絞ったとき「開始前 N 件には立てていません」と書き、今日の札の分母（開始済み）と件数の行の分母（稼働中）をつなぐ。
+/// 🔴 2026-09-30 検証: 札「開始済みの稼働中 545 件のうち 61 件」と行き先「604 件中 61 件を表示」で分母が 2 通りに見えた
+#[test]
+fn 開始前に立てない名札は開始前の行に無く今日の札の分母とつながる() {
+    let sh = sheets();
+    let day = fixture_day();
+    let b = build_deal_board(&sh, day);
+    let only: Vec<&str> = b["meta"]["started_only_flags"]
+        .as_array()
+        .expect("started_only_flags")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert_eq!(only, ["接触の記録が無い", "接触が30日以上空いている"]);
+    let rows = b["rows"].as_array().unwrap();
+    let pre: Vec<&Value> = rows.iter().filter(|r| r["not_started"] == true).collect();
+    assert!(
+        !pre.is_empty(),
+        "fixture に開始前の行が無い（確かめられない）"
+    );
+    for r in &pre {
+        let fs = r["flags"].as_array().unwrap();
+        for f in &only {
+            assert!(
+                !fs.iter().any(|x| x == f),
+                "開始前の行に {f} が立っている: {}",
+                r["deal_id"]
+            );
+        }
+    }
+    let t = build_today_board(&sh, day);
+    let nc = &t["meta"]["no_contact"];
+    assert_eq!(
+        nc["base"].as_u64().unwrap() as usize,
+        rows.len() - pre.len(),
+        "今日の札の分母が開始済みの件数でない"
+    );
+    let hit = rows
+        .iter()
+        .filter(|r| {
+            r["flags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|x| x == "接触の記録が無い")
+        })
+        .count();
+    assert_eq!(
+        nc["n"].as_u64().unwrap() as usize,
+        hit,
+        "札の件数と行き先の件数が違う"
+    );
+}
