@@ -407,10 +407,14 @@ function sumIf(byPerson, ok){
   return o;
 }
 // いま選んでいる範囲（チップ・プルダウン・チェックボックス）で足す。
-// 🔴 絞り込みの規則はここ 1 つ。カードの合計（sumScope）と、カードの内訳の行の絞り込み
-//    （cardRows）の両方がこれを使う。別々に書くとカードと内訳の合計がずれる。
-const inScope=id=>!hidden.has(id)&&
-  (person? id===person : (team==='すべて'||TEAM_OF[id]===team));
+// 🔴 絞り込みの規則はここ 1 つ。カードの合計（sumScope）・カードの内訳の行（cardRows）・
+//    下段の一覧（pick）のすべてがこれを使う。別々に書くとカードと一覧の件数がずれる。
+//    規則: チェックで外した人は除く / 担当者を選んでいればその人 /
+//          チームを選んでいれば、チーム = 名簿に居る人は名簿のチーム、居ない人は行のチーム（rowTeam）。
+//    rowTeam は行を持つ側（pick）だけが渡す。名簿に居ない担当者の行を消さないための代替。
+const teamOf=(id,rowTeam)=>Object.prototype.hasOwnProperty.call(TEAM_OF,id)?TEAM_OF[id]:rowTeam;
+const inScope=(id,rowTeam)=>!hidden.has(id)&&
+  (person? id===person : (team==='すべて'||teamOf(id,rowTeam)===team));
 const sumScope=byPerson=>sumIf(byPerson,inScope);
 // チーム（全社なら全チーム）で足す。個人の選択は見ない（平均の分子に使う）。
 const sumTeam=(byPerson,teamName)=>sumIf(byPerson,
@@ -495,9 +499,7 @@ function syncPickCount(){
 }
 
 function agg(){ return sumScope(D.by_person); }
-const pick=rows=>rows.filter(r=>
-  !hidden.has(r.owner)&&
-  (person? r.owner===person : (team==='すべて'||r.team===team)));
+const pick=rows=>rows.filter(r=>inScope(r.owner,r.team));
 
 // ---- 「1人あたり」の出し方 -------------------------------------------------
 //
@@ -686,9 +688,10 @@ function drawCardPanel(){
   let rows=base;
   if(cardSeg){const sg=segs.find(x=>x.k===cardSeg); if(sg) rows=rows.filter(sg.pred);}
   if(bpoOnly) rows=rows.filter(r=>r.bpo);
-  const tof=r=>TEAM_OF[r.owner]||r.team;
+  const tof=r=>teamOf(r.owner,r.team);
   const teamPick=team!=='すべて'?team:cardTeam;
-  const personPick=person||cardPerson;
+  // 担当者の id は空文字（担当なし）もあり得るので、「選んでいない」は null で区別する。
+  const personPick=person!==''?person:cardPerson;
   const crumb=(txt,fn)=>{const b=document.createElement('button'); b.className='more'; b.textContent=txt; b.onclick=fn; return b;};
   const table=(heads,groups,onPick)=>{
     const t=document.createElement('table'); t.className='cdrill';
@@ -712,11 +715,11 @@ function drawCardPanel(){
   };
   if(!rows.length){P.insertAdjacentHTML('beforeend','<div class="empty">この条件に当てはまる取引はありません。</div>');return;}
 
-  if(!personPick && !teamPick){
+  if(personPick===null && !teamPick){
     // 全社: チーム別
     const g=[...groupBy(rows,tof)].sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0],'ja'));
     P.appendChild(table('チーム',g,name=>{cardTeam=name;render();}));
-  }else if(!personPick){
+  }else if(personPick===null){
     // チーム選択済み: 担当者別
     const inTeam=rows.filter(r=>tof(r)===teamPick);
     if(team==='すべて') P.appendChild(crumb('‹ チーム別に戻る',()=>{cardTeam=null;render();}));
