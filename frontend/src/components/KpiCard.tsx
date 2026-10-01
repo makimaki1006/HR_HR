@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 export interface KpiCardProps {
   label: string;
-  /** null renders "データなし" (never a fake 0). */
+  /** null / NaN / Infinity render "データなし" (never a fake 0). */
   value: number | null;
   unit: string;
   /** Sample size behind the value. Required so callers must decide; null = unknown. */
@@ -19,7 +19,7 @@ export interface KpiCardProps {
 const defaultFormat = (v: number): string => v.toLocaleString('ja-JP');
 
 export function KpiCard({ label, value, unit, n, format = defaultFormat, note, display, emptyText }: KpiCardProps) {
-  const shownValue = display ?? (value === null ? null : format(value));
+  const shownValue = display ?? (value === null || !Number.isFinite(value) ? null : format(value));
   return (
     <section className="hw-kpi-card" aria-label={label}>
       <h3 className="hw-kpi-label">{label}</h3>

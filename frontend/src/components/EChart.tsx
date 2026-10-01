@@ -26,11 +26,11 @@ function withPrintMode(option: EChartsCoreOption, printMode: boolean | undefined
 
 export interface EChartProps {
   option: EChartsCoreOption;
-  /** Attached (with data-chart-ready="true") only once the chart is initialised. */
+  /** Attached (with data-chart-ready="true") only while the chart's latest render has finished. */
   testId: string;
   height?: number | string;
   onReady?: (instance: EChartsType) => void;
-  /** Renderer, fixed at mount (default canvas). svg suits print / PDF output. */
+  /** Renderer (default canvas). svg suits print / PDF output. Changing it re-creates the chart. */
   renderer?: 'canvas' | 'svg';
   /** Forces animation: false in the option (static output for print / PDF). */
   printMode?: boolean;
@@ -49,8 +49,8 @@ export function EChart({
   const optionRef = useRef(option);
   const onReadyRef = useRef(onReady);
   const printModeRef = useRef(printMode);
-  const rendererRef = useRef(renderer);
   const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     optionRef.current = option;
@@ -58,7 +58,7 @@ export function EChart({
     printModeRef.current = printMode;
   });
 
-  // Init once per mount; the chart is disposed on unmount.
+  // Init once per mount and per renderer; the chart is disposed on unmount / renderer change.
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -69,39 +69,47 @@ export function EChart({
     const resize = (): void => {
       instance?.resize();
     };
+    setReady(false);
+    setFailed(false);
 
-    void import('./echartsRegistry').then(({ echarts }) => {
-      if (cancelled) return;
-      const created =
-        rendererRef.current === 'svg'
-          ? echarts.init(root, undefined, { renderer: 'svg' })
-          : echarts.init(root);
-      instance = created;
-      instanceRef.current = created;
-      liveInstances.add(created);
-      created.setOption(withPrintMode(optionRef.current, printModeRef.current));
-      if (typeof ResizeObserver !== 'undefined') {
-        observer = new ResizeObserver(resize);
-        observer.observe(root);
-      }
-      window.addEventListener('beforeprint', resize);
-      if (typeof window.matchMedia === 'function') {
-        printQuery = window.matchMedia('print');
-        printQuery.addEventListener('change', resize);
-      }
-      window.__echarts_getInstanceByDom = (dom) => echarts.getInstanceByDom(dom);
-      window.__echartsResizeAll = resizeAll;
-      let announced = false;
-      const markReady = (): void => {
-        if (announced) return;
-        announced = true;
-        setReady(true);
-        onReadyRef.current?.(created);
-      };
-      // "Ready" means the first render finished, not just that the instance exists.
-      if (typeof created.on === 'function') created.on('finished', markReady);
-      else markReady();
-    });
+    import('./echartsRegistry')
+      .then(({ echarts }) => {
+        if (cancelled) return;
+        const created =
+          renderer === 'svg'
+            ? echarts.init(root, undefined, { renderer: 'svg' })
+            : echarts.init(root);
+        instance = created;
+        instanceRef.current = created;
+        liveInstances.add(created);
+        created.setOption(withPrintMode(optionRef.current, printModeRef.current));
+        if (typeof ResizeObserver !== 'undefined') {
+          observer = new ResizeObserver(resize);
+          observer.observe(root);
+        }
+        window.addEventListener('beforeprint', resize);
+        if (typeof window.matchMedia === 'function') {
+          printQuery = window.matchMedia('print');
+          printQuery.addEventListener('change', resize);
+        }
+        window.__echarts_getInstanceByDom = (dom) => echarts.getInstanceByDom(dom);
+        window.__echartsResizeAll = resizeAll;
+        let announced = false;
+        // "Ready" means the latest render finished (the first one, and again after each
+        // option change), not just that the instance exists.
+        const onFinished = (): void => {
+          setReady(true);
+          if (announced) return;
+          announced = true;
+          onReadyRef.current?.(created);
+        };
+        if (typeof created.on === 'function') created.on('finished', onFinished);
+        else onFinished();
+      })
+      .catch(() => {
+        // Chunk load failure (offline, stale deploy) or init error: show it instead of a blank box.
+        if (!cancelled) setFailed(true);
+      });
 
     return () => {
       cancelled = true;
@@ -112,18 +120,30 @@ export function EChart({
       instance?.dispose();
       instanceRef.current = null;
     };
-  }, []);
+  }, [renderer]);
 
-  // Later option changes replace the previous option entirely.
+  // Later option changes replace the previous option entirely; the chart is "not ready" until
+  // the re-render has finished.
   useEffect(() => {
-    instanceRef.current?.setOption(withPrintMode(option, printMode), { notMerge: true });
+    const instance = instanceRef.current;
+    if (!instance) return;
+    setReady(false);
+    instance.setOption(withPrintMode(option, printMode), { notMerge: true });
   }, [option, printMode]);
 
   return (
     <div
+      key={renderer}
       ref={rootRef}
       style={{ width: '100%', height }}
       {...(ready ? { 'data-testid': testId, 'data-chart-ready': 'true' } : {})}
-    />
+      {...(failed ? { 'data-chart-error': 'true' } : {})}
+    >
+      {failed ? (
+        <p role="alert" className="hw-chart-error">
+          グラフを読み込めませんでした
+        </p>
+      ) : null}
+    </div>
   );
 }

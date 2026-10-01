@@ -19,6 +19,16 @@ describe('KpiCard', () => {
     expect(html).toContain('>n=0<');
   });
 
+  it('treats NaN / Infinity as データなし', () => {
+    for (const v of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const html = renderToStaticMarkup(<KpiCard label="x" value={v} unit="円" n={3} />);
+      expect(html).toContain('データなし');
+      expect(html).not.toContain('NaN');
+      expect(html).not.toContain('∞');
+      expect(html).not.toContain('hw-kpi-unit');
+    }
+  });
+
   it('keeps a real 0 distinct from null', () => {
     const html = renderToStaticMarkup(<KpiCard label="欠員" value={0} unit="件" n={10} />);
     expect(html).not.toContain('データなし');
