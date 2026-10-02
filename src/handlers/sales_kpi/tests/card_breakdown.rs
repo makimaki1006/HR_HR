@@ -25,7 +25,7 @@ use std::sync::Arc;
 use chrono::NaiveDate;
 use serde_json::Value;
 
-use super::{build_payload, fixture_sheets, payload, sheet_from_tsv};
+use super::{fixture_sheets, payload, payload_of, sheet_from_tsv};
 use crate::handlers::sales_kpi::Sheets;
 
 // ---------------------------------------------------------------- カードの定義（期待値側）
@@ -639,7 +639,7 @@ fn synthetic_day() -> NaiveDate {
 /// これは**実装前から通る**（現行の数え方の確認）。内訳の実装で数字が動いたら落ちる。
 #[test]
 fn 合成入力のカードの数字は現行の数え方どおり() {
-    let body = build_payload(&synthetic_sheets(), synthetic_day());
+    let body = payload_of(&synthetic_sheets(), synthetic_day());
     let sum = |k: &str| super::team_sum(&body, k);
     assert_eq!(sum("pool"), 9, "③ D002..D007,D009,D010,D012");
     assert_eq!(sum("未処理"), 2, "D002,D009");
@@ -667,7 +667,7 @@ fn 合成入力のカードの数字は現行の数え方どおり() {
 /// 合成入力で、内訳の行が具体的にどの取引かまで確かめる。
 #[test]
 fn 合成入力の内訳の行はカードの取引そのもの() {
-    let body = build_payload(&synthetic_sheets(), synthetic_day());
+    let body = payload_of(&synthetic_sheets(), synthetic_day());
     let ids = |src: &str| -> BTreeSet<String> {
         card_rows(&body, src)
             .iter()
@@ -731,6 +731,6 @@ fn 合成入力の内訳の行はカードの取引そのもの() {
 /// 合成入力で、全絞り込みの組み合わせでもカードと内訳がそろう。
 #[test]
 fn 合成入力でもチームの全組み合わせと担当者選択でカードと内訳が一致する() {
-    let body = build_payload(&synthetic_sheets(), synthetic_day());
+    let body = payload_of(&synthetic_sheets(), synthetic_day());
     assert_all_scopes(&body);
 }

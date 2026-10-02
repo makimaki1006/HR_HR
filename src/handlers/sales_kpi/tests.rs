@@ -2076,8 +2076,9 @@ mod card_breakdown;
 
 /// 🔴 `serde_json::Value` → struct の置き換えで JSON を **1 バイトも変えていない**ことの証明。
 ///
-/// 期待値は置き換える**前**のコードで `payload_を書き出す` が書き出したもの
-/// （2026-09-30、判定日 2026-09-04）。キーの並び・数値・省略されるキー（`hsTeam` 等）まで
+/// 期待値は置き換える**前**のコード（origin/main 8d6590f = カード内訳 #45・担当なしの選択 #46 取り込み後）で
+/// `examples/dump_sales_kpi` が書き出したもの（2026-10-02、判定日 2026-09-04。HEAD のバイナリの出力と
+/// sha256 まで一致を確認済み）。キーの並び・数値・省略されるキー（`hsTeam` 等）まで
 /// 丸ごと一致しないと落ちる。fixture を取り直したときは、このファイルも
 /// `payload_を書き出す` で作り直す（置き換え前のコードはもう無いので、そのときは差分を目で確かめる）。
 #[test]
@@ -2138,6 +2139,7 @@ fn 契約_トップレベルのキーと基本値() {
             "next_week_deals",
             "anq_missing",
             "cyomi_stale",
+            "card_deals",
             "excluded",
             "kaden",
             "kaden_base",
@@ -2180,6 +2182,15 @@ fn 契約_トップレベルのキーと基本値() {
     assert_eq!(len("next_week_deals"), 213);
     assert_eq!(len("anq_missing"), 267);
     assert_eq!(len("cyomi_stale"), 36);
+    // カード内訳の行（#45）。件数は fixture の実測値。各行に HubSpot の取引ページ url が付く
+    let deals = |key: &str| body["card_deals"][key].as_array().expect(key).len();
+    assert_eq!(deals("pool"), 537);
+    assert_eq!(deals("apo"), 245);
+    assert_eq!(deals("cyomi"), 123);
+    assert_eq!(
+        body["card_deals"]["pool"][0]["url"],
+        "https://app.hubspot.com/contacts/23708633/record/0-3/13016924850/"
+    );
     assert_eq!(body["excluded"], json!({"コンサル営業": 7, "件数": 7}));
     assert_eq!(body["kaden_base"], 129869);
     assert_eq!(body["from_cache"], true);
