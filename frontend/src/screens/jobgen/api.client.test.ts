@@ -24,6 +24,7 @@ describe('jobgen postJson via the shared client', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBeInstanceOf(AuthRequiredError);
+    expect(r.error.message).toBe('ログインの有効期限が切れました。もう一度ログインしてください');
   });
 
   it('a non-2xx JSON body is kept in ApiHttpError.body and its message is shown', async () => {
@@ -67,6 +68,7 @@ describe('jobgen postJson via the shared client', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBeInstanceOf(AuthRequiredError);
+    expect(r.error.message).toBe('ログインの有効期限が切れました。もう一度ログインしてください');
   });
 
   it('has no 15 s default timeout (Gemini calls can exceed a minute)', async () => {

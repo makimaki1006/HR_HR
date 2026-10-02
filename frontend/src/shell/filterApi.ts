@@ -12,8 +12,6 @@ import { AuthRequiredError, apiGet, apiPostForm } from '../api/client';
 
 export type SetFilterName = 'prefecture' | 'municipality' | 'job_type' | 'industry_filter';
 
-export const LOGIN_PATH = '/login';
-
 /** Session lost while calling a legacy endpoint (redirected to /login). */
 export class ShellAuthError extends Error {
   override name = 'ShellAuthError';
