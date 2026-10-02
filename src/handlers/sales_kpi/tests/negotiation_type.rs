@@ -98,8 +98,14 @@ fn 商談種別の複数値は空白と空の部分と重複を整理する() {
     );
     assert_eq!(negotiation_type_label(";"), "(未設定)");
     assert_eq!(negotiation_type_label(" ; \u{3000};"), "(未設定)");
-    assert_eq!(negotiation_type_label("担当者商談;担当者商談"), "決裁者商談");
-    assert_eq!(negotiation_type_label("担当者商談;決裁者商談"), "決裁者商談");
+    assert_eq!(
+        negotiation_type_label("担当者商談;担当者商談"),
+        "決裁者商談"
+    );
+    assert_eq!(
+        negotiation_type_label("担当者商談;決裁者商談"),
+        "決裁者商談"
+    );
 }
 
 #[test]
@@ -643,7 +649,9 @@ fn 並びは_payload_が全ラベルを順に渡す() {
 #[test]
 fn 並びは定義外が無ければ固定の_3_つだけ() {
     let base = fixture_sheets();
-    let shodan = add_col(&base.shodan, "商談種別", |_, _| "担当者商談".to_string());
+    let shodan = add_col(&base.shodan, "商談種別", |_, _| {
+        "担当者商談".to_string()
+    });
     let body = build_payload(&Sheets { shodan, ..base }, fixture_day());
     assert_eq!(
         body["negotiation_type_order"],
@@ -661,8 +669,13 @@ fn テンプレートに並びや未設定の直書きが無い() {
     );
     assert!(tpl.contains("negotiation_type_order"));
     assert!(tpl.contains("negotiation_type_fixed"));
+    // 種別の並べ替え(order の定義から表の組み立てまで)に名前順の比較を持ち込まない
+    let from = tpl
+        .find("const order=D.negotiation_type_order")
+        .expect("order");
+    let to = from + tpl[from..].find("className='ntt'").expect("ntt");
     assert!(
-        !tpl.contains("localeCompare(b[0]"),
+        !tpl[from..to].contains("localeCompare"),
         "種別の並べ替えを JS で決めている"
     );
 }
