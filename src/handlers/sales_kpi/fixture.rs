@@ -35,7 +35,8 @@ pub const ENV_TODAY: &str = "SALES_KPI_FIXTURE_TODAY";
 
 /// `SALES_KPI_FIXTURE_DIR` が空でなければそのパス。
 pub fn dir_from_env() -> Option<PathBuf> {
-    std::env::var(ENV_DIR)
+    // 🔴 tests/env_example_matches_code.rs が `env::var("NAME")` の文字列リテラルを拾うので、定数ではなく直書き
+    std::env::var("SALES_KPI_FIXTURE_DIR")
         .ok()
         .filter(|s| !s.trim().is_empty())
         .map(PathBuf::from)
@@ -43,7 +44,7 @@ pub fn dir_from_env() -> Option<PathBuf> {
 
 /// `SALES_KPI_FIXTURE_TODAY` を日付として読む。無い・読めなければ `None`。
 pub fn today_from_env() -> Option<NaiveDate> {
-    std::env::var(ENV_TODAY)
+    std::env::var("SALES_KPI_FIXTURE_TODAY")
         .ok()
         .and_then(|s| NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok())
 }
