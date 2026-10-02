@@ -309,10 +309,15 @@ async function sendFetch<T>(
  * GET a JSON endpoint on the same origin. Never throws; all failures are
  * returned as `{ ok: false, error }` with a specific ApiError subclass.
  *
+ * Pass `{ expect: 'text' }` for endpoints that answer an HTML fragment instead of JSON.
+ *
  * `T` is not validated at runtime; it is trusted to match the Rust contract
  * (generated types arrive in Phase 0-4).
  */
-export async function apiGet<T>(path: string, options: ApiGetOptions = {}): Promise<ApiResult<T>> {
+export async function apiGet<T>(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<T>> {
   return sendFetch<T>(
     path,
     { method: 'GET', headers: { Accept: 'application/json', ...REQUESTED_WITH } },
