@@ -2076,3 +2076,22 @@ fn リスト列が無い古い週次の行は在庫を出さない() {
 /// 「今月の成績」カードの内訳。実装前に書いた、落ちるテスト（設計書
 /// `claudedocs/SALES_KPI_CARD_BREAKDOWN_DESIGN_2026-10-02.md`）。
 mod card_breakdown;
+
+#[test]
+fn 見出しの月は固定文字でなく取得日から作る() {
+    // 🔴 2026-10-02: 見出しが '2026年9月' の固定文字で、10 月になっても 9 月と出ていた。
+    //    月は TODAY(generated_at の日付)から作る。固定の年月を書き戻したら落とす。
+    let html = include_str!("../../../templates/tabs/sales_kpi.html");
+    let line = html
+        .lines()
+        .find(|l| l.contains("$('range').textContent="))
+        .expect("見出しの期間を書く行が無い");
+    assert!(
+        !line.contains("年9月") && !line.contains("'2026年"),
+        "見出しの月が固定文字に戻っている: {line}"
+    );
+    assert!(
+        line.contains("TODAY"),
+        "見出しの月を TODAY から作っていない: {line}"
+    );
+}
