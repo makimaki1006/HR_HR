@@ -185,8 +185,10 @@ describe('いま手を打てること', () => {
     const html = render({ openKey: 'stale' });
     expect(html).toContain('<b>ステージが止まっている取引（9件）</b>');
     expect(html).toContain('<div class="open">閉じる ▲</div>');
-    // サーバの JSON に url は無いので href は出ない (旧画面も href="undefined" 相当)
-    expect(html).toContain('<a class="item stale" target="_blank" rel="noopener noreferrer"');
+    // DealRow.url (HubSpot の取引ページ。#45 でサーバが付ける) がそのまま href になる
+    expect(html).toContain(
+      '<a class="item stale" href="https://app.hubspot.com/contacts/23708633/record/0-3/15873734455/" target="_blank" rel="noopener noreferrer"',
+    );
     expect(html).toContain('<div class="d"><b>7/10（金）</b><span>57日前</span></div><div class="nm">（取引名なし）</div><div class="who">担当006</div><div class="go">HubSpotを開く ›</div>');
   });
   it('③ 今週を開く: 日別ストリップ (7 日、0 件の日も)、今日・過去の印', () => {

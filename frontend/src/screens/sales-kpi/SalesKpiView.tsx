@@ -172,12 +172,10 @@ function Card({ o, open, onClick }: { o: CardSpec; open?: boolean; onClick?: () 
 
 function Item({ r, today, stale, days, done }: { r: DealRow; today: string; stale?: boolean; days?: boolean; done?: boolean }) {
   const subText = stale ? String(ago(today, r.date)) + '日前' : days ? String(r.days ?? '') + '日' : r.time || '';
-  // 旧画面は r.url を href にしていたが、サーバの JSON に url は無い (旧画面でも undefined)。
-  const url = (r as DealRow & { url?: string }).url;
   return (
     <a
       className={'item' + (stale ? ' stale' : '') + (done ? ' done' : '')}
-      href={url}
+      href={r.url}
       target="_blank"
       rel="noopener noreferrer"
       data-deal={r.id}

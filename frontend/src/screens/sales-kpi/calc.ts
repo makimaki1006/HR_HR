@@ -1107,9 +1107,16 @@ export function tabsOf(d: Pick<SalesKpiData, 'kettei' | 'list_stock'>): { key: T
 
 // ---------------------------------------------------------------- 見出し
 
+/** 見出しの「2026年9月」。今月 = 判定日 (generated_at の日付) の月。読めなければ年月は出さない。 */
+export function monthLabel(d: Pick<SalesKpiData, 'generated_at'>): string {
+  const p = ymdParts(todayOf(d));
+  return p ? String(p[0]) + '年' + String(p[1]) + '月　／　' : '';
+}
+
 export function rangeText(d: SalesKpiData): string {
   return (
-    '2026年9月　／　今週 ' +
+    monthLabel(d) +
+    '今週 ' +
     md(d.week.start) +
     '（' +
     wd(d.week.start) +
