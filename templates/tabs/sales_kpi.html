@@ -368,7 +368,8 @@ const ago=s=>Math.round((new Date(TODAY+'T00:00:00+09:00')-new Date(s+'T00:00:00
 $('bporule').innerHTML='<b>内 BPO</b> は「BPOアポ取得日」がその期間にあるものです。'+
   'このプロパティは<b>過去のBPOアポの日付が残り続ける</b>ため、値の有無では判定できません'+
   '（今月の商談で言うと、値があるのは200件ですが、そのうち当月・前月に取ったものは129件です）。';
-$('range').textContent='2026年9月　／　今週 '+md(D.week.start)+'（'+wd(D.week.start)+'）〜'+
+// 月は TODAY(取得日)から作る。固定文字だと翌月も同じ月が出る(2026-10-02 修正)。
+$('range').textContent=(TODAY?TODAY.slice(0,4)+'年'+Number(TODAY.slice(5,7))+'月　／　':'')+'今週 '+md(D.week.start)+'（'+wd(D.week.start)+'）〜'+
   md(D.week.end)+'（'+wd(D.week.end)+'）　※'+D.generated_at+' 時点';
 
 ['すべて'].concat(D.teams).forEach(t=>{
