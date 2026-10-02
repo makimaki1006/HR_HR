@@ -709,11 +709,12 @@ function drawCardPanel(){
   }
   if(bar.children.length)P.appendChild(bar);
 
-  // いま見る行 = 絞り込み後の行 → 区分 → BPO
-  // 種別の表は「区分・種別の絞りを掛けない行」（内 BPO だけは掛ける）から数える。
+  // いま見る行 = 絞り込み後の行 → BPO → 区分 → 種別。
+  // 種別の表は「区分まで掛けて、種別だけ掛けない行」から数える（種別の合計 == いまの区分の件数）。
   const baseB=bpoOnly?base.filter(r=>r.bpo):base;
-  let rows=baseB;
-  if(cardSeg){const sg=segs.find(x=>x.k===cardSeg); if(sg) rows=rows.filter(sg.pred);}
+  const segPred=cardSeg?(segs.find(x=>x.k===cardSeg)||{}).pred:null;
+  const baseS=segPred?baseB.filter(segPred):baseB;
+  let rows=baseS;
   if(ntOk&&cardNt!=null) rows=rows.filter(r=>r.negotiation_type===cardNt);
   const tof=r=>teamOf(r.owner,r.team);
   const teamPick=team!=='すべて'?team:cardTeam;
@@ -742,17 +743,18 @@ function drawCardPanel(){
   };
   // 商談種別の表。いまの段（全社・チーム・担当者）の行を種別で束ねる。合計行 = その段の件数。
   if(ntOk){
-    const lvl=personPick!==null?baseB.filter(r=>r.owner===personPick)
-      :(teamPick?baseB.filter(r=>tof(r)===teamPick):baseB);
+    const lvl=personPick!==null?baseS.filter(r=>r.owner===personPick)
+      :(teamPick?baseS.filter(r=>tof(r)===teamPick):baseS);
+    // 並びはサーバが決める（negotiation_type_order。固定の種別 + 出てきた定義外）。ここでは従うだけ。
     const order=D.negotiation_type_order||[];
     const rank=l=>{const i=order.indexOf(l);return i<0?order.length:i;};
     const g=groupBy(lvl,r=>r.negotiation_type);
-    // 決まっている 2 種別は 0 件でも並べる（段を降りても同じ形で追えるように）
-    order.filter(l=>l!=='(未設定)').forEach(l=>{if(!g.has(l))g.set(l,[]);});
-    const items=[...g].sort((a,b)=>rank(a[0])-rank(b[0])||a[0].localeCompare(b[0],'ja'));
+    // 決まっている種別（negotiation_type_fixed）は 0 件でも並べる（段を降りても同じ形で追えるように）
+    (D.negotiation_type_fixed||[]).forEach(l=>{if(!g.has(l))g.set(l,[]);});
+    const items=[...g].sort((a,b)=>rank(a[0])-rank(b[0]));
     const t=document.createElement('table'); t.className='ntt'; t.style.marginBottom='10px';
     t.dataset.level=personPick!==null?'person':(teamPick?'team':'all');
-    t.innerHTML='<thead><tr><th>商談種別</th><th class="n">'+(numSeg?'分母':'件数')+'</th>'+
+    t.innerHTML='<thead><tr><th>商談種別</th><th class="n">'+(numSeg?(cardSeg?'件数（'+cardSeg+'）':'分母'):'件数')+'</th>'+
       (numSeg?'<th class="n">分子（'+conf.num+'）</th>':'')+'<th class="n">内 BPO</th></tr></thead>';
     const tb=document.createElement('tbody'); let sum=0, sumB=0, sumN=0;
     items.forEach(([name,rs])=>{

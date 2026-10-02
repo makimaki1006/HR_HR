@@ -878,9 +878,15 @@ pub fn is_bpo(deal: &Deal, prev_month_start: &str, month_end: &str) -> bool {
 
 /// 商談種別が空のときの表示。
 pub const NEGOTIATION_TYPE_UNSET: &str = "(未設定)";
-/// 固定の並び順（定義外はこの後ろに名前順）。
-pub const NEGOTIATION_TYPE_ORDER: [&str; 3] =
-    ["決裁者商談", "非決裁者商談", NEGOTIATION_TYPE_UNSET];
+/// 決まっている 2 種別（0 件でも表に並べる）。この順が並びの先頭。
+pub const NEGOTIATION_TYPE_FIXED: [&str; 2] = ["決裁者商談", "非決裁者商談"];
+/// 固定の並び順（定義外はこの後ろに名前順）。**並びを決めるのはここと `negotiation_type_rank` だけ**。
+/// 画面(JS)は payload の `negotiation_type_order` に従うだけで、並びも `(未設定)` も直書きしない。
+pub const NEGOTIATION_TYPE_ORDER: [&str; 3] = [
+    NEGOTIATION_TYPE_FIXED[0],
+    NEGOTIATION_TYPE_FIXED[1],
+    NEGOTIATION_TYPE_UNSET,
+];
 
 /// 内部値 → ラベル。🔴 HubSpot の定義で入れ違っている。
 pub const NEGOTIATION_TYPE_MAP: [(&str, &str); 2] =
@@ -891,28 +897,37 @@ pub const NEGOTIATION_TYPE_COL: &str = "商談種別";
 /// 定義外の値に付ける印。
 pub const NEGOTIATION_TYPE_UNDEFINED_SUFFIX: &str = "(定義外)";
 
-/// 商談種別の内部値をラベルにする（画面・payload にはラベルだけを出す）。
-///
-/// - 前後の空白（全角含む）を落とす。空なら `(未設定)`
-/// - 内部値なら対応するラベル（入れ違いに注意。`NEGOTIATION_TYPE_MAP`）
-/// - すでにラベルならそのまま
-/// - それ以外は 値そのまま + `(定義外)`。`;` 区切りの複数値も割らず 1 つの値として扱う
-///   （割ると 1 取引が複数回数えられ、種別の合計がカードの件数を超える）
-pub fn negotiation_type_label(raw: &str) -> String {
-    let v = raw.trim();
-    if v.is_empty() {
-        return NEGOTIATION_TYPE_UNSET.to_string();
-    }
-    if let Some((_, label)) = NEGOTIATION_TYPE_MAP
+/// 1 つの部分（`;` で割ったあと・空白を落としたあと）を表示用にする。定義外は値そのまま。
+fn negotiation_type_part(v: &str) -> &str {
+    NEGOTIATION_TYPE_MAP
         .iter()
         .find(|(internal, _)| *internal == v)
-    {
-        return (*label).to_string();
+        .map(|(_, label)| *label)
+        .unwrap_or(v)
+}
+
+/// 商談種別の内部値をラベルにする（画面・payload にはラベルだけを出す）。
+///
+/// - `;` で割り、各部分の前後の空白（全角含む）を落とす。空の部分は無かったことにする。
+///   同じ部分の重複は 1 つにする。残りが無ければ `(未設定)`
+/// - 部分が 1 つ: 内部値なら対応するラベル（入れ違いに注意。`NEGOTIATION_TYPE_MAP`）、
+///   すでにラベルならそのまま、それ以外は 値そのまま + `(定義外)`
+/// - 部分が 2 つ以上: **1 件として数える**（割ると 1 取引が複数回数えられ、種別の合計が
+///   カードの件数を超える）。表示は各部分を同じ表でラベルに直して `;` でつなぎ、
+///   全体に `(定義外)` を 1 回だけ付ける（内部値は画面に出さない。並びは入力のまま）
+pub fn negotiation_type_label(raw: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for p in raw.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+        let shown = negotiation_type_part(p);
+        if !parts.contains(&shown) {
+            parts.push(shown);
+        }
     }
-    if NEGOTIATION_TYPE_MAP.iter().any(|(_, label)| *label == v) {
-        return v.to_string();
+    match parts.as_slice() {
+        [] => NEGOTIATION_TYPE_UNSET.to_string(),
+        [one] if NEGOTIATION_TYPE_FIXED.contains(one) => (*one).to_string(),
+        parts => format!("{}{NEGOTIATION_TYPE_UNDEFINED_SUFFIX}", parts.join(";")),
     }
-    format!("{v}{NEGOTIATION_TYPE_UNDEFINED_SUFFIX}")
 }
 
 /// 並び順の位置。`NEGOTIATION_TYPE_ORDER` の添字、定義外は最後（同順位。後ろで名前順）。
@@ -921,6 +936,26 @@ pub fn negotiation_type_rank(label: &str) -> usize {
         .iter()
         .position(|l| *l == label)
         .unwrap_or(NEGOTIATION_TYPE_ORDER.len())
+}
+
+/// payload の `negotiation_type_order`: 固定の 3 つ + 実際に出てきた定義外（名前順）。
+/// 並べ替えの規則はここだけ（`negotiation_type_rank` → 名前）。
+pub fn negotiation_type_order_of<'a>(labels: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut all: Vec<String> = NEGOTIATION_TYPE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    for l in labels {
+        if !all.iter().any(|x| x == l) {
+            all.push(l.to_string());
+        }
+    }
+    all.sort_by(|a, b| {
+        negotiation_type_rank(a)
+            .cmp(&negotiation_type_rank(b))
+            .then_with(|| a.cmp(b))
+    });
+    all
 }
 
 /// 画面に出す取引1件。
