@@ -604,6 +604,61 @@ def nt_descend(page, where, expect_total, fails, depth=0, nt_filter=None, limit=
         page.get_by_role("button", name=re.compile("に戻る")).first.click()
 
 
+def nt_seg_check(page, where, fails, limit=2, ntn=2):
+    """区分チップ（④⑥⑤）を 1 つずつ選び、その状態で種別の表を全段で確かめる。
+    - 種別の合計 == 区分の件数（チップの件数）、各段（全社 → チーム → 担当者 → 一覧）でも同じ
+    - 種別を押して絞ると、一覧の行数の合計 == その種別の件数（区分は選んだまま）
+    - 内 BPO を併用: 種別の合計 == その区分の内 BPO
+    """
+    segs = page.evaluate(
+        "()=>[...document.querySelectorAll('#panel1 button.chip[data-seg]')]"
+        ".filter(b=>b.dataset.seg!=='').map(b=>[b.dataset.seg,+b.dataset.n])"
+    )
+    for seg, n in segs:
+        if n == 0:
+            continue
+        STATS["nt_seg"] = STATS.get("nt_seg", 0) + 1
+        w = f"{where} 区分「{seg}」"
+        page.locator("#panel1 button.chip[data-seg]").filter(has_text=re.compile(f"^(分子 )?{re.escape(seg)} ")).first.click()
+        t = nt_level_check(page, w + " 全体", n, fails)
+        no_raw_values(page, w, fails)
+        nt_descend(page, w, n, fails, limit=limit)
+        if t:
+            done = 0
+            for r in t["rows"]:
+                if r["n"] == 0:
+                    continue
+                done += 1
+                if done > ntn:
+                    break
+                nm = r["nt"]
+                page.locator("#panel1 table.ntt tbody tr").filter(
+                    has=page.get_by_role("button", name=nm, exact=True)).first.click()
+                t2 = nt_table(page)
+                if t2 is None or t2["sum"] != n:
+                    fails.append(f"{w} 絞り「{nm}」: 種別の表の合計 {t2 and t2['sum']} ≠ 区分の件数 {n}")
+                lc = level_count(page)
+                if lc != r["n"]:
+                    fails.append(f"{w} 絞り「{nm}」: 絞った段の件数 {lc} ≠ 種別の件数 {r['n']}")
+                nt_descend(page, f"{w} 絞り「{nm}」", r["n"], fails, nt_filter=nm, limit=limit)
+                page.locator("#panel1-nt-chip").click()
+        # 内 BPO を併用
+        b = page.locator("#panel1-bpo")
+        if b.count() and t:
+            want_b = sum(r["bpo"] for r in t["rows"])
+            b.click()
+            tb = nt_table(page)
+            if tb is None or tb["sum"] != want_b:
+                fails.append(f"{w} BPOだけ: 種別の表の合計 {tb and tb['sum']} ≠ 区分の内BPO {want_b}")
+            else:
+                nt_descend(page, w + " BPOだけ", want_b, fails, limit=1)
+            page.locator("#panel1-bpo").click()
+    # 区分を外す（次の検査のために「すべて」へ戻す）
+    allc = page.locator("#panel1 button.chip[data-seg='']")
+    if allc.count():
+        allc.first.click()
+
+
 def nt_card_check(page, ci: int, label: str, fails: list, shot=None, filters=True, limit=2, full=False):
     """カード ci を開き、種別の表を全段で確かめる。filters なら種別ごとに絞って降りる。"""
     cards = card_values(page)
@@ -656,6 +711,9 @@ def nt_card_check(page, ci: int, label: str, fails: list, shot=None, filters=Tru
             lc = level_count(page)
             if lc != total:
                 fails.append(f"{where} 絞り「{nm}」: 解除後の段の件数 {lc} が {total} に戻らない")
+    # 区分（④⑥⑤）を選んだまま: 種別の合計 == その区分の件数、種別を押した先の一覧の行数 == その種別の件数
+    if filters:
+        nt_seg_check(page, where, fails, limit=limit, ntn=(2 if filters is True else filters))
     # 内 BPO だけ: 種別の表の合計 == 内 BPO
     b = page.locator("#panel1-bpo")
     if b.count():
@@ -862,7 +920,7 @@ def main():
         for f in fails[:40]:
             print(" -", f)
         return 1
-    print(f"OK: カードの値 == パネル見出し == 一覧の行数の合計（開いたパネル {STATS['drill']} 回、数えた一覧の行 {STATS['rows']} 行、種別の表を確かめた段 {STATS['nt_levels']}）")
+    print(f"OK: カードの値 == パネル見出し == 一覧の行数の合計（開いたパネル {STATS['drill']} 回、数えた一覧の行 {STATS['rows']} 行、種別の表を確かめた段 {STATS['nt_levels']}、区分を選んだ検査 {STATS.get('nt_seg', 0)}）")
     return 0
 
 

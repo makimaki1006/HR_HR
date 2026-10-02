@@ -53,11 +53,53 @@ fn 商談種別が空なら未設定にする() {
 #[test]
 fn 商談種別の表に無い値は値そのままに定義外を付ける() {
     assert_eq!(negotiation_type_label("新種別"), "新種別(定義外)");
-    // 複数値(;区切り)は割らない。割ると 1 取引が 2 回数えられる
+    assert_eq!(negotiation_type_label("新種別;新種別"), "新種別(定義外)");
+}
+
+/// `;` 区切りの複数値は割らず 1 件として数える(割ると 1 取引が 2 回数えられる)。
+/// ただし表示は各部分を同じ変換表でラベルに直す。内部値(代表者商談・担当者商談)は画面に出さない。
+/// 複数値は表に無い値なので、全体に `(定義外)` を 1 回だけ付ける。
+#[test]
+fn 商談種別の複数値は各部分をラベルに直して全体を定義外にする() {
     assert_eq!(
         negotiation_type_label("担当者商談;代表者商談"),
-        "担当者商談;代表者商談(定義外)"
+        "決裁者商談;非決裁者商談(定義外)"
     );
+    // 並びは入力のまま(並べ替えない)
+    assert_eq!(
+        negotiation_type_label("代表者商談;担当者商談"),
+        "非決裁者商談;決裁者商談(定義外)"
+    );
+    // ラベル形と内部値形が混ざっても各部分を直す
+    assert_eq!(
+        negotiation_type_label("決裁者商談;代表者商談"),
+        "決裁者商談;非決裁者商談(定義外)"
+    );
+    // 部分に定義外が混ざる: その部分は値そのまま。(定義外) は全体に 1 回だけ
+    assert_eq!(
+        negotiation_type_label("担当者商談;新種別"),
+        "決裁者商談;新種別(定義外)"
+    );
+}
+
+/// 部分の前後の空白は落とす。空の部分は無かったことにする。
+/// 同じ部分の重複は 1 つにする。残りが 1 つなら、単独の値と同じ扱い。
+#[test]
+fn 商談種別の複数値は空白と空の部分と重複を整理する() {
+    assert_eq!(
+        negotiation_type_label(" 担当者商談 ; 代表者商談 "),
+        "決裁者商談;非決裁者商談(定義外)"
+    );
+    assert_eq!(negotiation_type_label("担当者商談;"), "決裁者商談");
+    assert_eq!(negotiation_type_label(";代表者商談"), "非決裁者商談");
+    assert_eq!(
+        negotiation_type_label("担当者商談;;代表者商談"),
+        "決裁者商談;非決裁者商談(定義外)"
+    );
+    assert_eq!(negotiation_type_label(";"), "(未設定)");
+    assert_eq!(negotiation_type_label(" ; \u{3000};"), "(未設定)");
+    assert_eq!(negotiation_type_label("担当者商談;担当者商談"), "決裁者商談");
+    assert_eq!(negotiation_type_label("担当者商談;決裁者商談"), "決裁者商談");
 }
 
 #[test]
@@ -119,7 +161,7 @@ const CYCLE: [(&str, &str); 8] = [
     ("", "(未設定)"),
     (" 担当者商談 ", "決裁者商談"),
     ("新種別", "新種別(定義外)"),
-    ("担当者商談;代表者商談", "担当者商談;代表者商談(定義外)"),
+    ("担当者商談;代表者商談", "決裁者商談;非決裁者商談(定義外)"),
 ];
 
 /// 行の通し番号で CYCLE を回す。dealId → 期待ラベル も返す(同じ dealId が割れたら None)。
@@ -265,7 +307,7 @@ fn 種別ごとの行数の合計がカードの件数と担当者ごとに一�
         "非決裁者商談",
         "(未設定)",
         "新種別(定義外)",
-        "担当者商談;代表者商談(定義外)",
+        "決裁者商談;非決裁者商談(定義外)",
     ]
     .into_iter()
     .collect();
@@ -448,7 +490,7 @@ fn 合成入力の商談種別は取引ごとに期待したラベルになる()
         ("D006", "決裁者商談"),
         ("D007", "新種別(定義外)"),
         ("D009", "非決裁者商談"),
-        ("D010", "担当者商談;代表者商談(定義外)"),
+        ("D010", "決裁者商談;非決裁者商談(定義外)"),
         ("D012", "決裁者商談"),
     ]
     .into_iter()
@@ -556,4 +598,71 @@ fn 列はあるが値が全部空なら未設定として全件数える() {
     let pool = card_rows(&body, "pool");
     assert_eq!(pool.len(), 537);
     assert!(pool.iter().all(|r| nt(r) == Some("(未設定)")));
+}
+
+// ---------------------------------------------------------------- 並びの決め方(Rust の 1 か所)
+
+/// 並びは Rust(`negotiation_type_rank`)が決めて payload の `negotiation_type_order` で渡す。
+/// 画面(JS)はそれに従うだけ。順は 決裁者商談 → 非決裁者商談 → (未設定) → 定義外(名前順)。
+/// 定義外は、その月のシートに実際に出てきたものだけを後ろへ足す。
+#[test]
+fn 並びは_payload_が全ラベルを順に渡す() {
+    let c = fixture_with_types();
+    let body = build_payload(&c.sheets, fixture_day());
+    let order: Vec<&str> = body["negotiation_type_order"]
+        .as_array()
+        .expect("negotiation_type_order")
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "決裁者商談",
+            "非決裁者商談",
+            "(未設定)",
+            "新種別(定義外)",
+            "決裁者商談;非決裁者商談(定義外)"
+        ]
+    );
+    // 画面に出るラベルはすべて order にある(JS が並べられない行が出ない)
+    for src in ["pool", "apo", "cyomi"] {
+        for r in card_rows(&body, src) {
+            let l = nt(r).unwrap();
+            assert!(order.contains(&l), "{src}: {l} が order に無い");
+        }
+    }
+    // 必ず並べる(0 件でも出す)2 つ
+    assert_eq!(
+        body["negotiation_type_fixed"],
+        serde_json::json!(["決裁者商談", "非決裁者商談"])
+    );
+}
+
+/// 列があっても定義外が無ければ、固定の 3 つだけ。
+#[test]
+fn 並びは定義外が無ければ固定の_3_つだけ() {
+    let base = fixture_sheets();
+    let shodan = add_col(&base.shodan, "商談種別", |_, _| "担当者商談".to_string());
+    let body = build_payload(&Sheets { shodan, ..base }, fixture_day());
+    assert_eq!(
+        body["negotiation_type_order"],
+        serde_json::json!(["決裁者商談", "非決裁者商談", "(未設定)"])
+    );
+}
+
+/// 並びを決めるのは Rust だけ。テンプレートに種別のラベルの直書きが無いこと。
+#[test]
+fn テンプレートに並びや未設定の直書きが無い() {
+    let tpl = include_str!("../../../../templates/tabs/sales_kpi.html");
+    assert!(
+        !tpl.contains("(未設定)"),
+        "テンプレートに '(未設定)' の直書きがある。並びは payload の negotiation_type_order に従うこと"
+    );
+    assert!(tpl.contains("negotiation_type_order"));
+    assert!(tpl.contains("negotiation_type_fixed"));
+    assert!(
+        !tpl.contains("localeCompare(b[0]"),
+        "種別の並べ替えを JS で決めている"
+    );
 }

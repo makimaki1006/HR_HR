@@ -49,7 +49,7 @@ fn load_tsv(name: &str) -> Arc<SheetData> {
 
 /// 取り混ぜた「商談種別」の生の値。内部値（代表者商談・担当者商談）とラベル（決裁者商談・非決裁者商談）、
 /// 空、前後に空白つき、定義外。行の通し番号で順に回す。
-const NEGTYPE_CYCLE: [&str; 7] = [
+const NEGTYPE_CYCLE: [&str; 9] = [
     "代表者商談",
     "担当者商談",
     "決裁者商談",
@@ -57,6 +57,9 @@ const NEGTYPE_CYCLE: [&str; 7] = [
     "",
     " 担当者商談 ",
     "新種別",
+    // `;` 区切りの複数値(1 件として数え、各部分をラベルに直して表示する)。末尾の `;` は空の部分
+    "担当者商談;代表者商談",
+    "担当者商談;",
 ];
 
 fn with_negtype(sheet: &SheetData, shift: usize) -> Arc<SheetData> {
