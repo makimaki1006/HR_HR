@@ -127,6 +127,9 @@ pub struct Deal {
     pub exited_apo: String,
     pub exited_apo_bpo: String,
     pub entered_c: String,
+    /// 商談種別（HubSpot の `negotiation_type` の**内部値**）。シートに「商談種別」列が無ければ `None`、
+    /// 列があって空なら `Some("")`（「未取得」と「未設定」を区別するため）。
+    pub negotiation_type: Option<String>,
 }
 
 impl Deal {
@@ -145,6 +148,9 @@ impl Deal {
             exited_apo: g("アポ日確定を出た日"),
             exited_apo_bpo: g("BPOアポ日確定を出た日"),
             entered_c: g("Cヨミに入った日"),
+            negotiation_type: sheet
+                .col(NEGOTIATION_TYPE_COL)
+                .map(|_| g(NEGOTIATION_TYPE_COL)),
         }
     }
 
@@ -873,22 +879,48 @@ pub fn is_bpo(deal: &Deal, prev_month_start: &str, month_end: &str) -> bool {
 /// 商談種別が空のときの表示。
 pub const NEGOTIATION_TYPE_UNSET: &str = "(未設定)";
 /// 固定の並び順（定義外はこの後ろに名前順）。
-pub const NEGOTIATION_TYPE_ORDER: [&str; 3] = ["決裁者商談", "非決裁者商談", NEGOTIATION_TYPE_UNSET];
+pub const NEGOTIATION_TYPE_ORDER: [&str; 3] =
+    ["決裁者商談", "非決裁者商談", NEGOTIATION_TYPE_UNSET];
 
 /// 内部値 → ラベル。🔴 HubSpot の定義で入れ違っている。
-pub const NEGOTIATION_TYPE_MAP: [(&str, &str); 2] = [
-    ("代表者商談", "非決裁者商談"),
-    ("担当者商談", "決裁者商談"),
-];
+pub const NEGOTIATION_TYPE_MAP: [(&str, &str); 2] =
+    [("代表者商談", "非決裁者商談"), ("担当者商談", "決裁者商談")];
 
-/// 商談種別の内部値をラベルにする。（段階B のスタブ: まだ変換しない）
+/// シートの列名。
+pub const NEGOTIATION_TYPE_COL: &str = "商談種別";
+/// 定義外の値に付ける印。
+pub const NEGOTIATION_TYPE_UNDEFINED_SUFFIX: &str = "(定義外)";
+
+/// 商談種別の内部値をラベルにする（画面・payload にはラベルだけを出す）。
+///
+/// - 前後の空白（全角含む）を落とす。空なら `(未設定)`
+/// - 内部値なら対応するラベル（入れ違いに注意。`NEGOTIATION_TYPE_MAP`）
+/// - すでにラベルならそのまま
+/// - それ以外は 値そのまま + `(定義外)`。`;` 区切りの複数値も割らず 1 つの値として扱う
+///   （割ると 1 取引が複数回数えられ、種別の合計がカードの件数を超える）
 pub fn negotiation_type_label(raw: &str) -> String {
-    raw.to_string()
+    let v = raw.trim();
+    if v.is_empty() {
+        return NEGOTIATION_TYPE_UNSET.to_string();
+    }
+    if let Some((_, label)) = NEGOTIATION_TYPE_MAP
+        .iter()
+        .find(|(internal, _)| *internal == v)
+    {
+        return (*label).to_string();
+    }
+    if NEGOTIATION_TYPE_MAP.iter().any(|(_, label)| *label == v) {
+        return v.to_string();
+    }
+    format!("{v}{NEGOTIATION_TYPE_UNDEFINED_SUFFIX}")
 }
 
-/// 並び順の位置。決裁者商談 0 / 非決裁者商談 1 / (未設定) 2 / 定義外 3。（スタブ）
-pub fn negotiation_type_rank(_label: &str) -> usize {
-    0
+/// 並び順の位置。`NEGOTIATION_TYPE_ORDER` の添字、定義外は最後（同順位。後ろで名前順）。
+pub fn negotiation_type_rank(label: &str) -> usize {
+    NEGOTIATION_TYPE_ORDER
+        .iter()
+        .position(|l| *l == label)
+        .unwrap_or(NEGOTIATION_TYPE_ORDER.len())
 }
 
 /// 画面に出す取引1件。
@@ -913,6 +945,9 @@ pub struct DealRow {
     pub past: Option<bool>,
     /// HubSpot の取引ページ（object ID から作る。headless-crm-design §6）
     pub url: String,
+    /// 商談種別（**ラベル**）。シートに列が無いときは出さない（既存の JSON を変えない）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negotiation_type: Option<String>,
 }
 
 /// HubSpot の取引ページ。コンサルKPI と同じ形で、portal は呼び出し側が 1 回だけ読む。
@@ -1060,6 +1095,7 @@ pub fn deal_row(
         anq: None,
         past: None,
         url: hubspot_deal_url(portal, &deal.id),
+        negotiation_type: deal.negotiation_type.as_deref().map(negotiation_type_label),
     }
 }
 

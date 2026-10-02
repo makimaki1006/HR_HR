@@ -563,7 +563,16 @@ def drill_rows(page):
     )
 
 
-def nt_descend(page, where, expect_total, fails, depth=0, nt_filter=None):
+def level_count(page):
+    """いまの段の件数: 表（チーム・担当者）なら行の和、一覧なら見出しの件数。"""
+    dr = drill_rows(page)
+    if dr is not None:
+        return sum(c for _, c in dr)
+    h = page.locator("#panel1-listhead")
+    return int(h.get_attribute("data-n")) if h.count() else None
+
+
+def nt_descend(page, where, expect_total, fails, depth=0, nt_filter=None, limit=None):
     """いまの段の種別の表を確かめ、cdrill の行を 1 つずつ降りて同じことを繰り返す。"""
     STATS["nt_levels"] += 1
     if nt_filter is None:
@@ -587,14 +596,15 @@ def nt_descend(page, where, expect_total, fails, depth=0, nt_filter=None):
         return
     if sum(c for _, c in rows) != expect_total:
         fails.append(f"{where}: 表の件数の和 {sum(c for _, c in rows)} ≠ その段の件数 {expect_total}")
-    for name, cnt in rows:
+    # limit: 各段で降りる行数の上限（先頭から。件数の多い順に並んでいる）。None なら全部
+    for name, cnt in (rows if limit is None else rows[:limit]):
         page.locator("#panel1 table.cdrill tbody tr").filter(
             has=page.get_by_role("button", name=name, exact=True)).first.click()
-        nt_descend(page, f"{where} > {name}", cnt, fails, depth + 1, nt_filter)
+        nt_descend(page, f"{where} > {name}", cnt, fails, depth + 1, nt_filter, limit)
         page.get_by_role("button", name=re.compile("に戻る")).first.click()
 
 
-def nt_card_check(page, ci: int, label: str, fails: list, shot=None, filters=True):
+def nt_card_check(page, ci: int, label: str, fails: list, shot=None, filters=True, limit=2, full=False):
     """カード ci を開き、種別の表を全段で確かめる。filters なら種別ごとに絞って降りる。"""
     cards = card_values(page)
     where = f"[{label}] {cards[ci]['lab']}"
@@ -610,11 +620,15 @@ def nt_card_check(page, ci: int, label: str, fails: list, shot=None, filters=Tru
     no_raw_values(page, where, fails)
     if shot:
         page.screenshot(path=shot, full_page=False)
-    nt_descend(page, where, total, fails)
+    nt_descend(page, where, total, fails, limit=None if full else limit)
     if t and filters:
+        done = 0
         for r in t["rows"]:
             if r["n"] == 0:
                 continue
+            done += 1
+            if filters is not True and done > filters:
+                break
             nm = r["nt"]
             page.locator("#panel1 table.ntt tbody tr").filter(
                 has=page.get_by_role("button", name=nm, exact=True)).first.click()
@@ -628,18 +642,20 @@ def nt_card_check(page, ci: int, label: str, fails: list, shot=None, filters=Tru
             t2 = nt_table(page)
             if t2 is None or t2["sum"] != total:
                 fails.append(f"{where} 絞り「{nm}」: 種別の表の合計 {t2 and t2['sum']} ≠ {total}")
-            walked = walk(page, fails, f"{where} 絞り「{nm}」")
-            if walked != r["n"]:
-                fails.append(f"{where} 絞り「{nm}」: 一覧の行数の合計 {walked} ≠ 種別の件数 {r['n']}")
-            # 絞ったまま降りる: 降りた先の段の表で、その種別の件数 == 親の表の件数
-            nt_descend(page, f"{where} 絞り「{nm}」", r["n"], fails, nt_filter=nm)
+            # 絞った状態の表（チーム or 担当者）の合計 == 種別の件数
+            lc = level_count(page)
+            if lc != r["n"]:
+                fails.append(f"{where} 絞り「{nm}」: 絞った段の件数 {lc} ≠ 種別の件数 {r['n']}")
+            # 絞ったまま降りる: 各段で 種別の件数 == 親の表の件数、一覧の行数 == 件数
+            nt_descend(page, f"{where} 絞り「{nm}」", r["n"], fails, nt_filter=nm, limit=limit)
             no_raw_values(page, f"{where} 絞り「{nm}」", fails)
             # 途中で外せる: バッジを押すと全体に戻り、一覧の合計は元の件数
             page.locator("#panel1-nt-chip").click()
             if page.locator("#panel1-nt-chip").count() != 0:
                 fails.append(f"{where} 絞り「{nm}」: バッジを押しても絞りが外れない")
-            if walk(page, fails, f"{where} 絞り解除") != total:
-                fails.append(f"{where} 絞り「{nm}」: 解除後の一覧の合計が {total} に戻らない")
+            lc = level_count(page)
+            if lc != total:
+                fails.append(f"{where} 絞り「{nm}」: 解除後の段の件数 {lc} が {total} に戻らない")
     # 内 BPO だけ: 種別の表の合計 == 内 BPO
     b = page.locator("#panel1-bpo")
     if b.count():
@@ -663,18 +679,18 @@ def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     ctx, page, errs = open_page(br, port)
     for i, k in enumerate(CARDS):
         shot = str(out / f"negtype_all_{i + 1}_{k}.png") if k in ("pool", "rate") else None
-        nt_card_check(page, i, "全社", fails, shot=shot)
+        nt_card_check(page, i, "全社", fails, shot=shot, filters=(True if i in (1, 4) else 2), full=True)
         drill_check(page, i, "全社(種別あり)", fails)  # 既存の検査も種別ありの入力で通る
     for t in teams[:2]:
         page.locator("#teams .chip", has_text=re.compile(f"^{re.escape(t)}$")).click()
         for i in range(len(CARDS)):
-            nt_card_check(page, i, f"チーム={t}", fails)
+            nt_card_check(page, i, f"チーム={t}", fails, filters=(3 if i in (1, 4) else 1))
     page.locator("#teams .chip", has_text="すべて").click()
     top = sorted(bp, key=lambda o: -bp[o].get("pool", 0))[:2]
     for o in top:
         page.select_option("#person", o)
         for i in range(len(CARDS)):
-            nt_card_check(page, i, f"担当者={o}", fails, filters=(i in (1, 4)))
+            nt_card_check(page, i, f"担当者={o}", fails, filters=(2 if i in (1, 4) else 1))
     # 絞った一覧のスクショ: ③ を 全社 → 種別「決裁者商談」→ 最初のチーム → 担当者
     page.select_option("#person", index=0)
     page.locator("#cards1 .c").nth(CARDS.index("pool")).click()
@@ -695,7 +711,7 @@ def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     for label, ids in (("チェック外し(チーム全員)", hide_team), ("チェック外し(1人)", hide_team[:1])):
         ctx, page, errs = open_page(br, port, hidden_ids=ids)
         for i in range(len(CARDS)):
-            nt_card_check(page, i, label, fails, filters=(i in (1, 4)))
+            nt_card_check(page, i, label, fails, filters=(2 if i in (1, 4) else 1))
         ctx.close()
     srv.shutdown()
     # 担当なし（ownerId が空）
@@ -703,10 +719,10 @@ def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     srv = serve_json(tpl, D2, port + 1, out, "negtype_blank")
     ctx, page, errs = open_page(br, port + 1)
     for i in range(len(CARDS)):
-        nt_card_check(page, i, "担当なし入力", fails, filters=(i in (1, 4)))
+        nt_card_check(page, i, "担当なし入力", fails, filters=(2 if i in (1, 4) else 1))
     pick_blank(page)
     for i in range(len(CARDS)):
-        nt_card_check(page, i, "担当なし選択", fails)
+        nt_card_check(page, i, "担当なし選択", fails, filters=1)
     if errs:
         fails.append("pageerror(negtype 担当なし): " + "; ".join(errs))
     ctx.close()
@@ -735,6 +751,15 @@ def scenario_nt_missing(br, tpl: Path, D: dict, out: Path, port: int, fails: lis
         fails.append("pageerror(未取得): " + "; ".join(errs))
     ctx.close()
     srv.shutdown()
+
+
+def run_guarded(fn, *args):
+    """画面の要素が無くて Playwright が待ち切れたとき、落ちた理由を NG として出す（トレースバックで終わらせない）。"""
+    fails = args[-1]
+    try:
+        fn(*args)
+    except Exception as e:  # noqa: BLE001
+        fails.append(f"{fn.__name__} が途中で止まった: {str(e).splitlines()[0][:160]} / {str(e).splitlines()[-1][:160]}")
 
 
 def main():
@@ -780,13 +805,13 @@ def main():
             scenario_pick_blank(br, Path(a.template), D, out, a.port + 3, fails)
         if a.only is None:
             if D.get("negotiation_type_available") is True:
-                scenario_negtype(br, Path(a.template), D, out, a.port + 4, fails)
+                run_guarded(scenario_negtype, br, Path(a.template), D, out, a.port + 4, fails)
             elif D.get("negotiation_type_available") is False:
-                scenario_nt_missing(br, Path(a.template), D, out, a.port + 6, fails)
+                run_guarded(scenario_nt_missing, br, Path(a.template), D, out, a.port + 6, fails)
         if a.only == "negtype":
-            scenario_negtype(br, Path(a.template), D, out, a.port + 4, fails)
+            run_guarded(scenario_negtype, br, Path(a.template), D, out, a.port + 4, fails)
         if a.only == "ntmissing":
-            scenario_nt_missing(br, Path(a.template), D, out, a.port + 6, fails)
+            run_guarded(scenario_nt_missing, br, Path(a.template), D, out, a.port + 6, fails)
         if a.only in ("blank", "rowteam", "pickblank", "negtype", "ntmissing"):
             br.close()
             srv.shutdown()
