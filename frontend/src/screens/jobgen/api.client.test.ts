@@ -72,13 +72,21 @@ describe('jobgen postJson via the shared client', () => {
   it('has no 15 s default timeout (Gemini calls can exceed a minute)', async () => {
     vi.useFakeTimers();
     let resolve!: (r: Response) => void;
-    fetchMock.mockReturnValueOnce(
-      new Promise<Response>((r) => {
-        resolve = r;
-      }),
+    let signal: AbortSignal | undefined;
+    // Like the real fetch: rejects as soon as its signal is aborted.
+    fetchMock.mockImplementationOnce(
+      (_url, init) =>
+        new Promise<Response>((res, rej) => {
+          resolve = res;
+          signal = init?.signal ?? undefined;
+          signal?.addEventListener('abort', () => {
+            rej(new DOMException('aborted', 'AbortError'));
+          });
+        }),
     );
     const p = postJson<{ status: string }>('/api/jobgen/ab', {});
     await vi.advanceTimersByTimeAsync(120_000);
+    expect(signal?.aborted).toBe(false);
     resolve(json({ status: 'ok' }));
     const r = await p;
     expect(r).toEqual({ ok: true, data: { status: 'ok' } });

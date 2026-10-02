@@ -1,7 +1,10 @@
 // my postJson goes through the shared client (apiPost): 401 and the error body.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError, AuthRequiredError } from '../../api/client';
+import { redirectToLogin } from '../../shell/navigation';
 import { postJson } from './postJson';
+
+vi.mock('../../shell/navigation', () => ({ redirectToLogin: vi.fn() }));
 
 type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
 const json = (body: unknown, status = 200): Response =>
@@ -23,6 +26,8 @@ describe('my postJson via the shared client', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBeInstanceOf(AuthRequiredError);
+    // A POST 401 keeps the user's input on screen: no automatic move to the login page.
+    expect(redirectToLogin).not.toHaveBeenCalled();
   });
 
   it('403 / 409 JSON bodies are kept in ApiHttpError.body, message stays "HTTP <status>"', async () => {
@@ -53,5 +58,30 @@ describe('my postJson via the shared client', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBeInstanceOf(AuthRequiredError);
+  });
+
+  it('allows 35 s (audit Turso writes take up to 30 s): not aborted after 20 s, aborted after 36 s', async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      fetchMock.mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((_res, rej) => {
+            signal = init?.signal ?? undefined;
+            signal?.addEventListener('abort', () => {
+              rej(new DOMException('aborted', 'AbortError'));
+            });
+          }),
+      );
+      const p = postJson('/api/my/profile', {});
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(16_000);
+      expect(signal?.aborted).toBe(true);
+      const r = await p;
+      expect(r.ok).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

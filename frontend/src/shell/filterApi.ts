@@ -52,7 +52,7 @@ export function parseOptions(html: string): SelectOption[] {
 async function fetchOptionHtml(path: string, signal?: AbortSignal): Promise<SelectOption[]> {
   // The endpoints answer <option> HTML, hence expect: 'text'. apiGet maps a login redirect /
   // 401 to AuthRequiredError and sends X-Requested-With: fetch.
-  const result = await apiGet<string>(path, { expect: 'text', ...(signal ? { signal } : {}) });
+  const result = await apiGet<string>(path, { expect: 'text', accept: 'text/html', ...(signal ? { signal } : {}) });
   if (result.ok) return parseOptions(result.data);
   if (result.error instanceof AuthRequiredError) throw new ShellAuthError('login required');
   throw result.error;
