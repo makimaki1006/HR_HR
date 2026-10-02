@@ -5,7 +5,8 @@
 // type is generated from the Rust struct by ts-rs (src/generated/), so a field
 // rename on the Rust side breaks `npm run typecheck` here.
 import { useEffect, useState } from 'react';
-import { ApiAbortedError, apiGet } from '../../api/client';
+import { ApiAbortedError, AuthRequiredError, apiGet } from '../../api/client';
+import { redirectToLogin } from '../../shell/navigation';
 import type { AppPingResponse } from '../../generated/AppPingResponse';
 
 export const PING_PATH = '/api/app/ping';
@@ -43,8 +44,12 @@ export function DummyScreen() {
   useEffect(() => {
     const controller = new AbortController();
     void apiGet<AppPingResponse>(PING_PATH, { signal: controller.signal }).then((result) => {
+      // A response that arrives after the request was aborted must not overwrite newer state.
+      if (controller.signal.aborted) return;
       if (result.ok) {
         setState({ status: 'ok', data: result.data });
+      } else if (result.error instanceof AuthRequiredError) {
+        redirectToLogin();
       } else if (!(result.error instanceof ApiAbortedError)) {
         setState({ status: 'error', message: result.error.message });
       }
