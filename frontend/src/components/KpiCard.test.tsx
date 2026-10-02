@@ -35,6 +35,37 @@ describe('KpiCard', () => {
     expect(html).toContain('<span>0</span>');
   });
 
+  it('shows -0 as 0, never "-0"', () => {
+    const html = renderToStaticMarkup(<KpiCard label="x" value={-0} unit="件" n={1} />);
+    expect(html).toContain('<span>0</span>');
+    expect(html).not.toContain('-0');
+  });
+
+  it('shows a tiny negative that rounds to zero as 0, never "-0"', () => {
+    const html = renderToStaticMarkup(<KpiCard label="x" value={-0.0001} unit="件" n={1} />);
+    expect(html).toContain('<span>0</span>');
+    expect(html).not.toContain('-0');
+  });
+
+  it('keeps a real negative value', () => {
+    const html = renderToStaticMarkup(<KpiCard label="x" value={-12} unit="pt" n={1} />);
+    expect(html).toContain('<span>-12</span>');
+  });
+
+  it('treats a non-finite n like an unknown n (n=不明, no "n=NaN")', () => {
+    for (const n of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const html = renderToStaticMarkup(<KpiCard label="x" value={1} unit="%" n={n} />);
+      expect(html).toContain('>n=不明<');
+      expect(html).not.toContain('NaN');
+      expect(html).not.toContain('∞');
+    }
+  });
+
+  it('shows n=0 when n is -0', () => {
+    const html = renderToStaticMarkup(<KpiCard label="x" value={1} unit="%" n={-0} />);
+    expect(html).toContain('>n=0<');
+  });
+
   it('shows n=不明 when n is null', () => {
     const html = renderToStaticMarkup(<KpiCard label="x" value={1} unit="%" n={null} />);
     expect(html).toContain('>n=不明<');
