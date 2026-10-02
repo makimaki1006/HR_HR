@@ -268,13 +268,13 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 <div class="cards" id="cards2"></div>
 <div class="panel hide" id="panel"></div>
 
-<h2>架電</h2>
+<h2 id="h2kaden">架電</h2>
 <p class="lead" id="lead3"></p>
 <div class="chiprow" id="callperiod" style="margin-bottom:11px"></div>
 <div class="cards" id="cards3"></div>
 <div id="kadenbar"></div>
 
-<h2>架電リストの残り</h2>
+<h2 id="h2kadenlist">架電リストの残り</h2>
 <p class="lead" id="lead3b"></p>
 <div class="cards" id="cards3b"></div>
 <div id="listbar"></div>
@@ -962,8 +962,10 @@ function render(){
         '<span style="color:var(--faint)">その日の途中までしか入っていません。'+
         '取り直すのは平日の 6:30 と 18:00 で、その間は数字が変わりません。</span>';
     }
-    $('lead3').innerHTML=(noCall?'<b style="color:var(--warn)">「担当なし」の架電は担当者別に集計していません。</b>'+
-      '<span style="color:var(--faint)">（Zoom の発信は、担当者に紐づいたぶんだけ人別に数えています。数字は出しません）</span><br>':'')+
+    // 見出しに今の絞り込みを出す（欄は隠さない）。
+    $('h2kaden').textContent=noCall?'架電（担当なしを選択中）':'架電';
+    $('lead3').innerHTML=(noCall?'<b style="color:var(--warn)">担当なし（HubSpot の担当者が空の取引）を選んでいます。</b>'+
+      '<span style="color:var(--faint)">Zoom 架電は電話をかけた人で数えるため、担当なしの取引への架電は出せません。</span><br>':'')+
       'Zoomのログから数えています。<b>架電数＝つながった通話</b>で、現場が数えている数と合わせています。'+
       fresh+
       '<br><span style="color:var(--faint)">つながらなかった発信（相手が出る前に切った・失敗した）は「発信した回数」にだけ入ります。</span>';
@@ -978,7 +980,7 @@ function render(){
        wow:(prv&&dl.length&&!noCall)?wowEl(conn,prv.connected||0,'件'):''},
       {lab:'発信した回数',val:noCall?null:calls,unit:'件',hint:'かけ直しや切ったものを含む全発信',
        avg:avgLine(AB,KT.calls||0)},
-      {lab:'つながった率',val:(calls&&!noCall)?conn/calls*100:null,pct:true,hint:fmt(conn)+' ÷ '+fmt(calls)+' 件'},
+      {lab:'つながった率',val:(calls&&!noCall)?conn/calls*100:null,pct:true,hint:noCall?'—':fmt(conn)+' ÷ '+fmt(calls)+' 件'},
       {lab:'5分超の通話',val:noCall?null:lng,unit:'件',hint:'深い会話。アポにつながりやすい',
        avg:avgLine(AB,KT.long||0)},
       // 🔴 このカードには平均を付けない。すでに日数で割った平均なので、
@@ -1097,6 +1099,7 @@ function render(){
                     :team+' が持っている分';
     return {c:c,base:c.base||0,who:who};
   })();
+  $('h2kadenlist').textContent=(person==='')?'架電リストの残り（担当なしを選択中）':'架電リストの残り';
   const c3b=$('cards3b'); c3b.innerHTML='';
   const lb=$('listbar'); lb.innerHTML='';
   if(!scope){
