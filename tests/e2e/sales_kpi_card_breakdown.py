@@ -15,6 +15,12 @@ JSON を `/api/sales-kpi/data` として返し、テンプレートをそのま�
   - 内 BPO のボタンの件数 == カードの「内 BPO n件」、押すと BPO の行だけになる、
   - ⑥ ⑤ の分子と分母の内訳、
   - 上を チーム選択・担当者選択・チェック外し の複数通りで繰り返す。
+
+商談種別（2026-10-02）:
+  - payload が negotiation_type_available:false（既定 fixture）: 全カードのパネルに「商談種別: 未取得」、種別の表は出ない。
+  - available:true（`dump_sales_kpi -- out.json 2026-09-04 --negtype` で作った JSON。--only negtype）:
+    どの段（全社 → チーム → 担当者 → 取引一覧）でも 種別ごとの件数の合計 == その段の件数、
+    種別を押して絞ると 一覧の行数の合計 == その種別の件数、⑥⑤ の分子・分母、表示はラベルだけ（内部値が出ない）。
 """
 import argparse
 import json
@@ -27,7 +33,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 CHROME = "C:/Users/fuji1/AppData/Local/ms-playwright/chromium-1155/chrome-win/chrome.exe"
-STATS = {"drill": 0, "rows": 0}
+STATS = {"drill": 0, "rows": 0, "nt_levels": 0}
 CARDS = ["apo", "pool", "den", "done", "rate", "anqrate", "cyomi"]  # 画面の左から順
 
 
@@ -495,6 +501,242 @@ def scenario_row_team(br, tpl: Path, D: dict, out: Path, port: int, fails: list)
     srv.shutdown()
 
 
+# ---------------------------------------------------------------- 商談種別
+NT_ORDER = ["決裁者商談", "非決裁者商談", "(未設定)"]
+NT_RAW = ["代表者商談", "担当者商談"]  # 内部値。画面に出てはいけない（ラベルは「非決裁者商談」「決裁者商談」）
+
+
+def nt_rank(label: str):
+    return (NT_ORDER.index(label), "") if label in NT_ORDER else (len(NT_ORDER), label)
+
+
+def nt_table(page):
+    """パネルの商談種別の表。無ければ None。"""
+    return page.evaluate(
+        """()=>{const t=document.querySelector('#panel1 table.ntt'); if(!t) return null;
+          const trs=[...t.querySelectorAll('tbody tr')];
+          const f=t.querySelector('tfoot [data-sum]'), fn=t.querySelector('tfoot [data-sum-num]');
+          return {level:t.dataset.level||'',
+            rows:trs.map(r=>({nt:r.dataset.nt,n:+r.dataset.n,bpo:+r.dataset.bpo,
+                              num:r.dataset.num===undefined?null:+r.dataset.num,
+                              label:r.querySelector('button').textContent})),
+            sum:+f.dataset.sum, sumNum:fn?+fn.dataset.sumNum:null};}"""
+    )
+
+
+def nt_level_check(page, where, expect_total, fails, expect_num=None):
+    t = nt_table(page)
+    if t is None:
+        fails.append(f"{where}: 商談種別の表が無い")
+        return None
+    ns = [r["n"] for r in t["rows"]]
+    if sum(ns) != t["sum"] or t["sum"] != expect_total:
+        fails.append(f"{where}: 種別の件数 {ns} の和 {sum(ns)} / 合計行 {t['sum']} ≠ その段の件数 {expect_total}")
+    labels = [r["nt"] for r in t["rows"]]
+    if [r["label"] for r in t["rows"]] != labels:
+        fails.append(f"{where}: 表示のラベル {[r['label'] for r in t['rows']]} ≠ 種別 {labels}")
+    if labels != sorted(labels, key=nt_rank):
+        fails.append(f"{where}: 種別の並びが固定順でない: {labels}")
+    if t["sumNum"] is not None:
+        nums = [r["num"] or 0 for r in t["rows"]]
+        if sum(nums) != t["sumNum"]:
+            fails.append(f"{where}: 分子の種別の和 {sum(nums)} ≠ 合計行の分子 {t['sumNum']}")
+        if expect_num is not None and t["sumNum"] != expect_num:
+            fails.append(f"{where}: 分子の合計 {t['sumNum']} ≠ 見出しの分子 {expect_num}")
+        if any((r["num"] or 0) > r["n"] for r in t["rows"]):
+            fails.append(f"{where}: 分子が分母より大きい種別がある: {t['rows']}")
+    return t
+
+
+def no_raw_values(page, where, fails):
+    body = page.evaluate("()=>document.body.innerText")
+    for w in NT_RAW:
+        if w in body:
+            fails.append(f"{where}: 画面に内部値「{w}」が出ている")
+
+
+def drill_rows(page):
+    """いまの cdrill 表の (名前, 件数) 一覧。無ければ None。"""
+    return page.evaluate(
+        """()=>{const t=document.querySelector('#panel1 table.cdrill'); if(!t) return null;
+          return [...t.querySelectorAll('tbody tr')].map(r=>[r.dataset.name,+r.children[1].textContent.replace(/,/g,'')]);}"""
+    )
+
+
+def nt_descend(page, where, expect_total, fails, depth=0, nt_filter=None):
+    """いまの段の種別の表を確かめ、cdrill の行を 1 つずつ降りて同じことを繰り返す。"""
+    STATS["nt_levels"] += 1
+    if nt_filter is None:
+        nt_level_check(page, where, expect_total, fails)
+    else:
+        t = nt_table(page)
+        row = next((r for r in (t or {"rows": []})["rows"] if r["nt"] == nt_filter), None)
+        if row is None or row["n"] != expect_total:
+            fails.append(f"{where}: 種別「{nt_filter}」で絞った段の表の件数 {row and row['n']} ≠ その段の件数 {expect_total}")
+    if depth > 3:
+        fails.append(f"{where}: 段が深すぎる")
+        return
+    rows = drill_rows(page)
+    if rows is None:
+        # 取引一覧の段: 見出しの件数 == 行数 == その段の件数
+        h = page.locator("#panel1-listhead")
+        n = int(h.get_attribute("data-n")) if h.count() else None
+        items = page.locator("#panel1 .list a.item").count()
+        if n != expect_total or items != expect_total:
+            fails.append(f"{where}: 一覧の見出し {n} / 行 {items} ≠ その段の件数 {expect_total}")
+        return
+    if sum(c for _, c in rows) != expect_total:
+        fails.append(f"{where}: 表の件数の和 {sum(c for _, c in rows)} ≠ その段の件数 {expect_total}")
+    for name, cnt in rows:
+        page.locator("#panel1 table.cdrill tbody tr").filter(
+            has=page.get_by_role("button", name=name, exact=True)).first.click()
+        nt_descend(page, f"{where} > {name}", cnt, fails, depth + 1, nt_filter)
+        page.get_by_role("button", name=re.compile("に戻る")).first.click()
+
+
+def nt_card_check(page, ci: int, label: str, fails: list, shot=None, filters=True):
+    """カード ci を開き、種別の表を全段で確かめる。filters なら種別ごとに絞って降りる。"""
+    cards = card_values(page)
+    where = f"[{label}] {cards[ci]['lab']}"
+    page.locator("#cards1 .c").nth(ci).click()
+    page.wait_for_selector("#panel1:not(.hide) #panel1-title")
+    title = page.locator("#panel1-title")
+    total = int(title.get_attribute("data-total"))
+    numr = title.get_attribute("data-num")
+    if total == 0:
+        page.locator("#cards1 .c").nth(ci).click()
+        return
+    t = nt_level_check(page, where + " 全体", total, fails, expect_num=int(numr) if numr else None)
+    no_raw_values(page, where, fails)
+    if shot:
+        page.screenshot(path=shot, full_page=False)
+    nt_descend(page, where, total, fails)
+    if t and filters:
+        for r in t["rows"]:
+            if r["n"] == 0:
+                continue
+            nm = r["nt"]
+            page.locator("#panel1 table.ntt tbody tr").filter(
+                has=page.get_by_role("button", name=nm, exact=True)).first.click()
+            chip = page.locator("#panel1-nt-chip")
+            if chip.count() == 0 or chip.get_attribute("data-nt") != nm:
+                fails.append(f"{where} 絞り「{nm}」: 絞りのバッジが出ない")
+                continue
+            # 絞っても見出し（カードの値）は変わらない。種別の表は全種別のまま
+            if int(page.locator("#panel1-title").get_attribute("data-total")) != total:
+                fails.append(f"{where} 絞り「{nm}」: 見出しの件数が変わった")
+            t2 = nt_table(page)
+            if t2 is None or t2["sum"] != total:
+                fails.append(f"{where} 絞り「{nm}」: 種別の表の合計 {t2 and t2['sum']} ≠ {total}")
+            walked = walk(page, fails, f"{where} 絞り「{nm}」")
+            if walked != r["n"]:
+                fails.append(f"{where} 絞り「{nm}」: 一覧の行数の合計 {walked} ≠ 種別の件数 {r['n']}")
+            # 絞ったまま降りる: 降りた先の段の表で、その種別の件数 == 親の表の件数
+            nt_descend(page, f"{where} 絞り「{nm}」", r["n"], fails, nt_filter=nm)
+            no_raw_values(page, f"{where} 絞り「{nm}」", fails)
+            # 途中で外せる: バッジを押すと全体に戻り、一覧の合計は元の件数
+            page.locator("#panel1-nt-chip").click()
+            if page.locator("#panel1-nt-chip").count() != 0:
+                fails.append(f"{where} 絞り「{nm}」: バッジを押しても絞りが外れない")
+            if walk(page, fails, f"{where} 絞り解除") != total:
+                fails.append(f"{where} 絞り「{nm}」: 解除後の一覧の合計が {total} に戻らない")
+    # 内 BPO だけ: 種別の表の合計 == 内 BPO
+    b = page.locator("#panel1-bpo")
+    if b.count():
+        nb = int(b.get_attribute("data-n"))
+        b.click()
+        tb = nt_table(page)
+        if tb is None or tb["sum"] != nb:
+            fails.append(f"{where} BPOだけ: 種別の表の合計 {tb and tb['sum']} ≠ 内BPO {nb}")
+        page.locator("#panel1-bpo").click()
+    page.locator("#cards1 .c").nth(ci).click()  # 閉じる
+
+
+def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
+    """種別の列がある payload（available:true）で、全段・全絞り込みの種別の合計を確かめる。"""
+    assert D.get("negotiation_type_available") is True, "--json は --negtype 付きの dump で作ること"
+    srv = serve_json(tpl, D, port, out, "negtype")
+    teams, people, bp = D["teams"], D["people"], D["by_person"]
+    labs = {r["negotiation_type"] for k in ("pool", "apo", "cyomi") for r in D["card_deals"][k]}
+    for raw in NT_RAW:
+        assert raw not in labs, f"サーバが内部値を返している: {raw}"
+    ctx, page, errs = open_page(br, port)
+    for i, k in enumerate(CARDS):
+        shot = str(out / f"negtype_all_{i + 1}_{k}.png") if k in ("pool", "rate") else None
+        nt_card_check(page, i, "全社", fails, shot=shot)
+        drill_check(page, i, "全社(種別あり)", fails)  # 既存の検査も種別ありの入力で通る
+    for t in teams[:2]:
+        page.locator("#teams .chip", has_text=re.compile(f"^{re.escape(t)}$")).click()
+        for i in range(len(CARDS)):
+            nt_card_check(page, i, f"チーム={t}", fails)
+    page.locator("#teams .chip", has_text="すべて").click()
+    top = sorted(bp, key=lambda o: -bp[o].get("pool", 0))[:2]
+    for o in top:
+        page.select_option("#person", o)
+        for i in range(len(CARDS)):
+            nt_card_check(page, i, f"担当者={o}", fails, filters=(i in (1, 4)))
+    # 絞った一覧のスクショ: ③ を 全社 → 種別「決裁者商談」→ 最初のチーム → 担当者
+    page.select_option("#person", index=0)
+    page.locator("#cards1 .c").nth(CARDS.index("pool")).click()
+    page.locator("#panel1 table.ntt tbody tr").filter(
+        has=page.get_by_role("button", name="決裁者商談", exact=True)).first.click()
+    first = drill_rows(page)[0][0]
+    page.locator("#panel1 table.cdrill tbody tr").filter(
+        has=page.get_by_role("button", name=first, exact=True)).first.click()
+    page.screenshot(path=str(out / "negtype_filtered_team.png"), full_page=False)
+    nxt = drill_rows(page)[0][0]
+    page.locator("#panel1 table.cdrill tbody tr").filter(
+        has=page.get_by_role("button", name=nxt, exact=True)).first.click()
+    page.screenshot(path=str(out / "negtype_filtered_list.png"), full_page=False)
+    if errs:
+        fails.append("pageerror(negtype): " + "; ".join(errs))
+    ctx.close()
+    hide_team = [p["id"] for p in people if p["team"] == teams[0]]
+    for label, ids in (("チェック外し(チーム全員)", hide_team), ("チェック外し(1人)", hide_team[:1])):
+        ctx, page, errs = open_page(br, port, hidden_ids=ids)
+        for i in range(len(CARDS)):
+            nt_card_check(page, i, label, fails, filters=(i in (1, 4)))
+        ctx.close()
+    srv.shutdown()
+    # 担当なし（ownerId が空）
+    D2 = blank_owner_input(D)
+    srv = serve_json(tpl, D2, port + 1, out, "negtype_blank")
+    ctx, page, errs = open_page(br, port + 1)
+    for i in range(len(CARDS)):
+        nt_card_check(page, i, "担当なし入力", fails, filters=(i in (1, 4)))
+    pick_blank(page)
+    for i in range(len(CARDS)):
+        nt_card_check(page, i, "担当なし選択", fails)
+    if errs:
+        fails.append("pageerror(negtype 担当なし): " + "; ".join(errs))
+    ctx.close()
+    srv.shutdown()
+
+
+def scenario_nt_missing(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
+    """列が無いシート（available:false）では「商談種別: 未取得」を出し、種別の表は出さない。"""
+    assert D.get("negotiation_type_available") is False
+    srv = serve_json(tpl, D, port, out, "ntmissing")
+    ctx, page, errs = open_page(br, port)
+    for i, k in enumerate(CARDS):
+        page.locator("#cards1 .c").nth(i).click()
+        page.wait_for_selector("#panel1:not(.hide) #panel1-title")
+        m = page.locator("#panel1-nt-missing")
+        txt = m.text_content() if m.count() else ""
+        if "商談種別: 未取得" not in txt:
+            fails.append(f"未取得: {k} のパネルに「商談種別: 未取得」が出ない: {txt!r}")
+        if page.locator("#panel1 table.ntt").count() or page.locator("#panel1-nt-chip").count():
+            fails.append(f"未取得: {k} のパネルに種別の表・絞りが出ている")
+        if k == "pool":
+            page.screenshot(path=str(out / "negtype_missing_pool.png"), full_page=False)
+        no_raw_values(page, f"未取得 {k}", fails)
+        page.locator("#cards1 .c").nth(i).click()
+    if errs:
+        fails.append("pageerror(未取得): " + "; ".join(errs))
+    ctx.close()
+    srv.shutdown()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", required=True)
@@ -502,7 +744,7 @@ def main():
     ap.add_argument("--template", default="templates/tabs/sales_kpi.html")
     ap.add_argument("--cards-only", default=None)
     ap.add_argument("--port", type=int, default=9317)
-    ap.add_argument("--only", choices=["main", "blank", "rowteam", "pickblank"], default=None,
+    ap.add_argument("--only", choices=["main", "blank", "rowteam", "pickblank", "negtype", "ntmissing"], default=None,
                     help="指定したケースだけ走らせる（既定は全部）")
     a = ap.parse_args()
     out = Path(a.out)
@@ -536,7 +778,16 @@ def main():
             scenario_row_team(br, Path(a.template), D, out, a.port + 2, fails)
         if a.only in (None, "pickblank"):
             scenario_pick_blank(br, Path(a.template), D, out, a.port + 3, fails)
-        if a.only in ("blank", "rowteam", "pickblank"):
+        if a.only is None:
+            if D.get("negotiation_type_available") is True:
+                scenario_negtype(br, Path(a.template), D, out, a.port + 4, fails)
+            elif D.get("negotiation_type_available") is False:
+                scenario_nt_missing(br, Path(a.template), D, out, a.port + 6, fails)
+        if a.only == "negtype":
+            scenario_negtype(br, Path(a.template), D, out, a.port + 4, fails)
+        if a.only == "ntmissing":
+            scenario_nt_missing(br, Path(a.template), D, out, a.port + 6, fails)
+        if a.only in ("blank", "rowteam", "pickblank", "negtype", "ntmissing"):
             br.close()
             srv.shutdown()
             print(f"NG {len(fails)} 件" if fails else "OK")
@@ -586,7 +837,7 @@ def main():
         for f in fails[:40]:
             print(" -", f)
         return 1
-    print(f"OK: カードの値 == パネル見出し == 一覧の行数の合計（開いたパネル {STATS['drill']} 回、数えた一覧の行 {STATS['rows']} 行）")
+    print(f"OK: カードの値 == パネル見出し == 一覧の行数の合計（開いたパネル {STATS['drill']} 回、数えた一覧の行 {STATS['rows']} 行、種別の表を確かめた段 {STATS['nt_levels']}）")
     return 0
 
 

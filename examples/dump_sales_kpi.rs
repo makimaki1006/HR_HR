@@ -6,7 +6,10 @@
 //!   `/api/sales-kpi/data` として返せば、本物と同じ fetch 経路を通せる。
 //!
 //! 使い方:
-//!   cargo run --example dump_sales_kpi -- out.json [YYYY-MM-DD]
+//!   cargo run --example dump_sales_kpi -- out.json [YYYY-MM-DD] [--negtype]
+//!
+//! `--negtype` を付けると、商談・アポ・Cヨミの 3 シートの末尾に「商談種別」列を足す
+//! （内部値・ラベル・空・空白つき・定義外を取り混ぜる。画面確認用。本物のシートには触れない）。
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -44,8 +47,41 @@ fn load_tsv(name: &str) -> Arc<SheetData> {
     })
 }
 
+/// 取り混ぜた「商談種別」の生の値。内部値（代表者商談・担当者商談）とラベル（決裁者商談・非決裁者商談）、
+/// 空、前後に空白つき、定義外。行の通し番号で順に回す。
+const NEGTYPE_CYCLE: [&str; 7] = [
+    "代表者商談",
+    "担当者商談",
+    "決裁者商談",
+    "非決裁者商談",
+    "",
+    " 担当者商談 ",
+    "新種別",
+];
+
+fn with_negtype(sheet: &SheetData, shift: usize) -> Arc<SheetData> {
+    let mut header = sheet.header.clone();
+    header.push("商談種別".to_string());
+    let rows = sheet
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let mut r2 = r.clone();
+            r2.push(Arc::from(NEGTYPE_CYCLE[(i + shift) % NEGTYPE_CYCLE.len()]));
+            r2
+        })
+        .collect();
+    Arc::new(SheetData {
+        header,
+        rows,
+        fetched_at: Instant::now(),
+    })
+}
+
 fn main() -> anyhow::Result<()> {
-    let mut args = std::env::args().skip(1);
+    let negtype = std::env::args().any(|a| a == "--negtype");
+    let mut args = std::env::args().skip(1).filter(|a| a != "--negtype");
     let out = args
         .next()
         .unwrap_or_else(|| "sales_kpi_payload.json".to_string());
@@ -54,10 +90,24 @@ fn main() -> anyhow::Result<()> {
         .and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())
         .unwrap_or_else(|| NaiveDate::from_ymd_opt(2026, 9, 4).unwrap());
 
+    let (shodan, apo, cyomi) = (
+        load_tsv("KPI営業_商談"),
+        load_tsv("KPI営業_アポ"),
+        load_tsv("KPI営業_Cヨミ"),
+    );
+    let (shodan, apo, cyomi) = if negtype {
+        (
+            with_negtype(&shodan, 0),
+            with_negtype(&apo, 3),
+            with_negtype(&cyomi, 5),
+        )
+    } else {
+        (shodan, apo, cyomi)
+    };
     let sheets = Sheets {
-        shodan: load_tsv("KPI営業_商談"),
-        apo: load_tsv("KPI営業_アポ"),
-        cyomi: load_tsv("KPI営業_Cヨミ"),
+        shodan,
+        apo,
+        cyomi,
         kaden: load_tsv("KPI営業_架電日次"),
         kaden_list: load_tsv("KPI営業_架電リスト"),
         // 2026-09-17: Sheets にあとから足された 3 つ。
