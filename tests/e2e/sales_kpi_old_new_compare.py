@@ -4,6 +4,8 @@
 両方の画面で同じ操作 (チーム・個人・架電の期間・先週比のモード・タブ) をし、
 各領域 (id が旧新で同じ) の innerText を行単位で比べる。カードは「ラベル → 値」の組でも比べる。
 
+CSP は有効のまま (bypass_csp は使わない)。コンソールエラー (favicon の 404 を除く) と pageerror が 1 件でもあれば終了コード 1。
+
 使い方 (サーバは別に起動しておく):
     python tests/e2e/sales_kpi_old_new_compare.py --base http://localhost:9311 --shots <dir>
 終了コード: 不一致 0 件なら 0、あれば 1。
@@ -68,11 +70,8 @@ def login(page: Page, base: str) -> None:
 
 def open_screen(page: Page, url: str) -> None:
     page.goto(url)
-    page.wait_for_function(
-        "() => { const c = document.getElementById('cards1');"
-        " return c && c.querySelectorAll('.c').length > 0; }",
-        timeout=30000,
-    )
+    # wait_for_function は CSP (unsafe-eval 無し) の下では評価が止まるので、セレクタで待つ
+    page.wait_for_selector("#cards1 .c", timeout=30000)
     page.wait_for_timeout(300)
 
 
@@ -153,7 +152,12 @@ def collect(page: Page, url: str, shots: str | None, tag: str) -> dict[str, dict
     return states
 
 
-def compare(old: dict[str, dict], new: dict[str, dict]) -> tuple[int, int, int, list[str]]:
+# 旧画面にだけある「カードを押すと内訳が開く」表示 (#45)。React 版は未実装 (claudedocs/SALES_KPI_REACT_GAP_2026-10-02.md の A)。
+# --ignore-card-open を付けると #cards1 のこの 2 行だけを両画面から除いて比べる。実装したら外す。
+CARD_OPEN_LINES = {"一覧を見る ▾", "閉じる ▲"}
+
+
+def compare(old: dict[str, dict], new: dict[str, dict], ignore_card_open: bool = False) -> tuple[int, int, int, list[str]]:
     n_lines = n_cards = 0
     diffs: list[str] = []
     for state in sorted(set(old) | set(new)):
@@ -163,6 +167,9 @@ def compare(old: dict[str, dict], new: dict[str, dict]) -> tuple[int, int, int, 
         o, n = old[state], new[state]
         for rid in sorted(set(o["text"]) | set(n["text"])):
             ol, nl = lines(o["text"].get(rid)), lines(n["text"].get(rid))
+            if ignore_card_open and rid == "cards1":
+                ol = [x for x in ol if x not in CARD_OPEN_LINES]
+                nl = [x for x in nl if x not in CARD_OPEN_LINES]
             n_lines += max(len(ol), len(nl))
             if ol != nl:
                 d = list(difflib.unified_diff(ol, nl, "旧", "新", lineterm="", n=0))
@@ -179,17 +186,21 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://localhost:9311")
     ap.add_argument("--shots", default=None)
+    ap.add_argument("--ignore-card-open", action="store_true",
+                    help="#cards1 の「一覧を見る ▾」「閉じる ▲」を比べない (React 版に内訳 #45 が入るまで)")
     ap.add_argument("--dump", default=None, help="抜いた値を JSON で書き出す先")
     a = ap.parse_args()
     if a.shots:
         os.makedirs(a.shots, exist_ok=True)
     with sync_playwright() as pw:
         br = pw.chromium.launch(executable_path=CHROME)
-        ctx = br.new_context(bypass_csp=True, viewport={"width": 1400, "height": 1000}, locale="ja-JP",
+        ctx = br.new_context(viewport={"width": 1400, "height": 1000}, locale="ja-JP",
                              timezone_id="Asia/Tokyo")
         page = ctx.new_page()
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append("console: " + m.text + " @ " + m.location.get("url", ""))
+                if m.type == "error" and not m.location.get("url", "").endswith("/favicon.ico") else None)
         login(page, a.base)
         old = collect(page, a.base + "/sales-kpi", a.shots, "old")
         new = collect(page, a.base + "/app/sales-kpi", a.shots, "new")
@@ -197,7 +208,7 @@ def main() -> int:
     if a.dump:
         with open(a.dump, "w", encoding="utf-8") as f:
             json.dump({"old": old, "new": new}, f, ensure_ascii=False, indent=1)
-    n_lines, n_cards, n_diff, diffs = compare(old, new)
+    n_lines, n_cards, n_diff, diffs = compare(old, new, a.ignore_card_open)
     print(f"状態数: 旧 {len(old) - 1} / 新 {len(new) - 1}")
     print(f"比較した行: {n_lines}  カード(ラベル+値): {n_cards}  不一致: {n_diff}")
     for d in diffs:
