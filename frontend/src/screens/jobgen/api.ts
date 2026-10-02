@@ -9,7 +9,7 @@
 // 違い: 未ログイン (303 → /login の HTML / HTTP 401) は AuthRequiredError にする (旧は null を返して
 // 呼び出し側で TypeError になっていた)。Gemini 生成は 1 分を超えることがあるので
 // タイムアウトは実質掛けない (30 分、旧は無制限)。
-import { ApiDataError, ApiHttpError, type ApiResult, apiPost } from '../../api/client';
+import { ApiDataError, ApiHttpError, AuthRequiredError, type ApiResult, apiPost } from '../../api/client';
 import type { AbRequest } from '../../generated/AbRequest';
 import type { AbResponse } from '../../generated/AbResponse';
 import type { AnalyzeRequest } from '../../generated/AnalyzeRequest';
@@ -75,11 +75,18 @@ function isErrorBody(body: unknown): boolean {
 /** Gemini 生成は 1 分を超えることがある。旧は無制限。client の既定 15 秒を避けるため長めに取る。 */
 export const JOBGEN_TIMEOUT_MS = 30 * 60 * 1000;
 
+/** 未ログイン (401 / ログイン画面へのリダイレクト) のとき利用者に出す文言。 */
+export const AUTH_REQUIRED_MESSAGE = 'ログインの有効期限が切れました。もう一度ログインしてください';
+
 /** 同一オリジンの JSON POST (共通 client の apiPost 経由)。例外は投げず `ApiResult` で返す。 */
 export async function postJson<T>(path: string, body: unknown): Promise<ApiResult<T>> {
   const r = await apiPost<T>(path, body, { timeoutMs: JOBGEN_TIMEOUT_MS });
   if (!r.ok) {
     const e = r.error;
+    if (e instanceof AuthRequiredError) {
+      // client の文言は英語 (login required ...)。利用者に出る文言は日本語にする。
+      return { ok: false, error: new AuthRequiredError(AUTH_REQUIRED_MESSAGE) };
+    }
     if (e instanceof ApiHttpError) {
       // 旧: (d && (d.message||d.error)) || ('HTTP '+status)。JSON でない本文は 'HTTP <status>'。
       const err = new ApiHttpError(e.status, e.body);
