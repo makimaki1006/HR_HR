@@ -103,3 +103,25 @@ NG 18 件
 | 3 | `cargo test --tests --no-fail-fast -j 3` | lib 3809 passed を含め 22 target 中 21 が 0 failed。失敗は `no_forbidden_terms`(`test result: FAILED. 4 passed; 1 failed`、call_quality の `target_count`)のみ。既存失敗で対象外 |
 
 スクショ(スクラッチパッド `wave-a/sales-kpi-blank-pick/shots/`): `pick_blank_selected.png` = 担当なしを選んだ画面、`pick_blank_panel_pool.png` = ③ の内訳パネル。
+
+
+## 追補: 担当なし選択時の架電欄の明示 (2026-10-02、ユーザー判断)
+
+判断: 欄は隠さない / Zoom 架電の値は「—」のまま / つながった率の説明も「—」 / 担当者に結びつかなかった発信(unmatched)の合計は出さない / 「チーム未設定」でそろわない件は扱わない。
+
+表示(担当なしを選んだとき。未選択に戻すと消える):
+- 見出し: `架電（担当なしを選択中）`、`架電リストの残り（担当なしを選択中）`
+- 注記: `担当なし（HubSpot の担当者が空の取引）を選んでいます。Zoom 架電は電話をかけた人で数えるため、担当なしの取引への架電は出せません。`
+- つながった率の説明欄: `—`(以前は `0 ÷ 0 件`)
+
+E2E `--only pickblank` の (h) を追加: (a) 見出しに「担当なし」 (b) 注記に「担当なし」「電話をかけた人で数え」「出せません」 (c) 架電の欄(注記+カード)に「0 ÷ 0」なし、つながった率の説明が「—」 (d) 架電数・つながった率の値が「—」 (e) 未選択に戻すと見出し・注記が消える。
+「0 ÷ 0」は架電の欄だけを見る。成績カード ⑥⑤ は担当なしの fixture で分母 0 のため `0 ÷ 0 件` が正しく出る(ページ全体で見ると誤検出)。
+
+修正前(直前のテンプレートで実行): `NG 5 件`(h-a 見出し ['架電']、h-b 注記に「電話をかけた人で数え」「出せません」なし、h-c 架電の欄に 0 ÷ 0、つながった率の説明 ['0 ÷ 0 件'])。ログ `before2_pickblank.log`。
+修正後: `--only pickblank` は `OK`。全ケース: `OK: カードの値 == パネル見出し == 一覧の行数の合計（開いたパネル 77 回、数えた一覧の行 9395 行）`。未選択時の 21 キー: origin/main テンプレートの cards_before.json と `==` True。
+
+| 段階 | 結果 |
+|------|------|
+| 1 | `cargo fmt -- --check` 差分なし / `cargo clippy --all-targets -j 3` error 0 (Finished) |
+| 2 | `test result: ok. 3809 passed; 0 failed; 45 ignored; 0 measured; 0 filtered out; finished in 58.00s` |
+| 3 | `--tests --no-fail-fast`: 失敗は `no_forbidden_terms`(`FAILED. 4 passed; 1 failed`)のみ(既存、対象外)。他の target は 0 failed |
