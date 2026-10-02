@@ -41,8 +41,8 @@ URL への保存・復元(`syncPerson` 以外)はない。`person` は `localSto
 - 未選択 = `null`、担当なし = `""`。判定は `person!==null` に統一。
 - option の value は文字列なので、担当なしの option には番兵値 `"__none__"` を使う。
   onchange: `''` → `null`、`'__none__'` → `''`。`sel.value` へ戻すときは逆変換。
-- 別案(未選択を `undefined` や `false` にする)は、`person||`、`person?` が残っても静かに通ってしまうので採らない。
-  `null` と `""` は `!person` では区別できず、`person===null` / `person!==null` に書き換えないとテストが落ちる(書き換え漏れを検出しやすい)。
+- 別案(未選択を `undefined` や `false` にする)は採らない。`!person` / `person?` が `""` と同じ falsy で残っても静かに通ってしまうため。
+  `null` なら `person===null` / `person!==null` に書き換えないと「担当なし」を選んだテストが落ちる(書き換え漏れを検出しやすい)。
 - チェックで「担当なし」を外した場合(`hidden` に `""` が入る)は、`syncPerson` が option を出さなくなるので、`person` も `null` に戻す。
 
 ## 架電まわり(担当なしを選んだとき何を出すか)
@@ -56,3 +56,50 @@ URL への保存・復元(`syncPerson` 以外)はない。`person` は `localSto
 | 架電(Zoom の発信) | `kaden_period` は ownerId が空の行を `by_person`/`by_team` に入れない(`mod.rs:1105-1112`)。空の ownerId は「Zoom のユーザーが HubSpot の担当者に紐づかなかった発信」で(`routes.rs:477-486` の unmatched)、**取引の「担当なし」とは別の概念** | 人別の数字を持っていないので、0 件とは出さず「—」+注記「担当なしの架電は担当者別に集計していません」。人別表も出さない |
 
 架電の最後の行は**要判断**として報告する(「—」+注記にしたが、Zoom で担当者に紐づかなかった発信の合計(`unmatched`)を出すかどうかは業務の判断)。
+
+
+## 修正と検証(2026-10-02)
+
+修正: `templates/tabs/sales_kpi.html`。`person` の判定をすべて `person!==null` に統一(grep で `!person` / `person?` / `person&&` / `person||` / `person=''` の残りが 0 件)。
+option 変換は `NONE_VAL='__none__'`・`personOfValue`・`valueOfPerson` の 3 つだけ。架電(Zoom)は「—」+注記、架電リストは `kaden.no_owner`、決定者は `kettei.no_owner` の 1 行。担当なしには「1人あたり」の平均を付けない(チーム未設定の平均と比べても意味が無いため)。
+
+E2E: `tests/e2e/sales_kpi_card_breakdown.py --only pickblank`(fixture: `dump_sales_kpi 2026-09-04`、by_person[""] は pool 11 / cyomi 4、下段は ⑤未回収 7・⑨ 1・今週 2・来週 6 行)。
+確かめる内容: (a) 表示文 (b) 7 枚の値 == by_person[""] (c) 内訳の見出し == 一覧 == カード、行はすべて owner="" (d) 下段 5 種の値と一覧 == owner="" の行 (e) 未選択に戻すと全員の値 (f) チェックで担当なしを外すと選択解除+数字が減る (g) チーム切替で選択解除、チーム未設定の中で担当なしを選べる。他に架電リスト・決定者・架電。
+
+### 修正前(origin/main のテンプレート): FAILED
+```
+NG 18 件
+ - 担当なし選択(a): 表示文が担当なし向けでない: '全チームの合計を表示しています。チーム名か、右のプルダウンで絞り込めます。'
+ - 担当なし選択(b): ① 取ったアポ カード 245件 ≠ by_person[''] の 0
+ - 担当なし選択(b): ③ 商談の予定 カード 537件 ≠ by_person[''] の 11
+ - 担当なし選択(b): ④ 日が過ぎた分 カード 225件 ≠ by_person[''] の 0
+ - 担当なし選択(b): ② やった商談 カード 163件 ≠ by_person[''] の 0
+ - 担当なし選択(b): ⑥ 商談化率 '163 ÷ 225 件' ≠ 0 ÷ 0
+ - 担当なし選択(b): ⑤ 回収率 '6 ÷ 225 件（④ 日が過ぎた分と同じ母数）' ≠ 0 ÷ 0
+ - 担当なし選択(b): ⑨ 持っているCヨミ カード 123件 ≠ by_person[''] の 4
+ - 担当なし選択(c): ③ の内訳 0 行 ≠ 担当なしの商談 11 行
+ - 担当なし選択(d): ⑦ カード 9.0 / 一覧 9 ≠ 担当なしの行 0
+ - 担当なし選択(d): ⑤未回収 カード 267.0 / 一覧 267 ≠ 担当なしの行 7
+ - 担当なし選択(d): ⑨止まっている カード 36.0 / 一覧 36 ≠ 担当なしの行 1
+ - 担当なし選択(d): 今週 カード 260.0 / 一覧 260 ≠ 担当なしの行 2
+ - 担当なし選択(d): 来週 カード 213.0 / 一覧 213 ≠ 担当なしの行 6
+ - 担当なし選択(架電リスト): [11942.0, 15327.0, 16344.0] ≠ kaden.no_owner [7337, 0, 0]
+ - 担当なし選択(決定者): 表が {'rows': 7} （担当なしの 1 行だけのはず）
+ - 担当なし選択(架電): 架電数が '29,406件'（担当なしは人別に持っていないので数字は出さない）
+ - 担当なし選択(g): チーム未設定の中で担当なしを選んだ ③ が by_person[''] と合わない
+```
+(⑦ は fixture で担当なしの行が 0 なので「0 のはずが 9」。)
+
+### 修正後: passed
+- `--only pickblank`: `OK`
+- 全ケース: `OK: カードの値 == パネル見出し == 一覧の行数の合計（開いたパネル 77 回、数えた一覧の行 9395 行）`(blank / rowteam / pickblank を含む。exit 0)
+- 未選択時の数字: `--cards-only` で 7 枚のカード + 下段 5 枚 + 架電リスト 4 枚を 全社 と 全チームで取り、origin/main のテンプレートと完全一致(21 キー、`==` True)。
+
+### 3 段階の検証
+| 段階 | コマンド | 結果 |
+|------|----------|------|
+| 1 | `cargo fmt -- --check` / `cargo clippy --all-targets -j 3` | fmt 差分なし / error 0(Finished) |
+| 2 | `cargo test --lib -j 3` | `test result: ok. 3809 passed; 0 failed; 45 ignored; 0 measured; 0 filtered out; finished in 55.33s` |
+| 3 | `cargo test --tests --no-fail-fast -j 3` | lib 3809 passed を含め 22 target 中 21 が 0 failed。失敗は `no_forbidden_terms`(`test result: FAILED. 4 passed; 1 failed`、call_quality の `target_count`)のみ。既存失敗で対象外 |
+
+スクショ(スクラッチパッド `wave-a/sales-kpi-blank-pick/shots/`): `pick_blank_selected.png` = 担当なしを選んだ画面、`pick_blank_panel_pool.png` = ③ の内訳パネル。
