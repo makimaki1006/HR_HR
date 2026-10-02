@@ -5,7 +5,7 @@ export interface KpiCardProps {
   /** null / NaN / Infinity render "データなし" (never a fake 0). */
   value: number | null;
   unit: string;
-  /** Sample size behind the value. Required so callers must decide; null = unknown. */
+  /** Sample size behind the value. Required so callers must decide; null (or NaN/Infinity) = unknown. */
   n: number | null;
   /** Defaults to ja-JP digit grouping. */
   format?: (v: number) => string;
@@ -16,10 +16,18 @@ export interface KpiCardProps {
   emptyText?: string;
 }
 
-const defaultFormat = (v: number): string => v.toLocaleString('ja-JP');
+/** Digit grouping that never prints a negative zero ("-0" from -0 or from -0.0001). */
+const defaultFormat = (v: number): string => {
+  const s = v.toLocaleString('ja-JP');
+  return /^[-−]0(?:\.0*)?$/.test(s) ? s.slice(1) : s;
+};
+
+/** n: non-finite counts as unknown (never "n=NaN"); -0 prints as 0. */
+const formatN = (n: number | null): string =>
+  n === null || !Number.isFinite(n) ? 'n=不明' : `n=${(n === 0 ? 0 : n).toLocaleString('ja-JP')}`;
 
 export function KpiCard({ label, value, unit, n, format = defaultFormat, note, display, emptyText }: KpiCardProps) {
-  const shownValue = display ?? (value === null || !Number.isFinite(value) ? null : format(value));
+  const shownValue = display ?? (value === null || !Number.isFinite(value) ? null : format(value === 0 ? 0 : value));
   return (
     <section className="hw-kpi-card" aria-label={label}>
       <h3 className="hw-kpi-label">{label}</h3>
@@ -34,7 +42,7 @@ export function KpiCard({ label, value, unit, n, format = defaultFormat, note, d
         )}
       </p>
       <p className="hw-kpi-n" data-testid="kpi-n">
-        {n === null ? 'n=不明' : `n=${n.toLocaleString('ja-JP')}`}
+        {formatN(n)}
       </p>
       {note === undefined ? null : <div className="hw-kpi-note">{note}</div>}
     </section>
