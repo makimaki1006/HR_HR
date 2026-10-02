@@ -650,7 +650,7 @@ def nt_seg_check(page, where, fails, limit=2, ntn=2):
             tb = nt_table(page)
             if tb is None or tb["sum"] != want_b:
                 fails.append(f"{w} BPOだけ: 種別の表の合計 {tb and tb['sum']} ≠ 区分の内BPO {want_b}")
-            else:
+            elif want_b > 0:  # 0 件なら一覧も表も出ない（「当てはまる取引はありません」）。種別の合計 0 は上で確認済み
                 nt_descend(page, w + " BPOだけ", want_b, fails, limit=1)
             page.locator("#panel1-bpo").click()
     # 区分を外す（次の検査のために「すべて」へ戻す）
@@ -820,7 +820,23 @@ def run_guarded(fn, *args):
         fails.append(f"{fn.__name__} が途中で止まった: {str(e).splitlines()[0][:160]} / {str(e).splitlines()[-1][:160]}")
 
 
+def report_fails(fails: list, out: Path):
+    """NG の件数・種類ごとの件数・先頭 40 件を出し、全件を <out>/fails.txt に書く。"""
+    print(f"NG {len(fails)} 件")
+    # 種類ごとの件数（先頭 40 件だけでは区分・内部値・並びのどれが落ちたか分からないため）
+    kinds = {"区分を選んだ検査": "区分「", "内部値が画面に出た": "画面に内部値", "並びが固定順でない": "並びが固定順でない"}
+    print("   内訳: " + " / ".join(f"{k} {sum(v in f for f in fails)}" for k, v in kinds.items()))
+    for k, v in kinds.items():
+        ex = next((f for f in fails if v in f), None)
+        if ex:
+            print(f" * {k}の例: {ex}")
+    for f in fails[:40]:
+        print(" -", f)
+    (out / "fails.txt").write_text(chr(10).join(fails), encoding="utf-8")
+
+
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", required=True)
     ap.add_argument("--out", required=True)
@@ -873,9 +889,10 @@ def main():
         if a.only in ("blank", "rowteam", "pickblank", "negtype", "ntmissing"):
             br.close()
             srv.shutdown()
-            print(f"NG {len(fails)} 件" if fails else "OK")
-            for f in fails[:40]:
-                print(" -", f)
+            if fails:
+                report_fails(fails, out)
+            else:
+                print("OK" + (f"（種別の表を確かめた段 {STATS['nt_levels']}、区分を選んだ検査 {STATS.get('nt_seg', 0)}）" if STATS["nt_levels"] else ""))
             return 1 if fails else 0
         # --- 1. 全社 ---
         ctx, page, errs = open_page(br, a.port)
@@ -916,9 +933,7 @@ def main():
         br.close()
     srv.shutdown()
     if fails:
-        print(f"NG {len(fails)} 件")
-        for f in fails[:40]:
-            print(" -", f)
+        report_fails(fails, out)
         return 1
     print(f"OK: カードの値 == パネル見出し == 一覧の行数の合計（開いたパネル {STATS['drill']} 回、数えた一覧の行 {STATS['rows']} 行、種別の表を確かめた段 {STATS['nt_levels']}、区分を選んだ検査 {STATS.get('nt_seg', 0)}）")
     return 0
