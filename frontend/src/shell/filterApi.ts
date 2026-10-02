@@ -8,7 +8,7 @@
 //
 // postSetFilter goes through apiPostForm (src/api/client.ts) with expect: 'text'.
 
-import { AuthRequiredError, apiPostForm } from '../api/client';
+import { AuthRequiredError, apiGet, apiPostForm } from '../api/client';
 
 export type SetFilterName = 'prefecture' | 'municipality' | 'job_type' | 'industry_filter';
 
@@ -23,15 +23,6 @@ export interface SelectOption {
   value: string;
   label: string;
   citycode?: string;
-}
-
-function redirectedToLogin(res: Response): boolean {
-  if (!res.redirected || res.url === '') return false;
-  try {
-    return new URL(res.url).pathname === LOGIN_PATH;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -59,15 +50,12 @@ export function parseOptions(html: string): SelectOption[] {
 }
 
 async function fetchOptionHtml(path: string, signal?: AbortSignal): Promise<SelectOption[]> {
-  const res = await fetch(path, {
-    method: 'GET',
-    credentials: 'same-origin',
-    headers: { Accept: 'text/html' },
-    ...(signal ? { signal } : {}),
-  });
-  if (redirectedToLogin(res)) throw new ShellAuthError('login required');
-  if (!res.ok) throw new Error(`HTTP ${String(res.status)}`);
-  return parseOptions(await res.text());
+  // The endpoints answer <option> HTML, hence expect: 'text'. apiGet maps a login redirect /
+  // 401 to AuthRequiredError and sends X-Requested-With: fetch.
+  const result = await apiGet<string>(path, { expect: 'text', ...(signal ? { signal } : {}) });
+  if (result.ok) return parseOptions(result.data);
+  if (result.error instanceof AuthRequiredError) throw new ShellAuthError('login required');
+  throw result.error;
 }
 
 export function fetchPrefectures(signal?: AbortSignal): Promise<SelectOption[]> {
