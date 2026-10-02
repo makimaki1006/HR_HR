@@ -334,7 +334,9 @@ const fmt=n=>(n==null?'—':n.toLocaleString('ja-JP'));
 const pct=n=>(n==null?'—':n.toFixed(1)+'%');
 // 架電の期間の初期表示。🔴「今週」で固定（ユーザー指示 2026-09-10）。
 // 今日・昨日は途中経過なので初期表示に向かない。並び順は PL の定義順。
-let team='すべて', person='', openKey=null, openCard=null, cardTeam=null, cardPerson=null, cardSeg=null, bpoOnly=false, weekOpen=false, dayKey=null, callPeriod='this_week';
+// 🔴 person: null = 個人を選んでいない（全員）/ "" = 「担当なし」（担当者が空の取引）/ それ以外 = 担当者の id。
+//    空文字を「未選択」と読むと、担当なしを選んでも全員表示のままになる。判定は必ず `person!==null`。
+let team='すべて', person=null, openKey=null, openCard=null, cardTeam=null, cardPerson=null, cardSeg=null, bpoOnly=false, weekOpen=false, dayKey=null, callPeriod='this_week';
 // 週次表をどちらの数え方で見るか。既定は「その週の商談」（週次表として自然なので）。
 // 'month' は当月の累積で、月初にゼロから数え直しになる。
 let snapMode='week';
@@ -372,7 +374,7 @@ $('range').textContent='2026年9月　／　今週 '+md(D.week.start)+'（'+wd(D
 ['すべて'].concat(D.teams).forEach(t=>{
   const b=document.createElement('button');
   b.className='chip'+(t===team?' on':''); b.textContent=t;
-  b.onclick=()=>{team=t;person='';openKey=null;openCard=null;syncPerson();
+  b.onclick=()=>{team=t;person=null;openKey=null;openCard=null;syncPerson();
     [...$('teams').children].forEach(c=>c.classList.toggle('on',c.textContent===t));render();};
   $('teams').appendChild(b);
 });
@@ -414,7 +416,7 @@ function sumIf(byPerson, ok){
 //    rowTeam は行を持つ側（pick）だけが渡す。名簿に居ない担当者の行を消さないための代替。
 const teamOf=(id,rowTeam)=>Object.prototype.hasOwnProperty.call(TEAM_OF,id)?TEAM_OF[id]:rowTeam;
 const inScope=(id,rowTeam)=>!hidden.has(id)&&
-  (person? id===person : (team==='すべて'||teamOf(id,rowTeam)===team));
+  (person!==null? id===person : (team==='すべて'||teamOf(id,rowTeam)===team));
 const sumScope=byPerson=>sumIf(byPerson,inScope);
 // チーム（全社なら全チーム）で足す。個人の選択は見ない（平均の分子に使う）。
 const sumTeam=(byPerson,teamName)=>sumIf(byPerson,
@@ -423,16 +425,23 @@ const sumTeam=(byPerson,teamName)=>sumIf(byPerson,
 // 所属の見せ方。営業の名簿に載っていない人（BPO・他部署）は「チーム未設定」に
 // なるが、それだけでは誰なのか分からないので HubSpot 側のチーム名を添える。
 const teamLabel=p=>(!p?'':p.team+((p.team==='チーム未設定'&&p.hsTeam)?'・'+p.hsTeam:''));
+// option の value は文字列しか持てない。「担当なし」（id が空文字）は未選択（value=""）と
+// 区別するため、番兵値で表す。person との変換はここの 2 つだけ。
+const NONE_VAL='__none__';
+const personOfValue=v=>(v===''?null:(v===NONE_VAL?'':v));
+const valueOfPerson=p=>(p===null?'':(p===''?NONE_VAL:p));
+// 担当者の表示名。担当なしは名簿に居なくても「担当なし」と出す。
+const personName=()=>(person===''?'担当なし':((D.people.find(x=>x.id===person)||{}).name||'この担当者'));
 function syncPerson(){
   const sel=$('person'); sel.innerHTML='<option value="">個人で見る…</option>';
   D.people.filter(p=>!hidden.has(p.id)&&(team==='すべて'||p.team===team)).forEach(p=>{
-    const o=document.createElement('option'); o.value=p.id;
+    const o=document.createElement('option'); o.value=valueOfPerson(p.id);
     o.textContent=p.name+(team==='すべて'?'（'+teamLabel(p)+'）':'');
     sel.appendChild(o);});
-  sel.value=person;
+  sel.value=valueOfPerson(person);
 }
 syncPerson();
-$('person').onchange=e=>{person=e.target.value;openKey=null;openCard=null;render();};
+$('person').onchange=e=>{person=personOfValue(e.target.value);openKey=null;openCard=null;render();};
 
 // ---- 担当者のチェックボックス ---------------------------------------------
 //
@@ -466,7 +475,7 @@ function drawPick(){
     const all=document.createElement('input'); all.type='checkbox';
     all.checked=on>0; all.indeterminate=on>0&&on<list.length;
     all.onchange=()=>{list.forEach(p=>{if(all.checked)hidden.delete(p.id);else hidden.add(p.id);});
-      if(person&&hidden.has(person)){person='';}
+      if(person!==null&&hidden.has(person)){person=null;}
       saveHidden();syncPerson();drawPick();render();};
     const lb=document.createElement('b'); lb.textContent=t;
     const cnt=document.createElement('span'); cnt.className='n';
@@ -478,7 +487,7 @@ function drawPick(){
       if(hidden.has(p.id)) l.className='off';
       const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!hidden.has(p.id);
       cb.onchange=()=>{if(cb.checked)hidden.delete(p.id);else hidden.add(p.id);
-        if(person===p.id&&!cb.checked)person='';
+        if(person===p.id&&!cb.checked)person=null;
         saveHidden();syncPerson();drawPick();render();};
       const sp=document.createElement('span'); sp.textContent=p.name;
       sp.title=p.name+'（'+teamLabel(p)+'）';
@@ -516,7 +525,9 @@ const headOf=t=>D.people.filter(p=>p.team===t&&!hidden.has(p.id)).length;
 // 誰と比べるか。個人を選んでいるときは「その人のチーム」を相手にする
 // （自分の数字と並べて見られるようにするため）。
 function avgBase(){
-  if(person){
+  // 担当なしは「人」ではない。チーム未設定の平均と比べても意味が無いので平均は付けない。
+  if(person==='') return null;
+  if(person!==null){
     const p=D.people.find(x=>x.id===person);
     if(!p) return null;
     return {label:p.team+' の平均', team:p.team, n:headOf(p.team)};
@@ -691,7 +702,7 @@ function drawCardPanel(){
   const tof=r=>teamOf(r.owner,r.team);
   const teamPick=team!=='すべて'?team:cardTeam;
   // 担当者の id は空文字（担当なし）もあり得るので、「選んでいない」は null で区別する。
-  const personPick=person!==''?person:cardPerson;
+  const personPick=person!==null?person:cardPerson;
   const crumb=(txt,fn)=>{const b=document.createElement('button'); b.className='more'; b.textContent=txt; b.onclick=fn; return b;};
   const table=(heads,groups,onPick)=>{
     const t=document.createElement('table'); t.className='cdrill';
@@ -729,7 +740,7 @@ function drawCardPanel(){
   }else{
     // 担当者選択済み: 取引一覧
     const mine=rows.filter(r=>r.owner===personPick).sort(byDateName);
-    if(!person){
+    if(person===null){
       P.appendChild(crumb('‹ 担当者別に戻る',()=>{cardPerson=null;render();}));
     }
     const who=mine.length?mine[0].ownerName:'';
@@ -756,8 +767,8 @@ function render(){
       (t?'（'+(v/t*100).toFixed(0)+'%）':'')+'</span>':'';};
   const hidNote=hid?('　'+D.people.filter(p=>hidden.has(p.id)).length+
     '名をチェックで外しています。'):'';
-  $('scope').textContent=(person
-    ? ((D.people.find(p=>p.id===person)||{}).name+' の数字だけを表示しています。'
+  $('scope').textContent=(person!==null
+    ? (personName()+' の数字だけを表示しています。'
        // 架電リストにだけ出てくる人（BPO など）は今月の商談が無い。
        // カードが 0 で並ぶ理由を書いておかないと、壊れているように見える。
        +(Object.keys(a).length?'':'この担当者には今月の商談がありません（架電リストの数字だけ出ます）。'))
@@ -925,6 +936,10 @@ function render(){
     // 担当者が紐づかない発信は by_team に入らないので、この平均にも入らない。
     const KT=sumTeam(per.by_person, AB&&AB.team);
     const calls=cur.calls||0, conn=cur.connected||0, lng=cur.long||0;
+    // 🔴 担当なしを選んでいるとき、架電の数字は出さない（0 件とも言えない）。
+    //    Zoom の発信は担当者に紐づいたぶんだけ人別に数えていて、紐づかなかった発信（ownerId が空）は
+    //    取引の「担当なし」とは別のもの。人別の数字が無いので 0 と書くと「かけていない」に読める。
+    const noCall=(person==='');
     const days=(per.days||[]).length||1;
     const dl=per.days||[];
     // データがどこまで入っているかを、必ず画面に出す。
@@ -947,26 +962,28 @@ function render(){
         '<span style="color:var(--faint)">その日の途中までしか入っていません。'+
         '取り直すのは平日の 6:30 と 18:00 で、その間は数字が変わりません。</span>';
     }
-    $('lead3').innerHTML='Zoomのログから数えています。<b>架電数＝つながった通話</b>で、現場が数えている数と合わせています。'+
+    $('lead3').innerHTML=(noCall?'<b style="color:var(--warn)">「担当なし」の架電は担当者別に集計していません。</b>'+
+      '<span style="color:var(--faint)">（Zoom の発信は、担当者に紐づいたぶんだけ人別に数えています。数字は出しません）</span><br>':'')+
+      'Zoomのログから数えています。<b>架電数＝つながった通話</b>で、現場が数えている数と合わせています。'+
       fresh+
       '<br><span style="color:var(--faint)">つながらなかった発信（相手が出る前に切った・失敗した）は「発信した回数」にだけ入ります。</span>';
     [
-      {lab:'架電数',val:dl.length?conn:null,unit:'件',
+      {lab:'架電数',val:(dl.length&&!noCall)?conn:null,unit:'件',
        hint:dl.length?(dl[0]===dl[dl.length-1]?md(dl[0]):md(dl[0])+'〜'+md(dl[dl.length-1]))
                      :'まだ集計されていません',
        sub2:'<span style="color:var(--sub)">Zoomでつながった通話の数'+
             (partial&&dl.length&&dl[dl.length-1]===upto
               ?'（'+md(upto)+' は'+(asof?asof+' 時点':'集計中')+'）':'')+'</span>',
        avg:dl.length?avgLine(AB,KT.connected||0):'',
-       wow:(prv&&dl.length)?wowEl(conn,prv.connected||0,'件'):''},
-      {lab:'発信した回数',val:calls,unit:'件',hint:'かけ直しや切ったものを含む全発信',
+       wow:(prv&&dl.length&&!noCall)?wowEl(conn,prv.connected||0,'件'):''},
+      {lab:'発信した回数',val:noCall?null:calls,unit:'件',hint:'かけ直しや切ったものを含む全発信',
        avg:avgLine(AB,KT.calls||0)},
-      {lab:'つながった率',val:calls?conn/calls*100:null,pct:true,hint:fmt(conn)+' ÷ '+fmt(calls)+' 件'},
-      {lab:'5分超の通話',val:lng,unit:'件',hint:'深い会話。アポにつながりやすい',
+      {lab:'つながった率',val:(calls&&!noCall)?conn/calls*100:null,pct:true,hint:fmt(conn)+' ÷ '+fmt(calls)+' 件'},
+      {lab:'5分超の通話',val:noCall?null:lng,unit:'件',hint:'深い会話。アポにつながりやすい',
        avg:avgLine(AB,KT.long||0)},
       // 🔴 このカードには平均を付けない。すでに日数で割った平均なので、
       //    さらに人数で割ると「1人1日あたり」になり、他のカードと意味が変わる。
-      {lab:'1日あたりの架電数',val:dl.length?Math.round(conn/dl.length):null,unit:'件',
+      {lab:'1日あたりの架電数',val:(dl.length&&!noCall)?Math.round(conn/dl.length):null,unit:'件',
        hint:dl.length?(dl.length+'日で割った平均'):'—'},
     ].forEach(o=>c3.appendChild(cardEl(o)));
 
@@ -1007,7 +1024,7 @@ function render(){
     const rows=Object.entries(per.by_person||{})
       .filter(function(e){const oid=e[0];const pp=(C_.people||[]).find(x=>x.id===oid);
         if(hidden.has(oid)) return false;
-        if(person) return oid===person;
+        if(person!==null) return oid===person;
         if(team==='すべて') return true;
         return pp&&pp.team===team;})
       .map(function(e){const oid=e[0],v=e[1];
@@ -1069,11 +1086,14 @@ function render(){
     unCls[k]=(unCls[k]||0)+((K.no_owner||{})[k]||0);});
   const scope=(function(){
     if(!K.has_by_owner)
-      return (!person&&team==='すべて')?{c:kc,base:K.base,who:'会社全体',whole:true}:null;
-    if(!person&&team==='すべて')
+      return (person===null&&team==='すべて')?{c:kc,base:K.base,who:'会社全体',whole:true}:null;
+    if(person===null&&team==='すべて')
       return {c:salesCls,base:salesCls.base||0,who:'営業'+nTeams+'チームの合計',whole:true};
+    // 担当なし: サーバは by_person に入れず no_owner に同じ形で返す（担当者が入っていない取引）。
+    if(person==='')
+      return {c:K.no_owner||{},base:(K.no_owner||{}).base||0,who:'担当なし（担当者が入っていない取引）が持っている分'};
     const c=sumScope(K.by_person);
-    const who=person?((D.people.find(x=>x.id===person)||{}).name||'この担当者')+' が持っている分'
+    const who=person!==null?personName()+' が持っている分'
                     :team+' が持っている分';
     return {c:c,base:c.base||0,who:who};
   })();
@@ -1305,7 +1325,7 @@ function renderKettei(){
   const KE=D.kettei||{}, cols=KE.cols||[], rows=pick(KE.rows||[]);
   // 担当者が入っていない取引ぶん。人ではないのでチーム・個人では絞りようが無い。
   // 全社を見ているときだけ出す（チームを選んでいるときに出すと、そのチームの分に見える）。
-  const NO=(team==='すべて'&&!person)?KE.no_owner:null;
+  const NO=(person===''||(team==='すべて'&&person===null))?KE.no_owner:null;
   const asof=KE.date?md(KE.date)+'（'+wd(KE.date)+'）':'—';
   // 🔴 このシートを書くのは**朝の便（6:30・月〜土）だけ**。夕方の便は走らない。
   //    「今日の入力状況」と書くと、現場が日中に入れたぶんが載っていないのに
@@ -1360,7 +1380,7 @@ function renderKettei(){
 
   // 合計行。絞り込みが効いている表なので、**いま出している行の合計**であることを明記する。
   // 何も絞っていなければ全社の合計になる。
-  const who=person?((D.people.find(x=>x.id===person)||{}).name||'この担当者')
+  const who=person!==null?personName()
                   :(team==='すべて'?'全社':team);
   // 前の記録が無い行は増加を足せない。何行ぶん足せなかったかを添える。
   const shown=rows.length+(NO?1:0), miss=shown-grewKnown;
