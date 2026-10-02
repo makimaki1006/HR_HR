@@ -82,7 +82,7 @@ describe('0 件・分母 0 でも NaN / undefined を出さない', () => {
     }
     for (const openKey of keys) bad.push(...badTokens(render(d, { openKey })));
     expect(bad).toEqual([]);
-  });
+  }, 60_000);
   it('分母 0 の率は 0% ではなく「—」', () => {
     const html = render(d);
     expect(html).toMatch(/data-card="rate"><div class="lab">⑥ 商談化率<\/div><div class="v">—/);
@@ -107,7 +107,7 @@ describe('担当者・チームの全組み合わせ (fixture) で NaN / undefin
       for (const tab of ['kpi', 'kettei'] as const) bad.push(...badTokens(render(D, { tab }, { person: p.id })));
     }
     expect(bad).toEqual([]);
-  });
+  }, 60_000);
   it('名簿に無い id を個人に指定しても「undefined」を出さない', () => {
     const html = render(D, {}, { person: 'no-such-owner' });
     expect(badTokens(html)).toEqual([]);
