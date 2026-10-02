@@ -387,8 +387,36 @@ def scenario_pick_blank(br, tpl: Path, D: dict, out: Path, port: int, fails: lis
     first_call = page.evaluate("()=>{const v=document.querySelector('#cards3 .c .v');return v?v.textContent:null}")
     if first_call is not None and num(first_call) is not None:
         fails.append(f"担当なし選択(架電): 架電数が {first_call!r}（担当なしは人別に持っていないので数字は出さない）")
+    # (h) 架電の欄: 見出しに「担当なし」、Zoom 架電の値は「—」、注記、「0 ÷ 0」なし
+    zoom = page.evaluate("""()=>({
+        h2:[...document.querySelectorAll('h2')].map(e=>e.textContent),
+        lead:(document.getElementById('lead3')||{}).textContent||'',
+        vals:[...document.querySelectorAll('#cards3 .c')].map(c=>({
+            lab:((c.querySelector('.lab')||{}).textContent||''),
+            v:((c.querySelector('.v')||{}).textContent||'').trim(),
+            hint:((c.querySelector('.hint')||c).textContent||'')})),
+        body:document.body.innerText})""")
+    h2k = [h for h in zoom["h2"] if h.startswith("架電") and "リスト" not in h]
+    if not (h2k and all("担当なし" in h for h in h2k)):
+        fails.append(f"担当なし選択(h-a): 架電の見出しに「担当なし」が出ない: {h2k}")
+    for w in ("担当なし", "電話をかけた人で数え", "出せません"):
+        if w not in zoom["lead"]:
+            fails.append(f"担当なし選択(h-b): Zoom 架電の注記に「{w}」が無い: {zoom['lead'][:80]!r}")
+    for c in zoom["vals"]:
+        if c["lab"].startswith("架電数") or c["lab"].startswith("つながった率"):
+            if c["v"] not in ("—", "-", "—") and num(c["v"]) is not None:
+                fails.append(f"担当なし選択(h-d): {c['lab']} の値が {c['v']!r}（「—」のはず）")
+    if "0 ÷ 0" in zoom["body"]:
+        fails.append("担当なし選択(h-c): ページ内に「0 ÷ 0」が出ている")
+    conn_hint = [c["hint"] for c in zoom["vals"] if c["lab"].startswith("つながった率")]
+    if not conn_hint or "÷" in conn_hint[0]:
+        fails.append(f"担当なし選択(h-c): つながった率の説明が「—」でない: {conn_hint}")
     # (e) 未選択に戻すと全員の値に戻る
     page.select_option("#person", index=0)
+    back_z = page.evaluate("""()=>[...document.querySelectorAll('h2')].map(e=>e.textContent).join('|')+'#'+
+        (document.getElementById('lead3')||{}).textContent""")
+    if "担当なし" in back_z or "出せません" in back_z:
+        fails.append("担当なし選択(h-e): 未選択に戻しても架電の「担当なし」表示・注記が消えない")
     back = ([c["v"] for c in card_values(page)], lower_vals(page), kaden_vals(page))
     if back != (base_cards, base_lower, base_kaden):
         fails.append("担当なし選択(e): 未選択に戻しても全員の値に戻らない")
