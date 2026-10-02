@@ -273,6 +273,155 @@ def scenario_blank_owner(br, tpl: Path, D: dict, out: Path, port: int, fails: li
     srv.shutdown()
 
 
+LOWER = [("stale", "stale", "⑦"), ("anq", "anq_missing", "⑤未回収"), ("cyomi", "cyomi_stale", "⑨止まっている"),
+         ("week", "week_deals", "今週"), ("next", "next_week_deals", "来週")]
+
+
+def lower_vals(page):
+    """「いま手を打てること」の 5 枚の値。"""
+    return page.evaluate("()=>[...document.querySelectorAll('#cards2 .c .v')].map(v=>v.textContent)")
+
+
+def kaden_vals(page):
+    """架電リスト（アポ前の状況）の 4 枚の値。"""
+    return page.evaluate("()=>[...document.querySelectorAll('#cards3b .c .v')].map(v=>v.textContent)")
+
+
+def pick_blank(page):
+    """個人プルダウンで「担当なし」を選ぶ（index で選ぶ。value は修正の前後で変わるため）。"""
+    i = page.evaluate(
+        "()=>[...document.querySelectorAll('#person option')].findIndex(o=>o.textContent.startsWith('担当なし'))")
+    assert i > 0, "プルダウンに「担当なし」が無い"
+    page.select_option("#person", index=i)
+
+
+def ratio(hint: str):
+    m = re.search(r"([\d,]+)\s*÷\s*([\d,]+)", hint)
+    return (int(m.group(1).replace(",", "")), int(m.group(2).replace(",", ""))) if m else None
+
+
+def scenario_pick_blank(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
+    """個人プルダウンで「担当なし」を選ぶと、担当者が空の取引だけに絞り込まれる。
+    未選択（全員）とは区別され、カード・内訳・下段の一覧・架電リスト・決定者の数字が揃う。"""
+    D2 = blank_owner_input(D)
+    # サーバの実際の形に合わせる: 架電リスト・架電・決定者の人別には担当なしを入れない（no_owner / 別扱い）
+    D2["kaden"]["by_person"].pop("", None)
+    for per in D2["calls"]["periods"].values():
+        if isinstance(per, dict):
+            (per.get("by_person") or {}).pop("", None)
+    D2["kettei"]["rows"] = [r for r in D2["kettei"]["rows"] if r["owner"] != ""]
+    bp = D2["by_person"][""]
+
+    def g(k):
+        return bp.get(k, 0)
+
+    den = g("実施") + g("未実施") + g("未処理") + g("要判定")
+    cd = D2["card_deals"]
+    ids_pool = {r["id"] for r in cd["pool"] if r["owner"] == ""}
+    ids_all = ids_pool | {r["id"] for k in ("apo", "cyomi") for r in cd[k] if r["owner"] == ""}
+    assert g("pool") > 0 and ids_pool, "fixture に担当なしの商談が無い"
+    srv = serve_json(tpl, D2, port, out, "pick_blank")
+    ctx, page, errs = open_page(br, port)
+    base_cards = [c["v"] for c in card_values(page)]
+    base_lower, base_kaden = lower_vals(page), kaden_vals(page)
+    scope_all = page.locator("#scope").text_content()
+
+    pick_blank(page)
+    # (a) 表示文
+    sc = page.locator("#scope").text_content()
+    if "担当なし" not in sc or "数字だけ" not in sc or "全チームの合計" in sc:
+        fails.append(f"担当なし選択(a): 表示文が担当なし向けでない: {sc[:60]!r}")
+    # (b) 7 枚のカード == by_person[""]
+    cards = card_values(page)
+    exp = {"apo": g("apo"), "pool": g("pool"), "den": den, "done": g("実施"), "cyomi": g("cyomi")}
+    for i, k in enumerate(CARDS):
+        c = cards[i]
+        if k in exp:
+            if num(c["v"]) != exp[k]:
+                fails.append(f"担当なし選択(b): {c['lab']} カード {c['v']} ≠ by_person[''] の {exp[k]}")
+        elif k == "rate":
+            if ratio(c["hint"]) != (g("実施"), den):
+                fails.append(f"担当なし選択(b): ⑥ 商談化率 {c['hint']!r} ≠ {g('実施')} ÷ {den}")
+        else:  # anqrate
+            if ratio(c["hint"]) != (g("anq_num"), g("anq_den")):
+                fails.append(f"担当なし選択(b): ⑤ 回収率 {c['hint']!r} ≠ {g('anq_num')} ÷ {g('anq_den')}")
+    page.screenshot(path=str(out / "pick_blank_selected.png"), full_page=False)
+    # (c) 内訳パネル: 見出し == 一覧 == カード、行の owner はすべて空（id が担当なしの行の集合に収まる）
+    for i, k in enumerate(CARDS):
+        page.locator("#cards1 .c").nth(i).click()
+        page.wait_for_selector("#panel1:not(.hide) #panel1-title")
+        hrefs = page.locator("#panel1 .list a.item").evaluate_all("els=>els.map(e=>e.href)")
+        got = {h.rstrip("/").split("/")[-1] for h in hrefs}
+        if not got <= ids_all:
+            fails.append(f"担当なし選択(c): {k} の内訳に担当なし以外の行が {len(got - ids_all)} 件ある")
+        if k == "pool":
+            if got != ids_pool:
+                fails.append(f"担当なし選択(c): ③ の内訳 {len(got)} 行 ≠ 担当なしの商談 {len(ids_pool)} 行")
+            page.screenshot(path=str(out / "pick_blank_panel_pool.png"), full_page=False)
+        page.locator("#cards1 .c").nth(i).click()
+        drill_check(page, i, "担当なし選択", fails)
+    # (d) 下段の一覧
+    for ci, (key, dk, mark) in enumerate(LOWER):
+        want = sorted(r["id"] for r in D2[dk] if r["owner"] == "")
+        card = page.locator("#cards2 .c").nth(ci)
+        val = num(card.locator(".v").text_content())
+        card.click()
+        more = page.locator("#panel button.more", has_text="全部の日をまとめて見る")
+        if more.count():  # 今週・来週は日ごとの表から入る。まとめて開く
+            more.click()
+        hrefs = page.locator("#panel .list a.item").evaluate_all("els=>els.map(e=>e.href)")
+        ids = sorted(h.rstrip("/").split("/")[-1] for h in hrefs)
+        if val != len(want) or ids != want:
+            fails.append(f"担当なし選択(d): {mark} カード {val} / 一覧 {len(ids)} ≠ 担当なしの行 {len(want)}")
+        card.click()
+    # 架電リスト（no_owner）・決定者（no_owner の 1 行）・架電（数字は出さない）
+    nk = D2["kaden"]["no_owner"]
+    want_k = [nk.get("未架電", 0), nk.get("未接触", 0), nk.get("接触済み", 0)]
+    got_k = [num(v) for v in kaden_vals(page)[:3]]
+    if got_k != want_k:
+        fails.append(f"担当なし選択(架電リスト): {got_k} ≠ kaden.no_owner {want_k}")
+    ke = page.evaluate("""()=>{const t=document.querySelector('#ketteibox table');
+        return t?{rows:t.querySelectorAll('tbody tr').length}:null}""")
+    if not ke or ke["rows"] != 1:
+        fails.append(f"担当なし選択(決定者): 表が {ke} （担当なしの 1 行だけのはず）")
+    first_call = page.evaluate("()=>{const v=document.querySelector('#cards3 .c .v');return v?v.textContent:null}")
+    if first_call is not None and num(first_call) is not None:
+        fails.append(f"担当なし選択(架電): 架電数が {first_call!r}（担当なしは人別に持っていないので数字は出さない）")
+    # (e) 未選択に戻すと全員の値に戻る
+    page.select_option("#person", index=0)
+    back = ([c["v"] for c in card_values(page)], lower_vals(page), kaden_vals(page))
+    if back != (base_cards, base_lower, base_kaden):
+        fails.append("担当なし選択(e): 未選択に戻しても全員の値に戻らない")
+    if page.locator("#scope").text_content() != scope_all:
+        fails.append("担当なし選択(e): 未選択に戻しても表示文が元に戻らない")
+    # (f) チェックで担当なしを外す: 個人の選択は解除され、数字は担当なしぶんだけ減る
+    pick_blank(page)
+    page.click("#pickbtn")
+    page.locator("#pickpanel .who2 label").filter(has_text=re.compile("^担当なし$")).locator("input").click()
+    if page.locator("#person").evaluate("e=>e.selectedIndex") != 0:
+        fails.append("担当なし選択(f): チェックで担当なしを外しても個人の選択が残っている")
+    cur = [num(c["v"]) for c in card_values(page)][:2]
+    want_cur = [num(base_cards[0]) - g("apo"), num(base_cards[1]) - g("pool")]
+    if cur != want_cur:
+        fails.append(f"担当なし選択(f): チェックで外したあとの ①③ {cur} ≠ {want_cur}")
+    page.click("#pickpanel .close")  # 全部戻す
+    if [c["v"] for c in card_values(page)] != base_cards:
+        fails.append("担当なし選択(f): 全部戻しても元の値に戻らない")
+    # (g) チーム切替で個人の選択は外れる
+    pick_blank(page)
+    page.locator("#teams .chip", has_text=re.compile("^チーム未設定$")).click()
+    if page.locator("#person").evaluate("e=>e.selectedIndex") != 0:
+        fails.append("担当なし選択(g): チーム切替をしても個人の選択が残っている")
+    # チーム未設定の中で担当なしを選ぶ（プルダウンはチームで絞られる）
+    pick_blank(page)
+    if num(card_values(page)[1]["v"]) != g("pool"):
+        fails.append("担当なし選択(g): チーム未設定の中で担当なしを選んだ ③ が by_person[''] と合わない")
+    if errs:
+        fails.append("pageerror(担当なし選択): " + "; ".join(errs))
+    ctx.close()
+    srv.shutdown()
+
+
 def scenario_row_team(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     """⑦⑤⑨ の行の team が名簿のチームと違っても、絞り込みはカード・内訳と同じ規則（名簿のチーム）。
     名簿に居ない担当者の行は、行の team で絞る（消えない）。"""
@@ -323,7 +472,7 @@ def main():
     ap.add_argument("--template", default="templates/tabs/sales_kpi.html")
     ap.add_argument("--cards-only", default=None)
     ap.add_argument("--port", type=int, default=9317)
-    ap.add_argument("--only", choices=["main", "blank", "rowteam"], default=None,
+    ap.add_argument("--only", choices=["main", "blank", "rowteam", "pickblank"], default=None,
                     help="指定したケースだけ走らせる（既定は全部）")
     a = ap.parse_args()
     out = Path(a.out)
@@ -339,9 +488,11 @@ def main():
             res = {}
             ctx, page, errs = open_page(br, a.port)
             res["all"] = card_values(page)
+            res["all:lower"], res["all:kaden"] = lower_vals(page), kaden_vals(page)
             for t in teams:
                 page.locator("#teams .chip", has_text=re.compile(f"^{re.escape(t)}$")).click()
                 res["team:" + t] = card_values(page)
+                res["team:" + t + ":lower"], res["team:" + t + ":kaden"] = lower_vals(page), kaden_vals(page)
             if errs:
                 res["errors"] = errs
             Path(a.cards_only).write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -353,7 +504,9 @@ def main():
             scenario_blank_owner(br, Path(a.template), D, out, a.port + 1, fails)
         if a.only in (None, "rowteam"):
             scenario_row_team(br, Path(a.template), D, out, a.port + 2, fails)
-        if a.only in ("blank", "rowteam"):
+        if a.only in (None, "pickblank"):
+            scenario_pick_blank(br, Path(a.template), D, out, a.port + 3, fails)
+        if a.only in ("blank", "rowteam", "pickblank"):
             br.close()
             srv.shutdown()
             print(f"NG {len(fails)} 件" if fails else "OK")
