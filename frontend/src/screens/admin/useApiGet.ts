@@ -23,6 +23,8 @@ export function useApiGet<T>(path: string): ApiState<T> {
   useEffect(() => {
     const controller = new AbortController();
     void apiGet<T>(path, { signal: controller.signal }).then((r) => {
+      // A response that arrives after the request was aborted must not be shown.
+      if (controller.signal.aborted) return;
       if (r.ok) {
         setResult({ path, state: { status: 'ok', data: r.data } });
       } else if (!(r.error instanceof ApiAbortedError)) {
