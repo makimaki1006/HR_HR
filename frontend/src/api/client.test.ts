@@ -8,6 +8,7 @@ import {
   AuthRequiredError,
   DEFAULT_TIMEOUT_MS,
   apiGet,
+  apiPost,
 } from './client';
 
 type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
@@ -181,5 +182,78 @@ describe('apiGet', () => {
     expect(result.ok).toBe(false);
     expect(result2.ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('apiGet Accept header', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('defaults to application/json and honours the accept option (apiPost never does)', async () => {
+    const f = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response('{"a":1}', { status: 200, headers: { 'content-type': 'application/json' } }),
+      ),
+    );
+    vi.stubGlobal('fetch', f);
+    await apiGet('/api/x');
+    await apiGet('/api/x', { accept: 'text/html' });
+    await apiPost('/api/x', {}, { accept: 'text/html' });
+    const accepts = f.mock.calls.map((c) => (c[1]?.headers as Record<string, string>).Accept);
+    expect(accepts).toEqual(['application/json', 'text/html', 'application/json']);
+  });
+});
+
+describe('a response that arrives after abort / timeout is not ok', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('caller abort, then the (signal-ignoring) fetch answers: ApiAbortedError', async () => {
+    let answer!: (r: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(
+        () =>
+          new Promise<Response>((r) => {
+            answer = r;
+          }),
+      ),
+    );
+    const c = new AbortController();
+    const p = apiGet<{ v: number }>('/api/x', { signal: c.signal });
+    c.abort();
+    answer(
+      new Response('{"v":1}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const r = await p;
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBeInstanceOf(ApiAbortedError);
+  });
+
+  it('timeout, then the (signal-ignoring) fetch answers: ApiTimeoutError', async () => {
+    vi.useFakeTimers();
+    let answer!: (r: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(
+        () =>
+          new Promise<Response>((r) => {
+            answer = r;
+          }),
+      ),
+    );
+    const p = apiGet<{ v: number }>('/api/x', { timeoutMs: 1000 });
+    await vi.advanceTimersByTimeAsync(1001);
+    answer(
+      new Response('{"v":1}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    const r = await p;
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toBeInstanceOf(ApiTimeoutError);
   });
 });

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiDataError, ApiHttpError, AuthRequiredError } from '../../api/client';
 import type { ExtractResponse } from '../../generated/ExtractResponse';
 import fixtures from '../../generated/jobgen/fixtures.json';
-import { postJson } from './api';
+import { JOBGEN_TIMEOUT_MS, postJson } from './api';
 
 type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
 
@@ -89,10 +89,9 @@ describe('postJson (/api/jobgen/*)', () => {
     expect(r.error).toBeInstanceOf(AuthRequiredError);
   });
 
-  it('タイムアウトは掛けない (Gemini 生成は 1 分を超える): signal を渡さない', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'ok' }));
-    await postJson('/api/jobgen/ab', {});
-    const [, init] = fetchMock.mock.calls[0] ?? [];
-    expect(init?.signal).toBeUndefined();
+  // 共通 client 経由になり signal は付くが、client 既定の 15 秒では切らない
+  // (Gemini 生成は 1 分を超える)。120 秒待っても完了できることは api.client.test.ts で確認。
+  it('client の既定 15 秒より長い待ち時間 (JOBGEN_TIMEOUT_MS) を使う', () => {
+    expect(JOBGEN_TIMEOUT_MS).toBeGreaterThan(5 * 60 * 1000);
   });
 });

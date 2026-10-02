@@ -1,22 +1,15 @@
 // /api/jobgen/* への POST (JSON)。
 //
-// TODO(platform): platform-team の `client.post` が提供されたら postJson をそれに置き換える。
-// それまでは画面内にこの 1 関数だけを置く (wave-d 共通指示)。
+// 共通 client の apiPost 経由 (CSRF ヘッダー X-Requested-With: fetch・401 → AuthRequiredError・
+// エラー本文 ApiHttpError.body)。
 //
 // 旧 static/jobgen.html の `postJSON` と同じ失敗判定:
 // - HTTP 2xx 以外        → message = body.message || body.error || 'HTTP <status>'
 // - 200 で status:'error' → message = body.message || body.error || 'サーバエラー'
-// 違い: 未ログイン (303 → /login の HTML) は AuthRequiredError にする (旧は null を返して
+// 違い: 未ログイン (303 → /login の HTML / HTTP 401) は AuthRequiredError にする (旧は null を返して
 // 呼び出し側で TypeError になっていた)。Gemini 生成は 1 分を超えることがあるので
-// タイムアウトは掛けない (旧と同じ)。
-import {
-  ApiDataError,
-  ApiError,
-  ApiHttpError,
-  ApiNetworkError,
-  type ApiResult,
-  AuthRequiredError,
-} from '../../api/client';
+// タイムアウトは実質掛けない (30 分、旧は無制限)。
+import { ApiDataError, ApiHttpError, AuthRequiredError, type ApiResult, apiPost } from '../../api/client';
 import type { AbRequest } from '../../generated/AbRequest';
 import type { AbResponse } from '../../generated/AbResponse';
 import type { AnalyzeRequest } from '../../generated/AnalyzeRequest';
@@ -79,71 +72,41 @@ function isErrorBody(body: unknown): boolean {
   return rec.status === 'error';
 }
 
-function tryParseJson(text: string): { ok: true; value: unknown } | { ok: false } {
-  try {
-    return { ok: true, value: JSON.parse(text) };
-  } catch {
-    return { ok: false };
-  }
-}
+/** Gemini 生成は 1 分を超えることがある。旧は無制限。client の既定 15 秒を避けるため長めに取る。 */
+export const JOBGEN_TIMEOUT_MS = 30 * 60 * 1000;
 
-function redirectedToLogin(res: Response): boolean {
-  if (!res.redirected || res.url === '') return false;
-  try {
-    return new URL(res.url).pathname === '/login';
-  } catch {
-    return false;
-  }
-}
+/** 未ログイン (401 / ログイン画面へのリダイレクト) のとき利用者に出す文言。 */
+export const AUTH_REQUIRED_MESSAGE = 'ログインの有効期限が切れました。もう一度ログインしてください';
 
-/** 同一オリジンの JSON POST。例外は投げず `ApiResult` で返す。 */
+/** 同一オリジンの JSON POST (共通 client の apiPost 経由)。例外は投げず `ApiResult` で返す。 */
 export async function postJson<T>(path: string, body: unknown): Promise<ApiResult<T>> {
-  if (!path.startsWith('/') || path.startsWith('//')) {
-    return { ok: false, error: new ApiError(`path must be same-origin absolute: ${path}`) };
+  const r = await apiPost<T>(path, body, { timeoutMs: JOBGEN_TIMEOUT_MS });
+  if (!r.ok) {
+    const e = r.error;
+    if (e instanceof AuthRequiredError) {
+      // client の文言は英語 (login required ...)。利用者に出る文言は日本語にする。
+      return { ok: false, error: new AuthRequiredError(AUTH_REQUIRED_MESSAGE) };
+    }
+    if (e instanceof ApiHttpError) {
+      // 旧: (d && (d.message||d.error)) || ('HTTP '+status)。JSON でない本文は 'HTTP <status>'。
+      const err = new ApiHttpError(e.status, e.body);
+      err.message = messageFromBody(e.body) ?? `HTTP ${String(e.status)}`;
+      return { ok: false, error: err };
+    }
+    if (e instanceof ApiDataError) {
+      // client は error キーの文字列をそのままメッセージにするが、旧は message を優先する。
+      return { ok: false, error: new ApiDataError(messageFromBody(e.body) ?? e.message, e.body) };
+    }
+    return r;
   }
-  let res: Response;
-  try {
-    res = await fetch(path, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        // CSRF: React からの POST はこのヘッダーを必須にする (全チーム共通の決まり)。
-        'X-Requested-With': 'fetch',
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    return { ok: false, error: new ApiNetworkError(e instanceof Error ? e.message : String(e)) };
-  }
-  if (redirectedToLogin(res)) {
-    return { ok: false, error: new AuthRequiredError('ログインが必要です（セッション切れ）') };
-  }
-  const text = await res.text().catch(() => '');
-  const json = tryParseJson(text);
-  const parsed: unknown = json.ok ? json.value : null;
-  const isJson = json.ok;
-  if (!res.ok) {
-    // 旧: (d && (d.message||d.error)) || txt || ('HTTP '+status)。JSON でない本文は旧では
-    // 読めなかった (json() 失敗後の text() は空) ので、ここでも 'HTTP <status>' に揃える。
-    const msg = messageFromBody(parsed) ?? `HTTP ${String(res.status)}`;
-    const err = new ApiHttpError(res.status);
-    err.message = msg;
-    return { ok: false, error: err };
-  }
-  if (!isJson) {
+  if (isErrorBody(r.data)) {
+    // 200 で status:'error' (error キー無し)。client は成功扱いにするのでここで拾う。
     return {
       ok: false,
-      error: new AuthRequiredError(
-        `ログインが必要です（JSON でない応答: ${res.headers.get('content-type') ?? 'none'}）`,
-      ),
+      error: new ApiDataError(messageFromBody(r.data) ?? 'サーバエラー', r.data),
     };
   }
-  if (isErrorBody(parsed)) {
-    return { ok: false, error: new ApiDataError(messageFromBody(parsed) ?? 'サーバエラー', parsed) };
-  }
-  return { ok: true, data: parsed as T };
+  return r;
 }
 
 /** 型付きの送信関数 (本番用)。 */
