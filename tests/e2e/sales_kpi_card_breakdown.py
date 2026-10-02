@@ -406,8 +406,10 @@ def scenario_pick_blank(br, tpl: Path, D: dict, out: Path, port: int, fails: lis
         if c["lab"].startswith("架電数") or c["lab"].startswith("つながった率"):
             if c["v"] not in ("—", "-", "—") and num(c["v"]) is not None:
                 fails.append(f"担当なし選択(h-d): {c['lab']} の値が {c['v']!r}（「—」のはず）")
-    if "0 ÷ 0" in zoom["body"]:
-        fails.append("担当なし選択(h-c): ページ内に「0 ÷ 0」が出ている")
+    # 「0 ÷ 0」は架電（Zoom）の欄だけ見る。成績カード ⑥⑤ の分母が 0 の担当なしでは正しい表示。
+    zoom_txt = zoom["lead"] + " ".join(c["lab"] + c["v"] + c["hint"] for c in zoom["vals"])
+    if "0 ÷ 0" in zoom_txt:
+        fails.append("担当なし選択(h-c): 架電の欄に「0 ÷ 0」が出ている: " + zoom_txt[:200])
     conn_hint = [c["hint"] for c in zoom["vals"] if c["lab"].startswith("つながった率")]
     if not conn_hint or "÷" in conn_hint[0]:
         fails.append(f"担当なし選択(h-c): つながった率の説明が「—」でない: {conn_hint}")
