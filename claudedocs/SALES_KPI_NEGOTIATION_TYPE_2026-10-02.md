@@ -80,3 +80,53 @@ HubSpot の定義(main が読み取りで確認):
 - E2E(`--only negtype`): 種別の列を足した fixture(Rust の dump で作る)で、全段・全絞り込みで 種別の合計 == その段の件数 == カードの件数、種別で絞った一覧の行数 == その種別の件数、⑥⑤ の分子・分母、画面に内部値が出ないこと。列が無い既定 fixture で「商談種別: 未取得」。
 
 (修正前 FAILED / 修正後 passed のログと 3 段階の結果は、実装後にこのファイルへ追記する。)
+
+## 5. 実装後の結果(2026-10-02 追記)
+
+### 5.1 修正前 FAILED(実ログ。スタブ = 変換しない版)
+
+`cargo test --lib sales_kpi::tests::negotiation_type`(commit 09ae6df の時点):
+
+```
+test result: FAILED. 1 passed; 13 failed; 0 ignored; 0 measured; 3855 filtered out
+  left: "代表者商談"  right: "非決裁者商談"            (内部値の変換)
+  left: ""  right: "(未設定)" / left: "新種別"  right: "新種別(定義外)"
+  left: None  right: Some(true)                        (negotiation_type_available が無い)
+```
+
+E2E(新しい fixture JSON を、実装前のテンプレートで開く):
+`--only negtype` → `NG 502 件 - [全社] ① 取ったアポ 全体: 商談種別の表が無い` ほか、
+`--only ntmissing` → `NG 7 件 - 未取得: apo のパネルに「商談種別: 未取得」が出ない`(ログ: scratchpad の e2e_pre_*.log)。
+
+### 5.2 修正後
+
+- `cargo test --lib -j 3 sales_kpi`: `test result: ok. 90 passed; 0 failed; 1 ignored; 0 measured; 3778 filtered out`(商談種別の 14 件を含む)
+- 逆証明(変換表の 2 行を入れ替え): `test result: FAILED. 10 passed; 4 failed`(失敗: 内部値の変換 / 空白を落として引く / 合成入力のラベル / fixture のラベル突き合わせ)。戻して再度 passed を確認。
+- E2E `--only negtype`(`dump_sales_kpi -- out.json 2026-09-04 --negtype` の JSON): `OK`
+  - 全社は全段(全チーム・全担当者・取引一覧)を降りて、種別の表の合計 == その段の件数。種別ごとに絞って降りた段でも 一覧の行数 == 親の表の件数。チーム選択・担当者選択・チェック外し(チーム全員 / 1人)・担当なし(入力 / 選択)でも実施。
+  - 画面に内部値「代表者商談」「担当者商談」が出ないことを各所で確認。
+  - 時間を抑えるため、全社以外の絞り込みでは降りる行数(各段 2 行まで)と絞る種別の数を限っている。全社は全行。
+- E2E 既定(列が無い fixture)全ケース: `OK: ... 開いたパネル 77 回、数えた一覧の行 9395 行`(blank / rowteam / pickblank / 未取得を含む)。
+
+### 5.3 既存キー不変(列が無い fixture)
+
+origin/main のバイナリ(`dump_sales_kpi`)と新バイナリで同じ fixture(2026-09-04)から dump:
+- 追加キー: `negotiation_type_available`(false)・`negotiation_type_sheets`・`negotiation_type_order` の 3 つだけ。削除 0、既存キーの値の変化 0(トップレベルの全キーを JSON 比較)。
+- `--negtype` の dump から商談種別の項目を除くと、origin/main の dump と完全一致(カードの件数も同じ)。
+- 未選択時の 7 枚のカードの数字(全社と各チーム、下段 5 枚・架電 4 枚)を、変更前テンプレ + 変更前 JSON と変更後テンプレ + 変更後 JSON でそれぞれ `--cards-only` で書き出し、完全一致(`True`)。全社の値: ① 245 ③ 537 ④ 225 ② 163 ⑥ 72.4% ⑤ 2.7% ⑨ 123。
+
+### 5.4 3 段階
+
+- `cargo fmt -- --check`: 差分なし
+- `cargo clippy --all-targets -j 3`: error 0(`Finished`)
+- `cargo test --lib -j 3`: `test result: ok. 3824 passed; 0 failed; 45 ignored`
+- `cargo test --tests --no-fail-fast -j 3`: app_routes_no_conflict 32 passed、env_example_matches_code 4 passed、css_classes_exist 7 passed ほか全て ok。
+  失敗は `no_forbidden_terms::no_forbidden_identifiers_in_src` の 1 件だけ(`call_quality/tabs/p10_future_actions.rs` / `prisk_riskboard.rs` の `target_count` 5 件。既存・対象外)。
+
+### 5.5 実装の要点と限界
+
+- 変換は `mod.rs` の `NEGOTIATION_TYPE_MAP` 1 か所。行の `negotiation_type` はラベル。列が無いシートの行にはキーを出さない(`Deal.negotiation_type: Option`)。
+- `negotiation_type_available` は 3 シートのどれかに列がある。画面は `negotiation_type_sheets`(カードの出どころごと)を見る。
+- 種別の表は区分チップ(④⑥⑤)の絞りと種別の絞りを掛けず、内 BPO の絞りだけ掛けて数える(⑥⑤ で分子・分母を並べるため)。見出し・区分チップの件数は種別で絞っても変わらない(カードの値のまま)。
+- 決まっている 2 種別(決裁者商談・非決裁者商談)は 0 件でも表に出す。(未設定)・定義外は 1 件以上のときだけ。
+- 本物のシートにはまだ列が無いので、実シートでの確認は未実施。書き出し側(Python)が内部値を入れる前提。
