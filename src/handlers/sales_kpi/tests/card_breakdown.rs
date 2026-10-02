@@ -36,20 +36,20 @@ const ALL_KINDS: &[&str] = &["実施", "未実施", "未処理", "これから",
 
 /// `by_person` のキー 1 つと、それを作る「行の述語」。
 /// 件数側のキー `key` と BPO 側のキー `bpo_key` を、同じ行の集合から数える。
-struct CardPred {
-    key: String,
-    bpo_key: String,
+pub(super) struct CardPred {
+    pub(super) key: String,
+    pub(super) bpo_key: String,
     /// `card_deals` のどの配列から取るか
-    src: &'static str,
-    pred: Box<dyn Fn(&Value) -> bool>,
+    pub(super) src: &'static str,
+    pub(super) pred: Box<dyn Fn(&Value) -> bool>,
 }
 
-fn kind_of(r: &Value) -> &str {
+pub(super) fn kind_of(r: &Value) -> &str {
     r["kind"].as_str().unwrap_or("")
 }
 
 /// 件数のキーすべて。設計書 §3 の表と同じ。
-fn card_preds() -> Vec<CardPred> {
+pub(super) fn card_preds() -> Vec<CardPred> {
     let mut v: Vec<CardPred> = vec![
         CardPred {
             key: "apo".into(),
@@ -95,13 +95,13 @@ fn card_preds() -> Vec<CardPred> {
 }
 
 /// `card_deals.<src>`。無ければ「未実装」と分かる文で落とす。
-fn card_rows<'a>(body: &'a Value, src: &str) -> &'a Vec<Value> {
+pub(super) fn card_rows<'a>(body: &'a Value, src: &str) -> &'a Vec<Value> {
     body["card_deals"][src].as_array().unwrap_or_else(|| {
         panic!("payload に card_deals.{src} がありません（カード内訳の行が未実装）")
     })
 }
 
-fn by_person_get(body: &Value, owner: &str, key: &str) -> i64 {
+pub(super) fn by_person_get(body: &Value, owner: &str, key: &str) -> i64 {
     body["by_person"][owner][key].as_i64().unwrap_or(0)
 }
 
@@ -111,14 +111,14 @@ fn by_person_get(body: &Value, owner: &str, key: &str) -> i64 {
 /// 担当者 id → チームは `D.people`（= payload の `people`）から引く（`TEAM_OF`）。
 ///   - `hidden` に入っている人は除く（チェックで外した人）
 ///   - 担当者を選んでいればその人だけ、そうでなければ チーム = 選んだチーム（すべてなら全員）
-struct Scope<'a> {
-    team: Option<&'a str>,
-    person: Option<&'a str>,
-    hidden: &'a HashSet<String>,
+pub(super) struct Scope<'a> {
+    pub(super) team: Option<&'a str>,
+    pub(super) person: Option<&'a str>,
+    pub(super) hidden: &'a HashSet<String>,
 }
 
 impl Scope<'_> {
-    fn has(&self, owner: &str, team_of: &HashMap<String, String>) -> bool {
+    pub(super) fn has(&self, owner: &str, team_of: &HashMap<String, String>) -> bool {
         if self.hidden.contains(owner) {
             return false;
         }
@@ -130,7 +130,7 @@ impl Scope<'_> {
     }
 }
 
-fn team_of(body: &Value) -> HashMap<String, String> {
+pub(super) fn team_of(body: &Value) -> HashMap<String, String> {
     body["people"]
         .as_array()
         .expect("people")
@@ -285,7 +285,7 @@ fn チームの全組み合わせと担当者選択でカードと内訳が一�
     assert_all_scopes(&body);
 }
 
-fn assert_all_scopes(body: &Value) {
+pub(super) fn assert_all_scopes(body: &Value) {
     let teams: Vec<String> = body["teams"]
         .as_array()
         .expect("teams")
@@ -514,7 +514,7 @@ fn deal_sheet(rows: &[D]) -> Arc<crate::handlers::call_quality::sheets::SheetDat
 /// | D010 | 3001 | BPO 名簿（チーム空）・BPO 日付 2025-12-01（古い）→ 内BPO ではない |
 /// | D011 | 1001 | 10/01 00:00。翌月（当月に入らない）|
 /// | D012 | （空）| 担当なし → 実施 |
-fn synthetic_sheets() -> Sheets {
+pub(super) fn synthetic_sheets() -> Sheets {
     const APO: &str = "52035886";
     const APO_BPO: &str = "1095457875";
     const DONE: &str = "52035887";
@@ -631,7 +631,7 @@ fn synthetic_sheets() -> Sheets {
     }
 }
 
-fn synthetic_day() -> NaiveDate {
+pub(super) fn synthetic_day() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 9, 4).unwrap()
 }
 

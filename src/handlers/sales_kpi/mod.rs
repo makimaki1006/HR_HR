@@ -868,6 +868,29 @@ pub fn is_bpo(deal: &Deal, prev_month_start: &str, month_end: &str) -> bool {
         && deal.bpo_appo.as_str() < month_end
 }
 
+// ---------------------------------------------------------------- 商談種別
+
+/// 商談種別が空のときの表示。
+pub const NEGOTIATION_TYPE_UNSET: &str = "(未設定)";
+/// 固定の並び順（定義外はこの後ろに名前順）。
+pub const NEGOTIATION_TYPE_ORDER: [&str; 3] = ["決裁者商談", "非決裁者商談", NEGOTIATION_TYPE_UNSET];
+
+/// 内部値 → ラベル。🔴 HubSpot の定義で入れ違っている。
+pub const NEGOTIATION_TYPE_MAP: [(&str, &str); 2] = [
+    ("代表者商談", "非決裁者商談"),
+    ("担当者商談", "決裁者商談"),
+];
+
+/// 商談種別の内部値をラベルにする。（段階B のスタブ: まだ変換しない）
+pub fn negotiation_type_label(raw: &str) -> String {
+    raw.to_string()
+}
+
+/// 並び順の位置。決裁者商談 0 / 非決裁者商談 1 / (未設定) 2 / 定義外 3。（スタブ）
+pub fn negotiation_type_rank(_label: &str) -> usize {
+    0
+}
+
 /// 画面に出す取引1件。
 #[derive(Debug, Serialize)]
 pub struct DealRow {
