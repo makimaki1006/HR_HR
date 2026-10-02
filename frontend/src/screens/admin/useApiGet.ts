@@ -9,6 +9,7 @@ import {
   AuthRequiredError,
   apiGet,
 } from '../../api/client';
+import { redirectToLogin } from '../../shell/navigation';
 
 export type ApiState<T> =
   | { status: 'loading' }
@@ -25,6 +26,11 @@ export function useApiGet<T>(path: string): ApiState<T> {
     void apiGet<T>(path, { signal: controller.signal }).then((r) => {
       // A response that arrives after the request was aborted must not be shown.
       if (controller.signal.aborted) return;
+      if (!r.ok && r.error instanceof AuthRequiredError) {
+        // Session expired: same as the dummy / guide screens, move to the login page.
+        redirectToLogin();
+        return;
+      }
       if (r.ok) {
         setResult({ path, state: { status: 'ok', data: r.data } });
       } else if (!(r.error instanceof ApiAbortedError)) {

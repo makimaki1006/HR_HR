@@ -94,6 +94,12 @@ export interface ApiGetOptions {
 export interface ApiRequestOptions extends ApiGetOptions {
   /** Defaults to 'json'. */
   expect?: ApiExpect;
+  /**
+   * Accept header value, used by apiGet only (default 'application/json'). The legacy option
+   * fragment endpoints (/api/prefectures, ...) expect 'text/html': with JSON they would answer an
+   * unauthenticated request with 401 JSON instead of the 303 -> /login the old screen relied on.
+   */
+  accept?: string;
 }
 
 export interface UploadProgress {
@@ -295,6 +301,9 @@ async function sendFetch<T>(
         error: new ApiInvalidResponseError(e instanceof Error ? e.message : String(e)),
       };
     }
+    // A response that arrives after the timeout / caller abort (fetch ignoring the signal) is not a success.
+    const abortedBeforeParse = deadline.aborted();
+    if (abortedBeforeParse) return abortedBeforeParse;
     return parseBody<T>(res.headers.get('content-type') ?? '', text, options.expect ?? 'json');
   } finally {
     deadline.dispose();
@@ -320,7 +329,10 @@ export async function apiGet<T>(
 ): Promise<ApiResult<T>> {
   return sendFetch<T>(
     path,
-    { method: 'GET', headers: { Accept: 'application/json', ...REQUESTED_WITH } },
+    {
+      method: 'GET',
+      headers: { Accept: options.accept ?? 'application/json', ...REQUESTED_WITH },
+    },
     options,
   );
 }

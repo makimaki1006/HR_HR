@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchPrefectures, ShellAuthError } from './filterApi';
+import { fetchMunicipalities, fetchPrefectures, ShellAuthError } from './filterApi';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -36,5 +36,32 @@ describe('fetchPrefectures (option HTML fragment via the shared client)', () => 
     expect(opts).toEqual([{ value: '東京都', label: '東京都', citycode: '13' }]);
     const init = f.mock.calls[0]?.[1];
     expect((init?.headers as Record<string, string>)['X-Requested-With']).toBe('fetch');
+  });
+
+  it('asks for Accept: text/html (option fragments, not JSON)', async () => {
+    const f = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        new Response('<option value="大阪府">大阪府</option>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', f);
+    await fetchPrefectures();
+    await fetchMunicipalities('東京都');
+    const accepts = f.mock.calls.map((c) => (c[1]?.headers as Record<string, string>).Accept);
+    expect(accepts).toEqual(['text/html', 'text/html']);
+  });
+
+  it('a 303 -> /login redirect (HTML login page) is ShellAuthError', async () => {
+    const res = new Response('<form action="/login" method="post"></form>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    });
+    Object.defineProperty(res, 'redirected', { value: true });
+    Object.defineProperty(res, 'url', { value: 'http://localhost/login' });
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(() => Promise.resolve(res)));
+    await expect(fetchPrefectures()).rejects.toBeInstanceOf(ShellAuthError);
   });
 });

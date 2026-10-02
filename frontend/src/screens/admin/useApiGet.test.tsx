@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { redirectToLogin } from '../../shell/navigation';
 import { useApiGet } from './useApiGet';
+
+vi.mock('../../shell/navigation', () => ({ redirectToLogin: vi.fn() }));
 
 const json = (body: unknown): Response =>
   new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 
 afterEach(() => {
+  vi.mocked(redirectToLogin).mockClear();
   cleanup();
   vi.unstubAllGlobals();
 });
@@ -40,5 +44,37 @@ describe('useApiGet', () => {
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(result.current).toEqual({ status: 'ok', data: { v: 'FRESH' } });
+  });
+
+  it('a 401 redirects to the login page exactly once', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(() =>
+        Promise.resolve(
+          new Response('{"error":"auth_required"}', {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      ),
+    );
+    renderHook(() => useApiGet<{ v: string }>('/api/a'));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it('a non-auth error (500) does not redirect', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(() => Promise.resolve(new Response('x', { status: 500 }))),
+    );
+    const { result } = renderHook(() => useApiGet<{ v: string }>('/api/a'));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(redirectToLogin).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('error');
   });
 });
