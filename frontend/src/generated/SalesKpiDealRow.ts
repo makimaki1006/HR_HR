@@ -3,4 +3,8 @@
 /**
  * 画面に出す取引1件。`days` / `anq` / `past` は無いときキーごと出さない（TS では `?`）。
  */
-export type SalesKpiDealRow = { id: string, name: string, date: string, time: string, owner: string, ownerName: string, team: string, bpo: boolean, kind: string, why: string, days?: number, anq?: boolean, past?: boolean, };
+export type SalesKpiDealRow = { id: string, name: string, date: string, time: string, owner: string, ownerName: string, team: string, bpo: boolean, kind: string, why: string, days?: number, anq?: boolean, past?: boolean, 
+/**
+ * HubSpot の取引ページ（object ID から作る。headless-crm-design §6）
+ */
+url: string, };
