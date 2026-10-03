@@ -1134,6 +1134,12 @@ fn meaningful_activity(
     if path.starts_with("/tab/") {
         return Some(("view_tab", "tab"));
     }
+    // 2026-09-30 (React 移行 W2): React 画面 `/app/{screen}` も記録する。旧 URL (`/tab/*`) と
+    // 新 URL の利用件数を同じ物差しで比べるため、event_type は同じ `view_tab` にし、
+    // どちらを見たかは target_id (path) で区別する。
+    if path.starts_with("/app/") {
+        return Some(("view_tab", "tab"));
+    }
     match path {
         "/api/keywords" => Some(("keyword_search", "keyword")),
         "/api/url-visibility-check" => Some(("visibility_check", "url")),
@@ -2344,6 +2350,9 @@ mod activity_log_tests {
             ("/tab/survey", "view_tab"),
             ("/tab/jobmap", "view_tab"),
             ("/tab/company", "view_tab"),
+            // React 画面 (2026-09-30)。旧 URL と同じ event_type で数える
+            ("/app/sales-kpi", "view_tab"),
+            ("/app/dummy", "view_tab"),
             ("/api/keywords", "keyword_search"),
             ("/api/url-visibility-check", "visibility_check"),
             ("/api/keyword-seed-compare", "keyword_seed_compare"),
@@ -2374,6 +2383,9 @@ mod activity_log_tests {
             "/api/dict/license_card",
             "/static/js/app.js",
             "/",
+            "/api/app/ping",       // React 画面の JSON API は画面の描画ごとに呼ばれる
+            "/api/sales-kpi/data", // 同上。画面 (/app/sales-kpi) の方で 1 回だけ数える
+            "/static/app/assets/sales-kpi-abc123.js",
         ];
         for path in excluded {
             assert!(
