@@ -2,7 +2,7 @@ import { ChildProcess, execFileSync, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { E2E_PASSWORD, PR_BASE_URL, PR_PORT } from './helpers/fixture_values';
+import { E2E_PASSWORD, PR_BASE_URL, PR_PORT, SALES_KPI_FIXTURE } from './helpers/fixture_values';
 
 /**
  * fixture DB を作り、ビルド済みバイナリを起動して /health を待つ。teardown で停止する。
@@ -45,6 +45,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       HELLOWORK_DB_PATH: db,
       // debug ビルドだけが読む CSRF の追加許可 Origin (src/lib.rs)。ブラウザ内 fetch の POST を通す
       CSRF_EXTRA_ORIGINS_DEBUG: PR_BASE_URL,
+      // 営業KPI: Sheets の代わりに TSV から組む経路 (src/handlers/sales_kpi/fixture.rs)。値は helpers/fixture_values.ts の SALES_KPI_FIXTURE
+      SALES_KPI_FIXTURE_DIR: path.join(ROOT, 'tests/fixtures/sales_kpi'),
+      SALES_KPI_FIXTURE_TODAY: SALES_KPI_FIXTURE.today,
     },
   });
   let exited: number | null | undefined;
