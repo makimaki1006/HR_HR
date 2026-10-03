@@ -52,7 +52,11 @@ test('固定PDFを画面遷移せずダウンロードし、CSVエラー後も�
     buffer: Buffer.from('タイトル,会社名,勤務地,給与,雇用形態\n施設長,A社,大阪府大阪市,月給 25万円 ~ 30万円,正社員\n'),
   });
   const downloadEvent = page.waitForEvent('download');
+  const responseEvent = page.waitForResponse(r => r.url().endsWith('/report/competitor') && r.request().method() === 'POST');
   await button.click();
+  const response = await responseEvent;
+  expect(response.status(), await response.text()).toBe(200);
+  expect(response.headers()['content-type']).toContain('application/pdf');
   const download = await downloadEvent;
   expect(download.suggestedFilename()).toBe('competitor-report.pdf');
   expect(await download.failure()).toBeNull();
