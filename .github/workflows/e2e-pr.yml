@@ -46,12 +46,15 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
 
       - name: Run PR E2E
         env:
           E2E_BIN: ${{ github.workspace }}/target/debug/rust_dashboard
           E2E_FIXTURE_DB: ${{ runner.temp }}/e2e-fixture/hellowork.db
-        run: npx playwright test -c tests/e2e/pr/playwright.pr.config.ts
+        run: |
+          export PDF_CHROMIUM_PATH="$(node -e 'process.stdout.write(require("@playwright/test").chromium.executablePath())')"
+          npx playwright test -c tests/e2e/pr/playwright.pr.config.ts
 
       - name: Upload traces and screenshots on failure
         if: failure()
