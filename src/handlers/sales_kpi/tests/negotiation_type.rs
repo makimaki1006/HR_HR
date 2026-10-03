@@ -679,3 +679,12 @@ fn テンプレートに並びや未設定の直書きが無い() {
         "種別の並べ替えを JS で決めている"
     );
 }
+
+/// 分子でない区分を選んだとき、種別表の分子の列は 0 になる。列は隠さず、注釈で理由を示す。
+#[test]
+fn 分子に当たらない区分を選んだとき注釈を出す() {
+    let tpl = include_str!("../../../../templates/tabs/sales_kpi.html");
+    assert!(tpl.contains("panel1-num-note"));
+    assert!(tpl.contains("numSeg&&cardSeg&&cardSeg!==conf.num"));
+    assert!(tpl.contains("は分子に当たらないため、分子の列は計算できません（0 と表示しています）"));
+}
