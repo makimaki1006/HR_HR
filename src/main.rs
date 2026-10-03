@@ -300,6 +300,29 @@ async fn main() {
         tracing::info!("Google OIDC ログイン: 無効 (GOOGLE_OIDC_* 未設定)");
     }
 
+    // HubSpot CRM API (Headless CRM、読み取り)。起動時には HubSpot と通信しない。
+    let hubspot = match rust_dashboard::config::HubSpotApiConfig::from_env() {
+        None => {
+            tracing::info!("HubSpot CRM API: 無効 (HUBSPOT_ACCESS_TOKEN 未設定)");
+            None
+        }
+        Some(cfg) => match rust_dashboard::hubspot::HubSpotClient::new(
+            cfg.access_token,
+            rust_dashboard::hubspot::DEFAULT_BASE_URL,
+            rust_dashboard::hubspot::ClientOptions::default(),
+        ) {
+            Ok(client) => {
+                tracing::info!("HubSpot CRM API: 有効");
+                Some(Arc::new(client))
+            }
+            Err(e) => {
+                // 未設定ではなく設定済みで初期化に失敗した場合。「未設定」ログは出さない
+                tracing::warn!("HubSpot CRM API: 初期化に失敗 ({e})");
+                None
+            }
+        },
+    };
+
     let state = Arc::new(AppState {
         config,
         hw_db,
@@ -312,6 +335,7 @@ async fn main() {
         company_geo_cache,
         audit,
         google_oidc,
+        hubspot,
     });
 
     // Phase 3-C: 監査ログ自動削除バッチ (1年より古い entry を削除)
