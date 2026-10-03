@@ -46,6 +46,13 @@ pub struct SalesKpiData {
     pub cyomi_stale: Vec<DealRow>,
     /// 「今月の成績」カードの内訳の行（件数と同じ行・同じ述語から作る）。
     pub card_deals: CardDeals,
+    /// 商談種別の列がどのシートにあるか（いずれか 1 つでもあれば true）。
+    pub negotiation_type_available: bool,
+    pub negotiation_type_sheets: NegotiationTypeSheets,
+    /// 並びは Rust が決める（固定の 3 つ + 実際に出てきた定義外を名前順）。
+    pub negotiation_type_order: Vec<String>,
+    /// 0 件でも表に並べる 2 種別。
+    pub negotiation_type_fixed: Vec<&'static str>,
     /// 商談の集計から外した件数。`件数` と HubSpotチーム別。
     pub excluded: Counts,
     pub kaden: Kaden,
@@ -65,6 +72,23 @@ pub struct CardDeals {
     pub pool: Vec<DealRow>,
     pub apo: Vec<DealRow>,
     pub cyomi: Vec<DealRow>,
+}
+
+/// 商談種別の列が各シート（カードの出どころ）にあるか。
+///
+/// 🔴 キー順は apo / cyomi / pool（旧実装の `BTreeMap<&str, bool>` のキー順）。並びを変えない。
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(rename = "SalesKpiNegotiationTypeSheets")]
+pub struct NegotiationTypeSheets {
+    pub apo: bool,
+    pub cyomi: bool,
+    pub pool: bool,
+}
+
+impl NegotiationTypeSheets {
+    pub fn any(&self) -> bool {
+        self.apo || self.cyomi || self.pool
+    }
 }
 
 /// `yyyy-MM-dd` の両端を含む範囲。

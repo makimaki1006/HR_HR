@@ -6,6 +6,7 @@ import type { SalesKpiDealRow } from "./SalesKpiDealRow";
 import type { SalesKpiKaden } from "./SalesKpiKaden";
 import type { SalesKpiKettei } from "./SalesKpiKettei";
 import type { SalesKpiListStock } from "./SalesKpiListStock";
+import type { SalesKpiNegotiationTypeSheets } from "./SalesKpiNegotiationTypeSheets";
 import type { SalesKpiPerson } from "./SalesKpiPerson";
 import type { SalesKpiSnapshot } from "./SalesKpiSnapshot";
 
@@ -21,6 +22,18 @@ generated_at: string, week: SalesKpiDateSpan, next_week: SalesKpiDateSpan, stale
  * 「今月の成績」カードの内訳の行（件数と同じ行・同じ述語から作る）。
  */
 card_deals: SalesKpiCardDeals, 
+/**
+ * 商談種別の列がどのシートにあるか（いずれか 1 つでもあれば true）。
+ */
+negotiation_type_available: boolean, negotiation_type_sheets: SalesKpiNegotiationTypeSheets, 
+/**
+ * 並びは Rust が決める（固定の 3 つ + 実際に出てきた定義外を名前順）。
+ */
+negotiation_type_order: Array<string>, 
+/**
+ * 0 件でも表に並べる 2 種別。
+ */
+negotiation_type_fixed: Array<string>, 
 /**
  * 商談の集計から外した件数。`件数` と HubSpotチーム別。
  */
