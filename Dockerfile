@@ -22,6 +22,11 @@ RUN npm run build \
 #     rust イメージを使ってランタイムと glibc を揃える。
 #  2) キャッシュ: latest はタグの中身が動くので、動いた瞬間に下の依存ビルド層まで
 #     まるごと無効化される。バージョンを固定するとそれが起きない。
+FROM node:22-bookworm-slim AS pdf
+WORKDIR /app
+COPY scripts/pdf/package.json scripts/pdf/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
 FROM rust:1.98-slim-bookworm AS builder
 
 # ビルドに必要なシステムライブラリ
@@ -72,6 +77,7 @@ COPY static/proposal_mock.html static/proposal_mock.html
 # include_str! で競合調査ダッシュボードのCSS・タブ操作を埋め込む
 COPY static/css/competitor-dashboard.css static/css/competitor-dashboard.css
 COPY static/js/competitor-tabs.js static/js/competitor-tabs.js
+COPY scripts/pdf/render.cjs scripts/pdf/render.cjs
 
 # touch は上の cargo clean と同じ目的の二重の保険。COPY はコンテキスト側の mtime を
 # そのまま持ち込むため、キャッシュ層のビルド時刻より古いソースが来ることがある。
@@ -93,6 +99,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+COPY --from=pdf /usr/local/bin/node /usr/local/bin/node
+COPY --from=pdf /app/node_modules/playwright-core /app/node_modules/playwright-core
+RUN node --version && chromium --version
 
 # バイナリ
 COPY --from=builder /app/target/release/rust_dashboard .
