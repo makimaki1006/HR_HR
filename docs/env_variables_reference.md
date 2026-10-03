@@ -81,6 +81,7 @@
 | # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照 |
 |---|------|----------|------|-------------|------|
 | 25 | `HUBSPOT_ACCESS_TOKEN` | `""` | HubSpot CRM API の Bearer トークン (`Authorization: Bearer`)。Legacy Private App / static auth アプリ / Service Key のどれでも同じ形で扱う。スコープは読み取りのみ (`crm.objects.contacts.read` / `crm.objects.companies.read` / `crm.objects.deals.read` / `crm.objects.owners.read`) を推奨し、書き込みスコープは PR4 まで付けない。秘密情報のためログ・API 応答に出さない | `/api/crm/*` は 503 `not_configured`。他機能には影響なし | `src/config.rs` / `src/hubspot/` / `src/crm/` |
+| 26 | `CRM_METADATA_ALLOWED_EMAILS` | `""` | `/api/crm/*` (定義 `metadata` とレコード読み取り) を読める人のメール (カンマ区切り、大文字小文字を区別しない完全一致)。Google Workspace OIDC ログインであることも必須 (共有・外部パスワードは 403、未ログインは JSON 401)。役割 (RBAC) の本実装までの暫定。変更後は再起動 | 空なら全員 403 | `src/crm/rbac.rs` `CrmAccess::from_env()` |
 
 鍵は既存の HubSpot Service Key (sales-automation-api) を共有する (2026-09-29 ユーザー決定 P-2。HR_HR 専用キーは発行しない)。既存バッチ群とレート上限 (10 秒あたりの上限、Search 5 req/秒/アカウント) を共有するため、クライアントは Search を 1 req/秒に絞り、429 は Retry-After (無ければ最低 1 秒) を待って最大 2 回だけ retry する。ユーザー側の準備: 同じ値を Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
 

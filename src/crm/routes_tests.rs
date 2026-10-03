@@ -1,8 +1,8 @@
 //! `/api/crm/*` の結合テスト。
 //!
-//! - 未ログイン / パスワードログインは本物の `build_app()` に通す (protected_routes への配線ごと確かめる)
+//! - 未ログイン / パスワードログインは本物の `build_app()` に通す (auth_middleware の外への配線ごと確かめる)
 //! - Google OIDC のセッションは OIDC フローを通さず、テスト用ルートで注入する
-//!   (`crm::router()` + `auth::require_auth` + セッション層だけの小さなアプリ)
+//!   (`crm::router(許可メール)` + セッション層だけの小さなアプリ)
 //! - 監査 DB は偽 Turso (127.0.0.1)、HubSpot は偽 HubSpot (127.0.0.1)
 //!
 //! 偽 HubSpot を使う 200 系は本物の HubSpotClient と deep_link を通す。
@@ -15,7 +15,6 @@ use axum::{
     body::Body,
     extract::{Path, RawQuery, State},
     http::{header, HeaderMap, Request, StatusCode},
-    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -24,6 +23,7 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 
+use super::rbac::CrmAccess;
 use super::routes::{read_response, MAX_HUBSPOT_CALLS_PER_REQUEST};
 use crate::audit::AuditDb;
 use crate::config::AppConfig;
@@ -55,6 +55,8 @@ struct FakeTurso {
     accounts: HashMap<String, (String, String)>,
     /// この account_id の照会は HTTP 500 を返す
     fail_ids: Vec<String>,
+    /// `accounts.disabled_at` が入っている email (無効化されたアカウント)
+    disabled_emails: Vec<String>,
     /// 受け取った SQL
     sqls: Vec<String>,
 }
@@ -100,7 +102,11 @@ async fn fake_pipeline(State(st): State<Shared<FakeTurso>>, Json(body): Json<Val
         json!({"cols": [{"name": "id"}, {"name": "role"}],
                "rows": [[text("acc-admin"), text("admin")]]})
     } else if sql.starts_with("SELECT disabled_at FROM accounts") {
-        json!({"cols": [{"name": "disabled_at"}], "rows": []})
+        if t.disabled_emails.contains(&arg0) {
+            json!({"cols": [{"name": "disabled_at"}], "rows": [[text("2026-09-01T00:00:00Z")]]})
+        } else {
+            json!({"cols": [{"name": "disabled_at"}], "rows": []})
+        }
     } else {
         json!({"cols": [], "rows": [], "affected_row_count": 1})
     };
@@ -167,7 +173,19 @@ struct FakeHubSpot {
     get_delay: Duration,
     /// true なら `associations=` 付きの本体 GET だけ 403 (関連型のスコープ不足の再現)
     forbid_get_with_associations: bool,
+    /// archived: true で返す (object, id)
+    archived: std::collections::HashSet<(String, String)>,
+    /// 本体 GET の同時実行数の観測 (現在 / 最大)
+    inflight: usize,
+    max_inflight: usize,
+    /// Some(status) なら本体 GET を全部この status で返す (本文に上流の秘密文字列を入れる)
+    get_status: Option<u16>,
+    /// 定義 API (properties / pipelines) の応答: 0 正常 / 1 results 欠落 / 2 429 (秘密の本文)
+    meta_mode: u8,
 }
+
+/// 上流のエラー本文に入れる文字列。ブラウザへの応答に出てはいけない
+const UPSTREAM_SECRET: &str = "UPSTREAM-SECRET-BODY";
 
 impl FakeHubSpot {
     fn obj(&mut self, o: &str, id: &str, props: &[(&str, Option<&str>)]) {
@@ -201,7 +219,7 @@ impl FakeHubSpot {
             "properties": m,
             "createdAt": "2026-01-02T03:04:05.000Z",
             "updatedAt": "2026-09-01T00:00:00.000Z",
-            "archived": false
+            "archived": self.archived.contains(&(o.to_string(), id.to_string()))
         }))
     }
 }
@@ -243,8 +261,17 @@ async fn hs_get_object(
             String::new(),
         ));
         let delay = s.get_delay;
+        s.inflight += 1;
+        s.max_inflight = s.max_inflight.max(s.inflight);
         let resp = if s.auth_fail {
             unauthorized()
+        } else if let Some(code) = s.get_status {
+            (
+                StatusCode::from_u16(code).unwrap(),
+                [("retry-after", "0")],
+                UPSTREAM_SECRET,
+            )
+                .into_response()
         } else if s.forbid_get_with_associations && q.contains("associations=") {
             (
                 StatusCode::FORBIDDEN,
@@ -301,7 +328,74 @@ async fn hs_get_object(
     if !delay.is_zero() {
         tokio::time::sleep(delay).await;
     }
+    {
+        let mut s = st.lock().unwrap();
+        s.inflight -= 1;
+    }
     resp
+}
+
+/// `GET /crm/v3/properties/{object}`
+async fn hs_properties(
+    State(st): State<Shared<FakeHubSpot>>,
+    Path(o): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let mut s = st.lock().unwrap();
+    s.requests.push((
+        "GET".into(),
+        format!("/crm/v3/properties/{o}"),
+        auth_header(&headers),
+        String::new(),
+    ));
+    match s.meta_mode {
+        1 => Json(json!({"unexpected": "shape"})).into_response(),
+        2 => (
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "0")],
+            UPSTREAM_SECRET,
+        )
+            .into_response(),
+        _ => {
+            let name = match o.as_str() {
+                "contacts" => "firstname",
+                "companies" => "industry",
+                _ => "bpo_42",
+            };
+            Json(json!({"results": [
+                {"name": name, "label": "項目", "type": "enumeration", "fieldType": "select",
+                 "options": [{"label": "A", "value": "a"}]},
+                {"name": "not_reviewed", "label": "x", "type": "string", "fieldType": "text"}
+            ]}))
+            .into_response()
+        }
+    }
+}
+
+/// `GET /crm/v3/pipelines/deals`
+async fn hs_pipelines(State(st): State<Shared<FakeHubSpot>>, headers: HeaderMap) -> Response {
+    let mut s = st.lock().unwrap();
+    s.requests.push((
+        "GET".into(),
+        "/crm/v3/pipelines/deals".into(),
+        auth_header(&headers),
+        String::new(),
+    ));
+    match s.meta_mode {
+        1 => Json(json!({"unexpected": "shape"})).into_response(),
+        2 => (
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "0")],
+            UPSTREAM_SECRET,
+        )
+            .into_response(),
+        _ => Json(json!({"results": [
+            {"id": "p1", "label": "営業", "displayOrder": 0,
+             "stages": [{"id": "s2", "label": "商談", "displayOrder": 1},
+                        {"id": "s1", "label": "新規", "displayOrder": 0}]}
+        ]}))
+        .into_response(),
+    }
 }
 
 async fn hs_batch_read(
@@ -397,6 +491,8 @@ async fn start_fake_hubspot(fake: FakeHubSpot) -> (Arc<HubSpotClient>, Shared<Fa
     let st = Arc::new(Mutex::new(fake));
     let base = spawn(
         Router::new()
+            .route("/crm/v3/properties/{o}", get(hs_properties))
+            .route("/crm/v3/pipelines/deals", get(hs_pipelines))
             .route("/crm/v3/objects/{o}/{id}", get(hs_get_object))
             .route("/crm/v3/objects/{o}/batch/read", post(hs_batch_read))
             .route(
@@ -452,6 +548,8 @@ fn test_config() -> AppConfig {
     }
 }
 
+const TEST_EMAIL: &str = "taro@f-a-c.co.jp";
+
 fn test_state(audit: Option<AuditDb>, hubspot: Option<Arc<HubSpotClient>>) -> Arc<AppState> {
     Arc::new(AppState {
         config: test_config(),
@@ -491,11 +589,15 @@ async fn inject_session(session: Session, Json(v): Json<Value>) -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-/// crm ルート + require_auth + セッション注入ルートだけのアプリ
+/// crm ルート + セッション注入ルートだけのアプリ
 fn crm_app(state: Arc<AppState>) -> Router {
+    crm_app_with(state, CrmAccess::from_list(TEST_EMAIL))
+}
+
+/// 許可メールを指定する版
+fn crm_app_with(state: Arc<AppState>, access: CrmAccess) -> Router {
     Router::new()
-        .merge(super::router())
-        .route_layer(middleware::from_fn(crate::auth::require_auth))
+        .merge(super::router(access))
         .route("/__test/session", post(inject_session))
         .with_state(state)
         .layer(SessionManagerLayer::new(MemoryStore::default()))
@@ -511,7 +613,16 @@ fn session_cookie(resp: &Response) -> Option<String> {
 }
 
 async fn login_as(app: &Router, login_method: &str, account_id: Option<&str>) -> String {
-    let body = json!({"email": "taro@f-a-c.co.jp", "login_method": login_method,
+    login_as_email(app, TEST_EMAIL, login_method, account_id).await
+}
+
+async fn login_as_email(
+    app: &Router,
+    email: &str,
+    login_method: &str,
+    account_id: Option<&str>,
+) -> String {
+    let body = json!({"email": email, "login_method": login_method,
                       "account_id": account_id});
     let resp = app
         .clone()
@@ -570,21 +681,25 @@ const ALL_PATHS: [&str; 3] = [
 // 認証・認可 (HubSpot を呼ばない経路)
 // ---------------------------------------------------------------------------
 
-/// 本物の build_app で: 未ログインは 303 /login (protected_routes 配下に配線されている)
+/// 本物の build_app で: 未ログインは HTML の /login への 303 ではなく JSON の 401
+/// (fetch から呼ぶ API。auth_middleware の外に配線されている)
 #[tokio::test(flavor = "multi_thread")]
-async fn 未ログインは_303_で_login_へ() {
+async fn 未ログインは_json_401_で_login_へ飛ばさない() {
     let app = crate::build_app(test_state(None, None));
-    for p in ALL_PATHS {
+    for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {
         let resp = get_req(&app, p, None).await;
-        assert_eq!(resp.status(), StatusCode::SEE_OTHER, "{p}");
-        assert_eq!(resp.headers()[header::LOCATION], "/login", "{p}");
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{p}");
+        assert!(resp.headers().get(header::LOCATION).is_none(), "{p}");
+        assert_eq!(resp.headers()[header::CACHE_CONTROL], "no-store", "{p}");
+        let v: Value = serde_json::from_str(&body_string(resp).await).unwrap();
+        assert_eq!(v, json!({"error_kind": "login_required"}), "{p}");
     }
 }
 
-/// 本物の build_app + 本物のパスワードログインで: role=admin のアカウントでも 403。
+/// 本物の build_app + 本物のパスワードログインで: 403 `google_login_required`。
 /// HubSpot 未設定でも 503 ではなく 403 (未認可の人に設定状況を見せない)
 #[tokio::test(flavor = "multi_thread")]
-async fn パスワードログインは_admin_でも_403_で_503_を見せない() {
+async fn パスワードログインは_403_で_503_を見せない() {
     let (audit, turso) = start_fake_audit().await;
     let app = crate::build_app(test_state(Some(audit), None));
     let resp = app
@@ -605,70 +720,91 @@ async fn パスワードログインは_admin_でも_403_で_503_を見せない
         "login should redirect"
     );
     let cookie = session_cookie(&resp).expect("session cookie");
-    // ログイン時の upsert で admin アカウントとして扱われている (前提の確認)
+    // ログイン時の upsert で admin アカウントとして扱われている (前提の確認: admin でも通らない)
     assert!(turso
         .lock()
         .unwrap()
         .sqls
         .iter()
         .any(|s| s.starts_with("SELECT id, role FROM accounts")));
-    for p in ALL_PATHS {
+    for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {
         let (status, cc, v) = get_json(&app, p, &cookie).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{p}");
-        assert_eq!(v, json!({"error_kind": "forbidden"}), "{p}");
+        assert_eq!(v, json!({"error_kind": "google_login_required"}), "{p}");
         assert_eq!(cc, "no-store", "{p}");
     }
 }
 
+/// 共有 / 外部パスワードのログイン方式はどれも、許可リストに載っているメールでも 403
 #[tokio::test(flavor = "multi_thread")]
-async fn oidc_でも_role_user_は_403() {
-    let (audit, _) = start_fake_audit().await;
-    let app = crm_app(test_state(Some(audit), None));
-    let cookie = login_as(&app, "google_oidc", Some("acc-user")).await;
-    for p in ALL_PATHS {
-        let (status, _, v) = get_json(&app, p, &cookie).await;
-        assert_eq!(status, StatusCode::FORBIDDEN, "{p}");
-        assert_eq!(v["error_kind"], "forbidden");
+async fn パスワード系のログイン方式はすべて_403() {
+    let app = crm_app(test_state(None, None));
+    for method in ["password", "password_internal", "password_external", ""] {
+        let cookie = login_as(&app, method, None).await;
+        for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {
+            let (status, _, v) = get_json(&app, p, &cookie).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{method} {p}");
+            assert_eq!(v["error_kind"], "google_login_required", "{method} {p}");
+        }
     }
 }
 
-/// 監査未接続 / account_id 無し / 照会失敗 / 未登録 / 無効化済み → すべて 403 (fail closed)
+/// OIDC でも許可リストに無いメールは 403 (役割が admin でも関係ない)
 #[tokio::test(flavor = "multi_thread")]
-async fn 役割が取れなければ_403() {
-    // 監査 DB 未接続
-    let app = crm_app(test_state(None, None));
+async fn oidc_でも許可リスト外は_403() {
+    let (audit, _) = start_fake_audit().await;
+    let app = crm_app(test_state(Some(audit), None));
+    let cookie = login_as_email(&app, "hanako@f-a-c.co.jp", "google_oidc", Some("acc-admin")).await;
+    for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {
+        let (status, _, v) = get_json(&app, p, &cookie).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{p}");
+        assert_eq!(v, json!({"error_kind": "forbidden"}), "{p}");
+    }
+}
+
+/// 許可リストが空なら Google ログインの本人も全員 403 (fail closed)
+#[tokio::test(flavor = "multi_thread")]
+async fn 許可リストが空なら全員_403() {
+    let app = crm_app_with(test_state(None, None), CrmAccess::from_list(""));
     let cookie = login_as(&app, "google_oidc", Some("acc-admin")).await;
+    for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {
+        let (status, _, v) = get_json(&app, p, &cookie).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{p}");
+        assert_eq!(v["error_kind"], "forbidden", "{p}");
+    }
+}
+
+/// 許可リストに載っていても、監査 DB で無効化されたアカウントは 403。
+/// 無効化されていなければ同じ構成で認可を通る (逆証明)
+#[tokio::test(flavor = "multi_thread")]
+async fn 無効化されたアカウントは_403() {
+    let (audit, turso) = start_fake_audit().await;
+    turso
+        .lock()
+        .unwrap()
+        .disabled_emails
+        .push(TEST_EMAIL.to_string());
+    let app = crm_app(test_state(Some(audit), None));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {
+        let (status, _, v) = get_json(&app, p, &cookie).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{p}");
+        assert_eq!(v["error_kind"], "account_disabled", "{p}");
+    }
+    let (audit, _) = start_fake_audit().await;
+    let app = crm_app(test_state(Some(audit), None));
+    let cookie = login_as(&app, "google_oidc", None).await;
     let (status, _, v) = get_json(&app, "/api/crm/deals/1", &cookie).await;
     assert_eq!(
         (status, v),
-        (StatusCode::FORBIDDEN, json!({"error_kind": "forbidden"}))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({"error_kind": "not_configured"})
+        )
     );
-
-    let (audit, turso) = start_fake_audit().await;
-    let app = crm_app(test_state(Some(audit), None));
-    for aid in [
-        None,
-        Some("acc-error"),
-        Some("acc-unknown"),
-        Some("acc-disabled"),
-    ] {
-        let cookie = login_as(&app, "google_oidc", aid).await;
-        let (status, _, v) = get_json(&app, "/api/crm/deals/1", &cookie).await;
-        assert_eq!(status, StatusCode::FORBIDDEN, "{aid:?}");
-        assert_eq!(v["error_kind"], "forbidden", "{aid:?}");
-    }
-    // acc-error / acc-unknown / acc-disabled の 3 回は実際に照会している (account_id 無しは照会しない)
-    let lookups = turso
-        .lock()
-        .unwrap()
-        .sqls
-        .iter()
-        .filter(|s| s.starts_with("SELECT id, email, display_name"))
-        .count();
-    assert_eq!(lookups, 3);
 }
 
-/// 認可を通過した証拠: admin + OIDC で HubSpot 未設定なら 503 not_configured
+/// 認可を通過した証拠: 許可リストの人が OIDC で入り、HubSpot 未設定なら 503 not_configured
 #[tokio::test(flavor = "multi_thread")]
 async fn oidc_admin_で_hubspot_未設定なら_503() {
     let (audit, _) = start_fake_audit().await;
@@ -713,7 +849,10 @@ async fn 未認可なら不正_id_でも_403() {
     let (status, _, v) = get_json(&app, "/api/crm/deals/abc", &cookie).await;
     assert_eq!(
         (status, v),
-        (StatusCode::FORBIDDEN, json!({"error_kind": "forbidden"}))
+        (
+            StatusCode::FORBIDDEN,
+            json!({"error_kind": "google_login_required"})
+        )
     );
 }
 
@@ -1383,4 +1522,243 @@ async fn 関連付き本体_get_が_403_なら本体だけ取り直して_partia
     assert_eq!(paths.len(), 2, "{paths:?}");
     assert!(paths[0].contains("associations="));
     assert!(!paths[1].contains("associations="));
+}
+
+// ---------------------------------------------------------------------------
+// 段階 A (逆証明): HubSpot の応答の端
+// ---------------------------------------------------------------------------
+
+/// アーカイブ済み (archived: true) のレコードは、生きているものとして見せず 404
+#[tokio::test(flavor = "multi_thread")]
+async fn アーカイブ済みのレコードは_404() {
+    let mut f = FakeHubSpot::default();
+    f.obj("deals", "900", &[("dealname", Some("消えた Deal"))]);
+    f.archived.insert(("deals".to_string(), "900".to_string()));
+    let (client, _) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(None, Some(client)));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    let (status, _, v) = get_json(&app, "/api/crm/deals/900", &cookie).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(v["error_kind"], "not_found");
+    assert!(!v.to_string().contains("消えた Deal"));
+}
+
+/// 直近アクティビティのうちアーカイブ済みのものは載せない
+#[tokio::test(flavor = "multi_thread")]
+async fn アーカイブ済みのアクティビティは載せない() {
+    let mut f = FakeHubSpot::default();
+    f.obj("contacts", "55", &[("firstname", Some("太郎"))]);
+    f.assoc("contacts", "55", "notes", &[(3001, None), (3002, None)]);
+    f.obj(
+        "notes",
+        "3001",
+        &[("hs_timestamp", Some("2026-09-01T00:00:00Z"))],
+    );
+    f.obj(
+        "notes",
+        "3002",
+        &[("hs_timestamp", Some("2026-09-02T00:00:00Z"))],
+    );
+    f.archived.insert(("notes".to_string(), "3002".to_string()));
+    let (client, _) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(None, Some(client)));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    let (status, _, v) = get_json(&app, "/api/crm/contacts/55", &cookie).await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    let ids: Vec<&str> = v["recent_activities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["3001"]);
+}
+
+/// プロパティが 1 つも無いレコードでも 200 (properties は空 / 要求したキーが欠けても壊れない)
+#[tokio::test(flavor = "multi_thread")]
+async fn プロパティが空のレコードでも_200() {
+    let mut f = FakeHubSpot::default();
+    f.obj("companies", "300", &[]);
+    let (client, _) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(None, Some(client)));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    let (status, _, v) = get_json(&app, "/api/crm/companies/300", &cookie).await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["properties"], json!({}));
+    assert_eq!(v["recent_activities"], json!([]));
+    assert_eq!(v["meta"]["partial"], json!([]));
+}
+
+/// 上流の 429 / 500 / 403 はブラウザに「上流の本文」を出さず、error_kind と固定文言だけ返す
+#[tokio::test(flavor = "multi_thread")]
+async fn 上流のエラー本文はブラウザに返さない() {
+    for (upstream, status, kind) in [
+        (429, StatusCode::SERVICE_UNAVAILABLE, "hubspot_rate_limited"),
+        (500, StatusCode::BAD_GATEWAY, "hubspot_upstream"),
+        (400, StatusCode::BAD_GATEWAY, "hubspot_upstream"),
+    ] {
+        let mut f = FakeHubSpot::default();
+        f.obj("deals", "900", &[("dealname", Some("x"))]);
+        f.get_status = Some(upstream);
+        let (client, _) = start_fake_hubspot(f).await;
+        let app = crm_app(test_state(None, Some(client)));
+        let cookie = login_as(&app, "google_oidc", None).await;
+        let resp = get_req(&app, "/api/crm/deals/900", Some(&cookie)).await;
+        assert_eq!(resp.status(), status, "upstream {upstream}");
+        let body = body_string(resp).await;
+        assert!(!body.contains(UPSTREAM_SECRET), "{body}");
+        assert!(!body.contains(HUBSPOT_TOKEN), "{body}");
+        let v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["error_kind"], kind, "upstream {upstream}");
+    }
+}
+
+/// 同時に何本来ても、HubSpot への本体 GET の同時実行は枠 (4) を超えない。
+/// 鍵は既存の営業自動化バッチと共有なので、連打・多タブで枠を食い尽くさないため
+#[tokio::test(flavor = "multi_thread")]
+async fn レコード読み取りの同時実行は枠を超えない() {
+    let mut f = FakeHubSpot::default();
+    f.obj("companies", "300", &[("name", Some("社"))]);
+    f.get_delay = Duration::from_millis(150);
+    let (client, hs) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(None, Some(client)));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    let mut tasks = Vec::new();
+    for _ in 0..10 {
+        let (app, cookie) = (app.clone(), cookie.clone());
+        tasks.push(tokio::spawn(async move {
+            get_req(&app, "/api/crm/companies/300", Some(&cookie))
+                .await
+                .status()
+        }));
+    }
+    for t in tasks {
+        assert_eq!(t.await.unwrap(), StatusCode::OK);
+    }
+    let max = hs.lock().unwrap().max_inflight;
+    assert_eq!(
+        max,
+        super::routes::MAX_CONCURRENT_RECORD_READS,
+        "同時実行の最大値 (枠いっぱいまでは使う)"
+    );
+}
+
+// --- /api/crm/metadata (HubSpot の定義) ---
+
+fn meta_requests(hs: &Shared<FakeHubSpot>) -> usize {
+    hs.lock()
+        .unwrap()
+        .requests
+        .iter()
+        .filter(|r| r.1.starts_with("/crm/v3/properties/") || r.1.starts_with("/crm/v3/pipelines/"))
+        .count()
+}
+
+/// 許可された人は 200。キャッシュ → 連続 refresh は枠内ならキャッシュを返す。
+/// 顧客レコードの GET は 1 回も飛ばない
+#[tokio::test(flavor = "multi_thread")]
+async fn metadata_は定義だけ返し_キャッシュと_refresh_の下限が効く() {
+    let (client, hs) = start_fake_hubspot(FakeHubSpot::default()).await;
+    let app = crm_app(test_state(None, Some(client)));
+    let cookie = login_as(&app, "google_oidc", None).await;
+
+    let (status, cc, v) = get_json(&app, "/api/crm/metadata", &cookie).await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(cc, "no-store");
+    assert_eq!(v["cache_hit"], false);
+    assert_eq!(meta_requests(&hs), 4);
+    // 確認済みの項目だけ (not_reviewed は出ない)
+    let names: Vec<String> = v["properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            format!(
+                "{}:{}",
+                p["object_type"].as_str().unwrap(),
+                p["name"].as_str().unwrap()
+            )
+        })
+        .collect();
+    assert_eq!(
+        names,
+        vec!["contacts:firstname", "companies:industry", "deals:bpo_42"]
+    );
+    // ステージは displayOrder 順
+    let stages: Vec<&str> = v["pipelines"][0]["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(stages, vec!["s1", "s2"]);
+
+    let (_, _, v2) = get_json(&app, "/api/crm/metadata", &cookie).await;
+    assert_eq!(v2["cache_hit"], true);
+    assert_eq!(meta_requests(&hs), 4, "キャッシュ中は上流を呼ばない");
+    // 直後の refresh は下限 (5 秒) 内なのでキャッシュのまま
+    let (_, _, v3) = get_json(&app, "/api/crm/metadata?refresh=true", &cookie).await;
+    assert_eq!(v3["cache_hit"], true);
+    assert_eq!(meta_requests(&hs), 4, "refresh の連打で上流を叩かない");
+    // 顧客レコードは 1 回も読んでいない
+    assert!(hs
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .all(|r| !r.1.starts_with("/crm/v3/objects/")));
+}
+
+/// 想定外の形 (results 欠落) は 502 hubspot_decode。panic せず、キャッシュにも残さない
+#[tokio::test(flavor = "multi_thread")]
+async fn metadata_の応答の形が崩れたら_502_でキャッシュしない() {
+    let f = FakeHubSpot {
+        meta_mode: 1,
+        ..Default::default()
+    };
+    let (client, hs) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(None, Some(client)));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    let (status, _, v) = get_json(&app, "/api/crm/metadata", &cookie).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{v}");
+    assert_eq!(v["error_kind"], "hubspot_decode");
+    // 直したら次の呼び出しで取れる (失敗がキャッシュされていない)
+    hs.lock().unwrap().meta_mode = 0;
+    let (status, _, v) = get_json(&app, "/api/crm/metadata", &cookie).await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["cache_hit"], false);
+}
+
+/// 上流の 429 (本文に秘密の文字列) は 503 hubspot_rate_limited。本文は出ない
+#[tokio::test(flavor = "multi_thread")]
+async fn metadata_の上流_429_は本文を出さず_503() {
+    let f = FakeHubSpot {
+        meta_mode: 2,
+        ..Default::default()
+    };
+    let (client, _) = start_fake_hubspot(f).await;
+    let app = crm_app(test_state(None, Some(client)));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    let resp = get_req(&app, "/api/crm/metadata", Some(&cookie)).await;
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = body_string(resp).await;
+    assert!(!body.contains(UPSTREAM_SECRET), "{body}");
+    assert!(!body.contains(HUBSPOT_TOKEN), "{body}");
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["error_kind"], "hubspot_rate_limited");
+}
+
+/// HubSpot 未設定は 503 not_configured (認可を通った人にだけ見せる)
+#[tokio::test(flavor = "multi_thread")]
+async fn metadata_は_hubspot_未設定なら_503() {
+    let app = crm_app(test_state(None, None));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    let (status, _, v) = get_json(&app, "/api/crm/metadata", &cookie).await;
+    assert_eq!(
+        (status, v),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({"error_kind": "not_configured"})
+        )
+    );
 }
