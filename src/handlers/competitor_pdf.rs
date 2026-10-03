@@ -104,6 +104,7 @@ pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
         "--disable-background-networking",
         "--no-first-run",
         "--virtual-time-budget=1500",
+        "--timeout=10000",
         "--window-size=1600,1200",
     ]);
     command.arg(format!(
@@ -116,24 +117,41 @@ pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    let status = tokio::time::timeout(Duration::from_secs(45), command.status())
-        .await
-        .map_err(|_| "PDFの作成に時間がかかっています。再度お試しください。")?
-        .map_err(|err| {
-            tracing::error!(error = %err, "Cannot start competitor PDF renderer");
-            "PDFを作成できませんでした。時間をおいて再度お試しください。"
-        })?;
-    if !status.success() {
-        tracing::warn!(?status, "Competitor PDF renderer failed");
-        return Err("PDFを作成できませんでした。再度お試しください。".into());
-    }
-    let pdf = tokio::fs::read(output)
-        .await
-        .map_err(|_| "PDFを読み出せませんでした。")?;
-    if !pdf.starts_with(b"%PDF-") {
-        return Err("PDFを作成できませんでした。再度お試しください。".into());
-    }
-    Ok(pdf)
+    let mut child = command.spawn().map_err(|err| {
+        tracing::error!(error = %err, "Cannot start competitor PDF renderer");
+        "PDFを作成できませんでした。時間をおいて再度お試しください。"
+    })?;
+    // Some Chromium builds keep background processes alive after printing. Completion is
+    // the PDF's final EOF marker, rather than waiting for the browser to exit naturally.
+    let result = tokio::time::timeout(Duration::from_secs(45), async {
+        loop {
+            if let Ok(bytes) = tokio::fs::read(&output).await {
+                if bytes.starts_with(b"%PDF-")
+                    && bytes[bytes.len().saturating_sub(32)..]
+                        .windows(5)
+                        .any(|s| s == b"%%EOF")
+                {
+                    return Ok(bytes);
+                }
+            }
+            if let Some(status) = child
+                .try_wait()
+                .map_err(|_| "PDF作成の状態を確認できませんでした。")?
+            {
+                tracing::warn!(
+                    ?status,
+                    "Competitor PDF renderer exited without a complete PDF"
+                );
+                return Err("PDFを作成できませんでした。再度お試しください。");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    let _ = child.kill().await;
+    result
+        .map_err(|_| "PDFの作成に時間がかかっています。再度お試しください。".to_string())?
+        .map_err(str::to_owned)
 }
 
 #[cfg(test)]
