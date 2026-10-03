@@ -21,7 +21,7 @@ use serde_json::Value;
 use super::card_breakdown::{
     by_person_get, card_preds, card_rows, synthetic_day, synthetic_sheets, team_of, Scope,
 };
-use super::{build_payload, fixture_day, fixture_sheets};
+use super::{build_payload, fixture_day, fixture_sheets, payload_of};
 use crate::handlers::call_quality::sheets::SheetData;
 use crate::handlers::sales_kpi::{
     negotiation_type_label, negotiation_type_rank, Sheets, NEGOTIATION_TYPE_ORDER,
@@ -231,7 +231,7 @@ fn nt<'a>(r: &'a Value) -> Option<&'a str> {
 #[test]
 fn 種別ごとの行数の合計がカードの件数と担当者ごとに一致する() {
     let c = fixture_with_types();
-    let body = build_payload(&c.sheets, fixture_day());
+    let body = payload_of(&c.sheets, fixture_day());
     assert_eq!(body["negotiation_type_available"].as_bool(), Some(true));
     let mut owners: BTreeSet<String> = body["by_person"]
         .as_object()
@@ -324,7 +324,7 @@ fn 種別ごとの行数の合計がカードの件数と担当者ごとに一�
 #[test]
 fn 種別の合計は絞り込みのどの組み合わせでもカードの件数と一致する() {
     let c = fixture_with_types();
-    let body = build_payload(&c.sheets, fixture_day());
+    let body = payload_of(&c.sheets, fixture_day());
     assert_type_scopes(&body);
 }
 
@@ -407,7 +407,7 @@ fn assert_type_scopes(body: &Value) {
 #[test]
 fn 下段の一覧の行にも商談種別のラベルが付く() {
     let c = fixture_with_types();
-    let body = build_payload(&c.sheets, fixture_day());
+    let body = payload_of(&c.sheets, fixture_day());
     for k in [
         "stale",
         "week_deals",
@@ -486,7 +486,7 @@ fn labels(body: &Value, src: &str) -> BTreeMap<String, String> {
 
 #[test]
 fn 合成入力の商談種別は取引ごとに期待したラベルになる() {
-    let body = build_payload(&synthetic_with_types(), synthetic_day());
+    let body = payload_of(&synthetic_with_types(), synthetic_day());
     let pool = labels(&body, "pool");
     let want_pool: BTreeMap<String, String> = [
         ("D002", "非決裁者商談"),
@@ -522,7 +522,7 @@ fn 合成入力の商談種別は取引ごとに期待したラベルになる()
 
 #[test]
 fn 合成入力でも種別の合計はどの絞り込みでもカードの件数と一致する() {
-    let body = build_payload(&synthetic_with_types(), synthetic_day());
+    let body = payload_of(&synthetic_with_types(), synthetic_day());
     assert_type_scopes(&body);
 }
 
@@ -531,7 +531,7 @@ fn 合成入力でも種別の合計はどの絞り込みでもカードの件�
 /// 既存の fixture には「商談種別」列が無い。行に値を付けず、無いことを payload で伝える。
 #[test]
 fn 列が無いシートでは行に商談種別を付けず未取得を伝える() {
-    let body = build_payload(&fixture_sheets(), fixture_day());
+    let body = payload_of(&fixture_sheets(), fixture_day());
     assert_eq!(body["negotiation_type_available"].as_bool(), Some(false));
     for s in ["pool", "apo", "cyomi"] {
         assert_eq!(
@@ -572,7 +572,7 @@ fn 列が無いシートでは行に商談種別を付けず未取得を伝え�
 fn 商談シートだけに列があるときはシートごとの有無を分けて伝える() {
     let base = fixture_sheets();
     let (shodan, _) = cycle_col(&base.shodan, 0);
-    let body = build_payload(&Sheets { shodan, ..base }, fixture_day());
+    let body = payload_of(&Sheets { shodan, ..base }, fixture_day());
     assert_eq!(body["negotiation_type_available"].as_bool(), Some(true));
     assert_eq!(
         body["negotiation_type_sheets"]["pool"].as_bool(),
@@ -596,7 +596,7 @@ fn 商談シートだけに列があるときはシートごとの有無を分�
 fn 列はあるが値が全部空なら未設定として全件数える() {
     let base = fixture_sheets();
     let shodan = add_col(&base.shodan, "商談種別", |_, _| String::new());
-    let body = build_payload(&Sheets { shodan, ..base }, fixture_day());
+    let body = payload_of(&Sheets { shodan, ..base }, fixture_day());
     assert_eq!(
         body["negotiation_type_sheets"]["pool"].as_bool(),
         Some(true)
@@ -614,7 +614,7 @@ fn 列はあるが値が全部空なら未設定として全件数える() {
 #[test]
 fn 並びは_payload_が全ラベルを順に渡す() {
     let c = fixture_with_types();
-    let body = build_payload(&c.sheets, fixture_day());
+    let body = payload_of(&c.sheets, fixture_day());
     let order: Vec<&str> = body["negotiation_type_order"]
         .as_array()
         .expect("negotiation_type_order")
@@ -652,7 +652,7 @@ fn 並びは定義外が無ければ固定の_3_つだけ() {
     let shodan = add_col(&base.shodan, "商談種別", |_, _| {
         "担当者商談".to_string()
     });
-    let body = build_payload(&Sheets { shodan, ..base }, fixture_day());
+    let body = payload_of(&Sheets { shodan, ..base }, fixture_day());
     assert_eq!(
         body["negotiation_type_order"],
         serde_json::json!(["決裁者商談", "非決裁者商談", "(未設定)"])
@@ -677,5 +677,53 @@ fn テンプレートに並びや未設定の直書きが無い() {
     assert!(
         !tpl[from..to].contains("localeCompare"),
         "種別の並べ替えを JS で決めている"
+    );
+}
+
+// ---------------------------------------------------------------- JSON のスナップショット
+
+/// `examples/dump_sales_kpi --negtype` が足す「商談種別」の生の値（同じ並び・同じ回し方）。
+const SNAPSHOT_CYCLE: [&str; 9] = [
+    "代表者商談",
+    "担当者商談",
+    "決裁者商談",
+    "非決裁者商談",
+    "",
+    " 担当者商談 ",
+    "新種別",
+    "担当者商談;代表者商談",
+    "担当者商談;",
+];
+
+/// 🔴 商談種別の列があるときの JSON を、`Value` 実装（b78bd8e = PR #49）の出力と 1 バイトも変えない
+/// ことの証明。期待値は b78bd8e の `dump_sales_kpi -- out.json 2026-09-04 --negtype` の出力
+/// （tests/fixtures/sales_kpi/payload_2026-09-04_negtype.json）。
+#[test]
+fn 商談種別の列があるjsonはvalue実装のスナップショットと一致する() {
+    let base = fixture_sheets();
+    let with = |sheet: &SheetData, shift: usize| {
+        let mut i = shift;
+        add_col(sheet, "商談種別", |_, _| {
+            let v = SNAPSHOT_CYCLE[i % SNAPSHOT_CYCLE.len()];
+            i += 1;
+            v.to_string()
+        })
+    };
+    let sheets = Sheets {
+        shodan: with(&base.shodan, 0),
+        apo: with(&base.apo, 3),
+        cyomi: with(&base.cyomi, 5),
+        ..base
+    };
+    let actual = serde_json::to_string(&build_payload(&sheets, fixture_day())).expect("JSON 化");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/sales_kpi/payload_2026-09-04_negtype.json");
+    let expected = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("スナップショットが読めません {}: {e}", path.display()));
+    assert!(
+        actual == expected,
+        "商談種別つきの JSON が b78bd8e と違う（actual {} / expected {} バイト）",
+        actual.len(),
+        expected.len()
     );
 }
