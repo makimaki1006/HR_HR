@@ -2076,6 +2076,7 @@ fn リスト列が無い古い週次の行は在庫を出さない() {
 /// 「今月の成績」カードの内訳。実装前に書いた、落ちるテスト（設計書
 /// `claudedocs/SALES_KPI_CARD_BREAKDOWN_DESIGN_2026-10-02.md`）。
 mod card_breakdown;
+mod negotiation_type;
 
 #[test]
 fn 見出しの月は固定文字でなく取得日から作る() {
