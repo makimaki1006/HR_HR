@@ -149,6 +149,16 @@ fn id_string(v: &Value) -> Option<String> {
     }
 }
 
+/// batch 系の応答の `results`。全 ID が見つからないときは `results` が無く `errors` だけの
+/// 207 が返りうる (HubSpot の multi-status)。その場合は 0 件。どちらも無ければ想定外の形。
+fn batch_results<'a>(v: &'a Value, what: &str) -> Result<&'a [Value], HubSpotError> {
+    match v.get("results").and_then(Value::as_array) {
+        Some(results) => Ok(results),
+        None if v.get("errors").is_some_and(Value::is_array) => Ok(&[]),
+        None => Err(HubSpotError::Decode(format!("{what} without results"))),
+    }
+}
+
 fn parse_record(v: &Value) -> Result<HubSpotRecord, HubSpotError> {
     let id = v
         .get("id")
@@ -179,10 +189,10 @@ fn parse_associations(v: &Value) -> Result<(Vec<AssociationRef>, bool), HubSpotE
         .ok_or_else(|| HubSpotError::Decode("associations without results".into()))?;
     let mut out = Vec::with_capacity(results.len());
     for r in results {
-        let id = r
-            .get("toObjectId")
-            .and_then(id_string)
-            .ok_or_else(|| HubSpotError::Decode("association without toObjectId".into()))?;
+        // 関連 1 件の形が崩れていても全体は失敗させない (その 1 件だけ飛ばす)
+        let Some(id) = r.get("toObjectId").and_then(id_string) else {
+            continue;
+        };
         let labels = r
             .get("associationTypes")
             .and_then(Value::as_array)
@@ -215,6 +225,9 @@ impl HubSpotClient {
         }
         let http = reqwest::Client::builder()
             .timeout(opts.timeout)
+            .connect_timeout(opts.timeout.min(Duration::from_secs(5)))
+            // 固定の api.hubapi.com 以外へ Bearer を持ち出さない (リダイレクトは辿らない)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| HubSpotError::Transport(transport_message(e)))?;
         Ok(Self {
@@ -225,6 +238,19 @@ impl HubSpotClient {
             rate_limit: Mutex::new(None),
             search_gate: tokio::sync::Mutex::new(None),
         })
+    }
+
+    /// `GET /crm/v3/properties/{object}` (プロパティ定義の一覧。Contact / Company / Deal のみ)。
+    /// 応答の `results` をそのまま返す。値の解釈は呼び出し側 (`handlers::crm_metadata`)。
+    pub async fn property_definitions(&self, object: RecordType) -> Result<Value, HubSpotError> {
+        let path = format!("/crm/v3/properties/{}", object.api_name());
+        self.send(Method::GET, &path, &[], None).await
+    }
+
+    /// `GET /crm/v3/pipelines/deals` (Deal のパイプラインとステージ定義)。
+    pub async fn deal_pipelines(&self) -> Result<Value, HubSpotError> {
+        self.send(Method::GET, "/crm/v3/pipelines/deals", &[], None)
+            .await
     }
 
     /// `GET /crm/v3/objects/{object}/{id}?properties=...`
@@ -267,11 +293,7 @@ impl HubSpotClient {
                 "inputs": chunk.iter().map(|id| json!({ "id": id })).collect::<Vec<_>>(),
             });
             let v = self.send(Method::POST, &path, &[], Some(&body)).await?;
-            let results = v
-                .get("results")
-                .and_then(Value::as_array)
-                .ok_or_else(|| HubSpotError::Decode("batch read without results".into()))?;
-            for r in results {
+            for r in batch_results(&v, "batch read")? {
                 out.push(parse_record(r)?);
             }
         }
@@ -319,16 +341,18 @@ impl HubSpotClient {
             let Some(entry) = v.pointer(&format!("/associations/{t}")) else {
                 continue;
             };
+            // `results` が無い / null (形が崩れた型) は関連 0 件として扱い、本体は返す
             let results = entry
                 .get("results")
                 .and_then(Value::as_array)
-                .ok_or_else(|| HubSpotError::Decode("associations without results".into()))?;
+                .map(Vec::as_slice)
+                .unwrap_or_default();
             let mut refs: Vec<AssociationRef> = Vec::with_capacity(results.len());
             for r in results {
-                let rid = r
-                    .get("id")
-                    .and_then(id_string)
-                    .ok_or_else(|| HubSpotError::Decode("association without id".into()))?;
+                // id の無い 1 件は飛ばす
+                let Some(rid) = r.get("id").and_then(id_string) else {
+                    continue;
+                };
                 // 関連タイプ違いで同じ id が繰り返されることがあるので 1 件にする
                 if !refs.iter().any(|x| x.id == rid) {
                     refs.push(AssociationRef {
@@ -364,15 +388,10 @@ impl HubSpotClient {
                 "inputs": chunk.iter().map(|id| json!({ "id": id })).collect::<Vec<_>>(),
             });
             let v = self.send(Method::POST, &path, &[], Some(&body)).await?;
-            let results = v
-                .get("results")
-                .and_then(Value::as_array)
-                .ok_or_else(|| HubSpotError::Decode("batch associations without results".into()))?;
-            for r in results {
-                let from_id = r
-                    .pointer("/from/id")
-                    .and_then(id_string)
-                    .ok_or_else(|| HubSpotError::Decode("association without from id".into()))?;
+            for r in batch_results(&v, "batch associations")? {
+                let Some(from_id) = r.pointer("/from/id").and_then(id_string) else {
+                    continue;
+                };
                 let to_list = r
                     .get("to")
                     .and_then(Value::as_array)

@@ -912,3 +912,106 @@ async fn invalid_id_or_object_never_reaches_server() {
         .unwrap();
     assert_eq!(fake.count(), 1);
 }
+
+// ---------------------------------------------------------------------------
+// 段階 A (逆証明): HubSpot の応答の端
+// ---------------------------------------------------------------------------
+
+/// 関連の一部の形が崩れていても (id 無し / results が null / キーごと null) 本体は読める。
+/// 崩れた関連 1 件でレコード全体を 502 にしない。
+#[tokio::test]
+async fn associations_with_malformed_entries_are_skipped_not_fatal() {
+    let mut body = contact_json();
+    body["associations"] = json!({
+        "companies": {"results": [{"type": "no_id"}, {"id": "300", "type": "ok"}]},
+        "calls": {"paging": {}},
+        "notes": null,
+        "tasks": {"results": null}
+    });
+    let (base, _fake) = spawn_fake(always(200, body)).await;
+    let (rec, assocs) = client(&base, fast_opts())
+        .get_object_with_associations(
+            "contacts",
+            "101",
+            &[],
+            &["companies", "calls", "notes", "tasks"],
+        )
+        .await
+        .expect("崩れた関連で本体まで失敗してはいけない");
+    assert_eq!(rec.id, "101");
+    let ids = |k: &str| {
+        assocs[k]
+            .0
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids("companies"), vec!["300"]);
+    assert!(ids("calls").is_empty());
+    assert!(ids("notes").is_empty());
+    assert!(ids("tasks").is_empty());
+}
+
+/// batch read で全 ID が見つからないとき、HubSpot は 207 で `results` 無し・`errors` だけを返しうる。
+/// 「応答を解釈できない」ではなく 0 件として扱う。
+#[tokio::test]
+async fn batch_read_with_only_errors_is_empty_not_decode_error() {
+    let body = json!({"status": "COMPLETE", "numErrors": 2,
+                      "errors": [{"status": "error", "category": "OBJECT_NOT_FOUND"}]});
+    let (base, _fake) = spawn_fake(always(207, body)).await;
+    let recs = client(&base, fast_opts())
+        .batch_read(
+            "calls",
+            &["1".to_string(), "2".to_string()],
+            &["hs_timestamp"],
+        )
+        .await
+        .expect("results が無くても 0 件");
+    assert!(recs.is_empty());
+}
+
+/// v4 の batch associations も同じ (関連が 1 件も無い from だけを渡したとき)
+#[tokio::test]
+async fn batch_associations_with_only_errors_is_empty_not_decode_error() {
+    let body = json!({"status": "COMPLETE", "numErrors": 1,
+                      "errors": [{"status": "error", "category": "NO_ASSOCIATIONS_FOUND"}]});
+    let (base, _fake) = spawn_fake(always(207, body)).await;
+    let map = client(&base, fast_opts())
+        .batch_associations("contacts", "calls", &["1".to_string()])
+        .await
+        .expect("results が無くても空");
+    assert!(map.is_empty());
+}
+
+/// 3xx は辿らない (Bearer を別ホストへ持ち出さない)。1 回だけ送って Upstream エラー。
+#[tokio::test]
+async fn redirects_are_not_followed() {
+    let responder: Responder = Arc::new(|_, _| {
+        Resp::json(302, json!({})).header("location", "http://127.0.0.1:1/elsewhere")
+    });
+    let (base, fake) = spawn_fake(responder).await;
+    let err = client(&base, fast_opts())
+        .get_object("contacts", "101", &[])
+        .await
+        .unwrap_err();
+    assert_eq!(err, HubSpotError::Upstream { status: 302 });
+    assert_eq!(fake.count(), 1);
+}
+
+/// 応答の `properties` が無い / null でも、レコードは空のプロパティで読める
+#[tokio::test]
+async fn record_without_properties_reads_as_empty() {
+    for body in [
+        json!({"id": "7", "createdAt": "2026-01-01T00:00:00Z"}),
+        json!({"id": 7, "properties": null}),
+    ] {
+        let (base, _fake) = spawn_fake(always(200, body)).await;
+        let rec = client(&base, fast_opts())
+            .get_object("deals", "7", &["dealname"])
+            .await
+            .unwrap();
+        assert_eq!(rec.id, "7");
+        assert!(rec.properties.is_empty());
+        assert!(!rec.archived);
+    }
+}

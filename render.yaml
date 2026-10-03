@@ -31,9 +31,7 @@ services:
         sync: false
       - key: ALLOWED_DOMAINS
         value: "f-a-c.co.jp"
-      # Server-only HubSpot metadata; never expose this token in frontend assets.
-      - key: HUBSPOT_ACCESS_TOKEN
-        sync: false
+      # /api/crm/* を読める Google ログインのメール (カンマ区切り、完全一致)。役割の本実装までの暫定。
       - key: CRM_METADATA_ALLOWED_EMAILS
         value: s_fujimaki@f-a-c.co.jp
       - key: HELLOWORK_DB_PATH

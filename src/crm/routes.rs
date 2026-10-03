@@ -1,7 +1,8 @@
 //! `GET /api/crm/{contacts|companies|deals}/{id}` (HubSpot レコードの読み取り)。
 //!
 //! 処理順 (順番に意味がある):
-//! 1. 認可 (`rbac`)。**HubSpot の設定有無より先**。未認可の人に設定状況 (503) を見せない → 403
+//! 1. 認可 (`rbac`)。**HubSpot の設定有無より先**。未ログインは JSON 401、未認可は 403
+//!    (未認可の人に設定状況 (503) を見せない)
 //! 2. id の形式 (ASCII 数字 1〜20 桁)。不正なら HubSpot を呼ばずに 400
 //! 3. HubSpot クライアント未設定 → 503 `not_configured`
 //! 4. レコード本体 + 関連 + 直近アクティビティを HubSpot から読む
@@ -33,17 +34,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
+    Extension, Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_sessions::Session;
 
-use super::rbac;
+use super::rbac::{self, CrmAccess};
+use crate::handlers::crm_metadata::MetadataCache;
 use crate::hubspot::deep_link::{hubspot_portal_id, record_url};
 use crate::hubspot::{EngagementType, HubSpotClient, HubSpotError, HubSpotRecord, RecordType};
 use crate::AppState;
@@ -175,12 +177,38 @@ pub fn engagement_properties(et: EngagementType) -> &'static [&'static str] {
     }
 }
 
-/// `/api/crm/*` のルート。`protected_routes` に merge する (認証はそちらの route_layer)。
-pub fn router() -> Router<Arc<AppState>> {
+/// ルートが共有するもの (許可メールと定義のキャッシュ)。
+struct CrmCtx {
+    access: CrmAccess,
+    metadata_cache: MetadataCache,
+    /// レコード読み取りの同時実行数の上限。HubSpot の鍵は既存の営業自動化バッチと共有で
+    /// (100 req/10 秒をアカウントで共有)、1 回の読み取りが最大 6 呼び出しになるため、
+    /// 連打・多タブで枠を食い尽くさないよう絞る。待ちも締め切りに含める。
+    read_slots: tokio::sync::Semaphore,
+}
+
+/// レコード読み取りの同時実行数
+pub const MAX_CONCURRENT_RECORD_READS: usize = 4;
+
+/// `?refresh=true` で定義を取り直せる最短間隔 (これより新しいキャッシュは返す)
+pub const METADATA_REFRESH_FLOOR: Duration = Duration::from_secs(5);
+
+/// `/api/crm/*` のルート (metadata + レコード 3 種)。
+///
+/// **`protected_routes` (auth_middleware) の外に merge する**。未ログインを /login への 303 ではなく
+/// JSON の 401 で返すため。認可は各ハンドラの先頭で `rbac::authorize` が行う。GET のみ。
+pub fn router(access: CrmAccess) -> Router<Arc<AppState>> {
+    let ctx = Arc::new(CrmCtx {
+        access,
+        metadata_cache: MetadataCache::with_refresh_floor(METADATA_REFRESH_FLOOR),
+        read_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_RECORD_READS),
+    });
     Router::new()
+        .route("/api/crm/metadata", get(get_metadata))
         .route("/api/crm/contacts/{id}", get(get_contact))
         .route("/api/crm/companies/{id}", get(get_company))
         .route("/api/crm/deals/{id}", get(get_deal))
+        .layer(Extension(ctx))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),
@@ -190,25 +218,68 @@ pub fn router() -> Router<Arc<AppState>> {
 async fn get_contact(
     session: Session,
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
     Path(id): Path<String>,
 ) -> Response {
-    handle(RecordType::Contact, session, state, id).await
+    handle(RecordType::Contact, session, state, &ctx, id).await
 }
 
 async fn get_company(
     session: Session,
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
     Path(id): Path<String>,
 ) -> Response {
-    handle(RecordType::Company, session, state, id).await
+    handle(RecordType::Company, session, state, &ctx, id).await
 }
 
 async fn get_deal(
     session: Session,
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
     Path(id): Path<String>,
 ) -> Response {
-    handle(RecordType::Deal, session, state, id).await
+    handle(RecordType::Deal, session, state, &ctx, id).await
+}
+
+#[derive(Deserialize, Default)]
+struct MetadataQuery {
+    #[serde(default)]
+    refresh: bool,
+}
+
+/// `GET /api/crm/metadata[?refresh=true]`。顧客の値は返さない。
+async fn get_metadata(
+    session: Session,
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
+    Query(query): Query<MetadataQuery>,
+) -> Response {
+    // 1) 認可 (設定有無より先)
+    if let Err(denied) = rbac::authorize(&session, &state, &ctx.access, None).await {
+        return denied.into_response();
+    }
+    // 2) HubSpot 設定
+    let Some(client) = state.hubspot.clone() else {
+        return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
+    };
+    // 3) 取得 (全体に締め切りを付ける。ロックを持ったまま待たないよう timeout は外側)
+    match tokio::time::timeout(
+        CRM_REQUEST_DEADLINE,
+        ctx.metadata_cache.get(&client, query.refresh),
+    )
+    .await
+    {
+        Err(_elapsed) => {
+            tracing::warn!(error_kind = "crm_timeout", "crm metadata timed out");
+            timeout_response()
+        }
+        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Err(e)) => {
+            tracing::warn!(error_kind = e.error_kind(), "crm metadata read failed");
+            hubspot_error_response(&e)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -354,16 +425,45 @@ fn error_json(status: StatusCode, kind: &str) -> Response {
         .into_response()
 }
 
+fn timeout_response() -> Response {
+    (
+        StatusCode::GATEWAY_TIMEOUT,
+        Json(CrmErrorResponse {
+            error_kind: "crm_timeout".to_string(),
+            message: Some("HubSpot からの取得に時間がかかりすぎたため中断しました".to_string()),
+        }),
+    )
+        .into_response()
+}
+
+/// HubSpot の失敗を応答にする。`message` は `HubSpotError` の固定文言 (上流の応答本文は含まない)。
+fn hubspot_error_response(e: &HubSpotError) -> Response {
+    let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::BAD_GATEWAY);
+    (
+        status,
+        Json(CrmErrorResponse {
+            error_kind: e.error_kind().to_string(),
+            message: Some(e.to_string()),
+        }),
+    )
+        .into_response()
+}
+
 /// HubSpot の ID として受け付ける形か (ASCII 数字 1〜20 桁)
 pub fn is_valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= MAX_ID_DIGITS && id.bytes().all(|b| b.is_ascii_digit())
 }
 
-async fn handle(rt: RecordType, session: Session, state: Arc<AppState>, id: String) -> Response {
+async fn handle(
+    rt: RecordType,
+    session: Session,
+    state: Arc<AppState>,
+    ctx: &CrmCtx,
+    id: String,
+) -> Response {
     // 1) 認可 (設定有無より先)
-    let principal = rbac::load_principal(&session, &state).await;
-    if !rbac::can_read(&principal, rt, rbac::READ_ALLOWED_ROLES) {
-        return error_json(StatusCode::FORBIDDEN, "forbidden");
+    if let Err(denied) = rbac::authorize(&session, &state, &ctx.access, Some(rt)).await {
+        return denied.into_response();
     }
     // 2) id
     if !is_valid_id(&id) {
@@ -373,7 +473,18 @@ async fn handle(rt: RecordType, session: Session, state: Arc<AppState>, id: Stri
     let Some(client) = state.hubspot.clone() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
-    // 4) 読み取り (全体に締め切りを付ける)
+    // 4) 読み取り。同時実行の枠待ちも含めて全体に締め切りを付ける
+    let started = std::time::Instant::now();
+    let _slot = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.read_slots.acquire()).await {
+        Ok(Ok(permit)) => permit,
+        _ => {
+            tracing::warn!(
+                error_kind = "crm_timeout",
+                "crm read waited too long for a slot"
+            );
+            return timeout_response();
+        }
+    };
     let portal = hubspot_portal_id();
     read_response(
         &client,
@@ -381,7 +492,7 @@ async fn handle(rt: RecordType, session: Session, state: Arc<AppState>, id: Stri
         &id,
         &portal,
         MAX_HUBSPOT_CALLS_PER_REQUEST,
-        CRM_REQUEST_DEADLINE,
+        CRM_REQUEST_DEADLINE.saturating_sub(started.elapsed()),
     )
     .await
 }
@@ -408,16 +519,7 @@ pub async fn read_response(
                 id = %id,
                 "crm read timed out"
             );
-            (
-                StatusCode::GATEWAY_TIMEOUT,
-                Json(CrmErrorResponse {
-                    error_kind: "crm_timeout".to_string(),
-                    message: Some(
-                        "HubSpot からの取得に時間がかかりすぎたため中断しました".to_string(),
-                    ),
-                }),
-            )
-                .into_response()
+            timeout_response()
         }
         Ok(Ok(v)) => Json(v).into_response(),
         Ok(Err(e)) => {
@@ -427,15 +529,7 @@ pub async fn read_response(
                 id = %id,
                 "crm read failed"
             );
-            let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::BAD_GATEWAY);
-            (
-                status,
-                Json(CrmErrorResponse {
-                    error_kind: e.error_kind().to_string(),
-                    message: Some(e.to_string()),
-                }),
-            )
-                .into_response()
+            hubspot_error_response(&e)
         }
     }
 }
@@ -528,6 +622,12 @@ pub async fn build_record_view_with_budget(
         }
         Err(e) => return Err(e),
     };
+
+    // アーカイブ済み (削除済み) は生きているものとして見せない。通常 GET は 404 を返すが、
+    // archived: true で返ってきた場合に備える。
+    if record.archived {
+        return Err(HubSpotError::NotFound);
+    }
 
     // --- 関連レコード (自分と同じ型は除く)。v3 の応答は関連ラベルを返さないので labels は空 ---
     let mut associations = CrmAssociations::default();
@@ -626,7 +726,7 @@ pub async fn build_record_view_with_budget(
             .await
         {
             Ok(recs) => {
-                for rec in recs {
+                for rec in recs.into_iter().filter(|r| !r.archived) {
                     let (via_type, via_id) =
                         via.get(&rec.id).cloned().unwrap_or((rt, id.to_string()));
                     activities.push(Activity {

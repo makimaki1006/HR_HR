@@ -708,10 +708,6 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // どちらも旧シェル (dashboard_page) と同じ定義・同じ session キーを読む。要ログイン。
         .merge(handlers::nav::router())
         .merge(handlers::filters::router())
-        // Headless CRM: HubSpot レコードの読み取り (/api/crm/{contacts|companies|deals}/{id})。
-        // 認可は crm::rbac (Google OIDC かつ役割)。/api/v1/* (認証不要) には置かない。
-        // route_layer(auth_middleware) より前に merge すること。
-        .merge(crm::router())
         // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
         // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
         // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。
@@ -891,7 +887,15 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // Google Workspace OIDC (/auth/google/login, /auth/google/callback)。未ログインで到達する必要がある
         .merge(auth::google_oidc::router())
         .merge(api_v1)
-        .merge(handlers::crm_metadata::router())
+        // Headless CRM (/api/crm/metadata と /api/crm/{contacts|companies|deals}/{id}、HubSpot 読み取りのみ)。
+        // auth_middleware の外に置く: 未ログインを /login への 303 でなく JSON の 401 で返すため
+        // (認可は各ハンドラの先頭 = crm::rbac。Google OIDC + CRM_METADATA_ALLOWED_EMAILS)。
+        // レコードの閲覧記録 (誰がどのレコードを見たか) は activity_log_mw をこのルーターだけに掛けて残す。
+        .merge(
+            crm::router(crm::rbac::CrmAccess::from_env()).route_layer(
+                middleware::from_fn_with_state(state.clone(), activity_log_mw),
+            ),
+        )
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(jobgen_routes)
