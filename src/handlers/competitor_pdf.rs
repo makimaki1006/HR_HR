@@ -89,6 +89,9 @@ pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
     let dir = tempfile::tempdir().map_err(|_| "PDFの作成準備に失敗しました。")?;
     let input = dir.path().join("report.html");
     let output = dir.path().join("report.pdf");
+    let diagnostic_path = dir.path().join("chromium.log");
+    let diagnostic_file =
+        std::fs::File::create(&diagnostic_path).map_err(|_| "PDFの作成準備に失敗しました。")?;
     tokio::fs::write(&input, document(html))
         .await
         .map_err(|_| "PDFの作成準備に失敗しました。")?;
@@ -115,7 +118,7 @@ pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
     command.arg(url.as_str());
     command
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::from(diagnostic_file))
         .kill_on_drop(true);
     let mut child = command.spawn().map_err(|err| {
         tracing::error!(error = %err, "Cannot start competitor PDF renderer");
@@ -149,6 +152,12 @@ pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
     })
     .await;
     let _ = child.kill().await;
+    if !matches!(&result, Ok(Ok(_))) {
+        let diagnostic = tokio::fs::read_to_string(&diagnostic_path)
+            .await
+            .unwrap_or_default();
+        tracing::warn!(diagnostic = %diagnostic.chars().take(2000).collect::<String>(), "Competitor PDF Chromium diagnostic");
+    }
     result
         .map_err(|_| "PDFの作成に時間がかかっています。再度お試しください。".to_string())?
         .map_err(str::to_owned)
