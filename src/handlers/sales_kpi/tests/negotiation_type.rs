@@ -680,6 +680,15 @@ fn テンプレートに並びや未設定の直書きが無い() {
     );
 }
 
+/// 分子でない区分を選んだとき、種別表の分子の列は 0 になる。列は隠さず、注釈で理由を示す。
+#[test]
+fn 分子に当たらない区分を選んだとき注釈を出す() {
+    let tpl = include_str!("../../../../templates/tabs/sales_kpi.html");
+    assert!(tpl.contains("panel1-num-note"));
+    assert!(tpl.contains("numSeg&&cardSeg&&cardSeg!==conf.num"));
+    assert!(tpl.contains("は分子に当たらないため、分子の列は計算できません（0 と表示しています）"));
+}
+
 // ---------------------------------------------------------------- JSON のスナップショット
 
 /// `examples/dump_sales_kpi --negtype` が足す「商談種別」の生の値（同じ並び・同じ回し方）。

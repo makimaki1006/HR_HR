@@ -787,6 +787,57 @@ def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     srv.shutdown()
 
 
+def scenario_numnote(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
+    """⑥⑤ で分子でない区分を選ぶと、種別表の見出し直下に「分子に当たらない」注釈が出る（列と値は残す）。
+    分子の区分を選んだとき・区分未選択のときは出ない。"""
+    assert D.get("negotiation_type_available") is True, "--json は --negtype 付きの dump で作ること"
+    srv = serve_json(tpl, D, port, out, "numnote")
+    ctx, page, errs = open_page(br, port)
+    for key, num_seg in (("rate", "実施"), ("anqrate", "回収済み")):
+        ci = CARDS.index(key)
+        page.locator("#cards1 .c").nth(ci).click()
+        page.wait_for_selector("#panel1:not(.hide) #panel1-title")
+        segs = page.evaluate(
+            "()=>[...document.querySelectorAll('#panel1 [data-seg]')].map(b=>b.dataset.seg).filter(x=>x)")
+        assert num_seg in segs and len(segs) >= 2, f"{key}: 区分が足りない {segs}"
+
+        def note():
+            n = page.locator("#panel1-num-note")
+            return n.text_content() if n.count() else None
+
+        if note() is not None:
+            fails.append(f"分子注釈 {key}: 区分未選択なのに注釈が出ている: {note()!r}")
+        for sg in segs:
+            page.locator(f"#panel1 [data-seg='{sg}']").click()
+            got = note()
+            if sg == num_seg:
+                if got is not None:
+                    fails.append(f"分子注釈 {key}/{sg}: 分子の区分なのに注釈が出ている: {got!r}")
+                continue
+            want = f"選んでいる区分（{sg}）は分子に当たらないため、分子の列は計算できません（0 と表示しています）"
+            if got != want:
+                fails.append(f"分子注釈 {key}/{sg}: 注釈 {got!r} ≠ {want!r}")
+            # 列は隠さず、値は 0 のまま
+            cells = page.evaluate(
+                "()=>{const t=document.querySelector('#panel1 table.ntt');"
+                "return t?{th:[...t.querySelectorAll('thead th')].map(x=>x.textContent),"
+                "vals:[...t.querySelectorAll('tbody tr')].map(r=>r.children[2].textContent)}:null}")
+            if not cells or not any(h.startswith("分子") for h in cells["th"]):
+                fails.append(f"分子注釈 {key}/{sg}: 分子の列が消えている: {cells}")
+            elif any(v.strip() != "0" for v in cells["vals"]):
+                fails.append(f"分子注釈 {key}/{sg}: 分子の列が 0 でない: {cells['vals']}")
+            if key == "rate" and sg == "未実施":
+                page.screenshot(path=str(out / "numerator_note_rate_miJisshi.png"), full_page=False)
+            page.locator(f"#panel1 [data-seg='{sg}']").click()  # 外す
+            if note() is not None:
+                fails.append(f"分子注釈 {key}/{sg}: 区分を外したのに注釈が残る: {note()!r}")
+        page.locator("#cards1 .c").nth(ci).click()
+    if errs:
+        fails.append("pageerror(分子注釈): " + "; ".join(errs))
+    ctx.close()
+    srv.shutdown()
+
+
 def scenario_nt_missing(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     """列が無いシート（available:false）では「商談種別: 未取得」を出し、種別の表は出さない。"""
     assert D.get("negotiation_type_available") is False
@@ -843,7 +894,7 @@ def main():
     ap.add_argument("--template", default="templates/tabs/sales_kpi.html")
     ap.add_argument("--cards-only", default=None)
     ap.add_argument("--port", type=int, default=9317)
-    ap.add_argument("--only", choices=["main", "blank", "rowteam", "pickblank", "negtype", "ntmissing"], default=None,
+    ap.add_argument("--only", choices=["main", "blank", "rowteam", "pickblank", "negtype", "ntmissing", "numnote"], default=None,
                     help="指定したケースだけ走らせる（既定は全部）")
     a = ap.parse_args()
     out = Path(a.out)
@@ -880,13 +931,16 @@ def main():
         if a.only is None:
             if D.get("negotiation_type_available") is True:
                 run_guarded(scenario_negtype, br, Path(a.template), D, out, a.port + 4, fails)
+                run_guarded(scenario_numnote, br, Path(a.template), D, out, a.port + 8, fails)
             elif D.get("negotiation_type_available") is False:
                 run_guarded(scenario_nt_missing, br, Path(a.template), D, out, a.port + 6, fails)
+        if a.only == "numnote":
+            run_guarded(scenario_numnote, br, Path(a.template), D, out, a.port + 8, fails)
         if a.only == "negtype":
             run_guarded(scenario_negtype, br, Path(a.template), D, out, a.port + 4, fails)
         if a.only == "ntmissing":
             run_guarded(scenario_nt_missing, br, Path(a.template), D, out, a.port + 6, fails)
-        if a.only in ("blank", "rowteam", "pickblank", "negtype", "ntmissing"):
+        if a.only in ("blank", "rowteam", "pickblank", "negtype", "ntmissing", "numnote"):
             br.close()
             srv.shutdown()
             if fails:
