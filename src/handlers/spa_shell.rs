@@ -46,6 +46,8 @@ pub const KNOWN_SCREENS: &[&str] = &[
     "recruitment-diag",
     // Headless CRM (2026-10-02): 架電 CRM の MOC (/app/crm)。ナビは管理者のみ (nav.rs crm_visible)
     "crm",
+    // React 移行 W2 (2026-09-30): 営業KPI (/app/sales-kpi)。旧 /sales-kpi は並走
+    "sales-kpi",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。
