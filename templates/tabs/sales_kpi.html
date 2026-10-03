@@ -780,6 +780,13 @@ function drawCardPanel(){
     if(numSeg){cs[2].textContent=fmt(sumN); cs[2].dataset.sumNum=sumN;}
     cs[numSeg?3:2].textContent=sumB?fmt(sumB):'—';
     t.appendChild(tf);
+    // 分子でない区分（未実施など）を選んでいるときは、分子の列が全行 0 になる。列と値は残し、理由を表の上に書く。
+    if(numSeg&&cardSeg&&cardSeg!==conf.num){
+      const nn=document.createElement('div'); nn.id='panel1-num-note';
+      nn.style.cssText='font-size:12.5px;color:var(--faint);margin:2px 0 6px';
+      nn.textContent='選んでいる区分（'+cardSeg+'）は分子に当たらないため、分子の列は計算できません（0 と表示しています）';
+      P.appendChild(nn);
+    }
     P.appendChild(t);
   }
   if(!rows.length){P.insertAdjacentHTML('beforeend','<div class="empty">この条件に当てはまる取引はありません。</div>');return;}
