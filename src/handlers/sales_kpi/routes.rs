@@ -10,6 +10,9 @@
 //! 常駐リソース（SheetsClient / SheetStore）は架電クオリティのものを borrow する。
 //! **同じスプレッドシートなので、別に持つとキャッシュが二重になって
 //! Sheets を無駄に2回叩く**。
+//!
+//! 応答の形は `super::payload`（`SalesKpiData`）。2026-09-30 に `serde_json::Value` から
+//! struct に置き換えた（JSON は変えていない。`tests::payloadのjsonは置換前のスナップショットと一致する`）。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -20,10 +23,10 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{Datelike, Duration, FixedOffset, NaiveDate, Utc};
 use serde::Deserialize;
-use serde_json::{json, Value};
 use tower_sessions::Session;
 
 use crate::handlers::call_quality::routes::{cq_state, CqError};
+use crate::handlers::call_quality::sheets::SheetData;
 use crate::handlers::cs_dashboard::routes::hubspot_portal_id;
 use crate::AppState;
 use crate::SESSION_USER_KEY;
@@ -31,8 +34,11 @@ use crate::SESSION_USER_KEY;
 use super::{
     classify, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_of, kaden_period,
     kettei_days_of, list_stock_of, load, members_of, negotiation_type_order_of, person_of,
-    snapshots_of, CardSrc, Counts, Deal, DealRow, Kind, Person, Sheets, CARD_KEYS, KADEN_CLASSES,
-    KETTEI_COLS, NEGOTIATION_TYPE_COL, NEGOTIATION_TYPE_FIXED, SHEET_META,
+    snapshots_of, CallPeriods, Calls, CallsDaily, CallsRule, CardDeals, CardSrc, Counts, DateSpan,
+    Deal, DealRow, Kaden, KadenAll, KadenBaseTrend, KadenComposition, KadenUnassigned, Kettei,
+    KetteiCells, KetteiRow, Kind, ListStock, NegotiationTypeSheets, Person, SalesKpiData, Sheets,
+    StockTrend, UnassignedPerson, CARD_KEYS, KADEN_CLASSES, KETTEI_COLS, NEGOTIATION_TYPE_COL,
+    NEGOTIATION_TYPE_FIXED, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -120,8 +126,24 @@ struct DataQuery {
 ///
 /// 分けて何本も叩かせないのは、どの数字も同じ日の同じシートから作らないと
 /// 画面の中で食い違うため（「取ったアポ」と「やった商談」が別時点になる）。
-async fn data(Query(q): Query<DataQuery>, session: Session) -> Result<Response, CqError> {
-    let _ = session;
+///
+/// 旧画面 `/sales-kpi` と React 画面 `/app/sales-kpi` の両方がこれを読む。
+async fn data(Query(q): Query<DataQuery>) -> Result<Response, CqError> {
+    // ローカル専用: `SALES_KPI_FIXTURE_DIR` があれば Sheets を読まずに TSV から組む
+    // （旧画面と React 画面を同じ材料で起動して突き合わせるため。2026-09-30）。
+    // 本番はこの環境変数を置かないので、ここは通らず従来どおり。
+    if let Some(dir) = super::fixture::dir_from_env() {
+        tracing::info!(
+            "営業KPI: {} により fixture から組む: {}",
+            super::fixture::ENV_DIR,
+            dir.display()
+        );
+        let sheets = super::fixture::sheets_from_dir(&dir)
+            .map_err(|e| CqError::from_anyhow("sales-kpi", e))?;
+        let today = super::fixture::today_from_env().unwrap_or_else(today_jst);
+        return Ok(Json(build_payload(&sheets, today)).into_response());
+    }
+
     let state = cq_state()?;
     if q.refresh.as_deref() == Some("1") {
         for name in [
@@ -152,7 +174,7 @@ async fn data(Query(q): Query<DataQuery>, session: Session) -> Result<Response, 
 /// `data()` から切り出してあるのは、**実データのシートを読み込んで
 /// Python 版（これまでの画面）と突き合わせるテストを書くため**。
 /// 今日を引数で受けるので、過去の日付でも同じ結果を再現できる。
-pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
+pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> SalesKpiData {
     let members = members_of(&sheets.member);
     let cutoff = at_midnight(today);
     let month_lo = at_midnight(month_first(today));
@@ -233,11 +255,12 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     //      ① は当月に確定したアポなので当月の取得日だけ。
     //    ④ は日付で切らない。`classify` の結果（これから以外）で切る。
     let portal = hubspot_portal_id();
-    let negotiation_type_sheets: BTreeMap<&str, bool> = BTreeMap::from([
-        ("pool", sheets.shodan.col(NEGOTIATION_TYPE_COL).is_some()),
-        ("apo", sheets.apo.col(NEGOTIATION_TYPE_COL).is_some()),
-        ("cyomi", sheets.cyomi.col(NEGOTIATION_TYPE_COL).is_some()),
-    ]);
+    // JSON のキー順は旧実装（BTreeMap）と同じ apo / cyomi / pool（`NegotiationTypeSheets` の宣言順）。
+    let negotiation_type_sheets = NegotiationTypeSheets {
+        apo: sheets.apo.col(NEGOTIATION_TYPE_COL).is_some(),
+        cyomi: sheets.cyomi.col(NEGOTIATION_TYPE_COL).is_some(),
+        pool: sheets.shodan.col(NEGOTIATION_TYPE_COL).is_some(),
+    };
     let pool_rows: Vec<DealRow> = month
         .iter()
         .map(|d| {
@@ -365,23 +388,18 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     let next_week = week_rows(&week_hi, &next_hi);
 
     // アンケート未回収は「これから商談があるのに、まだアンケートが無い」もの
-    let anq_missing: Vec<Value> = this_week
+    let anq_missing: Vec<DealRow> = this_week
         .iter()
         .chain(next_week.iter())
         .filter(|r| r.past == Some(false) && r.anq == Some(false))
-        .map(|r| serde_json::to_value(r).unwrap_or(Value::Null))
+        .cloned()
         .collect();
 
     // ---- 架電リストの状態 -------------------------------------------------
     let (mut kaden_block, kaden_base) =
         kaden_list_block(&sheets.kaden_list, &sheets.kaden_by_owner, &members);
     // 母数がどれだけ動いたか。週次シートは読むだけ（書くのは Python 側）。
-    if let Some(obj) = kaden_block.as_object_mut() {
-        obj.insert(
-            "base_trend".into(),
-            kaden_base_trend(&sheets.weekly, kaden_base, &ymd(wk)),
-        );
-    }
+    kaden_block.base_trend = kaden_base_trend(&sheets.weekly, kaden_base, &ymd(wk));
 
     // 架電リストだけに出てくる担当者も個人プルダウンに載せる。
     // 🔴 載せないと「そのチームの合計は出るのに、中の誰も選べない」ことが起きる。
@@ -467,7 +485,7 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         .filter(|d| have_days.contains(d.as_str()))
         .collect();
 
-    let mut daily: Vec<Value> = Vec::new();
+    let mut daily: Vec<CallsDaily> = Vec::new();
     let mut per_day: BTreeMap<&str, (i64, i64, i64)> = BTreeMap::new();
     for row in &kaden_rows {
         let e = per_day.entry(row.date.as_str()).or_insert((0, 0, 0));
@@ -476,7 +494,12 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
         e.2 += row.long;
     }
     for (date, (calls, connected, long)) in &per_day {
-        daily.push(json!({"date": date, "calls": calls, "connected": connected, "long": long}));
+        daily.push(CallsDaily {
+            date: (*date).to_string(),
+            calls: *calls,
+            connected: *connected,
+            long: *long,
+        });
     }
 
     let mut unmatched_by_dept: BTreeMap<String, i64> = BTreeMap::new();
@@ -492,36 +515,36 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
     let mut unmatched: Vec<(String, i64)> = unmatched_by_dept.into_iter().collect();
     unmatched.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let calls = json!({
-        "generated_at": last_day.clone(),
+    let calls = Calls {
+        generated_at: last_day.clone(),
         // シートに入っている最後の日と、その日がまだ途中かどうか。
         // 画面はこれを見て「集計中」と出せる。
-        "last_day": last_day.clone(),
-        "last_day_partial": kaden_partial,
+        last_day: last_day.clone(),
+        last_day_partial: kaden_partial,
         // いつ Zoom から取ったか。当日は次の同期まで動かないので、
         // 「何時時点の数か」を出さないと、夕方に見た人が朝の数を今の数だと思う。
         // 2026-09-08 に実際そうなっていた（画面 22件・実数 10,410件）。
-        "fetched_at": meta.get("架電の取得時刻").cloned().unwrap_or_default(),
-        "rule": {
-            "calls": "Zoomの通話ログのうち direction=outbound を1件と数える",
-            "connected": "result が Auto Recorded のもの。現場が「架電数」と呼んでいるのはこの数",
-            "long": "通話 300 秒超。過去分析でアポ獲得との相関が高かった指標",
-            "join": "call_logs に caller_email が無いため Zoomユーザーのメール → HubSpot担当者のメールで紐づけ",
+        fetched_at: meta.get("架電の取得時刻").cloned().unwrap_or_default(),
+        rule: CallsRule {
+            calls: "Zoomの通話ログのうち direction=outbound を1件と数える",
+            connected: "result が Auto Recorded のもの。現場が「架電数」と呼んでいるのはこの数",
+            long: "通話 300 秒超。過去分析でアポ獲得との相関が高かった指標",
+            join: "call_logs に caller_email が無いため Zoomユーザーのメール → HubSpot担当者のメールで紐づけ",
         },
-        "periods": {
+        periods: CallPeriods {
             // 🔴 today はシートの最終日ではなく実際の今日。今日の行がまだ無ければ
             //    空（0件）で返す。無い日を「今日」として出すと画面が嘘をつく。
-            "today": kaden_period(&kaden_rows, &[ymd(today)], &members),
-            "yesterday": kaden_period(&kaden_rows, &[ymd(today - Duration::days(1))], &members),
-            "this_week": kaden_period(&kaden_rows, &this_week_days, &members),
-            "prev_week_same": kaden_period(&kaden_rows, &prev_same, &members),
-            "prev_week": kaden_period(&kaden_rows, &prev_week_days, &members),
-            "this_month": kaden_period(&kaden_rows, &month_days, &members),
+            today: kaden_period(&kaden_rows, &[ymd(today)], &members),
+            yesterday: kaden_period(&kaden_rows, &[ymd(today - Duration::days(1))], &members),
+            this_week: kaden_period(&kaden_rows, &this_week_days, &members),
+            prev_week_same: kaden_period(&kaden_rows, &prev_same, &members),
+            prev_week: kaden_period(&kaden_rows, &prev_week_days, &members),
+            this_month: kaden_period(&kaden_rows, &month_days, &members),
         },
-        "daily": daily,
-        "people": people_list(&people),
-        "unmatched_by_dept": unmatched.into_iter().collect::<BTreeMap<_, _>>(),
-    });
+        daily,
+        people: people_list(&people),
+        unmatched_by_dept: unmatched.into_iter().collect::<BTreeMap<_, _>>(),
+    };
 
     let teams: Vec<String> = by_team.keys().cloned().collect();
     // 商談種別の並び。表に出る行（card_deals の 3 つ）に実際にあるラベルだけを足す。
@@ -532,60 +555,64 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> Value {
             .chain(&cyomi_rows)
             .filter_map(|r| r.negotiation_type.as_deref()),
     );
-    let body = json!({
-        "generated_at": meta.get("取得時刻").cloned().unwrap_or_else(|| ymd(today)),
-        "week": {"start": ymd(wk), "end": ymd(wk + Duration::days(6))},
-        "next_week": {"start": ymd(wk + Duration::days(7)), "end": ymd(wk + Duration::days(13))},
-        "stale_days": super::STALE_DAYS,
-        "bpo_rule": "BPOアポ取得日が当月または前月にあるものをBPO経由とする。このプロパティは過去のBPOアポの日付が残り続けるため、値の有無では判定できない（現場指摘）",
-        "teams": teams,
-        "by_team": by_team,
-        "by_person": by_person,
-        "people": people_list(&people),
-        "bpo_total": bpo_total,
-        "stale": stale,
-        "week_deals": this_week,
-        "next_week_deals": next_week,
-        "anq_missing": anq_missing,
-        "cyomi_stale": cyomi_stale,
+    SalesKpiData {
+        generated_at: meta.get("取得時刻").cloned().unwrap_or_else(|| ymd(today)),
+        week: DateSpan {
+            start: ymd(wk),
+            end: ymd(wk + Duration::days(6)),
+        },
+        next_week: DateSpan {
+            start: ymd(wk + Duration::days(7)),
+            end: ymd(wk + Duration::days(13)),
+        },
+        stale_days: super::STALE_DAYS,
+        bpo_rule: "BPOアポ取得日が当月または前月にあるものをBPO経由とする。このプロパティは過去のBPOアポの日付が残り続けるため、値の有無では判定できない（現場指摘）",
+        teams,
+        by_team,
+        by_person,
+        people: people_list(&people),
+        bpo_total,
+        stale,
+        week_deals: this_week,
+        next_week_deals: next_week,
+        anq_missing,
+        cyomi_stale,
         // 「今月の成績」カードの内訳の行。件数（by_team / by_person）と同じ行・同じ述語から作る。
         // pool = ③ 当月の母集団（②④⑥⑤ はここを kind / anq で切る）、
         // apo = ① アポシートの全行、cyomi = ⑨ Cヨミシートの全行（いずれも集計除外後）。
-        "card_deals": {
-            "pool": pool_rows,
-            "apo": apo_rows,
-            "cyomi": cyomi_rows,
+        card_deals: CardDeals {
+            pool: pool_rows,
+            apo: apo_rows,
+            cyomi: cyomi_rows,
         },
         // 商談種別（取引の `negotiation_type`）。行の `negotiation_type` は**ラベル**（内部値は出さない）。
         // 列が無いシートの行にはキーを付けない。無いことは次の 2 つで伝える（カードの出どころごと）。
         // 件数は行から数える（by_person などに種別のキーは足していない）。
-        "negotiation_type_available": negotiation_type_sheets.values().any(|v| *v),
-        "negotiation_type_sheets": negotiation_type_sheets,
+        negotiation_type_available: negotiation_type_sheets.any(),
+        negotiation_type_sheets,
         // 並びは Rust が決める（固定の 3 つ + 実際に出てきた定義外を名前順）。画面はこの順に従うだけ。
         // `negotiation_type_fixed` は 0 件でも表に並べる 2 種別。
-        "negotiation_type_order": negotiation_type_order,
-        "negotiation_type_fixed": NEGOTIATION_TYPE_FIXED,
+        negotiation_type_order,
+        negotiation_type_fixed: NEGOTIATION_TYPE_FIXED.to_vec(),
         // 商談の集計から外した件数。内訳は HubSpotチーム 別。
         // 🔴 チーム名はシート（KPI営業_集計除外）由来で、ここには書かれていない。
-        "excluded": dropped,
-        "kaden": kaden_block,
-        "kaden_base": kaden_base,
+        excluded: dropped,
+        kaden: kaden_block,
+        kaden_base,
         // 決定者・決裁者の入力状況（担当者ごと）。シートがまだ無ければ rows は空配列。
         // 画面はそのときタブごと出さない。
-        "kettei": kettei,
+        kettei,
         // 新規営業のリストの在庫（リクロジ／大分 × アクティブ／保管 × 企業人数）。
         // シートがまだ無ければ lists は空配列。画面はそのときタブごと出さない。
-        "list_stock": list_stock,
-        "calls": calls,
+        list_stock,
+        calls,
         // 週に1行の記録。Python の日次同期（Hubspot リポジトリ
         // `scripts/sales_kpi/sync_daily.py` の `sync_weekly()`）が
         // KPI営業_週次 へその週の行を上書きする。まだ1度も書かれていなければ空配列。
-        "snapshots": snapshots_of(&sheets.weekly),
-        "meta": meta,
-        "from_cache": sheets.all_cached,
-    });
-
-    body
+        snapshots: snapshots_of(&sheets.weekly),
+        meta,
+        from_cache: sheets.all_cached,
+    }
 }
 
 /// 取引に出てきた担当者を控えて、その人のチーム名を返す。
@@ -602,10 +629,11 @@ fn note(
         .clone()
 }
 
-fn people_list(people: &HashMap<String, Person>) -> Vec<&Person> {
+/// チーム名 → 氏名の順に並べた一覧。
+fn people_list(people: &HashMap<String, Person>) -> Vec<Person> {
     let mut v: Vec<&Person> = people.values().collect();
     v.sort_by(|a, b| (a.team.as_str(), a.name.as_str()).cmp(&(b.team.as_str(), b.name.as_str())));
-    v
+    v.into_iter().cloned().collect()
 }
 
 /// `yyyy-MM-dd HH:mm` から今日までの日数。空・壊れていれば None。
@@ -614,7 +642,7 @@ fn days_since(text: &str, today: NaiveDate) -> Option<i64> {
     Some((today - date).num_days())
 }
 
-/// 架電リストの母数が、前の週の記録からどれだけ動いたか。無ければ `Null`。
+/// 架電リストの母数が、前の週の記録からどれだけ動いたか。無ければ `None`。
 ///
 /// 🔴 **母数は毎月大きく動く。異常ではなくリストマネジメントの正常な運用**
 /// （2026-09-07 ユーザー確認）。アポ前リストと BPO リストの間でまとまった件数が
@@ -631,57 +659,40 @@ fn days_since(text: &str, today: NaiveDate) -> Option<i64> {
 /// 「BPO へ払い出したから減った」のか「ステージ構成が変わったから」なのかを
 /// 判定できない。画面には動いた事実だけを出して、断定しない。
 fn kaden_base_trend(
-    weekly: &crate::handlers::call_quality::sheets::SheetData,
+    weekly: &SheetData,
     base: i64,
     this_week_start: &str,
-) -> Value {
-    let prev = snapshots_of(weekly)
+) -> Option<KadenBaseTrend> {
+    // snapshots_of は週の昇順。後ろから探して最初に当たるのが「今週ではない、いちばん新しい記録」。
+    snapshots_of(weekly)
         .into_iter()
-        .filter(|s| {
-            s["kaden_base"].as_i64().unwrap_or(0) > 0
-                && s["week_start"].as_str().unwrap_or("") != this_week_start
+        .rfind(|s| s.kaden_base > 0 && s.week_start != this_week_start)
+        .map(|s| KadenBaseTrend {
+            diff: base - s.kaden_base,
+            week: s.week,
+            week_start: s.week_start,
+            base: s.kaden_base,
         })
-        // snapshots_of は週の昇順。最後が「今週ではない、いちばん新しい記録」。
-        .next_back();
-    match prev {
-        Some(s) => json!({
-            "week": s["week"],
-            "week_start": s["week_start"],
-            "base": s["kaden_base"],
-            "diff": base - s["kaden_base"].as_i64().unwrap_or(0),
-        }),
-        None => Value::Null,
-    }
 }
 
 /// リストの在庫に、前の週の記録を添える。
 ///
 /// 比べる相手は `kaden_base_trend` と同じく「今週ではない、いちばん新しい記録」。
 /// 記録に残っているのは企業人数で絞らない数だけなので、画面は企業人数で絞っていない
-/// ときにだけ差を出す。記録が無ければ `trend` は `null`。
-fn list_stock_block(
-    sheet: &crate::handlers::call_quality::sheets::SheetData,
-    weekly: &crate::handlers::call_quality::sheets::SheetData,
-    this_week_start: &str,
-) -> Value {
+/// ときにだけ差を出す。記録が無ければ `trend` は `None`。
+fn list_stock_block(sheet: &SheetData, weekly: &SheetData, this_week_start: &str) -> ListStock {
     let mut block = list_stock_of(sheet);
     // snapshots_of は週の昇順。後ろから探して最初に当たるのが「今週ではない、いちばん新しい記録」。
-    let prev = snapshots_of(weekly).into_iter().rfind(|s| {
-        !s["list_stock"].is_null() && s["week_start"].as_str().unwrap_or("") != this_week_start
+    let prev = snapshots_of(weekly)
+        .into_iter()
+        .rfind(|s| s.list_stock.is_some() && s.week_start != this_week_start);
+    block.trend = prev.and_then(|s| {
+        s.list_stock.map(|lists| StockTrend {
+            week: s.week,
+            week_start: s.week_start,
+            lists,
+        })
     });
-    if let Some(obj) = block.as_object_mut() {
-        obj.insert(
-            "trend".into(),
-            match prev {
-                Some(s) => json!({
-                    "week": s["week"],
-                    "week_start": s["week_start"],
-                    "lists": s["list_stock"],
-                }),
-                None => Value::Null,
-            },
-        );
-    }
     block
 }
 
@@ -695,11 +706,11 @@ fn list_stock_block(
 /// 7,337件あり（2026-09-07 実測。12万件の 5.7%）、どのチームにも属さないため。
 /// そのぶんは `no_owner` に出して、画面が黙って落とさないようにする。
 fn kaden_list_block(
-    sheet: &crate::handlers::call_quality::sheets::SheetData,
-    by_owner_sheet: &crate::handlers::call_quality::sheets::SheetData,
+    sheet: &SheetData,
+    by_owner_sheet: &SheetData,
     members: &HashMap<String, Person>,
-) -> (Value, i64) {
-    let mut composition = Vec::new();
+) -> (Kaden, i64) {
+    let mut composition: Vec<KadenComposition> = Vec::new();
     let mut cls: BTreeMap<String, i64> = BTreeMap::new();
     let mut fill: BTreeMap<String, i64> = BTreeMap::new();
     let mut total = 0i64;
@@ -714,7 +725,11 @@ fn kaden_list_block(
             .unwrap_or(0);
         match kind {
             "ステージ" => {
-                composition.push(json!({"stage": name, "cls": group, "count": count}));
+                composition.push(KadenComposition {
+                    stage: name.to_string(),
+                    cls: group.to_string(),
+                    count,
+                });
                 *cls.entry(group.to_string()).or_insert(0) += count;
             }
             "合計" => total = count,
@@ -786,56 +801,62 @@ fn kaden_list_block(
     let unassigned_base = sum_of(&unassigned_cls);
 
     // まだ配られていない分を、誰が持っているかまで出す。配る判断に使うため。
-    let mut stock: Vec<Value> = by_person
+    let mut stock: Vec<UnassignedPerson> = by_person
         .iter()
         .filter(|(owner, _)| !super::is_sales_team(&person_of(members, owner).team))
         .map(|(owner, counts)| {
             let p = person_of(members, owner);
-            json!({
-                "id": owner, "name": p.name, "team": p.team, "hsTeam": p.hs_team,
-                "base": counts.get("base").copied().unwrap_or(0),
-                "未架電": counts.get("未架電").copied().unwrap_or(0),
-                "未接触": counts.get("未接触").copied().unwrap_or(0),
-                "接触済み": counts.get("接触済み").copied().unwrap_or(0),
-            })
+            let get = |key: &str| counts.get(key).copied().unwrap_or(0);
+            UnassignedPerson {
+                id: owner.clone(),
+                name: p.name,
+                team: p.team,
+                hs_team: p.hs_team,
+                base: get("base"),
+                not_called: get("未架電"),
+                not_reached: get("未接触"),
+                reached: get("接触済み"),
+            }
         })
-        .filter(|v| v["base"].as_i64().unwrap_or(0) > 0)
+        .filter(|v| v.base > 0)
         .collect();
-    stock.sort_by_key(|v| -v["base"].as_i64().unwrap_or(0));
+    stock.sort_by_key(|v| -v.base);
 
     // 担当者別シートがまだ無い環境では分けようがない。従来どおり全体を出す。
     let have = !by_owner_sheet.rows.is_empty();
 
     (
-        json!({
-            "composition": composition,
+        Kaden {
+            composition,
             // 画面のカードが使う「全社」。営業チームの合計。
-            "base": if have { sales_base } else { base },
-            "cls": if have { sales_cls } else { cls.clone() },
-            "total": total,
-            "fill": fill,
+            base: if have { sales_base } else { base },
+            cls: if have { sales_cls } else { cls.clone() },
+            total,
+            fill,
             // アポ前パイプライン全体（従来の「全社」）。注記と母数の推移に使う。
             // 🔴 週次シートの `kaden_base` はこちらの数え方なので、
             //    前の週との比較はこちらと突き合わせないと桁が合わない。
-            "all": {"cls": cls, "base": base},
+            all: KadenAll { cls, base },
             // まだ営業チームに配られていない分。合計と、誰が持っているか。
-            "unassigned": {
-                "cls": unassigned_cls,
-                "base": unassigned_base,
-                "no_owner": no_owner.get("base").copied().unwrap_or(0),
-                "people": stock,
+            unassigned: KadenUnassigned {
+                cls: unassigned_cls,
+                base: unassigned_base,
+                no_owner: no_owner.get("base").copied().unwrap_or(0),
+                people: stock,
             },
             // どちらも担当なしを含まない。合計は必ず一致する。
-            "by_person": by_person,
-            "by_team": by_team,
+            by_person,
+            by_team,
             // 担当者が入っていない取引。どのチームにも個人にも入らない。
-            "no_owner": no_owner,
+            no_owner,
             // 数えられた母数の合計（= by_person の合計 ＋ no_owner）。
             // 全社の `base` との差は「今回数えていない担当者ぶん」か
             // 「数えている間にステージが動いたぶん」。画面はこの差を出す。
-            "counted_base": counted,
-            "has_by_owner": have,
-        }),
+            counted_base: counted,
+            has_by_owner: have,
+            // 週次の記録との差は `build_payload` が後から入れる。
+            base_trend: None,
+        },
         base,
     )
 }
@@ -847,7 +868,7 @@ fn kaden_list_block(
 /// 日数ぶん数えることになる。
 ///
 /// 「増加」は 最新日の合計 − 前日の合計。
-/// 🔴 **前日の行が無い担当者は `null`**（0 ではない）。「前日も入力が無かった」のか
+/// 🔴 **前日の行が無い担当者は `None`**（0 ではない）。「前日も入力が無かった」のか
 /// 「前日はそもそも記録されていなかった（同期が動いていない・その日から数え始めた）」
 /// のかを、この材料からは区別できない。0 と書くと「今日は1件も増えなかった」と
 /// 断定することになるので、画面には「—」を出させる。
@@ -860,70 +881,69 @@ fn kaden_list_block(
 /// 黙って落とすと表の合計がシートの合計より少なくなる。`no_owner` に分けて返し、
 /// 画面が別の行として出せるようにする。
 fn kettei_block(
-    sheet: &crate::handlers::call_quality::sheets::SheetData,
+    sheet: &SheetData,
     members: &HashMap<String, Person>,
     people: &mut HashMap<String, Person>,
-) -> Value {
+) -> Kettei {
     let days = kettei_days_of(sheet);
     // 画面が出す列。見出しをサーバとテンプレートの2か所に書かないよう、ここから渡す。
-    let cols: Vec<&str> = KETTEI_COLS.iter().map(|(_, key)| *key).collect();
+    let cols: Vec<&'static str> = KETTEI_COLS.iter().map(|(_, key)| *key).collect();
 
     // 1人ぶん（または担当なしぶん）の数字。列・合計・増加をまとめて作る。
-    let cells = |owner: &str, counts: &Counts| -> serde_json::Map<String, Value> {
+    let cells = |owner: &str, counts: &Counts| -> KetteiCells {
         let total = counts.get("合計").copied().unwrap_or(0);
-        let mut item = serde_json::Map::new();
-        for key in &cols {
-            item.insert(
-                (*key).to_string(),
-                json!(counts.get(*key).copied().unwrap_or(0)),
-            );
-        }
-        item.insert("合計".into(), json!(total));
-        item.insert(
-            "増加".into(),
-            json!(days
-                .prev
+        KetteiCells::from_counts(
+            counts,
+            days.prev
                 .get(owner)
-                .map(|p| total - p.get("合計").copied().unwrap_or(0))),
-        );
-        item
+                .map(|p| total - p.get("合計").copied().unwrap_or(0)),
+        )
     };
 
-    let mut rows: Vec<Value> = Vec::new();
-    let mut no_owner = Value::Null;
+    let mut rows: Vec<KetteiRow> = Vec::new();
+    let mut no_owner: Option<KetteiCells> = None;
     for (owner, counts) in &days.latest {
-        let mut item = cells(owner, counts);
+        let item = cells(owner, counts);
         // 担当者が入っていない行は「人」ではないので、担当者ごとの表には混ぜない。
         // 落としもしない（→ `no_owner`）。チーム・個人の絞り込みも掛けようが無い。
         if owner.is_empty() {
-            no_owner = Value::Object(item);
+            no_owner = Some(item);
             continue;
         }
         let team = note(people, members, owner);
         let person = person_of(members, owner);
-        item.insert("owner".into(), json!(owner));
-        item.insert("ownerName".into(), json!(person.name));
-        item.insert("team".into(), json!(team));
-        item.insert("hsTeam".into(), json!(person.hs_team));
-        rows.push(Value::Object(item));
+        rows.push(KetteiRow {
+            cells: item,
+            owner: owner.clone(),
+            owner_name: person.name,
+            team,
+            hs_team: person.hs_team,
+        });
     }
     // 合計の多い順。同数なら担当者名で決めて、読み直すたびに並びが変わらないようにする。
     rows.sort_by(|a, b| {
-        b["合計"]
-            .as_i64()
-            .cmp(&a["合計"].as_i64())
-            .then_with(|| a["ownerName"].as_str().cmp(&b["ownerName"].as_str()))
+        b.cells
+            .total
+            .cmp(&a.cells.total)
+            .then_with(|| a.owner_name.cmp(&b.owner_name))
     });
 
-    json!({
-        // いつ時点の入力件数か。行が無ければ null（画面はタブごと出さない）。
-        "date": if days.date.is_empty() { Value::Null } else { json!(days.date) },
-        // 「増加」が何との差か。1日ぶんしか無ければ null。
-        "prev_date": if days.prev_date.is_empty() { Value::Null } else { json!(days.prev_date) },
-        "cols": cols,
-        "rows": rows,
+    Kettei {
+        // いつ時点の入力件数か。行が無ければ None（画面はタブごと出さない）。
+        date: if days.date.is_empty() {
+            None
+        } else {
+            Some(days.date.clone())
+        },
+        // 「増加」が何との差か。1日ぶんしか無ければ None。
+        prev_date: if days.prev_date.is_empty() {
+            None
+        } else {
+            Some(days.prev_date.clone())
+        },
+        cols,
+        rows,
         // 担当者が入っていない取引ぶん。人ではないのでチーム・個人では絞れない。
-        // 無ければ null。
-        "no_owner": no_owner,
-    })
+        no_owner,
+    }
 }

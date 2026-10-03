@@ -148,3 +148,17 @@ export const RD_FIXTURE = {
     statusText: '完了（12 市区町村）',
   },
 } as const;
+
+/**
+ * 営業KPI (tests/fixtures/sales_kpi、判定日 2026-09-04) の既知値。
+ * `cargo run --example dump_sales_kpi` の JSON の by_person / by_team / calls.periods.this_week を Python で足した値
+ * (Rust の契約テスト src/handlers/sales_kpi/tests.rs と同じ: 伊壺チーム apo 31 / pool 66 / 実施 19、stale 9)。
+ */
+export const SALES_KPI_FIXTURE = {
+  today: '2026-09-04',
+  all: { apo: 245, pool: 537, done: 163, den: 225, cyomi: 123 }, // den = 実施 163 + 未実施 53 + 未処理 4 + 要判定 5
+  iduboTeam: { apo: 31, pool: 66, done: 19 }, // ④ = 19 + 10 + 1 = 30
+  stale: 9,
+  // 今週 (8/31〜9/4 の 5 日) の全社。by_person の合計 (突合できた分)
+  calls: { connected: 29866, calls: 34295, long: 791 },
+} as const;
