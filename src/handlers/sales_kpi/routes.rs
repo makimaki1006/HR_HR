@@ -33,11 +33,12 @@ use crate::SESSION_USER_KEY;
 
 use super::{
     classify, deal_row, deals_of, is_bpo, kaden_by_owner_of, kaden_of, kaden_period,
-    kettei_days_of, list_stock_of, load, members_of, person_of, snapshots_of, CallPeriods, Calls,
-    CallsDaily, CallsRule, CardDeals, CardSrc, Counts, DateSpan, Deal, DealRow, Kaden, KadenAll,
-    KadenBaseTrend, KadenComposition, KadenUnassigned, Kettei, KetteiCells, KetteiRow, Kind,
-    ListStock, Person, SalesKpiData, Sheets, StockTrend, UnassignedPerson, CARD_KEYS,
-    KADEN_CLASSES, KETTEI_COLS, SHEET_META,
+    kettei_days_of, list_stock_of, load, members_of, negotiation_type_order_of, person_of,
+    snapshots_of, CallPeriods, Calls, CallsDaily, CallsRule, CardDeals, CardSrc, Counts, DateSpan,
+    Deal, DealRow, Kaden, KadenAll, KadenBaseTrend, KadenComposition, KadenUnassigned, Kettei,
+    KetteiCells, KetteiRow, Kind, ListStock, NegotiationTypeSheets, Person, SalesKpiData, Sheets,
+    StockTrend, UnassignedPerson, CARD_KEYS, KADEN_CLASSES, KETTEI_COLS, NEGOTIATION_TYPE_COL,
+    NEGOTIATION_TYPE_FIXED, SHEET_META,
 };
 
 /// 日本時間。サーバのタイムゾーン設定に依存させない。
@@ -254,6 +255,12 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> SalesKpiData {
     //      ① は当月に確定したアポなので当月の取得日だけ。
     //    ④ は日付で切らない。`classify` の結果（これから以外）で切る。
     let portal = hubspot_portal_id();
+    // JSON のキー順は旧実装（BTreeMap）と同じ apo / cyomi / pool（`NegotiationTypeSheets` の宣言順）。
+    let negotiation_type_sheets = NegotiationTypeSheets {
+        apo: sheets.apo.col(NEGOTIATION_TYPE_COL).is_some(),
+        cyomi: sheets.cyomi.col(NEGOTIATION_TYPE_COL).is_some(),
+        pool: sheets.shodan.col(NEGOTIATION_TYPE_COL).is_some(),
+    };
     let pool_rows: Vec<DealRow> = month
         .iter()
         .map(|d| {
@@ -540,6 +547,14 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> SalesKpiData {
     };
 
     let teams: Vec<String> = by_team.keys().cloned().collect();
+    // 商談種別の並び。表に出る行（card_deals の 3 つ）に実際にあるラベルだけを足す。
+    let negotiation_type_order = negotiation_type_order_of(
+        pool_rows
+            .iter()
+            .chain(&apo_rows)
+            .chain(&cyomi_rows)
+            .filter_map(|r| r.negotiation_type.as_deref()),
+    );
     SalesKpiData {
         generated_at: meta.get("取得時刻").cloned().unwrap_or_else(|| ymd(today)),
         week: DateSpan {
@@ -570,6 +585,15 @@ pub fn build_payload(sheets: &Sheets, today: NaiveDate) -> SalesKpiData {
             apo: apo_rows,
             cyomi: cyomi_rows,
         },
+        // 商談種別（取引の `negotiation_type`）。行の `negotiation_type` は**ラベル**（内部値は出さない）。
+        // 列が無いシートの行にはキーを付けない。無いことは次の 2 つで伝える（カードの出どころごと）。
+        // 件数は行から数える（by_person などに種別のキーは足していない）。
+        negotiation_type_available: negotiation_type_sheets.any(),
+        negotiation_type_sheets,
+        // 並びは Rust が決める（固定の 3 つ + 実際に出てきた定義外を名前順）。画面はこの順に従うだけ。
+        // `negotiation_type_fixed` は 0 件でも表に並べる 2 種別。
+        negotiation_type_order,
+        negotiation_type_fixed: NEGOTIATION_TYPE_FIXED.to_vec(),
         // 商談の集計から外した件数。内訳は HubSpotチーム 別。
         // 🔴 チーム名はシート（KPI営業_集計除外）由来で、ここには書かれていない。
         excluded: dropped,

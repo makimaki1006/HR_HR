@@ -7,4 +7,8 @@ export type SalesKpiDealRow = { id: string, name: string, date: string, time: st
 /**
  * HubSpot の取引ページ（object ID から作る。headless-crm-design §6）
  */
-url: string, };
+url: string, 
+/**
+ * 商談種別（**ラベル**）。シートに列が無いときは出さない（既存の JSON を変えない）。
+ */
+negotiation_type?: string, };

@@ -132,6 +132,9 @@ pub struct Deal {
     pub exited_apo: String,
     pub exited_apo_bpo: String,
     pub entered_c: String,
+    /// 商談種別（HubSpot の `negotiation_type` の**内部値**）。シートに「商談種別」列が無ければ `None`、
+    /// 列があって空なら `Some("")`（「未取得」と「未設定」を区別するため）。
+    pub negotiation_type: Option<String>,
 }
 
 impl Deal {
@@ -150,6 +153,9 @@ impl Deal {
             exited_apo: g("アポ日確定を出た日"),
             exited_apo_bpo: g("BPOアポ日確定を出た日"),
             entered_c: g("Cヨミに入った日"),
+            negotiation_type: sheet
+                .col(NEGOTIATION_TYPE_COL)
+                .map(|_| g(NEGOTIATION_TYPE_COL)),
         }
     }
 
@@ -834,6 +840,90 @@ pub fn is_bpo(deal: &Deal, prev_month_start: &str, month_end: &str) -> bool {
         && deal.bpo_appo.as_str() < month_end
 }
 
+// ---------------------------------------------------------------- 商談種別
+
+/// 商談種別が空のときの表示。
+pub const NEGOTIATION_TYPE_UNSET: &str = "(未設定)";
+/// 決まっている 2 種別（0 件でも表に並べる）。この順が並びの先頭。
+pub const NEGOTIATION_TYPE_FIXED: [&str; 2] = ["決裁者商談", "非決裁者商談"];
+/// 固定の並び順（定義外はこの後ろに名前順）。**並びを決めるのはここと `negotiation_type_rank` だけ**。
+/// 画面(JS)は payload の `negotiation_type_order` に従うだけで、並びも `(未設定)` も直書きしない。
+pub const NEGOTIATION_TYPE_ORDER: [&str; 3] = [
+    NEGOTIATION_TYPE_FIXED[0],
+    NEGOTIATION_TYPE_FIXED[1],
+    NEGOTIATION_TYPE_UNSET,
+];
+
+/// 内部値 → ラベル。🔴 HubSpot の定義で入れ違っている。
+pub const NEGOTIATION_TYPE_MAP: [(&str, &str); 2] =
+    [("代表者商談", "非決裁者商談"), ("担当者商談", "決裁者商談")];
+
+/// シートの列名。
+pub const NEGOTIATION_TYPE_COL: &str = "商談種別";
+/// 定義外の値に付ける印。
+pub const NEGOTIATION_TYPE_UNDEFINED_SUFFIX: &str = "(定義外)";
+
+/// 1 つの部分（`;` で割ったあと・空白を落としたあと）を表示用にする。定義外は値そのまま。
+fn negotiation_type_part(v: &str) -> &str {
+    NEGOTIATION_TYPE_MAP
+        .iter()
+        .find(|(internal, _)| *internal == v)
+        .map(|(_, label)| *label)
+        .unwrap_or(v)
+}
+
+/// 商談種別の内部値をラベルにする（画面・payload にはラベルだけを出す）。
+///
+/// - `;` で割り、各部分の前後の空白（全角含む）を落とす。空の部分は無かったことにする。
+///   同じ部分の重複は 1 つにする。残りが無ければ `(未設定)`
+/// - 部分が 1 つ: 内部値なら対応するラベル（入れ違いに注意。`NEGOTIATION_TYPE_MAP`）、
+///   すでにラベルならそのまま、それ以外は 値そのまま + `(定義外)`
+/// - 部分が 2 つ以上: **1 件として数える**（割ると 1 取引が複数回数えられ、種別の合計が
+///   カードの件数を超える）。表示は各部分を同じ表でラベルに直して `;` でつなぎ、
+///   全体に `(定義外)` を 1 回だけ付ける（内部値は画面に出さない。並びは入力のまま）
+pub fn negotiation_type_label(raw: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for p in raw.split(';').map(str::trim).filter(|p| !p.is_empty()) {
+        let shown = negotiation_type_part(p);
+        if !parts.contains(&shown) {
+            parts.push(shown);
+        }
+    }
+    match parts.as_slice() {
+        [] => NEGOTIATION_TYPE_UNSET.to_string(),
+        [one] if NEGOTIATION_TYPE_FIXED.contains(one) => (*one).to_string(),
+        parts => format!("{}{NEGOTIATION_TYPE_UNDEFINED_SUFFIX}", parts.join(";")),
+    }
+}
+
+/// 並び順の位置。`NEGOTIATION_TYPE_ORDER` の添字、定義外は最後（同順位。後ろで名前順）。
+pub fn negotiation_type_rank(label: &str) -> usize {
+    NEGOTIATION_TYPE_ORDER
+        .iter()
+        .position(|l| *l == label)
+        .unwrap_or(NEGOTIATION_TYPE_ORDER.len())
+}
+
+/// payload の `negotiation_type_order`: 固定の 3 つ + 実際に出てきた定義外（名前順）。
+/// 並べ替えの規則はここだけ（`negotiation_type_rank` → 名前）。
+pub fn negotiation_type_order_of<'a>(labels: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut all: Vec<String> = NEGOTIATION_TYPE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    for l in labels {
+        if !all.iter().any(|x| x == l) {
+            all.push(l.to_string());
+        }
+    }
+    all.sort_by(|a, b| {
+        negotiation_type_rank(a)
+            .cmp(&negotiation_type_rank(b))
+            .then_with(|| a.cmp(b))
+    });
+    all
+}
+
 /// 画面に出す取引1件。`days` / `anq` / `past` は無いときキーごと出さない（TS では `?`）。
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(rename = "SalesKpiDealRow")]
@@ -860,6 +950,10 @@ pub struct DealRow {
     pub past: Option<bool>,
     /// HubSpot の取引ページ（object ID から作る。headless-crm-design §6）
     pub url: String,
+    /// 商談種別（**ラベル**）。シートに列が無いときは出さない（既存の JSON を変えない）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub negotiation_type: Option<String>,
 }
 
 /// HubSpot の取引ページ。コンサルKPI と同じ形で、portal は呼び出し側が 1 回だけ読む。
@@ -1007,6 +1101,7 @@ pub fn deal_row(
         anq: None,
         past: None,
         url: hubspot_deal_url(portal, &deal.id),
+        negotiation_type: deal.negotiation_type.as_deref().map(negotiation_type_label),
     }
 }
 
