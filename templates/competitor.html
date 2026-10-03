@@ -19,8 +19,37 @@ body{margin:0;background:#0d1525;color:#e2e8f0;font:16px/1.7 system-ui,sans-seri
 <div><label for="wage-mode">給与の表示単位</label><select id="wage-mode" name="wage_mode"><option value="monthly">月給</option><option value="hourly">時給</option></select></div></div>
 <label for="top-n">先頭の求人を何件比較するか</label><input id="top-n" name="top_n" type="number" min="1" max="200" value="45" required>
 <label for="csv-file">求人一覧CSV</label><input id="csv-file" name="csv_file" type="file" accept=".csv,.txt" required><small>UTF-8推奨。Excelブックは求人一覧シートをCSVに書き出してください。人気比較には人気・超人気タグのあるSP版CSVが必要です。</small>
-<p id="submit-status" role="status" aria-live="polite"></p><button type="submit">競合調査レポートを作成</button>
+<p id="submit-status" role="status" aria-live="polite"></p><button type="submit" name="output_format" value="pdf">PDFをダウンロード</button> <button type="submit" name="output_format" value="html">画面で確認</button>
 </section></form>
-<p>給与分布・人気求人との給与比較・キーワード占有率・先頭の求人との比較を出力します。レポートは印刷してPDF保存できます。</p>
-<script>window.addEventListener('pageshow',function(){document.querySelector('button[type=submit]').disabled=false;document.getElementById('submit-status').textContent='';});document.getElementById('competitor-form').addEventListener('submit',function(){document.querySelector('button[type=submit]').disabled=true;document.getElementById('submit-status').textContent='CSVと市場データを集計しています。Googleのデータ取得には時間がかかる場合があります。';});</script>
+<p>Excel再現・Google検索需要・Indeed採用レポート・人口／地域データを、それぞれA3横のページに収めたPDFをダウンロードします。印刷はダウンロードしたPDFから行ってください。</p>
+<script>
+const form=document.getElementById('competitor-form');
+const status=document.getElementById('submit-status');
+const buttons=[...form.querySelectorAll('button[type=submit]')];
+window.addEventListener('pageshow',()=>{buttons.forEach(b=>b.disabled=false);status.textContent='';});
+form.addEventListener('submit',async event=>{
+  if(event.submitter?.value==='html')return;
+  event.preventDefault();
+  const data=new FormData(form);data.set('output_format','pdf');
+  buttons.forEach(b=>b.disabled=true);
+  status.setAttribute('role','status');
+  status.textContent='PDFを作成しています。Googleのデータ取得には時間がかかる場合があります。';
+  try{
+    const response=await fetch(form.action,{method:'POST',body:data,credentials:'same-origin'});
+    if(response.redirected){throw new Error('ログインの有効期限が切れました。再度ログインしてお試しください。');}
+    if(!response.ok){
+      const text=await response.text();
+      const message=response.headers.get('content-type')?.includes('text/html')
+        ?new DOMParser().parseFromString(text,'text/html').querySelector('[role="alert"]')?.textContent:text;
+      throw new Error(message||'PDFを作成できませんでした。CSVと調査条件を確認して再度お試しください。');
+    }
+    if(!response.headers.get('content-type')?.includes('application/pdf'))throw new Error('PDFを取得できませんでした。再度お試しください。');
+    const blob=await response.blob();const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');link.href=url;link.download='competitor-report.pdf';
+    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+    status.textContent='PDFをダウンロードしました。PDFを開いて印刷できます。';
+  }catch(error){status.setAttribute('role','alert');status.textContent=error.message||'通信に失敗しました。再度お試しください。';}
+  finally{buttons.forEach(b=>b.disabled=false);}
+});
+</script>
 </main></body></html>
