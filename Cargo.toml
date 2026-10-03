@@ -82,6 +82,7 @@ sha2 = "0.10"
 # 注: media_engine の cache_key はキー昇順ソート後に挿入するため、preserve_order の
 # 有無に関わらず Python 版とキー互換 (昇順挿入 = 挿入順維持でも昇順)。
 anyhow = "1"
+tempfile = "3"
 unicode-normalization = "0.1"
 
 # 求人票生成 (job_gen、2026-07-24 統合)
@@ -93,7 +94,6 @@ default = ["pdf"]
 pdf = ["dep:pdf-extract"]
 
 [dev-dependencies]
-tempfile = "3"
 http-body-util = "0.1"
 
 [profile.release]

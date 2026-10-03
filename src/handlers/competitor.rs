@@ -14,6 +14,9 @@ use crate::handlers::survey::upload::{parse_csv_bytes_with_hints, UserSourceHint
 use crate::indeed::data::{snapshot, Series, Snapshot};
 use crate::AppState;
 
+#[path = "competitor_pdf.rs"]
+mod pdf;
+
 pub async fn page(State(state): State<Arc<AppState>>) -> Html<String> {
     let market = tokio::task::spawn_blocking(move || {
         state.indeed_db.as_ref().and_then(|db| snapshot(db).ok())
@@ -150,15 +153,33 @@ pub async fn report(State(state): State<Arc<AppState>>, mut multipart: Multipart
     let population = region_task.await.unwrap_or_else(
         |_| json!({"status":"unavailable","message":"人口・地域データを取得できませんでした。"}),
     );
-    Html(render_competitor_report(
+    let html = render_competitor_report(
         &agg,
         top_n,
         get("survey_title"),
         &indeed,
         &google,
         &population,
-    ))
-    .into_response()
+    );
+    if get("output_format") == "pdf" {
+        match pdf::generate(&html).await {
+            Ok(bytes) => (
+                [
+                    ("content-type", "application/pdf"),
+                    (
+                        "content-disposition",
+                        "attachment; filename=\"competitor-report.pdf\"",
+                    ),
+                    ("cache-control", "no-store"),
+                ],
+                bytes,
+            )
+                .into_response(),
+            Err(message) => (StatusCode::SERVICE_UNAVAILABLE, message).into_response(),
+        }
+    } else {
+        Html(html).into_response()
+    }
 }
 
 pub(super) fn population_context(state: &AppState, pref: &str) -> Value {
