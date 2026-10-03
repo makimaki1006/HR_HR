@@ -336,7 +336,7 @@ const pct=n=>(n==null?'—':n.toFixed(1)+'%');
 // 今日・昨日は途中経過なので初期表示に向かない。並び順は PL の定義順。
 // 🔴 person: null = 個人を選んでいない（全員）/ "" = 「担当なし」（担当者が空の取引）/ それ以外 = 担当者の id。
 //    空文字を「未選択」と読むと、担当なしを選んでも全員表示のままになる。判定は必ず `person!==null`。
-let team='すべて', person=null, openKey=null, openCard=null, cardTeam=null, cardPerson=null, cardSeg=null, bpoOnly=false, weekOpen=false, dayKey=null, callPeriod='this_week';
+let team='すべて', person=null, openKey=null, openCard=null, cardTeam=null, cardPerson=null, cardSeg=null, cardNt=null, bpoOnly=false, weekOpen=false, dayKey=null, callPeriod='this_week';
 // 週次表をどちらの数え方で見るか。既定は「その週の商談」（週次表として自然なので）。
 // 'month' は当月の累積で、月初にゼロから数え直しになる。
 let snapMode='week';
@@ -552,7 +552,7 @@ function itemEl(r,opt){
   const sub=opt.stale?(ago(r.date)+'日前'):(opt.days?(r.days+'日'):(r.time||''));
   d.innerHTML='<b>'+(r.date?md(r.date)+'（'+wd(r.date)+'）':'—')+'</b>'+(sub?'<span>'+sub+'</span>':'');
   const nm=document.createElement('div'); nm.className='nm'; nm.textContent=r.name;
-  const who=document.createElement('div'); who.className='who'; who.textContent=r.ownerName;
+  const who=document.createElement('div'); who.className='who'; who.textContent=r.ownerName+(r.negotiation_type?' ・'+r.negotiation_type:'');
   const go=document.createElement('div'); go.className='go'; go.textContent='HubSpotを開く ›';
   a.appendChild(d);a.appendChild(nm);a.appendChild(who);a.appendChild(go);
   return a;
@@ -640,7 +640,7 @@ const CARD_CONF={
 };
 function toggleCard(k){
   return ()=>{
-    openCard=openCard===k?null:k; cardTeam=null; cardPerson=null; cardSeg=null; bpoOnly=false;
+    openCard=openCard===k?null:k; cardTeam=null; cardPerson=null; cardSeg=null; cardNt=null; bpoOnly=false;
     openKey=null; dayKey=null; weekOpen=false; render();
     if(openCard)setTimeout(()=>$('panel1').scrollIntoView({behavior:'smooth',block:'nearest'}),50);
   };
@@ -672,6 +672,13 @@ function drawCardPanel(){
   const x=document.createElement('button'); x.className='close'; x.textContent='閉じる ✕';
   x.onclick=()=>{openCard=null;render();}; h.appendChild(x); P.appendChild(h);
   P.appendChild(Object.assign(document.createElement('p'),{className:'lead',textContent:conf.d}));
+  // 商談種別の列があるか（カードの出どころのシートごと）。無ければ種別の表も絞りも出さない。
+  const ntOk=!!(D.negotiation_type_sheets&&D.negotiation_type_sheets[conf.src]===true);
+  if(!ntOk){
+    const m=document.createElement('div'); m.id='panel1-nt-missing';
+    m.style.cssText='font-size:12.5px;color:var(--faint);margin:2px 0 6px';
+    m.textContent='商談種別: 未取得（シートに「商談種別」の列がまだありません）'; P.appendChild(m);
+  }
   if(!base.length){P.insertAdjacentHTML('beforeend','<div class="empty"><b>該当はありません。</b></div>');return;}
 
   const bar=document.createElement('div');
@@ -694,12 +701,21 @@ function drawCardPanel(){
       b.onclick=()=>{cardSeg=(cardSeg===sg.k?null:sg.k);cardTeam=null;cardPerson=null;render();}; bar.appendChild(b);
     });
   }
+  // 商談種別で絞っているときのバッジ（押すと外れる）。下の段へ降りても絞りは続く。
+  if(ntOk&&cardNt!=null){
+    const b=document.createElement('button'); b.className='chip on'; b.id='panel1-nt-chip'; b.dataset.nt=cardNt;
+    b.textContent='商談種別: '+cardNt+' ✕';
+    b.onclick=()=>{cardNt=null;render();}; bar.appendChild(b);
+  }
   if(bar.children.length)P.appendChild(bar);
 
-  // いま見る行 = 絞り込み後の行 → 区分 → BPO
-  let rows=base;
-  if(cardSeg){const sg=segs.find(x=>x.k===cardSeg); if(sg) rows=rows.filter(sg.pred);}
-  if(bpoOnly) rows=rows.filter(r=>r.bpo);
+  // いま見る行 = 絞り込み後の行 → BPO → 区分 → 種別。
+  // 種別の表は「区分まで掛けて、種別だけ掛けない行」から数える（種別の合計 == いまの区分の件数）。
+  const baseB=bpoOnly?base.filter(r=>r.bpo):base;
+  const segPred=cardSeg?(segs.find(x=>x.k===cardSeg)||{}).pred:null;
+  const baseS=segPred?baseB.filter(segPred):baseB;
+  let rows=baseS;
+  if(ntOk&&cardNt!=null) rows=rows.filter(r=>r.negotiation_type===cardNt);
   const tof=r=>teamOf(r.owner,r.team);
   const teamPick=team!=='すべて'?team:cardTeam;
   // 担当者の id は空文字（担当なし）もあり得るので、「選んでいない」は null で区別する。
@@ -725,6 +741,47 @@ function drawCardPanel(){
     t.appendChild(tf);
     return t;
   };
+  // 商談種別の表。いまの段（全社・チーム・担当者）の行を種別で束ねる。合計行 = その段の件数。
+  if(ntOk){
+    const lvl=personPick!==null?baseS.filter(r=>r.owner===personPick)
+      :(teamPick?baseS.filter(r=>tof(r)===teamPick):baseS);
+    // 並びはサーバが決める（negotiation_type_order。固定の種別 + 出てきた定義外）。ここでは従うだけ。
+    const order=D.negotiation_type_order||[];
+    const rank=l=>{const i=order.indexOf(l);return i<0?order.length:i;};
+    const g=groupBy(lvl,r=>r.negotiation_type);
+    // 決まっている種別（negotiation_type_fixed）は 0 件でも並べる（段を降りても同じ形で追えるように）
+    (D.negotiation_type_fixed||[]).forEach(l=>{if(!g.has(l))g.set(l,[]);});
+    const items=[...g].sort((a,b)=>rank(a[0])-rank(b[0]));
+    const t=document.createElement('table'); t.className='ntt'; t.style.marginBottom='10px';
+    t.dataset.level=personPick!==null?'person':(teamPick?'team':'all');
+    t.innerHTML='<thead><tr><th>商談種別</th><th class="n">'+(numSeg?(cardSeg?'件数（'+cardSeg+'）':'分母'):'件数')+'</th>'+
+      (numSeg?'<th class="n">分子（'+conf.num+'）</th>':'')+'<th class="n">内 BPO</th></tr></thead>';
+    const tb=document.createElement('tbody'); let sum=0, sumB=0, sumN=0;
+    items.forEach(([name,rs])=>{
+      const tr=document.createElement('tr'); tr.style.cursor='pointer'; tr.dataset.nt=name;
+      const nb=rs.filter(r=>r.bpo).length, nn=numSeg?rs.filter(numSeg.pred).length:0;
+      sum+=rs.length; sumB+=nb; sumN+=nn;
+      tr.dataset.n=rs.length; tr.dataset.bpo=nb; if(numSeg) tr.dataset.num=nn;
+      if(cardNt===name) tr.style.fontWeight='700';
+      tr.innerHTML='<td></td><td class="n"></td>'+(numSeg?'<td class="n"></td>':'')+'<td class="n"></td>';
+      const bt=document.createElement('button'); bt.className='more'; bt.style.padding='0'; bt.textContent=name;
+      tr.children[0].appendChild(bt); tr.children[1].textContent=fmt(rs.length);
+      if(numSeg) tr.children[2].textContent=fmt(nn);
+      tr.children[numSeg?3:2].textContent=nb?fmt(nb):'—';
+      // 押すとその種別だけに絞る（もう一度押すと外れる）。いまの段は動かさない
+      tr.onclick=()=>{cardNt=(cardNt===name?null:name);render();};
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    const tf=document.createElement('tfoot');
+    tf.innerHTML='<tr><th>合計</th><th class="n"></th>'+(numSeg?'<th class="n"></th>':'')+'<th class="n"></th></tr>';
+    const cs=tf.children[0].children;
+    cs[1].textContent=fmt(sum); cs[1].dataset.sum=sum;
+    if(numSeg){cs[2].textContent=fmt(sumN); cs[2].dataset.sumNum=sumN;}
+    cs[numSeg?3:2].textContent=sumB?fmt(sumB):'—';
+    t.appendChild(tf);
+    P.appendChild(t);
+  }
   if(!rows.length){P.insertAdjacentHTML('beforeend','<div class="empty">この条件に当てはまる取引はありません。</div>');return;}
 
   if(personPick===null && !teamPick){
@@ -747,7 +804,7 @@ function drawCardPanel(){
     const who=mine.length?mine[0].ownerName:'';
     const hh=document.createElement('div'); hh.className='day'; hh.id='panel1-listhead';
     hh.dataset.n=mine.length;
-    hh.textContent=who+'　'+mine.length+'件'+(cardSeg?'（'+cardSeg+'）':'')+(bpoOnly?'（BPO だけ）':'');
+    hh.textContent=who+'　'+mine.length+'件'+(cardSeg?'（'+cardSeg+'）':'')+(ntOk&&cardNt!=null?'（'+cardNt+'）':'')+(bpoOnly?'（BPO だけ）':'');
     P.appendChild(hh);
     if(!mine.length)P.insertAdjacentHTML('beforeend','<div class="empty">この担当者の該当はありません。</div>');
     else P.appendChild(listOf(mine,{}));
