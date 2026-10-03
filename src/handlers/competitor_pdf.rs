@@ -96,26 +96,23 @@ pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
         .await
         .map_err(|_| "PDFの作成準備に失敗しました。")?;
     let url = reqwest::Url::from_file_path(&input).map_err(|_| "PDFの作成準備に失敗しました。")?;
-    let mut command = Command::new(browser());
-    command.args([
-        "--headless",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--no-sandbox",
-        "--no-pdf-header-footer",
-        "--disable-extensions",
-        "--disable-background-networking",
-        "--no-first-run",
-        "--virtual-time-budget=1500",
-        "--timeout=10000",
-        "--window-size=1600,1200",
-    ]);
-    command.arg(format!(
-        "--user-data-dir={}",
-        dir.path().join("profile").display()
-    ));
-    command.arg(format!("--print-to-pdf={}", output.display()));
-    command.arg(url.as_str());
+    let helper = dir.path().join("render.cjs");
+    tokio::fs::write(&helper, include_str!("../../scripts/pdf/render.cjs"))
+        .await
+        .map_err(|_| "PDFの作成準備に失敗しました。")?;
+    let module = std::env::var_os("PDF_PLAYWRIGHT_MODULE").unwrap_or_else(|| {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("node_modules/playwright-core")
+            .into_os_string()
+    });
+    let mut command =
+        Command::new(std::env::var_os("PDF_NODE_PATH").unwrap_or_else(|| "node".into()));
+    command
+        .arg(helper)
+        .arg(browser())
+        .arg(url.as_str())
+        .arg(&output)
+        .arg(module);
     command
         .stdout(Stdio::null())
         .stderr(Stdio::from(diagnostic_file))
@@ -124,8 +121,7 @@ pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
         tracing::error!(error = %err, "Cannot start competitor PDF renderer");
         "PDFを作成できませんでした。時間をおいて再度お試しください。"
     })?;
-    // Some Chromium builds keep background processes alive after printing. Completion is
-    // the PDF's final EOF marker, rather than waiting for the browser to exit naturally.
+    // Complete files can be returned while the helper finishes closing its browser.
     let result = tokio::time::timeout(Duration::from_secs(45), async {
         loop {
             if let Ok(bytes) = tokio::fs::read(&output).await {
