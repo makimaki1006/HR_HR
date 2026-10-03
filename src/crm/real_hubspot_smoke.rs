@@ -7,7 +7,9 @@
 //! 実行:
 //! `HUBSPOT_ACCESS_TOKEN=... cargo test --lib crm::real_hubspot_smoke -- --ignored --nocapture`
 //!
-//! 呼び出し回数: 探索 1 + 応答形 1 + レコード 3 件 × (最大 6 + 取り直し 1 + 比較 1) ≒ 26 回以内。
+//! 呼び出し回数 (承認は合計 20 回程度まで): 探索 1 + レコード 3 件 (Deal 最大 6 / Contact・Company 最大 5)
+//! + 生の GET との比較 3 = 最大 20 回。取り直し (関連型のスコープ不足) が起きたときだけ +1。
+//!
 //! 既存バッチと 100 req/10 秒を共有しているので、レコードの間で 3 秒空ける。
 
 use std::time::Duration;
@@ -16,17 +18,6 @@ use serde_json::Value;
 
 use super::routes::{build_record_view, record_properties};
 use crate::hubspot::{ClientOptions, HubSpotClient, RecordType, DEFAULT_BASE_URL};
-
-fn shape(v: &Value) -> String {
-    match v {
-        Value::Null => "null".into(),
-        Value::Bool(_) => "bool".into(),
-        Value::Number(_) => "number".into(),
-        Value::String(_) => "string".into(),
-        Value::Array(a) => format!("array(len={})", a.len()),
-        Value::Object(o) => format!("object(keys={:?})", o.keys().collect::<Vec<_>>()),
-    }
-}
 
 async fn raw_get(http: &reqwest::Client, token: &str, path_and_query: &str) -> (u16, Value) {
     let resp = http
@@ -87,30 +78,7 @@ async fn real_hubspot_read_smoke() {
     let contact_id = first_assoc_id(&deal, "contacts").unwrap();
     let company_id = first_assoc_id(&deal, "companies").unwrap();
 
-    // 2) v3 GET ?associations= の応答形 (値は出さず、キー名と型だけ) (GET 1 回)
-    let (st, raw) = raw_get(
-        &http,
-        &token,
-        &format!(
-            "/crm/v3/objects/deals/{deal_id}?properties=dealname&associations=contacts,companies,calls,notes,tasks,meetings"
-        ),
-    )
-    .await;
-    println!("[shape] status={st} top={}", shape(&raw));
-    if let Some(assocs) = raw["associations"].as_object() {
-        for (k, a) in assocs {
-            let first = &a["results"][0];
-            println!(
-                "[shape] associations.{k}: {} results[0]={} id={} paging={}",
-                shape(a),
-                shape(first),
-                shape(&first["id"]),
-                shape(&a["paging"])
-            );
-        }
-    }
-
-    // 3) 本物のコード経路で 3 件読み、生の GET と property を突き合わせる
+    // 2) 本物のコード経路で 3 件読み、生の GET と property を突き合わせる
     let client = HubSpotClient::new(token.clone(), DEFAULT_BASE_URL, ClientOptions::default())
         .expect("client");
     for (rt, id) in [
@@ -190,4 +158,38 @@ async fn real_hubspot_read_smoke() {
             mismatched
         );
     }
+}
+
+/// 定義 (metadata) の読み取り確認。上流 GET は 4 回 (properties 3 + pipelines 1)。値は出さず件数だけ。
+#[tokio::test]
+#[ignore = "manual: reads the real HubSpot (needs HUBSPOT_ACCESS_TOKEN)"]
+async fn real_hubspot_metadata_smoke() {
+    let Some(token) = std::env::var("HUBSPOT_ACCESS_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+    else {
+        println!("HUBSPOT_ACCESS_TOKEN 未設定のため何もしない");
+        return;
+    };
+    let client =
+        HubSpotClient::new(token, DEFAULT_BASE_URL, ClientOptions::default()).expect("client");
+    let cache = crate::handlers::crm_metadata::MetadataCache::default();
+    let m = cache.get(&client, false).await.expect("metadata");
+    let mut by_object = std::collections::BTreeMap::<String, usize>::new();
+    let mut with_options = 0;
+    for p in &m.properties {
+        *by_object.entry(p.object_type.clone()).or_default() += 1;
+        if !p.options.is_empty() {
+            with_options += 1;
+        }
+    }
+    println!(
+        "[metadata] properties={} by_object={:?} with_options={} pipelines={} stages={} hubspot_ms={:.0}",
+        m.properties.len(),
+        by_object,
+        with_options,
+        m.pipelines.len(),
+        m.pipelines.iter().map(|p| p.stages.len()).sum::<usize>(),
+        m.hubspot_ms
+    );
 }
