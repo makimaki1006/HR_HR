@@ -97,9 +97,23 @@ DB 追加条件は「HubSpot / Zoom に置くべきではない HR_HR 固有の�
 
 ## ADR-007 — Zoom Phone 通話一次情報を HubSpot Call Activity へ反映する
 
-Status: Accepted
+Status: Accepted (2026-09-29 改訂: Call は API で作らず、純正連携が作った Call に紐づける)
 
-現行 HubSpot × Zoom Phone の実利用項目を棚卸しし、必要な項目だけ再現する。
+~~現行 HubSpot × Zoom Phone の実利用項目を棚卸しし、必要な項目だけ再現する。~~ (改訂前の文言)
+
+Call Activity の作成は Zoom Phone for HubSpot (純正連携) に任せる。
+Headless CRM は純正連携が作った Call を探して、架電結果の Note / Property 更新をその Call と同じ Contact / Deal に紐づける。
+API での Call 作成は、純正連携が記録しなかった場合の手動フォールバックに限る。
+
+改訂の記録 (AGENTS.md rule 16):
+
+- 現行の決定: Zoom Phone の通話一次情報を HR_HR から HubSpot Call Activity へ反映する (実利用項目を棚卸しして再現)。
+- 具体的な問題: 反映は既に純正連携が行っている (2026-04-15 時点の直近 90 日サンプル 500 件で `hs_call_source=INTEGRATIONS_PLATFORM`。BPO のキュー経由架電も対象)。HR_HR からも作ると同じ通話が二重に登録され、止めるには純正連携の設定変更が要る (BPO だけ除外できるかは未確認)。
+- 変更内容: Call は作らない。Smart Embed のイベントで得た callId / 相手番号 / 時刻から、HubSpot 上の Call を番号 + 時刻窓で照合して紐づける。見つからなければ Pending Sync で遅延再照合し、一定時間後も無ければ管理画面に出す。
+- 変える利点: 二重登録が構造的に起きない。純正連携の設定を触らない。`hs_call_duration` の単位や録音 URL 形式を再現する作業が要らない。
+- 現行を保つ利点: HR_HR が Call の中身を完全に制御でき、純正連携の障害 (2026-08-31〜09-01 の Deal 関連付け停止のような事象) の影響を受けない。
+- 移行 / 戻しのコスト: 照合ロジック (番号の正規化 + 時刻窓) の実装が増える。戻す場合は Call 作成 API を足し、純正連携の対象から BPO を外す作業が要る。
+- 決定: 2026-09-29 ユーザー決定 (計画補足 P-1)。未検証の前提: Smart Embed から発信した通話が純正連携で HubSpot に記録されること (同じ Zoom Phone ユーザーの通話なので記録される見込みだが、実機で 1 件確認してから PR6 に着手する)。
 
 ---
 

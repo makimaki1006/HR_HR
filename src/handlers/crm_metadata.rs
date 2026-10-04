@@ -1,30 +1,27 @@
-//! Read-only HubSpot metadata. Credentials remain on the server; no customer values or writes.
-use crate::{
-    auth::{LOGIN_METHOD_GOOGLE_OIDC, SESSION_LOGIN_METHOD_KEY, SESSION_USER_KEY},
-    AppState,
-};
-use axum::{
-    extract::{Query, State},
-    http::{header, StatusCode},
-    response::{IntoResponse, Response},
-    routing::get,
-    Json, Router,
-};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashSet,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+//! HubSpot の定義 (プロパティ・パイプライン) の読み取り API (`GET /api/crm/metadata`)。
+//!
+//! 顧客の値は返さない。HubSpot への通信・トークン・リトライは `crate::hubspot::HubSpotClient`
+//! (`AppState.hubspot`) を共有し、このファイルは「どの定義を取り、どう整形し、60 秒キャッシュするか」だけを持つ。
+//! 認可は `crate::crm::rbac` (レコード読み取りと同じ基準)。ルート登録は `crate::crm::router`。
+//!
+//! 上流 (HubSpot) のエラー本文はブラウザに返さない。返すのは `error_kind` と固定文言だけ。
+use crate::hubspot::{HubSpotClient, HubSpotError, RecordType};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tower_sessions::Session;
 use ts_rs::TS;
+
+/// 定義キャッシュの有効期間
+pub const CACHE_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
 pub struct CrmPropertyOption {
+    #[serde(default, deserialize_with = "null_to_default")]
     pub label: String,
+    #[serde(default, deserialize_with = "null_to_default")]
     pub value: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     pub hidden: bool,
 }
 #[derive(Clone, Debug, Serialize, TS)]
@@ -56,213 +53,189 @@ pub struct CrmMetadataResponse {
     pub total_ms: f64,
     pub cache_hit: bool,
 }
-#[derive(Deserialize)]
-struct Results<T> {
-    results: Vec<T>,
+
+/// HubSpot は欠落だけでなく `null` も返しうるので、null も既定値に倒す。
+fn null_to_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HubProperty {
     name: String,
+    #[serde(default, deserialize_with = "null_to_default")]
     label: String,
-    #[serde(rename = "type")]
+    #[serde(default, rename = "type", deserialize_with = "null_to_default")]
     property_type: String,
+    #[serde(default, deserialize_with = "null_to_default")]
     field_type: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     options: Vec<CrmPropertyOption>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HubStage {
     id: String,
+    #[serde(default, deserialize_with = "null_to_default")]
     label: String,
-    display_order: i32,
+    #[serde(default, deserialize_with = "null_to_default")]
+    display_order: i64,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HubPipeline {
     id: String,
+    #[serde(default, deserialize_with = "null_to_default")]
     label: String,
-    display_order: i32,
+    #[serde(default, deserialize_with = "null_to_default")]
+    display_order: i64,
+    #[serde(default, deserialize_with = "null_to_default")]
     stages: Vec<HubStage>,
 }
 
-/// Sanitized errors: never forward upstream bodies, request headers or token-bearing URLs.
-#[derive(Debug)]
-pub struct MetadataError {
-    pub status: StatusCode,
-    pub code: &'static str,
-}
-impl IntoResponse for MetadataError {
-    fn into_response(self) -> Response {
-        (
-            self.status,
-            [(header::CACHE_CONTROL, "no-store")],
-            Json(serde_json::json!({"code":self.code})),
-        )
-            .into_response()
+/// 定義の取得で 404 になるのは「レコードが無い」ではなく上流の不具合 (エンドポイントが無い)。
+/// ブラウザには `not_found` ではなく `hubspot_upstream` として見せる。
+fn definitions_error(e: HubSpotError) -> HubSpotError {
+    match e {
+        HubSpotError::NotFound => HubSpotError::Upstream { status: 404 },
+        other => other,
     }
-}
-fn error(status: StatusCode, code: &'static str) -> MetadataError {
-    MetadataError { status, code }
 }
 
-pub struct MetadataService {
-    client: reqwest::Client,
-    token: String,
-    base_url: String,
-    cache: Mutex<Option<(Instant, CrmMetadataResponse)>>,
+fn decode_error(what: &str) -> HubSpotError {
+    HubSpotError::Decode(format!("{what} is not in the expected shape"))
 }
-impl MetadataService {
-    pub fn new(token: String) -> Result<Self, MetadataError> {
-        Self::with_base_url(token, "https://api.hubapi.com".to_owned())
-    }
-    fn with_base_url(token: String, base_url: String) -> Result<Self, MetadataError> {
-        if token.trim().is_empty() {
-            return Err(error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "hubspot_not_configured",
-            ));
+
+/// `results` 配列を取り出す。無い・配列でないなら Decode エラー。
+fn results_array(v: &Value, what: &str) -> Result<Vec<Value>, HubSpotError> {
+    v.get("results")
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| decode_error(what))
+}
+
+/// 定義の応答から、確認済みの項目 (`allowed_property`) だけを取り出して整形する。
+/// 許可外の項目は中身を見ない (形が想定外でも全体を壊さない)。
+fn parse_properties(
+    object: RecordType,
+    v: &Value,
+) -> Result<Vec<CrmPropertyDefinition>, HubSpotError> {
+    let api_name = object.api_name();
+    let mut out = Vec::new();
+    for item in results_array(v, "property definitions")? {
+        let Some(name) = item.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if !allowed_property(api_name, name) {
+            continue;
         }
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(15))
-            .connect_timeout(Duration::from_secs(5))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| {
-                error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "hubspot_client_unavailable",
-                )
-            })?;
-        Ok(Self {
-            client,
-            token,
-            base_url,
-            cache: Mutex::new(None),
+        let p: HubProperty = serde_json::from_value(item.clone())
+            .map_err(|_| decode_error("property definition"))?;
+        out.push(CrmPropertyDefinition {
+            object_type: api_name.to_owned(),
+            name: p.name,
+            label: p.label,
+            property_type: p.property_type,
+            field_type: p.field_type,
+            options: p.options,
+        });
+    }
+    Ok(out)
+}
+
+fn parse_pipelines(v: &Value) -> Result<Vec<CrmPipeline>, HubSpotError> {
+    let mut pipelines: Vec<HubPipeline> = Vec::new();
+    for item in results_array(v, "pipelines")? {
+        pipelines
+            .push(serde_json::from_value(item).map_err(|_| decode_error("pipeline definition"))?);
+    }
+    pipelines.sort_by_key(|p| p.display_order);
+    Ok(pipelines
+        .into_iter()
+        .map(|mut p| {
+            p.stages.sort_by_key(|s| s.display_order);
+            CrmPipeline {
+                id: p.id,
+                label: p.label,
+                stages: p
+                    .stages
+                    .into_iter()
+                    .map(|s| CrmStage {
+                        id: s.id,
+                        label: s.label,
+                    })
+                    .collect(),
+            }
         })
-    }
-    async fn read<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, MetadataError> {
-        // Only fixed GET paths are used. At most one short retry, with bounded Retry-After.
-        for attempt in 0..2 {
-            let response = self
-                .client
-                .get(format!("{}{path}", self.base_url))
-                .bearer_auth(&self.token)
-                .send()
-                .await
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        error(StatusCode::GATEWAY_TIMEOUT, "hubspot_timeout")
-                    } else {
-                        error(StatusCode::BAD_GATEWAY, "hubspot_connection_failed")
-                    }
-                })?;
-            let status = response.status();
-            if attempt == 0 && (status.as_u16() == 429 || status.is_server_error()) {
-                let delay = response
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(1);
-                if delay <= 2 {
-                    tokio::time::sleep(Duration::from_secs(delay)).await;
-                    continue;
-                }
-            }
-            if !status.is_success() {
-                return Err(match status.as_u16() {
-                    401 => error(StatusCode::BAD_GATEWAY, "hubspot_auth_failed"),
-                    403 => error(StatusCode::BAD_GATEWAY, "hubspot_scope_denied"),
-                    404 => error(StatusCode::BAD_GATEWAY, "hubspot_endpoint_missing"),
-                    429 => error(StatusCode::TOO_MANY_REQUESTS, "hubspot_rate_limited"),
-                    _ => error(StatusCode::BAD_GATEWAY, "hubspot_unavailable"),
-                });
-            }
-            return response
-                .json()
-                .await
-                .map_err(|_| error(StatusCode::BAD_GATEWAY, "hubspot_invalid_response"));
+        .collect())
+}
+
+/// 定義のキャッシュ (プロセス内メモリのみ、60 秒)。複数タブの同時ミスは 1 回の取得にまとめる。
+#[derive(Default)]
+pub struct MetadataCache {
+    slot: Mutex<Option<(Instant, CrmMetadataResponse)>>,
+    /// `refresh` を受け付ける最短間隔 (取得から。これより新しいキャッシュは refresh でも返す)。
+    /// HubSpot の鍵は既存バッチと共有なので、連打で定義 4 本を何度も取り直さない。
+    refresh_floor: Duration,
+}
+
+impl MetadataCache {
+    pub fn with_refresh_floor(refresh_floor: Duration) -> Self {
+        Self {
+            slot: Mutex::new(None),
+            refresh_floor,
         }
-        Err(error(StatusCode::BAD_GATEWAY, "hubspot_unavailable"))
     }
-    pub async fn metadata(&self, refresh: bool) -> Result<CrmMetadataResponse, MetadataError> {
+
+    /// 定義を返す。`refresh` ならキャッシュを使わず取り直す。失敗はキャッシュしない。
+    pub async fn get(
+        &self,
+        client: &HubSpotClient,
+        refresh: bool,
+    ) -> Result<CrmMetadataResponse, HubSpotError> {
         let started = Instant::now();
-        // Serialize misses so multiple tabs do not fan out into duplicate upstream loads.
-        let mut cache = self.cache.lock().await;
-        if !refresh {
-            if let Some((stored, response)) = cache.as_ref() {
-                if stored.elapsed() < Duration::from_secs(60) {
-                    let mut response = response.clone();
-                    response.cache_hit = true;
-                    response.hubspot_ms = 0.0;
-                    response.total_ms = started.elapsed().as_secs_f64() * 1000.0;
-                    return Ok(response);
-                }
+        // 同時のキャッシュミスを直列化する (重複した上流呼び出しを避ける)
+        let mut slot = self.slot.lock().await;
+        if let Some((stored, response)) = slot.as_ref() {
+            let age = stored.elapsed();
+            if (!refresh && age < CACHE_TTL) || (refresh && age < self.refresh_floor) {
+                let mut response = response.clone();
+                response.cache_hit = true;
+                response.hubspot_ms = 0.0;
+                response.total_ms = started.elapsed().as_secs_f64() * 1000.0;
+                return Ok(response);
             }
         }
         let upstream = Instant::now();
         let (contacts, companies, deals, pipelines) = tokio::try_join!(
-            self.read::<Results<HubProperty>>("/crm/v3/properties/contacts"),
-            self.read::<Results<HubProperty>>("/crm/v3/properties/companies"),
-            self.read::<Results<HubProperty>>("/crm/v3/properties/deals"),
-            self.read::<Results<HubPipeline>>("/crm/v3/pipelines/deals"),
-        )?;
+            client.property_definitions(RecordType::Contact),
+            client.property_definitions(RecordType::Company),
+            client.property_definitions(RecordType::Deal),
+            client.deal_pipelines(),
+        )
+        .map_err(definitions_error)?;
         let hubspot_ms = upstream.elapsed().as_secs_f64() * 1000.0;
-        let mut properties = Vec::new();
-        for (object_type, definitions) in [
-            ("contacts", contacts.results),
-            ("companies", companies.results),
-            ("deals", deals.results),
-        ] {
-            // Expose the current MOC's reviewed field set, not all account metadata.
-            properties.extend(
-                definitions
-                    .into_iter()
-                    .filter(|p| allowed_property(object_type, &p.name))
-                    .map(|p| CrmPropertyDefinition {
-                        object_type: object_type.to_owned(),
-                        name: p.name,
-                        label: p.label,
-                        property_type: p.property_type,
-                        field_type: p.field_type,
-                        options: p.options,
-                    }),
-            );
-        }
-        let mut pipelines = pipelines.results;
-        pipelines.sort_by_key(|p| p.display_order);
-        let pipelines = pipelines
-            .into_iter()
-            .map(|mut p| {
-                p.stages.sort_by_key(|s| s.display_order);
-                CrmPipeline {
-                    id: p.id,
-                    label: p.label,
-                    stages: p
-                        .stages
-                        .into_iter()
-                        .map(|s| CrmStage {
-                            id: s.id,
-                            label: s.label,
-                        })
-                        .collect(),
-                }
-            })
-            .collect();
+        let mut properties = parse_properties(RecordType::Contact, &contacts)?;
+        properties.extend(parse_properties(RecordType::Company, &companies)?);
+        properties.extend(parse_properties(RecordType::Deal, &deals)?);
         let response = CrmMetadataResponse {
             properties,
-            pipelines,
+            pipelines: parse_pipelines(&pipelines)?,
             fetched_at: chrono::Utc::now().to_rfc3339(),
             hubspot_ms,
             total_ms: started.elapsed().as_secs_f64() * 1000.0,
             cache_hit: false,
         };
-        *cache = Some((Instant::now(), response.clone()));
+        *slot = Some((Instant::now(), response.clone()));
         Ok(response)
     }
 }
+
+/// 現在の MOC で確認済みの項目だけを返す (アカウントの全定義は出さない)。
 fn allowed_property(object_type: &str, name: &str) -> bool {
     let names: &[&str] = match object_type {
         "contacts" => &[
@@ -316,76 +289,6 @@ fn allowed_property(object_type: &str, name: &str) -> bool {
         _ => &[],
     };
     names.contains(&name)
-}
-fn authorize(
-    email: Option<&str>,
-    method: Option<&str>,
-    allowed: &HashSet<String>,
-) -> Result<(), MetadataError> {
-    let email = email
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| error(StatusCode::UNAUTHORIZED, "login_required"))?;
-    if method != Some(LOGIN_METHOD_GOOGLE_OIDC) {
-        return Err(error(StatusCode::FORBIDDEN, "google_login_required"));
-    }
-    if !allowed.contains(&email.to_lowercase()) {
-        return Err(error(StatusCode::FORBIDDEN, "crm_metadata_access_denied"));
-    }
-    Ok(())
-}
-#[derive(Deserialize, Default)]
-struct MetadataQuery {
-    #[serde(default)]
-    refresh: bool,
-}
-
-/// Merge outside the shared redirecting auth layer: this API emits JSON 401/403 itself.
-pub fn router() -> Router<Arc<AppState>> {
-    let allowed: Arc<HashSet<String>> = Arc::new(
-        std::env::var("CRM_METADATA_ALLOWED_EMAILS")
-            .unwrap_or_default()
-            .split(',')
-            .map(|s| s.trim().to_lowercase())
-            .filter(|s| !s.is_empty())
-            .collect(),
-    );
-    let service = Arc::new(
-        std::env::var("HUBSPOT_ACCESS_TOKEN")
-            .ok()
-            .and_then(|token| MetadataService::new(token).ok()),
-    );
-    Router::new().route(
-        "/api/crm/metadata",
-        get(
-            move |State(state): State<Arc<AppState>>,
-                  session: Session,
-                  Query(query): Query<MetadataQuery>| {
-                let allowed = allowed.clone();
-                let service = service.clone();
-                async move {
-                    let email: Option<String> =
-                        session.get(SESSION_USER_KEY).await.map_err(|_| {
-                            error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable")
-                        })?;
-                    let method: Option<String> =
-                        session.get(SESSION_LOGIN_METHOD_KEY).await.map_err(|_| {
-                            error(StatusCode::INTERNAL_SERVER_ERROR, "session_unavailable")
-                        })?;
-                    authorize(email.as_deref(), method.as_deref(), &allowed)?;
-                    if crate::account_is_disabled(&state, email.as_deref().unwrap_or_default())
-                        .await
-                    {
-                        return Err(error(StatusCode::FORBIDDEN, "account_disabled"));
-                    }
-                    let service = service.as_ref().as_ref().ok_or_else(|| {
-                        error(StatusCode::SERVICE_UNAVAILABLE, "hubspot_not_configured")
-                    })?;
-                    let response = service.metadata(query.refresh).await?;
-                    Ok::<_, MetadataError>(([(header::CACHE_CONTROL, "no-store")], Json(response)))
-                }
-            },
-        ),
-    )
 }
 
 #[cfg(test)]

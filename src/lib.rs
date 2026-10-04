@@ -3,10 +3,12 @@
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod crm;
 pub mod db;
 pub mod gemini;
 pub mod geo;
 pub mod handlers;
+pub mod hubspot;
 /// Indeed 採用市場データ。社内タブと顧客レポートが同じ集計を使う
 pub mod indeed;
 pub mod job_gen;
@@ -83,6 +85,9 @@ pub struct AppState {
     /// Google Workspace OIDC ログイン (ADR-017)。GOOGLE_OIDC_* が 4 つ揃っていなければ None で、
     /// ログイン画面にボタンを出さず /auth/google/* は 404。
     pub google_oidc: Option<Arc<auth::google_oidc::GoogleOidc>>,
+    /// HubSpot CRM API (読み取り、Headless CRM)。`HUBSPOT_ACCESS_TOKEN` 未設定なら None で、
+    /// `/api/crm/*` は 503 `not_configured`。
+    pub hubspot: Option<Arc<hubspot::HubSpotClient>>,
 }
 
 /// アプリケーションRouter構築
@@ -882,7 +887,15 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // Google Workspace OIDC (/auth/google/login, /auth/google/callback)。未ログインで到達する必要がある
         .merge(auth::google_oidc::router())
         .merge(api_v1)
-        .merge(handlers::crm_metadata::router())
+        // Headless CRM (/api/crm/metadata と /api/crm/{contacts|companies|deals}/{id}、HubSpot 読み取りのみ)。
+        // auth_middleware の外に置く: 未ログインを /login への 303 でなく JSON の 401 で返すため
+        // (認可は各ハンドラの先頭 = crm::rbac。Google OIDC + CRM_METADATA_ALLOWED_EMAILS)。
+        // レコードの閲覧記録 (誰がどのレコードを見たか) は activity_log_mw をこのルーターだけに掛けて残す。
+        .merge(
+            crm::router(crm::rbac::CrmAccess::from_env()).route_layer(
+                middleware::from_fn_with_state(state.clone(), activity_log_mw),
+            ),
+        )
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(jobgen_routes)
@@ -1139,6 +1152,22 @@ fn meaningful_activity(
     // どちらを見たかは target_id (path) で区別する。
     if path.starts_with("/app/") {
         return Some(("view_tab", "tab"));
+    }
+    // HubSpot レコードの閲覧記録 (誰がどのレコードを見たか = 個人情報の閲覧記録)。
+    // path は id 込みでそのまま記録される。成功応答だけ記録 (下の activity_log_mw)。
+    // 記録は fire-and-forget のため記録漏れはありうる。
+    if let Some(rest) = path.strip_prefix("/api/crm/") {
+        let mut it = rest.split('/');
+        if let (Some(kind), Some(id), None) = (it.next(), it.next(), it.next()) {
+            if !id.is_empty() {
+                match kind {
+                    "contacts" => return Some(("crm_view_contact", "hubspot_contact")),
+                    "companies" => return Some(("crm_view_company", "hubspot_company")),
+                    "deals" => return Some(("crm_view_deal", "hubspot_deal")),
+                    _ => {}
+                }
+            }
+        }
     }
     match path {
         "/api/keywords" => Some(("keyword_search", "keyword")),
@@ -2368,6 +2397,42 @@ mod activity_log_tests {
                 Some(expected),
                 "{path} は {expected} として記録されるべき"
             );
+        }
+    }
+
+    /// HubSpot レコードの閲覧は event_type / target_type まで具体値で記録される
+    #[test]
+    fn logs_crm_record_views() {
+        let cases = [
+            (
+                "/api/crm/contacts/55",
+                "crm_view_contact",
+                "hubspot_contact",
+            ),
+            (
+                "/api/crm/companies/300",
+                "crm_view_company",
+                "hubspot_company",
+            ),
+            ("/api/crm/deals/900", "crm_view_deal", "hubspot_deal"),
+        ];
+        for (path, ev, tt) in cases {
+            assert_eq!(
+                meaningful_activity(&Method::GET, path),
+                Some((ev, tt)),
+                "{path}"
+            );
+            // GET 以外は記録しない
+            assert!(meaningful_activity(&Method::POST, path).is_none(), "{path}");
+        }
+        // 逆証明: 未知の種別・id 無し・余計なパスは記録しない
+        for path in [
+            "/api/crm/deals",
+            "/api/crm/deals/",
+            "/api/crm/owners/1",
+            "/api/crm/deals/900/extra",
+        ] {
+            assert!(meaningful_activity(&Method::GET, path).is_none(), "{path}");
         }
     }
 

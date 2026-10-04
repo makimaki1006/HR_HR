@@ -72,6 +72,7 @@ pub(crate) fn test_state(audit: Option<AuditDb>) -> Arc<AppState> {
         company_geo_cache: None,
         audit,
         google_oidc: None,
+        hubspot: None,
     })
 }
 

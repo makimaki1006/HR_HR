@@ -1,5 +1,6 @@
-//! Read-only benchmark of the same adapter used by /api/crm/metadata. No server/main/DB initialization.
-use rust_dashboard::handlers::crm_metadata::MetadataService;
+//! Read-only benchmark of the same client and cache used by /api/crm/metadata. No server/main/DB initialization.
+use rust_dashboard::handlers::crm_metadata::MetadataCache;
+use rust_dashboard::hubspot::{ClientOptions, HubSpotClient, DEFAULT_BASE_URL};
 #[tokio::main]
 async fn main() {
     // Optional existing server env file. Load in this process only; never copy or print credentials.
@@ -10,15 +11,17 @@ async fn main() {
         }
     }
     let token = std::env::var("HUBSPOT_ACCESS_TOKEN").unwrap_or_default();
-    let service = match MetadataService::new(token) {
-        Ok(service) => service,
+    let client = match HubSpotClient::new(token, DEFAULT_BASE_URL, ClientOptions::default()) {
+        Ok(client) => client,
         Err(error) => {
-            eprintln!("{}", error.code);
+            eprintln!("{}", error.error_kind());
             std::process::exit(1);
         }
     };
+    // refresh の下限なし (計測用)。本番ルートの 5 秒下限とは別
+    let cache = MetadataCache::default();
     for (name, refresh) in [("cold", false), ("warm", false), ("refresh", true)] {
-        match service.metadata(refresh).await {
+        match cache.get(&client, refresh).await {
             Ok(response) => println!(
                 "{}",
                 serde_json::json!({
@@ -29,7 +32,7 @@ async fn main() {
                 })
             ),
             Err(error) => {
-                eprintln!("{}", error.code);
+                eprintln!("{}", error.error_kind());
                 std::process::exit(1);
             }
         }

@@ -83,6 +83,38 @@ impl GoogleOidcConfig {
     }
 }
 
+/// HubSpot CRM API の資格情報 (Headless CRM)。
+///
+/// `HUBSPOT_ACCESS_TOKEN` が空でないときだけ `Some`。認証方式 (Legacy Private App /
+/// static auth アプリ / Service Key) はどれも `Authorization: Bearer` で同じ形に扱う。
+#[derive(Clone)]
+pub struct HubSpotApiConfig {
+    pub access_token: String,
+}
+
+impl std::fmt::Debug for HubSpotApiConfig {
+    // access_token をログに出さない
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HubSpotApiConfig")
+            .field("access_token", &"***")
+            .finish()
+    }
+}
+
+impl HubSpotApiConfig {
+    pub fn from_env() -> Option<Self> {
+        Self::from_value(env::var("HUBSPOT_ACCESS_TOKEN").ok())
+    }
+
+    /// 前後の空白は落とし、空文字は未設定扱い。
+    pub fn from_value(access_token: Option<String>) -> Option<Self> {
+        access_token
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(|access_token| Self { access_token })
+    }
+}
+
 /// アプリケーション設定
 #[derive(Debug, Clone)]
 pub struct AppConfig {
