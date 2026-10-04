@@ -390,13 +390,13 @@ fn golden_inputs_exercise_the_report_not_an_error_page() {
     assert!(r1.contains("3400") || r1.contains("3,400"), "Indeed の ctk");
     let r2 = by("r2_");
     assert!(r2.contains("<td>CSV重複排除後</td><td>60</td>"));
-    // 時給 16 件: 下限 平均 1262.5(表示は小数 2 桁の整数丸めで 1262.00)/ 中央値 1255、上限 平均 1409.375 / 中央値 1405
+    // 時給 16 件: 下限 平均 1262.5(表示は円の整数に四捨五入して 1263。旧: 切り捨てて 1262.00)/ 中央値 1255、上限 平均 1409.375 / 中央値 1405
     assert!(
-        r2.contains("<th>平均値</th><td>1262.00</td><td>1409.00</td>"),
+        r2.contains("<th>平均値</th><td>1263</td><td>1409</td>"),
         "時給の平均"
     );
     assert!(
-        r2.contains("<th>中央値</th><td>1255.00</td><td>1405.00</td>"),
+        r2.contains("<th>中央値</th><td>1255</td><td>1405</td>"),
         "時給の中央値"
     );
     assert!(r2.contains("円/時"));
@@ -536,7 +536,7 @@ async fn handler_hourly_no_sp_and_error_pages_match_golden() {
     let (s, html) = post_report(&fixture("sp_utf8.csv"), &form("indeed_sp", "hourly")).await;
     assert_eq!(s, StatusCode::OK);
     assert!(html.contains("<td>CSV重複排除後</td><td>60</td>"));
-    assert!(html.contains("<th>中央値</th><td>1255.00</td><td>1405.00</td>"));
+    assert!(html.contains("<th>中央値</th><td>1255</td><td>1405</td>"));
     check_golden("h2_sp_utf8_hourly.html", &html);
 
     let (s, html) = post_report(&fixture("plain_no_sp.csv"), &form("indeed", "monthly")).await;
