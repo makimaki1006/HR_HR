@@ -3,6 +3,12 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+// Tests run the legacy sales_kpi script (parity tests), whose md()/wd() read dates in the local
+// time zone. Production users are in Japan, so pin the test time zone to JST. Set here (the
+// config is evaluated in the main process before workers start, so they inherit it) and again
+// via test.env. Works on both Windows and Linux.
+process.env.TZ = 'Asia/Tokyo';
+
 const fromHere = (p: string): string => fileURLToPath(new URL(p, import.meta.url));
 
 // Build output is served by Rust (Axum) from /static/app/ (ServeDir "static", immutable cache).
@@ -34,6 +40,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    env: { TZ: 'Asia/Tokyo' },
     include: ['src/**/*.test.{ts,tsx}'],
   },
 });
