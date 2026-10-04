@@ -348,14 +348,15 @@ pub struct BoundStats {
 }
 
 impl BoundStats {
-    /// 下限値・上限値の配列から作る。平均は整数切り捨て (compute_salary_stats と同じ)。
+    /// 下限値・上限値の配列から作る。平均は整数に四捨五入 (小数を捨てると時給 1262.5 が 1262 になるため)。
     pub fn from_values(mins: &[i64], maxs: &[i64]) -> Self {
         fn mean_opt(v: &[i64]) -> Option<i64> {
             if v.is_empty() {
                 None
             } else {
                 let sum: i128 = v.iter().map(|&x| x as i128).sum();
-                Some((sum / v.len() as i128) as i64)
+                let n = v.len() as i128;
+                Some(((2 * sum + n).div_euclid(2 * n)) as i64)
             }
         }
         fn median_opt(v: &[i64]) -> Option<i64> {
