@@ -7,6 +7,9 @@ JSON を `/api/sales-kpi/data` として返し、テンプレートをそのま�
   python tests/e2e/sales_kpi_card_breakdown.py --json out.json --out <スクショ先> \
       [--template templates/tabs/sales_kpi.html] [--cards-only cards.json]
 
+  --react <リポのルート> を付けると、旧画面ではなく React 版 (/app/sales-kpi、ビルド済みの static/app) を同じ手順で確かめる
+  (id・data 属性が旧画面と同じなので、確認の中身は変えない)。
+
   --cards-only を付けると、内訳は触らず 7 枚のカードの数字だけを書き出す（変更前テンプレートとの比較用）。
 確かめること（--cards-only なし）:
   - 7 枚それぞれを押してパネルが開き、パネル見出しの件数 == カードの値、
@@ -34,6 +37,33 @@ from playwright.sync_api import sync_playwright
 
 CHROME = "C:/Users/fuji1/AppData/Local/ms-playwright/chromium-1155/chrome-win/chrome.exe"
 STATS = {"drill": 0, "rows": 0, "nt_levels": 0}
+PAGE_PATH = "/sales-kpi"
+REACT_STATIC: Path | None = None  # --react 指定時: <repo>/static/app
+
+
+def react_shell(static_app: Path) -> bytes:
+    """Rust の spa_shell.rs と同じ形の HTML シェル (manifest からハッシュ付き JS / CSS を引く)。"""
+    man = json.loads((static_app / ".vite" / "manifest.json").read_text(encoding="utf-8"))
+    ent = man["src/entries/sales-kpi.tsx"]
+    css, seen = [], set()
+
+    def walk(e):
+        css.extend(e.get("css", []))
+        for k in e.get("imports", []):
+            if k not in seen:
+                seen.add(k)
+                walk(man[k])
+
+    walk(ent)
+    links = "".join('<link rel="stylesheet" href="/static/app/%s">\n' % c for c in dict.fromkeys(css))
+    head = (
+        '<!DOCTYPE html>\n<html lang="ja">\n<head>\n<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>HR_HR</title>\n'
+    )
+    tail = '<script type="module" src="/static/app/%s"></script>\n</head>\n<body>\n<div id="app-root"></div>\n</body>\n</html>\n' % ent["file"]
+    return (head + links + tail).encode("utf-8")
+
+
 CARDS = ["apo", "pool", "den", "done", "rate", "anqrate", "cyomi"]  # 画面の左から順
 
 
@@ -45,7 +75,17 @@ def serve(tpl_path: Path, json_path: Path, port: int):
         def do_GET(self):
             if self.path.startswith("/api/sales-kpi/data"):
                 body, ct = data, "application/json; charset=utf-8"
-            elif self.path.startswith("/sales-kpi"):
+            elif REACT_STATIC is not None and self.path.startswith("/app/sales-kpi"):
+                body, ct = react_shell(REACT_STATIC), "text/html; charset=utf-8"
+            elif REACT_STATIC is not None and self.path.startswith("/static/app/"):
+                f = REACT_STATIC / self.path[len("/static/app/"):].split("?")[0]
+                if not f.is_file():
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                body = f.read_bytes()
+                ct = {".js": "text/javascript", ".css": "text/css"}.get(f.suffix, "application/octet-stream")
+            elif REACT_STATIC is None and self.path.startswith("/sales-kpi"):
                 body, ct = page, "text/html; charset=utf-8"
             else:
                 self.send_response(404)
@@ -90,7 +130,7 @@ def open_page(pw_browser, port, hidden_ids=None):
         page.add_init_script(
             "localStorage.setItem('salesKpi.hidden.v1',%s)" % json.dumps(json.dumps(hidden_ids))
         )
-    page.goto(f"http://127.0.0.1:{port}/sales-kpi")
+    page.goto(f"http://127.0.0.1:{port}{PAGE_PATH}")
     page.wait_for_selector("#cards1 .c", timeout=20000)
     return ctx, page, errs
 
@@ -386,8 +426,11 @@ def scenario_pick_blank(br, tpl: Path, D: dict, out: Path, port: int, fails: lis
     got_k = [num(v) for v in kaden_vals(page)[:3]]
     if got_k != want_k:
         fails.append(f"担当なし選択(架電リスト): {got_k} ≠ kaden.no_owner {want_k}")
+    # 決定者タブを開いてから見る（React 版はタブを開いたときだけ表を描く。旧画面は隠れたまま常に描いてある）
+    page.locator("#tabs [role=tab]", has_text="決定者・決裁者").click()
     ke = page.evaluate("""()=>{const t=document.querySelector('#ketteibox table');
         return t?{rows:t.querySelectorAll('tbody tr').length}:null}""")
+    page.locator("#tabs [role=tab]", has_text="営業KPI").click()
     if not ke or ke["rows"] != 1:
         fails.append(f"担当なし選択(決定者): 表が {ke} （担当なしの 1 行だけのはず）")
     first_call = page.evaluate("()=>{const v=document.querySelector('#cards3 .c .v');return v?v.textContent:null}")
@@ -893,10 +936,15 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--template", default="templates/tabs/sales_kpi.html")
     ap.add_argument("--cards-only", default=None)
+    ap.add_argument("--react", default=None, help="リポのルート。指定すると React 版 (/app/sales-kpi) を確かめる")
     ap.add_argument("--port", type=int, default=9317)
     ap.add_argument("--only", choices=["main", "blank", "rowteam", "pickblank", "negtype", "ntmissing", "numnote"], default=None,
                     help="指定したケースだけ走らせる（既定は全部）")
     a = ap.parse_args()
+    global PAGE_PATH, REACT_STATIC
+    if a.react:
+        PAGE_PATH = "/app/sales-kpi"
+        REACT_STATIC = Path(a.react) / "static" / "app"
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     D = json.loads(Path(a.json).read_text(encoding="utf-8"))
