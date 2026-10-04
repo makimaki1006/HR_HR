@@ -11,3 +11,6 @@
 # ts-rs の生成物 (cargo test --lib が LF で書き出す)。チェックアウト時も LF にして、
 # Windows で再生成しただけで変更扱いにならないようにする。CI は差分ゼロを検査する。
 frontend/src/generated/** text eol=lf
+
+# 競合調査 golden/fixture はバイト単位で比較する。改行変換させない。
+tests/fixtures/competitor/** -text

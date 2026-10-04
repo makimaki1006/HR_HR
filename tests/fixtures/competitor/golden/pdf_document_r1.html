@@ -1,0 +1,193 @@
+<!doctype html><html lang="ja"><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>競合調査</title><style>/* Hallmark · macrostructure: supplied Excel dashboard · tone: dense analytical · anchor: teal · pre-emit critique: P5 H4 E4 S5 R5 V4 */
+:root{--teal:#006666;--blue:#4472c4;--grid:#d5d9dd;--ink:#20272c;--paper:#fff;--canvas:#edf0f1}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);font:14px 'Yu Gothic','Meiryo',sans-serif;overflow-x:clip}
+a{color:var(--teal)}
+.toolbar{max-width:1500px;margin:auto;padding:16px 20px;display:flex;gap:24px;align-items:center}
+.toolbar button{margin-left:auto;background:white;border:1px solid #999;padding:8px 14px;cursor:pointer}
+main{max-width:1500px;margin:0 auto;padding:0 20px 24px}
+.excel-dashboard{display:grid;grid-template-columns:32% 68%;border:1px solid #333;background:var(--paper)}
+.summary{background:var(--teal);color:white;padding:14px 16px}
+.summary h1{text-align:center;font-size:25px;letter-spacing:.12em;margin:4px 0 15px}
+.summary table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;margin-bottom:14px}
+.summary th,.summary td{border:1px solid #ffffff70;padding:3px 4px;text-align:center;font-weight:400;line-height:1.2}
+.summary .meta td{font-size:16px;padding:6px 4px}
+.summary h2{font-size:15px;text-align:center;margin:14px 0 7px;font-weight:500}
+.summary .words th:first-child,.summary .words td:first-child{width:55%;text-align:left}
+.summary .note{color:#ffffffd9;font-size:11px;line-height:1.6}
+.charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:250px 250px minmax(330px,1fr);padding:12px;gap:12px}
+.chart{margin:0;min-width:0;border:1px solid var(--grid);padding:10px;background:white}
+.chart.wide{grid-column:1/-1}
+.chart figcaption{text-align:center;font-size:17px;margin-bottom:6px}
+.chart svg{display:block;width:100%;height:calc(100% - 30px)}
+.caption{font-size:12px;color:#536169;line-height:1.7;margin:12px 0 20px}
+.sources{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.page-navy{background:white;padding:20px;min-width:0;border-top:3px solid var(--teal)}
+.page-navy h1,.page-navy h2{font-size:21px;margin:6px 0}
+.page-navy .page-header{margin-bottom:15px}
+.note{font-size:12px;line-height:1.7;color:#536169}
+.table-navy{width:100%;border-collapse:collapse;font-size:12px;margin:12px 0}
+.table-navy th,.table-navy td{padding:7px;border:1px solid var(--grid);text-align:left}
+.table-navy th{background:#edf6f6}
+.table-navy .num{text-align:right}
+.block-title{font-size:14px;font-weight:600;margin-top:20px}
+@media(min-width:1400px){.summary table{font-size:13px}
+.charts{grid-template-rows:260px 260px minmax(350px,1fr)}
+}
+@media(max-width:900px){.excel-dashboard{grid-template-columns:1fr}
+.summary{padding:16px}
+.summary table{font-size:13px}
+.charts{grid-template-rows:240px 240px 320px}
+.sources{grid-template-columns:1fr}
+}
+@media(max-width:550px){main{padding:0 10px 20px}
+.toolbar{padding:12px 10px;gap:12px;font-size:12px}
+.toolbar button{padding:7px}
+.charts{grid-template-columns:1fr;grid-template-rows:repeat(2,220px) repeat(2,330px);padding:8px;gap:8px}
+.chart.wide{grid-column:auto}
+.chart figcaption{font-size:15px}
+.page-navy{padding:12px}
+.table-navy{font-size:10px}
+.table-navy td,.table-navy th{padding:4px;overflow-wrap:anywhere}
+}
+@page{size:A3 landscape;margin:8mm}
+@media print{body{background:white}
+.no-print{display:none}
+main{max-width:none;padding:0}
+.excel-dashboard{grid-template-columns:32% 68%;break-inside:avoid}
+.summary{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px 310px}
+.chart.wide{grid-column:1/-1}
+.sources{display:block}
+.page-navy{break-inside:avoid;margin-top:20px}
+}
+
+
+.ph-title{font-size:21px;font-weight:600;margin:5px 0}
+.ph-sec,.ph-sub{font-size:12px;color:#536169}
+.ph-rule{height:1px;background:var(--grid);margin-top:12px}
+a:focus-visible,button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+[hidden]{display:none!important}
+.report-tabs{display:flex;gap:0;border-bottom:2px solid var(--teal);margin-bottom:16px;overflow-x:auto}
+.report-tabs button{font:inherit;font-weight:600;white-space:nowrap;border:1px solid var(--grid);border-bottom:0;padding:12px 20px;background:var(--paper);color:var(--teal);cursor:pointer}
+.report-tabs button[aria-selected=true]{background:var(--teal);color:white;border-color:var(--teal)}
+.report-tabs button:hover{background:#e1eeee}
+.report-tabs button[aria-selected=true]:hover{background:#005858}
+@media(max-width:550px){.report-tabs button{font-size:11px;padding:12px 9px}}
+@media print{.report-tabs{display:none}}
+.population-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.population-grid svg{max-width:100%;height:auto}
+@media(max-width:768px){.population-grid{grid-template-columns:1fr}}
+</style><style>
+@page{size:A3 landscape;margin:8mm}
+body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','Meiryo',sans-serif;overflow:visible;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+.pdf-document main{max-width:none;padding:0;margin:0}
+.pdf-document .no-print{display:none!important}
+.pdf-document .pdf-page{width:1510px;height:1045px;position:relative;break-after:page;page-break-after:always}
+.pdf-document .pdf-page:last-child{break-after:auto;page-break-after:auto}
+.pdf-document .pdf-content{width:1510px;display:flow-root}
+.pdf-document .excel-dashboard{grid-template-columns:32% 68%;break-inside:auto}
+.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:260px 260px 350px}
+.pdf-document .chart.wide{grid-column:1/-1}
+.pdf-document .summary td,.pdf-document .summary th{overflow-wrap:anywhere}
+.pdf-document .summary{padding:10px 12px}
+.pdf-document .summary table{font-size:12px;margin-bottom:8px}
+.pdf-document .summary th,.pdf-document .summary td{padding:2px 4px;line-height:1.15}
+.pdf-document .summary .meta td{font-size:14px;padding:4px}
+.pdf-document .summary h1{font-size:22px;margin:4px 0 10px}
+.pdf-document .summary h2{font-size:14px;margin:8px 0 5px}
+.pdf-document .summary .note{font-size:10px;line-height:1.4}
+.pdf-document .page-navy{margin-top:0;break-inside:auto}
+.pdf-document .population-grid{grid-template-columns:1fr 1fr}
+.pdf-document .table-navy{table-layout:fixed;overflow-wrap:anywhere}
+.pdf-document .table-navy td,.pdf-document .table-navy th{overflow-wrap:anywhere}
+</style></head><body><nav class="toolbar no-print"><a href="/competitor">調査条件に戻る / PDFダウンロード</a><a href="/">市場分析</a></nav><main><div class="report-tabs no-print" role="tablist" aria-label="競合調査の表示切り替え"><button id="tab-excel" role="tab" aria-selected="true" aria-controls="panel-excel" tabindex="0">Excel再現</button><button id="tab-google" role="tab" aria-selected="false" aria-controls="panel-google" tabindex="-1">Google検索需要</button><button id="tab-indeed" role="tab" aria-selected="false" aria-controls="panel-indeed" tabindex="-1">Indeed採用レポート</button><button id="tab-population" role="tab" aria-selected="false" aria-controls="panel-population" tabindex="-1">人口・地域データ</button></div><div id="panel-excel" role="tabpanel" aria-labelledby="tab-excel" tabindex="0"><!-- Design review: Philosophy 5; Hierarchy 4; Execution 4; Specificity 5; Restraint 5; Variety 4. Source: supplied Excel dashboard. --><section class="excel-dashboard" aria-label="競合調査ダッシュボード"><aside class="summary"><h1>競合調査</h1><table class="meta"><tr><th>調査名</th><th>雇用形態</th></tr><tr><td>施設長 / 大阪府</td><td>正社員</td></tr><tr><th>該当都道府県</th><th>主な市町村</th></tr><tr><td>大阪府</td><td>大阪市</td></tr><tr><th>集計対象</th><th>該当件数</th></tr><tr><td>CSV重複排除後</td><td>60</td></tr></table><h2>給与関係（万円）</h2><table><tr><th></th><th colspan="2">総合</th><th colspan="2">人気求人</th></tr><tr><th></th><th>下限</th><th>上限</th><th>下限</th><th>上限</th></tr><tr><th>平均値</th><td>26.98</td><td>31.93</td><td>26.93</td><td>31.79</td></tr><tr><th>中央値</th><td>27.00</td><td>32.00</td><td>26.50</td><td>31.50</td></tr><tr><th>最頻値</th><td>20.00</td><td>23.00</td><td>20.00</td><td>23.00</td></tr><tr><th>集計件数</th><td>44</td><td>44</td><td>14</td><td>14</td></tr></table><h2>差異（総合 − 人気求人）</h2><table><tr><th></th><th>下限</th><th>上限</th></tr><tr><th>平均値</th><td>0.05</td><td>0.15</td></tr><tr><th>中央値</th><td>0.50</td><td>0.50</td></tr><tr><th>最頻値</th><td>0.00</td><td>0.00</td></tr></table><h2>求人票ワード調査（全体）</h2><table class="words"><tr><th>上位10件</th><th>件数</th><th>求人数</th><th>占有率</th></tr><tr><td>交通費支給</td><td>18</td><td>60</td><td>30%</td></tr><tr><td>昇給あり</td><td>18</td><td>60</td><td>30%</td></tr><tr><td>社会保険完備</td><td>18</td><td>60</td><td>30%</td></tr><tr><td>未経験歓迎</td><td>17</td><td>60</td><td>28%</td></tr><tr><td>賞与あり</td><td>17</td><td>60</td><td>28%</td></tr><tr><td>駅チカ</td><td>16</td><td>60</td><td>27%</td></tr><tr><td>人気</td><td>14</td><td>60</td><td>23%</td></tr><tr><td>超人気</td><td>4</td><td>60</td><td>7%</td></tr></table><h2>求人票ワード調査（上位 10 件）</h2><table class="words"><tr><th>上位10件</th><th>件数</th><th>求人数</th><th>占有率</th></tr><tr><td>交通費支給</td><td>4</td><td>10</td><td>40%</td></tr><tr><td>社会保険完備</td><td>4</td><td>10</td><td>40%</td></tr><tr><td>昇給あり</td><td>3</td><td>10</td><td>30%</td></tr><tr><td>未経験歓迎</td><td>3</td><td>10</td><td>30%</td></tr><tr><td>賞与あり</td><td>3</td><td>10</td><td>30%</td></tr><tr><td>駅チカ</td><td>3</td><td>10</td><td>30%</td></tr><tr><td>人気</td><td>2</td><td>10</td><td>20%</td></tr><tr><td>超人気</td><td>1</td><td>10</td><td>10%</td></tr></table><p class="note">給与比較はIndeed SPの主単位の求人を集計（SPデータがない場合、総合は給与分布と同じ対象）。人気求人はSPの「人気」「超人気」付き。最頻値は実額（同数は低い額）、未取得は —。少数の人気求人は参考値です。</p></aside><div class="charts"><figure class="chart wide"><figcaption>上限ボリュームゾーン（万円）</figcaption><svg viewBox="0 0 900 200" role="img" aria-label="上限ボリュームゾーン（万円）"><title>上限ボリュームゾーン（万円）</title><path d="M 36 165 H 900" stroke="#d5d9dd"/><text x="30" y="169" text-anchor="end" font-size="11" fill="#536169">0</text><path d="M 36 126.25 H 900" stroke="#d5d9dd"/><text x="30" y="130.25" text-anchor="end" font-size="11" fill="#536169">2</text><path d="M 36 87.5 H 900" stroke="#d5d9dd"/><text x="30" y="91.5" text-anchor="end" font-size="11" fill="#536169">4</text><path d="M 36 48.75 H 900" stroke="#d5d9dd"/><text x="30" y="52.75" text-anchor="end" font-size="11" fill="#536169">7</text><path d="M 36 10 H 900" stroke="#d5d9dd"/><text x="30" y="14" text-anchor="end" font-size="11" fill="#536169">9</text><rect x="40" y="147.77777777777777" width="30.779999999999998" height="17.22222222222222" fill="#4472c4"><title>20: 1件</title></rect><text transform="translate(61.375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">20</text><rect x="82.75" y="130.55555555555554" width="30.779999999999998" height="34.44444444444444" fill="#4472c4"><title>21: 2件</title></rect><text transform="translate(104.125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">21</text><rect x="125.5" y="130.55555555555554" width="30.779999999999998" height="34.44444444444444" fill="#4472c4"><title>22: 2件</title></rect><text transform="translate(146.875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">22</text><rect x="168.25" y="10" width="30.779999999999998" height="155" fill="#4472c4"><title>23: 9件</title></rect><text transform="translate(189.625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">23</text><rect x="211" y="147.77777777777777" width="30.779999999999998" height="17.22222222222222" fill="#4472c4"><title>24: 1件</title></rect><text transform="translate(232.375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">24</text><rect x="253.75" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>25: 3件</title></rect><text transform="translate(275.125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">25</text><rect x="296.5" y="96.11111111111111" width="30.779999999999998" height="68.88888888888889" fill="#4472c4"><title>26: 4件</title></rect><text transform="translate(317.875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">26</text><rect x="339.25" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>27: 3件</title></rect><text transform="translate(360.625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">27</text><rect x="382" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>28: 3件</title></rect><text transform="translate(403.375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">28</text><rect x="424.75" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>29: 3件</title></rect><text transform="translate(446.125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">29</text><rect x="467.5" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>30: 3件</title></rect><text transform="translate(488.875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">30</text><rect x="510.25" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>31: 3件</title></rect><text transform="translate(531.625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">31</text><rect x="553" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>32: 3件</title></rect><text transform="translate(574.375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">32</text><rect x="595.75" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>33: 3件</title></rect><text transform="translate(617.125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">33</text><rect x="638.5" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>34: 3件</title></rect><text transform="translate(659.875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">34</text><rect x="681.25" y="130.55555555555554" width="30.779999999999998" height="34.44444444444444" fill="#4472c4"><title>35: 2件</title></rect><text transform="translate(702.625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">35</text><rect x="724" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>36: 3件</title></rect><text transform="translate(745.375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">36</text><rect x="766.75" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>37: 3件</title></rect><text transform="translate(788.125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">37</text><rect x="809.5" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>39: 3件</title></rect><text transform="translate(830.875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">39</text><rect x="852.25" y="113.33333333333334" width="30.779999999999998" height="51.666666666666664" fill="#4472c4"><title>40: 3件</title></rect><text transform="translate(873.625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">40</text></svg></figure><figure class="chart wide"><figcaption>下限ボリュームゾーン（万円）</figcaption><svg viewBox="0 0 900 200" role="img" aria-label="下限ボリュームゾーン（万円）"><title>下限ボリュームゾーン（万円）</title><path d="M 36 165 H 900" stroke="#d5d9dd"/><text x="30" y="169" text-anchor="end" font-size="11" fill="#536169">0</text><path d="M 36 126.25 H 900" stroke="#d5d9dd"/><text x="30" y="130.25" text-anchor="end" font-size="11" fill="#536169">2</text><path d="M 36 87.5 H 900" stroke="#d5d9dd"/><text x="30" y="91.5" text-anchor="end" font-size="11" fill="#536169">4</text><path d="M 36 48.75 H 900" stroke="#d5d9dd"/><text x="30" y="52.75" text-anchor="end" font-size="11" fill="#536169">5</text><path d="M 36 10 H 900" stroke="#d5d9dd"/><text x="30" y="14" text-anchor="end" font-size="11" fill="#536169">7</text><rect x="40" y="76.42857142857143" width="38.475" height="88.57142857142857" fill="#4472c4"><title>19: 4件</title></rect><text transform="translate(66.71875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">19</text><rect x="93.4375" y="10" width="38.475" height="155" fill="#4472c4"><title>20: 7件</title></rect><text transform="translate(120.15625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">20</text><rect x="146.875" y="10" width="38.475" height="155" fill="#4472c4"><title>21: 7件</title></rect><text transform="translate(173.59375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">21</text><rect x="200.3125" y="54.28571428571429" width="38.475" height="110.71428571428571" fill="#4472c4"><title>22: 5件</title></rect><text transform="translate(227.03125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">22</text><rect x="253.75" y="54.28571428571429" width="38.475" height="110.71428571428571" fill="#4472c4"><title>23: 5件</title></rect><text transform="translate(280.46875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">23</text><rect x="307.1875" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>24: 3件</title></rect><text transform="translate(333.90625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">24</text><rect x="360.625" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>25: 3件</title></rect><text transform="translate(387.34375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">25</text><rect x="414.0625" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>26: 3件</title></rect><text transform="translate(440.78125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">26</text><rect x="467.5" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>27: 3件</title></rect><text transform="translate(494.21875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">27</text><rect x="520.9375" y="120.71428571428572" width="38.475" height="44.285714285714285" fill="#4472c4"><title>28: 2件</title></rect><text transform="translate(547.65625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">28</text><rect x="574.375" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>29: 3件</title></rect><text transform="translate(601.09375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">29</text><rect x="627.8125" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>30: 3件</title></rect><text transform="translate(654.53125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">30</text><rect x="681.25" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>31: 3件</title></rect><text transform="translate(707.96875 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">31</text><rect x="734.6875" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>32: 3件</title></rect><text transform="translate(761.40625 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">32</text><rect x="788.125" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>33: 3件</title></rect><text transform="translate(814.84375 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">33</text><rect x="841.5625" y="98.57142857142857" width="38.475" height="66.42857142857143" fill="#4472c4"><title>34: 3件</title></rect><text transform="translate(868.28125 181) rotate(0)" text-anchor="middle" font-size="11" fill="#536169">34</text></svg></figure><figure class="chart "><figcaption>求人票キーワード調査（全体）</figcaption><svg viewBox="0 0 440 450" role="img" aria-label="求人票キーワード調査（全体）"><title>求人票キーワード調査（全体）</title><path d="M 36 315 H 440" stroke="#d5d9dd"/><text x="30" y="319" text-anchor="end" font-size="11" fill="#536169">0</text><path d="M 36 238.75 H 440" stroke="#d5d9dd"/><text x="30" y="242.75" text-anchor="end" font-size="11" fill="#536169">4</text><path d="M 36 162.5 H 440" stroke="#d5d9dd"/><text x="30" y="166.5" text-anchor="end" font-size="11" fill="#536169">9</text><path d="M 36 86.25 H 440" stroke="#d5d9dd"/><text x="30" y="90.25" text-anchor="end" font-size="11" fill="#536169">14</text><path d="M 36 10 H 440" stroke="#d5d9dd"/><text x="30" y="14" text-anchor="end" font-size="11" fill="#536169">18</text><rect x="40" y="10" width="35.55" height="305" fill="#4472c4"><title>交通費支給: 18件</title></rect><text transform="translate(64.6875 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">交通費支給</text><rect x="89.375" y="10" width="35.55" height="305" fill="#4472c4"><title>昇給あり: 18件</title></rect><text transform="translate(114.0625 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">昇給あり</text><rect x="138.75" y="10" width="35.55" height="305" fill="#4472c4"><title>社会保険完備: 18件</title></rect><text transform="translate(163.4375 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">社会保険完備</text><rect x="188.125" y="26.944444444444457" width="35.55" height="288.05555555555554" fill="#4472c4"><title>未経験歓迎: 17件</title></rect><text transform="translate(212.8125 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">未経験歓迎</text><rect x="237.5" y="26.944444444444457" width="35.55" height="288.05555555555554" fill="#4472c4"><title>賞与あり: 17件</title></rect><text transform="translate(262.1875 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">賞与あり</text><rect x="286.875" y="43.888888888888914" width="35.55" height="271.1111111111111" fill="#4472c4"><title>駅チカ: 16件</title></rect><text transform="translate(311.5625 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">駅チカ</text><rect x="336.25" y="77.77777777777777" width="35.55" height="237.22222222222223" fill="#4472c4"><title>人気: 14件</title></rect><text transform="translate(360.9375 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">人気</text><rect x="385.625" y="247.22222222222223" width="35.55" height="67.77777777777777" fill="#4472c4"><title>超人気: 4件</title></rect><text transform="translate(410.3125 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">超人気</text></svg></figure><figure class="chart "><figcaption>求人票キーワード調査（上位 10 件）</figcaption><svg viewBox="0 0 440 450" role="img" aria-label="求人票キーワード調査（上位 10 件）"><title>求人票キーワード調査（上位 10 件）</title><path d="M 36 315 H 440" stroke="#d5d9dd"/><text x="30" y="319" text-anchor="end" font-size="11" fill="#536169">0</text><path d="M 36 238.75 H 440" stroke="#d5d9dd"/><text x="30" y="242.75" text-anchor="end" font-size="11" fill="#536169">1</text><path d="M 36 162.5 H 440" stroke="#d5d9dd"/><text x="30" y="166.5" text-anchor="end" font-size="11" fill="#536169">2</text><path d="M 36 86.25 H 440" stroke="#d5d9dd"/><text x="30" y="90.25" text-anchor="end" font-size="11" fill="#536169">3</text><path d="M 36 10 H 440" stroke="#d5d9dd"/><text x="30" y="14" text-anchor="end" font-size="11" fill="#536169">4</text><rect x="40" y="10" width="35.55" height="305" fill="#4472c4"><title>交通費支給: 4件</title></rect><text transform="translate(64.6875 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">交通費支給</text><rect x="89.375" y="10" width="35.55" height="305" fill="#4472c4"><title>社会保険完備: 4件</title></rect><text transform="translate(114.0625 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">社会保険完備</text><rect x="138.75" y="86.25" width="35.55" height="228.75" fill="#4472c4"><title>昇給あり: 3件</title></rect><text transform="translate(163.4375 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">昇給あり</text><rect x="188.125" y="86.25" width="35.55" height="228.75" fill="#4472c4"><title>未経験歓迎: 3件</title></rect><text transform="translate(212.8125 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">未経験歓迎</text><rect x="237.5" y="86.25" width="35.55" height="228.75" fill="#4472c4"><title>賞与あり: 3件</title></rect><text transform="translate(262.1875 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">賞与あり</text><rect x="286.875" y="86.25" width="35.55" height="228.75" fill="#4472c4"><title>駅チカ: 3件</title></rect><text transform="translate(311.5625 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">駅チカ</text><rect x="336.25" y="162.5" width="35.55" height="152.5" fill="#4472c4"><title>人気: 2件</title></rect><text transform="translate(360.9375 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">人気</text><rect x="385.625" y="238.75" width="35.55" height="76.25" fill="#4472c4"><title>超人気: 1件</title></rect><text transform="translate(410.3125 331) rotate(60)" text-anchor="start" font-size="10" fill="#536169">超人気</text></svg></figure></div></section><p class="caption">CSV重複排除後 60 件 / 上位 10 件は取り込み順の先頭。ワード表は上位10語、グラフは上位25語。給与分布は1万円刻みで、月給モードは既存の月給換算値を使用。給与比較表とは対象が異なる場合があります。</p></div><div id="panel-google" role="tabpanel" aria-labelledby="tab-google" tabindex="0" hidden><section class="page-navy" id="competitor-google"><div class="page-head"><div class="ph-sec">検索需要</div><div class="ph-title">Google広告APIの検索需要</div><div class="ph-sub">検索ボリューム・月別推移・関連キーワード</div><div class="ph-rule" aria-hidden="true"></div></div>
+<p class="note">出典: Google広告 Keyword Planner API。検索数はGoogleの推定検索需要です。Indeedの閲覧人数・CSVの求人数・応募数とは異なる指標です。広告競合度は求人の競合数ではありません。</p><p>検索語: 施設長 求人 / 指定地域: 大阪府</p><p class="note">取得地域: Osaka,Japan</p><table class="table-navy"><thead><tr><th>検索語</th><th>平均月間検索数</th><th>広告競合度</th></tr></thead><tbody><tr><td>施設長 求人</td><td class="num">320</td><td>HIGH</td></tr><tr><td>施設長 転職</td><td class="num">210</td><td>MEDIUM</td></tr></tbody></table><div class="block-title">施設長 求人 の月別検索数</div><table class="table-navy"><thead><tr><th>月</th><th>検索数</th></tr></thead><tbody><tr><td>2025-01</td><td class="num">310</td></tr><tr><td>2025-02</td><td class="num">320</td></tr><tr><td>2025-03</td><td class="num">330</td></tr><tr><td>2025-04</td><td class="num">340</td></tr><tr><td>2025-05</td><td class="num">350</td></tr><tr><td>2025-06</td><td class="num">360</td></tr><tr><td>2025-07</td><td class="num">370</td></tr><tr><td>2025-08</td><td class="num">380</td></tr><tr><td>2025-09</td><td class="num">390</td></tr><tr><td>2025-10</td><td class="num">400</td></tr><tr><td>2025-11</td><td class="num">410</td></tr><tr><td>2025-12</td><td class="num">420</td></tr></tbody></table><div class="block-title">施設長 転職 の月別検索数</div><table class="table-navy"><thead><tr><th>月</th><th>検索数</th></tr></thead><tbody><tr><td>2025-01</td><td class="num">200</td></tr><tr><td>2025-02</td><td class="num">210</td></tr><tr><td>2025-03</td><td class="num">220</td></tr><tr><td>2025-04</td><td class="num">230</td></tr><tr><td>2025-05</td><td class="num">240</td></tr><tr><td>2025-06</td><td class="num">250</td></tr><tr><td>2025-07</td><td class="num">260</td></tr><tr><td>2025-08</td><td class="num">270</td></tr><tr><td>2025-09</td><td class="num">280</td></tr><tr><td>2025-10</td><td class="num">290</td></tr><tr><td>2025-11</td><td class="num">300</td></tr><tr><td>2025-12</td><td class="num">310</td></tr></tbody></table><div class="block-title">関連キーワード（検索需要順・上位20件）</div><table class="table-navy"><thead><tr><th>関連語</th><th>平均月間検索数</th></tr></thead><tbody><tr><td>施設長 年収</td><td class="num">170</td></tr><tr><td>施設長 資格</td><td class="num">90</td></tr><tr><td>施設長 求人 大阪</td><td class="num">40</td></tr></tbody></table><p class="note">CSVで競合が打ち出しているキーワードと、求職者が検索する言葉を照らし合わせて使います。</p></section></div><div id="panel-indeed" role="tabpanel" aria-labelledby="tab-indeed" tabindex="0" hidden><section class="page-navy" id="competitor-indeed"><div class="page-head"><div class="ph-sec">採用市場</div><div class="ph-title">Indeed採用レポート</div><div class="ph-sub">選択した職種・都道府県の月別データ</div><div class="ph-rule" aria-hidden="true"></div></div>
+<p>施設長 / 大阪府</p><p class="note">出典: 合成テストデータ(Indeed採用市場の形のみ) / 集計日: 2026-09-01。検証用。実データではありません。 求人を見た人数は応募数ではありません。欠測は「—」で表示します。</p><table class="table-navy"><thead><tr><th>月</th><th>求人数</th><th>求人を見た人数</th><th>募集企業数</th><th>1求人あたりに見た人数</th></tr></thead><tbody><tr><td>2026-05</td><td class="num">1,200</td><td class="num">3,400</td><td class="num">310</td><td class="num">2.83</td></tr><tr><td>2026-06</td><td class="num">1,180</td><td class="num">3,300</td><td class="num">—</td><td class="num">2.80</td></tr><tr><td>2026-07</td><td class="num">—</td><td class="num">3,100</td><td class="num">295</td><td class="num">—</td></tr><tr><td>2026-08</td><td class="num">1,250</td><td class="num">—</td><td class="num">305</td><td class="num">—</td></tr></tbody></table></section></div><div id="panel-population" role="tabpanel" aria-labelledby="tab-population" tabindex="0" hidden><section class="page-navy"><h1>人口・地域データ</h1><p>集計地域：大阪府</p><p class="note">出典：国勢調査（人口）、厚生労働省（最低賃金）、e-Stat社会人口統計体系・労働政策研究・研修機構（労働統計）。都道府県単位の外部統計です。地域の人口は求人閲覧人数・検索数・応募数とは異なります。統計ごとに調査時点は異なります。</p><div class="population-grid"><div><h2>人口ピラミッド</h2><p class="note">左：男性 / 右：女性</p><svg viewBox="0 0 720 388" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="人口ピラミッド" style="display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);">
+<title>年齢階級別 人口ピラミッド</title>
+<text x="4.0" y="18" font-size="10" fill="#6A6E7A" font-weight="700">年齢</text><text x="380.0" y="18" font-size="11" fill="#0B1E3F" font-weight="700" text-anchor="end">男性</text><text x="396.0" y="18" font-size="11" fill="#0B1E3F" font-weight="700">女性</text>
+<line x1="388.0" y1="30" x2="388.0" y2="364.0" stroke="#D8D2C4" stroke-width="0.5"/>
+<rect x="94.3" y="36.0" width="293.7" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="36.0" width="324.0" height="14" fill="#C9A24B"/>
+<text x="4.0" y="46.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">85〜89歳</text>
+<rect x="101.0" y="54.0" width="287.0" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="54.0" width="316.6" height="14" fill="#C9A24B"/>
+<text x="4.0" y="64.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">80〜84歳</text>
+<rect x="107.6" y="72.0" width="280.4" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="72.0" width="309.2" height="14" fill="#C9A24B"/>
+<text x="4.0" y="82.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">75〜79歳</text>
+<rect x="114.3" y="90.0" width="273.7" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="90.0" width="301.8" height="14" fill="#C9A24B"/>
+<text x="4.0" y="100.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">70〜74歳</text>
+<rect x="121.0" y="108.0" width="267.0" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="108.0" width="294.4" height="14" fill="#C9A24B"/>
+<text x="4.0" y="118.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">65〜69歳</text>
+<rect x="127.6" y="126.0" width="260.4" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="126.0" width="287.0" height="14" fill="#C9A24B"/>
+<text x="4.0" y="136.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">60〜64歳</text>
+<rect x="134.3" y="144.0" width="253.7" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="144.0" width="279.6" height="14" fill="#C9A24B"/>
+<text x="4.0" y="154.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">55〜59歳</text>
+<rect x="141.0" y="162.0" width="247.0" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="162.0" width="272.3" height="14" fill="#C9A24B"/>
+<text x="4.0" y="172.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">50〜54歳</text>
+<rect x="147.7" y="180.0" width="240.3" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="180.0" width="264.9" height="14" fill="#C9A24B"/>
+<text x="4.0" y="190.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">45〜49歳</text>
+<rect x="154.3" y="198.0" width="233.7" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="198.0" width="257.5" height="14" fill="#C9A24B"/>
+<text x="4.0" y="208.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">40〜44歳</text>
+<rect x="161.0" y="216.0" width="227.0" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="216.0" width="250.1" height="14" fill="#C9A24B"/>
+<text x="4.0" y="226.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">35〜39歳</text>
+<rect x="167.7" y="234.0" width="220.3" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="234.0" width="242.7" height="14" fill="#C9A24B"/>
+<text x="4.0" y="244.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">30〜34歳</text>
+<rect x="174.3" y="252.0" width="213.7" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="252.0" width="235.3" height="14" fill="#C9A24B"/>
+<text x="4.0" y="262.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">25〜29歳</text>
+<rect x="181.0" y="270.0" width="207.0" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="270.0" width="227.9" height="14" fill="#C9A24B"/>
+<text x="4.0" y="280.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">20〜24歳</text>
+<rect x="187.7" y="288.0" width="200.3" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="288.0" width="220.5" height="14" fill="#C9A24B"/>
+<text x="4.0" y="298.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">15〜19歳</text>
+<rect x="194.4" y="306.0" width="193.6" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="306.0" width="213.1" height="14" fill="#C9A24B"/>
+<text x="4.0" y="316.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">10〜14歳</text>
+<rect x="201.0" y="324.0" width="187.0" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="324.0" width="205.7" height="14" fill="#C9A24B"/>
+<text x="4.0" y="334.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">5〜9歳</text>
+<rect x="207.7" y="342.0" width="180.3" height="14" fill="#1F2D4D"/>
+<rect x="388.0" y="342.0" width="198.3" height="14" fill="#C9A24B"/>
+<text x="4.0" y="352.0" font-size="10" fill="#0B1E3F" font-weight="600" text-anchor="start">0〜4歳</text>
+<text x="4" y="380.0" font-size="9" fill="#6A6E7A">1,797 名</text><text x="716.0" y="380.0" font-size="9" fill="#6A6E7A" text-anchor="end">1,797 名</text>
+</svg>
+</div><div><h2>年齢別人口</h2><table class="table-navy"><thead><tr><th>年齢</th><th>男性</th><th>女性</th><th>合計</th></tr></thead><tbody><tr><td>0〜4歳</td><td class="num">1,000</td><td class="num">1,100</td><td class="num">2,100</td></tr><tr><td>5〜9歳</td><td class="num">1,037</td><td class="num">1,141</td><td class="num">2,178</td></tr><tr><td>10〜14歳</td><td class="num">1,074</td><td class="num">1,182</td><td class="num">2,256</td></tr><tr><td>15〜19歳</td><td class="num">1,111</td><td class="num">1,223</td><td class="num">2,334</td></tr><tr><td>20〜24歳</td><td class="num">1,148</td><td class="num">1,264</td><td class="num">2,412</td></tr><tr><td>25〜29歳</td><td class="num">1,185</td><td class="num">1,305</td><td class="num">2,490</td></tr><tr><td>30〜34歳</td><td class="num">1,222</td><td class="num">1,346</td><td class="num">2,568</td></tr><tr><td>35〜39歳</td><td class="num">1,259</td><td class="num">1,387</td><td class="num">2,646</td></tr><tr><td>40〜44歳</td><td class="num">1,296</td><td class="num">1,428</td><td class="num">2,724</td></tr><tr><td>45〜49歳</td><td class="num">1,333</td><td class="num">1,469</td><td class="num">2,802</td></tr><tr><td>50〜54歳</td><td class="num">1,370</td><td class="num">1,510</td><td class="num">2,880</td></tr><tr><td>55〜59歳</td><td class="num">1,407</td><td class="num">1,551</td><td class="num">2,958</td></tr><tr><td>60〜64歳</td><td class="num">1,444</td><td class="num">1,592</td><td class="num">3,036</td></tr><tr><td>65〜69歳</td><td class="num">1,481</td><td class="num">1,633</td><td class="num">3,114</td></tr><tr><td>70〜74歳</td><td class="num">1,518</td><td class="num">1,674</td><td class="num">3,192</td></tr><tr><td>75〜79歳</td><td class="num">1,555</td><td class="num">1,715</td><td class="num">3,270</td></tr><tr><td>80〜84歳</td><td class="num">1,592</td><td class="num">1,756</td><td class="num">3,348</td></tr><tr><td>85〜89歳</td><td class="num">1,629</td><td class="num">1,797</td><td class="num">3,426</td></tr></tbody></table></div></div><h2>地域の最低賃金・労働統計</h2><table class="table-navy"><tr><th>最低賃金（円/時）</th><td>1,064</td></tr><tr><th>最低賃金の改定年度</th><td>2025</td></tr><tr><th>最低賃金の発効日</th><td>2025-10-16</td></tr><tr><th>最低賃金の基準日（日本時間）</th><td>2026-01-01</td></tr><tr><th>最低賃金の出典</th><td>厚生労働省の公式改定一覧</td></tr><tr><th>労働統計の年度</th><td>2024</td></tr><tr><th>完全失業率（%）</th><td>2.50</td></tr><tr><th>離職率（%）</th><td>14.10</td></tr></table><p class="note">取得できない指標は — と表示します。</p></section></div></main><script></script><script>
+document.body.classList.add('pdf-document');
+for(const panel of document.querySelectorAll('[role="tabpanel"]')){
+  panel.hidden=false;
+  panel.classList.add('pdf-content');
+  const page=document.createElement('section');page.className='pdf-page';
+  panel.before(page);page.append(panel);
+}
+function fitPages(){
+  for(const panel of document.querySelectorAll('.pdf-content')){
+    panel.style.zoom='';
+    let scale=Math.min(1,1508/Math.max(1510,panel.scrollWidth),1040/Math.max(1,panel.scrollHeight));
+    panel.style.zoom=String(scale);
+    // Zoom participates in pagination; transforms would clip the unscaled layout at a page break.
+    for(let i=0;i<4;i++){
+      const box=panel.getBoundingClientRect();
+      const correction=Math.min(1,1508/box.width,1040/box.height);
+      if(correction>=1)break;
+      scale*=correction;panel.style.zoom=String(scale);
+    }
+    panel.dataset.pdfScale=String(scale);
+  }
+  document.documentElement.dataset.pdfReady='true';
+}
+fitPages();
+document.fonts.ready.then(fitPages);
+window.addEventListener('beforeprint',fitPages);
+</script></body></html>
