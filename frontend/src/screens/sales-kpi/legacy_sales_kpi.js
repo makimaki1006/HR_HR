@@ -88,3 +88,41 @@ function lsRows(l){
 }
   return {escS, lsGet, lsAdd, lsPct, lsNames, lsRows};
 }
+
+// --- L403-411, L418-421, L431-433, L435, L512, L524, L528-538 (D / team / person / hidden / TEAM_OF は関数の外の変数なので、
+//     引数で渡す factory に包む。中身は行番号で切り出した逐語コピー。origin/main 3290da7 の templates/tabs/sales_kpi.html)
+export function makeScoped(D, state){
+const TEAM_OF={}; D.people.forEach(p=>{TEAM_OF[p.id]=p.team;});
+const hidden=state.hidden; const team=state.team; const person=state.person;
+function sumIf(byPerson, ok){
+  const o={};
+  for(const id in (byPerson||{})){
+    if(hidden.has(id)||!ok(id)) continue;
+    const v=byPerson[id];
+    for(const k in v) o[k]=(o[k]||0)+v[k];
+  }
+  return o;
+}
+const teamOf=(id,rowTeam)=>Object.prototype.hasOwnProperty.call(TEAM_OF,id)?TEAM_OF[id]:rowTeam;
+const inScope=(id,rowTeam)=>!hidden.has(id)&&
+  (person!==null? id===person : (team==='すべて'||teamOf(id,rowTeam)===team));
+const sumScope=byPerson=>sumIf(byPerson,inScope);
+const NONE_VAL='__none__';
+const personOfValue=v=>(v===''?null:(v===NONE_VAL?'':v));
+const valueOfPerson=p=>(p===null?'':(p===''?NONE_VAL:p));
+const personName=()=>(person===''?'担当なし':((D.people.find(x=>x.id===person)||{}).name||'この担当者'));
+const pick=rows=>rows.filter(r=>inScope(r.owner,r.team));
+const headOf=t=>D.people.filter(p=>p.team===t&&!hidden.has(p.id)).length;
+function avgBase(){
+  // 担当なしは「人」ではない。チーム未設定の平均と比べても意味が無いので平均は付けない。
+  if(person==='') return null;
+  if(person!==null){
+    const p=D.people.find(x=>x.id===person);
+    if(!p) return null;
+    return {label:p.team+' の平均', team:p.team, n:headOf(p.team)};
+  }
+  if(team!=='すべて') return {label:'1人あたり', team:team, n:headOf(team)};
+  return {label:'1人あたり', team:null, n:D.people.filter(p=>!hidden.has(p.id)).length};
+}
+  return {inScope, sumScope, pick, personOfValue, valueOfPerson, personName, avgBase, teamOf};
+}

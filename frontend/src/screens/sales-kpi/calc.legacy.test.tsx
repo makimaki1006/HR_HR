@@ -170,3 +170,69 @@ describe('リストの在庫 (lsAdd / lsPct / lsNames / lsRows が旧 JS と同�
     expect(mine.lsPct(5, 0)).toBe('—');
   });
 });
+
+describe('絞り込みの規則 inScope / sumScope / pick / avgBase / personName (旧 JS と同一)', () => {
+  const roster = D.people;
+  const first = (team: string) => roster.find((p) => p.team === team);
+  const states: { name: string; team: string; person: string | null; hidden: string[] }[] = [
+    { name: '全社・個人なし', team: 'すべて', person: null, hidden: [] },
+    { name: '伊壺チーム', team: '伊壺チーム', person: null, hidden: [] },
+    { name: '伊壺チーム・1人外す', team: '伊壺チーム', person: null, hidden: [first('伊壺チーム')?.id ?? ''] },
+    { name: '個人 (名簿に居る)', team: 'すべて', person: first('平田チーム')?.id ?? '', hidden: [] },
+    { name: '個人 + 別チームを選択 (個人が優先)', team: '伊壺チーム', person: first('平田チーム')?.id ?? '', hidden: [] },
+    { name: '担当なし (全社)', team: 'すべて', person: '', hidden: [] },
+    { name: '担当なし (チーム選択中。個人が優先)', team: '伊壺チーム', person: '', hidden: [] },
+    { name: '個人を選んだがチェックで外した', team: 'すべて', person: first('平田チーム')?.id ?? '', hidden: [first('平田チーム')?.id ?? ''] },
+    { name: '名簿に居ない id を個人に', team: 'すべて', person: 'ZZ-OFF', hidden: [] },
+  ];
+  // id: 名簿に居る人・担当なし ('')・名簿に居ない人。rowTeam: 名簿と同じ・違う・無し
+  const ids = ['', 'ZZ-OFF', first('伊壺チーム')?.id ?? '', first('平田チーム')?.id ?? '', first('チーム未設定')?.id ?? ''];
+  const rowTeams = [undefined, '伊壺チーム', '平田チーム', 'チーム未設定', '存在しないチーム'];
+  it.each(states)('inScope: $name (全 id × 全 rowTeam)', (st) => {
+    const lg = legacy.makeScoped(D, { team: st.team, person: st.person, hidden: new Set(st.hidden) });
+    const scope: mine.Scope = { team: st.team, person: st.person, hidden: new Set(st.hidden) };
+    const teamOf = mine.teamOfMap(roster);
+    let n = 0;
+    for (const id of ids) {
+      for (const rt of rowTeams) {
+        expect(mine.inScope(scope, teamOf, id, rt), `${id}/${String(rt)}`).toBe(lg.inScope(id, rt));
+        n++;
+      }
+    }
+    expect(n).toBe(25);
+  });
+  it.each(states)('sumScope / pick: $name', (st) => {
+    const lg = legacy.makeScoped(D, { team: st.team, person: st.person, hidden: new Set(st.hidden) });
+    const scope: mine.Scope = { team: st.team, person: st.person, hidden: new Set(st.hidden) };
+    const teamOf = mine.teamOfMap(roster);
+    expect(mine.sumScope(D.by_person, scope, teamOf)).toEqual(lg.sumScope(D.by_person));
+    expect(mine.pickRows(D.stale, scope, teamOf).map((r) => r.id)).toEqual(lg.pick(D.stale).map((r) => r.id));
+    expect(mine.pickRows(D.kettei.rows, scope, teamOf).map((r) => r.owner)).toEqual(lg.pick(D.kettei.rows).map((r) => r.owner));
+  });
+  it.each(states)('avgBase / personName: $name', (st) => {
+    const lg = legacy.makeScoped(D, { team: st.team, person: st.person, hidden: new Set(st.hidden) });
+    const scope: mine.Scope = { team: st.team, person: st.person, hidden: new Set(st.hidden) };
+    expect(mine.avgBase(roster, scope)).toEqual(lg.avgBase());
+    if (st.person !== null) expect(mine.personName(roster, st.person)).toBe(lg.personName());
+  });
+  it('番兵: 担当なし(null でも "" でもない値)の往復', () => {
+    const lg = legacy.makeScoped(D, { team: 'すべて', person: null, hidden: new Set() });
+    for (const v of ['', '__none__', '613211320']) {
+      expect(mine.personOfValue(v)).toBe(lg.personOfValue(v));
+    }
+    for (const p of [null, '', '613211320']) {
+      expect(mine.valueOfPerson(p)).toBe(lg.valueOfPerson(p));
+    }
+    expect(mine.personOfValue('')).toBeNull();
+    expect(mine.personOfValue('__none__')).toBe('');
+    expect(mine.valueOfPerson('')).toBe('__none__');
+    expect(mine.valueOfPerson(null)).toBe('');
+  });
+  it('担当なしを選ぶと、担当なしの行だけになる (空文字を未選択と読まない)', () => {
+    const scope: mine.Scope = { team: 'すべて', person: '', hidden: new Set() };
+    const teamOf = mine.teamOfMap(roster);
+    expect(mine.inScope(scope, teamOf, '')).toBe(true);
+    expect(mine.inScope(scope, teamOf, '613211320')).toBe(false);
+    expect(mine.inScope({ ...scope, person: null }, teamOf, '613211320')).toBe(true);
+  });
+});

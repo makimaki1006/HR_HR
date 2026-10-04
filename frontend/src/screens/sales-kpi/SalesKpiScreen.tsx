@@ -85,7 +85,7 @@ export function LoadStateView({ state }: { state: LoadState }) {
   return null;
 }
 
-const INITIAL_SCOPE: Scope = { team: 'すべて', person: '', hidden: new Set() };
+const INITIAL_SCOPE: Scope = { team: 'すべて', person: null, hidden: new Set() };
 
 export function SalesKpiScreen() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
@@ -121,7 +121,7 @@ export function SalesKpiScreen() {
       mutate(h);
       saveHidden(h);
       // チェックを外した人が個人で選ばれていたら、個人指定を解く (旧画面と同じ)
-      const person = s.person && h.has(s.person) ? '' : s.person;
+      const person = s.person !== null && h.has(s.person) ? null : s.person;
       return { ...s, hidden: h, person };
     });
   }, []);
@@ -129,7 +129,7 @@ export function SalesKpiScreen() {
   const actions: UiActions = useMemo(
     () => ({
       setTeam: (team) => {
-        setScope((s) => ({ ...s, team, person: '' }));
+        setScope((s) => ({ ...s, team, person: null }));
         setOpenKey(null);
       },
       setPerson: (id) => {

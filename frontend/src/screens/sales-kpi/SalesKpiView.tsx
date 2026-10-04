@@ -29,6 +29,7 @@ import {
   monthView,
   panelConf,
   pct,
+  personOfValue,
   rangeText,
   scopeText,
   signed,
@@ -51,6 +52,7 @@ import {
   type StockRow,
   type TabKey,
   type Wow,
+  valueOfPerson,
 } from './calc';
 import type { CallPeriodKey, DealRow, Person, SalesKpiData } from './types';
 
@@ -67,7 +69,8 @@ export interface UiState {
 
 export interface UiActions {
   setTeam: (team: string) => void;
-  setPerson: (id: string) => void;
+  /** null = 個人を選んでいない / '' = 担当なし / それ以外 = ownerId */
+  setPerson: (id: string | null) => void;
   /** ids を入れる (on=true) / 外す (on=false) */
   setHidden: (ids: readonly string[], on: boolean) => void;
   resetHidden: () => void;
@@ -511,7 +514,7 @@ function CallsSection({ data, ui, actions, teamOf, ab, hid }: { data: SalesKpiDa
   if (!cv) {
     return (
       <>
-        <h2>架電</h2>
+        <h2 id="h2kaden">架電</h2>
         <p className="lead" id="lead3">
           架電データがありません。
         </p>
@@ -520,8 +523,15 @@ function CallsSection({ data, ui, actions, teamOf, ab, hid }: { data: SalesKpiDa
   }
   return (
     <>
-      <h2>架電</h2>
+      <h2 id="h2kaden">{cv.noCall ? '架電（担当なしを選択中）' : '架電'}</h2>
       <p className="lead" id="lead3">
+        {cv.noCall ? (
+          <>
+            <b style={warn}>担当なし（HubSpot の担当者が空の取引）を選んでいます。</b>
+            <span style={faint}>Zoom 架電は電話をかけた人で数えるため、担当なしの取引への架電は出せません。</span>
+            <br />
+          </>
+        ) : null}
         Zoomのログから数えています。<b>架電数＝つながった通話</b>で、現場が数えている数と合わせています。
         {cv.fresh === 'none' ? (
           <>
@@ -789,7 +799,7 @@ function KadenListSection({ data, ui, teamOf, hid, haveKettei }: { data: SalesKp
   }
   return (
     <>
-      <h2>架電リストの残り</h2>
+      <h2 id="h2kadenlist">{ui.scope.person === '' ? '架電リストの残り（担当なしを選択中）' : '架電リストの残り'}</h2>
       <p className="lead" id="lead3b">
         {lead}
       </p>
@@ -1373,14 +1383,14 @@ export function SalesKpiView({ data, ui, actions }: SalesKpiViewProps) {
         </div>
         <select
           id="person"
-          value={ui.scope.person}
+          value={valueOfPerson(ui.scope.person)}
           onChange={(e) => {
-            actions.setPerson(e.target.value);
+            actions.setPerson(personOfValue(e.target.value));
           }}
         >
           <option value="">個人で見る…</option>
           {people.map((p) => (
-            <option key={p.id} value={p.id}>
+            <option key={p.id} value={valueOfPerson(p.id)}>
               {p.name + (ui.scope.team === ALL_TEAMS ? '（' + teamLabel(p) + '）' : '')}
             </option>
           ))}

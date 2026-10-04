@@ -25,8 +25,8 @@ import {
 
 const D = loadFixture();
 const TEAM_OF = teamOfMap(D.people);
-const ALL: Scope = { team: ALL_TEAMS, person: '', hidden: new Set() };
-const IZUBO: Scope = { team: '伊壺チーム', person: '', hidden: new Set() };
+const ALL: Scope = { team: ALL_TEAMS, person: null, hidden: new Set() };
+const IZUBO: Scope = { team: '伊壺チーム', person: null, hidden: new Set() };
 const P1: Scope = { team: ALL_TEAMS, person: '613211320', hidden: new Set() };
 
 describe('fixture の前提', () => {
@@ -353,5 +353,48 @@ describe('リストの在庫', () => {
       lists: { リクロジ: { 全体: 164000, アクティブ: 48000, 保管: 85000 } },
     };
     expect(stockOverview(d2.list_stock).trendParts).toEqual(['リクロジ 全体 +159 ／ アクティブ +889 ／ 保管 -514']);
+  });
+});
+
+describe('担当なしの選択 (person = "")', () => {
+  const NONE: Scope = { team: ALL_TEAMS, person: '', hidden: new Set() };
+  it('平均は付けない・表示名は「担当なし」・scope 文', () => {
+    expect(avgBase(D.people, NONE)).toBeNull();
+    const mv = monthView(D, NONE, TEAM_OF);
+    expect(mv.cards.every((c) => !c.avg)).toBe(true);
+    // fixture には担当なしの取引が無い: 件数は 0、「商談がありません」の注記
+    expect(mv.cards.map((c) => c.val)).toEqual([0, 0, 0, 0, null, null, 0]);
+    expect(scopeText(D, NONE, mv.a)).toBe(
+      '担当なし の数字だけを表示しています。この担当者には今月の商談がありません（架電リストの数字だけ出ます）。',
+    );
+  });
+  it('架電: 数字は出さない (0 と書くと「かけていない」に読める)', () => {
+    const cv = callsView(D, NONE, TEAM_OF, null, 'this_week');
+    expect(cv?.noCall).toBe(true);
+    const v = Object.fromEntries((cv?.cards ?? []).map((c) => [c.key, c.val]));
+    expect(v).toEqual({ conn: null, calls: null, ratio: null, long: null, perday: null });
+    expect(cv?.cards.find((c) => c.key === 'ratio')?.hint).toBe('—');
+    expect(cv?.cards.find((c) => c.key === 'conn')?.wow).toBeNull();
+    // 人別の表: 個人指定なので、担当なしは id '' の行だけ (架電の人別には居ない → 0 行)
+    expect(cv?.rows).toEqual([]);
+    // 未選択 (null) なら全員
+    expect(callsView(D, { ...NONE, person: null }, TEAM_OF, null, 'this_week')?.noCall).toBe(false);
+  });
+  it('架電リストの残り: no_owner を出す', () => {
+    const kv = kadenListView(D, NONE, TEAM_OF);
+    expect(kv.scope?.who).toBe('担当なし（担当者が入っていない取引）が持っている分');
+    expect(kv.scope?.whole).toBe(false);
+    expect(kv.scope?.c).toBe(D.kaden.no_owner);
+    expect(kv.scope?.base).toBe(D.kaden.no_owner.base);
+    expect(kv.scope?.base).toBeGreaterThan(0);
+    expect(kv.showUnassigned).toBe(false);
+  });
+  it('決定者・決裁者: 担当なしの行だけが出る (チームを選んでいても)', () => {
+    const kv = ketteiView(D, NONE);
+    expect(kv.rows).toEqual([]);
+    expect(kv.no).toBe(D.kettei.no_owner);
+    expect(kv.who).toBe('担当なし');
+    expect(ketteiView(D, { team: '伊壺チーム', person: '', hidden: new Set() }).no).toBe(D.kettei.no_owner);
+    expect(ketteiView(D, { team: '伊壺チーム', person: null, hidden: new Set() }).no).toBeNull();
   });
 });
