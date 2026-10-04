@@ -4,7 +4,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { loadFixture } from './__fixtures__/load';
-import { ALL_TEAMS, DEFAULT_CALL_PERIOD, type Scope } from './calc';
+import { ALL_TEAMS, CLOSED_CARD_PANEL, DEFAULT_CALL_PERIOD, type Scope } from './calc';
 import { SalesKpiView, type UiActions, type UiState } from './SalesKpiView';
 
 const D = loadFixture();
@@ -16,6 +16,13 @@ const noop: UiActions = {
   resetHidden: vi.fn(),
   toggleOpen: vi.fn(),
   closePanel: vi.fn(),
+  toggleCard: vi.fn(),
+  closeCard: vi.fn(),
+  toggleBpoOnly: vi.fn(),
+  setCardSeg: vi.fn(),
+  toggleCardNt: vi.fn(),
+  setCardTeam: vi.fn(),
+  setCardPerson: vi.fn(),
   setDayKey: vi.fn(),
   setWeekOpen: vi.fn(),
   setCallPeriod: vi.fn(),
@@ -26,8 +33,9 @@ const noop: UiActions = {
 };
 
 const base: UiState = {
-  scope: { team: ALL_TEAMS, person: '', hidden: new Set() },
+  scope: { team: ALL_TEAMS, person: null, hidden: new Set() },
   openKey: null,
+  card: CLOSED_CARD_PANEL,
   dayKey: null,
   weekOpen: false,
   callPeriod: DEFAULT_CALL_PERIOD,
@@ -110,10 +118,10 @@ describe('今月の成績 (すべて)', () => {
     expect(cardValue(html, 'den')).toBe('225');
     expect(cardValue(html, 'done')).toBe('163');
     expect(cardValue(html, 'rate')).toBe('72.4%');
-    expect(cardValue(html, 'anq')).toBe('2.7%');
+    expect(cardValue(html, 'anqrate')).toBe('2.7%');
     expect(cardValue(html, 'cyomi')).toBe('123');
     const order = [...html.matchAll(/data-card="([a-z]+)"/g)].map((m) => m[1]).slice(0, 7);
-    expect(order).toEqual(['apo', 'pool', 'den', 'done', 'rate', 'anq', 'cyomi']);
+    expect(order).toEqual(['apo', 'pool', 'den', 'done', 'rate', 'anqrate', 'cyomi']);
   });
   it('内 BPO・1人あたり・hint', () => {
     const apo = cardBlock(html, 'apo');
@@ -122,7 +130,7 @@ describe('今月の成績 (すべて)', () => {
     expect(apo).toContain('<div class="avg">1人あたり 2.2件<span style="opacity:0.75">（109名）</span></div>');
     expect(cardBlock(html, 'rate')).toContain('<div class="hint">163 ÷ 225 件</div>');
     expect(cardBlock(html, 'rate')).not.toContain('class="avg"');
-    expect(cardBlock(html, 'anq')).toContain('6 ÷ 225 件（④ 日が過ぎた分と同じ母数）');
+    expect(cardBlock(html, 'anqrate')).toContain('6 ÷ 225 件（④ 日が過ぎた分と同じ母数）');
   });
 });
 
@@ -172,7 +180,7 @@ describe('いま手を打てること', () => {
   it('5 枚のカードと色分け、閉じているとき panel は hide', () => {
     const html = render();
     expect(cardValue(html, 'stale')).toBe('9');
-    expect(cardValue(html, 'anq')).toBe('2.7%'); // 今月の成績の ⑤ (同じ key は 1 つ目)
+    expect(cardValue(html, 'anqrate')).toBe('2.7%'); // 今月の成績の ⑤
     expect(html).toContain('class="c alert" data-card="stale"');
     expect(html).toContain('class="c warn" data-card="anq"');
     expect(html).toContain('class="c warn" data-card="cyomi"');

@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { loadFixture } from './__fixtures__/load';
 import {
   ALL_TEAMS,
+  CLOSED_CARD_PANEL,
   actionView,
   avgBase,
   callsView,
+  cardPanelView,
   excludedParts,
   kadenListView,
   ketteiView,
@@ -18,15 +20,21 @@ import {
   stockOverview,
   tabsOf,
   teamOfMap,
+  toggleCardState,
   visiblePeople,
   weekDays,
+  type CardKey,
+  type CardPanelState,
   type Scope,
 } from './calc';
+import type { SalesKpiData } from './types';
+import { loadNegtypeFixture } from './__fixtures__/load';
+import { withBlankOwner } from './__fixtures__/synthetic';
 
 const D = loadFixture();
 const TEAM_OF = teamOfMap(D.people);
-const ALL: Scope = { team: ALL_TEAMS, person: '', hidden: new Set() };
-const IZUBO: Scope = { team: '伊壺チーム', person: '', hidden: new Set() };
+const ALL: Scope = { team: ALL_TEAMS, person: null, hidden: new Set() };
+const IZUBO: Scope = { team: '伊壺チーム', person: null, hidden: new Set() };
 const P1: Scope = { team: ALL_TEAMS, person: '613211320', hidden: new Set() };
 
 describe('fixture の前提', () => {
@@ -42,7 +50,7 @@ describe('今月の成績 (cards1)', () => {
   it('すべて: ①245 ③537 ④225 ②163 ⑥72.4% ⑤2.7% ⑨123', () => {
     const mv = monthView(D, ALL, TEAM_OF);
     const v = Object.fromEntries(mv.cards.map((c) => [c.key, c.val]));
-    expect(v).toEqual({ apo: 245, pool: 537, den: 225, done: 163, rate: 163 / 225 * 100, anq: 6 / 225 * 100, cyomi: 123 });
+    expect(v).toEqual({ apo: 245, pool: 537, den: 225, done: 163, rate: 163 / 225 * 100, anqrate: 6 / 225 * 100, cyomi: 123 });
     expect(mv.cards.map((c) => c.lab)).toEqual([
       '① 取ったアポ', '③ 商談の予定', '④ 日が過ぎた分', '② やった商談', '⑥ 商談化率', '⑤ アンケート回収率', '⑨ 持っているCヨミ',
     ]);
@@ -71,7 +79,7 @@ describe('今月の成績 (cards1)', () => {
     expect(v.den).toBe(30);
     expect(v.done).toBe(19);
     expect(v.rate).toBeCloseTo(63.333, 2);
-    expect(v.anq).toBeCloseTo(3.333, 2);
+    expect(v.anqrate).toBeCloseTo(3.333, 2);
     expect(v.cyomi).toBe(11);
     expect(mv.cards[0]?.avg).toEqual({ label: '1人あたり', value: '4.4件', n: 7 });
     expect(mv.cards[6]?.bpo).toBeNull();
@@ -353,5 +361,286 @@ describe('リストの在庫', () => {
       lists: { リクロジ: { 全体: 164000, アクティブ: 48000, 保管: 85000 } },
     };
     expect(stockOverview(d2.list_stock).trendParts).toEqual(['リクロジ 全体 +159 ／ アクティブ +889 ／ 保管 -514']);
+  });
+});
+
+describe('担当なしの選択 (person = "")', () => {
+  const NONE: Scope = { team: ALL_TEAMS, person: '', hidden: new Set() };
+  it('平均は付けない・表示名は「担当なし」・scope 文', () => {
+    expect(avgBase(D.people, NONE)).toBeNull();
+    const mv = monthView(D, NONE, TEAM_OF);
+    expect(mv.cards.every((c) => !c.avg)).toBe(true);
+    // fixture には担当なしの取引が無い: 件数は 0、「商談がありません」の注記
+    expect(mv.cards.map((c) => c.val)).toEqual([0, 0, 0, 0, null, null, 0]);
+    expect(scopeText(D, NONE, mv.a)).toBe(
+      '担当なし の数字だけを表示しています。この担当者には今月の商談がありません（架電リストの数字だけ出ます）。',
+    );
+  });
+  it('架電: 数字は出さない (0 と書くと「かけていない」に読める)', () => {
+    const cv = callsView(D, NONE, TEAM_OF, null, 'this_week');
+    expect(cv?.noCall).toBe(true);
+    const v = Object.fromEntries((cv?.cards ?? []).map((c) => [c.key, c.val]));
+    expect(v).toEqual({ conn: null, calls: null, ratio: null, long: null, perday: null });
+    expect(cv?.cards.find((c) => c.key === 'ratio')?.hint).toBe('—');
+    expect(cv?.cards.find((c) => c.key === 'conn')?.wow).toBeNull();
+    // 人別の表: 個人指定なので、担当なしは id '' の行だけ (架電の人別には居ない → 0 行)
+    expect(cv?.rows).toEqual([]);
+    // 未選択 (null) なら全員
+    expect(callsView(D, { ...NONE, person: null }, TEAM_OF, null, 'this_week')?.noCall).toBe(false);
+  });
+  it('架電リストの残り: no_owner を出す', () => {
+    const kv = kadenListView(D, NONE, TEAM_OF);
+    expect(kv.scope?.who).toBe('担当なし（担当者が入っていない取引）が持っている分');
+    expect(kv.scope?.whole).toBe(false);
+    expect(kv.scope?.c).toBe(D.kaden.no_owner);
+    expect(kv.scope?.base).toBe(D.kaden.no_owner.base);
+    expect(kv.scope?.base).toBeGreaterThan(0);
+    expect(kv.showUnassigned).toBe(false);
+  });
+  it('決定者・決裁者: 担当なしの行だけが出る (チームを選んでいても)', () => {
+    const kv = ketteiView(D, NONE);
+    expect(kv.rows).toEqual([]);
+    expect(kv.no).toBe(D.kettei.no_owner);
+    expect(kv.who).toBe('担当なし');
+    expect(ketteiView(D, { team: '伊壺チーム', person: '', hidden: new Set() }).no).toBe(D.kettei.no_owner);
+    expect(ketteiView(D, { team: '伊壺チーム', person: null, hidden: new Set() }).no).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- カード内訳 (#45)
+
+describe('カード内訳: カードの値 == 内訳の合計 == 一覧の行数 (全チーム・全個人・チェック外し)', () => {
+  const KEYS: CardKey[] = ['apo', 'pool', 'den', 'done', 'rate', 'anqrate', 'cyomi'];
+  const blank = withBlankOwner().data;
+
+  /** 開いた内訳を、表 → 担当者 → 一覧と降りて、一覧の行数を全部足す。 */
+  function walkTotal(d: typeof D, scope: Scope, key: CardKey, seg: string | null, bpoOnly: boolean): number {
+    const teamOf = teamOfMap(d.people);
+    const st: CardPanelState = { ...CLOSED_CARD_PANEL, openCard: key, cardSeg: seg, bpoOnly };
+    const v0 = cardPanelView(d, scope, teamOf, st);
+    if (!v0?.drill) return 0;
+    const drill = v0.drill;
+    if (drill.level === 'list') return drill.rows.length;
+    let total = 0;
+    for (const g of drill.groups) {
+      if (drill.level === 'team') {
+        const v1 = cardPanelView(d, scope, teamOf, { ...st, cardTeam: g.pick });
+        const d1 = v1?.drill;
+        if (d1?.level !== 'person') throw new Error('チームの次は担当者の表のはず');
+        expect(d1.sum).toBe(g.n);
+        for (const p of d1.groups) {
+          const v2 = cardPanelView(d, scope, teamOf, { ...st, cardTeam: g.pick, cardPerson: p.pick });
+          const d2 = v2?.drill;
+          if (d2?.level !== 'list') throw new Error('担当者の次は一覧のはず');
+          expect(d2.rows.length).toBe(p.n);
+          total += d2.rows.length;
+        }
+      } else {
+        const v2 = cardPanelView(d, scope, teamOf, { ...st, cardPerson: g.pick });
+        const d2 = v2?.drill;
+        if (d2?.level !== 'list') throw new Error('担当者の次は一覧のはず');
+        expect(d2.rows.length).toBe(g.n);
+        total += d2.rows.length;
+      }
+    }
+    return total;
+  }
+
+  const izuboIds = D.people.filter((p) => p.team === '伊壺チーム').map((p) => p.id);
+  const scopes: { name: string; d: typeof D; scope: Scope }[] = [
+    { name: '全社', d: D, scope: ALL },
+    { name: '伊壺チーム', d: D, scope: IZUBO },
+    { name: '個人', d: D, scope: P1 },
+    { name: '伊壺チーム・3 人外す', d: D, scope: { ...IZUBO, hidden: new Set(izuboIds.slice(0, 3)) } },
+    { name: '全社 (担当なし入り)', d: blank, scope: ALL },
+    { name: '担当なしを選択', d: blank, scope: { team: ALL_TEAMS, person: '', hidden: new Set() } },
+  ];
+
+  it.each(scopes)('$name: 7 枚すべて', ({ d, scope }) => {
+    const teamOf = teamOfMap(d.people);
+    const mv = monthView(d, scope, teamOf);
+    const vals = Object.fromEntries(mv.cards.map((c) => [c.key, c.val]));
+    for (const key of KEYS) {
+      const v = cardPanelView(d, scope, teamOf, { ...CLOSED_CARD_PANEL, openCard: key });
+      if (!v) throw new Error('開けない: ' + key);
+      if (key === 'rate' || key === 'anqrate') {
+        // 率のカード: 分母 = ④ 日が過ぎた分、分子はカードの hint (n ÷ m 件) と一致
+        expect(v.total).toBe(mv.den);
+        const a = mv.a;
+        expect(v.num).toBe(key === 'rate' ? (a['実施'] ?? 0) : (a.anq_num ?? 0));
+        if (key === 'anqrate') expect(v.total).toBe(a.anq_den ?? 0);
+      } else {
+        expect(v.total, key).toBe(vals[key]);
+      }
+      // 表の合計 == 件数、降りた一覧の行数の合計 == 件数
+      expect(walkTotal(d, scope, key, null, false), `${key} 一覧の合計`).toBe(v.total);
+      // 内 BPO チップ == カードの内 BPO、BPO だけの一覧の合計 == 内 BPO
+      if (v.bpoN) expect(walkTotal(d, scope, key, null, true), `${key} BPO だけ`).toBe(v.bpoN);
+      // 区分の件数の和 == 分母
+      if (v.segChips) {
+        const parts = v.segChips.filter((c) => c.k).map((c) => c.n);
+        expect(parts.reduce((x, y) => x + y, 0)).toBe(v.total);
+        for (const c of v.segChips.filter((x) => x.k)) {
+          expect(walkTotal(d, scope, key, c.k, false), `${key} 区分 ${c.k}`).toBe(c.n);
+        }
+      }
+    }
+  });
+  it('見出し: 件数カードは「題（N件）」、率カードは 分子・分母つき', () => {
+    const tf = teamOfMap(D.people);
+    const t = (key: CardKey) => cardPanelView(D, ALL, tf, { ...CLOSED_CARD_PANEL, openCard: key });
+    expect(t('pool')?.title).toBe('③ 商談の予定（537件）');
+    expect(t('apo')?.title).toBe('① 取ったアポ（245件）');
+    expect(t('rate')?.title).toBe('⑥ 商談化率　72.4%（分子 実施 163件 ÷ 分母 ④ 日が過ぎた分 225件）');
+    expect(t('anqrate')?.title).toBe('⑤ アンケート回収率　2.7%（分子 回収済み 6件 ÷ 分母 ④ 日が過ぎた分 225件）');
+    expect(t('rate')?.num).toBe(163);
+    expect(t('pool')?.num).toBeNull();
+  });
+  it('区分のチップ: 「分母 … すべて」と「分子 実施」', () => {
+    const tf = teamOfMap(D.people);
+    const v = cardPanelView(D, ALL, tf, { ...CLOSED_CARD_PANEL, openCard: 'rate' });
+    expect(v?.segChips?.map((c) => c.label)).toEqual([
+      '分母 ④ 日が過ぎた分 すべて 225件',
+      '分子 実施 163件',
+      '未実施 ' + String(v?.segChips?.[2]?.n) + '件',
+      '未処理 ' + String(v?.segChips?.[3]?.n) + '件',
+      '要判定 ' + String(v?.segChips?.[4]?.n) + '件',
+    ]);
+  });
+  it('カードを押すたびに掘り下げ・区分・BPO を捨てる (toggleCardState)', () => {
+    const st: CardPanelState = { openCard: 'pool', cardTeam: '伊壺チーム', cardPerson: 'x', cardSeg: '実施', cardNt: null, bpoOnly: true };
+    expect(toggleCardState(st, 'pool')).toEqual(CLOSED_CARD_PANEL);
+    expect(toggleCardState(st, 'den')).toEqual({ ...CLOSED_CARD_PANEL, openCard: 'den' });
+  });
+});
+
+// ---------------------------------------------------------------- 商談種別 (#49・#50)
+
+describe('商談種別の表 (種別の列がある fixture)', () => {
+  const N = loadNegtypeFixture();
+  const open = (key: CardKey, extra: Partial<CardPanelState> = {}, scope: Scope = ALL, d: SalesKpiData = N) =>
+    cardPanelView(d, scope, teamOf(d), { ...CLOSED_CARD_PANEL, openCard: key, ...extra });
+  const teamOf = (d: SalesKpiData) => teamOfMap(d.people);
+
+  it('並びは payload の negotiation_type_order に従う。決まっている 2 種別は 0 件でも出る', () => {
+    const t = open('pool')?.ntTable;
+    expect(t?.rows.map((r) => r.name)).toEqual(N.negotiation_type_order);
+    // JS 側で並べ直していない証拠: order を入れ替えると、その通りに並ぶ
+    const swapped = { ...N, negotiation_type_order: [...N.negotiation_type_order].reverse() };
+    expect(open('pool', {}, ALL, swapped)?.ntTable?.rows.map((r) => r.name)).toEqual([...N.negotiation_type_order].reverse());
+    // 0 件の決まっている種別: 伊壺チームの個人 1 人でも 決裁者商談 / 非決裁者商談 の行は出る
+    const id = N.people.find((p) => p.team === '伊壺チーム')?.id ?? '';
+    const one = open('pool', {}, { team: ALL_TEAMS, person: id, hidden: new Set() })?.ntTable;
+    expect(one?.level).toBe('person');
+    expect(one?.rows.slice(0, 2).map((r) => r.name)).toEqual(['決裁者商談', '非決裁者商談']);
+    expect(one?.rows.reduce((a, r) => a + r.n, 0)).toBe(one?.sum);
+    const none = { ...N, negotiation_type_fixed: ['決裁者商談', '非決裁者商談', '作ってみた種別'] };
+    expect(open('pool', {}, ALL, none)?.ntTable?.rows.map((r) => r.name)).toContain('作ってみた種別');
+    expect(open('pool', {}, ALL, none)?.ntTable?.rows.find((r) => r.name === '作ってみた種別')?.n).toBe(0);
+  });
+
+  it('全社の合計 == カードの件数、種別ごとの件数は fixture の具体値 (決裁者商談 239 / 非決裁者商談 119 / 未設定 59 / 定義外 60 + 60)', () => {
+    const v = open('pool');
+    expect(v?.ntTable?.level).toBe('all');
+    expect(v?.ntTable?.sum).toBe(v?.total);
+    expect(Object.fromEntries((v?.ntTable?.rows ?? []).map((r) => [r.name, r.n]))).toEqual({
+      '決裁者商談': 239,
+      '非決裁者商談': 119,
+      '(未設定)': 59,
+      '新種別(定義外)': 60,
+      '決裁者商談;非決裁者商談(定義外)': 60,
+    });
+    expect(v?.ntTable?.numHead).toBeNull();
+    expect(v?.ntTable?.countHead).toBe('件数');
+  });
+
+  it('⑥⑤: 分母・分子の 2 列。区分を選ぶと件数（区分）、分子でない区分では分子の列は 0 と注釈', () => {
+    const v = open('rate');
+    expect(v?.ntTable?.countHead).toBe('分母');
+    expect(v?.ntTable?.numHead).toBe('分子（実施）');
+    expect(v?.ntTable?.sum).toBe(225);
+    expect(v?.ntTable?.sumN).toBe(163);
+    expect(v?.numNote).toBeNull();
+    const un = open('rate', { cardSeg: '未実施' });
+    expect(un?.ntTable?.countHead).toBe('件数（未実施）');
+    expect(un?.ntTable?.sum).toBe(53);
+    expect(un?.ntTable?.sumN).toBe(0);
+    expect(un?.numNote).toBe('選んでいる区分（未実施）は分子に当たらないため、分子の列は計算できません（0 と表示しています）');
+    const done = open('rate', { cardSeg: '実施' });
+    expect(done?.ntTable?.sum).toBe(163);
+    expect(done?.ntTable?.sumN).toBe(163);
+    expect(done?.numNote).toBeNull();
+    // ⑤: 回収済みを選ぶと分子 == 件数
+    const q = open('anqrate', { cardSeg: '回収済み' });
+    expect(q?.ntTable?.sum).toBe(q?.ntTable?.sumN);
+    expect(open('anqrate', { cardSeg: '未回収' })?.numNote).toContain('未回収');
+  });
+
+  it('種別で絞る: 一覧の行数 == その種別の件数、下の段 (チーム → 担当者) にも効き、合計は種別の件数に戻る', () => {
+    const base = open('pool');
+    for (const r of base?.ntTable?.rows ?? []) {
+      const v = open('pool', { cardNt: r.name });
+      expect(v?.ntChip).toBe(r.name);
+      // 絞ったあとも、種別の表は「種別だけ掛けない行」から数える (合計は変わらない)
+      expect(v?.ntTable?.sum).toBe(base?.ntTable?.sum);
+      if (r.n === 0) {
+        expect(v?.noRows).toBe(true);
+        continue;
+      }
+      const d = v?.drill;
+      if (d?.level !== 'team') throw new Error('全社ならチーム別');
+      expect(d.sum).toBe(r.n);
+      let rows = 0;
+      for (const g of d.groups) {
+        const p = open('pool', { cardNt: r.name, cardTeam: g.pick })?.drill;
+        if (p?.level !== 'person') throw new Error('チームの次は担当者');
+        expect(p.sum).toBe(g.n);
+        for (const q of p.groups) {
+          const l = open('pool', { cardNt: r.name, cardTeam: g.pick, cardPerson: q.pick })?.drill;
+          if (l?.level !== 'list') throw new Error('担当者の次は一覧');
+          expect(l.rows.length).toBe(q.n);
+          expect(l.rows.every((x) => x.negotiation_type === r.name)).toBe(true);
+          expect(l.head).toContain('（' + r.name + '）');
+          rows += l.rows.length;
+        }
+      }
+      expect(rows, r.name).toBe(r.n);
+    }
+  });
+
+  it('段ごとの種別の表: チーム・担当者を選ぶと、その段の行で数え直す。合計 == その段の件数', () => {
+    const izubo = open('pool', { }, IZUBO);
+    expect(izubo?.ntTable?.level).toBe('team');
+    expect(izubo?.ntTable?.sum).toBe(66);
+    const id = N.people.find((p) => p.team === '伊壺チーム')?.id ?? '';
+    const p = open('pool', { cardPerson: id }, ALL);
+    expect(p?.ntTable?.level).toBe('person');
+    const l = p?.drill;
+    if (l?.level !== 'list') throw new Error('一覧のはず');
+    expect(p?.ntTable?.sum).toBe(l.n);
+    // 全社でチームの表から 1 チーム選んだ段
+    const t = open('pool', { cardTeam: '平田チーム' });
+    expect(t?.ntTable?.level).toBe('team');
+    expect(t?.ntTable?.sum).toBe(t?.drill?.level === 'person' ? t.drill.sum : -1);
+  });
+
+  it('列が無いシートでは表も絞りも出さない (未取得)。cardNt が残っていても効かない', () => {
+    const v = cardPanelView(D, ALL, teamOfMap(D.people), { ...CLOSED_CARD_PANEL, openCard: 'pool', cardNt: '決裁者商談' });
+    expect(v?.ntOk).toBe(false);
+    expect(v?.ntTable).toBeNull();
+    expect(v?.ntChip).toBeNull();
+    expect(v?.total).toBe(537);
+    expect(v?.drill?.level).toBe('team');
+  });
+
+  it('担当なし (合成) でも、種別の表の合計 == 一覧の件数', () => {
+    const b = withBlankOwner(N).data;
+    const none: Scope = { team: ALL_TEAMS, person: '', hidden: new Set() };
+    const v = open('pool', {}, none, b);
+    const l = v?.drill;
+    if (l?.level !== 'list') throw new Error('担当なしを選ぶとすぐ一覧');
+    expect(l.n).toBeGreaterThan(0);
+    expect(v?.ntTable?.sum).toBe(l.n);
+    expect(l.rows.every((r) => r.owner === '')).toBe(true);
   });
 });

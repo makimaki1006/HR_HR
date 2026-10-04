@@ -5,12 +5,14 @@ import { Fragment, useState, type ReactNode } from 'react';
 import {
   ALL_TEAMS,
   CALL_PERIODS,
+  CARD_CONF,
   KADEN_CLASSES,
   SHEETS,
   SNAP,
   actionView,
   ago,
   callsView,
+  cardPanelView,
   excludedParts,
   fmt,
   groupByDate,
@@ -29,6 +31,7 @@ import {
   monthView,
   panelConf,
   pct,
+  personOfValue,
   rangeText,
   scopeText,
   signed,
@@ -42,7 +45,10 @@ import {
   wd,
   weekDays,
   type AvgBase,
+  type CardKey,
+  type CardPanelState,
   type CardSpec,
+  type NtTable,
   type DailyBar,
   type OpenKey,
   type Scope,
@@ -51,12 +57,14 @@ import {
   type StockRow,
   type TabKey,
   type Wow,
+  valueOfPerson,
 } from './calc';
 import type { CallPeriodKey, DealRow, Person, SalesKpiData } from './types';
 
 export interface UiState {
   scope: Scope;
   openKey: OpenKey | null;
+  card: CardPanelState;
   dayKey: string | null;
   weekOpen: boolean;
   callPeriod: CallPeriodKey;
@@ -67,12 +75,23 @@ export interface UiState {
 
 export interface UiActions {
   setTeam: (team: string) => void;
-  setPerson: (id: string) => void;
+  /** null = 個人を選んでいない / '' = 担当なし / それ以外 = ownerId */
+  setPerson: (id: string | null) => void;
   /** ids を入れる (on=true) / 外す (on=false) */
   setHidden: (ids: readonly string[], on: boolean) => void;
   resetHidden: () => void;
   toggleOpen: (key: OpenKey) => void;
   closePanel: () => void;
+  /** 今月の成績カードの内訳 */
+  toggleCard: (key: CardKey) => void;
+  closeCard: () => void;
+  toggleBpoOnly: () => void;
+  /** 区分のチップ。null = 「すべて」。同じ区分をもう一度押すと外れる */
+  setCardSeg: (k: string | null) => void;
+  /** 商談種別で絞る。同じ種別をもう一度押すと外れる (表の行・バッジ) */
+  toggleCardNt: (name: string) => void;
+  setCardTeam: (t: string | null) => void;
+  setCardPerson: (id: string | null) => void;
   setDayKey: (dt: string | null) => void;
   setWeekOpen: (on: boolean) => void;
   setCallPeriod: (k: CallPeriodKey) => void;
@@ -185,7 +204,7 @@ function Item({ r, today, stale, days, done }: { r: DealRow; today: string; stal
         {subText ? <span>{subText}</span> : null}
       </div>
       <div className="nm">{r.name}</div>
-      <div className="who">{r.ownerName}</div>
+      <div className="who">{r.ownerName + (r.negotiation_type ? ' ・' + r.negotiation_type : '')}</div>
       <div className="go">HubSpotを開く ›</div>
     </a>
   );
@@ -396,6 +415,255 @@ function Panel({ data, ui, actions, av }: { data: SalesKpiData; ui: UiState; act
   );
 }
 
+// ---------------------------------------------------------------- 今月の成績カードの内訳 (#45)
+
+const isCardKey = (k: string): k is CardKey => k in CARD_CONF;
+
+const barStyle = { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', margin: '4px 0 8px' } as const;
+
+/** 内訳の表 (チーム別・担当者別)。行を押すと 1 段降りる。 */
+function DrillTable({
+  heads,
+  groups,
+  sum,
+  sumB,
+  onPick,
+}: {
+  heads: string;
+  groups: readonly { name: string; pick: string; n: number; bpo: number }[];
+  sum: number;
+  sumB: number;
+  onPick: (pick: string) => void;
+}) {
+  return (
+    <table className="cdrill">
+      <thead>
+        <tr>
+          <th>{heads}</th>
+          <th className="n">件数</th>
+          <th className="n">内 BPO</th>
+        </tr>
+      </thead>
+      <tbody>
+        {groups.map((g) => (
+          <tr
+            key={g.pick}
+            style={{ cursor: 'pointer' }}
+            data-name={g.name}
+            onClick={() => {
+              onPick(g.pick);
+            }}
+          >
+            <td>
+              <button type="button" className="more" style={{ padding: 0 }}>
+                {g.name}
+              </button>
+            </td>
+            <td className="n">{fmt(g.n)}</td>
+            <td className="n">{g.bpo ? fmt(g.bpo) : '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th>合計</th>
+          <th className="n" data-sum={sum}>
+            {fmt(sum)}
+          </th>
+          <th className="n">{sumB ? fmt(sumB) : '—'}</th>
+        </tr>
+      </tfoot>
+    </table>
+  );
+}
+
+/** 商談種別の表 (table.ntt)。行を押すとその種別だけに絞る (もう一度押すと外れる)。 */
+function NtTableView({ t, toggle }: { t: NtTable; toggle: (name: string) => void }) {
+  const hasNum = t.numHead !== null;
+  return (
+    <table className="ntt" style={{ marginBottom: 10 }} data-level={t.level}>
+      <thead>
+        <tr>
+          <th>商談種別</th>
+          <th className="n">{t.countHead}</th>
+          {hasNum ? <th className="n">{t.numHead}</th> : null}
+          <th className="n">内 BPO</th>
+        </tr>
+      </thead>
+      <tbody>
+        {t.rows.map((r) => (
+          <tr
+            key={r.name}
+            style={{ cursor: 'pointer', ...(r.on ? { fontWeight: 700 } : {}) }}
+            data-nt={r.name}
+            data-n={r.n}
+            data-bpo={r.bpo}
+            data-num={hasNum ? (r.num ?? 0) : undefined}
+            onClick={() => {
+              toggle(r.name);
+            }}
+          >
+            <td>
+              <button type="button" className="more" style={{ padding: 0 }}>
+                {r.name}
+              </button>
+            </td>
+            <td className="n">{fmt(r.n)}</td>
+            {hasNum ? <td className="n">{fmt(r.num)}</td> : null}
+            <td className="n">{r.bpo ? fmt(r.bpo) : '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th>合計</th>
+          <th className="n" data-sum={t.sum}>
+            {fmt(t.sum)}
+          </th>
+          {hasNum ? (
+            <th className="n" data-sum-num={t.sumN ?? 0}>
+              {fmt(t.sumN)}
+            </th>
+          ) : null}
+          <th className="n">{t.sumB ? fmt(t.sumB) : '—'}</th>
+        </tr>
+      </tfoot>
+    </table>
+  );
+}
+
+function CardPanel({ data, ui, actions, teamOf }: { data: SalesKpiData; ui: UiState; actions: UiActions; teamOf: Record<string, string> }) {
+  const v = cardPanelView(data, ui.scope, teamOf, ui.card);
+  if (!v) return <div className="panel hide" id="panel1" />;
+  const today = todayOf(data);
+  let body: ReactNode;
+  if (v.empty) {
+    body = (
+      <div className="empty">
+        <b>該当はありません。</b>
+      </div>
+    );
+  } else {
+    const bar =
+      v.bpoN || v.bpoOnly || v.segChips || v.ntChip !== null ? (
+        <div style={barStyle}>
+          {v.bpoN || v.bpoOnly ? (
+            <button
+              type="button"
+              className={'chip' + (v.bpoOnly ? ' on' : '')}
+              id="panel1-bpo"
+              data-n={v.bpoN}
+              onClick={actions.toggleBpoOnly}
+            >
+              内 BPO {fmt(v.bpoN)}件{v.bpoOnly ? '（BPO だけ表示中）' : ''}
+            </button>
+          ) : null}
+          {v.segChips?.map((c) => (
+            <button
+              type="button"
+              key={c.k}
+              className={'chip' + (c.on ? ' on' : '')}
+              data-seg={c.k}
+              data-n={c.k ? c.n : undefined}
+              onClick={() => {
+                actions.setCardSeg(c.k === '' ? null : c.k);
+              }}
+            >
+              {c.label}
+            </button>
+          ))}
+          {v.ntChip !== null ? (
+            <button
+              type="button"
+              className="chip on"
+              id="panel1-nt-chip"
+              data-nt={v.ntChip}
+              onClick={() => {
+                if (v.ntChip !== null) actions.toggleCardNt(v.ntChip);
+              }}
+            >
+              商談種別: {v.ntChip} ✕
+            </button>
+          ) : null}
+        </div>
+      ) : null;
+    const d = v.drill;
+    body = (
+      <>
+        {bar}
+        {v.numNote ? (
+          <div id="panel1-num-note" style={{ fontSize: '12.5px', color: 'var(--faint)', margin: '2px 0 6px' }}>
+            {v.numNote}
+          </div>
+        ) : null}
+        {v.ntTable ? <NtTableView t={v.ntTable} toggle={actions.toggleCardNt} /> : null}
+        {v.noRows ? <div className="empty">この条件に当てはまる取引はありません。</div> : null}
+        {d?.level === 'team' ? (
+          <DrillTable heads={d.heads} groups={d.groups} sum={d.sum} sumB={d.sumB} onPick={actions.setCardTeam} />
+        ) : null}
+        {d?.level === 'person' ? (
+          <>
+            {d.crumb ? (
+              <button
+                type="button"
+                className="more"
+                onClick={() => {
+                  actions.setCardTeam(null);
+                }}
+              >
+                {d.crumb}
+              </button>
+            ) : null}
+            <DrillTable heads={d.heads} groups={d.groups} sum={d.sum} sumB={d.sumB} onPick={actions.setCardPerson} />
+          </>
+        ) : null}
+        {d?.level === 'list' ? (
+          <>
+            {d.crumb ? (
+              <button
+                type="button"
+                className="more"
+                onClick={() => {
+                  actions.setCardPerson(null);
+                }}
+              >
+                {d.crumb}
+              </button>
+            ) : null}
+            <div className="day" id="panel1-listhead" data-n={d.n}>
+              {d.head}
+            </div>
+            {d.rows.length ? (
+              <ListOf rows={d.rows} today={today} opt={{}} />
+            ) : (
+              <div className="empty">この担当者の該当はありません。</div>
+            )}
+          </>
+        ) : null}
+      </>
+    );
+  }
+  return (
+    <div className="panel" id="panel1">
+      <div className="ph">
+        <b id="panel1-title" data-total={v.total} data-num={v.num ?? ''}>
+          {v.title}
+        </b>
+        <button type="button" className="close" onClick={actions.closeCard}>
+          閉じる ✕
+        </button>
+      </div>
+      <p className="lead">{v.conf.d}</p>
+      {!v.ntOk ? (
+        <div id="panel1-nt-missing" style={{ fontSize: '12.5px', color: 'var(--faint)', margin: '2px 0 6px' }}>
+          商談種別: 未取得（シートに「商談種別」の列がまだありません）
+        </div>
+      ) : null}
+      {body}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- 日別の架電グラフ (SVG)
 
 interface Tip {
@@ -511,7 +779,7 @@ function CallsSection({ data, ui, actions, teamOf, ab, hid }: { data: SalesKpiDa
   if (!cv) {
     return (
       <>
-        <h2>架電</h2>
+        <h2 id="h2kaden">架電</h2>
         <p className="lead" id="lead3">
           架電データがありません。
         </p>
@@ -520,8 +788,15 @@ function CallsSection({ data, ui, actions, teamOf, ab, hid }: { data: SalesKpiDa
   }
   return (
     <>
-      <h2>架電</h2>
+      <h2 id="h2kaden">{cv.noCall ? '架電（担当なしを選択中）' : '架電'}</h2>
       <p className="lead" id="lead3">
+        {cv.noCall ? (
+          <>
+            <b style={warn}>担当なし（HubSpot の担当者が空の取引）を選んでいます。</b>
+            <span style={faint}>Zoom 架電は電話をかけた人で数えるため、担当なしの取引への架電は出せません。</span>
+            <br />
+          </>
+        ) : null}
         Zoomのログから数えています。<b>架電数＝つながった通話</b>で、現場が数えている数と合わせています。
         {cv.fresh === 'none' ? (
           <>
@@ -789,7 +1064,7 @@ function KadenListSection({ data, ui, teamOf, hid, haveKettei }: { data: SalesKp
   }
   return (
     <>
-      <h2>架電リストの残り</h2>
+      <h2 id="h2kadenlist">{ui.scope.person === '' ? '架電リストの残り（担当なしを選択中）' : '架電リストの残り'}</h2>
       <p className="lead" id="lead3b">
         {lead}
       </p>
@@ -1373,14 +1648,14 @@ export function SalesKpiView({ data, ui, actions }: SalesKpiViewProps) {
         </div>
         <select
           id="person"
-          value={ui.scope.person}
+          value={valueOfPerson(ui.scope.person)}
           onChange={(e) => {
-            actions.setPerson(e.target.value);
+            actions.setPerson(personOfValue(e.target.value));
           }}
         >
           <option value="">個人で見る…</option>
           {people.map((p) => (
-            <option key={p.id} value={p.id}>
+            <option key={p.id} value={valueOfPerson(p.id)}>
               {p.name + (ui.scope.team === ALL_TEAMS ? '（' + teamLabel(p) + '）' : '')}
             </option>
           ))}
@@ -1425,9 +1700,17 @@ export function SalesKpiView({ data, ui, actions }: SalesKpiViewProps) {
         </p>
         <div className="cards" id="cards1">
           {mv.cards.map((o) => (
-            <Card key={o.key} o={o} />
+            <Card
+              key={o.key}
+              o={o}
+              open={ui.card.openCard === o.key}
+              onClick={() => {
+                if (isCardKey(o.key)) actions.toggleCard(o.key);
+              }}
+            />
           ))}
         </div>
+        <CardPanel data={data} ui={ui} actions={actions} teamOf={teamOf} />
 
         <h2>いま手を打てること</h2>
         <p className="lead">数字を押すと、中身の一覧が開きます。そのままHubSpotを開けます。</p>
