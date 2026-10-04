@@ -44,7 +44,11 @@ form.addEventListener('submit',async event=>{
       throw new Error(message||'PDFを作成できませんでした。CSVと調査条件を確認して再度お試しください。');
     }
     if(!response.headers.get('content-type')?.includes('application/pdf'))throw new Error('PDFを取得できませんでした。再度お試しください。');
-    const blob=await response.blob();const url=URL.createObjectURL(blob);
+    const blob=await response.blob();
+    const header=await blob.slice(0,5).text();
+    const tail=await blob.slice(Math.max(0,blob.size-32)).text();
+    if(header!=='%PDF-'||!tail.includes('%%EOF'))throw new Error('PDFファイルが不完全です。再度お試しください。');
+    const url=URL.createObjectURL(blob);
     const link=document.createElement('a');link.href=url;link.download='competitor-report.pdf';
     document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
     status.textContent='PDFをダウンロードしました。PDFを開いて印刷できます。';
