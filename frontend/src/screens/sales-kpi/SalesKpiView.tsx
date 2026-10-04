@@ -48,6 +48,7 @@ import {
   type CardKey,
   type CardPanelState,
   type CardSpec,
+  type NtTable,
   type DailyBar,
   type OpenKey,
   type Scope,
@@ -87,6 +88,8 @@ export interface UiActions {
   toggleBpoOnly: () => void;
   /** 区分のチップ。null = 「すべて」。同じ区分をもう一度押すと外れる */
   setCardSeg: (k: string | null) => void;
+  /** 商談種別で絞る。同じ種別をもう一度押すと外れる (表の行・バッジ) */
+  toggleCardNt: (name: string) => void;
   setCardTeam: (t: string | null) => void;
   setCardPerson: (id: string | null) => void;
   setDayKey: (dt: string | null) => void;
@@ -201,7 +204,7 @@ function Item({ r, today, stale, days, done }: { r: DealRow; today: string; stal
         {subText ? <span>{subText}</span> : null}
       </div>
       <div className="nm">{r.name}</div>
-      <div className="who">{r.ownerName}</div>
+      <div className="who">{r.ownerName + (r.negotiation_type ? ' ・' + r.negotiation_type : '')}</div>
       <div className="go">HubSpotを開く ›</div>
     </a>
   );
@@ -474,6 +477,61 @@ function DrillTable({
   );
 }
 
+/** 商談種別の表 (table.ntt)。行を押すとその種別だけに絞る (もう一度押すと外れる)。 */
+function NtTableView({ t, toggle }: { t: NtTable; toggle: (name: string) => void }) {
+  const hasNum = t.numHead !== null;
+  return (
+    <table className="ntt" style={{ marginBottom: 10 }} data-level={t.level}>
+      <thead>
+        <tr>
+          <th>商談種別</th>
+          <th className="n">{t.countHead}</th>
+          {hasNum ? <th className="n">{t.numHead}</th> : null}
+          <th className="n">内 BPO</th>
+        </tr>
+      </thead>
+      <tbody>
+        {t.rows.map((r) => (
+          <tr
+            key={r.name}
+            style={{ cursor: 'pointer', ...(r.on ? { fontWeight: 700 } : {}) }}
+            data-nt={r.name}
+            data-n={r.n}
+            data-bpo={r.bpo}
+            data-num={hasNum ? (r.num ?? 0) : undefined}
+            onClick={() => {
+              toggle(r.name);
+            }}
+          >
+            <td>
+              <button type="button" className="more" style={{ padding: 0 }}>
+                {r.name}
+              </button>
+            </td>
+            <td className="n">{fmt(r.n)}</td>
+            {hasNum ? <td className="n">{fmt(r.num)}</td> : null}
+            <td className="n">{r.bpo ? fmt(r.bpo) : '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th>合計</th>
+          <th className="n" data-sum={t.sum}>
+            {fmt(t.sum)}
+          </th>
+          {hasNum ? (
+            <th className="n" data-sum-num={t.sumN ?? 0}>
+              {fmt(t.sumN)}
+            </th>
+          ) : null}
+          <th className="n">{t.sumB ? fmt(t.sumB) : '—'}</th>
+        </tr>
+      </tfoot>
+    </table>
+  );
+}
+
 function CardPanel({ data, ui, actions, teamOf }: { data: SalesKpiData; ui: UiState; actions: UiActions; teamOf: Record<string, string> }) {
   const v = cardPanelView(data, ui.scope, teamOf, ui.card);
   if (!v) return <div className="panel hide" id="panel1" />;
@@ -487,7 +545,7 @@ function CardPanel({ data, ui, actions, teamOf }: { data: SalesKpiData; ui: UiSt
     );
   } else {
     const bar =
-      v.bpoN || v.bpoOnly || v.segChips ? (
+      v.bpoN || v.bpoOnly || v.segChips || v.ntChip !== null ? (
         <div style={barStyle}>
           {v.bpoN || v.bpoOnly ? (
             <button
@@ -514,12 +572,31 @@ function CardPanel({ data, ui, actions, teamOf }: { data: SalesKpiData; ui: UiSt
               {c.label}
             </button>
           ))}
+          {v.ntChip !== null ? (
+            <button
+              type="button"
+              className="chip on"
+              id="panel1-nt-chip"
+              data-nt={v.ntChip}
+              onClick={() => {
+                if (v.ntChip !== null) actions.toggleCardNt(v.ntChip);
+              }}
+            >
+              商談種別: {v.ntChip} ✕
+            </button>
+          ) : null}
         </div>
       ) : null;
     const d = v.drill;
     body = (
       <>
         {bar}
+        {v.numNote ? (
+          <div id="panel1-num-note" style={{ fontSize: '12.5px', color: 'var(--faint)', margin: '2px 0 6px' }}>
+            {v.numNote}
+          </div>
+        ) : null}
+        {v.ntTable ? <NtTableView t={v.ntTable} toggle={actions.toggleCardNt} /> : null}
         {v.noRows ? <div className="empty">この条件に当てはまる取引はありません。</div> : null}
         {d?.level === 'team' ? (
           <DrillTable heads={d.heads} groups={d.groups} sum={d.sum} sumB={d.sumB} onPick={actions.setCardTeam} />

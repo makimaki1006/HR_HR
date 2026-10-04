@@ -20,6 +20,7 @@ const noop: UiActions = {
   closeCard: vi.fn(),
   toggleBpoOnly: vi.fn(),
   setCardSeg: vi.fn(),
+  toggleCardNt: vi.fn(),
   setCardTeam: vi.fn(),
   setCardPerson: vi.fn(),
   setDayKey: vi.fn(),

@@ -270,6 +270,26 @@ test.describe('営業KPI (React) /app/sales-kpi', () => {
       expect(await walk(page)).toBe(bpo);
     });
 
+    test('商談種別の列が無いシート (本番・この fixture) では「未取得」の注記だけ出し、種別の表と絞りは出さない。旧画面と同じ', async ({ page }) => {
+      await login(page);
+      const note = '商談種別: 未取得（シートに「商談種別」の列がまだありません）';
+      const grab = async (): Promise<{ note: number; table: number; chip: number }> => ({
+        note: await page.locator('#panel1-nt-missing').filter({ hasText: note }).count(),
+        table: await page.locator('#panel1 table.ntt').count(),
+        chip: await page.locator('#panel1-nt-chip').count(),
+      });
+      for (const url of ['/sales-kpi', '/app/sales-kpi']) {
+        await page.goto(url);
+        await expect(page.locator('#cards1 .c')).toHaveCount(7);
+        for (let i = 0; i < 7; i++) {
+          await page.locator('#cards1 .c').nth(i).click();
+          await expect(page.locator('#panel1-title')).toBeVisible();
+          expect(await grab(), `${url} card${String(i)}`).toEqual({ note: 1, table: 0, chip: 0 });
+          await page.locator('#cards1 .c').nth(i).click();
+        }
+      }
+    });
+
     test('チームを選ぶと担当者の表から始まり、個人を選ぶと一覧から始まる。旧画面の内訳と文字が一致する', async ({ page }) => {
       await login(page);
       const grab = async (): Promise<string[]> =>
