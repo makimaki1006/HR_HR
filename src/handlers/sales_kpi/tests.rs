@@ -2583,6 +2583,7 @@ fn test_state() -> std::sync::Arc<crate::AppState> {
         company_geo_cache: None,
         audit: None,
         google_oidc: None,
+        hubspot: None,
     })
 }
 

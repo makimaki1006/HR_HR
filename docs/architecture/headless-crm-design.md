@@ -138,23 +138,27 @@ Zoom Phone は既存契約を継続利用する。
 
 HR_HR から発信できる UI を提供する。
 
-Zoom Phone の通話一次情報から、必要情報を HubSpot Call Activity へ反映する。
+Call Activity は Zoom Phone for HubSpot (純正連携) が作る。HR_HR は Call を作らない
+(ADR-007、2026-09-29 改訂)。
 
-最低限:
+HR_HR が行うこと:
 
-- callLogId
-- caller
-- callee
-- direction
-- started_at
-- duration
-- result
-- recording URL (利用する場合)
+- Smart Embed のイベントから callId / callLogId、相手番号、発信時刻を受け取る
+- HubSpot 上の Call を相手番号 (`hs_call_to_number` の正規化) と時刻窓で照合する
+- 見つかった Call と同じ Contact / Deal に、架電結果の Note と Property 更新を紐づける
+- 見つからなければ Pending Sync で遅延再照合し、一定時間後も無ければ管理画面に出す
+- API での Call 作成は、純正連携が記録しなかった場合の手動フォールバックに限る
 
-現在の HubSpot × Zoom Phone 自動ログで実際に利用している項目を棚卸しし、
-必要なものだけ再現する。
+読み取り時の注意 (実データで確認済みの罠):
 
-純正連携の全機能を無条件にコピーしない。
+- Call は Deal と多対多。1 件に潰さない
+- 接触は Deal より Contact に付くことが多い。Deal の直近アクティビティは Deal → Contact → Call も辿る
+- Call の系統は `hs_call_source` で区別する (`INTEGRATIONS_PLATFORM` = 純正連携)
+- Deal の contact 経由の通話には、同じ Contact の**別 Deal** の通話も混ざりうる (絞り込みは PR4 以降)
+- 読み取りは 1 リクエストあたり HubSpot 呼び出し最大 6 回 (本体+関連 1 / Deal の contact→calls 1 / Engagement 型ごと batch read 4)、安全装置で 10 回まで、全体 20 秒で 504 `crm_timeout`。鍵を既存バッチと共有しているため
+- emails は v1 では読まない (共有鍵に email 読み取りスコープがあるか未確認。無いとレコード全体が 403 になりうる)
+
+純正連携の全機能を HR_HR で再現しない。
 
 ## 8. HubSpot Workflow
 
@@ -394,14 +398,21 @@ Core Seat 運用へ戻すことは可能。
 
 実装前に確定する。
 
-- HubSpot で利用する認証方式 / scopes
+- HubSpot scopes (書き込みで付けるスコープと、書ける Property の許可リスト。PR4 前)
 - Zoom Phone Smart Embed の認証・イベント設計
-- 現行 Zoom→HubSpot 純正ログの再現対象項目
-- Pending Sync Queue の具体的な durable storage
-- retry/backoff policy
+- Pending Sync Queue の具体的な durable storage (候補: 既存 audit Turso への表追加 / 既存 Google Sheets 連携。AGENTS.md rule 7)
+- 書き込みの retry/backoff policy (読み取りは下記で決定済み)
 - Dead Letter の管理者通知先
 - HubSpot custom properties の追加有無
-- React App Shell / route layout
-- Rust API schema / OpenAPI generation 手段
-- 役割 (RBAC role) の保持先 (ADR-017 の候補から選ぶ)
-- Pending Sync Queue の保存先候補に「既存 audit Turso への表追加」を含める (AGENTS.md rule 7)
+- 役割 (RBAC role) の種類と保持先 (ADR-017 の候補から選ぶ)。決まるまで `/api/crm/*` は Google ログインかつ role=admin だけ許可
+- レコード単位のアクセス範囲 (他部署のレコードを読めるか)
+
+決定済み (2026-09-29、ユーザー決定):
+
+- HubSpot の認証: 既存の Service Key (sales-automation-api) を共有して使う。環境変数は `HUBSPOT_ACCESS_TOKEN`。HR_HR 専用キーは発行しない
+- 読み取りの retry/backoff: 既存バッチとレート上限を共有するため、Search は HR_HR から 1 req/秒まで。429 は max(Retry-After, 最低 1 秒) を待って最大 2 回、401/403 は retry しない
+- 純正ログの再現: しない。純正連携が作った Call に紐づける (ADR-007 改訂、§7)
+- BPO も会社の Google Workspace アカウントを持つ。CRM の認可は Google ログインを前提にする
+- React App Shell と共通部品は platform-team が作り、CRM 画面はそれを使う (`/app/crm`)
+- Rust API の型は ts-rs で TypeScript に生成する (React Phase 0 と同じ手段)
+- CRM 画面は HTMX を挟まず React で作る (ADR-014 補足)

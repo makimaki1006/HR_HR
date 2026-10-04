@@ -103,6 +103,7 @@ fn test_state(db: LocalDb) -> Arc<AppState> {
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
         google_oidc: None,
+        hubspot: None,
     })
 }
 
@@ -329,6 +330,7 @@ async fn integrated_report_no_db_returns_minimal_error_page() {
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
         audit: None,
         google_oidc: None,
+        hubspot: None,
     });
     let session = empty_session().await;
 
