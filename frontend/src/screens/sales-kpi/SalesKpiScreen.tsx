@@ -192,6 +192,9 @@ export function SalesKpiScreen() {
       setCardSeg: (k) => {
         setCard((c) => ({ ...c, cardSeg: k === null || c.cardSeg === k ? null : k, cardTeam: null, cardPerson: null }));
       },
+      toggleCardNt: (name) => {
+        setCard((c) => ({ ...c, cardNt: c.cardNt === name ? null : name }));
+      },
       setCardTeam: (t) => {
         setCard((c) => ({ ...c, cardTeam: t }));
       },

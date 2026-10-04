@@ -551,6 +551,8 @@ export interface CardPanelState {
   /** チームの表で選んだ担当者の id (担当なしは '') */
   cardPerson: string | null;
   cardSeg: string | null;
+  /** 商談種別で絞っている (表で押した種別のラベル)。下の段 (チーム → 担当者 → 一覧) にも効く */
+  cardNt: string | null;
   bpoOnly: boolean;
 }
 
@@ -559,6 +561,7 @@ export const CLOSED_CARD_PANEL: CardPanelState = {
   cardTeam: null,
   cardPerson: null,
   cardSeg: null,
+  cardNt: null,
   bpoOnly: false,
 };
 
@@ -617,6 +620,28 @@ export type CardDrill =
   | { level: 'person'; heads: string; groups: DrillGroup[]; sum: number; sumB: number; crumb: string | null }
   | { level: 'list'; head: string; n: number; rows: DealRow[]; crumb: string | null };
 
+export interface NtRow {
+  name: string;
+  n: number;
+  bpo: number;
+  /** 率のカードだけ。分子の件数 */
+  num: number | null;
+  on: boolean;
+}
+
+/** 商談種別の表。いまの段 (全社・チーム・担当者) の行を種別で束ねる。合計行 = その段の件数。 */
+export interface NtTable {
+  level: 'all' | 'team' | 'person';
+  /** 件数の列の見出し: 件数 / 分母 / 件数（区分） */
+  countHead: string;
+  /** 率のカードだけ。分子の列の見出し */
+  numHead: string | null;
+  rows: NtRow[];
+  sum: number;
+  sumB: number;
+  sumN: number | null;
+}
+
 export interface CardPanelView {
   key: CardKey;
   conf: CardConf;
@@ -626,6 +651,11 @@ export interface CardPanelView {
   num: number | null;
   /** 商談種別の列が、このカードの出どころのシートにあるか。無ければ「未取得」の注記を出す */
   ntOk: boolean;
+  /** 種別で絞っているときのバッジ (押すと外れる)。種別の列が無いときは null */
+  ntChip: string | null;
+  /** 分子でない区分を選んだときの注釈 */
+  numNote: string | null;
+  ntTable: NtTable | null;
   /** 絞り込み後の行が 0 件 (パネルは見出しと説明だけ) */
   empty: boolean;
   bpoN: number;
@@ -679,6 +709,9 @@ export function cardPanelView(
     total: base.length,
     num,
     ntOk: d.negotiation_type_sheets[conf.src],
+    ntChip: null,
+    numNote: null,
+    ntTable: null,
     empty: base.length === 0,
     bpoN,
     bpoOnly: st.bpoOnly,
@@ -705,14 +738,61 @@ export function cardPanelView(
     ];
   }
 
-  // いま見る行 = 絞り込み後の行 → BPO → 区分
+  // 種別のバッジ (下の段へ降りても絞りは続く)
+  const nt = view.ntOk ? st.cardNt : null;
+  view.ntChip = nt;
+
+  // いま見る行 = 絞り込み後の行 → BPO → 区分 → 種別。
+  // 種別の表は「区分まで掛けて、種別だけ掛けない行」から数える (種別の合計 == いまの区分の件数)。
   const baseB = st.bpoOnly ? base.filter((r) => r.bpo) : base;
   const segPred = st.cardSeg ? segs.find((x) => x.k === st.cardSeg)?.pred : undefined;
-  const rows = segPred ? baseB.filter(segPred) : baseB;
+  const baseS = segPred ? baseB.filter(segPred) : baseB;
+  const rows = nt !== null ? baseS.filter((r) => r.negotiation_type === nt) : baseS;
   const tof = (r: DealRow): string => rowTeamOf(teamOf, r);
   const teamPick = scope.team !== ALL_TEAMS ? scope.team : st.cardTeam;
   // 担当者の id は空文字 (担当なし) もあり得るので、「選んでいない」は null で区別する。
   const personPick = scope.person ?? st.cardPerson;
+
+  if (view.ntOk) {
+    const lvl =
+      personPick !== null
+        ? baseS.filter((r) => r.owner === personPick)
+        : teamPick
+          ? baseS.filter((r) => tof(r) === teamPick)
+          : baseS;
+    // 並びはサーバが決める (negotiation_type_order。固定の種別 + 出てきた定義外)。ここでは従うだけ。
+    const order = d.negotiation_type_order;
+    const rank = (l: string): number => {
+      const i = order.indexOf(l);
+      return i < 0 ? order.length : i;
+    };
+    const g = groupBy(lvl, (r) => r.negotiation_type ?? '');
+    // 決まっている種別 (negotiation_type_fixed) は 0 件でも並べる (段を降りても同じ形で追えるように)
+    for (const l of d.negotiation_type_fixed) {
+      if (!g.some(([k]) => k === l)) g.push([l, []]);
+    }
+    const items = g.sort((a, b) => rank(a[0]) - rank(b[0]));
+    const ntRows: NtRow[] = items.map(([name, rs]) => ({
+      name,
+      n: rs.length,
+      bpo: rs.filter((r) => r.bpo).length,
+      num: numSeg ? rs.filter(numSeg.pred).length : null,
+      on: nt === name,
+    }));
+    view.ntTable = {
+      level: personPick !== null ? 'person' : teamPick ? 'team' : 'all',
+      countHead: numSeg ? (st.cardSeg ? '件数（' + st.cardSeg + '）' : '分母') : '件数',
+      numHead: numSeg ? '分子（' + (conf.num ?? '') + '）' : null,
+      rows: ntRows,
+      sum: ntRows.reduce((a, r) => a + r.n, 0),
+      sumB: ntRows.reduce((a, r) => a + r.bpo, 0),
+      sumN: numSeg ? ntRows.reduce((a, r) => a + (r.num ?? 0), 0) : null,
+    };
+    // 分子でない区分 (未実施など) を選んでいるときは、分子の列が全行 0 になる。列と値は残し、理由を表の上に書く。
+    if (numSeg && st.cardSeg && st.cardSeg !== conf.num) {
+      view.numNote = '選んでいる区分（' + st.cardSeg + '）は分子に当たらないため、分子の列は計算できません（0 と表示しています）';
+    }
+  }
   if (!rows.length) {
     view.noRows = true;
     return view;
@@ -756,6 +836,7 @@ export function cardPanelView(
         String(mine.length) +
         '件' +
         (st.cardSeg ? '（' + st.cardSeg + '）' : '') +
+        (nt !== null ? '（' + nt + '）' : '') +
         (st.bpoOnly ? '（BPO だけ）' : ''),
       n: mine.length,
       rows: mine,
