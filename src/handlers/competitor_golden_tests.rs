@@ -15,6 +15,7 @@
 //!   変わるので、日付に依存しない「都道府県未選択」の経路だけ本物を使う。
 //!
 //! 日時の正規化: 不要だった。画面用 HTML は現在時刻を含まない(`no_wall_clock_in_html` で確認)。
+//! 正規化するのは改行(CRLF→LF)だけ。埋め込み CSS/JS が Windows の autocrlf で CRLF になるため。
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -43,16 +44,25 @@ fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(fixtures().join(name)).unwrap_or_else(|e| panic!("fixture {name}: {e}"))
 }
 
-/// golden と実出力をバイト単位で比べる。違えば最初の食い違い位置と前後を出して落ちる。
+/// 改行だけは LF にそろえて比べる。`include_str!` で埋め込む CSS/JS は Windows の autocrlf だと
+/// 作業ツリーが CRLF になり、Linux の CI(LF)と同じ出力にならないため。それ以外は 1 バイトも緩めない。
+fn lf(s: &str) -> String {
+    s.replace("\r\n", "\n")
+}
+
+/// golden と実出力をバイト単位で比べる(改行のみ LF 正規化)。違えば最初の食い違い位置と前後を出して落ちる。
 fn check_golden(name: &str, actual: &str) {
     let path = fixtures().join("golden").join(name);
+    let actual = lf(actual);
     if std::env::var_os("COMPETITOR_UPDATE_GOLDEN").is_some() {
         std::fs::write(&path, actual.as_bytes()).unwrap();
         return;
     }
-    let expected = std::fs::read(&path).unwrap_or_else(|e| {
+    let expected = lf(&String::from_utf8(std::fs::read(&path).unwrap_or_else(|e| {
         panic!("golden {name} がありません ({e}). COMPETITOR_UPDATE_GOLDEN=1 で採取")
-    });
+    }))
+    .expect("golden は UTF-8"))
+    .into_bytes();
     assert!(
         expected.len() > 200,
         "golden {name} が空に近い ({} bytes)",
