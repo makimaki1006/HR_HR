@@ -413,7 +413,7 @@ export function monthView(d: SalesKpiData, scope: Scope, teamOf: Record<string, 
       hint: fmt(a['実施'] ?? 0) + ' ÷ ' + fmt(den) + ' 件',
     },
     {
-      key: 'anq',
+      key: 'anqrate',
       lab: '⑤ アンケート回収率',
       val: anqDen ? (anqNum / anqDen) * 100 : null,
       isPct: true,
@@ -458,6 +458,311 @@ export function excludedParts(excluded: Counts): { n: number; parts: string[] } 
       .filter((k) => k !== '件数')
       .map((k) => k + ' ' + fmt(excluded[k]) + '件'),
   };
+}
+
+// ---------------------------------------------------------------- 今月の成績カードの内訳 (#45)
+//
+// 行はサーバが返す (card_deals.{pool,apo,cyomi})。件数 (by_person) と同じ行・同じ述語から作っているので、
+// **絞り込み (inScope) が同じなら、カードの値と内訳の合計は必ず一致する**。
+//   pool = ③ 当月の母集団。②④⑥⑤ はここを kind / anq で切る (④ は日付ではなく「これから」以外)
+//   apo  = ① アポシートの全行 (予定日が来月でも入る)
+//   cyomi= ⑨ Cヨミシートの全行 (予定日が空でも入る)
+
+export type CardKey = 'apo' | 'pool' | 'den' | 'done' | 'rate' | 'anqrate' | 'cyomi';
+export type CardSrc = 'pool' | 'apo' | 'cyomi';
+
+export const KINDS4 = ['実施', '未実施', '未処理', '要判定'] as const;
+
+export interface CardSeg {
+  k: string;
+  pred: (r: DealRow) => boolean;
+}
+
+export interface CardConf {
+  t: string;
+  src: CardSrc;
+  base: (r: DealRow) => boolean;
+  segs?: CardSeg[];
+  /** 率のカード: 分子の区分名 */
+  num?: string;
+  /** 率のカード: 分母の名前 */
+  den?: string;
+  d: string;
+}
+
+const KIND_SEGS: CardSeg[] = KINDS4.map((k) => ({ k, pred: (r: DealRow) => r.kind === k }));
+const notUpcoming = (r: DealRow): boolean => r.kind !== 'これから';
+
+export const CARD_CONF: Record<CardKey, CardConf> = {
+  apo: {
+    t: '① 取ったアポ',
+    src: 'apo',
+    base: () => true,
+    d: '今月アポ日が確定した取引です。商談の予定日が来月でも入ります。',
+  },
+  pool: { t: '③ 商談の予定', src: 'pool', base: () => true, d: '今月に商談日が入っている取引です。' },
+  den: {
+    t: '④ 日が過ぎた分',
+    src: 'pool',
+    base: notUpcoming,
+    segs: KIND_SEGS,
+    d: '「これから」以外の取引です。予定日はまだ先でも、実施・未実施が決まった取引は入ります。区分を押すとその一覧が出ます。',
+  },
+  done: {
+    t: '② やった商談',
+    src: 'pool',
+    base: (r) => r.kind === '実施',
+    d: 'ステージが先へ進んだ（実施した）取引です。',
+  },
+  rate: {
+    t: '⑥ 商談化率',
+    src: 'pool',
+    base: notUpcoming,
+    segs: KIND_SEGS,
+    num: '実施',
+    den: '④ 日が過ぎた分',
+    d: '分子は「実施」、分母は ④ 日が過ぎた分です。分母を 実施・未実施・未処理・要判定 に分けています。区分を押すとその一覧が出ます。',
+  },
+  anqrate: {
+    t: '⑤ アンケート回収率',
+    src: 'pool',
+    base: notUpcoming,
+    segs: [
+      { k: '回収済み', pred: (r) => r.anq === true },
+      { k: '未回収', pred: (r) => r.anq !== true },
+    ],
+    num: '回収済み',
+    den: '④ 日が過ぎた分',
+    d: '分子は事前アンケートの「回収済み」、分母は ④ 日が過ぎた分です。分母を 回収済み・未回収 に分けています。',
+  },
+  cyomi: {
+    t: '⑨ 持っているCヨミ',
+    src: 'cyomi',
+    base: () => true,
+    d: 'Cヨミのシートにある取引です。予定日が空のものも入ります（日付は「—」）。',
+  },
+};
+
+/** 内訳パネルの状態 (旧画面の openCard / cardTeam / cardPerson / cardSeg / bpoOnly)。 */
+export interface CardPanelState {
+  openCard: CardKey | null;
+  /** 全社を見ているとき、表で選んだチーム */
+  cardTeam: string | null;
+  /** チームの表で選んだ担当者の id (担当なしは '') */
+  cardPerson: string | null;
+  cardSeg: string | null;
+  bpoOnly: boolean;
+}
+
+export const CLOSED_CARD_PANEL: CardPanelState = {
+  openCard: null,
+  cardTeam: null,
+  cardPerson: null,
+  cardSeg: null,
+  bpoOnly: false,
+};
+
+/** カードを押したとき: 開閉し、掘り下げ・区分・BPO の選択を捨てる (旧 `toggleCard`)。 */
+export function toggleCardState(st: CardPanelState, key: CardKey): CardPanelState {
+  return { ...CLOSED_CARD_PANEL, openCard: st.openCard === key ? null : key };
+}
+
+/** 行のチーム: 名簿に居る人は名簿のチーム、居ない人は行のチーム。 */
+const rowTeamOf = (teamOf: Readonly<Record<string, string>>, r: { owner: string; team: string }): string =>
+  Object.prototype.hasOwnProperty.call(teamOf, r.owner) ? (teamOf[r.owner] ?? r.team) : r.team;
+
+/** いまの絞り込み (inScope。行のチームは使わない = カードの合計と同じ規則) に入る行だけ。 */
+export function cardRows(
+  d: SalesKpiData,
+  scope: Scope,
+  teamOf: Readonly<Record<string, string>>,
+  conf: CardConf,
+): DealRow[] {
+  return d.card_deals[conf.src].filter((r) => inScope(scope, teamOf, r.owner) && conf.base(r));
+}
+
+function groupBy<T>(rows: readonly T[], f: (r: T) => string): [string, T[]][] {
+  const m = new Map<string, T[]>();
+  for (const r of rows) {
+    const k = f(r);
+    const a = m.get(k);
+    if (a) a.push(r);
+    else m.set(k, [r]);
+  }
+  return [...m];
+}
+
+const byDateName = (a: DealRow, b: DealRow): number =>
+  (a.date || '9999').localeCompare(b.date || '9999') || (a.name || '').localeCompare(b.name || '', 'ja');
+
+export interface DrillGroup {
+  /** 表に出す名前 (チーム名・担当者名) */
+  name: string;
+  /** 押したときに選ぶ値 (チーム名・担当者の id) */
+  pick: string;
+  n: number;
+  bpo: number;
+}
+
+export interface SegChip {
+  /** '' = 「すべて」 */
+  k: string;
+  label: string;
+  n: number;
+  on: boolean;
+}
+
+export type CardDrill =
+  | { level: 'team'; heads: string; groups: DrillGroup[]; sum: number; sumB: number }
+  | { level: 'person'; heads: string; groups: DrillGroup[]; sum: number; sumB: number; crumb: string | null }
+  | { level: 'list'; head: string; n: number; rows: DealRow[]; crumb: string | null };
+
+export interface CardPanelView {
+  key: CardKey;
+  conf: CardConf;
+  title: string;
+  total: number;
+  /** 率のカードだけ。分子の件数 */
+  num: number | null;
+  /** 商談種別の列が、このカードの出どころのシートにあるか。無ければ「未取得」の注記を出す */
+  ntOk: boolean;
+  /** 絞り込み後の行が 0 件 (パネルは見出しと説明だけ) */
+  empty: boolean;
+  bpoN: number;
+  bpoOnly: boolean;
+  /** 区分のチップ (④⑥⑤)。無ければ null */
+  segChips: SegChip[] | null;
+  /** 絞り込み (BPO・区分) 後の行が 0 件 */
+  noRows: boolean;
+  drill: CardDrill | null;
+}
+
+export function cardPanelView(
+  d: SalesKpiData,
+  scope: Scope,
+  teamOf: Readonly<Record<string, string>>,
+  st: CardPanelState,
+): CardPanelView | null {
+  if (!st.openCard) return null;
+  const key = st.openCard;
+  const conf = CARD_CONF[key];
+  const base = cardRows(d, scope, teamOf, conf); // 見出しの件数の元 (絞り込み後)
+  const segs = conf.segs ?? [];
+  const segN = (sg: CardSeg): number => base.filter(sg.pred).length;
+  const bpoN = base.filter((r) => r.bpo).length;
+  const numSeg = conf.num ? segs.find((x) => x.k === conf.num) : undefined;
+  let title: string;
+  let num: number | null = null;
+  if (numSeg) {
+    const n = segN(numSeg);
+    const m = base.length;
+    num = n;
+    title =
+      conf.t +
+      (m ? '　' + ((n / m) * 100).toFixed(1) + '%' : '') +
+      '（分子 ' +
+      (conf.num ?? '') +
+      ' ' +
+      fmt(n) +
+      '件 ÷ 分母 ' +
+      (conf.den ?? '') +
+      ' ' +
+      fmt(m) +
+      '件）';
+  } else {
+    title = conf.t + '（' + fmt(base.length) + '件）';
+  }
+  const view: CardPanelView = {
+    key,
+    conf,
+    title,
+    total: base.length,
+    num,
+    ntOk: d.negotiation_type_sheets[conf.src],
+    empty: base.length === 0,
+    bpoN,
+    bpoOnly: st.bpoOnly,
+    segChips: null,
+    noRows: false,
+    drill: null,
+  };
+  if (!base.length) return view;
+
+  if (segs.length) {
+    view.segChips = [
+      {
+        k: '',
+        label: (conf.den ? '分母 ' + conf.den + ' すべて ' : 'すべて ') + fmt(base.length) + '件',
+        n: base.length,
+        on: st.cardSeg === null,
+      },
+      ...segs.map((sg) => ({
+        k: sg.k,
+        label: (sg.k === conf.num ? '分子 ' : '') + sg.k + ' ' + fmt(segN(sg)) + '件',
+        n: segN(sg),
+        on: st.cardSeg === sg.k,
+      })),
+    ];
+  }
+
+  // いま見る行 = 絞り込み後の行 → BPO → 区分
+  const baseB = st.bpoOnly ? base.filter((r) => r.bpo) : base;
+  const segPred = st.cardSeg ? segs.find((x) => x.k === st.cardSeg)?.pred : undefined;
+  const rows = segPred ? baseB.filter(segPred) : baseB;
+  const tof = (r: DealRow): string => rowTeamOf(teamOf, r);
+  const teamPick = scope.team !== ALL_TEAMS ? scope.team : st.cardTeam;
+  // 担当者の id は空文字 (担当なし) もあり得るので、「選んでいない」は null で区別する。
+  const personPick = scope.person ?? st.cardPerson;
+  if (!rows.length) {
+    view.noRows = true;
+    return view;
+  }
+  const groups = (gs: [string, DealRow[]][], pickOf: (rs: DealRow[]) => string): DrillGroup[] =>
+    gs.map(([name, rs]) => ({ name, pick: pickOf(rs), n: rs.length, bpo: rs.filter((r) => r.bpo).length }));
+  const sorted = (gs: [string, DealRow[]][]): [string, DealRow[]][] =>
+    gs.sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], 'ja'));
+  const sums = (gs: DrillGroup[]): { sum: number; sumB: number } => ({
+    sum: gs.reduce((a, g) => a + g.n, 0),
+    sumB: gs.reduce((a, g) => a + g.bpo, 0),
+  });
+
+  if (personPick === null && !teamPick) {
+    // 全社: チーム別
+    const gs = groups(sorted(groupBy(rows, tof)), (rs) => (rs[0] ? tof(rs[0]) : ''));
+    view.drill = { level: 'team', heads: 'チーム', groups: gs, ...sums(gs) };
+  } else if (personPick === null) {
+    // チーム選択済み: 担当者別
+    const inTeam = rows.filter((r) => tof(r) === teamPick);
+    const gs = groups(
+      sorted(groupBy(inTeam, (r) => r.owner).map(([, rs]): [string, DealRow[]] => [rs[0]?.ownerName ?? '', rs])),
+      (rs) => rs[0]?.owner ?? '',
+    );
+    view.drill = {
+      level: 'person',
+      heads: '担当者（' + (teamPick ?? '') + '）',
+      groups: gs,
+      ...sums(gs),
+      crumb: scope.team === ALL_TEAMS ? '‹ チーム別に戻る' : null,
+    };
+  } else {
+    // 担当者選択済み: 取引一覧
+    const mine = rows.filter((r) => r.owner === personPick).sort(byDateName);
+    const who = mine[0]?.ownerName ?? '';
+    view.drill = {
+      level: 'list',
+      head:
+        who +
+        '　' +
+        String(mine.length) +
+        '件' +
+        (st.cardSeg ? '（' + st.cardSeg + '）' : '') +
+        (st.bpoOnly ? '（BPO だけ）' : ''),
+      n: mine.length,
+      rows: mine,
+      crumb: scope.person === null ? '‹ 担当者別に戻る' : null,
+    };
+  }
+  return view;
 }
 
 // ---------------------------------------------------------------- いま手を打てること

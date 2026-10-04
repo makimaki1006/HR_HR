@@ -9,14 +9,11 @@ import type { SalesKpiData } from './types';
 
 const KPI = ['scope', 'cards1', 'cards2', 'h2kaden', 'lead3', 'cards3', 'kadenbar', 'h2kadenlist', 'lead3b', 'cards3b', 'listbar'];
 
-// 🔴 カードを押すと内訳が開く表示 (#45、差の A1) は次の PR で入れる。それまでは #cards1 のこの 2 行だけを両方から除く。
-const CARD_OPEN_LINES = new Set(['一覧を見る ▾', '閉じる ▲']);
-
 function snap(s: Screen, ids: string[]): Record<string, string[]> {
   const o: Record<string, string[]> = {};
   for (const id of ids) {
     const e = s.q('#' + id);
-    o[id] = e ? outline(e).filter((l) => id !== 'cards1' || !CARD_OPEN_LINES.has(l)) : ['<領域なし>'];
+    o[id] = e ? outline(e) : ['<領域なし>'];
   }
   o['#person options'] = s.qa('#person option').map((x) => (x as HTMLOptionElement).value + '=' + x.textContent);
   return o;

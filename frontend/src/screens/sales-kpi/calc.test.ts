@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { loadFixture } from './__fixtures__/load';
 import {
   ALL_TEAMS,
+  CLOSED_CARD_PANEL,
   actionView,
   avgBase,
   callsView,
+  cardPanelView,
   excludedParts,
   kadenListView,
   ketteiView,
@@ -18,10 +20,14 @@ import {
   stockOverview,
   tabsOf,
   teamOfMap,
+  toggleCardState,
   visiblePeople,
   weekDays,
+  type CardKey,
+  type CardPanelState,
   type Scope,
 } from './calc';
+import { withBlankOwner } from './__fixtures__/synthetic';
 
 const D = loadFixture();
 const TEAM_OF = teamOfMap(D.people);
@@ -42,7 +48,7 @@ describe('今月の成績 (cards1)', () => {
   it('すべて: ①245 ③537 ④225 ②163 ⑥72.4% ⑤2.7% ⑨123', () => {
     const mv = monthView(D, ALL, TEAM_OF);
     const v = Object.fromEntries(mv.cards.map((c) => [c.key, c.val]));
-    expect(v).toEqual({ apo: 245, pool: 537, den: 225, done: 163, rate: 163 / 225 * 100, anq: 6 / 225 * 100, cyomi: 123 });
+    expect(v).toEqual({ apo: 245, pool: 537, den: 225, done: 163, rate: 163 / 225 * 100, anqrate: 6 / 225 * 100, cyomi: 123 });
     expect(mv.cards.map((c) => c.lab)).toEqual([
       '① 取ったアポ', '③ 商談の予定', '④ 日が過ぎた分', '② やった商談', '⑥ 商談化率', '⑤ アンケート回収率', '⑨ 持っているCヨミ',
     ]);
@@ -71,7 +77,7 @@ describe('今月の成績 (cards1)', () => {
     expect(v.den).toBe(30);
     expect(v.done).toBe(19);
     expect(v.rate).toBeCloseTo(63.333, 2);
-    expect(v.anq).toBeCloseTo(3.333, 2);
+    expect(v.anqrate).toBeCloseTo(3.333, 2);
     expect(v.cyomi).toBe(11);
     expect(mv.cards[0]?.avg).toEqual({ label: '1人あたり', value: '4.4件', n: 7 });
     expect(mv.cards[6]?.bpo).toBeNull();
@@ -396,5 +402,112 @@ describe('担当なしの選択 (person = "")', () => {
     expect(kv.who).toBe('担当なし');
     expect(ketteiView(D, { team: '伊壺チーム', person: '', hidden: new Set() }).no).toBe(D.kettei.no_owner);
     expect(ketteiView(D, { team: '伊壺チーム', person: null, hidden: new Set() }).no).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- カード内訳 (#45)
+
+describe('カード内訳: カードの値 == 内訳の合計 == 一覧の行数 (全チーム・全個人・チェック外し)', () => {
+  const KEYS: CardKey[] = ['apo', 'pool', 'den', 'done', 'rate', 'anqrate', 'cyomi'];
+  const blank = withBlankOwner().data;
+
+  /** 開いた内訳を、表 → 担当者 → 一覧と降りて、一覧の行数を全部足す。 */
+  function walkTotal(d: typeof D, scope: Scope, key: CardKey, seg: string | null, bpoOnly: boolean): number {
+    const teamOf = teamOfMap(d.people);
+    const st: CardPanelState = { ...CLOSED_CARD_PANEL, openCard: key, cardSeg: seg, bpoOnly };
+    const v0 = cardPanelView(d, scope, teamOf, st);
+    if (!v0?.drill) return 0;
+    const drill = v0.drill;
+    if (drill.level === 'list') return drill.rows.length;
+    let total = 0;
+    for (const g of drill.groups) {
+      if (drill.level === 'team') {
+        const v1 = cardPanelView(d, scope, teamOf, { ...st, cardTeam: g.pick });
+        const d1 = v1?.drill;
+        if (d1?.level !== 'person') throw new Error('チームの次は担当者の表のはず');
+        expect(d1.sum).toBe(g.n);
+        for (const p of d1.groups) {
+          const v2 = cardPanelView(d, scope, teamOf, { ...st, cardTeam: g.pick, cardPerson: p.pick });
+          const d2 = v2?.drill;
+          if (d2?.level !== 'list') throw new Error('担当者の次は一覧のはず');
+          expect(d2.rows.length).toBe(p.n);
+          total += d2.rows.length;
+        }
+      } else {
+        const v2 = cardPanelView(d, scope, teamOf, { ...st, cardPerson: g.pick });
+        const d2 = v2?.drill;
+        if (d2?.level !== 'list') throw new Error('担当者の次は一覧のはず');
+        expect(d2.rows.length).toBe(g.n);
+        total += d2.rows.length;
+      }
+    }
+    return total;
+  }
+
+  const izuboIds = D.people.filter((p) => p.team === '伊壺チーム').map((p) => p.id);
+  const scopes: { name: string; d: typeof D; scope: Scope }[] = [
+    { name: '全社', d: D, scope: ALL },
+    { name: '伊壺チーム', d: D, scope: IZUBO },
+    { name: '個人', d: D, scope: P1 },
+    { name: '伊壺チーム・3 人外す', d: D, scope: { ...IZUBO, hidden: new Set(izuboIds.slice(0, 3)) } },
+    { name: '全社 (担当なし入り)', d: blank, scope: ALL },
+    { name: '担当なしを選択', d: blank, scope: { team: ALL_TEAMS, person: '', hidden: new Set() } },
+  ];
+
+  it.each(scopes)('$name: 7 枚すべて', ({ d, scope }) => {
+    const teamOf = teamOfMap(d.people);
+    const mv = monthView(d, scope, teamOf);
+    const vals = Object.fromEntries(mv.cards.map((c) => [c.key, c.val]));
+    for (const key of KEYS) {
+      const v = cardPanelView(d, scope, teamOf, { ...CLOSED_CARD_PANEL, openCard: key });
+      if (!v) throw new Error('開けない: ' + key);
+      if (key === 'rate' || key === 'anqrate') {
+        // 率のカード: 分母 = ④ 日が過ぎた分、分子はカードの hint (n ÷ m 件) と一致
+        expect(v.total).toBe(mv.den);
+        const a = mv.a;
+        expect(v.num).toBe(key === 'rate' ? (a['実施'] ?? 0) : (a.anq_num ?? 0));
+        if (key === 'anqrate') expect(v.total).toBe(a.anq_den ?? 0);
+      } else {
+        expect(v.total, key).toBe(vals[key]);
+      }
+      // 表の合計 == 件数、降りた一覧の行数の合計 == 件数
+      expect(walkTotal(d, scope, key, null, false), `${key} 一覧の合計`).toBe(v.total);
+      // 内 BPO チップ == カードの内 BPO、BPO だけの一覧の合計 == 内 BPO
+      if (v.bpoN) expect(walkTotal(d, scope, key, null, true), `${key} BPO だけ`).toBe(v.bpoN);
+      // 区分の件数の和 == 分母
+      if (v.segChips) {
+        const parts = v.segChips.filter((c) => c.k).map((c) => c.n);
+        expect(parts.reduce((x, y) => x + y, 0)).toBe(v.total);
+        for (const c of v.segChips.filter((x) => x.k)) {
+          expect(walkTotal(d, scope, key, c.k, false), `${key} 区分 ${c.k}`).toBe(c.n);
+        }
+      }
+    }
+  });
+  it('見出し: 件数カードは「題（N件）」、率カードは 分子・分母つき', () => {
+    const tf = teamOfMap(D.people);
+    const t = (key: CardKey) => cardPanelView(D, ALL, tf, { ...CLOSED_CARD_PANEL, openCard: key });
+    expect(t('pool')?.title).toBe('③ 商談の予定（537件）');
+    expect(t('apo')?.title).toBe('① 取ったアポ（245件）');
+    expect(t('rate')?.title).toBe('⑥ 商談化率　72.4%（分子 実施 163件 ÷ 分母 ④ 日が過ぎた分 225件）');
+    expect(t('anqrate')?.title).toBe('⑤ アンケート回収率　2.7%（分子 回収済み 6件 ÷ 分母 ④ 日が過ぎた分 225件）');
+    expect(t('rate')?.num).toBe(163);
+    expect(t('pool')?.num).toBeNull();
+  });
+  it('区分のチップ: 「分母 … すべて」と「分子 実施」', () => {
+    const tf = teamOfMap(D.people);
+    const v = cardPanelView(D, ALL, tf, { ...CLOSED_CARD_PANEL, openCard: 'rate' });
+    expect(v?.segChips?.map((c) => c.label)).toEqual([
+      '分母 ④ 日が過ぎた分 すべて 225件',
+      '分子 実施 163件',
+      '未実施 ' + String(v?.segChips?.[2]?.n) + '件',
+      '未処理 ' + String(v?.segChips?.[3]?.n) + '件',
+      '要判定 ' + String(v?.segChips?.[4]?.n) + '件',
+    ]);
+  });
+  it('カードを押すたびに掘り下げ・区分・BPO を捨てる (toggleCardState)', () => {
+    const st: CardPanelState = { openCard: 'pool', cardTeam: '伊壺チーム', cardPerson: 'x', cardSeg: '実施', bpoOnly: true };
+    expect(toggleCardState(st, 'pool')).toEqual(CLOSED_CARD_PANEL);
+    expect(toggleCardState(st, 'den')).toEqual({ ...CLOSED_CARD_PANEL, openCard: 'den' });
   });
 });

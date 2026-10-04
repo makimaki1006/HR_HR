@@ -3,7 +3,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { loadFixture } from './__fixtures__/load';
-import { ALL_TEAMS, DEFAULT_CALL_PERIOD, rangeText, type Scope } from './calc';
+import { ALL_TEAMS, CLOSED_CARD_PANEL, DEFAULT_CALL_PERIOD, rangeText, type Scope } from './calc';
 import { SalesKpiView, type UiActions, type UiState } from './SalesKpiView';
 import type { CallPeriodKey, SalesKpiData } from './types';
 
@@ -12,6 +12,7 @@ const noop = new Proxy({} as UiActions, { get: () => vi.fn() });
 const base: UiState = {
   scope: { team: ALL_TEAMS, person: null, hidden: new Set() },
   openKey: null,
+  card: CLOSED_CARD_PANEL,
   dayKey: null,
   weekOpen: false,
   callPeriod: DEFAULT_CALL_PERIOD,
@@ -86,7 +87,7 @@ describe('0 件・分母 0 でも NaN / undefined を出さない', () => {
   it('分母 0 の率は 0% ではなく「—」', () => {
     const html = render(d);
     expect(html).toMatch(/data-card="rate"><div class="lab">⑥ 商談化率<\/div><div class="v">—/);
-    expect(html).toMatch(/data-card="anq"><div class="lab">⑤ アンケート回収率<\/div><div class="v">—/);
+    expect(html).toMatch(/data-card="anqrate"><div class="lab">⑤ アンケート回収率<\/div><div class="v">—/);
   });
   it('架電リストの充足が 0 件 (kaden.total = 0) でも NaN% を出さない', () => {
     const html = render(d);

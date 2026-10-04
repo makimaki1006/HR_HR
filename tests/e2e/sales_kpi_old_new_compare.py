@@ -135,6 +135,21 @@ def collect(page: Page, url: str, shots: str | None, tag: str) -> dict[str, dict
         page.select_option("#person", "")
         page.wait_for_timeout(150)
 
+    # 今月の成績カードの内訳 (#45): 7 枚を順に開き、1 段目と、表の先頭の行を押した 2 段目・3 段目まで比べる
+    for ci in range(7):
+        page.locator("#cards1 .c").nth(ci).click()
+        page.wait_for_timeout(120)
+        states[f"card={ci}"] = snapshot(page, ["panel1"])
+        for depth in (1, 2):
+            first = page.locator("#panel1 table.cdrill tbody tr button").first
+            if first.count() == 0:
+                break
+            first.click()
+            page.wait_for_timeout(120)
+            states[f"card={ci}/down{depth}"] = snapshot(page, ["panel1"])
+        page.locator("#cards1 .c").nth(ci).click()  # 閉じる
+        page.wait_for_timeout(80)
+
     tabs = chip_labels(page, "#tabs [role=tab]")
     for label, regions, key in (
         ("決定者・決裁者", KETTEI_REGIONS, "kettei"),
@@ -152,12 +167,7 @@ def collect(page: Page, url: str, shots: str | None, tag: str) -> dict[str, dict
     return states
 
 
-# 旧画面にだけある「カードを押すと内訳が開く」表示 (#45)。React 版は未実装 (claudedocs/SALES_KPI_REACT_GAP_2026-10-02.md の A)。
-# --ignore-card-open を付けると #cards1 のこの 2 行だけを両画面から除いて比べる。実装したら外す。
-CARD_OPEN_LINES = {"一覧を見る ▾", "閉じる ▲"}
-
-
-def compare(old: dict[str, dict], new: dict[str, dict], ignore_card_open: bool = False) -> tuple[int, int, int, list[str]]:
+def compare(old: dict[str, dict], new: dict[str, dict]) -> tuple[int, int, int, list[str]]:
     n_lines = n_cards = 0
     diffs: list[str] = []
     for state in sorted(set(old) | set(new)):
@@ -167,9 +177,6 @@ def compare(old: dict[str, dict], new: dict[str, dict], ignore_card_open: bool =
         o, n = old[state], new[state]
         for rid in sorted(set(o["text"]) | set(n["text"])):
             ol, nl = lines(o["text"].get(rid)), lines(n["text"].get(rid))
-            if ignore_card_open and rid == "cards1":
-                ol = [x for x in ol if x not in CARD_OPEN_LINES]
-                nl = [x for x in nl if x not in CARD_OPEN_LINES]
             n_lines += max(len(ol), len(nl))
             if ol != nl:
                 d = list(difflib.unified_diff(ol, nl, "旧", "新", lineterm="", n=0))
@@ -186,8 +193,6 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://localhost:9311")
     ap.add_argument("--shots", default=None)
-    ap.add_argument("--ignore-card-open", action="store_true",
-                    help="#cards1 の「一覧を見る ▾」「閉じる ▲」を比べない (React 版に内訳 #45 が入るまで)")
     ap.add_argument("--dump", default=None, help="抜いた値を JSON で書き出す先")
     a = ap.parse_args()
     if a.shots:
@@ -208,7 +213,7 @@ def main() -> int:
     if a.dump:
         with open(a.dump, "w", encoding="utf-8") as f:
             json.dump({"old": old, "new": new}, f, ensure_ascii=False, indent=1)
-    n_lines, n_cards, n_diff, diffs = compare(old, new, a.ignore_card_open)
+    n_lines, n_cards, n_diff, diffs = compare(old, new)
     print(f"状態数: 旧 {len(old) - 1} / 新 {len(new) - 1}")
     print(f"比較した行: {n_lines}  カード(ラベル+値): {n_cards}  不一致: {n_diff}")
     for d in diffs:

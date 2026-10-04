@@ -192,4 +192,110 @@ test.describe('営業KPI (React) /app/sales-kpi', () => {
     expect(newCards).toEqual(oldCards);
     expect(Object.values(oldCards).flat().length).toBeGreaterThan(20);
   });
+
+  test.describe('今月の成績カードの内訳 (#45)', () => {
+    /** パネルの表を チーム → 担当者 → 一覧 と全部降りて、一覧の行数を足す。表の合計 (data-sum) と一覧の行数も確かめる。 */
+    async function walk(page: Page): Promise<number> {
+      const table = page.locator('#panel1 table.cdrill');
+      if ((await table.count()) === 0) {
+        const n = Number(await page.locator('#panel1-listhead').getAttribute('data-n'));
+        expect(await page.locator('#panel1 .list a.item').count()).toBe(n);
+        return n;
+      }
+      const sumAttr = Number(await table.locator('tfoot [data-sum]').getAttribute('data-sum'));
+      const rows = await table.locator('tbody tr').count();
+      let total = 0;
+      for (let i = 0; i < rows; i++) {
+        await page.locator('#panel1 table.cdrill tbody tr').nth(i).locator('button').click();
+        total += await walk(page);
+        await page.getByRole('button', { name: /に戻る/ }).click();
+      }
+      expect(total).toBe(sumAttr);
+      return total;
+    }
+
+    test('7 枚すべて: カードの値 == 見出しの件数 == 表の合計 == 一覧の行数の合計 (全社)。CSP 違反 0', async ({ page }) => {
+      await login(page);
+      await page.addInitScript(() => {
+        const w = window as unknown as { __csp: string[] };
+        w.__csp = [];
+        document.addEventListener('securitypolicyviolation', (e) => {
+          w.__csp.push(`${e.violatedDirective} ${e.blockedURI}`);
+        });
+      });
+      await page.goto('/app/sales-kpi');
+      await expect(page.locator('#cards1 .c')).toHaveCount(7);
+      const k = SALES_KPI_FIXTURE;
+      // 左から ①アポ ③予定 ④日が過ぎた分 ②実施 ⑥率 ⑤率 ⑨Cヨミ。件数のカードの値は fixture の既知値
+      const expectTotal = [k.all.apo, k.all.pool, k.all.den, k.all.done, k.all.den, k.all.den, k.all.cyomi];
+      for (let i = 0; i < 7; i++) {
+        const card = page.locator('#cards1 .c').nth(i);
+        const label = (await card.locator('.lab').textContent()) ?? '';
+        await card.click();
+        const title = page.locator('#panel1-title');
+        await expect(title).toBeVisible();
+        const total = Number(await title.getAttribute('data-total'));
+        expect(total, label).toBe(expectTotal[i]);
+        if (i === 4) expect(Number(await title.getAttribute('data-num'))).toBe(k.all.done);
+        if (i === 5) expect(Number(await title.getAttribute('data-num'))).toBe(6);
+        if (i !== 4 && i !== 5) expect((await card.locator('.v').textContent()) ?? '', label).toContain(String(total));
+        expect(await walk(page), `${label}: 一覧の行数の合計`).toBe(total);
+        await expect(card.locator('.open')).toHaveText('閉じる ▲');
+        await card.click();
+        await expect(page.locator('#panel1')).toHaveClass(/hide/);
+        await expect(card.locator('.open')).toHaveText('一覧を見る ▾');
+      }
+      expect(await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp)).toEqual([]);
+    });
+
+    test('④: 区分の件数の和 == 分母、区分を押した一覧の行数 == その区分の件数。内 BPO を押した一覧 == 内 BPO', async ({ page }) => {
+      await login(page);
+      await page.goto('/app/sales-kpi');
+      await page.locator('#cards1 .c').nth(2).click();
+      const total = Number(await page.locator('#panel1-title').getAttribute('data-total'));
+      const segs = await page.locator('#panel1 [data-seg]').evaluateAll((els) =>
+        els.map((e) => ({ k: e.getAttribute('data-seg') ?? '', n: Number(e.getAttribute('data-n')) })),
+      );
+      expect(segs.filter((x) => x.k).map((x) => x.k)).toEqual(['実施', '未実施', '未処理', '要判定']);
+      expect(segs.filter((x) => x.k).reduce((a, b) => a + b.n, 0)).toBe(total);
+      expect(segs.filter((x) => x.k).map((x) => x.n)).toEqual([163, 53, 4, 5]);
+      for (const sg of segs.filter((x) => x.k)) {
+        await page.locator(`#panel1 [data-seg="${sg.k}"]`).click();
+        expect(await walk(page), sg.k).toBe(sg.n);
+        await page.locator(`#panel1 [data-seg="${sg.k}"]`).click(); // 外す
+      }
+      const bpo = Number(await page.locator('#panel1-bpo').getAttribute('data-n'));
+      expect(bpo).toBeGreaterThan(0);
+      await page.locator('#panel1-bpo').click();
+      expect(await walk(page)).toBe(bpo);
+    });
+
+    test('チームを選ぶと担当者の表から始まり、個人を選ぶと一覧から始まる。旧画面の内訳と文字が一致する', async ({ page }) => {
+      await login(page);
+      const grab = async (): Promise<string[]> =>
+        page.locator('#panel1').evaluate((el) =>
+          [...el.querySelectorAll('#panel1-title, table.cdrill thead th, table.cdrill tbody tr, table.cdrill tfoot th, #panel1-listhead')].map(
+            (n) => (n.textContent ?? '').replace(/\s+/g, ' ').trim(),
+          ),
+        );
+      const scenario = async (url: string): Promise<Record<string, string[]>> => {
+        await page.goto(url);
+        await expect(page.locator('#cards1 .c')).toHaveCount(7);
+        const out: Record<string, string[]> = {};
+        await page.locator('#teams .chip', { hasText: /^伊壺チーム$/ }).click();
+        await page.locator('#cards1 .c').nth(1).click();
+        out['team'] = await grab();
+        const person = (await page.locator('#person option').nth(1).getAttribute('value')) ?? '';
+        await page.selectOption('#person', person);
+        await page.locator('#cards1 .c').nth(1).click();
+        out['person'] = await grab();
+        return out;
+      };
+      const oldScreen = await scenario('/sales-kpi');
+      const newScreen = await scenario('/app/sales-kpi');
+      expect(newScreen).toEqual(oldScreen);
+      expect(oldScreen['team']?.[0]).toBe('③ 商談の予定（66件）');
+      expect(oldScreen['team']?.length).toBeGreaterThan(5);
+    });
+  });
 });
