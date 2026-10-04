@@ -136,10 +136,18 @@ export const todayOf = (d: Pick<SalesKpiData, 'generated_at'>): string =>
 
 export interface Scope {
   team: string;
-  /** ownerId。空なら個人指定なし。 */
-  person: string;
+  /**
+   * 🔴 null = 個人を選んでいない (全員) / '' = 「担当なし」(担当者が空の取引) / それ以外 = ownerId。
+   * 空文字を「未選択」と読むと、担当なしを選んでも全員表示のままになる。判定は必ず `person !== null`。
+   */
+  person: string | null;
   hidden: ReadonlySet<string>;
 }
+
+/** 個人プルダウンの option の value。「担当なし」('') は未選択 (value="") と区別するため番兵で表す。 */
+export const NONE_VAL = '__none__';
+export const personOfValue = (v: string): string | null => (v === '' ? null : v === NONE_VAL ? '' : v);
+export const valueOfPerson = (p: string | null): string => (p === null ? '' : p === '' ? NONE_VAL : p);
 
 export const isSalesTeam = (t: string | undefined): boolean => !!t && t !== TEAM_NONE;
 
@@ -164,15 +172,33 @@ export function sumIf(
   return o;
 }
 
+/**
+ * 🔴 絞り込みの規則はここ 1 つ (旧画面の `inScope`)。カードの合計 (sumScope)・カードの内訳の行・
+ * 下段の一覧 (pickRows) のすべてがこれを使う。別々に書くとカードと一覧の件数がずれる。
+ * 規則: チェックで外した人は除く / 個人を選んでいればその人 ('' = 担当なし も 1 人として) /
+ *       チームを選んでいれば、チーム = 名簿に居る人は名簿のチーム、居ない人は行のチーム (rowTeam)。
+ * rowTeam は行を持つ側だけが渡す。名簿に居ない担当者の行を消さないための代替。
+ */
+export function inScope(
+  scope: Scope,
+  teamOf: Readonly<Record<string, string>>,
+  id: string,
+  rowTeam?: string,
+): boolean {
+  if (scope.hidden.has(id)) return false;
+  if (scope.person !== null) return id === scope.person;
+  if (scope.team === ALL_TEAMS) return true;
+  const t = Object.prototype.hasOwnProperty.call(teamOf, id) ? teamOf[id] : rowTeam;
+  return t === scope.team;
+}
+
 /** いま選んでいる範囲 (チップ・プルダウン・チェック) で足す。 */
 export function sumScope(
   byPerson: Readonly<Record<string, Counts>> | undefined,
   scope: Scope,
   teamOf: Readonly<Record<string, string>>,
 ): Counts {
-  return sumIf(byPerson, scope.hidden, (id) =>
-    scope.person ? id === scope.person : scope.team === ALL_TEAMS || teamOf[id] === scope.team,
-  );
+  return sumIf(byPerson, scope.hidden, (id) => inScope(scope, teamOf, id));
 }
 
 /** チーム (全社なら全チーム) で足す。個人の選択は見ない (平均の分子)。 */
@@ -206,7 +232,9 @@ export interface AvgBase {
 
 /** 誰と比べるか。個人を選んでいるときは「その人のチーム」。 */
 export function avgBase(people: readonly Person[], scope: Scope): AvgBase | null {
-  if (scope.person) {
+  // 担当なしは「人」ではない。チーム未設定の平均と比べても意味が無いので平均は付けない。
+  if (scope.person === '') return null;
+  if (scope.person !== null) {
     const p = people.find((x) => x.id === scope.person);
     if (!p) return null;
     return { label: p.team + ' の平均', team: p.team, n: headOf(people, scope.hidden, p.team) };
@@ -238,19 +266,17 @@ export function avgLine(ab: AvgBase | null, total: number, unit = '件'): AvgLin
 export function pickRows<T extends { owner: string; team: string }>(
   rows: readonly T[],
   scope: Scope,
+  teamOf: Readonly<Record<string, string>>,
 ): T[] {
-  return rows.filter(
-    (r) =>
-      !scope.hidden.has(r.owner) &&
-      (scope.person ? r.owner === scope.person : scope.team === ALL_TEAMS || r.team === scope.team),
-  );
+  return rows.filter((r) => inScope(scope, teamOf, r.owner, r.team));
 }
 
 export const hiddenCount = (people: readonly Person[], hidden: ReadonlySet<string>): number =>
   people.filter((p) => hidden.has(p.id)).length;
 
-export const personName = (people: readonly Person[], id: string): string | undefined =>
-  people.find((p) => p.id === id)?.name;
+/** 担当者の表示名。担当なしは名簿に居なくても「担当なし」と出す。 */
+export const personName = (people: readonly Person[], id: string): string =>
+  id === '' ? '担当なし' : (people.find((p) => p.id === id)?.name ?? 'この担当者');
 
 // ---------------------------------------------------------------- 前週比・増減
 
@@ -410,8 +436,8 @@ export function monthView(d: SalesKpiData, scope: Scope, teamOf: Record<string, 
 export function scopeText(d: SalesKpiData, scope: Scope, a: Counts): string {
   const hid = hiddenCount(d.people, scope.hidden);
   const hidNote = hid ? '　' + String(hid) + '名をチェックで外しています。' : '';
-  const body = scope.person
-    ? (personName(d.people, scope.person) ?? '') +
+  const body = scope.person !== null
+    ? personName(d.people, scope.person) +
       ' の数字だけを表示しています。' +
       (Object.keys(a).length
         ? ''
@@ -448,11 +474,12 @@ export interface ActionView {
 }
 
 export function actionView(d: SalesKpiData, scope: Scope): ActionView {
-  const stale = pickRows(d.stale, scope);
-  const anq = pickRows(d.anq_missing, scope);
-  const cys = pickRows(d.cyomi_stale, scope);
-  const wk = pickRows(d.week_deals, scope);
-  const nx = pickRows(d.next_week_deals, scope);
+  const teamOf = teamOfMap(d.people);
+  const stale = pickRows(d.stale, scope, teamOf);
+  const anq = pickRows(d.anq_missing, scope, teamOf);
+  const cys = pickRows(d.cyomi_stale, scope, teamOf);
+  const wk = pickRows(d.week_deals, scope, teamOf);
+  const nx = pickRows(d.next_week_deals, scope, teamOf);
   const cards: (CardSpec & { key: OpenKey })[] = [
     {
       key: 'stale',
@@ -598,6 +625,11 @@ export interface DailyBar {
 }
 
 export interface CallsView {
+  /**
+   * 担当なしを選んでいる。Zoom の発信は担当者に紐づいたぶんだけ人別に数えていて、紐づかなかった発信は
+   * 取引の「担当なし」とは別のもの。人別の数字が無いので 0 と書くと「かけていない」に読める。数字は出さない。
+   */
+  noCall: boolean;
   per: KadenPeriod;
   hasPrev: boolean;
   cur: Counts;
@@ -641,6 +673,7 @@ export function callsView(
   const calls = cur.calls ?? 0;
   const conn = cur.connected ?? 0;
   const lng = cur.long ?? 0;
+  const noCall = scope.person === '';
   const dl = per.days;
   const upto = c.last_day || c.generated_at || '';
   const partial = c.last_day_partial;
@@ -657,7 +690,7 @@ export function callsView(
     {
       key: 'conn',
       lab: '架電数',
-      val: dl.length ? conn : null,
+      val: dl.length && !noCall ? conn : null,
       unit: '件',
       hint: dl.length
         ? first === last
@@ -666,12 +699,12 @@ export function callsView(
         : 'まだ集計されていません',
       sub2: 'Zoomでつながった通話の数' + partialNote,
       avg: dl.length ? avgLine(ab, kt.connected ?? 0) : null,
-      wow: prv && dl.length ? wow(conn, prv.connected ?? 0, '件') : null,
+      wow: prv && dl.length && !noCall ? wow(conn, prv.connected ?? 0, '件') : null,
     },
     {
       key: 'calls',
       lab: '発信した回数',
-      val: calls,
+      val: noCall ? null : calls,
       unit: '件',
       hint: 'かけ直しや切ったものを含む全発信',
       avg: avgLine(ab, kt.calls ?? 0),
@@ -679,14 +712,14 @@ export function callsView(
     {
       key: 'ratio',
       lab: 'つながった率',
-      val: calls ? (conn / calls) * 100 : null,
+      val: calls && !noCall ? (conn / calls) * 100 : null,
       isPct: true,
-      hint: fmt(conn) + ' ÷ ' + fmt(calls) + ' 件',
+      hint: noCall ? '—' : fmt(conn) + ' ÷ ' + fmt(calls) + ' 件',
     },
     {
       key: 'long',
       lab: '5分超の通話',
-      val: lng,
+      val: noCall ? null : lng,
       unit: '件',
       hint: '深い会話。アポにつながりやすい',
       avg: avgLine(ab, kt.long ?? 0),
@@ -695,7 +728,7 @@ export function callsView(
     {
       key: 'perday',
       lab: '1日あたりの架電数',
-      val: dl.length ? Math.round(conn / dl.length) : null,
+      val: dl.length && !noCall ? Math.round(conn / dl.length) : null,
       unit: '件',
       hint: dl.length ? String(dl.length) + '日で割った平均' : '—',
     },
@@ -708,7 +741,7 @@ export function callsView(
     .filter(([oid]) => {
       const pp = people.find((x) => x.id === oid);
       if (scope.hidden.has(oid)) return false;
-      if (scope.person) return oid === scope.person;
+      if (scope.person !== null) return oid === scope.person;
       if (scope.team === ALL_TEAMS) return true;
       return !!pp && pp.team === scope.team;
     })
@@ -732,6 +765,7 @@ export function callsView(
     .slice(0, 3)
     .map((k) => k + ' ' + fmt(um[k]) + '件');
   return {
+    noCall,
     per,
     hasPrev: !!prevP,
     cur,
@@ -788,17 +822,26 @@ export function kadenListView(d: SalesKpiData, scope: Scope, teamOf: Record<stri
   for (const key of ['未架電', '未接触', '接触済み', 'base']) {
     unCls[key] = (unCls[key] ?? 0) + (noOwner[key] ?? 0);
   }
-  const whole = !scope.person && scope.team === ALL_TEAMS;
+  const whole = scope.person === null && scope.team === ALL_TEAMS;
   let ks: KadenScope | null;
   if (!k.has_by_owner) {
     ks = whole ? { c: k.cls, base: k.base, who: '会社全体', whole: true } : null;
   } else if (whole) {
     ks = { c: salesCls, base: salesCls.base ?? 0, who: '営業' + String(nTeams) + 'チームの合計', whole: true };
+  } else if (scope.person === '') {
+    // 担当なし: サーバは by_person に入れず no_owner に同じ形で返す (担当者が入っていない取引)。
+    ks = {
+      c: noOwner,
+      base: noOwner.base ?? 0,
+      who: '担当なし（担当者が入っていない取引）が持っている分',
+      whole: false,
+    };
   } else {
     const c = sumScope(k.by_person, scope, teamOf);
-    const who = scope.person
-      ? (personName(d.people, scope.person) ?? 'この担当者') + ' が持っている分'
-      : scope.team + ' が持っている分';
+    const who =
+      scope.person !== null
+        ? personName(d.people, scope.person) + ' が持っている分'
+        : scope.team + ' が持っている分';
     ks = { c, base: c.base ?? 0, who, whole: false };
   }
   const g = (key: string): number => ks?.c[key] ?? 0;
@@ -940,8 +983,8 @@ export function hasKettei(d: Pick<SalesKpiData, 'kettei'>): boolean {
 export function ketteiView(d: SalesKpiData, scope: Scope): KetteiView {
   const ke = d.kettei;
   const cols = ke.cols;
-  const rows = pickRows(ke.rows, scope);
-  const no = scope.team === ALL_TEAMS && !scope.person ? ke.no_owner : null;
+  const rows = pickRows(ke.rows, scope, teamOfMap(d.people));
+  const no = scope.person === '' || (scope.team === ALL_TEAMS && scope.person === null) ? ke.no_owner : null;
   const asof = ke.date ? md(ke.date) + '（' + wd(ke.date) + '）' : '—';
   const sum: Record<string, number> = {};
   for (const c of [...cols, '合計']) sum[c] = 0;
@@ -957,8 +1000,9 @@ export function ketteiView(d: SalesKpiData, scope: Scope): KetteiView {
   };
   for (const r of rows) addRow(r);
   if (no) addRow(no);
-  const who = scope.person
-    ? (personName(d.people, scope.person) ?? 'この担当者')
+  const who =
+    scope.person !== null
+    ? personName(d.people, scope.person)
     : scope.team === ALL_TEAMS
       ? '全社'
       : scope.team;

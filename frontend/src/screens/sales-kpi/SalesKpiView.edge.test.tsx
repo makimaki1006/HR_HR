@@ -10,7 +10,7 @@ import type { CallPeriodKey, SalesKpiData } from './types';
 const noop = new Proxy({} as UiActions, { get: () => vi.fn() });
 
 const base: UiState = {
-  scope: { team: ALL_TEAMS, person: '', hidden: new Set() },
+  scope: { team: ALL_TEAMS, person: null, hidden: new Set() },
   openKey: null,
   dayKey: null,
   weekOpen: false,
