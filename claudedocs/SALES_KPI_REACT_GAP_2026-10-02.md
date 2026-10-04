@@ -75,3 +75,21 @@ B の合計の目安: 1 日(B1 の機械的な置換とテストが中心)。**A
 - fixture(`tests/fixtures/sales_kpi`、判定日 2026-09-04)には担当者が空の取引が 0 件(`people` に id `""` が無い、`by_person` にも無い)ので、
   **担当なしの選択(B)も比較では出ない**。B を入れるときは、担当なしの行を足した合成データで旧 JS と同じ結果になることを別に確かめる必要がある
   (Rust 側の `build_payload` に、担当者が空の取引を足した合成シートを通した JSON を、React の Vitest fixture にする)。
+
+## 実施状況(2026-10-04 追記 / レーン B)
+
+上の A・B と、商談種別(#49・#50。`SALES_KPI_NEGOTIATION_TYPE_2026-10-02.md`)を React 版に入れた。3 つの PR に分けている(積み上げ順)。
+
+| PR | ブランチ | 入れたもの |
+|---|---|---|
+| 1 | `feat/react-sales-kpi-parity` | B1〜B9(担当なしの選択)と A9(`inScope` 1 本化)。`Scope.person` は `string \| null` |
+| 2 | `feat/react-sales-kpi-card-breakdown` | A1〜A8・A10(カードの内訳)。⑤ のカードのキーは `anq` → `anqrate`(下段の「⑤ アンケート未回収」の `anq` と別物) |
+| 3 | `feat/react-sales-kpi-negotiation-type` | 商談種別の表・種別で絞る・区分 × 種別・分子の注釈・一覧の行の「・種別」。並びは payload の `negotiation_type_order` / `_fixed` に従う(JS で並べ直さない)。内部値 ⇄ ラベルの変換は Rust 側で済み、React では変換しない |
+
+確かめ方(旧画面の `<script>` を happy-dom でそのまま動かし、同じ操作を流して `#panel1` などの DOM を突き合わせる): `frontend/src/screens/sales-kpi/__fixtures__/dual.tsx`、`parity.*.test.tsx`。
+旧 JS の関数そのものとの比較は `legacy_sales_kpi.js`(`makeScoped`)。E2E は `tests/e2e/pr/sales_kpi.spec.ts`、`sales_kpi_card_breakdown.py --react <repo>`、`sales_kpi_old_new_compare.py`。
+
+残る差(意図したもの・未対応):
+- 決定者タブ・リストの在庫タブは、React 版では開いたときだけ描く(旧画面は隠れたまま常に描いてある)。ユーザーに見える違いは無い。E2E は先にタブを開いてから見る。
+- C3(ナビを `/app/sales-kpi` へ)・C4(App Shell への接続)は未着手。
+- PR 用 E2E の fixture(`tests/fixtures/sales_kpi`)には担当なしの取引と商談種別の列が無いので、担当なし・商談種別の中身は Vitest(合成データ、`dump_sales_kpi --negtype` の JSON)と `sales_kpi_card_breakdown.py` で確かめている。PR 用 E2E は「列が無いときの注記」までを見る。

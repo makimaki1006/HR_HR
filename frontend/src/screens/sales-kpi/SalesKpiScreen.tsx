@@ -3,7 +3,16 @@
 // 見た目は SalesKpiView に渡す。Shell 非依存 (ヘッダー・戻るリンクも画面の中)。
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiAbortedError, apiGet } from '../../api/client';
-import { DEFAULT_CALL_PERIOD, type OpenKey, type Scope, type SnapMode, type TabKey } from './calc';
+import {
+  CLOSED_CARD_PANEL,
+  DEFAULT_CALL_PERIOD,
+  toggleCardState,
+  type CardPanelState,
+  type OpenKey,
+  type Scope,
+  type SnapMode,
+  type TabKey,
+} from './calc';
 import { SalesKpiView, type UiActions, type UiState } from './SalesKpiView';
 import type { CallPeriodKey, SalesKpiData } from './types';
 
@@ -85,13 +94,14 @@ export function LoadStateView({ state }: { state: LoadState }) {
   return null;
 }
 
-const INITIAL_SCOPE: Scope = { team: 'すべて', person: '', hidden: new Set() };
+const INITIAL_SCOPE: Scope = { team: 'すべて', person: null, hidden: new Set() };
 
 export function SalesKpiScreen() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   // hidden は localStorage から (読めなければ空)。描画前に 1 回だけ読む。
   const [scope, setScope] = useState<Scope>(() => ({ ...INITIAL_SCOPE, hidden: readHidden() }));
   const [openKey, setOpenKey] = useState<OpenKey | null>(null);
+  const [card, setCard] = useState<CardPanelState>(CLOSED_CARD_PANEL);
   const [dayKey, setDayKey] = useState<string | null>(null);
   const [weekOpen, setWeekOpen] = useState(false);
   const [callPeriod, setCallPeriod] = useState<CallPeriodKey>(DEFAULT_CALL_PERIOD);
@@ -121,7 +131,7 @@ export function SalesKpiScreen() {
       mutate(h);
       saveHidden(h);
       // チェックを外した人が個人で選ばれていたら、個人指定を解く (旧画面と同じ)
-      const person = s.person && h.has(s.person) ? '' : s.person;
+      const person = s.person !== null && h.has(s.person) ? null : s.person;
       return { ...s, hidden: h, person };
     });
   }, []);
@@ -129,12 +139,14 @@ export function SalesKpiScreen() {
   const actions: UiActions = useMemo(
     () => ({
       setTeam: (team) => {
-        setScope((s) => ({ ...s, team, person: '' }));
+        setScope((s) => ({ ...s, team, person: null }));
         setOpenKey(null);
+        setCard((c) => ({ ...c, openCard: null }));
       },
       setPerson: (id) => {
         setScope((s) => ({ ...s, person: id }));
         setOpenKey(null);
+        setCard((c) => ({ ...c, openCard: null }));
       },
       setHidden: (ids, on) => {
         updateHidden((h) => {
@@ -151,6 +163,7 @@ export function SalesKpiScreen() {
       },
       toggleOpen: (key) => {
         setOpenKey((k) => (k === key ? null : key));
+        setCard((c) => ({ ...c, openCard: null }));
         setDayKey(null);
         setWeekOpen(false);
         setTimeout(() => {
@@ -159,6 +172,34 @@ export function SalesKpiScreen() {
       },
       closePanel: () => {
         setOpenKey(null);
+      },
+      // 今月の成績カードの内訳 (旧 toggleCard)。開閉で掘り下げ・区分・BPO を捨て、下の一覧は閉じる
+      toggleCard: (key) => {
+        setCard((c) => toggleCardState(c, key));
+        setOpenKey(null);
+        setDayKey(null);
+        setWeekOpen(false);
+        setTimeout(() => {
+          document.getElementById('panel1')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 50);
+      },
+      closeCard: () => {
+        setCard((c) => ({ ...c, openCard: null }));
+      },
+      toggleBpoOnly: () => {
+        setCard((c) => ({ ...c, bpoOnly: !c.bpoOnly, cardTeam: null, cardPerson: null }));
+      },
+      setCardSeg: (k) => {
+        setCard((c) => ({ ...c, cardSeg: k === null || c.cardSeg === k ? null : k, cardTeam: null, cardPerson: null }));
+      },
+      toggleCardNt: (name) => {
+        setCard((c) => ({ ...c, cardNt: c.cardNt === name ? null : name }));
+      },
+      setCardTeam: (t) => {
+        setCard((c) => ({ ...c, cardTeam: t }));
+      },
+      setCardPerson: (id) => {
+        setCard((c) => ({ ...c, cardPerson: id }));
       },
       setDayKey: (dt) => {
         setDayKey(dt);
@@ -186,6 +227,6 @@ export function SalesKpiScreen() {
       </div>
     );
   }
-  const ui: UiState = { scope, openKey, dayKey, weekOpen, callPeriod, snapMode, tab, pickOpen };
+  const ui: UiState = { scope, openKey, card, dayKey, weekOpen, callPeriod, snapMode, tab, pickOpen };
   return <SalesKpiView data={state.data} ui={ui} actions={actions} />;
 }

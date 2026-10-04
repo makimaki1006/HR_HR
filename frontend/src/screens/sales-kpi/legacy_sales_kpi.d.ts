@@ -34,3 +34,22 @@ export function makeLs(lists: readonly StockList[]): {
   lsNames: (kind: string) => string[];
   lsRows: (l: StockList) => LegacyStockRow[];
 };
+
+export interface LegacyScopeState {
+  team: string;
+  person: string | null;
+  hidden: Set<string>;
+}
+export function makeScoped(
+  D: { people: { id: string; name: string; team: string }[] },
+  state: LegacyScopeState,
+): {
+  inScope: (id: string, rowTeam?: string) => boolean;
+  sumScope: (byPerson: Record<string, Counts> | undefined) => Counts;
+  pick: <T extends { owner: string; team: string }>(rows: T[]) => T[];
+  personOfValue: (v: string) => string | null;
+  valueOfPerson: (p: string | null) => string;
+  personName: () => string;
+  avgBase: () => { label: string; team: string | null; n: number } | null;
+  teamOf: (id: string, rowTeam?: string) => string | undefined;
+};
