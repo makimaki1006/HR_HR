@@ -17,6 +17,11 @@ use crate::AppState;
 #[path = "competitor_pdf.rs"]
 mod pdf;
 
+// 旧 HTML の golden(PR-1)。非公開関数を直接使うため子モジュールにしている。テスト専用。
+#[cfg(test)]
+#[path = "competitor_golden_tests.rs"]
+mod golden_tests;
+
 pub async fn page(State(state): State<Arc<AppState>>) -> Html<String> {
     let market = tokio::task::spawn_blocking(move || {
         state.indeed_db.as_ref().and_then(|db| snapshot(db).ok())
