@@ -20,8 +20,15 @@ pub(crate) fn render_competitor_report(
     let unit = if agg.is_hourly { "円/時" } else { "万円" };
     let scale = if agg.is_hourly { 1.0 } else { 10000.0 };
     let fmt = |v: Option<i64>| {
-        v.map(|n| format!("{:.2}", n as f64 / scale))
-            .unwrap_or_else(|| "—".into())
+        v.map(|n| {
+            if agg.is_hourly {
+                // 時給は円の整数 (05B の表と同じ流儀。".00" は意味のない精度)
+                n.to_string()
+            } else {
+                format!("{:.2}", n as f64 / scale)
+            }
+        })
+        .unwrap_or_else(|| "—".into())
     };
     html.push_str("<!-- Design review: Philosophy 5; Hierarchy 4; Execution 4; Specificity 5; Restraint 5; Variety 4. Source: supplied Excel dashboard. --><section class=\"excel-dashboard\" aria-label=\"競合調査ダッシュボード\"><aside class=\"summary\"><h1>競合調査</h1><table class=\"meta\">");
     for (a, b, c, d) in [
@@ -500,6 +507,40 @@ mod tests {
         assert!(!html.contains("<script>危険</script>"));
         assert!(html.contains("&lt;script&gt;危険&lt;/script&gt;"));
         assert!(!html.contains("地域企業構造"));
+    }
+
+    /// 時給 16 件の平均 (下限 (8*1260+8*1265)/16 = 1262.5、上限 +150 で 1412.5) が
+    /// 小数を捨てず、円の整数 (四捨五入) で出ること。月給の表示 (万円・小数 2 桁) は変えない。
+    #[test]
+    fn hourly_average_is_rounded_not_truncated() {
+        let mut lines = Vec::new();
+        for lo in [1260, 1265] {
+            for _ in 0..8 {
+                lines.push(format!("時給 {lo}円 ~ {}円", lo + 150));
+            }
+        }
+        let records = salary_fixture::records(
+            &lines.join(
+                "
+",
+            ),
+            "大阪府 大阪市",
+        );
+        let agg = aggregate_records_with_mode(&records, WageMode::Hourly);
+        let html = render_competitor_report(
+            &agg,
+            45,
+            "t",
+            &json!({"status":"unavailable"}),
+            &json!({"status":"unavailable"}),
+            &json!({"status":"unavailable"}),
+        );
+        assert!(
+            html.contains("<th>平均値</th><td>1263</td><td>1413</td>"),
+            "{}",
+            &html[html.find("<th>平均値</th>").unwrap_or(0)..][..120]
+        );
+        assert!(!html.contains("1262.00") && !html.contains("1412.00"));
     }
 
     #[test]
