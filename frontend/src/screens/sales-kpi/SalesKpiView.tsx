@@ -88,7 +88,7 @@ export interface UiActions {
   toggleBpoOnly: () => void;
   /** 区分のチップ。null = 「すべて」。同じ区分をもう一度押すと外れる */
   setCardSeg: (k: string | null) => void;
-  /** 商談種別で絞る。同じ種別をもう一度押すと外れる (表の行・バッジ) */
+  /** 商談属性で絞る。同じ種別をもう一度押すと外れる (表の行・バッジ) */
   toggleCardNt: (name: string) => void;
   setCardTeam: (t: string | null) => void;
   setCardPerson: (id: string | null) => void;
@@ -204,7 +204,7 @@ function Item({ r, today, stale, days, done }: { r: DealRow; today: string; stal
         {subText ? <span>{subText}</span> : null}
       </div>
       <div className="nm">{r.name}</div>
-      <div className="who">{r.ownerName + (r.negotiation_type ? ' ・' + r.negotiation_type : '')}</div>
+      <div className="who">{r.ownerName + (r.deal_attr ? ' ・' + r.deal_attr : '')}</div>
       <div className="go">HubSpotを開く ›</div>
     </a>
   );
@@ -477,14 +477,14 @@ function DrillTable({
   );
 }
 
-/** 商談種別の表 (table.ntt)。行を押すとその種別だけに絞る (もう一度押すと外れる)。 */
+/** 商談属性の表 (table.ntt)。行を押すとその種別だけに絞る (もう一度押すと外れる)。 */
 function NtTableView({ t, toggle }: { t: NtTable; toggle: (name: string) => void }) {
   const hasNum = t.numHead !== null;
   return (
     <table className="ntt" style={{ marginBottom: 10 }} data-level={t.level}>
       <thead>
         <tr>
-          <th>商談種別</th>
+          <th>商談属性</th>
           <th className="n">{t.countHead}</th>
           {hasNum ? <th className="n">{t.numHead}</th> : null}
           <th className="n">内 BPO</th>
@@ -582,7 +582,7 @@ function CardPanel({ data, ui, actions, teamOf }: { data: SalesKpiData; ui: UiSt
                 if (v.ntChip !== null) actions.toggleCardNt(v.ntChip);
               }}
             >
-              商談種別: {v.ntChip} ✕
+              商談属性: {v.ntChip} ✕
             </button>
           ) : null}
         </div>
@@ -656,7 +656,7 @@ function CardPanel({ data, ui, actions, teamOf }: { data: SalesKpiData; ui: UiSt
       <p className="lead">{v.conf.d}</p>
       {!v.ntOk ? (
         <div id="panel1-nt-missing" style={{ fontSize: '12.5px', color: 'var(--faint)', margin: '2px 0 6px' }}>
-          商談種別: 未取得（シートに「商談種別」の列がまだありません）
+          商談属性: 未取得（シートに「商談属性」の列がまだありません）
         </div>
       ) : null}
       {body}
