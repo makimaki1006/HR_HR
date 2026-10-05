@@ -31,6 +31,39 @@ async function setup(page: Page, longBody = false) {
 }
 test.beforeAll(() => { mkdirSync(visuals, { recursive: true }); });
 
+test('reading actions remain reachable, restore tab focus and return to the filtered mobile list', async ({ page }) => {
+  await setup(page, true);
+  const actions = page.getByRole('navigation', { name: '求人の閲覧操作', exact: true });
+  const jump = page.getByRole('button', { name: 'この版を前の版と比較する →', exact: true });
+  await jump.scrollIntoViewIfNeeded();
+  await expect(actions.getByRole('button', { name: '機能を切り替える', exact: true })).toBeInViewport();
+  await actions.getByRole('button', { name: '機能を切り替える', exact: true }).click();
+  await expect(page.getByRole('tab', { name: '本文・画像', exact: true })).toBeFocused();
+  await expect(page.getByRole('tablist', { name: '求人管理の機能', exact: true })).toBeInViewport();
+  await page.getByRole('searchbox').fill('NO_MATCH_AUDIT_839201');
+  await expect(page.locator('.jc-detail h1')).toHaveText('一致する求人はありません');
+  await expect(page.locator('.jc-job')).toHaveCount(0);
+  await page.getByRole('button', { name: '検索条件をリセット', exact: true }).click();
+  await expect(page.locator('.jc-job')).toHaveCount(2);
+  await expect(page.getByRole('searchbox')).toHaveValue('');
+  await page.setViewportSize({ width: 375, height: 850 });
+  await page.getByRole('searchbox').fill('合成タブ確認求人A');
+  await page.locator('.jc-job').first().click();
+  await actions.getByRole('button', { name: '求人一覧に戻る', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '求人レコード', exact: true })).toBeFocused();
+  await expect(page.getByRole('heading', { name: '求人レコード', exact: true })).toBeInViewport();
+  await expect(page.getByRole('searchbox')).toHaveValue('合成タブ確認求人A');
+  await expect(page.locator('.jc-job')).toHaveCount(1);
+  await page.setViewportSize({ width: 640, height: 850 });
+  await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+  await page.setViewportSize({ width: 667, height: 375 });
+  expect(await actions.evaluate(element => getComputedStyle(element).position)).toBe('static');
+  await page.emulateMedia({ media: 'print' });
+  await expect(actions).toBeHidden();
+});
+
 test('functional tabs isolate applicants, reasons, application trends, market graphs and tables while retaining same-job selections', async ({ page }) => {
   await setup(page);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
