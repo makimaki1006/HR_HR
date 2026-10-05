@@ -34,6 +34,17 @@ test.beforeAll(() => { mkdirSync(visuals, { recursive: true }); });
 test('reading actions remain reachable, restore tab focus and return to the filtered mobile list', async ({ page }) => {
   await setup(page, true);
   const actions = page.getByRole('navigation', { name: '求人の閲覧操作', exact: true });
+  const inactiveTabContrast = await page.getByRole('tab', { name: '応募分析', exact: true }).evaluate(element => {
+    const rgb = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    const luminance = (channels: number[]) => channels.reduce((sum, channel, index) => {
+      const value = channel / 255;
+      return sum + (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][index]!;
+    }, 0);
+    const foreground = luminance(rgb(getComputedStyle(element).color));
+    const background = luminance(rgb(getComputedStyle(element.parentElement!).backgroundColor));
+    return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+  });
+  expect(inactiveTabContrast).toBeGreaterThanOrEqual(4.5);
   const jump = page.getByRole('button', { name: 'この版を前の版と比較する →', exact: true });
   await jump.scrollIntoViewIfNeeded();
   await expect(actions.getByRole('button', { name: '機能を切り替える', exact: true })).toBeInViewport();
