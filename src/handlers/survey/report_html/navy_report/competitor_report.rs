@@ -1,10 +1,17 @@
 //! Excel競合調査ダッシュボードの独立出力。
+//!
+//! `render_html` は `CompetitorReport` (competitor_model.rs) だけを入力にする。
+//! 数値の加工は `build_competitor_report` が済ませているので、ここは整形と HTML 組み立てだけ。
 use super::common::push_page_head;
-use super::section_05b_competitor::head_tag_counts;
+use super::competitor_model::{
+    build_competitor_report, CompetitorReport, GoogleDemand, GoogleSection, GoogleSuggestions,
+    IndeedSection, KeywordRow, PopulationSection, SalaryRow,
+};
 use crate::handlers::helpers::{escape_html, format_number};
-use crate::handlers::survey::aggregator::{BoundStats, SurveyAggregation};
+use crate::handlers::survey::aggregator::SurveyAggregation;
 use serde_json::Value;
 
+/// 旧入口。集計と外部コンテキストからレポートを作って HTML にする。
 pub(crate) fn render_competitor_report(
     agg: &SurveyAggregation,
     top_n: usize,
@@ -13,43 +20,38 @@ pub(crate) fn render_competitor_report(
     google: &Value,
     population: &Value,
 ) -> String {
-    let mut html = format!("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>競合調査</title><style>{}</style></head><body><nav class=\"toolbar no-print\"><a href=\"/competitor\">調査条件に戻る / PDFダウンロード</a><a href=\"/\">市場分析</a></nav><main>",include_str!("../../../../../static/css/competitor-dashboard.css"));
-    let (head, denom) = head_tag_counts(agg, top_n);
-    html.push_str("<div class=\"report-tabs no-print\" role=\"tablist\" aria-label=\"競合調査の表示切り替え\"><button id=\"tab-excel\" role=\"tab\" aria-selected=\"true\" aria-controls=\"panel-excel\" tabindex=\"0\">Excel再現</button><button id=\"tab-google\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-google\" tabindex=\"-1\">Google検索需要</button><button id=\"tab-indeed\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-indeed\" tabindex=\"-1\">Indeed採用レポート</button><button id=\"tab-population\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-population\" tabindex=\"-1\">人口・地域データ</button></div><div id=\"panel-excel\" role=\"tabpanel\" aria-labelledby=\"tab-excel\" tabindex=\"0\">");
-    let comp = &agg.competitor;
-    let unit = if agg.is_hourly { "円/時" } else { "万円" };
-    let scale = if agg.is_hourly { 1.0 } else { 10000.0 };
-    let fmt = |v: Option<i64>| {
-        v.map(|n| {
-            if agg.is_hourly {
-                // 時給は円の整数 (05B の表と同じ流儀。".00" は意味のない精度)
-                n.to_string()
-            } else {
-                format!("{:.2}", n as f64 / scale)
-            }
-        })
+    render_html(&build_competitor_report(
+        agg, top_n, title, indeed, google, population,
+    ))
+}
+
+/// 値を表示用の文字列にする。月給 (decimals=2) は万円で小数 2 桁、時給 (0) は円の整数。未取得は「—」。
+fn fmt_salary(v: Option<f64>, decimals: u8) -> String {
+    v.map(|x| format!("{:.*}", decimals as usize, x))
         .unwrap_or_else(|| "—".into())
-    };
+}
+
+pub(crate) fn render_html(report: &CompetitorReport) -> String {
+    let meta = &report.meta;
+    let excel = &report.excel;
+    let decimals = excel.decimals;
+    let mut html = format!("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>競合調査</title><style>{}</style></head><body><nav class=\"toolbar no-print\"><a href=\"/competitor\">調査条件に戻る / PDFダウンロード</a><a href=\"/\">市場分析</a></nav><main>",include_str!("../../../../../static/css/competitor-dashboard.css"));
+    html.push_str("<div class=\"report-tabs no-print\" role=\"tablist\" aria-label=\"競合調査の表示切り替え\"><button id=\"tab-excel\" role=\"tab\" aria-selected=\"true\" aria-controls=\"panel-excel\" tabindex=\"0\">Excel再現</button><button id=\"tab-google\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-google\" tabindex=\"-1\">Google検索需要</button><button id=\"tab-indeed\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-indeed\" tabindex=\"-1\">Indeed採用レポート</button><button id=\"tab-population\" role=\"tab\" aria-selected=\"false\" aria-controls=\"panel-population\" tabindex=\"-1\">人口・地域データ</button></div><div id=\"panel-excel\" role=\"tabpanel\" aria-labelledby=\"tab-excel\" tabindex=\"0\">");
+    let unit = meta.unit.as_str();
+    let top_n = meta.top_n_effective as usize;
     html.push_str("<!-- Design review: Philosophy 5; Hierarchy 4; Execution 4; Specificity 5; Restraint 5; Variety 4. Source: supplied Excel dashboard. --><section class=\"excel-dashboard\" aria-label=\"競合調査ダッシュボード\"><aside class=\"summary\"><h1>競合調査</h1><table class=\"meta\">");
     for (a, b, c, d) in [
         (
             "調査名",
-            if title.is_empty() {
-                "Indeed競合調査"
-            } else {
-                title
-            },
+            meta.title.as_str(),
             "雇用形態",
-            agg.by_employment_type
-                .first()
-                .map(|x| x.0.as_str())
-                .unwrap_or("—"),
+            meta.employment_type.as_deref().unwrap_or("—"),
         ),
         (
             "該当都道府県",
-            agg.dominant_prefecture.as_deref().unwrap_or("—"),
+            meta.prefecture.as_deref().unwrap_or("—"),
             "主な市町村",
-            agg.dominant_municipality.as_deref().unwrap_or("—"),
+            meta.municipality.as_deref().unwrap_or("—"),
         ),
     ] {
         html.push_str(&format!(
@@ -58,163 +60,104 @@ pub(crate) fn render_competitor_report(
             escape_html(d)
         ));
     }
-    html.push_str(&format!("<tr><th>集計対象</th><th>該当件数</th></tr><tr><td>CSV重複排除後</td><td>{}</td></tr></table><h2>給与関係（{unit}）</h2><table><tr><th></th><th colspan=\"2\">総合</th><th colspan=\"2\">人気求人</th></tr><tr><th></th><th>下限</th><th>上限</th><th>下限</th><th>上限</th></tr>",format_number(agg.total_count as i64)));
-    let (lo, hi) = if agg.is_hourly {
-        (&agg.salary_min_values_native, &agg.salary_max_values_native)
-    } else {
-        (&agg.salary_min_values, &agg.salary_max_values)
-    };
-    let fallback = BoundStats::from_values(lo, hi);
-    let use_fallback = comp.pop_all.min_n == 0 && comp.pop_all.max_n == 0;
-    let all = if use_fallback {
-        &fallback
-    } else {
-        &comp.pop_all
-    };
-    let mut modes = comp.salary_modes;
-    if use_fallback {
-        for (index, values) in [lo, hi].into_iter().enumerate() {
-            let mut counts = std::collections::BTreeMap::new();
-            for value in values {
-                *counts.entry(*value).or_insert(0usize) += 1;
-            }
-            modes[index] = counts
-                .into_iter()
-                .fold(None, |best: Option<(i64, usize)>, item| {
-                    if best.is_none_or(|(_, count)| item.1 > count) {
-                        Some(item)
-                    } else {
-                        best
-                    }
-                })
-                .map(|(v, _)| v);
-        }
-    }
-    let pop = &comp.pop_popular;
-    let rows = [
-        (
-            "平均値",
-            [all.min_mean, all.max_mean, pop.min_mean, pop.max_mean],
-        ),
-        (
-            "中央値",
-            [
-                all.min_median,
-                all.max_median,
-                pop.min_median,
-                pop.max_median,
-            ],
-        ),
-        ("最頻値", modes),
-    ];
-    for (label, values) in &rows {
+    html.push_str(&format!("<tr><th>集計対象</th><th>該当件数</th></tr><tr><td>CSV重複排除後</td><td>{}</td></tr></table><h2>給与関係（{unit}）</h2><table><tr><th></th><th colspan=\"2\">総合</th><th colspan=\"2\">人気求人</th></tr><tr><th></th><th>下限</th><th>上限</th><th>下限</th><th>上限</th></tr>",format_number(meta.total_count as i64)));
+    for SalaryRow { label, values } in &excel.salary_table {
         html.push_str(&format!("<tr><th>{label}</th>"));
         for v in values {
-            html.push_str(&format!("<td>{}</td>", fmt(*v)));
+            html.push_str(&format!("<td>{}</td>", fmt_salary(*v, decimals)));
         }
         html.push_str("</tr>");
     }
-    html.push_str(&format!("<tr><th>集計件数</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr></table><h2>差異（総合 − 人気求人）</h2><table><tr><th></th><th>下限</th><th>上限</th></tr>",all.min_n,all.max_n,pop.min_n,pop.max_n));
-    for (label, v) in rows {
+    let counts = excel.salary_counts;
+    html.push_str(&format!("<tr><th>集計件数</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr></table><h2>差異（総合 − 人気求人）</h2><table><tr><th></th><th>下限</th><th>上限</th></tr>",counts[0],counts[1],counts[2],counts[3]));
+    for SalaryRow { label, values } in &excel.salary_diff {
         html.push_str(&format!(
             "<tr><th>{label}</th><td>{}</td><td>{}</td></tr>",
-            fmt(v[0].zip(v[2]).map(|(a, b)| a - b)),
-            fmt(v[1].zip(v[3]).map(|(a, b)| a - b))
+            fmt_salary(values[0], decimals),
+            fmt_salary(values[1], decimals)
         ));
     }
     html.push_str("</table>");
-    keyword_table(
-        &mut html,
-        "求人票ワード調査（全体）",
-        &comp.tag_counts_all,
-        agg.total_count,
-    );
+    keyword_table(&mut html, "求人票ワード調査（全体）", &excel.keyword_all);
     keyword_table(
         &mut html,
         &format!("求人票ワード調査（上位 {top_n} 件）"),
-        &head,
-        denom,
+        &excel.keyword_head,
     );
     html.push_str("<p class=\"note\">給与比較はIndeed SPの主単位の求人を集計（SPデータがない場合、総合は給与分布と同じ対象）。人気求人はSPの「人気」「超人気」付き。最頻値は実額（同数は低い額）、未取得は —。少数の人気求人は参考値です。</p></aside><div class=\"charts\">");
-    let (lo, hi) = if agg.is_hourly {
-        (&agg.salary_min_values_native, &agg.salary_max_values_native)
-    } else {
-        (&agg.salary_min_values, &agg.salary_max_values)
-    };
-    for (label, values) in [("上限ボリュームゾーン", hi), ("下限ボリュームゾーン", lo)]
-    {
-        let step = if agg.is_hourly { 50 } else { 10000 };
-        let mut bins = std::collections::BTreeMap::new();
-        for value in values {
-            *bins.entry(value / step * step).or_insert(0usize) += 1;
-        }
+    for (label, bins) in [
+        ("上限ボリュームゾーン", &excel.histograms.upper),
+        ("下限ボリュームゾーン", &excel.histograms.lower),
+    ] {
         let data: Vec<_> = bins
-            .into_iter()
-            .map(|(v, n)| (format!("{:.0}", v as f64 / scale), n))
+            .iter()
+            .map(|b| (b.label.clone(), b.count as usize))
             .collect();
         chart(&mut html, &format!("{label}（{unit}）"), &data, true, false);
     }
     chart(
         &mut html,
         "求人票キーワード調査（全体）",
-        &comp
-            .tag_counts_all
-            .iter()
-            .take(25)
-            .cloned()
-            .collect::<Vec<_>>(),
+        &keyword_chart_data(&excel.keyword_all),
         false,
         true,
     );
     chart(
         &mut html,
         &format!("求人票キーワード調査（上位 {top_n} 件）"),
-        &head.iter().take(25).cloned().collect::<Vec<_>>(),
+        &keyword_chart_data(&excel.keyword_head),
         false,
         true,
     );
-    html.push_str(&format!("</div></section><p class=\"caption\">CSV重複排除後 {} 件 / 上位 {} 件は取り込み順の先頭。ワード表は上位10語、グラフは上位25語。給与分布は{}刻みで、月給モードは既存の月給換算値を使用。給与比較表とは対象が異なる場合があります。</p></div><div id=\"panel-google\" role=\"tabpanel\" aria-labelledby=\"tab-google\" tabindex=\"0\" hidden>",agg.total_count,top_n.min(agg.total_count),if agg.is_hourly{"50円"}else{"1万円"}));
-    render_google(&mut html, google);
+    html.push_str(&format!("</div></section><p class=\"caption\">CSV重複排除後 {} 件 / 上位 {} 件は取り込み順の先頭。ワード表は上位10語、グラフは上位25語。給与分布は{}刻みで、月給モードは既存の月給換算値を使用。給与比較表とは対象が異なる場合があります。</p></div><div id=\"panel-google\" role=\"tabpanel\" aria-labelledby=\"tab-google\" tabindex=\"0\" hidden>",meta.total_count,top_n.min(meta.total_count as usize),if meta.is_hourly{"50円"}else{"1万円"}));
+    render_google(&mut html, &report.google);
     html.push_str("</div><div id=\"panel-indeed\" role=\"tabpanel\" aria-labelledby=\"tab-indeed\" tabindex=\"0\" hidden>");
-    render_indeed(&mut html, indeed);
+    render_indeed(&mut html, &report.indeed);
     html.push_str("</div><div id=\"panel-population\" role=\"tabpanel\" aria-labelledby=\"tab-population\" tabindex=\"0\" hidden>");
-    render_population(&mut html, population);
+    render_population(&mut html, &report.population);
     html.push_str("</div></main><script>");
     html.push_str(include_str!("../../../../../static/js/competitor-tabs.js"));
     html.push_str("</script></body></html>");
     html
 }
 
-fn render_population(html: &mut String, data: &Value) {
+fn keyword_chart_data(rows: &[KeywordRow]) -> Vec<(String, usize)> {
+    rows.iter()
+        .take(25)
+        .map(|r| (r.word.clone(), r.count as usize))
+        .collect()
+}
+
+fn render_population(html: &mut String, data: &PopulationSection) {
     html.push_str("<section class=\"page-navy\"><h1>人口・地域データ</h1>");
-    html.push_str(&format!("<p>集計地域：{}</p>", text(data, "region")));
-    if data["status"] != "ok" {
+    let PopulationSection::Ok {
+        region,
+        bands,
+        minimum_wage,
+        minimum_wage_fiscal_year,
+        minimum_wage_effective_date,
+        minimum_wage_as_of,
+        minimum_wage_source,
+        labor,
+    } = data
+    else {
+        let PopulationSection::Unavailable { message } = data else {
+            return;
+        };
+        // 旧実装は集計地域が空のまま出していた (未取得のときは region キーが無い)。
+        html.push_str("<p>集計地域：</p>");
         html.push_str(&format!(
             "<p class=\"note\">{}</p></section>",
-            text(data, "message")
+            escape_html(message)
         ));
         return;
-    }
+    };
+    html.push_str(&format!("<p>集計地域：{}</p>", escape_html(region)));
     html.push_str("<p class=\"note\">出典：国勢調査（人口）、厚生労働省（最低賃金）、e-Stat社会人口統計体系・労働政策研究・研修機構（労働統計）。都道府県単位の外部統計です。地域の人口は求人閲覧人数・検索数・応募数とは異なります。統計ごとに調査時点は異なります。</p>");
-    let mut bands: Vec<_> = data["bands"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|row| {
-            Some((
-                row["age_group"].as_str()?.to_owned(),
-                row["male_count"].as_i64()?,
-                row["female_count"].as_i64()?,
-            ))
-        })
+    let bands: Vec<(String, i64, i64)> = bands
+        .iter()
+        .map(|b| (b.age_group.clone(), b.male, b.female))
         .collect();
-    bands.sort_by_key(|(age, _, _)| {
-        age.chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect::<String>()
-            .parse::<u32>()
-            .unwrap_or(u32::MAX)
-    });
     html.push_str("<div class=\"population-grid\"><div><h2>人口ピラミッド</h2>");
     if bands.is_empty() {
         html.push_str("<p class=\"note\">人口データがありません。</p>");
@@ -232,31 +175,28 @@ fn render_population(html: &mut String, data: &Value) {
         html.push_str("<tr><td colspan=\"4\">データなし</td></tr>");
     }
     html.push_str("</tbody></table></div></div><h2>地域の最低賃金・労働統計</h2><table class=\"table-navy\"><tr><th>最低賃金（円/時）</th><td>");
-    html.push_str(&number(data, "minimum_wage"));
-    let wage_year = data["minimum_wage_fiscal_year"]
-        .as_i64()
+    html.push_str(&number(*minimum_wage));
+    let wage_year = minimum_wage_fiscal_year
         .map(|y| y.to_string())
         .unwrap_or_else(|| "—".into());
-    html.push_str(&format!("</td></tr><tr><th>最低賃金の改定年度</th><td>{wage_year}</td></tr><tr><th>最低賃金の発効日</th><td>{}</td></tr><tr><th>最低賃金の基準日（日本時間）</th><td>{}</td></tr><tr><th>最低賃金の出典</th><td>{}",text(data,"minimum_wage_effective_date"),text(data,"minimum_wage_as_of"),if data["minimum_wage_source"]=="official_csv" {"厚生労働省の公式改定一覧"} else if data["minimum_wage_source"]=="database" {"外部統計データベース"} else {"—"}));
-    let year = data["labor"]["fiscal_year"]
-        .as_i64()
-        .filter(|year| *year > 0)
+    html.push_str(&format!("</td></tr><tr><th>最低賃金の改定年度</th><td>{wage_year}</td></tr><tr><th>最低賃金の発効日</th><td>{}</td></tr><tr><th>最低賃金の基準日（日本時間）</th><td>{}</td></tr><tr><th>最低賃金の出典</th><td>{}",escape_html(minimum_wage_effective_date),escape_html(minimum_wage_as_of),if minimum_wage_source=="official_csv" {"厚生労働省の公式改定一覧"} else if minimum_wage_source=="database" {"外部統計データベース"} else {"—"}));
+    let year = labor
+        .as_ref()
+        .and_then(|l| l.fiscal_year)
         .map(|year| year.to_string())
         .unwrap_or_else(|| "—".into());
-    html.push_str(&format!("</td></tr><tr><th>労働統計の年度</th><td>{year}</td></tr><tr><th>完全失業率（%）</th><td>{}</td></tr><tr><th>離職率（%）</th><td>{}</td></tr></table><p class=\"note\">取得できない指標は — と表示します。</p></section>",number(&data["labor"],"unemployment_rate"),number(&data["labor"],"separation_rate")));
+    html.push_str(&format!("</td></tr><tr><th>労働統計の年度</th><td>{year}</td></tr><tr><th>完全失業率（%）</th><td>{}</td></tr><tr><th>離職率（%）</th><td>{}</td></tr></table><p class=\"note\">取得できない指標は — と表示します。</p></section>",number(labor.as_ref().and_then(|l| l.unemployment_rate)),number(labor.as_ref().and_then(|l| l.separation_rate))));
 }
 
-fn keyword_table(html: &mut String, label: &str, data: &[(String, usize)], denom: usize) {
+fn keyword_table(html: &mut String, label: &str, data: &[KeywordRow]) {
     html.push_str(&format!("<h2>{}</h2><table class=\"words\"><tr><th>上位10件</th><th>件数</th><th>求人数</th><th>占有率</th></tr>",escape_html(label)));
-    for (word, n) in data.iter().take(10) {
+    for row in data.iter().take(10) {
         html.push_str(&format!(
-            "<tr><td>{}</td><td>{n}</td><td>{denom}</td><td>{:.0}%</td></tr>",
-            escape_html(word),
-            if denom > 0 {
-                *n as f64 / denom as f64 * 100.0
-            } else {
-                0.0
-            }
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{:.0}%</td></tr>",
+            escape_html(&row.word),
+            row.count,
+            row.jobs,
+            row.share_pct
         ));
     }
     if data.is_empty() {
@@ -304,14 +244,9 @@ fn chart(html: &mut String, label: &str, data: &[(String, usize)], wide: bool, w
     html.push_str("</svg></figure>");
 }
 
-fn text(value: &Value, key: &str) -> String {
-    escape_html(value.get(key).and_then(Value::as_str).unwrap_or_default())
-}
-
-fn number(value: &Value, key: &str) -> String {
+/// 数値の整形。整数は桁区切り、小数は 2 桁。未取得は「—」。
+fn number(value: Option<f64>) -> String {
     value
-        .get(key)
-        .and_then(Value::as_f64)
         .map(|n| {
             if n.fract() == 0.0 {
                 format_number(n as i64)
@@ -322,7 +257,7 @@ fn number(value: &Value, key: &str) -> String {
         .unwrap_or_else(|| "—".into())
 }
 
-fn render_indeed(html: &mut String, data: &Value) {
+fn render_indeed(html: &mut String, data: &IndeedSection) {
     html.push_str("<section class=\"page-navy\" id=\"competitor-indeed\">");
     push_page_head(
         html,
@@ -330,22 +265,32 @@ fn render_indeed(html: &mut String, data: &Value) {
         "Indeed採用レポート",
         "選択した職種・都道府県の月別データ",
     );
-    if data["status"] != "ok" {
-        html.push_str(&format!(
-            "<p class=\"note\">{}</p></section>",
-            text(data, "message")
-        ));
-        return;
-    }
-    html.push_str(&format!("<p>{} / {}</p><p class=\"note\">出典: {} / 集計日: {}。{} 求人を見た人数は応募数ではありません。欠測は「—」で表示します。</p>",text(data,"title"),text(data,"region"),text(data,"source"),text(data,"built_at"),text(data,"caveat")));
+    let (title, region, source, caveat, built_at, rows) = match data {
+        IndeedSection::Unavailable { message } => {
+            html.push_str(&format!(
+                "<p class=\"note\">{}</p></section>",
+                escape_html(message)
+            ));
+            return;
+        }
+        IndeedSection::Ok {
+            title,
+            region,
+            source,
+            caveat,
+            built_at,
+            rows,
+        } => (title, region, source, caveat, built_at, rows),
+    };
+    html.push_str(&format!("<p>{} / {}</p><p class=\"note\">出典: {} / 集計日: {}。{} 求人を見た人数は応募数ではありません。欠測は「—」で表示します。</p>",escape_html(title),escape_html(region),escape_html(source),escape_html(built_at),escape_html(caveat)));
     html.push_str("<table class=\"table-navy\"><thead><tr><th>月</th><th>求人数</th><th>求人を見た人数</th><th>募集企業数</th><th>1求人あたりに見た人数</th></tr></thead><tbody>");
-    for row in data["rows"].as_array().into_iter().flatten() {
-        html.push_str(&format!("<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",text(row,"month"),number(row,"job"),number(row,"ctk"),number(row,"emp"),number(row,"spp")));
+    for row in rows {
+        html.push_str(&format!("<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>",escape_html(&row.month),number(row.job),number(row.ctk),number(row.emp),number(row.spp)));
     }
     html.push_str("</tbody></table></section>");
 }
 
-fn render_google(html: &mut String, data: &Value) {
+fn render_google(html: &mut String, data: &GoogleSection) {
     html.push_str("<section class=\"page-navy\" id=\"competitor-google\">");
     push_page_head(
         html,
@@ -354,53 +299,62 @@ fn render_google(html: &mut String, data: &Value) {
         "検索ボリューム・月別推移・関連キーワード",
     );
     html.push_str("<p class=\"note\">出典: Google広告 Keyword Planner API。検索数はGoogleの推定検索需要です。Indeedの閲覧人数・CSVの求人数・応募数とは異なる指標です。広告競合度は求人の競合数ではありません。</p>");
-    if data["status"] != "ok" {
-        html.push_str(&format!("<p>{}</p></section>", text(data, "message")));
-        return;
-    }
+    let (keyword, region, demand, suggestions) = match data {
+        GoogleSection::NotRequested { message } | GoogleSection::Error { message } => {
+            html.push_str(&format!("<p>{}</p></section>", escape_html(message)));
+            return;
+        }
+        GoogleSection::Ok {
+            keyword,
+            region,
+            demand,
+            suggestions,
+        } => (keyword, region, demand, suggestions),
+    };
     html.push_str(&format!(
         "<p>検索語: {} / 指定地域: {}</p>",
-        text(data, "keyword"),
-        if text(data, "region").is_empty() {
+        escape_html(keyword),
+        if region.is_empty() {
             "全国".into()
         } else {
-            text(data, "region")
+            escape_html(region)
         }
     ));
-    let demand = &data["demand"];
-    if demand["status"] == "ok" {
-        let region = &demand["region"];
-        if !data["region"].as_str().unwrap_or_default().is_empty() && region.is_null() {
-            html.push_str(
+    if let GoogleDemand::Ok {
+        region_name,
+        keywords,
+    } = demand
+    {
+        match region_name {
+            None if !region.is_empty() => html.push_str(
                 "<p class=\"note\">指定地域を解決できなかったため全国の検索需要です。</p>",
-            );
-        } else if !region.is_null() {
-            html.push_str(&format!(
+            ),
+            Some(name) => html.push_str(&format!(
                 "<p class=\"note\">取得地域: {}</p>",
-                text(region, "canonical_name")
-            ));
+                escape_html(name)
+            )),
+            None => {}
         }
         html.push_str("<table class=\"table-navy\"><thead><tr><th>検索語</th><th>平均月間検索数</th><th>広告競合度</th></tr></thead><tbody>");
-        let rows = demand["keywords"].as_array();
-        if rows.is_none_or(Vec::is_empty) {
+        if keywords.is_empty() {
             html.push_str("<tr><td colspan=\"3\">検索需要のデータがありません。</td></tr>");
         }
-        for row in rows.into_iter().flatten() {
+        for row in keywords {
             html.push_str(&format!(
                 "<tr><td>{}</td><td class=\"num\">{}</td><td>{}</td></tr>",
-                text(row, "keyword"),
-                number(row, "avg_monthly"),
-                text(row, "competition")
+                escape_html(&row.keyword),
+                number(row.avg_monthly),
+                escape_html(&row.competition)
             ));
         }
         html.push_str("</tbody></table>");
-        for row in rows.into_iter().flatten() {
-            html.push_str(&format!("<div class=\"block-title\">{} の月別検索数</div><table class=\"table-navy\"><thead><tr><th>月</th><th>検索数</th></tr></thead><tbody>",text(row,"keyword")));
-            for month in row["monthly_12m"].as_array().into_iter().flatten() {
+        for row in keywords {
+            html.push_str(&format!("<div class=\"block-title\">{} の月別検索数</div><table class=\"table-navy\"><thead><tr><th>月</th><th>検索数</th></tr></thead><tbody>",escape_html(&row.keyword)));
+            for month in &row.monthly_12m {
                 html.push_str(&format!(
                     "<tr><td>{}</td><td class=\"num\">{}</td></tr>",
-                    text(month, "month"),
-                    number(month, "search_volume")
+                    escape_html(&month.month),
+                    number(month.search_volume)
                 ));
             }
             html.push_str("</tbody></table>");
@@ -410,14 +364,13 @@ fn render_google(html: &mut String, data: &Value) {
         html.push_str("<p class=\"note\">Google検索需要を取得できませんでした。API設定または接続状況を確認してください。</p>");
     }
     html.push_str("<div class=\"block-title\">関連キーワード（検索需要順・上位20件）</div>");
-    let suggestions = &data["suggestions"];
-    if suggestions["status"] == "ok" {
+    if let GoogleSuggestions::Ok { suggestions } = suggestions {
         html.push_str("<table class=\"table-navy\"><thead><tr><th>関連語</th><th>平均月間検索数</th></tr></thead><tbody>");
-        for row in suggestions["suggestions"].as_array().into_iter().flatten() {
+        for row in suggestions {
             html.push_str(&format!(
                 "<tr><td>{}</td><td class=\"num\">{}</td></tr>",
-                text(row, "keyword"),
-                number(row, "avg_monthly")
+                escape_html(&row.keyword),
+                number(row.avg_monthly)
             ));
         }
         html.push_str("</tbody></table><p class=\"note\">CSVで競合が打ち出しているキーワードと、求職者が検索する言葉を照らし合わせて使います。</p>");
@@ -548,7 +501,9 @@ mod tests {
         let mut html = String::new();
         render_google(
             &mut html,
-            &json!({"status":"ok","demand":{"status":"error","message":"secret-token"},"suggestions":{"status":"missing_credentials"}}),
+            &super::super::competitor_model::google_section(
+                &json!({"status":"ok","demand":{"status":"error","message":"secret-token"},"suggestions":{"status":"missing_credentials"}}),
+            ),
         );
         assert!(!html.contains("secret-token"));
         assert!(html.contains("取得できませんでした"));
@@ -560,7 +515,9 @@ mod tests {
         let mut html = String::new();
         render_population(
             &mut html,
-            &json!({"status":"ok","region":"<大阪府>","bands":[{"age_group":"20〜24歳","male_count":1234,"female_count":2345}],"minimum_wage":null,"labor":{"fiscal_year":2024,"unemployment_rate":2.5}}),
+            &super::super::competitor_model::population_section(
+                &json!({"status":"ok","region":"<大阪府>","bands":[{"age_group":"20〜24歳","male_count":1234,"female_count":2345}],"minimum_wage":null,"labor":{"fiscal_year":2024,"unemployment_rate":2.5}}),
+            ),
         );
         assert!(html.contains("&lt;大阪府&gt;"));
         assert!(html.contains("1,234"));
