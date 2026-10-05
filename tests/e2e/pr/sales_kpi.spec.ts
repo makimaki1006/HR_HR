@@ -270,9 +270,9 @@ test.describe('営業KPI (React) /app/sales-kpi', () => {
       expect(await walk(page)).toBe(bpo);
     });
 
-    test('商談種別の列が無いシート (本番・この fixture) では「未取得」の注記だけ出し、種別の表と絞りは出さない。旧画面と同じ', async ({ page }) => {
+    test('商談属性の列が無いシート (本番・この fixture) では「未取得」の注記だけ出し、種別の表と絞りは出さない。旧画面と同じ', async ({ page }) => {
       await login(page);
-      const note = '商談種別: 未取得（シートに「商談種別」の列がまだありません）';
+      const note = '商談属性: 未取得（シートに「商談属性」の列がまだありません）';
       const grab = async (): Promise<{ note: number; table: number; chip: number }> => ({
         note: await page.locator('#panel1-nt-missing').filter({ hasText: note }).count(),
         table: await page.locator('#panel1 table.ntt').count(),

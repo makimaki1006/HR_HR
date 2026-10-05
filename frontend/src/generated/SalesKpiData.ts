@@ -2,11 +2,11 @@
 import type { SalesKpiCalls } from "./SalesKpiCalls";
 import type { SalesKpiCardDeals } from "./SalesKpiCardDeals";
 import type { SalesKpiDateSpan } from "./SalesKpiDateSpan";
+import type { SalesKpiDealAttrSheets } from "./SalesKpiDealAttrSheets";
 import type { SalesKpiDealRow } from "./SalesKpiDealRow";
 import type { SalesKpiKaden } from "./SalesKpiKaden";
 import type { SalesKpiKettei } from "./SalesKpiKettei";
 import type { SalesKpiListStock } from "./SalesKpiListStock";
-import type { SalesKpiNegotiationTypeSheets } from "./SalesKpiNegotiationTypeSheets";
 import type { SalesKpiPerson } from "./SalesKpiPerson";
 import type { SalesKpiSnapshot } from "./SalesKpiSnapshot";
 
@@ -23,17 +23,17 @@ generated_at: string, week: SalesKpiDateSpan, next_week: SalesKpiDateSpan, stale
  */
 card_deals: SalesKpiCardDeals, 
 /**
- * 商談種別の列がどのシートにあるか（いずれか 1 つでもあれば true）。
+ * 商談属性の列がどのシートにあるか（いずれか 1 つでもあれば true）。
  */
-negotiation_type_available: boolean, negotiation_type_sheets: SalesKpiNegotiationTypeSheets, 
+deal_attr_available: boolean, deal_attr_sheets: SalesKpiDealAttrSheets, 
 /**
- * 並びは Rust が決める（固定の 3 つ + 実際に出てきた定義外を名前順）。
+ * 並びは Rust が決める（固定の 4 つ + 実際に出てきた定義外を名前順）。
  */
-negotiation_type_order: Array<string>, 
+deal_attr_order: Array<string>, 
 /**
- * 0 件でも表に並べる 2 種別。
+ * 0 件でも表に並べる 3 値。
  */
-negotiation_type_fixed: Array<string>, 
+deal_attr_fixed: Array<string>, 
 /**
  * 商談の集計から外した件数。`件数` と HubSpotチーム別。
  */
