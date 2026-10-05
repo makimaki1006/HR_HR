@@ -1,3 +1,4 @@
+import { selectJobFeature } from './job-copy-navigation';
 // Synthetic applicant text fixture: this checks React behavior, not production
 // OIDC authorization or actual applicant motives. No real record text is logged.
 import { test, expect } from '@playwright/test';
@@ -19,7 +20,7 @@ function fixture() {
 test('reason originals stay collapsed and escaped, unknown cohorts separate, source filtering and print exclusion', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
   await page.goto('/app/job-copy');
-  await page.getByRole('button', { name: '応募者構成', exact: true }).click();
+  await selectJobFeature(page, 'reasons');
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
   await expect(reasons).toContainText('応募2件・出典プロパティ観測6件');
   await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('版との対応は未取得');
@@ -35,10 +36,11 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   await reasons.getByLabel('理由の出典', { exact: true }).selectOption('all');
   await page.setViewportSize({ width: 375, height: 850 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByRole('button', { name: '顧客報告・検証', exact: true }).click();
-  await page.getByText('内部閲覧用の原記録を開く', { exact: true }).first().click();
+  await selectJobFeature(page, 'report');
+  const report = page.getByRole('region', { name: '顧客報告と検証記録', exact: true });
+  await report.getByText('内部閲覧用の原記録を開く', { exact: true }).first().click();
   await page.emulateMedia({ media: 'print' });
-  await expect(page.locator('.ar-reasons')).toBeHidden();
+  for (const original of await page.locator('.ar-reasons').all()) await expect(original).toBeHidden();
   await expect(page.getByRole('region', { name: '顧客報告と検証記録', exact: true })).toBeVisible();
 });
 
@@ -50,12 +52,12 @@ test('only explicit published-version associations appear in before and after re
   after.version_id = `capture-synthetic-reaction-${data.capturedAt}`;
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) }));
   await page.goto('/app/job-copy');
-  await page.getByRole('button', { name: '応募者構成', exact: true }).click();
+  await selectJobFeature(page, 'reasons');
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
   await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('表示対象1件');
   await expect(reasons.getByRole('region', { name: '比較先の記述', exact: true })).toContainText('表示対象1件');
   await expect(reasons.getByRole('region', { name: '版対応不明の記述', exact: true })).toContainText('表示対象0件');
-  await page.locator('.ac-selectors select').nth(1).selectOption('synthetic-before');
+  await page.getByRole('tabpanel', { name: '応募理由', exact: true }).getByLabel('理由比較先').selectOption('synthetic-before');
   await expect(reasons).toContainText('同じ観測版を選択しています');
   await expect(reasons).toContainText('選択した2版以外の表示対象記述: 1件');
 });
