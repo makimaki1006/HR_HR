@@ -190,6 +190,13 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 .loadstate.err{border-color:var(--alert); background:var(--alert-soft); color:var(--alert)}
 .loadstate.err b{display:block; margin-bottom:4px}
 .loadstate .hint{color:var(--sub); font-size:12.5px}
+.hsstatus{border:1px solid var(--border); border-radius:10px; padding:9px 13px; margin:0 0 14px;
+  font-size:13px; line-height:1.6; background:var(--card); box-shadow:var(--shadow)}
+.hsstatus .hs-head{font-weight:700}
+.hsstatus .hs-sub,.hsstatus .hs-note{color:var(--sub); font-size:12.5px}
+.hsstatus.ok{border-color:var(--ok); background:var(--ok-soft)}
+.hsstatus.loading{border-color:var(--accent); background:var(--accent-soft)}
+.hsstatus.stale{border-color:var(--warn); background:var(--warn-soft)}
 .backlink{font-size:13px; color:var(--sub); text-decoration:none}
 .backlink:hover{color:var(--accent)}
 /* 「直す場所」への行き先。チームや集計対象はスプレッドシートが正なので、
