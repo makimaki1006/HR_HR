@@ -43,6 +43,8 @@
 //! タイムゾーンの取り違えが起きない。
 
 pub mod fixture;
+pub mod hubspot_direct;
+pub mod hubspot_source;
 pub mod payload;
 pub mod routes;
 

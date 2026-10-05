@@ -2068,6 +2068,7 @@ fn リスト列が無い古い週次の行は在庫を出さない() {
 /// `claudedocs/SALES_KPI_CARD_BREAKDOWN_DESIGN_2026-10-02.md`）。
 mod card_breakdown;
 mod deal_attr;
+mod hubspot_direct;
 
 // ------------------------------------------------ JSON の形（struct 化・React 移行 W2、2026-09-30）
 //

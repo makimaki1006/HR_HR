@@ -233,6 +233,22 @@ impl CqError {
         }
     }
 
+    /// 営業KPI の HubSpot 直読み(`SALES_KPI_HUBSPOT_DIRECT=1`)が使えないとき。
+    /// `code` は `hubspot_not_configured`(トークン未設定) / `hubspot_direct_unavailable`
+    /// (まだ 1 度も取れていない)。**シートに黙って戻さず**、理由を JSON で返す。
+    /// `detail` に HubSpot の応答本文・トークンは入れない(種別と時刻だけ)。
+    pub(crate) fn hubspot_direct(code: &'static str, message: String) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            error: true,
+            code,
+            tab: Some("sales-kpi"),
+            sheet: None,
+            message,
+            chain: Vec::new(),
+        }
+    }
+
     pub(crate) fn bad_request(message: String) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
