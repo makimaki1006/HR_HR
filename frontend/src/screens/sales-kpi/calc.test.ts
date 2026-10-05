@@ -28,7 +28,7 @@ import {
   type Scope,
 } from './calc';
 import type { SalesKpiData } from './types';
-import { loadNegtypeFixture } from './__fixtures__/load';
+import { loadAttrFixture } from './__fixtures__/load';
 import { withBlankOwner } from './__fixtures__/synthetic';
 
 const D = loadFixture();
@@ -514,41 +514,43 @@ describe('カード内訳: カードの値 == 内訳の合計 == 一覧の行数
   });
 });
 
-// ---------------------------------------------------------------- 商談種別 (#49・#50)
+// ---------------------------------------------------------------- 商談属性 (#49・#50)
 
-describe('商談種別の表 (種別の列がある fixture)', () => {
-  const N = loadNegtypeFixture();
+describe('商談属性の表 (種別の列がある fixture)', () => {
+  const N = loadAttrFixture();
   const open = (key: CardKey, extra: Partial<CardPanelState> = {}, scope: Scope = ALL, d: SalesKpiData = N) =>
     cardPanelView(d, scope, teamOf(d), { ...CLOSED_CARD_PANEL, openCard: key, ...extra });
   const teamOf = (d: SalesKpiData) => teamOfMap(d.people);
 
-  it('並びは payload の negotiation_type_order に従う。決まっている 2 種別は 0 件でも出る', () => {
+  it('並びは payload の deal_attr_order に従う。決まっている 3 値は 0 件でも出る', () => {
     const t = open('pool')?.ntTable;
-    expect(t?.rows.map((r) => r.name)).toEqual(N.negotiation_type_order);
+    expect(t?.rows.map((r) => r.name)).toEqual(N.deal_attr_order);
     // JS 側で並べ直していない証拠: order を入れ替えると、その通りに並ぶ
-    const swapped = { ...N, negotiation_type_order: [...N.negotiation_type_order].reverse() };
-    expect(open('pool', {}, ALL, swapped)?.ntTable?.rows.map((r) => r.name)).toEqual([...N.negotiation_type_order].reverse());
-    // 0 件の決まっている種別: 伊壺チームの個人 1 人でも 決裁者商談 / 非決裁者商談 の行は出る
+    const swapped = { ...N, deal_attr_order: [...N.deal_attr_order].reverse() };
+    expect(open('pool', {}, ALL, swapped)?.ntTable?.rows.map((r) => r.name)).toEqual([...N.deal_attr_order].reverse());
+    // 0 件の決まっている種別: 伊壺チームの個人 1 人でも 決裁者商談 / 決定者商談 / 担当者商談 の行は出る
     const id = N.people.find((p) => p.team === '伊壺チーム')?.id ?? '';
     const one = open('pool', {}, { team: ALL_TEAMS, person: id, hidden: new Set() })?.ntTable;
     expect(one?.level).toBe('person');
-    expect(one?.rows.slice(0, 2).map((r) => r.name)).toEqual(['決裁者商談', '非決裁者商談']);
+    expect(one?.rows.slice(0, 3).map((r) => r.name)).toEqual(['決裁者商談', '決定者商談', '担当者商談']);
     expect(one?.rows.reduce((a, r) => a + r.n, 0)).toBe(one?.sum);
-    const none = { ...N, negotiation_type_fixed: ['決裁者商談', '非決裁者商談', '作ってみた種別'] };
+    const none = { ...N, deal_attr_fixed: ['決裁者商談', '決定者商談', '担当者商談', '作ってみた種別'] };
     expect(open('pool', {}, ALL, none)?.ntTable?.rows.map((r) => r.name)).toContain('作ってみた種別');
     expect(open('pool', {}, ALL, none)?.ntTable?.rows.find((r) => r.name === '作ってみた種別')?.n).toBe(0);
   });
 
-  it('全社の合計 == カードの件数、種別ごとの件数は fixture の具体値 (決裁者商談 239 / 非決裁者商談 119 / 未設定 59 / 定義外 60 + 60)', () => {
+  it('全社の合計 == カードの件数、種別ごとの件数は fixture の具体値 (決裁者商談 120 / 決定者商談 119 / 担当者商談 60 / 未設定 59 / 定義外 59 + 60 + 60)', () => {
     const v = open('pool');
     expect(v?.ntTable?.level).toBe('all');
     expect(v?.ntTable?.sum).toBe(v?.total);
     expect(Object.fromEntries((v?.ntTable?.rows ?? []).map((r) => [r.name, r.n]))).toEqual({
-      '決裁者商談': 239,
-      '非決裁者商談': 119,
+      '決裁者商談': 120,
+      '決定者商談': 119,
+      '担当者商談': 60,
       '(未設定)': 59,
-      '新種別(定義外)': 60,
-      '決裁者商談;非決裁者商談(定義外)': 60,
+      '新属性(定義外)': 59,
+      '決裁者商談;担当者商談(定義外)': 60,
+      '代表者商談(定義外)': 60,
     });
     expect(v?.ntTable?.numHead).toBeNull();
     expect(v?.ntTable?.countHead).toBe('件数');
@@ -599,7 +601,7 @@ describe('商談種別の表 (種別の列がある fixture)', () => {
           const l = open('pool', { cardNt: r.name, cardTeam: g.pick, cardPerson: q.pick })?.drill;
           if (l?.level !== 'list') throw new Error('担当者の次は一覧');
           expect(l.rows.length).toBe(q.n);
-          expect(l.rows.every((x) => x.negotiation_type === r.name)).toBe(true);
+          expect(l.rows.every((x) => x.deal_attr === r.name)).toBe(true);
           expect(l.head).toContain('（' + r.name + '）');
           rows += l.rows.length;
         }

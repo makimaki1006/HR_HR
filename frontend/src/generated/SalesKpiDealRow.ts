@@ -9,6 +9,6 @@ export type SalesKpiDealRow = { id: string, name: string, date: string, time: st
  */
 url: string, 
 /**
- * 商談種別（**ラベル**）。シートに列が無いときは出さない（既存の JSON を変えない）。
+ * 商談属性（`deal_attr_label` を通した表示名）。シートに列が無いときは出さない（既存の JSON を変えない）。
  */
-negotiation_type?: string, };
+deal_attr?: string, };

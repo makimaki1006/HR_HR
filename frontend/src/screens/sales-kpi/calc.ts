@@ -551,7 +551,7 @@ export interface CardPanelState {
   /** チームの表で選んだ担当者の id (担当なしは '') */
   cardPerson: string | null;
   cardSeg: string | null;
-  /** 商談種別で絞っている (表で押した種別のラベル)。下の段 (チーム → 担当者 → 一覧) にも効く */
+  /** 商談属性で絞っている (表で押した種別のラベル)。下の段 (チーム → 担当者 → 一覧) にも効く */
   cardNt: string | null;
   bpoOnly: boolean;
 }
@@ -629,7 +629,7 @@ export interface NtRow {
   on: boolean;
 }
 
-/** 商談種別の表。いまの段 (全社・チーム・担当者) の行を種別で束ねる。合計行 = その段の件数。 */
+/** 商談属性の表。いまの段 (全社・チーム・担当者) の行を種別で束ねる。合計行 = その段の件数。 */
 export interface NtTable {
   level: 'all' | 'team' | 'person';
   /** 件数の列の見出し: 件数 / 分母 / 件数（区分） */
@@ -649,7 +649,7 @@ export interface CardPanelView {
   total: number;
   /** 率のカードだけ。分子の件数 */
   num: number | null;
-  /** 商談種別の列が、このカードの出どころのシートにあるか。無ければ「未取得」の注記を出す */
+  /** 商談属性の列が、このカードの出どころのシートにあるか。無ければ「未取得」の注記を出す */
   ntOk: boolean;
   /** 種別で絞っているときのバッジ (押すと外れる)。種別の列が無いときは null */
   ntChip: string | null;
@@ -708,7 +708,7 @@ export function cardPanelView(
     title,
     total: base.length,
     num,
-    ntOk: d.negotiation_type_sheets[conf.src],
+    ntOk: d.deal_attr_sheets[conf.src],
     ntChip: null,
     numNote: null,
     ntTable: null,
@@ -747,7 +747,7 @@ export function cardPanelView(
   const baseB = st.bpoOnly ? base.filter((r) => r.bpo) : base;
   const segPred = st.cardSeg ? segs.find((x) => x.k === st.cardSeg)?.pred : undefined;
   const baseS = segPred ? baseB.filter(segPred) : baseB;
-  const rows = nt !== null ? baseS.filter((r) => r.negotiation_type === nt) : baseS;
+  const rows = nt !== null ? baseS.filter((r) => r.deal_attr === nt) : baseS;
   const tof = (r: DealRow): string => rowTeamOf(teamOf, r);
   const teamPick = scope.team !== ALL_TEAMS ? scope.team : st.cardTeam;
   // 担当者の id は空文字 (担当なし) もあり得るので、「選んでいない」は null で区別する。
@@ -760,15 +760,15 @@ export function cardPanelView(
         : teamPick
           ? baseS.filter((r) => tof(r) === teamPick)
           : baseS;
-    // 並びはサーバが決める (negotiation_type_order。固定の種別 + 出てきた定義外)。ここでは従うだけ。
-    const order = d.negotiation_type_order;
+    // 並びはサーバが決める (deal_attr_order。固定の種別 + 出てきた定義外)。ここでは従うだけ。
+    const order = d.deal_attr_order;
     const rank = (l: string): number => {
       const i = order.indexOf(l);
       return i < 0 ? order.length : i;
     };
-    const g = groupBy(lvl, (r) => r.negotiation_type ?? '');
-    // 決まっている種別 (negotiation_type_fixed) は 0 件でも並べる (段を降りても同じ形で追えるように)
-    for (const l of d.negotiation_type_fixed) {
+    const g = groupBy(lvl, (r) => r.deal_attr ?? '');
+    // 決まっている種別 (deal_attr_fixed) は 0 件でも並べる (段を降りても同じ形で追えるように)
+    for (const l of d.deal_attr_fixed) {
       if (!g.some(([k]) => k === l)) g.push([l, []]);
     }
     const items = g.sort((a, b) => rank(a[0]) - rank(b[0]));
