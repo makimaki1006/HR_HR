@@ -1,0 +1,343 @@
+{
+ "now_jst": "2026-10-01T09:30:00+09:00",
+ "extra_dates": [
+  "2026-10-05",
+  "2026-11-30",
+  "2026-12-31",
+  "2027-01-01",
+  "2026-03-01",
+  "2026-10-04"
+ ],
+ "owners_active": [
+  {
+   "after": null,
+   "next_after": "p2",
+   "results": [
+    {
+     "id": "1001",
+     "lastName": "山田",
+     "firstName": "太郎",
+     "email": "Yamada@Example.com",
+     "teams": [
+      {
+       "id": "1",
+       "name": "新規営業",
+       "primary": true
+      }
+     ]
+    },
+    {
+     "id": "1002",
+     "lastName": null,
+     "firstName": null,
+     "email": "shared@x.co.jp",
+     "teams": []
+    }
+   ]
+  },
+  {
+   "after": "p2",
+   "next_after": null,
+   "results": [
+    {
+     "id": "1003",
+     "lastName": "",
+     "firstName": "花子",
+     "email": "hanako@x.co.jp",
+     "teams": [
+      {
+       "id": "2",
+       "name": "A",
+       "primary": false
+      },
+      {
+       "id": "3",
+       "name": "B",
+       "primary": false
+      }
+     ]
+    },
+    {
+     "id": "1006",
+     "lastName": "鈴木",
+     "firstName": "一郎",
+     "email": "",
+     "teams": [
+      {
+       "id": "9",
+       "name": "BPO",
+       "primary": true
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "owners_archived": [
+  {
+   "after": null,
+   "next_after": null,
+   "results": [
+    {
+     "id": "1001",
+     "lastName": "ダブり",
+     "firstName": "退職",
+     "email": "dup@x.co.jp",
+     "teams": []
+    },
+    {
+     "id": "1004",
+     "lastName": "佐藤",
+     "firstName": "",
+     "email": "sato@x.co.jp",
+     "teams": [
+      {
+       "id": "1",
+       "name": "新規営業",
+       "primary": true
+      }
+     ]
+    },
+    {
+     "id": "1005",
+     "lastName": null,
+     "firstName": null,
+     "email": "",
+     "teams": []
+    }
+   ]
+  }
+ ],
+ "roster": {
+  "1001": {
+   "name": "山田T",
+   "team": "伊壺チーム"
+  },
+  "9999": {
+   "name": "退職名簿",
+   "team": "平田チーム"
+  },
+  "1004": {
+   "name": "佐藤名簿",
+   "team": "チーム未設定"
+  }
+ },
+ "exclusions": {
+  "ownerId": [
+   "1003"
+  ],
+  "HubSpotチーム": [
+   "BPO"
+  ]
+ },
+ "stages": [
+  {
+   "id": "122445644",
+   "label": "接触済み_A",
+   "displayOrder": 5
+  },
+  {
+   "id": "appointmentscheduled",
+   "label": "TEL_未済",
+   "displayOrder": 0
+  },
+  {
+   "id": "presentationscheduled",
+   "label": "TEL_受付ブロック",
+   "displayOrder": 1
+  },
+  {
+   "id": "7777777",
+   "label": "架電禁止",
+   "displayOrder": 9
+  },
+  {
+   "id": "closedwon",
+   "label": "接触済み_B"
+  },
+  {
+   "id": "qualifiedtobuy",
+   "label": "TEL_担当者不在",
+   "displayOrder": 3
+  }
+ ],
+ "counts": {
+  "stage:122445644": 11,
+  "stage:appointmentscheduled": 97052,
+  "stage:presentationscheduled": 4591,
+  "stage:7777777": 120,
+  "stage:closedwon": 3230,
+  "stage:qualifiedtobuy": 9399,
+  "all": 130000,
+  "has:ketteishamei": 400,
+  "has:ketteishanoyakushoku": 300,
+  "has:kessaishamei": 200,
+  "has:kessaishanoyakushoku": 100
+ },
+ "shodan": [
+  {
+   "id": "5001",
+   "properties": {
+    "dealname": "A社",
+    "hubspot_owner_id": "1001",
+    "pipeline": "62583420",
+    "dealstage": "1422059151",
+    "scheduled_business_meeting_date": "2026-09-30T15:00:00Z",
+    "jikan": "10:00",
+    "bpo_appo_date": "2026-09-02",
+    "aposyutokusya": "1001",
+    "jizenanketo_tantou_namae": "回答",
+    "hs_v2_date_exited_52035886": "2026-09-29T01:04:00.000Z",
+    "hs_v2_date_entered_52035886": "1788000000000",
+    "shoudanzokusei": "決裁者商談",
+    "negotiation_type": "担当者商談"
+   }
+  },
+  {
+   "id": "5002",
+   "properties": {
+    "dealname": null,
+    "hubspot_owner_id": null,
+    "pipeline": "default",
+    "dealstage": "52035886",
+    "scheduled_business_meeting_date": "2026-09-01T00:00:00Z",
+    "jikan": null,
+    "bpo_appo_date": "",
+    "jizenanketo_kaishamei": "   ",
+    "shoudanzokusei": "決定者商談;担当者商談"
+   }
+  },
+  {
+   "id": "5003",
+   "properties": {
+    "dealname": "C社",
+    "hubspot_owner_id": "1002",
+    "pipeline": "default",
+    "dealstage": "52035889",
+    "scheduled_business_meeting_date": "2026-10-15T09:00:00+09:00",
+    "jikan": "１６：００",
+    "jizenanketo_kyoten": "東京",
+    "hs_v2_date_entered_52035889": "2026-09-20T23:59:59Z",
+    "hs_v2_date_exited_1095457875": "null"
+   }
+  },
+  {
+   "id": "5004",
+   "properties": {
+    "dealname": "D社",
+    "hubspot_owner_id": "1003",
+    "pipeline": "default",
+    "dealstage": "1332175104",
+    "scheduled_business_meeting_date": "1790000000000",
+    "bpo_appo_date": "2026-07-02T15:00:00Z",
+    "hs_v2_date_exited_52035886": "not-a-date"
+   }
+  },
+  {
+   "id": "5005",
+   "properties": {
+    "hubspot_owner_id": "",
+    "scheduled_business_meeting_date": "2026-09-01T00:00:00Z"
+   }
+  },
+  {
+   "id": "5006",
+   "properties": {
+    "dealname": "F社",
+    "hubspot_owner_id": "1001",
+    "pipeline": "default",
+    "dealstage": "52035886",
+    "scheduled_business_meeting_date": "2026-09-01T00:00:00.500Z"
+   }
+  }
+ ],
+ "apo": [
+  {
+   "id": "5101",
+   "properties": {
+    "dealname": "G社",
+    "hubspot_owner_id": "1001",
+    "pipeline": "default",
+    "dealstage": "52035886",
+    "scheduled_business_meeting_date": "2026-10-20T01:00:00Z",
+    "hs_v2_date_entered_52035886": "2026-10-01T00:00:00Z"
+   }
+  },
+  {
+   "id": "5102",
+   "properties": {
+    "dealname": "H社",
+    "hubspot_owner_id": "1004",
+    "pipeline": "753186575",
+    "dealstage": "1095457875",
+    "hs_v2_date_entered_1095457875": "2026-10-01T00:30:00Z"
+   }
+  }
+ ],
+ "cyomi": [
+  {
+   "id": "5201",
+   "properties": {
+    "dealname": "I社",
+    "hubspot_owner_id": "1001",
+    "pipeline": "default",
+    "dealstage": "52035889",
+    "hs_v2_date_entered_52035889": "2026-09-10T12:00:00Z",
+    "jizenanketo_tantou_busho": "営業部"
+   }
+  }
+ ],
+ "kettei": [
+  {
+   "id": "6001",
+   "properties": {
+    "hubspot_owner_id": "1001",
+    "ketteishamei": "田中",
+    "ketteishanoyakushoku": "部長",
+    "kessaishamei": "",
+    "kessaishanoyakushoku": null
+   }
+  },
+  {
+   "id": "6002",
+   "properties": {
+    "hubspot_owner_id": "1001",
+    "ketteishamei": "  ",
+    "kessaishamei": "社長",
+    "kessaishanoyakushoku": "代表"
+   }
+  },
+  {
+   "id": "6003",
+   "properties": {
+    "hubspot_owner_id": "1002",
+    "ketteishamei": "佐藤"
+   }
+  },
+  {
+   "id": "6004",
+   "properties": {
+    "hubspot_owner_id": null,
+    "kessaishanoyakushoku": "役員"
+   }
+  },
+  {
+   "id": "6005",
+   "properties": {
+    "hubspot_owner_id": "",
+    "ketteishanoyakushoku": "課長",
+    "kessaishamei": "あ"
+   }
+  },
+  {
+   "id": "6006",
+   "properties": {
+    "hubspot_owner_id": "9998",
+    "ketteishamei": "x",
+    "ketteishanoyakushoku": "y",
+    "kessaishamei": "z",
+    "kessaishanoyakushoku": "w"
+   }
+  }
+ ]
+}

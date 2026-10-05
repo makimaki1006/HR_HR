@@ -159,7 +159,7 @@ fn batch_results<'a>(v: &'a Value, what: &str) -> Result<&'a [Value], HubSpotErr
     }
 }
 
-fn parse_record(v: &Value) -> Result<HubSpotRecord, HubSpotError> {
+pub(crate) fn parse_record(v: &Value) -> Result<HubSpotRecord, HubSpotError> {
     let id = v
         .get("id")
         .and_then(id_string)
@@ -251,6 +251,24 @@ impl HubSpotClient {
     pub async fn deal_pipelines(&self) -> Result<Value, HubSpotError> {
         self.send(Method::GET, "/crm/v3/pipelines/deals", &[], None)
             .await
+    }
+
+    /// `GET /crm/v3/owners?limit=100&archived={archived}[&after=..]` の 1 ページ (応答の JSON をそのまま返す)。
+    /// 退職者 (archived=true) は別の呼び出しでしか返ってこない。ページを追うのは呼び出し側。
+    /// Search ではないので `search_min_interval` の対象外 (呼び出し回数は呼び出し側が数える)。
+    pub async fn owners_page(
+        &self,
+        archived: bool,
+        after: Option<&str>,
+    ) -> Result<Value, HubSpotError> {
+        let mut query: Vec<(&str, String)> = vec![
+            ("limit", "100".to_string()),
+            ("archived", archived.to_string()),
+        ];
+        if let Some(a) = after {
+            query.push(("after", a.to_string()));
+        }
+        self.send(Method::GET, "/crm/v3/owners", &query, None).await
     }
 
     /// `GET /crm/v3/objects/{object}/{id}?properties=...`
