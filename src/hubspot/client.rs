@@ -441,6 +441,40 @@ impl HubSpotClient {
         self.send(Method::POST, &path, &[], Some(&body)).await
     }
 
+    /// `GET /crm/v3/owners?email=..&limit=1` (読み取り)。メールに対応する HubSpot owner の ID を返す。
+    /// 応答の `email` が要求と (大文字小文字を除いて) 一致するものだけ採用する (曖昧一致を避ける)。
+    /// 見つからなければ `Ok(None)`。
+    pub async fn owner_id_by_email(&self, email: &str) -> Result<Option<String>, HubSpotError> {
+        let email = email.trim();
+        if email.is_empty() || email.len() > 320 {
+            return Ok(None);
+        }
+        let v = self
+            .send(
+                Method::GET,
+                "/crm/v3/owners",
+                &[("email", email.to_string()), ("limit", "10".to_string())],
+                None,
+            )
+            .await?;
+        let results = v
+            .get("results")
+            .and_then(Value::as_array)
+            .ok_or_else(|| HubSpotError::Decode("owners without results".into()))?;
+        Ok(results.iter().find_map(|r| {
+            let same = r
+                .get("email")
+                .and_then(Value::as_str)
+                .is_some_and(|e| e.trim().eq_ignore_ascii_case(email));
+            let archived = r.get("archived").and_then(Value::as_bool).unwrap_or(false);
+            if same && !archived {
+                r.get("id").and_then(id_string)
+            } else {
+                None
+            }
+        }))
+    }
+
     /// 最後に観測したレート制限ヘッダ
     pub fn last_rate_limit(&self) -> Option<RateLimitSnapshot> {
         self.rate_limit.lock().ok().and_then(|g| g.clone())

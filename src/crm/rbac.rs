@@ -153,6 +153,39 @@ pub fn can_read(
     Ok(())
 }
 
+/// 架電キューなどで使う役割。**暫定**: 役割の本実装 (audit Turso の `accounts.role`) までの間、
+/// `ADMIN_EMAILS` に載っている人だけ admin、それ以外はすべて bpo として扱う (安全側。
+/// 判定を間違えても「見える範囲が狭い方」に倒れる)。本実装後はこの関数だけ差し替える。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrmRole {
+    Admin,
+    Bpo,
+}
+
+impl CrmRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CrmRole::Admin => "admin",
+            CrmRole::Bpo => "bpo",
+        }
+    }
+}
+
+/// 役割の暫定判定 (上の [`CrmRole`] を参照)。`principal.role` は本実装まで読まない。
+pub fn resolve_role(config: &crate::config::AppConfig, principal: &Principal) -> CrmRole {
+    let email = principal.email.as_deref().unwrap_or_default().trim();
+    if !email.is_empty()
+        && config
+            .admin_emails
+            .iter()
+            .any(|a| a.trim().eq_ignore_ascii_case(email))
+    {
+        CrmRole::Admin
+    } else {
+        CrmRole::Bpo
+    }
+}
+
 /// セッションから [`Principal`] を作る。役割は読み込まない (次の段階)。
 pub async fn load_principal(session: &Session) -> Principal {
     Principal {
@@ -249,6 +282,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 役割の暫定判定: ADMIN_EMAILS にある人だけ admin、それ以外は (未知の人・空・役割欄があっても) すべて bpo
+    #[test]
+    fn 役割は_admin_emails_だけが_admin_でそれ以外は_bpo() {
+        let mut config = crate::config::AppConfig::from_env();
+        config.admin_emails = vec![
+            "Boss@f-a-c.co.jp".to_string(),
+            " cto@f-a-c.co.jp ".to_string(),
+        ];
+        let role = |email: Option<&str>, r: Option<&str>| {
+            let mut who = p(email, Some(LOGIN_METHOD_GOOGLE_OIDC));
+            who.role = r.map(str::to_string);
+            resolve_role(&config, &who)
+        };
+        assert_eq!(role(Some("boss@f-a-c.co.jp"), None), CrmRole::Admin);
+        assert_eq!(role(Some("BOSS@F-A-C.CO.JP"), None), CrmRole::Admin);
+        assert_eq!(role(Some("cto@f-a-c.co.jp"), None), CrmRole::Admin);
+        assert_eq!(role(Some("staff@f-a-c.co.jp"), None), CrmRole::Bpo);
+        // 部分一致・別ドメインは admin にならない
+        assert_eq!(role(Some("boss@f-a-c.co.jp.evil.com"), None), CrmRole::Bpo);
+        assert_eq!(role(Some("xboss@f-a-c.co.jp"), None), CrmRole::Bpo);
+        // 未ログイン・空は bpo (安全側)
+        assert_eq!(role(None, None), CrmRole::Bpo);
+        assert_eq!(role(Some(" "), None), CrmRole::Bpo);
+        // principal.role (役割の本実装まで読まない) に "admin" とあっても昇格しない
+        assert_eq!(role(Some("staff@f-a-c.co.jp"), Some("admin")), CrmRole::Bpo);
+        // ADMIN_EMAILS が空なら全員 bpo
+        config.admin_emails.clear();
+        assert_eq!(
+            resolve_role(&config, &p(Some("boss@f-a-c.co.jp"), None)),
+            CrmRole::Bpo
+        );
     }
 
     /// 逆証明: 空の許可リストでは Google ログインの本人でも通らない
