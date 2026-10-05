@@ -20,7 +20,7 @@ mod pdf;
 #[path = "competitor_api.rs"]
 mod api;
 pub use api::{
-    api_options, api_report, CompetitorError, CompetitorErrorCode, CompetitorOptions,
+    api_options, api_pdf, api_report, CompetitorError, CompetitorErrorCode, CompetitorOptions,
     CompetitorReportResponse,
 };
 
