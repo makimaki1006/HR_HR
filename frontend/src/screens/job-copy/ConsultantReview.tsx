@@ -34,7 +34,7 @@ export function ConsultantReview({ job, draft, onDraft }: { job: JobCopyRecord; 
     <div className="jc-report-summary">
       <section><h3>何を変えたか</h3><strong>{labels[change.status]}</strong><p className="jc-report-image-change">画像参照：{imageChange.status === 'unknown' ? '比較資料なし・未判定' : imageChange.status === 'same_reference' ? '同じ参照・内容は未検証' : `追加${String(imageChange.added.length)}点・削除${String(imageChange.removed.length)}点${imageChange.reordered ? '・順序変更' : ''}`}</p><p>掲載画像：{images === undefined ? '未取得' : `${String(images.length)}点取得`}</p><p>{versions.length < 2 ? '過去版がなく、変更の有無は未判定です。' : '本文と画像の差分比較で変更箇所を確認してください。'}</p></section>
       <section><h3>比較期間の応募</h3><strong>{beforeRows !== null && afterRows !== null ? `${String(beforeRows.total)}件 → ${String(afterRows.total)}件` : '応募実績は未取得'}</strong><p>{previous?.label ?? '比較元なし'} → {current?.label ?? '比較先なし'}</p>{genderSummary && <p className="jc-report-gender">{genderSummary}（構成比差）</p>}<p>{demo ? '架空値です。下の比較版の選択に連動します。' : '応募と掲載版を紐付けてから集計します。'}</p></section>
-      <section><h3>費用と応募単価</h3><strong>課金情報は未取得</strong><p>後日受領する課金情報を、対象求人・掲載期間と対応させます。</p></section>
+      <section><h3>費用と応募単価</h3><strong>{job.hrhPerformance ? '媒体の期間別実績を取得済み' : '課金情報は未取得'}</strong><p>{job.hrhPerformance ? '課金・クリック画面で確認できます。掲載観測版との対応は未確認で、HubSpot応募総数から応募単価を作りません。' : '後日受領する課金情報を、対象求人・掲載期間と対応させます。'}</p></section>
     </div>
     <p className="jc-notice">取得日時は掲載変更の正確な日時ではありません。毎日の観測では前回取得〜今回取得の間を変更区間として扱います。本文・画像・課金を同時に変えた場合、前後の差だけでは要因を特定できません。</p>
     <a className="jc-text-button jc-no-print" href="#job-copy-review-cycle">検証記録の入力へ移動 →</a>

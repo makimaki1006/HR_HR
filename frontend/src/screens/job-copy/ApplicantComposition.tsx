@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { CopyVersion, JobCopyRecord } from './data';
 import { compareImages, referenceImages, imagesByVersion } from './images';
 import { ImageGallery } from './ImageGallery';
+import { ApplicantReasons } from './ApplicantReasons';
 import { compareDistributions, compositionDistribution } from './applicantCompositionModel';
 import type { ApplicantDimension } from './applicantCompositionModel';
 import './applicant-composition.css';
@@ -42,7 +43,8 @@ export function ApplicantComposition({ job, selection, onSelectionChange }: { jo
     <details className="ac-image-details"><summary>掲載画像を比較・拡大</summary><div className="ac-image-pair"><ImageGallery title="構成比較元の掲載画像" images={images(before)} /><ImageGallery title="構成比較先の掲載画像" images={images(after)} /></div></details>
     <p>画像比較: {imageComparison.status === 'unknown' ? '未取得の画像があり判定不能' : imageComparison.status === 'same_reference' ? '参照・並び順は同じです。画像内容の一致は未検証です。' : `追加${String(imageComparison.added.length)}点・削除${String(imageComparison.removed.length)}点${imageComparison.reordered ? '・並び順変更あり' : ''}`}</p>
     <p className="ac-caveat">本文・画像・掲載期間が同時に変わる場合があります。ここでの応募者構成の差は観測値で、文面や画像の変更効果を示すものではありません。</p>
-    <p className="ac-caveat">課金情報は未取得です。後日、掲載期間と費用・応募単価を合わせて確認します。</p>
+    <p className="ac-caveat">{job.hrhPerformance ? '媒体の期間別実績は「課金・クリック」で確認できます。掲載観測版との対応は未確認です。' : '課金情報は未取得です。後日、掲載期間と費用・応募単価を合わせて確認します。'}</p>
+    <ApplicantReasons job={job} before={before} after={after} />
     {job.attributionUnknown !== undefined && <p className="ac-caveat">版の対応不明: {job.attributionUnknown}件。日付欠損・観測日欠測・関連の曖昧さを含み、下の版別グラフには含めません。</p>}
     {beforeDistribution === null || afterDistribution === null ? <p className="ac-unavailable" role="status">応募者の属性データは未取得です。取得した媒体の求人にも架空の応募者を割り当てません。0件・0%とは判定していません。</p> : <>
       <p className="ac-demo">{job.dataSource === 'hubspot' ? 'HubSpot応募レコードを変更検知日の代表版に日付対応した集計です。属性は現在取得できる値です。' : '架空の応募者属性による操作デモです。'}比較元{String(beforeDistribution.total)}件・比較先{String(afterDistribution.total)}件。分母には属性不明も含めます。{job.dataSource !== 'hubspot' && '各版に確定対応する架空応募のみを含めます。'}</p>

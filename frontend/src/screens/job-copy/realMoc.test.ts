@@ -18,6 +18,21 @@ function fixture() {
 }
 
 describe('real MOC aggregates', () => {
+  it('preserves optional recorded reasons without inferring version attribution from the application date', () => {
+    const input = fixture();
+    const reasons = { available: true, source: 'hubspot', basis: 'recorded_applicant_reason', source_property: null,
+      fetched_at: input.capturedAt, total_applicants: 11, total_source_values: 33,
+      source_counts: { oubodouki: { missing: 10, blank: 0, nonblank: 1 }, ouboriyuu_baitaikisai: { missing: 11, blank: 0, nonblank: 0 }, ouboriyuu_hiaringu: { missing: 11, blank: 0, nonblank: 0 } }, missing: 32, blank: 0, truncated: false,
+      items: [{ id: 'a'.repeat(64), text: '合成例：研修の説明を確認しました。', source: 'hubspot', source_property: 'oubodouki', application_date: '2026-09-01', collected_at: null, version_id: null }] };
+    const enriched = { ...input, results: [{ ...first(input.results), applicant_reasons: reasons }] };
+    const [job] = parseRealMoc(JSON.stringify(enriched));
+    expect(job?.applicantReasons?.items[0]?.versionId).toBeNull();
+    expect(job?.applicantReasons?.items[0]?.collectedAt).toBeNull();
+    expect(job?.overallApplications?.total).toBe(11);
+    reasons.total_applicants = 10;
+    expect(() => parseRealMoc(JSON.stringify(enriched))).toThrow();
+    expect(first(parseRealMoc(JSON.stringify(input))).applicantReasons).toBeUndefined();
+  });
   it('keeps all 11 unattributed applications in overall counts without allocating them to a version', () => {
     const [job] = parseRealMoc(JSON.stringify(fixture()));
     expect(job?.hubspotId).toBe('30');

@@ -7,6 +7,9 @@ import { compareImages, compareImageBytes, referenceImages, imagesByVersion } fr
 import { ImageGallery } from './ImageGallery';
 import { MediaCaptureImport } from './MediaCaptureImport';
 import { ApplicantComposition } from './ApplicantComposition';
+import { HrhPerformance } from './HrhPerformance';
+import { MarketContext } from './MarketContext';
+import { ReverseSearch } from './ReverseSearch';
 import { ConsultantReview } from './ConsultantReview';
 import { HubSpotReadPanel } from './HubSpotReadPanel';
 import type { ConsultantDraft } from './ConsultantReview';
@@ -41,7 +44,7 @@ function ApplicationSummary({ version, live = false }: { version: CopyVersion; l
 
 function CopyDetail({ job, onAdd, reviewed, onReview }: { job: JobCopyRecord; onAdd: (version: CopyVersion) => void; reviewed: string[]; onReview: (id: string) => void }) {
   const current = latest(job) ?? (job.dataSource === 'hubspot' ? job.versions.at(-1) : undefined);
-  const [tab, setTab] = useState<'body' | 'diff' | 'receive' | 'applicants' | 'report'>('body');
+  const [tab, setTab] = useState<'body' | 'diff' | 'receive' | 'applicants' | 'report' | 'performance' | 'market'>('body');
   const [reportDraft, setReportDraft] = useState<ConsultantDraft>({ stage: 'plan', target: 'both', fields: {}, selection: [published(job)[0]?.id ?? '', published(job)[1]?.id ?? published(job)[0]?.id ?? ''] });
   const [selected, setSelected] = useState(current?.id ?? '');
   const [before, setBefore] = useState(published(job).at(-2)?.id ?? current?.id ?? '');
@@ -98,8 +101,10 @@ function CopyDetail({ job, onAdd, reviewed, onReview }: { job: JobCopyRecord; on
     <header className="jc-detail-heading"><div><p className="jc-eyebrow">求人レコード / {job.mediaJobId}</p><h1>{job.title}</h1><p>{job.company} <span>·</span> {job.location} <span>·</span> {job.media}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
     <div className="jc-record-meta"><span>{current?.source === 'HubSpot shigotonaiyou' ? '現在のHubSpot値' : '現在の掲載観測版'}: {current?.label ?? '本文未取得'}</span><span>観測ラベル: {current ? date(current.observedAt) : '—'} JST</span><span>{job.hubspotId ? `HubSpot求人ID: ${job.hubspotId}` : 'HubSpotリンク: 実求人IDの接続待ち'}</span></div>
     {message && <p className="jc-message" role="status">{message}</p>}
-    <nav className="jc-tabs" aria-label="求人文面の表示"><button aria-pressed={tab === 'body'} onClick={() => { setTab('body'); }}>本文・履歴</button><button aria-pressed={tab === 'diff'} onClick={() => { setTab('diff'); }}>差分比較</button><button aria-pressed={tab === 'applicants'} onClick={() => { setTab('applicants'); }}>応募者構成</button><button aria-pressed={tab === 'report'} onClick={() => { setTab('report'); }}>顧客報告・検証</button><button aria-pressed={tab === 'receive'} onClick={() => { setTab('receive'); }}>外部文面を確認</button></nav>
+    <nav className="jc-tabs" aria-label="求人文面の表示"><button aria-pressed={tab === 'body'} onClick={() => { setTab('body'); }}>本文・履歴</button><button aria-pressed={tab === 'diff'} onClick={() => { setTab('diff'); }}>差分比較</button><button aria-pressed={tab === 'applicants'} onClick={() => { setTab('applicants'); }}>応募者構成</button><button aria-pressed={tab === 'market'} onClick={() => { setTab('market'); }}>市場・要因</button><button aria-pressed={tab === 'performance'} onClick={() => { setTab('performance'); }}>課金・クリック</button><button aria-pressed={tab === 'report'} onClick={() => { setTab('report'); }}>顧客報告・検証</button><button aria-pressed={tab === 'receive'} onClick={() => { setTab('receive'); }}>外部文面を確認</button></nav>
     {tab === 'applicants' && <ApplicantComposition job={job} />}
+    {tab === 'performance' && <HrhPerformance job={job} />}
+    {tab === 'market' && <MarketContext job={job} />}
     {tab === 'report' && <ConsultantReview job={job} draft={reportDraft} onDraft={setReportDraft} />}
     {tab === 'body' && <div className="jc-history-layout">
       <aside className="jc-history"><h2>文面のタイムライン</h2><p className="jc-muted">本文の版を選ぶと内容が開きます</p>
@@ -195,6 +200,7 @@ export function JobCopyScreen() {
     {snapshotAt && <section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>本文観測</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募レコード</span><span>版対応不明 <strong>{records.reduce((sum, job) => sum + (job.attributionUnknown ?? 0), 0)}</strong>件</span></section>}
     <HubSpotReadPanel key={panelEpoch} onOpen={job => { setSnapshotAt(''); setSnapshotError(null); setRecords([job]); setSelectedId(job.id); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(false); setLive(true); }} />
     <MediaCaptureImport onImport={items => { setSnapshotAt(''); setSnapshotError(null); setRecords(items); setSelectedId(items[0]?.id ?? ''); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(true); setLive(false); setPanelEpoch(value => value + 1); }} />
+    <ReverseSearch records={records} onChoose={job => { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); choose(job); }} />
     <div className="jc-workspace"><aside className="jc-list"><div className="jc-list-heading"><h2>求人レコード</h2><span>{visible.length} / {records.length}件</span></div><label>求人・企業・媒体IDを検索<input type="search" value={search} placeholder="求人名、企業名、勤務地" onChange={event => { setSearch(event.target.value); }} /></label>
       <label>取引先<select aria-label="取引先" value={customer} onChange={event => { setCustomer(event.target.value); }}><option value="all">すべての取引先</option>{captured ? <option value="unlinked">取引先未紐付け</option> : [...new Set(records.map(job => job.company))].map(value => <option key={value} value={value}>{value}{live ? '' : '（架空）'}</option>)}</select></label>
       <div className="jc-filters"><label>媒体<select value={media} onChange={event => { setMedia(event.target.value); }}><option value="all">すべて</option>{[...new Set(records.map(job => job.media))].map(value => <option key={value}>{value}</option>)}</select></label><label>変更判定<select value={status} onChange={event => { setStatus(event.target.value); }}><option value="all">すべて</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
