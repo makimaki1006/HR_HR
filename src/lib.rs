@@ -11,6 +11,7 @@ pub mod handlers;
 pub mod hubspot;
 /// Indeed 採用市場データ。社内タブと顧客レポートが同じ集計を使う
 pub mod indeed;
+pub mod job_copy_date;
 pub mod job_gen;
 pub mod media_engine;
 pub mod minimum_wage;
@@ -886,6 +887,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/logout", get(logout))
         // Google Workspace OIDC (/auth/google/login, /auth/google/callback)。未ログインで到達する必要がある
         .merge(auth::google_oidc::router())
+        // Job-copy private reads return JSON401; OIDC/allowlist authorization stays in Rust.
+        .merge(handlers::job_copy_live::router())
         .merge(api_v1)
         // Headless CRM (/api/crm/metadata と /api/crm/{contacts|companies|deals}/{id}、HubSpot 読み取りのみ)。
         // auth_middleware の外に置く: 未ログインを /login への 303 でなく JSON の 401 で返すため

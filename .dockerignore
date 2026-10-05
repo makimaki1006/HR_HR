@@ -78,6 +78,7 @@ claudedocs/
 .env
 .env.*
 credentials/
+data/job-copy-local/
 *.pem
 *.key
 
