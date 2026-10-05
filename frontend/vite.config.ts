@@ -36,6 +36,8 @@ export default defineConfig({
         // Phase 1A (2026-10-01): /app/recruitment-diag
         'recruitment-diag': fromHere('src/entries/recruitment-diag.tsx'),
         'sales-kpi': fromHere('src/entries/sales-kpi.tsx'),
+        // React 移行 競合調査 (2026-10-06): /app/competitor。ナビは旧 /competitor のまま
+        competitor: fromHere('src/entries/competitor.tsx'),
       },
     },
   },
