@@ -1,0 +1,294 @@
+/* 競合調査 (/app/competitor)。他の React 画面 (jobgen) と同じ明暗の決め方:
+   既定は OS の設定に従い、<html data-theme="light|dark"> があればそれを優先する。
+   旧画面 (ダーク固定) の見た目は踏襲しない (ユーザー決定 2026-10-05)。
+   グラフの SVG は色をクラスで持ち、ここの変数で明暗を切り替える。 */
+body { margin: 0; }
+
+.competitor {
+  --bg: #eef1f6;
+  --surface: #fff;
+  --surface-2: #f6f8fb;
+  --ink: #182031;
+  --ink-2: #3c4a60;
+  --ink-3: #5c6a80;
+  --line: #e0e5ee;
+  --line-2: #cfd6e2;
+  --accent: #006666;
+  --accent-ink: #004d4d;
+  --accent-bg: #e3f1f1;
+  --bar: #4472c4;
+  --grid: #d5d9dd;
+  --male: #1f2d4d;
+  --female: #c9a24b;
+  --err: #b42318;
+  --err-bg: #fdecea;
+  --warn: #8a5300;
+  --warn-bg: #fff4e0;
+  --btn-ink: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .competitor {
+    --bg: #0d1119;
+    --surface: #151b26;
+    --surface-2: #1b2331;
+    --ink: #eef2f8;
+    --ink-2: #c6cfdc;
+    --ink-3: #9daabb;
+    --line: #252f3f;
+    --line-2: #33404f;
+    --accent: #5fc4c4;
+    --accent-ink: #bdeaea;
+    --accent-bg: #12302f;
+    --bar: #7da2e6;
+    --grid: #33404f;
+    --male: #8aa4d8;
+    --female: #d9b45f;
+    --err: #ff9d91;
+    --err-bg: #3a1a17;
+    --warn: #f0c274;
+    --warn-bg: #3a2c10;
+    --btn-ink: #0d1119;
+  }
+}
+:root[data-theme='light'] .competitor {
+  --bg: #eef1f6;
+  --surface: #fff;
+  --surface-2: #f6f8fb;
+  --ink: #182031;
+  --ink-2: #3c4a60;
+  --ink-3: #5c6a80;
+  --line: #e0e5ee;
+  --line-2: #cfd6e2;
+  --accent: #006666;
+  --accent-ink: #004d4d;
+  --accent-bg: #e3f1f1;
+  --bar: #4472c4;
+  --grid: #d5d9dd;
+  --male: #1f2d4d;
+  --female: #c9a24b;
+  --err: #b42318;
+  --err-bg: #fdecea;
+  --warn: #8a5300;
+  --warn-bg: #fff4e0;
+  --btn-ink: #fff;
+}
+:root[data-theme='dark'] .competitor {
+  --bg: #0d1119;
+  --surface: #151b26;
+  --surface-2: #1b2331;
+  --ink: #eef2f8;
+  --ink-2: #c6cfdc;
+  --ink-3: #9daabb;
+  --line: #252f3f;
+  --line-2: #33404f;
+  --accent: #5fc4c4;
+  --accent-ink: #bdeaea;
+  --accent-bg: #12302f;
+  --bar: #7da2e6;
+  --grid: #33404f;
+  --male: #8aa4d8;
+  --female: #d9b45f;
+  --err: #ff9d91;
+  --err-bg: #3a1a17;
+  --warn: #f0c274;
+  --warn-bg: #3a2c10;
+  --btn-ink: #0d1119;
+}
+
+.competitor,
+.competitor * { box-sizing: border-box; }
+.competitor {
+  min-height: 100vh;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.7 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, system-ui, sans-serif;
+  overflow-x: clip;
+}
+html:has(.competitor) { background: #eef1f6; }
+@media (prefers-color-scheme: dark) {
+  html:has(.competitor) { background: #0d1119; }
+}
+:root[data-theme='light'] { background: #eef1f6; }
+:root[data-theme='dark'] { background: #0d1119; }
+
+.competitor a { color: var(--accent); }
+.competitor h1 { font-size: clamp(21px, 3vw, 27px); margin: 0.3em 0 0.2em; }
+.competitor h2 { font-size: 17px; margin: 0.4em 0; }
+.competitor h3 { font-size: 15px; margin: 0.6em 0 0.3em; }
+.competitor p { margin: 0.4em 0; }
+
+.cmp-nav { display: flex; gap: 20px; flex-wrap: wrap; }
+.cmp-lead { color: var(--ink-2); max-width: 880px; }
+.cmp-card {
+  margin: 16px 0;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  max-width: 880px;
+}
+.cmp-result-head { max-width: none; }
+.cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 600px) {
+  .cmp-grid { grid-template-columns: 1fr; }
+  .cmp-card { padding: 14px; }
+}
+.cmp-field { margin: 12px 0; }
+.cmp-field label { display: block; font-weight: 600; margin-bottom: 4px; }
+.cmp-field input:not([type='checkbox']):not([type='file']),
+.cmp-field select {
+  width: 100%;
+  font: inherit;
+  padding: 9px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.cmp-field input[type='file'] { width: 100%; font: inherit; color: var(--ink); }
+.cmp-field small, .cmp-hint { display: block; color: var(--ink-3); font-size: 12px; margin-top: 4px; }
+.cmp-check { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+.cmp-file { color: var(--ink-2); font-size: 13px; }
+.cmp-field-error { color: var(--err); font-size: 13px; margin: 4px 0 0; }
+
+.cmp-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.cmp-btn {
+  font: inherit;
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+.cmp-btn--primary { background: var(--accent); border-color: var(--accent); color: var(--btn-ink); }
+.cmp-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.cmp-btn:focus-visible, .cmp-tab:focus-visible, .cmp-disclosure:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cmp-status { color: var(--ink-2); min-height: 1.4em; }
+.cmp-error {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--err-bg);
+  color: var(--err);
+  border: 1px solid var(--err);
+}
+.cmp-error p { margin: 0.2em 0; }
+.cmp-error a { color: inherit; font-weight: 600; }
+.cmp-warnings {
+  margin: 10px 0 0;
+  padding: 8px 12px 8px 28px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-radius: 6px;
+}
+.cmp-summary-line { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; }
+
+/* ---- タブ ---- */
+.cmp-tablist { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 2px solid var(--line-2); }
+.cmp-tab {
+  font: inherit;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.cmp-tab[aria-selected='true'] {
+  background: var(--surface);
+  color: var(--accent-ink);
+  border-color: var(--line-2);
+  font-weight: 700;
+}
+.cmp-panel { margin-top: 12px; }
+.cmp-panel[hidden] { display: none; }
+
+/* ---- Excel 再現 ---- */
+.cmp-excel {
+  display: grid;
+  grid-template-columns: 32% 68%;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cmp-summary { background: var(--accent-bg); padding: 14px 16px; min-width: 0; }
+.cmp-summary-title { text-align: center; font-size: 22px; letter-spacing: 0.12em; margin: 4px 0 14px; }
+.cmp-summary table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 14px; }
+.cmp-summary th, .cmp-summary td {
+  border: 1px solid var(--line-2);
+  padding: 3px 4px;
+  text-align: center;
+  font-weight: 400;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.cmp-summary th[scope='row'] { font-weight: 600; }
+.cmp-meta td { font-size: 15px; padding: 6px 4px; }
+.cmp-summary h2 { font-size: 15px; text-align: center; margin: 14px 0 6px; font-weight: 600; }
+.cmp-words th:first-child, .cmp-words td:first-child { width: 55%; text-align: left; }
+.cmp-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; min-width: 0; }
+.cmp-chart {
+  margin: 0;
+  min-width: 0;
+  border: 1px solid var(--grid);
+  padding: 10px;
+  background: var(--surface);
+  border-radius: 4px;
+}
+.cmp-chart--wide { grid-column: 1 / -1; }
+.cmp-chart figcaption { text-align: center; font-size: 16px; margin-bottom: 6px; }
+.cmp-chart svg { display: block; width: 100%; height: auto; }
+.cmp-bar { fill: var(--bar); }
+.cmp-gridline { stroke: var(--grid); fill: none; }
+.cmp-axis { fill: var(--ink-3); }
+.cmp-label { fill: var(--ink); }
+.cmp-male { fill: var(--male); }
+.cmp-female { fill: var(--female); }
+.cmp-pyramid { display: block; background: var(--surface); border: 1px solid var(--line); }
+.cmp-caption { font-size: 12px; color: var(--ink-3); line-height: 1.7; margin: 12px 0 20px; }
+@media (max-width: 900px) {
+  .cmp-excel { grid-template-columns: 1fr; }
+}
+@media (max-width: 550px) {
+  .cmp-charts { grid-template-columns: 1fr; padding: 8px; }
+  .cmp-chart--wide { grid-column: auto; }
+}
+
+/* ---- Google / Indeed / 人口 ---- */
+.cmp-page { background: var(--surface); padding: 20px; border-top: 3px solid var(--accent); min-width: 0; }
+.cmp-page-head { margin-bottom: 12px; }
+.cmp-eyebrow { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-3); font-weight: 700; }
+.cmp-sub { color: var(--ink-3); }
+.cmp-note { font-size: 12px; line-height: 1.7; color: var(--ink-3); }
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
+.cmp-table th, .cmp-table td { padding: 6px 8px; border: 1px solid var(--line-2); text-align: left; }
+.cmp-table th { background: var(--accent-bg); }
+.cmp-table .cmp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.cmp-block-title { font-size: 14px; font-weight: 600; margin-top: 20px; }
+.cmp-disclosure {
+  font: inherit;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 6px 0;
+  text-decoration: underline;
+}
+.cmp-population-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 900px) {
+  .cmp-population-grid { grid-template-columns: 1fr; }
+  .cmp-page { padding: 12px; }
+}
+@media (max-width: 550px) {
+  .cmp-table { font-size: 11px; }
+  .cmp-table th, .cmp-table td { padding: 4px; overflow-wrap: anywhere; }
+}
