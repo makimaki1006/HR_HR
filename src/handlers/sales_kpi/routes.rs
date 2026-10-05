@@ -144,6 +144,12 @@ async fn data(Query(q): Query<DataQuery>) -> Result<Response, CqError> {
         return Ok(Json(build_payload(&sheets, today)).into_response());
     }
 
+    // `SALES_KPI_HUBSPOT_DIRECT=1` のときだけ、HubSpot 由来の 6 ブロックを常駐キャッシュから組む
+    // （段階 1。未設定なら下のシート経路で、挙動は従来どおり）。
+    if super::hubspot_direct::enabled() {
+        return super::hubspot_direct::respond(q.refresh.as_deref() == Some("1")).await;
+    }
+
     let state = cq_state()?;
     if q.refresh.as_deref() == Some("1") {
         for name in [

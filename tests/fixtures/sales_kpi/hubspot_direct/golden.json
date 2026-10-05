@@ -1,0 +1,2387 @@
+{
+ "primary": {
+  "today": "2026-10-01",
+  "searches": [
+   {
+    "filterGroups": [
+     {
+      "filters": [
+       {
+        "propertyName": "scheduled_business_meeting_date",
+        "operator": "GTE",
+        "value": "1785596400000"
+       },
+       {
+        "propertyName": "scheduled_business_meeting_date",
+        "operator": "LT",
+        "value": "1793458800000"
+       }
+      ]
+     }
+    ],
+    "properties": [
+     "dealname",
+     "hubspot_owner_id",
+     "pipeline",
+     "dealstage",
+     "scheduled_business_meeting_date",
+     "jikan",
+     "bpo_appo_date",
+     "aposyutokusya",
+     "jizenanketo_tantou_namae",
+     "jizenanketo_bosyu_ninzuu",
+     "jizenanketo_bosyu_shokushu",
+     "jizenanketo_juushi_point",
+     "jizenanketo_nyuusha_jiki",
+     "jizenanketo_saiyou_yosan",
+     "jizenanketo_sentei_yakuwari1",
+     "jizenanketo_kentouchuu_service",
+     "jizenanketo_riyouchuu_service",
+     "jizenanketo_gyoushu",
+     "jizenanketo_tantou_yakushoku1",
+     "jizenanketo_kaishamei",
+     "jizenanketo_bosyu_haikei",
+     "jizenanketo_kyoten",
+     "jizenanketo_tantou_busho",
+     "hs_v2_date_exited_52035886",
+     "hs_v2_date_exited_1095457875",
+     "hs_v2_date_entered_52035886",
+     "hs_v2_date_entered_52035889",
+     "negotiation_type",
+     "shoudanzokusei"
+    ],
+    "limit": 200
+   },
+   {
+    "filterGroups": [
+     {
+      "filters": [
+       {
+        "propertyName": "hs_v2_date_entered_52035886",
+        "operator": "GTE",
+        "value": "1790780400000"
+       },
+       {
+        "propertyName": "hs_v2_date_entered_52035886",
+        "operator": "LT",
+        "value": "1793458800000"
+       }
+      ]
+     },
+     {
+      "filters": [
+       {
+        "propertyName": "hs_v2_date_entered_1095457875",
+        "operator": "GTE",
+        "value": "1790780400000"
+       },
+       {
+        "propertyName": "hs_v2_date_entered_1095457875",
+        "operator": "LT",
+        "value": "1793458800000"
+       }
+      ]
+     }
+    ],
+    "properties": [
+     "dealname",
+     "hubspot_owner_id",
+     "pipeline",
+     "dealstage",
+     "scheduled_business_meeting_date",
+     "jikan",
+     "bpo_appo_date",
+     "aposyutokusya",
+     "jizenanketo_tantou_namae",
+     "jizenanketo_bosyu_ninzuu",
+     "jizenanketo_bosyu_shokushu",
+     "jizenanketo_juushi_point",
+     "jizenanketo_nyuusha_jiki",
+     "jizenanketo_saiyou_yosan",
+     "jizenanketo_sentei_yakuwari1",
+     "jizenanketo_kentouchuu_service",
+     "jizenanketo_riyouchuu_service",
+     "jizenanketo_gyoushu",
+     "jizenanketo_tantou_yakushoku1",
+     "jizenanketo_kaishamei",
+     "jizenanketo_bosyu_haikei",
+     "jizenanketo_kyoten",
+     "jizenanketo_tantou_busho",
+     "hs_v2_date_exited_52035886",
+     "hs_v2_date_exited_1095457875",
+     "hs_v2_date_entered_52035886",
+     "hs_v2_date_entered_52035889",
+     "negotiation_type",
+     "shoudanzokusei"
+    ],
+    "limit": 200
+   },
+   {
+    "filterGroups": [
+     {
+      "filters": [
+       {
+        "propertyName": "dealstage",
+        "operator": "EQ",
+        "value": "52035889"
+       }
+      ]
+     }
+    ],
+    "properties": [
+     "dealname",
+     "hubspot_owner_id",
+     "pipeline",
+     "dealstage",
+     "scheduled_business_meeting_date",
+     "jikan",
+     "bpo_appo_date",
+     "aposyutokusya",
+     "jizenanketo_tantou_namae",
+     "jizenanketo_bosyu_ninzuu",
+     "jizenanketo_bosyu_shokushu",
+     "jizenanketo_juushi_point",
+     "jizenanketo_nyuusha_jiki",
+     "jizenanketo_saiyou_yosan",
+     "jizenanketo_sentei_yakuwari1",
+     "jizenanketo_kentouchuu_service",
+     "jizenanketo_riyouchuu_service",
+     "jizenanketo_gyoushu",
+     "jizenanketo_tantou_yakushoku1",
+     "jizenanketo_kaishamei",
+     "jizenanketo_bosyu_haikei",
+     "jizenanketo_kyoten",
+     "jizenanketo_tantou_busho",
+     "hs_v2_date_exited_52035886",
+     "hs_v2_date_exited_1095457875",
+     "hs_v2_date_entered_52035886",
+     "hs_v2_date_entered_52035889",
+     "negotiation_type",
+     "shoudanzokusei"
+    ],
+    "limit": 200
+   },
+   {
+    "filterGroups": [
+     {
+      "filters": [
+       {
+        "propertyName": "pipeline",
+        "operator": "EQ",
+        "value": "default"
+       },
+       {
+        "propertyName": "ketteishamei",
+        "operator": "HAS_PROPERTY"
+       }
+      ]
+     },
+     {
+      "filters": [
+       {
+        "propertyName": "pipeline",
+        "operator": "EQ",
+        "value": "default"
+       },
+       {
+        "propertyName": "ketteishanoyakushoku",
+        "operator": "HAS_PROPERTY"
+       }
+      ]
+     },
+     {
+      "filters": [
+       {
+        "propertyName": "pipeline",
+        "operator": "EQ",
+        "value": "default"
+       },
+       {
+        "propertyName": "kessaishamei",
+        "operator": "HAS_PROPERTY"
+       }
+      ]
+     },
+     {
+      "filters": [
+       {
+        "propertyName": "pipeline",
+        "operator": "EQ",
+        "value": "default"
+       },
+       {
+        "propertyName": "kessaishanoyakushoku",
+        "operator": "HAS_PROPERTY"
+       }
+      ]
+     }
+    ],
+    "properties": [
+     "ketteishamei",
+     "ketteishanoyakushoku",
+     "kessaishamei",
+     "kessaishanoyakushoku",
+     "hubspot_owner_id"
+    ],
+    "limit": 200,
+    "sorts": [
+     {
+      "propertyName": "hs_object_id",
+      "direction": "ASCENDING"
+     }
+    ]
+   }
+  ],
+  "count_jobs": [
+   [
+    [
+     [
+      "appointmentscheduled"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "dealstage",
+       "operator": "EQ",
+       "value": "appointmentscheduled"
+      }
+     ]
+    ],
+    [
+     [
+      "closedwon"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "dealstage",
+       "operator": "EQ",
+       "value": "closedwon"
+      }
+     ]
+    ],
+    [
+     [
+      "presentationscheduled"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "dealstage",
+       "operator": "EQ",
+       "value": "presentationscheduled"
+      }
+     ]
+    ],
+    [
+     [
+      "qualifiedtobuy"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "dealstage",
+       "operator": "EQ",
+       "value": "qualifiedtobuy"
+      }
+     ]
+    ],
+    [
+     [
+      "122445644"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "dealstage",
+       "operator": "EQ",
+       "value": "122445644"
+      }
+     ]
+    ],
+    [
+     [
+      "7777777"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "dealstage",
+       "operator": "EQ",
+       "value": "7777777"
+      }
+     ]
+    ],
+    [
+     [
+      "__all__"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      }
+     ]
+    ],
+    [
+     [
+      "ketteishamei"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "ketteishamei",
+       "operator": "HAS_PROPERTY"
+      }
+     ]
+    ],
+    [
+     [
+      "ketteishanoyakushoku"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "ketteishanoyakushoku",
+       "operator": "HAS_PROPERTY"
+      }
+     ]
+    ],
+    [
+     [
+      "kessaishamei"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "kessaishamei",
+       "operator": "HAS_PROPERTY"
+      }
+     ]
+    ],
+    [
+     [
+      "kessaishanoyakushoku"
+     ],
+     [
+      {
+       "propertyName": "pipeline",
+       "operator": "EQ",
+       "value": "default"
+      },
+      {
+       "propertyName": "kessaishanoyakushoku",
+       "operator": "HAS_PROPERTY"
+      }
+     ]
+    ]
+   ]
+  ],
+  "written": {
+   "KPI営業_商談": {
+    "header": [
+     "dealId",
+     "取引名",
+     "ownerId",
+     "pipeline",
+     "dealstage",
+     "商談予定日時",
+     "時間",
+     "BPOアポ取得日",
+     "事前アンケート",
+     "アポ取得者",
+     "アポ日確定を出た日",
+     "BPOアポ日確定を出た日",
+     "アポ日確定に入った日",
+     "Cヨミに入った日",
+     "商談種別",
+     "商談属性"
+    ],
+    "rows": [
+     [
+      "5002",
+      "",
+      "",
+      "default",
+      "52035886",
+      "2026-09-01 09:00",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "決定者商談;担当者商談"
+     ],
+     [
+      "5005",
+      "",
+      "",
+      "",
+      "",
+      "2026-09-01 09:00",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     [
+      "5006",
+      "F社",
+      "1001",
+      "default",
+      "52035886",
+      "2026-09-01 09:00",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     [
+      "5004",
+      "D社",
+      "1003",
+      "default",
+      "1332175104",
+      "2026-09-21 23:13",
+      "",
+      "2026-07-03 00:00",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     [
+      "5001",
+      "A社",
+      "1001",
+      "62583420",
+      "1422059151",
+      "2026-10-01 00:00",
+      "10:00",
+      "2026-09-02 00:00",
+      "有",
+      "1001",
+      "2026-09-29 10:04",
+      "",
+      "2026-08-29 19:40",
+      "",
+      "担当者商談",
+      "決裁者商談"
+     ],
+     [
+      "5003",
+      "C社",
+      "1002",
+      "default",
+      "52035889",
+      "2026-10-15 09:00",
+      "１６：００",
+      "",
+      "有",
+      "",
+      "",
+      "",
+      "",
+      "2026-09-21 08:59",
+      "",
+      ""
+     ]
+    ]
+   },
+   "KPI営業_アポ": {
+    "header": [
+     "dealId",
+     "取引名",
+     "ownerId",
+     "pipeline",
+     "dealstage",
+     "商談予定日時",
+     "時間",
+     "BPOアポ取得日",
+     "事前アンケート",
+     "アポ取得者",
+     "アポ日確定を出た日",
+     "BPOアポ日確定を出た日",
+     "アポ日確定に入った日",
+     "Cヨミに入った日",
+     "商談種別",
+     "商談属性"
+    ],
+    "rows": [
+     [
+      "5101",
+      "G社",
+      "1001",
+      "default",
+      "52035886",
+      "2026-10-20 10:00",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "2026-10-01 09:00",
+      "",
+      "",
+      ""
+     ],
+     [
+      "5102",
+      "H社",
+      "1004",
+      "753186575",
+      "1095457875",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ]
+    ]
+   },
+   "KPI営業_Cヨミ": {
+    "header": [
+     "dealId",
+     "取引名",
+     "ownerId",
+     "pipeline",
+     "dealstage",
+     "商談予定日時",
+     "時間",
+     "BPOアポ取得日",
+     "事前アンケート",
+     "アポ取得者",
+     "アポ日確定を出た日",
+     "BPOアポ日確定を出た日",
+     "アポ日確定に入った日",
+     "Cヨミに入った日",
+     "商談種別",
+     "商談属性"
+    ],
+    "rows": [
+     [
+      "5201",
+      "I社",
+      "1001",
+      "default",
+      "52035889",
+      "",
+      "",
+      "",
+      "有",
+      "",
+      "",
+      "",
+      "",
+      "2026-09-10 21:00",
+      "",
+      ""
+     ]
+    ]
+   },
+   "upsert:KPI営業_決定者": {
+    "header": [
+     "日付",
+     "ownerId",
+     "決定者名",
+     "決定者の役職",
+     "決裁者名",
+     "決裁者の役職",
+     "合計"
+    ],
+    "rows": [
+     [
+      "2026-10-01",
+      "1001",
+      "1",
+      "1",
+      "1",
+      "1",
+      "4"
+     ],
+     [
+      "2026-10-01",
+      "9998",
+      "1",
+      "1",
+      "1",
+      "1",
+      "4"
+     ],
+     [
+      "2026-10-01",
+      "",
+      "0",
+      "1",
+      "1",
+      "1",
+      "3"
+     ],
+     [
+      "2026-10-01",
+      "1002",
+      "1",
+      "0",
+      "0",
+      "0",
+      "1"
+     ]
+    ]
+   },
+   "KPI営業_メンバー": {
+    "header": [
+     "ownerId",
+     "氏名",
+     "チーム",
+     "メール",
+     "HubSpotチーム",
+     "在籍",
+     "出どころ",
+     "集計対象"
+    ],
+    "rows": [
+     [
+      "1001",
+      "山田T",
+      "伊壺チーム",
+      "yamada@example.com",
+      "新規営業",
+      "在籍",
+      "名簿",
+      "対象"
+     ],
+     [
+      "9999",
+      "退職名簿",
+      "平田チーム",
+      "",
+      "",
+      "",
+      "名簿",
+      "対象"
+     ],
+     [
+      "1005",
+      "1005",
+      "チーム未設定",
+      "",
+      "",
+      "退職",
+      "HubSpot",
+      "対象"
+     ],
+     [
+      "1002",
+      "shared",
+      "チーム未設定",
+      "shared@x.co.jp",
+      "",
+      "在籍",
+      "HubSpot",
+      "対象"
+     ],
+     [
+      "1004",
+      "佐藤名簿",
+      "チーム未設定",
+      "sato@x.co.jp",
+      "新規営業",
+      "退職",
+      "名簿",
+      "対象"
+     ],
+     [
+      "1003",
+      "花子",
+      "チーム未設定",
+      "hanako@x.co.jp",
+      "A",
+      "在籍",
+      "HubSpot",
+      "対象外"
+     ],
+     [
+      "1006",
+      "鈴木 一郎",
+      "チーム未設定",
+      "",
+      "BPO",
+      "在籍",
+      "HubSpot",
+      "対象外"
+     ]
+    ]
+   },
+   "KPI営業_架電リスト": {
+    "header": [
+     "区分",
+     "名前",
+     "分類",
+     "件数"
+    ],
+    "rows": [
+     [
+      "ステージ",
+      "TEL_未済",
+      "未架電",
+      "97052"
+     ],
+     [
+      "ステージ",
+      "接触済み_B",
+      "接触済み",
+      "3230"
+     ],
+     [
+      "ステージ",
+      "TEL_受付ブロック",
+      "未接触",
+      "4591"
+     ],
+     [
+      "ステージ",
+      "TEL_担当者不在",
+      "未接触",
+      "9399"
+     ],
+     [
+      "ステージ",
+      "接触済み_A",
+      "接触済み",
+      "11"
+     ],
+     [
+      "ステージ",
+      "架電禁止",
+      "対象外",
+      "120"
+     ],
+     [
+      "合計",
+      "アポ前パイプライン全体",
+      "",
+      "130000"
+     ],
+     [
+      "充足",
+      "決定者名",
+      "",
+      "400"
+     ],
+     [
+      "充足",
+      "決定者の役職",
+      "",
+      "300"
+     ],
+     [
+      "充足",
+      "決裁者名",
+      "",
+      "200"
+     ],
+     [
+      "充足",
+      "決裁者の役職",
+      "",
+      "100"
+     ]
+    ]
+   },
+   "KPI営業_架電リスト_担当別": {
+    "header": [
+     "ownerId",
+     "分類",
+     "件数"
+    ],
+    "rows": []
+   }
+  }
+ },
+ "dates": [
+  {
+   "today": "2026-10-05",
+   "searches": [
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "GTE",
+         "value": "1785942000000"
+        },
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "LT",
+         "value": "1793458800000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "GTE",
+         "value": "1790780400000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "LT",
+         "value": "1793458800000"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "GTE",
+         "value": "1790780400000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "LT",
+         "value": "1793458800000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "dealstage",
+         "operator": "EQ",
+         "value": "52035889"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "ketteishamei",
+      "ketteishanoyakushoku",
+      "kessaishamei",
+      "kessaishanoyakushoku",
+      "hubspot_owner_id"
+     ],
+     "limit": 200,
+     "sorts": [
+      {
+       "propertyName": "hs_object_id",
+       "direction": "ASCENDING"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "today": "2026-11-30",
+   "searches": [
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "GTE",
+         "value": "1790780400000"
+        },
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "LT",
+         "value": "1797174000000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "GTE",
+         "value": "1793458800000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "LT",
+         "value": "1796050800000"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "GTE",
+         "value": "1793458800000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "LT",
+         "value": "1796050800000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "dealstage",
+         "operator": "EQ",
+         "value": "52035889"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "ketteishamei",
+      "ketteishanoyakushoku",
+      "kessaishamei",
+      "kessaishanoyakushoku",
+      "hubspot_owner_id"
+     ],
+     "limit": 200,
+     "sorts": [
+      {
+       "propertyName": "hs_object_id",
+       "direction": "ASCENDING"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "today": "2026-12-31",
+   "searches": [
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "GTE",
+         "value": "1793458800000"
+        },
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "LT",
+         "value": "1799593200000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "GTE",
+         "value": "1796050800000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "LT",
+         "value": "1798729200000"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "GTE",
+         "value": "1796050800000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "LT",
+         "value": "1798729200000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "dealstage",
+         "operator": "EQ",
+         "value": "52035889"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "ketteishamei",
+      "ketteishanoyakushoku",
+      "kessaishamei",
+      "kessaishanoyakushoku",
+      "hubspot_owner_id"
+     ],
+     "limit": 200,
+     "sorts": [
+      {
+       "propertyName": "hs_object_id",
+       "direction": "ASCENDING"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "today": "2027-01-01",
+   "searches": [
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "GTE",
+         "value": "1793545200000"
+        },
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "LT",
+         "value": "1801407600000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "GTE",
+         "value": "1798729200000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "LT",
+         "value": "1801407600000"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "GTE",
+         "value": "1798729200000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "LT",
+         "value": "1801407600000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "dealstage",
+         "operator": "EQ",
+         "value": "52035889"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "ketteishamei",
+      "ketteishanoyakushoku",
+      "kessaishamei",
+      "kessaishanoyakushoku",
+      "hubspot_owner_id"
+     ],
+     "limit": 200,
+     "sorts": [
+      {
+       "propertyName": "hs_object_id",
+       "direction": "ASCENDING"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "today": "2026-03-01",
+   "searches": [
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "GTE",
+         "value": "1767106800000"
+        },
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "LT",
+         "value": "1774969200000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "GTE",
+         "value": "1772290800000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "LT",
+         "value": "1774969200000"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "GTE",
+         "value": "1772290800000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "LT",
+         "value": "1774969200000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "dealstage",
+         "operator": "EQ",
+         "value": "52035889"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "ketteishamei",
+      "ketteishanoyakushoku",
+      "kessaishamei",
+      "kessaishanoyakushoku",
+      "hubspot_owner_id"
+     ],
+     "limit": 200,
+     "sorts": [
+      {
+       "propertyName": "hs_object_id",
+       "direction": "ASCENDING"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "today": "2026-10-04",
+   "searches": [
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "GTE",
+         "value": "1785855600000"
+        },
+        {
+         "propertyName": "scheduled_business_meeting_date",
+         "operator": "LT",
+         "value": "1793458800000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "GTE",
+         "value": "1790780400000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_52035886",
+         "operator": "LT",
+         "value": "1793458800000"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "GTE",
+         "value": "1790780400000"
+        },
+        {
+         "propertyName": "hs_v2_date_entered_1095457875",
+         "operator": "LT",
+         "value": "1793458800000"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "dealstage",
+         "operator": "EQ",
+         "value": "52035889"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "dealname",
+      "hubspot_owner_id",
+      "pipeline",
+      "dealstage",
+      "scheduled_business_meeting_date",
+      "jikan",
+      "bpo_appo_date",
+      "aposyutokusya",
+      "jizenanketo_tantou_namae",
+      "jizenanketo_bosyu_ninzuu",
+      "jizenanketo_bosyu_shokushu",
+      "jizenanketo_juushi_point",
+      "jizenanketo_nyuusha_jiki",
+      "jizenanketo_saiyou_yosan",
+      "jizenanketo_sentei_yakuwari1",
+      "jizenanketo_kentouchuu_service",
+      "jizenanketo_riyouchuu_service",
+      "jizenanketo_gyoushu",
+      "jizenanketo_tantou_yakushoku1",
+      "jizenanketo_kaishamei",
+      "jizenanketo_bosyu_haikei",
+      "jizenanketo_kyoten",
+      "jizenanketo_tantou_busho",
+      "hs_v2_date_exited_52035886",
+      "hs_v2_date_exited_1095457875",
+      "hs_v2_date_entered_52035886",
+      "hs_v2_date_entered_52035889",
+      "negotiation_type",
+      "shoudanzokusei"
+     ],
+     "limit": 200
+    },
+    {
+     "filterGroups": [
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "ketteishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishamei",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      },
+      {
+       "filters": [
+        {
+         "propertyName": "pipeline",
+         "operator": "EQ",
+         "value": "default"
+        },
+        {
+         "propertyName": "kessaishanoyakushoku",
+         "operator": "HAS_PROPERTY"
+        }
+       ]
+      }
+     ],
+     "properties": [
+      "ketteishamei",
+      "ketteishanoyakushoku",
+      "kessaishamei",
+      "kessaishanoyakushoku",
+      "hubspot_owner_id"
+     ],
+     "limit": 200,
+     "sorts": [
+      {
+       "propertyName": "hs_object_id",
+       "direction": "ASCENDING"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "jst_text": [
+  [
+   null,
+   ""
+  ],
+  [
+   "",
+   ""
+  ],
+  [
+   "null",
+   ""
+  ],
+  [
+   "1788224400000",
+   "2026-09-01 10:00"
+  ],
+  [
+   "1788224400000.7",
+   "2026-09-01 10:00"
+  ],
+  [
+   "2026-09-30T15:00:00Z",
+   "2026-10-01 00:00"
+  ],
+  [
+   "2026-09-30T15:00:00.000Z",
+   "2026-10-01 00:00"
+  ],
+  [
+   "2026-09-30T15:00:00+09:00",
+   "2026-09-30 15:00"
+  ],
+  [
+   "2026-09-30",
+   "2026-09-30 00:00"
+  ],
+  [
+   "garbage",
+   ""
+  ],
+  [
+   "2026-09-30T14:59:59.999Z",
+   "2026-09-30 23:59"
+  ],
+  [
+   "0",
+   "1970-01-01 09:00"
+  ],
+  [
+   "-1000",
+   "1970-01-01 08:59"
+  ],
+  [
+   "2026-09-30 15:00:00",
+   "2026-09-30 15:00"
+  ]
+ ],
+ "meta_keys": [
+  "商談の範囲",
+  "当月",
+  "今週のはじまり",
+  "取得時刻",
+  "取得元",
+  "架電リストの集計",
+  "架電リスト担当別の差",
+  "架電リスト担当別の未集計担当者",
+  "商談の範囲",
+  "当月",
+  "今週のはじまり",
+  "取得時刻",
+  "取得元",
+  "架電リストの集計",
+  "架電リスト担当別の差",
+  "架電リスト担当別の未集計担当者",
+  "商談の範囲",
+  "当月",
+  "今週のはじまり",
+  "取得時刻",
+  "取得元",
+  "架電リストの集計",
+  "架電リスト担当別の差",
+  "架電リスト担当別の未集計担当者",
+  "商談の範囲",
+  "当月",
+  "今週のはじまり",
+  "取得時刻",
+  "取得元",
+  "架電リストの集計",
+  "架電リスト担当別の差",
+  "架電リスト担当別の未集計担当者",
+  "商談の範囲",
+  "当月",
+  "今週のはじまり",
+  "取得時刻",
+  "取得元",
+  "架電リストの集計",
+  "架電リスト担当別の差",
+  "架電リスト担当別の未集計担当者",
+  "商談の範囲",
+  "当月",
+  "今週のはじまり",
+  "取得時刻",
+  "取得元",
+  "架電リストの集計",
+  "架電リスト担当別の差",
+  "架電リスト担当別の未集計担当者",
+  "商談の範囲",
+  "当月",
+  "今週のはじまり",
+  "取得時刻",
+  "取得元",
+  "架電リストの集計",
+  "架電リスト担当別の差",
+  "架電リスト担当別の未集計担当者"
+ ]
+}
