@@ -18,6 +18,15 @@ function fixture() {
 }
 
 describe('real MOC aggregates', () => {
+  it('preserves validated daily aggregates and rejects impossible dates before charting', () => {
+    const input = fixture();
+    expect(first(parseRealMoc(JSON.stringify(input))).overallApplications?.byDate).toEqual({ '2026-09-01': 11 });
+    const summary = first(input.results).summary;
+    Object.assign(summary, { by_date: { '2026-02-30': 11 } });
+    expect(() => parseRealMoc(JSON.stringify(input))).toThrow();
+    Object.assign(summary, { by_date: { '2026-09': 11 } });
+    expect(() => parseRealMoc(JSON.stringify(input))).toThrow();
+  });
   it('preserves optional recorded reasons without inferring version attribution from the application date', () => {
     const input = fixture();
     const reasons = { available: true, source: 'hubspot', basis: 'recorded_applicant_reason', source_property: null,

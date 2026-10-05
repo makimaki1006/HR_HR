@@ -71,7 +71,18 @@ test('market selection keeps period and source separate from applications and hi
   await page.getByLabel('比較する市場職種').selectOption('合成職種');
   await page.getByLabel('比較する都道府県').selectOption('大分県');
   const market = page.getByRole('region', { name: '市場環境と応募獲得の要因' });
-  await expect(market.locator('tbody tr')).toHaveText('2026-08100300203');
+  await expect(page.getByTestId('jc-market-jobs')).toHaveAttribute('data-chart-ready', 'true');
+  await expect(page.getByTestId('jc-applications-monthly')).toHaveAttribute('data-chart-ready', 'true');
+  expect(await page.getByTestId('jc-market-jobs').evaluate(el => {
+    const option = window.__echarts_getInstanceByDom?.(el)?.getOption() as { series: { data: number[] }[] };
+    return option.series[0]?.data;
+  })).toEqual([100]);
+  expect(await page.getByTestId('jc-applications-monthly').evaluate(el => {
+    const option = window.__echarts_getInstanceByDom?.(el)?.getOption() as { series: { data: number[] }[] };
+    return option.series[0]?.data;
+  })).toEqual([4]);
+  await market.getByText('市場実績の数値表を確認', { exact: true }).click();
+  await expect(market.getByRole('region', { name: '市場実績の数値表', exact: true }).locator('tbody tr')).toHaveText('2026-08100300203');
   await expect(market).toContainText('応募数ではありません');
   await market.scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'market-desktop.png') });
@@ -82,4 +93,38 @@ test('market selection keeps period and source separate from applications and hi
   await page.screenshot({ path: resolve(visuals, 'market-mobile.png') });
   await page.emulateMedia({ media: 'print' });
   await expect(market).toBeHidden();
+});
+
+test('market graphs retain missing months and real zero and hide stale charts during scope changes', async ({ page }) => {
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
+  let release: (() => void) | undefined;
+  await page.route('**/api/job-copy/market*', async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('prefecture') === '福岡県') await new Promise<void>(resolve => { release = resolve; });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ source: '合成市場レポート', titles: ['合成職種'], prefectures: ['大分県', '福岡県'], ctk_basis: '応募数ではありません。', series: url.searchParams.get('prefecture') === '大分県' ? { prefecture: '大分県', months: ['2026-07', '2026-09'], job_count: [100, 0], ctk_count: [300, 100], employer_count: [20, null], seekers_per_posting: [3, null] } : null }) });
+  });
+  await page.goto('/app/job-copy');
+  await page.getByRole('button', { name: '市場・要因', exact: true }).click();
+  await page.getByLabel('比較する市場職種').selectOption('合成職種');
+  await page.getByLabel('比較する都道府県').selectOption('大分県');
+  const chart = page.getByTestId('jc-market-jobs');
+  await expect(chart).toHaveAttribute('data-chart-ready', 'true');
+  expect(await chart.evaluate(el => {
+    const o = window.__echarts_getInstanceByDom?.(el)?.getOption() as { xAxis: { data: string[] }[]; yAxis: { min: number; name: string }[]; series: { data: (number | null)[]; connectNulls: boolean }[] };
+    return { months: o.xAxis[0]?.data, values: o.series[0]?.data, connectNulls: o.series[0]?.connectNulls, min: o.yAxis[0]?.min, unit: o.yAxis[0]?.name };
+  })).toEqual({ months: ['2026-07', '2026-08', '2026-09'], values: [100, null, 0], connectNulls: false, min: 0, unit: '件' });
+  await page.setViewportSize({ width: 375, height: 850 });
+  await chart.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: resolve(visuals, 'market-graphs-mobile.png') });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.locator('.jc-market-charts').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(visuals, 'market-graphs-desktop.png') });
+  await page.getByLabel('比較する都道府県').selectOption('福岡県');
+  await expect(page.getByRole('status')).toContainText('市場データを取得中');
+  await expect(page.getByTestId('jc-market-jobs')).toHaveCount(0);
+  await expect(page.getByTestId('jc-applications-monthly')).toHaveAttribute('data-chart-ready', 'true');
+  await expect.poll(() => Boolean(release)).toBe(true);
+  release?.();
+  await expect(page.getByText('選択した職種・県の月次市場データはありません。', { exact: false })).toBeVisible();
 });
