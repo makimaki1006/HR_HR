@@ -73,6 +73,11 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
     const total = count(summary.total);
     const missingDate = count(summary.missing_date);
     const dated = object(summary.by_date);
+    const byDate: Record<string, number> = {};
+    for (const [date, amount] of Object.entries(dated)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) return invalid();
+      byDate[date] = count(amount);
+    }
     if (missingDate + Object.values(dated).reduce<number>((sum, amount) => sum + count(amount), 0) !== total) return invalid();
     const summaryDimensions = object(summary.dimensions);
     const distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>> = {};
@@ -88,7 +93,7 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
       applicantReasons: parseApplicantReasons(result.applicant_reasons, total, job.versions.filter(version => version.kind === 'published').map(version => version.id)),
       hrhPerformance: result.hrh_performance == null ? undefined : parseHrhPerformance(result.hrh_performance, job.mediaJobId),
       jointDemographics: summary.joint_demographics == null ? undefined : parseJointDemographics(summary.joint_demographics, total),
-      overallApplications: { total, missingDate, fetchedAt, distributions },
+      overallApplications: { total, missingDate, fetchedAt, distributions, byDate },
       versions: job.versions.map(version => {
         if (buckets[version.id] === undefined) return version;
         const bucket = object(buckets[version.id]);
