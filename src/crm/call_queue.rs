@@ -20,11 +20,21 @@
 //! 例: 既定 = ① 次回架電日が今日以前 (次回日の古い順) → ② 未済で未架電 (最終架電日なし) → ③ 未済で最終架電日の古い順。
 //! 段階の境目でページが `limit` に満たなくても、`next_cursor` がある限り続きがある。
 //!
+//! ## 日付の範囲 (PR-2)
+//! `next_from` / `next_to` (次回架電日 `bpo_13`)、`last_from` / `last_to` (最終架電日 `bpo_20`) は JST の日付 `YYYY-MM-DD`
+//! (両端を含む。実在する日付で 2000〜2100 年。from > to は 400)。HubSpot の日付プロパティに合わせ、その日の UTC 0 時の ms で Search に渡す。
+//! - 次回架電日の範囲を指定すると、範囲に入る Deal だけが対象 (日付なしの未済は出ない)。
+//!   未済以外のステージは「今日以前」の条件と範囲の共通部分、未済は範囲そのまま (今日より後も出る)。
+//! - 最終架電日の範囲を指定すると、最終架電日が空の段階は検索しない (範囲と矛盾するため)。
+//! - `sort=next_call_asc` は `default` と同じ並びの明示値。
+//!
 //! ## Search の上限への収まり
-//! HubSpot Search は OR グループ 5・グループあたり 6 フィルタ・全体 18 まで。本実装の各 Search は
-//! OR グループ最大 2、グループあたり最大 6、全体最大 12 (`owner` を絞るときが最大)。`pipeline` の絞り込みは
-//! グループあたり 6 に収めるため Search には入れず、返ってきた Deal の `pipeline` を後段で確認する
-//! (ステージ ID は HubSpot 内で一意)。
+//! HubSpot Search は OR グループ 5・グループあたり 6 フィルタ・全体 18 まで。各 Search は
+//! OR グループ最大 2、グループあたり最大 6、全体最大 12。`pipeline` の絞り込みはグループあたり 6 に収めるため
+//! Search には入れず、返ってきた Deal の `pipeline` を後段で確認する (ステージ ID は HubSpot 内で一意)。
+//! 範囲の指定でグループが 6 に収まらないときは、架電禁止理由 `bpo_3`・ブロック理由 `bpo_4` の NOT_HAS_PROPERTY を
+//! Search に入れず、返ってきた行を後段で外す (外した件数は `partial.excluded.stop_reason`。ページが `limit` に満たないことがある)。
+//! 全組み合わせが上限内に収まることはテストで確認している。
 //!
 //! ## 認可と役割
 //! `rbac::authorize` (Google OIDC + 許可リスト + 無効アカウント) の後、役割 (`rbac::resolve_role`。暫定: `ADMIN_EMAILS` →
@@ -43,7 +53,7 @@ use axum::{
 };
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -284,6 +294,12 @@ pub struct CallQueueScope {
     pub sort: String,
     pub q: Option<String>,
     pub limit: u32,
+    /// 次回架電日 `bpo_13` の範囲 (JST の日付 `YYYY-MM-DD`。指定がなければ null)
+    pub next_from: Option<String>,
+    pub next_to: Option<String>,
+    /// 最終架電日 `bpo_20` の範囲 (同上)
+    pub last_from: Option<String>,
+    pub last_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, TS)]
@@ -343,6 +359,8 @@ impl Due {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SortKey {
     Default,
+    /// 次回架電日の古い順 (`default` と同じ並び。画面の選択肢として明示できるようにした別名)
+    NextCallAsc,
     NextCallDesc,
     LastCallAsc,
     LastCallDesc,
@@ -352,6 +370,7 @@ impl SortKey {
     fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "default" => SortKey::Default,
+            "next_call_asc" => SortKey::NextCallAsc,
             "next_call_desc" => SortKey::NextCallDesc,
             "last_call_asc" => SortKey::LastCallAsc,
             "last_call_desc" => SortKey::LastCallDesc,
@@ -361,6 +380,7 @@ impl SortKey {
     fn as_str(self) -> &'static str {
         match self {
             SortKey::Default => "default",
+            SortKey::NextCallAsc => "next_call_asc",
             SortKey::NextCallDesc => "next_call_desc",
             SortKey::LastCallAsc => "last_call_asc",
             SortKey::LastCallDesc => "last_call_desc",
@@ -388,6 +408,43 @@ struct Params {
     owner: OwnerParam,
     due: Due,
     sort: SortKey,
+    next: DateRange,
+    last: DateRange,
+}
+
+/// 日付 (JST) の範囲。両端を含む。`from <= to` は解析時に確認済み
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct DateRange {
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+}
+
+impl DateRange {
+    fn start_text(self) -> Option<String> {
+        self.from.map(|d| d.format("%Y-%m-%d").to_string())
+    }
+    fn end_text(self) -> Option<String> {
+        self.to.map(|d| d.format("%Y-%m-%d").to_string())
+    }
+}
+
+/// `YYYY-MM-DD` (ゼロ詰め 10 文字、実在する日付、2000〜2100 年) だけ受け付ける
+fn parse_date(v: &str) -> Option<NaiveDate> {
+    let b = v.as_bytes();
+    let shaped = b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    if !shaped {
+        return None;
+    }
+    NaiveDate::parse_from_str(v, "%Y-%m-%d")
+        .ok()
+        .filter(|d| (2000..=2100).contains(&d.year()))
 }
 
 /// 不正なパラメータ名を `Err` で返す
@@ -400,6 +457,7 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     let mut owner = None;
     let mut due = None;
     let mut sort = None;
+    let mut dates: [Option<NaiveDate>; 4] = [None; 4];
     let mut seen: HashSet<&'static str> = HashSet::new();
     let mut once = |name: &'static str| -> Result<(), &'static str> {
         if seen.insert(name) {
@@ -463,7 +521,28 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
                 once("sort")?;
                 sort = Some(SortKey::parse(&v).ok_or("sort")?);
             }
+            "next_from" | "next_to" | "last_from" | "last_to" => {
+                let (name, slot): (&'static str, usize) = match k.as_ref() {
+                    "next_from" => ("next_from", 0),
+                    "next_to" => ("next_to", 1),
+                    "last_from" => ("last_from", 2),
+                    _ => ("last_to", 3),
+                };
+                once(name)?;
+                dates[slot] = Some(parse_date(&v).ok_or(name)?);
+            }
             _ => return Err("unknown"),
+        }
+    }
+    // 範囲の逆転 (from > to) は不正
+    if let (Some(a), Some(b)) = (dates[0], dates[1]) {
+        if a > b {
+            return Err("next_to");
+        }
+    }
+    if let (Some(a), Some(b)) = (dates[2], dates[3]) {
+        if a > b {
+            return Err("last_to");
         }
     }
     stages.sort();
@@ -476,6 +555,14 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
         owner: owner.unwrap_or(OwnerParam::Unspecified),
         due: due.unwrap_or(Due::All),
         sort: sort.unwrap_or(SortKey::Default),
+        next: DateRange {
+            from: dates[0],
+            to: dates[1],
+        },
+        last: DateRange {
+            from: dates[2],
+            to: dates[3],
+        },
     })
 }
 
@@ -512,6 +599,59 @@ pub fn jst_today_ms(now: DateTime<Utc>) -> i64 {
         .timestamp_millis()
 }
 
+/// 日付 (JST の暦日) → HubSpot の日付プロパティが使う「その日の UTC 0 時のエポック ms」
+fn date_ms(d: NaiveDate) -> i64 {
+    d.and_hms_opt(0, 0, 0)
+        .expect("midnight")
+        .and_utc()
+        .timestamp_millis()
+}
+
+const DAY_MS: i64 = 86_400_000;
+
+/// 日付の範囲 (エポック ms)。次回架電日 `bpo_13`・最終架電日 `bpo_20`
+#[derive(Debug, Clone, Copy, Default)]
+struct Ranges {
+    next_from: Option<i64>,
+    next_to: Option<i64>,
+    last_from: Option<i64>,
+    last_to: Option<i64>,
+}
+
+impl Ranges {
+    fn of(p: &Params) -> Self {
+        Self {
+            next_from: p.next.from.map(date_ms),
+            next_to: p.next.to.map(date_ms),
+            last_from: p.last.from.map(date_ms),
+            last_to: p.last.to.map(date_ms),
+        }
+    }
+    fn has_next(&self) -> bool {
+        self.next_from.is_some() || self.next_to.is_some()
+    }
+    fn has_last(&self) -> bool {
+        self.last_from.is_some() || self.last_to.is_some()
+    }
+}
+
+/// `bpo_13` の GTE / LTE。範囲が空 (下端 > 上端) なら `None` (その OR グループは作らない)
+fn next_filters(lo: Option<i64>, hi: Option<i64>) -> Option<Vec<Value>> {
+    if let (Some(l), Some(h)) = (lo, hi) {
+        if l > h {
+            return None;
+        }
+    }
+    let mut v = Vec::new();
+    if let Some(l) = lo {
+        v.push(f_op("bpo_13", "GTE", &l.to_string()));
+    }
+    if let Some(h) = hi {
+        v.push(f_op("bpo_13", "LTE", &h.to_string()));
+    }
+    Some(v)
+}
+
 // ---------------------------------------------------------------------------
 // 段階 (Search の組み立て)
 // ---------------------------------------------------------------------------
@@ -541,7 +681,7 @@ struct Phase {
     desc: bool,
 }
 
-fn phases(sort: SortKey, due: Due) -> Vec<Phase> {
+fn phases(sort: SortKey, due: Due, last_range: bool) -> Vec<Phase> {
     let p = |scope, last, sort_prop, desc| Phase {
         scope,
         last,
@@ -554,8 +694,8 @@ fn phases(sort: SortKey, due: Due) -> Vec<Phase> {
             p(scope, LastCall::Present, "bpo_20", false),
         ]
     };
-    match (sort, due) {
-        (SortKey::Default, Due::All) => {
+    let all = match (sort, due) {
+        (SortKey::Default | SortKey::NextCallAsc, Due::All) => {
             let mut v = vec![p(Scope::Due, LastCall::Any, "bpo_13", false)];
             v.extend(tail(Scope::NotDueUnprocessed));
             v
@@ -565,7 +705,9 @@ fn phases(sort: SortKey, due: Due) -> Vec<Phase> {
             v.extend(tail(Scope::NotDueUnprocessed));
             v
         }
-        (SortKey::Default, Due::Today) => vec![p(Scope::Due, LastCall::Any, "bpo_13", false)],
+        (SortKey::Default | SortKey::NextCallAsc, Due::Today) => {
+            vec![p(Scope::Due, LastCall::Any, "bpo_13", false)]
+        }
         (SortKey::NextCallDesc, Due::Today) => vec![p(Scope::Due, LastCall::Any, "bpo_13", true)],
         (SortKey::LastCallAsc, Due::All) => tail(Scope::Queue),
         (SortKey::LastCallAsc, Due::Today) => tail(Scope::Due),
@@ -580,7 +722,11 @@ fn phases(sort: SortKey, due: Due) -> Vec<Phase> {
                 p(scope, LastCall::Missing, "hs_object_id", false),
             ]
         }
-    }
+    };
+    // 最終架電日の範囲を指定したら、最終架電日が空の段階は範囲と矛盾するので出さない
+    all.into_iter()
+        .filter(|ph| !(last_range && ph.last == LastCall::Missing))
+        .collect()
 }
 
 fn f_eq(prop: &str, v: &str) -> Value {
@@ -597,12 +743,15 @@ fn f_has(prop: &str, has: bool) -> Value {
 }
 
 /// 段階の OR グループ (各グループは AND)。該当するステージが無ければ空。
-/// グループあたりのフィルタ数は最大 6 (HubSpot の上限)。
+/// グループあたりのフィルタ数は最大 6 (HubSpot の上限)。範囲の指定でフィルタが増えて 6 に収まらないときは、
+/// 架電禁止理由・ブロック理由の NOT_HAS_PROPERTY を Search に入れず、返ってきた行を後段で外す
+/// (`execute` の後段確認。外した件数は `partial.excluded.stop_reason`)。
 fn filter_groups(
     phase: Phase,
     stages: &[&str],
     owner: Option<&Value>,
     today_ms: i64,
+    r: &Ranges,
 ) -> Vec<Value> {
     let today = today_ms.to_string();
     let has_unp = stages.contains(&STAGE_UNPROCESSED);
@@ -612,50 +761,79 @@ fn filter_groups(
         .filter(|s| *s != STAGE_UNPROCESSED)
         .collect();
     let finish = |mut fs: Vec<Value>| -> Value {
-        match phase.last {
-            LastCall::Any => {}
-            LastCall::Missing => fs.push(f_has("bpo_20", false)),
-            LastCall::Present => fs.push(f_has("bpo_20", true)),
+        if r.has_last() {
+            // 範囲は「最終架電日が入っている」ことを含む
+            if let Some(l) = r.last_from {
+                fs.push(f_op("bpo_20", "GTE", &l.to_string()));
+            }
+            if let Some(h) = r.last_to {
+                fs.push(f_op("bpo_20", "LTE", &h.to_string()));
+            }
+        } else {
+            match phase.last {
+                LastCall::Any => {}
+                LastCall::Missing => fs.push(f_has("bpo_20", false)),
+                LastCall::Present => fs.push(f_has("bpo_20", true)),
+            }
         }
-        fs.push(f_has("bpo_3", false));
-        fs.push(f_has("bpo_4", false));
+        if fs.len() + 2 + usize::from(owner.is_some()) <= 6 {
+            fs.push(f_has("bpo_3", false));
+            fs.push(f_has("bpo_4", false));
+        }
         if let Some(o) = owner {
             fs.push(o.clone());
         }
         debug_assert!(fs.len() <= 6);
         json!({ "filters": fs })
     };
+    // 次回架電日が今日以前 (範囲があればその中) のグループ
+    let due_group = |stage: Value| -> Option<Value> {
+        let hi = Some(r.next_to.map_or(today_ms, |t| t.min(today_ms)));
+        let mut fs = vec![stage];
+        fs.extend(next_filters(r.next_from, hi)?);
+        Some(finish(fs))
+    };
     let mut groups = Vec::new();
     match phase.scope {
         Scope::Due => {
             if !stages.is_empty() {
-                groups.push(finish(vec![
-                    f_in("dealstage", stages),
-                    f_op("bpo_13", "LTE", &today),
-                ]));
+                groups.extend(due_group(f_in("dealstage", stages)));
             }
         }
         Scope::NotDueUnprocessed => {
             if has_unp {
-                groups.push(finish(vec![
-                    f_eq("dealstage", STAGE_UNPROCESSED),
-                    f_has("bpo_13", false),
-                ]));
-                groups.push(finish(vec![
-                    f_eq("dealstage", STAGE_UNPROCESSED),
-                    f_op("bpo_13", "GT", &today),
-                ]));
+                if r.has_next() {
+                    // 範囲を指定すると次回日が入っていることが前提。明日以降の部分だけ残る
+                    let lo = r
+                        .next_from
+                        .map_or(today_ms + DAY_MS, |f| f.max(today_ms + DAY_MS));
+                    if let Some(nf) = next_filters(Some(lo), r.next_to) {
+                        let mut fs = vec![f_eq("dealstage", STAGE_UNPROCESSED)];
+                        fs.extend(nf);
+                        groups.push(finish(fs));
+                    }
+                } else {
+                    groups.push(finish(vec![
+                        f_eq("dealstage", STAGE_UNPROCESSED),
+                        f_has("bpo_13", false),
+                    ]));
+                    groups.push(finish(vec![
+                        f_eq("dealstage", STAGE_UNPROCESSED),
+                        f_op("bpo_13", "GT", &today),
+                    ]));
+                }
             }
         }
         Scope::Queue => {
             if has_unp {
-                groups.push(finish(vec![f_eq("dealstage", STAGE_UNPROCESSED)]));
+                if let Some(nf) = next_filters(r.next_from, r.next_to) {
+                    let mut fs = vec![f_eq("dealstage", STAGE_UNPROCESSED)];
+                    fs.extend(nf);
+                    groups.push(finish(fs));
+                }
             }
             if !others.is_empty() {
-                groups.push(finish(vec![
-                    f_in("dealstage", &others),
-                    f_op("bpo_13", "LTE", &today),
-                ]));
+                groups.extend(due_group(f_in("dealstage", &others)));
             }
         }
     }
@@ -738,7 +916,7 @@ fn condition_hash(
     today_ms: i64,
 ) -> String {
     let parts = [
-        "v1".to_string(),
+        "v2".to_string(),
         email.trim().to_lowercase(),
         role.as_str().to_string(),
         params.limit.to_string(),
@@ -748,6 +926,10 @@ fn condition_hash(
         params.due.as_str().to_string(),
         params.sort.as_str().to_string(),
         today_ms.to_string(),
+        params.next.start_text().unwrap_or_default(),
+        params.next.end_text().unwrap_or_default(),
+        params.last.start_text().unwrap_or_default(),
+        params.last.end_text().unwrap_or_default(),
     ];
     hex(&Sha256::digest(parts.join("\u{1f}").as_bytes()))
 }
@@ -1164,12 +1346,13 @@ async fn execute(
     } else {
         params.stages.iter().map(String::as_str).collect()
     };
-    let active: Vec<(Phase, Vec<Value>)> = phases(params.sort, params.due)
+    let ranges = Ranges::of(params);
+    let active: Vec<(Phase, Vec<Value>)> = phases(params.sort, params.due, ranges.has_last())
         .into_iter()
         .map(|p| {
             (
                 p,
-                filter_groups(p, &selected, owner_filter.as_ref(), today_ms),
+                filter_groups(p, &selected, owner_filter.as_ref(), today_ms, &ranges),
             )
         })
         .filter(|(_, g)| !g.is_empty())
@@ -1296,6 +1479,10 @@ async fn execute(
             sort: params.sort.as_str().to_string(),
             q: params.q.clone(),
             limit: params.limit,
+            next_from: params.next.start_text(),
+            next_to: params.next.end_text(),
+            last_from: params.last.start_text(),
+            last_to: params.last.end_text(),
         },
         partial,
         generated_at: now.to_rfc3339_opts(SecondsFormat::Secs, true),
