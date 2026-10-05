@@ -49,6 +49,8 @@ pub const KNOWN_SCREENS: &[&str] = &[
     // React 移行 W2 (2026-09-30): 営業KPI (/app/sales-kpi)。旧 /sales-kpi は並走
     "sales-kpi",
     "job-copy",
+    // React 移行 競合調査 (2026-10-06): /app/competitor。ナビは旧 /competitor のまま (PR-6 で切替)
+    "competitor",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。
@@ -400,6 +402,12 @@ mod tests {
     #[test]
     fn 採用診断は既知の画面に載っている() {
         assert!(KNOWN_SCREENS.contains(&"recruitment-diag"));
+    }
+
+    #[test]
+    fn 競合調査は既知の画面に載っている() {
+        assert!(KNOWN_SCREENS.contains(&"competitor"));
+        assert!(is_valid_screen_name("competitor"));
     }
 
     #[test]
