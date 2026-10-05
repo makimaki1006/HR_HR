@@ -226,6 +226,13 @@ th.grp{text-align:center; color:var(--accent); background:var(--accent-soft)}
 .fixlinks a{color:var(--accent); text-decoration:none; font-weight:600}
 .fixlinks a:hover{text-decoration:underline}
 .fixlinks .sh{color:var(--faint); font-weight:400}
+.hsstatus{border:1px solid var(--border); border-radius:10px; padding:9px 13px; margin:0 0 14px;
+  font-size:13px; line-height:1.6; background:var(--card); box-shadow:var(--shadow)}
+.hsstatus .hs-head{font-weight:700}
+.hsstatus .hs-sub,.hsstatus .hs-note{color:var(--sub); font-size:12.5px}
+.hsstatus.ok{border-color:var(--ok); background:var(--ok-soft)}
+.hsstatus.loading{border-color:var(--accent); background:var(--accent-soft)}
+.hsstatus.stale{border-color:var(--warn); background:var(--warn-soft)}
 </style>
 </head>
 <body>
@@ -371,6 +378,54 @@ $('bporule').innerHTML='<b>内 BPO</b> は「BPOアポ取得日」がその期�
 // 月は TODAY(取得日)から作る。固定文字だと翌月も同じ月が出る(2026-10-02 修正)。
 $('range').textContent=(TODAY?TODAY.slice(0,4)+'年'+Number(TODAY.slice(5,7))+'月　／　':'')+'今週 '+md(D.week.start)+'（'+wd(D.week.start)+'）〜'+
   md(D.week.end)+'（'+wd(D.week.end)+'）　※'+D.generated_at+' 時点';
+
+// HubSpot 直読み (SALES_KPI_HUBSPOT_DIRECT=1) のときだけ、取得の状態を画面上部に出す。meta の値だけで決める。
+// 文言・条件は frontend/src/screens/sales-kpi/directStatus.ts と同じ (parity.direct.test.tsx で突き合わせる)。
+(function(){
+  const meta=(D&&D.meta&&typeof D.meta==='object')?D.meta:{};
+  const RK='salesKpi.directReload.v1', EVERY=15000, MAX=12;
+  const NOTE='HubSpot の値(即時): 商談・アポ・Cヨミ・決定者の当日分・メンバー・架電リスト。'+
+    '朝のシートの値: 担当別・リスト在庫・架電日次・週次・決定者の過去日。';
+  const kind=['ok','loading','stale'].includes(meta['HubSpot取得状態'])?meta['HubSpot取得状態']:null;
+  const store=(f)=>{try{return f();}catch(e){return null;}};
+  if(kind===null){store(()=>sessionStorage.removeItem(RK));return;}
+  const time=v=>{
+    const m=typeof v==='string'?/^\d{4}-\d{2}-\d{2} (\d{2}):(\d{2})$/.exec(v):null;
+    return (m&&Number(m[1])<=23&&Number(m[2])<=59)?{full:v,hhmm:m[1]+':'+m[2]}:null;
+  };
+  const fetched=time(meta['HubSpot取得時刻']);
+  let exhausted=false, n=0;
+  if(kind==='loading'){
+    n=Number(store(()=>sessionStorage.getItem(RK)))||0;
+    exhausted=n>=MAX;
+    if(exhausted) store(()=>sessionStorage.removeItem(RK));
+  }else store(()=>sessionStorage.removeItem(RK));
+  let head, sub=null;
+  if(kind==='loading'){
+    head='HubSpot から取得中です。数十秒かかります';
+    sub='取得が終わるまで、HubSpot の値は 0 件ではなく未取得です。'+(exhausted
+      ?'自動の再読み込みを止めました。しばらくしてからページを再読み込みしてください。'
+      :'15 秒ごとに自動で再読み込みします。');
+  }else if(kind==='stale'){
+    const k=meta['HubSpot最終失敗種別'], at=time(meta['HubSpot最終失敗時刻']);
+    head='最新の取得に失敗しました('+(typeof k==='string'&&k!==''?k:'種別不明')+'、'+(at?at.full:'時刻不明')+')。'+
+      (fetched?fetched.full+' 時点の値を表示しています':'前回取得した値を表示しています');
+  }else{
+    head='HubSpot から直接取得: '+(fetched?fetched.hhmm+' 時点':'時刻不明')+'(5 分ごとに更新)';
+  }
+  const el=document.createElement('div');
+  el.id='hsstatus'; el.className='hsstatus '+kind; el.setAttribute('role','status');
+  [['hs-head',head],['hs-sub',sub],['hs-note',NOTE]].forEach(([c,t])=>{
+    if(t===null) return;
+    const d=document.createElement('div'); d.className=c; d.textContent=t; el.appendChild(d);
+  });
+  const hd=document.querySelector('.wrap > header');
+  if(hd) hd.insertAdjacentElement('afterend',el);
+  if(kind==='loading'&&!exhausted){
+    store(()=>sessionStorage.setItem(RK,String(n+1)));
+    setTimeout(()=>location.reload(),EVERY);
+  }
+})();
 
 ['すべて'].concat(D.teams).forEach(t=>{
   const b=document.createElement('button');

@@ -59,6 +59,7 @@ import {
   type Wow,
   valueOfPerson,
 } from './calc';
+import { DirectStatusBanner } from './DirectStatusBanner';
 import type { CallPeriodKey, DealRow, Person, SalesKpiData } from './types';
 
 export interface UiState {
@@ -105,6 +106,8 @@ export interface SalesKpiViewProps {
   data: SalesKpiData;
   ui: UiState;
   actions: UiActions;
+  /** HubSpot 直読みが取得中のまま自動の再読み込みの上限に達した (案内文を変える) */
+  directExhausted?: boolean;
 }
 
 const faint = { color: 'var(--faint)' } as const;
@@ -1582,7 +1585,7 @@ function StockTab({ data }: { data: SalesKpiData }) {
 
 // ---------------------------------------------------------------- 画面全体
 
-export function SalesKpiView({ data, ui, actions }: SalesKpiViewProps) {
+export function SalesKpiView({ data, ui, actions, directExhausted }: SalesKpiViewProps) {
   const teamOf = teamOfMap(data.people);
   const hid = hiddenCount(data.people, ui.scope.hidden) > 0;
   const haveKettei = hasKettei(data);
@@ -1610,6 +1613,7 @@ export function SalesKpiView({ data, ui, actions }: SalesKpiViewProps) {
           </button>
         </div>
       </header>
+      <DirectStatusBanner meta={data.meta} exhausted={directExhausted === true} />
 
       {tabs.length > 1 ? (
         <div className="tabs" id="tabs" role="tablist">
