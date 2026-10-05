@@ -397,6 +397,16 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             post(handlers::competitor::report)
                 .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT_BYTES)),
         )
+        // 2026-10-05 (React 移行 PR-2): 競合調査の JSON API。旧 /report/competitor と同じ入力・同じ集計。
+        .route(
+            "/api/competitor/options",
+            get(handlers::competitor::api_options),
+        )
+        .route(
+            "/api/competitor/report",
+            post(handlers::competitor::api_report)
+                .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT_BYTES)),
+        )
         // 2026-08-04: 求人系ツールとキーワード需要のアプリ内タブ (iframe 統合)
         .route(
             "/tab/jobgen_tools",
