@@ -76,6 +76,7 @@ fn app(body_limit: usize) -> Router {
             "/api/competitor/report",
             post(super::api::api_report).layer(DefaultBodyLimit::max(body_limit)),
         )
+        .route("/api/competitor/pdf", post(super::api::api_pdf))
         .with_state(bare_state())
         .layer(SessionManagerLayer::new(MemoryStore::default()))
 }
@@ -829,4 +830,587 @@ fn sample_report(
     let agg = aggregate_records_with_mode(&records, WageMode::Monthly);
     let none = json!({"status":"unavailable","message":"x"});
     build_competitor_report(&agg, 10, title, &none, &none, &none)
+}
+
+// ---------------------------------------------------------------- PDF (PR-3)
+//
+// 描画エンジン (Chromium) を使わないテストは、生成関数を差し替えた `pdf_response` で見る。
+// 実 Chromium を使うテストは 1 本だけで `#[ignore]` (下記)。
+
+use super::api::{classify_pdf_error, content_disposition, jst_date, pdf_filename, pdf_response};
+use chrono::{NaiveDate, TimeZone, Utc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+const GOOD_PDF: &[u8] = b"%PDF-1.4\nbody\n%%EOF\n";
+const BUSY_MSG: &str = "PDF作成が混み合っています。少し時間をおいて再度お試しください。";
+const TIMEOUT_MSG: &str = "PDFの作成に時間がかかっています。再度お試しください。";
+
+fn day() -> NaiveDate {
+    NaiveDate::from_ymd_opt(2026, 10, 4).unwrap()
+}
+
+async fn body_json(res: axum::response::Response) -> (StatusCode, Value) {
+    let status = res.status();
+    let ct = res
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .map(|v| v.to_str().unwrap().to_owned())
+        .unwrap_or_default();
+    assert!(ct.starts_with("application/json"), "content-type: {ct}");
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&bytes).expect("JSON"))
+}
+
+/// 生成関数の呼び出し回数を数える (呼ばれてはいけない場面の検査用)。
+fn counting_ok(
+    counter: &Arc<AtomicUsize>,
+) -> impl FnOnce(String) -> std::future::Ready<Result<Vec<u8>, String>> {
+    let c = counter.clone();
+    move |_html| {
+        c.fetch_add(1, Ordering::SeqCst);
+        std::future::ready(Ok(GOOD_PDF.to_vec()))
+    }
+}
+
+fn stored_report(store: &ReportStore, owner: &str, now: Instant) -> String {
+    let mut r = sample_report("施設長");
+    r.meta.prefecture = Some("大阪府".to_owned());
+    store.insert(owner, r, now)
+}
+
+#[tokio::test]
+async fn pdf_of_another_users_report_is_not_found_and_does_not_render() {
+    let store = ReportStore::new(Duration::from_secs(1800), 10);
+    let flight = InFlight::new();
+    let now = Instant::now();
+    let id = stored_report(&store, "owner@example.test", now);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let res = pdf_response(
+        &store,
+        &flight,
+        "other@example.test",
+        &id,
+        now,
+        day(),
+        counting_ok(&calls),
+    )
+    .await;
+    let (status, v) = body_json(res).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{v}");
+    assert_error(&v, "report_not_found");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn pdf_of_expired_report_is_not_found_but_exactly_at_expiry_still_works() {
+    let store = ReportStore::new(Duration::from_secs(1800), 10);
+    let flight = InFlight::new();
+    let t0 = Instant::now();
+    let id = stored_report(&store, "exp@example.test", t0);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let at = t0 + Duration::from_secs(1800);
+    let res = pdf_response(
+        &store,
+        &flight,
+        "exp@example.test",
+        &id,
+        at,
+        day(),
+        counting_ok(&calls),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK, "ちょうど 30 分はまだ有効");
+    let at = t0 + Duration::from_secs(1801);
+    let res = pdf_response(
+        &store,
+        &flight,
+        "exp@example.test",
+        &id,
+        at,
+        day(),
+        counting_ok(&calls),
+    )
+    .await;
+    let (status, v) = body_json(res).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_error(&v, "report_not_found");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn pdf_with_unknown_or_malformed_id_is_not_found() {
+    let store = ReportStore::new(Duration::from_secs(1800), 10);
+    let flight = InFlight::new();
+    let now = Instant::now();
+    let _ = stored_report(&store, "m@example.test", now);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let long = "a".repeat(100_000);
+    let zeros = "0".repeat(64);
+    let ids = [
+        "",
+        " ",
+        zeros.as_str(),
+        "../../etc/passwd",
+        "..\\..\\x",
+        "あいう",
+        "abc\r\ndef",
+        "'; DROP TABLE x;--",
+        long.as_str(),
+    ];
+    for id in ids {
+        let res = pdf_response(
+            &store,
+            &flight,
+            "m@example.test",
+            id,
+            now,
+            day(),
+            counting_ok(&calls),
+        )
+        .await;
+        let (status, v) = body_json(res).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "id={:?}",
+            id.chars().take(20).collect::<String>()
+        );
+        assert_error(&v, "report_not_found");
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn pdf_success_has_pdf_body_headers_and_japanese_filename() {
+    let store = ReportStore::new(Duration::from_secs(1800), 10);
+    let flight = InFlight::new();
+    let now = Instant::now();
+    let id = stored_report(&store, "Ok@Example.test", now);
+    let seen = Arc::new(std::sync::Mutex::new(String::new()));
+    let s2 = seen.clone();
+    // メールの大文字小文字は区別しない (store と同じ扱い)
+    let res = pdf_response(
+        &store,
+        &flight,
+        "ok@example.test",
+        &id,
+        now,
+        day(),
+        move |html| {
+            *s2.lock().unwrap() = html;
+            std::future::ready(Ok(GOOD_PDF.to_vec()))
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let h = res.headers().clone();
+    assert_eq!(h[header::CONTENT_TYPE], "application/pdf");
+    assert_eq!(h[header::CACHE_CONTROL], "no-store");
+    assert_eq!(
+        h[header::CONTENT_DISPOSITION].to_str().unwrap(),
+        "attachment; filename=\"competitor-report-2026-10-04.pdf\"; filename*=UTF-8''%E7%AB%B6%E5%90%88%E8%AA%BF%E6%9F%BB_%E5%A4%A7%E9%98%AA%E5%BA%9C_%E6%96%BD%E8%A8%AD%E9%95%B7_2026-10-04.pdf"
+    );
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    assert!(bytes.starts_with(b"%PDF-"));
+    assert!(bytes.ends_with(b"%%EOF\n"));
+    // 保持中のレポートから作った HTML (Google の再取得ではない) が渡っている
+    let html = seen.lock().unwrap().clone();
+    assert!(html.contains("施設長"), "report title missing from html");
+    assert!(html.contains("tabpanel"));
+}
+
+#[tokio::test]
+async fn pdf_failure_is_json_and_same_report_id_can_be_retried() {
+    let store = ReportStore::new(Duration::from_secs(1800), 10);
+    let flight = InFlight::new();
+    let now = Instant::now();
+    let id = stored_report(&store, "retry@example.test", now);
+    let cases = [
+        (BUSY_MSG, StatusCode::SERVICE_UNAVAILABLE, "pdf_busy"),
+        (TIMEOUT_MSG, StatusCode::GATEWAY_TIMEOUT, "pdf_timeout"),
+        (
+            "PDFを作成できませんでした。再度お試しください。",
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pdf_failed",
+        ),
+        (
+            "PDFの作成準備に失敗しました。",
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pdf_failed",
+        ),
+        (
+            "未知の文言 /tmp/secret chromium.log",
+            StatusCode::SERVICE_UNAVAILABLE,
+            "pdf_failed",
+        ),
+    ];
+    for (msg, want_status, want_code) in cases {
+        let res = pdf_response(
+            &store,
+            &flight,
+            "retry@example.test",
+            &id,
+            now,
+            day(),
+            move |_| std::future::ready(Err::<Vec<u8>, String>(msg.to_owned())),
+        )
+        .await;
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, want_status, "{msg}");
+        assert_error(&v, want_code);
+        // 生成関数の生の文言は出さない
+        assert!(!v["message"].as_str().unwrap().contains("/tmp"));
+        // 失敗しても枠は解放され、レポートは残り、同じ ID で再試行できる
+        let calls = Arc::new(AtomicUsize::new(0));
+        let ok = pdf_response(
+            &store,
+            &flight,
+            "retry@example.test",
+            &id,
+            now,
+            day(),
+            counting_ok(&calls),
+        )
+        .await;
+        assert_eq!(ok.status(), StatusCode::OK, "retry after {want_code}");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
+async fn pdf_output_that_is_not_a_complete_pdf_is_pdf_failed() {
+    let store = ReportStore::new(Duration::from_secs(1800), 10);
+    let flight = InFlight::new();
+    let now = Instant::now();
+    let id = stored_report(&store, "bad@example.test", now);
+    for bytes in [
+        b"<html>".to_vec(),
+        b"%PDF-1.4 truncated".to_vec(),
+        Vec::new(),
+    ] {
+        let b = bytes.clone();
+        let res = pdf_response(
+            &store,
+            &flight,
+            "bad@example.test",
+            &id,
+            now,
+            day(),
+            move |_| std::future::ready(Ok(b)),
+        )
+        .await;
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{bytes:?}");
+        assert_error(&v, "pdf_failed");
+    }
+}
+
+#[tokio::test]
+async fn second_concurrent_pdf_for_same_user_is_429_and_other_user_is_not_blocked() {
+    let store = ReportStore::new(Duration::from_secs(1800), 10);
+    let flight = InFlight::new();
+    let now = Instant::now();
+    let id = stored_report(&store, "busy@example.test", now);
+    let id2 = stored_report(&store, "free@example.test", now);
+    let calls = Arc::new(AtomicUsize::new(0));
+    {
+        // 1 本目が作成中 (レポート作成中も同じ枠を使う)
+        let _slot = flight.try_acquire("Busy@Example.test").unwrap();
+        let res = pdf_response(
+            &store,
+            &flight,
+            "busy@example.test",
+            &id,
+            now,
+            day(),
+            counting_ok(&calls),
+        )
+        .await;
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_error(&v, "report_in_progress");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let res = pdf_response(
+            &store,
+            &flight,
+            "free@example.test",
+            &id2,
+            now,
+            day(),
+            counting_ok(&calls),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+    // 1 本目が終われば通る
+    let res = pdf_response(
+        &store,
+        &flight,
+        "busy@example.test",
+        &id,
+        now,
+        day(),
+        counting_ok(&calls),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn truly_concurrent_pdfs_for_one_user_run_one_at_a_time() {
+    let store = Arc::new(ReportStore::new(Duration::from_secs(1800), 10));
+    let flight = Arc::new(InFlight::new());
+    let now = Instant::now();
+    let id = stored_report(&store, "race@example.test", now);
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<()>();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+    let (s1, f1, i1) = (store.clone(), flight.clone(), id.clone());
+    let first = tokio::spawn(async move {
+        pdf_response(
+            &s1,
+            &f1,
+            "race@example.test",
+            &i1,
+            now,
+            day(),
+            move |_| async move {
+                let _ = started_tx.send(());
+                let _ = release_rx.await;
+                Ok(GOOD_PDF.to_vec())
+            },
+        )
+        .await
+        .status()
+    });
+    started_rx.await.unwrap(); // 1 本目が生成の途中
+    let calls = Arc::new(AtomicUsize::new(0));
+    let second = pdf_response(
+        &store,
+        &flight,
+        "race@example.test",
+        &id,
+        now,
+        day(),
+        counting_ok(&calls),
+    )
+    .await;
+    assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    release_tx.send(()).unwrap();
+    assert_eq!(first.await.unwrap(), StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn pdf_error_classification_is_pinned_to_the_messages_in_competitor_pdf_rs() {
+    // 描画側 (無改修) の固定文言が変わったらここが赤くなる。
+    let src = include_str!("competitor_pdf.rs");
+    for m in [BUSY_MSG, TIMEOUT_MSG] {
+        assert!(src.contains(m), "competitor_pdf.rs から文言が消えた: {m}");
+    }
+    assert_eq!(
+        classify_pdf_error(BUSY_MSG),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            CompetitorErrorCode::PdfBusy
+        )
+    );
+    assert_eq!(
+        classify_pdf_error(TIMEOUT_MSG),
+        (StatusCode::GATEWAY_TIMEOUT, CompetitorErrorCode::PdfTimeout)
+    );
+    assert_eq!(
+        classify_pdf_error("PDFを作成できませんでした。"),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            CompetitorErrorCode::PdfFailed
+        )
+    );
+    assert_eq!(
+        classify_pdf_error(""),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            CompetitorErrorCode::PdfFailed
+        )
+    );
+}
+
+fn meta_with(
+    title: &str,
+    pref: Option<&str>,
+) -> crate::handlers::survey::report_html::competitor_model::ReportMeta {
+    let mut m = sample_report("x").meta;
+    m.title = title.to_owned();
+    m.prefecture = pref.map(str::to_owned);
+    m
+}
+
+#[test]
+fn filename_follows_the_decided_pattern() {
+    assert_eq!(
+        pdf_filename(&meta_with("施設長", Some("大阪府")), day()),
+        "競合調査_大阪府_施設長_2026-10-04.pdf"
+    );
+    // 都道府県なしは「全国」
+    assert_eq!(
+        pdf_filename(&meta_with("施設長", None), day()),
+        "競合調査_全国_施設長_2026-10-04.pdf"
+    );
+    assert_eq!(
+        pdf_filename(&meta_with("施設長", Some("")), day()),
+        "競合調査_全国_施設長_2026-10-04.pdf"
+    );
+    // 調査名が空・記号だけでも壊れない
+    assert_eq!(
+        pdf_filename(&meta_with("", Some("大阪府")), day()),
+        "競合調査_大阪府_2026-10-04.pdf"
+    );
+    assert_eq!(
+        pdf_filename(&meta_with("///", Some("大阪府")), day()),
+        "競合調査_大阪府_2026-10-04.pdf"
+    );
+}
+
+#[test]
+fn filename_replaces_dangerous_characters_and_limits_length() {
+    let nasty = "a/b\\c\r\nd\"e\0f\tg:h*i?j<k>l|m;n%o#p\u{202e}q\u{200b}r s";
+    let name = pdf_filename(&meta_with(nasty, Some("../大阪府")), day());
+    for bad in [
+        '/', '\\', '\r', '\n', '"', '\0', '\t', ':', '*', '?', '<', '>', '|', ';', '%', '#',
+        '\u{202e}', '\u{200b}', ' ',
+    ] {
+        assert!(!name.contains(bad), "{bad:?} が残った: {name:?}");
+    }
+    assert!(!name.contains(".."), "{name:?}");
+    assert!(name.starts_with("競合調査_"), "{name:?}");
+    assert!(name.ends_with("_2026-10-04.pdf"), "{name:?}");
+    // 調査名は 30 文字まで (危険文字は `_` に置換され、連続は 1 つにまとまる)
+    assert_eq!(
+        name,
+        "競合調査_大阪府_a_b_c_d_e_f_g_h_i_j_k_l_m_n_o_2026-10-04.pdf"
+    );
+    let name = pdf_filename(
+        &meta_with("x\u{202e}y\u{200b}z s%#&\u{feff}", Some("大阪府")),
+        day(),
+    );
+    assert_eq!(name, "競合調査_大阪府_x_y_z_s_2026-10-04.pdf");
+    // 超長
+    let long = "あ".repeat(5000);
+    let name = pdf_filename(&meta_with(&long, Some(&long)), day());
+    assert!(name.chars().count() <= 100, "{}", name.chars().count());
+    assert!(name.ends_with("_2026-10-04.pdf"));
+    assert!(name.starts_with("競合調査_"));
+}
+
+#[test]
+fn content_disposition_is_single_line_ascii_with_rfc5987_filename() {
+    let v = content_disposition("競合調査_大阪府_施設長_2026-10-04.pdf");
+    assert!(v.is_ascii());
+    assert!(!v.contains('\n') && !v.contains('\r'));
+    assert_eq!(
+        v,
+        "attachment; filename=\"competitor-report-2026-10-04.pdf\"; filename*=UTF-8''%E7%AB%B6%E5%90%88%E8%AA%BF%E6%9F%BB_%E5%A4%A7%E9%98%AA%E5%BA%9C_%E6%96%BD%E8%A8%AD%E9%95%B7_2026-10-04.pdf"
+    );
+    assert!(header::HeaderValue::from_str(&v).is_ok());
+    // 日付を含まない名前でもフォールバックは固定名
+    let v = content_disposition("report.pdf");
+    assert!(v.contains("filename*=UTF-8''report.pdf"), "{v}");
+}
+
+#[test]
+fn date_in_filename_is_jst() {
+    // UTC 15:00 = JST 翌日 0:00
+    let t = Utc.with_ymd_and_hms(2026, 10, 3, 15, 0, 0).unwrap();
+    assert_eq!(jst_date(t), day());
+    let t = Utc.with_ymd_and_hms(2026, 10, 3, 14, 59, 59).unwrap();
+    assert_eq!(jst_date(t), NaiveDate::from_ymd_opt(2026, 10, 3).unwrap());
+}
+
+// ---- HTTP (ルーター経由)
+
+async fn post_pdf(app: &Router, cookie: Option<&str>, body: &str) -> axum::response::Response {
+    let mut req = Request::builder()
+        .method("POST")
+        .uri("/api/competitor/pdf")
+        .header("content-type", "application/json");
+    if let Some(c) = cookie {
+        req = req.header(header::COOKIE, c);
+    }
+    app.clone()
+        .oneshot(req.body(Body::from(body.to_owned())).unwrap())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn pdf_http_requires_login_and_valid_body() {
+    let app = app(1024 * 1024);
+    let res = post_pdf(&app, None, "{}").await;
+    let (status, v) = body_json(res).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(v["error"], "auth_required");
+    let cookie = login(&app, "pdf-http-body@example.test").await;
+    for body in ["", "not json", "{}", r#"{"report_id": 5}"#, "[]"] {
+        let (status, v) = body_json(post_pdf(&app, Some(&cookie), body).await).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_error(&v, "invalid_request");
+    }
+    let (status, v) =
+        body_json(post_pdf(&app, Some(&cookie), r#"{"report_id":"nope"}"#).await).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_error(&v, "report_not_found");
+}
+
+#[tokio::test]
+async fn pdf_http_other_user_gets_not_found_and_broken_chromium_gives_json_error() {
+    let app = app(1024 * 1024);
+    let owner = "pdf-http-owner@example.test";
+    let id = stored_report(store(), owner, Instant::now());
+    let other_cookie = login(&app, "pdf-http-other@example.test").await;
+    let body = format!(r#"{{"report_id":"{id}"}}"#);
+    let (status, v) = body_json(post_pdf(&app, Some(&other_cookie), &body).await).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_error(&v, "report_not_found");
+
+    // Chromium のパスを壊す。他のテストはこの環境変数を使わない (実 Chromium のテストは #[ignore])。
+    let prev = std::env::var_os("PDF_CHROMIUM_PATH");
+    std::env::set_var("PDF_CHROMIUM_PATH", "Z:/definitely/not/chromium.exe");
+    let cookie = login(&app, owner).await;
+    let (status, v) = body_json(post_pdf(&app, Some(&cookie), &body).await).await;
+    // 再試行 (同じ report_id) も 404 にならず、同じ JSON エラーになる
+    let (status2, v2) = body_json(post_pdf(&app, Some(&cookie), &body).await).await;
+    match prev {
+        Some(p) => std::env::set_var("PDF_CHROMIUM_PATH", p),
+        None => std::env::remove_var("PDF_CHROMIUM_PATH"),
+    }
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{v}");
+    assert_error(&v, "pdf_failed");
+    assert_eq!(status2, StatusCode::SERVICE_UNAVAILABLE, "{v2}");
+    assert_error(&v2, "pdf_failed");
+    assert!(
+        store().get(owner, &id, Instant::now()).is_some(),
+        "失敗してもレポートは残る"
+    );
+}
+
+#[tokio::test]
+#[ignore = "Requires a Chromium/Edge executable (PDF_CHROMIUM_PATH or the default path), node and playwright-core; run with --ignored"]
+async fn pdf_http_real_chromium_returns_valid_pdf() {
+    let app = app(1024 * 1024);
+    let owner = "pdf-real@example.test";
+    let id = stored_report(store(), owner, Instant::now());
+    let cookie = login(&app, owner).await;
+    let res = post_pdf(&app, Some(&cookie), &format!(r#"{{"report_id":"{id}"}}"#)).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.headers()[header::CONTENT_TYPE], "application/pdf");
+    let cd = res.headers()[header::CONTENT_DISPOSITION]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(cd.contains("filename*=UTF-8''"), "{cd}");
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    assert!(bytes.starts_with(b"%PDF-"));
+    assert!(bytes[bytes.len().saturating_sub(32)..]
+        .windows(5)
+        .any(|w| w == b"%%EOF"));
+    assert!(bytes.len() > 10_000);
 }
