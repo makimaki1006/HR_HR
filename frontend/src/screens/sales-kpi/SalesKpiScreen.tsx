@@ -2,7 +2,7 @@
 // 1 本読んで描く。状態 (絞り込み・開いている一覧・期間・タブ) はここで持ち、
 // 見た目は SalesKpiView に渡す。Shell 非依存 (ヘッダー・戻るリンクも画面の中)。
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ApiAbortedError, apiGet } from '../../api/client';
+import { ApiAbortedError, NO_TIMEOUT, apiGet } from '../../api/client';
 import {
   CLOSED_CARD_PANEL,
   DEFAULT_CALL_PERIOD,
@@ -95,10 +95,10 @@ export function LoadStateView({ state }: { state: LoadState }) {
 }
 
 /**
- * データ取得の待ち時間の上限。旧画面は上限なし。デプロイ直後などサーバの常駐キャッシュが空のときは
- * スプレッドシートの KPI営業_ シート 11 枚を読むため、既定の 15 秒では打ち切られる (2026-10-05 本番で発生)。
+ * データ取得の待ち時間は上限なし (旧画面と同じ。ユーザー判断 2026-10-05)。デプロイ直後などサーバの
+ * 常駐キャッシュが空のときは KPI営業_ シート 11 枚を読むため、既定の 15 秒では打ち切られた。
  */
-export const DATA_TIMEOUT_MS = 90_000;
+export const DATA_TIMEOUT_MS = NO_TIMEOUT;
 
 const INITIAL_SCOPE: Scope = { team: 'すべて', person: null, hidden: new Set() };
 

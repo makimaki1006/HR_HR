@@ -16,8 +16,8 @@ describe('SalesKpiScreen', () => {
     const html = renderToStaticMarkup(<LoadStateView state={{ status: 'error', message: 'x' }} />);
     expect(html).not.toContain('GAS');
   });
-  it('待ち時間の上限は 90 秒 (デプロイ直後はシート 11 枚を読むので既定の 15 秒では切れる)', () => {
-    expect(DATA_TIMEOUT_MS).toBe(90_000);
+  it('待ち時間の上限なし (旧画面と同じ。デプロイ直後はシート 11 枚を読むので遅い)', () => {
+    expect(DATA_TIMEOUT_MS).toBe(Infinity);
   });
   it('?refresh=1 のときだけ API にも refresh=1 を付ける', () => {
     expect(dataPath('')).toBe('/api/sales-kpi/data');
