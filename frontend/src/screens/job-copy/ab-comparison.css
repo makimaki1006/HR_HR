@@ -1,0 +1,18 @@
+.ab-comparison { padding: 20px; min-width: 0; }
+.ab-controls { display: grid; gap: 14px; margin: 20px 0; }
+.ab-controls label, .ab-variant label { display: grid; gap: 6px; }
+.ab-controls input:not([type=checkbox]), .ab-controls textarea, .ab-comparison select { width: 100%; min-width: 0; padding: 10px; border: 1px solid #b4c5cf; border-radius: 6px; background: white; color: #203743; }
+.ab-controls label:has(input[type=checkbox]) { display: flex; align-items: center; }
+.ab-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ab-variant { min-width: 0; padding: 16px; border: 1px solid #b4c5cf; border-radius: 8px; overflow-wrap: anywhere; }
+.ab-variant h3 { margin-top: 0; }
+.ab-variant details, .ab-comparison > section { margin: 18px 0; }
+.ab-comparison summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.ab-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ab-values dd { margin: 4px 0; font-weight: 600; }
+.ab-table-scroll { overflow-x: auto; }
+.ab-table-scroll table { width: 100%; min-width: 570px; border-collapse: collapse; }
+.ab-table-scroll td, .ab-table-scroll th { padding: 10px; text-align: left; border-bottom: 1px solid #d7e0e6; white-space: nowrap; }
+.ab-comparison :focus-visible { outline: 3px solid #1668c7; outline-offset: 3px; }
+@media (max-width: 800px) { .ab-pair { grid-template-columns: minmax(0, 1fr); } .ab-comparison { padding: 12px; } }
+@media print { .ab-pair { grid-template-columns: minmax(0, 1fr); } .ab-table-scroll { overflow: visible; } .ab-table-scroll table { min-width: 0; } }
