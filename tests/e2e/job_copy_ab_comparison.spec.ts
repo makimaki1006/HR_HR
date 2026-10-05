@@ -1,3 +1,4 @@
+import { selectJobFeature } from './job-copy-navigation';
 /** Synthetic cross-record fixture E2E only. Different record IDs are kept separate;
  * these checks do not establish random assignment, causal effects or live auth. */
 import { createHash } from 'node:crypto';
@@ -39,7 +40,7 @@ test.beforeAll(() => { mkdirSync(visuals, { recursive: true }); });
 test('cross-record A/B preserves bodies, images, independent denominators, scope and overlapping metric periods', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
   await page.goto('/app/job-copy');
-  await page.getByRole('button', { name: '2求人のA/B比較', exact: true }).click();
+  await selectJobFeature(page, 'ab');
   const comparison = page.getByRole('region', { name: '2求人のA/B比較', exact: true });
   await expect(comparison).toContainText('B求人を選ぶと');
   await comparison.getByLabel('Bとして比較する求人').selectOption('synthetic-ab-B');
@@ -104,7 +105,7 @@ test('B candidates include loaded records outside list filters and changing the 
   await page.goto('/app/job-copy');
   await page.locator('.jc-list input[type=search]').fill('合成配送募集A');
   await expect(page.locator('.jc-job')).toHaveCount(1);
-  await page.getByRole('button', { name: '2求人のA/B比較', exact: true }).click();
+  await selectJobFeature(page, 'ab');
   const comparison = page.getByRole('region', { name: '2求人のA/B比較', exact: true });
   const chooser = comparison.getByLabel('Bとして比較する求人');
   await expect(chooser.locator('option[value="synthetic-ab-A"]')).toHaveCount(0);
@@ -115,9 +116,9 @@ test('B candidates include loaded records outside list filters and changing the 
   await expect(confirm).toBeChecked();
   await comparison.getByLabel('比較グループ名').fill('合成配送の比較設定');
   await comparison.getByLabel('検証したい仮説').fill('合成例：研修期間の説明を比較する');
-  await page.getByRole('button', { name: '本文・履歴', exact: true }).click();
+  await selectJobFeature(page, 'body');
   await expect(comparison).toBeHidden();
-  await page.getByRole('button', { name: '2求人のA/B比較', exact: true }).click();
+  await selectJobFeature(page, 'ab');
   await expect(confirm).toBeChecked();
   await expect(chooser).toHaveValue('synthetic-ab-B');
   await expect(comparison.getByLabel('比較グループ名')).toHaveValue('合成配送の比較設定');

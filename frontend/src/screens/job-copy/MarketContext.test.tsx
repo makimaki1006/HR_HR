@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MarketContext } from './MarketContext';
+import { ApplicationTrend } from './ApplicationTrend';
 import type { JobCopyRecord } from './data';
 
 const api = vi.hoisted(() => vi.fn());
@@ -12,15 +13,15 @@ const job: JobCopyRecord = { id: 'synthetic', title: '合成求人', company: '�
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('market UI evidence and recovery', () => {
-  it('distinguishes a verified zero total from absent daily aggregates and all missing dates', async () => {
+  it('distinguishes a verified zero total from absent daily aggregates and all missing dates', () => {
     api.mockResolvedValue({ ok: true, data: metadata });
-    const view = render(<MarketContext job={{ ...job, overallApplications: { total: 0, missingDate: 0, fetchedAt: '2026-10-05T00:00:00Z', distributions: {}, byDate: {} } }} />);
+    const view = render(<ApplicationTrend job={{ ...job, overallApplications: { total: 0, missingDate: 0, fetchedAt: '2026-10-05T00:00:00Z', distributions: {}, byDate: {} } }} />);
     expect(screen.getByText(/取得済み応募は0件です/)).toBeTruthy();
-    view.rerender(<MarketContext job={{ ...job, id: 'missing', overallApplications: { total: 3, missingDate: 3, fetchedAt: '2026-10-05T00:00:00Z', distributions: {}, byDate: {} } }} />);
+    view.rerender(<ApplicationTrend job={{ ...job, id: 'missing', overallApplications: { total: 3, missingDate: 3, fetchedAt: '2026-10-05T00:00:00Z', distributions: {}, byDate: {} } }} />);
     expect(screen.getByText(/応募日がすべて不明/)).toBeTruthy();
-    view.rerender(<MarketContext job={{ ...job, id: 'uncollected' }} />);
+    view.rerender(<ApplicationTrend job={{ ...job, id: 'uncollected' }} />);
     expect(screen.getByText(/応募日別集計が未取得/)).toBeTruthy();
-    await waitFor(() => { expect(api).toHaveBeenCalledTimes(3); });
+    expect(api).not.toHaveBeenCalled();
   });
   it('can retry the initial failed market request without navigating away', async () => {
     api.mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: true, data: metadata });

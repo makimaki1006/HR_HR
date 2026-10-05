@@ -1,3 +1,4 @@
+import { selectJobFeature } from './job-copy-navigation';
 /** Frontend fixture E2E: candidate shared AppShell uses synthetic /api/nav.
  * Real previously captured data/images use local HTTP without success stubs.
  * This does not demonstrate production OIDC authorization, continuous Drive availability or live writes.
@@ -118,11 +119,11 @@ test('candidate shared navigation, exact captured full body, company filter and 
   await expect(page.locator('.jc-job')).toHaveCount(filtered.length);
   await page.locator('.jc-job').last().click();
   expect(await page.locator('.jc-body').first().textContent() === filtered.at(-1)!.body).toBe(true);
-  await page.getByRole('button', { name: '差分比較', exact: true }).click();
+  await selectJobFeature(page, 'diff');
   await expect(page.locator('.jc-comparison-overview')).toContainText('変更なし');
-  await page.getByRole('button', { name: '応募者構成', exact: true }).click();
+  await selectJobFeature(page, 'applicants');
   await expect(page.getByRole('region', { name: '求人全体の実応募者構成' })).toBeVisible();
-  await page.getByRole('button', { name: '外部文面を確認', exact: true }).click();
+  await selectJobFeature(page, 'receive');
   await expect(page.getByLabel('受け取った文面')).toBeVisible();
   expect(requested.some(path => path.startsWith('/api/filters/') || path.startsWith('/api/set_'))).toBe(false);
 });
@@ -135,7 +136,7 @@ test('mobile shared shell stays within the viewport and printed reports hide nav
   expect(richIndex >= 0).toBe(true);
   await page.locator('.jc-job').nth(richIndex).click();
   expect(await page.locator('.jc-body').first().textContent() === jobs[richIndex].body).toBe(true);
-  await page.getByRole('button', { name: '顧客報告・検証', exact: true }).click();
+  await selectJobFeature(page, 'report');
   const hypothesis = '合成の検証記録です。\n'.repeat(40);
   await page.getByRole('textbox', { name: '仮説', exact: true }).fill(hypothesis);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -173,13 +174,13 @@ test('expanded image data retains real application totals and the richest job di
   for (const width of [1440, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 1100 });
     await page.locator('.jc-job').nth(index).click();
-    await page.getByRole('button', { name: '本文・履歴', exact: true }).click();
+    await selectJobFeature(page, 'body');
     const image = page.getByRole('region', { name: 'この版の掲載画像', exact: true }).getByRole('img').first();
     await image.scrollIntoViewIfNeeded();
     await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: resolve(visuals, `images-${width}.png`) });
-    await page.getByRole('button', { name: '応募者構成', exact: true }).click();
+    await selectJobFeature(page, 'applicants');
     const overall = page.getByRole('region', { name: '求人全体の実応募者構成' });
     await expect(overall).toContainText('応募34件');
     await expect(overall.locator('.ac-chart')).toHaveCount(4);
