@@ -178,13 +178,15 @@ pub fn engagement_properties(et: EngagementType) -> &'static [&'static str] {
 }
 
 /// ルートが共有するもの (許可メールと定義のキャッシュ)。
-struct CrmCtx {
-    access: CrmAccess,
+pub(super) struct CrmCtx {
+    pub(super) access: CrmAccess,
     metadata_cache: MetadataCache,
+    /// 架電キュー (`call_queue`) の状態 (owner / ステージ名のキャッシュ、cursor の署名鍵)
+    pub(super) queue: super::call_queue::CallQueueState,
     /// レコード読み取りの同時実行数の上限。HubSpot の鍵は既存の営業自動化バッチと共有で
     /// (100 req/10 秒をアカウントで共有)、1 回の読み取りが最大 6 呼び出しになるため、
     /// 連打・多タブで枠を食い尽くさないよう絞る。待ちも締め切りに含める。
-    read_slots: tokio::sync::Semaphore,
+    pub(super) read_slots: tokio::sync::Semaphore,
 }
 
 /// レコード読み取りの同時実行数
@@ -198,13 +200,26 @@ pub const METADATA_REFRESH_FLOOR: Duration = Duration::from_secs(5);
 /// **`protected_routes` (auth_middleware) の外に merge する**。未ログインを /login への 303 ではなく
 /// JSON の 401 で返すため。認可は各ハンドラの先頭で `rbac::authorize` が行う。GET のみ。
 pub fn router(access: CrmAccess) -> Router<Arc<AppState>> {
+    router_with_queue(access, super::call_queue::CallQueueState::new())
+}
+
+/// [`router`] の架電キュー状態を差し替えられる版 (テストで時刻・署名鍵を固定する)。
+pub(super) fn router_with_queue(
+    access: CrmAccess,
+    queue: super::call_queue::CallQueueState,
+) -> Router<Arc<AppState>> {
     let ctx = Arc::new(CrmCtx {
         access,
         metadata_cache: MetadataCache::with_refresh_floor(METADATA_REFRESH_FLOOR),
+        queue,
         read_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_RECORD_READS),
     });
     Router::new()
         .route("/api/crm/metadata", get(get_metadata))
+        .route(
+            "/api/crm/call-queue",
+            get(super::call_queue::get_call_queue),
+        )
         .route("/api/crm/contacts/{id}", get(get_contact))
         .route("/api/crm/companies/{id}", get(get_company))
         .route("/api/crm/deals/{id}", get(get_deal))
@@ -414,7 +429,7 @@ pub struct CrmRecordResponse {
     pub meta: CrmMeta,
 }
 
-fn error_json(status: StatusCode, kind: &str) -> Response {
+pub(super) fn error_json(status: StatusCode, kind: &str) -> Response {
     (
         status,
         Json(CrmErrorResponse {
@@ -425,7 +440,7 @@ fn error_json(status: StatusCode, kind: &str) -> Response {
         .into_response()
 }
 
-fn timeout_response() -> Response {
+pub(super) fn timeout_response() -> Response {
     (
         StatusCode::GATEWAY_TIMEOUT,
         Json(CrmErrorResponse {
@@ -437,7 +452,7 @@ fn timeout_response() -> Response {
 }
 
 /// HubSpot の失敗を応答にする。`message` は `HubSpotError` の固定文言 (上流の応答本文は含まない)。
-fn hubspot_error_response(e: &HubSpotError) -> Response {
+pub(super) fn hubspot_error_response(e: &HubSpotError) -> Response {
     let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::BAD_GATEWAY);
     (
         status,

@@ -147,7 +147,7 @@ fn parse_properties(
     Ok(out)
 }
 
-fn parse_pipelines(v: &Value) -> Result<Vec<CrmPipeline>, HubSpotError> {
+pub(crate) fn parse_pipelines(v: &Value) -> Result<Vec<CrmPipeline>, HubSpotError> {
     let mut pipelines: Vec<HubPipeline> = Vec::new();
     for item in results_array(v, "pipelines")? {
         pipelines
