@@ -16,4 +16,12 @@ stages: Array<string>,
 /**
  * `all` / `today`
  */
-due: string, sort: string, q: string | null, limit: number, };
+due: string, sort: string, q: string | null, limit: number, 
+/**
+ * 次回架電日 `bpo_13` の範囲 (JST の日付 `YYYY-MM-DD`。指定がなければ null)
+ */
+next_from: string | null, next_to: string | null, 
+/**
+ * 最終架電日 `bpo_20` の範囲 (同上)
+ */
+last_from: string | null, last_to: string | null, };

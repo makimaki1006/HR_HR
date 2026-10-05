@@ -1848,3 +1848,314 @@ async fn due_today_は次回日が来たものだけ() {
         assert_eq!(flt(&g, "bpo_13").unwrap()["operator"], "LTE");
     }
 }
+
+// ---------------------------------------------------------------------------
+// PR-2: 日付の範囲 (next_from / next_to / last_from / last_to) と sort=next_call_asc
+// ---------------------------------------------------------------------------
+
+fn bpo13_filters(g: &Value, prop: &str) -> Vec<(String, String)> {
+    g["filters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["propertyName"] == prop)
+        .map(|f| {
+            (
+                f["operator"].as_str().unwrap().to_string(),
+                f["value"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 日付の範囲と未知の_sort_の不正値は_400_で_hubspot_を呼ばない() {
+    let e = env(FakeHs::new()).await;
+    let cases = [
+        "?next_from=2026-13-01",
+        "?next_from=2026-02-30",
+        "?next_from=20261005",
+        "?next_from=2026-1-5",
+        "?next_from=",
+        "?next_from=2026-10-05T00:00:00Z",
+        "?next_from=1999-12-31",
+        "?next_from=2101-01-01",
+        "?next_to=abc",
+        "?last_from=2026-10-32",
+        "?last_to=2026/10/05",
+        "?next_from=2026-10-10&next_to=2026-10-09",
+        "?last_from=2026-10-10&last_to=2026-10-09",
+        "?next_from=2026-10-01&next_from=2026-10-02",
+        "?last_to=2026-10-01&last_to=2026-10-02",
+        "?sort=next_call",
+        "?sort=NEXT_CALL_ASC",
+        "?sort=next_call_asc&sort=default",
+    ];
+    for q in cases {
+        let (s, v) = e.admin_get(q).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}");
+        assert_eq!(v["error_kind"], "invalid_param", "{q}");
+    }
+    assert!(e.calls().is_empty(), "{:?}", e.calls());
+    // from == to は通る (1 日だけの範囲)
+    let (s, _) = e
+        .admin_get("?next_from=2026-10-01&next_to=2026-10-01")
+        .await;
+    assert_eq!(s, StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sort_next_call_asc_は_default_と同じ並び() {
+    async fn run(q: &str) -> (Value, Vec<(String, String)>) {
+        let e = env(FakeHs::new()).await;
+        let (s, v) = e.admin_get(q).await;
+        assert_eq!(s, StatusCode::OK);
+        let got = e
+            .searches()
+            .iter()
+            .map(|b| {
+                (
+                    b["sorts"][0]["propertyName"].as_str().unwrap().to_string(),
+                    b["sorts"][0]["direction"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        (v["scope"]["sort"].clone(), got)
+    }
+    let (a_scope, a) = run("?sort=next_call_asc").await;
+    let (_, b) = run("?sort=default").await;
+    assert_eq!(a_scope, "next_call_asc");
+    assert_eq!(a, b);
+    assert_eq!(a[0], ("bpo_13".to_string(), "ASCENDING".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 次回架電日の範囲は_jst_の日付を_utc_0_時_ms_にして_search_に入る() {
+    // 今日 = JST 2026-10-05
+    let d = |day: u32| midnight_utc_ms(2026, 10, day).to_string();
+    let e = env(FakeHs::new()).await;
+    let (s, v) = e
+        .admin_get("?next_from=2026-10-01&next_to=2026-10-31")
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["scope"]["next_from"], "2026-10-01");
+    assert_eq!(v["scope"]["next_to"], "2026-10-31");
+    assert!(v["scope"]["last_from"].is_null());
+    let bodies = e.searches();
+    // 段階 0: 今日以前 → 下端 10-01、上端は今日 (10-05) と 10-31 の小さい方
+    let g0 = groups(&bodies[0]);
+    assert_eq!(g0.len(), 1);
+    assert_eq!(
+        bpo13_filters(&g0[0], "bpo_13"),
+        [("GTE".to_string(), d(1)), ("LTE".to_string(), d(5))]
+    );
+    // 段階 1 以降 (未済で次回日が明日以降): 下端は max(10-01, 明日 10-06)、上端は 10-31。日付なしの OR グループは無い
+    assert!(bodies.len() >= 2);
+    for b in &bodies[1..] {
+        let gs = groups(b);
+        assert_eq!(gs.len(), 1, "{b}");
+        assert_eq!(
+            bpo13_filters(&gs[0], "bpo_13"),
+            [("GTE".to_string(), d(6)), ("LTE".to_string(), d(31))]
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 次回架電日の範囲が片側の時間帯だけなら当てはまらない段階は検索しない() {
+    // 範囲 10-01〜10-03 は今日 (10-05) より前: 「明日以降の未済」の段階には当てはまる日が無い
+    let e = env(FakeHs::new()).await;
+    let (s, _) = e
+        .admin_get("?next_from=2026-10-01&next_to=2026-10-03")
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let bodies = e.searches();
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    // 範囲が未来だけ (10-10〜10-20): 今日以前の段階には当てはまる日が無い。残るのは未済だけ
+    let e = env(FakeHs::new()).await;
+    let (s, _) = e
+        .admin_get("?next_from=2026-10-10&next_to=2026-10-20")
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let bodies = e.searches();
+    assert!(!bodies.is_empty());
+    for b in &bodies {
+        for g in groups(b) {
+            assert_eq!(flt(&g, "dealstage").unwrap()["value"], UNPROCESSED);
+            let f = bpo13_filters(&g, "bpo_13");
+            assert_eq!(f[0].0, "GTE");
+            assert_eq!(f[0].1, midnight_utc_ms(2026, 10, 10).to_string());
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 最終架電日の範囲は_bpo_20_の_gte_lte_で_架電なしの段階は検索しない() {
+    let d = |day: u32| midnight_utc_ms(2026, 9, day).to_string();
+    let e = env(FakeHs::new()).await;
+    let (s, v) = e
+        .admin_get("?last_from=2026-09-01&last_to=2026-09-30")
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["scope"]["last_from"], "2026-09-01");
+    assert_eq!(v["scope"]["last_to"], "2026-09-30");
+    let bodies = e.searches();
+    // 既定は 3 段階だが、最終架電日なし (NOT_HAS) の段階は範囲と矛盾するので出さない => 2 段階
+    assert_eq!(bodies.len(), 2);
+    for b in &bodies {
+        for g in groups(b) {
+            assert_eq!(
+                bpo13_filters(&g, "bpo_20"),
+                [("GTE".to_string(), d(1)), ("LTE".to_string(), d(30))],
+                "{g}"
+            );
+        }
+    }
+    // 片側だけ
+    let e = env(FakeHs::new()).await;
+    let (s, _) = e.admin_get("?last_from=2026-09-01").await;
+    assert_eq!(s, StatusCode::OK);
+    for b in e.searches() {
+        for g in groups(&b) {
+            assert_eq!(flt(&g, "bpo_20").unwrap()["operator"], "GTE");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 範囲を含む全ての組み合わせで_search_の上限に収まる() {
+    let nexts = [
+        "",
+        "&next_from=2026-10-01",
+        "&next_to=2026-10-31",
+        "&next_from=2026-10-01&next_to=2026-10-31",
+        "&next_from=2026-10-10&next_to=2026-10-20",
+        "&next_from=2026-09-01&next_to=2026-10-03",
+    ];
+    let lasts = [
+        "",
+        "&last_from=2026-09-01",
+        "&last_to=2026-09-30",
+        "&last_from=2026-09-01&last_to=2026-09-30",
+    ];
+    let mut combos = 0;
+    let mut searched = 0;
+    for sort in [
+        "default",
+        "next_call_asc",
+        "next_call_desc",
+        "last_call_asc",
+        "last_call_desc",
+    ] {
+        for due in ["all", "today"] {
+            for owner in ["all", "unassigned", "555"] {
+                for stage in ["", "&stage=1095387442", "&stage=1095387445"] {
+                    for n in nexts {
+                        for l in lasts {
+                            let e = env(FakeHs::new()).await;
+                            let q = format!("?sort={sort}&due={due}&owner={owner}{stage}{n}{l}");
+                            let (s, v) = e.admin_get(&q).await;
+                            assert_eq!(s, StatusCode::OK, "{q}: {v}");
+                            for b in e.searches() {
+                                searched += 1;
+                                let gs = groups(&b);
+                                assert!(!gs.is_empty() && gs.len() <= 5, "{q}");
+                                let total: usize = gs
+                                    .iter()
+                                    .map(|g| g["filters"].as_array().unwrap().len())
+                                    .sum();
+                                assert!(total <= 18, "全体 {total}: {q}");
+                                for g in &gs {
+                                    let n = g["filters"].as_array().unwrap().len();
+                                    assert!(n <= 6, "グループあたり {n}: {q} {g}");
+                                }
+                            }
+                            combos += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(combos, 5 * 2 * 3 * 3 * 6 * 4);
+    assert!(searched > combos / 2, "検索が行われている ({searched})");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 範囲で_search_から停止系を外せないときも後段で外し_件数を出す() {
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1", "2"]);
+    let d1 = Deal::new("1", UNPROCESSED)
+        .p("bpo_3", "クレーム")
+        .p("bpo_13", "2026-10-10");
+    let d2 = Deal::new("2", UNPROCESSED).p("bpo_13", "2026-10-10");
+    let e = env(f.page(Page::new(vec![d1, d2]))).await;
+    let (s, v) = e
+        .admin_get("?owner=555&next_from=2026-10-10&next_to=2026-10-20&last_from=2026-09-01&last_to=2026-09-30")
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    // 範囲 4 件 + owner + dealstage で 6。Search 側の停止条件は入れられない
+    for b in e.searches() {
+        for g in groups(&b) {
+            assert!(flt(&g, "bpo_3").is_none());
+        }
+    }
+    assert_eq!(ids(&v), ["2"]);
+    assert_eq!(v["partial"]["excluded"]["stop_reason"], 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 範囲が違う_cursor_は使えない() {
+    let mk = || {
+        FakeHs::new().page(
+            Page::new(vec![Deal::new("1", FUZAI).p("bpo_13", "2026-10-01")])
+                .total(80)
+                .next("25"),
+        )
+    };
+    let e = env(mk()).await;
+    let (_, p1) = e.admin_get("?next_from=2026-10-01").await;
+    let c = p1["next_cursor"].as_str().unwrap().to_string();
+    let n = e.calls().len();
+    for q in [
+        "?next_from=2026-10-02",
+        "?next_from=2026-10-01&next_to=2026-10-30",
+        "?last_from=2026-09-01",
+        "?sort=next_call_asc&next_from=2026-10-01",
+        "?",
+    ] {
+        let (s, v) = e.admin_get(&format!("{q}&cursor={c}")).await;
+        assert_eq!(
+            (s, kind(&v)),
+            (StatusCode::BAD_REQUEST, Some("cursor_mismatch")),
+            "{q}"
+        );
+    }
+    assert_eq!(e.calls().len(), n, "HubSpot を呼んだ");
+    // 同じ条件なら進める
+    let (s, _) = e
+        .admin_get(&format!("?next_from=2026-10-01&cursor={c}"))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bpo_は範囲を指定しても自分の_owner_だけ() {
+    let e = env(FakeHs::new()).await;
+    let (s, _) = e
+        .bpo_get("?next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30")
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    for b in e.searches() {
+        for g in groups(&b) {
+            assert_eq!(flt(&g, "hubspot_owner_id").unwrap()["value"], BPO_OWNER_ID);
+            assert!(g["filters"].as_array().unwrap().len() <= 6);
+        }
+    }
+    // bpo が他人を指定すれば範囲があっても 403
+    let (s, v) = e.bpo_get("?owner=555&next_from=2026-10-01").await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::FORBIDDEN, Some("forbidden_owner"))
+    );
+}
