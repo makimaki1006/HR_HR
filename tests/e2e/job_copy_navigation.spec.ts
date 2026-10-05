@@ -46,6 +46,7 @@ test('reading actions remain reachable, restore tab focus and return to the filt
   await page.getByRole('button', { name: '検索条件をリセット', exact: true }).click();
   await expect(page.locator('.jc-job')).toHaveCount(2);
   await expect(page.getByRole('searchbox')).toHaveValue('');
+  await expect(page.getByRole('searchbox')).toBeFocused();
   await page.setViewportSize({ width: 375, height: 850 });
   await page.getByRole('searchbox').fill('合成タブ確認求人A');
   await page.locator('.jc-job').first().click();
