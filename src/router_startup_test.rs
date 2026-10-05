@@ -25,11 +25,78 @@
 
 #[cfg(test)]
 mod tests {
+    use axum::{
+        body::{to_bytes, Body},
+        http::{header, HeaderMap, Request, StatusCode},
+    };
     use std::sync::Arc;
+    use tower::ServiceExt;
 
     use crate::config::AppConfig;
     use crate::db::cache::AppCache;
     use crate::{build_app, AppState};
+
+    fn assert_security_headers(headers: &HeaderMap) {
+        let policy = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+        assert!(policy.contains("default-src 'self'"));
+        assert!(policy.contains("connect-src 'self'"));
+        assert!(policy.contains("frame-ancestors 'self'"));
+        assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
+        assert_eq!(
+            headers[header::REFERRER_POLICY],
+            "strict-origin-when-cross-origin"
+        );
+        assert_eq!(
+            headers[header::STRICT_TRANSPORT_SECURITY],
+            "max-age=31536000; includeSubDomains"
+        );
+    }
+
+    /// Exercise the complete application stack without credentials or env changes.
+    #[tokio::test]
+    async fn job_copy_shell_requires_existing_login_in_full_app() {
+        let response = build_app(minimal_state())
+            .oneshot(
+                Request::builder()
+                    .uri("/app/job-copy")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[header::LOCATION], "/login");
+        assert_security_headers(response.headers());
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert!(body.is_empty(), "Unauthenticated shell must expose no data");
+    }
+
+    /// Valid query extraction must still stop before MOC or Drive configuration.
+    #[tokio::test]
+    async fn job_copy_private_reads_require_login_in_full_app() {
+        let app = build_app(minimal_state());
+        for path in [
+            "/api/job-copy/moc",
+            "/api/job-copy/image?company_id=10&listing_id=30&manifest_id=40&slot=1",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+            assert!(!response.headers().contains_key(header::LOCATION));
+            assert_security_headers(response.headers());
+            let body = to_bytes(response.into_body(), 1024).await.unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(json, serde_json::json!({"code": "login_required"}));
+        }
+    }
+
+    /// DB も外部サービスも無い、最小の状態。
 
     /// DB も外部サービスも無い、最小の状態。
     /// ルーティングの組み立てだけを見るので、中身は空でよい。
