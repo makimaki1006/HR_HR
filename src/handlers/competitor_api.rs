@@ -60,6 +60,14 @@ pub enum CompetitorErrorCode {
     ReportInProgress,
     /// 保持期限切れ・存在しない・他人の `report_id` (区別しない)。
     ReportNotFound,
+    /// リクエスト本文が JSON として読めない・`report_id` が無い。
+    InvalidRequest,
+    /// PDF 作成が混み合っている (他の PDF を作成中)。少し待てば再試行できる。
+    PdfBusy,
+    /// PDF の描画が時間内に終わらなかった。
+    PdfTimeout,
+    /// PDF を作れなかった (描画エンジンの失敗など)。同じ `report_id` で再試行できる。
+    PdfFailed,
 }
 
 /// エラー応答の本文。`message` は利用者に見せてよい固定の日本語。
@@ -202,8 +210,7 @@ impl ReportStore {
     }
 
     /// 本人が期限内に読む。期限切れ・存在しない・他人の ID はどれも `None` (区別しない)。
-    /// PR-3 の PDF 作成が使う。
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// PDF 作成 (`pdf_response`) が使う。
     pub fn get(&self, owner: &str, id: &str, now: Instant) -> Option<Arc<CompetitorReport>> {
         let mut map = lock(&self.inner);
         self.purge(&mut map, now);
@@ -387,4 +394,245 @@ async fn build(
         expires_in_secs: REPORT_TTL_SECS as u32,
         report,
     })
+}
+
+// ---------------------------------------------------------------- PDF (PR-3)
+
+/// `POST /api/competitor/pdf` の本文。`{"report_id": "..."}`。
+#[derive(serde::Deserialize)]
+struct PdfRequest {
+    report_id: String,
+}
+
+/// PDF の保存名の長さの上限 (拡張子・日付を含む文字数)。
+const FILENAME_MAX_CHARS: usize = 100;
+/// 調査名・地域それぞれの上限 (文字数)。
+const FILENAME_PART_MAX_CHARS: usize = 30;
+
+/// 保持中のレポートから PDF を作る。Google は再取得しない。
+/// 本人以外・期限切れ・存在しない・形式の違う ID はどれも 404 `report_not_found` (区別しない)。
+pub async fn api_pdf(session: Session, body: axum::body::Bytes) -> Response {
+    let user: Option<String> = session
+        .get(crate::auth::SESSION_USER_KEY)
+        .await
+        .ok()
+        .flatten();
+    let Some(user) = user else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            [(header::CONTENT_TYPE, "application/json")],
+            crate::auth::AUTH_REQUIRED_JSON,
+        )
+            .into_response();
+    };
+    let Ok(req) = serde_json::from_slice::<PdfRequest>(&body) else {
+        return ApiError::new(
+            StatusCode::BAD_REQUEST,
+            CompetitorErrorCode::InvalidRequest,
+            "リクエストを読み取れませんでした。",
+        )
+        .into_response();
+    };
+    pdf_response(
+        store(),
+        in_flight(),
+        &user,
+        &req.report_id,
+        Instant::now(),
+        jst_date(chrono::Utc::now()),
+        |html| async move { super::pdf::generate(&html).await },
+    )
+    .await
+}
+
+/// 日付 (JST) を決める。ファイル名に入れる。
+pub(super) fn jst_date(utc: chrono::DateTime<chrono::Utc>) -> chrono::NaiveDate {
+    (utc + chrono::Duration::hours(9)).date_naive()
+}
+
+/// ファイル名の 1 要素から、ファイル名に使えない文字・制御文字・空白を `_` に置き換える。
+fn sanitize_part(raw: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    let mut last_underscore = true; // 先頭の `_` は作らない
+    for c in raw.chars() {
+        let bad = c.is_control()
+            || c.is_whitespace()
+            || matches!(
+                c,
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | ';' | '%' | '#' | '&' | '\''
+            )
+            // 目に見えない書式文字 (ゼロ幅・向き制御・BOM)
+            || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}');
+        let c = if bad { '_' } else { c };
+        if c == '_' {
+            if last_underscore {
+                continue;
+            }
+            last_underscore = true;
+        } else {
+            last_underscore = false;
+        }
+        out.push(c);
+    }
+    // `.` が続くと親ディレクトリ指定に見える。連続する `.` は 1 つにし、両端の `.`・`_` は落とす。
+    let mut collapsed = String::new();
+    for c in out.chars() {
+        if !(c == '.' && collapsed.ends_with('.')) {
+            collapsed.push(c);
+        }
+    }
+    let trimmed = collapsed.trim_matches(|c| c == '.' || c == '_');
+    let limited: String = trimmed.chars().take(max_chars).collect();
+    limited.trim_matches(|c| c == '.' || c == '_').to_owned()
+}
+
+/// `競合調査_{都道府県 or 全国}_{調査名}_{YYYY-MM-DD}.pdf`。調査名が空なら省く。
+pub(super) fn pdf_filename(
+    meta: &crate::handlers::survey::report_html::competitor_model::ReportMeta,
+    today: chrono::NaiveDate,
+) -> String {
+    let region = meta
+        .prefecture
+        .as_deref()
+        .map(|p| sanitize_part(p, FILENAME_PART_MAX_CHARS))
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| "全国".to_owned());
+    let title = sanitize_part(&meta.title, FILENAME_PART_MAX_CHARS);
+    let mut parts = vec!["競合調査".to_owned(), region];
+    if !title.is_empty() {
+        parts.push(title);
+    }
+    let date = today.format("%Y-%m-%d").to_string();
+    parts.push(date.clone());
+    let name = format!("{}.pdf", parts.join("_"));
+    // 上限は部品ごとに守っているので通常は超えない。念のための安全網 (日付と拡張子は残す)。
+    if name.chars().count() <= FILENAME_MAX_CHARS {
+        return name;
+    }
+    let tail = format!("_{date}.pdf");
+    let head: String = name
+        .chars()
+        .take(FILENAME_MAX_CHARS - tail.chars().count())
+        .collect();
+    format!("{head}{tail}")
+}
+
+/// RFC 6266 / 5987。ASCII だけの `filename=` (古いクライアント用) と UTF-8 の `filename*=` の両方を付ける。
+/// ASCII 側は日本語を落とした固定名 (日付があれば日付だけ残す)。
+pub(super) fn content_disposition(filename: &str) -> String {
+    let date = filename
+        .trim_end_matches(".pdf")
+        .rsplit('_')
+        .next()
+        .filter(|d| d.len() == 10 && d.bytes().all(|b| b.is_ascii_digit() || b == b'-'))
+        .map(str::to_owned);
+    let fallback = match date {
+        Some(d) => format!("competitor-report-{d}.pdf"),
+        None => "competitor-report.pdf".to_owned(),
+    };
+    format!(
+        "attachment; filename=\"{fallback}\"; filename*=UTF-8''{}",
+        urlencoding::encode(filename)
+    )
+}
+
+/// `pdf::generate` (描画側・無改修) の失敗文言から、状態コードとエラーコードを決める。
+/// 文言はテストで `competitor_pdf.rs` の中身と突き合わせて固定している。知らない文言は `pdf_failed`。
+pub(super) fn classify_pdf_error(message: &str) -> (StatusCode, CompetitorErrorCode) {
+    if message.contains("混み合って") {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            CompetitorErrorCode::PdfBusy,
+        )
+    } else if message.contains("時間がかかって") {
+        (StatusCode::GATEWAY_TIMEOUT, CompetitorErrorCode::PdfTimeout)
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            CompetitorErrorCode::PdfFailed,
+        )
+    }
+}
+
+fn is_complete_pdf(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"%PDF-")
+        && bytes[bytes.len().saturating_sub(32)..]
+            .windows(5)
+            .any(|w| w == b"%%EOF")
+}
+
+fn pdf_error(status: StatusCode, code: CompetitorErrorCode) -> Response {
+    // 描画側の生の文言 (パス・診断) は出さず、固定の日本語にする。
+    let message = match code {
+        CompetitorErrorCode::PdfBusy => {
+            "PDF作成が混み合っています。少し時間をおいて再度お試しください。"
+        }
+        CompetitorErrorCode::PdfTimeout => {
+            "PDFの作成に時間がかかっています。もう一度お試しください。"
+        }
+        _ => "PDFを作成できませんでした。時間をおいてもう一度お試しください。",
+    };
+    ApiError::new(status, code, message).into_response()
+}
+
+/// 時刻・保持・同時送信枠・生成関数を引数にした本体 (テストで差し替える)。
+pub(super) async fn pdf_response<G, Fut>(
+    store: &ReportStore,
+    in_flight: &InFlight,
+    user: &str,
+    report_id: &str,
+    now: Instant,
+    today: chrono::NaiveDate,
+    generate: G,
+) -> Response
+where
+    G: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<u8>, String>>,
+{
+    // レポート作成と同じ枠。関数を抜けるとき (失敗・切断でも) 解放される。
+    let Some(_slot) = in_flight.try_acquire(user) else {
+        return ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            CompetitorErrorCode::ReportInProgress,
+            "前のレポートを作成中です。完了してからもう一度お試しください。",
+        )
+        .into_response();
+    };
+    let Some(report) = store.get(user, report_id, now) else {
+        return ApiError::new(
+            StatusCode::NOT_FOUND,
+            CompetitorErrorCode::ReportNotFound,
+            "レポートが見つかりません。保持期限(30分)が切れたか、再デプロイで消えた可能性があります。もう一度レポートを作成してください。",
+        )
+        .into_response();
+    };
+    let html = crate::handlers::survey::report_html::render_competitor_html(&report);
+    match generate(html).await {
+        Ok(bytes) if is_complete_pdf(&bytes) => {
+            let mut res = bytes.into_response();
+            let h = res.headers_mut();
+            h.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/pdf"),
+            );
+            h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            let disposition = content_disposition(&pdf_filename(&report.meta, today));
+            if let Ok(v) = HeaderValue::from_str(&disposition) {
+                h.insert(header::CONTENT_DISPOSITION, v);
+            }
+            res
+        }
+        Ok(_) => {
+            tracing::warn!("competitor PDF output was not a complete PDF");
+            pdf_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                CompetitorErrorCode::PdfFailed,
+            )
+        }
+        Err(message) => {
+            tracing::warn!(detail = %message, "competitor PDF generation failed");
+            let (status, code) = classify_pdf_error(&message);
+            pdf_error(status, code)
+        }
+    }
 }

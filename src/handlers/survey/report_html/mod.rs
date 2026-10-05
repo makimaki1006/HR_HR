@@ -41,6 +41,7 @@ pub const SURVEY_FORBIDDEN_WORDS: [&str; 6] = [
 ];
 pub(crate) use navy_report::competitor_model;
 pub(crate) use navy_report::render_competitor_report;
+pub(crate) use navy_report::render_html as render_competitor_html;
 // 2026-07-17: 解説資料 (?variant=guide) を handlers.rs から呼ぶための再公開。
 pub(crate) use navy_report::render_survey_guide_page;
 pub(crate) use navy_report::{
