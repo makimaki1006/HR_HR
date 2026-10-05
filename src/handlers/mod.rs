@@ -30,6 +30,7 @@ pub mod job_copy_capture;
 pub mod job_copy_drive;
 pub mod job_copy_image_bridge;
 pub mod job_copy_live;
+pub mod job_copy_market;
 pub mod jobmap;
 pub mod license;
 pub mod market;

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { apiGet } from '../../api/client';
 import type { JobCopyRecord } from './data';
 import { parseMediaCapture } from './mediaCaptureParser';
+import { parseApplicantReasons } from './applicantReasonsParser';
 import type { ApplicantDimension } from './applicantCompositionModel';
 
 interface RecordData { id: string; properties: Record<string, string | null> }
@@ -9,7 +10,7 @@ interface CustomerPage { customers: RecordData[]; next_after: string | null; tot
 interface JobPage { company_id: string; portal_id?: string | null; contracts: RecordData[]; jobs: { record: RecordData; deal_ids: string[] }[]; total: number; next_offset: number | null; total_ms: number; fetched_at: string }
 interface Summary { total: number; duplicate_ids: number; missing_date: number; by_date: Record<string, number>; dimensions: Record<string, Record<string, number>> }
 interface DatedComparison { total: number; unknown: number; basis: string; daily_representatives?: Record<string, { version_id: string }>; by_version: Record<string, { count: number; dimensions: Record<ApplicantDimension, { denominator: number; categories: { category: string; count: number; percentage: number | null }[] } | null> }> }
-interface ApplicantPage { metric: string; summary: Summary; total_ms: number; fetched_at: string; version_attribution: string; attribute_basis: string; capture_bundle?: unknown; dated_comparison?: DatedComparison | null; capture_status?: string }
+interface ApplicantPage { metric: string; summary: Summary; total_ms: number; fetched_at: string; version_attribution: string; attribute_basis: string; capture_bundle?: unknown; dated_comparison?: DatedComparison | null; capture_status?: string; applicant_reasons?: unknown }
 const labels: Record<string, string> = { gender: '性別', age: '年代', prefecture: '都道府県', municipality: '市区町村' };
 const requestOptions = { timeoutMs: 120_000 };
 
@@ -72,6 +73,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
           const captured = parseMediaCapture(JSON.stringify(result.data.capture_bundle))[0];
           const comparison = result.data.dated_comparison;
           if (captured) onOpen({ ...captured, id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
+            applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, captured.versions.filter(version => version.kind === 'published').map(version => version.id)),
             versions: captured.versions.map(version => {
               const bucket = comparison.by_version[version.id];
               if (!bucket) return version;
@@ -83,6 +85,9 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
             }),
           });
         } catch { setError('媒体観測データの形式を検証できませんでした。HubSpotの現在値と応募全体の集計を表示します。'); }
+      } else {
+        try { onOpen({ ...selectedJob, applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, []) }); }
+        catch { setError('応募理由の出典・件数を確認できませんでした。原記録を推測して補完しません。'); }
       }
     }
     else failure(result.error.message);

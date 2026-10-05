@@ -1,5 +1,8 @@
 import type { CopyImage } from './images';
 import type { ApplicantDimension, ApplicantDistribution } from './applicantCompositionModel';
+import type { ApplicantReasonCollection } from './applicantReasonsModel';
+import type { HrhPerformanceCollection } from './hrhPerformanceModel';
+import type { JointDemographics } from './reverseSearchModel';
 /** Fictional MOC fixtures. No HubSpot IDs, real employers, or applicant data. */
 export interface CopyVersion {
   id: string;
@@ -29,6 +32,9 @@ export interface JobCopyRecord {
   hubspotUrl?: string;
   attributionUnknown?: number;
   overallApplications?: { total: number; missingDate: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>> };
+  applicantReasons?: ApplicantReasonCollection | undefined;
+  hrhPerformance?: HrhPerformanceCollection | undefined;
+  jointDemographics?: JointDemographics | undefined;
   title: string;
   company: string;
   media: string;

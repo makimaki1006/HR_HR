@@ -9,6 +9,70 @@ use axum::{
 };
 use std::sync::Mutex;
 
+#[tokio::test]
+async fn market_route_retains_oidc_allowlist_boundary_and_static_no_store_errors() {
+    use tower::ServiceExt;
+    let store = tower_sessions::MemoryStore::default();
+    let access = Access {
+        allowed: BTreeSet::from(["reader@example.test".into()]),
+        service: None,
+        moc_path: None,
+        moc_drive: Ok(None),
+        snapshot_reader: None,
+        images: None,
+        drive_listings: BTreeSet::new(),
+        drive_config_error: None,
+    };
+    let app = Router::new()
+        .route(
+            "/api/job-copy/market",
+            get(super::super::job_copy_market::read),
+        )
+        .layer(Extension(access))
+        .with_state(moc_state())
+        .layer(tower_sessions::SessionManagerLayer::new(store.clone()).with_secure(false));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/market")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let json: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(json, json!({"code":"login_required"}));
+    let session = Session::new(None, Arc::new(store), None);
+    session
+        .insert(SESSION_USER_KEY, "reader@example.test")
+        .await
+        .unwrap();
+    session
+        .insert(SESSION_LOGIN_METHOD_KEY, "password")
+        .await
+        .unwrap();
+    session.save().await.unwrap();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/market")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let json: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(json, json!({"code":"job_copy_access_denied"}));
+}
+
 /// Explicit operator validation only; session is seeded in test, not through a new login endpoint.
 #[tokio::test]
 #[ignore = "Requires approved real Drive snapshot, HubSpot readonly credentials and private output"]
@@ -58,6 +122,14 @@ async fn configured_cloud_snapshot_through_authenticated_api_router() {
     let data: Value = serde_json::from_slice(&raw).unwrap();
     let jobs = data["capture_bundle"]["jobs"].as_array().unwrap();
     assert_eq!(jobs.len(), 36);
+    let expected_applications = std::env::var("JOB_COPY_TEST_EXPECTED_APPLICATIONS")
+        .ok()
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .expect("numeric application expectation")
+        })
+        .unwrap_or(317);
     assert_eq!(
         data["results"]
             .as_array()
@@ -65,8 +137,38 @@ async fn configured_cloud_snapshot_through_authenticated_api_router() {
             .iter()
             .map(|r| r["summary"]["total"].as_u64().unwrap())
             .sum::<u64>(),
-        317
+        expected_applications
     );
+    if expected_applications == 320 {
+        let results = data["results"].as_array().unwrap();
+        assert_eq!(
+            results
+                .iter()
+                .map(|r| r["summary"]["joint_demographics"]["total"]
+                    .as_u64()
+                    .unwrap())
+                .sum::<u64>(),
+            320
+        );
+        assert_eq!(
+            results
+                .iter()
+                .map(|r| r["applicant_reasons"]["items"].as_array().unwrap().len())
+                .sum::<usize>(),
+            12
+        );
+        assert_eq!(
+            results
+                .iter()
+                .map(|r| r["dated_comparison"]["unknown"].as_u64().unwrap())
+                .sum::<u64>(),
+            317
+        );
+        assert!(results
+            .iter()
+            .flat_map(|r| r["applicant_reasons"]["items"].as_array().unwrap())
+            .all(|r| r["version_id"].is_null()));
+    }
     let remote_images = jobs
         .iter()
         .flat_map(|j| j["images"].as_array().unwrap())
@@ -80,7 +182,7 @@ async fn configured_cloud_snapshot_through_authenticated_api_router() {
     assert_eq!(remote_images, 45);
     std::fs::create_dir_all(&output).unwrap();
     std::fs::write(output.join("api-moc.json"), &raw).unwrap();
-    std::fs::write(output.join("api-verification.json"),serde_json::to_vec_pretty(&json!({"ok":true,"jobs":36,"applications":317,"remote_image_references":45,"elapsed_ms":start.elapsed().as_millis(),"authenticated_api_router":true,"scope":"Real Drive and HubSpot readonly API; test-seeded OIDC session, not production login"})).unwrap()).unwrap();
+    std::fs::write(output.join("api-verification.json"),serde_json::to_vec_pretty(&json!({"ok":true,"jobs":36,"applications":expected_applications,"remote_image_references":45,"elapsed_ms":start.elapsed().as_millis(),"authenticated_api_router":true,"scope":"Real Drive and HubSpot readonly API; test-seeded OIDC session, not production login"})).unwrap()).unwrap();
 }
 
 #[test]
@@ -548,7 +650,7 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
                         }
                         let props = match (path.as_str(), id) {
                             ("/crm/v3/objects/0-421/batch/read", "50") => {
-                                json!({"yingmuri":"2026-10-03","nenrei":"35","seibetsu":null})
+                                json!({"yingmuri":"2026-10-03","nenrei":"35","seibetsu":null,"oubodouki":"Flexible hours","ouboriyuu_baitaikisai":"  ","ouboriyuu_hiaringu":null})
                             }
                             ("/crm/v3/objects/0-421/batch/read", "51") => {
                                 json!({"yingmuri":null,"nenrei":null,"todoufuken":null})
@@ -591,6 +693,25 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
     assert_eq!(applicants["summary"]["missing_date"], 1);
     assert_eq!(applicants["summary"]["dimensions"]["gender"]["不明"], 2);
     assert!(applicants.get("rows").is_none());
+    assert_eq!(applicants["applicant_reasons"]["total_applicants"], 2);
+    assert_eq!(applicants["applicant_reasons"]["missing"], 4);
+    assert_eq!(applicants["applicant_reasons"]["blank"], 1);
+    assert_eq!(
+        applicants["applicant_reasons"]["items"][0]["text"],
+        "Flexible hours"
+    );
+    assert!(applicants["applicant_reasons"]["items"][0]["version_id"].is_null());
+    let joint = &applicants["summary"]["joint_demographics"];
+    assert_eq!(joint["total"], 2);
+    assert_eq!(
+        joint["cells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|cell| cell["count"].as_u64().unwrap())
+            .sum::<u64>(),
+        2
+    );
     let calls = upstream.calls();
     assert!(calls.iter().any(|c| c.query.contains("after=71")));
     assert_eq!(
@@ -612,6 +733,23 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
         .find(|c| c.path == "/crm/v3/objects/0-420/batch/read")
         .unwrap();
     assert_eq!(job_batch.body["inputs"], json!([{"id":"30"},{"id":"31"}]));
+    let applicant_batch = calls
+        .iter()
+        .find(|c| c.path == "/crm/v3/objects/0-421/batch/read")
+        .unwrap();
+    assert_eq!(
+        applicant_batch.body["properties"],
+        json!([
+            "yingmuri",
+            "seibetsu",
+            "nenrei",
+            "todoufuken",
+            "shikuchouson",
+            "oubodouki",
+            "ouboriyuu_baitaikisai",
+            "ouboriyuu_hiaringu"
+        ])
+    );
 }
 
 #[tokio::test]

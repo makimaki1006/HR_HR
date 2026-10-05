@@ -19,9 +19,11 @@ use std::{
     time::{Duration, Instant},
 };
 use tower_sessions::Session;
+mod applicant_extensions;
+pub mod applicant_reasons;
 
 #[derive(Debug)]
-pub struct ReadError(StatusCode, &'static str);
+pub struct ReadError(pub(super) StatusCode, pub(super) &'static str);
 impl ReadError {
     pub(crate) fn status(&self) -> StatusCode {
         self.0
@@ -457,6 +459,9 @@ impl JobReadService {
                     "nenrei",
                     "todoufuken",
                     "shikuchouson",
+                    "oubodouki",
+                    "ouboriyuu_baitaikisai",
+                    "ouboriyuu_hiaringu",
                 ],
             )
             .await?;
@@ -464,7 +469,10 @@ impl JobReadService {
         // appointment into zero applications. hs_appointment_start is synthesized
         // by the importer from yingmuri and does not prove the real event time.
         let summary = summarize(&rows);
+        let reasons = applicant_reasons::extract(listing, &rows, chrono::Utc::now().to_rfc3339());
         let mut response = json!({"listing_id":listing,"metric":"HubSpot応募レコード数","summary":summary,"version_attribution":"日次観測との対応は別途必要。現在の関連による集計。","attribute_basis":"現在取得できる属性","billing":null,"capture_bundle":null,"dated_comparison":null,"capture_status":"not_configured_or_not_matched"});
+        response["applicant_reasons"] =
+            serde_json::to_value(reasons).map_err(|_| fail("reason_serialization_failed"))?;
         let record = self
             .batch(
                 "0-420",
@@ -552,7 +560,9 @@ pub fn summarize(rows: &[Record]) -> Value {
     let mut dates: BTreeMap<String, usize> = BTreeMap::new();
     let mut dimensions: BTreeMap<&str, BTreeMap<String, usize>> = BTreeMap::new();
     let mut missing_date = 0;
+    let mut joint: BTreeMap<(String, String, String, String), usize> = BTreeMap::new();
     for row in unique.values() {
+        let mut labels = BTreeMap::new();
         if let Some(date) = row
             .value("yingmuri")
             .and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
@@ -578,8 +588,9 @@ pub fn summarize(rows: &[Record]) -> Value {
             *dimensions
                 .entry(dimension)
                 .or_default()
-                .entry(label)
+                .entry(label.clone())
                 .or_default() += 1;
+            labels.insert(dimension, label);
         }
         let label = row
             .value("nenrei")
@@ -598,14 +609,23 @@ pub fn summarize(rows: &[Record]) -> Value {
         *dimensions
             .entry("age")
             .or_default()
-            .entry(label)
+            .entry(label.clone())
+            .or_default() += 1;
+        *joint
+            .entry((
+                labels["gender"].clone(),
+                label,
+                labels["prefecture"].clone(),
+                labels["municipality"].clone(),
+            ))
             .or_default() += 1;
     }
-    json!({"total":unique.len(),"duplicate_ids":rows.len()-unique.len(),"by_date":dates,"missing_date":missing_date,"dimensions":dimensions})
+    let cells:Vec<_> = joint.into_iter().map(|((gender,age,prefecture,municipality),count)|json!({"gender":gender,"age":age,"prefecture":prefecture,"municipality":municipality,"count":count})).collect();
+    json!({"total":unique.len(),"duplicate_ids":rows.len()-unique.len(),"by_date":dates,"missing_date":missing_date,"dimensions":dimensions,"joint_demographics":{"total":unique.len(),"cells":cells}})
 }
 
 #[derive(Clone)]
-struct Access {
+pub(super) struct Access {
     allowed: BTreeSet<String>,
     service: Option<Arc<JobReadService>>,
     moc_path: Option<PathBuf>,
@@ -703,7 +723,7 @@ fn authorize<'a>(
     }
     Ok(email)
 }
-async fn authorized_user(
+pub(super) async fn authorized_user(
     state: &AppState,
     access: &Access,
     session: &Session,
@@ -988,7 +1008,15 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
         let summary = &result["summary"];
         if !listing_ids.contains(id)
             || !result_ids.insert(id)
-            || !scalars_except(result, &["summary", "dated_comparison"])
+            || !scalars_except(
+                result,
+                &[
+                    "summary",
+                    "dated_comparison",
+                    "applicant_reasons",
+                    "hrh_performance",
+                ],
+            )
             || !keys_only(
                 result,
                 &[
@@ -1003,6 +1031,8 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
                     "capture_status",
                     "fetched_at",
                     "total_ms",
+                    "applicant_reasons",
+                    "hrh_performance",
                 ],
             )
             || !keys_only(
@@ -1013,6 +1043,7 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
                     "by_date",
                     "missing_date",
                     "dimensions",
+                    "joint_demographics",
                 ],
             )
             || ["total", "duplicate_ids", "missing_date"]
@@ -1023,6 +1054,14 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
             || !result["billing"].is_null()
             || !result["capture_bundle"].is_null()
         {
+            return Err(moc_invalid());
+        }
+        if !applicant_extensions::validate(
+            result,
+            jobs.iter()
+                .find(|job| job["hubspotListingId"].as_str() == Some(id))
+                .ok_or_else(moc_invalid)?,
+        ) {
             return Err(moc_invalid());
         }
         let comparison = &result["dated_comparison"];
@@ -1366,6 +1405,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/job-copy/live", get(read))
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
+        .route("/api/job-copy/market", get(super::job_copy_market::read))
         .layer(Extension(Access {
             allowed,
             service,
