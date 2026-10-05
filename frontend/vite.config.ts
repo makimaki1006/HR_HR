@@ -27,6 +27,7 @@ export default defineConfig({
       input: {
         dummy: fromHere('src/entries/dummy.tsx'),
         crm: fromHere('src/entries/crm.tsx'),
+        'job-copy': fromHere('src/entries/job-copy.tsx'),
         jobgen: fromHere('src/entries/jobgen.tsx'),
         // W8 (2026-09-29): admin (/app/admin) and my (/app/my)
         admin: fromHere('src/entries/admin.tsx'),

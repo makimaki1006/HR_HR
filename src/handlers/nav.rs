@@ -305,6 +305,17 @@ pub const NAV_DEFS: &[NavDef] = &[
         requires: Some(Feature::Crm),
         hidden: None,
     },
+    // Reading private data still requires Google OIDC and JOB_COPY_ALLOWED_EMAILS.
+    NavDef {
+        id: "job-copy",
+        label: "求人文面（MOC）",
+        title: Some("求人本文・画像の履歴、差分、応募構成を確認"),
+        kind: NavKind::App,
+        target: "/app/job-copy",
+        group: None,
+        requires: None,
+        hidden: None,
+    },
     // ---- 非表示 (削除しない。hidden を None にすれば旧新両方のナビに戻る) ----
     // 2026-05-15 に UI から外した 8 タブ (旧 dashboard_inline.html:122-127 のコメント)
     NavDef {
@@ -762,6 +773,7 @@ mod tests {
                 ("indeed", "/?tab=/tab/indeed", Some("explore")),
                 ("sales-kpi", "/sales-kpi", None),
                 ("consulting", "/consulting", None),
+                ("job-copy", "/app/job-copy", None),
             ]
         );
         let survey = &items[0];
@@ -1145,6 +1157,32 @@ mod tests {
         out
     }
 
+    #[test]
+    fn job_copy_navigation_contract_is_shared_without_granting_data_access() {
+        for admin in [false, true] {
+            let response =
+                build_nav_response("viewer@example.test".into(), admin, &features(false, false));
+            let matching: Vec<_> = response
+                .items
+                .iter()
+                .filter(|item| item.id == "job-copy")
+                .collect();
+            assert_eq!(matching.len(), 1);
+            let item = matching[0];
+            assert_eq!(item.label, "求人文面（MOC）");
+            assert_eq!(item.kind, NavKind::App);
+            assert_eq!(item.href, "/app/job-copy");
+            assert!(!item.hidden);
+            assert_eq!(item.group, None);
+            let json = serde_json::to_value(item).unwrap();
+            assert_eq!(json["kind"], "app");
+            assert_eq!(json["href"], "/app/job-copy");
+            let nav = render_legacy_nav(&response.items);
+            assert_eq!(nav.top.matches("href=\"/app/job-copy\"").count(), 1);
+            assert!(!nav.explore.contains("/app/job-copy"));
+        }
+    }
+
     fn old_top(keywords: bool, jobgen: bool) -> String {
         OLD_TOP
             .replace(
@@ -1166,9 +1204,31 @@ mod tests {
             assert!(competitor[0]
                 .1
                 .contains(&("href".into(), "/competitor".into())));
+            let job_copy_items: Vec<_> =
+                items.iter().filter(|item| item.id == "job-copy").collect();
+            assert_eq!(job_copy_items.len(), 1);
+            assert_eq!(job_copy_items[0].kind, NavKind::App);
+            assert_eq!(job_copy_items[0].href, "/app/job-copy");
+            let job_copy_links: Vec<_> = top
+                .iter()
+                .filter(|element| element.2 == "求人文面（MOC）")
+                .collect();
+            assert_eq!(job_copy_links.len(), 1);
+            assert_eq!(job_copy_links[0].0, "a");
+            assert!(job_copy_links[0]
+                .1
+                .contains(&("href".into(), "/app/job-copy".into())));
+            assert_eq!(
+                top.iter()
+                    .filter(|element| element.1.contains(&("href".into(), "/app/job-copy".into())))
+                    .count(),
+                1
+            );
             assert_eq!(
                 top.into_iter()
                     .filter(|e| e.2 != "競合調査")
+                    // Exclude only the separately validated new link from the old golden.
+                    .filter(|e| !e.1.contains(&("href".into(), "/app/job-copy".into())))
                     .collect::<Vec<_>>(),
                 elements(&old_top(kw, jg)),
                 "top (keywords={kw}, jobgen={jg})\n--- 生成 ---\n{}",

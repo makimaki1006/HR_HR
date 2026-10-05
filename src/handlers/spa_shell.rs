@@ -48,6 +48,7 @@ pub const KNOWN_SCREENS: &[&str] = &[
     "crm",
     // React 移行 W2 (2026-09-30): 営業KPI (/app/sales-kpi)。旧 /sales-kpi は並走
     "sales-kpi",
+    "job-copy",
 ];
 
 /// 注記ページの見出し。テストと E2E が文言で判定する。
