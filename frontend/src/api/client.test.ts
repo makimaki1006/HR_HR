@@ -7,6 +7,7 @@ import {
   ApiTimeoutError,
   AuthRequiredError,
   DEFAULT_TIMEOUT_MS,
+  NO_TIMEOUT,
   apiGet,
   apiPost,
 } from './client';
@@ -255,5 +256,51 @@ describe('a response that arrives after abort / timeout is not ok', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBeInstanceOf(ApiTimeoutError);
+  });
+});
+
+describe('timeoutMs: NO_TIMEOUT (待ち時間の上限なし)', () => {
+  it('30 日待っても時間切れにならず、呼び出し側の中断は効く', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        }),
+    );
+    const controller = new AbortController();
+    let settled: Awaited<ReturnType<typeof apiGet>> | undefined;
+    const pending = apiGet('/api/sales-kpi/data', {
+      timeoutMs: NO_TIMEOUT,
+      signal: controller.signal,
+    }).then((r) => (settled = r));
+
+    // setTimeout に Infinity を渡すと即時に発火する (2^31-1 ms 超は 1 ms 扱い)。その事故が無いこと。
+    await vi.advanceTimersByTimeAsync(30 * 24 * 60 * 60 * 1000);
+    expect(settled).toBeUndefined();
+
+    controller.abort();
+    await pending;
+    expect(settled?.ok).toBe(false);
+    if (settled === undefined || settled.ok) return;
+    expect(settled.error).toBeInstanceOf(ApiAbortedError);
+  });
+
+  it('遅れて返った応答はそのまま成功になる', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          setTimeout(() => {
+            resolve(jsonResponse({ a: 1 }));
+          }, 10 * 60 * 1000);
+        }),
+    );
+    const pending = apiGet<{ a: number }>('/api/sales-kpi/data', { timeoutMs: NO_TIMEOUT });
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    const r = await pending;
+    expect(r).toEqual({ ok: true, data: { a: 1 } });
   });
 });
