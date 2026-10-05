@@ -10,6 +10,7 @@ import { ApplicantComposition } from './ApplicantComposition';
 import { HrhPerformance } from './HrhPerformance';
 import { MarketContext } from './MarketContext';
 import { ReverseSearch } from './ReverseSearch';
+import { AbComparison } from './AbComparison';
 import { ConsultantReview } from './ConsultantReview';
 import { HubSpotReadPanel } from './HubSpotReadPanel';
 import type { ConsultantDraft } from './ConsultantReview';
@@ -42,9 +43,9 @@ function ApplicationSummary({ version, live = false }: { version: CopyVersion; l
   </section>;
 }
 
-function CopyDetail({ job, onAdd, reviewed, onReview }: { job: JobCopyRecord; onAdd: (version: CopyVersion) => void; reviewed: string[]; onReview: (id: string) => void }) {
+function CopyDetail({ job, records, onAdd, reviewed, onReview }: { job: JobCopyRecord; records: JobCopyRecord[]; onAdd: (version: CopyVersion) => void; reviewed: string[]; onReview: (id: string) => void }) {
   const current = latest(job) ?? (job.dataSource === 'hubspot' ? job.versions.at(-1) : undefined);
-  const [tab, setTab] = useState<'body' | 'diff' | 'receive' | 'applicants' | 'report' | 'performance' | 'market'>('body');
+  const [tab, setTab] = useState<'body' | 'diff' | 'receive' | 'applicants' | 'report' | 'performance' | 'market' | 'ab'>('body');
   const [reportDraft, setReportDraft] = useState<ConsultantDraft>({ stage: 'plan', target: 'both', fields: {}, selection: [published(job)[0]?.id ?? '', published(job)[1]?.id ?? published(job)[0]?.id ?? ''] });
   const [selected, setSelected] = useState(current?.id ?? '');
   const [before, setBefore] = useState(published(job).at(-2)?.id ?? current?.id ?? '');
@@ -101,8 +102,9 @@ function CopyDetail({ job, onAdd, reviewed, onReview }: { job: JobCopyRecord; on
     <header className="jc-detail-heading"><div><p className="jc-eyebrow">求人レコード / {job.mediaJobId}</p><h1>{job.title}</h1><p>{job.company} <span>·</span> {job.location} <span>·</span> {job.media}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
     <div className="jc-record-meta"><span>{current?.source === 'HubSpot shigotonaiyou' ? '現在のHubSpot値' : '現在の掲載観測版'}: {current?.label ?? '本文未取得'}</span><span>観測ラベル: {current ? date(current.observedAt) : '—'} JST</span><span>{job.hubspotId ? `HubSpot求人ID: ${job.hubspotId}` : 'HubSpotリンク: 実求人IDの接続待ち'}</span></div>
     {message && <p className="jc-message" role="status">{message}</p>}
-    <nav className="jc-tabs" aria-label="求人文面の表示"><button aria-pressed={tab === 'body'} onClick={() => { setTab('body'); }}>本文・履歴</button><button aria-pressed={tab === 'diff'} onClick={() => { setTab('diff'); }}>差分比較</button><button aria-pressed={tab === 'applicants'} onClick={() => { setTab('applicants'); }}>応募者構成</button><button aria-pressed={tab === 'market'} onClick={() => { setTab('market'); }}>市場・要因</button><button aria-pressed={tab === 'performance'} onClick={() => { setTab('performance'); }}>課金・クリック</button><button aria-pressed={tab === 'report'} onClick={() => { setTab('report'); }}>顧客報告・検証</button><button aria-pressed={tab === 'receive'} onClick={() => { setTab('receive'); }}>外部文面を確認</button></nav>
+    <nav className="jc-tabs" aria-label="求人文面の表示"><button aria-pressed={tab === 'body'} onClick={() => { setTab('body'); }}>本文・履歴</button><button aria-pressed={tab === 'diff'} onClick={() => { setTab('diff'); }}>差分比較</button><button aria-pressed={tab === 'applicants'} onClick={() => { setTab('applicants'); }}>応募者構成</button><button aria-pressed={tab === 'market'} onClick={() => { setTab('market'); }}>市場・要因</button><button aria-pressed={tab === 'performance'} onClick={() => { setTab('performance'); }}>課金・クリック</button><button aria-pressed={tab === 'report'} onClick={() => { setTab('report'); }}>顧客報告・検証</button><button aria-pressed={tab === 'receive'} onClick={() => { setTab('receive'); }}>外部文面を確認</button><button className="jc-button jc-no-print" aria-pressed={tab === 'ab'} onClick={() => { setTab('ab'); }}>2求人のA/B比較</button></nav>
     {tab === 'applicants' && <ApplicantComposition job={job} />}
+    <div hidden={tab !== 'ab'}><AbComparison job={job} records={records} /></div>
     {tab === 'performance' && <HrhPerformance job={job} />}
     {tab === 'market' && <MarketContext job={job} />}
     {tab === 'report' && <ConsultantReview job={job} draft={reportDraft} onDraft={setReportDraft} />}
@@ -207,6 +209,6 @@ export function JobCopyScreen() {
       <label>並び順<select aria-label="並び順" value={listOrder} onChange={event => { setListOrder(event.target.value === 'applications' ? 'applications' : 'source'); }}><option value="source">取得順</option><option value="applications">応募数が多い順</option></select></label>
       <div className="jc-list-scroll">{visible.map(job => <button className="jc-job" key={job.id} aria-pressed={selected?.id === job.id} onClick={() => { choose(job); }}><span className="jc-job-company">{job.company}</span><strong>{job.title}</strong><span>{job.location} · {job.media}</span><span className="jc-job-bottom"><small>{published(job).length}版{job.versions.some(version => version.kind === 'ai_draft') ? ' + AI案' : ''}</small><small>{statusLabels[changeStatus(job)]}</small></span><small>{applicationCountLabel(job)}</small></button>)}{!visible.length && <div className="jc-empty"><p>一致する求人はありません。</p><button className="jc-button" onClick={() => { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); }}>絞り込みを解除</button></div>}</div>
       <p className="jc-list-footer">本文の観測と掲載確認を分けて管理<br />求人を選ぶと文面と履歴が開きます</p>
-    </aside>{selected ? <CopyDetail key={`${selected.id}-${selected.versions[0]?.id ?? ''}`} job={selected} reviewed={reviewed} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>求人を選択してください</h1><p>検索条件を変更すると候補が表示されます。</p></main>}</div>
+    </aside>{selected ? <CopyDetail key={`${selected.id}-${selected.versions[0]?.id ?? ''}`} job={selected} records={records} reviewed={reviewed} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>求人を選択してください</h1><p>検索条件を変更すると候補が表示されます。</p></main>}</div>
   </div>;
 }
