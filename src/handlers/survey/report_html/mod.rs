@@ -39,6 +39,7 @@ pub const SURVEY_FORBIDDEN_WORDS: [&str; 6] = [
     "間違いなく",
     "絶対に",
 ];
+pub(crate) use navy_report::competitor_model;
 pub(crate) use navy_report::render_competitor_report;
 // 2026-07-17: 解説資料 (?variant=guide) を handlers.rs から呼ぶための再公開。
 pub(crate) use navy_report::render_survey_guide_page;
