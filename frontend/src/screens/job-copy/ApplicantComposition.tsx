@@ -17,7 +17,7 @@ function Period({ version, label }: { version: CopyVersion | undefined; label: s
   return <section className="ac-period"><h3>{label}: {version?.label ?? '版なし'}</h3><p>掲載期間: {version?.publishedFrom ? fullDate(version.publishedFrom) : '開始未取得'} → {version?.publishedUntil ? fullDate(version.publishedUntil) : '終了未確認'} JST</p><p>本文観測: {version ? fullDate(version.observedAt) : '未取得'} JST · {version?.certainty === 'confirmed' ? '期間確定' : version?.certainty === 'estimated' ? '期間推定' : '期間不明'}</p><p>属性取得日時: 未取得</p></section>;
 }
 
-export function ApplicantComposition({ job, selection, onSelectionChange }: { job: JobCopyRecord; selection?: [string, string]; onSelectionChange?: (selection: [string, string]) => void }) {
+export function ApplicantComposition({ job, selection, onSelectionChange, includeReasons = true }: { job: JobCopyRecord; selection?: [string, string]; onSelectionChange?: (selection: [string, string]) => void; includeReasons?: boolean }) {
   const versions = job.versions.filter(version => version.kind === 'published');
   const [beforeId, setBeforeId] = useState(versions[0]?.id ?? '');
   const [afterId, setAfterId] = useState(versions[1]?.id ?? versions[0]?.id ?? '');
@@ -44,7 +44,7 @@ export function ApplicantComposition({ job, selection, onSelectionChange }: { jo
     <p>画像比較: {imageComparison.status === 'unknown' ? '未取得の画像があり判定不能' : imageComparison.status === 'same_reference' ? '参照・並び順は同じです。画像内容の一致は未検証です。' : `追加${String(imageComparison.added.length)}点・削除${String(imageComparison.removed.length)}点${imageComparison.reordered ? '・並び順変更あり' : ''}`}</p>
     <p className="ac-caveat">本文・画像・掲載期間が同時に変わる場合があります。ここでの応募者構成の差は観測値で、文面や画像の変更効果を示すものではありません。</p>
     <p className="ac-caveat">{job.hrhPerformance ? '媒体の期間別実績は「課金・クリック」で確認できます。掲載観測版との対応は未確認です。' : '課金情報は未取得です。後日、掲載期間と費用・応募単価を合わせて確認します。'}</p>
-    <ApplicantReasons job={job} before={before} after={after} />
+    {includeReasons && <ApplicantReasons job={job} before={before} after={after} />}
     {job.attributionUnknown !== undefined && <p className="ac-caveat">版の対応不明: {job.attributionUnknown}件。日付欠損・観測日欠測・関連の曖昧さを含み、下の版別グラフには含めません。</p>}
     {beforeDistribution === null || afterDistribution === null ? <p className="ac-unavailable" role="status">応募者の属性データは未取得です。取得した媒体の求人にも架空の応募者を割り当てません。0件・0%とは判定していません。</p> : <>
       <p className="ac-demo">{job.dataSource === 'hubspot' ? 'HubSpot応募レコードを変更検知日の代表版に日付対応した集計です。属性は現在取得できる値です。' : '架空の応募者属性による操作デモです。'}比較元{String(beforeDistribution.total)}件・比較先{String(afterDistribution.total)}件。分母には属性不明も含めます。{job.dataSource !== 'hubspot' && '各版に確定対応する架空応募のみを含めます。'}</p>
