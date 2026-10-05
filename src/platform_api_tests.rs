@@ -198,6 +198,9 @@ async fn api_navはログイン済みなら定義どおりのjsonを返す() {
     assert_eq!(item(&v, "call-quality")["href"], "/call-quality");
     assert_eq!(item(&v, "call-quality")["hidden_since"], "2026-09-07");
     assert_eq!(item(&v, "proposal-mock")["href"], "/proposal-mock");
+    assert_eq!(item(&v, "job-copy")["href"], "/app/job-copy");
+    assert_eq!(item(&v, "job-copy")["kind"], "app");
+    assert_eq!(item(&v, "job-copy")["hidden"], false);
     let hidden = v["items"]
         .as_array()
         .unwrap()
@@ -208,7 +211,7 @@ async fn api_navはログイン済みなら定義どおりのjsonを返す() {
         hidden, 15,
         "隠し対象 15 件 (8 タブ + 求人検索 + dead route 4 + proposal-mock + 架電)"
     );
-    // 表示順: 先頭は媒体分析、可視の最後はコンサルKPI
+    // 表示順: 既存の営業・コンサルKPIの順序を保持し、求人文面を末尾に追加。
     let visible: Vec<&str> = v["items"]
         .as_array()
         .unwrap()
@@ -217,8 +220,10 @@ async fn api_navはログイン済みなら定義どおりのjsonを返す() {
         .map(|i| i["id"].as_str().unwrap())
         .collect();
     assert_eq!(visible.first(), Some(&"survey"));
-    assert_eq!(visible.last(), Some(&"consulting"));
-    assert_eq!(visible[visible.len() - 2], "sales-kpi");
+    assert_eq!(
+        &visible[visible.len() - 3..],
+        &["sales-kpi", "consulting", "job-copy"]
+    );
 }
 
 #[tokio::test]
