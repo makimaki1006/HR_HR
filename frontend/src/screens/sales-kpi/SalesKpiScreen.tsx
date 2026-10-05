@@ -86,13 +86,19 @@ export function LoadStateView({ state }: { state: LoadState }) {
         {state.message}
         <br />
         <span className="hint">
-          スプレッドシートの KPI営業_ シートが揃っているか、GAS の sales_kpi_sync が動いているかを確認してください。
+          スプレッドシートの KPI営業_ シートが揃っているか、毎朝の同期 (GitHub Actions の sales_kpi_daily) が動いているかを確認してください。
         </span>
       </div>
     );
   }
   return null;
 }
+
+/**
+ * データ取得の待ち時間の上限。旧画面は上限なし。デプロイ直後などサーバの常駐キャッシュが空のときは
+ * スプレッドシートの KPI営業_ シート 11 枚を読むため、既定の 15 秒では打ち切られる (2026-10-05 本番で発生)。
+ */
+export const DATA_TIMEOUT_MS = 90_000;
 
 const INITIAL_SCOPE: Scope = { team: 'すべて', person: null, hidden: new Set() };
 
@@ -111,7 +117,10 @@ export function SalesKpiScreen() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void apiGet<SalesKpiData>(dataPath(window.location.search), { signal: controller.signal }).then(
+    void apiGet<SalesKpiData>(dataPath(window.location.search), {
+      signal: controller.signal,
+      timeoutMs: DATA_TIMEOUT_MS,
+    }).then(
       (result) => {
         if (result.ok) {
           setState({ status: 'ok', data: result.data });
