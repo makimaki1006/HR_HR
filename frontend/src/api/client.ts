@@ -17,6 +17,11 @@
 // - POST /api/set_* style endpoints answer `Html("OK")`: use `expect: 'text'` for them.
 
 export const DEFAULT_TIMEOUT_MS = 15_000;
+/**
+ * `timeoutMs` に渡すと待ち時間の上限なし (呼び出し側の `signal` による中断だけが効く)。
+ * setTimeout は 2^31-1 ms を超える値を 1 ms 扱いにするので、Infinity のまま timer を張ってはいけない。
+ */
+export const NO_TIMEOUT = Number.POSITIVE_INFINITY;
 /** Uploads (survey CSV up to 20 MB) get a longer default than plain requests. */
 export const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
 
@@ -85,7 +90,7 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError 
 export type ApiExpect = 'json' | 'text';
 
 export interface ApiGetOptions {
-  /** Defaults to DEFAULT_TIMEOUT_MS. */
+  /** Defaults to DEFAULT_TIMEOUT_MS. NO_TIMEOUT waits without limit. */
   timeoutMs?: number;
   /** Caller-owned cancellation (e.g. from a React effect cleanup). */
   signal?: AbortSignal;
@@ -165,9 +170,12 @@ interface Deadline {
 function startDeadline(timeoutMs: number, external: AbortSignal | undefined): Deadline {
   const controller = new AbortController();
   const timeoutError = new ApiTimeoutError(timeoutMs);
-  const timer = setTimeout(() => {
-    controller.abort(timeoutError);
-  }, timeoutMs);
+  const timer =
+    timeoutMs === NO_TIMEOUT
+      ? undefined
+      : setTimeout(() => {
+          controller.abort(timeoutError);
+        }, timeoutMs);
   const onExternalAbort = (): void => {
     controller.abort();
   };
