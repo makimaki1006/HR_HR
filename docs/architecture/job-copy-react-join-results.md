@@ -11,14 +11,16 @@
 | Rust全体 `cargo test --lib` | 再実行で3,978成功・失敗0・50ignored。初回のナビ末尾期待値1件を、新導線と既存相対順の検査へ更新した |
 | ルート競合・起動契約 | 32成功。求人画面の未認証303、求人APIのJSON401/no-storeは全体unitにも含む |
 | 静的検査 | Rust fmt、Clippy all-targets、および追加operator exampleのClippyが成功。既存警告は残る。CSS契約7成功、統計表現lintとCSS監査selftestも成功 |
-| React | 型チェック・全Lint・build成功。求人文面134単体、共通API/Shell・CRM等の関連テスト、追加の既存26ファイル328回帰テストが成功 |
+| React | 型チェック・全Lint・build成功。ローカルの求人文面134単体と関連回帰に加え、GitHub CIで全58ファイル646テストが成功（実装commit `758fe2c`） |
 | ブラウザ | fixture E2E 11成功。本文完全一致、取引先絞込、比較タブ、375px、画像bytes/hash、印刷、7種類の失敗案内を確認 |
 | 実クラウド読み取り | Driveの不変JSONとHubSpot参照から36求人・317応募・45画像参照を取得。テスト内で作成したOIDCセッションによるAPI router検証1成功。取得は21,251msの1回測定 |
 | 保存operatorのoffline検証 | 59成功・1skip。skipは候補へコピーしていない実private原本の検査 |
 
 ブラウザ検証は候補のビルド済みReactと共通AppShellを使用する。ナビはfixtureであり、画像は合流元で取得・照合した原本を読み取り配信した。実クラウド検証でもGoogleへのログイン操作は行っていない。本番OIDCログイン、配備後の画面、A4 PDF改ページ、永続的なDrive可用性の証明とは区別する。
 
-フロントエンド全体suiteは未完了。既存Sales KPIの `parity.card.test.tsx` と `parity.nt.test.tsx` が長時間終了せず、一括実行と時間制限付き追試を終了した。該当コード・fixture・test設定はmainから変更していないが、原因は未確定。全体suite成功とは報告しない。
+ローカルのフロントエンド一括実行では、既存Sales KPIの `parity.card.test.tsx` と `parity.nt.test.tsx` が長時間終了せず、時間制限付き追試も終了した。後続のGitHub CIでは両ファイルを含む全58ファイル646テストが成功した。該当コード・fixture・test設定を変更・除外せず確認している。ローカル実行時間の原因は未確定。
+
+初回のPR E2Eでは28成功・2失敗・1skip。失敗は新ナビ項目を含まない固定期待配列だった。既存項目の順序と全項目の比較を保持して更新し、新リンクの単一表示・URL・種類を強化した。さらに実Rustアプリへの未認証401、既存パスワードログイン時の403を追加し、変更した2ファイルの8テストがローカルで成功した。これはfixture DBと実アプリの認可検査であり、本番OIDCログインではない。修正後のPR E2E全体はCIで再検証する。
 
 ## 逆証明と修正
 
