@@ -1,3 +1,4 @@
+import { selectJobFeature } from './job-copy-navigation';
 /** Real captured 320-application fixture over loopback; no success responses stubbed.
  * Navigation identity remains a synthetic fixture. This does not prove production
  * OIDC authorization or live HubSpot/Drive availability. Originals and screenshots
@@ -66,7 +67,7 @@ test('actual recorded reasons are unknown-cohort originals with desktop/mobile v
     const index = jobs.findIndex(job => job.hubspotListingId === result.listing_id);
     if (index < 0) throw new Error('Reason fixture has an unmatched listing.');
     await page.locator('.jc-job').nth(index).click();
-    await page.getByRole('button', { name: '応募者構成', exact: true }).click();
+    await selectJobFeature(page, 'reasons');
     const region = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
     const unknown = region.getByRole('region', { name: '版対応不明の記述', exact: true });
     await expect(unknown.locator('blockquote')).toHaveCount(result.applicant_reasons.items.length);
@@ -85,10 +86,10 @@ test('actual recorded reasons are unknown-cohort originals with desktop/mobile v
       await region.scrollIntoViewIfNeeded();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: resolve(evidence, 'reasons-mobile.png') });
-      await page.getByRole('button', { name: '顧客報告・検証', exact: true }).click();
-      await page.getByText('内部閲覧用の原記録を開く', { exact: true }).first().click();
+      await selectJobFeature(page, 'report');
+      await page.getByRole('region', { name: '顧客報告と検証記録', exact: true }).getByText('内部閲覧用の原記録を開く', { exact: true }).first().click();
       await page.emulateMedia({ media: 'print' });
-      await expect(page.locator('.ar-reasons')).toBeHidden();
+      for (const original of await page.locator('.ar-reasons').all()) await expect(original).toBeHidden();
       await page.emulateMedia({ media: 'screen' });
       await page.setViewportSize({ width: 1280, height: 900 });
     }
