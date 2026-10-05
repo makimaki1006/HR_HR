@@ -82,7 +82,6 @@ export function EChart({
         instance = created;
         instanceRef.current = created;
         liveInstances.add(created);
-        created.setOption(withPrintMode(optionRef.current, printModeRef.current));
         if (typeof ResizeObserver !== 'undefined') {
           observer = new ResizeObserver(resize);
           observer.observe(root);
@@ -104,7 +103,9 @@ export function EChart({
           onReadyRef.current?.(created);
         };
         if (typeof created.on === 'function') created.on('finished', onFinished);
-        else onFinished();
+        // Non-animated SVG renders can finish during setOption itself.
+        created.setOption(withPrintMode(optionRef.current, printModeRef.current));
+        if (typeof created.on !== 'function') onFinished();
       })
       .catch(() => {
         // Chunk load failure (offline, stale deploy) or init error: show it instead of a blank box.

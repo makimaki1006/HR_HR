@@ -31,7 +31,7 @@ export interface JobCopyRecord {
   dataSource?: 'hubspot';
   hubspotUrl?: string;
   attributionUnknown?: number;
-  overallApplications?: { total: number; missingDate: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>> };
+  overallApplications?: { total: number; missingDate: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>>; byDate?: Record<string, number> };
   applicantReasons?: ApplicantReasonCollection | undefined;
   hrhPerformance?: HrhPerformanceCollection | undefined;
   jointDemographics?: JointDemographics | undefined;
