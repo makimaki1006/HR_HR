@@ -65,6 +65,13 @@ afterEach(() => {
 const optionA = { xAxis: { type: 'category', data: ['a'] }, yAxis: {}, series: [{ type: 'bar', data: [1] }] };
 
 describe('EChart', () => {
+  it('listens before a synchronous non-animated render finishes', async () => {
+    let finish: (() => void) | undefined;
+    fake.instance.on.mockImplementationOnce((_event, callback) => { finish = callback; });
+    fake.instance.setOption.mockImplementationOnce(() => { finish?.(); });
+    const { findByTestId } = render(<EChart option={{ ...optionA, animation: false }} testId="sync-svg" renderer="svg" />);
+    expect((await findByTestId('sync-svg')).getAttribute('data-chart-ready')).toBe('true');
+  });
   it('has no testid before init and gets data-testid + data-chart-ready after', async () => {
     const { container, findByTestId } = render(<EChart option={optionA} testId="chart-x" height={200} />);
     const root = container.firstElementChild as HTMLElement;

@@ -2,6 +2,7 @@
 // EChart.tsx so screens without charts never download echarts.
 import { BarChart, LineChart, PieChart, RadarChart, SankeyChart, ScatterChart } from 'echarts/charts';
 import {
+  AriaComponent,
   DataZoomComponent,
   DatasetComponent,
   GridComponent,
@@ -19,6 +20,7 @@ import { LabelLayout, UniversalTransition } from 'echarts/features';
 import { CanvasRenderer, SVGRenderer } from 'echarts/renderers';
 
 echarts.use([
+  AriaComponent,
   BarChart,
   LineChart,
   PieChart,
