@@ -63,9 +63,18 @@
 .jc-feature-primary button[aria-selected="true"] { background: #fff; border-color: var(--jc-border); color: var(--jc-accent); box-shadow: 0 1px 3px rgb(22 38 49 / 8%); }
 .jc-feature-secondary { margin-top: 12px; border-bottom: 1px solid var(--jc-border); }
 .jc-feature-secondary button { min-height: 44px; padding: 10px 14px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--jc-muted); }
+.jc-feature-primary button, .jc-feature-secondary button { color: #456071; }
 .jc-feature-secondary button[aria-selected="true"] { color: var(--jc-accent); border-bottom-color: var(--jc-accent); font-weight: 700; }
 .jc-feature-purpose { margin: 12px 0; color: var(--jc-muted); font-size: 12px; }
 .jc-feature-panel[hidden], .jc-feature-secondary[hidden] { display: none !important; }
+.jc-detail-actions { position: sticky; top: 8px; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; padding: 8px; background: #fff; border: 1px solid var(--jc-border); border-radius: 6px; box-shadow: 0 2px 6px rgb(22 38 49 / 8%); }
+.jc-detail-actions > span { flex: 1 1 120px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
+.jc-detail-actions button { min-height: 44px; }
+.jc-feature-primary { scroll-margin-top: 100px; }
+.jc-filter-reset { align-self: start; }
+@media (max-width: 600px) { .jc-detail-actions > span { flex-basis: 100%; }.jc-detail-actions button { flex: 1 1 auto; }.jc-feature-primary { scroll-margin-top: 128px; } }
+@media (max-height: 500px) { .jc-detail-actions { position: static; }.jc-feature-primary { scroll-margin-top: 16px; } }
+@media print { .jc-detail-actions, .jc-filter-reset { display: none !important; } }
 .jc-factor-note { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
 .jc-factor-note textarea { width: 100%; max-width: 100%; padding: 12px; border: 1px solid var(--jc-border); border-radius: 6px; }
 @media (max-width: 600px) { .jc-feature-primary button { flex: 1 1 30%; padding: 10px 8px; }.jc-feature-secondary button { padding: 10px; } }
