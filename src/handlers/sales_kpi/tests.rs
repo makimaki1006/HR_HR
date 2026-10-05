@@ -2067,7 +2067,7 @@ fn リスト列が無い古い週次の行は在庫を出さない() {
 /// 「今月の成績」カードの内訳。実装前に書いた、落ちるテスト（設計書
 /// `claudedocs/SALES_KPI_CARD_BREAKDOWN_DESIGN_2026-10-02.md`）。
 mod card_breakdown;
-mod negotiation_type;
+mod deal_attr;
 
 // ------------------------------------------------ JSON の形（struct 化・React 移行 W2、2026-09-30）
 //
@@ -2080,7 +2080,7 @@ mod negotiation_type;
 /// 期待値は置き換える**前**のコード（origin/main 8d6590f = カード内訳 #45・担当なしの選択 #46 取り込み後）で
 /// `examples/dump_sales_kpi` が書き出したもの（2026-10-02、判定日 2026-09-04。HEAD のバイナリの出力と
 /// sha256 まで一致を確認済み）。
-/// 2026-10-03: 営業KPI「商談種別」(#49、b78bd8e) を取り込んだ版で取り直した（b78bd8e の `Value` 実装の出力）。キーの並び・数値・省略されるキー（`hsTeam` 等）まで
+/// 2026-10-03: 営業KPI「商談属性」(#49、b78bd8e) を取り込んだ版で取り直した（b78bd8e の `Value` 実装の出力）。キーの並び・数値・省略されるキー（`hsTeam` 等）まで
 /// 丸ごと一致しないと落ちる。fixture を取り直したときは、このファイルも
 /// `payload_を書き出す` で作り直す（置き換え前のコードはもう無いので、そのときは差分を目で確かめる）。
 #[test]
@@ -2142,10 +2142,10 @@ fn 契約_トップレベルのキーと基本値() {
             "anq_missing",
             "cyomi_stale",
             "card_deals",
-            "negotiation_type_available",
-            "negotiation_type_sheets",
-            "negotiation_type_order",
-            "negotiation_type_fixed",
+            "deal_attr_available",
+            "deal_attr_sheets",
+            "deal_attr_order",
+            "deal_attr_fixed",
             "excluded",
             "kaden",
             "kaden_base",

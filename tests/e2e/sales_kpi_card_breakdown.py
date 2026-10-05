@@ -19,11 +19,11 @@ JSON を `/api/sales-kpi/data` として返し、テンプレートをそのま�
   - ⑥ ⑤ の分子と分母の内訳、
   - 上を チーム選択・担当者選択・チェック外し の複数通りで繰り返す。
 
-商談種別（2026-10-02）:
-  - payload が negotiation_type_available:false（既定 fixture）: 全カードのパネルに「商談種別: 未取得」、種別の表は出ない。
-  - available:true（`dump_sales_kpi -- out.json 2026-09-04 --negtype` で作った JSON。--only negtype）:
+商談属性（2026-10-02）:
+  - payload が deal_attr_available:false（既定 fixture）: 全カードのパネルに「商談属性: 未取得」、種別の表は出ない。
+  - available:true（`dump_sales_kpi -- out.json 2026-09-04 --attr` で作った JSON。--only attr）:
     どの段（全社 → チーム → 担当者 → 取引一覧）でも 種別ごとの件数の合計 == その段の件数、
-    種別を押して絞ると 一覧の行数の合計 == その種別の件数、⑥⑤ の分子・分母、表示はラベルだけ（内部値が出ない）。
+    種別を押して絞ると 一覧の行数の合計 == その種別の件数、⑥⑤ の分子・分母、表示は Rust が整えた値だけ（旧「商談種別」の内部値は「(定義外)」つきでしか出ない）。
 """
 import argparse
 import json
@@ -544,9 +544,9 @@ def scenario_row_team(br, tpl: Path, D: dict, out: Path, port: int, fails: list)
     srv.shutdown()
 
 
-# ---------------------------------------------------------------- 商談種別
-NT_ORDER = ["決裁者商談", "非決裁者商談", "(未設定)"]
-NT_RAW = ["代表者商談", "担当者商談"]  # 内部値。画面に出てはいけない（ラベルは「非決裁者商談」「決裁者商談」）
+# ---------------------------------------------------------------- 商談属性
+NT_ORDER = ["決裁者商談", "決定者商談", "担当者商談", "(未設定)"]
+NT_RAW = ["代表者商談"]  # 旧「商談種別」の内部値。商談属性では定義外の値なので「(定義外)」の印なしでは出てはいけない
 
 
 def nt_rank(label: str):
@@ -554,7 +554,7 @@ def nt_rank(label: str):
 
 
 def nt_table(page):
-    """パネルの商談種別の表。無ければ None。"""
+    """パネルの商談属性の表。無ければ None。"""
     return page.evaluate(
         """()=>{const t=document.querySelector('#panel1 table.ntt'); if(!t) return null;
           const trs=[...t.querySelectorAll('tbody tr')];
@@ -570,7 +570,7 @@ def nt_table(page):
 def nt_level_check(page, where, expect_total, fails, expect_num=None):
     t = nt_table(page)
     if t is None:
-        fails.append(f"{where}: 商談種別の表が無い")
+        fails.append(f"{where}: 商談属性の表が無い")
         return None
     ns = [r["n"] for r in t["rows"]]
     if sum(ns) != t["sum"] or t["sum"] != expect_total:
@@ -594,8 +594,8 @@ def nt_level_check(page, where, expect_total, fails, expect_num=None):
 def no_raw_values(page, where, fails):
     body = page.evaluate("()=>document.body.innerText")
     for w in NT_RAW:
-        if w in body:
-            fails.append(f"{where}: 画面に内部値「{w}」が出ている")
+        if re.search(re.escape(w) + r"(?!\(定義外\))", body):
+            fails.append(f"{where}: 画面に旧内部値「{w}」が定義外の印なしで出ている")
 
 
 def drill_rows(page):
@@ -769,17 +769,17 @@ def nt_card_check(page, ci: int, label: str, fails: list, shot=None, filters=Tru
     page.locator("#cards1 .c").nth(ci).click()  # 閉じる
 
 
-def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
+def scenario_attr(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     """種別の列がある payload（available:true）で、全段・全絞り込みの種別の合計を確かめる。"""
-    assert D.get("negotiation_type_available") is True, "--json は --negtype 付きの dump で作ること"
-    srv = serve_json(tpl, D, port, out, "negtype")
+    assert D.get("deal_attr_available") is True, "--json は --attr 付きの dump で作ること"
+    srv = serve_json(tpl, D, port, out, "attr")
     teams, people, bp = D["teams"], D["people"], D["by_person"]
-    labs = {r["negotiation_type"] for k in ("pool", "apo", "cyomi") for r in D["card_deals"][k]}
+    labs = {r["deal_attr"] for k in ("pool", "apo", "cyomi") for r in D["card_deals"][k]}
     for raw in NT_RAW:
-        assert raw not in labs, f"サーバが内部値を返している: {raw}"
+        assert raw not in labs, f"サーバが旧内部値を定義外の印なしで返している: {raw}"
     ctx, page, errs = open_page(br, port)
     for i, k in enumerate(CARDS):
-        shot = str(out / f"negtype_all_{i + 1}_{k}.png") if k in ("pool", "rate") else None
+        shot = str(out / f"attr_all_{i + 1}_{k}.png") if k in ("pool", "rate") else None
         nt_card_check(page, i, "全社", fails, shot=shot, filters=(True if i in (1, 4) else 2), full=True)
         drill_check(page, i, "全社(種別あり)", fails)  # 既存の検査も種別ありの入力で通る
     for t in teams[:2]:
@@ -800,13 +800,13 @@ def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     first = drill_rows(page)[0][0]
     page.locator("#panel1 table.cdrill tbody tr").filter(
         has=page.get_by_role("button", name=first, exact=True)).first.click()
-    page.screenshot(path=str(out / "negtype_filtered_team.png"), full_page=False)
+    page.screenshot(path=str(out / "attr_filtered_team.png"), full_page=False)
     nxt = drill_rows(page)[0][0]
     page.locator("#panel1 table.cdrill tbody tr").filter(
         has=page.get_by_role("button", name=nxt, exact=True)).first.click()
-    page.screenshot(path=str(out / "negtype_filtered_list.png"), full_page=False)
+    page.screenshot(path=str(out / "attr_filtered_list.png"), full_page=False)
     if errs:
-        fails.append("pageerror(negtype): " + "; ".join(errs))
+        fails.append("pageerror(attr): " + "; ".join(errs))
     ctx.close()
     hide_team = [p["id"] for p in people if p["team"] == teams[0]]
     for label, ids in (("チェック外し(チーム全員)", hide_team), ("チェック外し(1人)", hide_team[:1])):
@@ -817,7 +817,7 @@ def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     srv.shutdown()
     # 担当なし（ownerId が空）
     D2 = blank_owner_input(D)
-    srv = serve_json(tpl, D2, port + 1, out, "negtype_blank")
+    srv = serve_json(tpl, D2, port + 1, out, "attr_blank")
     ctx, page, errs = open_page(br, port + 1)
     for i in range(len(CARDS)):
         nt_card_check(page, i, "担当なし入力", fails, filters=(2 if i in (1, 4) else 1))
@@ -825,7 +825,7 @@ def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     for i in range(len(CARDS)):
         nt_card_check(page, i, "担当なし選択", fails, filters=1)
     if errs:
-        fails.append("pageerror(negtype 担当なし): " + "; ".join(errs))
+        fails.append("pageerror(attr 担当なし): " + "; ".join(errs))
     ctx.close()
     srv.shutdown()
 
@@ -833,7 +833,7 @@ def scenario_negtype(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
 def scenario_numnote(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
     """⑥⑤ で分子でない区分を選ぶと、種別表の見出し直下に「分子に当たらない」注釈が出る（列と値は残す）。
     分子の区分を選んだとき・区分未選択のときは出ない。"""
-    assert D.get("negotiation_type_available") is True, "--json は --negtype 付きの dump で作ること"
+    assert D.get("deal_attr_available") is True, "--json は --attr 付きの dump で作ること"
     srv = serve_json(tpl, D, port, out, "numnote")
     ctx, page, errs = open_page(br, port)
     for key, num_seg in (("rate", "実施"), ("anqrate", "回収済み")):
@@ -882,8 +882,8 @@ def scenario_numnote(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
 
 
 def scenario_nt_missing(br, tpl: Path, D: dict, out: Path, port: int, fails: list):
-    """列が無いシート（available:false）では「商談種別: 未取得」を出し、種別の表は出さない。"""
-    assert D.get("negotiation_type_available") is False
+    """列が無いシート（available:false）では「商談属性: 未取得」を出し、種別の表は出さない。"""
+    assert D.get("deal_attr_available") is False
     srv = serve_json(tpl, D, port, out, "ntmissing")
     ctx, page, errs = open_page(br, port)
     for i, k in enumerate(CARDS):
@@ -891,12 +891,12 @@ def scenario_nt_missing(br, tpl: Path, D: dict, out: Path, port: int, fails: lis
         page.wait_for_selector("#panel1:not(.hide) #panel1-title")
         m = page.locator("#panel1-nt-missing")
         txt = m.text_content() if m.count() else ""
-        if "商談種別: 未取得" not in txt:
-            fails.append(f"未取得: {k} のパネルに「商談種別: 未取得」が出ない: {txt!r}")
+        if "商談属性: 未取得" not in txt:
+            fails.append(f"未取得: {k} のパネルに「商談属性: 未取得」が出ない: {txt!r}")
         if page.locator("#panel1 table.ntt").count() or page.locator("#panel1-nt-chip").count():
             fails.append(f"未取得: {k} のパネルに種別の表・絞りが出ている")
         if k == "pool":
-            page.screenshot(path=str(out / "negtype_missing_pool.png"), full_page=False)
+            page.screenshot(path=str(out / "attr_missing_pool.png"), full_page=False)
         no_raw_values(page, f"未取得 {k}", fails)
         page.locator("#cards1 .c").nth(i).click()
     if errs:
@@ -938,7 +938,7 @@ def main():
     ap.add_argument("--cards-only", default=None)
     ap.add_argument("--react", default=None, help="リポのルート。指定すると React 版 (/app/sales-kpi) を確かめる")
     ap.add_argument("--port", type=int, default=9317)
-    ap.add_argument("--only", choices=["main", "blank", "rowteam", "pickblank", "negtype", "ntmissing", "numnote"], default=None,
+    ap.add_argument("--only", choices=["main", "blank", "rowteam", "pickblank", "attr", "ntmissing", "numnote"], default=None,
                     help="指定したケースだけ走らせる（既定は全部）")
     a = ap.parse_args()
     global PAGE_PATH, REACT_STATIC
@@ -977,18 +977,18 @@ def main():
         if a.only in (None, "pickblank"):
             scenario_pick_blank(br, Path(a.template), D, out, a.port + 3, fails)
         if a.only is None:
-            if D.get("negotiation_type_available") is True:
-                run_guarded(scenario_negtype, br, Path(a.template), D, out, a.port + 4, fails)
+            if D.get("deal_attr_available") is True:
+                run_guarded(scenario_attr, br, Path(a.template), D, out, a.port + 4, fails)
                 run_guarded(scenario_numnote, br, Path(a.template), D, out, a.port + 8, fails)
-            elif D.get("negotiation_type_available") is False:
+            elif D.get("deal_attr_available") is False:
                 run_guarded(scenario_nt_missing, br, Path(a.template), D, out, a.port + 6, fails)
         if a.only == "numnote":
             run_guarded(scenario_numnote, br, Path(a.template), D, out, a.port + 8, fails)
-        if a.only == "negtype":
-            run_guarded(scenario_negtype, br, Path(a.template), D, out, a.port + 4, fails)
+        if a.only == "attr":
+            run_guarded(scenario_attr, br, Path(a.template), D, out, a.port + 4, fails)
         if a.only == "ntmissing":
             run_guarded(scenario_nt_missing, br, Path(a.template), D, out, a.port + 6, fails)
-        if a.only in ("blank", "rowteam", "pickblank", "negtype", "ntmissing", "numnote"):
+        if a.only in ("blank", "rowteam", "pickblank", "attr", "ntmissing", "numnote"):
             br.close()
             srv.shutdown()
             if fails:
