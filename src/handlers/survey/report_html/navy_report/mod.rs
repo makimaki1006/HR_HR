@@ -13,8 +13,9 @@
 
 #![allow(dead_code)]
 
+pub(crate) mod competitor_model;
 mod competitor_report;
-pub(crate) use competitor_report::render_competitor_report;
+pub(crate) use competitor_report::{render_competitor_report, render_html};
 
 // A1 Commit 1 (γ Common Team, 2026-05-29): navy_report 横断 helper を common.rs に集約。
 //   抽出: SKEW 判定 / 給与分布統計 / フォーマッタ / SVG 描画 / 数値防衛 / HTML helper

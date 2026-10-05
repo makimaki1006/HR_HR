@@ -105,6 +105,13 @@ mod tests {
         crate::job_gen::contract::export_ts(&cfg).expect("jobgen 契約型の TS 型を書き出せない");
         crate::handlers::guide::GuideResponse::export_all(&cfg)
             .expect("GuideResponse の TS 型を書き出せない");
+        // 競合調査 (/app/competitor): レポート本体 (CompetitorReport と依存型)・選択肢・エラー
+        crate::handlers::competitor::CompetitorReportResponse::export_all(&cfg)
+            .expect("CompetitorReportResponse の TS 型を書き出せない");
+        crate::handlers::competitor::CompetitorOptions::export_all(&cfg)
+            .expect("CompetitorOptions の TS 型を書き出せない");
+        crate::handlers::competitor::CompetitorError::export_all(&cfg)
+            .expect("CompetitorError の TS 型を書き出せない");
         let written = std::fs::read_to_string(out_dir.join("AppPingResponse.ts")).unwrap();
         assert!(
             written.contains("export type AppPingResponse = {"),
