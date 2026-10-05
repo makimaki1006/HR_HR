@@ -13,6 +13,7 @@ import {
   type SnapMode,
   type TabKey,
 } from './calc';
+import { nextReloadDelay } from './directStatus';
 import { SalesKpiView, type UiActions, type UiState } from './SalesKpiView';
 import type { CallPeriodKey, SalesKpiData } from './types';
 
@@ -115,6 +116,9 @@ export function SalesKpiScreen() {
   const [tab, setTab] = useState<TabKey>('kpi');
   const [pickOpen, setPickOpen] = useState(false);
 
+  // HubSpot 直読みが「取得中」のあいだだけ、数えながら読み直す (上限は directStatus.ts)。
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     const controller = new AbortController();
     void apiGet<SalesKpiData>(dataPath(window.location.search), {
@@ -125,14 +129,26 @@ export function SalesKpiScreen() {
         if (result.ok) {
           setState({ status: 'ok', data: result.data });
         } else if (!(result.error instanceof ApiAbortedError)) {
-          setState({ status: 'error', message: result.error.message });
+          // 読み直しの失敗では、すでに出している画面を消さない
+          setState((prev) => (attempt > 0 && prev.status === 'ok' ? prev : { status: 'error', message: result.error.message }));
         }
       },
     );
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [attempt]);
+
+  const reloadDelay = state.status === 'ok' ? nextReloadDelay(state.data.meta, attempt) : null;
+  useEffect(() => {
+    if (reloadDelay === null) return undefined;
+    const t = setTimeout(() => {
+      setAttempt((a) => a + 1);
+    }, reloadDelay);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [reloadDelay, attempt, state]);
 
   const updateHidden = useCallback((mutate: (h: Set<string>) => void) => {
     setScope((s) => {
@@ -237,5 +253,5 @@ export function SalesKpiScreen() {
     );
   }
   const ui: UiState = { scope, openKey, card, dayKey, weekOpen, callPeriod, snapMode, tab, pickOpen };
-  return <SalesKpiView data={state.data} ui={ui} actions={actions} />;
+  return <SalesKpiView data={state.data} ui={ui} actions={actions} directExhausted={reloadDelay === null} />;
 }
