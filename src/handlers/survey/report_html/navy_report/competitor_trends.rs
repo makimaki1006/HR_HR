@@ -57,7 +57,10 @@ pub(super) fn chart(
     let mut points = Vec::new();
     let flush = |points: &mut Vec<String>, html: &mut String| {
         if points.len() > 1 {
-            html.push_str(&format!("<polyline class=\"trend-line\" points=\"{}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"3\"/>",points.join(" ")));
+            html.push_str(&format!(
+                "<polyline points=\"{}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"3\"/>",
+                points.join(" ")
+            ));
         }
         points.clear();
     };
