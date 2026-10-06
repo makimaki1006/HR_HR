@@ -768,10 +768,12 @@ fn build_column_map(
                 }
 
                 // Indeed (SP) 固有 CSS クラス判定 (既存 map にあれば上書きしない)
-                if h == "css-bxyec3 href" && !map.contains_key("url") {
+                // The supplied Excel workbook uses css-f6zp9m instead of css-bxyec3.
+                // Losing its URL also loses the Indeed job key used for deduplication.
+                if (h == "css-bxyec3 href" || h == "css-f6zp9m href") && !map.contains_key("url") {
                     map.insert("url", i);
                 }
-                if h == "css-bxyec3" && !map.contains_key("job_title") {
+                if (h == "css-bxyec3" || h == "css-f6zp9m") && !map.contains_key("job_title") {
                     map.insert("job_title", i);
                 }
                 if h == "css-14qk2ra" && !map.contains_key("company_name") {
@@ -2152,6 +2154,28 @@ mod fixa_upload_tests {
     //   (実測: 180行中7件の過剰削除)。同一 jk のトラッキング違い再収集は1件に
     //   まとまる (実測: 17件の正当な重複除去)。
     // =====================================================================
+    #[test]
+    fn competitor_excel_sp_header_preserves_titles_and_distinct_job_keys() {
+        let csv = "css-1hwmqh1,css-f6zp9m href,css-f6zp9m,css-14qk2ra,css-18rxko3,css-18rxko3 (2)\n\
+            正社員,https://jp.indeed.com/viewjob?jk=first,施設長,A社,大阪府大阪市,月給30万円\n\
+            正社員,https://jp.indeed.com/viewjob?jk=second,施設長,A社,大阪府大阪市,月給30万円\n\
+            正社員,https://jp.indeed.com/viewjob?jk=first&from=search,施設長,A社,大阪府大阪市,月給30万円\n";
+        let rows =
+            parse_csv_bytes_with_hints(csv.as_bytes(), Some("大阪府"), UserSourceHint::IndeedSp)
+                .unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "different job keys survive; tracking-only duplicate is removed"
+        );
+        assert_eq!(rows[0].job_title, "施設長");
+        assert_eq!(
+            rows[1].url.as_deref(),
+            Some("https://jp.indeed.com/viewjob?jk=second")
+        );
+        assert_eq!(rows[0].employment_type, "正社員");
+    }
+
     #[test]
     fn dedup_uses_indeed_job_key_not_full_url() {
         let header = "css-1hq3y4h,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu";
