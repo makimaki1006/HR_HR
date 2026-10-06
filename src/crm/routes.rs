@@ -220,6 +220,7 @@ pub(super) fn router_with_queue(
             "/api/crm/call-queue",
             get(super::call_queue::get_call_queue),
         )
+        .route("/api/crm/owners", get(super::owners::get_owners))
         .route("/api/crm/contacts/{id}", get(get_contact))
         .route("/api/crm/companies/{id}", get(get_company))
         .route("/api/crm/deals/{id}", get(get_deal))

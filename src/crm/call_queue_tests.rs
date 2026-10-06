@@ -72,6 +72,9 @@ struct FakeHs {
     archived: HashSet<(String, String)>,
     owners: HashMap<String, String>,
     owners_fail: Option<u16>,
+    /// 一覧 (email 指定なし) の (archived, after) → 応答本文。無ければ空の 1 ページ
+    owner_list: HashMap<(bool, String), Value>,
+    owner_list_delay: Duration,
     /// None なら pipelines API を 500 にする
     stages: Option<Vec<(String, String)>>,
     /// (method + path, body)
@@ -91,6 +94,8 @@ impl FakeHs {
             archived: HashSet::new(),
             owners: HashMap::from([(BPO.to_string(), BPO_OWNER_ID.to_string())]),
             owners_fail: None,
+            owner_list: HashMap::new(),
+            owner_list_delay: Duration::ZERO,
             stages: Some(vec![
                 (UNPROCESSED.to_string(), "未済".to_string()),
                 (FUZAI.to_string(), "不在".to_string()),
@@ -333,21 +338,48 @@ async fn hs_assoc(
 }
 
 async fn hs_owners(State(st): State<Shared<FakeHs>>, RawQuery(q): RawQuery) -> Response {
-    let mut s = st.lock().unwrap();
-    s.log.push((
-        "GET /crm/v3/owners".to_string(),
-        q.clone().unwrap_or_default(),
-    ));
-    if let Some(code) = s.owners_fail {
+    let url = reqwest::Url::parse(&format!("http://x/?{}", q.clone().unwrap_or_default())).unwrap();
+    let qp = |name: &str| {
+        url.query_pairs()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.into_owned())
+    };
+    // ロックは await をまたがない (ブロックで閉じる)
+    let (fail, list, delay) = {
+        let mut s = st.lock().unwrap();
+        s.log.push((
+            "GET /crm/v3/owners".to_string(),
+            q.clone().unwrap_or_default(),
+        ));
+        let list = if qp("email").is_none() {
+            let key = (
+                qp("archived").as_deref() == Some("true"),
+                qp("after").unwrap_or_default(),
+            );
+            Some(
+                s.owner_list
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(json!({"results": []})),
+            )
+        } else {
+            None
+        };
+        (s.owners_fail, list, s.owner_list_delay)
+    };
+    if let Some(code) = fail {
         return (StatusCode::from_u16(code).unwrap(), UPSTREAM_SECRET).into_response();
     }
-    let url = reqwest::Url::parse(&format!("http://x/?{}", q.unwrap_or_default())).unwrap();
-    let email = url
-        .query_pairs()
-        .find(|(k, _)| k == "email")
-        .map(|(_, v)| v.into_owned())
-        .unwrap_or_default();
-    let results: Vec<Value> = s
+    if let Some(body) = list {
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        return Json(body).into_response();
+    }
+    let email = qp("email").unwrap_or_default();
+    let results: Vec<Value> = st
+        .lock()
+        .unwrap()
         .owners
         .get(&email)
         .map(|id| vec![json!({"id": id, "email": email, "archived": false})])
@@ -2158,4 +2190,343 @@ async fn bpo_は範囲を指定しても自分の_owner_だけ() {
         (s, kind(&v)),
         (StatusCode::FORBIDDEN, Some("forbidden_owner"))
     );
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/crm/owners (管理者のみの担当者一覧)
+// ---------------------------------------------------------------------------
+
+fn owner(
+    id: &str,
+    first: Option<&str>,
+    last: Option<&str>,
+    email: Option<&str>,
+    archived: bool,
+) -> Value {
+    let mut o = json!({"id": id, "archived": archived});
+    if let Some(f) = first {
+        o["firstName"] = json!(f);
+    }
+    if let Some(l) = last {
+        o["lastName"] = json!(l);
+    }
+    if let Some(e) = email {
+        o["email"] = json!(e);
+    }
+    o
+}
+
+fn owners_page(results: Vec<Value>, next: Option<&str>) -> Value {
+    let mut v = json!({"results": results});
+    if let Some(a) = next {
+        v["paging"] = json!({"next": {"after": a}});
+    }
+    v
+}
+
+fn put_owner_pages(f: &mut FakeHs, archived: bool, after: &str, body: Value) {
+    f.owner_list.insert((archived, after.to_string()), body);
+}
+
+async fn env_owner_ttl(fake: FakeHs, ttl: Duration) -> Env {
+    let (client, hs) = start_hs(fake).await;
+    let state = test_state(Some(client));
+    let app = Router::new()
+        .merge(super::routes::router_with_queue(
+            CrmAccess::from_list(&format!("{ADMIN},{BPO}")),
+            CallQueueState::for_test(KEY, now_default()).with_owner_list_ttl(ttl),
+        ))
+        .route("/__test/session", post(inject_session))
+        .with_state(state)
+        .layer(SessionManagerLayer::new(MemoryStore::default()));
+    let admin = login(&app, ADMIN, "google_oidc").await;
+    let bpo = login(&app, BPO, "google_oidc").await;
+    Env {
+        app,
+        hs,
+        admin,
+        bpo,
+    }
+}
+
+impl Env {
+    async fn owners(&self) -> (StatusCode, Value) {
+        let (s, cc, v) = get_raw(&self.app, "/api/crm/owners", Some(&self.admin)).await;
+        assert_eq!(cc, "no-store");
+        (s, v)
+    }
+    fn owner_calls(&self) -> usize {
+        self.count("GET /crm/v3/owners")
+    }
+}
+
+fn names(v: &Value) -> Vec<(String, String, bool)> {
+    v["owners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| {
+            (
+                o["id"].as_str().unwrap().to_string(),
+                o["name"].as_str().unwrap().to_string(),
+                o["archived"].as_bool().unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_は_bpo_未ログイン_許可外で_hubspot_を呼ばない() {
+    let e = env(FakeHs::new()).await;
+    let (s, _, v) = get_raw(&e.app, "/api/crm/owners", None).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::UNAUTHORIZED, Some("login_required"))
+    );
+    let c = login(&e.app, ADMIN, "password_internal").await;
+    let (s, _, v) = get_raw(&e.app, "/api/crm/owners", Some(&c)).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::FORBIDDEN, Some("google_login_required"))
+    );
+    let c = login(&e.app, OUTSIDER, "google_oidc").await;
+    let (s, _, v) = get_raw(&e.app, "/api/crm/owners", Some(&c)).await;
+    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+    // 許可リストにいるが管理者ではない (bpo)
+    let (s, _, v) = get_raw(&e.app, "/api/crm/owners", Some(&e.bpo)).await;
+    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+    assert_eq!(e.owner_calls(), 0, "HubSpot を呼んだ: {:?}", e.calls());
+    assert!(e.calls().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_は_hubspot_未設定なら_admin_だけ_503_bpo_は_403() {
+    let app = make_app(test_state(None), now_default());
+    let admin = login(&app, ADMIN, "google_oidc").await;
+    let bpo = login(&app, BPO, "google_oidc").await;
+    let (s, _, v) = get_raw(&app, "/api/crm/owners", Some(&admin)).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("not_configured"))
+    );
+    let (s, _, v) = get_raw(&app, "/api/crm/owners", Some(&bpo)).await;
+    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_が_0_人でもエラーにしない() {
+    let e = env(FakeHs::new()).await;
+    let (s, v) = e.owners().await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["owners"], json!([]));
+    assert_eq!(v["truncated"], json!(false));
+    // 有効と退職者の 2 回だけ
+    assert_eq!(e.owner_calls(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_はページを跨いで退職者も集め_有効な人が先_名前順() {
+    let mut f = FakeHs::new();
+    put_owner_pages(
+        &mut f,
+        false,
+        "",
+        owners_page(
+            vec![
+                owner(
+                    "30",
+                    Some("ハナ"),
+                    Some("テスト"),
+                    Some("hana@example.test"),
+                    false,
+                ),
+                owner(
+                    "10",
+                    Some("アキ"),
+                    Some("サンプル"),
+                    Some("aki@example.test"),
+                    false,
+                ),
+            ],
+            Some("cursor-2"),
+        ),
+    );
+    put_owner_pages(
+        &mut f,
+        false,
+        "cursor-2",
+        owners_page(
+            vec![owner("20", Some("イチロ"), Some("ダミー"), None, false)],
+            None,
+        ),
+    );
+    put_owner_pages(
+        &mut f,
+        true,
+        "",
+        owners_page(
+            vec![owner(
+                "99",
+                Some("カツ"),
+                Some("退職"),
+                Some("old@example.test"),
+                true,
+            )],
+            None,
+        ),
+    );
+    let e = env(f).await;
+    let (s, v) = e.owners().await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        names(&v),
+        vec![
+            ("10".into(), "アキ サンプル".into(), false),
+            ("20".into(), "イチロ ダミー".into(), false),
+            ("30".into(), "ハナ テスト".into(), false),
+            ("99".into(), "カツ 退職".into(), true),
+        ]
+    );
+    assert_eq!(v["owners"][0]["email"], json!("aki@example.test"));
+    assert_eq!(v["owners"][1]["email"], Value::Null);
+    // ページを追った: 有効 2 ページ + 退職者 1 ページ。2 ページ目は after 付き
+    let log: Vec<String> =
+        e.hs.lock()
+            .unwrap()
+            .log
+            .iter()
+            .filter(|(m, _)| m == "GET /crm/v3/owners")
+            .map(|(_, q)| q.clone())
+            .collect();
+    assert_eq!(log.len(), 3, "{log:?}");
+    assert!(log[0].contains("archived=false") && !log[0].contains("after="));
+    assert!(log[1].contains("archived=false") && log[1].contains("after=cursor-2"));
+    assert!(log[2].contains("archived=true"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_の名前は姓名の欠損と同名を扱う() {
+    let mut f = FakeHs::new();
+    put_owner_pages(
+        &mut f,
+        false,
+        "",
+        owners_page(
+            vec![
+                owner("1", Some("名のみ"), None, Some("a@example.test"), false),
+                owner("2", None, Some("姓のみ"), Some("b@example.test"), false),
+                owner("3", None, None, Some("mail.local@example.test"), false),
+                owner("4", Some("  "), Some(""), None, false),
+                // 同名の 2 人は両方残り、email で見分けられる
+                owner(
+                    "5",
+                    Some("同名"),
+                    Some("太郎"),
+                    Some("same1@example.test"),
+                    false,
+                ),
+                owner(
+                    "6",
+                    Some("同名"),
+                    Some("太郎"),
+                    Some("same2@example.test"),
+                    false,
+                ),
+                // ID の無い行は捨てる
+                json!({"firstName": "ID無し"}),
+            ],
+            None,
+        ),
+    );
+    let e = env(f).await;
+    let (_, v) = e.owners().await;
+    let got = names(&v);
+    let name_of = |id: &str| got.iter().find(|(i, _, _)| i == id).unwrap().1.clone();
+    assert_eq!(name_of("1"), "名のみ");
+    assert_eq!(name_of("2"), "姓のみ");
+    assert_eq!(name_of("3"), "mail.local");
+    assert_eq!(name_of("4"), "(名前なし)");
+    assert_eq!(name_of("5"), "同名 太郎");
+    assert_eq!(name_of("6"), "同名 太郎");
+    assert_eq!(got.len(), 6);
+    assert_eq!(
+        v["owners"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|o| o["name"] == "同名 太郎")
+            .map(|o| o["email"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["same1@example.test", "same2@example.test"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_の_hubspot_失敗は_error_kind_で返しキャッシュしない() {
+    for (code, want) in [
+        (429u16, "hubspot_rate_limited"),
+        (401, "hubspot_auth"),
+        (500, "hubspot_upstream"),
+    ] {
+        let mut f = FakeHs::new();
+        f.owners_fail = Some(code);
+        let e = env(f).await;
+        let (s, v) = e.owners().await;
+        assert_ne!(s, StatusCode::OK, "code={code} {v}");
+        assert_eq!(kind(&v), Some(want), "code={code}");
+        // 失敗は覚えない: 直ったらすぐ取れる
+        e.hs.lock().unwrap().owners_fail = None;
+        let (s, _) = e.owners().await;
+        assert_eq!(s, StatusCode::OK, "code={code}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_の_hubspot_タイムアウト() {
+    let mut f = FakeHs::new();
+    f.owner_list_delay = Duration::from_millis(1500);
+    let e = env(f).await;
+    let (s, v) = e.owners().await;
+    assert_eq!(kind(&v), Some("hubspot_timeout"), "{s} {v}");
+    assert_ne!(s, StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_は有効期間内は再取得せず期限が切れれば取り直す() {
+    let mut f = FakeHs::new();
+    put_owner_pages(
+        &mut f,
+        false,
+        "",
+        owners_page(vec![owner("1", Some("甲"), Some("乙"), None, false)], None),
+    );
+    let e = env(f).await;
+    for _ in 0..3 {
+        let (s, v) = e.owners().await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(names(&v).len(), 1);
+    }
+    assert_eq!(
+        e.owner_calls(),
+        2,
+        "3 回呼んでも HubSpot は 2 回 (有効 + 退職者)"
+    );
+
+    // 有効期間 0 なら毎回取り直す (逆証明)
+    let e0 = env_owner_ttl(FakeHs::new(), Duration::ZERO).await;
+    e0.owners().await;
+    e0.owners().await;
+    assert_eq!(e0.owner_calls(), 4);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owners_は同時に冷えた要求を_1_回の取得にまとめる() {
+    let mut f = FakeHs::new();
+    f.owner_list_delay = Duration::from_millis(150);
+    let e = env(f).await;
+    let (a, b, c) = tokio::join!(e.owners(), e.owners(), e.owners());
+    assert_eq!(a.0, StatusCode::OK);
+    assert_eq!(b.0, StatusCode::OK);
+    assert_eq!(c.0, StatusCode::OK);
+    assert_eq!(e.owner_calls(), 2);
 }
