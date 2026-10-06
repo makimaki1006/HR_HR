@@ -6,7 +6,7 @@ export type CallQueueScope = {
  */
 owner: string, 
 /**
- * `admin` / `bpo` (暫定の役割判定。`rbac::resolve_role`)
+ * `admin` / `consultant` / `bpo` (`accounts.role`。`rbac::authorize` が読む)
  */
 role: string, 
 /**

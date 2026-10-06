@@ -37,8 +37,8 @@
 //! 全組み合わせが上限内に収まることはテストで確認している。
 //!
 //! ## 認可と役割
-//! `rbac::authorize` (Google OIDC + 許可リスト + 無効アカウント) の後、役割 (`rbac::resolve_role`。暫定: `ADMIN_EMAILS` →
-//! admin、それ以外は bpo) で見える範囲を決める。本人のメール → HubSpot owner id は Owners API で引き、メモリにキャッシュする。
+//! `rbac::authorize` (Google OIDC + 許可リスト + 無効アカウント + 役割) の後、役割 (`accounts.role`) で見える範囲を決める。
+//! admin / consultant は全員分 (既定)、bpo は自分の担当だけ。本人のメール → HubSpot owner id は Owners API で引き、メモリにキャッシュする。
 //! owner を引けない BPO は全員分に倒さず 403 `owner_not_found`。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -104,7 +104,7 @@ const OWNER_TTL: Duration = Duration::from_secs(10 * 60);
 const OWNER_MISS_TTL: Duration = Duration::from_secs(60);
 const LABELS_TTL: Duration = Duration::from_secs(5 * 60);
 
-const DEAL_PROPERTIES: &[&str] = &[
+pub(super) const DEAL_PROPERTIES: &[&str] = &[
     "dealname",
     "dealstage",
     "pipeline",
@@ -170,13 +170,13 @@ impl CallQueueState {
         self
     }
 
-    fn now(&self) -> DateTime<Utc> {
+    pub(super) fn now(&self) -> DateTime<Utc> {
         self.fixed_now.unwrap_or_else(Utc::now)
     }
 
     /// 本人のメール → HubSpot owner id。引けた結果は 10 分、見つからなかった結果は 1 分キャッシュ。
     /// 失敗 (HubSpot のエラー) はキャッシュしない。
-    async fn owner_for(
+    pub(super) async fn owner_for(
         &self,
         client: &HubSpotClient,
         email: &str,
@@ -295,7 +295,7 @@ pub struct CallQueueItem {
 pub struct CallQueueScope {
     /// `all` / `me` / `unassigned` / owner id
     pub owner: String,
-    /// `admin` / `bpo` (暫定の役割判定。`rbac::resolve_role`)
+    /// `admin` / `consultant` / `bpo` (`accounts.role`。`rbac::authorize` が読む)
     pub role: String,
     /// 実際に絞り込んだステージ ID (昇順)
     pub stages: Vec<String>,
@@ -576,11 +576,12 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     })
 }
 
-/// 管理者の既定 = 全員分、BPO の既定 = 自分
+/// 管理者・consultant の既定 = 全員分、BPO の既定 = 自分
 fn effective_owner(p: &OwnerParam, role: CrmRole) -> OwnerParam {
     match (p, role) {
-        (OwnerParam::Unspecified, CrmRole::Admin) => OwnerParam::All,
-        (OwnerParam::Unspecified, CrmRole::Bpo) => OwnerParam::Me,
+        (OwnerParam::Unspecified, r) if r.reads_all_records() => OwnerParam::All,
+        // bpo。user は authorize で落ちるので来ないが、来ても自分だけ (最小権限)
+        (OwnerParam::Unspecified, _) => OwnerParam::Me,
         (other, _) => other.clone(),
     }
 }
@@ -1247,6 +1248,62 @@ fn build_item(
 }
 
 // ---------------------------------------------------------------------------
+// 1 件の Deal がキューの条件に合うか (BPO のレコード単位の制限用。`record_gate.rs`)
+// ---------------------------------------------------------------------------
+
+/// 日付プロパティ (`bpo_13` 等) → エポック ms。`YYYY-MM-DD` (その日の UTC 0 時)・RFC 3339・数字 (ms) を受ける。
+/// 解釈できなければ `None` (呼び出し側は「条件に合わない」側に倒す)。
+fn date_prop_ms(v: &str) -> Option<i64> {
+    let t = v.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if t.bytes().all(|b| b.is_ascii_digit()) {
+        return t.parse::<i64>().ok();
+    }
+    if let Ok(d) = NaiveDate::parse_from_str(t, "%Y-%m-%d") {
+        return Some(date_ms(d));
+    }
+    DateTime::parse_from_rfc3339(t)
+        .ok()
+        .map(|d| d.timestamp_millis())
+}
+
+/// この Deal が `owner_id` (HubSpot owner) の架電キューに出る条件を満たすか。
+///
+/// 検索 (`filter_groups`) と同じ条件を 1 件の Deal に当てる: パイプライン・担当者・アーカイブでない・
+/// 架電禁止理由 `bpo_3` / ブロック理由 `bpo_4` が空・ステージ (未済は常に、他の許可ステージは次回架電日が今日以前)。
+/// **電話番号の有無は見ない** (Contact / Company の追加読み取りが要るため。電話番号が無い自分の担当 Deal は
+/// キューには出ないが、個別取得はできる)。
+pub(super) fn deal_in_queue(deal: &HubSpotRecord, owner_id: &str, today_ms: i64) -> bool {
+    if deal.archived || owner_id.trim().is_empty() {
+        return false;
+    }
+    if nz(deal, "pipeline").as_deref() != Some(PIPELINE_ID) {
+        return false;
+    }
+    if nz(deal, "hubspot_owner_id").as_deref() != Some(owner_id.trim()) {
+        return false;
+    }
+    if nz(deal, "bpo_3").is_some() || nz(deal, "bpo_4").is_some() {
+        return false;
+    }
+    let Some(stage) = nz(deal, "dealstage") else {
+        return false;
+    };
+    if stage == STAGE_UNPROCESSED {
+        return true;
+    }
+    if !STAGES_WHEN_DUE.contains(&stage.as_str()) {
+        return false;
+    }
+    nz(deal, "bpo_13")
+        .as_deref()
+        .and_then(date_prop_ms)
+        .is_some_and(|ms| ms <= today_ms)
+}
+
+// ---------------------------------------------------------------------------
 // ハンドラ
 // ---------------------------------------------------------------------------
 
@@ -1279,8 +1336,10 @@ pub(super) async fn get_call_queue(
         Err(name) => return bad_param(name),
     };
     // 3) 役割と担当者の範囲。BPO は自分 (指定なし / me) だけ。他の指定は HubSpot を呼ぶ前に 403
-    let role = rbac::resolve_role(&state.config, &principal);
-    if role == CrmRole::Bpo && !matches!(params.owner, OwnerParam::Unspecified | OwnerParam::Me) {
+    let role = rbac::resolve_role(&principal);
+    if !role.reads_all_records()
+        && !matches!(params.owner, OwnerParam::Unspecified | OwnerParam::Me)
+    {
         return error_json(StatusCode::FORBIDDEN, "forbidden_owner");
     }
     let owner = effective_owner(&params.owner, role);
