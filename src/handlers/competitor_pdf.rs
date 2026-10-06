@@ -73,9 +73,14 @@ fn browser() -> std::ffi::OsString {
     {
         return r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe".into();
     }
+    // Playwright の executablePath は PATH を引かないので、名前だけ ("chromium") では起動できない
+    // (2026-10-06 本番で "executable doesn't exist at chromium")。Debian の chromium パッケージの絶対パス。
     #[cfg(not(windows))]
-    "chromium".into()
+    DEFAULT_LINUX_CHROMIUM.into()
 }
+
+#[cfg(not(windows))]
+const DEFAULT_LINUX_CHROMIUM: &str = "/usr/bin/chromium";
 
 pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
     static LIMIT: OnceLock<Semaphore> = OnceLock::new();
@@ -161,6 +166,28 @@ pub(super) async fn generate(html: &str) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
+    /// Playwright は executablePath を PATH から探さない。名前だけの既定値では本番で起動できなかった (2026-10-06)。
+    #[cfg(not(windows))]
+    #[test]
+    fn default_linux_chromium_is_an_absolute_path() {
+        assert!(std::path::Path::new(super::DEFAULT_LINUX_CHROMIUM).is_absolute());
+    }
+
+    /// 本番イメージは PDF_CHROMIUM_PATH を絶対パスで渡し、ビルド時にその実体を起動して確かめる。
+    #[test]
+    fn dockerfile_sets_an_absolute_chromium_path_and_checks_it() {
+        let docker = include_str!("../../Dockerfile");
+        let line = docker
+            .lines()
+            .find(|l| l.trim_start().starts_with("ENV PDF_CHROMIUM_PATH="))
+            .expect("Dockerfile must set PDF_CHROMIUM_PATH");
+        let path = line.trim().trim_start_matches("ENV PDF_CHROMIUM_PATH=");
+        assert!(path.starts_with('/'), "PDF_CHROMIUM_PATH must be absolute: {path}");
+        assert!(docker.contains("\"$PDF_CHROMIUM_PATH\" --version"));
+        #[cfg(not(windows))]
+        assert_eq!(path, super::DEFAULT_LINUX_CHROMIUM);
+    }
+
     #[tokio::test]
     #[ignore = "Requires a Chromium/Edge executable; set COMPETITOR_PDF_TEST_HTML to the source report"]
     async fn export_fixed_pdf_from_real_report() {
