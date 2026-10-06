@@ -14,12 +14,20 @@ main{max-width:1500px;margin:0 auto;padding:0 20px 24px}
 .summary .meta td{font-size:16px;padding:6px 4px}
 .summary h2{font-size:15px;text-align:center;margin:14px 0 7px;font-weight:500}
 .summary .words th:first-child,.summary .words td:first-child{width:55%;text-align:left}
+.summary .word-comparison th:first-child,.summary .word-comparison td:first-child{width:40%;overflow-wrap:anywhere}
+.summary .word-basis{margin:0 0 8px}
 .summary .note{color:#ffffffd9;font-size:11px;line-height:1.6}
-.charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:250px 250px minmax(330px,1fr);padding:12px;gap:12px}
+.charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:250px 250px minmax(700px,1fr);padding:12px;gap:12px}
 .chart{margin:0;min-width:0;border:1px solid var(--grid);padding:10px;background:white}
 .chart.wide{grid-column:1/-1}
 .chart figcaption{text-align:center;font-size:17px;margin-bottom:6px}
 .chart svg{display:block;width:100%;height:calc(100% - 30px)}
+.salary-chart{background:#fbfcfe;border-color:#dce5eb;padding:12px 14px}
+.salary-chart figcaption{text-align:left;font-size:15px;font-weight:600;margin:0 0 4px;color:#263b4a}
+.salary-chart-summary{display:flex;align-items:center;gap:7px;font-size:12px;margin:0 0 4px;color:#006666;font-weight:600;line-height:1.4}
+.salary-swatch{width:9px;height:9px;background:#007d79;display:inline-block;flex-shrink:0}
+.salary-chart svg{height:calc(100% - 51px)}
+.keyword-comparison text{fill:var(--ink)}
 .caption{font-size:12px;color:#536169;line-height:1.7;margin:12px 0 20px}
 .sources{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 .page-navy{background:white;padding:20px;min-width:0;border-top:3px solid var(--teal)}
@@ -32,18 +40,18 @@ main{max-width:1500px;margin:0 auto;padding:0 20px 24px}
 .table-navy .num{text-align:right}
 .block-title{font-size:14px;font-weight:600;margin-top:20px}
 @media(min-width:1400px){.summary table{font-size:13px}
-.charts{grid-template-rows:260px 260px minmax(350px,1fr)}
+.charts{grid-template-rows:220px 220px minmax(700px,1fr)}
 }
 @media(max-width:900px){.excel-dashboard{grid-template-columns:1fr}
 .summary{padding:16px}
 .summary table{font-size:13px}
-.charts{grid-template-rows:240px 240px 320px}
+.charts{grid-template-rows:240px 240px minmax(700px,1fr)}
 .sources{grid-template-columns:1fr}
 }
 @media(max-width:550px){main{padding:0 10px 20px}
 .toolbar{padding:12px 10px;gap:12px;font-size:12px}
 .toolbar button{padding:7px}
-.charts{grid-template-columns:1fr;grid-template-rows:repeat(2,220px) repeat(2,330px);padding:8px;gap:8px}
+.charts{grid-template-columns:1fr;grid-template-rows:repeat(2,220px) repeat(2,700px);padding:8px;gap:8px}
 .chart.wide{grid-column:auto}
 .chart figcaption{font-size:15px}
 .page-navy{padding:12px}
@@ -56,7 +64,7 @@ main{max-width:1500px;margin:0 auto;padding:0 20px 24px}
 main{max-width:none;padding:0}
 .excel-dashboard{grid-template-columns:32% 68%;break-inside:avoid}
 .summary{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px 310px}
+.charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px 700px}
 .chart.wide{grid-column:1/-1}
 .sources{display:block}
 .page-navy{break-inside:avoid;margin-top:20px}
@@ -77,4 +85,24 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--blue);outline-offse
 @media print{.report-tabs{display:none}}
 .population-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 .population-grid svg{max-width:100%;height:auto}
+.consultation-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.consultation-card{padding:16px;border:1px solid var(--grid);background:#f6fafa;min-width:0}
+.consultation-card p{font-size:14px;line-height:1.7}
+.consultation-card .table-navy{font-size:13px;table-layout:fixed;overflow-wrap:anywhere}
+@media(max-width:900px){.consultation-grid{grid-template-columns:1fr}}
 @media(max-width:768px){.population-grid{grid-template-columns:1fr}}
+
+.keyword-comparison{display:flex;flex-direction:column;min-height:700px}
+.keyword-comparison svg{contain:size;flex:1;height:0;min-height:640px;width:100%}
+.trend-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:20px 0}
+.trend-card{margin:0;padding:16px;border:1px solid var(--grid);background:#fbfdfd;min-width:0}
+.trend-card figcaption{font-size:17px;font-weight:600;margin-bottom:8px}
+.trend-value{font-size:14px;color:#536169;margin:0 0 12px}
+.trend-plot{overflow-x:auto;max-width:100%}.trend-plot svg{width:100%;min-width:620px;height:auto;display:block}
+.population-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:20px 0}
+.population-metrics article{padding:16px;background:#edf6f6}.population-metrics strong{display:block;font-size:25px;color:var(--teal)}
+.age-composition{display:flex;height:28px;margin:20px 0 8px;border-radius:4px;overflow:hidden}
+.age-composition span{display:block;min-width:0}.population-legend{display:flex;gap:20px;flex-wrap:wrap;font-size:13px}
+.population-legend i{display:inline-block;width:10px;height:10px;margin-right:6px}
+@media(max-width:900px){.trend-grid,.population-metrics{grid-template-columns:1fr}}
+@media print{.trend-plot{overflow:visible}.trend-plot svg{min-width:0}}
