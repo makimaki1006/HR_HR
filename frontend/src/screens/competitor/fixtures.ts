@@ -37,17 +37,35 @@ export function makeReport(): CompetitorReport {
         share_pct: (100 - i * 7) / 12.34,
       })),
       keyword_head: [{ word: '未経験歓迎', count: 30, jobs: 45, share_pct: 66.666 }],
+      keyword_comparison: {
+        head_n: 45,
+        all_n: 1234,
+        rows: [
+          { word: '未経験歓迎', head_count: 30, head_share_pct: 66.666, all_count: 400, all_share_pct: 32.4 },
+          { word: '賞与あり', head_count: 9, head_share_pct: 20, all_count: null, all_share_pct: null },
+        ],
+      },
       histograms: {
-        upper: [
-          { label: '20', count: 3 },
-          { label: '21', count: 10 },
-          { label: '22', count: 5 },
-          { label: '23', count: 0 },
-        ],
-        lower: [
-          { label: '18', count: 2 },
-          { label: '19', count: 4 },
-        ],
+        upper: {
+          bins: [
+            { label: '20', count: 3 },
+            { label: '21', count: 10 },
+            { label: '22', count: 5 },
+            { label: '23', count: 0 },
+          ],
+          n: 18,
+          step: 1,
+          summary: '最多の給与帯：21〜22 / 10件・55.6%',
+        },
+        lower: {
+          bins: [
+            { label: '18', count: 2 },
+            { label: '19', count: 4 },
+          ],
+          n: 6,
+          step: 1,
+          summary: '最多の給与帯：19〜20 / 4件・66.7%',
+        },
       },
     },
     google: {
@@ -73,6 +91,7 @@ export function makeReport(): CompetitorReport {
       },
       suggestions: {
         status: 'ok',
+        region_name: null,
         suggestions: [
           { keyword: '関連語A', avg_monthly: 500 },
           { keyword: '関連語B', avg_monthly: 0 },
@@ -95,6 +114,9 @@ export function makeReport(): CompetitorReport {
     population: {
       status: 'ok',
       region: '大阪府',
+      is_national: false,
+      reference_date: '2020-10-01',
+      shares: null,
       bands: [
         { age_group: '0～4歳', male: 100000, female: 95000 },
         { age_group: '5～9歳', male: 110000, female: 104000 },
@@ -105,7 +127,32 @@ export function makeReport(): CompetitorReport {
       minimum_wage_effective_date: '2025-10-16',
       minimum_wage_as_of: '2026-10-05',
       minimum_wage_source: 'official_csv',
+      minimum_wage_source_url: null,
       labor: { fiscal_year: 2024, unemployment_rate: 2.5, separation_rate: null },
+    },
+    consultation: {
+      cohort: '総合：Indeed SPの月給求人の実額（月給換算は含みません）',
+      salary: [
+        { label: '下限', all_median: 24, all_n: 1200, popular_median: 0, popular_n: 20, delta: 24 },
+        { label: '上限', all_median: 30, all_n: 1190, popular_median: null, popular_n: 18, delta: null },
+      ],
+      distribution_min_n: 1200,
+      distribution_max_n: 1190,
+      small_sample: false,
+      gaps: {
+        status: 'rows',
+        head_n: 45,
+        all_n: 1234,
+        rows: [
+          { word: '賞与あり', head: 9, all: 700, head_share_pct: 20, all_share_pct: 56.7, points: -36.7 },
+        ],
+      },
+      external: [
+        { label: 'Google検索需要', fetched: true },
+        { label: 'Google関連語', fetched: true },
+        { label: 'Indeed採用市場', fetched: true },
+        { label: '人口・地域', fetched: true },
+      ],
     },
   };
 }

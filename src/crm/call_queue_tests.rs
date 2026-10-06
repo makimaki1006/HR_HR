@@ -21,7 +21,7 @@ use tower::ServiceExt;
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 
 use super::call_queue::{jst_today_ms, CallQueueState};
-use super::rbac::CrmAccess;
+use super::rbac::{CrmAccess, CrmRole};
 use crate::config::AppConfig;
 use crate::db::cache::AppCache;
 use crate::hubspot::{ClientOptions, HubSpotClient};
@@ -507,7 +507,9 @@ async fn inject_session(session: Session, Json(v): Json<Value>) -> StatusCode {
 fn make_app(state: Arc<AppState>, now: DateTime<Utc>) -> Router {
     Router::new()
         .merge(super::routes::router_with_queue(
-            CrmAccess::from_list(&format!("{ADMIN},{BPO}")),
+            CrmAccess::from_list(&format!("{ADMIN},{BPO}"))
+                .with_test_role(ADMIN, CrmRole::Admin)
+                .with_test_role(BPO, CrmRole::Bpo),
             CallQueueState::for_test(KEY, now),
         ))
         .route("/__test/session", post(inject_session))
@@ -2233,7 +2235,9 @@ async fn env_owner_ttl(fake: FakeHs, ttl: Duration) -> Env {
     let state = test_state(Some(client));
     let app = Router::new()
         .merge(super::routes::router_with_queue(
-            CrmAccess::from_list(&format!("{ADMIN},{BPO}")),
+            CrmAccess::from_list(&format!("{ADMIN},{BPO}"))
+                .with_test_role(ADMIN, CrmRole::Admin)
+                .with_test_role(BPO, CrmRole::Bpo),
             CallQueueState::for_test(KEY, now_default()).with_owner_list_ttl(ttl),
         ))
         .route("/__test/session", post(inject_session))

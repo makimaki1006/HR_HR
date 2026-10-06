@@ -135,6 +135,28 @@ pub fn is_email_disabled(turso: &TursoDb, email: &str) -> Result<bool, String> {
         .is_some_and(|r| !get_str(r, "disabled_at").trim().is_empty()))
 }
 
+/// `find_roles_by_email` の SQL (テストで本物の SQLite に流すため定数にしている)
+pub(crate) const ROLES_BY_EMAIL_SQL: &str =
+    "SELECT role FROM accounts WHERE lower(email) = lower(?1)";
+
+/// email に対応する `accounts.role` の生の値の一覧 (大文字小文字を区別せず照合)。
+///
+/// CRM の役割判定 (`crm::rbac`) 用。行が無ければ空 Vec。**照会の失敗は `Err` で返す**
+/// (呼び出し側が「読めなかった」と「行が無い」を区別し、読めないときに権限を広げないため)。
+/// 同じメールの行が複数あっても全部返す (呼び出し側が最小権限を採る)。
+pub fn find_roles_by_email(turso: &TursoDb, email: &str) -> Result<Vec<String>, String> {
+    let rows = turso.query(ROLES_BY_EMAIL_SQL, &[&email])?;
+    Ok(rows.iter().map(|r| get_str(r, "role")).collect())
+}
+
+/// 役割の変更 (管理者の操作でのみ呼ぶ)。対象の存在確認は呼び出し側 (`find_account_by_id`) で行う。
+pub fn update_account_role(turso: &TursoDb, account_id: &str, role: &str) -> Result<(), String> {
+    turso.execute(
+        "UPDATE accounts SET role = ?1 WHERE id = ?2",
+        &[&role, &account_id],
+    )
+}
+
 /// アカウント全件取得 (管理者画面用、最大 limit 件)。
 pub fn list_accounts(turso: &TursoDb, limit: i64) -> Vec<AccountRow> {
     let rows = turso

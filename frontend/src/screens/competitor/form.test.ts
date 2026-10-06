@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FORM,
   MAX_CSV_BYTES,
-  PREFECTURE_NOTICE,
   buildFormData,
   validateForm,
   type FormValues,
@@ -83,10 +82,6 @@ describe('validateForm', () => {
 
   it('選択肢がまだ無い (options 未取得) ときは都道府県を検証しない', () => {
     expect(validateForm(ok({ prefecture: '火星' }), []).prefecture).toBeUndefined();
-  });
-
-  it('全国の予告文がある', () => {
-    expect(PREFECTURE_NOTICE).toContain('人口');
   });
 });
 

@@ -37,8 +37,8 @@
 //! 全組み合わせが上限内に収まることはテストで確認している。
 //!
 //! ## 認可と役割
-//! `rbac::authorize` (Google OIDC + 許可リスト + 無効アカウント) の後、役割 (`rbac::resolve_role`。暫定: `ADMIN_EMAILS` →
-//! admin、それ以外は bpo) で見える範囲を決める。本人のメール → HubSpot owner id は Owners API で引き、メモリにキャッシュする。
+//! `rbac::authorize` (Google OIDC + 許可リスト + 無効アカウント + 役割) の後、役割 (`accounts.role`) で見える範囲を決める。
+//! admin / consultant は全員分 (既定)、bpo は自分の担当だけ。本人のメール → HubSpot owner id は Owners API で引き、メモリにキャッシュする。
 //! owner を引けない BPO は全員分に倒さず 403 `owner_not_found`。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -295,7 +295,7 @@ pub struct CallQueueItem {
 pub struct CallQueueScope {
     /// `all` / `me` / `unassigned` / owner id
     pub owner: String,
-    /// `admin` / `bpo` (暫定の役割判定。`rbac::resolve_role`)
+    /// `admin` / `consultant` / `bpo` (`accounts.role`。`rbac::authorize` が読む)
     pub role: String,
     /// 実際に絞り込んだステージ ID (昇順)
     pub stages: Vec<String>,
@@ -576,11 +576,12 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     })
 }
 
-/// 管理者の既定 = 全員分、BPO の既定 = 自分
+/// 管理者・consultant の既定 = 全員分、BPO の既定 = 自分
 fn effective_owner(p: &OwnerParam, role: CrmRole) -> OwnerParam {
     match (p, role) {
-        (OwnerParam::Unspecified, CrmRole::Admin) => OwnerParam::All,
-        (OwnerParam::Unspecified, CrmRole::Bpo) => OwnerParam::Me,
+        (OwnerParam::Unspecified, r) if r.reads_all_records() => OwnerParam::All,
+        // bpo。user は authorize で落ちるので来ないが、来ても自分だけ (最小権限)
+        (OwnerParam::Unspecified, _) => OwnerParam::Me,
         (other, _) => other.clone(),
     }
 }
@@ -1338,8 +1339,10 @@ pub(super) async fn get_call_queue(
         Err(name) => return bad_param(name),
     };
     // 3) 役割と担当者の範囲。BPO は自分 (指定なし / me) だけ。他の指定は HubSpot を呼ぶ前に 403
-    let role = rbac::resolve_role(&state.config, &principal);
-    if role == CrmRole::Bpo && !matches!(params.owner, OwnerParam::Unspecified | OwnerParam::Me) {
+    let role = rbac::resolve_role(&principal);
+    if !role.reads_all_records()
+        && !matches!(params.owner, OwnerParam::Unspecified | OwnerParam::Me)
+    {
         return error_json(StatusCode::FORBIDDEN, "forbidden_owner");
     }
     let owner = effective_owner(&params.owner, role);
