@@ -7,6 +7,8 @@
 //!
 //! W8 (2026-09-29): 同じデータの JSON 版 `/api/admin/{users,users/{id},login-failures,usage}`
 //! を `json.rs` に追加 (React 画面 `/app/admin` 用)。応答 struct は `data.rs`。
+//!
+//! 2026-10-06: `POST /api/admin/users/{id}/role` (役割の変更。admin / consultant / bpo / user)。書き込みはこの 1 つだけ。
 
 pub mod data;
 mod handlers;
@@ -20,8 +22,8 @@ pub(crate) mod snapshot_tests;
 pub(crate) mod contract_tests;
 
 pub use data::{
-    AdminLoginFailuresResponse, AdminUsageEntry, AdminUsageResponse, AdminUserDetailResponse,
-    AdminUserKpi30d, AdminUsersResponse,
+    AdminLoginFailuresResponse, AdminRoleChangeRequest, AdminRoleChangeResponse, AdminUsageEntry,
+    AdminUsageResponse, AdminUserDetailResponse, AdminUserKpi30d, AdminUsersResponse,
 };
 pub use handlers::{admin_login_failures, admin_usage, admin_user_detail, admin_users_list};
-pub use json::{api_login_failures, api_usage, api_user_detail, api_users};
+pub use json::{api_change_role, api_login_failures, api_usage, api_user_detail, api_users};

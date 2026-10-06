@@ -760,6 +760,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::admin::api_login_failures),
         )
         .route("/api/admin/usage", get(handlers::admin::api_usage))
+        // 2026-10-06: 役割の変更 (admin / consultant / bpo / user)。管理者だけ (require_admin_mw の内側)
+        .route(
+            "/api/admin/users/{account_id}/role",
+            post(handlers::admin::api_change_role),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_admin_mw,

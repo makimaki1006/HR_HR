@@ -192,7 +192,7 @@ pub(super) async fn get_owners(
         Ok(p) => p,
         Err(denied) => return denied.into_response(),
     };
-    if rbac::resolve_role(&state.config, &principal) != CrmRole::Admin {
+    if rbac::resolve_role(&principal) != CrmRole::Admin {
         return error_json(StatusCode::FORBIDDEN, "forbidden");
     }
     let Some(client) = state.hubspot.clone() else {
