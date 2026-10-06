@@ -9,6 +9,7 @@ import { login } from './helpers/login';
  *
  * 同じ fixture CSV (tests/fixtures/competitor/sp_utf8.csv、架空の合成データ) と同じ条件を両方に送り、
  * 画面に出た値 (表のセル・SVG の階級と件数・状態の文言) を取り出して比べる。要素の存在では判定しない。
+ * タブは 5 つ (給与・待遇 / Google / Indeed / 人口 / 採用のヒント)。
  * 判定は 旧 == 新 == 既知値 の 3 点。既知値 (helpers/fixture_values.ts の COMPETITOR_FIXTURE) は
  * scripts/e2e/competitor_expected.py が CSV から Rust と無関係に計算した値で、Rust の出力のコピーではない。
  *
@@ -51,6 +52,7 @@ interface Extracted {
   google: { paragraphs: string[]; tables: string[][][] };
   indeed: { paragraphs: string[]; tables: string[][][] };
   population: { paragraphs: string[]; tables: string[][][] };
+  consultation: { paragraphs: string[]; tables: string[][][] };
 }
 
 /**
@@ -79,11 +81,17 @@ async function extract(page: Page): Promise<Extracted> {
     const charts = Array.from(excel.querySelectorAll('figure')).map((f) => ({
       caption: norm(f.querySelector('figcaption')?.textContent),
       bars: Array.from(f.querySelectorAll('rect > title')).map((t) => norm(t.textContent)),
-      axis: Array.from(f.querySelectorAll('svg > text, svg > g > text')).map((t) => norm(t.textContent)),
-      // 棒の位置と高さ (小数 1 桁): 件数が同じでも棒の長さが旧と違えば検知する
-      geometry: Array.from(f.querySelectorAll('rect')).map(
-        (r) => `${r1(Number(r.getAttribute('x')))}/${r1(Number(r.getAttribute('height')))}`,
-      ),
+      // キーワードのグラフの軸は表示幅で目盛りの数が変わる (幅 400 未満は 3 目盛り) ので、旧・新の幅が違っても比べられるよう除く
+      axis: f.querySelector('svg[data-series]')
+        ? []
+        : Array.from(f.querySelectorAll('svg > text, svg > g > text')).map((t) => norm(t.textContent)),
+      // 棒の位置と高さ (小数 1 桁): 件数が同じでも棒の長さが旧と違えば検知する。
+      // キーワードのグラフは表示幅を測って描き直す (旧 = JS、新 = React) ので、寸法は比べず、値 (title と数値) を比べる
+      geometry: f.querySelector('svg[data-series]')
+        ? []
+        : Array.from(f.querySelectorAll('rect')).map(
+            (r) => `${r1(Number(r.getAttribute('x')))}/${r1(Number(r.getAttribute('height')))}`,
+          ),
     }));
     return {
       meta: rowsOf(tables[0]!),
@@ -100,6 +108,7 @@ async function extract(page: Page): Promise<Extracted> {
       google: { paragraphs: parasOf(panel('google')), tables: tablesOf(panel('google')) },
       indeed: { paragraphs: parasOf(panel('indeed')), tables: tablesOf(panel('indeed')) },
       population: { paragraphs: parasOf(panel('population')), tables: tablesOf(panel('population')) },
+      consultation: { paragraphs: parasOf(panel('consultation')), tables: tablesOf(panel('consultation')) },
     };
   });
 }
@@ -165,6 +174,28 @@ function knownWords(rows: readonly (readonly [string, number, number, string])[]
   ];
 }
 
+/** 先頭 N 件と全体の比較表 (上位 10 語)。全体に語が無いときは —。 */
+function knownComparison(): string[][] {
+  return [
+    ['上位10語', '件数', '先頭率', '全体率', '差(pt)'],
+    ...K.comparison.slice(0, 10).map((c) => [
+      c.word,
+      String(c.head),
+      `${c.head_share}%`,
+      c.all_share === null ? '—' : `${c.all_share}%`,
+      c.delta ?? '—',
+    ]),
+  ];
+}
+
+/** 比較グラフの棒の title (全体 → 先頭の順。全体が欠測の語は全体の棒なし)。値は JS の toFixed(1)。 */
+function knownComparisonBars(): string[] {
+  return K.comparison.flatMap((c) => [
+    ...(c.all_js === null ? [] : [`${c.word} / 全体: ${c.all_js}%`]),
+    `${c.word} / 先頭: ${c.head_js}%`,
+  ]);
+}
+
 function knownBars(bins: readonly (readonly [string, number])[]): string[] {
   return bins.map(([label, n]) => `${label}: ${String(n)}件`);
 }
@@ -190,26 +221,36 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
     `給与関係（${unit}）`,
     '差異（総合 − 人気求人）',
     '求人票ワード調査（全体）',
-    '求人票ワード調査（上位 10 件）',
+    `求人票ワード調査（先頭 ${String(K.head_n)} 件）`,
   ]);
   expect(x.salary, tag('給与表')).toEqual(knownSalary(mode));
   expect(x.diff, tag('差異表')).toEqual(knownDiff(mode));
   expect(x.wordsAll, tag('ワード表(全体)')).toEqual(knownWords(K.keywords_all));
-  expect(x.wordsHead, tag('ワード表(上位 10 件)')).toEqual(knownWords(K.keywords_head));
+  expect(x.wordsHead, tag('先頭 10 件と全体の比較表')).toEqual(knownComparison());
+  expect(x.asideNotes, tag('比較の母数と注記')).toEqual([
+    `母数：先頭 ${String(K.head_n)} 件 / 全体 ${String(K.total)} 件。先頭は収録順、差は先頭率−全体率。`,
+    '人気求人：Indeedの「人気」「超人気」タグ付き。',
+  ]);
+  expect(x.caption, tag('キャプション')).toEqual([
+    `CSV重複排除後 ${String(K.total)} 件 / 上位 ${String(K.head_n)} 件は収録順。占有率は語を含む求人数の割合。給与分布は${mode === 'monthly' ? '月給換算' : '時給の実額'}。`,
+  ]);
 
   const [upper, lower, wordsAll, wordsHead] = x.charts;
+  const histN = K[mode].hist_n;
+  const step = K[mode].hist_step;
   expect(x.charts.map((ch) => ch.caption), tag('グラフの題')).toEqual([
-    `上限ボリュームゾーン（${unit}）`,
-    `下限ボリュームゾーン（${unit}）`,
-    '求人票キーワード調査（全体）',
-    '求人票キーワード調査（上位 10 件）',
+    `上限ボリュームゾーン（${unit}・n=${String(histN)}・${step}刻み）`,
+    `下限ボリュームゾーン（${unit}・n=${String(histN)}・${step}刻み）`,
+    '求人票キーワード調査（全体・上位20語）',
+    '訴求語の占有率比較（上位20語）',
   ]);
   expect(upper!.bars, tag('上限ヒストグラム')).toEqual(knownBars(K[mode].hist_upper));
   expect(lower!.bars, tag('下限ヒストグラム')).toEqual(knownBars(K[mode].hist_lower));
-  expect(wordsAll!.bars, tag('キーワード棒(全体)')).toEqual(knownBars(K.keywords_all.map(([w, n]) => [w, n] as const)));
-  expect(wordsHead!.bars, tag('キーワード棒(上位 10 件)')).toEqual(
-    knownBars(K.keywords_head.map(([w, n]) => [w, n] as const)),
-  );
+  // キーワードのグラフは上位 20 語 (fixture は 8 語)。全体は「語 / 全体: N件」、比較は 0〜100% の共通軸の「語 / 全体|先頭: x.x%」
+  expect(wordsAll!.bars, tag('キーワード棒(全体)')).toEqual(K.keywords_all_chart.map(([w, n]) => `${w} / 全体: ${String(n)}件`));
+  expect(wordsHead!.bars, tag('キーワード比較棒')).toEqual(knownComparisonBars());
+  // 空の給与区間も 0 件の棒として残る (階級が連続): 件数 0 の棒が 1 つ以上ある
+  if (mode === 'monthly') expect(K[mode].hist_upper.some(([, n]) => n === 0), tag('空の給与区間を残す')).toBe(true);
   // ヒストグラムの件数の合計は、月給モードは換算後の全件 (60)、時給モードは時給の行 (16)
   const total = (bins: readonly (readonly [string, number])[]): number => bins.reduce((a, [, n]) => a + n, 0);
   expect(total(K[mode].hist_upper), tag('上限ヒストグラムの合計')).toBe(mode === 'monthly' ? K.total : K.hourly.counts[0]);
@@ -219,9 +260,10 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
   if (c.google) {
     expect(x.google.paragraphs, tag('Google')).toContain(`検索語: ${c.keyword} / 指定地域: ${c.prefecture}`);
     expect(x.google.paragraphs, tag('Google 需要の失敗文')).toContain(
-      'Google検索需要を取得できませんでした。API設定または接続状況を確認してください。',
+      'Google検索需要を取得できませんでした。',
     );
-    expect(x.google.paragraphs, tag('Google 関連語の失敗文')).toContain('関連キーワードを取得できませんでした。');
+    // 取得できなかった関連語は、空の見出しも失敗文も出さない
+    expect(x.google.paragraphs, tag('Google 関連語は出さない')).not.toContain('関連キーワードを取得できませんでした。');
     expect(x.google.tables, tag('Google に検索数の表を作っていない')).toEqual([]);
   } else {
     expect(x.google.paragraphs, tag('Google 未取得')).toContain(
@@ -233,14 +275,14 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
   );
   expect(x.indeed.tables, tag('Indeed に表なし')).toEqual([]);
   if (c.prefecture === '') {
-    expect(x.population.paragraphs, tag('人口(全国)')).toContain(
-      '人口・地域データを表示するには、入力画面で対象都道府県を選択してください。',
-    );
+    // 全国は市区町村の人口を合算して出す。E2E には外部統計 (Turso) が無いので「取得できませんでした」
+    expect(x.population.paragraphs, tag('人口(全国)')).toEqual(['集計地域：全国', '全国の人口データを取得できませんでした。']);
     expect(x.population.tables, tag('人口(全国)に表なし')).toEqual([]);
   } else {
     // 最低賃金は公式 CSV (data/minimum_wage_rates.csv: 2026,大阪府,1231,2026-10-01)。年齢別人口と労働統計は
     // 外部統計 (Turso) が E2E に無いので「データなし」「—」。基準日は今日 (日本時間)。
     expect(x.population.paragraphs, tag('人口の地域')).toContain('集計地域：大阪府');
+    expect(x.population.paragraphs, tag('人口の基準日')).toContain('人口の基準日：未取得');
     expect(x.population.tables, tag('人口の表')).toEqual([
       [['年齢', '男性', '女性', '合計'], ['データなし']],
       [
@@ -248,13 +290,49 @@ function assertKnown(label: string, x: Extracted, c: Conditions): void {
         ['最低賃金の改定年度', '2026'],
         ['最低賃金の発効日', '2026-10-01'],
         ['最低賃金の基準日（日本時間）', jstToday()],
-        ['最低賃金の出典', '厚生労働省の公式改定一覧'],
+        ['最低賃金の出典', '厚生労働省の公式改定一覧 / 公式資料を確認'],
         ['労働統計の年度', '—'],
         ['完全失業率（%）', '—'],
         ['離職率（%）', '—'],
       ],
     ]);
   }
+}
+
+/** 採用のヒント: 給与の中央値と有効件数・差、訴求の確認候補、外部データの取得状況 (fixture から別途確定した値)。 */
+function assertConsultation(label: string, x: Extracted, c: Conditions): void {
+  const mode = c.wageMode;
+  const unit = mode === 'monthly' ? '万円/月' : '円/時';
+  const tag = (s: string): string => `${label}: ${s}`;
+  const salaryTable = [
+    [`中央値（${unit}）`, '総合 / 有効件数', '人気 / 有効件数', '総合−人気'],
+    ...K[mode].consultation,
+  ];
+  // 総合・人気のどれかが 1〜9 件のときは参考値の注記が出る (時給の人気求人は 4 件)
+  const small = K[mode].counts.some((n) => n > 0 && n < 10);
+  const gapsTable = [['語', '先頭 件/母数', '全体 件/母数', '差(pt)'], ...K.gaps];
+  const status = [
+    ['Google検索需要', '未取得'], // CI は資格情報なし、または検索を選ばない
+    ['Google関連語', '未取得'],
+    ['Indeed採用市場', '未取得'],
+    ['人口・地域', c.prefecture === '' ? '未取得' : '取得済み'],
+  ];
+  expect(x.consultation.tables, tag('採用のヒントの表')).toEqual([salaryTable, gapsTable, status]);
+  const cohort =
+    mode === 'monthly'
+      ? '総合：Indeed SPの月給求人の実額（月給換算は含みません）'
+      : '総合：Indeed SPの時給求人の実額';
+  expect(x.consultation.paragraphs, tag('採用のヒントの文言')).toEqual([
+    '競合データをもとに、給与・求人票・掲載後の反応を見直しましょう。',
+    `${cohort}。人気求人：SPの「人気」「超人気」付き、選択単位の実額。`,
+    `給与分布の有効件数：下限 ${String(K[mode].hist_n)} 件・上限 ${String(K[mode].hist_n)} 件。`,
+    ...(small ? ['10件未満の比較は参考値です。'] : []),
+    '給与相場と自社の条件を比較し、勤務時間・手当も含めて見直しましょう。',
+    '先頭の求人と全体を比較。先頭は収録順です。',
+    '実際に提供できる待遇を、求人票で分かりやすく伝えましょう。',
+    '外部データの対象地域・基準日は各タブに表示しています。',
+    '職務内容に合う検索語を選び、掲載後の閲覧数・応募数・有効応募数を比較しましょう。',
+  ]);
 }
 
 // ---------------------------------------------------------------- テスト
@@ -278,6 +356,8 @@ test.describe('競合調査 旧画面 == 新画面 == 既知値', () => {
 
         assertKnown('旧画面', legacy, c);
         assertKnown('新画面', app, c);
+        assertConsultation('旧画面', legacy, c);
+        assertConsultation('新画面', app, c);
         // 既知値に載せていない部分 (棒の位置・高さ、注記、キャプション等) も旧 == 新
         expect(app).toEqual(legacy);
       } finally {

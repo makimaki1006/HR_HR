@@ -1,20 +1,25 @@
 import type { CompetitorReport } from '../../../generated/CompetitorReport';
 import type { KeywordRow } from '../../../generated/KeywordRow';
 import type { SalaryRow } from '../../../generated/SalaryRow';
-import { BarChart } from '../charts/BarChart';
-import { fmtInt, fmtPct0, fmtSalary, MISSING } from '../format';
+import type { KeywordComparison } from '../../../generated/KeywordComparison';
+import { AllKeywordChart, ComparisonChart } from '../charts/KeywordChart';
+import { SalaryHistogram } from '../charts/SalaryHistogram';
+import { fixed, fmtInt, fmtPct0, fmtSalary, MISSING } from '../format';
 
 const WORD_ROWS = 10;
-const CHART_WORDS = 25;
 
-/** Excel 再現タブ。数値の加工 (換算・最頻値・フォールバック) は Rust 側で済んでいる。ここは整形と配置だけ。 */
+/** 先頭率 − 全体率 (パーセントポイント)。0.05 未満は符号なしの 0.0。 */
+function signedPoints(v: number): string {
+  if (Math.abs(v) < 0.05) return '0.0';
+  return `${v < 0 ? '-' : '+'}${fixed(Math.abs(v), 1)}`;
+}
+
+/** 給与・待遇タブ (旧「Excel再現」)。数値の加工 (換算・最頻値・フォールバック) は Rust 側で済んでいる。ここは整形と配置だけ。 */
 export function ExcelTab({ report }: { report: CompetitorReport }) {
   const { meta, excel } = report;
   const d = excel.decimals;
   const unit = meta.unit;
-  const topN = meta.top_n_effective;
-  const wordChart = (rows: readonly KeywordRow[]): { label: string; count: number }[] =>
-    rows.slice(0, CHART_WORDS).map((r) => ({ label: r.word, count: r.count }));
+  const cmp = excel.keyword_comparison;
 
   return (
     <>
@@ -105,37 +110,26 @@ export function ExcelTab({ report }: { report: CompetitorReport }) {
           </table>
 
           <KeywordTable title="求人票ワード調査（全体）" rows={excel.keyword_all} />
-          <KeywordTable title={`求人票ワード調査（上位 ${String(topN)} 件）`} rows={excel.keyword_head} />
-          <p className="cmp-note">
-            給与比較はIndeed SPの主単位の求人を集計（SPデータがない場合、総合は給与分布と同じ対象）。人気求人はSPの「人気」「超人気」付き。最頻値は実額（同数は低い額）、未取得は
-            —。少数の人気求人は参考値です。
-          </p>
+          <ComparisonTable cmp={cmp} />
+          <p className="cmp-note">人気求人：Indeedの「人気」「超人気」タグ付き。</p>
         </aside>
 
         <div className="cmp-charts">
-          <BarChart
-            caption={`上限ボリュームゾーン（${unit}）`}
-            data={excel.histograms.upper}
-            wide
+          <SalaryHistogram
+            caption={`上限ボリュームゾーン（${unit}・n=${String(excel.histograms.upper.n)}・${fixed(excel.histograms.upper.step, 0)}刻み）`}
+            series={excel.histograms.upper}
           />
-          <BarChart
-            caption={`下限ボリュームゾーン（${unit}）`}
-            data={excel.histograms.lower}
-            wide
+          <SalaryHistogram
+            caption={`下限ボリュームゾーン（${unit}・n=${String(excel.histograms.lower.n)}・${fixed(excel.histograms.lower.step, 0)}刻み）`}
+            series={excel.histograms.lower}
           />
-          <BarChart caption="求人票キーワード調査（全体）" data={wordChart(excel.keyword_all)} words />
-          <BarChart
-            caption={`求人票キーワード調査（上位 ${String(topN)} 件）`}
-            data={wordChart(excel.keyword_head)}
-            words
-          />
+          <AllKeywordChart rows={excel.keyword_all} />
+          <ComparisonChart rows={cmp.rows} headN={cmp.head_n} allN={cmp.all_n} />
         </div>
       </section>
       <p className="cmp-caption">
-        CSV重複排除後 {meta.total_count} 件 / 上位 {Math.min(topN, meta.total_count)}{' '}
-        件は取り込み順の先頭。ワード表は上位10語、グラフは上位25語。給与分布は
-        {meta.is_hourly ? '50円' : '1万円'}
-        刻みで、月給モードは既存の月給換算値を使用。給与比較表とは対象が異なる場合があります。
+        CSV重複排除後 {meta.total_count} 件 / 上位 {cmp.head_n} 件は収録順。占有率は語を含む求人数の割合。給与分布は
+        {meta.is_hourly ? '時給の実額' : '月給換算'}。
       </p>
     </>
   );
@@ -170,6 +164,47 @@ function KeywordTable({ title, rows }: { title: string; rows: readonly KeywordRo
           )}
         </tbody>
       </table>
+    </>
+  );
+}
+
+/** 先頭 N 件と全体の占有率の比較表。全体に語が無いときは — (0 にしない)。 */
+function ComparisonTable({ cmp }: { cmp: KeywordComparison }) {
+  return (
+    <>
+      <h2>求人票ワード調査（先頭 {cmp.head_n} 件）</h2>
+      <table className="cmp-words cmp-word-comparison">
+        <thead>
+          <tr>
+            <th>上位10語</th>
+            <th>件数</th>
+            <th>先頭率</th>
+            <th>全体率</th>
+            <th>差(pt)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cmp.rows.slice(0, WORD_ROWS).map((r, i) => (
+            <tr key={i}>
+              <td>{r.word}</td>
+              <td>{r.head_count}</td>
+              <td>{fixed(r.head_share_pct, 1)}%</td>
+              <td>{r.all_share_pct === null ? MISSING : `${fixed(r.all_share_pct, 1)}%`}</td>
+              <td>{r.all_share_pct === null ? MISSING : signedPoints(r.head_share_pct - r.all_share_pct)}</td>
+            </tr>
+          ))}
+          {cmp.rows.length === 0 && (
+            <tr>
+              <td colSpan={5}>
+                {cmp.head_n === 0 ? '取り込み順の比較データがありません' : '先頭の求人にキーワードがありません'}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <p className="cmp-note cmp-word-basis">
+        母数：先頭 {cmp.head_n} 件 / 全体 {cmp.all_n} 件。先頭は収録順、差は先頭率−全体率。
+      </p>
     </>
   );
 }

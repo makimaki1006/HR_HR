@@ -7,9 +7,6 @@ export const TEXT_MAX_CHARS = 200;
 export const TOP_N_MIN = 1;
 export const TOP_N_MAX = 200;
 
-export const PREFECTURE_NOTICE =
-  '全国のままだと「人口・地域データ」タブは表示されません。人口・地域データを見る場合は都道府県を選んでください。';
-
 export type SourceType = 'indeed_sp' | 'indeed';
 export type WageMode = 'monthly' | 'hourly';
 
