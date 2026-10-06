@@ -12,10 +12,13 @@ use serde::Serialize;
 use serde_json::Value;
 use ts_rs::TS;
 
+use super::competitor_consultation::{self, ConsultationSection};
+use super::competitor_keywords::{self, KeywordComparison};
+use super::competitor_population::{self, PopulationShares};
 use super::section_05b_competitor::head_tag_counts;
 use crate::handlers::survey::aggregator::{BoundStats, SurveyAggregation};
 
-/// 表の最大行数。HTML は上位 10 語、グラフは上位 25 語を使うので、25 語あれば足りる。
+/// 表の最大行数。HTML の表は上位 10 語、グラフは上位 20 語を使うので、25 語あれば足りる。
 const KEYWORD_ROWS: usize = 25;
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -25,6 +28,8 @@ pub struct CompetitorReport {
     pub google: GoogleSection,
     pub indeed: IndeedSection,
     pub population: PopulationSection,
+    /// 「採用のヒント」タブ。給与の比較・訴求の確認候補・外部データの取得状況。
+    pub consultation: ConsultationSection,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -63,6 +68,8 @@ pub struct ExcelSection {
     pub keyword_all: Vec<KeywordRow>,
     /// 求人票ワード調査 (上位 N 件)。最大 25 語。
     pub keyword_head: Vec<KeywordRow>,
+    /// 先頭 N 件と全体の占有率比較 (上位 20 語)。語ごとに同じ語の全体件数を引いてある。
+    pub keyword_comparison: KeywordComparison,
     pub histograms: Histograms,
 }
 
@@ -85,8 +92,20 @@ pub struct KeywordRow {
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Histograms {
-    pub upper: Vec<HistogramBin>,
-    pub lower: Vec<HistogramBin>,
+    pub upper: HistogramSeries,
+    pub lower: HistogramSeries,
+}
+
+/// 給与分布。空の給与区間も 0 件の階級として残す (階級が連続した軸になる)。
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct HistogramSeries {
+    pub bins: Vec<HistogramBin>,
+    /// 分布に使った求人の件数 (給与が読めた件数)。
+    pub n: u32,
+    /// 階級の幅 (表示単位)。階級が 81 個を超えないように基準幅の整数倍に広げることがある。
+    pub step: f64,
+    /// 「最多の給与帯：…」の一文。データが無い・全階級が 0 件のときは null。
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -144,7 +163,11 @@ pub struct GoogleMonth {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum GoogleSuggestions {
-    Ok { suggestions: Vec<GoogleSuggestion> },
+    Ok {
+        /// 関連語を取得した地域名 (Google が解決した名前)。地域指定なし・解決できなかったときは null (全国)。
+        region_name: Option<String>,
+        suggestions: Vec<GoogleSuggestion>,
+    },
     MissingCredentials,
     Timeout,
     Error,
@@ -185,12 +208,20 @@ pub struct IndeedRow {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum PopulationSection {
     Unavailable {
+        /// 集計地域 (全国のときは「全国」。不明なら空)。
+        region: String,
         message: String,
     },
     Ok {
         region: String,
-        /// 年齢の若い順に並べ替え済み。
+        /// 都道府県未指定 (全国の市区町村を合算) か。true のとき最低賃金・労働統計は出さない。
+        is_national: bool,
+        /// 人口の基準日。全市区町村で一致しないときは null。
+        reference_date: Option<String>,
+        /// 年齢の若い順に並べ替え済み。欠測は null のまま (0 にしない)。
         bands: Vec<PopulationBand>,
+        /// 総人口を分母にした構成比。総人口と男女合計が合わないなど、成立しないときは null。
+        shares: Option<Box<PopulationShares>>,
         minimum_wage: Option<f64>,
         minimum_wage_fiscal_year: Option<u32>,
         /// "YYYY-MM-DD" の文字列のまま (整形しない)。
@@ -198,6 +229,8 @@ pub enum PopulationSection {
         minimum_wage_as_of: String,
         /// "official_csv" | "database" | その他。
         minimum_wage_source: String,
+        /// 厚生労働省の公式資料の URL (https://www.mhlw.go.jp/ だけ通す)。
+        minimum_wage_source_url: Option<String>,
         labor: Option<LaborStats>,
     },
 }
@@ -205,10 +238,11 @@ pub enum PopulationSection {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct PopulationBand {
     pub age_group: String,
-    #[ts(type = "number")]
-    pub male: i64,
-    #[ts(type = "number")]
-    pub female: i64,
+    /// 欠測・負の値は null。
+    #[ts(type = "number | null")]
+    pub male: Option<i64>,
+    #[ts(type = "number | null")]
+    pub female: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -241,6 +275,27 @@ pub(crate) fn build_competitor_report(
     population: &Value,
 ) -> CompetitorReport {
     let (head, denom) = head_tag_counts(agg, top_n);
+    let google = google_section(google);
+    let indeed = indeed_section(indeed);
+    let population = population_section(population);
+    let external = competitor_consultation::ExternalAvailability {
+        google_demand: matches!(
+            &google,
+            GoogleSection::Ok {
+                demand: GoogleDemand::Ok { .. },
+                ..
+            }
+        ),
+        google_suggestions: matches!(
+            &google,
+            GoogleSection::Ok {
+                suggestions: GoogleSuggestions::Ok { .. },
+                ..
+            }
+        ),
+        indeed: matches!(&indeed, IndeedSection::Ok { .. }),
+        population: matches!(&population, PopulationSection::Ok { .. }),
+    };
     let comp = &agg.competitor;
     let scale = if agg.is_hourly { 1.0 } else { 10000.0 };
     let disp = |v: i64| v as f64 / scale;
@@ -328,19 +383,8 @@ pub(crate) fn build_competitor_report(
             })
             .collect()
     };
-    let step = if agg.is_hourly { 50 } else { 10000 };
-    let histogram = |values: &[i64]| -> Vec<HistogramBin> {
-        let mut bins = std::collections::BTreeMap::new();
-        for value in values {
-            *bins.entry(value / step * step).or_insert(0usize) += 1;
-        }
-        bins.into_iter()
-            .map(|(v, count)| HistogramBin {
-                label: format!("{:.0}", v as f64 / scale),
-                count: count as u32,
-            })
-            .collect()
-    };
+    let base = if agg.is_hourly { 50 } else { 10000 };
+    let histogram = |values: &[i64]| histogram_series(values, base, scale);
 
     let top_n_effective = top_n as u32;
     CompetitorReport {
@@ -374,15 +418,96 @@ pub(crate) fn build_competitor_report(
             salary_diff,
             keyword_all: keyword_rows(&comp.tag_counts_all, agg.total_count),
             keyword_head: keyword_rows(&head, denom),
+            keyword_comparison: competitor_keywords::build_comparison(
+                &head,
+                denom,
+                &comp.tag_counts_all,
+                agg.total_count,
+            ),
             histograms: Histograms {
                 upper: histogram(hi),
                 lower: histogram(lo),
             },
         },
-        google: google_section(google),
-        indeed: indeed_section(indeed),
-        population: population_section(population),
+        google,
+        indeed,
+        population,
+        consultation: competitor_consultation::build(agg, all, pop, top_n, use_fallback, &external),
     }
+}
+
+/// 給与分布を階級に分ける。階級数が 81 を超えないよう、基準幅 (月給 1 万円・時給 50 円) の
+/// 整数倍に幅を広げる。最小〜最大の間の空の階級は 0 件のまま残す (飛ばすと軸が歪む)。
+fn histogram_series(values: &[i64], base: i64, scale: f64) -> HistogramSeries {
+    let (Some(lo), Some(hi)) = (values.iter().min(), values.iter().max()) else {
+        return HistogramSeries {
+            bins: Vec::new(),
+            n: 0,
+            step: base as f64 / scale,
+            summary: None,
+        };
+    };
+    let span = (hi - lo) / base + 1;
+    let step = base * ((span + 79) / 80).max(1);
+    let start = lo / step;
+    let end = hi / step;
+    let mut counts = vec![0u32; (end - start + 1) as usize];
+    for v in values {
+        counts[(v / step - start) as usize] += 1;
+    }
+    let bins: Vec<HistogramBin> = counts
+        .into_iter()
+        .enumerate()
+        .map(|(i, count)| HistogramBin {
+            label: format!("{:.0}", ((start + i as i64) * step) as f64 / scale),
+            count,
+        })
+        .collect();
+    series_from_bins(bins, values.len() as u32, step as f64 / scale)
+}
+
+pub(super) fn series_from_bins(bins: Vec<HistogramBin>, n: u32, step: f64) -> HistogramSeries {
+    let summary = peak_summary(&bins);
+    HistogramSeries {
+        bins,
+        n,
+        step,
+        summary,
+    }
+}
+
+/// 最多の階級の一文。同数のピークは全部残す (3 つまで列挙、それ以上は区間数だけ)。
+fn peak_summary(bins: &[HistogramBin]) -> Option<String> {
+    let peak = bins.iter().map(|b| b.count).max().filter(|p| *p > 0)?;
+    let total: u32 = bins.iter().map(|b| b.count).sum();
+    let peaks: Vec<&HistogramBin> = bins.iter().filter(|b| b.count == peak).collect();
+    let interval = bins.first().zip(bins.get(1)).and_then(|(first, second)| {
+        Some(second.label.parse::<f64>().ok()? - first.label.parse::<f64>().ok()?)
+    });
+    let band = |label: &str| match label.parse::<f64>().ok().zip(interval) {
+        Some((start, step)) => format!("{start:.0}〜{:.0}", start + step),
+        None => format!("{label}〜"),
+    };
+    Some(if peaks.len() == 1 {
+        format!(
+            "最多の給与帯：{} / {}件・{:.1}%",
+            band(&peaks[0].label),
+            peak,
+            peak as f64 / total.max(1) as f64 * 100.0
+        )
+    } else if peaks.len() <= 3 {
+        format!(
+            "最多の給与帯：{} / 各{}件",
+            peaks
+                .iter()
+                .map(|b| band(&b.label))
+                .collect::<Vec<_>>()
+                .join("・"),
+            peak
+        )
+    } else {
+        format!("最多の給与帯：同数{}区間 / 各{}件", peaks.len(), peak)
+    })
 }
 
 pub(super) fn google_section(data: &Value) -> GoogleSection {
@@ -441,6 +566,11 @@ fn google_demand(data: &Value) -> GoogleDemand {
 fn google_suggestions(data: &Value) -> GoogleSuggestions {
     match data["status"].as_str() {
         Some("ok") => GoogleSuggestions::Ok {
+            region_name: if data["region"].is_null() {
+                None
+            } else {
+                Some(s(&data["region"], "canonical_name"))
+            },
             suggestions: data["suggestions"]
                 .as_array()
                 .into_iter()
@@ -484,12 +614,25 @@ fn indeed_section(data: &Value) -> IndeedSection {
     }
 }
 
+/// 厚生労働省 (mhlw.go.jp とそのサブドメイン) の https URL だけをリンクにする。
+/// 利用者の入力や外部 API 由来の URL をそのまま <a href> に出さないための許可リスト。
+fn is_mhlw_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    // ユーザー情報 (user@host) やポート指定は許さない。
+    !host.contains(['@', ':', '\\']) && (host == "mhlw.go.jp" || host.ends_with(".mhlw.go.jp"))
+}
+
 pub(super) fn population_section(data: &Value) -> PopulationSection {
     if data["status"] != "ok" {
         return PopulationSection::Unavailable {
+            region: s(data, "region"),
             message: s(data, "message"),
         };
     }
+    // 年齢階級の名前が読めない行だけ捨てる。人数が欠測・負の行は残し、人数を null にする (0 にしない)。
     let mut bands: Vec<PopulationBand> = data["bands"]
         .as_array()
         .into_iter()
@@ -497,8 +640,8 @@ pub(super) fn population_section(data: &Value) -> PopulationSection {
         .filter_map(|row| {
             Some(PopulationBand {
                 age_group: row["age_group"].as_str()?.to_owned(),
-                male: row["male_count"].as_i64()?,
-                female: row["female_count"].as_i64()?,
+                male: row["male_count"].as_i64().filter(|n| *n >= 0),
+                female: row["female_count"].as_i64().filter(|n| *n >= 0),
             })
         })
         .collect();
@@ -512,9 +655,13 @@ pub(super) fn population_section(data: &Value) -> PopulationSection {
             .unwrap_or(u32::MAX)
     });
     let labor = &data["labor"];
+    let region = s(data, "region");
     PopulationSection::Ok {
-        region: s(data, "region"),
+        is_national: region == "全国",
+        region,
+        reference_date: data["reference_date"].as_str().map(str::to_owned),
         bands,
+        shares: competitor_population::build_shares(data).map(Box::new),
         minimum_wage: n(data, "minimum_wage"),
         minimum_wage_fiscal_year: data["minimum_wage_fiscal_year"]
             .as_i64()
@@ -522,6 +669,10 @@ pub(super) fn population_section(data: &Value) -> PopulationSection {
         minimum_wage_effective_date: s(data, "minimum_wage_effective_date"),
         minimum_wage_as_of: s(data, "minimum_wage_as_of"),
         minimum_wage_source: s(data, "minimum_wage_source"),
+        minimum_wage_source_url: data["minimum_wage_source_url"]
+            .as_str()
+            .filter(|url| is_mhlw_url(url))
+            .map(str::to_owned),
         labor: (!labor.is_null()).then(|| LaborStats {
             fiscal_year: labor["fiscal_year"]
                 .as_i64()
@@ -613,9 +764,11 @@ mod tests {
             .iter()
             .map(|b| b["age_group"].as_str().unwrap())
             .collect();
-        // 数字の無い階級は末尾、数値でない行は捨てる
-        assert_eq!(ages, ["0〜4歳", "5〜9歳", "10〜14歳", "不明"]);
+        // 数字の無い階級は末尾。人数が数値でない行は捨てずに、人数を null にして残す (0 にしない)
+        assert_eq!(ages, ["0〜4歳", "5〜9歳", "10〜14歳", "不明", "壊れた行"]);
         assert_eq!(v["population"]["bands"][0]["male"], 1);
+        assert!(v["population"]["bands"][4]["male"].is_null());
+        assert_eq!(v["population"]["bands"][4]["female"], 1);
         assert!(
             v["population"]["minimum_wage"].is_null(),
             "未取得は 0 ではなく null"
@@ -630,6 +783,131 @@ mod tests {
             v["population"]["labor"]["separation_rate"], 0.0,
             "0 は 0 のまま"
         );
+    }
+
+    #[test]
+    fn histogram_is_bounded_and_keeps_every_value() {
+        let wide = histogram_series(&[1000, 1_000_000], 50, 1.0);
+        assert!(wide.bins.len() <= 81);
+        assert_eq!(wide.bins.iter().map(|b| b.count).sum::<u32>(), 2);
+        assert!(wide.step > 50.0, "幅は基準幅の整数倍に広がる");
+        let none = histogram_series(&[], 10_000, 10_000.0);
+        assert!(none.bins.is_empty() && none.summary.is_none() && none.n == 0);
+    }
+
+    #[test]
+    fn population_shares_and_national_flag_come_from_the_context() {
+        let pop = json!({"status":"ok","region":"全国","reference_date":"2020-10-01",
+            "bands":[{"age_group":"20-29","male_count":100,"female_count":200}],
+            "totals":{"total_population":1000,"male_population":400,"female_population":600}});
+        let r = build_competitor_report(&agg(), 10, "", &Value::Null, &Value::Null, &pop);
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["population"]["is_national"], true);
+        assert_eq!(v["population"]["reference_date"], "2020-10-01");
+        assert_eq!(v["population"]["shares"]["total"], 1000);
+        assert_eq!(v["population"]["shares"]["unrecorded"]["male"], 300);
+        // 総人口と男女合計が矛盾するときは割合を作らない (null)
+        let mut bad = pop;
+        bad["totals"]["total_population"] = json!(999);
+        let v = serde_json::to_value(build_competitor_report(
+            &agg(),
+            10,
+            "",
+            &Value::Null,
+            &Value::Null,
+            &bad,
+        ))
+        .unwrap();
+        assert!(v["population"]["shares"].is_null());
+        // 人数が欠測の年齢帯は null のまま残る (0 にしない)
+        let missing = json!({"status":"ok","region":"大阪府",
+            "bands":[{"age_group":"20-24","male_count":null,"female_count":100}]});
+        let v = serde_json::to_value(build_competitor_report(
+            &agg(),
+            10,
+            "",
+            &Value::Null,
+            &Value::Null,
+            &missing,
+        ))
+        .unwrap();
+        assert!(v["population"]["bands"][0]["male"].is_null());
+        assert_eq!(v["population"]["bands"][0]["female"], 100);
+        assert_eq!(v["population"]["is_national"], false);
+    }
+
+    #[test]
+    fn minimum_wage_link_only_passes_the_ministry_domain() {
+        let pop = |url: &str| json!({"status":"ok","region":"大阪府","bands":[],"minimum_wage_source_url":url});
+        let get = |url: &str| {
+            serde_json::to_value(build_competitor_report(
+                &agg(),
+                10,
+                "",
+                &Value::Null,
+                &Value::Null,
+                &pop(url),
+            ))
+            .unwrap()["population"]["minimum_wage_source_url"]
+                .clone()
+        };
+        assert_eq!(
+            get("https://www.mhlw.go.jp/a.pdf"),
+            json!("https://www.mhlw.go.jp/a.pdf")
+        );
+        // 公式の最低賃金サイト (サブドメイン) は通す
+        assert_eq!(
+            get("https://saiteichingin.mhlw.go.jp/table/page_list_nationallist.php"),
+            json!("https://saiteichingin.mhlw.go.jp/table/page_list_nationallist.php")
+        );
+        assert!(get("https://evil.example/a.pdf").is_null());
+        assert!(get("https://www.mhlw.go.jp.evil.example/a.pdf").is_null());
+        assert!(get("https://www.mhlw.go.jp@evil.example/a.pdf").is_null());
+        assert!(get("https://evilmhlw.go.jp/a.pdf").is_null());
+        assert!(get("http://www.mhlw.go.jp/a.pdf").is_null());
+        assert!(get("javascript:alert(1)").is_null());
+    }
+
+    #[test]
+    fn consultation_and_comparison_are_in_the_model() {
+        let r = build_competitor_report(
+            &agg(),
+            10,
+            "",
+            &json!({"status":"ok","title":"t","region":"r","rows":[]}),
+            &json!({"status":"ok","keyword":"k","region":"","demand":{"status":"ok","region":null,"keywords":[]},"suggestions":{"status":"error"}}),
+            &Value::Null,
+        );
+        let v = serde_json::to_value(&r).unwrap();
+        let fetched: Vec<(&str, bool)> = v["consultation"]["external"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| {
+                (
+                    e["label"].as_str().unwrap(),
+                    e["fetched"].as_bool().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            fetched,
+            [
+                ("Google検索需要", true),
+                ("Google関連語", false),
+                ("Indeed採用市場", true),
+                ("人口・地域", false)
+            ]
+        );
+        // 月給の中央値は万円。2 件 (25, 35) の下限の中央値 30、人気求人は無いので差は null (0 にしない)
+        let row = &v["consultation"]["salary"][0];
+        assert_eq!(row["label"], "下限");
+        assert_eq!(row["all_median"].as_f64(), Some(30.0));
+        assert_eq!(row["popular_n"], 0);
+        assert!(row["popular_median"].is_null());
+        assert!(row["delta"].is_null());
+        assert_eq!(v["excel"]["keyword_comparison"]["all_n"], 2);
+        assert_eq!(v["excel"]["histograms"]["lower"]["n"], 2);
     }
 
     #[test]

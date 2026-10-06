@@ -4,12 +4,12 @@
 body{margin:0;background:#0d1525;color:#e2e8f0;font:16px/1.7 system-ui,sans-serif}main{max-width:880px;margin:auto;padding:28px 20px}nav{display:flex;gap:20px;flex-wrap:wrap}a{color:#93c5fd}h1{margin-bottom:4px}p{color:#cbd5e1}section{margin:24px 0;padding:24px;background:#172338;border:1px solid #334155;border-radius:10px}label{display:block;margin:16px 0 6px;font-weight:600}input,select,button{box-sizing:border-box;font:inherit;border-radius:5px;padding:10px;border:1px solid #64748b}input:not([type=checkbox]),select{width:100%;background:#0d1525;color:#f1f5f9}button{background:#2563eb;color:white;cursor:pointer;margin-top:20px}small{display:block;color:#cbd5e1}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}@media(max-width:600px){.grid{grid-template-columns:1fr}section{padding:16px}}[role=alert]{color:#fca5a5}
 </style></head><body><main>
 <nav aria-label="機能選択"><a href="/">媒体分析</a><strong aria-current="page">競合調査</strong><a href="/?tab=%2Ftab%2Findeed">採用市場</a></nav>
-<h1>競合調査</h1><p>Excelで行っていた競合調査を、給与・人気求人・訴求キーワードで確認します。Indeed採用市場とGoogleの検索需要も併せて見られます。</p>
+<h1>競合調査</h1><p>給与・待遇・検索需要・採用市場を、グラフで確認できます。</p>
 <form method="post" action="/report/competitor" enctype="multipart/form-data" id="competitor-form">
 <section><h2>1. 調査する職種・地域</h2>
 <label for="survey-title">調査名</label><input id="survey-title" name="survey_title" maxlength="200" placeholder="例：大阪府・施設長・正社員">
 <div class="grid"><div><label for="market-title">Indeed採用市場の職種</label><select id="market-title" name="market_title"><option value="">使用しない</option>{{TITLE_OPTIONS}}</select><small>CSVの職種に対応する項目を選びます。</small></div>
-<div><label for="prefecture">対象都道府県</label><select id="prefecture" name="prefecture"><option value="">全国</option>{{PREF_OPTIONS}}</select><small>Indeed・Googleはこの地域で取得します。人口・地域データを見る場合は都道府県を選んでください。CSVの行を地域で絞る設定ではありません。</small></div></div>
+<div><label for="prefecture">対象都道府県</label><select id="prefecture" name="prefecture"><option value="">全国</option>{{PREF_OPTIONS}}</select><small>外部データの対象地域です。CSVの求人は地域で絞り込みません。</small></div></div>
 <p>{{MARKET_STATUS}}</p>
 <label for="search-keyword">Googleで調べる検索語</label><input id="search-keyword" name="search_keyword" maxlength="200" placeholder="例：施設長 求人"><small>空欄の場合は選択したIndeed職種に「求人」を付けて検索します。</small>
 <label><input type="checkbox" name="include_google" value="1" checked> Google広告APIの検索需要・関連キーワードを取得する</label>
@@ -21,7 +21,7 @@ body{margin:0;background:#0d1525;color:#e2e8f0;font:16px/1.7 system-ui,sans-seri
 <label for="csv-file">求人一覧CSV</label><input id="csv-file" name="csv_file" type="file" accept=".csv,.txt" required><small>UTF-8推奨。Excelブックは求人一覧シートをCSVに書き出してください。人気比較には人気・超人気タグのあるSP版CSVが必要です。</small>
 <p id="submit-status" role="status" aria-live="polite"></p><button type="submit" name="output_format" value="pdf">PDFをダウンロード</button> <button type="submit" name="output_format" value="html">画面で確認</button>
 </section></form>
-<p>Excel再現・Google検索需要・Indeed採用レポート・人口／地域データを、それぞれA3横のページに収めたPDFをダウンロードします。印刷はダウンロードしたPDFから行ってください。</p>
+<p>給与・待遇、検索需要、採用市場、人口、採用のヒントをA3横のPDFで保存できます。</p>
 <script>
 const form=document.getElementById('competitor-form');
 const status=document.getElementById('submit-status');

@@ -8,10 +8,11 @@ const { join, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { promisify } = require('node:util');
 const execFile = promisify(require('node:child_process').execFile);
-const { chromium } = require('playwright-core');
+const modulePath = process.env.PDF_PLAYWRIGHT_MODULE || resolve('node_modules/playwright-core');
+const { chromium } = require(modulePath);
 const executable = process.env.PDF_CHROMIUM_PATH || (process.platform === 'win32'
   ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' : chromium.executablePath());
-const panels = ['excel', 'google', 'indeed', 'population'];
+const panels = ['excel', 'google', 'indeed', 'population', 'consultation'];
 const fixture = `<html><head><style>@page{size:A3 landscape;margin:8mm}
 body{margin:0}.pdf-page{position:relative;width:1510px;height:1045px;break-after:page}
 .pdf-page:last-child{break-after:auto}.pdf-content{width:1510px}</style></head><body>
@@ -34,7 +35,7 @@ test('renderer rejects missing, hidden and overflowing content', async t => {
         const input = join(dir, `${name}.html`), output = join(dir, `${name}.pdf`);
         await writeFile(input, html);
         const run = execFile(process.execPath, [join(__dirname, 'render.cjs'), executable,
-          pathToFileURL(input).href, output, resolve('node_modules/playwright-core')], { timeout: 25000 });
+          pathToFileURL(input).href, output, modulePath], { timeout: 25000 });
         if (valid) {
           await run;
           const bytes = await readFile(output);
