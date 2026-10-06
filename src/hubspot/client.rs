@@ -18,9 +18,13 @@ use serde_json::{json, Value};
 
 use super::types::{
     AssociationRef, EngagementType, HubSpotError, HubSpotRecord, RateLimitSnapshot, RecordType,
+    TokenInfo,
 };
 
 pub const DEFAULT_BASE_URL: &str = "https://api.hubapi.com";
+
+/// `access_token_info` の結果を使い回す時間
+pub const TOKEN_INFO_TTL: Duration = Duration::from_secs(300);
 
 /// batch read 1 回あたりの上限 (HubSpot の仕様)
 const BATCH_READ_LIMIT: usize = 100;
@@ -67,6 +71,8 @@ pub struct HubSpotClient {
     rate_limit: Mutex<Option<RateLimitSnapshot>>,
     /// 直前の Search 開始時刻 (1 permit のロックとして使う)
     search_gate: tokio::sync::Mutex<Option<Instant>>,
+    /// `access_token_info` の結果 (成功のみ。`TOKEN_INFO_TTL` の間使い回す。ロックは呼び出しの間持つ=同時に 1 本)
+    token_info_cache: tokio::sync::Mutex<Option<(Instant, TokenInfo)>>,
 }
 
 impl std::fmt::Debug for HubSpotClient {
@@ -237,7 +243,80 @@ impl HubSpotClient {
             opts,
             rate_limit: Mutex::new(None),
             search_gate: tokio::sync::Mutex::new(None),
+            token_info_cache: tokio::sync::Mutex::new(None),
         })
+    }
+
+    /// 鍵の scope とポータル ID を HubSpot に問い合わせる (`POST /oauth/v2/private-apps/get/access-token-info`)。
+    /// 戻りの bool は「キャッシュから返したか」。
+    ///
+    /// - HubSpot への呼び出しは 1 回だけ (retry しない)。`timeout` はこの 1 回に掛ける
+    /// - 成功だけを 5 分キャッシュする。失敗は次回また問い合わせる
+    /// - 返すのは scope・ポータル ID・確認時刻だけ。鍵そのものは (本文に入れて送る以外) 外に出さない
+    pub async fn access_token_info(
+        &self,
+        timeout: Duration,
+    ) -> Result<(TokenInfo, bool), HubSpotError> {
+        let mut cache = self.token_info_cache.lock().await;
+        if let Some((at, info)) = cache.as_ref() {
+            if at.elapsed() < TOKEN_INFO_TTL {
+                return Ok((info.clone(), true));
+            }
+        }
+        let url = format!(
+            "{}/oauth/v2/private-apps/get/access-token-info",
+            self.base_url
+        );
+        let resp = self
+            .http
+            .post(url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .timeout(timeout)
+            .json(&json!({ "tokenKey": self.token }))
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    HubSpotError::Timeout
+                } else {
+                    HubSpotError::Transport(transport_message(e))
+                }
+            })?;
+        let status = resp.status();
+        if !status.is_success() {
+            let code = status.as_u16();
+            return Err(match status {
+                StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                    HubSpotError::Auth { status: code }
+                }
+                StatusCode::NOT_FOUND => HubSpotError::NotFound,
+                StatusCode::TOO_MANY_REQUESTS => HubSpotError::RateLimited,
+                _ => HubSpotError::Upstream { status: code },
+            });
+        }
+        let bytes = resp.bytes().await.map_err(|e| {
+            if e.is_timeout() {
+                HubSpotError::Timeout
+            } else {
+                HubSpotError::Transport(transport_message(e))
+            }
+        })?;
+        let v: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| HubSpotError::Decode("invalid json".into()))?;
+        let scopes = v
+            .get("scopes")
+            .and_then(Value::as_array)
+            .ok_or_else(|| HubSpotError::Decode("token info without scopes".into()))?
+            .iter()
+            .filter_map(|s| s.as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+        let info = TokenInfo {
+            portal_id: v.get("hubId").and_then(id_string),
+            scopes,
+            checked_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        };
+        *cache = Some((Instant::now(), info.clone()));
+        Ok((info, false))
     }
 
     /// `GET /crm/v3/properties/{object}` (プロパティ定義の一覧。Contact / Company / Deal のみ)。

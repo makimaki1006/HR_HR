@@ -760,6 +760,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::admin::api_login_failures),
         )
         .route("/api/admin/usage", get(handlers::admin::api_usage))
+        // 営業KPI の HubSpot 直読みを有効にする前の鍵の診断 (scope の有無だけ。鍵は返さない)
+        .route(
+            "/api/admin/hubspot-check",
+            get(handlers::admin::api_hubspot_check),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_admin_mw,
