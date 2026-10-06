@@ -477,10 +477,12 @@ async fn handle(
     ctx: &CrmCtx,
     id: String,
 ) -> Response {
-    // 1) 認可 (設定有無より先)
-    if let Err(denied) = rbac::authorize(&session, &state, &ctx.access, Some(rt)).await {
-        return denied.into_response();
-    }
+    // 1) 認可 (設定有無より先。役割もここで決まる)
+    let principal = match rbac::authorize(&session, &state, &ctx.access, Some(rt)).await {
+        Ok(p) => p,
+        Err(denied) => return denied.into_response(),
+    };
+    let role = rbac::resolve_role(&principal);
     // 2) id
     if !is_valid_id(&id) {
         return error_json(StatusCode::BAD_REQUEST, "invalid_id");
@@ -501,6 +503,25 @@ async fn handle(
             return timeout_response();
         }
     };
+    // 4b) BPO は「自分が担当で架電キューの条件に合う Deal」と、それに紐づく Contact / Company だけ。
+    //     本文を読む前に確かめる (外れたら本文は一切返さない)。admin / consultant は通らない
+    if !role.reads_all_records() {
+        let email = principal.email.as_deref().unwrap_or_default();
+        let remaining = CRM_REQUEST_DEADLINE.saturating_sub(started.elapsed());
+        match tokio::time::timeout(
+            remaining,
+            super::record_gate::bpo_may_read(&client, ctx, rt, &id, email),
+        )
+        .await
+        {
+            Err(_elapsed) => {
+                tracing::warn!(error_kind = "crm_timeout", "crm record gate timed out");
+                return timeout_response();
+            }
+            Ok(Err(resp)) => return resp,
+            Ok(Ok(())) => {}
+        }
+    }
     let portal = hubspot_portal_id();
     read_response(
         &client,

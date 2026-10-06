@@ -5,7 +5,7 @@
 //! 値は render 関数が受け取っていたものをそのまま持ち、表示用の加工 (日本語ラベル、30 日 KPI) も
 //! ここで済ませる。React 側で計算をやり直さないため (旧新で値がずれる事故を避ける)。
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::audit::dao::{self, AccountRow, ActivityLogRow, LoginSessionRow, UsageRow};
@@ -42,6 +42,21 @@ pub struct AdminUserDetailResponse {
     pub sessions: Vec<LoginSessionRow>,
     pub activities: Vec<ActivityLogRow>,
     pub kpi_30d: AdminUserKpi30d,
+}
+
+/// `POST /api/admin/users/{account_id}/role` の入力。`role` は admin / consultant / bpo / user のいずれか
+/// (前後の空白・大文字小文字は吸収。それ以外は 400)。
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct AdminRoleChangeRequest {
+    pub role: String,
+}
+
+/// `POST /api/admin/users/{account_id}/role` の応答。変更後の行を DB から読み直したもの。
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct AdminRoleChangeResponse {
+    pub account: AccountRow,
+    /// 変更前の `accounts.role` (生の値)
+    pub previous_role: String,
 }
 
 /// `GET /api/admin/login-failures` (旧 `/admin/login-failures`)。直近の失敗 200 件。
@@ -179,6 +194,7 @@ pub fn event_label(event_type: &str, target_id: &str) -> String {
         // その他
         "download_csv" => "CSVダウンロード".to_string(),
         "update_profile" => "プロフィール更新".to_string(),
+        "change_role" => "役割の変更".to_string(),
         // 未知のコードはそのまま出す（記録を足したときに黙って消えないように）
         other => other.to_string(),
     }
@@ -391,6 +407,7 @@ mod tests {
             "view_industry_companies",
             "download_csv",
             "update_profile",
+            "change_role",
             "view_tab",
             "keyword_search",
             "keyword_seed_compare",
