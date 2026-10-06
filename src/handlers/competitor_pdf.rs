@@ -182,7 +182,10 @@ mod tests {
             .find(|l| l.trim_start().starts_with("ENV PDF_CHROMIUM_PATH="))
             .expect("Dockerfile must set PDF_CHROMIUM_PATH");
         let path = line.trim().trim_start_matches("ENV PDF_CHROMIUM_PATH=");
-        assert!(path.starts_with('/'), "PDF_CHROMIUM_PATH must be absolute: {path}");
+        assert!(
+            path.starts_with('/'),
+            "PDF_CHROMIUM_PATH must be absolute: {path}"
+        );
         assert!(docker.contains("\"$PDF_CHROMIUM_PATH\" --version"));
         #[cfg(not(windows))]
         assert_eq!(path, super::DEFAULT_LINUX_CHROMIUM);
