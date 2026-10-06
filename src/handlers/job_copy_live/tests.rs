@@ -19,6 +19,8 @@ async fn market_route_retains_oidc_allowlist_boundary_and_static_no_store_errors
         moc_path: None,
         moc_drive: Ok(None),
         snapshot_reader: None,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
         images: None,
         drive_listings: BTreeSet::new(),
         drive_config_error: None,
@@ -176,7 +178,7 @@ async fn configured_cloud_snapshot_through_authenticated_api_router() {
             i["url"]
                 .as_str()
                 .unwrap()
-                .starts_with("/api/job-copy/image?")
+                .starts_with("/api/job-copy/snapshot-image?")
         })
         .count();
     assert_eq!(remote_images, 45);
@@ -223,6 +225,8 @@ async fn invalid_cloud_configuration_does_not_fall_back_to_local_file() {
         moc_path: Some(PathBuf::from("never_read_local_file.json")),
         moc_drive: Err("moc_drive_configuration_invalid"),
         snapshot_reader: None,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
         images: None,
         drive_listings: BTreeSet::new(),
         drive_config_error: None,
@@ -287,6 +291,8 @@ async fn moc_requires_same_oidc_allowlist_before_disclosing_file_configuration()
         moc_path: None,
         moc_drive: Ok(None),
         snapshot_reader: None,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
         images: None,
         drive_listings: BTreeSet::new(),
         drive_config_error: None,
@@ -388,6 +394,8 @@ async fn image_requires_oidc_before_reading_drive_configuration() {
         moc_path: None,
         moc_drive: Ok(None),
         snapshot_reader: None,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
         images: None,
         drive_listings: BTreeSet::from(["30".into()]),
         drive_config_error: None,
@@ -857,4 +865,402 @@ async fn redirects_and_injected_ids_never_reach_other_paths() {
         StatusCode::BAD_REQUEST
     );
     assert_eq!(upstream.calls().len(), 1);
+}
+
+// Progressive load fixtures: local HTTP only, preserving all original hashes and metadata.
+fn progressive_fixture() -> Value {
+    json!({"schemaVersion":1,"capturedAt":"2026-10-04T01:00:00Z",
+        "capture_bundle":{"schemaVersion":1,"capturedAt":"2026-10-03T01:00:00Z","jobs":[{
+            "id":"capture-job-30","hubspotListingId":"30","companyIds":["10"],"title":"Synthetic","body":"Synthetic body",
+            "images":[{"id":"image-1","url":"data:image/png;base64,YQ==","contentHash":"a".repeat(64),"sourceSlot":2}]}]},
+        "results":[{"listing_id":"30","summary":{"total":0,"duplicate_ids":0,"missing_date":0,"by_date":{},"dimensions":{}},"dated_comparison":null}]})
+}
+fn progressive_access() -> Access {
+    Access {
+        allowed: BTreeSet::from(["reader@example.test".into()]),
+        service: None,
+        moc_path: None,
+        moc_drive: snapshot_pointer(Some("synthetic_snapshot_123"), Some(&"b".repeat(64))),
+        snapshot_reader: None,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
+        images: None,
+        drive_listings: BTreeSet::from(["30".into()]),
+        drive_config_error: None,
+    }
+}
+async fn progressive_session() -> Session {
+    let session = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+    session
+        .insert(SESSION_USER_KEY, "reader@example.test")
+        .await
+        .unwrap();
+    session
+        .insert(SESSION_LOGIN_METHOD_KEY, LOGIN_METHOD_GOOGLE_OIDC)
+        .await
+        .unwrap();
+    session
+}
+async fn seed_snapshot(access: &Access, data: Value) {
+    let pointer = access.moc_drive.as_ref().unwrap().as_ref().unwrap();
+    *access.snapshot_cache.lock().await = Some(CachedSnapshot {
+        file_id: pointer.file_id.clone(),
+        sha256: pointer.sha256.clone(),
+        data: Arc::new(data),
+    });
+}
+fn progressive_query() -> Result<Query<SnapshotImageQuery>, QueryRejection> {
+    Ok(Query(SnapshotImageQuery {
+        listing_id: "30".into(),
+        version: 0,
+        slot: 1,
+        image_hash: "a".repeat(64),
+    }))
+}
+#[test]
+fn deferred_images_preserve_metadata_and_do_not_fill_unobserved_history() {
+    let mut data = progressive_fixture();
+    let current = data["capture_bundle"]["jobs"][0]["images"].clone();
+    data["capture_bundle"]["jobs"][0]["history"] = json!([
+        {"historicalImageBytesAvailable":true,"images":current.clone()},
+        {"historicalImageBytesAvailable":false,"images":current.clone()}]);
+    let original = data.clone();
+    defer_snapshot_images(&mut data, &BTreeSet::from(["30".into()])).unwrap();
+    let job = &data["capture_bundle"]["jobs"][0];
+    assert!(job["images"][0]["url"]
+        .as_str()
+        .unwrap()
+        .contains("version=0&slot=1&image_hash="));
+    assert_eq!(job["images"][0]["sourceSlot"], 2);
+    assert!(job["history"][0]["images"][0]["url"]
+        .as_str()
+        .unwrap()
+        .contains("version=1&slot=1"));
+    assert_eq!(job["history"][1]["images"], current);
+    assert_eq!(data["results"], original["results"]);
+    assert_eq!(job["body"], original["capture_bundle"]["jobs"][0]["body"]);
+    assert_eq!(job["images"][0]["contentHash"], "a".repeat(64));
+    assert!(snapshot_image_entry(job, 2, 1).is_err());
+    assert!(snapshot_image_entry(job, 11, 1).is_err());
+    assert!(snapshot_image_entry(job, 0, 0).is_err());
+    assert!(snapshot_image_entry(job, 0, 2).is_err());
+}
+#[tokio::test]
+async fn initial_moc_never_requires_image_bridge_and_keeps_raw_cache_immutable() {
+    let access = progressive_access();
+    let raw = progressive_fixture();
+    seed_snapshot(&access, raw.clone()).await;
+    let response = moc(
+        State(moc_state()),
+        Extension(access.clone()),
+        progressive_session().await,
+    )
+    .await
+    .unwrap()
+    .into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let data: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), MOC_MAX_BYTES).await.unwrap())
+            .unwrap();
+    assert!(data["capture_bundle"]["jobs"][0]["images"][0]["url"]
+        .as_str()
+        .unwrap()
+        .starts_with("/api/job-copy/snapshot-image?"));
+    assert_eq!(*raw_moc(&access).await.unwrap(), raw);
+    assert!(access.resolved_jobs.lock().await.is_empty());
+}
+#[tokio::test]
+async fn deferred_query_auth_hash_and_selection_are_checked_before_upstream() {
+    let access = progressive_access();
+    seed_snapshot(&access, progressive_fixture()).await;
+    let anonymous = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+    assert_eq!(
+        snapshot_image(
+            State(moc_state()),
+            Extension(access.clone()),
+            anonymous,
+            progressive_query()
+        )
+        .await
+        .err()
+        .unwrap()
+        .1,
+        "login_required"
+    );
+    let session = progressive_session().await;
+    for (version, slot, hash, code) in [
+        (0, 1, "c".repeat(64), "snapshot_image_changed"),
+        (0, 0, "a".repeat(64), "invalid_snapshot_image_request"),
+        (1, 1, "a".repeat(64), "snapshot_image_not_found"),
+        (0, 1, "bad".into(), "invalid_snapshot_image_request"),
+    ] {
+        let query = Ok(Query(SnapshotImageQuery {
+            listing_id: "30".into(),
+            version,
+            slot,
+            image_hash: hash,
+        }));
+        let error = snapshot_image(
+            State(moc_state()),
+            Extension(access.clone()),
+            session.clone(),
+            query,
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(error.1, code);
+        assert_eq!(
+            error.into_response().headers()[header::CACHE_CONTROL],
+            "no-store"
+        );
+    }
+    let query = Ok(Query(SnapshotImageQuery {
+        listing_id: "31".into(),
+        version: 0,
+        slot: 1,
+        image_hash: "a".repeat(64),
+    }));
+    assert_eq!(
+        snapshot_image(
+            State(moc_state()),
+            Extension(access.clone()),
+            session,
+            query
+        )
+        .await
+        .err()
+        .unwrap()
+        .1,
+        "image_listing_not_enabled"
+    );
+    let mut enabled_unknown = access.clone();
+    enabled_unknown.drive_listings.insert("31".into());
+    let query = Ok(Query(SnapshotImageQuery {
+        listing_id: "31".into(),
+        version: 0,
+        slot: 1,
+        image_hash: "a".repeat(64),
+    }));
+    assert_eq!(
+        snapshot_image(
+            State(moc_state()),
+            Extension(enabled_unknown),
+            progressive_session().await,
+            query
+        )
+        .await
+        .err()
+        .unwrap()
+        .1,
+        "snapshot_listing_not_found"
+    );
+    for raw in [
+        "listing_id=30&version=0&slot=1",
+        "listing_id=30&version=0&slot=1&image_hash=a&extra=1",
+        "listing_id=30&listing_id=31&version=0&slot=1&image_hash=a",
+        "listing_id=30&version=-1&slot=1&image_hash=a",
+    ] {
+        let uri = format!("/api/job-copy/snapshot-image?{raw}")
+            .parse()
+            .unwrap();
+        assert!(Query::<SnapshotImageQuery>::try_from_uri(&uri).is_err());
+    }
+}
+struct ProgressiveUpstream {
+    access: Access,
+    requests: Arc<Mutex<Vec<String>>>,
+    fail_snapshot: Arc<std::sync::atomic::AtomicBool>,
+    fail_pointer: Arc<std::sync::atomic::AtomicBool>,
+    task: tokio::task::JoinHandle<()>,
+}
+impl Drop for ProgressiveUpstream {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+impl ProgressiveUpstream {
+    async fn start() -> Self {
+        use sha2::Digest;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let fail_snapshot = Arc::new(AtomicBool::new(false));
+        let fail_pointer = Arc::new(AtomicBool::new(false));
+        let raw = serde_json::to_vec(&progressive_fixture()).unwrap();
+        let sha = format!("{:x}", sha2::Sha256::digest(&raw));
+        let manifest=serde_json::to_vec(&json!({"schemaVersion":1,"listingId":"30","companyIds":["10"],"observedAt":"2026-10-03T00:00:00Z","operationId":"f".repeat(64),"images":[{"slot":2,"fileId":"synthetic_image_123","sha256":"a".repeat(64),"mimeType":"image/png","size":1}]})).unwrap();
+        let pointer=json!({"fileId":"synthetic_manifest_123","sha256":format!("{:x}",sha2::Sha256::digest(&manifest)),"observedAt":"2026-10-03T00:00:00Z"}).to_string();
+        let seen = requests.clone();
+        let fail = fail_snapshot.clone();
+        let fail_hs = fail_pointer.clone();
+        let app=Router::new().fallback(any(move |request:Request<Body>| {
+            let seen=seen.clone();let fail=fail.clone();let fail_hs=fail_hs.clone();let raw=raw.clone();let manifest=manifest.clone();let pointer=pointer.clone();
+            async move {
+                let path=request.uri().path().to_owned();seen.lock().unwrap().push(path.clone());
+                if path=="/token" {return Json(json!({"access_token":"synthetic-token","token_type":"Bearer","expires_in":3600})).into_response();}
+                if path=="/drive/v3/files/synthetic_snapshot_123" {
+                    assert_eq!(request.headers()[header::AUTHORIZATION],"Bearer synthetic-token");
+                    if fail.swap(false,Ordering::SeqCst){return StatusCode::FORBIDDEN.into_response();}
+                    return ([(header::CONTENT_TYPE,"application/json")],raw).into_response();
+                }
+                if path=="/drive/v3/files/synthetic_manifest_123" {return ([(header::CONTENT_TYPE,"application/json")],manifest).into_response();}
+                if path=="/crm/v3/objects/0-420/30" {
+                    if fail_hs.load(Ordering::SeqCst){return StatusCode::FORBIDDEN.into_response();}
+                    return Json(json!({"properties":{"job_copy_drive_manifest_v1":pointer}})).into_response();
+                }
+                if path=="/crm/v4/objects/companies/10/associations/deals" || path=="/crm/v4/objects/0-420/30/associations/deals" {return Json(json!({"results":[{"toObjectId":"20"}]})).into_response();}
+                panic!("unexpected local fixture route");
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let reader = Arc::new(super::super::job_copy_drive::DriveReader::for_test(&base));
+        let mut access = progressive_access();
+        access.moc_drive = snapshot_pointer(Some("synthetic_snapshot_123"), Some(&sha));
+        access.snapshot_reader = Some(reader.clone());
+        access.images = Some(Arc::new(
+            super::super::job_copy_image_bridge::ImageBridge::for_test(&base, reader),
+        ));
+        Self {
+            access,
+            requests,
+            fail_snapshot,
+            fail_pointer,
+            task,
+        }
+    }
+    fn count(&self, path: &str) -> usize {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|p| p.as_str() == path)
+            .count()
+    }
+}
+#[tokio::test]
+async fn raw_snapshot_singleflight_retries_failure_and_does_not_resolve_images() {
+    use std::sync::atomic::Ordering;
+    let upstream = ProgressiveUpstream::start().await;
+    upstream.fail_snapshot.store(true, Ordering::SeqCst);
+    assert!(raw_moc(&upstream.access).await.is_err());
+    assert!(upstream.access.snapshot_cache.lock().await.is_none());
+    let (a, b, c) = tokio::join!(
+        raw_moc(&upstream.access),
+        raw_moc(&upstream.access),
+        raw_moc(&upstream.access)
+    );
+    let a = a.unwrap();
+    assert!(Arc::ptr_eq(&a, &b.unwrap()));
+    assert!(Arc::ptr_eq(&a, &c.unwrap()));
+    assert_eq!(upstream.count("/drive/v3/files/synthetic_snapshot_123"), 2);
+    assert_eq!(upstream.count("/crm/v3/objects/0-420/30"), 0);
+    let mut changed = upstream.access.clone();
+    changed.moc_drive = snapshot_pointer(Some("synthetic_snapshot_123"), Some(&"d".repeat(64)));
+    assert!(raw_moc(&changed).await.is_err());
+    assert_eq!(upstream.count("/drive/v3/files/synthetic_snapshot_123"), 3);
+}
+#[tokio::test]
+async fn selected_job_redirect_retries_errors_shares_resolution_and_expires() {
+    use std::sync::atomic::Ordering;
+    let upstream = ProgressiveUpstream::start().await;
+    let session = progressive_session().await;
+    upstream.fail_pointer.store(true, Ordering::SeqCst);
+    assert!(snapshot_image(
+        State(moc_state()),
+        Extension(upstream.access.clone()),
+        session.clone(),
+        progressive_query()
+    )
+    .await
+    .is_err());
+    assert!(upstream.access.resolved_jobs.lock().await.is_empty());
+    upstream.fail_pointer.store(false, Ordering::SeqCst);
+    let (a, b) = tokio::join!(
+        snapshot_image(
+            State(moc_state()),
+            Extension(upstream.access.clone()),
+            session.clone(),
+            progressive_query()
+        ),
+        snapshot_image(
+            State(moc_state()),
+            Extension(upstream.access.clone()),
+            session.clone(),
+            progressive_query()
+        )
+    );
+    for response in [a.unwrap(), b.unwrap()] {
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        assert_eq!(response.headers()[header::LOCATION],"/api/job-copy/image?company_id=10&listing_id=30&manifest_id=synthetic_manifest_123&slot=2");
+    }
+    assert_eq!(upstream.count("/crm/v3/objects/0-420/30"), 2);
+    assert_eq!(upstream.count("/drive/v3/files/synthetic_manifest_123"), 1);
+    let anonymous = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+    assert_eq!(
+        snapshot_image(
+            State(moc_state()),
+            Extension(upstream.access.clone()),
+            anonymous,
+            progressive_query()
+        )
+        .await
+        .err()
+        .unwrap()
+        .1,
+        "login_required"
+    );
+    for (expires, _) in upstream.access.resolved_jobs.lock().await.values_mut() {
+        *expires = Instant::now() - Duration::from_secs(1);
+    }
+    snapshot_image(
+        State(moc_state()),
+        Extension(upstream.access.clone()),
+        session,
+        progressive_query(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(upstream.count("/crm/v3/objects/0-420/30"), 3);
+}
+
+#[tokio::test]
+async fn local_snapshot_is_reloaded_instead_of_using_cloud_cache() {
+    let mut access = progressive_access();
+    access.moc_drive = Ok(None);
+    let path = std::env::temp_dir().join(format!(
+        "job-copy-progressive-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let mut data = progressive_fixture();
+    tokio::fs::write(&path, serde_json::to_vec(&data).unwrap())
+        .await
+        .unwrap();
+    access.moc_path = Some(path.clone());
+    assert_eq!(
+        raw_moc(&access).await.unwrap()["capture_bundle"]["jobs"][0]["body"],
+        "Synthetic body"
+    );
+    data["capture_bundle"]["jobs"][0]["body"] = json!("Changed local body");
+    tokio::fs::write(&path, serde_json::to_vec(&data).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        raw_moc(&access).await.unwrap()["capture_bundle"]["jobs"][0]["body"],
+        "Changed local body"
+    );
+    assert!(access.snapshot_cache.lock().await.is_none());
+    tokio::fs::remove_file(path).await.unwrap();
 }

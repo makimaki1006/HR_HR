@@ -12,6 +12,36 @@ const sample = () => ({
 });
 
 describe('private media capture import', () => {
+  const snapshotRoute = '/api/job-copy/snapshot-image?listing_id=30&version=10&slot=3&image_hash=' + 'a'.repeat(64);
+  it('binds the delayed request to normalized content evidence without changing reference evidence', () => {
+    const source = sample();
+    const original = source.jobs[0]?.images[0];
+    if (!original) throw new Error('Missing test fixture.');
+    const acquired = { ...original, url: snapshotRoute, contentHash: 'A'.repeat(64), sourceReferenceHash: 'B'.repeat(64), sourceSlot: 3 };
+    const jobs = [{ ...source.jobs[0], images: [acquired] }];
+    expect(parseMediaCapture(JSON.stringify({ ...source, jobs }))[0]?.versions[0]?.images?.[0]).toMatchObject({ url: snapshotRoute, contentHash: 'a'.repeat(64), sourceReferenceHash: 'b'.repeat(64), sourceSlot: 3 });
+  });
+  it.each([snapshotRoute, snapshotRoute.replace('version=10', 'version=0'), snapshotRoute.replace('listing_id=30', 'listing_id=' + '9'.repeat(30))])('retains a canonical delayed image route and its evidence: %s', url => {
+    const source = sample();
+    const original = source.jobs[0]?.images[0];
+    if (!original) throw new Error('Missing test fixture.');
+    original.url = url;
+    expect(parseMediaCapture(JSON.stringify(source))[0]?.versions[0]?.images?.[0]).toMatchObject({ url, contentHash: 'a'.repeat(64) });
+  });
+  it.each([
+    `https://example.test${snapshotRoute}`, `//example.test${snapshotRoute}`, `${snapshotRoute}#image`, `${snapshotRoute}&token=secret`, `${snapshotRoute}&slot=1`, `${snapshotRoute}\n`,
+    snapshotRoute.replace('listing_id=30', 'listing_id='), snapshotRoute.replace('listing_id=30', 'listing_id=' + '9'.repeat(31)), snapshotRoute.replace('listing_id=30', 'listing_id=%33%30'),
+    snapshotRoute.replace('version=10', 'version=11'), snapshotRoute.replace('version=10', 'version=01'), snapshotRoute.replace('version=10', 'version=-1'), snapshotRoute.replace('version=10', 'version=1.0'),
+    snapshotRoute.replace('slot=3', 'slot=0'), snapshotRoute.replace('slot=3', 'slot=4'), snapshotRoute.replace('slot=3', 'slot=03'), snapshotRoute.replace('listing_id=30&version=10', 'version=10&listing_id=30'),
+    snapshotRoute.replace('/snapshot-image', '/other'),
+    snapshotRoute.replace('&image_hash=' + 'a'.repeat(64), ''), snapshotRoute.replace('a'.repeat(64), 'A'.repeat(64)), snapshotRoute.replace('a'.repeat(64), 'b'.repeat(64)), snapshotRoute.replace('a'.repeat(64), 'a'.repeat(63)),
+  ])('rejects ambiguous or noncanonical delayed image URLs: %s', url => {
+    const source = sample();
+    const original = source.jobs[0]?.images[0];
+    if (!original) throw new Error('Missing test fixture.');
+    original.url = url;
+    expect(() => parseMediaCapture(JSON.stringify(source))).toThrow();
+  });
   const imageRoute = '/api/job-copy/image?company_id=10&listing_id=30&manifest_id=synthetic_Manifest-123&slot=2';
   it('retains only the exact authorized same-origin image route with unchanged hash evidence', () => {
     const source = sample();
