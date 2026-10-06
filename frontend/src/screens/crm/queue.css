@@ -34,3 +34,9 @@
 .cq-more { margin-top: 14px; }
 .cq-end { color: #657b8e; font-size: 11px; }
 @media (max-width: 720px) { .cq-wide { grid-column: auto; } .cq-main, .cq-filters, .cq-mode { padding-left: 14px; padding-right: 14px; } }
+.cq-owner { min-width: 0; }
+.cq-owner-pick, .cq-owner-fallback { display: flex; flex-direction: column; gap: 6px; flex: 1 1 100%; }
+.cq-owner-pick select[size] { min-height: 4.5em; }
+.cq-owner-note { margin: 0; font-size: 11px; color: #526b80; }
+.cq-owner-err { color: #8a1c14; }
+.cq-owner-fallback button { align-self: flex-start; border: 1px solid #b5c4d3; background: #fff; border-radius: 3px; padding: 4px 10px; color: #33475b; }
