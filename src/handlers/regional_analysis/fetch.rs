@@ -250,6 +250,137 @@ fn value_as_i64(v: &serde_json::Value) -> Option<i64> {
         .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
 }
 
+// Missing cells remain unknown; completeness is within observed rows only.
+const POPULATION_REPORT_SQL: &str = "SELECT age_group, \
+    CASE WHEN COUNT(male_count) = COUNT(*) THEN SUM(male_count) ELSE NULL END AS male_count, \
+    CASE WHEN COUNT(female_count) = COUNT(*) THEN SUM(female_count) ELSE NULL END AS female_count \
+    FROM v2_external_population_pyramid \
+    WHERE (? = '' OR prefecture = ?) AND prefecture <> '都道府県' GROUP BY age_group ORDER BY age_group";
+
+pub(crate) fn fetch_population_report_rows(
+    state: &AppState,
+    prefecture: &str,
+) -> Vec<serde_json::Value> {
+    query_external(
+        state,
+        POPULATION_REPORT_SQL,
+        &[prefecture.to_owned(), prefecture.to_owned()],
+    )
+    .into_iter()
+    .map(|row| serde_json::Value::Object(row.into_iter().collect()))
+    .collect()
+}
+
+// Read existing municipality statistics; do not add prefecture/national aggregate rows twice.
+const POPULATION_TOTALS_SQL: &str = "SELECT
+    CASE WHEN COUNT(total_population)=COUNT(*) THEN SUM(total_population) END AS total_population,
+    CASE WHEN COUNT(male_population)=COUNT(*) THEN SUM(male_population) END AS male_population,
+    CASE WHEN COUNT(female_population)=COUNT(*) THEN SUM(female_population) END AS female_population,
+    CASE WHEN COUNT(age_0_14)=COUNT(*) THEN SUM(age_0_14) END AS age_0_14,
+    CASE WHEN COUNT(age_15_64)=COUNT(*) THEN SUM(age_15_64) END AS age_15_64,
+    CASE WHEN COUNT(age_65_over)=COUNT(*) THEN SUM(age_65_over) END AS age_65_over,
+    CASE WHEN COUNT(reference_date)=COUNT(*) AND MIN(reference_date)=MAX(reference_date) THEN MIN(reference_date) END AS reference_date,
+    COUNT(*) AS municipalities, COUNT(DISTINCT prefecture) AS prefectures
+    FROM v2_external_population
+    WHERE (? = '' OR prefecture = ?) AND prefecture <> '都道府県'
+      AND municipality NOT IN ('','全国','市区町村','計','合計')
+    HAVING COUNT(*) > 0";
+
+pub(crate) fn fetch_population_report_totals(
+    state: &AppState,
+    prefecture: &str,
+) -> serde_json::Value {
+    query_external(
+        state,
+        POPULATION_TOTALS_SQL,
+        &[prefecture.to_owned(), prefecture.to_owned()],
+    )
+    .into_iter()
+    .next()
+    .map(|row| serde_json::Value::Object(row.into_iter().collect()))
+    .unwrap_or(serde_json::Value::Null)
+}
+
+#[cfg(test)]
+mod population_report_tests {
+    use super::POPULATION_REPORT_SQL;
+
+    #[test]
+    fn population_totals_merge_regions_without_header_or_aggregate_rows() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE v2_external_population(prefecture TEXT,municipality TEXT,total_population INTEGER,male_population INTEGER,female_population INTEGER,age_0_14 INTEGER,age_15_64 INTEGER,age_65_over INTEGER,reference_date TEXT);
+            INSERT INTO v2_external_population VALUES
+            ('A','a',100,40,60,10,60,20,'2020-10-01'),
+            ('B','b',200,90,110,20,120,50,'2020-10-01'),
+            ('A','',100,40,60,10,60,20,'2020-10-01'),
+            ('都道府県','市区町村',999,999,999,999,999,999,'header');").unwrap();
+        let mut stmt = db.prepare(super::POPULATION_TOTALS_SQL).unwrap();
+        let nation: (i64, i64, i64, String, i64, i64) = stmt
+            .query_row(["", ""], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                ))
+            })
+            .unwrap();
+        assert_eq!(nation, (300, 130, 170, "2020-10-01".into(), 2, 2));
+        assert_eq!(
+            stmt.query_row(["A", "A"], |r| r.get::<_, i64>(0)).unwrap(),
+            100
+        );
+        db.execute("UPDATE v2_external_population SET male_population=NULL,reference_date='2021-10-01' WHERE municipality='b'",[]).unwrap();
+        let missing: (Option<i64>, Option<String>) = stmt
+            .query_row(["", ""], |r| Ok((r.get(1)?, r.get(6)?)))
+            .unwrap();
+        assert_eq!(missing, (None, None));
+    }
+
+    #[test]
+    fn population_report_preserves_partial_missing_and_observed_zero() {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE v2_external_population_pyramid (
+                prefecture TEXT, age_group TEXT, male_count INTEGER, female_count INTEGER
+             );
+             INSERT INTO v2_external_population_pyramid VALUES
+                ('test', '00-04', NULL, 20), ('test', '00-04', 100, NULL),
+                ('test', '05-09', 0, 0), ('test', '05-09', 100, 200),
+                ('test', '10-14', NULL, NULL), ('test', '10-14', NULL, NULL),
+                ('test', '15-19', 0, 0), ('test', '15-19', 0, 0),
+                ('other', '05-09', 999, 999);",
+        )
+        .unwrap();
+        let mut statement = db.prepare(POPULATION_REPORT_SQL).unwrap();
+        let rows: Vec<(String, Option<i64>, Option<i64>)> = statement
+            .query_map(["test", "test"], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("00-04".into(), None, None),
+                ("05-09".into(), Some(100), Some(200)),
+                ("10-14".into(), None, None),
+                ("15-19".into(), Some(0), Some(0)),
+            ]
+        );
+        assert_eq!(
+            statement
+                .query_map(["absent", "absent"], |_| Ok(()))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+}
+
 // --- 既存維持: 人口ピラミッド (国勢調査) ---
 
 /// 人口ピラミッド (v2_external_population_pyramid)。

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { login } from './helpers/login';
 import { readFile } from 'node:fs/promises';
 
-test('競合調査を独立ページから作成し4タブと最低賃金を確認する', async ({ page }) => {
+test('競合調査を独立ページから作成し5タブと最低賃金を確認する', async ({ page }) => {
   await login(page);
   await page.getByRole('link', { name: '競合調査', exact: true }).click();
   await expect(page).toHaveURL(/\/competitor$/);
@@ -17,13 +17,17 @@ test('競合調査を独立ページから作成し4タブと最低賃金を確�
   await page.getByRole('button', { name: '画面で確認' }).click();
   await expect(page).toHaveURL(/\/report\/competitor$/);
   await expect(page.locator('#panel-excel')).toBeVisible();
-  await expect(page.locator('[role="tab"]')).toHaveCount(4);
-  for (const name of ['google', 'indeed', 'population', 'excel']) {
+  await expect(page.locator('[role="tab"]')).toHaveCount(5);
+  await expect(page.locator('[role="tab"]')).toHaveText(['給与・待遇', 'Google検索需要', 'Indeed採用レポート', '人口・地域データ', '採用のヒント']);
+  for (const name of ['google', 'indeed', 'population', 'consultation', 'excel']) {
     await page.locator(`#tab-${name}`).click();
     await expect(page.locator(`#panel-${name}`)).toBeVisible();
     await expect(page.locator('[role="tabpanel"]:visible')).toHaveCount(1);
     await expect(page.locator(`#tab-${name}`)).toHaveAttribute('aria-selected', 'true');
   }
+  await page.locator('#tab-consultation').click();
+  await expect(page.locator('#panel-consultation')).toContainText('採用のヒント');
+  await expect(page.locator('#panel-consultation')).toContainText('給与条件を見直す');
   await page.locator('#tab-population').click();
   const region = page.locator('#panel-population');
   await expect(region).toContainText('1,231');

@@ -292,3 +292,44 @@ html:has(.competitor) { background: #eef1f6; }
   .cmp-table { font-size: 11px; }
   .cmp-table th, .cmp-table td { padding: 4px; overflow-wrap: anywhere; }
 }
+
+/* ---- 給与分布・キーワード・時系列・人口の構成比・採用のヒント (旧画面の competitor-dashboard.css と同じ構成) ---- */
+.cmp-salary-chart { background: var(--surface-2); padding: 12px 14px; }
+.cmp-salary-chart figcaption { text-align: left; font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+.cmp-salary-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  margin: 0 0 4px;
+  color: var(--accent);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.cmp-salary-swatch { width: 9px; height: 9px; background: #007d79; display: inline-block; flex-shrink: 0; }
+.cmp-peak-label { fill: var(--accent); }
+.cmp-keyword-chart { display: flex; flex-direction: column; min-height: 700px; }
+.cmp-keyword-chart svg { contain: size; flex: 1; height: 0; min-height: 640px; width: 100%; }
+.cmp-word-comparison th:first-child, .cmp-word-comparison td:first-child { width: 40%; overflow-wrap: anywhere; }
+.cmp-word-basis { margin: 0 0 8px; }
+.cmp-trend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 20px 0; }
+.cmp-trend-card { margin: 0; padding: 16px; border: 1px solid var(--grid); background: var(--surface-2); min-width: 0; }
+.cmp-trend-card figcaption { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+.cmp-trend-value { font-size: 14px; color: var(--ink-3); margin: 0 0 12px; }
+.cmp-trend-plot { overflow-x: auto; max-width: 100%; }
+.cmp-trend-plot svg { width: 100%; min-width: 620px; height: auto; display: block; }
+.cmp-population-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 20px 0; }
+.cmp-population-metrics article { padding: 16px; background: var(--accent-bg); }
+.cmp-population-metrics strong { display: block; font-size: 25px; color: var(--accent); }
+.cmp-age-composition { display: flex; height: 28px; margin: 20px 0 8px; border-radius: 4px; overflow: hidden; }
+.cmp-age-composition span { display: block; min-width: 0; }
+.cmp-population-legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; }
+.cmp-population-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; }
+.cmp-consultation-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.cmp-consultation-card { padding: 16px; border: 1px solid var(--grid); background: var(--surface-2); min-width: 0; }
+.cmp-consultation-card p { font-size: 14px; line-height: 1.7; }
+.cmp-consultation-card .cmp-note { font-size: 12px; }
+.cmp-consultation-card .cmp-table { font-size: 13px; table-layout: fixed; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .cmp-trend-grid, .cmp-population-metrics, .cmp-consultation-grid { grid-template-columns: 1fr; }
+}

@@ -13,8 +13,12 @@
 
 #![allow(dead_code)]
 
+mod competitor_consultation;
+mod competitor_keywords;
 pub(crate) mod competitor_model;
+mod competitor_population;
 mod competitor_report;
+mod competitor_trends;
 pub(crate) use competitor_report::{render_competitor_report, render_html};
 
 // A1 Commit 1 (γ Common Team, 2026-05-29): navy_report 横断 helper を common.rs に集約。

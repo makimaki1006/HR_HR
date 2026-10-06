@@ -351,19 +351,26 @@ pub async fn report(State(state): State<Arc<AppState>>, mut multipart: Multipart
 
 pub(super) fn population_context(state: &AppState, pref: &str) -> Value {
     use crate::handlers::regional_analysis::fetch::{
-        fetch_labor_stats, fetch_population_pyramid, fetch_wage_comparison, RegionalFilter,
+        fetch_labor_stats, fetch_population_report_rows, fetch_population_report_totals,
+        fetch_wage_comparison, RegionalFilter,
     };
-    if pref.is_empty() {
-        return json!({"status":"unavailable","message":"人口・地域データを表示するには、入力画面で対象都道府県を選択してください。"});
-    }
+
     let filter = RegionalFilter {
         prefecture: pref.to_owned(),
         ..Default::default()
     };
-    let pyramid = fetch_population_pyramid(state, &filter);
+    let bands = fetch_population_report_rows(state, pref);
+    let totals = fetch_population_report_totals(state, pref);
+    if pref.is_empty() {
+        return if bands.is_empty() && totals.is_null() {
+            json!({"status":"unavailable","region":"全国","message":"全国の人口データを取得できませんでした。"})
+        } else {
+            json!({"status":"ok","region":"全国","bands":bands,"reference_date":totals["reference_date"],"totals":totals})
+        };
+    }
     let wage = fetch_wage_comparison(state, &filter);
     let labor = fetch_labor_stats(state, &filter);
-    json!({"status":"ok","region":pref,"bands":pyramid.bands.iter().map(|b| json!({"age_group":b.age_group,"male_count":b.male_count,"female_count":b.female_count})).collect::<Vec<_>>(),"minimum_wage":wage.hourly_min_wage,"minimum_wage_fiscal_year":wage.fiscal_year,"minimum_wage_effective_date":wage.effective_date,"minimum_wage_source_url":wage.source_url,"minimum_wage_source":wage.source,"minimum_wage_as_of":wage.as_of,"labor":labor.map(|l|json!({"fiscal_year":l.fiscal_year,"unemployment_rate":l.unemployment_rate,"separation_rate":l.separation_rate}))})
+    json!({"status":"ok","region":pref,"bands":bands,"reference_date":totals["reference_date"],"totals":totals,"minimum_wage":wage.hourly_min_wage,"minimum_wage_fiscal_year":wage.fiscal_year,"minimum_wage_effective_date":wage.effective_date,"minimum_wage_source_url":wage.source_url,"minimum_wage_source":wage.source,"minimum_wage_as_of":wage.as_of,"labor":labor.map(|l|json!({"fiscal_year":l.fiscal_year,"unemployment_rate":l.unemployment_rate,"separation_rate":l.separation_rate}))})
 }
 
 fn indeed_context(market: Option<&Snapshot>, title: &str, pref: &str) -> Value {
