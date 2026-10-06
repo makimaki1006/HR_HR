@@ -137,6 +137,8 @@ pub struct CallQueueState {
     owners: Mutex<HashMap<String, (Instant, Option<String>)>>,
     /// ステージ ID → 表示名 (キューのパイプラインだけ)
     labels: tokio::sync::Mutex<Option<(Instant, HashMap<String, String>)>>,
+    /// 管理者向けの担当者一覧 (`GET /api/crm/owners`)
+    pub(super) owner_list: super::owners::OwnerListCache,
 }
 
 impl CallQueueState {
@@ -157,7 +159,15 @@ impl CallQueueState {
             fixed_now,
             owners: Mutex::new(HashMap::new()),
             labels: tokio::sync::Mutex::new(None),
+            owner_list: super::owners::OwnerListCache::new(),
         }
+    }
+
+    /// テストで担当者一覧の有効期間を差し替える
+    #[cfg(test)]
+    pub fn with_owner_list_ttl(mut self, ttl: Duration) -> Self {
+        self.owner_list = super::owners::OwnerListCache::with_ttl(ttl);
+        self
     }
 
     fn now(&self) -> DateTime<Utc> {

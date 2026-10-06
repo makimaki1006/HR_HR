@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
+import { OwnerFilter } from './OwnerFilter';
+import { ownerNameMap } from './ownerModel';
 import { toDomesticPhone } from './phone';
 import {
   DEFAULT_FILTERS, QUEUE_SORTS, QUEUE_STAGES, dateValue, filtersKey, parseFilters, parseMode, screenSearch,
@@ -8,6 +10,8 @@ import {
 import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
 import { useCallQueue } from './useCallQueue';
 import type { QueueFetch } from './useCallQueue';
+import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
+import type { OwnersFetch } from './useOwners';
 import './crm.css';
 import './queue.css';
 
@@ -27,7 +31,7 @@ export function partialNotes(p: CallQueuePartial | null): string[] {
   return notes;
 }
 
-function QueueRow({ item }: { item: CallQueueItem }) {
+function QueueRow({ item, ownerName }: { item: CallQueueItem; ownerName?: string | undefined }) {
   const phone = toDomesticPhone(item.phone);
   const next = ymd(item.next_call_date);
   const last = ymd(item.last_call_date);
@@ -46,17 +50,16 @@ function QueueRow({ item }: { item: CallQueueItem }) {
       {stop.unreachable_check && <small className="cq-flag">不通時チェック: {stop.unreachable_check}</small>}</td>
     <td>{next ? <>{next}{item.next_call_time && <small>{item.next_call_time}</small>}</> : <span className="crm-muted">なし</span>}</td>
     <td>{last ?? <span className="crm-muted">未架電</span>}</td>
-    <td>{item.owner_id ?? <span className="crm-muted">担当なし</span>}</td>
+    <td>{item.owner_id ? (ownerName ?? item.owner_id) : <span className="crm-muted">担当なし</span>}</td>
     <td><a href={item.deep_links.deal} target="_blank" rel="noreferrer">HubSpotで開く</a></td>
   </tr>;
 }
 
-export function CallQueueScreen({ fetcher, initialSearch }: { fetcher?: QueueFetch; initialSearch?: string }) {
+export function CallQueueScreen({ fetcher, ownersFetcher, initialSearch }: { fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; initialSearch?: string }) {
   const search = initialSearch ?? window.location.search;
   const [mode, setMode] = useState<QueueMode>(() => parseMode(search));
   const [filters, setFilters] = useState<QueueFilters>(() => parseFilters(search));
   const [qDraft, setQDraft] = useState(filters.q);
-  const [ownerIdMode, setOwnerIdMode] = useState(() => /^\d+$/.test(filters.owner));
   const { state, loadMore, reload } = useCallQueue(filters, mode, fetcher);
 
   function update(patch: Partial<QueueFilters>) {
@@ -79,7 +82,15 @@ export function CallQueueScreen({ fetcher, initialSearch }: { fetcher?: QueueFet
   }, [filters, mode, initialSearch]);
 
   const hasConditions = useMemo(() => filtersKey(filters) !== filtersKey(DEFAULT_FILTERS), [filters]);
-  const isAdmin = state.role === 'admin';
+  // 条件を変えて読み直している間は role が空になる。同じモードで管理者と分かった後は、BPO と分かるまで
+  // 管理者のままにする (担当者の入力欄が一瞬消えて、一覧を取り直すのを防ぐ。モードを変えたら確かめ直す)
+  const [adminSeenIn, setAdminSeenIn] = useState<QueueMode | null>(null);
+  if (state.role === 'admin' && adminSeenIn !== mode) setAdminSeenIn(mode);
+  if (state.role === 'bpo' && adminSeenIn !== null) setAdminSeenIn(null);
+  const isAdmin = state.role === 'admin' || (adminSeenIn === mode && state.role !== 'bpo');
+  // 担当者の一覧は管理者だけ。実データでは HubSpot、架空サンプルでは架空の一覧
+  const owners = useOwners(isAdmin, mode === 'fixture' ? fixtureOwnersFetch : (ownersFetcher ?? liveOwnersFetch));
+  const ownerNames = useMemo(() => ownerNameMap(owners.state.phase === 'ready' ? owners.state.owners : []), [owners.state]);
   const notes = partialNotes(state.partial);
   const total = state.last?.total ?? null;
 
@@ -116,16 +127,8 @@ export function CallQueueScreen({ fetcher, initialSearch }: { fetcher?: QueueFet
         <label>まで<input type="date" value={filters.lastTo} onChange={e => { update({ lastTo: e.target.value }); }} /></label></fieldset>
       <label className="cq-check"><input type="checkbox" checked={filters.due === 'today'}
         onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>
-      {isAdmin && <fieldset className="cq-owner"><legend>担当者(管理者のみ)</legend>
-        <select aria-label="担当者" value={ownerIdMode ? 'id' : filters.owner === 'all' ? '' : filters.owner} onChange={e => {
-          const v = e.target.value;
-          setOwnerIdMode(v === 'id');
-          update({ owner: v === 'id' ? '' : v });
-        }}>
-          <option value="">全員分</option><option value="unassigned">担当者なし</option>
-          <option value="me">自分</option><option value="id">担当者IDを指定</option></select>
-        {ownerIdMode && <input aria-label="担当者ID(HubSpot owner ID)" inputMode="numeric" placeholder="担当者ID(数字)"
-          value={filters.owner} onChange={e => { update({ owner: e.target.value.replace(/\D/g, '').slice(0, 20) }); }} />}</fieldset>}
+      {isAdmin && <OwnerFilter owner={filters.owner} onChange={owner => { update({ owner }); }}
+        owners={owners.state} onReload={owners.reload} />}
       <fieldset className="cq-stages"><legend>ステージ{filters.stages.length > 0 ? `(${String(filters.stages.length)} 件選択)` : '(すべて)'}</legend>
         {QUEUE_STAGES.map(s => <label key={s.id} className="cq-check"><input type="checkbox" checked={filters.stages.includes(s.id)}
           onChange={() => { toggleStage(s.id); }} />{s.label}</label>)}</fieldset>
@@ -154,7 +157,7 @@ export function CallQueueScreen({ fetcher, initialSearch }: { fetcher?: QueueFet
               : <><strong>いま架電キューに出ている架電先はありません</strong></>}</div>}
         {state.items.length > 0 && <div className="cq-table-wrap"><table className="cq-table">
           <thead><tr><th>会社 / 案件</th><th>担当者</th><th>電話番号</th><th>ステージ</th><th>次回架電</th><th>最終架電</th><th>担当</th><th>リンク</th></tr></thead>
-          <tbody>{state.items.map(item => <QueueRow key={item.deal_id} item={item} />)}</tbody></table></div>}
+          <tbody>{state.items.map(item => <QueueRow key={item.deal_id} item={item} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</tbody></table></div>}
         {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
           {state.moreError.kind === 'cursor_mismatch' && <button onClick={reload}>最初から読み直す</button>}</div>}
         {state.nextCursor && <button className="cq-more" disabled={state.loadingMore} onClick={loadMore}>
