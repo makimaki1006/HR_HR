@@ -77,6 +77,9 @@ COPY static/proposal_mock.html static/proposal_mock.html
 # include_str! で競合調査ダッシュボードのCSS・タブ操作を埋め込む
 COPY static/css/competitor-dashboard.css static/css/competitor-dashboard.css
 COPY static/js/competitor-tabs.js static/js/competitor-tabs.js
+# 競合調査のキーワード図の再描画 (competitor_report.rs が include_str! で埋め込む。2026-10-06 #79 で追加。
+# ここに無いと Render のビルドだけが「ファイルが無い」で失敗する。ローカルと CI はリポジトリ全体があるので通る)
+COPY static/js/competitor-keywords.js static/js/competitor-keywords.js
 COPY scripts/pdf/render.cjs scripts/pdf/render.cjs
 
 # touch は上の cargo clean と同じ目的の二重の保険。COPY はコンテキスト側の mtime を
