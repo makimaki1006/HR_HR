@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { jobs } from './data';
 import type { CopyVersion, JobCopyRecord } from './data';
@@ -193,6 +193,9 @@ export function JobCopyScreen() {
   const [snapshotAt, setSnapshotAt] = useState('');
   const [snapshotError, setSnapshotError] = useState<SnapshotErrorGuidance | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(snapshotRequested);
+  const [snapshotSlow, setSnapshotSlow] = useState(false);
+  const [snapshotAttempt, setSnapshotAttempt] = useState(0);
+  const snapshotAbort = useRef<AbortController | null>(null);
   const [captured, setCaptured] = useState(false);
   const [live, setLive] = useState(false);
   const [panelEpoch, setPanelEpoch] = useState(0);
@@ -206,6 +209,10 @@ export function JobCopyScreen() {
   useEffect(() => {
     if (!snapshotRequested) return;
     const controller = new AbortController();
+    snapshotAbort.current = controller;
+    const slowTimer = window.setTimeout(() => {
+      if (!controller.signal.aborted) setSnapshotSlow(true);
+    }, 5_000);
     void apiGet<{ capturedAt: string }>('/api/job-copy/moc', { signal: controller.signal, timeoutMs: 30_000 }).then(result => {
       if (controller.signal.aborted) return;
       if (result.ok) {
@@ -217,10 +224,23 @@ export function JobCopyScreen() {
           setSnapshotError({ message: '実データの形式・求人と応募の対応を確認できませんでした。架空データへ置き換えず、読み込みを停止しています。管理者にデータの内容を確認してもらってください。' });
         }
       } else setSnapshotError(snapshotErrorGuidance(result.error));
-      setSnapshotLoading(false);
+    }).catch(() => {
+      if (!controller.signal.aborted) setSnapshotError({ message: '求人データを取得できませんでした。再取得してください。続く場合は管理者に取得状況を確認してください。' });
+    }).finally(() => {
+      window.clearTimeout(slowTimer);
+      if (!controller.signal.aborted) { setSnapshotLoading(false); setSnapshotSlow(false); }
     });
-    return () => { controller.abort(); };
-  }, [snapshotRequested, initialId]);
+    return () => { window.clearTimeout(slowTimer); controller.abort(); };
+  }, [snapshotRequested, initialId, snapshotAttempt]);
+  function stopSnapshot() {
+    snapshotAbort.current?.abort();
+    setSnapshotLoading(false); setSnapshotSlow(false); setSnapshotError(null);
+  }
+  function retrySnapshot() {
+    snapshotAbort.current?.abort();
+    setSnapshotLoading(true); setSnapshotSlow(false); setSnapshotError(null);
+    setSnapshotAttempt(value => value + 1);
+  }
   const normalizedSearch = search.trim().toLocaleLowerCase('ja-JP');
   const visible = orderJobs(records.filter(job => (!normalizedSearch || `${job.title} ${job.company} ${job.mediaJobId} ${job.location}`.toLocaleLowerCase('ja-JP').includes(normalizedSearch)) && (customer === 'all' || (job.id.startsWith('demo-job-') || job.dataSource === 'hubspot' ? job.company : 'unlinked') === customer) && (media === 'all' || job.media === media) && (status === 'all' || changeStatus(job) === status)), listOrder);
   const selected = visible.find(job => job.id === selectedId) ?? visible[0];
@@ -230,19 +250,19 @@ export function JobCopyScreen() {
   function choose(job: JobCopyRecord) { setSelectedId(job.id); const url = new URL(window.location.href); url.searchParams.set('job', job.id); window.history.replaceState(null, '', url); if (window.matchMedia('(max-width: 800px)').matches) window.requestAnimationFrame(() => { const detail = document.getElementById('job-details'); detail?.focus({ preventScroll: true }); detail?.scrollIntoView({ block: 'start' }); }); }
   return <div className="jc-app"><header className="jc-page-heading"><h1>求人文面管理</h1><span className="jc-mode">MOC</span></header>
     <div className="jc-demo"><strong>{snapshotLoading ? '実データを読み込み中' : snapshotAt ? '実データMOC（取得済み）' : snapshotRequested && !records.length ? '実データ未表示' : live ? 'HubSpot読み取り' : captured ? '媒体取得版' : '操作デモ'}</strong><span>{snapshotAt ? `媒体CSVの本文・画像とHubSpotの実求人・応募集計です。応募集計取得：${date(snapshotAt)}。最新値の自動更新ではありません。確認記録は画面内のみ保持します。` : live ? records.some(job => published(job).length > 0) ? '実取引先・求人に媒体の本文・画像観測と応募を接続しています。画像の取得時点・欠測・版対応不明は各表示を確認してください。検証記録は画面内だけに保持します。' : '実レコードの現在値です。媒体全文・画像・日次版との接続は別途必要です。確認状況・受信版は画面内だけに保持します。' : captured ? 'HRハッカーの本文・画像です。過去版の有無と画像の取得時点は各版の注記を確認してください。応募未取得・HubSpot未保存です。' : snapshotRequested && !records.length ? '取得済みの実データを読み取ります。欠損を架空データで補いません。' : '求人・本文・応募数はすべて架空です。HubSpot未接続。追加した履歴・確認状況は再読み込みで消えます。'}</span></div>
-    {snapshotLoading && <p className="jc-notice" role="status">求人一覧・本文・応募集計を読み込んでいます…画像は表示時に取得します。</p>}
-    {snapshotError && <SnapshotErrorNotice guidance={snapshotError} />}
+    {snapshotLoading && <div className="jc-notice"><p role="status">{snapshotSlow ? '読み込みに時間がかかっています。待機を続けるか、求人データを再取得できます。' : '求人一覧・本文・応募集計を読み込んでいます…画像は表示時に取得します。'}</p>{snapshotSlow && <button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button>}</div>}
+    {snapshotError && <><SnapshotErrorNotice guidance={snapshotError} /><button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button></>}
     {snapshotAt && <section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>本文観測</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募レコード</span><span>版対応不明 <strong>{records.reduce((sum, job) => sum + (job.attributionUnknown ?? 0), 0)}</strong>件</span></section>}
-    <HubSpotReadPanel key={panelEpoch} onOpen={job => { setSnapshotAt(''); setSnapshotError(null); setRecords([job]); setSelectedId(job.id); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(false); setLive(true); }} />
-    <MediaCaptureImport onImport={items => { setSnapshotAt(''); setSnapshotError(null); setRecords(items); setSelectedId(items[0]?.id ?? ''); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(true); setLive(false); setPanelEpoch(value => value + 1); }} />
+    <HubSpotReadPanel key={panelEpoch} onOpen={job => { stopSnapshot(); setSnapshotAt(''); setRecords([job]); setSelectedId(job.id); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(false); setLive(true); }} />
+    <MediaCaptureImport onImport={items => { stopSnapshot(); setSnapshotAt(''); setRecords(items); setSelectedId(items[0]?.id ?? ''); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(true); setLive(false); setPanelEpoch(value => value + 1); }} />
     <ReverseSearch records={records} onChoose={job => { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); choose(job); }} />
-    <div className="jc-workspace"><aside className="jc-list"><div className="jc-list-heading"><h2 id="job-list-heading" tabIndex={-1}>求人レコード</h2><span aria-live="polite" aria-atomic="true">{visible.length} / {records.length}件</span></div><label>求人・企業・媒体IDを検索<input id="job-list-search" type="search" value={search} placeholder="求人名、企業名、勤務地" onChange={event => { setSearch(event.target.value); }} /></label>
+    <div className="jc-workspace"><aside className="jc-list"><div className="jc-list-heading"><h2 id="job-list-heading" tabIndex={-1}>求人レコード</h2><span aria-live="polite" aria-atomic="true">{snapshotLoading ? '取得中' : snapshotError && !records.length ? '未取得' : `${String(visible.length)} / ${String(records.length)}件`}</span></div><label>求人・企業・媒体IDを検索<input id="job-list-search" type="search" value={search} placeholder="求人名、企業名、勤務地" onChange={event => { setSearch(event.target.value); }} /></label>
       <label>取引先<select aria-label="取引先" value={customer} onChange={event => { setCustomer(event.target.value); }}><option value="all">すべての取引先</option>{captured ? <option value="unlinked">取引先未紐付け</option> : [...new Set(records.map(job => job.company))].map(value => <option key={value} value={value}>{value}{live ? '' : '（架空）'}</option>)}</select></label>
       <div className="jc-filters"><label>媒体<select value={media} onChange={event => { setMedia(event.target.value); }}><option value="all">すべて</option>{[...new Set(records.map(job => job.media))].map(value => <option key={value}>{value}</option>)}</select></label><label>変更判定<select value={status} onChange={event => { setStatus(event.target.value); }}><option value="all">すべて</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
       <label>並び順<select aria-label="並び順" value={listOrder} onChange={event => { setListOrder(event.target.value === 'applications' ? 'applications' : 'source'); }}><option value="source">取得順</option><option value="applications">応募数が多い順</option></select></label>
       {filtersActive && <button type="button" className="jc-button jc-filter-reset" onClick={resetFilters}>検索条件をリセット</button>}
-      <div className="jc-list-scroll">{visible.map(job => <button className="jc-job" key={job.id} aria-pressed={selected?.id === job.id} onClick={() => { choose(job); }}><span className="jc-job-company">{job.company}</span><strong>{job.title}</strong><span>{job.location} · {job.media}</span><span className="jc-job-bottom"><small>{published(job).length}版{job.versions.some(version => version.kind === 'ai_draft') ? ' + AI案' : ''}</small><small>{statusLabels[changeStatus(job)]}</small></span><small>{applicationCountLabel(job)}</small></button>)}{!visible.length && <div className="jc-empty"><p>{records.length ? '一致する求人はありません。' : '表示できる求人がありません。'}</p></div>}</div>
+      <div className="jc-list-scroll">{visible.map(job => <button className="jc-job" key={job.id} aria-pressed={selected?.id === job.id} onClick={() => { choose(job); }}><span className="jc-job-company">{job.company}</span><strong>{job.title}</strong><span>{job.location} · {job.media}</span><span className="jc-job-bottom"><small>{published(job).length}版{job.versions.some(version => version.kind === 'ai_draft') ? ' + AI案' : ''}</small><small>{statusLabels[changeStatus(job)]}</small></span><small>{applicationCountLabel(job)}</small></button>)}{!visible.length && <div className="jc-empty"><p>{snapshotLoading ? '求人一覧を取得中です。' : records.length ? '一致する求人はありません。' : '表示できる求人がありません。'}</p></div>}</div>
       <p className="jc-list-footer">本文の観測と掲載確認を分けて管理<br />求人を選ぶと文面と履歴が開きます</p>
-    </aside>{selected ? <CopyDetail key={`${selected.id}-${selected.versions[0]?.id ?? ''}`} job={selected} records={records} reviewed={reviewed} onBack={returnToList} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</div>
+    </aside>{selected ? <CopyDetail key={`${selected.id}-${selected.versions[0]?.id ?? ''}`} job={selected} records={records} reviewed={reviewed} onBack={returnToList} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを取得しています' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '取得完了後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</div>
   </div>;
 }
