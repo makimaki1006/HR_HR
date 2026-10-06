@@ -102,7 +102,9 @@ WORKDIR /app
 
 COPY --from=pdf /usr/local/bin/node /usr/local/bin/node
 COPY --from=pdf /app/node_modules/playwright-core /app/node_modules/playwright-core
-RUN node --version && chromium --version
+# Playwright は executablePath に絶対パスが要る (PATH を引かない)。起動に使うパスが実在することをビルド時に確かめる
+ENV PDF_CHROMIUM_PATH=/usr/bin/chromium
+RUN node --version && "$PDF_CHROMIUM_PATH" --version
 
 # バイナリ
 COPY --from=builder /app/target/release/rust_dashboard .

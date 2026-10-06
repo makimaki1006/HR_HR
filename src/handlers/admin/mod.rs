@@ -10,6 +10,7 @@
 
 pub mod data;
 mod handlers;
+pub mod hubspot_check;
 mod json;
 mod render;
 // W8 (2026-09-29): struct → render 分割の前後で HTML が変わらないことを固定する
@@ -24,4 +25,5 @@ pub use data::{
     AdminUserKpi30d, AdminUsersResponse,
 };
 pub use handlers::{admin_login_failures, admin_usage, admin_user_detail, admin_users_list};
+pub use hubspot_check::api_hubspot_check;
 pub use json::{api_login_failures, api_usage, api_user_detail, api_users};
