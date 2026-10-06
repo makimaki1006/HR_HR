@@ -83,7 +83,7 @@ describe('CallQueueScreen', () => {
     render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
     await act(async () => { calls[0]?.resolve({ ok: false, error: new ApiHttpError(503, { error_kind: 'hubspot_rate_limited' }) }); await Promise.resolve(); });
     expect(screen.getByRole('alert').textContent).toContain('呼び出し回数の上限');
-    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByRole('list', { name: '架電キュー' })).toBeNull();
     fireEvent.click(screen.getByText('再試行'));
     expect(calls).toHaveLength(2);
     expect(calls[1]?.cursor).toBeNull();
@@ -175,7 +175,7 @@ describe('CallQueueScreen', () => {
     fireEvent.click(screen.getByText('さらに読み込む'));
     expect(calls[1]?.cursor).toBe('c1');
     await act(async () => { calls[1]?.resolve({ ok: true, data: makeResponse(calls[1].filters, [makeItem('2'), makeItem('3')]) }); await Promise.resolve(); });
-    const table = screen.getByRole('table');
+    const table = screen.getByRole('list', { name: '架電キュー' });
     expect(within(table).getAllByText(/^架空会社/).map(e => e.textContent)).toEqual(['架空会社1', '架空会社2', '架空会社3']);
     expect(screen.getByText('これで最後です。')).toBeTruthy();
   });

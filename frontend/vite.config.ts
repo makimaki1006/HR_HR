@@ -45,5 +45,8 @@ export default defineConfig({
     environment: 'node',
     env: { TZ: 'Asia/Tokyo' },
     include: ['src/**/*.test.{ts,tsx}'],
+    // happy-dom は既定で iframe の src を実際に読みに行く。架電ワークスペースの Zoom Phone iframe が
+    // テストから本物の Zoom へ通信しないよう、iframe のページ読み込みを止める
+    environmentOptions: { happyDOM: { settings: { disableIframePageLoading: true } } },
   },
 });

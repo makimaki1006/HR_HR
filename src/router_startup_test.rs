@@ -41,6 +41,9 @@ mod tests {
         assert!(policy.contains("default-src 'self'"));
         assert!(policy.contains("connect-src 'self'"));
         assert!(policy.contains("frame-ancestors 'self'"));
+        // Zoom Phone Smart Embed だけを外部 iframe として許可する (ワイルドカードにしない)
+        assert!(policy.contains("frame-src 'self' https://applications.zoom.us;"));
+        assert!(!policy.contains("frame-src *"));
         assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
         assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
         assert_eq!(

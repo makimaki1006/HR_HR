@@ -104,7 +104,7 @@ const OWNER_TTL: Duration = Duration::from_secs(10 * 60);
 const OWNER_MISS_TTL: Duration = Duration::from_secs(60);
 const LABELS_TTL: Duration = Duration::from_secs(5 * 60);
 
-const DEAL_PROPERTIES: &[&str] = &[
+pub(super) const DEAL_PROPERTIES: &[&str] = &[
     "dealname",
     "dealstage",
     "pipeline",
@@ -170,13 +170,13 @@ impl CallQueueState {
         self
     }
 
-    fn now(&self) -> DateTime<Utc> {
+    pub(super) fn now(&self) -> DateTime<Utc> {
         self.fixed_now.unwrap_or_else(Utc::now)
     }
 
     /// 本人のメール → HubSpot owner id。引けた結果は 10 分、見つからなかった結果は 1 分キャッシュ。
     /// 失敗 (HubSpot のエラー) はキャッシュしない。
-    async fn owner_for(
+    pub(super) async fn owner_for(
         &self,
         client: &HubSpotClient,
         email: &str,
@@ -202,7 +202,7 @@ impl CallQueueState {
     }
 
     /// ステージ ID → 表示名 (5 分キャッシュ。同時に冷えた要求は 1 回の取得にまとめる)
-    async fn stage_labels(
+    pub(super) async fn stage_labels(
         &self,
         client: &HubSpotClient,
     ) -> Result<HashMap<String, String>, HubSpotError> {
@@ -1035,7 +1035,7 @@ fn parse_search(v: &Value) -> Result<SearchPage, HubSpotError> {
 }
 
 /// 空白だけの値は「入力なし」として扱う
-fn nz(rec: &HubSpotRecord, key: &str) -> Option<String> {
+pub(super) fn nz(rec: &HubSpotRecord, key: &str) -> Option<String> {
     rec.properties
         .get(key)
         .and_then(|v| v.as_deref())
@@ -1044,13 +1044,16 @@ fn nz(rec: &HubSpotRecord, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn pick<'a>(refs: &'a [AssociationRef], primary_labels: &[&str]) -> Option<&'a AssociationRef> {
+pub(super) fn pick<'a>(
+    refs: &'a [AssociationRef],
+    primary_labels: &[&str],
+) -> Option<&'a AssociationRef> {
     refs.iter()
         .find(|r| r.labels.iter().any(|l| primary_labels.contains(&l.trim())))
         .or_else(|| refs.first())
 }
 
-fn contact_name(rec: &HubSpotRecord) -> Option<String> {
+pub(super) fn contact_name(rec: &HubSpotRecord) -> Option<String> {
     let last = nz(rec, "lastname").unwrap_or_default();
     let first = nz(rec, "firstname").unwrap_or_default();
     let name = format!("{last} {first}").trim().to_string();
@@ -1244,6 +1247,62 @@ fn build_item(
         phone,
         phone_source,
     })
+}
+
+// ---------------------------------------------------------------------------
+// 1 件の Deal がキューの条件に合うか (BPO のレコード単位の制限用。`record_gate.rs`)
+// ---------------------------------------------------------------------------
+
+/// 日付プロパティ (`bpo_13` 等) → エポック ms。`YYYY-MM-DD` (その日の UTC 0 時)・RFC 3339・数字 (ms) を受ける。
+/// 解釈できなければ `None` (呼び出し側は「条件に合わない」側に倒す)。
+fn date_prop_ms(v: &str) -> Option<i64> {
+    let t = v.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if t.bytes().all(|b| b.is_ascii_digit()) {
+        return t.parse::<i64>().ok();
+    }
+    if let Ok(d) = NaiveDate::parse_from_str(t, "%Y-%m-%d") {
+        return Some(date_ms(d));
+    }
+    DateTime::parse_from_rfc3339(t)
+        .ok()
+        .map(|d| d.timestamp_millis())
+}
+
+/// この Deal が `owner_id` (HubSpot owner) の架電キューに出る条件を満たすか。
+///
+/// 検索 (`filter_groups`) と同じ条件を 1 件の Deal に当てる: パイプライン・担当者・アーカイブでない・
+/// 架電禁止理由 `bpo_3` / ブロック理由 `bpo_4` が空・ステージ (未済は常に、他の許可ステージは次回架電日が今日以前)。
+/// **電話番号の有無は見ない** (Contact / Company の追加読み取りが要るため。電話番号が無い自分の担当 Deal は
+/// キューには出ないが、個別取得はできる)。
+pub(super) fn deal_in_queue(deal: &HubSpotRecord, owner_id: &str, today_ms: i64) -> bool {
+    if deal.archived || owner_id.trim().is_empty() {
+        return false;
+    }
+    if nz(deal, "pipeline").as_deref() != Some(PIPELINE_ID) {
+        return false;
+    }
+    if nz(deal, "hubspot_owner_id").as_deref() != Some(owner_id.trim()) {
+        return false;
+    }
+    if nz(deal, "bpo_3").is_some() || nz(deal, "bpo_4").is_some() {
+        return false;
+    }
+    let Some(stage) = nz(deal, "dealstage") else {
+        return false;
+    };
+    if stage == STAGE_UNPROCESSED {
+        return true;
+    }
+    if !STAGES_WHEN_DUE.contains(&stage.as_str()) {
+        return false;
+    }
+    nz(deal, "bpo_13")
+        .as_deref()
+        .and_then(date_prop_ms)
+        .is_some_and(|ms| ms <= today_ms)
 }
 
 // ---------------------------------------------------------------------------
