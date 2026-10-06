@@ -28,7 +28,13 @@ export const imagesByVersion: Record<string, CopyImage[] | undefined> = {
 
 export function compareImages(before: CopyImage[] | undefined, after: CopyImage[] | undefined) {
   if (!before || !after) return { status: 'unknown' as const, added: [], removed: [], reordered: false };
-  const identity = (image: CopyImage) => image.sourceReferenceHash ?? image.url;
+  const identity = (image: CopyImage) => {
+    if (image.sourceReferenceHash !== undefined) return image.sourceReferenceHash;
+    // Transport URLs change when a saved image is served through a different
+    // backend route. Without a publisher reference, retain embedded-file identity.
+    const transport = image.url.startsWith('data:image/') || image.url.startsWith('/api/job-copy/image?') || image.url.startsWith('/api/job-copy/snapshot-image?');
+    return transport && /^[a-f0-9]{64}$/i.test(image.contentHash ?? '') ? `file:${image.contentHash?.toLowerCase() ?? ''}` : image.url;
+  };
   const countUrls = (images: CopyImage[]) => {
     const counts = new Map<string, number>();
     for (const image of images) counts.set(identity(image), (counts.get(identity(image)) ?? 0) + 1);
