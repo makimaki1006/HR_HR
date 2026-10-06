@@ -221,6 +221,10 @@ pub(super) fn router_with_queue(
             get(super::call_queue::get_call_queue),
         )
         .route("/api/crm/owners", get(super::owners::get_owners))
+        .route(
+            "/api/crm/workspace/deals/{id}",
+            get(super::workspace::get_workspace_deal),
+        )
         .route("/api/crm/contacts/{id}", get(get_contact))
         .route("/api/crm/companies/{id}", get(get_company))
         .route("/api/crm/deals/{id}", get(get_deal))
@@ -563,7 +567,7 @@ struct Activity {
 /// 時刻文字列を並べ替え用の epoch ミリ秒にする。
 /// HubSpot v3 は ISO 8601 (`2026-09-01T10:00:00Z` / `...00.123Z`) で返すが、
 /// 数字 (epoch ms) の場合も受ける。解釈できなければ None (末尾に並ぶ)。
-fn timestamp_millis(v: Option<&str>) -> Option<i64> {
+pub(super) fn timestamp_millis(v: Option<&str>) -> Option<i64> {
     let s = v?.trim();
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
         return Some(dt.timestamp_millis());
@@ -593,7 +597,7 @@ pub async fn build_record_view(
 /// 打ち切り前に ID を数値の降順 (= 新しい順とみなす) に並べる。
 /// HubSpot の ID が作成順に増えることは [推測] (公式の保証は確認していない)。
 /// 数値にできない ID は末尾 (validate 済みなので通常は無い)。
-fn sort_ids_newest_first(ids: &mut [String]) {
+pub(super) fn sort_ids_newest_first(ids: &mut [String]) {
     ids.sort_by(|a, b| {
         let na = a.parse::<u64>().ok();
         let nb = b.parse::<u64>().ok();

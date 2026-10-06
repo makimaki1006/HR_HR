@@ -40,3 +40,60 @@
 .cq-owner-note { margin: 0; font-size: 11px; color: #526b80; }
 .cq-owner-err { color: #8a1c14; }
 .cq-owner-fallback button { align-self: flex-start; border: 1px solid #b5c4d3; background: #fff; border-radius: 3px; padding: 4px 10px; color: #33475b; }
+
+/* 架電ワークスペース: 左 = 架電キュー / 中央 = 詳細 / 右 = Zoom Phone */
+.cq-workspace { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) 380px; gap: 16px; align-items: start; padding: 0 24px 40px; }
+.cq-workspace .cq-main { padding: 16px 0 0; min-width: 0; }
+.cq-detail { padding-top: 16px; min-width: 0; }
+.cq-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cq-row-button { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; background: #fff; border: 1px solid #d3dce5; border-radius: 4px; padding: 10px 12px; color: #2d3e50; cursor: pointer; }
+.cq-row.is-selected .cq-row-button { border-color: #2d3e50; box-shadow: inset 4px 0 0 #2d3e50; background: #f5f8fa; }
+.cq-row-button small { display: block; color: #657b8e; font-size: 11px; }
+.cq-row-contact, .cq-row-meta { display: flex; flex-direction: column; gap: 2px; }
+.wd { display: flex; flex-direction: column; gap: 12px; }
+.wd-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; background: #fff; border: 1px solid #d3dce5; border-radius: 4px; padding: 14px 16px; }
+.wd-head h2 { margin: 2px 0; font-size: 20px; }
+.wd-head p { margin: 0; color: #526b80; }
+.wd-head-side { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.wd-card { background: #fff; border: 1px solid #d3dce5; border-radius: 4px; padding: 12px 16px; }
+.wd-card h3 { margin: 0 0 8px; font-size: 14px; }
+.wd-card h3 small { margin-left: 8px; font-weight: 400; color: #657b8e; font-size: 11px; }
+.wd-dial { border-color: #2d3e50; }
+.wd-phone { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 4px 0; }
+.wd-phone-label { color: #526b80; font-size: 11px; min-width: 7em; }
+.wd-phone .cq-phone { font-size: 18px; }
+.wd-phone-actions { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.wd-phone-actions button, .wd-filters button { border: 1px solid #b5c4d3; background: #fff; border-radius: 3px; padding: 5px 12px; color: #33475b; cursor: pointer; }
+.wd-phone-actions button.wd-dial { background: #1d7a4a; border-color: #1d7a4a; color: #fff; font-weight: 700; }
+.wd-phone-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.wd-dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin: 0; }
+.wd-dl dt { font-size: 11px; color: #657b8e; }
+.wd-dl dd { margin: 0; }
+.wd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wd-list small { display: block; color: #657b8e; font-size: 11px; }
+.wd-stop { margin: 8px 0 0; padding-left: 18px; }
+.wd-scope { margin: 0 0 8px; font-size: 11px; color: #657b8e; }
+.wd-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.wd-filters button[aria-pressed="true"] { background: #2d3e50; color: #fff; border-color: #2d3e50; }
+.wd-acts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wd-act { border-left: 3px solid #cbd6e2; padding: 2px 0 2px 10px; }
+.wd-act-call { border-left-color: #1d7a4a; }
+.wd-act-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.wd-act-head small, .wd-act-meta { color: #657b8e; font-size: 11px; }
+.wd-act-meta { margin: 2px 0; }
+.wd-act-body { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wd-next { background: #f5f8fa; border-style: dashed; }
+.wd-empty { margin-top: 0; }
+.zp-panel { position: sticky; top: 12px; margin-top: 16px; background: #fff; border: 1px solid #d3dce5; border-radius: 4px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.zp-head h2 { margin: 2px 0 0; font-size: 16px; }
+.zp-frame { width: 100%; min-width: 350px; height: 580px; border: 1px solid #cbd6e2; border-radius: 4px; background: #f5f8fa; }
+.zp-status { margin: 0; padding: 8px 10px; border-radius: 4px; background: #f5f8fa; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.zp-status strong { font-size: 14px; }
+.zp-ringing { background: #fff8e1; }
+.zp-connected { background: #e8f5ee; }
+.zp-timer { font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 700; }
+.zp-hint { margin: 0; font-size: 11px; color: #657b8e; }
+.zp-setup { font-size: 12px; }
+.zp-setup ol { margin: 6px 0; padding-left: 18px; }
+@media (max-width: 1280px) { .cq-workspace { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); } .zp-panel { grid-column: 1 / -1; position: static; } }
+@media (max-width: 820px) { .cq-workspace { grid-template-columns: 1fr; padding: 0 14px 40px; } }

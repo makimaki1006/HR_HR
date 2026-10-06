@@ -9,6 +9,12 @@ import {
 } from './queueModel';
 import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
 import { useCallQueue } from './useCallQueue';
+import { DealDetail } from './DealDetail';
+import { ZoomPhonePanel } from './ZoomPhonePanel';
+import { useDealDetail } from './useDealDetail';
+import type { DetailFetch } from './useDealDetail';
+import { useZoomPhone } from './useZoomPhone';
+import type { ZoomOptions } from './useZoomPhone';
 import type { QueueFetch } from './useCallQueue';
 import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
@@ -31,36 +37,47 @@ export function partialNotes(p: CallQueuePartial | null): string[] {
   return notes;
 }
 
-function QueueRow({ item, ownerName }: { item: CallQueueItem; ownerName?: string | undefined }) {
+function QueueRow({ item, ownerName, selected, onSelect }: {
+  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; onSelect: (id: string) => void;
+}) {
   const phone = toDomesticPhone(item.phone);
   const next = ymd(item.next_call_date);
   const last = ymd(item.last_call_date);
   const stop = item.stop;
-  return <tr>
-    <td><strong>{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
-      <small>{item.deal_name ?? '(案件名なし)'}</small></td>
-    <td>{item.contact ? <>{item.contact.name ?? '(氏名なし)'}
-      {item.contact.job_title && <small>{item.contact.job_title}</small>}
-      {item.contact.extra_count > 0 && <small>ほか {item.contact.extra_count} 人</small>}</>
-      : <span className="crm-muted">担当者情報を取得できませんでした</span>}</td>
-    <td>{phone ? <><span className="cq-phone" title={item.phone ?? undefined}>{phone}</span>
-      {item.phone_source && <small>{PHONE_SOURCE_LABELS[item.phone_source] ?? item.phone_source}の番号</small>}</>
-      : <span className="crm-muted">番号を確認できません</span>}</td>
-    <td><span className="crm-status">{item.stage_label ?? '(ステージ名を取得できません)'}</span>
-      {stop.unreachable_check && <small className="cq-flag">不通時チェック: {stop.unreachable_check}</small>}</td>
-    <td>{next ? <>{next}{item.next_call_time && <small>{item.next_call_time}</small>}</> : <span className="crm-muted">なし</span>}</td>
-    <td>{last ?? <span className="crm-muted">未架電</span>}</td>
-    <td>{item.owner_id ? (ownerName ?? item.owner_id) : <span className="crm-muted">担当なし</span>}</td>
-    <td><a href={item.deep_links.deal} target="_blank" rel="noreferrer">HubSpotで開く</a></td>
-  </tr>;
+  return <li className={`cq-row${selected ? ' is-selected' : ''}`}>
+    <button type="button" className="cq-row-button" aria-pressed={selected} onClick={() => { onSelect(item.deal_id); }}>
+      <strong>{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
+      <small>{item.deal_name ?? '(案件名なし)'}</small>
+      <span className="cq-row-contact">{item.contact ? <>{item.contact.name ?? '(氏名なし)'}
+        {item.contact.job_title && <small>{item.contact.job_title}</small>}
+        {item.contact.extra_count > 0 && <small>ほか {item.contact.extra_count} 人</small>}</>
+        : <span className="crm-muted">担当者情報を取得できませんでした</span>}</span>
+      <span>{phone ? <><span className="cq-phone" title={item.phone ?? undefined}>{phone}</span>
+        {item.phone_source && <small>{PHONE_SOURCE_LABELS[item.phone_source] ?? item.phone_source}の番号</small>}</>
+        : <span className="crm-muted">番号を確認できません</span>}</span>
+      <span className="cq-row-meta"><span className="crm-status">{item.stage_label ?? '(ステージ名を取得できません)'}</span>
+        {stop.unreachable_check && <small className="cq-flag">不通時チェック: {stop.unreachable_check}</small>}
+        <small>次回架電: {next ? <><span>{next}</span>{item.next_call_time && <> <span>{item.next_call_time}</span></>}</> : 'なし'}</small>
+        <small>最終架電: {last ? <span>{last}</span> : '未架電'}</small>
+        <small>担当: {item.owner_id ? <span>{ownerName ?? item.owner_id}</span> : '担当なし'}</small></span>
+    </button>
+  </li>;
 }
 
-export function CallQueueScreen({ fetcher, ownersFetcher, initialSearch }: { fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; initialSearch?: string }) {
+export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOptions, initialSearch }: {
+  fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; zoomOptions?: ZoomOptions | undefined; initialSearch?: string;
+}) {
   const search = initialSearch ?? window.location.search;
   const [mode, setMode] = useState<QueueMode>(() => parseMode(search));
   const [filters, setFilters] = useState<QueueFilters>(() => parseFilters(search));
   const [qDraft, setQDraft] = useState(filters.q);
   const { state, loadMore, reload } = useCallQueue(filters, mode, fetcher);
+  // 選んだ案件。モードを切り替えたら選び直す (実データの ID と架空の ID を取り違えない)
+  const [selection, setSelection] = useState<{ id: string; mode: QueueMode } | null>(null);
+  const selectedId = selection !== null && selection.mode === mode ? selection.id : null;
+  const detail = useDealDetail(selectedId, mode, detailFetcher);
+  // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
+  const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
 
   function update(patch: Partial<QueueFilters>) {
     setFilters(prev => {
@@ -135,6 +152,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, initialSearch }: { fet
       <div className="cq-actions"><button type="button" onClick={clearAll} disabled={!hasConditions && qDraft === ''}>条件をクリア</button></div>
     </form>
 
+    <div className="cq-workspace">
     <main className="cq-main" aria-live="polite" aria-busy={state.phase === 'loading'}>
       {state.phase === 'invalid' && <div className="cq-notice cq-error" role="alert"><strong>条件を確認してください</strong>
         <ul>{state.invalid.map(m => <li key={m}>{m}</li>)}</ul></div>}
@@ -155,9 +173,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, initialSearch }: { fet
             : hasConditions ? <><strong>条件に一致する架電先がありません</strong><p>条件を変えるか、クリアしてください。</p>
               <button onClick={clearAll}>条件をクリア</button></>
               : <><strong>いま架電キューに出ている架電先はありません</strong></>}</div>}
-        {state.items.length > 0 && <div className="cq-table-wrap"><table className="cq-table">
-          <thead><tr><th>会社 / 案件</th><th>担当者</th><th>電話番号</th><th>ステージ</th><th>次回架電</th><th>最終架電</th><th>担当</th><th>リンク</th></tr></thead>
-          <tbody>{state.items.map(item => <QueueRow key={item.deal_id} item={item} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</tbody></table></div>}
+        {state.items.length > 0 && <ul className="cq-list" aria-label="架電キュー">
+          {state.items.map(item => <QueueRow key={item.deal_id} item={item} selected={item.deal_id === selectedId}
+            onSelect={id => { setSelection({ id, mode }); }} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
         {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
           {state.moreError.kind === 'cursor_mismatch' && <button onClick={reload}>最初から読み直す</button>}</div>}
         {state.nextCursor && <button className="cq-more" disabled={state.loadingMore} onClick={loadMore}>
@@ -165,5 +183,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, initialSearch }: { fet
         {!state.nextCursor && state.items.length > 0 && <p className="cq-end">これで最後です。</p>}
       </>}
     </main>
+    <section className="cq-detail" aria-label="選んだ架電先の詳細">
+      <DealDetail state={detail.state} reload={detail.reload} zoom={zoom}
+        ownerName={(() => { const o = state.items.find(i => i.deal_id === selectedId)?.owner_id; return o ? ownerNames.get(o) : undefined; })()} />
+    </section>
+    <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} />
+    </div>
   </div>;
 }

@@ -936,11 +936,14 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                  img-src 'self' data: blob: https:; \
                  font-src 'self' data: https:; \
                  connect-src 'self'; \
+                 frame-src 'self' https://applications.zoom.us; \
                  frame-ancestors 'self'; \
                  base-uri 'self'; \
                  form-action 'self'",
             ),
         ))
+        // frame-src (2026-10-06): 架電ワークスペースの Zoom Phone Smart Embed (iframe) のため、
+        // 自分自身と https://applications.zoom.us だけを許可する (それ以外の外部 iframe は引き続き遮断)。
         // frame-ancestors 'self' (2026-08-04): 求人票生成・ジャーニー診断等を
         // ダッシュボードのタブ内 iframe (同一オリジン) として統合するため。
         // 外部サイトからの埋め込み (クリックジャッキング) は引き続き遮断。

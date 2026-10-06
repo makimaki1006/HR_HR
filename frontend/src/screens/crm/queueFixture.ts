@@ -44,6 +44,12 @@ function toItem(s: Seed): CallQueueItem {
   };
 }
 
+/** 架空の 1 行 (詳細画面の架空データの元) */
+export function fixtureItem(id: string): CallQueueItem | null {
+  const s = SEEDS.find(x => x.id === id);
+  return s ? toItem(s) : null;
+}
+
 const UNPROCESSED = '1095387442';
 
 /** サーバ (call_queue.rs) の抽出・並びの要点だけを真似る。実サーバの代わりではなく、画面の確認用 */
