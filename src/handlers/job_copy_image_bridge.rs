@@ -136,6 +136,14 @@ impl ImageBridge {
             jobs,
         })
     }
+    #[cfg(test)]
+    pub(crate) fn for_test(base: &str, reader: Arc<DriveReader>) -> Self {
+        let jobs = Arc::new(JobReadService::for_test(base.to_owned()));
+        let mut bridge = Self::new("test-only".into(), reader, jobs).unwrap();
+        bridge.base = base.to_owned();
+        bridge
+    }
+
     async fn get(&self, path: &str) -> BridgeResult<(StatusCode, Value)> {
         let response = self
             .http

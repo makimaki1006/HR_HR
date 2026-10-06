@@ -39,6 +39,15 @@ describe('CSV references without historical image downloads', () => {
 });
 
 describe('captured image reference identity', () => {
+  it('does not mistake deferred delivery or version indices for changes to an embedded file', () => {
+    const contentHash = 'a'.repeat(64);
+    const embedded = { ...first, url: 'data:image/png;base64,AAAA', contentHash, sourceSlot: 2 };
+    const deferred = { ...embedded, url: `/api/job-copy/snapshot-image?listing_id=30&version=0&slot=1&image_hash=${contentHash}` };
+    const historical = { ...deferred, url: deferred.url.replace('version=0', 'version=1') };
+    expect(compareImages([embedded], [deferred]).status).toBe('same_reference');
+    expect(compareImages([historical], [deferred]).status).toBe('same_reference');
+    expect(compareImages([embedded], [{ ...deferred, contentHash: 'b'.repeat(64) }]).status).toBe('changed');
+  });
   it('keeps the source reference distinct from the embedded preview bytes', () => {
     expect(compareImages([{ ...first, sourceReferenceHash: 'a'.repeat(64) }], [{ ...first, sourceReferenceHash: 'b'.repeat(64) }]).status).toBe('changed');
   });
