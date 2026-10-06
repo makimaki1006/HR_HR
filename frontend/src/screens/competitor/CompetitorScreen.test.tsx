@@ -117,13 +117,6 @@ describe('フォーム', () => {
     expect(screen.getByText(/選択肢を取得できませんでした/)).toBeTruthy();
   });
 
-  it('全国のままだと人口・地域タブは出ないことを予告する', async () => {
-    await mount();
-    expect(screen.getByText(/都道府県を選んでください/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('対象都道府県'), { target: { value: '大阪府' } });
-    expect(screen.queryByText(/都道府県を選んでください/)).toBeNull();
-  });
-
   it('検証エラーのときは送信せず、項目ごとに alert を出す', async () => {
     await mount();
     fireEvent.click(submitButton());
@@ -254,7 +247,7 @@ describe('成功', () => {
     expect(form?.get('top_n')).toBe('45');
     expect(form?.get('include_google')).toBe('1');
     expect((form?.get('csv_file') as File).name).toBe('jobs.csv');
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
     expect(screen.getByRole('button', { name: 'PDFをダウンロード' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '条件を変えて再作成' })).toBeTruthy();
   });
@@ -321,14 +314,14 @@ describe('成功', () => {
     expect(window.location.search).toBe('?tab=google');
   });
 
-  it('不正な ?tab= は無視して Excel 再現', async () => {
+  it('不正な ?tab= は無視して給与・待遇', async () => {
     window.history.replaceState(null, '', '/app/competitor?tab=__proto__');
     mCreate.mockResolvedValue({ ok: true, data: makeResponse() });
     await mount();
     chooseFile();
     fireEvent.click(submitButton());
     await screen.findByRole('tablist');
-    expect(screen.getByRole('tab', { name: 'Excel再現' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: '給与・待遇' }).getAttribute('aria-selected')).toBe('true');
   });
 });
 
