@@ -202,7 +202,7 @@ impl CallQueueState {
     }
 
     /// ステージ ID → 表示名 (5 分キャッシュ。同時に冷えた要求は 1 回の取得にまとめる)
-    async fn stage_labels(
+    pub(super) async fn stage_labels(
         &self,
         client: &HubSpotClient,
     ) -> Result<HashMap<String, String>, HubSpotError> {
@@ -1036,7 +1036,7 @@ fn parse_search(v: &Value) -> Result<SearchPage, HubSpotError> {
 }
 
 /// 空白だけの値は「入力なし」として扱う
-fn nz(rec: &HubSpotRecord, key: &str) -> Option<String> {
+pub(super) fn nz(rec: &HubSpotRecord, key: &str) -> Option<String> {
     rec.properties
         .get(key)
         .and_then(|v| v.as_deref())
@@ -1045,13 +1045,16 @@ fn nz(rec: &HubSpotRecord, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn pick<'a>(refs: &'a [AssociationRef], primary_labels: &[&str]) -> Option<&'a AssociationRef> {
+pub(super) fn pick<'a>(
+    refs: &'a [AssociationRef],
+    primary_labels: &[&str],
+) -> Option<&'a AssociationRef> {
     refs.iter()
         .find(|r| r.labels.iter().any(|l| primary_labels.contains(&l.trim())))
         .or_else(|| refs.first())
 }
 
-fn contact_name(rec: &HubSpotRecord) -> Option<String> {
+pub(super) fn contact_name(rec: &HubSpotRecord) -> Option<String> {
     let last = nz(rec, "lastname").unwrap_or_default();
     let first = nz(rec, "firstname").unwrap_or_default();
     let name = format!("{last} {first}").trim().to_string();
