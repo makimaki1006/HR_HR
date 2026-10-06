@@ -148,8 +148,8 @@ mod tests {
         // W8 (2026-09-29): admin / my。依存型 (AccountRow 等) も export_all が一緒に書き出す。
         {
             use crate::handlers::admin::{
-                AdminLoginFailuresResponse, AdminUsageResponse, AdminUserDetailResponse,
-                AdminUsersResponse,
+                AdminLoginFailuresResponse, AdminRoleChangeRequest, AdminRoleChangeResponse,
+                AdminUsageResponse, AdminUserDetailResponse, AdminUsersResponse,
             };
             use crate::handlers::my::{
                 MyActivityResponse, MyProfileResponse, MyProfileUpdateRequest,
@@ -158,6 +158,8 @@ mod tests {
             AdminUserDetailResponse::export_all(&cfg).expect("AdminUserDetailResponse");
             AdminLoginFailuresResponse::export_all(&cfg).expect("AdminLoginFailuresResponse");
             AdminUsageResponse::export_all(&cfg).expect("AdminUsageResponse");
+            AdminRoleChangeRequest::export_all(&cfg).expect("AdminRoleChangeRequest");
+            AdminRoleChangeResponse::export_all(&cfg).expect("AdminRoleChangeResponse");
             MyProfileResponse::export_all(&cfg).expect("MyProfileResponse");
             MyActivityResponse::export_all(&cfg).expect("MyActivityResponse");
             MyProfileUpdateRequest::export_all(&cfg).expect("MyProfileUpdateRequest");
