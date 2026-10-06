@@ -14,4 +14,5 @@ pub mod types;
 pub use client::{ClientOptions, HubSpotClient, DEFAULT_BASE_URL};
 pub use types::{
     AssociationRef, EngagementType, HubSpotError, HubSpotRecord, RateLimitSnapshot, RecordType,
+    TokenInfo,
 };
