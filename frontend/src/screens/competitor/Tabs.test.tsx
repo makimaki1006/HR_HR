@@ -9,7 +9,7 @@ import { makeReport } from './fixtures';
 
 afterEach(cleanup);
 
-const IDS = ['excel', 'google', 'indeed', 'population'] as const;
+const IDS = ['excel', 'google', 'indeed', 'population', 'consultation'] as const;
 
 function Harness({ start = 'excel' }: { start?: (typeof IDS)[number] }) {
   const [sel, setSel] = useState<string>(start);
@@ -32,10 +32,10 @@ const selectedIds = (): string[] =>
   IDS.filter((id) => tab(id).getAttribute('aria-selected') === 'true');
 
 describe('Tabs の構造', () => {
-  it('tablist に label があり、tab は 4 つ、id と aria-controls が旧と同じ規則', () => {
+  it('tablist に label があり、tab は 5 つ、id と aria-controls が旧と同じ規則', () => {
     render(<Harness />);
     expect(screen.getByRole('tablist').getAttribute('aria-label')).toBe('競合調査の表示切り替え');
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
     expect(tab('excel').id).toBe('tab-excel');
     expect(tab('excel').getAttribute('aria-controls')).toBe('panel-excel');
     expect(tab('population').getAttribute('aria-controls')).toBe('panel-population');
@@ -48,11 +48,11 @@ describe('Tabs の構造', () => {
     expect(tab('google').tabIndex).toBe(-1);
   });
 
-  it('パネルは 4 つとも DOM にあり、非選択は hidden', () => {
+  it('パネルは 5 つとも DOM にあり、非選択は hidden', () => {
     const { container } = render(<Harness />);
     const panels = IDS.map((id) => container.querySelector<HTMLElement>(`#panel-${id}`));
     expect(panels.every((p) => p !== null)).toBe(true);
-    expect(panels.map((p) => p?.hidden)).toEqual([false, true, true, true]);
+    expect(panels.map((p) => p?.hidden)).toEqual([false, true, true, true, true]);
     expect(panels[0]?.getAttribute('role')).toBe('tabpanel');
     expect(panels[0]?.getAttribute('aria-labelledby')).toBe('tab-excel');
   });
@@ -76,23 +76,25 @@ describe('Tabs のキー操作', () => {
     fireEvent.keyDown(tab('indeed'), { key: 'ArrowRight' });
     expect(selectedIds()).toEqual(['population']);
     fireEvent.keyDown(tab('population'), { key: 'ArrowRight' });
+    expect(selectedIds()).toEqual(['consultation']);
+    fireEvent.keyDown(tab('consultation'), { key: 'ArrowRight' });
     expect(selectedIds()).toEqual(['excel']);
   });
 
   it('← は前へ、先頭の前は最後へ回り込む', () => {
     render(<Harness />);
     fireEvent.keyDown(tab('excel'), { key: 'ArrowLeft' });
+    expect(selectedIds()).toEqual(['consultation']);
+    expect(document.activeElement).toBe(tab('consultation'));
+    fireEvent.keyDown(tab('consultation'), { key: 'ArrowLeft' });
     expect(selectedIds()).toEqual(['population']);
-    expect(document.activeElement).toBe(tab('population'));
-    fireEvent.keyDown(tab('population'), { key: 'ArrowLeft' });
-    expect(selectedIds()).toEqual(['indeed']);
   });
 
   it('Home は先頭、End は最後', () => {
     render(<Harness start="indeed" />);
     fireEvent.keyDown(tab('indeed'), { key: 'End' });
-    expect(selectedIds()).toEqual(['population']);
-    fireEvent.keyDown(tab('population'), { key: 'Home' });
+    expect(selectedIds()).toEqual(['consultation']);
+    fireEvent.keyDown(tab('consultation'), { key: 'Home' });
     expect(selectedIds()).toEqual(['excel']);
     expect(document.activeElement).toBe(tab('excel'));
   });
@@ -108,23 +110,24 @@ describe('Tabs のキー操作', () => {
 });
 
 describe('ReportView のタブ', () => {
-  it('4 つの見出しは旧と同じ文言で、Excel 再現が最初に選択される', () => {
+  it('5 つの見出しは旧画面と同じ文言で、給与・待遇が最初に選択される', () => {
     const { container } = render(
       <ReportView report={makeReport()} tab="excel" onTabChange={() => undefined} />,
     );
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
-      'Excel再現',
+      '給与・待遇',
       'Google検索需要',
       'Indeed採用レポート',
       '人口・地域データ',
+      '採用のヒント',
     ]);
-    expect(screen.getByRole('tab', { name: 'Excel再現' }).getAttribute('aria-selected')).toBe(
+    expect(screen.getByRole('tab', { name: '給与・待遇' }).getAttribute('aria-selected')).toBe(
       'true',
     );
-    const hidden = ['google', 'indeed', 'population'].map(
+    const hidden = ['google', 'indeed', 'population', 'consultation'].map(
       (id) => container.querySelector<HTMLElement>(`#panel-${id}`)?.hidden,
     );
-    expect(hidden).toEqual([true, true, true]);
+    expect(hidden).toEqual([true, true, true, true]);
   });
 
   it('選択すると onTabChange に ID が渡る', () => {

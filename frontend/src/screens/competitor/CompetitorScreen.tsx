@@ -5,7 +5,6 @@ import type { CompetitorReportResponse } from '../../generated/CompetitorReportR
 import { createReport, describeFailure, downloadPdf, fetchOptions, type Failure } from './api';
 import {
   DEFAULT_FORM,
-  PREFECTURE_NOTICE,
   buildFormData,
   validateFile,
   validateForm,
@@ -285,7 +284,7 @@ function FormView(p: FormViewProps) {
   return (
     <>
       <p className="cmp-lead">
-        Excelで行っていた競合調査を、給与・人気求人・訴求キーワードで確認します。Indeed採用市場とGoogleの検索需要も併せて見られます。
+        給与・待遇・検索需要・採用市場を、グラフで確認できます。
       </p>
       <form onSubmit={p.onSubmit} noValidate aria-busy={submitting}>
         <section className="cmp-card">
@@ -325,7 +324,7 @@ function FormView(p: FormViewProps) {
               label="対象都道府県"
               htmlFor="prefecture"
               error={errors.prefecture}
-              help="Indeed・Googleはこの地域で取得します。CSVの行を地域で絞る設定ではありません。"
+              help="外部データの対象地域です。CSVの求人は地域で絞り込みません。"
             >
               <select
                 id="prefecture"
@@ -344,7 +343,6 @@ function FormView(p: FormViewProps) {
               </select>
             </Field>
           </div>
-          {values.prefecture === '' && <p className="cmp-hint">{PREFECTURE_NOTICE}</p>}
           <p className="cmp-hint">
             {optionsState.status === 'loading' && '選択肢を読み込んでいます…'}
             {optionsState.status === 'failed' &&
@@ -476,7 +474,7 @@ function FormView(p: FormViewProps) {
         </section>
       </form>
       <p className="cmp-lead">
-        Excel再現・Google検索需要・Indeed採用レポート・人口／地域データを、それぞれA3横のページに収めたPDFをダウンロードできます。印刷はダウンロードしたPDFから行ってください。
+        給与・待遇、検索需要、採用市場、人口、採用のヒントをA3横のPDFで保存できます。
       </p>
     </>
   );

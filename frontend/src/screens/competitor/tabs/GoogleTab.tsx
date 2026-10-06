@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import type { GoogleKeyword } from '../../../generated/GoogleKeyword';
 import type { GoogleSection } from '../../../generated/GoogleSection';
+import { TrendChart } from '../charts/TrendChart';
 import { fmtNumber } from '../format';
 
 // 生のエラー本文は資格情報を含みうるので、Rust 側が落としている。ここは固定文だけを出す。
-const DEMAND_FAILED = 'Google検索需要を取得できませんでした。API設定または接続状況を確認してください。';
-const SUGGESTIONS_FAILED = '関連キーワードを取得できませんでした。';
+const DEMAND_FAILED = 'Google検索需要を取得できませんでした。';
 
 export function GoogleTab({ data }: { data: GoogleSection }) {
   return (
@@ -13,12 +13,9 @@ export function GoogleTab({ data }: { data: GoogleSection }) {
       <header className="cmp-page-head">
         <span className="cmp-eyebrow">検索需要</span>
         <h2>Google広告APIの検索需要</h2>
-        <p className="cmp-sub">検索ボリューム・月別推移・関連キーワード</p>
+        <p className="cmp-sub">月間検索数と推移</p>
       </header>
-      <p className="cmp-note">
-        出典: Google広告 Keyword Planner
-        API。検索数はGoogleの推定検索需要です。Indeedの閲覧人数・CSVの求人数・応募数とは異なる指標です。広告競合度は求人の競合数ではありません。
-      </p>
+      <p className="cmp-note">出典：Google広告 Keyword Planner API｜検索数は推定値。広告競合度は広告主間の競合です。</p>
       {data.status === 'ok' ? <GoogleBody data={data} /> : <p>{data.message}</p>}
     </section>
   );
@@ -64,15 +61,28 @@ function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }
             </tbody>
           </table>
           {demand.keywords.map((row, i) => (
-            <MonthlyTable key={i} row={row} />
+            <div key={i}>
+              <TrendChart
+                label={`${row.keyword}：月間検索数の推移`}
+                unit="回/月"
+                color="#007d79"
+                points={row.monthly_12m.map((m) => ({ month: m.month, value: m.search_volume }))}
+              />
+              <MonthlyTable row={row} />
+            </div>
           ))}
         </>
       ) : (
         <p className="cmp-note">{DEMAND_FAILED}</p>
       )}
-      <div className="cmp-block-title">関連キーワード（検索需要順・上位20件）</div>
-      {suggestions.status === 'ok' ? (
+      {suggestions.status === 'ok' && (
         <>
+          <div className="cmp-block-title">関連キーワード（上位20件）</div>
+          <p className="cmp-note">
+            {suggestions.region_name === null
+              ? '関連キーワードの取得地域：全国（地域指定なし・地域未解決）。指定地域の需要とは限りません。'
+              : `関連キーワードの取得地域：${suggestions.region_name}`}
+          </p>
           <table className="cmp-table">
             <thead>
               <tr>
@@ -81,6 +91,11 @@ function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }
               </tr>
             </thead>
             <tbody>
+              {suggestions.suggestions.length === 0 && (
+                <tr>
+                  <td colSpan={2}>関連キーワードのデータがありません。需要0を意味しません。</td>
+                </tr>
+              )}
               {suggestions.suggestions.map((row, i) => (
                 <tr key={i}>
                   <td>{row.keyword}</td>
@@ -89,12 +104,8 @@ function GoogleBody({ data }: { data: Extract<GoogleSection, { status: 'ok' }> }
               ))}
             </tbody>
           </table>
-          <p className="cmp-note">
-            CSVで競合が打ち出しているキーワードと、求職者が検索する言葉を照らし合わせて使います。
-          </p>
+          <p className="cmp-note">求人票の訴求語と検索語を比較できます。</p>
         </>
-      ) : (
-        <p className="cmp-note">{SUGGESTIONS_FAILED}</p>
       )}
     </>
   );

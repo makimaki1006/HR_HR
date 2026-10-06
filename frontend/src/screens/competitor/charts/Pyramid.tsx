@@ -1,9 +1,9 @@
-import type { PopulationBand } from '../../../generated/PopulationBand';
+import type { CompleteBand } from './geometry';
 import { fmtInt } from '../format';
 import { pyramidLayout } from './geometry';
 
 /** 人口ピラミッド (旧 build_navy_pyramid_svg)。左 = 男性、右 = 女性。 */
-export function Pyramid({ bands }: { bands: readonly PopulationBand[] }) {
+export function Pyramid({ bands }: { bands: readonly CompleteBand[] }) {
   const l = pyramidLayout(bands);
   const axisY = l.height - 8;
   return (
