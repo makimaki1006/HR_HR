@@ -20,7 +20,7 @@ use tower::ServiceExt;
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 
 use super::call_queue::CallQueueState;
-use super::rbac::CrmAccess;
+use super::rbac::{CrmAccess, CrmRole};
 use crate::config::AppConfig;
 use crate::db::cache::AppCache;
 use crate::hubspot::{ClientOptions, HubSpotClient};
@@ -422,7 +422,9 @@ async fn inject_session(session: Session, Json(v): Json<Value>) -> StatusCode {
 fn make_app(state: Arc<AppState>) -> Router {
     Router::new()
         .merge(super::routes::router_with_queue(
-            CrmAccess::from_list(&format!("{ADMIN},{BPO}")),
+            CrmAccess::from_list(&format!("{ADMIN},{BPO}"))
+                .with_test_role(ADMIN, CrmRole::Admin)
+                .with_test_role(BPO, CrmRole::Bpo),
             CallQueueState::for_test(KEY, now_default()),
         ))
         .route("/__test/session", post(inject_session))

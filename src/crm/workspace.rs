@@ -391,7 +391,7 @@ pub(super) async fn get_workspace_deal(
             Ok(p) => p,
             Err(denied) => return denied.into_response(),
         };
-    let role = rbac::resolve_role(&state.config, &principal);
+    let role = rbac::resolve_role(&principal);
     // 2) id
     if !is_valid_id(&id) {
         return error_json(StatusCode::BAD_REQUEST, "invalid_id");
@@ -448,7 +448,8 @@ async fn build(
     email: &str,
     id: &str,
 ) -> Result<WorkspaceResponse, Response> {
-    let is_bpo = role == CrmRole::Bpo;
+    // admin / consultant 以外 (bpo、万一通った user) はレコード関門を通す (安全側)
+    let is_bpo = !role.reads_all_records();
     // BPO: 自分の owner。引けなければ何も読ませない (全員分に倒さない)
     let bpo_owner = if is_bpo {
         match ctx.queue.owner_for(client, email).await {
