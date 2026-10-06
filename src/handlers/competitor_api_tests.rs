@@ -227,7 +227,7 @@ async fn report_json_has_exact_values_for_monthly_fixture() {
     assert_eq!(table[1]["values"][1].as_f64(), Some(32.0));
     // 分布: 階級は数値の昇順で、件数の合計は給与のある 60 件 (階級ごとの具体値は時給モードのテストで固定)
     for key in ["upper", "lower"] {
-        let bins = r["excel"]["histograms"][key].as_array().unwrap();
+        let bins = r["excel"]["histograms"][key]["bins"].as_array().unwrap();
         let labels: Vec<u64> = bins
             .iter()
             .map(|b| b["label"].as_str().unwrap().parse().unwrap())
@@ -266,6 +266,17 @@ async fn report_json_has_exact_values_for_monthly_fixture() {
     assert_eq!(r["google"]["status"], "not_requested");
     assert_eq!(r["indeed"]["status"], "unavailable");
     assert_eq!(r["population"]["status"], "unavailable");
+    // 都道府県未選択は全国の市区町村を合算する経路。外部統計 DB が無いので取得できなかった旨を返す (地域は「全国」)
+    assert_eq!(r["population"]["region"], "全国");
+    // 新しい表示に要る項目もモデルに載っている: 給与分布の件数・幅、比較の母数、採用のヒント
+    assert_eq!(r["excel"]["histograms"]["upper"]["n"], 60);
+    assert_eq!(
+        r["excel"]["histograms"]["upper"]["step"].as_f64(),
+        Some(1.0)
+    );
+    assert_eq!(r["excel"]["keyword_comparison"]["head_n"], 10);
+    assert_eq!(r["excel"]["keyword_comparison"]["all_n"], 60);
+    assert_eq!(r["consultation"]["external"].as_array().unwrap().len(), 4);
     // report_id は 64 桁の 16 進、保持は 30 分
     let id = v["report_id"].as_str().unwrap();
     assert_eq!(id.len(), 64);
@@ -295,7 +306,7 @@ async fn report_json_hourly_uses_integer_yen_and_fifty_yen_bins() {
     assert_eq!(table[0]["values"][1].as_f64(), Some(1409.0));
     assert_eq!(table[1]["values"][0].as_f64(), Some(1255.0));
     assert_eq!(table[1]["values"][1].as_f64(), Some(1405.0));
-    let upper: Vec<(String, u64)> = r["excel"]["histograms"]["upper"]
+    let upper: Vec<(String, u64)> = r["excel"]["histograms"]["upper"]["bins"]
         .as_array()
         .unwrap()
         .iter()

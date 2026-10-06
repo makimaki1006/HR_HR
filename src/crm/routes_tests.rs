@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 
-use super::rbac::CrmAccess;
+use super::rbac::{CrmAccess, CrmRole};
 use super::routes::{read_response, MAX_HUBSPOT_CALLS_PER_REQUEST};
 use crate::audit::AuditDb;
 use crate::config::AppConfig;
@@ -590,8 +590,12 @@ async fn inject_session(session: Session, Json(v): Json<Value>) -> StatusCode {
 }
 
 /// crm ルート + セッション注入ルートだけのアプリ
+/// (役割は consultant 固定 = レコード全件を読める。BPO / user の判定は `roles_tests.rs`)
 fn crm_app(state: Arc<AppState>) -> Router {
-    crm_app_with(state, CrmAccess::from_list(TEST_EMAIL))
+    crm_app_with(
+        state,
+        CrmAccess::from_list(TEST_EMAIL).with_test_role(TEST_EMAIL, CrmRole::Consultant),
+    )
 }
 
 /// 許可メールを指定する版
@@ -762,9 +766,10 @@ async fn oidc_でも許可リスト外は_403() {
     }
 }
 
-/// 許可リストが空なら Google ログインの本人も全員 403 (fail closed)
+/// 許可リストが空でも役割が無ければ (accounts に行なし・ADMIN_EMAILS 外) 403 (fail closed)。
+/// 空の許可リストは「絞り込まない」だけで、役割の無い人を通すわけではない
 #[tokio::test(flavor = "multi_thread")]
-async fn 許可リストが空なら全員_403() {
+async fn 許可リストが空でも役割が無ければ_403() {
     let app = crm_app_with(test_state(None, None), CrmAccess::from_list(""));
     let cookie = login_as(&app, "google_oidc", Some("acc-admin")).await;
     for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {

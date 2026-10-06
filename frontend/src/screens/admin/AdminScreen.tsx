@@ -1,7 +1,10 @@
 // /app/admin (W8): React version of the four Rust admin pages.
 // Data comes from GET /api/admin/* (require_admin in Rust; 403 for non-admins).
 // The views are pure functions of the JSON so they can be tested with fixtures.
-import { createContext, useContext, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useContext, useState, type MouseEvent, type ReactNode } from 'react';
+import { ApiHttpError, apiPost } from '../../api/client';
+import type { AdminRoleChangeRequest } from '../../generated/AdminRoleChangeRequest';
+import type { AdminRoleChangeResponse } from '../../generated/AdminRoleChangeResponse';
 import type { AdminLoginFailuresResponse } from '../../generated/AdminLoginFailuresResponse';
 import type { AdminUsageEntry } from '../../generated/AdminUsageEntry';
 import type { AdminUsageResponse } from '../../generated/AdminUsageResponse';
@@ -120,9 +123,114 @@ function SuccessCell({ success }: { success: number }) {
   return success === 1 ? <span className="w8-green">成功</span> : <span className="w8-red">失敗</span>;
 }
 
+/** Roles in `accounts.role` (decided 2026-10-01). The order is the select order. */
+export const ROLE_OPTIONS = [
+  { value: 'admin', label: 'admin(管理者)' },
+  { value: 'consultant', label: 'consultant(社員・全レコード閲覧)' },
+  { value: 'bpo', label: 'bpo(架電キューの自分の担当だけ)' },
+  { value: 'user', label: 'user(CRM 不可・既定)' },
+] as const;
+
+/** User-facing text for a failed role change. Keys are `error_kind` of POST /api/admin/users/{id}/role. */
+export function describeRoleChangeError(error: unknown): string {
+  if (error instanceof ApiHttpError) {
+    const kind = (error.body as { error_kind?: string } | undefined)?.error_kind;
+    switch (kind) {
+      case 'cannot_change_self':
+        return '自分自身の役割は変更できません。';
+      case 'env_admin':
+        return '環境設定 (ADMIN_EMAILS) の管理者は降格できません。次のログインで admin に戻るためです。';
+      case 'invalid_role':
+        return '役割の値が正しくありません。';
+      case 'account_not_found':
+        return 'アカウントが見つかりません。';
+      default:
+        if (error.status === 403) return '管理者のみ変更できます。';
+    }
+  }
+  return '変更できませんでした。時間をおいてやり直してください。';
+}
+
+export function RoleEditor({
+  accountId,
+  email,
+  current,
+  onChanged,
+}: {
+  accountId: string;
+  email: string;
+  current: string;
+  onChanged: (role: string) => void;
+}) {
+  const known = ROLE_OPTIONS.some((o) => o.value === current);
+  const [choice, setChoice] = useState<string>(known ? current : 'user');
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const unchanged = choice === current;
+  const submit = (): void => {
+    setPending(true);
+    setMessage(null);
+    const body: AdminRoleChangeRequest = { role: choice };
+    void apiPost<AdminRoleChangeResponse>(
+      `/api/admin/users/${encodeURIComponent(accountId)}/role`,
+      body,
+    ).then((r) => {
+      setPending(false);
+      if (r.ok) {
+        onChanged(r.data.account.role);
+        setMessage({
+          ok: true,
+          text: `${email} の役割を ${r.data.previous_role} から ${r.data.account.role} に変更しました。`,
+        });
+      } else {
+        setMessage({ ok: false, text: describeRoleChangeError(r.error) });
+      }
+    });
+  };
+  return (
+    <section className="w8-card" data-testid="role-editor">
+      <h3 className="w8-h3">架電 CRM の役割</h3>
+      <p className="w8-subtle">
+        変更はすぐに保存され、このサーバでは次のリクエストから効きます(別のサーバには最大 5 分)。自分自身は変更できません。
+      </p>
+      {known ? null : (
+        <p className="w8-red" data-testid="role-unknown">
+          現在の値「{current}」は未知の役割です(CRM では user 扱い)。
+        </p>
+      )}
+      <label className="w8-label" htmlFor="role-select">
+        役割
+      </label>{' '}
+      <select
+        id="role-select"
+        value={choice}
+        disabled={pending}
+        onChange={(e) => {
+          setChoice(e.target.value);
+        }}
+      >
+        {ROLE_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>{' '}
+      <button type="button" disabled={pending || unchanged} onClick={submit}>
+        {pending ? '変更中…' : '役割を変更'}
+      </button>
+      {message === null ? null : (
+        <p role="status" className={message.ok ? 'w8-green' : 'w8-red'} data-testid="role-message">
+          {message.text}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function UserDetailView({ data }: { data: AdminUserDetailResponse }) {
   const acc = data.account;
   const k = data.kpi_30d;
+  const [role, setRole] = useState(acc.role);
   return (
     <>
       <section className="w8-card">
@@ -140,7 +248,7 @@ export function UserDetailView({ data }: { data: AdminUserDetailResponse }) {
           </div>
           <div>
             <span className="w8-label">権限</span>
-            {acc.role}
+            <span data-testid="detail-role">{role}</span>
           </div>
           <div>
             <span className="w8-label">ログイン回数</span>
@@ -164,6 +272,8 @@ export function UserDetailView({ data }: { data: AdminUserDetailResponse }) {
           </div>
         </div>
       </section>
+
+      <RoleEditor accountId={acc.id} email={acc.email} current={role} onChanged={setRole} />
 
       <div className="w8-kpis" data-testid="detail-kpis">
         <div className="w8-kpi">
@@ -453,8 +563,10 @@ function AdminBody({ route }: { route: AdminRoute }) {
   switch (route.view) {
     case 'users':
       return <UsersListView data={state.data as AdminUsersResponse} />;
-    case 'user':
-      return <UserDetailView data={state.data as AdminUserDetailResponse} />;
+    case 'user': {
+      const detail = state.data as AdminUserDetailResponse;
+      return <UserDetailView key={detail.account.id} data={detail} />;
+    }
     case 'login-failures':
       return <LoginFailuresView data={state.data as AdminLoginFailuresResponse} />;
     case 'usage':

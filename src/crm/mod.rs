@@ -1,6 +1,7 @@
 //! Headless CRM の `/api/crm/*` (HubSpot からの読み取りだけ。書き込みはしない)。
 //!
-//! - `rbac`: 認可 (誰が読めるか)。metadata とレコード読み取りで同じ基準。許可条件は `rbac.rs` 1 箇所
+//! - `rbac`: 認可 (誰が読めるか。役割 admin / consultant / bpo / user は audit Turso の `accounts.role`)。metadata とレコード読み取りで同じ基準。許可条件は `rbac.rs` 1 箇所
+//! - `record_gate`: BPO のレコード単位の制限 (自分が担当で架電キューの条件に合う Deal と、それに紐づく Contact / Company だけ)
 //! - `call_queue`: `GET /api/crm/call-queue` (架電キュー。HubSpot の Deal 検索 + 関連の一括読み取り)
 //! - `owners`: `GET /api/crm/owners` (管理者のみ。担当者の名前の一覧。HubSpot Owners API、10 分キャッシュ)
 //! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴。BPO は担当のキュー対象だけ)
@@ -13,6 +14,7 @@
 pub mod call_queue;
 pub mod owners;
 pub mod rbac;
+pub mod record_gate;
 pub mod routes;
 pub mod workspace;
 
@@ -22,6 +24,8 @@ pub use routes::router;
 mod call_queue_tests;
 #[cfg(test)]
 mod real_hubspot_smoke;
+#[cfg(test)]
+mod roles_tests;
 #[cfg(test)]
 mod routes_tests;
 #[cfg(test)]

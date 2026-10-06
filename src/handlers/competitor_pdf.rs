@@ -12,7 +12,7 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .pdf-page:last-child{break-after:auto;page-break-after:auto}
 .pdf-document .pdf-content{width:1510px;display:flow-root}
 .pdf-document .excel-dashboard{grid-template-columns:32% 68%;break-inside:auto}
-.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:260px 260px 350px}
+.pdf-document .charts{grid-template-columns:1fr 1fr;grid-template-rows:220px 220px 700px}
 .pdf-document .chart.wide{grid-column:1/-1}
 .pdf-document .summary td,.pdf-document .summary th{overflow-wrap:anywhere}
 .pdf-document .summary{padding:10px 12px}
@@ -24,6 +24,9 @@ body.pdf-document{background:white;font-family:'Noto Sans CJK JP','Yu Gothic','M
 .pdf-document .summary .note{font-size:10px;line-height:1.4}
 .pdf-document .page-navy{margin-top:0;break-inside:auto}
 .pdf-document .population-grid{grid-template-columns:1fr 1fr}
+.pdf-document .consultation-grid{display:block;columns:2;column-gap:24px}
+.pdf-document .consultation-card{break-inside:avoid;margin-bottom:12px;padding:10px}
+.pdf-document .consultation-card p{font-size:13px;line-height:1.5}
 .pdf-document .table-navy{table-layout:fixed;overflow-wrap:anywhere}
 .pdf-document .table-navy td,.pdf-document .table-navy th{overflow-wrap:anywhere}
 </style>"#;

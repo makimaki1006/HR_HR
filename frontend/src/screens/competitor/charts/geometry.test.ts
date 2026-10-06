@@ -1,105 +1,185 @@
 import { describe, expect, it } from 'vitest';
-import { barChartLayout, pyramidLayout } from './geometry';
+import { histogramLayout, pyramidLayout } from './geometry';
+import { keywordLayout } from './keywordLayout';
+import { trendLayout } from './trendLayout';
 
 const bins = (counts: number[]): { label: string; count: number }[] =>
   counts.map((count, i) => ({ label: String(i), count }));
 
-describe('barChartLayout: ヒストグラム (wide, 900x200)', () => {
-  // 旧 chart(): w=900 h=200 bottom=35 plot=155 max=max(count,1) gap=(w-45)/n
-  const layout = barChartLayout(bins([2, 10, 5, 0, 7, 1, 3, 4, 6, 8, 9, 10]), {
-    wide: true,
-    words: false,
-  });
+describe('histogramLayout (900x200、軸は件数 4 等分)', () => {
+  // 旧 chart(): w=900 h=200 bottom=35 plot=141 max=ceil(peak/4)*4 gap=(w-64)/n
+  const layout = histogramLayout(bins([2, 10, 5, 0, 7, 1, 3, 4, 6, 8, 9, 10]));
 
-  it('寸法', () => {
-    expect([layout.width, layout.height, layout.plot, layout.max]).toEqual([900, 200, 155, 10]);
-    expect(layout.gap).toBeCloseTo(71.25, 10);
+  it('寸法: 最大 10 件 → 目盛り間隔 3、軸の最大 12', () => {
+    expect([layout.width, layout.height, layout.plot, layout.max, layout.peak]).toEqual([900, 200, 141, 12, 10]);
+    expect(layout.gap).toBeCloseTo((900 - 64) / 12, 10);
   });
 
   it('棒の x・高さ・幅が JSON の値から決まる', () => {
-    const [b0, b1, b2, b3] = layout.bars;
-    expect(b0?.x).toBeCloseTo(40, 10);
-    expect(b1?.x).toBeCloseTo(40 + 71.25, 10);
-    expect(b0?.height).toBeCloseTo(155 * 0.2, 10); // 2/10
-    expect(b1?.height).toBeCloseTo(155, 10); // 最大
-    expect(b2?.height).toBeCloseTo(77.5, 10); // 5/10
-    expect(b3?.height).toBe(0); // 0 件は高さ 0 (欠測ではない)
-    expect(b1?.y).toBeCloseTo(10, 10); // 最大の棒の上端
-    expect(b2?.y).toBeCloseTo(10 + 155 - 77.5, 10);
-    expect(b0?.width).toBeCloseTo(71.25 * 0.72, 10);
+    const [b0, b1, , b3] = layout.bars;
+    const gap = (900 - 64) / 12;
+    expect(b0?.x).toBeCloseTo(48 + gap * 0.08, 10);
+    expect(b1?.x).toBeCloseTo(48 + gap + gap * 0.08, 10);
+    expect(b0?.height).toBeCloseTo((141 * 2) / 12, 10);
+    expect(b1?.height).toBeCloseTo((141 * 10) / 12, 10);
+    expect(b3?.height).toBe(0); // 0 件は高さ 0 の棒として残る (欠測ではない)
+    expect(b0?.width).toBeCloseTo(gap * 0.84, 10);
   });
 
-  it('グリッド線 5 本と目盛り (小数 0 桁、同点は偶数へ)', () => {
-    expect(layout.grid).toHaveLength(5);
-    expect(layout.grid.map((g) => g.label)).toEqual(['0', '2', '5', '8', '10']); // 2.5→2, 7.5→8
+  it('グリッド線 5 本と目盛り (0, 3, 6, 9, 12)', () => {
+    expect(layout.grid.map((g) => g.label)).toEqual(['0', '3', '6', '9', '12']);
     expect(layout.grid[0]?.y).toBeCloseTo(165, 10);
-    expect(layout.grid[4]?.y).toBeCloseTo(10, 10);
+    expect(layout.grid[4]?.y).toBeCloseTo(24, 10);
   });
 
-  it('ラベルは 35 本未満なら全部出す', () => {
-    expect(layout.bars.every((b) => b.showLabel)).toBe(true);
-    expect(layout.bars[0]?.labelY).toBeCloseTo(155 + 26, 10);
-    expect(layout.bars[1]?.labelX).toBeCloseTo(40 + 71.25 + 71.25 / 2, 10);
+  it('最大が 2 つ (10 件が 2 本) のときは棒の上の件数を出さず、色は両方 ピーク色', () => {
+    expect(layout.peaks).toBe(2);
+    expect(layout.bars.every((b) => b.topLabelY === null)).toBe(true);
+    expect(layout.bars.filter((b) => b.fill === '#007d79')).toHaveLength(2);
   });
 
-  it('全部 0 件でも max は 1 で割り算が壊れない', () => {
-    const z = barChartLayout(bins([0, 0, 0]), { wide: true, words: false });
-    expect(z.max).toBe(1);
+  it('最大が 1 つだけなら件数を棒の上 (y-7) に出す', () => {
+    const one = histogramLayout(bins([1, 5, 2]));
+    expect(one.peaks).toBe(1);
+    expect(one.bars[1]?.topLabelY).toBeCloseTo((one.bars[1]?.y ?? 0) - 7, 10);
+    expect(one.bars[0]?.topLabelY).toBeNull();
+  });
+
+  it('全部 0 件でも軸が壊れない (peak 1)', () => {
+    const z = histogramLayout(bins([0, 0, 0]));
+    expect(z.peak).toBe(1);
     expect(z.bars.every((b) => b.height === 0)).toBe(true);
   });
-});
 
-describe('barChartLayout: ラベルの間引き', () => {
-  const shown = (n: number): number[] =>
-    barChartLayout(
-      bins(Array.from({ length: n }, () => 1)),
-      { wide: true, words: false },
-    )
-      .bars.map((b, i) => (b.showLabel ? i : -1))
-      .filter((i) => i >= 0);
+  it('1 件だけのとき、目盛りは 0..4 の整数', () => {
+    expect(histogramLayout(bins([1])).grid.map((g) => g.label)).toEqual(['0', '1', '2', '3', '4']);
+  });
 
-  it('34 本は全部、35 本は step=max(floor(35/25),1)=1 で全部', () => {
-    expect(shown(34)).toHaveLength(34);
-    expect(shown(35)).toHaveLength(35);
-  });
-  it('50 本は step=2 で 25 個、75 本は step=3 で 25 個', () => {
-    expect(shown(50)).toEqual(Array.from({ length: 25 }, (_, i) => i * 2));
-    expect(shown(75)).toHaveLength(25);
-    expect(shown(75)[1]).toBe(3);
-  });
-  it('60 本は step=2 で 30 個', () => {
-    expect(shown(60)).toHaveLength(30);
+  it('ラベルは 12 本以下なら全部、それ以上は ceil(n/12) 本おき (末尾は間隔が半分以上のときだけ)', () => {
+    const shown = (n: number): number[] =>
+      histogramLayout(bins(Array.from({ length: n }, () => 1)))
+        .bars.map((b, i) => (b.showLabel ? i : -1))
+        .filter((i) => i >= 0);
+    expect(shown(12)).toHaveLength(12);
+    // 31 本: stride 3、末尾 (30) は 30 % 3 = 0 なので通常の間引きで出る
+    expect(shown(31)).toEqual([0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30]);
+    // 29 本: stride 3、末尾 (28) は 28 % 3 = 1 >= floor(3/2)=1 なので追加
+    expect(shown(29)).toEqual([0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 28]);
   });
 });
 
-describe('barChartLayout: キーワード (440x450、常にラベル)', () => {
-  const rows = [
-    { label: '未経験', count: 40 },
-    { label: '資格不問', count: 20 },
-    { label: '寮あり', count: 5 },
+describe('keywordLayout: 旧 competitor-keywords.js の算術', () => {
+  const items = [
+    { word: '研修あり', bars: [{ group: '全体' as const, value: 40 }, { group: '先頭' as const, value: 75 }] },
+    { word: '賞与あり', bars: [{ group: '全体' as const, value: null }, { group: '先頭' as const, value: 25 }] },
   ];
-  const l = barChartLayout(rows, { wide: false, words: true });
-  it('寸法: h=450 bottom=135 plot=305 w=440', () => {
-    expect([l.width, l.height, l.plot, l.max]).toEqual([440, 450, 305, 40]);
-    expect(l.gap).toBeCloseTo((440 - 45) / 3, 10);
+
+  it('比較: 軸は 0〜100% 共通。幅 400 以上は 5 目盛り', () => {
+    const l = keywordLayout({ mode: 'comparison', items, w: 440, h: 715 });
+    expect(l.ticks.map((t) => t.label)).toEqual(['0%', '25%', '50%', '75%', '100%']);
+    const left = Math.min(170, Math.max(86, 440 * 0.34));
+    const plot = 440 - left - 48;
+    expect(l.left).toBeCloseTo(left, 10);
+    expect(l.rows[0]?.bars[0]?.width).toBeCloseTo((plot * 40) / 100, 10);
+    expect(l.rows[0]?.bars[1]?.width).toBeCloseTo((plot * 75) / 100, 10);
+    expect(l.rows[0]?.bars[1]?.text).toBe('75.0%');
   });
-  it('高さ', () => {
-    expect(l.bars[0]?.height).toBeCloseTo(305, 10);
-    expect(l.bars[1]?.height).toBeCloseTo(152.5, 10);
-    expect(l.bars[2]?.height).toBeCloseTo(305 / 8, 10);
+
+  it('比較: 全体が欠測の語は棒を作らず — (0 にしない)', () => {
+    const l = keywordLayout({ mode: 'comparison', items, w: 440, h: 715 });
+    const missing = l.rows[1]?.bars[0];
+    expect(missing?.value).toBeNull();
+    expect(missing?.width).toBe(0);
+    expect(missing?.text).toBe('—');
   });
-  it('ラベルは回転 60 度・start・font 10、全部出る', () => {
-    expect(l.labelRotate).toBe(60);
-    expect(l.labelAnchor).toBe('start');
-    expect(l.labelFont).toBe(10);
-    expect(l.bars.every((b) => b.showLabel)).toBe(true);
+
+  it('幅 400 未満は 3 目盛り', () => {
+    expect(keywordLayout({ mode: 'comparison', items, w: 390, h: 715 }).ticks.map((t) => t.label)).toEqual([
+      '0%',
+      '50%',
+      '100%',
+    ]);
   });
-  it('ヒストグラムのラベルは回転 0・middle・font 11', () => {
-    const h = barChartLayout(bins([1]), { wide: true, words: false });
-    expect([h.labelRotate, h.labelAnchor, h.labelFont]).toEqual([0, 'middle', 11]);
+
+  it('全体: 軸は最大件数まで。目盛りは 0・半分・最大', () => {
+    const l = keywordLayout({
+      mode: 'all',
+      items: [
+        { word: 'A', bars: [{ group: '全体', value: 30 }] },
+        { word: 'B', bars: [{ group: '全体', value: 11 }] },
+      ],
+      w: 440,
+      h: 715,
+    });
+    expect(l.ticks.map((t) => t.label)).toEqual(['0', '15', '30']);
+    expect(l.rows[1]?.bars[0]?.text).toBe('11件');
+    expect(l.top).toBe(20);
   });
-  it('title は「語: N件」', () => {
-    expect(l.bars[0]?.title).toBe('未経験: 40件');
+
+  it('長い語は表示幅から決まる字数で … にする', () => {
+    const l = keywordLayout({
+      mode: 'all',
+      items: [{ word: 'あいうえおかきくけこさしすせそ', bars: [{ group: '全体', value: 1 }] }],
+      w: 440,
+      h: 715,
+    });
+    expect(l.rows[0]?.label.endsWith('…')).toBe(true);
+    expect(l.rows[0]?.word).toBe('あいうえおかきくけこさしすせそ');
+  });
+});
+
+describe('trendLayout: 欠測は線を切り、観測した 0 は点にする', () => {
+  it('観測値が 1 つも無ければ null', () => {
+    expect(trendLayout([{ month: '2026-01', value: null }], false)).toBeNull();
+  });
+
+  it('0, 欠測, 4: 点は 2 つ、線は引かない (連続した 2 点が無い)', () => {
+    const l = trendLayout(
+      [
+        { month: '2026-01', value: 0 },
+        { month: '2026-02', value: null },
+        { month: '2026-03', value: 4 },
+      ],
+      false,
+    );
+    expect(l?.dots).toHaveLength(2);
+    expect(l?.dots[0]).toMatchObject({ month: '2026-01', value: 0 });
+    expect(l?.segments).toHaveLength(0);
+    expect(l?.dots[1]?.x).toBeCloseTo(876, 10);
+    expect(l?.dots[1]?.y).toBeCloseTo(24, 10);
+  });
+
+  it('連続した 2 点以上は 1 本の線。欠測をはさむと別の線', () => {
+    const l = trendLayout(
+      [1, 2, null, 3, 4, 5].map((value, i) => ({ month: `2026-0${String(i + 1)}`, value })),
+      false,
+    );
+    expect(l?.segments.map((s) => s.length)).toEqual([2, 3]);
+  });
+
+  it('比 (ratio) は 0 起点で 0.1 刻みの軸', () => {
+    const l = trendLayout(
+      [
+        { month: '2026-01', value: 1 },
+        { month: '2026-02', value: 2.5 },
+      ],
+      true,
+    );
+    expect(l?.step).toBeCloseTo(0.7, 10);
+    expect(l?.ymax).toBeCloseTo(2.8, 10);
+    expect(l?.dots[1]?.y).toBeCloseTo(24 + 212 * (1 - 2.5 / 2.8), 10);
+  });
+
+  it('負・非有限は欠測として扱い、0 にしない', () => {
+    const l = trendLayout(
+      [
+        { month: 'a', value: -1 },
+        { month: 'b', value: Number.NaN },
+        { month: 'c', value: 2 },
+      ],
+      false,
+    );
+    expect(l?.dots).toHaveLength(1);
   });
 });
 

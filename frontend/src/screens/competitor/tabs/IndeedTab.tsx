@@ -1,5 +1,14 @@
 import type { IndeedSection } from '../../../generated/IndeedSection';
+import type { IndeedRow } from '../../../generated/IndeedRow';
+import { TrendChart } from '../charts/TrendChart';
 import { fmtNumber } from '../format';
+
+const SERIES: { label: string; unit: string; color: string; ratio: boolean; pick: (r: IndeedRow) => number | null }[] = [
+  { label: '求人数の推移', unit: '件', color: '#007d79', ratio: false, pick: (r) => r.job },
+  { label: '求人を見た人数の推移', unit: '人', color: '#4472c4', ratio: false, pick: (r) => r.ctk },
+  { label: '募集企業数の推移', unit: '社', color: '#8567a5', ratio: false, pick: (r) => r.emp },
+  { label: '1求人あたりに見た人数', unit: '人/求人', color: '#b37d20', ratio: true, pick: (r) => r.spp },
+];
 
 export function IndeedTab({ data }: { data: IndeedSection }) {
   return (
@@ -16,10 +25,19 @@ export function IndeedTab({ data }: { data: IndeedSection }) {
           <p>
             {data.title} / {data.region}
           </p>
-          <p className="cmp-note">
-            出典: {data.source} / 集計日: {data.built_at}。{data.caveat}{' '}
-            求人を見た人数は応募数ではありません。欠測は「—」で表示します。
-          </p>
+          <p className="cmp-note">出典：Indeed採用市場レポート｜全給与形態。閲覧人数は応募数ではありません。</p>
+          <div className="cmp-trend-grid">
+            {SERIES.map((x) => (
+              <TrendChart
+                key={x.label}
+                label={x.label}
+                unit={x.unit}
+                color={x.color}
+                ratio={x.ratio}
+                points={data.rows.map((r) => ({ month: r.month, value: x.pick(r) }))}
+              />
+            ))}
+          </div>
           <table className="cmp-table">
             <thead>
               <tr>
@@ -31,6 +49,11 @@ export function IndeedTab({ data }: { data: IndeedSection }) {
               </tr>
             </thead>
             <tbody>
+              {data.rows.length === 0 && (
+                <tr>
+                  <td colSpan={5}>月別データがありません。0件を意味しません。</td>
+                </tr>
+              )}
               {data.rows.map((row) => (
                 <tr key={row.month}>
                   <td>{row.month}</td>
