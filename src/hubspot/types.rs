@@ -121,6 +121,15 @@ pub struct RateLimitSnapshot {
     pub daily_remaining: Option<u64>,
 }
 
+/// アクセストークン情報 (scope・ポータル ID だけ。鍵は持たない)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenInfo {
+    pub portal_id: Option<String>,
+    pub scopes: Vec<String>,
+    /// 確認した時刻 (RFC 3339)
+    pub checked_at: String,
+}
+
 /// HubSpot 呼び出しの失敗。**Display / Debug にトークンを含めない**
 /// (HubSpot の応答本文もそのまま載せない。本文に入力値が反映される場合があるため)。
 #[derive(Debug, Clone, PartialEq, Eq)]
