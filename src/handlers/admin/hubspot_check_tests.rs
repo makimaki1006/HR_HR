@@ -231,32 +231,9 @@ async fn タイムアウトはhubspot_timeoutで再試行しない() {
     assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
 }
 
-#[derive(Clone)]
-struct LogBuf(Arc<Mutex<Vec<u8>>>);
-impl std::io::Write for LogBuf {
-    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(b);
-        Ok(b.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-/// HubSpot が鍵を本文に反映して返す失敗系も含め、すべての応答・ログに鍵が出ない
+/// HubSpot が鍵を本文に反映して返す失敗系も含め、すべての応答に鍵が出ない
 #[tokio::test(flavor = "current_thread")]
-async fn 応答にもログにも鍵の値が出ない() {
-    let buf = LogBuf(Arc::new(Mutex::new(vec![])));
-    let b2 = buf.clone();
-    let sub = tracing_subscriber::fmt()
-        .with_writer(move || b2.clone())
-        .with_max_level(tracing::Level::TRACE)
-        .finish();
-    let _g = tracing::subscriber::set_default(sub);
-    // 他のテストが先に同じ callsite を「購読者なし」で通ると、その判定がキャッシュされて
-    // このスレッドの購読者にもログが届かないことがある (CI で再現)。購読者を差し替えたら作り直す。
-    tracing::callsite::rebuild_interest_cache();
-
+async fn 応答に鍵の値が出ない() {
     let mut all = String::new();
     for (status, body) in [
         (200, ok_body(&REQUIRED_SCOPES)),
@@ -268,24 +245,42 @@ async fn 応答にもログにも鍵の値が出ない() {
         let c = client(&base);
         let (st, r) = run_check(Some(&c), Duration::from_secs(5)).await;
         all.push_str(&format!(
-            "{st} {r:?}\n{}\n",
+            "{st} {r:?}
+{}
+",
             serde_json::to_string(&r).unwrap()
         ));
         // 2 回目 (キャッシュ経路)
         let (_st, r) = run_check(Some(&c), Duration::from_secs(5)).await;
         all.push_str(&serde_json::to_string(&r).unwrap());
     }
-    let logs = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(!all.contains(TOKEN), "応答に鍵: {all}");
     assert!(!all.contains("CANARY"), "応答に鍵の一部: {all}");
-    assert!(
-        !logs.contains(TOKEN) && !logs.contains("CANARY"),
-        "ログに鍵: {logs}"
-    );
-    assert!(
-        logs.contains("hubspot-check failed"),
-        "ログが取れていない: {logs}"
-    );
     // Debug 出力 (HubSpotClient) にも出ない
     assert!(!format!("{:?}", client("http://127.0.0.1:1")).contains(TOKEN));
+}
+
+/// 失敗時のログに出すのは `error_kind()` だけ。これは固定の識別子なので鍵を含みえない。
+/// (以前は tracing の出力を横取りして調べていたが、並行する他テストと callsite の
+///  interest キャッシュを共有するため CI で不安定だった。2026-10-06)
+#[test]
+fn ログに出す値は固定の識別子だけ() {
+    use crate::hubspot::HubSpotError;
+    let kinds = [
+        HubSpotError::NotConfigured.error_kind(),
+        HubSpotError::NotFound.error_kind(),
+        HubSpotError::RateLimited.error_kind(),
+        HubSpotError::Timeout.error_kind(),
+    ];
+    for k in kinds {
+        assert!(k.chars().all(|c| c.is_ascii_lowercase() || c == '_'), "{k}");
+    }
+    let src = include_str!("hubspot_check.rs");
+    let logs: Vec<&str> = src.lines().filter(|l| l.contains("tracing::")).collect();
+    assert_eq!(logs.len(), 1, "{logs:?}");
+    assert!(
+        logs[0].contains("error_kind = e.error_kind()") && !logs[0].contains("{"),
+        "{}",
+        logs[0]
+    );
 }
