@@ -4,9 +4,9 @@ use crate::{
     AppState,
 };
 use axum::{
-    extract::{Query, State},
+    extract::{rejection::QueryRejection, Query, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
     Extension, Json, Router,
 };
@@ -624,6 +624,11 @@ pub fn summarize(rows: &[Record]) -> Value {
     json!({"total":unique.len(),"duplicate_ids":rows.len()-unique.len(),"by_date":dates,"missing_date":missing_date,"dimensions":dimensions,"joint_demographics":{"total":unique.len(),"cells":cells}})
 }
 
+struct CachedSnapshot {
+    file_id: String,
+    sha256: String,
+    data: Arc<Value>,
+}
 #[derive(Clone)]
 pub(super) struct Access {
     allowed: BTreeSet<String>,
@@ -631,6 +636,8 @@ pub(super) struct Access {
     moc_path: Option<PathBuf>,
     moc_drive: Result<Option<SnapshotPointer>, &'static str>,
     snapshot_reader: Option<Arc<super::job_copy_drive::DriveReader>>,
+    snapshot_cache: Arc<tokio::sync::Mutex<Option<CachedSnapshot>>>,
+    resolved_jobs: Arc<tokio::sync::Mutex<BTreeMap<String, (Instant, Value)>>>,
     images: Option<Arc<super::job_copy_image_bridge::ImageBridge>>,
     drive_listings: BTreeSet<String>,
     drive_config_error: Option<&'static str>,
@@ -1172,21 +1179,25 @@ async fn load_moc(path: Option<&Path>) -> Result<Value, ReadError> {
     validate_moc(&data)?;
     Ok(data)
 }
-async fn moc(
-    State(state): State<Arc<AppState>>,
-    Extension(access): Extension<Access>,
-    session: Session,
-) -> Result<impl IntoResponse, ReadError> {
-    authorized_user(&state, &access, &session).await?;
+// Access is constructed once with an immutable file ID/hash. Only verified raw
+// evidence is cached; authorization and listing configuration are checked per request.
+async fn raw_moc(access: &Access) -> Result<Arc<Value>, ReadError> {
     if let Some(code) = access.drive_config_error {
         return Err(ReadError(StatusCode::SERVICE_UNAVAILABLE, code));
     }
-    let mut data = match access
+    match access
         .moc_drive
         .as_ref()
         .map_err(|code| ReadError(StatusCode::SERVICE_UNAVAILABLE, code))?
     {
         Some(pointer) => {
+            let mut cached = access.snapshot_cache.lock().await;
+            if let Some(snapshot) = cached.as_ref().filter(|snapshot| {
+                snapshot.file_id == pointer.file_id && snapshot.sha256 == pointer.sha256
+            }) {
+                require_cloud_image_coverage(&snapshot.data, &access.drive_listings)?;
+                return Ok(snapshot.data.clone());
+            }
             let reader = access.snapshot_reader.as_ref().ok_or(ReadError(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "drive_not_configured",
@@ -1199,18 +1210,208 @@ async fn moc(
                 })?;
             validate_moc(&data)?;
             require_cloud_image_coverage(&data, &access.drive_listings)?;
-            data
+            let data = Arc::new(data);
+            *cached = Some(CachedSnapshot {
+                file_id: pointer.file_id.clone(),
+                sha256: pointer.sha256.clone(),
+                data: data.clone(),
+            });
+            Ok(data)
         }
-        None => load_moc(access.moc_path.as_deref()).await?,
-    };
-    if !access.drive_listings.is_empty() {
-        let bridge = access.images.as_ref().ok_or(ReadError(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "drive_not_configured",
-        ))?;
-        hydrate_drive_images(&mut data, bridge, &access.drive_listings).await?;
+        None => Ok(Arc::new(load_moc(access.moc_path.as_deref()).await?)),
     }
+}
+
+fn defer_snapshot_images(data: &mut Value, listings: &BTreeSet<String>) -> Result<(), ReadError> {
+    let jobs = data["capture_bundle"]["jobs"]
+        .as_array_mut()
+        .ok_or_else(moc_invalid)?;
+    for job in jobs {
+        let listing = job["hubspotListingId"]
+            .as_str()
+            .ok_or_else(moc_invalid)?
+            .to_owned();
+        if !listings.contains(&listing) {
+            continue;
+        }
+        defer_image_urls(job.get_mut("images"), &listing, 0)?;
+        if let Some(history) = job["history"].as_array_mut() {
+            for (index, version) in history.iter_mut().enumerate() {
+                if version["historicalImageBytesAvailable"] == true {
+                    defer_image_urls(version.get_mut("images"), &listing, index + 1)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+fn valid_image_hash(hash: &str) -> bool {
+    hash.len() == 64
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+fn defer_image_urls(
+    images: Option<&mut Value>,
+    listing: &str,
+    version: usize,
+) -> Result<(), ReadError> {
+    if let Some(images) = images.and_then(Value::as_array_mut) {
+        for (index, image) in images.iter_mut().enumerate() {
+            let hash = image["contentHash"]
+                .as_str()
+                .filter(|hash| valid_image_hash(hash))
+                .ok_or_else(moc_invalid)?;
+            image["url"] = json!(format!("/api/job-copy/snapshot-image?listing_id={listing}&version={version}&slot={}&image_hash={hash}",index+1));
+        }
+    }
+    Ok(())
+}
+async fn moc(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    let mut data = (*raw_moc(&access).await?).clone();
+    defer_snapshot_images(&mut data, &access.drive_listings)?;
     Ok(([(header::CACHE_CONTROL, "no-store")], Json(data)))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SnapshotImageQuery {
+    listing_id: String,
+    version: usize,
+    slot: usize,
+    image_hash: String,
+}
+fn snapshot_image_entry(job: &Value, version: usize, slot: usize) -> Result<&Value, ReadError> {
+    if slot == 0 || slot > 3 || version > 10 {
+        return Err(ReadError(
+            StatusCode::BAD_REQUEST,
+            "invalid_snapshot_image_request",
+        ));
+    }
+    let source = if version == 0 {
+        job
+    } else {
+        let history = job["history"]
+            .as_array()
+            .and_then(|rows| rows.get(version - 1))
+            .ok_or(ReadError(StatusCode::NOT_FOUND, "snapshot_image_not_found"))?;
+        if history["historicalImageBytesAvailable"] != true {
+            return Err(ReadError(StatusCode::NOT_FOUND, "snapshot_image_not_found"));
+        }
+        history
+    };
+    source["images"]
+        .as_array()
+        .and_then(|images| images.get(slot - 1))
+        .ok_or(ReadError(StatusCode::NOT_FOUND, "snapshot_image_not_found"))
+}
+async fn resolved_snapshot_job(
+    access: &Access,
+    raw_job: &Value,
+    listing: &str,
+) -> Result<Value, ReadError> {
+    // A bounded short cache prevents simultaneous images of the same selected job
+    // repeating upstream resolution. The original image endpoint still rechecks live
+    // relations, manifest ancestry and image hashes for every image response.
+    let mut cached = access.resolved_jobs.lock().await;
+    let cloud = matches!(&access.moc_drive, Ok(Some(_)));
+    let cache_key = match &access.moc_drive {
+        Ok(Some(pointer)) => format!("{}:{}:{listing}", pointer.file_id, pointer.sha256),
+        _ => listing.to_owned(),
+    };
+    if cloud {
+        if let Some((_, job)) = cached
+            .get(&cache_key)
+            .filter(|(expires, _)| *expires > Instant::now())
+        {
+            return Ok(job.clone());
+        }
+    }
+    let bridge = access.images.as_ref().ok_or(ReadError(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "drive_not_configured",
+    ))?;
+    let mut single = json!({"capture_bundle":{"jobs":[raw_job.clone()]}});
+    hydrate_drive_images(&mut single, bridge, &BTreeSet::from([listing.to_owned()])).await?;
+    let job = single["capture_bundle"]["jobs"][0].clone();
+    if cloud {
+        cached.retain(|_, (expires, _)| *expires > Instant::now());
+        if cached.len() >= 59 {
+            cached.clear();
+        }
+        cached.insert(
+            cache_key,
+            (Instant::now() + Duration::from_secs(30), job.clone()),
+        );
+    }
+    Ok(job)
+}
+async fn snapshot_image(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    query: Result<Query<SnapshotImageQuery>, QueryRejection>,
+) -> Result<Response, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    if let Some(code) = access.drive_config_error {
+        return Err(ReadError(StatusCode::SERVICE_UNAVAILABLE, code));
+    }
+    let Query(query) =
+        query.map_err(|_| ReadError(StatusCode::BAD_REQUEST, "invalid_snapshot_image_request"))?;
+    valid_id(&query.listing_id)?;
+    if !valid_image_hash(&query.image_hash)
+        || query.slot == 0
+        || query.slot > 3
+        || query.version > 10
+    {
+        return Err(ReadError(
+            StatusCode::BAD_REQUEST,
+            "invalid_snapshot_image_request",
+        ));
+    }
+    if !access.drive_listings.contains(&query.listing_id) {
+        return Err(ReadError(
+            StatusCode::FORBIDDEN,
+            "image_listing_not_enabled",
+        ));
+    }
+    let data = raw_moc(&access).await?;
+    let job = data["capture_bundle"]["jobs"]
+        .as_array()
+        .and_then(|jobs| {
+            jobs.iter()
+                .find(|job| job["hubspotListingId"].as_str() == Some(query.listing_id.as_str()))
+        })
+        .ok_or(ReadError(
+            StatusCode::NOT_FOUND,
+            "snapshot_listing_not_found",
+        ))?;
+    let original = snapshot_image_entry(job, query.version, query.slot)?;
+    if original["contentHash"].as_str() != Some(query.image_hash.as_str()) {
+        return Err(ReadError(StatusCode::CONFLICT, "snapshot_image_changed"));
+    }
+    let resolved = resolved_snapshot_job(&access, job, &query.listing_id).await?;
+    let image = snapshot_image_entry(&resolved, query.version, query.slot)?;
+    if image["contentHash"].as_str() != Some(query.image_hash.as_str()) {
+        return Err(ReadError(StatusCode::CONFLICT, "snapshot_image_changed"));
+    }
+    let url = image["url"]
+        .as_str()
+        .filter(|url| url.starts_with("/api/job-copy/image?"))
+        .ok_or(ReadError(
+            StatusCode::BAD_GATEWAY,
+            "moc_drive_image_mapping_incomplete",
+        ))?;
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Redirect::temporary(url),
+    )
+        .into_response())
 }
 
 pub async fn hydrate_drive_images(
@@ -1405,6 +1606,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/job-copy/live", get(read))
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
+        .route("/api/job-copy/snapshot-image", get(snapshot_image))
         .route("/api/job-copy/market", get(super::job_copy_market::read))
         .layer(Extension(Access {
             allowed,
@@ -1413,6 +1615,8 @@ pub fn router() -> Router<Arc<AppState>> {
             drive_listings,
             drive_config_error,
             snapshot_reader,
+            snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+            resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
             moc_drive: snapshot_pointer(
                 std::env::var("JOB_COPY_MOC_DRIVE_FILE_ID").ok().as_deref(),
                 std::env::var("JOB_COPY_MOC_DRIVE_SHA256").ok().as_deref(),

@@ -4,9 +4,12 @@ import type { CopyImage } from './images';
 export const MAX_CAPTURE_FILE_BYTES = 32 * 1024 * 1024;
 const MAX_IMAGE_URI_LENGTH = 2 * 1024 * 1024;
 
-function trustedImageRoute(url: string): boolean {
+function trustedImageRoute(url: string, contentHash: string): boolean {
+  if (/[\r\n]/.test(url)) return false;
   // Literal canonical same-origin path only: no URL resolution, decoding or
   // permissive URLSearchParams parsing that could hide duplicate parameters.
+  const deferred = /^\/api\/job-copy\/snapshot-image\?listing_id=\d{1,30}&version=(?:[0-9]|10)&slot=[1-3]&image_hash=([a-f0-9]{64})$/.exec(url);
+  if (deferred) return deferred[1] === contentHash.toLowerCase();
   const match = /^\/api\/job-copy\/image\?company_id=\d{1,30}&listing_id=\d{1,30}&manifest_id=[A-Za-z0-9_-]{10,200}&slot=([1-9]\d*)$/.exec(url);
   return match !== null && Number.isSafeInteger(Number(match[1]));
 }
@@ -42,9 +45,9 @@ function image(value: unknown): CopyImage {
   const url = text(item.url, MAX_IMAGE_URI_LENGTH);
   // Only embedded raster bytes or the backend-authorized same-origin route.
   const encoded = /^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(url)?.[1];
-  if (!trustedImageRoute(url) && (!encoded || encoded.length % 4 !== 0)) return invalid();
   const contentHash = text(item.contentHash, 64);
   if (!/^[a-fA-F0-9]{64}$/.test(contentHash)) return invalid();
+  if (!trustedImageRoute(url, contentHash) && (!encoded || encoded.length % 4 !== 0)) return invalid();
   const reference = item.sourceReferenceHash === undefined ? undefined : text(item.sourceReferenceHash, 64);
   if (reference !== undefined && !/^[a-fA-F0-9]{64}$/.test(reference)) return invalid();
   if (item.sourceSlot !== undefined && (typeof item.sourceSlot !== 'number' || !Number.isInteger(item.sourceSlot) || item.sourceSlot < 1 || item.sourceSlot > 3)) return invalid();
