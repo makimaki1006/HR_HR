@@ -4,6 +4,7 @@
 //! - `record_gate`: BPO のレコード単位の制限 (自分が担当で架電キューの条件に合う Deal と、それに紐づく Contact / Company だけ)
 //! - `call_queue`: `GET /api/crm/call-queue` (架電キュー。HubSpot の Deal 検索 + 関連の一括読み取り)
 //! - `owners`: `GET /api/crm/owners` (管理者のみ。担当者の名前の一覧。HubSpot Owners API、10 分キャッシュ)
+//! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴。BPO は担当のキュー対象だけ)
 //! - `routes`: `GET /api/crm/metadata` と `GET /api/crm/{contacts|companies|deals}/{id}`
 //!
 //! ルートは `lib.rs` の `protected_routes` **の外**に merge する (未ログインを /login への 303 でなく
@@ -15,6 +16,7 @@ pub mod owners;
 pub mod rbac;
 pub mod record_gate;
 pub mod routes;
+pub mod workspace;
 
 pub use routes::router;
 
@@ -26,3 +28,5 @@ mod real_hubspot_smoke;
 mod roles_tests;
 #[cfg(test)]
 mod routes_tests;
+#[cfg(test)]
+mod workspace_tests;
