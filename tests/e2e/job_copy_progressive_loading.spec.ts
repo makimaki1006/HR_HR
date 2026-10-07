@@ -53,7 +53,7 @@ test('image failure stays separate from zero and retry restores the same referen
   const panel = page.getByRole('tabpanel', { name: '本文・画像', exact: true });
   await panel.locator('.jc-image-section').scrollIntoViewIfNeeded();
   await expect(panel.getByRole('alert')).toContainText('画像なし・削除とは判定していません');
-  await expect(panel).not.toContainText('この観測版の画像は0点');
+  await expect(panel).not.toContainText('この版の画像は0点');
   await panel.getByRole('button', { name: '画像を再読み込み: 合成の遅延画像' }).click();
   await expect.poll(() => panel.getByRole('img', { name: '合成の遅延画像', exact: true }).evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(1);
   await expect(panel.getByRole('alert')).toHaveCount(0);

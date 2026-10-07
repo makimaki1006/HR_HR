@@ -6,6 +6,7 @@ import { buildDistribution, compareDistributions, compositionRows } from './appl
 import type { ApplicantAttributes, ApplicantDimension } from './applicantCompositionModel';
 import { jobs } from './data';
 import type { JobCopyRecord } from './data';
+import { CAUSAL_PATTERN, HUBSPOT_ONLY_NOTE, JARGON_PATTERN, NOT_CAUSAL_NOTE } from './format';
 
 const rows: ApplicantAttributes[] = [
   { gender: '女性', age: 29, prefecture: '大分県', municipality: '大分市' },
@@ -108,8 +109,18 @@ describe('composition fixture boundary and UI', () => {
     expect(html).toContain('2026/09/01');
     expect(html).toContain('架空の応募者属性');
     expect(html).toContain('属性不明も含めます');
-    expect(html).toContain('変更効果を示すものではありません');
+    expect(html).toContain('構成の差は、2つの版を並べて見るための数字です。');
+    expect(html).toContain('ⓘ 集計の前提');
+    expect(html).toContain(HUBSPOT_ONLY_NOTE);
+    expect(html).toContain(NOT_CAUSAL_NOTE);
     expect(html).toContain('課金情報は未取得');
+    // 年代は年齢順、都道府県は北から南（福岡 → 熊本 → 大分）、不明は最後
+    const ageSection = html.slice(html.indexOf('aria-label="年代の構成比較"'), html.indexOf('aria-label="都道府県の構成比較"'));
+    expect([...ageSection.matchAll(/<th scope="row">([^<]+)<\/th>/g)].map(match => match[1])).toEqual(['20代', '30代', '40代', '50代', '60歳以上', '不明']);
+    const prefectureSection = html.slice(html.indexOf('aria-label="都道府県の構成比較"'), html.indexOf('aria-label="市区町村の構成比較"'));
+    expect([...prefectureSection.matchAll(/<th scope="row">([^<]+)<\/th>/g)].map(match => match[1])).toEqual(['福岡県', '熊本県', '大分県', '不明']);
+    expect(html.replace(/<img [^>]*>/g, '')).not.toMatch(JARGON_PATTERN);
+    expect(html.replace(/<img [^>]*>/g, '')).not.toMatch(CAUSAL_PATTERN);
     expect(html).not.toContain('<option value="demo-001-draft"');
   });
 

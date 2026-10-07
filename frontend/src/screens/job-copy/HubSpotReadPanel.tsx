@@ -4,6 +4,7 @@ import type { JobCopyRecord } from './data';
 import { parseMediaCapture } from './mediaCaptureParser';
 import { parseApplicantReasons } from './applicantReasonsParser';
 import type { ApplicantDimension } from './applicantCompositionModel';
+import { formatDateTimeJst, joinPresent, orderCategories, plainWording } from './format';
 
 interface RecordData { id: string; properties: Record<string, string | null> }
 interface CustomerPage { customers: RecordData[]; next_after: string | null; total_ms: number }
@@ -84,7 +85,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
                 note: `${version.note} ${comparison.basis}` };
             }),
           });
-        } catch { setError('媒体観測データの形式を検証できませんでした。HubSpotの現在値と応募全体の集計を表示します。'); }
+        } catch { setError('媒体から取得したデータの形式を確認できませんでした。HubSpotの現在値と応募全体の集計を表示します。'); }
       } else {
         try { onOpen({ ...selectedJob, applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, []) }); }
         catch { setError('応募理由の出典・件数を確認できませんでした。原記録を推測して補完しません。'); }
@@ -106,9 +107,9 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
       <div className="jc-live-jobs">{page.jobs.filter(job => !contract || job.deal_ids.includes(contract)).map(({ record, deal_ids }) => <button className="jc-button" key={record.id} disabled={busy} onClick={() => { void open(record); }}>{record.properties.hs_name ?? '求人名未取得'}（関連契約{deal_ids.length}件）</button>)}</div>
       {page.next_offset !== null && <button className="jc-button" disabled={busy} onClick={() => { void loadJobs(page.next_offset ?? 0); }}>次の20件</button>}
     </>}
-    {applications && <section aria-label="実応募の読み取り結果"><h2>{applications.metric}: {applications.summary.total}件</h2><p>{applications.version_attribution}</p><p>{applications.attribute_basis} · 応募日不明{applications.summary.missing_date}件 · 取得{applications.fetched_at}</p>
-      <p>{applications.dated_comparison ? `${applications.dated_comparison.basis} 版対応不明${String(applications.dated_comparison.unknown)}件。本文・履歴と応募者構成のタブで確認できます。` : '日付ごとの観測版が未接続のため、ここでは求人全体の構成を表示します。'}</p>
-      <details><summary>求人全体の応募属性を開く</summary>{Object.entries(applications.summary.dimensions).map(([dimension, buckets]) => <section key={dimension}><h3>{labels[dimension] ?? dimension}</h3><table><thead><tr><th scope="col">区分</th><th scope="col">件数</th><th scope="col">割合</th></tr></thead><tbody>{Object.entries(buckets).map(([label, count]) => <tr key={label}><th scope="row">{label}</th><td>{count}件</td><td>{applications.summary.total ? `${(100 * count / applications.summary.total).toFixed(1)}%` : '算出不可'}</td></tr>)}</tbody></table></section>)}</details>
+    {applications && <section aria-label="実応募の読み取り結果"><h2>{plainWording(applications.metric)}: {applications.summary.total}件</h2><p>{plainWording(applications.version_attribution)}</p><p>{joinPresent([plainWording(applications.attribute_basis), `応募日不明${String(applications.summary.missing_date)}件`, `取得${formatDateTimeJst(applications.fetched_at, applications.fetched_at)}`])}</p>
+      <p>{applications.dated_comparison ? `${plainWording(applications.dated_comparison.basis)} どの版への応募か不明${String(applications.dated_comparison.unknown)}件。本文・履歴と応募者構成のタブで確認できます。` : '日付ごとの版がまだつながっていないため、ここでは求人全体の構成を表示します。'}</p>
+      <details><summary>求人全体の応募属性を開く</summary>{Object.entries(applications.summary.dimensions).map(([dimension, buckets]) => <section key={dimension}><h3>{labels[dimension] ?? '属性'}</h3><table><thead><tr><th scope="col">区分</th><th scope="col">件数</th><th scope="col">割合</th></tr></thead><tbody>{orderCategories(dimension, Object.entries(buckets).map(([category, count]) => ({ category, count }))).map(({ category: label, count }) => <tr key={label}><th scope="row">{label}</th><td>{count}件</td><td>{applications.summary.total ? `${(100 * count / applications.summary.total).toFixed(1)}%` : '算出不可'}</td></tr>)}</tbody></table></section>)}</details>
     </section>}
   </details>;
 }

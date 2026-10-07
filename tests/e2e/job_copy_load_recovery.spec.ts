@@ -15,7 +15,7 @@ test('503 retries into two real-response applications, while 401 keeps the login
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.locator('.jc-job')).toHaveCount(0);
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
-  await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('2応募レコード');
+  await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('2応募（HubSpot記録分）');
   await expect(page.getByRole('tabpanel', { name: '本文・画像', exact: true }).locator('.jc-body')).toHaveText('再取得した合成の全文です。');
   await selectJobFeature(page, 'applicants');
   await expect(page.getByRole('region', { name: '求人全体の実応募者構成', exact: true })).toContainText('応募2件');
@@ -45,12 +45,12 @@ test('slow snapshot retry preserves the new response when the old server handler
   await expect(page.locator('.jc-job')).toHaveCount(0);
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
   const summary = page.getByRole('region', { name: '実データの取得範囲' });
-  await expect(summary).toContainText('2応募レコード');
+  await expect(summary).toContainText('2応募（HubSpot記録分）');
   if (!held) throw new Error('The first synthetic request was not held');
   // Browser abort may reject this delivery. The component unit test additionally
   // models a transport that ignores abort and actually returns the late response.
   await held.fulfill(json(snapshot(9))).catch(() => undefined);
-  await expect(summary).toContainText('2応募レコード');
+  await expect(summary).toContainText('2応募（HubSpot記録分）');
   await expect(page.getByRole('heading', { name: '合成の復帰確認9', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
   expect(attempts).toBe(2);
@@ -70,7 +70,7 @@ test('30-second timeout ends loading without demo data, then retry recovers', as
   await expect(loading).toHaveCount(0);
   await expect(page.locator('.jc-job')).toHaveCount(0);
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
-  await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('2応募レコード');
+  await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('2応募（HubSpot記録分）');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
 });
