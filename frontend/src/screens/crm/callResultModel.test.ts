@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DRAFT_STORAGE_KEY, RESULT_PROPERTY_ALLOWLIST, activeFields, clearDraftEntry, draftKey, draftSummary, emptyResultDraft, isCalendarDate,
-  loadStore, markRecorded, nextUnrecorded, parseStore, putDraft, saveStore, toHubSpotPatch, todayJst, validateResultDraft, withOutcome,
+  DRAFT_STORAGE_KEY, RESULT_PROPERTY_ALLOWLIST, activeFields, clearDraftEntry, draftKey, editDraft, draftSummary, emptyResultDraft, isCalendarDate,
+  loadStore, markRecorded, nextUnrecorded, parseStore, putDraft, saveStore, msUntilNextJstMidnight, toHubSpotPatch, todayJst, validateResultDraft, withOutcome,
 } from './callResultModel';
 import type { ResultDraft } from './callResultModel';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
@@ -15,6 +15,11 @@ describe('todayJst / isCalendarDate', () => {
   it('the day changes at JST midnight, not UTC midnight', () => {
     expect(todayJst(Date.UTC(2026, 9, 7, 14, 59, 59))).toBe('2026-10-07'); // JST 23:59:59
     expect(todayJst(Date.UTC(2026, 9, 7, 15, 0, 0))).toBe('2026-10-08'); // JST 00:00
+  });
+  it('msUntilNextJstMidnight counts down to the next JST 00:00', () => {
+    expect(msUntilNextJstMidnight(Date.UTC(2026, 9, 7, 14, 59, 59))).toBe(1000); // JST 23:59:59
+    expect(msUntilNextJstMidnight(Date.UTC(2026, 9, 7, 15, 0, 0))).toBe(86_400_000); // JST 00:00 ちょうど → 次の日
+    expect(msUntilNextJstMidnight(Date.UTC(2026, 9, 8, 3, 0, 0))).toBe(12 * 3600_000); // JST 12:00
   });
   it('accepts only real calendar dates in YYYY-MM-DD', () => {
     expect(isCalendarDate('2026-10-08')).toBe(true);
@@ -165,6 +170,13 @@ describe('draft store', () => {
     expect(s).toEqual({ drafts: { 'live:1': draft({ outcome: 'connected' }) }, recorded: { 'live:1': true } });
     expect(putDraft(s, 'live:1', draft({})).drafts).toEqual({});
     expect(clearDraftEntry(s, 'live:1')).toEqual({ drafts: {}, recorded: {} });
+  });
+  it('editing a recorded draft removes its recorded mark (only for that key)', () => {
+    let s = putDraft({ drafts: {}, recorded: {} }, 'live:1', draft({ outcome: 'connected' }));
+    s = markRecorded(markRecorded(s, 'live:1'), 'live:2');
+    const edited = editDraft(s, 'live:1', draft({ outcome: 'appointment' }));
+    expect(edited).toEqual({ drafts: { 'live:1': draft({ outcome: 'appointment' }) }, recorded: { 'live:2': true } });
+    expect(editDraft(s, 'live:1', draft({}))).toEqual({ drafts: {}, recorded: { 'live:2': true } });
   });
   it('parseStore keeps valid drafts and drops malformed ones', () => {
     const raw = JSON.stringify({

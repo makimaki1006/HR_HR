@@ -237,6 +237,68 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(document.activeElement).toBe(row1);
   });
 
+  it('binds the ended call to the deal by callId: a previous call that ended, or an inbound call, is never shown on the deal dialed next', async () => {
+    const { calls, fetcher } = detailFetcher();
+    let t = 1_000_000;
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { now: () => t, stallMs: 60_000 });
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    const { win, postMessage } = fakeZoomWindow();
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    const c1 = { callId: 'c1', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: c1 });
+    zoomEvent(win, { type: 'zp-call-connected-event', data: c1 });
+    // 通話中に案件 2 を選び、そこで通話が終わる (案件 1 の入力欄はフォーカスを扱っていない)
+    open('2');
+    await act(async () => { calls[1]?.resolve(ok(detail('2'))); await Promise.resolve(); });
+    t += 65_000;
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c1, result: 'ended' } });
+    expect(screen.queryByTestId('ended-call')).toBeNull();
+    // 案件 2 から発信。呼び出しが始まる前は、c1 の「終了 01:05」を 2 に出さない・フォーカスも移さない
+    const dial2 = first(screen.getAllByRole('button', { name: /に発信$/ }));
+    dial2.focus();
+    fireEvent.click(dial2);
+    expect(postMessage).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('ended-call')).toBeNull();
+    expect(document.activeElement).toBe(dial2);
+    // 着信 (inbound) が来て終わっても、案件 2 のものにしない
+    const inbound = { callId: 'in-1', direction: 'inbound', caller: { phoneNumber: '+81355550000' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: inbound });
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...inbound, result: 'missed' } });
+    expect(screen.queryByTestId('ended-call')).toBeNull();
+    // 案件 2 の発信の通話 (c2) が始まって終わったら、そのときだけ 2 に出す
+    const c2 = { callId: 'c2', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: c2 });
+    zoomEvent(win, { type: 'zp-call-connected-event', data: c2 });
+    t += 7_000;
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c2, result: 'ended' } });
+    expect(screen.getByTestId('ended-call').textContent).toBe('通話終了 通話時間 00:07');
+    // 案件 1 には c1 も c2 も出さない
+    open('1');
+    expect(screen.queryByTestId('ended-call')).toBeNull();
+  });
+
+  it('does not steal focus from the memo when the call ends while the caller is typing', async () => {
+    const { calls, fetcher } = detailFetcher();
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { now: () => 1_000_000 });
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    const form = await screen.findByRole('form', { name: '架電結果の入力' });
+    await within(form).findByRole('group', { name: '今回の結果' });
+    const { win } = fakeZoomWindow();
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    const base = { callId: 'call-m', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: base });
+    zoomEvent(win, { type: 'zp-call-connected-event', data: base });
+    const memo = within(form).getByLabelText<HTMLTextAreaElement>(/^タスクメモ/);
+    memo.focus();
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
+    expect(screen.getByTestId('ended-call').textContent).toBe('通話終了 通話時間 00:00');
+    expect(document.activeElement).toBe(memo);
+    // 結果はどれも選ばれていない (Space / Enter で誤って選ぶ経路を作らない)
+    expect(within(form).getByRole('group', { name: '今回の結果' }).querySelector('[aria-pressed="true"]')).toBeNull();
+  });
+
   it('shows guidance and keeps copy / tel: available when the embed cannot be loaded or the dial does not start', async () => {
     const { calls, fetcher } = detailFetcher();
     await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { loadTimeoutMs: 40, stallMs: 40 });

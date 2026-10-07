@@ -1,5 +1,6 @@
-/* 架電結果の入力欄。中央の列の下端に固定し、詳細の上側だけがスクロールする */
-.rf { display: flex; flex-direction: column; max-height: min(42vh, 460px); font-size: 12px; }
+/* 架電結果の入力欄。中央の列の下端に固定し、詳細の上側だけがスクロールする。
+   見出しと下端 (記録ボタン・未送信の注記) は常に見え、間の入力欄だけがスクロールする */
+.rf { display: flex; flex-direction: column; max-height: min(50vh, 480px); font-size: 12px; }
 .rf-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; min-height: 36px; border-bottom: 1px solid var(--cq-line); }
 .rf.is-collapsed .rf-head { border-bottom: none; }
 .rf-toggle { border: none; background: transparent; font-weight: 700; font-size: 13px; padding: 2px 4px; cursor: pointer; white-space: nowrap; }
@@ -31,13 +32,19 @@
 .rf-hint, .rf-muted { color: var(--cq-faint); font-size: 11px; }
 .rf-more summary { cursor: pointer; color: var(--cq-sub); }
 .rf-more .rf-field { margin-top: 4px; }
-.rf-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.rf-actions { flex: none; display: flex; align-items: center; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding: 6px 12px; border-top: 1px solid var(--cq-line); background: var(--cq-surface); }
+.rf-unsent { color: var(--cq-sub); font-size: 11px; }
 .rf-notice { margin-right: auto; color: var(--cq-sub); }
 .rf-record { padding: 8px 20px; border: 1px solid var(--cq-accent); border-radius: var(--cq-radius); background: var(--cq-accent); color: #fff !important; font-weight: 700; font-size: 13px; cursor: pointer; }
-.rf-record:disabled { opacity: .45; cursor: not-allowed; }
+.rf-record[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .rf-record kbd { margin-left: 6px; font: inherit; font-size: 10px; font-weight: 400; opacity: .85; }
 .rf-defs-error { margin: 0; }
 /* 列の行マーカー */
 .cq-recorded { flex: none; padding: 0 6px; border-radius: 3px; background: var(--cq-accent-weak); color: #0a5a61; font-size: 11px; white-space: nowrap; }
 @media (max-width: 1279px) { .rf-outcomes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* 高さが低い画面: 結果ボタンを詰め、詳細の上部を短くして入力欄に高さを回す */
+@media (max-height: 820px) and (min-width: 1000px) {
+  .rf-outcome { min-height: 32px; padding: 4px; font-size: 12px; }
+  .rf-body { padding-top: 6px; gap: 6px; }
+}
 @media (max-width: 999px) { .rf { max-height: none; } }

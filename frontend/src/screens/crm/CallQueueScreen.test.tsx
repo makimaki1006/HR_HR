@@ -239,7 +239,11 @@ describe('calling cockpit layout', () => {
     render(<CallQueueScreen fetcher={fetcher} initialSearch="" />);
     await ready(calls);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('架電');
-    expect(screen.getByRole('status', { name: 'データの種類' }).textContent).toBe('実データ(HubSpot)HubSpot への書き込みはしません');
+    const modeStatus = screen.getByRole('status', { name: 'データの種類' });
+    expect(modeStatus.querySelector('.cq-mode-badge')?.textContent).toBe('実データ(HubSpot)');
+    // 広い画面の文と、幅が狭いとき (1279px 以下) に代わりに出す短い文。どちらも「書き込まない」と言う
+    expect(modeStatus.querySelector('.cq-mode-note')?.textContent).toBe('HubSpot への書き込みはしません');
+    expect(modeStatus.querySelector('.cq-mode-note-short')?.textContent).toBe('HubSpot 書き込みなし');
     expect(screen.queryByText('架電ワークスペースへ')).toBeNull();
     expect(within(screen.getByRole('group', { name: 'データの切り替え' })).getAllByRole('button').map(b => [b.textContent, b.getAttribute('aria-pressed')]))
       .toEqual([['実データ', 'true'], ['架空サンプル', 'false']]);
