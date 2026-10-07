@@ -6,7 +6,7 @@ function validDate(value: string): boolean {
 
 export function observationWindowError(start: string, end: string): string | null {
   if (!start && !end) return null;
-  if (!start || !end) return '観測開始日と終了日を両方入力してください。';
-  if (!validDate(start) || !validDate(end)) return '観測期間に有効な日付を入力してください。';
-  return start > end ? '観測終了日は開始日以降にしてください。' : null;
+  if (!start || !end) return '確認開始日と終了日を両方入力してください。';
+  if (!validDate(start) || !validDate(end)) return '確認期間に有効な日付を入力してください。';
+  return start > end ? '確認終了日は開始日以降にしてください。' : null;
 }

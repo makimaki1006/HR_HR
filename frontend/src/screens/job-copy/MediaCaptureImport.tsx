@@ -30,7 +30,7 @@ export function MediaCaptureImport({ onImport }: { onImport: (records: JobCopyRe
 
   return <details ref={panel} className="jc-media-import"><summary>媒体で取得した求人本文・画像を確認{displayed && records ? `（${String(records.length)}件表示中）` : ''}</summary>
     <p>個別に取得したJSONを選び、ブラウザのメモリ上に表示します。この操作からAPIへ送信せず、リポジトリやサーバーにも保存しません。再読み込みで消えます。</p>
-    <p>取得した本文・画像と、ファイルに含まれる過去のCSV観測版を確認します。掲載更新日時や応募数は補完しません。過去画像の参照を現在取得した表示は、その旨を注記します。</p>
+    <p>取得した本文・画像と、ファイルに含まれる過去のCSVの版を確認します。掲載更新日時や応募数は補完しません。過去画像の参照を現在取得した表示は、その旨を注記します。</p>
     <label>媒体取得データを読み込む<input type="file" accept=".json,application/json" disabled={reading} onChange={event => { void readCapture(event); }} /></label>
     <p className="jc-muted">32MBまで・1〜59件・求人ごとに画像3点まで・画像はファイル内のデータのみ</p>
     {reading && <p role="status">読み込み中…</p>}

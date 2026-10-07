@@ -163,8 +163,8 @@ test('mobile shared shell stays within the viewport and printed reports hide nav
 test('expanded image data retains real application totals and the richest job displays images and charts at both widths', async ({ page }) => {
   await open(page);
   const summary = page.getByRole('region', { name: '実データの取得範囲' });
-  await expect(summary).toContainText('317応募レコード');
-  await expect(summary).toContainText('版対応不明 314件');
+  await expect(summary).toContainText('317応募（HubSpot記録分）');
+  await expect(summary).toContainText('どの版への応募か不明 314件');
   const max = Math.max(...aggregates.map(row => row.summary.total));
   expect(max).toBe(34);
   const richest = aggregates.find(row => row.summary.total === max)!;

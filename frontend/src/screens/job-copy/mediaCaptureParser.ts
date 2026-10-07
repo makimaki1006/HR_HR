@@ -79,7 +79,7 @@ function observedVersion(item: Record<string, unknown>, id: string, capturedAt: 
   const imageTime = item.imageAcquiredAt === undefined ? '' : `画像取得日時：${timestamp(item.imageAcquiredAt)}。`;
   if (item.imageAcquisitionStartedAt !== undefined) timestamp(item.imageAcquisitionStartedAt);
   const provenance = item.provenance === undefined ? '' : text(item.provenance, 2000, true);
-  const timeBasis = item.observationTimeBasis === undefined ? '' : `観測日時の根拠：${text(item.observationTimeBasis, 500, true)}。`;
+  const timeBasis = item.observationTimeBasis === undefined ? '' : `取得日時の根拠：${text(item.observationTimeBasis, 500, true)}。`;
   const historicBytes = item.historicalImageBytesAvailable ?? (historical ? false : undefined);
   let references: { referenceHash: string; slot: number }[] | undefined;
   if (item.imageReferences !== undefined) {
@@ -93,13 +93,13 @@ function observedVersion(item: Record<string, unknown>, id: string, capturedAt: 
   }
   const archived = historicBytes === false ? images.length ? '過去時点の画像データは未保存です。表示画像は過去の画像参照を後日取得したもので、過去の画像内容の一致・変更は判定できません。' : '過去時点の画像原本は未取得です。過去の画像内容の一致・変更は判定できません。' : '';
   return {
-    id, label: historical ? '過去CSV観測版' : '媒体CSV取得版', source: historical ? 'HRハッカー過去CSV・画像参照' : 'HRハッカーCSV・掲載画像',
+    id, label: historical ? '過去CSVの版' : '媒体CSV取得版', source: historical ? 'HRハッカー過去CSV・画像参照' : 'HRハッカーCSV・掲載画像',
     observedAt: capturedAt, certainty: 'unknown', kind: 'published', body: text(item.body, 100_000, true),
     ...(status.unavailable || (historicBytes === false && images.length === 0) ? {} : { images }), applications: null,
     ...(references === undefined ? {} : { imageReferences: references }),
     ...(typeof historicBytes === 'boolean' ? { historicalImageBytesAvailable: historicBytes } : {}),
     ...(item.observedRawStatus === undefined ? {} : { observedPublicationStatus: text(item.observedRawStatus, 100, true) }),
-    note: `媒体CSVの観測版です。媒体での掲載・更新日時と応募情報は未取得です。${historical ? '過去CSVの取得ラベルは掲載切り替わり日時を示しません。' : ''}${status.note}${imageTime}${archived}${provenance}${timeBasis}`,
+    note: `媒体CSVから取得した版です。媒体での掲載・更新日時と応募情報は未取得です。${historical ? '過去CSVの取得ラベルは掲載切り替わり日時を示しません。' : ''}${status.note}${imageTime}${archived}${provenance}${timeBasis}`,
   };
 }
 

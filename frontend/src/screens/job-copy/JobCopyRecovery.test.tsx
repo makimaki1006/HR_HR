@@ -25,7 +25,7 @@ describe('snapshot recovery without fictional replacement', () => {
     expect(container.querySelectorAll('.jc-job')).toHaveLength(0);
     expect(loading()).toBeNull();
     await act(async () => { fireEvent.click(retry()); await Promise.resolve(); });
-    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募レコード');
+    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募（HubSpot記録分）');
     expect(container.querySelectorAll('.jc-job')).toHaveLength(1);
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByRole('button', { name: '求人データを再取得' })).toBeNull();
@@ -53,9 +53,9 @@ describe('snapshot recovery without fictional replacement', () => {
     expect(loading()).not.toBeNull();
     await act(async () => { fireEvent.click(retry()); await Promise.resolve(); });
     expect(oldSignal?.aborted).toBe(true);
-    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募レコード');
+    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募（HubSpot記録分）');
     await act(async () => { finishOld(response(snapshot(9))); await Promise.resolve(); });
-    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募レコード');
+    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募（HubSpot記録分）');
     expect(screen.queryByRole('heading', { name: '合成の復帰確認9' })).toBeNull();
     expect(loading()).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
@@ -79,7 +79,7 @@ describe('snapshot recovery without fictional replacement', () => {
     expect(screen.getByRole('alert').textContent).toContain('時間がかかっています');
     expect(container.querySelectorAll('.jc-job')).toHaveLength(0);
     await act(async () => { fireEvent.click(retry()); await Promise.resolve(); });
-    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募レコード');
+    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募（HubSpot記録分）');
     expect(screen.queryByRole('alert')).toBeNull();
   });
 

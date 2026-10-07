@@ -9,6 +9,7 @@ import { marketRows } from './marketChartModel';
 import type { MarketData, MarketRow } from './marketChartModel';
 import { chooseMarket } from './marketMatch';
 import { salaryLabel } from './salaryExtract';
+import { plainWording } from './format';
 import {
   addDays, applicationBuckets, asOfDate, billingEntries, buildPeriods, dayNumber, formatDay, formatPerDay, formatYen,
   marketLane, periodRows, positionOf, timelineRange, versionChanges, applicationsOutsidePeriods,
@@ -263,7 +264,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : <p className="jt-empty">{market.state.status === 'loading' ? '市場データを取得中…' : market.state.status === 'error' ? '市場データを取得できませんでした' : !market.state.title ? '職種を選ぶと市場の動きを表示します' : !market.state.prefecture ? '都道府県を選ぶと市場の動きを表示します' : 'この職種・都道府県の市場データはありません'}</p>}
       </Lane>
       <div className="jt-lane-tools jt-market-tools">
-        <span><i className="jt-key jt-key-jobs" />市場求人数 <i className="jt-key jt-key-viewers" />Indeed閲覧者指標 <span title={marketMeta?.ctk_basis ?? 'Indeed閲覧者指標は、求職者の人数やこの求人への応募数ではありません。'}>ⓘ</span></span>
+        <span><i className="jt-key jt-key-jobs" />市場求人数 <i className="jt-key jt-key-viewers" />Indeed閲覧者指標 <span title={plainWording(marketMeta?.ctk_basis ?? 'Indeed閲覧者指標は、求職者の人数やこの求人への応募数ではありません。')}>ⓘ</span></span>
         {marketMeta && <>
           <label>職種<select value={market.state.title} onChange={event => { market.choose({ title: event.target.value }); }}><option value="">選んでください</option>{marketMeta.titles.map(value => <option key={value}>{value}</option>)}</select></label>
           <label>都道府県<select value={market.state.prefecture} onChange={event => { market.choose({ prefecture: event.target.value }); }}><option value="">選んでください</option>{marketMeta.prefectures.map(value => <option key={value}>{value}</option>)}</select></label>

@@ -22,9 +22,9 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   await page.goto('/app/job-copy');
   await selectJobFeature(page, 'reasons');
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
-  await expect(reasons).toContainText('応募2件・出典プロパティ観測6件');
+  await expect(reasons).toContainText('応募2件・記録された理由6件');
   await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('版との対応は未取得');
-  await expect(reasons.getByRole('region', { name: '版対応不明の記述', exact: true })).toContainText('表示対象2件');
+  await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象2件');
   await expect(reasons.locator('details[open]')).toHaveCount(0);
   await expect(reasons.locator('blockquote').first()).toBeHidden();
   await reasons.getByText('内部閲覧用の原記録を開く', { exact: true }).nth(1).click();
@@ -32,7 +32,7 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   await expect(reasons.locator('img')).toHaveCount(0);
   await expect(reasons).toContainText('匿名化された内容ではありません');
   await reasons.getByLabel('理由の出典', { exact: true }).selectOption('ouboriyuu_hiaringu');
-  await expect(reasons.getByRole('region', { name: '版対応不明の記述', exact: true })).toContainText('表示対象0件');
+  await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象0件');
   await reasons.getByLabel('理由の出典', { exact: true }).selectOption('all');
   await page.setViewportSize({ width: 375, height: 850 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -56,8 +56,8 @@ test('only explicit published-version associations appear in before and after re
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
   await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('表示対象1件');
   await expect(reasons.getByRole('region', { name: '比較先の記述', exact: true })).toContainText('表示対象1件');
-  await expect(reasons.getByRole('region', { name: '版対応不明の記述', exact: true })).toContainText('表示対象0件');
+  await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象0件');
   await page.getByRole('tabpanel', { name: '応募理由', exact: true }).getByLabel('理由比較先').selectOption('synthetic-before');
-  await expect(reasons).toContainText('同じ観測版を選択しています');
+  await expect(reasons).toContainText('同じ版を選んでいます');
   await expect(reasons).toContainText('選択した2版以外の表示対象記述: 1件');
 });
