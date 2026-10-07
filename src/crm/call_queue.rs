@@ -66,7 +66,9 @@ use super::routes::{
     CRM_REQUEST_DEADLINE,
 };
 use crate::hubspot::deep_link::{hubspot_portal_id, record_url};
-use crate::hubspot::{AssociationRef, HubSpotClient, HubSpotError, HubSpotRecord, RecordType};
+use crate::hubspot::{
+    AssociationRef, HubSpotClient, HubSpotError, HubSpotRecord, OwnerRef, RecordType,
+};
 use crate::AppState;
 
 /// 架電キューのパイプライン (bpo_リクロジ)
@@ -134,7 +136,7 @@ pub struct CallQueueState {
     /// テストで時計を固定する
     fixed_now: Option<DateTime<Utc>>,
     /// メール (小文字) → (取得時刻, owner id)。見つからなかった結果も短く覚える
-    owners: Mutex<HashMap<String, (Instant, Option<String>)>>,
+    owners: Mutex<HashMap<String, (Instant, Option<OwnerRef>)>>,
     /// ステージ ID → 表示名 (キューのパイプラインだけ)
     labels: tokio::sync::Mutex<Option<(Instant, HashMap<String, String>)>>,
     /// 管理者向けの担当者一覧 (`GET /api/crm/owners`)
@@ -174,13 +176,13 @@ impl CallQueueState {
         self.fixed_now.unwrap_or_else(Utc::now)
     }
 
-    /// 本人のメール → HubSpot owner id。引けた結果は 10 分、見つからなかった結果は 1 分キャッシュ。
-    /// 失敗 (HubSpot のエラー) はキャッシュしない。
-    pub(super) async fn owner_for(
+    /// 本人のメール → HubSpot owner (id と所属チーム名)。引けた結果は 10 分、見つからなかった結果は 1 分キャッシュ。
+    /// 失敗 (HubSpot のエラー) はキャッシュしない。所属チームの変更は最大 10 分で反映される。
+    pub(super) async fn owner_info_for(
         &self,
         client: &HubSpotClient,
         email: &str,
-    ) -> Result<Option<String>, HubSpotError> {
+    ) -> Result<Option<OwnerRef>, HubSpotError> {
         let key = email.trim().to_lowercase();
         if let Ok(g) = self.owners.lock() {
             if let Some((at, v)) = g.get(&key) {
@@ -194,11 +196,20 @@ impl CallQueueState {
                 }
             }
         }
-        let found = client.owner_id_by_email(&key).await?;
+        let found = client.owner_by_email(&key).await?;
         if let Ok(mut g) = self.owners.lock() {
             g.insert(key, (Instant::now(), found.clone()));
         }
         Ok(found)
+    }
+
+    /// 本人の owner id だけ ([`Self::owner_info_for`] のキャッシュを使う)
+    pub(super) async fn owner_for(
+        &self,
+        client: &HubSpotClient,
+        email: &str,
+    ) -> Result<Option<String>, HubSpotError> {
+        Ok(self.owner_info_for(client, email).await?.map(|o| o.id))
     }
 
     /// ステージ ID → 表示名 (5 分キャッシュ。同時に冷えた要求は 1 回の取得にまとめる)
@@ -295,8 +306,11 @@ pub struct CallQueueItem {
 pub struct CallQueueScope {
     /// `all` / `me` / `unassigned` / owner id
     pub owner: String,
-    /// `admin` / `consultant` / `bpo` (`accounts.role`。`rbac::authorize` が読む)
+    /// `admin` (全員分を読める管理者) / `own` (それ以外の全員 = 自分の担当分だけ)
     pub role: String,
+    /// ログインした人の HubSpot owner の所属チーム名 (画面の隅の参考表示だけ。見られる範囲の判定には使わない)。
+    /// 管理者は HubSpot を余分に呼ばないので空。owner が見つからない人はキューが 403 になるのでここには来ない
+    pub teams: Vec<String>,
     /// 実際に絞り込んだステージ ID (昇順)
     pub stages: Vec<String>,
     /// `all` / `today`
@@ -1410,6 +1424,17 @@ async fn execute(
             None => return Err(error_json(StatusCode::FORBIDDEN, "owner_not_found")),
         },
     };
+    // 所属チーム名 (参考表示だけ。owner のキャッシュを使うので通常は HubSpot を呼ばない)
+    let teams: Vec<String> = if role.reads_all_records() {
+        Vec::new()
+    } else {
+        ctx.queue
+            .owner_info_for(client, email)
+            .await
+            .map_err(&fail)?
+            .map(|o| o.teams)
+            .unwrap_or_default()
+    };
     // 段階 (ステージの絞り込み後に検索するものがあるものだけ)
     let selected: Vec<&str> = if params.stages.is_empty() {
         std::iter::once(STAGE_UNPROCESSED)
@@ -1541,7 +1566,13 @@ async fn execute(
         truncated,
         scope: CallQueueScope {
             owner: owner_label(owner),
-            role: role.as_str().to_string(),
+            role: if role.reads_all_records() {
+                "admin"
+            } else {
+                "own"
+            }
+            .to_string(),
+            teams,
             stages: {
                 let mut s: Vec<String> = selected.iter().map(|s| s.to_string()).collect();
                 s.sort();

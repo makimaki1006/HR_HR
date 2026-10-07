@@ -23,7 +23,7 @@ export function makeResponse(f: QueueFilters, items: CallQueueItem[], over: Part
   return {
     items, next_cursor: null, total: items.length, truncated: false,
     scope: {
-      owner: f.owner === '' ? 'all' : f.owner, role: 'admin',
+      owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
       stages: [...(f.stages.length ? f.stages : QUEUE_STAGE_IDS)].sort(), due: f.due, sort: f.sort,
       q: f.q.trim() || null, limit: 25,
       next_from: f.nextFrom || null, next_to: f.nextTo || null, last_from: f.lastFrom || null, last_to: f.lastTo || null,
