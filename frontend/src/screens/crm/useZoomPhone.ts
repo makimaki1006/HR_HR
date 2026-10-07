@@ -8,7 +8,7 @@ export const EMBED_LOAD_TIMEOUT_MS = 12_000;
 export const DIAL_STALL_MS = 10_000;
 
 export type EmbedPhase = 'disabled' | 'loading' | 'loaded' | 'timeout';
-export type DialResult = 'sent' | 'not_dialable' | 'embed_unavailable' | 'busy';
+export type DialResult = 'sent' | 'not_dialable' | 'embed_loading' | 'embed_unavailable' | 'busy';
 
 export interface DialRequest { number: string; at: number }
 
@@ -30,7 +30,10 @@ export interface ZoomOptions { loadTimeoutMs?: number; stallMs?: number; now?: (
  * Zoom Phone Smart Embed (iframe) の状態。
  * - 受信は `window` の message のうち、origin が Zoom で送信元がこの iframe の window のものだけ
  * - 発信は `zp-make-call` を Zoom の origin 宛てにだけ送る ('*' は使わない)
- * - `enabled` が false (架空サンプル等) の間は iframe を出さず、発信も受け付けない
+ * - `enabled` が false (架空サンプル等) の間は iframe を出さず、発信も受け付けない。
+ *   false になったら通話・発信依頼・読み込みの状態を捨てる (iframe が外れると通話も切れ、終了のイベントは届かない。
+ *   戻したときは新しい iframe として読み込みから数え直す)
+ * - iframe が読み込み中・読み込めない間は発信を送らない (届かない依頼を「依頼しました」と見せない)
  */
 export function useZoomPhone(enabled: boolean, opts: ZoomOptions = {}): { zoom: ZoomPhone; iframeRef: React.RefObject<HTMLIFrameElement | null> } {
   const { loadTimeoutMs = EMBED_LOAD_TIMEOUT_MS, stallMs = DIAL_STALL_MS } = opts;
@@ -41,6 +44,11 @@ export function useZoomPhone(enabled: boolean, opts: ZoomOptions = {}): { zoom: 
   const [call, setCall] = useState<CallState>(EMPTY_CALL);
   const [pending, setPending] = useState<DialRequest | null>(null);
   const [stalled, setStalled] = useState(false);
+  const [prevEnabled, setPrevEnabled] = useState(enabled);
+  if (prevEnabled !== enabled) {
+    setPrevEnabled(enabled);
+    if (!enabled) { setLoaded(false); setTimedOut(false); setCall(EMPTY_CALL); setPending(null); setStalled(false); }
+  }
 
   useEffect(() => {
     if (!enabled) return;
@@ -69,17 +77,18 @@ export function useZoomPhone(enabled: boolean, opts: ZoomOptions = {}): { zoom: 
   const onLoad = useCallback(() => { setLoaded(true); setTimedOut(false); }, []);
 
   const busy = call.phase === 'ringing' || call.phase === 'connected';
+  const embed: EmbedPhase = !enabled ? 'disabled' : loaded ? 'loaded' : timedOut ? 'timeout' : 'loading';
   const dial = useCallback((rawNumber: string | null | undefined): DialResult => {
-    if (!enabled) return 'embed_unavailable';
+    if (embed === 'disabled' || embed === 'timeout') return 'embed_unavailable';
     if (toE164Jp(rawNumber) === null) return 'not_dialable';
+    if (embed === 'loading') return 'embed_loading';
     if (busy) return 'busy';
     const sent = postMakeCall(iframeRef.current?.contentWindow ?? null, rawNumber);
     if (!sent) return 'embed_unavailable';
     setPending({ number: rawNumber ?? '', at: nowRef.current() });
     setStalled(false);
     return 'sent';
-  }, [enabled, busy]);
+  }, [embed, busy]);
 
-  const embed: EmbedPhase = !enabled ? 'disabled' : loaded ? 'loaded' : timedOut ? 'timeout' : 'loading';
   return { iframeRef, zoom: { embed, onLoad, call, pending, stalled, dial } };
 }

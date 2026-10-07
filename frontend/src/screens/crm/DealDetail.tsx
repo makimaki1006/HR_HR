@@ -4,7 +4,7 @@ import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { dateValue } from './queueModel';
 import { formatPhoneForDisplay, toDomesticPhone } from './phone';
 import { toE164Jp } from './smartEmbed';
-import type { ZoomPhone } from './useZoomPhone';
+import type { DialResult, ZoomPhone } from './useZoomPhone';
 import type { DetailState } from './useDealDetail';
 import {
   ACTIVITY_FILTERS, ACTIVITY_KIND_LABELS, directionLabel, filterActivities, formatDurationMs, formatTimestamp, partialNotes,
@@ -18,9 +18,10 @@ export const rawStopLabel: StopLabel = (_p, v) => v;
 const SOURCE_LABELS: Record<string, string> = { deal: '案件の番号', contact: '担当者の電話', mobile: '担当者の携帯', company: '会社の電話' };
 const ymd = (raw: string | null) => dateValue(raw)?.replaceAll('-', '/') ?? null;
 
-const DIAL_MESSAGES: Record<string, string> = {
+const DIAL_MESSAGES: Record<DialResult, string> = {
   sent: '発信を依頼しました。右の Zoom Phone を確認してください。',
   not_dialable: 'この番号はダイヤルできる形式ではありません。',
+  embed_loading: 'Zoom Phone を読み込み中です。右の枠が表示されてから発信するか、番号のコピー・電話番号のリンク(tel:)を使ってください。',
   embed_unavailable: 'Zoom Phone が使えません。番号のコピーか、電話番号のリンク(tel:)を使ってください。',
   busy: '通話中のため、新しい発信はできません。',
 };
@@ -34,7 +35,7 @@ export function PhoneRow({ label, raw, zoom, primary = false }: { label: string;
   const copyValue = toDomesticPhone(raw) ?? raw;
   const e164 = toE164Jp(raw);
   const [note, setNote] = useState('');
-  function dial() { setNote(DIAL_MESSAGES[zoom.dial(raw)] ?? ''); }
+  function dial() { setNote(DIAL_MESSAGES[zoom.dial(raw)]); }
   function copy() {
     const clip = typeof navigator === 'undefined' ? undefined : (navigator as { clipboard?: Clipboard }).clipboard;
     if (!clip) { setNote('コピーできませんでした。番号を選んでコピーしてください。'); return; }

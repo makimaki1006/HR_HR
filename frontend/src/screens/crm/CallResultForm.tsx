@@ -186,7 +186,7 @@ export function CallResultForm({
       {defsState.phase === 'loading' && <p role="status" className="rf-muted">選択肢を読み込み中…</p>}
       {defsState.phase === 'error' && <div className="cq-notice cq-error rf-defs-error" role="alert">
         <strong>入力欄を表示できません</strong><p>{defsState.message}</p>
-        <p>再試行するか、HubSpot で直接入力してください。</p>
+        <p>入力欄が表示されるまで、この架電先の結果は記録できません。再試行しても表示されないときは管理者に連絡してください。</p>
         <button type="button" onClick={onReloadDefs}>再試行</button></div>}
 
       {ready && <>

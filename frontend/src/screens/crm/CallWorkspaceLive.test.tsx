@@ -5,7 +5,10 @@ import { ApiHttpError } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
-import { CallQueueScreen } from './CallQueueScreen';
+import { CallQueueScreen, bindsToDial } from './CallQueueScreen';
+import type { DialedFor } from './CallQueueScreen';
+import { EMPTY_CALL } from './smartEmbed';
+import type { CallState } from './smartEmbed';
 import { makeItem, makeResponse, okMetadataFetch } from './queueTestUtil';
 import { ZOOM_EMBED_ORIGIN } from './smartEmbed';
 import { fixtureOwnersFetch } from './useOwners';
@@ -61,13 +64,17 @@ const open = (n: string) => { fireEvent.click(within(screen.getByRole('list', { 
 const ok = (data: WorkspaceResponse): ApiResult<WorkspaceResponse> => ({ ok: true, data });
 const fail = (status: number, kind: string): ApiResult<WorkspaceResponse> => ({ ok: false, error: new ApiHttpError(status, { error_kind: kind }) });
 
-/** iframe の contentWindow を偽物に差し替える (happy-dom は外部ページを読まない) */
-function fakeZoomWindow() {
+/**
+ * iframe の contentWindow を偽物に差し替える (happy-dom は外部ページを読まない)。
+ * `load` が true なら iframe の load も起こす (読み込み済みでないと発信は送らない)
+ */
+function fakeZoomWindow({ load = true }: { load?: boolean } = {}) {
   const iframe = screen.getByTitle<HTMLIFrameElement>('Zoom Phone');
   const postMessage = vi.fn();
   const win = { postMessage } as unknown as Window;
   Object.defineProperty(iframe, 'contentWindow', { configurable: true, get: () => win });
-  return { win, postMessage };
+  if (load) fireEvent.load(iframe);
+  return { win, postMessage, iframe };
 }
 function zoomEvent(win: Window, data: unknown, origin = ZOOM_EMBED_ORIGIN) {
   act(() => { window.dispatchEvent(new MessageEvent('message', { origin, source: win as unknown as MessageEventSource, data })); });
@@ -302,20 +309,39 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(within(form).getByRole('group', { name: '今回の結果' }).querySelector('[aria-pressed="true"]')).toBeNull();
   });
 
-  it('shows guidance and keeps copy / tel: available when the embed cannot be loaded or the dial does not start', async () => {
+  it('while the embed is loading or cannot be loaded, a dial is not sent and the copy / tel: guidance shows at once', async () => {
     const { calls, fetcher } = detailFetcher();
     await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { loadTimeoutMs: 40, stallMs: 40 });
     open('1');
     await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
-    fakeZoomWindow();
+    const { postMessage } = fakeZoomWindow({ load: false });
+    // 読み込み中: 送らず、読み込み中だと伝える (「依頼しました」とは言わない)
+    expect(screen.getByText('Zoom Phone を読み込み中…')).toBeTruthy();
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Zoom Phone を読み込み中です。右の枠が表示されてから発信するか/)).toBeTruthy();
+    expect(screen.queryByText(/への発信を依頼しました/)).toBeNull();
     // 読み込みが終わらない (iframe の load が起きない)
     await waitFor(() => { expect(screen.getByText('Zoom Phone を読み込めません')).toBeTruthy(); });
     expect(screen.getByText(/許可ドメインへの登録/)).toBeTruthy();
-    // 発信を依頼したが呼び出しが始まらない
     fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
-    await waitFor(() => { expect(screen.getByText('発信が始まりません')).toBeTruthy(); });
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(screen.getByText('Zoom Phone が使えません。番号のコピーか、電話番号のリンク(tel:)を使ってください。')).toBeTruthy();
+    expect(screen.getByText('通話していません')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /番号をコピー$/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: /tel: で発信$/ }).length).toBeGreaterThan(0);
+  });
+
+  it('shows guidance when the embed is loaded but the dial does not start', async () => {
+    const { calls, fetcher } = detailFetcher();
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { stallMs: 40 });
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    const { postMessage } = fakeZoomWindow();
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    await waitFor(() => { expect(screen.getByText('発信が始まりません')).toBeTruthy(); });
+    expect(screen.queryByText('Zoom Phone を読み込めません')).toBeNull();
   });
 
   it('copies the number, and says so when the clipboard is unavailable', async () => {
@@ -332,6 +358,103 @@ describe('Zoom Phone (Smart Embed)', () => {
     fireEvent.click(first(screen.getAllByRole('button', { name: /番号をコピー$/ })));
     expect(screen.getByText('コピーできませんでした。番号を選んでコピーしてください。')).toBeTruthy();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('bindsToDial', () => {
+  const dialed: DialedFor = { dealId: '1', mode: 'live', number: '+81312345678', staleCallId: 'old', callId: null };
+  const call = (over: Partial<CallState>): CallState => ({ ...EMPTY_CALL, phase: 'ringing', callId: 'new', direction: 'outbound', number: '+81312345678', ...over });
+  it('binds an outbound call to the dialed number', () => { expect(bindsToDial(dialed, call({}))).toBe(true); });
+  it('never binds an inbound call, even from the dialed number', () => {
+    expect(bindsToDial(dialed, call({ direction: 'inbound' }))).toBe(false);
+  });
+  it('never binds an outbound call to a different number', () => {
+    expect(bindsToDial(dialed, call({ number: '+81355550000' }))).toBe(false);
+    // 表記が違うだけの同じ番号は結び付ける
+    expect(bindsToDial(dialed, call({ number: '03-1234-5678' }))).toBe(true);
+  });
+  it('binds when Zoom does not tell the number or the direction', () => {
+    expect(bindsToDial(dialed, call({ number: null }))).toBe(true);
+    expect(bindsToDial(dialed, call({ direction: null }))).toBe(true);
+  });
+  it('never binds the call that was already there at dial time, an idle state, or after a call is already bound', () => {
+    expect(bindsToDial(dialed, call({ callId: 'old' }))).toBe(false);
+    expect(bindsToDial(dialed, call({ phase: 'idle' }))).toBe(false);
+    expect(bindsToDial(dialed, call({ callId: null }))).toBe(false);
+    expect(bindsToDial({ ...dialed, callId: 'x' }, call({}))).toBe(false);
+  });
+});
+
+describe('Zoom Phone と画面の切り替え', () => {
+  const modeBtn = (name: string) => within(screen.getByRole('group', { name: 'データの切り替え' })).getByRole<HTMLButtonElement>('button', { name });
+
+  it('the switch to sample data is disabled during a call (it would close the phone frame and end the call); after it, a fresh frame starts from loading', async () => {
+    const { calls, fetcher } = detailFetcher();
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { loadTimeoutMs: 60_000 });
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    const { win, iframe } = fakeZoomWindow();
+    expect(modeBtn('架空サンプル').disabled).toBe(false);
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    const c1 = { callId: 'c1', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: c1 });
+    expect(modeBtn('架空サンプル').disabled).toBe(true);
+    zoomEvent(win, { type: 'zp-call-connected-event', data: c1 });
+    expect(modeBtn('架空サンプル').disabled).toBe(true);
+    expect(modeBtn('架空サンプル').title).toContain('通話が切れます');
+    fireEvent.click(modeBtn('架空サンプル'));
+    expect(screen.getByTitle('Zoom Phone')).toBe(iframe);
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c1, result: 'ended' } });
+    expect(modeBtn('架空サンプル').disabled).toBe(false);
+    fireEvent.click(modeBtn('架空サンプル'));
+    expect(screen.queryByTitle('Zoom Phone')).toBeNull();
+    fireEvent.click(modeBtn('実データ'));
+    await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
+    // 新しい枠: 前の通話・読み込み済みの状態は残らない
+    expect(screen.getByTitle('Zoom Phone')).not.toBe(iframe);
+    expect(screen.getByText('通話していません')).toBeTruthy();
+    expect(screen.getByText('Zoom Phone を読み込み中…')).toBeTruthy();
+  });
+
+  it('an ended call dialed in live data is not shown on the sample deal with the same id', async () => {
+    const { calls, fetcher } = detailFetcher();
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')]);
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    const { win } = fakeZoomWindow();
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    const c1 = { callId: 'c1', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: c1 });
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c1, result: 'ended' } });
+    expect(screen.getByTestId('ended-call')).toBeTruthy();
+    // 同じ取得関数 (同じ ID の案件) で架空サンプルに切り替え、案件 1 を選ぶ
+    fireEvent.click(modeBtn('架空サンプル'));
+    await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
+    open('1');
+    expect(screen.getByTestId('result-slot').getAttribute('data-deal-id')).toBe('1');
+    expect(screen.queryByTestId('ended-call')).toBeNull();
+  });
+
+  it('after 記録して次へ the phone panel says the call was recorded on the deal it was dialed from (not that it is unlinked)', async () => {
+    const { calls, fetcher } = detailFetcher();
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { now: () => 1_000_000 });
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    const form = await screen.findByRole('form', { name: '架電結果の入力' });
+    await within(form).findByRole('group', { name: '今回の結果' });
+    const { win } = fakeZoomWindow();
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    const c1 = { callId: 'c1', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: c1 });
+    zoomEvent(win, { type: 'zp-call-connected-event', data: c1 });
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c1, result: 'ended' } });
+    fireEvent.click(within(form).getByRole('button', { name: '担当者と会話' }));
+    fireEvent.click(within(form).getByRole('button', { name: /記録して次へ/ }));
+    expect(screen.getByTestId('result-slot').getAttribute('data-deal-id')).toBe('2');
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('この通話の結果は、発信した架電先に記録済みです(HubSpot には未送信)。');
+    // 発信した案件に戻れば、その入力欄に結び付いている案内に戻る
+    open('1');
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は中央下の「架電結果」に下書きとして入力できます。HubSpot にはまだ保存されません。');
   });
 });
 

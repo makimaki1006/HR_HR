@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiHttpError, AuthRequiredError, ApiNetworkError } from '../../api/client';
+import { ApiDataError, ApiHttpError, ApiInvalidResponseError, ApiTimeoutError, AuthRequiredError, ApiNetworkError } from '../../api/client';
 import { DEFAULT_FILTERS } from './queueModel';
 import type { QueueFilters } from './queueModel';
 import { makeItem, makeResponse, deferredFetcher } from './queueTestUtil';
@@ -218,5 +218,49 @@ describe('useCallQueue: states', () => {
     const p = fixtureFetch(DEFAULT_FILTERS, null, ctl.signal);
     ctl.abort();
     expect((await p).ok).toBe(false);
+  });
+});
+
+describe('useCallQueue: a time-out or an unreadable response is not reported as a network failure', () => {
+  const NETWORK = 'ネットワークに接続できませんでした。接続を確認して再試行してください。';
+  it.each([
+    ['timeout', new ApiTimeoutError(35_000), '応答が時間内に返りませんでした。少し待ってから再試行してください。', 'client_timeout'],
+    ['invalid JSON', new ApiInvalidResponseError('bad json'), 'サーバーの応答を読み取れませんでした。再試行し、続くときは管理者に連絡してください。', 'invalid_response'],
+    ['200 with an error body', new ApiDataError('x', { error: 'x' }), 'サーバーの応答を読み取れませんでした。再試行し、続くときは管理者に連絡してください。', 'invalid_response'],
+    ['network', new ApiNetworkError('offline'), NETWORK, null],
+  ])('first page: %s', async (_name, error, message, kind) => {
+    const { calls, fetcher } = deferredFetcher();
+    const { result } = renderHook(() => useCallQueue(f({}), 'live', fetcher));
+    await act(async () => { calls[0]?.resolve({ ok: false, error }); await Promise.resolve(); });
+    expect(result.current.state.phase).toBe('error');
+    expect(result.current.state.message).toBe(message);
+    expect(result.current.state.errorKind).toBe(kind);
+  });
+
+  it('load more: a time-out says so, not that the network is down', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    const F = f({});
+    const { result } = renderHook(() => useCallQueue(F, 'live', fetcher));
+    await act(async () => { calls[0]?.resolve({ ok: true, data: makeResponse(F, [makeItem('1')], { next_cursor: 'c2' }) }); await Promise.resolve(); });
+    act(() => { result.current.loadMore(); });
+    await act(async () => { calls[1]?.resolve({ ok: false, error: new ApiTimeoutError(35_000) }); await Promise.resolve(); });
+    expect(result.current.state.moreError?.message).toBe('応答が時間内に返りませんでした。少し待ってから再試行してください。');
+    expect(result.current.state.items.map(i => i.deal_id)).toEqual(['1']);
+  });
+});
+
+describe('useCallQueue: refreshKey', () => {
+  it('fetches again when the refresh key changes (e.g. the date changed while due=today), and not when it stays the same', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    const F = f({ due: 'today' });
+    const { result, rerender } = renderHook(({ k }: { k: string }) => useCallQueue(F, 'live', fetcher, k), { initialProps: { k: '2026-10-08' } });
+    await act(async () => { calls[0]?.resolve({ ok: true, data: makeResponse(F, [makeItem('old')]) }); await Promise.resolve(); });
+    rerender({ k: '2026-10-08' });
+    expect(calls).toHaveLength(1);
+    rerender({ k: '2026-10-09' });
+    expect(calls).toHaveLength(2);
+    expect(result.current.state.phase).toBe('loading');
+    await act(async () => { calls[1]?.resolve({ ok: true, data: makeResponse(F, [makeItem('new')]) }); await Promise.resolve(); });
+    expect(result.current.state.items.map(i => i.deal_id)).toEqual(['new']);
   });
 });

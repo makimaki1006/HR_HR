@@ -21,6 +21,12 @@ describe('formatPhoneForDisplay', () => {
     ['0120123456', '0120-123-456'],
     ['0570-000-111', '0570-000-111'],
     ['08001234567', '0800-123-4567'],
+    // M2M・特定 IP (020 / 060) と 0990 (ダイヤル Q2)
+    ['02012345678', '020-1234-5678'],
+    ['06012345678', '060-1234-5678'],
+    ['0990123456', '0990-123-456'],
+    // 携帯等でない 11 桁は区切らない (3-4-4 にしない)
+    ['01234567890', '01234567890'],
   ])('%s -> %s', (raw, want) => {
     expect(formatPhoneForDisplay(raw)).toBe(want);
   });
@@ -95,5 +101,22 @@ describe('toDomesticPhone', () => {
       const once = toDomesticPhone(raw);
       expect(toDomesticPhone(once)).toBe(once);
     }
+  });
+});
+
+describe('toDomesticPhone: values that are not a domestic number are returned unchanged', () => {
+  it.each([
+    // 区切りを残したまま返る (数字だけにしない) ことで「国内の番号として扱っていない」と分かる
+    ['0123-4567', '0123-4567'], // 8 桁 (9〜11 桁の外)
+    ['0123-4567-8901', '0123-4567-8901'], // 12 桁
+    ['1234-567-8901', '1234-567-8901'], // 0 も + も無い
+    ['+81 123-4567', '+81 123-4567'], // +81 の後が 7 桁 (0 を補っても 8 桁)
+    ['TEL 03-1234-5678', 'TEL 03-1234-5678'], // 番号以外の文字が入っている
+  ])('%s -> %s', (raw, want) => {
+    expect(toDomesticPhone(raw)).toBe(want);
+  });
+  it('the 9 and 11 digit bounds are domestic', () => {
+    expect(toDomesticPhone('03-123-4567')).toBe('031234567');
+    expect(toDomesticPhone('090-1234-5678')).toBe('09012345678');
   });
 });

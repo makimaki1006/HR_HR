@@ -153,7 +153,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const [filters, setFilters] = useState<QueueFilters>(() => parseFilters(search));
   const [qDraft, setQDraft] = useState(filters.q);
   const [panelOpen, setPanelOpen] = useState(false);
-  const { state, loadMore, reload } = useCallQueue(filters, mode, fetcher);
+  // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
+  const [nowFn] = useState(() => now ?? Date.now);
+  const [today, setToday] = useState(() => todayJst(nowFn()));
+  // 「次回日が来たものだけ」は今日で決まるので、日付が変わったら一覧も取り直す
+  const { state, loadMore, reload } = useCallQueue(filters, mode, fetcher, filters.due === 'today' ? today : '');
   // 選んだ案件。モードを切り替えたら選び直す (実データの ID と架空の ID を取り違えない)
   const [selection, setSelection] = useState<{ id: string; mode: QueueMode } | null>(null);
   const selectedId = selection !== null && selection.mode === mode ? selection.id : null;
@@ -176,9 +180,6 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   });
   const commitStore = (next: DraftStore) => { setPersisted({ store: next, persistFailed: !saveStore(sessionStorageOrNull(), next) }); };
   const [formCollapsed, setFormCollapsed] = useState(false);
-  // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
-  const [nowFn] = useState(() => now ?? Date.now);
-  const [today, setToday] = useState(() => todayJst(nowFn()));
   useEffect(() => {
     const refresh = () => { setToday(todayJst(nowFn())); };
     const t = window.setTimeout(refresh, msUntilNextJstMidnight(nowFn()) + 1000);
@@ -283,8 +284,18 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const draft: ResultDraft = (selKey !== null ? store.drafts[selKey] : undefined) ?? emptyResultDraft();
   const endedCall = zoom.call.phase === 'ended' && dialedFor !== null && dialedFor.mode === mode && dialedFor.dealId === selectedId
     && dialedFor.callId !== null && dialedFor.callId === zoom.call.callId ? zoom.call : null;
-  // 条件を変えて、選んだ案件がいまの一覧から外れた (記録はさせない。一覧で見えない案件を記録して次へ進まない)
-  const offList = state.phase === 'ready' && selectedId !== null && !state.items.some(i => i.deal_id === selectedId);
+  // 一覧が表示されていない (読み込み中・失敗) か、条件を変えて選んだ案件がいまの一覧から外れた。
+  // どちらも記録はさせない (一覧で見えない案件を記録して次へ進まない。次の案件を一覧から選べない)
+  const listReady = state.phase === 'ready';
+  const offList = listReady && selectedId !== null && !state.items.some(i => i.deal_id === selectedId);
+  const recordBlockedNotice = !listReady
+    ? (state.phase === 'loading' ? '一覧を読み込み中です。一覧が表示されてから記録してください。' : '一覧を表示できていないため記録できません。一覧を表示してから記録してください。')
+    : offList ? 'この案件はいまの一覧にありません(条件で外れました)。記録するには一覧に戻してください。' : null;
+  // 発信した案件に結果を記録した後の通話 (別の案件に移っても「結び付いていない」とは言わない)
+  const callRecorded = zoom.call.phase === 'ended' && dialedFor !== null && dialedFor.mode === mode && dialedFor.callId !== null
+    && dialedFor.callId === zoom.call.callId && isRecorded(dialedFor.dealId);
+  // Zoom の通話中にデータを切り替えると枠が外れて通話が切れるので、切り替えさせない
+  const inCall = zoom.call.phase === 'ringing' || zoom.call.phase === 'connected';
 
   function changeDraft(d: ResultDraft) {
     if (selKey === null || selectedId === null) return;
@@ -299,7 +310,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }
   // 記録して次へ: このブラウザで記録済みの印を付け (下書きは残す)、一覧で次の未記録の案件を選ぶ。HubSpot には送らない
   function recordAndNext(): boolean {
-    if (selKey === null || selectedId === null || offList) return false;
+    if (selKey === null || selectedId === null || !listReady || offList) return false;
     // 日付の検証は記録する時点の今日で (画面を開いたまま日付をまたいだとき)
     const fresh = todayJst(nowFn());
     if (fresh !== today) {
@@ -344,7 +355,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       </div>
       <span className="cq-mode-switch" role="group" aria-label="データの切り替え">
         <button type="button" aria-pressed={mode === 'live'} onClick={() => { setMode('live'); }}>実データ</button>
-        <button type="button" aria-pressed={mode === 'fixture'} onClick={() => { setMode('fixture'); }}>架空サンプル</button>
+        <button type="button" aria-pressed={mode === 'fixture'} disabled={inCall}
+          title={inCall ? '通話中は切り替えられません(切り替えると電話の枠が閉じて通話が切れます)' : undefined}
+          onClick={() => { setMode('fixture'); }}>架空サンプル</button>
       </span>
     </header>
 
@@ -432,13 +445,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             defsState={defs.state} onReloadDefs={defs.reload} recorded={isRecorded(selectedId)} onRecord={recordAndNext} onClear={clearDraft}
             collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
             focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
-            recordBlocked={offList} persistFailed={persistFailed}
-            notice={offList ? 'この案件はいまの一覧にありません(条件で外れました)。記録するには一覧に戻してください。'
-              : formNotice?.dealId === selectedId ? formNotice.text : undefined} />
+            recordBlocked={recordBlockedNotice !== null} persistFailed={persistFailed}
+            notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />
         </div>}
       </section>
       <div className="cq-col cq-phone-col">
-        <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} linkedToSelected={endedCall !== null} />
+        <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} link={endedCall !== null ? 'selected' : callRecorded ? 'recorded' : 'none'} />
       </div>
     </div>
   </div>;
