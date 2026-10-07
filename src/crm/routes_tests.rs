@@ -594,7 +594,7 @@ async fn inject_session(session: Session, Json(v): Json<Value>) -> StatusCode {
 fn crm_app(state: Arc<AppState>) -> Router {
     crm_app_with(
         state,
-        CrmAccess::from_list(TEST_EMAIL).with_test_role(TEST_EMAIL, CrmRole::Consultant),
+        CrmAccess::from_list(TEST_EMAIL).with_test_role(TEST_EMAIL, CrmRole::Admin),
     )
 }
 
@@ -766,14 +766,20 @@ async fn oidc_でも許可リスト外は_403() {
     }
 }
 
-/// 許可リストが空でも役割が無ければ (accounts に行なし・ADMIN_EMAILS 外) 403 (fail closed)。
-/// 空の許可リストは「絞り込まない」だけで、役割の無い人を通すわけではない
+/// 許可リストが空なら絞り込まない: 会社ドメインの Google ログインなら (役割・accounts の行が無くても) 認可を通り、
+/// HubSpot 未設定の 503 まで進む。社外ドメインは空リストでも 403 (決定 2026-10-07)
 #[tokio::test(flavor = "multi_thread")]
-async fn 許可リストが空でも役割が無ければ_403() {
+async fn 許可リストが空でも会社ドメインなら通り_社外は_403() {
     let app = crm_app_with(test_state(None, None), CrmAccess::from_list(""));
     let cookie = login_as(&app, "google_oidc", Some("acc-admin")).await;
     for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {
         let (status, _, v) = get_json(&app, p, &cookie).await;
+        assert_ne!(status, StatusCode::FORBIDDEN, "{p}: {v}");
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "{p}: {v}");
+    }
+    let outsider = login_as_email(&app, "taro@example.com", "google_oidc", None).await;
+    for p in ALL_PATHS.iter().chain(&["/api/crm/metadata"]) {
+        let (status, _, v) = get_json(&app, p, &outsider).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{p}");
         assert_eq!(v["error_kind"], "forbidden", "{p}");
     }

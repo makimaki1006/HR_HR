@@ -6,9 +6,14 @@ export type CallQueueScope = {
  */
 owner: string, 
 /**
- * `admin` / `consultant` / `bpo` (`accounts.role`。`rbac::authorize` が読む)
+ * `admin` (全員分を読める管理者) / `own` (それ以外の全員 = 自分の担当分だけ)
  */
 role: string, 
+/**
+ * ログインした人の HubSpot owner の所属チーム名 (画面の隅の参考表示だけ。見られる範囲の判定には使わない)。
+ * 管理者は HubSpot を余分に呼ばないので空。owner が見つからない人はキューが 403 になるのでここには来ない
+ */
+teams: Array<string>, 
 /**
  * 実際に絞り込んだステージ ID (昇順)
  */

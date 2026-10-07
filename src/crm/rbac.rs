@@ -2,41 +2,38 @@
 //!
 //! 許可条件 (すべて満たすこと):
 //! 1. ログイン済み (セッションに email がある)。無ければ **401** (`login_required`、JSON)
-//! 2. ログイン方式が Google Workspace OIDC。パスワードログイン (社内共通 / 外部期限付き) は
+//! 2. ログイン方式が Google Workspace OIDC (会社ドメインの本人確認済み)。パスワードログイン (社内共通 / 外部期限付き) は
 //!    個人を特定できないので **403** (`google_login_required`)
 //! 3. `CRM_METADATA_ALLOWED_EMAILS` (カンマ区切り、大文字小文字を区別しない完全一致) が**設定されているときだけ**、
 //!    その中にあること (追加の絞り込み。非常時に全員を一括で止める栓として残す)。
-//!    空・未設定なら絞り込まない (役割だけで決まる)。外れたら **403** (`forbidden`)
+//!    空・未設定なら絞り込まない。外れたら **403** (`forbidden`)
 //! 4. 監査 DB で無効化されたアカウントでない。無効なら **403** (`account_disabled`)
 //!    (監査 DB 未接続・照会失敗のときは止めない = `crate::account_is_disabled` の方針)
-//! 5. 役割が admin / consultant / bpo のいずれか。user (既定・未知の値・空・行なし) は **403** (`forbidden`)
+//! 5. メールのドメインが会社ドメイン (`ALLOWED_DOMAINS`、外部追加ドメインは含めない)。外れたら **403** (`forbidden`)
 //!
-//! ## 役割 (`accounts.role`、audit Turso。決定 2026-10-01)
-//! | 役割 | 読める範囲 |
-//! |---|---|
-//! | admin | metadata、キュー全員分 (既定)、担当者一覧、全レコード |
-//! | consultant | metadata、キュー全員分 (既定)、全レコード。担当者一覧は不可 |
-//! | bpo | metadata、キューは自分の担当だけ、レコードは「自分が担当で架電キューの条件に合う Deal」と、その Deal に紐づく Contact / Company だけ |
-//! | user | CRM 不可 |
+//! ## 見られる範囲 (決定 2026-10-07)
+//! 会社の Google アカウントでログインした人は全員 CRM の「ユーザー」。範囲は 2 種類だけ。
+//! | 区分 | 判定 | 読める範囲 |
+//! |---|---|---|
+//! | 管理者 | `ADMIN_EMAILS` または `accounts.role = admin` | metadata、キュー全員分 (既定)、担当者一覧、全レコード |
+//! | 上記以外の全員 | (既定) | metadata、キューは自分の担当だけ、レコードは「自分が担当で架電キューの条件に合う Deal」と、その Deal に紐づく Contact / Company だけ |
 //!
-//! 値は前後の空白を除き小文字にして完全一致で解釈する。上の 4 つ以外は user (最小権限)。
-//! 同じメールの行が複数あるときは最小権限を採る。
+//! - `accounts.role` の consultant / bpo / user は**判定に使わない** (admin だけ使う)。
+//! - HubSpot の所属チーム (owner の `teams`) は範囲の判定に使わない。画面の隅に参考表示するだけ。
+//! - 自分の HubSpot owner が (メール一致で) 見つからない人、Owners の取得に失敗したときは、全件に倒さず
+//!   403 `owner_not_found` / HubSpot エラー (安全側)。
 //!
-//! ## 読み取りと失敗時の方針 (権限を広げない)
-//! - リクエストごとには引かず、メールごとに 5 分キャッシュする ([`ROLE_CACHE_TTL`])。管理画面で役割を変えたときは
+//! ## 管理者の読み取りと失敗時の方針 (権限を広げない)
+//! - `accounts.role` はリクエストごとには引かず、メールごとに 5 分キャッシュする ([`ROLE_CACHE_TTL`])。管理画面で変えたときは
 //!   同じプロセスのキャッシュを即時に捨てる ([`invalidate_role`])。別プロセスには最大 5 分かけて反映される。
-//! - 監査 DB が未接続・照会に失敗したときは役割を読めない。このとき `ADMIN_EMAILS` に載っている人だけ admin
-//!   (accounts を読めないときの非常口。従来の暫定判定と同じ範囲)、それ以外は user = CRM 不可。
-//!   **キャッシュに残っている古い役割は使わない** (期限切れの値を「障害中の代替」にしない)。
-//!   失敗は 30 秒だけ覚えて、監査 DB を叩き続けない。
-//! - accounts に行が無いときも同様 (ログイン時に自動登録される。`ADMIN_EMAILS` の人は admin で作られる)。
-//! - accounts に行があるときは行の値が正。`ADMIN_EMAILS` の人を管理画面で降格しても、次のログインで admin に戻る
-//!   (`audit::dao::upsert_account` の昇格)。このため管理画面は `ADMIN_EMAILS` の人の降格を 409 で断る。
+//! - 監査 DB が未接続・照会に失敗したときは `ADMIN_EMAILS` の人だけ admin (非常口)、それ以外は管理者でない (= 自分の分だけ)。
+//!   **キャッシュに残っている古い役割は使わない**。失敗は 30 秒だけ覚えて、監査 DB を叩き続けない。
+//! - `ADMIN_EMAILS` の人は accounts.role に関わらず admin (従来どおり次のログインで admin に戻るため)。
 //!
 //! 未ログインでも HTML の /login へ 303 せず JSON の 401 を返す (fetch から呼ばれるため)。
 //! このため `/api/crm/*` は共有の auth_middleware (リダイレクト) の外に置く。
 //!
-//! レコード単位の制限 (BPO) は `record_gate.rs`。
+//! レコード単位の制限 (管理者以外) は `record_gate.rs`。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -112,13 +109,9 @@ impl CrmRole {
         }
     }
 
-    pub fn can_use_crm(self) -> bool {
-        self != CrmRole::User
-    }
-
-    /// 担当者・キューの条件に関わらず全レコードを読めるか (admin / consultant)
+    /// 担当者・キューの条件に関わらず全レコードを読めるか (管理者だけ。consultant 等の値は判定に使わない)
     pub fn reads_all_records(self) -> bool {
-        matches!(self, CrmRole::Admin | CrmRole::Consultant)
+        self == CrmRole::Admin
     }
 }
 
@@ -133,22 +126,19 @@ pub enum RoleLookup {
     Unavailable,
 }
 
-/// 役割の最終判定。行があれば行が正。読めない・行が無いときは `ADMIN_EMAILS` の人だけ admin、他は user。
+/// 役割の最終判定。管理者 (`ADMIN_EMAILS` の人、または accounts.role = admin) は [`CrmRole::Admin`]。
+/// それ以外の全員は **[`CrmRole::Bpo`] = 自分の担当分だけ** (名前は旧来のもので、BPO かどうかは見ていない)。
+/// consultant / user などの値は見ない。
 pub fn finalize_role(lookup: RoleLookup, email: &str, admin_emails: &[String]) -> CrmRole {
-    match lookup {
-        RoleLookup::Found(r) => r,
-        RoleLookup::NoRow | RoleLookup::Unavailable => {
-            let email = email.trim();
-            if !email.is_empty()
-                && admin_emails
-                    .iter()
-                    .any(|a| a.trim().eq_ignore_ascii_case(email))
-            {
-                CrmRole::Admin
-            } else {
-                CrmRole::User
-            }
-        }
+    let email = email.trim();
+    let in_env = !email.is_empty()
+        && admin_emails
+            .iter()
+            .any(|a| a.trim().eq_ignore_ascii_case(email));
+    if in_env || lookup == RoleLookup::Found(CrmRole::Admin) {
+        CrmRole::Admin
+    } else {
+        CrmRole::Bpo
     }
 }
 
@@ -437,13 +427,14 @@ pub async fn authorize(
     let mut principal = load_principal(session).await;
     can_read(&principal, record, access)?;
     let email = principal.email.clone().unwrap_or_default();
+    // 会社ドメイン (ALLOWED_DOMAINS。外部追加ドメインは含めない)。OIDC のログイン時にも見ているが、ここでも確かめる
+    if !crate::auth::validate_email_domain(&email, &state.config.allowed_domains) {
+        return Err(Denied::NotAllowed);
+    }
     if crate::account_is_disabled(state, &email).await {
         return Err(Denied::AccountDisabled);
     }
     let role = access.role_of(state, &email).await;
-    if !role.can_use_crm() {
-        return Err(Denied::NotAllowed);
-    }
     principal.role = Some(role);
     Ok(principal)
 }
@@ -576,46 +567,39 @@ mod tests {
         assert_eq!(CrmRole::parse_known("bpo"), Some(CrmRole::Bpo));
         assert_eq!(CrmRole::parse_known("boss"), None);
         assert_eq!(CrmRole::parse_known(""), None);
-        // CRM を使えるのは user 以外、全レコードを読めるのは admin / consultant だけ
-        assert!(!CrmRole::User.can_use_crm());
-        assert!(CrmRole::Bpo.can_use_crm());
+        // 全レコードを読めるのは admin だけ
         assert!(CrmRole::Admin.reads_all_records());
-        assert!(CrmRole::Consultant.reads_all_records());
+        assert!(!CrmRole::Consultant.reads_all_records());
         assert!(!CrmRole::Bpo.reads_all_records());
         assert!(!CrmRole::User.reads_all_records());
     }
 
-    /// 読み取り結果 × ADMIN_EMAILS の表。行があれば行が正。読めない・行なしのときだけ非常口
+    /// 読み取り結果 × ADMIN_EMAILS の表。管理者 = ADMIN_EMAILS か accounts.role=admin。それ以外は全員「自分の分だけ」(Bpo)
     #[test]
-    fn 最終判定の表_行が正で_非常口は_admin_emails_だけ() {
+    fn 最終判定の表_管理者以外は全員自分の分だけ() {
         let admins = vec![" Boss@f-a-c.co.jp ".to_string()];
         let boss = "boss@f-a-c.co.jp";
         let staff = "staff@f-a-c.co.jp";
         type Case<'a> = (RoleLookup, &'a str, CrmRole);
+        let own = CrmRole::Bpo;
         let cases: &[Case] = &[
-            // 行がある: 行の値 (ADMIN_EMAILS でも降格されていれば降格のまま)
-            (RoleLookup::Found(CrmRole::Bpo), boss, CrmRole::Bpo),
-            (RoleLookup::Found(CrmRole::User), boss, CrmRole::User),
             (RoleLookup::Found(CrmRole::Admin), staff, CrmRole::Admin),
-            (
-                RoleLookup::Found(CrmRole::Consultant),
-                staff,
-                CrmRole::Consultant,
-            ),
-            // 行なし・読めない: ADMIN_EMAILS だけ admin、他は user
+            // ADMIN_EMAILS は accounts の値に関わらず admin
+            (RoleLookup::Found(CrmRole::Bpo), boss, CrmRole::Admin),
+            (RoleLookup::Found(CrmRole::User), boss, CrmRole::Admin),
             (RoleLookup::NoRow, boss, CrmRole::Admin),
             (RoleLookup::Unavailable, boss, CrmRole::Admin),
             (RoleLookup::Unavailable, "BOSS@F-A-C.CO.JP", CrmRole::Admin),
-            (RoleLookup::NoRow, staff, CrmRole::User),
-            (RoleLookup::Unavailable, staff, CrmRole::User),
-            (RoleLookup::Unavailable, "", CrmRole::User),
+            // consultant / bpo / user の値は判定に使わない (全員 自分の分だけ)
+            (RoleLookup::Found(CrmRole::Consultant), staff, own),
+            (RoleLookup::Found(CrmRole::Bpo), staff, own),
+            (RoleLookup::Found(CrmRole::User), staff, own),
+            (RoleLookup::NoRow, staff, own),
+            (RoleLookup::Unavailable, staff, own),
+            (RoleLookup::Unavailable, "", own),
             // 部分一致は昇格しない
-            (
-                RoleLookup::Unavailable,
-                "boss@f-a-c.co.jp.evil.com",
-                CrmRole::User,
-            ),
-            (RoleLookup::Unavailable, "xboss@f-a-c.co.jp", CrmRole::User),
+            (RoleLookup::Unavailable, "boss@f-a-c.co.jp.evil.com", own),
+            (RoleLookup::Unavailable, "xboss@f-a-c.co.jp", own),
         ];
         for (lookup, email, want) in cases {
             assert_eq!(
@@ -625,10 +609,7 @@ mod tests {
             );
         }
         // ADMIN_EMAILS が空なら非常口は無い
-        assert_eq!(
-            finalize_role(RoleLookup::Unavailable, boss, &[]),
-            CrmRole::User
-        );
+        assert_eq!(finalize_role(RoleLookup::Unavailable, boss, &[]), own);
     }
 
     /// キャッシュの有効期限 (成功 5 分 / 失敗 30 秒)、大文字小文字・空白の吸収、invalidate
