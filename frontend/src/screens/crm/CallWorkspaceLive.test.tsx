@@ -132,7 +132,7 @@ describe('架電ワークスペース (実データ)', () => {
     await renderQueue(fetcher);
     open('1');
     await act(async () => { calls[0]?.resolve(fail(403, 'forbidden_record')); await Promise.resolve(); });
-    expect(screen.getByRole('alert').textContent).toContain('担当でキューに出ている案件ではない');
+    expect(screen.getByRole('alert').textContent).toContain('表示する権限がありません');
     expect(screen.queryByRole('article')).toBeNull();
     open('2');
     await act(async () => { calls[1]?.resolve(fail(503, 'hubspot_rate_limited')); await Promise.resolve(); });

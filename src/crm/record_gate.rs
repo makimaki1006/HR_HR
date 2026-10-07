@@ -1,10 +1,11 @@
-//! BPO のレコード単位の制限 (`GET /api/crm/{contacts|companies|deals}/{id}` の本文を返す前の関門)。
+//! レコード単位の関門 (`GET /api/crm/{contacts|companies|deals}/{id}` の本文を返す前)。
 //!
-//! 決定 (2026-10-01): BPO は「架電キューに出たレコードだけ」読める。
+//! 決定 (2026-10-07): CRM の利用者は全員、全件を読める。**この関門は CRM の利用者には掛けない**
+//! (`CrmRole::reads_all_records()` が true の人は通らない)。役割が決まっていない (最小権限 `user`) 場合だけ、
+//! 安全側の備えとして従来の制限を掛ける。通常の経路では呼ばれない。
 //! - **Deal**: 自分 (本人のメールに対応する HubSpot owner) が担当で、キューの条件 ([`deal_in_queue`]) に合う Deal だけ。
 //! - **Contact / Company**: 上の条件に合う Deal に紐づくものだけ (Contact → deals / Company → deals の関連を引き、
 //!   その Deal を 1 回の batch で読んで同じ条件を当てる)。
-//! - admin / consultant は関門を通らない (全レコード)。
 //!
 //! 外れたら 403 `forbidden_record`。HubSpot の本文 (レコードの値) は一切返さず、**存在しない id も同じ 403**
 //! (404 だと id の存在を探れるため)。関門の読み取りが HubSpot の障害で失敗したときはそのエラー (固定文言) を返し、

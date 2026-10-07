@@ -1,6 +1,6 @@
-//! `GET /api/crm/owners` (管理者のみ。架電キューの担当者の絞り込みを名前で選ぶための一覧)。
+//! `GET /api/crm/owners` (CRM の利用者全員。架電キューの所有者を名前で選ぶための一覧)。
 //!
-//! 処理順: 認可 (`rbac::authorize`、未ログイン 401 / 許可外 403) → 役割 (admin 以外は 403 `forbidden`)
+//! 処理順: 認可 (`rbac::authorize`、未ログイン 401 / 許可外 403)
 //! → HubSpot 未設定 503 → 一覧 (10 分キャッシュ)。**認可で落ちる限り HubSpot は 1 回も呼ばない**。
 //!
 //! HubSpot Owners API は有効な人 (`archived=false`) と退職者 (`archived=true`) を別の呼び出しで返し、
@@ -9,7 +9,7 @@
 //! 失敗はキャッシュしない。同時に冷えた要求は 1 回の取得にまとめる。
 //!
 //! 名前は姓名を空白で結合。空なら email の @ より前、それも無ければ `(名前なし)`。
-//! email は管理者向けの同名の人の見分けに付ける。
+//! email は同名の人の見分けに付ける (CRM の利用者 = 社内の人だけが見られる)。
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -25,7 +25,7 @@ use serde_json::Value;
 use tower_sessions::Session;
 use ts_rs::TS;
 
-use super::rbac::{self, CrmRole};
+use super::rbac;
 use super::routes::{
     error_json, hubspot_error_response, timeout_response, CrmCtx, CRM_REQUEST_DEADLINE,
 };
@@ -188,12 +188,9 @@ pub(super) async fn get_owners(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<Arc<CrmCtx>>,
 ) -> Response {
-    let principal = match rbac::authorize(&session, &state, &ctx.access, None).await {
-        Ok(p) => p,
-        Err(denied) => return denied.into_response(),
-    };
-    if rbac::resolve_role(&principal) != CrmRole::Admin {
-        return error_json(StatusCode::FORBIDDEN, "forbidden");
+    // 一覧は CRM の利用者全員が使える (所有者の選択のため)。認可で落ちる人は HubSpot を呼ばない
+    if let Err(denied) = rbac::authorize(&session, &state, &ctx.access, None).await {
+        return denied.into_response();
     }
     let Some(client) = state.hubspot.clone() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");

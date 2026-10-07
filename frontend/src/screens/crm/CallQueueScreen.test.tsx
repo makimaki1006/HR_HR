@@ -89,7 +89,7 @@ describe('CallQueueScreen', () => {
     expect(calls[1]?.cursor).toBeNull();
   });
 
-  it('unauthorized: 401 and forbidden owner are distinct; the latter offers to drop the owner condition', async () => {
+  it('unauthorized: 401 shows the login message; plain 403 shows the permission message (no owner-specific dead end any more)', async () => {
     const a = deferredFetcher();
     render(<CallQueueScreen fetcher={a.fetcher} initialSearch="?view=queue" />);
     await act(async () => { a.calls[0]?.resolve({ ok: false, error: new ApiHttpError(401) }); await Promise.resolve(); });
@@ -97,11 +97,9 @@ describe('CallQueueScreen', () => {
     cleanup();
     const b = deferredFetcher();
     render(<CallQueueScreen fetcher={b.fetcher} initialSearch="?view=queue&owner=unassigned" />);
-    await act(async () => { b.calls[0]?.resolve({ ok: false, error: new ApiHttpError(403, { error_kind: 'forbidden_owner' }) }); await Promise.resolve(); });
-    expect(screen.getByRole('alert').textContent).toContain('管理者だけ');
-    fireEvent.click(screen.getByText('担当者の指定を外す'));
-    expect(b.calls).toHaveLength(2);
-    expect(b.calls[1]?.filters.owner).toBe('');
+    await act(async () => { b.calls[0]?.resolve({ ok: false, error: new ApiHttpError(403, { error_kind: 'forbidden' }) }); await Promise.resolve(); });
+    expect(screen.getByRole('alert').textContent).toContain('権限がありません');
+    expect(screen.queryByText('担当者の指定を外す')).toBeNull();
   });
 
   it('restores every condition from the URL and sends exactly those to the fetcher', () => {
@@ -151,21 +149,23 @@ describe('CallQueueScreen', () => {
     expect(calls[1]?.filters.q).toBe('架空');
   });
 
-  it('owner control is only for admins; choosing unassigned refetches with owner=unassigned', async () => {
+  it('owner control is for everyone; choosing unassigned refetches with owner=unassigned, and the note names the shown owner', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
-    expect(screen.queryByLabelText('担当者')).toBeNull();
     await ready(calls, [makeItem('1')], {});
-    const owner = screen.getByLabelText('担当者');
+    const owner = screen.getByLabelText('所有者');
+    expect((owner as HTMLSelectElement).value).toBe('all');
+    expect(screen.getByTestId('scope-note').textContent).toContain('所有者: 全員 を表示中');
     fireEvent.change(owner, { target: { value: 'unassigned' } });
     expect(calls[1]?.filters.owner).toBe('unassigned');
-    // BPO (role=bpo) には出さない
+    // 管理者でない人 (role=own) にも出る。既定は自分
     cleanup();
     const b = deferredFetcher();
     render(<CallQueueScreen fetcher={b.fetcher} initialSearch="?view=queue" />);
     const resp = makeResponse(DEFAULT_FILTERS, [makeItem('1')]);
     await act(async () => { b.calls[0]?.resolve({ ok: true, data: { ...resp, scope: { ...resp.scope, role: 'own', owner: 'me' } } }); await Promise.resolve(); });
-    expect(screen.queryByLabelText('担当者')).toBeNull();
+    expect(screen.getByLabelText<HTMLSelectElement>('所有者').value).toBe('me');
+    expect(screen.getByTestId('scope-note').textContent).not.toContain('自分の担当分だけ');
   });
 
   it('load more appends below, drops duplicates, and shows the end marker', async () => {
@@ -191,8 +191,10 @@ describe('CallQueueScreen', () => {
       fireEvent.click(screen.getByRole('button', { name: '実データ' }));
       expect(screen.getByText('実データ(HubSpot)')).toBeTruthy();
       await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('ネットワーク'); });
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0]?.[0]).toBe('/api/crm/call-queue?limit=25');
+      // キュー (1 回) と、所有者の一覧 (全員が使う。実データのときだけ) だけ
+      const urls = spy.mock.calls.map(c => (typeof c[0] === 'string' ? c[0] : ''));
+      expect(urls.filter(u => u.startsWith('/api/crm/call-queue'))).toEqual(['/api/crm/call-queue?limit=25']);
+      expect(urls.filter(u => !u.startsWith('/api/crm/call-queue'))).toEqual(['/api/crm/owners']);
       expect(screen.queryByText('架空食品株式会社')).toBeNull();
     } finally { vi.unstubAllGlobals(); }
   });
