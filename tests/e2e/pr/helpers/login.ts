@@ -1,16 +1,16 @@
 import { expect, Page } from '@playwright/test';
 import { E2E_EMAIL, E2E_PASSWORD, PR_BASE_URL } from './fixture_values';
 
-/** ログインして / のダッシュボード (ヘッダーの「ログイン: <email>」) が出るまで待つ。 */
-export async function login(page: Page): Promise<void> {
+/** ログインして (email 省略時は E2E_EMAIL。共有パスワードなので許可ドメインのどのアドレスでも入れる) / のダッシュボード (ヘッダーの「ログイン: <email>」) が出るまで待つ。 */
+export async function login(page: Page, email: string = E2E_EMAIL): Promise<void> {
   await page.goto('/login');
-  await page.fill('#email', E2E_EMAIL);
+  await page.fill('#email', email);
   await page.fill('#password', E2E_PASSWORD);
   await Promise.all([
     page.waitForURL((u) => u.pathname === '/'),
     page.click("form[action='/login'] button[type=submit]"),
   ]);
-  await expect(page.getByText(`ログイン: ${E2E_EMAIL}`)).toBeVisible();
+  await expect(page.getByText(`ログイン: ${email}`)).toBeVisible();
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EMPTY_CALL, parseZoomMessage, postMakeCall, reduceCall, toE164Jp } from './smartEmbed';
 import type { CallState } from './smartEmbed';
 
@@ -90,5 +90,7 @@ export function useZoomPhone(enabled: boolean, opts: ZoomOptions = {}): { zoom: 
     return 'sent';
   }, [embed, busy]);
 
-  return { iframeRef, zoom: { embed, onLoad, call, pending, stalled, dial } };
+  // 値が変わらない間は同じオブジェクトを返す (受け取る詳細欄・電話欄を描き直さない)
+  const zoom = useMemo<ZoomPhone>(() => ({ embed, onLoad, call, pending, stalled, dial }), [embed, onLoad, call, pending, stalled, dial]);
+  return { iframeRef, zoom };
 }

@@ -225,7 +225,7 @@ export interface HubSpotDealPatch { properties: Record<string, string> }
  * - 表示・入力の対象になっている項目のうち、空でないものだけ
  * - 日付 (bpo_13 / bpo_23) は JST の暦日をそのまま YYYY-MM-DD (HubSpot の date は日付だけ。Date に通すとずれる)
  * - 時間・選択肢は選択肢の値 (表示ラベルではない)
- * - 許可リスト (FIELD_PROPERTY) 以外の内部名は入れない
+ * - 許可リスト (RESULT_PROPERTY_ALLOWLIST) 以外の内部名は入れない (FIELD_PROPERTY に項目を足しても、許可リストに足さない限り送らない)
  */
 export function toHubSpotPatch(d: ResultDraft, defs: Record<string, MocPropertyDefinition>, today: string): HubSpotDealPatch | null {
   if (!isDraftValid(d, defs, today)) return null;
@@ -264,12 +264,17 @@ export const draftKey = (mode: string, dealId: string) => `${mode}:${dealId}`;
 const OUTCOMES = Object.keys(CALL_RESULTS) as CallResult[];
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** 保存されていた値を検証して戻す。形が違う下書きは捨てる */
-export function parseStore(raw: string | null): DraftStore {
+/**
+ * 保存されていた値を検証して戻す。形が違う下書きは捨てる。
+ * `user` を渡したら、その人が保存したものだけを戻す (共用の PC で、同じタブで別の人がログインし直しても前の人のメモを見せない)。
+ * 保存した人が書かれていない・違う人のものは空として扱う (呼び出し側が次に保存したときに上書きされて消える)
+ */
+export function parseStore(raw: string | null, user?: string): DraftStore {
   if (raw === null) return emptyStore();
   let v: unknown;
   try { v = JSON.parse(raw); } catch { return emptyStore(); }
   if (!isObj(v)) return emptyStore();
+  if (user !== undefined && (typeof v.user !== 'string' || v.user.toLowerCase() !== user.toLowerCase())) return emptyStore();
   const store = emptyStore();
   if (isObj(v.drafts)) {
     for (const [k, d] of Object.entries(v.drafts)) {
@@ -291,13 +296,17 @@ export function parseStore(raw: string | null): DraftStore {
   return store;
 }
 
-export function loadStore(storage: Pick<Storage, 'getItem'> | null): DraftStore {
-  try { return parseStore(storage?.getItem(DRAFT_STORAGE_KEY) ?? null); } catch { return emptyStore(); }
+/** ログインしている人 (メールアドレス) が保存した下書きだけを読む。別の人のものは読まない */
+export function loadStore(storage: Pick<Storage, 'getItem'> | null, user: string): DraftStore {
+  try { return parseStore(storage?.getItem(DRAFT_STORAGE_KEY) ?? null, user); } catch { return emptyStore(); }
 }
-/** 保存できたら true。sessionStorage が使えない・書けない (容量・設定) ときは false (画面の中だけで持ち、画面に赤で知らせる) */
-export function saveStore(storage: Pick<Storage, 'setItem'> | null, store: DraftStore): boolean {
+/**
+ * 保存できたら true。sessionStorage が使えない・書けない (容量・設定) ときは false (画面の中だけで持ち、画面に赤で知らせる)。
+ * 保存した人も一緒に書く (別の人の下書きは丸ごと置き換わる)
+ */
+export function saveStore(storage: Pick<Storage, 'setItem'> | null, store: DraftStore, user: string): boolean {
   if (storage === null) return false;
-  try { storage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(store)); return true; } catch { return false; }
+  try { storage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ user, ...store })); return true; } catch { return false; }
 }
 export function sessionStorageOrNull(): Storage | null {
   try { return typeof window === 'undefined' ? null : window.sessionStorage; } catch { return null; }

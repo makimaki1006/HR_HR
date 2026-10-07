@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { WorkspaceActivity } from '../../generated/WorkspaceActivity';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { dateValue } from './queueModel';
@@ -176,9 +176,12 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-export function DealDetail({ state, reload, zoom, ownerName, stopLabel = rawStopLabel }: {
+function DealDetailImpl({ state, reload, zoom, ownerName, stopLabel = rawStopLabel }: {
   state: DetailState; reload: () => void; zoom: ZoomPhone; ownerName?: string | undefined; stopLabel?: StopLabel;
 }) {
   if (state.phase === 'ready' && state.data !== null) return <Detail data={state.data} zoom={zoom} ownerName={ownerName} stopLabel={stopLabel} />;
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }
+
+/** 親 (架電画面) が架電結果の入力のたびに描き直しても、props が同じなら描き直さない */
+export const DealDetail = memo(DealDetailImpl);

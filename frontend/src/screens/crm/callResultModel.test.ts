@@ -259,13 +259,25 @@ describe('draft store', () => {
   });
   it('load / save survive a storage that throws', () => {
     const throwing = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('quota'); } };
-    expect(loadStore(throwing)).toEqual({ drafts: {}, recorded: {} });
-    expect(saveStore(throwing, { drafts: {}, recorded: {} })).toBe(false);
-    expect(saveStore(null, { drafts: {}, recorded: {} })).toBe(false);
+    expect(loadStore(throwing, 'a@example.invalid')).toEqual({ drafts: {}, recorded: {} });
+    expect(saveStore(throwing, { drafts: {}, recorded: {} }, 'a@example.invalid')).toBe(false);
+    expect(saveStore(null, { drafts: {}, recorded: {} }, 'a@example.invalid')).toBe(false);
     const mem = new Map<string, string>();
-    expect(saveStore({ setItem: (k, v) => { mem.set(k, v); } }, { drafts: { 'live:9': draft({ memo: 'a' }) }, recorded: {} })).toBe(true);
-    expect(loadStore({ getItem: k => mem.get(k) ?? null }).drafts['live:9']?.memo).toBe('a');
+    expect(saveStore({ setItem: (k, v) => { mem.set(k, v); } }, { drafts: { 'live:9': draft({ memo: 'a' }) }, recorded: {} }, 'a@example.invalid')).toBe(true);
+    expect(loadStore({ getItem: k => mem.get(k) ?? null }, 'a@example.invalid').drafts['live:9']?.memo).toBe('a');
     expect([...mem.keys()]).toEqual([DRAFT_STORAGE_KEY]);
+    expect(JSON.parse(mem.get(DRAFT_STORAGE_KEY) ?? '{}')).toMatchObject({ user: 'a@example.invalid' });
+  });
+  it('only the person who saved the drafts gets them back (shared PC, another login on the same tab)', () => {
+    const mem = new Map<string, string>();
+    const storage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => { mem.set(k, v); } };
+    saveStore(storage, { drafts: { 'live:1': draft({ outcome: 'connected', memo: '先方の事情' }) }, recorded: { 'live:1': true } }, 'a@example.invalid');
+    expect(loadStore(storage, 'b@example.invalid')).toEqual({ drafts: {}, recorded: {} });
+    // メールアドレスの大文字小文字だけの違いは同じ人
+    expect(loadStore(storage, 'A@Example.invalid').recorded).toEqual({ 'live:1': true });
+    // 保存した人が書かれていない (以前の形式)・文字列でないものは誰のものか分からないので戻さない
+    expect(parseStore(JSON.stringify({ drafts: { 'live:1': { memo: 'x' } }, recorded: { 'live:1': true } }), 'a@example.invalid')).toEqual({ drafts: {}, recorded: {} });
+    expect(parseStore(JSON.stringify({ user: 5, drafts: {}, recorded: { 'live:1': true } }), 'a@example.invalid')).toEqual({ drafts: {}, recorded: {} });
   });
 });
 

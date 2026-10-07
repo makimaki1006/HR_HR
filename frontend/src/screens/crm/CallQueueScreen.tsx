@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
 import { OwnerFilter } from './OwnerFilter';
@@ -22,12 +22,14 @@ import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
 import { PARTIAL_LABELS } from './workspaceModel';
 import {
-  clearDraftEntry, draftKey, editDraft, emptyResultDraft, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, optionLabel, saveStore,
+  clearDraftEntry, draftKey, editDraft, emptyResultDraft, emptyStore, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, optionLabel, saveStore,
   sessionStorageOrNull, todayJst, validateResultDraft,
 } from './callResultModel';
 import type { DraftStore, ResultDraft } from './callResultModel';
 import { useResultDefinitions } from './useResultDefinitions';
 import type { MetadataFetch } from './useResultDefinitions';
+import { useCurrentUser } from './useCurrentUser';
+import type { UserFetch } from './useCurrentUser';
 import type { DialResult, ZoomPhone } from './useZoomPhone';
 import { toE164Jp } from './smartEmbed';
 import type { CallState } from './smartEmbed';
@@ -113,7 +115,8 @@ export const RECORDED_TITLE = 'この画面(タブ)だけに残ります。タ�
 export const UNSAVED_RECORDED_TITLE = '入力をこの画面に残せていません。閉じたり再読み込みしたりすると消えます。HubSpot にも保存されていません';
 
 
-function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect }: {
+/** 行は props が同じなら描き直さない (架電結果を 1 文字打つたび・矢印キーで 1 行動くたびに全行を描き直さない) */
+const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect }: {
   item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; unsaved: boolean;
   stopLabel: StopLabel; onSelect: (id: string) => void;
 }) {
@@ -150,10 +153,10 @@ function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, sto
       </span>
     </button>
   </li>;
-}
+});
 
-export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, zoomOptions, initialSearch, now }: {
-  fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; metadataFetcher?: MetadataFetch;
+export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, zoomOptions, initialSearch, now }: {
+  fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; metadataFetcher?: MetadataFetch; userFetcher?: UserFetch;
   zoomOptions?: ZoomOptions | undefined; initialSearch?: string; now?: () => number;
 }) {
   const search = initialSearch ?? window.location.search;
@@ -185,13 +188,24 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const announce = useCallback((text: string) => { setAnnouncement(a => ({ text, n: a.n + 1 })); }, []);
 
   // 架電結果の下書き (案件ごと、このタブの sessionStorage に残す。HubSpot には送らない)
-  // 書き込めるかは開いた時点で 1 回試し、以後は変えるたびに書いた結果で更新する。
-  // 残せなかったら画面に赤で出す (headless-crm-design §12。保存できたように見せない)
-  const [{ store, persistFailed }, setPersisted] = useState<{ store: DraftStore; persistFailed: boolean }>(() => {
-    const initial = loadStore(sessionStorageOrNull());
-    return { store: initial, persistFailed: !saveStore(sessionStorageOrNull(), initial) };
-  });
-  const commitStore = (next: DraftStore) => { setPersisted({ store: next, persistFailed: !saveStore(sessionStorageOrNull(), next) }); };
+  // 保存した人 (ログイン中のメールアドレス) も一緒に残し、その人にだけ戻す (共用の PC で、同じタブで別の人がログインし直しても前の人のメモを見せない)。
+  // 誰がログインしているか分かった時点で 1 回読み、書き込めるかを試す。以後は変えるたびに書いた結果で更新する。
+  // 残せなかったら (誰か分からないときも) 画面に赤で出す (headless-crm-design §12。保存できたように見せない)
+  const currentUser = useCurrentUser(userFetcher);
+  const storeOwner = currentUser.phase === 'ready' ? currentUser.email : currentUser.phase === 'error' ? null : undefined;
+  const [{ store, persistFailed, loadedFor }, setPersisted] = useState<{ store: DraftStore; persistFailed: boolean; loadedFor: string | null | undefined }>(
+    () => ({ store: emptyStore(), persistFailed: false, loadedFor: undefined }));
+  if (storeOwner !== loadedFor) {
+    if (storeOwner === null) setPersisted(p => ({ ...p, persistFailed: true, loadedFor: null }));
+    else if (storeOwner !== undefined) {
+      const initial = loadStore(sessionStorageOrNull(), storeOwner);
+      setPersisted({ store: initial, persistFailed: !saveStore(sessionStorageOrNull(), initial, storeOwner), loadedFor: storeOwner });
+    }
+  }
+  const storeReady = loadedFor !== undefined;
+  const commitStore = (next: DraftStore) => {
+    setPersisted({ store: next, persistFailed: loadedFor === null || loadedFor === undefined || !saveStore(sessionStorageOrNull(), next, loadedFor), loadedFor });
+  };
   const [formCollapsed, setFormCollapsed] = useState(false);
   useEffect(() => {
     const refresh = () => { setToday(todayJst(nowFn())); };
@@ -220,14 +234,16 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
   useEffect(() => () => { if (keyTimer.current !== null) window.clearTimeout(keyTimer.current); }, []);
 
-  function select(id: string, via: 'click' | 'key') {
+  const select = useCallback((id: string, via: 'click' | 'key') => {
     const sel = { id, mode };
     setSelection(sel);
     setFocusFormFor(null);
     if (keyTimer.current !== null) { window.clearTimeout(keyTimer.current); keyTimer.current = null; }
     if (via === 'click') { setDetailSel(sel); return; }
     keyTimer.current = window.setTimeout(() => { keyTimer.current = null; setDetailSel(sel); }, KEY_SELECT_DELAY_MS);
-  }
+  }, [mode]);
+  // 行に渡すクリック時の選択 (同じ関数を渡し続け、行の描き直しを避ける)
+  const selectByClick = useCallback((id: string) => { select(id, 'click'); }, [select]);
 
   function update(patch: Partial<QueueFilters>) {
     setFilters(prev => {
@@ -280,14 +296,16 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     if (state.phase !== 'ready' || state.items.length === 0) return;
     e.preventDefault();
     const items = state.items;
-    const focused = items.findIndex((_, i) => listRef.current?.querySelectorAll('.cq-row-button')[i] === document.activeElement);
+    // 行のボタンは 1 回だけ集める (行ごとに一覧全体を探さない)
+    const buttons = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('.cq-row-button') ?? []);
+    const focused = buttons.findIndex(b => b === document.activeElement);
     const cur = focused !== -1 ? focused : items.findIndex(i => i.deal_id === selectedId);
     const step = e.key === 'ArrowDown' ? 1 : -1;
     const nextIdx = cur === -1 ? (step === 1 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, cur + step));
     const target = items[nextIdx];
     if (!target) return;
     if (target.deal_id !== selectedId) select(target.deal_id, 'key');
-    const btn = listRef.current?.querySelectorAll<HTMLButtonElement>('.cq-row-button')[nextIdx];
+    const btn = buttons[nextIdx];
     btn?.focus();
     if (typeof btn?.scrollIntoView === 'function') btn.scrollIntoView({ block: 'nearest' });
   }
@@ -449,7 +467,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
               {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
                 selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
                 recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
-                onSelect={id => { select(id, 'click'); }} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
+                onSelect={selectByClick} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
             {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
               {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
             {state.nextCursor && <button type="button" className="cq-btn cq-load-more" disabled={state.loadingMore} onClick={loadMore}>
@@ -464,13 +482,13 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} stopLabel={stopLabel} />}
         {/* 架電結果の入力欄 (中央の列の下端に固定)。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない */}
         {selectedId !== null && <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId}>
-          <CallResultForm key={`${mode}:${selectedId}`} dealId={selectedId} draft={draft} onChange={changeDraft}
+          {!storeReady ? <p role="status" className="cq-loading">架電結果の入力欄を準備しています…</p> : <CallResultForm key={`${mode}:${selectedId}`} dealId={selectedId} draft={draft} onChange={changeDraft}
             defsState={defs.state} onReloadDefs={defs.reload} recorded={isRecorded(selectedId)} onRecord={recordAndNext} onClear={clearDraft}
             collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
             focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
             recordBlocked={recordBlockedNotice !== null} persistFailed={persistFailed}
             autoFocusOutcome={focusFormFor === selectedId} onAnnounce={announce}
-            notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />
+            notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />}
         </div>}
       </section>
       <div className="cq-col cq-phone-col">

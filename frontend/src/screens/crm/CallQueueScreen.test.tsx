@@ -5,7 +5,7 @@ import { ApiHttpError } from '../../api/client';
 import { CallQueueScreen, KEY_SELECT_DELAY_MS, partialNotes } from './CallQueueScreen';
 import type { DetailFetch } from './useDealDetail';
 import type { OwnersFetch } from './useOwners';
-import { makeItem, makeResponse, deferredFetcher, okMetadataFetch } from './queueTestUtil';
+import { makeItem, makeResponse, deferredFetcher, okMetadataFetch, okUserFetch } from './queueTestUtil';
 import { DEFAULT_FILTERS, parseFilters } from './queueModel';
 
 afterEach(() => { cleanup(); });
@@ -23,7 +23,7 @@ async function ready(calls: ReturnType<typeof deferredFetcher>['calls'], items =
 describe('CallQueueScreen', () => {
   it('shows loading, then rows with domestic phone numbers (raw value kept in the title) and the live-mode badge', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     expect(screen.getByText('読み込み中…')).toBeTruthy();
     expect(screen.getByText('実データ(HubSpot)')).toBeTruthy();
     await ready(calls, [
@@ -45,20 +45,20 @@ describe('CallQueueScreen', () => {
 
   it('empty: with no conditions and with conditions show different messages; no cursor means no load-more button', async () => {
     const a = deferredFetcher();
-    render(<CallQueueScreen fetcher={a.fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={a.fetcher} initialSearch="?view=queue" />);
     await ready(a.calls, []);
     expect(screen.getByText('いま架電キューに出ている架電先はありません')).toBeTruthy();
     expect(screen.queryByText('さらに読み込む')).toBeNull();
     cleanup();
     const b = deferredFetcher();
-    render(<CallQueueScreen fetcher={b.fetcher} initialSearch="?view=queue&due=today" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={b.fetcher} initialSearch="?view=queue&due=today" />);
     await ready(b.calls, []);
     expect(screen.getByText('条件に一致する架電先がありません')).toBeTruthy();
   });
 
   it('an empty page that still has a cursor offers to load more instead of saying there is nothing', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     await ready(calls, [], { next_cursor: 'c1' });
     expect(screen.getByText('このページには表示できる行がありません。続きを読み込んでください。')).toBeTruthy();
     expect(screen.getByText('さらに読み込む')).toBeTruthy();
@@ -66,7 +66,7 @@ describe('CallQueueScreen', () => {
 
   it('partial: shows missing counts, failed parts and excluded counts; truncated shows the limit notice', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     await ready(calls, [makeItem('1', { contact: null })], {
       truncated: true,
       partial: { missing_contacts: 1, missing_companies: 2, failed: ['associations', 'contacts', 'stage_labels', 'something_new'], excluded: { no_phone: 3, stop_reason: 4, out_of_scope: 5 } },
@@ -85,7 +85,7 @@ describe('CallQueueScreen', () => {
 
   it('error: shows the kind-specific message and retries from the first page; it does not show fixture rows', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     await act(async () => { calls[0]?.resolve({ ok: false, error: new ApiHttpError(503, { error_kind: 'hubspot_rate_limited' }) }); await Promise.resolve(); });
     expect(screen.getByRole('alert').textContent).toContain('呼び出し回数の上限');
     expect(screen.queryByRole('list', { name: '架電キュー' })).toBeNull();
@@ -96,12 +96,12 @@ describe('CallQueueScreen', () => {
 
   it('unauthorized: 401 shows the login message; plain 403 shows the permission message (no owner-specific dead end any more)', async () => {
     const a = deferredFetcher();
-    render(<CallQueueScreen fetcher={a.fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={a.fetcher} initialSearch="?view=queue" />);
     await act(async () => { a.calls[0]?.resolve({ ok: false, error: new ApiHttpError(401) }); await Promise.resolve(); });
     expect(screen.getByRole('alert').textContent).toContain('ログインが必要');
     cleanup();
     const b = deferredFetcher();
-    render(<CallQueueScreen fetcher={b.fetcher} initialSearch="?view=queue&owner=unassigned" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={b.fetcher} initialSearch="?view=queue&owner=unassigned" />);
     await act(async () => { b.calls[0]?.resolve({ ok: false, error: new ApiHttpError(403, { error_kind: 'forbidden' }) }); await Promise.resolve(); });
     expect(screen.getByRole('alert').textContent).toContain('権限がありません');
     expect(screen.queryByText('担当者の指定を外す')).toBeNull();
@@ -109,7 +109,7 @@ describe('CallQueueScreen', () => {
 
   it('restores every condition from the URL and sends exactly those to the fetcher', () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue&q=架空&stage=1095387445&due=today&sort=next_call_desc&next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue&q=架空&stage=1095387445&due=today&sort=next_call_desc&next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30" />);
     expect(calls[0]?.filters).toEqual(parseFilters('?q=架空&stage=1095387445&due=today&sort=next_call_desc&next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30'));
     expect((screen.getByLabelText<HTMLSelectElement>('並び替え')).value).toBe('next_call_desc');
     expect((screen.getAllByLabelText('から')[0] as HTMLInputElement).value).toBe('2026-10-01');
@@ -121,7 +121,7 @@ describe('CallQueueScreen', () => {
 
   it('changing the sort, due toggle, stage and dates aborts the old request and refetches with the new condition', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     fireEvent.change(screen.getByLabelText('並び替え'), { target: { value: 'last_call_asc' } });
     expect(calls).toHaveLength(2);
     expect(calls[0]?.signal.aborted).toBe(true);
@@ -145,7 +145,7 @@ describe('CallQueueScreen', () => {
 
   it('the keyword is applied after typing stops (debounced), once', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     const input = screen.getByLabelText('キーワード(会社名・案件名)');
     fireEvent.change(input, { target: { value: '架' } });
     fireEvent.change(input, { target: { value: '架空' } });
@@ -156,7 +156,7 @@ describe('CallQueueScreen', () => {
 
   it('owner control is for everyone; choosing unassigned refetches with owner=unassigned, and the note names the shown owner', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     await ready(calls, [makeItem('1')], {});
     const owner = screen.getByLabelText('所有者');
     expect((owner as HTMLSelectElement).value).toBe('all');
@@ -166,7 +166,7 @@ describe('CallQueueScreen', () => {
     // 管理者でない人 (role=own) にも出る。既定は自分
     cleanup();
     const b = deferredFetcher();
-    render(<CallQueueScreen fetcher={b.fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={b.fetcher} initialSearch="?view=queue" />);
     const resp = makeResponse(DEFAULT_FILTERS, [makeItem('1')]);
     await act(async () => { b.calls[0]?.resolve({ ok: true, data: { ...resp, scope: { ...resp.scope, role: 'own', owner: 'me' } } }); await Promise.resolve(); });
     expect(screen.getByLabelText<HTMLSelectElement>('所有者').value).toBe('me');
@@ -175,7 +175,7 @@ describe('CallQueueScreen', () => {
 
   it('load more appends below, drops duplicates, and shows the end marker', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     await ready(calls, [makeItem('1'), makeItem('2')], { next_cursor: 'c1' });
     fireEvent.click(screen.getByText('さらに読み込む'));
     expect(calls[1]?.cursor).toBe('c1');
@@ -189,7 +189,7 @@ describe('CallQueueScreen', () => {
     const spy = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')));
     vi.stubGlobal('fetch', spy);
     try {
-      render(<CallQueueScreen initialSearch="?view=queue&mode=fixture" />);
+      render(<CallQueueScreen userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
       expect(screen.getByText('表示内容はすべて架空です。HubSpot には接続しません。')).toBeTruthy();
       await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
       expect(spy).not.toHaveBeenCalled();
@@ -217,7 +217,7 @@ describe('calling cockpit layout', () => {
 
   it('a queue row is three compact lines: company + flag + stage / contact · formatted phone / next, last, owner', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} ownersFetcher={ownersFetcher} initialSearch="" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} ownersFetcher={ownersFetcher} initialSearch="" />);
     await ready(calls, [makeItem('1', {
       stage_label: '不在', phone: '+81300000005', next_call_date: '2026-10-05', next_call_time: '10:30', last_call_date: '2026-10-01',
       contact: { id: 'c1', name: '架空 太郎1', phone: null, mobile: null, job_title: '採用担当', extra_count: 2 },
@@ -238,7 +238,7 @@ describe('calling cockpit layout', () => {
 
   it('the topbar is compact: title 架電, the mode badge and switch, no link to the old workspace', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="" />);
     await ready(calls);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('架電');
     const modeStatus = screen.getByRole('status', { name: 'データの種類' });
@@ -253,7 +253,7 @@ describe('calling cockpit layout', () => {
 
   it('詳細条件 opens and closes the stage / date panel; the button counts the detailed conditions in use', () => {
     const { fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?stage=1095387445&stage=1095387443&next_from=2026-10-01" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?stage=1095387445&stage=1095387443&next_from=2026-10-01" />);
     const toggle = screen.getByRole('button', { name: /^詳細条件/ });
     const panel = document.getElementById('cq-advanced');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -268,7 +268,7 @@ describe('calling cockpit layout', () => {
 
   it('active conditions are listed as chips; × removes exactly that condition and refetches', () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen fetcher={fetcher} initialSearch="?q=架空&stage=1095387442&stage=1095387445&due=today&next_from=2026-10-01&last_to=2026-09-30&sort=next_call_desc" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?q=架空&stage=1095387442&stage=1095387445&due=today&next_from=2026-10-01&last_to=2026-09-30&sort=next_call_desc" />);
     const chips = () => within(screen.getByRole('list', { name: '適用中の条件' })).getAllByRole('listitem').map(li => li.querySelector('span')?.textContent);
     expect(chips()).toEqual([
       'キーワード: 架空', '次回日が来たものだけ', 'ステージ: 未済', 'ステージ: 不在', '次回架電日: 2026/10/01〜', '最終架電日: 〜2026/09/30',
@@ -292,7 +292,7 @@ describe('calling cockpit layout', () => {
     try {
       const { calls, fetcher } = deferredFetcher();
       const detail = detailStub();
-      render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
+      render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
       await ready(calls, [makeItem('1'), makeItem('2'), makeItem('3')]);
       const list = screen.getByRole('list', { name: '架電キュー' });
       const buttons = () => within(list).getAllByRole('button');
@@ -320,7 +320,7 @@ describe('calling cockpit layout', () => {
   it('the result slot (holding the call-result form) sits at the bottom of the center column only while a deal is selected', async () => {
     const { calls, fetcher } = deferredFetcher();
     const detail = detailStub();
-    const { container } = render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
+    const { container } = render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
     await ready(calls, [makeItem('1'), makeItem('2')]);
     expect(container.querySelector('.cq-result-slot')).toBeNull();
     fireEvent.click(screen.getByText('架空会社2'));
@@ -337,7 +337,7 @@ describe('calling cockpit layout', () => {
   it('the Zoom Phone iframe is the same element after switching deals and opening the panel (never remounted)', async () => {
     const { calls, fetcher } = deferredFetcher();
     const detail = detailStub();
-    render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
     await ready(calls, [makeItem('1'), makeItem('2')]);
     const iframe = screen.getByTitle('Zoom Phone');
     fireEvent.click(screen.getByText('架空会社1'));

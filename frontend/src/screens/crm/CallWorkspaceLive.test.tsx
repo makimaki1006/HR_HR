@@ -9,7 +9,7 @@ import { CallQueueScreen, bindsToDial } from './CallQueueScreen';
 import type { DialedFor } from './CallQueueScreen';
 import { EMPTY_CALL } from './smartEmbed';
 import type { CallState } from './smartEmbed';
-import { makeItem, makeResponse, okMetadataFetch } from './queueTestUtil';
+import { makeItem, makeResponse, okMetadataFetch, okUserFetch } from './queueTestUtil';
 import { ZOOM_EMBED_ORIGIN } from './smartEmbed';
 import { fixtureOwnersFetch } from './useOwners';
 import type { DetailFetch } from './useDealDetail';
@@ -51,8 +51,12 @@ function detailFetcher() {
 
 async function renderQueue(df: DetailFetch, items = [makeItem('1'), makeItem('2')], zoomOptions?: ZoomOptions) {
   const queue = (filters: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(filters, items) });
-  render(<CallQueueScreen fetcher={(f) => queue(f)} ownersFetcher={fixtureOwnersFetch} detailFetcher={df} metadataFetcher={okMetadataFetch} zoomOptions={zoomOptions} initialSearch="?view=queue" />);
+  const fetcher = (f: QueueFilters) => queue(f);
+  const el = (z: ZoomOptions | undefined) => <CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} ownersFetcher={fixtureOwnersFetch} detailFetcher={df} metadataFetcher={okMetadataFetch} zoomOptions={z} initialSearch="?view=queue" />;
+  const r = render(el(zoomOptions));
   await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
+  /** 同じ画面のまま Zoom の待ち時間だけ変える (読み込みの待ちが切れた状態を、実時間に頼らずに作る) */
+  return { setZoomOptions: (z: ZoomOptions) => { r.rerender(el(z)); } };
 }
 
 function first<T>(list: T[]): T {
@@ -321,7 +325,8 @@ describe('Zoom Phone (Smart Embed)', () => {
 
   it('while the embed is loading or cannot be loaded, a dial is not sent and the copy / tel: guidance shows at once', async () => {
     const { calls, fetcher } = detailFetcher();
-    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { loadTimeoutMs: 40, stallMs: 40 });
+    // 読み込みの待ちは長くしておき、「読み込み中」の確認が終わってから短くして切らす (遅い環境でも先に切れない)
+    const { setZoomOptions } = await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { loadTimeoutMs: 600_000, stallMs: 40 });
     open('1');
     await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
     const { postMessage } = fakeZoomWindow({ load: false });
@@ -332,6 +337,7 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(screen.getByText(/^Zoom Phone を読み込み中です。右の枠が表示されてから発信するか/)).toBeTruthy();
     expect(screen.queryByText(/への発信を依頼しました/)).toBeNull();
     // 読み込みが終わらない (iframe の load が起きない)
+    setZoomOptions({ loadTimeoutMs: 1, stallMs: 40 });
     await waitFor(() => { expect(screen.getByText('Zoom Phone を読み込めません')).toBeTruthy(); });
     expect(screen.getByText(/許可ドメインへの登録/)).toBeTruthy();
     fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
@@ -476,7 +482,7 @@ describe('架空サンプル', () => {
     const spy = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')));
     vi.stubGlobal('fetch', spy);
     try {
-      render(<CallQueueScreen initialSearch="?view=queue&mode=fixture" />);
+      render(<CallQueueScreen userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
       await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
       expect(screen.queryByTitle('Zoom Phone')).toBeNull();
       expect(screen.getByText('架空サンプルでは発信できません')).toBeTruthy();
