@@ -39,43 +39,43 @@ async function renderAdmin(ownersFetcher: OwnersFetch, search = '?view=queue') {
 }
 
 function pickMode() {
-  fireEvent.change(screen.getByLabelText('担当者'), { target: { value: 'pick' } });
+  fireEvent.change(screen.getByLabelText('所有者'), { target: { value: 'pick' } });
 }
 
 function optionTexts(el: HTMLElement) {
   return Array.from((el as HTMLSelectElement).options).map(x => x.text);
 }
 
-describe('owner picker (admin)', () => {
+describe('owner picker (everyone)', () => {
   it('lets the admin search by name and choose a person; the queue is refetched with that owner ID', async () => {
     const q = await renderAdmin(ownersStub(okOwners()));
     pickMode();
-    const list = await screen.findByLabelText('担当者を選ぶ');
+    const list = await screen.findByLabelText('所有者を選ぶ');
     // 退職者は既定で隠れ、同名の 2 人は email で見分けられる
     expect(optionTexts(list)).toEqual([
       '架空 一郎(ichiro@example.invalid)', '架空 一郎(ichiro2@example.invalid)', 'サンプル 花子(ID 103)',
     ]);
-    fireEvent.change(screen.getByLabelText('担当者を検索'), { target: { value: '花子' } });
-    expect(Array.from(screen.getByLabelText<HTMLSelectElement>('担当者を選ぶ').options).map(x => x.value)).toEqual(['103']);
-    fireEvent.change(screen.getByLabelText('担当者を選ぶ'), { target: { value: '103' } });
+    fireEvent.change(screen.getByLabelText('所有者を検索'), { target: { value: '花子' } });
+    expect(Array.from(screen.getByLabelText<HTMLSelectElement>('所有者を選ぶ').options).map(x => x.value)).toEqual(['103']);
+    fireEvent.change(screen.getByLabelText('所有者を選ぶ'), { target: { value: '103' } });
     await waitFor(() => { expect(q.calls.at(-1)?.filters.owner).toBe('103'); });
   });
 
   it('shows retired people only after the toggle, and picking the second same-named person passes that ID', async () => {
     const q = await renderAdmin(ownersStub(okOwners()));
     pickMode();
-    await screen.findByLabelText('担当者を選ぶ');
+    await screen.findByLabelText('所有者を選ぶ');
     expect(screen.queryByText(/ダミー 退職/)).toBeNull();
     fireEvent.click(screen.getByLabelText('退職者も表示'));
     expect(screen.getByText(/ダミー 退職.*\[退職者\]/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('担当者を選ぶ'), { target: { value: '102' } });
+    fireEvent.change(screen.getByLabelText('所有者を選ぶ'), { target: { value: '102' } });
     await waitFor(() => { expect(q.calls.at(-1)?.filters.owner).toBe('102'); });
   });
 
   it('says so when there are zero owners', async () => {
     await renderAdmin(ownersStub(okOwners([])));
     pickMode();
-    expect(await screen.findByText('該当する担当者がいません。')).toBeTruthy();
+    expect(await screen.findByText('該当する所有者がいません。')).toBeTruthy();
   });
 
   it('falls back to an owner-ID input when the list cannot be fetched (never a silent empty state)', async () => {
@@ -89,8 +89,8 @@ describe('owner picker (admin)', () => {
       const q = await renderAdmin(ownersStub(failOwners(error)));
       pickMode();
       const alert = await screen.findByRole('alert');
-      expect(alert.textContent).toContain('担当者の一覧を取得できませんでした');
-      const input = screen.getByLabelText('担当者ID(HubSpot owner ID)');
+      expect(alert.textContent).toContain('所有者の一覧を取得できませんでした');
+      const input = screen.getByLabelText('所有者ID(HubSpot owner ID)');
       fireEvent.change(input, { target: { value: '55a5' } });
       await waitFor(() => { expect(q.calls.at(-1)?.filters.owner).toBe('555'); });
       expect(screen.getByText('一覧を再取得')).toBeTruthy();
@@ -106,7 +106,7 @@ describe('owner picker (admin)', () => {
     await renderAdmin(fetcher);
     pickMode();
     fireEvent.click(await screen.findByText('一覧を再取得'));
-    expect(await screen.findByLabelText('担当者を選ぶ')).toBeTruthy();
+    expect(await screen.findByLabelText('所有者を選ぶ')).toBeTruthy();
     expect(n).toBe(2);
   });
 
@@ -114,16 +114,16 @@ describe('owner picker (admin)', () => {
     const fetcher: OwnersFetch = () => new Promise<ApiResult<CrmOwnersResponse>>(() => undefined);
     await renderAdmin(fetcher);
     pickMode();
-    expect(screen.getByText('担当者の一覧を読み込み中…')).toBeTruthy();
+    expect(screen.getByText('所有者の一覧を読み込み中…')).toBeTruthy();
   });
 
   it('keeps an owner from the URL visible even when retired or missing from the list', async () => {
     await renderAdmin(ownersStub(okOwners()), '?view=queue&owner=104');
-    const list = await screen.findByLabelText('担当者を選ぶ');
+    const list = await screen.findByLabelText('所有者を選ぶ');
     expect((list as HTMLSelectElement).value).toBe('104');
     cleanup();
     await renderAdmin(ownersStub(okOwners()), '?view=queue&owner=999');
-    const l2 = await screen.findByLabelText('担当者を選ぶ');
+    const l2 = await screen.findByLabelText('所有者を選ぶ');
     expect((l2 as HTMLSelectElement).value).toBe('999');
     expect(screen.getByText(/ID 999.*一覧にありません/)).toBeTruthy();
   });
@@ -138,16 +138,16 @@ describe('owner picker (admin)', () => {
     const fetcher = ownersStub(okOwners());
     const q = await renderAdmin(fetcher);
     await waitFor(() => { expect(fetcher).toHaveBeenCalledTimes(1); });
-    fireEvent.change(screen.getByLabelText('担当者'), { target: { value: 'unassigned' } });
+    fireEvent.change(screen.getByLabelText('所有者'), { target: { value: 'unassigned' } });
     expect(q.calls.at(-1)?.filters.owner).toBe('unassigned');
-    fireEvent.change(screen.getByLabelText('担当者'), { target: { value: 'me' } });
+    fireEvent.change(screen.getByLabelText('所有者'), { target: { value: 'me' } });
     expect(q.calls.at(-1)?.filters.owner).toBe('me');
-    fireEvent.change(screen.getByLabelText('担当者'), { target: { value: '' } });
-    expect(q.calls.at(-1)?.filters.owner).toBe('');
+    fireEvent.change(screen.getByLabelText('所有者'), { target: { value: 'all' } });
+    expect(q.calls.at(-1)?.filters.owner).toBe('all');
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('never fetches the owner list for a BPO user', async () => {
+  it('shows the owner picker to a non-admin too: default is "me", the list is fetched, and everything is selectable', async () => {
     const fetcher = ownersStub(okOwners());
     const q = deferredFetcher();
     render(<CallQueueScreen fetcher={q.fetcher} ownersFetcher={fetcher} initialSearch="?view=queue" />);
@@ -157,7 +157,44 @@ describe('owner picker (admin)', () => {
       first?.resolve({ ok: true, data: { ...resp, scope: { ...resp.scope, role: 'own', owner: 'me' } } });
       await Promise.resolve();
     });
-    expect(screen.queryByLabelText('担当者')).toBeNull();
-    expect(fetcher).not.toHaveBeenCalled();
+    const select = screen.getByLabelText<HTMLSelectElement>('所有者');
+    // 初期値は自分 (応答の scope.owner = me)。条件の owner は既定 ('') のまま
+    expect(select.value).toBe('me');
+    expect(q.calls[0]?.filters.owner).toBe('');
+    expect(screen.getByTestId('scope-note').textContent).toContain('所有者: 自分 を表示中');
+    await waitFor(() => { expect(fetcher).toHaveBeenCalledTimes(1); });
+    // 全員分は明示の all で送る (空にすると「自分」に戻ってしまう)
+    fireEvent.change(select, { target: { value: 'all' } });
+    expect(q.calls.at(-1)?.filters.owner).toBe('all');
+    fireEvent.change(select, { target: { value: 'unassigned' } });
+    expect(q.calls.at(-1)?.filters.owner).toBe('unassigned');
+    // 他人を名前で選ぶ
+    pickMode();
+    fireEvent.change(await screen.findByLabelText('所有者を選ぶ'), { target: { value: '103' } });
+    await waitFor(() => { expect(q.calls.at(-1)?.filters.owner).toBe('103'); });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks to pick an owner (not a dead end) when the person has no matching HubSpot owner, then loads after choosing', async () => {
+    const q = deferredFetcher();
+    render(<CallQueueScreen fetcher={q.fetcher} ownersFetcher={ownersStub(okOwners())} initialSearch="?view=queue" />);
+    await act(async () => {
+      q.calls[0]?.resolve({ ok: false, error: new ApiHttpError(409, { error_kind: 'owner_not_resolved' }) });
+      await Promise.resolve();
+    });
+    // エラー表示 (再試行ボタン) ではなく、選択を促す表示。一覧は最初から開いている
+    expect(screen.getByTestId('owner-pick-prompt').textContent).toContain('所有者を選んでください');
+    expect(screen.queryByText('再試行')).toBeNull();
+    const list = await screen.findByLabelText('所有者を選ぶ');
+    fireEvent.change(list, { target: { value: '102' } });
+    await waitFor(() => { expect(q.calls.at(-1)?.filters.owner).toBe('102'); });
+    // 選んだら全員分に倒れず、その所有者で取り直す
+    const last = q.calls.at(-1);
+    await act(async () => {
+      last?.resolve({ ok: true, data: makeResponse(last.filters, [makeItem('1', { owner_id: '102' })]) });
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('owner-pick-prompt')).toBeNull();
+    expect(screen.getByTestId('scope-note').textContent).toContain('所有者: 架空 一郎 を表示中');
   });
 });
