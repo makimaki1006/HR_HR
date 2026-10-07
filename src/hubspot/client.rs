@@ -147,6 +147,13 @@ fn value_to_opt_string(v: &Value) -> Option<String> {
     }
 }
 
+/// メールに対応する HubSpot owner (ID と所属チーム名。チーム名は画面の参考表示だけに使う)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerRef {
+    pub id: String,
+    pub teams: Vec<String>,
+}
+
 fn id_string(v: &Value) -> Option<String> {
     match v {
         Value::String(s) => Some(s.clone()),
@@ -538,10 +545,10 @@ impl HubSpotClient {
         self.send(Method::POST, &path, &[], Some(&body)).await
     }
 
-    /// `GET /crm/v3/owners?email=..&limit=1` (読み取り)。メールに対応する HubSpot owner の ID を返す。
-    /// 応答の `email` が要求と (大文字小文字を除いて) 一致するものだけ採用する (曖昧一致を避ける)。
-    /// 見つからなければ `Ok(None)`。
-    pub async fn owner_id_by_email(&self, email: &str) -> Result<Option<String>, HubSpotError> {
+    /// `GET /crm/v3/owners?email=..` (読み取り)。メールに対応する HubSpot owner の ID と所属チーム名を返す。
+    /// 応答の `email` が要求と (大文字小文字を除いて) 一致する有効な (archived でない) ものだけ採用する (曖昧一致を避ける)。
+    /// 見つからなければ `Ok(None)`。`teams` は応答の `teams[].name` (空・欠落は空の一覧)。
+    pub async fn owner_by_email(&self, email: &str) -> Result<Option<OwnerRef>, HubSpotError> {
         let email = email.trim();
         if email.is_empty() || email.len() > 320 {
             return Ok(None);
@@ -564,11 +571,22 @@ impl HubSpotClient {
                 .and_then(Value::as_str)
                 .is_some_and(|e| e.trim().eq_ignore_ascii_case(email));
             let archived = r.get("archived").and_then(Value::as_bool).unwrap_or(false);
-            if same && !archived {
-                r.get("id").and_then(id_string)
-            } else {
-                None
+            if !same || archived {
+                return None;
             }
+            let id = r.get("id").and_then(id_string)?;
+            let teams = r
+                .get("teams")
+                .and_then(Value::as_array)
+                .map(|ts| {
+                    ts.iter()
+                        .filter_map(|t| t.get("name").and_then(Value::as_str))
+                        .map(|n| n.trim().to_string())
+                        .filter(|n| !n.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(OwnerRef { id, teams })
         }))
     }
 

@@ -25,14 +25,14 @@ function stubFetch(res: Response) {
 }
 
 describe('RoleEditor', () => {
-  it('offers exactly the four roles in order', () => {
-    expect(ROLE_OPTIONS.map((o) => o.value)).toEqual(['admin', 'consultant', 'bpo', 'user']);
+  it('offers only admin and general user', () => {
+    expect(ROLE_OPTIONS.map((o) => o.value)).toEqual(['admin', 'user']);
   });
 
   it('disables the button until the choice differs, then posts the role and shows the result', async () => {
     const fetchFn = stubFetch(
       jsonResponse(200, {
-        account: { id: 'acc-0001', email: 'hanako@f-a-c.co.jp', role: 'bpo' },
+        account: { id: 'acc-0001', email: 'hanako@f-a-c.co.jp', role: 'admin' },
         previous_role: 'user',
       }),
     );
@@ -40,7 +40,7 @@ describe('RoleEditor', () => {
     render(<RoleEditor accountId="acc-0001" email="hanako@f-a-c.co.jp" current="user" onChanged={changed} />);
     const button = screen.getByRole('button', { name: '役割を変更' });
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('役割'), { target: { value: 'bpo' } });
+    fireEvent.change(screen.getByLabelText('役割'), { target: { value: 'admin' } });
     expect((button as HTMLButtonElement).disabled).toBe(false);
     await act(async () => {
       fireEvent.click(button);
@@ -50,11 +50,11 @@ describe('RoleEditor', () => {
     const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('/api/admin/users/acc-0001/role');
     expect(init.method).toBe('POST');
-    expect(init.body).toBe('{"role":"bpo"}');
+    expect(init.body).toBe('{"role":"admin"}');
     expect((init.headers as Record<string, string>)['X-Requested-With']).toBe('fetch');
-    expect(changed).toHaveBeenCalledWith('bpo');
+    expect(changed).toHaveBeenCalledWith('admin');
     expect(screen.getByTestId('role-message').textContent).toBe(
-      'hanako@f-a-c.co.jp の役割を user から bpo に変更しました。',
+      'hanako@f-a-c.co.jp の役割を user から admin に変更しました。',
     );
   });
 
@@ -62,13 +62,20 @@ describe('RoleEditor', () => {
     stubFetch(jsonResponse(409, { error_kind: 'env_admin' }));
     const changed = vi.fn();
     render(<RoleEditor accountId="acc-9" email="boss@f-a-c.co.jp" current="admin" onChanged={changed} />);
-    fireEvent.change(screen.getByLabelText('役割'), { target: { value: 'bpo' } });
+    fireEvent.change(screen.getByLabelText('役割'), { target: { value: 'user' } });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '役割を変更' }));
       await Promise.resolve();
     });
     expect(changed).not.toHaveBeenCalled();
     expect(screen.getByTestId('role-message').textContent).toContain('ADMIN_EMAILS');
+  });
+
+  it('shows an old consultant/bpo value as legacy and preselects user', () => {
+    render(<RoleEditor accountId="a" email="x@f-a-c.co.jp" current="bpo" onChanged={vi.fn()} />);
+    expect(screen.getByTestId('role-legacy').textContent).toContain('「bpo」');
+    expect(screen.queryByTestId('role-unknown')).toBeNull();
+    expect(screen.getByLabelText<HTMLSelectElement>('役割').value).toBe('user');
   });
 
   it('shows an unknown stored value as a warning and preselects user', () => {

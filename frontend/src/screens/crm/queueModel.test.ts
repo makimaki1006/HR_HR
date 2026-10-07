@@ -72,7 +72,7 @@ describe('scopeMatches', () => {
     }
   });
   it('accepts the server default owner when the screen has no explicit owner', () => {
-    const scope = { ...makeResponse(DEFAULT_FILTERS, []).scope, owner: 'me', role: 'bpo' };
+    const scope = { ...makeResponse(DEFAULT_FILTERS, []).scope, owner: 'me', role: 'own' };
     expect(scopeMatches(scope, DEFAULT_FILTERS)).toBe(true);
     expect(scopeMatches(scope, f({ owner: 'all' }))).toBe(false);
   });

@@ -154,7 +154,7 @@ describe('owner picker (admin)', () => {
     const first = q.calls[0];
     const resp = makeResponse(DEFAULT_FILTERS, [makeItem('1')]);
     await act(async () => {
-      first?.resolve({ ok: true, data: { ...resp, scope: { ...resp.scope, role: 'bpo', owner: 'me' } } });
+      first?.resolve({ ok: true, data: { ...resp, scope: { ...resp.scope, role: 'own', owner: 'me' } } });
       await Promise.resolve();
     });
     expect(screen.queryByLabelText('担当者')).toBeNull();
