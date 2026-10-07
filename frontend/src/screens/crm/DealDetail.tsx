@@ -156,10 +156,6 @@ function Detail({ data, zoom, ownerName }: { data: WorkspaceResponse; zoom: Zoom
       <ul className="wd-acts">{acts.map(a => <ActivityItem key={`${a.kind}-${a.id}`} a={a} />)}</ul>
     </section>
 
-    <section className="wd-card wd-next" aria-label="架電結果の保存">
-      <h3>架電結果・メモ・次回架電日の保存</h3>
-      <p>HubSpot への保存(通話記録の作成・プロパティの更新)は<strong>次の段階</strong>で追加します。いまは表示と発信だけで、この画面から HubSpot には何も書き込みません。</p>
-    </section>
     </div>
   </article>;
 }

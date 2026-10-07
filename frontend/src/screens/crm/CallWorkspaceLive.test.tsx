@@ -6,7 +6,7 @@ import type { ApiResult } from '../../api/client';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { CallQueueScreen } from './CallQueueScreen';
-import { makeItem, makeResponse } from './queueTestUtil';
+import { makeItem, makeResponse, okMetadataFetch } from './queueTestUtil';
 import { ZOOM_EMBED_ORIGIN } from './smartEmbed';
 import { fixtureOwnersFetch } from './useOwners';
 import type { DetailFetch } from './useDealDetail';
@@ -48,7 +48,7 @@ function detailFetcher() {
 
 async function renderQueue(df: DetailFetch, items = [makeItem('1'), makeItem('2')], zoomOptions?: ZoomOptions) {
   const queue = (filters: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(filters, items) });
-  render(<CallQueueScreen fetcher={(f) => queue(f)} ownersFetcher={fixtureOwnersFetch} detailFetcher={df} zoomOptions={zoomOptions} initialSearch="?view=queue" />);
+  render(<CallQueueScreen fetcher={(f) => queue(f)} ownersFetcher={fixtureOwnersFetch} detailFetcher={df} metadataFetcher={okMetadataFetch} zoomOptions={zoomOptions} initialSearch="?view=queue" />);
   await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
 }
 
@@ -98,9 +98,11 @@ describe('架電ワークスペース (実データ)', () => {
     fireEvent.click(within(d).getByRole('button', { name: 'メモ' }));
     expect(within(d).queryByText('架電1')).toBeNull();
     expect(within(d).getByText('受付で不在')).toBeTruthy();
-    // 書き込みはしない: 次の段階と明示。保存ボタンは無い
-    expect(within(d).getByText(/次の段階/)).toBeTruthy();
+    // 書き込みはしない: 詳細には保存ボタンが無く、下の入力欄は「HubSpot 未送信」の下書きと明示する
     expect(within(d).queryByRole('button', { name: /保存|記録/ })).toBeNull();
+    const form = await screen.findByRole('form', { name: '架電結果の入力' });
+    expect(within(form).getByText('下書き(HubSpot 未送信)')).toBeTruthy();
+    expect(within(form).getByText(/HubSpot には保存されません/)).toBeTruthy();
   });
 
   it('drops a stale detail response when another deal was chosen (and aborts the old request)', async () => {
@@ -197,7 +199,42 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(screen.getByText('通話ID call-1')).toBeTruthy();
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
     expect(screen.getByText('通話が終了しました')).toBeTruthy();
-    expect(screen.getByText(/HubSpot への保存は次の段階/)).toBeTruthy();
+    expect(screen.getByText(/HubSpot にはまだ保存されません/)).toBeTruthy();
+    // この通話は画面から発信したものではないので、入力欄には通話終了を出さない
+    expect(screen.queryByTestId('ended-call')).toBeNull();
+  });
+
+  it('a call dialed from a deal that ends shows its duration in that deal\'s result form and focuses the outcome buttons', async () => {
+    const { calls, fetcher } = detailFetcher();
+    let t = 1_000_000;
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { now: () => t });
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    const form = await screen.findByRole('form', { name: '架電結果の入力' });
+    await within(form).findByRole('group', { name: '今回の結果' });
+    // 折りたたんでおいても、通話が終わったら開く
+    fireEvent.click(within(form).getByRole('button', { name: /架電結果/, expanded: true }));
+    const { win } = fakeZoomWindow();
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    const base = { callId: 'call-9', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: base });
+    zoomEvent(win, { type: 'zp-call-connected-event', data: base });
+    expect(screen.queryByTestId('ended-call')).toBeNull();
+    t += 65_000;
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
+    expect(screen.getByTestId('ended-call').textContent).toBe('通話終了 通話時間 01:05');
+    const first6 = within(screen.getByRole('group', { name: '今回の結果' })).getAllByRole('button');
+    expect(first6.map(b => b.textContent)).toEqual(['担当者と会話', '不在・応答なし', '再架電の約束', 'アポイント獲得', '番号違い', '架電停止の希望']);
+    expect(document.activeElement).toBe(first6[0]);
+    // 別の案件の入力欄には出さない
+    open('2');
+    expect(screen.queryByTestId('ended-call')).toBeNull();
+    const row1 = within(screen.getByRole('list', { name: '架電キュー' })).getByText('架空会社1').closest('button');
+    row1?.focus();
+    open('1');
+    expect(screen.getByTestId('ended-call').textContent).toBe('通話終了 通話時間 01:05');
+    // 戻ってきただけではフォーカスを奪わない (1 つの通話につき 1 回)
+    expect(document.activeElement).toBe(row1);
   });
 
   it('shows guidance and keeps copy / tel: available when the embed cannot be loaded or the dial does not start', async () => {

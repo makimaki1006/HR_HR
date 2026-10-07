@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
 import { OwnerFilter } from './OwnerFilter';
@@ -18,6 +18,14 @@ import type { ZoomOptions } from './useZoomPhone';
 import type { QueueFetch } from './useCallQueue';
 import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
+import { CallResultForm } from './CallResultForm';
+import {
+  clearDraftEntry, draftKey, emptyResultDraft, loadStore, markRecorded, nextUnrecorded, putDraft, saveStore, sessionStorageOrNull, todayJst,
+} from './callResultModel';
+import type { DraftStore, ResultDraft } from './callResultModel';
+import { useResultDefinitions } from './useResultDefinitions';
+import type { MetadataFetch } from './useResultDefinitions';
+import type { DialResult, ZoomPhone } from './useZoomPhone';
 import './crm.css';
 import './queue.css';
 
@@ -69,8 +77,8 @@ export function conditionChips(f: QueueFilters, ownerNames: ReadonlyMap<string, 
   return chips;
 }
 
-function QueueRow({ item, ownerName, selected, focusable, onSelect }: {
-  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; onSelect: (id: string) => void;
+function QueueRow({ item, ownerName, selected, focusable, recorded, onSelect }: {
+  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; onSelect: (id: string) => void;
 }) {
   const phone = formatPhoneForDisplay(item.phone);
   const next = md(item.next_call_date);
@@ -84,6 +92,7 @@ function QueueRow({ item, ownerName, selected, focusable, onSelect }: {
       title={item.deal_name ?? undefined} onClick={() => { onSelect(item.deal_id); }}>
       <span className="cq-row-l1">
         <strong className="cq-row-company">{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
+        {recorded && <span className="cq-recorded" title="このブラウザで記録済み。HubSpot には未送信です">記録済み(未送信)</span>}
         {flag && <span className="cq-flag" title={`不通時チェック: ${flag}`} aria-label={`不通時チェック: ${flag}`}>不通チェック</span>}
         <span className="cq-stage">{item.stage_label ?? '(ステージ不明)'}</span>
       </span>
@@ -104,8 +113,9 @@ function QueueRow({ item, ownerName, selected, focusable, onSelect }: {
   </li>;
 }
 
-export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOptions, initialSearch }: {
-  fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; zoomOptions?: ZoomOptions | undefined; initialSearch?: string;
+export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, zoomOptions, initialSearch, now }: {
+  fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; metadataFetcher?: MetadataFetch;
+  zoomOptions?: ZoomOptions | undefined; initialSearch?: string; now?: () => number;
 }) {
   const search = initialSearch ?? window.location.search;
   const [mode, setMode] = useState<QueueMode>(() => parseMode(search));
@@ -124,6 +134,27 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
   // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
   const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
   const listRef = useRef<HTMLUListElement | null>(null);
+
+  // 架電結果の下書き (案件ごと、このタブの sessionStorage に残す。HubSpot には送らない)
+  const [store, setStore] = useState<DraftStore>(() => loadStore(sessionStorageOrNull()));
+  useEffect(() => { saveStore(sessionStorageOrNull(), store); }, [store]);
+  const [formCollapsed, setFormCollapsed] = useState(false);
+  // 日付の検証に使う JST の今日 (画面を開いた時点)
+  const [today] = useState(() => todayJst(now ? now() : Date.now()));
+  const [formNotice, setFormNotice] = useState<{ dealId: string; text: string } | null>(null);
+  const defs = useResultDefinitions(mode, selectedId !== null, metadataFetcher);
+  // どの案件の画面から発信したか (通話の終了をその案件の入力欄にだけ出す)
+  const [dialedFor, setDialedFor] = useState<{ dealId: string; mode: QueueMode } | null>(null);
+  // 結果のボタンへフォーカスを移し終えた通話 (同じ通話で何度もフォーカスを奪わない)
+  const [handledCall, setHandledCall] = useState<string | null>(null);
+  const zoomForDetail = useMemo<ZoomPhone>(() => ({
+    ...zoom,
+    dial: (raw: string | null | undefined): DialResult => {
+      const r = zoom.dial(raw);
+      if (r === 'sent' && detailId !== null) setDialedFor({ dealId: detailId, mode });
+      return r;
+    },
+  }), [zoom, detailId, mode]);
 
   useEffect(() => () => { if (keyTimer.current !== null) window.clearTimeout(keyTimer.current); }, []);
 
@@ -199,6 +230,31 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
   }
 
   const selectedOwner = state.items.find(i => i.deal_id === selectedId)?.owner_id;
+  const isRecorded = useCallback((id: string) => store.recorded[draftKey(mode, id)] === true, [store, mode]);
+  const selKey = selectedId !== null ? draftKey(mode, selectedId) : null;
+  const draft: ResultDraft = (selKey !== null ? store.drafts[selKey] : undefined) ?? emptyResultDraft();
+  const endedCall = zoom.call.phase === 'ended' && dialedFor !== null && dialedFor.mode === mode && dialedFor.dealId === selectedId ? zoom.call : null;
+
+  function changeDraft(d: ResultDraft) {
+    if (selKey === null) return;
+    setStore(prev => putDraft(prev, selKey, d));
+  }
+  function clearDraft() {
+    if (selKey === null) return;
+    setStore(prev => clearDraftEntry(prev, selKey));
+    setFormNotice(null);
+  }
+  // 記録して次へ: このブラウザで記録済みの印を付け (下書きは残す)、一覧で次の未記録の案件を選ぶ。HubSpot には送らない
+  function recordAndNext() {
+    if (selKey === null || selectedId === null) return;
+    setStore(prev => markRecorded(prev, selKey));
+    const ids = state.items.map(i => i.deal_id);
+    const next = nextUnrecorded(ids, selectedId, isRecorded);
+    if (next === null) { setFormNotice({ dealId: selectedId, text: '表示中の一覧に未記録の架電先はありません。' }); return; }
+    setFormNotice(null);
+    select(next, 'click');
+  }
+
   const waitingKey = selectedId !== null && selectedId !== detailId;
   const anyFocusable = state.items.some(i => i.deal_id === selectedId);
 
@@ -279,6 +335,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
             {state.items.length > 0 && <ul className="cq-list" aria-label="架電キュー" ref={listRef} onKeyDown={onListKey}>
               {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
                 selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
+                recorded={isRecorded(item.deal_id)}
                 onSelect={id => { select(id, 'click'); }} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
             {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
               {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
@@ -290,10 +347,16 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
       </section>
       <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
         {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
-          : <DealDetail state={detail.state} reload={detail.reload} zoom={zoom}
+          : <DealDetail state={detail.state} reload={detail.reload} zoom={zoomForDetail}
             ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} />}
-        {/* 架電結果の入力欄を後の PR でここに置く (中央の列の下端に固定)。案件を選んでいるときだけ出す */}
-        {selectedId !== null && <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId} />}
+        {/* 架電結果の入力欄 (中央の列の下端に固定)。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない */}
+        {selectedId !== null && <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId}>
+          <CallResultForm key={`${mode}:${selectedId}`} dealId={selectedId} draft={draft} onChange={changeDraft}
+            defsState={defs.state} onReloadDefs={defs.reload} recorded={isRecorded(selectedId)} onRecord={recordAndNext} onClear={clearDraft}
+            collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
+            focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
+            notice={formNotice?.dealId === selectedId ? formNotice.text : undefined} />
+        </div>}
       </section>
       <div className="cq-col cq-phone-col">
         <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} />

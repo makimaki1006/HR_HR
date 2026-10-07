@@ -27,7 +27,7 @@ function CallStatus({ zoom }: { zoom: ZoomPhone }) {
     {call.phase === 'connected' && connectedAt !== null && <span className="zp-timer">{clock((now - connectedAt) / 1000)}</span>}
     {call.phase === 'ended' && call.talkSeconds !== null && <span>通話時間 {clock(call.talkSeconds)}(画面で受けたイベントの時刻差)</span>}
     {call.callId && <small>通話ID {call.callId}</small>}
-    {call.phase === 'ended' && <small>通話結果の HubSpot への保存は次の段階で追加します。いまは保存されません。</small>}
+    {call.phase === 'ended' && <small>通話の結果は中央下の「架電結果」に下書きとして入力できます。HubSpot にはまだ保存されません。</small>}
   </div>;
 }
 

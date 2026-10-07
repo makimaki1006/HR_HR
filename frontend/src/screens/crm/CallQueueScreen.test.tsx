@@ -5,7 +5,7 @@ import { ApiHttpError } from '../../api/client';
 import { CallQueueScreen, KEY_SELECT_DELAY_MS, partialNotes } from './CallQueueScreen';
 import type { DetailFetch } from './useDealDetail';
 import type { OwnersFetch } from './useOwners';
-import { makeItem, makeResponse, deferredFetcher } from './queueTestUtil';
+import { makeItem, makeResponse, deferredFetcher, okMetadataFetch } from './queueTestUtil';
 import { DEFAULT_FILTERS, parseFilters } from './queueModel';
 
 afterEach(() => { cleanup(); });
@@ -286,7 +286,7 @@ describe('calling cockpit layout', () => {
     try {
       const { calls, fetcher } = deferredFetcher();
       const detail = detailStub();
-      render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} initialSearch="" />);
+      render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
       await ready(calls, [makeItem('1'), makeItem('2'), makeItem('3')]);
       const list = screen.getByRole('list', { name: '架電キュー' });
       const buttons = () => within(list).getAllByRole('button');
@@ -311,16 +311,18 @@ describe('calling cockpit layout', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('the empty result slot sits at the bottom of the center column only while a deal is selected', async () => {
+  it('the result slot (holding the call-result form) sits at the bottom of the center column only while a deal is selected', async () => {
     const { calls, fetcher } = deferredFetcher();
     const detail = detailStub();
-    const { container } = render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} initialSearch="" />);
+    const { container } = render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
     await ready(calls, [makeItem('1'), makeItem('2')]);
     expect(container.querySelector('.cq-result-slot')).toBeNull();
     fireEvent.click(screen.getByText('架空会社2'));
     const slot = container.querySelector('.cq-result-slot');
     expect(slot?.getAttribute('data-deal-id')).toBe('2');
-    expect(slot?.childElementCount).toBe(0);
+    expect(slot?.childElementCount).toBe(1);
+    expect(slot?.firstElementChild?.getAttribute('aria-label')).toBe('架電結果の入力');
+    expect(slot?.firstElementChild?.getAttribute('data-deal-id')).toBe('2');
     const center = container.querySelector('.cq-detail');
     expect(slot?.parentElement).toBe(center);
     expect(center?.lastElementChild).toBe(slot);
@@ -329,7 +331,7 @@ describe('calling cockpit layout', () => {
   it('the Zoom Phone iframe is the same element after switching deals and opening the panel (never remounted)', async () => {
     const { calls, fetcher } = deferredFetcher();
     const detail = detailStub();
-    render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} initialSearch="" />);
+    render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} metadataFetcher={okMetadataFetch} initialSearch="" />);
     await ready(calls, [makeItem('1'), makeItem('2')]);
     const iframe = screen.getByTitle('Zoom Phone');
     fireEvent.click(screen.getByText('架空会社1'));
