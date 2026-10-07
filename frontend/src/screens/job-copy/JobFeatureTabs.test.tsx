@@ -21,7 +21,7 @@ describe('functional job tabs', () => {
     fireEvent.keyDown(primary.getByRole('tab', { name: '応募分析' }), { key: 'ArrowRight' });
     expect(change).toHaveBeenLastCalledWith('market');
     fireEvent.keyDown(primary.getByRole('tab', { name: '応募分析' }), { key: 'Home' });
-    expect(change).toHaveBeenLastCalledWith('body');
+    expect(change).toHaveBeenLastCalledWith('timeline');
     fireEvent.keyDown(primary.getByRole('tab', { name: '応募分析' }), { key: 'End' });
     expect(change).toHaveBeenLastCalledWith('receive');
     const leaf = screen.getByRole('tab', { name: '応募推移' });

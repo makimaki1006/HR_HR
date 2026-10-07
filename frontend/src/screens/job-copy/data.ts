@@ -3,6 +3,7 @@ import type { ApplicantDimension, ApplicantDistribution } from './applicantCompo
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import type { JointDemographics } from './reverseSearchModel';
+import type { MarketData } from './marketChartModel';
 /** Fictional MOC fixtures. No HubSpot IDs, real employers, or applicant data. */
 export interface CopyVersion {
   id: string;
@@ -50,6 +51,15 @@ export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-001', title: '地域配送ドライバー', company: 'デモ運輸A',
     media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', location: '大分県大分市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    overallApplications: { total: 20, missingDate: 2, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-02': 1, '2026-09-04': 2, '2026-09-07': 1, '2026-09-10': 2, '2026-09-13': 1, '2026-09-16': 3, '2026-09-18': 2, '2026-09-21': 2, '2026-09-24': 1, '2026-09-27': 1, '2026-09-30': 1, '2026-10-02': 1 } },
+    // HRハッカーの期間別実績（架空の課金例）
+    hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-001', captured_at: '2026-10-05T00:00:00Z', rows: [
+      { period_start: '2026-09-01', period_end: '2026-09-14', impressions: 4200, clicks: 160, cost_yen: 30000, applications: 6 },
+      { period_start: '2026-09-15', period_end: '2026-09-30', impressions: 5100, clicks: 210, cost_yen: 45000, applications: 9 },
+      { period_start: '2026-10-01', period_end: '2026-10-05', impressions: 1300, clicks: 52, cost_yen: 12000, applications: 2 },
+    ] },
     versions: [
       {
         id: 'demo-001-v1', label: '初回掲載', observedAt: '2026-09-01T09:00:00+09:00',
@@ -84,6 +94,9 @@ export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-002', title: '倉庫内ピッキングスタッフ', company: 'デモ物流B',
     media: 'Airワーク', mediaJobId: 'DEMO-AIR-002', location: '大分県別府市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    overallApplications: { total: 8, missingDate: 1, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-06': 1, '2026-09-11': 1, '2026-09-17': 1, '2026-09-22': 2, '2026-09-26': 1, '2026-10-01': 1 } },
     versions: [
       {
         id: 'demo-002-v1', label: '初回観測', observedAt: '2026-09-05T09:00:00+09:00',
@@ -103,6 +116,14 @@ export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-003', title: '受付事務スタッフ', company: 'デモサービスC',
     media: 'HRハッカー', mediaJobId: 'DEMO-HRH-003', location: '大分県大分市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    overallApplications: { total: 10, missingDate: 0, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-09': 1, '2026-09-12': 2, '2026-09-19': 1, '2026-09-23': 2, '2026-09-25': 1, '2026-09-29': 2, '2026-10-03': 1 } },
+    // HRハッカーの期間別実績（架空の課金例）
+    hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-003', captured_at: '2026-10-05T00:00:00Z', rows: [
+      { period_start: '2026-09-08', period_end: '2026-09-21', impressions: 2600, clicks: 95, cost_yen: 20000, applications: 4 },
+      { period_start: '2026-09-22', period_end: '2026-10-05', impressions: 3100, clicks: 128, cost_yen: 28000, applications: 6 },
+    ] },
     versions: [
       {
         id: 'demo-003-v1', label: '初回掲載', observedAt: '2026-09-08T10:00:00+09:00',
@@ -122,6 +143,9 @@ export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-004', title: '施設清掃スタッフ', company: 'デモ環境D',
     media: 'Airワーク', mediaJobId: 'DEMO-AIR-004', location: '大分県中津市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    overallApplications: { total: 5, missingDate: 2, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-15': 1, '2026-09-29': 1, '2026-10-02': 1 } },
     versions: [
       {
         id: 'demo-004-v1', label: '初回観測', observedAt: '2026-09-10T08:00:00+09:00',
@@ -140,6 +164,9 @@ export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-005', title: '調理補助スタッフ', company: 'デモフードE',
     media: 'HRハッカー', mediaJobId: 'DEMO-HRH-005', location: '大分県日田市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    overallApplications: { total: 7, missingDate: 0, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-13': 2, '2026-09-18': 1, '2026-09-22': 1, '2026-09-27': 1, '2026-10-01': 2 } },
     versions: [
       {
         id: 'demo-005-v1', label: '初回掲載', observedAt: '2026-09-12T09:00:00+09:00',
@@ -159,6 +186,9 @@ export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-006', title: '製造ラインスタッフ', company: 'デモ製作F',
     media: 'Airワーク', mediaJobId: 'DEMO-AIR-006', location: '大分県宇佐市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    overallApplications: { total: 4, missingDate: 1, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-16': 1, '2026-09-24': 1, '2026-10-01': 1 } },
     versions: [
       {
         id: 'demo-006-v1', label: '初回観測', observedAt: '2026-09-14T11:00:00+09:00',
@@ -178,6 +208,9 @@ export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-007', title: '店舗販売スタッフ', company: 'デモリテールG',
     media: 'HRハッカー', mediaJobId: 'DEMO-HRH-007', location: '大分県佐伯市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    overallApplications: { total: 5, missingDate: 0, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-20': 1, '2026-09-28': 1, '2026-10-02': 2, '2026-10-04': 1 } },
     versions: [
       {
         id: 'demo-007-v1', label: '初回掲載', observedAt: '2026-09-16T10:00:00+09:00',
@@ -199,3 +232,27 @@ export const jobs: JobCopyRecord[] = [
     media: 'Airワーク', mediaJobId: 'DEMO-AIR-008', location: '大分県臼杵市', versions: [],
   },
 ];
+
+/**
+ * Fictional market data for demo mode (no request to /api/job-copy/market). Like the real Indeed
+ * data it is monthly by prefecture and ends at 2026-08, so the timeline shows the months after it
+ * as a no-data period.
+ */
+const demoMarketMonths = Array.from({ length: 14 }, (_, index) => {
+  const month = 7 + index;
+  return `${String(2025 + Math.floor((month - 1) / 12))}-${String((month - 1) % 12 + 1).padStart(2, '0')}`;
+});
+const demoMarketTitles = ['ドライバー', '倉庫作業', '受付事務', '清掃スタッフ', '調理補助', '製造スタッフ', '販売スタッフ'];
+export function demoMarketData(title = '', prefecture = ''): MarketData {
+  const base = { source: '架空の市場データ（デモ）。実在の求人数ではありません。', titles: demoMarketTitles, prefectures: ['大分県', '福岡県'], ctk_basis: 'Indeed閲覧者指標は、求職者の人数やこの求人への応募数ではありません。' };
+  const titleIndex = demoMarketTitles.indexOf(title);
+  if (titleIndex < 0 || !base.prefectures.includes(prefecture)) return { ...base, series: null };
+  const scale = (prefecture === '福岡県' ? 3 : 1) * (80 + titleIndex * 25);
+  return { ...base, series: {
+    prefecture, months: demoMarketMonths,
+    job_count: demoMarketMonths.map((_, index) => Math.round(scale * (1 + 0.03 * index - (index % 4 === 0 ? 0.04 : 0)))),
+    ctk_count: demoMarketMonths.map((_, index) => Math.round(scale * 6 * (1 + 0.02 * ((index * 5) % 7)))),
+    employer_count: demoMarketMonths.map((_, index) => Math.round(scale * 0.4 + index)),
+    seekers_per_posting: demoMarketMonths.map((_, index) => Math.round(60 * (1 + 0.02 * ((index * 5) % 7)) / (1 + 0.03 * index)) / 10),
+  } };
+}

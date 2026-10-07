@@ -16,6 +16,7 @@ test('503 retries into two real-response applications, while 401 keeps the login
   await expect(page.locator('.jc-job')).toHaveCount(0);
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
   await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('2応募レコード');
+  await selectJobFeature(page, 'body');
   await expect(page.getByRole('tabpanel', { name: '本文・画像', exact: true }).locator('.jc-body')).toHaveText('再取得した合成の全文です。');
   await selectJobFeature(page, 'applicants');
   await expect(page.getByRole('region', { name: '求人全体の実応募者構成', exact: true })).toContainText('応募2件');
@@ -88,6 +89,7 @@ test('manual media capture cancels pending snapshot and its slow timer without l
   job.body = '手動取込の本文を維持します。';
   await page.getByLabel('媒体取得データを読み込む', { exact: true }).setInputFiles({ name: 'synthetic-capture.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(capture)) });
   await page.getByRole('button', { name: '取得データを表示', exact: true }).click();
+  await selectJobFeature(page, 'body');
   const body = page.getByRole('tabpanel', { name: '本文・画像', exact: true }).locator('.jc-body');
   await expect(body).toHaveText(job.body);
   if (!held) throw new Error('The synthetic request was not held');

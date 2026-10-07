@@ -29,7 +29,7 @@ export function ApplicantComposition({ job, selection, onSelectionChange, includ
   const imageComparison = compareImages(referenceImages(before), referenceImages(after));
 
   return <section className="ac-composition" aria-label="版別の応募者構成">
-    {job.overallApplications && <section className="ac-overall" aria-label="求人全体の実応募者構成"><h2>求人全体の実応募者構成</h2><p>応募{job.overallApplications.total}件 · 応募日不明{job.overallApplications.missingDate}件 · 版の対応不明{job.attributionUnknown ?? job.overallApplications.total}件</p><p>版の対応不明も含む求人全体の集計です。下の版別比較とは分母が異なります。属性は取得時点の現在値 · {fullDate(job.overallApplications.fetchedAt)}</p>
+    {job.dataSource === 'hubspot' && job.overallApplications && <section className="ac-overall" aria-label="求人全体の実応募者構成"><h2>求人全体の実応募者構成</h2><p>応募{job.overallApplications.total}件 · 応募日不明{job.overallApplications.missingDate}件 · 版の対応不明{job.attributionUnknown ?? job.overallApplications.total}件</p><p>版の対応不明も含む求人全体の集計です。下の版別比較とは分母が異なります。属性は取得時点の現在値 · {fullDate(job.overallApplications.fetchedAt)}</p>
       {dimensions.map(dimension => {
         const distribution = job.overallApplications?.distributions[dimension.id];
         return <section key={dimension.id} className="ac-chart" aria-label={`求人全体の${dimension.label}`}><h3>{dimension.label}</h3>{job.overallApplications?.total === 0 ? <p>求人全体の応募は0件です。割合は算出できません。</p> : !distribution ? <p>この属性は未取得です。0件・0%とは判定していません。</p> : <div className="ac-chart-rows">{distribution.categories.map(row => <div key={row.category} className="ac-chart-row"><strong>{row.category}</strong><div className="ac-bars" aria-hidden="true"><div className="ac-track"><span className="ac-before" style={{ width: `${String(row.percentage ?? 0)}%` }} /></div></div><span>{row.count}件 ({percent(row.percentage)})</span></div>)}</div>}</section>;
