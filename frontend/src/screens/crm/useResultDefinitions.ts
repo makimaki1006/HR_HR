@@ -5,6 +5,7 @@ import type { CrmMetadataResponse } from '../../generated/CrmMetadataResponse';
 import { metadataDealDefinitions } from './liveMetadata';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
 import type { MocPropertyDefinition } from './mocProperties';
+import { CLIENT_TIMEOUT_KIND, INVALID_RESPONSE_KIND, failureOf } from './queueModel';
 import type { QueueMode } from './queueModel';
 import { FALLBACK_LABELS, REQUIRED_DEFINITIONS, REQUIRED_TYPED_DEFINITIONS } from './callResultModel';
 
@@ -34,10 +35,27 @@ export function missingDefinitionsMessage(missing: readonly string[]): string {
   return `HubSpot から次の項目の選択肢・設定を受け取れませんでした: ${missing.map(fieldLabel).join('、')}`;
 }
 
-function errorMessage(error: unknown): string {
+/** 選択肢を読めなかったときの文言。原因に合わせて、利用者ができること (待つ・再試行・管理者に連絡) を添える */
+export function metadataErrorMessage(error: unknown): string {
   if (error instanceof AuthRequiredError || (error instanceof ApiHttpError && error.status === 401)) return 'ログインが切れています。再読み込みしてログインしてください。';
-  if (error instanceof ApiHttpError && error.status === 403) return 'このアカウントでは HubSpot の選択肢を読み込めません。';
-  return 'HubSpot から選択肢を読み込めませんでした。';
+  if (error instanceof ApiHttpError && error.status === 403) return 'このアカウントでは HubSpot の選択肢を読み込めません。管理者に連絡してください。';
+  const { kind, status } = failureOf(error);
+  const head = 'HubSpot から選択肢を読み込めませんでした。';
+  switch (kind) {
+    case 'hubspot_rate_limited': return `${head}HubSpot の呼び出し回数の上限に達しています。少し待ってから再試行してください。`;
+    case 'hubspot_timeout':
+    case 'crm_timeout':
+    case CLIENT_TIMEOUT_KIND: return `${head}応答が時間内に返りませんでした。少し待ってから再試行してください。`;
+    case 'hubspot_auth':
+    case 'not_configured':
+    case 'hubspot_decode':
+    case INVALID_RESPONSE_KIND: return `${head}接続の設定に問題がある可能性があります。管理者に連絡してください。`;
+    case 'hubspot_upstream':
+    case 'hubspot_transport': return `${head}HubSpot との通信に失敗しました。再試行してください。`;
+    default: return status === null
+      ? `${head}ネットワークに接続できませんでした。接続を確認して再試行してください。`
+      : `${head}(${String(status)})再試行してください。`;
+  }
 }
 
 /**
@@ -56,7 +74,7 @@ export function useResultDefinitions(mode: QueueMode, enabled: boolean, fetcher:
     const ctl = new AbortController();
     void fetcher(ctl.signal).then(r => {
       if (ctl.signal.aborted) return;
-      if (!r.ok) { setLive({ phase: 'error', message: errorMessage(r.error) }); return; }
+      if (!r.ok) { setLive({ phase: 'error', message: metadataErrorMessage(r.error) }); return; }
       const defs = metadataDealDefinitions(r.data);
       const missing = missingDefinitions(defs);
       if (missing.length > 0) {

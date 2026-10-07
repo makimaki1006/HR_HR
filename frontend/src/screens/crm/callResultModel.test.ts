@@ -155,6 +155,16 @@ describe('validateResultDraft', () => {
     // 空の項目は型を問わない
     expect(validateResultDraft(draft({ outcome: 'connected' }), changed, TODAY)).toEqual({});
   });
+  it('a required text field that holds only spaces counts as empty', () => {
+    expect(errs({ outcome: 'do_not_call', stopReason: '   ' })).toEqual({ stopReason: '架電禁止理由を入れてください。' });
+    expect(errs({ outcome: 'do_not_call', stopReason: '\u3000\n' })).toEqual({ stopReason: '架電禁止理由を入れてください。' });
+    expect(errs({ outcome: 'wrong_number', unreachable: 'その他', unreachableOther: ' ' })).toEqual({ unreachableOther: '「その他」の理由を入れてください。' });
+  });
+  it('the その他 reason is limited to 200 characters', () => {
+    expect(errs({ outcome: 'wrong_number', unreachable: 'その他', unreachableOther: 'あ'.repeat(200) })).toEqual({});
+    expect(errs({ outcome: 'wrong_number', unreachable: 'その他', unreachableOther: 'あ'.repeat(201) }))
+      .toEqual({ unreachableOther: '200 文字以内で入力してください(いま 201 文字)。' });
+  });
   it('memo is limited to 2000 characters', () => {
     expect(errs({ outcome: 'connected', memo: 'x'.repeat(2000) })).toEqual({});
     expect(errs({ outcome: 'connected', memo: 'x'.repeat(2001) })).toEqual({ memo: '2000 文字以内で入力してください(いま 2001 文字)。' });
@@ -172,6 +182,10 @@ describe('toHubSpotPatch', () => {
   it('fields hidden for the outcome are never sent, even if they still hold a value', () => {
     const d = draft({ outcome: 'do_not_call', stopReason: ' 先方の希望 ', blockReason: 'クレーム懸念案件', nextAction: '再架電', nextCallDate: '2026-10-09', nextCallTime: '9:15', apptDate: '2026-10-20', interest: '高（前向き）' });
     expect(toHubSpotPatch(d, defs, TODAY)).toEqual({ properties: { bpo_3: '先方の希望', bpo_4: 'クレーム懸念案件' } });
+  });
+  it('the memo keeps its leading indentation and line breaks; only trailing spaces are removed', () => {
+    expect(toHubSpotPatch(draft({ outcome: 'connected', memo: '  1行目\n2行目  \n' }), defs, TODAY)).toEqual({ properties: { bpo_16: '  1行目\n2行目' } });
+    expect(toHubSpotPatch(draft({ outcome: 'connected', memo: '\n先頭が改行' }), defs, TODAY)).toEqual({ properties: { bpo_16: '\n先頭が改行' } });
   });
   it('wrong_number with その他 sends the stored value その他 and the reason', () => {
     expect(toHubSpotPatch(draft({ outcome: 'wrong_number', unreachable: 'その他', unreachableOther: '法人番号の誤り' }), defs, TODAY))

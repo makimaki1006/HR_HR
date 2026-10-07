@@ -241,6 +241,89 @@ describe('call-result form (draft only)', () => {
     expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toMatchObject({ recorded: {} });
   });
 
+  it.each(['loading', 'error'] as const)('while the list is %s, 記録して次へ does not record, does not move and does not claim the list is done', async phase => {
+    // 最初は即答。条件を変えた後の取得は、テストが返すまで止めておく
+    const held: ((r: ApiResult<CallQueueResponse>) => void)[] = [];
+    let hold = false;
+    const items = [makeItem('1'), makeItem('2')];
+    const queue = (f: QueueFilters) => hold
+      ? new Promise<ApiResult<CallQueueResponse>>(resolve => { held.push(resolve); })
+      : Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, items) });
+    render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+      metadataFetcher={okMetadataFetch} initialSearch="?view=queue" now={NOW} />);
+    await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('担当者と会話'));
+    expect(recordDisabled()).toBe(false);
+    hold = true;
+    fireEvent.click(screen.getByRole('checkbox', { name: '次回日が来たものだけ' }));
+    expect(screen.getByText('読み込み中…')).toBeTruthy();
+    if (phase === 'error') {
+      await act(async () => { held[0]?.({ ok: false, error: new ApiHttpError(502, { error_kind: 'hubspot_upstream' }) }); await Promise.resolve(); });
+      expect(screen.getByText('取得できませんでした')).toBeTruthy();
+      expect(within(form()).getByText('一覧を表示できていないため記録できません。一覧を表示してから記録してください。')).toBeTruthy();
+    } else {
+      expect(within(form()).getByText('一覧を読み込み中です。一覧が表示されてから記録してください。')).toBeTruthy();
+    }
+    expect(recordDisabled()).toBe(true);
+    fireEvent.click(recordBtn());
+    fireEvent.keyDown(outcome('担当者と会話'), { key: 'Enter', ctrlKey: true });
+    expect(selectedId()).toBe('1');
+    expect(within(form()).queryByText('表示中の一覧に未記録の架電先はありません。')).toBeNull();
+    expect(within(form()).queryByText('記録済み(未送信)')).toBeNull();
+    expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toMatchObject({ recorded: {} });
+  });
+
+  it('a form that showed missing-field messages on deal A starts clean on deal B', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('再架電の約束'));
+    fireEvent.click(recordBtn());
+    expect(within(form()).getByText('次回架電日を入れてください(再架電のとき必須)。')).toBeTruthy();
+    expect(within(form()).getByLabelText(/^次回架電日/).getAttribute('aria-invalid')).toBe('true');
+    open('2');
+    await formReady();
+    expect(within(form()).queryByText('今回の結果を選んでください。')).toBeTruthy(); // 未選択の案内 (赤くしない文言) だけ
+    fireEvent.click(outcome('再架電の約束'));
+    expect(within(form()).queryByText('次回架電日を入れてください(再架電のとき必須)。')).toBeNull();
+    expect(within(form()).queryByText('次回架電時間を選んでください(再架電のとき必須)。')).toBeNull();
+    expect(within(form()).getByLabelText(/^次回架電日/).getAttribute('aria-invalid')).not.toBe('true');
+    expect(form().querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
+  });
+
+  it('次回日が来たものだけ: the list is fetched again when the JST date changes while the screen stays open', async () => {
+    let t = Date.UTC(2026, 9, 8, 14, 50, 0); // JST 2026-10-08 23:50
+    const seen: QueueFilters[] = [];
+    const queue = (f: QueueFilters) => { seen.push(f); return Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, [makeItem(String(seen.length))]) }); };
+    render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+      metadataFetcher={okMetadataFetch} initialSearch="?view=queue&due=today" now={() => t} />);
+    await waitFor(() => { expect(within(list()).getByText('架空会社1')).toBeTruthy(); });
+    expect(seen).toHaveLength(1);
+    // 同じ日のうちに画面へ戻っても取り直さない
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    expect(seen).toHaveLength(1);
+    t = Date.UTC(2026, 9, 8, 15, 30, 0); // JST 2026-10-09 00:30
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    await waitFor(() => { expect(within(list()).getByText('架空会社2')).toBeTruthy(); });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]?.due).toBe('today');
+  });
+
+  it('without 次回日が来たものだけ, a date change does not fetch the list again', async () => {
+    let t = Date.UTC(2026, 9, 8, 14, 50, 0);
+    let n = 0;
+    const queue = (f: QueueFilters) => { n += 1; return Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, [makeItem('1')]) }); };
+    render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+      metadataFetcher={okMetadataFetch} initialSearch="?view=queue" now={() => t} />);
+    await waitFor(() => { expect(within(list()).getByText('架空会社1')).toBeTruthy(); });
+    t = Date.UTC(2026, 9, 8, 15, 30, 0);
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { await Promise.resolve(); });
+    expect(n).toBe(1);
+  });
+
   it('the record button and the not-saved note sit outside the scrolling fields; the list column is not a live region', async () => {
     await renderScreen();
     open('1');
@@ -379,8 +462,10 @@ describe('call-result form (draft only)', () => {
     expect(within(form()).getByText('選択肢を読み込み中…')).toBeTruthy();
     await act(async () => { meta.calls[0]?.({ ok: false, error: new ApiHttpError(502, { error_kind: 'hubspot_upstream' }) }); await Promise.resolve(); });
     const alert = within(form()).getByRole('alert');
-    expect(alert.textContent).toContain('HubSpot から選択肢を読み込めませんでした。');
-    expect(alert.textContent).toContain('再試行するか、HubSpot で直接入力してください。');
+    expect(alert.textContent).toContain('HubSpot から選択肢を読み込めませんでした。HubSpot との通信に失敗しました。再試行してください。');
+    expect(alert.textContent).toContain('再試行しても表示されないときは管理者に連絡してください。');
+    // HubSpot の席が無い架電担当者にはできない「HubSpot で直接入力」は案内しない
+    expect(alert.textContent).not.toContain('直接入力');
     expect(alert.textContent).not.toContain('代用');
     expect(within(form()).queryByRole('group', { name: '今回の結果' })).toBeNull();
     expect(recordDisabled()).toBe(true);
@@ -422,6 +507,33 @@ describe('call-result form (draft only)', () => {
     expect(Object.keys(saved.drafts)).toEqual(['fixture:f-2']);
     expect(saved.drafts['fixture:f-2']).toMatchObject({ outcome: 'callback', nextAction: '再架電', nextActionAuto: true });
     expect(Object.keys(saved.drafts).some(k => k.startsWith('live:'))).toBe(false);
+  });
+
+  it('fixture mode: 記録して次へ marks the sample row, and the live deal with the same id is not marked', async () => {
+    // 実データ・架空サンプルとも同じ ID (1, 2) を返す取得関数
+    const items = [makeItem('1'), makeItem('2')];
+    const queue = (f: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, items) });
+    render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+      metadataFetcher={okMetadataFetch} initialSearch="?view=queue&mode=fixture" now={NOW} />);
+    await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('担当者と会話'));
+    fireEvent.click(recordBtn());
+    expect(within(rowOf('1')).getByText('記録済み(未送信)')).toBeTruthy();
+    expect(selectedId()).toBe('2');
+    // 2 も記録すると、1 は記録済みなので次は無い
+    fireEvent.click(outcome('担当者と会話'));
+    fireEvent.click(recordBtn());
+    expect(within(form()).getByText('表示中の一覧に未記録の架電先はありません。')).toBeTruthy();
+    expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toMatchObject({ recorded: { 'fixture:1': true, 'fixture:2': true } });
+    fireEvent.click(within(screen.getByRole('group', { name: 'データの切り替え' })).getByRole('button', { name: '実データ' }));
+    await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
+    expect(within(list()).queryByText('記録済み(未送信)')).toBeNull();
+    open('1');
+    await formReady();
+    expect(within(form()).queryByText('記録済み(未送信)')).toBeNull();
+    expect(outcome('担当者と会話').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('the Zoom iframe stays the same element across 記録して次へ', async () => {

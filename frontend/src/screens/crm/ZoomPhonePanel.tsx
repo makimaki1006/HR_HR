@@ -6,7 +6,19 @@ import { clock } from './workspaceModel';
 
 const RESULT_LABELS: Record<string, string> = { ended: '通話が終了しました', missed: '応答がありませんでした', rejected: '拒否されました' };
 
-function CallStatus({ zoom, linkedToSelected }: { zoom: ZoomPhone; linkedToSelected: boolean }) {
+/**
+ * 終わった通話と入力欄の関係。
+ * selected: 選んでいる架電先の画面から発信した / recorded: 発信した架電先には記録済み / none: どちらでもない
+ */
+export type CallLink = 'selected' | 'recorded' | 'none';
+
+const LINK_HINTS: Record<CallLink, string> = {
+  selected: '通話の結果は中央下の「架電結果」に下書きとして入力できます。HubSpot にはまだ保存されません。',
+  recorded: 'この通話の結果は、発信した架電先に記録済みです(HubSpot には未送信)。',
+  none: 'この通話は選んでいる架電先と結び付いていません。架電先を選んでから「架電結果」に入力してください。',
+};
+
+function CallStatus({ zoom, link }: { zoom: ZoomPhone; link: CallLink }) {
   const { call } = zoom;
   const [now, setNow] = useState(() => Date.now());
   const connectedAt = call.phase === 'connected' ? call.connectedAt : null;
@@ -27,23 +39,21 @@ function CallStatus({ zoom, linkedToSelected }: { zoom: ZoomPhone; linkedToSelec
     {call.phase === 'connected' && connectedAt !== null && <span className="zp-timer">{clock((now - connectedAt) / 1000)}</span>}
     {call.phase === 'ended' && call.talkSeconds !== null && <span>通話時間 {clock(call.talkSeconds)}(画面で受けたイベントの時刻差)</span>}
     {call.callId && <small>通話ID {call.callId}</small>}
-    {call.phase === 'ended' && (linkedToSelected
-      ? <small data-testid="zp-result-hint">通話の結果は中央下の「架電結果」に下書きとして入力できます。HubSpot にはまだ保存されません。</small>
-      : <small data-testid="zp-result-hint" title="この画面の「架ける番号」から発信した通話だけが、選んだ架電先の入力欄に結び付きます">
-        この通話は選んでいる架電先と結び付いていません。架電先を選んでから「架電結果」に入力してください。</small>)}
+    {call.phase === 'ended' && <small data-testid="zp-result-hint"
+      title={link === 'none' ? 'この画面の「架ける番号」から発信した通話だけが、選んだ架電先の入力欄に結び付きます' : undefined}>{LINK_HINTS[link]}</small>}
   </div>;
 }
 
 /** 右側に常駐する Zoom Phone Smart Embed。案件を切り替えても iframe は作り直さない */
-export function ZoomPhonePanel({ zoom, iframeRef, linkedToSelected = false }: {
+export function ZoomPhonePanel({ zoom, iframeRef, link = 'none' }: {
   zoom: ZoomPhone; iframeRef: React.RefObject<HTMLIFrameElement | null>;
-  /** 終わった通話が、選んでいる架電先の画面から発信したものか (入力欄に結び付いているか) */
-  linkedToSelected?: boolean;
+  /** 終わった通話と入力欄の関係 */
+  link?: CallLink;
 }) {
   const unavailable = zoom.embed === 'timeout';
   return <aside className="zp-panel" aria-label="Zoom Phone">
     <div className="zp-head"><span className="crm-eyebrow">ZOOM PHONE</span><h2>電話</h2></div>
-    <CallStatus zoom={zoom} linkedToSelected={linkedToSelected} />
+    <CallStatus zoom={zoom} link={link} />
     {zoom.stalled && zoom.call.phase === 'idle' && <div className="cq-notice cq-warn" role="alert">
       <strong>発信が始まりません</strong>
       <ul>
