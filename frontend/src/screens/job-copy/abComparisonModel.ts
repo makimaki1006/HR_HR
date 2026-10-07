@@ -1,5 +1,5 @@
 import type { CopyVersion, JobCopyRecord } from './data';
-import { compositionDistribution } from './applicantCompositionModel';
+import { compositionDistribution, displayDistribution } from './applicantCompositionModel';
 import type { ApplicantDimension } from './applicantCompositionModel';
 import type { HrhPerformanceRow } from './hrhPerformanceModel';
 import { performanceRatios } from './hrhPerformanceModel';
@@ -13,7 +13,7 @@ export function variantCount(job: JobCopyRecord, version: CopyVersion | undefine
 }
 export function variantDistribution(job: JobCopyRecord, version: CopyVersion | undefined, scope: AbScope, dimension: ApplicantDimension) {
   if (scope === 'version' && version?.kind !== 'published') return null;
-  return scope === 'record' ? job.overallApplications?.distributions[dimension] ?? null : compositionDistribution(job, version, dimension);
+  return scope === 'record' ? displayDistribution(job.overallApplications?.distributions[dimension], dimension) : compositionDistribution(job, version, dimension);
 }
 export function compareMetricPeriods(a: HrhPerformanceRow, b: HrhPerformanceRow) {
   const days = (row: HrhPerformanceRow) => (Date.parse(row.period_end) - Date.parse(row.period_start)) / 86_400_000 + 1;
