@@ -1,4 +1,5 @@
 import type { CopyVersion, JobCopyRecord } from './data';
+import { municipalityLabel, parseApplicantArea, prefectureLabel, roundAreaDistribution } from './applicantArea';
 
 export type ApplicantDimension = 'gender' | 'age' | 'prefecture' | 'municipality';
 export interface ApplicantAttributes { gender: string | null; age: number | null; prefecture: string | null; municipality: string | null }
@@ -12,13 +13,10 @@ function supplied(value: string | null): string | null {
 }
 
 function categoryOf(row: ApplicantAttributes, dimension: ApplicantDimension): string {
-  const prefecture = supplied(row.prefecture);
   if (dimension === 'gender') return supplied(row.gender) ?? '不明';
-  if (dimension === 'prefecture') return prefecture ?? '不明';
-  if (dimension === 'municipality') {
-    const municipality = supplied(row.municipality);
-    return prefecture || municipality ? `${prefecture ?? '都道府県不明'} / ${municipality ?? '市区町村不明'}` : '不明';
-  }
+  // 住所は都道府県 + 市区町村までに丸める。元の文字列はラベルに使わない。
+  if (dimension === 'prefecture') return prefectureLabel(parseApplicantArea(row.prefecture, row.municipality));
+  if (dimension === 'municipality') return municipalityLabel(parseApplicantArea(row.prefecture, row.municipality));
   const age = row.age;
   if (age === null || !Number.isSafeInteger(age) || age < 0 || age > 120) return '不明';
   if (age < 20) return '19歳以下';
@@ -39,7 +37,14 @@ export function buildDistribution(rows: ApplicantAttributes[] | null, dimension:
     const order = ['19歳以下', '20代', '30代', '40代', '50代', '60歳以上', '不明'];
     return order.indexOf(left) - order.indexOf(right);
   });
-  return { total: rows.length, categories: entries.map(([category, count]) => ({ category, count, percentage: rows.length ? count / rows.length * 100 : null })) };
+  const distribution = { total: rows.length, categories: entries.map(([category, count]) => ({ category, count, percentage: rows.length ? count / rows.length * 100 : null })) };
+  return dimension === 'prefecture' || dimension === 'municipality' ? roundAreaDistribution(distribution, dimension) : distribution;
+}
+
+/** 地域の分布は表示の直前にも丸める（取り込み時に丸め済みでも結果は同じ）。 */
+export function displayDistribution(distribution: ApplicantDistribution | null | undefined, dimension: ApplicantDimension): ApplicantDistribution | null {
+  if (!distribution) return null;
+  return dimension === 'prefecture' || dimension === 'municipality' ? roundAreaDistribution(distribution, dimension) : distribution;
 }
 
 export function compareDistributions(before: ApplicantDistribution | null, after: ApplicantDistribution | null): DistributionComparison[] | null {
@@ -80,5 +85,5 @@ export function compositionRows(job: JobCopyRecord, version: CopyVersion | undef
 }
 
 export function compositionDistribution(job: JobCopyRecord, version: CopyVersion | undefined, dimension: ApplicantDimension): ApplicantDistribution | null {
-  return version?.distributions?.[dimension] ?? buildDistribution(compositionRows(job, version), dimension);
+  return displayDistribution(version?.distributions?.[dimension], dimension) ?? buildDistribution(compositionRows(job, version), dimension);
 }

@@ -151,7 +151,7 @@ test('mobile shared shell stays within the viewport and printed reports hide nav
   const overall = page.getByRole('region', { name: '求人全体の実応募者構成' });
   await expect(overall).toBeVisible();
   await expect(overall).toContainText('応募34件');
-  await expect(overall).toContainText(`版の対応不明${largest.dated_comparison.unknown}件`);
+  await expect(overall).toContainText(`どの版への応募か不明${largest.dated_comparison.unknown}件`);
   await expect(overall).toContainText('各版へ割り当てていません');
   await expect(page.getByRole('textbox', { name: '仮説', exact: true })).toBeHidden();
   const printed = page.locator('.jc-print-text').first();

@@ -3,7 +3,8 @@ import type { CopyVersion, JobCopyRecord } from './data';
 import { compareImages, referenceImages, imagesByVersion } from './images';
 import { ImageGallery } from './ImageGallery';
 import { ApplicantReasons } from './ApplicantReasons';
-import { compareDistributions, compositionDistribution } from './applicantCompositionModel';
+import { compareDistributions, compositionDistribution, displayDistribution } from './applicantCompositionModel';
+import { jobApplicationTotal, noLinkedApplicationsMessage, unmatchedApplicationCount } from './applicationCountsModel';
 import type { ApplicantDimension } from './applicantCompositionModel';
 import './applicant-composition.css';
 
@@ -29,12 +30,12 @@ export function ApplicantComposition({ job, selection, onSelectionChange, includ
   const imageComparison = compareImages(referenceImages(before), referenceImages(after));
 
   return <section className="ac-composition" aria-label="版別の応募者構成">
-    {job.overallApplications && <section className="ac-overall" aria-label="求人全体の実応募者構成"><h2>求人全体の実応募者構成</h2><p>応募{job.overallApplications.total}件 · 応募日不明{job.overallApplications.missingDate}件 · 版の対応不明{job.attributionUnknown ?? job.overallApplications.total}件</p><p>版の対応不明も含む求人全体の集計です。下の版別比較とは分母が異なります。属性は取得時点の現在値 · {fullDate(job.overallApplications.fetchedAt)}</p>
+    {job.overallApplications && <section className="ac-overall" aria-label="求人全体の実応募者構成"><h2>求人全体の実応募者構成</h2><p>応募{job.overallApplications.total}件 · 応募日不明{job.overallApplications.missingDate}件 · どの版への応募か不明{unmatchedApplicationCount(job) ?? job.overallApplications.total}件</p><p>どの版への応募か不明な件数も含む求人全体の集計です（HubSpotに記録された応募のみ）。下の版別比較とは分母が異なります。地域は都道府県と市区町村までに丸め、3人未満の地域は「その他」にまとめています。属性は取得時点の現在値 · {fullDate(job.overallApplications.fetchedAt)}</p>
       {dimensions.map(dimension => {
-        const distribution = job.overallApplications?.distributions[dimension.id];
+        const distribution = displayDistribution(job.overallApplications?.distributions[dimension.id], dimension.id);
         return <section key={dimension.id} className="ac-chart" aria-label={`求人全体の${dimension.label}`}><h3>{dimension.label}</h3>{job.overallApplications?.total === 0 ? <p>求人全体の応募は0件です。割合は算出できません。</p> : !distribution ? <p>この属性は未取得です。0件・0%とは判定していません。</p> : <div className="ac-chart-rows">{distribution.categories.map(row => <div key={row.category} className="ac-chart-row"><strong>{row.category}</strong><div className="ac-bars" aria-hidden="true"><div className="ac-track"><span className="ac-before" style={{ width: `${String(row.percentage ?? 0)}%` }} /></div></div><span>{row.count}件 ({percent(row.percentage)})</span></div>)}</div>}</section>;
       })}
-      <p className="ac-caveat">全体の属性構成から特定の本文・画像の効果を判定しません。版の対応不明の応募を各版へ割り当てていません。</p>
+      <p className="ac-caveat">全体の属性構成から特定の本文・画像の効果を判定しません。どの版への応募か不明な応募を各版へ割り当てていません。</p>
     </section>}
     <header><h2>文面・画像と応募者構成を比べる</h2><p>掲載観測版の比較です。受信版・未掲載のAI案は比較対象に含めません。</p></header>
     <div className="ac-selectors"><label>構成比較元<select value={before?.id ?? ''} onChange={event => { setBeforeId(event.target.value); onSelectionChange?.([event.target.value, after?.id ?? '']); }}>{!versions.length && <option value="">掲載版なし</option>}{versions.map(version => <option key={version.id} value={version.id}>{version.label}</option>)}</select></label><label>構成比較先<select value={after?.id ?? ''} onChange={event => { setAfterId(event.target.value); onSelectionChange?.([before?.id ?? '', event.target.value]); }}>{!versions.length && <option value="">掲載版なし</option>}{versions.map(version => <option key={version.id} value={version.id}>{version.label}</option>)}</select></label></div>
@@ -45,13 +46,13 @@ export function ApplicantComposition({ job, selection, onSelectionChange, includ
     <p className="ac-caveat">本文・画像・掲載期間が同時に変わる場合があります。ここでの応募者構成の差は観測値で、文面や画像の変更効果を示すものではありません。</p>
     <p className="ac-caveat">{job.hrhPerformance ? '媒体の期間別実績は「課金・クリック」で確認できます。掲載観測版との対応は未確認です。' : '課金情報は未取得です。後日、掲載期間と費用・応募単価を合わせて確認します。'}</p>
     {includeReasons && <ApplicantReasons job={job} before={before} after={after} />}
-    {job.attributionUnknown !== undefined && <p className="ac-caveat">版の対応不明: {job.attributionUnknown}件。日付欠損・観測日欠測・関連の曖昧さを含み、下の版別グラフには含めません。</p>}
+    {unmatchedApplicationCount(job) !== null && <p className="ac-caveat">どの版への応募か不明: {unmatchedApplicationCount(job)}件。応募日が無い応募や、取得した版の期間に入らない応募です。下の版別グラフには含めません。</p>}
     {beforeDistribution === null || afterDistribution === null ? <p className="ac-unavailable" role="status">応募者の属性データは未取得です。取得した媒体の求人にも架空の応募者を割り当てません。0件・0%とは判定していません。</p> : <>
       <p className="ac-demo">{job.dataSource === 'hubspot' ? 'HubSpot応募レコードを変更検知日の代表版に日付対応した集計です。属性は現在取得できる値です。' : '架空の応募者属性による操作デモです。'}比較元{String(beforeDistribution.total)}件・比較先{String(afterDistribution.total)}件。分母には属性不明も含めます。{job.dataSource !== 'hubspot' && '各版に確定対応する架空応募のみを含めます。'}</p>
       {dimensions.map(dimension => {
         const comparison = compareDistributions(compositionDistribution(job, before, dimension.id), compositionDistribution(job, after, dimension.id));
         if (comparison === null) return <section key={dimension.id} className="ac-chart"><h3>{dimension.label}</h3><p>この属性は未取得です。0件・0%とは判定していません。</p></section>;
-        if (comparison.length === 0) return <section key={dimension.id} className="ac-chart"><h3>{dimension.label}</h3><p>選択した両版に日付対応する応募は0件です。割合は算出できません。版対応不明の件数も確認してください。</p></section>;
+        if (comparison.length === 0) return <section key={dimension.id} className="ac-chart"><h3>{dimension.label}</h3><p>{noLinkedApplicationsMessage(jobApplicationTotal(job))}。割合は算出できません。</p></section>;
         return <section key={dimension.id} className="ac-chart" aria-label={`${dimension.label}の構成比較`}><h3>{dimension.label}</h3><p className="ac-legend"><span>比較元</span><span>比較先</span> · 両方とも0〜100%の同じ目盛り</p>
           <div className="ac-chart-rows">{comparison.map(item => <div key={item.category} className="ac-chart-row"><strong>{item.category}</strong><div className="ac-bars" aria-hidden="true"><div className="ac-track"><span className="ac-before" style={{ width: `${String(item.beforePercentage ?? 0)}%` }} /></div><div className="ac-track"><span className="ac-after" style={{ width: `${String(item.afterPercentage ?? 0)}%` }} /></div></div><span>{String(item.beforeCount)}件 ({percent(item.beforePercentage)}) → {String(item.afterCount)}件 ({percent(item.afterPercentage)})<br /><b>{delta(item.deltaPp)}</b></span></div>)}</div>
           <details><summary>{dimension.label}の数値表を開く</summary><table><caption>{dimension.label}の応募件数・割合・割合差</caption><thead><tr><th scope="col">区分</th><th scope="col">比較元</th><th scope="col">比較先</th><th scope="col">割合差</th></tr></thead><tbody>{comparison.map(item => <tr key={item.category}><th scope="row">{item.category}</th><td>{String(item.beforeCount)}件 / {percent(item.beforePercentage)}</td><td>{String(item.afterCount)}件 / {percent(item.afterPercentage)}</td><td>{delta(item.deltaPp)}</td></tr>)}</tbody></table></details>
