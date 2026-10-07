@@ -25,6 +25,7 @@ import { applicationCountLabel, orderJobs } from './jobList';
 import type { JobListOrder } from './jobList';
 import { snapshotErrorGuidance, SnapshotErrorNotice } from './SnapshotErrorNotice';
 import type { SnapshotErrorGuidance } from './SnapshotErrorNotice';
+import { jobApplicationTotal, linkedApplicationCount, noLinkedApplicationsMessage, unmatchedApplicationCount } from './applicationCountsModel';
 import './job-copy.css';
 
 const statusLabels = { initial: '初回取得', unchanged: '変更なし', format_only: '表記差のみ', changed: '内容変更あり', unavailable: '判定不能' };
@@ -38,13 +39,15 @@ const changeStatus = (job: JobCopyRecord) => {
   return compareCopy(versions.at(-2)?.body ?? null, versions.at(-1)?.body ?? null).status;
 };
 
-function ApplicationSummary({ version, live = false }: { version: CopyVersion; live?: boolean }) {
+function ApplicationSummary({ job, version, live = false }: { job: JobCopyRecord; version: CopyVersion; live?: boolean }) {
   if (version.kind === 'ai_draft') return <div className="jc-notice">未掲載のAI案です。応募実績には対応させていません。</div>;
   if (version.applications === null) return <p className="jc-notice">応募実績は未取得です。0件とは判定していません。掲載開始日時と過去版も未取得です。</p>;
+  const unmatched = unmatchedApplicationCount(job);
   return <section className="jc-applications" aria-label="版別の応募状況">
     <div className="jc-period"><strong>この文面に対応する応募</strong><span>{version.publishedFrom ? date(version.publishedFrom) : '開始不明'} → {version.publishedUntil ? date(version.publishedUntil) : '終了未確認'} · 期間{certaintyLabels[version.certainty]}</span></div>
-    <div className="jc-counts"><div><span>確定対応</span><strong>{version.applications.confirmed}<small>件</small></strong></div><div><span>推定対応</span><strong>{version.applications.estimated}<small>件</small></strong></div><div><span>版の対応不明</span><strong>{version.applications.unknown}<small>件</small></strong></div></div>
-    <p>{live ? 'HubSpot応募レコードの日付対応による集計です。推定対応は変更検知日の代表版を基準にしています。版対応不明の応募総数は応募者構成で確認できます。' : '架空の集計です。不明件数はこの観測区間に残る未配賦応募で、確定件数に含めません。'}本文変更による効果を示す値ではありません。</p>
+    {linkedApplicationCount(version) === 0 && <p className="jc-no-linked" role="status">{noLinkedApplicationsMessage(jobApplicationTotal(job))}</p>}
+    <div className="jc-counts"><div><span>確定対応</span><strong>{version.applications.confirmed}<small>件</small></strong></div><div><span>推定対応</span><strong>{version.applications.estimated}<small>件</small></strong></div><div><span title="応募日が無い、または取得した版の期間に入らない応募です。求人全体で数えた値で、応募者構成と同じ件数です。">どの版への応募か不明（求人全体）</span><strong>{unmatched ?? '—'}<small>件</small></strong></div></div>
+    <p>{live ? 'HubSpotに記録された応募を日付で版に結びつけた集計です。推定対応は変更を見つけた日の版を基準にしています。' : '架空の集計です。どの版への応募か不明な件数は確定件数に含めません。'}本文変更による効果を示す値ではありません。</p>
   </section>;
 }
 
@@ -151,7 +154,7 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, onBack }: { job: 
         <ImageGallery title="この版の掲載画像" images={versionImages(version)} />
         <div className="jc-full-copy-heading"><h3>{version.source === 'HubSpot shigotonaiyou' ? '仕事内容（HubSpotの現在値）' : '求人票の本文（全文）'}</h3><span>読み取り専用 · 原文の段落・改行を保持</span></div><pre className="jc-body">{version.body}</pre>
         {job.hubspotUrl && <a href={job.hubspotUrl} target="_blank" rel="noreferrer">HubSpotで求人レコードを開く</a>}
-        {version.kind === 'received' ? <p className="jc-notice">応募情報は未取得です。0件とは判定していません。</p> : <ApplicationSummary version={version} live={job.dataSource === 'hubspot'} />}
+        {version.kind === 'received' ? <p className="jc-notice">応募情報は未取得です。0件とは判定していません。</p> : <ApplicationSummary job={job} version={version} live={job.dataSource === 'hubspot'} />}
         <button className="jc-text-button" onClick={() => { const index = job.versions.findIndex(item => item.id === version.id); setBefore(job.versions[index - 1]?.id ?? version.id); setAfter(version.id); openFeatureFromContent('diff'); }}>この版を前の版と比較する →</button>
       </> : <div className="jc-empty"><h2>本文未取得</h2><p>欠損を「変更なし」や「削除」と判断しません。</p><button className="jc-button" onClick={() => { openFeatureFromContent('receive'); }}>外部文面を確認する</button></div>}</section>
     </div></JobFeaturePanel>
@@ -252,7 +255,7 @@ export function JobCopyScreen() {
     <div className="jc-demo"><strong>{snapshotLoading ? '実データを読み込み中' : snapshotAt ? '実データMOC（取得済み）' : snapshotRequested && !records.length ? '実データ未表示' : live ? 'HubSpot読み取り' : captured ? '媒体取得版' : '操作デモ'}</strong><span>{snapshotAt ? `媒体CSVの本文・画像とHubSpotの実求人・応募集計です。応募集計取得：${date(snapshotAt)}。最新値の自動更新ではありません。確認記録は画面内のみ保持します。` : live ? records.some(job => published(job).length > 0) ? '実取引先・求人に媒体の本文・画像観測と応募を接続しています。画像の取得時点・欠測・版対応不明は各表示を確認してください。検証記録は画面内だけに保持します。' : '実レコードの現在値です。媒体全文・画像・日次版との接続は別途必要です。確認状況・受信版は画面内だけに保持します。' : captured ? 'HRハッカーの本文・画像です。過去版の有無と画像の取得時点は各版の注記を確認してください。応募未取得・HubSpot未保存です。' : snapshotRequested && !records.length ? '取得済みの実データを読み取ります。欠損を架空データで補いません。' : '求人・本文・応募数はすべて架空です。HubSpot未接続。追加した履歴・確認状況は再読み込みで消えます。'}</span></div>
     {snapshotLoading && <div className="jc-notice"><p role="status">{snapshotSlow ? '読み込みに時間がかかっています。待機を続けるか、求人データを再取得できます。' : '求人一覧・本文・応募集計を読み込んでいます…画像は表示時に取得します。'}</p>{snapshotSlow && <button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button>}</div>}
     {snapshotError && <><SnapshotErrorNotice guidance={snapshotError} /><button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button></>}
-    {snapshotAt && <section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>本文観測</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募レコード</span><span>版対応不明 <strong>{records.reduce((sum, job) => sum + (job.attributionUnknown ?? 0), 0)}</strong>件</span></section>}
+    {snapshotAt && <section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>本文観測</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募レコード</span><span>版対応不明 <strong>{records.reduce((sum, job) => sum + (unmatchedApplicationCount(job) ?? 0), 0)}</strong>件</span></section>}
     <HubSpotReadPanel key={panelEpoch} onOpen={job => { stopSnapshot(); setSnapshotAt(''); setRecords([job]); setSelectedId(job.id); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(false); setLive(true); }} />
     <MediaCaptureImport onImport={items => { stopSnapshot(); setSnapshotAt(''); setRecords(items); setSelectedId(items[0]?.id ?? ''); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(true); setLive(false); setPanelEpoch(value => value + 1); }} />
     <ReverseSearch records={records} onChoose={job => { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); choose(job); }} />

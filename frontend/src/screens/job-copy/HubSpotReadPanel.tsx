@@ -4,6 +4,7 @@ import type { JobCopyRecord } from './data';
 import { parseMediaCapture } from './mediaCaptureParser';
 import { parseApplicantReasons } from './applicantReasonsParser';
 import type { ApplicantDimension } from './applicantCompositionModel';
+import { roundAreaCounts, roundApplicantAreasInRecord } from './applicantArea';
 
 interface RecordData { id: string; properties: Record<string, string | null> }
 interface CustomerPage { customers: RecordData[]; next_after: string | null; total_ms: number }
@@ -72,7 +73,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
         try {
           const captured = parseMediaCapture(JSON.stringify(result.data.capture_bundle))[0];
           const comparison = result.data.dated_comparison;
-          if (captured) onOpen({ ...captured, id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
+          if (captured) onOpen(roundApplicantAreasInRecord({ ...captured, id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
             applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, captured.versions.filter(version => version.kind === 'published').map(version => version.id)),
             versions: captured.versions.map(version => {
               const bucket = comparison.by_version[version.id];
@@ -83,7 +84,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
                 distributions: Object.fromEntries(Object.entries(bucket.dimensions).filter(([, distribution]) => distribution !== null).map(([dimension, distribution]) => [dimension, { total: distribution?.denominator ?? 0, categories: distribution?.categories ?? [] }])),
                 note: `${version.note} ${comparison.basis}` };
             }),
-          });
+          }));
         } catch { setError('媒体観測データの形式を検証できませんでした。HubSpotの現在値と応募全体の集計を表示します。'); }
       } else {
         try { onOpen({ ...selectedJob, applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, []) }); }
@@ -108,7 +109,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     </>}
     {applications && <section aria-label="実応募の読み取り結果"><h2>{applications.metric}: {applications.summary.total}件</h2><p>{applications.version_attribution}</p><p>{applications.attribute_basis} · 応募日不明{applications.summary.missing_date}件 · 取得{applications.fetched_at}</p>
       <p>{applications.dated_comparison ? `${applications.dated_comparison.basis} 版対応不明${String(applications.dated_comparison.unknown)}件。本文・履歴と応募者構成のタブで確認できます。` : '日付ごとの観測版が未接続のため、ここでは求人全体の構成を表示します。'}</p>
-      <details><summary>求人全体の応募属性を開く</summary>{Object.entries(applications.summary.dimensions).map(([dimension, buckets]) => <section key={dimension}><h3>{labels[dimension] ?? dimension}</h3><table><thead><tr><th scope="col">区分</th><th scope="col">件数</th><th scope="col">割合</th></tr></thead><tbody>{Object.entries(buckets).map(([label, count]) => <tr key={label}><th scope="row">{label}</th><td>{count}件</td><td>{applications.summary.total ? `${(100 * count / applications.summary.total).toFixed(1)}%` : '算出不可'}</td></tr>)}</tbody></table></section>)}</details>
+      <details><summary>求人全体の応募属性を開く</summary>{Object.entries(applications.summary.dimensions).map(([dimension, buckets]) => <section key={dimension}><h3>{labels[dimension] ?? dimension}</h3><table><thead><tr><th scope="col">区分</th><th scope="col">件数</th><th scope="col">割合</th></tr></thead><tbody>{Object.entries(dimension === 'prefecture' || dimension === 'municipality' ? roundAreaCounts(dimension, buckets) : buckets).map(([label, count]) => <tr key={label}><th scope="row">{label}</th><td>{count}件</td><td>{applications.summary.total ? `${(100 * count / applications.summary.total).toFixed(1)}%` : '算出不可'}</td></tr>)}</tbody></table></section>)}</details>
     </section>}
   </details>;
 }

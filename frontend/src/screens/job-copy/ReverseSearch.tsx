@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { JobCopyRecord } from './data';
-import { reverseSearch } from './reverseSearchModel';
+import { reverseSearch, reverseSearchOptions } from './reverseSearchModel';
 import type { ReverseSearchQuery } from './reverseSearchModel';
 import './job-analysis.css';
 
@@ -9,8 +9,8 @@ export function ReverseSearch({ records, onChoose }: { records: JobCopyRecord[];
   const [query, setQuery] = useState<ReverseSearchQuery>({ gender: '', age: '', prefecture: '', municipality: '', minimum: 1 });
   const results = reverseSearch(records, query);
   const covered = records.filter(job => job.jointDemographics);
-  return <details className="jc-analysis jc-reverse-search"><summary>応募者の条件から求人を探す（逆検索）</summary><p>応募者の地域・年代・性別を同時に絞り、該当人数が多い順に表示します。勤務地の条件とは別です。複合集計取得済み {covered.length} / {records.length}求人。</p><p className="jc-notice">対象は取得済み応募全期間です。現在の求人内容への反応と断定できません。将来の自然言語検索はこの集計を参照する設計で、LLMはまだ接続していません。</p>
-    <div className="jc-analysis-controls">{(Object.keys(labels) as (keyof typeof labels)[]).map(key => <label key={key}>{labels[key]}<select aria-label={labels[key]} value={query[key]} onChange={event => { setQuery(current => ({ ...current, [key]: event.target.value })); }}><option value="">すべて</option>{[...new Set(covered.flatMap(job => job.jointDemographics?.cells.map(cell => cell[key]) ?? []))].sort().map(value => <option key={value}>{value}</option>)}</select></label>)}<label>最低該当人数<input type="number" min="1" step="1" value={query.minimum} onChange={event => { setQuery(current => ({ ...current, minimum: Number(event.target.value) })); }} /></label></div>
+  return <details className="jc-analysis jc-reverse-search"><summary>応募者の条件から求人を探す（逆検索）</summary><p>応募者の地域・年代・性別を同時に絞り、該当人数が多い順に表示します。勤務地の条件とは別です。条件の組み合わせを取得できた求人 {covered.length} / {records.length}件。</p><p>応募者の地域は都道府県と市区町村までに丸め、3人未満の地域は「その他」にまとめています。</p><p className="jc-notice">対象は取得済み応募全期間です。現在の求人内容への反応と断定できません。将来の自然言語検索はこの集計を参照する設計で、LLMはまだ接続していません。</p>
+    <div className="jc-analysis-controls">{(Object.keys(labels) as (keyof typeof labels)[]).map(key => <label key={key}>{labels[key]}<select aria-label={labels[key]} value={query[key]} onChange={event => { setQuery(current => ({ ...current, [key]: event.target.value })); }}><option value="">すべて</option>{reverseSearchOptions(covered, key).map(value => <option key={value}>{value}</option>)}</select></label>)}<label>最低該当人数<input type="number" min="1" step="1" value={query.minimum} onChange={event => { setQuery(current => ({ ...current, minimum: Number(event.target.value) })); }} /></label></div>
     {!covered.length ? <p>複合条件の集計が未取得です。年代別と性別の集計を掛け合わせて人数を作りません。</p> : !results.length ? <p role="status">条件に一致する求人はありません。未取得求人は検索結果に含めていません。</p> : <div aria-label="逆検索の結果">{results.map(result => <button className="jc-analysis-result" key={result.job.id} onClick={() => { onChoose(result.job); }}><strong>{result.job.title}</strong> · {result.job.company}<br />該当{result.count}件 / この求人の全応募{result.denominator}件（{result.percentage?.toFixed(1) ?? '—'}%）<br /><small>応募集計取得：{result.job.overallApplications?.fetchedAt ?? '未取得'} · 求人を開く</small></button>)}</div>}
   </details>;
 }
