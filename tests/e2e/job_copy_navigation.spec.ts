@@ -28,6 +28,8 @@ async function setup(page: Page, longBody = false) {
   });
   await page.goto('/app/job-copy');
   await expect(page.locator('.jc-job')).toHaveCount(2);
+  // The timeline opens first (2026-10-08); these checks start from the body tab.
+  await selectJobFeature(page, 'body');
 }
 test.beforeAll(() => { mkdirSync(visuals, { recursive: true }); });
 
@@ -79,7 +81,7 @@ test('reading actions remain reachable, restore tab focus and return to the filt
 test('functional tabs isolate applicants, reasons, application trends, market graphs and tables while retaining same-job selections', async ({ page }) => {
   await setup(page);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-  await expect(primary.getByRole('tab')).toHaveText(['求人内容', '応募分析', '市場分析', '比較・報告', 'データ取込']);
+  await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '求人内容', '応募分析', '市場分析', '比較・報告', 'データ取込']);
   await expect(primary.getByRole('tab', { name: '求人内容', exact: true })).toHaveAttribute('aria-selected', 'true');
   const panel = (name: string) => page.getByRole('tabpanel', { name, exact: true });
   await expect(panel('本文・画像').locator('.jc-body')).toHaveText('合成Aの求人本文です。');
@@ -170,8 +172,11 @@ test('tab keyboard Arrow/Home/End movement activates valid linked panels and ina
   await expect(page.getByRole('tabpanel', { name: '外部文面を確認', exact: true })).toBeVisible();
   await expect(page.getByLabel('受け取った文面')).toBeVisible();
   await page.keyboard.press('Home');
-  await expect(content).toBeFocused();
+  await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toBeFocused();
   await expect(page.getByLabel('受け取った文面')).toBeHidden();
+  await expect(page.getByRole('region', { name: 'タイムライン', exact: true })).toBeVisible();
+  await page.keyboard.press('ArrowRight');
+  await expect(content).toBeFocused();
   await expect(page.getByRole('tabpanel', { name: '本文・画像', exact: true })).toBeVisible();
   for (let step = 0; step < 15; step++) {
     await page.keyboard.press('Tab');

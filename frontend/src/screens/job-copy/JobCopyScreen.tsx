@@ -18,6 +18,9 @@ import { ReverseSearch } from './ReverseSearch';
 import { AbComparison } from './AbComparison';
 import { ConsultantReview } from './ConsultantReview';
 import { HubSpotReadPanel } from './HubSpotReadPanel';
+import { JobTimeline } from './JobTimeline';
+import { JobOverview } from './JobOverview';
+import type { BillingEntry } from './timelineModel';
 import type { ConsultantDraft } from './ConsultantReview';
 import { apiGet } from '../../api/client';
 import { parseRealMoc } from './realMoc';
@@ -48,11 +51,11 @@ function ApplicationSummary({ version, live = false }: { version: CopyVersion; l
   </section>;
 }
 
-function CopyDetail({ job, records, onAdd, reviewed, onReview, onBack }: { job: JobCopyRecord; records: JobCopyRecord[]; onAdd: (version: CopyVersion) => void; reviewed: string[]; onReview: (id: string) => void; onBack: () => void }) {
+function CopyDetail({ job, records, onAdd, reviewed, onReview, onBack, billing, demo = false }: { job: JobCopyRecord; records: JobCopyRecord[]; onAdd: (version: CopyVersion) => void; reviewed: string[]; onReview: (id: string) => void; onBack: () => void; billing?: readonly BillingEntry[] | undefined; demo?: boolean }) {
   const current = latest(job) ?? (job.dataSource === 'hubspot' ? job.versions.at(-1) : undefined);
-  const [tab, setCurrentTab] = useState<JobFeature>('body');
+  const [tab, setCurrentTab] = useState<JobFeature>('timeline');
   const [remembered, setRemembered] = useState<Partial<Record<string, JobFeature>>>({});
-  const [visited, setVisited] = useState<JobFeature[]>(['body']);
+  const [visited, setVisited] = useState<JobFeature[]>(['timeline']);
   const tabPrefix = useId();
   function setTab(next: JobFeature) {
     setCurrentTab(next);
@@ -127,6 +130,7 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, onBack }: { job: 
     <div className="jc-record-meta"><span>{current?.source === 'HubSpot shigotonaiyou' ? '現在のHubSpot値' : '現在の掲載観測版'}: {current?.label ?? '本文未取得'}</span><span>観測ラベル: {current ? date(current.observedAt) : '—'} JST</span><span>{job.hubspotId ? `HubSpot求人ID: ${job.hubspotId}` : 'HubSpotリンク: 実求人IDの接続待ち'}</span></div>
     {message && <p className="jc-message" role="status">{message}</p>}
     <JobFeatureTabs value={tab} onChange={setTab} remembered={remembered} prefix={tabPrefix}>
+    <JobFeaturePanel feature="timeline" active={tab === 'timeline'} prefix={tabPrefix}>{visited.includes('timeline') && <JobTimeline job={job} billing={billing} marketMode={demo ? 'demo' : 'api'} onOpenVersion={id => { setSelected(id); openFeatureFromContent('body'); }} onCompareVersions={(from, to) => { setBefore(from); setAfter(to); openFeatureFromContent('diff'); }} />}</JobFeaturePanel>
     <JobFeaturePanel feature="applications" active={tab === 'applications'} prefix={tabPrefix}>{tab === 'applications' && <ApplicationTrend job={job} />}</JobFeaturePanel>
     <JobFeaturePanel feature="applicants" active={tab === 'applicants'} prefix={tabPrefix}>{visited.includes('applicants') && <ApplicantComposition job={job} includeReasons={false} />}</JobFeaturePanel>
     <JobFeaturePanel feature="reasons" active={tab === 'reasons'} prefix={tabPrefix}>{visited.includes('reasons') && <ApplicantReasonReview job={job} />}</JobFeaturePanel>
@@ -206,6 +210,10 @@ export function JobCopyScreen() {
   const [customer, setCustomer] = useState('all');
   const [status, setStatus] = useState('all');
   const [listOrder, setListOrder] = useState<JobListOrder>('source');
+  const [view, setView] = useState<'list' | 'overview'>('list');
+  // Billing rows from the billing CSV, by job id. Browser only: lost on reload (PR2 fills this).
+  const [billingByJob] = useState<Record<string, BillingEntry[]>>({});
+  const demoMode = !snapshotRequested && !live && !captured;
   useEffect(() => {
     if (!snapshotRequested) return;
     const controller = new AbortController();
@@ -256,13 +264,13 @@ export function JobCopyScreen() {
     <HubSpotReadPanel key={panelEpoch} onOpen={job => { stopSnapshot(); setSnapshotAt(''); setRecords([job]); setSelectedId(job.id); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(false); setLive(true); }} />
     <MediaCaptureImport onImport={items => { stopSnapshot(); setSnapshotAt(''); setRecords(items); setSelectedId(items[0]?.id ?? ''); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(true); setLive(false); setPanelEpoch(value => value + 1); }} />
     <ReverseSearch records={records} onChoose={job => { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); choose(job); }} />
-    <div className="jc-workspace"><aside className="jc-list"><div className="jc-list-heading"><h2 id="job-list-heading" tabIndex={-1}>求人レコード</h2><span aria-live="polite" aria-atomic="true">{snapshotLoading ? '取得中' : snapshotError && !records.length ? '未取得' : `${String(visible.length)} / ${String(records.length)}件`}</span></div><label>求人・企業・媒体IDを検索<input id="job-list-search" type="search" value={search} placeholder="求人名、企業名、勤務地" onChange={event => { setSearch(event.target.value); }} /></label>
+    <div className="jc-workspace"><aside className="jc-list"><div className="jo-view-toggle" role="group" aria-label="表示の切り替え"><button type="button" aria-pressed={view === 'list'} onClick={() => { setView('list'); }}>一覧</button><button type="button" aria-pressed={view === 'overview'} onClick={() => { setView('overview'); }}>横断比較</button></div><div className="jc-list-heading"><h2 id="job-list-heading" tabIndex={-1}>求人レコード</h2><span aria-live="polite" aria-atomic="true">{snapshotLoading ? '取得中' : snapshotError && !records.length ? '未取得' : `${String(visible.length)} / ${String(records.length)}件`}</span></div><label>求人・企業・媒体IDを検索<input id="job-list-search" type="search" value={search} placeholder="求人名、企業名、勤務地" onChange={event => { setSearch(event.target.value); }} /></label>
       <label>取引先<select aria-label="取引先" value={customer} onChange={event => { setCustomer(event.target.value); }}><option value="all">すべての取引先</option>{captured ? <option value="unlinked">取引先未紐付け</option> : [...new Set(records.map(job => job.company))].map(value => <option key={value} value={value}>{value}{live ? '' : '（架空）'}</option>)}</select></label>
       <div className="jc-filters"><label>媒体<select value={media} onChange={event => { setMedia(event.target.value); }}><option value="all">すべて</option>{[...new Set(records.map(job => job.media))].map(value => <option key={value}>{value}</option>)}</select></label><label>変更判定<select value={status} onChange={event => { setStatus(event.target.value); }}><option value="all">すべて</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
       <label>並び順<select aria-label="並び順" value={listOrder} onChange={event => { setListOrder(event.target.value === 'applications' ? 'applications' : 'source'); }}><option value="source">取得順</option><option value="applications">応募数が多い順</option></select></label>
       {filtersActive && <button type="button" className="jc-button jc-filter-reset" onClick={resetFilters}>検索条件をリセット</button>}
       <div className="jc-list-scroll">{visible.map(job => <button className="jc-job" key={job.id} aria-pressed={selected?.id === job.id} onClick={() => { choose(job); }}><span className="jc-job-company">{job.company}</span><strong>{job.title}</strong><span>{job.location} · {job.media}</span><span className="jc-job-bottom"><small>{published(job).length}版{job.versions.some(version => version.kind === 'ai_draft') ? ' + AI案' : ''}</small><small>{statusLabels[changeStatus(job)]}</small></span><small>{applicationCountLabel(job)}</small></button>)}{!visible.length && <div className="jc-empty"><p>{snapshotLoading ? '求人一覧を取得中です。' : records.length ? '一致する求人はありません。' : '表示できる求人がありません。'}</p></div>}</div>
       <p className="jc-list-footer">本文の観測と掲載確認を分けて管理<br />求人を選ぶと文面と履歴が開きます</p>
-    </aside>{selected ? <CopyDetail key={`${selected.id}-${selected.versions[0]?.id ?? ''}`} job={selected} records={records} reviewed={reviewed} onBack={returnToList} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを取得しています' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '取得完了後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</div>
+    </aside>{view === 'overview' && records.length > 0 ? <JobOverview records={visible} billing={billingByJob} onChoose={job => { setView('list'); choose(job); }} /> : selected ? <CopyDetail key={`${selected.id}-${selected.versions[0]?.id ?? ''}`} job={selected} records={records} billing={billingByJob[selected.id]} demo={demoMode} reviewed={reviewed} onBack={returnToList} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを取得しています' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '取得完了後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</div>
   </div>;
 }
