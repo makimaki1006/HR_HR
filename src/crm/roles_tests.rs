@@ -545,7 +545,7 @@ async fn 重複行は最小権限() {
 }
 
 /// Turso 障害: accounts を読めないときは管理者になれない (権限を広げない)。`ADMIN_EMAILS` の人だけ非常口で admin。
-/// 管理者以外 (accounts.role = admin の人を含む) は自分の分だけのまま。DB を叩く前に落ちる経路 (未接続) も同じ
+/// 管理者以外 (accounts.role = admin の人を含む) はキューの既定が自分のまま (全件は見られる)。DB を叩く前に落ちる経路 (未接続) も同じ
 #[tokio::test(flavor = "multi_thread")]
 async fn turso_障害時は管理者を広げない() {
     let (audit, conn) = start_sqlite_audit().await;
@@ -555,25 +555,24 @@ async fn turso_障害時は管理者を広げない() {
         let (client, _hs) = start_hs(std_hs()).await;
         let state = state_with(audit, Some(client), &["boss@f-a-c.co.jp"]);
         let app = app_with(state, CrmAccess::from_list(""));
-        // 管理者だけの担当者一覧: 非常口の ADMIN_EMAILS は 200、accounts の admin は読めないので 403
+        // キューの既定: 非常口の ADMIN_EMAILS は全員分 (200)、accounts の admin は読めないので管理者にならず
+        // 自分 (owner が無いので 409 owner_not_resolved)
         let cookie = login(&app, "boss@f-a-c.co.jp", "google_oidc").await;
-        let (s, _) = get_text(&app, "/api/crm/owners", &cookie).await;
-        assert_eq!(s, StatusCode::OK, "非常口の ADMIN_EMAILS");
+        let (s, b) = get_text(&app, "/api/crm/call-queue", &cookie).await;
+        assert_eq!(s, StatusCode::OK, "非常口の ADMIN_EMAILS: {b}");
+        assert!(b.contains(r#""role":"admin""#), "{b}");
         for email in ["acctadmin@f-a-c.co.jp", "random@f-a-c.co.jp"] {
             let cookie = login(&app, email, "google_oidc").await;
-            let (s, b) = get_text(&app, "/api/crm/owners", &cookie).await;
-            assert_eq!(
-                (s, kind(&b)),
-                (StatusCode::FORBIDDEN, "forbidden".into()),
-                "{email}"
-            );
-            // CRM 自体は使える (自分の分だけ。owner が無いので owner_not_found)
             let (s, b) = get_text(&app, "/api/crm/call-queue", &cookie).await;
             assert_eq!(
                 (s, kind(&b)),
-                (StatusCode::FORBIDDEN, "owner_not_found".into()),
+                (StatusCode::CONFLICT, "owner_not_resolved".into()),
                 "{email}"
             );
+            // 管理者でなくても全員分は指定すれば見られる
+            let (s, b) = get_text(&app, "/api/crm/call-queue?owner=all", &cookie).await;
+            assert_eq!(s, StatusCode::OK, "{email}: {b}");
+            assert!(b.contains(r#""role":"own""#), "{b}");
         }
     }
 }
@@ -591,16 +590,28 @@ async fn 管理者は_admin_emails_か_accounts_admin() {
         state_with(Some(audit), Some(client), &["boss@f-a-c.co.jp"]),
         CrmAccess::from_list(""),
     );
-    for (email, owners_status) in [
+    // キューの既定: 管理者は全員分 (200, role=admin)、それ以外は自分 (owner が無ければ 409)。consultant の値は判定に使わない
+    for (email, status) in [
         ("boss@f-a-c.co.jp", 200),
         ("acctadmin@f-a-c.co.jp", 200),
-        ("consult@f-a-c.co.jp", 403), // consultant の値は判定に使わない
-        ("bpo@f-a-c.co.jp", 403),
-        ("nobody@f-a-c.co.jp", 403),
+        ("consult@f-a-c.co.jp", 409),
+        ("bpo@f-a-c.co.jp", 200), // std_hs に owner がある。管理者ではないので scope.role は own
+        ("nobody@f-a-c.co.jp", 409),
     ] {
         let cookie = login(&app, email, "google_oidc").await;
+        let (s, b) = get_text(&app, "/api/crm/call-queue", &cookie).await;
+        assert_eq!(s.as_u16(), status, "{email}: {b}");
+        if status == 200 {
+            let want = if email.starts_with("bpo@") {
+                "own"
+            } else {
+                "admin"
+            };
+            assert!(b.contains(&format!(r#""role":"{want}""#)), "{email}: {b}");
+        }
+        // 担当者一覧は全員 200
         let (s, b) = get_text(&app, "/api/crm/owners", &cookie).await;
-        assert_eq!(s.as_u16(), owners_status, "{email}: {b}");
+        assert_eq!(s, StatusCode::OK, "{email}: {b}");
     }
 }
 
@@ -869,75 +880,88 @@ fn gate_hs() -> Hs {
     hs
 }
 
-/// (種類, id, BPO が読めるか)
+/// (種類, id, HubSpot に存在するか)。管理者以外も、存在すれば全部読める (決定 2026-10-07)
 const GATE_TABLE: &[(&str, &str, bool)] = &[
     // Deal: 自分 × キュー内
     ("deals", "1", true),
     ("deals", "2", true),
     ("deals", "21", true),
     // Deal: 自分だがキュー外 (明日 / 次回日なし / 日付不正 / 架電禁止 / ブロック / アポ確定 / 別パイプライン)
-    ("deals", "20", false),
-    ("deals", "22", false),
-    ("deals", "23", false),
-    ("deals", "4", false),
-    ("deals", "5", false),
-    ("deals", "6", false),
-    ("deals", "7", false),
+    ("deals", "20", true),
+    ("deals", "22", true),
+    ("deals", "23", true),
+    ("deals", "4", true),
+    ("deals", "5", true),
+    ("deals", "6", true),
+    ("deals", "7", true),
     // Deal: 他人 / 担当なし / 存在しない
-    ("deals", "3", false),
-    ("deals", "30", false),
+    ("deals", "3", true),
+    ("deals", "30", true),
     ("deals", "99999", false),
     // Contact: キュー内の Deal に紐づくだけ
     ("contacts", "101", true),
     ("contacts", "103", true),
-    ("contacts", "102", false),
-    ("contacts", "104", false),
-    ("contacts", "105", false),
-    ("contacts", "106", false),
+    ("contacts", "102", true),
+    ("contacts", "104", true),
+    ("contacts", "105", true),
+    ("contacts", "106", true),
     ("contacts", "199", false),
     // Company
     ("companies", "201", true),
-    ("companies", "202", false),
-    ("companies", "203", false),
+    ("companies", "202", true),
+    ("companies", "203", true),
     ("companies", "299", false),
 ];
 
 #[tokio::test(flavor = "multi_thread")]
-async fn bpo_は_自分の担当でキューに出る_deal_と_その_contact_company_だけ読める() {
+async fn 管理者以外も他人の_deal_と関連_contact_company_を読め_関門を通らない() {
     let (client, hs) = start_hs(gate_hs()).await;
     let app = app_with(state_with(None, Some(client), &[ADMIN]), role_access());
     let cookie = login(&app, BPO, "google_oidc").await;
-    for (kind_name, id, allowed) in GATE_TABLE {
-        let before = hs.lock().unwrap().log.len();
+    for (kind_name, id, exists) in GATE_TABLE {
         let (s, b) = get_text(&app, &format!("/api/crm/{kind_name}/{id}"), &cookie).await;
-        if *allowed {
+        if *exists {
+            // 他人の担当 (3)・担当なし (30)・キュー外 (20, 4, 6 ...)・他人の Deal だけに紐づく Contact (102) も読める
             assert_eq!(s, StatusCode::OK, "{kind_name}/{id}: {b}");
             assert!(b.contains(SECRET), "{kind_name}/{id}");
         } else {
-            // 外れたら 403 forbidden_record だけ。存在しない id も同じ (404 で存在を教えない)
-            assert_eq!(
-                (s, b.as_str()),
-                (
-                    StatusCode::FORBIDDEN,
-                    r#"{"error_kind":"forbidden_record"}"#
-                ),
-                "{kind_name}/{id}"
-            );
-            // 本文 (関連・アクティビティの読み取り) に進んでいない: 関門の 1〜2 回 (+ owner) 以外の呼び出しが無い
-            let new_calls: Vec<String> = hs.lock().unwrap().log[before..].to_vec();
-            assert!(
-                !new_calls.iter().any(|l| l.contains("calls")
-                    || l.contains("notes")
-                    || l.contains("tasks")
-                    || l.contains("meetings")
-                    || l.contains("/crm/v4/associations")),
-                "{kind_name}/{id}: {new_calls:?}"
-            );
+            assert_eq!(s, StatusCode::NOT_FOUND, "{kind_name}/{id}: {b}");
         }
+    }
+    assert_eq!(
+        hs.lock().unwrap().count("/crm/v3/owners"),
+        0,
+        "自分の owner を引く関門を通らない"
+    );
+}
+
+/// 役割が決まっていない (最小権限 user) 場合だけ、従来のレコード単位の関門が効く (安全側の備え。通常の経路では来ない)
+#[tokio::test(flavor = "multi_thread")]
+async fn 役割が決まっていない最小権限だけは関門を通る() {
+    let (client, _hs) = start_hs(gate_hs()).await;
+    let access = CrmAccess::from_list("").with_test_role(BPO, CrmRole::User);
+    let app = app_with(state_with(None, Some(client), &[ADMIN]), access);
+    let cookie = login(&app, BPO, "google_oidc").await;
+    let (s, _) = get_text(&app, "/api/crm/deals/1", &cookie).await;
+    assert_eq!(s, StatusCode::OK, "自分の担当でキューに出る");
+    for p in [
+        "/api/crm/deals/3",
+        "/api/crm/deals/20",
+        "/api/crm/contacts/102",
+    ] {
+        let (s, b) = get_text(&app, p, &cookie).await;
+        assert_eq!(
+            (s, b.as_str()),
+            (
+                StatusCode::FORBIDDEN,
+                r#"{"error_kind":"forbidden_record"}"#
+            ),
+            "{p}"
+        );
     }
 }
 
-/// 許可表 (決定 2026-10-07): 管理者は全件。管理者以外は全員 (BPO のチームでも、そうでなくても) 自分の分だけ。
+/// 許可表 (決定 2026-10-07 更新): CRM の利用者は全員、全件を読める。違いはキューの既定 (管理者 = 全員分、それ以外 = 自分)。
 /// 列: admin / 非 BPO の社内ユーザー (owner 333、自分の Deal 7 あり) / BPO チームの人 (owner 111) / HubSpot owner なしの人
 #[tokio::test(flavor = "multi_thread")]
 async fn 役割ごとの許可表() {
@@ -960,24 +984,26 @@ async fn 役割ごとの許可表() {
     let (client, _hs) = start_hs(hs).await;
     let app = app_with(state_with(None, Some(client), &[ADMIN]), role_access());
     let table: &[(&str, [u16; 4])] = &[
-        // キュー: 既定 (admin = 全員分、他は自分)
-        ("/api/crm/call-queue", [200, 200, 200, 403]),
-        // キュー: 全員分 / 担当なし / 他人 は管理者だけ。自分 (me) は誰でも (owner があれば)
-        ("/api/crm/call-queue?owner=all", [200, 403, 403, 403]),
-        ("/api/crm/call-queue?owner=unassigned", [200, 403, 403, 403]),
-        ("/api/crm/call-queue?owner=222", [200, 403, 403, 403]),
-        ("/api/crm/call-queue?owner=me", [200, 200, 200, 403]),
-        // 担当者一覧: admin だけ
-        ("/api/crm/owners", [200, 403, 403, 403]),
-        // 個別 Deal: 自分のキュー内 / 他人
-        ("/api/crm/deals/1", [200, 403, 200, 403]),
-        ("/api/crm/deals/7", [200, 200, 403, 403]),
-        ("/api/crm/deals/3", [200, 403, 403, 403]),
-        // Contact / Company: 自分のキュー内の Deal に紐づく / 無関係
-        ("/api/crm/contacts/101", [200, 403, 200, 403]),
-        ("/api/crm/contacts/102", [200, 403, 403, 403]),
-        ("/api/crm/companies/201", [200, 403, 200, 403]),
-        ("/api/crm/companies/202", [200, 403, 403, 403]),
+        // キュー: 既定 (admin = 全員分、他は自分。自分の owner が無い人は 409 で選択を促す)
+        ("/api/crm/call-queue", [200, 200, 200, 409]),
+        // キュー: 全員分 / 担当なし / 他人 は全員が指定できる。自分 (me) は owner があれば
+        ("/api/crm/call-queue?owner=all", [200, 200, 200, 200]),
+        ("/api/crm/call-queue?owner=unassigned", [200, 200, 200, 200]),
+        ("/api/crm/call-queue?owner=222", [200, 200, 200, 200]),
+        ("/api/crm/call-queue?owner=me", [200, 200, 200, 409]),
+        // 担当者一覧: CRM の利用者全員
+        ("/api/crm/owners", [200, 200, 200, 200]),
+        // 個別 Deal: 自分のキュー内 / 自分の担当だがキュー外 / 他人 のどれも読める
+        ("/api/crm/deals/1", [200, 200, 200, 200]),
+        ("/api/crm/deals/7", [200, 200, 200, 200]),
+        ("/api/crm/deals/3", [200, 200, 200, 200]),
+        // Contact / Company: 自分のキュー内の Deal に紐づく / 無関係 のどちらも読める
+        ("/api/crm/contacts/101", [200, 200, 200, 200]),
+        ("/api/crm/contacts/102", [200, 200, 200, 200]),
+        ("/api/crm/companies/201", [200, 200, 200, 200]),
+        ("/api/crm/companies/202", [200, 200, 200, 200]),
+        // ワークスペース (案件の詳細)
+        ("/api/crm/workspace/deals/3", [200, 200, 200, 200]),
         // metadata: ログインした全員 (定義だけ。顧客の値は返らない)
         ("/api/crm/metadata", [200, 200, 200, 200]),
     ];
@@ -994,7 +1020,7 @@ async fn 役割ごとの許可表() {
 }
 
 /// 所属チームの違い (BPO / 非 BPO / 複数の片方が BPO / primary でない BPO / チームなし / 前後空白・大文字小文字違い)
-/// で見られる範囲は変わらない (全員 自分の分だけ)。チーム名は scope.teams に参考として出るだけ
+/// で見られる範囲は変わらない (全員 全件)。既定は自分で、チーム名は scope.teams に参考として出るだけ
 #[tokio::test(flavor = "multi_thread")]
 async fn 所属チームは範囲を変えず参考表示だけ() {
     let teams_cases: Vec<(&str, Option<Vec<&str>>)> = vec![
@@ -1044,25 +1070,17 @@ async fn 所属チームは範囲を変えず参考表示だけ() {
         for q in &searches {
             assert!(q.contains(&format!(r#""value":"9{i}""#)), "{email}: {q}");
         }
-        // 他人の指定・他人の Deal は 403
+        // 他人の指定・他人の Deal も見られる (所属チームで変わらない)
         for p in [
             "/api/crm/call-queue?owner=all",
             "/api/crm/call-queue?owner=111",
         ] {
             let (s, b) = get_text(&app, p, &cookie).await;
-            assert_eq!(
-                (s, kind(&b)),
-                (StatusCode::FORBIDDEN, "forbidden_owner".into()),
-                "{email} {p}"
-            );
+            assert_eq!(s, StatusCode::OK, "{email} {p}: {b}");
         }
         let (s, b) = get_text(&app, "/api/crm/deals/1", &cookie).await;
-        assert_eq!(
-            (s, kind(&b)),
-            (StatusCode::FORBIDDEN, "forbidden_record".into()),
-            "{email}"
-        );
-        assert!(!b.contains(SECRET));
+        assert_eq!(s, StatusCode::OK, "{email}: {b}");
+        assert!(b.contains(SECRET));
     }
     // 管理者は HubSpot の owner を引かず teams は空
     let cookie = login(&app, ADMIN, "google_oidc").await;
@@ -1085,14 +1103,8 @@ async fn owners_取得失敗は全件に倒さずエラー() {
     let app = app_with(state_with(None, Some(client), &[ADMIN]), role_access());
     let cookie = login(&app, CONSULT, "google_oidc").await;
     hs.lock().unwrap().fail_all = Some(500);
-    for p in [
-        "/api/crm/call-queue",
-        "/api/crm/call-queue?owner=me",
-        "/api/crm/deals/1",
-        "/api/crm/contacts/101",
-        "/api/crm/companies/201",
-        "/api/crm/workspace/deals/1",
-    ] {
+    // 自分の owner が要る経路 (既定 = 自分 / 明示の me)。他人・全員分の指定は owner を引かないのでここには含めない
+    for p in ["/api/crm/call-queue", "/api/crm/call-queue?owner=me"] {
         let (s, b) = get_text(&app, p, &cookie).await;
         assert!(s.is_server_error(), "{p}: {s} {b}");
         assert!(!b.contains(SECRET) && !b.contains("dealname"), "{p}: {b}");
@@ -1108,40 +1120,50 @@ async fn owners_取得失敗は全件に倒さずエラー() {
     assert_eq!(s, StatusCode::OK, "{b}");
 }
 
-/// BPO の owner が HubSpot に無い → 何も読めない (全員分に倒さない)
+/// 自分の owner が HubSpot に無い人: キューの既定 / me は 409 で選択を促し (全員分に倒さない)、
+/// 全員分・他人の指定と個別の Deal / Contact / Company は読める (owner を引かない)
 #[tokio::test(flavor = "multi_thread")]
-async fn owner_を引けない人は誰であれ何も読めない() {
+async fn owner_を引けない人は選択を促され_指定すれば全件読める() {
     let mut hs = gate_hs();
     hs.owners.clear();
     let (client, hs) = start_hs(hs).await;
     let app = app_with(state_with(None, Some(client), &[ADMIN]), role_access());
     let cookie = login(&app, BPO, "google_oidc").await;
-    for p in [
-        "/api/crm/deals/1",
-        "/api/crm/contacts/101",
-        "/api/crm/companies/201",
-    ] {
+    for p in ["/api/crm/call-queue", "/api/crm/call-queue?owner=me"] {
         let (s, b) = get_text(&app, p, &cookie).await;
         assert_eq!(
             (s, b.as_str()),
-            (StatusCode::FORBIDDEN, r#"{"error_kind":"owner_not_found"}"#),
+            (
+                StatusCode::CONFLICT,
+                r#"{"error_kind":"owner_not_resolved"}"#
+            ),
             "{p}"
         );
     }
     assert_eq!(
-        hs.lock().unwrap().count("/crm/v3/objects/"),
+        hs.lock().unwrap().count("/deals/search"),
         0,
-        "本体は 1 回も読まない"
+        "全員分に倒して検索しない"
     );
+    for p in [
+        "/api/crm/call-queue?owner=all",
+        "/api/crm/call-queue?owner=222",
+        "/api/crm/deals/1",
+        "/api/crm/contacts/101",
+        "/api/crm/companies/201",
+        "/api/crm/workspace/deals/1",
+    ] {
+        let (s, b) = get_text(&app, p, &cookie).await;
+        assert_eq!(s, StatusCode::OK, "{p}: {b}");
+    }
 }
 
-/// 関門の HubSpot 読み取りが失敗したら通さない (権限を確かめられないまま本文を返さない)。上流の本文も漏らさない
+/// HubSpot の読み取りが失敗したら 5xx。上流の本文を漏らさない
 #[tokio::test(flavor = "multi_thread")]
-async fn 関門の読み取りが失敗したら通さず_上流の本文も返さない() {
+async fn 読み取りが失敗したら上流の本文を返さない() {
     let (client, hs) = start_hs(gate_hs()).await;
     let app = app_with(state_with(None, Some(client), &[ADMIN]), role_access());
     let cookie = login(&app, BPO, "google_oidc").await;
-    // 先に owner をキャッシュさせる (成功する 1 回)
     let (s, _) = get_text(&app, "/api/crm/deals/1", &cookie).await;
     assert_eq!(s, StatusCode::OK);
     hs.lock().unwrap().fail_all = Some(500);
@@ -1517,7 +1539,9 @@ mod change_role {
         let (audit, conn) = start_sqlite_audit().await;
         add_account(&conn, "w1", "wire.test@f-a-c.co.jp", "bpo");
         add_account(&conn, "w2", "wire.boss@f-a-c.co.jp", "admin");
-        let state = ct::test_state(Some(audit));
+        let (client, _hs) = start_hs(Hs::default()).await;
+        let mut state = ct::test_state(Some(audit));
+        Arc::get_mut(&mut state).expect("state is unique").hubspot = Some(client);
         let app = Router::new()
             .merge(super::super::router(
                 CrmAccess::from_list("").with_global_role_cache(),
@@ -1532,16 +1556,20 @@ mod change_role {
         let target = login(&app, "wire.test@f-a-c.co.jp", "google_oidc").await;
         let boss =
             login_with_account(&app, "wire.boss@f-a-c.co.jp", "google_oidc", Some("w2")).await;
-        // 管理者だけの担当者一覧で確かめる (admin = 認可と役割を抜けて HubSpot 未設定の 503、それ以外 = 403)
+        // キューの既定で確かめる (admin = 全員分で 200、それ以外 = 自分。HubSpot に owner が無いので 409)
         let probe = || async {
-            let (s, b) = get_text(&app, "/api/crm/owners", &target).await;
-            (s, kind(&b))
+            let (s, b) = get_text(&app, "/api/crm/call-queue", &target).await;
+            (
+                s,
+                if s == StatusCode::OK {
+                    "ok".to_string()
+                } else {
+                    kind(&b)
+                },
+            )
         };
-        let passed = (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "not_configured".to_string(),
-        );
-        let denied = (StatusCode::FORBIDDEN, "forbidden".to_string());
+        let passed = (StatusCode::OK, "ok".to_string());
+        let denied = (StatusCode::CONFLICT, "owner_not_resolved".to_string());
         assert_eq!(
             probe().await,
             denied,

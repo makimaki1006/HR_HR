@@ -37,6 +37,14 @@ export function partialNotes(p: CallQueuePartial | null): string[] {
   return notes;
 }
 
+/** 応答の scope.owner (all / me / unassigned / owner ID) を、画面の注記に出す名前にする */
+export function ownerScopeLabel(scopeOwner: string, names: ReadonlyMap<string, string>): string {
+  if (scopeOwner === 'all') return '全員';
+  if (scopeOwner === 'me') return '自分';
+  if (scopeOwner === 'unassigned') return '担当者なし';
+  return names.get(scopeOwner) ?? `ID ${scopeOwner}`;
+}
+
 function QueueRow({ item, ownerName, selected, onSelect }: {
   item: CallQueueItem; ownerName?: string | undefined; selected: boolean; onSelect: (id: string) => void;
 }) {
@@ -99,15 +107,17 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
   }, [filters, mode, initialSearch]);
 
   const hasConditions = useMemo(() => filtersKey(filters) !== filtersKey(DEFAULT_FILTERS), [filters]);
-  // 条件を変えて読み直している間は role が空になる。同じモードで管理者と分かった後は、自分の分だけと分かるまで
-  // 管理者のままにする (担当者の入力欄が一瞬消えて、一覧を取り直すのを防ぐ。モードを変えたら確かめ直す)
-  const [adminSeenIn, setAdminSeenIn] = useState<QueueMode | null>(null);
-  if (state.role === 'admin' && adminSeenIn !== mode) setAdminSeenIn(mode);
-  if (state.role === 'own' && adminSeenIn !== null) setAdminSeenIn(null);
-  const isAdmin = state.role === 'admin' || (adminSeenIn === mode && state.role !== 'own');
-  // 担当者の一覧は管理者だけ。実データでは HubSpot、架空サンプルでは架空の一覧
-  const owners = useOwners(isAdmin, mode === 'fixture' ? fixtureOwnersFetch : (ownersFetcher ?? liveOwnersFetch));
+  // 所有者の既定 (条件の owner が '' のとき、サーバが実際に使った所有者 = 管理者は all、それ以外は me)。
+  // 条件を変えて読み直している間は応答が空になるので、同じモードで分かった値を覚えておく (選択欄がちらつかないように)
+  const [seenOwner, setSeenOwner] = useState<{ mode: QueueMode; owner: string } | null>(null);
+  if (state.last !== null && filters.owner === '' && (seenOwner?.mode !== mode || seenOwner.owner !== state.last.scope.owner)) {
+    setSeenOwner({ mode, owner: state.last.scope.owner });
+  }
+  const effectiveOwner = seenOwner?.mode === mode ? seenOwner.owner : null;
+  // 所有者の一覧は CRM の利用者全員が使える。実データでは HubSpot、架空サンプルでは架空の一覧
+  const owners = useOwners(true, mode === 'fixture' ? fixtureOwnersFetch : (ownersFetcher ?? liveOwnersFetch));
   const ownerNames = useMemo(() => ownerNameMap(owners.state.phase === 'ready' ? owners.state.owners : []), [owners.state]);
+  const needsOwnerPick = state.phase === 'error' && state.errorKind === 'owner_not_resolved';
   const notes = partialNotes(state.partial);
   const total = state.last?.total ?? null;
 
@@ -132,8 +142,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
     </div>
 
     {mode === 'live' && state.last !== null ? <p className="cq-scope-note" data-testid="scope-note" style={{ fontSize: '0.75rem', opacity: 0.7, margin: '2px 12px' }}>
-      {state.last.scope.role === 'admin' ? '管理者として全員分を表示できます。'
-        : `自分の担当分だけを表示しています。HubSpot の所属チーム: ${state.last.scope.teams.length > 0 ? state.last.scope.teams.join('、') : '(なし)'}(参考表示。見られる範囲には使っていません)`}
+      所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中(HubSpot の全件から、上の所有者の選択で切り替えられます)
     </p> : null}
 
     <form className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
@@ -149,8 +158,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
         <label>まで<input type="date" value={filters.lastTo} onChange={e => { update({ lastTo: e.target.value }); }} /></label></fieldset>
       <label className="cq-check"><input type="checkbox" checked={filters.due === 'today'}
         onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>
-      {isAdmin && <OwnerFilter owner={filters.owner} onChange={owner => { update({ owner }); }}
-        owners={owners.state} onReload={owners.reload} />}
+      <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
+        onChange={owner => { update({ owner }); }} owners={owners.state} onReload={owners.reload} />
       <fieldset className="cq-stages"><legend>ステージ{filters.stages.length > 0 ? `(${String(filters.stages.length)} 件選択)` : '(すべて)'}</legend>
         {QUEUE_STAGES.map(s => <label key={s.id} className="cq-check"><input type="checkbox" checked={filters.stages.includes(s.id)}
           onChange={() => { toggleStage(s.id); }} />{s.label}</label>)}</fieldset>
@@ -163,8 +172,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
         <ul>{state.invalid.map(m => <li key={m}>{m}</li>)}</ul></div>}
       {state.phase === 'loading' && <p role="status" className="cq-loading">読み込み中…</p>}
       {state.phase === 'unauthorized' && <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p>
-        {state.errorKind === 'forbidden_owner' && <button onClick={() => { update({ owner: '' }); }}>担当者の指定を外す</button>}</div>}
-      {state.phase === 'error' && <div className="cq-notice cq-error" role="alert"><strong>取得できませんでした</strong><p>{state.message}</p>
+      </div>}
+      {state.phase === 'error' && needsOwnerPick && <div className="cq-notice cq-warn" role="status" data-testid="owner-pick-prompt">
+        <strong>所有者を選んでください</strong><p>{state.message}</p></div>}
+      {state.phase === 'error' && !needsOwnerPick && <div className="cq-notice cq-error" role="alert"><strong>取得できませんでした</strong><p>{state.message}</p>
         <button onClick={reload}>再試行</button></div>}
 
       {state.phase === 'ready' && <>

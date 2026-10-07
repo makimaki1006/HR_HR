@@ -39,7 +39,7 @@ export interface QueueFilters {
   q: string;
   /** 空 = すべてのステージ */
   stages: string[];
-  /** '' = 既定 (管理者は全員、BPO は自分)。'all' | 'me' | 'unassigned' | HubSpot owner ID */
+  /** '' = 既定 (管理者は全員、それ以外は自分)。'all' | 'me' | 'unassigned' | HubSpot owner ID */
   owner: string;
   due: QueueDue;
   sort: QueueSort;
@@ -150,7 +150,7 @@ export function filtersKey(f: QueueFilters): string {
 
 /**
  * 応答の `scope` が、いま画面にある条件と一致するか。一致しない応答は表示に使わない。
- * owner は、画面が既定 ('') のときサーバの既定 (admin=all / bpo=me) を受け入れる。
+ * owner は、画面が既定 ('') のときサーバの既定 (管理者=all / それ以外=me) を受け入れる。
  */
 export function scopeMatches(scope: CallQueueScope, f: QueueFilters): boolean {
   const wantStages = [...(f.stages.length ? f.stages : QUEUE_STAGE_IDS)].sort();
@@ -190,6 +190,7 @@ export function errorMessage(kind: string | null, status: number | null): string
     case 'not_configured': return 'HubSpot への接続が設定されていません。管理者に連絡してください。';
     case 'cursor_mismatch': return '続きの読み込みに使う情報が古くなりました。最初から読み直してください。';
     case 'invalid_param': return '条件の指定が正しくないため取得できませんでした。条件を見直してください。';
+    case 'owner_not_resolved': return 'あなたのメールアドレスに対応する HubSpot の所有者が見つかりません。所有者を選んでください。';
     default: return status === null
       ? 'ネットワークに接続できませんでした。接続を確認して再試行してください。'
       : `取得に失敗しました(${String(status)})。再試行してください。`;
@@ -198,8 +199,6 @@ export function errorMessage(kind: string | null, status: number | null): string
 
 export function unauthorizedMessage(kind: string | null, status: number): string {
   if (status === 401 || kind === 'auth_required') return 'ログインが必要です。Google Workspace でログインし直してください。';
-  if (kind === 'forbidden_owner') return '担当者の指定は管理者だけが使えます。担当者の指定を外してください。';
-  if (kind === 'owner_not_found') return 'あなたのメールアドレスに対応する HubSpot の担当者が見つかりません。管理者に連絡してください。';
   return 'このアカウントには架電キューを見る権限がありません。';
 }
 

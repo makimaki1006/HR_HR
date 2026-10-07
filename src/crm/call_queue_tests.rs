@@ -1372,22 +1372,44 @@ async fn search_が_401_なら_502_hubspot_auth() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread")]
-async fn bpo_が他人や全員分を指定すると_403_で_hubspot_を呼ばない() {
+async fn 管理者以外も他人_全員分_担当なしを指定して見られる() {
     let e = env(FakeHs::new()).await;
-    for q in [
-        "?owner=all",
-        "?owner=unassigned",
-        "?owner=999",
-        &format!("?owner={BPO_OWNER_ID}"),
-    ] {
+    // (クエリ, scope.owner, 検索に入る owner の絞り込み: None = 絞り込みなし / Some(None) = 担当なし / Some(Some(id)))
+    #[allow(clippy::type_complexity)]
+    let cases: [(&str, &str, Option<Option<&str>>); 4] = [
+        ("?owner=all", "all", None),
+        ("?owner=unassigned", "unassigned", Some(None)),
+        ("?owner=999", "999", Some(Some("999"))),
+        ("?owner=555", "555", Some(Some("555"))),
+    ];
+    for (q, scope_owner, want) in cases {
+        let before = e.searches().len();
         let (s, v) = e.bpo_get(q).await;
-        assert_eq!(
-            (s, kind(&v)),
-            (StatusCode::FORBIDDEN, Some("forbidden_owner")),
-            "{q}"
-        );
+        assert_eq!(s, StatusCode::OK, "{q}: {v}");
+        assert_eq!(v["scope"]["owner"], scope_owner, "{q}");
+        // 管理者の画面の「管理者」と区別するための role は own のまま (既定が自分かどうかの目印)
+        assert_eq!(v["scope"]["role"], "own", "{q}");
+        let searches = e.searches();
+        assert!(searches.len() > before, "{q}: 検索していない");
+        for b in &searches[before..] {
+            for g in groups(b) {
+                match (want, flt(&g, "hubspot_owner_id")) {
+                    (None, f) => assert!(f.is_none(), "{q}: {f:?}"),
+                    (Some(None), Some(f)) => assert_eq!(f["operator"], "NOT_HAS_PROPERTY", "{q}"),
+                    (Some(Some(id)), Some(f)) => {
+                        assert_eq!(
+                            (f["operator"].as_str(), f["value"].as_str()),
+                            (Some("EQ"), Some(id)),
+                            "{q}"
+                        )
+                    }
+                    (w, f) => panic!("{q}: want {w:?} got {f:?}"),
+                }
+            }
+        }
     }
-    assert!(e.calls().is_empty(), "{:?}", e.calls());
+    // 他人を指定するときは自分の owner を引かない (HubSpot の Owners を呼ばない)
+    assert_eq!(e.count("/crm/v3/owners"), 0, "{:?}", e.calls());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1419,19 +1441,29 @@ async fn bpo_は自分の_owner_だけ_search_に入り_owner_はキャッシュ
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn owner_が見つからない_bpo_は_403_で何も返さない() {
+async fn 自分の_owner_が見つからない人の既定は_409_で選択を促し_全員分に倒さない() {
     let mut f = FakeHs::new();
     f.owners.clear();
     let e = env(f).await;
     let (s, v) = e.bpo_get("").await;
     assert_eq!(
         (s, kind(&v)),
-        (StatusCode::FORBIDDEN, Some("owner_not_found"))
+        (StatusCode::CONFLICT, Some("owner_not_resolved"))
     );
     assert_eq!(e.count("/deals/search"), 0, "全員分を返さない");
     // 引けなかった結果も短時間はキャッシュして連打で Owners API を叩かない
     let _ = e.bpo_get("").await;
     assert_eq!(e.count("/crm/v3/owners"), 1);
+    // 明示の me も同じ。all / 他人の指定なら見られる (選択すれば進める)
+    let (s, v) = e.bpo_get("?owner=me").await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::CONFLICT, Some("owner_not_resolved"))
+    );
+    let (s, _) = e.bpo_get("?owner=all").await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = e.bpo_get("?owner=777").await;
+    assert_eq!(s, StatusCode::OK);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1463,14 +1495,14 @@ async fn 管理者は_owner_を選べる() {
     assert_eq!(v["scope"]["owner"], "555");
     let g = groups(&e.searches()[1]);
     assert_eq!(flt(&g[0], "hubspot_owner_id").unwrap()["value"], "555");
-    // all を明示 = 絞り込みなし。me は管理者のメールが HubSpot に無いので 403 owner_not_found
+    // all を明示 = 絞り込みなし。me は管理者のメールが HubSpot に無いので 409 owner_not_resolved
     let (_, v) = e.admin_get("?owner=all&due=today").await;
     assert_eq!(v["scope"]["owner"], "all");
     assert!(flt(&groups(&e.searches()[2])[0], "hubspot_owner_id").is_none());
     let (s, v) = e.admin_get("?owner=me").await;
     assert_eq!(
         (s, kind(&v)),
-        (StatusCode::FORBIDDEN, Some("owner_not_found"))
+        (StatusCode::CONFLICT, Some("owner_not_resolved"))
     );
 }
 
@@ -2174,7 +2206,7 @@ async fn 範囲が違う_cursor_は使えない() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn bpo_は範囲を指定しても自分の_owner_だけ() {
+async fn 管理者以外は範囲を指定しても既定は自分の_owner_() {
     let e = env(FakeHs::new()).await;
     let (s, _) = e
         .bpo_get("?next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30")
@@ -2186,12 +2218,15 @@ async fn bpo_は範囲を指定しても自分の_owner_だけ() {
             assert!(g["filters"].as_array().unwrap().len() <= 6);
         }
     }
-    // bpo が他人を指定すれば範囲があっても 403
-    let (s, v) = e.bpo_get("?owner=555&next_from=2026-10-01").await;
-    assert_eq!(
-        (s, kind(&v)),
-        (StatusCode::FORBIDDEN, Some("forbidden_owner"))
-    );
+    // 他人を指定すれば範囲があっても見られる (その人の owner で絞る)
+    let before = e.searches().len();
+    let (s, _) = e.bpo_get("?owner=555&next_from=2026-10-01").await;
+    assert_eq!(s, StatusCode::OK);
+    for b in &e.searches()[before..] {
+        for g in groups(b) {
+            assert_eq!(flt(&g, "hubspot_owner_id").unwrap()["value"], "555");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2280,7 +2315,8 @@ fn names(v: &Value) -> Vec<(String, String, bool)> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn owners_は_bpo_未ログイン_許可外で_hubspot_を呼ばない() {
+async fn owners_は未ログイン_パスワードログイン_社外で_hubspot_を呼ばず_管理者以外の_google_ログインには返す(
+) {
     let e = env(FakeHs::new()).await;
     let (s, _, v) = get_raw(&e.app, "/api/crm/owners", None).await;
     assert_eq!(
@@ -2296,15 +2332,17 @@ async fn owners_は_bpo_未ログイン_許可外で_hubspot_を呼ばない() {
     let c = login(&e.app, OUTSIDER, "google_oidc").await;
     let (s, _, v) = get_raw(&e.app, "/api/crm/owners", Some(&c)).await;
     assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
-    // 許可リストにいるが管理者ではない (bpo)
-    let (s, _, v) = get_raw(&e.app, "/api/crm/owners", Some(&e.bpo)).await;
-    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
     assert_eq!(e.owner_calls(), 0, "HubSpot を呼んだ: {:?}", e.calls());
     assert!(e.calls().is_empty());
+    // 管理者ではない Google ログインの人 (bpo) にも返す
+    let (s, _, v) = get_raw(&e.app, "/api/crm/owners", Some(&e.bpo)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(v["owners"].is_array());
+    assert_eq!(e.owner_calls(), 2, "有効 + 退職者");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn owners_は_hubspot_未設定なら_admin_だけ_503_bpo_は_403() {
+async fn owners_は_hubspot_未設定なら管理者も管理者以外も_503() {
     let app = make_app(test_state(None), now_default());
     let admin = login(&app, ADMIN, "google_oidc").await;
     let bpo = login(&app, BPO, "google_oidc").await;
@@ -2314,7 +2352,10 @@ async fn owners_は_hubspot_未設定なら_admin_だけ_503_bpo_は_403() {
         (StatusCode::SERVICE_UNAVAILABLE, Some("not_configured"))
     );
     let (s, _, v) = get_raw(&app, "/api/crm/owners", Some(&bpo)).await;
-    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("not_configured"))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
