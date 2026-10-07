@@ -69,12 +69,14 @@ describe('CallQueueScreen', () => {
     render(<CallQueueScreen fetcher={fetcher} initialSearch="?view=queue" />);
     await ready(calls, [makeItem('1', { contact: null })], {
       truncated: true,
-      partial: { missing_contacts: 1, missing_companies: 2, failed: ['contacts'], excluded: { no_phone: 3, stop_reason: 4, out_of_scope: 5 } },
+      partial: { missing_contacts: 1, missing_companies: 2, failed: ['associations', 'contacts', 'stage_labels', 'something_new'], excluded: { no_phone: 3, stop_reason: 4, out_of_scope: 5 } },
     });
     expect(screen.getByText('一部の情報が欠けています')).toBeTruthy();
     expect(screen.getByText('担当者情報を取得できなかった行が 1 件あります')).toBeTruthy();
     expect(screen.getByText('会社情報を取得できなかった行が 2 件あります')).toBeTruthy();
-    expect(screen.getByText(/取得に失敗した部分: contacts/)).toBeTruthy();
+    // 部分の名前は日本語 (サーバの内部名は出さない)
+    expect(screen.getByText('取得に失敗した部分: 担当者・会社との関連、担当者、ステージ名、その他の情報(関連情報を表示できない行があります)')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/associations|stage_labels|something_new/);
     expect(screen.getByText('電話番号がどこにも無いため 3 件を除きました')).toBeTruthy();
     expect(screen.getByText(/1 万件までしか取得できない/)).toBeTruthy();
     expect(partialNotes(null)).toEqual([]);

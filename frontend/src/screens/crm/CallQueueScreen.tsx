@@ -20,6 +20,7 @@ import type { QueueFetch } from './useCallQueue';
 import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
+import { PARTIAL_LABELS } from './workspaceModel';
 import {
   clearDraftEntry, draftKey, editDraft, emptyResultDraft, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, optionLabel, saveStore,
   sessionStorageOrNull, todayJst, validateResultDraft,
@@ -66,22 +67,29 @@ export function partialNotes(p: CallQueuePartial | null): string[] {
   const notes: string[] = [];
   if (p.missing_contacts > 0) notes.push(`担当者情報を取得できなかった行が ${String(p.missing_contacts)} 件あります`);
   if (p.missing_companies > 0) notes.push(`会社情報を取得できなかった行が ${String(p.missing_companies)} 件あります`);
-  if (p.failed.length > 0) notes.push(`取得に失敗した部分: ${p.failed.join('、')}(関連情報を表示できない行があります)`);
+  if (p.failed.length > 0) notes.push(`取得に失敗した部分: ${[...new Set(p.failed.map(f => PARTIAL_LABELS[f] ?? 'その他の情報'))].join('、')}(関連情報を表示できない行があります)`);
   if (p.excluded.no_phone > 0) notes.push(`電話番号がどこにも無いため ${String(p.excluded.no_phone)} 件を除きました`);
   if (p.excluded.stop_reason > 0) notes.push(`架電禁止・ブロック理由があるため ${String(p.excluded.stop_reason)} 件を除きました`);
   if (p.excluded.out_of_scope > 0) notes.push(`対象外(別パイプライン・対象外ステージ・アーカイブ)の ${String(p.excluded.out_of_scope)} 件を除きました`);
   return notes;
 }
 
-/** 応答の scope.owner (all / me / unassigned / owner ID) を、画面の注記に出す名前にする */
+const SCOPE_WORDS: Record<string, string> = { all: '全員', me: '自分', unassigned: '担当者なし' };
+
+/**
+ * 応答の scope.owner (all / me / unassigned / owner ID) を、画面の注記に出す名前にする。
+ * 名前が分からない所有者 (一覧の読み込み中・失敗) は ID を画面に出さない (ID は ownerScopeTitle の tooltip に出す)
+ */
 export function ownerScopeLabel(scopeOwner: string, names: ReadonlyMap<string, string>): string {
-  if (scopeOwner === 'all') return '全員';
-  if (scopeOwner === 'me') return '自分';
-  if (scopeOwner === 'unassigned') return '担当者なし';
-  return names.get(scopeOwner) ?? `ID ${scopeOwner}`;
+  return SCOPE_WORDS[scopeOwner] ?? names.get(scopeOwner) ?? '選んだ所有者(名前を取得できません)';
 }
 
-export interface ConditionChip { key: string; label: string; clear: Partial<QueueFilters> }
+/** 名前が分からない所有者のときだけ、tooltip に HubSpot の所有者 ID を出す */
+export function ownerScopeTitle(scopeOwner: string, names: ReadonlyMap<string, string>): string | undefined {
+  return SCOPE_WORDS[scopeOwner] !== undefined || names.has(scopeOwner) ? undefined : `HubSpot の所有者 ID: ${scopeOwner}`;
+}
+
+export interface ConditionChip { key: string; label: string; clear: Partial<QueueFilters>; title?: string | undefined }
 
 const range = (from: string, to: string) => `${from ? from.replaceAll('-', '/') : ''}〜${to ? to.replaceAll('-', '/') : ''}`;
 
@@ -89,7 +97,7 @@ const range = (from: string, to: string) => `${from ? from.replaceAll('-', '/') 
 export function conditionChips(f: QueueFilters, ownerNames: ReadonlyMap<string, string>): ConditionChip[] {
   const chips: ConditionChip[] = [];
   if (f.q.trim()) chips.push({ key: 'q', label: `キーワード: ${f.q.trim()}`, clear: { q: '' } });
-  if (f.owner) chips.push({ key: 'owner', label: `所有者: ${ownerScopeLabel(f.owner, ownerNames)}`, clear: { owner: '' } });
+  if (f.owner) chips.push({ key: 'owner', label: `所有者: ${ownerScopeLabel(f.owner, ownerNames)}`, clear: { owner: '' }, title: ownerScopeTitle(f.owner, ownerNames) });
   if (f.due === 'today') chips.push({ key: 'due', label: '次回日が来たものだけ', clear: { due: 'all' } });
   for (const id of f.stages) {
     const label = QUEUE_STAGES.find(s => s.id === id)?.label ?? id;
@@ -123,7 +131,7 @@ function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, sto
         <strong className="cq-row-company">{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
         {recorded && (unsaved
           ? <span className="cq-recorded is-unsaved" title={UNSAVED_RECORDED_TITLE}>記録済み(画面を閉じると消えます)</span>
-          : <span className="cq-recorded" title={RECORDED_TITLE}>記録済み(未送信)</span>)}
+          : <span className="cq-recorded" title={RECORDED_TITLE}>記録済み(HubSpot 未送信)</span>)}
         {flag && <span className="cq-flag" title={`不通時チェック: ${flag}`} aria-label={`不通時チェック: ${flag}`}>不通チェック</span>}
         <span className="cq-stage">{item.stage_label ?? '(ステージ不明)'}</span>
       </span>
@@ -169,7 +177,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
   const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
   const listRef = useRef<HTMLUListElement | null>(null);
-  const focusSelectedRow = useRef(false);
+  const scrollSelectedRow = useRef(false);
+  // 記録して次へで移った案件 (その入力欄が開いたら結果のボタンへフォーカスする)
+  const [focusFormFor, setFocusFormFor] = useState<string | null>(null);
+  // 画面全体の読み上げ欄 (入力欄は案件ごとに作り直すので外に置く)。同じ文言でも読み上げ直すよう n を変える
+  const [announcement, setAnnouncement] = useState<{ text: string; n: number }>({ text: '', n: 0 });
+  const announce = useCallback((text: string) => { setAnnouncement(a => ({ text, n: a.n + 1 })); }, []);
 
   // 架電結果の下書き (案件ごと、このタブの sessionStorage に残す。HubSpot には送らない)
   // 書き込めるかは開いた時点で 1 回試し、以後は変えるたびに書いた結果で更新する。
@@ -210,6 +223,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   function select(id: string, via: 'click' | 'key') {
     const sel = { id, mode };
     setSelection(sel);
+    setFocusFormFor(null);
     if (keyTimer.current !== null) { window.clearTimeout(keyTimer.current); keyTimer.current = null; }
     if (via === 'click') { setDetailSel(sel); return; }
     keyTimer.current = window.setTimeout(() => { keyTimer.current = null; setDetailSel(sel); }, KEY_SELECT_DELAY_MS);
@@ -320,19 +334,26 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     commitStore(markRecorded(store, selKey));
     const ids = state.items.map(i => i.deal_id);
     const next = nextUnrecorded(ids, selectedId, isRecorded);
-    if (next === null) { setFormNotice({ dealId: selectedId, text: '表示中の一覧に未記録の架電先はありません。' }); return true; }
+    const name = state.items.find(i => i.deal_id === selectedId)?.company?.name ?? 'この架電先';
+    const done = `${name} を記録しました(この画面だけ。HubSpot には未送信)。`;
+    if (next === null) {
+      setFormNotice({ dealId: selectedId, text: '表示中の一覧に未記録の架電先はありません。' });
+      announce(`${done}表示中の一覧に未記録の架電先はありません。`);
+      return true;
+    }
     setFormNotice(null);
+    announce(`${done}次の架電先を表示しています。`);
     select(next, 'click');
-    focusSelectedRow.current = true;
+    // 次の案件の入力欄が開いたら、結果のボタンへフォーカスする (続けてキーボードで入力できるように)
+    setFocusFormFor(next);
+    scrollSelectedRow.current = true;
     return true;
   }
-  // 記録して次へで選び直したら、一覧の選んだ行へフォーカスを移して見える位置まで送る
-  // (入力欄は案件ごとに作り直すので、そのままだとフォーカスが body に落ちる)
+  // 記録して次へで選び直したら、一覧の選んだ行を見える位置まで送る (フォーカスは入力欄の結果のボタンへ)
   useEffect(() => {
-    if (!focusSelectedRow.current) return;
-    focusSelectedRow.current = false;
+    if (!scrollSelectedRow.current) return;
+    scrollSelectedRow.current = false;
     const btn = listRef.current?.querySelector<HTMLButtonElement>('.cq-row-button[aria-pressed="true"]');
-    btn?.focus();
     if (typeof btn?.scrollIntoView === 'function') btn.scrollIntoView({ block: 'nearest' });
   }, [selectedId]);
 
@@ -346,6 +367,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const anyFocusable = state.items.some(i => i.deal_id === selectedId);
 
   return <div className="crm-app cq-app">
+    {/* 画面全体の読み上げ欄 (記録した・記録できない理由)。常に置いておき、中身だけ変える */}
+    <p className="cq-sr-only" role="status" data-testid="screen-announcement">{announcement.text}{announcement.n % 2 === 1 ? '\u00a0' : ''}</p>
     <header className="crm-topbar cq-topbar"><a className="crm-home" href="/">HR_HR</a>
       <span className="crm-topbar-divider" /><h1 className="cq-title">架電</h1>
       <div className={`cq-mode cq-mode-${mode}`} role="status" aria-label="データの種類">
@@ -376,7 +399,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <button type="button" className="cq-btn cq-btn-quiet" onClick={clearAll} disabled={!hasConditions && qDraft === ''}>条件をクリア</button>
       </div>
       {chips.length > 0 && <ul className="cq-chips" aria-label="適用中の条件">
-        {chips.map(c => <li key={c.key} className="cq-chip"><span>{c.label}</span>
+        {chips.map(c => <li key={c.key} className="cq-chip"><span title={c.title}>{c.label}</span>
           <button type="button" aria-label={`「${c.label}」を外す`} onClick={() => { removeChip(c); }}>×</button></li>)}
       </ul>}
       <div id="cq-advanced" className="cq-advanced" hidden={!panelOpen}>
@@ -400,7 +423,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           {state.phase === 'ready' && <p className="cq-count" role="status">{state.items.length} 件を表示
             {total !== null && <span title="電話番号なし等を除く前の参考値">(検索結果 {total} 件)</span>}</p>}
           {mode === 'live' && state.last !== null && <p className="cq-scope-note" data-testid="scope-note"
-            title="HubSpot の全件から、上の所有者の選択で切り替えられます">所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</p>}
+            title={[ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</p>}
         </div>
         <div className="cq-list-scroll">
           {state.phase === 'invalid' && <div className="cq-notice cq-error" role="alert"><strong>条件を確認してください</strong>
@@ -446,6 +469,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
             focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
             recordBlocked={recordBlockedNotice !== null} persistFailed={persistFailed}
+            autoFocusOutcome={focusFormFor === selectedId} onAnnounce={announce}
             notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />
         </div>}
       </section>

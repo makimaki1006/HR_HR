@@ -136,7 +136,7 @@ test.describe('CRM 架電画面 (実データの表示、API は架空の応答)
     await expect(list(page).locator('.cq-row-company')).toHaveText(['架空会社1', '架空会社2']);
     await expect(recordBtn(page)).toHaveAttribute('aria-disabled', 'false');
     await recordBtn(page).click();
-    await expect(list(page).locator('li.cq-row').nth(0).locator('.cq-recorded')).toHaveText('記録済み(未送信)');
+    await expect(list(page).locator('li.cq-row').nth(0).locator('.cq-recorded')).toHaveText('記録済み(HubSpot 未送信)');
     await expect(page.getByTestId('result-slot')).toHaveAttribute('data-deal-id', '2');
     expect(await recorded(page)).toEqual({ 'live:1': true });
 

@@ -101,6 +101,10 @@ describe('架電ワークスペース (実データ)', () => {
     ]);
     // 活動: 通話の時間は ms → 分秒、担当者経由は注記つき、種類で絞れる
     expect(within(d).getByText(/通話時間 1分05秒/)).toBeTruthy();
+    // HubSpot の状態の値 (COMPLETED / NO_ANSWER) は日本語で出す
+    expect(within(d).getByText('発信 · 完了 · 通話時間 1分05秒')).toBeTruthy();
+    expect(within(d).getByText(/^発信 · 応答なし · 担当者の通話/)).toBeTruthy();
+    expect(d.textContent).not.toMatch(/COMPLETED|NO_ANSWER/);
     expect(within(d).getByText(/担当者の通話/)).toBeTruthy();
     fireEvent.click(within(d).getByRole('button', { name: 'メモ' }));
     expect(within(d).queryByText('架電1')).toBeNull();
@@ -162,8 +166,9 @@ describe('架電ワークスペース (実データ)', () => {
       await Promise.resolve();
     });
     const d = screen.getByRole('article', { name: '架電先の詳細' });
-    expect(within(d).getByText(/メールを取得できませんでした/)).toBeTruthy();
-    expect(within(d).getByText(/担当者経由の通話を取得できませんでした/)).toBeTruthy();
+    expect(within(d).getByText('メールを取得できませんでした(HubSpot の読み取り権限が不足しています)')).toBeTruthy();
+    expect(within(d).getByText('担当者経由の通話を取得できませんでした(HubSpot との通信に失敗しました)')).toBeTruthy();
+    expect(d.textContent).not.toMatch(/hubspot_|calls_via_contacts|emails/);
     expect(within(d).getByText('番号を確認できません。担当者・会社の情報を HubSpot で確認してください。')).toBeTruthy();
     expect(within(d).getByText(/担当者の情報を取得できませんでした/)).toBeTruthy();
     expect(within(d).getByText('表示できる活動履歴はありません。')).toBeTruthy();
@@ -181,8 +186,11 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(postMessage).toHaveBeenCalledTimes(1);
     expect(postMessage).toHaveBeenCalledWith({ type: 'zp-make-call', data: { number: '+81312345678', autoDial: true } }, 'https://applications.zoom.us');
     expect(screen.getByText(/03-1234-5678 への発信を依頼しました/)).toBeTruthy();
-    // tel: とコピーも出る
-    expect(screen.getAllByRole('link', { name: /tel: で発信$/ })[0]?.getAttribute('href')).toBe('tel:+81312345678');
+    // 端末の電話で発信 (tel: リンク) とコピーも出る。画面の文字に「tel:」は出さない
+    const telLink = screen.getAllByRole('link', { name: /端末の電話で発信$/ })[0];
+    expect(telLink?.getAttribute('href')).toBe('tel:+81312345678');
+    expect(telLink?.textContent).toBe('端末の電話で発信');
+    expect(screen.getByRole('article', { name: '架電先の詳細' }).textContent).not.toMatch(/tel:/);
   });
 
   it('reflects ringing / connected / ended from Zoom, ignores events from other origins or windows, and blocks a second dial during a call', async () => {
@@ -203,9 +211,11 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(screen.getByText('通話中のため、新しい発信はできません。')).toBeTruthy();
     zoomEvent(win, { type: 'zp-call-connected-event', data: base });
     expect(screen.getByText('通話中')).toBeTruthy();
-    expect(screen.getByText('通話ID call-1')).toBeTruthy();
+    // 通話 ID は画面に出さない
+    expect(screen.queryByText(/通話ID|call-1/)).toBeNull();
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
     expect(screen.getByText('通話が終了しました')).toBeTruthy();
+    expect(screen.queryByText(/call-1|イベント/)).toBeNull();
     // 画面から発信していない通話: 入力欄に結び付いていないと伝える (「入力できます」とは言わない)
     expect(screen.getByTestId('zp-result-hint').textContent).toBe('この通話は選んでいる架電先と結び付いていません。架電先を選んでから「架電結果」に入力してください。');
     // この通話は画面から発信したものではないので、入力欄には通話終了を出さない
@@ -326,10 +336,13 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(screen.getByText(/許可ドメインへの登録/)).toBeTruthy();
     fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
     expect(postMessage).not.toHaveBeenCalled();
-    expect(screen.getByText('Zoom Phone が使えません。番号のコピーか、電話番号のリンク(tel:)を使ってください。')).toBeTruthy();
+    expect(screen.getByText('Zoom Phone が使えません。「番号をコピー」か「端末の電話で発信」を使ってください。')).toBeTruthy();
     expect(screen.getByText('通話していません')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /番号をコピー$/ }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: /tel: で発信$/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: /端末の電話で発信$/ }).length).toBeGreaterThan(0);
+    // 画面の文字に開発者向けの言葉 (tel:・approved domains・出典の資料名) を出さない
+    const panelText = screen.getByRole('complementary', { name: 'Zoom Phone' }).textContent;
+    expect(panelText).not.toMatch(/tel:|approved|Developer Docs|未確認|サードパーティ Cookie/);
   });
 
   it('shows guidance when the embed is loaded but the dial does not start', async () => {

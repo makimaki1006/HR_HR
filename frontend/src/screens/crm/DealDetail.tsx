@@ -7,7 +7,7 @@ import { toE164Jp } from './smartEmbed';
 import type { DialResult, ZoomPhone } from './useZoomPhone';
 import type { DetailState } from './useDealDetail';
 import {
-  ACTIVITY_FILTERS, ACTIVITY_KIND_LABELS, directionLabel, filterActivities, formatDurationMs, formatTimestamp, partialNotes,
+  ACTIVITY_FILTERS, ACTIVITY_KIND_LABELS, activityStatusLabel, directionLabel, filterActivities, formatDurationMs, formatTimestamp, partialNotes,
 } from './workspaceModel';
 import type { ActivityKindFilter } from './workspaceModel';
 
@@ -21,8 +21,8 @@ const ymd = (raw: string | null) => dateValue(raw)?.replaceAll('-', '/') ?? null
 const DIAL_MESSAGES: Record<DialResult, string> = {
   sent: '発信を依頼しました。右の Zoom Phone を確認してください。',
   not_dialable: 'この番号はダイヤルできる形式ではありません。',
-  embed_loading: 'Zoom Phone を読み込み中です。右の枠が表示されてから発信するか、番号のコピー・電話番号のリンク(tel:)を使ってください。',
-  embed_unavailable: 'Zoom Phone が使えません。番号のコピーか、電話番号のリンク(tel:)を使ってください。',
+  embed_loading: 'Zoom Phone を読み込み中です。右の枠が表示されてから発信するか、「番号をコピー」か「端末の電話で発信」を使ってください。',
+  embed_unavailable: 'Zoom Phone が使えません。「番号をコピー」か「端末の電話で発信」を使ってください。',
   busy: '通話中のため、新しい発信はできません。',
 };
 
@@ -48,7 +48,8 @@ export function PhoneRow({ label, raw, zoom, primary = false }: { label: string;
       <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled'}
         aria-label={`${label} ${shown} に発信`}>発信</button>
       <button type="button" className="wd-copy" onClick={copy} aria-label={`${label} ${shown} の番号をコピー`}>番号をコピー</button>
-      {e164 !== null && <a href={`tel:${e164}`} aria-label={`${label} ${shown} へ tel: で発信`}>tel:</a>}
+      {e164 !== null && <a href={`tel:${e164}`} aria-label={`${label} ${shown} へ端末の電話で発信`}
+        title="このパソコン・スマートフォンの電話アプリで発信します(tel: リンク)">端末の電話で発信</a>}
     </span>
     {e164 === null && <small className="crm-muted">ダイヤルできる形式ではありません</small>}
     {note && <small role="status">{note}</small>}
@@ -58,6 +59,7 @@ export function PhoneRow({ label, raw, zoom, primary = false }: { label: string;
 function ActivityItem({ a }: { a: WorkspaceActivity }) {
   const when = formatTimestamp(a.timestamp);
   const dir = directionLabel(a.direction);
+  const status = activityStatusLabel(a.status);
   const dur = formatDurationMs(a.duration_ms);
   return <li className={`wd-act wd-act-${a.kind}`}>
     <div className="wd-act-head">
@@ -65,8 +67,8 @@ function ActivityItem({ a }: { a: WorkspaceActivity }) {
       {a.title && <strong>{a.title}</strong>}
       <small>{when ?? '日時不明'}</small>
     </div>
-    {(dir !== null || a.status !== null || dur !== null || a.via === 'contact') && <p className="wd-act-meta">
-      {[dir, a.status, dur && `通話時間 ${dur}`, a.via === 'contact' && '担当者の通話(別の案件のものを含む場合があります)'].filter(Boolean).join(' · ')}
+    {(dir !== null || status !== null || dur !== null || a.via === 'contact') && <p className="wd-act-meta">
+      {[dir, status, dur && `通話時間 ${dur}`, a.via === 'contact' && '担当者の通話(別の案件のものを含む場合があります)'].filter(Boolean).join(' · ')}
     </p>}
     {a.body && <p className="wd-act-body">{a.body}</p>}
   </li>;
@@ -106,7 +108,7 @@ function Detail({ data, zoom, ownerName, stopLabel }: { data: WorkspaceResponse;
         {data.dial ? <PhoneRow label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary />
           : <p className="crm-muted">番号を確認できません。担当者・会社の情報を HubSpot で確認してください。</p>}
         {otherPhones.length > 0 && <details className="wd-other"><summary>ほかの番号({otherPhones.length})</summary>
-          {otherPhones.map(p => <PhoneRow key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</details>}
+          <div className="wd-other-list">{otherPhones.map(p => <PhoneRow key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</div></details>}
       </section>
     </div>
 

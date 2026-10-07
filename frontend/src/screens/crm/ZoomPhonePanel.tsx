@@ -36,9 +36,10 @@ function CallStatus({ zoom, link }: { zoom: ZoomPhone; link: CallLink }) {
   return <div className={`zp-status zp-${call.phase}`} role="status">
     <strong>{call.phase === 'ringing' ? '呼び出し中' : call.phase === 'connected' ? '通話中' : (call.result ? RESULT_LABELS[call.result] : '通話が終了しました')}</strong>
     {who && <span>{who}</span>}
-    {call.phase === 'connected' && connectedAt !== null && <span className="zp-timer">{clock((now - connectedAt) / 1000)}</span>}
-    {call.phase === 'ended' && call.talkSeconds !== null && <span>通話時間 {clock(call.talkSeconds)}(画面で受けたイベントの時刻差)</span>}
-    {call.callId && <small>通話ID {call.callId}</small>}
+    {/* 毎秒変わる時計は読み上げない (状態の変化だけを読み上げる) */}
+    {call.phase === 'connected' && connectedAt !== null && <span className="zp-timer" aria-hidden="true">{clock((now - connectedAt) / 1000)}</span>}
+    {call.phase === 'ended' && call.talkSeconds !== null && <span data-testid="zp-talk"
+      title={`Zoom の画面で見た通話の開始から終了までの目安です${call.callId ? `(Zoom の通話 ID: ${call.callId})` : ''}`}>通話時間 約 {clock(call.talkSeconds)}</span>}
     {call.phase === 'ended' && <small data-testid="zp-result-hint"
       title={link === 'none' ? 'この画面の「架ける番号」から発信した通話だけが、選んだ架電先の入力欄に結び付きます' : undefined}>{LINK_HINTS[link]}</small>}
   </div>;
@@ -59,7 +60,7 @@ export function ZoomPhonePanel({ zoom, iframeRef, link = 'none' }: {
       <ul>
         <li>下の枠で Zoom にサインインしているか確認してください。</li>
         <li>枠が空白・エラーのときは、管理者の設定(下記)が未了の可能性があります。</li>
-        <li>その間は「番号をコピー」または電話番号のリンク(tel:)から発信できます。</li>
+        <li>その間は「番号をコピー」または「端末の電話で発信」から発信できます。</li>
       </ul></div>}
     {zoom.embed === 'disabled' && <div className="cq-notice zp-disabled">
       <strong>架空サンプルでは発信できません</strong>
@@ -67,18 +68,18 @@ export function ZoomPhonePanel({ zoom, iframeRef, link = 'none' }: {
     {zoom.embed !== 'disabled' && <>
       {unavailable && <div className="cq-notice cq-warn" role="alert"><strong>Zoom Phone を読み込めません</strong>
         <p>ネットワーク、または Zoom 側の設定(許可ドメインへの登録・サードパーティからの発信の許可)が未了の可能性があります。</p>
-        <p>それまでは、各電話番号の「番号をコピー」または電話番号のリンク(tel:)で発信してください。</p></div>}
+        <p>それまでは、各電話番号の「番号をコピー」または「端末の電話で発信」で発信してください。</p></div>}
       <iframe ref={iframeRef} className="zp-frame" title="Zoom Phone" src={ZOOM_EMBED_SRC}
         allow="microphone; clipboard-read; clipboard-write" onLoad={zoom.onLoad} />
       {zoom.embed === 'loading' && <p className="zp-hint">Zoom Phone を読み込み中…</p>}
       <details className="zp-setup"><summary>初めて使うときの設定(管理者)</summary>
         <ol>
           <li>Zoom Marketplace の「Zoom Phone Smart Embed」(公式アプリ)をアカウントにインストールする。</li>
-          <li>インストール時の許可ドメイン(approved domains)に、このアプリのドメインを登録する。</li>
+          <li>インストール時の許可ドメインに、このアプリのドメインを登録する。</li>
           <li>Zoom 管理画面 アカウント設定 &gt; Zoom Phone タブ の「Automatically Call From Third Party Apps」を有効にする。</li>
           <li>利用者は上の枠で Zoom の資格情報でサインインする。</li>
         </ol>
-        <p className="zp-hint">出典: Zoom Developer Docs「Zoom Phone Smart Embed guide」。ブラウザのサードパーティ Cookie の扱いにより、サインインが保持されない場合があります(公式に記載なし・未確認)。</p>
+        <p className="zp-hint" title="手順の出典: Zoom の開発者向け資料「Zoom Phone Smart Embed guide」">ブラウザの設定によっては、サインインが保たれないことがあります。</p>
       </details>
     </>}
   </aside>;
