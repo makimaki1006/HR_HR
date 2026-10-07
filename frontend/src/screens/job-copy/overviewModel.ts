@@ -12,7 +12,10 @@ import type { ApplicationBucket, BillingEntry } from './timelineModel';
 export const OVERVIEW_WINDOW_DAYS = 14;
 
 export interface WindowRate {
-  /** Days actually covered (the after-window stops at the day counts were taken). */
+  /**
+   * Days actually covered. The before-window starts no earlier than the previous version; the
+   * after-window stops at the day counts were taken.
+   */
   days: number;
   applications: number;
   perDay: number | null;
@@ -57,7 +60,11 @@ export function overviewRow(job: JobCopyRecord, options: { billing?: readonly Bi
   const applicationsAvailable = job.overallApplications?.byDate !== undefined;
   let before: WindowRate | null = null; let after: WindowRate | null = null;
   if (latest && applicationsAvailable) {
-    before = rate(job, addDays(latest.date, -windowDays), latest.date);
+    // The before-window stays inside the previous version: it never reaches back into an earlier
+    // version (or before the first publication day). Its real length is in before.days.
+    const previousStart = changes[latest.index - 1]?.date ?? latest.date;
+    const windowStart = addDays(latest.date, -windowDays);
+    before = rate(job, windowStart < previousStart ? previousStart : windowStart, latest.date);
     const afterEnd = addDays(latest.date, windowDays);
     const cappedEnd = afterEnd > addDays(asOf, 1) ? addDays(asOf, 1) : afterEnd;
     after = rate(job, latest.date, cappedEnd);

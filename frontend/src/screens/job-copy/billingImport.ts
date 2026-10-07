@@ -170,9 +170,12 @@ export function canonicalMedia(value: string): BillingMedia | null {
   return MEDIA_ALIASES[value.normalize('NFKC').replace(/[\s\-_・]/gu, '').toLowerCase()] ?? null;
 }
 
-/** YYYY-MM-DD / YYYY/MM/DD / YYYY/M/D を YYYY-MM-DD にする。暦にない日付は null。 */
+/**
+ * YYYY-MM-DD / YYYY/MM/DD / YYYY/M/D / YYYY年M月D日 を YYYY-MM-DD にする。
+ * Excel で保存し直した CSV に付く時刻（"2026/9/1 0:00"）は外す。暦にない日付は null。
+ */
 export function billingDate(value: string): string | null {
-  const match = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/u.exec(value.normalize('NFKC').trim());
+  const match = /^(\d{4})(?:[-/]|年\s*)(\d{1,2})(?:[-/]|月\s*)(\d{1,2})日?(?:[\sT]+\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/u.exec(value.normalize('NFKC').trim());
   if (!match) return null;
   const [, year = '', month = '', day = ''] = match;
   const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;

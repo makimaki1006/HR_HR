@@ -41,7 +41,7 @@ describe('BillingImportPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '一致した2行を課金として反映' }));
     expect(lastApplied.map(period => period.amountYen)).toEqual([30000, 45000]);
     const status = await screen.findByText(/課金CSVの 2 期間を反映中/u);
-    expect(status.textContent).toContain('2求人・合計 75,000円');
+    expect(status.textContent).toContain('2求人・合計 7万5,000円');
     expect(status.textContent).toContain('再読み込みすると消えます');
     fireEvent.click(screen.getByRole('button', { name: '反映した課金を外す' }));
     await waitFor(() => { expect(screen.queryByText(/期間を反映中/u)).toBeNull(); });
@@ -75,5 +75,16 @@ describe('BillingImportPanel', () => {
     expect(status.textContent).toContain('金額はすべて不明');
     expect(status.textContent).not.toContain('0円');
     expect(document.body.textContent).not.toMatch(/効果|確実に|必ず|100%|CP932|fixture|snapshot/u);
+  });
+
+  it('does not add up overlapping periods in the status line (30000 + 20000 is not shown as 50000)', async () => {
+    render(<Harness />);
+    upload('媒体,媒体求人ID,期間開始,期間終了,金額\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,30000\nHRハッカー,DEMO-HRH-001,2026-09-10,2026-09-20,20000');
+    await screen.findByText('2. 列の対応を確かめる');
+    fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
+    fireEvent.click(screen.getByRole('button', { name: '一致した2行を課金として反映' }));
+    const status = await screen.findByText(/期間を反映中/u);
+    expect(status.textContent).toContain('期間が重なる行があるため合計していません（1求人）');
+    expect(status.textContent).not.toMatch(/5万円|50,000円|合計 /u);
   });
 });

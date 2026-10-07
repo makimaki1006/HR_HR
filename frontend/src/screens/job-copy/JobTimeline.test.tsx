@@ -31,7 +31,7 @@ describe('job timeline lanes', () => {
     const table = screen.getByRole('table');
     const rows = within(table).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
     expect(rows[0]?.slice(0, 4)).toEqual(['14日', '7件', '0.50件/日', '3万円']);
-    expect(rows[1]?.slice(0, 4)).toEqual(['10日', '8件', '0.80件/日', '約2.8万円']);
+    expect(rows[1]?.slice(0, 4)).toEqual(['10日', '8件', '0.80件/日', '約2万8,125円']);
     expect(rows[2]?.slice(0, 3)).toEqual(['11日', '3件', '0.27件/日']);
     const text = document.body.textContent;
     for (const word of forbidden) expect(text).not.toContain(word);
@@ -49,7 +49,7 @@ describe('job timeline lanes', () => {
   it('marks browser-only CSV billing as lost on reload', () => {
     render(<JobTimeline job={demo('demo-job-005')} marketMode="demo" billing={[{ source: 'csv', start: '2026-09-12', end: '2026-09-25', amountYen: 18000, taxIncluded: true }]} />);
     expect(screen.getByRole('note').textContent).toContain('再読み込みすると消えます');
-    expect(screen.getByRole('group', { name: '課金' }).textContent).toContain('1.8万円');
+    expect(screen.getByRole('group', { name: '課金' }).textContent).toContain('1万8,000円');
   });
 
   it('draws no market value for 2026-09 when the data ends at 2026-08 and labels the gap', async () => {
@@ -64,11 +64,57 @@ describe('job timeline lanes', () => {
     const jobsSeries = series.find(item => item.name === '市場求人数');
     expect(jobsSeries?.data.map(point => point[1])).toEqual([110, null, null]);
     expect(series.find(item => item.name === 'Indeed閲覧者指標')?.data.map(point => point[1])).toEqual([320, null, null]);
-    expect(screen.getByText(/2026年09月以降は市場データがありません（2026年08月まで）/)).toBeTruthy();
+    expect(screen.getByText('2026/09以降は市場データがありません（2026/08まで）')).toBeTruthy();
     expect(screen.getByLabelText<HTMLSelectElement>('職種').value).toBe('ドライバー');
     expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('大分県');
     // The first period is all in 2026-09, after the data ends.
     expect(within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし');
+  });
+
+  it('keeps the months with data when a period runs past 2026-08 and shows months as YYYY/MM', async () => {
+    const months = ['2026-06', '2026-07', '2026-08'];
+    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: { source: '合成', titles: ['ドライバー'], prefectures: ['大分県'], ctk_basis: '応募数ではありません',
+      series: path.includes('title=') ? { prefecture: '大分県', months, job_count: [90, 100, 110], ctk_count: [300, 310, 320], employer_count: [1, 1, 1], seekers_per_posting: [3, 3, 3] } : null } }));
+    const base = demo('demo-job-001');
+    const last = base.versions.find(version => version.id === 'demo-001-v3');
+    if (!last) throw new Error('Missing demo-001-v3');
+    const job: JobCopyRecord = { ...base, hrhPerformance: undefined, versions: [{ ...last, publishedFrom: '2026-07-01T10:00:00+09:00', observedAt: '2026-07-01T10:00:00+09:00' }] };
+    render(<JobTimeline job={job} />);
+    await waitFor(() => { expect(lastChart('jt-market')).toBeDefined(); });
+    const cells = within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td');
+    expect(cells?.[4]?.textContent).toBe('+10.0%（2026/07 100件 → 2026/08 110件、2026/09以降はデータなし）');
+    expect(document.body.textContent).not.toMatch(/\d{4}-\d{2}(?!-)/);
+    expect(document.body.textContent).not.toContain('年09月');
+  });
+
+  it('says there is no market data for the choice when the series is empty (not "from the range start")', async () => {
+    api.mockImplementation(() => Promise.resolve({ ok: true, data: { source: '合成', titles: ['ドライバー'], prefectures: ['大分県'], ctk_basis: '応募数ではありません', series: null } }));
+    render(<JobTimeline job={demo('demo-job-001')} />);
+    expect(await screen.findByText('この職種・都道府県の市場データはありません')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('以降は市場データがありません');
+    expect(lastChart('jt-market')).toBeUndefined();
+  });
+
+  it('says how the prefecture was chosen, separately from the occupation', async () => {
+    render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" />);
+    await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
+    expect(screen.getByText('勤務地から大分県を自動で選びました')).toBeTruthy();
+    const other = [...screen.getByLabelText<HTMLSelectElement>('都道府県').options].map(option => option.value).find(value => value && value !== '大分県');
+    if (!other) throw new Error('No other prefecture in the demo market data');
+    fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: other } });
+    expect(await screen.findByText('手で選んだ都道府県です')).toBeTruthy();
+    // The occupation was not touched, so its note stays.
+    expect(screen.getByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください')).toBeTruthy();
+    expect(screen.queryByText('手で選んだ職種です')).toBeNull();
+  });
+
+  it('shows 未取得 (not 0件) in the period table when application dates were never fetched', () => {
+    const job: JobCopyRecord = { ...demo('demo-job-001') };
+    delete job.overallApplications;
+    render(<JobTimeline job={job} marketMode="demo" now={new Date('2026-10-05T03:00:00Z')} />);
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
+    expect(rows.map(row => row.slice(1, 3))).toEqual([['未取得', '未取得'], ['未取得', '未取得'], ['未取得', '未取得']]);
+    expect(screen.getByRole('table').textContent).not.toMatch(/0件|0\.00件\/日/);
   });
 
   it('asks for a category instead of guessing when the title matches none', async () => {
@@ -119,9 +165,10 @@ describe('job copy screen integration (demo mode)', () => {
     const first = within(table).getAllByRole('row')[1];
     expect(first?.textContent).toContain('地域配送ドライバー');
     expect(first?.textContent).toContain('2026/09/25');
-    expect(first?.textContent).toContain('0.64件/日');
+    expect(first?.textContent).toContain('0.80件/日');
+    expect(first?.textContent).toContain('8件 / 10日');
     expect(first?.textContent).toContain('0.27件/日');
-    expect(first?.textContent).toContain('8.7万円');
+    expect(first?.textContent).toContain('8万7,000円');
     fireEvent.click(within(table).getByRole('button', { name: '受付事務スタッフ' }));
     expect(screen.getByRole('heading', { level: 1, name: '受付事務スタッフ' })).toBeTruthy();
   });

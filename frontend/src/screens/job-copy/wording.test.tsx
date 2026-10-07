@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyScreen } from './JobCopyScreen';
 import { jobs } from './data';
@@ -66,6 +66,52 @@ describe('job copy screen wording', () => {
     expect(seen.some(text => text.includes('ⓘ 集計の前提'))).toBe(true);
     expect(api).toHaveBeenCalled();
   }, 60_000);
+
+  it('shows no developer terms or causal wording on the cross-job overview', async () => {
+    render(<JobCopyScreen />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '横断比較' })); await Promise.resolve(); });
+    expect(screen.getByRole('heading', { level: 1, name: '求人の横断比較' })).toBeTruthy();
+    expect(visibleWording()).not.toMatch(JARGON_PATTERN);
+    expect(visibleWording()).not.toMatch(CAUSAL_PATTERN);
+    expect(visibleWording()).toContain('タイムラインの「市場」の段');
+  });
+
+  it('shows plain wording and the HubSpot application dates for a job opened from the HubSpot check', async () => {
+    const record = { id: '901', properties: { hs_name: '合成ドライバー', shigotonaiyou: '仕事内容：配送\n給与：月給25万円', id_hrhakkaa: 'SYN-1', qinwude: '大分県大分市' } };
+    api.mockImplementation((path: string) => {
+      if (path.includes('/api/job-copy/market')) return Promise.resolve({ ok: true, data: market });
+      if (path.includes('listing=')) return Promise.resolve({ ok: true, data: { metric: 'HubSpot応募レコード数', total_ms: 812, fetched_at: '2026-10-05T00:00:00Z', version_attribution: '現在の関連による集計。', attribute_basis: '現在取得できる属性',
+        summary: { total: 5, duplicate_ids: 0, missing_date: 1, by_date: { '2026-09-20': 1, '2026-10-01': 3 }, dimensions: { gender: { 男性: 3, 女性: 1, 不明: 1 } } }, capture_bundle: null, dated_comparison: null } });
+      if (path.includes('company=')) return Promise.resolve({ ok: true, data: { company_id: '77', portal_id: null, contracts: [{ id: '5', properties: { dealname: '合成契約' } }], jobs: [{ record, deal_ids: ['5'] }], total: 1, next_offset: null, total_ms: 345, fetched_at: '2026-10-05T00:00:00Z' } });
+      return Promise.resolve({ ok: true, data: { customers: [{ id: '77', properties: { name: '合成取引先' } }], next_after: null, total_ms: 123 } });
+    });
+    const { container } = render(<JobCopyScreen />);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'データ取込' })); await Promise.resolve(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '取引先を取得' })); await Promise.resolve(); });
+    await screen.findByRole('option', { name: '合成取引先' });
+    expect(visibleWording()).not.toMatch(/\d+\s?ms/);
+    fireEvent.change(screen.getByLabelText('HubSpotの取引先'), { target: { value: '77' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '関連する求人を取得' })); await Promise.resolve(); });
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: '合成ドライバー（関連契約1件）' })); await Promise.resolve(); });
+    await waitFor(() => { expect(screen.getByText('応募を取得しました。')).toBeTruthy(); });
+    expect(visibleWording()).not.toMatch(JARGON_PATTERN);
+    expect(visibleWording()).not.toContain('shigotonaiyou');
+    // HubSpot の応募日（4件、日付不明1件）がタイムラインと横断比較に届いている。
+    const lane = screen.getByRole('group', { name: '応募' });
+    expect(lane.textContent).not.toContain('応募日別の件数は未取得です');
+    expect(screen.getByText('応募日が分からない応募 1件 はグラフに含めていません')).toBeTruthy();
+    const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"][id*="-group-"], [role="tab"][id*="-feature-"]')];
+    for (const tab of tabs) {
+      await act(async () => { fireEvent.click(tab); await Promise.resolve(); });
+      expect(visibleWording(), tab.textContent).not.toMatch(JARGON_PATTERN);
+      expect(visibleWording(), tab.textContent).not.toMatch(CAUSAL_PATTERN);
+      expect(visibleWording(), tab.textContent).not.toContain('shigotonaiyou');
+    }
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '横断比較' })); await Promise.resolve(); });
+    const row = within(screen.getByRole('region', { name: '求人の横断比較の表' })).getAllByRole('row')[1];
+    expect(row?.textContent).toContain('合成ドライバー');
+    expect(row?.textContent).not.toContain('応募未取得');
+  }, 30_000);
 
   it('formats the selected version timestamp as YYYY/MM/DD HH:mm JST', () => {
     render(<JobCopyScreen />);

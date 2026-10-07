@@ -7,11 +7,12 @@ import {
   decodeBillingCsv, guessBillingColumns, guessTaxBasis, parseCsv,
 } from './billingImport';
 import type { BillingColumnMapping, BillingEncoding, BillingImportResult, BillingRowIssue } from './billingImport';
+import { billingEntriesByJob, billingOverlaps } from './timelineModel';
+import { formatYen } from './format';
 import './billing-import.css';
 
 type EncodingChoice = BillingEncoding | 'auto';
 const encodingLabels: Record<EncodingChoice, string> = { auto: '自動で判定', 'utf-8': 'UTF-8', shift_jis: 'Excel で保存した日本語の CSV' };
-const yen = (value: number) => `${Math.round(value).toLocaleString('ja-JP')}円`;
 
 function IssueList({ title, issues }: { title: string; issues: readonly BillingRowIssue[] }) {
   if (!issues.length) return null;
@@ -104,6 +105,8 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
   const missing = new Set(BILLING_FIELDS.filter(spec => spec.required && mapping[spec.field] === undefined).map(spec => spec.field));
   const appliedTotal = applied.reduce((sum, period) => sum + (period.amountYen ?? 0), 0);
   const appliedUnknown = applied.filter(period => period.amountYen === null).length;
+  // 期間が重なる行は、タイムライン・横断比較と同じく金額を合計しない。
+  const overlappingJobs = Object.values(billingEntriesByJob(applied)).filter(entries => billingOverlaps(entries)).length;
 
   return <section className="jc-billing" aria-labelledby={`${id}-title`}>
     <h3 id={`${id}-title`}>課金CSV</h3>
@@ -172,7 +175,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
     </ol>
 
     {applied.length > 0 && <p className="jc-billing-applied" role="status">
-      課金CSVの {String(applied.length)} 期間を反映中（{String(new Set(applied.map(period => period.jobId)).size)}求人・{appliedUnknown === applied.length ? '金額はすべて不明' : `合計 ${yen(appliedTotal)}${appliedUnknown ? `（ほかに金額不明 ${String(appliedUnknown)}期間）` : ''}`}）。ページを再読み込みすると消えます。
+      課金CSVの {String(applied.length)} 期間を反映中（{String(new Set(applied.map(period => period.jobId)).size)}求人・{overlappingJobs > 0 ? `期間が重なる行があるため合計していません（${String(overlappingJobs)}求人）` : appliedUnknown === applied.length ? '金額はすべて不明' : `合計 ${formatYen(appliedTotal)}${appliedUnknown ? `（ほかに金額不明 ${String(appliedUnknown)}期間）` : ''}`}）。ページを再読み込みすると消えます。
     </p>}
   </section>;
 }

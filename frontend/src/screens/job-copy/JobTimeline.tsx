@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { apiGet } from '../../api/client';
 import { EChart } from '../../components/EChart';
@@ -11,7 +11,7 @@ import { chooseMarket } from './marketMatch';
 import { salaryLabel } from './salaryExtract';
 import { plainWording } from './format';
 import {
-  addDays, applicationBuckets, asOfDate, billingEntries, buildPeriods, dayNumber, formatDay, formatPerDay, formatYen,
+  addDays, applicationBuckets, asOfDate, billingEntries, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
   marketLane, periodRows, positionOf, timelineRange, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange } from './timelineModel';
@@ -30,14 +30,16 @@ interface MarketState {
   meta: MarketData | null;
   title: string;
   prefecture: string;
-  /** How the current choice was made. */
-  chosenBy: 'auto-exact' | 'auto-partial' | 'user' | 'none';
+  /** How the occupation was chosen. */
+  titleBy: 'auto-exact' | 'auto-partial' | 'user' | 'none';
+  /** How the prefecture was chosen (from the job's work location, or by the user). */
+  prefectureBy: 'auto' | 'user' | 'none';
   rows: MarketRow[] | null;
 }
 
 function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo') {
   const fetchMarket = mode === 'demo' ? demoMarket : apiMarket;
-  const [state, setState] = useState<MarketState>({ status: 'loading', meta: null, title: '', prefecture: '', chosenBy: 'none', rows: null });
+  const [state, setState] = useState<MarketState>({ status: 'loading', meta: null, title: '', prefecture: '', titleBy: 'none', prefectureBy: 'none', rows: null });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -45,8 +47,8 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo') {
       if (cancelled) return;
       if (!result.ok) { setState(previous => ({ ...previous, status: 'error' })); return; }
       const choice = chooseMarket(job, result.data.titles, result.data.prefectures);
-      const chosenBy = choice.title ? (choice.titleHow === 'exact' ? 'auto-exact' : 'auto-partial') : 'none';
-      setState({ status: choice.title && choice.prefecture ? 'loading' : 'ready', meta: result.data, title: choice.title ?? '', prefecture: choice.prefecture ?? '', chosenBy, rows: null });
+      const titleBy = choice.title ? (choice.titleHow === 'exact' ? 'auto-exact' : 'auto-partial') : 'none';
+      setState({ status: choice.title && choice.prefecture ? 'loading' : 'ready', meta: result.data, title: choice.title ?? '', prefecture: choice.prefecture ?? '', titleBy, prefectureBy: choice.prefecture ? 'auto' : 'none', rows: null });
     }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error' })); });
     return () => { cancelled = true; };
   }, [job, fetchMarket, attempt]);
@@ -63,7 +65,7 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo') {
   const choose = (next: { title?: string; prefecture?: string }) => {
     setState(previous => {
       const title = next.title ?? previous.title; const prefecture = next.prefecture ?? previous.prefecture;
-      return { ...previous, title, prefecture, chosenBy: 'user', rows: null, status: title && prefecture ? 'loading' : 'ready' };
+      return { ...previous, title, prefecture, titleBy: next.title === undefined ? previous.titleBy : 'user', prefectureBy: next.prefecture === undefined ? previous.prefectureBy : 'user', rows: null, status: title && prefecture ? 'loading' : 'ready' };
     });
   };
   return { state, choose, retry: () => { setState(previous => ({ ...previous, status: 'loading' })); setAttempt(value => value + 1); } };
@@ -85,13 +87,26 @@ function span(range: TimelineRange, start: string, endExclusive: string) {
   return { left: `${left.toFixed(3)}%`, width: `${Math.max(0.6, right - left).toFixed(3)}%` };
 }
 
+/**
+ * A marker that starts at a day but must stay readable inside the track. It is shifted left by the
+ * same share of its own width as its position on the track (0% → not shifted, 100% → fully to the
+ * left of the day), so it never runs past the right edge. The pin (::before) marks the exact day.
+ */
+function pinned(date: string, range: TimelineRange): CSSProperties {
+  const position = positionOf(date, range);
+  return { left: `${position.toFixed(3)}%`, '--jt-pin': position.toFixed(3) } as CSSProperties;
+}
+
+function noDataNote(month: string | null | undefined): string {
+  return month ? `、${formatMonth(month)}以降はデータなし` : '';
+}
 function marketText(market: MarketChangeResult): string {
   if (market.ok) {
     const sign = market.value.changePct > 0 ? '+' : market.value.changePct < 0 ? '−' : '±';
-    return `${sign}${Math.abs(market.value.changePct).toFixed(1)}%（${market.value.fromMonth} ${market.value.fromJobs.toLocaleString('ja-JP')}件 → ${market.value.toMonth} ${market.value.toJobs.toLocaleString('ja-JP')}件）`;
+    return `${sign}${Math.abs(market.value.changePct).toFixed(1)}%（${formatMonth(market.value.fromMonth)} ${market.value.fromJobs.toLocaleString('ja-JP')}件 → ${formatMonth(market.value.toMonth)} ${market.value.toJobs.toLocaleString('ja-JP')}件${noDataNote(market.value.noDataFrom)}）`;
   }
   if (market.reason === 'not_selected') return '市場を選ぶと表示';
-  if (market.reason === 'same_month') return `同じ月の中（${market.month ?? ''} ${market.jobs?.toLocaleString('ja-JP') ?? ''}件）`;
+  if (market.reason === 'same_month') return `同じ月の中（${formatMonth(market.month ?? '')} ${market.jobs?.toLocaleString('ja-JP') ?? ''}件${noDataNote(market.noDataFrom)}）`;
   return 'データなし';
 }
 function billingText(row: PeriodRow): string {
@@ -106,10 +121,12 @@ function axisMonths(range: TimelineRange) {
   let cursor = `${range.start.slice(0, 7)}-01`;
   if (cursor < range.start) cursor = addDays(`${range.start.slice(0, 7)}-01`, 32).slice(0, 7) + '-01';
   while (cursor <= range.end && ticks.length < 60) {
-    ticks.push({ date: cursor, label: `${String(Number(cursor.slice(5, 7)))}月` });
+    ticks.push({ date: cursor, label: formatMonth(cursor.slice(0, 7)) });
     cursor = addDays(cursor, 32).slice(0, 7) + '-01';
   }
-  return ticks;
+  // Long ranges: label every few months so the labels do not run into each other.
+  const step = Math.ceil(ticks.length / 12);
+  return ticks.map((tick, index) => index % step === 0 ? tick : { ...tick, label: '' });
 }
 
 const dayMs = (date: string) => dayNumber(date) * 86_400_000;
@@ -217,17 +234,22 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           const info = change.salary;
           const readable = info && info.kind === salaryKind && info.min !== null;
           const height = readable && high > low ? 18 + (((info.min ?? low) - low) / (high - low)) * 40 : 30;
-          return <div key={change.versionId} className={`jt-salary${readable ? '' : ' jt-salary-unknown'}${change.salaryChanged ? ' jt-salary-changed' : ''}`}
-            style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), bottom: `${String(height)}%` }}
-            title={info ? `${change.label}: ${info.raw || '記載なし'}` : `${change.label}: 給与の記載なし`}>
-            {change.salaryChanged && <i aria-hidden="true">▲</i>}<span>{salaryLabel(info)}</span>
+          const className = `${readable ? '' : ' jt-salary-unknown'}${change.salaryChanged ? ' jt-salary-changed' : ''}`;
+          // The line spans the period; the label starts at the period start and stays inside the
+          // track even when the period is only a few days long (the latest version).
+          return <div key={change.versionId} className="jt-salary-item">
+            <div className={`jt-salary${className}`} aria-hidden="true" style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), bottom: `calc(${String(height)}% + 14px)` }} />
+            <div className={`jt-salary-label${className}`} style={{ ...pinned(period.start, range), bottom: `${String(height)}%` }}
+              title={info ? `${change.label}: ${info.raw || '記載なし'}` : `${change.label}: 給与の記載なし`}>
+              {change.salaryChanged && <i aria-hidden="true">▲</i>}<span>{salaryLabel(info)}</span>
+            </div>
           </div>;
         })}
       </Lane>
 
       <Lane title="本文" source="前の版との行の比較">
         {changes.map(change => <button type="button" key={change.versionId} className={`jt-mark${change.index > 0 && change.bodyStatus === 'changed' ? ' jt-mark-changed' : ''}`} aria-pressed={selected === change.versionId}
-          style={{ left: `${positionOf(change.date, range).toFixed(3)}%` }} onClick={() => { setSelected(change.versionId); }}
+          style={pinned(change.date, range)} onClick={() => { setSelected(change.versionId); }}
           aria-label={`${change.label}の本文${change.index === 0 ? '（最初の版）' : `：追加${String(change.bodyAdded)}行・削除${String(change.bodyRemoved)}行`}`}>
           {change.index === 0 ? '最初' : change.bodyStatus === 'unchanged' ? '同じ' : change.bodyStatus === 'format_only' ? '改行のみ' : `+${String(change.bodyAdded)} / −${String(change.bodyRemoved)}`}
         </button>)}
@@ -235,7 +257,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
 
       <Lane title="画像" source="前の版との画像の比較">
         {changes.map(change => <button type="button" key={change.versionId} className={`jt-mark jt-image-${change.imageChange}`} aria-pressed={selected === change.versionId}
-          style={{ left: `${positionOf(change.date, range).toFixed(3)}%` }} onClick={() => { setSelected(change.versionId); }}
+          style={pinned(change.date, range)} onClick={() => { setSelected(change.versionId); }}
           aria-label={`${change.label}の画像：${change.imageChange === 'initial' ? '最初の版' : change.imageChange === 'changed' ? '変更あり' : change.imageChange === 'same' ? '同じ' : '比べられない'}`}>
           {change.imageChange === 'initial' ? '最初' : change.imageChange === 'changed' ? '変更' : change.imageChange === 'same' ? '同じ' : '不明'}
         </button>)}
@@ -268,10 +290,11 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         {marketMeta && <>
           <label>職種<select value={market.state.title} onChange={event => { market.choose({ title: event.target.value }); }}><option value="">選んでください</option>{marketMeta.titles.map(value => <option key={value}>{value}</option>)}</select></label>
           <label>都道府県<select value={market.state.prefecture} onChange={event => { market.choose({ prefecture: event.target.value }); }}><option value="">選んでください</option>{marketMeta.prefectures.map(value => <option key={value}>{value}</option>)}</select></label>
-          <span className="jt-choice">{market.state.chosenBy === 'auto-exact' ? '求人名と同じ職種を自動で選びました' : market.state.chosenBy === 'auto-partial' ? '求人名に含まれる職種を自動で選びました。違う場合は選び直してください' : market.state.chosenBy === 'user' ? '手で選んだ職種です' : '求人名から職種を決められませんでした'}</span>
+          <span className="jt-choice">{market.state.titleBy === 'auto-exact' ? '求人名と同じ職種を自動で選びました' : market.state.titleBy === 'auto-partial' ? '求人名に含まれる職種を自動で選びました。違う場合は選び直してください' : market.state.titleBy === 'user' ? '手で選んだ職種です' : '求人名から職種を決められませんでした'}</span>
+          <span className="jt-choice">{market.state.prefectureBy === 'auto' ? `勤務地から${market.state.prefecture}を自動で選びました` : market.state.prefectureBy === 'user' ? '手で選んだ都道府県です' : '勤務地から都道府県を決められませんでした'}</span>
         </>}
         {market.state.status === 'error' && <button type="button" className="jc-button" onClick={market.retry}>市場データを再取得</button>}
-        {lane?.noDataFrom && <span>{lane.noDataFrom.replace('-', '年')}月以降は市場データがありません（{lane.lastDataMonth ? `${lane.lastDataMonth.replace('-', '年')}月まで` : '取得なし'}）</span>}
+        {lane?.noDataFrom && lane.lastDataMonth && <span>{formatMonth(lane.noDataFrom)}以降は市場データがありません（{formatMonth(lane.lastDataMonth)}まで）</span>}
       </div>
     </div>
 
@@ -292,7 +315,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         <thead><tr><th scope="col">期間</th><th scope="col">日数</th><th scope="col">応募件数</th><th scope="col">1日あたり</th><th scope="col">課金額</th><th scope="col">市場求人数の同時期変化</th></tr></thead>
         <tbody>{rows.map(row => <tr key={row.key} className={row.kind === 'gap' ? 'jt-gap-row' : selected === row.versionId ? 'jt-row-selected' : undefined}>
           <th scope="row">{row.versionId ? <button type="button" className="jc-text-button" onClick={() => { setSelected(row.versionId); }}>{row.label}</button> : row.label}<small>{formatDay(row.start)}〜{row.ongoing ? `継続中（${formatDay(row.lastDay)}まで）` : formatDay(row.lastDay)}</small></th>
-          <td>{row.days}日</td><td>{row.applications}件</td><td>{formatPerDay(row.perDay)}</td>
+          <td>{row.days}日</td><td title={row.applications === null ? '応募日別の件数を取得していません。0件という意味ではありません。' : undefined}>{row.applications === null ? '未取得' : `${String(row.applications)}件`}</td><td>{row.applications === null ? '未取得' : formatPerDay(row.perDay)}</td>
           <td title={row.billing.connected && row.billing.prorated ? '課金の期間と版の期間がずれているため、日数で割って配分しています' : undefined}>{billingText(row)}</td>
           <td>{marketText(row.market)}</td>
         </tr>)}</tbody>

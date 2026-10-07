@@ -4,8 +4,8 @@ import type { CopyVersion, JobCopyRecord } from './data';
 import type { MarketRow } from './marketChartModel';
 import type { BillingPeriod } from './billingTypes';
 import {
-  applicationBuckets, applicationsOutsidePeriods, billingEntries, billingEntriesByJob, billingOverlaps, buildPeriods, changeKinds, formatPerDay, jstDate, marketChange, marketLane,
-  periodRows, timelineRange, versionChanges,
+  addDays, applicationBuckets, applicationsOutsidePeriods, billingEntries, billingEntriesByJob, billingOverlaps, buildPeriods, changeKinds, countApplications, daysBetween,
+  formatMonth, formatPerDay, formatYen, jstDate, marketChange, marketLane, nextMonth, periodRows, positionOf, publishedVersions, timelineRange, versionChanges,
 } from './timelineModel';
 
 const demo = jobs.find(job => job.id === 'demo-job-001');
@@ -116,11 +116,83 @@ describe('market lane', () => {
     expect(marketLane(rows, { start: '2026-07-01', end: '2026-08-20' }).noDataFrom).toBeNull();
   });
   it('compares the market job count between the first and last month of a period', () => {
-    expect(marketChange(rows, '2026-07-20', '2026-08-10')).toEqual({ ok: true, value: { fromMonth: '2026-07', toMonth: '2026-08', fromJobs: 100, toJobs: 110, changePct: 10 } });
-    expect(marketChange(rows, '2026-08-20', '2026-09-10')).toEqual({ ok: false, reason: 'no_data' });
+    expect(marketChange(rows, '2026-07-20', '2026-08-10')).toEqual({ ok: true, value: { fromMonth: '2026-07', toMonth: '2026-08', fromJobs: 100, toJobs: 110, changePct: 10, noDataFrom: null } });
+    expect(marketChange(rows, '2026-07-20', '2026-08-10')).toMatchObject({ value: { noDataFrom: null } });
+    // Runs into September (no data): the comparison stops at August and says September has none.
+    expect(marketChange(rows, '2026-08-20', '2026-09-10')).toEqual({ ok: false, reason: 'same_month', month: '2026-08', jobs: 110, noDataFrom: '2026-09' });
     expect(marketChange(rows, '2026-09-01', '2026-09-10')).toMatchObject({ ok: false, reason: 'no_data' });
-    expect(marketChange(rows, '2026-08-01', '2026-08-10')).toEqual({ ok: false, reason: 'same_month', month: '2026-08', jobs: 110 });
+    expect(marketChange(rows, '2026-08-01', '2026-08-10')).toEqual({ ok: false, reason: 'same_month', month: '2026-08', jobs: 110, noDataFrom: null });
     expect(marketChange(null, '2026-08-01', '2026-08-10')).toEqual({ ok: false, reason: 'not_selected' });
+  });
+});
+
+describe('market data that ends before the period does', () => {
+  const rows = [row('2026-07', 220), row('2026-08', 230)];
+  it('keeps the months with data when a period runs past 2026-08 (220 → 230, +4.5%, no data from 2026-09)', () => {
+    const result = marketChange(rows, '2026-07-01', '2026-10-04');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toMatchObject({ fromMonth: '2026-07', toMonth: '2026-08', fromJobs: 220, toJobs: 230, noDataFrom: '2026-09' });
+    expect(result.value.changePct).toBeCloseTo(4.545, 2);
+  });
+  it('has no "data ends at" month when the choice has no market rows at all', () => {
+    const lane = marketLane([], { start: '2026-09-01', end: '2026-10-05' });
+    expect(lane).toEqual({ points: [{ month: '2026-09', jobs: null, viewers: null }, { month: '2026-10', jobs: null, viewers: null }], lastDataMonth: null, noDataFrom: null });
+  });
+});
+
+describe('applications that were never fetched', () => {
+  it('leaves the period counts empty instead of 0 when application dates were never fetched', () => {
+    const job: JobCopyRecord = { ...driver };
+    delete job.overallApplications;
+    const rows = periodRows(job, { asOf: '2026-10-05' });
+    expect(rows.map(item => [item.applications, item.perDay])).toEqual([[null, null], [null, null], [null, null]]);
+    expect(applicationsOutsidePeriods(job, rows)).toBe(0);
+  });
+});
+
+describe('billing CSV rows that only partly cover an HRハッカー period', () => {
+  it('keeps the HRハッカー period (30000円) and marks the overlap instead of dropping it', () => {
+    const merged = billingEntries(demo, [{ source: 'csv', start: '2026-09-01', end: '2026-09-02', amountYen: 1000, media: 'HRハッカー' }]);
+    expect(merged.map(entry => [entry.source, entry.start, entry.end, entry.amountYen])).toEqual([
+      ['csv', '2026-09-01', '2026-09-02', 1000], ['hrhacker', '2026-09-01', '2026-09-14', 30000], ['hrhacker', '2026-09-15', '2026-09-30', 45000], ['hrhacker', '2026-10-01', '2026-10-05', 12000],
+    ]);
+    const rows = periodRows(demo, { asOf: '2026-10-05', billing: [{ source: 'csv', start: '2026-09-01', end: '2026-09-02', amountYen: 1000, media: 'HRハッカー' }] });
+    expect(rows[0]?.billing).toMatchObject({ connected: true, yen: null, overlapping: true, entries: 2 });
+    // A CSV row for exactly the same days still replaces the HRハッカー row.
+    expect(billingEntries(demo, [{ source: 'csv', start: '2026-09-01', end: '2026-09-14', amountYen: 33000, media: 'HRハッカー' }]).map(entry => entry.amountYen)).toEqual([33000, 45000, 12000]);
+  });
+});
+
+describe('day helpers', () => {
+  it('rolls over months and years', () => {
+    expect(nextMonth('2026-12')).toBe('2027-01');
+    expect(nextMonth('2026-09')).toBe('2026-10');
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
+    expect(daysBetween('2026-12-25', '2027-01-08')).toBe(14);
+    expect(formatMonth('2026-08')).toBe('2026/08');
+    expect(formatYen(45000)).toBe('4万5,000円');
+    expect(formatYen(30000)).toBe('3万円');
+  });
+  it('counts the start day and leaves out the exclusive end day', () => {
+    const byDate = { '2026-09-14': 1, '2026-09-15': 2, '2026-09-24': 4, '2026-09-25': 8 };
+    expect(countApplications(byDate, '2026-09-15', '2026-09-25')).toBe(6);
+    expect(countApplications(byDate, '2026-09-14', '2026-09-15')).toBe(1);
+    expect(countApplications(undefined, '2026-09-01', '2026-10-01')).toBe(0);
+  });
+  it('places days on the inclusive range and clamps outside it', () => {
+    const range = { start: '2026-09-01', end: '2026-09-10' };
+    expect(positionOf('2026-09-01', range)).toBe(0);
+    expect(positionOf('2026-09-06', range)).toBe(50);
+    expect(positionOf('2026-09-11', range)).toBe(100);
+    expect(positionOf('2026-08-01', range)).toBe(0);
+    expect(positionOf('2026-12-01', range)).toBe(100);
+  });
+  it('lists only published versions with a readable date, oldest first', () => {
+    const version = (id: string, from: string, kind: CopyVersion['kind'] = 'published'): CopyVersion => ({ id, label: id, observedAt: from, certainty: 'confirmed', kind, source: 'test', body: id, applications: null, note: '' });
+    const job: JobCopyRecord = { ...driver, versions: [version('late', '2026-09-20T00:00:00+09:00'), version('draft', '2026-09-10T00:00:00+09:00', 'ai_draft'), version('bad', 'いつか'), version('early', '2026-09-01T00:00:00+09:00')] };
+    expect(publishedVersions(job).map(item => item.id)).toEqual(['early', 'late']);
   });
 });
 

@@ -21,6 +21,12 @@ describe('billing CSV import', () => {
     expect(result.periods.every(period => period.source === 'csv')).toBe(true);
   });
 
+  it('reads rows whose dates carry a time or are written in Japanese (re-saved in Excel)', () => {
+    const result = importBillingCsv(csv('HRハッカー,DEMO-HRH-001,2026/9/1 0:00,2026/9/14 0:00,30000', 'Airワーク,DEMO-AIR-002,2026年9月15日,2026年9月30日,45000'), jobs);
+    expect(result.counts.rejected).toBe(0);
+    expect(result.periods.map(period => [period.periodStart, period.periodEnd, period.amountYen])).toEqual([['2026-09-01', '2026-09-14', 30000], ['2026-09-15', '2026-09-30', 45000]]);
+  });
+
   it('rejects a row whose end is before its start, with the row number', () => {
     const result = importBillingCsv(csv('HRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,30000', 'HRハッカー,DEMO-HRH-003,2026-09-20,2026-09-10,1000'), jobs);
     expect(result.rejected).toEqual([{ row: 3, message: '期間終了が期間開始より前です' }]);
@@ -130,6 +136,13 @@ describe('billing CSV import', () => {
     expect(billingDate('2026/9/1')).toBe('2026-09-01');
     expect(billingDate('2026-02-30')).toBeNull();
     expect(billingDate('2026-09')).toBeNull();
+    // Excel で保存し直した CSV は時刻が付くことがある。日本語の日付も読む。
+    expect(billingDate('2026/9/1 0:00')).toBe('2026-09-01');
+    expect(billingDate('2026/09/30 23:59:59')).toBe('2026-09-30');
+    expect(billingDate('2026年9月1日')).toBe('2026-09-01');
+    expect(billingDate('２０２６年９月１日')).toBe('2026-09-01');
+    expect(billingDate('2026年2月30日')).toBeNull();
+    expect(billingDate('2026/9/1 午前')).toBeNull();
     expect(canonicalMedia('AirWork')).toBe('Airワーク');
     expect(canonicalMedia('ＨＲハッカー')).toBe('HRハッカー');
     expect(canonicalMedia('Indeed')).toBeNull();

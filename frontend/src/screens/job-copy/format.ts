@@ -213,7 +213,7 @@ export function plainWording(text: string | null | undefined): string {
 }
 
 /** 画面に出してはいけない開発用の言葉。テストで画面文言を検査するときに使う。 */
-export const JARGON_PATTERN = /観測|版対応|ctk|MOC|複合集計|snapshot|スナップショット|fixture/i;
+export const JARGON_PATTERN = /観測|版対応|ctk|MOC|複合集計|snapshot|スナップショット|fixture|schemaVersion|JSON|\d+\s?ms\b/i;
 
 /** 因果を言い切る言葉。テストで画面文言を検査するときに使う。 */
 export const CAUSAL_PATTERN = /効果|確実に|必ず|100%/;

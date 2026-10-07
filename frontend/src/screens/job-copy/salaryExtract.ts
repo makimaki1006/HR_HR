@@ -30,17 +30,22 @@ export function parseSalaryText(text: string): SalaryInfo {
   const raw = text.trim();
   const normalized = raw.normalize('NFKC').replace(/(\d),(?=\d{3})/g, '$1');
   const kindWord = /(月給|時給|日給|年収|年俸)/.exec(normalized)?.[1];
-  const amounts: number[] = [];
+  // Valid pay amounts with where they sit in the text.
+  const amounts: { value: number; start: number; end: number }[] = [];
   for (const match of normalized.matchAll(AMOUNT)) {
     const number = match[1];
     if (number === undefined) continue;
     const value = yen(number, match[2]);
     // Skip hours, days and similar small numbers that are not pay amounts.
-    if (value !== null && (match[2] || match[0].includes('円') || value >= 500)) amounts.push(value);
+    if (value !== null && (match[2] || match[0].includes('円') || value >= 500)) amounts.push({ value, start: match.index, end: match.index + match[0].length });
     if (amounts.length === 2) break;
   }
-  const min = amounts[0] ?? null;
-  const max = amounts.length > 1 && /[〜~\-–ー－]/.test(normalized) ? amounts[1] ?? min : min;
+  const first = amounts[0]; const second = amounts[1];
+  const min = first?.value ?? null;
+  // A range is only "<amount> 〜 <amount>" written next to each other. A later amount (an allowance,
+  // a training wage) is not the top of the range, and a top lower than the bottom is never accepted.
+  const adjacent = first && second && /^\s*[〜~\-–ー－]\s*$/.test(normalized.slice(first.end, second.start));
+  const max = adjacent && second.value >= first.value ? second.value : min;
   if (kindWord) return { kind: KINDS[kindWord] ?? '不明', min, max, raw, inferredKind: false };
   // Kind not written: only a 7-digit-or-more yen amount is read as annual pay (marked as inferred).
   if (min !== null && min >= 1_000_000) return { kind: '年収', min, max, raw, inferredKind: true };
