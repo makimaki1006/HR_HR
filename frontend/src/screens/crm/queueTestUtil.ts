@@ -3,6 +3,9 @@ import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import { QUEUE_STAGE_IDS } from './queueModel';
 import type { QueueFilters } from './queueModel';
+import type { CrmMetadataResponse } from '../../generated/CrmMetadataResponse';
+import { MOC_DEAL_PROPERTIES } from './mocProperties';
+import type { MetadataFetch } from './useResultDefinitions';
 
 /** 架空の 1 行 (実データ由来の値は使わない) */
 export function makeItem(id: string, over: Partial<CallQueueItem> = {}): CallQueueItem {
@@ -33,6 +36,25 @@ export function makeResponse(f: QueueFilters, items: CallQueueItem[], over: Part
     ...over,
   };
 }
+
+/** GET /api/crm/metadata の応答の形をした架空の定義 (mocProperties.ts のスナップショットから) */
+export function metadataFromMoc(only?: readonly string[]): CrmMetadataResponse {
+  return {
+    properties: Object.values(MOC_DEAL_PROPERTIES).filter(p => !only || only.includes(p.name)).map(p => ({
+      object_type: 'deals', name: p.name, label: p.label, property_type: p.type, field_type: p.fieldType, options: p.options,
+    })),
+    pipelines: [], fetched_at: '2026-10-08T00:00:00Z', hubspot_ms: 1, total_ms: 1, cache_hit: false,
+  };
+}
+
+/** 定義の取得を溜めておき、テストが応答する偽の取得関数 */
+export function metadataStub() {
+  const calls: ((r: ApiResult<CrmMetadataResponse>) => void)[] = [];
+  const fetcher: MetadataFetch = () => new Promise(resolve => { calls.push(resolve); });
+  return { calls, fetcher };
+}
+/** すぐ定義を返す取得関数 */
+export const okMetadataFetch: MetadataFetch = () => Promise.resolve({ ok: true, data: metadataFromMoc() });
 
 export interface PendingCall {
   filters: QueueFilters;

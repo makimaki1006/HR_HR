@@ -1,0 +1,43 @@
+/* 架電結果の入力欄。中央の列の下端に固定し、詳細の上側だけがスクロールする */
+.rf { display: flex; flex-direction: column; max-height: min(42vh, 460px); font-size: 12px; }
+.rf-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; min-height: 36px; border-bottom: 1px solid var(--cq-line); }
+.rf.is-collapsed .rf-head { border-bottom: none; }
+.rf-toggle { border: none; background: transparent; font-weight: 700; font-size: 13px; padding: 2px 4px; cursor: pointer; white-space: nowrap; }
+.rf-summary { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cq-sub); }
+.rf-call { padding: 1px 8px; border-radius: 999px; background: #1f2a35; color: #fff; font-size: 11px; white-space: nowrap; }
+.rf-status { margin-left: auto; flex: none; padding: 1px 8px; border-radius: 3px; border: 1px solid #d9a400; background: #fff7d6; color: #6b5200; font-size: 11px; white-space: nowrap; }
+.rf-status.is-recorded { border-color: var(--cq-accent); background: var(--cq-accent-weak); color: #0a5a61; }
+.rf-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; }
+.rf-outcomes { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.rf-outcome { min-height: 40px; padding: 6px 4px; border: 1px solid var(--cq-line-strong); border-radius: var(--cq-radius); background: #fff; font-size: 13px; font-weight: 700; cursor: pointer; line-height: 1.25; }
+.rf-outcome[aria-pressed="true"] { background: var(--cq-accent); border-color: var(--cq-accent); color: #fff !important; }
+.rf-outcome:focus-visible, .rf-record:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: 2px; }
+.rf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 16px; align-items: start; }
+.rf-wide { grid-column: 1 / -1; }
+.rf-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.rf-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; border: none; margin: 0; padding: 0; }
+.rf-field legend, .rf-label { padding: 0; font-size: 11px; color: var(--cq-sub); display: flex; align-items: center; gap: 6px; }
+.rf-req { padding: 0 4px; border-radius: 3px; background: #fde8e8; color: #a61b1b; font-size: 10px; }
+.rf-count { margin-left: auto; color: var(--cq-faint); }
+.rf-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.rf-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border: 1px solid var(--cq-line-strong); border-radius: 999px; cursor: pointer; user-select: none; }
+.cq-app .rf-chip input { width: auto; margin: 0; accent-color: var(--cq-accent); }
+.rf-chip:has(input:checked) { background: var(--cq-accent-weak); border-color: var(--cq-accent); color: #0a5a61; font-weight: 700; }
+.rf-clear { border: none; background: transparent; color: var(--cq-sub) !important; font-size: 11px; text-decoration: underline; cursor: pointer; }
+.rf-field textarea { width: 100%; resize: vertical; padding: 5px 8px; border: 1px solid var(--cq-line-strong); border-radius: 4px; font: inherit; }
+.rf-field input[type="text"] { width: 100%; }
+.rf-field [aria-invalid="true"] { border-color: #c62828; }
+.rf-err { color: #b71c1c; font-size: 11px; }
+.rf-hint, .rf-muted { color: var(--cq-faint); font-size: 11px; }
+.rf-more summary { cursor: pointer; color: var(--cq-sub); }
+.rf-more .rf-field { margin-top: 4px; }
+.rf-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.rf-notice { margin-right: auto; color: var(--cq-sub); }
+.rf-record { padding: 8px 20px; border: 1px solid var(--cq-accent); border-radius: var(--cq-radius); background: var(--cq-accent); color: #fff !important; font-weight: 700; font-size: 13px; cursor: pointer; }
+.rf-record:disabled { opacity: .45; cursor: not-allowed; }
+.rf-record kbd { margin-left: 6px; font: inherit; font-size: 10px; font-weight: 400; opacity: .85; }
+.rf-defs-error { margin: 0; }
+/* 列の行マーカー */
+.cq-recorded { flex: none; padding: 0 6px; border-radius: 3px; background: var(--cq-accent-weak); color: #0a5a61; font-size: 11px; white-space: nowrap; }
+@media (max-width: 1279px) { .rf-outcomes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 999px) { .rf { max-height: none; } }
