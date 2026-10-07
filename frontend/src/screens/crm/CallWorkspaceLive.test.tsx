@@ -171,7 +171,7 @@ describe('Zoom Phone (Smart Embed)', () => {
     fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
     expect(postMessage).toHaveBeenCalledTimes(1);
     expect(postMessage).toHaveBeenCalledWith({ type: 'zp-make-call', data: { number: '+81312345678', autoDial: true } }, 'https://applications.zoom.us');
-    expect(screen.getByText(/0312345678 への発信を依頼しました/)).toBeTruthy();
+    expect(screen.getByText(/03-1234-5678 への発信を依頼しました/)).toBeTruthy();
     // tel: とコピーも出る
     expect(screen.getAllByRole('link', { name: /tel: で発信$/ })[0]?.getAttribute('href')).toBe('tel:+81312345678');
   });

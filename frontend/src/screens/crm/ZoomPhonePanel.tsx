@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ZOOM_EMBED_SRC } from './smartEmbed';
 import type { ZoomPhone } from './useZoomPhone';
-import { toDomesticPhone } from './phone';
+import { formatPhoneForDisplay } from './phone';
 import { clock } from './workspaceModel';
 
 const RESULT_LABELS: Record<string, string> = { ended: '通話が終了しました', missed: '応答がありませんでした', rejected: '拒否されました' };
@@ -15,10 +15,10 @@ function CallStatus({ zoom }: { zoom: ZoomPhone }) {
     const t = window.setInterval(() => { setNow(Date.now()); }, 1000);
     return () => { window.clearInterval(t); };
   }, [connectedAt]);
-  const who = toDomesticPhone(call.number) ?? zoom.pending?.number ?? null;
+  const who = formatPhoneForDisplay(call.number) ?? zoom.pending?.number ?? null;
   if (call.phase === 'idle') {
     return <p className="zp-status" role="status">{zoom.pending
-      ? `${toDomesticPhone(zoom.pending.number) ?? zoom.pending.number} への発信を依頼しました。呼び出しの開始を待っています…`
+      ? `${formatPhoneForDisplay(zoom.pending.number) ?? zoom.pending.number} への発信を依頼しました。呼び出しの開始を待っています…`
       : '通話していません'}</p>;
   }
   return <div className={`zp-status zp-${call.phase}`} role="status">
