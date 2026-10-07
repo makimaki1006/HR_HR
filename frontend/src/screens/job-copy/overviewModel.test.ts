@@ -47,3 +47,13 @@ describe('cross-job overview', () => {
     expect(row.before).toEqual({ days: 14, applications: 9, perDay: 9 / 14 });
   });
 });
+
+describe('overlapping billing in the cross-job overview', () => {
+  it('leaves the total blank when a CSV billing period partly overlaps an HRハッカー period', () => {
+    // demo-job-001 HRハッカー: 09-01〜09-14 30000, 09-15〜09-30 45000, 10-01〜10-05 12000.
+    const row = overviewRow(demo('demo-job-001'), { billing: [{ source: 'csv', start: '2026-09-10', end: '2026-09-20', amountYen: 5000, media: 'HRハッカー' }] });
+    expect([row.billingConnected, row.billingYen, row.billingOverlapping]).toEqual([true, null, true]);
+    // Without the overlap the same job adds up.
+    expect([overviewRow(demo('demo-job-001')).billingOverlapping, overviewRow(demo('demo-job-001')).billingYen]).toEqual([false, 87000]);
+  });
+});

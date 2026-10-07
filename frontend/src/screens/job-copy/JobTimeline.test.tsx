@@ -6,6 +6,7 @@ import { jobs } from './data';
 import type { JobCopyRecord } from './data';
 import { JobTimeline } from './JobTimeline';
 import { JobCopyScreen } from './JobCopyScreen';
+import { JobOverview } from './JobOverview';
 
 const charts = vi.hoisted(() => ({ props: [] as EChartProps[] }));
 const api = vi.hoisted(() => vi.fn());
@@ -171,5 +172,85 @@ describe('job copy screen integration (demo mode)', () => {
     expect(first?.textContent).toContain('8万7,000円');
     fireEvent.click(within(table).getByRole('button', { name: '受付事務スタッフ' }));
     expect(screen.getByRole('heading', { level: 1, name: '受付事務スタッフ' })).toBeTruthy();
+  });
+});
+
+describe('market cells of the period table while loading or after a failure (review round 2)', () => {
+  const marketCells = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
+  const list = { source: '合成', titles: ['ドライバー', '倉庫作業'], prefectures: ['大分県', '福岡県'], ctk_basis: '応募数ではありません', series: null };
+  const series = { prefecture: '大分県', months: ['2026-08', '2026-09', '2026-10'], job_count: [100, 110, 121], ctk_count: [300, 310, 320], employer_count: [1, 1, 1], seekers_per_posting: [3, 3, 3] };
+
+  it('says 取得できませんでした (not "pick a market") when the market list request fails', async () => {
+    api.mockResolvedValue({ ok: false, error: { message: '500' } });
+    render(<JobTimeline job={demo('demo-job-001')} />);
+    expect(await screen.findByText('市場データを取得できませんでした')).toBeTruthy();
+    expect(marketCells()).toEqual(['取得できませんでした', '取得できませんでした', '取得できませんでした']);
+  });
+
+  it('says 取得できませんでした (not データなし) when the request for the chosen market fails', async () => {
+    api.mockImplementation((path: string) => Promise.resolve(path.includes('title=') ? { ok: false, error: { message: 'timeout' } } : { ok: true, data: list }));
+    render(<JobTimeline job={demo('demo-job-001')} />);
+    expect(await screen.findByText('市場データを取得できませんでした')).toBeTruthy();
+    expect(marketCells()).toEqual(['取得できませんでした', '取得できませんでした', '取得できませんでした']);
+    expect(screen.getByRole('table').textContent).not.toContain('データなし');
+  });
+
+  it('says 取得中… while the chosen market is loading', async () => {
+    api.mockImplementation((path: string) => path.includes('title=') ? new Promise(() => undefined) : Promise.resolve({ ok: true, data: list }));
+    render(<JobTimeline job={demo('demo-job-001')} />);
+    await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
+    expect(screen.getByText('市場データを取得中…')).toBeTruthy();
+    expect(marketCells()).toEqual(['取得中…', '取得中…', '取得中…']);
+    expect(screen.getByRole('table').textContent).not.toContain('市場を選ぶと表示');
+  });
+
+  it('keeps a hand-picked prefecture when the market data is fetched again after a failure', async () => {
+    let seriesCalls = 0;
+    api.mockImplementation((path: string) => {
+      if (!path.includes('title=')) return Promise.resolve({ ok: true, data: list });
+      seriesCalls += 1;
+      return Promise.resolve(path.includes(encodeURIComponent('福岡県')) && seriesCalls === 2 ? { ok: false, error: { message: '500' } } : { ok: true, data: { ...list, series } });
+    });
+    render(<JobTimeline job={demo('demo-job-001')} />);
+    await waitFor(() => { expect(lastChart('jt-market')).toBeDefined(); });
+    fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: '福岡県' } });
+    expect(await screen.findByRole('button', { name: '市場データを再取得' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '市場データを再取得' }));
+    await waitFor(() => { expect(seriesCalls).toBe(3); });
+    await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再取得' })).toBeNull(); });
+    expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('福岡県');
+    expect(screen.getByText('手で選んだ都道府県です')).toBeTruthy();
+    const paths = api.mock.calls.map(call => String(call[0]));
+    expect(paths.filter(path => !path.includes('title='))).toHaveLength(1);
+    expect(paths.at(-1)).toContain(encodeURIComponent('福岡県'));
+  });
+});
+
+describe('period table rows without counts or periods (review round 2)', () => {
+  it('shows 応募集計の取得後に始まった期間 (not 0日 / 0件) for a period that starts after the counts were taken', () => {
+    const base = demo('demo-job-001');
+    if (!base.overallApplications) throw new Error('Missing counts');
+    const job: JobCopyRecord = { ...base, overallApplications: { ...base.overallApplications, fetchedAt: '2026-09-20T09:00:00+09:00' } };
+    render(<JobTimeline job={job} marketMode="demo" />);
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
+    expect(rows.at(-1)?.slice(0, 3)).toEqual(['—', '応募集計の取得後に始まった期間', '—']);
+    expect(rows[0]?.slice(0, 3)).toEqual(['14日', '7件', '0.50件/日']);
+  });
+
+  it('explains instead of showing an empty table when no posting period is known', () => {
+    const job: JobCopyRecord = { ...demo('demo-job-001'), versions: [], hrhPerformance: undefined, overallApplications: { total: 2, missingDate: 0, fetchedAt: '2026-10-05T00:00:00Z', distributions: {}, byDate: { '2026-09-01': 2 } } };
+    render(<JobTimeline job={job} marketMode="demo" />);
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.getByText('掲載期間が取得できていないため、期間ごとの比較はできません。')).toBeTruthy();
+  });
+});
+
+describe('cross-job overview billing cell', () => {
+  it('shows 期間が重なる課金あり instead of a sum when CSV billing overlaps HRハッカー billing', () => {
+    render(<JobOverview records={[demo('demo-job-001')]} billing={{ 'demo-job-001': [{ source: 'csv', start: '2026-09-10', end: '2026-09-20', amountYen: 5000, media: 'HRハッカー' }] }} onChoose={() => undefined} />);
+    const row = within(screen.getByRole('region', { name: '求人の横断比較の表' })).getAllByRole('row')[1];
+    expect(row?.textContent).toContain('期間が重なる課金あり');
+    expect(row?.textContent).not.toContain('8万7,000円');
+    expect(row?.textContent).not.toContain('9万2,000円');
   });
 });

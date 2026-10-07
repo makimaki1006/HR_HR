@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jobs } from './data';
 import { BillingImportPanel } from './BillingImportPanel';
 import { JobCopyDataImport } from './JobCopyDataImport';
@@ -86,5 +86,50 @@ describe('BillingImportPanel', () => {
     const status = await screen.findByText(/期間を反映中/u);
     expect(status.textContent).toContain('期間が重なる行があるため合計していません（1求人）');
     expect(status.textContent).not.toMatch(/5万円|50,000円|合計 /u);
+  });
+});
+
+describe('BillingImportPanel when the job list or the file changes (review round 2)', () => {
+  const jobA = jobs.find(job => job.mediaJobId === 'DEMO-HRH-001');
+  const jobB = jobs.find(job => job.mediaJobId === 'DEMO-HRH-003');
+  if (!jobA || !jobB) throw new Error('Missing demo jobs');
+
+  it('does not apply a match made against an earlier job list', async () => {
+    const onApply = vi.fn();
+    const view = render(<BillingImportPanel records={[jobA]} applied={[]} onApply={onApply} onClear={() => undefined} />);
+    upload('媒体,媒体求人ID,期間開始,期間終了,金額\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,30000');
+    await screen.findByText('2. 列の対応を確かめる');
+    fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '一致した1行を課金として反映' }).disabled).toBe(false);
+    // Another media CSV replaced the job list: A is gone.
+    view.rerender(<BillingImportPanel records={[jobB]} applied={[]} onApply={onApply} onClear={() => undefined} />);
+    const apply = screen.getByRole<HTMLButtonElement>('button', { name: '一致した1行を課金として反映' });
+    expect(apply.disabled).toBe(true);
+    expect(screen.getByText('照合した後に求人一覧が変わりました。「求人と照合する」をもう一度押してください。')).toBeTruthy();
+    fireEvent.click(apply);
+    expect(onApply).not.toHaveBeenCalled();
+    // Matching again against the new list finds nothing for A.
+    fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
+    expect(within(screen.getByLabelText('照合結果の件数')).getByText('一致').nextElementSibling?.textContent).toBe('0行');
+    expect(screen.queryByText(/照合した後に求人一覧が変わりました/u)).toBeNull();
+  });
+
+  it('keeps the match when only the job objects are rebuilt (same jobs)', async () => {
+    const onApply = vi.fn();
+    const view = render(<BillingImportPanel records={[jobA]} applied={[]} onApply={onApply} onClear={() => undefined} />);
+    upload('媒体,媒体求人ID,期間開始,期間終了,金額\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,30000');
+    await screen.findByText('2. 列の対応を確かめる');
+    fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
+    view.rerender(<BillingImportPanel records={[{ ...jobA }]} applied={[]} onApply={onApply} onClear={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: '一致した1行を課金として反映' }));
+    expect((onApply.mock.calls[0]?.[0] as BillingPeriod[]).map(period => [period.jobId, period.amountYen])).toEqual([[jobA.id, 30000]]);
+  });
+
+  it('counts only data rows in step 1, the same as the match counts (blank lines are left out)', async () => {
+    render(<Harness />);
+    upload('媒体,媒体求人ID,期間開始,期間終了,金額\r\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,30000\r\n\r\n,,,,\r\n', 'blank.csv');
+    expect(await screen.findByText(/blank\.csv：1行/u)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
+    expect(within(screen.getByLabelText('照合結果の件数')).getByText('一致').nextElementSibling?.textContent).toBe('1行');
   });
 });

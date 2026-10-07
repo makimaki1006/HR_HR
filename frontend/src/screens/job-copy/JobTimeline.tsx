@@ -40,16 +40,27 @@ interface MarketState {
 function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo') {
   const fetchMarket = mode === 'demo' ? demoMarket : apiMarket;
   const [state, setState] = useState<MarketState>({ status: 'loading', meta: null, title: '', prefecture: '', titleBy: 'none', prefectureBy: 'none', rows: null });
+  // attempt: re-fetch the list of occupations / prefectures. seriesAttempt: re-fetch only the
+  // months for the current choice (a retry after the list was read keeps a hand-picked choice).
   const [attempt, setAttempt] = useState(0);
+  const [seriesAttempt, setSeriesAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
     void fetchMarket('', '').then(result => {
       if (cancelled) return;
-      if (!result.ok) { setState(previous => ({ ...previous, status: 'error' })); return; }
+      if (!result.ok) { setState(previous => ({ ...previous, status: 'error', rows: null })); return; }
       const choice = chooseMarket(job, result.data.titles, result.data.prefectures);
-      const titleBy = choice.title ? (choice.titleHow === 'exact' ? 'auto-exact' : 'auto-partial') : 'none';
-      setState({ status: choice.title && choice.prefecture ? 'loading' : 'ready', meta: result.data, title: choice.title ?? '', prefecture: choice.prefecture ?? '', titleBy, prefectureBy: choice.prefecture ? 'auto' : 'none', rows: null });
-    }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error' })); });
+      setState(previous => {
+        // A choice the user made by hand stays when it is still in the list.
+        const keepTitle = previous.titleBy === 'user' && result.data.titles.includes(previous.title);
+        const keepPrefecture = previous.prefectureBy === 'user' && result.data.prefectures.includes(previous.prefecture);
+        const title = keepTitle ? previous.title : choice.title ?? '';
+        const prefecture = keepPrefecture ? previous.prefecture : choice.prefecture ?? '';
+        const titleBy: MarketState['titleBy'] = keepTitle ? 'user' : choice.title ? (choice.titleHow === 'exact' ? 'auto-exact' : 'auto-partial') : 'none';
+        const prefectureBy: MarketState['prefectureBy'] = keepPrefecture ? 'user' : choice.prefecture ? 'auto' : 'none';
+        return { status: title && prefecture ? 'loading' : 'ready', meta: result.data, title, prefecture, titleBy, prefectureBy, rows: null };
+      });
+    }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null })); });
     return () => { cancelled = true; };
   }, [job, fetchMarket, attempt]);
   const { title, prefecture, meta } = state;
@@ -58,17 +69,25 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo') {
     let cancelled = false;
     void fetchMarket(title, prefecture).then(result => {
       if (cancelled) return;
-      setState(previous => ({ ...previous, status: result.ok ? 'ready' : 'error', rows: result.ok && result.data.series ? marketRows(result.data.series) : [] }));
-    }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error' })); });
+      // A failed request keeps rows null: [] means "this choice has no market data", which is a
+      // different message from "could not be fetched".
+      setState(previous => result.ok
+        ? { ...previous, status: 'ready', rows: result.data.series ? marketRows(result.data.series) : [] }
+        : { ...previous, status: 'error', rows: null });
+    }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null })); });
     return () => { cancelled = true; };
-  }, [meta, title, prefecture, fetchMarket]);
+  }, [meta, title, prefecture, fetchMarket, seriesAttempt]);
   const choose = (next: { title?: string; prefecture?: string }) => {
     setState(previous => {
       const title = next.title ?? previous.title; const prefecture = next.prefecture ?? previous.prefecture;
       return { ...previous, title, prefecture, titleBy: next.title === undefined ? previous.titleBy : 'user', prefectureBy: next.prefecture === undefined ? previous.prefectureBy : 'user', rows: null, status: title && prefecture ? 'loading' : 'ready' };
     });
   };
-  return { state, choose, retry: () => { setState(previous => ({ ...previous, status: 'loading' })); setAttempt(value => value + 1); } };
+  const retry = () => {
+    setState(previous => ({ ...previous, status: 'loading' }));
+    if (state.meta) setSeriesAttempt(value => value + 1); else setAttempt(value => value + 1);
+  };
+  return { state, choose, retry };
 }
 
 const certaintyLabel = { confirmed: '確定', estimated: '推定', unknown: '不明' } as const;
@@ -100,7 +119,10 @@ function pinned(date: string, range: TimelineRange): CSSProperties {
 function noDataNote(month: string | null | undefined): string {
   return month ? `、${formatMonth(month)}以降はデータなし` : '';
 }
-function marketText(market: MarketChangeResult): string {
+/** The market cell of the period table. While loading or after a failed request it says so (not "pick a market"). */
+function marketText(market: MarketChangeResult, status: MarketState['status'] = 'ready'): string {
+  if (status === 'error') return '取得できませんでした';
+  if (status === 'loading') return '取得中…';
   if (market.ok) {
     const sign = market.value.changePct > 0 ? '+' : market.value.changePct < 0 ? '−' : '±';
     return `${sign}${Math.abs(market.value.changePct).toFixed(1)}%（${formatMonth(market.value.fromMonth)} ${market.value.fromJobs.toLocaleString('ja-JP')}件 → ${formatMonth(market.value.toMonth)} ${market.value.toJobs.toLocaleString('ja-JP')}件${noDataNote(market.value.noDataFrom)}）`;
@@ -311,15 +333,18 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
     <section className="jt-periods" aria-label="期間比較表">
       <h3>期間比較表</h3>
       <p className="jc-muted">版が切り替わった日で期間を区切っています。期間の長さが違うので「1日あたり」で並べて確認してください。</p>
-      <div className="jt-table-scroll" role="region" aria-label="期間比較表の数値" tabIndex={0}><table>
+      {rows.length === 0 ? <p className="jc-notice">掲載期間が取得できていないため、期間ごとの比較はできません。</p>
+        : <div className="jt-table-scroll" role="region" aria-label="期間比較表の数値" tabIndex={0}><table>
         <thead><tr><th scope="col">期間</th><th scope="col">日数</th><th scope="col">応募件数</th><th scope="col">1日あたり</th><th scope="col">課金額</th><th scope="col">市場求人数の同時期変化</th></tr></thead>
         <tbody>{rows.map(row => <tr key={row.key} className={row.kind === 'gap' ? 'jt-gap-row' : selected === row.versionId ? 'jt-row-selected' : undefined}>
           <th scope="row">{row.versionId ? <button type="button" className="jc-text-button" onClick={() => { setSelected(row.versionId); }}>{row.label}</button> : row.label}<small>{formatDay(row.start)}〜{row.ongoing ? `継続中（${formatDay(row.lastDay)}まで）` : formatDay(row.lastDay)}</small></th>
-          <td>{row.days}日</td><td title={row.applications === null ? '応募日別の件数を取得していません。0件という意味ではありません。' : undefined}>{row.applications === null ? '未取得' : `${String(row.applications)}件`}</td><td>{row.applications === null ? '未取得' : formatPerDay(row.perDay)}</td>
+          <td>{row.afterCounts && row.days === 0 ? '—' : `${String(row.days)}日`}</td>
+          <td title={row.afterCounts ? `応募件数は ${formatDay(asOf)} に取得したもので、この期間はその後に始まっています。0件という意味ではありません。` : row.applications === null ? '応募日別の件数を取得していません。0件という意味ではありません。' : undefined}>{row.afterCounts ? '応募集計の取得後に始まった期間' : row.applications === null ? '未取得' : `${String(row.applications)}件`}</td>
+          <td>{row.afterCounts ? '—' : row.applications === null ? '未取得' : formatPerDay(row.perDay)}</td>
           <td title={row.billing.connected && row.billing.prorated ? '課金の期間と版の期間がずれているため、日数で割って配分しています' : undefined}>{billingText(row)}</td>
-          <td>{marketText(row.market)}</td>
+          <td>{marketText(row.market, market.state.status)}</td>
         </tr>)}</tbody>
-      </table></div>
+      </table></div>}
       <p className="jc-muted">応募件数は HubSpot に記録された応募日で数えています。どの版を見て応募したかは分かりません。数値は並べて示すもので、増減の理由を示すものではありません。</p>
     </section>
   </section>;
