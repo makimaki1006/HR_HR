@@ -9,7 +9,7 @@ describe('image gallery evidence states', () => {
     const empty = renderToStaticMarkup(createElement(ImageGallery, { title: '取得状態', images: [] }));
     expect(missing).toContain('画像は未取得です。画像なし・削除とは判定していません。');
     expect(missing).not.toContain('画像は0点');
-    expect(empty).toContain('この観測版の画像は0点です。');
+    expect(empty).toContain('この版の画像は0点です。');
     expect(empty).not.toContain('<img');
   });
   it('preserves original image slot, caption and an authorized lazy proxy reference', () => {
