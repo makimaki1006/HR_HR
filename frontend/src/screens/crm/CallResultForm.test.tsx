@@ -39,6 +39,7 @@ const recordBtn = () => within(form()).getByRole<HTMLButtonElement>('button', { 
 const recordDisabled = () => recordBtn().getAttribute('aria-disabled') === 'true';
 const selectedId = () => screen.getByTestId('result-slot').getAttribute('data-deal-id');
 const rowOf = (n: string): HTMLElement => { const li = within(list()).getByText(`架空会社${n}`).closest('li'); if (!li) throw new Error('row'); return li; };
+const nth = <T,>(xs: readonly T[], i: number): T => { const x = xs[i]; if (x === undefined) throw new Error(`no item ${String(i)}`); return x; };
 async function formReady() { await within(form()).findByRole('group', { name: '今回の結果' }); }
 
 describe('call-result form (draft only)', () => {
@@ -75,13 +76,13 @@ describe('call-result form (draft only)', () => {
     expect(document.body.textContent).not.toMatch(/HubSpot に保存しました|保存しました/);
   });
 
-  it('記録して次へ marks the row 記録済み(未送信), keeps the draft and moves to the next unrecorded row (skipping recorded ones)', async () => {
+  it('記録して次へ marks the row 記録済み(HubSpot 未送信), keeps the draft and moves to the next unrecorded row (skipping recorded ones)', async () => {
     await renderScreen();
     open('2');
     await formReady();
     fireEvent.click(outcome('不在・応答なし'));
     fireEvent.click(recordBtn());
-    expect(within(rowOf('2')).getByText('記録済み(未送信)')).toBeTruthy();
+    expect(within(rowOf('2')).getByText('記録済み(HubSpot 未送信)')).toBeTruthy();
     expect(selectedId()).toBe('3');
     // 3 を記録すると、末尾なので先頭の 1 へ (2 は記録済みなので飛ばす)
     fireEvent.click(outcome('担当者と会話'));
@@ -93,11 +94,11 @@ describe('call-result form (draft only)', () => {
     // 全部記録済み: 選択はそのまま、案内を出す
     expect(selectedId()).toBe('1');
     expect(within(form()).getByText('表示中の一覧に未記録の架電先はありません。')).toBeTruthy();
-    expect(within(form()).getByText('記録済み(未送信)')).toBeTruthy();
+    expect(within(form()).getByText('記録済み(HubSpot 未送信)')).toBeTruthy();
     // 2 に戻ると下書きが残っている
     open('2');
     expect(outcome('不在・応答なし').getAttribute('aria-pressed')).toBe('true');
-    expect(within(form()).getByText('記録済み(未送信)')).toBeTruthy();
+    expect(within(form()).getByText('記録済み(HubSpot 未送信)')).toBeTruthy();
   });
 
   it('Ctrl+Enter / Cmd+Enter inside the form records only when the draft is valid', async () => {
@@ -112,7 +113,7 @@ describe('call-result form (draft only)', () => {
     expect(selectedId()).toBe('1');
     fireEvent.keyDown(memo, { key: 'Enter', metaKey: true });
     expect(selectedId()).toBe('2');
-    expect(within(rowOf('1')).getByText('記録済み(未送信)')).toBeTruthy();
+    expect(within(rowOf('1')).getByText('記録済み(HubSpot 未送信)')).toBeTruthy();
   });
 
   it('Ctrl+Enter outside the form (search box, document) or while folded does not record and is not swallowed', async () => {
@@ -126,13 +127,20 @@ describe('call-result form (draft only)', () => {
     expect(notPrevented).toBe(true);
     fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true });
     expect(selectedId()).toBe('1');
-    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
-    // 折りたたみ中は、入力欄の見出しで押しても記録しない
+    expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
+    // 折りたたみ中は、入力欄の見出しで押しても記録しない。代わりに入力欄を開いて知らせる (黙って無視しない)
     const toggle = within(form()).getByRole('button', { name: /架電結果/, expanded: true });
     fireEvent.click(toggle);
     fireEvent.keyDown(toggle, { key: 'Enter', ctrlKey: true });
     expect(selectedId()).toBe('1');
-    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const opened = '入力欄を開きました。内容を確かめてから、もう一度「記録して次へ」を押してください。';
+    expect(within(form()).getByText(opened)).toBeTruthy();
+    expect(screen.getByTestId('screen-announcement').textContent.trim()).toBe(opened);
+    // 開いた後の Ctrl+Enter で記録する
+    fireEvent.keyDown(outcome('担当者と会話'), { key: 'Enter', ctrlKey: true });
+    expect(selectedId()).toBe('2');
   });
 
   it('shows only the fields the outcome needs: appointment, stop request, wrong number with その他', async () => {
@@ -147,7 +155,7 @@ describe('call-result form (draft only)', () => {
     // 担当者を選ぶと温度感が出る
     expect(within(form()).queryByRole('radiogroup', { name: '担当者会話温度感' })).toBeNull();
     fireEvent.click(within(form()).getByRole('radio', { name: '担当者' }));
-    expect(within(within(form()).getByRole('radiogroup', { name: '担当者会話温度感' })).getAllByRole('radio').map(r => r.parentElement?.textContent))
+    expect(within(within(form()).getByRole('group', { name: '担当者会話温度感' })).getAllByRole('radio').map(r => r.parentElement?.textContent))
       .toEqual(['高（前向き）', '中（検討余地あり）', '低（否定的）', '聞く耳なし']);
 
     fireEvent.click(outcome('架電停止の希望'));
@@ -169,7 +177,7 @@ describe('call-result form (draft only)', () => {
     expect(recordDisabled()).toBe(false);
   });
 
-  it('記録して次へ moves focus to the newly selected row (not <body>) so arrow keys keep working', async () => {
+  it('記録して次へ moves focus to the first outcome button of the next deal (not <body>, not the list) and announces what was recorded', async () => {
     await renderScreen();
     open('1');
     await formReady();
@@ -178,21 +186,135 @@ describe('call-result form (draft only)', () => {
     fireEvent.click(recordBtn());
     expect(selectedId()).toBe('2');
     const row2 = within(rowOf('2')).getByRole('button');
-    expect(document.activeElement).toBe(row2);
     expect(row2.getAttribute('aria-pressed')).toBe('true');
+    await waitFor(() => { expect(document.activeElement).toBe(outcome('担当者と会話')); });
+    expect(outcome('担当者と会話').getAttribute('aria-pressed')).toBe('false');
+    // 入力欄の外の、常にある読み上げ欄で、記録した会社を伝える
+    expect(screen.getByTestId('screen-announcement').textContent.trim())
+      .toBe('架空会社1 を記録しました(この画面だけ。HubSpot には未送信)。次の架電先を表示しています。');
+    expect(screen.getByTestId('screen-announcement').getAttribute('role')).toBe('status');
+    // 続けて Ctrl+Enter でそのまま記録できる (結果を選んでから)
+    fireEvent.click(outcome('不在・応答なし'));
+    fireEvent.keyDown(outcome('不在・応答なし'), { key: 'Enter', ctrlKey: true });
+    expect(selectedId()).toBe('3');
+    await waitFor(() => { expect(document.activeElement).toBe(outcome('担当者と会話')); });
+    // 一覧の行を自分で選び直したときは、入力欄がフォーカスを奪わない
+    const row1 = within(rowOf('1')).getByRole('button');
+    row1.focus();
+    fireEvent.click(row1);
+    await formReady();
+    expect(document.activeElement).toBe(row1);
   });
 
-  it('editing a recorded draft removes the 記録済み(未送信) mark, so 記録して次へ no longer skips it', async () => {
+  it('plain Enter in a one-line field or a date field never records (browser implicit submission is ignored)', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    expect(recordBtn().getAttribute('type')).toBe('button');
+    fireEvent.click(outcome('架電停止の希望'));
+    const reason = within(form()).getByLabelText(/^架電禁止理由/);
+    fireEvent.change(reason, { target: { value: '今後不要' } });
+    fireEvent.keyDown(reason, { key: 'Enter' });
+    fireEvent.submit(form());
+    expect(selectedId()).toBe('1');
+    expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
+    fireEvent.click(outcome('再架電の約束'));
+    const date = within(form()).getByLabelText(/^次回架電日/);
+    fireEvent.change(date, { target: { value: '2026-10-09' } });
+    fireEvent.change(within(form()).getByLabelText(/^次回架電時間/), { target: { value: '9:15' } });
+    fireEvent.keyDown(date, { key: 'Enter' });
+    fireEvent.submit(form());
+    expect(selectedId()).toBe('1');
+    expect((JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{"recorded":{}}') as { recorded: Record<string, boolean> }).recorded).toEqual({});
+  });
+
+  it('outcome buttons are one Tab stop; arrow keys / Home / End move between them', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    const btns = within(within(form()).getByRole('group', { name: '今回の結果' })).getAllByRole('button');
+    expect(btns.map(b => b.tabIndex)).toEqual([0, -1, -1, -1, -1, -1]);
+    const b0 = nth(btns, 0);
+    b0.focus();
+    fireEvent.keyDown(b0, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(btns[1]);
+    fireEvent.keyDown(nth(btns, 1), { key: 'End' });
+    expect(document.activeElement).toBe(btns[5]);
+    fireEvent.keyDown(nth(btns, 5), { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(btns[5]);
+    fireEvent.keyDown(nth(btns, 5), { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(btns[4]);
+    fireEvent.keyDown(nth(btns, 4), { key: 'Home' });
+    expect(document.activeElement).toBe(btns[0]);
+    // 選ぶと、その結果が Tab の止まる場所になる
+    fireEvent.click(outcome('アポイント獲得'));
+    expect(within(within(form()).getByRole('group', { name: '今回の結果' })).getAllByRole('button').map(b => b.tabIndex)).toEqual([-1, -1, -1, 0, -1, -1]);
+  });
+
+  it('選択を外す keeps focus in the same field (moves to its first choice instead of <body>)', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('担当者と会話'));
+    const group = within(form()).getByRole('group', { name: '接触結果' });
+    fireEvent.click(nth(within(group).getAllByRole('radio'), 0));
+    const clear = within(group).getByRole('button', { name: '選択を外す' });
+    clear.focus();
+    fireEvent.click(clear);
+    expect(within(group).queryByRole('button', { name: '選択を外す' })).toBeNull();
+    expect(document.activeElement).toBe(within(group).getAllByRole('radio')[0]);
+    expect(within(group).getAllByRole<HTMLInputElement>('radio').some(r => r.checked)).toBe(false);
+  });
+
+  it('a11y: choice groups are named once by the legend; errors are tied to the radios; the toggle controls a hidden body', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    expect(form().querySelectorAll('[role="radiogroup"]')).toHaveLength(0);
+    fireEvent.click(outcome('番号違い'));
+    fireEvent.click(recordBtn());
+    const err = within(form()).getByText('不通時チェックを選んでください。');
+    const check = within(form()).queryByRole('group', { name: /^不通時チェック/ });
+    const target = check ? within(check).getAllByRole('radio')[0] : within(form()).getByLabelText(/^不通時チェック/);
+    expect(target?.getAttribute('aria-describedby')).toBe(err.id);
+    const toggle = within(form()).getByRole('button', { name: /架電結果/, expanded: true });
+    const bodyId = toggle.getAttribute('aria-controls') ?? '';
+    expect(document.getElementById(bodyId)?.hidden).toBe(false);
+    fireEvent.click(toggle);
+    expect(document.getElementById(bodyId)?.hidden).toBe(true);
+    // 読み上げ欄 (記録ボタンの横の案内) は中身が無くても置いてある
+    expect(form().querySelector('.rf-notice')?.getAttribute('role')).toBe('status');
+  });
+
+  it('pressing 記録して次へ while recording is blocked re-announces the reason and the button is described by it', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('担当者と会話'));
+    // キーワードで案件 1 を一覧から外す (いまの一覧に無い案件は記録しない)
+    fireEvent.change(screen.getByRole('searchbox', { name: 'キーワード(会社名・案件名)' }), { target: { value: '架空会社2' } });
+    const reason = 'この案件はいまの一覧にありません(条件で外れました)。記録するには一覧に戻してください。';
+    await waitFor(() => { expect(within(form()).getByText(reason)).toBeTruthy(); }, { timeout: 2000 });
+    const notice = within(form()).getByText(reason);
+    expect(recordBtn().getAttribute('aria-describedby')?.split(' ')).toContain(notice.id);
+    fireEvent.click(recordBtn());
+    expect(screen.getByTestId('screen-announcement').textContent.trim()).toBe(reason);
+    fireEvent.click(recordBtn());
+    expect(screen.getByTestId('screen-announcement').textContent.trim()).toBe(reason);
+    expect(selectedId()).toBe('1');
+  });
+
+  it('editing a recorded draft removes the 記録済み(HubSpot 未送信) mark, so 記録して次へ no longer skips it', async () => {
     await renderScreen();
     open('1');
     await formReady();
     fireEvent.click(outcome('担当者と会話'));
     fireEvent.click(recordBtn());
-    expect(within(rowOf('1')).getByText('記録済み(未送信)')).toBeTruthy();
+    expect(within(rowOf('1')).getByText('記録済み(HubSpot 未送信)')).toBeTruthy();
     open('1');
     // アポに切り替えて必須欄が空のまま: 記録済みの印は外れ、記録もできない
     fireEvent.click(outcome('アポイント獲得'));
-    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     expect(within(form()).getByText('下書き(HubSpot 未送信)')).toBeTruthy();
     expect(recordDisabled()).toBe(true);
     expect((JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}') as { recorded: Record<string, boolean> }).recorded).toEqual({});
@@ -217,7 +339,7 @@ describe('call-result form (draft only)', () => {
     t = Date.UTC(2026, 9, 8, 15, 30, 0); // JST 2026-10-09 00:30
     fireEvent.click(recordBtn());
     expect(selectedId()).toBe('1');
-    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     expect(date().min).toBe('2026-10-09');
     expect(within(form()).getByText('今日以降の日付を入れてください。')).toBeTruthy();
     expect(recordDisabled()).toBe(true);
@@ -237,7 +359,7 @@ describe('call-result form (draft only)', () => {
     fireEvent.click(recordBtn());
     fireEvent.keyDown(outcome('担当者と会話'), { key: 'Enter', ctrlKey: true });
     expect(selectedId()).toBe('2');
-    expect(within(rowOf('3')).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(rowOf('3')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toMatchObject({ recorded: {} });
   });
 
@@ -271,7 +393,7 @@ describe('call-result form (draft only)', () => {
     fireEvent.keyDown(outcome('担当者と会話'), { key: 'Enter', ctrlKey: true });
     expect(selectedId()).toBe('1');
     expect(within(form()).queryByText('表示中の一覧に未記録の架電先はありません。')).toBeNull();
-    expect(within(form()).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(form()).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toMatchObject({ recorded: {} });
   });
 
@@ -366,13 +488,13 @@ describe('call-result form (draft only)', () => {
     expect(saved.recorded).toEqual({ 'live:1': true });
     first.unmount();
     await renderScreen();
-    expect(within(rowOf('1')).getByText('記録済み(未送信)')).toBeTruthy();
+    expect(within(rowOf('1')).getByText('記録済み(HubSpot 未送信)')).toBeTruthy();
     open('1');
     await formReady();
     expect(outcome('不在・応答なし').getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(within(form()).getByRole('button', { name: '下書きを消す' }));
     expect(outcome('不在・応答なし').getAttribute('aria-pressed')).toBe('false');
-    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toEqual({ drafts: {}, recorded: {} });
   });
 
@@ -387,7 +509,7 @@ describe('call-result form (draft only)', () => {
     fireEvent.click(recordBtn());
     expect(selectedId()).toBe('2');
     expect(within(rowOf('1')).getByText('記録済み(画面を閉じると消えます)')).toBeTruthy();
-    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     expect(within(rowOf('1')).getByText('記録済み(画面を閉じると消えます)').className).toContain('is-unsaved');
   });
 
@@ -415,7 +537,7 @@ describe('call-result form (draft only)', () => {
     expect(within(form()).getByText('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません')).toBeTruthy();
     fireEvent.click(outcome('担当者と会話'));
     fireEvent.click(recordBtn());
-    expect(within(rowOf('1')).getByText('記録済み(未送信)').getAttribute('title')).toBe('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません');
+    expect(within(rowOf('1')).getByText('記録済み(HubSpot 未送信)').getAttribute('title')).toBe('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません');
     expect(document.body.textContent).not.toMatch(/このブラウザで|送信は未実装|代用/);
   });
 
@@ -443,7 +565,7 @@ describe('call-result form (draft only)', () => {
     expect(within(form()).queryByText(/印を外しました/)).toBeNull();
     fireEvent.change(within(form()).getByLabelText(/^タスクメモ/), { target: { value: '追記' } });
     expect(within(form()).getByText('内容を変えたので「記録済み」の印を外しました。もう一度「記録して次へ」を押してください。')).toBeTruthy();
-    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
   });
 
   it('the unreachable check is shown with the HubSpot label (same as the form), not the stored value', async () => {
@@ -520,7 +642,7 @@ describe('call-result form (draft only)', () => {
     await formReady();
     fireEvent.click(outcome('担当者と会話'));
     fireEvent.click(recordBtn());
-    expect(within(rowOf('1')).getByText('記録済み(未送信)')).toBeTruthy();
+    expect(within(rowOf('1')).getByText('記録済み(HubSpot 未送信)')).toBeTruthy();
     expect(selectedId()).toBe('2');
     // 2 も記録すると、1 は記録済みなので次は無い
     fireEvent.click(outcome('担当者と会話'));
@@ -529,10 +651,10 @@ describe('call-result form (draft only)', () => {
     expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toMatchObject({ recorded: { 'fixture:1': true, 'fixture:2': true } });
     fireEvent.click(within(screen.getByRole('group', { name: 'データの切り替え' })).getByRole('button', { name: '実データ' }));
     await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
-    expect(within(list()).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(list()).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     open('1');
     await formReady();
-    expect(within(form()).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(form()).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     expect(outcome('担当者と会話').getAttribute('aria-pressed')).toBe('false');
   });
 
