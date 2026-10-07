@@ -13,8 +13,9 @@ describe('cross-job overview', () => {
     const row = overviewRow(demo('demo-job-001'));
     expect(row.lastChange).toBe('2026-09-25');
     expect(row.kinds).toEqual(['給与', '本文', '画像']);
-    // 09-11〜09-24: 09-13 1, 09-16 3, 09-18 2, 09-21 2, 09-24 1 = 9件 / 14日
-    expect(row.before).toEqual({ days: 14, applications: 9, perDay: 9 / 14 });
+    // 変更前は直前の版（09-15〜09-24）の中だけ: 09-16 3, 09-18 2, 09-21 2, 09-24 1 = 8件 / 10日。
+    // 09-13 の 1件は、さらに前の版の応募なので入れない。
+    expect(row.before).toEqual({ days: 10, applications: 8, perDay: 8 / 10 });
     // 09-25〜10-05（取得日で打ち切り）: 09-27 1, 09-30 1, 10-02 1 = 3件 / 11日
     expect(row.after).toEqual({ days: 11, applications: 3, perDay: 3 / 11 });
     expect(row.changeDates).toEqual(['2026-09-15', '2026-09-25']);
@@ -38,5 +39,11 @@ describe('cross-job overview', () => {
     expect(sortOverview(rows, 'source').map(row => row.jobId)).toEqual(jobs.map(job => job.id));
     expect(Object.keys(rows[0] ?? {})).not.toContain('rank');
     expect(overviewRange(jobs, rows)).toEqual({ start: '2026-09-01', end: '2026-10-05' });
+  });
+  it('uses the full 14 days before a change when the previous version ran longer', () => {
+    const job = demo('demo-job-001');
+    const row = overviewRow({ ...job, versions: job.versions.filter(version => version.id !== 'demo-001-v2') });
+    // v1 09-01〜09-24, v3 from 09-25: 09-11〜09-24 = 09-13 1, 09-16 3, 09-18 2, 09-21 2, 09-24 1 = 9件 / 14日
+    expect(row.before).toEqual({ days: 14, applications: 9, perDay: 9 / 14 });
   });
 });

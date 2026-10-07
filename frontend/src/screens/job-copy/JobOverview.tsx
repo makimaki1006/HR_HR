@@ -51,6 +51,7 @@ export function JobOverview({ records, billing, onChoose, now }: JobOverviewProp
   return <main className="jc-detail jo-overview" id="job-details" tabIndex={-1} aria-labelledby="job-overview-heading">
     <h1 id="job-overview-heading">求人の横断比較</h1>
     <p className="jc-muted">求人ごとに、直近の変更の前後{OVERVIEW_WINDOW_DAYS}日間の1日あたり応募を並べています。応募は HubSpot に記録されたものだけです。並べて見るための表で、どの求人が良いかを決めるものではありません。</p>
+    <p className="jc-muted jo-market-note">市場の動き（Indeed の求人数など）は月ごとのデータなので、14日単位のこの表には並べていません。求人名を選ぶと、その求人のタイムラインの「市場」の段で、掲載期間・応募と同じ時間軸で確認できます。</p>
     <div className="jo-sort"><label>並び替え<select value={sort} onChange={event => { setSort(event.target.value as OverviewSort); }}>{(Object.keys(sortLabels) as OverviewSort[]).map(key => <option key={key} value={key}>{sortLabels[key]}</option>)}</select></label>
       {range && <span className="jc-muted">カレンダー：{formatDay(range.start)}〜{formatDay(range.end)}（棒は週ごとの応募、点線は変更日）</span>}</div>
     {!rows.length ? <p className="jc-notice">表示できる求人がありません。</p> : <div className="jo-table-scroll" role="region" aria-label="求人の横断比較の表" tabIndex={0}><table>
@@ -62,7 +63,7 @@ export function JobOverview({ records, billing, onChoose, now }: JobOverviewProp
           <td className="jo-calendar">{range && <MiniCalendar row={row} range={range} />}</td>
           <td>{row.lastChange ? formatDay(row.lastChange) : '変更なし'}</td>
           <td className="jo-kinds">{row.kinds.length ? row.kinds.map(kind => <span key={kind}>{kind}</span>) : row.lastChange ? '判定できない変更' : '—'}</td>
-          <td>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
+          <td title={row.before && row.before.days < OVERVIEW_WINDOW_DAYS ? `直前の版が${String(row.before.days)}日間だったため、その${String(row.before.days)}日分だけで数えています` : undefined}>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
           <td title={row.after && row.after.days < OVERVIEW_WINDOW_DAYS ? `変更から${String(row.after.days)}日分しか経っていません（${formatDay(addDays(row.asOf, 0))}時点）` : undefined}>{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
           <td>{!row.billingConnected ? '未接続' : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`}</td>
         </tr>;

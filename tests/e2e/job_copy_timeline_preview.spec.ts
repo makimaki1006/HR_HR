@@ -34,12 +34,12 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   }
   await expect(timeline.getByRole('group', { name: '給与', exact: true })).toContainText('月給25万〜28万円');
   await expect(timeline.getByRole('group', { name: '給与', exact: true })).toContainText('月給27万〜30万円');
-  await expect(timeline.getByRole('group', { name: '課金', exact: true })).toContainText('4.5万円');
-  await expect(timeline.getByText('2026年09月以降は市場データがありません（2026年08月まで）')).toBeVisible();
+  await expect(timeline.getByRole('group', { name: '課金', exact: true })).toContainText('4万5,000円');
+  await expect(timeline.getByText('2026/09以降は市場データがありません（2026/08まで）')).toBeVisible();
   const rows = timeline.getByRole('table').locator('tbody tr');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万円', 'データなし']);
-  await expect(rows.nth(1).locator('td')).toHaveText(['10日', '8件', '0.80件/日', '約2.8万円', 'データなし']);
+  await expect(rows.nth(1).locator('td')).toHaveText(['10日', '8件', '0.80件/日', '約2万8,125円', 'データなし']);
   await page.screenshot({ path: `${shots}/timeline-1280.png`, fullPage: true });
 
   // First view (2026-10-08 layout): one-line top bar, full-height list, timeline lanes on screen.
@@ -60,8 +60,8 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
 
   await page.getByRole('button', { name: '横断比較', exact: true }).click();
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
-  await expect(overview.locator('tbody tr').first()).toContainText('0.64件/日');
-  await expect(overview.locator('tbody tr').first()).toContainText('8.7万円');
+  await expect(overview.locator('tbody tr').first()).toContainText('0.80件/日');
+  await expect(overview.locator('tbody tr').first()).toContainText('8万7,000円');
   await page.screenshot({ path: `${shots}/overview-1280.png`, fullPage: true });
 
   await page.setViewportSize({ width: 375, height: 800 });
@@ -80,7 +80,7 @@ test('billing CSV import fills the billing lane, the period table and the overvi
   await page.goto('/static/app/job-copy-preview.html');
   const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
   const billingLane = timeline.getByRole('group', { name: '課金', exact: true });
-  await expect(billingLane.locator('.jt-billing')).toHaveText(['3万円', '4.5万円', '1.2万円']);
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['3万円', '4万5,000円', '1万2,000円']);
   await page.getByRole('button', { name: 'データ取込', exact: true }).click();
   await expect(page.getByRole('region', { name: 'データ取込', exact: true })).toBeVisible();
   const csv = '媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-AIR-002,2026-09-05,2026-09-30,40000\n';
@@ -91,11 +91,11 @@ test('billing CSV import fills the billing lane, the period table and the overvi
   await page.getByRole('region', { name: 'データ取込', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
   await expect(page.locator('.jc-data-import')).toBeHidden();
   // The CSV row (33,000円) replaces the HRハッカー row for the same days; the other rows stay.
-  await expect(billingLane.locator('.jt-billing')).toHaveText(['3.3万円', '4.5万円', '1.2万円']);
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['3万3,000円', '4万5,000円', '1万2,000円']);
   await expect(billingLane.locator('.jt-billing-csv')).toHaveCount(1);
   await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
   const rows = timeline.getByRole('table').locator('tbody tr');
-  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3.3万円', 'データなし']);
+  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万3,000円', 'データなし']);
   await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   await page.locator('.jc-job', { hasText: '倉庫内ピッキングスタッフ' }).click();
   await expect(billingLane.locator('.jt-billing')).toHaveText(['4万円']);

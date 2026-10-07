@@ -81,12 +81,12 @@ describe('job copy layout', () => {
     fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
     fireEvent.click(screen.getByRole('button', { name: '一致した2行を課金として反映' }));
     await screen.findByText(/課金CSVの 2 期間を反映中/u);
-    // demo-001: CSV の 3.3万円 が HRハッカーの 3万円 に置き換わる。後の 2 期間は HRハッカー実績のまま。
-    await waitFor(() => { expect(lane('課金').textContent).toContain('3.3万円'); });
-    expect([...lane('課金').querySelectorAll('.jt-billing')].map(bar => [bar.className.includes('jt-billing-csv') ? 'csv' : 'hrhacker', bar.textContent])).toEqual([['csv', '3.3万円'], ['hrhacker', '4.5万円'], ['hrhacker', '1.2万円']]);
+    // demo-001: CSV の 3万3,000円 が HRハッカーの 3万円 に置き換わる。後の 2 期間は HRハッカー実績のまま。
+    await waitFor(() => { expect(lane('課金').textContent).toContain('3万3,000円'); });
+    expect([...lane('課金').querySelectorAll('.jt-billing')].map(bar => [bar.className.includes('jt-billing-csv') ? 'csv' : 'hrhacker', bar.textContent])).toEqual([['csv', '3万3,000円'], ['hrhacker', '4万5,000円'], ['hrhacker', '1万2,000円']]);
     expect(screen.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。')).toBeTruthy();
     const firstRow = within(periodTable()).getAllByRole('row')[1];
-    expect(firstRow?.querySelectorAll('td')[3]?.textContent).toBe('3.3万円');
+    expect(firstRow?.querySelectorAll('td')[3]?.textContent).toBe('3万3,000円');
     // demo-002（Airワーク）は HRハッカー実績が無く、CSV だけが課金レーンに出る
     const airJob = [...document.querySelectorAll<HTMLButtonElement>('.jc-job')].find(button => button.textContent.includes('倉庫内ピッキングスタッフ'));
     if (!airJob) throw new Error('missing demo-job-002');

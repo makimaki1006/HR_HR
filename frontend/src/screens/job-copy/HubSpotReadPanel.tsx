@@ -6,6 +6,7 @@ import { parseApplicantReasons } from './applicantReasonsParser';
 import type { ApplicantDimension } from './applicantCompositionModel';
 import { roundAreaCounts, roundApplicantAreasInRecord } from './applicantArea';
 import { formatDateTimeJst, joinPresent, orderCategories, plainWording } from './format';
+import { HUBSPOT_BODY_SOURCE, overallFromLiveSummary } from './liveApplications';
 
 interface RecordData { id: string; properties: Record<string, string | null> }
 interface CustomerPage { customers: RecordData[]; next_after: string | null; total_ms: number }
@@ -36,7 +37,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     if (request !== generation.current) return;
     if (result.ok) {
       setCustomers(previous => more ? [...new Map([...previous, ...result.data.customers].map(row => [row.id, row])).values()] : result.data.customers);
-      setAfter(result.data.next_after); setMessage(`取引先読み取り ${String(Math.round(result.data.total_ms))}ms`);
+      setAfter(result.data.next_after); setMessage(`取引先を${String(result.data.customers.length)}件取得しました。`);
     } else failure(result.error.message);
     setBusy(false);
   }
@@ -46,7 +47,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     setBusy(true); setError(''); setApplications(null);
     const result = await apiGet<JobPage>(`/api/job-copy/live?company=${encodeURIComponent(customer)}&offset=${String(offset)}`, requestOptions);
     if (request !== generation.current) return;
-    if (result.ok) { setPage(result.data); setContract(''); setMessage(`求人読み取り ${String(Math.round(result.data.total_ms))}ms`); }
+    if (result.ok) { setPage(result.data); setContract(''); setMessage('関連する求人を取得しました。'); }
     else failure(result.error.message);
     setBusy(false);
   }
@@ -62,19 +63,21 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
       hubspotId: record.id, dataSource: 'hubspot',
       ...(page.portal_id ? { hubspotUrl: `https://app.hubspot.com/contacts/${page.portal_id}/record/0-420/${record.id}` } : {}),
       versions: body ? [{ id: `hubspot-${record.id}-${page.fetched_at}`, label: 'HubSpotの現在の仕事内容', observedAt: page.fetched_at,
-        kind: 'received', certainty: 'unknown', source: 'HubSpot shigotonaiyou', body, applications: null,
+        kind: 'received', certainty: 'unknown', source: HUBSPOT_BODY_SOURCE, body, applications: null,
         note: 'HubSpotの現在値です。媒体の求人票全文・日次履歴・画像はまだ接続していません。取得日を掲載変更日として扱いません。' }] : [],
     };
     onOpen(selectedJob);
     const result = await apiGet<ApplicantPage>(`/api/job-copy/live?company=${encodeURIComponent(page.company_id)}&listing=${encodeURIComponent(record.id)}`, requestOptions);
     if (request !== generation.current) return;
     if (result.ok) {
-      setApplications(result.data); setMessage(`応募読み取り ${String(Math.round(result.data.total_ms))}ms`);
+      setApplications(result.data); setMessage('応募を取得しました。');
+      // HubSpot の応募日別の件数をタイムライン・期間比較表・横断比較で使う（読めない集計は使わない）。
+      const overall = overallFromLiveSummary(result.data.summary, result.data.fetched_at);
       if (result.data.capture_bundle && result.data.dated_comparison) {
         try {
           const captured = parseMediaCapture(JSON.stringify(result.data.capture_bundle))[0];
           const comparison = result.data.dated_comparison;
-          if (captured) onOpen(roundApplicantAreasInRecord({ ...captured, id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
+          if (captured) onOpen(roundApplicantAreasInRecord({ ...captured, ...(overall ? { overallApplications: overall } : {}), id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
             applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, captured.versions.filter(version => version.kind === 'published').map(version => version.id)),
             versions: captured.versions.map(version => {
               const bucket = comparison.by_version[version.id];
@@ -88,7 +91,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
           }));
         } catch { setError('媒体から取得したデータの形式を確認できませんでした。HubSpotの現在値と応募全体の集計を表示します。'); }
       } else {
-        try { onOpen({ ...selectedJob, applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, []) }); }
+        try { onOpen(roundApplicantAreasInRecord({ ...selectedJob, ...(overall ? { overallApplications: overall } : {}), applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, []) })); }
         catch { setError('応募理由の出典・件数を確認できませんでした。原記録を推測して補完しません。'); }
       }
     }

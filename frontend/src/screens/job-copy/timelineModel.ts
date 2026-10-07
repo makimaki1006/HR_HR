@@ -13,6 +13,7 @@ import { compareImages, referenceImages } from './images';
 import type { MarketRow } from './marketChartModel';
 import type { BillingPeriod } from './billingTypes';
 import { extractSalary, isSalaryLine, sameSalary } from './salaryExtract';
+import { formatYen as formatYenJa } from './format';
 import type { SalaryInfo } from './salaryExtract';
 
 const DAY_MS = 86_400_000;
@@ -110,9 +111,10 @@ export function billingEntries(job: JobCopyRecord, injected?: readonly BillingEn
     media: 'HRハッカー', mediaJobId: job.mediaJobId, impressions: row.impressions, clicks: row.clicks, mediaApplications: row.applications,
   }));
   const csv = (injected ?? []).filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end);
-  // A billing CSV row for the same HRハッカー period replaces the HRハッカー実績 row, so one period
-  // is not counted twice.
-  const hrh = fromHrh.filter(row => !csv.some(entry => (entry.media ?? 'HRハッカー') === 'HRハッカー' && entry.start <= row.end && row.start <= entry.end));
+  // A billing CSV row for exactly the same HRハッカー period (same start and end) replaces the
+  // HRハッカー実績 row, so one period is not counted twice. A CSV row that covers only part of an
+  // HRハッカー period does not remove it: both stay, and billingOverlaps() leaves the total blank.
+  const hrh = fromHrh.filter(row => !csv.some(entry => (entry.media ?? 'HRハッカー') === 'HRハッカー' && entry.start === row.start && entry.end === row.end));
   return [...hrh, ...csv]
     .filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end)
     .sort((a, b) => a.start.localeCompare(b.start) || a.source.localeCompare(b.source));
@@ -270,22 +272,35 @@ export function marketLane(rows: readonly MarketRow[], range: TimelineRange): Ma
     const afterData = lastDataMonth === null || month > lastDataMonth;
     points.push({ month, jobs: afterData ? null : row?.jobs ?? null, viewers: afterData ? null : row?.viewers ?? null });
   }
-  const noDataFrom = lastDataMonth === null ? monthOf(range.start) : nextMonth(lastDataMonth) <= last ? nextMonth(lastDataMonth) : null;
+  // No row with a value at all: there is no "data ends here" point (the caller says there is no
+  // market data for this choice instead).
+  const noDataFrom = lastDataMonth === null ? null : nextMonth(lastDataMonth) <= last ? nextMonth(lastDataMonth) : null;
   return { points, lastDataMonth, noDataFrom: noDataFrom && noDataFrom < monthOf(range.start) ? monthOf(range.start) : noDataFrom };
 }
 
-export interface MarketChange { fromMonth: string; toMonth: string; fromJobs: number; toJobs: number; changePct: number }
-export type MarketChangeResult = { ok: true; value: MarketChange } | { ok: false; reason: 'not_selected' | 'no_data' | 'same_month'; month?: string; jobs?: number | null };
+export interface MarketChange {
+  fromMonth: string; toMonth: string; fromJobs: number; toJobs: number; changePct: number;
+  /** First month of the period with no market data (the period runs past the data); null otherwise. */
+  noDataFrom: string | null;
+}
+export type MarketChangeResult = { ok: true; value: MarketChange } | { ok: false; reason: 'not_selected' | 'no_data' | 'same_month'; month?: string; jobs?: number | null; noDataFrom?: string | null };
 
-/** Market job count at the month of the first day vs the month of the last day. */
+/**
+ * Market job count at the month of the first day vs the month of the last day. When the period runs
+ * past the last month with market data, the comparison stops at that month and says from which
+ * month there is no data (instead of dropping the months that do have data).
+ */
 export function marketChange(rows: readonly MarketRow[] | null, firstDay: string, lastDay: string): MarketChangeResult {
   if (!rows) return { ok: false, reason: 'not_selected' };
-  const fromMonth = monthOf(firstDay); const toMonth = monthOf(lastDay);
+  const lastDataMonth = rows.filter(row => row.jobs !== null).map(row => row.month).sort().at(-1) ?? null;
+  const fromMonth = monthOf(firstDay); let toMonth = monthOf(lastDay);
+  let noDataFrom: string | null = null;
+  if (lastDataMonth !== null && toMonth > lastDataMonth && fromMonth <= lastDataMonth) { noDataFrom = nextMonth(lastDataMonth); toMonth = lastDataMonth; }
   const from = rows.find(row => row.month === fromMonth)?.jobs ?? null;
   const to = rows.find(row => row.month === toMonth)?.jobs ?? null;
-  if (fromMonth === toMonth) return { ok: false, reason: from === null ? 'no_data' : 'same_month', month: fromMonth, jobs: from };
+  if (fromMonth === toMonth) return { ok: false, reason: from === null ? 'no_data' : 'same_month', month: fromMonth, jobs: from, noDataFrom };
   if (from === null || to === null || from === 0) return { ok: false, reason: 'no_data' };
-  return { ok: true, value: { fromMonth, toMonth, fromJobs: from, toJobs: to, changePct: (to - from) / from * 100 } };
+  return { ok: true, value: { fromMonth, toMonth, fromJobs: from, toJobs: to, changePct: (to - from) / from * 100, noDataFrom } };
 }
 
 export interface PeriodRow {
@@ -299,8 +314,9 @@ export interface PeriodRow {
   lastDay: string;
   days: number;
   ongoing: boolean;
-  applications: number;
-  /** Applications per day. null when the period has no days. */
+  /** Applications with a date in the period. null when application dates were never fetched (not 0). */
+  applications: number | null;
+  /** Applications per day. null when the period has no days or application dates were never fetched. */
   perDay: number | null;
   billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number; overlapping: boolean };
   market: MarketChangeResult;
@@ -339,8 +355,8 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
   const make = (key: string, kind: PeriodRow['kind'], label: string, versionId: string | null, start: string, end: string | null, days: number, ongoing: boolean): PeriodRow => {
     const endExclusive = end ?? addDays(asOf, 1);
     const lastDay = addDays(endExclusive, -1) < start ? start : addDays(endExclusive, -1);
-    const applications = countApplications(byDate, start, endExclusive < start ? start : endExclusive);
-    return { key, kind, label, versionId, start, end, lastDay, days, ongoing, applications, perDay: days > 0 ? applications / days : null,
+    const applications = byDate === undefined ? null : countApplications(byDate, start, endExclusive < start ? start : endExclusive);
+    return { key, kind, label, versionId, start, end, lastDay, days, ongoing, applications, perDay: applications !== null && days > 0 ? applications / days : null,
       billing: billingFor(billing, start, endExclusive), market: marketChange(options.market ?? null, start, lastDay) };
   };
   periods.forEach((period, index) => {
@@ -356,16 +372,20 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
 /** Applications with a date outside every period (before the first one, or in no row). */
 export function applicationsOutsidePeriods(job: JobCopyRecord, rows: readonly PeriodRow[]): number {
   const dated = Object.values(job.overallApplications?.byDate ?? {}).reduce((sum, count) => sum + count, 0);
-  return dated - rows.reduce((sum, row) => sum + row.applications, 0);
+  return dated - rows.reduce((sum, row) => sum + (row.applications ?? 0), 0);
 }
 
 export function formatPerDay(value: number | null): string {
   return value === null ? '—' : `${value.toFixed(2)}件/日`;
 }
+/** Yen in the one form used across the screen (format.ts): 45000 → "4万5,000円". */
 export function formatYen(value: number): string {
-  if (value >= 10_000) return `${(value / 10_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}万円`;
-  return `${value.toLocaleString('ja-JP')}円`;
+  return formatYenJa(value);
 }
 export function formatDay(date: string): string {
   return date.replaceAll('-', '/');
+}
+/** "2026-08" → "2026/08" (the same YYYY/MM form as formatDateJst). */
+export function formatMonth(month: string): string {
+  return month.replace('-', '/');
 }

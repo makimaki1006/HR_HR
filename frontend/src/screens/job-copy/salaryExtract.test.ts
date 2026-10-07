@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractSalary, parseSalaryText, salaryLabel, sameSalary } from './salaryExtract';
+import { extractSalary, isSalaryLine, parseSalaryText, salaryLabel, sameSalary } from './salaryExtract';
 
 describe('salary extraction from the body', () => {
   it('reads monthly ranges and hourly pay from the labelled line', () => {
@@ -26,5 +26,23 @@ describe('salary extraction from the body', () => {
     expect(sameSalary(extractSalary('給与：月給25万円'), extractSalary('給与：月給250,000円'))).toBe(true);
     expect(sameSalary(extractSalary('給与：月給25万円'), extractSalary('給与：時給1,500円'))).toBe(false);
     expect(salaryLabel(extractSalary('給与：月給250,000円〜280,000円'))).toBe('月給25万〜28万円');
+  });
+  it('reads a range only from two amounts written next to each other, never upside down', () => {
+    expect(parseSalaryText('月給25万円〜 ＋交通費 月2万円まで')).toMatchObject({ kind: '月給', min: 250000, max: 250000 });
+    expect(salaryLabel(parseSalaryText('月給25万円〜 ＋交通費 月2万円まで'))).toBe('月給25万円');
+    expect(parseSalaryText('時給1,100円〜 ※研修期間3ヶ月は時給1,000円')).toMatchObject({ kind: '時給', min: 1100, max: 1100 });
+    expect(parseSalaryText('月給28万円〜25万円')).toMatchObject({ min: 280000, max: 280000 });
+    expect(parseSalaryText('月給25万円〜28万円 ＋交通費 月2万円まで')).toMatchObject({ min: 250000, max: 280000 });
+    expect(extractSalary('給与：月給25万円〜 ＋交通費 月2万円まで')).toMatchObject({ min: 250000, max: 250000 });
+  });
+  it('does not mark a salary change when only the allowance after the salary changes', () => {
+    expect(sameSalary(extractSalary('給与：月給25万円〜 ＋交通費 月2万円まで'), extractSalary('給与：月給25万円〜 ＋交通費 月3万円まで'))).toBe(true);
+  });
+  it('tells the salary line from other lines', () => {
+    expect(isSalaryLine('給与：月給25万円')).toBe(true);
+    expect(isSalaryLine('【給与】')).toBe(true);
+    expect(isSalaryLine('時給 1,200円')).toBe(true);
+    expect(isSalaryLine('給与体系について')).toBe(false);
+    expect(isSalaryLine('仕事内容：配送')).toBe(false);
   });
 });

@@ -8,10 +8,10 @@ import { login } from './helpers/login';
  * 確かめること: 最初のタブがタイムライン、7 レーンの値、2 つの ECharts の描画完了、期間比較表の具体値、
  * 課金CSV を読み込むと課金レーンと期間比較表に入ること、取込と逆検索が主作業の外にあること。
  */
-const capturedAt = '2026-08-20T00:00:00Z';
+const defaultCapturedAt = '2026-08-20T00:00:00Z';
 const months = Array.from({ length: 14 }, (_, index) => `${2025 + Math.floor((index + 6) / 12)}-${String((index + 6) % 12 + 1).padStart(2, '0')}`);
 
-function snapshot() {
+function snapshot(capturedAt = defaultCapturedAt) {
   return {
     schemaVersion: 1, capturedAt,
     capture_bundle: { schemaVersion: 1, capturedAt, jobs: [{
@@ -23,9 +23,9 @@ function snapshot() {
   };
 }
 
-async function open(page: Page) {
+async function open(page: Page, capturedAt = defaultCapturedAt) {
   const calls: string[] = [];
-  await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot()) }));
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot(capturedAt)) }));
   await page.route('**/api/job-copy/market*', route => {
     const url = new URL(route.request().url());
     calls.push(url.search);
@@ -83,8 +83,11 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows.nth(0).locator('td').nth(1)).toHaveText('3件');
     await expect(rows.nth(0).locator('td').nth(2)).toHaveText('0.06件/日');
     await expect(rows.nth(0).locator('td').nth(3)).toHaveText('未接続');
-    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026-07 220件 → 2026-08 230件）');
-    await expect(rows.nth(1).locator('td')).toHaveText(['1日', '2件', '2.00件/日', '未接続', '同じ月の中（2026-08 230件）']);
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026/07 220件 → 2026/08 230件）');
+    await expect(rows.nth(1).locator('td')).toHaveText(['1日', '2件', '2.00件/日', '未接続', '同じ月の中（2026/08 230件）']);
+    // 市場の選び方: 職種と都道府県を別々に、自動で選んだことを示す
+    await expect(timeline.getByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください', { exact: true })).toBeVisible();
+    await expect(timeline.getByText('勤務地から大分県を自動で選びました', { exact: true })).toBeVisible();
     // 主作業の外: データ取込は閉じていて、逆検索は押すまで出ない。旧来の操作バーも無い。
     await expect(page.locator('.jc-data-import')).toBeHidden();
     await expect(page.locator('.jc-reverse-search')).toHaveCount(0);
@@ -92,6 +95,59 @@ test.describe('求人文面管理のタイムライン', () => {
     const firstView = await page.evaluate(() => ({ inner: window.innerHeight, list: document.querySelector('.jc-list')?.getBoundingClientRect().bottom ?? 0 }));
     expect(firstView.list).toBeGreaterThanOrEqual(firstView.inner - 2);
     await expect(page.locator('body')).not.toContainText(/効果|確実に|必ず|100%/u);
+  });
+
+  test('最新の版の給与・本文・画像の印が右端で切れずに読める', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await open(page);
+    const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
+    // 最新の版は取得日 (08-20) に始まり、時間軸の右端 (約 99%) に来る。
+    const checks: [string, string, string][] = [
+      ['給与', '.jt-salary-label', '▲月給25万〜28万円'],
+      ['本文', '.jt-mark', '+1 / −1'],
+      ['画像', '.jt-mark', '不明'],
+    ];
+    for (const [lane, selector, text] of checks) {
+      const group = timeline.getByRole('group', { name: lane, exact: true });
+      const marker = group.locator(selector).last();
+      await expect(marker).toHaveText(text);
+      const box = await marker.evaluate(element => {
+        const track = element.closest('.jt-track')?.getBoundingClientRect();
+        const own = element.getBoundingClientRect();
+        return { left: own.left, right: own.right, width: own.width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth, trackLeft: track?.left ?? 0, trackRight: track?.right ?? 0 };
+      });
+      expect(box.right, `${lane}: 右端 ${String(box.right)} / 枠 ${String(box.trackRight)}`).toBeLessThanOrEqual(box.trackRight + 0.5);
+      expect(box.left, `${lane}: 左端`).toBeGreaterThanOrEqual(box.trackLeft - 0.5);
+      // 文字が省略されずに全部見えている（要素の中で切れていない）
+      expect(box.scrollWidth, `${lane}: 文字が切れている`).toBeLessThanOrEqual(box.clientWidth + 1);
+      expect(box.width).toBeGreaterThan(20);
+    }
+    // 印は版の開始日 (右端の近く) に付いている: 枠の右 15% の中
+    const pin = await timeline.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark').last().evaluate(element => {
+      const track = element.closest('.jt-track')?.getBoundingClientRect();
+      const before = window.getComputedStyle(element, '::before');
+      const own = element.getBoundingClientRect();
+      return { pinLeft: own.left + parseFloat(before.left) + parseFloat(before.marginLeft), trackLeft: track?.left ?? 0, trackWidth: track?.width ?? 1 };
+    });
+    expect((pin.pinLeft - pin.trackLeft) / pin.trackWidth).toBeGreaterThan(0.85);
+  });
+
+  test('市場データが 2026-08 で終わり、期間がそれより先まで続くとき、データのある月で比べてそれ以降は「データなし」と示す', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await open(page, '2026-10-05T00:00:00Z');
+    const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
+    const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
+    await expect(rows).toHaveCount(2);
+    // 1 つ目の期間は 07-01〜10-04。07 と 08 の市場データで比べ、09 以降はデータなしと書く。
+    await expect(rows.nth(0).locator('td').nth(0)).toHaveText('96日');
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026/07 220件 → 2026/08 230件、2026/09以降はデータなし）');
+    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('データなし');
+    await expect(timeline).toContainText('2026/09以降は市場データがありません（2026/08まで）');
+    await expect(timeline.getByRole('group', { name: '市場', exact: true }).locator('.jt-nodata')).toHaveText('データなし');
+    const market = await seriesLengths(page, 'jt-market');
+    expect(market).toEqual([4, 4]);
+    // 年月の書き方は YYYY/MM にそろえる（2026-08 や 2026年08月 を出さない）
+    await expect(timeline).not.toContainText(/\d{4}-\d{2}(?!-)|\d{4}年\d{2}月/u);
   });
 
   test('課金CSVを読み込むと課金レーンと期間比較表に入り、再読み込みで消えることを示す', async ({ page }) => {
@@ -104,11 +160,11 @@ test.describe('求人文面管理のタイムライン', () => {
     await page.getByRole('button', { name: '一致した1行を課金として反映', exact: true }).click();
     await page.getByRole('region', { name: 'データ取込', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
-    await expect(timeline.getByRole('group', { name: '課金', exact: true }).locator('.jt-billing')).toHaveText(['3.1万円']);
+    await expect(timeline.getByRole('group', { name: '課金', exact: true }).locator('.jt-billing')).toHaveText(['3万1,000円']);
     await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
     // 07-01〜07-31 の 31 日分 31,000円 のうち、1 つ目の期間（07-01〜08-19 の 50 日）に入るのは全額
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
-    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('3.1万円');
+    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('3万1,000円');
     await expect(rows.nth(1).locator('td').nth(3)).toHaveText('この期間の課金データなし');
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   });
