@@ -64,7 +64,7 @@ export function JobOverview({ records, billing, onChoose, now }: JobOverviewProp
           <td className="jo-kinds">{row.kinds.length ? row.kinds.map(kind => <span key={kind}>{kind}</span>) : row.lastChange ? '判定できない変更' : '—'}</td>
           <td>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
           <td title={row.after && row.after.days < OVERVIEW_WINDOW_DAYS ? `変更から${String(row.after.days)}日分しか経っていません（${formatDay(addDays(row.asOf, 0))}時点）` : undefined}>{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
-          <td>{!row.billingConnected ? '未接続' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`}</td>
+          <td>{!row.billingConnected ? '未接続' : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`}</td>
         </tr>;
       })}</tbody>
     </table></div>}

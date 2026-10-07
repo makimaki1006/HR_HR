@@ -11,6 +11,7 @@ import { compareCopy } from './diff';
 import type { CopyComparisonStatus } from './diff';
 import { compareImages, referenceImages } from './images';
 import type { MarketRow } from './marketChartModel';
+import type { BillingPeriod } from './billingTypes';
 import { extractSalary, isSalaryLine, sameSalary } from './salaryExtract';
 import type { SalaryInfo } from './salaryExtract';
 
@@ -71,6 +72,36 @@ export interface BillingEntry {
   clicks?: number | null;
   /** Applications counted by the media itself (not HubSpot). */
   mediaApplications?: number | null;
+  /** Row number in the billing CSV (header is row 1). */
+  sourceRow?: number | null;
+}
+
+/**
+ * Billing CSV periods (billingImport.ts) grouped by job id, in the shape the timeline reads.
+ * HRハッカー実績 rows are not converted here: billingEntries() reads them from the job itself.
+ */
+export function billingEntriesByJob(periods: readonly BillingPeriod[]): Record<string, BillingEntry[]> {
+  const byJob: Record<string, BillingEntry[]> = {};
+  for (const period of periods) {
+    if (period.source !== 'csv') continue;
+    (byJob[period.jobId] ??= []).push({
+      source: 'csv', start: period.periodStart, end: period.periodEnd, amountYen: period.amountYen,
+      taxIncluded: period.taxBasis === '税込' ? true : period.taxBasis === '税抜' ? false : null,
+      media: period.media, mediaJobId: period.mediaJobId, plan: period.planName,
+      impressions: period.impressions, clicks: period.clicks, mediaApplications: period.mediaApplications, sourceRow: period.sourceRow,
+    });
+  }
+  return byJob;
+}
+
+/** True when two of the billing periods share at least one day. Such amounts are never added up. */
+export function billingOverlaps(entries: readonly BillingEntry[]): boolean {
+  const sorted = [...entries].sort((a, b) => a.start.localeCompare(b.start));
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1]; const current = sorted[index];
+    if (previous && current && current.start <= previous.end) return true;
+  }
+  return false;
 }
 
 export function billingEntries(job: JobCopyRecord, injected?: readonly BillingEntry[]  ): BillingEntry[] {
@@ -78,7 +109,11 @@ export function billingEntries(job: JobCopyRecord, injected?: readonly BillingEn
     source: 'hrhacker', start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null,
     media: 'HRハッカー', mediaJobId: job.mediaJobId, impressions: row.impressions, clicks: row.clicks, mediaApplications: row.applications,
   }));
-  return [...fromHrh, ...(injected ?? [])]
+  const csv = (injected ?? []).filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end);
+  // A billing CSV row for the same HRハッカー period replaces the HRハッカー実績 row, so one period
+  // is not counted twice.
+  const hrh = fromHrh.filter(row => !csv.some(entry => (entry.media ?? 'HRハッカー') === 'HRハッカー' && entry.start <= row.end && row.start <= entry.end));
+  return [...hrh, ...csv]
     .filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end)
     .sort((a, b) => a.start.localeCompare(b.start) || a.source.localeCompare(b.source));
 }
@@ -267,24 +302,28 @@ export interface PeriodRow {
   applications: number;
   /** Applications per day. null when the period has no days. */
   perDay: number | null;
-  billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number };
+  billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number; overlapping: boolean };
   market: MarketChangeResult;
 }
 
 function billingFor(entries: readonly BillingEntry[], start: string, endExclusive: string): PeriodRow['billing'] {
   if (!entries.length) return { connected: false };
   let yen = 0; let prorated = false; let missingAmount = false; let count = 0;
+  const touching: BillingEntry[] = [];
   for (const entry of entries) {
     const entryEnd = addDays(entry.end, 1);
     const overlap = Math.min(dayNumber(entryEnd), dayNumber(endExclusive)) - Math.max(dayNumber(entry.start), dayNumber(start));
     if (overlap <= 0) continue;
     count += 1;
+    touching.push(entry);
     const entryDays = daysBetween(entry.start, entryEnd);
     if (entry.amountYen === null) { missingAmount = true; continue; }
     if (overlap < entryDays) prorated = true;
     yen += entry.amountYen * overlap / entryDays;
   }
-  return { connected: true, yen: count === 0 || (missingAmount && yen === 0) ? null : Math.round(yen), prorated, missingAmount, entries: count };
+  // Billing periods that overlap each other are not added together (the amount is left blank).
+  const overlapping = billingOverlaps(touching);
+  return { connected: true, yen: count === 0 || overlapping || (missingAmount && yen === 0) ? null : Math.round(yen), prorated, missingAmount, entries: count, overlapping };
 }
 
 /**

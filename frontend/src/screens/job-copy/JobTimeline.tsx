@@ -95,6 +95,7 @@ function marketText(market: MarketChangeResult): string {
 }
 function billingText(row: PeriodRow): string {
   if (!row.billing.connected) return '未接続';
+  if (row.billing.overlapping) return '期間が重なる課金あり（合計していません）';
   if (row.billing.yen === null) return row.billing.missingAmount ? '金額の記載なし' : 'この期間の課金データなし';
   return `${row.billing.prorated ? '約' : ''}${formatYen(row.billing.yen)}${row.billing.missingAmount ? '（金額の記載がない期間あり）' : ''}`;
 }
@@ -240,7 +241,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       </Lane>
 
       <Lane title="課金" source={csvBilling ? 'HRハッカー実績・読み込んだ課金CSV' : 'HRハッカーの期間別実績'}>
-        {billing.length ? billing.map(entry => <div key={`${entry.source}-${entry.start}-${entry.end}`} className={`jt-billing jt-billing-${entry.source}`} style={span(range, entry.start, addDays(entry.end, 1))}
+        {billing.length ? billing.map(entry => <div key={`${entry.source}-${String(entry.sourceRow ?? '')}-${entry.start}-${entry.end}`} className={`jt-billing jt-billing-${entry.source}`} style={span(range, entry.start, addDays(entry.end, 1))}
           title={`${formatDay(entry.start)}〜${formatDay(entry.end)}: ${entry.amountYen === null ? '金額の記載なし' : `${entry.amountYen.toLocaleString('ja-JP')}円`}${entry.taxIncluded === true ? '（税込）' : entry.taxIncluded === false ? '（税抜）' : ''}${entry.plan ? ` · ${entry.plan}` : ''}`}>
           <span>{entry.amountYen === null ? '金額なし' : formatYen(entry.amountYen)}</span></div>)
           : <p className="jt-empty jt-unconnected" title="課金データが届いていないため表示していません。金額がかからなかったという意味ではありません。">未接続（課金データがありません）</p>}
