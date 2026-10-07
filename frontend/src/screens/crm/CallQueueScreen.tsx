@@ -149,7 +149,7 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
       <span className="cq-row-l3" title={dates || undefined}>
         <span>次回 {next ? <><span>{next}</span>{item.next_call_time && <> <span>{item.next_call_time}</span></>}</> : 'なし'}</span>
         <span>最終 {last ? <span>{last}</span> : '未架電'}</span>
-        <span>担当 {item.owner_id ? <span>{ownerName ?? item.owner_id}</span> : 'なし'}</span>
+        <span>担当 {item.owner_id ? <span title={ownerName ? undefined : `HubSpot の所有者 ID: ${item.owner_id}`}>{ownerName ?? '担当あり'}</span> : 'なし'}</span>
       </span>
     </button>
   </li>;
@@ -355,8 +355,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     const name = state.items.find(i => i.deal_id === selectedId)?.company?.name ?? 'この架電先';
     const done = `${name} を記録しました(この画面だけ。HubSpot には未送信)。`;
     if (next === null) {
-      setFormNotice({ dealId: selectedId, text: '表示中の一覧に未記録の架電先はありません。' });
-      announce(`${done}表示中の一覧に未記録の架電先はありません。`);
+      // 続きのページがあるときは、一覧が終わったと読まれないよう続きの出し方も書く
+      const none = state.nextCursor
+        ? '表示中の一覧に未記録の架電先はありません。一覧の下の「さらに読み込む」で続きを表示できます。'
+        : '表示中の一覧に未記録の架電先はありません。';
+      setFormNotice({ dealId: selectedId, text: none });
+      announce(`${done}${none}`);
       return true;
     }
     setFormNotice(null);

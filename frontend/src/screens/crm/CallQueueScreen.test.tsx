@@ -236,6 +236,19 @@ describe('calling cockpit layout', () => {
     expect(row.lastElementChild?.getAttribute('title')).toBe('次回架電 2026/10/05 / 最終架電 2026/10/01');
   });
 
+  it('while owner names are not loaded (or failed), a row says 担当あり and keeps the HubSpot owner ID out of the text (tooltip only)', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    const failingOwners: OwnersFetch = () => Promise.resolve({ ok: false, error: new ApiHttpError(503, { error_kind: 'hubspot_unavailable' }) });
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} ownersFetcher={failingOwners} initialSearch="" />);
+    await ready(calls, [makeItem('1'), makeItem('2', { owner_id: null })]);
+    const rows = within(screen.getByRole('list', { name: '架電キュー' })).getAllByRole('button');
+    const last1 = rows[0]?.lastElementChild;
+    expect(last1?.textContent).toBe('次回 なし最終 未架電担当 担当あり');
+    expect(last1?.textContent).not.toContain('9001');
+    expect(screen.getByText('担当あり').getAttribute('title')).toBe('HubSpot の所有者 ID: 9001');
+    expect(rows[1]?.lastElementChild?.textContent).toBe('次回 なし最終 未架電担当 なし');
+  });
+
   it('the topbar is compact: title 架電, the mode badge and switch, no link to the old workspace', async () => {
     const { calls, fetcher } = deferredFetcher();
     render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="" />);

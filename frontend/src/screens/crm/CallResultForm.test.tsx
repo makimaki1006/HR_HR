@@ -20,11 +20,11 @@ const neverDetail: DetailFetch = () => new Promise(() => undefined);
 beforeEach(() => { try { window.sessionStorage.clear(); } catch { /* ignore */ } });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-async function renderScreen(opts: { metadataFetcher?: MetadataFetch; items?: ReturnType<typeof makeItem>[]; search?: string; now?: () => number; userFetcher?: UserFetch } = {}) {
+async function renderScreen(opts: { metadataFetcher?: MetadataFetch; items?: ReturnType<typeof makeItem>[]; search?: string; now?: () => number; userFetcher?: UserFetch; nextCursor?: string } = {}) {
   const items = opts.items ?? [makeItem('1'), makeItem('2'), makeItem('3')];
   // キーワードは会社名で絞る (一覧から選んだ案件が外れる場合を作れるように)
   const queue = (f: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({
-    ok: true, data: makeResponse(f, items.filter(i => !f.q || (i.company?.name ?? '').includes(f.q))),
+    ok: true, data: makeResponse(f, items.filter(i => !f.q || (i.company?.name ?? '').includes(f.q)), { next_cursor: opts.nextCursor ?? null }),
   });
   const r = render(<CallQueueScreen userFetcher={opts.userFetcher ?? okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
     metadataFetcher={opts.metadataFetcher ?? okMetadataFetch} initialSearch={opts.search ?? '?view=queue'} now={opts.now ?? NOW} />);
@@ -495,9 +495,50 @@ describe('call-result form (draft only)', () => {
     await formReady();
     expect(outcome('不在・応答なし').getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(within(form()).getByRole('button', { name: '下書きを消す' }));
+    // 1 回押しただけでは消えない (確かめる)
+    expect(outcome('不在・応答なし').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(within(form()).getByRole('button', { name: '消す' }));
     expect(outcome('不在・応答なし').getAttribute('aria-pressed')).toBe('false');
     expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toEqual({ user: TEST_USER, drafts: {}, recorded: {} });
+  });
+
+  it('下書きを消す asks first: やめる / Escape keep the memo, the button is disabled when there is nothing to clear', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    const clearBtn = () => within(form()).getByRole<HTMLButtonElement>('button', { name: '下書きを消す' });
+    expect(clearBtn().disabled).toBe(true);
+    fireEvent.click(outcome('担当者と会話'));
+    fireEvent.change(memoBox(), { target: { value: '求人票を送る' } });
+    expect(clearBtn().disabled).toBe(false);
+    fireEvent.click(clearBtn());
+    const ask = within(form()).getByRole('group', { name: '下書きを消すか確認' });
+    expect(ask.textContent).toContain('入力した内容(メモを含む)と「記録済み」の印を消します。元に戻せません。');
+    // 確かめる間は、隣の「記録して次へ」と押し間違えないよう、やめるにフォーカスを置く
+    expect(document.activeElement).toBe(within(ask).getByRole('button', { name: 'やめる' }));
+    fireEvent.click(within(ask).getByRole('button', { name: 'やめる' }));
+    expect(memoBox().value).toBe('求人票を送る');
+    expect(within(form()).queryByRole('group', { name: '下書きを消すか確認' })).toBeNull();
+    fireEvent.click(clearBtn());
+    fireEvent.keyDown(within(form()).getByRole('button', { name: 'やめる' }), { key: 'Escape' });
+    expect(memoBox().value).toBe('求人票を送る');
+    expect(within(form()).queryByRole('group', { name: '下書きを消すか確認' })).toBeNull();
+    fireEvent.click(clearBtn());
+    fireEvent.click(within(form()).getByRole('button', { name: '消す' }));
+    expect(memoBox().value).toBe('');
+    expect(outcome('担当者と会話').getAttribute('aria-pressed')).toBe('false');
+    expect(clearBtn().disabled).toBe(true);
+  });
+
+  it('記録して次へ with every loaded row recorded but more pages left says 「さらに読み込む」 shows the rest', async () => {
+    await renderScreen({ items: [makeItem('1')], nextCursor: 'c2' });
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('不在・応答なし'));
+    fireEvent.click(recordBtn());
+    expect(within(form()).getByText('表示中の一覧に未記録の架電先はありません。一覧の下の「さらに読み込む」で続きを表示できます。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'さらに読み込む' })).toBeTruthy();
   });
 
   it('another person logging in on the same tab sees none of the previous person\'s memos or recorded marks, and they are overwritten', async () => {

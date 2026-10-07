@@ -2,9 +2,11 @@
 
 リポジトリへの反映は一つの連携窓口に集約する。変更ファイル、取り込み手順、設定、検証状態と完了条件は[連携窓口向け引き継ぎ](../../architecture/headless-crm-integration-plan.md)を正本とする。現在は本番未反映で、認証後の実アプリ画面からのAPI成功経路は未検証。
 
+> 2026-10-08 追記: `/app/crm` を `?view=` なしで開くと、HubSpot の実データを読む架電画面(架電キュー)が開く。以下の節で `/app/crm` と書いている MOC・「HubSpot連携・速度確認」・架空12案件の連続架電画面は、いまは `/app/crm?view=moc`(Vite では `crm-preview.html?view=moc`)で開く。見本は `?view=reference`、単発の架電 MOC は `?view=single`。
+
 ## Rust経由の定義API連携（2026-10-01）
 
-`/app/crm` の「HubSpot連携・速度確認」を開き、「HubSpot定義を取得」で実定義を読み取る。初回アクセスだけでは外部APIを呼ばない。Contact/Companyの項目名とDeal入力の項目名・型・選択肢をAPIの定義へ切り替え、パイプライン/ステージは参照用に表示する。顧客値は引き続き架空。他の「1件」「基準」画面は固定デモ。取得失敗時はエラーと現在使っている定義の状態を明示する。
+`/app/crm?view=moc` の「HubSpot連携・速度確認」を開き、「HubSpot定義を取得」で実定義を読み取る。初回アクセスだけでは外部APIを呼ばない。Contact/Companyの項目名とDeal入力の項目名・型・選択肢をAPIの定義へ切り替え、パイプライン/ステージは参照用に表示する。顧客値は引き続き架空。他の「1件」「基準」画面は固定デモ。取得失敗時はエラーと現在使っている定義の状態を明示する。
 
 サーバー設定: `HUBSPOT_ACCESS_TOKEN` と、カンマ区切りの `CRM_METADATA_ALLOWED_EMAILS` をRust側に設定し再起動する。今回の許可メールはユーザー指定の `s_fujimaki@f-a-c.co.jp`。ローカルのgit管理外 `.env` に既存のHubSpot資格情報とこの許可メールを設定済み。Render等の本番環境への反映は未実施。Google OIDC本人確認が必須で、共有・期限付きパスワードでは403。未ログインはJSON 401、設定不足は503。空の許可リストでは全員拒否する。CRM全体のRBACや顧客閲覧権限を決定したものではない。
 
@@ -28,7 +30,7 @@ Rust取得処理全体はキャッシュ待機・外部GET・定義変換を含�
 
 ## 実プロパティ対応MOC（2026-10-01）
 
-Reactの既存 `/app/crm` に組み込んだ架空12案件の連続架電画面。実HubSpotのDealプロパティ23件に合わせて、ラベル・型・選択肢の内部値を実装した。上部の絞り込み・集計は初期状態で折りたたみ、一覧をスクロールして操作できる。「＋ 詳細・入力」で採用ヒアリング・商談・停止理由の項目を展開する。会社基本情報は共有し、案件の入力は仮のDeal IDごとに分離する。
+Reactの既存 `/app/crm` に組み込んだ架空12案件(いまは `/app/crm?view=moc`)の連続架電画面。実HubSpotのDealプロパティ23件に合わせて、ラベル・型・選択肢の内部値を実装した。上部の絞り込み・集計は初期状態で折りたたみ、一覧をスクロールして操作できる。「＋ 詳細・入力」で採用ヒアリング・商談・停止理由の項目を展開する。会社基本情報は共有し、案件の入力は仮のDeal IDごとに分離する。
 
 次回架電の日付と時間は別項目で、時間は実定義の45選択肢。複数選択・既存の未知値も保持する。連携元の項目は参照専用。架電停止の理由または停止希望の選択で発信デモを無効化する。記録後は絞り込み内の未処理・番号あり・停止していない対象へ進む。入力の必須条件はMOCの暫定案で、実運用での確定が必要。
 
@@ -38,7 +40,7 @@ Reactの既存 `/app/crm` に組み込んだ架空12案件の連続架電画面�
 
 [MOC画面](moc-preview.png) · [ブラウザ検証記録](moc-call-record-verification.txt) · [実装計画](../../architecture/headless-crm-integration-plan.md)
 
-ローカル確認: Vite起動中なら `http://127.0.0.1:5173/static/app/crm-preview.html`。Rustアプリでは `frontend/` で `npm run build` 後、サーバーを再起動してログインし `/app/crm` を開く（manifestは起動時に読み込む）。本番へはデプロイしていない。
+ローカル確認: Vite起動中なら `http://127.0.0.1:5173/static/app/crm-preview.html?view=moc`。Rustアプリでは `frontend/` で `npm run build` 後、サーバーを再起動してログインし `/app/crm?view=moc` を開く（manifestは起動時に読み込む。`?view=` なしの `/app/crm` は架電画面）。本番へはデプロイしていない。
 
 調査日: 2026-10-01。段階: 公式標準UIを参照したサンプル版。実アカウントの画面・プロパティ・権限は未確認。
 
@@ -145,7 +147,7 @@ Reactの既存 `/app/crm` に組み込んだ架空12案件の連続架電画面�
 
 ## 検証記録
 
-ローカルプレビュー: `frontend/` で `npm ci` → `npm exec vite -- --host 127.0.0.1 --port 5173 --strictPort`。ブラウザーで `http://127.0.0.1:5173/static/app/crm-preview.html` を開く。Rustアプリで利用する場合は `npm run build` 後にRustサーバーを再起動し、ログインして `/app/crm` を開く（manifestは起動時読み込み）。本番デプロイは実施していない。
+ローカルプレビュー: `frontend/` で `npm ci` → `npm exec vite -- --host 127.0.0.1 --port 5173 --strictPort`。ブラウザーで `http://127.0.0.1:5173/static/app/crm-preview.html?view=reference` を開く。Rustアプリで利用する場合は `npm run build` 後にRustサーバーを再起動し、ログインして `/app/crm?view=reference` を開く（manifestは起動時読み込み。`?view=` なしは架電画面）。本番デプロイは実施していない。
 
 - `npm run typecheck`、`npm run lint`、`npm run test`（3ファイル18件）、`npm run build` が成功。
 - `rustfmt --check --edition 2021 src/handlers/spa_shell.rs`、`cargo test --lib handlers::spa_shell::tests --offline -j 2`（7件）が成功。Rustの警告は既存コードに84件。

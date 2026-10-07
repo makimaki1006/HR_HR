@@ -4,7 +4,7 @@ import type { MocPropertyDefinition } from './mocProperties';
 import type { DefinitionsState } from './useResultDefinitions';
 import { clock } from './workspaceModel';
 import {
-  CALL_RESULTS, FALLBACK_LABELS, FIELD_PROPERTY, TEXT_LIMITS, activeFields, draftSummary, selectableOptions, validateResultDraft, withField, withOutcome,
+  CALL_RESULTS, FALLBACK_LABELS, FIELD_PROPERTY, TEXT_LIMITS, activeFields, draftSummary, isEmptyDraft, selectableOptions, validateResultDraft, withField, withOutcome,
 } from './callResultModel';
 import type { CallResult, DraftErrors, DraftField, ResultDraft } from './callResultModel';
 import './result-form.css';
@@ -69,6 +69,19 @@ export function CallResultForm({
   const focusInvalid = useRef(false);
   // 入力欄の中だけで出す案内 (折りたたみ中に Ctrl+Enter を押した等)
   const [localNotice, setLocalNotice] = useState<string | null>(null);
+  // 「下書きを消す」は 1 回押しただけでは消さず、その場で確かめる (隣の「記録して次へ」と押し間違えてメモを失わないように)
+  const [confirmClear, setConfirmClear] = useState(false);
+  const clearCancelRef = useRef<HTMLButtonElement | null>(null);
+  const clearOpenRef = useRef<HTMLButtonElement | null>(null);
+  const nothingToClear = isEmptyDraft(draft) && !recorded;
+  useEffect(() => { if (confirmClear) clearCancelRef.current?.focus(); }, [confirmClear]);
+  // 消すものが無くなったら (別の操作で空になった等) 確認を閉じる
+  if (confirmClear && nothingToClear) setConfirmClear(false);
+  function cancelClear() {
+    setConfirmClear(false);
+    // 確認を閉じたら元のボタンへフォーカスを戻す (描画の後に)
+    requestAnimationFrame(() => clearOpenRef.current?.focus());
+  }
   const outcomeButtons = () => Array.from(outcomeRef.current?.querySelectorAll<HTMLButtonElement>('button.rf-outcome') ?? []);
   const touch = (f: DraftField) => { setTouched(prev => (prev.has(f) ? prev : new Set(prev).add(f))); };
 
@@ -266,7 +279,15 @@ export function CallResultForm({
     <div className="rf-actions" hidden={collapsed}>
       <span className="rf-notice" role="status" id={noticeId}>{shownNotice ?? ''}</span>
       <small className="rf-unsent" id={`${uid}-unsent`}>この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません</small>
-      <button type="button" className="cq-btn cq-btn-quiet" onClick={onClear}>下書きを消す</button>
+      {confirmClear
+        ? <span className="rf-confirm" role="group" aria-label="下書きを消すか確認"
+          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); cancelClear(); } }}>
+          <span>入力した内容(メモを含む)と「記録済み」の印を消します。元に戻せません。</span>
+          <button type="button" className="cq-btn rf-confirm-yes" onClick={() => { setConfirmClear(false); onClear(); requestAnimationFrame(() => outcomeButtons()[0]?.focus()); }}>消す</button>
+          <button type="button" className="cq-btn" ref={clearCancelRef} onClick={cancelClear}>やめる</button>
+        </span>
+        : <button type="button" className="cq-btn cq-btn-quiet" ref={clearOpenRef} disabled={nothingToClear}
+          title={nothingToClear ? '消す下書きはありません' : undefined} onClick={() => { setConfirmClear(true); }}>下書きを消す</button>}
       {/* type="button": 1 行の入力欄で Enter を押しても記録しない */}
       <button type="button" className="rf-record" onClick={submit} aria-disabled={!canRecord}
         aria-describedby={recordBlocked && notice ? `${noticeId} ${uid}-unsent` : `${uid}-unsent`}
