@@ -30,6 +30,16 @@ function setup(opts: ZoomOptions = {}) {
 }
 
 describe('useZoomPhone', () => {
+  it('returns the same zoom object while nothing changed, and a new one when the state changes', () => {
+    const { result, rerender } = setup({ loadTimeoutMs: 60_000 });
+    const before = result.current.zoom;
+    rerender({ enabled: true });
+    rerender({ enabled: true });
+    expect(result.current.zoom).toBe(before);
+    act(() => { result.current.zoom.onLoad(); });
+    expect(result.current.zoom).not.toBe(before);
+    expect(result.current.zoom.embed).toBe('loaded');
+  });
   it('does not send a dial while the frame is loading or has timed out; sends once loaded', () => {
     vi.useFakeTimers();
     const { result, postMessage } = setup({ loadTimeoutMs: 100 });

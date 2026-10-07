@@ -6,7 +6,8 @@ import type { ApiResult } from '../../api/client';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import { CallQueueScreen } from './CallQueueScreen';
 import { DRAFT_STORAGE_KEY } from './callResultModel';
-import { makeItem, makeResponse, metadataFromMoc, metadataStub, okMetadataFetch } from './queueTestUtil';
+import { makeItem, makeResponse, metadataFromMoc, metadataStub, okMetadataFetch, okUserFetch, TEST_USER, userFetchFor } from './queueTestUtil';
+import type { UserFetch } from './useCurrentUser';
 import type { QueueFilters } from './queueModel';
 import type { DetailFetch } from './useDealDetail';
 import type { MetadataFetch } from './useResultDefinitions';
@@ -19,13 +20,13 @@ const neverDetail: DetailFetch = () => new Promise(() => undefined);
 beforeEach(() => { try { window.sessionStorage.clear(); } catch { /* ignore */ } });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-async function renderScreen(opts: { metadataFetcher?: MetadataFetch; items?: ReturnType<typeof makeItem>[]; search?: string; now?: () => number } = {}) {
+async function renderScreen(opts: { metadataFetcher?: MetadataFetch; items?: ReturnType<typeof makeItem>[]; search?: string; now?: () => number; userFetcher?: UserFetch } = {}) {
   const items = opts.items ?? [makeItem('1'), makeItem('2'), makeItem('3')];
   // キーワードは会社名で絞る (一覧から選んだ案件が外れる場合を作れるように)
   const queue = (f: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({
     ok: true, data: makeResponse(f, items.filter(i => !f.q || (i.company?.name ?? '').includes(f.q))),
   });
-  const r = render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+  const r = render(<CallQueueScreen userFetcher={opts.userFetcher ?? okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
     metadataFetcher={opts.metadataFetcher ?? okMetadataFetch} initialSearch={opts.search ?? '?view=queue'} now={opts.now ?? NOW} />);
   await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
   return r;
@@ -40,6 +41,7 @@ const recordDisabled = () => recordBtn().getAttribute('aria-disabled') === 'true
 const selectedId = () => screen.getByTestId('result-slot').getAttribute('data-deal-id');
 const rowOf = (n: string): HTMLElement => { const li = within(list()).getByText(`架空会社${n}`).closest('li'); if (!li) throw new Error('row'); return li; };
 const nth = <T,>(xs: readonly T[], i: number): T => { const x = xs[i]; if (x === undefined) throw new Error(`no item ${String(i)}`); return x; };
+const memoBox = (): HTMLTextAreaElement => { const t = form().querySelector('textarea'); if (!t) throw new Error('memo'); return t; };
 async function formReady() { await within(form()).findByRole('group', { name: '今回の結果' }); }
 
 describe('call-result form (draft only)', () => {
@@ -371,7 +373,7 @@ describe('call-result form (draft only)', () => {
     const queue = (f: QueueFilters) => hold
       ? new Promise<ApiResult<CallQueueResponse>>(resolve => { held.push(resolve); })
       : Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, items) });
-    render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
       metadataFetcher={okMetadataFetch} initialSearch="?view=queue" now={NOW} />);
     await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
     open('1');
@@ -419,7 +421,7 @@ describe('call-result form (draft only)', () => {
     let t = Date.UTC(2026, 9, 8, 14, 50, 0); // JST 2026-10-08 23:50
     const seen: QueueFilters[] = [];
     const queue = (f: QueueFilters) => { seen.push(f); return Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, [makeItem(String(seen.length))]) }); };
-    render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
       metadataFetcher={okMetadataFetch} initialSearch="?view=queue&due=today" now={() => t} />);
     await waitFor(() => { expect(within(list()).getByText('架空会社1')).toBeTruthy(); });
     expect(seen).toHaveLength(1);
@@ -437,7 +439,7 @@ describe('call-result form (draft only)', () => {
     let t = Date.UTC(2026, 9, 8, 14, 50, 0);
     let n = 0;
     const queue = (f: QueueFilters) => { n += 1; return Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, [makeItem('1')]) }); };
-    render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
       metadataFetcher={okMetadataFetch} initialSearch="?view=queue" now={() => t} />);
     await waitFor(() => { expect(within(list()).getByText('架空会社1')).toBeTruthy(); });
     t = Date.UTC(2026, 9, 8, 15, 30, 0);
@@ -495,7 +497,56 @@ describe('call-result form (draft only)', () => {
     fireEvent.click(within(form()).getByRole('button', { name: '下書きを消す' }));
     expect(outcome('不在・応答なし').getAttribute('aria-pressed')).toBe('false');
     expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
-    expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toEqual({ drafts: {}, recorded: {} });
+    expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toEqual({ user: TEST_USER, drafts: {}, recorded: {} });
+  });
+
+  it('another person logging in on the same tab sees none of the previous person\'s memos or recorded marks, and they are overwritten', async () => {
+    const first = await renderScreen();
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('担当者と会話'));
+    fireEvent.change(memoBox(), { target: { value: '受付の山田さんに折り返し依頼' } });
+    fireEvent.click(recordBtn());
+    expect(window.sessionStorage.getItem(DRAFT_STORAGE_KEY)).toContain('受付の山田さんに折り返し依頼');
+    first.unmount();
+    // 同じタブで別の人がログインし直した
+    const second = await renderScreen({ userFetcher: userFetchFor('caller-b@example.invalid') });
+    await waitFor(() => { expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toEqual({ user: 'caller-b@example.invalid', drafts: {}, recorded: {} }); });
+    expect(within(rowOf('1')).queryByText(/記録済み/)).toBeNull();
+    open('1');
+    await formReady();
+    expect(outcome('担当者と会話').getAttribute('aria-pressed')).toBe('false');
+    expect(memoBox().value).toBe('');
+    expect(document.body.textContent).not.toContain('受付の山田さんに折り返し依頼');
+    second.unmount();
+    // 前の人が戻っても、置き換わった後なので残っていない (前の人のメモをこのタブに残し続けない)
+    await renderScreen();
+    expect(within(rowOf('1')).queryByText(/記録済み/)).toBeNull();
+  });
+
+  it('when who is logged in cannot be confirmed, it does not read the tab\'s saved drafts and says in red the input will be lost', async () => {
+    window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ user: TEST_USER, drafts: { 'live:1': { outcome: 'connected', memo: '前の人のメモ' } }, recorded: { 'live:1': true } }));
+    const failing: UserFetch = () => Promise.resolve({ ok: false, error: new ApiHttpError(401, { error: 'auth_required' }) });
+    await renderScreen({ userFetcher: failing });
+    expect(within(rowOf('1')).queryByText(/記録済み/)).toBeNull();
+    open('1');
+    await formReady();
+    expect(within(form()).getByTestId('unsaved-alert').textContent).toContain('この画面を閉じたり再読み込みしたりすると入力が消えます');
+    expect(document.body.textContent).not.toContain('前の人のメモ');
+    // タブに残っていた分は触らない (誰のものか分からないまま上書きしない)
+    expect(window.sessionStorage.getItem(DRAFT_STORAGE_KEY)).toContain('前の人のメモ');
+  });
+
+  it('until it knows who is logged in, the input area is not shown (nothing typed is lost when the saved drafts load)', async () => {
+    let resolveUser: (email: string) => void = () => undefined;
+    const slow: UserFetch = () => new Promise(res => { resolveUser = email => { res({ ok: true, data: { user_email: email } }); }; });
+    await renderScreen({ userFetcher: slow });
+    open('1');
+    expect(screen.getByTestId('result-slot').textContent).toBe('架電結果の入力欄を準備しています…');
+    expect(screen.queryByRole('form', { name: '架電結果の入力' })).toBeNull();
+    await act(async () => { resolveUser(TEST_USER); await Promise.resolve(); });
+    await waitFor(() => { expect(screen.queryByRole('form', { name: '架電結果の入力' })).not.toBeNull(); });
+    await formReady();
   });
 
   it('still works when sessionStorage is unavailable, but says in red that the input will be lost (not the usual 記録済み)', async () => {
@@ -617,7 +668,7 @@ describe('call-result form (draft only)', () => {
     const spy = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')));
     vi.stubGlobal('fetch', spy);
     const meta = metadataStub();
-    render(<CallQueueScreen metadataFetcher={meta.fetcher} detailFetcher={neverDetail} initialSearch="?view=queue&mode=fixture" now={NOW} />);
+    render(<CallQueueScreen userFetcher={okUserFetch} metadataFetcher={meta.fetcher} detailFetcher={neverDetail} initialSearch="?view=queue&mode=fixture" now={NOW} />);
     await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
     fireEvent.click(screen.getByText('架空食品株式会社'));
     await formReady();
@@ -635,7 +686,7 @@ describe('call-result form (draft only)', () => {
     // 実データ・架空サンプルとも同じ ID (1, 2) を返す取得関数
     const items = [makeItem('1'), makeItem('2')];
     const queue = (f: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, items) });
-    render(<CallQueueScreen fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
       metadataFetcher={okMetadataFetch} initialSearch="?view=queue&mode=fixture" now={NOW} />);
     await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
     open('1');

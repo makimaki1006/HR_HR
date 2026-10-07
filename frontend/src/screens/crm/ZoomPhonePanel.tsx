@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { ZOOM_EMBED_SRC } from './smartEmbed';
 import type { ZoomPhone } from './useZoomPhone';
 import { formatPhoneForDisplay } from './phone';
@@ -46,7 +46,7 @@ function CallStatus({ zoom, link }: { zoom: ZoomPhone; link: CallLink }) {
 }
 
 /** 右側に常駐する Zoom Phone Smart Embed。案件を切り替えても iframe は作り直さない */
-export function ZoomPhonePanel({ zoom, iframeRef, link = 'none' }: {
+function ZoomPhonePanelImpl({ zoom, iframeRef, link = 'none' }: {
   zoom: ZoomPhone; iframeRef: React.RefObject<HTMLIFrameElement | null>;
   /** 終わった通話と入力欄の関係 */
   link?: CallLink;
@@ -84,3 +84,6 @@ export function ZoomPhonePanel({ zoom, iframeRef, link = 'none' }: {
     </>}
   </aside>;
 }
+
+/** 親 (架電画面) が架電結果の入力のたびに描き直しても、props が同じなら描き直さない */
+export const ZoomPhonePanel = memo(ZoomPhonePanelImpl);

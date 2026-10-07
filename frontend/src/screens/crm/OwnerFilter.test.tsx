@@ -6,7 +6,7 @@ import type { ApiError, ApiResult } from '../../api/client';
 import type { CrmOwner } from '../../generated/CrmOwner';
 import type { CrmOwnersResponse } from '../../generated/CrmOwnersResponse';
 import { CallQueueScreen } from './CallQueueScreen';
-import { deferredFetcher, makeItem, makeResponse } from './queueTestUtil';
+import { deferredFetcher, makeItem, makeResponse, okUserFetch } from './queueTestUtil';
 import { DEFAULT_FILTERS } from './queueModel';
 import type { OwnersFetch } from './useOwners';
 
@@ -29,7 +29,7 @@ function ownersStub(result: ApiResult<CrmOwnersResponse>) {
 
 async function renderAdmin(ownersFetcher: OwnersFetch, search = '?view=queue') {
   const q = deferredFetcher();
-  render(<CallQueueScreen fetcher={q.fetcher} ownersFetcher={ownersFetcher} initialSearch={search} />);
+  render(<CallQueueScreen userFetcher={okUserFetch} fetcher={q.fetcher} ownersFetcher={ownersFetcher} initialSearch={search} />);
   const first = q.calls[0];
   await act(async () => {
     first?.resolve({ ok: true, data: makeResponse(first.filters, [makeItem('1', { owner_id: '102' })]) });
@@ -150,7 +150,7 @@ describe('owner picker (everyone)', () => {
   it('shows the owner picker to a non-admin too: default is "me", the list is fetched, and everything is selectable', async () => {
     const fetcher = ownersStub(okOwners());
     const q = deferredFetcher();
-    render(<CallQueueScreen fetcher={q.fetcher} ownersFetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={q.fetcher} ownersFetcher={fetcher} initialSearch="?view=queue" />);
     const first = q.calls[0];
     const resp = makeResponse(DEFAULT_FILTERS, [makeItem('1')]);
     await act(async () => {
@@ -177,7 +177,7 @@ describe('owner picker (everyone)', () => {
 
   it('asks to pick an owner (not a dead end) when the person has no matching HubSpot owner, then loads after choosing', async () => {
     const q = deferredFetcher();
-    render(<CallQueueScreen fetcher={q.fetcher} ownersFetcher={ownersStub(okOwners())} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={q.fetcher} ownersFetcher={ownersStub(okOwners())} initialSearch="?view=queue" />);
     await act(async () => {
       q.calls[0]?.resolve({ ok: false, error: new ApiHttpError(409, { error_kind: 'owner_not_resolved' }) });
       await Promise.resolve();

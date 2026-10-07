@@ -6,6 +6,7 @@ import type { QueueFilters } from './queueModel';
 import type { CrmMetadataResponse } from '../../generated/CrmMetadataResponse';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
 import type { MetadataFetch } from './useResultDefinitions';
+import type { UserFetch } from './useCurrentUser';
 
 /** 架空の 1 行 (実データ由来の値は使わない) */
 export function makeItem(id: string, over: Partial<CallQueueItem> = {}): CallQueueItem {
@@ -76,3 +77,8 @@ export function deferredFetcher() {
     new Promise<ApiResult<CallQueueResponse>>(resolve => { calls.push({ filters, cursor, signal, resolve }); });
   return { calls, fetcher };
 }
+
+/** ログイン中の人 (テストでは固定の架空のアドレス) */
+export const TEST_USER = 'caller-a@example.invalid';
+export const userFetchFor = (email: string): UserFetch => () => Promise.resolve({ ok: true, data: { user_email: email } });
+export const okUserFetch: UserFetch = userFetchFor(TEST_USER);

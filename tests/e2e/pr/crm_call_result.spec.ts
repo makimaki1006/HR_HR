@@ -1,5 +1,6 @@
 import { expect, Locator, Page, Request, test } from '@playwright/test';
 import { login } from './helpers/login';
+import { E2E_EMAIL } from './helpers/fixture_values';
 
 /**
  * 架電画面 (/app/crm、既定の表示 = 架電キュー) と架電結果の入力欄 (下書きのみ) の PR 用 E2E。
@@ -42,7 +43,7 @@ async function openScreen(page: Page): Promise<void> {
   await expect(list(page)).toBeVisible();
 }
 
-async function storedDrafts(page: Page): Promise<{ drafts: Record<string, Record<string, unknown>>; recorded: Record<string, boolean> }> {
+async function storedDrafts(page: Page): Promise<{ user?: string; drafts: Record<string, Record<string, unknown>>; recorded: Record<string, boolean> }> {
   return page.evaluate((k) => JSON.parse(window.sessionStorage.getItem(k) ?? '{"drafts":{},"recorded":{}}'), STORAGE_KEY);
 }
 
@@ -174,5 +175,56 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     await page.reload();
     await expect(list(page)).toBeVisible();
     await expect(page.locator('.cq-recorded')).toHaveCount(0);
+  });
+
+  test('共用の PC: 同じタブでログアウトして別の人がログインすると、前の人の下書きのメモ・記録済みの印は出ず、タブからも消える', async ({ page }) => {
+    const memoText = '受付の方に折り返しを依頼(E2E 前の人のメモ)';
+    await openScreen(page);
+    await rowButton(page, 0).click();
+    await outcome(page, '担当者と会話').click();
+    await form(page).locator('textarea').fill(memoText);
+    await recordBtn(page).click({ force: true });
+    await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveText('記録済み(HubSpot 未送信)');
+    const before = await storedDrafts(page);
+    expect(before.user).toBe(E2E_EMAIL);
+    expect(Object.values(before.drafts).map((d) => d.memo)).toContain(memoText);
+
+    // 同じタブでログアウト → 別の人がログイン → 架電画面
+    await page.goto('/logout');
+    await expect(page).toHaveURL(/\/login/);
+    const other = 'e2e-other@f-a-c.co.jp';
+    await login(page, other);
+    await openScreen(page);
+    await expect(rows(page)).toHaveCount(5);
+    await expect(page.locator('.cq-recorded')).toHaveCount(0);
+    await rowButton(page, 0).click();
+    await expect(outcome(page, '担当者と会話')).toHaveAttribute('aria-pressed', 'false');
+    await expect(form(page).locator('textarea')).toHaveValue('');
+    await expect(page.getByText(memoText)).toHaveCount(0);
+    // タブに残っていた前の人の分は、次の人の (空の) 下書きで置き換わっている
+    const after = await storedDrafts(page);
+    expect(after).toEqual({ user: other, drafts: {}, recorded: {} });
+    expect(JSON.stringify(after)).not.toContain(memoText);
+  });
+
+  test('既定の架電画面では、見本・MOC の画面のファイルを読み込まない。?view=moc では見本の画面が出る', async ({ page }) => {
+    const scripts: string[] = [];
+    page.on('request', (r) => { if (r.resourceType() === 'script' || r.resourceType() === 'stylesheet') scripts.push(new URL(r.url()).pathname); });
+    await openScreen(page);
+    await rowButton(page, 0).click();
+    await expect(form(page)).toBeVisible();
+    expect(scripts.some((p) => /\/CallQueueScreen-[^/]+\.js$/.test(p))).toBe(true);
+    expect(scripts.some((p) => /\/CallQueueScreen-[^/]+\.css$/.test(p))).toBe(true);
+    expect(scripts.filter((p) => /\/(CrmScreen|CallWorkspace)-[^/]+\.(js|css)$/.test(p))).toEqual([]);
+    // 架電画面の見た目 (CSS) が当たっている: 行のボタンは縦に並ぶ flex (queue.css)
+    expect(await rowButton(page, 0).evaluate((b) => getComputedStyle(b).display)).toBe('flex');
+
+    scripts.length = 0;
+    await page.goto('/app/crm?view=moc');
+    await expect(page.getByRole('banner').locator('strong')).toHaveText('連続架電ワークスペース');
+    await expect(page.getByRole('navigation', { name: '画面表示' }).getByRole('link')).toHaveText(['1件ずつの表示', '基準のCRM画面']);
+    await expect(page.getByText('12 / 12件 · 記録 0件')).toBeVisible();
+    expect(scripts.some((p) => /\/CrmScreen-[^/]+\.js$/.test(p))).toBe(true);
+    expect(scripts.filter((p) => /\/CallQueueScreen-[^/]+\.js$/.test(p))).toEqual([]);
   });
 });
