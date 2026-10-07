@@ -107,6 +107,8 @@ describe('snapshot recovery without fictional replacement', () => {
     if (!job) throw new Error('Missing synthetic capture');
     job.title = '合成の手動取込';
     const file = new File([JSON.stringify(capture)], 'synthetic-capture.json', { type: 'application/json' });
+    // 媒体で取得したデータは「データ取込」の中にある（2026-10-08 の配置の組み直し）
+    fireEvent.click(screen.getByRole('button', { name: 'データ取込' }));
     await act(async () => {
       fireEvent.change(screen.getByLabelText('媒体取得データを読み込む'), { target: { files: [file] } });
       await Promise.resolve();

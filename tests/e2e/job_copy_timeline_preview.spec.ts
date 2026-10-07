@@ -17,7 +17,7 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/static/app/job-copy-preview.html');
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-  await expect(primary.getByRole('tab').first()).toHaveText('タイムライン');
+  await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '求人内容', '応募分析', '市場分析', '比較・報告']);
   await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
   const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
   for (const lane of ['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場']) await expect(timeline.getByRole('group', { name: lane, exact: true })).toBeVisible();
@@ -42,6 +42,22 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   await expect(rows.nth(1).locator('td')).toHaveText(['10日', '8件', '0.80件/日', '約2.8万円', 'データなし']);
   await page.screenshot({ path: `${shots}/timeline-1280.png`, fullPage: true });
 
+  // First view (2026-10-08 layout): one-line top bar, full-height list, timeline lanes on screen.
+  await page.setViewportSize({ width: 1100, height: 623 });
+  const firstView = await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+    const lane = [...document.querySelectorAll('.jt-timeline [role="group"]')][0]?.getBoundingClientRect();
+    return { inner: window.innerHeight, top: box('.jc-topline')?.height ?? 0, list: box('.jc-list')?.bottom ?? 0, scroll: box('.jc-list-scroll')?.height ?? 0, lane: lane?.top ?? 9999 };
+  });
+  expect(firstView.top).toBeLessThan(60);
+  expect(firstView.list).toBeGreaterThanOrEqual(firstView.inner - 2);
+  expect(firstView.scroll).toBeGreaterThan(250);
+  expect(firstView.lane).toBeLessThan(firstView.inner);
+  await expect(page.locator('.jc-data-import')).toBeHidden();
+  await expect(page.locator('.jc-reverse-search')).toHaveCount(0);
+  await page.screenshot({ path: `${shots}/first-view-1100x623.png` });
+  await page.setViewportSize({ width: 1280, height: 900 });
+
   await page.getByRole('button', { name: '横断比較', exact: true }).click();
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
   await expect(overview.locator('tbody tr').first()).toContainText('0.64件/日');
@@ -54,5 +70,46 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await page.screenshot({ path: `${shots}/timeline-375.png`, fullPage: true });
+  expect(requests).toEqual([]);
+});
+
+test('billing CSV import fills the billing lane, the period table and the overview total', async ({ page }) => {
+  const requests: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) requests.push(request.url()); });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/static/app/job-copy-preview.html');
+  const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
+  const billingLane = timeline.getByRole('group', { name: '課金', exact: true });
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['3万円', '4.5万円', '1.2万円']);
+  await page.getByRole('button', { name: 'データ取込', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'データ取込', exact: true })).toBeVisible();
+  const csv = '媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-AIR-002,2026-09-05,2026-09-30,40000\n';
+  await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+  await page.getByRole('button', { name: '求人と照合する', exact: true }).click();
+  await page.getByRole('button', { name: '一致した2行を課金として反映', exact: true }).click();
+  await expect(page.getByText(/課金CSVの 2 期間を反映中/u)).toBeVisible();
+  await page.getByRole('region', { name: 'データ取込', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
+  await expect(page.locator('.jc-data-import')).toBeHidden();
+  // The CSV row (33,000円) replaces the HRハッカー row for the same days; the other rows stay.
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['3.3万円', '4.5万円', '1.2万円']);
+  await expect(billingLane.locator('.jt-billing-csv')).toHaveCount(1);
+  await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
+  const rows = timeline.getByRole('table').locator('tbody tr');
+  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3.3万円', 'データなし']);
+  await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
+  await page.locator('.jc-job', { hasText: '倉庫内ピッキングスタッフ' }).click();
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['4万円']);
+  await page.getByRole('button', { name: '横断比較', exact: true }).click();
+  const overview = page.getByRole('region', { name: '求人の横断比較の表' });
+  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' })).toContainText('4万円');
+  await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' })).toContainText('9万円');
+  await page.screenshot({ path: `${shots}/overview-billing-1280.png`, fullPage: true });
+  // Reloading drops the browser-only billing rows (the URL keeps the selected demo-job-002, which has no HRハッカー実績).
+  await page.reload();
+  const reloadedLane = page.getByRole('region', { name: 'タイムライン', exact: true }).getByRole('group', { name: '課金', exact: true });
+  await expect(page.locator('.jc-detail h1')).toHaveText('倉庫内ピッキングスタッフ');
+  await expect(reloadedLane.locator('.jt-billing')).toHaveCount(0);
+  await expect(reloadedLane).toContainText('未接続');
+  await expect(reloadedLane).not.toContainText('0円');
   expect(requests).toEqual([]);
 });
