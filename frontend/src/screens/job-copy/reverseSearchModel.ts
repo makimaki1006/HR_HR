@@ -4,7 +4,7 @@ export interface JointDemographics { total: number; cells: DemographicCell[] }
 export interface ReverseSearchQuery { gender: string; age: string; prefecture: string; municipality: string; minimum: number }
 export interface ReverseSearchResult { job: JobCopyRecord; count: number; denominator: number; percentage: number | null }
 export function parseJointDemographics(value: unknown, total: number): JointDemographics {
-  const fail = (): never => { throw new Error('複合条件の応募集計を確認できませんでした。'); };
+  const fail = (): never => { throw new Error('性別・年代・地域を組み合わせた応募の集計を確認できませんでした。'); };
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fail();
   const raw = value as Record<string, unknown>;
   if (Object.keys(raw).length !== 2 || raw.total !== total || !Array.isArray(raw.cells) || raw.cells.length > 10_000) return fail();

@@ -107,3 +107,10 @@
 @media (max-width: 600px) { .jc-comparison-overview { grid-template-columns: minmax(0, 1fr); } }
 
 .jc-snapshot-summary{display:flex;flex-wrap:wrap;gap:12px 28px;padding:14px 24px;background:#fff;border-bottom:1px solid #d6e1e7;color:#456071;font-size:13px}.jc-snapshot-summary span{display:flex;align-items:baseline;gap:7px}.jc-snapshot-summary strong{font-size:22px;color:#173d50}
+
+/* 1 行の注意書きと「ⓘ 集計の前提」(AssumptionsNote) */
+.jc-assumptions { margin: 8px 0; font-size: 13px; color: #456071; }
+.jc-assumptions-line { margin: 0 0 4px; }
+.jc-assumptions-details > summary { cursor: pointer; color: var(--jc-accent); min-height: 32px; padding: 4px 0; width: fit-content; }
+.jc-assumptions-details ul { margin: 4px 0 0; padding-left: 20px; }
+.jc-assumptions-details li { margin: 2px 0; }
