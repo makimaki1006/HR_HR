@@ -15,6 +15,9 @@ import { ApplicantReasonReview } from './ApplicantReasonReview';
 import { JobFeatureTabs, JobFeaturePanel, jobFeatureGroups } from './JobFeatureTabs';
 import type { JobFeature } from './JobFeatureTabs';
 import { ReverseSearch } from './ReverseSearch';
+import { BillingImportPanel } from './BillingImportPanel';
+import { JobCopyDataImport } from './JobCopyDataImport';
+import type { BillingPeriod } from './billingTypes';
 import { AbComparison } from './AbComparison';
 import { ConsultantReview } from './ConsultantReview';
 import { HubSpotReadPanel } from './HubSpotReadPanel';
@@ -206,6 +209,8 @@ export function JobCopyScreen() {
   const [customer, setCustomer] = useState('all');
   const [status, setStatus] = useState('all');
   const [listOrder, setListOrder] = useState<JobListOrder>('source');
+  // 課金CSVから反映した課金期間。画面のメモリ上だけで持ち、再読み込みで消える (サーバーへ送らない)。
+  const [billingPeriods, setBillingPeriods] = useState<BillingPeriod[]>([]);
   useEffect(() => {
     if (!snapshotRequested) return;
     const controller = new AbortController();
@@ -255,6 +260,7 @@ export function JobCopyScreen() {
     {snapshotAt && <section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>本文観測</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募レコード</span><span>版対応不明 <strong>{records.reduce((sum, job) => sum + (job.attributionUnknown ?? 0), 0)}</strong>件</span></section>}
     <HubSpotReadPanel key={panelEpoch} onOpen={job => { stopSnapshot(); setSnapshotAt(''); setRecords([job]); setSelectedId(job.id); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(false); setLive(true); }} />
     <MediaCaptureImport onImport={items => { stopSnapshot(); setSnapshotAt(''); setRecords(items); setSelectedId(items[0]?.id ?? ''); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(true); setLive(false); setPanelEpoch(value => value + 1); }} />
+    <JobCopyDataImport><BillingImportPanel records={records} applied={billingPeriods} onApply={setBillingPeriods} onClear={() => { setBillingPeriods([]); }} /></JobCopyDataImport>
     <ReverseSearch records={records} onChoose={job => { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); choose(job); }} />
     <div className="jc-workspace"><aside className="jc-list"><div className="jc-list-heading"><h2 id="job-list-heading" tabIndex={-1}>求人レコード</h2><span aria-live="polite" aria-atomic="true">{snapshotLoading ? '取得中' : snapshotError && !records.length ? '未取得' : `${String(visible.length)} / ${String(records.length)}件`}</span></div><label>求人・企業・媒体IDを検索<input id="job-list-search" type="search" value={search} placeholder="求人名、企業名、勤務地" onChange={event => { setSearch(event.target.value); }} /></label>
       <label>取引先<select aria-label="取引先" value={customer} onChange={event => { setCustomer(event.target.value); }}><option value="all">すべての取引先</option>{captured ? <option value="unlinked">取引先未紐付け</option> : [...new Set(records.map(job => job.company))].map(value => <option key={value} value={value}>{value}{live ? '' : '（架空）'}</option>)}</select></label>
