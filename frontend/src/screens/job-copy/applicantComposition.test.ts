@@ -52,11 +52,12 @@ describe('applicant distributions', () => {
   });
 
   it('keeps cities with identical names distinct using their supplied prefectures', () => {
-    const result = buildDistribution(rows, 'municipality');
-    expect(result?.categories.map(item => item.category)).toContain('大分県 / 府中市');
-    expect(result?.categories.map(item => item.category)).toContain('東京都 / 府中市');
-    const partial = [{ gender: null, age: null, prefecture: null, municipality: '府中市' }];
-    expect(buildDistribution(partial, 'municipality')?.categories[0]?.category).toBe('都道府県不明 / 府中市');
+    const fuchu = (prefecture: string) => Array.from({ length: 3 }, () => ({ gender: null, age: null, prefecture, municipality: '府中市' }));
+    const result = buildDistribution([...fuchu('東京都'), ...fuchu('広島県')], 'municipality');
+    expect(result?.categories.map(item => [item.category, item.count])).toEqual([['東京都府中市', 3], ['広島県府中市', 3]]);
+    // 都道府県が無いと府中市は 2 つあるので決めない。大分県に府中市は無いので市区町村不明にする
+    expect(buildDistribution([{ gender: null, age: null, prefecture: null, municipality: '府中市' }], 'municipality')?.categories[0]?.category).toBe('不明');
+    expect(buildDistribution(Array.from({ length: 3 }, () => ({ gender: null, age: null, prefecture: '大分県', municipality: '府中市' })), 'municipality')?.categories[0]?.category).toBe('大分県（市区町村不明）');
   });
 
   it('compares the union of categories and computes percentage-point rather than relative growth', () => {

@@ -4,6 +4,7 @@ import { parseMediaCapture } from './mediaCaptureParser';
 import { parseApplicantReasons } from './applicantReasonsParser';
 import { parseHrhPerformance } from './hrhPerformanceModel';
 import { parseJointDemographics } from './reverseSearchModel';
+import { roundApplicantAreasInRecord } from './applicantArea';
 
 const dimensions: ApplicantDimension[] = ['gender', 'age', 'prefecture', 'municipality'];
 const invalid = (): never => { throw new Error('実データMOCの集計と求人の対応を確認できませんでした。'); };
@@ -64,7 +65,8 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
     results.set(listing, result);
   }
   if (results.size !== records.length) return invalid();
-  return records.map((job, index) => {
+  // 応募者の住所は取り込み直後に都道府県 + 市区町村へ丸める（元の文字列を画面へ渡さない）
+  const parsed = records.map((job, index): JobCopyRecord => {
     const listing = listings[index];
     if (listing === undefined) return invalid();
     const result = results.get(listing);
@@ -111,4 +113,5 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
       }),
     };
   });
+  return parsed.map(roundApplicantAreasInRecord);
 }

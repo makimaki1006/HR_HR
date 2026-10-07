@@ -8,6 +8,7 @@ import type { HrhPerformanceRow } from './hrhPerformanceModel';
 import { ImageGallery } from './ImageGallery';
 import { imagesByVersion } from './images';
 import { reasonSourceLabels } from './applicantReasonsModel';
+import { unmatchedApplicationCount } from './applicationCountsModel';
 import './ab-comparison.css';
 
 const number = (value: number | null | undefined, unit = '') => value === null || value === undefined ? '未取得・算出不可' : `${value.toLocaleString('ja-JP', { maximumFractionDigits: 2 })}${unit}`;
@@ -33,7 +34,7 @@ function Variant({ label, job, version, scope, metric, onVersion, onMetric }: {
     <label>{label}の本文観測版<select value={version?.id ?? ''} onChange={event => { onVersion(event.target.value); }}><option value="">観測版を選択</option>{publishedVariants(job).map(item => <option key={item.id} value={item.id}>{item.label} · {item.observedAt.slice(0, 10)}</option>)}</select></label>
     <p>応募数（{scope === 'record' ? '求人レコード全体' : '選択版の確定＋推定対応'}）：<strong>{number(variantCount(job, version, scope), '件')}</strong></p>
     <p>{scope === 'record' ? `応募集計取得日時：${job.overallApplications?.fetchedAt ?? '未取得'}` : `確定 ${number(version?.applications?.confirmed, '件')} / 推定 ${number(version?.applications?.estimated, '件')}`}</p>
-    <p>求人全体の版対応不明：{number(job.attributionUnknown, '件')}（選択版の応募数には含めません）</p>
+    <p>求人全体の版対応不明：{number(unmatchedApplicationCount(job), '件')}（選択版の応募数には含めません）</p>
     {version ? <><ImageGallery title={`${label}の掲載画像`} images={version.images ?? imagesByVersion[version.id]} />{version.historicalImageBytesAvailable === false && <p className="jc-notice">当時の画像原本は未保存です。</p>}<details><summary>{label}の求人本文を全文確認</summary><pre className="jc-body">{version.body}</pre><p>{version.note}</p></details></> : <p>掲載を観測した本文は未取得です。受信版・AI案は比較対象にしていません。</p>}
     <label>{label}の課金実績期間<select value={metric} onChange={event => { onMetric(event.target.value); }}><option value="">実績期間を選択</option>{job.hrhPerformance?.rows.map(item => <option key={item.period_start} value={item.period_start}>{item.period_start}〜{item.period_end}</option>)}</select></label>
     <MetricValues row={row} />

@@ -33,11 +33,16 @@ describe('joint demographic reverse search', () => {
   ] };
   const job = { id: 'synthetic', jointDemographics: joint } as JobCopyRecord;
   it('answers intersecting conditions from actual cells rather than marginal totals', () => {
-    expect(parseJointDemographics(joint, 4)).toEqual(joint);
-    const query = { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分市', minimum: 1 };
+    // 地域は都道府県 + 市区町村に丸め、3人未満の地域（福岡県の1人）は「その他」にまとめる
+    expect(parseJointDemographics(joint, 4)).toEqual({ total: 4, cells: [
+      { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', count: 1 },
+      { gender: '女性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', count: 2 },
+      { gender: '男性', age: '30代', prefecture: 'その他', municipality: 'その他', count: 1 },
+    ] });
+    const query = { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', minimum: 1 };
     expect(reverseSearch([job, { ...job, id: 'missing', jointDemographics: undefined }], query).map(result => [result.count, result.denominator, result.percentage])).toEqual([[1, 4, 25]]);
     expect(reverseSearch([job], { ...query, minimum: 2 })).toEqual([]);
-    expect(reverseSearch([job], { ...query, municipality: '別府市' })).toEqual([]);
+    expect(reverseSearch([job], { ...query, municipality: '大分県別府市' })).toEqual([]);
   });
   it('rejects total drift, duplicate cells and leaked additional fields', () => {
     expect(() => parseJointDemographics(joint, 5)).toThrow();
