@@ -20,14 +20,36 @@ import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
 import {
-  clearDraftEntry, draftKey, emptyResultDraft, loadStore, markRecorded, nextUnrecorded, putDraft, saveStore, sessionStorageOrNull, todayJst,
+  clearDraftEntry, draftKey, editDraft, emptyResultDraft, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, saveStore,
+  sessionStorageOrNull, todayJst, validateResultDraft,
 } from './callResultModel';
 import type { DraftStore, ResultDraft } from './callResultModel';
 import { useResultDefinitions } from './useResultDefinitions';
 import type { MetadataFetch } from './useResultDefinitions';
 import type { DialResult, ZoomPhone } from './useZoomPhone';
+import { toE164Jp } from './smartEmbed';
+import type { CallState } from './smartEmbed';
 import './crm.css';
 import './queue.css';
+
+/** 案件の画面から発信した記録。callId は発信の後に最初に始まった (番号の合う) 通話のもの */
+export interface DialedFor {
+  dealId: string;
+  mode: QueueMode;
+  /** 発信した番号 (+81…) */
+  number: string | null;
+  /** 発信した時点で Zoom が持っていた通話 (前の通話の「終了」を新しい案件に付けない) */
+  staleCallId: string | null;
+  callId: string | null;
+}
+
+/** 発信の後に始まった通話を、その発信のものとみなせるか (別の通話・着信・番号違いは紐づけない) */
+export function bindsToDial(d: DialedFor, call: CallState): boolean {
+  if (d.callId !== null || call.callId === null || call.callId === d.staleCallId || call.phase === 'idle') return false;
+  if (call.direction !== null && call.direction !== 'outbound') return false;
+  const n = toE164Jp(call.number);
+  return d.number === null || n === null || n === d.number;
+}
 
 const PHONE_SOURCE_LABELS: Record<string, string> = { deal: '案件', contact: '担当者', mobile: '担当者(携帯)', company: '会社' };
 
@@ -134,24 +156,36 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
   const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
   const listRef = useRef<HTMLUListElement | null>(null);
+  const focusSelectedRow = useRef(false);
 
   // 架電結果の下書き (案件ごと、このタブの sessionStorage に残す。HubSpot には送らない)
   const [store, setStore] = useState<DraftStore>(() => loadStore(sessionStorageOrNull()));
   useEffect(() => { saveStore(sessionStorageOrNull(), store); }, [store]);
   const [formCollapsed, setFormCollapsed] = useState(false);
-  // 日付の検証に使う JST の今日 (画面を開いた時点)
-  const [today] = useState(() => todayJst(now ? now() : Date.now()));
+  // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
+  const [nowFn] = useState(() => now ?? Date.now);
+  const [today, setToday] = useState(() => todayJst(nowFn()));
+  useEffect(() => {
+    const refresh = () => { setToday(todayJst(nowFn())); };
+    const t = window.setTimeout(refresh, msUntilNextJstMidnight(nowFn()) + 1000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.clearTimeout(t); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [today, nowFn]);
   const [formNotice, setFormNotice] = useState<{ dealId: string; text: string } | null>(null);
   const defs = useResultDefinitions(mode, selectedId !== null, metadataFetcher);
-  // どの案件の画面から発信したか (通話の終了をその案件の入力欄にだけ出す)
-  const [dialedFor, setDialedFor] = useState<{ dealId: string; mode: QueueMode } | null>(null);
+  // どの案件の画面から発信したか (通話の終了を、その発信の通話についてだけ、その案件の入力欄に出す)
+  const [dialedFor, setDialedFor] = useState<DialedFor | null>(null);
+  if (dialedFor !== null && bindsToDial(dialedFor, zoom.call)) setDialedFor({ ...dialedFor, callId: zoom.call.callId });
   // 結果のボタンへフォーカスを移し終えた通話 (同じ通話で何度もフォーカスを奪わない)
   const [handledCall, setHandledCall] = useState<string | null>(null);
   const zoomForDetail = useMemo<ZoomPhone>(() => ({
     ...zoom,
     dial: (raw: string | null | undefined): DialResult => {
       const r = zoom.dial(raw);
-      if (r === 'sent' && detailId !== null) setDialedFor({ dealId: detailId, mode });
+      if (r === 'sent' && detailId !== null) {
+        setDialedFor({ dealId: detailId, mode, number: toE164Jp(raw), staleCallId: zoom.call.callId, callId: null });
+      }
       return r;
     },
   }), [zoom, detailId, mode]);
@@ -233,11 +267,15 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const isRecorded = useCallback((id: string) => store.recorded[draftKey(mode, id)] === true, [store, mode]);
   const selKey = selectedId !== null ? draftKey(mode, selectedId) : null;
   const draft: ResultDraft = (selKey !== null ? store.drafts[selKey] : undefined) ?? emptyResultDraft();
-  const endedCall = zoom.call.phase === 'ended' && dialedFor !== null && dialedFor.mode === mode && dialedFor.dealId === selectedId ? zoom.call : null;
+  const endedCall = zoom.call.phase === 'ended' && dialedFor !== null && dialedFor.mode === mode && dialedFor.dealId === selectedId
+    && dialedFor.callId !== null && dialedFor.callId === zoom.call.callId ? zoom.call : null;
+  // 条件を変えて、選んだ案件がいまの一覧から外れた (記録はさせない。一覧で見えない案件を記録して次へ進まない)
+  const offList = state.phase === 'ready' && selectedId !== null && !state.items.some(i => i.deal_id === selectedId);
 
   function changeDraft(d: ResultDraft) {
     if (selKey === null) return;
-    setStore(prev => putDraft(prev, selKey, d));
+    // 記録した後に書き換えたら、記録済みの印は外す
+    setStore(prev => editDraft(prev, selKey, d));
   }
   function clearDraft() {
     if (selKey === null) return;
@@ -245,15 +283,32 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     setFormNotice(null);
   }
   // 記録して次へ: このブラウザで記録済みの印を付け (下書きは残す)、一覧で次の未記録の案件を選ぶ。HubSpot には送らない
-  function recordAndNext() {
-    if (selKey === null || selectedId === null) return;
+  function recordAndNext(): boolean {
+    if (selKey === null || selectedId === null || offList) return false;
+    // 日付の検証は記録する時点の今日で (画面を開いたまま日付をまたいだとき)
+    const fresh = todayJst(nowFn());
+    if (fresh !== today) {
+      setToday(fresh);
+      if (defs.state.phase !== 'ready' || Object.keys(validateResultDraft(draft, defs.state.defs, fresh)).length > 0) return false;
+    }
     setStore(prev => markRecorded(prev, selKey));
     const ids = state.items.map(i => i.deal_id);
     const next = nextUnrecorded(ids, selectedId, isRecorded);
-    if (next === null) { setFormNotice({ dealId: selectedId, text: '表示中の一覧に未記録の架電先はありません。' }); return; }
+    if (next === null) { setFormNotice({ dealId: selectedId, text: '表示中の一覧に未記録の架電先はありません。' }); return true; }
     setFormNotice(null);
     select(next, 'click');
+    focusSelectedRow.current = true;
+    return true;
   }
+  // 記録して次へで選び直したら、一覧の選んだ行へフォーカスを移して見える位置まで送る
+  // (入力欄は案件ごとに作り直すので、そのままだとフォーカスが body に落ちる)
+  useEffect(() => {
+    if (!focusSelectedRow.current) return;
+    focusSelectedRow.current = false;
+    const btn = listRef.current?.querySelector<HTMLButtonElement>('.cq-row-button[aria-pressed="true"]');
+    btn?.focus();
+    if (typeof btn?.scrollIntoView === 'function') btn.scrollIntoView({ block: 'nearest' });
+  }, [selectedId]);
 
   const waitingKey = selectedId !== null && selectedId !== detailId;
   const anyFocusable = state.items.some(i => i.deal_id === selectedId);
@@ -264,6 +319,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       <div className={`cq-mode cq-mode-${mode}`} role="status" aria-label="データの種類">
         <strong className="cq-mode-badge">{mode === 'live' ? '実データ(HubSpot)' : '架空サンプル'}</strong>
         <span className="cq-mode-note">{mode === 'live' ? 'HubSpot への書き込みはしません' : '表示内容はすべて架空です。HubSpot には接続しません。'}</span>
+        <span className="cq-mode-note-short">{mode === 'live' ? 'HubSpot 書き込みなし' : '架空・未接続'}</span>
       </div>
       <span className="cq-mode-switch" role="group" aria-label="データの切り替え">
         <button type="button" aria-pressed={mode === 'live'} onClick={() => { setMode('live'); }}>実データ</button>
@@ -305,7 +361,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     </form>
 
     <div className="cq-body">
-      <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-live="polite" aria-busy={state.phase === 'loading'}>
+      <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
         <div className="cq-list-head">
           {state.phase === 'ready' && <p className="cq-count" role="status">{state.items.length} 件を表示
             {total !== null && <span title="電話番号なし等を除く前の参考値">(検索結果 {total} 件)</span>}</p>}
@@ -355,7 +411,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             defsState={defs.state} onReloadDefs={defs.reload} recorded={isRecorded(selectedId)} onRecord={recordAndNext} onClear={clearDraft}
             collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
             focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
-            notice={formNotice?.dealId === selectedId ? formNotice.text : undefined} />
+            recordBlocked={offList}
+            notice={offList ? 'この案件はいまの一覧にありません(条件で外れました)。記録するには一覧に戻してください。'
+              : formNotice?.dealId === selectedId ? formNotice.text : undefined} />
         </div>}
       </section>
       <div className="cq-col cq-phone-col">

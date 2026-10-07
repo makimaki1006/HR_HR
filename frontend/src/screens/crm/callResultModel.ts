@@ -105,6 +105,13 @@ export function todayJst(now: number = Date.now()): string {
   return new Date(now + 9 * 3600_000).toISOString().slice(0, 10);
 }
 
+/** 次の JST 0 時までのミリ秒 (1 以上) */
+export function msUntilNextJstMidnight(now: number = Date.now()): number {
+  const day = 86_400_000;
+  const jst = now + 9 * 3600_000;
+  return day - (((jst % day) + day) % day) || day;
+}
+
 /** 実在する暦日の YYYY-MM-DD か (2026-02-30 などは不可) */
 export function isCalendarDate(s: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -261,6 +268,10 @@ export function putDraft(s: DraftStore, key: string, d: ResultDraft): DraftStore
 /** 「下書きを消す」: 下書きと記録済みの印の両方を消す */
 export function clearDraftEntry(s: DraftStore, key: string): DraftStore {
   return { drafts: without(s.drafts, key), recorded: without(s.recorded, key) };
+}
+/** 入力欄での編集: 下書きを入れ替え、記録済みの印は外す (記録したときの内容と変わったので、もう一度「記録して次へ」が要る) */
+export function editDraft(s: DraftStore, key: string, d: ResultDraft): DraftStore {
+  return { drafts: putDraft(s, key, d).drafts, recorded: without(s.recorded, key) };
 }
 export function markRecorded(s: DraftStore, key: string): DraftStore {
   return { ...s, recorded: { ...s.recorded, [key]: true } };

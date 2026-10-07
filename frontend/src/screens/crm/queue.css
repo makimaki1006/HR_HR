@@ -34,7 +34,8 @@
 .cq-mode-badge { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; }
 .cq-mode-live .cq-mode-badge { background: #d7f0e2; color: #17573a; }
 .cq-mode-fixture .cq-mode-badge { background: #ffe6cc; color: #7a3f0c; }
-.cq-mode-note { color: #c9d3dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cq-mode-note, .cq-mode-note-short { color: #c9d3dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cq-mode-note-short { display: none; }
 .cq-mode-switch { flex: none; display: inline-flex; }
 .cq-mode-switch button { border: 1px solid #56677a; background: transparent; color: #dbe3ea !important; padding: 2px 10px; font-size: 12px; }
 .cq-mode-switch button:first-child { border-radius: 4px 0 0 4px; }
@@ -209,9 +210,14 @@
 /* ---- 幅が狭いとき ---- */
 @media (max-width: 1279px) {
   .cq-body { grid-template-columns: 300px minmax(0, 1fr) 320px; }
+  /* 幅が狭くても「書き込まない」ことは短い文で残す */
   .cq-mode-note { display: none; }
+  .cq-mode-note-short { display: inline; }
 }
 /* 1000px 未満: ページ全体のスクロールに戻し、一覧 → 詳細 → Zoom Phone の順に縦に並べる */
+@media (max-height: 820px) and (min-width: 1000px) {
+  .wd-top { max-height: 40%; padding: 8px 12px; }
+}
 @media (max-width: 999px) {
   .cq-app { height: auto; min-height: 100dvh; overflow: visible; }
   .cq-body { display: flex; flex-direction: column; }
