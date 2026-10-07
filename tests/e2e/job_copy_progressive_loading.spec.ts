@@ -21,6 +21,7 @@ test('30-second image response does not block full body, application counts or t
     settled = true;
   });
   await page.goto('/app/job-copy');
+  await selectJobFeature(page, 'body');
   const bodyPanel = page.getByRole('tabpanel', { name: '本文・画像', exact: true });
   const picture = bodyPanel.getByRole('img', { name: '合成の遅延画像', exact: true });
   await expect(bodyPanel.locator('.jc-body')).toHaveText(snapshot.capture_bundle.jobs[0]!.body);
@@ -50,6 +51,7 @@ test('image failure stays separate from zero and retry restores the same referen
     return attempts === 1 ? route.fulfill({ status: 503, body: '' }) : route.fulfill({ status: 200, contentType: 'image/png', body: imageBytes });
   });
   await page.goto('/app/job-copy');
+  await selectJobFeature(page, 'body');
   const panel = page.getByRole('tabpanel', { name: '本文・画像', exact: true });
   await panel.locator('.jc-image-section').scrollIntoViewIfNeeded();
   await expect(panel.getByRole('alert')).toContainText('画像なし・削除とは判定していません');

@@ -110,7 +110,7 @@ describe('composition fixture boundary and UI', () => {
     expect(html).toContain('架空の応募者属性');
     expect(html).toContain('属性不明も含めます');
     expect(html).toContain('変更効果を示すものではありません');
-    expect(html).toContain('課金情報は未取得');
+    expect(html).toContain('媒体の期間別実績は「課金・クリック」で確認できます');
     expect(html).not.toContain('<option value="demo-001-draft"');
   });
 

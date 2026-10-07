@@ -22,6 +22,8 @@ describe('one application denominator across panels', () => {
   it('shows the same 34 unmatched applications on 本文・画像 and 応募者構成, with the plain no-linked sentence', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(snapshot()))));
     const { container } = render(<JobCopyScreen />);
+    // 最初のタブはタイムライン。本文・画像へ切り替えてから確かめる
+    fireEvent.click(await screen.findByRole('tab', { name: '求人内容' }));
     const summary = await screen.findByRole('region', { name: '版別の応募状況' });
     expect(within(summary).getByRole('status').textContent).toBe('この版に結びつく応募はまだありません（求人全体では34件）');
     expect(summary.querySelector('.jc-counts')?.textContent).toContain('どの版への応募か不明（求人全体）34件');
