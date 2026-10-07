@@ -11,7 +11,7 @@ pub mod client;
 pub mod deep_link;
 pub mod types;
 
-pub use client::{ClientOptions, HubSpotClient, DEFAULT_BASE_URL};
+pub use client::{ClientOptions, HubSpotClient, OwnerRef, DEFAULT_BASE_URL};
 pub use types::{
     AssociationRef, EngagementType, HubSpotError, HubSpotRecord, RateLimitSnapshot, RecordType,
     TokenInfo,

@@ -99,12 +99,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
   }, [filters, mode, initialSearch]);
 
   const hasConditions = useMemo(() => filtersKey(filters) !== filtersKey(DEFAULT_FILTERS), [filters]);
-  // 条件を変えて読み直している間は role が空になる。同じモードで管理者と分かった後は、BPO と分かるまで
+  // 条件を変えて読み直している間は role が空になる。同じモードで管理者と分かった後は、自分の分だけと分かるまで
   // 管理者のままにする (担当者の入力欄が一瞬消えて、一覧を取り直すのを防ぐ。モードを変えたら確かめ直す)
   const [adminSeenIn, setAdminSeenIn] = useState<QueueMode | null>(null);
   if (state.role === 'admin' && adminSeenIn !== mode) setAdminSeenIn(mode);
-  if (state.role === 'bpo' && adminSeenIn !== null) setAdminSeenIn(null);
-  const isAdmin = state.role === 'admin' || (adminSeenIn === mode && state.role !== 'bpo');
+  if (state.role === 'own' && adminSeenIn !== null) setAdminSeenIn(null);
+  const isAdmin = state.role === 'admin' || (adminSeenIn === mode && state.role !== 'own');
   // 担当者の一覧は管理者だけ。実データでは HubSpot、架空サンプルでは架空の一覧
   const owners = useOwners(isAdmin, mode === 'fixture' ? fixtureOwnersFetch : (ownersFetcher ?? liveOwnersFetch));
   const ownerNames = useMemo(() => ownerNameMap(owners.state.phase === 'ready' ? owners.state.owners : []), [owners.state]);
@@ -123,13 +123,18 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
 
     <div className={`cq-mode cq-mode-${mode}`} role="status" aria-label="データの種類">
       <strong>{mode === 'live' ? '実データ(HubSpot)' : '架空サンプル'}</strong>
-      <span>{mode === 'live' ? 'HubSpot の読み取りだけを行います。書き込み・発信はしません。'
+      <span>{mode === 'live' ? 'HubSpot への書き込みはしません(発信は右の Zoom Phone から)'
         : '表示内容はすべて架空です。HubSpot には接続しません。'}</span>
       <span className="cq-mode-switch" role="group" aria-label="データの切り替え">
         <button aria-pressed={mode === 'live'} onClick={() => { setMode('live'); }}>実データ</button>
         <button aria-pressed={mode === 'fixture'} onClick={() => { setMode('fixture'); }}>架空サンプル</button>
       </span>
     </div>
+
+    {mode === 'live' && state.last !== null ? <p className="cq-scope-note" data-testid="scope-note" style={{ fontSize: '0.75rem', opacity: 0.7, margin: '2px 12px' }}>
+      {state.last.scope.role === 'admin' ? '管理者として全員分を表示できます。'
+        : `自分の担当分だけを表示しています。HubSpot の所属チーム: ${state.last.scope.teams.length > 0 ? state.last.scope.teams.join('、') : '(なし)'}(参考表示。見られる範囲には使っていません)`}
+    </p> : null}
 
     <form className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
       <label className="cq-wide">キーワード(会社名・案件名)<input type="search" value={qDraft} maxLength={100}

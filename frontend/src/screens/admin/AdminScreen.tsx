@@ -123,13 +123,17 @@ function SuccessCell({ success }: { success: number }) {
   return success === 1 ? <span className="w8-green">成功</span> : <span className="w8-red">失敗</span>;
 }
 
-/** Roles in `accounts.role` (decided 2026-10-01). The order is the select order. */
+/**
+ * Roles you can set in `accounts.role` (decided 2026-10-07). Only `admin` is used by the CRM: admins read every record,
+ * everyone else (any company Google login) reads only their own HubSpot-owned queue. Whether someone is BPO is not set here.
+ */
 export const ROLE_OPTIONS = [
-  { value: 'admin', label: 'admin(管理者)' },
-  { value: 'consultant', label: 'consultant(社員・全レコード閲覧)' },
-  { value: 'bpo', label: 'bpo(架電キューの自分の担当だけ)' },
-  { value: 'user', label: 'user(CRM 不可・既定)' },
+  { value: 'admin', label: 'admin(管理者: 全員分を閲覧)' },
+  { value: 'user', label: '一般(自分の担当分だけ)' },
 ] as const;
+
+/** Old stored values that are no longer used by the CRM (treated as a general user). */
+const LEGACY_ROLES = ['consultant', 'bpo'];
 
 /** User-facing text for a failed role change. Keys are `error_kind` of POST /api/admin/users/{id}/role. */
 export function describeRoleChangeError(error: unknown): string {
@@ -163,6 +167,7 @@ export function RoleEditor({
   onChanged: (role: string) => void;
 }) {
   const known = ROLE_OPTIONS.some((o) => o.value === current);
+  const legacy = LEGACY_ROLES.includes(current);
   const [choice, setChoice] = useState<string>(known ? current : 'user');
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -191,11 +196,18 @@ export function RoleEditor({
     <section className="w8-card" data-testid="role-editor">
       <h3 className="w8-h3">架電 CRM の役割</h3>
       <p className="w8-subtle">
+        管理者かどうかだけをここで決めます。会社の Google アカウントでログインした人は全員 CRM を使え、管理者以外は
+        HubSpot で自分が担当の分だけ見えます(BPO かどうかは HubSpot の所属チームで分かります。ここでは設定しません)。
         変更はすぐに保存され、このサーバでは次のリクエストから効きます(別のサーバには最大 5 分)。自分自身は変更できません。
       </p>
-      {known ? null : (
+      {legacy ? (
+        <p className="w8-subtle" data-testid="role-legacy">
+          現在の値「{current}」は以前の役割で、いまは使いません(一般と同じ扱い)。
+        </p>
+      ) : null}
+      {known || legacy ? null : (
         <p className="w8-red" data-testid="role-unknown">
-          現在の値「{current}」は未知の役割です(CRM では user 扱い)。
+          現在の値「{current}」は未知の役割です(CRM では一般と同じ扱い)。
         </p>
       )}
       <label className="w8-label" htmlFor="role-select">

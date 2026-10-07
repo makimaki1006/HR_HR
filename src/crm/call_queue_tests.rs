@@ -1399,7 +1399,7 @@ async fn bpo_は自分の_owner_だけ_search_に入り_owner_はキャッシュ
         let (s, v) = e.bpo_get(q).await;
         assert_eq!(s, StatusCode::OK, "{q}: {v}");
         assert_eq!(v["scope"]["owner"], "me");
-        assert_eq!(v["scope"]["role"], "bpo");
+        assert_eq!(v["scope"]["role"], "own");
     }
     // 全ての OR グループに、自分の owner の絞り込みが入っている
     for b in e.searches() {

@@ -94,7 +94,7 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     next_cursor: end < sorted.length ? `fx:${String(end)}` : null,
     total: sorted.length, truncated: false,
     scope: {
-      owner: f.owner === '' ? 'all' : f.owner, role: 'admin',
+      owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
       stages: [...stages].sort(), due: f.due, sort: f.sort, q: f.q.trim() || null, limit: FIXTURE_PAGE_SIZE,
       next_from: f.nextFrom || null, next_to: f.nextTo || null, last_from: f.lastFrom || null, last_to: f.lastTo || null,
     },
