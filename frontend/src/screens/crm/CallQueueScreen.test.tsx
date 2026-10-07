@@ -2,7 +2,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../../api/client';
-import { CallQueueScreen, partialNotes } from './CallQueueScreen';
+import { CallQueueScreen, KEY_SELECT_DELAY_MS, partialNotes } from './CallQueueScreen';
+import type { DetailFetch } from './useDealDetail';
+import type { OwnersFetch } from './useOwners';
 import { makeItem, makeResponse, deferredFetcher } from './queueTestUtil';
 import { DEFAULT_FILTERS, parseFilters } from './queueModel';
 
@@ -29,12 +31,13 @@ describe('CallQueueScreen', () => {
       makeItem('2', { phone: '03-1111-2222', phone_source: 'deal', next_call_date: '2026-10-05', next_call_time: '10:30', stop: { prohibited_reason: null, block_reason: null, unreachable_check: '通話中' } }),
       makeItem('3', { phone: null, phone_source: null, contact: null, company: null, owner_id: null }),
     ]);
-    const row1 = screen.getByText('0312345678');
+    // 表示はハイフン区切り。元の値は title に残す
+    const row1 = screen.getByText('03-1234-5678');
     expect(row1.getAttribute('title')).toBe('+81312345678');
-    expect(screen.getByText('0311112222')).toBeTruthy();
-    expect(screen.getByText('2026/10/05')).toBeTruthy();
+    expect(screen.getByText('03-1111-2222')).toBeTruthy();
+    expect(screen.getByText('10/05')).toBeTruthy();
     expect(screen.getByText('10:30')).toBeTruthy();
-    expect(screen.getByText('不通時チェック: 通話中')).toBeTruthy();
+    expect(screen.getByTitle('不通時チェック: 通話中').textContent).toBe('不通チェック');
     expect(screen.getByText('番号を確認できません')).toBeTruthy();
     expect(screen.getByText('担当者情報を取得できませんでした')).toBeTruthy();
     expect(screen.getByText('3 件を表示')).toBeTruthy();
@@ -197,5 +200,142 @@ describe('CallQueueScreen', () => {
       expect(urls.filter(u => !u.startsWith('/api/crm/call-queue'))).toEqual(['/api/crm/owners']);
       expect(screen.queryByText('架空食品株式会社')).toBeNull();
     } finally { vi.unstubAllGlobals(); }
+  });
+});
+
+describe('calling cockpit layout', () => {
+  const ownersFetcher: OwnersFetch = () => Promise.resolve({ ok: true, data: {
+    owners: [{ id: '9001', name: '架空 担当', email: null, archived: false }], truncated: false, generated_at: '2026-10-05T00:00:00Z',
+  } });
+  function detailStub() {
+    const ids: string[] = [];
+    const fetcher: DetailFetch = (id) => { ids.push(id); return new Promise(() => { /* 応答しない (読み込み中のまま) */ }); };
+    return { ids, fetcher };
+  }
+
+  it('a queue row is three compact lines: company + flag + stage / contact · formatted phone / next, last, owner', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen fetcher={fetcher} ownersFetcher={ownersFetcher} initialSearch="" />);
+    await ready(calls, [makeItem('1', {
+      stage_label: '不在', phone: '+81300000005', next_call_date: '2026-10-05', next_call_time: '10:30', last_call_date: '2026-10-01',
+      contact: { id: 'c1', name: '架空 太郎1', phone: null, mobile: null, job_title: '採用担当', extra_count: 2 },
+      stop: { prohibited_reason: null, block_reason: null, unreachable_check: '通話中' },
+    })]);
+    await waitFor(() => { expect(screen.getByText('架空 担当')).toBeTruthy(); });
+    const row = within(screen.getByRole('list', { name: '架電キュー' })).getByRole('button');
+    const lines = Array.from(row.children).map(el => el.textContent);
+    expect(lines).toEqual([
+      '架空会社1不通チェック不在',
+      '架空 太郎1 ほか2人·03-0000-0005',
+      '次回 10/05 10:30最終 10/01担当 架空 担当',
+    ]);
+    // 案件名と年つきの日付は title で見られる
+    expect(row.getAttribute('title')).toBe('架空案件1');
+    expect(row.lastElementChild?.getAttribute('title')).toBe('次回架電 2026/10/05 / 最終架電 2026/10/01');
+  });
+
+  it('the topbar is compact: title 架電, the mode badge and switch, no link to the old workspace', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen fetcher={fetcher} initialSearch="" />);
+    await ready(calls);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('架電');
+    expect(screen.getByRole('status', { name: 'データの種類' }).textContent).toBe('実データ(HubSpot)HubSpot への書き込みはしません');
+    expect(screen.queryByText('架電ワークスペースへ')).toBeNull();
+    expect(within(screen.getByRole('group', { name: 'データの切り替え' })).getAllByRole('button').map(b => [b.textContent, b.getAttribute('aria-pressed')]))
+      .toEqual([['実データ', 'true'], ['架空サンプル', 'false']]);
+  });
+
+  it('詳細条件 opens and closes the stage / date panel; the button counts the detailed conditions in use', () => {
+    const { fetcher } = deferredFetcher();
+    render(<CallQueueScreen fetcher={fetcher} initialSearch="?stage=1095387445&stage=1095387443&next_from=2026-10-01" />);
+    const toggle = screen.getByRole('button', { name: /^詳細条件/ });
+    const panel = document.getElementById('cq-advanced');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(panel?.hidden).toBe(true);
+    expect(toggle.textContent).toBe('詳細条件3');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(panel?.hidden).toBe(false);
+    fireEvent.click(toggle);
+    expect(panel?.hidden).toBe(true);
+  });
+
+  it('active conditions are listed as chips; × removes exactly that condition and refetches', () => {
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen fetcher={fetcher} initialSearch="?q=架空&stage=1095387442&stage=1095387445&due=today&next_from=2026-10-01&last_to=2026-09-30&sort=next_call_desc" />);
+    const chips = () => within(screen.getByRole('list', { name: '適用中の条件' })).getAllByRole('listitem').map(li => li.querySelector('span')?.textContent);
+    expect(chips()).toEqual([
+      'キーワード: 架空', '次回日が来たものだけ', 'ステージ: 未済', 'ステージ: 不在', '次回架電日: 2026/10/01〜', '最終架電日: 〜2026/09/30',
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: '「ステージ: 未済」を外す' }));
+    expect(calls.at(-1)?.filters.stages).toEqual(['1095387445']);
+    fireEvent.click(screen.getByRole('button', { name: '「キーワード: 架空」を外す' }));
+    expect(calls.at(-1)?.filters.q).toBe('');
+    expect(screen.getByLabelText<HTMLInputElement>('キーワード(会社名・案件名)').value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: '「最終架電日: 〜2026/09/30」を外す' }));
+    expect(calls.at(-1)?.filters.lastTo).toBe('');
+    expect(calls.at(-1)?.filters.sort).toBe('next_call_desc');
+    expect(chips()).toEqual(['次回日が来たものだけ', 'ステージ: 不在', '次回架電日: 2026/10/01〜']);
+    // 何も無ければチップの列は出ない
+    fireEvent.click(screen.getByText('条件をクリア'));
+    expect(screen.queryByRole('list', { name: '適用中の条件' })).toBeNull();
+  });
+
+  it('ArrowDown / ArrowUp move the selection within the list; the detail is fetched after a short pause, never showing the previous deal meanwhile', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { calls, fetcher } = deferredFetcher();
+      const detail = detailStub();
+      render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} initialSearch="" />);
+      await ready(calls, [makeItem('1'), makeItem('2'), makeItem('3')]);
+      const list = screen.getByRole('list', { name: '架電キュー' });
+      const buttons = () => within(list).getAllByRole('button');
+      // 何も選んでいなければ先頭の行だけがタブで入れる
+      expect(buttons().map(b => b.tabIndex)).toEqual([0, -1, -1]);
+      fireEvent.click(at(buttons(), 0));
+      expect(detail.ids).toEqual(['1']);
+      fireEvent.keyDown(at(buttons(), 0), { key: 'ArrowDown' });
+      expect(buttons().map(b => b.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
+      expect(document.activeElement).toBe(at(buttons(), 1));
+      expect(detail.ids).toEqual(['1']);
+      expect(screen.getByText('詳細を読み込み中…')).toBeTruthy();
+      fireEvent.keyDown(at(buttons(), 1), { key: 'ArrowDown' });
+      fireEvent.keyDown(at(buttons(), 2), { key: 'ArrowDown' });
+      expect(buttons().map(b => b.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true']);
+      act(() => { vi.advanceTimersByTime(KEY_SELECT_DELAY_MS); });
+      // 押し続けた途中の案件 2 は読まない
+      expect(detail.ids).toEqual(['1', '3']);
+      fireEvent.keyDown(at(buttons(), 2), { key: 'ArrowUp' });
+      expect(buttons().map(b => b.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
+      expect(buttons().map(b => b.tabIndex)).toEqual([-1, 0, -1]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('the empty result slot sits at the bottom of the center column only while a deal is selected', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    const detail = detailStub();
+    const { container } = render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} initialSearch="" />);
+    await ready(calls, [makeItem('1'), makeItem('2')]);
+    expect(container.querySelector('.cq-result-slot')).toBeNull();
+    fireEvent.click(screen.getByText('架空会社2'));
+    const slot = container.querySelector('.cq-result-slot');
+    expect(slot?.getAttribute('data-deal-id')).toBe('2');
+    expect(slot?.childElementCount).toBe(0);
+    const center = container.querySelector('.cq-detail');
+    expect(slot?.parentElement).toBe(center);
+    expect(center?.lastElementChild).toBe(slot);
+  });
+
+  it('the Zoom Phone iframe is the same element after switching deals and opening the panel (never remounted)', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    const detail = detailStub();
+    render(<CallQueueScreen fetcher={fetcher} detailFetcher={detail.fetcher} initialSearch="" />);
+    await ready(calls, [makeItem('1'), makeItem('2')]);
+    const iframe = screen.getByTitle('Zoom Phone');
+    fireEvent.click(screen.getByText('架空会社1'));
+    fireEvent.click(screen.getByText('架空会社2'));
+    fireEvent.click(screen.getByRole('button', { name: /^詳細条件/ }));
+    expect(screen.getByTitle('Zoom Phone')).toBe(iframe);
+    expect(detail.ids).toEqual(['1', '2']);
   });
 });

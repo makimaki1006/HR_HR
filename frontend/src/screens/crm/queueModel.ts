@@ -135,12 +135,16 @@ export function queueApiPath(f: QueueFilters, cursor: string | null): string {
   return `/api/crm/call-queue?${p.toString()}`;
 }
 
-/** 画面の URL (`?view=queue` + 条件 + モード) */
+/**
+ * 画面の URL の検索文字列 (条件 + モード)。架電画面は `/app/crm` の既定なので `view` は付けない。
+ * 既定どおり (実データ・条件なし) なら '' (呼び出し側はパスだけの URL にする)
+ */
 export function screenSearch(f: QueueFilters, mode: QueueMode): string {
-  const p = new URLSearchParams({ view: 'queue' });
+  const p = new URLSearchParams();
   if (mode === 'fixture') p.set('mode', 'fixture');
   for (const [k, v] of filtersToParams(f)) p.append(k, v);
-  return `?${p.toString()}`;
+  const s = p.toString();
+  return s === '' ? '' : `?${s}`;
 }
 
 /** 条件が同じかの比較用キー (取得のやり直し判定) */

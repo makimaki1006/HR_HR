@@ -3,9 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { CrmReferenceScreen, CrmScreen } from '../screens/crm/CrmScreen';
 import { CallWorkspace } from '../screens/crm/CallWorkspace';
 import { CallQueueScreen } from '../screens/crm/CallQueueScreen';
+import { crmView } from '../screens/crm/crmView';
 
 const rootElement = document.getElementById('app-root');
-const view = new URLSearchParams(window.location.search).get('view');
+const view = crmView(window.location.search);
 if (rootElement) createRoot(rootElement).render(<StrictMode>
-  {view === 'queue' ? <CallQueueScreen /> : view === 'reference' ? <CrmReferenceScreen /> : view === 'single' ? <CallWorkspace /> : <CrmScreen />}
+  {view === 'moc' ? <CrmScreen /> : view === 'reference' ? <CrmReferenceScreen /> : view === 'single' ? <CallWorkspace /> : <CallQueueScreen />}
 </StrictMode>);

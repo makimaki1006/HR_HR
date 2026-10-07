@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { WorkspaceActivity } from '../../generated/WorkspaceActivity';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { dateValue } from './queueModel';
-import { toDomesticPhone } from './phone';
+import { formatPhoneForDisplay, toDomesticPhone } from './phone';
 import { toE164Jp } from './smartEmbed';
 import type { ZoomPhone } from './useZoomPhone';
 import type { DetailState } from './useDealDetail';
@@ -21,24 +21,28 @@ const DIAL_MESSAGES: Record<string, string> = {
   busy: '通話中のため、新しい発信はできません。',
 };
 
-/** 電話番号 1 つ分: 表示(国内形式) / 発信(Smart Embed) / コピー / tel: */
-export function PhoneRow({ label, raw, zoom }: { label: string; raw: string; zoom: ZoomPhone }) {
-  const shown = toDomesticPhone(raw) ?? raw;
+/**
+ * 電話番号 1 つ分: 表示(ハイフン区切り) / 発信(Smart Embed、元の値) / コピー(国内形式の数字) / tel:
+ * `primary` は「架ける番号」の大きい表示
+ */
+export function PhoneRow({ label, raw, zoom, primary = false }: { label: string; raw: string; zoom: ZoomPhone; primary?: boolean }) {
+  const shown = formatPhoneForDisplay(raw) ?? raw;
+  const copyValue = toDomesticPhone(raw) ?? raw;
   const e164 = toE164Jp(raw);
   const [note, setNote] = useState('');
   function dial() { setNote(DIAL_MESSAGES[zoom.dial(raw)] ?? ''); }
   function copy() {
     const clip = typeof navigator === 'undefined' ? undefined : (navigator as { clipboard?: Clipboard }).clipboard;
     if (!clip) { setNote('コピーできませんでした。番号を選んでコピーしてください。'); return; }
-    clip.writeText(shown).then(() => { setNote('番号をコピーしました。'); }, () => { setNote('コピーできませんでした。番号を選んでコピーしてください。'); });
+    clip.writeText(copyValue).then(() => { setNote('番号をコピーしました。'); }, () => { setNote('コピーできませんでした。番号を選んでコピーしてください。'); });
   }
-  return <div className="wd-phone">
+  return <div className={`wd-phone${primary ? ' wd-phone-primary' : ''}`}>
     <span className="wd-phone-label">{label}</span>
     <span className="cq-phone" title={raw}>{shown}</span>
     <span className="wd-phone-actions">
       <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled'}
         aria-label={`${label} ${shown} に発信`}>発信</button>
-      <button type="button" onClick={copy} aria-label={`${label} ${shown} の番号をコピー`}>番号をコピー</button>
+      <button type="button" className="wd-copy" onClick={copy} aria-label={`${label} ${shown} の番号をコピー`}>番号をコピー</button>
       {e164 !== null && <a href={`tel:${e164}`} aria-label={`${label} ${shown} へ tel: で発信`}>tel:</a>}
     </span>
     {e164 === null && <small className="crm-muted">ダイヤルできる形式ではありません</small>}
@@ -80,26 +84,30 @@ function Detail({ data, zoom, ownerName }: { data: WorkspaceResponse; zoom: Zoom
   ].filter((x): x is { key: string; label: string; raw: string } => typeof x === 'object' && x !== null && x.raw !== data.dial?.number);
 
   return <article className="wd" aria-label="架電先の詳細">
-    <header className="wd-head">
-      <div><span className="crm-eyebrow">DEAL</span>
-        <h2>{company?.name ?? d.name ?? '(名称なし)'}</h2>
-        <p>{d.name ?? '(案件名なし)'}</p></div>
-      <div className="wd-head-side">
-        <span className="crm-status">{d.stage_label ?? '(ステージ名を取得できません)'}</span>
-        <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
-      </div>
-    </header>
+    {/* 上端に固定: 会社・案件・ステージ・HubSpot と「架ける番号」。下の情報だけがスクロールする */}
+    <div className="wd-top">
+      <header className="wd-head">
+        <div className="wd-head-main">
+          <h2>{company?.name ?? d.name ?? '(名称なし)'}</h2>
+          <p>{d.name ?? '(案件名なし)'}</p></div>
+        <div className="wd-head-side">
+          <span className="cq-stage">{d.stage_label ?? '(ステージ名を取得できません)'}</span>
+          <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
+        </div>
+      </header>
 
+      <section className="wd-dialbox" aria-label="架ける番号">
+        <h3 className="wd-dial-title">架ける番号</h3>
+        {data.dial ? <PhoneRow label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary />
+          : <p className="crm-muted">番号を確認できません。担当者・会社の情報を HubSpot で確認してください。</p>}
+        {otherPhones.length > 0 && <details className="wd-other"><summary>ほかの番号({otherPhones.length})</summary>
+          {otherPhones.map(p => <PhoneRow key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</details>}
+      </section>
+    </div>
+
+    <div className="wd-body">
     {notes.length > 0 && <div className="cq-notice cq-warn" role="status"><strong>一部の情報が欠けています</strong>
       <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div>}
-
-    <section className="wd-card wd-dial" aria-label="架ける番号">
-      <h3>架ける番号</h3>
-      {data.dial ? <PhoneRow label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} />
-        : <p className="crm-muted">番号を確認できません。担当者・会社の情報を HubSpot で確認してください。</p>}
-      {otherPhones.length > 0 && <details><summary>ほかの番号({otherPhones.length})</summary>
-        {otherPhones.map(p => <PhoneRow key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</details>}
-    </section>
 
     <section className="wd-card" aria-label="案件の情報">
       <h3>案件</h3>
@@ -119,7 +127,7 @@ function Detail({ data, zoom, ownerName }: { data: WorkspaceResponse; zoom: Zoom
         <strong>{c.name ?? '(氏名なし)'}</strong>{c.is_primary && <span className="crm-status">主</span>}
         {c.job_title && <small>{c.job_title}</small>}
         {c.email && <small>{c.email}</small>}
-        <small>{[c.phone && `電話 ${toDomesticPhone(c.phone) ?? c.phone}`, c.mobile && `携帯 ${toDomesticPhone(c.mobile) ?? c.mobile}`].filter(Boolean).join(' / ') || '電話番号の登録なし'}</small>
+        <small>{[c.phone && `電話 ${formatPhoneForDisplay(c.phone) ?? c.phone}`, c.mobile && `携帯 ${formatPhoneForDisplay(c.mobile) ?? c.mobile}`].filter(Boolean).join(' / ') || '電話番号の登録なし'}</small>
         <a href={c.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
       </li>)}</ul>
     </section>
@@ -129,7 +137,7 @@ function Detail({ data, zoom, ownerName }: { data: WorkspaceResponse; zoom: Zoom
       {!company && <p className="crm-muted">会社の情報を取得できませんでした。</p>}
       {company && <dl className="wd-dl">
         <div><dt>会社名</dt><dd>{company.name ?? '(名称なし)'}</dd></div>
-        <div><dt>電話</dt><dd>{company.phone ? (toDomesticPhone(company.phone) ?? company.phone) : <span className="crm-muted">なし</span>}</dd></div>
+        <div><dt>電話</dt><dd>{company.phone ? (formatPhoneForDisplay(company.phone) ?? company.phone) : <span className="crm-muted">なし</span>}</dd></div>
         <div><dt>住所</dt><dd>{company.address ?? <span className="crm-muted">なし</span>}</dd></div>
         <div><dt>業種</dt><dd>{company.industry ?? <span className="crm-muted">なし</span>}</dd></div>
         <div><dt>サイト</dt><dd>{company.domain ?? <span className="crm-muted">なし</span>}</dd></div>
@@ -152,17 +160,22 @@ function Detail({ data, zoom, ownerName }: { data: WorkspaceResponse; zoom: Zoom
       <h3>架電結果・メモ・次回架電日の保存</h3>
       <p>HubSpot への保存(通話記録の作成・プロパティの更新)は<strong>次の段階</strong>で追加します。いまは表示と発信だけで、この画面から HubSpot には何も書き込みません。</p>
     </section>
+    </div>
   </article>;
+}
+
+function DetailMessage({ state, reload }: { state: DetailState; reload: () => void }) {
+  if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>左の一覧から架電先を選んでください</strong>
+    <p>案件・担当者・会社・活動履歴を HubSpot から読み込みます。</p></div>;
+  if (state.phase === 'loading') return <p role="status" className="cq-loading">詳細を読み込み中…</p>;
+  if (state.phase === 'forbidden') return <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p></div>;
+  return <div className="cq-notice cq-error" role="alert"><strong>詳細を取得できませんでした</strong>
+    <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
 export function DealDetail({ state, reload, zoom, ownerName }: {
   state: DetailState; reload: () => void; zoom: ZoomPhone; ownerName?: string | undefined;
 }) {
-  if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>左の一覧から架電先を選んでください</strong>
-    <p>案件・担当者・会社・活動履歴を HubSpot から読み込みます。</p></div>;
-  if (state.phase === 'loading') return <p role="status" className="cq-loading">詳細を読み込み中…</p>;
-  if (state.phase === 'forbidden') return <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p></div>;
-  if (state.phase === 'error' || state.data === null) return <div className="cq-notice cq-error" role="alert"><strong>詳細を取得できませんでした</strong>
-    <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
-  return <Detail data={state.data} zoom={zoom} ownerName={ownerName} />;
+  if (state.phase === 'ready' && state.data !== null) return <Detail data={state.data} zoom={zoom} ownerName={ownerName} />;
+  return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }
