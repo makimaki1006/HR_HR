@@ -8,6 +8,8 @@
 .rf-call { padding: 1px 8px; border-radius: 999px; background: #1f2a35; color: #fff; font-size: 11px; white-space: nowrap; }
 .rf-status { margin-left: auto; flex: none; padding: 1px 8px; border-radius: 3px; border: 1px solid #d9a400; background: #fff7d6; color: #6b5200; font-size: 11px; white-space: nowrap; }
 .rf-status.is-recorded { border-color: var(--cq-accent); background: var(--cq-accent-weak); color: #0a5a61; }
+/* 入力をこの画面に残せていない (どこにも保存できていない) 状態は赤 */
+.rf-status.is-unsaved { border-color: #f2b8b5; background: #fdecea; color: #8a1c14; }
 .rf-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; }
 .rf-outcomes { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .rf-outcome { min-height: 40px; padding: 6px 4px; border: 1px solid var(--cq-line-strong); border-radius: var(--cq-radius); background: #fff; font-size: 13px; font-weight: 700; cursor: pointer; line-height: 1.25; }
@@ -41,6 +43,7 @@
 .rf-defs-error { margin: 0; }
 /* 列の行マーカー */
 .cq-recorded { flex: none; padding: 0 6px; border-radius: 3px; background: var(--cq-accent-weak); color: #0a5a61; font-size: 11px; white-space: nowrap; }
+.cq-recorded.is-unsaved { background: #fdecea; color: #8a1c14; }
 @media (max-width: 1279px) { .rf-outcomes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 /* 高さが低い画面: 結果ボタンを詰め、詳細の上部を短くして入力欄に高さを回す */
 @media (max-height: 820px) and (min-width: 1000px) {

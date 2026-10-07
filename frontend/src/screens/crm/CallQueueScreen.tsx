@@ -9,7 +9,8 @@ import {
 } from './queueModel';
 import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
 import { useCallQueue } from './useCallQueue';
-import { DealDetail } from './DealDetail';
+import { DealDetail, rawStopLabel } from './DealDetail';
+import type { StopLabel } from './DealDetail';
 import { ZoomPhonePanel } from './ZoomPhonePanel';
 import { useDealDetail } from './useDealDetail';
 import type { DetailFetch } from './useDealDetail';
@@ -20,7 +21,7 @@ import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
 import {
-  clearDraftEntry, draftKey, editDraft, emptyResultDraft, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, saveStore,
+  clearDraftEntry, draftKey, editDraft, emptyResultDraft, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, optionLabel, saveStore,
   sessionStorageOrNull, todayJst, validateResultDraft,
 } from './callResultModel';
 import type { DraftStore, ResultDraft } from './callResultModel';
@@ -99,22 +100,30 @@ export function conditionChips(f: QueueFilters, ownerNames: ReadonlyMap<string, 
   return chips;
 }
 
-function QueueRow({ item, ownerName, selected, focusable, recorded, onSelect }: {
-  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; onSelect: (id: string) => void;
+/** 架電結果の印 (この画面のタブだけに残る) の説明 */
+export const RECORDED_TITLE = 'この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません';
+export const UNSAVED_RECORDED_TITLE = '入力をこの画面に残せていません。閉じたり再読み込みしたりすると消えます。HubSpot にも保存されていません';
+
+
+function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect }: {
+  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; unsaved: boolean;
+  stopLabel: StopLabel; onSelect: (id: string) => void;
 }) {
   const phone = formatPhoneForDisplay(item.phone);
   const next = md(item.next_call_date);
   const last = md(item.last_call_date);
   const dates = [ymd(item.next_call_date) && `次回架電 ${ymd(item.next_call_date) ?? ''}`, ymd(item.last_call_date) && `最終架電 ${ymd(item.last_call_date) ?? ''}`]
     .filter(Boolean).join(' / ');
-  const flag = item.stop.unreachable_check;
+  const flag = item.stop.unreachable_check ? stopLabel('bpo_10', item.stop.unreachable_check) : null;
   const source = item.phone_source ? `${PHONE_SOURCE_LABELS[item.phone_source] ?? item.phone_source}の番号` : undefined;
   return <li className={`cq-row${selected ? ' is-selected' : ''}`}>
     <button type="button" className="cq-row-button" aria-pressed={selected} tabIndex={focusable ? 0 : -1}
       title={item.deal_name ?? undefined} onClick={() => { onSelect(item.deal_id); }}>
       <span className="cq-row-l1">
         <strong className="cq-row-company">{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
-        {recorded && <span className="cq-recorded" title="このブラウザで記録済み。HubSpot には未送信です">記録済み(未送信)</span>}
+        {recorded && (unsaved
+          ? <span className="cq-recorded is-unsaved" title={UNSAVED_RECORDED_TITLE}>記録済み(画面を閉じると消えます)</span>
+          : <span className="cq-recorded" title={RECORDED_TITLE}>記録済み(未送信)</span>)}
         {flag && <span className="cq-flag" title={`不通時チェック: ${flag}`} aria-label={`不通時チェック: ${flag}`}>不通チェック</span>}
         <span className="cq-stage">{item.stage_label ?? '(ステージ不明)'}</span>
       </span>
@@ -159,8 +168,13 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const focusSelectedRow = useRef(false);
 
   // 架電結果の下書き (案件ごと、このタブの sessionStorage に残す。HubSpot には送らない)
-  const [store, setStore] = useState<DraftStore>(() => loadStore(sessionStorageOrNull()));
-  useEffect(() => { saveStore(sessionStorageOrNull(), store); }, [store]);
+  // 書き込めるかは開いた時点で 1 回試し、以後は変えるたびに書いた結果で更新する。
+  // 残せなかったら画面に赤で出す (headless-crm-design §12。保存できたように見せない)
+  const [{ store, persistFailed }, setPersisted] = useState<{ store: DraftStore; persistFailed: boolean }>(() => {
+    const initial = loadStore(sessionStorageOrNull());
+    return { store: initial, persistFailed: !saveStore(sessionStorageOrNull(), initial) };
+  });
+  const commitStore = (next: DraftStore) => { setPersisted({ store: next, persistFailed: !saveStore(sessionStorageOrNull(), next) }); };
   const [formCollapsed, setFormCollapsed] = useState(false);
   // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
   const [nowFn] = useState(() => now ?? Date.now);
@@ -273,13 +287,14 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const offList = state.phase === 'ready' && selectedId !== null && !state.items.some(i => i.deal_id === selectedId);
 
   function changeDraft(d: ResultDraft) {
-    if (selKey === null) return;
-    // 記録した後に書き換えたら、記録済みの印は外す
-    setStore(prev => editDraft(prev, selKey, d));
+    if (selKey === null || selectedId === null) return;
+    // 記録した後に書き換えたら、記録済みの印は外す (記録したときの内容と変わったため)。外したことは入力欄の下端で知らせる
+    if (store.recorded[selKey] === true) setFormNotice({ dealId: selectedId, text: '内容を変えたので「記録済み」の印を外しました。もう一度「記録して次へ」を押してください。' });
+    commitStore(editDraft(store, selKey, d));
   }
   function clearDraft() {
     if (selKey === null) return;
-    setStore(prev => clearDraftEntry(prev, selKey));
+    commitStore(clearDraftEntry(store, selKey));
     setFormNotice(null);
   }
   // 記録して次へ: このブラウザで記録済みの印を付け (下書きは残す)、一覧で次の未記録の案件を選ぶ。HubSpot には送らない
@@ -291,7 +306,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       setToday(fresh);
       if (defs.state.phase !== 'ready' || Object.keys(validateResultDraft(draft, defs.state.defs, fresh)).length > 0) return false;
     }
-    setStore(prev => markRecorded(prev, selKey));
+    commitStore(markRecorded(store, selKey));
     const ids = state.items.map(i => i.deal_id);
     const next = nextUnrecorded(ids, selectedId, isRecorded);
     if (next === null) { setFormNotice({ dealId: selectedId, text: '表示中の一覧に未記録の架電先はありません。' }); return true; }
@@ -311,6 +326,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }, [selectedId]);
 
   const waitingKey = selectedId !== null && selectedId !== detailId;
+  // 不通時チェック・ブロック理由は、入力欄と同じ HubSpot の表示ラベルで出す (定義を読めていなければ値のまま)
+  const stopLabel = useMemo<StopLabel>(() => {
+    if (defs.state.phase !== 'ready') return rawStopLabel;
+    const d = defs.state.defs;
+    return (p, v) => optionLabel(d[p], v);
+  }, [defs.state]);
   const anyFocusable = state.items.some(i => i.deal_id === selectedId);
 
   return <div className="crm-app cq-app">
@@ -391,7 +412,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             {state.items.length > 0 && <ul className="cq-list" aria-label="架電キュー" ref={listRef} onKeyDown={onListKey}>
               {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
                 selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
-                recorded={isRecorded(item.deal_id)}
+                recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
                 onSelect={id => { select(id, 'click'); }} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
             {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
               {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
@@ -404,20 +425,20 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
         {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
           : <DealDetail state={detail.state} reload={detail.reload} zoom={zoomForDetail}
-            ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} />}
+            ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} stopLabel={stopLabel} />}
         {/* 架電結果の入力欄 (中央の列の下端に固定)。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない */}
         {selectedId !== null && <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId}>
           <CallResultForm key={`${mode}:${selectedId}`} dealId={selectedId} draft={draft} onChange={changeDraft}
             defsState={defs.state} onReloadDefs={defs.reload} recorded={isRecorded(selectedId)} onRecord={recordAndNext} onClear={clearDraft}
             collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
             focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
-            recordBlocked={offList}
+            recordBlocked={offList} persistFailed={persistFailed}
             notice={offList ? 'この案件はいまの一覧にありません(条件で外れました)。記録するには一覧に戻してください。'
               : formNotice?.dealId === selectedId ? formNotice.text : undefined} />
         </div>}
       </section>
       <div className="cq-col cq-phone-col">
-        <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} />
+        <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} linkedToSelected={endedCall !== null} />
       </div>
     </div>
   </div>;

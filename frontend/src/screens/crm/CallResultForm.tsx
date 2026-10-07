@@ -4,7 +4,7 @@ import type { MocPropertyDefinition } from './mocProperties';
 import type { DefinitionsState } from './useResultDefinitions';
 import { clock } from './workspaceModel';
 import {
-  CALL_RESULTS, FALLBACK_LABELS, FIELD_PROPERTY, TEXT_LIMITS, activeFields, draftSummary, selectableOptions, validateResultDraft, withOutcome,
+  CALL_RESULTS, FALLBACK_LABELS, FIELD_PROPERTY, TEXT_LIMITS, activeFields, draftSummary, selectableOptions, validateResultDraft, withField, withOutcome,
 } from './callResultModel';
 import type { CallResult, DraftErrors, DraftField, ResultDraft } from './callResultModel';
 import './result-form.css';
@@ -22,7 +22,7 @@ function isTyping(el: Element | null): boolean {
 /** 中央の列の下端に固定する、架電結果の入力欄 (下書き。HubSpot には送らない) */
 export function CallResultForm({
   dealId, draft, onChange, defsState, onReloadDefs, recorded, onRecord, onClear, collapsed, onCollapsedChange, endedCall, focusCallId, onCallHandled, today, notice,
-  recordBlocked = false,
+  recordBlocked = false, persistFailed = false,
 }: {
   dealId: string;
   draft: ResultDraft;
@@ -45,6 +45,8 @@ export function CallResultForm({
   notice?: string | undefined;
   /** 記録できない状態 (選んだ案件がいまの一覧に無い等)。理由は notice に出す */
   recordBlocked?: boolean;
+  /** 下書きをこのタブに残せていない (sessionStorage に書けない)。閉じる・再読み込みで消える */
+  persistFailed?: boolean;
 }) {
   const ready = defsState.phase === 'ready';
   const defs: Record<string, MocPropertyDefinition> = ready ? defsState.defs : {};
@@ -104,8 +106,8 @@ export function CallResultForm({
     submit();
   }
 
-  const set = (f: DraftField, v: string) => { touch(f); onChange({ ...draft, [f]: v }); };
-  const label = (f: DraftField) => defs[FIELD_PROPERTY[f]]?.label ?? FALLBACK_LABELS[FIELD_PROPERTY[f]] ?? FIELD_PROPERTY[f];
+  const set = (f: DraftField, v: string) => { touch(f); onChange(withField(draft, f, v)); };
+  const label = (f: DraftField) => defs[FIELD_PROPERTY[f]]?.label ?? FALLBACK_LABELS[FIELD_PROPERTY[f]] ?? '';
   const shown = (f: DraftField) => (attempted || touched.has(f) ? errors[f] : undefined);
   const err = (f: DraftField) => shown(f) && <small className="rf-err" id={`${uid}-${f}-err`}>{shown(f)}</small>;
   const described = (f: DraftField) => (shown(f) ? `${uid}-${f}-err` : undefined);
@@ -161,7 +163,9 @@ export function CallResultForm({
   }
 
   const needNext = draft.outcome === 'callback' || (active.has('nextAction') && draft.nextAction === '再架電');
-  const status = recorded ? '記録済み(未送信)' : '下書き(HubSpot 未送信)';
+  // 残せていないときは「記録済み」を保存できた状態のように見せない (headless-crm-design §12: どこにも保存できていない状態は赤で区別する)
+  const status = persistFailed ? (recorded ? '記録済み(この画面を閉じると消えます)' : '下書き(この画面を閉じると消えます)')
+    : recorded ? '記録済み(未送信)' : '下書き(HubSpot 未送信)';
   const ended = endedCall !== null;
   const talk = endedCall?.talkSeconds ?? null;
 
@@ -172,14 +176,17 @@ export function CallResultForm({
         <span aria-hidden="true">{collapsed ? '▲' : '▼'}</span> 架電結果</button>
       {ended && <span className="rf-call" data-testid="ended-call">通話終了{talk !== null ? ` 通話時間 ${clock(talk)}` : endedCall.result ? `(${ENDED_LABELS[endedCall.result] ?? 'つながらず'})` : ''}</span>}
       {collapsed && ready && <span className="rf-summary" data-testid="draft-summary">{draftSummary(draft, defs)}</span>}
-      <span className={`rf-status${recorded ? ' is-recorded' : ''}`} role="status">{status}</span>
+      <span className={`rf-status${persistFailed ? ' is-unsaved' : recorded ? ' is-recorded' : ''}`} role="status">{status}</span>
     </div>
 
     {!collapsed && <div className="rf-body">
-      {defsState.phase === 'loading' && <p role="status" className="rf-muted">HubSpot から選択肢の定義を読み込み中…</p>}
+      {persistFailed && <div className="cq-notice cq-error rf-unsaved" role="alert" data-testid="unsaved-alert">
+        <strong>入力を残せていません</strong>
+        <p>このブラウザの設定などで、入力をこの画面に残せません。この画面を閉じたり再読み込みしたりすると入力が消えます。HubSpot にも保存されていません。</p></div>}
+      {defsState.phase === 'loading' && <p role="status" className="rf-muted">選択肢を読み込み中…</p>}
       {defsState.phase === 'error' && <div className="cq-notice cq-error rf-defs-error" role="alert">
         <strong>入力欄を表示できません</strong><p>{defsState.message}</p>
-        <p>架空の選択肢で代用はしません。再試行するか、HubSpot で直接入力してください。</p>
+        <p>再試行するか、HubSpot で直接入力してください。</p>
         <button type="button" onClick={onReloadDefs}>再試行</button></div>}
 
       {ready && <>
@@ -203,14 +210,14 @@ export function CallResultForm({
             {dateInput({ f: 'nextCallDate', required: needNext })}{choice({ f: 'nextCallTime', required: needNext })}</div>}
         </div>}
         {textInput({ f: 'memo', multiline: true })}
-        <small className="rf-muted">タスクメモは HubSpot に送るときは上書きになります(送信は未実装)。</small>
+        <small className="rf-muted">タスクメモはまだ HubSpot に送られません。送るようになると、HubSpot にある今の内容は書き換えられます。</small>
       </>}
     </div>}
 
     {/* 記録ボタンと「HubSpot には保存されない」注記は、入力欄のスクロールの外 (常に見える下端) に置く */}
     {!collapsed && <div className="rf-actions">
       {notice && <span className="rf-notice" role="status">{notice}</span>}
-      <small className="rf-unsent" id={`${uid}-unsent`}>このブラウザで印を付けるだけで、HubSpot には保存されません</small>
+      <small className="rf-unsent" id={`${uid}-unsent`}>この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません</small>
       <button type="button" className="cq-btn cq-btn-quiet" onClick={onClear}>下書きを消す</button>
       <button type="submit" className="rf-record" aria-disabled={!canRecord} aria-describedby={`${uid}-unsent`} title="Ctrl+Enter / ⌘+Enter">
         記録して次へ <kbd>Ctrl+Enter</kbd></button>

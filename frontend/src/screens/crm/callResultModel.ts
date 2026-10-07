@@ -38,12 +38,15 @@ export interface ResultDraft {
   apptTime: string;
   /** bpo_33 商談方法（bpo用） */
   apptMethod: string;
+  /** 次アクションの「再架電」を画面が自動で入れたか (再架電の約束から結果を変えたら外すため)。HubSpot には送らない */
+  nextActionAuto: boolean;
 }
-export type DraftField = Exclude<keyof ResultDraft, 'outcome'>;
+export type DraftField = Exclude<keyof ResultDraft, 'outcome' | 'nextActionAuto'>;
 
 export const emptyResultDraft = (): ResultDraft => ({
   outcome: '', spokeTo: '', interest: '', nextAction: '', nextCallDate: '', nextCallTime: '', memo: '',
   unreachable: '', unreachableOther: '', stopReason: '', blockReason: '', apptDate: '', apptTime: '', apptMethod: '',
+  nextActionAuto: false,
 });
 
 /** 下書きの項目 → HubSpot の Deal プロパティの内部名。ここに無いものは PATCH に入れない (許可リスト) */
@@ -52,16 +55,34 @@ export const FIELD_PROPERTY: Readonly<Record<DraftField, string>> = {
   memo: 'bpo_16', unreachable: 'bpo_10', unreachableOther: 'bpo_57', stopReason: 'bpo_3', blockReason: 'bpo_4',
   apptDate: 'bpo_23', apptTime: 'bpo__', apptMethod: 'bpo_33',
 };
-export const RESULT_PROPERTY_ALLOWLIST: readonly string[] = Object.values(FIELD_PROPERTY);
+/**
+ * 書き込みで送ってよい内部名。FIELD_PROPERTY とは別に書く (FIELD_PROPERTY に項目を足しても、ここに足さない限り送らない)。
+ * dealstage・bpo_20 などはここに無いので送らない
+ */
+export const RESULT_PROPERTY_ALLOWLIST: readonly string[] = [
+  'bpo_40', 'bpo_42', 'bpo_45', 'bpo_13', 'bpo_14', 'bpo_16', 'bpo_10', 'bpo_57', 'bpo_3', 'bpo_4', 'bpo_23', 'bpo__', 'bpo_33',
+];
 
-/** 定義が手元に無いとき (bpo_57 は /api/crm/metadata の許可リスト外) の見出し。HubSpot のラベルと同じ */
-export const FALLBACK_LABELS: Readonly<Record<string, string>> = { bpo_57: 'その他理由' };
+/** 定義が手元に無いとき (架空サンプルには bpo_57 が無い等) の見出し。HubSpot のラベルと同じ。内部名は画面に出さない */
+export const FALLBACK_LABELS: Readonly<Record<string, string>> = {
+  bpo_40: '接触結果', bpo_42: '担当者会話温度感', bpo_45: '次アクション種別', bpo_13: '次回架電日', bpo_14: '次回架電時間',
+  bpo_16: 'タスクメモ', bpo_10: '不通時チェック', bpo_57: 'その他理由', bpo_3: '架電禁止理由', bpo_4: 'ブロック理由',
+  bpo_23: '商談予定日', bpo__: '商談予定時間（bpo用）', bpo_33: '商談方法（bpo用）',
+};
 
 /** 選択肢を HubSpot の定義から読む項目。実データで 1 つでも定義が無ければ入力欄を出さない (架空の選択肢で代用しない) */
 export const ENUM_FIELDS = ['spokeTo', 'interest', 'nextAction', 'nextCallTime', 'unreachable', 'blockReason', 'apptTime', 'apptMethod'] as const satisfies readonly DraftField[];
 export const REQUIRED_DEFINITIONS: readonly string[] = ENUM_FIELDS.map(f => FIELD_PROPERTY[f]);
 
 const DATE_FIELDS: ReadonlySet<DraftField> = new Set(['nextCallDate', 'apptDate']);
+/** 選択肢の無い項目と、HubSpot での型。実データではこの型の定義が無ければ入力欄を出さない (送る値の形が合わなくなるため) */
+export const FIELD_TYPES: Readonly<Partial<Record<DraftField, 'date' | 'string'>>> = {
+  nextCallDate: 'date', apptDate: 'date', memo: 'string', stopReason: 'string', unreachableOther: 'string',
+};
+/** 実データの応答に、この型で入っていなければならない項目 (内部名 → 型) */
+export const REQUIRED_TYPED_DEFINITIONS: Readonly<Record<string, 'date' | 'string'>> = Object.fromEntries(
+  (Object.entries(FIELD_TYPES) as [DraftField, 'date' | 'string'][]).map(([f, t]) => [FIELD_PROPERTY[f], t]),
+);
 
 export const TEXT_LIMITS: Readonly<Partial<Record<DraftField, number>>> = { memo: 2000, stopReason: 200, unreachableOther: 200 };
 
@@ -93,11 +114,29 @@ export function activeFields(d: ResultDraft): Set<DraftField> {
   return f;
 }
 
-/** 結果を選び直したときの下書き。再架電の約束なら次アクションを「再架電」にする (空のときだけ) */
+/**
+ * 結果を選び直したときの下書き。再架電の約束なら次アクションを「再架電」にする (空のときだけ)。
+ * 自動で入れた「再架電」は、再架電の約束から別の結果へ変えたら外す (利用者が選んでいない値で必須欄を増やさない)
+ */
 export function withOutcome(d: ResultDraft, outcome: CallResult): ResultDraft {
   const next = { ...d, outcome };
-  if (outcome === 'callback' && next.nextAction === '') next.nextAction = NEXT_ACTION_RECALL;
+  if (outcome === 'callback') {
+    if (next.nextAction === '') { next.nextAction = NEXT_ACTION_RECALL; next.nextActionAuto = true; }
+  } else if (next.nextActionAuto) {
+    if (next.nextAction === NEXT_ACTION_RECALL) next.nextAction = '';
+    next.nextActionAuto = false;
+  }
   return next;
+}
+
+/** 入力欄で 1 項目を変えたときの下書き。次アクションを自分で選んだら、自動で入れた扱いをやめる */
+export function withField(d: ResultDraft, f: DraftField, v: string): ResultDraft {
+  return { ...d, [f]: v, ...(f === 'nextAction' ? { nextActionAuto: false } : {}) };
+}
+
+/** 選択肢の値 → HubSpot の表示ラベル。新しく選べない (hidden) 選択肢も含めて探し、無ければ値のまま */
+export function optionLabel(def: MocPropertyDefinition | undefined, value: string): string {
+  return def?.options.find(o => o.value === value)?.label ?? value;
 }
 
 /** JST の今日 (YYYY-MM-DD)。日付の区切りは JST の 0 時 */
@@ -141,6 +180,10 @@ export function validateResultDraft(d: ResultDraft, defs: Record<string, MocProp
   for (const f of ENUM_FIELDS) {
     if (!has(f)) continue;
     if (!selectableOptions(defs[FIELD_PROPERTY[f]]).some(o => o.value === d[f])) e[f] = '選択肢にない値です。選び直してください。';
+  }
+  for (const [f, type] of Object.entries(FIELD_TYPES) as [DraftField, string][]) {
+    const def = defs[FIELD_PROPERTY[f]];
+    if (has(f) && def !== undefined && def.type !== type) e[f] = 'HubSpot 側でこの項目の設定が変わったため、ここでは入力できません。管理者に連絡してください。';
   }
   for (const [f, max] of Object.entries(TEXT_LIMITS) as [DraftField, number][]) {
     if (active.has(f) && d[f].length > max) e[f] = `${String(max)} 文字以内で入力してください(いま ${String(d[f].length)} 文字)。`;
@@ -210,7 +253,7 @@ export function draftSummary(d: ResultDraft, defs: Record<string, MocPropertyDef
   return parts.join(' · ');
 }
 
-// ---- 下書きの保存 (このブラウザのタブの sessionStorage。使えなくても画面は動く) ----
+// ---- 下書きの保存 (この画面のタブの sessionStorage。別のタブ・閉じた後には残らない。使えなくても画面は動く) ----
 
 export const DRAFT_STORAGE_KEY = 'hrhr.crm.callResult.v1';
 export interface DraftStore { drafts: Record<string, ResultDraft>; recorded: Record<string, true> }
@@ -236,6 +279,7 @@ export function parseStore(raw: string | null): DraftStore {
       for (const f of Object.keys(draft) as (keyof ResultDraft)[]) {
         const x = d[f];
         if (x === undefined) continue;
+        if (f === 'nextActionAuto') { if (typeof x !== 'boolean') { ok = false; break; } draft.nextActionAuto = x; continue; }
         if (typeof x !== 'string') { ok = false; break; }
         if (f === 'outcome') { if (x !== '' && !OUTCOMES.includes(x as CallResult)) { ok = false; break; } draft.outcome = x as CallResult | ''; }
         else draft[f] = x;
@@ -250,15 +294,17 @@ export function parseStore(raw: string | null): DraftStore {
 export function loadStore(storage: Pick<Storage, 'getItem'> | null): DraftStore {
   try { return parseStore(storage?.getItem(DRAFT_STORAGE_KEY) ?? null); } catch { return emptyStore(); }
 }
-export function saveStore(storage: Pick<Storage, 'setItem'> | null, store: DraftStore): void {
-  try { storage?.setItem(DRAFT_STORAGE_KEY, JSON.stringify(store)); } catch { /* 保存できない環境では画面の中だけで持つ */ }
+/** 保存できたら true。sessionStorage が使えない・書けない (容量・設定) ときは false (画面の中だけで持ち、画面に赤で知らせる) */
+export function saveStore(storage: Pick<Storage, 'setItem'> | null, store: DraftStore): boolean {
+  if (storage === null) return false;
+  try { storage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(store)); return true; } catch { return false; }
 }
 export function sessionStorageOrNull(): Storage | null {
   try { return typeof window === 'undefined' ? null : window.sessionStorage; } catch { return null; }
 }
 
 /** 下書きが空 (何も入れていない) か */
-export const isEmptyDraft = (d: ResultDraft) => (Object.keys(d) as (keyof ResultDraft)[]).every(k => d[k] === '');
+export const isEmptyDraft = (d: ResultDraft) => (Object.keys(d) as (keyof ResultDraft)[]).every(k => k === 'nextActionAuto' || d[k] === '');
 
 const without = <T,>(rec: Record<string, T>, key: string): Record<string, T> => Object.fromEntries(Object.entries(rec).filter(([k]) => k !== key));
 /** 下書きを入れ替える。空の下書きは消す (何も入れていない案件を残さない) */

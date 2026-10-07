@@ -16,7 +16,8 @@ export const FIXTURE = {
 
 export const E2E_EMAIL = 'e2e@f-a-c.co.jp';
 export const E2E_PASSWORD = 'testpass';
-export const PR_PORT = 9217;
+// 既定 9217。並行して別のサーバを動かすときは E2E_PR_PORT で変える
+export const PR_PORT = Number(process.env.E2E_PR_PORT ?? 9217);
 export const PR_BASE_URL = `http://localhost:${PR_PORT}`;
 
 /**

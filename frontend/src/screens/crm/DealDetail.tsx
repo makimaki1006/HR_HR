@@ -11,6 +11,10 @@ import {
 } from './workspaceModel';
 import type { ActivityKindFilter } from './workspaceModel';
 
+/** HubSpot の選択肢の値 → 表示ラベル (不通時チェック bpo_10・ブロック理由 bpo_4)。定義がまだ無いときは値のまま */
+export type StopLabel = (property: 'bpo_10' | 'bpo_4', value: string) => string;
+export const rawStopLabel: StopLabel = (_p, v) => v;
+
 const SOURCE_LABELS: Record<string, string> = { deal: '案件の番号', contact: '担当者の電話', mobile: '担当者の携帯', company: '会社の電話' };
 const ymd = (raw: string | null) => dateValue(raw)?.replaceAll('-', '/') ?? null;
 
@@ -67,7 +71,7 @@ function ActivityItem({ a }: { a: WorkspaceActivity }) {
   </li>;
 }
 
-function Detail({ data, zoom, ownerName }: { data: WorkspaceResponse; zoom: ZoomPhone; ownerName?: string | undefined }) {
+function Detail({ data, zoom, ownerName, stopLabel }: { data: WorkspaceResponse; zoom: ZoomPhone; ownerName?: string | undefined; stopLabel: StopLabel }) {
   const [kind, setKind] = useState<ActivityKindFilter>('all');
   const d = data.deal;
   const company = data.companies.find(c => c.is_primary) ?? null;
@@ -75,8 +79,8 @@ function Detail({ data, zoom, ownerName }: { data: WorkspaceResponse; zoom: Zoom
   const notes = partialNotes(data.partial);
   const next = ymd(d.next_call_date);
   const last = ymd(d.last_call_date);
-  const stopReasons = [d.stop.prohibited_reason && `架電禁止理由: ${d.stop.prohibited_reason}`, d.stop.block_reason && `ブロック理由: ${d.stop.block_reason}`,
-    d.stop.unreachable_check && `不通時チェック: ${d.stop.unreachable_check}`].filter((x): x is string => typeof x === 'string');
+  const stopReasons = [d.stop.prohibited_reason && `架電禁止理由: ${d.stop.prohibited_reason}`, d.stop.block_reason && `ブロック理由: ${stopLabel('bpo_4', d.stop.block_reason)}`,
+    d.stop.unreachable_check && `不通時チェック: ${stopLabel('bpo_10', d.stop.unreachable_check)}`].filter((x): x is string => typeof x === 'string');
   const otherPhones = [
     ...data.contacts.flatMap(c => [c.phone && { key: `${c.id}-p`, label: `${c.name ?? '担当者'}の電話`, raw: c.phone },
       c.mobile && { key: `${c.id}-m`, label: `${c.name ?? '担当者'}の携帯`, raw: c.mobile }]),
@@ -169,9 +173,9 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-export function DealDetail({ state, reload, zoom, ownerName }: {
-  state: DetailState; reload: () => void; zoom: ZoomPhone; ownerName?: string | undefined;
+export function DealDetail({ state, reload, zoom, ownerName, stopLabel = rawStopLabel }: {
+  state: DetailState; reload: () => void; zoom: ZoomPhone; ownerName?: string | undefined; stopLabel?: StopLabel;
 }) {
-  if (state.phase === 'ready' && state.data !== null) return <Detail data={state.data} zoom={zoom} ownerName={ownerName} />;
+  if (state.phase === 'ready' && state.data !== null) return <Detail data={state.data} zoom={zoom} ownerName={ownerName} stopLabel={stopLabel} />;
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }
