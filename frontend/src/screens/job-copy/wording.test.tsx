@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyScreen } from './JobCopyScreen';
 import { jobs } from './data';
@@ -39,8 +39,9 @@ describe('job copy screen wording', () => {
       const job = container.querySelectorAll<HTMLButtonElement>('.jc-job')[index];
       if (!job) throw new Error('missing job button');
       fireEvent.click(job);
-      const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"][id*="-feature-"]')];
-      expect(tabs.length).toBe(13);
+      // 上の段 5 つ（タイムライン・求人内容はサブタブなし）と、サブタブ 10 個
+      const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"][id*="-group-"], [role="tab"][id*="-feature-"]')];
+      expect(tabs.length).toBe(15);
       for (const tab of tabs) {
         await act(async () => { fireEvent.click(tab); await Promise.resolve(); });
         const wording = visibleWording();
@@ -49,6 +50,17 @@ describe('job copy screen wording', () => {
         expect(wording, `${job.textContent} / ${tab.textContent}`).not.toMatch(CAUSAL_PATTERN);
       }
     }
+    // データ取込（HubSpot・媒体・課金CSV・外部文面）と、そこから開く外部文面の照合
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'データ取込' })); await Promise.resolve(); });
+    expect(visibleWording()).not.toMatch(JARGON_PATTERN);
+    expect(visibleWording()).not.toMatch(CAUSAL_PATTERN);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '外部文面を照合する' })); await Promise.resolve(); });
+    expect(container.querySelector('[role="tabpanel"][id$="-panel-receive"]')?.hasAttribute('hidden')).toBe(false);
+    expect(visibleWording()).not.toMatch(JARGON_PATTERN);
+    // 応募者の条件で探すパネル
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '応募者の条件で探す' })); await Promise.resolve(); });
+    expect(visibleWording()).not.toMatch(JARGON_PATTERN);
+    expect(visibleWording()).not.toMatch(CAUSAL_PATTERN);
     // 市場タブでは、サーバーの説明文が言い換えられて「ⓘ 集計の前提」に入っている。
     expect(seen.some(text => text.includes('既存市場レポートのIndeed閲覧者指標で'))).toBe(true);
     expect(seen.some(text => text.includes('ⓘ 集計の前提'))).toBe(true);

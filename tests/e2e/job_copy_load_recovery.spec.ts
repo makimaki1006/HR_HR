@@ -1,6 +1,6 @@
 /** Synthetic same-origin frontend recovery fixtures, not production login or live CRM access. */
 import { expect, test, type Route } from '@playwright/test';
-import { selectJobFeature } from './job-copy-navigation';
+import { jobFeaturePanel, selectJobFeature } from './job-copy-navigation';
 
 const snapshot = (total = 2) => {
   const capturedAt = '2026-10-06T00:00:00Z';
@@ -17,7 +17,7 @@ test('503 retries into two real-response applications, while 401 keeps the login
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
   await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('2応募（HubSpot記録分）');
   await selectJobFeature(page, 'body');
-  await expect(page.getByRole('tabpanel', { name: '本文・画像', exact: true }).locator('.jc-body')).toHaveText('再取得した合成の全文です。');
+  await expect(jobFeaturePanel(page, 'body').locator('.jc-body')).toHaveText('再取得した合成の全文です。');
   await selectJobFeature(page, 'applicants');
   await expect(page.getByRole('region', { name: '求人全体の実応募者構成', exact: true })).toContainText('応募2件');
   await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
@@ -81,6 +81,7 @@ test('manual media capture cancels pending snapshot and its slow timer without l
   await page.route('**/api/job-copy/moc', route => { held = route; });
   await page.goto('/app/job-copy');
   await expect.poll(() => Boolean(held)).toBe(true);
+  await page.getByRole('button', { name: 'データ取込', exact: true }).click();
   await page.getByText('媒体で取得した求人本文・画像を確認', { exact: true }).click();
   const capture = snapshot().capture_bundle;
   const job = capture.jobs[0];
@@ -90,7 +91,7 @@ test('manual media capture cancels pending snapshot and its slow timer without l
   await page.getByLabel('媒体取得データを読み込む', { exact: true }).setInputFiles({ name: 'synthetic-capture.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(capture)) });
   await page.getByRole('button', { name: '取得データを表示', exact: true }).click();
   await selectJobFeature(page, 'body');
-  const body = page.getByRole('tabpanel', { name: '本文・画像', exact: true }).locator('.jc-body');
+  const body = jobFeaturePanel(page, 'body').locator('.jc-body');
   await expect(body).toHaveText(job.body);
   if (!held) throw new Error('The synthetic request was not held');
   await held.fulfill(json(snapshot(9))).catch(() => undefined);

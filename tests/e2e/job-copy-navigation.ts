@@ -17,9 +17,27 @@ export const jobFeatures: Record<JobFeature, { group: string; label: string }> =
   receive: { group: 'データ取込', label: '外部文面を確認' },
 };
 
-/** Select the primary function first so a previously remembered leaf is safe. */
+/** Groups with one function show no second row of tabs (2026-10-08). */
+const singleFeatureGroups = new Set(['タイムライン', '求人内容']);
+
+/**
+ * Select the primary function first so a previously remembered leaf is safe.
+ * 外部文面を確認 is no longer a tab: it opens from the データ取込 area at the top of the page.
+ */
 export async function selectJobFeature(page: Page, key: JobFeature) {
   const { group, label } = jobFeatures[key];
+  if (key === 'receive') {
+    const toggle = page.getByRole('button', { name: 'データ取込', exact: true });
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+    await page.getByRole('button', { name: '外部文面を照合する', exact: true }).click();
+    return;
+  }
   await page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: group, exact: true }).click();
+  if (singleFeatureGroups.has(group)) return;
   await page.getByRole('tablist', { name: `${group}の表示`, exact: true }).getByRole('tab', { name: label, exact: true }).click();
+}
+
+/** The panel of one function (a single-function group's panel is named by its group tab, so look it up by id). */
+export function jobFeaturePanel(page: Page, key: JobFeature) {
+  return page.locator(`[role="tabpanel"][id$="-panel-${key}"]`);
 }

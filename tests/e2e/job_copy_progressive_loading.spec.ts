@@ -1,6 +1,6 @@
 /** Synthetic local frontend responses only; no production OIDC or external image access. */
 import { test, expect } from '@playwright/test';
-import { selectJobFeature } from './job-copy-navigation';
+import { jobFeaturePanel, selectJobFeature } from './job-copy-navigation';
 
 const imageUrl = '/api/job-copy/snapshot-image?listing_id=30&version=0&slot=1&image_hash=' + 'a'.repeat(64);
 const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
@@ -22,7 +22,7 @@ test('30-second image response does not block full body, application counts or t
   });
   await page.goto('/app/job-copy');
   await selectJobFeature(page, 'body');
-  const bodyPanel = page.getByRole('tabpanel', { name: '本文・画像', exact: true });
+  const bodyPanel = jobFeaturePanel(page, 'body');
   const picture = bodyPanel.getByRole('img', { name: '合成の遅延画像', exact: true });
   await expect(bodyPanel.locator('.jc-body')).toHaveText(snapshot.capture_bundle.jobs[0]!.body);
   await picture.scrollIntoViewIfNeeded();
@@ -52,7 +52,7 @@ test('image failure stays separate from zero and retry restores the same referen
   });
   await page.goto('/app/job-copy');
   await selectJobFeature(page, 'body');
-  const panel = page.getByRole('tabpanel', { name: '本文・画像', exact: true });
+  const panel = jobFeaturePanel(page, 'body');
   await panel.locator('.jc-image-section').scrollIntoViewIfNeeded();
   await expect(panel.getByRole('alert')).toContainText('画像なし・削除とは判定していません');
   await expect(panel).not.toContainText('この版の画像は0点');

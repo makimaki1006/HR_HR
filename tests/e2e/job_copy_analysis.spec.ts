@@ -44,7 +44,7 @@ test('joined HR Hacker metrics show exact rates, period delta and meaningful joi
   await scroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
   await page.screenshot({ path: resolve(visuals, 'hrh-mobile-right.png') });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByText('応募者の条件から求人を探す（逆検索）', { exact: true }).click();
+  await page.getByRole('button', { name: '応募者の条件で探す', exact: true }).click();
   await page.getByLabel('応募者の性別', { exact: true }).selectOption('男性');
   await page.getByLabel('応募者の年代', { exact: true }).selectOption('20代');
   await page.getByLabel('応募者の都道府県', { exact: true }).selectOption('大分県');
