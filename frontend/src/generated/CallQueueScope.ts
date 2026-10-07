@@ -6,12 +6,12 @@ export type CallQueueScope = {
  */
 owner: string, 
 /**
- * `admin` (全員分を読める管理者) / `own` (それ以外の全員 = 自分の担当分だけ)
+ * `admin` (管理者。既定が全員分) / `own` (それ以外の全員。既定が自分。どちらも全件を読める)
  */
 role: string, 
 /**
- * ログインした人の HubSpot owner の所属チーム名 (画面の隅の参考表示だけ。見られる範囲の判定には使わない)。
- * 管理者は HubSpot を余分に呼ばないので空。owner が見つからない人はキューが 403 になるのでここには来ない
+ * ログインした人の HubSpot owner の所属チーム名 (参考情報だけ。見られる範囲の判定には使わない)。
+ * 管理者と、自分以外の所有者を指定したときは HubSpot を余分に呼ばないので空。自分の owner が見つからない人は既定 (me) が 409 `owner_not_resolved` になるのでここには来ない
  */
 teams: Array<string>, 
 /**

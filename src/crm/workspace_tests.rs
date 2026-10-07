@@ -892,7 +892,7 @@ async fn 電話番号の優先順位は案件_主担当者_携帯_会社() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread")]
-async fn bpo_は自分の担当でキューに出る案件を読める_owner_は_1_回だけ引く() {
+async fn 管理者以外も自分の担当の案件を読め_owner_を引かない() {
     let mut f = FakeHs::new();
     full(&mut f, BPO_OWNER);
     let e = env(f).await;
@@ -901,12 +901,15 @@ async fn bpo_は自分の担当でキューに出る案件を読める_owner_は
         assert_eq!(s, StatusCode::OK, "{v}");
         assert_eq!(v["deal"]["id"], DEAL);
     }
-    assert_eq!(e.count("GET /crm/v3/owners"), 1);
+    assert_eq!(
+        e.count("GET /crm/v3/owners"),
+        0,
+        "関門が無いので owner を引かない"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn bpo_は他人の案件_キュー外_存在しない_id_を読めず_本文も関連も返さず_以降の読み取りをしない(
-) {
+async fn 管理者以外も他人の案件_キュー外の案件を読める_存在しない_id_とアーカイブは_404() {
     let mut f = FakeHs::new();
     // 他人の担当
     full(&mut f, OTHER_OWNER);
@@ -914,75 +917,53 @@ async fn bpo_は他人の案件_キュー外_存在しない_id_を読めず_本
     f.deal("5002", BPO_OWNER, FUZAI, &[("bpo_13", "2026-12-01")]);
     // 自分の担当だが架電禁止理由あり
     f.deal("5003", BPO_OWNER, UNPROCESSED, &[("bpo_3", "禁止")]);
-    // 自分の担当だが別パイプライン
-    f.put(
-        "deals",
-        "5004",
-        &[
-            ("dealname", "別"),
-            ("dealstage", UNPROCESSED),
-            ("pipeline", "999"),
-            ("hubspot_owner_id", BPO_OWNER),
-        ],
-    );
     // アーカイブ済み
     f.deal("5005", BPO_OWNER, UNPROCESSED, &[]);
     f.archived.insert(("deals".into(), "5005".into()));
     let e = env(f).await;
-    let mut bodies = Vec::new();
-    for id in [DEAL, "5002", "5003", "5004", "5005", "6999"] {
-        let before = e.total();
+    // 他人の担当 (DEAL) は、本文・関連・活動まで読める
+    let (s, v) = e.bpo_get(DEAL).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["deal"]["owner_id"], OTHER_OWNER);
+    assert!(
+        v["contacts"].as_array().is_some_and(|c| !c.is_empty()),
+        "{v}"
+    );
+    assert!(
+        v["activities"].as_array().is_some_and(|c| !c.is_empty()),
+        "{v}"
+    );
+    // キュー外の案件も読める
+    for id in ["5002", "5003"] {
         let (s, v) = e.bpo_get(id).await;
-        assert_eq!(
-            (s, kind(&v)),
-            (StatusCode::FORBIDDEN, Some("forbidden_record")),
-            "{id}: {v}"
-        );
-        assert!(
-            v.get("deal").is_none() && v.get("contacts").is_none() && v.get("activities").is_none(),
-            "{id}"
-        );
-        assert!(!v.to_string().contains("架空"), "本文が漏れた: {v}");
-        // この要求の呼び出しは案件の読み取り 1 回だけ (owner の対応は最初の 1 回)
-        let calls = e.calls()[before..].to_vec();
-        assert!(
-            calls
-                .iter()
-                .all(|c| c.starts_with("GET /crm/v3/objects/deals/") || c == "GET /crm/v3/owners"),
-            "{id}: {calls:?}"
-        );
-        bodies.push(v);
+        assert_eq!(s, StatusCode::OK, "{id}: {v}");
+        assert_eq!(v["deal"]["id"], id);
     }
-    // 存在しない id も担当外も同じ応答 (id の存在を探れない)
-    assert!(bodies.windows(2).all(|w| w[0] == w[1]), "{bodies:?}");
-    for n in ["/associations/", "/batch/read", "/pipelines/"] {
-        assert_eq!(e.count(n), 0, "関門で止まったので {n} は呼ばない");
+    // 存在しない id・アーカイブは管理者と同じ扱い (403 で隠さない)
+    for id in ["5005", "6999"] {
+        let (s, v) = e.bpo_get(id).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{id}: {v}");
+        assert_eq!(kind(&v), Some("not_found"), "{id}: {v}");
     }
+    assert_eq!(e.count("GET /crm/v3/owners"), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn owner_を引けない_bpo_は_403_で案件を読まない_owners_の失敗は全員分に倒さない() {
+async fn 自分の_owner_を引けない人も案件を読める() {
     let mut f = FakeHs::new();
     full(&mut f, BPO_OWNER);
     f.owners.clear();
     let e = env(f).await;
     let (s, v) = e.bpo_get(DEAL).await;
-    assert_eq!(
-        (s, kind(&v)),
-        (StatusCode::FORBIDDEN, Some("owner_not_found"))
-    );
-    assert_eq!(e.count("/objects/"), 0);
-    // Owners API の失敗
+    assert_eq!(s, StatusCode::OK, "{v}");
+    // Owners API が失敗していても、案件の読み取りは owner に依存しない
     let mut f = FakeHs::new();
     full(&mut f, BPO_OWNER);
     f.fail.insert("/crm/v3/owners".into(), 500);
     let e = env(f).await;
     let (s, v) = e.bpo_get(DEAL).await;
-    assert_eq!(
-        (s, kind(&v)),
-        (StatusCode::BAD_GATEWAY, Some("hubspot_upstream"))
-    );
-    assert_eq!(e.count("/objects/"), 0);
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(e.count("GET /crm/v3/owners"), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]

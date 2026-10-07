@@ -165,8 +165,7 @@ describe('useCallQueue: states', () => {
     const cases: [Parameters<ReturnType<typeof deferredFetcher>['calls'][number]['resolve']>[0], string, string][] = [
       [{ ok: false, error: new AuthRequiredError('x') }, 'unauthorized', 'ログイン'],
       [http(401), 'unauthorized', 'ログイン'],
-      [http(403, { error_kind: 'forbidden_owner' }), 'unauthorized', '管理者だけ'],
-      [http(403, { error_kind: 'owner_not_found' }), 'unauthorized', '担当者が見つかりません'],
+      [http(409, { error_kind: 'owner_not_resolved' }), 'error', '所有者を選んでください'],
       [http(403, { error_kind: 'forbidden' }), 'unauthorized', '権限'],
       [http(503, { error_kind: 'hubspot_rate_limited' }), 'error', '上限'],
       [http(502, { error_kind: 'hubspot_timeout' }), 'error', '時間内'],

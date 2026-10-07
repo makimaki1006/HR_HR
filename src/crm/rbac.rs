@@ -11,17 +11,19 @@
 //!    (監査 DB 未接続・照会失敗のときは止めない = `crate::account_is_disabled` の方針)
 //! 5. メールのドメインが会社ドメイン (`ALLOWED_DOMAINS`、外部追加ドメインは含めない)。外れたら **403** (`forbidden`)
 //!
-//! ## 見られる範囲 (決定 2026-10-07)
-//! 会社の Google アカウントでログインした人は全員 CRM の「ユーザー」。範囲は 2 種類だけ。
-//! | 区分 | 判定 | 読める範囲 |
-//! |---|---|---|
-//! | 管理者 | `ADMIN_EMAILS` または `accounts.role = admin` | metadata、キュー全員分 (既定)、担当者一覧、全レコード |
-//! | 上記以外の全員 | (既定) | metadata、キューは自分の担当だけ、レコードは「自分が担当で架電キューの条件に合う Deal」と、その Deal に紐づく Contact / Company だけ |
+//! ## 見られる範囲 (決定 2026-10-07 を同日に更新: 全員が全件を見られる)
+//! 会社の Google アカウントでログインした人は全員 CRM の「ユーザー」で、HubSpot と同じく全件を読める
+//! (キュー・担当者の一覧・個別の Deal / Contact / Company・ワークスペース)。違いは**キューの既定の担当者**だけ。
+//! | 区分 | 判定 | キューの既定 | 管理者だけの機能 (管理画面・役割変更・hubspot-check) |
+//! |---|---|---|---|
+//! | 管理者 | `ADMIN_EMAILS` または `accounts.role = admin` | 全員分 | 使える |
+//! | 上記以外の全員 | (既定) | 自分 (`me`)。自分の owner が見つからなければ 409 `owner_not_resolved` で画面が選択を促す | 使えない |
 //!
+//! `owner=all` / `unassigned` / 任意の owner id は全員が指定できる。
 //! - `accounts.role` の consultant / bpo / user は**判定に使わない** (admin だけ使う)。
-//! - HubSpot の所属チーム (owner の `teams`) は範囲の判定に使わない。画面の隅に参考表示するだけ。
-//! - 自分の HubSpot owner が (メール一致で) 見つからない人、Owners の取得に失敗したときは、全件に倒さず
-//!   403 `owner_not_found` / HubSpot エラー (安全側)。
+//! - HubSpot の所属チーム (owner の `teams`) は範囲の判定に使わない。
+//! - CRM を使えない人 (パスワードログイン・社外ドメイン・無効アカウント・未ログイン) は、このモジュールの `authorize` で
+//!   HubSpot を呼ぶ前に拒否する。
 //!
 //! ## 管理者の読み取りと失敗時の方針 (権限を広げない)
 //! - `accounts.role` はリクエストごとには引かず、メールごとに 5 分キャッシュする ([`ROLE_CACHE_TTL`])。管理画面で変えたときは
@@ -109,9 +111,15 @@ impl CrmRole {
         }
     }
 
-    /// 担当者・キューの条件に関わらず全レコードを読めるか (管理者だけ。consultant 等の値は判定に使わない)
-    pub fn reads_all_records(self) -> bool {
+    /// 管理者か (キューの既定が全員分になる。管理画面・hubspot-check など管理者だけの機能の判定にも使う)
+    pub fn is_admin(self) -> bool {
         self == CrmRole::Admin
+    }
+
+    /// 全レコードを読めるか。CRM の利用者 (authorize を通った人) は全員読める (決定 2026-10-07)。
+    /// 役割が決まっていない (`User` = 最小権限) ときだけ読めない (レコード単位の関門 `record_gate` に回る = 安全側)
+    pub fn reads_all_records(self) -> bool {
+        self != CrmRole::User
     }
 }
 
@@ -567,11 +575,15 @@ mod tests {
         assert_eq!(CrmRole::parse_known("bpo"), Some(CrmRole::Bpo));
         assert_eq!(CrmRole::parse_known("boss"), None);
         assert_eq!(CrmRole::parse_known(""), None);
-        // 全レコードを読めるのは admin だけ
+        // 全レコードを読めるのは CRM の利用者全員 (役割が決まっていない user だけ読めない = 安全側)。管理者は admin だけ
         assert!(CrmRole::Admin.reads_all_records());
-        assert!(!CrmRole::Consultant.reads_all_records());
-        assert!(!CrmRole::Bpo.reads_all_records());
+        assert!(CrmRole::Consultant.reads_all_records());
+        assert!(CrmRole::Bpo.reads_all_records());
         assert!(!CrmRole::User.reads_all_records());
+        assert!(CrmRole::Admin.is_admin());
+        assert!(!CrmRole::Consultant.is_admin());
+        assert!(!CrmRole::Bpo.is_admin());
+        assert!(!CrmRole::User.is_admin());
     }
 
     /// 読み取り結果 × ADMIN_EMAILS の表。管理者 = ADMIN_EMAILS か accounts.role=admin。それ以外は全員「自分の分だけ」(Bpo)

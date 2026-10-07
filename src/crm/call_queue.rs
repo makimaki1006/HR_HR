@@ -37,9 +37,10 @@
 //! 全組み合わせが上限内に収まることはテストで確認している。
 //!
 //! ## 認可と役割
-//! `rbac::authorize` (Google OIDC + 許可リスト + 無効アカウント + 役割) の後、役割 (`accounts.role`) で見える範囲を決める。
-//! admin / consultant は全員分 (既定)、bpo は自分の担当だけ。本人のメール → HubSpot owner id は Owners API で引き、メモリにキャッシュする。
-//! owner を引けない BPO は全員分に倒さず 403 `owner_not_found`。
+//! `rbac::authorize` (Google OIDC + 許可リスト + 無効アカウント + 管理者かどうか) の後に読む。
+//! 見られる範囲は全員同じ (全件)。違うのは `owner` 未指定のときの既定だけで、管理者 = 全員分、それ以外 = 自分 (`me`)。
+//! `owner=all` / `unassigned` / owner id は全員が指定できる。本人のメール → HubSpot owner id は Owners API で引き、メモリにキャッシュする。
+//! `me` (既定を含む) で owner を引けない人は全員分に倒さず 409 `owner_not_resolved` (画面が所有者の選択を促す)。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -306,10 +307,10 @@ pub struct CallQueueItem {
 pub struct CallQueueScope {
     /// `all` / `me` / `unassigned` / owner id
     pub owner: String,
-    /// `admin` (全員分を読める管理者) / `own` (それ以外の全員 = 自分の担当分だけ)
+    /// `admin` (管理者。既定が全員分) / `own` (それ以外の全員。既定が自分。どちらも全件を読める)
     pub role: String,
-    /// ログインした人の HubSpot owner の所属チーム名 (画面の隅の参考表示だけ。見られる範囲の判定には使わない)。
-    /// 管理者は HubSpot を余分に呼ばないので空。owner が見つからない人はキューが 403 になるのでここには来ない
+    /// ログインした人の HubSpot owner の所属チーム名 (参考情報だけ。見られる範囲の判定には使わない)。
+    /// 管理者と、自分以外の所有者を指定したときは HubSpot を余分に呼ばないので空。自分の owner が見つからない人は既定 (me) が 409 `owner_not_resolved` になるのでここには来ない
     pub teams: Vec<String>,
     /// 実際に絞り込んだステージ ID (昇順)
     pub stages: Vec<String>,
@@ -590,11 +591,10 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     })
 }
 
-/// 管理者・consultant の既定 = 全員分、BPO の既定 = 自分
+/// 未指定のときの既定: 管理者 = 全員分、管理者以外の全員 = 自分。指定があればそのまま (全員が全員分・担当なし・他人を指定できる)
 fn effective_owner(p: &OwnerParam, role: CrmRole) -> OwnerParam {
     match (p, role) {
-        (OwnerParam::Unspecified, r) if r.reads_all_records() => OwnerParam::All,
-        // bpo。user は authorize で落ちるので来ないが、来ても自分だけ (最小権限)
+        (OwnerParam::Unspecified, r) if r.is_admin() => OwnerParam::All,
         (OwnerParam::Unspecified, _) => OwnerParam::Me,
         (other, _) => other.clone(),
     }
@@ -1352,13 +1352,8 @@ pub(super) async fn get_call_queue(
         Ok(p) => p,
         Err(name) => return bad_param(name),
     };
-    // 3) 役割と担当者の範囲。BPO は自分 (指定なし / me) だけ。他の指定は HubSpot を呼ぶ前に 403
+    // 3) 役割。担当者の指定は誰でも自由 (全員分・担当なし・他人も可)。未指定のときの既定だけ役割で変わる
     let role = rbac::resolve_role(&principal);
-    if !role.reads_all_records()
-        && !matches!(params.owner, OwnerParam::Unspecified | OwnerParam::Me)
-    {
-        return error_json(StatusCode::FORBIDDEN, "forbidden_owner");
-    }
     let owner = effective_owner(&params.owner, role);
     let email = principal.email.clone().unwrap_or_default();
     // 4) HubSpot 設定
@@ -1420,12 +1415,12 @@ async fn execute(
         OwnerParam::Id(id) => Some(f_eq("hubspot_owner_id", id)),
         OwnerParam::Me => match ctx.queue.owner_for(client, email).await.map_err(&fail)? {
             Some(id) => Some(f_eq("hubspot_owner_id", &id)),
-            // 引けない人を全員分に倒さない
-            None => return Err(error_json(StatusCode::FORBIDDEN, "owner_not_found")),
+            // 引けない人を全員分に倒さない。画面は所有者の選択を促す (403 ではない)
+            None => return Err(error_json(StatusCode::CONFLICT, "owner_not_resolved")),
         },
     };
     // 所属チーム名 (参考表示だけ。owner のキャッシュを使うので通常は HubSpot を呼ばない)
-    let teams: Vec<String> = if role.reads_all_records() {
+    let teams: Vec<String> = if role.is_admin() || !matches!(owner, OwnerParam::Me) {
         Vec::new()
     } else {
         ctx.queue
@@ -1566,12 +1561,7 @@ async fn execute(
         truncated,
         scope: CallQueueScope {
             owner: owner_label(owner),
-            role: if role.reads_all_records() {
-                "admin"
-            } else {
-                "own"
-            }
-            .to_string(),
+            role: if role.is_admin() { "admin" } else { "own" }.to_string(),
             teams,
             stages: {
                 let mut s: Vec<String> = selected.iter().map(|s| s.to_string()).collect();

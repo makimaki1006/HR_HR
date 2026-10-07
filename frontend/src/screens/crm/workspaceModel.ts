@@ -53,10 +53,9 @@ export function partialNotes(partial: readonly WorkspacePartial[]): string[] {
   return partial.map(p => `${PARTIAL_LABELS[p.part] ?? p.part}を取得できませんでした(${p.error_kind === 'hubspot_auth' ? 'HubSpot の読み取り権限が不足しています' : p.error_kind})`);
 }
 
-/** 詳細取得の失敗文言。関門 (自分の担当でキューに出ている案件だけ) の拒否は専用の文言 */
+/** 詳細取得の失敗文言 */
 export function detailErrorMessage(kind: string | null, status: number | null): string {
-  if (kind === 'forbidden_record') return 'この案件は、あなたの担当でキューに出ている案件ではないため表示できません。';
-  if (kind === 'owner_not_found') return 'あなたのメールアドレスに対応する HubSpot の担当者が見つかりません。管理者に連絡してください。';
+  if (kind === 'forbidden_record') return 'この案件を表示する権限がありません。';
   if (kind === 'not_found') return 'HubSpot にこの案件がありません(削除された可能性があります)。';
   if (kind === 'invalid_id') return '案件の指定が正しくありません。';
   return errorMessage(kind, status);

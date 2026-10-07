@@ -93,18 +93,17 @@ describe('mergeItems', () => {
 
 describe('messages and dates', () => {
   it('has a distinct message for each known error_kind and a generic one otherwise', () => {
-    const kinds = ['hubspot_rate_limited', 'hubspot_timeout', 'crm_timeout', 'hubspot_auth', 'hubspot_upstream', 'hubspot_decode', 'not_configured', 'cursor_mismatch', 'invalid_param'];
+    const kinds = ['hubspot_rate_limited', 'hubspot_timeout', 'crm_timeout', 'hubspot_auth', 'hubspot_upstream', 'hubspot_decode', 'not_configured', 'cursor_mismatch', 'invalid_param', 'owner_not_resolved'];
     const msgs = kinds.map(k => errorMessage(k, 500));
     expect(new Set(msgs).size).toBe(kinds.length);
     expect(errorMessage(null, null)).toContain('ネットワーク');
     expect(errorMessage('weird', 500)).toContain('500');
     expect(errorMessage('hubspot_rate_limited', 503)).toContain('上限');
   });
-  it('explains 401 and forbidden kinds', () => {
+  it('explains 401 and forbidden kinds; the owner_not_resolved 409 asks the person to pick an owner', () => {
     expect(unauthorizedMessage(null, 401)).toContain('ログイン');
-    expect(unauthorizedMessage('forbidden_owner', 403)).toContain('管理者だけ');
-    expect(unauthorizedMessage('owner_not_found', 403)).toContain('担当者が見つかりません');
     expect(unauthorizedMessage('forbidden', 403)).toContain('権限');
+    expect(errorMessage('owner_not_resolved', 409)).toContain('所有者を選んでください');
   });
   it('reads HubSpot date values in the date and epoch-ms forms', () => {
     expect(dateValue('2026-10-05')).toBe('2026-10-05');

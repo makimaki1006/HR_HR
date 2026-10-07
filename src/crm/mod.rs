@@ -1,10 +1,10 @@
 //! Headless CRM の `/api/crm/*` (HubSpot からの読み取りだけ。書き込みはしない)。
 //!
-//! - `rbac`: 認可 (誰が読めるか。会社の Google ログインなら全員可。管理者 = `ADMIN_EMAILS` または `accounts.role = admin` だけ全件、それ以外の全員は自分の担当分だけ)。許可条件は `rbac.rs` 1 箇所
-//! - `record_gate`: 管理者以外のレコード単位の制限 (自分が担当で架電キューの条件に合う Deal と、それに紐づく Contact / Company だけ)
+//! - `rbac`: 認可 (誰が使えるか。会社の Google ログインなら全員が全件を読める。管理者 = `ADMIN_EMAILS` または `accounts.role = admin` はキューの既定が全員分、それ以外は自分)。許可条件は `rbac.rs` 1 箇所
+//! - `record_gate`: レコード単位の制限。CRM の利用者には掛けない (役割が決まっていない最小権限の人だけの備え)
 //! - `call_queue`: `GET /api/crm/call-queue` (架電キュー。HubSpot の Deal 検索 + 関連の一括読み取り)
-//! - `owners`: `GET /api/crm/owners` (管理者のみ。担当者の名前の一覧。HubSpot Owners API、10 分キャッシュ)
-//! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴。BPO は担当のキュー対象だけ)
+//! - `owners`: `GET /api/crm/owners` (CRM の利用者全員。所有者を名前で選ぶための一覧。HubSpot Owners API、10 分キャッシュ)
+//! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴)
 //! - `routes`: `GET /api/crm/metadata` と `GET /api/crm/{contacts|companies|deals}/{id}`
 //!
 //! ルートは `lib.rs` の `protected_routes` **の外**に merge する (未ログインを /login への 303 でなく
