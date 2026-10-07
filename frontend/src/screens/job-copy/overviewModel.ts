@@ -5,7 +5,7 @@
  */
 import type { JobCopyRecord } from './data';
 import {
-  addDays, applicationBuckets, asOfDate, billingEntries, changeKinds, countApplications, daysBetween, versionChanges,
+  addDays, applicationBuckets, asOfDate, billingEntries, billingOverlaps, changeKinds, countApplications, daysBetween, versionChanges,
 } from './timelineModel';
 import type { ApplicationBucket, BillingEntry } from './timelineModel';
 
@@ -35,6 +35,8 @@ export interface OverviewRow {
   billingYen: number | null;
   billingConnected: boolean;
   billingMissingAmount: boolean;
+  /** Two billing periods share days; the total is left blank instead of adding them up. */
+  billingOverlapping: boolean;
   /** No application data at all (different from zero applications). */
   applicationsAvailable: boolean;
   asOf: string;
@@ -66,8 +68,8 @@ export function overviewRow(job: JobCopyRecord, options: { billing?: readonly Bi
     jobId: job.id, title: job.title, company: job.company, media: job.media,
     lastChange: latest?.date ?? null, kinds: latest ? changeKinds(latest) : [], changeDates: later.map(change => change.date),
     before, after, weeks: applicationBuckets(job.overallApplications?.byDate, 'week'),
-    billingYen: known.length ? known.reduce((sum, entry) => sum + (entry.amountYen ?? 0), 0) : null,
-    billingConnected: billing.length > 0, billingMissingAmount: billing.length > known.length,
+    billingYen: known.length && !billingOverlaps(billing) ? known.reduce((sum, entry) => sum + (entry.amountYen ?? 0), 0) : null,
+    billingConnected: billing.length > 0, billingMissingAmount: billing.length > known.length, billingOverlapping: billingOverlaps(billing),
     applicationsAvailable, asOf,
   };
 }
