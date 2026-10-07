@@ -37,10 +37,16 @@ export function makeResponse(f: QueueFilters, items: CallQueueItem[], over: Part
   };
 }
 
-/** GET /api/crm/metadata の応答の形をした架空の定義 (mocProperties.ts のスナップショットから) */
+/**
+ * bpo_57 その他理由: スナップショット (mocProperties.ts) には無いが、/api/crm/metadata の許可リストには入っている。
+ * 型・ラベルは 2026-10-08 に HubSpot の Deal プロパティ定義で確認 (string / その他理由)
+ */
+const BPO_57 = { name: 'bpo_57', label: 'その他理由', type: 'string', fieldType: 'text', options: [] };
+
+/** GET /api/crm/metadata の応答の形をした架空の定義 (mocProperties.ts のスナップショット + bpo_57) */
 export function metadataFromMoc(only?: readonly string[]): CrmMetadataResponse {
   return {
-    properties: Object.values(MOC_DEAL_PROPERTIES).filter(p => !only || only.includes(p.name)).map(p => ({
+    properties: [...Object.values(MOC_DEAL_PROPERTIES), BPO_57].filter(p => !only || only.includes(p.name)).map(p => ({
       object_type: 'deals', name: p.name, label: p.label, property_type: p.type, field_type: p.fieldType, options: p.options,
     })),
     pipelines: [], fetched_at: '2026-10-08T00:00:00Z', hubspot_ms: 1, total_ms: 1, cache_hit: false,

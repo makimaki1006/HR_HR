@@ -199,7 +199,8 @@ describe('Zoom Phone (Smart Embed)', () => {
     expect(screen.getByText('通話ID call-1')).toBeTruthy();
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
     expect(screen.getByText('通話が終了しました')).toBeTruthy();
-    expect(screen.getByText(/HubSpot にはまだ保存されません/)).toBeTruthy();
+    // 画面から発信していない通話: 入力欄に結び付いていないと伝える (「入力できます」とは言わない)
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('この通話は選んでいる架電先と結び付いていません。架電先を選んでから「架電結果」に入力してください。');
     // この通話は画面から発信したものではないので、入力欄には通話終了を出さない
     expect(screen.queryByTestId('ended-call')).toBeNull();
   });
@@ -223,12 +224,14 @@ describe('Zoom Phone (Smart Embed)', () => {
     t += 65_000;
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
     expect(screen.getByTestId('ended-call').textContent).toBe('通話終了 通話時間 01:05');
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は中央下の「架電結果」に下書きとして入力できます。HubSpot にはまだ保存されません。');
     const first6 = within(screen.getByRole('group', { name: '今回の結果' })).getAllByRole('button');
     expect(first6.map(b => b.textContent)).toEqual(['担当者と会話', '不在・応答なし', '再架電の約束', 'アポイント獲得', '番号違い', '架電停止の希望']);
     expect(document.activeElement).toBe(first6[0]);
-    // 別の案件の入力欄には出さない
+    // 別の案件の入力欄には出さない (電話の枠の案内も「選んでから」に変わる)
     open('2');
     expect(screen.queryByTestId('ended-call')).toBeNull();
+    expect(screen.getByTestId('zp-result-hint').textContent).toContain('結び付いていません');
     const row1 = within(screen.getByRole('list', { name: '架電キュー' })).getByText('架空会社1').closest('button');
     row1?.focus();
     open('1');

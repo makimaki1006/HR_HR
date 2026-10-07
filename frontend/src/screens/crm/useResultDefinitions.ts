@@ -6,7 +6,7 @@ import { metadataDealDefinitions } from './liveMetadata';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
 import type { MocPropertyDefinition } from './mocProperties';
 import type { QueueMode } from './queueModel';
-import { FIELD_PROPERTY, REQUIRED_DEFINITIONS } from './callResultModel';
+import { FALLBACK_LABELS, REQUIRED_DEFINITIONS, REQUIRED_TYPED_DEFINITIONS } from './callResultModel';
 
 export type MetadataFetch = (signal: AbortSignal) => Promise<ApiResult<CrmMetadataResponse>>;
 export const liveMetadataFetch: MetadataFetch = signal => apiGet<CrmMetadataResponse>('/api/crm/metadata', { signal, timeoutMs: 35_000 });
@@ -16,19 +16,28 @@ export type DefinitionsState =
   | { phase: 'ready'; defs: Record<string, MocPropertyDefinition>; source: 'hubspot' | 'fixture' }
   | { phase: 'error'; message: string };
 
-/** 応答に入っていない (選択肢を出せない) 項目の内部名 */
+/**
+ * 応答に入っていない (選択肢を出せない)、または型が想定と違う項目の内部名。
+ * 選択肢のある項目は選択肢が 1 つ以上、日付・文字の項目はその型の定義があること
+ */
 export function missingDefinitions(defs: Record<string, MocPropertyDefinition>): string[] {
-  return REQUIRED_DEFINITIONS.filter(name => (defs[name]?.options.length ?? 0) === 0);
+  const noOptions = REQUIRED_DEFINITIONS.filter(name => (defs[name]?.options.length ?? 0) === 0);
+  const wrongType = Object.entries(REQUIRED_TYPED_DEFINITIONS).filter(([name, type]) => defs[name]?.type !== type).map(([name]) => name);
+  return [...noOptions, ...wrongType];
 }
 
-const LABELS: Record<string, string> = Object.fromEntries(
-  Object.values(FIELD_PROPERTY).map(n => [n, MOC_DEAL_PROPERTIES[n]?.label ?? n]),
-);
+/** 画面に出す項目名 (日本語だけ。内部名は出さない) */
+const fieldLabel = (name: string) => MOC_DEAL_PROPERTIES[name]?.label ?? FALLBACK_LABELS[name] ?? '名称不明の項目';
+
+/** 定義が足りないときの画面の文言。内部名は含めない (調べるときのためにコンソールへ出す) */
+export function missingDefinitionsMessage(missing: readonly string[]): string {
+  return `HubSpot から次の項目の選択肢・設定を受け取れませんでした: ${missing.map(fieldLabel).join('、')}`;
+}
 
 function errorMessage(error: unknown): string {
   if (error instanceof AuthRequiredError || (error instanceof ApiHttpError && error.status === 401)) return 'ログインが切れています。再読み込みしてログインしてください。';
-  if (error instanceof ApiHttpError && error.status === 403) return 'このアカウントには HubSpot の項目定義を読む権限がありません。';
-  return 'HubSpot から選択肢の定義を取得できませんでした。';
+  if (error instanceof ApiHttpError && error.status === 403) return 'このアカウントでは HubSpot の選択肢を読み込めません。';
+  return 'HubSpot から選択肢を読み込めませんでした。';
 }
 
 /**
@@ -51,7 +60,8 @@ export function useResultDefinitions(mode: QueueMode, enabled: boolean, fetcher:
       const defs = metadataDealDefinitions(r.data);
       const missing = missingDefinitions(defs);
       if (missing.length > 0) {
-        setLive({ phase: 'error', message: `HubSpot の応答に次の項目の選択肢がありません: ${missing.map(n => `${LABELS[n] ?? n}(${n})`).join('、')}` });
+        console.warn('[crm] /api/crm/metadata lacks required deal definitions:', missing.join(', '));
+        setLive({ phase: 'error', message: missingDefinitionsMessage(missing) });
         return;
       }
       setLive({ phase: 'ready', defs, source: 'hubspot' });

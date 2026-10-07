@@ -293,15 +293,82 @@ describe('call-result form (draft only)', () => {
     expect(JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}')).toEqual({ drafts: {}, recorded: {} });
   });
 
-  it('still works when sessionStorage is unavailable', async () => {
+  it('still works when sessionStorage is unavailable, but says in red that the input will be lost (not the usual 記録済み)', async () => {
     vi.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => { throw new Error('blocked'); });
+    await renderScreen();
+    open('1');
+    await formReady();
+    expect(within(form()).getByTestId('unsaved-alert').textContent).toContain('この画面を閉じたり再読み込みしたりすると入力が消えます');
+    expect(within(form()).getByText('下書き(この画面を閉じると消えます)')).toBeTruthy();
+    fireEvent.click(outcome('担当者と会話'));
+    fireEvent.click(recordBtn());
+    expect(selectedId()).toBe('2');
+    expect(within(rowOf('1')).getByText('記録済み(画面を閉じると消えます)')).toBeTruthy();
+    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
+    expect(within(rowOf('1')).getByText('記録済み(画面を閉じると消えます)').className).toContain('is-unsaved');
+  });
+
+  it('when writes to sessionStorage throw (quota / blocked), the alert shows and a reload really loses the marks', async () => {
+    // 読めるが書けない sessionStorage (容量超過・ブロック)
+    const full = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError'); }, removeItem: () => undefined, clear: () => undefined, key: () => null, length: 0 };
+    vi.spyOn(window, 'sessionStorage', 'get').mockReturnValue(full);
+    const first = await renderScreen();
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('担当者と会話'));
+    fireEvent.click(recordBtn());
+    expect(within(rowOf('1')).getByText('記録済み(画面を閉じると消えます)')).toBeTruthy();
+    expect(within(form()).getAllByRole('alert').map(a => a.textContent).join('')).toContain('入力を残せていません');
+    first.unmount();
+    await renderScreen();
+    expect(within(rowOf('1')).queryByText(/記録済み/)).toBeNull();
+  });
+
+  it('a normal session shows no unsaved alert and explains the marks stay only in this tab', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    expect(within(form()).queryByTestId('unsaved-alert')).toBeNull();
+    expect(within(form()).getByText('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません')).toBeTruthy();
+    fireEvent.click(outcome('担当者と会話'));
+    fireEvent.click(recordBtn());
+    expect(within(rowOf('1')).getByText('記録済み(未送信)').getAttribute('title')).toBe('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません');
+    expect(document.body.textContent).not.toMatch(/このブラウザで|送信は未実装|代用/);
+  });
+
+  it('callback → appointment: the auto-filled 再架電 goes away, so only the three appointment fields are required', async () => {
+    await renderScreen();
+    open('1');
+    await formReady();
+    fireEvent.click(outcome('再架電の約束'));
+    expect(within(form()).getByRole<HTMLInputElement>('radio', { name: '再架電' }).checked).toBe(true);
+    fireEvent.click(outcome('アポイント獲得'));
+    expect(within(form()).getByRole<HTMLInputElement>('radio', { name: '再架電' }).checked).toBe(false);
+    fireEvent.click(recordBtn());
+    const shown = Array.from(form().querySelectorAll('.rf-err')).map(e => e.textContent);
+    expect(shown.sort()).toEqual(['商談予定日を入れてください。', '商談予定時間を選んでください。', '商談方法を選んでください。'].sort());
+    expect(within(form()).getByLabelText(/^次回架電日/).closest('label')?.textContent).not.toContain('必須');
+  });
+
+  it('editing after 記録して次へ says the mark was removed and asks to record again', async () => {
     await renderScreen();
     open('1');
     await formReady();
     fireEvent.click(outcome('担当者と会話'));
     fireEvent.click(recordBtn());
-    expect(selectedId()).toBe('2');
-    expect(within(rowOf('1')).getByText('記録済み(未送信)')).toBeTruthy();
+    open('1');
+    expect(within(form()).queryByText(/印を外しました/)).toBeNull();
+    fireEvent.change(within(form()).getByLabelText(/^タスクメモ/), { target: { value: '追記' } });
+    expect(within(form()).getByText('内容を変えたので「記録済み」の印を外しました。もう一度「記録して次へ」を押してください。')).toBeTruthy();
+    expect(within(rowOf('1')).queryByText('記録済み(未送信)')).toBeNull();
+  });
+
+  it('the unreachable check is shown with the HubSpot label (same as the form), not the stored value', async () => {
+    await renderScreen({ items: [makeItem('1', { stop: { prohibited_reason: null, block_reason: null, unreachable_check: '即切電（コール音なし）' } }), makeItem('2')] });
+    open('2');
+    await formReady();
+    const flag = within(rowOf('1')).getByText('不通チェック');
+    expect(flag.getAttribute('title')).toBe('不通時チェック: 常時即切電（コール音なし）');
   });
 
   it('live: a failed metadata request shows an error (no fixture options) and retry loads the definitions', async () => {
@@ -309,11 +376,12 @@ describe('call-result form (draft only)', () => {
     await renderScreen({ metadataFetcher: meta.fetcher });
     expect(meta.calls).toHaveLength(0); // 案件を選ぶまで取得しない
     open('1');
-    expect(within(form()).getByText('HubSpot から選択肢の定義を読み込み中…')).toBeTruthy();
+    expect(within(form()).getByText('選択肢を読み込み中…')).toBeTruthy();
     await act(async () => { meta.calls[0]?.({ ok: false, error: new ApiHttpError(502, { error_kind: 'hubspot_upstream' }) }); await Promise.resolve(); });
     const alert = within(form()).getByRole('alert');
-    expect(alert.textContent).toContain('HubSpot から選択肢の定義を取得できませんでした。');
-    expect(alert.textContent).toContain('架空の選択肢で代用はしません');
+    expect(alert.textContent).toContain('HubSpot から選択肢を読み込めませんでした。');
+    expect(alert.textContent).toContain('再試行するか、HubSpot で直接入力してください。');
+    expect(alert.textContent).not.toContain('代用');
     expect(within(form()).queryByRole('group', { name: '今回の結果' })).toBeNull();
     expect(recordDisabled()).toBe(true);
     // 別の案件に移っても取り直さない (失敗のまま)。再試行で取り直す
@@ -325,12 +393,16 @@ describe('call-result form (draft only)', () => {
     expect(meta.calls).toHaveLength(2);
   });
 
-  it('live: definitions missing from the response are named, not substituted', async () => {
-    const fetcher: MetadataFetch = () => Promise.resolve({ ok: true, data: metadataFromMoc(['bpo_40', 'bpo_42', 'bpo_14', 'bpo_10', 'bpo_4', 'bpo__', 'bpo_33']) });
+  it('live: definitions missing from the response are named in Japanese only (no internal names), not substituted', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fetcher: MetadataFetch = () => Promise.resolve({ ok: true, data: metadataFromMoc(['bpo_40', 'bpo_42', 'bpo_14', 'bpo_10', 'bpo_4', 'bpo__', 'bpo_33', 'bpo_13', 'bpo_23', 'bpo_16', 'bpo_3']) });
     await renderScreen({ metadataFetcher: fetcher });
     open('1');
     const alert = await within(form()).findByRole('alert');
-    expect(alert.textContent).toContain('次アクション種別(bpo_45)');
+    expect(alert.textContent).toContain('HubSpot から次の項目の選択肢・設定を受け取れませんでした: 次アクション種別、その他理由');
+    expect(alert.textContent).not.toMatch(/bpo_/);
+    // 内部名は調べるときのためにコンソールにだけ出す
+    expect(warn).toHaveBeenCalledWith('[crm] /api/crm/metadata lacks required deal definitions:', 'bpo_45, bpo_57');
     expect(within(form()).queryByRole('group', { name: '今回の結果' })).toBeNull();
   });
 
@@ -346,8 +418,10 @@ describe('call-result form (draft only)', () => {
     expect(within(form()).getByLabelText<HTMLSelectElement>(/^次回架電時間/).options).toHaveLength(46);
     expect(meta.calls).toHaveLength(0);
     expect(spy).not.toHaveBeenCalled();
-    const saved = JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}') as { drafts: Record<string, unknown> };
-    expect(Object.keys(saved.drafts).every(k => k.startsWith('fixture:'))).toBe(true);
+    const saved = JSON.parse(window.sessionStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}') as { drafts: Record<string, { outcome: string; nextAction: string; nextActionAuto: boolean }> };
+    expect(Object.keys(saved.drafts)).toEqual(['fixture:f-2']);
+    expect(saved.drafts['fixture:f-2']).toMatchObject({ outcome: 'callback', nextAction: '再架電', nextActionAuto: true });
+    expect(Object.keys(saved.drafts).some(k => k.startsWith('live:'))).toBe(false);
   });
 
   it('the Zoom iframe stays the same element across 記録して次へ', async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DRAFT_STORAGE_KEY, RESULT_PROPERTY_ALLOWLIST, activeFields, clearDraftEntry, draftKey, editDraft, draftSummary, emptyResultDraft, isCalendarDate,
-  loadStore, markRecorded, nextUnrecorded, parseStore, putDraft, saveStore, msUntilNextJstMidnight, toHubSpotPatch, todayJst, validateResultDraft, withOutcome,
+  loadStore, markRecorded, nextUnrecorded, parseStore, putDraft, saveStore, msUntilNextJstMidnight, toHubSpotPatch, todayJst, validateResultDraft, withField, withOutcome, optionLabel, FIELD_PROPERTY, FALLBACK_LABELS,
 } from './callResultModel';
 import type { ResultDraft } from './callResultModel';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
@@ -59,6 +59,40 @@ describe('withOutcome', () => {
     expect(withOutcome(draft({ nextAction: '資料送付' }), 'callback').nextAction).toBe('資料送付');
     expect(withOutcome(draft({}), 'connected').nextAction).toBe('');
   });
+  it('an auto-filled 再架電 is removed when the outcome moves away from callback (no required next call the caller never chose)', () => {
+    for (const to of ['appointment', 'connected', 'no_answer'] as const) {
+      const d = withOutcome(withOutcome(draft({}), 'callback'), to);
+      expect(d.nextAction).toBe('');
+      expect(d.nextActionAuto).toBe(false);
+      expect(errs(d)).not.toHaveProperty('nextCallDate');
+      expect(errs(d)).not.toHaveProperty('nextCallTime');
+    }
+    // アポに切り替えたら必須は doc §2 の 3 項目だけ、送る内容に bpo_45 は入らない
+    const appt = withOutcome(withOutcome(draft({}), 'callback'), 'appointment');
+    expect(errs(appt)).toEqual({ apptDate: '商談予定日を入れてください。', apptTime: '商談予定時間を選んでください。', apptMethod: '商談方法を選んでください。' });
+    expect(toHubSpotPatch({ ...appt, apptDate: '2026-10-20', apptTime: '9:30', apptMethod: 'zoom' }, defs, TODAY))
+      .toEqual({ properties: { bpo_23: '2026-10-20', bpo__: '9:30', bpo_33: 'zoom' } });
+    // 戻すとまた自動で入る
+    expect(withOutcome(appt, 'callback').nextAction).toBe('再架電');
+  });
+  it('a 再架電 the caller picked themselves is kept when the outcome changes', () => {
+    const picked = withField(withOutcome(draft({}), 'callback'), 'nextAction', '再架電');
+    expect(picked.nextActionAuto).toBe(false);
+    expect(withOutcome(picked, 'connected').nextAction).toBe('再架電');
+    const chosenFirst = withOutcome(withField(withOutcome(draft({}), 'connected'), 'nextAction', '再架電'), 'callback');
+    expect(withOutcome(chosenFirst, 'no_answer').nextAction).toBe('再架電');
+    // 自動で入った後に別の値へ変えたら、その値は残る
+    expect(withOutcome(withField(withOutcome(draft({}), 'callback'), 'nextAction', '資料送付'), 'connected').nextAction).toBe('資料送付');
+  });
+});
+
+describe('optionLabel', () => {
+  it('maps stored values to HubSpot display labels, including hidden options, falling back to the value', () => {
+    expect(optionLabel(defs.bpo_10, '使われておりません')).toBe('現在使われておりません');
+    expect(optionLabel(defs.bpo_4, 'リスト被り')).toBe('リスト被り（架電被り）');
+    expect(optionLabel(defs.bpo_10, '未知の値')).toBe('未知の値');
+    expect(optionLabel(undefined, 'x')).toBe('x');
+  });
 });
 
 describe('validateResultDraft', () => {
@@ -109,6 +143,18 @@ describe('validateResultDraft', () => {
     const hidden = { ...defs, bpo_40: { name: "bpo_40", label: "接触結果", type: "enumeration", fieldType: "select", editable: true, options: [{ label: '受付', value: '受付', hidden: true }, { label: '担当者', value: '担当者', hidden: false }] } };
     expect(validateResultDraft(draft({ outcome: 'connected', spokeTo: '受付' }), hidden, TODAY)).toEqual({ spokeTo: '選択肢にない値です。選び直してください。' });
   });
+  it('a date / text field whose HubSpot type changed is refused (the future write would send a wrong-shaped value)', () => {
+    const d13 = defs.bpo_13; const d16 = defs.bpo_16;
+    if (!d13 || !d16) throw new Error('snapshot lacks bpo_13 / bpo_16');
+    const changed = { ...defs, bpo_13: { ...d13, type: 'string' }, bpo_16: { ...d16, type: 'number' } };
+    expect(validateResultDraft(draft({ outcome: 'connected', nextCallDate: '2026-10-09', nextCallTime: '9:15', memo: 'm' }), changed, TODAY)).toEqual({
+      nextCallDate: 'HubSpot 側でこの項目の設定が変わったため、ここでは入力できません。管理者に連絡してください。',
+      memo: 'HubSpot 側でこの項目の設定が変わったため、ここでは入力できません。管理者に連絡してください。',
+    });
+    expect(toHubSpotPatch(draft({ outcome: 'connected', memo: 'm' }), changed, TODAY)).toBeNull();
+    // 空の項目は型を問わない
+    expect(validateResultDraft(draft({ outcome: 'connected' }), changed, TODAY)).toEqual({});
+  });
   it('memo is limited to 2000 characters', () => {
     expect(errs({ outcome: 'connected', memo: 'x'.repeat(2000) })).toEqual({});
     expect(errs({ outcome: 'connected', memo: 'x'.repeat(2001) })).toEqual({ memo: '2000 文字以内で入力してください(いま 2001 文字)。' });
@@ -140,14 +186,21 @@ describe('toHubSpotPatch', () => {
     expect(toHubSpotPatch(draft({ outcome: 'callback' }), defs, TODAY)).toBeNull();
     expect(toHubSpotPatch(draft({}), defs, TODAY)).toBeNull();
   });
-  it('every key is inside the allowlist, never dealstage / bpo_20 / outcome', () => {
+  it('appointment with everything filled: exactly these 9 properties and values, never dealstage / bpo_20 / outcome', () => {
     const p = toHubSpotPatch(draft({ outcome: 'appointment', spokeTo: '担当者', interest: '高（前向き）', nextAction: '資料送付', nextCallDate: '2026-10-09', nextCallTime: '8:00',
       memo: 'm', apptDate: '2026-10-20', apptTime: '8:00', apptMethod: '電話' }), defs, TODAY);
-    expect(p).not.toBeNull();
-    for (const k of Object.keys(p?.properties ?? {})) expect(RESULT_PROPERTY_ALLOWLIST).toContain(k);
-    expect(Object.keys(p?.properties ?? {})).toHaveLength(9);
+    expect(p).toEqual({ properties: {
+      bpo_40: '担当者', bpo_42: '高（前向き）', bpo_45: '資料送付', bpo_13: '2026-10-09', bpo_14: '8:00', bpo_16: 'm', bpo_23: '2026-10-20', bpo__: '8:00', bpo_33: '電話',
+    } });
+  });
+  it('the allowlist is its own literal list: every FIELD_PROPERTY name is in it, and nothing else', () => {
+    expect([...RESULT_PROPERTY_ALLOWLIST].sort()).toEqual(['bpo_10', 'bpo_13', 'bpo_14', 'bpo_16', 'bpo_23', 'bpo_3', 'bpo_33', 'bpo_4', 'bpo_40', 'bpo_42', 'bpo_45', 'bpo_57', 'bpo__']);
+    expect([...Object.values(FIELD_PROPERTY)].sort()).toEqual([...RESULT_PROPERTY_ALLOWLIST].sort());
     expect(RESULT_PROPERTY_ALLOWLIST).not.toContain('dealstage');
     expect(RESULT_PROPERTY_ALLOWLIST).not.toContain('bpo_20');
+  });
+  it('every field has a Japanese fallback heading (internal names never become headings)', () => {
+    for (const name of Object.values(FIELD_PROPERTY)) expect(FALLBACK_LABELS[name]).toMatch(/[\u3000-\u9fff]/);
   });
 });
 
@@ -185,14 +238,18 @@ describe('draft store', () => {
     });
     expect(parseStore(raw)).toEqual({ drafts: { 'live:1': draft({ outcome: 'callback', memo: 'm' }) }, recorded: { 'live:1': true } });
     expect(parseStore('{not json')).toEqual({ drafts: {}, recorded: {} });
+    // 自動で入れた印 (真偽値) は戻す。真偽値でなければその下書きを捨てる
+    expect(parseStore(JSON.stringify({ drafts: { 'live:5': { outcome: 'callback', nextAction: '再架電', nextActionAuto: true }, 'live:6': { nextActionAuto: 'yes' } } })).drafts)
+      .toEqual({ 'live:5': draft({ outcome: 'callback', nextAction: '再架電', nextActionAuto: true }) });
     expect(parseStore(null)).toEqual({ drafts: {}, recorded: {} });
   });
   it('load / save survive a storage that throws', () => {
     const throwing = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('quota'); } };
     expect(loadStore(throwing)).toEqual({ drafts: {}, recorded: {} });
-    expect(() => { saveStore(throwing, { drafts: {}, recorded: {} }); }).not.toThrow();
+    expect(saveStore(throwing, { drafts: {}, recorded: {} })).toBe(false);
+    expect(saveStore(null, { drafts: {}, recorded: {} })).toBe(false);
     const mem = new Map<string, string>();
-    saveStore({ setItem: (k, v) => { mem.set(k, v); } }, { drafts: { 'live:9': draft({ memo: 'a' }) }, recorded: {} });
+    expect(saveStore({ setItem: (k, v) => { mem.set(k, v); } }, { drafts: { 'live:9': draft({ memo: 'a' }) }, recorded: {} })).toBe(true);
     expect(loadStore({ getItem: k => mem.get(k) ?? null }).drafts['live:9']?.memo).toBe('a');
     expect([...mem.keys()]).toEqual([DRAFT_STORAGE_KEY]);
   });
