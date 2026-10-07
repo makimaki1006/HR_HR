@@ -1,7 +1,8 @@
 import type { Page } from '@playwright/test';
 
-export type JobFeature = 'body' | 'applications' | 'applicants' | 'reasons' | 'performance' | 'market' | 'market-table' | 'factors' | 'diff' | 'ab' | 'report' | 'receive';
+export type JobFeature = 'timeline' | 'body' | 'applications' | 'applicants' | 'reasons' | 'performance' | 'market' | 'market-table' | 'factors' | 'diff' | 'ab' | 'report' | 'receive';
 export const jobFeatures: Record<JobFeature, { group: string; label: string }> = {
+  timeline: { group: 'タイムライン', label: 'タイムライン' },
   body: { group: '求人内容', label: '本文・画像' },
   applications: { group: '応募分析', label: '応募推移' },
   applicants: { group: '応募分析', label: '応募者構成' },

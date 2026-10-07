@@ -1,8 +1,9 @@
 import type { KeyboardEvent, ReactNode } from 'react';
 
-export type JobFeature = 'body' | 'applications' | 'applicants' | 'reasons' | 'performance' | 'market' | 'market-table' | 'factors' | 'diff' | 'ab' | 'report' | 'receive';
+export type JobFeature = 'timeline' | 'body' | 'applications' | 'applicants' | 'reasons' | 'performance' | 'market' | 'market-table' | 'factors' | 'diff' | 'ab' | 'report' | 'receive';
 interface Feature { id: JobFeature; label: string; description: string }
 export const jobFeatureGroups: { id: string; label: string; features: Feature[] }[] = [
+  { id: 'timeline', label: 'タイムライン', features: [{ id: 'timeline', label: 'タイムライン', description: '掲載期間・給与・本文・画像・課金・応募・市場を同じ日付の軸に並べて確認します。' }] },
   { id: 'content', label: '求人内容', features: [{ id: 'body', label: '本文・画像', description: '観測版を選び、求人本文と掲載画像を確認します。' }] },
   { id: 'applications', label: '応募分析', features: [
     { id: 'applications', label: '応募推移', description: '応募日の分かる実績を月別に確認します。' },
