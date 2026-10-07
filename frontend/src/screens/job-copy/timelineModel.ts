@@ -318,6 +318,11 @@ export interface PeriodRow {
   applications: number | null;
   /** Applications per day. null when the period has no days or application dates were never fetched. */
   perDay: number | null;
+  /**
+   * The period starts after the day the application counts were taken (asOf). Its applications are
+   * not known yet (null), which is different from 0.
+   */
+  afterCounts: boolean;
   billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number; overlapping: boolean };
   market: MarketChangeResult;
 }
@@ -355,8 +360,9 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
   const make = (key: string, kind: PeriodRow['kind'], label: string, versionId: string | null, start: string, end: string | null, days: number, ongoing: boolean): PeriodRow => {
     const endExclusive = end ?? addDays(asOf, 1);
     const lastDay = addDays(endExclusive, -1) < start ? start : addDays(endExclusive, -1);
-    const applications = byDate === undefined ? null : countApplications(byDate, start, endExclusive < start ? start : endExclusive);
-    return { key, kind, label, versionId, start, end, lastDay, days, ongoing, applications, perDay: applications !== null && days > 0 ? applications / days : null,
+    const afterCounts = start > asOf;
+    const applications = byDate === undefined || afterCounts ? null : countApplications(byDate, start, endExclusive < start ? start : endExclusive);
+    return { key, kind, label, versionId, start, end, lastDay, days, ongoing, applications, perDay: applications !== null && days > 0 ? applications / days : null, afterCounts,
       billing: billingFor(billing, start, endExclusive), market: marketChange(options.market ?? null, start, lastDay) };
   };
   periods.forEach((period, index) => {

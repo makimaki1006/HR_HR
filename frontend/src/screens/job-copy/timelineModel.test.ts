@@ -215,3 +215,64 @@ describe('version changes', () => {
     expect(timelineRange(job, '2026-10-05', [])).toEqual({ start: '2026-08-20', end: '2026-10-05' });
   });
 });
+
+describe('period ends, gaps and short periods (review round 2)', () => {
+  const version = (id: string, from: string, until?: string): CopyVersion => ({ id, label: id, observedAt: from, publishedFrom: from, ...(until ? { publishedUntil: until } : {}), certainty: 'confirmed', kind: 'published', source: 'test', body: id, applications: null, note: '' });
+  const job = (versions: CopyVersion[], byDate: Record<string, number>, fetchedAt = '2026-09-30T09:00:00+09:00'): JobCopyRecord => ({ id: 'gap', title: 't', company: 'c', media: 'm', mediaJobId: 'x', location: '大分県', versions,
+    overallApplications: { total: Object.values(byDate).reduce((sum, count) => sum + count, 0), missingDate: 0, fetchedAt, distributions: {}, byDate } });
+
+  it('adds a row for the days with no confirmed publication between two versions (09-10 → 09-15: 5 days, 1 application, 0.20件/日)', () => {
+    const record = job([version('v1', '2026-09-01T10:00:00+09:00', '2026-09-10T10:00:00+09:00'), version('v2', '2026-09-15T10:00:00+09:00')], { '2026-09-05': 2, '2026-09-12': 1, '2026-09-20': 3 });
+    const rows = periodRows(record, { asOf: '2026-09-30' });
+    expect(rows.map(item => [item.kind, item.label, item.start, item.end, item.days, item.applications])).toEqual([
+      ['period', 'v1', '2026-09-01', '2026-09-10', 9, 2],
+      ['gap', '掲載が確認できない期間', '2026-09-10', '2026-09-15', 5, 1],
+      ['period', 'v2', '2026-09-15', null, 16, 3],
+    ]);
+    expect(rows[1]?.perDay).toBeCloseTo(0.2, 10);
+    expect(formatPerDay(rows[1]?.perDay ?? null)).toBe('0.20件/日');
+    expect(applicationsOutsidePeriods(record, rows)).toBe(0);
+  });
+
+  it('ends a period at publishedUntil when it is before the next start, and at the next start when it is after', () => {
+    const early = buildPeriods(job([version('v1', '2026-09-01T10:00:00+09:00', '2026-09-10T10:00:00+09:00'), version('v2', '2026-09-15T10:00:00+09:00')], {}), '2026-09-30');
+    expect(early.map(period => [period.start, period.end, period.days])).toEqual([['2026-09-01', '2026-09-10', 9], ['2026-09-15', null, 16]]);
+    // publishedUntil 09-20 runs past the next start (09-15): clamped, so the periods do not overlap.
+    const late = job([version('v1', '2026-09-01T10:00:00+09:00', '2026-09-20T10:00:00+09:00'), version('v2', '2026-09-15T10:00:00+09:00')], { '2026-09-16': 4 });
+    const periods = buildPeriods(late, '2026-09-30');
+    expect(periods.map(period => [period.start, period.end, period.days])).toEqual([['2026-09-01', '2026-09-15', 14], ['2026-09-15', null, 16]]);
+    const rows = periodRows(late, { asOf: '2026-09-30' });
+    // The 09-16 applications are counted once, in v2 only.
+    expect(rows.map(item => [item.kind, item.applications])).toEqual([['period', 0], ['period', 4]]);
+    expect(applicationsOutsidePeriods(late, rows)).toBe(0);
+  });
+
+  it('gives no per-day value for a 0-day period (two versions starting on the same JST day)', () => {
+    const record = job([version('v1', '2026-09-10T09:00:00+09:00'), version('v2', '2026-09-10T18:00:00+09:00')], { '2026-09-10': 2 });
+    const rows = periodRows(record, { asOf: '2026-09-12' });
+    expect(rows.map(item => [item.start, item.days, item.applications, item.perDay])).toEqual([['2026-09-10', 0, 0, null], ['2026-09-10', 3, 2, 2 / 3]]);
+    expect(formatPerDay(rows[0]?.perDay ?? null)).toBe('—');
+  });
+
+  it('leaves applications unknown (not 0件) for a period that starts after the counts were taken', () => {
+    const base = jobs.find(item => item.id === 'demo-job-001');
+    if (!base?.overallApplications) throw new Error('Missing demo-job-001');
+    // Counts taken 2026-09-20, five days before v3 starts on 09-25.
+    const record: JobCopyRecord = { ...base, overallApplications: { ...base.overallApplications, fetchedAt: '2026-09-20T09:00:00+09:00' } };
+    const rows = periodRows(record, { asOf: '2026-09-20' });
+    const last = rows.at(-1);
+    expect([last?.start, last?.days, last?.applications, last?.perDay, last?.afterCounts]).toEqual(['2026-09-25', 0, null, null, true]);
+    expect(rows.slice(0, -1).every(item => !item.afterCounts && item.applications !== null)).toBe(true);
+  });
+});
+
+describe('demo data adds up', () => {
+  it('has dated + undated applications equal to the total for every demo job (the rule realMoc enforces)', () => {
+    for (const job of jobs) {
+      const applications = job.overallApplications;
+      if (!applications?.byDate) continue;
+      const dated = Object.values(applications.byDate).reduce((sum, count) => sum + count, 0);
+      expect({ id: job.id, sum: dated + applications.missingDate }).toEqual({ id: job.id, sum: applications.total });
+    }
+  });
+});

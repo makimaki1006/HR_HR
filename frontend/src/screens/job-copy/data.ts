@@ -121,7 +121,7 @@ export const jobs: JobCopyRecord[] = [
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 0,
-    overallApplications: { total: 11, missingDate: 2, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-09': 1, '2026-09-12': 2, '2026-09-19': 1, '2026-09-23': 2, '2026-09-25': 1, '2026-09-29': 2, '2026-10-03': 1 } },
+    overallApplications: { total: 12, missingDate: 2, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-09': 1, '2026-09-12': 2, '2026-09-19': 1, '2026-09-23': 2, '2026-09-25': 1, '2026-09-29': 2, '2026-10-03': 1 } },
     // HRハッカーの期間別実績（架空の課金例）
     hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-003', captured_at: '2026-10-05T00:00:00Z', rows: [
       { period_start: '2026-09-08', period_end: '2026-09-21', impressions: 2600, clicks: 95, cost_yen: 20000, applications: 4 },

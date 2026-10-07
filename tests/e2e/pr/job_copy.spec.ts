@@ -23,12 +23,17 @@ function snapshot(capturedAt = defaultCapturedAt) {
   };
 }
 
-async function open(page: Page, capturedAt = defaultCapturedAt) {
+async function open(page: Page, capturedAt = defaultCapturedAt, options: { seriesFailures?: number } = {}) {
   const calls: string[] = [];
+  let seriesFailures = options.seriesFailures ?? 0;
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot(capturedAt)) }));
   await page.route('**/api/job-copy/market*', route => {
     const url = new URL(route.request().url());
     calls.push(url.search);
+    if (url.searchParams.has('title') && seriesFailures > 0) {
+      seriesFailures -= 1;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'synthetic failure' }) });
+    }
     const selected = url.searchParams.get('title') === '配送ドライバー' && url.searchParams.get('prefecture') === '大分県';
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       source: '合成の市場データ', titles: ['配送ドライバー', '倉庫作業'], prefectures: ['大分県', '福岡県'], ctk_basis: '合成の閲覧者指標です。応募数ではありません。',
@@ -148,6 +153,25 @@ test.describe('求人文面管理のタイムライン', () => {
     expect(market).toEqual([4, 4]);
     // 年月の書き方は YYYY/MM にそろえる（2026-08 や 2026年08月 を出さない）
     await expect(timeline).not.toContainText(/\d{4}-\d{2}(?!-)|\d{4}年\d{2}月/u);
+  });
+
+  test('市場データの取得に失敗したら期間比較表にもそう書き、再取得すると具体値とグラフが出る', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const calls = await open(page, defaultCapturedAt, { seriesFailures: 1 });
+    const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
+    const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
+    await expect(timeline.getByRole('group', { name: '市場', exact: true })).toContainText('市場データを取得できませんでした');
+    // 「市場を選ぶと表示」「データなし」とは書かない（選んだのに取れなかったことが分かるように）
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('取得できませんでした');
+    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('取得できませんでした');
+    await timeline.getByRole('button', { name: '市場データを再取得', exact: true }).click();
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026/07 220件 → 2026/08 230件）');
+    await expect(timeline.getByLabel('職種')).toHaveValue('配送ドライバー');
+    const market = await seriesLengths(page, 'jt-market');
+    expect(market).toEqual([2, 2]);
+    // 再取得は選んだ市場の月次だけを取り直す（一覧は 1 回）
+    expect(calls.filter(search => !search.includes('title='))).toHaveLength(1);
+    expect(calls.filter(search => search.includes('title='))).toHaveLength(2);
   });
 
   test('課金CSVを読み込むと課金レーンと期間比較表に入り、再読み込みで消えることを示す', async ({ page }) => {

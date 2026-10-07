@@ -41,6 +41,9 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
   const [mapping, setMapping] = useState<BillingColumnMapping>({});
   const [taxBasis, setTaxBasis] = useState<BillingTaxBasis>('不明');
   const [result, setResult] = useState<BillingImportResult | null>(null);
+  // Which job list the result was matched against. When the list changes (another media CSV, a
+  // HubSpot job), the result is stale and must be matched again before it can be applied.
+  const [checkedKey, setCheckedKey] = useState('');
   const [error, setError] = useState('');
   const [reading, setReading] = useState(false);
   const [appliedNow, setAppliedNow] = useState(false);
@@ -96,10 +99,15 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
   function check() {
     if (!rows) return;
     setAppliedNow(false);
-    try { setResult(buildBillingImport(rows, mapping, records, taxBasis)); setError(''); }
+    try { setResult(buildBillingImport(rows, mapping, records, taxBasis)); setCheckedKey(recordsKey); setError(''); }
     catch (caught) { setResult(null); setError(caught instanceof BillingCsvError ? caught.message : '照合できませんでした。'); }
   }
 
+  const recordsKey = records.map(job => `${job.id}\u0000${job.media}\u0000${job.mediaJobId}`).join('\u0001');
+  const stale = result !== null && checkedKey !== recordsKey;
+  const currentIds = new Set(records.map(job => job.id));
+  // Same rule as buildBillingImport: a row whose cells are all empty is not a data row.
+  const dataRows = rows ? rows.slice(1).filter(row => row.some(value => value.trim() !== '')).length : 0;
   const headers = rows?.[0] ?? [];
   const problems = rows ? billingMappingProblems(mapping, headers.length) : [];
   const missing = new Set(BILLING_FIELDS.filter(spec => spec.required && mapping[spec.field] === undefined).map(spec => spec.field));
@@ -122,7 +130,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
         </div>
         <p className="jc-muted">必要な列: 媒体（Airワーク / HRハッカー）・媒体求人ID・期間開始・期間終了・金額。あれば使う列: プラン名・表示回数・クリック数・媒体の応募数。5MBまで。</p>
         {reading && <p role="status">読み込み中…</p>}
-        {fileName && rows && <p role="status">{fileName}：{String(rows.length - 1)}行（{usedEncoding === 'shift_jis' ? 'Excel の日本語 CSV' : 'UTF-8'} として読み取り）</p>}
+        {fileName && rows && <p role="status">{fileName}：{String(dataRows)}行（{usedEncoding === 'shift_jis' ? 'Excel の日本語 CSV' : 'UTF-8'} として読み取り）</p>}
         {error && <p role="alert" className="jc-error">{error}</p>}
       </li>
 
@@ -167,9 +175,10 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
 
       {result && <li aria-current={result.counts.matched > 0 && !appliedNow ? 'step' : undefined}><h4>4. 反映する</h4>
         <div className="jc-billing-row">
-          <button type="button" className="jc-button jc-primary" disabled={result.counts.matched === 0} onClick={() => { onApply(result.periods); setAppliedNow(true); }}>一致した{String(result.counts.matched)}行を課金として反映</button>
+          <button type="button" className="jc-button jc-primary" disabled={result.counts.matched === 0 || stale} onClick={() => { onApply(result.periods.filter(period => currentIds.has(period.jobId))); setAppliedNow(true); }}>一致した{String(result.counts.matched)}行を課金として反映</button>
           {applied.length > 0 && <button type="button" className="jc-button" onClick={() => { onClear(); setAppliedNow(false); }}>反映した課金を外す</button>}
         </div>
+        {stale && <p role="alert" className="jc-error">照合した後に求人一覧が変わりました。「求人と照合する」をもう一度押してください。</p>}
         {result.counts.matched === 0 && <p className="jc-muted">一致した行がないため反映できません。</p>}
       </li>}
     </ol>

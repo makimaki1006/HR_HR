@@ -30,6 +30,11 @@ describe('applicant address rounding', () => {
     expect(roundAreaLabel('prefecture', '大分')).toBe('大分県');
   });
 
+  it('reads half-width katakana and full-width digits as the master name (NFKC)', () => {
+    expect(roundAreaLabel('municipality', '北海道 / ﾆｾｺ町富士見１２３')).toBe('北海道虻田郡ニセコ町');
+    expect(parseApplicantArea('北海道', 'ﾆｾｺ町')).toEqual({ prefecture: '北海道', municipality: '虻田郡ニセコ町' });
+  });
+
   it('never guesses: unreadable cities become （市区町村不明） and ambiguous cities without a prefecture become 不明', () => {
     expect(roundAreaLabel('municipality', '東京都 / ○○ビル301')).toBe('東京都（市区町村不明）');
     expect(roundAreaLabel('municipality', '都道府県不明 / 新宿区西新宿2-8-1')).toBe('東京都新宿区');
