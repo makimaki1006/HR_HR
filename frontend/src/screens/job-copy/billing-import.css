@@ -1,0 +1,26 @@
+.jc-data-import-body { padding-top: 12px; }
+.jc-billing h3 { font-size: 14px; margin-bottom: 6px; }
+.jc-billing h4 { font-size: 13px; margin-bottom: 6px; }
+.jc-billing-volatile { background: #fff6d6; border-left: 3px solid #b88a00; color: #5c4500; padding: 8px 12px; font-size: 12px; margin: 0 0 12px; }
+.jc-billing-steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 14px; }
+.jc-billing-steps > li { border: 1px solid var(--jc-border, #d4dfe7); border-radius: 6px; padding: 12px 14px; }
+.jc-billing-steps > li[aria-current="step"] { border-color: var(--jc-accent, #007c91); }
+.jc-billing-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.jc-billing-row > label { flex: 1 1 220px; min-width: 0; }
+.jc-billing-mapping { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; table-layout: fixed; }
+.jc-billing-mapping th, .jc-billing-mapping td { border-bottom: 1px solid var(--jc-border, #d4dfe7); padding: 6px; text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
+.jc-billing-mapping select { padding: 5px 6px; }
+.jc-billing-missing th, .jc-billing-missing td { background: #fff0ee; }
+.jc-billing-missing th { color: #a82727; }
+.jc-billing-required { color: #a82727; font-weight: 400; font-size: 11px; }
+.jc-billing-tax { display: block; max-width: 260px; margin: 8px 0 10px; }
+.jc-billing-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 8px 0; }
+.jc-billing-counts > div { background: #f4f7f9; padding: 8px 10px; }
+.jc-billing-counts dt { color: var(--jc-muted, #647788); font-size: 11px; }
+.jc-billing-counts dd { margin: 0; font-size: 20px; font-weight: 600; }
+.jc-billing-counts small { font-size: 11px; font-weight: 400; margin-left: 3px; }
+.jc-billing-issues { margin: 6px 0; font-size: 12px; }
+.jc-billing-issues summary { cursor: pointer; color: var(--jc-accent, #007c91); }
+.jc-billing-issues ul { margin: 6px 0 0; padding-left: 18px; }
+.jc-billing-applied { background: #fff6d6; border-left: 3px solid #b88a00; color: #5c4500; padding: 8px 12px; font-size: 12px; margin: 12px 0 0; }
+@media (max-width: 800px) { .jc-billing-mapping th:nth-child(3), .jc-billing-mapping td:nth-child(3) { display: none; } }

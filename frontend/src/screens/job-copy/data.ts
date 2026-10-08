@@ -3,6 +3,7 @@ import type { ApplicantDimension, ApplicantDistribution } from './applicantCompo
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import type { JointDemographics } from './reverseSearchModel';
+import type { MarketData } from './marketChartModel';
 /** Fictional MOC fixtures. No HubSpot IDs, real employers, or applicant data. */
 export interface CopyVersion {
   id: string;
@@ -31,7 +32,14 @@ export interface JobCopyRecord {
   dataSource?: 'hubspot';
   hubspotUrl?: string;
   attributionUnknown?: number;
-  overallApplications?: { total: number; missingDate: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>>; byDate?: Record<string, number> };
+  overallApplications?: {
+    total: number; missingDate: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>>; byDate?: Record<string, number>;
+    /**
+     * Applications that HubSpot also links to another job, by application date (included in byDate
+     * and total). Absent when the source did not check. They are never put into a version's period.
+     */
+    multiListing?: { byDate: Record<string, number>; missingDate: number };
+  };
   applicantReasons?: ApplicantReasonCollection | undefined;
   hrhPerformance?: HrhPerformanceCollection | undefined;
   jointDemographics?: JointDemographics | undefined;
@@ -39,6 +47,12 @@ export interface JobCopyRecord {
   company: string;
   media: string;
   mediaJobId: string;
+  /**
+   * The account the media job ID belongs to: the HRハッカー shop ID (id_shop_hrhakkaa) or the
+   * Airワーク account login ID (airwork_account_login_id). Billing rows are matched on media +
+   * this + mediaJobId, never on the job ID alone. Absent when not acquired.
+   */
+  accountId?: string;
   location: string;
   versions: CopyVersion[];
 }
@@ -49,28 +63,38 @@ const driverRevision = "キャッチコピー：土日は自分の時間に。�
 export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-001', title: '地域配送ドライバー', company: 'デモ運輸A',
-    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', location: '大分県大分市',
+    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', accountId: 'DEMO-SHOP-01', location: '大分県大分市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    attributionUnknown: 3,
+    overallApplications: { total: 28, missingDate: 10, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-02': 1, '2026-09-04': 2, '2026-09-07': 1, '2026-09-10': 2, '2026-09-13': 1, '2026-09-16': 3, '2026-09-18': 2, '2026-09-21': 2, '2026-09-24': 1, '2026-09-27': 1, '2026-09-30': 1, '2026-10-02': 1 } },
+    // HRハッカーの期間別実績（架空の課金例）
+    hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-001', captured_at: '2026-10-05T00:00:00Z', rows: [
+      { period_start: '2026-09-01', period_end: '2026-09-14', impressions: 4200, clicks: 160, cost_yen: 30000, applications: 6 },
+      { period_start: '2026-09-15', period_end: '2026-09-30', impressions: 5100, clicks: 210, cost_yen: 45000, applications: 9 },
+      { period_start: '2026-10-01', period_end: '2026-10-05', impressions: 1300, clicks: 52, cost_yen: 12000, applications: 2 },
+    ] },
     versions: [
       {
         id: 'demo-001-v1', label: '初回掲載', observedAt: '2026-09-01T09:00:00+09:00',
         publishedFrom: '2026-09-01T09:00:00+09:00', publishedUntil: '2026-09-15T10:00:00+09:00',
         certainty: 'confirmed', kind: 'published', source: '求人CSV（デモ・初回取得）', body: driverOriginal,
         applications: { confirmed: 12, estimated: 0, unknown: 0 },
-        note: '媒体更新日時と応募日時が揃った架空例。応募数はMOC用の固定値です。',
+        note: '媒体更新日時と応募日時が揃った架空例。応募数はデモ用の固定値です。',
       },
       {
         id: 'demo-001-v2', label: '給与・勤務条件変更', observedAt: '2026-09-15T10:30:00+09:00',
         publishedFrom: '2026-09-15T10:00:00+09:00', publishedUntil: '2026-09-25T12:00:00+09:00',
         certainty: 'confirmed', kind: 'published', source: '求人CSV（デモ・更新取得）', body: driverRevision,
         applications: { confirmed: 9, estimated: 0, unknown: 2 },
-        note: '日時が不明な応募2件は、この版への確定対応数に含めません。全件架空です。',
+        note: '日時が不明な応募2件は、この版に応募日で結びついた件数に含めません。全件架空です。',
       },
       {
         id: 'demo-001-v3', label: '初回文面への復帰', observedAt: '2026-09-25T12:30:00+09:00',
         publishedFrom: '2026-09-25T12:00:00+09:00', certainty: 'confirmed', kind: 'published',
-        source: '求人CSV（デモ・復帰観測）', body: driverOriginal,
+        source: '求人CSV（デモ・元の本文に戻した版）', body: driverOriginal,
         applications: { confirmed: 4, estimated: 0, unknown: 1 },
-        note: '初回版と同じ本文へ戻った観測例。本文を再利用しても掲載期間は別です。応募数は架空です。',
+        note: '初回版と同じ本文へ戻った例。本文を再利用しても掲載期間は別です。応募数は架空です。',
       },
       {
         id: 'demo-001-draft', label: 'ヒアリングからのAI案', observedAt: '2026-10-02T15:00:00+09:00',
@@ -83,10 +107,14 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-002', title: '倉庫内ピッキングスタッフ', company: 'デモ物流B',
-    media: 'Airワーク', mediaJobId: 'DEMO-AIR-002', location: '大分県別府市',
+    media: 'Airワーク', mediaJobId: 'DEMO-AIR-002', accountId: 'DEMO-ACCOUNT-01', location: '大分県別府市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    attributionUnknown: 2,
+    overallApplications: { total: 12, missingDate: 5, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-06': 1, '2026-09-11': 1, '2026-09-17': 1, '2026-09-22': 2, '2026-09-26': 1, '2026-10-01': 1 } },
     versions: [
       {
-        id: 'demo-002-v1', label: '初回観測', observedAt: '2026-09-05T09:00:00+09:00',
+        id: 'demo-002-v1', label: '初回取得', observedAt: '2026-09-05T09:00:00+09:00',
         publishedFrom: '2026-09-05T09:00:00+09:00', publishedUntil: '2026-09-20T09:00:00+09:00',
         certainty: 'estimated', kind: 'published', source: '求人XLSX（デモ）',
         body: "キャッチコピー：食品が並ぶ棚から、地域のお店へつなぐ仕事。\n\n仕事内容\n出荷リストを見ながら食品を棚から取り出し、店舗別に仕分けます。名称、数量、賞味期限を照合し、箱の破損や袋の汚れがないかを確認します。\n\n棚の商品番号と現物を見比べて作業を進めます。数量が合わない場合は確認担当に報告して記録を残します。重量物の運搬を含まない持ち場を担当します。\n\n仕事の進め方\n始業時に出荷予定を確認し、担当エリアでピッキングします。仕分け後は別のスタッフと検品し、完了したリストを提出します。\n\n職場紹介\n商品管理と出荷の担当が連携する食品倉庫です。決められた保管場所と衛生ルールを守り、整理された通路で作業します。\n\n入社後の流れ\n衛生管理と棚の配置を学びます。先輩とリストの見方や検品を練習し、扱う商品を少しずつ覚えます。\n\n応募後の流れ\n担当者が勤務可能な曜日を確認します。面談で作業内容と勤務時間を説明し、希望の勤務開始日を相談します。" + '\n\n募集条件\n' + '職種：倉庫内ピッキング\n仕事内容：食品の仕分けと検品。\n給与：時給1,100円\n勤務時間：9:00〜15:00、週3日から\n応募条件：経験不問。重量物の運搬はありません。',
@@ -102,7 +130,16 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-003', title: '受付事務スタッフ', company: 'デモサービスC',
-    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-003', location: '大分県大分市',
+    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-003', accountId: 'DEMO-SHOP-01', location: '大分県大分市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    attributionUnknown: 0,
+    overallApplications: { total: 12, missingDate: 2, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-09': 1, '2026-09-12': 2, '2026-09-19': 1, '2026-09-23': 2, '2026-09-25': 1, '2026-09-29': 2, '2026-10-03': 1 } },
+    // HRハッカーの期間別実績（架空の課金例）
+    hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-003', captured_at: '2026-10-05T00:00:00Z', rows: [
+      { period_start: '2026-09-08', period_end: '2026-09-21', impressions: 2600, clicks: 95, cost_yen: 20000, applications: 4 },
+      { period_start: '2026-09-22', period_end: '2026-10-05', impressions: 3100, clicks: 128, cost_yen: 28000, applications: 6 },
+    ] },
     versions: [
       {
         id: 'demo-003-v1', label: '初回掲載', observedAt: '2026-09-08T10:00:00+09:00',
@@ -121,10 +158,14 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-004', title: '施設清掃スタッフ', company: 'デモ環境D',
-    media: 'Airワーク', mediaJobId: 'DEMO-AIR-004', location: '大分県中津市',
+    media: 'Airワーク', mediaJobId: 'DEMO-AIR-004', accountId: 'DEMO-ACCOUNT-01', location: '大分県中津市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    attributionUnknown: 6,
+    overallApplications: { total: 6, missingDate: 3, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-15': 1, '2026-09-29': 1, '2026-10-02': 1 } },
     versions: [
       {
-        id: 'demo-004-v1', label: '初回観測', observedAt: '2026-09-10T08:00:00+09:00',
+        id: 'demo-004-v1', label: '初回取得', observedAt: '2026-09-10T08:00:00+09:00',
         certainty: 'unknown', kind: 'published', source: '求人XLSX（デモ・更新日時なし）',
         body: "キャッチコピー：朝の施設を整え、気持ちよい一日の始まりを支える。\n\n仕事内容\n施設の廊下、入口、共有スペースを掃き掃除と拭き掃除で整えます。ごみを回収し、備品の破損に気づいた際は管理担当へ報告します。\n\n利用者が通る場所では作業中の表示を置き、周囲を確認します。洗剤は指定された用途と量を守って使い、終了後は道具を洗って所定の場所に戻します。\n\n仕事の進め方\n朝の集合時に担当エリアを確認します。入口から共有スペースへ順に進め、終了した場所をチェック表に記録して引き継ぎます。\n\n職場紹介\n複数のスタッフがエリアを分担する施設清掃です。利用者の動線を共有し、困った汚れや設備の不具合は責任者へ相談します。\n\n入社後の流れ\n清掃用具の使い方と安全確認を学びます。先輩と一緒に巡回し、場所ごとの手順と確認項目を覚えます。\n\n応募後の流れ\n勤務可能日と通勤方法を確認します。面談では朝の勤務時間と車通勤不可の条件を説明し、勤務開始日を相談します。" + '\n\n募集条件\n' + '職種：施設清掃\n仕事内容：共有スペースの清掃。\n給与：時給1,050円\n勤務時間：6:00〜9:00、週5日\n応募条件：車通勤不可。経験不問。',
         applications: { confirmed: 0, estimated: 0, unknown: 4 }, note: '掲載時刻が不明な架空例。応募4件は版を特定できません。',
@@ -133,13 +174,17 @@ export const jobs: JobCopyRecord[] = [
         id: 'demo-004-v2', label: '通勤条件変更', observedAt: '2026-09-28T08:00:00+09:00',
         certainty: 'unknown', kind: 'published', source: '求人XLSX（デモ・更新日時なし）',
         body: "キャッチコピー：朝の施設を整える仕事。車での通勤にも対応。\n\n仕事内容\n施設の廊下、入口、共有スペースを掃き掃除と拭き掃除で整えます。ごみを回収し、備品の破損に気づいた際は管理担当へ報告します。\n\n利用者が通る場所では作業中の表示を置き、周囲を確認します。洗剤は指定された用途と量を守って使い、終了後は道具を洗って所定の場所に戻します。\n\n仕事の進め方\n朝の集合時に担当エリアを確認します。入口から共有スペースへ順に進め、終了した場所をチェック表に記録して引き継ぎます。\n\n職場紹介\n複数のスタッフがエリアを分担する施設清掃です。利用者の動線を共有し、困った汚れや設備の不具合は責任者へ相談します。\n\n入社後の流れ\n清掃用具の使い方と安全確認を学びます。先輩と一緒に巡回し、場所ごとの手順と確認項目を覚えます。\n\n応募後の流れ\n勤務可能日と通勤方法を確認します。車通勤を希望する方には駐車場所を案内し、新しい勤務時間と開始日を相談します。" + '\n\n募集条件\n' + '職種：施設清掃\n仕事内容：共有スペースの清掃。\n給与：時給1,100円\n勤務時間：6:00〜10:00、週4日\n応募条件：車通勤可。経験不問。',
-        applications: { confirmed: 0, estimated: 0, unknown: 2 }, note: '本文の変更は観測できますが、掲載切り替わり時刻は不明です。応募数は架空です。',
+        applications: { confirmed: 0, estimated: 0, unknown: 2 }, note: '本文の変更は確認できますが、掲載切り替わり時刻は不明です。応募数は架空です。',
       },
     ],
   },
   {
     id: 'demo-job-005', title: '調理補助スタッフ', company: 'デモフードE',
-    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-005', location: '大分県日田市',
+    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-005', accountId: 'DEMO-SHOP-01', location: '大分県日田市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    attributionUnknown: 1,
+    overallApplications: { total: 12, missingDate: 5, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-13': 2, '2026-09-18': 1, '2026-09-22': 1, '2026-09-27': 1, '2026-10-01': 2 } },
     versions: [
       {
         id: 'demo-005-v1', label: '初回掲載', observedAt: '2026-09-12T09:00:00+09:00',
@@ -158,10 +203,14 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-006', title: '製造ラインスタッフ', company: 'デモ製作F',
-    media: 'Airワーク', mediaJobId: 'DEMO-AIR-006', location: '大分県宇佐市',
+    media: 'Airワーク', mediaJobId: 'DEMO-AIR-006', accountId: 'DEMO-ACCOUNT-01', location: '大分県宇佐市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    attributionUnknown: 2,
+    overallApplications: { total: 9, missingDate: 6, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-16': 1, '2026-09-24': 1, '2026-10-01': 1 } },
     versions: [
       {
-        id: 'demo-006-v1', label: '初回観測', observedAt: '2026-09-14T11:00:00+09:00',
+        id: 'demo-006-v1', label: '初回取得', observedAt: '2026-09-14T11:00:00+09:00',
         publishedFrom: '2026-09-14T11:00:00+09:00', publishedUntil: '2026-09-29T11:00:00+09:00',
         certainty: 'estimated', kind: 'published', source: '求人XLSX（デモ）',
         body: "キャッチコピー：手順を覚えて、一つひとつの部品を製品へ。\n\n仕事内容\n製造ラインで部品を組み合わせ、指定の位置へ取り付けます。手順書を見ながら工具を使い、完成品の外観と取り付け状態を確認します。\n\n傷や取り付けの不備を見つけたら良品と分けて報告します。数量と確認内容を記録して次の工程へ引き渡します。機械の異常は作業を止めて担当者に知らせます。\n\n仕事の進め方\n始業時に作業内容と安全事項を確認します。担当工程を進め、区切りごとに製品と数量を確認し、終了時に工具を片付けます。\n\n職場紹介\n組み立て担当と検査担当が連携する製造拠点です。品質の確認と安全な工具の使用を重視し、工程間で不具合の情報を共有します。\n\n入社後の流れ\n安全教育から始め、工具の持ち方と手順書の読み方を学びます。先輩の確認を受けながら組み立てと検査を練習します。\n\n応募後の流れ\n担当者が面談日程をご連絡します。日勤の勤務時間と担当工程を説明し、入社時期の希望を伺います。" + '\n\n募集条件\n' + '職種：製造ライン\n仕事内容：部品の組み立てと検査。\n給与：月給220,000円\n勤務時間：8:30〜17:30\n応募条件：夜勤はありません。製造経験不問。',
@@ -171,13 +220,17 @@ export const jobs: JobCopyRecord[] = [
         id: 'demo-006-v2', label: '交替勤務へ変更', observedAt: '2026-09-29T11:00:00+09:00',
         publishedFrom: '2026-09-29T11:00:00+09:00', certainty: 'estimated', kind: 'published', source: '求人XLSX（デモ）',
         body: "キャッチコピー：交替制で製造を支え、前後の工程につなぐ仕事。\n\n仕事内容\n製造ラインで部品を組み合わせ、指定の位置へ取り付けます。手順書を見ながら工具を使い、完成品の外観と取り付け状態を確認します。\n\n傷や取り付けの不備を見つけたら良品と分けて報告します。数量と確認内容を記録して次の工程へ引き渡します。機械の異常は作業を止めて担当者に知らせます。\n\n仕事の進め方\n日勤と夜勤の交替時に進捗と注意事項を引き継ぎます。担当工程を進め、区切りごとに製品と数量を確認し、終了時に工具を片付けます。\n\n職場紹介\n組み立て担当と検査担当が連携する製造拠点です。品質の確認と安全な工具の使用を重視し、勤務帯をまたいで不具合の情報を共有します。\n\n入社後の流れ\n安全教育と工具の扱いから学びます。組み立てと検査を練習した後、交替時の引き継ぎと夜勤時の連絡方法を確認します。\n\n応募後の流れ\n担当者が面談日程をご連絡します。夜勤を含む交替制の勤務時間を説明し、働き方と入社時期の希望を伺います。" + '\n\n募集条件\n' + '職種：製造ライン\n仕事内容：部品の組み立てと検査。\n給与：月給240,000円\n勤務時間：8:30〜17:30／20:30〜5:30の交替制\n応募条件：夜勤があります。製造経験不問。',
-        applications: { confirmed: 1, estimated: 2, unknown: 1 }, note: '勤務時間と夜勤の有無が変わった架空例。応募数差を変更効果とは断定しません。',
+        applications: { confirmed: 1, estimated: 2, unknown: 1 }, note: '勤務時間と夜勤の有無が変わった架空例。応募数の差が変更によるものかは分かりません。',
       },
     ],
   },
   {
     id: 'demo-job-007', title: '店舗販売スタッフ', company: 'デモリテールG',
-    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-007', location: '大分県佐伯市',
+    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-007', accountId: 'DEMO-SHOP-01', location: '大分県佐伯市',
+    
+    // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
+    attributionUnknown: 0,
+    overallApplications: { total: 5, missingDate: 0, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-20': 1, '2026-09-28': 1, '2026-10-02': 2, '2026-10-04': 1 } },
     versions: [
       {
         id: 'demo-007-v1', label: '初回掲載', observedAt: '2026-09-16T10:00:00+09:00',
@@ -196,6 +249,30 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-008', title: '設備点検スタッフ', company: 'デモ設備H',
-    media: 'Airワーク', mediaJobId: 'DEMO-AIR-008', location: '大分県臼杵市', versions: [],
+    media: 'Airワーク', mediaJobId: 'DEMO-AIR-008', accountId: 'DEMO-ACCOUNT-01', location: '大分県臼杵市', versions: [],
   },
 ];
+
+/**
+ * Fictional market data for demo mode (no request to /api/job-copy/market). Like the real Indeed
+ * data it is monthly by prefecture and ends at a fixed month (2026-08 here), so the timeline shows
+ * the months after it as a no-data period. The screen reads the last month from the data.
+ */
+const demoMarketMonths = Array.from({ length: 14 }, (_, index) => {
+  const month = 7 + index;
+  return `${String(2025 + Math.floor((month - 1) / 12))}-${String((month - 1) % 12 + 1).padStart(2, '0')}`;
+});
+const demoMarketTitles = ['ドライバー', '倉庫作業', '受付事務', '清掃スタッフ', '調理補助', '製造スタッフ', '販売スタッフ'];
+export function demoMarketData(title = '', prefecture = ''): MarketData {
+  const base = { source: '架空の市場データ（デモ）。実在の求人数ではありません。', titles: demoMarketTitles, prefectures: ['大分県', '福岡県'], ctk_basis: 'Indeed閲覧者指標は、求職者の人数やこの求人への応募数ではありません。' };
+  const titleIndex = demoMarketTitles.indexOf(title);
+  if (titleIndex < 0 || !base.prefectures.includes(prefecture)) return { ...base, series: null };
+  const scale = (prefecture === '福岡県' ? 3 : 1) * (80 + titleIndex * 25);
+  return { ...base, series: {
+    prefecture, months: demoMarketMonths,
+    job_count: demoMarketMonths.map((_, index) => Math.round(scale * (1 + 0.03 * index - (index % 4 === 0 ? 0.04 : 0)))),
+    ctk_count: demoMarketMonths.map((_, index) => Math.round(scale * 6 * (1 + 0.02 * ((index * 5) % 7)))),
+    employer_count: demoMarketMonths.map((_, index) => Math.round(scale * 0.4 + index)),
+    seekers_per_posting: demoMarketMonths.map((_, index) => Math.round(60 * (1 + 0.02 * ((index * 5) % 7)) / (1 + 0.03 * index)) / 10),
+  } };
+}

@@ -308,7 +308,7 @@ pub const NAV_DEFS: &[NavDef] = &[
     // Reading private data still requires Google OIDC and JOB_COPY_ALLOWED_EMAILS.
     NavDef {
         id: "job-copy",
-        label: "求人文面（MOC）",
+        label: "求人文面管理",
         title: Some("求人本文・画像の履歴、差分、応募構成を確認"),
         kind: NavKind::App,
         target: "/app/job-copy",
@@ -1169,7 +1169,7 @@ mod tests {
                 .collect();
             assert_eq!(matching.len(), 1);
             let item = matching[0];
-            assert_eq!(item.label, "求人文面（MOC）");
+            assert_eq!(item.label, "求人文面管理");
             assert_eq!(item.kind, NavKind::App);
             assert_eq!(item.href, "/app/job-copy");
             assert!(!item.hidden);
@@ -1211,7 +1211,7 @@ mod tests {
             assert_eq!(job_copy_items[0].href, "/app/job-copy");
             let job_copy_links: Vec<_> = top
                 .iter()
-                .filter(|element| element.2 == "求人文面（MOC）")
+                .filter(|element| element.2 == "求人文面管理")
                 .collect();
             assert_eq!(job_copy_links.len(), 1);
             assert_eq!(job_copy_links[0].0, "a");

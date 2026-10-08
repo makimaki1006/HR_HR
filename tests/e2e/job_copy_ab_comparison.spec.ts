@@ -61,7 +61,7 @@ test('cross-record A/B preserves bodies, images, independent denominators, scope
   const period = comparison.getByRole('region', { name: 'A/B実績期間の比較', exact: true });
   await expect(period).toContainText('（10日）');
   await expect(period).toContainText('重なる日数：5日');
-  await expect(period).toContainText('CTR差（B−A）：5ポイント');
+  await expect(period).toContainText('クリック率の差（B−A）：5ポイント');
   await expect(period).toContainText('A 10%・B 10%');
   await expect(b.locator('.ab-values')).toContainText('媒体応募数20件');
   await expect(b).toContainText('求人レコード全体）：6件');
@@ -74,13 +74,13 @@ test('cross-record A/B preserves bodies, images, independent denominators, scope
   await comparison.scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'ab-record-desktop.png'), fullPage: true });
   await comparison.getByLabel('応募の比較範囲').selectOption('version');
-  await expect(a).toContainText('選択版の確定＋推定対応）：4件');
-  await expect(b).toContainText('選択版の確定＋推定対応）：2件');
-  await expect(a).toContainText('求人全体の版対応不明：6件');
-  await expect(b).toContainText('求人全体の版対応不明：4件');
+  await expect(a).toContainText('選んだ版に結びついた応募）：4件');
+  await expect(b).toContainText('選んだ版に結びついた応募）：2件');
+  await expect(a).toContainText('求人全体で、どの版への応募か不明：6件');
+  await expect(b).toContainText('求人全体で、どの版への応募か不明：4件');
   await expect(male.locator('td')).toHaveText(['1', '25%', '2', '100%', '75ポイント']);
   await expect(a.locator('blockquote')).toHaveCount(0);
-  await expect(a).toContainText('版対応不明の表示対象：1記述');
+  await expect(a).toContainText('どの版への理由か不明な記述：1件');
   await page.setViewportSize({ width: 375, height: 850 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await a.getByRole('heading', { name: 'A：合成配送募集A', exact: true }).scrollIntoViewIfNeeded();

@@ -1,6 +1,6 @@
 /** Synthetic local frontend responses only; no production OIDC or external image access. */
 import { test, expect } from '@playwright/test';
-import { selectJobFeature } from './job-copy-navigation';
+import { jobFeaturePanel, selectJobFeature } from './job-copy-navigation';
 
 const imageUrl = '/api/job-copy/snapshot-image?listing_id=30&version=0&slot=1&image_hash=' + 'a'.repeat(64);
 const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
@@ -21,7 +21,8 @@ test('30-second image response does not block full body, application counts or t
     settled = true;
   });
   await page.goto('/app/job-copy');
-  const bodyPanel = page.getByRole('tabpanel', { name: '本文・画像', exact: true });
+  await selectJobFeature(page, 'body');
+  const bodyPanel = jobFeaturePanel(page, 'body');
   const picture = bodyPanel.getByRole('img', { name: '合成の遅延画像', exact: true });
   await expect(bodyPanel.locator('.jc-body')).toHaveText(snapshot.capture_bundle.jobs[0]!.body);
   await picture.scrollIntoViewIfNeeded();
@@ -50,10 +51,11 @@ test('image failure stays separate from zero and retry restores the same referen
     return attempts === 1 ? route.fulfill({ status: 503, body: '' }) : route.fulfill({ status: 200, contentType: 'image/png', body: imageBytes });
   });
   await page.goto('/app/job-copy');
-  const panel = page.getByRole('tabpanel', { name: '本文・画像', exact: true });
+  await selectJobFeature(page, 'body');
+  const panel = jobFeaturePanel(page, 'body');
   await panel.locator('.jc-image-section').scrollIntoViewIfNeeded();
   await expect(panel.getByRole('alert')).toContainText('画像なし・削除とは判定していません');
-  await expect(panel).not.toContainText('この観測版の画像は0点');
+  await expect(panel).not.toContainText('この版の画像は0点');
   await panel.getByRole('button', { name: '画像を再読み込み: 合成の遅延画像' }).click();
   await expect.poll(() => panel.getByRole('img', { name: '合成の遅延画像', exact: true }).evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(1);
   await expect(panel.getByRole('alert')).toHaveCount(0);

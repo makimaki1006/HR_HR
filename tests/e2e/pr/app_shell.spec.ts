@@ -30,19 +30,19 @@ test.describe('AppShell', () => {
     const topLabels = visible.filter((i) => i.group === null).map((i) => i.label);
     const exploreLabels = visible.filter((i) => i.group === 'explore').map((i) => i.label);
     // fixture のサーバは GEMINI/キーワード系 env 無し・非 admin なので、隠しタブ・CRM・求人票作成は出ない
-    expect(topLabels).toEqual(['媒体分析', '競合調査', '営業KPI', 'コンサルKPI', '求人文面（MOC）']);
+    expect(topLabels).toEqual(['媒体分析', '競合調査', '営業KPI', 'コンサルKPI', '求人文面管理']);
     const jobCopy = visible.filter((item) => item.id === 'job-copy');
     expect(jobCopy).toEqual([expect.objectContaining({ kind: 'app', href: '/app/job-copy', group: null })]);
     const legacyJobCopy = page.locator('nav[aria-label="ダッシュボードタブ"] a[href="/app/job-copy"]');
     await expect(legacyJobCopy).toHaveCount(1);
-    await expect(legacyJobCopy).toHaveText('求人文面（MOC）');
+    await expect(legacyJobCopy).toHaveText('求人文面管理');
     expect(exploreLabels).toEqual(['地図', '地域分析', '企業検索', '職種辞典', '資格辞書', '採用市場']);
     expect(visible.map((i) => i.label)).not.toContain('市場概況');
 
     await page.goto('/app/dummy');
     const reactTop = page.locator('#app-root nav.hr-nav:not(.hr-subnav) a[data-nav-id]');
     await expect(reactTop).toHaveText(topLabels);
-    await expect(reactTop.filter({ hasText: '求人文面（MOC）' })).toHaveCount(1);
+    await expect(reactTop.filter({ hasText: '求人文面管理' })).toHaveCount(1);
     await expect(page.locator('#app-root a[data-nav-id="job-copy"]')).toHaveAttribute('href', '/app/job-copy');
     await page.locator('#app-root button[data-group-id="explore"]').click();
     await expect(page.locator('#hr-subnav a[data-nav-id]')).toHaveText(exploreLabels);

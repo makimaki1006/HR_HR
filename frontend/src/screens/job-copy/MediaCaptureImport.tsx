@@ -16,21 +16,21 @@ export function MediaCaptureImport({ onImport }: { onImport: (records: JobCopyRe
     setRecords(null); setError(''); setDisplayed(false); setReading(true);
     try {
       if (!file.name.toLowerCase().endsWith('.json') || file.size > MAX_CAPTURE_FILE_BYTES) {
-        setError('32MB以下の媒体取得JSONファイルを選んでください。');
+        setError('このファイルは読み込めません。媒体から取得したデータのファイル（32MBまで）を選んでください。');
         return;
       }
       const input = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
       setRecords(parseMediaCapture(input));
     } catch {
-      setError('媒体取得データを読み込めませんでした。UTF-8・schemaVersion 1の形式と件数を確認してください。');
+      setError('このファイルは読み込めない形式です。媒体から取得したデータのファイルか、求人の件数（1〜59件）を確認してください。');
     } finally {
       setReading(false); event.target.value = '';
     }
   }
 
   return <details ref={panel} className="jc-media-import"><summary>媒体で取得した求人本文・画像を確認{displayed && records ? `（${String(records.length)}件表示中）` : ''}</summary>
-    <p>個別に取得したJSONを選び、ブラウザのメモリ上に表示します。この操作からAPIへ送信せず、リポジトリやサーバーにも保存しません。再読み込みで消えます。</p>
-    <p>取得した本文・画像と、ファイルに含まれる過去のCSV観測版を確認します。掲載更新日時や応募数は補完しません。過去画像の参照を現在取得した表示は、その旨を注記します。</p>
+    <p>媒体から個別に取得したデータのファイルを選び、この画面の中だけで表示します。サーバーには送らず、保存もしません。ページを再読み込みすると消えます。</p>
+    <p>取得した本文・画像と、ファイルに含まれる過去のCSVの版を確認します。掲載更新日時や応募数は補完しません。過去画像の参照を現在取得した表示は、その旨を注記します。</p>
     <label>媒体取得データを読み込む<input type="file" accept=".json,application/json" disabled={reading} onChange={event => { void readCapture(event); }} /></label>
     <p className="jc-muted">32MBまで・1〜59件・求人ごとに画像3点まで・画像はファイル内のデータのみ</p>
     {reading && <p role="status">読み込み中…</p>}

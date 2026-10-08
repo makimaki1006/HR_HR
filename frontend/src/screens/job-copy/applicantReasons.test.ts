@@ -67,8 +67,8 @@ describe('recorded applicant reasons', () => {
     const html = renderToStaticMarkup(createElement(ApplicantReasons, { job: { ...job, applicantReasons: parse(raw) } }));
     expect(html).toContain('&lt;img');
     expect(html).not.toContain('<img');
-    expect(html).toContain('内部閲覧用の原記録を開く');
-    expect(html).toContain('匿名化された内容ではありません');
+    expect(html).toContain('記録された文を開く（社内確認用）');
+    expect(html).toContain('それ以外の個人情報が残っていることがあります');
     expect(html).not.toContain('<details open');
     expect(html).not.toContain('synthetic@example.invalid');
   });

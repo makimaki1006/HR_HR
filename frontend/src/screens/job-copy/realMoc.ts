@@ -4,6 +4,8 @@ import { parseMediaCapture } from './mediaCaptureParser';
 import { parseApplicantReasons } from './applicantReasonsParser';
 import { parseHrhPerformance } from './hrhPerformanceModel';
 import { parseJointDemographics } from './reverseSearchModel';
+import { roundApplicantAreasInRecord } from './applicantArea';
+import { multiListingFromSummary } from './liveApplications';
 
 const dimensions: ApplicantDimension[] = ['gender', 'age', 'prefecture', 'municipality'];
 const invalid = (): never => { throw new Error('実データMOCの集計と求人の対応を確認できませんでした。'); };
@@ -64,7 +66,8 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
     results.set(listing, result);
   }
   if (results.size !== records.length) return invalid();
-  return records.map((job, index) => {
+  // 応募者の住所は取り込み直後に都道府県 + 市区町村へ丸める（元の文字列を画面へ渡さない）
+  const parsed = records.map((job, index): JobCopyRecord => {
     const listing = listings[index];
     if (listing === undefined) return invalid();
     const result = results.get(listing);
@@ -79,6 +82,8 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
       byDate[date] = count(amount);
     }
     if (missingDate + Object.values(dated).reduce<number>((sum, amount) => sum + count(amount), 0) !== total) return invalid();
+    const multiListing = multiListingFromSummary({ multi_listing_by_date: summary.multi_listing_by_date as Record<string, number> | undefined, multi_listing_missing_date: summary.multi_listing_missing_date as number | undefined }, byDate, missingDate);
+    if (multiListing === null) return invalid();
     const summaryDimensions = object(summary.dimensions);
     const distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>> = {};
     for (const dimension of dimensions) if (summaryDimensions[dimension] !== null && summaryDimensions[dimension] !== undefined) distributions[dimension] = totals(summaryDimensions[dimension], total);
@@ -93,7 +98,7 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
       applicantReasons: parseApplicantReasons(result.applicant_reasons, total, job.versions.filter(version => version.kind === 'published').map(version => version.id)),
       hrhPerformance: result.hrh_performance == null ? undefined : parseHrhPerformance(result.hrh_performance, job.mediaJobId),
       jointDemographics: summary.joint_demographics == null ? undefined : parseJointDemographics(summary.joint_demographics, total),
-      overallApplications: { total, missingDate, fetchedAt, distributions, byDate },
+      overallApplications: { total, missingDate, fetchedAt, distributions, byDate, ...(multiListing ? { multiListing } : {}) },
       versions: job.versions.map(version => {
         if (buckets[version.id] === undefined) return version;
         const bucket = object(buckets[version.id]);
@@ -107,8 +112,9 @@ export function parseRealMoc(text: string): JobCopyRecord[] {
         return { ...version, certainty: 'estimated', applications: { confirmed: 0, estimated: bucketCount, unknown: 0 },
           attributesFetchedAt: fetchedAt, distributions: versionDistributions,
           observationDates: Object.entries(representatives).filter(([, day]) => object(day).version_id === version.id).map(([day]) => day).sort(),
-          note: `${version.note.replace('source filename acquisition label; not publication timestamp', 'ファイル取得日時による観測ラベル（掲載変更日時ではありません）')} ${typeof comparison?.basis === 'string' ? comparison.basis : '日付による観測対応'}` };
+          note: `${version.note.replace('source filename acquisition label; not publication timestamp', 'ファイルを取得した日時の名前（掲載が変わった日時ではありません）')} ${typeof comparison?.basis === 'string' ? comparison.basis : '日付による観測対応'}` };
       }),
     };
   });
+  return parsed.map(roundApplicantAreasInRecord);
 }

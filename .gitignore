@@ -157,3 +157,4 @@ data/job-copy-local/
 .e2e-bin/
 playwright-report-pr/
 test-results-pr/
+test-results-job-copy/
