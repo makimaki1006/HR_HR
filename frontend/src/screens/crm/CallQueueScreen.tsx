@@ -22,6 +22,8 @@ import type { QueueFetch } from './useCallQueue';
 import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
+import { CenterPanel, CenterTabBar, LinkOpenerContext, LinkView, searchTab, useCenterTabs } from './CenterTabs';
+import { DEAL_TAB, SEARCH_TAB, dealJobSearchUrl } from './centerLinks';
 import { PARTIAL_LABELS } from './workspaceModel';
 import {
   clearDraftEntry, draftKey, editDraft, emptyResultDraft, emptyStore, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, optionLabel, saveStore,
@@ -452,6 +454,18 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }, [selectedId]);
 
   const waitingKey = selectedId !== null && selectedId !== detailId;
+  // 中央のタブ (案件 / 求人検索 / 開いたリンク)。案件を選び直したら開いたリンクは閉じる
+  const shownData = !waitingKey && detail.state.phase === 'ready' && detail.state.data?.deal.id === selectedId ? detail.state.data : null;
+  const searchUrl = useMemo(() => (shownData !== null ? dealJobSearchUrl(shownData) : null), [shownData]);
+  const center = useCenterTabs(selectedId === null ? null : `${mode}:${selectedId}`, searchUrl);
+  const searchLink = useMemo(() => (searchUrl !== null ? searchTab(searchUrl) : null), [searchUrl]);
+  // 通話が終わったら案件のタブに戻す (架電結果を入力するため。リンクのタブは閉じない)
+  const endedKey = endedCall === null ? null : (endedCall.callId ?? 'ended');
+  const [seenEnded, setSeenEnded] = useState<string | null>(null);
+  if (endedKey !== seenEnded) {
+    setSeenEnded(endedKey);
+    if (endedKey !== null && center.active !== DEAL_TAB) center.activate(DEAL_TAB);
+  }
   // 不通時チェック・ブロック理由は、入力欄と同じ HubSpot の表示ラベルで出す (定義を読めていなければ値のまま)
   const stopLabel = useMemo<StopLabel>(() => {
     if (defs.state.phase !== 'ready') return rawStopLabel;
@@ -560,6 +574,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         </div>
       </section>
       <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
+        {selectedId !== null && <CenterTabBar tabs={center} />}
+        <LinkOpenerContext.Provider value={selectedId !== null ? center.open : null}>
+        <div className="cq-cpanels">
+        <CenterPanel id={DEAL_TAB} active={selectedId === null || center.active === DEAL_TAB} tabbed={selectedId !== null}>
         {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
           : <DealDetail state={detail.state} reload={detail.reload} zoom={zoomForDetail}
             ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} stopLabel={stopLabel}
@@ -574,6 +592,16 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             autoFocusOutcome={focusFormFor === selectedId} onAnnounce={announce}
             notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />}
         </div>}
+        </CenterPanel>
+        {searchLink !== null && <CenterPanel id={SEARCH_TAB} active={center.active === SEARCH_TAB}>
+          {/* 開くまでは枠を作らない (案件を選ぶたびに Google を読みに行かない) */}
+          {center.searchOpened && <LinkView key={searchLink.url} tab={searchLink} />}
+        </CenterPanel>}
+        {center.links.map(l => <CenterPanel key={l.id} id={l.id} active={center.active === l.id}>
+          <LinkView tab={l} onClose={() => { center.close(l.id); }} />
+        </CenterPanel>)}
+        </div>
+        </LinkOpenerContext.Provider>
       </section>
     </div>
     {/* Zoom の枠 (右から開く引き出し)。閉じている間も外さず、同じ大きさのまま画面の外へ送る

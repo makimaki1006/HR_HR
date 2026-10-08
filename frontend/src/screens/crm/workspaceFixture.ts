@@ -1,5 +1,6 @@
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { fixtureItem } from './queueFixture';
+import { formatPhoneForDisplay } from './phone';
 
 /**
  * 架空の詳細 (HubSpot には接続しない)。電話番号は 0300000000 台、会社名・氏名・本文は架空。
@@ -14,6 +15,9 @@ export function fixtureDetail(dealId: string): WorkspaceResponse | null {
       id: item.deal_id, name: item.deal_name, stage_id: item.stage_id, stage_label: item.stage_label, pipeline_id: '753186575',
       owner_id: item.owner_id, amount: '120000', close_date: null, next_call_date: item.next_call_date,
       next_call_time: item.next_call_time, last_call_date: item.last_call_date, stop: item.stop, bpo_phone: null,
+      // 求人検索は HubSpot の「URL_求人検索」と同じ形 (余計な項目付き)。ホームページは IANA の例示用ドメイン
+      job_search_url: phone ? `https://www.google.com/search?q=${encodeURIComponent(formatPhoneForDisplay(phone) ?? phone)}+%E6%B1%82%E4%BA%BA&sca_esv=sample` : null,
+      homepage_url: 'https://www.example.com/', media_job_urls: null, job_posting_url: null,
       deep_link: item.deep_links.deal,
     },
     dial: phone ? { number: phone, source: 'contact' } : null,
@@ -25,7 +29,7 @@ export function fixtureDetail(dealId: string): WorkspaceResponse | null {
     contacts_total: item.contact ? 1 + item.contact.extra_count : 0,
     companies: item.company ? [{
       id: item.company.id, name: item.company.name, phone: item.company.phone, address: '100-0001 東京都 千代田区 架空1-1',
-      industry: '架空業', domain: 'example.invalid', labels: ['主'], is_primary: true,
+      industry: '架空業', domain: 'example.invalid', website: null, labels: ['主'], is_primary: true,
       deep_link: `https://example.invalid/company/${item.company.id}`,
     }] : [],
     companies_total: item.company ? 1 : 0,
