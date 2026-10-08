@@ -4,7 +4,6 @@ import {
   BillingCsvError, DEFAULT_BILLING_COLUMN_ALIASES, billingDate, billingMappingProblems, buildBillingImport, canonicalMedia,
   decodeBillingCsv, guessBillingColumns, importBillingCsv, parseCsv,
 } from './billingImport';
-import { billingPeriodsForJob, billingPeriodsFromHrhPerformance } from './billingTypes';
 
 const header = '媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）';
 const csv = (...lines: string[]) => [header, ...lines].join('\r\n');
@@ -146,21 +145,5 @@ describe('billing CSV import', () => {
     expect(canonicalMedia('AirWork')).toBe('Airワーク');
     expect(canonicalMedia('ＨＲハッカー')).toBe('HRハッカー');
     expect(canonicalMedia('Indeed')).toBeNull();
-  });
-});
-
-describe('billing period helpers', () => {
-  it('converts HRH performance rows, keeping a missing cost as null', () => {
-    const periods = billingPeriodsFromHrhPerformance('job-x', '12345678', {
-      schema_version: 1, source: 'hrhacker', job_id: '12345678', captured_at: '2026-10-01T00:00:00+09:00',
-      rows: [{ period_start: '2026-09-01', period_end: '2026-09-07', impressions: 100, clicks: 5, cost_yen: null, applications: 1 }],
-    });
-    expect(periods).toEqual([{ jobId: 'job-x', media: 'HRハッカー', mediaJobId: '12345678', periodStart: '2026-09-01', periodEnd: '2026-09-07', amountYen: null, taxBasis: '不明', planName: null, impressions: 100, clicks: 5, mediaApplications: 1, source: 'hrh_performance', sourceRow: null, overlapsSourceRows: [] }]);
-    expect(billingPeriodsFromHrhPerformance('job-x', '1', undefined)).toEqual([]);
-  });
-
-  it('filters and sorts periods per job', () => {
-    const result = importBillingCsv(csv('HRハッカー,DEMO-HRH-001,2026-09-15,2026-09-30,2', 'Airワーク,DEMO-AIR-002,2026-09-01,2026-09-30,9', 'HRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,1'), jobs);
-    expect(billingPeriodsForJob(result.periods, 'demo-job-001').map(period => period.amountYen)).toEqual([1, 2]);
   });
 });

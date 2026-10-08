@@ -58,10 +58,10 @@ function ApplicationSummary({ job, version, live = false }: { job: JobCopyRecord
   return <section className="jc-applications" aria-label="版別の応募状況">
     <div className="jc-period"><strong>この文面に対応する応募</strong><span>{version.publishedFrom ? date(version.publishedFrom) : '開始不明'} → {version.publishedUntil ? date(version.publishedUntil) : '終了未確認'} · 期間{certaintyLabels[version.certainty]}</span></div>
     {linkedApplicationCount(version) === 0 && <p className="jc-no-linked" role="status">{noLinkedApplicationsMessage(jobApplicationTotal(job))}</p>}
-    <div className="jc-counts"><div><span>確定対応</span><strong>{version.applications.confirmed}<small>件</small></strong></div><div><span>推定対応</span><strong>{version.applications.estimated}<small>件</small></strong></div><div><span title="応募日が無い、または取得した版の期間に入らない応募です。求人全体で数えた値で、応募者構成と同じ件数です。">どの版への応募か不明（求人全体）</span><strong>{unmatched ?? '—'}<small>件</small></strong></div></div>
+    <div className="jc-counts"><div><span>応募日で結びついた応募</span><strong>{version.applications.confirmed}<small>件</small></strong></div><div><span>気づいた日の版で数えた応募</span><strong>{version.applications.estimated}<small>件</small></strong></div><div><span>どの版への応募か不明（求人全体）</span><strong>{unmatched ?? '—'}<small>件</small></strong><InfoTip className="jc-infotip-left" label="どんな応募か"><p>応募日が無い、または取得した版の期間に入らない応募です。求人全体で数えた値で、応募者構成と同じ件数です。</p></InfoTip></div></div>
     {live
-      ? <AssumptionsNote summary="HubSpotに記録された応募を、応募日とその日に取得した版で突き合わせた件数です。" items={['「推定対応」は、変更に気づいた日の版を基準に数えた件数です。', 'どの版への応募か不明な件数の合計は「応募者構成」で確認できます。']} />
-      : <AssumptionsNote summary="架空の件数です。" items={['「どの版への応募か不明」は求人全体で数えた件数で、応募者構成と同じ値です。「確定対応」には含めません。']} />}
+      ? <AssumptionsNote summary="HubSpotに記録された応募を、応募日とその日に取得した版で突き合わせた件数です。" items={['「気づいた日の版で数えた応募」は、掲載の変更日が分からないため、変更に気づいた日の版を基準に数えた件数です。', 'どの版への応募か不明な件数の合計は「応募者構成」で確認できます。']} />
+      : <AssumptionsNote summary="架空の件数です。" items={['「どの版への応募か不明」は求人全体で数えた件数で、応募者構成と同じ値です。「応募日で結びついた応募」には含めません。']} />}
   </section>;
 }
 
@@ -139,16 +139,16 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
       return;
     }
     const now = new Date().toISOString();
-    const newVersion: CopyVersion = { id: `demo-received-${crypto.randomUUID()}`, label: `受信版 ${String(job.versions.filter(item => item.kind === 'received').length + 1)}`, observedAt: now,
+    const newVersion: CopyVersion = { id: `demo-received-${crypto.randomUUID()}`, label: `確認待ちの文面 ${String(job.versions.filter(item => item.kind === 'received').length + 1)}`, observedAt: now,
       certainty: 'unknown', kind: 'received', source: source.trim() || '受信元未指定', body: incoming,
       applications: null, note: '外部文面の受領のみ。媒体での更新・掲載は未確認。応募情報未取得。' };
     onAdd(newVersion); setSelected(newVersion.id); setBefore(current?.id ?? ''); setAfter(newVersion.id); openFeatureFromContent('body');
-    setMessage('受信版を画面内のデモ履歴に追加しました。媒体での掲載確認・HubSpot保存は行っていません。');
+    setMessage('確認待ちの文面として画面内のデモ履歴に追加しました。媒体での掲載確認・HubSpot保存は行っていません。');
   }
 
   return <article className="jc-detail" id="job-details" tabIndex={-1}>
     <header className="jc-detail-heading"><div><h1>{job.title}</h1><p>{job.company} <span>·</span> {job.location} <span>·</span> {job.media} <span>·</span> 媒体求人ID {job.mediaJobId}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
-    <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の文面（HubSpotの現在値）' : '表示中の文面'}: {current?.label ?? '本文未取得'}</span><span title="ファイルを取得した日時です。掲載が変わった日時ではありません。">取得日時: {current ? date(current.observedAt) : '—'}</span>{job.hubspotId ? <span>HubSpot求人ID: {job.hubspotId}</span> : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
+    <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の文面（HubSpotの現在値）' : '表示中の文面'}: {current?.label ?? '本文未取得'}</span><InfoTip className="jc-infotip-left" label={`取得日時: ${current ? date(current.observedAt) : '—'}`}><p>ファイルを取得した日時です。掲載が変わった日時ではありません。</p></InfoTip>{job.hubspotId ? <span>HubSpot求人ID: {job.hubspotId}</span> : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
     {message && <p className="jc-message" role="status">{message}</p>}
     <JobFeatureTabs value={tab} onChange={setTab} remembered={remembered} prefix={tabPrefix} onLeaveHidden={() => { openFeatureFromContent('timeline'); }}>
     <JobFeaturePanel feature="timeline" active={tab === 'timeline'} prefix={tabPrefix}>{visited.includes('timeline') && <JobTimeline job={job} billing={billing} marketMode={demo ? 'demo' : 'api'} onOpenVersion={id => { setSelected(id); openFeatureFromContent('body'); }} onCompareVersions={(from, to) => { setBefore(from); setAfter(to); openFeatureFromContent('diff'); }} />}</JobFeaturePanel>
@@ -185,7 +185,7 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
       <nav className="jc-comparison-jumps" aria-label="差分の確認箇所"><a href="#job-copy-text-diff">本文の差分へ</a><a href="#job-copy-image-diff">画像の比較へ</a></nav>
       <section className="jc-image-comparison" id="job-copy-image-diff" aria-label="画像の差分"><h2>掲載画像の比較</h2><p className="jc-notice">{imageResult.status === 'unknown' ? '画像がない版があるため、画像が変わったかどうかは分かりません。' : imageResult.status === 'same_reference' ? '同じ画像が同じ順に並んでいます。' : `画像の差し替え：追加${String(imageResult.added.length)}点・削除${String(imageResult.removed.length)}点${imageResult.reordered ? '・並び順の変更あり' : ''}`}{pastImagesMissing ? '過去の時点の画像は保存されていないため、当時の画像の中身は確認できません。' : ''}</p>
         <div className="jc-image-compare-grid"><ImageGallery title="比較元の画像" images={versionImages(left)} marks={imageResult.removed.map(image => image.url)} /><ImageGallery title="比較先の画像" images={versionImages(right)} marks={imageResult.added.map(image => image.url)} /></div>
-        <p className="jc-muted">操作デモは架空のイラスト、媒体取得版は取得した実画像です。初回取得だけでは過去との画像変更を判定できません。</p>
+        <p className="jc-muted">操作デモの画像は架空のイラスト、媒体から取り込んだ求人の画像は媒体から取得した実画像です。初回取得だけでは過去との画像変更を判定できません。</p>
       </section>
       <h2 className="jc-text-diff-heading" id="job-copy-text-diff">本文・募集条件の比較</h2>
       <label className="jc-diff-toggle"><input type="checkbox" checked={changesOnly} onChange={event => { setChangesOnly(event.target.checked); setDiffLimit(300); }} />変更箇所だけを表示（追加・削除{changedLines}行）</label>
@@ -201,7 +201,7 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
       <label>受信元・資料名<input value={source} maxLength={200} onChange={event => { setSource(event.target.value); }} /></label>
       <label>受け取った文面<textarea value={incoming} maxLength={100_000} rows={12} placeholder="求人票の外部文面を貼り付けてください" onChange={event => { setIncoming(event.target.value); setCompared(false); }} /></label>
       <div className="jc-receive-actions"><button className="jc-button jc-primary" disabled={reading} onClick={() => { setCompared(true); }}>現在の本文と比較</button><button className="jc-button" onClick={() => { setIncoming(current?.body ?? ''); setSource('現在版の再取得デモ'); setCompared(false); }}>同じ文面で試す</button></div>
-      {compared && <div className="jc-receive-result" role="status"><h3>{statusLabels[incomingResult.status]}</h3><p>掲載更新の確認: 未確認。判定は本文比較の結果です。</p>{incomingResult.status !== 'unavailable' && <button className="jc-button" onClick={addObservation}>{incomingResult.status === 'unchanged' ? '変更なしをデモ確認' : '受信版をデモ履歴に追加'}</button>}</div>}
+      {compared && <div className="jc-receive-result" role="status"><h3>{statusLabels[incomingResult.status]}</h3><p>掲載更新の確認: 未確認。判定は本文比較の結果です。</p>{incomingResult.status !== 'unavailable' && <button className="jc-button" onClick={addObservation}>{incomingResult.status === 'unchanged' ? '変更なしをデモ確認' : '確認待ちの文面としてデモ履歴に追加'}</button>}</div>}
       <p className="jc-notice">将来の文字起こし → AI文面案の生成は、タイムラインの「AI案」として接続予定です。この画面はまだAIを呼び出しません。</p>
     </section>}</JobFeaturePanel>
     </JobFeatureTabs>
@@ -293,8 +293,8 @@ export function JobCopyScreen() {
   const filterCount = [customer !== 'all', media !== 'all', status !== 'all', listOrder !== 'source'].filter(Boolean).length;
   function resetFilters() { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); document.getElementById('job-list-search')?.focus(); }
   function choose(job: JobCopyRecord) { setFeatureRequest(null); setSelectedId(job.id); const url = new URL(window.location.href); url.searchParams.set('job', job.id); window.history.replaceState(null, '', url); if (window.matchMedia('(max-width: 800px)').matches) window.requestAnimationFrame(() => { const detail = document.getElementById('job-details'); detail?.focus({ preventScroll: true }); detail?.scrollIntoView({ block: 'start' }); }); }
-  const bannerLabel = snapshotLoading ? '実データを読み込み中' : snapshotAt ? '実データ（取得済み）' : snapshotRequested && !records.length ? '実データ未表示' : live ? 'HubSpot読み取り' : captured ? '媒体取得版' : '操作デモ';
-  const bannerText = snapshotAt ? `媒体CSVの本文・画像とHubSpotの実求人・応募集計です。応募集計取得：${date(snapshotAt)}。最新値の自動更新ではありません。確認記録は画面内のみ保持します。` : live ? records.some(job => published(job).length > 0) ? '実際の取引先・求人に、媒体から取得した本文・画像と応募をつないでいます。画像の取得時点や、どの版への応募か不明な件数は各表示で確認してください。検証記録はこの画面の中だけに残ります。' : '実レコードの現在値です。媒体全文・画像・日次版との接続は別途必要です。確認状況・受信版は画面内だけに保持します。' : captured ? 'HRハッカーの本文・画像です。過去版の有無と画像の取得時点は各版の注記を確認してください。応募未取得・HubSpot未保存です。' : snapshotRequested && !records.length ? '取得済みの実データを読み取ります。欠損を架空データで補いません。' : '求人・本文・応募数はすべて架空です。HubSpot未接続。追加した履歴・確認状況は再読み込みで消えます。';
+  const bannerLabel = snapshotLoading ? '実データを読み込み中' : snapshotAt ? '実データ（取得済み）' : snapshotRequested && !records.length ? '実データ未表示' : live ? 'HubSpot読み取り' : captured ? '媒体から取り込んだ求人' : '操作デモ';
+  const bannerText = snapshotAt ? `媒体CSVの本文・画像とHubSpotの実求人・応募集計です。応募集計取得：${date(snapshotAt)}。最新値の自動更新ではありません。確認記録は画面内のみ保持します。` : live ? records.some(job => published(job).length > 0) ? '実際の取引先・求人に、媒体から取得した本文・画像と応募をつないでいます。画像の取得時点や、どの版への応募か不明な件数は各表示で確認してください。検証記録はこの画面の中だけに残ります。' : '実レコードの現在値です。媒体全文・画像・日次版との接続は別途必要です。確認状況と確認待ちの文面は画面内だけに保持します。' : captured ? 'HRハッカーの本文・画像です。過去版の有無と画像の取得時点は各版の注記を確認してください。応募未取得・HubSpot未保存です。' : snapshotRequested && !records.length ? '取得済みの実データを読み取ります。欠損を架空データで補いません。' : '求人・本文・応募数はすべて架空です。HubSpot未接続。追加した履歴・確認状況は再読み込みで消えます。';
   // 一覧の求人を入れ替えたら、新しい一覧に無い求人の課金CSVの反映を外す（表示と反映中の表示を合わせる）。
   function keepBillingFor(next: readonly JobCopyRecord[]) {
     setBillingPeriods(previous => previous.filter(period => next.some(job => job.id === period.jobId)));
@@ -309,7 +309,7 @@ export function JobCopyScreen() {
       return !open;
     });
   }
-  return <div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>求人文面管理</h1><span className="jc-mode" title="開発中の画面です。表示や操作は今後変わります。">試作版</span></header>
+  return <div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>求人文面管理</h1><InfoTip className="jc-mode jc-infotip-left" label="試作版"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header>
     <div className="jc-demo" title={bannerText}><strong>{bannerLabel}</strong><span>{bannerText}</span></div>
     {snapshotAt && <InfoTip className="jc-snapshot-tip" label="取得した範囲"><section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>取得した本文の版</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募（HubSpot記録分）</span><span>掲載期間に入らない応募 <strong>{records.reduce((sum, job) => sum + (applicationsOutsideTimeline(job) ?? 0), 0)}</strong>件</span></section><p className="jc-snapshot-note">「掲載期間に入らない応募」は、応募日が無い応募と、掲載期間の外の日付の応募です。タイムラインの期間比較表には入れていません。</p></InfoTip>}
     <button type="button" className="jc-button jc-import-toggle" aria-expanded={importOpen} aria-controls="job-copy-data-import" onClick={toggleImport}>データ取込</button></div>

@@ -3,7 +3,7 @@ import type { JobCopyRecord } from './data';
 import { MIN_RATE_DAYS, OVERVIEW_WINDOW_DAYS, comparableRate, overviewRange, overviewRows, sortOverview } from './overviewModel';
 import { InfoTip } from './InfoTip';
 import type { OverviewRow, OverviewSort } from './overviewModel';
-import { addDays, daysBetween, formatDay, formatPerDay, formatYen } from './timelineModel';
+import { daysBetween, formatDay, formatPerDay, formatYen } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import './timeline.css';
 
@@ -68,11 +68,13 @@ export function JobOverview({ records, billing, onChoose, now }: JobOverviewProp
           <td className="jo-calendar">{range && <MiniCalendar row={row} range={range} />}</td>
           <td>{row.lastChange ? formatDay(row.lastChange) : '変更なし'}</td>
           <td className="jo-kinds">{row.kinds.length ? row.kinds.map(kind => <span key={kind}>{kind}</span>) : row.lastChange ? '判定できない変更' : '—'}</td>
-          <td title={row.before && row.before.days < OVERVIEW_WINDOW_DAYS ? `直前の版が${String(row.before.days)}日間だったため、その${String(row.before.days)}日分だけで数えています` : undefined}>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
-          <td title={row.after && row.after.days < OVERVIEW_WINDOW_DAYS ? `変更から${String(row.after.days)}日分しか経っていません（${formatDay(addDays(row.asOf, 0))}時点）` : undefined}>{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
+          <td>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
+          <td>{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
           <td className="jo-billing">{!row.billingConnected ? '課金データなし' : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`}</td>
         </tr>;
       })}</tbody>
     </table></div>}
+    {sorted.some(row => [row.before, row.after].some(rate => rate ? rate.days < OVERVIEW_WINDOW_DAYS : false)) && <p className="jc-muted jo-short-note">
+      変更前・変更後が{OVERVIEW_WINDOW_DAYS}日に満たない求人は、ある日数分だけで1日あたりを数えています（各欄の「件 / 日」の日数）。変更後は応募を取得した日までです。</p>}
   </main>;
 }

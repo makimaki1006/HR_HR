@@ -225,4 +225,33 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows.nth(1).locator('td').nth(3)).toHaveText('この期間の課金データなし');
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   });
+
+  test('課金を日数で配分した「約」と本文の印の読み上げを、ホバーしなくても読める文字で示す', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await open(page);
+    await page.getByRole('button', { name: 'データ取込', exact: true }).click();
+    // 08-01〜08-31 の 31 日で 31,000円。1 つ目の期間（〜08-19）に 19 日分、2 つ目（08-20 の 1 日）に 1 日分を配分する。
+    const csv = '媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,12345678,2026-08-01,2026-08-31,31000\n';
+    await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+    await page.getByRole('button', { name: '求人と照合する', exact: true }).click();
+    await page.getByRole('button', { name: '一致した1行を課金として反映', exact: true }).click();
+    await page.getByRole('region', { name: 'データ取込', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
+    const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
+    const table = timeline.getByRole('region', { name: '期間比較表の数値' });
+    const rows = table.locator('tbody tr');
+    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('約1万9,000円');
+    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('約1,000円');
+    await expect(timeline.getByText('「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。', { exact: true })).toBeVisible();
+    await expect(table.locator('[title]')).toHaveCount(0);
+    // 本文の印: 画面の文字と読み上げが同じことを言う
+    const marks = await timeline.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark').evaluateAll(elements => elements.map(element => [element.textContent, element.getAttribute('aria-label')]));
+    expect(marks).toEqual([['最初', '2026/07/01時点の求人内容の本文：最初の版'], ['追加1・削除1', '2026/08/20時点の求人内容の本文：1行追加・1行削除']]);
+    await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="jt-market"][data-chart-ready="true"]')).toHaveCount(1);
+    // 求人内容でも、内部の呼び方（媒体取得版・受信版・確定対応・推定対応）を出さない
+    await page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: '求人内容', exact: true }).click();
+    await expect(page.locator('.jc-reading')).toBeVisible();
+    await expect(page.locator('body')).not.toContainText(/媒体取得版|受信版|確定対応|推定対応/u);
+    await expect(page.locator('.jc-mode')).not.toHaveAttribute('title', /.+/u);
+  });
 });

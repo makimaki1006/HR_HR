@@ -73,6 +73,7 @@
 .jt-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; background: #fffaf0; border: 1px solid #f2d39a; border-radius: 6px; padding: 8px 12px; font-size: 12px; }
 
 .jt-periods h3 { font-size: 14px; margin-bottom: 4px; }
+.jt-table-note { margin: 4px 0 0; font-size: 11px; color: #5c7080; }
 .jt-table-scroll { overflow-x: auto; margin: 8px 0; }
 .jt-periods table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 12px; background: #fff; }
 .jt-periods th, .jt-periods td { border-bottom: 1px solid #e3eaef; padding: 7px 8px; text-align: right; white-space: nowrap; }

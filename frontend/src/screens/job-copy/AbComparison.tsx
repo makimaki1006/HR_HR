@@ -35,10 +35,10 @@ function Variant({ label, job, version, scope, metric, onVersion, onMetric }: {
     <h3>{label}：{job.title}</h3><p>{job.company} · {job.location} · {job.media}</p><p>媒体求人ID：{job.mediaJobId} / HubSpot ID：{job.hubspotId ?? '未接続'}</p>
     {job.hubspotUrl && <a href={job.hubspotUrl} target="_blank" rel="noreferrer">{label}のHubSpot求人を開く</a>}
     <label>{label}の本文の版<select value={version?.id ?? ''} onChange={event => { onVersion(event.target.value); }}><option value="">版を選択</option>{publishedVariants(job).map(item => <option key={item.id} value={item.id}>{item.label} · {formatDateJst(item.observedAt)}</option>)}</select></label>
-    <p>応募数（{scope === 'record' ? '求人レコード全体' : '選択版の確定＋推定対応'}）：<strong>{number(variantCount(job, version, scope), '件')}</strong></p>
+    <p>応募数（{scope === 'record' ? '求人レコード全体' : '選んだ版に結びついた応募'}）：<strong>{number(variantCount(job, version, scope), '件')}</strong></p>
     <p>{scope === 'record' ? `応募集計取得日時：${formatDateTimeJst(job.overallApplications?.fetchedAt, '未取得')}` : `確定 ${number(version?.applications?.confirmed, '件')} / 推定 ${number(version?.applications?.estimated, '件')}`}</p>
     <p>求人全体で、どの版への応募か不明：{number(unmatchedApplicationCount(job), '件')}（選択版の応募数には含めません）</p>
-    {version ? <><ImageGallery title={`${label}の掲載画像`} images={version.images ?? imagesByVersion[version.id]} />{version.historicalImageBytesAvailable === false && <p className="jc-notice">当時の画像原本は未保存です。</p>}<details><summary>{label}の求人本文を全文確認</summary><pre className="jc-body">{version.body}</pre>{version.note.trim() && <p>{plainWording(version.note)}</p>}</details></> : <p>掲載を確認できた本文は未取得です。受信版・AI案は比較対象にしていません。</p>}
+    {version ? <><ImageGallery title={`${label}の掲載画像`} images={version.images ?? imagesByVersion[version.id]} />{version.historicalImageBytesAvailable === false && <p className="jc-notice">当時の画像原本は未保存です。</p>}<details><summary>{label}の求人本文を全文確認</summary><pre className="jc-body">{version.body}</pre>{version.note.trim() && <p>{plainWording(version.note)}</p>}</details></> : <p>掲載を確認できた本文は未取得です。確認待ちの文面・AI案は比較対象にしていません。</p>}
     <label>{label}の課金実績期間<select value={metric} onChange={event => { onMetric(event.target.value); }}><option value="">実績期間を選択</option>{job.hrhPerformance?.rows.map(item => <option key={item.period_start} value={item.period_start}>{formatPeriodJst(item.period_start, item.period_end)}</option>)}</select></label>
     <MetricValues row={row} />
     <details className="jc-no-print"><summary>{label}の応募理由（内部閲覧）</summary><p>表示対象：{texts.length}記述。複数出典を含み、応募人数・回答率とは異なります。{reasons?.truncated ? '取得上限による一部表示です。' : ''}</p>
