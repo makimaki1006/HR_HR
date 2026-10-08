@@ -12,7 +12,7 @@ import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
 import { useCallQueue } from './useCallQueue';
 import { useAutoLoadMore } from './useAutoLoadMore';
 import { DealDetail, rawStopLabel } from './DealDetail';
-import type { StopLabel } from './DealDetail';
+import type { CallBarInfo, StopLabel } from './DealDetail';
 import { ZoomPhonePanel } from './ZoomPhonePanel';
 import { useDealDetail } from './useDealDetail';
 import type { DetailFetch } from './useDealDetail';
@@ -33,6 +33,7 @@ import type { MetadataFetch } from './useResultDefinitions';
 import { useCurrentUser } from './useCurrentUser';
 import type { UserFetch } from './useCurrentUser';
 import type { DialResult, ZoomPhone } from './useZoomPhone';
+import type { EmbedPhase } from './useZoomPhone';
 import { toE164Jp } from './smartEmbed';
 import type { CallState } from './smartEmbed';
 import './crm.css';
@@ -76,6 +77,28 @@ export function partialNotes(p: CallQueuePartial | null): string[] {
   if (p.excluded.stop_reason > 0) notes.push(`架電禁止・ブロック理由があるため ${String(p.excluded.stop_reason)} 件を除きました`);
   if (p.excluded.out_of_scope > 0) notes.push(`対象外(別パイプライン・対象外ステージ・アーカイブ)の ${String(p.excluded.out_of_scope)} 件を除きました`);
   return notes;
+}
+
+/** Zoom の枠を開いているか (このブラウザに残す。自動で開いたときは残さない) */
+export const ZOOM_DRAWER_KEY = 'hrhr.crm.zoomDrawerOpen';
+function loadDrawerOpen(): boolean {
+  try { return window.localStorage.getItem(ZOOM_DRAWER_KEY) === '1'; } catch { return false; }
+}
+function saveDrawerOpen(open: boolean) {
+  try { window.localStorage.setItem(ZOOM_DRAWER_KEY, open ? '1' : '0'); } catch { /* 残せない環境では毎回閉じた状態から */ }
+}
+
+export type ZoomReadiness = 'loading' | 'ready' | 'unavailable' | 'no_response' | 'ringing' | 'connected';
+export const ZOOM_READINESS_LABELS: Record<ZoomReadiness, string> = {
+  loading: '準備中', ready: '利用可', unavailable: '使えません', no_response: '応答なし', ringing: '呼び出し中', connected: '通話中',
+};
+/** 上のバーの「Zoom」ボタンに出す状態 */
+export function zoomReadiness(embed: EmbedPhase, call: CallState, stalled: boolean): ZoomReadiness {
+  if (call.phase === 'ringing') return 'ringing';
+  if (call.phase === 'connected') return 'connected';
+  if (embed === 'timeout' || embed === 'disabled') return 'unavailable';
+  if (embed === 'loading') return 'loading';
+  return stalled ? 'no_response' : 'ready';
 }
 
 const SCOPE_WORDS: Record<string, string> = { all: '全員', me: '自分', unassigned: '担当者なし' };
@@ -181,6 +204,30 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const detail = useDealDetail(detailId, mode, detailFetcher);
   // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
   const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
+  // Zoom の枠は右から開く引き出し。閉じている間も iframe は画面の外に置いたまま (発信の依頼は届く)
+  const [drawerOpenRaw, setDrawerOpen] = useState(loadDrawerOpen);
+  const drawerOpen = drawerOpenRaw && mode === 'live';
+  const zoomToggleRef = useRef<HTMLButtonElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  // 開け閉めの後にフォーカスを移す先 (利用者が開けたときは枠の中へ、閉じたときは「Zoom」ボタンへ)
+  const focusAfterToggle = useRef<'drawer' | 'toggle' | null>(null);
+  const openZoom = useCallback(() => { focusAfterToggle.current = 'drawer'; setDrawerOpen(true); saveDrawerOpen(true); }, []);
+  const closeZoom = useCallback(() => { focusAfterToggle.current = 'toggle'; setDrawerOpen(false); saveDrawerOpen(false); }, []);
+  // 自動で開く (Zoom が応答しない・一度も応答していない)。フォーカスは奪わず、選んだ開け閉めとしても残さない
+  const autoOpenZoom = useCallback(() => { setDrawerOpen(true); }, []);
+  useEffect(() => {
+    const target = focusAfterToggle.current;
+    focusAfterToggle.current = null;
+    if (target === 'drawer' && drawerOpen) drawerRef.current?.querySelector<HTMLElement>('.zp-close')?.focus();
+    if (target === 'toggle' && !drawerOpen) zoomToggleRef.current?.focus();
+  }, [drawerOpen]);
+  // 発信したのに Zoom が応答しないときは枠を開く (サインインやアプリの起動が要る)
+  const [seenStalled, setSeenStalled] = useState(false);
+  if (zoom.stalled !== seenStalled) {
+    setSeenStalled(zoom.stalled);
+    if (zoom.stalled) setDrawerOpen(true);
+  }
+  const readiness = zoomReadiness(zoom.embed, zoom.call, zoom.stalled);
   const listRef = useRef<HTMLUListElement | null>(null);
   const scrollSelectedRow = useRef(false);
   // 記録して次へで移った案件 (その入力欄が開いたら結果のボタンへフォーカスする)
@@ -227,12 +274,14 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     ...zoom,
     dial: (raw: string | null | undefined): DialResult => {
       const r = zoom.dial(raw);
+      // 読み込んでから Zoom が一度も何も言ってこない (サインインしていない可能性が高い) まま発信したら、枠を開いて見せる
+      if (r !== 'not_dialable' && !zoom.heard) autoOpenZoom();
       if (r === 'sent' && detailId !== null) {
         setDialedFor({ dealId: detailId, mode, number: toE164Jp(raw), staleCallId: zoom.call.callId, callId: null });
       }
       return r;
     },
-  }), [zoom, detailId, mode]);
+  }), [zoom, detailId, mode, autoOpenZoom]);
 
   useEffect(() => () => { if (keyTimer.current !== null) window.clearTimeout(keyTimer.current); }, []);
 
@@ -338,6 +387,19 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     && dialedFor.callId === zoom.call.callId && isRecorded(dialedFor.dealId);
   // Zoom の通話中にデータを切り替えると枠が外れて通話が切れるので、切り替えさせない
   const inCall = zoom.call.phase === 'ringing' || zoom.call.phase === 'connected';
+  // 「架ける番号」の下に出す通話の様子。呼び出し中・通話中はどの案件でも出す (電話は 1 つ)。
+  // 発信の待ち・失敗と終わった通話は、その案件から発信したものだけ
+  const dialedHere = dialedFor !== null && dialedFor.mode === mode && dialedFor.dealId === selectedId;
+  const waitingDial = dialedHere && dialedFor.callId === null;
+  const callBar = useMemo<CallBarInfo | null>(() => {
+    const c = zoom.call;
+    if (c.phase === 'ringing') return { kind: 'ringing', number: c.number, inbound: c.direction !== null && c.direction !== 'outbound' };
+    if (c.phase === 'connected') return { kind: 'connected', number: c.number, connectedAt: c.connectedAt };
+    if (waitingDial && zoom.stalled) return { kind: 'failed' };
+    if (waitingDial && zoom.pending !== null) return { kind: 'dialing', number: zoom.pending.number };
+    if (endedCall !== null) return { kind: 'ended', talkSeconds: endedCall.talkSeconds, result: endedCall.result };
+    return null;
+  }, [zoom.call, zoom.stalled, zoom.pending, waitingDial, endedCall]);
 
   function changeDraft(d: ResultDraft) {
     if (selKey === null || selectedId === null) return;
@@ -408,6 +470,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         <span className="cq-mode-note">{mode === 'live' ? 'HubSpot への書き込みはしません' : '表示内容はすべて架空です。HubSpot には接続しません。'}</span>
         <span className="cq-mode-note-short">{mode === 'live' ? 'HubSpot 書き込みなし' : '架空・未接続'}</span>
       </div>
+      {mode === 'live' && <button type="button" ref={zoomToggleRef} className={`cq-zoom-toggle is-${readiness}`} aria-expanded={drawerOpen}
+        aria-controls="cq-zoom-drawer" data-testid="zoom-toggle" title={drawerOpen ? 'Zoom の枠を閉じる' : 'Zoom の枠を開く(消音・保留・通話を切る・サインインはこちら)'}
+        onClick={() => { if (drawerOpen) closeZoom(); else openZoom(); }}>
+        Zoom<span className="cq-zoom-dot" aria-hidden="true" /><span className="cq-zoom-state">{ZOOM_READINESS_LABELS[readiness]}</span></button>}
       <span className="cq-mode-switch" role="group" aria-label="データの切り替え">
         <button type="button" aria-pressed={mode === 'live'} onClick={() => { setMode('live'); }}>実データ</button>
         <button type="button" aria-pressed={mode === 'fixture'} disabled={inCall}
@@ -496,7 +562,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
         {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
           : <DealDetail state={detail.state} reload={detail.reload} zoom={zoomForDetail}
-            ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} stopLabel={stopLabel} />}
+            ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} stopLabel={stopLabel}
+            callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} />}
         {/* 架電結果の入力欄 (中央の列の下端に固定)。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない */}
         {selectedId !== null && <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId}>
           {!storeReady ? <p role="status" className="cq-loading">架電結果の入力欄を準備しています…</p> : <CallResultForm key={`${mode}:${selectedId}`} dealId={selectedId} draft={draft} onChange={changeDraft}
@@ -508,9 +575,13 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
             notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />}
         </div>}
       </section>
-      <div className="cq-col cq-phone-col">
-        <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} link={endedCall !== null ? 'selected' : callRecorded ? 'recorded' : 'none'} />
-      </div>
+    </div>
+    {/* Zoom の枠 (右から開く引き出し)。閉じている間も外さず、同じ大きさのまま画面の外へ送る
+        (display:none にしない。iframe を作り直すと通話が切れ、発信の依頼も届かなくなる) */}
+    <div id="cq-zoom-drawer" ref={drawerRef} className={`cq-zoom-drawer${drawerOpen ? ' is-open' : ''}`} data-testid="zoom-drawer"
+      aria-hidden={!drawerOpen} inert={!drawerOpen}
+      onKeyDown={e => { if (e.key === 'Escape' && drawerOpen) { e.preventDefault(); closeZoom(); } }}>
+      <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} link={endedCall !== null ? 'selected' : callRecorded ? 'recorded' : 'none'} onClose={closeZoom} />
     </div>
   </div>;
 }

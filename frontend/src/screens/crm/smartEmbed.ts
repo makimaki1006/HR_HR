@@ -65,11 +65,15 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? 
  * origin が Zoom の Smart Embed で、かつ送信元がこの画面の iframe の window であるものだけ受け取る。
  * 形が違うもの・知らない種類は null (無視)。
  */
+/** origin が Zoom の Smart Embed で、送信元がこの画面の iframe の window か (中身の形は問わない) */
+export function isFromEmbed(ev: { origin: string; source: unknown }, iframeWindow: Window | null): boolean {
+  return ev.origin === ZOOM_EMBED_ORIGIN && iframeWindow !== null && ev.source === iframeWindow;
+}
+
 export function parseZoomMessage(
   ev: { origin: string; source: unknown; data: unknown }, iframeWindow: Window | null,
 ): ZoomEvent | null {
-  if (ev.origin !== ZOOM_EMBED_ORIGIN) return null;
-  if (iframeWindow === null || ev.source !== iframeWindow) return null;
+  if (!isFromEmbed(ev, iframeWindow)) return null;
   if (!isRecord(ev.data)) return null;
   const type = typeof ev.data.type === 'string' ? TYPES[ev.data.type] : undefined;
   if (type === undefined) return null;
