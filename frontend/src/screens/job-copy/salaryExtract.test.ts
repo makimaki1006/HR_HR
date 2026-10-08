@@ -3,18 +3,37 @@ import { extractSalary, isSalaryLine, parseSalaryText, salaryLabel, sameSalary }
 
 describe('salary extraction from the body', () => {
   it('reads monthly ranges and hourly pay from the labelled line', () => {
-    expect(extractSalary('職種：配送\n給与：月給250,000円〜280,000円\n勤務時間：8:00〜17:00')).toEqual({ kind: '月給', min: 250000, max: 280000, raw: '月給250,000円〜280,000円', inferredKind: false });
+    expect(extractSalary('職種：配送\n給与：月給250,000円〜280,000円\n勤務時間：8:00〜17:00')).toEqual({ kind: '月給', min: 250000, max: 280000, raw: '月給250,000円〜280,000円' });
     expect(extractSalary('給与：時給1,100円')).toMatchObject({ kind: '時給', min: 1100, max: 1100 });
   });
   it('reads 万円, full-width digits and a label on its own line', () => {
     expect(extractSalary('【給与】\n月給２５万円～２８.５万円')).toMatchObject({ kind: '月給', min: 250000, max: 285000 });
     expect(extractSalary('時給 1200円')).toMatchObject({ kind: '時給', min: 1200, max: 1200 });
   });
-  it('reads a bare 7-digit amount as annual pay marked as inferred, and anything else as unknown', () => {
-    expect(extractSalary('給与：4000000')).toEqual({ kind: '年収', min: 4000000, max: 4000000, raw: '4000000', inferredKind: true });
-    expect(salaryLabel(extractSalary('給与：4000000'))).toBe('年収400万円（推定表記）');
+  it('never guesses the kind from the amount alone: a bare 7-digit amount is unknown', () => {
+    expect(extractSalary('給与：4000000')).toEqual({ kind: '不明', min: null, max: null, raw: '4000000' });
+    expect(extractSalary('給与：1,000,000円')).toMatchObject({ kind: '不明', min: null, max: null });
+    expect(salaryLabel(extractSalary('給与：1,000,000円'))).toBe('不明');
     expect(extractSalary('給与：経験・能力を考慮して決定')).toMatchObject({ kind: '不明', min: null, max: null });
     expect(salaryLabel(extractSalary('給与：経験・能力を考慮して決定'))).toBe('不明');
+  });
+  it('carries the unit after 〜 back to a bare lower end (月給18〜25万円)', () => {
+    expect(extractSalary('給与：月給18〜25万円')).toMatchObject({ kind: '月給', min: 180000, max: 250000 });
+    expect(salaryLabel(extractSalary('給与：月給18〜25万円'))).toBe('月給18万〜25万円');
+    expect(extractSalary('給与：時給1000〜1200円')).toMatchObject({ kind: '時給', min: 1000, max: 1200 });
+    // A range whose lower end cannot be read is unknown, never only the upper end.
+    expect(extractSalary('給与：月給30〜25万円')).toMatchObject({ kind: '不明', min: null, max: null });
+  });
+  it('reads 万 followed by more digits as one amount (日給1万2000円 = 12,000円)', () => {
+    expect(extractSalary('給与：日給1万2000円')).toMatchObject({ kind: '日給', min: 12000, max: 12000 });
+    expect(salaryLabel(extractSalary('給与：日給1万2000円'))).toBe('日給12,000円');
+    expect(extractSalary('給与：日給1万5000円〜1万8000円')).toMatchObject({ kind: '日給', min: 15000, max: 18000 });
+  });
+  it('takes the kind word right before the first amount and rejects kinds that do not fit the amount', () => {
+    expect(extractSalary('給与：25万円 ※時給換算1,500円')).toMatchObject({ kind: '不明', min: null });
+    expect(extractSalary('給与：日給月給制 25万円')).toMatchObject({ kind: '月給', min: 250000, max: 250000 });
+    expect(extractSalary('給与：時給 25万円')).toMatchObject({ kind: '不明', min: null });
+    expect(extractSalary('給与：月給 1,200円')).toMatchObject({ kind: '不明', min: null });
   });
   it('returns null when the body has no salary line', () => {
     expect(extractSalary('仕事内容：配送\n勤務時間：8:00〜17:00')).toBeNull();

@@ -40,11 +40,12 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   await expect(page.locator('.jc-job').first()).toContainText('応募28件（架空）');
   await expect(page.locator('.jc-job').first()).not.toContainText('応募未取得');
   await expect(timeline.getByRole('group', { name: '課金', exact: true })).toContainText('4万5,000円');
-  await expect(timeline.getByText('2026/09以降は市場データがありません（2026/08まで）')).toBeVisible();
+  // 市場データの最後の月はデータから読む（毎月更新）。それより後の期間は、どの月までデータがあるかを書く。
+  await expect(timeline.getByText('市場データは2026年8月まで（毎月更新）。2026/09以降はデータなしとして表示しています', { exact: true })).toBeVisible();
   const rows = timeline.getByRole('table').locator('tbody tr');
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万円', 'データなし']);
-  await expect(rows.nth(1).locator('td')).toHaveText(['10日', '8件', '0.80件/日', '約2万8,125円', 'データなし']);
+  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万円', 'データなし（市場データは2026/08まで）']);
+  await expect(rows.nth(1).locator('td')).toHaveText(['10日', '8件', '0.80件/日', '約2万8,125円', 'データなし（市場データは2026/08まで）']);
   await page.screenshot({ path: `${shots}/timeline-1280.png`, fullPage: true });
 
   // First view (2026-10-08 layout): one-line top bar, full-height list, timeline lanes on screen.
@@ -67,7 +68,10 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
   await expect(overview.locator('tbody tr').first()).toContainText('0.80件/日');
   await expect(overview.locator('tbody tr').first()).toContainText('8万7,000円');
-  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' })).toContainText('課金データなし');
+  // 実際の課金データが無い求人は、仮の課金データ（ダミー）と書いて金額を出す（実際の金額と足さない）
+  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' }).locator('td.jo-billing')).toHaveText('仮の課金データ（ダミー） 7万2,802円');
+  await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' }).locator('td.jo-billing')).toHaveText('8万7,000円');
+  await expect(page.getByText(/課金合計の仮の課金データ（ダミー）は、実際の課金データがまだ無いため/u)).toBeVisible();
   await expect(overview).not.toContainText('未接続');
   await page.screenshot({ path: `${shots}/overview-1280.png`, fullPage: true });
   // 1100 幅でも 7 列（課金合計まで）が横スクロールなしで収まる
@@ -109,21 +113,23 @@ test('billing CSV import fills the billing lane, the period table and the overvi
   await expect(billingLane.locator('.jt-billing-csv')).toHaveCount(1);
   await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
   const rows = timeline.getByRole('table').locator('tbody tr');
-  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万3,000円', 'データなし']);
+  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万3,000円', 'データなし（市場データは2026/08まで）']);
   await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   await page.locator('.jc-job', { hasText: '倉庫内ピッキングスタッフ' }).click();
-  await expect(billingLane.locator('.jt-billing')).toHaveText(['4万円']);
+  // CSV の 09-05〜09-30 は CSV の金額。CSV に無い 10-01〜10-05 だけ仮の課金データ（ダミー）が残る。
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['4万円', 'ダミー 6,935円']);
+  await expect(billingLane.locator('.jt-billing-dummy')).toHaveCount(1);
   await page.getByRole('button', { name: '横断比較', exact: true }).click();
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
-  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' })).toContainText('4万円');
+  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' }).locator('td.jo-billing')).toHaveText('4万円 ／ 仮の課金データ（ダミー） 6,935円');
   await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' })).toContainText('9万円');
   await page.screenshot({ path: `${shots}/overview-billing-1280.png`, fullPage: true });
   // Reloading drops the browser-only billing rows (the URL keeps the selected demo-job-002, which has no HRハッカー実績).
   await page.reload();
   const reloadedLane = page.getByRole('region', { name: 'タイムライン', exact: true }).getByRole('group', { name: '課金', exact: true });
   await expect(page.locator('.jc-detail h1')).toHaveText('倉庫内ピッキングスタッフ');
-  await expect(reloadedLane.locator('.jt-billing')).toHaveCount(0);
-  await expect(reloadedLane).toContainText('課金データなし（0円という意味ではありません）');
-  await expect(reloadedLane.locator('.jt-billing')).toHaveCount(0);
+  await expect(reloadedLane.locator('.jt-billing-csv')).toHaveCount(0);
+  await expect(reloadedLane.locator('.jt-billing')).toHaveText(['ダミー 6万5,867円', 'ダミー 6,935円']);
+  await expect(reloadedLane).toContainText('仮の課金データ（ダミー）');
   expect(requests).toEqual([]);
 });

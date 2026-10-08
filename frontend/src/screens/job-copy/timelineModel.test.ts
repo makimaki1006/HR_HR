@@ -5,7 +5,7 @@ import type { MarketRow } from './marketChartModel';
 import type { BillingPeriod } from './billingTypes';
 import {
   addDays, applicationBuckets, applicationsOutsidePeriods, billingEntries, billingEntriesByJob, billingOverlaps, buildPeriods, changeKinds, countApplications, daysBetween,
-  formatMonth, formatPerDay, formatYen, jstDate, marketChange, marketLane, nextMonth, periodRows, positionOf, publishedVersions, timelineRange, versionChanges,
+  formatMonth, formatPerDay, formatYen, jstDate, lastMarketMonth, marketChange, marketDataUntil, marketLane, nextMonth, periodRows, positionOf, publishedVersions, timelineRange, versionChanges,
 } from './timelineModel';
 
 const demo = jobs.find(job => job.id === 'demo-job-001');
@@ -120,9 +120,31 @@ describe('market lane', () => {
     expect(marketChange(rows, '2026-07-20', '2026-08-10')).toMatchObject({ value: { noDataFrom: null } });
     // Runs into September (no data): the comparison stops at August and says September has none.
     expect(marketChange(rows, '2026-08-20', '2026-09-10')).toEqual({ ok: false, reason: 'same_month', month: '2026-08', jobs: 110, noDataFrom: '2026-09' });
-    expect(marketChange(rows, '2026-09-01', '2026-09-10')).toMatchObject({ ok: false, reason: 'no_data' });
+    // The whole period is after the last month with data: say up to which month there is data.
+    expect(marketChange(rows, '2026-09-01', '2026-09-10')).toEqual({ ok: false, reason: 'after_data', noDataFrom: '2026-09', lastDataMonth: '2026-08' });
+    expect(marketChange(rows, '2026-09-05', '2026-10-08')).toEqual({ ok: false, reason: 'after_data', noDataFrom: '2026-09', lastDataMonth: '2026-08' });
     expect(marketChange(rows, '2026-08-01', '2026-08-10')).toEqual({ ok: false, reason: 'same_month', month: '2026-08', jobs: 110, noDataFrom: null });
     expect(marketChange(null, '2026-08-01', '2026-08-10')).toEqual({ ok: false, reason: 'not_selected' });
+  });
+});
+
+describe('the last market month comes from the data, not from the code', () => {
+  it('moves forward when the monthly refresh adds 2026-09 and 2026-10', () => {
+    const later = [row('2026-07', 100), row('2026-08', 110), row('2026-09', 121), row('2026-10', 133)];
+    expect(lastMarketMonth(later)).toBe('2026-10');
+    expect(marketDataUntil(lastMarketMonth(later) ?? '')).toBe('市場データは2026年10月まで（毎月更新）');
+    const lane = marketLane(later, { start: '2026-07-15', end: '2026-10-05' });
+    expect(lane.lastDataMonth).toBe('2026-10');
+    expect(lane.noDataFrom).toBeNull();
+    expect(lane.points.map(point => point.jobs)).toEqual([100, 110, 121, 133]);
+    // A period in September is compared with real September data (not shown as no-data).
+    expect(marketChange(later, '2026-08-20', '2026-09-30')).toEqual({ ok: true, value: { fromMonth: '2026-08', toMonth: '2026-09', fromJobs: 110, toJobs: 121, changePct: 10, noDataFrom: null } });
+    expect(marketChange(later, '2026-11-01', '2026-11-10')).toEqual({ ok: false, reason: 'after_data', noDataFrom: '2026-11', lastDataMonth: '2026-10' });
+  });
+  it('writes the month without a leading zero and ignores months with no value', () => {
+    expect(marketDataUntil('2026-08')).toBe('市場データは2026年8月まで（毎月更新）');
+    expect(lastMarketMonth([row('2026-07', 100), { month: '2026-08', jobs: null, viewers: null, employers: null, viewersPerJob: null }])).toBe('2026-07');
+    expect(lastMarketMonth([])).toBeNull();
   });
 });
 

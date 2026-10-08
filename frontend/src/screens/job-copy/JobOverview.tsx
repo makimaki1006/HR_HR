@@ -5,6 +5,7 @@ import { InfoTip } from './InfoTip';
 import type { OverviewRow, OverviewSort } from './overviewModel';
 import { daysBetween, formatDay, formatPerDay, formatYen } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
+import { DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE } from './dummyBilling';
 import './timeline.css';
 
 const sortLabels: Record<OverviewSort, string> = {
@@ -28,6 +29,14 @@ function MiniCalendar({ row, range }: { row: OverviewRow; range: { start: string
     })}
     {row.changeDates.map(date => <line key={date} x1={x(date)} x2={x(date)} y1="0" y2="33" stroke="#b54708" strokeWidth="1.5" strokeDasharray="3 2"><title>{`変更 ${formatDay(date)}`}</title></line>)}
   </svg>;
+}
+
+/** Real total and the dummy total side by side; the dummy is always labelled and never added in. */
+export function overviewBillingText(row: OverviewRow): string {
+  const real = !row.billingConnected ? null : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`;
+  const dummy = row.dummyBillingYen === null ? null : `${DUMMY_BILLING_LABEL} ${formatYen(row.dummyBillingYen)}`;
+  if (real && dummy) return `${real} ／ ${dummy}`;
+  return real ?? dummy ?? '課金データなし';
 }
 
 function rateText(rate: OverviewRow['before']) {
@@ -70,10 +79,11 @@ export function JobOverview({ records, billing, onChoose, now }: JobOverviewProp
           <td className="jo-kinds">{row.kinds.length ? row.kinds.map(kind => <span key={kind}>{kind}</span>) : row.lastChange ? '判定できない変更' : '—'}</td>
           <td>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
           <td>{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
-          <td className="jo-billing">{!row.billingConnected ? '課金データなし' : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`}</td>
+          <td className="jo-billing">{overviewBillingText(row)}</td>
         </tr>;
       })}</tbody>
     </table></div>}
+    {sorted.some(row => row.dummyBillingYen !== null) && <p className="jt-dummy-billing" role="note">課金合計の{DUMMY_BILLING_NOTE}</p>}
     {sorted.some(row => [row.before, row.after].some(rate => rate ? rate.days < OVERVIEW_WINDOW_DAYS : false)) && <p className="jc-muted jo-short-note">
       変更前・変更後が{OVERVIEW_WINDOW_DAYS}日に満たない求人は、ある日数分だけで1日あたりを数えています（各欄の「件 / 日」の日数）。変更後は応募を取得した日までです。</p>}
   </main>;

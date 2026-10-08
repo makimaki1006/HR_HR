@@ -18,6 +18,10 @@ pub(super) struct MarketQuery {
     prefecture: Option<String>,
 }
 
+/// Shown on the screen as is (the 集計の前提 note and the timeline tooltip), so it is plain
+/// Japanese with no column names or internal wording.
+const VIEWER_METRIC_BASIS: &str = "Indeed閲覧者指標は、Indeed上で求人を見た人の動きをもとにした数で、労働市場全体の数ではありません。応募者数やHRハッカーのクリック数でもありません。細かい数え方はIndeed側の定義によります。";
+
 fn unavailable() -> ReadError {
     ReadError(StatusCode::SERVICE_UNAVAILABLE, "market_data_unavailable")
 }
@@ -66,7 +70,7 @@ pub(super) async fn read(
         Json(json!({
             "source":"Indeed 採用市場レポート（求人企業向け）", "titles":titles,
             "prefectures":prefectures, "series":series, "scope":"internal",
-            "ctk_basis":"Indeed上の行動データで労働市場全体ではありません。既存市場レポートのctk_countで、応募者数やHRハッカーのクリック数ではありません。上流の計測定義は別途確認が必要です。"
+            "ctk_basis":VIEWER_METRIC_BASIS
         })),
     ))
 }
@@ -96,5 +100,13 @@ mod tests {
         assert_eq!(value["ctk_count"][1], 0.0);
         assert!(value["job_count"][1].is_null());
         assert!(value.get("applications").is_none());
+    }
+
+    #[test]
+    fn viewer_metric_basis_is_plain_japanese() {
+        assert!(VIEWER_METRIC_BASIS.starts_with("Indeed閲覧者指標は、"));
+        for jargon in ["ctk", "上流", "計測定義", "既存市場レポート", "_count"] {
+            assert!(!VIEWER_METRIC_BASIS.contains(jargon), "{jargon}");
+        }
     }
 }

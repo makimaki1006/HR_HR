@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { apiGet } from '../../api/client';
 import { EChart } from '../../components/EChart';
 import type { JobCopyRecord } from './data';
-import { demoMarketData } from './data';
 import { marketRows, trendOption, type MarketData } from './marketChartModel';
+import { useMarketFetch } from './marketSource';
+import { lastMarketMonth, marketDataUntil } from './timelineModel';
 import { AssumptionsNote } from './AssumptionsNote';
 import { InfoTip } from './InfoTip';
 import { formatDateJst, joinPresent, plainWording } from './format';
@@ -20,29 +20,30 @@ function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'c
   const [error, setError] = useState(''); const [loading, setLoading] = useState(true);
   const [range, setRange] = useState('all');
   const [retry, setRetry] = useState(0);
+  // Shared with the timeline's 市場 lane (one cache per screen), so opening this tab after the
+  // timeline does not fetch the same list or months again. A failed request is not cached.
+  const fetchMarket = useMarketFetch(mode);
   useEffect(() => {
-    const controller = new AbortController();
-    const params = title && prefecture ? `?${new URLSearchParams({ title, prefecture }).toString()}` : '';
-    const request = mode === 'demo'
-      ? Promise.resolve({ ok: true as const, data: demoMarketData(title, prefecture) })
-      : apiGet<MarketData>(`/api/job-copy/market${params}`, { signal: controller.signal });
-    void request.then(result => {
-      if (controller.signal.aborted) return;
+    let cancelled = false;
+    const failed = () => { if (!cancelled) { setError('市場データを取得できませんでした。接続・権限を確認してください。'); setLoading(false); } };
+    void fetchMarket(title, prefecture).then(result => {
+      if (cancelled) return;
       if (result.ok) { setData(result.data); setError(''); }
       else { setError('市場データを取得できませんでした。接続・権限を確認してください。'); }
       setLoading(false);
-    });
-    return () => { controller.abort(); };
-  }, [title, prefecture, retry, mode]);
+    }, failed);
+    return () => { cancelled = true; };
+  }, [title, prefecture, retry, fetchMarket]);
   const rows = useMemo(() => data?.series ? marketRows(data.series) : [], [data]);
   const shown = range === '12' ? rows.slice(-12) : rows;
+  const lastMonth = lastMarketMonth(rows);
   const charts = [
     { key: 'jobs' as const, label: '市場求人数', unit: '件' },
     { key: 'viewers' as const, label: 'Indeed閲覧者指標', unit: '指標値' },
     { key: 'employers' as const, label: '募集企業数', unit: '社' },
     { key: 'viewersPerJob' as const, label: '1求人当たり閲覧者指標', unit: '指標値/求人' },
   ];
-  return <section className="jc-analysis jc-internal-market" aria-label="市場環境と応募獲得の要因">
+  return <section className="jc-analysis jc-internal-market" aria-label="市場環境">
     <h2>{view === 'table' ? '市場データの数値表' : '職種・地域の市場グラフ'}</h2><p>{job.title} · {job.location}</p>
     <AssumptionsNote className="jc-notice" includeHubSpot={false} summary="市場の数字はIndeedの集計です。閲覧者指標は求職者の人数や、この求人の応募数ではありません。" items={[
       data?.ctk_basis && plainWording(data.ctk_basis),
@@ -56,6 +57,7 @@ function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'c
       {shown.length > 0 ? <>
         <div className="jc-analysis-controls"><label>市場グラフの表示期間<select value={range} onChange={event => { setRange(event.target.value); }}><option value="all">取得済みの全期間</option><option value="12">取得済みの最新12か月</option></select></label></div>
         <p>市場の対象：{joinPresent([title, data.series?.prefecture], ' / ')} · {formatDateJst(shown[0]?.month)}〜{formatDateJst(shown.at(-1)?.month)}</p>
+        {lastMonth && <p className="jc-market-until">{marketDataUntil(lastMonth)}</p>}
         {view === 'charts' && <div className="jc-market-charts">{charts.map(chart => <section key={chart.key} aria-label={`${chart.label}の月次グラフ`}><h4>{chart.label}</h4>
           {shown.some(row => row[chart.key] !== null) ? <EChart option={{ ...trendOption(shown.map(row => formatDateJst(row.month)), shown.map(row => row[chart.key]), chart.label, chart.unit), dataZoom: [], grid: { top: 36, left: 14, right: 18, bottom: 30, containLabel: true } }} testId={`jc-market-${chart.key}`} renderer="svg" height={280} /> : <p>この指標は未取得です。</p>}
         </section>)}</div>}

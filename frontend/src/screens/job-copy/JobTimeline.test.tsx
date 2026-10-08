@@ -11,6 +11,9 @@ import { JobOverview } from './JobOverview';
 const charts = vi.hoisted(() => ({ props: [] as EChartProps[] }));
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', () => ({ apiGet: api }));
+// These tests check the screen without the dummy billing (the state once real billing is
+// connected and DUMMY_BILLING_ENABLED is set to false). timelineRound4.test.tsx covers the dummy.
+vi.mock('./dummyBilling', async (original) => ({ ...await original<typeof import('./dummyBilling')>(), DUMMY_BILLING_ENABLED: false }));
 vi.mock('../../components/EChart', () => ({ EChart: (props: EChartProps) => { charts.props.push(props); return <div data-testid={props.testId}>グラフ</div>; } }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); charts.props = []; });
 
@@ -68,11 +71,11 @@ describe('job timeline lanes', () => {
     const jobsSeries = series.find(item => item.name === '市場求人数');
     expect(jobsSeries?.data.map(point => point[1])).toEqual([110, null, null]);
     expect(series.find(item => item.name === 'Indeed閲覧者指標')?.data.map(point => point[1])).toEqual([320, null, null]);
-    expect(screen.getByText('2026/09以降は市場データがありません（2026/08まで）')).toBeTruthy();
+    expect(screen.getByText('市場データは2026年8月まで（毎月更新）。2026/09以降はデータなしとして表示しています')).toBeTruthy();
     expect(screen.getByLabelText<HTMLSelectElement>('職種').value).toBe('ドライバー');
     expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('大分県');
-    // The first period is all in 2026-09, after the data ends.
-    expect(within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし');
+    // The first period is all in 2026-09, after the data ends: say up to which month there is data.
+    expect(within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし（市場データは2026/08まで）');
   });
 
   it('keeps the months with data when a period runs past 2026-08 and shows months as YYYY/MM', async () => {

@@ -197,6 +197,8 @@ const plainReplacements: [RegExp, string][] = [
   [/観測日時/g, '取得日時'],
   [/観測日/g, '取得日'],
   [/観測対応/g, '取得日との突き合わせ'],
+  [/上流の計測定義は別途確認が必要です。?/g, '細かい数え方はIndeed側の定義によります。'],
+  [/既存市場レポートの/g, ''],
   [/観測/g, '取得'],
   [/複合集計|複合条件/g, '組み合わせ条件'],
   [/実データMOC/g, '実データ'],
@@ -213,10 +215,10 @@ export function plainWording(text: string | null | undefined): string {
 }
 
 /** 画面に出してはいけない開発用の言葉。テストで画面文言を検査するときに使う。 */
-export const JARGON_PATTERN = /観測|版対応|媒体取得版|媒体CSV取得版|受信版|確定対応|推定対応|ctk|MOC|複合集計|snapshot|スナップショット|fixture|schemaVersion|JSON|\d+\s?ms\b/i;
+export const JARGON_PATTERN = /観測|版対応|媒体取得版|媒体CSV取得版|受信版|確定対応|推定対応|ctk|MOC|複合集計|snapshot|スナップショット|fixture|schemaVersion|JSON|上流|計測定義|既存市場レポート|\d+\s?ms\b/i;
 
 /** 因果を言い切る言葉。テストで画面文言を検査するときに使う。 */
-export const CAUSAL_PATTERN = /効果|確実に|必ず|100%/;
+export const CAUSAL_PATTERN = /効果|確実に|必ず|100%|応募獲得の要因(?!・仮説)/;
 
 /** 「ⓘ 集計の前提」に必ず入れる 2 つの注意書き。 */
 export const HUBSPOT_ONLY_NOTE = '応募はHubSpotに記録されたものだけを数えています。媒体上のすべての応募ではありません。';

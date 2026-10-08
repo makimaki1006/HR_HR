@@ -71,7 +71,7 @@ test('market selection keeps period and source separate from applications and hi
   await selectJobFeature(page, 'market');
   await page.getByLabel('比較する市場職種').selectOption('合成職種');
   await page.getByLabel('比較する都道府県').selectOption('大分県');
-  const market = page.getByRole('region', { name: '市場環境と応募獲得の要因' });
+  const market = page.getByRole('region', { name: '市場環境', exact: true });
   await expect(page.getByTestId('jc-market-jobs')).toHaveAttribute('data-chart-ready', 'true');
   expect(await page.getByTestId('jc-market-jobs').evaluate(el => {
     const option = window.__echarts_getInstanceByDom?.(el)?.getOption() as { series: { data: number[] }[] };

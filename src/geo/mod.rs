@@ -1,3 +1,4 @@
+pub mod applicant_area;
 pub mod choropleth;
 pub mod city_code;
 

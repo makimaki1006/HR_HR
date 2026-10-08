@@ -6,6 +6,7 @@ import type { JointDemographics } from './reverseSearchModel';
 /**
  * 応募者の住所は「都道府県 + 市区町村」までに丸めて表示する。
  * 番地・建物名・部屋番号などの元の文字列は、どの経路でも画面に出さない。
+ * サーバー（src/geo/applicant_area.rs）も JSON を返す前に同じ規則で丸める。ここでも丸め直す（念のため）。
  * 市区町村はマスタ（src/geo/master_city.csv）にある名前だけを採用し、
  * 読み取れないときは推測せず「（市区町村不明）」にする。
  */
@@ -18,7 +19,14 @@ const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/gu, ''
 
 interface PrefectureEntry { name: string; short: string; cities: { key: string; name: string }[] }
 
-const PREFECTURES: PrefectureEntry[] = AREA_MASTER.map(([name, joined]) => {
+// Built on the first call, not when the module loads: opening the timeline or the demo does not
+// pay for normalizing every municipality name.
+let prefectureCache: PrefectureEntry[] | null = null;
+function prefectures(): PrefectureEntry[] {
+  prefectureCache ??= buildPrefectures();
+  return prefectureCache;
+}
+const buildPrefectures = (): PrefectureEntry[] => AREA_MASTER.map(([name, joined]) => {
   const aliases = new Map<string, string>();
   for (const city of joined.split('|')) {
     aliases.set(normalize(city), city);
@@ -33,13 +41,14 @@ const PREFECTURES: PrefectureEntry[] = AREA_MASTER.map(([name, joined]) => {
   return { name, short: name === '北海道' ? name : name.slice(0, -1), cities };
 });
 
-export const PREFECTURE_NAMES: readonly string[] = PREFECTURES.map(entry => entry.name);
+/** Prefecture names in code order (1–47). */
+export const PREFECTURE_NAMES: readonly string[] = AREA_MASTER.map(([name]) => name);
 
 function splitPrefecture(text: string): { prefecture: PrefectureEntry; rest: string } | null {
-  for (const prefecture of PREFECTURES) {
+  for (const prefecture of prefectures()) {
     if (text.startsWith(prefecture.name)) return { prefecture, rest: text.slice(prefecture.name.length) };
   }
-  const exact = PREFECTURES.find(prefecture => prefecture.short === text);
+  const exact = prefectures().find(prefecture => prefecture.short === text);
   return exact ? { prefecture: exact, rest: '' } : null;
 }
 
@@ -62,7 +71,7 @@ export function parseApplicantArea(prefectureText: string | null | undefined, mu
   if (found) return { prefecture: found.name, municipality: matchCity(found, rest) };
   // 都道府県が分からないときは、市区町村名が一つの都道府県にしか無い場合だけ採用する
   let best: { prefecture: string; city: string; length: number }[] = [];
-  for (const prefecture of PREFECTURES) {
+  for (const prefecture of prefectures()) {
     const city = prefecture.cities.find(item => rest.startsWith(item.key));
     if (!city) continue;
     if (!best[0] || city.key.length > best[0].length) best = [{ prefecture: prefecture.name, city: city.name, length: city.key.length }];
