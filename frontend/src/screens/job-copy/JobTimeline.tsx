@@ -10,6 +10,7 @@ import { chooseMarket } from './marketMatch';
 import { salaryLabel } from './salaryExtract';
 import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
+import { publicationLane, publicationNotes } from './mediaPublication';
 import {
   addDays, applicationBuckets, bodyMark, asOfDate, billingConflict, billingEntries, boundaryStatus, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
   formatMonthJa, marketDataUntil, marketLane, MIN_RATE_DAYS, periodRows, positionOf, timelineRange, uncertainSpans, versionChanges, applicationsOutsidePeriods,
@@ -287,6 +288,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const laneRows = market.state.rows ?? (market.state.status === 'loading' ? market.state.staleRows : null);
   const lane = useMemo(() => range && laneRows ? marketLane(laneRows, range) : null, [range, laneRows]);
   const captured = periods.some(period => period.basis === 'captured');
+  const publication = useMemo(() => range && job.mediaPublication ? publicationLane(job.mediaPublication, range) : null, [range, job.mediaPublication]);
 
   const applicationOption = useMemo<EChartsCoreOption | null>(() => {
     if (!range || !buckets.length) return null;
@@ -369,12 +371,19 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         <p>同じ時期に起きたことを並べて表示しています。応募が増えた・減った理由を示すものではありません。</p>
         <p>応募件数は HubSpot に記録された応募日で数えています。媒体上のすべての応募ではなく、どの版を見て応募したかは分かりません。</p>
         <p>掲載が変わった日は分かりません。期間比較表は求人データを取得した日で区切り、前後の取得で内容が違うときは「取得日A〜取得日Bの間に変化」として、その間の応募を前後どちらの期間にも入れていません。取得した日も、取得した時刻の前後で変わった可能性があるため、この間に含めます。最後に取得した日より後は「未取得」です。</p>
+        {job.mediaPublication && <p>「媒体の公開状況」は HRハッカーの求人一覧の最新の状態で、求人全体の公開期間です。「掲載期間」はどの内容（版）がいつ載っていたかを、求人データを取得した日で示します。{publicationNotes(job.mediaPublication).join('')}</p>}
         <p>期間の長さが違うので「1日あたり」で並べて確認してください。{MIN_RATE_DAYS}日に満たない期間は1日あたりを出さず、比べません（求人の横断比較と同じ扱い）。</p>
       </InfoTip></div>
     </header>
 
     <div className="jt-lanes">
       <div className="jt-axis" aria-hidden="true"><div className="jt-lane-head" /><div className="jt-track">{ticks.map(tick => <span key={tick.date} style={{ left: `${positionOf(tick.date, range).toFixed(3)}%` }}>{tick.label}</span>)}</div></div>
+
+      {publication && <Lane title="媒体の公開状況" source="HRハッカーの求人一覧（最新の状態のみ）">
+        {publication.bar
+          ? <div className={`jt-pub jt-pub-${publication.bar.status}`} style={span(range, publication.bar.start, publication.bar.endExclusive)} title={publication.title}><span>{publication.label}</span></div>
+          : <p className="jt-empty" title={publication.title}>{publication.label}</p>}
+      </Lane>}
 
       <Lane title="掲載期間" source={captured ? '求人データを取得した日（掲載日は不明）' : '媒体の掲載日時'}>
         {periods.map(period => <button type="button" key={period.versionId} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
@@ -501,7 +510,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
     </div>}
     <div className="jt-legend" role="group" aria-label="凡例">{captured
       ? <><span className="jt-legend-title">掲載日は不明（取得日で表示）：</span><span><i className="jt-key jt-basis-captured" />取得した日の内容</span><span><i className="jt-key jt-key-zone" />取得日の間（どちらの内容か分からない）</span><span><i className="jt-key jt-key-unacquired" />最後の取得より後（未取得）</span></>
-      : <><span className="jt-legend-title">掲載日：</span><span><i className="jt-key jt-cert-confirmed" />媒体の掲載日時</span></>}</div>
+      : <><span className="jt-legend-title">掲載日：</span><span><i className="jt-key jt-cert-confirmed" />媒体の掲載日時</span></>}
+      {publication?.bar && <><span className="jt-legend-title">媒体の公開状況：</span><span><i className="jt-key jt-pub-public" />公開開始〜最後に公開を確認した日（途中で止めたかは不明）</span>{publication.bar.status === 'private' && <span><i className="jt-key jt-pub-private" />公開開始〜非公開を確認した日</span>}</>}</div>
 
     <section className="jt-periods" aria-label="期間比較表">
       <h3>期間比較表</h3>

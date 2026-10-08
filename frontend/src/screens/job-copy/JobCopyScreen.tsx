@@ -24,6 +24,7 @@ import { ConsultantReview } from './ConsultantReview';
 import { HubSpotReadPanel } from './HubSpotReadPanel';
 import { HUBSPOT_BODY_SOURCE } from './liveApplications';
 import { JobTimeline } from './JobTimeline';
+import { parseListingStatus, withPublicationFor } from './mediaPublication';
 import { JobOverview } from './JobOverview';
 import { MarketCacheContext } from './marketSource';
 import type { MarketCache } from './marketSource';
@@ -284,6 +285,12 @@ export function JobCopyScreen() {
           const items = parseRealMoc(JSON.stringify(result.data));
           setRecords(items); setSelectedId(items.find(job => job.id === initialId)?.id ?? items[0]?.id ?? '');
           setSnapshotAt(result.data.capturedAt); setLive(true);
+          // 媒体の公開状況 is read separately: a failure only marks those jobs, the list stays.
+          void apiGet<unknown>('/api/job-copy/listing-status', { signal: controller.signal, timeoutMs: 30_000 }).then(status => {
+            if (controller.signal.aborted) return;
+            const listings = status.ok ? parseListingStatus(status.data) : null;
+            setRecords(current => withPublicationFor(current, items, listings));
+          }).catch(() => { if (!controller.signal.aborted) setRecords(current => withPublicationFor(current, items, null)); });
         } catch {
           setSnapshotError({ message: '実データの形式・求人と応募の対応を確認できませんでした。架空データへ置き換えず、読み込みを停止しています。管理者にデータの内容を確認してもらってください。' });
         }
