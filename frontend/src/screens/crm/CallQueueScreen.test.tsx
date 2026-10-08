@@ -344,7 +344,9 @@ describe('calling cockpit layout', () => {
     expect(slot?.childElementCount).toBe(1);
     expect(slot?.firstElementChild?.getAttribute('aria-label')).toBe('架電結果の入力');
     expect(slot?.firstElementChild?.getAttribute('data-deal-id')).toBe('2');
-    const center = container.querySelector('.cq-detail');
+    // 中央の列の「案件」タブの中身の下端 (タブを切り替えても外さない)
+    const center = container.querySelector('#cq-cpanel-deal');
+    expect(center?.closest('.cq-detail')).not.toBeNull();
     expect(slot?.parentElement).toBe(center);
     expect(center?.lastElementChild).toBe(slot);
   });

@@ -557,7 +557,24 @@ fn act_ids(v: &Value) -> Vec<String> {
 
 /// 標準の関連つき案件: 担当者 2 人 (7002 が主)、会社 1 社、通話・メモ・メール・ミーティング
 fn full(f: &mut FakeHs, owner: &str) {
-    f.deal(DEAL, owner, UNPROCESSED, &[("bpo_13", "2026-10-01")]);
+    f.deal(
+        DEAL,
+        owner,
+        UNPROCESSED,
+        &[
+            ("bpo_13", "2026-10-01"),
+            (
+                "bpo_32",
+                "https://www.google.com/search?q=03-1111-0002+%E6%B1%82%E4%BA%BA",
+            ),
+            ("website_url", "https://example.invalid/"),
+            (
+                "recruit_media_observed_urls",
+                "https://media.example.invalid/job/1\nhttps://media.example.invalid/job/2",
+            ),
+            ("risuto_jigyousyokibo", "https://example.invalid/jobs/1"),
+        ],
+    );
     f.put(
         "contacts",
         "7001",
@@ -592,6 +609,7 @@ fn full(f: &mut FakeHs, owner: &str) {
             ("address", "架空1-1"),
             ("industry", "介護"),
             ("domain", "example.invalid"),
+            ("website", "https://www.example.invalid/"),
         ],
     );
     f.v4(
@@ -740,6 +758,17 @@ async fn 管理者は案件_担当者_会社_活動を読み_呼び出しは固�
     assert_eq!(d["amount"], "120000");
     assert_eq!(d["next_call_date"], "2026-10-01");
     assert_eq!(d["last_call_date"], Value::Null);
+    // 中央の列でリンクとして開く項目 (案件本体の読み取りに足しただけ。値は HubSpot のまま)
+    assert_eq!(
+        d["job_search_url"],
+        "https://www.google.com/search?q=03-1111-0002+%E6%B1%82%E4%BA%BA"
+    );
+    assert_eq!(d["homepage_url"], "https://example.invalid/");
+    assert_eq!(
+        d["media_job_urls"],
+        "https://media.example.invalid/job/1\nhttps://media.example.invalid/job/2"
+    );
+    assert_eq!(d["job_posting_url"], "https://example.invalid/jobs/1");
     assert_eq!(
         d["deep_link"],
         "https://app.hubspot.com/contacts/23708633/record/0-3/5001/"
@@ -771,6 +800,7 @@ async fn 管理者は案件_担当者_会社_活動を読み_呼び出しは固�
     assert_eq!(co["address"], "100-0001 東京都 千代田区 架空1-1");
     assert_eq!(co["industry"], "介護");
     assert_eq!(co["domain"], "example.invalid");
+    assert_eq!(co["website"], "https://www.example.invalid/");
     assert_eq!(
         co["deep_link"],
         "https://app.hubspot.com/contacts/23708633/record/0-2/8001/"
