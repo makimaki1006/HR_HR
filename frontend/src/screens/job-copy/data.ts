@@ -5,6 +5,7 @@ import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import type { JointDemographics } from './reverseSearchModel';
 import { demoApplicantReasons } from './demoReasons';
 import type { MarketData } from './marketChartModel';
+import type { MediaPublicationState } from './mediaPublication';
 /** Fictional MOC fixtures. No HubSpot IDs, real employers, or applicant data. */
 export interface CopyVersion {
   id: string;
@@ -55,6 +56,8 @@ export interface JobCopyRecord {
    */
   accountId?: string;
   location: string;
+  /** HRハッカー jobs read from HubSpot: the latest 媒体の公開状況. Absent for other jobs. */
+  mediaPublication?: MediaPublicationState | undefined;
   versions: CopyVersion[];
 }
 
