@@ -61,7 +61,7 @@ const LABEL_GRACE: Duration = Duration::from_millis(300);
 
 /// Reads `{results:[{name, options:[{value,label}]}]}` (HubSpot property batch read). Only the
 /// category selects are kept; None when the reply holds none of them.
-fn option_labels(data: &Value) -> Option<applicant_reasons::OptionLabels> {
+pub fn option_labels(data: &Value) -> Option<applicant_reasons::OptionLabels> {
     let mut labels = applicant_reasons::OptionLabels::new();
     for property in data["results"].as_array()? {
         let Some(name) = property["name"]
@@ -122,10 +122,60 @@ struct Next {
 /// The option labels of the reason category selects, kept per service (one HubSpot base).
 #[derive(Default)]
 struct LabelCache {
-    /// When the last definition read finished, and what it gave (None: it failed).
-    read: Option<(Instant, Option<applicant_reasons::OptionLabels>)>,
+    /// The labels of the last definition read that worked. A later failed read never drops them:
+    /// stale labels are better than none (without them a chosen category can not be named).
+    labels: Option<applicant_reasons::OptionLabels>,
+    /// When the last definition read finished, and whether it failed.
+    checked: Option<(Instant, bool)>,
     /// A definition read is running (started at this time); no second one is started meanwhile.
     running_since: Option<Instant>,
+}
+
+/// What reason_option_labels() does with the cache.
+#[derive(Debug, PartialEq)]
+enum LabelPlan {
+    /// Use these labels; no definition read is started.
+    Use(Option<applicant_reasons::OptionLabels>),
+    /// Start a definition read. With kept labels, the response uses them at once and the read
+    /// only refreshes them for later requests; without, the response waits up to LABEL_GRACE.
+    Read(Option<applicant_reasons::OptionLabels>),
+}
+
+impl LabelCache {
+    fn plan(&mut self, now: Instant) -> LabelPlan {
+        if let Some((at, failed)) = self.checked {
+            let ttl = if failed {
+                OPTION_LABELS_RETRY
+            } else {
+                OPTION_LABELS_TTL
+            };
+            if now.saturating_duration_since(at) < ttl {
+                return LabelPlan::Use(self.labels.clone());
+            }
+        }
+        if self
+            .running_since
+            .is_some_and(|since| now.saturating_duration_since(since) < Duration::from_secs(60))
+        {
+            // Another request started the read; use the last labels kept, if any.
+            return LabelPlan::Use(self.labels.clone());
+        }
+        self.running_since = Some(now);
+        LabelPlan::Read(self.labels.clone())
+    }
+    /// Records a finished definition read and returns the labels to use now.
+    fn finish(
+        &mut self,
+        now: Instant,
+        read: Option<applicant_reasons::OptionLabels>,
+    ) -> Option<applicant_reasons::OptionLabels> {
+        self.checked = Some((now, read.is_none()));
+        self.running_since = None;
+        if read.is_some() {
+            self.labels = read;
+        }
+        self.labels.clone()
+    }
 }
 
 enum PendingLabels {
@@ -548,36 +598,21 @@ impl JobReadService {
     /// Option labels (internal value -> label) of the reason category selects, from the
     /// property definitions. Returns the kept labels while they are fresh (OPTION_LABELS_TTL, or
     /// OPTION_LABELS_RETRY after a failed read). Otherwise it starts one definition read in the
-    /// background (never two at once) and returns its handle; the application read does not wait
-    /// for it beyond LABEL_GRACE (see applicants()). A failed read is not fatal: the screen then
-    /// cannot name the chosen category and says so.
+    /// background (never two at once). With labels kept from an earlier read, those are used at
+    /// once and the read only refreshes them; a failed refresh keeps them. With none kept, the
+    /// application read waits for it at most LABEL_GRACE (see applicants()). A failed read is not
+    /// fatal: the screen then cannot name the chosen category and says so.
     fn reason_option_labels(&self) -> PendingLabels {
         let Ok(mut cache) = self.labels.lock() else {
             return PendingLabels::Ready(None);
         };
-        if let Some((at, labels)) = &cache.read {
-            let ttl = if labels.is_some() {
-                OPTION_LABELS_TTL
-            } else {
-                OPTION_LABELS_RETRY
-            };
-            if at.elapsed() < ttl {
-                return PendingLabels::Ready(labels.clone());
-            }
-        }
-        if cache
-            .running_since
-            .is_some_and(|since| since.elapsed() < Duration::from_secs(60))
-        {
-            // Another request started the read; use the last labels kept, if any.
-            return PendingLabels::Ready(
-                cache.read.as_ref().and_then(|(_, labels)| labels.clone()),
-            );
-        }
-        cache.running_since = Some(Instant::now());
+        let kept = match cache.plan(Instant::now()) {
+            LabelPlan::Use(labels) => return PendingLabels::Ready(labels),
+            LabelPlan::Read(kept) => kept,
+        };
         drop(cache);
         let service = self.clone();
-        PendingLabels::Reading(tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let read = service
                 .request(
                     "/crm/v3/properties/0-421/batch/read",
@@ -587,12 +622,17 @@ impl JobReadService {
                 .await
                 .ok()
                 .and_then(|data| option_labels(&data));
-            if let Ok(mut cache) = service.labels.lock() {
-                cache.read = Some((Instant::now(), read.clone()));
-                cache.running_since = None;
+            match service.labels.lock() {
+                Ok(mut cache) => cache.finish(Instant::now(), read),
+                Err(_) => read,
             }
-            read
-        }))
+        });
+        if kept.is_some() {
+            // The refresh runs on by itself; this response uses the kept labels.
+            PendingLabels::Ready(kept)
+        } else {
+            PendingLabels::Reading(handle)
+        }
     }
     pub async fn applicants(&self, company: &str, listing: &str) -> Result<Value, ReadError> {
         self.validate_customer_listing(company, listing).await?;
@@ -635,6 +675,7 @@ impl JobReadService {
             &rows,
             chrono::Utc::now().to_rfc3339(),
             labels.as_ref(),
+            applicant_reasons::OptionLabelsStatus::Unavailable,
         );
         let mut response = json!({"listing_id":listing,"metric":"HubSpot応募レコード数","summary":null,"version_attribution":"日次観測との対応は別途必要。現在の関連による集計。","attribute_basis":"現在取得できる属性","billing":null,"capture_bundle":null,"dated_comparison":null,"capture_status":"not_configured_or_not_matched"});
         response["applicant_reasons"] =
@@ -2535,6 +2576,66 @@ mod tests {
         assert_eq!(selections[0]["label"], "給与");
         assert_eq!(selections[1]["value"], "＊＊");
         assert!(selections[1]["label"].is_null());
+    }
+
+    fn some_labels(label: &str) -> Option<applicant_reasons::OptionLabels> {
+        Some(BTreeMap::from([(
+            "ouboriyuukategori_hiaringu".to_owned(),
+            BTreeMap::from([("kyuuyo".to_owned(), label.to_owned())]),
+        )]))
+    }
+
+    #[test]
+    fn label_cache_keeps_good_labels_through_a_stale_refresh_and_a_failed_one() {
+        let start = Instant::now();
+        let mut cache = LabelCache::default();
+        // Nothing kept: the first request starts a read and has no labels to use meanwhile.
+        assert_eq!(cache.plan(start), LabelPlan::Read(None));
+        // A second request while it runs does not start another one.
+        assert_eq!(cache.plan(start), LabelPlan::Use(None));
+        assert_eq!(
+            cache.finish(start, some_labels("給与")),
+            some_labels("給与")
+        );
+        // Fresh: used without a read.
+        let fresh = start + Duration::from_secs(60);
+        assert_eq!(cache.plan(fresh), LabelPlan::Use(some_labels("給与")));
+        // Stale (after the TTL): a refresh starts, and this request still gets the kept labels.
+        let stale = start + OPTION_LABELS_TTL + Duration::from_secs(1);
+        assert_eq!(cache.plan(stale), LabelPlan::Read(some_labels("給与")));
+        assert_eq!(cache.plan(stale), LabelPlan::Use(some_labels("給与")));
+        // The refresh fails (429 / 5xx / timeout / 403): the kept labels stay.
+        assert_eq!(cache.finish(stale, None), some_labels("給与"));
+        let after_fail = stale + Duration::from_secs(1);
+        assert_eq!(cache.plan(after_fail), LabelPlan::Use(some_labels("給与")));
+        // After OPTION_LABELS_RETRY it tries again, still handing out the kept labels.
+        let retry = stale + OPTION_LABELS_RETRY + Duration::from_secs(1);
+        assert_eq!(cache.plan(retry), LabelPlan::Read(some_labels("給与")));
+        // A good refresh replaces them and the TTL starts again.
+        assert_eq!(
+            cache.finish(retry, some_labels("給与（月給）")),
+            some_labels("給与（月給）")
+        );
+        assert_eq!(
+            cache.plan(retry + Duration::from_secs(OPTION_LABELS_RETRY.as_secs() + 5)),
+            LabelPlan::Use(some_labels("給与（月給）"))
+        );
+    }
+
+    #[test]
+    fn label_cache_without_good_labels_retries_after_the_short_wait() {
+        let start = Instant::now();
+        let mut cache = LabelCache::default();
+        assert_eq!(cache.plan(start), LabelPlan::Read(None));
+        assert_eq!(cache.finish(start, None), None);
+        assert_eq!(
+            cache.plan(start + Duration::from_secs(1)),
+            LabelPlan::Use(None)
+        );
+        assert_eq!(
+            cache.plan(start + OPTION_LABELS_RETRY + Duration::from_secs(1)),
+            LabelPlan::Read(None)
+        );
     }
 
     #[test]

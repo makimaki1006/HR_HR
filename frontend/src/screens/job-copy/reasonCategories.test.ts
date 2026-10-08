@@ -6,7 +6,7 @@ import { demoApplicantReasons } from './demoReasons';
 const key = (n: number) => String(n).repeat(64);
 function collection(overrides: Partial<ApplicantReasonCollection> = {}): ApplicantReasonCollection {
   return { available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-10-08T00:00:00Z', totalApplicants: 3, totalSourceValues: 18,
-    sourceCounts: {}, missing: 0, blank: 0, truncated: false, items: [], selections: [], ...overrides };
+    sourceCounts: {}, missing: 0, blank: 0, truncated: false, items: [], selections: [], optionLabels: 'read', ...overrides };
 }
 const text = (applicant: number | null, id: string, value: string, sourceProperty = 'oubodouki', applicationDate: string | null = '2026-09-01') =>
   ({ id: id.padEnd(64, '0'), applicant: applicant === null ? null : key(applicant), text: value, sourceProperty, applicationDate, collectedAt: null, versionId: null });
@@ -26,6 +26,11 @@ describe('keyword dictionary', () => {
     ['介護施設', []],
     // Words that mean something else in these phrases are not used.
     ['好きな時間に働ける', []],
+    // These match a keyword unless the phrase is taken out first (が好き → 職種興味, 近い → 勤務地).
+    ['子どもが好きな時間に働ける', []],
+    ['子どもが好きな曜日に入れる', []],
+    ['近いうちに働きたい', []],
+    ['近いうちに家から近い所で働きたい', ['勤務地']],
     ['介護の仕事が好き', ['職種興味']],
     ['シフトが安定している', ['その他']],
     ['安定した収入が欲しい', ['給与']],
