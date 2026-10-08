@@ -1,0 +1,15 @@
+diff --git a/src/main.rs b/src/main.rs
+index 61938fd..084072c 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -308,7 +308,9 @@ async fn main() {
+         }
+         Some(cfg) => match rust_dashboard::hubspot::HubSpotClient::new(
+             cfg.access_token,
+-            rust_dashboard::hubspot::DEFAULT_BASE_URL,
++            // LOADTEST-LOCAL-PATCH (uncommitted): point at the fake HubSpot
++            &std::env::var("HUBSPOT_BASE_URL")
++                .unwrap_or_else(|_| rust_dashboard::hubspot::DEFAULT_BASE_URL.to_string()),
+             rust_dashboard::hubspot::ClientOptions::default(),
+         ) {
+             Ok(client) => {
