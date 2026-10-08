@@ -249,7 +249,7 @@ describe('private media capture import', () => {
     const html = renderToStaticMarkup(createElement(MediaCaptureImport, { onImport: () => undefined }));
     expect(html).toContain('媒体取得データを読み込む');
     expect(html).toContain('type="file"');
-    expect(html).toContain('APIへ送信せず');
+    expect(html).toContain('サーバーには送らず');
     expect(html).not.toContain('取得データを表示');
   });
 });

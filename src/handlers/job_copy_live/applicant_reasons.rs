@@ -52,6 +52,248 @@ fn date(raw: &str) -> Option<String> {
         .filter(|canonical| canonical == raw)
 }
 
+/// What replaces a masked part of a reason text.
+pub const MASK: &str = "＊＊";
+
+fn is_digit(c: char) -> bool {
+    c.is_ascii_digit() || ('０'..='９').contains(&c)
+}
+fn is_kanji_digit(c: char) -> bool {
+    "一二三四五六七八九十〇".contains(c)
+}
+fn is_dash(c: char) -> bool {
+    "-－‐−―ー".contains(c)
+}
+fn is_han(c: char) -> bool {
+    ('\u{4E00}'..='\u{9FFF}').contains(&c) || c == '々' || c == 'ヶ' || c == 'ケ'
+}
+fn is_katakana(c: char) -> bool {
+    ('\u{30A0}'..='\u{30FF}').contains(&c)
+}
+/// Words in a building name; a number right after the name is a room number (府内ビル201).
+const BUILDING_SUFFIXES: [&str; 16] = [
+    "ビル",
+    "マンション",
+    "ハイツ",
+    "コーポ",
+    "アパート",
+    "レジデンス",
+    "メゾン",
+    "パレス",
+    "コート",
+    "ヒルズ",
+    "タワー",
+    "ハウス",
+    "荘",
+    "館",
+    "棟",
+    "寮",
+];
+/// After a run of kanji digits that starts at `index`, an address word follows (十番 / 一号 / 三丁目).
+fn kanji_number_continues_address(chars: &[char], index: usize) -> bool {
+    let mut look = index;
+    while look < chars.len() && is_kanji_digit(chars[look]) {
+        look += 1;
+    }
+    look > index
+        && match chars.get(look) {
+            Some('号') => true,
+            Some('番') => chars.get(look + 1) != Some(&'目'),
+            Some('丁') => chars.get(look + 1) == Some(&'目'),
+            Some(&c) => is_dash(c) && chars.get(look + 1).copied().is_some_and(is_digit),
+            None => false,
+        }
+}
+/// A room number: 2 to 4 digits right after a name (kanji or katakana, up to 12 characters) that
+/// holds a building word, and not followed by a counter (年・回・件 ...).
+fn is_room_number(chars: &[char], start: usize, end: usize, digits: usize) -> bool {
+    if !(2..=4).contains(&digits)
+        || chars
+            .get(end)
+            .is_some_and(|c| "年月日回件時分秒人名歳万円代階%％点位度倍本枚個".contains(*c))
+    {
+        return false;
+    }
+    let mut from = start;
+    while from > 0 && start - from < 12 && (is_han(chars[from - 1]) || is_katakana(chars[from - 1]))
+    {
+        from -= 1;
+    }
+    let name: String = chars[from..start].iter().collect();
+    BUILDING_SUFFIXES.iter().any(|word| name.contains(word))
+}
+/// The town written right after a 市区町村 name (大分市府内町): a run of kanji or katakana after a
+/// name in the municipality master that ends in 町 or 村. Returns the end of that run.
+fn town_after_municipality(chars: &[char], index: usize) -> Option<usize> {
+    if !"市区町村郡".contains(chars[index]) {
+        return None;
+    }
+    let named = (2..=7).any(|length| {
+        index + 1 >= length && {
+            let name: String = chars[index + 1 - length..=index].iter().collect();
+            crate::geo::applicant_area::is_municipality_name(&name)
+        }
+    });
+    if !named {
+        return None;
+    }
+    let mut end = index + 1;
+    while end < chars.len() && end - index <= 10 && (is_han(chars[end]) || is_katakana(chars[end]))
+    {
+        end += 1;
+    }
+    let town: String = chars[index + 1..end].iter().collect();
+    let generic = ["町村", "区町村", "町内", "村内"].contains(&town.as_str());
+    (end > index + 2 && !generic && matches!(chars[end - 1], '町' | '村')).then_some(end)
+}
+fn is_mail_local(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "._%+-".contains(c)
+}
+fn is_mail_domain(c: char) -> bool {
+    c.is_ascii_alphanumeric() || ".-".contains(c)
+}
+
+/// Masks the parts of a free-text reason that can point at one person before it leaves the
+/// server: an address finer than 市区町村 (丁目・番地・号・「3-10-1」 and the town or building
+/// name written right before it, house numbers in kanji such as 三丁目十番一号, a building name
+/// with a room number such as 府内ビル201, and a town name written after a 市区町村 name such as
+/// 大分市府内町), a phone number, an e-mail address, and a name written with さん・様・氏. Each
+/// part becomes 「＊＊」. This is a best-effort filter, not anonymization; the screen still says
+/// the text may hold personal information.
+pub fn mask_personal_details(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut masked = vec![false; chars.len()];
+    let mut index = 0;
+    while index < chars.len() {
+        let c = chars[index];
+        // e-mail address
+        if c == '@' {
+            let mut start = index;
+            while start > 0 && is_mail_local(chars[start - 1]) {
+                start -= 1;
+            }
+            let mut end = index + 1;
+            while end < chars.len() && is_mail_domain(chars[end]) {
+                end += 1;
+            }
+            if start < index && chars[index + 1..end].contains(&'.') {
+                masked[start..end].iter_mut().for_each(|m| *m = true);
+            }
+            index = end.max(index + 1);
+            continue;
+        }
+        // a run of numbers, dashes and address words (3丁目10番地1号, 3-10-1, 097-123-4567)
+        let starts_number = is_digit(c)
+            || (is_kanji_digit(c) && {
+                let mut look = index;
+                while look < chars.len() && is_kanji_digit(chars[look]) {
+                    look += 1;
+                }
+                chars.get(look) == Some(&'丁')
+            });
+        if starts_number {
+            let mut end = index;
+            let mut digits = 0;
+            let mut address = false;
+            let mut dashed = false;
+            while end < chars.len() {
+                let here = chars[end];
+                let next = chars.get(end + 1).copied();
+                if is_digit(here)
+                    || (is_kanji_digit(here)
+                        && (!address || kanji_number_continues_address(&chars, end)))
+                {
+                    digits += usize::from(is_digit(here));
+                    end += 1;
+                } else if is_dash(here) && next.is_some_and(is_digit) && end > index {
+                    dashed = true;
+                    end += 1;
+                } else if (here == '丁' && next == Some('目'))
+                    || (here == '番' && next == Some('地'))
+                {
+                    address = true;
+                    end += 2;
+                } else if (here == '番' && next != Some('目')) || here == '号' {
+                    address = true;
+                    end += 1;
+                    if chars.get(end) == Some(&'室') {
+                        end += 1;
+                    }
+                } else if here == '(' || here == '（' || here == ')' || here == '）' {
+                    // 097(123)4567
+                    if digits > 0 && next.is_some_and(is_digit) {
+                        dashed = true;
+                        end += 1;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            let room = !address && !dashed && is_room_number(&chars, index, end, digits);
+            if address || dashed || digits >= 8 || room {
+                // the town or building name written right before an address number (not before
+                // a phone number: 「携帯09012345678」 keeps 「携帯」)
+                let street = address || room || (dashed && digits < 10);
+                let mut start = index;
+                let mut taken = 0;
+                while street
+                    && start > 0
+                    && taken < 12
+                    && (is_han(chars[start - 1]) || is_katakana(chars[start - 1]))
+                {
+                    start -= 1;
+                    taken += 1;
+                }
+                masked[start..end].iter_mut().for_each(|m| *m = true);
+            }
+            index = end.max(index + 1);
+            continue;
+        }
+        // a town name after a 市区町村 name (大分市府内町に住んでいます: the city is kept)
+        if let Some(end) = town_after_municipality(&chars, index) {
+            masked[index + 1..end].iter_mut().for_each(|m| *m = true);
+            index = end;
+            continue;
+        }
+        // a name followed by さん・様・氏
+        let honorific = ["さん", "様", "氏", "くん", "ちゃん"]
+            .iter()
+            .find(|word| chars[index..].starts_with(&word.chars().collect::<Vec<_>>()));
+        if let Some(word) = honorific {
+            let mut start = index;
+            while start > 0
+                && index - start < 4
+                && (is_han(chars[start - 1]) || is_katakana(chars[start - 1]))
+            {
+                start -= 1;
+            }
+            let name: String = chars[start..index].iter().collect();
+            if start < index && !["皆", "客", "お客", "奥", "神", "王"].contains(&name.as_str())
+            {
+                masked[start..index].iter_mut().for_each(|m| *m = true);
+            }
+            index += word.chars().count();
+            continue;
+        }
+        index += 1;
+    }
+    let mut result = String::with_capacity(text.len());
+    let mut previous = false;
+    for (c, hide) in chars.into_iter().zip(masked) {
+        if hide {
+            if !previous {
+                result.push_str(MASK);
+            }
+        } else {
+            result.push(c);
+        }
+        previous = hide;
+    }
+    result
+}
+
 pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
     // Same deterministic duplicate handling as the existing aggregate summary.
     let unique: BTreeMap<_, _> = rows.iter().map(|row| (&row.id, row)).collect();
@@ -99,7 +341,11 @@ pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
                 hash.update(part.as_bytes());
                 hash.update([0]);
             }
-            let bounded: String = text.chars().take(MAX_TEXT_CHARS).collect();
+            // Masked before it is cut, so a cut never leaves half of an address behind.
+            let bounded: String = mask_personal_details(text)
+                .chars()
+                .take(MAX_TEXT_CHARS)
+                .collect();
             reasons.truncated |= text.chars().count() > MAX_TEXT_CHARS;
             reasons.items.push(Reason {
                 id: format!("{:x}", hash.finalize()),
@@ -206,6 +452,67 @@ mod tests {
         assert!(reasons.truncated);
         assert_eq!(reasons.source_counts["oubodouki"].nonblank, MAX_ITEMS + 1);
         assert_eq!(reasons.missing, (MAX_ITEMS + 1) * 2);
+    }
+    #[test]
+    fn addresses_phone_numbers_mail_and_names_are_masked() {
+        for (raw, expected) in [
+            ("大分市府内町3丁目から近いため", "＊＊から近いため"),
+            (
+                "自宅は府内町3-10-1 府内ビル201号室です",
+                "自宅は＊＊ ＊＊です",
+            ),
+            ("由布市湯布院町1234番地に住んでいます", "＊＊に住んでいます"),
+            ("連絡は097-123-4567まで", "連絡は＊＊まで"),
+            ("携帯09012345678", "携帯＊＊"),
+            (
+                "mail: taro.yamada@example.co.jp でお願いします",
+                "mail: ＊＊ でお願いします",
+            ),
+            ("山田さんの紹介で応募", "＊＊さんの紹介で応募"),
+            ("三丁目の店舗に近い", "＊＊の店舗に近い"),
+            ("府内町三丁目十番一号です", "＊＊です"),
+            // a kanji digit that is not a house number stays (一緒)
+            (
+                "3丁目一緒に働ける人がいるため",
+                "＊＊一緒に働ける人がいるため",
+            ),
+            ("府内町三丁目十番地です", "＊＊です"),
+            ("府内ビル201に住んでいます", "＊＊に住んでいます"),
+            ("コーポ北浜102から通います", "＊＊から通います"),
+            ("大分市府内町に住んでいます", "大分市＊＊に住んでいます"),
+            ("大分県別府市北浜町の近く", "大分県別府市＊＊の近く"),
+        ] {
+            assert_eq!(mask_personal_details(raw), expected, "{raw}");
+        }
+    }
+    #[test]
+    fn ordinary_reason_texts_are_left_as_they_are() {
+        for text in [
+            "週3日から働けるため",
+            "月給25万円以上で、土日休みだったので",
+            "1日8件程度の配送なら続けられそう",
+            "皆さんの雰囲気が良さそうだった",
+            "お客様と話す仕事がしたい",
+            "応募は2回目です。3番目に見た求人でした",
+            "大分市内に住んでいます",
+            "大分市在住で、市区町村の補助を使いたい",
+            "別府市役所の近く",
+            "ビルの清掃を3年していました",
+        ] {
+            assert_eq!(mask_personal_details(text), text);
+        }
+    }
+    #[test]
+    fn extracted_texts_carry_no_street_address() {
+        let rows = [row(
+            "50",
+            &[("oubodouki", Some("大分市府内町3丁目10-1から近いため"))],
+        )];
+        let reasons = extract_rows(&rows);
+        assert_eq!(reasons.items[0].text, "＊＊から近いため");
+        let json = serde_json::to_string(&reasons).unwrap();
+        assert!(!json.contains("府内町"));
+        assert!(!json.contains("3丁目"));
     }
     #[test]
     fn verified_empty_read_differs_from_absent_optional_snapshot_field() {

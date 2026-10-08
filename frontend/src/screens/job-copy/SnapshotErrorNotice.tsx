@@ -29,7 +29,7 @@ export function snapshotErrorGuidance(error: ApiError): SnapshotErrorGuidance {
     return { message: 'Drive上のレビュー用データを読み取れませんでした。管理者にデータの配置と閲覧権限を確認してもらってください。' };
   }
   if (error instanceof ApiTimeoutError) return { message: '実データの取得に時間がかかっています。少し待ってから画面を再読み込みしてください。続く場合は管理者に取得状況を確認してください。' };
-  return { message: '実データMOCを取得できませんでした。画面を再読み込みしてください。続く場合は管理者にデータと画像の取得状況を確認してください。' };
+  return { message: '実データを取得できませんでした。画面を再読み込みしてください。続く場合は管理者にデータと画像の取得状況を確認してください。' };
 }
 
 export function SnapshotErrorNotice({ guidance }: { guidance: SnapshotErrorGuidance }) {

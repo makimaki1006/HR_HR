@@ -1,4 +1,5 @@
 import type { CopyVersion, JobCopyRecord } from './data';
+import { AREA_OTHER, AREA_UNKNOWN, municipalityLabel, parseApplicantArea, prefectureLabel, roundAreaDistribution } from './applicantArea';
 
 export type ApplicantDimension = 'gender' | 'age' | 'prefecture' | 'municipality';
 export interface ApplicantAttributes { gender: string | null; age: number | null; prefecture: string | null; municipality: string | null }
@@ -12,13 +13,10 @@ function supplied(value: string | null): string | null {
 }
 
 function categoryOf(row: ApplicantAttributes, dimension: ApplicantDimension): string {
-  const prefecture = supplied(row.prefecture);
   if (dimension === 'gender') return supplied(row.gender) ?? '不明';
-  if (dimension === 'prefecture') return prefecture ?? '不明';
-  if (dimension === 'municipality') {
-    const municipality = supplied(row.municipality);
-    return prefecture || municipality ? `${prefecture ?? '都道府県不明'} / ${municipality ?? '市区町村不明'}` : '不明';
-  }
+  // 住所は都道府県 + 市区町村までに丸める。元の文字列はラベルに使わない。
+  if (dimension === 'prefecture') return prefectureLabel(parseApplicantArea(row.prefecture, row.municipality));
+  if (dimension === 'municipality') return municipalityLabel(parseApplicantArea(row.prefecture, row.municipality));
   const age = row.age;
   if (age === null || !Number.isSafeInteger(age) || age < 0 || age > 120) return '不明';
   if (age < 20) return '19歳以下';
@@ -39,17 +37,56 @@ export function buildDistribution(rows: ApplicantAttributes[] | null, dimension:
     const order = ['19歳以下', '20代', '30代', '40代', '50代', '60歳以上', '不明'];
     return order.indexOf(left) - order.indexOf(right);
   });
-  return { total: rows.length, categories: entries.map(([category, count]) => ({ category, count, percentage: rows.length ? count / rows.length * 100 : null })) };
+  const distribution = { total: rows.length, categories: entries.map(([category, count]) => ({ category, count, percentage: rows.length ? count / rows.length * 100 : null })) };
+  return dimension === 'prefecture' || dimension === 'municipality' ? roundAreaDistribution(distribution, dimension) : distribution;
 }
 
-export function compareDistributions(before: ApplicantDistribution | null, after: ApplicantDistribution | null): DistributionComparison[] | null {
+/** 地域の分布は表示の直前にも丸める（取り込み時に丸め済みでも結果は同じ）。 */
+export function displayDistribution(distribution: ApplicantDistribution | null | undefined, dimension: ApplicantDimension): ApplicantDistribution | null {
+  if (!distribution) return null;
+  return dimension === 'prefecture' || dimension === 'municipality' ? roundAreaDistribution(distribution, dimension) : distribution;
+}
+
+/**
+ * Puts a named area into 「その他」 on both sides when one side does not show it but has a
+ * 「その他」: there it was merged in (fewer than 3 applicants), so its count is 1 or 2, not 0.
+ * Comparing it as 0 would show a false −100 points. A side without 「その他」 really has 0.
+ */
+function alignSuppressedAreas(before: ApplicantDistribution, after: ApplicantDistribution): [ApplicantDistribution, ApplicantDistribution] {
+  const hasOther = (side: ApplicantDistribution) => side.categories.some(item => item.category === AREA_OTHER && item.count > 0);
+  const named = (side: ApplicantDistribution) => new Set(side.categories.map(item => item.category).filter(category => category !== AREA_OTHER && category !== AREA_UNKNOWN));
+  const beforeNamed = named(before); const afterNamed = named(after);
+  const hidden = new Set([
+    ...(hasOther(after) ? [...beforeNamed].filter(category => !afterNamed.has(category)) : []),
+    ...(hasOther(before) ? [...afterNamed].filter(category => !beforeNamed.has(category)) : []),
+  ]);
+  if (!hidden.size) return [before, after];
+  const merge = (side: ApplicantDistribution): ApplicantDistribution => {
+    const counts = new Map<string, number>();
+    for (const item of side.categories) {
+      const category = hidden.has(item.category) ? AREA_OTHER : item.category;
+      counts.set(category, (counts.get(category) ?? 0) + item.count);
+    }
+    const rows = [...counts].map(([category, count]) => ({ category, count, percentage: side.total ? count / side.total * 100 : null }));
+    const rank = (label: string) => label === AREA_OTHER ? 1 : label === AREA_UNKNOWN ? 2 : 0;
+    return { total: side.total, categories: rows.sort((left, right) => rank(left.category) - rank(right.category)) };
+  };
+  return [merge(before), merge(after)];
+}
+
+/**
+ * areas: the categories are areas (都道府県・市区町村), where 「その他」 holds the areas with fewer
+ * than 3 applicants. For gender, 「その他」 is a real answer and is left alone.
+ */
+export function compareDistributions(before: ApplicantDistribution | null, after: ApplicantDistribution | null, options: { areas?: boolean } = {}): DistributionComparison[] | null {
   if (before === null || after === null) return null;
-  const categories = [...new Set([...before.categories.map(item => item.category), ...after.categories.map(item => item.category)])];
+  const [left, right] = options.areas ? alignSuppressedAreas(before, after) : [before, after];
+  const categories = [...new Set([...left.categories.map(item => item.category), ...right.categories.map(item => item.category)])];
   return categories.map(category => {
-    const beforeCount = before.categories.find(item => item.category === category)?.count ?? 0;
-    const afterCount = after.categories.find(item => item.category === category)?.count ?? 0;
-    const beforePercentage = before.total ? beforeCount / before.total * 100 : null;
-    const afterPercentage = after.total ? afterCount / after.total * 100 : null;
+    const beforeCount = left.categories.find(item => item.category === category)?.count ?? 0;
+    const afterCount = right.categories.find(item => item.category === category)?.count ?? 0;
+    const beforePercentage = left.total ? beforeCount / left.total * 100 : null;
+    const afterPercentage = right.total ? afterCount / right.total * 100 : null;
     return { category, beforeCount, afterCount, beforePercentage, afterPercentage, deltaPp: beforePercentage === null || afterPercentage === null ? null : afterPercentage - beforePercentage };
   });
 }
@@ -80,5 +117,5 @@ export function compositionRows(job: JobCopyRecord, version: CopyVersion | undef
 }
 
 export function compositionDistribution(job: JobCopyRecord, version: CopyVersion | undefined, dimension: ApplicantDimension): ApplicantDistribution | null {
-  return version?.distributions?.[dimension] ?? buildDistribution(compositionRows(job, version), dimension);
+  return displayDistribution(version?.distributions?.[dimension], dimension) ?? buildDistribution(compositionRows(job, version), dimension);
 }

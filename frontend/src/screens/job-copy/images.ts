@@ -82,3 +82,38 @@ export function compareImageBytes(before: CopyImage[] | undefined, after: CopyIm
   if (!left || !right) return 'unknown';
   return JSON.stringify(left) === JSON.stringify(right) ? 'same_files' : 'changed_files';
 }
+
+/**
+ * How the images of a version differ from the previous version, using both comparisons:
+ * the references (which image sits in which place, compareImages) and the saved files
+ * (compareImageBytes). 'same' only when both agree; 'reference_only' when the references and the
+ * order are the same but the files could not be compared. 'missing': this version has no image
+ * data (not acquired; not "no images"). 'unknown': the previous version has no image data.
+ */
+export type ImageChangeKind = 'initial' | 'missing' | 'replaced' | 'reordered' | 'content' | 'same' | 'reference_only' | 'unknown';
+interface ImageVersion { id: string; images?: CopyImage[]; imageReferences?: { referenceHash: string; slot: number }[]; historicalImageBytesAvailable?: boolean }
+export function imageChangeKind(previous: ImageVersion | undefined, current: ImageVersion): ImageChangeKind {
+  const after = referenceImages(current);
+  if (after === undefined) return 'missing';
+  if (!previous) return 'initial';
+  const before = referenceImages(previous);
+  if (before === undefined) return 'unknown';
+  const references = compareImages(before, after);
+  if (references.added.length || references.removed.length) return 'replaced';
+  if (references.reordered) return 'reordered';
+  const files = compareImageBytes(previous.images ?? imagesByVersion[previous.id], current.images ?? imagesByVersion[current.id], previous.historicalImageBytesAvailable, current.historicalImageBytesAvailable);
+  if (files === 'changed_files') return 'content';
+  if (files === 'same_files' || files === 'not_applicable') return 'same';
+  return 'reference_only';
+}
+/** The short mark and the spoken text of the 画像 lane, from the same kind. */
+export const IMAGE_CHANGE_MARK: Record<ImageChangeKind, { text: string; spoken: string }> = {
+  initial: { text: '最初', spoken: '最初の版' },
+  missing: { text: '未取得', spoken: 'この版の画像は未取得です' },
+  replaced: { text: '差し替え', spoken: '画像の差し替えがあります' },
+  reordered: { text: '並び順', spoken: '画像の並び順が変わりました' },
+  content: { text: '中身', spoken: '同じ場所の画像の中身が変わりました' },
+  same: { text: '同じ', spoken: '画像の参照・並び順・中身とも前の版と同じです' },
+  reference_only: { text: '中身未確認', spoken: '画像の参照と並び順は前の版と同じです。中身は確認できません' },
+  unknown: { text: '不明', spoken: '前の版の画像が未取得のため比べられません' },
+};

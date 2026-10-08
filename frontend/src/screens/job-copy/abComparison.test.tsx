@@ -36,7 +36,7 @@ describe('cross-record A/B comparison', () => {
     expect(screen.getByLabelText('B求人の比較内容').textContent).toContain('07654321');
     expect(screen.getByLabelText('B求人の比較内容').textContent).toContain('本文b');
     fireEvent.change(screen.getByLabelText('応募の比較範囲'), { target: { value: 'version' } });
-    expect(screen.getByLabelText('A求人の比較内容').textContent).toContain('選択版の確定＋推定対応）：3件');
+    expect(screen.getByLabelText('A求人の比較内容').textContent).toContain('選んだ版に結びついた応募）：3件');
     const confirmation = screen.getByRole('checkbox'); fireEvent.click(confirmation); expect((confirmation as HTMLInputElement).checked).toBe(true);
     fireEvent.change(screen.getByLabelText('Bとして比較する求人'), { target: { value: 'c' } });
     expect((confirmation as HTMLInputElement).checked).toBe(false);

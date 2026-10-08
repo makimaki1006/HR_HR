@@ -6,6 +6,7 @@ import { buildDistribution, compareDistributions, compositionRows } from './appl
 import type { ApplicantAttributes, ApplicantDimension } from './applicantCompositionModel';
 import { jobs } from './data';
 import type { JobCopyRecord } from './data';
+import { CAUSAL_PATTERN, HUBSPOT_ONLY_NOTE, JARGON_PATTERN, NOT_CAUSAL_NOTE } from './format';
 
 const rows: ApplicantAttributes[] = [
   { gender: '女性', age: 29, prefecture: '大分県', municipality: '大分市' },
@@ -52,11 +53,12 @@ describe('applicant distributions', () => {
   });
 
   it('keeps cities with identical names distinct using their supplied prefectures', () => {
-    const result = buildDistribution(rows, 'municipality');
-    expect(result?.categories.map(item => item.category)).toContain('大分県 / 府中市');
-    expect(result?.categories.map(item => item.category)).toContain('東京都 / 府中市');
-    const partial = [{ gender: null, age: null, prefecture: null, municipality: '府中市' }];
-    expect(buildDistribution(partial, 'municipality')?.categories[0]?.category).toBe('都道府県不明 / 府中市');
+    const fuchu = (prefecture: string) => Array.from({ length: 3 }, () => ({ gender: null, age: null, prefecture, municipality: '府中市' }));
+    const result = buildDistribution([...fuchu('東京都'), ...fuchu('広島県')], 'municipality');
+    expect(result?.categories.map(item => [item.category, item.count])).toEqual([['東京都府中市', 3], ['広島県府中市', 3]]);
+    // 都道府県が無いと府中市は 2 つあるので決めない。大分県に府中市は無いので市区町村不明にする
+    expect(buildDistribution([{ gender: null, age: null, prefecture: null, municipality: '府中市' }], 'municipality')?.categories[0]?.category).toBe('不明');
+    expect(buildDistribution(Array.from({ length: 3 }, () => ({ gender: null, age: null, prefecture: '大分県', municipality: '府中市' })), 'municipality')?.categories[0]?.category).toBe('大分県（市区町村不明）');
   });
 
   it('compares the union of categories and computes percentage-point rather than relative growth', () => {
@@ -108,8 +110,18 @@ describe('composition fixture boundary and UI', () => {
     expect(html).toContain('2026/09/01');
     expect(html).toContain('架空の応募者属性');
     expect(html).toContain('属性不明も含めます');
-    expect(html).toContain('変更効果を示すものではありません');
-    expect(html).toContain('課金情報は未取得');
+    expect(html).toContain('構成の差は、2つの版を並べて見るための数字です。');
+    expect(html).toContain('ⓘ 集計の前提');
+    expect(html).toContain(HUBSPOT_ONLY_NOTE);
+    expect(html).toContain(NOT_CAUSAL_NOTE);
+    expect(html).toContain('媒体の期間別実績は「課金・クリック」で確認できます');
+    // 年代は年齢順。都道府県は 3 件未満を「その他」にまとめ、その他・不明は最後
+    const ageSection = html.slice(html.indexOf('aria-label="年代の構成比較"'), html.indexOf('aria-label="都道府県の構成比較"'));
+    expect([...ageSection.matchAll(/<th scope="row">([^<]+)<\/th>/g)].map(match => match[1])).toEqual(['20代', '30代', '40代', '50代', '60歳以上', '不明']);
+    const prefectureSection = html.slice(html.indexOf('aria-label="都道府県の構成比較"'), html.indexOf('aria-label="市区町村の構成比較"'));
+    expect([...prefectureSection.matchAll(/<th scope="row">([^<]+)<\/th>/g)].map(match => match[1])).toEqual(['大分県', 'その他', '不明']);
+    expect(html.replace(/<img [^>]*>/g, '')).not.toMatch(JARGON_PATTERN);
+    expect(html.replace(/<img [^>]*>/g, '')).not.toMatch(CAUSAL_PATTERN);
     expect(html).not.toContain('<option value="demo-001-draft"');
   });
 

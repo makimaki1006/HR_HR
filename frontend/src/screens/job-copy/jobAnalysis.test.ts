@@ -26,22 +26,27 @@ describe('HR Hacker period metrics', () => {
   });
 });
 describe('joint demographic reverse search', () => {
-  const joint = { total: 4, cells: [
-    { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分市', count: 1 },
-    { gender: '女性', age: '20代', prefecture: '大分県', municipality: '大分市', count: 2 },
+  const joint = { total: 8, cells: [
+    { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分市', count: 3 },
+    { gender: '女性', age: '20代', prefecture: '大分県', municipality: '大分市', count: 4 },
     { gender: '男性', age: '30代', prefecture: '福岡県', municipality: '福岡市', count: 1 },
   ] };
   const job = { id: 'synthetic', jointDemographics: joint } as JobCopyRecord;
   it('answers intersecting conditions from actual cells rather than marginal totals', () => {
-    expect(parseJointDemographics(joint, 4)).toEqual(joint);
-    const query = { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分市', minimum: 1 };
-    expect(reverseSearch([job, { ...job, id: 'missing', jointDemographics: undefined }], query).map(result => [result.count, result.denominator, result.percentage])).toEqual([[1, 4, 25]]);
-    expect(reverseSearch([job], { ...query, minimum: 2 })).toEqual([]);
-    expect(reverseSearch([job], { ...query, municipality: '別府市' })).toEqual([]);
+    // 地域は都道府県 + 市区町村に丸め、3件未満の地域（福岡県の1件）は「その他」にまとめる
+    expect(parseJointDemographics(joint, 8)).toEqual({ total: 8, cells: [
+      { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', count: 3 },
+      { gender: '女性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', count: 4 },
+      { gender: '男性', age: '30代', prefecture: 'その他', municipality: 'その他', count: 1 },
+    ] });
+    const query = { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', minimum: 1 };
+    expect(reverseSearch([job, { ...job, id: 'missing', jointDemographics: undefined }], query).map(result => [result.count, result.denominator, result.percentage])).toEqual([[3, 8, 37.5]]);
+    expect(reverseSearch([job], { ...query, minimum: 4 })).toEqual([]);
+    expect(reverseSearch([job], { ...query, municipality: '大分県別府市' })).toEqual([]);
   });
   it('rejects total drift, duplicate cells and leaked additional fields', () => {
-    expect(() => parseJointDemographics(joint, 5)).toThrow();
-    expect(() => parseJointDemographics({ ...joint, cells: [...joint.cells, joint.cells[0]] }, 4)).toThrow();
+    expect(() => parseJointDemographics(joint, 9)).toThrow();
+    expect(() => parseJointDemographics({ ...joint, cells: [...joint.cells, joint.cells[0]] }, 8)).toThrow();
     expect(() => parseJointDemographics({ total: 1, cells: [{ ...joint.cells[0], email: 'synthetic@example.test' }] }, 1)).toThrow();
   });
 });
