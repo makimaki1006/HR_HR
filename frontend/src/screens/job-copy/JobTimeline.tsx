@@ -17,6 +17,8 @@ import {
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
 import { IMAGE_CHANGE_MARK } from './images';
 import { DEMO_BILLING_LABEL, DEMO_BILLING_NOTE, DUMMY_BILLING_ENABLED, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
+import { REASON_CATEGORIES, MIN_SHARE_N, classifyApplicationReasons, reasonsByPeriod, shareText, topReasons } from './reasonCategories';
+import type { ReasonTally } from './reasonCategories';
 import './timeline.css';
 
 interface MarketState {
@@ -119,6 +121,15 @@ function Lane({ title, source, children, className = '' }: { title: string; sour
     <div className="jt-lane-head"><h3>{title}</h3><span className="jt-source">{source}</span></div>
     <div className="jt-track">{children}</div>
   </div>;
+}
+
+/** 「n=6（応募）: 給与 3件・50%（選択2・推定1）…」 for the 応募理由 lane's tooltip. */
+function reasonTallyText(result: ReasonTally, unit: string): string {
+  const parts = result.counts.filter(row => row.total > 0).map(row => {
+    const share = shareText(row.total, result.n);
+    return `${row.category} ${String(row.total)}件${share ? `・${share}` : ''}（選択${String(row.selected)}・推定${String(row.estimated)}）`;
+  });
+  return `n=${String(result.n)}（${unit}）${parts.length ? `: ${parts.join('、')}` : ''}${result.unclassified ? `、分類できない ${String(result.unclassified)}件` : ''}`;
 }
 
 function span(range: TimelineRange, start: string, endExclusive: string) {
@@ -312,6 +323,10 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const multiTotal = multi ? Object.values(multi.byDate).reduce((sum, count) => sum + count, 0) + multi.missingDate : 0;
   const unsure = rows.filter(row => row.kind === 'between' || row.kind === 'unacquired').reduce((sum, row) => sum + (row.applications ?? 0), 0);
   const marketMeta = market.state.meta;
+  const reasonClasses = classifyApplicationReasons(job.applicantReasons);
+  const reasonUnit = reasonClasses?.unit === 'text' ? '記述' : '応募';
+  const reasonPeriods = reasonClasses ? reasonsByPeriod(reasonClasses.applications, rows.filter(row => !row.afterCounts).map(row => ({ key: row.key, start: row.start, end: row.end ?? addDays(asOf, 1) }))) : null;
+  const reasonOf = (key: string): ReasonTally | null => reasonPeriods?.periods.find(period => period.key === key)?.tally ?? null;
 
   return <section className="jt-timeline" aria-label="タイムライン">
     <header className="jt-heading">
@@ -400,6 +415,23 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : applications?.byDate && <span>複数の求人に関連する応募を見分ける情報を取得していないため、期間比較表の件数に含まれている場合があります</span>}
       </div>
 
+      <Lane title="応募理由" source="応募日ごとの分類（選択済みと推定）">
+        {!reasonClasses ? <p className="jt-empty">応募理由は未取得です（0件という意味ではありません）</p>
+          : !reasonClasses.applications.length ? <p className="jt-empty">応募理由の記録はありません</p>
+            : rows.filter(row => !row.afterCounts).map(row => {
+              const result = reasonOf(row.key);
+              if (!result || result.n === 0) return null;
+              const top = topReasons(result, 1)[0];
+              return <div key={row.key} className={`jt-reason${row.kind !== 'period' ? ' jt-reason-zone' : ''}`} style={span(range, row.start, row.end ?? addDays(asOf, 1))}
+                title={`${row.label}: ${reasonTallyText(result, reasonUnit)}`}>
+                <span>n={result.n}{top ? ` ${top.category}${String(top.total)}件` : ''}</span></div>;
+            })}
+      </Lane>
+      {reasonPeriods && (reasonPeriods.undated > 0 || reasonPeriods.outside > 0) && <div className="jt-lane-tools">
+        {reasonPeriods.undated > 0 && <span>応募日が分からない応募理由 {reasonPeriods.undated}件 は段と表に入れていません</span>}
+        {reasonPeriods.outside > 0 && <span>表のどの期間にも入らない日付の応募理由 {reasonPeriods.outside}件 は段と表に入れていません</span>}
+      </div>}
+
       <Lane title="市場" source="Indeed（都道府県・職種の月ごと）" className="jt-lane-chart">
         {lane?.noDataFrom && <div className="jt-nodata" style={span(range, `${lane.noDataFrom}-01` > range.start ? `${lane.noDataFrom}-01` : range.start, addDays(range.end, 1))} title={lane.lastDataMonth ? marketDataUntil(lane.lastDataMonth) : undefined}>データなし</div>}
         {marketOption && market.state.status === 'loading' && <p className="jt-empty jt-market-loading" role="status">市場データを取得中…</p>}
@@ -451,5 +483,24 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       {rows.some(row => !row.afterCounts && row.applications !== null && row.shortPeriod && (row.kind === 'period' || row.kind === 'gap')) && <p className="jt-table-note">「期間が短いため比べません」は、{MIN_RATE_DAYS}日に満たない期間です。1日や2日の件数を1日あたりに直すと大きく振れるため、比べません。</p>}
       {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。</p>}
     </section>
+    {reasonClasses && rows.length > 0 && <section className="jt-periods jt-reasons" aria-label="期間ごとの応募理由">
+      <h3>期間ごとの応募理由</h3>
+      <p className="jc-muted">期間比較表と同じ期間（取得日の間を含む）で、応募日ごとに応募理由の分類を数えています。nは応募理由の記録がある{reasonUnit}の件数です。1件が複数の分類に入ることがあります。nが{MIN_SHARE_N}件に満たない期間は割合を出しません。</p>
+      <div className="jt-table-scroll" role="region" aria-label="期間ごとの応募理由の数値" tabIndex={0}><table>
+        <thead><tr><th scope="col">期間</th><th scope="col">n</th><th scope="col">選択済み・推定・分類できない</th>{REASON_CATEGORIES.map(category => <th scope="col" key={category}>{category}</th>)}</tr></thead>
+        <tbody>{rows.map(row => {
+          const result = row.afterCounts ? null : reasonOf(row.key);
+          return <tr key={row.key} className={row.kind !== 'period' ? `jt-gap-row jt-row-${row.kind}` : undefined}>
+            <th scope="row">{row.label}<small>{row.detail}</small></th>
+            {!result ? <td colSpan={2 + REASON_CATEGORIES.length}>応募集計の取得後に始まった期間</td> : <>
+              <td>n={result.n}</td>
+              <td>{result.n ? `選択済み${String(result.selectedN)}件・推定${String(result.estimatedN)}件・分類できない${String(result.unclassified)}件` : '記録なし'}</td>
+              {result.counts.map(count => { const share = shareText(count.total, result.n); return <td key={count.category}>{result.n ? `${String(count.total)}件${share ? `（${share}）` : ''}` : '—'}</td>; })}
+            </>}
+          </tr>;
+        })}</tbody>
+      </table></div>
+      <p className="jt-table-note">件数は並べて見るためのものです。ある期間に件数が多い分類があっても、それがその期間の文面によるものかどうかは、この数だけでは分かりません。複数の求人に関連する応募を見分けられないため、期間比較表の応募件数と合わないことがあります。</p>
+    </section>}
   </section>;
 }

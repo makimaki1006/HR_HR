@@ -73,3 +73,41 @@ describe('recorded applicant reasons', () => {
     expect(html).not.toContain('synthetic@example.invalid');
   });
 });
+
+/** The shape the server sends since 2026-10-08: six sources, applicant keys and category selections. */
+function current() {
+  const counts = (nonblank: number, blank = 0) => ({ missing: 2 - nonblank - blank, blank, nonblank });
+  return { available: true, source: 'hubspot', basis: 'recorded_applicant_reason', source_property: null,
+    fetched_at: '2026-10-08T00:00:00Z', total_applicants: 2, total_source_values: 12,
+    source_counts: { oubodouki: counts(1), ouboriyuu_baitaikisai: counts(0), ouboriyuu_hiaringu: counts(0, 1), genshokumaeshokukaranotenshokuriyuu: counts(1),
+      ouboriyuukategori_hiaringu: counts(2), ouboriyuukategori_baitaikisai: counts(0) },
+    missing: 7, blank: 1, truncated: false,
+    items: [
+      { id: 'a'.repeat(64), applicant: '1'.repeat(64), text: '家から近いため', source: 'hubspot', source_property: 'oubodouki', application_date: '2026-09-01', collected_at: null, version_id: null },
+      { id: 'b'.repeat(64), applicant: '2'.repeat(64), text: '山田さんの店が遠かった', source: 'hubspot', source_property: 'genshokumaeshokukaranotenshokuriyuu', application_date: null, collected_at: null, version_id: null },
+    ],
+    selections: [
+      { applicant: '1'.repeat(64), source_property: 'ouboriyuukategori_hiaringu', value: 'kyuuyo', label: '給与', application_date: '2026-09-01' },
+      { applicant: '2'.repeat(64), source_property: 'ouboriyuukategori_hiaringu', value: 'kinmuchi', label: null as string | null, application_date: null },
+    ] as { applicant: string; source_property: string; value: string; label: string | null; application_date: string | null }[] };
+}
+const parseCurrent = (raw: unknown) => parseApplicantReasons(raw, 2, []);
+
+describe('reasons with every source and category selections', () => {
+  it('keeps applicant keys, selections with their labels, and the transfer reason as its own source', () => {
+    const parsed = parseCurrent(current());
+    expect(parsed?.items.map(item => [item.applicant?.slice(0, 1), item.sourceProperty, item.text])).toEqual([
+      ['1', 'oubodouki', '家から近いため'], ['2', 'genshokumaeshokukaranotenshokuriyuu', '＊＊さんの店が遠かった'],
+    ]);
+    expect(parsed?.selections?.map(row => [row.value, row.label, row.applicationDate])).toEqual([['kyuuyo', '給与', '2026-09-01'], ['kinmuchi', null, null]]);
+    expect(Object.keys(parsed?.sourceCounts ?? {})).toHaveLength(6);
+  });
+  it('rejects selections that do not match the category counts, and mixed old and new shapes', () => {
+    const fewer = current(); fewer.selections.pop(); expect(() => parseCurrent(fewer)).toThrow();
+    const wrongSource = current(); first(wrongSource.selections).source_property = 'oubodouki'; expect(() => parseCurrent(wrongSource)).toThrow();
+    const noKey = current(); delete (first(noKey.items) as { applicant?: string }).applicant; expect(() => parseCurrent(noKey)).toThrow();
+    const noSelections = current(); delete (noSelections as { selections?: unknown }).selections; expect(() => parseCurrent(noSelections)).toThrow();
+    const oldWithSelections = { ...fixture(), selections: [] }; expect(() => parse(oldWithSelections)).toThrow();
+    const categoryText = current(); first(categoryText.items).source_property = 'ouboriyuukategori_hiaringu'; expect(() => parseCurrent(categoryText)).toThrow();
+  });
+});

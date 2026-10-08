@@ -4,9 +4,36 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-pub const PROPERTIES: [&str; 3] = ["oubodouki", "ouboriyuu_baitaikisai", "ouboriyuu_hiaringu"];
-pub const MAX_ITEMS: usize = 100;
+/// Free-text sources: 応募動機, 応募理由_媒体記載, 応募理由_ヒアリング, 現職・前職からの転職理由.
+/// Every text is masked (mask_personal_details) before it leaves the server.
+pub const TEXT_PROPERTIES: [&str; 4] = [
+    "oubodouki",
+    "ouboriyuu_baitaikisai",
+    "ouboriyuu_hiaringu",
+    "genshokumaeshokukaranotenshokuriyuu",
+];
+/// Select sources: 応募理由カテゴリ_ヒアリング, 応募理由カテゴリ_媒体記載 (給与/勤務地/職種興味/会社規模/その他/未設定).
+pub const CATEGORY_PROPERTIES: [&str; 2] = [
+    "ouboriyuukategori_hiaringu",
+    "ouboriyuukategori_baitaikisai",
+];
+/// Every source read now, in a fixed order (one batch read asks for all of them).
+pub const PROPERTIES: [&str; 6] = [
+    "oubodouki",
+    "ouboriyuu_baitaikisai",
+    "ouboriyuu_hiaringu",
+    "genshokumaeshokukaranotenshokuriyuu",
+    "ouboriyuukategori_hiaringu",
+    "ouboriyuukategori_baitaikisai",
+];
+/// The sources of a snapshot written before 2026-10-08. Such a snapshot has no applicant keys
+/// and no category selections; the other sources are 未取得 there, never 0.
+pub const LEGACY_PROPERTIES: [&str; 3] =
+    ["oubodouki", "ouboriyuu_baitaikisai", "ouboriyuu_hiaringu"];
+pub const MAX_ITEMS: usize = 500;
 pub const MAX_TEXT_CHARS: usize = 2000;
+/// A select value longer than this is not a value from the option list; it is cut.
+pub const MAX_VALUE_CHARS: usize = 100;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,9 +47,27 @@ pub struct Reasons {
     pub total_source_values: usize,
     pub source_counts: BTreeMap<String, SourceCounts>,
     pub items: Vec<Reason>,
+    /// Category values chosen in HubSpot, one per applicant and value. None in a snapshot written
+    /// before the category sources were read (未取得, not 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selections: Option<Vec<Selection>>,
     pub missing: usize,
     pub blank: usize,
     pub truncated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Selection {
+    /// Opaque per-application key (same as Reason::applicant); not the HubSpot record ID.
+    pub applicant: String,
+    pub source_property: String,
+    /// The internal option value HubSpot stores.
+    pub value: String,
+    /// The option label from the property definition; None when the definition was not read
+    /// or does not list the value (the screen then shows the value).
+    pub label: Option<String>,
+    pub application_date: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -37,6 +82,10 @@ pub struct SourceCounts {
 #[serde(deny_unknown_fields)]
 pub struct Reason {
     pub id: String,
+    /// Opaque per-application key, the same for every text and selection of one application, so
+    /// the screen can count applications instead of texts. None in an old snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applicant: Option<String>,
     pub text: String,
     pub source: String,
     pub source_property: String,
@@ -294,9 +343,31 @@ pub fn mask_personal_details(text: &str) -> String {
     result
 }
 
+fn opaque(parts: &[&str]) -> String {
+    let mut hash = Sha256::new();
+    for part in parts {
+        hash.update(part.as_bytes());
+        hash.update([0]);
+    }
+    format!("{:x}", hash.finalize())
+}
+
+/// Option labels by property and internal value, from the property definitions.
+pub type OptionLabels = BTreeMap<String, BTreeMap<String, String>>;
+
 pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
+    extract_with_labels(listing, rows, fetched_at, None)
+}
+
+pub fn extract_with_labels(
+    listing: &str,
+    rows: &[Record],
+    fetched_at: String,
+    labels: Option<&OptionLabels>,
+) -> Reasons {
     // Same deterministic duplicate handling as the existing aggregate summary.
     let unique: BTreeMap<_, _> = rows.iter().map(|row| (&row.id, row)).collect();
+    let mut selections = Vec::new();
     let mut reasons = Reasons {
         available: true,
         source: "hubspot".into(),
@@ -310,11 +381,14 @@ pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
             .map(|key| ((*key).into(), SourceCounts::default()))
             .collect(),
         items: Vec::new(),
+        selections: None,
         missing: 0,
         blank: 0,
         truncated: false,
     };
     for row in unique.values() {
+        let applicant = opaque(&[listing, row.id.as_str(), "applicant"]);
+        let application_date = row.value("yingmuri").and_then(date);
         for property in PROPERTIES {
             let counts = reasons
                 .source_counts
@@ -332,14 +406,39 @@ pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
                 continue;
             }
             counts.nonblank += 1;
+            if CATEGORY_PROPERTIES.contains(&property) {
+                // A multiple-choice value is written "a;b"; each chosen value is one selection.
+                let mut chosen: Vec<String> = text
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| {
+                        mask_personal_details(value)
+                            .chars()
+                            .take(MAX_VALUE_CHARS)
+                            .collect()
+                    })
+                    .collect();
+                chosen.sort();
+                chosen.dedup();
+                for value in chosen {
+                    let label = labels
+                        .and_then(|labels| labels.get(property))
+                        .and_then(|options| options.get(&value))
+                        .map(|label| label.chars().take(MAX_VALUE_CHARS).collect());
+                    selections.push(Selection {
+                        applicant: applicant.clone(),
+                        source_property: property.into(),
+                        value,
+                        label,
+                        application_date: application_date.clone(),
+                    });
+                }
+                continue;
+            }
             if reasons.items.len() == MAX_ITEMS {
                 reasons.truncated = true;
                 continue;
-            }
-            let mut hash = Sha256::new();
-            for part in [listing, row.id.as_str(), property] {
-                hash.update(part.as_bytes());
-                hash.update([0]);
             }
             // Masked before it is cut, so a cut never leaves half of an address behind.
             let bounded: String = mask_personal_details(text)
@@ -348,16 +447,18 @@ pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
                 .collect();
             reasons.truncated |= text.chars().count() > MAX_TEXT_CHARS;
             reasons.items.push(Reason {
-                id: format!("{:x}", hash.finalize()),
+                id: opaque(&[listing, row.id.as_str(), property]),
+                applicant: Some(applicant.clone()),
                 text: bounded,
                 source: "hubspot".into(),
                 source_property: property.into(),
-                application_date: row.value("yingmuri").and_then(date),
+                application_date: application_date.clone(),
                 collected_at: None,
                 version_id: None,
             });
         }
     }
+    reasons.selections = Some(selections);
     reasons
 }
 
@@ -398,11 +499,11 @@ mod tests {
         let reasons = extract_rows(&[a.clone(), a, b]);
         assert_eq!(
             (reasons.total_applicants, reasons.total_source_values),
-            (2, 6)
+            (2, 12)
         );
         assert_eq!(
             (reasons.missing, reasons.blank, reasons.items.len()),
-            (3, 1, 2)
+            (9, 1, 2)
         );
         assert_eq!(reasons.items[0].text, "Flexible hours");
         assert_eq!(
@@ -451,7 +552,7 @@ mod tests {
             .all(|item| item.text.chars().count() == MAX_TEXT_CHARS));
         assert!(reasons.truncated);
         assert_eq!(reasons.source_counts["oubodouki"].nonblank, MAX_ITEMS + 1);
-        assert_eq!(reasons.missing, (MAX_ITEMS + 1) * 2);
+        assert_eq!(reasons.missing, (MAX_ITEMS + 1) * 5);
     }
     #[test]
     fn addresses_phone_numbers_mail_and_names_are_masked() {
@@ -513,6 +614,98 @@ mod tests {
         let json = serde_json::to_string(&reasons).unwrap();
         assert!(!json.contains("府内町"));
         assert!(!json.contains("3丁目"));
+    }
+    #[test]
+    fn every_source_keeps_its_own_missing_blank_and_nonblank_counts() {
+        let rows = [
+            row(
+                "50",
+                &[
+                    (
+                        "genshokumaeshokukaranotenshokuriyuu",
+                        Some("給料が安いため"),
+                    ),
+                    ("ouboriyuukategori_hiaringu", Some("kyuuyo")),
+                    ("ouboriyuukategori_baitaikisai", Some("")),
+                    ("yingmuri", Some("2026-10-01")),
+                ],
+            ),
+            row(
+                "51",
+                &[
+                    ("genshokumaeshokukaranotenshokuriyuu", Some("  ")),
+                    ("ouboriyuukategori_hiaringu", Some("給与;勤務地")),
+                ],
+            ),
+        ];
+        let reasons = extract_rows(&rows);
+        let counts = |property: &str| {
+            let c = &reasons.source_counts[property];
+            (c.missing, c.blank, c.nonblank)
+        };
+        assert_eq!(reasons.source_counts.len(), 6);
+        assert_eq!(counts("genshokumaeshokukaranotenshokuriyuu"), (0, 1, 1));
+        assert_eq!(counts("ouboriyuukategori_hiaringu"), (0, 0, 2));
+        assert_eq!(counts("ouboriyuukategori_baitaikisai"), (1, 1, 0));
+        assert_eq!(counts("oubodouki"), (2, 0, 0));
+        // Texts only for the free-text sources; the select values are selections.
+        assert_eq!(reasons.items.len(), 1);
+        assert_eq!(
+            reasons.items[0].source_property,
+            "genshokumaeshokukaranotenshokuriyuu"
+        );
+        let selections = reasons.selections.as_ref().unwrap();
+        let values: Vec<_> = selections.iter().map(|s| s.value.as_str()).collect();
+        assert_eq!(values, ["kyuuyo", "勤務地", "給与"]);
+        assert!(selections.iter().all(|s| s.label.is_none()));
+        assert_eq!(
+            selections[0].application_date.as_deref(),
+            Some("2026-10-01")
+        );
+        // One applicant key per application, shared by its text and its selection.
+        assert_eq!(
+            selections[0].applicant,
+            reasons.items[0].applicant.clone().unwrap()
+        );
+        assert_eq!(selections[1].applicant, selections[2].applicant);
+        assert_ne!(selections[0].applicant, selections[1].applicant);
+        assert_eq!(selections[0].applicant.len(), 64);
+        let json = serde_json::to_string(&reasons).unwrap();
+        assert!(!json.contains("\"51\""));
+    }
+    #[test]
+    fn select_values_get_labels_from_the_definition_and_fall_back_to_the_value() {
+        let rows = [row(
+            "50",
+            &[(
+                "ouboriyuukategori_baitaikisai",
+                Some("kyuuyo;unknown_value"),
+            )],
+        )];
+        let labels: OptionLabels = BTreeMap::from([(
+            "ouboriyuukategori_baitaikisai".to_owned(),
+            BTreeMap::from([("kyuuyo".to_owned(), "給与".to_owned())]),
+        )]);
+        let reasons =
+            extract_with_labels("30", &rows, "2026-10-05T00:00:00Z".into(), Some(&labels));
+        let selections = reasons.selections.unwrap();
+        assert_eq!(selections.len(), 2);
+        assert_eq!(selections[0].value, "kyuuyo");
+        assert_eq!(selections[0].label.as_deref(), Some("給与"));
+        assert_eq!(selections[1].value, "unknown_value");
+        assert_eq!(selections[1].label, None);
+    }
+    #[test]
+    fn transfer_reason_texts_are_masked_like_every_other_text() {
+        let rows = [row(
+            "50",
+            &[(
+                "genshokumaeshokukaranotenshokuriyuu",
+                Some("上司の山田さんと合わず、090-1234-5678"),
+            )],
+        )];
+        let reasons = extract_rows(&rows);
+        assert_eq!(reasons.items[0].text, "上司の＊＊さんと合わず、＊＊");
     }
     #[test]
     fn verified_empty_read_differs_from_absent_optional_snapshot_field() {

@@ -53,6 +53,36 @@ fn valid_id(id: &str) -> Result<(), ReadError> {
     Ok(())
 }
 
+const OPTION_LABELS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const OPTION_LABELS_RETRY: Duration = Duration::from_secs(10 * 60);
+
+/// Reads `{results:[{name, options:[{value,label}]}]}` (HubSpot property batch read). Only the
+/// category selects are kept; None when the reply holds none of them.
+fn option_labels(data: &Value) -> Option<applicant_reasons::OptionLabels> {
+    let mut labels = applicant_reasons::OptionLabels::new();
+    for property in data["results"].as_array()? {
+        let Some(name) = property["name"]
+            .as_str()
+            .filter(|name| applicant_reasons::CATEGORY_PROPERTIES.contains(name))
+        else {
+            continue;
+        };
+        let options: BTreeMap<String, String> = property["options"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|option| {
+                let value = option["value"].as_str()?.trim();
+                let label = option["label"].as_str()?.trim();
+                (!value.is_empty() && !label.is_empty())
+                    .then(|| (value.to_owned(), label.to_owned()))
+            })
+            .collect();
+        labels.insert(name.to_owned(), options);
+    }
+    (!labels.is_empty()).then_some(labels)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Record {
     pub id: String,
@@ -495,25 +525,61 @@ impl JobReadService {
         }
         Ok((unambiguous, multi))
     }
+    /// Option labels (internal value -> label) of the reason category selects, from the
+    /// property definitions. Read once per OPTION_LABELS_TTL for each HubSpot base; a failed read
+    /// is not fatal (None: the screen shows the internal value) and is tried again only after
+    /// OPTION_LABELS_RETRY, so a missing scope never costs a read per request.
+    async fn reason_option_labels(&self) -> Option<applicant_reasons::OptionLabels> {
+        type Cache =
+            std::sync::Mutex<BTreeMap<String, (Instant, Option<applicant_reasons::OptionLabels>)>>;
+        static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
+        let cache = CACHE.get_or_init(Default::default);
+        if let Ok(cached) = cache.lock() {
+            if let Some((at, labels)) = cached.get(&self.base) {
+                let ttl = if labels.is_some() {
+                    OPTION_LABELS_TTL
+                } else {
+                    OPTION_LABELS_RETRY
+                };
+                if at.elapsed() < ttl {
+                    return labels.clone();
+                }
+            }
+        }
+        let read = self
+            .request(
+                "/crm/v3/properties/0-421/batch/read",
+                &[],
+                Some(json!({"archived":false,"inputs":applicant_reasons::CATEGORY_PROPERTIES.iter().map(|name|json!({"name":name})).collect::<Vec<_>>()})),
+            )
+            .await
+            .ok()
+            .and_then(|data| option_labels(&data));
+        if let Ok(mut cached) = cache.lock() {
+            cached.insert(self.base.clone(), (Instant::now(), read.clone()));
+        }
+        read
+    }
     pub async fn applicants(&self, company: &str, listing: &str) -> Result<Value, ReadError> {
         self.validate_customer_listing(company, listing).await?;
         let ids = self.all_associations("0-420", listing, "0-421").await?;
-        let rows = self
-            .batch(
-                "0-421",
-                &ids,
-                &[
-                    "yingmuri",
-                    "seibetsu",
-                    "nenrei",
-                    "todoufuken",
-                    "shikuchouson",
-                    "oubodouki",
-                    "ouboriyuu_baitaikisai",
-                    "ouboriyuu_hiaringu",
-                ],
-            )
-            .await?;
+        // Every reason source is asked for in the same batch read as the other application
+        // fields (no extra read per source).
+        let mut properties = vec![
+            "yingmuri",
+            "seibetsu",
+            "nenrei",
+            "todoufuken",
+            "shikuchouson",
+        ];
+        properties.extend(applicant_reasons::PROPERTIES);
+        // The option labels of the two category selects are read at the same time, and kept for
+        // a while (one definition read per OPTION_LABELS_TTL, not one per request).
+        let (rows, labels) = tokio::join!(
+            self.batch("0-421", &ids, &properties),
+            self.reason_option_labels()
+        );
+        let rows = rows?;
         // Missing/undefined properties remain unknown; do not turn an existing
         // appointment into zero applications. hs_appointment_start is synthesized
         // by the importer from yingmuri and does not prove the real event time.
@@ -523,7 +589,12 @@ impl JobReadService {
         // are still sent, the multi-job counts are left out (unknown, not 0), and no application
         // is put into a version's period (which needs to know it belongs to this job only).
         let links = self.listing_links(&ids, listing).await;
-        let reasons = applicant_reasons::extract(listing, &rows, chrono::Utc::now().to_rfc3339());
+        let reasons = applicant_reasons::extract_with_labels(
+            listing,
+            &rows,
+            chrono::Utc::now().to_rfc3339(),
+            labels.as_ref(),
+        );
         let mut response = json!({"listing_id":listing,"metric":"HubSpot応募レコード数","summary":null,"version_attribution":"日次観測との対応は別途必要。現在の関連による集計。","attribute_basis":"現在取得できる属性","billing":null,"capture_bundle":null,"dated_comparison":null,"capture_status":"not_configured_or_not_matched"});
         response["applicant_reasons"] =
             serde_json::to_value(reasons).map_err(|_| fail("reason_serialization_failed"))?;
@@ -614,6 +685,19 @@ fn round_snapshot_areas(data: &mut Value) {
     };
     for result in results {
         protect_applicant_areas(result);
+        if let Some(selections) = result["applicant_reasons"]["selections"].as_array_mut() {
+            for selection in selections {
+                for key in ["value", "label"] {
+                    if let Some(text) = selection[key].as_str() {
+                        let masked: String = applicant_reasons::mask_personal_details(text)
+                            .chars()
+                            .take(applicant_reasons::MAX_VALUE_CHARS)
+                            .collect();
+                        selection[key] = json!(masked);
+                    }
+                }
+            }
+        }
         if let Some(items) = result["applicant_reasons"]["items"].as_array_mut() {
             for item in items {
                 if let Some(text) = item["text"].as_str() {
@@ -2392,6 +2476,38 @@ mod tests {
         for raw in ["府内町", "山田", "090", "1234", "5678"] {
             assert!(!text.contains(raw), "{raw:?} left in {text}");
         }
+    }
+
+    #[test]
+    fn stored_selection_values_are_masked_before_sending() {
+        let mut data = json!({"results": [{
+            "listing_id": "30",
+            "summary": {"total": 1, "dimensions": {}},
+            "applicant_reasons": {"selections": [
+                {"value": "給与", "label": "給与"},
+                {"value": "090-1234-5678", "label": null}
+            ]}
+        }]});
+        round_snapshot_areas(&mut data);
+        let selections = &data["results"][0]["applicant_reasons"]["selections"];
+        assert_eq!(selections[0]["value"], "給与");
+        assert_eq!(selections[0]["label"], "給与");
+        assert_eq!(selections[1]["value"], "＊＊");
+        assert!(selections[1]["label"].is_null());
+    }
+
+    #[test]
+    fn option_labels_keep_only_the_category_selects() {
+        let labels = option_labels(&json!({"results":[
+            {"name":"ouboriyuukategori_hiaringu","options":[{"value":"a","label":"給与"},{"value":"","label":"x"}]},
+            {"name":"other","options":[{"value":"b","label":"y"}]}
+        ]}))
+        .unwrap();
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels["ouboriyuukategori_hiaringu"].len(), 1);
+        assert_eq!(labels["ouboriyuukategori_hiaringu"]["a"], "給与");
+        assert!(option_labels(&json!({"results":[]})).is_none());
+        assert!(option_labels(&json!({"message":"x"})).is_none());
     }
 
     #[test]

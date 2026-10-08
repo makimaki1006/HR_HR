@@ -656,6 +656,22 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
             {"from":{"id":"50"},"to":[{"toObjectId":"30"},{"toObjectId":31}]},
             {"from":{"id":"51"},"to":[{"toObjectId":"30"}]}
         ]}),
+        // A definition read is refused in ListingLinksDown, to check the label fallback.
+        "/crm/v3/properties/0-421/batch/read"
+            if matches!(fixture.scenario, Scenario::ListingLinksDown) =>
+        {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"message":"missing scope"})),
+            )
+                .into_response()
+        }
+        "/crm/v3/properties/0-421/batch/read" => json!({"status":"COMPLETE","results":[
+            {"name":"ouboriyuukategori_hiaringu","type":"enumeration","options":[
+                {"value":"kyuuyo","label":"給与"},{"value":"kinmuchi","label":"勤務地"},{"value":"mise","label":"未設定"}]},
+            {"name":"ouboriyuukategori_baitaikisai","type":"enumeration","options":[{"value":"kyuuyo","label":"給与"}]},
+            {"name":"unrelated","options":[{"value":"x","label":"y"}]}
+        ]}),
         "/crm/v3/objects/deals/batch/read"
         | "/crm/v3/objects/0-420/batch/read"
         | "/crm/v3/objects/0-421/batch/read" => {
@@ -673,7 +689,7 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
                         }
                         let props = match (path.as_str(), id) {
                             ("/crm/v3/objects/0-421/batch/read", "50") => {
-                                json!({"yingmuri":"2026-10-03","nenrei":"35","seibetsu":null,"oubodouki":"Flexible hours","ouboriyuu_baitaikisai":"  ","ouboriyuu_hiaringu":null})
+                                json!({"yingmuri":"2026-10-03","nenrei":"35","seibetsu":null,"oubodouki":"Flexible hours","ouboriyuu_baitaikisai":"  ","ouboriyuu_hiaringu":null,"genshokumaeshokukaranotenshokuriyuu":"山田さんの店が遠かった","ouboriyuukategori_hiaringu":"kyuuyo"})
                             }
                             ("/crm/v3/objects/0-421/batch/read", "51") => {
                                 json!({"yingmuri":null,"nenrei":null,"todoufuken":null})
@@ -723,7 +739,35 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
     assert_eq!(applicants["summary"]["dimensions"]["gender"]["不明"], 2);
     assert!(applicants.get("rows").is_none());
     assert_eq!(applicants["applicant_reasons"]["total_applicants"], 2);
-    assert_eq!(applicants["applicant_reasons"]["missing"], 4);
+    assert_eq!(applicants["applicant_reasons"]["missing"], 8);
+    assert_eq!(applicants["applicant_reasons"]["total_source_values"], 12);
+    let counts = &applicants["applicant_reasons"]["source_counts"];
+    assert_eq!(
+        counts["genshokumaeshokukaranotenshokuriyuu"],
+        json!({"missing":1,"blank":0,"nonblank":1})
+    );
+    assert_eq!(
+        counts["ouboriyuukategori_hiaringu"],
+        json!({"missing":1,"blank":0,"nonblank":1})
+    );
+    assert_eq!(
+        counts["ouboriyuukategori_baitaikisai"],
+        json!({"missing":2,"blank":0,"nonblank":0})
+    );
+    // The internal value is kept and the label comes from the property definition.
+    let selections = &applicants["applicant_reasons"]["selections"];
+    assert_eq!(selections.as_array().unwrap().len(), 1);
+    assert_eq!(selections[0]["value"], "kyuuyo");
+    assert_eq!(selections[0]["label"], "給与");
+    assert_eq!(selections[0]["application_date"], "2026-10-03");
+    // The transfer reason is masked like the other texts.
+    let texts: Vec<_> = applicants["applicant_reasons"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["text"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(texts, ["Flexible hours", "＊＊さんの店が遠かった"]);
     assert_eq!(applicants["applicant_reasons"]["blank"], 1);
     assert_eq!(
         applicants["applicant_reasons"]["items"][0]["text"],
@@ -776,9 +820,31 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
             "shikuchouson",
             "oubodouki",
             "ouboriyuu_baitaikisai",
-            "ouboriyuu_hiaringu"
+            "ouboriyuu_hiaringu",
+            "genshokumaeshokukaranotenshokuriyuu",
+            "ouboriyuukategori_hiaringu",
+            "ouboriyuukategori_baitaikisai"
         ])
     );
+    // One applicant batch read for all the reason sources, and one definition read.
+    let count = |path: &str| calls.iter().filter(|c| c.path == path).count();
+    assert_eq!(count("/crm/v3/objects/0-421/batch/read"), 1);
+    assert_eq!(count("/crm/v3/properties/0-421/batch/read"), 1);
+    let definition = calls
+        .iter()
+        .find(|c| c.path == "/crm/v3/properties/0-421/batch/read")
+        .unwrap();
+    assert_eq!(
+        definition.body["inputs"],
+        json!([{"name":"ouboriyuukategori_hiaringu"},{"name":"ouboriyuukategori_baitaikisai"}])
+    );
+    // A second read of the same job reuses the labels: no second definition read.
+    let again = service.applicants("10", "30").await.unwrap();
+    assert_eq!(again["applicant_reasons"]["selections"][0]["label"], "給与");
+    let calls = upstream.calls();
+    let count = |path: &str| calls.iter().filter(|c| c.path == path).count();
+    assert_eq!(count("/crm/v3/objects/0-421/batch/read"), 2);
+    assert_eq!(count("/crm/v3/properties/0-421/batch/read"), 1);
 }
 
 #[tokio::test]
@@ -795,6 +861,10 @@ async fn a_failed_listing_link_read_still_returns_totals_and_dates() {
         .is_none());
     assert!(applicants["listing_links_status"].is_string());
     assert!(applicants["dated_comparison"].is_null());
+    // The definition read was refused: the value is shown as it is, and the read still works.
+    let selection = &applicants["applicant_reasons"]["selections"][0];
+    assert_eq!(selection["value"], "kyuuyo");
+    assert!(selection["label"].is_null());
 }
 
 #[tokio::test]
