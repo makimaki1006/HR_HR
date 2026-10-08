@@ -99,7 +99,11 @@ describe('ordering', () => {
 
 describe('plainWording', () => {
   it('rewrites developer terms that come from server strings', () => {
-    expect(plainWording('既存市場レポートのctk_countで、応募者数ではありません。')).toBe('既存市場レポートのIndeed閲覧者指標で、応募者数ではありません。');
+    expect(plainWording('既存市場レポートのctk_countで、応募者数ではありません。')).toBe('Indeed閲覧者指標で、応募者数ではありません。');
+    expect(plainWording('既存市場レポートのctk_countで、応募者数ではありません。上流の計測定義は別途確認が必要です。')).toBe('Indeed閲覧者指標で、応募者数ではありません。細かい数え方はIndeed側の定義によります。');
+    expect(JARGON_PATTERN.test(plainWording('既存市場レポートのctk_countです。上流の計測定義は別途確認が必要です。'))).toBe(false);
+    expect(CAUSAL_PATTERN.test('市場環境と応募獲得の要因')).toBe(true);
+    expect(CAUSAL_PATTERN.test('応募獲得の要因・仮説')).toBe(false);
     expect(plainWording('変更検知日を基準に集計。媒体生成日が不明の観測は鮮度未確認。')).toBe('変更検知日を基準に集計。媒体生成日が不明の取得は鮮度未確認。');
     expect(plainWording('版対応不明3件')).toBe('どの版への応募か不明3件');
     expect(plainWording('過去CSV観測版')).toBe('過去CSV取得した版');

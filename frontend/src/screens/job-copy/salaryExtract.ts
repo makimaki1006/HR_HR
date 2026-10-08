@@ -1,7 +1,8 @@
 /**
  * Pull the pay condition out of a job body ("給与：月給250,000円〜280,000円").
  * There is no structured salary field, so this reads the labelled line only. When the line
- * exists but cannot be read, the kind is '不明' (never guessed from surrounding text).
+ * exists but cannot be read, the kind is '不明' (never guessed from surrounding text or from the
+ * size of the amount, and never only one end of a range).
  */
 export type SalaryKind = '月給' | '時給' | '日給' | '年収' | '不明';
 export interface SalaryInfo {
@@ -11,45 +12,77 @@ export interface SalaryInfo {
   max: number | null;
   /** The text after the label, as written in the body. */
   raw: string;
-  /** True when the kind was not written and was read from the amount alone (e.g. "4000000"). */
-  inferredKind: boolean;
 }
 
 const LABEL = /^\s*[【[（(]?\s*(給与|給料|賃金|報酬|月給|時給|日給|年収|年俸)\s*[】\]）)]?\s*(?:[：:]\s*|\s+|$|(?=\d))(.*)$/;
 const KINDS: Record<string, SalaryKind> = { 月給: '月給', 時給: '時給', 日給: '日給', 年収: '年収', 年俸: '年収' };
-const AMOUNT = /(\d+(?:\.\d+)?)\s*(万)?\s*円?/g;
+const KIND_WORD = /(月給|時給|日給|年収|年俸)/g;
+// "25万円", "1万2000円", "1,100円", "18" (a bare number). Group 3 is the digits right after 万.
+const AMOUNT = /(\d+(?:\.\d+)?)(?:\s*(万)(\d{1,4}(?![\d.]))?)?\s*(円)?/g;
+const RANGE_SEPARATOR = /^\s*[〜~\-–ー－]\s*$/;
+// The yen range a pay kind must fall in to be believable (時給 of 10万円 is a misread, not a fact).
+const PLAUSIBLE: Partial<Record<SalaryKind, [number, number]>> = {
+  時給: [100, 99_999], 日給: [1_000, 499_999], 月給: [10_000, 9_999_999], 年収: [100_000, 999_999_999],
+};
 
-function yen(number: string, man: string | undefined): number | null {
-  const value = Number(number);
-  if (!Number.isFinite(value)) return null;
-  return Math.round(man ? value * 10_000 : value);
+interface Token { value: number | null; unit: 'man' | 'yen' | 'none'; start: number; end: number }
+
+function tokens(text: string): Token[] {
+  const found: Token[] = [];
+  for (const match of text.matchAll(AMOUNT)) {
+    const [whole, number, man, after, en] = match;
+    if (number === undefined) continue;
+    const base = Number(number);
+    let value: number | null = Number.isFinite(base) ? base : null;
+    if (value !== null && man) {
+      // "1万2000円" is 12,000円. Digits after 万 without 円 cannot be read safely.
+      if (after !== undefined) value = en ? Math.round(value * 10_000 + Number(after)) : null;
+      else value = Math.round(value * 10_000);
+    }
+    found.push({ value, unit: man ? 'man' : en ? 'yen' : 'none', start: match.index, end: match.index + whole.length });
+  }
+  return found;
 }
 
-/** Reads one salary text such as "月給25万円〜28万円" or "時給1,100円". */
+const unreadable = (raw: string): SalaryInfo => ({ kind: '不明', min: null, max: null, raw });
+
+/** Reads one salary text such as "月給25万円〜28万円", "月給18〜25万円" or "日給1万2000円". */
 export function parseSalaryText(text: string): SalaryInfo {
   const raw = text.trim();
-  const normalized = raw.normalize('NFKC').replace(/(\d),(?=\d{3})/g, '$1');
-  const kindWord = /(月給|時給|日給|年収|年俸)/.exec(normalized)?.[1];
-  // Valid pay amounts with where they sit in the text.
-  const amounts: { value: number; start: number; end: number }[] = [];
-  for (const match of normalized.matchAll(AMOUNT)) {
-    const number = match[1];
-    if (number === undefined) continue;
-    const value = yen(number, match[2]);
-    // Skip hours, days and similar small numbers that are not pay amounts.
-    if (value !== null && (match[2] || match[0].includes('円') || value >= 500)) amounts.push({ value, start: match.index, end: match.index + match[0].length });
-    if (amounts.length === 2) break;
-  }
-  const first = amounts[0]; const second = amounts[1];
-  const min = first?.value ?? null;
+  // 日給月給 is a form of monthly pay.
+  const normalized = raw.normalize('NFKC').replace(/(\d),(?=\d{3})/g, '$1').replace(/日給月給/g, '月給');
+  const all = tokens(normalized);
+  const separated = (left: Token, right: Token | undefined) => Boolean(right && RANGE_SEPARATOR.test(normalized.slice(left.end, right.start)));
+  // The first pay amount. Hours and days ("8時間") are small bare numbers and are skipped, except a
+  // bare number right before "〜<amount with 万 or 円>", which is the bottom of a range ("18〜25万円").
+  const index = all.findIndex((token, at) => {
+    if (token.unit !== 'none' || (token.value !== null && token.value >= 500)) return true;
+    const next = all[at + 1];
+    return Boolean(next && next.unit !== 'none' && separated(token, next));
+  });
+  const first = all[index];
+  if (!first) return unreadable(raw);
+  // The kind word nearest before the first amount ("25万円 ※時給換算1,500円" has none before it).
+  const kindWord = [...normalized.slice(0, first.start).matchAll(KIND_WORD)].at(-1)?.[1];
+  const kind = kindWord ? KINDS[kindWord] ?? '不明' : '不明';
+  if (kind === '不明') return unreadable(raw);
+  const second = all[index + 1];
+  const adjacent = second !== undefined && separated(first, second);
+  let min = first.value;
+  // The bottom of "18〜25万円" takes the unit written after the top.
+  if (adjacent && first.unit === 'none' && min !== null && second.unit === 'man') min = Math.round(min * 10_000);
+  if (min === null) return unreadable(raw);
   // A range is only "<amount> 〜 <amount>" written next to each other. A later amount (an allowance,
-  // a training wage) is not the top of the range, and a top lower than the bottom is never accepted.
-  const adjacent = first && second && /^\s*[〜~\-–ー－]\s*$/.test(normalized.slice(first.end, second.start));
-  const max = adjacent && second.value >= first.value ? second.value : min;
-  if (kindWord) return { kind: KINDS[kindWord] ?? '不明', min, max, raw, inferredKind: false };
-  // Kind not written: only a 7-digit-or-more yen amount is read as annual pay (marked as inferred).
-  if (min !== null && min >= 1_000_000) return { kind: '年収', min, max, raw, inferredKind: true };
-  return { kind: '不明', min: null, max: null, raw, inferredKind: false };
+  // a training wage) is not the top of the range. A range that cannot be read is 不明, never one end.
+  let max = min;
+  if (adjacent) {
+    if (second.value === null) return unreadable(raw);
+    if (second.value >= min) max = second.value;
+    else if (first.unit === 'none') return unreadable(raw);
+  }
+  const bounds = PLAUSIBLE[kind];
+  if (bounds && (min < bounds[0] || max > bounds[1])) return unreadable(raw);
+  return { kind, min, max, raw };
 }
 
 /** null when the body has no salary line. */
@@ -66,7 +99,7 @@ export function extractSalary(body: string | null | undefined): SalaryInfo | nul
       // Label on its own line ("【給与】" then the amount on the next line).
       rest = lines.slice(index + 1).find(next => next.trim() !== '')?.trim() ?? '';
     }
-    if (!rest) return { kind: '不明', min: null, max: null, raw: '', inferredKind: false };
+    if (!rest) return unreadable('');
     return parseSalaryText(KINDS[label] && !/(月給|時給|日給|年収|年俸)/.test(rest) ? `${label}${rest}` : rest);
   }
   return null;
@@ -78,13 +111,13 @@ export function sameSalary(left: SalaryInfo | null, right: SalaryInfo | null): b
 }
 
 const man = (value: number) => `${(value / 10_000).toLocaleString('ja-JP', { maximumFractionDigits: 1 })}万`;
-/** Short label for the timeline ("月給25万〜28万円", "時給1,100円", "年収400万円（推定表記）"). */
+/** Short label for the timeline ("月給25万〜28万円", "時給1,100円", "日給12,000円"). */
 export function salaryLabel(info: SalaryInfo | null): string {
   if (!info) return '給与の記載なし';
   if (info.kind === '不明' || info.min === null) return '不明';
   const format = (value: number) => info.kind === '時給' || info.kind === '日給' ? value.toLocaleString('ja-JP') : man(value);
   const range = info.max !== null && info.max !== info.min ? `${format(info.min)}〜${format(info.max)}` : format(info.min);
-  return `${info.kind}${range}円${info.inferredKind ? '（推定表記）' : ''}`;
+  return `${info.kind}${range}円`;
 }
 
 /** True when the line is the salary line (used to tell salary edits from other body edits). */

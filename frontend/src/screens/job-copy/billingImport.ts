@@ -167,7 +167,9 @@ const MEDIA_ALIASES: Readonly<Record<string, BillingMedia>> = {
 };
 /** 媒体名を求人一覧の表記にそろえる。知らない媒体は null。 */
 export function canonicalMedia(value: string): BillingMedia | null {
-  return MEDIA_ALIASES[value.normalize('NFKC').replace(/[\s\-_・]/gu, '').toLowerCase()] ?? null;
+  const key = value.normalize('NFKC').replace(/[\s\-_・]/gu, '').toLowerCase();
+  // Own keys only: "constructor" or "__proto__" must not resolve to something on Object.prototype.
+  return Object.hasOwn(MEDIA_ALIASES, key) ? MEDIA_ALIASES[key] ?? null : null;
 }
 
 /**

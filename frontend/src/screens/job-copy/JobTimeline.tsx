@@ -1,30 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
-import { apiGet } from '../../api/client';
 import { EChart } from '../../components/EChart';
 import type { JobCopyRecord } from './data';
-import { demoMarketData } from './data';
 import { marketRows } from './marketChartModel';
 import type { MarketData, MarketRow } from './marketChartModel';
+import { useMarketFetch } from './marketSource';
 import { chooseMarket } from './marketMatch';
 import { salaryLabel } from './salaryExtract';
 import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
 import {
   addDays, applicationBuckets, bodyMark, asOfDate, billingEntries, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
-  marketLane, periodRows, positionOf, timelineRange, versionChanges, applicationsOutsidePeriods,
+  marketDataUntil, marketLane, periodRows, positionOf, timelineRange, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange } from './timelineModel';
+import { DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
 import './timeline.css';
-
-type MarketFetch = (title: string, prefecture: string) => Promise<{ ok: true; data: MarketData } | { ok: false }>;
-const apiMarket: MarketFetch = async (title, prefecture) => {
-  const params = title && prefecture ? `?${new URLSearchParams({ title, prefecture }).toString()}` : '';
-  const result = await apiGet<MarketData>(`/api/job-copy/market${params}`);
-  return result.ok ? { ok: true, data: result.data } : { ok: false };
-};
-const demoMarket: MarketFetch = (title, prefecture) => Promise.resolve({ ok: true, data: demoMarketData(title, prefecture) });
 
 interface MarketState {
   status: 'loading' | 'ready' | 'error';
@@ -37,6 +29,11 @@ interface MarketState {
   prefectureBy: 'auto' | 'user' | 'none';
   rows: MarketRow[] | null;
   /**
+   * The rows shown before the choice was changed. The 市場 chart keeps drawing them while the new
+   * months load, so the chart is updated in place instead of being destroyed and created again.
+   */
+  staleRows: MarketRow[] | null;
+  /**
    * A retry pressed by the user is running. The retry button stays on screen (aria-disabled) until
    * it ends, so keyboard focus is not dropped to the page body.
    */
@@ -46,8 +43,8 @@ interface MarketState {
 interface MarketFocus { retryButton: RefObject<HTMLButtonElement | null>; titleSelect: RefObject<HTMLSelectElement | null> }
 
 function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: MarketFocus) {
-  const fetchMarket = mode === 'demo' ? demoMarket : apiMarket;
-  const [state, setState] = useState<MarketState>({ status: 'loading', meta: null, title: '', prefecture: '', titleBy: 'none', prefectureBy: 'none', rows: null, retrying: false });
+  const fetchMarket = useMarketFetch(mode);
+  const [state, setState] = useState<MarketState>({ status: 'loading', meta: null, title: '', prefecture: '', titleBy: 'none', prefectureBy: 'none', rows: null, staleRows: null, retrying: false });
   // attempt: re-fetch the list of occupations / prefectures. seriesAttempt: re-fetch only the
   // months for the current choice (a retry after the list was read keeps a hand-picked choice).
   const [attempt, setAttempt] = useState(0);
@@ -56,7 +53,7 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
     let cancelled = false;
     void fetchMarket('', '').then(result => {
       if (cancelled) return;
-      if (!result.ok) { setState(previous => ({ ...previous, status: 'error', rows: null, retrying: false })); return; }
+      if (!result.ok) { setState(previous => ({ ...previous, status: 'error', rows: null, staleRows: null, retrying: false })); return; }
       const choice = chooseMarket(job, result.data.titles, result.data.prefectures);
       setState(previous => {
         // A choice the user made by hand stays when it is still in the list.
@@ -67,9 +64,9 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
         const titleBy: MarketState['titleBy'] = keepTitle ? 'user' : choice.title ? (choice.titleHow === 'exact' ? 'auto-exact' : 'auto-partial') : 'none';
         const prefectureBy: MarketState['prefectureBy'] = keepPrefecture ? 'user' : choice.prefecture ? 'auto' : 'none';
         const status: MarketState['status'] = title && prefecture ? 'loading' : 'ready';
-        return { status, meta: result.data, title, prefecture, titleBy, prefectureBy, rows: null, retrying: previous.retrying && status === 'loading' };
+        return { status, meta: result.data, title, prefecture, titleBy, prefectureBy, rows: null, staleRows: null, retrying: previous.retrying && status === 'loading' };
       });
-    }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null, retrying: false })); });
+    }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null, staleRows: null, retrying: false })); });
     return () => { cancelled = true; };
   }, [job, fetchMarket, attempt]);
   const { title, prefecture, meta } = state;
@@ -81,15 +78,17 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
       // A failed request keeps rows null: [] means "this choice has no market data", which is a
       // different message from "could not be fetched".
       setState(previous => result.ok
-        ? { ...previous, status: 'ready', rows: result.data.series ? marketRows(result.data.series) : [], retrying: false }
-        : { ...previous, status: 'error', rows: null, retrying: false });
-    }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null, retrying: false })); });
+        ? { ...previous, status: 'ready', rows: result.data.series ? marketRows(result.data.series) : [], staleRows: null, retrying: false }
+        : { ...previous, status: 'error', rows: null, staleRows: null, retrying: false });
+    }).catch(() => { if (!cancelled) setState(previous => ({ ...previous, status: 'error', rows: null, staleRows: null, retrying: false })); });
     return () => { cancelled = true; };
   }, [meta, title, prefecture, fetchMarket, seriesAttempt]);
   const choose = (next: { title?: string; prefecture?: string }) => {
     setState(previous => {
       const title = next.title ?? previous.title; const prefecture = next.prefecture ?? previous.prefecture;
-      return { ...previous, title, prefecture, titleBy: next.title === undefined ? previous.titleBy : 'user', prefectureBy: next.prefecture === undefined ? previous.prefectureBy : 'user', rows: null, status: title && prefecture ? 'loading' : 'ready' };
+      const status: MarketState['status'] = title && prefecture ? 'loading' : 'ready';
+      return { ...previous, title, prefecture, titleBy: next.title === undefined ? previous.titleBy : 'user', prefectureBy: next.prefecture === undefined ? previous.prefectureBy : 'user', rows: null,
+        staleRows: status === 'loading' ? previous.rows ?? previous.staleRows : null, status };
     });
   };
   // When a retry ends, focus moves to the 職種 select (or stays on the retry button when it failed again).
@@ -151,6 +150,7 @@ function marketText(market: MarketChangeResult, status: MarketState['status'] = 
   }
   if (market.reason === 'not_selected') return '市場を選ぶと表示';
   if (market.reason === 'same_month') return `同じ月の中（${formatMonth(market.month ?? '')} ${market.jobs?.toLocaleString('ja-JP') ?? ''}件${noDataNote(market.noDataFrom)}）`;
+  if (market.reason === 'after_data' && market.lastDataMonth) return `データなし（市場データは${formatMonth(market.lastDataMonth)}まで）`;
   return 'データなし';
 }
 /** Text for the screen-reader live region of the market lane. */
@@ -160,11 +160,21 @@ function marketStatusText(state: MarketState): string {
   if (state.rows?.length) return `市場データを表示しました（${state.title}・${state.prefecture}）`;
   return '';
 }
-function billingText(row: PeriodRow): string {
-  if (!row.billing.connected) return '課金データなし';
+function realBillingText(row: PeriodRow): string | null {
+  if (!row.billing.connected) return null;
   if (row.billing.overlapping) return '期間が重なる課金あり（合計していません）';
-  if (row.billing.yen === null) return row.billing.missingAmount ? '金額の記載なし' : 'この期間の課金データなし';
+  if (row.billing.yen === null) return row.billing.missingAmount ? '金額の記載なし' : row.billing.entries === 0 ? null : 'この期間の課金データなし';
   return `${row.billing.prorated ? '約' : ''}${formatYen(row.billing.yen)}${row.billing.missingAmount ? '（金額の記載がない期間あり）' : ''}`;
+}
+/**
+ * The 課金額 cell. A real amount and the dummy amount are written side by side with the dummy
+ * labelled, never added into one number.
+ */
+export function billingText(row: PeriodRow): string {
+  const real = realBillingText(row);
+  const dummy = row.dummyBilling ? `${DUMMY_BILLING_LABEL} ${row.dummyBilling.prorated ? '約' : ''}${formatYen(row.dummyBilling.yen)}` : null;
+  if (real && dummy) return `${real} ／ ${dummy}`;
+  return real ?? dummy ?? (row.billing.connected ? 'この期間の課金データなし' : '課金データなし');
 }
 
 function axisMonths(range: TimelineRange) {
@@ -199,7 +209,7 @@ export function JobTimeline(props: JobTimelineProps) {
 
 function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenVersion, onCompareVersions, now }: JobTimelineProps) {
   const asOf = asOfDate(job, now);
-  const billing = useMemo(() => billingEntries(job, injected), [job, injected]);
+  const billing = useMemo(() => billingEntries(job, injected, { asOf }), [job, injected, asOf]);
   const periods = useMemo(() => buildPeriods(job, asOf), [job, asOf]);
   const changes = useMemo(() => versionChanges(job), [job]);
   const range = useMemo(() => timelineRange(job, asOf, billing), [job, asOf, billing]);
@@ -217,7 +227,9 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   }, [selected]);
   const applications = job.overallApplications;
   const buckets = useMemo(() => applicationBuckets(applications?.byDate, granularity), [applications, granularity]);
-  const lane = useMemo(() => range && market.state.rows ? marketLane(market.state.rows, range) : null, [range, market.state.rows]);
+  // While a new choice loads, the chart keeps the previous rows (staleRows) so it is not torn down.
+  const laneRows = market.state.rows ?? (market.state.status === 'loading' ? market.state.staleRows : null);
+  const lane = useMemo(() => range && laneRows ? marketLane(laneRows, range) : null, [range, laneRows]);
   const captured = periods.some(period => period.basis === 'captured');
 
   const applicationOption = useMemo<EChartsCoreOption | null>(() => {
@@ -266,6 +278,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const sameKind = salaryValues.filter(info => info?.kind === salaryKind).map(info => info?.min ?? 0);
   const low = Math.min(...sameKind); const high = Math.max(...sameKind);
   const csvBilling = billing.some(entry => entry.source === 'csv');
+  const hasDummyBilling = billing.some(isDummyBilling);
   const outside = applicationsOutsidePeriods(job, rows);
   const marketMeta = market.state.meta;
 
@@ -326,12 +339,16 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         </button>)}
       </Lane>
 
-      <Lane title="課金" source={csvBilling ? 'HRハッカー実績・読み込んだ課金CSV' : 'HRハッカーの期間別実績'}>
-        {billing.length ? billing.map(entry => <div key={`${entry.source}-${String(entry.sourceRow ?? '')}-${entry.start}-${entry.end}`} className={`jt-billing jt-billing-${entry.source}`} style={span(range, entry.start, addDays(entry.end, 1))}
-          title={`${formatDay(entry.start)}〜${formatDay(entry.end)}: ${entry.amountYen === null ? '金額の記載なし' : `${entry.amountYen.toLocaleString('ja-JP')}円`}${entry.taxIncluded === true ? '（税込）' : entry.taxIncluded === false ? '（税抜）' : ''}${entry.plan ? ` · ${entry.plan}` : ''}`}>
-          <span>{entry.amountYen === null ? '金額なし' : formatYen(entry.amountYen)}</span></div>)
+      <Lane title="課金" source={[csvBilling ? 'HRハッカー実績・読み込んだ課金CSV' : 'HRハッカーの期間別実績', hasDummyBilling ? DUMMY_BILLING_LABEL : ''].filter(Boolean).join('・')}>
+        {billing.length ? billing.map(entry => {
+          const dummy = isDummyBilling(entry);
+          return <div key={`${entry.source}-${String(entry.sourceRow ?? '')}-${entry.start}-${entry.end}`} className={`jt-billing jt-billing-${entry.source}`} style={span(range, entry.start, addDays(entry.end, 1))}
+            title={`${dummy ? `${DUMMY_BILLING_LABEL} ` : ''}${formatDay(entry.start)}〜${formatDay(entry.end)}: ${entry.amountYen === null ? '金額の記載なし' : `${entry.amountYen.toLocaleString('ja-JP')}円`}${entry.taxIncluded === true ? '（税込）' : entry.taxIncluded === false ? '（税抜）' : ''}${entry.plan && !dummy ? ` · ${entry.plan}` : ''}`}>
+            <span>{dummy ? 'ダミー ' : ''}{entry.amountYen === null ? '金額なし' : formatYen(entry.amountYen)}</span></div>;
+        })
           : <p className="jt-empty jt-unconnected">課金データなし（0円という意味ではありません）</p>}
       </Lane>
+      {hasDummyBilling && <p className="jt-dummy-billing" role="note">{DUMMY_BILLING_NOTE}</p>}
       {csvBilling && <p className="jt-volatile" role="note">読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。</p>}
 
       <Lane title="応募" source="応募日ごとの件数" className="jt-lane-chart">
@@ -344,7 +361,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       </div>
 
       <Lane title="市場" source="Indeed（都道府県・職種の月ごと）" className="jt-lane-chart">
-        {lane?.noDataFrom && <div className="jt-nodata" style={span(range, `${lane.noDataFrom}-01` > range.start ? `${lane.noDataFrom}-01` : range.start, addDays(range.end, 1))} title="Indeed の市場データは取得済みの月までです">データなし</div>}
+        {lane?.noDataFrom && <div className="jt-nodata" style={span(range, `${lane.noDataFrom}-01` > range.start ? `${lane.noDataFrom}-01` : range.start, addDays(range.end, 1))} title={lane.lastDataMonth ? marketDataUntil(lane.lastDataMonth) : undefined}>データなし</div>}
+        {marketOption && market.state.status === 'loading' && <p className="jt-empty jt-market-loading" role="status">市場データを取得中…</p>}
         {marketOption ? <EChart option={marketOption} testId="jt-market" height={72} renderer="svg" />
           : <p className="jt-empty">{market.state.status === 'loading' ? '市場データを取得中…' : market.state.status === 'error' ? '市場データを取得できませんでした' : !market.state.title ? '職種を選ぶと市場の動きを表示します' : !market.state.prefecture ? '都道府県を選ぶと市場の動きを表示します' : 'この職種・都道府県の市場データはありません'}</p>}
       </Lane>
@@ -358,7 +376,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         </>}
         {(market.state.status === 'error' || market.state.retrying) && <button type="button" ref={retryButton} className="jc-button" aria-disabled={market.state.status === 'loading'} onClick={market.retry}>市場データを再取得</button>}
         <span className="jc-visually-hidden" role="status">{marketStatusText(market.state)}</span>
-        {lane?.noDataFrom && lane.lastDataMonth && <span>{formatMonth(lane.noDataFrom)}以降は市場データがありません（{formatMonth(lane.lastDataMonth)}まで）</span>}
+        {lane?.lastDataMonth && <span className="jt-market-until">{marketDataUntil(lane.lastDataMonth)}{lane.noDataFrom ? `。${formatMonth(lane.noDataFrom)}以降はデータなしとして表示しています` : ''}</span>}
       </div>
     </div>
 

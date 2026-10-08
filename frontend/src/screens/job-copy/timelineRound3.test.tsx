@@ -22,6 +22,9 @@ import { parseMediaCapture } from './mediaCaptureParser';
 const charts = vi.hoisted(() => ({ props: [] as EChartProps[] }));
 const api = vi.hoisted(() => vi.fn());
 vi.mock('../../api/client', () => ({ apiGet: api }));
+// These tests check the screen without the dummy billing (the state once real billing is
+// connected and DUMMY_BILLING_ENABLED is set to false). timelineRound4.test.tsx covers the dummy.
+vi.mock('./dummyBilling', async (original) => ({ ...await original<typeof import('./dummyBilling')>(), DUMMY_BILLING_ENABLED: false }));
 vi.mock('../../components/EChart', () => ({ EChart: (props: EChartProps) => { charts.props.push(props); return <div data-testid={props.testId}>グラフ</div>; } }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.restoreAllMocks(); charts.props = []; });
 

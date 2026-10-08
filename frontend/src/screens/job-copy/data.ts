@@ -242,8 +242,8 @@ export const jobs: JobCopyRecord[] = [
 
 /**
  * Fictional market data for demo mode (no request to /api/job-copy/market). Like the real Indeed
- * data it is monthly by prefecture and ends at 2026-08, so the timeline shows the months after it
- * as a no-data period.
+ * data it is monthly by prefecture and ends at a fixed month (2026-08 here), so the timeline shows
+ * the months after it as a no-data period. The screen reads the last month from the data.
  */
 const demoMarketMonths = Array.from({ length: 14 }, (_, index) => {
   const month = 7 + index;

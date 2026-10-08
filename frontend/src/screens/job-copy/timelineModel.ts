@@ -15,6 +15,7 @@ import type { BillingPeriod } from './billingTypes';
 import { extractSalary, isSalaryLine, sameSalary } from './salaryExtract';
 import { formatYen as formatYenJa } from './format';
 import type { SalaryInfo } from './salaryExtract';
+import { DUMMY_BILLING_ENABLED, dummyBillingEntries, isDummyBilling, withoutRealDays } from './dummyBilling';
 
 const DAY_MS = 86_400_000;
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -57,10 +58,11 @@ export function asOfDate(job: JobCopyRecord, now?: Date  ): string {
 /**
  * One billing period. The CSV import team passes these in (source 'csv'); HRハッカー rows already
  * in the snapshot become source 'hrhacker'. Dates are inclusive YYYY-MM-DD. amountYen null means
- * the amount was not given (never shown as 0).
+ * the amount was not given (never shown as 0). source 'dummy' is the made-up billing from
+ * dummyBilling.ts: always labelled on screen and never added to a real amount.
  */
 export interface BillingEntry {
-  source: 'hrhacker' | 'csv';
+  source: 'hrhacker' | 'csv' | 'dummy';
   start: string;
   end: string;
   amountYen: number | null;
@@ -105,7 +107,34 @@ export function billingOverlaps(entries: readonly BillingEntry[]): boolean {
   return false;
 }
 
-export function billingEntries(job: JobCopyRecord, injected?: readonly BillingEntry[]): BillingEntry[] {
+export interface BillingOptions {
+  /** Day the dummy billing runs up to (default: the day the application counts were taken). */
+  asOf?: string | undefined;
+  /** Add the dummy billing for the days with no real billing (default DUMMY_BILLING_ENABLED). */
+  dummy?: boolean | undefined;
+}
+
+/**
+ * Real billing (HRハッカー実績 + billing CSV) and, for the days no real row covers, the dummy
+ * billing. Use realBilling() / dummyBilling() to read them apart; never add the two together.
+ */
+export function billingEntries(job: JobCopyRecord, injected?: readonly BillingEntry[], options: BillingOptions = {}): BillingEntry[] {
+  const real = realBillingEntries(job, injected);
+  if (!(options.dummy ?? DUMMY_BILLING_ENABLED)) return real;
+  const asOf = options.asOf ?? asOfDate(job);
+  const first = buildPeriods(job, asOf)[0]?.start;
+  if (!first) return real;
+  const dummy = withoutRealDays(dummyBillingEntries(job.id, job.media, first, asOf), real);
+  return [...real, ...dummy].sort((a, b) => a.start.localeCompare(b.start) || a.source.localeCompare(b.source));
+}
+export function realBilling(entries: readonly BillingEntry[]): BillingEntry[] {
+  return entries.filter(entry => !isDummyBilling(entry));
+}
+export function dummyBilling(entries: readonly BillingEntry[]): BillingEntry[] {
+  return entries.filter(entry => isDummyBilling(entry));
+}
+
+function realBillingEntries(job: JobCopyRecord, injected?: readonly BillingEntry[]): BillingEntry[] {
   const fromHrh: BillingEntry[] = (job.hrhPerformance?.rows ?? []).map(row => ({
     source: 'hrhacker', start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null,
     media: 'HRハッカー', mediaJobId: job.mediaJobId, impressions: row.impressions, clicks: row.clicks, mediaApplications: row.applications,
@@ -163,7 +192,10 @@ export interface VersionChange {
   date: string;
   index: number;
   salary: SalaryInfo | null;
-  /** null for the first version, or when either salary could not be read. */
+  /**
+   * null for the first version. Otherwise true when the salary line text differs from the previous
+   * version (even when both read as the same amount), false when it is the same.
+   */
   salaryChanged: boolean | null;
   /**
    * Which way the pay moved when salaryChanged is true: 'up' / 'down' compare the lower bound (then
@@ -187,17 +219,26 @@ function direction(before: SalaryInfo | null, after: SalaryInfo | null): 'up' | 
   return 'other';
 }
 
+/** The salary line as written, ignoring width and spacing. null when the body has no salary line. */
+function salaryLineKey(info: SalaryInfo | null): string | null {
+  return info ? info.raw.normalize('NFKC').replace(/\s+/gu, '') : null;
+}
+
 export function versionChanges(job: JobCopyRecord): VersionChange[] {
   const versions = publishedVersions(job);
   return versions.map((version, index) => {
     const previous = versions[index - 1];
     const salary = extractSalary(version.body);
     const previousSalary = previous ? extractSalary(previous.body) : null;
-    const salaryChanged = !previous ? null
-      : salary?.kind === '不明' || previousSalary?.kind === '不明' ? null
-        : !sameSalary(previousSalary, salary);
+    // The salary line text decides whether the salary changed; the parsed amounts only decide the
+    // direction. Two different lines that read as the same amount ("月給25万円" → "月給250,000円", or a
+    // misread) are still a change ('other'), never "no change".
+    const lineChanged = salaryLineKey(previousSalary) !== salaryLineKey(salary);
+    const salaryChanged = !previous ? null : lineChanged;
     const result = compareCopy(previous?.body ?? null, version.body);
-    const salaryDirection = salaryChanged ? direction(previousSalary, salary) : null;
+    const salaryDirection = !salaryChanged ? null
+      : salary?.kind === '不明' || previousSalary?.kind === '不明' || sameSalary(previousSalary, salary) ? 'other'
+        : direction(previousSalary, salary);
     const changed = result.lines.filter(line => line.kind !== 'same');
     const images = compareImages(referenceImages(previous), referenceImages(version));
     const imageChange: ImageChange = !previous ? (referenceImages(version) ? 'initial' : 'unknown')
@@ -287,7 +328,7 @@ export function positionOf(date: string, range: TimelineRange): number {
 export interface MarketLanePoint { month: string; jobs: number | null; viewers: number | null }
 export interface MarketLane {
   points: MarketLanePoint[];
-  /** Last month with a market value at all (2026-08 at the time of writing). */
+  /** Last month with a market value at all, read from the data (it moves forward every month). */
   lastDataMonth: string | null;
   /** First month in the range after the data ends; null when the data covers the whole range. */
   noDataFrom: string | null;
@@ -314,7 +355,11 @@ export interface MarketChange {
   /** First month of the period with no market data (the period runs past the data); null otherwise. */
   noDataFrom: string | null;
 }
-export type MarketChangeResult = { ok: true; value: MarketChange } | { ok: false; reason: 'not_selected' | 'no_data' | 'same_month'; month?: string; jobs?: number | null; noDataFrom?: string | null };
+/**
+ * 'after_data': the whole period is after the last month with market data (the data is refreshed
+ * monthly and has not reached the period yet). lastDataMonth says up to which month there is data.
+ */
+export type MarketChangeResult = { ok: true; value: MarketChange } | { ok: false; reason: 'not_selected' | 'no_data' | 'same_month' | 'after_data'; month?: string; jobs?: number | null; noDataFrom?: string | null; lastDataMonth?: string | null };
 
 /**
  * Market job count at the month of the first day vs the month of the last day. When the period runs
@@ -326,7 +371,8 @@ export function marketChange(rows: readonly MarketRow[] | null, firstDay: string
   const lastDataMonth = rows.filter(row => row.jobs !== null).map(row => row.month).sort().at(-1) ?? null;
   const fromMonth = monthOf(firstDay); let toMonth = monthOf(lastDay);
   let noDataFrom: string | null = null;
-  if (lastDataMonth !== null && toMonth > lastDataMonth && fromMonth <= lastDataMonth) { noDataFrom = nextMonth(lastDataMonth); toMonth = lastDataMonth; }
+  if (lastDataMonth !== null && fromMonth > lastDataMonth) return { ok: false, reason: 'after_data', noDataFrom: nextMonth(lastDataMonth), lastDataMonth };
+  if (lastDataMonth !== null && toMonth > lastDataMonth) { noDataFrom = nextMonth(lastDataMonth); toMonth = lastDataMonth; }
   const from = rows.find(row => row.month === fromMonth)?.jobs ?? null;
   const to = rows.find(row => row.month === toMonth)?.jobs ?? null;
   if (fromMonth === toMonth) return { ok: false, reason: from === null ? 'no_data' : 'same_month', month: fromMonth, jobs: from, noDataFrom };
@@ -354,7 +400,10 @@ export interface PeriodRow {
    * not known yet (null), which is different from 0.
    */
   afterCounts: boolean;
+  /** Real billing only (HRハッカー実績 and the billing CSV). */
   billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number; overlapping: boolean };
+  /** The dummy billing for the days in the period with no real billing; null when there is none. Never added to billing. */
+  dummyBilling: { yen: number; prorated: boolean } | null;
   market: MarketChangeResult;
 }
 
@@ -378,13 +427,20 @@ function billingFor(entries: readonly BillingEntry[], start: string, endExclusiv
   return { connected: true, yen: count === 0 || overlapping || (missingAmount && yen === 0) ? null : Math.round(yen), prorated, missingAmount, entries: count, overlapping };
 }
 
+function dummyFor(entries: readonly BillingEntry[], start: string, endExclusive: string): PeriodRow['dummyBilling'] {
+  const summary = billingFor(entries, start, endExclusive);
+  return summary.connected && summary.yen !== null && summary.entries > 0 ? { yen: summary.yen, prorated: summary.prorated } : null;
+}
+
 /**
  * The period comparison table: one row per version period (plus gaps between periods), with
  * applications per day so periods of different length can be read side by side.
  */
-export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?: readonly BillingEntry[] | undefined; market?: readonly MarketRow[] | null | undefined }): PeriodRow[] {
+export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?: readonly BillingEntry[] | undefined; market?: readonly MarketRow[] | null | undefined; dummyBilling?: boolean | undefined }): PeriodRow[] {
   const { asOf } = options;
-  const billing = billingEntries(job, options.billing);
+  const all = billingEntries(job, options.billing, { asOf, dummy: options.dummyBilling });
+  const billing = realBilling(all);
+  const dummy = dummyBilling(all);
   const byDate = job.overallApplications?.byDate;
   const periods = buildPeriods(job, asOf);
   const rows: PeriodRow[] = [];
@@ -394,7 +450,7 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
     const afterCounts = start > asOf;
     const applications = byDate === undefined || afterCounts ? null : countApplications(byDate, start, endExclusive < start ? start : endExclusive);
     return { key, kind, label, versionId, start, end, lastDay, days, ongoing, applications, perDay: applications !== null && days > 0 ? applications / days : null, afterCounts,
-      billing: billingFor(billing, start, endExclusive), market: marketChange(options.market ?? null, start, lastDay) };
+      billing: billingFor(billing, start, endExclusive), dummyBilling: dummyFor(dummy, start, endExclusive), market: marketChange(options.market ?? null, start, lastDay) };
   };
   periods.forEach((period, index) => {
     rows.push(make(period.versionId, 'period', period.label, period.versionId, period.start, period.end, period.days, period.ongoing));
@@ -421,6 +477,17 @@ export function formatYen(value: number): string {
 }
 export function formatDay(date: string): string {
   return date.replaceAll('-', '/');
+}
+/**
+ * 「市場データは2026年8月まで（毎月更新）」. The month is read from the market data itself, never
+ * written into the code, because the Indeed data is refreshed every month.
+ */
+export function marketDataUntil(month: string): string {
+  return `市場データは${String(Number(month.slice(0, 4)))}年${String(Number(month.slice(5, 7)))}月まで（毎月更新）`;
+}
+/** The last month with any market value in the rows; null when there is none. */
+export function lastMarketMonth(rows: readonly MarketRow[]): string | null {
+  return rows.filter(row => row.jobs !== null || row.viewers !== null).map(row => row.month).sort().at(-1) ?? null;
 }
 /** "2026-08" → "2026/08" (the same YYYY/MM form as formatDateJst). */
 export function formatMonth(month: string): string {

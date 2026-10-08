@@ -12,7 +12,7 @@ vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }
 // サーバーが実際に返す説明文（src/handlers/job_copy_market.rs）と同じ開発用の言葉を含める。
 const market = {
   source: 'Indeed 採用市場レポート（求人企業向け）', titles: ['配送ドライバー'], prefectures: ['大分県'],
-  ctk_basis: 'Indeed上の行動データで労働市場全体ではありません。既存市場レポートのctk_countで、応募者数やHRハッカーのクリック数ではありません。',
+  ctk_basis: 'Indeed上の行動データで労働市場全体ではありません。既存市場レポートのctk_countで、応募者数やHRハッカーのクリック数ではありません。上流の計測定義は別途確認が必要です。',
   series: { prefecture: '大分県', months: ['2026-07', '2026-08'], job_count: [120, 130], ctk_count: [900, 950], employer_count: [40, 41], seekers_per_posting: [7.5, 7.3] },
 };
 

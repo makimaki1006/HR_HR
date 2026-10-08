@@ -25,6 +25,8 @@ import { HubSpotReadPanel } from './HubSpotReadPanel';
 import { HUBSPOT_BODY_SOURCE } from './liveApplications';
 import { JobTimeline } from './JobTimeline';
 import { JobOverview } from './JobOverview';
+import { MarketCacheContext } from './marketSource';
+import type { MarketCache } from './marketSource';
 import { billingEntriesByJob } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
 import type { ConsultantDraft } from './ConsultantReview';
@@ -232,6 +234,8 @@ export function JobCopyScreen() {
   const [view, setView] = useState<'list' | 'overview'>('list');
   // 課金CSVから反映した課金期間。画面のメモリ上だけで持ち、再読み込みで消える (サーバーへ送らない)。
   const [billingPeriods, setBillingPeriods] = useState<BillingPeriod[]>([]);
+  // One market-data cache for the whole screen: the timeline and the 市場 tabs of every job share it.
+  const [marketCache] = useState<MarketCache>(() => new Map());
   const billingByJob = useMemo(() => billingEntriesByJob(billingPeriods), [billingPeriods]);
   const demoMode = !snapshotRequested && !live && !captured;
   // データ取込と応募者の条件検索は、主作業（一覧とタイムライン）の外に置き、ボタンで開く。
@@ -287,7 +291,9 @@ export function JobCopyScreen() {
     setSnapshotAttempt(value => value + 1);
   }
   const normalizedSearch = search.trim().toLocaleLowerCase('ja-JP');
-  const visible = orderJobs(records.filter(job => (!normalizedSearch || `${job.title} ${job.company} ${job.mediaJobId} ${job.location}`.toLocaleLowerCase('ja-JP').includes(normalizedSearch)) && (customer === 'all' || (job.id.startsWith('demo-job-') || job.dataSource === 'hubspot' ? job.company : 'unlinked') === customer) && (media === 'all' || job.media === media) && (status === 'all' || changeStatus(job) === status)), listOrder);
+  // Memoized so 横断比較 (which diffs every version pair of every job) is not rebuilt on unrelated
+  // state changes such as opening a panel or a window resize.
+  const visible = useMemo(() => orderJobs(records.filter(job => (!normalizedSearch || `${job.title} ${job.company} ${job.mediaJobId} ${job.location}`.toLocaleLowerCase('ja-JP').includes(normalizedSearch)) && (customer === 'all' || (job.id.startsWith('demo-job-') || job.dataSource === 'hubspot' ? job.company : 'unlinked') === customer) && (media === 'all' || job.media === media) && (status === 'all' || changeStatus(job) === status)), listOrder), [records, normalizedSearch, customer, media, status, listOrder]);
   const selected = visible.find(job => job.id === selectedId) ?? visible[0];
   const filtersActive = Boolean(normalizedSearch || customer !== 'all' || media !== 'all' || status !== 'all');
   const filterCount = [customer !== 'all', media !== 'all', status !== 'all', listOrder !== 'source'].filter(Boolean).length;
@@ -309,7 +315,7 @@ export function JobCopyScreen() {
       return !open;
     });
   }
-  return <div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>求人文面管理</h1><InfoTip className="jc-mode jc-infotip-left" label="試作版"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header>
+  return <MarketCacheContext.Provider value={marketCache}><div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>求人文面管理</h1><InfoTip className="jc-mode jc-infotip-left" label="試作版"><p>開発中の画面です。表示や操作は今後変わります。</p></InfoTip></header>
     <div className="jc-demo" title={bannerText}><strong>{bannerLabel}</strong><span>{bannerText}</span></div>
     {snapshotAt && <InfoTip className="jc-snapshot-tip" label="取得した範囲"><section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>取得した本文の版</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募（HubSpot記録分）</span><span>掲載期間に入らない応募 <strong>{records.reduce((sum, job) => sum + (applicationsOutsideTimeline(job) ?? 0), 0)}</strong>件</span></section><p className="jc-snapshot-note">「掲載期間に入らない応募」は、応募日が無い応募と、掲載期間の外の日付の応募です。タイムラインの期間比較表には入れていません。</p></InfoTip>}
     <button type="button" className="jc-button jc-import-toggle" aria-expanded={importOpen} aria-controls="job-copy-data-import" onClick={toggleImport}>データ取込</button></div>
@@ -328,5 +334,5 @@ export function JobCopyScreen() {
       {filtersActive && <button type="button" className="jc-button jc-filter-reset" onClick={resetFilters}>検索条件をリセット</button>}
       <div className="jc-list-scroll">{visible.map(job => <button className="jc-job" key={job.id} aria-pressed={selected?.id === job.id} onClick={() => { choose(job); }}><span className="jc-job-company">{job.company}</span><strong>{job.title}</strong><span>{job.location} · {job.media}</span><span className="jc-job-bottom"><small>{published(job).length}版{job.versions.some(version => version.kind === 'ai_draft') ? ' + AI案' : ''}</small><small>{statusLabels[changeStatus(job)]}</small></span><small>{applicationCountLabel(job)}</small></button>)}{!visible.length && <div className="jc-empty"><p>{snapshotLoading ? '求人一覧を取得中です。' : records.length ? '一致する求人はありません。' : '表示できる求人がありません。'}</p></div>}</div>
     </aside><div className="jc-main">{reverseOpen && <ReverseSearch records={records} onClose={() => { setReverseOpen(false); document.querySelector<HTMLButtonElement>('.jc-reverse-toggle')?.focus(); }} onChoose={job => { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setReverseOpen(false); setView('list'); choose(job); }} />}{view === 'overview' && records.length > 0 ? <JobOverview records={visible} billing={billingByJob} onChoose={job => { setView('list'); choose(job); }} /> : selected ? <CopyDetail key={`${selected.id}-${selected.versions[0]?.id ?? ''}`} job={selected} records={records} billing={billingByJob[selected.id]} demo={demoMode} request={featureRequest} reviewed={reviewed} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを取得しています' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '取得完了後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</div></div>
-  </div>;
+  </div></MarketCacheContext.Provider>;
 }

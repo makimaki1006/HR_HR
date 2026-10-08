@@ -1,6 +1,7 @@
 //! Read-only job management. Existing HubSpot associations remain the source of truth.
 use crate::{
     auth::{LOGIN_METHOD_GOOGLE_OIDC, SESSION_LOGIN_METHOD_KEY, SESSION_USER_KEY},
+    geo::applicant_area,
     AppState,
 };
 use axum::{
@@ -527,14 +528,19 @@ impl JobReadService {
                             .map(|date| crate::job_copy_date::ApplicationDate::DateOnly { date })
                             .unwrap_or(crate::job_copy_date::ApplicationDate::Unknown),
                         listing_unambiguous: unambiguous.contains(&row.id),
-                        attributes: crate::job_copy_date::ApplicantAttributes {
-                            gender: row.value("seibetsu").map(str::to_owned),
-                            age: row
-                                .value("nenrei")
-                                .and_then(|v| v.parse::<u8>().ok())
-                                .filter(|age| *age <= 120),
-                            prefecture: row.value("todoufuken").map(str::to_owned),
-                            municipality: row.value("shikuchouson").map(str::to_owned),
+                        attributes: {
+                            // Only 都道府県 + 市区町村 from the master leave the server; the raw
+                            // address (番地・建物名) is dropped here.
+                            let area = rounded_area(row);
+                            crate::job_copy_date::ApplicantAttributes {
+                                gender: row.value("seibetsu").map(str::to_owned),
+                                age: row
+                                    .value("nenrei")
+                                    .and_then(|v| v.parse::<u8>().ok())
+                                    .filter(|age| *age <= 120),
+                                prefecture: area.prefecture,
+                                municipality: area.municipality,
+                            }
                         },
                     })
                     .collect();
@@ -555,6 +561,100 @@ impl JobReadService {
     }
 }
 
+/// Rounds every applicant area label in a stored snapshot (/api/job-copy/moc) to 都道府県 +
+/// 市区町村 before it is sent. The snapshot is written by a batch that may have kept the raw
+/// HubSpot strings (番地・建物名); those must not reach the browser.
+fn round_snapshot_areas(data: &mut Value) {
+    let Some(results) = data["results"].as_array_mut() else {
+        return;
+    };
+    for result in results {
+        let summary = &mut result["summary"];
+        for (key, municipality) in [("prefecture", false), ("municipality", true)] {
+            if let Some(counts) = summary["dimensions"][key].as_object() {
+                let mut merged: BTreeMap<String, u64> = BTreeMap::new();
+                for (label, count) in counts {
+                    *merged
+                        .entry(applicant_area::round_area_label(municipality, label, None))
+                        .or_default() += count.as_u64().unwrap_or(0);
+                }
+                summary["dimensions"][key] = json!(merged);
+            }
+        }
+        if let Some(cells) = summary["joint_demographics"]["cells"].as_array() {
+            let mut merged: Vec<Value> = Vec::new();
+            for cell in cells {
+                let prefecture = applicant_area::round_area_label(
+                    false,
+                    cell["prefecture"].as_str().unwrap_or(""),
+                    None,
+                );
+                let fallback =
+                    (prefecture != applicant_area::AREA_UNKNOWN).then_some(prefecture.as_str());
+                let municipality = applicant_area::round_area_label(
+                    true,
+                    cell["municipality"].as_str().unwrap_or(""),
+                    fallback,
+                );
+                let count = cell["count"].as_u64().unwrap_or(0);
+                if let Some(existing) = merged.iter_mut().find(|existing| {
+                    existing["gender"] == cell["gender"]
+                        && existing["age"] == cell["age"]
+                        && existing["prefecture"] == prefecture.as_str()
+                        && existing["municipality"] == municipality.as_str()
+                }) {
+                    existing["count"] = json!(existing["count"].as_u64().unwrap_or(0) + count);
+                } else {
+                    merged.push(json!({"gender":cell["gender"],"age":cell["age"],"prefecture":prefecture,"municipality":municipality,"count":count}));
+                }
+            }
+            summary["joint_demographics"]["cells"] = json!(merged);
+        }
+        if let Some(versions) = result["dated_comparison"]["by_version"].as_object_mut() {
+            for version in versions.values_mut() {
+                for (key, municipality) in [("prefecture", false), ("municipality", true)] {
+                    round_distribution(&mut version["dimensions"][key], municipality);
+                }
+            }
+        }
+    }
+}
+
+/// {denominator, categories: [{category, count, percentage}]} with the area categories rounded
+/// and merged. The denominator stays the same.
+fn round_distribution(distribution: &mut Value, municipality: bool) {
+    let Some(categories) = distribution["categories"].as_array() else {
+        return;
+    };
+    let denominator = distribution["denominator"].as_u64().unwrap_or(0);
+    let with_percentage = categories.iter().any(|row| !row["percentage"].is_null());
+    let mut merged: Vec<(String, u64)> = Vec::new();
+    for row in categories {
+        let label = applicant_area::round_area_label(
+            municipality,
+            row["category"].as_str().unwrap_or(""),
+            None,
+        );
+        let count = row["count"].as_u64().unwrap_or(0);
+        match merged.iter_mut().find(|(existing, _)| *existing == label) {
+            Some((_, total)) => *total += count,
+            None => merged.push((label, count)),
+        }
+    }
+    distribution["categories"] = json!(merged
+        .into_iter()
+        .map(|(category, count)| {
+            let percentage = (with_percentage && denominator > 0)
+                .then(|| count as f64 / denominator as f64 * 100.0);
+            json!({"category":category,"count":count,"percentage":percentage})
+        })
+        .collect::<Vec<_>>());
+}
+
+fn rounded_area(row: &Record) -> applicant_area::RoundedArea {
+    applicant_area::round_area(row.value("todoufuken"), row.value("shikuchouson"))
+}
+
 pub fn summarize(rows: &[Record]) -> Value {
     let unique: BTreeMap<_, _> = rows.iter().map(|row| (&row.id, row)).collect();
     let mut dates: BTreeMap<String, usize> = BTreeMap::new();
@@ -571,19 +671,14 @@ pub fn summarize(rows: &[Record]) -> Value {
         } else {
             missing_date += 1;
         }
-        for (dimension, property) in [
-            ("gender", "seibetsu"),
-            ("prefecture", "todoufuken"),
-            ("municipality", "shikuchouson"),
-        ] {
-            let label = if dimension == "municipality" {
-                match (row.value("todoufuken"), row.value(property)) {
-                    (Some(pref), Some(city)) => format!("{pref} / {city}"),
-                    (None, Some(city)) => format!("都道府県不明 / {city}"),
-                    _ => "不明".into(),
-                }
-            } else {
-                row.value(property).unwrap_or("不明").into()
+        // Addresses are rounded to 都道府県 + 市区町村 before they are counted, so no label in
+        // the response carries a street number or a building name.
+        let area = rounded_area(row);
+        for dimension in ["gender", "prefecture", "municipality"] {
+            let label = match dimension {
+                "prefecture" => applicant_area::prefecture_label(&area),
+                "municipality" => applicant_area::municipality_label(&area),
+                _ => row.value("seibetsu").unwrap_or("不明").into(),
             };
             *dimensions
                 .entry(dimension)
@@ -1275,6 +1370,7 @@ async fn moc(
     authorized_user(&state, &access, &session).await?;
     let mut data = (*raw_moc(&access).await?).clone();
     defer_snapshot_images(&mut data, &access.drive_listings)?;
+    round_snapshot_areas(&mut data);
     Ok(([(header::CACHE_CONTROL, "no-store")], Json(data)))
 }
 
@@ -1836,6 +1932,152 @@ mod tests {
         assert_eq!(summary["dimensions"]["age"]["不明"], 1);
         assert_eq!(summary["dimensions"]["gender"]["男性"], 1);
         assert_eq!(summary["dimensions"]["gender"]["不明"], 1);
+    }
+
+    fn applicant(id: &str, prefecture: Option<&str>, city: Option<&str>) -> Record {
+        Record {
+            id: id.into(),
+            properties: BTreeMap::from([
+                ("yingmuri".into(), Some("2026-10-03".into())),
+                ("seibetsu".into(), Some("女性".into())),
+                ("nenrei".into(), Some("28".into())),
+                ("todoufuken".into(), prefecture.map(str::to_owned)),
+                ("shikuchouson".into(), city.map(str::to_owned)),
+            ]),
+        }
+    }
+
+    #[test]
+    fn summary_rounds_applicant_addresses_before_they_leave_the_server() {
+        let rows = [
+            applicant(
+                "1",
+                Some("大分県"),
+                Some("大分市府内町3丁目10-1 府内ビル201号室"),
+            ),
+            applicant("2", Some("大分県"), Some("大分市大手町2-31")),
+            applicant("3", None, Some("別府市北浜2-9-1 コーポ北浜102")),
+            applicant("4", Some("大分県"), Some("架空町1-2-3")),
+            applicant("5", None, None),
+        ];
+        let summary = summarize(&rows);
+        let text = summary.to_string();
+        for raw in [
+            "府内町",
+            "201号室",
+            "大手町",
+            "北浜",
+            "コーポ",
+            "架空町",
+            "1-2-3",
+            " / ",
+        ] {
+            assert!(
+                !text.contains(raw),
+                "raw address part {raw:?} left in {text}"
+            );
+        }
+        assert_eq!(
+            summary["dimensions"]["municipality"],
+            json!({"大分県大分市": 2, "大分県別府市": 1, "大分県（市区町村不明）": 1, "不明": 1})
+        );
+        assert_eq!(
+            summary["dimensions"]["prefecture"],
+            json!({"大分県": 4, "不明": 1})
+        );
+        let cells = summary["joint_demographics"]["cells"].as_array().unwrap();
+        let oita = cells
+            .iter()
+            .find(|cell| cell["municipality"] == "大分県大分市")
+            .unwrap();
+        assert_eq!(oita["prefecture"], "大分県");
+        assert_eq!(oita["count"], 2);
+        assert_eq!(summary["joint_demographics"]["total"], 5);
+    }
+
+    #[test]
+    fn rounded_attributes_keep_only_master_names() {
+        let area = rounded_area(&applicant(
+            "1",
+            Some("東京都千代田区丸の内1-1-1"),
+            Some("○○マンション305"),
+        ));
+        // The city field holds only a building name, so the city is not guessed from the
+        // prefecture field and the building name is dropped.
+        assert_eq!(area.prefecture.as_deref(), Some("東京都"));
+        assert_eq!(area.municipality, None);
+        let area = rounded_area(&applicant(
+            "2",
+            Some("東京都"),
+            Some("千代田区丸の内1-1-1 ○○マンション305"),
+        ));
+        assert_eq!(area.municipality.as_deref(), Some("千代田区"));
+    }
+
+    #[test]
+    fn snapshot_areas_are_rounded_and_merged_before_sending() {
+        let mut data = json!({"results": [{
+            "listing_id": "30",
+            "summary": {
+                "total": 4,
+                "dimensions": {
+                    "gender": {"女性": 4},
+                    "prefecture": {"大分県": 3, "大分県大分市府内町3-10-1": 1},
+                    "municipality": {"大分県 / 大分市府内町3-10-1 201号室": 1, "大分県 / 大分市大手町2-31": 2, "都道府県不明 / 別府市北浜2-9-1": 1}
+                },
+                "joint_demographics": {"total": 4, "cells": [
+                    {"gender": "女性", "age": "20代", "prefecture": "大分県", "municipality": "大分県 / 大分市府内町3-10-1", "count": 1},
+                    {"gender": "女性", "age": "20代", "prefecture": "大分県", "municipality": "大分県 / 大分市大手町2-31", "count": 2},
+                    {"gender": "女性", "age": "20代", "prefecture": "不明", "municipality": "都道府県不明 / 別府市北浜2-9-1", "count": 1}
+                ]}
+            },
+            "dated_comparison": {"by_version": {"v1": {"count": 4, "dimensions": {
+                "municipality": {"denominator": 4, "categories": [
+                    {"category": "大分県 / 大分市府内町3-10-1", "count": 1, "percentage": 25.0},
+                    {"category": "大分県 / 大分市大手町2-31", "count": 2, "percentage": 50.0},
+                    {"category": "不明", "count": 1, "percentage": 25.0}
+                ]},
+                "prefecture": null
+            }}}}
+        }]});
+        round_snapshot_areas(&mut data);
+        let result = &data["results"][0];
+        assert_eq!(
+            result["summary"]["dimensions"]["prefecture"],
+            json!({"大分県": 4})
+        );
+        assert_eq!(
+            result["summary"]["dimensions"]["municipality"],
+            json!({"大分県大分市": 3, "大分県別府市": 1})
+        );
+        assert_eq!(
+            result["summary"]["dimensions"]["gender"],
+            json!({"女性": 4})
+        );
+        assert_eq!(
+            result["summary"]["joint_demographics"]["cells"],
+            json!([
+                {"gender": "女性", "age": "20代", "prefecture": "大分県", "municipality": "大分県大分市", "count": 3},
+                {"gender": "女性", "age": "20代", "prefecture": "不明", "municipality": "大分県別府市", "count": 1}
+            ])
+        );
+        assert_eq!(
+            result["dated_comparison"]["by_version"]["v1"]["dimensions"]["municipality"],
+            json!({"denominator": 4, "categories": [
+                {"category": "大分県大分市", "count": 3, "percentage": 75.0},
+                {"category": "不明", "count": 1, "percentage": 25.0}
+            ]})
+        );
+        assert!(
+            result["dated_comparison"]["by_version"]["v1"]["dimensions"]["prefecture"].is_null()
+        );
+        let text = data.to_string();
+        for raw in ["府内町", "201号室", "大手町", "北浜", " / "] {
+            assert!(
+                !text.contains(raw),
+                "raw address part {raw:?} left in {text}"
+            );
+        }
     }
 }
 
