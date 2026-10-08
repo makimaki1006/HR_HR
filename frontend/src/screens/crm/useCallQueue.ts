@@ -32,8 +32,13 @@ export interface QueueState {
   phase: QueuePhase;
   items: CallQueueItem[];
   nextCursor: string | null;
-  /** 最後に受け取ったページの全体情報 (総数・scope・切り詰め・時刻) */
+  /** 最後に受け取ったページの全体情報 (scope・切り詰め・時刻) */
   last: CallQueueResponse | null;
+  /**
+   * HubSpot で条件に合う件数 (電話番号なし等を除く前)。先頭ページで分かった値を続きのページでも使う
+   * (複数の段階に分かれる並びでは、続きのページの応答は総数を持たない)。分からなければ null
+   */
+  total: number | null;
   /** 読み込んだページ全体の関連欠落・除外件数 */
   partial: CallQueuePartial | null;
   role: string | null;
@@ -49,7 +54,7 @@ const EMPTY_PARTIAL: CallQueuePartial = {
 };
 
 const initial = (reqId = ''): QueueState => ({
-  reqId, phase: 'loading', items: [], nextCursor: null, last: null, partial: null, role: null,
+  reqId, phase: 'loading', items: [], nextCursor: null, last: null, total: null, partial: null, role: null,
   message: '', errorKind: null, invalid: [], loadingMore: false, moreError: null,
 });
 
@@ -85,7 +90,8 @@ export const SCOPE_MISMATCH_MESSAGE = '応答の条件が画面の条件と一�
  * 架電キューの取得。
  * - 条件 (filters / mode / reload) が変わったら、古い要求を AbortController で中断して先頭から取り直す。
  * - 応答の scope が現在の条件と一致しなければ表示に使わない。
- * - 「さらに読み込む」は、直前に表示した次ページの cursor にだけ追記し、deal_id で重複排除する。
+ * - 続きのページ (一覧の下端までのスクロール・「さらに読み込む」) は、直前に表示した次ページの cursor にだけ追記し、deal_id で重複排除する。
+ *   読み込み中は次を始めない (同じページを 2 回読まない)。
  * - `refreshKey` が変わったときも取り直す (例: 「次回日が来たものだけ」の間に日付が変わった)。
  */
 export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: QueueFetch, refreshKey = '') {
@@ -122,7 +128,7 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
       }
       setState({
         ...initial(reqId), phase: 'ready', items: mergeItems([], res.data.items), nextCursor: res.data.next_cursor,
-        last: res.data, partial: addPartial(EMPTY_PARTIAL, res.data.partial), role: res.data.scope.role,
+        last: res.data, total: res.data.total, partial: addPartial(EMPTY_PARTIAL, res.data.partial), role: res.data.scope.role,
       });
     });
     return () => { ctl.abort(); moreCtl.current?.abort(); };
@@ -157,7 +163,7 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
         if (prev.nextCursor !== cursor) return { ...prev, loadingMore: false };
         return {
           ...prev, loadingMore: false, moreError: null,
-          items: mergeItems(prev.items, data.items), nextCursor: data.next_cursor, last: data,
+          items: mergeItems(prev.items, data.items), nextCursor: data.next_cursor, last: data, total: data.total ?? prev.total,
           partial: addPartial(prev.partial ?? EMPTY_PARTIAL, data.partial), role: data.scope.role,
         };
       });

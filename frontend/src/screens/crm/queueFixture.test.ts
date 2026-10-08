@@ -23,6 +23,8 @@ describe('fixtureQueuePage (fictional data)', () => {
     const first = fixtureQueuePage(DEFAULT_FILTERS, null);
     expect(first.items).toHaveLength(FIXTURE_PAGE_SIZE);
     expect(first.next_cursor).not.toBeNull();
+    // 全体の件数は全ページの行数と同じ (画面の「全 N 件中」に使う)
+    expect(first.total).toBe(ids(DEFAULT_FILTERS).length);
     for (const x of [DEFAULT_FILTERS, f({ q: '架空', sort: 'last_call_desc', nextFrom: '2026-10-01', stages: ['1095387442'] })]) {
       expect(scopeMatches(fixtureQueuePage(x, null).scope, x)).toBe(true);
     }

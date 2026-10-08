@@ -126,7 +126,21 @@ export function filtersToParams(f: QueueFilters): URLSearchParams {
   return p;
 }
 
-export const QUEUE_PAGE_SIZE = 25;
+/** 1 回に読む件数 (サーバの上限 MAX_LIMIT = 50。HubSpot の Search 回数を増やさずに多く出す) */
+export const QUEUE_PAGE_SIZE = 50;
+
+const COUNT_FORMAT = new Intl.NumberFormat('ja-JP');
+/** 件数の 3 桁区切り (22864 → 22,864) */
+export function formatCount(n: number): string { return COUNT_FORMAT.format(n); }
+
+/** 一覧の見出しの件数。全体の件数が分かるときは「全 N 件中 M 件を表示」、分からなければ「M 件を表示」 */
+export function queueCountText(total: number | null, shown: number): string {
+  return total === null ? `${formatCount(shown)} 件を表示` : `全 ${formatCount(total)} 件中 ${formatCount(shown)} 件を表示`;
+}
+
+/** 全体の件数の説明 (見出しの補足と title) */
+export const QUEUE_TOTAL_NOTE_SHORT = '全件数は電話番号のない架電先なども含む';
+export const QUEUE_TOTAL_NOTE = 'HubSpot で条件に合う件数です。電話番号がない架電先と、架電禁止理由・ブロック理由が入っている架電先は一覧に出さないため、表示できるのはこれより少なくなります。';
 
 /** `GET /api/crm/call-queue` のパス (cursor は同じ条件に対してだけ付ける) */
 export function queueApiPath(f: QueueFilters, cursor: string | null): string {

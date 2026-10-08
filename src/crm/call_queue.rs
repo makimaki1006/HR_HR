@@ -12,6 +12,7 @@
 //! ## 取得の組み立て (行ごとに API を呼ばない)
 //! 1 ページ = Search 1 + 関連 2 (`deal→contact` / `deal→company`) + 読み取り 2 (contact / company) = 5 回
 //! (件数に依存しない。ステージ名のキャッシュが冷えているときだけ +1。BPO の owner 対応が未取得のときは +1)。
+//! 複数の段階にまたがる並びの先頭ページだけ、辿らなかった段階の件数を数える Search (limit 1) を段階ごとに足す (最大 +2。総数の表示用)。
 //! 1 Deal につき読む Contact は 1 人 (主 → なければ最初の 1 人) なので、読み取りは 50 件 (limit 上限) で 1 バッチに収まる。
 //!
 //! ## 並び (`sort`) と「段階」
@@ -353,7 +354,8 @@ pub struct CallQueueResponse {
     pub items: Vec<CallQueueItem>,
     pub next_cursor: Option<String>,
     /// HubSpot Search の total (参考値。電話番号なし等の後段で外す前の件数)。
-    /// 複数の段階にまたがる並びでは全体を数えていないので null
+    /// 複数の段階にまたがる並びでは、先頭ページでだけ残りの段階を数えて全体を出す。
+    /// 2 ページ目以降と、数えられなかったときは null
     pub total: Option<u32>,
     /// HubSpot Search の 1 万件上限に達して、これより先を取れないとき true
     pub truncated: bool,
@@ -889,6 +891,25 @@ fn search_body(
     }
     body
 }
+
+/// 段階の件数だけを数える Search (行は 1 件だけ・ID だけ読む。並びは件数に関係しないので付けない)
+fn count_body(groups: Vec<Value>, q: Option<&str>) -> Value {
+    let mut body = json!({
+        "filterGroups": groups,
+        "properties": COUNT_PROPERTIES,
+        "limit": 1,
+    });
+    if let Some(q) = q {
+        body["query"] = json!(q);
+    }
+    body
+}
+
+/// 総数を数える Search 全体の上限。超えたら総数は null にして一覧は返す (総数のために一覧を遅らせない)
+const COUNT_DEADLINE: Duration = Duration::from_secs(5);
+
+/// 件数を数える Search で読むプロパティ (行の中身は使わない)
+pub const COUNT_PROPERTIES: [&str; 1] = ["hs_object_id"];
 
 // ---------------------------------------------------------------------------
 // cursor (署名付き。条件・本人・日付に束縛)
@@ -1501,10 +1522,53 @@ async fn execute(
         }
     }
 
-    // 総数は、段階が 1 つ or 先頭から全段階を数えたときだけ出す (一部の段階の件数を全体と偽らない)
+    // 総数は、段階が 1 つ or 先頭から全段階を数えたときにそのまま出せる。
+    // 先頭ページで辿らなかった段階が残るときは、その段階の件数だけを数える Search を足して全体を出す
+    // (一部の段階の件数を全体と偽らない。数えられなければ null)。2 ページ目以降は数えない (画面は先頭ページの総数を使う)
     let known_all =
         active.len() == 1 || (start_phase == 0 && start_after.is_none() && visited == active.len());
-    let total = known_all.then(|| totals.iter().sum::<u64>().min(u64::from(u32::MAX)) as u32);
+    let first_page = start_phase == 0 && start_after.is_none();
+    let rest: &[(Phase, Vec<Value>)] = if !known_all && first_page {
+        &active[visited..]
+    } else {
+        &[]
+    };
+    let counted_so_far: u64 = totals.iter().sum();
+    let count_inner = async {
+        if known_all {
+            return Some(counted_so_far);
+        }
+        if rest.is_empty() {
+            return None;
+        }
+        let mut sum = counted_so_far;
+        for (_, groups) in rest {
+            match client
+                .search("deals", count_body(groups.clone(), params.q.as_deref()))
+                .await
+            {
+                Ok(v) => match v.get("total").and_then(Value::as_u64) {
+                    Some(n) => sum += n,
+                    None => return None,
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        error_kind = e.error_kind(),
+                        "call queue: total count unavailable"
+                    );
+                    return None;
+                }
+            }
+        }
+        Some(sum)
+    };
+    let count_rest = async {
+        let counted = tokio::time::timeout(COUNT_DEADLINE, count_inner).await;
+        counted.unwrap_or_else(|_| {
+            tracing::warn!("call queue: total count timed out");
+            None
+        })
+    };
 
     // 後段の確認: アーカイブ・別パイプライン・許可外ステージ・停止系
     let mut partial = CallQueuePartial::default();
@@ -1523,13 +1587,19 @@ async fn execute(
     }
 
     let mut items = Vec::with_capacity(deals.len());
-    if !deals.is_empty() {
+    // 残りの段階の件数は、関連の読み取りと並べて数える (Search の間隔待ちを読み取りの時間に重ねる)
+    let total_all: Option<u64>;
+    if deals.is_empty() {
+        total_all = count_rest.await;
+    } else {
         let deal_ids: Vec<String> = deals.iter().map(|d| d.id.clone()).collect();
         let mut failed: Vec<String> = Vec::new();
-        let (rel, labels) = tokio::join!(
+        let (rel, labels, counted) = tokio::join!(
             load_related(client, &deal_ids, &mut failed),
-            ctx.queue.stage_labels(client)
+            ctx.queue.stage_labels(client),
+            count_rest
         );
+        total_all = counted;
         let labels = match labels {
             Ok(m) => m,
             Err(e) => {
@@ -1553,6 +1623,8 @@ async fn execute(
         partial.missing_companies = items.iter().filter(|i| i.company.is_none()).count() as u32;
         partial.failed = failed;
     }
+
+    let total = total_all.map(|n| n.min(u64::from(u32::MAX)) as u32);
 
     Ok(CallQueueResponse {
         items,

@@ -64,6 +64,8 @@ struct FakeHs {
     search: SearchFn,
     search_delay: Duration,
     search_calls: usize,
+    /// 件数だけを数える Search (limit 1・hs_object_id だけ) への応答の total。None なら 500
+    count_total: Option<u64>,
     objects: HashMap<(String, String), Props>,
     /// (from, to, id) → [(toObjectId, label)]
     assocs: HashMap<(String, String, String), Vec<Target>>,
@@ -87,6 +89,7 @@ impl FakeHs {
             search: Box::new(|_, _| (200, json!({"results": [], "total": 0}))),
             search_delay: Duration::ZERO,
             search_calls: 0,
+            count_total: Some(0),
             objects: HashMap::new(),
             assocs: HashMap::new(),
             assoc_fail: None,
@@ -241,6 +244,17 @@ async fn hs_search(
 ) -> Response {
     let (status, v, delay) = {
         let mut s = st.lock().unwrap();
+        // 件数だけを数える Search は別に記録し、ページの順番 (pages) を消費しない
+        if body["limit"] == 1 && body["properties"] == json!(["hs_object_id"]) {
+            s.log.push((
+                format!("POST /crm/v3/objects/{o}/search#count"),
+                body.to_string(),
+            ));
+            return match s.count_total {
+                Some(t) => Json(json!({"results": [], "total": t})).into_response(),
+                None => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            };
+        }
         s.log
             .push((format!("POST /crm/v3/objects/{o}/search"), body.to_string()));
         let i = s.search_calls;
@@ -789,8 +803,14 @@ async fn 通常の_1_ページは_hubspot_5_回で件数に依存しない() {
         let (s, v) = e.admin_get("?limit=50").await;
         assert_eq!(s, StatusCode::OK, "{v}");
         assert_eq!(v["items"].as_array().unwrap().len(), n);
-        // 初回 (ステージ名が冷えている) は pipelines が +1 = 6 回
-        let mut c = e.calls();
+        // 初回 (ステージ名が冷えている) は pipelines が +1 = 6 回。
+        // 既定の並びは 3 段階なので、先頭ページだけ総数用に残り 2 段階を数える Search が別に付く (件数に依存しない)
+        assert_eq!(e.count("/deals/search#count"), 2, "n={n}");
+        let mut c: Vec<String> = e
+            .calls()
+            .into_iter()
+            .filter(|c| !c.ends_with("#count"))
+            .collect();
         c.sort();
         let mut want = vec![
             "GET /crm/v3/pipelines/deals",
@@ -806,7 +826,7 @@ async fn 通常の_1_ページは_hubspot_5_回で件数に依存しない() {
         let before = e.calls().len();
         let (s, _) = e.admin_get("?limit=50").await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(e.calls().len() - before, 5, "n={n}");
+        assert_eq!(e.calls().len() - before, 5 + 2, "n={n}");
         assert_eq!(e.count("/crm/v3/objects/contacts/batch/read"), 2, "n={n}");
     }
 }
@@ -947,11 +967,12 @@ async fn 既定の並びは三段階で_cursor_が次の段階へ進む() {
         .as_str()
         .expect("次の段階がある")
         .to_string();
-    // 段階 1 の total は全体の件数ではない (他の段階を数えていない) ので null
-    assert_eq!(p1["total"], Value::Null);
+    // 先頭ページの total は、段階 1 の件数 + 残りの段階を数えた件数 (既定の fake は 0 件)
+    assert_eq!(p1["total"], 1);
 
     let (_, p2) = e.admin_get(&format!("?cursor={c1}")).await;
     assert_eq!(ids(&p2), ["2"]);
+    assert_eq!(p2["total"], Value::Null, "2 ページ目以降は数えない");
     let c2 = p2["next_cursor"].as_str().unwrap().to_string();
     let (_, p3) = e.admin_get(&format!("?cursor={c2}")).await;
     assert_eq!(ids(&p3), ["3"]);
@@ -1001,8 +1022,11 @@ async fn 段階が空なら同じ要求の中で次の段階へ進む() {
     let e = env(f).await;
     let (_, v) = e.admin_get("").await;
     assert_eq!(ids(&v), ["2"]);
-    assert_eq!(e.count("/deals/search"), 2);
+    assert_eq!(e.searches().len(), 2);
     assert!(v["next_cursor"].is_string(), "段階 3 が残っている");
+    // 総数 = 段階 1 (0) + 段階 2 (1) + 数えた段階 3 (既定の fake は 0)
+    assert_eq!(e.count("/deals/search#count"), 1);
+    assert_eq!(v["total"], 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2574,4 +2598,80 @@ async fn owners_は同時に冷えた要求を_1_回の取得にまとめる() {
     assert_eq!(b.0, StatusCode::OK);
     assert_eq!(c.0, StatusCode::OK);
     assert_eq!(e.owner_calls(), 2);
+}
+
+// ---------------------------------------------------------------------------
+// 総数 (複数の段階にまたがる並びの先頭ページ)
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 先頭ページは残りの段階を数えて全体の総数を出す() {
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1"]);
+    let mut f = f.page(
+        Page::new(vec![Deal::new("1", FUZAI).p("bpo_13", "2026-10-01")])
+            .total(1605)
+            .next("1"),
+    );
+    f.count_total = Some(10_000);
+    let e = env(f).await;
+    let (s, v) = e.admin_get("?q=%E6%A0%AA").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(ids(&v), ["1"]);
+    // 段階 1 は続きがあるので先頭ページは段階 1 だけ。残り 2 段階を 1 万件ずつ数える
+    assert_eq!(v["total"], 21_605);
+    let log = e.hs.lock().unwrap().log.clone();
+    let counts: Vec<Value> = log
+        .iter()
+        .filter(|(c, _)| c.ends_with("/deals/search#count"))
+        .map(|(_, b)| serde_json::from_str(b).unwrap())
+        .collect();
+    assert_eq!(counts.len(), 2);
+    for b in &counts {
+        assert_eq!(b["limit"], 1);
+        assert_eq!(b["query"], "株", "キーワードは件数にも効かせる");
+        assert!(b.get("after").is_none());
+        assert!(b.get("sorts").is_none());
+    }
+    // 数える Search の条件は、その段階の一覧の Search と同じ (段階 2 = 未架電、段階 3 = 最終架電日あり)
+    assert_eq!(
+        flt(&groups(&counts[0])[0], "bpo_20").unwrap()["operator"],
+        "NOT_HAS_PROPERTY"
+    );
+    assert_eq!(
+        flt(&groups(&counts[1])[0], "bpo_20").unwrap()["operator"],
+        "HAS_PROPERTY"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 総数を数えられなければ_null_で一覧は返す() {
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1"]);
+    let mut f = f.page(
+        Page::new(vec![Deal::new("1", FUZAI).p("bpo_13", "2026-10-01")])
+            .total(1605)
+            .next("1"),
+    );
+    f.count_total = None;
+    let e = env(f).await;
+    let (s, v) = e.admin_get("").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(ids(&v), ["1"]);
+    assert_eq!(v["total"], Value::Null, "一部の段階の件数を全体と偽らない");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 段階が一つなら数える_search_は足さない() {
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1"]);
+    let f = f.page(
+        Page::new(vec![Deal::new("1", FUZAI).p("bpo_13", "2026-10-01")])
+            .total(80)
+            .next("1"),
+    );
+    let e = env(f).await;
+    let (_, v) = e.admin_get("?due=today").await;
+    assert_eq!(v["total"], 80);
+    assert_eq!(e.count("/deals/search#count"), 0);
 }
