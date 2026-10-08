@@ -171,12 +171,12 @@ describe('category breakdown on the 応募理由 tab', () => {
     expect(summary.textContent).toContain('分類が選ばれているのに分類の名前を読み取れなかった応募が 1件 あります。');
     expect(summary.textContent).toContain('分類が「未設定」で、読み込めた文もない応募 1件 は数えていません（読み込めなかった文がある応募も含まれることがあります）。');
     // One notice about the cut, in plain words, before the counts.
-    expect(screen.getAllByText(/上限/u).map(node => node.textContent)).toEqual(['記述が多く、読み込める上限（500件）を超えたため、一部の記述は読み込んでいません。下の分類の数と記述の一覧は、読み込んだ記述だけで数えています。']);
+    expect(screen.getAllByText(/上限/u).map(node => node.textContent)).toEqual(['記述が多く、読み込める上限（500件）を超えたため、一部の記述は読み込んでいません。下の分類の数のうち「選択済み」はすべての応募で数えていますが、「キーワードで推定」「分類できない」の数と記述の一覧は、読み込んだ記述だけで数えています。そのため、選択済みと推定を並べると、選択済みの側が多めに見えることがあります。']);
     expect(document.body.textContent).not.toMatch(/表示対象は取得上限|全記述件数/u);
     // The same masking note on every list of texts.
     const notes = [...document.querySelectorAll('details > p')].map(node => node.textContent).filter(text => text.includes('＊＊'));
     expect(notes.length).toBeGreaterThan(1);
-    expect(notes.every(text => text.startsWith('市区町村より細かい住所（町名・番地・建物名と部屋番号）'))).toBe(true);
+    expect(notes.every(text => text.startsWith('市区町村より細かい住所（町名・番地・建物名と部屋番号・郵便番号）') && text.includes('「さん」などの付かない名前'))).toBe(true);
     expect(summary.textContent).not.toContain('「未設定」で文もない');
     // The live option list could not be read: reopening may help.
     expect(summary.textContent).toContain('時間をおいて開き直すと読み取れることがあります。');

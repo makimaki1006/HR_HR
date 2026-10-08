@@ -23,7 +23,7 @@ export const UNSET_LABEL = '未設定';
 /** The most texts the server sends (applicant_reasons::MAX_ITEMS); more are left out (truncated). */
 export const MAX_READ_TEXTS = 500;
 /** How the shown reason texts were masked (maskPersonalDetails). One wording on every list of texts. */
-export const MASK_NOTE = '市区町村より細かい住所（町名・番地・建物名と部屋番号）・電話番号・メールアドレス・「さん」「様」の付いた名前は、読み取れた範囲で「＊＊」に置き換えています。読み取れない書き方の住所や、それ以外の個人情報が残っていることがあります。';
+export const MASK_NOTE = '市区町村より細かい住所（町名・番地・建物名と部屋番号・郵便番号）・電話番号・メールアドレス・LINEなどのID・生年月日・「さん」「様」などの付いた名前は、読み取れた範囲で「＊＊」に置き換えています。「さん」などの付かない名前（例: 姉の山田花子）や、読み取れない書き方の住所など、それ以外の個人情報が残っていることがあります。';
 /** Below this many applications a share (%) is not shown, only the counts. */
 export const MIN_SHARE_N = 5;
 
@@ -58,10 +58,13 @@ function normalize(text: string): string {
   return text.normalize('NFKC').toLowerCase();
 }
 
+/** The keywords normalized once (the dictionary never changes). */
+const NORMALIZED_KEYWORDS: readonly (readonly [ReasonCategory, readonly string[]])[] = REASON_CATEGORIES.map(category => [category, REASON_KEYWORDS[category].map(normalize)] as const);
+
 /** Categories whose keywords appear in the text, in the fixed category order. */
 export function inferCategories(text: string): ReasonCategory[] {
   const normalized = EXCLUDED_PHRASES.reduce((value, pattern) => value.replace(pattern, '／'), normalize(text));
-  return REASON_CATEGORIES.filter(category => REASON_KEYWORDS[category].some(word => normalized.includes(normalize(word))));
+  return NORMALIZED_KEYWORDS.filter(([, words]) => words.some(word => normalized.includes(word))).map(([category]) => category);
 }
 
 /** The category of a chosen value: its label (or the stored value) when it names a category, 'unset' for 未設定, null otherwise. */

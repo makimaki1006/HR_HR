@@ -225,14 +225,204 @@ fn is_mail_local(c: char) -> bool {
 fn is_mail_domain(c: char) -> bool {
     c.is_ascii_alphanumeric() || ".-".contains(c)
 }
+fn is_hiragana(c: char) -> bool {
+    ('\u{3041}'..='\u{309F}').contains(&c)
+}
+fn is_name_char(c: char) -> bool {
+    is_han(c) || is_katakana(c)
+}
+/// A full-width ASCII character (ＩＤ, ｔａｒｏ) as its half-width form.
+fn ascii_fold(c: char) -> char {
+    if ('！'..='～').contains(&c) {
+        char::from_u32(c as u32 - 0xFEE0).unwrap_or(c)
+    } else {
+        c
+    }
+}
+fn starts_with(chars: &[char], index: usize, word: &str) -> bool {
+    (index..)
+        .zip(word.chars())
+        .all(|(at, w)| chars.get(at) == Some(&w))
+}
+/// Skips the spaces, colons and は between a label and its value (生年月日：, LINE ID は).
+fn skip_label_gap(chars: &[char], mut index: usize) -> usize {
+    let start = index;
+    while index < chars.len() && index - start < 4 && " 　:：は".contains(chars[index]) {
+        index += 1;
+    }
+    index
+}
+/// The end of a date written from `start` (1990年5月1日, 1990/5/1, S55.3.1, 平成2年5月1日), when it
+/// holds a digit.
+fn date_run_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut end = start;
+    let mut digits = 0;
+    while end < chars.len() && end - start < 20 {
+        let c = chars[end];
+        if is_digit(c) || is_kanji_digit(c) {
+            digits += 1;
+        } else if !("年月日/／.．-－ 　".contains(c)
+            || "昭和平成令元".contains(c)
+            || "SHRshr".contains(ascii_fold(c)))
+        {
+            break;
+        }
+        end += 1;
+    }
+    while end > start && " 　".contains(chars[end - 1]) {
+        end -= 1;
+    }
+    (digits > 0).then_some(end)
+}
+/// Before a 7-digit number: 〒 or 郵便番号 (with spaces or a colon between).
+fn postal_mark_before(chars: &[char], index: usize) -> bool {
+    let mut at = index;
+    while at > 0 && index - at < 3 && " 　:：".contains(chars[at - 1]) {
+        at -= 1;
+    }
+    (at > 0 && chars[at - 1] == '〒') || (at >= 4 && starts_with(chars, at - 4, "郵便番号"))
+}
+/// A rural lot: the name right before the number holds 大字, starts with 字, or has 字 right after
+/// a 市町村郡 (大字松岡1234, 村字中原567). 文字・数字・赤字 are not.
+fn is_rural_lot_name(chars: &[char], index: usize) -> bool {
+    let mut from = index;
+    while from > 0 && index - from < 12 && is_name_char(chars[from - 1]) {
+        from -= 1;
+    }
+    let name = &chars[from..index];
+    name.first() == Some(&'字')
+        || name
+            .windows(2)
+            .any(|pair| pair[1] == '字' && (pair[0] == '大' || "市町村郡".contains(pair[0])))
+}
+/// Not names although written before さん・様: 皆さん, お客様, 奥さん ...
+const NOT_NAMES: [&str; 9] = ["皆", "客", "お客", "奥", "神", "王", "利用者", "患者", "諸"];
+/// Hiragana words before さん・くん・ちゃん that are not names (たくさん, みなさん, おかあさん ...).
+const NOT_HIRAGANA_NAMES: [&str; 17] = [
+    "みな",
+    "たく",
+    "みんな",
+    "おじい",
+    "おばあ",
+    "おかあ",
+    "おとう",
+    "おねえ",
+    "おにい",
+    "おば",
+    "おじ",
+    "あか",
+    "おく",
+    "おつかれ",
+    "ごくろう",
+    "あなた",
+    "どちら",
+];
+/// The start of the name written right before `end` (an honorific or と申します): up to 8 kanji or
+/// katakana, a surname before one space (山田 太郎さん), or with `hiragana`, up to 6 hiragana
+/// (やまださん). None when nothing there is a name.
+fn name_before(chars: &[char], end: usize, hiragana: bool) -> Option<usize> {
+    let mut start = end;
+    while start > 0 && end - start < 8 && is_name_char(chars[start - 1]) {
+        start -= 1;
+    }
+    if start < end {
+        let name: String = chars[start..end].iter().collect();
+        if NOT_NAMES.contains(&name.as_str()) {
+            return None;
+        }
+        if start >= 2 && " 　".contains(chars[start - 1]) && is_name_char(chars[start - 2]) {
+            let gap = start - 1;
+            let mut surname = gap;
+            while surname > 0 && gap - surname < 6 && is_name_char(chars[surname - 1]) {
+                surname -= 1;
+            }
+            return Some(surname);
+        }
+        return Some(start);
+    }
+    if !hiragana {
+        return None;
+    }
+    while start > 0 && end - start < 6 && is_hiragana(chars[start - 1]) {
+        start -= 1;
+    }
+    let name: String = chars[start..end].iter().collect();
+    (end - start >= 2 && !NOT_HIRAGANA_NAMES.iter().any(|word| name.ends_with(word)))
+        .then_some(start)
+}
+/// The end of a name written after a label (紹介者：佐藤一郎): up to 8 kanji or katakana, and a given
+/// name after one space.
+fn name_after(chars: &[char], start: usize) -> usize {
+    let mut end = start;
+    while end < chars.len() && end - start < 8 && is_name_char(chars[end]) {
+        end += 1;
+    }
+    if end > start
+        && end + 1 < chars.len()
+        && " 　".contains(chars[end])
+        && is_name_char(chars[end + 1])
+    {
+        let gap = end + 1;
+        end = gap;
+        while end < chars.len() && end - gap < 6 && is_name_char(chars[end]) {
+            end += 1;
+        }
+    }
+    end
+}
+/// An account written after LINE or ID (LINE ID: taro_yamada123): the masked range, or None when
+/// no account of 3 or more characters follows.
+fn account_after_label(chars: &[char], index: usize) -> Option<(usize, usize)> {
+    let word_at = |at: usize, word: &str| {
+        word.chars().enumerate().all(|(offset, w)| {
+            chars
+                .get(at + offset)
+                .is_some_and(|c| ascii_fold(*c).eq_ignore_ascii_case(&w))
+        })
+    };
+    let boundary = |at: usize| {
+        chars
+            .get(at)
+            .is_none_or(|c| !ascii_fold(*c).is_ascii_alphabetic())
+    };
+    if index > 0 && ascii_fold(chars[index - 1]).is_ascii_alphanumeric() {
+        return None;
+    }
+    let mut at = if word_at(index, "line") && boundary(index + 4) {
+        index + 4
+    } else if word_at(index, "id") && boundary(index + 2) {
+        index + 2
+    } else {
+        return None;
+    };
+    at = skip_label_gap(chars, at);
+    if word_at(at, "id") && boundary(at + 2) {
+        at = skip_label_gap(chars, at + 2);
+    }
+    let mut end = at;
+    while end < chars.len() && {
+        let c = ascii_fold(chars[end]);
+        c.is_ascii_alphanumeric() || "._-@".contains(c)
+    } {
+        end += 1;
+    }
+    (end - at >= 3).then_some((at, end))
+}
 
 /// Masks the parts of a free-text reason that can point at one person before it leaves the
-/// server: an address finer than 市区町村 (丁目・番地・号・「3-10-1」 and the town or building
-/// name written right before it, house numbers in kanji such as 三丁目十番一号, a building name
-/// with a room number such as 府内ビル201, and a town name written after a 市区町村 name such as
-/// 大分市府内町), a phone number, an e-mail address, and a name written with さん・様・氏. Each
-/// part becomes 「＊＊」. This is a best-effort filter, not anonymization; the screen still says
-/// the text may hold personal information.
+/// server. Each part becomes 「＊＊」:
+/// - an address finer than 市区町村: 丁目・番地・号・「3-10-1」・「3の10の1」 and the town or
+///   building name written right before it, house numbers in kanji (三丁目十番一号), a building
+///   name with a room number (府内ビル201), a town name after a 市区町村 name (大分市府内町), a rural
+///   lot (大字松岡1234, 大分市大字松岡), a 条丁目 address (北1条西2丁目), and a postal code (〒8700021);
+/// - a phone number, also split by spaces or dots (090 1234 5678, 090.1234.5678);
+/// - an e-mail address, and an account written after LINE or ID;
+/// - a date of birth (生年月日1990年5月1日, 1990年5月1日生まれ);
+/// - a name written before さん・様・氏・くん・ちゃん・君・先生 (kanji, katakana or hiragana, up to 8
+///   characters, with a surname before one space), before と申します, and after 紹介者.
+///
+/// A name written without any of these (姉の山田花子) is not found. This is a best-effort filter,
+/// not anonymization; the screen says so and that the text may hold personal information.
 pub fn mask_personal_details(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut masked = vec![false; chars.len()];
@@ -249,10 +439,39 @@ pub fn mask_personal_details(text: &str) -> String {
             while end < chars.len() && is_mail_domain(chars[end]) {
                 end += 1;
             }
-            if start < index && chars[index + 1..end].contains(&'.') {
+            if start < index && end > index + 1 {
                 masked[start..end].iter_mut().for_each(|m| *m = true);
             }
             index = end.max(index + 1);
+            continue;
+        }
+        // an account after LINE or ID
+        if let Some((start, end)) = account_after_label(&chars, index) {
+            masked[start..end].iter_mut().for_each(|m| *m = true);
+            index = end;
+            continue;
+        }
+        // a date of birth after its label
+        if let Some(label) = ["生年月日", "誕生日"]
+            .iter()
+            .find(|label| starts_with(&chars, index, label))
+        {
+            let start = skip_label_gap(&chars, index + label.chars().count());
+            match date_run_end(&chars, start) {
+                Some(end) => {
+                    masked[start..end].iter_mut().for_each(|m| *m = true);
+                    index = end;
+                }
+                None => index = start,
+            }
+            continue;
+        }
+        // a name after 紹介者
+        if starts_with(&chars, index, "紹介者") {
+            let start = skip_label_gap(&chars, index + 3);
+            let end = name_after(&chars, start);
+            masked[start..end].iter_mut().for_each(|m| *m = true);
+            index = end.max(index + 3);
             continue;
         }
         // a run of numbers, dashes and address words (3丁目10番地1号, 3-10-1, 097-123-4567)
@@ -265,21 +484,56 @@ pub fn mask_personal_details(text: &str) -> String {
                 chars.get(look) == Some(&'丁')
             });
         if starts_number {
+            // a date followed by 生まれ
+            if is_digit(c) {
+                if let Some(end) = date_run_end(&chars, index) {
+                    let mut after = end;
+                    while after < chars.len() && " 　".contains(chars[after]) {
+                        after += 1;
+                    }
+                    if starts_with(&chars, after, "生まれ") || starts_with(&chars, after, "生れ")
+                    {
+                        masked[index..end].iter_mut().for_each(|m| *m = true);
+                        index = end;
+                        continue;
+                    }
+                }
+            }
             let mut end = index;
             let mut digits = 0;
+            // the most digits not split by a space, a dot or の (a dash does not split)
+            let mut group = 0;
+            let mut longest_group = 0;
             let mut address = false;
             let mut dashed = false;
+            let mut spaced = false;
+            let mut joins = 0;
             while end < chars.len() {
                 let here = chars[end];
                 let next = chars.get(end + 1).copied();
+                let after_digit = end > index && is_digit(chars[end - 1]);
                 if is_digit(here)
                     || (is_kanji_digit(here)
                         && (!address || kanji_number_continues_address(&chars, end)))
                 {
-                    digits += usize::from(is_digit(here));
+                    if is_digit(here) {
+                        digits += 1;
+                        group += 1;
+                        longest_group = longest_group.max(group);
+                    }
                     end += 1;
                 } else if is_dash(here) && next.is_some_and(is_digit) && end > index {
                     dashed = true;
+                    end += 1;
+                } else if here == 'の' && after_digit && next.is_some_and(is_digit) {
+                    // 3の10の1
+                    joins += 1;
+                    group = 0;
+                    end += 1;
+                } else if " 　.．".contains(here) && after_digit && next.is_some_and(is_digit) {
+                    // 090 1234 5678 / 090.1234.5678
+                    spaced = true;
+                    group = 0;
                     end += 1;
                 } else if (here == '丁' && next == Some('目'))
                     || (here == '番' && next == Some('地'))
@@ -304,20 +558,44 @@ pub fn mask_personal_details(text: &str) -> String {
                     break;
                 }
             }
-            let room = !address && !dashed && is_room_number(&chars, index, end, digits);
-            if address || dashed || digits >= 8 || room {
+            let spaced_phone =
+                spaced && joins == 0 && (10..=11).contains(&digits) && "0０".contains(c);
+            let lot = joins >= 2
+                || (joins == 1 && index > 0 && "町村字丁目通".contains(chars[index - 1]));
+            let rural = is_rural_lot_name(&chars, index);
+            let postal = !dashed
+                && !address
+                && digits == 7
+                && longest_group == 7
+                && postal_mark_before(&chars, index);
+            let room =
+                !address && !dashed && joins == 0 && is_room_number(&chars, index, end, digits);
+            if address
+                || dashed
+                || longest_group >= 8
+                || room
+                || spaced_phone
+                || lot
+                || rural
+                || postal
+            {
                 // the town or building name written right before an address number (not before
-                // a phone number: 「携帯09012345678」 keeps 「携帯」)
-                let street = address || room || (dashed && digits < 10);
+                // a phone number: 「携帯09012345678」 keeps 「携帯」), through 北1条 of 北1条西2丁目
+                let street = address || room || lot || rural || (dashed && digits < 10);
                 let mut start = index;
                 let mut taken = 0;
-                while street
-                    && start > 0
-                    && taken < 12
-                    && (is_han(chars[start - 1]) || is_katakana(chars[start - 1]))
-                {
-                    start -= 1;
-                    taken += 1;
+                while street && start > 0 && taken < 12 {
+                    if is_name_char(chars[start - 1]) {
+                        start -= 1;
+                        taken += 1;
+                    } else if is_digit(chars[start - 1]) && chars[start] == '条' {
+                        while start > 0 && is_digit(chars[start - 1]) {
+                            start -= 1;
+                            taken += 1;
+                        }
+                    } else {
+                        break;
+                    }
                 }
                 masked[start..end].iter_mut().for_each(|m| *m = true);
             }
@@ -330,24 +608,42 @@ pub fn mask_personal_details(text: &str) -> String {
             index = end;
             continue;
         }
-        // a name followed by さん・様・氏
-        let honorific = ["さん", "様", "氏", "くん", "ちゃん"]
-            .iter()
-            .find(|word| chars[index..].starts_with(&word.chars().collect::<Vec<_>>()));
-        if let Some(word) = honorific {
-            let mut start = index;
-            while start > 0
-                && index - start < 4
-                && (is_han(chars[start - 1]) || is_katakana(chars[start - 1]))
-            {
-                start -= 1;
+        // a rural district (大分市大字松岡: the city is kept)
+        if starts_with(&chars, index, "大字") {
+            let mut end = index + 2;
+            while end < chars.len() && end - index < 12 && is_name_char(chars[end]) {
+                end += 1;
             }
-            let name: String = chars[start..index].iter().collect();
-            if start < index && !["皆", "客", "お客", "奥", "神", "王"].contains(&name.as_str())
-            {
+            if end > index + 2 {
+                masked[index..end].iter_mut().for_each(|m| *m = true);
+            }
+            index = end;
+            continue;
+        }
+        // a name before と申します
+        if ["と申します", "と申し", "と言います", "といいます"]
+            .iter()
+            .any(|word| starts_with(&chars, index, word))
+        {
+            if let Some(start) = name_before(&chars, index, false) {
                 masked[start..index].iter_mut().for_each(|m| *m = true);
             }
-            index += word.chars().count();
+            index += 1;
+            continue;
+        }
+        // a name followed by さん・様・氏・くん・ちゃん・君・先生 (not ちゃんと)
+        let honorific = ["さん", "様", "氏", "くん", "ちゃん", "君", "先生"]
+            .iter()
+            .find(|word| starts_with(&chars, index, word));
+        if let Some(word) = honorific {
+            let length = word.chars().count();
+            let kana = ["さん", "くん", "ちゃん"].contains(word);
+            if !(*word == "ちゃん" && chars.get(index + length) == Some(&'と')) {
+                if let Some(start) = name_before(&chars, index, kana) {
+                    masked[start..index].iter_mut().for_each(|m| *m = true);
+                }
+            }
+            index += length;
             continue;
         }
         index += 1;
@@ -678,6 +974,65 @@ mod tests {
             ("大分県別府市北浜町の近く", "大分県別府市＊＊の近く"),
         ] {
             assert_eq!(mask_personal_details(raw), expected, "{raw}");
+        }
+    }
+    #[test]
+    fn review_round_4_personal_details_are_masked() {
+        for (raw, expected) in [
+            // phone numbers split by spaces or dots
+            ("090 1234 5678に連絡ください", "＊＊に連絡ください"),
+            ("電話は090.1234.5678", "電話は＊＊"),
+            ("097 123 4567", "＊＊"),
+            // a rural lot and district
+            ("大分市大字松岡1234", "＊＊"),
+            ("大分市大字松岡", "大分市＊＊"),
+            ("大字松岡1234番地", "＊＊"),
+            // の between the numbers
+            ("府内町3の10の1に住んでいます", "＊＊に住んでいます"),
+            ("荷揚町2の31", "＊＊"),
+            // a postal code without a dash
+            ("〒8700021", "〒＊＊"),
+            ("郵便番号：8700021です", "郵便番号：＊＊です"),
+            // names before an honorific
+            ("ヤマダタロウさん", "＊＊さん"),
+            ("東郷平八郎さん", "＊＊さん"),
+            ("山田 太郎さん", "＊＊さん"),
+            ("田中君の紹介", "＊＊君の紹介"),
+            ("やまださんの紹介", "＊＊さんの紹介"),
+            ("鈴木先生の紹介", "＊＊先生の紹介"),
+            // a date of birth
+            ("生年月日1990年5月1日", "生年月日＊＊"),
+            ("誕生日は1990/5/1です", "誕生日は＊＊です"),
+            ("1990年5月1日生まれです", "＊＊生まれです"),
+            // accounts and partial addresses
+            ("LINE ID: taro_yamada123", "LINE ID: ＊＊"),
+            ("ID：yamada01です", "ID：＊＊です"),
+            ("taro@example", "＊＊"),
+            ("札幌市中央区北1条西2丁目", "＊＊"),
+            // names without an honorific that follow a label
+            ("紹介者：佐藤一郎", "紹介者：＊＊"),
+            ("山田太郎と申します", "＊＊と申します"),
+        ] {
+            assert_eq!(mask_personal_details(raw), expected, "{raw}");
+        }
+    }
+    #[test]
+    fn review_round_4_ordinary_texts_stay() {
+        for text in [
+            "たくさんの求人から選びました",
+            "皆さんの雰囲気が良さそう",
+            "ちゃんと休みが取れるため",
+            "おばあちゃんの介護経験があります",
+            "時給1.5倍になるため",
+            "2026.10.08に応募",
+            "LINEで連絡しやすい",
+            "文字数200字程度",
+            "学校の先生になりたい",
+            "週3の2日だけ",
+            "電話番号は伝えていません",
+            "1日8 9件",
+        ] {
+            assert_eq!(mask_personal_details(text), text, "{text}");
         }
     }
     #[test]
