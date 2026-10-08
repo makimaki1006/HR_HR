@@ -56,7 +56,7 @@
 .jt-mark::before { content: ""; position: absolute; top: calc(100% + 1px); height: 9px; left: calc(var(--jt-pin, 0) * 1%); width: 3px; margin-left: calc(var(--jt-pin, 0) * -0.03px); background: var(--jt-pin-color); border-radius: 1px; }
 .jt-timeline .jt-mark-changed, .jt-timeline .jt-image-replaced, .jt-timeline .jt-image-reordered, .jt-timeline .jt-image-content { --jt-pin-color: #b54708; background: #fff6ec; color: #7a3306; }
 .jt-timeline .jt-image-same { color: #3b4f5d; }
-.jt-timeline .jt-image-unknown, .jt-timeline .jt-image-missing, .jt-timeline .jt-image-reference_only { border-style: dotted; color: #4f6270; }
+.jt-timeline .jt-image-unknown, .jt-timeline .jt-image-missing { border-style: dotted; color: #4f6270; }
 .jt-mark[aria-pressed="true"] { outline: 3px solid #9a3d06; outline-offset: 2px; }
 
 .jt-billing { position: absolute; top: 9px; height: 22px; background: #fff2d9; border: 1px solid #d9a441; border-radius: 3px; font-size: 10px; color: #6a4410; padding: 0 4px; overflow: hidden; white-space: nowrap; line-height: 20px; }

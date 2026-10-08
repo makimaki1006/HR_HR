@@ -25,7 +25,7 @@ import { JobCopyScreen, DUMMY_BILLING_STORAGE_KEY } from './JobCopyScreen';
 import { applicationsOutsideTimeline } from './applicationCountsModel';
 import { overallFromLiveSummary } from './liveApplications';
 import { overviewRow } from './overviewModel';
-import { buildPeriods, changeKinds, periodRows, uncertainSpans, versionChanges } from './timelineModel';
+import { boundaryStatus, buildPeriods, changeKinds, periodRows, uncertainSpans, versionChanges } from './timelineModel';
 
 vi.mock('../../components/EChart', () => ({ EChart: () => <div>グラフ</div> }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -124,17 +124,22 @@ describe('1. versions dated by acquisition day', () => {
 
 describe('2. images: references and file contents', () => {
   const base = { id: 'p', images: sameImages };
-  it('tells 差し替え, 並び順, 中身, 同じ, 中身未確認, 未取得 and 不明 apart', () => {
+  it('tells 差し替え, 並び順, 中身, 同じ, 未取得 and 不明 apart, judging by the CSV image URLs', () => {
     expect(imageChangeKind(base, { id: 'q', images: [image('a', '1', 1), image('c', '3', 2)] })).toBe('replaced');
     expect(imageChangeKind(base, { id: 'q', images: [image('b', '2', 1), image('a', '1', 2)] })).toBe('reordered');
     // Same references in the same places, but the file behind reference b changed.
     expect(imageChangeKind(base, { id: 'q', images: [image('a', '1', 1), image('b', '9', 2)] })).toBe('content');
     expect(imageChangeKind(base, { id: 'q', images: [image('a', '1', 1), image('b', '2', 2)] })).toBe('same');
-    expect(imageChangeKind({ ...base, historicalImageBytesAvailable: false }, { id: 'q', images: sameImages })).toBe('reference_only');
+    // Past files not saved: the same URLs in the same places are 同じ (the URLs decide).
+    expect(imageChangeKind({ ...base, historicalImageBytesAvailable: false }, { id: 'q', images: sameImages })).toBe('same');
+    // No images is a known state: 画像なし → 画像あり is a change, なし → なし is the same.
+    expect(imageChangeKind({ id: 'p', imageReferences: [], historicalImageBytesAvailable: false }, { id: 'q', imageReferences: [{ referenceHash: 'a'.repeat(64), slot: 1 }] })).toBe('replaced');
+    expect(imageChangeKind({ id: 'p', imageReferences: [{ referenceHash: 'a'.repeat(64), slot: 1 }] }, { id: 'q', imageReferences: [] })).toBe('replaced');
+    expect(imageChangeKind({ id: 'p', imageReferences: [], historicalImageBytesAvailable: false }, { id: 'q', imageReferences: [] })).toBe('same');
     expect(imageChangeKind(base, { id: 'q' })).toBe('missing');
     expect(imageChangeKind(undefined, { id: 'q' })).toBe('missing');
     expect(imageChangeKind({ id: 'p' }, { id: 'q', images: sameImages })).toBe('unknown');
-    expect(Object.values(IMAGE_CHANGE_MARK).map(mark => mark.text)).toEqual(['最初', '未取得', '差し替え', '並び順', '中身', '同じ', '中身未確認', '不明']);
+    expect(Object.values(IMAGE_CHANGE_MARK).map(mark => mark.text)).toEqual(['最初', '未取得', '差し替え', '並び順', '中身', '同じ', '不明']);
   });
 
   it('counts a same-URL file change as an image change in the lane and the change kinds, and never says 変更はありません then', () => {
@@ -238,5 +243,31 @@ describe('5. an HRハッカー row and a billing CSV row for the same days', () 
     expect(screen.getByText(/HRハッカーの期間別実績と読み込んだ課金CSVに、同じ日を含む課金があります/u)).toBeTruthy();
     const first = within(screen.getByRole('region', { name: '期間比較表の数値' })).getAllByRole('row')[1];
     expect(first?.querySelectorAll('td')[3]?.textContent).toBe('HRハッカーの実績と課金CSVが重なっています（どちらも合計していません）');
+  });
+});
+
+describe('real snapshot shape: past files not saved, same CSV text and image URLs', () => {
+  const ref = (slot: number) => ({ referenceHash: String(slot).repeat(64), slot });
+  const version = (id: string, observedAt: string, references: { referenceHash: string; slot: number }[], past: boolean): CopyVersion => ({
+    id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: 'HRハッカーCSV', body: '仕事内容\n配送\n給与：月給250,000円', applications: null, note: '',
+    imageReferences: references, images: [], ...(past ? { historicalImageBytesAvailable: false } : {}),
+  });
+  const job = (references: { referenceHash: string; slot: number }[], nowReferences = references): JobCopyRecord => ({
+    id: 'real-shape', title: 't', company: 'c', media: 'HRハッカー', mediaJobId: '1', location: '',
+    versions: [version('v1', '2026-10-03T01:00:00+09:00', references, true), version('v2', '2026-10-04T01:00:00+09:00', nowReferences, false)],
+  });
+  it('is 変化なし (no span between the two acquisitions), with or without images', () => {
+    for (const references of [[ref(1), ref(2)], []]) {
+      const record = job(references);
+      const change = versionChanges(record)[1];
+      expect(change && boundaryStatus(change)).toBe('same');
+      expect(uncertainSpans(record, '2026-10-05').filter(span => span.kind === 'between')).toHaveLength(0);
+    }
+  });
+  it('画像なし → 画像あり is a change', () => {
+    const record = job([], [ref(1)]);
+    const change = versionChanges(record)[1];
+    expect(change?.imageChange).toBe('replaced');
+    expect(change && boundaryStatus(change)).toBe('changed');
   });
 });

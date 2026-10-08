@@ -168,7 +168,7 @@ describe('private media capture import', () => {
     const versions = parseMediaCapture(JSON.stringify({ ...source, jobs }))[0]?.versions;
     expect(versions).toHaveLength(2);
     expect(versions?.[0]).toMatchObject({ id: 'previous-csv', observedAt: previous.capturedAt, body: previous.body, historicalImageBytesAvailable: false, applications: null });
-    expect(versions?.[0]?.note).toContain('過去の画像内容の一致・変更は判定できません');
+    expect(versions?.[0]?.note).toContain('画像の変化は媒体CSVの画像URLと並び順で判定しています');
     expect(versions?.[0]?.note).toContain(previous.imageAcquiredAt);
     expect(versions?.[0]).not.toHaveProperty('publishedFrom');
     expect(versions?.[1]?.observedAt).toBe(capturedAt);
@@ -187,7 +187,7 @@ describe('private media capture import', () => {
     const history = [{ ...source.jobs[0], id: 'old-no-pixels', capturedAt: '2026-09-01T00:00:00Z', images: [], historicalImageBytesAvailable: false }];
     const version = parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...source.jobs[0], history }] }))[0]?.versions[0];
     expect(version).not.toHaveProperty('images');
-    expect(version?.note).toContain('画像原本は未取得');
+    expect(version?.note).toContain('この版の画像URLは未取得です');
   });
 
   it('rejects future, simultaneous, duplicate, or excessive historical observations', () => {
