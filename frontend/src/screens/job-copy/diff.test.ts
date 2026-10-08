@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareCopy, type CopyDiffLine } from './diff';
+import { compareCopy, markInlineChanges, type CopyDiffLine } from './diff';
 
 function reconstruct(lines: CopyDiffLine[], side: 'before' | 'after'): string {
   return lines.filter((line) => line.kind !== (side === 'before' ? 'added' : 'removed')).map((line) => line.text).join('\n');
@@ -77,5 +77,27 @@ describe('job copy comparison', () => {
     expect(comparison.lines.at(-1)).toEqual({ kind: 'same', text: '共通末尾' });
     expect(reconstruct(comparison.lines, 'before')).toBe(before);
     expect(reconstruct(comparison.lines, 'after')).toBe(after);
+  });
+});
+
+describe('markInlineChanges', () => {
+  const changedText = (line: { segments?: { text: string; changed: boolean }[] } | undefined) => line?.segments?.filter(segment => segment.changed).map(segment => segment.text);
+  it('marks only the figure that changed in a salary line, as a whole number', () => {
+    const lines = markInlineChanges(compareCopy('給与：月給250,000円〜280,000円\n休日：週休2日', '給与：月給270,000円〜300,000円\n休日：週休2日').lines);
+    const removed = lines.find(line => line.kind === 'removed'); const added = lines.find(line => line.kind === 'added');
+    expect(changedText(removed)).toEqual(['250,000', '280,000']);
+    expect(changedText(added)).toEqual(['270,000', '300,000']);
+    expect(added?.segments?.map(segment => segment.text).join('')).toBe('給与：月給270,000円〜300,000円');
+  });
+  it('marks the changed words inside a Japanese sentence', () => {
+    const lines = markInlineChanges(compareCopy('キャッチコピー：いつもの道で、地域の暮らしを支える', 'キャッチコピー：土日は自分の時間に。地域の暮らしを支える').lines);
+    expect(changedText(lines.find(line => line.kind === 'removed'))).toEqual(['いつもの道で、']);
+    expect(changedText(lines.find(line => line.kind === 'added'))).toEqual(['土日は自分の時間に。']);
+  });
+  it('leaves added lines without a partner, and pairs that share nothing, as whole-line changes', () => {
+    const added = markInlineChanges(compareCopy('A行', 'A行\n新しい行').lines);
+    expect(added.find(line => line.kind === 'added')?.segments).toBeUndefined();
+    const unrelated = markInlineChanges(compareCopy('りんご', '電車').lines);
+    expect(unrelated.every(line => line.segments === undefined)).toBe(true);
   });
 });
