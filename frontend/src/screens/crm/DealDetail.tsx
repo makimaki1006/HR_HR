@@ -10,6 +10,9 @@ import {
   ACTIVITY_FILTERS, ACTIVITY_KIND_LABELS, activityStatusLabel, directionLabel, filterActivities, formatDurationMs, formatTimestamp, partialNotes,
 } from './workspaceModel';
 import type { ActivityKindFilter } from './workspaceModel';
+import { clock } from './workspaceModel';
+import { RESULT_LABELS, useTicking } from './ZoomPhonePanel';
+import type { ZoomEvent } from './smartEmbed';
 
 /** HubSpot の選択肢の値 → 表示ラベル (不通時チェック bpo_10・ブロック理由 bpo_4)。定義がまだ無いときは値のまま */
 export type StopLabel = (property: 'bpo_10' | 'bpo_4', value: string) => string;
@@ -18,10 +21,11 @@ export const rawStopLabel: StopLabel = (_p, v) => v;
 const SOURCE_LABELS: Record<string, string> = { deal: '案件の番号', contact: '担当者の電話', mobile: '担当者の携帯', company: '会社の電話' };
 const ymd = (raw: string | null) => dateValue(raw)?.replaceAll('-', '/') ?? null;
 
+// 発信を依頼できたときの様子は「架ける番号」の下の 1 行 (CallBar) に出すので、ここでは何も言わない
 const DIAL_MESSAGES: Record<DialResult, string> = {
-  sent: '発信を依頼しました。右の Zoom Phone を確認してください。',
+  sent: '',
   not_dialable: 'この番号はダイヤルできる形式ではありません。',
-  embed_loading: 'Zoom Phone を読み込み中です。右の枠が表示されてから発信するか、「番号をコピー」か「端末の電話で発信」を使ってください。',
+  embed_loading: 'Zoom を読み込み中です。少し待ってからもう一度発信するか、「番号をコピー」か「端末の電話で発信」を使ってください。',
   embed_unavailable: 'Zoom Phone が使えません。「番号をコピー」か「端末の電話で発信」を使ってください。',
   busy: '通話中のため、新しい発信はできません。',
 };
@@ -56,6 +60,44 @@ export function PhoneRow({ label, raw, zoom, primary = false }: { label: string;
   </div>;
 }
 
+/** 「架ける番号」の下に出す通話の様子 (Zoom の枠を閉じていても分かるように) */
+export type CallBarInfo =
+  | { kind: 'dialing'; number: string | null }
+  | { kind: 'failed' }
+  | { kind: 'ringing'; number: string | null; inbound: boolean }
+  | { kind: 'connected'; number: string | null; connectedAt: number | null }
+  | { kind: 'ended'; talkSeconds: number | null; result: ZoomEvent['result'] };
+
+/** Zoom が発信の依頼に応えなかったときの案内 */
+export const ZOOM_NO_RESPONSE = 'Zoomが応答しません。Zoomアプリを起動してサインインしてから、もう一度発信してください';
+
+export function CallBar({ info, now, onOpenZoom }: { info: CallBarInfo; now: () => number; onOpenZoom?: (() => void) | undefined }) {
+  const connectedAt = info.kind === 'connected' ? info.connectedAt : null;
+  const t = useTicking(connectedAt !== null, now);
+  const who = 'number' in info ? formatPhoneForDisplay(info.number) : null;
+  let label: string;
+  let extra: string | null = null;
+  if (info.kind === 'dialing') label = '発信しています…';
+  else if (info.kind === 'failed') label = '発信できませんでした';
+  else if (info.kind === 'ringing') label = info.inbound ? '着信中' : '呼び出し中';
+  else if (info.kind === 'connected') label = '通話中';
+  else {
+    label = (info.result ? RESULT_LABELS[info.result] : undefined) ?? '通話が終了しました';
+    if (info.talkSeconds !== null) extra = `(通話時間 ${clock(info.talkSeconds)})`;
+  }
+  return <div className={`wd-callbar wd-callbar-${info.kind}`} data-testid="call-bar">
+    <p className="wd-callbar-line">
+      <span role="status" className="wd-callbar-status" data-testid="call-bar-status"><strong>{label}</strong>{extra && <span> {extra}</span>}</span>
+      {/* 毎秒変わる時計は読み上げない (状態の変化だけを読み上げる) */}
+      {connectedAt !== null && <span className="wd-callbar-timer" aria-hidden="true" data-testid="call-bar-timer">{clock((t - connectedAt) / 1000)}</span>}
+      {who && <span className="wd-callbar-who">{who}</span>}
+      {onOpenZoom && <button type="button" className="wd-callbar-open" onClick={onOpenZoom}
+        title="消音・保留・通話を切る・数字の入力は Zoom の枠で行います">Zoomを開く</button>}
+    </p>
+    {info.kind === 'failed' && <p className="wd-callbar-msg" role="alert">{ZOOM_NO_RESPONSE}</p>}
+  </div>;
+}
+
 function ActivityItem({ a }: { a: WorkspaceActivity }) {
   const when = formatTimestamp(a.timestamp);
   const dir = directionLabel(a.direction);
@@ -74,7 +116,10 @@ function ActivityItem({ a }: { a: WorkspaceActivity }) {
   </li>;
 }
 
-function Detail({ data, zoom, ownerName, stopLabel }: { data: WorkspaceResponse; zoom: ZoomPhone; ownerName?: string | undefined; stopLabel: StopLabel }) {
+function Detail({ data, zoom, ownerName, stopLabel, callBar, onOpenZoom }: {
+  data: WorkspaceResponse; zoom: ZoomPhone; ownerName?: string | undefined; stopLabel: StopLabel;
+  callBar?: CallBarInfo | null | undefined; onOpenZoom?: (() => void) | undefined;
+}) {
   const [kind, setKind] = useState<ActivityKindFilter>('all');
   const d = data.deal;
   const company = data.companies.find(c => c.is_primary) ?? null;
@@ -110,6 +155,7 @@ function Detail({ data, zoom, ownerName, stopLabel }: { data: WorkspaceResponse;
         {otherPhones.length > 0 && <details className="wd-other"><summary>ほかの番号({otherPhones.length})</summary>
           <div className="wd-other-list">{otherPhones.map(p => <PhoneRow key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</div></details>}
       </section>
+      {callBar && <CallBar info={callBar} now={zoom.now} onOpenZoom={onOpenZoom} />}
     </div>
 
     <div className="wd-body">
@@ -176,10 +222,16 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-function DealDetailImpl({ state, reload, zoom, ownerName, stopLabel = rawStopLabel }: {
+function DealDetailImpl({ state, reload, zoom, ownerName, stopLabel = rawStopLabel, callBar, onOpenZoom }: {
   state: DetailState; reload: () => void; zoom: ZoomPhone; ownerName?: string | undefined; stopLabel?: StopLabel;
+  /** 「架ける番号」の下に出す通話の様子 (出すものが無ければ null) */
+  callBar?: CallBarInfo | null | undefined;
+  /** Zoom の枠を開く */
+  onOpenZoom?: (() => void) | undefined;
 }) {
-  if (state.phase === 'ready' && state.data !== null) return <Detail data={state.data} zoom={zoom} ownerName={ownerName} stopLabel={stopLabel} />;
+  if (state.phase === 'ready' && state.data !== null) {
+    return <Detail data={state.data} zoom={zoom} ownerName={ownerName} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom} />;
+  }
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }
 

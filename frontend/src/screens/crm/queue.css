@@ -1,6 +1,7 @@
 /*
  * 架電画面 (CallQueueScreen): 画面いっぱい (100dvh) で、ページ全体はスクロールしない。
- *   topbar (44px) / 絞り込みバー (1 行 + 適用中の条件 + 開閉する詳細条件) / 3 列 (一覧 | 詳細 | Zoom Phone)
+ *   topbar (44px) / 絞り込みバー (1 行 + 適用中の条件 + 開閉する詳細条件) / 2 列 (一覧 | 詳細)
+ *   Zoom Phone は右から開く引き出し (閉じている間も iframe は画面の外に同じ大きさで置いたまま)
  * 各列が自分でスクロールする。余白は 4 / 8 / 12 / 16 / 24px、色は中立のグレー + アクセント 1 色。
  */
 .cq-app {
@@ -42,6 +43,16 @@
 .cq-mode-note, .cq-mode-note-short { color: #c9d3dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cq-mode-note-short { display: none; }
 .cq-mode-switch { flex: none; display: inline-flex; }
+/* 上のバーの「Zoom」ボタン (枠の開け閉め + 状態の点) */
+.cq-zoom-toggle { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #56677a; border-radius: 4px; background: transparent; color: #fff !important; padding: 2px 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.cq-zoom-toggle[aria-expanded="true"] { background: #33465a; border-color: #8fa1b3; }
+.cq-zoom-toggle:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.cq-zoom-dot { width: 8px; height: 8px; border-radius: 50%; background: #9aa7b4; }
+.cq-zoom-state { font-weight: 400; color: #c9d3dc; }
+.cq-zoom-toggle.is-ready .cq-zoom-dot { background: #3ccf8e; }
+.cq-zoom-toggle.is-ringing .cq-zoom-dot { background: #ffc94d; }
+.cq-zoom-toggle.is-connected .cq-zoom-dot { background: #3ccf8e; box-shadow: 0 0 0 3px #3ccf8e55; }
+.cq-zoom-toggle:is(.is-unavailable, .is-no_response) .cq-zoom-dot { background: #ff7b6e; }
 .cq-mode-switch button { border: 1px solid #56677a; background: transparent; color: #dbe3ea !important; padding: 2px 10px; font-size: 12px; }
 .cq-mode-switch button:first-child { border-radius: 4px 0 0 4px; }
 .cq-mode-switch button:last-child { border-radius: 0 4px 4px 0; border-left: 0; }
@@ -99,12 +110,11 @@
 .cq-range label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--cq-sub); white-space: nowrap; }
 .cq-app .cq-range input { width: 140px; }
 
-/* ---- 3 列 ---- */
-.cq-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr) 360px; }
+/* ---- 2 列 (Zoom は引き出し) ---- */
+.cq-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr); }
 .cq-col { min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .cq-list-col { background: var(--cq-surface); border-right: 1px solid var(--cq-line); }
 .cq-detail { background: var(--cq-bg); }
-.cq-phone-col { background: var(--cq-surface); border-left: 1px solid var(--cq-line); }
 
 /* 左: 一覧 */
 .cq-list-head { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 8px; padding: 8px 12px; border-bottom: 1px solid var(--cq-line); min-height: 37px; }
@@ -195,11 +205,33 @@
 .wd-act-meta { margin: 2px 0; }
 .wd-act-body { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wd-empty { margin: 16px; }
+/* 「架ける番号」の下の通話の様子 (1 行) */
+.wd-callbar { border-radius: var(--cq-radius); padding: 4px 10px; background: var(--cq-bg); font-size: 12px; }
+.wd-callbar-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.wd-callbar-status strong { font-size: 13px; }
+.wd-callbar-timer { font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 700; }
+.wd-callbar-who { color: var(--cq-sub); font-variant-numeric: tabular-nums; }
+.wd-callbar-open { margin-left: auto; border: 1px solid var(--cq-line-strong); background: #fff; border-radius: 4px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.wd-callbar-msg { margin: 4px 0 0; color: #8a1c14; font-weight: 700; }
+.wd-callbar-ringing, .wd-callbar-dialing { background: #fff8e1; }
+.wd-callbar-connected { background: #e3f4ea; }
+.wd-callbar-failed { background: #fdecea; }
+
 /* 架電結果の入力欄の置き場 (中央の列の下端に固定)。中身は CallResultForm (result-form.css) */
 .cq-result-slot { flex: none; background: var(--cq-surface); }
 .cq-result-slot:not(:empty) { border-top: 1px solid var(--cq-line-strong); box-shadow: 0 -2px 6px #1f2a3510; }
 
-/* 右: Zoom Phone。iframe が列の高さいっぱいに広がる */
+/* Zoom Phone の引き出し。右から重ねて開く。閉じている間は同じ大きさのまま画面の外へ送る
+   (display:none / visibility:hidden にしない。iframe を外したり止めたりすると発信の依頼が届かない) */
+.cq-zoom-drawer { position: fixed; top: 44px; right: 0; bottom: 0; z-index: 40; width: 360px; max-width: 100vw; display: flex; flex-direction: column;
+  background: var(--cq-surface); border-left: 1px solid var(--cq-line-strong); box-shadow: -8px 0 24px #1f2a3526; transform: translateX(0); transition: transform .18s ease-out; }
+.cq-zoom-drawer:not(.is-open) { transform: translateX(calc(100% + 32px)); pointer-events: none; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .cq-zoom-drawer { transition: none; } }
+.zp-close { margin-left: auto; border: 1px solid var(--cq-line-strong); background: #fff; border-radius: 4px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.cq-app .zp-close:focus-visible, .cq-app .cq-zoom-drawer :is(button, a, summary):focus-visible { outline: 2px solid var(--cq-accent); outline-offset: 2px; }
+.zp-setup-head { margin: 6px 0 0; font-weight: 700; color: var(--cq-sub); }
+
+/* Zoom Phone の中身。iframe が引き出しの高さいっぱいに広がる */
 .zp-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px; overflow-y: auto; }
 .zp-head { flex: none; display: flex; align-items: baseline; gap: 8px; }
 .zp-head h2 { margin: 0; font-size: 13px; }
@@ -217,12 +249,12 @@
 
 /* ---- 幅が狭いとき ---- */
 @media (max-width: 1279px) {
-  .cq-body { grid-template-columns: 300px minmax(0, 1fr) 320px; }
+  .cq-body { grid-template-columns: 300px minmax(0, 1fr); }
   /* 幅が狭くても「書き込まない」ことは短い文で残す */
   .cq-mode-note { display: none; }
   .cq-mode-note-short { display: inline; }
 }
-/* 1000px 未満: ページ全体のスクロールに戻し、一覧 → 詳細 → Zoom Phone の順に縦に並べる */
+/* 1000px 未満: ページ全体のスクロールに戻し、一覧 → 詳細 の順に縦に並べる (Zoom は引き出しのまま) */
 @media (max-height: 820px) and (min-width: 1000px) {
   .wd-top { padding: 8px 12px; gap: 6px; }
   .wd-dialbox { padding: 6px 10px; }
@@ -235,8 +267,8 @@
   .cq-list-col { max-height: 45vh; overflow: hidden; border-bottom: 1px solid var(--cq-line); }
   .wd-top { position: sticky; top: 0; }
   .wd-body, .cq-detail-scroll { overflow: visible; }
-  .zp-panel { overflow: visible; }
-  .zp-frame { flex: none; height: 560px; }
+  /* ページがスクロールして上のバーが隠れても、引き出しは画面の上端から出す */
+  .cq-zoom-drawer { top: 0; }
   .cq-topbar { padding: 0 12px; gap: 8px; }
 }
 @media (max-width: 560px) {
