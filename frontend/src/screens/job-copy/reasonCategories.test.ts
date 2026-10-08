@@ -56,6 +56,8 @@ describe('chosen categories', () => {
   it('reads the label first, then the stored value, and knows 未設定', () => {
     expect(selectedCategory({ value: 'kyuuyo', label: '給与' })).toBe('給与');
     expect(selectedCategory({ value: '勤務地', label: null })).toBe('勤務地');
+    // 定義を読めずラベルが無くても、HubSpot の内部値 unset は「未設定」として扱う
+    expect(selectedCategory({ value: 'unset', label: null })).toBe('unset');
     expect(selectedCategory({ value: 'mise', label: '未設定' })).toBe('unset');
     expect(selectedCategory({ value: 'kyuuyo', label: null })).toBeNull();
   });
