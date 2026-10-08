@@ -1,5 +1,59 @@
 import { describe, expect, it } from 'vitest';
-import { toDomesticPhone } from './phone';
+import { formatPhoneForDisplay, toDomesticPhone } from './phone';
+
+describe('formatPhoneForDisplay', () => {
+  it.each([
+    // 2 桁・3 桁の市外局番 (先頭だけで桁数が決まるもの)
+    ['0300000005', '03-0000-0005'],
+    ['+81312345678', '03-1234-5678'],
+    ['+81(0)3-0000-0005', '03-0000-0005'],
+    ['0612345678', '06-1234-5678'],
+    ['0111234567', '011-123-4567'],
+    ['045-123-4567', '045-123-4567'],
+    ['0521234567', '052-123-4567'],
+    // 携帯・IP
+    ['+81 90-0000-0003', '090-0000-0003'],
+    ['09000000099', '090-0000-0099'],
+    ['08012345678', '080-1234-5678'],
+    ['07012345678', '070-1234-5678'],
+    ['+815012345678', '050-1234-5678'],
+    // フリーダイヤル等
+    ['0120123456', '0120-123-456'],
+    ['0570-000-111', '0570-000-111'],
+    ['08001234567', '0800-123-4567'],
+    // M2M・特定 IP (020 / 060) と 0990 (ダイヤル Q2)
+    ['02012345678', '020-1234-5678'],
+    ['06012345678', '060-1234-5678'],
+    ['0990123456', '0990-123-456'],
+    // 携帯等でない 11 桁は区切らない (3-4-4 にしない)
+    ['01234567890', '01234567890'],
+  ])('%s -> %s', (raw, want) => {
+    expect(formatPhoneForDisplay(raw)).toBe(want);
+  });
+
+  it('falls back to the toDomesticPhone digits when the area code length cannot be told from the prefix', () => {
+    // 0422 (武蔵野) と 042 (八王子等) のように先頭が同じで桁数が違う局番は区切らない
+    expect(formatPhoneForDisplay('0422-12-3456')).toBe('0422123456');
+    expect(formatPhoneForDisplay('0466123456')).toBe('0466123456');
+    // 050 なのに 10 桁 (桁数が合わない) も区切らない
+    expect(formatPhoneForDisplay('+81500000006')).toBe('0500000006');
+    // 9 桁
+    expect(formatPhoneForDisplay('031234567')).toBe('031234567');
+  });
+
+  it('keeps non-Japanese / non-number values and null like toDomesticPhone', () => {
+    expect(formatPhoneForDisplay(null)).toBeNull();
+    expect(formatPhoneForDisplay('  ')).toBeNull();
+    expect(formatPhoneForDisplay('+1 415-555-0100')).toBe('+1 415-555-0100');
+    expect(formatPhoneForDisplay(' サンプル ')).toBe('サンプル');
+  });
+
+  it('removing the hyphens gives back exactly the toDomesticPhone value (the one used for copy)', () => {
+    for (const raw of ['0300000005', '+819012345678', '0120123456', '08001234567', '0466123456']) {
+      expect(formatPhoneForDisplay(raw)?.replaceAll('-', '')).toBe(toDomesticPhone(raw));
+    }
+  });
+});
 
 describe('toDomesticPhone', () => {
   it.each([
@@ -47,5 +101,22 @@ describe('toDomesticPhone', () => {
       const once = toDomesticPhone(raw);
       expect(toDomesticPhone(once)).toBe(once);
     }
+  });
+});
+
+describe('toDomesticPhone: values that are not a domestic number are returned unchanged', () => {
+  it.each([
+    // 区切りを残したまま返る (数字だけにしない) ことで「国内の番号として扱っていない」と分かる
+    ['0123-4567', '0123-4567'], // 8 桁 (9〜11 桁の外)
+    ['0123-4567-8901', '0123-4567-8901'], // 12 桁
+    ['1234-567-8901', '1234-567-8901'], // 0 も + も無い
+    ['+81 123-4567', '+81 123-4567'], // +81 の後が 7 桁 (0 を補っても 8 桁)
+    ['TEL 03-1234-5678', 'TEL 03-1234-5678'], // 番号以外の文字が入っている
+  ])('%s -> %s', (raw, want) => {
+    expect(toDomesticPhone(raw)).toBe(want);
+  });
+  it('the 9 and 11 digit bounds are domestic', () => {
+    expect(toDomesticPhone('03-123-4567')).toBe('031234567');
+    expect(toDomesticPhone('090-1234-5678')).toBe('09012345678');
   });
 });

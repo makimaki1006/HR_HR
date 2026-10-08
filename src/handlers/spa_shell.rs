@@ -44,7 +44,8 @@ pub const KNOWN_SCREENS: &[&str] = &[
     "guide",
     // Phase 1A (2026-10-01): 採用診断 (/app/recruitment-diag)。旧 /tab/recruitment_diag は並走
     "recruitment-diag",
-    // Headless CRM (2026-10-02): 架電 CRM の MOC (/app/crm)。ナビは管理者のみ (nav.rs crm_visible)
+    // Headless CRM (2026-10-02): 架電画面 (/app/crm)。既定は HubSpot の実データを読む架電キュー、
+    // MOC・見本・単発は ?view=moc / reference / single。ナビは管理者のみ (nav.rs crm_visible)
     "crm",
     // React 移行 W2 (2026-09-30): 営業KPI (/app/sales-kpi)。旧 /sales-kpi は並走
     "sales-kpi",
