@@ -7,11 +7,22 @@ import type { ApplicantDimension } from './applicantCompositionModel';
 import { roundAreaCounts, roundApplicantAreasInRecord } from './applicantArea';
 import { formatDateTimeJst, joinPresent, orderCategories, plainWording } from './format';
 import { HUBSPOT_BODY_SOURCE, overallFromLiveSummary } from './liveApplications';
+import { parseJointDemographics } from './reverseSearchModel';
+import type { JointDemographics } from './reverseSearchModel';
+
+/**
+ * The gender × age × area cells of the live read. The area totals are counted from them, so a
+ * record without readable cells names no area (roundApplicantAreasInRecord).
+ */
+function liveJoint(summary: Summary): { jointDemographics: JointDemographics } | Record<string, never> {
+  if (summary.joint_demographics == null) return {};
+  try { return { jointDemographics: parseJointDemographics(summary.joint_demographics, summary.total) }; } catch { return {}; }
+}
 
 interface RecordData { id: string; properties: Record<string, string | null> }
 interface CustomerPage { customers: RecordData[]; next_after: string | null; total_ms: number }
 interface JobPage { company_id: string; portal_id?: string | null; contracts: RecordData[]; jobs: { record: RecordData; deal_ids: string[] }[]; total: number; next_offset: number | null; total_ms: number; fetched_at: string }
-interface Summary { total: number; duplicate_ids: number; missing_date: number; by_date: Record<string, number>; dimensions: Record<string, Record<string, number>>; multi_listing_by_date?: Record<string, number>; multi_listing_missing_date?: number }
+interface Summary { total: number; duplicate_ids: number; missing_date: number; by_date: Record<string, number>; dimensions: Record<string, Record<string, number>>; multi_listing_by_date?: Record<string, number>; multi_listing_missing_date?: number; joint_demographics?: unknown }
 interface DatedComparison { total: number; unknown: number; basis: string; daily_representatives?: Record<string, { version_id: string }>; by_version: Record<string, { count: number; dimensions: Record<ApplicantDimension, { denominator: number; categories: { category: string; count: number; percentage: number | null }[] } | null> }> }
 interface ApplicantPage { metric: string; summary: Summary; total_ms: number; fetched_at: string; version_attribution: string; attribute_basis: string; capture_bundle?: unknown; dated_comparison?: DatedComparison | null; capture_status?: string; applicant_reasons?: unknown }
 const labels: Record<string, string> = { gender: '性別', age: '年代', prefecture: '都道府県', municipality: '市区町村' };
@@ -80,7 +91,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
         try {
           const captured = parseMediaCapture(JSON.stringify(result.data.capture_bundle))[0];
           const comparison = result.data.dated_comparison;
-          if (captured) onOpen(roundApplicantAreasInRecord({ ...captured, ...(overall ? { overallApplications: overall } : {}), ...(selectedJob.accountId ? { accountId: selectedJob.accountId } : {}), id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
+          if (captured) onOpen(roundApplicantAreasInRecord({ ...captured, ...(overall ? { overallApplications: overall } : {}), ...liveJoint(result.data.summary), ...(selectedJob.accountId ? { accountId: selectedJob.accountId } : {}), id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
             applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, captured.versions.filter(version => version.kind === 'published').map(version => version.id)),
             versions: captured.versions.map(version => {
               const bucket = comparison.by_version[version.id];
@@ -94,7 +105,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
           }));
         } catch { setError('媒体から取得したデータの形式を確認できませんでした。HubSpotの現在値と応募全体の集計を表示します。'); }
       } else {
-        try { onOpen(roundApplicantAreasInRecord({ ...selectedJob, ...(overall ? { overallApplications: overall } : {}), applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, []) })); }
+        try { onOpen(roundApplicantAreasInRecord({ ...selectedJob, ...(overall ? { overallApplications: overall } : {}), ...liveJoint(result.data.summary), applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, []) })); }
         catch { setError('応募理由の出典・件数を確認できませんでした。原記録を推測して補完しません。'); }
       }
     }

@@ -41,6 +41,12 @@ const buildPrefectures = (): PrefectureEntry[] => AREA_MASTER.map(([name, joined
   return { name, short: name === '北海道' ? name : name.slice(0, -1), cities };
 });
 
+/** マスタにある市区町村名か（郡名を省いた書き方・区を省いた市の書き方を含む）。応募理由の文の町名を見つけるのに使う。 */
+export function isMunicipalityName(text: string): boolean {
+  const key = normalize(text);
+  return prefectures().some(prefecture => prefecture.cities.some(city => city.key === key));
+}
+
 /** Prefecture names in code order (1–47). */
 export const PREFECTURE_NAMES: readonly string[] = AREA_MASTER.map(([name]) => name);
 
@@ -163,6 +169,7 @@ function mergeCells(cells: readonly JointCell[]): JointCell[] {
  * 2. 求人内の応募が 3 件未満の都道府県・市区町村は「その他」にする。
  * 3. それでも 3 件未満のセルは市区町村を「その他」にし、まだ 3 件未満なら都道府県も「その他」にする
  *    （「女性・60代・由布市 = 1件」のように、組み合わせで 1 件の応募を特定できる地域を出さない）。
+ * 地域ごとの合計は、このセルから数え直したものだけを出す（roundApplicantAreasInRecord）。
  */
 export function roundJointDemographics(joint: JointDemographics): JointDemographics {
   const rounded = joint.cells.map(cell => {
@@ -192,12 +199,39 @@ function roundDistributions<T extends Distributions>(distributions: T): T {
   return next;
 }
 
+/**
+ * 求人全体の地域の分布を、丸めた複合条件のセルから数え直す（サーバーと同じ）。地域ごとの合計を元の地域で数えると、
+ * 名前の出ているセルを引き算して「その他」にしたセルの地域が分かってしまうため。セルの合計が分布の合計と違うときは、
+ * どの地域の名前も出さない。
+ */
+function areasFromCells(distributions: Distributions, joint: JointDemographics | undefined): Distributions {
+  const next = { ...distributions };
+  for (const dimension of ['prefecture', 'municipality'] as const) {
+    const distribution = next[dimension];
+    if (!distribution) continue;
+    const counts = new Map<string, number>();
+    const cellTotal = joint?.cells.reduce((sum, cell) => sum + cell.count, 0);
+    if (joint && cellTotal === distribution.total) {
+      for (const cell of joint.cells) counts.set(cell[dimension], (counts.get(cell[dimension]) ?? 0) + cell.count);
+    } else {
+      for (const row of distribution.categories) {
+        const label = reserved(row.category) ? row.category : AREA_OTHER;
+        counts.set(label, (counts.get(label) ?? 0) + row.count);
+      }
+    }
+    const total = distribution.total;
+    next[dimension] = roundAreaDistribution({ total, categories: [...counts].map(([category, count]) => ({ category, count, percentage: total ? count / total * 100 : null })) }, dimension);
+  }
+  return next;
+}
+
 /** 取り込んだ求人の応募者の地域（求人全体・版別・複合条件）をすべて丸める。取り込み直後に必ず通す。 */
 export function roundApplicantAreasInRecord(job: JobCopyRecord): JobCopyRecord {
+  const joint = job.jointDemographics ? roundJointDemographics(job.jointDemographics) : undefined;
   return {
     ...job,
-    ...(job.overallApplications ? { overallApplications: { ...job.overallApplications, distributions: roundDistributions(job.overallApplications.distributions) } } : {}),
-    ...(job.jointDemographics ? { jointDemographics: roundJointDemographics(job.jointDemographics) } : {}),
+    ...(job.overallApplications ? { overallApplications: { ...job.overallApplications, distributions: areasFromCells(roundDistributions(job.overallApplications.distributions), joint) } } : {}),
+    ...(joint ? { jointDemographics: joint } : {}),
     versions: job.versions.map(version => version.distributions ? { ...version, distributions: roundDistributions(version.distributions) } : version),
   };
 }

@@ -24,7 +24,9 @@ const driver = (): JobCopyRecord => {
   if (!job) throw new Error('Missing demo-job-001');
   return job;
 };
-const version = (id: string, observedAt: string, body: string): JobCopyRecord['versions'][number] => ({ id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '' });
+const version = (id: string, observedAt: string, body: string, images?: JobCopyRecord['versions'][number]['images']): JobCopyRecord['versions'][number] => ({ id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '', ...(images ? { images } : {}) });
+/** The same image on two acquisitions, so the second acquisition is the same content (not unknown). */
+const sameImage = [{ id: 'img-1', url: `/api/job-copy/snapshot-image?listing_id=30&version=0&slot=1&image_hash=${'a'.repeat(64)}`, caption: '', contentHash: 'a'.repeat(64), sourceReferenceHash: 'b'.repeat(64), sourceSlot: 1 }];
 
 describe('本文 lane mark', () => {
   // v0 → the same text with CRLF line ends → an empty body (could not be read).
@@ -81,8 +83,8 @@ describe('explanations that can be read without hovering', () => {
 
   it('explains short windows on the cross-job overview below the table', () => {
     const job: JobCopyRecord = { id: 'synthetic', title: '合成ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: 'S-1', location: '大分県大分市',
-      versions: [version('a', '2026-08-01T00:00:00Z', '給与：月給230,000円'), version('b', '2026-08-20T00:00:00Z', '給与：月給250,000円')],
-      dataSource: 'hubspot', overallApplications: { total: 4, missingDate: 0, fetchedAt: '2026-08-20T00:00:00Z', distributions: {}, byDate: { '2026-08-10': 2, '2026-08-20': 2 } } };
+      versions: [version('a', '2026-08-01T00:00:00Z', '給与：月給230,000円'), version('b', '2026-08-20T00:00:00Z', '給与：月給250,000円', sameImage), version('b2', '2026-08-22T00:00:00Z', '給与：月給250,000円', sameImage)],
+      dataSource: 'hubspot', overallApplications: { total: 6, missingDate: 0, fetchedAt: '2026-08-22T00:00:00Z', distributions: {}, byDate: { '2026-08-10': 2, '2026-08-20': 2, '2026-08-21': 2 } } };
     render(<JobOverview records={[job]} onChoose={() => undefined} />);
     const table = screen.getByRole('region', { name: '求人の横断比較の表' });
     expect(within(table).getAllByRole('row')[1]?.textContent).toContain('期間が短いため比べません2件 / 1日');

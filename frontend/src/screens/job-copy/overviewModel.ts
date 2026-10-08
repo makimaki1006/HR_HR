@@ -1,20 +1,20 @@
 /**
  * Cross-job overview: one row per job on a shared calendar. Shows the latest change found between
- * two acquisitions (取得日A〜取得日B) and the applications per day in the N days up to A and from B.
- * The days between A and B are left out: which content was shown then is not known. Rows are
+ * two acquisitions (取得日A〜取得日B) and the applications per day in the N days before A and after B.
+ * A, B and the days between them are left out: which content was shown then is not known. Rows are
  * sortable but never ranked as winners; the numbers sit side by side and do not say why
  * applications changed.
  */
 import type { JobCopyRecord } from './data';
 import {
-  addDays, applicationBuckets, asOfDate, billingConflict, billingEntries, billingOverlaps, boundaryStatus, buildPeriods, changeKinds, countApplications, daysBetween, dummyBilling,
-  multiListingByDate, realBilling, versionChanges,
+  addDays, applicationBuckets, asOfDate, billingConflict, billingEntries, billingOverlaps, boundaryStatus, buildPeriods, changeKinds, countApplications, countRanges, daysBetween, dummyBilling,
+  MIN_RATE_DAYS, multiListingByDate, realBilling, versionChanges,
 } from './timelineModel';
-import type { ApplicationBucket, BillingEntry, TimelinePeriod } from './timelineModel';
+import type { ApplicationBucket, BillingEntry, CountRange, TimelinePeriod } from './timelineModel';
 
 export const OVERVIEW_WINDOW_DAYS = 14;
-/** A before/after window shorter than this is not compared (a rate from 1 or 2 days is not shown or sorted). */
-export const MIN_RATE_DAYS = 7;
+/** A before/after window shorter than this is not compared (the same rule as the period table). */
+export { MIN_RATE_DAYS };
 /** True when the window is long enough to put its rate beside others. */
 export function comparableRate(rate: WindowRate | null): boolean {
   return rate !== null && rate.days >= MIN_RATE_DAYS && rate.perDay !== null;
@@ -22,9 +22,11 @@ export function comparableRate(rate: WindowRate | null): boolean {
 
 export interface WindowRate {
   /**
-   * Days actually covered. The before-window ends on 取得日A and stays inside the days the earlier
-   * content is known to be shown; the after-window starts on 取得日B and stops at the last day the
-   * later content is known to be shown (its last acquisition) or at the day counts were taken.
+   * Days actually covered. Only days whose content is known count (timelineModel.countRanges): the
+   * before-window ends the day before 取得日A and the after-window starts the day after 取得日B,
+   * because the change may fall on either acquisition day, before or after that day's
+   * acquisition. The after-window stops at the last day the later content is known to be shown or
+   * at the day counts were taken.
    */
   days: number;
   applications: number;
@@ -78,16 +80,16 @@ function rate(job: JobCopyRecord, start: string, endExclusive: string): WindowRa
  * First day the content of periods[index] is known to be shown: earlier periods count only while
  * they touch and nothing changed between them (the same content was seen again).
  */
-function runStart(periods: readonly TimelinePeriod[], same: (index: number) => boolean, index: number): string {
+function runStart(periods: readonly TimelinePeriod[], ranges: readonly CountRange[], same: (index: number) => boolean, index: number): string {
   let cursor = index;
   while (cursor > 0 && same(cursor) && periods[cursor - 1]?.end === periods[cursor]?.start) cursor -= 1;
-  return periods[cursor]?.start ?? '';
+  return ranges[cursor]?.start ?? '';
 }
 /** Exclusive end of the days the content of periods[index] is known to be shown (same rule). */
-function runEnd(periods: readonly TimelinePeriod[], same: (index: number) => boolean, index: number, asOf: string): string {
+function runEnd(periods: readonly TimelinePeriod[], ranges: readonly CountRange[], same: (index: number) => boolean, index: number, asOf: string): string {
   let cursor = index;
   while (cursor < periods.length - 1 && same(cursor + 1) && periods[cursor]?.end === periods[cursor + 1]?.start) cursor += 1;
-  return periods[cursor]?.end ?? addDays(asOf, 1);
+  return ranges[cursor]?.end ?? addDays(asOf, 1);
 }
 
 export function overviewRow(job: JobCopyRecord, options: { billing?: readonly BillingEntry[] | undefined; now?: Date | undefined; windowDays?: number | undefined; dummyBilling?: boolean | undefined } = {}): OverviewRow {
@@ -95,6 +97,7 @@ export function overviewRow(job: JobCopyRecord, options: { billing?: readonly Bi
   const asOf = asOfDate(job, options.now);
   const changes = versionChanges(job);
   const periods = buildPeriods(job, asOf);
+  const ranges = countRanges(job, asOf, periods);
   const same = (index: number) => { const change = changes[index]; return change !== undefined && boundaryStatus(change) === 'same'; };
   const windowOf = (index: number): ChangeWindow | null => {
     const change = changes[index]; const period = periods[index]; const previous = periods[index - 1];
@@ -107,18 +110,20 @@ export function overviewRow(job: JobCopyRecord, options: { billing?: readonly Bi
   const applicationsAvailable = job.overallApplications?.byDate !== undefined;
   let before: WindowRate | null = null; let after: WindowRate | null = null;
   if (latest && applicationsAvailable) {
-    // Before: up to and including 取得日A, never earlier than the first day the earlier content is
-    // known to be shown. After: from 取得日B, never past the last day the later content is known
-    // to be shown. The days in between are not counted on either side.
-    const previous = periods[latest.index - 1]; const period = periods[latest.index];
-    if (previous && period) {
-      const beforeEnd = previous.end ?? addDays(asOf, 1);
-      const earliest = runStart(periods, same, latest.index - 1);
+    // Before: up to the last day the earlier content is known to be shown (the day before 取得日A
+    // when it changed after A), never earlier than the first such day. After: from the first day
+    // the later content is known to be shown (the day after 取得日B), never past the last such day.
+    // The acquisition days and the days in between are not counted on either side.
+    const previousRange = ranges[latest.index - 1]; const range = ranges[latest.index];
+    if (previousRange && range) {
+      const beforeEnd = previousRange.end;
+      const earliest = runStart(periods, ranges, same, latest.index - 1);
       const windowStart = addDays(beforeEnd, -windowDays);
-      before = rate(job, windowStart < earliest ? earliest : windowStart, beforeEnd);
-      const known = runEnd(periods, same, latest.index, asOf);
-      const limit = [addDays(period.start, windowDays), known, addDays(asOf, 1)].reduce((a, b) => (a < b ? a : b));
-      after = rate(job, period.start, limit < period.start ? period.start : limit);
+      const beforeStart = windowStart < earliest ? earliest : windowStart;
+      before = rate(job, beforeStart, beforeEnd < beforeStart ? beforeStart : beforeEnd);
+      const known = runEnd(periods, ranges, same, latest.index, asOf);
+      const limit = [addDays(range.start, windowDays), known, addDays(asOf, 1)].reduce((a, b) => (a < b ? a : b));
+      after = rate(job, range.start, limit < range.start ? range.start : limit);
     }
   }
   const all = billingEntries(job, options.billing, { asOf, dummy: options.dummyBilling });

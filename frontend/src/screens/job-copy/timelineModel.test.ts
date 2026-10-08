@@ -248,7 +248,7 @@ describe('period ends, gaps and short periods (review round 2)', () => {
   const job = (versions: CopyVersion[], byDate: Record<string, number>, fetchedAt = '2026-09-30T09:00:00+09:00'): JobCopyRecord => ({ id: 'gap', title: 't', company: 'c', media: 'm', mediaJobId: 'x', location: '大分県', versions,
     overallApplications: { total: Object.values(byDate).reduce((sum, count) => sum + count, 0), missingDate: 0, fetchedAt, distributions: {}, byDate } });
 
-  it('adds a row for the days with no confirmed publication between two versions (09-10 → 09-15: 5 days, 1 application, 0.20件/日)', () => {
+  it('adds a row for the days with no confirmed publication between two versions (09-10 → 09-15: 5 days, 1 application, too short for a per-day value)', () => {
     const record = job([version('v1', '2026-09-01T10:00:00+09:00', '2026-09-10T10:00:00+09:00'), version('v2', '2026-09-15T10:00:00+09:00')], { '2026-09-05': 2, '2026-09-12': 1, '2026-09-20': 3 });
     const rows = periodRows(record, { asOf: '2026-09-30' });
     expect(rows.map(item => [item.kind, item.label, item.start, item.end, item.days, item.applications])).toEqual([
@@ -256,8 +256,11 @@ describe('period ends, gaps and short periods (review round 2)', () => {
       ['gap', '掲載が確認できない期間', '2026-09-10', '2026-09-15', 5, 1],
       ['period', 'v2', '2026-09-15', null, 16, 3],
     ]);
-    expect(rows[1]?.perDay).toBeCloseTo(0.2, 10);
-    expect(formatPerDay(rows[1]?.perDay ?? null)).toBe('0.20件/日');
+    // 5 days is shorter than MIN_RATE_DAYS (7): no per-day value, the same rule as the overview.
+    expect(rows[1]?.perDay).toBeNull();
+    expect(rows[1]?.shortPeriod).toBe(true);
+    expect(formatPerDay(rows[1]?.perDay ?? null)).toBe('—');
+    expect(rows[0]?.perDay).toBeCloseTo(2 / 9, 10);
     expect(applicationsOutsidePeriods(record, rows)).toBe(0);
   });
 
@@ -277,7 +280,7 @@ describe('period ends, gaps and short periods (review round 2)', () => {
   it('gives no per-day value for a 0-day period (two versions starting on the same JST day)', () => {
     const record = job([version('v1', '2026-09-10T09:00:00+09:00'), version('v2', '2026-09-10T18:00:00+09:00')], { '2026-09-10': 2 });
     const rows = periodRows(record, { asOf: '2026-09-12' });
-    expect(rows.map(item => [item.start, item.days, item.applications, item.perDay])).toEqual([['2026-09-10', 0, 0, null], ['2026-09-10', 3, 2, 2 / 3]]);
+    expect(rows.map(item => [item.start, item.days, item.applications, item.perDay])).toEqual([['2026-09-10', 0, 0, null], ['2026-09-10', 3, 2, null]]);
     expect(formatPerDay(rows[0]?.perDay ?? null)).toBe('—');
   });
 

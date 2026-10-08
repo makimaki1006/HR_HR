@@ -120,6 +120,18 @@ fn match_city(prefecture: &Prefecture, text: &str) -> Option<String> {
         .map(|(_, name)| name.clone())
 }
 
+/// マスタにある市区町村名か (郡名を省いた書き方・区を省いた市の書き方を含む)。応募理由の文から、
+/// 市区町村名の後ろに続く町名を見つけるのに使う。
+pub fn is_municipality_name(text: &str) -> bool {
+    let key = normalize(text);
+    prefectures().iter().any(|prefecture| {
+        prefecture
+            .cities
+            .iter()
+            .any(|(existing, _)| *existing == key)
+    })
+}
+
 /// 丸めた地域。どちらもマスタにある名前だけ。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RoundedArea {
@@ -290,93 +302,145 @@ fn merge_cells(cells: Vec<JointCell>) -> Vec<JointCell> {
     merged
 }
 
-/// 組み合わせの集計を、ブラウザに送る前に丸めてまとめる。合計は変えない。
+/// 地域を伏せる判定に使う、1 件 (または同じ属性の数件) の応募。
+///
+/// `group` は、この属性と一緒にブラウザへ送る区分 (掲載期間など)。組み合わせの件数は group ごとに数える:
+/// 「掲載期間 X の男性・30代」が 1 件で、その人の市区町村まで分かると、その 1 件を特定できるため。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplicantKey {
+    pub group: String,
+    pub gender: String,
+    pub age: String,
+    pub prefecture: String,
+    pub municipality: String,
+    pub count: u64,
+}
+
+/// 各応募の地域を、送ってよい細かさまで伏せる。戻り値は入力と同じ順の (都道府県, 市区町村)。合計は変えない。
 ///
 /// 1. 地域を都道府県 + 市区町村に丸める。市区町村が分かれば、都道府県はその市区町村から決め直す
 ///    (都道府県欄が空でも、市区町村欄から都道府県が分かることがあるため)。
 /// 2. 求人内の応募が 3 件未満の都道府県・市区町村は「その他」にする。
-/// 3. それでも 3 件未満のセルは、市区町村を「その他」にする。まだ 3 件未満なら都道府県も「その他」にする。
-///    「女性・60代・由布市 = 1件」のように、組み合わせで 1 件の応募を特定できる地域は送らない。
-pub fn protect_joint_cells(cells: Vec<JointCell>) -> Vec<JointCell> {
-    let rounded: Vec<JointCell> = cells
-        .into_iter()
-        .map(|cell| {
-            let prefecture = round_area_label(false, &cell.prefecture, None);
+/// 3. group × 性別 × 年代 × 地域が 3 件未満なら市区町村を「その他」にし、まだ 3 件未満なら都道府県も
+///    「その他」にする。「女性・60代・由布市 = 1件」のように、組み合わせで 1 件の応募を特定できる地域は残さない。
+///
+/// 地域ごとの合計は、必ずこの戻り値から数え直して送る。元の地域で数えた合計を一緒に送ると、
+/// 名前の出ている組み合わせを引き算して、伏せた応募の地域が分かってしまう。
+pub fn protect_applicant_keys(keys: &[ApplicantKey]) -> Vec<(String, String)> {
+    let rounded: Vec<(String, String)> = keys
+        .iter()
+        .map(|key| {
+            let prefecture = round_area_label(false, &key.prefecture, None);
             let fallback = is_named_area(&prefecture).then_some(prefecture.as_str());
-            let municipality = round_area_label(true, &cell.municipality, fallback);
+            let municipality = round_area_label(true, &key.municipality, fallback);
             let prefecture = if is_named_area(&municipality) {
                 round_area_label(false, &municipality, None)
             } else {
                 prefecture
             };
-            JointCell {
+            (prefecture, municipality)
+        })
+        .collect();
+    let mut prefecture_totals: HashMap<&str, u64> = HashMap::new();
+    let mut municipality_totals: HashMap<&str, u64> = HashMap::new();
+    for ((prefecture, municipality), key) in rounded.iter().zip(keys) {
+        *prefecture_totals.entry(prefecture).or_default() += key.count;
+        *municipality_totals.entry(municipality).or_default() += key.count;
+    }
+    let keep = |totals: &HashMap<&str, u64>, label: &str| {
+        if is_named_area(label) && totals.get(label).copied().unwrap_or(0) < MINIMUM_AREA_COUNT {
+            AREA_OTHER.to_owned()
+        } else {
+            label.to_owned()
+        }
+    };
+    let mut areas: Vec<(String, String)> = rounded
+        .iter()
+        .map(|(prefecture, municipality)| {
+            (
+                keep(&prefecture_totals, prefecture),
+                keep(&municipality_totals, municipality),
+            )
+        })
+        .collect();
+    for city_level in [true, false] {
+        let mut sizes: HashMap<(&str, &str, &str, &str, &str), u64> = HashMap::new();
+        for ((prefecture, municipality), key) in areas.iter().zip(keys) {
+            *sizes
+                .entry((&key.group, &key.gender, &key.age, prefecture, municipality))
+                .or_default() += key.count;
+        }
+        let small: Vec<bool> = areas
+            .iter()
+            .zip(keys)
+            .map(|((prefecture, municipality), key)| {
+                let label = if city_level { municipality } else { prefecture };
+                is_named_area(label)
+                    && sizes[&(
+                        key.group.as_str(),
+                        key.gender.as_str(),
+                        key.age.as_str(),
+                        prefecture.as_str(),
+                        municipality.as_str(),
+                    )] < MINIMUM_AREA_COUNT
+            })
+            .collect();
+        for ((prefecture, municipality), small) in areas.iter_mut().zip(small) {
+            if small {
+                if city_level {
+                    *municipality = AREA_OTHER.to_owned();
+                } else {
+                    *prefecture = AREA_OTHER.to_owned();
+                }
+            }
+        }
+    }
+    areas
+}
+
+/// 組み合わせの集計を、ブラウザに送る前に丸めてまとめる。合計は変えない。
+/// 規則は protect_applicant_keys (区分 group は無し)。
+pub fn protect_joint_cells(cells: Vec<JointCell>) -> Vec<JointCell> {
+    let keys: Vec<ApplicantKey> = cells
+        .iter()
+        .map(|cell| ApplicantKey {
+            group: String::new(),
+            gender: cell.gender.clone(),
+            age: cell.age.clone(),
+            prefecture: cell.prefecture.clone(),
+            municipality: cell.municipality.clone(),
+            count: cell.count,
+        })
+        .collect();
+    let areas = protect_applicant_keys(&keys);
+    merge_cells(
+        cells
+            .into_iter()
+            .zip(areas)
+            .map(|(cell, (prefecture, municipality))| JointCell {
                 prefecture,
                 municipality,
                 ..cell
-            }
-        })
-        .collect();
-    let mut prefecture_totals: HashMap<String, u64> = HashMap::new();
-    let mut municipality_totals: HashMap<String, u64> = HashMap::new();
-    for cell in &rounded {
-        *prefecture_totals
-            .entry(cell.prefecture.clone())
-            .or_default() += cell.count;
-        *municipality_totals
-            .entry(cell.municipality.clone())
-            .or_default() += cell.count;
-    }
-    let small = |totals: &HashMap<String, u64>, label: &str| {
-        is_named_area(label) && totals.get(label).copied().unwrap_or(0) < MINIMUM_AREA_COUNT
-    };
-    let by_area = merge_cells(
-        rounded
-            .into_iter()
-            .map(|cell| JointCell {
-                prefecture: if small(&prefecture_totals, &cell.prefecture) {
-                    AREA_OTHER.to_owned()
-                } else {
-                    cell.prefecture.clone()
-                },
-                municipality: if small(&municipality_totals, &cell.municipality) {
-                    AREA_OTHER.to_owned()
-                } else {
-                    cell.municipality.clone()
-                },
-                ..cell
-            })
-            .collect(),
-    );
-    let without_city = merge_cells(
-        by_area
-            .into_iter()
-            .map(|cell| {
-                if cell.count < MINIMUM_AREA_COUNT && is_named_area(&cell.municipality) {
-                    JointCell {
-                        municipality: AREA_OTHER.to_owned(),
-                        ..cell
-                    }
-                } else {
-                    cell
-                }
-            })
-            .collect(),
-    );
-    merge_cells(
-        without_city
-            .into_iter()
-            .map(|cell| {
-                if cell.count < MINIMUM_AREA_COUNT && is_named_area(&cell.prefecture) {
-                    JointCell {
-                        prefecture: AREA_OTHER.to_owned(),
-                        ..cell
-                    }
-                } else {
-                    cell
-                }
             })
             .collect(),
     )
+}
+
+/// 伏せた後の組み合わせから、都道府県・市区町村ごとの合計を数え直す (送る合計はこれだけにする)。
+pub fn area_totals(cells: &[JointCell], municipality: bool) -> Vec<(String, u64)> {
+    let mut totals: Vec<(String, u64)> = Vec::new();
+    for cell in cells {
+        let label = if municipality {
+            &cell.municipality
+        } else {
+            &cell.prefecture
+        };
+        match totals.iter_mut().find(|(existing, _)| existing == label) {
+            Some((_, total)) => *total += cell.count,
+            None => totals.push((label.clone(), cell.count)),
+        }
+    }
+    totals
 }
 
 #[cfg(test)]
@@ -537,6 +601,39 @@ mod tests {
                 cell("女性", "20代", "大分県", "その他", 3),
                 cell("男性", "40代", "大分県", "大分県大分市", 3),
             ]
+        );
+    }
+
+    #[test]
+    fn the_group_is_part_of_the_combination() {
+        let key = |group: &str| ApplicantKey {
+            group: group.into(),
+            gender: "男性".into(),
+            age: "20代".into(),
+            prefecture: "大分県".into(),
+            municipality: "大分県大分市".into(),
+            count: 1,
+        };
+        // 3 in the job, but 2 + 1 per period: the city is hidden, and the prefecture too.
+        let areas = protect_applicant_keys(&[key("A"), key("A"), key("B")]);
+        assert_eq!(areas, vec![("その他".to_owned(), "その他".to_owned()); 3]);
+        let areas = protect_applicant_keys(&[key("A"), key("A"), key("A")]);
+        assert_eq!(
+            areas,
+            vec![("大分県".to_owned(), "大分県大分市".to_owned()); 3]
+        );
+    }
+
+    #[test]
+    fn area_totals_come_from_the_protected_cells() {
+        let cells = protect_joint_cells(vec![
+            cell("女性", "60代", "大分県", "大分県由布市", 1),
+            cell("男性", "30代", "大分県", "大分県由布市", 2),
+            cell("男性", "20代", "大分県", "大分県大分市", 3),
+        ]);
+        assert_eq!(
+            area_totals(&cells, true),
+            vec![("その他".to_owned(), 3), ("大分県大分市".to_owned(), 3)]
         );
     }
 
