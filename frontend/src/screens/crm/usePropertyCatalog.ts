@@ -3,6 +3,7 @@ import { apiGet } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 import type { CrmCatalogProperty } from '../../generated/CrmCatalogProperty';
 import type { CrmPropertyCatalogResponse } from '../../generated/CrmPropertyCatalogResponse';
+import { HUBSPOT_CARDS } from './hubspotCards';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
 import { catalogIndex } from './propertyModel';
 import type { CatalogEntry, CatalogObject } from './propertyModel';
@@ -19,7 +20,23 @@ const moc = (name: string): CrmCatalogProperty => {
   return d ? p(d.name, d.label, d.type, d.fieldType, d.options.filter(o => !o.hidden)) : p(name, name, 'string', 'text');
 };
 
-/** 架空サンプルの項目の一覧 (HubSpot には接続しない。表示名・選択肢は MOC の定義と架空の値) */
+/** 架空サンプルで日付として扱うカードの項目 (それ以外は文字) */
+const FIXTURE_DATE_PROPS = new Set(['risuto_kadennbi', 'risuto_saikadennbi', 'aposyutokubi', 'bpo_appo_date', 'recruit_media_first_observed_at', 'recruit_media_last_observed_at']);
+const FIXTURE_BASE_DEAL_PROPS = new Set(['dealname', 'hubspot_owner_id', 'bpo_13', 'bpo_14', 'bpo_20', 'bpo_10', 'bpo_32', 'bpo_21', 'bpo_22', 'bpo_50', 'bpo_3', 'bpo_4', 'amount']);
+/** HubSpot のカード (hubspotCards.ts) の項目を、架空の項目グループとして並べる (表示名はカードと同じ) */
+function fixtureCardProps(): CrmCatalogProperty[] {
+  const out: CrmCatalogProperty[] = [];
+  for (const c of HUBSPOT_CARDS) {
+    for (const it of c.items) {
+      if (FIXTURE_BASE_DEAL_PROPS.has(it.name) || out.some(x => x.name === it.name)) continue;
+      out.push(it.name === 'scheduled_business_meeting_date' ? p(it.name, it.label, 'datetime', 'date')
+        : FIXTURE_DATE_PROPS.has(it.name) ? p(it.name, it.label, 'date', 'date') : p(it.name, it.label, 'string', it.name === 'risuto_bikou' ? 'textarea' : 'text'));
+    }
+  }
+  return out;
+}
+
+/** 架空サンプルの項目の一覧 (HubSpot には接続しない。表示名・選択肢は MOC の定義・HubSpot のカードの表示名と架空の値) */
 export const FIXTURE_CATALOG: CrmPropertyCatalogResponse = {
   objects: [
     { object_type: 'deals', groups: [
@@ -29,6 +46,7 @@ export const FIXTURE_CATALOG: CrmPropertyCatalogResponse = {
         moc('bpo_21'), moc('bpo_22'), moc('bpo_50'),
       ] },
       { name: 'dealstages', label: 'Deal Stage Properties', properties: [moc('bpo_3'), moc('bpo_4')] },
+      { name: 'call_list', label: '架電リスト(架空のグループ)', properties: fixtureCardProps() },
       { name: 'deal_revenue', label: 'Deal revenue', properties: [p('amount', '金額', 'number', 'number')] },
     ] },
     { object_type: 'contacts', groups: [

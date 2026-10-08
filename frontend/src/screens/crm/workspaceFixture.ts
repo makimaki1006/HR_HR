@@ -21,6 +21,12 @@ export function fixtureDetail(dealId: string, props?: SelectedProps): WorkspaceR
     dealname: item.deal_name, hubspot_owner_id: item.owner_id, bpo_13: item.next_call_date, bpo_14: item.next_call_time,
     bpo_20: item.last_call_date, bpo_10: item.stop.unreachable_check, bpo_3: null, bpo_4: null, bpo_32: jobSearch, amount: '120000',
     bpo_50: '受付の方は親切。採用担当は午後在席(架空)',
+    // HubSpot のカード「リスト情報」「BPOアポ情報」の項目 (架空。無いものは未入力)
+    risuto_kadennbi: item.last_call_date, risuto_saikadennbi: item.next_call_date, saikadenn_zikan: item.next_call_time,
+    risuto_bikou: '決裁は本社。拠点は採用人数だけ決める(架空)\n来月から媒体の契約見直し', tanntousya: item.contact?.name ?? null,
+    risuto_tanntouyakusyoku: item.contact?.job_title ?? null, syokusyu_risuto: 'ドライバー(架空)', risuto_ninnzuu: '3',
+    recruit_media_observed_urls: 'https://www.example.com/job/1\nhttps://www.example.com/job/2',
+    bpo_hsurl: 'https://app.hubspot.com/contacts/0/record/0-3/1',
   };
   const [last, first] = (item.contact?.name ?? '').split(/\s+/u);
   const contactValues: Values = item.contact ? {
