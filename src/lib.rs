@@ -1718,9 +1718,19 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // /api/nav も同じ定義を返す。キーワード需要 (Google Ads 資格情報がある環境のみ) と
     // 求人票作成 (Gemini キーがある環境のみ) の出し分けは NavFeatures::from_env() が行う。
     // 非表示タブは定義の hidden で隠し、hidden を外せば旧新両方のナビに戻る。
+    // 2026-10-07: CRM は「CRM を使える人」(Google 本人確認済みの会社ドメイン) に出す。/api/nav と同じ判定
+    let crm_principal = crate::crm::rbac::load_principal(&session).await;
+    let crm_user = crate::crm::rbac::crm_usable(
+        &crm_principal,
+        &crate::crm::rbac::CrmAccess::from_env(),
+        &state.config.allowed_domains,
+    );
     let nav_items = handlers::nav::nav_items(
         handlers::nav::NAV_DEFS,
-        &handlers::nav::NavFeatures::from_env(),
+        &handlers::nav::NavFeatures {
+            crm: handlers::nav::crm_visible(crm_user),
+            ..handlers::nav::NavFeatures::from_env()
+        },
     );
     let legacy_nav = handlers::nav::render_legacy_nav(&nav_items);
     // 2026-08-10: 「履歴」(自分の操作履歴だけが見える画面) はヘッダーから外し、
