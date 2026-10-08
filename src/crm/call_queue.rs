@@ -67,6 +67,10 @@ use sha2::{Digest, Sha256};
 use tower_sessions::Session;
 use ts_rs::TS;
 
+use super::queue_cache::{
+    QueueCountKey, QueueFilterKey, QueuePageKey, TtlCache, QUEUE_COUNT_MAX, QUEUE_COUNT_TTL,
+    QUEUE_PAGE_MAX, QUEUE_PAGE_TTL,
+};
 use super::queue_pipelines::{
     default_pipeline, find_pipeline, QueuePipeline, StageRule, QUEUE_PIPELINES,
 };
@@ -77,6 +81,7 @@ use super::routes::{
 };
 use crate::handlers::crm_metadata::CrmPipeline;
 use crate::hubspot::deep_link::{hubspot_portal_id, record_url};
+use crate::hubspot::gateway::{cache_hit, cache_miss};
 use crate::hubspot::{
     AssociationRef, HubSpotClient, HubSpotError, HubSpotRecord, OwnerRef, RecordType,
 };
@@ -124,6 +129,12 @@ pub struct CallQueueState {
     labels: tokio::sync::Mutex<Option<(Instant, Arc<Vec<CrmPipeline>>)>>,
     /// 管理者向けの担当者一覧 (`GET /api/crm/owners`)
     pub(super) owner_list: super::owners::OwnerListCache,
+    /// 1 ページの中身 (30 秒。解決済みの担当者をキーに含む。`queue_cache.rs`)
+    pages: TtlCache<QueuePageKey, Arc<QueueCore>>,
+    /// 段階の件数 (60 秒)
+    counts: TtlCache<QueueCountKey, u64>,
+    /// パイプライン定義の先読み (背景の優先度) が走っているか
+    labels_refreshing: RefreshGate,
 }
 
 impl CallQueueState {
@@ -145,6 +156,9 @@ impl CallQueueState {
             owners: Mutex::new(HashMap::new()),
             labels: tokio::sync::Mutex::new(None),
             owner_list: super::owners::OwnerListCache::new(),
+            pages: TtlCache::new(QUEUE_PAGE_TTL, QUEUE_PAGE_MAX),
+            counts: TtlCache::new(QUEUE_COUNT_TTL, QUEUE_COUNT_MAX),
+            labels_refreshing: RefreshGate::new(),
         }
     }
 
@@ -175,10 +189,12 @@ impl CallQueueState {
                     OWNER_MISS_TTL
                 };
                 if at.elapsed() < ttl {
+                    cache_hit("owner_by_email");
                     return Ok(v.clone());
                 }
             }
         }
+        cache_miss("owner_by_email");
         let found = client.owner_by_email(&key).await?;
         if let Ok(mut g) = self.owners.lock() {
             g.insert(key, (Instant::now(), found.clone()));
@@ -203,13 +219,46 @@ impl CallQueueState {
         let mut slot = self.labels.lock().await;
         if let Some((at, m)) = slot.as_ref() {
             if at.elapsed() < LABELS_TTL {
+                cache_hit("pipelines");
                 return Ok(m.clone());
             }
         }
+        cache_miss("pipelines");
         let v = client.deal_pipelines().await?;
         let pipelines = Arc::new(crate::handlers::crm_metadata::parse_pipelines(&v)?);
         *slot = Some((Instant::now(), pipelines.clone()));
         Ok(pipelines)
+    }
+
+    /// パイプライン定義が有効期間の終わり近く (残り 20% 未満) なら true (先読みの対象)
+    pub(super) fn pipeline_defs_refresh_due(&self) -> bool {
+        match self.labels.try_lock() {
+            Ok(slot) => slot
+                .as_ref()
+                .is_some_and(|(at, _)| refresh_due(at.elapsed(), LABELS_TTL)),
+            // 取得中 (ロック中) は先読みしない
+            Err(_) => false,
+        }
+    }
+
+    /// パイプライン定義を読み直して置き換える (先読み。呼び出し側は背景の優先度のクライアントを渡す)。
+    /// 読んでいる間もロックは持たない (画面の要求は今のキャッシュを使い続ける)。同時には 1 本だけ
+    pub(super) async fn refresh_pipeline_defs(&self, client: &HubSpotClient) {
+        if !self.labels_refreshing.try_begin() {
+            return;
+        }
+        let read = async {
+            let v = client.deal_pipelines().await?;
+            crate::handlers::crm_metadata::parse_pipelines(&v)
+        };
+        match read.await {
+            Ok(p) => *self.labels.lock().await = Some((Instant::now(), Arc::new(p))),
+            Err(e) => tracing::warn!(
+                error_kind = e.error_kind(),
+                "call queue: pipeline definitions refresh-ahead failed"
+            ),
+        }
+        self.labels_refreshing.end();
     }
 
     /// ステージ ID → 表示名 (全パイプライン。ステージ ID は HubSpot 内で一意)。[`Self::pipeline_defs`] のキャッシュを使う
@@ -219,6 +268,58 @@ impl CallQueueState {
     ) -> Result<HashMap<String, String>, HubSpotError> {
         Ok(stage_label_map(&self.pipeline_defs(client).await?))
     }
+}
+
+/// 先読みに失敗したあと、次の先読みを始めるまでの最短間隔 (失敗が続くときに要求ごとに読み直さない)
+pub(super) const REFRESH_RETRY_GAP: Duration = Duration::from_secs(30);
+
+/// 先読みの関門: 同時に 1 本だけ、前回の開始から [`REFRESH_RETRY_GAP`] 以上空ける
+pub struct RefreshGate {
+    running: std::sync::atomic::AtomicBool,
+    last_start: Mutex<Option<Instant>>,
+}
+
+impl RefreshGate {
+    pub fn new() -> Self {
+        Self {
+            running: std::sync::atomic::AtomicBool::new(false),
+            last_start: Mutex::new(None),
+        }
+    }
+
+    /// 始めてよければ true (呼び出し側は終わったら [`Self::end`] を呼ぶ)
+    pub fn try_begin(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        if self.running.swap(true, Ordering::AcqRel) {
+            return false;
+        }
+        let Ok(mut last) = self.last_start.lock() else {
+            self.running.store(false, Ordering::Release);
+            return false;
+        };
+        if last.is_some_and(|t| t.elapsed() < REFRESH_RETRY_GAP) {
+            self.running.store(false, Ordering::Release);
+            return false;
+        }
+        *last = Some(Instant::now());
+        true
+    }
+
+    pub fn end(&self) {
+        self.running
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+impl Default for RefreshGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 先読みの対象か: 有効期間の残りが 20% 未満 (まだ有効なうちに背景で読み直す)
+pub(super) fn refresh_due(age: Duration, ttl: Duration) -> bool {
+    age < ttl && age.saturating_mul(5) >= ttl.saturating_mul(4)
 }
 
 fn stage_label_map(defs: &[CrmPipeline]) -> HashMap<String, String> {
@@ -477,6 +578,8 @@ struct Params {
     sort: SortKey,
     next: DateRange,
     last: DateRange,
+    /// `fresh=1`: サーバの短いキャッシュを使わずに HubSpot から読み直す (cursor の条件には入れない)
+    fresh: bool,
 }
 
 /// 日付 (JST) の範囲。両端を含む。`from <= to` は解析時に確認済み
@@ -526,6 +629,7 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     let mut due = None;
     let mut sort = None;
     let mut dates: [Option<NaiveDate>; 4] = [None; 4];
+    let mut fresh = false;
     let mut seen: HashSet<&'static str> = HashSet::new();
     let mut once = |name: &'static str| -> Result<(), &'static str> {
         if seen.insert(name) {
@@ -589,6 +693,14 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
                 once("sort")?;
                 sort = Some(SortKey::parse(&v).ok_or("sort")?);
             }
+            "fresh" => {
+                once("fresh")?;
+                fresh = match v.as_ref() {
+                    "1" | "true" => true,
+                    "0" | "false" => false,
+                    _ => return Err("fresh"),
+                };
+            }
             "next_from" | "next_to" | "last_from" | "last_to" => {
                 let (name, slot): (&'static str, usize) = match k.as_ref() {
                     "next_from" => ("next_from", 0),
@@ -636,6 +748,7 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
             from: dates[2],
             to: dates[3],
         },
+        fresh,
     })
 }
 
@@ -1421,7 +1534,7 @@ pub(super) async fn get_call_queue(
     Extension(ctx): Extension<Arc<CrmCtx>>,
     RawQuery(raw): RawQuery,
 ) -> Response {
-    // 1) 認可 (HubSpot の設定有無より先)
+    // 1) 認可 (HubSpot の設定有無より先。キャッシュから返すときも毎回ここを通す)
     let principal =
         match rbac::authorize(&session, &state, &ctx.access, Some(RecordType::Deal)).await {
             Ok(p) => p,
@@ -1451,50 +1564,119 @@ pub(super) async fn get_call_queue(
             None => return error_json(StatusCode::BAD_REQUEST, "cursor_mismatch"),
         },
     };
-    // 6) 同時実行の枠 + 全体の締め切り
+    // 6) 担当者を解決する (`me` → 本人の owner ID。10 分キャッシュ)。全体の締め切りはここから数える
     let started = Instant::now();
-    let _slot = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.read_slots.acquire()).await {
-        Ok(Ok(p)) => p,
-        _ => return timeout_response(),
+    let resolved = match tokio::time::timeout(
+        CRM_REQUEST_DEADLINE,
+        resolve_owner(&client, &ctx, &owner, role, &email),
+    )
+    .await
+    {
+        Err(_) => {
+            tracing::warn!(error_kind = "crm_timeout", "call queue owner timed out");
+            return timeout_response();
+        }
+        Ok(Err(resp)) => return resp,
+        Ok(Ok(r)) => r,
+    };
+    // 7) 1 ページのキャッシュ (30 秒)。キーは解決済みの担当者を含む条件とページの位置。
+    //    cursor (本人に束縛) と scope (役割・所属チーム) はこの人の分を作り直す
+    let filter = filter_key(&params, &resolved.key, today_ms);
+    let page_key = QueuePageKey {
+        filter: filter.clone(),
+        limit: params.limit,
+        start,
+    };
+    if !params.fresh {
+        if let Some(core) = ctx.queue.pages.get(&page_key) {
+            cache_hit("call_queue_page");
+            super::routes::refresh_ahead(&ctx, &client);
+            let body = assemble(
+                &ctx.queue,
+                &core,
+                &params,
+                role,
+                &owner,
+                &hash,
+                resolved.teams,
+            );
+            return Json(body).into_response();
+        }
+    }
+    cache_miss("call_queue_page");
+    // 8) 同時実行の枠 (待ちきれなければ 503 hubspot_busy) + 全体の締め切り
+    let _slot = match super::routes::acquire_queue_slot(&ctx, &client).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
     };
     let remaining = CRM_REQUEST_DEADLINE.saturating_sub(started.elapsed());
     let run = execute(
-        &client, &ctx, &params, role, &owner, &email, &hash, start, today_ms, now,
+        &client,
+        &ctx,
+        &params,
+        resolved.filter.as_ref(),
+        &filter,
+        start,
+        today_ms,
+        now,
     );
-    match tokio::time::timeout(remaining, run).await {
+    let resp = match tokio::time::timeout(remaining, run).await {
         Err(_) => {
             tracing::warn!(error_kind = "crm_timeout", "call queue timed out");
             timeout_response()
         }
-        Ok(Ok(resp)) => Json(resp).into_response(),
+        Ok(Ok((core, cacheable))) => {
+            let core = Arc::new(core);
+            if cacheable {
+                ctx.queue.pages.insert(page_key, core.clone());
+            }
+            let body = assemble(
+                &ctx.queue,
+                &core,
+                &params,
+                role,
+                &owner,
+                &hash,
+                resolved.teams,
+            );
+            Json(body).into_response()
+        }
         Ok(Err(resp)) => resp,
-    }
+    };
+    super::routes::refresh_ahead(&ctx, &client);
+    resp
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn execute(
+/// 解決済みの担当者の絞り込み
+struct ResolvedOwner {
+    /// キャッシュのキー (`all` / `unassigned` / `id:<owner id>`)
+    key: String,
+    /// Search の担当者の条件 (全員分なら None)
+    filter: Option<Value>,
+    /// 本人の所属チーム名 (参考表示だけ。管理者・`me` 以外は空)
+    teams: Vec<String>,
+}
+
+async fn resolve_owner(
     client: &HubSpotClient,
     ctx: &CrmCtx,
-    params: &Params,
-    role: CrmRole,
     owner: &OwnerParam,
+    role: CrmRole,
     email: &str,
-    hash: &str,
-    start: (u32, Option<u64>),
-    today_ms: i64,
-    now: DateTime<Utc>,
-) -> Result<CallQueueResponse, Response> {
+) -> Result<ResolvedOwner, Response> {
     let fail = |e: HubSpotError| -> Response {
         tracing::warn!(error_kind = e.error_kind(), "call queue read failed");
         hubspot_error_response(&e)
     };
-    // 担当者の絞り込み
-    let owner_filter: Option<Value> = match owner {
-        OwnerParam::All | OwnerParam::Unspecified => None,
-        OwnerParam::Unassigned => Some(f_has("hubspot_owner_id", false)),
-        OwnerParam::Id(id) => Some(f_eq("hubspot_owner_id", id)),
-        OwnerParam::Me => match ctx.queue.owner_for(client, email).await.map_err(&fail)? {
-            Some(id) => Some(f_eq("hubspot_owner_id", &id)),
+    let (key, filter) = match owner {
+        OwnerParam::All | OwnerParam::Unspecified => ("all".to_string(), None),
+        OwnerParam::Unassigned => (
+            "unassigned".to_string(),
+            Some(f_has("hubspot_owner_id", false)),
+        ),
+        OwnerParam::Id(id) => (format!("id:{id}"), Some(f_eq("hubspot_owner_id", id))),
+        OwnerParam::Me => match ctx.queue.owner_for(client, email).await.map_err(fail)? {
+            Some(id) => (format!("id:{id}"), Some(f_eq("hubspot_owner_id", &id))),
             // 引けない人を全員分に倒さない。画面は所有者の選択を促す (403 ではない)
             None => return Err(error_json(StatusCode::CONFLICT, "owner_not_resolved")),
         },
@@ -1506,9 +1688,109 @@ async fn execute(
         ctx.queue
             .owner_info_for(client, email)
             .await
-            .map_err(&fail)?
+            .map_err(fail)?
             .map(|o| o.teams)
             .unwrap_or_default()
+    };
+    Ok(ResolvedOwner { key, filter, teams })
+}
+
+/// キャッシュのキーにする絞り込み (利用者によらない部分だけ)
+fn filter_key(params: &Params, owner_key: &str, today_ms: i64) -> QueueFilterKey {
+    QueueFilterKey {
+        pipeline: params.pipeline.id.to_string(),
+        q: params.q.clone(),
+        stages: params.stages.clone(),
+        owner: owner_key.to_string(),
+        due: params.due.as_str().to_string(),
+        sort: params.sort.as_str().to_string(),
+        today_ms,
+        next_from: params.next.start_text(),
+        next_to: params.next.end_text(),
+        last_from: params.last.start_text(),
+        last_to: params.last.end_text(),
+    }
+}
+
+/// 1 ページの中身のうち利用者によらない部分 (キャッシュに入れる)
+#[derive(Debug)]
+pub(super) struct QueueCore {
+    items: Vec<CallQueueItem>,
+    /// 次のページの位置 (段階, after)。cursor には要求ごとに本人の条件で署名する
+    next: Option<(u32, Option<u64>)>,
+    total: Option<u32>,
+    truncated: bool,
+    partial: CallQueuePartial,
+    generated_at: String,
+}
+
+/// キャッシュした中身 (または読んだばかりの中身) から、この人への応答を作る
+fn assemble(
+    queue: &CallQueueState,
+    core: &QueueCore,
+    params: &Params,
+    role: CrmRole,
+    owner: &OwnerParam,
+    hash: &str,
+    teams: Vec<String>,
+) -> CallQueueResponse {
+    let selected: Vec<String> = if params.stages.is_empty() {
+        params
+            .pipeline
+            .eligible_stages()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    } else {
+        params.stages.clone()
+    };
+    CallQueueResponse {
+        items: core.items.clone(),
+        next_cursor: core
+            .next
+            .map(|(phase, after)| queue.sign_cursor(hash, phase, after)),
+        total: core.total,
+        truncated: core.truncated,
+        scope: CallQueueScope {
+            pipeline: params.pipeline.id.to_string(),
+            owner: owner_label(owner),
+            role: if role.is_admin() { "admin" } else { "own" }.to_string(),
+            teams,
+            stages: {
+                let mut s = selected;
+                s.sort();
+                s
+            },
+            due: params.due.as_str().to_string(),
+            sort: params.sort.as_str().to_string(),
+            q: params.q.clone(),
+            limit: params.limit,
+            next_from: params.next.start_text(),
+            next_to: params.next.end_text(),
+            last_from: params.last.start_text(),
+            last_to: params.last.end_text(),
+        },
+        partial: core.partial.clone(),
+        generated_at: core.generated_at.clone(),
+    }
+}
+
+/// HubSpot から 1 ページを読む。戻りの bool はキャッシュに入れてよいか
+/// (関連の読み取りに欠けが無く、数えるべき総数を数えられた)。
+#[allow(clippy::too_many_arguments)]
+async fn execute(
+    client: &HubSpotClient,
+    ctx: &CrmCtx,
+    params: &Params,
+    owner_filter: Option<&Value>,
+    filter: &QueueFilterKey,
+    start: (u32, Option<u64>),
+    today_ms: i64,
+    now: DateTime<Utc>,
+) -> Result<(QueueCore, bool), Response> {
+    let fail = |e: HubSpotError| -> Response {
+        tracing::warn!(error_kind = e.error_kind(), "call queue read failed");
+        hubspot_error_response(&e)
     };
     // 段階 (ステージの絞り込み後に検索するものがあるものだけ)
     let pipeline = params.pipeline;
@@ -1523,14 +1805,7 @@ async fn execute(
         .map(|p| {
             (
                 p,
-                filter_groups(
-                    p,
-                    pipeline,
-                    &selected,
-                    owner_filter.as_ref(),
-                    today_ms,
-                    &ranges,
-                ),
+                filter_groups(p, pipeline, &selected, owner_filter, today_ms, &ranges),
             )
         })
         .filter(|(_, g)| !g.is_empty())
@@ -1546,7 +1821,7 @@ async fn execute(
     let mut totals: Vec<u64> = Vec::new();
     let mut visited = 0usize;
     let mut truncated = false;
-    let mut next_cursor: Option<String> = None;
+    let mut next: Option<(u32, Option<u64>)> = None;
     let mut page_deals: Vec<HubSpotRecord> = Vec::new();
 
     while phase_idx < active.len() {
@@ -1574,7 +1849,7 @@ async fn execute(
         let got_any = !page.deals.is_empty();
         page_deals = page.deals;
         if let Some(n) = more {
-            next_cursor = Some(ctx.queue.sign_cursor(hash, phase_idx as u32, Some(n)));
+            next = Some((phase_idx as u32, Some(n)));
             break;
         }
         // この段階は終わり。次の段階へ
@@ -1582,7 +1857,7 @@ async fn execute(
         after = None;
         // 空の段階は同じ要求の中で次へ進む (空ページを返さない)
         if phase_idx < active.len() && got_any {
-            next_cursor = Some(ctx.queue.sign_cursor(hash, phase_idx as u32, None));
+            next = Some((phase_idx as u32, None));
             break;
         }
     }
@@ -1607,13 +1882,29 @@ async fn execute(
             return None;
         }
         let mut sum = counted_so_far;
-        for (_, groups) in rest {
+        for (i, (_, groups)) in rest.iter().enumerate() {
+            // 段階の件数は 60 秒キャッシュする (`fresh` なら読み直して置き換える)
+            let key = QueueCountKey {
+                filter: filter.clone(),
+                phase: (visited + i) as u32,
+            };
+            if !params.fresh {
+                if let Some(n) = ctx.queue.counts.get(&key) {
+                    cache_hit("call_queue_count");
+                    sum += n;
+                    continue;
+                }
+            }
+            cache_miss("call_queue_count");
             match client
                 .search("deals", count_body(groups.clone(), params.q.as_deref()))
                 .await
             {
                 Ok(v) => match v.get("total").and_then(Value::as_u64) {
-                    Some(n) => sum += n,
+                    Some(n) => {
+                        ctx.queue.counts.insert(key, n);
+                        sum += n
+                    }
                     None => return None,
                 },
                 Err(e) => {
@@ -1699,34 +1990,20 @@ async fn execute(
     }
 
     let total = total_all.map(|n| n.min(u64::from(u32::MAX)) as u32);
+    // 欠けがあった応答・数えるべき総数を数えられなかった応答はキャッシュに入れない (次の要求で読み直す)
+    let cacheable = partial.failed.is_empty() && (rest.is_empty() || total.is_some());
 
-    Ok(CallQueueResponse {
-        items,
-        next_cursor,
-        total,
-        truncated,
-        scope: CallQueueScope {
-            pipeline: pipeline.id.to_string(),
-            owner: owner_label(owner),
-            role: if role.is_admin() { "admin" } else { "own" }.to_string(),
-            teams,
-            stages: {
-                let mut s: Vec<String> = selected.iter().map(|s| s.to_string()).collect();
-                s.sort();
-                s
-            },
-            due: params.due.as_str().to_string(),
-            sort: params.sort.as_str().to_string(),
-            q: params.q.clone(),
-            limit: params.limit,
-            next_from: params.next.start_text(),
-            next_to: params.next.end_text(),
-            last_from: params.last.start_text(),
-            last_to: params.last.end_text(),
+    Ok((
+        QueueCore {
+            items,
+            next,
+            total,
+            truncated,
+            partial,
+            generated_at: now.to_rfc3339_opts(SecondsFormat::Secs, true),
         },
-        partial,
-        generated_at: now.to_rfc3339_opts(SecondsFormat::Secs, true),
-    })
+        cacheable,
+    ))
 }
 
 // ---------------------------------------------------------------------------

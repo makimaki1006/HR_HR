@@ -109,12 +109,13 @@ describe('mergeItems', () => {
 
 describe('messages and dates', () => {
   it('has a distinct message for each known error_kind and a generic one otherwise', () => {
-    const kinds = ['hubspot_rate_limited', 'hubspot_timeout', 'crm_timeout', 'hubspot_auth', 'hubspot_upstream', 'hubspot_decode', 'not_configured', 'cursor_mismatch', 'invalid_param', 'owner_not_resolved'];
+    const kinds = ['hubspot_busy', 'hubspot_rate_limited', 'hubspot_timeout', 'crm_timeout', 'hubspot_auth', 'hubspot_upstream', 'hubspot_decode', 'not_configured', 'cursor_mismatch', 'invalid_param', 'owner_not_resolved'];
     const msgs = kinds.map(k => errorMessage(k, 500));
     expect(new Set(msgs).size).toBe(kinds.length);
     expect(errorMessage(null, null)).toContain('ネットワーク');
     expect(errorMessage('weird', 500)).toContain('500');
     expect(errorMessage('hubspot_rate_limited', 503)).toContain('上限');
+    expect(errorMessage('hubspot_busy', 503)).toBe('HubSpot が混み合っています。少し待ってから再試行してください。');
   });
   it('explains 401 and forbidden kinds; the owner_not_resolved 409 asks the person to pick an owner', () => {
     expect(unauthorizedMessage(null, 401)).toContain('ログイン');
@@ -135,6 +136,7 @@ describe('queue page size and count text', () => {
   it('asks the server for 50 rows per page (the server maximum)', () => {
     expect(QUEUE_PAGE_SIZE).toBe(50);
     expect(queueApiPath(DEFAULT_FILTERS, null)).toBe('/api/crm/call-queue?limit=50');
+    expect(queueApiPath(DEFAULT_FILTERS, null, true)).toBe('/api/crm/call-queue?limit=50&fresh=1');
   });
   it('formats the total with thousands separators', () => {
     expect(formatCount(22864)).toBe('22,864');

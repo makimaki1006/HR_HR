@@ -894,11 +894,12 @@ async fn search_calls_are_spaced() {
     // 先に 1 本送って接続を張っておく (初回だけ TCP 接続の時間が到着時刻に乗り、
     // 到着間隔が見かけ上縮むため。2026-09-30 に初回込みの計測で 1 回落ちた)
     c.search("calls", body.clone()).await.unwrap();
-    // 同時に 3 本投げても開始は間隔を空ける
+    // 同時に 3 本投げても開始は間隔を空ける (本文が同じだと 1 回にまとめられるので、limit を変えて別の検索にする)
+    let body_n = |n: u32| json!({"filterGroups": [], "limit": n});
     let (a, b, d) = tokio::join!(
-        c.search("calls", body.clone()),
-        c.search("calls", body.clone()),
-        c.search("calls", body.clone()),
+        c.search("calls", body_n(11)),
+        c.search("calls", body_n(12)),
+        c.search("calls", body_n(13)),
     );
     assert_eq!(a.unwrap()["total"], 0);
     b.unwrap();
@@ -909,7 +910,7 @@ async fn search_calls_are_spaced() {
     assert!(calls
         .iter()
         .all(|c| c.method == "POST" && c.path == "/crm/v3/objects/calls/search"));
-    assert_eq!(calls[1].body, body);
+    assert_eq!(calls[0].body, body);
     let spread = calls[3].at.duration_since(calls[1].at);
     assert!(spread >= interval * 2, "spread {spread:?}");
 }
@@ -1057,4 +1058,203 @@ async fn record_without_properties_reads_as_empty() {
         assert!(rec.properties.is_empty());
         assert!(!rec.archived);
     }
+}
+
+// ---------------------------------------------------------------------------
+// 関所 (gateway) を通した振る舞い: 相乗り・429 の全員停止・待ちの上限・生の読み取り
+// ---------------------------------------------------------------------------
+
+/// 同じ読み取りが 50 本同時に来ても HubSpot への呼び出しは 1 回で、全員が同じ結果を受け取る
+#[tokio::test]
+async fn identical_concurrent_reads_are_coalesced_into_one_call() {
+    let responder: Responder =
+        Arc::new(|_, _| Resp::json(200, contact_json()).delay(Duration::from_millis(200)));
+    let (base, fake) = spawn_fake(responder).await;
+    let c = client(&base, fast_opts());
+    let mut tasks = Vec::new();
+    for _ in 0..50 {
+        let c = c.clone();
+        tasks.push(tokio::spawn(async move {
+            c.get_object("contacts", "101", &["firstname"]).await
+        }));
+    }
+    for t in tasks {
+        let rec = t.await.unwrap().unwrap();
+        assert_eq!(rec.id, "101");
+        assert_eq!(
+            rec.properties.get("firstname"),
+            Some(&Some("山田".to_string()))
+        );
+    }
+    assert_eq!(fake.count(), 1, "50 本が 1 回にまとまる");
+    let snap = c.gateway().snapshot();
+    assert_eq!(snap.coalesced, 49);
+    assert_eq!(snap.total_calls, 1);
+    assert_eq!(snap.calls_by_group.get("object_read"), Some(&1));
+
+    // 終わった読み取りは表に残らない (次の要求は新しく呼ぶ)
+    c.get_object("contacts", "101", &["firstname"])
+        .await
+        .unwrap();
+    assert_eq!(fake.count(), 2);
+    // 中身が違う読み取り (項目・優先度) はまとめない
+    let bg = c.background();
+    let (a, b) = tokio::join!(
+        c.get_object("contacts", "101", &["email"]),
+        bg.get_object("contacts", "101", &["email"]),
+    );
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(fake.count(), 4);
+}
+
+/// 1 本が 429 を受けたら、同じ関所を使う別のクライアントの呼び出しも Retry-After の間止まる
+#[tokio::test]
+async fn one_429_pauses_other_callers_on_the_same_gateway() {
+    let responder: Responder = Arc::new(|i, r| {
+        if i == 0 && r.path == "/crm/v3/objects/deals/1" {
+            Resp::json(429, json!({})).header("retry-after", "1")
+        } else {
+            Resp::json(200, json!({"id": "2", "properties": {}}))
+        }
+    });
+    let (base, fake) = spawn_fake(responder).await;
+    let gw = Arc::new(crate::hubspot::Gateway::new(
+        crate::hubspot::GatewayConfig::unlimited(
+            Duration::from_millis(1),
+            Duration::from_millis(20),
+        ),
+    ));
+    let opts = || ClientOptions {
+        max_retries: 0,
+        ..fast_opts()
+    };
+    let a = HubSpotClient::with_gateway(TOKEN.into(), &base, opts(), gw.clone()).unwrap();
+    let b = HubSpotClient::with_gateway(TOKEN.into(), &base, opts(), gw.clone()).unwrap();
+    assert_eq!(
+        a.get_object("deals", "1", &[]).await.unwrap_err(),
+        HubSpotError::RateLimited
+    );
+    // 別のクライアント・別のレコードでも、Retry-After (1 秒) が明けるまで送らない
+    b.get_object("deals", "2", &[]).await.unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    let gap = calls[1].at.duration_since(calls[0].at);
+    assert!(gap >= Duration::from_millis(950), "gap {gap:?}");
+    assert_eq!(gw.snapshot().rate_limited, 1);
+}
+
+/// 待ちの上限を超えるなら HubSpot を呼ばずに Busy (503 hubspot_busy)
+#[tokio::test]
+async fn waiting_longer_than_the_deadline_fails_fast_with_busy() {
+    let (base, fake) = spawn_fake(always(200, contact_json())).await;
+    let mut cfg = crate::hubspot::GatewayConfig::unlimited(
+        Duration::from_millis(1),
+        Duration::from_millis(20),
+    );
+    cfg.interactive_max_wait = Duration::from_millis(300);
+    let gw = Arc::new(crate::hubspot::Gateway::new(cfg));
+    let c = HubSpotClient::with_gateway(TOKEN.into(), &base, fast_opts(), gw.clone()).unwrap();
+    gw.on_rate_limited(Some(Duration::from_secs(5)));
+    let started = Instant::now();
+    let err = c.get_object("contacts", "101", &[]).await.unwrap_err();
+    assert_eq!(err, HubSpotError::Busy);
+    assert_eq!(err.error_kind(), "hubspot_busy");
+    assert_eq!(err.http_status(), 503);
+    assert!(
+        started.elapsed() < Duration::from_millis(100),
+        "並ばずに断る"
+    );
+    assert_eq!(fake.count(), 0, "HubSpot には届かない");
+    assert_eq!(gw.snapshot().busy, 1);
+}
+
+/// 生の読み取りは失敗の status を返し (retry しない)、パスは /crm/ の安全な形だけ
+#[tokio::test]
+async fn read_raw_returns_status_without_retry_and_rejects_unsafe_paths() {
+    let responder: Responder = Arc::new(|i, _| {
+        if i == 0 {
+            Resp::json(429, json!({})).header("retry-after", "2")
+        } else {
+            Resp::json(200, json!({"results": []}))
+        }
+    });
+    let (base, fake) = spawn_fake(responder).await;
+    let c = client(&base, fast_opts());
+    let r = c
+        .read_raw(
+            false,
+            "/crm/v3/objects/0-420/1",
+            &[("properties", "a".into())],
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status, 429);
+    assert_eq!(r.retry_after_secs, Some(2));
+    assert_eq!(r.body, None);
+    assert_eq!(fake.count(), 1, "retry しない");
+    let r = c
+        .read_raw(
+            true,
+            "/crm/v3/objects/0-420/batch/read",
+            &[],
+            Some(&json!({"inputs": []})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status, 200);
+    assert_eq!(r.body, Some(json!({"results": []})));
+    for bad in [
+        "/oauth/v1/x",
+        "/crm/v3/../oauth",
+        "/crm/v3//x",
+        "/crm/v3/objects/1?x=1",
+        "http://evil/crm/v3",
+    ] {
+        assert!(
+            matches!(
+                c.read_raw(false, bad, &[], None).await,
+                Err(HubSpotError::Decode(_))
+            ),
+            "{bad}"
+        );
+    }
+    assert_eq!(fake.count(), 2);
+}
+
+/// 応答の X-HubSpot-RateLimit-* は関所にも残る (管理画面の表示用)
+#[tokio::test]
+async fn rate_limit_headers_are_kept_on_the_gateway() {
+    let responder: Responder = Arc::new(|_, _| {
+        Resp::json(200, contact_json())
+            .header("x-hubspot-ratelimit-max", "190")
+            .header("x-hubspot-ratelimit-remaining", "180")
+            .header("x-hubspot-ratelimit-secondly", "19")
+            .header("x-hubspot-ratelimit-secondly-remaining", "18")
+            .header("x-hubspot-ratelimit-daily", "625000")
+            .header("x-hubspot-ratelimit-daily-remaining", "624000")
+    });
+    let (base, _fake) = spawn_fake(responder).await;
+    let c = client(&base, fast_opts());
+    c.get_object("contacts", "101", &[]).await.unwrap();
+    let r = c.gateway().snapshot().rate_limit;
+    assert_eq!(
+        (
+            r.max,
+            r.remaining,
+            r.secondly,
+            r.secondly_remaining,
+            r.daily,
+            r.daily_remaining
+        ),
+        (
+            Some(190),
+            Some(180),
+            Some(19),
+            Some(18),
+            Some(625_000),
+            Some(624_000)
+        )
+    );
 }

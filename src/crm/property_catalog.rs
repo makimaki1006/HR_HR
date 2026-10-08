@@ -35,6 +35,7 @@ use super::routes::{
     error_json, hubspot_error_response, timeout_response, CrmCtx, CRM_REQUEST_DEADLINE,
 };
 use crate::handlers::crm_metadata::CrmPropertyOption;
+use crate::hubspot::gateway::{cache_hit, cache_miss};
 use crate::hubspot::{HubSpotClient, HubSpotError, RecordType};
 use crate::AppState;
 
@@ -131,6 +132,8 @@ pub struct PropertyCatalogCache {
     slot: Mutex<Slot>,
     ttl: Duration,
     failure_ttl: Duration,
+    /// 先読み (背景の優先度) が走っているか
+    refreshing: super::call_queue::RefreshGate,
 }
 
 #[derive(Default)]
@@ -151,6 +154,7 @@ impl PropertyCatalogCache {
             slot: Mutex::new(Slot::default()),
             ttl,
             failure_ttl,
+            refreshing: super::call_queue::RefreshGate::new(),
         }
     }
 
@@ -162,6 +166,7 @@ impl PropertyCatalogCache {
         let mut slot = self.slot.lock().await;
         if let Some((stored, entry)) = slot.ok.as_ref() {
             if stored.elapsed() < self.ttl {
+                cache_hit("property_catalog");
                 return Ok((entry.clone(), true));
             }
         }
@@ -170,6 +175,7 @@ impl PropertyCatalogCache {
                 return Err(e.clone());
             }
         }
+        cache_miss("property_catalog");
         match self.fetch(client).await {
             Ok(entry) => {
                 slot.ok = Some((Instant::now(), entry.clone()));
@@ -181,6 +187,35 @@ impl PropertyCatalogCache {
                 Err(e)
             }
         }
+    }
+
+    /// 有効期間の終わり近く (残り 20% 未満) なら true (先読みの対象)。取得中は false
+    pub fn refresh_due(&self) -> bool {
+        self.slot.try_lock().is_ok_and(|slot| {
+            slot.ok
+                .as_ref()
+                .is_some_and(|(at, _)| super::call_queue::refresh_due(at.elapsed(), self.ttl))
+        })
+    }
+
+    /// 一覧を読み直して置き換える (先読み。背景の優先度のクライアントを渡す)。読んでいる間はロックを持たない。
+    /// 失敗しても今の一覧は残す
+    pub async fn refresh(&self, client: &HubSpotClient) {
+        if !self.refreshing.try_begin() {
+            return;
+        }
+        match self.fetch(client).await {
+            Ok(entry) => {
+                let mut slot = self.slot.lock().await;
+                slot.ok = Some((Instant::now(), entry));
+                slot.failed = None;
+            }
+            Err(e) => tracing::warn!(
+                error_kind = e.error_kind(),
+                "crm property catalog refresh-ahead failed"
+            ),
+        }
+        self.refreshing.end();
     }
 
     async fn fetch(&self, client: &HubSpotClient) -> Result<Arc<CatalogEntry>, HubSpotError> {
@@ -381,6 +416,7 @@ pub(super) async fn get_property_catalog(
             timeout_response()
         }
         Ok(Ok((entry, hit))) => {
+            super::routes::refresh_ahead(&ctx, &client);
             let mut body = entry.response.clone();
             body.cache_hit = hit;
             Json(body).into_response()

@@ -7,6 +7,7 @@ const HEAD = 'HubSpot から選択肢を読み込めませんでした。';
 describe('metadataErrorMessage', () => {
   it.each([
     ['429 rate limit', new ApiHttpError(503, { error_kind: 'hubspot_rate_limited' }), `${HEAD}HubSpot の呼び出し回数の上限に達しています。少し待ってから再試行してください。`],
+    ['gateway busy', new ApiHttpError(503, { error_kind: 'hubspot_busy' }), `${HEAD}HubSpot が混み合っています。少し待ってから再試行してください。`],
     ['HubSpot timeout', new ApiHttpError(504, { error_kind: 'hubspot_timeout' }), `${HEAD}応答が時間内に返りませんでした。少し待ってから再試行してください。`],
     ['client timeout', new ApiTimeoutError(35_000), `${HEAD}応答が時間内に返りませんでした。少し待ってから再試行してください。`],
     ['auth config', new ApiHttpError(502, { error_kind: 'hubspot_auth' }), `${HEAD}接続の設定に問題がある可能性があります。管理者に連絡してください。`],

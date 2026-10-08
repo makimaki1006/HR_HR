@@ -7,21 +7,50 @@
 //! - batch_read / search は POST だが読み取りのみ。retry しても副作用は無い (書き込み API はここに置かない)
 //! - Search API は `search_min_interval` 以上の間隔で開始する (5 req/s/アカウント)
 //! - object / id はパスに入るため、既知の api_name と ASCII 数字 (1〜20 桁) 以外は送らない
+//! - **全ての HTTP 送信は関所 ([`super::gateway::Gateway`]) の許可を得てから行う** (retry も 1 回と数える)。
+//!   本番のクライアントは [`HubSpotClient::for_production`] でプロセス共有の関所に繋ぐ。待ちの上限を超えたら
+//!   [`HubSpotError::Busy`] (呼び出しはしない)。429 は関所に伝えて全員を止める
+//! - 同じ読み取り (優先度・メソッド・パス・query・本文が同じ) が同時に走っているときは 1 回にまとめる
+//! - 優先度は [`HubSpotClient::background`] で切り替える (同じ関所・同じ相乗りの表を共有する軽い複製)
 
-use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use reqwest::header::{HeaderMap, AUTHORIZATION, RETRY_AFTER};
 use reqwest::{Method, StatusCode};
 use serde_json::{json, Value};
 
+use super::gateway::{endpoint_group, Gateway, GatewayConfig, Lane, Priority};
 use super::types::{
     AssociationLabelDef, AssociationRef, EngagementType, HubSpotError, HubSpotRecord,
     RateLimitSnapshot, RecordType, TokenInfo,
 };
 
 pub const DEFAULT_BASE_URL: &str = "https://api.hubapi.com";
+
+/// HubSpot API の接続先。`HUBSPOT_BASE_URL` (負荷試験の偽 HubSpot 用) が `http://` / `https://` で
+/// 始まればそれを、そうでなければ [`DEFAULT_BASE_URL`]。**鍵 (Bearer) はこの接続先に送られる**ので本番では設定しない
+pub fn base_url_from_env() -> String {
+    match std::env::var("HUBSPOT_BASE_URL") {
+        Ok(v) => {
+            let v = v.trim().trim_end_matches('/');
+            if v.starts_with("https://") || v.starts_with("http://") {
+                tracing::warn!("HubSpot API の接続先を HUBSPOT_BASE_URL で差し替えています");
+                v.to_string()
+            } else {
+                if !v.is_empty() {
+                    tracing::warn!(
+                        "HUBSPOT_BASE_URL が http(s):// で始まらないため既定の接続先を使います"
+                    );
+                }
+                DEFAULT_BASE_URL.to_string()
+            }
+        }
+        Err(_) => DEFAULT_BASE_URL.to_string(),
+    }
+}
 
 /// `access_token_info` の結果を使い回す時間
 pub const TOKEN_INFO_TTL: Duration = Duration::from_secs(300);
@@ -61,23 +90,108 @@ impl Default for ClientOptions {
     }
 }
 
-/// Debug にトークンを出さない。
-pub struct HubSpotClient {
+/// 生の読み取り 1 回の結果 ([`HubSpotClient::read_raw`])。失敗の status も返す (retry と解釈は呼び出し側)
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawReply {
+    pub status: u16,
+    /// `Retry-After` (秒。数字でなければ None)
+    pub retry_after_secs: Option<u64>,
+    /// 2xx のときだけ JSON
+    pub body: Option<Value>,
+}
+
+/// 同時に走っている同じ読み取りの表 (結果の型ごと)
+struct Flights<T> {
+    map: Mutex<HashMap<String, Arc<tokio::sync::OnceCell<T>>>>,
+}
+
+impl<T> Default for Flights<T> {
+    fn default() -> Self {
+        Self {
+            map: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+/// 抜けるとき (終わった・取り消された) に表から外す。結果が出ていれば外す。
+/// まだなら、待っているのが自分だけのときだけ外す (ほかの人は同じ項目で続ける)
+struct FlightGuard<'a, T> {
+    flights: &'a Flights<T>,
+    key: &'a str,
+    cell: &'a Arc<tokio::sync::OnceCell<T>>,
+}
+
+impl<T> Drop for FlightGuard<'_, T> {
+    fn drop(&mut self) {
+        if let Ok(mut m) = self.flights.map.lock() {
+            let same = m.get(self.key).is_some_and(|c| Arc::ptr_eq(c, self.cell));
+            // 表の 1 + この参加者の 1 = 2 なら、待っているのは自分だけ
+            if same && (self.cell.initialized() || Arc::strong_count(self.cell) <= 2) {
+                m.remove(self.key);
+            }
+        }
+    }
+}
+
+impl<T: Clone> Flights<T> {
+    /// `key` の読み取りが走っていればその結果を待ち、無ければ `f` を走らせる
+    async fn run<F, Fut>(&self, key: String, gateway: &Gateway, f: F) -> T
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = T>,
+    {
+        let (cell, joined) = {
+            let Ok(mut m) = self.map.lock() else {
+                return f().await;
+            };
+            match m.get(&key) {
+                Some(c) => (c.clone(), true),
+                None => {
+                    let c = Arc::new(tokio::sync::OnceCell::new());
+                    m.insert(key.clone(), c.clone());
+                    (c, false)
+                }
+            }
+        };
+        if joined {
+            gateway.record_coalesced();
+        }
+        let _guard = FlightGuard {
+            flights: self,
+            key: &key,
+            cell: &cell,
+        };
+        // 先に走らせた人が取り消されたら、待っていた人の `f` が走る (OnceCell の決まり)
+        cell.get_or_init(f).await.clone()
+    }
+}
+
+struct Inner {
     http: reqwest::Client,
     /// Bearer トークン。Authorization ヘッダを組む以外に使わない
     token: String,
     base_url: String,
     opts: ClientOptions,
+    gateway: Arc<Gateway>,
     rate_limit: Mutex<Option<RateLimitSnapshot>>,
-    /// 直前の Search 開始時刻 (1 permit のロックとして使う)
-    search_gate: tokio::sync::Mutex<Option<Instant>>,
     /// `access_token_info` の結果 (成功のみ。`TOKEN_INFO_TTL` の間使い回す。ロックは呼び出しの間持つ=同時に 1 本)
     token_info_cache: tokio::sync::Mutex<Option<(Instant, TokenInfo)>>,
+    flights: Flights<Result<Value, HubSpotError>>,
+    raw_flights: Flights<Result<RawReply, HubSpotError>>,
+}
+
+/// Debug にトークンを出さない。複製は軽い (中身は共有し、優先度だけ違う)。
+#[derive(Clone)]
+pub struct HubSpotClient {
+    inner: Arc<Inner>,
+    priority: Priority,
 }
 
 impl std::fmt::Debug for HubSpotClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HubSpotClient").finish_non_exhaustive()
+        f.debug_struct("HubSpotClient")
+            .field("priority", &self.priority)
+            .finish_non_exhaustive()
     }
 }
 
@@ -231,10 +345,33 @@ fn parse_associations(v: &Value) -> Result<(Vec<AssociationRef>, bool), HubSpotE
 
 impl HubSpotClient {
     /// `access_token` が空白だけなら `Err(NotConfigured)`。
+    ///
+    /// このクライアント専用の関所を持つ (流量の制限なし。Search の間隔は `opts.search_min_interval`、
+    /// 429 の最短停止は `opts.rate_limited_min_wait`)。本番では [`Self::for_production`] を使う。
     pub fn new(
         access_token: String,
         base_url: &str,
         opts: ClientOptions,
+    ) -> Result<Self, HubSpotError> {
+        let gateway = Arc::new(Gateway::new(GatewayConfig::unlimited(
+            opts.search_min_interval,
+            opts.rate_limited_min_wait,
+        )));
+        Self::with_gateway(access_token, base_url, opts, gateway)
+    }
+
+    /// 本番用: 接続先は [`base_url_from_env`]、関所はプロセス共有 ([`Gateway::shared`])。
+    /// Search の間隔は関所の設定 (`HUBSPOT_APP_SEARCH_PER_SEC`) で決まり、`opts.search_min_interval` は使わない。
+    pub fn for_production(access_token: String, opts: ClientOptions) -> Result<Self, HubSpotError> {
+        Self::with_gateway(access_token, &base_url_from_env(), opts, Gateway::shared())
+    }
+
+    /// 関所を指定して作る (テストで共有の関所を再現する)
+    pub fn with_gateway(
+        access_token: String,
+        base_url: &str,
+        opts: ClientOptions,
+        gateway: Arc<Gateway>,
     ) -> Result<Self, HubSpotError> {
         let token = access_token.trim().to_string();
         if token.is_empty() {
@@ -248,14 +385,40 @@ impl HubSpotClient {
             .build()
             .map_err(|e| HubSpotError::Transport(transport_message(e)))?;
         Ok(Self {
-            http,
-            token,
-            base_url: base_url.trim_end_matches('/').to_string(),
-            opts,
-            rate_limit: Mutex::new(None),
-            search_gate: tokio::sync::Mutex::new(None),
-            token_info_cache: tokio::sync::Mutex::new(None),
+            inner: Arc::new(Inner {
+                http,
+                token,
+                base_url: base_url.trim_end_matches('/').to_string(),
+                opts,
+                gateway,
+                rate_limit: Mutex::new(None),
+                token_info_cache: tokio::sync::Mutex::new(None),
+                flights: Flights::default(),
+                raw_flights: Flights::default(),
+            }),
+            priority: Priority::Interactive,
         })
+    }
+
+    /// 同じクライアントの背景用の複製 (関所の列で画面の操作より後ろに並び、待てる時間が長い)
+    pub fn background(&self) -> Self {
+        self.with_priority(Priority::Background)
+    }
+
+    pub fn with_priority(&self, priority: Priority) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            priority,
+        }
+    }
+
+    pub fn priority(&self) -> Priority {
+        self.priority
+    }
+
+    /// このクライアントが使う関所 (観測用)
+    pub fn gateway(&self) -> &Arc<Gateway> {
+        &self.inner.gateway
     }
 
     /// 鍵の scope とポータル ID を HubSpot に問い合わせる (`POST /oauth/v2/private-apps/get/access-token-info`)。
@@ -268,22 +431,29 @@ impl HubSpotClient {
         &self,
         timeout: Duration,
     ) -> Result<(TokenInfo, bool), HubSpotError> {
-        let mut cache = self.token_info_cache.lock().await;
+        let mut cache = self.inner.token_info_cache.lock().await;
         if let Some((at, info)) = cache.as_ref() {
             if at.elapsed() < TOKEN_INFO_TTL {
                 return Ok((info.clone(), true));
             }
         }
-        let url = format!(
-            "{}/oauth/v2/private-apps/get/access-token-info",
-            self.base_url
-        );
+        const PATH: &str = "/oauth/v2/private-apps/get/access-token-info";
+        self.inner
+            .gateway
+            .acquire(Lane::General, self.priority)
+            .await
+            .map_err(|_| HubSpotError::Busy)?;
+        self.inner
+            .gateway
+            .record_call(endpoint_group(PATH), Lane::General);
+        let url = format!("{}{PATH}", self.inner.base_url);
         let resp = self
+            .inner
             .http
             .post(url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(AUTHORIZATION, format!("Bearer {}", self.inner.token))
             .timeout(timeout)
-            .json(&json!({ "tokenKey": self.token }))
+            .json(&json!({ "tokenKey": self.inner.token }))
             .send()
             .await
             .map_err(|e| {
@@ -293,9 +463,15 @@ impl HubSpotClient {
                     HubSpotError::Transport(transport_message(e))
                 }
             })?;
+        self.inner.gateway.record_headers(resp.headers());
         let status = resp.status();
         if !status.is_success() {
             let code = status.as_u16();
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                self.inner
+                    .gateway
+                    .on_rate_limited(retry_after(resp.headers()));
+            }
             return Err(match status {
                 StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
                     HubSpotError::Auth { status: code }
@@ -583,21 +759,10 @@ impl HubSpotClient {
         parse_associations(&v)
     }
 
-    /// `POST /crm/v3/objects/{object}/search` (読み取り)。5 req/s 以下に絞る。
+    /// `POST /crm/v3/objects/{object}/search` (読み取り)。関所の Search の窓 (本番の既定は 1 秒に 3 回、
+    /// [`Self::new`] では `search_min_interval`) で、同時に来た Search を 1 本ずつ間隔を空けて開始する。
     pub async fn search(&self, object: &str, body: Value) -> Result<Value, HubSpotError> {
         check_object(object)?;
-        {
-            // ロックを持ったまま待つので、同時に来た Search は 1 本ずつ間隔を空けて開始する
-            let mut last = self.search_gate.lock().await;
-            if let Some(prev) = *last {
-                let next = prev + self.opts.search_min_interval;
-                let now = Instant::now();
-                if next > now {
-                    tokio::time::sleep(next - now).await;
-                }
-            }
-            *last = Some(Instant::now());
-        }
         let path = format!("/crm/v3/objects/{object}/search");
         self.send(Method::POST, &path, &[], Some(&body)).await
     }
@@ -649,10 +814,105 @@ impl HubSpotClient {
 
     /// 最後に観測したレート制限ヘッダ
     pub fn last_rate_limit(&self) -> Option<RateLimitSnapshot> {
-        self.rate_limit.lock().ok().and_then(|g| g.clone())
+        self.inner.rate_limit.lock().ok().and_then(|g| g.clone())
     }
 
-    /// retry 込みで 1 リクエストを送り、JSON を返す。
+    /// 型を決めていない読み取り 1 回 (求人票コピーの読み取りが使う)。**retry しない** (呼び出し側の決まりで行う)。
+    /// 関所・相乗り・429 の全員停止・ヘッダの記録はほかの呼び出しと同じ。
+    ///
+    /// `path` は `/crm/` で始まり、英数字と `/ - _ .` だけ・`..` / `//` を含まないものに限る
+    /// (ID をパスに入れる前に呼び出し側でも確かめる)。`post` は HubSpot の batch/read 等の読み取りだけに使う。
+    pub async fn read_raw(
+        &self,
+        post: bool,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> Result<RawReply, HubSpotError> {
+        let safe = path.starts_with("/crm/")
+            && !path.contains("..")
+            && !path.contains("//")
+            && path
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.'));
+        if !safe {
+            return Err(HubSpotError::Decode("invalid path".into()));
+        }
+        let method = if post { Method::POST } else { Method::GET };
+        let key = flight_key("raw", self.priority, &method, path, query, body);
+        self.inner
+            .raw_flights
+            .run(key, &self.inner.gateway, || {
+                self.raw_once(&method, path, query, body)
+            })
+            .await
+    }
+
+    async fn raw_once(
+        &self,
+        method: &Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> Result<RawReply, HubSpotError> {
+        let lane = lane_of(path);
+        self.inner
+            .gateway
+            .acquire(lane, self.priority)
+            .await
+            .map_err(|_| HubSpotError::Busy)?;
+        self.inner.gateway.record_call(endpoint_group(path), lane);
+        let url = format!("{}{}", self.inner.base_url, path);
+        let mut req = self
+            .inner
+            .http
+            .request(method.clone(), url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.inner.token));
+        if !query.is_empty() {
+            req = req.query(query);
+        }
+        if let Some(b) = body {
+            req = req.json(b);
+        }
+        let resp = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                HubSpotError::Timeout
+            } else {
+                HubSpotError::Transport(transport_message(e))
+            }
+        })?;
+        self.record_rate_limit(resp.headers());
+        let status = resp.status();
+        let retry_after_secs = header_u64(resp.headers(), RETRY_AFTER.as_str());
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            self.inner
+                .gateway
+                .on_rate_limited(retry_after(resp.headers()));
+        }
+        if !status.is_success() {
+            return Ok(RawReply {
+                status: status.as_u16(),
+                retry_after_secs,
+                body: None,
+            });
+        }
+        let bytes = resp.bytes().await.map_err(|e| {
+            if e.is_timeout() {
+                HubSpotError::Timeout
+            } else {
+                HubSpotError::Transport(transport_message(e))
+            }
+        })?;
+        let v = serde_json::from_slice::<Value>(&bytes)
+            .map_err(|_| HubSpotError::Decode("invalid json".into()))?;
+        Ok(RawReply {
+            status: status.as_u16(),
+            retry_after_secs,
+            body: Some(v),
+        })
+    }
+
+    /// retry 込みで 1 リクエストを送り、JSON を返す。同じ読み取りが走っていれば相乗りする。
     async fn send(
         &self,
         method: Method,
@@ -660,24 +920,50 @@ impl HubSpotClient {
         query: &[(&str, String)],
         body: Option<&Value>,
     ) -> Result<Value, HubSpotError> {
-        let url = format!("{}{}", self.base_url, path);
+        let key = flight_key("json", self.priority, &method, path, query, body);
+        self.inner
+            .flights
+            .run(key, &self.inner.gateway, || {
+                self.send_uncoalesced(&method, path, query, body)
+            })
+            .await
+    }
+
+    async fn send_uncoalesced(
+        &self,
+        method: &Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> Result<Value, HubSpotError> {
+        let url = format!("{}{}", self.inner.base_url, path);
+        let lane = lane_of(path);
+        let group = endpoint_group(path);
         let mut attempt: u32 = 0;
         loop {
-            match self.try_once(&method, &url, query, body).await {
+            // 1 回の送信ごとに関所の許可を得る (retry も数える。429 の停止中はここで待つ)
+            self.inner
+                .gateway
+                .acquire(lane, self.priority)
+                .await
+                .map_err(|_| HubSpotError::Busy)?;
+            self.inner.gateway.record_call(group, lane);
+            match self.try_once(method, &url, query, body).await {
                 Attempt::Ok(v) => return Ok(v),
                 Attempt::Fatal(e) => return Err(e),
                 Attempt::Retryable { err, wait } => {
-                    if attempt >= self.opts.max_retries {
+                    if attempt >= self.inner.opts.max_retries {
                         return Err(err);
                     }
                     let exp = self
+                        .inner
                         .opts
                         .retry_base_delay
                         .saturating_mul(2u32.saturating_pow(attempt));
                     let mut backoff = wait.unwrap_or(exp);
                     if err == HubSpotError::RateLimited {
                         // Retry-After が 0 や小さい値でも最低待ち時間は守る
-                        backoff = backoff.max(self.opts.rate_limited_min_wait);
+                        backoff = backoff.max(self.inner.opts.rate_limited_min_wait);
                     }
                     let backoff = backoff.min(MAX_RETRY_WAIT);
                     tracing::warn!(
@@ -701,9 +987,10 @@ impl HubSpotClient {
         body: Option<&Value>,
     ) -> Attempt {
         let mut req = self
+            .inner
             .http
             .request(method.clone(), url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.token));
+            .header(AUTHORIZATION, format!("Bearer {}", self.inner.token));
         if !query.is_empty() {
             req = req.query(query);
         }
@@ -737,10 +1024,15 @@ impl HubSpotClient {
         }
         let code = status.as_u16();
         match status {
-            StatusCode::TOO_MANY_REQUESTS => Attempt::Retryable {
-                err: HubSpotError::RateLimited,
-                wait: retry_after(resp.headers()),
-            },
+            StatusCode::TOO_MANY_REQUESTS => {
+                let wait = retry_after(resp.headers());
+                // この要求だけでなく、関所を通る全員を Retry-After の間止める
+                self.inner.gateway.on_rate_limited(wait);
+                Attempt::Retryable {
+                    err: HubSpotError::RateLimited,
+                    wait,
+                }
+            }
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
                 Attempt::Fatal(HubSpotError::Auth { status: code })
             }
@@ -754,6 +1046,7 @@ impl HubSpotClient {
     }
 
     fn record_rate_limit(&self, headers: &HeaderMap) {
+        self.inner.gateway.record_headers(headers);
         let snap = RateLimitSnapshot {
             max: header_u64(headers, "x-hubspot-ratelimit-max"),
             remaining: header_u64(headers, "x-hubspot-ratelimit-remaining"),
@@ -773,10 +1066,37 @@ impl HubSpotClient {
                 );
             }
         }
-        if let Ok(mut g) = self.rate_limit.lock() {
+        if let Ok(mut g) = self.inner.rate_limit.lock() {
             *g = Some(snap);
         }
     }
+}
+
+/// Search の窓を使うパスか
+fn lane_of(path: &str) -> Lane {
+    if path.ends_with("/search") {
+        Lane::Search
+    } else {
+        Lane::General
+    }
+}
+
+/// 相乗りの鍵 (種類・優先度・メソッド・パス・query・本文)。優先度を入れるのは、画面の操作が背景の取得に
+/// 相乗りして背景の列で待たされないようにするため
+fn flight_key(
+    kind: &str,
+    priority: Priority,
+    method: &Method,
+    path: &str,
+    query: &[(&str, String)],
+    body: Option<&Value>,
+) -> String {
+    let q = serde_json::to_string(query).unwrap_or_default();
+    let b = body.map(Value::to_string).unwrap_or_default();
+    format!(
+        "{kind}\u{1f}{}\u{1f}{method}\u{1f}{path}\u{1f}{q}\u{1f}{b}",
+        priority.as_str()
+    )
 }
 
 #[cfg(test)]

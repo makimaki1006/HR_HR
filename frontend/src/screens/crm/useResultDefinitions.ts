@@ -43,6 +43,7 @@ export function metadataErrorMessage(error: unknown): string {
   const head = 'HubSpot から選択肢を読み込めませんでした。';
   switch (kind) {
     case 'hubspot_rate_limited': return `${head}HubSpot の呼び出し回数の上限に達しています。少し待ってから再試行してください。`;
+    case 'hubspot_busy': return `${head}HubSpot が混み合っています。少し待ってから再試行してください。`;
     case 'hubspot_timeout':
     case 'crm_timeout':
     case CLIENT_TIMEOUT_KIND: return `${head}応答が時間内に返りませんでした。少し待ってから再試行してください。`;

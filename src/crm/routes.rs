@@ -189,14 +189,20 @@ pub(super) struct CrmCtx {
     /// (100 req/10 秒をアカウントで共有)、1 回の読み取りが最大 6 呼び出しになるため、
     /// 連打・多タブで枠を食い尽くさないよう絞る。待ちも締め切りに含める。
     pub(super) read_slots: tokio::sync::Semaphore,
+    /// 架電キューの同時実行数の上限 (レコード読み取りとは別の枠。キューが Search の順番を待つ間、
+    /// 案件の詳細の読み取りがその後ろに並ばないように)
+    pub(super) queue_slots: tokio::sync::Semaphore,
     /// 架電ワークスペースの応答 (60 秒。利用者をまたいで共有し、認可は毎回)
     pub(super) workspace_cache: super::workspace_cache::WorkspaceCache,
     /// 案件 → 担当者・会社の関連ラベルの定義 (6 時間)
     pub(super) assoc_labels: super::assoc_labels::AssocLabelCache,
 }
 
-/// レコード読み取りの同時実行数
-pub const MAX_CONCURRENT_RECORD_READS: usize = 4;
+/// レコード読み取りの同時実行数。HubSpot への流量は関所 (`hubspot::gateway`) が絞るので、ここは
+/// 1 プロセスで同時に組み立てる応答の数の上限 (メモリと、関所の列を長くしすぎないため)
+pub const MAX_CONCURRENT_RECORD_READS: usize = 8;
+/// 架電キューの同時実行数 (レコード読み取りとは別の枠)
+pub const MAX_CONCURRENT_QUEUE_READS: usize = 8;
 
 /// `?refresh=true` で定義を取り直せる最短間隔 (これより新しいキャッシュは返す)
 pub const METADATA_REFRESH_FLOOR: Duration = Duration::from_secs(5);
@@ -233,6 +239,7 @@ pub(super) fn router_with_parts(
         catalog: super::property_catalog::PropertyCatalogCache::default(),
         queue,
         read_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_RECORD_READS),
+        queue_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_QUEUE_READS),
         workspace_cache,
         assoc_labels: super::assoc_labels::AssocLabelCache::default(),
     });
@@ -486,6 +493,67 @@ pub(super) fn timeout_response() -> Response {
         .into_response()
 }
 
+/// 定義系のキャッシュ (架電キューのパイプライン定義・担当者一覧・プロパティ一覧・関連ラベル) のうち、
+/// 有効期間の終わり近く (残り 20% 未満) のものを**背景の優先度**で読み直す (応答は待たない)。
+/// 画面の要求が期限切れで待たされる前に入れ替えるため。各キャッシュは同時に 1 本しか読み直さない。
+pub(super) fn refresh_ahead(ctx: &Arc<CrmCtx>, client: &HubSpotClient) {
+    if ctx.queue.pipeline_defs_refresh_due() {
+        let (ctx, bg) = (ctx.clone(), client.background());
+        tokio::spawn(async move { ctx.queue.refresh_pipeline_defs(&bg).await });
+    }
+    if ctx.queue.owner_list.refresh_due() {
+        let (ctx, bg) = (ctx.clone(), client.background());
+        tokio::spawn(async move { ctx.queue.owner_list.refresh(&bg).await });
+    }
+    if ctx.catalog.refresh_due() {
+        let (ctx, bg) = (ctx.clone(), client.background());
+        tokio::spawn(async move { ctx.catalog.refresh(&bg).await });
+    }
+    if ctx.assoc_labels.refresh_due() {
+        let (ctx, bg) = (ctx.clone(), client.background());
+        tokio::spawn(async move { ctx.assoc_labels.refresh(&bg).await });
+    }
+}
+
+/// レコード読み取りの同時実行の枠を待つ。待てるのは関所の「画面の操作」の待ちの上限
+/// (`HUBSPOT_INTERACTIVE_MAX_WAIT_MS`) と全体の締め切りの短い方。待ちきれなければ 503 `hubspot_busy`
+/// (混雑で HubSpot には届いていない。20 秒待たせてから `crm_timeout` にしない)
+pub(super) async fn acquire_read_slot<'a>(
+    ctx: &'a CrmCtx,
+    client: &HubSpotClient,
+) -> Result<tokio::sync::SemaphorePermit<'a>, Response> {
+    acquire_slot(&ctx.read_slots, client).await
+}
+
+/// 架電キューの枠 ([`acquire_read_slot`] と同じ待ちの上限。枠は別)
+pub(super) async fn acquire_queue_slot<'a>(
+    ctx: &'a CrmCtx,
+    client: &HubSpotClient,
+) -> Result<tokio::sync::SemaphorePermit<'a>, Response> {
+    acquire_slot(&ctx.queue_slots, client).await
+}
+
+async fn acquire_slot<'a>(
+    slots: &'a tokio::sync::Semaphore,
+    client: &HubSpotClient,
+) -> Result<tokio::sync::SemaphorePermit<'a>, Response> {
+    let wait = client
+        .gateway()
+        .config()
+        .interactive_max_wait
+        .min(CRM_REQUEST_DEADLINE);
+    match tokio::time::timeout(wait, slots.acquire()).await {
+        Ok(Ok(permit)) => Ok(permit),
+        _ => {
+            tracing::warn!(
+                error_kind = "hubspot_busy",
+                "crm read waited too long for a slot"
+            );
+            Err(hubspot_error_response(&HubSpotError::Busy))
+        }
+    }
+}
+
 /// HubSpot の失敗を応答にする。`message` は `HubSpotError` の固定文言 (上流の応答本文は含まない)。
 pub(super) fn hubspot_error_response(e: &HubSpotError) -> Response {
     let status = StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::BAD_GATEWAY);
@@ -527,15 +595,9 @@ async fn handle(
     };
     // 4) 読み取り。同時実行の枠待ちも含めて全体に締め切りを付ける
     let started = std::time::Instant::now();
-    let _slot = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.read_slots.acquire()).await {
-        Ok(Ok(permit)) => permit,
-        _ => {
-            tracing::warn!(
-                error_kind = "crm_timeout",
-                "crm read waited too long for a slot"
-            );
-            return timeout_response();
-        }
+    let _slot = match acquire_read_slot(ctx, &client).await {
+        Ok(permit) => permit,
+        Err(resp) => return resp,
     };
     // 4b) BPO は「自分が担当で架電キューの条件に合う Deal」と、それに紐づく Contact / Company だけ。
     //     本文を読む前に確かめる (外れたら本文は一切返さない)。admin / consultant は通らない
