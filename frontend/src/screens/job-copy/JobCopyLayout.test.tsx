@@ -83,7 +83,7 @@ describe('job copy layout', () => {
     await screen.findByText(/課金CSVの 2 期間を反映中/u);
     // demo-001: CSV の 3万3,000円 が HRハッカーの 3万円 に置き換わる。後の 2 期間は HRハッカー実績のまま。
     await waitFor(() => { expect(lane('課金').textContent).toContain('3万3,000円'); });
-    expect([...lane('課金').querySelectorAll('.jt-billing')].map(bar => [bar.className.includes('jt-billing-csv') ? 'csv' : 'hrhacker', bar.textContent])).toEqual([['csv', '3万3,000円'], ['hrhacker', '4万5,000円'], ['hrhacker', '1万2,000円']]);
+    expect([...lane('課金').querySelectorAll('.jt-billing')].map(bar => [bar.className.includes('jt-billing-csv') ? 'csv' : 'hrhacker', bar.textContent])).toEqual([['csv', '3万3,000円'], ['hrhacker', '架空 4万5,000円'], ['hrhacker', '架空 1万2,000円']]);
     expect(screen.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。')).toBeTruthy();
     const firstRow = within(periodTable()).getAllByRole('row')[1];
     expect(firstRow?.querySelectorAll('td')[3]?.textContent).toBe('3万3,000円');

@@ -145,11 +145,30 @@ export function roundAreaCounts(dimension: 'prefecture' | 'municipality', counts
   return Object.fromEntries(distribution.categories.map(row => [row.category, row.count]));
 }
 
-/** 複合条件の集計を丸める。地域ごとの人数（求人内）が少ない地域は「その他」にし、同じ条件のセルは合算する。 */
+type JointCell = JointDemographics['cells'][number];
+function mergeCells(cells: readonly JointCell[]): JointCell[] {
+  const merged = new Map<string, JointCell>();
+  for (const cell of cells) {
+    const key = JSON.stringify([cell.gender, cell.age, cell.prefecture, cell.municipality]);
+    const existing = merged.get(key);
+    merged.set(key, existing ? { ...existing, count: existing.count + cell.count } : cell);
+  }
+  return [...merged.values()];
+}
+
+/**
+ * 複合条件（性別 × 年代 × 地域）の集計を丸める。合計は変えない。サーバー（applicant_area.rs の
+ * protect_joint_cells）と同じ規則。
+ * 1. 地域を都道府県 + 市区町村に丸める。市区町村が分かれば、都道府県はその市区町村から決め直す。
+ * 2. 求人内の人数が 3 人未満の都道府県・市区町村は「その他」にする。
+ * 3. それでも 3 人未満のセルは市区町村を「その他」にし、まだ 3 人未満なら都道府県も「その他」にする
+ *    （「女性・60代・由布市 = 1人」のように、組み合わせで 1 人を特定できる地域を出さない）。
+ */
 export function roundJointDemographics(joint: JointDemographics): JointDemographics {
   const rounded = joint.cells.map(cell => {
     const prefecture = roundAreaLabel('prefecture', cell.prefecture);
-    return { ...cell, prefecture, municipality: roundAreaLabel('municipality', cell.municipality, prefecture === AREA_UNKNOWN ? null : prefecture) };
+    const municipality = roundAreaLabel('municipality', cell.municipality, prefecture === AREA_UNKNOWN ? null : prefecture);
+    return { ...cell, prefecture: reserved(municipality) ? prefecture : roundAreaLabel('prefecture', municipality), municipality };
   });
   const prefectureCounts = new Map<string, number>();
   const municipalityCounts = new Map<string, number>();
@@ -159,14 +178,10 @@ export function roundJointDemographics(joint: JointDemographics): JointDemograph
   }
   const smallPrefectures = smallAreas(prefectureCounts);
   const smallMunicipalities = smallAreas(municipalityCounts);
-  const merged = new Map<string, JointDemographics['cells'][number]>();
-  for (const cell of rounded) {
-    const next = { ...cell, prefecture: smallPrefectures.has(cell.prefecture) ? AREA_OTHER : cell.prefecture, municipality: smallMunicipalities.has(cell.municipality) ? AREA_OTHER : cell.municipality };
-    const key = JSON.stringify([next.gender, next.age, next.prefecture, next.municipality]);
-    const existing = merged.get(key);
-    merged.set(key, existing ? { ...existing, count: existing.count + next.count } : next);
-  }
-  return { total: joint.total, cells: [...merged.values()] };
+  const byArea = mergeCells(rounded.map(cell => ({ ...cell, prefecture: smallPrefectures.has(cell.prefecture) ? AREA_OTHER : cell.prefecture, municipality: smallMunicipalities.has(cell.municipality) ? AREA_OTHER : cell.municipality })));
+  const withoutCity = mergeCells(byArea.map(cell => cell.count < MINIMUM_AREA_COUNT && !reserved(cell.municipality) ? { ...cell, municipality: AREA_OTHER } : cell));
+  const cells = mergeCells(withoutCity.map(cell => cell.count < MINIMUM_AREA_COUNT && !reserved(cell.prefecture) ? { ...cell, prefecture: AREA_OTHER } : cell));
+  return { total: joint.total, cells };
 }
 
 type Distributions = Partial<Record<'gender' | 'age' | 'prefecture' | 'municipality', ApplicantDistribution>>;

@@ -15,7 +15,7 @@ import type { BillingPeriod } from './billingTypes';
 import { extractSalary, isSalaryLine, sameSalary } from './salaryExtract';
 import { formatYen as formatYenJa } from './format';
 import type { SalaryInfo } from './salaryExtract';
-import { DUMMY_BILLING_ENABLED, dummyBillingEntries, isDummyBilling, withoutRealDays } from './dummyBilling';
+import { DUMMY_BILLING_ENABLED, dummyBillingEntries, isDemoJob, isDummyBilling, withoutRealDays } from './dummyBilling';
 
 const DAY_MS = 86_400_000;
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -77,6 +77,11 @@ export interface BillingEntry {
   mediaApplications?: number | null;
   /** Row number in the billing CSV (header is row 1). */
   sourceRow?: number | null;
+  /**
+   * The amount is made up for the demo (the demo jobs' HRハッカー rows). Shown as
+   * 「デモ用の架空の金額」 wherever it appears, including in print.
+   */
+  fictional?: boolean;
 }
 
 /**
@@ -138,6 +143,7 @@ function realBillingEntries(job: JobCopyRecord, injected?: readonly BillingEntry
   const fromHrh: BillingEntry[] = (job.hrhPerformance?.rows ?? []).map(row => ({
     source: 'hrhacker', start: row.period_start, end: row.period_end, amountYen: row.cost_yen, taxIncluded: null,
     media: 'HRハッカー', mediaJobId: job.mediaJobId, impressions: row.impressions, clicks: row.clicks, mediaApplications: row.applications,
+    ...(isDemoJob(job) ? { fictional: true } : {}),
   }));
   const csv = (injected ?? []).filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end);
   // A billing CSV row for exactly the same HRハッカー period (same start and end) replaces the
@@ -330,6 +336,11 @@ export interface MarketLane {
   points: MarketLanePoint[];
   /** Last month with a market value at all, read from the data (it moves forward every month). */
   lastDataMonth: string | null;
+  /**
+   * Last month with a 市場求人数. The period table compares 求人数 only, so it ends here; when it
+   * is earlier than lastDataMonth the lane says so.
+   */
+  lastJobsMonth: string | null;
   /** First month in the range after the data ends; null when the data covers the whole range. */
   noDataFrom: string | null;
 }
@@ -347,7 +358,8 @@ export function marketLane(rows: readonly MarketRow[], range: TimelineRange): Ma
   // No row with a value at all: there is no "data ends here" point (the caller says there is no
   // market data for this choice instead).
   const noDataFrom = lastDataMonth === null ? null : nextMonth(lastDataMonth) <= last ? nextMonth(lastDataMonth) : null;
-  return { points, lastDataMonth, noDataFrom: noDataFrom && noDataFrom < monthOf(range.start) ? monthOf(range.start) : noDataFrom };
+  const lastJobsMonth = rows.filter(row => row.jobs !== null).map(row => row.month).sort().at(-1) ?? null;
+  return { points, lastDataMonth, lastJobsMonth, noDataFrom: noDataFrom && noDataFrom < monthOf(range.start) ? monthOf(range.start) : noDataFrom };
 }
 
 export interface MarketChange {
@@ -401,7 +413,7 @@ export interface PeriodRow {
    */
   afterCounts: boolean;
   /** Real billing only (HRハッカー実績 and the billing CSV). */
-  billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number; overlapping: boolean };
+  billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number; overlapping: boolean; fictional: boolean };
   /** The dummy billing for the days in the period with no real billing; null when there is none. Never added to billing. */
   dummyBilling: { yen: number; prorated: boolean } | null;
   market: MarketChangeResult;
@@ -424,7 +436,7 @@ function billingFor(entries: readonly BillingEntry[], start: string, endExclusiv
   }
   // Billing periods that overlap each other are not added together (the amount is left blank).
   const overlapping = billingOverlaps(touching);
-  return { connected: true, yen: count === 0 || overlapping || (missingAmount && yen === 0) ? null : Math.round(yen), prorated, missingAmount, entries: count, overlapping };
+  return { connected: true, yen: count === 0 || overlapping || (missingAmount && yen === 0) ? null : Math.round(yen), prorated, missingAmount, entries: count, overlapping, fictional: touching.some(entry => entry.fictional === true) };
 }
 
 function dummyFor(entries: readonly BillingEntry[], start: string, endExclusive: string): PeriodRow['dummyBilling'] {
@@ -483,7 +495,14 @@ export function formatDay(date: string): string {
  * written into the code, because the Indeed data is refreshed every month.
  */
 export function marketDataUntil(month: string): string {
-  return `市場データは${String(Number(month.slice(0, 4)))}年${String(Number(month.slice(5, 7)))}月まで（毎月更新）`;
+  return `市場データは${formatMonthJa(month)}まで（毎月更新）`;
+}
+/**
+ * "2026-08" → "2026年8月". Every sentence about where the market data ends uses this form (the
+ * lane and the period table), so one month is never written two ways on the screen.
+ */
+export function formatMonthJa(month: string): string {
+  return `${String(Number(month.slice(0, 4)))}年${String(Number(month.slice(5, 7)))}月`;
 }
 /** The last month with any market value in the rows; null when there is none. */
 export function lastMarketMonth(rows: readonly MarketRow[]): string | null {

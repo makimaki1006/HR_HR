@@ -93,8 +93,8 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows.nth(0).locator('td').nth(2)).toHaveText('0.06件/日');
     // 07 月分 73,000円 + 08 月分 47,097円 × 19/20 = 117,742円（日数で配分。実際の課金データとは足さない）
     await expect(rows.nth(0).locator('td').nth(3)).toHaveText('仮の課金データ（ダミー） 約11万7,742円');
-    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026/07 220件 → 2026/08 230件）');
-    await expect(rows.nth(1).locator('td')).toHaveText(['1日', '2件', '2.00件/日', '仮の課金データ（ダミー） 約2,355円', '同じ月の中（2026/08 230件）']);
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件）');
+    await expect(rows.nth(1).locator('td')).toHaveText(['1日', '2件', '2.00件/日', '仮の課金データ（ダミー） 約2,355円', '同じ月の中（2026年8月 230件）']);
     // 版の名前は日付で書く（「過去CSVの版」「媒体CSV取得版」は出さない）
     await expect(rows.nth(0).locator('th')).toContainText('2026/07/01時点の求人内容');
     await expect(rows.nth(1).locator('th')).toContainText('2026/08/20時点の求人内容');
@@ -183,10 +183,10 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows).toHaveCount(2);
     // 1 つ目の期間は 07-01〜10-04。07 と 08 の市場データで比べ、09 以降はデータなしと書く。
     await expect(rows.nth(0).locator('td').nth(0)).toHaveText('96日');
-    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026/07 220件 → 2026/08 230件、2026/09以降はデータなし）');
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件、2026年9月以降はデータなし）');
     // 期間がまるごと市場データより後: どの月までデータがあるかを書く（最後の月はデータから読む）
-    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('データなし（市場データは2026/08まで）');
-    await expect(timeline).toContainText('市場データは2026年8月まで（毎月更新）。2026/09以降はデータなしとして表示しています');
+    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('データなし（市場求人数は2026年8月まで）');
+    await expect(timeline).toContainText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています');
     await expect(timeline.getByRole('group', { name: '市場', exact: true }).locator('.jt-nodata')).toHaveText('データなし');
     const market = await seriesLengths(page, 'jt-market');
     expect(market).toEqual([4, 4]);
@@ -204,7 +204,7 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows.nth(0).locator('td').nth(4)).toHaveText('取得できませんでした');
     await expect(rows.nth(1).locator('td').nth(4)).toHaveText('取得できませんでした');
     await timeline.getByRole('button', { name: '市場データを再取得', exact: true }).click();
-    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026/07 220件 → 2026/08 230件）');
+    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件）');
     await expect(timeline.getByLabel('職種')).toHaveValue('配送ドライバー');
     const market = await seriesLengths(page, 'jt-market');
     expect(market).toEqual([2, 2]);

@@ -12,10 +12,10 @@ import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
 import {
   addDays, applicationBuckets, bodyMark, asOfDate, billingEntries, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
-  marketDataUntil, marketLane, periodRows, positionOf, timelineRange, versionChanges, applicationsOutsidePeriods,
+  formatMonthJa, marketDataUntil, marketLane, periodRows, positionOf, timelineRange, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange } from './timelineModel';
-import { DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
+import { DEMO_BILLING_LABEL, DEMO_BILLING_NOTE, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
 import './timeline.css';
 
 interface MarketState {
@@ -138,7 +138,7 @@ function pinned(date: string, range: TimelineRange): CSSProperties {
 }
 
 function noDataNote(month: string | null | undefined): string {
-  return month ? `、${formatMonth(month)}以降はデータなし` : '';
+  return month ? `、${formatMonthJa(month)}以降はデータなし` : '';
 }
 /** The market cell of the period table. While loading or after a failed request it says so (not "pick a market"). */
 function marketText(market: MarketChangeResult, status: MarketState['status'] = 'ready'): string {
@@ -146,11 +146,13 @@ function marketText(market: MarketChangeResult, status: MarketState['status'] = 
   if (status === 'loading') return '取得中…';
   if (market.ok) {
     const sign = market.value.changePct > 0 ? '+' : market.value.changePct < 0 ? '−' : '±';
-    return `${sign}${Math.abs(market.value.changePct).toFixed(1)}%（${formatMonth(market.value.fromMonth)} ${market.value.fromJobs.toLocaleString('ja-JP')}件 → ${formatMonth(market.value.toMonth)} ${market.value.toJobs.toLocaleString('ja-JP')}件${noDataNote(market.value.noDataFrom)}）`;
+    return `${sign}${Math.abs(market.value.changePct).toFixed(1)}%（${formatMonthJa(market.value.fromMonth)} ${market.value.fromJobs.toLocaleString('ja-JP')}件 → ${formatMonthJa(market.value.toMonth)} ${market.value.toJobs.toLocaleString('ja-JP')}件${noDataNote(market.value.noDataFrom)}）`;
   }
   if (market.reason === 'not_selected') return '市場を選ぶと表示';
-  if (market.reason === 'same_month') return `同じ月の中（${formatMonth(market.month ?? '')} ${market.jobs?.toLocaleString('ja-JP') ?? ''}件${noDataNote(market.noDataFrom)}）`;
-  if (market.reason === 'after_data' && market.lastDataMonth) return `データなし（市場データは${formatMonth(market.lastDataMonth)}まで）`;
+  if (market.reason === 'same_month') return `同じ月の中（${formatMonthJa(market.month ?? '')} ${market.jobs?.toLocaleString('ja-JP') ?? ''}件${noDataNote(market.noDataFrom)}）`;
+  // The table compares 市場求人数 only, so it names the last month with a 求人数 (the lane says
+  // when the 閲覧者指標 runs further).
+  if (market.reason === 'after_data' && market.lastDataMonth) return `データなし（市場求人数は${formatMonthJa(market.lastDataMonth)}まで）`;
   return 'データなし';
 }
 /** Text for the screen-reader live region of the market lane. */
@@ -164,7 +166,7 @@ function realBillingText(row: PeriodRow): string | null {
   if (!row.billing.connected) return null;
   if (row.billing.overlapping) return '期間が重なる課金あり（合計していません）';
   if (row.billing.yen === null) return row.billing.missingAmount ? '金額の記載なし' : row.billing.entries === 0 ? null : 'この期間の課金データなし';
-  return `${row.billing.prorated ? '約' : ''}${formatYen(row.billing.yen)}${row.billing.missingAmount ? '（金額の記載がない期間あり）' : ''}`;
+  return `${row.billing.fictional ? `${DEMO_BILLING_LABEL} ` : ''}${row.billing.prorated ? '約' : ''}${formatYen(row.billing.yen)}${row.billing.missingAmount ? '（金額の記載がない期間あり）' : ''}`;
 }
 /**
  * The 課金額 cell. A real amount and the dummy amount are written side by side with the dummy
@@ -279,6 +281,15 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const low = Math.min(...sameKind); const high = Math.max(...sameKind);
   const csvBilling = billing.some(entry => entry.source === 'csv');
   const hasDummyBilling = billing.some(isDummyBilling);
+  const hrhBilling = billing.some(entry => entry.source === 'hrhacker');
+  const fictionalBilling = billing.some(entry => entry.fictional === true);
+  // Name only the sources that have rows on this job: an AirWork job with dummy billing only
+  // must not suggest the made-up amounts come from HRハッカー.
+  const billingSource = [
+    hrhBilling ? fictionalBilling ? `HRハッカーの期間別実績（${DEMO_BILLING_LABEL}）` : 'HRハッカーの期間別実績' : '',
+    csvBilling ? '読み込んだ課金CSV' : '',
+    hasDummyBilling ? DUMMY_BILLING_LABEL : '',
+  ].filter(Boolean).join('・') || '出典なし';
   const outside = applicationsOutsidePeriods(job, rows);
   const marketMeta = market.state.meta;
 
@@ -339,15 +350,16 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         </button>)}
       </Lane>
 
-      <Lane title="課金" source={[csvBilling ? 'HRハッカー実績・読み込んだ課金CSV' : 'HRハッカーの期間別実績', hasDummyBilling ? DUMMY_BILLING_LABEL : ''].filter(Boolean).join('・')}>
+      <Lane title="課金" source={billingSource}>
         {billing.length ? billing.map(entry => {
           const dummy = isDummyBilling(entry);
           return <div key={`${entry.source}-${String(entry.sourceRow ?? '')}-${entry.start}-${entry.end}`} className={`jt-billing jt-billing-${entry.source}`} style={span(range, entry.start, addDays(entry.end, 1))}
-            title={`${dummy ? `${DUMMY_BILLING_LABEL} ` : ''}${formatDay(entry.start)}〜${formatDay(entry.end)}: ${entry.amountYen === null ? '金額の記載なし' : `${entry.amountYen.toLocaleString('ja-JP')}円`}${entry.taxIncluded === true ? '（税込）' : entry.taxIncluded === false ? '（税抜）' : ''}${entry.plan && !dummy ? ` · ${entry.plan}` : ''}`}>
-            <span>{dummy ? 'ダミー ' : ''}{entry.amountYen === null ? '金額なし' : formatYen(entry.amountYen)}</span></div>;
+            title={`${dummy ? `${DUMMY_BILLING_LABEL} ` : entry.fictional ? `${DEMO_BILLING_LABEL} ` : ''}${formatDay(entry.start)}〜${formatDay(entry.end)}: ${entry.amountYen === null ? '金額の記載なし' : `${entry.amountYen.toLocaleString('ja-JP')}円`}${entry.taxIncluded === true ? '（税込）' : entry.taxIncluded === false ? '（税抜）' : ''}${entry.plan && !dummy ? ` · ${entry.plan}` : ''}`}>
+            <span>{dummy ? 'ダミー ' : entry.fictional ? '架空 ' : ''}{entry.amountYen === null ? '金額なし' : formatYen(entry.amountYen)}</span></div>;
         })
           : <p className="jt-empty jt-unconnected">課金データなし（0円という意味ではありません）</p>}
       </Lane>
+      {fictionalBilling && <p className="jt-demo-billing" role="note">{DEMO_BILLING_NOTE}</p>}
       {hasDummyBilling && <p className="jt-dummy-billing" role="note">{DUMMY_BILLING_NOTE}</p>}
       {csvBilling && <p className="jt-volatile" role="note">読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。</p>}
 
@@ -376,7 +388,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         </>}
         {(market.state.status === 'error' || market.state.retrying) && <button type="button" ref={retryButton} className="jc-button" aria-disabled={market.state.status === 'loading'} onClick={market.retry}>市場データを再取得</button>}
         <span className="jc-visually-hidden" role="status">{marketStatusText(market.state)}</span>
-        {lane?.lastDataMonth && <span className="jt-market-until">{marketDataUntil(lane.lastDataMonth)}{lane.noDataFrom ? `。${formatMonth(lane.noDataFrom)}以降はデータなしとして表示しています` : ''}</span>}
+        {lane?.lastDataMonth && <span className="jt-market-until">{marketDataUntil(lane.lastDataMonth)}{lane.lastJobsMonth && lane.lastJobsMonth < lane.lastDataMonth ? `。市場求人数は${formatMonthJa(lane.lastJobsMonth)}まで` : ''}{lane.noDataFrom ? `。${formatMonthJa(lane.noDataFrom)}以降はデータなしとして表示しています` : ''}</span>}
       </div>
     </div>
 
@@ -405,7 +417,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       </table></div>}
       {rows.some(row => row.afterCounts) && <p className="jt-table-note">「応募集計の取得後に始まった期間」は、応募件数を{formatDay(asOf)}に取得した後に始まった期間です。0件という意味ではありません。</p>}
       {rows.some(row => !row.afterCounts && row.applications === null) && <p className="jt-table-note">「未取得」は応募日ごとの件数を取得していないという意味です。0件という意味ではありません。</p>}
-      {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。</p>}
+      {rows.some(row => (row.billing.connected && row.billing.prorated) || row.dummyBilling?.prorated === true) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。</p>}
     </section>
   </section>;
 }

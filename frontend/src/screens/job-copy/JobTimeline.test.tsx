@@ -34,8 +34,9 @@ describe('job timeline lanes', () => {
     await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
     const table = screen.getByRole('table');
     const rows = within(table).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
-    expect(rows[0]?.slice(0, 4)).toEqual(['14日', '7件', '0.50件/日', '3万円']);
-    expect(rows[1]?.slice(0, 4)).toEqual(['10日', '8件', '0.80件/日', '約2万8,125円']);
+    // The demo's HRハッカー amounts are made up, and say so in the table (the banner is not printed).
+    expect(rows[0]?.slice(0, 4)).toEqual(['14日', '7件', '0.50件/日', 'デモ用の架空の金額 3万円']);
+    expect(rows[1]?.slice(0, 4)).toEqual(['10日', '8件', '0.80件/日', 'デモ用の架空の金額 約2万8,125円']);
     expect(rows[2]?.slice(0, 3)).toEqual(['11日', '3件', '0.27件/日']);
     const text = document.body.textContent;
     for (const word of forbidden) expect(text).not.toContain(word);
@@ -71,14 +72,14 @@ describe('job timeline lanes', () => {
     const jobsSeries = series.find(item => item.name === '市場求人数');
     expect(jobsSeries?.data.map(point => point[1])).toEqual([110, null, null]);
     expect(series.find(item => item.name === 'Indeed閲覧者指標')?.data.map(point => point[1])).toEqual([320, null, null]);
-    expect(screen.getByText('市場データは2026年8月まで（毎月更新）。2026/09以降はデータなしとして表示しています')).toBeTruthy();
+    expect(screen.getByText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています')).toBeTruthy();
     expect(screen.getByLabelText<HTMLSelectElement>('職種').value).toBe('ドライバー');
     expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('大分県');
     // The first period is all in 2026-09, after the data ends: say up to which month there is data.
-    expect(within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし（市場データは2026/08まで）');
+    expect(within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし（市場求人数は2026年8月まで）');
   });
 
-  it('keeps the months with data when a period runs past 2026-08 and shows months as YYYY/MM', async () => {
+  it('keeps the months with data when a period runs past 2026-08 and writes months as 2026年7月', async () => {
     const months = ['2026-06', '2026-07', '2026-08'];
     api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: { source: '合成', titles: ['ドライバー'], prefectures: ['大分県'], ctk_basis: '応募数ではありません',
       series: path.includes('title=') ? { prefecture: '大分県', months, job_count: [90, 100, 110], ctk_count: [300, 310, 320], employer_count: [1, 1, 1], seekers_per_posting: [3, 3, 3] } : null } }));
@@ -89,7 +90,7 @@ describe('job timeline lanes', () => {
     render(<JobTimeline job={job} />);
     await waitFor(() => { expect(lastChart('jt-market')).toBeDefined(); });
     const cells = within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td');
-    expect(cells?.[4]?.textContent).toBe('+10.0%（2026/07 100件 → 2026/08 110件、2026/09以降はデータなし）');
+    expect(cells?.[4]?.textContent).toBe('+10.0%（2026年7月 100件 → 2026年8月 110件、2026年9月以降はデータなし）');
     expect(document.body.textContent).not.toMatch(/\d{4}-\d{2}(?!-)/);
     expect(document.body.textContent).not.toContain('年09月');
   });

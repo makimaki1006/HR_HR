@@ -27,10 +27,10 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象2件');
   await expect(reasons.locator('details[open]')).toHaveCount(0);
   await expect(reasons.locator('blockquote').first()).toBeHidden();
-  await reasons.getByText('内部閲覧用の原記録を開く', { exact: true }).nth(1).click();
+  await reasons.getByText('記録された文を開く（社内確認用）', { exact: true }).nth(1).click();
   await expect(reasons.locator('blockquote').nth(1)).toHaveText('<img src=x onerror="alert(1)">');
   await expect(reasons.locator('img')).toHaveCount(0);
-  await expect(reasons).toContainText('匿名化された内容ではありません');
+  await expect(reasons).toContainText('それ以外の個人情報が残っていることがあります');
   await reasons.getByLabel('理由の出典', { exact: true }).selectOption('ouboriyuu_hiaringu');
   await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象0件');
   await reasons.getByLabel('理由の出典', { exact: true }).selectOption('all');
@@ -38,7 +38,7 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await selectJobFeature(page, 'report');
   const report = page.getByRole('region', { name: '顧客報告と検証記録', exact: true });
-  await report.getByText('内部閲覧用の原記録を開く', { exact: true }).first().click();
+  await report.getByText('記録された文を開く（社内確認用）', { exact: true }).first().click();
   await page.emulateMedia({ media: 'print' });
   for (const original of await page.locator('.ar-reasons').all()) await expect(original).toBeHidden();
   await expect(page.getByRole('region', { name: '顧客報告と検証記録', exact: true })).toBeVisible();

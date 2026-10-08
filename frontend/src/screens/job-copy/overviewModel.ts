@@ -48,6 +48,8 @@ export interface OverviewRow {
   billingMissingAmount: boolean;
   /** Two billing periods share days; the total is left blank instead of adding them up. */
   billingOverlapping: boolean;
+  /** The real billing rows are the demo's made-up HRハッカー amounts. */
+  billingFictional: boolean;
   /**
    * Total of the dummy billing (仮の課金データ) for the days with no real billing; null when none.
    * Shown separately and labelled, never added to billingYen.
@@ -91,7 +93,7 @@ export function overviewRow(job: JobCopyRecord, options: { billing?: readonly Bi
     lastChange: latest?.date ?? null, kinds: latest ? changeKinds(latest) : [], changeDates: later.map(change => change.date), firstDate: changes.find(change => change.date !== '')?.date ?? null,
     before, after, weeks: applicationBuckets(job.overallApplications?.byDate, 'week'),
     billingYen: known.length && !billingOverlaps(billing) ? known.reduce((sum, entry) => sum + (entry.amountYen ?? 0), 0) : null,
-    billingConnected: billing.length > 0, billingMissingAmount: billing.length > known.length, billingOverlapping: billingOverlaps(billing),
+    billingConnected: billing.length > 0, billingMissingAmount: billing.length > known.length, billingOverlapping: billingOverlaps(billing), billingFictional: billing.some(entry => entry.fictional === true),
     dummyBillingYen: dummy.length ? dummy.reduce((sum, entry) => sum + (entry.amountYen ?? 0), 0) : null,
     applicationsAvailable, asOf,
   };

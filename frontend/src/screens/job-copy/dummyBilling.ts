@@ -94,6 +94,16 @@ export function withoutRealDays(dummy: readonly BillingEntry[], real: readonly B
   return result;
 }
 
+/**
+ * The demo jobs (操作デモ) carry HRハッカー rows with made-up amounts. They are labelled as made up
+ * wherever they are shown, because the demo banner is not printed.
+ */
+export const DEMO_BILLING_LABEL = 'デモ用の架空の金額';
+export const DEMO_BILLING_NOTE = 'この求人はデモ用の架空の求人です。HRハッカーの期間別実績の課金額も架空で、実際の請求額ではありません。';
+export function isDemoJob(job: { id: string }): boolean {
+  return job.id.startsWith('demo-job-');
+}
+
 export function isDummyBilling(entry: Pick<BillingEntry, 'source'>): boolean {
   return entry.source === 'dummy';
 }
