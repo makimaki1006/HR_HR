@@ -1,5 +1,5 @@
 import type { CopyVersion, JobCopyRecord } from './data';
-import { applicationsOutsidePeriods, asOfDate, periodRows } from './timelineModel';
+import { applicationsOutsideVersions, asOfDate, periodRows } from './timelineModel';
 
 /**
  * 応募件数の分母を 1 つにそろえる。本文・画像、応募者構成、2求人の比較はすべてここを使う。
@@ -18,16 +18,14 @@ export function unmatchedApplicationCount(job: JobCopyRecord): number | null {
 }
 
 /**
- * タイムラインの期間比較表のどの期間にも入らない応募（応募日が無い + 掲載期間の外の日付）。
+ * タイムラインの期間比較表で、どの版の行にも入らない応募（応募日が無い、最初の取得より前の日付、
+ * 取得日の間・最後の取得より後の日付、複数の求人に関連する応募）。
  * 期間比較表と同じ「応募日 → 期間」の割り当てで数えるので、上の帯の件数と表が食い違わない。
  * 応募が未取得なら null。
  */
 export function applicationsOutsideTimeline(job: JobCopyRecord, now?: Date): number | null {
-  const overall = job.overallApplications;
-  if (!overall) return null;
-  if (!overall.byDate) return overall.total;
-  const rows = periodRows(job, { asOf: asOfDate(job, now) });
-  return overall.missingDate + applicationsOutsidePeriods(job, rows);
+  if (!job.overallApplications) return null;
+  return applicationsOutsideVersions(job, periodRows(job, { asOf: asOfDate(job, now), dummyBilling: false }));
 }
 
 /** 求人全体の応募件数。分からなければ null。 */

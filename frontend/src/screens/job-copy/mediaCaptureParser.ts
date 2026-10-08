@@ -143,6 +143,8 @@ export function parseMediaCapture(input: string): JobCopyRecord[] {
     return {
       id, title: text(job.title, 500), company: text(job.company, 500, true), media: text(job.media, 100),
       mediaJobId: text(job.mediaJobId, 200), location: text(job.location, 500, true),
+      // HRハッカーの店舗ID。課金CSVは 媒体 + 店舗ID + 媒体求人ID がそろったときだけ結びつける。
+      ...(job.shopId === undefined || job.shopId === null ? {} : { accountId: text(job.shopId, 200) }),
       versions: [...history, observedVersion(job, currentId, capturedAt, false)],
     };
   });

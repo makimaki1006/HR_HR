@@ -11,11 +11,12 @@ import { salaryLabel } from './salaryExtract';
 import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
 import {
-  addDays, applicationBuckets, bodyMark, asOfDate, billingEntries, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
-  formatMonthJa, marketDataUntil, marketLane, periodRows, positionOf, timelineRange, versionChanges, applicationsOutsidePeriods,
+  addDays, applicationBuckets, bodyMark, asOfDate, billingConflict, billingEntries, boundaryStatus, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
+  formatMonthJa, marketDataUntil, marketLane, periodRows, positionOf, timelineRange, uncertainSpans, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
-import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange } from './timelineModel';
-import { DEMO_BILLING_LABEL, DEMO_BILLING_NOTE, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
+import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
+import { IMAGE_CHANGE_MARK } from './images';
+import { DEMO_BILLING_LABEL, DEMO_BILLING_NOTE, DUMMY_BILLING_ENABLED, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
 import './timeline.css';
 
 interface MarketState {
@@ -109,7 +110,6 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
   return { state, choose, retry };
 }
 
-const certaintyLabel = { confirmed: '確定', estimated: '推定', unknown: '不明' } as const;
 const salaryMark = { up: '▲', down: '▼', other: '変更' } as const;
 const salaryWord = { up: '前の版より上がった', down: '前の版より下がった', other: '前の版から変わった' } as const;
 const granularityLabel: Record<Granularity, string> = { day: '日', week: '週', month: '月' };
@@ -164,19 +164,30 @@ function marketStatusText(state: MarketState): string {
 }
 function realBillingText(row: PeriodRow): string | null {
   if (!row.billing.connected) return null;
+  if (row.billing.conflict) return 'HRハッカーの実績と課金CSVが重なっています（どちらも合計していません）';
   if (row.billing.overlapping) return '期間が重なる課金あり（合計していません）';
   if (row.billing.yen === null) return row.billing.missingAmount ? '金額の記載なし' : row.billing.entries === 0 ? null : 'この期間の課金データなし';
   return `${row.billing.fictional ? `${DEMO_BILLING_LABEL} ` : ''}${row.billing.prorated ? '約' : ''}${formatYen(row.billing.yen)}${row.billing.missingAmount ? '（金額の記載がない期間あり）' : ''}`;
 }
 /**
- * The 課金額 cell. A real amount and the dummy amount are written side by side with the dummy
- * labelled, never added into one number.
+ * The 課金額 cell: real billing only. The dummy billing is shown in the 課金 lane but never added
+ * up here, so a period with only the dummy billing says there is no real billing data.
  */
 export function billingText(row: PeriodRow): string {
   const real = realBillingText(row);
-  const dummy = row.dummyBilling ? `${DUMMY_BILLING_LABEL} ${row.dummyBilling.prorated ? '約' : ''}${formatYen(row.dummyBilling.yen)}` : null;
-  if (real && dummy) return `${real} ／ ${dummy}`;
-  return real ?? dummy ?? (row.billing.connected ? 'この期間の課金データなし' : '課金データなし');
+  if (real) return row.dummyBilling ? `${real}（${DUMMY_BILLING_LABEL}は合計に入れていません）` : real;
+  if (row.dummyBilling) return `実際の課金データなし（${DUMMY_BILLING_LABEL}は合計しません）`;
+  return row.billing.connected ? 'この期間の課金データなし（0円という意味ではありません）' : '課金データなし（0円という意味ではありません）';
+}
+
+/** The 選んだ版 panel's date: the acquisition day, and between which acquisitions it changed. */
+export function selectionDateText(change: VersionChange, captured: boolean): string {
+  if (!captured) return `${formatDay(change.date)} から（媒体の掲載日時）`;
+  if (change.index === 0 || change.previousDate === null) return `${formatDay(change.date)} に取得（最初の取得）`;
+  const status = boundaryStatus(change);
+  if (status === 'changed') return `${formatDay(change.date)} に取得（前回の取得 ${formatDay(change.previousDate)} 以降に変化）`;
+  if (status === 'same') return `${formatDay(change.date)} に取得（前回の取得 ${formatDay(change.previousDate)} から変化は見つかっていません）`;
+  return `${formatDay(change.date)} に取得（前回の取得 ${formatDay(change.previousDate)} と比べられない項目があります）`;
 }
 
 function axisMonths(range: TimelineRange) {
@@ -203,22 +214,25 @@ export interface JobTimelineProps {
   onOpenVersion?: (versionId: string) => void;
   onCompareVersions?: (beforeId: string, afterId: string) => void;
   now?: Date | undefined;
+  /** Show the dummy billing (仮の課金データ) in the 課金 lane. Default DUMMY_BILLING_ENABLED. */
+  showDummyBilling?: boolean | undefined;
 }
 
 export function JobTimeline(props: JobTimelineProps) {
   return <JobTimelineForJob key={props.job.id} {...props} />;
 }
 
-function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenVersion, onCompareVersions, now }: JobTimelineProps) {
+function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenVersion, onCompareVersions, now, showDummyBilling = DUMMY_BILLING_ENABLED }: JobTimelineProps) {
   const asOf = asOfDate(job, now);
-  const billing = useMemo(() => billingEntries(job, injected, { asOf }), [job, injected, asOf]);
+  const billing = useMemo(() => billingEntries(job, injected, { asOf, dummy: showDummyBilling }), [job, injected, asOf, showDummyBilling]);
   const periods = useMemo(() => buildPeriods(job, asOf), [job, asOf]);
+  const spans = useMemo(() => uncertainSpans(job, asOf, periods), [job, asOf, periods]);
   const changes = useMemo(() => versionChanges(job), [job]);
   const range = useMemo(() => timelineRange(job, asOf, billing), [job, asOf, billing]);
   const retryButton = useRef<HTMLButtonElement>(null);
   const titleSelect = useRef<HTMLSelectElement>(null);
   const market = useTimelineMarket(job, marketMode, { retryButton, titleSelect });
-  const rows = useMemo(() => periodRows(job, { asOf, billing: injected, market: market.state.rows }), [job, asOf, injected, market.state.rows]);
+  const rows = useMemo(() => periodRows(job, { asOf, billing: injected, market: market.state.rows, dummyBilling: showDummyBilling }), [job, asOf, injected, market.state.rows, showDummyBilling]);
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [selected, setSelected] = useState<string | null>(null);
   // After a mark or period is chosen, bring the 選んだ版 panel into view (it can sit below the fold).
@@ -291,6 +305,10 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
     hasDummyBilling ? DUMMY_BILLING_LABEL : '',
   ].filter(Boolean).join('・') || '出典なし';
   const outside = applicationsOutsidePeriods(job, rows);
+  const conflict = billingConflict(billing);
+  const multi = applications?.multiListing;
+  const multiTotal = multi ? Object.values(multi.byDate).reduce((sum, count) => sum + count, 0) + multi.missingDate : 0;
+  const unsure = rows.filter(row => row.kind === 'between' || row.kind === 'unacquired').reduce((sum, row) => sum + (row.applications ?? 0), 0);
   const marketMeta = market.state.meta;
 
   return <section className="jt-timeline" aria-label="タイムライン">
@@ -299,18 +317,22 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <div className="jt-scope">応募は HubSpot に記録されたものだけです。<InfoTip label="並べて見るための表示です">
         <p>同じ時期に起きたことを並べて表示しています。応募が増えた・減った理由を示すものではありません。</p>
         <p>応募件数は HubSpot に記録された応募日で数えています。媒体上のすべての応募ではなく、どの版を見て応募したかは分かりません。</p>
-        <p>期間比較表は版が切り替わった日で期間を区切っています。期間の長さが違うので「1日あたり」で並べて確認してください。</p>
+        <p>掲載が変わった日は分かりません。期間比較表は求人データを取得した日で区切り、前後の取得で内容が違うときは「取得日A〜取得日Bの間に変化」として、その間の応募を前後どちらの期間にも入れていません。最後に取得した日より後は「未取得」です。</p>
+        <p>期間の長さが違うので「1日あたり」で並べて確認してください。</p>
       </InfoTip></div>
     </header>
 
     <div className="jt-lanes">
       <div className="jt-axis" aria-hidden="true"><div className="jt-lane-head" /><div className="jt-track">{ticks.map(tick => <span key={tick.date} style={{ left: `${positionOf(tick.date, range).toFixed(3)}%` }}>{tick.label}</span>)}</div></div>
 
-      <Lane title="掲載期間" source={captured ? '求人データを取得した日から推定' : '媒体の掲載日時'}>
-        {periods.map(period => <button type="button" key={period.versionId} className={`jt-period jt-cert-${period.certainty}`} aria-pressed={selected === period.versionId}
+      <Lane title="掲載期間" source={captured ? '求人データを取得した日（掲載日は不明）' : '媒体の掲載日時'}>
+        {periods.map(period => <button type="button" key={period.versionId} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
           style={span(range, period.start, period.end ?? addDays(asOf, 1))} onClick={() => { setSelected(period.versionId); }}
-          title={`${period.label}: ${formatDay(period.start)}〜${period.end ? formatDay(addDays(period.end, -1)) : '継続中'}（${certaintyLabel[period.certainty]}）`}>
+          title={period.basis === 'captured' ? `${period.label}: ${formatDay(period.start)}に取得${period.days > 1 && period.end ? `（${formatDay(addDays(period.end, -1))}まで同じ内容）` : ''}` : `${period.label}: ${formatDay(period.start)}〜${period.end ? formatDay(addDays(period.end, -1)) : '継続中'}（媒体の掲載日時）`}>
           <span>{period.label}</span></button>)}
+        {spans.map(item => <div key={`${item.kind}-${item.fromVersionId}`} className={item.kind === 'between' ? 'jt-zone' : 'jt-unacquired'} style={span(range, item.start, item.end)}
+          title={item.kind === 'between' ? `取得日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の取得（${formatDay(item.from)}）より後は未取得です`}>
+          <span>{item.kind === 'between' ? '取得日の間' : '未取得'}</span></div>)}
         {!periods.length && <p className="jt-empty">掲載期間は未取得です</p>}
       </Lane>
 
@@ -342,11 +364,11 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         </button>)}
       </Lane>
 
-      <Lane title="画像" source="前の版との画像の比較">
+      <Lane title="画像" source="前の版との画像の比較（差し替え・並び順・中身）">
         {changes.map(change => <button type="button" key={change.versionId} className={`jt-mark jt-image-${change.imageChange}`} aria-pressed={selected === change.versionId}
           style={pinned(change.date, range)} onClick={() => { setSelected(change.versionId); }}
-          aria-label={`${change.label}の画像：${change.imageChange === 'initial' ? '最初の版' : change.imageChange === 'changed' ? '変更あり' : change.imageChange === 'same' ? '同じ' : '比べられない'}`}>
-          {change.imageChange === 'initial' ? '最初' : change.imageChange === 'changed' ? '変更' : change.imageChange === 'same' ? '同じ' : '不明'}
+          aria-label={`${change.label}の画像：${IMAGE_CHANGE_MARK[change.imageChange].spoken}`}>
+          {IMAGE_CHANGE_MARK[change.imageChange].text}
         </button>)}
       </Lane>
 
@@ -360,7 +382,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : <p className="jt-empty jt-unconnected">課金データなし（0円という意味ではありません）</p>}
       </Lane>
       {fictionalBilling && <p className="jt-demo-billing" role="note">{DEMO_BILLING_NOTE}</p>}
-      {hasDummyBilling && <p className="jt-dummy-billing" role="note">{DUMMY_BILLING_NOTE}</p>}
+      {hasDummyBilling && <p className="jt-dummy-billing" role="note">{DUMMY_BILLING_NOTE}課金レーンにだけ表示し、期間比較表の課金額には入れていません。</p>}
+      {conflict && <p className="jt-billing-conflict" role="note">HRハッカーの期間別実績と読み込んだ課金CSVに、同じ日を含む課金があります。どちらの金額が正しいか決められないため、重なる期間は期間比較表で合計していません。</p>}
       {csvBilling && <p className="jt-volatile" role="note">読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。</p>}
 
       <Lane title="応募" source="応募日ごとの件数" className="jt-lane-chart">
@@ -369,7 +392,10 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <div className="jt-lane-tools">
         <div className="jt-granularity" role="group" aria-label="応募の集計単位">{(['day', 'week', 'month'] as const).map(value => <button type="button" key={value} aria-pressed={granularity === value} onClick={() => { setGranularity(value); }}>{granularityLabel[value]}ごと</button>)}</div>
         {applications && applications.missingDate > 0 && <span>応募日が分からない応募 {applications.missingDate}件 はグラフに含めていません</span>}
-        {outside > 0 && <span>掲載期間の外の日付の応募 {outside}件</span>}
+        {outside > 0 && <span>最初の取得より前の日付の応募 {outside}件</span>}
+        {unsure > 0 && <span>取得日の間・最後の取得より後の応募 {unsure}件 は、どちらの内容への応募か分からないため期間比較表の各版には入れていません</span>}
+        {multi ? multiTotal > 0 && <span>複数の求人に関連する応募 {multiTotal}件 は期間比較表に入れていません</span>
+          : applications?.byDate && <span>複数の求人に関連する応募を見分ける情報を取得していないため、期間比較表の件数に含まれている場合があります</span>}
       </div>
 
       <Lane title="市場" source="Indeed（都道府県・職種の月ごと）" className="jt-lane-chart">
@@ -393,31 +419,34 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
     </div>
 
     {selectedChange && <div className="jt-selection" ref={selectionPanel} role="region" aria-label="選んだ版">
-      <strong>{selectedChange.label}</strong><span>{formatDay(selectedChange.date)} から · 給与 {salaryLabel(selectedChange.salary)}</span>
+      <strong>{selectedChange.label}</strong><span>{selectionDateText(selectedChange, periods[selectedChange.index]?.basis === 'captured')} · 給与 {salaryLabel(selectedChange.salary)}</span>
       {onOpenVersion && <button type="button" className="jc-button" onClick={() => { onOpenVersion(selectedChange.versionId); }}>本文・画像を開く</button>}
       {onCompareVersions && previous && <button type="button" className="jc-button" onClick={() => { onCompareVersions(previous.versionId, selectedChange.versionId); }}>前の版との差分を開く</button>}
       {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange === 'same' && <span>前の版から本文・画像の変更はありません</span>}
+      {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange !== 'same' && <span>本文は前の版と同じです。画像：{IMAGE_CHANGE_MARK[selectedChange.imageChange].spoken}</span>}
     </div>}
-    <div className="jt-legend" role="group" aria-label="凡例"><span className="jt-legend-title">掲載日の確かさ：</span><span><i className="jt-key jt-cert-confirmed" />確定</span><span><i className="jt-key jt-cert-estimated" />推定</span><span><i className="jt-key jt-cert-unknown" />不明</span>
-      {captured && <span>掲載期間の日付は、求人データを取得した日です。掲載を変更した日とは限りません。</span>}</div>
+    <div className="jt-legend" role="group" aria-label="凡例">{captured
+      ? <><span className="jt-legend-title">掲載日は不明（取得日で表示）：</span><span><i className="jt-key jt-basis-captured" />取得した日の内容</span><span><i className="jt-key jt-key-zone" />取得日の間（どちらの内容か分からない）</span><span><i className="jt-key jt-key-unacquired" />最後の取得より後（未取得）</span></>
+      : <><span className="jt-legend-title">掲載日：</span><span><i className="jt-key jt-cert-confirmed" />媒体の掲載日時</span></>}</div>
 
     <section className="jt-periods" aria-label="期間比較表">
       <h3>期間比較表</h3>
       {rows.length === 0 ? <p className="jc-notice">掲載期間が取得できていないため、期間ごとの比較はできません。</p>
         : <div className="jt-table-scroll" role="region" aria-label="期間比較表の数値" tabIndex={0}><table>
         <thead><tr><th scope="col">期間</th><th scope="col">日数</th><th scope="col">応募件数</th><th scope="col">1日あたり</th><th scope="col">課金額</th><th scope="col">市場求人数の同時期変化</th></tr></thead>
-        <tbody>{rows.map(row => <tr key={row.key} className={row.kind === 'gap' ? 'jt-gap-row' : selected === row.versionId ? 'jt-row-selected' : undefined} aria-current={row.kind !== 'gap' && selected === row.versionId ? 'true' : undefined}>
-          <th scope="row">{row.versionId ? <button type="button" className="jc-text-button" aria-pressed={selected === row.versionId} onClick={() => { setSelected(row.versionId); }}>{row.label}</button> : row.label}{row.kind !== 'gap' && selected === row.versionId && <span className="jt-selected-tag">選択中</span>}<small>{formatDay(row.start)}〜{row.ongoing ? `継続中（${formatDay(row.lastDay)}まで）` : formatDay(row.lastDay)}</small></th>
+        <tbody>{rows.map(row => <tr key={row.key} className={row.kind !== 'period' ? `jt-gap-row jt-row-${row.kind}` : selected === row.versionId ? 'jt-row-selected' : undefined} aria-current={row.kind === 'period' && selected === row.versionId ? 'true' : undefined}>
+          <th scope="row">{row.versionId ? <button type="button" className="jc-text-button" aria-pressed={selected === row.versionId} onClick={() => { setSelected(row.versionId); }}>{row.label}</button> : row.label}{row.kind === 'period' && selected === row.versionId && <span className="jt-selected-tag">選択中</span>}<small>{row.detail}</small></th>
           <td>{row.afterCounts && row.days === 0 ? '—' : `${String(row.days)}日`}</td>
           <td>{row.afterCounts ? '応募集計の取得後に始まった期間' : row.applications === null ? '未取得' : `${String(row.applications)}件`}</td>
-          <td>{row.afterCounts ? '—' : row.applications === null ? '未取得' : formatPerDay(row.perDay)}</td>
+          <td>{row.afterCounts ? '—' : row.applications === null ? '未取得' : row.kind === 'between' || row.kind === 'unacquired' ? '比べません' : formatPerDay(row.perDay)}</td>
           <td>{billingText(row)}</td>
           <td>{marketText(row.market, market.state.status)}</td>
         </tr>)}</tbody>
       </table></div>}
       {rows.some(row => row.afterCounts) && <p className="jt-table-note">「応募集計の取得後に始まった期間」は、応募件数を{formatDay(asOf)}に取得した後に始まった期間です。0件という意味ではありません。</p>}
       {rows.some(row => !row.afterCounts && row.applications === null) && <p className="jt-table-note">「未取得」は応募日ごとの件数を取得していないという意味です。0件という意味ではありません。</p>}
-      {rows.some(row => (row.billing.connected && row.billing.prorated) || row.dummyBilling?.prorated === true) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。</p>}
+      {rows.some(row => row.kind === 'between' || row.kind === 'unacquired') && <p className="jt-table-note">「取得日の間」と「最後の取得より後」の行の応募は、どちらの内容を見た応募か分からないため、前後の期間に入れず別に数えています。1日あたりは比べません。</p>}
+      {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。</p>}
     </section>
   </section>;
 }

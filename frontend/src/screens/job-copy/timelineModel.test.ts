@@ -4,7 +4,7 @@ import type { CopyVersion, JobCopyRecord } from './data';
 import type { MarketRow } from './marketChartModel';
 import type { BillingPeriod } from './billingTypes';
 import {
-  addDays, applicationBuckets, applicationsOutsidePeriods, billingEntries, billingEntriesByJob, billingOverlaps, buildPeriods, changeKinds, countApplications, daysBetween,
+  addDays, applicationBuckets, applicationsOutsidePeriods, billingConflict, billingEntries, billingEntriesByJob, billingOverlaps, buildPeriods, changeKinds, countApplications, daysBetween,
   formatMonth, formatPerDay, formatYen, jstDate, lastMarketMonth, marketChange, marketDataUntil, marketLane, nextMonth, periodRows, positionOf, publishedVersions, timelineRange, versionChanges,
 } from './timelineModel';
 
@@ -68,9 +68,9 @@ describe('billing in the period table', () => {
       { source: 'csv', start: '2026-09-15', end: '2026-09-30', amountYen: 45000 },
       { source: 'csv', start: '2026-10-01', end: '2026-10-05', amountYen: null },
     ] });
-    expect(rows[0]?.billing).toEqual({ connected: true, yen: 30000, prorated: false, missingAmount: false, entries: 1, overlapping: false, fictional: false });
-    expect(rows[1]?.billing).toEqual({ connected: true, yen: 28125, prorated: true, missingAmount: false, entries: 1, overlapping: false, fictional: false });
-    expect(rows[2]?.billing).toEqual({ connected: true, yen: 16875, prorated: true, missingAmount: true, entries: 2, overlapping: false, fictional: false });
+    expect(rows[0]?.billing).toEqual({ connected: true, yen: 30000, prorated: false, missingAmount: false, entries: 1, overlapping: false, conflict: false, fictional: false });
+    expect(rows[1]?.billing).toEqual({ connected: true, yen: 28125, prorated: true, missingAmount: false, entries: 1, overlapping: false, conflict: false, fictional: false });
+    expect(rows[2]?.billing).toEqual({ connected: true, yen: 16875, prorated: true, missingAmount: true, entries: 2, overlapping: false, conflict: false, fictional: false });
   });
   it('does not add up billing periods that overlap each other', () => {
     const rows = periodRows(driver, { asOf: '2026-10-05', billing: [
@@ -81,21 +81,26 @@ describe('billing in the period table', () => {
     expect(billingOverlaps([{ source: 'csv', start: '2026-09-01', end: '2026-09-14', amountYen: 1 }, { source: 'csv', start: '2026-09-15', end: '2026-09-30', amountYen: 1 }])).toBe(false);
     expect(billingOverlaps([{ source: 'csv', start: '2026-09-01', end: '2026-09-14', amountYen: 1 }, { source: 'csv', start: '2026-09-14', end: '2026-09-30', amountYen: 1 }])).toBe(true);
   });
-  it('turns billing CSV periods into timeline rows per job and replaces the HRハッカー row for the same days', () => {
+  it('turns billing CSV periods into timeline rows per job and keeps the HRハッカー row for the same days as a conflict', () => {
     const periods: BillingPeriod[] = [
-      { jobId: 'demo-job-001', media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', periodStart: '2026-09-01', periodEnd: '2026-09-14', amountYen: 33000, taxBasis: '税込', planName: 'スタンダード', impressions: null, clicks: null, mediaApplications: null, source: 'csv', sourceRow: 2, overlapsSourceRows: [] },
-      { jobId: 'demo-job-002', media: 'Airワーク', mediaJobId: 'DEMO-AIR-002', periodStart: '2026-09-05', periodEnd: '2026-09-30', amountYen: null, taxBasis: '不明', planName: null, impressions: null, clicks: null, mediaApplications: null, source: 'csv', sourceRow: 3, overlapsSourceRows: [] },
-      { jobId: 'demo-job-001', media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', periodStart: '2026-09-15', periodEnd: '2026-09-30', amountYen: 1, taxBasis: '不明', planName: null, impressions: null, clicks: null, mediaApplications: null, source: 'hrh_performance', sourceRow: null, overlapsSourceRows: [] },
+      { jobId: 'demo-job-001', media: 'HRハッカー', accountId: 'DEMO-SHOP-01', mediaJobId: 'DEMO-HRH-001', periodStart: '2026-09-01', periodEnd: '2026-09-14', amountYen: 33000, taxBasis: '税込', planName: 'スタンダード', impressions: null, clicks: null, mediaApplications: null, source: 'csv', sourceRow: 2, overlapsSourceRows: [] },
+      { jobId: 'demo-job-002', media: 'Airワーク', accountId: 'DEMO-ACCOUNT-01', mediaJobId: 'DEMO-AIR-002', periodStart: '2026-09-05', periodEnd: '2026-09-30', amountYen: null, taxBasis: '不明', planName: null, impressions: null, clicks: null, mediaApplications: null, source: 'csv', sourceRow: 3, overlapsSourceRows: [] },
+      { jobId: 'demo-job-001', media: 'HRハッカー', accountId: 'DEMO-SHOP-01', mediaJobId: 'DEMO-HRH-001', periodStart: '2026-09-15', periodEnd: '2026-09-30', amountYen: 1, taxBasis: '不明', planName: null, impressions: null, clicks: null, mediaApplications: null, source: 'hrh_performance', sourceRow: null, overlapsSourceRows: [] },
     ];
     const byJob = billingEntriesByJob(periods);
     expect(Object.keys(byJob).sort()).toEqual(['demo-job-001', 'demo-job-002']);
     expect(byJob['demo-job-001']).toEqual([{ source: 'csv', start: '2026-09-01', end: '2026-09-14', amountYen: 33000, taxIncluded: true, media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', plan: 'スタンダード', impressions: null, clicks: null, mediaApplications: null, sourceRow: 2 }]);
     expect(byJob['demo-job-002']?.[0]).toMatchObject({ amountYen: null, taxIncluded: null });
-    // demo-001 has HRハッカー実績 30000 / 45000 / 12000. The CSV row for 09-01〜09-14 replaces the first one.
-    const merged = billingEntries(demo, byJob['demo-job-001']);
+    // demo-001 has HRハッカー実績 30000 / 45000 / 12000. The CSV row for 09-01〜09-14 does not replace
+    // the first one: which amount is right is not known, so both stay and the days are a conflict.
+    const merged = billingEntries(demo, byJob['demo-job-001'], { dummy: false });
     expect(merged.map(entry => [entry.source, entry.start, entry.amountYen])).toEqual([
-      ['csv', '2026-09-01', 33000], ['hrhacker', '2026-09-15', 45000], ['hrhacker', '2026-10-01', 12000],
+      ['csv', '2026-09-01', 33000], ['hrhacker', '2026-09-01', 30000], ['hrhacker', '2026-09-15', 45000], ['hrhacker', '2026-10-01', 12000],
     ]);
+    expect(billingConflict(merged)).toBe(true);
+    const rows = periodRows(demo, { asOf: '2026-10-05', billing: byJob['demo-job-001'], dummyBilling: false });
+    expect(rows[0]?.billing).toMatchObject({ connected: true, yen: null, conflict: true });
+    expect(rows[2]?.billing).toMatchObject({ connected: true, conflict: false });
   });
   it('reads HRハッカー cost_yen from the snapshot', () => {
     const rows = periodRows(demo, { asOf: '2026-10-05' });
@@ -175,14 +180,14 @@ describe('applications that were never fetched', () => {
 
 describe('billing CSV rows that only partly cover an HRハッカー period', () => {
   it('keeps the HRハッカー period (30000円) and marks the overlap instead of dropping it', () => {
-    const merged = billingEntries(demo, [{ source: 'csv', start: '2026-09-01', end: '2026-09-02', amountYen: 1000, media: 'HRハッカー' }]);
+    const merged = billingEntries(demo, [{ source: 'csv', start: '2026-09-01', end: '2026-09-02', amountYen: 1000, media: 'HRハッカー' }], { dummy: false });
     expect(merged.map(entry => [entry.source, entry.start, entry.end, entry.amountYen])).toEqual([
       ['csv', '2026-09-01', '2026-09-02', 1000], ['hrhacker', '2026-09-01', '2026-09-14', 30000], ['hrhacker', '2026-09-15', '2026-09-30', 45000], ['hrhacker', '2026-10-01', '2026-10-05', 12000],
     ]);
     const rows = periodRows(demo, { asOf: '2026-10-05', billing: [{ source: 'csv', start: '2026-09-01', end: '2026-09-02', amountYen: 1000, media: 'HRハッカー' }] });
-    expect(rows[0]?.billing).toMatchObject({ connected: true, yen: null, overlapping: true, entries: 2 });
-    // A CSV row for exactly the same days still replaces the HRハッカー row.
-    expect(billingEntries(demo, [{ source: 'csv', start: '2026-09-01', end: '2026-09-14', amountYen: 33000, media: 'HRハッカー' }]).map(entry => entry.amountYen)).toEqual([33000, 45000, 12000]);
+    expect(rows[0]?.billing).toMatchObject({ connected: true, yen: null, overlapping: true, conflict: true, entries: 2 });
+    // A CSV row for exactly the same days does not replace the HRハッカー row either (no silent choice).
+    expect(billingEntries(demo, [{ source: 'csv', start: '2026-09-01', end: '2026-09-14', amountYen: 33000, media: 'HRハッカー' }], { dummy: false }).map(entry => entry.amountYen)).toEqual([33000, 30000, 45000, 12000]);
   });
 });
 
@@ -222,7 +227,7 @@ describe('version changes', () => {
   it('finds salary, body and image changes on demo-001', () => {
     const changes = versionChanges(demo);
     expect(changes.map(change => [change.versionId, change.salary?.min, change.salaryChanged, change.imageChange])).toEqual([
-      ['demo-001-v1', 250000, null, 'initial'], ['demo-001-v2', 270000, true, 'changed'], ['demo-001-v3', 250000, true, 'changed'],
+      ['demo-001-v1', 250000, null, 'initial'], ['demo-001-v2', 270000, true, 'replaced'], ['demo-001-v3', 250000, true, 'replaced'],
     ]);
     expect(changes[1]?.bodyAdded).toBeGreaterThan(0);
     expect(changes[1]?.bodyRemoved).toBe(changes[1]?.bodyAdded);

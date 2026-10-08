@@ -11,7 +11,7 @@ import { HUBSPOT_BODY_SOURCE, overallFromLiveSummary } from './liveApplications'
 interface RecordData { id: string; properties: Record<string, string | null> }
 interface CustomerPage { customers: RecordData[]; next_after: string | null; total_ms: number }
 interface JobPage { company_id: string; portal_id?: string | null; contracts: RecordData[]; jobs: { record: RecordData; deal_ids: string[] }[]; total: number; next_offset: number | null; total_ms: number; fetched_at: string }
-interface Summary { total: number; duplicate_ids: number; missing_date: number; by_date: Record<string, number>; dimensions: Record<string, Record<string, number>> }
+interface Summary { total: number; duplicate_ids: number; missing_date: number; by_date: Record<string, number>; dimensions: Record<string, Record<string, number>>; multi_listing_by_date?: Record<string, number>; multi_listing_missing_date?: number }
 interface DatedComparison { total: number; unknown: number; basis: string; daily_representatives?: Record<string, { version_id: string }>; by_version: Record<string, { count: number; dimensions: Record<ApplicantDimension, { denominator: number; categories: { category: string; count: number; percentage: number | null }[] } | null> }> }
 interface ApplicantPage { metric: string; summary: Summary; total_ms: number; fetched_at: string; version_attribution: string; attribute_basis: string; capture_bundle?: unknown; dated_comparison?: DatedComparison | null; capture_status?: string; applicant_reasons?: unknown }
 const labels: Record<string, string> = { gender: '性別', age: '年代', prefecture: '都道府県', municipality: '市区町村' };
@@ -57,14 +57,17 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     setBusy(true); setError(''); setApplications(null);
     const name = customers.find(row => row.id === page.company_id)?.properties.name ?? '取引先名未取得';
     const body = record.properties.shigotonaiyou;
+    const accountId = record.properties.id_hrhakkaa ? record.properties.id_shop_hrhakkaa : record.properties.id_airwork ? record.properties.airwork_account_login_id : null;
     const selectedJob: JobCopyRecord = { id: `hubspot-${record.id}`, title: record.properties.hs_name ?? '求人名未取得', company: name,
       media: record.properties.id_hrhakkaa ? 'HRハッカー' : record.properties.id_airwork ? 'AirWork' : '媒体未対応',
       mediaJobId: record.properties.id_hrhakkaa ?? record.properties.id_airwork ?? '', location: record.properties.qinwude ?? '',
+      // 媒体求人IDは店舗ID（Airワークは口座ログインID）と組で使う。ID だけで課金CSVと結びつけない。
+      ...(accountId ? { accountId } : {}),
       hubspotId: record.id, dataSource: 'hubspot',
       ...(page.portal_id ? { hubspotUrl: `https://app.hubspot.com/contacts/${page.portal_id}/record/0-420/${record.id}` } : {}),
       versions: body ? [{ id: `hubspot-${record.id}-${page.fetched_at}`, label: 'HubSpotの現在の仕事内容', observedAt: page.fetched_at,
         kind: 'received', certainty: 'unknown', source: HUBSPOT_BODY_SOURCE, body, applications: null,
-        note: 'HubSpotの現在値です。媒体の求人票全文・日次履歴・画像はまだ接続していません。取得日を掲載変更日として扱いません。' }] : [],
+        note: 'HubSpotの現在値です。媒体の求人票全文・日次履歴・画像はまだ接続していません。取得日を掲載が変わった日として扱いません。' }] : [],
     };
     onOpen(selectedJob);
     const result = await apiGet<ApplicantPage>(`/api/job-copy/live?company=${encodeURIComponent(page.company_id)}&listing=${encodeURIComponent(record.id)}`, requestOptions);
@@ -77,7 +80,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
         try {
           const captured = parseMediaCapture(JSON.stringify(result.data.capture_bundle))[0];
           const comparison = result.data.dated_comparison;
-          if (captured) onOpen(roundApplicantAreasInRecord({ ...captured, ...(overall ? { overallApplications: overall } : {}), id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
+          if (captured) onOpen(roundApplicantAreasInRecord({ ...captured, ...(overall ? { overallApplications: overall } : {}), ...(selectedJob.accountId ? { accountId: selectedJob.accountId } : {}), id: selectedJob.id, company: selectedJob.company, hubspotId: record.id, ...(selectedJob.hubspotUrl ? { hubspotUrl: selectedJob.hubspotUrl } : {}), dataSource: 'hubspot', attributionUnknown: comparison.unknown,
             applicantReasons: parseApplicantReasons(result.data.applicant_reasons, result.data.summary.total, captured.versions.filter(version => version.kind === 'published').map(version => version.id)),
             versions: captured.versions.map(version => {
               const bucket = comparison.by_version[version.id];

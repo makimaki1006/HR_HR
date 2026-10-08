@@ -20,7 +20,7 @@ export function parseJointDemographics(value: unknown, total: number): JointDemo
     return { gender: row.gender as string, age: row.age as string, prefecture: row.prefecture as string, municipality: row.municipality as string, count: row.count };
   });
   if (cells.reduce((sum, row) => sum + row.count, 0) !== total) return fail();
-  // 地域は都道府県 + 市区町村までに丸め、3人未満の地域は「その他」にまとめる（合計は変えない）
+  // 地域は都道府県 + 市区町村までに丸め、3件未満の地域は「その他」にまとめる（合計は変えない）
   return roundJointDemographics({ total, cells });
 }
 /** Query verified joint cells, never multiply separate demographic marginals. */

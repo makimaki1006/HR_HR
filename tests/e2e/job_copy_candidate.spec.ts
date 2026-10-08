@@ -165,8 +165,9 @@ test('expanded image data retains real application totals and the richest job di
   // 取得範囲の件数は上の帯の「取得した範囲」を開くと出る（帯を 1 行に保つため、2026-10-08 round 3）
   await page.locator('.jc-snapshot-tip > summary').click();
   const summary = page.getByRole('region', { name: '実データの取得範囲' });
-  await expect(summary).toContainText('317応募（HubSpot記録分）');
-  await expect(summary).toContainText(/掲載期間に入らない応募 \d+件/u);
+  await expect(summary).toContainText('317応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
+  await expect(summary).toContainText(/どの版への応募か分からない応募 \d+件（求人ごとの件数の合計（重複あり））/u);
+  await expect(summary).toContainText(/期間比較表の版の行に入らない応募 \d+件/u);
   const max = Math.max(...aggregates.map(row => row.summary.total));
   expect(max).toBe(34);
   const richest = aggregates.find(row => row.summary.total === max)!;

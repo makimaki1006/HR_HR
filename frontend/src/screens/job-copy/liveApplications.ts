@@ -14,6 +14,29 @@ export interface LiveApplicationSummary {
   missing_date: number;
   by_date: Record<string, number>;
   dimensions: Record<string, Record<string, number>>;
+  /** Applications HubSpot also links to another job, by application date. Absent when not checked. */
+  multi_listing_by_date?: Record<string, number> | undefined;
+  /** The same, for applications with no application date. */
+  multi_listing_missing_date?: number | undefined;
+}
+
+/**
+ * The applications linked to more than one job, checked against the dated counts. undefined when
+ * the source did not check them; null when they do not fit the counts (nothing is guessed).
+ */
+export function multiListingFromSummary(summary: Pick<LiveApplicationSummary, 'multi_listing_by_date' | 'multi_listing_missing_date'>, byDate: Record<string, number>, missingDate: number): { byDate: Record<string, number>; missingDate: number } | null | undefined {
+  if (summary.multi_listing_by_date === undefined && summary.multi_listing_missing_date === undefined) return undefined;
+  const missing = wholeCount(summary.multi_listing_missing_date ?? 0);
+  // The values come from JSON: check the shape at run time, whatever the type says.
+  const dated: unknown = summary.multi_listing_by_date;
+  if (missing === null || missing > missingDate || typeof dated !== 'object' || dated === null) return null;
+  const result: Record<string, number> = {};
+  for (const [date, raw] of Object.entries(dated as Record<string, unknown>)) {
+    const amount = wholeCount(raw);
+    if (!calendarDay(date) || amount === null || amount > (byDate[date] ?? 0)) return null;
+    result[date] = amount;
+  }
+  return { byDate: result, missingDate: missing };
 }
 
 const DIMENSIONS: readonly ApplicantDimension[] = ['gender', 'age', 'prefecture', 'municipality'];
@@ -35,6 +58,8 @@ export function overallFromLiveSummary(summary: LiveApplicationSummary, fetchedA
     byDate[date] = amount; dated += amount;
   }
   if (dated + missingDate !== total) return null;
+  const multiListing = multiListingFromSummary(summary, byDate, missingDate);
+  if (multiListing === null) return null;
   const distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>> = {};
   for (const dimension of DIMENSIONS) {
     const buckets = summary.dimensions[dimension];
@@ -46,5 +71,5 @@ export function overallFromLiveSummary(summary: LiveApplicationSummary, fetchedA
     // Leave a dimension out rather than show shares that do not add up to the total.
     if (categories.reduce((sum, row) => sum + row.count, 0) === total) distributions[dimension] = { total, categories };
   }
-  return { total, missingDate, fetchedAt, distributions, byDate };
+  return { total, missingDate, fetchedAt, distributions, byDate, ...(multiListing ? { multiListing } : {}) };
 }

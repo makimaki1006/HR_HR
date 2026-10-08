@@ -115,7 +115,7 @@ describe('composition fixture boundary and UI', () => {
     expect(html).toContain(HUBSPOT_ONLY_NOTE);
     expect(html).toContain(NOT_CAUSAL_NOTE);
     expect(html).toContain('媒体の期間別実績は「課金・クリック」で確認できます');
-    // 年代は年齢順。都道府県は 3 人未満を「その他」にまとめ、その他・不明は最後
+    // 年代は年齢順。都道府県は 3 件未満を「その他」にまとめ、その他・不明は最後
     const ageSection = html.slice(html.indexOf('aria-label="年代の構成比較"'), html.indexOf('aria-label="都道府県の構成比較"'));
     expect([...ageSection.matchAll(/<th scope="row">([^<]+)<\/th>/g)].map(match => match[1])).toEqual(['20代', '30代', '40代', '50代', '60歳以上', '不明']);
     const prefectureSection = html.slice(html.indexOf('aria-label="都道府県の構成比較"'), html.indexOf('aria-label="市区町村の構成比較"'));

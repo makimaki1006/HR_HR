@@ -641,6 +641,11 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
             None,
         ),
         "/crm/v4/objects/0-420/30/associations/0-421" => associations(&["50", "51", "50"], None),
+        // Application 50 is also linked to job 31; 51 only to job 30.
+        "/crm/v4/associations/0-421/0-420/batch/read" => json!({"status":"COMPLETE","results":[
+            {"from":{"id":"50"},"to":[{"toObjectId":"30"},{"toObjectId":31}]},
+            {"from":{"id":"51"},"to":[{"toObjectId":"30"}]}
+        ]}),
         "/crm/v3/objects/deals/batch/read"
         | "/crm/v3/objects/0-420/batch/read"
         | "/crm/v3/objects/0-421/batch/read" => {
@@ -699,6 +704,12 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
     assert_eq!(applicants["summary"]["total"], 2);
     assert_eq!(applicants["summary"]["by_date"]["2026-10-03"], 1);
     assert_eq!(applicants["summary"]["missing_date"], 1);
+    // The dated application 50 is also linked to job 31: counted apart, by its date.
+    assert_eq!(
+        applicants["summary"]["multi_listing_by_date"],
+        json!({"2026-10-03": 1})
+    );
+    assert_eq!(applicants["summary"]["multi_listing_missing_date"], 0);
     assert_eq!(applicants["summary"]["dimensions"]["gender"]["不明"], 2);
     assert!(applicants.get("rows").is_none());
     assert_eq!(applicants["applicant_reasons"]["total_applicants"], 2);

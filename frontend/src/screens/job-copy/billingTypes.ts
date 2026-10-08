@@ -4,13 +4,15 @@
  *
  * - 日付は JST の暦日 `YYYY-MM-DD`。期間終了日を含む (両端を含む)。
  * - 金額が空欄・未取得のときは `null`。0 円とは扱わない。
- * - 同じ求人で期間が重なる行は合算しない。重なりは `overlapsSourceRows` に残す。
+ * - 同じ求人で期間が重なる行は取り込まない (`overlapsSourceRows` は常に空)。
  */
 export interface BillingPeriod {
   /** 結びついた求人 (JobCopyRecord.id)。 */
   jobId: string;
   /** 媒体名。求人一覧と同じ表記 ('Airワーク' | 'HRハッカー')。 */
   media: BillingMedia;
+  /** 店舗ID（HRハッカー）／口座ログインID（Airワーク）。JobCopyRecord.accountId と完全一致したもの。 */
+  accountId: string;
   /** 媒体求人ID (JobCopyRecord.mediaJobId と完全一致したもの)。 */
   mediaJobId: string;
   periodStart: string;

@@ -6,8 +6,9 @@ import type { BillingMedia, BillingPeriod, BillingTaxBasis } from './billingType
  *
  * - 文字コードは UTF-8 (BOM の有無を問わない) と CP932 (Excel の日本語 CSV) を受け付ける。
  * - 列の対応は `BillingColumnAliases` で差し替えられる。列名がまだ確定していないため。
- * - 求人との結びつけは「媒体 + 媒体求人ID」の完全一致だけ。タイトルで推測しない。
- * - 同じ求人・同じ期間の行は 2 行目以降を反映しない (合算しない)。
+ * - 求人との結びつけは「媒体 + 店舗ID（Airワークは口座ログインID）+ 媒体求人ID」の完全一致だけ。
+ *   媒体求人ID だけ・タイトルからは結びつけない。
+ * - 同じ求人・同じ期間で内容の違う行、期間が重なる行は、どの行も反映しない (先の行を選ばない)。
  * - 金額が空欄の行は amountYen = null。0 円にしない。
  *
  * 取り込んだ結果はブラウザのメモリ上だけで持つ。サーバーへ送らず、再読み込みで消える。
@@ -16,12 +17,13 @@ import type { BillingMedia, BillingPeriod, BillingTaxBasis } from './billingType
 export const MAX_BILLING_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_BILLING_ROWS = 20_000;
 
-export type BillingField = 'media' | 'mediaJobId' | 'periodStart' | 'periodEnd' | 'amount' | 'planName' | 'impressions' | 'clicks' | 'mediaApplications';
+export type BillingField = 'media' | 'accountId' | 'mediaJobId' | 'periodStart' | 'periodEnd' | 'amount' | 'planName' | 'impressions' | 'clicks' | 'mediaApplications';
 export type BillingEncoding = 'utf-8' | 'shift_jis';
 
 export interface BillingFieldSpec { field: BillingField; label: string; required: boolean }
 export const BILLING_FIELDS: readonly BillingFieldSpec[] = [
   { field: 'media', label: '媒体', required: true },
+  { field: 'accountId', label: '店舗ID（HRハッカー）／口座ログインID（Airワーク）', required: true },
   { field: 'mediaJobId', label: '媒体求人ID', required: true },
   { field: 'periodStart', label: '期間開始', required: true },
   { field: 'periodEnd', label: '期間終了', required: true },
@@ -36,6 +38,7 @@ export const BILLING_FIELDS: readonly BillingFieldSpec[] = [
 export type BillingColumnAliases = Readonly<Record<BillingField, readonly string[]>>;
 export const DEFAULT_BILLING_COLUMN_ALIASES: BillingColumnAliases = {
   media: ['媒体', '媒体名', 'media'],
+  accountId: ['店舗ID', 'ショップID', 'id_shop_hrhakkaa', 'shop_id', '口座ログインID', 'アカウントログインID', 'ログインID', 'airwork_account_login_id', 'account_login_id', '店舗ID／口座ログインID'],
   mediaJobId: ['媒体求人ID', '求人ID', '媒体ID', 'media_job_id', 'job_id'],
   periodStart: ['期間開始', '開始日', '掲載開始', '課金開始', 'period_start'],
   periodEnd: ['期間終了', '終了日', '掲載終了', '課金終了', 'period_end'],
@@ -56,13 +59,13 @@ export interface BillingImportResult {
   periods: BillingPeriod[];
   /** 値の誤りで受け付けなかった行。 */
   rejected: BillingRowIssue[];
-  /** 媒体 + 媒体求人ID に一致する求人が一覧に無い行。 */
+  /** 媒体 + 店舗ID（口座ログインID）+ 媒体求人ID に一致する求人が一覧に無い行。 */
   notFound: BillingRowIssue[];
-  /** 媒体 + 媒体求人ID に一致する求人が 2 件以上ある行。結びつけない。 */
+  /** 媒体 + 店舗ID（口座ログインID）+ 媒体求人ID に一致する求人が 2 件以上ある行。結びつけない。 */
   ambiguous: BillingRowIssue[];
-  /** 同じ求人・同じ期間の 2 行目以降。合算せず反映しない。 */
+  /** 同じ求人・同じ期間でまったく同じ内容の 2 行目以降。1 行として扱う。 */
   duplicates: BillingRowIssue[];
-  /** 反映はするが注意が要る行 (期間の重なり、金額の空欄)。 */
+  /** 反映はするが注意が要る行 (金額の空欄)。 */
   warnings: BillingRowIssue[];
   counts: { dataRows: number; matched: number; ambiguous: number; notFound: number; rejected: number; duplicates: number };
 }
@@ -197,11 +200,42 @@ function amountValue(raw: string, integer: boolean): NumberResult {
 
 // ---------- 取り込み ----------
 
-const jobKey = (media: BillingMedia, mediaJobId: string) => `${media}\u0000${mediaJobId}`;
+const jobKey = (media: BillingMedia, accountId: string, mediaJobId: string) => `${media}\u0000${accountId}\u0000${mediaJobId}`;
+const withoutLeadingZeros = (value: string) => value.replace(/^0+(?=\d)/u, '');
+/** HRハッカーの媒体求人IDは 8 桁の数字（先頭の 0 も含めて 8 桁）。 */
+const HRH_JOB_ID = /^\d{8}$/u;
+
+interface Candidate {
+  rowNumber: number;
+  media: BillingMedia;
+  accountId: string;
+  mediaJobId: string;
+  start: string;
+  end: string;
+  amountYen: number | null;
+  planName: string;
+  numbers: Record<'impressions' | 'clicks' | 'mediaApplications', number | null>;
+}
+const sameValues = (a: Candidate, b: Candidate) => a.amountYen === b.amountYen && a.planName === b.planName
+  && a.numbers.impressions === b.numbers.impressions && a.numbers.clicks === b.numbers.clicks && a.numbers.mediaApplications === b.numbers.mediaApplications;
+
+/** 先頭の 0 が消えた ID に見えるとき、一覧の ID を添えて知らせる一文。 */
+function zeroHint(value: string, known: readonly string[], label: string): string {
+  if (!/^\d+$/u.test(value)) return '';
+  const match = known.find(candidate => candidate !== value && /^\d+$/u.test(candidate) && withoutLeadingZeros(candidate) === withoutLeadingZeros(value));
+  return match ? `。${label}の先頭の0が消えている可能性があります（一覧では「${match}」）。Excel で開くと先頭の0が消えることがあります` : '';
+}
 
 /**
  * CSV の行 (見出し行を含む) と列の対応から、課金期間と行ごとの結果を作る。
  * 行番号は CSV の行 (レコード) の番号で、見出し行が 1。
+ *
+ * - 結びつけは 媒体 + 店舗ID（Airワークは口座ログインID）+ 媒体求人ID の完全一致だけ。ID だけでは結びつけない。
+ * - HRハッカーの媒体求人IDは 8 桁の数字。先頭の 0 は消さずに比べる（消えていそうなら知らせる）。
+ * - 同じ求人・同じ期間の行が 2 行以上あり内容が違うときは、どの行も使わない（先の行を選ばない）。
+ *   内容がまったく同じなら 1 行として扱う。
+ * - 同じ求人で期間が重なる行は、どの行も使わない（HRハッカー実績の取り込みと同じ決まり）。
+ * - クリック数が表示回数より多い行は使わない。
  */
 export function buildBillingImport(rows: readonly (readonly string[])[], mapping: BillingColumnMapping, records: readonly JobCopyRecord[], taxBasis: BillingTaxBasis = '不明'): BillingImportResult {
   const problems = billingMappingProblems(mapping, rows[0]?.length ?? 0);
@@ -211,18 +245,19 @@ export function buildBillingImport(rows: readonly (readonly string[])[], mapping
   const index = new Map<string, JobCopyRecord[]>();
   for (const job of records) {
     const media = canonicalMedia(job.media);
-    if (!media) continue;
-    const key = jobKey(media, job.mediaJobId.trim());
+    const accountId = job.accountId?.trim();
+    if (!media || !accountId) continue;
+    const key = jobKey(media, accountId, job.mediaJobId.trim());
     index.set(key, [...(index.get(key) ?? []), job]);
   }
 
   const result: BillingImportResult = { periods: [], rejected: [], notFound: [], ambiguous: [], duplicates: [], warnings: [], counts: { dataRows: 0, matched: 0, ambiguous: 0, notFound: 0, rejected: 0, duplicates: 0 } };
-  const firstRowByPeriod = new Map<string, number>();
   const cell = (row: readonly string[], field: BillingField) => {
     const column = mapping[field];
     return column === undefined ? '' : (row[column] ?? '').trim();
   };
 
+  const candidates: Candidate[] = [];
   rows.slice(1).forEach((row, offset) => {
     const rowNumber = offset + 2;
     if (row.every(value => value.trim() === '')) return;
@@ -232,8 +267,14 @@ export function buildBillingImport(rows: readonly (readonly string[])[], mapping
     const media = canonicalMedia(mediaRaw);
     if (!mediaRaw) errors.push('媒体が空欄です');
     else if (!media) errors.push(`媒体「${mediaRaw}」は扱えません（Airワーク か HRハッカー）`);
+    const accountId = cell(row, 'accountId');
+    if (!accountId) errors.push(media === 'Airワーク' ? '口座ログインIDが空欄です' : '店舗IDが空欄です');
     const mediaJobId = cell(row, 'mediaJobId');
     if (!mediaJobId) errors.push('媒体求人IDが空欄です');
+    else if (media === 'HRハッカー' && !HRH_JOB_ID.test(mediaJobId)) {
+      const known = records.filter(job => canonicalMedia(job.media) === 'HRハッカー').map(job => job.mediaJobId.trim());
+      errors.push(`HRハッカーの媒体求人ID「${mediaJobId}」は8桁の数字ではありません${zeroHint(mediaJobId, known, '媒体求人ID') || (/^\d{1,7}$/u.test(mediaJobId) ? '。先頭の0が消えている可能性があります' : '')}`);
+    }
     const start = billingDate(cell(row, 'periodStart'));
     const end = billingDate(cell(row, 'periodEnd'));
     if (!start) errors.push('期間開始は 2026-09-01 の形で入れてください');
@@ -245,52 +286,76 @@ export function buildBillingImport(rows: readonly (readonly string[])[], mapping
     for (const { field, parsed } of counts) {
       if (!parsed.ok) errors.push(`${BILLING_FIELDS.find(spec => spec.field === field)?.label ?? field}が 0 以上の整数として読めません`);
     }
+    const numbers = Object.fromEntries(counts.map(({ field, parsed }) => [field, parsed.ok ? parsed.value : null])) as Candidate['numbers'];
+    if (numbers.clicks !== null && numbers.impressions !== null && numbers.clicks > numbers.impressions) errors.push('クリック数が表示回数より多くなっています');
     if (errors.length || !media || !start || !end || !amount.ok) {
       result.rejected.push({ row: rowNumber, message: errors.join('。') });
       return;
     }
-    const numbers = Object.fromEntries(counts.map(({ field, parsed }) => [field, parsed.ok ? parsed.value : null])) as Record<'impressions' | 'clicks' | 'mediaApplications', number | null>;
-
-    const periodKey = `${jobKey(media, mediaJobId)}\u0000${start}\u0000${end}`;
-    const first = firstRowByPeriod.get(periodKey);
-    if (first !== undefined) {
-      result.duplicates.push({ row: rowNumber, message: `${String(first)}行目と同じ求人・同じ期間です。合算せず、${String(first)}行目だけを使います` });
-      return;
-    }
-    firstRowByPeriod.set(periodKey, rowNumber);
-
-    const matches = index.get(jobKey(media, mediaJobId)) ?? [];
-    if (matches.length === 0) { result.notFound.push({ row: rowNumber, message: `${media} の求人ID「${mediaJobId}」は一覧にありません` }); return; }
-    if (matches.length > 1) { result.ambiguous.push({ row: rowNumber, message: `${media} の求人ID「${mediaJobId}」に当てはまる求人が ${String(matches.length)} 件あるため結びつけません` }); return; }
-    const [job] = matches;
-    if (!job) return;
-    if (amount.value === null) result.warnings.push({ row: rowNumber, message: '金額が空欄です。0円ではなく「金額不明」として扱います' });
-    const planName = cell(row, 'planName');
-    result.periods.push({
-      jobId: job.id, media, mediaJobId, periodStart: start, periodEnd: end,
-      amountYen: amount.value, taxBasis, planName: planName || null,
-      impressions: numbers.impressions, clicks: numbers.clicks, mediaApplications: numbers.mediaApplications,
-      source: 'csv', sourceRow: rowNumber, overlapsSourceRows: [],
-    });
+    candidates.push({ rowNumber, media, accountId, mediaJobId, start, end, amountYen: amount.value, planName: cell(row, 'planName'), numbers });
   });
 
-  // 同じ求人で期間が重なる行。合算はタイムライン側でもしない前提で、行番号を残して知らせる。
-  const byJob = new Map<string, BillingPeriod[]>();
-  for (const period of result.periods) byJob.set(period.jobId, [...(byJob.get(period.jobId) ?? []), period]);
-  for (const periods of byJob.values()) {
-    for (const a of periods) {
-      for (const b of periods) {
-        if (a !== b && b.sourceRow !== null && a.periodStart <= b.periodEnd && b.periodStart <= a.periodEnd) a.overlapsSourceRows.push(b.sourceRow);
-      }
-    }
+  // 同じ求人・同じ期間の行: 内容が同じなら 1 行に、違えばどれも使わない。
+  const byPeriod = new Map<string, Candidate[]>();
+  for (const candidate of candidates) {
+    const key = `${jobKey(candidate.media, candidate.accountId, candidate.mediaJobId)}\u0000${candidate.start}\u0000${candidate.end}`;
+    byPeriod.set(key, [...(byPeriod.get(key) ?? []), candidate]);
   }
-  for (const period of result.periods) {
-    if (period.overlapsSourceRows.length && period.sourceRow !== null) {
-      result.warnings.push({ row: period.sourceRow, message: `${period.overlapsSourceRows.map(String).join('・')}行目と期間が重なっています。金額は合算しません` });
+  const unique: Candidate[] = [];
+  for (const group of byPeriod.values()) {
+    const [first, ...rest] = group;
+    if (!first) continue;
+    if (rest.every(other => sameValues(first, other))) {
+      unique.push(first);
+      for (const other of rest) result.duplicates.push({ row: other.rowNumber, message: `${String(first.rowNumber)}行目とまったく同じ内容です。1行として扱います` });
+      continue;
     }
+    const numbers = group.map(item => String(item.rowNumber)).join('・');
+    for (const item of group) result.rejected.push({ row: item.rowNumber, message: `${numbers}行目が同じ求人・同じ期間で、金額などの内容が違います。どの行が正しいか分からないため、どの行も使いません` });
   }
-  result.warnings.sort((a, b) => a.row - b.row);
 
+  // 同じ求人で期間が重なる行は、どの行も使わない。
+  const byJob = new Map<string, Candidate[]>();
+  for (const candidate of unique) {
+    const key = jobKey(candidate.media, candidate.accountId, candidate.mediaJobId);
+    byJob.set(key, [...(byJob.get(key) ?? []), candidate]);
+  }
+  const accepted: Candidate[] = [];
+  for (const group of byJob.values()) {
+    for (const item of group) {
+      const overlaps = group.filter(other => other !== item && item.start <= other.end && other.start <= item.end);
+      if (overlaps.length) result.rejected.push({ row: item.rowNumber, message: `${overlaps.map(other => String(other.rowNumber)).join('・')}行目と期間が重なっています。重なる行はどれも使いません（期間が重ならないように直してください）` });
+      else accepted.push(item);
+    }
+  }
+
+  for (const candidate of accepted.sort((a, b) => a.rowNumber - b.rowNumber)) {
+    const { rowNumber, media, accountId, mediaJobId } = candidate;
+    const matches = index.get(jobKey(media, accountId, mediaJobId)) ?? [];
+    if (matches.length > 1) { result.ambiguous.push({ row: rowNumber, message: `${media} の求人ID「${mediaJobId}」（${media === 'Airワーク' ? '口座ログインID' : '店舗ID'}「${accountId}」）に当てはまる求人が ${String(matches.length)} 件あるため結びつけません` }); continue; }
+    const [job] = matches;
+    if (!job) {
+      const sameMedia = records.filter(item => canonicalMedia(item.media) === media);
+      const sameId = sameMedia.filter(item => item.mediaJobId.trim() === mediaJobId);
+      const accountLabel = media === 'Airワーク' ? '口座ログインID' : '店舗ID';
+      const message = sameId.length && sameId.every(item => !item.accountId?.trim())
+        ? `${media} の求人ID「${mediaJobId}」は一覧にありますが、求人の${accountLabel}が未取得のため結びつけません`
+        : sameId.length
+          ? `${media} の求人ID「${mediaJobId}」は一覧にありますが、${accountLabel}「${accountId}」が違います${zeroHint(accountId, sameId.map(item => item.accountId?.trim() ?? ''), accountLabel)}`
+          : `${media} の求人ID「${mediaJobId}」は一覧にありません${zeroHint(mediaJobId, sameMedia.map(item => item.mediaJobId.trim()), '媒体求人ID')}`;
+      result.notFound.push({ row: rowNumber, message });
+      continue;
+    }
+    if (candidate.amountYen === null) result.warnings.push({ row: rowNumber, message: '金額が空欄です。0円ではなく「金額不明」として扱います' });
+    result.periods.push({
+      jobId: job.id, media, accountId, mediaJobId, periodStart: candidate.start, periodEnd: candidate.end,
+      amountYen: candidate.amountYen, taxBasis, planName: candidate.planName || null,
+      impressions: candidate.numbers.impressions, clicks: candidate.numbers.clicks, mediaApplications: candidate.numbers.mediaApplications,
+      source: 'csv', sourceRow: rowNumber, overlapsSourceRows: [],
+    });
+  }
+
+  for (const list of [result.rejected, result.notFound, result.ambiguous, result.duplicates, result.warnings]) list.sort((a, b) => a.row - b.row);
   result.counts.matched = result.periods.length;
   result.counts.ambiguous = result.ambiguous.length;
   result.counts.notFound = result.notFound.length;

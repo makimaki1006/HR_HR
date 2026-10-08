@@ -12,7 +12,7 @@ import type { JointDemographics } from './reverseSearchModel';
  */
 export const AREA_OTHER = 'その他';
 export const AREA_UNKNOWN = '不明';
-/** これ未満の人数の地域は「その他」にまとめる。 */
+/** 応募がこの件数未満の地域は「その他」にまとめる。 */
 export const MINIMUM_AREA_COUNT = 3;
 
 const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/gu, '').replace(/ヶ/gu, 'ケ').replace(/ヵ/gu, 'カ');
@@ -111,7 +111,7 @@ export function roundAreaLabel(dimension: 'prefecture' | 'municipality', label: 
   return municipalityLabel(parseApplicantArea(fallbackPrefecture ?? null, trimmed));
 }
 
-/** 人数が MINIMUM_AREA_COUNT 未満の地域名を「その他」に置き換える（「不明」はそのまま）。 */
+/** 応募の件数が MINIMUM_AREA_COUNT 未満の地域名を「その他」に置き換える（「不明」はそのまま）。 */
 function smallAreas(counts: Map<string, number>): Set<string> {
   return new Set([...counts].filter(([label, count]) => !reserved(label) && count < MINIMUM_AREA_COUNT).map(([label]) => label));
 }
@@ -121,7 +121,7 @@ function orderAreas<T extends { category: string }>(rows: T[]): T[] {
   return [...rows].sort((left, right) => rank(left.category) - rank(right.category));
 }
 
-/** 地域の分布を丸め、少人数の地域を「その他」にまとめる。合計件数は変えない。 */
+/** 地域の分布を丸め、件数の少ない地域を「その他」にまとめる。合計件数は変えない。 */
 export function roundAreaDistribution(distribution: ApplicantDistribution, dimension: 'prefecture' | 'municipality'): ApplicantDistribution {
   const rounded = new Map<string, number>();
   for (const row of distribution.categories) {
@@ -160,9 +160,9 @@ function mergeCells(cells: readonly JointCell[]): JointCell[] {
  * 複合条件（性別 × 年代 × 地域）の集計を丸める。合計は変えない。サーバー（applicant_area.rs の
  * protect_joint_cells）と同じ規則。
  * 1. 地域を都道府県 + 市区町村に丸める。市区町村が分かれば、都道府県はその市区町村から決め直す。
- * 2. 求人内の人数が 3 人未満の都道府県・市区町村は「その他」にする。
- * 3. それでも 3 人未満のセルは市区町村を「その他」にし、まだ 3 人未満なら都道府県も「その他」にする
- *    （「女性・60代・由布市 = 1人」のように、組み合わせで 1 人を特定できる地域を出さない）。
+ * 2. 求人内の応募が 3 件未満の都道府県・市区町村は「その他」にする。
+ * 3. それでも 3 件未満のセルは市区町村を「その他」にし、まだ 3 件未満なら都道府県も「その他」にする
+ *    （「女性・60代・由布市 = 1件」のように、組み合わせで 1 件の応募を特定できる地域を出さない）。
  */
 export function roundJointDemographics(joint: JointDemographics): JointDemographics {
   const rounded = joint.cells.map(cell => {
