@@ -26,9 +26,14 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('版との対応は未取得');
   await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象2件');
   await expect(reasons.locator('details[open]')).toHaveCount(0);
+  // The texts per version (the category summary above them has its own collapsed list).
+  const unknown = reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true });
   await expect(reasons.locator('blockquote').first()).toBeHidden();
-  await reasons.getByText('記録された文を開く（社内確認用）', { exact: true }).nth(1).click();
-  await expect(reasons.locator('blockquote').nth(1)).toHaveText('<img src=x onerror="alert(1)">');
+  await unknown.getByText('記録された文を開く（社内確認用）', { exact: true }).nth(1).click();
+  await expect(unknown.locator('blockquote').nth(1)).toHaveText('<img src=x onerror="alert(1)">');
+  // The text that matches no keyword is also listed, collapsed and escaped, under 分類できなかった記録.
+  await reasons.getByText('分類できなかった記録を開く（1件・社内確認用）', { exact: true }).click();
+  await expect(reasons.locator('.ar-unclassified blockquote')).toHaveText('<img src=x onerror="alert(1)">');
   await expect(reasons.locator('img')).toHaveCount(0);
   await expect(reasons).toContainText('それ以外の個人情報が残っていることがあります');
   await reasons.getByLabel('理由の出典', { exact: true }).selectOption('ouboriyuu_hiaringu');
@@ -60,4 +65,42 @@ test('only explicit published-version associations appear in before and after re
   await page.getByRole('tabpanel', { name: '応募理由', exact: true }).getByLabel('理由比較先').selectOption('synthetic-before');
   await expect(reasons).toContainText('同じ版を選んでいます');
   await expect(reasons).toContainText('選択した2版以外の表示対象記述: 1件');
+});
+
+/** The shape the server sends since 2026-10-08: six sources, applicant keys and category selections (synthetic). */
+function currentFixture() {
+  const data = fixture();
+  const result = data.results[0];
+  if (!result) throw new Error('Missing synthetic result');
+  const key = (n: number) => String(n).repeat(64);
+  const counts = (nonblank: number) => ({ missing: 2 - nonblank, blank: 0, nonblank });
+  const reasons = {
+    available: true, source: 'hubspot', basis: 'recorded_applicant_reason', source_property: null, fetched_at: data.capturedAt,
+    total_applicants: 2, total_source_values: 12, blank: 0, truncated: false,
+    source_counts: { oubodouki: counts(1), ouboriyuu_baitaikisai: counts(0), ouboriyuu_hiaringu: counts(0), genshokumaeshokukaranotenshokuriyuu: counts(0), ouboriyuukategori_hiaringu: counts(1), ouboriyuukategori_baitaikisai: counts(0) },
+    missing: 10,
+    items: [{ id: 'a'.repeat(64), applicant: key(1), text: '合成例：家から近いため', source: 'hubspot', source_property: 'oubodouki', application_date: '2026-10-04', collected_at: null, version_id: null }],
+    selections: [{ applicant: key(2), source_property: 'ouboriyuukategori_hiaringu', value: 'synthetic-salary', label: '給与', application_date: '2026-10-05' }],
+  };
+  return { ...data, results: [{ ...result, applicant_reasons: reasons }] };
+}
+
+test('reason categories: chosen and keyword counts apart, the timeline lane and the overview column', async ({ page }) => {
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(currentFixture()) }));
+  await page.goto('/app/job-copy');
+  await selectJobFeature(page, 'reasons');
+  const summary = page.getByRole('region', { name: '応募理由の分類', exact: true });
+  await expect(summary).toContainText('n=2（応募2件） · 選択済み1件 · キーワードで推定1件 · 分類できない0件');
+  const categories = summary.getByRole('region', { name: '応募理由の分類の件数', exact: true });
+  await expect(categories.getByRole('row', { name: /^給与/ })).toHaveText('給与1件1件0件n=2のため出しません');
+  await expect(categories.getByRole('row', { name: /^勤務地/ })).toHaveText('勤務地1件0件1件n=2のため出しません');
+  await expect(summary.getByRole('region', { name: '記録欄ごとの件数', exact: true })).toContainText('今の仕事・前の仕事から転職する理由0件0件2件');
+  await expect(summary).not.toContainText('ouboriyuu');
+  await selectJobFeature(page, 'timeline');
+  await expect(page.getByRole('group', { name: '応募理由', exact: true })).not.toContainText('未取得');
+  await expect(page.getByRole('region', { name: '期間ごとの応募理由', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '横断比較', exact: true }).click();
+  const overview = page.getByRole('region', { name: '求人の横断比較の表' });
+  await expect(overview.getByRole('columnheader', { name: '多い応募理由' })).toBeVisible();
+  await expect(overview).toContainText('給与 1件・勤務地 1件（n=2）');
 });

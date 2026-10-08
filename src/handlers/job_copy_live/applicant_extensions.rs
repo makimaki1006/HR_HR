@@ -1,11 +1,20 @@
 //! Optional additive snapshot fields are validated without changing old snapshots.
 use super::{
-    applicant_reasons::{Reasons, MAX_ITEMS, MAX_TEXT_CHARS, PROPERTIES},
+    applicant_reasons::{
+        Reasons, CATEGORY_PROPERTIES, LEGACY_PROPERTIES, MAX_ITEMS, MAX_TEXT_CHARS,
+        MAX_VALUE_CHARS, PROPERTIES, TEXT_PROPERTIES,
+    },
     keys_only,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+fn opaque_key(key: &str) -> bool {
+    key.len() == 64
+        && key
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
 fn date(value: &Value) -> Option<chrono::NaiveDate> {
     let raw = value.as_str()?;
     let date = chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d").ok()?;
@@ -23,16 +32,38 @@ pub(super) fn validate(result: &Value, job: &Value) -> bool {
             || r.source_property.is_some()
             || chrono::DateTime::parse_from_rfc3339(&r.fetched_at).is_err()
             || r.total_applicants as u64 != total
-            || r.total_applicants.checked_mul(3) != Some(r.total_source_values)
-            || r.source_counts.len() != 3
             || r.items.len() > MAX_ITEMS
+        {
+            return false;
+        }
+        // A snapshot written before 2026-10-08 has the three old sources, no applicant keys and
+        // no selections. A newer one has every source, applicant keys and selections.
+        let legacy = r.source_counts.len() == LEGACY_PROPERTIES.len();
+        let sources: &[&str] = if legacy {
+            &LEGACY_PROPERTIES
+        } else {
+            &PROPERTIES
+        };
+        let text_sources: &[&str] = if legacy {
+            &LEGACY_PROPERTIES
+        } else {
+            &TEXT_PROPERTIES
+        };
+        if r.source_counts.len() != sources.len()
+            || r.total_applicants.checked_mul(sources.len()) != Some(r.total_source_values)
+            || legacy != r.selections.is_none()
+            || r.items.iter().any(|item| match &item.applicant {
+                None => !legacy,
+                Some(key) => legacy || !opaque_key(key),
+            })
         {
             return false;
         }
         let mut missing = 0usize;
         let mut blank = 0usize;
-        let mut nonblank = 0usize;
-        for property in PROPERTIES {
+        let mut text_nonblank = 0usize;
+        for property in sources {
+            let property = *property;
             let Some(c) = r.source_counts.get(property) else {
                 return false;
             };
@@ -45,7 +76,20 @@ pub(super) fn validate(result: &Value, job: &Value) -> bool {
             }
             missing += c.missing;
             blank += c.blank;
-            nonblank += c.nonblank;
+            if CATEGORY_PROPERTIES.contains(&property) {
+                let selected: BTreeSet<_> = r
+                    .selections
+                    .iter()
+                    .flatten()
+                    .filter(|s| s.source_property == property)
+                    .map(|s| s.applicant.as_str())
+                    .collect();
+                if selected.len() != c.nonblank {
+                    return false;
+                }
+                continue;
+            }
+            text_nonblank += c.nonblank;
             let shown = r
                 .items
                 .iter()
@@ -57,15 +101,38 @@ pub(super) fn validate(result: &Value, job: &Value) -> bool {
         }
         if missing != r.missing
             || blank != r.blank
-            || r.items.len() > nonblank
-            || (!r.truncated && r.items.len() != nonblank)
+            || r.items.len() > text_nonblank
+            || (!r.truncated && r.items.len() != text_nonblank)
         {
             return false;
+        }
+        let mut chosen = BTreeSet::new();
+        for selection in r.selections.iter().flatten() {
+            if !CATEGORY_PROPERTIES.contains(&selection.source_property.as_str())
+                || !opaque_key(&selection.applicant)
+                || selection.value.trim().is_empty()
+                || selection.value.chars().count() > MAX_VALUE_CHARS
+                || selection
+                    .label
+                    .as_ref()
+                    .is_some_and(|l| l.trim().is_empty() || l.chars().count() > MAX_VALUE_CHARS)
+                || !chosen.insert((
+                    selection.applicant.as_str(),
+                    selection.source_property.as_str(),
+                    selection.value.as_str(),
+                ))
+                || selection
+                    .application_date
+                    .as_ref()
+                    .is_some_and(|d| date(&Value::String(d.clone())).is_none())
+            {
+                return false;
+            }
         }
         let mut ids = BTreeSet::new();
         for item in r.items {
             if item.source != "hubspot"
-                || !PROPERTIES.contains(&item.source_property.as_str())
+                || !text_sources.contains(&item.source_property.as_str())
                 || item.id.len() != 64
                 || !item
                     .id
@@ -244,6 +311,66 @@ mod tests {
             .unwrap()
             .remove("joint_demographics");
         assert!(validate(&result, &job));
+    }
+    #[test]
+    fn snapshot_written_before_the_new_sources_still_validates_and_mixed_shapes_do_not() {
+        let (result, job) = fixture();
+        let mut legacy = result.clone();
+        let reasons = &mut legacy["applicant_reasons"];
+        reasons.as_object_mut().unwrap().remove("selections");
+        let counts = reasons["source_counts"].as_object_mut().unwrap();
+        for property in [
+            "genshokumaeshokukaranotenshokuriyuu",
+            "ouboriyuukategori_hiaringu",
+            "ouboriyuukategori_baitaikisai",
+        ] {
+            counts.remove(property);
+        }
+        reasons["total_source_values"] = json!(3);
+        reasons["missing"] = json!(2);
+        reasons["items"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("applicant");
+        assert!(validate(&legacy, &job));
+        // An old shape with an applicant key, or a new shape without one, is rejected.
+        let mut bad = legacy.clone();
+        bad["applicant_reasons"]["items"][0]["applicant"] = json!("a".repeat(64));
+        assert!(!validate(&bad, &job));
+        let mut bad = result.clone();
+        bad["applicant_reasons"]["items"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("applicant");
+        assert!(!validate(&bad, &job));
+        let mut bad = result;
+        bad["applicant_reasons"]
+            .as_object_mut()
+            .unwrap()
+            .remove("selections");
+        assert!(!validate(&bad, &job));
+    }
+    #[test]
+    fn selections_must_match_the_category_counts() {
+        let rows = [super::super::Record {
+            id: "50".into(),
+            properties: BTreeMap::from([(
+                "ouboriyuukategori_hiaringu".into(),
+                Some("給与".into()),
+            )]),
+        }];
+        let result = json!({"summary":super::super::summarize(&rows),"applicant_reasons":super::super::applicant_reasons::extract("30",&rows,"2026-10-05T00:00:00Z".into())});
+        let job = json!({});
+        assert!(validate(&result, &job));
+        let mut bad = result.clone();
+        bad["applicant_reasons"]["selections"] = json!([]);
+        assert!(!validate(&bad, &job));
+        let mut bad = result.clone();
+        bad["applicant_reasons"]["selections"][0]["source_property"] = json!("oubodouki");
+        assert!(!validate(&bad, &job));
+        let mut bad = result;
+        bad["applicant_reasons"]["selections"][0]["applicant"] = json!("50");
+        assert!(!validate(&bad, &job));
     }
     #[test]
     fn reason_person_fields_inferred_versions_and_bad_counts_rejected() {

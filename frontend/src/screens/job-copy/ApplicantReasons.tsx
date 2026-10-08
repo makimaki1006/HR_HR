@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { CopyVersion, JobCopyRecord } from './data';
-import { reasonCohorts, reasonSourceLabels } from './applicantReasonsModel';
+import { TEXT_SOURCES, reasonCohorts, reasonSourceLabels } from './applicantReasonsModel';
+import { ReasonCategorySummary } from './ReasonCategorySummary';
 import type { ApplicantReason } from './applicantReasonsModel';
 import { AssumptionsNote } from './AssumptionsNote';
 import { formatDateJst, formatDateTimeJst } from './format';
@@ -20,8 +21,10 @@ export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; b
     {!collection?.available || !cohorts ? <p className="ar-unavailable" role="status">応募理由の自由記述は未取得です。理由がない応募や0件とは判定していません。</p> : <>
       <p>取得対象: 応募{collection.totalApplicants}件・記録された理由{collection.totalSourceValues}件 · 未記録{collection.missing}件 · 空欄{collection.blank}件</p>
       <p>理由データの取得日時: {formatDateTimeJst(collection.fetchedAt, collection.fetchedAt ?? '不明')}</p>
+      <ReasonCategorySummary collection={collection} />
+      <h3>版ごとの記述</h3>
       {collection.truncated && <p className="jc-notice">表示対象は取得上限による一部です。表示件数を全記述件数として扱いません。</p>}
-      <label className="ar-source-filter jc-no-print">理由の出典<select aria-label="理由の出典" value={source} onChange={event => { setSource(event.target.value); }}><option value="all">すべての出典</option>{Object.keys(collection.sourceCounts).map(property => <option key={property} value={property}>{reasonSourceLabels[property] ?? 'HubSpotの記録欄'}</option>)}</select></label>
+      <label className="ar-source-filter jc-no-print">理由の出典<select aria-label="理由の出典" value={source} onChange={event => { setSource(event.target.value); }}><option value="all">すべての出典</option>{Object.keys(collection.sourceCounts).filter(property => TEXT_SOURCES.includes(property)).map(property => <option key={property} value={property}>{reasonSourceLabels[property] ?? 'HubSpotの記録欄'}</option>)}</select></label>
       {before?.id === after?.id && before && <p>同じ版を選んでいます。</p>}
       {!cohorts.versionAttributionAvailable && <p className="jc-notice">理由と版の対応は未取得です。変更前後には割り当てず、「どの版への理由か不明な記述」に表示します。</p>}
       <div className="ar-pair">{[{ title: '比較元の記述', version: before, rows: cohorts.before }, { title: '比較先の記述', version: after, rows: cohorts.after }].map(group => <section key={group.title} aria-label={group.title}><h3>{group.title}</h3><p>{group.version?.label ?? '版なし'}</p>{cohorts.versionAttributionAvailable ? <><p>表示対象{group.rows.length}件</p>{group.rows.length ? <ReasonTexts items={group.rows} /> : <p>選択版に対応する表示対象の記述はありません。</p>}</> : <p>版との対応は未取得です。</p>}</section>)}</div>

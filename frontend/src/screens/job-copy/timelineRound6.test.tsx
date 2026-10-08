@@ -57,7 +57,7 @@ describe('課金 lane source', () => {
     render(<JobTimeline job={job} marketMode="demo" />);
     expect(lane('課金').textContent).not.toContain('架空');
     expect(document.querySelector('.jt-demo-billing')).toBeNull();
-    const cells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent);
+    const cells = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent);
     expect(cells[0]).toBe('3万円');
   });
 });
@@ -66,7 +66,7 @@ describe('「約」 note', () => {
   it('does not split or add dummy amounts in the period table, so no 約 note comes from them', () => {
     const job = { ...demo('demo-job-002'), hrhPerformance: undefined };
     render(<JobTimeline job={job} marketMode="demo" />);
-    const cells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent ?? '');
+    const cells = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent ?? '');
     expect(cells.every(cell => cell === '実際の課金データなし（仮の課金データ（ダミー）は合計しません）')).toBe(true);
     expect(screen.queryByText('「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。')).toBeNull();
   });
@@ -78,7 +78,7 @@ describe('the end of the market data', () => {
       series: path.includes('title=') ? { prefecture: '大分県', months: ['2026-07', '2026-08', '2026-09'], job_count: [220, 230, null], ctk_count: [300, 310, 320], employer_count: [1, 1, 1], seekers_per_posting: [3, 3, 3] } : null } }));
     render(<JobTimeline job={demo('demo-job-001')} />);
     expect(await screen.findByText('市場データは2026年9月まで（毎月更新）。市場求人数は2026年8月まで。2026年10月以降はデータなしとして表示しています')).toBeTruthy();
-    await waitFor(() => { expect(within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし（市場求人数は2026年8月まで）'); });
+    await waitFor(() => { expect(within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし（市場求人数は2026年8月まで）'); });
     const text = document.body.textContent;
     // No sentence writes the end month as YYYY/MM.
     expect(text).not.toMatch(/\d{4}\/\d{2}(以降|まで)/u);
@@ -139,7 +139,7 @@ describe('reason texts', () => {
   it('shows no HubSpot property name and no street address on the screen', () => {
     const job: JobCopyRecord = { ...demo('demo-job-001'), applicantReasons: { available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-10-05T00:00:00Z', totalApplicants: 1, totalSourceValues: 3,
       sourceCounts: { oubodouki: { missing: 0, blank: 0, nonblank: 1 }, ouboriyuu_baitaikisai: { missing: 1, blank: 0, nonblank: 0 }, ouboriyuu_hiaringu: { missing: 1, blank: 0, nonblank: 0 } },
-      items: [{ id: 'a'.repeat(64), text: '大分市府内町3丁目から近いため', sourceProperty: 'oubodouki', applicationDate: '2026-09-02', collectedAt: null, versionId: null }], missing: 2, blank: 0, truncated: false } };
+      items: [{ id: 'a'.repeat(64), applicant: null, text: '大分市府内町3丁目から近いため', sourceProperty: 'oubodouki', applicationDate: '2026-09-02', collectedAt: null, versionId: null }], missing: 2, blank: 0, truncated: false, selections: null } };
     const html = renderToStaticMarkup(createElement(ApplicantReasons, { job }));
     expect(html).not.toContain('府内町3丁目');
     expect(html).toContain('＊＊から近いため');

@@ -32,7 +32,7 @@ describe('job timeline lanes', () => {
     const lanes = screen.getAllByRole('group').map(group => group.getAttribute('aria-label'));
     expect(lanes.filter(name => ['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場'].includes(name ?? ''))).toEqual(['掲載期間', '給与', '本文', '画像', '課金', '応募', '市場']);
     await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
-    const table = screen.getByRole('table');
+    const table = within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table');
     const rows = within(table).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
     // The demo's HRハッカー amounts are made up, and say so in the table (the banner is not printed).
     expect(rows[0]?.slice(0, 4)).toEqual(['14日', '7件', '0.50件/日', 'デモ用の架空の金額 3万円']);
@@ -51,7 +51,7 @@ describe('job timeline lanes', () => {
     expect(lane.textContent).toContain('課金データなし（0円という意味ではありません）');
     expect(lane.querySelector('[title]')).toBeNull();
     expect(document.body.textContent.replaceAll('0円という意味ではありません', '')).not.toMatch(/(^|[^\d,])0円/);
-    expect(within(screen.getByRole('table')).getAllByText('課金データなし（0円という意味ではありません）').length).toBe(2);
+    expect(within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByText('課金データなし（0円という意味ではありません）').length).toBe(2);
     expect(document.body.textContent).not.toContain('未接続');
   });
 
@@ -77,7 +77,7 @@ describe('job timeline lanes', () => {
     expect(screen.getByLabelText<HTMLSelectElement>('職種').value).toBe('ドライバー');
     expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('大分県');
     // The first period is all in 2026-09, after the data ends: say up to which month there is data.
-    expect(within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし（市場求人数は2026年8月まで）');
+    expect(within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td')[4]?.textContent).toBe('データなし（市場求人数は2026年8月まで）');
   });
 
   it('keeps the months with data when a period runs past 2026-08 and writes months as 2026年7月', async () => {
@@ -90,7 +90,7 @@ describe('job timeline lanes', () => {
     const job: JobCopyRecord = { ...base, hrhPerformance: undefined, versions: [{ ...last, publishedFrom: '2026-07-01T10:00:00+09:00', observedAt: '2026-07-01T10:00:00+09:00' }] };
     render(<JobTimeline job={job} />);
     await waitFor(() => { expect(lastChart('jt-market')).toBeDefined(); });
-    const cells = within(screen.getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td');
+    const cells = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row')[1]?.querySelectorAll('td');
     expect(cells?.[4]?.textContent).toBe('+10.0%（2026年7月 100件 → 2026年8月 110件、2026年9月以降はデータなし）');
     expect(document.body.textContent).not.toMatch(/\d{4}-\d{2}(?!-)/);
     expect(document.body.textContent).not.toContain('年09月');
@@ -121,9 +121,9 @@ describe('job timeline lanes', () => {
     const job: JobCopyRecord = { ...demo('demo-job-001') };
     delete job.overallApplications;
     render(<JobTimeline job={job} marketMode="demo" now={new Date('2026-10-05T03:00:00Z')} />);
-    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
+    const rows = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
     expect(rows.map(row => row.slice(1, 3))).toEqual([['未取得', '未取得'], ['未取得', '未取得'], ['未取得', '未取得']]);
-    expect(screen.getByRole('table').textContent).not.toMatch(/0件|0\.00件\/日/);
+    expect(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').textContent).not.toMatch(/0件|0\.00件\/日/);
   });
 
   it('asks for a category instead of guessing when the title matches none', async () => {
@@ -153,7 +153,7 @@ describe('job timeline lanes', () => {
     render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" onOpenVersion={open} onCompareVersions={compare} />);
     fireEvent.click(screen.getByRole('button', { name: /給与・勤務条件変更の本文：\d+行追加・\d+行削除/ }));
     // The selected period row says so in text and with aria-current, not only by colour.
-    const selectedRow = screen.getByRole('table').querySelector('tr[aria-current="true"]');
+    const selectedRow = within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').querySelector('tr[aria-current="true"]');
     expect(selectedRow?.textContent).toContain('選択中');
     expect(selectedRow?.textContent).toContain('給与・勤務条件変更');
     fireEvent.click(screen.getByRole('button', { name: '本文・画像を開く' }));
@@ -188,7 +188,7 @@ describe('job copy screen integration (demo mode)', () => {
 });
 
 describe('market cells of the period table while loading or after a failure (review round 2)', () => {
-  const marketCells = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
+  const marketCells = () => within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
   const list = { source: '合成', titles: ['ドライバー', '倉庫作業'], prefectures: ['大分県', '福岡県'], ctk_basis: '応募数ではありません', series: null };
   const series = { prefecture: '大分県', months: ['2026-08', '2026-09', '2026-10'], job_count: [100, 110, 121], ctk_count: [300, 310, 320], employer_count: [1, 1, 1], seekers_per_posting: [3, 3, 3] };
 
@@ -204,7 +204,7 @@ describe('market cells of the period table while loading or after a failure (rev
     render(<JobTimeline job={demo('demo-job-001')} />);
     expect(await screen.findByText('市場データを取得できませんでした')).toBeTruthy();
     expect(marketCells()).toEqual(['取得できませんでした', '取得できませんでした', '取得できませんでした']);
-    expect(screen.getByRole('table').textContent).not.toContain('データなし');
+    expect(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').textContent).not.toContain('データなし');
   });
 
   it('says 取得中… while the chosen market is loading', async () => {
@@ -213,7 +213,7 @@ describe('market cells of the period table while loading or after a failure (rev
     await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
     expect(screen.getByText('市場データを取得中…')).toBeTruthy();
     expect(marketCells()).toEqual(['取得中…', '取得中…', '取得中…']);
-    expect(screen.getByRole('table').textContent).not.toContain('市場を選ぶと表示');
+    expect(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').textContent).not.toContain('市場を選ぶと表示');
   });
 
   it('keeps a hand-picked prefecture when the market data is fetched again after a failure', async () => {
@@ -244,7 +244,7 @@ describe('period table rows without counts or periods (review round 2)', () => {
     if (!base.overallApplications) throw new Error('Missing counts');
     const job: JobCopyRecord = { ...base, overallApplications: { ...base.overallApplications, fetchedAt: '2026-09-20T09:00:00+09:00' } };
     render(<JobTimeline job={job} marketMode="demo" />);
-    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
+    const rows = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
     expect(rows.at(-1)?.slice(0, 3)).toEqual(['—', '応募集計の取得後に始まった期間', '—']);
     expect(rows[0]?.slice(0, 3)).toEqual(['14日', '7件', '0.50件/日']);
   });

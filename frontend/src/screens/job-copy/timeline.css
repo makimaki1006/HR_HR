@@ -131,3 +131,7 @@
 .jo-sort-note { margin: 2px 0 6px; font-size: 12px; color: #52697a; }
 .jt-billing-conflict { margin: 2px 0 6px; padding: 4px 8px; border-left: 3px solid #b54708; background: #fff6ec; color: #7a3306; font-size: 12px; }
 .jt-dummy-billing, .jt-demo-billing { margin: 2px 0 6px; padding: 4px 8px; border-left: 3px solid #94a3b8; background: #f8fafc; color: #334155; font-size: 12px; }
+.jt-reason { position: absolute; top: 9px; height: 22px; background: #eef4fb; border: 1px solid #6b8fb8; border-radius: 3px; font-size: 10px; color: #1f3a5c; padding: 0 4px; overflow: hidden; white-space: nowrap; line-height: 20px; }
+.jt-reason span { overflow: hidden; text-overflow: ellipsis; display: block; }
+.jt-reason-zone { background: repeating-linear-gradient(135deg, #f4f7fb 0 5px, #e3ebf4 5px 10px); border-style: dashed; }
+.jt-reasons { margin-top: 18px; }
