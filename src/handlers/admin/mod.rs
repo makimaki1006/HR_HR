@@ -9,10 +9,13 @@
 //! を `json.rs` に追加 (React 画面 `/app/admin` 用)。応答 struct は `data.rs`。
 //!
 //! 2026-10-06: `POST /api/admin/users/{id}/role` (役割の変更。admin / consultant / bpo / user)。書き込みはこの 1 つだけ。
+//!
+//! 2026-10-08: `GET /api/admin/hubspot-usage` (HubSpot 呼び出しの関所の観測値。数字だけ)。
 
 pub mod data;
 mod handlers;
 pub mod hubspot_check;
+pub mod hubspot_usage;
 mod json;
 mod render;
 // W8 (2026-09-29): struct → render 分割の前後で HTML が変わらないことを固定する
@@ -28,4 +31,5 @@ pub use data::{
 };
 pub use handlers::{admin_login_failures, admin_usage, admin_user_detail, admin_users_list};
 pub use hubspot_check::api_hubspot_check;
+pub use hubspot_usage::api_hubspot_usage;
 pub use json::{api_change_role, api_login_failures, api_usage, api_user_detail, api_users};

@@ -165,6 +165,8 @@ pub enum HubSpotError {
     Transport(String),
     /// 応答 JSON が想定の形でない
     Decode(String),
+    /// 関所 (`gateway`) の待ちが上限を超えた (超えると見込まれた) ので呼び出さなかった。HubSpot には届いていない
+    Busy,
 }
 
 impl HubSpotError {
@@ -179,6 +181,7 @@ impl HubSpotError {
             HubSpotError::Timeout => "hubspot_timeout",
             HubSpotError::Transport(_) => "hubspot_transport",
             HubSpotError::Decode(_) => "hubspot_decode",
+            HubSpotError::Busy => "hubspot_busy",
         }
     }
 
@@ -187,7 +190,7 @@ impl HubSpotError {
         match self {
             HubSpotError::NotConfigured => 503,
             HubSpotError::NotFound => 404,
-            HubSpotError::RateLimited => 503,
+            HubSpotError::RateLimited | HubSpotError::Busy => 503,
             HubSpotError::Auth { .. }
             | HubSpotError::Upstream { .. }
             | HubSpotError::Timeout
@@ -210,6 +213,10 @@ impl std::fmt::Display for HubSpotError {
             HubSpotError::Timeout => write!(f, "HubSpot への接続がタイムアウトしました"),
             HubSpotError::Transport(m) => write!(f, "HubSpot に接続できませんでした: {m}"),
             HubSpotError::Decode(m) => write!(f, "HubSpot の応答を解釈できませんでした: {m}"),
+            HubSpotError::Busy => write!(
+                f,
+                "HubSpot が混み合っています。少し待ってから再試行してください"
+            ),
         }
     }
 }

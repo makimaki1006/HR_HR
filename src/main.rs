@@ -306,9 +306,9 @@ async fn main() {
             tracing::info!("HubSpot CRM API: 無効 (HUBSPOT_ACCESS_TOKEN 未設定)");
             None
         }
-        Some(cfg) => match rust_dashboard::hubspot::HubSpotClient::new(
+        // 接続先は HUBSPOT_BASE_URL (負荷試験用。未設定なら api.hubapi.com)、流量はプロセス共有の関所
+        Some(cfg) => match rust_dashboard::hubspot::HubSpotClient::for_production(
             cfg.access_token,
-            rust_dashboard::hubspot::DEFAULT_BASE_URL,
             rust_dashboard::hubspot::ClientOptions::default(),
         ) {
             Ok(client) => {

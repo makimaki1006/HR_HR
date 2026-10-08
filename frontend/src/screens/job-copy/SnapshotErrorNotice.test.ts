@@ -2,9 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ApiHttpError, ApiNetworkError, ApiTimeoutError, AuthRequiredError } from '../../api/client';
-import { snapshotErrorGuidance, SnapshotErrorNotice } from './SnapshotErrorNotice';
+import { HUBSPOT_BUSY_MESSAGE, isHubSpotBusy, snapshotErrorGuidance, SnapshotErrorNotice } from './SnapshotErrorNotice';
 
 describe('snapshot error user guidance', () => {
+  it('asks to wait and retry when the server says HubSpot is busy (503 hubspot_busy)', () => {
+    const busy = new ApiHttpError(503, { code: 'hubspot_busy' });
+    expect(isHubSpotBusy(busy)).toBe(true);
+    expect(snapshotErrorGuidance(busy)).toEqual({ message: 'HubSpot が混み合っています。少し待ってから再試行してください。' });
+    expect(HUBSPOT_BUSY_MESSAGE).toBe('HubSpot が混み合っています。少し待ってから再試行してください。');
+    // Other 503s and other codes are not "busy"
+    expect(isHubSpotBusy(new ApiHttpError(503, { code: 'drive_not_configured' }))).toBe(false);
+    expect(isHubSpotBusy(new ApiHttpError(502, { code: 'hubspot_busy' }))).toBe(false);
+    expect(isHubSpotBusy(new ApiNetworkError('offline'))).toBe(false);
+  });
   it.each([new ApiHttpError(401, { code: 'login_required' }), new AuthRequiredError('redirected to login')])('links authentication failures to the existing login page', error => {
     const guidance = snapshotErrorGuidance(error);
     expect(guidance.message).toContain('再ログイン');

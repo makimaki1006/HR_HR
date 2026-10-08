@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { apiGet } from '../../api/client';
+import type { ApiError } from '../../api/client';
 import type { JobCopyRecord } from './data';
 import { parseMediaCapture } from './mediaCaptureParser';
 import { parseApplicantReasons } from './applicantReasonsParser';
@@ -9,6 +10,7 @@ import { formatDateTimeJst, joinPresent, orderCategories, plainWording } from '.
 import { HUBSPOT_BODY_SOURCE, overallFromLiveSummary } from './liveApplications';
 import { parseJointDemographics } from './reverseSearchModel';
 import type { JointDemographics } from './reverseSearchModel';
+import { HUBSPOT_BUSY_MESSAGE, isHubSpotBusy } from './SnapshotErrorNotice';
 
 /**
  * The gender × age × area cells of the live read. The area totals are counted from them, so a
@@ -40,7 +42,11 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const generation = useRef(0);
-  function failure(status: string) { setError(`HubSpotの読み取りに失敗しました（${status}）。Googleログイン・求人管理の閲覧権限・サーバー設定を確認してください。`); }
+  function failure(error: ApiError) {
+    // Busy: the server's HubSpot gateway is crowded (nothing was read). Settings are fine; wait and retry.
+    if (isHubSpotBusy(error)) { setError(HUBSPOT_BUSY_MESSAGE); return; }
+    setError(`HubSpotの読み取りに失敗しました（${error.message}）。Googleログイン・求人管理の閲覧権限・サーバー設定を確認してください。`);
+  }
   async function loadCustomers(more = false) {
     const request = ++generation.current;
     setBusy(true); setError('');
@@ -49,7 +55,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     if (result.ok) {
       setCustomers(previous => more ? [...new Map([...previous, ...result.data.customers].map(row => [row.id, row])).values()] : result.data.customers);
       setAfter(result.data.next_after); setMessage(`取引先を${String(result.data.customers.length)}件取得しました。`);
-    } else failure(result.error.message);
+    } else failure(result.error);
     setBusy(false);
   }
   async function loadJobs(offset = 0) {
@@ -59,7 +65,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     const result = await apiGet<JobPage>(`/api/job-copy/live?company=${encodeURIComponent(customer)}&offset=${String(offset)}`, requestOptions);
     if (request !== generation.current) return;
     if (result.ok) { setPage(result.data); setContract(''); setMessage('関連する求人を取得しました。'); }
-    else failure(result.error.message);
+    else failure(result.error);
     setBusy(false);
   }
   async function open(record: RecordData) {
@@ -109,7 +115,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
         catch { setError('応募理由の出典・件数を確認できませんでした。原記録を推測して補完しません。'); }
       }
     }
-    else failure(result.error.message);
+    else failure(result.error);
     setBusy(false);
   }
   return <details className="jc-live-panel"><summary>HubSpotの取引先・求人・応募を確認</summary>

@@ -19,6 +19,7 @@ pub mod assoc_labels;
 pub mod call_queue;
 pub mod owners;
 pub mod property_catalog;
+pub mod queue_cache;
 pub mod queue_pipelines;
 pub mod rbac;
 pub mod record_gate;

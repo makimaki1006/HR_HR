@@ -186,37 +186,57 @@ enum PendingLabels {
 
 #[derive(Clone)]
 pub struct JobReadService {
-    client: reqwest::Client,
-    token: String,
-    base: String,
+    /// Every HubSpot read goes through this client (the process-wide gateway: rate limit,
+    /// priority, bounded waiting, global 429 pause, coalescing of identical reads).
+    hs: crate::hubspot::HubSpotClient,
     labels: Arc<std::sync::Mutex<LabelCache>>,
     publication: listing_status::Cache,
+}
+/// Maps a client failure (nothing usable came back from HubSpot) to this API's codes.
+fn client_error(e: crate::hubspot::HubSpotError) -> ReadError {
+    use crate::hubspot::HubSpotError as E;
+    match e {
+        // The shared gateway refused to queue the call (it would wait too long): nothing was sent.
+        E::Busy => ReadError(StatusCode::SERVICE_UNAVAILABLE, "hubspot_busy"),
+        E::Decode(_) => fail("hubspot_invalid_response"),
+        E::NotConfigured => fail("hubspot_not_configured"),
+        _ => fail("hubspot_connection_failed"),
+    }
 }
 impl JobReadService {
     #[cfg(test)]
     pub(crate) fn for_test(base: String) -> Self {
         Self::with_base("test-token".into(), base).unwrap()
     }
+    /// Production: the endpoint is `HUBSPOT_BASE_URL` (default api.hubapi.com) and every
+    /// call shares the process-wide HubSpot gateway with the CRM screens.
     pub fn new(token: String) -> Result<Self, ReadError> {
-        Self::with_base(token, "https://api.hubapi.com".into())
+        let hs = crate::hubspot::HubSpotClient::for_production(token, Self::options())
+            .map_err(|_| fail("hubspot_not_configured"))?;
+        Ok(Self::from_client(hs))
     }
-    fn with_base(token: String, base: String) -> Result<Self, ReadError> {
-        if token.trim().is_empty() {
-            return Err(fail("hubspot_not_configured"));
+    fn options() -> crate::hubspot::ClientOptions {
+        crate::hubspot::ClientOptions {
+            timeout: Duration::from_secs(20),
+            ..crate::hubspot::ClientOptions::default()
         }
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .connect_timeout(Duration::from_secs(5))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| fail("client_unavailable"))?;
-        Ok(Self {
-            client,
-            token,
-            base,
+    }
+    #[cfg(test)]
+    fn with_base(token: String, base: String) -> Result<Self, ReadError> {
+        let hs = crate::hubspot::HubSpotClient::new(token, &base, Self::options())
+            .map_err(|_| fail("hubspot_not_configured"))?;
+        Ok(Self::from_client(hs))
+    }
+    fn from_client(hs: crate::hubspot::HubSpotClient) -> Self {
+        Self {
+            hs,
             labels: Arc::default(),
             publication: Arc::default(),
-        })
+        }
+    }
+    /// The HubSpot client (the image bridge's operator writes wait on its gateway too).
+    pub(crate) fn hubspot(&self) -> &crate::hubspot::HubSpotClient {
+        &self.hs
     }
     async fn request(
         &self,
@@ -226,41 +246,29 @@ impl JobReadService {
     ) -> Result<Value, ReadError> {
         // POST is used only for HubSpot's batch/read endpoints. No create/update/delete.
         for attempt in 0..2 {
-            let builder = match &body {
-                Some(body) => self.client.post(format!("{}{path}", self.base)).json(body),
-                None => self.client.get(format!("{}{path}", self.base)),
-            };
-            let response = builder
-                .query(query)
-                .bearer_auth(&self.token)
-                .send()
+            let reply = self
+                .hs
+                .read_raw(body.is_some(), path, query, body.as_ref())
                 .await
-                .map_err(|_| fail("hubspot_connection_failed"))?;
-            let status = response.status();
-            if attempt == 0 && (status.as_u16() == 429 || status.is_server_error()) {
-                let wait = response
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .unwrap_or(1);
+                .map_err(client_error)?;
+            let status = reply.status;
+            if attempt == 0 && (status == 429 || (500..600).contains(&status)) {
+                let wait = reply.retry_after_secs.unwrap_or(1);
                 if wait <= 2 {
+                    // A 429 also paused the shared gateway; the retry waits there as well.
                     tokio::time::sleep(Duration::from_secs(wait)).await;
                     continue;
                 }
             }
-            if !status.is_success() {
-                return Err(match status.as_u16() {
+            if !(200..300).contains(&status) {
+                return Err(match status {
                     403 => fail("hubspot_scope_denied"),
                     401 => fail("hubspot_auth_failed"),
                     429 => ReadError(StatusCode::TOO_MANY_REQUESTS, "hubspot_rate_limited"),
                     _ => fail("hubspot_read_failed"),
                 });
             }
-            return response
-                .json()
-                .await
-                .map_err(|_| fail("hubspot_invalid_response"));
+            return reply.body.ok_or_else(|| fail("hubspot_invalid_response"));
         }
         Err(fail("hubspot_read_failed"))
     }
