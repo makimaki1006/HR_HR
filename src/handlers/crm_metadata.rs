@@ -282,6 +282,8 @@ fn allowed_property(object_type: &str, name: &str) -> bool {
             "bpo_33",
             "bpo_3",
             "bpo_4",
+            // 架電結果の入力欄の「その他理由」(bpo_10 = その他 のとき)。文字列の項目
+            "bpo_57",
             "bpo_18",
             "bpo_19",
             "bpo_32",

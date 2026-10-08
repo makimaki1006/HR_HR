@@ -131,7 +131,7 @@ export function CrmReferenceScreen() {
   return <div className="crm-app">
     <header className="crm-topbar"><a className="crm-home" href="/">HR_HR</a>
       <span className="crm-topbar-divider" /><strong>CRM Workspace</strong>
-      <a className="crm-topbar-right" href="?view=calling">架電ワークスペースへ</a></header>
+      <a className="crm-topbar-right" href="?">架電画面へ</a></header>
     <div className="crm-sample-banner" role="status"><strong>サンプル版</strong>
       <span>表示内容はすべて架空です。HubSpotへの接続・保存・発信は行いません。</span>
       <a href="https://knowledge.hubspot.com/records/work-with-records" target="_blank" rel="noreferrer">UIの参照元</a>

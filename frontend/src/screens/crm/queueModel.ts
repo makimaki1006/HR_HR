@@ -1,5 +1,6 @@
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueScope } from '../../generated/CallQueueScope';
+import { ApiDataError, ApiHttpError, ApiInvalidResponseError, ApiTimeoutError } from '../../api/client';
 
 /** 架電キューのステージ (Rust `call_queue.rs` の許可ステージと同じ。ID は HubSpot のステージ ID)。 */
 export const QUEUE_STAGES: readonly { id: string; label: string }[] = [
@@ -135,12 +136,16 @@ export function queueApiPath(f: QueueFilters, cursor: string | null): string {
   return `/api/crm/call-queue?${p.toString()}`;
 }
 
-/** 画面の URL (`?view=queue` + 条件 + モード) */
+/**
+ * 画面の URL の検索文字列 (条件 + モード)。架電画面は `/app/crm` の既定なので `view` は付けない。
+ * 既定どおり (実データ・条件なし) なら '' (呼び出し側はパスだけの URL にする)
+ */
 export function screenSearch(f: QueueFilters, mode: QueueMode): string {
-  const p = new URLSearchParams({ view: 'queue' });
+  const p = new URLSearchParams();
   if (mode === 'fixture') p.set('mode', 'fixture');
   for (const [k, v] of filtersToParams(f)) p.append(k, v);
-  return `?${p.toString()}`;
+  const s = p.toString();
+  return s === '' ? '' : `?${s}`;
 }
 
 /** 条件が同じかの比較用キー (取得のやり直し判定) */
@@ -178,6 +183,24 @@ export function mergeItems(existing: readonly CallQueueItem[], incoming: readonl
 }
 
 /** error_kind ごとの文言 */
+/** 画面だけで付ける失敗の種類 (サーバの error_kind とは別。応答が来なかった・読めなかった) */
+export const CLIENT_TIMEOUT_KIND = 'client_timeout';
+export const INVALID_RESPONSE_KIND = 'invalid_response';
+
+/**
+ * API の失敗を、画面の文言を選ぶための (種類, HTTP の状態) にする。
+ * 応答の error_kind があればそれを使う。時間切れ・読めない応答はネットワーク不通と区別する
+ */
+export function failureOf(error: unknown): { kind: string | null; status: number | null } {
+  if (error instanceof ApiHttpError) {
+    const body = typeof error.body === 'object' && error.body !== null ? (error.body as { error_kind?: unknown }) : null;
+    return { kind: typeof body?.error_kind === 'string' ? body.error_kind : null, status: error.status };
+  }
+  if (error instanceof ApiTimeoutError) return { kind: CLIENT_TIMEOUT_KIND, status: null };
+  if (error instanceof ApiInvalidResponseError || error instanceof ApiDataError) return { kind: INVALID_RESPONSE_KIND, status: null };
+  return { kind: null, status: null };
+}
+
 export function errorMessage(kind: string | null, status: number | null): string {
   switch (kind) {
     case 'hubspot_rate_limited': return 'HubSpot の呼び出し回数の上限に達しました。少し待ってから再試行してください。';
@@ -190,6 +213,8 @@ export function errorMessage(kind: string | null, status: number | null): string
     case 'not_configured': return 'HubSpot への接続が設定されていません。管理者に連絡してください。';
     case 'cursor_mismatch': return '続きの読み込みに使う情報が古くなりました。最初から読み直してください。';
     case 'invalid_param': return '条件の指定が正しくないため取得できませんでした。条件を見直してください。';
+    case CLIENT_TIMEOUT_KIND: return '応答が時間内に返りませんでした。少し待ってから再試行してください。';
+    case INVALID_RESPONSE_KIND: return 'サーバーの応答を読み取れませんでした。再試行し、続くときは管理者に連絡してください。';
     case 'owner_not_resolved': return 'あなたのメールアドレスに対応する HubSpot の所有者が見つかりません。所有者を選んでください。';
     default: return status === null
       ? 'ネットワークに接続できませんでした。接続を確認して再試行してください。'

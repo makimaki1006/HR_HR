@@ -373,3 +373,20 @@ async fn refresh_floor_serves_cache_and_zero_floor_refetches() {
     assert!(!open.get(&client, true).await.unwrap().cache_hit);
     assert_eq!(mock.state.requests.load(Ordering::SeqCst), 12);
 }
+
+/// 架電結果の入力欄 (frontend/src/screens/crm/callResultModel.ts の FIELD_PROPERTY) が使う Deal プロパティは、
+/// すべて /api/crm/metadata の許可リストに入っていること。外すと画面は「入力欄を表示できません」になる
+#[test]
+fn deal_allowlist_covers_every_call_result_form_property() {
+    for name in [
+        "bpo_40", "bpo_42", "bpo_45", "bpo_14", "bpo_10", "bpo_4", "bpo__", "bpo_33", "bpo_13",
+        "bpo_16", "bpo_3", "bpo_23", "bpo_57",
+    ] {
+        assert!(
+            allowed_property("deals", name),
+            "{name} must stay in the deals allowlist"
+        );
+    }
+    assert!(!allowed_property("deals", "bpo_20"));
+    assert!(!allowed_property("contacts", "bpo_57"));
+}
