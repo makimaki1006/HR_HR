@@ -2,7 +2,7 @@
 use super::Record;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Free-text sources: 応募動機, 応募理由_媒体記載, 応募理由_ヒアリング, 現職・前職からの転職理由.
 /// Every text is masked (mask_personal_details) before it leaves the server.
@@ -55,6 +55,12 @@ pub struct Reasons {
     /// snapshot written before the category sources were read (it has no selections).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub option_labels: Option<OptionLabelsStatus>,
+    /// Applicant keys (as in Reason::applicant) of the applications HubSpot also links to another
+    /// job. The screen leaves them out of the reason counts, as the period table leaves them out
+    /// of the application counts. None when that was not read (a failed association read, or a
+    /// stored snapshot): the screen then says it cannot tell them apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_listing_applicants: Option<Vec<String>>,
     pub missing: usize,
     pub blank: usize,
     /// True only when texts were left out because there were more than MAX_ITEMS. A single text
@@ -370,6 +376,31 @@ fn opaque(parts: &[&str]) -> String {
     format!("{:x}", hash.finalize())
 }
 
+/// The opaque per-application key sent with every reason (not the HubSpot record ID).
+pub fn applicant_key(listing: &str, id: &str) -> String {
+    opaque(&[listing, id, "applicant"])
+}
+
+impl Reasons {
+    /// Records which applications HubSpot also links to another job (`multi`: record IDs), as
+    /// applicant keys. Only in the current shape (a legacy one has no applicant keys).
+    pub fn mark_multi_listing(&mut self, listing: &str, rows: &[Record], multi: &BTreeSet<String>) {
+        if self.selections.is_none() {
+            return;
+        }
+        let ids: BTreeSet<&String> = rows.iter().map(|row| &row.id).collect();
+        self.multi_listing_applicants = Some(
+            ids.into_iter()
+                .filter(|id| multi.contains(*id))
+                .map(|id| applicant_key(listing, id))
+                // Sorted by key, so the order says nothing about the record IDs.
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+        );
+    }
+}
+
 /// Option labels by property and internal value, from the property definitions.
 pub type OptionLabels = BTreeMap<String, BTreeMap<String, String>>;
 
@@ -415,12 +446,13 @@ pub fn extract_with_labels(
         } else {
             without
         }),
+        multi_listing_applicants: None,
         missing: 0,
         blank: 0,
         truncated: false,
     };
     for row in unique.values() {
-        let applicant = opaque(&[listing, row.id.as_str(), "applicant"]);
+        let applicant = applicant_key(listing, &row.id);
         let application_date = row.value("yingmuri").and_then(date);
         for property in PROPERTIES {
             let counts = reasons

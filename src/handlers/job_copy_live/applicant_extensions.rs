@@ -106,6 +106,17 @@ pub(super) fn validate(result: &Value, job: &Value) -> bool {
         {
             return false;
         }
+        if let Some(keys) = &r.multi_listing_applicants {
+            let mut unique = BTreeSet::new();
+            if legacy
+                || keys.len() > r.total_applicants
+                || keys
+                    .iter()
+                    .any(|key| !opaque_key(key) || !unique.insert(key))
+            {
+                return false;
+            }
+        }
         let mut chosen = BTreeSet::new();
         for selection in r.selections.iter().flatten() {
             if !CATEGORY_PROPERTIES.contains(&selection.source_property.as_str())
@@ -384,6 +395,35 @@ mod tests {
             &json!({"summary":summary,"applicant_reasons":legacy}),
             &json!({})
         ));
+    }
+    #[test]
+    fn multi_listing_keys_are_opaque_unique_and_only_in_the_current_shape() {
+        let (mut result, job) = fixture();
+        let key = super::super::applicant_reasons::applicant_key("30", "50");
+        result["applicant_reasons"]["multi_listing_applicants"] = json!([key]);
+        assert!(validate(&result, &job));
+        result["applicant_reasons"]["multi_listing_applicants"] = json!([]);
+        assert!(validate(&result, &job));
+        for bad_keys in [json!(["50"]), json!([&key, &key])] {
+            let mut bad = result.clone();
+            bad["applicant_reasons"]["multi_listing_applicants"] = bad_keys;
+            assert!(!validate(&bad, &job));
+        }
+        // An old shape (no applicant keys) cannot name the applications.
+        let rows = [super::super::Record {
+            id: "50".into(),
+            properties: BTreeMap::from([("oubodouki".into(), Some("Recorded reason".into()))]),
+        }];
+        let mut legacy = super::super::applicant_reasons::extract_legacy(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+        );
+        legacy.mark_multi_listing("30", &rows, &BTreeSet::from(["50".to_owned()]));
+        assert!(legacy.multi_listing_applicants.is_none());
+        let mut bad = json!({"summary":super::super::summarize(&rows),"applicant_reasons":legacy});
+        bad["applicant_reasons"]["multi_listing_applicants"] = json!([key]);
+        assert!(!validate(&bad, &job));
     }
     #[test]
     fn selections_must_match_the_category_counts() {

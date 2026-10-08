@@ -129,6 +129,15 @@ describe('chosen category values and the label status', () => {
     expect(() => parse({ ...fixture(), option_labels: 'read' })).toThrow();
     expect(parse(fixture())?.optionLabels).toBeNull();
   });
+  it('reads which applications are linked to another job: absent is unknown, never an empty list', () => {
+    expect(parseCurrent(current())?.multiListingApplicants).toBeNull();
+    expect(parseCurrent({ ...current(), multi_listing_applicants: [] })?.multiListingApplicants).toEqual([]);
+    expect(parseCurrent({ ...current(), multi_listing_applicants: ['1'.repeat(64)] })?.multiListingApplicants).toEqual(['1'.repeat(64)]);
+    for (const bad of [['50'], ['1'.repeat(64), '1'.repeat(64)], ['1'.repeat(64), '2'.repeat(64), '3'.repeat(64)], 'x']) {
+      expect(() => parseCurrent({ ...current(), multi_listing_applicants: bad })).toThrow();
+    }
+    expect(() => parse({ ...fixture(), multi_listing_applicants: [] })).toThrow();
+  });
   it('requires every text when nothing was left out, even a long one', () => {
     const raw = current();
     first(raw.items).text = '時給が高い'.repeat(400);

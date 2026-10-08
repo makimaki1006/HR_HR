@@ -34,7 +34,7 @@ function date(value: unknown): string | null {
 export function parseApplicantReasons(value: unknown, totalApplicants: number, publishedVersionIds: string[]): ApplicantReasonCollection | undefined {
   if (value === undefined || value === null) return undefined;
   const raw = object(value);
-  only(raw, ['available', 'source', 'basis', 'source_property', 'fetched_at', 'total_applicants', 'total_source_values', 'source_counts', 'items', 'selections', 'option_labels', 'missing', 'blank', 'truncated']);
+  only(raw, ['available', 'source', 'basis', 'source_property', 'fetched_at', 'total_applicants', 'total_source_values', 'source_counts', 'items', 'selections', 'option_labels', 'multi_listing_applicants', 'missing', 'blank', 'truncated']);
   if (raw.available !== true || raw.source !== 'hubspot' || raw.basis !== 'recorded_applicant_reason' || raw.source_property !== null || typeof raw.truncated !== 'boolean') return invalid();
   const sourceRaw = object(raw.source_counts);
   // A stored file written before 2026-10-08 has the three old sources, no applicant keys and no
@@ -96,6 +96,13 @@ export function parseApplicantReasons(value: unknown, totalApplicants: number, p
       if (applicants.size !== sourceCounts[property]?.nonblank) return invalid();
     }
   }
+  // Only in the current shape (applicant keys); absent when the links to other jobs were not read.
+  let multiListingApplicants: string[] | null = null;
+  if (raw.multi_listing_applicants !== undefined) {
+    const keys = raw.multi_listing_applicants;
+    if (legacy || !Array.isArray(keys) || keys.length > totalApplicants || !keys.every(opaque) || new Set(keys).size !== keys.length) return invalid();
+    multiListingApplicants = keys as string[];
+  }
   return { available: true, basis: raw.basis, fetchedAt: timestamp(raw.fetched_at), totalApplicants,
-    totalSourceValues: count(raw.total_source_values), sourceCounts, missing: count(raw.missing), blank: count(raw.blank), truncated: raw.truncated, items, selections, optionLabels };
+    totalSourceValues: count(raw.total_source_values), sourceCounts, missing: count(raw.missing), blank: count(raw.blank), truncated: raw.truncated, items, selections, optionLabels, multiListingApplicants };
 }

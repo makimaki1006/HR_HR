@@ -91,10 +91,10 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
         return <tr key={row.jobId}>
           <th scope="row">{job ? <button type="button" className="jc-text-button" style={{ padding: 0 }} onClick={() => { onChoose(job); }}>{row.title}</button> : row.title}<small>{row.company} · {row.media}</small></th>
           <td className="jo-calendar">{range && <MiniCalendar row={row} range={range} />}</td>
-          <td>{row.lastChange ? changeText(row.lastChange) : '変化は見つかっていません'}</td>
+          <td className="jo-change">{row.lastChange ? changeText(row.lastChange) : '変化は見つかっていません'}</td>
           <td className="jo-kinds">{row.kinds.length ? row.kinds.map(kind => <span key={kind}>{kind}</span>) : '—'}</td>
-          <td>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
-          <td>{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
+          <td className="jo-rate">{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
+          <td className="jo-rate">{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
           <td className="jo-billing">{overviewBillingText(row)}</td>
           <td className="jo-reasons">{row.reasonText}</td>
         </tr>;
