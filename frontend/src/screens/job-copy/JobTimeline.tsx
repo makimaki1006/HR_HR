@@ -18,7 +18,7 @@ import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, Timeline
 import { IMAGE_CHANGE_MARK } from './images';
 import { DEMO_BILLING_LABEL, DEMO_BILLING_NOTE, DUMMY_BILLING_ENABLED, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
 import { REASON_CATEGORIES, MIN_SHARE_N, basisText, classifyApplicationReasons, reasonsByPeriod, shareText, topReasonsWithTies } from './reasonCategories';
-import type { ReasonTally } from './reasonCategories';
+import type { Classification, ReasonTally } from './reasonCategories';
 import './timeline.css';
 
 interface MarketState {
@@ -144,6 +144,18 @@ function reasonTallyText(result: ReasonTally, unit: string): string {
   return `n=${String(result.n)}（${unit}）${parts.length ? `: ${parts.join('、')}` : ''}${result.unclassified ? `、分類できない ${String(result.unclassified)}件` : ''}`;
 }
 
+/**
+ * The 応募理由 lane when no application is counted: says why (left out as linked to another job,
+ * only 「未設定」, categories not read) instead of saying that there is no record.
+ */
+function emptyReasonText(classes: Classification, selectionsUnread: boolean, truncated: boolean): string {
+  const left: string[] = [];
+  if ((classes.multiListing ?? 0) > 0) left.push(`ほかの求人にも関連する${String(classes.multiListing)}件を除く`);
+  if (classes.unsetOnly > 0) left.push(`分類が「未設定」で${truncated ? '読み込めた' : ''}文もない${String(classes.unsetOnly)}件を除く`);
+  if (left.length) return `この求人だけに関連する、分類か文のある応募理由の記録はありません（${left.join('、')}）`;
+  return selectionsUnread ? '応募理由の文の記録はありません（分類の選択はこのデータでは未取得です。0件という意味ではありません）' : '応募理由の記録はありません';
+}
+
 function span(range: TimelineRange, start: string, endExclusive: string) {
   const left = positionOf(start, range);
   const right = positionOf(endExclusive, range);
@@ -258,6 +270,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const titleSelect = useRef<HTMLSelectElement>(null);
   const market = useTimelineMarket(job, marketMode, { retryButton, titleSelect });
   const rows = useMemo(() => periodRows(job, { asOf, billing: injected, market: market.state.rows, dummyBilling: showDummyBilling }), [job, asOf, injected, market.state.rows, showDummyBilling]);
+  const reasonClasses = useMemo(() => classifyApplicationReasons(job.applicantReasons), [job.applicantReasons]);
+  const reasonPeriods = useMemo(() => reasonClasses ? reasonsByPeriod(reasonClasses.applications, rows.filter(row => !row.afterCounts).map(row => ({ key: row.key, start: row.start, end: row.end ?? addDays(asOf, 1) }))) : null, [reasonClasses, rows, asOf]);
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [selected, setSelected] = useState<string | null>(null);
   const reasonIdPrefix = useId();
@@ -336,9 +350,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const multiTotal = multi ? Object.values(multi.byDate).reduce((sum, count) => sum + count, 0) + multi.missingDate : 0;
   const unsure = rows.filter(row => row.kind === 'between' || row.kind === 'unacquired').reduce((sum, row) => sum + (row.applications ?? 0), 0);
   const marketMeta = market.state.meta;
-  const reasonClasses = classifyApplicationReasons(job.applicantReasons);
   const reasonUnit = reasonClasses?.unit === 'text' ? '記述' : '応募';
-  const reasonPeriods = reasonClasses ? reasonsByPeriod(reasonClasses.applications, rows.filter(row => !row.afterCounts).map(row => ({ key: row.key, start: row.start, end: row.end ?? addDays(asOf, 1) }))) : null;
+  const selectionsUnread = job.applicantReasons?.selections === null;
   const reasonOf = (key: string): ReasonTally | null => reasonPeriods?.periods.find(period => period.key === key)?.tally ?? null;
   const reasonInPeriods = reasonPeriods?.periods.some(period => period.tally.n > 0) ?? false;
   const reasonRowId = (key: string) => `${reasonIdPrefix}-reason-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
@@ -438,7 +451,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
 
       <Lane title="応募理由" source="応募日ごとの分類（選択済みと推定）">
         {!reasonClasses ? <p className="jt-empty">応募理由は未取得です（0件という意味ではありません）</p>
-          : !reasonClasses.applications.length ? <p className="jt-empty">{job.applicantReasons?.selections === null ? '応募理由の文の記録はありません（分類の選択はこのデータでは未取得です。0件という意味ではありません）' : '応募理由の記録はありません'}</p>
+          : !reasonClasses.applications.length ? <p className="jt-empty">{emptyReasonText(reasonClasses, selectionsUnread, job.applicantReasons?.truncated === true)}</p>
             : rows.length === 0 ? <p className="jt-empty">掲載期間が取得できていないため、期間ごとに分けられません（応募理由の記録 {reasonClasses.applications.length}件 は「応募理由」で確認できます）</p>
               : !reasonInPeriods ? <p className="jt-empty">表の期間に入る応募理由はありません（応募理由の記録 {reasonClasses.applications.length}件 は、応募日が分からないか表の期間の外です）</p>
                 : rows.filter(row => !row.afterCounts).map(row => {
@@ -522,7 +535,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
             <th scope="row">{row.label}<small>{row.detail}</small></th>
             {!result ? <td colSpan={2 + REASON_CATEGORIES.length}>応募集計の取得後に始まった期間</td> : <>
               <td>n={result.n}</td>
-              <td className="jt-reason-basis">{result.n ? <><span>選択済み{result.selectedN}件</span><span>推定{result.estimatedN}件</span><span>分類できない{result.unclassified}件</span></> : '記録なし'}</td>
+              <td className="jt-reason-basis">{result.n ? <><span>{selectionsUnread ? '選択済み 未取得' : `選択済み${String(result.selectedN)}件`}</span><span>推定{result.estimatedN}件</span><span>分類できない{result.unclassified}件</span></> : '記録なし'}</td>
               {result.counts.map(count => { const share = shareText(count.total, result.n); const basis = basisText(count); return <td key={count.category}>{result.n ? <>{`${String(count.total)}件${share ? `（${share}）` : ''}`}{basis && <small>{basis}</small>}</> : '—'}</td>; })}
             </>}
           </tr>;

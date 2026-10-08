@@ -22,7 +22,7 @@ export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; b
     {!collection?.available || !cohorts ? <p className="ar-unavailable" role="status">応募理由の自由記述は未取得です。理由がない応募や0件とは判定していません。</p> : <>
       <p>取得対象: 応募{collection.totalApplicants}件 · 確認した記録欄{Object.keys(collection.sourceCounts).length}つ（応募ごと）</p>
       <p>理由データの取得日時: {formatDateTimeJst(collection.fetchedAt, collection.fetchedAt ?? '不明')}</p>
-      {collection.truncated && <p className="jc-notice">記述が多く、読み込める上限（{MAX_READ_TEXTS}件）を超えたため、一部の記述は読み込んでいません。下の分類の数と記述の一覧は、読み込んだ記述だけで数えています。</p>}
+      {collection.truncated && <p className="jc-notice">記述が多く、読み込める上限（{MAX_READ_TEXTS}件）を超えたため、一部の記述は読み込んでいません。下の分類の数のうち「選択済み」はすべての応募で数えていますが、「キーワードで推定」「分類できない」の数と記述の一覧は、読み込んだ記述だけで数えています。そのため、選択済みと推定を並べると、選択済みの側が多めに見えることがあります。</p>}
       <ReasonCategorySummary collection={collection} />
       <h3>版ごとの記述</h3>
       <label className="ar-source-filter jc-no-print">理由の出典<select aria-label="理由の出典" value={source} onChange={event => { setSource(event.target.value); }}><option value="all">すべての出典</option>{Object.keys(collection.sourceCounts).filter(property => TEXT_SOURCES.includes(property)).map(property => <option key={property} value={property}>{reasonSourceLabels[property] ?? 'HubSpotの記録欄'}</option>)}</select></label>
