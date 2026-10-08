@@ -1,5 +1,7 @@
 # AirWork画像取得：実装・利用・引継ぎ
 
+HRハッカーを含む全件取得・両媒体の受渡し契約・2026-10-07の519口座巡回結果は [両媒体の取得ロジック](job-copy-media-acquisition-handoff.md) に集約した。本書の少数求人検証は実装初期の結果で、現在の全件巡回結果とは区別する。
+
 2026-10-07。既存求人取得の `aw_recruit_urls.json` と `build_aw_job_url` の構成を再利用し、公開求人の画像取得を追加した。実装はHR_HR `scripts/job_copy_airwork_images.py`。既存HubSpotプロジェクトのfetcher/importer、Rust認証、React画面は変更していない。
 
 ## 取得経路
