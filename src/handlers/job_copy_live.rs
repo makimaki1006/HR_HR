@@ -55,6 +55,9 @@ fn valid_id(id: &str) -> Result<(), ReadError> {
 
 const OPTION_LABELS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const OPTION_LABELS_RETRY: Duration = Duration::from_secs(10 * 60);
+/// How long the application response waits for a running definition read after every other read
+/// is done. A read slower than this fills the labels for later requests only.
+const LABEL_GRACE: Duration = Duration::from_millis(300);
 
 /// Reads `{results:[{name, options:[{value,label}]}]}` (HubSpot property batch read). Only the
 /// category selects are kept; None when the reply holds none of them.
@@ -116,10 +119,26 @@ struct Next {
     after: String,
 }
 
+/// The option labels of the reason category selects, kept per service (one HubSpot base).
+#[derive(Default)]
+struct LabelCache {
+    /// When the last definition read finished, and what it gave (None: it failed).
+    read: Option<(Instant, Option<applicant_reasons::OptionLabels>)>,
+    /// A definition read is running (started at this time); no second one is started meanwhile.
+    running_since: Option<Instant>,
+}
+
+enum PendingLabels {
+    Ready(Option<applicant_reasons::OptionLabels>),
+    Reading(tokio::task::JoinHandle<Option<applicant_reasons::OptionLabels>>),
+}
+
+#[derive(Clone)]
 pub struct JobReadService {
     client: reqwest::Client,
     token: String,
     base: String,
+    labels: Arc<std::sync::Mutex<LabelCache>>,
 }
 impl JobReadService {
     #[cfg(test)]
@@ -143,6 +162,7 @@ impl JobReadService {
             client,
             token,
             base,
+            labels: Arc::default(),
         })
     }
     async fn request(
@@ -526,39 +546,53 @@ impl JobReadService {
         Ok((unambiguous, multi))
     }
     /// Option labels (internal value -> label) of the reason category selects, from the
-    /// property definitions. Read once per OPTION_LABELS_TTL for each HubSpot base; a failed read
-    /// is not fatal (None: the screen shows the internal value) and is tried again only after
-    /// OPTION_LABELS_RETRY, so a missing scope never costs a read per request.
-    async fn reason_option_labels(&self) -> Option<applicant_reasons::OptionLabels> {
-        type Cache =
-            std::sync::Mutex<BTreeMap<String, (Instant, Option<applicant_reasons::OptionLabels>)>>;
-        static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
-        let cache = CACHE.get_or_init(Default::default);
-        if let Ok(cached) = cache.lock() {
-            if let Some((at, labels)) = cached.get(&self.base) {
-                let ttl = if labels.is_some() {
-                    OPTION_LABELS_TTL
-                } else {
-                    OPTION_LABELS_RETRY
-                };
-                if at.elapsed() < ttl {
-                    return labels.clone();
-                }
+    /// property definitions. Returns the kept labels while they are fresh (OPTION_LABELS_TTL, or
+    /// OPTION_LABELS_RETRY after a failed read). Otherwise it starts one definition read in the
+    /// background (never two at once) and returns its handle; the application read does not wait
+    /// for it beyond LABEL_GRACE (see applicants()). A failed read is not fatal: the screen then
+    /// cannot name the chosen category and says so.
+    fn reason_option_labels(&self) -> PendingLabels {
+        let Ok(mut cache) = self.labels.lock() else {
+            return PendingLabels::Ready(None);
+        };
+        if let Some((at, labels)) = &cache.read {
+            let ttl = if labels.is_some() {
+                OPTION_LABELS_TTL
+            } else {
+                OPTION_LABELS_RETRY
+            };
+            if at.elapsed() < ttl {
+                return PendingLabels::Ready(labels.clone());
             }
         }
-        let read = self
-            .request(
-                "/crm/v3/properties/0-421/batch/read",
-                &[],
-                Some(json!({"archived":false,"inputs":applicant_reasons::CATEGORY_PROPERTIES.iter().map(|name|json!({"name":name})).collect::<Vec<_>>()})),
-            )
-            .await
-            .ok()
-            .and_then(|data| option_labels(&data));
-        if let Ok(mut cached) = cache.lock() {
-            cached.insert(self.base.clone(), (Instant::now(), read.clone()));
+        if cache
+            .running_since
+            .is_some_and(|since| since.elapsed() < Duration::from_secs(60))
+        {
+            // Another request started the read; use the last labels kept, if any.
+            return PendingLabels::Ready(
+                cache.read.as_ref().and_then(|(_, labels)| labels.clone()),
+            );
         }
-        read
+        cache.running_since = Some(Instant::now());
+        drop(cache);
+        let service = self.clone();
+        PendingLabels::Reading(tokio::spawn(async move {
+            let read = service
+                .request(
+                    "/crm/v3/properties/0-421/batch/read",
+                    &[],
+                    Some(json!({"archived":false,"inputs":applicant_reasons::CATEGORY_PROPERTIES.iter().map(|name|json!({"name":name})).collect::<Vec<_>>()})),
+                )
+                .await
+                .ok()
+                .and_then(|data| option_labels(&data));
+            if let Ok(mut cache) = service.labels.lock() {
+                cache.read = Some((Instant::now(), read.clone()));
+                cache.running_since = None;
+            }
+            read
+        }))
     }
     pub async fn applicants(&self, company: &str, listing: &str) -> Result<Value, ReadError> {
         self.validate_customer_listing(company, listing).await?;
@@ -573,13 +607,12 @@ impl JobReadService {
             "shikuchouson",
         ];
         properties.extend(applicant_reasons::PROPERTIES);
-        // The option labels of the two category selects are read at the same time, and kept for
-        // a while (one definition read per OPTION_LABELS_TTL, not one per request).
-        let (rows, labels) = tokio::join!(
-            self.batch("0-421", &ids, &properties),
-            self.reason_option_labels()
-        );
-        let rows = rows?;
+        // The option labels of the two category selects come from a separate definition read,
+        // kept for OPTION_LABELS_TTL. When none are kept, that read runs in the background while
+        // the applications are read, and the response waits for it at most LABEL_GRACE after
+        // everything else is done; a slower read only fills the labels for later requests.
+        let pending_labels = self.reason_option_labels();
+        let rows = self.batch("0-421", &ids, &properties).await?;
         // Missing/undefined properties remain unknown; do not turn an existing
         // appointment into zero applications. hs_appointment_start is synthesized
         // by the importer from yingmuri and does not prove the real event time.
@@ -589,6 +622,14 @@ impl JobReadService {
         // are still sent, the multi-job counts are left out (unknown, not 0), and no application
         // is put into a version's period (which needs to know it belongs to this job only).
         let links = self.listing_links(&ids, listing).await;
+        let labels = match pending_labels {
+            PendingLabels::Ready(labels) => labels,
+            PendingLabels::Reading(mut handle) => tokio::time::timeout(LABEL_GRACE, &mut handle)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten(),
+        };
         let reasons = applicant_reasons::extract_with_labels(
             listing,
             &rows,

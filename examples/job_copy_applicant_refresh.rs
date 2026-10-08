@@ -13,6 +13,20 @@ use std::{
     path::Path,
 };
 
+/// The reasons of one job, in the shape that matches the sources the dump was read with.
+fn reasons_for(
+    listing: &str,
+    records: &[Record],
+    fetched: &str,
+    every_source: bool,
+) -> applicant_reasons::Reasons {
+    if every_source {
+        applicant_reasons::extract(listing, records, fetched.to_owned())
+    } else {
+        applicant_reasons::extract_legacy(listing, records, fetched.to_owned())
+    }
+}
+
 fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
     let fetched = source["fetched_at"]
         .as_str()
@@ -20,6 +34,10 @@ fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
         .ok_or("invalid_source_timestamp")?;
     let raw = source["rows"].as_array().ok_or("missing_rows")?;
     let mut rows = BTreeMap::new();
+    // A dump read with every reason source gives the current shape. A dump read before the
+    // transfer reason and the category selects were added gives the old shape, where those
+    // sources are 未取得 (never 記録なし or 0). Rows of one dump must all be read the same way.
+    let mut every_source = None;
     for value in raw {
         let row: Record = serde_json::from_value(value.clone()).map_err(|_| "invalid_row")?;
         for field in [
@@ -28,13 +46,25 @@ fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
             "nenrei",
             "todoufuken",
             "shikuchouson",
-            "oubodouki",
-            "ouboriyuu_baitaikisai",
-            "ouboriyuu_hiaringu",
-        ] {
+        ]
+        .into_iter()
+        .chain(applicant_reasons::LEGACY_PROPERTIES)
+        {
             if !row.properties.contains_key(field) {
                 return Err("source_property_not_requested");
             }
+        }
+        let added: Vec<bool> = applicant_reasons::PROPERTIES
+            .iter()
+            .filter(|field| !applicant_reasons::LEGACY_PROPERTIES.contains(field))
+            .map(|field| row.properties.contains_key(*field))
+            .collect();
+        let all = added.iter().all(|read| *read);
+        if !all && added.iter().any(|read| *read) {
+            return Err("source_property_not_requested");
+        }
+        if *every_source.get_or_insert(all) != all {
+            return Err("mixed_source_properties");
         }
         if rows.insert(row.id.clone(), row).is_some() {
             return Err("duplicate_applicant");
@@ -131,7 +161,8 @@ fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
         // The per-version areas and the job-wide cells are hidden with the same version groups.
         let (comparison, groups) =
             job_copy_capture::dated_comparison_with_groups(&bundle, &applications)?;
-        results.push(json!({"listing_id":listing,"summary":job_copy_live::summarize_grouped(&records,&groups),"dated_comparison":comparison,"applicant_reasons":applicant_reasons::extract(&listing,&records,fetched.to_owned())}));
+        let reasons = reasons_for(&listing, &records, fetched, every_source == Some(true));
+        results.push(json!({"listing_id":listing,"summary":job_copy_live::summarize_grouped(&records,&groups),"dated_comparison":comparison,"applicant_reasons":reasons}));
     }
     moc["capturedAt"] = json!(fetched);
     moc["results"] = json!(results);
@@ -213,6 +244,91 @@ mod tests {
         .map(|key| (key.to_owned(), Value::Null))
         .collect();
         json!({"fetched_at":"2026-10-05T00:00:00Z","associations":{"30":["50"]},"rows":[{"id":"50","properties":properties}]})
+    }
+    fn with_new_sources(mut input: Value) -> Value {
+        for field in [
+            "genshokumaeshokukaranotenshokuriyuu",
+            "ouboriyuukategori_hiaringu",
+            "ouboriyuukategori_baitaikisai",
+        ] {
+            for row in input["rows"].as_array_mut().unwrap() {
+                row["properties"][field] = Value::Null;
+            }
+        }
+        input
+    }
+    fn moc() -> Value {
+        json!({"capture_bundle":{"jobs":[{"hubspotListingId":"30"}]}})
+    }
+    fn rows(input: &Value) -> Vec<Record> {
+        input["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| serde_json::from_value(row.clone()).unwrap())
+            .collect()
+    }
+    #[test]
+    fn a_dump_without_the_new_sources_gives_the_old_shape_not_zero_counts() {
+        // The dump passes the source check (the error comes later, from the empty capture bundle).
+        assert_eq!(
+            refresh(&source(), moc()).unwrap_err(),
+            "capture_schema_invalid"
+        );
+        let reasons = serde_json::to_value(reasons_for(
+            "30",
+            &rows(&source()),
+            "2026-10-05T00:00:00Z",
+            false,
+        ))
+        .unwrap();
+        assert!(reasons.get("selections").is_none());
+        assert_eq!(reasons["source_counts"].as_object().unwrap().len(), 3);
+        assert!(reasons["source_counts"]["ouboriyuukategori_hiaringu"].is_null());
+        assert_eq!(
+            (
+                reasons["total_source_values"].as_u64(),
+                reasons["missing"].as_u64()
+            ),
+            (Some(3), Some(3))
+        );
+    }
+    #[test]
+    fn a_dump_with_every_source_gives_the_new_shape() {
+        let input = with_new_sources(source());
+        assert_eq!(
+            refresh(&input, moc()).unwrap_err(),
+            "capture_schema_invalid"
+        );
+        let reasons = serde_json::to_value(reasons_for(
+            "30",
+            &rows(&input),
+            "2026-10-05T00:00:00Z",
+            true,
+        ))
+        .unwrap();
+        assert_eq!(reasons["source_counts"].as_object().unwrap().len(), 6);
+        assert_eq!(reasons["selections"], json!([]));
+    }
+    #[test]
+    fn a_dump_with_only_some_new_sources_or_mixed_rows_is_rejected() {
+        let mut input = with_new_sources(source());
+        input["rows"][0]["properties"]
+            .as_object_mut()
+            .unwrap()
+            .remove("ouboriyuukategori_baitaikisai");
+        assert_eq!(
+            refresh(&input, json!({})).unwrap_err(),
+            "source_property_not_requested"
+        );
+        let mut input = source();
+        let mut row = with_new_sources(source())["rows"][0].clone();
+        row["id"] = json!("51");
+        input["rows"].as_array_mut().unwrap().push(row);
+        assert_eq!(
+            refresh(&input, json!({})).unwrap_err(),
+            "mixed_source_properties"
+        );
     }
     #[test]
     fn missing_requested_demographics_are_not_converted_to_unknown() {

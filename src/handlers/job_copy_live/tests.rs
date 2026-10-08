@@ -509,6 +509,7 @@ enum Scenario {
     ScopeDenied,
     Redirect,
     ListingLinksDown,
+    SlowDefinitions,
 }
 #[derive(Clone)]
 struct Seen {
@@ -665,6 +666,13 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
                 Json(json!({"message":"missing scope"})),
             )
                 .into_response()
+        }
+        "/crm/v3/properties/0-421/batch/read"
+            if matches!(fixture.scenario, Scenario::SlowDefinitions) && count == 1 =>
+        {
+            // Slower than the grace the response waits for the labels.
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            json!({"results":[{"name":"ouboriyuukategori_hiaringu","options":[{"value":"kyuuyo","label":"給与"}]}]})
         }
         "/crm/v3/properties/0-421/batch/read" => json!({"status":"COMPLETE","results":[
             {"name":"ouboriyuukategori_hiaringu","type":"enumeration","options":[
@@ -845,6 +853,39 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
     let count = |path: &str| calls.iter().filter(|c| c.path == path).count();
     assert_eq!(count("/crm/v3/objects/0-421/batch/read"), 2);
     assert_eq!(count("/crm/v3/properties/0-421/batch/read"), 1);
+}
+
+#[tokio::test]
+async fn a_slow_definition_read_does_not_hold_up_the_applications() {
+    let upstream = Upstream::start(Scenario::SlowDefinitions).await;
+    let service = upstream.service();
+    let started = std::time::Instant::now();
+    let applicants = service.applicants("10", "30").await.unwrap();
+    // The response does not wait for the 1.5 s definition read (only up to LABEL_GRACE).
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(1200),
+        "{:?}",
+        started.elapsed()
+    );
+    let selection = &applicants["applicant_reasons"]["selections"][0];
+    assert_eq!(selection["value"], "kyuuyo");
+    assert!(selection["label"].is_null());
+    // A second request while the read is still running does not start another one.
+    let again = service.applicants("10", "30").await.unwrap();
+    assert!(again["applicant_reasons"]["selections"][0]["label"].is_null());
+    let definitions = |upstream: &Upstream| {
+        upstream
+            .calls()
+            .iter()
+            .filter(|c| c.path == "/crm/v3/properties/0-421/batch/read")
+            .count()
+    };
+    assert_eq!(definitions(&upstream), 1);
+    // Once it is done, later requests use the labels it read, without reading again.
+    tokio::time::sleep(std::time::Duration::from_millis(1600)).await;
+    let later = service.applicants("10", "30").await.unwrap();
+    assert_eq!(later["applicant_reasons"]["selections"][0]["label"], "給与");
+    assert_eq!(definitions(&upstream), 1);
 }
 
 #[tokio::test]

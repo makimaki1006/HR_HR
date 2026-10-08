@@ -22,7 +22,8 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   await page.goto('/app/job-copy');
   await selectJobFeature(page, 'reasons');
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
-  await expect(reasons).toContainText('応募2件・記録された理由6件');
+  await expect(reasons).toContainText('応募2件 · 確認した記録欄3つ（応募ごと）');
+  await expect(reasons).toContainText('記録欄の数（応募2件 × 3欄 = 6欄）: 記入あり2欄 · 空欄0欄 · 記録なし4欄');
   await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('版との対応は未取得');
   await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象2件');
   await expect(reasons.locator('details[open]')).toHaveCount(0);
@@ -102,5 +103,15 @@ test('reason categories: chosen and keyword counts apart, the timeline lane and 
   await page.getByRole('button', { name: '横断比較', exact: true }).click();
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
   await expect(overview.getByRole('columnheader', { name: '多い応募理由' })).toBeVisible();
-  await expect(overview).toContainText('給与 1件・勤務地 1件（n=2）');
+  await expect(overview).toContainText('給与 1件（選択1）・勤務地 1件（推定1）／n=2');
+});
+
+test('an old stored file: the overview counts texts, says the choices were not read, and the lane says so too', async ({ page }) => {
+  await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
+  await page.goto('/app/job-copy');
+  await selectJobFeature(page, 'timeline');
+  await expect(page.getByText('このデータでは分類の選択を取得していないため、数はすべて文から言葉で推定したものです（選択済みは0件ではなく未取得）')).toBeVisible();
+  await page.getByRole('button', { name: '横断比較', exact: true }).click();
+  const overview = page.getByRole('region', { name: '求人の横断比較の表' });
+  await expect(overview.locator('td.jo-reasons')).toHaveText('その他 1件（推定1）／記述n=2（応募ごとではない）（分類の選択は未取得）');
 });

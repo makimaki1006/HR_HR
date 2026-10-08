@@ -17,7 +17,7 @@ import {
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
 import { IMAGE_CHANGE_MARK } from './images';
 import { DEMO_BILLING_LABEL, DEMO_BILLING_NOTE, DUMMY_BILLING_ENABLED, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE, isDummyBilling } from './dummyBilling';
-import { REASON_CATEGORIES, MIN_SHARE_N, classifyApplicationReasons, reasonsByPeriod, shareText, topReasons } from './reasonCategories';
+import { REASON_CATEGORIES, MIN_SHARE_N, basisText, classifyApplicationReasons, reasonsByPeriod, shareText, topReasons } from './reasonCategories';
 import type { ReasonTally } from './reasonCategories';
 import './timeline.css';
 
@@ -417,17 +417,19 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
 
       <Lane title="応募理由" source="応募日ごとの分類（選択済みと推定）">
         {!reasonClasses ? <p className="jt-empty">応募理由は未取得です（0件という意味ではありません）</p>
-          : !reasonClasses.applications.length ? <p className="jt-empty">応募理由の記録はありません</p>
+          : !reasonClasses.applications.length ? <p className="jt-empty">{job.applicantReasons?.selections === null ? '応募理由の文の記録はありません（分類の選択はこのデータでは未取得です。0件という意味ではありません）' : '応募理由の記録はありません'}</p>
             : rows.filter(row => !row.afterCounts).map(row => {
               const result = reasonOf(row.key);
               if (!result || result.n === 0) return null;
               const top = topReasons(result, 1)[0];
               return <div key={row.key} className={`jt-reason${row.kind !== 'period' ? ' jt-reason-zone' : ''}`} style={span(range, row.start, row.end ?? addDays(asOf, 1))}
                 title={`${row.label}: ${reasonTallyText(result, reasonUnit)}`}>
-                <span>n={result.n}{top ? ` ${top.category}${String(top.total)}件` : ''}</span></div>;
+                <span>n={result.n}{top ? ` ${top.category}${String(top.total)}件（${basisText(top)}）` : ''}</span></div>;
             })}
       </Lane>
-      {reasonPeriods && (reasonPeriods.undated > 0 || reasonPeriods.outside > 0) && <div className="jt-lane-tools">
+      {reasonPeriods && (reasonPeriods.undated > 0 || reasonPeriods.outside > 0 || job.applicantReasons?.truncated === true || job.applicantReasons?.selections === null) && <div className="jt-lane-tools">
+        {job.applicantReasons?.selections === null && reasonClasses?.applications.length ? <span>このデータでは分類の選択を取得していないため、数はすべて文から言葉で推定したものです（選択済みは0件ではなく未取得）</span> : null}
+        {job.applicantReasons?.truncated === true && <span>記述が多く一部しか読み込んでいないため、期間ごとの応募理由の数は実際より少ないことがあります</span>}
         {reasonPeriods.undated > 0 && <span>応募日が分からない応募理由 {reasonPeriods.undated}件 は段と表に入れていません</span>}
         {reasonPeriods.outside > 0 && <span>表のどの期間にも入らない日付の応募理由 {reasonPeriods.outside}件 は段と表に入れていません</span>}
       </div>}
@@ -485,7 +487,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
     </section>
     {reasonClasses && rows.length > 0 && <section className="jt-periods jt-reasons" aria-label="期間ごとの応募理由">
       <h3>期間ごとの応募理由</h3>
-      <p className="jc-muted">期間比較表と同じ期間（取得日の間を含む）で、応募日ごとに応募理由の分類を数えています。nは応募理由の記録がある{reasonUnit}の件数です。1件が複数の分類に入ることがあります。nが{MIN_SHARE_N}件に満たない期間は割合を出しません。</p>
+      <p className="jc-muted">期間比較表と同じ期間（取得日の間を含む）で、応募日ごとに応募理由の分類を数えています。nは応募理由の記録がある{reasonUnit}の件数です。分類ごとの数の後ろの「選択」はHubSpotで分類が選ばれた件数、「推定」は文から言葉で推定した件数です。1件が複数の分類に入ることがあります。nが{MIN_SHARE_N}件に満たない期間は割合を出しません。</p>
       <div className="jt-table-scroll" role="region" aria-label="期間ごとの応募理由の数値" tabIndex={0}><table>
         <thead><tr><th scope="col">期間</th><th scope="col">n</th><th scope="col">選択済み・推定・分類できない</th>{REASON_CATEGORIES.map(category => <th scope="col" key={category}>{category}</th>)}</tr></thead>
         <tbody>{rows.map(row => {
@@ -495,7 +497,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
             {!result ? <td colSpan={2 + REASON_CATEGORIES.length}>応募集計の取得後に始まった期間</td> : <>
               <td>n={result.n}</td>
               <td>{result.n ? `選択済み${String(result.selectedN)}件・推定${String(result.estimatedN)}件・分類できない${String(result.unclassified)}件` : '記録なし'}</td>
-              {result.counts.map(count => { const share = shareText(count.total, result.n); return <td key={count.category}>{result.n ? `${String(count.total)}件${share ? `（${share}）` : ''}` : '—'}</td>; })}
+              {result.counts.map(count => { const share = shareText(count.total, result.n); const basis = basisText(count); return <td key={count.category}>{result.n ? `${String(count.total)}件${share ? `（${share}）` : ''}${basis ? ` ${basis}` : ''}` : '—'}</td>; })}
             </>}
           </tr>;
         })}</tbody>

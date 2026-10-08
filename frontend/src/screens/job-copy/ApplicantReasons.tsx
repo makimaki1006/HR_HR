@@ -19,7 +19,8 @@ export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; b
   return <section className="ar-reasons" aria-label="応募理由の記述比較"><h2>応募理由・志望動機の記述</h2>
     <AssumptionsNote summary="求人文面の版と、HubSpotに記録された応募理由を並べて確認します。" items={['応募者の気持ちを推測する評価ではありません。', 'ヒアリングの記録も含むため、すべてが応募者本人の言葉とは限りません。', '件数は複数の記録欄の記述の数で、応募人数や回答率とは異なります。']} />
     {!collection?.available || !cohorts ? <p className="ar-unavailable" role="status">応募理由の自由記述は未取得です。理由がない応募や0件とは判定していません。</p> : <>
-      <p>取得対象: 応募{collection.totalApplicants}件・記録された理由{collection.totalSourceValues}件 · 未記録{collection.missing}件 · 空欄{collection.blank}件</p>
+      <p>取得対象: 応募{collection.totalApplicants}件 · 確認した記録欄{Object.keys(collection.sourceCounts).length}つ（応募ごと）</p>
+      <p>記録欄の数（応募{collection.totalApplicants}件 × {Object.keys(collection.sourceCounts).length}欄 = {collection.totalSourceValues}欄）: 記入あり{Object.values(collection.sourceCounts).reduce((sum, counts) => sum + counts.nonblank, 0)}欄 · 空欄{collection.blank}欄 · 記録なし{collection.missing}欄</p>
       <p>理由データの取得日時: {formatDateTimeJst(collection.fetchedAt, collection.fetchedAt ?? '不明')}</p>
       <ReasonCategorySummary collection={collection} />
       <h3>版ごとの記述</h3>

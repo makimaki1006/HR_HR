@@ -400,14 +400,10 @@ pub fn extract_with_labels(
                 continue;
             };
             let text = raw.trim();
-            if text.is_empty() {
-                counts.blank += 1;
-                reasons.blank += 1;
-                continue;
-            }
-            counts.nonblank += 1;
             if CATEGORY_PROPERTIES.contains(&property) {
-                // A multiple-choice value is written "a;b"; each chosen value is one selection.
+                // A multiple-choice value is written "a;b"; each chosen value is one selection. A
+                // value with nothing but separators (";") chose nothing and counts as blank, so
+                // nonblank always equals the applications that have a selection.
                 let mut chosen: Vec<String> = text
                     .split(';')
                     .map(str::trim)
@@ -421,6 +417,12 @@ pub fn extract_with_labels(
                     .collect();
                 chosen.sort();
                 chosen.dedup();
+                if chosen.is_empty() {
+                    counts.blank += 1;
+                    reasons.blank += 1;
+                    continue;
+                }
+                counts.nonblank += 1;
                 for value in chosen {
                     let label = labels
                         .and_then(|labels| labels.get(property))
@@ -436,6 +438,12 @@ pub fn extract_with_labels(
                 }
                 continue;
             }
+            if text.is_empty() {
+                counts.blank += 1;
+                reasons.blank += 1;
+                continue;
+            }
+            counts.nonblank += 1;
             if reasons.items.len() == MAX_ITEMS {
                 reasons.truncated = true;
                 continue;
@@ -459,6 +467,27 @@ pub fn extract_with_labels(
         }
     }
     reasons.selections = Some(selections);
+    reasons
+}
+
+/// The shape of a snapshot written before 2026-10-08, for rows read with only the three old
+/// sources: no applicant keys, no selections, three source counts. The sources that were not read
+/// stay out (未取得), so they are never shown as 記録なし or 0.
+pub fn extract_legacy(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
+    let mut reasons = extract(listing, rows, fetched_at);
+    reasons
+        .source_counts
+        .retain(|key, _| LEGACY_PROPERTIES.contains(&key.as_str()));
+    reasons.missing = reasons.source_counts.values().map(|c| c.missing).sum();
+    reasons.blank = reasons.source_counts.values().map(|c| c.blank).sum();
+    reasons.total_source_values = reasons.total_applicants * LEGACY_PROPERTIES.len();
+    reasons
+        .items
+        .retain(|item| LEGACY_PROPERTIES.contains(&item.source_property.as_str()));
+    for item in &mut reasons.items {
+        item.applicant = None;
+    }
+    reasons.selections = None;
     reasons
 }
 
@@ -706,6 +735,51 @@ mod tests {
         )];
         let reasons = extract_rows(&rows);
         assert_eq!(reasons.items[0].text, "上司の＊＊さんと合わず、＊＊");
+    }
+    #[test]
+    fn a_select_value_of_only_separators_is_blank_not_a_selection() {
+        let rows = [
+            row("50", &[("ouboriyuukategori_hiaringu", Some(";"))]),
+            row("51", &[("ouboriyuukategori_hiaringu", Some(" ; ; "))]),
+            row("52", &[("ouboriyuukategori_hiaringu", Some("給与;"))]),
+        ];
+        let reasons = extract_rows(&rows);
+        let c = &reasons.source_counts["ouboriyuukategori_hiaringu"];
+        assert_eq!((c.missing, c.blank, c.nonblank), (0, 2, 1));
+        let selections = reasons.selections.unwrap();
+        assert_eq!(selections.len(), 1);
+        assert_eq!(selections[0].value, "給与");
+    }
+    #[test]
+    fn legacy_extract_keeps_only_the_three_old_sources() {
+        let rows = [
+            row(
+                "50",
+                &[
+                    ("oubodouki", Some("家から近い")),
+                    ("ouboriyuu_baitaikisai", Some(" ")),
+                    ("ouboriyuu_hiaringu", None),
+                ],
+            ),
+            row("51", &[("oubodouki", None)]),
+        ];
+        let reasons = extract_legacy("30", &rows, "2026-10-05T00:00:00Z".into());
+        assert_eq!(
+            reasons.source_counts.keys().collect::<Vec<_>>(),
+            ["oubodouki", "ouboriyuu_baitaikisai", "ouboriyuu_hiaringu"]
+        );
+        assert_eq!(
+            (reasons.total_source_values, reasons.missing, reasons.blank),
+            (6, 4, 1)
+        );
+        assert!(reasons.selections.is_none());
+        assert_eq!(reasons.items.len(), 1);
+        assert!(reasons.items[0].applicant.is_none());
+        let json = serde_json::to_value(&reasons).unwrap();
+        assert!(json.get("selections").is_none());
+        assert!(!json
+            .to_string()
+            .contains("genshokumaeshokukaranotenshokuriyuu"));
     }
     #[test]
     fn verified_empty_read_differs_from_absent_optional_snapshot_field() {
