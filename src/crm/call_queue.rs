@@ -3,22 +3,26 @@
 //! 設計: `claudedocs/CRM_CALL_QUEUE_DESIGN_2026-10-04.md`、確定条件: `claudedocs/REACT_HANDOVER_2026-10-05.md` §4.5。
 //!
 //! ## キューの定義 (確定条件)
-//! - パイプライン `753186575` の Deal。**未済 (1095387442) は全部**。
-//!   それ以外はアポ日確定・架電禁止・商談実施処理を除く全ステージを、次回架電日 `bpo_13` が今日 (JST) 以前のときだけ出す
+//! - 選んだパイプライン (`pipeline`。既定は bpo_リクロジ `753186575`) の Deal。選べるパイプラインとステージごとの決まりは
+//!   `queue_pipelines.rs` の表 1 箇所 (ユーザー決定 2026-10-08)。表に無いパイプラインは 400 `invalid_param`。
+//!   決まりが `all` のステージ (未済など) は全部、`due` のステージは次回架電日 `bpo_13` が今日 (JST) 以前のときだけ、
+//!   `exclude` (アポ日確定・架電禁止など) と表に無いステージは出さない。表に無いステージの数は `partial.unknown_stages`
+//! - `stage` は選んだパイプラインの `all` / `due` のステージだけ受け付ける (それ以外は 400)。指定なし = その全部
 //! - 架電禁止理由 `bpo_3`・ブロック理由 `bpo_4` が入っている Deal は外す。不通時チェック `bpo_10` は残して印を付ける
 //! - 電話番号がどこにも無い Deal は外す (`bpo_29` → 担当者 phone → 担当者 mobilephone → 会社 phone)
 //! - BPO は自分が担当の Deal だけ。管理者の既定は全員分 (`owner=all`)。担当なしは管理者だけ
 //!
 //! ## 取得の組み立て (行ごとに API を呼ばない)
 //! 1 ページ = Search 1 + 関連 2 (`deal→contact` / `deal→company`) + 読み取り 2 (contact / company) = 5 回
-//! (件数に依存しない。ステージ名のキャッシュが冷えているときだけ +1。BPO の owner 対応が未取得のときは +1)。
+//! (件数に依存しない。ステージ名のキャッシュが冷えているときだけ +1 (行が 0 件でも、表に無いステージを数えるために読む)。BPO の owner 対応が未取得のときは +1)。
 //! 複数の段階にまたがる並びの先頭ページだけ、辿らなかった段階の件数を数える Search (limit 1) を段階ごとに足す (最大 +2。総数の表示用)。
 //! 1 Deal につき読む Contact は 1 人 (主 → なければ最初の 1 人) なので、読み取りは 50 件 (limit 上限) で 1 バッチに収まる。
 //!
 //! ## 並び (`sort`) と「段階」
 //! HubSpot の Search は 1 回に 1 つのプロパティでしか並べられず、空の値の並び位置も保証されない。
 //! そこで並びを複数の「段階」(それぞれ別の Search) に分け、段階を順に辿る。cursor は (段階, after) を署名して持つ。
-//! 例: 既定 = ① 次回架電日が今日以前 (次回日の古い順) → ② 未済で未架電 (最終架電日なし) → ③ 未済で最終架電日の古い順。
+//! 例: 既定 = ① 次回架電日が今日以前 (次回日の古い順) → ② 未済 (`all` のステージ) で未架電 (最終架電日なし) → ③ 同じく最終架電日の古い順。
+//! `all` のステージが無いパイプライン (商談済リードなど) は ① だけになる。
 //! 段階の境目でページが `limit` に満たなくても、`next_cursor` がある限り続きがある。
 //!
 //! ## 日付の範囲 (PR-2)
@@ -31,7 +35,8 @@
 //!
 //! ## Search の上限への収まり
 //! HubSpot Search は OR グループ 5・グループあたり 6 フィルタ・全体 18 まで。各 Search は
-//! OR グループ最大 2、グループあたり最大 6、全体最大 12。`pipeline` の絞り込みはグループあたり 6 に収めるため
+//! OR グループ最大 2、グループあたり最大 6、全体最大 12。ステージは IN (`all` のステージが 1 つだけのグループは EQ) の
+//! 1 フィルタにまとめる (選んだステージの数でフィルタ数は変わらない)。`pipeline` の絞り込みはグループあたり 6 に収めるため
 //! Search には入れず、返ってきた Deal の `pipeline` を後段で確認する (ステージ ID は HubSpot 内で一意)。
 //! 範囲の指定でグループが 6 に収まらないときは、架電禁止理由 `bpo_3`・ブロック理由 `bpo_4` の NOT_HAS_PROPERTY を
 //! Search に入れず、返ってきた行を後段で外す (外した件数は `partial.excluded.stop_reason`。ページが `limit` に満たないことがある)。
@@ -62,40 +67,20 @@ use sha2::{Digest, Sha256};
 use tower_sessions::Session;
 use ts_rs::TS;
 
+use super::queue_pipelines::{
+    default_pipeline, find_pipeline, QueuePipeline, StageRule, QUEUE_PIPELINES,
+};
 use super::rbac::{self, CrmRole};
 use super::routes::{
     error_json, hubspot_error_response, is_valid_id, timeout_response, CrmCtx, CrmErrorResponse,
     CRM_REQUEST_DEADLINE,
 };
+use crate::handlers::crm_metadata::CrmPipeline;
 use crate::hubspot::deep_link::{hubspot_portal_id, record_url};
 use crate::hubspot::{
     AssociationRef, HubSpotClient, HubSpotError, HubSpotRecord, OwnerRef, RecordType,
 };
 use crate::AppState;
-
-/// 架電キューのパイプライン (bpo_リクロジ)
-pub const PIPELINE_ID: &str = "753186575";
-/// 未済 (架電待ちの在庫)。キューに全部出す
-pub const STAGE_UNPROCESSED: &str = "1095387442";
-/// 次回架電日が今日以前のときだけ出すステージ (15 個)。アポ日確定 1095457875・架電禁止 1095457878・
-/// 商談実施処理 1325086466 は含めない (ユーザー確認 2026-10-05)
-pub const STAGES_WHEN_DUE: [&str; 15] = [
-    "1095387443", // 不通
-    "1095387444", // 受付ブロック
-    "1095387445", // 不在
-    "1274330477", // 番号検索依頼中
-    "1095387446", // 担当者ブロック
-    "1409897995", // 成果報酬のみ
-    "1095387447", // ニーズなし/無料のみ
-    "1325087323", // ニーズなし/有料あり
-    "1325087324", // ニーズあり/無料のみ
-    "1095387448", // ニーズあり/有料あり
-    "1448079987", // SV依頼案件
-    "1319310149", // 日程確保
-    "1095457877", // 案件差戻
-    "1330563334", // 商談未実施処理
-    "1369739056", // リスト精査前
-];
 
 pub const DEFAULT_LIMIT: u32 = 25;
 pub const MAX_LIMIT: u32 = 50;
@@ -124,10 +109,6 @@ pub(super) const DEAL_PROPERTIES: &[&str] = &[
 const CONTACT_PROPS: &[&str] = &["firstname", "lastname", "phone", "mobilephone", "jobtitle"];
 const COMPANY_PROPS: &[&str] = &["name", "phone"];
 
-fn is_allowed_stage(id: &str) -> bool {
-    id == STAGE_UNPROCESSED || STAGES_WHEN_DUE.contains(&id)
-}
-
 // ---------------------------------------------------------------------------
 // 状態 (owner / ステージ名のキャッシュ、cursor の署名鍵、時計)
 // ---------------------------------------------------------------------------
@@ -139,8 +120,8 @@ pub struct CallQueueState {
     fixed_now: Option<DateTime<Utc>>,
     /// メール (小文字) → (取得時刻, owner id)。見つからなかった結果も短く覚える
     owners: Mutex<HashMap<String, (Instant, Option<OwnerRef>)>>,
-    /// ステージ ID → 表示名 (キューのパイプラインだけ)
-    labels: tokio::sync::Mutex<Option<(Instant, HashMap<String, String>)>>,
+    /// HubSpot の Deal パイプライン定義 (全パイプライン。表示名と、表に無いステージの判定に使う)
+    labels: tokio::sync::Mutex<Option<(Instant, Arc<Vec<CrmPipeline>>)>>,
     /// 管理者向けの担当者一覧 (`GET /api/crm/owners`)
     pub(super) owner_list: super::owners::OwnerListCache,
 }
@@ -214,11 +195,11 @@ impl CallQueueState {
         Ok(self.owner_info_for(client, email).await?.map(|o| o.id))
     }
 
-    /// ステージ ID → 表示名 (5 分キャッシュ。同時に冷えた要求は 1 回の取得にまとめる)
-    pub(super) async fn stage_labels(
+    /// HubSpot の Deal パイプライン定義 (5 分キャッシュ。同時に冷えた要求は 1 回の取得にまとめる)
+    pub(super) async fn pipeline_defs(
         &self,
         client: &HubSpotClient,
-    ) -> Result<HashMap<String, String>, HubSpotError> {
+    ) -> Result<Arc<Vec<CrmPipeline>>, HubSpotError> {
         let mut slot = self.labels.lock().await;
         if let Some((at, m)) = slot.as_ref() {
             if at.elapsed() < LABELS_TTL {
@@ -226,16 +207,37 @@ impl CallQueueState {
             }
         }
         let v = client.deal_pipelines().await?;
-        let pipelines = crate::handlers::crm_metadata::parse_pipelines(&v)?;
-        let map: HashMap<String, String> = pipelines
-            .into_iter()
-            .filter(|p| p.id == PIPELINE_ID)
-            .flat_map(|p| p.stages)
-            .map(|s| (s.id, s.label))
-            .collect();
-        *slot = Some((Instant::now(), map.clone()));
-        Ok(map)
+        let pipelines = Arc::new(crate::handlers::crm_metadata::parse_pipelines(&v)?);
+        *slot = Some((Instant::now(), pipelines.clone()));
+        Ok(pipelines)
     }
+
+    /// ステージ ID → 表示名 (全パイプライン。ステージ ID は HubSpot 内で一意)。[`Self::pipeline_defs`] のキャッシュを使う
+    pub(super) async fn stage_labels(
+        &self,
+        client: &HubSpotClient,
+    ) -> Result<HashMap<String, String>, HubSpotError> {
+        Ok(stage_label_map(&self.pipeline_defs(client).await?))
+    }
+}
+
+fn stage_label_map(defs: &[CrmPipeline]) -> HashMap<String, String> {
+    defs.iter()
+        .flat_map(|p| p.stages.iter())
+        .map(|s| (s.id.clone(), s.label.clone()))
+        .collect()
+}
+
+/// HubSpot のパイプラインにあって、表 (`queue_pipelines.rs`) に無いステージ (表示順)
+fn unknown_stages<'a>(
+    defs: &'a [CrmPipeline],
+    pipeline: &QueuePipeline,
+) -> Vec<&'a crate::handlers::crm_metadata::CrmStage> {
+    defs.iter()
+        .filter(|p| p.id == pipeline.id)
+        .flat_map(|p| p.stages.iter())
+        .filter(|s| pipeline.rule(&s.id).is_none())
+        .collect()
 }
 
 impl Default for CallQueueState {
@@ -306,6 +308,8 @@ pub struct CallQueueItem {
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct CallQueueScope {
+    /// 実際に使ったパイプライン ID (指定なしは既定の bpo_リクロジ)
+    pub pipeline: String,
     /// `all` / `me` / `unassigned` / owner id
     pub owner: String,
     /// `admin` (管理者。既定が全員分) / `own` (それ以外の全員。既定が自分。どちらも全件を読める)
@@ -347,6 +351,9 @@ pub struct CallQueuePartial {
     /// 取得に失敗した部分 (`associations` / `contacts` / `companies` / `stage_labels`)。無ければ空
     pub failed: Vec<String>,
     pub excluded: CallQueueExcluded,
+    /// 選んだパイプラインにあって、架電キューの表に無いステージの数 (後から HubSpot に追加されたもの)。
+    /// 架電対象外として扱い、検索しない。ステージ名を読めなかったときは 0
+    pub unknown_stages: u32,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -362,6 +369,38 @@ pub struct CallQueueResponse {
     pub scope: CallQueueScope,
     pub partial: CallQueuePartial,
     pub generated_at: String,
+}
+
+/// `GET /api/crm/call-queue/pipelines` のステージ 1 つ
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct CallQueueStageOption {
+    pub id: String,
+    /// HubSpot の表示名。読めなければ null
+    pub label: Option<String>,
+    /// `all` (常に出す) / `due` (次回架電日が今日以前のときだけ) / `exclude` (出さない。表に無いステージも)
+    pub rule: String,
+}
+
+/// `GET /api/crm/call-queue/pipelines` のパイプライン 1 つ
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct CallQueuePipelineOption {
+    pub id: String,
+    /// HubSpot の表示名。読めなければ null (画面は表の呼び名を使う)
+    pub label: Option<String>,
+    /// 表にあるステージ (表の順)
+    pub stages: Vec<CallQueueStageOption>,
+    /// HubSpot にあって表に無いステージ (架電対象外。rule は `exclude`)
+    pub unknown_stages: Vec<CallQueueStageOption>,
+}
+
+/// `GET /api/crm/call-queue/pipelines` (架電キューで選べるパイプラインとステージ名)
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct CallQueuePipelinesResponse {
+    /// 既定のパイプライン ID
+    pub default_pipeline: String,
+    pub pipelines: Vec<CallQueuePipelineOption>,
+    /// HubSpot からステージ名を読めたか。false なら label はすべて null で、表に無いステージも分からない
+    pub labels_available: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -427,10 +466,11 @@ enum OwnerParam {
 
 #[derive(Debug, Clone)]
 struct Params {
+    pipeline: &'static QueuePipeline,
     limit: u32,
     cursor: Option<String>,
     q: Option<String>,
-    /// 昇順・重複なし。空 = 許可ステージ全部
+    /// 昇順・重複なし。選んだパイプラインの `all` / `due` のステージだけ。空 = その全部
     stages: Vec<String>,
     owner: OwnerParam,
     due: Due,
@@ -477,6 +517,7 @@ fn parse_date(v: &str) -> Option<NaiveDate> {
 /// 不正なパラメータ名を `Err` で返す
 fn parse_params(raw: &str) -> Result<Params, &'static str> {
     let url = reqwest::Url::parse(&format!("http://x/?{raw}")).map_err(|_| "query")?;
+    let mut pipeline: Option<&'static QueuePipeline> = None;
     let mut limit: Option<u32> = None;
     let mut cursor = None;
     let mut q = None;
@@ -495,6 +536,10 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     };
     for (k, v) in url.query_pairs() {
         match k.as_ref() {
+            "pipeline" => {
+                once("pipeline")?;
+                pipeline = Some(find_pipeline(&v).ok_or("pipeline")?);
+            }
             "limit" => {
                 once("limit")?;
                 let n: u32 = v.parse().map_err(|_| "limit")?;
@@ -520,12 +565,8 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
                     q = Some(t.to_string());
                 }
             }
-            "stage" => {
-                if !is_allowed_stage(&v) {
-                    return Err("stage");
-                }
-                stages.push(v.into_owned());
-            }
+            // 選んだパイプラインのステージかは、全部読んでから確かめる (`pipeline` が後ろにあってもよい)
+            "stage" => stages.push(v.into_owned()),
             "owner" => {
                 once("owner")?;
                 owner = Some(match v.as_ref() {
@@ -572,9 +613,14 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
             return Err("last_to");
         }
     }
+    let pipeline = pipeline.unwrap_or_else(default_pipeline);
+    if stages.iter().any(|s| !pipeline.is_eligible(s)) {
+        return Err("stage");
+    }
     stages.sort();
     stages.dedup();
     Ok(Params {
+        pipeline,
         limit: limit.unwrap_or(DEFAULT_LIMIT),
         cursor,
         q,
@@ -685,11 +731,11 @@ fn next_filters(lo: Option<i64>, hi: Option<i64>) -> Option<Vec<Value>> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scope {
-    /// 許可ステージ (未済を含む) で次回架電日が今日以前
+    /// 選んだステージ (`all` を含む) で次回架電日が今日以前
     Due,
-    /// 未済で、次回架電日が無い or 明日以降 (= Due に入らない未済)
-    NotDueUnprocessed,
-    /// キュー全体 (未済 全部 + 許可ステージで次回架電日が今日以前)
+    /// `all` のステージ (未済など) で、次回架電日が無い or 明日以降 (= Due に入らないもの)
+    NotDueAlways,
+    /// キュー全体 (`all` のステージは全部 + `due` のステージで次回架電日が今日以前)
     Queue,
 }
 
@@ -724,12 +770,12 @@ fn phases(sort: SortKey, due: Due, last_range: bool) -> Vec<Phase> {
     let all = match (sort, due) {
         (SortKey::Default | SortKey::NextCallAsc, Due::All) => {
             let mut v = vec![p(Scope::Due, LastCall::Any, "bpo_13", false)];
-            v.extend(tail(Scope::NotDueUnprocessed));
+            v.extend(tail(Scope::NotDueAlways));
             v
         }
         (SortKey::NextCallDesc, Due::All) => {
             let mut v = vec![p(Scope::Due, LastCall::Any, "bpo_13", true)];
-            v.extend(tail(Scope::NotDueUnprocessed));
+            v.extend(tail(Scope::NotDueAlways));
             v
         }
         (SortKey::Default | SortKey::NextCallAsc, Due::Today) => {
@@ -762,6 +808,14 @@ fn f_eq(prop: &str, v: &str) -> Value {
 fn f_in(prop: &str, vs: &[&str]) -> Value {
     json!({"propertyName": prop, "operator": "IN", "values": vs})
 }
+/// `all` のステージの絞り込み (1 つなら EQ、複数なら IN。どちらもフィルタ 1 つ)。
+/// 次回日の条件が付くグループは従来どおり常に IN
+fn f_stages(vs: &[&str]) -> Value {
+    match vs {
+        [one] => f_eq("dealstage", one),
+        _ => f_in("dealstage", vs),
+    }
+}
 fn f_op(prop: &str, op: &str, v: &str) -> Value {
     json!({"propertyName": prop, "operator": op, "value": v})
 }
@@ -775,17 +829,23 @@ fn f_has(prop: &str, has: bool) -> Value {
 /// (`execute` の後段確認。外した件数は `partial.excluded.stop_reason`)。
 fn filter_groups(
     phase: Phase,
+    pipeline: &QueuePipeline,
     stages: &[&str],
     owner: Option<&Value>,
     today_ms: i64,
     r: &Ranges,
 ) -> Vec<Value> {
     let today = today_ms.to_string();
-    let has_unp = stages.contains(&STAGE_UNPROCESSED);
-    let others: Vec<&str> = stages
+    // 選んだステージを決まりで分ける (表に無い・`exclude` は parse_params で弾いている)
+    let always: Vec<&str> = stages
         .iter()
         .copied()
-        .filter(|s| *s != STAGE_UNPROCESSED)
+        .filter(|s| pipeline.rule(s) == Some(StageRule::All))
+        .collect();
+    let when_due: Vec<&str> = stages
+        .iter()
+        .copied()
+        .filter(|s| pipeline.rule(s) == Some(StageRule::Due))
         .collect();
     let finish = |mut fs: Vec<Value>| -> Value {
         if r.has_last() {
@@ -823,44 +883,42 @@ fn filter_groups(
     let mut groups = Vec::new();
     match phase.scope {
         Scope::Due => {
-            if !stages.is_empty() {
-                groups.extend(due_group(f_in("dealstage", stages)));
+            let both: Vec<&str> = always.iter().chain(&when_due).copied().collect();
+            if !both.is_empty() {
+                groups.extend(due_group(f_in("dealstage", &both)));
             }
         }
-        Scope::NotDueUnprocessed => {
-            if has_unp {
+        Scope::NotDueAlways => {
+            if !always.is_empty() {
                 if r.has_next() {
                     // 範囲を指定すると次回日が入っていることが前提。明日以降の部分だけ残る
                     let lo = r
                         .next_from
                         .map_or(today_ms + DAY_MS, |f| f.max(today_ms + DAY_MS));
                     if let Some(nf) = next_filters(Some(lo), r.next_to) {
-                        let mut fs = vec![f_eq("dealstage", STAGE_UNPROCESSED)];
+                        let mut fs = vec![f_stages(&always)];
                         fs.extend(nf);
                         groups.push(finish(fs));
                     }
                 } else {
+                    groups.push(finish(vec![f_stages(&always), f_has("bpo_13", false)]));
                     groups.push(finish(vec![
-                        f_eq("dealstage", STAGE_UNPROCESSED),
-                        f_has("bpo_13", false),
-                    ]));
-                    groups.push(finish(vec![
-                        f_eq("dealstage", STAGE_UNPROCESSED),
+                        f_stages(&always),
                         f_op("bpo_13", "GT", &today),
                     ]));
                 }
             }
         }
         Scope::Queue => {
-            if has_unp {
+            if !always.is_empty() {
                 if let Some(nf) = next_filters(r.next_from, r.next_to) {
-                    let mut fs = vec![f_eq("dealstage", STAGE_UNPROCESSED)];
+                    let mut fs = vec![f_stages(&always)];
                     fs.extend(nf);
                     groups.push(finish(fs));
                 }
             }
-            if !others.is_empty() {
-                groups.extend(due_group(f_in("dealstage", &others)));
+            if !when_due.is_empty() {
+                groups.extend(due_group(f_in("dealstage", &when_due)));
             }
         }
     }
@@ -962,7 +1020,8 @@ fn condition_hash(
     today_ms: i64,
 ) -> String {
     let parts = [
-        "v2".to_string(),
+        "v3".to_string(),
+        params.pipeline.id.to_string(),
         email.trim().to_lowercase(),
         role.as_str().to_string(),
         params.limit.to_string(),
@@ -1309,17 +1368,18 @@ fn date_prop_ms(v: &str) -> Option<i64> {
 
 /// この Deal が `owner_id` (HubSpot owner) の架電キューに出る条件を満たすか。
 ///
-/// 検索 (`filter_groups`) と同じ条件を 1 件の Deal に当てる: パイプライン・担当者・アーカイブでない・
-/// 架電禁止理由 `bpo_3` / ブロック理由 `bpo_4` が空・ステージ (未済は常に、他の許可ステージは次回架電日が今日以前)。
+/// 検索 (`filter_groups`) と同じ条件を 1 件の Deal に当てる: 架電キューで選べるパイプライン (どれでもよい)・担当者・
+/// アーカイブでない・架電禁止理由 `bpo_3` / ブロック理由 `bpo_4` が空・ステージ (決まりが `all` なら常に、
+/// `due` なら次回架電日が今日以前。`exclude` と表に無いステージは外す)。
 /// **電話番号の有無は見ない** (Contact / Company の追加読み取りが要るため。電話番号が無い自分の担当 Deal は
 /// キューには出ないが、個別取得はできる)。
 pub(super) fn deal_in_queue(deal: &HubSpotRecord, owner_id: &str, today_ms: i64) -> bool {
     if deal.archived || owner_id.trim().is_empty() {
         return false;
     }
-    if nz(deal, "pipeline").as_deref() != Some(PIPELINE_ID) {
+    let Some(pipeline) = nz(deal, "pipeline").and_then(|p| find_pipeline(&p)) else {
         return false;
-    }
+    };
     if nz(deal, "hubspot_owner_id").as_deref() != Some(owner_id.trim()) {
         return false;
     }
@@ -1329,11 +1389,10 @@ pub(super) fn deal_in_queue(deal: &HubSpotRecord, owner_id: &str, today_ms: i64)
     let Some(stage) = nz(deal, "dealstage") else {
         return false;
     };
-    if stage == STAGE_UNPROCESSED {
-        return true;
-    }
-    if !STAGES_WHEN_DUE.contains(&stage.as_str()) {
-        return false;
+    match pipeline.rule(&stage) {
+        Some(StageRule::All) => return true,
+        Some(StageRule::Due) => {}
+        Some(StageRule::Exclude) | None => return false,
     }
     nz(deal, "bpo_13")
         .as_deref()
@@ -1452,10 +1511,9 @@ async fn execute(
             .unwrap_or_default()
     };
     // 段階 (ステージの絞り込み後に検索するものがあるものだけ)
+    let pipeline = params.pipeline;
     let selected: Vec<&str> = if params.stages.is_empty() {
-        std::iter::once(STAGE_UNPROCESSED)
-            .chain(STAGES_WHEN_DUE)
-            .collect()
+        pipeline.eligible_stages()
     } else {
         params.stages.iter().map(String::as_str).collect()
     };
@@ -1465,7 +1523,14 @@ async fn execute(
         .map(|p| {
             (
                 p,
-                filter_groups(p, &selected, owner_filter.as_ref(), today_ms, &ranges),
+                filter_groups(
+                    p,
+                    pipeline,
+                    &selected,
+                    owner_filter.as_ref(),
+                    today_ms,
+                    &ranges,
+                ),
             )
         })
         .filter(|(_, g)| !g.is_empty())
@@ -1575,8 +1640,8 @@ async fn execute(
     let mut deals: Vec<HubSpotRecord> = Vec::new();
     for d in page_deals {
         let in_scope = !d.archived
-            && nz(&d, "pipeline").as_deref() == Some(PIPELINE_ID)
-            && nz(&d, "dealstage").is_some_and(|s| is_allowed_stage(&s));
+            && nz(&d, "pipeline").as_deref() == Some(pipeline.id)
+            && nz(&d, "dealstage").is_some_and(|s| pipeline.is_eligible(&s));
         if !in_scope {
             partial.excluded.out_of_scope += 1;
         } else if nz(&d, "bpo_3").is_some() || nz(&d, "bpo_4").is_some() {
@@ -1588,20 +1653,29 @@ async fn execute(
 
     let mut items = Vec::with_capacity(deals.len());
     // 残りの段階の件数は、関連の読み取りと並べて数える (Search の間隔待ちを読み取りの時間に重ねる)
+    // パイプライン定義 (ステージ名と、表に無いステージの数) は行が無いときも読む (5 分キャッシュ)
     let total_all: Option<u64>;
     if deals.is_empty() {
-        total_all = count_rest.await;
+        let (counted, defs) = tokio::join!(count_rest, ctx.queue.pipeline_defs(client));
+        total_all = counted;
+        // 行が無いときは失敗を partial に出さない (ステージ名を出す行が無い)。表に無いステージの数だけ分からない
+        if let Ok(defs) = defs {
+            partial.unknown_stages = unknown_stages(&defs, pipeline).len() as u32;
+        }
     } else {
         let deal_ids: Vec<String> = deals.iter().map(|d| d.id.clone()).collect();
         let mut failed: Vec<String> = Vec::new();
-        let (rel, labels, counted) = tokio::join!(
+        let (rel, defs, counted) = tokio::join!(
             load_related(client, &deal_ids, &mut failed),
-            ctx.queue.stage_labels(client),
+            ctx.queue.pipeline_defs(client),
             count_rest
         );
         total_all = counted;
-        let labels = match labels {
-            Ok(m) => m,
+        let labels = match defs {
+            Ok(defs) => {
+                partial.unknown_stages = unknown_stages(&defs, pipeline).len() as u32;
+                stage_label_map(&defs)
+            }
             Err(e) => {
                 tracing::warn!(
                     error_kind = e.error_kind(),
@@ -1632,6 +1706,7 @@ async fn execute(
         total,
         truncated,
         scope: CallQueueScope {
+            pipeline: pipeline.id.to_string(),
             owner: owner_label(owner),
             role: if role.is_admin() { "admin" } else { "own" }.to_string(),
             teams,
@@ -1652,4 +1727,93 @@ async fn execute(
         partial,
         generated_at: now.to_rfc3339_opts(SecondsFormat::Secs, true),
     })
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/crm/call-queue/pipelines (選べるパイプラインとステージ名)
+// ---------------------------------------------------------------------------
+
+/// 表 (`queue_pipelines.rs`) と HubSpot のパイプライン定義を合わせる。`defs` が無ければ名前は null
+fn pipeline_options(defs: Option<&[CrmPipeline]>) -> Vec<CallQueuePipelineOption> {
+    QUEUE_PIPELINES
+        .iter()
+        .map(|p| {
+            let hub = defs.and_then(|d| d.iter().find(|x| x.id == p.id));
+            let label_of = |id: &str| {
+                hub.and_then(|h| h.stages.iter().find(|s| s.id == id))
+                    .map(|s| s.label.clone())
+            };
+            CallQueuePipelineOption {
+                id: p.id.to_string(),
+                label: hub.map(|h| h.label.clone()),
+                stages: p
+                    .stages
+                    .iter()
+                    .map(|(id, rule)| CallQueueStageOption {
+                        id: id.to_string(),
+                        label: label_of(id),
+                        rule: rule.as_str().to_string(),
+                    })
+                    .collect(),
+                unknown_stages: defs
+                    .map(|d| unknown_stages(d, p))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|s| CallQueueStageOption {
+                        id: s.id.clone(),
+                        label: Some(s.label.clone()),
+                        rule: StageRule::Exclude.as_str().to_string(),
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+/// 架電キューで選べるパイプラインと、ステージの名前・決まり。
+/// HubSpot から名前を読めないとき (未設定・失敗・時間切れ) も 200 で返し、`labels_available: false` にする
+/// (画面は表の呼び名で選択肢を出し、キューの取得は続けられる)。
+pub(super) async fn get_call_queue_pipelines(
+    session: Session,
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<Arc<CrmCtx>>,
+    RawQuery(raw): RawQuery,
+) -> Response {
+    if let Err(denied) =
+        rbac::authorize(&session, &state, &ctx.access, Some(RecordType::Deal)).await
+    {
+        return denied.into_response();
+    }
+    if raw.as_deref().is_some_and(|q| !q.is_empty()) {
+        return bad_param("unknown");
+    }
+    let defs = match state.hubspot.clone() {
+        None => None,
+        Some(client) => {
+            match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.queue.pipeline_defs(&client)).await
+            {
+                Ok(Ok(d)) => Some(d),
+                Ok(Err(e)) => {
+                    tracing::warn!(
+                        error_kind = e.error_kind(),
+                        "call queue pipelines: labels unavailable"
+                    );
+                    None
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        error_kind = "crm_timeout",
+                        "call queue pipelines: labels timed out"
+                    );
+                    None
+                }
+            }
+        }
+    };
+    Json(CallQueuePipelinesResponse {
+        default_pipeline: default_pipeline().id.to_string(),
+        pipelines: pipeline_options(defs.as_deref().map(Vec::as_slice)),
+        labels_available: defs.is_some(),
+    })
+    .into_response()
 }

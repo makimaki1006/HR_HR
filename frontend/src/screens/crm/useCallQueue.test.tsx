@@ -150,7 +150,7 @@ describe('useCallQueue: states', () => {
     const { calls, fetcher } = deferredFetcher();
     const A = DEFAULT_FILTERS;
     const part = (mc: number, np: number, failed: string[]) => ({
-      missing_contacts: mc, missing_companies: 0, failed, excluded: { no_phone: np, stop_reason: 0, out_of_scope: 0 },
+      missing_contacts: mc, missing_companies: 0, failed, excluded: { no_phone: np, stop_reason: 0, out_of_scope: 0 }, unknown_stages: mc,
     });
     const { result } = renderHook(() => useCallQueue(A, 'live', fetcher));
     await act(async () => { calls[0]?.resolve({ ok: true, data: makeResponse(A, [makeItem('1')], { next_cursor: 'c', partial: part(1, 2, ['contacts']) }) }); await Promise.resolve(); });
@@ -159,6 +159,8 @@ describe('useCallQueue: states', () => {
     expect(result.current.state.partial?.missing_contacts).toBe(3);
     expect(result.current.state.partial?.excluded.no_phone).toBe(3);
     expect(result.current.state.partial?.failed).toEqual(['contacts', 'associations']);
+    // 設定に無いステージの数はページごとに足さない (パイプラインの数)
+    expect(result.current.state.partial?.unknown_stages).toBe(2);
   });
 
   it('maps failures: 401 / auth redirect -> unauthorized, 403 kinds, 503 kind -> error; never falls back to fixture items', async () => {

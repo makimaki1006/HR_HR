@@ -79,6 +79,8 @@ struct FakeHs {
     owner_list_delay: Duration,
     /// None なら pipelines API を 500 にする
     stages: Option<Vec<(String, String)>>,
+    /// bpo_リクロジの後ろに足すパイプライン定義 (HubSpot の応答の形)
+    extra_pipelines: Vec<Value>,
     /// (method + path, body)
     log: Vec<(String, String)>,
 }
@@ -103,6 +105,7 @@ impl FakeHs {
                 (UNPROCESSED.to_string(), "未済".to_string()),
                 (FUZAI.to_string(), "不在".to_string()),
             ]),
+            extra_pipelines: Vec::new(),
             log: Vec::new(),
         }
     }
@@ -407,12 +410,15 @@ async fn hs_pipelines(State(st): State<Shared<FakeHs>>) -> Response {
         .push(("GET /crm/v3/pipelines/deals".to_string(), String::new()));
     match &s.stages {
         None => (StatusCode::INTERNAL_SERVER_ERROR, UPSTREAM_SECRET).into_response(),
-        Some(stages) => Json(json!({"results": [{
-            "id": PIPELINE, "label": "bpo_リクロジ", "displayOrder": 0,
-            "stages": stages.iter().enumerate().map(|(i, (id, label))|
-                json!({"id": id, "label": label, "displayOrder": i})).collect::<Vec<_>>()
-        }]}))
-        .into_response(),
+        Some(stages) => {
+            let mut results = vec![json!({
+                "id": PIPELINE, "label": "bpo_リクロジ", "displayOrder": 0,
+                "stages": stages.iter().enumerate().map(|(i, (id, label))|
+                    json!({"id": id, "label": label, "displayOrder": i})).collect::<Vec<_>>()
+            })];
+            results.extend(s.extra_pipelines.iter().cloned());
+            Json(json!({ "results": results })).into_response()
+        }
     }
 }
 
@@ -781,10 +787,26 @@ async fn ゼロ件はエラーにせず空で返す() {
     assert_eq!(v["truncated"], false);
     assert_eq!(v["partial"]["missing_contacts"], 0);
     // 既定の並びは 3 つの段階 (次回日が来た / 未架電 / 最終架電日順)。全部空なので 3 回 Search して終わる。
-    // 関連・ステージ名の呼び出しは行わない
+    // 関連の呼び出しは行わない。パイプライン定義 (表に無いステージの数え上げ用。5 分キャッシュ) だけ読む
     let c = e.calls();
-    assert_eq!(c.len(), 3, "{c:?}");
-    assert!(c.iter().all(|x| x.ends_with("/deals/search")), "{c:?}");
+    assert_eq!(c.len(), 4, "{c:?}");
+    assert_eq!(
+        c.iter().filter(|x| x.ends_with("/deals/search")).count(),
+        3,
+        "{c:?}"
+    );
+    assert_eq!(
+        c.iter()
+            .filter(|x| x.as_str() == "GET /crm/v3/pipelines/deals")
+            .count(),
+        1,
+        "{c:?}"
+    );
+    assert_eq!(v["partial"]["unknown_stages"], 0);
+    // 2 回目はキャッシュを使う
+    let (s, _) = e.admin_get("").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(e.count("/crm/v3/pipelines/deals"), 1);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2674,4 +2696,582 @@ async fn 段階が一つなら数える_search_は足さない() {
     let (_, v) = e.admin_get("?due=today").await;
     assert_eq!(v["total"], 80);
     assert_eq!(e.count("/deals/search#count"), 0);
+}
+
+// ---------------------------------------------------------------------------
+// パイプラインの切り替え (ユーザー決定 2026-10-08)
+// ---------------------------------------------------------------------------
+
+/// リクロジ受注管理_アポ前 (`default`)
+const APO_PIPELINE: &str = "default";
+const APO_UNPROCESSED: &str = "appointmentscheduled";
+/// アポ前の `due` のステージ (14 個)
+const APO_DUE: [&str; 14] = [
+    "presentationscheduled",
+    "decisionmakerboughtin",
+    "closedwon",
+    "122445644",
+    "122445645",
+    "1435377571",
+    "1435377572",
+    "1435440973",
+    "1435376679",
+    "1332175104",
+    "1366400580",
+    "qualifiedtobuy",
+    "1387263026",
+    "1430705153",
+];
+/// アポ前の `exclude` のステージ
+const APO_EXCLUDED: [&str; 7] = [
+    "51997752",
+    "1404977820",
+    "1251636516",
+    "89363529",
+    "999032072",
+    "973220404",
+    "1404735259",
+];
+
+fn stage_values(g: &Value) -> Vec<String> {
+    let f = flt(g, "dealstage").unwrap();
+    match f["operator"].as_str().unwrap() {
+        "EQ" => vec![f["value"].as_str().unwrap().to_string()],
+        "IN" => f["values"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string())
+            .collect(),
+        other => panic!("dealstage の演算子 {other}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn パイプラインの指定は表にあるものだけ() {
+    let e = env(FakeHs::new()).await;
+    for q in [
+        "?pipeline=999",
+        "?pipeline=21596025", // 納品管理 (対象外のパイプライン)
+        "?pipeline=",
+        "?pipeline=bpo_%E3%83%AA%E3%82%AF%E3%83%AD%E3%82%B8", // 名前では指定できない
+        "?pipeline=default&pipeline=default",
+    ] {
+        let (s, v) = e.admin_get(q).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}");
+        assert_eq!(v["error_kind"], "invalid_param", "{q}");
+    }
+    assert!(e.calls().is_empty(), "{:?}", e.calls());
+    // 指定なしは既定 (bpo_リクロジ)。表にあるものは通る
+    for (q, want) in [
+        ("", PIPELINE),
+        ("?pipeline=753186575", PIPELINE),
+        ("?pipeline=default", APO_PIPELINE),
+        ("?pipeline=62583420", "62583420"),
+        ("?pipeline=21724969", "21724969"),
+        ("?pipeline=681393283", "681393283"),
+        ("?pipeline=913508269", "913508269"),
+    ] {
+        let (s, v) = e.admin_get(q).await;
+        assert_eq!(s, StatusCode::OK, "{q}: {v}");
+        assert_eq!(v["scope"]["pipeline"], want, "{q}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ステージの指定は選んだパイプラインの対象ステージだけ() {
+    let e = env(FakeHs::new()).await;
+    for q in [
+        format!("?pipeline=default&stage={UNPROCESSED}"), // bpo_リクロジの未済
+        format!("?stage={APO_UNPROCESSED}"),              // 既定 (bpo_リクロジ) にアポ前のステージ
+        "?pipeline=default&stage=89363529".to_string(),   // アポ前の架電禁止先 (exclude)
+        "?pipeline=default&stage=51997752".to_string(),   // TEL_アポ日確定 (exclude)
+        "?pipeline=62583420&stage=155012220".to_string(), // T_ターゲット外案件 (exclude)
+        format!("?pipeline=default&stage={APO_UNPROCESSED}&stage={FUZAI}"),
+    ] {
+        let (s, v) = e.admin_get(&q).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}");
+        assert_eq!(v["error_kind"], "invalid_param", "{q}");
+    }
+    assert!(e.calls().is_empty(), "{:?}", e.calls());
+    // `pipeline` が `stage` より後ろにあってもよい
+    let (s, v) = e
+        .admin_get(&format!(
+            "?stage={APO_UNPROCESSED}&stage=closedwon&pipeline=default"
+        ))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["scope"]["stages"],
+        json!([APO_UNPROCESSED, "closedwon"]),
+        "昇順"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn アポ前の_search_は未済を常に_他は次回日が来たものだけ() {
+    let e = env(FakeHs::new()).await;
+    let today = midnight_utc_ms(2026, 10, 5).to_string();
+    let mut want_due: Vec<String> = APO_DUE.iter().map(|s| s.to_string()).collect();
+    want_due.sort();
+
+    // 並びが最終架電日の古い順: キュー全体 (未済のグループ + 次回日が来たグループ) を段階ごとに
+    let (s, v) = e.admin_get("?pipeline=default&sort=last_call_asc").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let b = e.searches();
+    assert_eq!(b.len(), 2, "未架電 → 最終架電日の古い順");
+    for body in &b {
+        let gs = groups(body);
+        assert_eq!(gs.len(), 2, "{body}");
+        // 未済のグループ: 次回架電日の条件なし
+        let all_group = gs
+            .iter()
+            .find(|g| stage_values(g) == [APO_UNPROCESSED])
+            .expect("未済 (appointmentscheduled) のグループ");
+        assert_eq!(
+            flt(all_group, "dealstage").unwrap()["operator"],
+            "EQ",
+            "常に出すステージが 1 つなら EQ"
+        );
+        assert!(flt(all_group, "bpo_13").is_none(), "{all_group}");
+        // 次回日が来たグループ: due のステージ 14 個を IN、bpo_13 <= 今日
+        let due_group = gs
+            .iter()
+            .find(|g| stage_values(g).len() > 1)
+            .expect("due のグループ");
+        assert_eq!(flt(due_group, "dealstage").unwrap()["operator"], "IN");
+        let mut got = stage_values(due_group);
+        got.sort();
+        assert_eq!(got, want_due);
+        let d = flt(due_group, "bpo_13").unwrap();
+        assert_eq!(
+            (d["operator"].as_str(), d["value"].as_str()),
+            (Some("LTE"), Some(today.as_str()))
+        );
+        for g in &gs {
+            for x in APO_EXCLUDED {
+                assert!(!stage_values(g).contains(&x.to_string()), "{x}");
+            }
+            assert!(!stage_values(g).contains(&UNPROCESSED.to_string()));
+            assert_eq!(flt(g, "bpo_3").unwrap()["operator"], "NOT_HAS_PROPERTY");
+        }
+    }
+    assert_eq!(v["scope"]["pipeline"], APO_PIPELINE);
+    let mut want_scope: Vec<String> = want_due.clone();
+    want_scope.push(APO_UNPROCESSED.to_string());
+    want_scope.sort();
+    assert_eq!(v["scope"]["stages"], json!(want_scope));
+
+    // 既定の並び: ① 次回日が来たもの (未済 + due) → ② 未済で未架電 → ③ 未済で最終架電日あり
+    let e = env(FakeHs::new()).await;
+    let (s, _) = e.admin_get("?pipeline=default").await;
+    assert_eq!(s, StatusCode::OK);
+    let b = e.searches();
+    assert_eq!(b.len(), 3);
+    let g1 = groups(&b[0]);
+    assert_eq!(g1.len(), 1);
+    let mut got = stage_values(&g1[0]);
+    got.sort();
+    assert_eq!(got, want_scope);
+    assert_eq!(flt(&g1[0], "bpo_13").unwrap()["value"], today);
+    for body in &b[1..] {
+        for g in groups(body) {
+            assert_eq!(stage_values(&g), [APO_UNPROCESSED], "{g}");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 常に出すステージが無いパイプラインは次回日が来たものだけ() {
+    // リクロジ_商談済リード: all のステージが無い → どの並びでも「次回日が来たもの」だけを検索する
+    for sort in ["default", "last_call_asc", "last_call_desc"] {
+        let e = env(FakeHs::new()).await;
+        let (s, v) = e
+            .admin_get(&format!("?pipeline=62583420&sort={sort}"))
+            .await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        assert!(!e.searches().is_empty());
+        for b in e.searches() {
+            for g in groups(&b) {
+                assert_eq!(stage_values(&g).len(), 5, "{sort}: {g}");
+                assert_eq!(flt(&g, "bpo_13").unwrap()["operator"], "LTE", "{sort}");
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 常に出すステージが二つなら_in_でまとめる() {
+    // リクロジエージェント: TEL_未済 と TEL_未済(30名未満)
+    let e = env(FakeHs::new()).await;
+    let (s, _) = e.admin_get("?pipeline=681393283").await;
+    assert_eq!(s, StatusCode::OK);
+    let b = e.searches();
+    assert_eq!(b.len(), 3);
+    for body in &b[1..] {
+        for g in groups(body) {
+            assert_eq!(flt(&g, "dealstage").unwrap()["operator"], "IN");
+            assert_eq!(stage_values(&g), ["1016664325", "1025335864"]);
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 別パイプラインの行は後段で外す() {
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1", "2", "3"]);
+    let e = env(f.page(Page::new(vec![
+        Deal::new("1", APO_UNPROCESSED).p("pipeline", APO_PIPELINE),
+        // bpo_リクロジの行 (アポ前を選んでいるので対象外)
+        Deal::new("2", UNPROCESSED),
+        // アポ前の対象外ステージ
+        Deal::new("3", "89363529").p("pipeline", APO_PIPELINE),
+    ])))
+    .await;
+    let (s, v) = e.admin_get("?pipeline=default&due=today").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(ids(&v), ["1"]);
+    assert_eq!(v["partial"]["excluded"]["out_of_scope"], 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 表に無い_hubspot_のステージは対象外にして数を出す() {
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1", "2"]);
+    f.stages = Some(vec![
+        (UNPROCESSED.to_string(), "未済".to_string()),
+        (FUZAI.to_string(), "不在".to_string()),
+        ("1500000001".to_string(), "新しいステージ".to_string()),
+        ("1500000002".to_string(), "もう一つの新ステージ".to_string()),
+    ]);
+    // 別パイプラインの新ステージは、bpo_リクロジの数に入れない
+    f.extra_pipelines = vec![
+        json!({"id": APO_PIPELINE, "label": "アポ前", "displayOrder": 1,
+        "stages": [{"id": APO_UNPROCESSED, "label": "未済", "displayOrder": 0},
+                   {"id": "1600000001", "label": "アポ前の新ステージ", "displayOrder": 1}]}),
+    ];
+    let e = env(f.pages(vec![
+        // 新ステージの行が (検索条件の外なのに) 返ってきても出さない
+        Page::new(vec![
+            Deal::new("1", "1500000001").p("bpo_13", "2026-10-01"),
+            Deal::new("2", FUZAI).p("bpo_13", "2026-10-01"),
+        ]),
+        Page::new(vec![]),
+    ]))
+    .await;
+    let (s, v) = e.admin_get("?due=today").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(ids(&v), ["2"]);
+    assert_eq!(v["partial"]["excluded"]["out_of_scope"], 1);
+    assert_eq!(v["partial"]["unknown_stages"], 2);
+    // 検索の本文に新ステージは入らない
+    for b in e.searches() {
+        for g in groups(&b) {
+            assert!(!stage_values(&g).iter().any(|s| s.starts_with("15000")));
+        }
+    }
+    // 行が 0 件のときも数を出す (ステージ名のキャッシュを使う)
+    let (s, v) = e.admin_get("?pipeline=default&due=today").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(ids(&v).len(), 0);
+    assert_eq!(v["partial"]["unknown_stages"], 1);
+    assert_eq!(v["partial"]["failed"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 総数はパイプラインごとに残りの段階も数える() {
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1"]);
+    f.count_total = Some(7);
+    let e = env(f.page(
+        Page::new(vec![Deal::new("1", "1025346954")
+            .p("pipeline", "681393283")
+            .p("bpo_13", "2026-10-01")])
+        .total(3),
+    ))
+    .await;
+    let (s, v) = e.admin_get("?pipeline=681393283").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(ids(&v), ["1"]);
+    assert!(v["next_cursor"].is_string());
+    // 段階 1 の 3 件 + 残り 2 段階 × 7 件
+    assert_eq!(v["total"], 3 + 7 * 2);
+    let counts: Vec<Value> =
+        e.hs.lock()
+            .unwrap()
+            .log
+            .iter()
+            .filter(|(c, _)| c.ends_with("#count"))
+            .map(|(_, b)| serde_json::from_str(b).unwrap())
+            .collect();
+    assert_eq!(counts.len(), 2);
+    for c in &counts {
+        for g in groups(c) {
+            assert_eq!(stage_values(&g), ["1016664325", "1025335864"]);
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 別パイプラインの_cursor_は使えない() {
+    let mut f = FakeHs::new().page(
+        Page::new(vec![
+            Deal::new("1", APO_UNPROCESSED).p("pipeline", APO_PIPELINE)
+        ])
+        .next("1"),
+    );
+    with_relations(&mut f, &["1"]);
+    let e = env(f).await;
+    let (_, p1) = e.admin_get("?pipeline=default&due=today").await;
+    let c = p1["next_cursor"].as_str().expect("cursor").to_string();
+    let (s, v) = e.admin_get(&format!("?due=today&cursor={c}")).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::BAD_REQUEST, Some("cursor_mismatch"))
+    );
+    let (s, _) = e
+        .admin_get(&format!("?pipeline=default&due=today&cursor={c}"))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+}
+
+/// HubSpot Search の上限に、全パイプライン × 並び × due × owner × 範囲で収まる
+#[tokio::test(flavor = "multi_thread")]
+async fn 全パイプラインで_search_の上限に収まる() {
+    let mut combos = 0;
+    for p in super::queue_pipelines::QUEUE_PIPELINES {
+        for sort in [
+            "default",
+            "next_call_desc",
+            "last_call_asc",
+            "last_call_desc",
+        ] {
+            for due in ["all", "today"] {
+                for owner in ["all", "555"] {
+                    for r in [
+                        "",
+                        "&next_from=2026-10-01&next_to=2026-10-31",
+                        "&next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30",
+                    ] {
+                        let e = env(FakeHs::new()).await;
+                        let q = format!(
+                            "?pipeline={}&sort={sort}&due={due}&owner={owner}{r}",
+                            p.id
+                        );
+                        let (s, v) = e.admin_get(&q).await;
+                        assert_eq!(s, StatusCode::OK, "{q}: {v}");
+                        assert_eq!(v["scope"]["pipeline"], p.id);
+                        for b in e.searches() {
+                            let gs = groups(&b);
+                            assert!(!gs.is_empty() && gs.len() <= 2, "{q}");
+                            let total: usize = gs
+                                .iter()
+                                .map(|g| g["filters"].as_array().unwrap().len())
+                                .sum();
+                            assert!(total <= 12, "全体 {total}: {q}");
+                            for g in &gs {
+                                assert!(g["filters"].as_array().unwrap().len() <= 6, "{q} {g}");
+                                // 選んだパイプラインの対象ステージだけ
+                                for st in stage_values(g) {
+                                    assert!(p.is_eligible(&st), "{q}: {st}");
+                                }
+                            }
+                        }
+                        combos += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(combos, 6 * 4 * 2 * 2 * 3);
+}
+
+#[test]
+fn deal_in_queue_は表のパイプラインとステージの決まりに従う() {
+    use super::call_queue::deal_in_queue;
+    let today = jst_today_ms(now_default());
+    let deal = |pipeline: &str, stage: &str, next: Option<&str>| {
+        let mut properties = std::collections::BTreeMap::new();
+        properties.insert("pipeline".to_string(), Some(pipeline.to_string()));
+        properties.insert("dealstage".to_string(), Some(stage.to_string()));
+        properties.insert("hubspot_owner_id".to_string(), Some("111".to_string()));
+        if let Some(n) = next {
+            properties.insert("bpo_13".to_string(), Some(n.to_string()));
+        }
+        crate::hubspot::HubSpotRecord {
+            id: "1".into(),
+            properties,
+            created_at: None,
+            updated_at: None,
+            archived: false,
+        }
+    };
+    // アポ前: 未済は常に、due は次回日が来たら、exclude・表に無いステージは出さない
+    assert!(deal_in_queue(
+        &deal(APO_PIPELINE, APO_UNPROCESSED, None),
+        "111",
+        today
+    ));
+    assert!(deal_in_queue(
+        &deal(APO_PIPELINE, "closedwon", Some("2026-10-05")),
+        "111",
+        today
+    ));
+    assert!(!deal_in_queue(
+        &deal(APO_PIPELINE, "closedwon", Some("2026-10-06")),
+        "111",
+        today
+    ));
+    assert!(!deal_in_queue(
+        &deal(APO_PIPELINE, "closedwon", None),
+        "111",
+        today
+    ));
+    assert!(!deal_in_queue(
+        &deal(APO_PIPELINE, "89363529", Some("2026-10-01")),
+        "111",
+        today
+    ));
+    assert!(!deal_in_queue(
+        &deal(APO_PIPELINE, "1600000001", Some("2026-10-01")),
+        "111",
+        today
+    ));
+    // 別のパイプラインのステージ ID は、選んだパイプラインの決まりでは対象にならない
+    assert!(!deal_in_queue(
+        &deal(APO_PIPELINE, UNPROCESSED, None),
+        "111",
+        today
+    ));
+    // 表に無いパイプライン (納品管理) は出さない
+    assert!(!deal_in_queue(
+        &deal("21596025", UNPROCESSED, None),
+        "111",
+        today
+    ));
+    // 既定 (bpo_リクロジ) は従来どおり
+    assert!(deal_in_queue(
+        &deal(PIPELINE, UNPROCESSED, None),
+        "111",
+        today
+    ));
+    assert!(deal_in_queue(
+        &deal(PIPELINE, FUZAI, Some("2026-10-05")),
+        "111",
+        today
+    ));
+    assert!(!deal_in_queue(
+        &deal(PIPELINE, "1095457875", Some("2026-10-01")),
+        "111",
+        today
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/crm/call-queue/pipelines
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn パイプライン一覧は表の順で_hubspot_の名前と表に無いステージを付ける() {
+    let mut f = FakeHs::new();
+    f.stages = Some(vec![
+        (UNPROCESSED.to_string(), "未済".to_string()),
+        ("1095457875".to_string(), "アポ日確定".to_string()),
+        ("1500000001".to_string(), "新しいステージ".to_string()),
+    ]);
+    f.extra_pipelines = vec![
+        json!({"id": APO_PIPELINE, "label": "リクロジ受注管理_アポ前", "displayOrder": 1,
+        "stages": [{"id": APO_UNPROCESSED, "label": "未済", "displayOrder": 0}]}),
+    ];
+    let e = env(f).await;
+    let (s, cc, v) = get_raw(&e.app, "/api/crm/call-queue/pipelines", Some(&e.bpo)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(cc, "no-store");
+    assert_eq!(v["default_pipeline"], PIPELINE);
+    assert_eq!(v["labels_available"], true);
+    let ps = v["pipelines"].as_array().unwrap();
+    let got: Vec<&str> = ps.iter().map(|p| p["id"].as_str().unwrap()).collect();
+    assert_eq!(
+        got,
+        [
+            "753186575",
+            "default",
+            "62583420",
+            "21724969",
+            "681393283",
+            "913508269"
+        ]
+    );
+    let bpo = &ps[0];
+    assert_eq!(bpo["label"], "bpo_リクロジ");
+    assert_eq!(bpo["stages"].as_array().unwrap().len(), 19);
+    assert_eq!(
+        bpo["stages"][0],
+        json!({"id": UNPROCESSED, "label": "未済", "rule": "all"})
+    );
+    let apo_fixed = bpo["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["id"] == "1095457875")
+        .unwrap();
+    assert_eq!(apo_fixed["rule"], "exclude");
+    assert_eq!(apo_fixed["label"], "アポ日確定");
+    // HubSpot の定義に無いステージは名前が null (ID を名前にしない)
+    let fuzai = bpo["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["id"] == FUZAI)
+        .unwrap();
+    assert_eq!(fuzai["label"], Value::Null);
+    assert_eq!(fuzai["rule"], "due");
+    assert_eq!(
+        bpo["unknown_stages"],
+        json!([{"id": "1500000001", "label": "新しいステージ", "rule": "exclude"}])
+    );
+    assert_eq!(ps[1]["label"], "リクロジ受注管理_アポ前");
+    assert_eq!(ps[1]["unknown_stages"], json!([]));
+    // HubSpot にパイプラインが無いものは名前が null
+    assert_eq!(ps[2]["label"], Value::Null);
+    assert_eq!(e.count("/crm/v3/pipelines/deals"), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn パイプライン一覧は名前を読めなくても_200_で返す() {
+    let mut f = FakeHs::new();
+    f.stages = None; // pipelines API が 500
+    let e = env(f).await;
+    let (s, _, v) = get_raw(&e.app, "/api/crm/call-queue/pipelines", Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["labels_available"], false);
+    assert_eq!(v["pipelines"].as_array().unwrap().len(), 6);
+    assert_eq!(v["pipelines"][0]["label"], Value::Null);
+    assert_eq!(v["pipelines"][0]["stages"][0]["label"], Value::Null);
+    assert_eq!(v["pipelines"][0]["stages"][0]["rule"], "all");
+    // HubSpot 未設定も同じ
+    let app = make_app(test_state(None), now_default());
+    let c = login(&app, ADMIN, "google_oidc").await;
+    let (s, _, v) = get_raw(&app, "/api/crm/call-queue/pipelines", Some(&c)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["labels_available"], false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn パイプライン一覧も認可の後で_クエリは受け付けない() {
+    let e = env(FakeHs::new()).await;
+    let (s, _, v) = get_raw(&e.app, "/api/crm/call-queue/pipelines", None).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::UNAUTHORIZED, Some("login_required"))
+    );
+    let c = login(&e.app, OUTSIDER, "google_oidc").await;
+    let (s, _, v) = get_raw(&e.app, "/api/crm/call-queue/pipelines", Some(&c)).await;
+    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+    assert!(e.calls().is_empty(), "{:?}", e.calls());
+    let (s, _, v) = get_raw(&e.app, "/api/crm/call-queue/pipelines?x=1", Some(&e.admin)).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::BAD_REQUEST, Some("invalid_param"))
+    );
 }
