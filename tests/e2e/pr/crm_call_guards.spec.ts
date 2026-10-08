@@ -34,7 +34,7 @@ function queueBody(url: URL, ids: string[]) {
     items: ids.map(item), next_cursor: null, total: ids.length, truncated: false,
     scope: {
       owner: 'all', role: 'admin', teams: [], stages: [...QUEUE_STAGE_IDS].sort(),
-      due: p.get('due') ?? 'all', sort: p.get('sort') ?? 'default', q: null, limit: 25,
+      due: p.get('due') ?? 'all', sort: p.get('sort') ?? 'default', q: null, limit: Number(p.get('limit') ?? 25),
       next_from: null, next_to: null, last_from: null, last_to: null,
     },
     partial: { missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 } },

@@ -87,7 +87,7 @@ BPO 担当者が実際に見ている「架電リスト」は HubSpot の保存�
 CallQueueResponse {
   items: CallQueueItem[],
   next_cursor: string | null,
-  total: number | null,        // Search の total。参考値
+  total: number | null,        // Search の total。参考値 (複数段階の並びは先頭ページで残りの段階を数えて全体を出す。2 ページ目以降は null。2026-10-08)
   truncated: boolean,          // Search の 10,000 件上限に達したとき true
   scope: { owner, stages: string[], due },
   partial: { missing_contacts: number, missing_companies: number },

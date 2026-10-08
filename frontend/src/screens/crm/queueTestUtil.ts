@@ -29,7 +29,7 @@ export function makeResponse(f: QueueFilters, items: CallQueueItem[], over: Part
     scope: {
       owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
       stages: [...(f.stages.length ? f.stages : QUEUE_STAGE_IDS)].sort(), due: f.due, sort: f.sort,
-      q: f.q.trim() || null, limit: 25,
+      q: f.q.trim() || null, limit: 50,
       next_from: f.nextFrom || null, next_to: f.nextTo || null, last_from: f.lastFrom || null, last_to: f.lastTo || null,
     },
     partial: { missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 } },

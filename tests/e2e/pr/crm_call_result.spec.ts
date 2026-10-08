@@ -55,7 +55,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     await openScreen(page);
 
     // 一覧: 架空サンプルの 1 ページ目 (5 件)。先頭行の会社・担当者・番号・ステージ
-    await expect(page.locator('.cq-count')).toContainText('5 件を表示');
+    await expect(page.locator('.cq-count')).toContainText('全 10 件中 5 件を表示');
     await expect(rows(page)).toHaveCount(5);
     // 値は frontend/src/screens/crm/queueFixture.ts の SEEDS (既定の並び: f-5, f-2, f-11, f-7, f-3)
     await expect(rows(page).locator('.cq-row-company')).toHaveText(['ダミー建設', '架空食品株式会社', '架空ホテル', '見本不動産', 'サンプル運輸']);
