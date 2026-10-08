@@ -71,7 +71,8 @@ export const LEGACY_SOURCES = ['oubodouki', 'ouboriyuu_baitaikisai', 'ouboriyuu_
 /** Count source texts, never people, inferred motives, or causal reactions. */
 export function reasonCohorts(collection: ApplicantReasonCollection | undefined, beforeId: string | undefined, afterId: string | undefined, sourceProperty = 'all') {
   if (!collection?.available) return null;
-  const items = collection.items.filter(item => sourceProperty === 'all' || item.sourceProperty === sourceProperty);
+  // 'all' means every application-reason source. Transfer reasons are a different question and are only shown when chosen on their own.
+  const items = collection.items.filter(item => sourceProperty === 'all' ? APPLICATION_TEXT_SOURCES.includes(item.sourceProperty) : item.sourceProperty === sourceProperty);
   const known = collection.items.some(item => item.versionId !== null);
   return {
     before: items.filter(item => beforeId !== undefined && item.versionId === beforeId),

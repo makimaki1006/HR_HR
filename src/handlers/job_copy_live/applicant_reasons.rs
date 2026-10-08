@@ -765,16 +765,13 @@ pub fn extract_with_labels(
                 // A multiple-choice value is written "a;b"; each chosen value is one selection. A
                 // value with nothing but separators (";") chose nothing and counts as blank, so
                 // nonblank always equals the applications that have a selection.
-                let mut chosen: Vec<String> = text
+                // The label is looked up with the raw internal value: masking first would turn an
+                // option value that looks like a long number into 「＊＊」 and lose its label. Only
+                // what is sent is masked.
+                let mut chosen: Vec<&str> = text
                     .split(';')
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
-                    .map(|value| {
-                        mask_personal_details(value)
-                            .chars()
-                            .take(MAX_VALUE_CHARS)
-                            .collect()
-                    })
                     .collect();
                 chosen.sort();
                 chosen.dedup();
@@ -784,11 +781,24 @@ pub fn extract_with_labels(
                     continue;
                 }
                 counts.nonblank += 1;
-                for value in chosen {
-                    let label = labels
-                        .and_then(|labels| labels.get(property))
-                        .and_then(|options| options.get(&value))
-                        .map(|label| label.chars().take(MAX_VALUE_CHARS).collect());
+                let mut sent: Vec<(String, Option<String>)> = chosen
+                    .into_iter()
+                    .map(|raw_value| {
+                        let label = labels
+                            .and_then(|labels| labels.get(property))
+                            .and_then(|options| options.get(raw_value))
+                            .map(|label| label.chars().take(MAX_VALUE_CHARS).collect());
+                        let value: String = mask_personal_details(raw_value)
+                            .chars()
+                            .take(MAX_VALUE_CHARS)
+                            .collect();
+                        (value, label)
+                    })
+                    .collect();
+                // Two raw values can mask to the same text; keep one selection per sent value.
+                sent.sort();
+                sent.dedup_by(|a, b| a.0 == b.0);
+                for (value, label) in sent {
                     selections.push(Selection {
                         applicant: applicant.clone(),
                         source_property: property.into(),
@@ -1273,6 +1283,32 @@ mod tests {
             reasons.source_counts["ouboriyuukategori_hiaringu"].nonblank,
             2
         );
+    }
+    #[test]
+    fn a_numeric_option_value_keeps_its_label_although_the_value_is_masked() {
+        // An internal option value that looks like a long number is masked before it is sent,
+        // but its label is looked up with the raw value, so the selection is still named.
+        let rows = [row(
+            "60",
+            &[("ouboriyuukategori_hiaringu", Some("123456789"))],
+        )];
+        let labels: OptionLabels = BTreeMap::from([(
+            "ouboriyuukategori_hiaringu".to_owned(),
+            BTreeMap::from([("123456789".to_owned(), "給与".to_owned())]),
+        )]);
+        let reasons = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            Some(&labels),
+            OptionLabelsStatus::Unavailable,
+        );
+        let selections = reasons.selections.unwrap();
+        assert_eq!(selections.len(), 1);
+        assert_eq!(selections[0].label.as_deref(), Some("給与"));
+        assert_eq!(selections[0].value, "＊＊");
+        let json = serde_json::to_string(&selections).unwrap();
+        assert!(!json.contains("123456789"));
     }
     #[test]
     fn the_label_status_says_why_a_value_has_no_label() {

@@ -42,7 +42,7 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   await expect(timeline.getByRole('group', { name: '課金', exact: true })).toContainText('4万5,000円');
   // 市場データの最後の月はデータから読む（毎月更新）。それより後の期間は、どの月までデータがあるかを書く。
   await expect(timeline.getByText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています', { exact: true })).toBeVisible();
-  const rows = timeline.getByRole('table').locator('tbody tr');
+  const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).getByRole('table').locator('tbody tr');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', 'デモ用の架空の金額 3万円', 'データなし（市場求人数は2026年8月まで）']);
   await expect(rows.nth(1).locator('td')).toHaveText(['10日', '8件', '0.80件/日', 'デモ用の架空の金額 約2万8,125円', 'データなし（市場求人数は2026年8月まで）']);
@@ -117,7 +117,7 @@ test('billing CSV import matches on media + account + job ID and fills the billi
   // The HRハッカー row was not used, so demo-001 keeps its HRハッカー実績.
   await expect(billingLane.locator('.jt-billing')).toHaveText(['架空 3万円', '架空 4万5,000円', '架空 1万2,000円']);
   await expect(billingLane.locator('.jt-billing-csv')).toHaveCount(0);
-  const rows = timeline.getByRole('table').locator('tbody tr');
+  const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).getByRole('table').locator('tbody tr');
   await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', 'デモ用の架空の金額 3万円', 'データなし（市場求人数は2026年8月まで）']);
   await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   await page.locator('.jc-job', { hasText: '倉庫内ピッキングスタッフ' }).click();
