@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import type { ChangeEvent } from 'react';
 import { jobs } from './data';
 import type { CopyVersion, JobCopyRecord } from './data';
-import { compareCopy } from './diff';
+import { compareCopy, markInlineChanges } from './diff';
 import { compareImages, compareImageBytes, referenceImages, imagesByVersion } from './images';
 import { ImageGallery } from './ImageGallery';
 import { MediaCaptureImport } from './MediaCaptureImport';
@@ -115,7 +115,8 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
   const imageResult = compareImages(referenceImages(left), referenceImages(right));
   const imageBytes = compareImageBytes(versionImages(left), versionImages(right), left?.historicalImageBytesAvailable, right?.historicalImageBytesAvailable);
   const incomingResult = compareCopy(current?.body ?? null, incoming);
-  const diffLines = changesOnly ? result.lines.filter(line => line.kind !== 'same') : result.lines;
+  const markedLines = markInlineChanges(result.lines);
+  const diffLines = changesOnly ? markedLines.filter(line => line.kind !== 'same') : markedLines;
   const changedLines = result.lines.filter(line => line.kind !== 'same').length;
   const imageReferenceLabel = imageResult.status === 'unknown' ? '画像がない版があり比べられません' : imageResult.status === 'same_reference' ? '同じ画像・同じ並び順' : `追加${String(imageResult.added.length)}点・削除${String(imageResult.removed.length)}点${imageResult.reordered ? '・並び順の変更' : ''}`;
   const imageBytesLabel = imageBytes === 'unknown' ? '画像の中身を確認できません' : imageBytes === 'same_files' ? '画像の中身は同じ' : imageBytes === 'changed_files' ? '画像の中身が変わっています' : '両方とも画像なし';
@@ -193,9 +194,9 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
       </section>
       <h2 className="jc-text-diff-heading" id="job-copy-text-diff">本文・募集条件の比較</h2>
       <label className="jc-diff-toggle"><input type="checkbox" checked={changesOnly} onChange={event => { setChangesOnly(event.target.checked); setDiffLimit(300); }} />変更箇所だけを表示（追加・削除{changedLines}行）</label>
-      <div className="jc-diff-summary"><strong>本文：{statusLabels[result.status]}</strong><span><i className="jc-added-key" />追加 <i className="jc-removed-key" />削除 · 原文の行単位で比較</span></div>
+      <div className="jc-diff-summary"><strong>本文：{statusLabels[result.status]}</strong><span><i className="jc-added-key" />追加 <i className="jc-removed-key" />削除 · 行ごとに比べ、行の中で変わった文字・数字は濃い色で示します</span></div>
       {changesOnly && !diffLines.length && result.status !== 'unavailable' && <p className="jc-notice" role="status">追加・削除された本文の行はありません。チェックを外すとすべての行を確認できます。</p>}
-      {result.status === 'unavailable' ? <p className="jc-empty">比較先の本文がありません。変更の有無は判定できません。</p> : <><div className="jc-diff-lines" aria-label="文面の差分">{diffLines.slice(0, diffLimit).map((line, index) => <div key={index} className={`jc-diff-line jc-line-${line.kind}`}><span className="jc-line-mark" aria-label={line.kind === 'added' ? '追加' : line.kind === 'removed' ? '削除' : '変更なし'}>{line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ' '}</span><pre>{line.text || ' '}</pre></div>)}</div>{diffLines.length > diffLimit && <button className="jc-button" onClick={() => { setDiffLimit(count => count + 300); }}>さらに300行を表示（全{diffLines.length}行）</button>}</>}
+      {result.status === 'unavailable' ? <p className="jc-empty">比較先の本文がありません。変更の有無は判定できません。</p> : <><div className="jc-diff-lines" aria-label="文面の差分">{diffLines.slice(0, diffLimit).map((line, index) => <div key={index} className={`jc-diff-line jc-line-${line.kind}`}><span className="jc-line-mark" aria-label={line.kind === 'added' ? '追加' : line.kind === 'removed' ? '削除' : '変更なし'}>{line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ' '}</span><pre>{line.segments ? line.segments.map((segment, part) => segment.changed ? line.kind === 'added' ? <ins key={part} className="jc-mark-added">{segment.text}</ins> : <del key={part} className="jc-mark-removed">{segment.text}</del> : segment.text) : line.text || ' '}</pre></div>)}</div>{diffLines.length > diffLimit && <button className="jc-button" onClick={() => { setDiffLimit(count => count + 300); }}>さらに300行を表示（全{diffLines.length}行）</button>}</>}
       <details className="jc-originals"><summary>比較する2つの原文を見る</summary><div><section><h3>比較元</h3><pre className="jc-body">{left?.body ?? '本文なし'}</pre></section><section><h3>比較先</h3><pre className="jc-body">{right?.body ?? '本文なし'}</pre></section></div></details>
       <p className="jc-muted">改行コードのみの差は表記差です。給与・数字・否定表現を消して比較しません。AI案との差は、掲載変更を意味しません。</p>
     </section>}</JobFeaturePanel>
