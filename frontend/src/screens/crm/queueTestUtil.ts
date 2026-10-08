@@ -11,8 +11,8 @@ import type { MetadataFetch } from './useResultDefinitions';
 import type { UserFetch } from './useCurrentUser';
 import { FIXTURE_CATALOG } from './usePropertyCatalog';
 import type { CatalogFetch } from './usePropertyCatalog';
-import { DOCK_STORAGE_KEY } from './dockModel';
-import { PROPS_STORAGE_KEY } from './propertyModel';
+import { DOCK_STORAGE_KEY, LEGACY_DOCK_STORAGE_KEY } from './dockModel';
+import { LEGACY_PROPS_STORAGE_KEY, PROPS_STORAGE_KEY } from './propertyModel';
 
 /** 架空の 1 行 (実データ由来の値は使わない) */
 export function makeItem(id: string, over: Partial<CallQueueItem> = {}): CallQueueItem {
@@ -116,7 +116,18 @@ export const okCatalogFetch: CatalogFetch = () => Promise.resolve({ ok: true, da
 /** パネルの配置・表示する項目の選択 (localStorage) を消す (前のテストの配置を持ち越さない) */
 export function resetDockStorage(): void {
   try {
-    window.localStorage.removeItem(DOCK_STORAGE_KEY);
-    window.localStorage.removeItem(PROPS_STORAGE_KEY);
+    for (const k of [DOCK_STORAGE_KEY, LEGACY_DOCK_STORAGE_KEY, PROPS_STORAGE_KEY, LEGACY_PROPS_STORAGE_KEY]) window.localStorage.removeItem(k);
   } catch { /* 無い環境 */ }
+}
+
+/**
+ * 画面の高さを決める (matchMedia の max-height だけを、この高さで判定する)。
+ * happy-dom の既定の高さ (768px) では「案件の概要」が 1 行になるので、詳しい表示を確かめるテストは 900 にする
+ */
+export function setScreenHeight(height: number): void {
+  const matchMedia = (q: string) => {
+    const m = /max-height:\s*(\d+)px/u.exec(q);
+    return { matches: m ? height <= Number(m[1]) : false, media: q, addEventListener: () => undefined, removeEventListener: () => undefined };
+  };
+  Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: matchMedia });
 }

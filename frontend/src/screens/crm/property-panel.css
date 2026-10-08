@@ -34,3 +34,13 @@
 .pp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .pp-actions .pp-apply { background: var(--cq-accent); border-color: var(--cq-accent); color: #fff !important; font-weight: 700; }
 .pp-actions .pp-reset { margin-left: auto; }
+
+/* HubSpot のカード (リスト情報・BPOアポ情報)。見出しのボタンで開け閉め */
+.pp-section h4.pp-card-head { padding: 0; }
+.pp-card-toggle { width: 100%; text-align: left; background: transparent; border: 0; padding: 4px 0; font-size: 12px; font-weight: 700; color: var(--cq-text); cursor: pointer; }
+.pp-card-toggle small { margin-left: 4px; font-weight: 400; color: var(--cq-faint); }
+.crm-app .pp-card-toggle:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: 1px; }
+.pp-cards { margin: 0; padding: 4px 8px 6px; border: 1px solid var(--cq-line); border-radius: 4px; background: #fff; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.pp-cards legend { font-size: 11px; font-weight: 700; color: var(--cq-sub); padding: 0 4px; }
+.pp-cards .pp-group-all { font-size: 12px; color: var(--cq-text); }
+.pp-cards .pp-group-all small { margin-left: 2px; color: var(--cq-faint); }

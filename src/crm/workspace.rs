@@ -50,6 +50,9 @@
 //! さらに項目の一覧 ([`super::property_catalog`]、6 時間キャッシュ) に無い名前があれば 400 `invalid_properties`。
 //! 一覧が冷えているときだけ一覧の取得 (定義 6 回) が先に走る。一覧を取れなかったときは選んだ項目を読まずに
 //! 案件を返し、`partial` に `selected_properties` を出す。
+//! 画面の既定は HubSpot の取引レコードの左サイドバーのカード「リスト情報」「BPOアポ情報」の 63 項目
+//! (`frontend/src/screens/crm/hubspotCards.json`)。それを足しても案件の本体は GET 1 回のままで、URL は約 1,450 文字
+//! (テストで 2,048 文字未満を確かめる。項目を最大の 100 件まで足すと長くなるため、そのときは batch read (POST) へ移す)。
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;

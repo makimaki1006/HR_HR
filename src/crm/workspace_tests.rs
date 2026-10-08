@@ -73,6 +73,8 @@ struct FakeHs {
     /// 案件本体 GET の担当者・会社の関連に、関連ラベルの定義で直せない型名を出す (v4 への読み直しを試す)
     odd_v3_types: bool,
     owners: HashMap<String, String>,
+    /// 項目の一覧 (案件) に足す文字の項目 (HubSpot のカードの項目を一覧に載せる)
+    extra_deal_props: Vec<String>,
     /// (method + path, body)
     log: Vec<(String, String)>,
 }
@@ -405,7 +407,7 @@ async fn hs_properties(State(st): State<Shared<FakeHs>>, Path(o): Path<String>) 
     if let Some(c) = s.failing(&path) {
         return err_resp(c);
     }
-    let results = match o.as_str() {
+    let mut results = match o.as_str() {
         "deals" => json!([
             {"name": "bpo_10", "label": "不通時チェック", "type": "enumeration", "fieldType": "radio", "groupName": "dealinformation", "displayOrder": 1,
              "options": [{"label": "受付拒否", "value": "reception_refused"}]},
@@ -424,6 +426,14 @@ async fn hs_properties(State(st): State<Shared<FakeHs>>, Path(o): Path<String>) 
             {"name": "numberofemployees", "label": "従業員数", "type": "number", "fieldType": "number", "groupName": "companyinformation", "displayOrder": 1}
         ]),
     };
+    if o == "deals" {
+        if let Some(list) = results.as_array_mut() {
+            for (i, n) in s.extra_deal_props.iter().enumerate() {
+                list.push(json!({"name": n, "label": format!("項目{i}"), "type": "string", "fieldType": "text",
+                    "groupName": "dealinformation", "displayOrder": 10 + i}));
+            }
+        }
+    }
     Json(json!({"results": results})).into_response()
 }
 
@@ -1576,6 +1586,90 @@ async fn 選んだ項目の値は同じ読み取りで返り_呼び出し回数�
         v["selected"],
         json!({"deal": {}, "contact": {}, "company": {}})
     );
+}
+
+/// 架電画面の「プロパティ」パネルの既定 (HubSpot の取引レコードの左サイドバーのカード「リスト情報」「BPOアポ情報」)。
+/// 画面 (frontend/src/screens/crm/hubspotCards.ts) と同じファイルを読む
+const HUBSPOT_CARDS_JSON: &str = include_str!("../../frontend/src/screens/crm/hubspotCards.json");
+
+/// カードの項目の内部名 (重複なし、カードの並び。画面の cardPropertyNames と同じ)
+fn hubspot_card_names() -> Vec<String> {
+    let v: Value = serde_json::from_str(HUBSPOT_CARDS_JSON).unwrap();
+    let mut out: Vec<String> = Vec::new();
+    for card in v["cards"].as_array().unwrap() {
+        for item in card["items"].as_array().unwrap() {
+            let n = item["name"].as_str().unwrap().to_string();
+            if !out.contains(&n) {
+                out.push(n);
+            }
+        }
+    }
+    out
+}
+
+/// HubSpot の案件 1 件の読み取り (`GET /crm/v3/objects/deals/{id}?properties=..&associations=..`) の URL の長さの上限。
+/// HubSpot は上限を公開していない。一般的なサーバ・プロキシの上限 (8 KB) より十分小さい 2,048 文字に収める
+const DEAL_READ_URL_BUDGET: usize = 2_048;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hubspot_のカードの項目_63_件は同じ読み取りで返り_呼び出し回数は増えず_url_は上限内() {
+    let names = hubspot_card_names();
+    assert_eq!(names.len(), 63, "リスト情報 43 + BPOアポ情報 25 - 重複 5");
+    assert_eq!(&names[..2], ["bpo_32", "risuto_kadennbi"]);
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    // 一覧にはカードの項目を載せる (bpo_32 は既にある)
+    f.extra_deal_props = names.iter().filter(|n| *n != "bpo_32").cloned().collect();
+    let key = ("deals".to_string(), DEAL.to_string());
+    let deal = f.objects.get_mut(&key).unwrap();
+    deal.push(("risuto_kadennbi".into(), "2026-09-25".into()));
+    deal.push((
+        "bpo_hsurl".into(),
+        "https://app.hubspot.com/contacts/0/record/0-3/1".into(),
+    ));
+    let e = env(f).await;
+    // 一覧を先に温める (画面は一覧を読んでから詳細を読む)
+    let (s, _, _) = get_raw(&e.app, "/api/crm/property-catalog", Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK);
+    let before = e.total();
+    let own_url = format!("{}?deal_props={}", url(DEAL), names.join(","));
+    let (s, _, v) = get_raw(&e.app, &own_url, Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    // 選んだ項目を足さないときと同じ 11 回 (一覧はキャッシュ。関連ラベルの定義とステージ名は冷えている)
+    assert_eq!(e.total() - before, 11, "{:?}", e.calls());
+    assert_eq!(
+        e.count("GET /crm/v3/objects/deals/"),
+        1,
+        "案件の本体の読み取りは 1 回"
+    );
+    let sel = v["selected"]["deal"].as_object().unwrap();
+    assert_eq!(sel.len(), 63);
+    assert_eq!(sel["risuto_kadennbi"], "2026-09-25");
+    assert_eq!(
+        sel["bpo_hsurl"],
+        "https://app.hubspot.com/contacts/0/record/0-3/1"
+    );
+    assert!(sel["ahkessaifuro"].is_null());
+    // 案件の読み取りは GET 1 回で、URL (HubSpot の本番のホスト + 最長 20 桁の ID + クエリ) は上限内
+    let deal_q = logged(&e, "GET /crm/v3/objects/deals/5001");
+    let read: Vec<String> = reqwest::Url::parse(&format!("http://x/?{deal_q}"))
+        .unwrap()
+        .query_pairs()
+        .filter(|(k, _)| k == "properties")
+        .flat_map(|(_, v)| v.split(',').map(str::to_string).collect::<Vec<_>>())
+        .collect();
+    for n in &names {
+        assert!(read.contains(n), "{n} が読み取りに無い: {deal_q}");
+    }
+    let hubspot_url_len =
+        "https://api.hubapi.com/crm/v3/objects/deals/".len() + 20 + 1 + deal_q.len();
+    assert!(
+        hubspot_url_len < DEAL_READ_URL_BUDGET,
+        "HubSpot への URL が {hubspot_url_len} 文字"
+    );
+    // 画面からこのサーバへの URL (カンマはブラウザが %2C にする) も上限内
+    let browser_len = own_url.len() + names.len() * 2;
+    assert!(browser_len < DEAL_READ_URL_BUDGET, "{browser_len}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
