@@ -41,9 +41,27 @@ mod tests {
         assert!(policy.contains("default-src 'self'"));
         assert!(policy.contains("connect-src 'self'"));
         assert!(policy.contains("frame-ancestors 'self'"));
-        // Zoom Phone Smart Embed だけを外部 iframe として許可する (ワイルドカードにしない)
-        assert!(policy.contains("frame-src 'self' https://applications.zoom.us;"));
+        // 外部 iframe は https のページだけ (Zoom Phone Smart Embed と、架電画面の中央で開くリンク)。
+        // ワイルドカード・http: ・data: は許可しない
+        assert!(policy.contains("frame-src 'self' https://applications.zoom.us https:;"));
         assert!(!policy.contains("frame-src *"));
+        let frame_src = policy
+            .split(';')
+            .map(str::trim)
+            .find(|d| d.starts_with("frame-src "))
+            .expect("frame-src がある");
+        assert_eq!(
+            frame_src,
+            "frame-src 'self' https://applications.zoom.us https:"
+        );
+        for loose in ["*", "http:", "data:", "blob:", "'unsafe-inline'"] {
+            assert!(
+                !frame_src.split_whitespace().any(|t| t == loose),
+                "frame-src に {loose} を入れない"
+            );
+        }
+        // 枠の中に開くのは外部ページだけ。この画面自体を外部から枠に入れることは引き続き禁止
+        assert!(policy.contains("frame-ancestors 'self'"));
         assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
         assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
         assert_eq!(

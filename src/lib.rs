@@ -941,14 +941,20 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                  img-src 'self' data: blob: https:; \
                  font-src 'self' data: https:; \
                  connect-src 'self'; \
-                 frame-src 'self' https://applications.zoom.us; \
+                 frame-src 'self' https://applications.zoom.us https:; \
                  frame-ancestors 'self'; \
                  base-uri 'self'; \
                  form-action 'self'",
             ),
         ))
         // frame-src (2026-10-06): 架電ワークスペースの Zoom Phone Smart Embed (iframe) のため、
-        // 自分自身と https://applications.zoom.us だけを許可する (それ以外の外部 iframe は引き続き遮断)。
+        // 自分自身と https://applications.zoom.us を許可する。
+        // 2026-10-08: 架電画面の中央の列で、案件のリンク (求人検索の Google 検索・会社のホームページ・
+        // 求人媒体の求人ページ) を枠の中に開くため `https:` を足した。ホームページや媒体のページは
+        // 行き先が案件ごとに違い、許可するサイトを列挙できないため。`*` にはしない (http: と
+        // data: / blob: / javascript: は引き続き遮断)。枠は画面側で sandbox と referrerpolicy=no-referrer を付け、
+        // http(s) の URL だけを開く (frontend/src/screens/crm/centerLinks.ts)。
+        // Zoom を `https:` と別に書いているのは、Zoom の枠が要ることを残すため (意味は `https:` に含まれる)。
         // frame-ancestors 'self' (2026-08-04): 求人票生成・ジャーニー診断等を
         // ダッシュボードのタブ内 iframe (同一オリジン) として統合するため。
         // 外部サイトからの埋め込み (クリックジャッキング) は引き続き遮断。
