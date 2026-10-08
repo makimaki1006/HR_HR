@@ -132,6 +132,18 @@ describe('useCallQueue: load more', () => {
     act(() => { result.current.reload(); });
     expect(calls[2]?.cursor).toBeNull();
     expect(result.current.state.items).toEqual([]);
+    // 最初の読み込みと続きはサーバのキャッシュを使ってよい。読み直し (reload) は使わない
+    expect(calls.map(c => c.fresh)).toEqual([false, false, true]);
+  });
+
+  it('only the request right after reload skips the server cache; a later condition change uses it again', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    const A = f({ q: 'A' }); const B = f({ q: 'B' });
+    const { result, rerender } = renderHook(({ fl }: { fl: QueueFilters }) => useCallQueue(fl, 'live', fetcher), { initialProps: { fl: A } });
+    await act(async () => { calls[0]?.resolve({ ok: true, data: makeResponse(A, [makeItem('a1')]) }); await Promise.resolve(); });
+    act(() => { result.current.reload(); });
+    rerender({ fl: B });
+    expect(calls.map(c => [c.filters.q, c.fresh])).toEqual([['A', false], ['A', true], ['B', false]]);
   });
 });
 

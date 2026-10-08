@@ -108,6 +108,7 @@ impl Manifest {
 
 #[derive(Clone)]
 pub struct ImageBridge {
+    /// Only for the two operator-CLI writes below (reads go through `jobs`' HubSpot client).
     http: reqwest::Client,
     token: String,
     base: String,
@@ -131,7 +132,7 @@ impl ImageBridge {
         Ok(Self {
             http,
             token,
-            base: "https://api.hubapi.com".into(),
+            base: crate::hubspot::base_url_from_env(),
             reader,
             jobs,
         })
@@ -144,32 +145,41 @@ impl ImageBridge {
         bridge
     }
 
-    async fn get(&self, path: &str) -> BridgeResult<(StatusCode, Value)> {
-        let response = self
-            .http
-            .get(format!("{}{path}", self.base))
-            .bearer_auth(&self.token)
-            .send()
+    /// Reads through the shared HubSpot client (gateway, coalescing, global 429 pause).
+    async fn get(&self, path: &str, query: &[(&str, String)]) -> BridgeResult<(StatusCode, Value)> {
+        let reply = self
+            .jobs
+            .hubspot()
+            .read_raw(false, path, query, None)
             .await
-            .map_err(|_| "hubspot_read_failed")?;
-        let status = response.status();
-        if !status.is_success() {
-            return Ok((status, Value::Null));
-        }
-        let value = response
-            .json()
+            .map_err(|e| match e {
+                crate::hubspot::HubSpotError::Decode(_) => "hubspot_response_invalid",
+                crate::hubspot::HubSpotError::Busy => "hubspot_busy",
+                _ => "hubspot_read_failed",
+            })?;
+        let status = StatusCode::from_u16(reply.status).map_err(|_| "hubspot_read_failed")?;
+        Ok((status, reply.body.unwrap_or(Value::Null)))
+    }
+    /// Operator-CLI writes still wait for a slot on the same gateway (background priority) and are
+    /// counted there, so they never bypass the shared rate limit.
+    async fn write_slot(&self, path: &str) -> BridgeResult<()> {
+        use crate::hubspot::gateway::{endpoint_group, Lane};
+        let gw = self.jobs.hubspot().gateway();
+        gw.acquire(Lane::General, crate::hubspot::Priority::Background)
             .await
-            .map_err(|_| "hubspot_response_invalid")?;
-        Ok((status, value))
+            .map_err(|_| "hubspot_busy")?;
+        gw.record_call(endpoint_group(path), Lane::General);
+        Ok(())
     }
     pub async fn current(&self, listing: &str) -> BridgeResult<Option<Pointer>> {
         if !record_id(listing) {
             return Err("invalid_listing_id");
         }
         let (status, value) = self
-            .get(&format!(
-                "/crm/v3/objects/0-420/{listing}?properties={PROPERTY}"
-            ))
+            .get(
+                &format!("/crm/v3/objects/0-420/{listing}"),
+                &[("properties", PROPERTY.to_string())],
+            )
             .await?;
         if !status.is_success() {
             return Err("hubspot_pointer_read_failed");
@@ -295,20 +305,21 @@ impl ImageBridge {
     /// Explicit operator CLI only: provision one namespaced string property idempotently.
     pub async fn ensure_property(&self) -> BridgeResult<()> {
         let path = format!("/crm/v3/properties/0-420/{PROPERTY}");
-        let (status, existing) = self.get(&path).await?;
+        let (status, existing) = self.get(&path, &[]).await?;
         if status.is_success() {
             return validate_property(&existing);
         }
         if status != StatusCode::NOT_FOUND {
             return Err("property_schema_read_failed");
         }
+        self.write_slot("/crm/v3/properties/0-420").await?;
         let _response = self.http.post(format!("{}/crm/v3/properties/0-420", self.base))
             .bearer_auth(&self.token).json(&json!({"name":PROPERTY,"label":"求人画像観測参照（Drive連携）",
                 "type":"string","fieldType":"text","groupName":"tab_p_7_shisutemujouhou",
                 "description":"求人画像の不変manifest参照。専用連携が管理。画像本体はGoogle Drive。"}))
             .send().await;
         // Deterministic property name also handles a successful CREATE with lost response.
-        let (status, value) = self.get(&path).await?;
+        let (status, value) = self.get(&path, &[]).await?;
         if !status.is_success() {
             return Err("property_create_unconfirmed");
         }
@@ -355,6 +366,8 @@ impl ImageBridge {
         validate_transition(current.as_ref(), &manifest)?;
         let payload = serde_json::to_string(pointer).map_err(|_| "pointer_serialization_failed")?;
         // No other properties or associations are mutated. Readback, not HTTP acknowledgement, completes the operation.
+        self.write_slot(&format!("/crm/v3/objects/0-420/{listing}"))
+            .await?;
         let _response = self
             .http
             .patch(format!("{}/crm/v3/objects/0-420/{listing}", self.base))

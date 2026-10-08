@@ -203,6 +203,7 @@ impl MetadataCache {
         if let Some((stored, response)) = slot.as_ref() {
             let age = stored.elapsed();
             if (!refresh && age < CACHE_TTL) || (refresh && age < self.refresh_floor) {
+                crate::hubspot::gateway::cache_hit("crm_metadata");
                 let mut response = response.clone();
                 response.cache_hit = true;
                 response.hubspot_ms = 0.0;
@@ -210,6 +211,7 @@ impl MetadataCache {
                 return Ok(response);
             }
         }
+        crate::hubspot::gateway::cache_miss("crm_metadata");
         let upstream = Instant::now();
         let (contacts, companies, deals, pipelines) = tokio::try_join!(
             client.property_definitions(RecordType::Contact),

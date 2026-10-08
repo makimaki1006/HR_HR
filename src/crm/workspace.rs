@@ -75,6 +75,7 @@ use super::routes::{
 };
 use super::workspace_cache::{CachedWorkspace, WorkspaceCacheKey};
 use crate::hubspot::deep_link::{hubspot_portal_id, record_url};
+use crate::hubspot::gateway::{cache_hit, cache_miss};
 use crate::hubspot::{
     AssociationRef, EngagementType, HubSpotClient, HubSpotError, HubSpotRecord, RecordType,
 };
@@ -543,6 +544,12 @@ pub(super) async fn get_workspace_deal(
     } else {
         ctx.workspace_cache.get(&key)
     };
+    if cached.is_some() {
+        cache_hit("workspace");
+    } else {
+        cache_miss("workspace");
+    }
+    super::routes::refresh_ahead(&ctx, &client);
     if let Some(hit) = &cached {
         if !gated {
             return cached_response(hit);
@@ -550,15 +557,9 @@ pub(super) async fn get_workspace_deal(
     }
     // 5) 同時実行の枠待ちも含めて全体に締め切りを付ける
     let started = std::time::Instant::now();
-    let _slot = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.read_slots.acquire()).await {
-        Ok(Ok(permit)) => permit,
-        _ => {
-            tracing::warn!(
-                error_kind = "crm_timeout",
-                "crm workspace waited too long for a slot"
-            );
-            return timeout_response();
-        }
+    let _slot = match super::routes::acquire_read_slot(&ctx, &client).await {
+        Ok(permit) => permit,
+        Err(resp) => return resp,
     };
     let email = principal.email.clone().unwrap_or_default();
     let remaining = CRM_REQUEST_DEADLINE.saturating_sub(started.elapsed());

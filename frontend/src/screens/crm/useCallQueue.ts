@@ -10,12 +10,13 @@ import {
 } from './queueModel';
 import type { QueueFilters, QueueMode } from './queueModel';
 
+/** `fresh`: サーバの短いキャッシュを使わずに読み直す (利用者が「再試行」等で明示的に読み直したとき) */
 export type QueueFetch = (
-  filters: QueueFilters, cursor: string | null, signal: AbortSignal,
+  filters: QueueFilters, cursor: string | null, signal: AbortSignal, fresh?: boolean,
 ) => Promise<ApiResult<CallQueueResponse>>;
 
-export const liveFetch: QueueFetch = (filters, cursor, signal) =>
-  apiGet<CallQueueResponse>(queueApiPath(filters, cursor), { signal, timeoutMs: 35_000 });
+export const liveFetch: QueueFetch = (filters, cursor, signal, fresh = false) =>
+  apiGet<CallQueueResponse>(queueApiPath(filters, cursor, fresh), { signal, timeoutMs: 35_000 });
 
 /** 架空データ。実データの失敗時には使われない (モードは画面で明示的に選ぶ) */
 export const fixtureFetch: QueueFetch = async (filters, cursor, signal) => {
@@ -99,6 +100,9 @@ export const SCOPE_MISMATCH_MESSAGE = '応答の条件が画面の条件と一�
 export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: QueueFetch, refreshKey = '') {
   const [raw, setState] = useState<QueueState>(() => initial());
   const [reloadToken, setReloadToken] = useState(0);
+  // 読み直し (reload) の直後の 1 回だけサーバのキャッシュを使わない。どの要求 (reqId) で使ったかを覚え、
+  // 同じ要求の再実行 (StrictMode) では fresh のまま、その後の条件変更では通常の読み込みに戻す
+  const freshFor = useRef<{ token: number; reqId: string | null }>({ token: 0, reqId: null });
   const fetchPage = fetcher ?? (mode === 'fixture' ? fixtureFetch : liveFetch);
   const moreCtl = useRef<AbortController | null>(null);
   const moreBusy = useRef(false);
@@ -116,7 +120,12 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
     if (hasInvalid) return; // 条件の誤りは取得せず、返す値 (下) で知らせる
     const ctl = new AbortController();
     moreBusy.current = false;
-    void fetchPage(filters, null, ctl.signal).then(res => {
+    // 「再試行」「最初から読み直す」で読み直すときは、サーバのキャッシュを使わない
+    const ff = freshFor.current;
+    const fresh = reloadToken > 0 && ff.token === reloadToken && (ff.reqId === null || ff.reqId === reqId);
+    if (fresh) ff.reqId = reqId;
+    const fetching = fresh ? fetchPage(filters, null, ctl.signal, true) : fetchPage(filters, null, ctl.signal);
+    void fetching.then(res => {
       if (ctl.signal.aborted) return; // 条件が変わった後の古い応答
       if (!res.ok) {
         if (res.error instanceof ApiAbortedError) return;
@@ -172,7 +181,9 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
     });
   }, [state.nextCursor, state.phase]);
 
-  const reload = useCallback(() => { setReloadToken(n => n + 1); }, []);
+  const reload = useCallback(() => {
+    setReloadToken(n => { freshFor.current = { token: n + 1, reqId: null }; return n + 1; });
+  }, []);
   // 条件が正しくない間は取得せず、画面に誤りを出す (古い結果は見せない)
   const shown: QueueState = hasInvalid ? { ...initial(reqId), phase: 'invalid', invalid } : state;
   return { state: shown, loadMore, reload };

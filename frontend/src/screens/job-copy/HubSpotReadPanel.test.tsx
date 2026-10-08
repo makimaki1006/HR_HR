@@ -45,6 +45,21 @@ async function openJob(onOpen: (job: JobCopyRecord) => void) {
 const categories = (record: JobCopyRecord | undefined, dimension: 'prefecture' | 'municipality') =>
   record?.overallApplications?.distributions[dimension]?.categories.map(row => [row.category, row.count]);
 
+describe('HubSpotReadPanel errors', () => {
+  it('shows the busy message (not the settings checklist) when the server says HubSpot is busy', async () => {
+    api.mockResolvedValue({ ok: false, error: Object.assign(new Error('HTTP 503'), { status: 503, body: { code: 'hubspot_busy' } }) });
+    render(<HubSpotReadPanel onOpen={vi.fn()} />);
+    fireEvent.click(screen.getByText('取引先を取得'));
+    expect((await screen.findByRole('alert')).textContent).toBe('HubSpot が混み合っています。少し待ってから再試行してください。');
+  });
+  it('keeps the settings checklist for other failures', async () => {
+    api.mockResolvedValue({ ok: false, error: Object.assign(new Error('HTTP 502'), { status: 502, body: { code: 'hubspot_read_failed' } }) });
+    render(<HubSpotReadPanel onOpen={vi.fn()} />);
+    fireEvent.click(screen.getByText('取引先を取得'));
+    expect((await screen.findByRole('alert')).textContent).toContain('HubSpotの読み取りに失敗しました（HTTP 502）');
+  });
+});
+
 describe('HubSpotReadPanel applicant addresses', () => {
   it('rounds addresses to 都道府県 + 市区町村 in the record it opens and in the table (no capture data)', async () => {
     mockApi(applicants);

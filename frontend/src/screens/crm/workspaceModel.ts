@@ -89,6 +89,7 @@ export const PARTIAL_LABELS: Record<string, string> = {
 const PARTIAL_REASONS: Record<string, string> = {
   hubspot_auth: 'HubSpot の読み取り権限が不足しています',
   hubspot_rate_limited: 'HubSpot が混み合っています。少し待ってから開き直してください',
+  hubspot_busy: 'HubSpot が混み合っています。少し待ってから再試行してください',
   hubspot_timeout: 'HubSpot の応答が時間内に返りませんでした',
   crm_timeout: '取得に時間がかかりすぎたため途中で止めました',
   hubspot_upstream: 'HubSpot との通信に失敗しました',

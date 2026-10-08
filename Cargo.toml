@@ -95,6 +95,8 @@ pdf = ["dep:pdf-extract"]
 
 [dev-dependencies]
 http-body-util = "0.1"
+# 関所 (src/hubspot/gateway.rs) のテストで仮想時計 (start_paused) を使う
+tokio = { version = "1", features = ["full", "test-util"] }
 
 [profile.release]
 opt-level = 3

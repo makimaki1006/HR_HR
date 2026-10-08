@@ -844,12 +844,19 @@ async fn 通常の_1_ページは_hubspot_5_回で件数に依存しない() {
         ];
         want.sort();
         assert_eq!(c, want, "n={n}");
-        // 2 回目 (ステージ名がキャッシュ済み) はちょうど 5 回
+        // 2 回目 (ステージ名がキャッシュ済み) はちょうど 5 回。同じ条件のページは 30 秒キャッシュされるので、
+        // HubSpot から読み直させる (`fresh=1`。段階の件数のキャッシュも読み直す)
         let before = e.calls().len();
-        let (s, _) = e.admin_get("?limit=50").await;
+        let (s, _) = e.admin_get("?limit=50&fresh=1").await;
         assert_eq!(s, StatusCode::OK);
         assert_eq!(e.calls().len() - before, 5 + 2, "n={n}");
         assert_eq!(e.count("/crm/v3/objects/contacts/batch/read"), 2, "n={n}");
+        // 3 回目 (fresh なし) はページのキャッシュから返し、HubSpot を呼ばない
+        let before = e.calls().len();
+        let (s, v) = e.admin_get("?limit=50").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(v["items"].as_array().unwrap().len(), n);
+        assert_eq!(e.calls().len() - before, 0, "n={n}");
     }
 }
 
@@ -3273,5 +3280,193 @@ async fn パイプライン一覧も認可の後で_クエリは受け付けな�
     assert_eq!(
         (s, kind(&v)),
         (StatusCode::BAD_REQUEST, Some("invalid_param"))
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 1 ページのキャッシュ (30 秒。解決済みの担当者をキーに含む。認可は毎回)
+// ---------------------------------------------------------------------------
+
+const BPO2: &str = "bpo2@f-a-c.co.jp";
+const BPO2_OWNER_ID: &str = "222";
+
+/// Search 本文の担当者の絞り込み (EQ の値) に合う Deal だけを返す偽 HubSpot。
+/// 担当 111 → Deal 1、担当 222 → Deal 2、絞り込みなし → 両方
+fn owner_aware_fake() -> FakeHs {
+    let mut f = FakeHs::new();
+    f.owners.insert(BPO2.to_string(), BPO2_OWNER_ID.to_string());
+    with_relations(&mut f, &["1", "2"]);
+    f.search = Box::new(|body, _| {
+        let owner = groups(body)
+            .first()
+            .and_then(|g| flt(g, "hubspot_owner_id"))
+            .and_then(|f| f["value"].as_str().map(str::to_string));
+        let deals: Vec<Deal> = [("1", BPO_OWNER_ID), ("2", BPO2_OWNER_ID)]
+            .iter()
+            .filter(|(_, o)| owner.as_deref().is_none_or(|w| w == *o))
+            .map(|(id, o)| Deal::new(id, UNPROCESSED).p("hubspot_owner_id", o))
+            .collect();
+        (200, Page::new(deals).json())
+    });
+    f
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ページのキャッシュは担当者ごとで_他人の担当のページを返さない() {
+    let (client, hs) = start_hs(owner_aware_fake()).await;
+    let app = Router::new()
+        .merge(super::routes::router_with_queue(
+            CrmAccess::from_list(&format!("{ADMIN},{BPO},{BPO2}"))
+                .with_test_role(ADMIN, CrmRole::Admin)
+                .with_test_role(BPO, CrmRole::Bpo)
+                .with_test_role(BPO2, CrmRole::Bpo),
+            CallQueueState::for_test(KEY, now_default()),
+        ))
+        .route("/__test/session", post(inject_session))
+        .with_state(test_state(Some(client)))
+        .layer(SessionManagerLayer::new(MemoryStore::default()));
+    let a = login(&app, BPO, "google_oidc").await;
+    let b = login(&app, BPO2, "google_oidc").await;
+    let admin = login(&app, ADMIN, "google_oidc").await;
+    let deal_searches = || hs.lock().unwrap().search_bodies().len();
+    let get = |cookie: String, q: &'static str| {
+        let app = app.clone();
+        async move {
+            let (s, _, v) = get_raw(&app, &format!("/api/crm/call-queue{q}"), Some(&cookie)).await;
+            assert_eq!(s, StatusCode::OK, "{q}: {v}");
+            v
+        }
+    };
+
+    // A (担当 111) の既定 = 自分
+    let v = get(a.clone(), "").await;
+    assert_eq!(ids(&v), vec!["1"]);
+    assert_eq!(deal_searches(), 1);
+    // B (担当 222) は同じクエリ (既定 = 自分) でも A のページを受け取らない
+    let v = get(b.clone(), "").await;
+    assert_eq!(ids(&v), vec!["2"], "B に A の担当のページを返さない");
+    assert_eq!(v["scope"]["owner"], "me");
+    assert_eq!(deal_searches(), 2, "B の担当で読み直した");
+    // A の 2 回目はキャッシュ (Search しない) で、中身は A の担当のまま
+    let v = get(a.clone(), "").await;
+    assert_eq!(ids(&v), vec!["1"]);
+    assert_eq!(deal_searches(), 2);
+    // 管理者が担当 111 を選ぶと、A の「自分」と同じ絞り込みなので同じキャッシュを使う。
+    // scope は管理者の分 (owner=111, role=admin) を作り直す
+    let v = get(admin.clone(), "?owner=111").await;
+    assert_eq!(ids(&v), vec!["1"]);
+    assert_eq!(v["scope"]["owner"], "111");
+    assert_eq!(v["scope"]["role"], "admin");
+    assert_eq!(deal_searches(), 2);
+    // 全員分は別のキー
+    let v = get(admin.clone(), "?owner=all").await;
+    assert_eq!(ids(&v), vec!["1", "2"]);
+    assert_eq!(deal_searches(), 3);
+    // 続きの cursor は要求した本人に束縛される (キャッシュから返したページでも、A の cursor は B に使えない)
+    let next = v["next_cursor"]
+        .as_str()
+        .expect("次の段階がある")
+        .to_string();
+    let (s, _, v2) = get_raw(
+        &app,
+        &format!("/api/crm/call-queue?owner=all&cursor={next}"),
+        Some(&a),
+    )
+    .await;
+    assert_eq!(
+        (s, kind(&v2)),
+        (StatusCode::BAD_REQUEST, Some("cursor_mismatch"))
+    );
+    // fresh=1 はキャッシュを使わない
+    let v = get(a.clone(), "?fresh=1").await;
+    assert_eq!(ids(&v), vec!["1"]);
+    assert_eq!(deal_searches(), 4);
+    // 認可は毎回: CRM の利用者でない人はキャッシュがあっても 403 で、中身を受け取らない
+    let outsider = login(&app, OUTSIDER, "google_oidc").await;
+    let (s, _, v) = get_raw(&app, "/api/crm/call-queue?owner=all", Some(&outsider)).await;
+    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+    assert!(v.get("items").is_none());
+    assert_eq!(deal_searches(), 4);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 先頭ページの段階の件数は_60_秒キャッシュし_欠けた応答はキャッシュしない() {
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1"]);
+    f.count_total = Some(7);
+    let e = env(f.page(Page::new(vec![Deal::new("1", UNPROCESSED)]))).await;
+    let (s, v) = e.admin_get("").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(e.count("/deals/search#count"), 2);
+    let total = v["total"].clone();
+    // limit が違えば別のページだが、段階の件数は同じ絞り込みなので数え直さない
+    let (s, v) = e.admin_get("?limit=10").await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["total"], total);
+    assert_eq!(e.count("/deals/search#count"), 2, "件数はキャッシュ");
+    assert_eq!(e.searches().len(), 2, "ページの Search は limit ごと");
+
+    // 関連の読み取りが欠けた応答はキャッシュしない (次の要求で読み直す)
+    let mut f = FakeHs::new();
+    with_relations(&mut f, &["1"]);
+    f.batch_fail.insert("contacts".to_string(), 500);
+    let e = env(f.page(Page::new(vec![Deal::new("1", UNPROCESSED)]))).await;
+    for _ in 0..2 {
+        let (s, v) = e.admin_get("").await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        assert!(!v["partial"]["failed"].as_array().unwrap().is_empty());
+    }
+    assert_eq!(e.searches().len(), 2, "欠けた応答は毎回読み直す");
+}
+
+// ---------------------------------------------------------------------------
+// 定義系キャッシュの先読み (有効期間の残り 20% 未満で、背景の優先度で読み直す)
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 担当者一覧は期限の近いうちに背景で読み直し_期限切れで待たせない() {
+    let ttl = Duration::from_millis(600);
+    let e = env_owner_ttl(FakeHs::new(), ttl).await;
+    let (s, _) = e.owners().await;
+    assert_eq!(s, StatusCode::OK);
+    // 有効 + 退職者の 2 回
+    assert_eq!(e.owner_calls(), 2);
+    // 有効期間の 85% の時点: キャッシュから返し、裏で読み直しが始まる
+    tokio::time::sleep(ttl * 85 / 100).await;
+    let (s, _) = e.owners().await;
+    assert_eq!(s, StatusCode::OK);
+    for _ in 0..50 {
+        if e.owner_calls() == 4 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(e.owner_calls(), 4, "背景で読み直した");
+    // 最初の読み込みから見ると期限切れの時点でも、読み直した一覧が有効なのでその場では読まない
+    tokio::time::sleep(ttl * 30 / 100).await;
+    let (s, _) = e.owners().await;
+    assert_eq!(s, StatusCode::OK);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(e.owner_calls(), 4);
+}
+
+#[test]
+fn 先読みは同時に_1_本で_続けて始めない() {
+    use super::call_queue::{refresh_due, RefreshGate};
+    let g = RefreshGate::new();
+    assert!(g.try_begin());
+    assert!(!g.try_begin(), "走っている間は始めない");
+    g.end();
+    assert!(
+        !g.try_begin(),
+        "前回の開始から 30 秒は始めない (失敗が続くときに要求ごとに読まない)"
+    );
+    let ttl = Duration::from_secs(100);
+    assert!(!refresh_due(Duration::from_secs(79), ttl));
+    assert!(refresh_due(Duration::from_secs(80), ttl));
+    assert!(refresh_due(Duration::from_secs(99), ttl));
+    assert!(
+        !refresh_due(Duration::from_secs(100), ttl),
+        "期限切れはその場で読む"
     );
 }
