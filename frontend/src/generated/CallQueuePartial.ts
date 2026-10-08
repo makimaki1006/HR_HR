@@ -13,4 +13,9 @@ missing_companies: number,
 /**
  * 取得に失敗した部分 (`associations` / `contacts` / `companies` / `stage_labels`)。無ければ空
  */
-failed: Array<string>, excluded: CallQueueExcluded, };
+failed: Array<string>, excluded: CallQueueExcluded, 
+/**
+ * 選んだパイプラインにあって、架電キューの表に無いステージの数 (後から HubSpot に追加されたもの)。
+ * 架電対象外として扱い、検索しない。ステージ名を読めなかったときは 0
+ */
+unknown_stages: number, };

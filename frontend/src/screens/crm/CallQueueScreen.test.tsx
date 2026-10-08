@@ -5,10 +5,16 @@ import { ApiHttpError } from '../../api/client';
 import { CallQueueScreen, KEY_SELECT_DELAY_MS, partialNotes } from './CallQueueScreen';
 import type { DetailFetch } from './useDealDetail';
 import type { OwnersFetch } from './useOwners';
-import { makeItem, makeResponse, deferredFetcher, okMetadataFetch, okUserFetch } from './queueTestUtil';
+import { makeItem, makeResponse, deferredFetcher, okMetadataFetch, okPipelinesFetch, okUserFetch, pipelinesResponse } from './queueTestUtil';
 import { DEFAULT_FILTERS, parseFilters } from './queueModel';
 
 afterEach(() => { cleanup(); });
+
+/** 詳細条件の欄を開く (ステージの絞り込みはこの中) */
+function openDetails() {
+  const toggle = screen.getByRole('button', { name: /^詳細条件/ });
+  if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+}
 
 function at<T>(list: T[], index: number): T {
   const v = list[index];
@@ -69,7 +75,7 @@ describe('CallQueueScreen', () => {
     render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
     await ready(calls, [makeItem('1', { contact: null })], {
       truncated: true,
-      partial: { missing_contacts: 1, missing_companies: 2, failed: ['associations', 'contacts', 'stage_labels', 'something_new'], excluded: { no_phone: 3, stop_reason: 4, out_of_scope: 5 } },
+      partial: { missing_contacts: 1, missing_companies: 2, failed: ['associations', 'contacts', 'stage_labels', 'something_new'], excluded: { no_phone: 3, stop_reason: 4, out_of_scope: 5 }, unknown_stages: 0 },
     });
     expect(screen.getByText('一部の情報が欠けています')).toBeTruthy();
     expect(screen.getByText('担当者情報を取得できなかった行が 1 件あります')).toBeTruthy();
@@ -80,7 +86,9 @@ describe('CallQueueScreen', () => {
     expect(screen.getByText('電話番号がどこにも無いため 3 件を除きました')).toBeTruthy();
     expect(screen.getByText(/1 万件までしか取得できない/)).toBeTruthy();
     expect(partialNotes(null)).toEqual([]);
-    expect(partialNotes({ missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 } })).toEqual([]);
+    expect(partialNotes({ missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 }, unknown_stages: 0 })).toEqual([]);
+    expect(partialNotes({ missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 }, unknown_stages: 2 }))
+      .toEqual(['架電キューの設定に無いステージが HubSpot に 2 個あり、架電対象外として扱っています(管理者に連絡してください)']);
   });
 
   it('error: shows the kind-specific message and retries from the first page; it does not show fixture rows', async () => {
@@ -115,20 +123,27 @@ describe('CallQueueScreen', () => {
     expect((screen.getAllByLabelText('から')[0] as HTMLInputElement).value).toBe('2026-10-01');
     expect((screen.getAllByLabelText('まで')[1] as HTMLInputElement).value).toBe('2026-09-30');
     expect((screen.getByLabelText<HTMLInputElement>('次回日が来たものだけ')).checked).toBe(true);
-    expect((screen.getByLabelText<HTMLInputElement>('不在')).checked).toBe(true);
+    openDetails();
+    expect(screen.getByRole('button', { name: 'ステージ（1件選択）' })).toBeTruthy();
+    expect((screen.getByLabelText<HTMLSelectElement>('パイプライン')).value).toBe('753186575');
     expect((screen.getByLabelText<HTMLInputElement>('キーワード(会社名・案件名)')).value).toBe('架空');
   });
 
   it('changing the sort, due toggle, stage and dates aborts the old request and refetches with the new condition', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={okPipelinesFetch} initialSearch="?view=queue" />);
+    await waitFor(() => { expect(screen.getAllByRole('option', { name: 'bpo_リクロジ' })).toHaveLength(1); });
     fireEvent.change(screen.getByLabelText('並び替え'), { target: { value: 'last_call_asc' } });
     expect(calls).toHaveLength(2);
     expect(calls[0]?.signal.aborted).toBe(true);
     expect(calls[1]?.filters.sort).toBe('last_call_asc');
     fireEvent.click(screen.getByLabelText('次回日が来たものだけ'));
     expect(calls[2]?.filters.due).toBe('today');
-    fireEvent.click(screen.getByLabelText('不在'));
+    openDetails();
+    fireEvent.click(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて外す' }));
+    fireEvent.click(screen.getByLabelText(/^不在/));
+    fireEvent.click(screen.getByRole('button', { name: '適用' }));
     expect(calls[3]?.filters.stages).toEqual(['1095387445']);
     const dates = screen.getAllByLabelText('から');
     fireEvent.change(at(dates, 0), { target: { value: '2026-10-01' } });
@@ -200,8 +215,9 @@ describe('CallQueueScreen', () => {
       await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('ネットワーク'); });
       // キュー (1 回) と、所有者の一覧 (全員が使う。実データのときだけ) だけ
       const urls = spy.mock.calls.map(c => (typeof c[0] === 'string' ? c[0] : ''));
-      expect(urls.filter(u => u.startsWith('/api/crm/call-queue'))).toEqual(['/api/crm/call-queue?limit=50']);
-      expect(urls.filter(u => !u.startsWith('/api/crm/call-queue'))).toEqual(['/api/crm/owners']);
+      expect(urls.filter(u => u.startsWith('/api/crm/call-queue?'))).toEqual(['/api/crm/call-queue?limit=50']);
+      // ほかは所有者の一覧とパイプライン名 (どちらも実データのときだけ)
+      expect(urls.filter(u => !u.startsWith('/api/crm/call-queue?')).sort()).toEqual(['/api/crm/call-queue/pipelines', '/api/crm/owners']);
       expect(screen.queryByText('架空食品株式会社')).toBeNull();
     } finally { vi.unstubAllGlobals(); }
   });
@@ -273,7 +289,8 @@ describe('calling cockpit layout', () => {
     const panel = document.getElementById('cq-advanced');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(panel?.hidden).toBe(true);
-    expect(toggle.textContent).toBe('詳細条件3');
+    // ステージの絞り込み (2 つ選択) で 1、次回架電日で 1
+    expect(toggle.textContent).toBe('詳細条件2');
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(panel?.hidden).toBe(false);
@@ -281,22 +298,27 @@ describe('calling cockpit layout', () => {
     expect(panel?.hidden).toBe(true);
   });
 
-  it('active conditions are listed as chips; × removes exactly that condition and refetches', () => {
+  it('active conditions are listed as chips; × removes exactly that condition and refetches', async () => {
     const { calls, fetcher } = deferredFetcher();
-    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?q=架空&stage=1095387442&stage=1095387445&due=today&next_from=2026-10-01&last_to=2026-09-30&sort=next_call_desc" />);
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={okPipelinesFetch}
+      initialSearch="?q=架空&stage=1095387442&stage=1095387445&due=today&next_from=2026-10-01&last_to=2026-09-30&sort=next_call_desc" />);
     const chips = () => within(screen.getByRole('list', { name: '適用中の条件' })).getAllByRole('listitem').map(li => li.querySelector('span')?.textContent);
+    // ステージ名を読むまでは件数、読めたら名前
+    expect(chips()).toContain('ステージ: 2 件を選択');
+    await waitFor(() => { expect(chips()).toContain('ステージ: 未済、不在'); });
     expect(chips()).toEqual([
-      'キーワード: 架空', '次回日が来たものだけ', 'ステージ: 未済', 'ステージ: 不在', '次回架電日: 2026/10/01〜', '最終架電日: 〜2026/09/30',
+      'キーワード: 架空', '次回日が来たものだけ', 'ステージ: 未済、不在', '次回架電日: 2026/10/01〜', '最終架電日: 〜2026/09/30',
     ]);
-    fireEvent.click(screen.getByRole('button', { name: '「ステージ: 未済」を外す' }));
-    expect(calls.at(-1)?.filters.stages).toEqual(['1095387445']);
+    // ステージのチップを外すとすべてのステージに戻る
+    fireEvent.click(screen.getByRole('button', { name: '「ステージ: 未済、不在」を外す' }));
+    expect(calls.at(-1)?.filters.stages).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: '「キーワード: 架空」を外す' }));
     expect(calls.at(-1)?.filters.q).toBe('');
     expect(screen.getByLabelText<HTMLInputElement>('キーワード(会社名・案件名)').value).toBe('');
     fireEvent.click(screen.getByRole('button', { name: '「最終架電日: 〜2026/09/30」を外す' }));
     expect(calls.at(-1)?.filters.lastTo).toBe('');
     expect(calls.at(-1)?.filters.sort).toBe('next_call_desc');
-    expect(chips()).toEqual(['次回日が来たものだけ', 'ステージ: 不在', '次回架電日: 2026/10/01〜']);
+    expect(chips()).toEqual(['次回日が来たものだけ', '次回架電日: 2026/10/01〜']);
     // 何も無ければチップの列は出ない
     fireEvent.click(screen.getByText('条件をクリア'));
     expect(screen.queryByRole('list', { name: '適用中の条件' })).toBeNull();
@@ -500,5 +522,96 @@ describe('CallQueueScreen: total and auto-load', () => {
     expect(b.calls).toHaveLength(2);
     fireEvent.click(screen.getByText('さらに読み込む'));
     expect(b.calls).toHaveLength(3);
+  });
+});
+
+describe('CallQueueScreen: pipeline and stage dropdowns', () => {
+  it('lists the allowed pipelines with HubSpot names (table names until loaded); switching resets the stages and refetches with pipeline=…', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={okPipelinesFetch} initialSearch="?stage=1095387445&due=today" />);
+    const select = screen.getByLabelText<HTMLSelectElement>('パイプライン');
+    expect(select.value).toBe('753186575');
+    // 名前を読むまでは表の呼び名
+    expect(Array.from(select.options).map(o => o.textContent)).toContain('リクロジ受注管理_アポ前');
+    await waitFor(() => { expect(Array.from(select.options).map(o => o.textContent)).toContain('アポ前'); });
+    expect(Array.from(select.options).map(o => o.value)).toEqual(['753186575', 'default', '62583420', '21724969', '681393283', '913508269']);
+    expect(calls[0]?.filters.stages).toEqual(['1095387445']);
+    fireEvent.change(select, { target: { value: 'default' } });
+    const last = calls.at(-1);
+    expect(calls[0]?.signal.aborted).toBe(true);
+    expect(last?.filters.pipeline).toBe('default');
+    expect(last?.filters.stages).toEqual([]);
+    expect(last?.filters.due).toBe('today'); // ほかの条件は残す
+    expect(last?.cursor).toBeNull();
+    // ステージのボタンは新しいパイプラインの対象ステージ (未済 1 + 次回日 14) を全部選んだ状態
+    openDetails();
+    expect(screen.getByRole('button', { name: 'ステージ（15件選択）' })).toBeTruthy();
+    // 応答が来たら一覧を出す (scope の pipeline が合う)
+    await act(async () => { last?.resolve({ ok: true, data: makeResponse(last.filters, [makeItem('7')]) }); await Promise.resolve(); });
+    expect(screen.getByText('架空会社7')).toBeTruthy();
+  });
+
+  it('the stage dropdown: all checked by default, select none blocks apply, select all and single toggles, excluded and unknown stages are greyed', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    const pipelinesFetcher = () => Promise.resolve({ ok: true as const, data: pipelinesResponse([{ id: '1500000001', label: '新しいステージ' }]) });
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} pipelinesFetcher={pipelinesFetcher} initialSearch="" />);
+    await waitFor(() => { expect(screen.getAllByRole('option', { name: 'bpo_リクロジ' })).toHaveLength(1); });
+    openDetails();
+    fireEvent.click(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
+    const panel = screen.getByRole('group', { name: 'ステージの選択' });
+    const boxes = () => within(panel).getAllByRole<HTMLInputElement>('checkbox');
+    expect(boxes()).toHaveLength(16);
+    expect(boxes().every(b => b.checked)).toBe(true);
+    // 架電対象外 (アポ日確定・架電禁止・商談実施処理 + 設定に無いステージ) は選べない
+    const excluded = within(panel).getByLabelText('架電対象外のステージ');
+    expect(within(excluded).queryAllByRole('checkbox')).toHaveLength(0);
+    expect(within(excluded).getAllByRole('listitem').map(li => li.textContent)).toEqual([
+      'アポ日確定', '架電禁止 ※リーダーのみ変更', '商談実施処理', '新しいステージ(架電キューの設定に無いステージ)',
+    ]);
+    // すべて外す → 適用できない
+    fireEvent.click(within(panel).getByRole('button', { name: 'すべて外す' }));
+    expect(boxes().some(b => b.checked)).toBe(false);
+    expect(within(panel).getByRole<HTMLButtonElement>('button', { name: '適用' }).disabled).toBe(true);
+    expect(within(panel).getByText('ステージを 1 つ以上選んでください')).toBeTruthy();
+    // すべて選択 → 1 つ外して適用
+    fireEvent.click(within(panel).getByRole('button', { name: 'すべて選択' }));
+    expect(boxes().every(b => b.checked)).toBe(true);
+    fireEvent.click(within(panel).getByLabelText(/^不通/));
+    expect(calls).toHaveLength(1); // 適用するまで取り直さない
+    fireEvent.click(within(panel).getByRole('button', { name: '適用' }));
+    expect(screen.queryByRole('group', { name: 'ステージの選択' })).toBeNull();
+    const stages = calls.at(-1)?.filters.stages ?? [];
+    expect(stages).toHaveLength(15);
+    expect(stages).not.toContain('1095387443');
+    expect(screen.getByRole('button', { name: 'ステージ（15件選択）' })).toBeTruthy();
+    // 全部に戻すと既定 (stage を送らない)
+    fireEvent.click(screen.getByRole('button', { name: 'ステージ（15件選択）' }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて選択' }));
+    fireEvent.click(screen.getByRole('button', { name: '適用' }));
+    expect(calls.at(-1)?.filters.stages).toEqual([]);
+    // キャンセルは反映しない
+    const before = calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて外す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(calls).toHaveLength(before);
+    expect(screen.getByRole('button', { name: 'ステージ（16件選択）' })).toBeTruthy();
+  });
+
+  it('fixture mode has a second fictional pipeline: always-shown and due stages appear, excluded and future ones do not', async () => {
+    render(<CallQueueScreen userFetcher={okUserFetch} initialSearch="?mode=fixture" />);
+    await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
+    const select = screen.getByLabelText<HTMLSelectElement>('パイプライン');
+    expect(Array.from(select.options).map(o => o.textContent)).toEqual(['bpo_リクロジ', '架空パイプライン(確認用)']);
+    fireEvent.change(select, { target: { value: 'fx-sample' } });
+    await waitFor(() => { expect(screen.getByText('架空倉庫サービス')).toBeTruthy(); });
+    expect(screen.getByText('架空ベーカリー')).toBeTruthy();
+    expect(screen.queryByText('架空塾')).toBeNull(); // 次回日が未来
+    expect(screen.queryByText('架空クリーニング')).toBeNull(); // 対象外ステージ
+    expect(screen.queryByText('架空食品株式会社')).toBeNull();
+    expect(screen.getByTestId('queue-count').textContent).toContain('全 2 件中 2 件を表示');
+    // 実データに切り替えると、架空のパイプラインは既定に戻す
+    fireEvent.click(screen.getByRole('button', { name: '実データ' }));
+    expect(screen.getByLabelText<HTMLSelectElement>('パイプライン').value).toBe('753186575');
   });
 });

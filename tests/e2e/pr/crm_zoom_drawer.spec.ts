@@ -39,11 +39,11 @@ function queueBody(url: URL) {
   return {
     items: ['1', '2'].map(item), next_cursor: null, total: 2, truncated: false,
     scope: {
-      owner: 'all', role: 'admin', teams: [], stages: [...QUEUE_STAGE_IDS].sort(),
+      pipeline: '753186575', owner: 'all', role: 'admin', teams: [], stages: [...QUEUE_STAGE_IDS].sort(),
       due: p.get('due') ?? 'all', sort: p.get('sort') ?? 'default', q: null, limit: Number(p.get('limit') ?? 25),
       next_from: null, next_to: null, last_from: null, last_to: null,
     },
-    partial: { missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 } },
+    partial: { missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 }, unknown_stages: 0 },
     generated_at: '2026-10-08T03:00:00Z',
   };
 }

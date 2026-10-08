@@ -1,27 +1,10 @@
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueScope } from '../../generated/CallQueueScope';
 import { ApiDataError, ApiHttpError, ApiInvalidResponseError, ApiTimeoutError } from '../../api/client';
+import { DEFAULT_PIPELINE_ID, eligibleStageIds, pipelinesFor } from './queuePipelines';
 
-/** 架電キューのステージ (Rust `call_queue.rs` の許可ステージと同じ。ID は HubSpot のステージ ID)。 */
-export const QUEUE_STAGES: readonly { id: string; label: string }[] = [
-  { id: '1095387442', label: '未済' },
-  { id: '1095387443', label: '不通' },
-  { id: '1095387444', label: '受付ブロック' },
-  { id: '1095387445', label: '不在' },
-  { id: '1274330477', label: '番号検索依頼中' },
-  { id: '1095387446', label: '担当者ブロック' },
-  { id: '1409897995', label: '成果報酬のみ' },
-  { id: '1095387447', label: 'ニーズなし/無料のみ' },
-  { id: '1325087323', label: 'ニーズなし/有料あり' },
-  { id: '1325087324', label: 'ニーズあり/無料のみ' },
-  { id: '1095387448', label: 'ニーズあり/有料あり' },
-  { id: '1448079987', label: 'SV依頼案件' },
-  { id: '1319310149', label: '日程確保' },
-  { id: '1095457877', label: '案件差戻' },
-  { id: '1330563334', label: '商談未実施処理' },
-  { id: '1369739056', label: 'リスト精査前' },
-];
-export const QUEUE_STAGE_IDS: readonly string[] = QUEUE_STAGES.map(s => s.id);
+/** 既定のパイプライン (bpo_リクロジ) の対象ステージ ID (表の順)。ほかのパイプラインは queuePipelines.ts の eligibleStageIds */
+export const QUEUE_STAGE_IDS: readonly string[] = eligibleStageIds(DEFAULT_PIPELINE_ID);
 
 export const QUEUE_SORTS = [
   { value: 'default', label: '標準(次回日が来たもの → 未済)' },
@@ -37,8 +20,10 @@ export type QueueDue = 'all' | 'today';
 export type QueueMode = 'live' | 'fixture';
 
 export interface QueueFilters {
+  /** HubSpot のパイプライン ID (既定は bpo_リクロジ。切り替えるとステージの選択は既定に戻す) */
+  pipeline: string;
   q: string;
-  /** 空 = すべてのステージ */
+  /** 選んだパイプラインの対象ステージのうち、出すもの。空 = すべて (既定) */
   stages: string[];
   /** '' = 既定 (管理者は全員、それ以外は自分)。'all' | 'me' | 'unassigned' | HubSpot owner ID */
   owner: string;
@@ -51,7 +36,7 @@ export interface QueueFilters {
 }
 
 export const DEFAULT_FILTERS: QueueFilters = {
-  q: '', stages: [], owner: '', due: 'all', sort: 'default',
+  pipeline: DEFAULT_PIPELINE_ID, q: '', stages: [], owner: '', due: 'all', sort: 'default',
   nextFrom: '', nextTo: '', lastFrom: '', lastTo: '',
 };
 
@@ -86,19 +71,28 @@ export function validateFilters(f: QueueFilters): string[] {
   return errors;
 }
 
-/** URL の検索文字列 → 条件。不正な値は既定値に落とす (画面を壊さない) */
+/**
+ * URL の検索文字列 → 条件。不正な値は既定値に落とす (画面を壊さない)。
+ * パイプラインはそのモード (実データ / 架空サンプル) で選べるものだけ、ステージはそのパイプラインの対象ステージだけ
+ */
 export function parseFilters(search: string): QueueFilters {
   const p = new URLSearchParams(search);
-  const stageSet = new Set(p.getAll('stage').filter(s => QUEUE_STAGE_IDS.includes(s)));
+  const wanted = p.get('pipeline') ?? '';
+  const pipeline = pipelinesFor(parseMode(search)).some(x => x.id === wanted) ? wanted : DEFAULT_PIPELINE_ID;
+  const eligible = eligibleStageIds(pipeline);
+  const stageSet = new Set(p.getAll('stage').filter(s => eligible.includes(s)));
   const sort = p.get('sort') ?? '';
   const owner = p.get('owner') ?? '';
   const date = (k: string) => {
     const v = p.get(k) ?? '';
     return isValidDate(v) ? v : '';
   };
+  // 全部選んだのは既定 (すべて) と同じ
+  const stages = stageSet.size === eligible.length ? [] : eligible.filter(id => stageSet.has(id));
   return {
+    pipeline,
     q: (p.get('q') ?? '').slice(0, 100),
-    stages: QUEUE_STAGE_IDS.filter(id => stageSet.has(id)),
+    stages,
     owner: isValidOwner(owner) ? owner : '',
     due: p.get('due') === 'today' ? 'today' : 'all',
     sort: SORT_VALUES.includes(sort) ? (sort as QueueSort) : 'default',
@@ -114,6 +108,7 @@ export function parseMode(search: string): QueueMode {
 /** 既定と違う条件だけを並べた検索文字列 (API と URL の共通部分。cursor / limit は含めない) */
 export function filtersToParams(f: QueueFilters): URLSearchParams {
   const p = new URLSearchParams();
+  if (f.pipeline !== DEFAULT_PIPELINE_ID) p.set('pipeline', f.pipeline);
   if (f.q.trim()) p.set('q', f.q.trim());
   for (const s of f.stages) p.append('stage', s);
   if (f.owner) p.set('owner', f.owner);
@@ -162,6 +157,21 @@ export function screenSearch(f: QueueFilters, mode: QueueMode): string {
   return s === '' ? '' : `?${s}`;
 }
 
+/**
+ * ステージの選択 → 条件の値。対象ステージを全部選んだら既定 (空 = すべて) にする。並びは表の順
+ */
+export function normalizeStages(pipeline: string, selected: Iterable<string>): string[] {
+  const set = new Set(selected);
+  const eligible = eligibleStageIds(pipeline);
+  const picked = eligible.filter(id => set.has(id));
+  return picked.length === eligible.length ? [] : picked;
+}
+
+/** パイプラインを切り替えた条件 (ステージの選択は既定 = すべてに戻す。ほかの条件は残す) */
+export function withPipeline(f: QueueFilters, pipeline: string): QueueFilters {
+  return { ...f, pipeline, stages: [] };
+}
+
 /** 条件が同じかの比較用キー (取得のやり直し判定) */
 export function filtersKey(f: QueueFilters): string {
   return filtersToParams(f).toString();
@@ -172,10 +182,11 @@ export function filtersKey(f: QueueFilters): string {
  * owner は、画面が既定 ('') のときサーバの既定 (管理者=all / それ以外=me) を受け入れる。
  */
 export function scopeMatches(scope: CallQueueScope, f: QueueFilters): boolean {
-  const wantStages = [...(f.stages.length ? f.stages : QUEUE_STAGE_IDS)].sort();
+  const wantStages = [...(f.stages.length ? f.stages : eligibleStageIds(f.pipeline))].sort();
   const gotStages = [...scope.stages].sort();
   const ownerOk = f.owner === '' ? true : scope.owner === f.owner;
-  return ownerOk
+  return scope.pipeline === f.pipeline
+    && ownerOk
     && scope.due === f.due
     && scope.sort === f.sort
     && (scope.q ?? '') === f.q.trim()
