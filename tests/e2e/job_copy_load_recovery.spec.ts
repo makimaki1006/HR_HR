@@ -15,7 +15,8 @@ test('503 retries into two real-response applications, while 401 keeps the login
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.locator('.jc-job')).toHaveCount(0);
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
-  await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('2応募（HubSpot記録分）');
+  // 件数は上の帯の「取得した範囲 ⓘ」の中（閉じていても中身は DOM にある。2026-10-08 round 3）
+  await expect(page.getByRole('region', { name: '実データの取得範囲', includeHidden: true })).toContainText('2応募（HubSpot記録分）');
   await selectJobFeature(page, 'body');
   await expect(jobFeaturePanel(page, 'body').locator('.jc-body')).toHaveText('再取得した合成の全文です。');
   await selectJobFeature(page, 'applicants');
@@ -45,7 +46,7 @@ test('slow snapshot retry preserves the new response when the old server handler
   await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.locator('.jc-job')).toHaveCount(0);
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
-  const summary = page.getByRole('region', { name: '実データの取得範囲' });
+  const summary = page.getByRole('region', { name: '実データの取得範囲', includeHidden: true });
   await expect(summary).toContainText('2応募（HubSpot記録分）');
   if (!held) throw new Error('The first synthetic request was not held');
   // Browser abort may reject this delivery. The component unit test additionally
@@ -71,7 +72,7 @@ test('30-second timeout ends loading without demo data, then retry recovers', as
   await expect(loading).toHaveCount(0);
   await expect(page.locator('.jc-job')).toHaveCount(0);
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
-  await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('2応募（HubSpot記録分）');
+  await expect(page.getByRole('region', { name: '実データの取得範囲', includeHidden: true })).toContainText('2応募（HubSpot記録分）');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
 });
@@ -101,6 +102,6 @@ test('manual media capture cancels pending snapshot and its slow timer without l
   await page.waitForTimeout(5_100);
   await expect(loading).toHaveCount(0);
   await expect(body).toHaveText(job.body);
-  await expect(page.getByRole('region', { name: '実データの取得範囲' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '実データの取得範囲', includeHidden: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
 });

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { JobCopyRecord } from './data';
-import { OVERVIEW_WINDOW_DAYS, overviewRange, overviewRows, sortOverview } from './overviewModel';
+import { MIN_RATE_DAYS, OVERVIEW_WINDOW_DAYS, comparableRate, overviewRange, overviewRows, sortOverview } from './overviewModel';
+import { InfoTip } from './InfoTip';
 import type { OverviewRow, OverviewSort } from './overviewModel';
 import { addDays, daysBetween, formatDay, formatPerDay, formatYen } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
@@ -31,6 +32,7 @@ function MiniCalendar({ row, range }: { row: OverviewRow; range: { start: string
 
 function rateText(rate: OverviewRow['before']) {
   if (!rate) return '—';
+  if (!comparableRate(rate)) return <span className="jo-short">期間が短いため比べません<small>{rate.applications}件 / {rate.days}日</small></span>;
   return <>{formatPerDay(rate.perDay)}<small>{rate.applications}件 / {rate.days}日</small></>;
 }
 
@@ -50,8 +52,11 @@ export function JobOverview({ records, billing, onChoose, now }: JobOverviewProp
   const byId = new Map(records.map(job => [job.id, job]));
   return <main className="jc-detail jo-overview" id="job-details" tabIndex={-1} aria-labelledby="job-overview-heading">
     <h1 id="job-overview-heading">求人の横断比較</h1>
-    <p className="jc-muted">求人ごとに、直近の変更の前後{OVERVIEW_WINDOW_DAYS}日間の1日あたり応募を並べています。応募は HubSpot に記録されたものだけです。並べて見るための表で、どの求人が良いかを決めるものではありません。</p>
-    <p className="jc-muted jo-market-note">市場の動き（Indeed の求人数など）は月ごとのデータなので、14日単位のこの表には並べていません。求人名を選ぶと、その求人のタイムラインの「市場」の段で、掲載期間・応募と同じ時間軸で確認できます。</p>
+    <div className="jc-muted">直近の変更の前後{OVERVIEW_WINDOW_DAYS}日間の1日あたり応募を並べています（HubSpot に記録された応募のみ）。<InfoTip className="jc-infotip-left" label="この表の見方">
+      <p>並べて見るための表で、どの求人が良いかを決めるものではありません。</p>
+      <p>変更の前後が{MIN_RATE_DAYS}日に満たないときは、1日あたりの数を比べず並び替えにも使いません。</p>
+      <p>市場の動き（Indeed の求人数など）は月ごとのデータなので、この表には並べていません。求人名を選ぶと、タイムラインの「市場」の段で同じ時間軸で確認できます。</p>
+    </InfoTip></div>
     <div className="jo-sort"><label>並び替え<select value={sort} onChange={event => { setSort(event.target.value as OverviewSort); }}>{(Object.keys(sortLabels) as OverviewSort[]).map(key => <option key={key} value={key}>{sortLabels[key]}</option>)}</select></label>
       {range && <span className="jc-muted">カレンダー：{formatDay(range.start)}〜{formatDay(range.end)}（棒は週ごとの応募、点線は変更日）</span>}</div>
     {!rows.length ? <p className="jc-notice">表示できる求人がありません。</p> : <div className="jo-table-scroll" role="region" aria-label="求人の横断比較の表" tabIndex={0}><table>
@@ -65,7 +70,7 @@ export function JobOverview({ records, billing, onChoose, now }: JobOverviewProp
           <td className="jo-kinds">{row.kinds.length ? row.kinds.map(kind => <span key={kind}>{kind}</span>) : row.lastChange ? '判定できない変更' : '—'}</td>
           <td title={row.before && row.before.days < OVERVIEW_WINDOW_DAYS ? `直前の版が${String(row.before.days)}日間だったため、その${String(row.before.days)}日分だけで数えています` : undefined}>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
           <td title={row.after && row.after.days < OVERVIEW_WINDOW_DAYS ? `変更から${String(row.after.days)}日分しか経っていません（${formatDay(addDays(row.asOf, 0))}時点）` : undefined}>{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
-          <td>{!row.billingConnected ? '未接続' : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`}</td>
+          <td className="jo-billing">{!row.billingConnected ? '課金データなし' : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`}</td>
         </tr>;
       })}</tbody>
     </table></div>}

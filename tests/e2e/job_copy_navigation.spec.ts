@@ -134,7 +134,7 @@ test('functional tabs isolate applicants, reasons, application trends, market gr
   })).toBe(12);
   await selectJobFeature(page, 'market-table');
   await expect(panel('市場データ').locator('tbody tr')).toHaveCount(12);
-  await expect(panel('市場データ').locator('tbody tr').first()).toContainText('2025-07');
+  await expect(panel('市場データ').locator('tbody tr').first()).toContainText('2025/07');
   await expect(panel('市場データ').getByTestId('jc-market-jobs')).toHaveCount(0);
   await primary.getByRole('tab', { name: '求人内容', exact: true }).click();
   await primary.getByRole('tab', { name: '市場分析', exact: true }).click();

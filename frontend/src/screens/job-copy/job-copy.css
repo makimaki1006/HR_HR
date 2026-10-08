@@ -1,5 +1,5 @@
 .jc-shell #content { padding: 0; }
-.jc-app { font-family: "Segoe UI", "Noto Sans JP", Meiryo, sans-serif; color: #25394c; background: #f3f6f8; font-synthesis: none; --jc-ink: #25394c; --jc-muted: #647788; --jc-border: #d4dfe7; --jc-paper: #fff; --jc-accent: #007c91; --jc-soft: #eaf5f7; --jc-added: #e5f4eb; --jc-removed: #fff0ee; font-size: 13px; line-height: 1.65; }
+.jc-app { font-family: "Segoe UI", "Noto Sans JP", Meiryo, sans-serif; color: #25394c; background: #f3f6f8; font-synthesis: none; --jc-ink: #25394c; --jc-muted: #52697a; --jc-border: #d4dfe7; --jc-paper: #fff; --jc-accent: #007c91; --jc-soft: #eaf5f7; --jc-added: #e5f4eb; --jc-removed: #fff0ee; font-size: 13px; line-height: 1.65; }
 .jc-page-heading { display: flex; align-items: center; gap: 12px; padding: 12px 25px; background: #fff; border-bottom: 1px solid var(--jc-border); }
 .jc-page-heading h1 { font-size: 19px; font-weight: 700; }
 @media print { .jc-shell .hr-header, .jc-shell .hr-nav, .jc-shell .hr-subnav, .jc-page-heading, .jc-shell .jc-snapshot-summary, .jc-shell .jc-live-panel { display: none !important; } .jc-shell > div { background: white !important; } }
@@ -161,3 +161,20 @@
 @media (max-height: 500px) { .jc-workspace { height: auto; } .jc-main { height: auto; overflow: visible; } .jc-feature-primary { position: static; } }
 @media print { .jc-workspace { height: auto; } .jc-main { height: auto; overflow: visible; } .jc-feature-primary { position: static; } }
 @media (min-width: 801px) { .jc-detail-heading { flex-direction: row; } }
+
+/* InfoTip: 説明をクリック・キーボードで開く（title 属性だけに頼らない） */
+.jc-infotip { display: inline-block; position: relative; }
+.jc-infotip > summary { cursor: pointer; list-style: none; color: #355466; text-decoration: underline dotted; text-underline-offset: 2px; }
+.jc-infotip > summary::-webkit-details-marker { display: none; }
+.jc-infotip-body { position: absolute; z-index: 20; top: calc(100% + 4px); right: 0; width: min(22rem, 80vw); padding: 8px 10px; background: #fff; border: 1px solid #7d8f9c; border-radius: 6px; box-shadow: 0 4px 12px rgb(22 38 49 / 16%); color: #25394c; font-size: 12px; line-height: 1.6; white-space: normal; text-align: left; font-weight: 400; }
+.jc-infotip-body p { margin: 0 0 4px !important; }
+.jc-infotip-body p:last-child { margin-bottom: 0 !important; }
+.jc-infotip.jc-infotip-left .jc-infotip-body { right: auto; left: 0; }
+/* 一覧で選んだ求人のカード: 淡い背景の上でも 4.5:1 以上 */
+.jc-job[aria-pressed="true"] .jc-job-company, .jc-badge { color: #006275; }
+/* 実データの取得範囲は上の帯に 1 つのボタンとして置き、件数は開いたときに出す（帯を 1 行に保つ） */
+.jc-snapshot-tip { flex-shrink: 0; font-size: 12px; }
+.jc-snapshot-tip .jc-infotip-body { width: min(30rem, 90vw); }
+.jc-snapshot-tip .jc-snapshot-summary { padding: 0; border: 0; gap: 4px 14px; font-size: 12px; }
+.jc-snapshot-tip .jc-snapshot-summary strong { font-size: 14px; }
+.jc-snapshot-note { font-size: 11px; color: #52697a; margin-top: 6px !important; }

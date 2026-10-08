@@ -162,9 +162,11 @@ test('mobile shared shell stays within the viewport and printed reports hide nav
 
 test('expanded image data retains real application totals and the richest job displays images and charts at both widths', async ({ page }) => {
   await open(page);
+  // 取得範囲の件数は上の帯の「取得した範囲」を開くと出る（帯を 1 行に保つため、2026-10-08 round 3）
+  await page.locator('.jc-snapshot-tip > summary').click();
   const summary = page.getByRole('region', { name: '実データの取得範囲' });
   await expect(summary).toContainText('317応募（HubSpot記録分）');
-  await expect(summary).toContainText('どの版への応募か不明 314件');
+  await expect(summary).toContainText(/掲載期間に入らない応募 \d+件/u);
   const max = Math.max(...aggregates.map(row => row.summary.total));
   expect(max).toBe(34);
   const richest = aggregates.find(row => row.summary.total === max)!;

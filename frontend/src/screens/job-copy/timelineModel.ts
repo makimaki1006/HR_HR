@@ -165,12 +165,26 @@ export interface VersionChange {
   salary: SalaryInfo | null;
   /** null for the first version, or when either salary could not be read. */
   salaryChanged: boolean | null;
+  /**
+   * Which way the pay moved when salaryChanged is true: 'up' / 'down' compare the lower bound (then
+   * the upper bound) of the same kind of pay; 'other' when the kind differs (月給 → 時給) or an amount
+   * is missing. null when the salary did not change or could not be compared.
+   */
+  salaryDirection: 'up' | 'down' | 'other' | null;
   bodyStatus: CopyComparisonStatus;
   bodyAdded: number;
   bodyRemoved: number;
   /** Lines other than the salary line were added or removed. */
   otherBodyChanged: boolean;
   imageChange: ImageChange;
+}
+
+function direction(before: SalaryInfo | null, after: SalaryInfo | null): 'up' | 'down' | 'other' {
+  if (!before || !after) return 'other';
+  if (before.kind !== after.kind || before.min === null || after.min === null) return 'other';
+  if (after.min !== before.min) return after.min > before.min ? 'up' : 'down';
+  if (before.max !== null && after.max !== null && after.max !== before.max) return after.max > before.max ? 'up' : 'down';
+  return 'other';
 }
 
 export function versionChanges(job: JobCopyRecord): VersionChange[] {
@@ -183,12 +197,13 @@ export function versionChanges(job: JobCopyRecord): VersionChange[] {
       : salary?.kind === '不明' || previousSalary?.kind === '不明' ? null
         : !sameSalary(previousSalary, salary);
     const result = compareCopy(previous?.body ?? null, version.body);
+    const salaryDirection = salaryChanged ? direction(previousSalary, salary) : null;
     const changed = result.lines.filter(line => line.kind !== 'same');
     const images = compareImages(referenceImages(previous), referenceImages(version));
     const imageChange: ImageChange = !previous ? (referenceImages(version) ? 'initial' : 'unknown')
       : images.status === 'unknown' ? 'unknown' : images.status === 'same_reference' ? 'same' : 'changed';
     return {
-      versionId: version.id, label: version.label, date: jstDate(version.publishedFrom ?? version.observedAt) ?? '', index, salary, salaryChanged,
+      versionId: version.id, label: version.label, date: jstDate(version.publishedFrom ?? version.observedAt) ?? '', index, salary, salaryChanged, salaryDirection,
       bodyStatus: result.status,
       bodyAdded: previous ? changed.filter(line => line.kind === 'added').length : 0,
       bodyRemoved: previous ? changed.filter(line => line.kind === 'removed').length : 0,

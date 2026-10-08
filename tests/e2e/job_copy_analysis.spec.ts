@@ -84,7 +84,7 @@ test('market selection keeps period and source separate from applications and hi
     return option.series[0]?.data;
   })).toEqual([4]);
   await selectJobFeature(page, 'market-table');
-  await expect(market.getByRole('region', { name: '市場実績の数値表', exact: true }).locator('tbody tr')).toHaveText('2026-08100300203');
+  await expect(market.getByRole('region', { name: '市場実績の数値表', exact: true }).locator('tbody tr')).toHaveText('2026/08100300203');
   await expect(market).toContainText('応募数ではありません');
   await market.scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'market-desktop.png') });
@@ -114,7 +114,7 @@ test('market graphs retain missing months and real zero and hide stale charts du
   expect(await chart.evaluate(el => {
     const o = window.__echarts_getInstanceByDom?.(el)?.getOption() as { xAxis: { data: string[] }[]; yAxis: { min: number; name: string }[]; series: { data: (number | null)[]; connectNulls: boolean }[] };
     return { months: o.xAxis[0]?.data, values: o.series[0]?.data, connectNulls: o.series[0]?.connectNulls, min: o.yAxis[0]?.min, unit: o.yAxis[0]?.name };
-  })).toEqual({ months: ['2026-07', '2026-08', '2026-09'], values: [100, null, 0], connectNulls: false, min: 0, unit: '件' });
+  })).toEqual({ months: ['2026/07', '2026/08', '2026/09'], values: [100, null, 0], connectNulls: false, min: 0, unit: '件' });
   await page.setViewportSize({ width: 375, height: 850 });
   await chart.scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

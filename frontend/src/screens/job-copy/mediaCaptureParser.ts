@@ -1,5 +1,9 @@
 import type { CopyVersion, JobCopyRecord } from './data';
 import type { CopyImage } from './images';
+import { formatDateJst } from './format';
+
+/** "2026/08/20" from the capture time (JST); used for the plain version name 「2026/08/20時点の求人内容」. */
+const capturedLabel = (capturedAt: string) => formatDateJst(capturedAt, '日付不明');
 
 export const MAX_CAPTURE_FILE_BYTES = 32 * 1024 * 1024;
 const MAX_IMAGE_URI_LENGTH = 2 * 1024 * 1024;
@@ -93,7 +97,7 @@ function observedVersion(item: Record<string, unknown>, id: string, capturedAt: 
   }
   const archived = historicBytes === false ? images.length ? '過去時点の画像データは未保存です。表示画像は過去の画像参照を後日取得したもので、過去の画像内容の一致・変更は判定できません。' : '過去時点の画像原本は未取得です。過去の画像内容の一致・変更は判定できません。' : '';
   return {
-    id, label: historical ? '過去CSVの版' : '媒体CSV取得版', source: historical ? 'HRハッカー過去CSV・画像参照' : 'HRハッカーCSV・掲載画像',
+    id, label: `${capturedLabel(capturedAt)}時点の求人内容`, source: historical ? 'HRハッカー過去CSV・画像参照' : 'HRハッカーCSV・掲載画像',
     observedAt: capturedAt, certainty: 'unknown', kind: 'published', body: text(item.body, 100_000, true),
     ...(status.unavailable || (historicBytes === false && images.length === 0) ? {} : { images }), applications: null,
     ...(references === undefined ? {} : { imageReferences: references }),
