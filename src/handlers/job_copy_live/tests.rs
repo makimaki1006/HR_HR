@@ -508,6 +508,7 @@ enum Scenario {
     AlwaysLimited,
     ScopeDenied,
     Redirect,
+    ListingLinksDown,
 }
 #[derive(Clone)]
 struct Seen {
@@ -642,6 +643,15 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
         ),
         "/crm/v4/objects/0-420/30/associations/0-421" => associations(&["50", "51", "50"], None),
         // Application 50 is also linked to job 31; 51 only to job 30.
+        "/crm/v4/associations/0-421/0-420/batch/read"
+            if matches!(fixture.scenario, Scenario::ListingLinksDown) =>
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"message":"association read failed"})),
+            )
+                .into_response()
+        }
         "/crm/v4/associations/0-421/0-420/batch/read" => json!({"status":"COMPLETE","results":[
             {"from":{"id":"50"},"to":[{"toObjectId":"30"},{"toObjectId":31}]},
             {"from":{"id":"51"},"to":[{"toObjectId":"30"}]}
@@ -769,6 +779,22 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
             "ouboriyuu_hiaringu"
         ])
     );
+}
+
+#[tokio::test]
+async fn a_failed_listing_link_read_still_returns_totals_and_dates() {
+    let upstream = Upstream::start(Scenario::ListingLinksDown).await;
+    let applicants = upstream.service().applicants("10", "30").await.unwrap();
+    assert_eq!(applicants["summary"]["total"], 2);
+    assert_eq!(applicants["summary"]["by_date"]["2026-10-03"], 1);
+    assert_eq!(applicants["summary"]["missing_date"], 1);
+    // Unknown, not 0: the multi-job counts are left out.
+    assert!(applicants["summary"].get("multi_listing_by_date").is_none());
+    assert!(applicants["summary"]
+        .get("multi_listing_missing_date")
+        .is_none());
+    assert!(applicants["listing_links_status"].is_string());
+    assert!(applicants["dated_comparison"].is_null());
 }
 
 #[tokio::test]

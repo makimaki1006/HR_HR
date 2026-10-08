@@ -3,12 +3,13 @@ import { compareCopy } from './diff';
 import { compareImages, referenceImages, imagesByVersion } from './images';
 import { ApplicantComposition } from './ApplicantComposition';
 import { compareDistributions, compositionDistribution } from './applicantCompositionModel';
-import { observationWindowError } from './consultantReviewModel';
+import { observationWindowError, reportBillingText } from './consultantReviewModel';
 import { AssumptionsNote } from './AssumptionsNote';
+import type { BillingEntry } from './timelineModel';
 import './consultant-review.css';
 
 export interface ConsultantDraft { stage: string; target: string; fields: Record<string, string>; selection: [string, string] }
-export function ConsultantReview({ job, draft, onDraft }: { job: JobCopyRecord; draft: ConsultantDraft; onDraft: (value: ConsultantDraft) => void }) {
+export function ConsultantReview({ job, draft, onDraft, billing }: { job: JobCopyRecord; draft: ConsultantDraft; onDraft: (value: ConsultantDraft) => void; billing?: readonly BillingEntry[] | undefined }) {
   const { stage, target, fields, selection } = draft;
   const periodError = observationWindowError(fields.start ?? '', fields.end ?? '');
   const setFields = (update: (value: Record<string, string>) => Record<string, string>) => { onDraft({ ...draft, fields: update(fields) }); };
@@ -23,6 +24,7 @@ export function ConsultantReview({ job, draft, onDraft }: { job: JobCopyRecord; 
   const images = current ? current.images ?? imagesByVersion[current.id] : undefined;
   const imageChange = compareImages(versions.length > 1 ? referenceImages(previous) : undefined, referenceImages(current));
   const demo = job.id.startsWith('demo-job-');
+  const cost = reportBillingText(job, billing);
   const labels = { initial: '初回取得・比較版なし', changed: '本文の内容変更あり', unchanged: '本文は同じ', format_only: '本文の表記差のみ', unavailable: '本文の比較は未取得' };
   const questions: [string, string, string][] = [
     ['hypothesis', '仮説', '何を変えると、どの応募者層に届くと考えるか'],
@@ -35,11 +37,11 @@ export function ConsultantReview({ job, draft, onDraft }: { job: JobCopyRecord; 
     <div className="jc-report-summary">
       <section><h3>何を変えたか</h3><strong>{labels[change.status]}</strong><p className="jc-report-image-change">画像参照：{imageChange.status === 'unknown' ? '比較資料なし・未判定' : imageChange.status === 'same_reference' ? '同じ参照・内容は未検証' : `追加${String(imageChange.added.length)}点・削除${String(imageChange.removed.length)}点${imageChange.reordered ? '・順序変更' : ''}`}</p><p>掲載画像：{images === undefined ? '未取得' : `${String(images.length)}点取得`}</p><p>{versions.length < 2 ? '過去版がなく、変更の有無は未判定です。' : '本文と画像の差分比較で変更箇所を確認してください。'}</p></section>
       <section><h3>比較期間の応募</h3><strong>{beforeRows !== null && afterRows !== null ? `${String(beforeRows.total)}件 → ${String(afterRows.total)}件` : '応募実績は未取得'}</strong><p>{previous?.label ?? '比較元なし'} → {current?.label ?? '比較先なし'}</p>{genderSummary && <p className="jc-report-gender">{genderSummary}（構成比差）</p>}<p>{demo ? '架空値です。下の比較版の選択に連動します。' : '応募と掲載版を紐付けてから集計します。'}</p></section>
-      <section><h3>費用と応募単価</h3><strong>{job.hrhPerformance ? '媒体の期間別実績を取得済み' : '課金情報は未取得'}</strong><p>{job.hrhPerformance ? '課金・クリック画面で確認できます。本文の版との対応は未確認で、HubSpotの応募総数から応募単価を作りません。' : '後日受領する課金情報を、対象求人・掲載期間と対応させます。'}</p></section>
+      <section><h3>費用と応募単価</h3><strong>{cost.heading}</strong><p>{cost.detail}</p></section>
     </div>
     <AssumptionsNote className="jc-notice" summary="取得日時は、掲載が変わった正確な日時ではありません。" items={['毎日の取得では、前回の取得から今回の取得までの間を、変更があった期間として扱います。', '本文・画像・課金を同時に変えた場合、前後の差だけでは要因を特定できません。']} />
     <a className="jc-text-button jc-no-print" href="#job-copy-review-cycle">検証記録の入力へ移動 →</a>
-    <ApplicantComposition job={job} selection={selection} onSelectionChange={value => { onDraft({ ...draft, selection: value }); }} />
+    <ApplicantComposition job={job} billing={billing} selection={selection} onSelectionChange={value => { onDraft({ ...draft, selection: value }); }} />
     <section className="jc-cycle" id="job-copy-review-cycle"><h3>検証記録</h3><p>仮説 → 実施 → 結果の確認 → 次の施策を残すための記録欄です。入力はこの画面の中だけに残り、求人の切り替え・再読み込みで消えます。HubSpotには保存しません。</p>
       <div className="jc-cycle-controls"><label>進行状況<select value={stage} onChange={event => { onDraft({ ...draft, stage: event.target.value }); }}><option value="plan">Plan · 仮説と計画</option><option value="do">Do · 掲載変更を実施</option><option value="check">Check · 結果を確認</option><option value="act">Act · 次の施策を決定</option></select></label><label>変更対象<select value={target} onChange={event => { onDraft({ ...draft, target: event.target.value }); }}><option value="body">本文</option><option value="image">画像</option><option value="both">本文と画像</option></select></label>
       <label>確認開始日<input type="date" value={fields.start ?? ''} onChange={event => { setFields(value => ({ ...value, start: event.target.value })); }} /></label><label>確認終了日<input type="date" min={fields.start === '' ? undefined : fields.start} value={fields.end ?? ''} onChange={event => { setFields(value => ({ ...value, end: event.target.value })); }} /></label></div>

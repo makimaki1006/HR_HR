@@ -100,7 +100,9 @@ describe('applicant address rounding', () => {
       dated_comparison: { total: 34, unknown: 31, basis: '合成の日付対応', by_version: { [id]: { count: 3, dimensions: { gender: null, age: null, prefecture: null, municipality: versionMunicipality } } }, daily_representatives: {} } }] };
     const [job] = parseRealMoc(JSON.stringify(snapshot));
     expect(job?.overallApplications?.distributions.municipality?.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 31], ['その他', 3]]);
-    expect(job?.overallApplications?.distributions.prefecture?.categories.map(row => [row.category, row.count])).toEqual([['東京都', 32], ['その他', 2]]);
+    // 東京都 is counted from the protected cells (31), not taken from the stored total (32): with
+    // 「東京都 32」 next to 「男性・30代・東京都新宿区 31」, the hidden 港区 applicant would be in 東京都.
+    expect(job?.overallApplications?.distributions.prefecture?.categories.map(row => [row.category, row.count])).toEqual([['東京都', 31], ['その他', 3]]);
     expect(job?.versions[0]?.distributions?.municipality?.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 3]]);
     expect(job?.jointDemographics?.cells.map(cell => [cell.prefecture, cell.municipality, cell.count])).toEqual([['東京都', '東京都新宿区', 31], ['その他', 'その他', 3]]);
     expect(JSON.stringify(job)).not.toMatch(leaks);

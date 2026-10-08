@@ -33,7 +33,9 @@ const demo = (id: string): JobCopyRecord => {
   if (!job) throw new Error(`Missing ${id}`);
   return job;
 };
-const version = (id: string, observedAt: string, body: string): JobCopyRecord['versions'][number] => ({ id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '' });
+const version = (id: string, observedAt: string, body: string, images?: JobCopyRecord['versions'][number]['images']): JobCopyRecord['versions'][number] => ({ id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '', ...(images ? { images } : {}) });
+/** The same image on two acquisitions, so the second acquisition is the same content (not unknown). */
+const sameImage = [{ id: 'img-1', url: `/api/job-copy/snapshot-image?listing_id=30&version=0&slot=1&image_hash=${'a'.repeat(64)}`, caption: '', contentHash: 'a'.repeat(64), sourceReferenceHash: 'b'.repeat(64), sourceSlot: 1 }];
 const synthetic = (versions: JobCopyRecord['versions'], extra: Partial<JobCopyRecord> = {}): JobCopyRecord => ({ id: 'synthetic', title: '合成ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: 'S-1', location: '大分県大分市', versions, ...extra });
 
 describe('salary direction (▲ only for a raise)', () => {
@@ -120,21 +122,24 @@ describe('explanations reachable without hovering', () => {
 
 describe('top-bar count matches the period table', () => {
   it('counts undated applications, applications before the first acquisition and between acquisitions (not every application)', () => {
-    const job = synthetic([version('a', '2026-07-01T00:00:00Z', '給与：月給230,000円'), version('b', '2026-08-20T00:00:00Z', '給与：月給250,000円')], {
+    const job = synthetic([version('a', '2026-07-01T00:00:00Z', '給与：月給230,000円'), version('b', '2026-08-20T00:00:00Z', '給与：月給250,000円', sameImage), version('b2', '2026-08-30T00:00:00Z', '給与：月給250,000円', sameImage)], {
       dataSource: 'hubspot',
-      overallApplications: { total: 9, missingDate: 1, fetchedAt: '2026-08-20T00:00:00Z', distributions: {}, byDate: { '2026-06-20': 2, '2026-07-10': 2, '2026-07-25': 1, '2026-08-20': 3 } },
+      overallApplications: { total: 13, missingDate: 1, fetchedAt: '2026-09-01T00:00:00Z', distributions: {}, byDate: { '2026-06-20': 2, '2026-07-10': 2, '2026-07-25': 1, '2026-08-20': 3, '2026-08-25': 4 } },
     });
-    // 1 undated + 2 before the first acquisition (06-20) + 3 between the two acquisitions (07-10, 07-25:
-    // the salary changed somewhere between 07-01 and 08-20) = 6; the other 3 are in version rows (08-20).
-    expect(applicationsOutsideTimeline(job)).toBe(6);
+    // 1 undated + 2 before the first acquisition (06-20) + 6 between the two acquisitions, both
+    // acquisition days included (07-10, 07-25 and 08-20: the salary changed somewhere between the
+    // 07-01 and the 08-20 acquisitions) = 9; the other 4 (08-25) are in b's row (08-21〜08-29, the
+    // same content was acquired again on 08-30).
+    expect(applicationsOutsideTimeline(job, new Date('2026-09-01T03:00:00Z'))).toBe(9);
     expect(applicationsOutsideTimeline(synthetic([]))).toBeNull();
   });
 });
 
 describe('cross-job overview', () => {
   it(`does not compare or sort by a rate from fewer than ${String(MIN_RATE_DAYS)} days`, () => {
-    const job = synthetic([version('a', '2026-08-01T00:00:00Z', '給与：月給230,000円'), version('b', '2026-08-20T00:00:00Z', '給与：月給250,000円')], {
-      dataSource: 'hubspot', overallApplications: { total: 4, missingDate: 0, fetchedAt: '2026-08-20T00:00:00Z', distributions: {}, byDate: { '2026-08-10': 2, '2026-08-20': 2 } },
+    // b was acquired again on 08-22 with the same content, so 08-21 is known: 2件 / 1日.
+    const job = synthetic([version('a', '2026-08-01T00:00:00Z', '給与：月給230,000円'), version('b', '2026-08-20T00:00:00Z', '給与：月給250,000円', sameImage), version('b2', '2026-08-22T00:00:00Z', '給与：月給250,000円', sameImage)], {
+      dataSource: 'hubspot', overallApplications: { total: 6, missingDate: 0, fetchedAt: '2026-08-22T00:00:00Z', distributions: {}, byDate: { '2026-08-10': 2, '2026-08-20': 2, '2026-08-21': 2 } },
     });
     const longer = { ...demo('demo-job-001') };
     const rows = overviewRows([job, longer]);

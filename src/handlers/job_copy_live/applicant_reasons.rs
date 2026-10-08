@@ -70,6 +70,82 @@ fn is_han(c: char) -> bool {
 fn is_katakana(c: char) -> bool {
     ('\u{30A0}'..='\u{30FF}').contains(&c)
 }
+/// Words in a building name; a number right after the name is a room number (府内ビル201).
+const BUILDING_SUFFIXES: [&str; 16] = [
+    "ビル",
+    "マンション",
+    "ハイツ",
+    "コーポ",
+    "アパート",
+    "レジデンス",
+    "メゾン",
+    "パレス",
+    "コート",
+    "ヒルズ",
+    "タワー",
+    "ハウス",
+    "荘",
+    "館",
+    "棟",
+    "寮",
+];
+/// After a run of kanji digits that starts at `index`, an address word follows (十番 / 一号 / 三丁目).
+fn kanji_number_continues_address(chars: &[char], index: usize) -> bool {
+    let mut look = index;
+    while look < chars.len() && is_kanji_digit(chars[look]) {
+        look += 1;
+    }
+    look > index
+        && match chars.get(look) {
+            Some('号') => true,
+            Some('番') => chars.get(look + 1) != Some(&'目'),
+            Some('丁') => chars.get(look + 1) == Some(&'目'),
+            Some(&c) => is_dash(c) && chars.get(look + 1).copied().is_some_and(is_digit),
+            None => false,
+        }
+}
+/// A room number: 2 to 4 digits right after a name (kanji or katakana, up to 12 characters) that
+/// holds a building word, and not followed by a counter (年・回・件 ...).
+fn is_room_number(chars: &[char], start: usize, end: usize, digits: usize) -> bool {
+    if !(2..=4).contains(&digits)
+        || chars
+            .get(end)
+            .is_some_and(|c| "年月日回件時分秒人名歳万円代階%％点位度倍本枚個".contains(*c))
+    {
+        return false;
+    }
+    let mut from = start;
+    while from > 0 && start - from < 12 && (is_han(chars[from - 1]) || is_katakana(chars[from - 1]))
+    {
+        from -= 1;
+    }
+    let name: String = chars[from..start].iter().collect();
+    BUILDING_SUFFIXES.iter().any(|word| name.contains(word))
+}
+/// The town written right after a 市区町村 name (大分市府内町): a run of kanji or katakana after a
+/// name in the municipality master that ends in 町 or 村. Returns the end of that run.
+fn town_after_municipality(chars: &[char], index: usize) -> Option<usize> {
+    if !"市区町村郡".contains(chars[index]) {
+        return None;
+    }
+    let named = (2..=7).any(|length| {
+        index + 1 >= length && {
+            let name: String = chars[index + 1 - length..=index].iter().collect();
+            crate::geo::applicant_area::is_municipality_name(&name)
+        }
+    });
+    if !named {
+        return None;
+    }
+    let mut end = index + 1;
+    while end < chars.len() && end - index <= 10 && (is_han(chars[end]) || is_katakana(chars[end]))
+    {
+        end += 1;
+    }
+    let town: String = chars[index + 1..end].iter().collect();
+    let generic = ["町村", "区町村", "町内", "村内"].contains(&town.as_str());
+    (end > index + 2 && !generic && matches!(chars[end - 1], '町' | '村')).then_some(end)
+}
 fn is_mail_local(c: char) -> bool {
     c.is_ascii_alphanumeric() || "._%+-".contains(c)
 }
@@ -79,9 +155,11 @@ fn is_mail_domain(c: char) -> bool {
 
 /// Masks the parts of a free-text reason that can point at one person before it leaves the
 /// server: an address finer than 市区町村 (丁目・番地・号・「3-10-1」 and the town or building
-/// name written right before it), a phone number, an e-mail address, and a name written with
-/// さん・様・氏. Each part becomes 「＊＊」. This is a best-effort filter, not anonymization; the
-/// screen still says the text may hold personal information.
+/// name written right before it, house numbers in kanji such as 三丁目十番一号, a building name
+/// with a room number such as 府内ビル201, and a town name written after a 市区町村 name such as
+/// 大分市府内町), a phone number, an e-mail address, and a name written with さん・様・氏. Each
+/// part becomes 「＊＊」. This is a best-effort filter, not anonymization; the screen still says
+/// the text may hold personal information.
 pub fn mask_personal_details(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut masked = vec![false; chars.len()];
@@ -121,7 +199,10 @@ pub fn mask_personal_details(text: &str) -> String {
             while end < chars.len() {
                 let here = chars[end];
                 let next = chars.get(end + 1).copied();
-                if is_digit(here) || (is_kanji_digit(here) && !address) {
+                if is_digit(here)
+                    || (is_kanji_digit(here)
+                        && (!address || kanji_number_continues_address(&chars, end)))
+                {
                     digits += usize::from(is_digit(here));
                     end += 1;
                 } else if is_dash(here) && next.is_some_and(is_digit) && end > index {
@@ -150,10 +231,11 @@ pub fn mask_personal_details(text: &str) -> String {
                     break;
                 }
             }
-            if address || dashed || digits >= 8 {
+            let room = !address && !dashed && is_room_number(&chars, index, end, digits);
+            if address || dashed || digits >= 8 || room {
                 // the town or building name written right before an address number (not before
                 // a phone number: 「携帯09012345678」 keeps 「携帯」)
-                let street = address || (dashed && digits < 10);
+                let street = address || room || (dashed && digits < 10);
                 let mut start = index;
                 let mut taken = 0;
                 while street
@@ -167,6 +249,12 @@ pub fn mask_personal_details(text: &str) -> String {
                 masked[start..end].iter_mut().for_each(|m| *m = true);
             }
             index = end.max(index + 1);
+            continue;
+        }
+        // a town name after a 市区町村 name (大分市府内町に住んでいます: the city is kept)
+        if let Some(end) = town_after_municipality(&chars, index) {
+            masked[index + 1..end].iter_mut().for_each(|m| *m = true);
+            index = end;
             continue;
         }
         // a name followed by さん・様・氏
@@ -382,6 +470,17 @@ mod tests {
             ),
             ("山田さんの紹介で応募", "＊＊さんの紹介で応募"),
             ("三丁目の店舗に近い", "＊＊の店舗に近い"),
+            ("府内町三丁目十番一号です", "＊＊です"),
+            // a kanji digit that is not a house number stays (一緒)
+            (
+                "3丁目一緒に働ける人がいるため",
+                "＊＊一緒に働ける人がいるため",
+            ),
+            ("府内町三丁目十番地です", "＊＊です"),
+            ("府内ビル201に住んでいます", "＊＊に住んでいます"),
+            ("コーポ北浜102から通います", "＊＊から通います"),
+            ("大分市府内町に住んでいます", "大分市＊＊に住んでいます"),
+            ("大分県別府市北浜町の近く", "大分県別府市＊＊の近く"),
         ] {
             assert_eq!(mask_personal_details(raw), expected, "{raw}");
         }
@@ -395,6 +494,10 @@ mod tests {
             "皆さんの雰囲気が良さそうだった",
             "お客様と話す仕事がしたい",
             "応募は2回目です。3番目に見た求人でした",
+            "大分市内に住んでいます",
+            "大分市在住で、市区町村の補助を使いたい",
+            "別府市役所の近く",
+            "ビルの清掃を3年していました",
         ] {
             assert_eq!(mask_personal_details(text), text);
         }

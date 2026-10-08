@@ -12,7 +12,7 @@ const versionId = `capture-synthetic-counts-${capturedAt}`;
 const empty = { denominator: 0, categories: [] };
 const snapshot = () => ({ schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt, jobs: [{ id: 'synthetic-counts', hubspotListingId: '30', title: '合成の件数確認', company: '合成会社', media: 'HRハッカー', mediaJobId: '12345678', location: '東京都', body: '合成の本文', images: [] }] },
   results: [{ listing_id: '30', summary: { total: 34, missing_date: 0, by_date: { '2026-09-10': 34 }, dimensions: { gender: { 男性: 34 }, prefecture: { 東京都: 32, 大分県: 2 }, municipality: { '東京都 / 新宿区西新宿2-8-1 ○○ビル301': 31, '東京都 / 港区芝公園4-2-8': 1, '大分県 / 大分市府内町1-1': 2 } },
-    joint_demographics: { total: 34, cells: [{ gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 新宿区西新宿2-8-1 ○○ビル301', count: 34 }] } },
+    joint_demographics: { total: 34, cells: [{ gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 新宿区西新宿2-8-1 ○○ビル301', count: 31 }, { gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 港区芝公園4-2-8', count: 1 }, { gender: '男性', age: '30代', prefecture: '大分県', municipality: '大分県 / 大分市府内町1-1', count: 2 }] } },
   dated_comparison: { total: 34, unknown: 34, basis: '合成の日付対応', by_version: { [versionId]: { count: 0, dimensions: { gender: empty, age: empty, prefecture: empty, municipality: empty } } }, daily_representatives: {} } }] });
 
 beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); });

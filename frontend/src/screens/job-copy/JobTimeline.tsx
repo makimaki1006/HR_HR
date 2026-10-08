@@ -12,7 +12,7 @@ import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
 import {
   addDays, applicationBuckets, bodyMark, asOfDate, billingConflict, billingEntries, boundaryStatus, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
-  formatMonthJa, marketDataUntil, marketLane, periodRows, positionOf, timelineRange, uncertainSpans, versionChanges, applicationsOutsidePeriods,
+  formatMonthJa, marketDataUntil, marketLane, MIN_RATE_DAYS, periodRows, positionOf, timelineRange, uncertainSpans, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
 import { IMAGE_CHANGE_MARK } from './images';
@@ -317,8 +317,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <div className="jt-scope">応募は HubSpot に記録されたものだけです。<InfoTip label="並べて見るための表示です">
         <p>同じ時期に起きたことを並べて表示しています。応募が増えた・減った理由を示すものではありません。</p>
         <p>応募件数は HubSpot に記録された応募日で数えています。媒体上のすべての応募ではなく、どの版を見て応募したかは分かりません。</p>
-        <p>掲載が変わった日は分かりません。期間比較表は求人データを取得した日で区切り、前後の取得で内容が違うときは「取得日A〜取得日Bの間に変化」として、その間の応募を前後どちらの期間にも入れていません。最後に取得した日より後は「未取得」です。</p>
-        <p>期間の長さが違うので「1日あたり」で並べて確認してください。</p>
+        <p>掲載が変わった日は分かりません。期間比較表は求人データを取得した日で区切り、前後の取得で内容が違うときは「取得日A〜取得日Bの間に変化」として、その間の応募を前後どちらの期間にも入れていません。取得した日も、取得した時刻の前後で変わった可能性があるため、この間に含めます。最後に取得した日より後は「未取得」です。</p>
+        <p>期間の長さが違うので「1日あたり」で並べて確認してください。{MIN_RATE_DAYS}日に満たない期間は1日あたりを出さず、比べません（求人の横断比較と同じ扱い）。</p>
       </InfoTip></div>
     </header>
 
@@ -382,7 +382,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : <p className="jt-empty jt-unconnected">課金データなし（0円という意味ではありません）</p>}
       </Lane>
       {fictionalBilling && <p className="jt-demo-billing" role="note">{DEMO_BILLING_NOTE}</p>}
-      {hasDummyBilling && <p className="jt-dummy-billing" role="note">{DUMMY_BILLING_NOTE}課金レーンにだけ表示し、期間比較表の課金額には入れていません。</p>}
+      {hasDummyBilling && <p className="jt-dummy-billing" role="note">{DUMMY_BILLING_NOTE}上の「課金」の段では金額に「ダミー」と付けています。期間比較表の課金額の合計には入れていません。</p>}
       {conflict && <p className="jt-billing-conflict" role="note">HRハッカーの期間別実績と読み込んだ課金CSVに、同じ日を含む課金があります。どちらの金額が正しいか決められないため、重なる期間は期間比較表で合計していません。</p>}
       {csvBilling && <p className="jt-volatile" role="note">読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。</p>}
 
@@ -392,7 +392,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <div className="jt-lane-tools">
         <div className="jt-granularity" role="group" aria-label="応募の集計単位">{(['day', 'week', 'month'] as const).map(value => <button type="button" key={value} aria-pressed={granularity === value} onClick={() => { setGranularity(value); }}>{granularityLabel[value]}ごと</button>)}</div>
         {applications && applications.missingDate > 0 && <span>応募日が分からない応募 {applications.missingDate}件 はグラフに含めていません</span>}
-        {outside > 0 && <span>最初の取得より前の日付の応募 {outside}件</span>}
+        {outside > 0 && <span>{captured ? `最初に取得した日まで（その日を含む）の応募 ${String(outside)}件` : `最初の掲載より前の日付の応募 ${String(outside)}件`}</span>}
         {unsure > 0 && <span>取得日の間・最後の取得より後の応募 {unsure}件 は、どちらの内容への応募か分からないため期間比較表の各版には入れていません</span>}
         {multi ? multiTotal > 0 && <span>複数の求人に関連する応募 {multiTotal}件 は期間比較表に入れていません</span>
           : applications?.byDate && <span>複数の求人に関連する応募を見分ける情報を取得していないため、期間比較表の件数に含まれている場合があります</span>}
@@ -437,15 +437,16 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         <tbody>{rows.map(row => <tr key={row.key} className={row.kind !== 'period' ? `jt-gap-row jt-row-${row.kind}` : selected === row.versionId ? 'jt-row-selected' : undefined} aria-current={row.kind === 'period' && selected === row.versionId ? 'true' : undefined}>
           <th scope="row">{row.versionId ? <button type="button" className="jc-text-button" aria-pressed={selected === row.versionId} onClick={() => { setSelected(row.versionId); }}>{row.label}</button> : row.label}{row.kind === 'period' && selected === row.versionId && <span className="jt-selected-tag">選択中</span>}<small>{row.detail}</small></th>
           <td>{row.afterCounts && row.days === 0 ? '—' : `${String(row.days)}日`}</td>
-          <td>{row.afterCounts ? '応募集計の取得後に始まった期間' : row.applications === null ? '未取得' : `${String(row.applications)}件`}</td>
-          <td>{row.afterCounts ? '—' : row.applications === null ? '未取得' : row.kind === 'between' || row.kind === 'unacquired' ? '比べません' : formatPerDay(row.perDay)}</td>
+          <td>{row.afterCounts ? '応募集計の取得後に始まった期間' : row.applications === null ? '未取得' : row.kind === 'period' && row.days === 0 ? '別の行に数えます' : `${String(row.applications)}件`}</td>
+          <td>{row.afterCounts ? '—' : row.applications === null ? '未取得' : row.kind === 'between' || row.kind === 'unacquired' ? '比べません' : row.shortPeriod ? '期間が短いため比べません' : formatPerDay(row.perDay)}</td>
           <td>{billingText(row)}</td>
           <td>{marketText(row.market, market.state.status)}</td>
         </tr>)}</tbody>
       </table></div>}
       {rows.some(row => row.afterCounts) && <p className="jt-table-note">「応募集計の取得後に始まった期間」は、応募件数を{formatDay(asOf)}に取得した後に始まった期間です。0件という意味ではありません。</p>}
       {rows.some(row => !row.afterCounts && row.applications === null) && <p className="jt-table-note">「未取得」は応募日ごとの件数を取得していないという意味です。0件という意味ではありません。</p>}
-      {rows.some(row => row.kind === 'between' || row.kind === 'unacquired') && <p className="jt-table-note">「取得日の間」と「最後の取得より後」の行の応募は、どちらの内容を見た応募か分からないため、前後の期間に入れず別に数えています。1日あたりは比べません。</p>}
+      {rows.some(row => row.kind === 'between' || row.kind === 'unacquired') && <p className="jt-table-note">「取得日の間」と「最後の取得より後」の行の応募は、どちらの内容を見た応募か分からないため、前後の期間に入れず別に数えています。応募は日付だけで記録されていて、取得した日も取得した時刻の前後で内容が変わった可能性があるため、取得した日の応募もこれらの行に入れています。1日あたりは比べません。</p>}
+      {rows.some(row => !row.afterCounts && row.applications !== null && row.shortPeriod && (row.kind === 'period' || row.kind === 'gap')) && <p className="jt-table-note">「期間が短いため比べません」は、{MIN_RATE_DAYS}日に満たない期間です。1日や2日の件数を1日あたりに直すと大きく振れるため、比べません。</p>}
       {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。</p>}
     </section>
   </section>;

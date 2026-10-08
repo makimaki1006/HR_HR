@@ -8,7 +8,7 @@ import { maskPersonalDetails } from './personalText';
 import './applicant-reasons.css';
 
 function ReasonTexts({ items }: { items: ApplicantReason[] }) {
-  return <ol className="ar-texts">{items.map(item => <li key={item.id}><p className="ar-source">出典: {reasonSourceLabels[item.sourceProperty] ?? 'HubSpotの記録欄'}</p><p>応募日: {item.applicationDate ? formatDateJst(item.applicationDate, item.applicationDate) : '不明'} · 記述を集めた日時: {formatDateTimeJst(item.collectedAt, item.collectedAt ?? '不明')}</p><details><summary>記録された文を開く（社内確認用）</summary><p>住所の番地・電話番号・メールアドレス・「さん」「様」の付いた名前は「＊＊」に置き換えています。それ以外の個人情報が残っていることがあります。顧客向けの印刷には含めません。</p><blockquote>{maskPersonalDetails(item.text)}</blockquote></details></li>)}</ol>;
+  return <ol className="ar-texts">{items.map(item => <li key={item.id}><p className="ar-source">出典: {reasonSourceLabels[item.sourceProperty] ?? 'HubSpotの記録欄'}</p><p>応募日: {item.applicationDate ? formatDateJst(item.applicationDate, item.applicationDate) : '不明'} · 記述を集めた日時: {formatDateTimeJst(item.collectedAt, item.collectedAt ?? '不明')}</p><details><summary>記録された文を開く（社内確認用）</summary><p>市区町村より細かい住所（町名・番地・建物名と部屋番号）・電話番号・メールアドレス・「さん」「様」の付いた名前は、読み取れた範囲で「＊＊」に置き換えています。読み取れない書き方の住所や、それ以外の個人情報が残っていることがあります。顧客向けの印刷には含めません。</p><blockquote>{maskPersonalDetails(item.text)}</blockquote></details></li>)}</ol>;
 }
 
 export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; before?: CopyVersion | undefined; after?: CopyVersion | undefined }) {

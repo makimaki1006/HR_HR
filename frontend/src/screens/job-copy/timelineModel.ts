@@ -281,6 +281,37 @@ export function uncertainSpans(job: JobCopyRecord, asOf: string, periods: readon
   return spans;
 }
 
+/** A period shorter than this gets no 「1日あたり」 (a rate from 1 or 2 days is not compared). */
+export const MIN_RATE_DAYS = 7;
+
+/** Days [start, end) whose applications are counted for a period's content. */
+export interface CountRange { start: string; end: string }
+
+/**
+ * The days whose applications are counted for each period. Applications are dated by day only, and
+ * a version known only from acquisitions was seen at one moment of its acquisition day: the change
+ * to or from it may fall earlier or later on that same day. So an acquisition day counts for the
+ * version only when the acquisitions on both sides of it found the same content. The first
+ * acquisition day, and an acquisition day next to a change (or a change that could not be
+ * checked), are left out of the version and counted with the days between the acquisitions (or
+ * before the first one). Media publication times are exact and counted as they are.
+ */
+export function countRanges(job: JobCopyRecord, asOf: string, periods: readonly TimelinePeriod[] = buildPeriods(job, asOf)): CountRange[] {
+  const changes = versionChanges(job);
+  const versions = publishedVersions(job);
+  return periods.map((period, index) => {
+    const end = period.end ?? addDays(asOf, 1);
+    const next = versions[index + 1];
+    if (period.basis === 'published' && (!next || next.publishedFrom)) return { start: period.start, end };
+    const same = (at: number) => { const change = changes[at]; return change !== undefined && boundaryStatus(change) === 'same'; };
+    const knownFrom = period.basis === 'published' || (index > 0 && same(index) && periods[index - 1]?.end === period.start);
+    const knownUntil = index + 1 < periods.length && same(index + 1) && period.end === periods[index + 1]?.start;
+    const start = knownFrom ? period.start : addDays(period.start, 1);
+    const last = knownUntil ? end : addDays(end, -1);
+    return { start, end: last < start ? start : last };
+  });
+}
+
 export type ImageChange = ImageChangeKind;
 export interface VersionChange {
   versionId: string;
@@ -496,9 +527,10 @@ export interface PeriodRow {
   detail: string;
   versionId: string | null;
   start: string;
-  /** Exclusive end; null while running. */
+  /** Exclusive end; null while running. The days whose applications the row counts. */
   end: string | null;
   lastDay: string;
+  /** Days counted (0 for a version seen on one acquisition day next to changes on both sides). */
   days: number;
   ongoing: boolean;
   /**
@@ -506,8 +538,13 @@ export interface PeriodRow {
    * when application dates were never fetched (not 0).
    */
   applications: number | null;
-  /** Applications per day. null for 'between' / 'unacquired' rows, when the period has no days, or when application dates were never fetched. */
+  /**
+   * Applications per day. null for 'between' / 'unacquired' rows, for periods shorter than
+   * MIN_RATE_DAYS (see shortPeriod), or when application dates were never fetched.
+   */
   perDay: number | null;
+  /** A version or gap row shorter than MIN_RATE_DAYS: its applications per day are not compared. */
+  shortPeriod: boolean;
   /**
    * The period starts after the day the application counts were taken (asOf). Its applications are
    * not known yet (null), which is different from 0.
@@ -557,9 +594,10 @@ function applicationsIn(job: JobCopyRecord, start: string, endExclusive: string)
 
 /**
  * The period comparison table. Rows follow the acquisition days: a version's row covers the days
- * it is known to be shown, the days between two acquisitions with different content are a
- * separate 「取得日A〜取得日Bの間」 row, and the days after the last acquisition are 未取得.
- * Applications per day are only given for version rows.
+ * its content is known to be shown (countRanges), the days between two acquisitions with
+ * different content (both acquisition days included) are a separate 「取得日A〜取得日Bの間」 row,
+ * and the days after the last acquisition are 未取得. Rows never share a day. Applications per day
+ * are only given for version rows of MIN_RATE_DAYS days or more.
  */
 export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?: readonly BillingEntry[] | undefined; market?: readonly MarketRow[] | null | undefined; dummyBilling?: boolean | undefined }): PeriodRow[] {
   const { asOf } = options;
@@ -568,39 +606,48 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
   const dummy = dummyBilling(all);
   const byDate = job.overallApplications?.byDate;
   const periods = buildPeriods(job, asOf);
-  const spans = uncertainSpans(job, asOf, periods);
+  const ranges = countRanges(job, asOf, periods);
+  const changes = versionChanges(job);
   const rows: PeriodRow[] = [];
-  const make = (key: string, kind: PeriodRow['kind'], label: string, detail: string, versionId: string | null, start: string, end: string | null, days: number, ongoing: boolean): PeriodRow => {
-    const endExclusive = end ?? addDays(asOf, 1);
-    const lastDay = addDays(endExclusive, -1) < start ? start : addDays(endExclusive, -1);
-    const afterCounts = start > asOf;
-    const applications = byDate === undefined || afterCounts ? null : applicationsIn(job, start, endExclusive < start ? start : endExclusive);
-    return { key, kind, label, detail, versionId, start, end, lastDay, days, ongoing, applications, perDay: (kind === 'period' || kind === 'gap') && applications !== null && days > 0 ? applications / days : null, afterCounts,
-      billing: billingFor(billing, start, endExclusive), dummyBilling: touches(dummy, start, endExclusive), market: marketChange(options.market ?? null, start, lastDay) };
+  let cursor: string | null = null;
+  const make = (key: string, kind: PeriodRow['kind'], label: string, detail: (start: string, lastDay: string, days: number) => string, versionId: string | null, proposedStart: string, end: string | null, ongoing: boolean, drawnStart: string): PeriodRow => {
+    // Rows never share a day: a row starts no earlier than where the previous one ended.
+    const start = cursor !== null && proposedStart < cursor ? cursor : proposedStart;
+    const counted = end === null ? addDays(asOf, 1) : end < start ? start : end;
+    cursor = counted;
+    const days = Math.max(0, daysBetween(start, counted < start ? start : counted));
+    const lastDay = addDays(counted, -1) < start ? start : addDays(counted, -1);
+    const afterCounts = drawnStart > asOf;
+    const applications = byDate === undefined || afterCounts ? null : applicationsIn(job, start, counted);
+    const shortPeriod = (kind === 'period' || kind === 'gap') && days < MIN_RATE_DAYS;
+    return { key, kind, label, detail: detail(start, lastDay, days), versionId, start, end: end === null ? null : counted, lastDay, days, ongoing, applications,
+      perDay: (kind === 'period' || kind === 'gap') && applications !== null && !shortPeriod ? applications / days : null, shortPeriod, afterCounts,
+      billing: billingFor(billing, start, counted), dummyBilling: touches(dummy, start, counted), market: marketChange(options.market ?? null, start, lastDay) };
   };
   periods.forEach((period, index) => {
-    const lastDay = period.end ? addDays(period.end, -1) : asOf;
+    const range = ranges[index] ?? { start: period.start, end: period.end ?? addDays(asOf, 1) };
     if (period.basis === 'captured') {
-      const detail = period.days > 1 ? `${formatDay(period.start)}〜${formatDay(lastDay)}（次の取得まで同じ内容）` : `${formatDay(period.start)}（取得した日）`;
-      rows.push(make(period.versionId, 'period', `${formatDay(period.start)}に取得した内容`, detail, period.versionId, period.start, period.end, period.days, period.ongoing));
+      rows.push(make(period.versionId, 'period', `${formatDay(period.start)}に取得した内容`, (start, lastDay, days) => days === 0
+        ? `${formatDay(period.start)}（取得した日。取得した時刻の前後で内容が変わった可能性があるため、この日の応募は別の行に数えます）`
+        : `${formatDay(start)}〜${formatDay(lastDay)}（同じ内容を取得した日の間）`, period.versionId, range.start, range.end, false, period.start));
     } else {
-      rows.push(make(period.versionId, 'period', period.label, `${formatDay(period.start)}〜${period.ongoing ? `継続中（${formatDay(asOf)}まで）` : formatDay(lastDay)}`, period.versionId, period.start, period.end, period.days, period.ongoing));
-    }
-    const span = spans.find(item => item.fromVersionId === period.versionId);
-    if (span) {
-      const spanLast = addDays(span.end, -1);
-      const days = daysBetween(span.start, span.end);
-      const range = `${formatDay(span.start)}〜${formatDay(spanLast)}`;
-      if (span.kind === 'between') {
-        rows.push(make(`between-${period.versionId}`, 'between', span.reason === 'changed' ? `取得日${formatDay(span.from)}〜${formatDay(span.to ?? span.from)}の間に変化` : `取得日${formatDay(span.from)}〜${formatDay(span.to ?? span.from)}の間（変化したか確認できない）`,
-          `${range}（どちらの内容か分からない期間）`, null, span.start, span.end, days, false));
-      } else {
-        rows.push(make(`unacquired-${period.versionId}`, 'unacquired', `最後の取得（${formatDay(span.from)}）より後`, `${range}（未取得）`, null, span.start, span.end, days, false));
-      }
+      rows.push(make(period.versionId, 'period', period.label, start => `${formatDay(start)}〜${period.ongoing ? `継続中（${formatDay(asOf)}まで）` : formatDay(addDays(range.end, -1))}`, period.versionId, range.start, period.ongoing ? null : range.end, period.ongoing, period.start));
     }
     const next = periods[index + 1];
-    if (period.basis === 'published' && next && period.end && period.end < next.start) {
-      rows.push(make(`gap-${period.versionId}`, 'gap', '掲載が確認できない期間', `${formatDay(period.end)}〜${formatDay(addDays(next.start, -1))}`, null, period.end, next.start, daysBetween(period.end, next.start), false));
+    const nextRange = ranges[index + 1];
+    const from = cursor ?? range.end;
+    if (next && nextRange) {
+      if (from >= nextRange.start) return;
+      if (period.basis === 'published' && next.basis === 'published') {
+        rows.push(make(`gap-${period.versionId}`, 'gap', '掲載が確認できない期間', (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}`, null, from, nextRange.start, false, from));
+        return;
+      }
+      const change = changes[index + 1];
+      const status = change ? boundaryStatus(change) : 'unknown';
+      rows.push(make(`between-${period.versionId}`, 'between', status === 'changed' ? `取得日${formatDay(period.start)}〜${formatDay(next.start)}の間に変化` : `取得日${formatDay(period.start)}〜${formatDay(next.start)}の間（変化したか確認できない）`,
+        (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}（どちらの内容か分からない期間。取得した日を含む）`, null, from, nextRange.start, false, from));
+    } else if (period.basis === 'captured' && !period.ongoing && from <= asOf) {
+      rows.push(make(`unacquired-${period.versionId}`, 'unacquired', `最後の取得（${formatDay(period.start)}）より後`, (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}（${start <= period.start ? '最後に取得した日を含む。' : ''}未取得）`, null, from, addDays(asOf, 1), false, from));
     }
   });
   return rows;

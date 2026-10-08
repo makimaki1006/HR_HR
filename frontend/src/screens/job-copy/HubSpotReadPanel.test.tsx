@@ -18,6 +18,11 @@ const summary = {
     prefecture: { [street]: 4, '大分県大分市府内町1-1': 2 },
     municipality: { [`東京都 / ${street.slice(3)}`]: 4, '大分県 / 大分市府内町1-1': 2 },
   },
+  // The area totals on screen are counted from these cells (4 in 新宿区 with the same gender × age).
+  joint_demographics: { total: 6, cells: [
+    { gender: '女性', age: '30代', prefecture: street, municipality: `東京都 / ${street.slice(3)}`, count: 4 },
+    { gender: '男性', age: '40代', prefecture: '大分県大分市府内町1-1', municipality: '大分県 / 大分市府内町1-1', count: 2 },
+  ] },
 };
 const customers = { customers: [{ id: 'c1', properties: { name: '合成取引先' } }], next_after: null, total_ms: 1 };
 const jobsPage = { company_id: 'c1', contracts: [], jobs: [{ record: { id: 'L1', properties: { hs_name: '合成求人', shigotonaiyou: '合成の本文', id_hrhakkaa: '12345678', qinwude: '東京都' } }, deal_ids: [] }], total: 1, next_offset: null, total_ms: 1, fetched_at: fetchedAt };
@@ -49,6 +54,16 @@ describe('HubSpotReadPanel applicant addresses', () => {
     expect(categories(opened, 'prefecture')).toEqual([['東京都', 4], ['その他', 2]]);
     expect(categories(opened, 'municipality')).toEqual([['東京都新宿区', 4], ['その他', 2]]);
     for (const [job] of onOpen.mock.calls) expect(JSON.stringify(job)).not.toMatch(leaks);
+    expect(opened?.jointDemographics?.cells.map(cell => [cell.municipality, cell.count])).toEqual([['東京都新宿区', 4], ['その他', 2]]);
+    // Without the cells, no area is named (the gender and age totals could be read as one area's).
+    mockApi({ ...applicants, summary: { ...summary, joint_demographics: undefined } });
+    cleanup();
+    const without = vi.fn<(job: JobCopyRecord) => void>();
+    await openJob(without);
+    expect(categories(without.mock.calls.at(-1)?.[0], 'municipality')).toEqual([['その他', 6]]);
+    cleanup();
+    mockApi(applicants);
+    await openJob(onOpen);
     const table = screen.getByText('求人全体の応募属性を開く').closest('details');
     expect(table?.textContent).toContain('東京都新宿区');
     expect(table?.textContent).not.toMatch(leaks);
