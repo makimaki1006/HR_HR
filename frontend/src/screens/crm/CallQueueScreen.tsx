@@ -242,7 +242,17 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const catalog = usePropertyCatalog(mode, selection !== null, catalogFetcher);
   const selectedProps = useMemo(() => (catalog.state.phase === 'ready' ? sanitizeSelected(storedProps, catalog.state.index) : storedProps), [catalog.state, storedProps]);
   const applyProps = useCallback((next: SelectedProps) => { setStoredProps(next); saveSelected(localStorageOrNull(), next); }, []);
-  const detail = useDealDetail(detailId, mode, detailFetcher, selectedProps);
+  // 通話が終わったが、まだ読み直していない案件 (次に開くときサーバのキャッシュを使わずに読む)
+  const [staleDeals, setStaleDeals] = useState<ReadonlySet<string>>(() => new Set());
+  const freshLoaded = useCallback((id: string) => {
+    setStaleDeals(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+  const detail = useDealDetail(detailId, mode, detailFetcher, selectedProps, staleDeals, freshLoaded);
   // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
   const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
   // Zoom の枠は右から開く引き出し。閉じている間も iframe は画面の外に置いたまま (発信の依頼は届く)
@@ -309,6 +319,19 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // どの案件の画面から発信したか (通話の終了を、その発信の通話についてだけ、その案件の入力欄に出す)
   const [dialedFor, setDialedFor] = useState<DialedFor | null>(null);
   if (dialedFor !== null && bindsToDial(dialedFor, zoom.call)) setDialedFor({ ...dialedFor, callId: zoom.call.callId });
+  // 画面から発信した通話が終わったら、その案件の詳細はサーバのキャッシュ (60 秒) を使わずに読み直す。
+  // 表示中ならすぐ (前の内容は出したまま)、別の案件を見ていれば次に開いたときに
+  const endedDial = zoom.call.phase === 'ended' && dialedFor !== null && dialedFor.callId !== null
+    && dialedFor.callId === zoom.call.callId ? dialedFor : null;
+  const endedDialKey = endedDial === null ? null : `${endedDial.mode}|${endedDial.dealId}|${String(endedDial.callId)}`;
+  const [seenEndedDial, setSeenEndedDial] = useState<string | null>(null);
+  if (endedDialKey !== seenEndedDial) {
+    setSeenEndedDial(endedDialKey);
+    if (endedDial !== null) {
+      if (endedDial.mode === mode && endedDial.dealId === detailId) detail.refresh();
+      else setStaleDeals(prev => new Set(prev).add(endedDial.dealId));
+    }
+  }
   // 結果のボタンへフォーカスを移し終えた通話 (同じ通話で何度もフォーカスを奪わない)
   const [handledCall, setHandledCall] = useState<string | null>(null);
   const zoomForDetail = useMemo<ZoomPhone>(() => ({
@@ -580,7 +603,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       data={shownData} placeholder={placeholder} ownerNames={ownerNames} hasSelection={selectedId !== null} />,
     overview: <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
       {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
-        : <DealOverview state={detail.state} reload={detail.reload} zoom={zoomForDetail} stopLabel={stopLabel}
+        : <DealOverview state={detail.state} reload={detail.reload} refresh={detail.refresh} zoom={zoomForDetail} stopLabel={stopLabel}
           callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} />}
     </section>,
     activity: <ActivityLog data={shownData} placeholder={placeholder} ownerNames={ownerNames} />,

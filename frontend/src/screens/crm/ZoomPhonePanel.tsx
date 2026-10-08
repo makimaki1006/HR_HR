@@ -8,13 +8,13 @@ import { clock } from './workspaceModel';
 export const RESULT_LABELS: Record<string, string> = { ended: '通話が終了しました', missed: '応答がありませんでした', rejected: '拒否されました' };
 
 /** `active` の間だけ毎秒描き直し、そのときの時刻を返す (通話中の経過時間の表示用) */
-export function useTicking(active: boolean, now: () => number): number {
+export function useTicking(active: boolean, now: () => number, intervalMs = 1000): number {
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!active) return;
-    const id = window.setInterval(() => { setTick(n => n + 1); }, 1000);
+    const id = window.setInterval(() => { setTick(n => n + 1); }, intervalMs);
     return () => { window.clearInterval(id); };
-  }, [active]);
+  }, [active, intervalMs]);
   return now();
 }
 

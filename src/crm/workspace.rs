@@ -13,16 +13,24 @@
 //!
 //! 担当者・会社は読んだ案件の関連から引くので、その案件に紐づくものだけが返る。
 //!
-//! ## HubSpot 呼び出し回数 (1 回の要求あたり。鍵は営業自動化バッチと共有で 100 req/10 秒の枠を食うため上限を固定)
-//! | # | 呼び出し | 回数 |
-//! |---|---|---|
-//! | 1 | 案件の本体 + 通話/メモ/ミーティング/メールの関連 ID (`GET deals/{id}?associations=..`) | 1 |
-//! | 2 | 案件 → 担当者・案件 → 会社 の関連 (ラベル付き。`batch_associations` を並列) | 2 |
-//! | 3 | 担当者の読み取り・会社の読み取り・担当者 → 通話 の関連・ステージ名 (並列) | 3 (+1: ステージ名が冷えているとき) |
-//! | 4 | 活動の型ごとの `batch_read` (通話・メモ・メール・ミーティング。ID がある型だけ) | 最大 4 |
+//! 5. サーバの短いキャッシュ ([`super::workspace_cache`]、60 秒、利用者をまたいで共有)。1〜4 は**キャッシュがあっても
+//!    毎回**通し、関門のある人には キャッシュの案件の本体で同じ判定をしてから返す。`?fresh=1` はその案件の全キーを
+//!    捨てて読み直す (画面の「最新にする」と、通話が終わった後の自動の読み直し)。欠け (`partial`) のある応答は入れない。
+//!    応答の `fetched_at` は HubSpot から読んだ時刻、`cached` はキャッシュから返したか
 //!
-//! 合計は最大 11 回。通常は 10 回以下。メールの読み取りスコープが
-//! 共有鍵に無く 401/403 になったときだけ、メール抜きでもう 1 回 (#1) 読み直す (+1、`partial` に `emails` を出す)。
+//! ## HubSpot 呼び出し回数 (1 回の要求あたり。鍵は営業自動化バッチと共有で 100 req/10 秒の枠を食うため上限を固定)
+//! 順番に待つ段は 3 つ (以前は 4 つ)。同じ段の呼び出しは並列。キャッシュから返すときは 0 回。
+//! | 段 | 呼び出し | 回数 |
+//! |---|---|---|
+//! | 1 | 案件の本体 + 通話/メモ/メール/ミーティング/担当者/会社の関連 ID (`GET deals/{id}?associations=..`) | 1 |
+//! | 1 | 関連ラベルの定義 ([`super::assoc_labels`]、6 時間キャッシュ)・ステージ名 (5 分キャッシュ) | 冷えているとき 2 + 1 |
+//! | 2 | 担当者の読み取り・会社の読み取り・担当者 → 通話 の関連・メモ/メール/ミーティングの `batch_read` | 最大 6 |
+//! | 3 | 通話の `batch_read` (案件直付き + 担当者経由をまとめて 1 回。担当者がいなければ段 2 で読む) | 最大 1 |
+//!
+//! 定義が温まっていれば最大 8 回 (以前は 10 回)。冷えていれば最大 11 回 (以前と同じ)。
+//! 例外: メールの読み取りスコープが共有鍵に無く 401/403 になったときだけ、メール抜きでもう 1 回 (段 1) 読み直す
+//! (+1、`partial` に `emails` を出す)。関連の型名を定義で直せない・定義を読めないときだけ、従来の
+//! v4 の関連 (ラベル付き) を読み直す (段 1 と 2 の間に +1 段、最大 +2 回)。
 //! 活動の型ごとの上限は [`MAX_ENGAGEMENTS_PER_TYPE`] 件、表示は新しい順に [`MAX_ACTIVITIES`] 件まで。
 //!
 //! ## 活動の範囲 (`activity_scope` に文言で出す)
@@ -36,14 +44,14 @@
 //!
 //! ## 選んだ項目 (「プロパティ」パネル)
 //! `?deal_props=a,b&contact_props=..&company_props=..` (各 [`super::property_catalog::MAX_SELECTED_PER_OBJECT`] 件まで) で、
-//! 利用者が選んだ項目の値も返す (`selected`)。案件は #1 の本体の読み取り、担当者・会社は #3 の batch_read に
+//! 利用者が選んだ項目の値も返す (`selected`)。案件は段 1 の本体の読み取り、担当者・会社は段 2 の batch_read に
 //! 項目を足すだけなので、**HubSpot の呼び出し回数は増えない**。
 //! 名前は形 (英数字と `_`) を確かめ、不正なら HubSpot を呼ばずに 400 `invalid_properties`。
 //! さらに項目の一覧 ([`super::property_catalog`]、6 時間キャッシュ) に無い名前があれば 400 `invalid_properties`。
 //! 一覧が冷えているときだけ一覧の取得 (定義 6 回) が先に走る。一覧を取れなかったときは選んだ項目を読まずに
 //! 案件を返し、`partial` に `selected_properties` を出す。
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use axum::{
@@ -57,13 +65,15 @@ use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
 use ts_rs::TS;
 
+use super::assoc_labels::resolve_labels;
 use super::call_queue::{contact_name, deal_in_queue, jst_today_ms, nz, pick, DEAL_PROPERTIES};
 use super::property_catalog::parse_selected;
-use super::rbac::{self, CrmRole};
+use super::rbac;
 use super::routes::{
     error_json, hubspot_error_response, is_valid_id, sort_ids_newest_first, timeout_response,
     timestamp_millis, CrmCtx, CRM_REQUEST_DEADLINE,
 };
+use super::workspace_cache::{CachedWorkspace, WorkspaceCacheKey};
 use crate::hubspot::deep_link::{hubspot_portal_id, record_url};
 use crate::hubspot::{
     AssociationRef, EngagementType, HubSpotClient, HubSpotError, HubSpotRecord, RecordType,
@@ -304,6 +314,10 @@ pub struct WorkspaceResponse {
     pub hubspot_portal_id: String,
     pub data_scope: String,
     pub generated_at: String,
+    /// この内容を HubSpot から読んだ時刻 (RFC 3339)。キャッシュから返したときは、そのとき読んだ時刻
+    pub fetched_at: String,
+    /// サーバの短いキャッシュ (60 秒) から返したか。`?fresh=1` なら常に false
+    pub cached: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -420,12 +434,23 @@ fn partial(part: &str, e: &HubSpotError) -> WorkspacePartial {
 // ハンドラ
 // ---------------------------------------------------------------------------
 
-/// 選んだ項目 (カンマ区切りの内部名)
+/// 選んだ項目 (カンマ区切りの内部名) と `fresh` (キャッシュを使わずに読み直す)
 #[derive(Debug, Default, Deserialize)]
 pub(super) struct WorkspaceQuery {
     deal_props: Option<String>,
     contact_props: Option<String>,
     company_props: Option<String>,
+    fresh: Option<String>,
+}
+
+impl WorkspaceQuery {
+    /// `fresh=1` / `fresh=true` だけを真とみなす
+    fn fresh(&self) -> bool {
+        matches!(
+            self.fresh.as_deref().map(str::trim),
+            Some("1") | Some("true")
+        )
+    }
 }
 
 /// 選んだ項目の名前 (形は確かめ済み)
@@ -489,7 +514,7 @@ pub(super) async fn get_workspace_deal(
     Path(id): Path<String>,
     Query(query): Query<WorkspaceQuery>,
 ) -> Response {
-    // 1) 認可 (設定有無より先)。通らなければ HubSpot を呼ばない
+    // 1) 認可 (設定有無より先)。通らなければ HubSpot を呼ばない。キャッシュがあっても毎回ここを通す
     let principal =
         match rbac::authorize(&session, &state, &ctx.access, Some(RecordType::Deal)).await {
             Ok(p) => p,
@@ -508,7 +533,22 @@ pub(super) async fn get_workspace_deal(
     let Some(client) = state.hubspot.clone() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
-    // 4) 同時実行の枠待ちも含めて全体に締め切りを付ける
+    // 4) キャッシュ。`fresh` ならその案件の全キーを捨てて読み直す (画面の「最新にする」・通話が終わった後)。
+    //    レコード単位の関門が要る人 (役割が決まっていない最小権限) には、関門を通してからでないと返さない
+    let key = WorkspaceCacheKey::new(&id, &selected.deal, &selected.contact, &selected.company);
+    let gated = !role.reads_all_records();
+    let cached = if query.fresh() {
+        ctx.workspace_cache.invalidate_deal(&id);
+        None
+    } else {
+        ctx.workspace_cache.get(&key)
+    };
+    if let Some(hit) = &cached {
+        if !gated {
+            return cached_response(hit);
+        }
+    }
+    // 5) 同時実行の枠待ちも含めて全体に締め切りを付ける
     let started = std::time::Instant::now();
     let _slot = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.read_slots.acquire()).await {
         Ok(Ok(permit)) => permit,
@@ -522,14 +562,48 @@ pub(super) async fn get_workspace_deal(
     };
     let email = principal.email.clone().unwrap_or_default();
     let remaining = CRM_REQUEST_DEADLINE.saturating_sub(started.elapsed());
-    match tokio::time::timeout(remaining, build(&client, &ctx, role, &email, &id, selected)).await {
+    let work = async {
+        // 役割が決まっていない人 (最小権限) だけレコード関門を通す (安全側)。
+        // 関門には自分の owner が要る。引けなければ何も読ませない (全員分に倒さない)
+        let owner = if gated {
+            match ctx.queue.owner_for(&client, &email).await {
+                Ok(Some(o)) => Some(o),
+                Ok(None) => return Err(error_json(StatusCode::FORBIDDEN, "owner_not_found")),
+                Err(e) => return Err(hubspot_error_response(&e)),
+            }
+        } else {
+            None
+        };
+        if let (Some(hit), Some(owner)) = (&cached, &owner) {
+            // キャッシュも関門を通す (新しく読んだときと同じ判定。外れたら 403、本文は返さない)
+            if !deal_in_queue(&hit.deal, owner, jst_today_ms(ctx.queue.now())) {
+                return Err(forbidden_record());
+            }
+            return Ok(cached_response(hit));
+        }
+        let read_epoch = ctx.workspace_cache.epoch();
+        let (body, deal) = build(&client, &ctx, owner.as_deref(), &id, selected).await?;
+        // 欠けの無い成功した応答だけを入れる (読んでいる間に捨てる操作があれば入れない)
+        if body.partial.is_empty() {
+            ctx.workspace_cache
+                .insert(key, body.clone(), deal, read_epoch);
+        }
+        Ok(Json(body).into_response())
+    };
+    match tokio::time::timeout(remaining, work).await {
         Err(_elapsed) => {
             tracing::warn!(error_kind = "crm_timeout", "crm workspace timed out");
             timeout_response()
         }
-        Ok(Ok(v)) => Json(v).into_response(),
+        Ok(Ok(resp)) => resp,
         Ok(Err(resp)) => resp,
     }
+}
+
+fn cached_response(hit: &CachedWorkspace) -> Response {
+    let mut body = hit.body.clone();
+    body.cached = true;
+    Json(body).into_response()
 }
 
 fn forbidden_record() -> Response {
@@ -549,27 +623,70 @@ async fn read_engagements(
         .await
 }
 
+async fn read_records(
+    client: &HubSpotClient,
+    object: &str,
+    ids: &[String],
+    props: &[&str],
+) -> Result<Vec<HubSpotRecord>, HubSpotError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    client.batch_read(object, ids, props).await
+}
+
+/// 案件の関連 (担当者・会社) のラベルを付ける。v3 の型名を関連ラベルの定義で直す。
+/// 定義を読めない・直せない型名があるときだけ、従来の v4 の関連 (ラベル付き) を読み直す (+1 回)。
+/// v4 も失敗したら、ラベル無しのまま `associations` を `partial` に出す (ID は v3 のまま使う)
+async fn label_refs(
+    client: &HubSpotClient,
+    deal_id: &str,
+    to: &str,
+    refs: &mut [AssociationRef],
+    defs: Option<&[crate::hubspot::AssociationLabelDef]>,
+) -> Result<(), HubSpotError> {
+    if refs.is_empty() {
+        return Ok(());
+    }
+    if let Some(defs) = defs {
+        let resolved: Option<Vec<Vec<String>>> = refs
+            .iter()
+            .map(|r| resolve_labels(&r.type_names, defs))
+            .collect();
+        if let Some(all) = resolved {
+            for (r, labels) in refs.iter_mut().zip(all) {
+                r.labels = labels;
+            }
+            return Ok(());
+        }
+        tracing::warn!(
+            to,
+            "crm workspace: unrecognized association type; reading labelled associations"
+        );
+    }
+    let mut m = client
+        .batch_associations("deals", to, &[deal_id.to_string()])
+        .await?;
+    let v4 = m.remove(deal_id).unwrap_or_default();
+    for r in refs.iter_mut() {
+        if let Some(x) = v4.iter().find(|x| x.id == r.id) {
+            r.labels = x.labels.clone();
+        }
+    }
+    Ok(())
+}
+
+/// 1 画面分を HubSpot から読む。`gate_owner` があれば (役割が決まっていない人)、案件を読んだ直後に
+/// レコード単位の関門を通し、外れたらそれ以降の HubSpot 呼び出しをしない。
+/// 戻り値の 2 つ目は案件の本体 (キャッシュに入れて、キャッシュを返すときの関門に使う)。
 async fn build(
     client: &HubSpotClient,
     ctx: &CrmCtx,
-    role: CrmRole,
-    email: &str,
+    gate_owner: Option<&str>,
     id: &str,
     mut selected: SelectedProps,
-) -> Result<WorkspaceResponse, Response> {
-    // 管理者以外の全員 はレコード関門を通す (安全側)
-    let is_bpo = !role.reads_all_records();
-    // BPO: 自分の owner。引けなければ何も読ませない (全員分に倒さない)
-    let bpo_owner = if is_bpo {
-        match ctx.queue.owner_for(client, email).await {
-            Ok(Some(o)) => Some(o),
-            Ok(None) => return Err(error_json(StatusCode::FORBIDDEN, "owner_not_found")),
-            Err(e) => return Err(hubspot_error_response(&e)),
-        }
-    } else {
-        None
-    };
-
+) -> Result<(WorkspaceResponse, HubSpotRecord), Response> {
+    let is_gated = gate_owner.is_some();
     let mut partials: Vec<WorkspacePartial> = Vec::new();
     // 選んだ項目は一覧 (許可リスト) で確かめる。一覧に無い名前は 400。一覧を取れなければ選んだ項目は読まない
     if !selected.is_empty() {
@@ -598,65 +715,79 @@ async fn build(
     let contact_props = with_extra(CONTACT_PROPS, &selected.contact);
     let company_props = with_extra(COMPANY_PROPS, &selected.company);
 
-    // 1) 案件の本体 + 活動の関連 ID。メールのスコープが無く 401/403 になったときだけ、メール抜きで読み直す
-    let all_types: Vec<&str> = ENGAGEMENTS.iter().map(|e| e.api_name()).collect();
-    let first = client
-        .get_object_with_associations("deals", id, &deal_props, &all_types)
-        .await;
-    let (deal, mut assocs) = match first {
-        Ok(v) => v,
-        Err(e @ HubSpotError::Auth { .. }) => {
-            let no_email: Vec<&str> = all_types
-                .iter()
-                .copied()
-                .filter(|t| *t != "emails")
-                .collect();
-            match client
-                .get_object_with_associations("deals", id, &deal_props, &no_email)
-                .await
-            {
-                Ok(v) => {
-                    partials.push(partial("emails", &e));
-                    v
-                }
-                Err(e2) => return Err(deal_error(&e2, is_bpo)),
+    // 1) 案件の本体 + 活動・担当者・会社の関連 ID (1 回)。関連ラベルの定義とステージ名 (どちらもキャッシュ) と並列。
+    //    メールのスコープが無く 401/403 になったときだけ、メール抜きで読み直す
+    let mut all_types: Vec<&str> = ENGAGEMENTS.iter().map(|e| e.api_name()).collect();
+    all_types.extend(["contacts", "companies"]);
+    let read_deal = async {
+        match client
+            .get_object_with_associations("deals", id, &deal_props, &all_types)
+            .await
+        {
+            Err(e @ HubSpotError::Auth { .. }) => {
+                let no_email: Vec<&str> = all_types
+                    .iter()
+                    .copied()
+                    .filter(|t| *t != "emails")
+                    .collect();
+                client
+                    .get_object_with_associations("deals", id, &deal_props, &no_email)
+                    .await
+                    .map(|v| (v, Some(e)))
             }
+            other => other.map(|v| (v, None)),
         }
-        Err(e) => return Err(deal_error(&e, is_bpo)),
     };
-    if deal.archived {
-        return Err(deal_error(&HubSpotError::NotFound, is_bpo));
+    let (first, label_defs, labels) = tokio::join!(
+        read_deal,
+        ctx.assoc_labels.get(client),
+        ctx.queue.stage_labels(client)
+    );
+    let ((deal, mut assocs), email_err) = match first {
+        Ok(v) => v,
+        Err(e) => return Err(deal_error(&e, is_gated)),
+    };
+    if let Some(e) = &email_err {
+        partials.push(partial("emails", e));
     }
-    // BPO の関門: 外れたら本文は返さず、これ以降の HubSpot 呼び出しもしない
-    if let Some(owner) = &bpo_owner {
+    if deal.archived {
+        return Err(deal_error(&HubSpotError::NotFound, is_gated));
+    }
+    // 関門: 外れたら本文は返さず、これ以降の HubSpot 呼び出しもしない
+    if let Some(owner) = gate_owner {
         if !deal_in_queue(&deal, owner, jst_today_ms(ctx.queue.now())) {
             return Err(forbidden_record());
         }
     }
     let portal = hubspot_portal_id();
+    let stage_labels = match labels {
+        Ok(m) => m,
+        Err(e) => {
+            partials.push(partial("stage_labels", &e));
+            HashMap::new()
+        }
+    };
 
-    // 2) 担当者・会社の関連 (ラベル付き)
-    let deal_ids = vec![deal.id.clone()];
-    let (c_assoc, co_assoc) = tokio::join!(
-        client.batch_associations("deals", "contacts", &deal_ids),
-        client.batch_associations("deals", "companies", &deal_ids)
+    // 担当者・会社の関連 (#1 で読んだ ID)。ラベルは定義から付ける (直せなければ v4 を読み直す)
+    let (mut contact_refs, contacts_more) = assocs.remove("contacts").unwrap_or_default();
+    let (mut company_refs, _) = assocs.remove("companies").unwrap_or_default();
+    let (c_defs, co_defs) = match &label_defs {
+        Ok(d) => (Some(d.contacts.as_slice()), Some(d.companies.as_slice())),
+        Err(e) => {
+            tracing::warn!(
+                error_kind = e.error_kind(),
+                "crm workspace: association label definitions unavailable"
+            );
+            (None, None)
+        }
+    };
+    let (c_lab, co_lab) = tokio::join!(
+        label_refs(client, &deal.id, "contacts", &mut contact_refs, c_defs),
+        label_refs(client, &deal.id, "companies", &mut company_refs, co_defs)
     );
-    let contact_refs: Vec<AssociationRef> = match c_assoc {
-        Ok(mut m) => m.remove(&deal.id).unwrap_or_default(),
-        Err(e) => {
-            partials.push(partial("associations", &e));
-            Vec::new()
-        }
-    };
-    let company_refs: Vec<AssociationRef> = match co_assoc {
-        Ok(mut m) => m.remove(&deal.id).unwrap_or_default(),
-        Err(e) => {
-            if !partials.iter().any(|p| p.part == "associations") {
-                partials.push(partial("associations", &e));
-            }
-            Vec::new()
-        }
-    };
+    if let Some(e) = c_lab.err().or(co_lab.err()) {
+        partials.push(partial("associations", &e));
+    }
     let contacts_total = contact_refs.len() as u32;
     let companies_total = company_refs.len() as u32;
     let contact_order = ordered_refs(&contact_refs, PRIMARY_CONTACT_LABELS, MAX_CONTACTS);
@@ -672,28 +803,55 @@ async fn build(
     .into_iter()
     .map(|r| r.id)
     .collect();
-    let mut activities_truncated = contact_refs.len() > MAX_CONTACTS_FOR_CALLS;
+    let mut activities_truncated = contacts_more || contact_refs.len() > MAX_CONTACTS_FOR_CALLS;
 
-    // 3) 担当者・会社の読み取り、担当者 → 通話、ステージ名 (互いに独立なので並列)
-    let (c_read, co_read, c_calls, labels) = tokio::join!(
-        async {
-            if contact_ids.is_empty() {
-                Ok(Vec::new())
-            } else {
-                client
-                    .batch_read("contacts", &contact_ids, &contact_props)
-                    .await
+    // 活動の ID を型ごとに集める (案件直付き。重複除去)。通話は担当者経由の分を後で足す
+    struct Pick {
+        et: EngagementType,
+        ids: Vec<String>,
+        via: HashMap<String, (&'static str, String)>,
+    }
+    let mut picks: Vec<Pick> = Vec::new();
+    for et in ENGAGEMENTS {
+        let (refs, more) = assocs.remove(et.api_name()).unwrap_or_default();
+        activities_truncated |= more;
+        let mut ids: Vec<String> = Vec::new();
+        let mut via: HashMap<String, (&'static str, String)> = HashMap::new();
+        for r in refs {
+            if !via.contains_key(&r.id) {
+                via.insert(r.id.clone(), ("deal", deal.id.clone()));
+                ids.push(r.id);
             }
-        },
-        async {
-            if company_ids.is_empty() {
-                Ok(Vec::new())
-            } else {
-                client
-                    .batch_read("companies", &company_ids, &company_props)
-                    .await
-            }
-        },
+        }
+        picks.push(Pick { et, ids, via });
+    }
+    let cap = |ids: &mut Vec<String>, truncated: &mut bool| {
+        if ids.len() > MAX_ENGAGEMENTS_PER_TYPE {
+            *truncated = true;
+            sort_ids_newest_first(ids);
+            ids.truncate(MAX_ENGAGEMENTS_PER_TYPE);
+        }
+    };
+    // 通話は担当者経由の関連が分かってから 1 回でまとめて読む (担当者がいなければ #2 で読む)
+    let calls_wait_for_contacts = !call_contacts.is_empty();
+    for p in picks.iter_mut() {
+        if p.et != EngagementType::Call || !calls_wait_for_contacts {
+            cap(&mut p.ids, &mut activities_truncated);
+        }
+    }
+    let empty: Vec<String> = Vec::new();
+    let ids_now = |et: EngagementType| -> &Vec<String> {
+        if et == EngagementType::Call && calls_wait_for_contacts {
+            &empty
+        } else {
+            &picks.iter().find(|p| p.et == et).expect("pick").ids
+        }
+    };
+
+    // 2) 担当者・会社の読み取り、担当者 → 通話、メモ・メール・ミーティング (と担当者がいなければ通話) を並列
+    let (c_read, co_read, c_calls, r_calls, r_notes, r_emails, r_meetings) = tokio::join!(
+        read_records(client, "contacts", &contact_ids, &contact_props),
+        read_records(client, "companies", &company_ids, &company_props),
         async {
             if call_contacts.is_empty() {
                 Ok(Default::default())
@@ -703,7 +861,18 @@ async fn build(
                     .await
             }
         },
-        ctx.queue.stage_labels(client)
+        read_engagements(client, EngagementType::Call, ids_now(EngagementType::Call)),
+        read_engagements(client, EngagementType::Note, ids_now(EngagementType::Note)),
+        read_engagements(
+            client,
+            EngagementType::Email,
+            ids_now(EngagementType::Email)
+        ),
+        read_engagements(
+            client,
+            EngagementType::Meeting,
+            ids_now(EngagementType::Meeting)
+        ),
     );
     let contact_recs: HashMap<String, HubSpotRecord> = match c_read {
         Ok(v) => v
@@ -727,72 +896,49 @@ async fn build(
             HashMap::new()
         }
     };
-    let stage_labels = match labels {
-        Ok(m) => m,
-        Err(e) => {
-            partials.push(partial("stage_labels", &e));
-            HashMap::new()
-        }
-    };
-    let contact_calls: Vec<(String, String)> = match c_calls {
-        Ok(map) => {
-            let mut v = Vec::new();
-            for cid in &call_contacts {
-                for r in map.get(cid).into_iter().flatten() {
-                    v.push((r.id.clone(), cid.clone()));
+
+    // 3) 通話 (案件直付き + 担当者経由)。担当者がいるときだけ、ここで 1 回まとめて読む
+    let r_calls = if calls_wait_for_contacts {
+        let contact_calls: Vec<(String, String)> = match c_calls {
+            Ok(map) => {
+                let mut v = Vec::new();
+                for cid in &call_contacts {
+                    for r in map.get(cid).into_iter().flatten() {
+                        v.push((r.id.clone(), cid.clone()));
+                    }
                 }
+                v
             }
-            v
+            Err(e) => {
+                partials.push(partial("calls_via_contacts", &e));
+                Vec::new()
+            }
+        };
+        let p = picks
+            .iter_mut()
+            .find(|p| p.et == EngagementType::Call)
+            .expect("calls pick");
+        for (call_id, cid) in contact_calls {
+            if !p.via.contains_key(&call_id) {
+                p.via.insert(call_id.clone(), ("contact", cid));
+                p.ids.push(call_id);
+            }
         }
-        Err(e) => {
-            partials.push(partial("calls_via_contacts", &e));
-            Vec::new()
-        }
+        cap(&mut p.ids, &mut activities_truncated);
+        read_engagements(client, EngagementType::Call, &p.ids).await
+    } else {
+        r_calls
     };
 
-    // 4) 活動。型ごとに ID を集め (案件直付き優先で重複除去)、上限を超えたら新しい方を残して batch_read
-    struct Pick {
-        et: EngagementType,
-        ids: Vec<String>,
-        via: HashMap<String, (&'static str, String)>,
-    }
-    let mut picks: Vec<Pick> = Vec::new();
-    for et in ENGAGEMENTS {
-        let (refs, more) = assocs.remove(et.api_name()).unwrap_or_default();
-        activities_truncated |= more;
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut ids: Vec<String> = Vec::new();
-        let mut via: HashMap<String, (&'static str, String)> = HashMap::new();
-        for r in refs {
-            if seen.insert(r.id.clone()) {
-                via.insert(r.id.clone(), ("deal", deal.id.clone()));
-                ids.push(r.id);
-            }
-        }
-        if et == EngagementType::Call {
-            for (call_id, cid) in &contact_calls {
-                if seen.insert(call_id.clone()) {
-                    via.insert(call_id.clone(), ("contact", cid.clone()));
-                    ids.push(call_id.clone());
-                }
-            }
-        }
-        if ids.len() > MAX_ENGAGEMENTS_PER_TYPE {
-            activities_truncated = true;
-            sort_ids_newest_first(&mut ids);
-            ids.truncate(MAX_ENGAGEMENTS_PER_TYPE);
-        }
-        picks.push(Pick { et, ids, via });
-    }
-    let results = tokio::join!(
-        read_engagements(client, picks[0].et, &picks[0].ids),
-        read_engagements(client, picks[1].et, &picks[1].ids),
-        read_engagements(client, picks[2].et, &picks[2].ids),
-        read_engagements(client, picks[3].et, &picks[3].ids),
-    );
-    let results = [results.0, results.1, results.2, results.3];
+    let results = [
+        (EngagementType::Call, r_calls),
+        (EngagementType::Note, r_notes),
+        (EngagementType::Email, r_emails),
+        (EngagementType::Meeting, r_meetings),
+    ];
     let mut activities: Vec<WorkspaceActivity> = Vec::new();
-    for (pick_, res) in picks.iter().zip(results) {
+    for (et, res) in results {
+        let pick_ = picks.iter().find(|p| p.et == et).expect("pick");
         match res {
             Ok(recs) => {
                 for rec in recs.into_iter().filter(|r| !r.archived) {
@@ -801,10 +947,10 @@ async fn build(
                         .get(&rec.id)
                         .cloned()
                         .unwrap_or(("deal", deal.id.clone()));
-                    activities.push(to_activity(pick_.et, &rec, via, via_id));
+                    activities.push(to_activity(et, &rec, via, via_id));
                 }
             }
-            Err(e) => partials.push(partial(pick_.et.api_name(), &e)),
+            Err(e) => partials.push(partial(et.api_name(), &e)),
         }
     }
     activities.sort_by(|a, b| {
@@ -902,7 +1048,11 @@ async fn build(
         job_posting_url: nz(&deal, "risuto_jigyousyokibo"),
         deep_link: record_url(&portal, RecordType::Deal, &deal.id),
     };
-    Ok(WorkspaceResponse {
+    let fetched_at = ctx
+        .workspace_cache
+        .now()
+        .to_rfc3339_opts(SecondsFormat::Secs, true);
+    let body = WorkspaceResponse {
         deal: wdeal,
         dial,
         contacts,
@@ -917,12 +1067,15 @@ async fn build(
         hubspot_portal_id: portal,
         data_scope: DATA_SCOPE.to_string(),
         generated_at: ctx.queue.now().to_rfc3339_opts(SecondsFormat::Secs, true),
-    })
+        fetched_at,
+        cached: false,
+    };
+    Ok((body, deal))
 }
 
-/// 案件の取得の失敗を応答にする。BPO は「存在しない」も「担当外」も同じ 403 (id の存在を探らせない)
-fn deal_error(e: &HubSpotError, is_bpo: bool) -> Response {
-    if is_bpo && matches!(e, HubSpotError::NotFound) {
+/// 案件の取得の失敗を応答にする。関門のある人には「存在しない」も「担当外」も同じ 403 (id の存在を探らせない)
+fn deal_error(e: &HubSpotError, is_gated: bool) -> Response {
+    if is_gated && matches!(e, HubSpotError::NotFound) {
         return forbidden_record();
     }
     tracing::warn!(
@@ -985,6 +1138,54 @@ fn to_activity(
 }
 
 #[cfg(test)]
+impl WorkspaceResponse {
+    /// 中身を問わない最小の応答 (キャッシュの単体テスト用)
+    pub(super) fn empty_for_test(deal_id: &str) -> Self {
+        WorkspaceResponse {
+            deal: WorkspaceDeal {
+                id: deal_id.to_string(),
+                name: None,
+                stage_id: None,
+                stage_label: None,
+                pipeline_id: None,
+                owner_id: None,
+                amount: None,
+                close_date: None,
+                next_call_date: None,
+                next_call_time: None,
+                last_call_date: None,
+                stop: WorkspaceStop {
+                    prohibited_reason: None,
+                    block_reason: None,
+                    unreachable_check: None,
+                },
+                bpo_phone: None,
+                job_search_url: None,
+                homepage_url: None,
+                media_job_urls: None,
+                job_posting_url: None,
+                deep_link: String::new(),
+            },
+            dial: None,
+            contacts: Vec::new(),
+            contacts_total: 0,
+            companies: Vec::new(),
+            companies_total: 0,
+            activities: Vec::new(),
+            activities_truncated: false,
+            activity_scope: String::new(),
+            partial: Vec::new(),
+            selected: WorkspaceSelected::default(),
+            hubspot_portal_id: String::new(),
+            data_scope: String::new(),
+            generated_at: String::new(),
+            fetched_at: String::new(),
+            cached: false,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1017,6 +1218,7 @@ mod tests {
         let r = |id: &str, l: &[&str]| AssociationRef {
             id: id.to_string(),
             labels: l.iter().map(|s| s.to_string()).collect(),
+            type_names: Vec::new(),
         };
         let refs = vec![r("1", &[]), r("2", &["主"]), r("3", &[])];
         let o = ordered_refs(&refs, PRIMARY_CONTACT_LABELS, 2);

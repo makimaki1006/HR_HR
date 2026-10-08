@@ -36,6 +36,25 @@ export function formatDurationMs(ms: number | null): string | null {
 }
 
 /** 秒 → `mm:ss` */
+/**
+ * 詳細を HubSpot から読んだ時刻 (`fetched_at`) からの経過を「○秒前の情報」で表す。
+ * 端末の時計がサーバより遅れていても負にしない。読めない時刻は null
+ */
+export function freshnessLabel(fetchedAt: string, nowMs: number): string | null {
+  const t = Date.parse(fetchedAt);
+  if (Number.isNaN(t)) return null;
+  const s = Math.max(0, Math.floor((nowMs - t) / 1000));
+  if (s < 60) return `${String(s)}秒前の情報`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${String(m)}分前の情報`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${String(h)}時間前の情報`;
+  return `${String(Math.floor(h / 24))}日前の情報`;
+}
+
+/** 「○秒前の情報」を描き直す間隔 */
+export const FRESHNESS_TICK_MS = 15_000;
+
 export function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;

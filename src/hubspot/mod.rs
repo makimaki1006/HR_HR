@@ -13,6 +13,6 @@ pub mod types;
 
 pub use client::{ClientOptions, HubSpotClient, OwnerRef, DEFAULT_BASE_URL};
 pub use types::{
-    AssociationRef, EngagementType, HubSpotError, HubSpotRecord, RateLimitSnapshot, RecordType,
-    TokenInfo,
+    AssociationLabelDef, AssociationRef, EngagementType, HubSpotError, HubSpotRecord,
+    RateLimitSnapshot, RecordType, TokenInfo,
 };

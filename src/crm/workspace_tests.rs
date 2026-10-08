@@ -68,6 +68,10 @@ struct FakeHs {
     /// 本体 GET (`associations=` に emails を含む) だけ 403 (読み取りスコープ不足)
     forbid_emails_get: bool,
     deal_delay: Duration,
+    /// すべての呼び出しに足す遅延 (本番の HubSpot の往復 ≈0.5 秒を真似て、順番に待つ段の数を測る)
+    latency: Duration,
+    /// 案件本体 GET の担当者・会社の関連に、関連ラベルの定義で直せない型名を出す (v4 への読み直しを試す)
+    odd_v3_types: bool,
     owners: HashMap<String, String>,
     /// (method + path, body)
     log: Vec<(String, String)>,
@@ -187,6 +191,24 @@ async fn hs_get_object(
                 Some(mut v) => {
                     let mut assoc = serde_json::Map::new();
                     for t in split("associations") {
+                        if t == "contacts" || t == "companies" {
+                            // 担当者・会社は v4 の設定 (ラベル付き) から v3 の形 (型名だけ) を作る
+                            let targets = s
+                                .v4_assoc
+                                .get(&(o.clone(), t.clone(), id.clone()))
+                                .cloned()
+                                .unwrap_or_default();
+                            let mut results: Vec<Value> = Vec::new();
+                            for (to_id, label) in &targets {
+                                for ty in v3_type_names(&t, label.as_deref(), s.odd_v3_types) {
+                                    results.push(json!({"id": to_id, "type": ty}));
+                                }
+                            }
+                            if !results.is_empty() {
+                                assoc.insert(t, json!({"results": results}));
+                            }
+                            continue;
+                        }
                         if let Some(ids) = s.v3_assoc.get(&(id.clone(), t.clone())) {
                             if !ids.is_empty() {
                                 let results: Vec<Value> =
@@ -211,6 +233,64 @@ async fn hs_get_object(
     };
     if !delay.is_zero() {
         tokio::time::sleep(delay).await;
+    }
+    resp
+}
+
+/// v4 のラベル → v3 の本体 GET が返す型名 (実データで確認した形: `deal_to_company` = Primary(5)、
+/// `deal_to_company_unlabeled` = 341、`deal_to_contact` = 3。利用者定義のラベルは数字の typeId で返す想定)
+fn v3_type_names(to: &str, label: Option<&str>, odd: bool) -> Vec<String> {
+    let v: Vec<&str> = match (to, label) {
+        (_, Some(_)) if odd => vec!["deal_to_x_custom_label"],
+        ("contacts", None) => vec!["deal_to_contact"],
+        ("contacts", Some("主")) => vec!["deal_to_contact", "17"],
+        ("companies", None) => vec!["deal_to_company_unlabeled"],
+        ("companies", Some("Primary")) => vec!["deal_to_company", "deal_to_company_unlabeled"],
+        ("companies", Some("主")) => vec!["deal_to_company_unlabeled", "18"],
+        _ => vec!["unknown_type"],
+    };
+    v.into_iter().map(str::to_string).collect()
+}
+
+/// 関連ラベルの定義 (`GET /crm/v4/associations/{from}/{to}/labels`)
+async fn hs_assoc_labels(
+    State(st): State<Shared<FakeHs>>,
+    Path((from, to)): Path<(String, String)>,
+) -> Response {
+    let resp = {
+        let mut s = st.lock().unwrap();
+        let path = format!("GET /crm/v4/associations/{from}/{to}/labels");
+        s.log.push((path.clone(), String::new()));
+        if let Some(c) = s.failing(&path) {
+            err_resp(c)
+        } else {
+            let results = match to.as_str() {
+                "contacts" => json!([
+                    {"category": "HUBSPOT_DEFINED", "typeId": 3, "label": null},
+                    {"category": "USER_DEFINED", "typeId": 17, "label": "主"}
+                ]),
+                _ => json!([
+                    {"category": "HUBSPOT_DEFINED", "typeId": 341, "label": null},
+                    {"category": "HUBSPOT_DEFINED", "typeId": 5, "label": "Primary"},
+                    {"category": "USER_DEFINED", "typeId": 18, "label": "主"}
+                ]),
+            };
+            Json(json!({"results": results})).into_response()
+        }
+    };
+    resp
+}
+
+/// すべての呼び出しに `latency` を足す (応答を返す前に待つ)
+async fn add_latency(
+    State(st): State<Shared<FakeHs>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let latency = st.lock().unwrap().latency;
+    let resp = next.run(req).await;
+    if !latency.is_zero() {
+        tokio::time::sleep(latency).await;
     }
     resp
 }
@@ -372,6 +452,7 @@ async fn spawn(router: Router) -> String {
 }
 
 async fn start_hs(fake: FakeHs) -> (Arc<HubSpotClient>, Shared<FakeHs>) {
+    let latency = fake.latency;
     let st = Arc::new(Mutex::new(fake));
     let base = spawn(
         Router::new()
@@ -385,6 +466,14 @@ async fn start_hs(fake: FakeHs) -> (Arc<HubSpotClient>, Shared<FakeHs>) {
             .route("/crm/v3/pipelines/deals", get(hs_pipelines))
             .route("/crm/v3/properties/{o}", get(hs_properties))
             .route("/crm/v3/properties/{o}/groups", get(hs_property_groups))
+            .route(
+                "/crm/v4/associations/{from}/{to}/labels",
+                get(hs_assoc_labels),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                st.clone(),
+                add_latency,
+            ))
             .with_state(st.clone()),
     )
     .await;
@@ -392,7 +481,8 @@ async fn start_hs(fake: FakeHs) -> (Arc<HubSpotClient>, Shared<FakeHs>) {
         HUBSPOT_TOKEN.into(),
         &base,
         ClientOptions {
-            timeout: Duration::from_millis(600),
+            // 遅延を足す測定では、その分だけ待てるようにする
+            timeout: Duration::from_millis(600) + latency * 4,
             max_retries: 0,
             retry_base_delay: Duration::from_millis(1),
             search_min_interval: Duration::from_millis(1),
@@ -840,10 +930,13 @@ async fn 管理者は案件_担当者_会社_活動を読み_呼び出しは固�
     );
     assert_eq!(cs[1]["id"], "7001");
     assert_eq!(cs[1]["is_primary"], false);
+    assert_eq!(cs[1]["labels"], json!([]));
 
     // 会社
     let co = &v["companies"][0];
     assert_eq!(co["name"], "架空商事");
+    assert_eq!(co["labels"], json!(["主"]));
+    assert_eq!(co["is_primary"], true);
     assert_eq!(co["address"], "100-0001 東京都 千代田区 架空1-1");
     assert_eq!(co["industry"], "介護");
     assert_eq!(co["domain"], "example.invalid");
@@ -884,10 +977,21 @@ async fn 管理者は案件_担当者_会社_活動を読み_呼び出しは固�
     assert_eq!(v["activities_truncated"], false);
     assert!(v["activity_scope"].as_str().unwrap().contains("通話"));
 
-    // 呼び出し回数 (1 画面 = 11 回。キャッシュが冷えている最初の 1 回)
+    // 呼び出し回数 (定義のキャッシュが冷えている最初の 1 回 = 11 回):
+    // 案件 1 (担当者・会社の関連も同じ GET で読む) + 関連ラベルの定義 2 + ステージ名 1
+    // + 担当者・会社・担当者 → 通話 3 + 活動 4。以前の v4 の関連 2 回 (案件 → 担当者・会社) は無くなった
     assert_eq!(e.count("GET /crm/v3/objects/deals/5001"), 1);
-    assert_eq!(e.count("/associations/deals/contacts/"), 1);
-    assert_eq!(e.count("/associations/deals/companies/"), 1);
+    let deal_q = logged(&e, "GET /crm/v3/objects/deals/5001");
+    assert!(
+        deal_q.contains("associations=calls%2Cnotes%2Cemails%2Cmeetings%2Ccontacts%2Ccompanies"),
+        "{deal_q}"
+    );
+    assert_eq!(e.count("POST /crm/v4/associations/deals/"), 0);
+    assert_eq!(e.count("GET /crm/v4/associations/deals/contacts/labels"), 1);
+    assert_eq!(
+        e.count("GET /crm/v4/associations/deals/companies/labels"),
+        1
+    );
     assert_eq!(e.count("/associations/contacts/calls/"), 1);
     assert_eq!(e.count("POST /crm/v3/objects/contacts/batch/read"), 1);
     assert_eq!(e.count("POST /crm/v3/objects/companies/batch/read"), 1);
@@ -902,11 +1006,29 @@ async fn 管理者は案件_担当者_会社_活動を読み_呼び出しは固�
     assert_eq!(e.total(), 11, "{:?}", e.calls());
     assert_eq!(e.count("/owners"), 0, "管理者は owner を引かない");
 
-    // 2 回目: ステージ名はキャッシュされる (10 回)
+    assert_eq!(v["cached"], false);
+
+    // 2 回目 (`fresh=1` で読み直す): ステージ名と関連ラベルの定義はキャッシュされる → 8 回 (以前は 10 回)
     let before = e.total();
-    let (s, _) = e.admin_get(DEAL).await;
+    let (s, v2) = e.admin_get(&format!("{DEAL}?fresh=1")).await;
     assert_eq!(s, StatusCode::OK);
-    assert_eq!(e.total() - before, 10);
+    assert_eq!(e.total() - before, 8, "{:?}", e.calls());
+    assert_eq!(v2["cached"], false);
+    assert_eq!(
+        v2["contacts"], v["contacts"],
+        "ラベル・並びは定義のキャッシュから同じに付く"
+    );
+
+    // 3 回目 (60 秒以内): サーバのキャッシュから返し、HubSpot は呼ばない
+    let before = e.total();
+    let (s, v3) = e.admin_get(DEAL).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(e.total(), before, "{:?}", e.calls());
+    assert_eq!(v3["cached"], true);
+    assert_eq!(v3["fetched_at"], v2["fetched_at"]);
+    let mut same = v3;
+    same["cached"] = json!(false);
+    assert_eq!(same, v2, "同じ本文 (cached だけが違う)");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1073,8 +1195,9 @@ async fn 関連も活動も無い案件は空で返り_余計な読み取りを�
         v["dial"],
         json!({"number": "03-0000-0001", "source": "deal"})
     );
-    // 案件 1 + 関連 2 + ステージ名 1 だけ。担当者・会社・活動の batch_read は ID が無いので呼ばない
-    assert_eq!(e.count("/batch/read"), 2, "{:?}", e.calls());
+    // 案件 1 + 関連ラベルの定義 2 (冷えているとき) + ステージ名 1 だけ。
+    // 担当者・会社・活動の batch_read は ID が無いので呼ばない
+    assert_eq!(e.count("/batch/read"), 0, "{:?}", e.calls());
     assert_eq!(e.count("/associations/contacts/calls/"), 0);
     assert_eq!(e.total(), 4, "{:?}", e.calls());
 }
@@ -1203,7 +1326,13 @@ async fn 案件の取得が_429_なら_503_で部分結果を返さない() {
         )
     );
     assert!(v.get("deal").is_none());
-    assert_eq!(e.total(), 1, "最初の失敗で止まる");
+    // 案件の GET で止まる (同時に読む定義 = 関連ラベル・ステージ名 のほかに、レコードの読み取りはしない)
+    assert_eq!(e.count("/crm/v3/objects/"), 1, "{:?}", e.calls());
+    assert_eq!(e.count("/batch/read"), 0, "{:?}", e.calls());
+    // 失敗はキャッシュしない
+    let (s, _) = e.admin_get(DEAL).await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(e.count("/crm/v3/objects/"), 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1234,7 +1363,8 @@ async fn 一部の読み取りが失敗しても案件は返り_失敗した部�
         ("POST /crm/v3/objects/emails/batch/read", "emails"),
         ("POST /crm/v3/objects/calls/batch/read", "calls"),
         ("/associations/contacts/calls/", "calls_via_contacts"),
-        ("/associations/deals/contacts/", "associations"),
+        // 関連ラベルの定義も、読み直しの v4 の関連も失敗 → ラベル無しで ID は使う
+        ("/crm/v4/associations/deals/", "associations"),
         ("/crm/v3/pipelines/deals", "stage_labels"),
     ] {
         let mut f = FakeHs::new();
@@ -1252,6 +1382,15 @@ async fn 一部の読み取りが失敗しても案件は返り_失敗した部�
             .collect();
         assert!(parts.contains(&part), "{part}: {parts:?}");
         assert_eq!(v["partial"][0]["error_kind"], "hubspot_upstream");
+        if part == "associations" {
+            assert_eq!(v["contacts"].as_array().unwrap().len(), 2, "{v}");
+            assert_eq!(v["contacts"][0]["labels"], json!([]));
+        }
+        // 欠けた応答はキャッシュしない (次も読みに行く)
+        let before = e.total();
+        let (_, v2) = e.admin_get(DEAL).await;
+        assert_eq!(v2["cached"], false, "{part}");
+        assert!(e.total() > before, "{part}");
         if part == "stage_labels" {
             assert_eq!(v["deal"]["stage_label"], Value::Null, "ID を表示名にしない");
         }
@@ -1415,7 +1554,8 @@ async fn 選んだ項目の値は同じ読み取りで返り_呼び出し回数�
         v["selected"]["company"],
         json!({"website": "https://www.example.invalid/", "numberofemployees": "120"})
     );
-    // 呼び出し回数は選ばないときと同じ 11 回 (一覧はキャッシュ)。項目は同じ読み取りに足している
+    // 呼び出し回数は選ばないときと同じ 11 回 (一覧はキャッシュ。関連ラベルの定義とステージ名は冷えている)。
+    // 項目は同じ読み取りに足している
     assert_eq!(e.total() - before, 11, "{:?}", e.calls());
     let deal_q = logged(&e, "GET /crm/v3/objects/deals/5001");
     assert!(deal_q.contains("bpo_50"), "{deal_q}");
@@ -1505,4 +1645,332 @@ async fn 項目の一覧を読めなければ選んだ項目は読まずに案�
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["partial"][0]["part"], "selected_properties");
     assert_eq!(e.count("GET /crm/v3/properties/"), before);
+}
+
+// ---------------------------------------------------------------------------
+// サーバの短いキャッシュ (60 秒) と、関連ラベル
+// ---------------------------------------------------------------------------
+
+/// 役割が決まっていない (最小権限 `user`) 社員。この人だけレコード単位の関門 (自分のキュー) が掛かる
+const MIN_USER: &str = "minuser@f-a-c.co.jp";
+
+type TestClock = Arc<Mutex<DateTime<Utc>>>;
+
+/// 時計を進められるキャッシュと、管理者・BPO・最小権限の人のログインを持つ環境
+async fn env_with_clock(fake: FakeHs) -> (Env, String, TestClock) {
+    let (client, hs) = start_hs(fake).await;
+    let clock: TestClock = Arc::new(Mutex::new(now_default()));
+    let c = clock.clone();
+    let cache = super::workspace_cache::WorkspaceCache::with_clock(
+        super::workspace_cache::WORKSPACE_CACHE_TTL,
+        super::workspace_cache::WORKSPACE_CACHE_MAX,
+        Arc::new(move || *c.lock().unwrap()),
+    );
+    let app = Router::new()
+        .merge(super::routes::router_with_parts(
+            CrmAccess::from_list(&format!("{ADMIN},{BPO},{MIN_USER}"))
+                .with_test_role(ADMIN, CrmRole::Admin)
+                .with_test_role(BPO, CrmRole::Bpo)
+                .with_test_role(MIN_USER, CrmRole::User),
+            CallQueueState::for_test(KEY, now_default()),
+            cache,
+        ))
+        .route("/__test/session", post(inject_session))
+        .with_state(test_state(Some(client)))
+        .layer(SessionManagerLayer::new(MemoryStore::default()));
+    let admin = login(&app, ADMIN, "google_oidc").await;
+    let bpo = login(&app, BPO, "google_oidc").await;
+    let min_user = login(&app, MIN_USER, "google_oidc").await;
+    (
+        Env {
+            app,
+            hs,
+            admin,
+            bpo,
+        },
+        min_user,
+        clock,
+    )
+}
+
+fn advance(clock: &TestClock, secs: i64) {
+    let mut g = clock.lock().unwrap();
+    *g += chrono::Duration::seconds(secs);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn キャッシュは利用者をまたいで同じ本文を返し_hubspot_を呼ばない() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    let (e, _, _) = env_with_clock(f).await;
+    let (s, first) = e.admin_get(DEAL).await;
+    assert_eq!(s, StatusCode::OK, "{first}");
+    assert_eq!(first["cached"], false);
+    assert_eq!(first["fetched_at"], "2026-10-05T03:00:00Z");
+    let before = e.total();
+    // 別の人 (BPO) が同じ案件を開く
+    let (s, second) = e.bpo_get(DEAL).await;
+    assert_eq!(s, StatusCode::OK, "{second}");
+    assert_eq!(e.total(), before, "{:?}", e.calls());
+    assert_eq!(second["cached"], true);
+    let mut same = second;
+    same["cached"] = json!(false);
+    assert_eq!(same, first);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn キャッシュがあっても認可は毎回通す_読めない人には_403() {
+    let mut f = FakeHs::new();
+    // 他人 (222) の担当。最小権限の人 (owner 111) のキューには出ない
+    full(&mut f, OTHER_OWNER);
+    f.owners.insert(MIN_USER.to_string(), BPO_OWNER.to_string());
+    // 最小権限の人のキューに出る案件
+    f.deal("5002", BPO_OWNER, UNPROCESSED, &[]);
+    let (e, min_user, _) = env_with_clock(f).await;
+    // 管理者が開いてキャッシュに入る
+    let (s, v) = e.admin_get(DEAL).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    // 最小権限の人: キャッシュがあっても関門で 403 (本文は返さない)。新しく読んだときと同じ判定
+    let records_before = e.count("/crm/v3/objects/");
+    let (s, _, v) = get_raw(&e.app, &url(DEAL), Some(&min_user)).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::FORBIDDEN, Some("forbidden_record")),
+        "{v}"
+    );
+    assert!(v.get("deal").is_none());
+    assert_eq!(
+        e.count("/crm/v3/objects/"),
+        records_before,
+        "キャッシュに対する関門はレコードを読み直さない"
+    );
+    // fresh=1 でも同じ (新しく読んで関門で止まる)
+    let (s, _, v) = get_raw(&e.app, &format!("{}?fresh=1", url(DEAL)), Some(&min_user)).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::FORBIDDEN, Some("forbidden_record")),
+        "{v}"
+    );
+    // 未ログイン・パスワードログイン・許可リストに無い人は、キャッシュがあっても入口で止まる
+    let (s, _, v) = get_raw(&e.app, &url(DEAL), None).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::UNAUTHORIZED, Some("login_required"))
+    );
+    let pw = login(&e.app, ADMIN, "password_internal").await;
+    let (s, _, v) = get_raw(&e.app, &url(DEAL), Some(&pw)).await;
+    assert_eq!(
+        (s, kind(&v)),
+        (StatusCode::FORBIDDEN, Some("google_login_required"))
+    );
+    let out = login(&e.app, OUTSIDER, "google_oidc").await;
+    let (s, _, v) = get_raw(&e.app, &url(DEAL), Some(&out)).await;
+    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+
+    // 関門を通る案件なら、最小権限の人にもキャッシュを返す
+    let (s, _, v) = get_raw(&e.app, &url("5002"), Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let before = e.count("/crm/v3/objects/");
+    let (s, _, v) = get_raw(&e.app, &url("5002"), Some(&min_user)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["cached"], true);
+    assert_eq!(e.count("/crm/v3/objects/"), before);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 欠けた応答はキャッシュしない() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    f.fail
+        .insert("POST /crm/v3/objects/notes/batch/read".into(), 500);
+    let (e, _, _) = env_with_clock(f).await;
+    for _ in 0..2 {
+        let before = e.count("GET /crm/v3/objects/deals/5001");
+        let (s, v) = e.admin_get(DEAL).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        assert_eq!(v["partial"][0]["part"], "notes");
+        assert_eq!(v["cached"], false);
+        assert_eq!(e.count("GET /crm/v3/objects/deals/5001"), before + 1);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fresh_は読み直してキャッシュを入れ替え_その案件の全キーを捨てる() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    let (e, _, clock) = env_with_clock(f).await;
+    let with_props = format!("{DEAL}?deal_props=bpo_50");
+    let (s, v) = e.admin_get(DEAL).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (s, v) = e.admin_get(&with_props).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["selected"]["deal"], json!({"bpo_50": null}));
+    // HubSpot 側で案件が変わる (通話が終わって記録された想定)
+    e.hs.lock().unwrap().deal(
+        DEAL,
+        BPO_OWNER,
+        UNPROCESSED,
+        &[("dealname", "通話後の案件名"), ("bpo_50", "通話後のメモ")],
+    );
+    advance(&clock, 10);
+    // キャッシュのうちは古い名前
+    let (_, v) = e.admin_get(DEAL).await;
+    assert_eq!(v["cached"], true);
+    assert_eq!(v["deal"]["name"], "架空案件");
+    // fresh=1: 読み直す (cached=false、読んだ時刻が新しい)
+    let before = e.count("GET /crm/v3/objects/deals/5001");
+    let (s, v) = e.admin_get(&format!("{DEAL}?fresh=1")).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["cached"], false);
+    assert_eq!(v["deal"]["name"], "通話後の案件名");
+    assert_eq!(v["fetched_at"], "2026-10-05T03:00:10Z");
+    assert_eq!(e.count("GET /crm/v3/objects/deals/5001"), before + 1);
+    // 読み直した内容がキャッシュに入る
+    let (_, v) = e.admin_get(DEAL).await;
+    assert_eq!(v["cached"], true);
+    assert_eq!(v["deal"]["name"], "通話後の案件名");
+    // 選んだ項目の違うキーも捨てられている (古い値を返さない)
+    let before = e.count("GET /crm/v3/objects/deals/5001");
+    let (_, v) = e.admin_get(&with_props).await;
+    assert_eq!(v["cached"], false);
+    assert_eq!(v["selected"]["deal"], json!({"bpo_50": "通話後のメモ"}));
+    assert_eq!(e.count("GET /crm/v3/objects/deals/5001"), before + 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn キャッシュは_60_秒で切れる() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    let (e, _, clock) = env_with_clock(f).await;
+    let (_, v) = e.admin_get(DEAL).await;
+    assert_eq!(v["cached"], false);
+    advance(&clock, 59);
+    let (_, v) = e.admin_get(DEAL).await;
+    assert_eq!(v["cached"], true, "59 秒後はキャッシュ");
+    assert_eq!(v["fetched_at"], "2026-10-05T03:00:00Z");
+    advance(&clock, 1);
+    let before = e.count("GET /crm/v3/objects/deals/5001");
+    let (_, v) = e.admin_get(DEAL).await;
+    assert_eq!(v["cached"], false, "60 秒で切れる");
+    assert_eq!(v["fetched_at"], "2026-10-05T03:01:00Z");
+    assert_eq!(e.count("GET /crm/v3/objects/deals/5001"), before + 1);
+}
+
+#[test]
+fn キャッシュの件数は上限までで_最も使われていないものから捨てる() {
+    use super::workspace_cache::{WorkspaceCache, WorkspaceCacheKey};
+    let now = now_default();
+    let cache = WorkspaceCache::with_clock(chrono::Duration::seconds(60), 2, Arc::new(move || now));
+    let body = super::workspace::WorkspaceResponse::empty_for_test("1");
+    let deal = crate::hubspot::HubSpotRecord {
+        id: "1".into(),
+        properties: Default::default(),
+        created_at: None,
+        updated_at: None,
+        archived: false,
+    };
+    let k = |id: &str| WorkspaceCacheKey::new(id, &[], &[], &[]);
+    cache.insert(k("1"), body.clone(), deal.clone(), cache.epoch());
+    cache.insert(k("2"), body.clone(), deal.clone(), cache.epoch());
+    // 1 を使う → 2 が最も使われていない
+    assert!(cache.get(&k("1")).is_some());
+    cache.insert(k("3"), body.clone(), deal.clone(), cache.epoch());
+    assert_eq!(cache.len(), 2);
+    assert!(cache.get(&k("2")).is_none());
+    assert!(cache.get(&k("1")).is_some() && cache.get(&k("3")).is_some());
+    // 選んだ項目の並び・重複は問わない / 案件の全キーを捨てる
+    let a = WorkspaceCacheKey::new("9", &["b".into(), "a".into()], &[], &[]);
+    let b = WorkspaceCacheKey::new("9", &["a".into(), "b".into(), "a".into()], &[], &[]);
+    assert_eq!(a, b);
+    cache.insert(a.clone(), body.clone(), deal.clone(), cache.epoch());
+    assert_eq!(cache.invalidate_deal("9"), 1);
+    assert!(cache.get(&b).is_none());
+    // 読んでいる間に捨てられたら、その読み取りの結果は入れない (古い内容で上書きしない)
+    let started = cache.epoch();
+    cache.invalidate_deal("9");
+    assert!(!cache.insert(a.clone(), body.clone(), deal.clone(), started));
+    assert!(cache.get(&a).is_none());
+    assert!(cache.insert(a.clone(), body, deal, cache.epoch()));
+    assert!(cache.get(&a).is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 会社の_primary_は実データと同じ型名から付く_直せない型名は_v4_を読み直す() {
+    // 実データの形: 主会社は deal_to_company + deal_to_company_unlabeled、もう 1 社は無ラベル
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    f.put("companies", "8002", &[("name", "架空物産")]);
+    f.v4(
+        "deals",
+        "companies",
+        DEAL,
+        &[("8002", None), ("8001", Some("Primary"))],
+    );
+    let (e, _, _) = env_with_clock(f).await;
+    let (s, v) = e.admin_get(DEAL).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["companies"][0]["id"], "8001");
+    assert_eq!(v["companies"][0]["labels"], json!(["Primary"]));
+    assert_eq!(v["companies"][1]["id"], "8002");
+    assert_eq!(v["companies"][1]["labels"], json!([]));
+    assert_eq!(v["companies_total"], 2);
+    assert_eq!(e.count("POST /crm/v4/associations/deals/"), 0);
+
+    // 直せない型名 → v4 の関連 (ラベル付き) を読み直し、今までと同じラベルを出す
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    f.odd_v3_types = true;
+    let (e, _, _) = env_with_clock(f).await;
+    let (s, v) = e.admin_get(DEAL).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["contacts"][0]["id"], "7002");
+    assert_eq!(v["contacts"][0]["labels"], json!(["主"]));
+    assert_eq!(v["companies"][0]["labels"], json!(["主"]));
+    assert_eq!(v["partial"], json!([]));
+    assert_eq!(
+        e.count("POST /crm/v4/associations/deals/contacts/batch/read"),
+        1
+    );
+    assert_eq!(
+        e.count("POST /crm/v4/associations/deals/companies/batch/read"),
+        1
+    );
+}
+
+/// 1 呼び出しごとに 500ms 足した偽 HubSpot で、案件を開く時間を測る (順番に待つ段の数が減ったことの確認)。
+/// `cargo test --lib crm::workspace_tests::遅延 -- --nocapture` で時間を表示する。
+#[tokio::test(flavor = "multi_thread")]
+async fn 遅延_500ms_の偽_hubspot_で開く時間は_3_段分_キャッシュは即時() {
+    const LAT: Duration = Duration::from_millis(500);
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    f.latency = LAT;
+    let (e, _, _) = env_with_clock(f).await;
+    // 1 回目: 定義 (関連ラベル・ステージ名) も冷えている。定義は案件の GET と並列なので段は増えない
+    let t = std::time::Instant::now();
+    let (s, v) = e.admin_get(DEAL).await;
+    let cold = t.elapsed();
+    assert_eq!(s, StatusCode::OK, "{v}");
+    // 2 回目 (fresh=1): 定義は温まっている (本番の通常の状態)
+    let t = std::time::Instant::now();
+    let (s, _) = e.admin_get(&format!("{DEAL}?fresh=1")).await;
+    let warm = t.elapsed();
+    assert_eq!(s, StatusCode::OK);
+    // 3 回目: キャッシュ
+    let t = std::time::Instant::now();
+    let (s, v) = e.admin_get(DEAL).await;
+    let hit = t.elapsed();
+    assert_eq!((s, v["cached"].clone()), (StatusCode::OK, json!(true)));
+    println!(
+        "workspace open with {}ms/call: cold {}ms, warm {}ms, cache hit {}ms",
+        LAT.as_millis(),
+        cold.as_millis(),
+        warm.as_millis(),
+        hit.as_millis()
+    );
+    // 案件 → (担当者・会社・担当者→通話・メモ/メール/ミーティング) → 通話 の 3 段。以前は 4 段 (≥ 2000ms)
+    assert!(warm >= LAT * 3, "{warm:?}");
+    assert!(warm < LAT * 4, "3 段で終わる: {warm:?}");
+    assert!(cold < LAT * 4, "冷えていても 3 段: {cold:?}");
+    assert!(hit < Duration::from_millis(100), "{hit:?}");
 }

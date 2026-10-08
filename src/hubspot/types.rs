@@ -111,6 +111,21 @@ pub struct AssociationRef {
     pub id: String,
     /// `associationTypes[].label` のうち null でないもの (無ラベルなら空)
     pub labels: Vec<String>,
+    /// v3 の本体 GET (`?associations=`) の `results[].type` (例 `deal_to_company` / `deal_to_company_unlabeled`)。
+    /// 同じ id に複数の型が付けば全部 (重複なし、HubSpot の返した順)。v4 の関連では常に空。
+    /// v3 はラベル名を返さないので、ラベルは呼び出し側が関連ラベルの定義から引く
+    #[serde(skip)]
+    pub type_names: Vec<String>,
+}
+
+/// 関連ラベルの定義 1 件 (`GET /crm/v4/associations/{from}/{to}/labels`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociationLabelDef {
+    /// `HUBSPOT_DEFINED` / `USER_DEFINED` 等 (HubSpot の値のまま)
+    pub category: String,
+    pub type_id: u64,
+    /// 無ラベル (既定の関連) は None
+    pub label: Option<String>,
 }
 
 /// 最後に観測した `X-HubSpot-RateLimit-*` ヘッダ (Search の応答には付かない)。
