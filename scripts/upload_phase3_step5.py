@@ -59,8 +59,13 @@ LOCAL_DB = DEPLOY_ROOT / "data" / "hellowork.db"
 AUDIT_LOG_PATH = DEPLOY_ROOT / "data" / "generated" / "turso_upload_audit_log.json"
 
 # host allowlist (生 URL の hostname 検証)
+# 本番ホスト名はリポジトリに書かない。投入時に環境変数で渡す (カンマ区切り):
+#   $env:TURSO_UPLOAD_ALLOWED_HOSTS = "country-statistics-<org>.turso.io"
+# 未設定なら allowlist は空になり、投入は必ず中断する。
 ALLOWED_TURSO_HOSTS = {
-    "country-statistics-makimaki1006.aws-ap-northeast-1.turso.io",
+    h.strip().lower()
+    for h in os.getenv("TURSO_UPLOAD_ALLOWED_HOSTS", "").split(",")
+    if h.strip()
 }
 
 # テーブル定義 (戦略 + 期待ローカル行数)
@@ -128,6 +133,10 @@ def mask_token(t: str | None) -> str:
 # ─────────────────────────────────────────────
 def assert_allowed_host(url: str) -> None:
     h = urlparse(url).hostname or ""
+    if not ALLOWED_TURSO_HOSTS:
+        raise SystemExit(
+            "[abort] TURSO_UPLOAD_ALLOWED_HOSTS is not set (comma-separated host allowlist)"
+        )
     if h not in ALLOWED_TURSO_HOSTS:
         raise SystemExit(
             f"[abort] host '{h}' is not in allowlist {sorted(ALLOWED_TURSO_HOSTS)}"

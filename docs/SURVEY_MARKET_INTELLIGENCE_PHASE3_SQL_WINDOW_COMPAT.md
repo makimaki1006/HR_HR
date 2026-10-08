@@ -123,7 +123,7 @@ LIMIT 30
 
 ## 4. Turso 実行結果
 
-- ホスト: `country-statistics-makimaki1006.aws-ap-northeast-1.turso.io` (token はマスク済)
+- ホスト: `country-statistics-<org>.turso.io` (token はマスク済)
 - READ 消費: 4 / 10
 
 ### Q1_RANK_PARTITION
