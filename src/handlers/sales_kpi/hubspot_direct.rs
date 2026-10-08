@@ -42,7 +42,7 @@ use crate::config::HubSpotApiConfig;
 use crate::db::sheets_client::SheetsClient;
 use crate::handlers::call_quality::routes::{cq_state, CqError};
 use crate::handlers::call_quality::sheets::{SheetData, SheetStore};
-use crate::hubspot::{ClientOptions, HubSpotClient, DEFAULT_BASE_URL};
+use crate::hubspot::{ClientOptions, HubSpotClient};
 
 /// 背景更新の間隔。
 pub const REFRESH_INTERVAL: Duration = Duration::from_secs(300);
@@ -272,22 +272,21 @@ static DIRECT: OnceLock<Option<Arc<DirectState>>> = OnceLock::new();
 
 /// 営業KPI 用の HubSpot クライアント(`AppState.hubspot` の CRM 用とは別インスタンス)。
 ///
-/// Search の間隔は 400ms(2.5 回/秒)。CRM(1 回/秒)と合わせても 5 回/秒の上限に収まる。
-/// ただし同じトークンを共有する他の常駐処理・Python の同期とは別のゲートなので、
-/// 全体では上限を超えうる(429 は `Retry-After` に従って待つ)。
+/// 流量は CRM と同じプロセス共有の関所 (`hubspot::gateway`) を通り、**背景の優先度**で並ぶ
+/// (画面の操作の後ろ。Search も関所の Search の窓を CRM と分け合う)。同じトークンを共有する
+/// Python の同期とは別のゲートなので、全体では上限を超えうる(429 は `Retry-After` の間、関所ごと止まる)。
 fn build_client() -> Option<HubSpotClient> {
     let cfg = HubSpotApiConfig::from_env()?;
-    HubSpotClient::new(
+    HubSpotClient::for_production(
         cfg.access_token,
-        DEFAULT_BASE_URL,
         ClientOptions {
             timeout: Duration::from_secs(30),
             max_retries: 6,
-            search_min_interval: Duration::from_millis(400),
             ..ClientOptions::default()
         },
     )
     .ok()
+    .map(|c| c.background())
 }
 
 fn global() -> Option<&'static Arc<DirectState>> {

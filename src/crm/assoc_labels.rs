@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
+use crate::hubspot::gateway::{cache_hit, cache_miss};
 use crate::hubspot::{AssociationLabelDef, HubSpotClient, HubSpotError};
 
 /// 定義を使い回す時間
@@ -51,6 +52,8 @@ pub struct AssocLabelCache {
     slot: Mutex<Slot>,
     ttl: Duration,
     failure_ttl: Duration,
+    /// 先読み (背景の優先度) が走っているか
+    refreshing: super::call_queue::RefreshGate,
 }
 
 impl Default for AssocLabelCache {
@@ -59,6 +62,7 @@ impl Default for AssocLabelCache {
             slot: Mutex::new(Slot::default()),
             ttl: ASSOC_LABELS_TTL,
             failure_ttl: FAILURE_TTL,
+            refreshing: super::call_queue::RefreshGate::new(),
         }
     }
 }
@@ -72,6 +76,7 @@ impl AssocLabelCache {
         let mut slot = self.slot.lock().await;
         if let Some((at, defs)) = slot.ok.as_ref() {
             if at.elapsed() < self.ttl {
+                cache_hit("assoc_labels");
                 return Ok(defs.clone());
             }
         }
@@ -80,16 +85,11 @@ impl AssocLabelCache {
                 return Err(e.clone());
             }
         }
-        let fetched = tokio::try_join!(
-            client.association_labels("deals", "contacts"),
-            client.association_labels("deals", "companies"),
-        );
+        cache_miss("assoc_labels");
+        let fetched = Self::fetch(client).await;
         match fetched {
-            Ok((contacts, companies)) => {
-                let defs = Arc::new(DealAssocLabelDefs {
-                    contacts,
-                    companies,
-                });
+            Ok(defs) => {
+                let defs = Arc::new(defs);
                 slot.ok = Some((Instant::now(), defs.clone()));
                 slot.failed = None;
                 Ok(defs)
@@ -99,6 +99,48 @@ impl AssocLabelCache {
                 Err(e)
             }
         }
+    }
+}
+
+impl AssocLabelCache {
+    async fn fetch(client: &HubSpotClient) -> Result<DealAssocLabelDefs, HubSpotError> {
+        let (contacts, companies) = tokio::try_join!(
+            client.association_labels("deals", "contacts"),
+            client.association_labels("deals", "companies"),
+        )?;
+        Ok(DealAssocLabelDefs {
+            contacts,
+            companies,
+        })
+    }
+
+    /// 有効期間の終わり近く (残り 20% 未満) なら true (先読みの対象)。取得中は false
+    pub fn refresh_due(&self) -> bool {
+        self.slot.try_lock().is_ok_and(|slot| {
+            slot.ok
+                .as_ref()
+                .is_some_and(|(at, _)| super::call_queue::refresh_due(at.elapsed(), self.ttl))
+        })
+    }
+
+    /// 定義を読み直して置き換える (先読み。背景の優先度のクライアントを渡す)。読んでいる間はロックを持たない。
+    /// 失敗しても今の定義は残す (有効期間が切れたら画面の要求が読み直す)
+    pub async fn refresh(&self, client: &HubSpotClient) {
+        if !self.refreshing.try_begin() {
+            return;
+        }
+        match Self::fetch(client).await {
+            Ok(defs) => {
+                let mut slot = self.slot.lock().await;
+                slot.ok = Some((Instant::now(), Arc::new(defs)));
+                slot.failed = None;
+            }
+            Err(e) => tracing::warn!(
+                error_kind = e.error_kind(),
+                "crm association labels refresh-ahead failed"
+            ),
+        }
+        self.refreshing.end();
     }
 }
 

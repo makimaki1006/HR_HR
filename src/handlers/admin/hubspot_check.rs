@@ -78,6 +78,9 @@ fn failure(configured: bool, e: &HubSpotError) -> (StatusCode, HubSpotCheckRespo
         ),
         HubSpotError::Transport(_) => "HubSpot に接続できませんでした".to_string(),
         HubSpotError::Decode(_) => "HubSpot の応答の形が想定と違いました".to_string(),
+        HubSpotError::Busy => {
+            "HubSpot が混み合っています。少し待ってから再試行してください".to_string()
+        }
     };
     (
         StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::BAD_GATEWAY),

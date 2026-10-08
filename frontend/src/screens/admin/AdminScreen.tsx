@@ -11,6 +11,7 @@ import type { AdminUsageResponse } from '../../generated/AdminUsageResponse';
 import type { AdminUserDetailResponse } from '../../generated/AdminUserDetailResponse';
 import type { AdminUsersResponse } from '../../generated/AdminUsersResponse';
 import { dashIfEmpty, truncateChars, unknownIfEmpty } from './format';
+import { HubSpotUsagePanel } from './HubSpotUsagePanel';
 import { adminApiPath, adminHref, parseAdminRoute, type AdminRoute } from './route';
 import { describeApiError, useApiGet } from './useApiGet';
 import { useQueryRoute } from './useQueryRoute';
@@ -53,6 +54,7 @@ export function AdminNav() {
       <AdminLink route={{ view: 'usage', days: 30 }}>利用状況</AdminLink>
       <AdminLink route={{ view: 'users' }}>ユーザー一覧</AdminLink>
       <AdminLink route={{ view: 'login-failures' }}>失敗監視</AdminLink>
+      <AdminLink route={{ view: 'hubspot' }}>HubSpot</AdminLink>
       <a href="/app/my?view=activity" className="w8-nav-right">
         自分の履歴
       </a>
@@ -583,6 +585,9 @@ function AdminBody({ route }: { route: AdminRoute }) {
       return <LoginFailuresView data={state.data as AdminLoginFailuresResponse} />;
     case 'usage':
       return <UsageView data={state.data as AdminUsageResponse} />;
+    case 'hubspot':
+      // AdminScreen renders HubSpotUsagePanel (with its own 15 s refresh) instead of AdminBody.
+      return null;
   }
 }
 
@@ -592,7 +597,7 @@ export function AdminScreen() {
     <NavigateContext.Provider value={navigate}>
       <div className="w8-page">
         <AdminNav />
-        <AdminBody route={route} />
+        {route.view === 'hubspot' ? <HubSpotUsagePanel /> : <AdminBody route={route} />}
       </div>
     </NavigateContext.Provider>
   );

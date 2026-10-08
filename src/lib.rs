@@ -770,6 +770,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/admin/hubspot-check",
             get(handlers::admin::api_hubspot_check),
         )
+        // HubSpot 呼び出しの関所の観測値 (レート制限の残り・回数・キャッシュ・待ち行列。鍵は返さない)
+        .route(
+            "/api/admin/hubspot-usage",
+            get(handlers::admin::api_hubspot_usage),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_admin_mw,

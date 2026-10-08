@@ -171,6 +171,7 @@ describe('route', () => {
     expect(parseAdminRoute('?view=user&id=acc-0001')).toEqual({ view: 'user', id: 'acc-0001' });
     expect(parseAdminRoute('?view=user')).toEqual({ view: 'users' });
     expect(parseAdminRoute('?view=login-failures')).toEqual({ view: 'login-failures' });
+    expect(parseAdminRoute('?view=hubspot')).toEqual({ view: 'hubspot' });
   });
 
   it('maps views to hrefs and admin JSON endpoints', () => {
@@ -180,6 +181,8 @@ describe('route', () => {
     expect(adminApiPath({ view: 'users' })).toBe('/api/admin/users');
     expect(adminApiPath({ view: 'user', id: 'a/b' })).toBe('/api/admin/users/a%2Fb');
     expect(adminApiPath({ view: 'login-failures' })).toBe('/api/admin/login-failures');
+    expect(adminApiPath({ view: 'hubspot' })).toBe('/api/admin/hubspot-usage');
+    expect(adminHref({ view: 'hubspot' })).toBe('?view=hubspot');
   });
 });
 
@@ -203,6 +206,7 @@ describe('errors', () => {
     expect(html).toContain('href="?view=usage&amp;days=30">利用状況</a>');
     expect(html).toContain('href="?view=users">ユーザー一覧</a>');
     expect(html).toContain('href="?view=login-failures">失敗監視</a>');
+    expect(html).toContain('href="?view=hubspot">HubSpot</a>');
     expect(html).toContain('href="/app/my?view=activity"');
   });
 });

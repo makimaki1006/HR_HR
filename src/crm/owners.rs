@@ -29,6 +29,7 @@ use super::rbac;
 use super::routes::{
     error_json, hubspot_error_response, timeout_response, CrmCtx, CRM_REQUEST_DEADLINE,
 };
+use crate::hubspot::gateway::{cache_hit, cache_miss};
 use crate::hubspot::{HubSpotClient, HubSpotError};
 use crate::AppState;
 
@@ -60,6 +61,8 @@ pub struct CrmOwnersResponse {
 pub struct OwnerListCache {
     ttl: Duration,
     slot: tokio::sync::Mutex<Option<(Instant, Arc<CrmOwnersResponse>)>>,
+    /// 先読み (背景の優先度) が走っているか
+    refreshing: super::call_queue::RefreshGate,
 }
 
 impl OwnerListCache {
@@ -71,6 +74,7 @@ impl OwnerListCache {
         Self {
             ttl,
             slot: tokio::sync::Mutex::new(None),
+            refreshing: super::call_queue::RefreshGate::new(),
         }
     }
 
@@ -79,12 +83,37 @@ impl OwnerListCache {
         let mut slot = self.slot.lock().await;
         if let Some((at, v)) = slot.as_ref() {
             if at.elapsed() < self.ttl {
+                cache_hit("owners");
                 return Ok(v.clone());
             }
         }
+        cache_miss("owners");
         let fresh = Arc::new(fetch_all(client).await?);
         *slot = Some((Instant::now(), fresh.clone()));
         Ok(fresh)
+    }
+
+    /// 有効期間の終わり近く (残り 20% 未満) なら true (先読みの対象)。取得中は false
+    pub(super) fn refresh_due(&self) -> bool {
+        self.slot.try_lock().is_ok_and(|slot| {
+            slot.as_ref()
+                .is_some_and(|(at, _)| super::call_queue::refresh_due(at.elapsed(), self.ttl))
+        })
+    }
+
+    /// 一覧を読み直して置き換える (先読み。背景の優先度のクライアントを渡す)。読んでいる間はロックを持たない
+    pub(super) async fn refresh(&self, client: &HubSpotClient) {
+        if !self.refreshing.try_begin() {
+            return;
+        }
+        match fetch_all(client).await {
+            Ok(list) => *self.slot.lock().await = Some((Instant::now(), Arc::new(list))),
+            Err(e) => tracing::warn!(
+                error_kind = e.error_kind(),
+                "crm owners refresh-ahead failed"
+            ),
+        }
+        self.refreshing.end();
     }
 }
 
@@ -204,6 +233,9 @@ pub(super) async fn get_owners(
             tracing::warn!(error_kind = e.error_kind(), "crm owners read failed");
             hubspot_error_response(&e)
         }
-        Ok(Ok(list)) => Json((*list).clone()).into_response(),
+        Ok(Ok(list)) => {
+            super::routes::refresh_ahead(&ctx, &client);
+            Json((*list).clone()).into_response()
+        }
     }
 }

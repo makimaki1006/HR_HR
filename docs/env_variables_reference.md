@@ -83,7 +83,20 @@
 | 25 | `HUBSPOT_ACCESS_TOKEN` | `""` | HubSpot CRM API の Bearer トークン (`Authorization: Bearer`)。Legacy Private App / static auth アプリ / Service Key のどれでも同じ形で扱う。スコープは読み取りのみ (`crm.objects.contacts.read` / `crm.objects.companies.read` / `crm.objects.deals.read` / `crm.objects.owners.read`) を推奨し、書き込みスコープは PR4 まで付けない。秘密情報のためログ・API 応答に出さない | `/api/crm/*` は 503 `not_configured`。他機能には影響なし | `src/config.rs` / `src/hubspot/` / `src/crm/` |
 | 26 | `CRM_METADATA_ALLOWED_EMAILS` | `""` | `/api/crm/*` (定義 `metadata` とレコード読み取り) を読める人のメール (カンマ区切り、大文字小文字を区別しない完全一致)。Google Workspace OIDC ログインであることも必須 (共有・外部パスワードは 403、未ログインは JSON 401)。役割 (RBAC) の本実装までの暫定。変更後は再起動 | 空なら全員 403 | `src/crm/rbac.rs` `CrmAccess::from_env()` |
 
-鍵は既存の HubSpot Service Key (sales-automation-api) を共有する (2026-09-29 ユーザー決定 P-2。HR_HR 専用キーは発行しない)。既存バッチ群とレート上限 (10 秒あたりの上限、Search 5 req/秒/アカウント) を共有するため、クライアントは Search を 1 req/秒に絞り、429 は Retry-After (無ければ最低 1 秒) を待って最大 2 回だけ retry する。ユーザー側の準備: 同じ値を Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
+### 2d-2. HubSpot 呼び出しの関所 (6 個、2026-10-08 追加)
+
+`src/hubspot/gateway.rs` `GatewayConfig::from_env()` と `src/hubspot/client.rs` `base_url_from_env()` が読む。このプロセスの全 HubSpot 呼び出し (CRM 画面・求人票コピー・営業KPI 直読み・管理画面の鍵確認) が 1 つの流量制限を共有する。範囲外・数字以外は既定値に戻して warn を出す。設計は `docs/architecture/headless-crm-design.md` §18。観測値は `/api/admin/hubspot-usage` (管理画面 `/app/admin?view=hubspot`)。
+
+| # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照 |
+|---|------|----------|------|-------------|------|
+| 27 | `HUBSPOT_APP_RATE_PER_SEC` | `8` (範囲 1〜19) | Search 以外の呼び出しの、このアプリの 1 秒あたりの上限 (どの 1 秒を切り取っても超えない) | 既定値 | `src/hubspot/gateway.rs` |
+| 28 | `HUBSPOT_APP_RATE_PER_10S` | `80` (範囲 1〜190) | 同じく 10 秒あたりの上限。HubSpot の上限 190 / 10 秒のうち残りは鍵を共有する外部バッチの分 | 既定値 | 同上 |
+| 29 | `HUBSPOT_APP_SEARCH_PER_SEC` | `3` (範囲 1〜5) | Search の 1 秒あたりの上限 (アプリ全体で共有。HubSpot 側はアカウントで 5 / 秒。残り 2 / 秒は外部バッチの分) | 既定値 | 同上 |
+| 30 | `HUBSPOT_INTERACTIVE_MAX_WAIT_MS` | `5000` (範囲 100〜60000) | 画面の操作 (CRM・求人票コピーの読み取り) が順番を待てる上限。超える・超えると見込まれるときは HubSpot を呼ばずに 503 `hubspot_busy` (画面は「HubSpot が混み合っています。少し待ってから再試行してください」)。CRM のレコード読み取りの同時実行枠の待ちもこの時間まで | 既定値 | 同上 / `src/crm/routes.rs` `acquire_read_slot` |
+| 31 | `HUBSPOT_BACKGROUND_MAX_WAIT_MS` | `60000` (範囲 100〜600000) | 背景の取得 (定義系キャッシュの先読み・営業KPI 直読み) が待てる上限 | 既定値 | 同上 |
+| 32 | `HUBSPOT_BASE_URL` | `""` (= `https://api.hubapi.com`) | HubSpot API の接続先の差し替え。負荷試験の偽 HubSpot (`scripts/loadtest/`) 用。`http://` / `https://` で始まる値だけ使う。**鍵 (Bearer) はこの接続先に送られる**ので本番では設定しない | `https://api.hubapi.com` | `src/hubspot/client.rs` `base_url_from_env()` |
+
+鍵は既存の HubSpot Service Key (sales-automation-api) を共有する (2026-09-29 ユーザー決定 P-2。HR_HR 専用キーは発行しない)。既存バッチ群とレート上限 (10 秒あたりの上限、Search 5 req/秒/アカウント) を共有するため、アプリ全体の Search を 3 req/秒 (`HUBSPOT_APP_SEARCH_PER_SEC`) に絞り、429 は Retry-After (無ければ最低 1 秒) を待って最大 2 回だけ retry する。ユーザー側の準備: 同じ値を Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
 
 > ⚠ この文書の見出しの「19 個」は 2026-04-26 時点の数。その後 `config.rs` に Turso 系が入り（§2 の 4 個は今は `AppConfig::from_env` にある）、`src/` の `env::var` の名前は 2026-09-28 時点で 43 個。全体の棚卸しは別作業。
 
