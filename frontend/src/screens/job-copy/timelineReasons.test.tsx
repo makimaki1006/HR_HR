@@ -142,7 +142,7 @@ describe('category breakdown on the 応募理由 tab', () => {
     expect(screen.getByRole('region', { name: '今の仕事・前の仕事から転職する理由の分類' })).toBeTruthy();
     expect([...document.querySelectorAll('h2, h3, h4')].map(node => `${node.tagName}:${node.textContent}`)).toEqual([
       'H2:応募理由・志望動機の記述', 'H3:記録欄ごとの件数', 'H3:応募理由の分類', 'H3:今の仕事・前の仕事から転職する理由の分類', 'H3:版ごとの記述',
-      'H4:比較元の記述', 'H4:比較先の記述', 'H4:どの版への理由か不明な記述 · 表示対象8件',
+      'H4:比較元の記述', 'H4:比較先の記述', 'H4:どの版への理由か不明な記述 · 表示対象7件',
     ]);
     expect(screen.getByRole('region', { name: '今の仕事・前の仕事から転職する理由の分類' }).textContent).toContain('nが5件に満たないため、割合は出さず件数だけを示します。');
     const unclassified = summary.querySelector('details.ar-unclassified');

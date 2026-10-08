@@ -37,6 +37,12 @@ describe('keyword dictionary', () => {
     ['収入が安定する', ['給与']],
     ['経営が安定した会社', ['会社規模']],
     ['近隣の大手スーパーより時給が低い', ['給与']],
+    // Only the size words in a comparison are dropped; a salary word before より is kept.
+    ['大手スーパーの時給より高い', ['給与']],
+    ['大手上場企業より給料が高い', ['給与']],
+    ['近い将来', []],
+    ['近い未来に資格を活かしたい', ['職種興味']],
+    ['近い将来、家の近くで働きたい', ['勤務地']],
     ['大手で安心', ['会社規模']],
     ['定年が近い', []],
     ['理想に近い', []],
@@ -97,6 +103,16 @@ describe('classification by application', () => {
     ]);
     expect(unnamed?.unnamedApplications).toBe(2);
     expect(tally(unnamed?.applications ?? []).selectedN).toBe(0);
+  });
+
+  it('does not count an application with a named category among the unnamed ones (it is 選択済み)', () => {
+    const mixed = classifyApplicationReasons(collection({ selections: [
+      choice(1, '給与', '給与'), choice(1, 'old_code', null, '2026-09-01', 'ouboriyuukategori_baitaikisai'),
+      choice(2, 'old_code', null),
+    ] }));
+    expect(mixed?.applications.map(row => [row.basis, row.unnamedSelections])).toEqual([['selected', 1], ['unclassified', 1]]);
+    expect(mixed?.unnamedApplications).toBe(1);
+    expect(tally(mixed?.applications ?? []).selectedN).toBe(1);
   });
 
   it('counts each text on its own in a stored file without applicant keys', () => {

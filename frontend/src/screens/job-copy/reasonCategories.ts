@@ -49,10 +49,14 @@ export const REASON_KEYWORDS: Readonly<Record<ReasonCategory, readonly string[]>
 export const EXCLUDED_PHRASES: readonly RegExp[] = [
   /好きな(時間|日|曜日|時期|タイミング)/g,
   /(定年|年齢|年|歳|理想|希望)(が|に)近/g,
-  /近いうち/g,
-  /大手[^。、,.!?！？]*?(より|と比べ|に比べ)/g,
+  /近い(うち|内|将来|未来|時期|日に)/g,
 ];
-export const EXCLUDED_PHRASE_NOTES = ['「好きな時間・日・曜日」', '「定年・年齢・理想が近い」', '「近いうち」', '「大手〜より・と比べ」（ほかの会社との比較）'];
+export const EXCLUDED_PHRASE_NOTES = ['「好きな時間・日・曜日」', '「定年・年齢・理想が近い」', '「近いうち・近い将来・近い未来・近い時期」', '「大手〜より・と比べ」（ほかの会社との比較。この中の会社の大きさの言葉だけ使わず、時給などの言葉は使います）'];
+/**
+ * A comparison with another company (「大手スーパーの時給より高い」). Only the 会社規模 words inside
+ * it are taken out: the rest of the span (時給 ...) is still about this job.
+ */
+export const COMPARISON_PHRASE = /大手[^。、,.!?！？]*?(より|と比べ|に比べ)/g;
 
 function normalize(text: string): string {
   return text.normalize('NFKC').toLowerCase();
@@ -61,9 +65,13 @@ function normalize(text: string): string {
 /** The keywords normalized once (the dictionary never changes). */
 const NORMALIZED_KEYWORDS: readonly (readonly [ReasonCategory, readonly string[]])[] = REASON_CATEGORIES.map(category => [category, REASON_KEYWORDS[category].map(normalize)] as const);
 
+/** The 会社規模 keywords, longest first so 「大企業」 is taken out before a shorter word inside it. */
+const SIZE_KEYWORDS: readonly string[] = [...(NORMALIZED_KEYWORDS.find(([category]) => category === '会社規模')?.[1] ?? [])].sort((a, b) => b.length - a.length);
+
 /** Categories whose keywords appear in the text, in the fixed category order. */
 export function inferCategories(text: string): ReasonCategory[] {
-  const normalized = EXCLUDED_PHRASES.reduce((value, pattern) => value.replace(pattern, '／'), normalize(text));
+  const withoutPhrases = EXCLUDED_PHRASES.reduce((value, pattern) => value.replace(pattern, '／'), normalize(text));
+  const normalized = withoutPhrases.replace(COMPARISON_PHRASE, span => SIZE_KEYWORDS.reduce((value, word) => value.split(word).join('／'), span));
   return NORMALIZED_KEYWORDS.filter(([, words]) => words.some(word => normalized.includes(word))).map(([category]) => category);
 }
 
@@ -102,7 +110,11 @@ export interface Classification {
   unit: 'application' | 'text';
   /** Applications whose category was 未設定 and that had no text. */
   unsetOnly: number;
-  /** Applications with a chosen value whose option name could not be read. */
+  /**
+   * Applications not counted as 選択済み that have a chosen value whose option name could not be read.
+   * An application that also has a named category is 選択済み and is not counted here, since the
+   * screen note says these applications were not counted as 選択済み.
+   */
   unnamedApplications: number;
   /**
    * Applications with a recorded reason that HubSpot also links to another job, left out of
@@ -152,7 +164,7 @@ function classify(collection: ApplicantReasonCollection | undefined, sources: re
     else if (result === 'unset') unsetOnly += 1;
     else if (result) applications.push(result);
   }
-  return { applications, unit, unsetOnly, unnamedApplications: applications.filter(application => application.unnamedSelections > 0).length, multiListing: multi ? multiListing : null };
+  return { applications, unit, unsetOnly, unnamedApplications: applications.filter(application => application.unnamedSelections > 0 && application.basis !== 'selected').length, multiListing: multi ? multiListing : null };
 }
 
 /** Application reasons: chosen categories first, then keywords in 応募動機・応募理由. null when not read. */

@@ -42,4 +42,20 @@ describe('cross-record A/B comparison', () => {
     expect((confirmation as HTMLInputElement).checked).toBe(false);
     expect(screen.getByRole('status').textContent).toContain('組み合わせ未確認');
   });
+  it('lists only application reasons, never transfer reasons, in the reasons list', () => {
+    const a: JobCopyRecord = { ...job('a', '01234567', 20), applicantReasons: { available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-10-08T00:00:00Z', totalApplicants: 2, totalSourceValues: 2,
+    sourceCounts: { oubodouki: { missing: 1, blank: 0, nonblank: 1 }, genshokumaeshokukaranotenshokuriyuu: { missing: 1, blank: 0, nonblank: 1 } }, missing: 2, blank: 0, truncated: false, selections: [], optionLabels: 'read',
+    items: [
+      { id: 'a'.repeat(64), applicant: '1'.repeat(64), text: '時給が高いから', sourceProperty: 'oubodouki', applicationDate: '2026-09-01', collectedAt: null, versionId: null },
+      { id: 'b'.repeat(64), applicant: '2'.repeat(64), text: '通勤に片道1時間かかるため', sourceProperty: 'genshokumaeshokukaranotenshokuriyuu', applicationDate: '2026-09-02', collectedAt: null, versionId: null },
+    ] } };
+    const b = job('b', '07654321', 10);
+    const view = within(render(<AbComparison job={a} records={[a, b]} />).container);
+    fireEvent.change(view.getByLabelText('Bとして比較する求人'), { target: { value: 'b' } });
+    const panel = view.getByLabelText('A求人の比較内容').textContent;
+    expect(panel).toContain('表示対象：1記述');
+    expect(panel).toContain('どの版への理由か不明な記述：1件');
+    expect(panel).toContain('時給が高いから');
+    expect(panel).not.toContain('通勤に片道1時間かかるため');
+  });
 });

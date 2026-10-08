@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ApplicantReasons } from './ApplicantReasons';
 import { reasonCohorts } from './applicantReasonsModel';
+import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import { parseApplicantReasons } from './applicantReasonsParser';
 import { jobs } from './data';
 
@@ -144,5 +145,15 @@ describe('chosen category values and the label status', () => {
     expect(parseCurrent(raw)?.items[0]?.text).toHaveLength(2000);
     const dropped = current(); dropped.items.pop(); expect(() => parseCurrent(dropped)).toThrow();
     expect(parseCurrent({ ...dropped, truncated: true })?.items).toHaveLength(1);
+  });
+  it('keeps transfer reasons out of 「all」 and shows them only when chosen on their own', () => {
+    const collection: ApplicantReasonCollection = { available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-10-08T00:00:00Z', totalApplicants: 2, totalSourceValues: 2,
+    sourceCounts: { oubodouki: { missing: 1, blank: 0, nonblank: 1 }, genshokumaeshokukaranotenshokuriyuu: { missing: 1, blank: 0, nonblank: 1 } }, missing: 2, blank: 0, truncated: false, selections: [], optionLabels: 'read',
+    items: [
+      { id: 'a'.repeat(64), applicant: '1'.repeat(64), text: '時給が高いから', sourceProperty: 'oubodouki', applicationDate: '2026-09-01', collectedAt: null, versionId: null },
+      { id: 'b'.repeat(64), applicant: '2'.repeat(64), text: '通勤に片道1時間かかるため', sourceProperty: 'genshokumaeshokukaranotenshokuriyuu', applicationDate: '2026-09-02', collectedAt: null, versionId: null },
+    ] };
+    expect(reasonCohorts(collection, 'before', 'after')?.unknown.map(item => item.text)).toEqual(['時給が高いから']);
+    expect(reasonCohorts(collection, 'before', 'after', 'genshokumaeshokukaranotenshokuriyuu')?.unknown.map(item => item.text)).toEqual(['通勤に片道1時間かかるため']);
   });
 });
