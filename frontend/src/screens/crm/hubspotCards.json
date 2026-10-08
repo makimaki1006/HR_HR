@@ -1,0 +1,293 @@
+{
+  "source": "HubSpot の取引 (deal) レコード画面の左サイドバーのカード。カードの構成は公開 API で読めないため、画面を目視で確認して写した (読み取りのみ)",
+  "checked_at": "2026-10-08",
+  "note": "label は HubSpot のカードに出ている表示名、name は取引プロパティの内部名 (どちらも確認済み・一意)。並びはカードの並び。HubSpot でカードを変えたらここを直す",
+  "cards": [
+    {
+      "id": "list_info",
+      "title": "リスト情報",
+      "expanded": true,
+      "items": [
+        {
+          "label": "URL_求人検索 ※編集不可",
+          "name": "bpo_32"
+        },
+        {
+          "label": "架電日",
+          "name": "risuto_kadennbi"
+        },
+        {
+          "label": "再架電日",
+          "name": "risuto_saikadennbi"
+        },
+        {
+          "label": "再架電時間",
+          "name": "saikadenn_zikan"
+        },
+        {
+          "label": "激アツメモ（決済・利用サービス・決算・職種など）",
+          "name": "risuto_bikou"
+        },
+        {
+          "label": "利用中サービス",
+          "name": "service1"
+        },
+        {
+          "label": "現在利用中のサービス",
+          "name": "bpo_43"
+        },
+        {
+          "label": "利用中の媒体・サービスの終了日（検索or聞いた情報）",
+          "name": "syuuryou"
+        },
+        {
+          "label": "拠点決済アリ",
+          "name": "kyotenkessaiari"
+        },
+        {
+          "label": "募集職種（リストデータ）",
+          "name": "syokusyu_risuto"
+        },
+        {
+          "label": "担当者名",
+          "name": "tanntousya"
+        },
+        {
+          "label": "担当者名（カナ）",
+          "name": "hurigana_"
+        },
+        {
+          "label": "担当者の役職",
+          "name": "risuto_tanntouyakusyoku"
+        },
+        {
+          "label": "決定者名",
+          "name": "ketteishamei"
+        },
+        {
+          "label": "決定者の役職",
+          "name": "ketteishanoyakushoku"
+        },
+        {
+          "label": "決裁者名",
+          "name": "kessaishamei"
+        },
+        {
+          "label": "決裁者の役職",
+          "name": "kessaishanoyakushoku"
+        },
+        {
+          "label": "代表者名",
+          "name": "daihyou"
+        },
+        {
+          "label": "本社担当者名",
+          "name": "honsya"
+        },
+        {
+          "label": "次回アクション内容",
+          "name": "rikulogi_2"
+        },
+        {
+          "label": "メールアドレス",
+          "name": "risuto_adoresu"
+        },
+        {
+          "label": "アポ取得日",
+          "name": "aposyutokubi"
+        },
+        {
+          "label": "事業内容",
+          "name": "rikulogi_jigyounaiyou"
+        },
+        {
+          "label": "就業場所",
+          "name": "rikulogi_syuugyoubasyo"
+        },
+        {
+          "label": "仕事内容 ※編集不可",
+          "name": "rikulogi_1"
+        },
+        {
+          "label": "未アポ化要因（選択）",
+          "name": "miapokayouinsentaku"
+        },
+        {
+          "label": "未アポ化要因（自由記入）",
+          "name": "miapokayouinjiyuukinyuu"
+        },
+        {
+          "label": "募集人数",
+          "name": "risuto_ninnzuu"
+        },
+        {
+          "label": "募集理由",
+          "name": "bosyuriyu"
+        },
+        {
+          "label": "リスト収集先",
+          "name": "risuto_syusyusaki"
+        },
+        {
+          "label": "業種_大分類（物流/製造/倉庫etc）",
+          "name": "gyoukai"
+        },
+        {
+          "label": "業種_中分類（一般貨物自動車運送事業/食料品製造業/紙製造業/医薬品製造業etc）",
+          "name": "etc_"
+        },
+        {
+          "label": "企業全体人数（従業員数）",
+          "name": "kigyouzentaininzuu"
+        },
+        {
+          "label": "就業場所人数",
+          "name": "syugyoubasyo"
+        },
+        {
+          "label": "資本金",
+          "name": "sihonkin"
+        },
+        {
+          "label": "本社住所",
+          "name": "head_office_address"
+        },
+        {
+          "label": "外部求人媒体_観測媒体",
+          "name": "recruit_media_observed_list"
+        },
+        {
+          "label": "外部求人媒体_観測募集職種",
+          "name": "recruit_media_observed_job_categories"
+        },
+        {
+          "label": "外部求人媒体_求人URL",
+          "name": "recruit_media_observed_urls"
+        },
+        {
+          "label": "外部求人媒体_初回観測日",
+          "name": "recruit_media_first_observed_at"
+        },
+        {
+          "label": "外部求人媒体_最終観測日",
+          "name": "recruit_media_last_observed_at"
+        },
+        {
+          "label": "外部求人媒体_掲載期間_raw",
+          "name": "recruit_media_posting_period_raw"
+        },
+        {
+          "label": "外部求人媒体_観測状態",
+          "name": "recruit_media_observation_status"
+        }
+      ]
+    },
+    {
+      "id": "bpo_appo",
+      "title": "BPOアポ情報",
+      "expanded": false,
+      "items": [
+        {
+          "label": "BPOアポ取得日",
+          "name": "bpo_appo_date"
+        },
+        {
+          "label": "商談予定日時",
+          "name": "scheduled_business_meeting_date"
+        },
+        {
+          "label": "商談種別",
+          "name": "negotiation_type"
+        },
+        {
+          "label": "商談方法",
+          "name": "bpo_20251"
+        },
+        {
+          "label": "募集職種（現在）",
+          "name": "bpo_24"
+        },
+        {
+          "label": "募集人数",
+          "name": "risuto_ninnzuu"
+        },
+        {
+          "label": "募集種別",
+          "name": "bpo_20252"
+        },
+        {
+          "label": "採用手法（過去）",
+          "name": "bpo_2"
+        },
+        {
+          "label": "採用手法（現在）",
+          "name": "bpo_1"
+        },
+        {
+          "label": "採用課題",
+          "name": "recruitment_issues"
+        },
+        {
+          "label": "有料媒体使用歴",
+          "name": "bpo_20253"
+        },
+        {
+          "label": "備考（架電後）",
+          "name": "remarks_after_calling"
+        },
+        {
+          "label": "担当者の役職",
+          "name": "risuto_tanntouyakusyoku"
+        },
+        {
+          "label": "担当者名",
+          "name": "tanntousya"
+        },
+        {
+          "label": "担当者名（カナ）",
+          "name": "hurigana_"
+        },
+        {
+          "label": "人物感",
+          "name": "charge_impression"
+        },
+        {
+          "label": "担当者接続電話番号",
+          "name": "bpo_29"
+        },
+        {
+          "label": "メールアドレス",
+          "name": "risuto_adoresu"
+        },
+        {
+          "label": "BPO取得アポ",
+          "name": "bpo_apo_rikulogi"
+        },
+        {
+          "label": "BPO_取引ID",
+          "name": "bpo_transactio_id"
+        },
+        {
+          "label": "BPO_HSURL",
+          "name": "bpo_hsurl"
+        },
+        {
+          "label": "N（課題の深さ）",
+          "name": "nkadainofukasa"
+        },
+        {
+          "label": "T（時間軸）",
+          "name": "tjikanjiku"
+        },
+        {
+          "label": "C（競合状況）",
+          "name": "ckyougoujoukyou"
+        },
+        {
+          "label": "A/H（決裁フロー）",
+          "name": "ahkessaifuro"
+        }
+      ]
+    }
+  ]
+}
