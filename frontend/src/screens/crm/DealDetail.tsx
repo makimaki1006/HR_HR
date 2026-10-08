@@ -9,7 +9,7 @@ import {
   ACTIVITY_FILTERS, ACTIVITY_KIND_LABELS, activityStatusLabel, directionLabel, filterActivities, formatDurationMs, formatTimestamp, partialNotes,
 } from './workspaceModel';
 import type { ActivityKindFilter } from './workspaceModel';
-import { clock } from './workspaceModel';
+import { FRESHNESS_TICK_MS, clock, freshnessLabel } from './workspaceModel';
 import { RESULT_LABELS, useTicking } from './ZoomPhonePanel';
 import { dealJobSearchUrl, extractUrls, isEmptyGoogleSearch, safeHttpUrl } from './centerLinks';
 import { PropLink } from './CenterTabs';
@@ -118,9 +118,28 @@ function ActivityItem({ a, ownerNames }: { a: WorkspaceActivity; ownerNames: Rea
   </li>;
 }
 
-function Overview({ data, zoom, stopLabel, callBar, onOpenZoom }: {
+/**
+ * 詳細を読んだ時刻からの経過 (「○秒前の情報」、15 秒ごとに描き直す) と「最新にする」。
+ * サーバは同じ案件の詳細を 60 秒まで使い回すので、HubSpot で変えた直後はここで読み直す
+ */
+export function Freshness({ fetchedAt, now, refreshing, refreshError, onRefresh }: {
+  fetchedAt: string; now: () => number; refreshing: boolean; refreshError: string | null; onRefresh?: (() => void) | undefined;
+}) {
+  const t = useTicking(true, now, FRESHNESS_TICK_MS);
+  const label = freshnessLabel(fetchedAt, t);
+  return <p className="wd-fresh" data-testid="detail-freshness">
+    {label !== null && <span className="wd-fresh-age" title={`HubSpot から読んだ時刻: ${new Date(fetchedAt).toLocaleString('ja-JP')}`}
+      data-testid="detail-freshness-age">{refreshing ? '最新の情報を読み込み中…' : label}</span>}
+    {onRefresh && <button type="button" className="wd-fresh-btn" onClick={onRefresh} disabled={refreshing}
+      title="HubSpot から読み直します">最新にする</button>}
+    {refreshError !== null && !refreshing && <span className="wd-fresh-error" role="alert">最新の情報を読めませんでした。表示は前の内容のままです({refreshError})</span>}
+  </p>;
+}
+
+function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh }: {
   data: WorkspaceResponse; zoom: ZoomPhone; stopLabel: StopLabel;
   callBar?: CallBarInfo | null | undefined; onOpenZoom?: (() => void) | undefined;
+  refreshing: boolean; refreshError: string | null; onRefresh?: (() => void) | undefined;
 }) {
   const d = data.deal;
   const company = data.companies.find(c => c.is_primary) ?? null;
@@ -145,6 +164,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom }: {
           <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
         </div>
       </header>
+      <Freshness fetchedAt={data.fetched_at} now={zoom.now} refreshing={refreshing} refreshError={refreshError} onRefresh={onRefresh} />
 
       <section className="wd-dialbox" aria-label="架ける番号">
         <h3 className="wd-dial-title">架ける番号</h3>
@@ -221,15 +241,18 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-function DealOverviewImpl({ state, reload, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom }: {
+function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom }: {
   state: DetailState; reload: () => void; zoom: ZoomPhone; stopLabel?: StopLabel;
+  /** サーバのキャッシュを使わずに読み直す (「最新にする」) */
+  refresh?: (() => void) | undefined;
   /** 「架ける番号」の下に出す通話の様子 (出すものが無ければ null) */
   callBar?: CallBarInfo | null | undefined;
   /** Zoom の枠を開く */
   onOpenZoom?: (() => void) | undefined;
 }) {
   if (state.phase === 'ready' && state.data !== null) {
-    return <Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom} />;
+    return <Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
+      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} />;
   }
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }

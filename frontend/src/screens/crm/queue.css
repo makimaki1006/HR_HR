@@ -209,6 +209,12 @@
 .wd-head p { margin: 0; color: var(--cq-sub); font-size: 12px; }
 .wd-head-side { flex: none; display: flex; gap: 8px; align-items: center; font-size: 12px; }
 .wd-head-side .cq-stage { font-size: 12px; padding: 1px 8px; }
+/* 詳細を読んだ時刻からの経過と「最新にする」(案件名の下の 1 行) */
+.wd-fresh { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 11px; color: var(--cq-sub); }
+.wd-fresh-age { font-variant-numeric: tabular-nums; }
+.wd-fresh-btn { border: 1px solid var(--cq-line); background: var(--cq-surface); border-radius: 4px; padding: 0 8px; font-size: 11px; line-height: 20px; cursor: pointer; }
+.wd-fresh-btn:disabled { cursor: default; opacity: .6; }
+.wd-fresh-error { color: #8a1c14; }
 .wd-dialbox { border: 1px solid var(--cq-line); border-radius: var(--cq-radius); padding: 8px 12px; background: #fafbfc; }
 .wd-dial-title { margin: 0; font-size: 11px; font-weight: 400; color: var(--cq-sub); }
 .wd-phone { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 4px 0; }

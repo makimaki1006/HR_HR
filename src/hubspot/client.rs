@@ -17,8 +17,8 @@ use reqwest::{Method, StatusCode};
 use serde_json::{json, Value};
 
 use super::types::{
-    AssociationRef, EngagementType, HubSpotError, HubSpotRecord, RateLimitSnapshot, RecordType,
-    TokenInfo,
+    AssociationLabelDef, AssociationRef, EngagementType, HubSpotError, HubSpotRecord,
+    RateLimitSnapshot, RecordType, TokenInfo,
 };
 
 pub const DEFAULT_BASE_URL: &str = "https://api.hubapi.com";
@@ -217,7 +217,11 @@ fn parse_associations(v: &Value) -> Result<(Vec<AssociationRef>, bool), HubSpotE
                     .collect()
             })
             .unwrap_or_default();
-        out.push(AssociationRef { id, labels });
+        out.push(AssociationRef {
+            id,
+            labels,
+            type_names: Vec::new(),
+        });
     }
     let has_more = v
         .pointer("/paging/next/after")
@@ -417,7 +421,8 @@ impl HubSpotClient {
     /// 応答の `associations.{type}.results[].id` (文字列) を関連 ID として返す。`{type}` は
     /// 要求した型名 (複数形: `contacts`, `calls` ...)。次ページがあれば
     /// `associations.{type}.paging.next` が付く → truncated = true。
-    /// v3 のこの形では関連ラベルは取れないので `labels` は常に空 Vec。
+    /// v3 のこの形では関連ラベルの名前は取れないので `labels` は常に空 Vec。代わりに `type_names` に
+    /// `results[].type` (例 `deal_to_company`) を入れる (ラベルは [`Self::association_labels`] の定義から引く)。
     /// 戻り値には要求した型すべてのキーが入る (関連が無ければ空 Vec・false)。
     ///
     /// [推測] 応答のキー名・paging の位置は HubSpot v3 の公開仕様からの想定で、
@@ -464,12 +469,21 @@ impl HubSpotClient {
                 let Some(rid) = r.get("id").and_then(id_string) else {
                     continue;
                 };
-                // 関連タイプ違いで同じ id が繰り返されることがあるので 1 件にする
-                if !refs.iter().any(|x| x.id == rid) {
-                    refs.push(AssociationRef {
+                let ty = r.get("type").and_then(Value::as_str).map(str::to_string);
+                // 関連タイプ違いで同じ id が繰り返されることがあるので 1 件にする (型名はまとめて持つ)
+                match refs.iter_mut().find(|x| x.id == rid) {
+                    Some(existing) => {
+                        if let Some(t) = ty {
+                            if !existing.type_names.contains(&t) {
+                                existing.type_names.push(t);
+                            }
+                        }
+                    }
+                    None => refs.push(AssociationRef {
                         id: rid,
                         labels: Vec::new(),
-                    });
+                        type_names: ty.into_iter().collect(),
+                    }),
                 }
             }
             let more = entry.pointer("/paging/next").is_some_and(|n| !n.is_null());
@@ -513,6 +527,42 @@ impl HubSpotClient {
             }
         }
         Ok(out)
+    }
+
+    /// `GET /crm/v4/associations/{from}/{to}/labels` (関連ラベルの定義。読み取り)。
+    /// `results[]` の `category` / `typeId` / `label` (null は無ラベル)。typeId の無い 1 件は飛ばす。
+    pub async fn association_labels(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Vec<AssociationLabelDef>, HubSpotError> {
+        check_object(from)?;
+        check_object(to)?;
+        let path = format!("/crm/v4/associations/{from}/{to}/labels");
+        let v = self.send(Method::GET, &path, &[], None).await?;
+        let results = v
+            .get("results")
+            .and_then(Value::as_array)
+            .ok_or_else(|| HubSpotError::Decode("association labels without results".into()))?;
+        Ok(results
+            .iter()
+            .filter_map(|r| {
+                let type_id = r.get("typeId").and_then(Value::as_u64)?;
+                Some(AssociationLabelDef {
+                    category: r
+                        .get("category")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    type_id,
+                    label: r
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .filter(|l| !l.trim().is_empty())
+                        .map(str::to_string),
+                })
+            })
+            .collect())
     }
 
     /// `GET /crm/v4/objects/{from}/{id}/associations/{to}?limit=500`。

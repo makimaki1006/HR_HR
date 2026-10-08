@@ -189,6 +189,10 @@ pub(super) struct CrmCtx {
     /// (100 req/10 秒をアカウントで共有)、1 回の読み取りが最大 6 呼び出しになるため、
     /// 連打・多タブで枠を食い尽くさないよう絞る。待ちも締め切りに含める。
     pub(super) read_slots: tokio::sync::Semaphore,
+    /// 架電ワークスペースの応答 (60 秒。利用者をまたいで共有し、認可は毎回)
+    pub(super) workspace_cache: super::workspace_cache::WorkspaceCache,
+    /// 案件 → 担当者・会社の関連ラベルの定義 (6 時間)
+    pub(super) assoc_labels: super::assoc_labels::AssocLabelCache,
 }
 
 /// レコード読み取りの同時実行数
@@ -210,12 +214,27 @@ pub(super) fn router_with_queue(
     access: CrmAccess,
     queue: super::call_queue::CallQueueState,
 ) -> Router<Arc<AppState>> {
+    router_with_parts(
+        access,
+        queue,
+        super::workspace_cache::WorkspaceCache::default(),
+    )
+}
+
+/// [`router_with_queue`] のワークスペースのキャッシュも差し替えられる版 (テストで時計を進める)。
+pub(super) fn router_with_parts(
+    access: CrmAccess,
+    queue: super::call_queue::CallQueueState,
+    workspace_cache: super::workspace_cache::WorkspaceCache,
+) -> Router<Arc<AppState>> {
     let ctx = Arc::new(CrmCtx {
         access,
         metadata_cache: MetadataCache::with_refresh_floor(METADATA_REFRESH_FLOOR),
         catalog: super::property_catalog::PropertyCatalogCache::default(),
         queue,
         read_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_RECORD_READS),
+        workspace_cache,
+        assoc_labels: super::assoc_labels::AssocLabelCache::default(),
     });
     Router::new()
         .route("/api/crm/metadata", get(get_metadata))
