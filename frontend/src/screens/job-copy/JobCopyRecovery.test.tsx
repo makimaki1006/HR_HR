@@ -19,7 +19,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('snapshot recovery without fictional replacement', () => {
   it('retries a 503 into the actual response count and clears the failure and retry control', async () => {
     let count = 0;
-    vi.stubGlobal('fetch', vi.fn((path: string) => market(path) ?? Promise.resolve(++count === 1 ? response({ code: 'moc_drive_snapshot_unavailable' }, 503) : response(snapshot()))));
+    vi.stubGlobal('fetch', vi.fn((path: string) => market(path) ?? (path.startsWith('/api/job-copy/listing-status') ? Promise.resolve(response({ listings: {} })) : undefined) ?? Promise.resolve(++count === 1 ? response({ code: 'moc_drive_snapshot_unavailable' }, 503) : response(snapshot()))));
     const { container } = render(<JobCopyScreen />);
     await screen.findByRole('alert');
     expect(container.querySelectorAll('.jc-job')).toHaveLength(0);
