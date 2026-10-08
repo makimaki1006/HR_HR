@@ -6,7 +6,8 @@ import type { CallQueueScope } from "./CallQueueScope";
 export type CallQueueResponse = { items: Array<CallQueueItem>, next_cursor: string | null, 
 /**
  * HubSpot Search の total (参考値。電話番号なし等の後段で外す前の件数)。
- * 複数の段階にまたがる並びでは全体を数えていないので null
+ * 複数の段階にまたがる並びでは、先頭ページでだけ残りの段階を数えて全体を出す。
+ * 2 ページ目以降と、数えられなかったときは null
  */
 total: number | null, 
 /**

@@ -5,10 +5,12 @@ import { OwnerFilter } from './OwnerFilter';
 import { ownerNameMap } from './ownerModel';
 import { formatPhoneForDisplay } from './phone';
 import {
-  DEFAULT_FILTERS, QUEUE_SORTS, QUEUE_STAGES, dateValue, filtersKey, parseFilters, parseMode, screenSearch,
+  DEFAULT_FILTERS, QUEUE_SORTS, QUEUE_STAGES, QUEUE_TOTAL_NOTE, QUEUE_TOTAL_NOTE_SHORT, dateValue, filtersKey, parseFilters, parseMode,
+  queueCountText, screenSearch,
 } from './queueModel';
 import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
 import { useCallQueue } from './useCallQueue';
+import { useAutoLoadMore } from './useAutoLoadMore';
 import { DealDetail, rawStopLabel } from './DealDetail';
 import type { StopLabel } from './DealDetail';
 import { ZoomPhonePanel } from './ZoomPhonePanel';
@@ -277,7 +279,15 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const ownerNames = useMemo(() => ownerNameMap(owners.state.phase === 'ready' ? owners.state.owners : []), [owners.state]);
   const needsOwnerPick = state.phase === 'error' && state.errorKind === 'owner_not_resolved';
   const notes = partialNotes(state.partial);
-  const total = state.last?.total ?? null;
+  const total = state.total;
+  // 一覧を下端近くまでスクロールしたら続きを読む (読み込み中・失敗中・続きなしは読まない)。ボタンでも読める
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useAutoLoadMore(listScrollRef, sentinelRef,
+    state.phase === 'ready' && state.nextCursor !== null && !state.loadingMore && state.moreError === null,
+    state.nextCursor, loadMore);
+  // 条件を変えて取り直したら一覧の枠を先頭に戻す (前の一覧の下端の位置のままだと、スクロールしていないのに続きを読んでしまう)
+  useEffect(() => { if (listScrollRef.current) listScrollRef.current.scrollTop = 0; }, [state.reqId]);
   const chips = conditionChips(filters, ownerNames);
   const detailCount = filters.stages.length + (filters.nextFrom || filters.nextTo ? 1 : 0) + (filters.lastFrom || filters.lastTo ? 1 : 0);
 
@@ -442,12 +452,13 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     <div className="cq-body">
       <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
         <div className="cq-list-head">
-          {state.phase === 'ready' && <p className="cq-count" role="status">{state.items.length} 件を表示
-            {total !== null && <span title="電話番号なし等を除く前の参考値">(検索結果 {total} 件)</span>}</p>}
+          {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
+            title={total !== null ? QUEUE_TOTAL_NOTE : undefined}>{queueCountText(total, state.items.length)}
+            {total !== null && <span>({QUEUE_TOTAL_NOTE_SHORT})</span>}</p>}
           {mode === 'live' && state.last !== null && <p className="cq-scope-note" data-testid="scope-note"
             title={[ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</p>}
         </div>
-        <div className="cq-list-scroll">
+        <div className="cq-list-scroll" ref={listScrollRef}>
           {state.phase === 'invalid' && <div className="cq-notice cq-error" role="alert"><strong>条件を確認してください</strong>
             <ul>{state.invalid.map(m => <li key={m}>{m}</li>)}</ul></div>}
           {state.phase === 'loading' && <p role="status" className="cq-loading">読み込み中…</p>}
@@ -474,6 +485,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
                 onSelect={selectByClick} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
             {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
               {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
+            {/* 続きの自動読み込みの目印 (ここが見えるところまでスクロールしたら読む) */}
+            {state.nextCursor && <div ref={sentinelRef} className="cq-load-sentinel" aria-hidden="true" data-testid="queue-load-sentinel" />}
             {state.nextCursor && <button type="button" className="cq-btn cq-load-more" disabled={state.loadingMore} onClick={loadMore}>
               {state.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>}
             {!state.nextCursor && state.items.length > 0 && <p className="cq-end">これで最後です。</p>}

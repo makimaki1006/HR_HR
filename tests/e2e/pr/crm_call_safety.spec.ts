@@ -7,8 +7,9 @@ import { login } from './helpers/login';
  * - 画面ファイルを読み込めなかったとき: 白い画面ではなく、案内と再読み込みのボタンが出る。押すと画面が出る
  * - 「下書きを消す」: 1 回押しただけでは消さず確かめる。やめる / Esc ではメモが残る。下書きが空なら押せない
  * - 「記録して次へ」: 読み込んだ行が全部記録済みでも続きのページがあれば、「さらに読み込む」を案内する
+ * - 一覧を下端までスクロールすると続きのページを読み、全件を読んだら止まる (見出しは「全 N 件中 M 件を表示」)
  *
- * 架空サンプルは frontend/src/screens/crm/queueFixture.ts の固定値 (1 ページ 5 件、全 12 件)。/api/crm/* は呼ばない。
+ * 架空サンプルは frontend/src/screens/crm/queueFixture.ts の固定値 (1 ページ 5 件、既定の条件で全 10 件)。/api/crm/* は呼ばない。
  * この画面にグラフ (ECharts) は無い。値は描画された文字と sessionStorage の中身で確かめる。
  */
 
@@ -103,5 +104,24 @@ test.describe('CRM 架電画面: 入力を失わないための仕組み', () =>
     await page.getByRole('button', { name: 'さらに読み込む' }).click();
     await expect(rows(page)).toHaveCount(10);
     await expect(rows(page).nth(5).locator('.cq-recorded')).toHaveCount(0);
+  });
+  test('一覧を下端までスクロールすると続きを読み込み、全件を読んだら止まる', async ({ page }) => {
+    // 5 行で一覧の枠がスクロールするよう、画面の高さを低くする
+    await page.setViewportSize({ width: 1280, height: 480 });
+    await openScreen(page);
+    await expect(rows(page)).toHaveCount(5);
+    await expect(page.locator('.cq-count')).toContainText('全 10 件中 5 件を表示');
+    const scroller = page.locator('.cq-list-scroll');
+    expect(await scroller.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    // 開いただけでは読まない
+    await expect(rows(page)).toHaveCount(5);
+    await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await expect(rows(page)).toHaveCount(10);
+    await expect(page.locator('.cq-count')).toContainText('全 10 件中 10 件を表示');
+    await expect(page.getByText('これで最後です。')).toBeVisible();
+    await expect(page.getByTestId('queue-load-sentinel')).toHaveCount(0);
+    // 同じ行を 2 回出さない (行の文字 = 会社・担当者・番号 が 10 通り)
+    const texts = await rows(page).locator('button.cq-row-button').allTextContents();
+    expect(new Set(texts).size).toBe(10);
   });
 });

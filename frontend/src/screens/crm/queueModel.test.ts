@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_FILTERS, QUEUE_STAGE_IDS, dateValue, errorMessage, filtersKey, isValidDate, mergeItems, parseFilters,
+  DEFAULT_FILTERS, QUEUE_PAGE_SIZE, formatCount, queueCountText, QUEUE_STAGE_IDS, dateValue, errorMessage, filtersKey, isValidDate, mergeItems, parseFilters,
   queueApiPath, scopeMatches, screenSearch, unauthorizedMessage, validateFilters,
 } from './queueModel';
 import type { QueueFilters } from './queueModel';
@@ -56,8 +56,8 @@ describe('URL <-> filters', () => {
 
   it('builds the API path with repeated stage, ranges and the cursor only when given', () => {
     const path = queueApiPath(f({ stages: ['1095387442', '1095387445'], nextFrom: '2026-10-01', sort: 'next_call_asc' }), null);
-    expect(path).toBe('/api/crm/call-queue?stage=1095387442&stage=1095387445&sort=next_call_asc&next_from=2026-10-01&limit=25');
-    expect(queueApiPath(DEFAULT_FILTERS, 'abc.def')).toBe('/api/crm/call-queue?limit=25&cursor=abc.def');
+    expect(path).toBe('/api/crm/call-queue?stage=1095387442&stage=1095387445&sort=next_call_asc&next_from=2026-10-01&limit=50');
+    expect(queueApiPath(DEFAULT_FILTERS, 'abc.def')).toBe('/api/crm/call-queue?limit=50&cursor=abc.def');
   });
 });
 
@@ -118,5 +118,19 @@ describe('messages and dates', () => {
     expect(dateValue('')).toBeNull();
     expect(dateValue(null)).toBeNull();
     expect(dateValue('そのうち')).toBeNull();
+  });
+});
+
+describe('queue page size and count text', () => {
+  it('asks the server for 50 rows per page (the server maximum)', () => {
+    expect(QUEUE_PAGE_SIZE).toBe(50);
+    expect(queueApiPath(DEFAULT_FILTERS, null)).toBe('/api/crm/call-queue?limit=50');
+  });
+  it('formats the total with thousands separators', () => {
+    expect(formatCount(22864)).toBe('22,864');
+    expect(formatCount(0)).toBe('0');
+    expect(queueCountText(22864, 50)).toBe('全 22,864 件中 50 件を表示');
+    expect(queueCountText(1_234_567, 1050)).toBe('全 1,234,567 件中 1,050 件を表示');
+    expect(queueCountText(null, 50)).toBe('50 件を表示');
   });
 });
