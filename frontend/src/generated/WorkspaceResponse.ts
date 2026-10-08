@@ -31,4 +31,12 @@ activity_scope: string, partial: Array<WorkspacePartial>,
 /**
  * `?deal_props=` 等で選んだ項目の値
  */
-selected: WorkspaceSelected, hubspot_portal_id: string, data_scope: string, generated_at: string, };
+selected: WorkspaceSelected, hubspot_portal_id: string, data_scope: string, generated_at: string, 
+/**
+ * この内容を HubSpot から読んだ時刻 (RFC 3339)。キャッシュから返したときは、そのとき読んだ時刻
+ */
+fetched_at: string, 
+/**
+ * サーバの短いキャッシュ (60 秒) から返したか。`?fresh=1` なら常に false
+ */
+cached: boolean, };

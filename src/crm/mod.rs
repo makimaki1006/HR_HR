@@ -7,12 +7,15 @@
 //! - `owners`: `GET /api/crm/owners` (CRM の利用者全員。所有者を名前で選ぶための一覧。HubSpot Owners API、10 分キャッシュ)
 //! - `property_catalog`: `GET /api/crm/property-catalog` (「プロパティ」パネルで選べる案件・担当者・会社の項目をグループごとに。定義だけ、6 時間キャッシュ)
 //! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴)
+//! - `workspace_cache`: 架電ワークスペースの応答の短いキャッシュ (60 秒。認可は毎回)
+//! - `assoc_labels`: 案件 → 担当者・会社の関連ラベルの定義 (6 時間キャッシュ)
 //! - `routes`: `GET /api/crm/metadata` と `GET /api/crm/{contacts|companies|deals}/{id}`
 //!
 //! ルートは `lib.rs` の `protected_routes` **の外**に merge する (未ログインを /login への 303 でなく
 //! JSON の 401 で返すため。認可は各ハンドラの先頭)。認証不要の `/api/v1/*` には置かない。
 //! HubSpot への通信は `crate::hubspot::HubSpotClient` (`AppState.hubspot`) に一本化している。
 
+pub mod assoc_labels;
 pub mod call_queue;
 pub mod owners;
 pub mod property_catalog;
@@ -21,6 +24,7 @@ pub mod rbac;
 pub mod record_gate;
 pub mod routes;
 pub mod workspace;
+pub mod workspace_cache;
 
 pub use routes::router;
 

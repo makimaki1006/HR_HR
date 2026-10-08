@@ -42,14 +42,15 @@ function detail(id: string, over: Partial<WorkspaceResponse> = {}): WorkspaceRes
     ],
     activities_truncated: false, activity_scope: '案件に直接つながる通話・メモ・メール・ミーティングと、案件の担当者に直接つながる通話。',
     partial: [], selected: { deal: {}, contact: {}, company: {} }, hubspot_portal_id: '1', data_scope: 'x', generated_at: '2026-10-05T03:00:00Z',
+    fetched_at: '2026-10-05T03:00:00Z', cached: false,
     ...over,
   };
 }
 
-interface Pending { id: string; signal: AbortSignal; resolve: (r: ApiResult<WorkspaceResponse>) => void }
+interface Pending { id: string; signal: AbortSignal; resolve: (r: ApiResult<WorkspaceResponse>) => void; fresh: boolean }
 function detailFetcher() {
   const calls: Pending[] = [];
-  const fetcher: DetailFetch = (id, signal) => new Promise(resolve => { calls.push({ id, signal, resolve }); });
+  const fetcher: DetailFetch = (id, signal, _props, opts) => new Promise(resolve => { calls.push({ id, signal, resolve, fresh: opts?.fresh === true }); });
   return { calls, fetcher };
 }
 
@@ -656,6 +657,99 @@ describe('Zoom の枠 (右から開く引き出し)', () => {
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c, result: 'ended' } });
     expect(screen.getByTestId('call-bar-status').textContent).toBe('通話が終了しました (通話時間 01:05)');
     expect(screen.queryByTestId('call-bar-timer')).toBeNull();
+  });
+});
+
+describe('詳細の鮮度 (「○秒前の情報」と「最新にする」)', () => {
+  const READ_AT = Date.parse('2026-10-05T03:00:00Z');
+  const freshness = () => screen.getByTestId('detail-freshness');
+  async function openAt(t: { v: number }) {
+    const { calls, fetcher } = detailFetcher();
+    await renderQueue(fetcher, [makeItem('1'), makeItem('2')], { now: () => t.v, loadTimeoutMs: 600_000 });
+    open('1');
+    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    return calls;
+  }
+
+  it('shows how old the detail is from fetched_at, refreshes the text every 15 seconds, and 「最新にする」 reads again with fresh=1 while keeping the old content', async () => {
+    const t = { v: READ_AT + 30_000 };
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const calls = await openAt(t);
+    expect(calls[0]?.fresh).toBe(false);
+    expect(screen.getByTestId('detail-freshness-age').textContent).toBe('30秒前の情報');
+    // 15 秒ごとに描き直す (時計が進んでも、次の描き直しまでは変えない)
+    t.v += 14_000;
+    act(() => { vi.advanceTimersByTime(14_000); });
+    expect(screen.getByTestId('detail-freshness-age').textContent).toBe('30秒前の情報');
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(screen.getByTestId('detail-freshness-age').textContent).toBe('44秒前の情報');
+    t.v += 60_000;
+    act(() => { vi.advanceTimersByTime(15_000); });
+    expect(screen.getByTestId('detail-freshness-age').textContent).toBe('1分前の情報');
+    vi.useRealTimers();
+    // 最新にする: fresh=1 で読み直す。読み直しの間も前の内容を出したまま
+    fireEvent.click(within(freshness()).getByRole('button', { name: '最新にする' }));
+    expect(calls.map(c => [c.id, c.fresh])).toEqual([['1', false], ['1', true]]);
+    expect(screen.getByText('架空会社1', { selector: 'h2' })).toBeTruthy();
+    expect(screen.getByTestId('detail-freshness-age').textContent).toBe('最新の情報を読み込み中…');
+    expect(within(freshness()).getByRole('button', { name: '最新にする' }).hasAttribute('disabled')).toBe(true);
+    await act(async () => {
+      calls[1]?.resolve(ok(detail('1', { fetched_at: new Date(t.v).toISOString(), deal: { ...detail('1').deal, name: '読み直した案件名' } })));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('detail-freshness-age').textContent).toBe('0秒前の情報');
+    expect(screen.getByText('読み直した案件名')).toBeTruthy();
+  });
+
+  it('keeps the old content when 「最新にする」 fails and says so; a 403 on refresh stops showing it', async () => {
+    const t = { v: READ_AT + 5_000 };
+    const calls = await openAt(t);
+    fireEvent.click(within(freshness()).getByRole('button', { name: '最新にする' }));
+    await act(async () => { calls[1]?.resolve(fail(503, 'hubspot_rate_limited')); await Promise.resolve(); });
+    expect(screen.getByText('架空会社1', { selector: 'h2' })).toBeTruthy();
+    expect(within(freshness()).getByRole('alert').textContent).toContain('最新の情報を読めませんでした。表示は前の内容のままです');
+    expect(screen.getByTestId('detail-freshness-age').textContent).toBe('5秒前の情報');
+    fireEvent.click(within(freshness()).getByRole('button', { name: '最新にする' }));
+    expect(calls[2]?.fresh).toBe(true);
+    await act(async () => { calls[2]?.resolve(fail(403, 'forbidden_record')); await Promise.resolve(); });
+    expect(screen.queryByText('架空会社1', { selector: 'h2' })).toBeNull();
+    expect(screen.getByText('表示できません')).toBeTruthy();
+  });
+
+  it('after a call dialed from the shown deal ends, reads that deal again with fresh=1 (and a deal whose call ended while another was shown is read fresh when reopened)', async () => {
+    const t = { v: READ_AT };
+    const calls = await openAt(t);
+    const { win } = fakeZoomWindow();
+    zoomEvent(win, { type: 'zp-some-status', data: {} });
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    const c = { callId: 'fresh-1', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: c });
+    zoomEvent(win, { type: 'zp-call-connected-event', data: c });
+    expect(calls).toHaveLength(1);
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c, result: 'ended' } });
+    expect(calls.map(x => [x.id, x.fresh])).toEqual([['1', false], ['1', true]]);
+    // 読み直しの間も通話の様子 (架ける番号の下) は出たまま
+    expect(screen.getByTestId('call-bar-status').textContent).toContain('通話が終了しました');
+    await act(async () => { calls[1]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    // 同じ通話でもう一度読み直さない
+    expect(calls).toHaveLength(2);
+
+    // 発信して、終わる前に別の案件へ移る → 戻ってきたときに fresh=1 で読む (1 回だけ)
+    fireEvent.click(first(screen.getAllByRole('button', { name: /に発信$/ })));
+    const c2 = { callId: 'fresh-2', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
+    zoomEvent(win, { type: 'zp-call-ringing-event', data: c2 });
+    open('2');
+    expect(calls.map(x => [x.id, x.fresh]).slice(2)).toEqual([['2', false]]);
+    await act(async () => { calls[2]?.resolve(ok(detail('2'))); await Promise.resolve(); });
+    zoomEvent(win, { type: 'zp-call-ended-event', data: { ...c2, result: 'ended' } });
+    expect(calls).toHaveLength(3);
+    open('1');
+    expect(calls.map(x => [x.id, x.fresh]).slice(3)).toEqual([['1', true]]);
+    await act(async () => { calls[3]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    open('2');
+    await act(async () => { calls[4]?.resolve(ok(detail('2'))); await Promise.resolve(); });
+    open('1');
+    expect(calls[5]?.fresh).toBe(false);
   });
 });
 
