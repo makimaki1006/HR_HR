@@ -5,10 +5,15 @@ import { OwnerFilter } from './OwnerFilter';
 import { ownerNameMap } from './ownerModel';
 import { formatPhoneForDisplay } from './phone';
 import {
-  DEFAULT_FILTERS, QUEUE_SORTS, QUEUE_STAGES, QUEUE_TOTAL_NOTE, QUEUE_TOTAL_NOTE_SHORT, dateValue, filtersKey, parseFilters, parseMode,
-  queueCountText, screenSearch,
+  DEFAULT_FILTERS, QUEUE_SORTS, QUEUE_TOTAL_NOTE, QUEUE_TOTAL_NOTE_SHORT, dateValue, filtersKey, parseFilters, parseMode,
+  queueCountText, screenSearch, withPipeline,
 } from './queueModel';
 import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
+import { DEFAULT_PIPELINE_ID, findPipeline, pipelineName, pipelinesFor, stageName } from './queuePipelines';
+import type { QueuePipelineDef } from './queuePipelines';
+import { StageFilter } from './StageFilter';
+import { useQueuePipelines } from './useQueuePipelines';
+import type { PipelinesFetch } from './useQueuePipelines';
 import { useCallQueue } from './useCallQueue';
 import { useAutoLoadMore } from './useAutoLoadMore';
 import { DealDetail, rawStopLabel } from './DealDetail';
@@ -78,6 +83,7 @@ export function partialNotes(p: CallQueuePartial | null): string[] {
   if (p.excluded.no_phone > 0) notes.push(`電話番号がどこにも無いため ${String(p.excluded.no_phone)} 件を除きました`);
   if (p.excluded.stop_reason > 0) notes.push(`架電禁止・ブロック理由があるため ${String(p.excluded.stop_reason)} 件を除きました`);
   if (p.excluded.out_of_scope > 0) notes.push(`対象外(別パイプライン・対象外ステージ・アーカイブ)の ${String(p.excluded.out_of_scope)} 件を除きました`);
+  if (p.unknown_stages > 0) notes.push(`架電キューの設定に無いステージが HubSpot に ${String(p.unknown_stages)} 個あり、架電対象外として扱っています(管理者に連絡してください)`);
   return notes;
 }
 
@@ -122,15 +128,24 @@ export interface ConditionChip { key: string; label: string; clear: Partial<Queu
 
 const range = (from: string, to: string) => `${from ? from.replaceAll('-', '/') : ''}〜${to ? to.replaceAll('-', '/') : ''}`;
 
-/** 既定と違う絞り込み条件を、外せるチップとして並べる (詳細条件を閉じていても見えるように)。並び替えは選択欄に出ているので含めない */
-export function conditionChips(f: QueueFilters, ownerNames: ReadonlyMap<string, string>): ConditionChip[] {
+/** ステージの絞り込みのチップの文言 (3 つまでは名前、それより多いか名前が分からなければ件数) */
+export function stageChipLabel(stages: readonly string[], pipeline: QueuePipelineDef | undefined): string {
+  const defs = stages.map(id => pipeline?.stages.find(x => x.id === id));
+  if (stages.length > 3 || defs.some(d => !d?.label)) return `ステージ: ${String(stages.length)} 件を選択`;
+  return `ステージ: ${defs.map(d => (d ? stageName(d) : '')).join('、')}`;
+}
+
+/**
+ * 既定と違う絞り込み条件を、外せるチップとして並べる (詳細条件を閉じていても見えるように)。
+ * 並び替えとパイプラインは選択欄に出ているので含めない
+ */
+export function conditionChips(f: QueueFilters, ownerNames: ReadonlyMap<string, string>, pipeline?: QueuePipelineDef): ConditionChip[] {
   const chips: ConditionChip[] = [];
   if (f.q.trim()) chips.push({ key: 'q', label: `キーワード: ${f.q.trim()}`, clear: { q: '' } });
   if (f.owner) chips.push({ key: 'owner', label: `所有者: ${ownerScopeLabel(f.owner, ownerNames)}`, clear: { owner: '' }, title: ownerScopeTitle(f.owner, ownerNames) });
   if (f.due === 'today') chips.push({ key: 'due', label: '次回日が来たものだけ', clear: { due: 'all' } });
-  for (const id of f.stages) {
-    const label = QUEUE_STAGES.find(s => s.id === id)?.label ?? id;
-    chips.push({ key: `stage-${id}`, label: `ステージ: ${label}`, clear: { stages: f.stages.filter(s => s !== id) } });
+  if (f.stages.length > 0) {
+    chips.push({ key: 'stages', label: stageChipLabel(f.stages, pipeline ?? findPipeline(f.pipeline)), clear: { stages: [] } });
   }
   if (f.nextFrom || f.nextTo) chips.push({ key: 'next', label: `次回架電日: ${range(f.nextFrom, f.nextTo)}`, clear: { nextFrom: '', nextTo: '' } });
   if (f.lastFrom || f.lastTo) chips.push({ key: 'last', label: `最終架電日: ${range(f.lastFrom, f.lastTo)}`, clear: { lastFrom: '', lastTo: '' } });
@@ -182,8 +197,9 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
   </li>;
 });
 
-export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, zoomOptions, initialSearch, now }: {
+export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, pipelinesFetcher, zoomOptions, initialSearch, now }: {
   fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; metadataFetcher?: MetadataFetch; userFetcher?: UserFetch;
+  pipelinesFetcher?: PipelinesFetch;
   zoomOptions?: ZoomOptions | undefined; initialSearch?: string; now?: () => number;
 }) {
   const search = initialSearch ?? window.location.search;
@@ -317,7 +333,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     try { window.history.replaceState(null, '', screenSearch(filters, mode) || window.location.pathname); } catch { /* URL を書けない環境では何もしない */ }
   }, [filters, mode, initialSearch]);
 
-  const hasConditions = useMemo(() => filtersKey(filters) !== filtersKey(DEFAULT_FILTERS), [filters]);
+  // 「条件をクリア」はパイプラインを残す (選んだパイプラインの中で条件だけ戻す)
+  const hasConditions = useMemo(() => filtersKey(filters) !== filtersKey({ ...DEFAULT_FILTERS, pipeline: filters.pipeline }), [filters]);
+  const pipelines = useQueuePipelines(mode, pipelinesFetcher);
+  const pipeline = pipelines.pipelines.find(p => p.id === filters.pipeline) ?? findPipeline(filters.pipeline);
   // 所有者の既定 (条件の owner が '' のとき、サーバが実際に使った所有者 = 管理者は all、それ以外は me)。
   // 条件を変えて読み直している間は応答が空になるので、同じモードで分かった値を覚えておく (選択欄がちらつかないように)
   const [seenOwner, setSeenOwner] = useState<{ mode: QueueMode; owner: string } | null>(null);
@@ -339,17 +358,23 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     state.nextCursor, loadMore);
   // 条件を変えて取り直したら一覧の枠を先頭に戻す (前の一覧の下端の位置のままだと、スクロールしていないのに続きを読んでしまう)
   useEffect(() => { if (listScrollRef.current) listScrollRef.current.scrollTop = 0; }, [state.reqId]);
-  const chips = conditionChips(filters, ownerNames);
-  const detailCount = filters.stages.length + (filters.nextFrom || filters.nextTo ? 1 : 0) + (filters.lastFrom || filters.lastTo ? 1 : 0);
+  const chips = conditionChips(filters, ownerNames, pipeline);
+  const detailCount = (filters.stages.length > 0 ? 1 : 0) + (filters.nextFrom || filters.nextTo ? 1 : 0) + (filters.lastFrom || filters.lastTo ? 1 : 0);
 
-  function toggleStage(id: string) {
-    update({ stages: filters.stages.includes(id) ? filters.stages.filter(s => s !== id) : [...filters.stages, id] });
+  /** パイプラインの切り替え: ステージの選択は既定 (すべて) に戻し、先頭から読み直す */
+  function changePipeline(id: string) {
+    setFilters(prev => (prev.pipeline === id ? prev : withPipeline(prev, id)));
+  }
+  /** モードの切り替え: そのモードで選べないパイプラインは既定に戻す (架空のパイプラインを実データに送らない) */
+  function switchMode(next: QueueMode) {
+    setMode(next);
+    if (!pipelinesFor(next).some(p => p.id === filters.pipeline)) changePipeline(DEFAULT_PIPELINE_ID);
   }
   function removeChip(c: ConditionChip) {
     if (c.clear.q !== undefined) setQDraft('');
     update(c.clear);
   }
-  function clearAll() { setQDraft(''); setFilters(DEFAULT_FILTERS); }
+  function clearAll() { setQDraft(''); setFilters(prev => ({ ...DEFAULT_FILTERS, pipeline: prev.pipeline })); }
 
   // 一覧にフォーカスがあるとき、上下の矢印キーで選択を移す
   function onListKey(e: React.KeyboardEvent<HTMLUListElement>) {
@@ -489,15 +514,19 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         onClick={() => { if (drawerOpen) closeZoom(); else openZoom(); }}>
         Zoom<span className="cq-zoom-dot" aria-hidden="true" /><span className="cq-zoom-state">{ZOOM_READINESS_LABELS[readiness]}</span></button>}
       <span className="cq-mode-switch" role="group" aria-label="データの切り替え">
-        <button type="button" aria-pressed={mode === 'live'} onClick={() => { setMode('live'); }}>実データ</button>
+        <button type="button" aria-pressed={mode === 'live'} onClick={() => { switchMode('live'); }}>実データ</button>
         <button type="button" aria-pressed={mode === 'fixture'} disabled={inCall}
           title={inCall ? '通話中は切り替えられません(切り替えると電話の枠が閉じて通話が切れます)' : undefined}
-          onClick={() => { setMode('fixture'); }}>架空サンプル</button>
+          onClick={() => { switchMode('fixture'); }}>架空サンプル</button>
       </span>
     </header>
 
     <form className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
       <div className="cq-bar">
+        <select className="cq-pipeline" aria-label="パイプライン" value={filters.pipeline}
+          title={pipelines.labelsUnavailable ? 'HubSpot からパイプライン名を読めなかったため、設定上の呼び名で表示しています' : undefined}
+          onChange={e => { changePipeline(e.target.value); }}>
+          {pipelines.pipelines.map(p => <option key={p.id} value={p.id}>{pipelineName(p)}</option>)}</select>
         <input className="cq-search" type="search" aria-label="キーワード(会社名・案件名)" value={qDraft} maxLength={100}
           placeholder="会社名・案件名で検索" onChange={e => { setQDraft(e.target.value); }} />
         <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
@@ -515,9 +544,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           <button type="button" aria-label={`「${c.label}」を外す`} onClick={() => { removeChip(c); }}>×</button></li>)}
       </ul>}
       <div id="cq-advanced" className="cq-advanced" hidden={!panelOpen}>
-        <fieldset className="cq-stages"><legend>ステージ{filters.stages.length > 0 ? `(${String(filters.stages.length)} 件選択)` : '(すべて)'}</legend>
-          {QUEUE_STAGES.map(s => <label key={s.id} className="cq-stage-chip"><input type="checkbox" checked={filters.stages.includes(s.id)}
-            onChange={() => { toggleStage(s.id); }} />{s.label}</label>)}</fieldset>
+        {pipeline && <StageFilter key={`${mode}|${pipeline.id}`} pipeline={pipeline} selected={filters.stages}
+          labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}
         <div className="cq-ranges">
           <fieldset className="cq-range"><legend>次回架電日</legend>
             <label>から<input type="date" value={filters.nextFrom} onChange={e => { update({ nextFrom: e.target.value }); }} /></label>

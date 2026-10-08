@@ -1,7 +1,9 @@
 import type { ApiResult } from '../../api/client';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
-import { QUEUE_STAGE_IDS } from './queueModel';
+import { FIXTURE_PIPELINES, LIVE_PIPELINES, eligibleStageIds } from './queuePipelines';
+import type { CallQueuePipelinesResponse } from '../../generated/CallQueuePipelinesResponse';
+import type { PipelinesFetch } from './useQueuePipelines';
 import type { QueueFilters } from './queueModel';
 import type { CrmMetadataResponse } from '../../generated/CrmMetadataResponse';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
@@ -27,12 +29,12 @@ export function makeResponse(f: QueueFilters, items: CallQueueItem[], over: Part
   return {
     items, next_cursor: null, total: items.length, truncated: false,
     scope: {
-      owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
-      stages: [...(f.stages.length ? f.stages : QUEUE_STAGE_IDS)].sort(), due: f.due, sort: f.sort,
+      pipeline: f.pipeline, owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
+      stages: [...(f.stages.length ? f.stages : eligibleStageIds(f.pipeline))].sort(), due: f.due, sort: f.sort,
       q: f.q.trim() || null, limit: 50,
       next_from: f.nextFrom || null, next_to: f.nextTo || null, last_from: f.lastFrom || null, last_to: f.lastTo || null,
     },
-    partial: { missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 } },
+    partial: { missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 }, unknown_stages: 0 },
     generated_at: '2026-10-05T03:00:00Z',
     ...over,
   };
@@ -82,3 +84,24 @@ export function deferredFetcher() {
 export const TEST_USER = 'caller-a@example.invalid';
 export const userFetchFor = (email: string): UserFetch => () => Promise.resolve({ ok: true, data: { user_email: email } });
 export const okUserFetch: UserFetch = userFetchFor(TEST_USER);
+
+/**
+ * GET /api/crm/call-queue/pipelines の応答の形をした架空の名前。bpo_リクロジは架空サンプルと同じ名前、
+ * アポ前 (`default`) は「アポ前」「アポ前の未済」など、それ以外は名前なし。`unknown` は表に無いステージ (bpo_リクロジ)
+ */
+export function pipelinesResponse(unknown: { id: string; label: string }[] = []): CallQueuePipelinesResponse {
+  const bpo = FIXTURE_PIPELINES[0];
+  return {
+    default_pipeline: '753186575', labels_available: true,
+    pipelines: LIVE_PIPELINES.map(p => ({
+      id: p.id,
+      label: p.id === bpo?.id ? 'bpo_リクロジ' : p.id === 'default' ? 'アポ前' : null,
+      stages: p.stages.map(s => ({
+        id: s.id, rule: s.rule,
+        label: p.id === bpo?.id ? (bpo.stages.find(x => x.id === s.id)?.label ?? null) : p.id === 'default' ? `アポ前の${s.id}` : null,
+      })),
+      unknown_stages: p.id === bpo?.id ? unknown.map(u => ({ ...u, rule: 'exclude' })) : [],
+    })),
+  };
+}
+export const okPipelinesFetch: PipelinesFetch = () => Promise.resolve({ ok: true, data: pipelinesResponse() });

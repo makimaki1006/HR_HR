@@ -2,6 +2,10 @@
 
 export type CallQueueScope = { 
 /**
+ * 実際に使ったパイプライン ID (指定なしは既定の bpo_リクロジ)
+ */
+pipeline: string, 
+/**
  * `all` / `me` / `unassigned` / owner id
  */
 owner: string, 

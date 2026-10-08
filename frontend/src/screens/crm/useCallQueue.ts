@@ -50,7 +50,7 @@ export interface QueueState {
 }
 
 const EMPTY_PARTIAL: CallQueuePartial = {
-  missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 },
+  missing_contacts: 0, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 }, unknown_stages: 0,
 };
 
 const initial = (reqId = ''): QueueState => ({
@@ -68,6 +68,8 @@ function addPartial(a: CallQueuePartial, b: CallQueuePartial): CallQueuePartial 
       stop_reason: a.excluded.stop_reason + b.excluded.stop_reason,
       out_of_scope: a.excluded.out_of_scope + b.excluded.out_of_scope,
     },
+    // ページごとの件数ではなくパイプラインの設定の数なので、足さずに大きい方
+    unknown_stages: Math.max(a.unknown_stages, b.unknown_stages),
   };
 }
 
