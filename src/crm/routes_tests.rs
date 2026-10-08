@@ -1624,23 +1624,34 @@ async fn 上流のエラー本文はブラウザに返さない() {
     }
 }
 
-/// 同時に何本来ても、HubSpot への本体 GET の同時実行は枠 (4) を超えない。
-/// 鍵は既存の営業自動化バッチと共有なので、連打・多タブで枠を食い尽くさないため
+/// 同時に何本来ても、HubSpot への本体 GET の同時実行は枠 (`MAX_CONCURRENT_RECORD_READS`) を超えない。
+/// 同じレコードの同時の読み取りは 1 回にまとめられる (関所の相乗り) ので、枠を試すには別々のレコードを読む
 #[tokio::test(flavor = "multi_thread")]
 async fn レコード読み取りの同時実行は枠を超えない() {
+    let n = super::routes::MAX_CONCURRENT_RECORD_READS + 6;
     let mut f = FakeHubSpot::default();
-    f.obj("companies", "300", &[("name", Some("社"))]);
+    for i in 0..n {
+        f.obj(
+            "companies",
+            &format!("{}", 300 + i),
+            &[("name", Some("社"))],
+        );
+    }
     f.get_delay = Duration::from_millis(150);
     let (client, hs) = start_fake_hubspot(f).await;
     let app = crm_app(test_state(None, Some(client)));
     let cookie = login_as(&app, "google_oidc", None).await;
     let mut tasks = Vec::new();
-    for _ in 0..10 {
+    for i in 0..n {
         let (app, cookie) = (app.clone(), cookie.clone());
         tasks.push(tokio::spawn(async move {
-            get_req(&app, "/api/crm/companies/300", Some(&cookie))
-                .await
-                .status()
+            get_req(
+                &app,
+                &format!("/api/crm/companies/{}", 300 + i),
+                Some(&cookie),
+            )
+            .await
+            .status()
         }));
     }
     for t in tasks {

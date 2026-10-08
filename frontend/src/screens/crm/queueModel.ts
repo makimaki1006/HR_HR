@@ -137,11 +137,15 @@ export function queueCountText(total: number | null, shown: number): string {
 export const QUEUE_TOTAL_NOTE_SHORT = '全件数は電話番号のない架電先なども含む';
 export const QUEUE_TOTAL_NOTE = 'HubSpot で条件に合う件数です。電話番号がない架電先と、架電禁止理由・ブロック理由が入っている架電先は一覧に出さないため、表示できるのはこれより少なくなります。';
 
-/** `GET /api/crm/call-queue` のパス (cursor は同じ条件に対してだけ付ける) */
-export function queueApiPath(f: QueueFilters, cursor: string | null): string {
+/**
+ * `GET /api/crm/call-queue` のパス (cursor は同じ条件に対してだけ付ける)。
+ * `fresh` はサーバの短いキャッシュ (30 秒) を使わずに HubSpot から読み直させる (「再試行」「最初から読み直す」)
+ */
+export function queueApiPath(f: QueueFilters, cursor: string | null, fresh = false): string {
   const p = filtersToParams(f);
   p.set('limit', String(QUEUE_PAGE_SIZE));
   if (cursor) p.set('cursor', cursor);
+  if (fresh) p.set('fresh', '1');
   return `/api/crm/call-queue?${p.toString()}`;
 }
 
@@ -226,8 +230,12 @@ export function failureOf(error: unknown): { kind: string | null; status: number
   return { kind: null, status: null };
 }
 
+/** 混雑でサーバが HubSpot を呼ばずに断ったとき (503 hubspot_busy) の文言。CRM の各画面で同じにする */
+export const BUSY_MESSAGE = 'HubSpot が混み合っています。少し待ってから再試行してください。';
+
 export function errorMessage(kind: string | null, status: number | null): string {
   switch (kind) {
+    case 'hubspot_busy': return BUSY_MESSAGE;
     case 'hubspot_rate_limited': return 'HubSpot の呼び出し回数の上限に達しました。少し待ってから再試行してください。';
     case 'hubspot_timeout': return 'HubSpot からの応答が時間内に返りませんでした。再試行してください。';
     case 'crm_timeout': return '取得に時間がかかりすぎたため中断しました。条件を絞って再試行してください。';
