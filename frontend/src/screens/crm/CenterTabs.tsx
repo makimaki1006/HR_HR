@@ -6,19 +6,19 @@ import {
 import type { CenterTabsState, LinkTab } from './centerLinks';
 
 /**
- * 架電画面の中央の列のタブ: 「案件」(いつもある) / 「求人検索」(検索の URL があるとき) / 開いたリンク (最大 5)。
- * 案件のタブは消さずに隠すだけなので、スクロール位置と架電結果の入力は切り替えても残る。
+ * 「求人検索・リンク先」パネルの中のタブ: 「リンク一覧」(いつもある) / 「求人検索」(検索の URL があるとき) / 開いたリンク (最大 5)。
+ * タブは消さずに隠すだけなので、切り替えても枠の中のページは読み直さない。
  */
 
 /** 枠に付ける sandbox (スクリプト・フォーム・別タブで開く は許す。上の画面の移動・ダウンロード等は許さない) */
 export const LINK_FRAME_SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox';
 
 type OpenLink = (url: string, label?: string) => void;
-/** 項目のリンクを中央のタブで開く関数 (無ければ通常どおり新しいタブで開く) */
+/** 項目のリンクを「求人検索・リンク先」パネルのタブで開く関数 (無ければ通常どおり新しいタブで開く) */
 export const LinkOpenerContext = createContext<OpenLink | null>(null);
 
 /**
- * 項目の値のリンク。クリックで中央のタブに開く。Ctrl / ⌘ / Shift / 中クリックはブラウザの新しいタブ (通常の動き)。
+ * 項目の値のリンク。クリックで「求人検索・リンク先」パネルのタブに開く。Ctrl / ⌘ / Shift / 中クリックはブラウザの新しいタブ (通常の動き)。
  * http(s) でない値はリンクにせず文字のまま出す
  */
 export function PropLink({ url, label, children }: { url: string; label?: string | undefined; children?: ReactNode }) {
@@ -45,7 +45,7 @@ export interface CenterTabs {
   activate: (id: string) => void;
 }
 
-/** 中央のタブの状態。`resetKey` (選んだ案件) が変わったら、開いたリンクを閉じて案件のタブに戻す */
+/** パネルの中のタブの状態。`resetKey` (選んだ案件) が変わったら、開いたリンクを閉じてリンク一覧に戻す */
 export function useCenterTabs(resetKey: string | null, searchUrl: string | null): CenterTabs {
   const [state, setState] = useState<CenterTabsState & { searchOpened: boolean }>({ ...initialCenterTabs, searchOpened: false });
   const [seenKey, setSeenKey] = useState(resetKey);
@@ -78,7 +78,7 @@ export const panelDomId = (id: string) => `cq-cpanel-${id}`;
 /** タブの並び (矢印キー・Home / End で移動して開く。Delete で開いたリンクのタブを閉じる) */
 export function CenterTabBar({ tabs }: { tabs: CenterTabs }) {
   const defs: TabDef[] = [
-    { id: DEAL_TAB, label: '案件', title: '案件の情報と架電結果の入力', closable: false },
+    { id: DEAL_TAB, label: 'リンク一覧', title: '案件・会社に登録されたリンク', closable: false },
     ...(tabs.searchUrl !== null ? [{ id: SEARCH_TAB, label: '求人検索', title: 'Google で求人を検索した結果', closable: false }] : []),
     ...tabs.links.map(l => ({ id: l.id, label: l.label, title: l.url, closable: true })),
   ];
@@ -110,7 +110,7 @@ export function CenterTabBar({ tabs }: { tabs: CenterTabs }) {
     tabs.activate(target.id);
     focusTab(target.id);
   }
-  return <div className="cq-ctabs" role="tablist" aria-label="中央に表示する内容" ref={listRef} onKeyDown={onKeyDown} data-testid="center-tabs">
+  return <div className="cq-ctabs" role="tablist" aria-label="求人検索・リンク先の表示" ref={listRef} onKeyDown={onKeyDown} data-testid="center-tabs">
     {defs.map(d => {
       const selected = d.id === tabs.active;
       return <span key={d.id} className={`cq-ctab${selected ? ' is-active' : ''}`} role="presentation">

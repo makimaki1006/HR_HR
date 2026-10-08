@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiHttpError } from '../../api/client';
 import type { ApiResult } from '../../api/client';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
@@ -10,7 +10,7 @@ import { ZOOM_NO_RESPONSE } from './DealDetail';
 import type { DialedFor } from './CallQueueScreen';
 import { EMPTY_CALL } from './smartEmbed';
 import type { CallState } from './smartEmbed';
-import { makeItem, makeResponse, okMetadataFetch, okUserFetch } from './queueTestUtil';
+import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage } from './queueTestUtil';
 import { ZOOM_EMBED_ORIGIN } from './smartEmbed';
 import { fixtureOwnersFetch } from './useOwners';
 import type { DetailFetch } from './useDealDetail';
@@ -18,6 +18,7 @@ import { DIAL_STALL_MS } from './useZoomPhone';
 import type { ZoomOptions } from './useZoomPhone';
 import type { QueueFilters } from './queueModel';
 
+beforeEach(() => { resetDockStorage(); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function detail(id: string, over: Partial<WorkspaceResponse> = {}): WorkspaceResponse {
@@ -40,7 +41,7 @@ function detail(id: string, over: Partial<WorkspaceResponse> = {}): WorkspaceRes
       { id: 'a3', kind: 'call', timestamp: '2026-10-01T01:00:00Z', title: '別案件の通話', body: null, direction: 'OUTBOUND', status: 'NO_ANSWER', duration_ms: null, owner_id: null, source: null, via: 'contact', via_id: `c${id}` },
     ],
     activities_truncated: false, activity_scope: '案件に直接つながる通話・メモ・メール・ミーティングと、案件の担当者に直接つながる通話。',
-    partial: [], hubspot_portal_id: '1', data_scope: 'x', generated_at: '2026-10-05T03:00:00Z',
+    partial: [], selected: { deal: {}, contact: {}, company: {} }, hubspot_portal_id: '1', data_scope: 'x', generated_at: '2026-10-05T03:00:00Z',
     ...over,
   };
 }
@@ -55,7 +56,7 @@ function detailFetcher() {
 async function renderQueue(df: DetailFetch, items = [makeItem('1'), makeItem('2')], zoomOptions?: ZoomOptions) {
   const queue = (filters: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(filters, items) });
   const fetcher = (f: QueueFilters) => queue(f);
-  const el = (z: ZoomOptions | undefined) => <CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} ownersFetcher={fixtureOwnersFetch} detailFetcher={df} metadataFetcher={okMetadataFetch} zoomOptions={z} initialSearch="?view=queue" />;
+  const el = (z: ZoomOptions | undefined) => <CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} ownersFetcher={fixtureOwnersFetch} detailFetcher={df} metadataFetcher={okMetadataFetch} zoomOptions={z} initialSearch="?view=queue" />;
   const r = render(el(zoomOptions));
   await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
   /** 同じ画面のまま Zoom の待ち時間だけ変える (読み込みの待ちが切れた状態を、実時間に頼らずに作る) */
@@ -91,36 +92,52 @@ function zoomEvent(win: Window, data: unknown, origin = ZOOM_EMBED_ORIGIN) {
 }
 
 describe('架電ワークスペース (実データ)', () => {
-  it('shows a placeholder until a row is chosen, then loads and shows deal / contact / company / activities with HubSpot links', async () => {
+  it('shows a placeholder until a row is chosen, then loads the overview, the chosen properties (labels, not internal names) and the activity log', async () => {
     const { calls, fetcher } = detailFetcher();
     await renderQueue(fetcher);
-    expect(screen.getByText('左の一覧から架電先を選んでください')).toBeTruthy();
+    expect(screen.getByText('架電一覧から架電先を選んでください')).toBeTruthy();
     expect(calls).toHaveLength(0);
     open('1');
     expect(screen.getByText('詳細を読み込み中…')).toBeTruthy();
     expect(calls.map(c => c.id)).toEqual(['1']);
-    await act(async () => { calls[0]?.resolve(ok(detail('1'))); await Promise.resolve(); });
+    await act(async () => {
+      calls[0]?.resolve(ok(detail('1', { selected: {
+        deal: { hubspot_owner_id: '9001', bpo_13: '2026-10-05', bpo_14: '10:30', bpo_20: null, bpo_10: '使われておりません', bpo_3: null, bpo_4: null,
+          bpo_32: 'https://www.google.com/search?q=03-1234-5678+%E6%B1%82%E4%BA%BA' },
+        contact: { lastname: '架空', firstname: '太郎1', phone: '+81312345678' },
+        company: { website: 'https://www.example.com/' },
+      } })));
+      await Promise.resolve();
+    });
+    // 案件の概要: 会社・ステージ・架電の注意・HubSpot (案件だけ)
     const d = screen.getByRole('article', { name: '架電先の詳細' });
     expect(within(d).getByText('架空会社1', { selector: 'h2' })).toBeTruthy();
     expect(within(d).getByText('不通時チェック: 通話中')).toBeTruthy();
-    expect(within(d).getByText('採用担当')).toBeTruthy();
-    expect(within(d).getByText('100-0001 東京都 千代田区 架空1-1')).toBeTruthy();
-    expect(within(d).getByText('120,000 円')).toBeTruthy();
-    expect(within(d).getAllByText('HubSpotで開く').map(a => a.getAttribute('href'))).toEqual([
-      'https://app.hubspot.com/contacts/1/record/0-3/1/', 'https://app.hubspot.com/contacts/1/record/0-1/c1/', 'https://app.hubspot.com/contacts/1/record/0-2/co1/',
-    ]);
-    // 活動: 通話の時間は ms → 分秒、担当者経由は注記つき、種類で絞れる
-    expect(within(d).getByText(/通話時間 1分05秒/)).toBeTruthy();
+    expect(within(d).getAllByText('HubSpotで開く').map(a => a.getAttribute('href'))).toEqual(['https://app.hubspot.com/contacts/1/record/0-3/1/']);
+    // 右の関連 (担当者・会社の一覧) は出さない
+    expect(screen.queryByRole('region', { name: '担当者' })).toBeNull();
+    // プロパティ: HubSpot の表示名と、選択肢は表示名・日付は年月日・空は「未入力」・所有者は名前
+    const props = screen.getByTestId('property-panel');
+    const row = (label: string) => within(props).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent;
+    expect(row('不通時チェック')).toBe('現在使われておりません');
+    expect(row('次回架電日')).toBe('2026/10/05');
+    expect(row('最終架電日')).toBe('未入力');
+    expect(row('案件担当者')).toContain('架空 一郎');
+    expect(row('電話番号')).toBe('03-1234-5678');
+    expect(props.textContent).not.toMatch(/bpo_|hubspot_owner_id|lastname/);
+    // 活動ログ: 通話の時間は ms → 分秒、担当者経由は注記つき、種類で絞れる
+    const log = screen.getByRole('region', { name: '活動ログ' });
+    expect(within(log).getByText(/通話時間 1分05秒/)).toBeTruthy();
     // HubSpot の状態の値 (COMPLETED / NO_ANSWER) は日本語で出す
-    expect(within(d).getByText('発信 · 完了 · 通話時間 1分05秒')).toBeTruthy();
-    expect(within(d).getByText(/^発信 · 応答なし · 担当者の通話/)).toBeTruthy();
-    expect(d.textContent).not.toMatch(/COMPLETED|NO_ANSWER/);
-    expect(within(d).getByText(/担当者の通話/)).toBeTruthy();
-    fireEvent.click(within(d).getByRole('button', { name: 'メモ' }));
-    expect(within(d).queryByText('架電1')).toBeNull();
-    expect(within(d).getByText('受付で不在')).toBeTruthy();
-    // 書き込みはしない: 詳細には保存ボタンが無く、下の入力欄は「HubSpot 未送信」の下書きと明示する
+    expect(within(log).getByText('発信 · 完了 · 通話時間 1分05秒')).toBeTruthy();
+    expect(within(log).getByText(/^発信 · 応答なし · 担当者の通話/)).toBeTruthy();
+    expect(log.textContent).not.toMatch(/COMPLETED|NO_ANSWER/);
+    fireEvent.click(within(log).getByRole('button', { name: 'メモ' }));
+    expect(within(log).queryByText('架電1')).toBeNull();
+    expect(within(log).getByText('受付で不在')).toBeTruthy();
+    // 書き込みはしない: 概要・活動ログに保存ボタンは無く、入力欄は「HubSpot 未送信」の下書きと明示する
     expect(within(d).queryByRole('button', { name: /保存|記録/ })).toBeNull();
+    expect(within(log).queryByRole('button', { name: /保存|記録/ })).toBeNull();
     const form = await screen.findByRole('form', { name: '架電結果の入力' });
     expect(within(form).getByText('下書き(HubSpot 未送信)')).toBeTruthy();
     expect(within(form).getByText(/HubSpot には保存されません/)).toBeTruthy();
@@ -180,8 +197,9 @@ describe('架電ワークスペース (実データ)', () => {
     expect(within(d).getByText('担当者経由の通話を取得できませんでした(HubSpot との通信に失敗しました)')).toBeTruthy();
     expect(d.textContent).not.toMatch(/hubspot_|calls_via_contacts|emails/);
     expect(within(d).getByText('番号を確認できません。担当者・会社の情報を HubSpot で確認してください。')).toBeTruthy();
-    expect(within(d).getByText(/担当者の情報を取得できませんでした/)).toBeTruthy();
-    expect(within(d).getByText('表示できる活動履歴はありません。')).toBeTruthy();
+    // 担当者・会社が無いときは、プロパティのその見出しに「取得できませんでした」
+    expect(within(screen.getByTestId('property-panel')).getByText(/担当者の情報を取得できませんでした/)).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: '活動ログ' })).getByText('表示できる活動履歴はありません。')).toBeTruthy();
   });
 });
 
@@ -256,7 +274,7 @@ describe('Zoom Phone (Smart Embed)', () => {
     t += 65_000;
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
     expect(screen.getByTestId('ended-call').textContent).toBe('通話終了 通話時間 01:05');
-    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は中央下の「架電結果」に下書きとして入力できます。HubSpot にはまだ保存されません。');
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は「架電結果の入力」に下書きとして入力できます。HubSpot にはまだ保存されません。');
     const first6 = within(screen.getByRole('group', { name: '今回の結果' })).getAllByRole('button');
     expect(first6.map(b => b.textContent)).toEqual(['担当者と会話', '不在・応答なし', '再架電の約束', 'アポイント獲得', '番号違い', '架電停止の希望']);
     expect(document.activeElement).toBe(first6[0]);
@@ -325,6 +343,8 @@ describe('Zoom Phone (Smart Embed)', () => {
     const base = { callId: 'call-m', direction: 'outbound', callee: { phoneNumber: '+81312345678' } };
     zoomEvent(win, { type: 'zp-call-ringing-event', data: base });
     zoomEvent(win, { type: 'zp-call-connected-event', data: base });
+    // 通話中に「架電結果の入力」を開いてメモを打っている
+    fireEvent.click(screen.getByRole('tab', { name: '架電結果の入力' }));
     const memo = within(form).getByLabelText<HTMLTextAreaElement>(/^タスクメモ/);
     memo.focus();
     zoomEvent(win, { type: 'zp-call-ended-event', data: { ...base, result: 'ended' } });
@@ -485,7 +505,7 @@ describe('Zoom Phone と画面の切り替え', () => {
     expect(screen.getByTestId('zp-result-hint').textContent).toBe('この通話の結果は、発信した架電先に記録済みです(HubSpot には未送信)。');
     // 発信した案件に戻れば、その入力欄に結び付いている案内に戻る
     open('1');
-    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は中央下の「架電結果」に下書きとして入力できます。HubSpot にはまだ保存されません。');
+    expect(screen.getByTestId('zp-result-hint').textContent).toBe('通話の結果は「架電結果の入力」に下書きとして入力できます。HubSpot にはまだ保存されません。');
   });
 });
 
@@ -494,7 +514,7 @@ describe('架空サンプル', () => {
     const spy = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')));
     vi.stubGlobal('fetch', spy);
     try {
-      render(<CallQueueScreen userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
+      render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
       await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
       expect(screen.queryByTitle('Zoom Phone')).toBeNull();
       expect(screen.getByText('架空サンプルでは発信できません')).toBeTruthy();
@@ -644,7 +664,7 @@ describe('架空サンプルの Zoom ボタン', () => {
     const spy = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')));
     vi.stubGlobal('fetch', spy);
     try {
-      render(<CallQueueScreen userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
+      render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
       await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
       expect(screen.queryByTestId('zoom-toggle')).toBeNull();
       expect(screen.getByTestId('zoom-drawer').className).not.toContain('is-open');

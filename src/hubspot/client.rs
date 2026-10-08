@@ -333,6 +333,13 @@ impl HubSpotClient {
         self.send(Method::GET, &path, &[], None).await
     }
 
+    /// `GET /crm/v3/properties/{object}/groups` (プロパティのグループ = HubSpot の画面の見出し。Contact / Company / Deal のみ)。
+    /// 応答の JSON をそのまま返す。値の解釈は呼び出し側 (`crm::property_catalog`)。
+    pub async fn property_groups(&self, object: RecordType) -> Result<Value, HubSpotError> {
+        let path = format!("/crm/v3/properties/{}/groups", object.api_name());
+        self.send(Method::GET, &path, &[], None).await
+    }
+
     /// `GET /crm/v3/pipelines/deals` (Deal のパイプラインとステージ定義)。
     pub async fn deal_pipelines(&self) -> Result<Value, HubSpotError> {
         self.send(Method::GET, "/crm/v3/pipelines/deals", &[], None)

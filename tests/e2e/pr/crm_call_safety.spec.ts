@@ -1,5 +1,6 @@
 import { expect, Page, test } from '@playwright/test';
 import { login } from './helpers/login';
+import { startWithResultPanelInFront } from './helpers/crm_layout';
 
 /**
  * 架電画面 (/app/crm、架空サンプル `?mode=fixture`) で、入力を失わないための仕組みの PR 用 E2E。
@@ -35,7 +36,8 @@ async function storedDrafts(page: Page): Promise<{ drafts: Record<string, Record
 }
 
 test.describe('CRM 架電画面: 入力を失わないための仕組み', () => {
-  test.beforeEach(async ({ page }) => { await login(page); });
+  // 架電結果の入力欄を確かめるので、「架電結果の入力」を前に出した配置で始める (既定は「活動ログ」が前)
+  test.beforeEach(async ({ page }) => { await startWithResultPanelInFront(page); await login(page); });
 
   test('画面ファイルを読み込めないときは白い画面にせず案内と再読み込みを出し、読み込めるようになれば再読み込みで画面が出る', async ({ page }) => {
     const errors: string[] = [];

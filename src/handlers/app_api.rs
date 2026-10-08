@@ -107,6 +107,8 @@ mod tests {
             .expect("CrmOwnersResponse の TS 型を書き出せない");
         crate::crm::workspace::WorkspaceResponse::export_all(&cfg)
             .expect("WorkspaceResponse の TS 型を書き出せない");
+        crate::crm::property_catalog::CrmPropertyCatalogResponse::export_all(&cfg)
+            .expect("CrmPropertyCatalogResponse の TS 型を書き出せない");
         // W8 求人票作成 (/app/jobgen): src/job_gen/contract.rs の要求・応答型
         crate::job_gen::contract::export_ts(&cfg).expect("jobgen 契約型の TS 型を書き出せない");
         crate::handlers::guide::GuideResponse::export_all(&cfg)

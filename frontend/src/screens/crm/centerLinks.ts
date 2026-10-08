@@ -1,5 +1,5 @@
 /**
- * 中央の列で開くリンク (求人検索・ホームページ・求人媒体など) の判定と、タブの状態。
+ * 「求人検索・リンク先」パネルで開くリンク (求人検索・ホームページ・求人媒体など) の判定と、タブの状態。
  *
  * - 開けるのは http(s) の URL だけ (javascript: / data: などは開かない)
  * - Google 検索は通常、枠の中への表示を断る。`igu=1` を付けると枠の中に出せる (2026-10-08 に Chrome で確認)。
@@ -14,11 +14,11 @@
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { formatPhoneForDisplay } from './phone';
 
-/** 案件のタブの ID (常にある) */
+/** 「リンク一覧」のタブの ID (常にある。以前の「案件」のタブ) */
 export const DEAL_TAB = 'deal';
 /** 求人検索のタブの ID (検索の URL があるときだけ) */
 export const SEARCH_TAB = 'search';
-/** 必要なときに開くリンクのタブの最大数 (案件・求人検索は数えない) */
+/** 必要なときに開くリンクのタブの最大数 (リンク一覧・求人検索は数えない) */
 export const MAX_LINK_TABS = 5;
 
 /** http(s) の URL だけを返す (前後の空白は除く)。それ以外は null */

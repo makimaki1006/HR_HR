@@ -9,6 +9,10 @@ import type { CrmMetadataResponse } from '../../generated/CrmMetadataResponse';
 import { MOC_DEAL_PROPERTIES } from './mocProperties';
 import type { MetadataFetch } from './useResultDefinitions';
 import type { UserFetch } from './useCurrentUser';
+import { FIXTURE_CATALOG } from './usePropertyCatalog';
+import type { CatalogFetch } from './usePropertyCatalog';
+import { DOCK_STORAGE_KEY } from './dockModel';
+import { PROPS_STORAGE_KEY } from './propertyModel';
 
 /** 架空の 1 行 (実データ由来の値は使わない) */
 export function makeItem(id: string, over: Partial<CallQueueItem> = {}): CallQueueItem {
@@ -105,3 +109,14 @@ export function pipelinesResponse(unknown: { id: string; label: string }[] = [])
   };
 }
 export const okPipelinesFetch: PipelinesFetch = () => Promise.resolve({ ok: true, data: pipelinesResponse() });
+
+/** 「プロパティ」パネルの項目の一覧 (架空サンプルと同じ一覧を返す。通信しない) */
+export const okCatalogFetch: CatalogFetch = () => Promise.resolve({ ok: true, data: FIXTURE_CATALOG });
+
+/** パネルの配置・表示する項目の選択 (localStorage) を消す (前のテストの配置を持ち越さない) */
+export function resetDockStorage(): void {
+  try {
+    window.localStorage.removeItem(DOCK_STORAGE_KEY);
+    window.localStorage.removeItem(PROPS_STORAGE_KEY);
+  } catch { /* 無い環境 */ }
+}
