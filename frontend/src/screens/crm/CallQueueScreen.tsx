@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
 import { OwnerFilter } from './OwnerFilter';
 import { ownerNameMap } from './ownerModel';
-import { toDomesticPhone } from './phone';
+import { formatPhoneForDisplay } from './phone';
 import {
   DEFAULT_FILTERS, QUEUE_SORTS, QUEUE_STAGES, dateValue, filtersKey, parseFilters, parseMode, screenSearch,
 } from './queueModel';
 import type { QueueFilters, QueueMode, QueueSort } from './queueModel';
 import { useCallQueue } from './useCallQueue';
-import { DealDetail } from './DealDetail';
+import { DealDetail, rawStopLabel } from './DealDetail';
+import type { StopLabel } from './DealDetail';
 import { ZoomPhonePanel } from './ZoomPhonePanel';
 import { useDealDetail } from './useDealDetail';
 import type { DetailFetch } from './useDealDetail';
@@ -18,74 +19,231 @@ import type { ZoomOptions } from './useZoomPhone';
 import type { QueueFetch } from './useCallQueue';
 import { fixtureOwnersFetch, liveOwnersFetch, useOwners } from './useOwners';
 import type { OwnersFetch } from './useOwners';
+import { CallResultForm } from './CallResultForm';
+import { PARTIAL_LABELS } from './workspaceModel';
+import {
+  clearDraftEntry, draftKey, editDraft, emptyResultDraft, emptyStore, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, optionLabel, saveStore,
+  sessionStorageOrNull, todayJst, validateResultDraft,
+} from './callResultModel';
+import type { DraftStore, ResultDraft } from './callResultModel';
+import { useResultDefinitions } from './useResultDefinitions';
+import type { MetadataFetch } from './useResultDefinitions';
+import { useCurrentUser } from './useCurrentUser';
+import type { UserFetch } from './useCurrentUser';
+import type { DialResult, ZoomPhone } from './useZoomPhone';
+import { toE164Jp } from './smartEmbed';
+import type { CallState } from './smartEmbed';
 import './crm.css';
 import './queue.css';
 
+/** 案件の画面から発信した記録。callId は発信の後に最初に始まった (番号の合う) 通話のもの */
+export interface DialedFor {
+  dealId: string;
+  mode: QueueMode;
+  /** 発信した番号 (+81…) */
+  number: string | null;
+  /** 発信した時点で Zoom が持っていた通話 (前の通話の「終了」を新しい案件に付けない) */
+  staleCallId: string | null;
+  callId: string | null;
+}
+
+/** 発信の後に始まった通話を、その発信のものとみなせるか (別の通話・着信・番号違いは紐づけない) */
+export function bindsToDial(d: DialedFor, call: CallState): boolean {
+  if (d.callId !== null || call.callId === null || call.callId === d.staleCallId || call.phase === 'idle') return false;
+  if (call.direction !== null && call.direction !== 'outbound') return false;
+  const n = toE164Jp(call.number);
+  return d.number === null || n === null || n === d.number;
+}
+
 const PHONE_SOURCE_LABELS: Record<string, string> = { deal: '案件', contact: '担当者', mobile: '担当者(携帯)', company: '会社' };
 
+/** 矢印キーで行を移ったとき、詳細の取得を待つ時間 (押しっぱなしで HubSpot を連続で呼ばない) */
+export const KEY_SELECT_DELAY_MS = 300;
+
 const ymd = (raw: string | null) => dateValue(raw)?.replaceAll('-', '/') ?? null;
+/** 一覧の行は幅が狭いので月日だけ (年は title に残す) */
+const md = (raw: string | null) => dateValue(raw)?.slice(5).replace('-', '/') ?? null;
 
 export function partialNotes(p: CallQueuePartial | null): string[] {
   if (!p) return [];
   const notes: string[] = [];
   if (p.missing_contacts > 0) notes.push(`担当者情報を取得できなかった行が ${String(p.missing_contacts)} 件あります`);
   if (p.missing_companies > 0) notes.push(`会社情報を取得できなかった行が ${String(p.missing_companies)} 件あります`);
-  if (p.failed.length > 0) notes.push(`取得に失敗した部分: ${p.failed.join('、')}(関連情報を表示できない行があります)`);
+  if (p.failed.length > 0) notes.push(`取得に失敗した部分: ${[...new Set(p.failed.map(f => PARTIAL_LABELS[f] ?? 'その他の情報'))].join('、')}(関連情報を表示できない行があります)`);
   if (p.excluded.no_phone > 0) notes.push(`電話番号がどこにも無いため ${String(p.excluded.no_phone)} 件を除きました`);
   if (p.excluded.stop_reason > 0) notes.push(`架電禁止・ブロック理由があるため ${String(p.excluded.stop_reason)} 件を除きました`);
   if (p.excluded.out_of_scope > 0) notes.push(`対象外(別パイプライン・対象外ステージ・アーカイブ)の ${String(p.excluded.out_of_scope)} 件を除きました`);
   return notes;
 }
 
-/** 応答の scope.owner (all / me / unassigned / owner ID) を、画面の注記に出す名前にする */
+const SCOPE_WORDS: Record<string, string> = { all: '全員', me: '自分', unassigned: '担当者なし' };
+
+/**
+ * 応答の scope.owner (all / me / unassigned / owner ID) を、画面の注記に出す名前にする。
+ * 名前が分からない所有者 (一覧の読み込み中・失敗) は ID を画面に出さない (ID は ownerScopeTitle の tooltip に出す)
+ */
 export function ownerScopeLabel(scopeOwner: string, names: ReadonlyMap<string, string>): string {
-  if (scopeOwner === 'all') return '全員';
-  if (scopeOwner === 'me') return '自分';
-  if (scopeOwner === 'unassigned') return '担当者なし';
-  return names.get(scopeOwner) ?? `ID ${scopeOwner}`;
+  return SCOPE_WORDS[scopeOwner] ?? names.get(scopeOwner) ?? '選んだ所有者(名前を取得できません)';
 }
 
-function QueueRow({ item, ownerName, selected, onSelect }: {
-  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; onSelect: (id: string) => void;
+/** 名前が分からない所有者のときだけ、tooltip に HubSpot の所有者 ID を出す */
+export function ownerScopeTitle(scopeOwner: string, names: ReadonlyMap<string, string>): string | undefined {
+  return SCOPE_WORDS[scopeOwner] !== undefined || names.has(scopeOwner) ? undefined : `HubSpot の所有者 ID: ${scopeOwner}`;
+}
+
+export interface ConditionChip { key: string; label: string; clear: Partial<QueueFilters>; title?: string | undefined }
+
+const range = (from: string, to: string) => `${from ? from.replaceAll('-', '/') : ''}〜${to ? to.replaceAll('-', '/') : ''}`;
+
+/** 既定と違う絞り込み条件を、外せるチップとして並べる (詳細条件を閉じていても見えるように)。並び替えは選択欄に出ているので含めない */
+export function conditionChips(f: QueueFilters, ownerNames: ReadonlyMap<string, string>): ConditionChip[] {
+  const chips: ConditionChip[] = [];
+  if (f.q.trim()) chips.push({ key: 'q', label: `キーワード: ${f.q.trim()}`, clear: { q: '' } });
+  if (f.owner) chips.push({ key: 'owner', label: `所有者: ${ownerScopeLabel(f.owner, ownerNames)}`, clear: { owner: '' }, title: ownerScopeTitle(f.owner, ownerNames) });
+  if (f.due === 'today') chips.push({ key: 'due', label: '次回日が来たものだけ', clear: { due: 'all' } });
+  for (const id of f.stages) {
+    const label = QUEUE_STAGES.find(s => s.id === id)?.label ?? id;
+    chips.push({ key: `stage-${id}`, label: `ステージ: ${label}`, clear: { stages: f.stages.filter(s => s !== id) } });
+  }
+  if (f.nextFrom || f.nextTo) chips.push({ key: 'next', label: `次回架電日: ${range(f.nextFrom, f.nextTo)}`, clear: { nextFrom: '', nextTo: '' } });
+  if (f.lastFrom || f.lastTo) chips.push({ key: 'last', label: `最終架電日: ${range(f.lastFrom, f.lastTo)}`, clear: { lastFrom: '', lastTo: '' } });
+  return chips;
+}
+
+/** 架電結果の印 (この画面のタブだけに残る) の説明 */
+export const RECORDED_TITLE = 'この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません';
+export const UNSAVED_RECORDED_TITLE = '入力をこの画面に残せていません。閉じたり再読み込みしたりすると消えます。HubSpot にも保存されていません';
+
+
+/** 行は props が同じなら描き直さない (架電結果を 1 文字打つたび・矢印キーで 1 行動くたびに全行を描き直さない) */
+const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, recorded, unsaved, stopLabel, onSelect }: {
+  item: CallQueueItem; ownerName?: string | undefined; selected: boolean; focusable: boolean; recorded: boolean; unsaved: boolean;
+  stopLabel: StopLabel; onSelect: (id: string) => void;
 }) {
-  const phone = toDomesticPhone(item.phone);
-  const next = ymd(item.next_call_date);
-  const last = ymd(item.last_call_date);
-  const stop = item.stop;
+  const phone = formatPhoneForDisplay(item.phone);
+  const next = md(item.next_call_date);
+  const last = md(item.last_call_date);
+  const dates = [ymd(item.next_call_date) && `次回架電 ${ymd(item.next_call_date) ?? ''}`, ymd(item.last_call_date) && `最終架電 ${ymd(item.last_call_date) ?? ''}`]
+    .filter(Boolean).join(' / ');
+  const flag = item.stop.unreachable_check ? stopLabel('bpo_10', item.stop.unreachable_check) : null;
+  const source = item.phone_source ? `${PHONE_SOURCE_LABELS[item.phone_source] ?? item.phone_source}の番号` : undefined;
   return <li className={`cq-row${selected ? ' is-selected' : ''}`}>
-    <button type="button" className="cq-row-button" aria-pressed={selected} onClick={() => { onSelect(item.deal_id); }}>
-      <strong>{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
-      <small>{item.deal_name ?? '(案件名なし)'}</small>
-      <span className="cq-row-contact">{item.contact ? <>{item.contact.name ?? '(氏名なし)'}
-        {item.contact.job_title && <small>{item.contact.job_title}</small>}
-        {item.contact.extra_count > 0 && <small>ほか {item.contact.extra_count} 人</small>}</>
-        : <span className="crm-muted">担当者情報を取得できませんでした</span>}</span>
-      <span>{phone ? <><span className="cq-phone" title={item.phone ?? undefined}>{phone}</span>
-        {item.phone_source && <small>{PHONE_SOURCE_LABELS[item.phone_source] ?? item.phone_source}の番号</small>}</>
-        : <span className="crm-muted">番号を確認できません</span>}</span>
-      <span className="cq-row-meta"><span className="crm-status">{item.stage_label ?? '(ステージ名を取得できません)'}</span>
-        {stop.unreachable_check && <small className="cq-flag">不通時チェック: {stop.unreachable_check}</small>}
-        <small>次回架電: {next ? <><span>{next}</span>{item.next_call_time && <> <span>{item.next_call_time}</span></>}</> : 'なし'}</small>
-        <small>最終架電: {last ? <span>{last}</span> : '未架電'}</small>
-        <small>担当: {item.owner_id ? <span>{ownerName ?? item.owner_id}</span> : '担当なし'}</small></span>
+    <button type="button" className="cq-row-button" aria-pressed={selected} tabIndex={focusable ? 0 : -1}
+      title={item.deal_name ?? undefined} onClick={() => { onSelect(item.deal_id); }}>
+      <span className="cq-row-l1">
+        <strong className="cq-row-company">{item.company?.name ?? <span className="crm-muted">会社情報を取得できませんでした</span>}</strong>
+        {recorded && (unsaved
+          ? <span className="cq-recorded is-unsaved" title={UNSAVED_RECORDED_TITLE}>記録済み(画面を閉じると消えます)</span>
+          : <span className="cq-recorded" title={RECORDED_TITLE}>記録済み(HubSpot 未送信)</span>)}
+        {flag && <span className="cq-flag" title={`不通時チェック: ${flag}`} aria-label={`不通時チェック: ${flag}`}>不通チェック</span>}
+        <span className="cq-stage">{item.stage_label ?? '(ステージ不明)'}</span>
+      </span>
+      <span className="cq-row-l2">
+        {item.contact ? <span className="cq-row-contact">{item.contact.name ?? '(氏名なし)'}
+          {item.contact.extra_count > 0 && <small> ほか{item.contact.extra_count}人</small>}</span>
+          : <span className="crm-muted">担当者情報を取得できませんでした</span>}
+        <span className="cq-sep" aria-hidden="true">·</span>
+        {phone ? <span className="cq-phone" title={item.phone ?? undefined} data-source={source}>{phone}</span>
+          : <span className="crm-muted">番号を確認できません</span>}
+      </span>
+      <span className="cq-row-l3" title={dates || undefined}>
+        <span>次回 {next ? <><span>{next}</span>{item.next_call_time && <> <span>{item.next_call_time}</span></>}</> : 'なし'}</span>
+        <span>最終 {last ? <span>{last}</span> : '未架電'}</span>
+        <span>担当 {item.owner_id ? <span title={ownerName ? undefined : `HubSpot の所有者 ID: ${item.owner_id}`}>{ownerName ?? '担当あり'}</span> : 'なし'}</span>
+      </span>
     </button>
   </li>;
-}
+});
 
-export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOptions, initialSearch }: {
-  fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; zoomOptions?: ZoomOptions | undefined; initialSearch?: string;
+export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, zoomOptions, initialSearch, now }: {
+  fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; metadataFetcher?: MetadataFetch; userFetcher?: UserFetch;
+  zoomOptions?: ZoomOptions | undefined; initialSearch?: string; now?: () => number;
 }) {
   const search = initialSearch ?? window.location.search;
   const [mode, setMode] = useState<QueueMode>(() => parseMode(search));
   const [filters, setFilters] = useState<QueueFilters>(() => parseFilters(search));
   const [qDraft, setQDraft] = useState(filters.q);
-  const { state, loadMore, reload } = useCallQueue(filters, mode, fetcher);
+  const [panelOpen, setPanelOpen] = useState(false);
+  // 日付の検証に使う JST の今日。JST 0 時・画面に戻ったときに取り直す (開いたまま日付をまたいでも昨日を通さない)
+  const [nowFn] = useState(() => now ?? Date.now);
+  const [today, setToday] = useState(() => todayJst(nowFn()));
+  // 「次回日が来たものだけ」は今日で決まるので、日付が変わったら一覧も取り直す
+  const { state, loadMore, reload } = useCallQueue(filters, mode, fetcher, filters.due === 'today' ? today : '');
   // 選んだ案件。モードを切り替えたら選び直す (実データの ID と架空の ID を取り違えない)
   const [selection, setSelection] = useState<{ id: string; mode: QueueMode } | null>(null);
   const selectedId = selection !== null && selection.mode === mode ? selection.id : null;
-  const detail = useDealDetail(selectedId, mode, detailFetcher);
+  // 詳細を読む案件。クリックはすぐ、矢印キーは少し待ってから (selection と違う間は古い詳細を出さない)
+  const [detailSel, setDetailSel] = useState<{ id: string; mode: QueueMode } | null>(null);
+  const detailId = detailSel !== null && detailSel.mode === mode ? detailSel.id : null;
+  const keyTimer = useRef<number | null>(null);
+  const detail = useDealDetail(detailId, mode, detailFetcher);
   // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
   const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const scrollSelectedRow = useRef(false);
+  // 記録して次へで移った案件 (その入力欄が開いたら結果のボタンへフォーカスする)
+  const [focusFormFor, setFocusFormFor] = useState<string | null>(null);
+  // 画面全体の読み上げ欄 (入力欄は案件ごとに作り直すので外に置く)。同じ文言でも読み上げ直すよう n を変える
+  const [announcement, setAnnouncement] = useState<{ text: string; n: number }>({ text: '', n: 0 });
+  const announce = useCallback((text: string) => { setAnnouncement(a => ({ text, n: a.n + 1 })); }, []);
+
+  // 架電結果の下書き (案件ごと、このタブの sessionStorage に残す。HubSpot には送らない)
+  // 保存した人 (ログイン中のメールアドレス) も一緒に残し、その人にだけ戻す (共用の PC で、同じタブで別の人がログインし直しても前の人のメモを見せない)。
+  // 誰がログインしているか分かった時点で 1 回読み、書き込めるかを試す。以後は変えるたびに書いた結果で更新する。
+  // 残せなかったら (誰か分からないときも) 画面に赤で出す (headless-crm-design §12。保存できたように見せない)
+  const currentUser = useCurrentUser(userFetcher);
+  const storeOwner = currentUser.phase === 'ready' ? currentUser.email : currentUser.phase === 'error' ? null : undefined;
+  const [{ store, persistFailed, loadedFor }, setPersisted] = useState<{ store: DraftStore; persistFailed: boolean; loadedFor: string | null | undefined }>(
+    () => ({ store: emptyStore(), persistFailed: false, loadedFor: undefined }));
+  if (storeOwner !== loadedFor) {
+    if (storeOwner === null) setPersisted(p => ({ ...p, persistFailed: true, loadedFor: null }));
+    else if (storeOwner !== undefined) {
+      const initial = loadStore(sessionStorageOrNull(), storeOwner);
+      setPersisted({ store: initial, persistFailed: !saveStore(sessionStorageOrNull(), initial, storeOwner), loadedFor: storeOwner });
+    }
+  }
+  const storeReady = loadedFor !== undefined;
+  const commitStore = (next: DraftStore) => {
+    setPersisted({ store: next, persistFailed: loadedFor === null || loadedFor === undefined || !saveStore(sessionStorageOrNull(), next, loadedFor), loadedFor });
+  };
+  const [formCollapsed, setFormCollapsed] = useState(false);
+  useEffect(() => {
+    const refresh = () => { setToday(todayJst(nowFn())); };
+    const t = window.setTimeout(refresh, msUntilNextJstMidnight(nowFn()) + 1000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.clearTimeout(t); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [today, nowFn]);
+  const [formNotice, setFormNotice] = useState<{ dealId: string; text: string } | null>(null);
+  const defs = useResultDefinitions(mode, selectedId !== null, metadataFetcher);
+  // どの案件の画面から発信したか (通話の終了を、その発信の通話についてだけ、その案件の入力欄に出す)
+  const [dialedFor, setDialedFor] = useState<DialedFor | null>(null);
+  if (dialedFor !== null && bindsToDial(dialedFor, zoom.call)) setDialedFor({ ...dialedFor, callId: zoom.call.callId });
+  // 結果のボタンへフォーカスを移し終えた通話 (同じ通話で何度もフォーカスを奪わない)
+  const [handledCall, setHandledCall] = useState<string | null>(null);
+  const zoomForDetail = useMemo<ZoomPhone>(() => ({
+    ...zoom,
+    dial: (raw: string | null | undefined): DialResult => {
+      const r = zoom.dial(raw);
+      if (r === 'sent' && detailId !== null) {
+        setDialedFor({ dealId: detailId, mode, number: toE164Jp(raw), staleCallId: zoom.call.callId, callId: null });
+      }
+      return r;
+    },
+  }), [zoom, detailId, mode]);
+
+  useEffect(() => () => { if (keyTimer.current !== null) window.clearTimeout(keyTimer.current); }, []);
+
+  const select = useCallback((id: string, via: 'click' | 'key') => {
+    const sel = { id, mode };
+    setSelection(sel);
+    setFocusFormFor(null);
+    if (keyTimer.current !== null) { window.clearTimeout(keyTimer.current); keyTimer.current = null; }
+    if (via === 'click') { setDetailSel(sel); return; }
+    keyTimer.current = window.setTimeout(() => { keyTimer.current = null; setDetailSel(sel); }, KEY_SELECT_DELAY_MS);
+  }, [mode]);
+  // 行に渡すクリック時の選択 (同じ関数を渡し続け、行の描き直しを避ける)
+  const selectByClick = useCallback((id: string) => { select(id, 'click'); }, [select]);
 
   function update(patch: Partial<QueueFilters>) {
     setFilters(prev => {
@@ -103,7 +261,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
   // 条件を URL に残す (再読み込みで復元)。履歴は増やさない
   useEffect(() => {
     if (initialSearch !== undefined) return;
-    try { window.history.replaceState(null, '', screenSearch(filters, mode)); } catch { /* URL を書けない環境では何もしない */ }
+    try { window.history.replaceState(null, '', screenSearch(filters, mode) || window.location.pathname); } catch { /* URL を書けない環境では何もしない */ }
   }, [filters, mode, initialSearch]);
 
   const hasConditions = useMemo(() => filtersKey(filters) !== filtersKey(DEFAULT_FILTERS), [filters]);
@@ -120,90 +278,226 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, zoomOpt
   const needsOwnerPick = state.phase === 'error' && state.errorKind === 'owner_not_resolved';
   const notes = partialNotes(state.partial);
   const total = state.last?.total ?? null;
+  const chips = conditionChips(filters, ownerNames);
+  const detailCount = filters.stages.length + (filters.nextFrom || filters.nextTo ? 1 : 0) + (filters.lastFrom || filters.lastTo ? 1 : 0);
 
   function toggleStage(id: string) {
     update({ stages: filters.stages.includes(id) ? filters.stages.filter(s => s !== id) : [...filters.stages, id] });
   }
+  function removeChip(c: ConditionChip) {
+    if (c.clear.q !== undefined) setQDraft('');
+    update(c.clear);
+  }
   function clearAll() { setQDraft(''); setFilters(DEFAULT_FILTERS); }
 
+  // 一覧にフォーカスがあるとき、上下の矢印キーで選択を移す
+  function onListKey(e: React.KeyboardEvent<HTMLUListElement>) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    if (state.phase !== 'ready' || state.items.length === 0) return;
+    e.preventDefault();
+    const items = state.items;
+    // 行のボタンは 1 回だけ集める (行ごとに一覧全体を探さない)
+    const buttons = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('.cq-row-button') ?? []);
+    const focused = buttons.findIndex(b => b === document.activeElement);
+    const cur = focused !== -1 ? focused : items.findIndex(i => i.deal_id === selectedId);
+    const step = e.key === 'ArrowDown' ? 1 : -1;
+    const nextIdx = cur === -1 ? (step === 1 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, cur + step));
+    const target = items[nextIdx];
+    if (!target) return;
+    if (target.deal_id !== selectedId) select(target.deal_id, 'key');
+    const btn = buttons[nextIdx];
+    btn?.focus();
+    if (typeof btn?.scrollIntoView === 'function') btn.scrollIntoView({ block: 'nearest' });
+  }
+
+  const selectedOwner = state.items.find(i => i.deal_id === selectedId)?.owner_id;
+  const isRecorded = useCallback((id: string) => store.recorded[draftKey(mode, id)] === true, [store, mode]);
+  const selKey = selectedId !== null ? draftKey(mode, selectedId) : null;
+  const draft: ResultDraft = (selKey !== null ? store.drafts[selKey] : undefined) ?? emptyResultDraft();
+  const endedCall = zoom.call.phase === 'ended' && dialedFor !== null && dialedFor.mode === mode && dialedFor.dealId === selectedId
+    && dialedFor.callId !== null && dialedFor.callId === zoom.call.callId ? zoom.call : null;
+  // 一覧が表示されていない (読み込み中・失敗) か、条件を変えて選んだ案件がいまの一覧から外れた。
+  // どちらも記録はさせない (一覧で見えない案件を記録して次へ進まない。次の案件を一覧から選べない)
+  const listReady = state.phase === 'ready';
+  const offList = listReady && selectedId !== null && !state.items.some(i => i.deal_id === selectedId);
+  const recordBlockedNotice = !listReady
+    ? (state.phase === 'loading' ? '一覧を読み込み中です。一覧が表示されてから記録してください。' : '一覧を表示できていないため記録できません。一覧を表示してから記録してください。')
+    : offList ? 'この案件はいまの一覧にありません(条件で外れました)。記録するには一覧に戻してください。' : null;
+  // 発信した案件に結果を記録した後の通話 (別の案件に移っても「結び付いていない」とは言わない)
+  const callRecorded = zoom.call.phase === 'ended' && dialedFor !== null && dialedFor.mode === mode && dialedFor.callId !== null
+    && dialedFor.callId === zoom.call.callId && isRecorded(dialedFor.dealId);
+  // Zoom の通話中にデータを切り替えると枠が外れて通話が切れるので、切り替えさせない
+  const inCall = zoom.call.phase === 'ringing' || zoom.call.phase === 'connected';
+
+  function changeDraft(d: ResultDraft) {
+    if (selKey === null || selectedId === null) return;
+    // 記録した後に書き換えたら、記録済みの印は外す (記録したときの内容と変わったため)。外したことは入力欄の下端で知らせる
+    if (store.recorded[selKey] === true) setFormNotice({ dealId: selectedId, text: '内容を変えたので「記録済み」の印を外しました。もう一度「記録して次へ」を押してください。' });
+    commitStore(editDraft(store, selKey, d));
+  }
+  function clearDraft() {
+    if (selKey === null) return;
+    commitStore(clearDraftEntry(store, selKey));
+    setFormNotice(null);
+  }
+  // 記録して次へ: このブラウザで記録済みの印を付け (下書きは残す)、一覧で次の未記録の案件を選ぶ。HubSpot には送らない
+  function recordAndNext(): boolean {
+    if (selKey === null || selectedId === null || !listReady || offList) return false;
+    // 日付の検証は記録する時点の今日で (画面を開いたまま日付をまたいだとき)
+    const fresh = todayJst(nowFn());
+    if (fresh !== today) {
+      setToday(fresh);
+      if (defs.state.phase !== 'ready' || Object.keys(validateResultDraft(draft, defs.state.defs, fresh)).length > 0) return false;
+    }
+    commitStore(markRecorded(store, selKey));
+    const ids = state.items.map(i => i.deal_id);
+    const next = nextUnrecorded(ids, selectedId, isRecorded);
+    const name = state.items.find(i => i.deal_id === selectedId)?.company?.name ?? 'この架電先';
+    const done = `${name} を記録しました(この画面だけ。HubSpot には未送信)。`;
+    if (next === null) {
+      // 続きのページがあるときは、一覧が終わったと読まれないよう続きの出し方も書く
+      const none = state.nextCursor
+        ? '表示中の一覧に未記録の架電先はありません。一覧の下の「さらに読み込む」で続きを表示できます。'
+        : '表示中の一覧に未記録の架電先はありません。';
+      setFormNotice({ dealId: selectedId, text: none });
+      announce(`${done}${none}`);
+      return true;
+    }
+    setFormNotice(null);
+    announce(`${done}次の架電先を表示しています。`);
+    select(next, 'click');
+    // 次の案件の入力欄が開いたら、結果のボタンへフォーカスする (続けてキーボードで入力できるように)
+    setFocusFormFor(next);
+    scrollSelectedRow.current = true;
+    return true;
+  }
+  // 記録して次へで選び直したら、一覧の選んだ行を見える位置まで送る (フォーカスは入力欄の結果のボタンへ)
+  useEffect(() => {
+    if (!scrollSelectedRow.current) return;
+    scrollSelectedRow.current = false;
+    const btn = listRef.current?.querySelector<HTMLButtonElement>('.cq-row-button[aria-pressed="true"]');
+    if (typeof btn?.scrollIntoView === 'function') btn.scrollIntoView({ block: 'nearest' });
+  }, [selectedId]);
+
+  const waitingKey = selectedId !== null && selectedId !== detailId;
+  // 不通時チェック・ブロック理由は、入力欄と同じ HubSpot の表示ラベルで出す (定義を読めていなければ値のまま)
+  const stopLabel = useMemo<StopLabel>(() => {
+    if (defs.state.phase !== 'ready') return rawStopLabel;
+    const d = defs.state.defs;
+    return (p, v) => optionLabel(d[p], v);
+  }, [defs.state]);
+  const anyFocusable = state.items.some(i => i.deal_id === selectedId);
+
   return <div className="crm-app cq-app">
-    <header className="crm-topbar"><a className="crm-home" href="/">HR_HR</a>
-      <span className="crm-topbar-divider" /><strong>架電キュー</strong>
-      <a className="crm-topbar-right" href="?view=calling">架電ワークスペースへ</a></header>
-
-    <div className={`cq-mode cq-mode-${mode}`} role="status" aria-label="データの種類">
-      <strong>{mode === 'live' ? '実データ(HubSpot)' : '架空サンプル'}</strong>
-      <span>{mode === 'live' ? 'HubSpot への書き込みはしません(発信は右の Zoom Phone から)'
-        : '表示内容はすべて架空です。HubSpot には接続しません。'}</span>
+    {/* 画面全体の読み上げ欄 (記録した・記録できない理由)。常に置いておき、中身だけ変える */}
+    <p className="cq-sr-only" role="status" data-testid="screen-announcement">{announcement.text}{announcement.n % 2 === 1 ? '\u00a0' : ''}</p>
+    <header className="crm-topbar cq-topbar"><a className="crm-home" href="/">HR_HR</a>
+      <span className="crm-topbar-divider" /><h1 className="cq-title">架電</h1>
+      <div className={`cq-mode cq-mode-${mode}`} role="status" aria-label="データの種類">
+        <strong className="cq-mode-badge">{mode === 'live' ? '実データ(HubSpot)' : '架空サンプル'}</strong>
+        <span className="cq-mode-note">{mode === 'live' ? 'HubSpot への書き込みはしません' : '表示内容はすべて架空です。HubSpot には接続しません。'}</span>
+        <span className="cq-mode-note-short">{mode === 'live' ? 'HubSpot 書き込みなし' : '架空・未接続'}</span>
+      </div>
       <span className="cq-mode-switch" role="group" aria-label="データの切り替え">
-        <button aria-pressed={mode === 'live'} onClick={() => { setMode('live'); }}>実データ</button>
-        <button aria-pressed={mode === 'fixture'} onClick={() => { setMode('fixture'); }}>架空サンプル</button>
+        <button type="button" aria-pressed={mode === 'live'} onClick={() => { setMode('live'); }}>実データ</button>
+        <button type="button" aria-pressed={mode === 'fixture'} disabled={inCall}
+          title={inCall ? '通話中は切り替えられません(切り替えると電話の枠が閉じて通話が切れます)' : undefined}
+          onClick={() => { setMode('fixture'); }}>架空サンプル</button>
       </span>
-    </div>
-
-    {mode === 'live' && state.last !== null ? <p className="cq-scope-note" data-testid="scope-note" style={{ fontSize: '0.75rem', opacity: 0.7, margin: '2px 12px' }}>
-      所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中(HubSpot の全件から、上の所有者の選択で切り替えられます)
-    </p> : null}
+    </header>
 
     <form className="cq-filters" aria-label="絞り込みと並び替え" onSubmit={e => { e.preventDefault(); update({ q: qDraft }); }}>
-      <label className="cq-wide">キーワード(会社名・案件名)<input type="search" value={qDraft} maxLength={100}
-        placeholder="例: 架空商事" onChange={e => { setQDraft(e.target.value); }} /></label>
-      <label>並び替え<select value={filters.sort} onChange={e => { update({ sort: e.target.value as QueueSort }); }}>
-        {QUEUE_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
-      <fieldset className="cq-range"><legend>次回架電日</legend>
-        <label>から<input type="date" value={filters.nextFrom} onChange={e => { update({ nextFrom: e.target.value }); }} /></label>
-        <label>まで<input type="date" value={filters.nextTo} onChange={e => { update({ nextTo: e.target.value }); }} /></label></fieldset>
-      <fieldset className="cq-range"><legend>最終架電日</legend>
-        <label>から<input type="date" value={filters.lastFrom} onChange={e => { update({ lastFrom: e.target.value }); }} /></label>
-        <label>まで<input type="date" value={filters.lastTo} onChange={e => { update({ lastTo: e.target.value }); }} /></label></fieldset>
-      <label className="cq-check"><input type="checkbox" checked={filters.due === 'today'}
-        onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>
-      <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
-        onChange={owner => { update({ owner }); }} owners={owners.state} onReload={owners.reload} />
-      <fieldset className="cq-stages"><legend>ステージ{filters.stages.length > 0 ? `(${String(filters.stages.length)} 件選択)` : '(すべて)'}</legend>
-        {QUEUE_STAGES.map(s => <label key={s.id} className="cq-check"><input type="checkbox" checked={filters.stages.includes(s.id)}
-          onChange={() => { toggleStage(s.id); }} />{s.label}</label>)}</fieldset>
-      <div className="cq-actions"><button type="button" onClick={clearAll} disabled={!hasConditions && qDraft === ''}>条件をクリア</button></div>
+      <div className="cq-bar">
+        <input className="cq-search" type="search" aria-label="キーワード(会社名・案件名)" value={qDraft} maxLength={100}
+          placeholder="会社名・案件名で検索" onChange={e => { setQDraft(e.target.value); }} />
+        <OwnerFilter owner={filters.owner} effective={effectiveOwner} needsPick={needsOwnerPick}
+          onChange={owner => { update({ owner }); }} owners={owners.state} onReload={owners.reload} />
+        <select className="cq-sort" aria-label="並び替え" value={filters.sort} onChange={e => { update({ sort: e.target.value as QueueSort }); }}>
+          {QUEUE_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+        <label className="cq-toggle"><input type="checkbox" checked={filters.due === 'today'}
+          onChange={e => { update({ due: (e.target.checked ? 'today' : 'all') }); }} />次回日が来たものだけ</label>
+        <button type="button" className="cq-btn cq-more-toggle" aria-expanded={panelOpen} aria-controls="cq-advanced"
+          onClick={() => { setPanelOpen(o => !o); }}>詳細条件{detailCount > 0 && <span className="cq-badge">{detailCount}</span>}</button>
+        <button type="button" className="cq-btn cq-btn-quiet" onClick={clearAll} disabled={!hasConditions && qDraft === ''}>条件をクリア</button>
+      </div>
+      {chips.length > 0 && <ul className="cq-chips" aria-label="適用中の条件">
+        {chips.map(c => <li key={c.key} className="cq-chip"><span title={c.title}>{c.label}</span>
+          <button type="button" aria-label={`「${c.label}」を外す`} onClick={() => { removeChip(c); }}>×</button></li>)}
+      </ul>}
+      <div id="cq-advanced" className="cq-advanced" hidden={!panelOpen}>
+        <fieldset className="cq-stages"><legend>ステージ{filters.stages.length > 0 ? `(${String(filters.stages.length)} 件選択)` : '(すべて)'}</legend>
+          {QUEUE_STAGES.map(s => <label key={s.id} className="cq-stage-chip"><input type="checkbox" checked={filters.stages.includes(s.id)}
+            onChange={() => { toggleStage(s.id); }} />{s.label}</label>)}</fieldset>
+        <div className="cq-ranges">
+          <fieldset className="cq-range"><legend>次回架電日</legend>
+            <label>から<input type="date" value={filters.nextFrom} onChange={e => { update({ nextFrom: e.target.value }); }} /></label>
+            <label>まで<input type="date" value={filters.nextTo} onChange={e => { update({ nextTo: e.target.value }); }} /></label></fieldset>
+          <fieldset className="cq-range"><legend>最終架電日</legend>
+            <label>から<input type="date" value={filters.lastFrom} onChange={e => { update({ lastFrom: e.target.value }); }} /></label>
+            <label>まで<input type="date" value={filters.lastTo} onChange={e => { update({ lastTo: e.target.value }); }} /></label></fieldset>
+        </div>
+      </div>
     </form>
 
-    <div className="cq-workspace">
-    <main className="cq-main" aria-live="polite" aria-busy={state.phase === 'loading'}>
-      {state.phase === 'invalid' && <div className="cq-notice cq-error" role="alert"><strong>条件を確認してください</strong>
-        <ul>{state.invalid.map(m => <li key={m}>{m}</li>)}</ul></div>}
-      {state.phase === 'loading' && <p role="status" className="cq-loading">読み込み中…</p>}
-      {state.phase === 'unauthorized' && <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p>
-      </div>}
-      {state.phase === 'error' && needsOwnerPick && <div className="cq-notice cq-warn" role="status" data-testid="owner-pick-prompt">
-        <strong>所有者を選んでください</strong><p>{state.message}</p></div>}
-      {state.phase === 'error' && !needsOwnerPick && <div className="cq-notice cq-error" role="alert"><strong>取得できませんでした</strong><p>{state.message}</p>
-        <button onClick={reload}>再試行</button></div>}
+    <div className="cq-body">
+      <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
+        <div className="cq-list-head">
+          {state.phase === 'ready' && <p className="cq-count" role="status">{state.items.length} 件を表示
+            {total !== null && <span title="電話番号なし等を除く前の参考値">(検索結果 {total} 件)</span>}</p>}
+          {mode === 'live' && state.last !== null && <p className="cq-scope-note" data-testid="scope-note"
+            title={[ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</p>}
+        </div>
+        <div className="cq-list-scroll">
+          {state.phase === 'invalid' && <div className="cq-notice cq-error" role="alert"><strong>条件を確認してください</strong>
+            <ul>{state.invalid.map(m => <li key={m}>{m}</li>)}</ul></div>}
+          {state.phase === 'loading' && <p role="status" className="cq-loading">読み込み中…</p>}
+          {state.phase === 'unauthorized' && <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p>
+          </div>}
+          {state.phase === 'error' && needsOwnerPick && <div className="cq-notice cq-warn" role="status" data-testid="owner-pick-prompt">
+            <strong>所有者を選んでください</strong><p>{state.message}</p></div>}
+          {state.phase === 'error' && !needsOwnerPick && <div className="cq-notice cq-error" role="alert"><strong>取得できませんでした</strong><p>{state.message}</p>
+            <button type="button" onClick={reload}>再試行</button></div>}
 
-      {state.phase === 'ready' && <>
-        <p className="cq-count" role="status">{state.items.length} 件を表示
-          {total !== null && <span>(HubSpot の検索結果は {total} 件。電話番号なし等を除く前の参考値)</span>}</p>
-        {state.last?.truncated && <div className="cq-notice cq-warn" role="status">HubSpot の検索は 1 万件までしか取得できないため、これより先は表示できません。条件を絞ってください。</div>}
-        {notes.length > 0 && <div className="cq-notice cq-warn" role="status"><strong>一部の情報が欠けています</strong>
-          <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div>}
-        {state.items.length === 0 && <div className="cq-notice cq-empty">
-          {state.nextCursor ? <p>このページには表示できる行がありません。続きを読み込んでください。</p>
-            : hasConditions ? <><strong>条件に一致する架電先がありません</strong><p>条件を変えるか、クリアしてください。</p>
-              <button onClick={clearAll}>条件をクリア</button></>
-              : <><strong>いま架電キューに出ている架電先はありません</strong></>}</div>}
-        {state.items.length > 0 && <ul className="cq-list" aria-label="架電キュー">
-          {state.items.map(item => <QueueRow key={item.deal_id} item={item} selected={item.deal_id === selectedId}
-            onSelect={id => { setSelection({ id, mode }); }} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
-        {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
-          {state.moreError.kind === 'cursor_mismatch' && <button onClick={reload}>最初から読み直す</button>}</div>}
-        {state.nextCursor && <button className="cq-more" disabled={state.loadingMore} onClick={loadMore}>
-          {state.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>}
-        {!state.nextCursor && state.items.length > 0 && <p className="cq-end">これで最後です。</p>}
-      </>}
-    </main>
-    <section className="cq-detail" aria-label="選んだ架電先の詳細">
-      <DealDetail state={detail.state} reload={detail.reload} zoom={zoom}
-        ownerName={(() => { const o = state.items.find(i => i.deal_id === selectedId)?.owner_id; return o ? ownerNames.get(o) : undefined; })()} />
-    </section>
-    <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} />
+          {state.phase === 'ready' && <>
+            {state.last?.truncated && <div className="cq-notice cq-warn" role="status">HubSpot の検索は 1 万件までしか取得できないため、これより先は表示できません。条件を絞ってください。</div>}
+            {notes.length > 0 && <div className="cq-notice cq-warn" role="status"><strong>一部の情報が欠けています</strong>
+              <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div>}
+            {state.items.length === 0 && <div className="cq-notice cq-empty">
+              {state.nextCursor ? <p>このページには表示できる行がありません。続きを読み込んでください。</p>
+                : hasConditions ? <><strong>条件に一致する架電先がありません</strong><p>条件を変えるか、クリアしてください。</p>
+                  <button type="button" onClick={clearAll}>条件をクリア</button></>
+                  : <><strong>いま架電キューに出ている架電先はありません</strong></>}</div>}
+            {state.items.length > 0 && <ul className="cq-list" aria-label="架電キュー" ref={listRef} onKeyDown={onListKey}>
+              {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
+                selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
+                recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
+                onSelect={selectByClick} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
+            {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
+              {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
+            {state.nextCursor && <button type="button" className="cq-btn cq-load-more" disabled={state.loadingMore} onClick={loadMore}>
+              {state.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>}
+            {!state.nextCursor && state.items.length > 0 && <p className="cq-end">これで最後です。</p>}
+          </>}
+        </div>
+      </section>
+      <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
+        {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
+          : <DealDetail state={detail.state} reload={detail.reload} zoom={zoomForDetail}
+            ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} stopLabel={stopLabel} />}
+        {/* 架電結果の入力欄 (中央の列の下端に固定)。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない */}
+        {selectedId !== null && <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId}>
+          {!storeReady ? <p role="status" className="cq-loading">架電結果の入力欄を準備しています…</p> : <CallResultForm key={`${mode}:${selectedId}`} dealId={selectedId} draft={draft} onChange={changeDraft}
+            defsState={defs.state} onReloadDefs={defs.reload} recorded={isRecorded(selectedId)} onRecord={recordAndNext} onClear={clearDraft}
+            collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
+            focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
+            recordBlocked={recordBlockedNotice !== null} persistFailed={persistFailed}
+            autoFocusOutcome={focusFormFor === selectedId} onAnnounce={announce}
+            notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />}
+        </div>}
+      </section>
+      <div className="cq-col cq-phone-col">
+        <ZoomPhonePanel zoom={zoom} iframeRef={iframeRef} link={endedCall !== null ? 'selected' : callRecorded ? 'recorded' : 'none'} />
+      </div>
     </div>
   </div>;
 }

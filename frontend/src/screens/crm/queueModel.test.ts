@@ -37,6 +37,12 @@ describe('URL <-> filters', () => {
     expect(parseFilters(screenSearch(f({ owner: '123456' }), 'live')).owner).toBe('123456');
   });
 
+  it('the screen URL has no view (the call screen is the default of /app/crm); defaults give an empty string', () => {
+    expect(screenSearch(DEFAULT_FILTERS, 'live')).toBe('');
+    expect(screenSearch(DEFAULT_FILTERS, 'fixture')).toBe('?mode=fixture');
+    expect(screenSearch(f({ due: 'today', stages: ['1095387445'] }), 'live')).toBe('?stage=1095387445&due=today');
+  });
+
   it('drops invalid URL values to defaults instead of breaking the screen', () => {
     const got = parseFilters('?stage=999&stage=1095387445&sort=bogus&owner=<x>&due=never&next_from=2026-13-01&last_to=zzz&q=' + 'あ'.repeat(150));
     expect(got.stages).toEqual(['1095387445']);
