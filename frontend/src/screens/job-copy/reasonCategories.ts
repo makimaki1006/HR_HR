@@ -75,6 +75,9 @@ export function inferCategories(text: string): ReasonCategory[] {
   return NORMALIZED_KEYWORDS.filter(([, words]) => words.some(word => normalized.includes(word))).map(([category]) => category);
 }
 
+/** HubSpot の選択肢「未設定」の内部値 (2026-10-08 に定義を読んで確認。他の選択肢は内部値 = ラベル) */
+const UNSET_VALUE = 'unset';
+
 /** The category of a chosen value: its label (or the stored value) when it names a category, 'unset' for 未設定, null otherwise. */
 export function selectedCategory(selection: Pick<ReasonSelection, 'value' | 'label'>): ReasonCategory | 'unset' | null {
   for (const name of [selection.label, selection.value]) {
@@ -82,7 +85,7 @@ export function selectedCategory(selection: Pick<ReasonSelection, 'value' | 'lab
     const plain = normalize(name).trim();
     const category = REASON_CATEGORIES.find(item => normalize(item) === plain);
     if (category) return category;
-    if (plain === normalize(UNSET_LABEL)) return 'unset';
+    if (plain === normalize(UNSET_LABEL) || plain === UNSET_VALUE) return 'unset';
   }
   return null;
 }
