@@ -766,6 +766,7 @@ async fn get_object_with_associations_is_one_request() {
     assert_eq!(companies.len(), 1);
     assert_eq!(companies[0].id, "300");
     assert!(companies[0].labels.is_empty());
+    assert_eq!(companies[0].type_names, vec!["contact_to_company"]);
     assert!(!more);
     // 同じ id の重複は 1 件に、paging.next があれば truncated
     let (calls_refs, more) = &assocs["calls"];
@@ -774,8 +775,50 @@ async fn get_object_with_associations_is_one_request() {
         vec!["1001", "1002"]
     );
     assert!(more);
+    // 同じ id の型名はまとめて持つ (ラベルは呼び出し側が定義から引く)
+    assert_eq!(
+        calls_refs[0].type_names,
+        vec!["contact_to_call", "contact_to_call_unlabeled"]
+    );
+    assert_eq!(calls_refs[1].type_names, vec!["contact_to_call"]);
     // 応答に無い型も空で入っている
     assert_eq!(assocs["notes"], (Vec::new(), false));
+}
+
+#[tokio::test]
+async fn association_labels_reads_definitions() {
+    let body = json!({"results": [
+        {"category": "HUBSPOT_DEFINED", "typeId": 341, "label": null},
+        {"category": "HUBSPOT_DEFINED", "typeId": 5, "label": "Primary"},
+        {"category": "USER_DEFINED", "typeId": 17, "label": "主"},
+        {"category": "USER_DEFINED", "label": "id なし"}
+    ]});
+    let (base, fake) = spawn_fake(always(200, body)).await;
+    let defs = client(&base, fast_opts())
+        .association_labels("deals", "companies")
+        .await
+        .unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, "GET");
+    assert_eq!(calls[0].path, "/crm/v4/associations/deals/companies/labels");
+    assert_eq!(
+        defs.iter()
+            .map(|d| (d.category.as_str(), d.type_id, d.label.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("HUBSPOT_DEFINED", 341, None),
+            ("HUBSPOT_DEFINED", 5, Some("Primary")),
+            ("USER_DEFINED", 17, Some("主")),
+        ]
+    );
+    // 不正な型名はパスに入れない
+    let err = client(&base, fast_opts())
+        .association_labels("deals", "../x")
+        .await
+        .unwrap_err();
+    assert_eq!(err.error_kind(), "hubspot_decode");
+    assert_eq!(fake.count(), 1);
 }
 
 #[tokio::test]

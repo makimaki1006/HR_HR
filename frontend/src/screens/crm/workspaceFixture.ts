@@ -65,5 +65,7 @@ export function fixtureDetail(dealId: string, props?: SelectedProps): WorkspaceR
       company: item.company ? pickValues(companyValues, props?.companies) : {},
     },
     hubspot_portal_id: '0', data_scope: '架空データ。HubSpot には接続していません', generated_at: '2026-10-05T03:00:00Z',
+    // 架空データは読むたびに作るので、読んだ時刻は今
+    fetched_at: new Date().toISOString(), cached: false,
   };
 }
