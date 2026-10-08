@@ -55,7 +55,7 @@ export function ApplicantComposition({ job, selection, onSelectionChange, includ
     {beforeDistribution === null || afterDistribution === null ? <p className="ac-unavailable" role="status">応募者の属性データは未取得です。取得した媒体の求人にも架空の応募者を割り当てません。0件・0%とは判定していません。</p> : <>
       <p className="ac-demo">{job.dataSource === 'hubspot' ? 'HubSpotの応募を、変更に気づいた日の版に応募日で割り当てた件数です。属性は現在取得できる値です。' : '架空の応募者属性による操作デモです。'}比較元{String(beforeDistribution.total)}件・比較先{String(afterDistribution.total)}件。分母には属性不明も含めます。{job.dataSource !== 'hubspot' && '各版に応募日で結びついた架空の応募だけを含めます。'}</p>
       {dimensions.map(dimension => {
-        const compared = compareDistributions(compositionDistribution(job, before, dimension.id), compositionDistribution(job, after, dimension.id));
+        const compared = compareDistributions(compositionDistribution(job, before, dimension.id), compositionDistribution(job, after, dimension.id), { areas: dimension.id === 'prefecture' || dimension.id === 'municipality' });
         const comparison = compared === null ? null : orderCategories(dimension.id, compared);
         if (comparison === null) return <section key={dimension.id} className="ac-chart"><h3>{dimension.label}</h3><p>この属性は未取得です。0件・0%とは判定していません。</p></section>;
         if (comparison.length === 0) return <section key={dimension.id} className="ac-chart"><h3>{dimension.label}</h3><p>{noLinkedApplicationsMessage(jobApplicationTotal(job))}。割合は算出できません。</p></section>;

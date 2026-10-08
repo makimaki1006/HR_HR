@@ -102,7 +102,7 @@ describe('applicant address rounding', () => {
     expect(job?.overallApplications?.distributions.municipality?.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 31], ['その他', 3]]);
     expect(job?.overallApplications?.distributions.prefecture?.categories.map(row => [row.category, row.count])).toEqual([['東京都', 32], ['その他', 2]]);
     expect(job?.versions[0]?.distributions?.municipality?.categories.map(row => [row.category, row.count])).toEqual([['東京都新宿区', 3]]);
-    expect(job?.jointDemographics?.cells.map(cell => [cell.prefecture, cell.municipality, cell.count])).toEqual([['東京都', '東京都新宿区', 31], ['東京都', 'その他', 1], ['その他', 'その他', 2]]);
+    expect(job?.jointDemographics?.cells.map(cell => [cell.prefecture, cell.municipality, cell.count])).toEqual([['東京都', '東京都新宿区', 31], ['その他', 'その他', 3]]);
     expect(JSON.stringify(job)).not.toMatch(leaks);
     if (job) expect(roundApplicantAreasInRecord(job)).toEqual(job);
   });

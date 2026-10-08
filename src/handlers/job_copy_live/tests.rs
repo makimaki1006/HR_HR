@@ -922,8 +922,8 @@ fn deferred_images_preserve_metadata_and_do_not_fill_unobserved_history() {
     let mut data = progressive_fixture();
     let current = data["capture_bundle"]["jobs"][0]["images"].clone();
     data["capture_bundle"]["jobs"][0]["history"] = json!([
-        {"historicalImageBytesAvailable":true,"images":current.clone()},
-        {"historicalImageBytesAvailable":false,"images":current.clone()}]);
+        {"historicalImageBytesAvailable":true,"images":current},
+        {"historicalImageBytesAvailable":false,"images":current}]);
     let original = data.clone();
     defer_snapshot_images(&mut data, &BTreeSet::from(["30".into()])).unwrap();
     let job = &data["capture_bundle"]["jobs"][0];

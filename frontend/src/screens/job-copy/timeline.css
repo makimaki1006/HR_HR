@@ -118,4 +118,4 @@
 .jo-overview td small { display: block; color: #52697a; font-size: 10px; }
 /* 仮の課金データ（ダミー）: hatched grey so it never looks like a real amount */
 .jt-billing-dummy { background: repeating-linear-gradient(135deg, #f1f5f9 0 5px, #e2e8f0 5px 10px); border-style: dashed; border-color: #94a3b8; color: #334155; }
-.jt-dummy-billing { margin: 2px 0 6px; padding: 4px 8px; border-left: 3px solid #94a3b8; background: #f8fafc; color: #334155; font-size: 12px; }
+.jt-dummy-billing, .jt-demo-billing { margin: 2px 0 6px; padding: 4px 8px; border-left: 3px solid #94a3b8; background: #f8fafc; color: #334155; font-size: 12px; }

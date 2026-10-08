@@ -25,7 +25,16 @@ const PLAUSIBLE: Partial<Record<SalaryKind, [number, number]>> = {
   時給: [100, 99_999], 日給: [1_000, 499_999], 月給: [10_000, 9_999_999], 年収: [100_000, 999_999_999],
 };
 
-interface Token { value: number | null; unit: 'man' | 'yen' | 'none'; start: number; end: number }
+interface Token {
+  value: number | null; unit: 'man' | 'yen' | 'none'; start: number; end: number;
+  /** 円 is written right after the amount. */
+  yen: boolean;
+  /**
+   * "1万2000" with no 円 after it: 12,000 when it is the bottom of a range whose top ends in 円
+   * ("日給1万2000〜1万5000円"); unreadable otherwise.
+   */
+  bottomOnly?: number;
+}
 
 function tokens(text: string): Token[] {
   const found: Token[] = [];
@@ -34,12 +43,16 @@ function tokens(text: string): Token[] {
     if (number === undefined) continue;
     const base = Number(number);
     let value: number | null = Number.isFinite(base) ? base : null;
+    let bottomOnly: number | undefined;
     if (value !== null && man) {
-      // "1万2000円" is 12,000円. Digits after 万 without 円 cannot be read safely.
-      if (after !== undefined) value = en ? Math.round(value * 10_000 + Number(after)) : null;
-      else value = Math.round(value * 10_000);
+      // "1万2000円" is 12,000円. Digits after 万 without 円 cannot be read on their own.
+      if (after !== undefined) {
+        const read = Math.round(value * 10_000 + Number(after));
+        value = en ? read : null;
+        if (!en) bottomOnly = read;
+      } else value = Math.round(value * 10_000);
     }
-    found.push({ value, unit: man ? 'man' : en ? 'yen' : 'none', start: match.index, end: match.index + whole.length });
+    found.push({ value, unit: man ? 'man' : en ? 'yen' : 'none', start: match.index, end: match.index + whole.length, yen: Boolean(en), ...(bottomOnly === undefined ? {} : { bottomOnly }) });
   }
   return found;
 }
@@ -69,6 +82,8 @@ export function parseSalaryText(text: string): SalaryInfo {
   const second = all[index + 1];
   const adjacent = second !== undefined && separated(first, second);
   let min = first.value;
+  // "1万2000〜1万5000円": the bottom has no 円, but the top it is joined to ends in 円.
+  if (min === null && first.bottomOnly !== undefined && adjacent && second.value !== null && second.yen) min = first.bottomOnly;
   // The bottom of "18〜25万円" takes the unit written after the top.
   if (adjacent && first.unit === 'none' && min !== null && second.unit === 'man') min = Math.round(min * 10_000);
   if (min === null) return unreadable(raw);

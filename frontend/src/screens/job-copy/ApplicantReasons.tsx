@@ -4,10 +4,11 @@ import { reasonCohorts, reasonSourceLabels } from './applicantReasonsModel';
 import type { ApplicantReason } from './applicantReasonsModel';
 import { AssumptionsNote } from './AssumptionsNote';
 import { formatDateJst, formatDateTimeJst } from './format';
+import { maskPersonalDetails } from './personalText';
 import './applicant-reasons.css';
 
 function ReasonTexts({ items }: { items: ApplicantReason[] }) {
-  return <ol className="ar-texts">{items.map(item => <li key={item.id}><p className="ar-source" title={`HubSpotの項目名: ${item.sourceProperty}`}>出典: {reasonSourceLabels[item.sourceProperty] ?? 'HubSpotの記録欄'}</p><p>応募日: {item.applicationDate ? formatDateJst(item.applicationDate, item.applicationDate) : '不明'} · 記述を集めた日時: {formatDateTimeJst(item.collectedAt, item.collectedAt ?? '不明')}</p><details><summary>内部閲覧用の原記録を開く</summary><p>個人情報を含む可能性のある原文です。匿名化された内容ではありません。既定の顧客向け印刷には含めません。</p><blockquote>{item.text}</blockquote></details></li>)}</ol>;
+  return <ol className="ar-texts">{items.map(item => <li key={item.id}><p className="ar-source">出典: {reasonSourceLabels[item.sourceProperty] ?? 'HubSpotの記録欄'}</p><p>応募日: {item.applicationDate ? formatDateJst(item.applicationDate, item.applicationDate) : '不明'} · 記述を集めた日時: {formatDateTimeJst(item.collectedAt, item.collectedAt ?? '不明')}</p><details><summary>記録された文を開く（社内確認用）</summary><p>住所の番地・電話番号・メールアドレス・「さん」「様」の付いた名前は「＊＊」に置き換えています。それ以外の個人情報が残っていることがあります。顧客向けの印刷には含めません。</p><blockquote>{maskPersonalDetails(item.text)}</blockquote></details></li>)}</ol>;
 }
 
 export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; before?: CopyVersion | undefined; after?: CopyVersion | undefined }) {
@@ -20,7 +21,7 @@ export function ApplicantReasons({ job, before, after }: { job: JobCopyRecord; b
       <p>取得対象: 応募{collection.totalApplicants}件・記録された理由{collection.totalSourceValues}件 · 未記録{collection.missing}件 · 空欄{collection.blank}件</p>
       <p>理由データの取得日時: {formatDateTimeJst(collection.fetchedAt, collection.fetchedAt ?? '不明')}</p>
       {collection.truncated && <p className="jc-notice">表示対象は取得上限による一部です。表示件数を全記述件数として扱いません。</p>}
-      <label className="ar-source-filter jc-no-print">理由の出典<select aria-label="理由の出典" value={source} onChange={event => { setSource(event.target.value); }}><option value="all">すべての出典</option>{Object.keys(collection.sourceCounts).map(property => <option key={property} value={property}>{reasonSourceLabels[property] ?? property}</option>)}</select></label>
+      <label className="ar-source-filter jc-no-print">理由の出典<select aria-label="理由の出典" value={source} onChange={event => { setSource(event.target.value); }}><option value="all">すべての出典</option>{Object.keys(collection.sourceCounts).map(property => <option key={property} value={property}>{reasonSourceLabels[property] ?? 'HubSpotの記録欄'}</option>)}</select></label>
       {before?.id === after?.id && before && <p>同じ版を選んでいます。</p>}
       {!cohorts.versionAttributionAvailable && <p className="jc-notice">理由と版の対応は未取得です。変更前後には割り当てず、「どの版への理由か不明な記述」に表示します。</p>}
       <div className="ar-pair">{[{ title: '比較元の記述', version: before, rows: cohorts.before }, { title: '比較先の記述', version: after, rows: cohorts.after }].map(group => <section key={group.title} aria-label={group.title}><h3>{group.title}</h3><p>{group.version?.label ?? '版なし'}</p>{cohorts.versionAttributionAvailable ? <><p>表示対象{group.rows.length}件</p>{group.rows.length ? <ReasonTexts items={group.rows} /> : <p>選択版に対応する表示対象の記述はありません。</p>}</> : <p>版との対応は未取得です。</p>}</section>)}</div>

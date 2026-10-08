@@ -557,6 +557,9 @@ impl JobReadService {
             Ok(None) => {}
             Err(code) => response["capture_status"] = json!(code),
         }
+        // No small group of applicants (fewer than 3 in an area or a gender × age × area cell)
+        // leaves the server.
+        protect_applicant_areas(&mut response);
         Ok(response)
     }
 }
@@ -569,59 +572,69 @@ fn round_snapshot_areas(data: &mut Value) {
         return;
     };
     for result in results {
-        let summary = &mut result["summary"];
-        for (key, municipality) in [("prefecture", false), ("municipality", true)] {
-            if let Some(counts) = summary["dimensions"][key].as_object() {
-                let mut merged: BTreeMap<String, u64> = BTreeMap::new();
-                for (label, count) in counts {
-                    *merged
-                        .entry(applicant_area::round_area_label(municipality, label, None))
-                        .or_default() += count.as_u64().unwrap_or(0);
-                }
-                summary["dimensions"][key] = json!(merged);
-            }
-        }
-        if let Some(cells) = summary["joint_demographics"]["cells"].as_array() {
-            let mut merged: Vec<Value> = Vec::new();
-            for cell in cells {
-                let prefecture = applicant_area::round_area_label(
-                    false,
-                    cell["prefecture"].as_str().unwrap_or(""),
-                    None,
-                );
-                let fallback =
-                    (prefecture != applicant_area::AREA_UNKNOWN).then_some(prefecture.as_str());
-                let municipality = applicant_area::round_area_label(
-                    true,
-                    cell["municipality"].as_str().unwrap_or(""),
-                    fallback,
-                );
-                let count = cell["count"].as_u64().unwrap_or(0);
-                if let Some(existing) = merged.iter_mut().find(|existing| {
-                    existing["gender"] == cell["gender"]
-                        && existing["age"] == cell["age"]
-                        && existing["prefecture"] == prefecture.as_str()
-                        && existing["municipality"] == municipality.as_str()
-                }) {
-                    existing["count"] = json!(existing["count"].as_u64().unwrap_or(0) + count);
-                } else {
-                    merged.push(json!({"gender":cell["gender"],"age":cell["age"],"prefecture":prefecture,"municipality":municipality,"count":count}));
+        protect_applicant_areas(result);
+    }
+}
+
+/// Applied to every response that carries applicant counts (the stored snapshot and the live
+/// HubSpot read) before it leaves the server, so DevTools, HAR files and proxy logs never hold
+/// a raw address or a small group of applicants:
+/// - area labels are rounded to 都道府県 + 市区町村;
+/// - areas with fewer than 3 applicants become 「その他」 (in the totals and in each version);
+/// - gender × age × area cells with fewer than 3 applicants lose the area
+///   (applicant_area::protect_joint_cells).
+///
+/// Totals are kept. The joint cells are suppressed more than the area totals, so a search by
+/// area over the joint cells can give fewer applicants than the area totals.
+fn protect_applicant_areas(result: &mut Value) {
+    let summary = &mut result["summary"];
+    for (key, municipality) in [("prefecture", false), ("municipality", true)] {
+        if let Some(counts) = summary["dimensions"][key].as_object() {
+            let mut rounded: Vec<(String, u64)> = Vec::new();
+            for (label, count) in counts {
+                let label = applicant_area::round_area_label(municipality, label, None);
+                let count = count.as_u64().unwrap_or(0);
+                match rounded.iter_mut().find(|(existing, _)| *existing == label) {
+                    Some((_, total)) => *total += count,
+                    None => rounded.push((label, count)),
                 }
             }
-            summary["joint_demographics"]["cells"] = json!(merged);
+            let merged: BTreeMap<String, u64> = applicant_area::merge_small_areas(rounded)
+                .into_iter()
+                .collect();
+            summary["dimensions"][key] = json!(merged);
         }
-        if let Some(versions) = result["dated_comparison"]["by_version"].as_object_mut() {
-            for version in versions.values_mut() {
-                for (key, municipality) in [("prefecture", false), ("municipality", true)] {
-                    round_distribution(&mut version["dimensions"][key], municipality);
-                }
+    }
+    if let Some(cells) = summary["joint_demographics"]["cells"].as_array() {
+        let label = |cell: &Value, key: &str| cell[key].as_str().unwrap_or("").to_owned();
+        let cells = applicant_area::protect_joint_cells(
+            cells
+                .iter()
+                .map(|cell| applicant_area::JointCell {
+                    gender: label(cell, "gender"),
+                    age: label(cell, "age"),
+                    prefecture: label(cell, "prefecture"),
+                    municipality: label(cell, "municipality"),
+                    count: cell["count"].as_u64().unwrap_or(0),
+                })
+                .collect(),
+        );
+        summary["joint_demographics"]["cells"] = json!(cells
+            .into_iter()
+            .map(|cell| json!({"gender":cell.gender,"age":cell.age,"prefecture":cell.prefecture,"municipality":cell.municipality,"count":cell.count}))
+            .collect::<Vec<_>>());
+    }
+    if let Some(versions) = result["dated_comparison"]["by_version"].as_object_mut() {
+        for version in versions.values_mut() {
+            for (key, municipality) in [("prefecture", false), ("municipality", true)] {
+                round_distribution(&mut version["dimensions"][key], municipality);
             }
         }
     }
 }
 
-/// {denominator, categories: [{category, count, percentage}]} with the area categories rounded
-/// and merged. The denominator stays the same.
+/// {denominator, categories: [{category, count, percentage}]} with the area categories rounded,
+/// merged, and areas with fewer than 3 applicants put into 「その他」. The denominator stays the same.
 fn round_distribution(distribution: &mut Value, municipality: bool) {
     let Some(categories) = distribution["categories"].as_array() else {
         return;
@@ -641,7 +654,7 @@ fn round_distribution(distribution: &mut Value, municipality: bool) {
             None => merged.push((label, count)),
         }
     }
-    distribution["categories"] = json!(merged
+    distribution["categories"] = json!(applicant_area::merge_small_areas(merged)
         .into_iter()
         .map(|(category, count)| {
             let percentage = (with_percentage && denominator > 0)
@@ -1167,8 +1180,8 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
             return Err(moc_invalid());
         }
         let comparison = &result["dated_comparison"];
-        if !comparison.is_null() {
-            if !keys_only(
+        if !comparison.is_null()
+            && (!keys_only(
                 comparison,
                 &[
                     "rule_version",
@@ -1188,9 +1201,8 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
                 ],
             ) || comparison["total"].as_u64().is_none()
                 || comparison["unknown"].as_u64().is_none()
-                || !comparison["daily_representatives"]
-                    .as_object()
-                    .is_some_and(|representatives| {
+                || !comparison["daily_representatives"].as_object().is_some_and(
+                    |representatives| {
                         representatives.len() <= 11
                             && representatives.values().all(|representative| {
                                 keys_only(
@@ -1207,7 +1219,8 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
                                 >(representative.clone())
                                 .is_ok()
                             })
-                    })
+                    },
+                )
                 || !comparison["excluded_observations"]
                     .as_array()
                     .is_some_and(|rows| {
@@ -1235,10 +1248,9 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
                                         dimensions.values().all(valid_distribution)
                                     })
                             })
-                    })
-            {
-                return Err(moc_invalid());
-            }
+                    }))
+        {
+            return Err(moc_invalid());
         }
     }
     Ok(())
@@ -1977,22 +1989,102 @@ mod tests {
                 "raw address part {raw:?} left in {text}"
             );
         }
+        // summarize() is the internal count; what is sent is the protected response.
         assert_eq!(
             summary["dimensions"]["municipality"],
             json!({"大分県大分市": 2, "大分県別府市": 1, "大分県（市区町村不明）": 1, "不明": 1})
         );
+        let mut response = json!({"summary": summary});
+        protect_applicant_areas(&mut response);
+        let sent = &response["summary"];
+        // Every city has fewer than 3 applicants, so none of them is named in the response.
         assert_eq!(
-            summary["dimensions"]["prefecture"],
+            sent["dimensions"]["municipality"],
+            json!({"その他": 4, "不明": 1})
+        );
+        assert_eq!(
+            sent["dimensions"]["prefecture"],
             json!({"大分県": 4, "不明": 1})
         );
-        let cells = summary["joint_demographics"]["cells"].as_array().unwrap();
-        let oita = cells
-            .iter()
-            .find(|cell| cell["municipality"] == "大分県大分市")
-            .unwrap();
-        assert_eq!(oita["prefecture"], "大分県");
-        assert_eq!(oita["count"], 2);
-        assert_eq!(summary["joint_demographics"]["total"], 5);
+        assert_eq!(
+            sent["joint_demographics"]["cells"],
+            json!([
+                {"gender": "女性", "age": "20代", "prefecture": "不明", "municipality": "不明", "count": 1},
+                {"gender": "女性", "age": "20代", "prefecture": "大分県", "municipality": "その他", "count": 4}
+            ])
+        );
+        assert_eq!(sent["joint_demographics"]["total"], 5);
+        let text = response.to_string();
+        for city in ["大分市", "別府市", "市区町村不明"] {
+            assert!(
+                !text.contains(city),
+                "{city:?} with fewer than 3 applicants left in {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn live_response_never_sends_an_area_or_a_cell_with_fewer_than_three_applicants() {
+        let row = |id: &str, gender: &str, age: &str, city: &str| Record {
+            id: id.into(),
+            properties: BTreeMap::from([
+                ("yingmuri".into(), Some("2026-10-03".into())),
+                ("seibetsu".into(), Some(gender.into())),
+                ("nenrei".into(), Some(age.into())),
+                ("todoufuken".into(), Some("大分県".into())),
+                ("shikuchouson".into(), Some(city.into())),
+            ]),
+        };
+        let rows = [
+            row("1", "女性", "63", "由布市湯布院町1234-5"),
+            row("2", "男性", "34", "由布市挾間町"),
+            row("3", "男性", "35", "由布市挾間町"),
+            row("4", "男性", "24", "大分市府内町"),
+            row("5", "男性", "25", "大分市府内町"),
+            row("6", "男性", "26", "大分市府内町"),
+        ];
+        let mut response = json!({"summary": summarize(&rows), "dated_comparison": {"by_version": {"v1": {"count": 3, "dimensions": {
+            "municipality": {"denominator": 3, "categories": [
+                {"category": "大分県 / 由布市", "count": 1, "percentage": 33.3},
+                {"category": "大分県 / 大分市", "count": 2, "percentage": 66.7}
+            ]}
+        }}}}});
+        protect_applicant_areas(&mut response);
+        let summary = &response["summary"];
+        // 由布市 has 3 applicants in total, so the area total is shown ...
+        assert_eq!(
+            summary["dimensions"]["municipality"],
+            json!({"大分県由布市": 3, "大分県大分市": 3})
+        );
+        // ... but 女性・60代・由布市 (1 person) and 男性・30代・由布市 (2) are not.
+        for cell in summary["joint_demographics"]["cells"].as_array().unwrap() {
+            let count = cell["count"].as_u64().unwrap();
+            assert!(
+                count >= 3 || (cell["municipality"] == "その他" || cell["municipality"] == "不明"),
+                "small cell names a city: {cell}"
+            );
+            if count < 3 {
+                assert!(
+                    cell["prefecture"] == "その他" || cell["prefecture"] == "不明",
+                    "{cell}"
+                );
+            }
+        }
+        assert_eq!(
+            summary["joint_demographics"]["cells"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|cell| cell["count"].as_u64().unwrap())
+                .sum::<u64>(),
+            6
+        );
+        // Each version is protected on its own: 1 and 2 applicants become その他.
+        assert_eq!(
+            response["dated_comparison"]["by_version"]["v1"]["dimensions"]["municipality"]
+                ["categories"],
+            json!([{"category": "その他", "count": 3, "percentage": 100.0}])
+        );
     }
 
     #[test]
@@ -2048,7 +2140,7 @@ mod tests {
         );
         assert_eq!(
             result["summary"]["dimensions"]["municipality"],
-            json!({"大分県大分市": 3, "大分県別府市": 1})
+            json!({"大分県大分市": 3, "その他": 1})
         );
         assert_eq!(
             result["summary"]["dimensions"]["gender"],
@@ -2058,7 +2150,7 @@ mod tests {
             result["summary"]["joint_demographics"]["cells"],
             json!([
                 {"gender": "女性", "age": "20代", "prefecture": "大分県", "municipality": "大分県大分市", "count": 3},
-                {"gender": "女性", "age": "20代", "prefecture": "不明", "municipality": "大分県別府市", "count": 1}
+                {"gender": "女性", "age": "20代", "prefecture": "その他", "municipality": "その他", "count": 1}
             ])
         );
         assert_eq!(

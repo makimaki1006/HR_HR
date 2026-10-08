@@ -5,7 +5,7 @@ import { InfoTip } from './InfoTip';
 import type { OverviewRow, OverviewSort } from './overviewModel';
 import { daysBetween, formatDay, formatPerDay, formatYen } from './timelineModel';
 import type { BillingEntry } from './timelineModel';
-import { DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE } from './dummyBilling';
+import { DEMO_BILLING_LABEL, DUMMY_BILLING_LABEL, DUMMY_BILLING_NOTE } from './dummyBilling';
 import './timeline.css';
 
 const sortLabels: Record<OverviewSort, string> = {
@@ -33,7 +33,7 @@ function MiniCalendar({ row, range }: { row: OverviewRow; range: { start: string
 
 /** Real total and the dummy total side by side; the dummy is always labelled and never added in. */
 export function overviewBillingText(row: OverviewRow): string {
-  const real = !row.billingConnected ? null : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`;
+  const real = !row.billingConnected ? null : row.billingOverlapping ? '期間が重なる課金あり' : row.billingYen === null ? '金額の記載なし' : `${row.billingFictional ? `${DEMO_BILLING_LABEL} ` : ''}${formatYen(row.billingYen)}${row.billingMissingAmount ? '（記載なしの期間あり）' : ''}`;
   const dummy = row.dummyBillingYen === null ? null : `${DUMMY_BILLING_LABEL} ${formatYen(row.dummyBillingYen)}`;
   if (real && dummy) return `${real} ／ ${dummy}`;
   return real ?? dummy ?? '課金データなし';

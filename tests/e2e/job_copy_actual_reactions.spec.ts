@@ -80,14 +80,14 @@ test('actual recorded reasons are unknown-cohort originals with desktop/mobile v
       captured = true;
       await region.scrollIntoViewIfNeeded();
       await page.screenshot({ path: resolve(evidence, 'reasons-desktop.png') });
-      await region.getByText('内部閲覧用の原記録を開く', { exact: true }).first().click();
+      await region.getByText('記録された文を開く（社内確認用）', { exact: true }).first().click();
       await expect(unknown.locator('blockquote').first()).toBeVisible();
       await page.setViewportSize({ width: 375, height: 850 });
       await region.scrollIntoViewIfNeeded();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: resolve(evidence, 'reasons-mobile.png') });
       await selectJobFeature(page, 'report');
-      await page.getByRole('region', { name: '顧客報告と検証記録', exact: true }).getByText('内部閲覧用の原記録を開く', { exact: true }).first().click();
+      await page.getByRole('region', { name: '顧客報告と検証記録', exact: true }).getByText('記録された文を開く（社内確認用）', { exact: true }).first().click();
       await page.emulateMedia({ media: 'print' });
       for (const original of await page.locator('.ar-reasons').all()) await expect(original).toBeHidden();
       await page.emulateMedia({ media: 'screen' });

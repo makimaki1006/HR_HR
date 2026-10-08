@@ -41,11 +41,11 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   await expect(page.locator('.jc-job').first()).not.toContainText('応募未取得');
   await expect(timeline.getByRole('group', { name: '課金', exact: true })).toContainText('4万5,000円');
   // 市場データの最後の月はデータから読む（毎月更新）。それより後の期間は、どの月までデータがあるかを書く。
-  await expect(timeline.getByText('市場データは2026年8月まで（毎月更新）。2026/09以降はデータなしとして表示しています', { exact: true })).toBeVisible();
+  await expect(timeline.getByText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています', { exact: true })).toBeVisible();
   const rows = timeline.getByRole('table').locator('tbody tr');
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万円', 'データなし（市場データは2026/08まで）']);
-  await expect(rows.nth(1).locator('td')).toHaveText(['10日', '8件', '0.80件/日', '約2万8,125円', 'データなし（市場データは2026/08まで）']);
+  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', 'デモ用の架空の金額 3万円', 'データなし（市場求人数は2026年8月まで）']);
+  await expect(rows.nth(1).locator('td')).toHaveText(['10日', '8件', '0.80件/日', 'デモ用の架空の金額 約2万8,125円', 'データなし（市場求人数は2026年8月まで）']);
   await page.screenshot({ path: `${shots}/timeline-1280.png`, fullPage: true });
 
   // First view (2026-10-08 layout): one-line top bar, full-height list, timeline lanes on screen.
@@ -70,7 +70,7 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   await expect(overview.locator('tbody tr').first()).toContainText('8万7,000円');
   // 実際の課金データが無い求人は、仮の課金データ（ダミー）と書いて金額を出す（実際の金額と足さない）
   await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' }).locator('td.jo-billing')).toHaveText('仮の課金データ（ダミー） 7万2,802円');
-  await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' }).locator('td.jo-billing')).toHaveText('8万7,000円');
+  await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' }).locator('td.jo-billing')).toHaveText('デモ用の架空の金額 8万7,000円');
   await expect(page.getByText(/課金合計の仮の課金データ（ダミー）は、実際の課金データがまだ無いため/u)).toBeVisible();
   await expect(overview).not.toContainText('未接続');
   await page.screenshot({ path: `${shots}/overview-1280.png`, fullPage: true });
@@ -98,7 +98,8 @@ test('billing CSV import fills the billing lane, the period table and the overvi
   await page.goto('/static/app/job-copy-preview.html');
   const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
   const billingLane = timeline.getByRole('group', { name: '課金', exact: true });
-  await expect(billingLane.locator('.jt-billing')).toHaveText(['3万円', '4万5,000円', '1万2,000円']);
+  // The demo's HRハッカー amounts are made up and say so (the demo banner is not printed).
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['架空 3万円', '架空 4万5,000円', '架空 1万2,000円']);
   await page.getByRole('button', { name: 'データ取込', exact: true }).click();
   await expect(page.getByRole('region', { name: 'データ取込', exact: true })).toBeVisible();
   const csv = '媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-AIR-002,2026-09-05,2026-09-30,40000\n';
@@ -109,11 +110,11 @@ test('billing CSV import fills the billing lane, the period table and the overvi
   await page.getByRole('region', { name: 'データ取込', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
   await expect(page.locator('.jc-data-import')).toBeHidden();
   // The CSV row (33,000円) replaces the HRハッカー row for the same days; the other rows stay.
-  await expect(billingLane.locator('.jt-billing')).toHaveText(['3万3,000円', '4万5,000円', '1万2,000円']);
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['3万3,000円', '架空 4万5,000円', '架空 1万2,000円']);
   await expect(billingLane.locator('.jt-billing-csv')).toHaveCount(1);
   await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
   const rows = timeline.getByRole('table').locator('tbody tr');
-  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万3,000円', 'データなし（市場データは2026/08まで）']);
+  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万3,000円', 'データなし（市場求人数は2026年8月まで）']);
   await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   await page.locator('.jc-job', { hasText: '倉庫内ピッキングスタッフ' }).click();
   // CSV の 09-05〜09-30 は CSV の金額。CSV に無い 10-01〜10-05 だけ仮の課金データ（ダミー）が残る。

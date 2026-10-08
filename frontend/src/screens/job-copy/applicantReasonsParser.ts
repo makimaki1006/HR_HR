@@ -1,5 +1,6 @@
 import type { ApplicantReasonCollection, ReasonSourceCounts } from './applicantReasonsModel';
 import { reasonSourceLabels } from './applicantReasonsModel';
+import { maskPersonalDetails } from './personalText';
 
 const invalid = (): never => { throw new Error('応募理由の取得データを確認できませんでした。'); };
 function object(value: unknown): Record<string, unknown> {
@@ -55,7 +56,7 @@ export function parseApplicantReasons(value: unknown, totalApplicants: number, p
       || typeof item.text !== 'string' || !item.text.trim() || scalarCount(item.text) > 2000) return invalid();
     seen.add(item.id);
     if (item.version_id !== null && (typeof item.version_id !== 'string' || !publishedVersionIds.includes(item.version_id))) return invalid();
-    return { id: item.id, text: item.text, sourceProperty: item.source_property,
+    return { id: item.id, text: maskPersonalDetails(item.text), sourceProperty: item.source_property,
       applicationDate: date(item.application_date), collectedAt: item.collected_at === null ? null : timestamp(item.collected_at), versionId: item.version_id };
   });
   const nonblank = sources.reduce((n, row) => n + row.nonblank, 0);

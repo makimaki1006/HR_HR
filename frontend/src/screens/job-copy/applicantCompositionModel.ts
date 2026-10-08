@@ -1,5 +1,5 @@
 import type { CopyVersion, JobCopyRecord } from './data';
-import { municipalityLabel, parseApplicantArea, prefectureLabel, roundAreaDistribution } from './applicantArea';
+import { AREA_OTHER, AREA_UNKNOWN, municipalityLabel, parseApplicantArea, prefectureLabel, roundAreaDistribution } from './applicantArea';
 
 export type ApplicantDimension = 'gender' | 'age' | 'prefecture' | 'municipality';
 export interface ApplicantAttributes { gender: string | null; age: number | null; prefecture: string | null; municipality: string | null }
@@ -47,14 +47,46 @@ export function displayDistribution(distribution: ApplicantDistribution | null |
   return dimension === 'prefecture' || dimension === 'municipality' ? roundAreaDistribution(distribution, dimension) : distribution;
 }
 
-export function compareDistributions(before: ApplicantDistribution | null, after: ApplicantDistribution | null): DistributionComparison[] | null {
+/**
+ * Puts a named area into 「その他」 on both sides when one side does not show it but has a
+ * 「その他」: there it was merged in (fewer than 3 applicants), so its count is 1 or 2, not 0.
+ * Comparing it as 0 would show a false −100 points. A side without 「その他」 really has 0.
+ */
+function alignSuppressedAreas(before: ApplicantDistribution, after: ApplicantDistribution): [ApplicantDistribution, ApplicantDistribution] {
+  const hasOther = (side: ApplicantDistribution) => side.categories.some(item => item.category === AREA_OTHER && item.count > 0);
+  const named = (side: ApplicantDistribution) => new Set(side.categories.map(item => item.category).filter(category => category !== AREA_OTHER && category !== AREA_UNKNOWN));
+  const beforeNamed = named(before); const afterNamed = named(after);
+  const hidden = new Set([
+    ...(hasOther(after) ? [...beforeNamed].filter(category => !afterNamed.has(category)) : []),
+    ...(hasOther(before) ? [...afterNamed].filter(category => !beforeNamed.has(category)) : []),
+  ]);
+  if (!hidden.size) return [before, after];
+  const merge = (side: ApplicantDistribution): ApplicantDistribution => {
+    const counts = new Map<string, number>();
+    for (const item of side.categories) {
+      const category = hidden.has(item.category) ? AREA_OTHER : item.category;
+      counts.set(category, (counts.get(category) ?? 0) + item.count);
+    }
+    const rows = [...counts].map(([category, count]) => ({ category, count, percentage: side.total ? count / side.total * 100 : null }));
+    const rank = (label: string) => label === AREA_OTHER ? 1 : label === AREA_UNKNOWN ? 2 : 0;
+    return { total: side.total, categories: rows.sort((left, right) => rank(left.category) - rank(right.category)) };
+  };
+  return [merge(before), merge(after)];
+}
+
+/**
+ * areas: the categories are areas (都道府県・市区町村), where 「その他」 holds the areas with fewer
+ * than 3 applicants. For gender, 「その他」 is a real answer and is left alone.
+ */
+export function compareDistributions(before: ApplicantDistribution | null, after: ApplicantDistribution | null, options: { areas?: boolean } = {}): DistributionComparison[] | null {
   if (before === null || after === null) return null;
-  const categories = [...new Set([...before.categories.map(item => item.category), ...after.categories.map(item => item.category)])];
+  const [left, right] = options.areas ? alignSuppressedAreas(before, after) : [before, after];
+  const categories = [...new Set([...left.categories.map(item => item.category), ...right.categories.map(item => item.category)])];
   return categories.map(category => {
-    const beforeCount = before.categories.find(item => item.category === category)?.count ?? 0;
-    const afterCount = after.categories.find(item => item.category === category)?.count ?? 0;
-    const beforePercentage = before.total ? beforeCount / before.total * 100 : null;
-    const afterPercentage = after.total ? afterCount / after.total * 100 : null;
+    const beforeCount = left.categories.find(item => item.category === category)?.count ?? 0;
+    const afterCount = right.categories.find(item => item.category === category)?.count ?? 0;
+    const beforePercentage = left.total ? beforeCount / left.total * 100 : null;
+    const afterPercentage = right.total ? afterCount / right.total * 100 : null;
     return { category, beforeCount, afterCount, beforePercentage, afterPercentage, deltaPp: beforePercentage === null || afterPercentage === null ? null : afterPercentage - beforePercentage };
   });
 }

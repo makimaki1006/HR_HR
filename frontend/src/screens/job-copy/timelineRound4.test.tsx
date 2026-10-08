@@ -106,14 +106,14 @@ describe('the last market month comes from the data', () => {
     expect(document.body.textContent).not.toContain('2026年8月まで');
     // 2026-09-01〜09-14 and 09-15〜09-24 are inside the data: compared, not "データなし".
     const cells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
-    expect(cells).toEqual(['同じ月の中（2026/09 130件）', '同じ月の中（2026/09 130件）', '+7.7%（2026/09 130件 → 2026/10 140件）']);
+    expect(cells).toEqual(['同じ月の中（2026年9月 130件）', '同じ月の中（2026年9月 130件）', '+7.7%（2026年9月 130件 → 2026年10月 140件）']);
   });
   it('shows 市場データは2026年8月まで and names the month for a period after it', async () => {
     api.mockImplementation((path: string) => Promise.resolve(marketData(path, ['2026-06', '2026-07', '2026-08'])));
     render(<JobTimeline job={demo('demo-job-001')} />);
-    expect(await screen.findByText('市場データは2026年8月まで（毎月更新）。2026/09以降はデータなしとして表示しています')).toBeTruthy();
+    expect(await screen.findByText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています')).toBeTruthy();
     const cells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
-    expect(cells).toEqual(['データなし（市場データは2026/08まで）', 'データなし（市場データは2026/08まで）', 'データなし（市場データは2026/08まで）']);
+    expect(cells).toEqual(['データなし（市場求人数は2026年8月まで）', 'データなし（市場求人数は2026年8月まで）', 'データなし（市場求人数は2026年8月まで）']);
   });
   it('shows the last month on the 市場分析 tab too, under the plain label 市場環境', async () => {
     render(<MarketContext job={demo('demo-job-001')} mode="demo" view="table" />);

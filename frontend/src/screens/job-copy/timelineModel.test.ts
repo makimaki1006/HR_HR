@@ -68,9 +68,9 @@ describe('billing in the period table', () => {
       { source: 'csv', start: '2026-09-15', end: '2026-09-30', amountYen: 45000 },
       { source: 'csv', start: '2026-10-01', end: '2026-10-05', amountYen: null },
     ] });
-    expect(rows[0]?.billing).toEqual({ connected: true, yen: 30000, prorated: false, missingAmount: false, entries: 1, overlapping: false });
-    expect(rows[1]?.billing).toEqual({ connected: true, yen: 28125, prorated: true, missingAmount: false, entries: 1, overlapping: false });
-    expect(rows[2]?.billing).toEqual({ connected: true, yen: 16875, prorated: true, missingAmount: true, entries: 2, overlapping: false });
+    expect(rows[0]?.billing).toEqual({ connected: true, yen: 30000, prorated: false, missingAmount: false, entries: 1, overlapping: false, fictional: false });
+    expect(rows[1]?.billing).toEqual({ connected: true, yen: 28125, prorated: true, missingAmount: false, entries: 1, overlapping: false, fictional: false });
+    expect(rows[2]?.billing).toEqual({ connected: true, yen: 16875, prorated: true, missingAmount: true, entries: 2, overlapping: false, fictional: false });
   });
   it('does not add up billing periods that overlap each other', () => {
     const rows = periodRows(driver, { asOf: '2026-10-05', billing: [
@@ -159,7 +159,7 @@ describe('market data that ends before the period does', () => {
   });
   it('has no "data ends at" month when the choice has no market rows at all', () => {
     const lane = marketLane([], { start: '2026-09-01', end: '2026-10-05' });
-    expect(lane).toEqual({ points: [{ month: '2026-09', jobs: null, viewers: null }, { month: '2026-10', jobs: null, viewers: null }], lastDataMonth: null, noDataFrom: null });
+    expect(lane).toEqual({ points: [{ month: '2026-09', jobs: null, viewers: null }, { month: '2026-10', jobs: null, viewers: null }], lastDataMonth: null, lastJobsMonth: null, noDataFrom: null });
   });
 });
 

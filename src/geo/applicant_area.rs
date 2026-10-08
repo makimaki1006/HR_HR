@@ -11,7 +11,9 @@ use unicode_normalization::UnicodeNormalization;
 
 const MASTER_CITY_CSV: &str = include_str!("master_city.csv");
 pub const AREA_UNKNOWN: &str = "不明";
-const AREA_OTHER: &str = "その他";
+pub const AREA_OTHER: &str = "その他";
+/// これ未満の人数の地域は「その他」にまとめる (画面側の MINIMUM_AREA_COUNT と同じ値)。
+pub const MINIMUM_AREA_COUNT: u64 = 3;
 
 struct Prefecture {
     name: &'static str,
@@ -234,6 +236,149 @@ pub fn round_area_label(
     municipality_label(&round_area(fallback_prefecture, Some(trimmed)))
 }
 
+/// 「その他」「不明」以外の、名前のある地域ラベルか。
+pub fn is_named_area(label: &str) -> bool {
+    label != AREA_UNKNOWN && label != AREA_OTHER
+}
+
+/// 地域ごとの件数で、MINIMUM_AREA_COUNT 未満の地域を「その他」にまとめる。合計は変えない。
+/// 並びは元の順のまま (「その他」は最初にまとめた地域の位置)。
+pub fn merge_small_areas(counts: Vec<(String, u64)>) -> Vec<(String, u64)> {
+    let mut merged: Vec<(String, u64)> = Vec::new();
+    for (label, count) in counts {
+        let target = if is_named_area(&label) && count < MINIMUM_AREA_COUNT {
+            AREA_OTHER.to_owned()
+        } else {
+            label
+        };
+        match merged.iter_mut().find(|(existing, _)| *existing == target) {
+            Some((_, total)) => *total += count,
+            None => merged.push((target, count)),
+        }
+    }
+    merged
+}
+
+/// 性別 × 年代 × 地域の組み合わせの 1 セル。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JointCell {
+    pub gender: String,
+    pub age: String,
+    pub prefecture: String,
+    pub municipality: String,
+    pub count: u64,
+}
+
+fn merge_cells(cells: Vec<JointCell>) -> Vec<JointCell> {
+    let mut index: HashMap<(String, String, String, String), usize> = HashMap::new();
+    let mut merged: Vec<JointCell> = Vec::new();
+    for cell in cells {
+        let key = (
+            cell.gender.clone(),
+            cell.age.clone(),
+            cell.prefecture.clone(),
+            cell.municipality.clone(),
+        );
+        match index.get(&key) {
+            Some(&at) => merged[at].count += cell.count,
+            None => {
+                index.insert(key, merged.len());
+                merged.push(cell);
+            }
+        }
+    }
+    merged
+}
+
+/// 組み合わせの集計を、ブラウザに送る前に丸めてまとめる。合計は変えない。
+///
+/// 1. 地域を都道府県 + 市区町村に丸める。市区町村が分かれば、都道府県はその市区町村から決め直す
+///    (都道府県欄が空でも、市区町村欄から都道府県が分かることがあるため)。
+/// 2. 求人内の人数が 3 人未満の都道府県・市区町村は「その他」にする。
+/// 3. それでも 3 人未満のセルは、市区町村を「その他」にする。まだ 3 人未満なら都道府県も「その他」にする。
+///    「女性・60代・由布市 = 1人」のように、組み合わせで 1 人を特定できる地域は送らない。
+pub fn protect_joint_cells(cells: Vec<JointCell>) -> Vec<JointCell> {
+    let rounded: Vec<JointCell> = cells
+        .into_iter()
+        .map(|cell| {
+            let prefecture = round_area_label(false, &cell.prefecture, None);
+            let fallback = is_named_area(&prefecture).then_some(prefecture.as_str());
+            let municipality = round_area_label(true, &cell.municipality, fallback);
+            let prefecture = if is_named_area(&municipality) {
+                round_area_label(false, &municipality, None)
+            } else {
+                prefecture
+            };
+            JointCell {
+                prefecture,
+                municipality,
+                ..cell
+            }
+        })
+        .collect();
+    let mut prefecture_totals: HashMap<String, u64> = HashMap::new();
+    let mut municipality_totals: HashMap<String, u64> = HashMap::new();
+    for cell in &rounded {
+        *prefecture_totals
+            .entry(cell.prefecture.clone())
+            .or_default() += cell.count;
+        *municipality_totals
+            .entry(cell.municipality.clone())
+            .or_default() += cell.count;
+    }
+    let small = |totals: &HashMap<String, u64>, label: &str| {
+        is_named_area(label) && totals.get(label).copied().unwrap_or(0) < MINIMUM_AREA_COUNT
+    };
+    let by_area = merge_cells(
+        rounded
+            .into_iter()
+            .map(|cell| JointCell {
+                prefecture: if small(&prefecture_totals, &cell.prefecture) {
+                    AREA_OTHER.to_owned()
+                } else {
+                    cell.prefecture.clone()
+                },
+                municipality: if small(&municipality_totals, &cell.municipality) {
+                    AREA_OTHER.to_owned()
+                } else {
+                    cell.municipality.clone()
+                },
+                ..cell
+            })
+            .collect(),
+    );
+    let without_city = merge_cells(
+        by_area
+            .into_iter()
+            .map(|cell| {
+                if cell.count < MINIMUM_AREA_COUNT && is_named_area(&cell.municipality) {
+                    JointCell {
+                        municipality: AREA_OTHER.to_owned(),
+                        ..cell
+                    }
+                } else {
+                    cell
+                }
+            })
+            .collect(),
+    );
+    merge_cells(
+        without_city
+            .into_iter()
+            .map(|cell| {
+                if cell.count < MINIMUM_AREA_COUNT && is_named_area(&cell.prefecture) {
+                    JointCell {
+                        prefecture: AREA_OTHER.to_owned(),
+                        ..cell
+                    }
+                } else {
+                    cell
+                }
+            })
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,5 +465,90 @@ mod tests {
         assert_eq!(round_area_label(false, "不明", None), "不明");
         assert_eq!(round_area_label(true, "その他", None), "その他");
         assert_eq!(round_area_label(true, "  ", None), "不明");
+    }
+
+    fn cell(
+        gender: &str,
+        age: &str,
+        prefecture: &str,
+        municipality: &str,
+        count: u64,
+    ) -> JointCell {
+        JointCell {
+            gender: gender.into(),
+            age: age.into(),
+            prefecture: prefecture.into(),
+            municipality: municipality.into(),
+            count,
+        }
+    }
+
+    #[test]
+    fn small_areas_are_merged_into_other() {
+        let merged = merge_small_areas(vec![
+            ("大分県大分市".into(), 3),
+            ("大分県由布市".into(), 1),
+            ("大分県別府市".into(), 2),
+            ("不明".into(), 1),
+        ]);
+        assert_eq!(
+            merged,
+            vec![
+                ("大分県大分市".to_owned(), 3),
+                ("その他".to_owned(), 3),
+                ("不明".to_owned(), 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_single_applicant_is_not_identified_by_gender_age_and_city() {
+        // 由布市は合計 3 人 (地域としては残る) だが、「女性・60代・由布市」は 1 人。
+        let cells = protect_joint_cells(vec![
+            cell("女性", "60代", "大分県", "大分県 / 由布市湯布院町1234-5", 1),
+            cell("男性", "30代", "大分県", "大分県 / 由布市挾間町", 2),
+            cell("男性", "20代", "大分県", "大分県 / 大分市府内町", 3),
+        ]);
+        assert_eq!(
+            cells,
+            vec![
+                cell("女性", "60代", "その他", "その他", 1),
+                cell("男性", "30代", "その他", "その他", 2),
+                cell("男性", "20代", "大分県", "大分県大分市", 3),
+            ]
+        );
+        assert!(cells
+            .iter()
+            .all(|c| c.count >= MINIMUM_AREA_COUNT || !is_named_area(&c.municipality)));
+        assert_eq!(cells.iter().map(|c| c.count).sum::<u64>(), 6);
+    }
+
+    #[test]
+    fn small_cells_keep_the_prefecture_when_it_has_enough_people() {
+        let cells = protect_joint_cells(vec![
+            cell("女性", "20代", "大分県", "大分県大分市", 1),
+            cell("女性", "20代", "大分県", "大分県別府市", 2),
+            cell("男性", "40代", "大分県", "大分県大分市", 3),
+        ]);
+        // 女性・20代は大分県で 3 人になるので、都道府県は残す。市区町村は「その他」。
+        assert_eq!(
+            cells,
+            vec![
+                cell("女性", "20代", "大分県", "その他", 3),
+                cell("男性", "40代", "大分県", "大分県大分市", 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_prefecture_is_taken_from_the_rounded_city() {
+        let cells = protect_joint_cells(vec![
+            cell("女性", "20代", "不明", "都道府県不明 / 別府市北浜2-9-1", 3),
+            cell("女性", "20代", "大分県", "大分県 / 別府市", 1),
+        ]);
+        assert_eq!(
+            cells,
+            vec![cell("女性", "20代", "大分県", "大分県別府市", 4)]
+        );
     }
 }
