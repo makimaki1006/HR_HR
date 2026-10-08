@@ -182,3 +182,7 @@
 .jc-snapshot-tip .jc-snapshot-summary { padding: 0; border: 0; gap: 4px 14px; font-size: 12px; }
 .jc-snapshot-tip .jc-snapshot-summary strong { font-size: 14px; }
 .jc-snapshot-note { font-size: 11px; color: #52697a; margin-top: 6px !important; }
+
+/* Inside a changed line: the words or characters that differ from the paired line. */
+.jc-diff-line ins.jc-mark-added { background: #8fd19e; color: #0b3d1a; text-decoration: none; border-radius: 2px; box-shadow: 0 -1px 0 #2f7d4a inset; }
+.jc-diff-line del.jc-mark-removed { background: #f2a3a3; color: #5c0f0f; text-decoration: line-through; border-radius: 2px; }
