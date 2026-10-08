@@ -95,7 +95,10 @@ function observedVersion(item: Record<string, unknown>, id: string, capturedAt: 
     });
     if (new Set(references.map(reference => reference.slot)).size !== references.length) return invalid();
   }
-  const archived = historicBytes === false ? images.length ? '過去時点の画像データは未保存です。表示画像は過去の画像参照を後日取得したもので、過去の画像内容の一致・変更は判定できません。' : '過去時点の画像原本は未取得です。過去の画像内容の一致・変更は判定できません。' : '';
+  // Without the CSV's image URLs and with no images, the version's images are not known at all.
+  const urlsUnknown = references === undefined && images.length === 0;
+  const archived = historicBytes !== false ? '' : urlsUnknown ? '過去時点の画像ファイルとこの版の画像URLは未取得です。前後の版と画像を比べられません。'
+    : `過去時点の画像ファイルは未保存です。${images.length ? '表示画像は後日取得したものです。' : ''}画像の変化は媒体CSVの画像URLと並び順で判定しています。`;
   return {
     id, label: `${capturedLabel(capturedAt)}時点の求人内容`, source: historical ? 'HRハッカー過去CSV・画像参照' : 'HRハッカーCSV・掲載画像',
     observedAt: capturedAt, certainty: 'unknown', kind: 'published', body: text(item.body, 100_000, true),
