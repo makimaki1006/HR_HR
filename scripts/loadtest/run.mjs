@@ -41,6 +41,12 @@ const OPT = {
   label: A.label ?? 'run',
   outDir: A.out ?? path.join(HERE, 'results'),
   seed: num('seed', 42),
+  // 503 hubspot_busy (gateway): the user retries after busyRetryMin–Max s, at most busyRetries times per action
+  busyRetries: num('busy-retries', 5),
+  busyRetryMin: num('busy-retry-min', 3),
+  busyRetryMax: num('busy-retry-max', 8),
+  // extra env for the app, e.g. --app-env HUBSPOT_APP_SEARCH_PER_SEC=1,HUBSPOT_APP_RATE_PER_SEC=8
+  appEnv: Object.fromEntries((A['app-env'] ?? '').split(',').filter(Boolean).map(kv => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)])),
   // passthrough to fake_hubspot
   fake: ['latency-ms', 'jitter-ms', 'limit-10s', 'limit-1s', 'search-per-sec', 'background-rps', 'deals', 'search-counts-general']
     .filter(k => A[k] !== undefined).flatMap(k => [`--${k}`, A[k]]),
@@ -125,6 +131,7 @@ async function startProcesses(workDir) {
       GOOGLE_OIDC_HOSTED_DOMAIN: 'f-a-c.co.jp',
       GOOGLE_OIDC_DISCOVERY_URL_DEBUG: `${FAKE}/oidc/.well-known/openid-configuration`,
       RUST_LOG: process.env.RUST_LOG ?? 'info',
+      ...OPT.appEnv,
     },
   });
   children.push(app);
@@ -168,9 +175,28 @@ async function loginVu(n) {
   return { n, email, jar, isAdmin: n < OPT.admins };
 }
 
-const records = []; // {vu, ep, phase, start, dur, status}
+const records = []; // {vu, ep, phase, start, dur, status, kind, attempt, final, userDur}
 let T0 = 0;
-async function call(vu, ep, phase, urlPath) {
+const isBusy = r => r.status === 503 && r.body?.error_kind === 'hubspot_busy';
+/**
+ * One user action. On 503 hubspot_busy the screen says "混み合っています。少し待ってから再試行" — the user waits a few
+ * seconds and presses 再試行 (`retryPath`, e.g. the queue's reload sends fresh=1). Every attempt is recorded;
+ * the last one carries `final: true` and `userDur` (first attempt start -> last attempt end).
+ */
+async function action(vu, ep, phase, urlPath, retryPath = urlPath) {
+  const first = Date.now();
+  for (let attempt = 0; ; attempt++) {
+    const r = await callOnce(vu, ep, phase, attempt === 0 ? urlPath : retryPath, attempt);
+    if (!isBusy(r) || attempt >= OPT.busyRetries) {
+      r.rec.final = true;
+      r.rec.userDur = Date.now() - first;
+      return r;
+    }
+    await sleep(uniform(OPT.busyRetryMin, OPT.busyRetryMax) * 1000);
+  }
+}
+const call = (vu, ep, phase, urlPath, retryPath) => action(vu, ep, phase, urlPath, retryPath);
+async function callOnce(vu, ep, phase, urlPath, attempt) {
   const start = Date.now();
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), OPT.clientTimeoutMs);
@@ -185,9 +211,9 @@ async function call(vu, ep, phase, urlPath) {
   } finally {
     clearTimeout(timer);
   }
-  const rec = { vu: vu.n, ep, phase, start: start - T0, dur: Date.now() - start, status, kind: body?.error_kind ?? null };
+  const rec = { vu: vu.n, ep, phase, start: start - T0, dur: Date.now() - start, status, kind: body?.error_kind ?? null, attempt, final: false };
   records.push(rec);
-  return { status, body };
+  return { status, body, rec };
 }
 
 // ---------------------------------------------------------------------------
@@ -195,13 +221,14 @@ async function call(vu, ep, phase, urlPath) {
 // ---------------------------------------------------------------------------
 const shared = { hot: [] }; // popular deals (first rows of the first queue page someone loaded)
 
-function queuePath(f, cursor) {
+function queuePath(f, cursor, fresh = false) {
   const p = new URLSearchParams();
   if (f.pipeline !== DEFAULT_PIPELINE) p.set('pipeline', f.pipeline);
   for (const s of f.stages) p.append('stage', s);
   if (f.owner) p.set('owner', f.owner);
   p.set('limit', '50');
   if (cursor) p.set('cursor', cursor);
+  if (fresh) p.set('fresh', '1');
   return `/api/crm/call-queue?${p}`;
 }
 function randomFilters(vu) {
@@ -213,8 +240,11 @@ function randomFilters(vu) {
   return { pipeline: pl, stages, owner };
 }
 
-async function loadQueue(vu, st, phase, page2) {
-  const r = await call(vu, page2 ? 'queue_page2+' : 'queue_page1', phase, queuePath(st.filters, page2 ? st.cursor : null));
+async function loadQueue(vu, st, phase, page2, reload = false) {
+  // page 1: the screen's 再試行 / reload skips the server's 30 s cache (fresh=1); load-more does not
+  const path1 = queuePath(st.filters, page2 ? st.cursor : null, !page2 && reload);
+  const retry = queuePath(st.filters, page2 ? st.cursor : null, !page2);
+  const r = await call(vu, page2 ? 'queue_page2+' : 'queue_page1', phase, path1, retry);
   if (r.status === 200 && r.body) {
     const ids = (r.body.items ?? []).map(x => x.deal_id);
     st.rows = page2 ? st.rows.concat(ids) : ids;
@@ -270,8 +300,8 @@ async function runVu(vu, endAt) {
     await sleep(think);
     const roll = rnd();
     if (st.rows.length === 0) {
-      // the queue never loaded (e.g. 504): the user presses reload instead of opening a deal
-      await loadQueue(vu, st, 'steady', false);
+      // the queue never loaded (e.g. 504): the user presses reload (再試行 = fresh=1) instead of opening a deal
+      await loadQueue(vu, st, 'steady', false, true);
       continue;
     }
     if (roll < 0.1) {
@@ -367,11 +397,25 @@ function report({ fakeStats, appLog, started, finished, loginErrors, vus, runId,
   const hsSteady = hubspotWindowStats(fakeStats.perSec, steadyFromS, totalS);
   const hsAll = hubspotWindowStats(fakeStats.perSec, 0, totalS);
   // time until each user saw the queue (first queue_page1 in rush)
+  // (first queue_page1 action in rush; with busy retries: from the first attempt to the final answer)
+  const isFinal = r => r.final !== false; // records from before the busy-retry change have no flag
+  const uDur = r => r.userDur ?? r.dur;
   const firstQueue = new Map();
-  for (const r of rush.filter(x => x.ep === 'queue_page1')) if (!firstQueue.has(r.vu)) firstQueue.set(r.vu, r);
+  for (const r of rush.filter(x => x.ep === 'queue_page1' && isFinal(x))) if (!firstQueue.has(r.vu)) firstQueue.set(r.vu, r);
   const tq = [...firstQueue.values()];
-  const tqOk = tq.filter(r => r.status === 200).map(r => r.dur).sort((a, b) => a - b);
-  const within = s => tq.filter(r => r.status === 200 && r.dur <= s * 1000).length;
+  const tqOk = tq.filter(r => r.status === 200).map(uDur).sort((a, b) => a - b);
+  const within = s => tq.filter(r => r.status === 200 && uDur(r) <= s * 1000).length;
+  const busySummary = recs => {
+    const busy = recs.filter(r => r.status === 503 && r.kind === 'hubspot_busy');
+    const fin = recs.filter(isFinal);
+    const gaveUp = fin.filter(r => r.status === 503 && r.kind === 'hubspot_busy').length;
+    const retried = fin.filter(r => (r.attempt ?? 0) > 0);
+    const byEp = {};
+    for (const r of busy) byEp[r.ep] = (byEp[r.ep] ?? 0) + 1;
+    const epTxt = Object.entries(byEp).map(([k, v]) => `${k} ${v}`).join(', ') || '-';
+    const actionOk = fin.length ? fin.filter(r => r.status === 200).length / fin.length : NaN;
+    return `503 hubspot_busy responses: ${busy.length} (${epTxt}); user actions: ${fin.length}, of which retried after busy: ${retried.length} (succeeded in the end: ${retried.filter(r => r.status === 200).length}), gave up still busy: ${gaveUp}; action success rate (after busy retries) ${fmt(actionOk * 100)} %.`;
+  };
   const gotQueue = new Set(records.filter(r => r.ep === 'queue_page1' && r.status === 200).map(r => r.vu));
   const firstOk = new Map();
   for (const r of records) if (r.ep === 'queue_page1' && r.status === 200 && !firstOk.has(r.vu)) firstOk.set(r.vu, r.start + r.dur);
@@ -410,9 +454,13 @@ Users who saw a queue at least once during the whole run: ${gotQueue.size} / ${v
 
 ${epTable(rush)}
 
+${busySummary(rush)}
+
 ## Steady state (${steady.length} requests)
 
 ${epTable(steady)}
+
+${busySummary(steady)}
 
 ## HubSpot side (from the fake server; "app" = calls made by rust_dashboard, background = simulated external batch)
 
