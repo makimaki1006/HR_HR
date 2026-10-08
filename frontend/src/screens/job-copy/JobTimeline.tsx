@@ -12,7 +12,7 @@ import { salaryLabel } from './salaryExtract';
 import { plainWording } from './format';
 import { InfoTip } from './InfoTip';
 import {
-  addDays, applicationBuckets, asOfDate, billingEntries, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
+  addDays, applicationBuckets, bodyMark, asOfDate, billingEntries, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
   marketLane, periodRows, positionOf, timelineRange, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange } from './timelineModel';
@@ -313,9 +313,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <Lane title="本文" source="前の版との行の比較">
         {changes.map(change => <button type="button" key={change.versionId} className={`jt-mark${change.index > 0 && change.bodyStatus === 'changed' ? ' jt-mark-changed' : ''}`} aria-pressed={selected === change.versionId}
           style={pinned(change.date, range)} onClick={() => { setSelected(change.versionId); }}
-          title={change.index === 0 || change.bodyStatus !== 'changed' ? undefined : `${String(change.bodyAdded)}行追加・${String(change.bodyRemoved)}行削除`}
-          aria-label={`${change.label}の本文${change.index === 0 ? '（最初の版）' : `：${String(change.bodyAdded)}行追加・${String(change.bodyRemoved)}行削除`}`}>
-          {change.index === 0 ? '最初' : change.bodyStatus === 'unchanged' ? '同じ' : change.bodyStatus === 'format_only' ? '改行のみ' : `追加${String(change.bodyAdded)}・削除${String(change.bodyRemoved)}`}
+          aria-label={`${change.label}の本文：${bodyMark(change).spoken}`}>
+          {bodyMark(change).text}
         </button>)}
       </Lane>
 
@@ -372,7 +371,6 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
     <div className="jt-legend" role="group" aria-label="凡例"><span className="jt-legend-title">掲載日の確かさ：</span><span><i className="jt-key jt-cert-confirmed" />確定</span><span><i className="jt-key jt-cert-estimated" />推定</span><span><i className="jt-key jt-cert-unknown" />不明</span>
       {captured && <span>掲載期間の日付は、求人データを取得した日です。掲載を変更した日とは限りません。</span>}</div>
 
-
     <section className="jt-periods" aria-label="期間比較表">
       <h3>期間比較表</h3>
       {rows.length === 0 ? <p className="jc-notice">掲載期間が取得できていないため、期間ごとの比較はできません。</p>
@@ -381,12 +379,15 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         <tbody>{rows.map(row => <tr key={row.key} className={row.kind === 'gap' ? 'jt-gap-row' : selected === row.versionId ? 'jt-row-selected' : undefined} aria-current={row.kind !== 'gap' && selected === row.versionId ? 'true' : undefined}>
           <th scope="row">{row.versionId ? <button type="button" className="jc-text-button" aria-pressed={selected === row.versionId} onClick={() => { setSelected(row.versionId); }}>{row.label}</button> : row.label}{row.kind !== 'gap' && selected === row.versionId && <span className="jt-selected-tag">選択中</span>}<small>{formatDay(row.start)}〜{row.ongoing ? `継続中（${formatDay(row.lastDay)}まで）` : formatDay(row.lastDay)}</small></th>
           <td>{row.afterCounts && row.days === 0 ? '—' : `${String(row.days)}日`}</td>
-          <td title={row.afterCounts ? `応募件数は ${formatDay(asOf)} に取得したもので、この期間はその後に始まっています。0件という意味ではありません。` : row.applications === null ? '応募日別の件数を取得していません。0件という意味ではありません。' : undefined}>{row.afterCounts ? '応募集計の取得後に始まった期間' : row.applications === null ? '未取得' : `${String(row.applications)}件`}</td>
+          <td>{row.afterCounts ? '応募集計の取得後に始まった期間' : row.applications === null ? '未取得' : `${String(row.applications)}件`}</td>
           <td>{row.afterCounts ? '—' : row.applications === null ? '未取得' : formatPerDay(row.perDay)}</td>
-          <td title={row.billing.connected && row.billing.prorated ? '課金の期間と版の期間がずれているため、日数で割って配分しています' : undefined}>{billingText(row)}</td>
+          <td>{billingText(row)}</td>
           <td>{marketText(row.market, market.state.status)}</td>
         </tr>)}</tbody>
       </table></div>}
+      {rows.some(row => row.afterCounts) && <p className="jt-table-note">「応募集計の取得後に始まった期間」は、応募件数を{formatDay(asOf)}に取得した後に始まった期間です。0件という意味ではありません。</p>}
+      {rows.some(row => !row.afterCounts && row.applications === null) && <p className="jt-table-note">「未取得」は応募日ごとの件数を取得していないという意味です。0件という意味ではありません。</p>}
+      {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。</p>}
     </section>
   </section>;
 }

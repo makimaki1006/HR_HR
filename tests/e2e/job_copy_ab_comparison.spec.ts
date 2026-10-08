@@ -74,8 +74,8 @@ test('cross-record A/B preserves bodies, images, independent denominators, scope
   await comparison.scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'ab-record-desktop.png'), fullPage: true });
   await comparison.getByLabel('応募の比較範囲').selectOption('version');
-  await expect(a).toContainText('選択版の確定＋推定対応）：4件');
-  await expect(b).toContainText('選択版の確定＋推定対応）：2件');
+  await expect(a).toContainText('選んだ版に結びついた応募）：4件');
+  await expect(b).toContainText('選んだ版に結びついた応募）：2件');
   await expect(a).toContainText('求人全体で、どの版への応募か不明：6件');
   await expect(b).toContainText('求人全体で、どの版への応募か不明：4件');
   await expect(male.locator('td')).toHaveText(['1', '25%', '2', '100%', '75ポイント']);

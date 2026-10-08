@@ -74,7 +74,7 @@ export const jobs: JobCopyRecord[] = [
         publishedFrom: '2026-09-15T10:00:00+09:00', publishedUntil: '2026-09-25T12:00:00+09:00',
         certainty: 'confirmed', kind: 'published', source: '求人CSV（デモ・更新取得）', body: driverRevision,
         applications: { confirmed: 9, estimated: 0, unknown: 2 },
-        note: '日時が不明な応募2件は、この版への確定対応数に含めません。全件架空です。',
+        note: '日時が不明な応募2件は、この版に応募日で結びついた件数に含めません。全件架空です。',
       },
       {
         id: 'demo-001-v3', label: '初回文面への復帰', observedAt: '2026-09-25T12:30:00+09:00',

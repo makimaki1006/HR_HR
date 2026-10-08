@@ -5,6 +5,7 @@ import type { JobCopyRecord } from './data';
 import { demoMarketData } from './data';
 import { marketRows, trendOption, type MarketData } from './marketChartModel';
 import { AssumptionsNote } from './AssumptionsNote';
+import { InfoTip } from './InfoTip';
 import { formatDateJst, joinPresent, plainWording } from './format';
 import './job-analysis.css';
 
@@ -58,7 +59,7 @@ function MarketContextForJob({ job, view, mode }: { job: JobCopyRecord; view: 'c
         {view === 'charts' && <div className="jc-market-charts">{charts.map(chart => <section key={chart.key} aria-label={`${chart.label}の月次グラフ`}><h4>{chart.label}</h4>
           {shown.some(row => row[chart.key] !== null) ? <EChart option={{ ...trendOption(shown.map(row => formatDateJst(row.month)), shown.map(row => row[chart.key]), chart.label, chart.unit), dataZoom: [], grid: { top: 36, left: 14, right: 18, bottom: 30, containLabel: true } }} testId={`jc-market-${chart.key}`} renderer="svg" height={280} /> : <p>この指標は未取得です。</p>}
         </section>)}</div>}
-        {view === 'table' && <><p className="jc-analysis-scroll-hint">表は横にスクロールして確認できます。</p><div className="jc-analysis-table" role="region" aria-label="市場実績の数値表" tabIndex={0}><table><caption>{title} / {data.series?.prefecture}の月次市場実績</caption><thead><tr><th>対象月</th><th>市場求人数</th><th title="Indeed上で求人を見た人の動きをもとにした指標です。求職者の人数や応募数ではありません。">Indeed閲覧者指標</th><th>募集企業数</th><th>1求人当たり閲覧者指標</th></tr></thead><tbody>{shown.map(row => <tr key={row.month}><th>{formatDateJst(row.month)}</th><td>{amount(row.jobs)}</td><td>{amount(row.viewers)}</td><td>{amount(row.employers)}</td><td>{amount(row.viewersPerJob)}</td></tr>)}</tbody></table></div></>}
+        {view === 'table' && <><p className="jc-analysis-scroll-hint">表は横にスクロールして確認できます。</p><div className="jc-analysis-table" role="region" aria-label="市場実績の数値表" tabIndex={0}><table><caption>{title} / {data.series?.prefecture}の月次市場実績</caption><thead><tr><th>対象月</th><th>市場求人数</th><th><InfoTip className="jc-infotip-left" label="Indeed閲覧者指標"><p>Indeed上で求人を見た人の動きをもとにした指標です。求職者の人数や応募数ではありません。</p></InfoTip></th><th>募集企業数</th><th>1求人当たり閲覧者指標</th></tr></thead><tbody>{shown.map(row => <tr key={row.month}><th>{formatDateJst(row.month)}</th><td>{amount(row.jobs)}</td><td>{amount(row.viewers)}</td><td>{amount(row.employers)}</td><td>{amount(row.viewersPerJob)}</td></tr>)}</tbody></table></div></>}
       </> : <p>{title && prefecture ? '選択した職種・県の月次市場データはありません。' : '市場職種と県を選択するとグラフを表示します。'} 未取得値を0には置き換えません。</p>}
     </>}
   </section>;

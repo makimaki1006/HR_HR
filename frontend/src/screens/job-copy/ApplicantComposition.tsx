@@ -7,6 +7,7 @@ import { compareDistributions, compositionDistribution, displayDistribution } fr
 import { jobApplicationTotal, noLinkedApplicationsMessage, unmatchedApplicationCount } from './applicationCountsModel';
 import type { ApplicantDimension } from './applicantCompositionModel';
 import { AssumptionsNote } from './AssumptionsNote';
+import { InfoTip } from './InfoTip';
 import { formatDateJst, formatDateTimeJst, orderCategories } from './format';
 import './applicant-composition.css';
 
@@ -16,7 +17,7 @@ const delta = (value: number | null) => value === null ? '算出不可' : `${val
 const fullDate = (value: string) => formatDateTimeJst(value, '日時不明');
 
 function Period({ version, label }: { version: CopyVersion | undefined; label: string }) {
-  if (version?.distributions) return <section className="ac-period"><h3>{label}: {version.label}</h3><p title="応募日と、その日に取得できた版を日付単位で突き合わせています。取得できなかった日は含めません。">応募集計対象日: {version.observationDates === undefined ? '対象日の一覧は未取得' : version.observationDates.length ? version.observationDates.map(day => formatDateJst(day, day)).join('、') : '該当する取得日なし'}</p><p>属性: 現在取得できる値 · 取得日時 {version.attributesFetchedAt ? fullDate(version.attributesFetchedAt) : '未取得'}</p></section>;
+  if (version?.distributions) return <section className="ac-period"><h3>{label}: {version.label}</h3><div className="ac-period-line"><InfoTip className="jc-infotip-left" label="応募集計対象日"><p>応募日と、その日に取得できた版を日付単位で突き合わせています。取得できなかった日は含めません。</p></InfoTip>: {version.observationDates === undefined ? '対象日の一覧は未取得' : version.observationDates.length ? version.observationDates.map(day => formatDateJst(day, day)).join('、') : '該当する取得日なし'}</div><p>属性: 現在取得できる値 · 取得日時 {version.attributesFetchedAt ? fullDate(version.attributesFetchedAt) : '未取得'}</p></section>;
   return <section className="ac-period"><h3>{label}: {version?.label ?? '版なし'}</h3><p>掲載期間: {version?.publishedFrom ? fullDate(version.publishedFrom) : '開始未取得'} → {version?.publishedUntil ? fullDate(version.publishedUntil) : '終了未確認'}</p><p>本文の取得: {version ? fullDate(version.observedAt) : '未取得'} · {version?.certainty === 'confirmed' ? '期間確定' : version?.certainty === 'estimated' ? '期間推定' : '期間不明'}</p><p>属性取得日時: 未取得</p></section>;
 }
 
@@ -39,7 +40,7 @@ export function ApplicantComposition({ job, selection, onSelectionChange, includ
       })}
       <AssumptionsNote className="ac-caveat" summary={`HubSpotに記録された求人全体の応募の構成です（属性は ${fullDate(job.overallApplications.fetchedAt)} 時点の値）。`} items={['どの版への応募か不明な応募も含むため、下の版ごとの比較とは分母が異なります。', 'どの版への応募か不明な応募は、各版に割り当てていません。', '地域は都道府県と市区町村までに丸め、3人未満の地域は「その他」にまとめています。']} />
     </section>}
-    <header><h2>文面・画像と応募者構成を比べる</h2><p>掲載を確認できた版どうしの比較です。受信版・未掲載のAI案は比較対象に含めません。</p></header>
+    <header><h2>文面・画像と応募者構成を比べる</h2><p>掲載を確認できた版どうしの比較です。確認待ちの文面・未掲載のAI案は比較対象に含めません。</p></header>
     <div className="ac-selectors"><label>構成比較元<select value={before?.id ?? ''} onChange={event => { setBeforeId(event.target.value); onSelectionChange?.([event.target.value, after?.id ?? '']); }}>{!versions.length && <option value="">掲載版なし</option>}{versions.map(version => <option key={version.id} value={version.id}>{version.label}</option>)}</select></label><label>構成比較先<select value={after?.id ?? ''} onChange={event => { setAfterId(event.target.value); onSelectionChange?.([before?.id ?? '', event.target.value]); }}>{!versions.length && <option value="">掲載版なし</option>}{versions.map(version => <option key={version.id} value={version.id}>{version.label}</option>)}</select></label></div>
     <div className="ac-periods"><Period version={before} label="比較元" /><Period version={after} label="比較先" /></div>
     {(before?.historicalImageBytesAvailable === false || after?.historicalImageBytesAvailable === false) && <p className="ac-caveat">過去時点の画像原本は未保存です。後日取得した表示画像があっても、当時の画像内容とは確認できません。</p>}
@@ -52,7 +53,7 @@ export function ApplicantComposition({ job, selection, onSelectionChange, includ
     ]} />
     {includeReasons && <ApplicantReasons job={job} before={before} after={after} />}
     {beforeDistribution === null || afterDistribution === null ? <p className="ac-unavailable" role="status">応募者の属性データは未取得です。取得した媒体の求人にも架空の応募者を割り当てません。0件・0%とは判定していません。</p> : <>
-      <p className="ac-demo">{job.dataSource === 'hubspot' ? 'HubSpotの応募を、変更に気づいた日の版に応募日で割り当てた件数です。属性は現在取得できる値です。' : '架空の応募者属性による操作デモです。'}比較元{String(beforeDistribution.total)}件・比較先{String(afterDistribution.total)}件。分母には属性不明も含めます。{job.dataSource !== 'hubspot' && '各版に確定対応する架空応募のみを含めます。'}</p>
+      <p className="ac-demo">{job.dataSource === 'hubspot' ? 'HubSpotの応募を、変更に気づいた日の版に応募日で割り当てた件数です。属性は現在取得できる値です。' : '架空の応募者属性による操作デモです。'}比較元{String(beforeDistribution.total)}件・比較先{String(afterDistribution.total)}件。分母には属性不明も含めます。{job.dataSource !== 'hubspot' && '各版に応募日で結びついた架空の応募だけを含めます。'}</p>
       {dimensions.map(dimension => {
         const compared = compareDistributions(compositionDistribution(job, before, dimension.id), compositionDistribution(job, after, dimension.id));
         const comparison = compared === null ? null : orderCategories(dimension.id, compared);
