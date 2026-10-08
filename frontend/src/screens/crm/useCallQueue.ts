@@ -6,7 +6,7 @@ import type { CallQueuePartial } from '../../generated/CallQueuePartial';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import { fixtureQueuePage } from './queueFixture';
 import {
-  errorMessage, filtersKey, mergeItems, queueApiPath, scopeMatches, unauthorizedMessage, validateFilters,
+  errorMessage, failureOf, filtersKey, mergeItems, queueApiPath, scopeMatches, unauthorizedMessage, validateFilters,
 } from './queueModel';
 import type { QueueFilters, QueueMode } from './queueModel';
 
@@ -69,16 +69,14 @@ function addPartial(a: CallQueuePartial, b: CallQueuePartial): CallQueuePartial 
 interface Failure { phase: 'error' | 'unauthorized'; message: string; kind: string | null }
 
 function classify(error: ApiError): Failure {
-  const body = error instanceof ApiHttpError && typeof error.body === 'object' && error.body !== null
-    ? (error.body as { error_kind?: unknown }) : null;
-  const kind = typeof body?.error_kind === 'string' ? body.error_kind : null;
+  const { kind, status } = failureOf(error);
   if (error instanceof AuthRequiredError || (error instanceof ApiHttpError && error.status === 401)) {
     return { phase: 'unauthorized', message: unauthorizedMessage(kind, 401), kind };
   }
   if (error instanceof ApiHttpError && error.status === 403) {
     return { phase: 'unauthorized', message: unauthorizedMessage(kind, 403), kind };
   }
-  return { phase: 'error', message: errorMessage(kind, error instanceof ApiHttpError ? error.status : null), kind };
+  return { phase: 'error', message: errorMessage(kind, status), kind };
 }
 
 export const SCOPE_MISMATCH_MESSAGE = '応答の条件が画面の条件と一致しなかったため、表示を取りやめました。再読み込みしてください。';
@@ -88,8 +86,9 @@ export const SCOPE_MISMATCH_MESSAGE = '応答の条件が画面の条件と一�
  * - 条件 (filters / mode / reload) が変わったら、古い要求を AbortController で中断して先頭から取り直す。
  * - 応答の scope が現在の条件と一致しなければ表示に使わない。
  * - 「さらに読み込む」は、直前に表示した次ページの cursor にだけ追記し、deal_id で重複排除する。
+ * - `refreshKey` が変わったときも取り直す (例: 「次回日が来たものだけ」の間に日付が変わった)。
  */
-export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: QueueFetch) {
+export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: QueueFetch, refreshKey = '') {
   const [raw, setState] = useState<QueueState>(() => initial());
   const [reloadToken, setReloadToken] = useState(0);
   const fetchPage = fetcher ?? (mode === 'fixture' ? fixtureFetch : liveFetch);
@@ -100,7 +99,7 @@ export function useCallQueue(filters: QueueFilters, mode: QueueMode, fetcher?: Q
   const key = filtersKey(filters);
   const invalid = validateFilters(filters);
   const hasInvalid = invalid.length > 0;
-  const reqId = `${key}|${mode}|${String(reloadToken)}`;
+  const reqId = `${key}|${mode}|${String(reloadToken)}|${refreshKey}`;
   const state: QueueState = raw.reqId === reqId ? raw : initial(reqId);
   const fetchRef = useRef(fetchPage);
   useEffect(() => { filtersRef.current = filters; fetchRef.current = fetchPage; });
