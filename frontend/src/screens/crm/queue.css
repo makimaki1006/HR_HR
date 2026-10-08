@@ -135,6 +135,7 @@
 .cq-flag { color: #8a5a00 !important; }
 .cq-row-l1 .cq-flag { flex: none; padding: 0 5px; border-radius: 3px; background: #fff3d6; font-size: 11px; font-weight: 700; }
 .cq-load-more { display: block; margin: 12px auto; }
+.cq-load-sentinel { height: 1px; }
 .cq-end { margin: 12px; color: var(--cq-faint); font-size: 11px; text-align: center; }
 .cq-loading { margin: 12px; color: var(--cq-sub); }
 

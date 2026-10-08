@@ -40,7 +40,7 @@ describe('CallQueueScreen', () => {
     expect(screen.getByTitle('不通時チェック: 通話中').textContent).toBe('不通チェック');
     expect(screen.getByText('番号を確認できません')).toBeTruthy();
     expect(screen.getByText('担当者情報を取得できませんでした')).toBeTruthy();
-    expect(screen.getByText('3 件を表示')).toBeTruthy();
+    expect(screen.getByTestId('queue-count').textContent).toBe('全 3 件中 3 件を表示(全件数は電話番号のない架電先なども含む)');
   });
 
   it('empty: with no conditions and with conditions show different messages; no cursor means no load-more button', async () => {
@@ -192,13 +192,15 @@ describe('CallQueueScreen', () => {
       render(<CallQueueScreen userFetcher={okUserFetch} initialSearch="?view=queue&mode=fixture" />);
       expect(screen.getByText('表示内容はすべて架空です。HubSpot には接続しません。')).toBeTruthy();
       await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
+      // 架空サンプルでも全体の件数を出す (1 ページ 5 件)
+      expect(screen.getByTestId('queue-count').textContent).toBe('全 10 件中 5 件を表示(全件数は電話番号のない架電先なども含む)');
       expect(spy).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole('button', { name: '実データ' }));
       expect(screen.getByText('実データ(HubSpot)')).toBeTruthy();
       await waitFor(() => { expect(screen.getByRole('alert').textContent).toContain('ネットワーク'); });
       // キュー (1 回) と、所有者の一覧 (全員が使う。実データのときだけ) だけ
       const urls = spy.mock.calls.map(c => (typeof c[0] === 'string' ? c[0] : ''));
-      expect(urls.filter(u => u.startsWith('/api/crm/call-queue'))).toEqual(['/api/crm/call-queue?limit=25']);
+      expect(urls.filter(u => u.startsWith('/api/crm/call-queue'))).toEqual(['/api/crm/call-queue?limit=50']);
       expect(urls.filter(u => !u.startsWith('/api/crm/call-queue'))).toEqual(['/api/crm/owners']);
       expect(screen.queryByText('架空食品株式会社')).toBeNull();
     } finally { vi.unstubAllGlobals(); }
@@ -358,5 +360,143 @@ describe('calling cockpit layout', () => {
     fireEvent.click(screen.getByRole('button', { name: /^詳細条件/ }));
     expect(screen.getByTitle('Zoom Phone')).toBe(iframe);
     expect(detail.ids).toEqual(['1', '2']);
+  });
+});
+
+/** テスト用の IntersectionObserver (見えた・見えなくなったをテストが起こす) */
+class FakeObserver {
+  static all: FakeObserver[] = [];
+  readonly targets: Element[] = [];
+  disconnected = false;
+  constructor(readonly cb: IntersectionObserverCallback, readonly options?: IntersectionObserverInit) { FakeObserver.all.push(this); }
+  observe(t: Element) { this.targets.push(t); }
+  unobserve() { /* 使わない */ }
+  disconnect() { this.disconnected = true; }
+  takeRecords(): IntersectionObserverEntry[] { return []; }
+  static live() { return FakeObserver.all.filter(o => !o.disconnected); }
+}
+
+/** 目印が見えたことを、いま動いている observer に伝える */
+function intersect(isIntersecting = true) {
+  act(() => {
+    for (const o of FakeObserver.live()) {
+      const entries = o.targets.map(target => ({ isIntersecting, target }) as unknown as IntersectionObserverEntry);
+      o.cb(entries, o as unknown as IntersectionObserver);
+    }
+  });
+}
+
+/** 一覧の枠をスクロールした状態にする (happy-dom は配置を計算しないので scrollTop を直接決める) */
+function scrollList(top: number) {
+  const scroller = document.querySelector('.cq-list-scroll');
+  if (!(scroller instanceof HTMLElement)) throw new Error('no scroller');
+  Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: top });
+  return scroller;
+}
+
+describe('CallQueueScreen: total and auto-load', () => {
+  afterEach(() => { FakeObserver.all = []; vi.unstubAllGlobals(); });
+
+  it('shows the HubSpot total with thousands separators, and keeps it after the next page (which has no total)', async () => {
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    const fifty = Array.from({ length: 50 }, (_, i) => makeItem(String(i + 1)));
+    await ready(calls, fifty, { total: 22864, next_cursor: 'c1' });
+    const count = screen.getByTestId('queue-count');
+    expect(count.textContent).toBe('全 22,864 件中 50 件を表示(全件数は電話番号のない架電先なども含む)');
+    expect(count.getAttribute('title')).toContain('電話番号がない架電先');
+    fireEvent.click(screen.getByText('さらに読み込む'));
+    await act(async () => {
+      calls[1]?.resolve({ ok: true, data: makeResponse(calls[1].filters, [makeItem('51'), makeItem('52')], { total: null }) });
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('queue-count').textContent).toBe('全 22,864 件中 52 件を表示(全件数は電話番号のない架電先なども含む)');
+  });
+
+  it('without a known total shows only the loaded count', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    await ready(calls, [makeItem('1'), makeItem('2')], { total: null });
+    expect(screen.getByTestId('queue-count').textContent).toBe('2 件を表示');
+    expect(screen.getByTestId('queue-count').getAttribute('title')).toBeNull();
+  });
+
+  it('scrolling to the sentinel loads exactly one next page; nothing more while it loads; re-arms for the next cursor', async () => {
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    await ready(calls, [makeItem('1'), makeItem('2')], { next_cursor: 'c1' });
+    expect(screen.getByTestId('queue-load-sentinel')).toBeTruthy();
+    // 開いただけ (スクロールしていない) では読まない
+    intersect();
+    expect(calls).toHaveLength(1);
+    // スクロールして目印が見えたら 1 回だけ読む
+    const scroller = scrollList(400);
+    fireEvent.scroll(scroller);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.cursor).toBe('c1');
+    expect(screen.getByRole('button', { name: '読み込み中…' })).toBeTruthy();
+    // 読み込み中に何度スクロール・交差しても、次は始めない
+    intersect(); fireEvent.scroll(scroller); intersect();
+    expect(calls).toHaveLength(2);
+    // 次のページが届いたら、まだ下端にいれば次の cursor を 1 回だけ読む
+    await act(async () => { calls[1]?.resolve({ ok: true, data: makeResponse(calls[1].filters, [makeItem('3')], { next_cursor: 'c2' }) }); await Promise.resolve(); });
+    intersect();
+    intersect();
+    expect(calls).toHaveLength(3);
+    expect(calls[2]?.cursor).toBe('c2');
+    // 最後のページ (cursor なし) の後は目印も無く、読まない
+    await act(async () => { calls[2]?.resolve({ ok: true, data: makeResponse(calls[2].filters, [makeItem('4')]) }); await Promise.resolve(); });
+    expect(screen.queryByTestId('queue-load-sentinel')).toBeNull();
+    intersect(); fireEvent.scroll(scroller);
+    expect(calls).toHaveLength(3);
+    expect(screen.getByText('これで最後です。')).toBeTruthy();
+    // 追記した行にも矢印キーで移れる
+    const list = screen.getByRole('list', { name: '架電キュー' });
+    expect(within(list).getAllByText(/^架空会社/).map(e => e.textContent)).toEqual(['架空会社1', '架空会社2', '架空会社3', '架空会社4']);
+    fireEvent.click(within(list).getByText('架空会社3'));
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    expect(within(list).getByText('架空会社4').closest('button')?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('changing the conditions brings the list back to the top, so the new list does not auto-load until scrolled again', async () => {
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue" />);
+    await ready(calls, [makeItem('1')], { next_cursor: 'c1' });
+    const scroller = scrollList(400);
+    fireEvent.change(screen.getByLabelText('並び替え'), { target: { value: 'last_call_asc' } });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.cursor).toBeNull();
+    await act(async () => { calls[1]?.resolve({ ok: true, data: makeResponse(calls[1].filters, [makeItem('9')], { next_cursor: 'd1' }) }); await Promise.resolve(); });
+    expect(scroller.scrollTop).toBe(0);
+    intersect();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('does not auto-load without a next cursor, and stops auto-loading after a failed page (the button retries)', async () => {
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    const a = deferredFetcher();
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={a.fetcher} initialSearch="?view=queue" />);
+    await ready(a.calls, [makeItem('1')]);
+    scrollList(400);
+    intersect();
+    expect(a.calls).toHaveLength(1);
+    expect(FakeObserver.live()).toHaveLength(0);
+    cleanup();
+
+    const b = deferredFetcher();
+    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={b.fetcher} initialSearch="?view=queue" />);
+    await ready(b.calls, [makeItem('1')], { next_cursor: 'c1' });
+    scrollList(400);
+    intersect();
+    expect(b.calls).toHaveLength(2);
+    await act(async () => { b.calls[1]?.resolve({ ok: false, error: new ApiHttpError(400, { error_kind: 'cursor_mismatch' }) }); await Promise.resolve(); });
+    expect(screen.getByText('続きを読み込めませんでした')).toBeTruthy();
+    intersect(); fireEvent.scroll(scrollList(500));
+    expect(b.calls).toHaveLength(2);
+    fireEvent.click(screen.getByText('さらに読み込む'));
+    expect(b.calls).toHaveLength(3);
   });
 });
