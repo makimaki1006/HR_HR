@@ -167,6 +167,34 @@
 .cq-error { background: #fdecea; border-color: #f2b8b5; color: #8a1c14; }
 .cq-empty { text-align: center; padding: 24px 16px; color: var(--cq-sub); border-style: dashed; }
 
+/* 中央のタブ (案件 / 求人検索 / 開いたリンク)。中身は同じ場所に重ね、選ばれていないものは見えなくするだけ
+   (外さないので、案件のスクロール位置・架電結果の入力・開いたページがそのまま残る) */
+.cq-ctabs { flex: none; display: flex; gap: 2px; padding: 4px 8px 0; background: var(--cq-bg); border-bottom: 1px solid var(--cq-line-strong); overflow-x: auto; }
+.cq-ctab { flex: none; display: inline-flex; align-items: center; max-width: 16em; border: 1px solid transparent; border-bottom: 0; border-radius: 4px 4px 0 0; margin-bottom: -1px; }
+.cq-ctab.is-active { background: var(--cq-surface); border-color: var(--cq-line-strong); }
+.cq-ctab button[role="tab"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--cq-sub); }
+.cq-ctab.is-active button[role="tab"] { color: var(--cq-text); font-weight: 700; box-shadow: inset 0 2px 0 var(--cq-accent); }
+.crm-app .cq-ctab button[role="tab"]:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
+.cq-ctab-close { flex: none; background: transparent; border: 0; padding: 2px 8px 2px 0; font-size: 14px; line-height: 1; color: var(--cq-faint) !important; cursor: pointer; }
+.cq-ctab-close:hover { color: var(--cq-text) !important; }
+.cq-cpanels { flex: 1 1 auto; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+.cq-cpanel { grid-area: 1 / 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.cq-cpanel:not(.is-active) { visibility: hidden; }
+.cq-linkview { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: var(--cq-surface); }
+.cq-linkbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px; border-bottom: 1px solid var(--cq-line); font-size: 12px; }
+.cq-linkbar-host { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cq-linkbar button { border: 1px solid var(--cq-line-strong); background: #fff; border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
+.cq-linkbar-note { color: var(--cq-sub); font-size: 11px; }
+.cq-linkframe { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; background: #fff; }
+.cq-linkview-blocked { margin: 24px 16px; }
+.cq-linkview-blocked .cq-linkbar-open { display: inline-block; margin-top: 8px; }
+.wd-links { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; }
+.wd-links > div { display: contents; }
+.wd-links dt { font-size: 11px; color: var(--cq-faint); align-self: center; }
+.wd-links dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wd-link { color: var(--cq-accent); }
+.wd-link small { color: var(--cq-sub); }
+
 /* 中央: 詳細。上端 (会社・番号) は固定、下の情報だけスクロール、最下部に架電結果の欄 (後の PR) */
 .cq-detail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
 .wd { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
@@ -276,6 +304,10 @@
   .cq-list-col { max-height: 45vh; overflow: hidden; border-bottom: 1px solid var(--cq-line); }
   .wd-top { position: sticky; top: 0; }
   .wd-body, .cq-detail-scroll { overflow: visible; }
+  /* 縦に並べたときは、選ばれていないタブを外して高さを取らないようにする */
+  .cq-cpanel { overflow: visible; }
+  .cq-cpanel:not(.is-active) { display: none; }
+  .cq-linkframe { flex: none; height: 75vh; }
   /* ページがスクロールして上のバーが隠れても、引き出しは画面の上端から出す */
   .cq-zoom-drawer { top: 0; }
   .cq-topbar { padding: 0 12px; gap: 8px; }

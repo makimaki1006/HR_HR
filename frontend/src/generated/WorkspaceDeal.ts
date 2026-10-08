@@ -25,4 +25,20 @@ last_call_date: string | null, stop: WorkspaceStop,
 /**
  * 案件に入っている担当者の電話番号 `bpo_29`
  */
-bpo_phone: string | null, deep_link: string, };
+bpo_phone: string | null, 
+/**
+ * URL_求人検索 `bpo_32` (Google 検索の URL。HubSpot の値のまま。画面で http(s) かを確かめて開く)
+ */
+job_search_url: string | null, 
+/**
+ * ホームページ `website_url` (HubSpot の値のまま)
+ */
+homepage_url: string | null, 
+/**
+ * 外部求人媒体_求人URL `recruit_media_observed_urls` (複数の URL が入ることがある。HubSpot の値のまま)
+ */
+media_job_urls: string | null, 
+/**
+ * 求人票URL `risuto_jigyousyokibo` (HubSpot の値のまま)
+ */
+job_posting_url: string | null, deep_link: string, };

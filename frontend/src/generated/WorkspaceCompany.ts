@@ -4,4 +4,8 @@ export type WorkspaceCompany = { id: string, name: string | null, phone: string 
 /**
  * 郵便番号・都道府県・市区町村・番地を空白でつないだもの
  */
-address: string | null, industry: string | null, domain: string | null, labels: Array<string>, is_primary: boolean, deep_link: string, };
+address: string | null, industry: string | null, domain: string | null, 
+/**
+ * Website URL `website` (HubSpot の値のまま)
+ */
+website: string | null, labels: Array<string>, is_primary: boolean, deep_link: string, };

@@ -12,6 +12,8 @@ import {
 import type { ActivityKindFilter } from './workspaceModel';
 import { clock } from './workspaceModel';
 import { RESULT_LABELS, useTicking } from './ZoomPhonePanel';
+import { dealJobSearchUrl, extractUrls, isEmptyGoogleSearch, safeHttpUrl } from './centerLinks';
+import { PropLink } from './CenterTabs';
 import type { ZoomEvent } from './smartEmbed';
 
 /** HubSpot の選択肢の値 → 表示ラベル (不通時チェック bpo_10・ブロック理由 bpo_4)。定義がまだ無いときは値のまま */
@@ -173,6 +175,8 @@ function Detail({ data, zoom, ownerName, stopLabel, callBar, onOpenZoom }: {
       {stopReasons.length > 0 && <ul className="wd-stop">{stopReasons.map(s => <li key={s} className="cq-flag">{s}</li>)}</ul>}
     </section>
 
+    <DealLinks data={data} company={company} />
+
     <section className="wd-card" aria-label="担当者">
       <h3>担当者{data.contacts_total > data.contacts.length && <small>(紐づく {data.contacts_total} 人のうち {data.contacts.length} 人を表示)</small>}</h3>
       {data.contacts.length === 0 && <p className="crm-muted">担当者の情報を取得できませんでした(HubSpot に紐づく担当者がいない、または取得に失敗)。</p>}
@@ -211,6 +215,32 @@ function Detail({ data, zoom, ownerName, stopLabel, callBar, onOpenZoom }: {
 
     </div>
   </article>;
+}
+
+/**
+ * 案件・会社のリンク (求人検索・ホームページ・求人票・求人媒体)。クリックで中央のタブに開く。
+ * 求人検索は「URL_求人検索」、無ければ架ける番号で検索する URL
+ */
+function DealLinks({ data, company }: { data: WorkspaceResponse; company: WorkspaceResponse['companies'][number] | null }) {
+  const d = data.deal;
+  const search = dealJobSearchUrl(data);
+  const homepage = safeHttpUrl(d.homepage_url)?.toString() ?? null;
+  const site = safeHttpUrl(company?.website)?.toString() ?? null;
+  const posting = d.job_posting_url !== null && !isEmptyGoogleSearch(d.job_posting_url) ? safeHttpUrl(d.job_posting_url)?.toString() ?? null : null;
+  const media = extractUrls(d.media_job_urls);
+  const rows: { key: string; dt: string; url: string; label: string; note?: string }[] = [];
+  if (search !== null) rows.push({ key: 'search', dt: '求人検索', url: search, label: '求人検索',
+    ...(safeHttpUrl(d.job_search_url) === null ? { note: '(架ける番号で検索)' } : {}) });
+  if (homepage !== null) rows.push({ key: 'home', dt: 'ホームページ', url: homepage, label: 'ホームページ' });
+  if (site !== null && site !== homepage) rows.push({ key: 'site', dt: '会社のサイト', url: site, label: '会社のサイト' });
+  if (posting !== null) rows.push({ key: 'posting', dt: '求人票', url: posting, label: '求人票' });
+  media.forEach((u, i) => { rows.push({ key: `media-${String(i)}`, dt: media.length > 1 ? `求人媒体 ${String(i + 1)}` : '求人媒体', url: u, label: media.length > 1 ? `求人媒体 ${String(i + 1)}` : '求人媒体' }); });
+  return <section className="wd-card" aria-label="リンク">
+    <h3>リンク<small>クリックすると、この画面の中に開きます</small></h3>
+    {rows.length === 0 ? <p className="crm-muted">登録されたリンクはありません。</p>
+      : <dl className="wd-links">{rows.map(r => <div key={r.key}><dt>{r.dt}</dt>
+        <dd><PropLink url={r.url} label={r.label}>{r.key === 'search' ? <>求人を検索する{r.note && <small> {r.note}</small>}</> : r.url}</PropLink></dd></div>)}</dl>}
+  </section>;
 }
 
 function DetailMessage({ state, reload }: { state: DetailState; reload: () => void }) {
