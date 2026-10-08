@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_FILTERS, QUEUE_PAGE_SIZE, formatCount, queueCountText, QUEUE_STAGE_IDS, dateValue, errorMessage, filtersKey, isValidDate, mergeItems, parseFilters,
-  queueApiPath, scopeMatches, screenSearch, unauthorizedMessage, validateFilters,
+  DEFAULT_FILTERS, QUEUE_PAGE_SIZE, formatCount, queueCountText, dateValue, errorMessage, filtersKey, isValidDate, mergeItems, normalizeStages, parseFilters,
+  queueApiPath, scopeMatches, screenSearch, unauthorizedMessage, validateFilters, withPipeline,
 } from './queueModel';
+import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID, LIVE_PIPELINES, eligibleStageIds, withLabels } from './queuePipelines';
 import type { QueueFilters } from './queueModel';
 import { makeItem, makeResponse } from './queueTestUtil';
 
@@ -82,8 +83,17 @@ describe('scopeMatches', () => {
     expect(scopeMatches(scope, DEFAULT_FILTERS)).toBe(true);
     expect(scopeMatches(scope, f({ owner: 'all' }))).toBe(false);
   });
-  it('knows all queue stages', () => {
-    expect(QUEUE_STAGE_IDS).toHaveLength(16);
+  it('knows all queue stages of the default pipeline (未済 + 15)', () => {
+    expect(eligibleStageIds(DEFAULT_PIPELINE_ID)).toHaveLength(16);
+  });
+  it('rejects a response for another pipeline, and compares the default stages of the chosen pipeline', () => {
+    const apo = f({ pipeline: 'default' });
+    expect(scopeMatches(makeResponse(apo, []).scope, apo)).toBe(true);
+    expect(scopeMatches(makeResponse(DEFAULT_FILTERS, []).scope, apo)).toBe(false);
+    expect(scopeMatches(makeResponse(apo, []).scope, DEFAULT_FILTERS)).toBe(false);
+    // 同じパイプラインでも、既定のステージの集合が違えば一致しない
+    const scope = { ...makeResponse(apo, []).scope, stages: eligibleStageIds(DEFAULT_PIPELINE_ID) };
+    expect(scopeMatches(scope, apo)).toBe(false);
   });
 });
 
@@ -132,5 +142,61 @@ describe('queue page size and count text', () => {
     expect(queueCountText(22864, 50)).toBe('全 22,864 件中 50 件を表示');
     expect(queueCountText(1_234_567, 1050)).toBe('全 1,234,567 件中 1,050 件を表示');
     expect(queueCountText(null, 50)).toBe('50 件を表示');
+  });
+});
+
+describe('pipelines', () => {
+  it('the generated table has the six allowed pipelines; bpo_リクロジ is the default and 納品管理 is not selectable', () => {
+    expect(DEFAULT_PIPELINE_ID).toBe('753186575');
+    expect(LIVE_PIPELINES.map(p => p.id)).toEqual(['753186575', 'default', '62583420', '21724969', '681393283', '913508269']);
+    expect(eligibleStageIds('default')[0]).toBe('appointmentscheduled');
+    expect(eligibleStageIds('default')).not.toContain('89363529'); // 架電禁止先 (exclude)
+    expect(eligibleStageIds('21596025')).toEqual([]);
+  });
+
+  it('URL round-trip keeps the pipeline and its stages; the default pipeline is not written', () => {
+    const apo = f({ pipeline: 'default', stages: ['appointmentscheduled', 'closedwon'], due: 'today' });
+    const search = screenSearch(apo, 'live');
+    expect(search).toBe('?pipeline=default&stage=appointmentscheduled&stage=closedwon&due=today');
+    expect(parseFilters(search)).toEqual(apo);
+    expect(queueApiPath(apo, null)).toBe('/api/crm/call-queue?pipeline=default&stage=appointmentscheduled&stage=closedwon&due=today&limit=50');
+    expect(screenSearch(f({ pipeline: DEFAULT_PIPELINE_ID }), 'live')).toBe('');
+  });
+
+  it('drops an unknown or not-allowed pipeline and stages of another pipeline', () => {
+    expect(parseFilters('?pipeline=21596025&stage=1095387445')).toEqual(f({ stages: ['1095387445'] }));
+    expect(parseFilters('?pipeline=999').pipeline).toBe(DEFAULT_PIPELINE_ID);
+    // アポ前を選んで bpo_リクロジのステージ・対象外ステージ → 外す
+    expect(parseFilters('?pipeline=default&stage=1095387445&stage=89363529&stage=closedwon')).toEqual(f({ pipeline: 'default', stages: ['closedwon'] }));
+    // 架空のパイプラインは架空サンプルのときだけ
+    expect(parseFilters(`?pipeline=${FIXTURE_PIPELINE_ID}`).pipeline).toBe(DEFAULT_PIPELINE_ID);
+    expect(parseFilters(`?mode=fixture&pipeline=${FIXTURE_PIPELINE_ID}`).pipeline).toBe(FIXTURE_PIPELINE_ID);
+  });
+
+  it('selecting every eligible stage is the same as the default (all)', () => {
+    const all = eligibleStageIds('default');
+    expect(normalizeStages('default', all)).toEqual([]);
+    expect(normalizeStages('default', [...all].reverse().slice(1))).toEqual(all.slice(0, -1));
+    expect(parseFilters(`?pipeline=default&${all.map(s => `stage=${s}`).join('&')}`).stages).toEqual([]);
+  });
+
+  it('switching the pipeline resets the stages to the default and keeps the other conditions', () => {
+    const before = f({ stages: ['1095387445'], q: '架空', due: 'today', owner: 'me' });
+    expect(withPipeline(before, 'default')).toEqual({ ...before, pipeline: 'default', stages: [] });
+  });
+
+  it('adds HubSpot labels and unknown stages; falls back to the table name when the pipeline is missing', () => {
+    const got = withLabels(LIVE_PIPELINES, {
+      default_pipeline: DEFAULT_PIPELINE_ID, labels_available: true,
+      pipelines: [{ id: 'default', label: 'アポ前', stages: [{ id: 'appointmentscheduled', label: '未済', rule: 'all' }],
+        unknown_stages: [{ id: 'new-1', label: '新ステージ', rule: 'exclude' }] }],
+    });
+    const apo = got.find(p => p.id === 'default');
+    expect(apo?.label).toBe('アポ前');
+    expect(apo?.stages[0]).toEqual({ id: 'appointmentscheduled', rule: 'all', label: '未済' });
+    expect(apo?.stages[1]?.label).toBeNull();
+    expect(apo?.unknownStages).toEqual([{ id: 'new-1', rule: 'exclude', label: '新ステージ' }]);
+    expect(got.find(p => p.id === DEFAULT_PIPELINE_ID)?.label).toBeNull();
+    expect(withLabels(LIVE_PIPELINES, null)).toEqual(LIVE_PIPELINES);
   });
 });

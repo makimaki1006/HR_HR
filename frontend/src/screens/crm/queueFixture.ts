@@ -1,6 +1,9 @@
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
-import { QUEUE_STAGES } from './queueModel';
+import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID, FIXTURE_PIPELINES, eligibleStageIds } from './queuePipelines';
+
+/** 架空サンプルのパイプライン (ステージ名は固定) */
+const fixturePipeline = (id: string) => FIXTURE_PIPELINES.find(p => p.id === id);
 import type { QueueFilters } from './queueModel';
 
 /**
@@ -14,6 +17,8 @@ export const FIXTURE_OWNER_ME = '9001';
 interface Seed {
   id: string; company: string; contact: string | null; stage: string; owner: string | null;
   next: string | null; time: string | null; last: string | null; phone: string | null; mobile?: boolean;
+  /** 既定は bpo_リクロジ */
+  pipeline?: string;
 }
 
 const SEEDS: Seed[] = [
@@ -29,10 +34,17 @@ const SEEDS: Seed[] = [
   { id: 'f-10', company: '架空自動車整備', contact: '壬谷 彩', stage: '1095387442', owner: null, next: null, time: null, last: null, phone: '+81300000010' },
   { id: 'f-11', company: '架空ホテル', contact: '癸原 剛', stage: '1095387444', owner: '9001', next: '2026-10-03', time: '15:00', last: '2026-09-29', phone: '03-0000-0011' },
   { id: 'f-12', company: '番号未登録の架空商店', contact: '子田 優', stage: '1095387442', owner: '9001', next: null, time: null, last: '2026-09-15', phone: null },
+  // 2 つ目の架空パイプライン (パイプラインの切り替えの確認用)
+  { id: 'f-13', company: '架空倉庫サービス', contact: '丑川 光', stage: 'fx-new', owner: '9001', next: null, time: null, last: null, phone: '03-0000-0013', pipeline: FIXTURE_PIPELINE_ID },
+  { id: 'f-14', company: '架空ベーカリー', contact: '寅田 静', stage: 'fx-follow', owner: '9002', next: '2026-10-02', time: '11:30', last: '2026-09-30', phone: '03-0000-0014', pipeline: FIXTURE_PIPELINE_ID },
+  { id: 'f-15', company: '架空塾', contact: '卯月 望', stage: 'fx-follow', owner: '9001', next: '2026-10-09', time: '10:00', last: '2026-10-01', phone: '03-0000-0015', pipeline: FIXTURE_PIPELINE_ID },
+  { id: 'f-16', company: '架空クリーニング', contact: '辰野 晴', stage: 'fx-stop', owner: '9001', next: '2026-10-01', time: null, last: '2026-09-20', phone: '03-0000-0016', pipeline: FIXTURE_PIPELINE_ID },
 ];
 
+const pipelineOf = (s: Seed) => s.pipeline ?? DEFAULT_PIPELINE_ID;
+
 function toItem(s: Seed): CallQueueItem {
-  const label = QUEUE_STAGES.find(x => x.id === s.stage)?.label ?? null;
+  const label = fixturePipeline(pipelineOf(s))?.stages.find(x => x.id === s.stage)?.label ?? null;
   return {
     deal_id: s.id, deal_name: `${s.company} 採用支援`, stage_id: s.stage, stage_label: label,
     owner_id: s.owner, next_call_date: s.next, next_call_time: s.time, last_call_date: s.last,
@@ -50,16 +62,17 @@ export function fixtureItem(id: string): CallQueueItem | null {
   return s ? toItem(s) : null;
 }
 
-const UNPROCESSED = '1095387442';
-
 /** サーバ (call_queue.rs) の抽出・並びの要点だけを真似る。実サーバの代わりではなく、画面の確認用 */
 export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQueueResponse {
   const q = f.q.trim().normalize('NFKC').toLowerCase();
-  const stages = f.stages.length ? f.stages : QUEUE_STAGES.map(s => s.id);
+  const stages = f.stages.length ? f.stages : eligibleStageIds(f.pipeline);
+  const rules = fixturePipeline(f.pipeline)?.stages ?? [];
   const rows = SEEDS.filter(s => {
-    if (!stages.includes(s.stage)) return false;
+    if (pipelineOf(s) !== f.pipeline || !stages.includes(s.stage)) return false;
+    const rule = rules.find(x => x.id === s.stage)?.rule ?? 'exclude';
     const due = s.next !== null && s.next <= FIXTURE_TODAY;
-    if (s.stage !== UNPROCESSED && !due) return false; // 未済以外は次回日が来たものだけ
+    if (rule === 'exclude') return false;
+    if (rule === 'due' && !due) return false; // 常に出すステージ (未済など) 以外は次回日が来たものだけ
     if (f.due === 'today' && !due) return false;
     if (s.phone === null) return false; // 電話番号なしはキューに出さない
     if (f.owner === 'unassigned' ? s.owner !== null : f.owner === 'me' ? s.owner !== FIXTURE_OWNER_ME
@@ -94,11 +107,11 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     next_cursor: end < sorted.length ? `fx:${String(end)}` : null,
     total: sorted.length, truncated: false,
     scope: {
-      owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
+      pipeline: f.pipeline, owner: f.owner === '' ? 'all' : f.owner, role: 'admin', teams: [],
       stages: [...stages].sort(), due: f.due, sort: f.sort, q: f.q.trim() || null, limit: FIXTURE_PAGE_SIZE,
       next_from: f.nextFrom || null, next_to: f.nextTo || null, last_from: f.lastFrom || null, last_to: f.lastTo || null,
     },
-    partial: { missing_contacts: page.filter(s => !s.contact).length, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 } },
+    partial: { missing_contacts: page.filter(s => !s.contact).length, missing_companies: 0, failed: [], excluded: { no_phone: 0, stop_reason: 0, out_of_scope: 0 }, unknown_stages: 0 },
     generated_at: '2026-10-05T03:00:00Z',
   };
 }

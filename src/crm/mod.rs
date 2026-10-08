@@ -3,6 +3,7 @@
 //! - `rbac`: 認可 (誰が使えるか。会社の Google ログインなら全員が全件を読める。管理者 = `ADMIN_EMAILS` または `accounts.role = admin` はキューの既定が全員分、それ以外は自分)。許可条件は `rbac.rs` 1 箇所
 //! - `record_gate`: レコード単位の制限。CRM の利用者には掛けない (役割が決まっていない最小権限の人だけの備え)
 //! - `call_queue`: `GET /api/crm/call-queue` (架電キュー。HubSpot の Deal 検索 + 関連の一括読み取り)
+//! - `queue_pipelines`: 架電キューで選べるパイプラインとステージごとの決まり (表 1 箇所。React 側へ JSON で書き出す)
 //! - `owners`: `GET /api/crm/owners` (CRM の利用者全員。所有者を名前で選ぶための一覧。HubSpot Owners API、10 分キャッシュ)
 //! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴)
 //! - `routes`: `GET /api/crm/metadata` と `GET /api/crm/{contacts|companies|deals}/{id}`
@@ -13,6 +14,7 @@
 
 pub mod call_queue;
 pub mod owners;
+pub mod queue_pipelines;
 pub mod rbac;
 pub mod record_gate;
 pub mod routes;
