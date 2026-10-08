@@ -1,0 +1,36 @@
+/* 「プロパティ」パネル (PropertyPanel.tsx)。色は queue.css の --cq-* */
+.pp-head { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.pp-pick, .pp-actions button, .pp-objects button { border: 1px solid var(--cq-line-strong); background: #fff; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.pp-pick:disabled, .pp-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.pp-section { margin: 0 0 12px; }
+.pp-section h4 { margin: 0 0 6px; font-size: 12px; color: var(--cq-sub); border-bottom: 1px solid var(--cq-line); padding-bottom: 2px; }
+.pp-list { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.pp-list dt { font-size: 11px; color: var(--cq-faint); }
+.pp-list dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.pp-empty { color: var(--cq-faint); }
+.pp-multiline { white-space: pre-wrap; }
+.pp-links { display: flex; flex-direction: column; gap: 2px; }
+.pp-links .wd-link { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.pp-note { font-size: 12px; margin: 4px 0 12px; }
+
+.pp-picker { border: 1px solid var(--cq-line-strong); border-radius: var(--cq-radius); background: #fafbfc; padding: 8px 10px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+.pp-objects { display: flex; gap: 4px; flex-wrap: wrap; }
+.pp-objects button small { margin-left: 2px; color: var(--cq-faint); }
+.pp-objects button[aria-pressed="true"] { background: #1f2a35; color: #fff !important; border-color: #1f2a35; }
+.pp-objects button[aria-pressed="true"] small { color: #d7dde3; }
+.pp-search { font-size: 11px; color: var(--cq-sub); }
+.crm-app .pp-search-input { width: 100%; }
+.pp-count { margin: 0; font-size: 11px; color: var(--cq-sub); }
+.pp-groups { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; border-top: 1px solid var(--cq-line); }
+.pp-group { border-bottom: 1px solid var(--cq-line); }
+.pp-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pp-group-toggle { flex: 1 1 auto; min-width: 0; text-align: left; background: transparent; border: 0; padding: 6px 2px; font-size: 12px; font-weight: 700; cursor: pointer; overflow-wrap: anywhere; }
+.pp-group-toggle:disabled { cursor: default; color: var(--cq-text); }
+.pp-group-toggle small { margin-left: 4px; font-weight: 400; color: var(--cq-faint); }
+.pp-group-all { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--cq-sub); white-space: nowrap; }
+.crm-app .pp-group-all input, .crm-app .pp-props input { width: auto; margin: 0; accent-color: var(--cq-accent); }
+.pp-props { list-style: none; margin: 0 0 6px; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 2px; }
+.pp-props label { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; cursor: pointer; overflow-wrap: anywhere; }
+.pp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.pp-actions .pp-apply { background: var(--cq-accent); border-color: var(--cq-accent); color: #fff !important; font-weight: 700; }
+.pp-actions .pp-reset { margin-left: auto; }

@@ -1,7 +1,6 @@
 import { memo, useState } from 'react';
 import type { WorkspaceActivity } from '../../generated/WorkspaceActivity';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
-import { dateValue } from './queueModel';
 import { formatPhoneForDisplay, toDomesticPhone } from './phone';
 import { toE164Jp } from './smartEmbed';
 import type { DialResult, ZoomPhone } from './useZoomPhone';
@@ -21,7 +20,6 @@ export type StopLabel = (property: 'bpo_10' | 'bpo_4', value: string) => string;
 export const rawStopLabel: StopLabel = (_p, v) => v;
 
 const SOURCE_LABELS: Record<string, string> = { deal: '案件の番号', contact: '担当者の電話', mobile: '担当者の携帯', company: '会社の電話' };
-const ymd = (raw: string | null) => dateValue(raw)?.replaceAll('-', '/') ?? null;
 
 // 発信を依頼できたときの様子は「架ける番号」の下の 1 行 (CallBar) に出すので、ここでは何も言わない
 const DIAL_MESSAGES: Record<DialResult, string> = {
@@ -100,8 +98,9 @@ export function CallBar({ info, now, onOpenZoom }: { info: CallBarInfo; now: () 
   </div>;
 }
 
-function ActivityItem({ a }: { a: WorkspaceActivity }) {
+function ActivityItem({ a, ownerNames }: { a: WorkspaceActivity; ownerNames: ReadonlyMap<string, string> }) {
   const when = formatTimestamp(a.timestamp);
+  const who = a.owner_id ? (ownerNames.get(a.owner_id) ?? null) : null;
   const dir = directionLabel(a.direction);
   const status = activityStatusLabel(a.status);
   const dur = formatDurationMs(a.duration_ms);
@@ -110,6 +109,7 @@ function ActivityItem({ a }: { a: WorkspaceActivity }) {
       <span className="crm-status">{ACTIVITY_KIND_LABELS[a.kind] ?? a.kind}</span>
       {a.title && <strong>{a.title}</strong>}
       <small>{when ?? '日時不明'}</small>
+      {who && <small className="wd-act-who">{who}</small>}
     </div>
     {(dir !== null || status !== null || dur !== null || a.via === 'contact') && <p className="wd-act-meta">
       {[dir, status, dur && `通話時間 ${dur}`, a.via === 'contact' && '担当者の通話(別の案件のものを含む場合があります)'].filter(Boolean).join(' · ')}
@@ -118,17 +118,13 @@ function ActivityItem({ a }: { a: WorkspaceActivity }) {
   </li>;
 }
 
-function Detail({ data, zoom, ownerName, stopLabel, callBar, onOpenZoom }: {
-  data: WorkspaceResponse; zoom: ZoomPhone; ownerName?: string | undefined; stopLabel: StopLabel;
+function Overview({ data, zoom, stopLabel, callBar, onOpenZoom }: {
+  data: WorkspaceResponse; zoom: ZoomPhone; stopLabel: StopLabel;
   callBar?: CallBarInfo | null | undefined; onOpenZoom?: (() => void) | undefined;
 }) {
-  const [kind, setKind] = useState<ActivityKindFilter>('all');
   const d = data.deal;
   const company = data.companies.find(c => c.is_primary) ?? null;
-  const acts = filterActivities(data.activities, kind);
   const notes = partialNotes(data.partial);
-  const next = ymd(d.next_call_date);
-  const last = ymd(d.last_call_date);
   const stopReasons = [d.stop.prohibited_reason && `架電禁止理由: ${d.stop.prohibited_reason}`, d.stop.block_reason && `ブロック理由: ${stopLabel('bpo_4', d.stop.block_reason)}`,
     d.stop.unreachable_check && `不通時チェック: ${stopLabel('bpo_10', d.stop.unreachable_check)}`].filter((x): x is string => typeof x === 'string');
   const otherPhones = [
@@ -138,7 +134,7 @@ function Detail({ data, zoom, ownerName, stopLabel, callBar, onOpenZoom }: {
   ].filter((x): x is { key: string; label: string; raw: string } => typeof x === 'object' && x !== null && x.raw !== data.dial?.number);
 
   return <article className="wd" aria-label="架電先の詳細">
-    {/* 上端に固定: 会社・案件・ステージ・HubSpot と「架ける番号」。下の情報だけがスクロールする */}
+    {/* 会社・案件・ステージ・HubSpot と「架ける番号」・通話の様子 (置いた列の上端に固定) */}
     <div className="wd-top">
       <header className="wd-head">
         <div className="wd-head-main">
@@ -158,71 +154,41 @@ function Detail({ data, zoom, ownerName, stopLabel, callBar, onOpenZoom }: {
           <div className="wd-other-list">{otherPhones.map(p => <PhoneRow key={p.key} label={p.label} raw={p.raw} zoom={zoom} />)}</div></details>}
       </section>
       {callBar && <CallBar info={callBar} now={zoom.now} onOpenZoom={onOpenZoom} />}
-    </div>
-
-    <div className="wd-body">
-    {notes.length > 0 && <div className="cq-notice cq-warn" role="status"><strong>一部の情報が欠けています</strong>
-      <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div>}
-
-    <section className="wd-card" aria-label="案件の情報">
-      <h3>案件</h3>
-      <dl className="wd-dl">
-        <div><dt>担当</dt><dd>{d.owner_id ? (ownerName ?? '担当あり') : '担当なし'}</dd></div>
-        <div><dt>次回架電</dt><dd>{next ? <>{next}{d.next_call_time && ` ${d.next_call_time}`}</> : <span className="crm-muted">なし</span>}</dd></div>
-        <div><dt>最終架電日</dt><dd>{last ?? <span className="crm-muted">未架電</span>}</dd></div>
-        <div><dt>金額</dt><dd>{d.amount ? `${Number(d.amount).toLocaleString('ja-JP')} 円` : <span className="crm-muted">未設定</span>}</dd></div>
-      </dl>
-      {stopReasons.length > 0 && <ul className="wd-stop">{stopReasons.map(s => <li key={s} className="cq-flag">{s}</li>)}</ul>}
-    </section>
-
-    <DealLinks data={data} company={company} />
-
-    <section className="wd-card" aria-label="担当者">
-      <h3>担当者{data.contacts_total > data.contacts.length && <small>(紐づく {data.contacts_total} 人のうち {data.contacts.length} 人を表示)</small>}</h3>
-      {data.contacts.length === 0 && <p className="crm-muted">担当者の情報を取得できませんでした(HubSpot に紐づく担当者がいない、または取得に失敗)。</p>}
-      <ul className="wd-list">{data.contacts.map(c => <li key={c.id}>
-        <strong>{c.name ?? '(氏名なし)'}</strong>{c.is_primary && <span className="crm-status">主</span>}
-        {c.job_title && <small>{c.job_title}</small>}
-        {c.email && <small>{c.email}</small>}
-        <small>{[c.phone && `電話 ${formatPhoneForDisplay(c.phone) ?? c.phone}`, c.mobile && `携帯 ${formatPhoneForDisplay(c.mobile) ?? c.mobile}`].filter(Boolean).join(' / ') || '電話番号の登録なし'}</small>
-        <a href={c.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
-      </li>)}</ul>
-    </section>
-
-    <section className="wd-card" aria-label="会社">
-      <h3>会社</h3>
-      {!company && <p className="crm-muted">会社の情報を取得できませんでした。</p>}
-      {company && <dl className="wd-dl">
-        <div><dt>会社名</dt><dd>{company.name ?? '(名称なし)'}</dd></div>
-        <div><dt>電話</dt><dd>{company.phone ? (formatPhoneForDisplay(company.phone) ?? company.phone) : <span className="crm-muted">なし</span>}</dd></div>
-        <div><dt>住所</dt><dd>{company.address ?? <span className="crm-muted">なし</span>}</dd></div>
-        <div><dt>業種</dt><dd>{company.industry ?? <span className="crm-muted">なし</span>}</dd></div>
-        <div><dt>サイト</dt><dd>{company.domain ?? <span className="crm-muted">なし</span>}</dd></div>
-      </dl>}
-      {company && <a href={company.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>}
-      {data.companies_total > 1 && <small>紐づく会社は {data.companies_total} 社です。</small>}
-    </section>
-
-    <section className="wd-card" aria-label="活動履歴">
-      <h3>活動履歴<small>({data.activities.length} 件{data.activities_truncated ? '・これより古い履歴は表示していません' : ''})</small></h3>
-      <p className="wd-scope">{data.activity_scope}</p>
-      <div className="wd-filters" role="group" aria-label="活動の種類">
-        {ACTIVITY_FILTERS.map(f => <button key={f.value} type="button" aria-pressed={kind === f.value} onClick={() => { setKind(f.value); }}>{f.label}</button>)}
-      </div>
-      {acts.length === 0 && <p className="crm-muted">{data.activities.length === 0 ? '表示できる活動履歴はありません。' : 'この種類の活動はありません。'}</p>}
-      <ul className="wd-acts">{acts.map(a => <ActivityItem key={`${a.kind}-${a.id}`} a={a} />)}</ul>
-    </section>
-
+      {stopReasons.length > 0 && <ul className="wd-stop" aria-label="架電の注意">{stopReasons.map(s => <li key={s} className="cq-flag">{s}</li>)}</ul>}
+      {notes.length > 0 && <div className="cq-notice cq-warn wd-notes" role="status"><strong>一部の情報が欠けています</strong>
+        <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div>}
     </div>
   </article>;
 }
 
+/** 活動ログ (いつ・誰が・どうだったか)。種類で絞り込める */
+function ActivityLogImpl({ data, placeholder, ownerNames }: {
+  data: WorkspaceResponse | null; placeholder: string; ownerNames: ReadonlyMap<string, string>;
+}) {
+  const [kind, setKind] = useState<ActivityKindFilter>('all');
+  if (data === null) return <div className="dock-scroll"><p className="dock-placeholder">{placeholder}</p></div>;
+  const acts = filterActivities(data.activities, kind);
+  return <section className="wd-log dock-scroll" aria-label="活動ログ" data-testid="activity-log">
+    <p className="wd-log-head"><strong>{data.activities.length} 件</strong>{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
+    <p className="wd-scope">{data.activity_scope}</p>
+    <div className="wd-filters" role="group" aria-label="活動の種類">
+      {ACTIVITY_FILTERS.map(f => <button key={f.value} type="button" aria-pressed={kind === f.value} onClick={() => { setKind(f.value); }}>{f.label}</button>)}
+    </div>
+    {acts.length === 0 && <p className="crm-muted">{data.activities.length === 0 ? '表示できる活動履歴はありません。' : 'この種類の活動はありません。'}</p>}
+    <ul className="wd-acts">{acts.map(a => <ActivityItem key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} />)}</ul>
+  </section>;
+}
+
+/** 親 (架電画面) が描き直しても、props が同じなら描き直さない */
+export const ActivityLog = memo(ActivityLogImpl);
+
 /**
- * 案件・会社のリンク (求人検索・ホームページ・求人票・求人媒体)。クリックで中央のタブに開く。
+ * 案件・会社のリンク (求人検索・ホームページ・求人票・求人媒体)。クリックで「求人検索・リンク先」パネルのタブに開く。
  * 求人検索は「URL_求人検索」、無ければ架ける番号で検索する URL
  */
-function DealLinks({ data, company }: { data: WorkspaceResponse; company: WorkspaceResponse['companies'][number] | null }) {
+function DealLinksImpl({ data }: { data: WorkspaceResponse }) {
   const d = data.deal;
+  const company = data.companies.find(c => c.is_primary) ?? null;
   const search = dealJobSearchUrl(data);
   const homepage = safeHttpUrl(d.homepage_url)?.toString() ?? null;
   const site = safeHttpUrl(company?.website)?.toString() ?? null;
@@ -236,15 +202,18 @@ function DealLinks({ data, company }: { data: WorkspaceResponse; company: Worksp
   if (posting !== null) rows.push({ key: 'posting', dt: '求人票', url: posting, label: '求人票' });
   media.forEach((u, i) => { rows.push({ key: `media-${String(i)}`, dt: media.length > 1 ? `求人媒体 ${String(i + 1)}` : '求人媒体', url: u, label: media.length > 1 ? `求人媒体 ${String(i + 1)}` : '求人媒体' }); });
   return <section className="wd-card" aria-label="リンク">
-    <h3>リンク<small>クリックすると、この画面の中に開きます</small></h3>
+    <h3>リンク<small>クリックすると、このパネルの中に開きます</small></h3>
     {rows.length === 0 ? <p className="crm-muted">登録されたリンクはありません。</p>
       : <dl className="wd-links">{rows.map(r => <div key={r.key}><dt>{r.dt}</dt>
         <dd><PropLink url={r.url} label={r.label}>{r.key === 'search' ? <>求人を検索する{r.note && <small> {r.note}</small>}</> : r.url}</PropLink></dd></div>)}</dl>}
   </section>;
 }
 
+/** 親が描き直しても、案件が同じなら描き直さない */
+export const DealLinks = memo(DealLinksImpl);
+
 function DetailMessage({ state, reload }: { state: DetailState; reload: () => void }) {
-  if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>左の一覧から架電先を選んでください</strong>
+  if (state.phase === 'idle') return <div className="cq-notice cq-empty wd-empty"><strong>架電一覧から架電先を選んでください</strong>
     <p>案件・担当者・会社・活動履歴を HubSpot から読み込みます。</p></div>;
   if (state.phase === 'loading') return <p role="status" className="cq-loading">詳細を読み込み中…</p>;
   if (state.phase === 'forbidden') return <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p></div>;
@@ -252,18 +221,18 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-function DealDetailImpl({ state, reload, zoom, ownerName, stopLabel = rawStopLabel, callBar, onOpenZoom }: {
-  state: DetailState; reload: () => void; zoom: ZoomPhone; ownerName?: string | undefined; stopLabel?: StopLabel;
+function DealOverviewImpl({ state, reload, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom }: {
+  state: DetailState; reload: () => void; zoom: ZoomPhone; stopLabel?: StopLabel;
   /** 「架ける番号」の下に出す通話の様子 (出すものが無ければ null) */
   callBar?: CallBarInfo | null | undefined;
   /** Zoom の枠を開く */
   onOpenZoom?: (() => void) | undefined;
 }) {
   if (state.phase === 'ready' && state.data !== null) {
-    return <Detail data={state.data} zoom={zoom} ownerName={ownerName} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom} />;
+    return <Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom} />;
   }
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }
 
-/** 親 (架電画面) が架電結果の入力のたびに描き直しても、props が同じなら描き直さない */
-export const DealDetail = memo(DealDetailImpl);
+/** 案件の概要 (会社・案件・ステージ・架ける番号・通話の様子)。親が架電結果の入力のたびに描き直しても、props が同じなら描き直さない */
+export const DealOverview = memo(DealOverviewImpl);

@@ -317,6 +317,51 @@ async fn hs_pipelines(State(st): State<Shared<FakeHs>>) -> Response {
     .into_response()
 }
 
+/// プロパティ定義 (「プロパティ」パネルの一覧)。案件・担当者・会社に少しずつ
+async fn hs_properties(State(st): State<Shared<FakeHs>>, Path(o): Path<String>) -> Response {
+    let mut s = st.lock().unwrap();
+    let path = format!("GET /crm/v3/properties/{o}");
+    s.log.push((path.clone(), String::new()));
+    if let Some(c) = s.failing(&path) {
+        return err_resp(c);
+    }
+    let results = match o.as_str() {
+        "deals" => json!([
+            {"name": "bpo_10", "label": "不通時チェック", "type": "enumeration", "fieldType": "radio", "groupName": "dealinformation", "displayOrder": 1,
+             "options": [{"label": "受付拒否", "value": "reception_refused"}]},
+            {"name": "bpo_32", "label": "URL_求人検索", "type": "string", "fieldType": "text", "groupName": "dealinformation", "displayOrder": 2},
+            {"name": "bpo_13", "label": "次回架電日", "type": "date", "fieldType": "date", "groupName": "dealinformation", "displayOrder": 3},
+            {"name": "bpo_50", "label": "架電メモ", "type": "string", "fieldType": "textarea", "groupName": "dealinformation", "displayOrder": 4},
+            {"name": "secret_hidden", "label": "隠し", "type": "string", "fieldType": "text", "groupName": "dealinformation", "hidden": true}
+        ]),
+        "contacts" => json!([
+            {"name": "lastname", "label": "姓", "type": "string", "fieldType": "text", "groupName": "contactinformation", "displayOrder": 0},
+            {"name": "jobtitle", "label": "役職", "type": "string", "fieldType": "text", "groupName": "contactinformation", "displayOrder": 1},
+            {"name": "lifecyclestage", "label": "ライフサイクルステージ", "type": "enumeration", "fieldType": "select", "groupName": "contactinformation", "displayOrder": 2}
+        ]),
+        _ => json!([
+            {"name": "website", "label": "Website URL", "type": "string", "fieldType": "text", "groupName": "companyinformation", "displayOrder": 0},
+            {"name": "numberofemployees", "label": "従業員数", "type": "number", "fieldType": "number", "groupName": "companyinformation", "displayOrder": 1}
+        ]),
+    };
+    Json(json!({"results": results})).into_response()
+}
+
+async fn hs_property_groups(State(st): State<Shared<FakeHs>>, Path(o): Path<String>) -> Response {
+    let mut s = st.lock().unwrap();
+    let path = format!("GET /crm/v3/properties/{o}/groups");
+    s.log.push((path.clone(), String::new()));
+    if let Some(c) = s.failing(&path) {
+        return err_resp(c);
+    }
+    Json(json!({"results": [
+        {"name": "dealinformation", "label": "Deal information", "displayOrder": 0},
+        {"name": "contactinformation", "label": "Contact information", "displayOrder": 0},
+        {"name": "companyinformation", "label": "Company information", "displayOrder": 0}
+    ]}))
+    .into_response()
+}
+
 async fn spawn(router: Router) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -338,6 +383,8 @@ async fn start_hs(fake: FakeHs) -> (Arc<HubSpotClient>, Shared<FakeHs>) {
             )
             .route("/crm/v3/owners", get(hs_owners))
             .route("/crm/v3/pipelines/deals", get(hs_pipelines))
+            .route("/crm/v3/properties/{o}", get(hs_properties))
+            .route("/crm/v3/properties/{o}/groups", get(hs_property_groups))
             .with_state(st.clone()),
     )
     .await;
@@ -1238,4 +1285,224 @@ async fn メールの読み取りスコープが無ければメール抜きで�
         "読み直しは 1 回だけ"
     );
     assert_eq!(e.count("emails/batch/read"), 0);
+}
+
+// ---------------------------------------------------------------------------
+// 選んだ項目 (「プロパティ」パネル) と項目の一覧
+// ---------------------------------------------------------------------------
+
+/// bpo_50 / lifecyclestage / numberofemployees は詳細の既定の読み取りに入っていない項目
+const PROPS_QUERY: &str = "?deal_props=bpo_10,bpo_32,bpo_13,bpo_50&contact_props=lastname,jobtitle,lifecyclestage&company_props=website,numberofemployees";
+
+/// 呼び出しの記録のうち、`needle` を含む最初のもののクエリ・本文
+fn logged(e: &Env, needle: &str) -> String {
+    e.hs.lock()
+        .unwrap()
+        .log
+        .iter()
+        .find(|(c, _)| c.contains(needle))
+        .map(|(_, b)| b.clone())
+        .unwrap_or_default()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 項目の一覧は_6_回で読み_キャッシュし_非表示の項目は返さない_権限なしは呼ばない() {
+    let e = env(FakeHs::new()).await;
+    let out = login(&e.app, OUTSIDER, "google_oidc").await;
+    let (s, _, v) = get_raw(&e.app, "/api/crm/property-catalog", Some(&out)).await;
+    assert_eq!((s, kind(&v)), (StatusCode::FORBIDDEN, Some("forbidden")));
+    let (s, _, v) = get_raw(&e.app, "/api/crm/property-catalog", None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "{v}");
+    assert_eq!(e.total(), 0);
+
+    let (s, cc, v) = get_raw(&e.app, "/api/crm/property-catalog", Some(&e.bpo)).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(cc, "no-store");
+    assert_eq!(v["cache_hit"], false);
+    assert_eq!(v["max_selected_per_object"], 100);
+    let objs: Vec<&str> = v["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["object_type"].as_str().unwrap())
+        .collect();
+    assert_eq!(objs, ["deals", "contacts", "companies"]);
+    let deal_group = &v["objects"][0]["groups"][0];
+    assert_eq!(deal_group["label"], "Deal information");
+    let names: Vec<&str> = deal_group["properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["bpo_10", "bpo_32", "bpo_13", "bpo_50"],
+        "非表示の項目は除く"
+    );
+    assert_eq!(
+        deal_group["properties"][0]["options"][0]["label"],
+        "受付拒否"
+    );
+    assert_eq!(e.total(), 6, "{:?}", e.calls());
+    assert_eq!(e.count("GET /crm/v3/properties/"), 6);
+
+    // 2 回目はキャッシュ (HubSpot を呼ばない)
+    let (s, _, v) = get_raw(&e.app, "/api/crm/property-catalog", Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["cache_hit"], true);
+    assert_eq!(e.total(), 6);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 選んだ項目の値は同じ読み取りで返り_呼び出し回数は増えない() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    f.put(
+        "deals",
+        DEAL,
+        &[
+            ("dealname", "架空案件"),
+            ("dealstage", UNPROCESSED),
+            ("pipeline", PIPELINE),
+            ("hubspot_owner_id", BPO_OWNER),
+            ("bpo_10", "reception_refused"),
+            (
+                "bpo_32",
+                "https://www.google.com/search?q=03-1111-0002+%E6%B1%82%E4%BA%BA",
+            ),
+            ("bpo_13", "   "),
+            ("bpo_50", "受付の方が親切"),
+        ],
+    );
+    f.put(
+        "companies",
+        "8001",
+        &[
+            ("name", "架空商事"),
+            ("website", "https://www.example.invalid/"),
+            ("numberofemployees", "120"),
+        ],
+    );
+    let e = env(f).await;
+    // 一覧を先に温める (画面は一覧を読んでから詳細を読む)
+    let (s, _, _) = get_raw(&e.app, "/api/crm/property-catalog", Some(&e.admin)).await;
+    assert_eq!(s, StatusCode::OK);
+    let before = e.total();
+    let (s, _, v) = get_raw(
+        &e.app,
+        &format!("{}{PROPS_QUERY}", url(DEAL)),
+        Some(&e.admin),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["selected"]["deal"],
+        json!({
+            "bpo_10": "reception_refused",
+            "bpo_32": "https://www.google.com/search?q=03-1111-0002+%E6%B1%82%E4%BA%BA",
+            "bpo_13": null,
+            "bpo_50": "受付の方が親切"
+        }),
+        "空白だけの値は null"
+    );
+    // 主担当者 (7002) と主会社 (8001) の値
+    assert_eq!(
+        v["selected"]["contact"],
+        json!({"lastname": "架空", "jobtitle": "採用担当", "lifecyclestage": null})
+    );
+    assert_eq!(
+        v["selected"]["company"],
+        json!({"website": "https://www.example.invalid/", "numberofemployees": "120"})
+    );
+    // 呼び出し回数は選ばないときと同じ 11 回 (一覧はキャッシュ)。項目は同じ読み取りに足している
+    assert_eq!(e.total() - before, 11, "{:?}", e.calls());
+    let deal_q = logged(&e, "GET /crm/v3/objects/deals/5001");
+    assert!(deal_q.contains("bpo_50"), "{deal_q}");
+    let contact_body = logged(&e, "POST /crm/v3/objects/contacts/batch/read");
+    assert!(
+        contact_body.contains("\"lifecyclestage\""),
+        "{contact_body}"
+    );
+    let company_body = logged(&e, "POST /crm/v3/objects/companies/batch/read");
+    assert!(
+        company_body.contains("\"numberofemployees\""),
+        "{company_body}"
+    );
+
+    // 選ばないときは selected は空
+    let (_, v) = e.admin_get(DEAL).await;
+    assert_eq!(
+        v["selected"],
+        json!({"deal": {}, "contact": {}, "company": {}})
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 選んだ項目の名前が不正なら_400_で_hubspot_を呼ばない() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    let e = env(f).await;
+    let over: Vec<String> = (0..101).map(|i| format!("p{i}")).collect();
+    for q in [
+        "?deal_props=bpo-10".to_string(),
+        "?contact_props=a%20b".to_string(),
+        "?company_props=..%2Fx".to_string(),
+        format!("?deal_props={}", over.join(",")),
+    ] {
+        let (s, v) = e.admin_get(&format!("{DEAL}{q}")).await;
+        assert_eq!(
+            (s, kind(&v)),
+            (StatusCode::BAD_REQUEST, Some("invalid_properties")),
+            "{q}"
+        );
+    }
+    assert_eq!(e.total(), 0, "{:?}", e.calls());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 一覧に無い項目は_400_で案件を読まない() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    let e = env(f).await;
+    for q in [
+        "?deal_props=bpo_10,secret_hidden",
+        "?deal_props=no_such_prop",
+        "?contact_props=bpo_10",
+    ] {
+        let (s, v) = e.admin_get(&format!("{DEAL}{q}")).await;
+        assert_eq!(
+            (s, kind(&v)),
+            (StatusCode::BAD_REQUEST, Some("invalid_properties")),
+            "{q}"
+        );
+    }
+    assert_eq!(e.count("/crm/v3/objects/"), 0, "{:?}", e.calls());
+    assert_eq!(e.count("GET /crm/v3/properties/"), 6, "一覧は 1 回だけ読む");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 項目の一覧を読めなければ選んだ項目は読まずに案件を返す() {
+    let mut f = FakeHs::new();
+    full(&mut f, BPO_OWNER);
+    f.fail.insert("GET /crm/v3/properties/deals".into(), 500);
+    let e = env(f).await;
+    let (s, v) = e.admin_get(&format!("{DEAL}{PROPS_QUERY}")).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["partial"],
+        json!([{"part": "selected_properties", "error_kind": "hubspot_upstream"}])
+    );
+    assert_eq!(
+        v["selected"],
+        json!({"deal": {}, "contact": {}, "company": {}})
+    );
+    let deal_q = logged(&e, "GET /crm/v3/objects/deals/5001");
+    assert!(!deal_q.contains("bpo_50"), "{deal_q}");
+    // 失敗はしばらく覚える: 続けて開いても一覧の取得 (定義の読み取り) を繰り返さない
+    let before = e.count("GET /crm/v3/properties/");
+    let (s, v) = e.admin_get(&format!("{DEAL}{PROPS_QUERY}")).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["partial"][0]["part"], "selected_properties");
+    assert_eq!(e.count("GET /crm/v3/properties/"), before);
 }

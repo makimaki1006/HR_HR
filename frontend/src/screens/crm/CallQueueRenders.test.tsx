@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CallQueueScreen } from './CallQueueScreen';
-import { makeItem, makeResponse, okMetadataFetch, okUserFetch } from './queueTestUtil';
+import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage } from './queueTestUtil';
 import { DEFAULT_FILTERS } from './queueModel';
 import type { QueueFilters } from './queueModel';
 import { fixtureQueuePage } from './queueFixture';
@@ -18,6 +18,7 @@ vi.mock('./phone', async importOriginal => {
 });
 
 beforeEach(() => { try { window.sessionStorage.clear(); } catch { /* ignore */ } phoneCalls.n = 0; });
+beforeEach(() => { resetDockStorage(); });
 afterEach(() => { cleanup(); });
 
 const list = () => screen.getByRole('list', { name: '架電キュー' });
@@ -35,7 +36,7 @@ const detailFetch: DetailFetch = id => {
 };
 
 async function openFirst() {
-  render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={detailFetch} metadataFetcher={okMetadataFetch}
+  render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={detailFetch} metadataFetcher={okMetadataFetch}
     zoomOptions={{ loadTimeoutMs: 60_000 }} initialSearch="?view=queue&owner=all" />);
   await waitFor(() => { expect(rows()).toHaveLength(40); });
   fireEvent.click(rowAt(0));

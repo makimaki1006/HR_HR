@@ -5,6 +5,7 @@ import type { WorkspaceContact } from "./WorkspaceContact";
 import type { WorkspaceDeal } from "./WorkspaceDeal";
 import type { WorkspaceDial } from "./WorkspaceDial";
 import type { WorkspacePartial } from "./WorkspacePartial";
+import type { WorkspaceSelected } from "./WorkspaceSelected";
 
 export type WorkspaceResponse = { deal: WorkspaceDeal, dial: WorkspaceDial | null, 
 /**
@@ -26,4 +27,8 @@ activities_truncated: boolean,
 /**
  * 活動の範囲の説明 (画面にそのまま出す)
  */
-activity_scope: string, partial: Array<WorkspacePartial>, hubspot_portal_id: string, data_scope: string, generated_at: string, };
+activity_scope: string, partial: Array<WorkspacePartial>, 
+/**
+ * `?deal_props=` 等で選んだ項目の値
+ */
+selected: WorkspaceSelected, hubspot_portal_id: string, data_scope: string, generated_at: string, };

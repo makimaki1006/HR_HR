@@ -1,5 +1,6 @@
 import { expect, Locator, Page, Request, test } from '@playwright/test';
 import { login } from './helpers/login';
+import { startWithResultPanelInFront } from './helpers/crm_layout';
 import { E2E_EMAIL } from './helpers/fixture_values';
 
 /**
@@ -48,7 +49,8 @@ async function storedDrafts(page: Page): Promise<{ user?: string; drafts: Record
 }
 
 test.describe('CRM 架電画面: 架電結果の下書き', () => {
-  test.beforeEach(async ({ page }) => { await login(page); });
+  // 架電結果の入力欄を確かめるので、「架電結果の入力」を前に出した配置で始める (既定は「活動ログ」が前)
+  test.beforeEach(async ({ page }) => { await startWithResultPanelInFront(page); await login(page); });
 
   test('一覧と詳細の値、結果ごとの必須欄、記録して次へ、再読み込み・新しいタブでの残り方。HubSpot には何も送らない', async ({ page, context }) => {
     const crmRequests = watchCrmRequests(page);

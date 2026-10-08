@@ -6,7 +6,7 @@ import type { ApiResult } from '../../api/client';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import { CallQueueScreen } from './CallQueueScreen';
 import { DRAFT_STORAGE_KEY } from './callResultModel';
-import { makeItem, makeResponse, metadataFromMoc, metadataStub, okMetadataFetch, okUserFetch, TEST_USER, userFetchFor } from './queueTestUtil';
+import { makeItem, makeResponse, metadataFromMoc, metadataStub, okMetadataFetch, okUserFetch, TEST_USER, userFetchFor, okCatalogFetch, resetDockStorage } from './queueTestUtil';
 import type { UserFetch } from './useCurrentUser';
 import type { QueueFilters } from './queueModel';
 import type { DetailFetch } from './useDealDetail';
@@ -18,6 +18,7 @@ const NOW = () => Date.UTC(2026, 9, 8, 3, 0, 0);
 const neverDetail: DetailFetch = () => new Promise(() => undefined);
 
 beforeEach(() => { try { window.sessionStorage.clear(); } catch { /* ignore */ } });
+beforeEach(() => { resetDockStorage(); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 async function renderScreen(opts: { metadataFetcher?: MetadataFetch; items?: ReturnType<typeof makeItem>[]; search?: string; now?: () => number; userFetcher?: UserFetch; nextCursor?: string } = {}) {
@@ -26,13 +27,15 @@ async function renderScreen(opts: { metadataFetcher?: MetadataFetch; items?: Ret
   const queue = (f: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({
     ok: true, data: makeResponse(f, items.filter(i => !f.q || (i.company?.name ?? '').includes(f.q)), { next_cursor: opts.nextCursor ?? null }),
   });
-  const r = render(<CallQueueScreen userFetcher={opts.userFetcher ?? okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+  const r = render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={opts.userFetcher ?? okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
     metadataFetcher={opts.metadataFetcher ?? okMetadataFetch} initialSearch={opts.search ?? '?view=queue'} now={opts.now ?? NOW} />);
   await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
   return r;
 }
 const list = () => screen.getByRole('list', { name: '架電キュー' });
-const open = (n: string) => { fireEvent.click(within(list()).getByText(`架空会社${n}`)); };
+/** 「架電結果の入力」のパネルを前に出す (既定の配置では「活動ログ」が前に出ている) */
+const showForm = () => { fireEvent.click(screen.getByRole('tab', { name: '架電結果の入力' })); };
+const open = (n: string) => { fireEvent.click(within(list()).getByText(`架空会社${n}`)); showForm(); };
 const form = () => screen.getByRole('form', { name: '架電結果の入力' });
 const outcome = (label: string) => within(form()).getByRole('button', { name: label });
 const recordBtn = () => within(form()).getByRole<HTMLButtonElement>('button', { name: /記録して次へ/ });
@@ -373,7 +376,7 @@ describe('call-result form (draft only)', () => {
     const queue = (f: QueueFilters) => hold
       ? new Promise<ApiResult<CallQueueResponse>>(resolve => { held.push(resolve); })
       : Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, items) });
-    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
       metadataFetcher={okMetadataFetch} initialSearch="?view=queue" now={NOW} />);
     await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
     open('1');
@@ -421,7 +424,7 @@ describe('call-result form (draft only)', () => {
     let t = Date.UTC(2026, 9, 8, 14, 50, 0); // JST 2026-10-08 23:50
     const seen: QueueFilters[] = [];
     const queue = (f: QueueFilters) => { seen.push(f); return Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, [makeItem(String(seen.length))]) }); };
-    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
       metadataFetcher={okMetadataFetch} initialSearch="?view=queue&due=today" now={() => t} />);
     await waitFor(() => { expect(within(list()).getByText('架空会社1')).toBeTruthy(); });
     expect(seen).toHaveLength(1);
@@ -439,7 +442,7 @@ describe('call-result form (draft only)', () => {
     let t = Date.UTC(2026, 9, 8, 14, 50, 0);
     let n = 0;
     const queue = (f: QueueFilters) => { n += 1; return Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, [makeItem('1')]) }); };
-    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
       metadataFetcher={okMetadataFetch} initialSearch="?view=queue" now={() => t} />);
     await waitFor(() => { expect(within(list()).getByText('架空会社1')).toBeTruthy(); });
     t = Date.UTC(2026, 9, 8, 15, 30, 0);
@@ -709,7 +712,7 @@ describe('call-result form (draft only)', () => {
     const spy = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')));
     vi.stubGlobal('fetch', spy);
     const meta = metadataStub();
-    render(<CallQueueScreen userFetcher={okUserFetch} metadataFetcher={meta.fetcher} detailFetcher={neverDetail} initialSearch="?view=queue&mode=fixture" now={NOW} />);
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} metadataFetcher={meta.fetcher} detailFetcher={neverDetail} initialSearch="?view=queue&mode=fixture" now={NOW} />);
     await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
     fireEvent.click(screen.getByText('架空食品株式会社'));
     await formReady();
@@ -727,7 +730,7 @@ describe('call-result form (draft only)', () => {
     // 実データ・架空サンプルとも同じ ID (1, 2) を返す取得関数
     const items = [makeItem('1'), makeItem('2')];
     const queue = (f: QueueFilters) => Promise.resolve<ApiResult<CallQueueResponse>>({ ok: true, data: makeResponse(f, items) });
-    render(<CallQueueScreen userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={queue} ownersFetcher={fixtureOwnersFetch} detailFetcher={neverDetail}
       metadataFetcher={okMetadataFetch} initialSearch="?view=queue&mode=fixture" now={NOW} />);
     await waitFor(() => { expect(screen.getByRole('list', { name: '架電キュー' })).toBeTruthy(); });
     open('1');
