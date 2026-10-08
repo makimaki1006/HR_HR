@@ -510,6 +510,8 @@ enum Scenario {
     Redirect,
     ListingLinksDown,
     SlowDefinitions,
+    /// The first definition read works; every later one is refused (403, not retried).
+    DefinitionsFailAfterFirst,
 }
 #[derive(Clone)]
 struct Seen {
@@ -668,6 +670,15 @@ async fn reply(State(fixture): State<Arc<Fixture>>, request: Request<Body>) -> R
                 .into_response()
         }
         "/crm/v3/properties/0-421/batch/read"
+            if matches!(fixture.scenario, Scenario::DefinitionsFailAfterFirst) && count > 1 =>
+        {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"message":"missing scope"})),
+            )
+                .into_response()
+        }
+        "/crm/v3/properties/0-421/batch/read"
             if matches!(fixture.scenario, Scenario::SlowDefinitions) && count == 1 =>
         {
             // Slower than the grace the response waits for the labels.
@@ -768,6 +779,7 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
     assert_eq!(selections[0]["value"], "kyuuyo");
     assert_eq!(selections[0]["label"], "給与");
     assert_eq!(selections[0]["application_date"], "2026-10-03");
+    assert_eq!(applicants["applicant_reasons"]["option_labels"], "read");
     // The transfer reason is masked like the other texts.
     let texts: Vec<_> = applicants["applicant_reasons"]["items"]
         .as_array()
@@ -889,6 +901,34 @@ async fn a_slow_definition_read_does_not_hold_up_the_applications() {
 }
 
 #[tokio::test]
+async fn a_failed_refresh_of_stale_labels_keeps_the_labels_read_before() {
+    let upstream = Upstream::start(Scenario::DefinitionsFailAfterFirst).await;
+    let service = upstream.service();
+    let definitions = |upstream: &Upstream| {
+        upstream
+            .calls()
+            .iter()
+            .filter(|c| c.path == "/crm/v3/properties/0-421/batch/read")
+            .count()
+    };
+    let first = service.applicants("10", "30").await.unwrap();
+    assert_eq!(first["applicant_reasons"]["selections"][0]["label"], "給与");
+    assert_eq!(definitions(&upstream), 1);
+    // The labels go stale (as after OPTION_LABELS_TTL): the next request starts a refresh and
+    // still answers with the labels read before, without waiting for it.
+    service.labels.lock().unwrap().checked = None;
+    let stale = service.applicants("10", "30").await.unwrap();
+    assert_eq!(stale["applicant_reasons"]["selections"][0]["label"], "給与");
+    assert_eq!(stale["applicant_reasons"]["option_labels"], "read");
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(definitions(&upstream), 2);
+    // The refresh was refused; the labels read before are kept, and it is not tried again yet.
+    let after = service.applicants("10", "30").await.unwrap();
+    assert_eq!(after["applicant_reasons"]["selections"][0]["label"], "給与");
+    assert_eq!(definitions(&upstream), 2);
+}
+
+#[tokio::test]
 async fn a_failed_listing_link_read_still_returns_totals_and_dates() {
     let upstream = Upstream::start(Scenario::ListingLinksDown).await;
     let applicants = upstream.service().applicants("10", "30").await.unwrap();
@@ -904,6 +944,10 @@ async fn a_failed_listing_link_read_still_returns_totals_and_dates() {
     assert!(applicants["dated_comparison"].is_null());
     // The definition read was refused: the value is shown as it is, and the read still works.
     let selection = &applicants["applicant_reasons"]["selections"][0];
+    assert_eq!(
+        applicants["applicant_reasons"]["option_labels"],
+        "unavailable"
+    );
     assert_eq!(selection["value"], "kyuuyo");
     assert!(selection["label"].is_null());
 }

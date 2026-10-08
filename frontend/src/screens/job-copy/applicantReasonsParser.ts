@@ -1,7 +1,8 @@
-import type { ApplicantReasonCollection, ReasonSelection, ReasonSourceCounts } from './applicantReasonsModel';
+import type { ApplicantReasonCollection, OptionLabelsStatus, ReasonSelection, ReasonSourceCounts } from './applicantReasonsModel';
 import { CATEGORY_SOURCES, LEGACY_SOURCES, TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { maskPersonalDetails } from './personalText';
 
+const OPTION_LABEL_STATUSES: OptionLabelsStatus[] = ['read', 'unavailable', 'not_stored'];
 const invalid = (): never => { throw new Error('応募理由の取得データを確認できませんでした。'); };
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return invalid();
@@ -33,7 +34,7 @@ function date(value: unknown): string | null {
 export function parseApplicantReasons(value: unknown, totalApplicants: number, publishedVersionIds: string[]): ApplicantReasonCollection | undefined {
   if (value === undefined || value === null) return undefined;
   const raw = object(value);
-  only(raw, ['available', 'source', 'basis', 'source_property', 'fetched_at', 'total_applicants', 'total_source_values', 'source_counts', 'items', 'selections', 'missing', 'blank', 'truncated']);
+  only(raw, ['available', 'source', 'basis', 'source_property', 'fetched_at', 'total_applicants', 'total_source_values', 'source_counts', 'items', 'selections', 'option_labels', 'missing', 'blank', 'truncated']);
   if (raw.available !== true || raw.source !== 'hubspot' || raw.basis !== 'recorded_applicant_reason' || raw.source_property !== null || typeof raw.truncated !== 'boolean') return invalid();
   const sourceRaw = object(raw.source_counts);
   // A stored file written before 2026-10-08 has the three old sources, no applicant keys and no
@@ -42,6 +43,10 @@ export function parseApplicantReasons(value: unknown, totalApplicants: number, p
   const sourceKeys = legacy ? LEGACY_SOURCES : Object.keys(reasonSourceLabels);
   const textSources = legacy ? LEGACY_SOURCES : TEXT_SOURCES;
   if (legacy !== (raw.selections === undefined)) return invalid();
+  // Not in a stored file written before 2026-10-08 (no selections there); optional otherwise.
+  if (legacy && raw.option_labels !== undefined) return invalid();
+  if (raw.option_labels !== undefined && !OPTION_LABEL_STATUSES.includes(raw.option_labels as OptionLabelsStatus)) return invalid();
+  const optionLabels = raw.option_labels === undefined ? null : raw.option_labels as OptionLabelsStatus;
   if (count(raw.total_applicants) !== totalApplicants || count(raw.total_source_values) !== totalApplicants * sourceKeys.length || !Array.isArray(raw.items) || raw.items.length > 500) return invalid();
   const sourceCounts: Record<string, ReasonSourceCounts> = {};
   only(sourceRaw, sourceKeys);
@@ -92,5 +97,5 @@ export function parseApplicantReasons(value: unknown, totalApplicants: number, p
     }
   }
   return { available: true, basis: raw.basis, fetchedAt: timestamp(raw.fetched_at), totalApplicants,
-    totalSourceValues: count(raw.total_source_values), sourceCounts, missing: count(raw.missing), blank: count(raw.blank), truncated: raw.truncated, items, selections };
+    totalSourceValues: count(raw.total_source_values), sourceCounts, missing: count(raw.missing), blank: count(raw.blank), truncated: raw.truncated, items, selections, optionLabels };
 }

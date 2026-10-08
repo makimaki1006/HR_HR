@@ -51,9 +51,27 @@ pub struct Reasons {
     /// before the category sources were read (未取得, not 0).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selections: Option<Vec<Selection>>,
+    /// Whether the option labels of the category selects were read for this response. None in a
+    /// snapshot written before the category sources were read (it has no selections).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub option_labels: Option<OptionLabelsStatus>,
     pub missing: usize,
     pub blank: usize,
+    /// True only when texts were left out because there were more than MAX_ITEMS. A single text
+    /// longer than MAX_TEXT_CHARS is cut but still counted and classified; that is not this.
     pub truncated: bool,
+}
+
+/// How the option labels of a response were obtained. The screen uses it to tell why a chosen
+/// value has no label: the definition was read and does not list the value (the option was
+/// removed or renamed in HubSpot), the read failed or was slow (reopening may help), or a stored
+/// snapshot was written without the labels (reopening does not help).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptionLabelsStatus {
+    Read,
+    Unavailable,
+    NotStored,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -355,15 +373,25 @@ fn opaque(parts: &[&str]) -> String {
 /// Option labels by property and internal value, from the property definitions.
 pub type OptionLabels = BTreeMap<String, BTreeMap<String, String>>;
 
+/// The reasons of a stored snapshot read without the option labels.
 pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
-    extract_with_labels(listing, rows, fetched_at, None)
+    extract_with_labels(
+        listing,
+        rows,
+        fetched_at,
+        None,
+        OptionLabelsStatus::NotStored,
+    )
 }
 
+/// `labels`: the option labels when the definitions were read; otherwise `without` says why
+/// there are none (Unavailable on the live read, NotStored for a snapshot).
 pub fn extract_with_labels(
     listing: &str,
     rows: &[Record],
     fetched_at: String,
     labels: Option<&OptionLabels>,
+    without: OptionLabelsStatus,
 ) -> Reasons {
     // Same deterministic duplicate handling as the existing aggregate summary.
     let unique: BTreeMap<_, _> = rows.iter().map(|row| (&row.id, row)).collect();
@@ -382,6 +410,11 @@ pub fn extract_with_labels(
             .collect(),
         items: Vec::new(),
         selections: None,
+        option_labels: Some(if labels.is_some() {
+            OptionLabelsStatus::Read
+        } else {
+            without
+        }),
         missing: 0,
         blank: 0,
         truncated: false,
@@ -453,7 +486,6 @@ pub fn extract_with_labels(
                 .chars()
                 .take(MAX_TEXT_CHARS)
                 .collect();
-            reasons.truncated |= text.chars().count() > MAX_TEXT_CHARS;
             reasons.items.push(Reason {
                 id: opaque(&[listing, row.id.as_str(), property]),
                 applicant: Some(applicant.clone()),
@@ -488,6 +520,7 @@ pub fn extract_legacy(listing: &str, rows: &[Record], fetched_at: String) -> Rea
         item.applicant = None;
     }
     reasons.selections = None;
+    reasons.option_labels = None;
     reasons
 }
 
@@ -715,8 +748,14 @@ mod tests {
             "ouboriyuukategori_baitaikisai".to_owned(),
             BTreeMap::from([("kyuuyo".to_owned(), "給与".to_owned())]),
         )]);
-        let reasons =
-            extract_with_labels("30", &rows, "2026-10-05T00:00:00Z".into(), Some(&labels));
+        let reasons = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            Some(&labels),
+            OptionLabelsStatus::Unavailable,
+        );
+        assert_eq!(reasons.option_labels, Some(OptionLabelsStatus::Read));
         let selections = reasons.selections.unwrap();
         assert_eq!(selections.len(), 2);
         assert_eq!(selections[0].value, "kyuuyo");
@@ -773,13 +812,107 @@ mod tests {
             (6, 4, 1)
         );
         assert!(reasons.selections.is_none());
+        assert!(reasons.option_labels.is_none());
         assert_eq!(reasons.items.len(), 1);
         assert!(reasons.items[0].applicant.is_none());
         let json = serde_json::to_value(&reasons).unwrap();
         assert!(json.get("selections").is_none());
+        assert!(json.get("option_labels").is_none());
         assert!(!json
             .to_string()
             .contains("genshokumaeshokukaranotenshokuriyuu"));
+    }
+    #[test]
+    fn a_long_text_is_cut_but_not_reported_as_left_out() {
+        let long = "時給が高い".repeat(401); // 2005 characters
+        let rows = [row("50", &[("oubodouki", Some(long.as_str()))])];
+        let reasons = extract_rows(&rows);
+        assert_eq!(reasons.items.len(), 1);
+        assert_eq!(reasons.items[0].text.chars().count(), MAX_TEXT_CHARS);
+        assert_eq!(reasons.source_counts["oubodouki"].nonblank, 1);
+        // Every text was kept, so nothing is reported as left out.
+        assert!(!reasons.truncated);
+    }
+    #[test]
+    fn texts_over_the_item_cap_are_reported_as_left_out() {
+        let rows: Vec<Record> = (0..MAX_ITEMS + 1)
+            .map(|i| {
+                row(
+                    &format!("{}", 1000 + i),
+                    &[("oubodouki", Some("家から近い"))],
+                )
+            })
+            .collect();
+        let reasons = extract_rows(&rows);
+        assert_eq!(reasons.items.len(), MAX_ITEMS);
+        assert_eq!(reasons.source_counts["oubodouki"].nonblank, MAX_ITEMS + 1);
+        assert!(reasons.truncated);
+    }
+    #[test]
+    fn select_values_are_masked_and_a_repeated_value_is_one_selection() {
+        let rows = [
+            row(
+                "50",
+                &[("ouboriyuukategori_hiaringu", Some("給与;給与; 給与 "))],
+            ),
+            row(
+                "51",
+                &[("ouboriyuukategori_hiaringu", Some("090-1234-5678;山田さん"))],
+            ),
+        ];
+        let labels: OptionLabels = BTreeMap::from([(
+            "ouboriyuukategori_hiaringu".to_owned(),
+            BTreeMap::from([("給与".to_owned(), "給与".to_owned())]),
+        )]);
+        let reasons = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            Some(&labels),
+            OptionLabelsStatus::Unavailable,
+        );
+        let selections = reasons.selections.unwrap();
+        let values: Vec<_> = selections.iter().map(|s| s.value.as_str()).collect();
+        // One selection for the repeated value (the screen rejects a repeated one), and the
+        // phone number and the name never leave the server.
+        assert_eq!(values.iter().filter(|v| **v == "給与").count(), 1);
+        assert_eq!(selections.len(), 3);
+        assert!(values.contains(&"＊＊"));
+        assert!(values.contains(&"＊＊さん"));
+        let json = serde_json::to_string(&selections).unwrap();
+        assert!(!json.contains("1234"));
+        assert!(!json.contains("山田"));
+        assert_eq!(
+            reasons.source_counts["ouboriyuukategori_hiaringu"].nonblank,
+            2
+        );
+    }
+    #[test]
+    fn the_label_status_says_why_a_value_has_no_label() {
+        let rows = [row("50", &[("ouboriyuukategori_hiaringu", Some("kyuuyo"))])];
+        let live = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            None,
+            OptionLabelsStatus::Unavailable,
+        );
+        assert_eq!(live.option_labels, Some(OptionLabelsStatus::Unavailable));
+        let stored = extract_rows(&rows);
+        assert_eq!(stored.option_labels, Some(OptionLabelsStatus::NotStored));
+        assert_eq!(
+            serde_json::to_value(&stored).unwrap()["option_labels"],
+            "not_stored"
+        );
+        let read = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            Some(&OptionLabels::new()),
+            OptionLabelsStatus::Unavailable,
+        );
+        assert_eq!(read.option_labels, Some(OptionLabelsStatus::Read));
+        assert_eq!(read.selections.unwrap()[0].label, None);
     }
     #[test]
     fn verified_empty_read_differs_from_absent_optional_snapshot_field() {

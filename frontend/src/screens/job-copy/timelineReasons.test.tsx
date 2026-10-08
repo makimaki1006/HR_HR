@@ -7,7 +7,8 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jobs } from './data';
-import type { JobCopyRecord } from './data';
+import type { CopyVersion, JobCopyRecord } from './data';
+import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import { JobTimeline } from './JobTimeline';
 import { JobOverview } from './JobOverview';
 import { ApplicantReasons } from './ApplicantReasons';
@@ -137,7 +138,7 @@ describe('category breakdown on the 応募理由 tab', () => {
     if (!reasons) throw new Error('Missing demo reasons');
     const key = 'f'.repeat(64);
     const unsetKey = 'e'.repeat(64);
-    const changed = { ...reasons, truncated: true, selections: [...(reasons.selections ?? []),
+    const changed = { ...reasons, truncated: true, optionLabels: 'unavailable' as const, selections: [...(reasons.selections ?? []),
       { applicant: key, sourceProperty: 'ouboriyuukategori_hiaringu', value: 'kyuuyo_code_x', label: null, applicationDate: '2026-09-20' },
       { applicant: unsetKey, sourceProperty: 'ouboriyuukategori_hiaringu', value: 'mise', label: '未設定', applicationDate: '2026-09-20' }] };
     render(<ApplicantReasons job={{ ...job, applicantReasons: changed }} />);
@@ -146,6 +147,32 @@ describe('category breakdown on the 応募理由 tab', () => {
     expect(summary.textContent).toContain('分類が選ばれているのに分類の名前を読み取れなかった応募が 1件 あります。');
     expect(summary.textContent).toContain('分類が「未設定」で、読み込めた文もない応募 1件 は数えていません（記述が上限を超えて一部を読み込んでいないため、文が記録されている応募も含まれることがあります）。');
     expect(summary.textContent).not.toContain('「未設定」で文もない');
+    // The live option list could not be read: reopening may help.
+    expect(summary.textContent).toContain('時間をおいて開き直すと読み取れることがあります。');
+    expect(summary.textContent).toContain('分類は選ばれていますが、分類の名前を読み取れませんでした');
+  });
+
+  it('says why a chosen category has no name: not in the option list, or a stored file without names', () => {
+    const job = demo();
+    const reasons = job.applicantReasons;
+    if (!reasons) throw new Error('Missing demo reasons');
+    const unlisted = { applicant: 'f'.repeat(64), sourceProperty: 'ouboriyuukategori_hiaringu', value: 'removed_option', label: null, applicationDate: '2026-09-20' };
+    // The option list was read and does not hold the value: reopening does not help.
+    render(<ApplicantReasons job={{ ...job, applicantReasons: { ...reasons, optionLabels: 'read', selections: [...(reasons.selections ?? []), unlisted] } }} />);
+    let summary = screen.getByRole('region', { name: '応募理由の分類' });
+    expect(summary.textContent).toContain('選ばれた分類が今のHubSpotの選択肢の一覧にない応募が 1件 あります（選択肢が消されたか、名前が変わった可能性があります）。');
+    expect(summary.textContent).toContain('選ばれた分類が今の選択肢の一覧にありません（選択済みには数えていません）。');
+    expect(summary.textContent).not.toContain('時間をおいて開き直す');
+    expect(summary.textContent).not.toContain('removed_option');
+    cleanup();
+    // A stored file written without the names (or before this was recorded).
+    for (const optionLabels of ['not_stored', null] as const) {
+      render(<ApplicantReasons job={{ ...job, applicantReasons: { ...reasons, optionLabels, selections: [...(reasons.selections ?? []), unlisted] } }} />);
+      summary = screen.getByRole('region', { name: '応募理由の分類' });
+      expect(summary.textContent).toContain('保存された取得データに分類の名前が入っていないため、開き直しても変わりません。');
+      expect(summary.textContent).not.toContain('時間をおいて開き直す');
+      cleanup();
+    }
   });
 
   it('shows 未取得 for the sources a stored file did not hold, never 0件', () => {
@@ -167,5 +194,52 @@ describe('category breakdown on the 応募理由 tab', () => {
     expect(summary.textContent).toContain('記述ごとに数えています');
     expect(summary.textContent).toContain('今の仕事・前の仕事から転職する理由の分類応募理由とは別に');
     expect(summary.textContent).toContain('未取得です（0件という意味ではありません）。');
+  });
+});
+
+describe('reasons in 取得日の間 rows and on the as-of day', () => {
+  const version = (id: string, observedAt: string, body: string): CopyVersion => ({
+    id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '', images: [],
+  });
+  const reasonsOn = (dates: string[]): ApplicantReasonCollection => ({
+    available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-09-02T00:00:00Z', totalApplicants: dates.length, totalSourceValues: dates.length * 6,
+    sourceCounts: {}, missing: 0, blank: 0, truncated: false, optionLabels: 'read', selections: [],
+    items: dates.map((date, index) => ({ id: String(index).padEnd(64, '0'), applicant: String(index + 1).repeat(64), text: '家から近いため', sourceProperty: 'oubodouki', applicationDate: date, collectedAt: null, versionId: null })),
+  });
+  // A on 08-01 and 08-12 (same), B on 08-20 (salary changed) and 08-31 (same): the change fell
+  // between the acquisitions of 08-12 and 08-20 (the same record as timelineRound7.test.tsx).
+  const record = (dates: string[]): JobCopyRecord => ({
+    id: 'synthetic', title: '合成配送ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: '12345678', location: '大分県大分市', dataSource: 'hubspot',
+    versions: [
+      version('a1', '2026-08-01T00:00:00Z', '給与：月給230,000円'),
+      version('a2', '2026-08-12T00:00:00Z', '給与：月給230,000円'),
+      version('b1', '2026-08-20T00:00:00Z', '給与：月給250,000円'),
+      version('b2', '2026-08-31T00:00:00Z', '給与：月給250,000円'),
+    ],
+    overallApplications: { total: dates.length, missingDate: 0, fetchedAt: '2026-09-02T00:00:00Z', distributions: {}, byDate: Object.fromEntries(dates.map(date => [date, 1])) },
+    applicantReasons: reasonsOn(dates),
+  });
+  const reasonRows = () => within(within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getByRole('table')).getAllByRole('row').slice(1)
+    .map(row => [row.querySelector('th')?.textContent ?? '', row.querySelectorAll('td')[0]?.textContent ?? ''] as const);
+
+  it('puts the reasons of the days between two acquisitions into the 取得日の間 row', () => {
+    render(<JobTimeline job={record(['2026-08-15', '2026-08-18'])} marketMode="demo" showDummyBilling={false} />);
+    const rows = reasonRows();
+    const between = rows.filter(([label]) => label.includes('の間に変化'));
+    expect(between).toHaveLength(1);
+    expect(between[0]?.[1]).toBe('n=2');
+    // No other row holds them.
+    expect(rows.filter(([label]) => !label.includes('の間に変化')).map(([, n]) => n).every(n => n === 'n=0' || n === '')).toBe(true);
+    expect(screen.queryByText(/期間の外/u)).toBeNull();
+  });
+
+  it('counts a reason dated on the as-of day in the last period, not outside', () => {
+    const job = demo();
+    const reasons = job.applicantReasons;
+    if (!reasons) throw new Error('Missing demo reasons');
+    const asOfDay = { ...reasons, items: [...reasons.items, { id: 'f'.repeat(64), applicant: 'f'.repeat(64), text: '時給が高い', sourceProperty: 'oubodouki', applicationDate: '2026-10-05', collectedAt: null, versionId: null }] };
+    render(<JobTimeline job={{ ...job, applicantReasons: asOfDay }} marketMode="demo" />);
+    const table = within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getByRole('table');
+    expect(cells(table).at(-1)?.slice(0, 3)).toEqual(['n=1', '選択済み0件・推定1件・分類できない0件', '1件 推定1']);
   });
 });

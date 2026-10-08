@@ -37,5 +37,5 @@ export function demoApplicantReasons(): ApplicantReasonCollection {
   }));
   const missing = Object.values(sourceCounts).reduce((sum, row) => sum + row.missing, 0);
   return { available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-10-05T00:00:00Z', totalApplicants: total, totalSourceValues: total * Object.keys(reasonSourceLabels).length,
-    sourceCounts, missing, blank: 0, truncated: false, items, selections };
+    sourceCounts, missing, blank: 0, truncated: false, items, selections, optionLabels: 'read' };
 }

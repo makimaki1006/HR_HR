@@ -33,7 +33,16 @@ export interface ApplicantReasonCollection {
   items: ApplicantReason[];
   /** null: the category sources were not read (a stored file written before they were added); not 0. */
   selections: ReasonSelection[] | null;
+  /**
+   * How the names of the chosen categories were obtained, which tells why a chosen value has no
+   * name: 'read' (the option list was read and does not hold the value: the option was removed
+   * or renamed), 'unavailable' (the option list could not be read just now; reopening may help),
+   * 'not_stored' (a stored file without the names; reopening does not add them). null when not
+   * said (a stored file written before this was recorded): treated like 'not_stored'.
+   */
+  optionLabels: OptionLabelsStatus | null;
 }
+export type OptionLabelsStatus = 'read' | 'unavailable' | 'not_stored';
 
 /** Every source, in the order the server reads them. Shown names are plain words. */
 export const reasonSourceLabels: Record<string, string> = {

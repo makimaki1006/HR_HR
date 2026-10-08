@@ -139,7 +139,7 @@ describe('reason texts', () => {
   it('shows no HubSpot property name and no street address on the screen', () => {
     const job: JobCopyRecord = { ...demo('demo-job-001'), applicantReasons: { available: true, basis: 'recorded_applicant_reason', fetchedAt: '2026-10-05T00:00:00Z', totalApplicants: 1, totalSourceValues: 3,
       sourceCounts: { oubodouki: { missing: 0, blank: 0, nonblank: 1 }, ouboriyuu_baitaikisai: { missing: 1, blank: 0, nonblank: 0 }, ouboriyuu_hiaringu: { missing: 1, blank: 0, nonblank: 0 } },
-      items: [{ id: 'a'.repeat(64), applicant: null, text: '大分市府内町3丁目から近いため', sourceProperty: 'oubodouki', applicationDate: '2026-09-02', collectedAt: null, versionId: null }], missing: 2, blank: 0, truncated: false, selections: null } };
+      items: [{ id: 'a'.repeat(64), applicant: null, text: '大分市府内町3丁目から近いため', sourceProperty: 'oubodouki', applicationDate: '2026-09-02', collectedAt: null, versionId: null }], missing: 2, blank: 0, truncated: false, selections: null, optionLabels: null } };
     const html = renderToStaticMarkup(createElement(ApplicantReasons, { job }));
     expect(html).not.toContain('府内町3丁目');
     expect(html).toContain('＊＊から近いため');

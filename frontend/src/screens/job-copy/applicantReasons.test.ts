@@ -111,3 +111,29 @@ describe('reasons with every source and category selections', () => {
     const categoryText = current(); first(categoryText.items).source_property = 'ouboriyuukategori_hiaringu'; expect(() => parseCurrent(categoryText)).toThrow();
   });
 });
+
+describe('chosen category values and the label status', () => {
+  it('masks a chosen value and its name before they reach the screen', () => {
+    const raw = current();
+    first(raw.selections).value = '090-1234-5678';
+    first(raw.selections).label = '山田さん';
+    const parsed = parseCurrent(raw);
+    const selection = parsed?.selections?.[0];
+    expect([selection?.value, selection?.label]).toEqual(['＊＊', '＊＊さん']);
+    expect(JSON.stringify(parsed?.selections)).not.toMatch(/1234|山田/u);
+  });
+  it('reads how the category names were obtained, and rejects it in an old stored file or with an unknown value', () => {
+    expect(parseCurrent(current())?.optionLabels).toBeNull();
+    for (const status of ['read', 'unavailable', 'not_stored'] as const) expect(parseCurrent({ ...current(), option_labels: status })?.optionLabels).toBe(status);
+    expect(() => parseCurrent({ ...current(), option_labels: 'maybe' })).toThrow();
+    expect(() => parse({ ...fixture(), option_labels: 'read' })).toThrow();
+    expect(parse(fixture())?.optionLabels).toBeNull();
+  });
+  it('requires every text when nothing was left out, even a long one', () => {
+    const raw = current();
+    first(raw.items).text = '時給が高い'.repeat(400);
+    expect(parseCurrent(raw)?.items[0]?.text).toHaveLength(2000);
+    const dropped = current(); dropped.items.pop(); expect(() => parseCurrent(dropped)).toThrow();
+    expect(parseCurrent({ ...dropped, truncated: true })?.items).toHaveLength(1);
+  });
+});
