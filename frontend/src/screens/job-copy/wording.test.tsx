@@ -61,10 +61,10 @@ describe('job copy screen wording', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: '応募者の条件で探す' })); await Promise.resolve(); });
     expect(visibleWording()).not.toMatch(JARGON_PATTERN);
     expect(visibleWording()).not.toMatch(CAUSAL_PATTERN);
-    // 市場タブでは、サーバーの説明文が言い換えられて「ⓘ 集計の前提」に入っている。
-    expect(seen.some(text => text.includes('既存市場レポートのIndeed閲覧者指標で'))).toBe(true);
+    // 操作デモの市場タブは、タイムラインの「市場」の段と同じ架空の市場データを使い、サーバーへ問い合わせない。
+    expect(seen.some(text => text.includes('架空の市場データ（デモ）'))).toBe(true);
     expect(seen.some(text => text.includes('ⓘ 集計の前提'))).toBe(true);
-    expect(api).toHaveBeenCalled();
+    expect(api.mock.calls.filter(call => String(call[0]).includes('/api/job-copy/market'))).toHaveLength(0);
   }, 60_000);
 
   it('shows no developer terms or causal wording on the cross-job overview', async () => {

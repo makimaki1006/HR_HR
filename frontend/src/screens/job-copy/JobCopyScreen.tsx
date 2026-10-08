@@ -34,7 +34,8 @@ import { applicationCountLabel, orderJobs } from './jobList';
 import type { JobListOrder } from './jobList';
 import { snapshotErrorGuidance, SnapshotErrorNotice } from './SnapshotErrorNotice';
 import type { SnapshotErrorGuidance } from './SnapshotErrorNotice';
-import { jobApplicationTotal, linkedApplicationCount, noLinkedApplicationsMessage, unmatchedApplicationCount } from './applicationCountsModel';
+import { applicationsOutsideTimeline, jobApplicationTotal, linkedApplicationCount, noLinkedApplicationsMessage, unmatchedApplicationCount } from './applicationCountsModel';
+import { InfoTip } from './InfoTip';
 import { formatDateTimeJst, joinPresent, plainWording } from './format';
 import { AssumptionsNote } from './AssumptionsNote';
 import './job-copy.css';
@@ -112,8 +113,10 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
   const incomingResult = compareCopy(current?.body ?? null, incoming);
   const diffLines = changesOnly ? result.lines.filter(line => line.kind !== 'same') : result.lines;
   const changedLines = result.lines.filter(line => line.kind !== 'same').length;
-  const imageReferenceLabel = imageResult.status === 'unknown' ? '未取得・判定不能' : imageResult.status === 'same_reference' ? '参照・順番は同じ' : `追加${String(imageResult.added.length)}・削除${String(imageResult.removed.length)}${imageResult.reordered ? '・順番変更' : ''}`;
-  const imageBytesLabel = imageBytes === 'unknown' ? '原本不足・未確認' : imageBytes === 'same_files' ? '保存した原本ハッシュは一致' : imageBytes === 'changed_files' ? '保存した原本の内容変更あり（再圧縮等も含む）' : '両版とも画像0点';
+  const imageReferenceLabel = imageResult.status === 'unknown' ? '画像がない版があり比べられません' : imageResult.status === 'same_reference' ? '同じ画像・同じ並び順' : `追加${String(imageResult.added.length)}点・削除${String(imageResult.removed.length)}点${imageResult.reordered ? '・並び順の変更' : ''}`;
+  const imageBytesLabel = imageBytes === 'unknown' ? '画像の中身を確認できません' : imageBytes === 'same_files' ? '画像の中身は同じ' : imageBytes === 'changed_files' ? '画像の中身が変わっています' : '両方とも画像なし';
+  const imageBytesHelp = imageBytes === 'unknown' ? '比べる画像の元ファイルが保存されていないため、中身までは比べていません。' : imageBytes === 'changed_files' ? '保存した画像ファイルの中身が違います。同じ絵柄でも、画質や大きさを変えただけで「変わった」になります。' : imageBytes === 'same_files' ? '保存した画像ファイルの中身が同じです。' : '';
+  const pastImagesMissing = left?.historicalImageBytesAvailable === false || right?.historicalImageBytesAvailable === false;
 
   async function readFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -145,7 +148,7 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
 
   return <article className="jc-detail" id="job-details" tabIndex={-1}>
     <header className="jc-detail-heading"><div><h1>{job.title}</h1><p>{job.company} <span>·</span> {job.location} <span>·</span> {job.media} <span>·</span> 媒体求人ID {job.mediaJobId}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
-    <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '現在のHubSpot値' : '現在の取得した版'}: {current?.label ?? '本文未取得'}</span><span title="ファイルを取得した日時です。掲載が変わった日時ではありません。">取得日時: {current ? date(current.observedAt) : '—'}</span><span>{job.hubspotId ? `HubSpot求人ID: ${job.hubspotId}` : 'HubSpotリンク: 実求人IDの接続待ち'}</span></div>
+    <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の文面（HubSpotの現在値）' : '表示中の文面'}: {current?.label ?? '本文未取得'}</span><span title="ファイルを取得した日時です。掲載が変わった日時ではありません。">取得日時: {current ? date(current.observedAt) : '—'}</span>{job.hubspotId ? <span>HubSpot求人ID: {job.hubspotId}</span> : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
     {message && <p className="jc-message" role="status">{message}</p>}
     <JobFeatureTabs value={tab} onChange={setTab} remembered={remembered} prefix={tabPrefix} onLeaveHidden={() => { openFeatureFromContent('timeline'); }}>
     <JobFeaturePanel feature="timeline" active={tab === 'timeline'} prefix={tabPrefix}>{visited.includes('timeline') && <JobTimeline job={job} billing={billing} marketMode={demo ? 'demo' : 'api'} onOpenVersion={id => { setSelected(id); openFeatureFromContent('body'); }} onCompareVersions={(from, to) => { setBefore(from); setAfter(to); openFeatureFromContent('diff'); }} />}</JobFeaturePanel>
@@ -154,7 +157,7 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
     <JobFeaturePanel feature="reasons" active={tab === 'reasons'} prefix={tabPrefix}>{visited.includes('reasons') && <ApplicantReasonReview job={job} />}</JobFeaturePanel>
     <JobFeaturePanel feature="ab" active={tab === 'ab'} prefix={tabPrefix}><AbComparison job={job} records={records} /></JobFeaturePanel>
     <JobFeaturePanel feature="performance" active={tab === 'performance'} prefix={tabPrefix}>{tab === 'performance' && <HrhPerformance job={job} />}</JobFeaturePanel>
-    <JobFeaturePanel feature={tab === 'market-table' ? 'market-table' : 'market'} active={tab === 'market' || tab === 'market-table'} prefix={tabPrefix}>{(visited.includes('market') || visited.includes('market-table')) && <MarketContext job={job} view={tab === 'market' ? 'charts' : tab === 'market-table' ? 'table' : 'inactive'} />}</JobFeaturePanel>
+    <JobFeaturePanel feature={tab === 'market-table' ? 'market-table' : 'market'} active={tab === 'market' || tab === 'market-table'} prefix={tabPrefix}>{(visited.includes('market') || visited.includes('market-table')) && <MarketContext job={job} mode={demo ? 'demo' : 'api'} view={tab === 'market' ? 'charts' : tab === 'market-table' ? 'table' : 'inactive'} />}</JobFeaturePanel>
     {tab !== 'market-table' && <JobFeaturePanel feature="market-table" active={false} prefix={tabPrefix}>{null}</JobFeaturePanel>}
     {tab === 'market-table' && <JobFeaturePanel feature="market" active={false} prefix={tabPrefix}>{null}</JobFeaturePanel>}
     <JobFeaturePanel feature="factors" active={tab === 'factors'} prefix={tabPrefix}>{visited.includes('factors') && <MarketFactors job={job} />}</JobFeaturePanel>
@@ -178,14 +181,12 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
       </> : <div className="jc-empty"><h2>本文未取得</h2><p>欠損を「変更なし」や「削除」と判断しません。</p><button className="jc-button" onClick={() => { openFeatureFromContent('receive'); }}>外部文面を確認する</button></div>}</section>
     </div></JobFeaturePanel>
     <JobFeaturePanel feature="diff" active={tab === 'diff'} prefix={tabPrefix}>{tab === 'diff' && <section className="jc-comparison"><div className="jc-compare-controls"><label>比較元<select value={before} onChange={event => { setBefore(event.target.value); }}><option value="">本文なし</option>{job.versions.map(item => <option key={item.id} value={item.id}>{item.label} · {item.kind === 'ai_draft' ? 'AI案' : plainWording(item.source)}</option>)}</select></label><span aria-hidden="true">→</span><label>比較先<select value={after} onChange={event => { setAfter(event.target.value); }}><option value="">本文なし</option>{job.versions.map(item => <option key={item.id} value={item.id}>{item.label} · {item.kind === 'ai_draft' ? 'AI案' : plainWording(item.source)}</option>)}</select></label></div>
-      <section className="jc-comparison-overview" aria-label="比較結果の要約"><div><span>本文・募集条件</span><strong>{statusLabels[result.status]}</strong><small>追加{result.lines.filter(line => line.kind === 'added').length}行・削除{result.lines.filter(line => line.kind === 'removed').length}行</small></div><div><span>画像参照・掲載順</span><strong>{imageReferenceLabel}</strong></div><div><span>画像ファイル内容</span><strong>{imageBytesLabel}</strong></div></section>
+      <section className="jc-comparison-overview" aria-label="比較結果の要約"><div><span>本文・募集条件</span><strong>{statusLabels[result.status]}</strong><small>追加{result.lines.filter(line => line.kind === 'added').length}行・削除{result.lines.filter(line => line.kind === 'removed').length}行</small></div><div><span>画像の差し替え・並び順</span><strong>{imageReferenceLabel}</strong></div><div><span>画像の中身</span><strong>{imageBytesLabel}</strong>{imageBytesHelp && <small>{imageBytesHelp}</small>}</div></section>
       <nav className="jc-comparison-jumps" aria-label="差分の確認箇所"><a href="#job-copy-text-diff">本文の差分へ</a><a href="#job-copy-image-diff">画像の比較へ</a></nav>
-      <section className="jc-image-comparison" id="job-copy-image-diff" aria-label="画像の差分"><h2>掲載画像の比較</h2><p className="jc-notice">{imageResult.status === 'unknown' ? '画像未取得の版があり、変更の有無は判定できません。' : imageResult.status === 'same_reference' ? '画像参照・並び順は同じです。画像ファイルの中身は未検証です。' : `画像参照の変更：追加${String(imageResult.added.length)}点・削除${String(imageResult.removed.length)}点${imageResult.reordered ? '・並び順変更あり' : ''}`}</p>
-        {(left?.historicalImageBytesAvailable === false || right?.historicalImageBytesAvailable === false) && <p className="jc-notice">過去時点の画像原本は未保存です。後日取得した画像がある場合も、当時の画像内容とは確認できません。画像参照の変化と画像内容の変化を区別してください。</p>}
+      <section className="jc-image-comparison" id="job-copy-image-diff" aria-label="画像の差分"><h2>掲載画像の比較</h2><p className="jc-notice">{imageResult.status === 'unknown' ? '画像がない版があるため、画像が変わったかどうかは分かりません。' : imageResult.status === 'same_reference' ? '同じ画像が同じ順に並んでいます。' : `画像の差し替え：追加${String(imageResult.added.length)}点・削除${String(imageResult.removed.length)}点${imageResult.reordered ? '・並び順の変更あり' : ''}`}{pastImagesMissing ? '過去の時点の画像は保存されていないため、当時の画像の中身は確認できません。' : ''}</p>
         <div className="jc-image-compare-grid"><ImageGallery title="比較元の画像" images={versionImages(left)} marks={imageResult.removed.map(image => image.url)} /><ImageGallery title="比較先の画像" images={versionImages(right)} marks={imageResult.added.map(image => image.url)} /></div>
         <p className="jc-muted">操作デモは架空のイラスト、媒体取得版は取得した実画像です。初回取得だけでは過去との画像変更を判定できません。</p>
       </section>
-      <p className="jc-notice">画像ファイル内容：{imageBytesLabel}</p>
       <h2 className="jc-text-diff-heading" id="job-copy-text-diff">本文・募集条件の比較</h2>
       <label className="jc-diff-toggle"><input type="checkbox" checked={changesOnly} onChange={event => { setChangesOnly(event.target.checked); setDiffLimit(300); }} />変更箇所だけを表示（追加・削除{changedLines}行）</label>
       <div className="jc-diff-summary"><strong>本文：{statusLabels[result.status]}</strong><span><i className="jc-added-key" />追加 <i className="jc-removed-key" />削除 · 原文の行単位で比較</span></div>
@@ -310,7 +311,7 @@ export function JobCopyScreen() {
   }
   return <div className="jc-app"><div className="jc-topline"><header className="jc-page-heading"><h1>求人文面管理</h1><span className="jc-mode" title="開発中の画面です。表示や操作は今後変わります。">試作版</span></header>
     <div className="jc-demo" title={bannerText}><strong>{bannerLabel}</strong><span>{bannerText}</span></div>
-    {snapshotAt && <section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>取得した本文の版</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募（HubSpot記録分）</span><span title="応募日から、どの版を見て応募したかを決められなかった件数です">どの版への応募か不明 <strong>{records.reduce((sum, job) => sum + (unmatchedApplicationCount(job) ?? 0), 0)}</strong>件</span></section>}
+    {snapshotAt && <InfoTip className="jc-snapshot-tip" label="取得した範囲"><section className="jc-snapshot-summary" aria-label="実データの取得範囲"><span><strong>{new Set(records.map(job => job.company)).size}</strong>取引先</span><span><strong>{records.length}</strong>求人</span><span><strong>{records.reduce((sum, job) => sum + published(job).length, 0)}</strong>取得した本文の版</span><span><strong>{records.reduce((sum, job) => sum + (job.overallApplications?.total ?? 0), 0)}</strong>応募（HubSpot記録分）</span><span>掲載期間に入らない応募 <strong>{records.reduce((sum, job) => sum + (applicationsOutsideTimeline(job) ?? 0), 0)}</strong>件</span></section><p className="jc-snapshot-note">「掲載期間に入らない応募」は、応募日が無い応募と、掲載期間の外の日付の応募です。タイムラインの期間比較表には入れていません。</p></InfoTip>}
     <button type="button" className="jc-button jc-import-toggle" aria-expanded={importOpen} aria-controls="job-copy-data-import" onClick={toggleImport}>データ取込</button></div>
     {snapshotLoading && <div className="jc-notice"><p role="status">{snapshotSlow ? '読み込みに時間がかかっています。待機を続けるか、求人データを再取得できます。' : '求人一覧・本文・応募集計を読み込んでいます…画像は表示時に取得します。'}</p>{snapshotSlow && <button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button>}</div>}
     {snapshotError && <><SnapshotErrorNotice guidance={snapshotError} /><button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button></>}

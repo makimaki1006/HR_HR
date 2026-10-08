@@ -10,6 +10,12 @@ import {
 import type { ApplicationBucket, BillingEntry } from './timelineModel';
 
 export const OVERVIEW_WINDOW_DAYS = 14;
+/** A before/after window shorter than this is not compared (a rate from 1 or 2 days is not shown or sorted). */
+export const MIN_RATE_DAYS = 7;
+/** True when the window is long enough to put its rate beside others. */
+export function comparableRate(rate: WindowRate | null): boolean {
+  return rate !== null && rate.days >= MIN_RATE_DAYS && rate.perDay !== null;
+}
 
 export interface WindowRate {
   /**
@@ -90,7 +96,8 @@ export type OverviewSort = 'source' | 'lastChange' | 'afterPerDay' | 'beforePerD
 export function sortOverview(rows: readonly OverviewRow[], sort: OverviewSort): OverviewRow[] {
   if (sort === 'source') return [...rows];
   const value = (row: OverviewRow): number | string | null => sort === 'lastChange' ? row.lastChange
-    : sort === 'afterPerDay' ? row.after?.perDay ?? null : sort === 'beforePerDay' ? row.before?.perDay ?? null : row.billingYen;
+    : sort === 'afterPerDay' ? comparableRate(row.after) ? row.after?.perDay ?? null : null
+      : sort === 'beforePerDay' ? comparableRate(row.before) ? row.before?.perDay ?? null : null : row.billingYen;
   return rows.map((row, index) => ({ row, index, value: value(row) }))
     .sort((a, b) => {
       if (a.value === null || b.value === null) return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;

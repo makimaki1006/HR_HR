@@ -34,6 +34,11 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   }
   await expect(timeline.getByRole('group', { name: '給与', exact: true })).toContainText('月給25万〜28万円');
   await expect(timeline.getByRole('group', { name: '給与', exact: true })).toContainText('月給27万〜30万円');
+  // 上がった版は ▲、下がった版は ▼（下がったのに ▲ を付けない）
+  await expect(timeline.getByRole('group', { name: '給与', exact: true }).locator('.jt-salary-label')).toHaveText(['月給25万〜28万円', '▲月給27万〜30万円', '▼月給25万〜28万円']);
+  // 一覧の件数はタイムラインと同じ（架空の件数と分かるように書く）
+  await expect(page.locator('.jc-job').first()).toContainText('応募28件（架空）');
+  await expect(page.locator('.jc-job').first()).not.toContainText('応募未取得');
   await expect(timeline.getByRole('group', { name: '課金', exact: true })).toContainText('4万5,000円');
   await expect(timeline.getByText('2026/09以降は市場データがありません（2026/08まで）')).toBeVisible();
   const rows = timeline.getByRole('table').locator('tbody tr');
@@ -62,7 +67,16 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
   await expect(overview.locator('tbody tr').first()).toContainText('0.80件/日');
   await expect(overview.locator('tbody tr').first()).toContainText('8万7,000円');
+  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' })).toContainText('課金データなし');
+  await expect(overview).not.toContainText('未接続');
   await page.screenshot({ path: `${shots}/overview-1280.png`, fullPage: true });
+  // 1100 幅でも 7 列（課金合計まで）が横スクロールなしで収まる
+  await page.setViewportSize({ width: 1100, height: 623 });
+  const fit = await overview.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth, billing: element.querySelector('thead th:last-child')?.getBoundingClientRect().right ?? 9999, right: element.getBoundingClientRect().right }));
+  expect(fit.scroll, `横断比較 ${String(fit.scroll)} > ${String(fit.client)}`).toBeLessThanOrEqual(fit.client);
+  expect(fit.billing).toBeLessThanOrEqual(fit.right + 0.5);
+  await page.screenshot({ path: `${shots}/overview-1100.png` });
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await page.setViewportSize({ width: 375, height: 800 });
   await page.getByRole('button', { name: '一覧', exact: true }).click();
@@ -109,7 +123,7 @@ test('billing CSV import fills the billing lane, the period table and the overvi
   const reloadedLane = page.getByRole('region', { name: 'タイムライン', exact: true }).getByRole('group', { name: '課金', exact: true });
   await expect(page.locator('.jc-detail h1')).toHaveText('倉庫内ピッキングスタッフ');
   await expect(reloadedLane.locator('.jt-billing')).toHaveCount(0);
-  await expect(reloadedLane).toContainText('未接続');
-  await expect(reloadedLane).not.toContainText('0円');
+  await expect(reloadedLane).toContainText('課金データなし（0円という意味ではありません）');
+  await expect(reloadedLane.locator('.jt-billing')).toHaveCount(0);
   expect(requests).toEqual([]);
 });

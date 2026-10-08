@@ -39,12 +39,15 @@ describe('job timeline lanes', () => {
     expect(text).toContain('応募は HubSpot に記録されたものだけです');
   });
 
-  it('says 未接続 without billing data and never 0円', () => {
+  it('says 課金データなし without billing data, says it is not 0円, and never shows 0円 as an amount', () => {
     render(<JobTimeline job={demo('demo-job-005')} marketMode="demo" />);
     const lane = screen.getByRole('group', { name: '課金' });
-    expect(lane.textContent).toContain('未接続');
-    expect(document.body.textContent).not.toMatch(/(^|[^\d,])0円/);
-    expect(within(screen.getByRole('table')).getAllByText('未接続').length).toBe(2);
+    // The explanation is visible text (not a hover-only title).
+    expect(lane.textContent).toContain('課金データなし（0円という意味ではありません）');
+    expect(lane.querySelector('[title]')).toBeNull();
+    expect(document.body.textContent.replace('0円という意味ではありません', '')).not.toMatch(/(^|[^\d,])0円/);
+    expect(within(screen.getByRole('table')).getAllByText('課金データなし').length).toBe(2);
+    expect(document.body.textContent).not.toContain('未接続');
   });
 
   it('marks browser-only CSV billing as lost on reload', () => {
@@ -143,7 +146,11 @@ describe('job timeline lanes', () => {
   it('opens the body or the diff from a selected version', () => {
     const open = vi.fn(); const compare = vi.fn();
     render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" onOpenVersion={open} onCompareVersions={compare} />);
-    fireEvent.click(screen.getByRole('button', { name: /給与・勤務条件変更の本文：追加\d+行・削除\d+行/ }));
+    fireEvent.click(screen.getByRole('button', { name: /給与・勤務条件変更の本文：\d+行追加・\d+行削除/ }));
+    // The selected period row says so in text and with aria-current, not only by colour.
+    const selectedRow = screen.getByRole('table').querySelector('tr[aria-current="true"]');
+    expect(selectedRow?.textContent).toContain('選択中');
+    expect(selectedRow?.textContent).toContain('給与・勤務条件変更');
     fireEvent.click(screen.getByRole('button', { name: '本文・画像を開く' }));
     expect(open).toHaveBeenCalledWith('demo-001-v2');
     fireEvent.click(screen.getByRole('button', { name: '前の版との差分を開く' }));

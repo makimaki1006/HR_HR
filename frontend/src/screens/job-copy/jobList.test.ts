@@ -16,7 +16,12 @@ describe('actual job list applicant aggregates', () => {
     expect(applicationCountLabel(job('zero', 0))).toBe('応募0件');
     const demo = job('demo', 42);
     delete demo.dataSource;
-    expect(applicationCountLabel(demo)).toBe('応募未取得');
+    // Demo totals are shown, marked as fictional (the timeline shows the same job's applications).
+    expect(actualApplicationCount(demo)).toBeNull();
+    expect(applicationCountLabel(demo)).toBe('応募42件（架空）');
+    const demoMissing = job('demo-missing');
+    delete demoMissing.dataSource;
+    expect(applicationCountLabel(demoMissing)).toBe('応募未取得');
     for (const total of [-1, NaN, 1.5, Infinity]) expect(actualApplicationCount(job('invalid', total))).toBeNull();
   });
   it('sorts rich actual counts ahead of zero and unknown while retaining equal-count source order', () => {
