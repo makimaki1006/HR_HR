@@ -41,6 +41,12 @@ export interface ApplicantReasonCollection {
    * said (a stored file written before this was recorded): treated like 'not_stored'.
    */
   optionLabels: OptionLabelsStatus | null;
+  /**
+   * Applicant keys of the applications HubSpot also links to another job. Their reasons are left
+   * out of the reason counts, as their applications are left out of the period table. Absent or
+   * null: not read (a stored file, or the link read failed), so they cannot be told apart.
+   */
+  multiListingApplicants?: readonly string[] | null;
 }
 export type OptionLabelsStatus = 'read' | 'unavailable' | 'not_stored';
 

@@ -20,6 +20,10 @@ export const REASON_CATEGORIES = ['給与', '勤務地', '職種興味', '会社
 export type ReasonCategory = (typeof REASON_CATEGORIES)[number];
 /** The select option that means nothing was chosen. */
 export const UNSET_LABEL = '未設定';
+/** The most texts the server sends (applicant_reasons::MAX_ITEMS); more are left out (truncated). */
+export const MAX_READ_TEXTS = 500;
+/** How the shown reason texts were masked (maskPersonalDetails). One wording on every list of texts. */
+export const MASK_NOTE = '市区町村より細かい住所（町名・番地・建物名と部屋番号）・電話番号・メールアドレス・「さん」「様」の付いた名前は、読み取れた範囲で「＊＊」に置き換えています。読み取れない書き方の住所や、それ以外の個人情報が残っていることがあります。';
 /** Below this many applications a share (%) is not shown, only the counts. */
 export const MIN_SHARE_N = 5;
 
@@ -97,6 +101,12 @@ export interface Classification {
   unsetOnly: number;
   /** Applications with a chosen value whose option name could not be read. */
   unnamedApplications: number;
+  /**
+   * Applications with a recorded reason that HubSpot also links to another job, left out of
+   * `applications` (as the period table leaves their applications out). null when that was not
+   * read, or when texts are counted one by one: they may then be counted in.
+   */
+  multiListing: number | null;
 }
 
 function classifyGroup(key: string, texts: ApplicantReason[], selections: ReasonSelection[]): ClassifiedApplication | 'unset' | null {
@@ -130,13 +140,16 @@ function classify(collection: ApplicantReasonCollection | undefined, sources: re
   for (const item of collection.items) if (sources.includes(item.sourceProperty)) group(item.applicant ?? item.id).texts.push(item);
   if (useSelections) for (const selection of collection.selections ?? []) group(selection.applicant).selections.push(selection);
   const applications: ClassifiedApplication[] = [];
+  const multi = unit === 'application' && collection.multiListingApplicants ? new Set(collection.multiListingApplicants) : null;
   let unsetOnly = 0;
+  let multiListing = 0;
   for (const [key, value] of groups) {
     const result = classifyGroup(key, value.texts, value.selections);
-    if (result === 'unset') unsetOnly += 1;
+    if (result && multi?.has(key)) multiListing += 1;
+    else if (result === 'unset') unsetOnly += 1;
     else if (result) applications.push(result);
   }
-  return { applications, unit, unsetOnly, unnamedApplications: applications.filter(application => application.unnamedSelections > 0).length };
+  return { applications, unit, unsetOnly, unnamedApplications: applications.filter(application => application.unnamedSelections > 0).length, multiListing: multi ? multiListing : null };
 }
 
 /** Application reasons: chosen categories first, then keywords in 応募動機・応募理由. null when not read. */
@@ -185,17 +198,28 @@ export function topReasons(result: ReasonTally, limit = 2): CategoryCount[] {
     .map(item => item.row);
 }
 
+/**
+ * Like topReasons, plus how many more categories have the same count as the last one shown and
+ * were cut off by the limit (a tie is never cut silently).
+ */
+export function topReasonsWithTies(result: ReasonTally, limit = 2): { rows: CategoryCount[]; tiedOut: number } {
+  const all = topReasons(result, REASON_CATEGORIES.length);
+  const rows = all.slice(0, limit);
+  const last = rows.at(-1);
+  return { rows, tiedOut: last ? all.slice(limit).filter(row => row.total === last.total).length : 0 };
+}
+
 /** 「42%」 when n is large enough, otherwise null (counts only). */
 export function shareText(count: number, n: number): string | null {
   return n >= MIN_SHARE_N && n > 0 ? `${String(Math.round(count / n * 100))}%` : null;
 }
 
-/** 「選択2・推定1」: the two kinds of count of one category, never only their sum. */
+/** 「選択2件・推定1件」: the two kinds of count of one category, never only their sum. */
 export function basisText(row: CategoryCount): string {
-  return [row.selected ? `選択${String(row.selected)}` : '', row.estimated ? `推定${String(row.estimated)}` : ''].filter(Boolean).join('・');
+  return [row.selected ? `選択${String(row.selected)}件` : '', row.estimated ? `推定${String(row.estimated)}件` : ''].filter(Boolean).join('・');
 }
 
-/** 「給与 3件（選択2・推定1）」, with the share (「・50%」) when n is large enough and n is given. */
+/** 「給与 3件（選択2件・推定1件）」, with the share (「・50%」) when n is large enough and n is given. */
 export function categoryCountText(row: CategoryCount, n?: number): string {
   const share = n === undefined ? null : shareText(row.total, n);
   const parts = basisText(row);
@@ -216,7 +240,8 @@ export function reasonsByPeriod(applications: readonly ClassifiedApplication[], 
 }
 
 /**
- * Text for the cross-job overview: 「給与 2件（選択1・推定1）・勤務地 2件（推定2）／n=7」, 「記録なし」, or
+ * Text for the cross-job overview: 「給与 2件（選択1件・推定1件）・勤務地 2件（推定2件）／n=7」 (a tie cut by
+ * the limit of 2 is named: 「・ほかに同じ件数の分類1つ」), 「記録なし」, or
  * 「未取得」. 選択 and 推定 are always written apart. A stored file without applicant keys counts
  * texts (「記述n=」), one without the category sources says the choices were not read, and a cut
  * list of texts says the counts are partial.
@@ -228,11 +253,13 @@ export function overviewReasonText(collection: ApplicantReasonCollection | undef
   const notes = [
     ...(collection.selections === null ? ['分類の選択は未取得'] : []),
     ...(collection.truncated ? ['記述の一部だけで集計'] : []),
+    ...(classified.multiListing ? [`ほかの求人にも関連する応募${String(classified.multiListing)}件を除く`] : []),
   ];
   const tail = notes.length ? `（${notes.join('・')}）` : '';
   if (!result.n) return collection.selections === null ? `文の記録なし${tail}` : `記録なし${tail}`;
   const n = classified.unit === 'text' ? `記述n=${String(result.n)}（応募ごとではない）` : `n=${String(result.n)}`;
-  const top = topReasons(result);
+  const { rows: top, tiedOut } = topReasonsWithTies(result);
   if (!top.length) return `分類できる記録なし／${n}${tail}`;
-  return `${top.map(row => categoryCountText(row)).join('・')}／${n}${tail}`;
+  const tie = tiedOut ? `・ほかに同じ件数の分類${String(tiedOut)}つ` : '';
+  return `${top.map(row => categoryCountText(row)).join('・')}${tie}／${n}${tail}`;
 }

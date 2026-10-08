@@ -106,6 +106,12 @@
 .jo-overview thead th:first-child { text-align: left; }
 .jo-overview tbody th { text-align: left; white-space: normal; min-width: 8rem; }
 .jo-overview td.jo-kinds, .jo-overview td.jo-billing { white-space: normal; }
+/* 多い応募理由: wraps inside a bounded width, so it never squeezes the number columns */
+.jo-overview td.jo-reasons { white-space: normal; text-align: left; min-width: 9rem; max-width: 13rem; line-height: 1.45; }
+/* The other columns keep a readable width when the table is tight (1280): the change wraps, the numbers do not shrink */
+.jo-overview td.jo-change { white-space: normal; min-width: 8rem; }
+.jo-overview td.jo-rate, .jo-overview td.jo-billing { min-width: 6em; }
+.jo-overview td.jo-kinds { min-width: 4em; }
 .jo-short { color: #52697a; font-size: 11px; white-space: normal; }
 .jo-overview tbody th small { display: block; color: #52697a; font-weight: 400; font-size: 10px; }
 .jo-overview .jo-calendar { width: 150px; min-width: 110px; padding: 4px 6px; }
@@ -131,7 +137,13 @@
 .jo-sort-note { margin: 2px 0 6px; font-size: 12px; color: #52697a; }
 .jt-billing-conflict { margin: 2px 0 6px; padding: 4px 8px; border-left: 3px solid #b54708; background: #fff6ec; color: #7a3306; font-size: 12px; }
 .jt-dummy-billing, .jt-demo-billing { margin: 2px 0 6px; padding: 4px 8px; border-left: 3px solid #94a3b8; background: #f8fafc; color: #334155; font-size: 12px; }
-.jt-reason { position: absolute; top: 9px; height: 22px; background: #eef4fb; border: 1px solid #6b8fb8; border-radius: 3px; font-size: 10px; color: #1f3a5c; padding: 0 4px; overflow: hidden; white-space: nowrap; line-height: 20px; }
+.jt-reason { position: absolute; top: 9px; height: 22px; background: #eef4fb; border: 1px solid #6b8fb8; border-radius: 3px; font: inherit; font-size: 10px; color: #1f3a5c; padding: 0 4px; overflow: hidden; white-space: nowrap; line-height: 20px; text-align: left; cursor: pointer; }
+.jt-reason:focus-visible { outline: 2px solid #9a3d06; outline-offset: 1px; z-index: 1; }
+/* 期間ごとの応募理由: counts wrap (the breakdown sits on its own lines), so the table fits at 1280 */
+.jt-reasons th, .jt-reasons td { white-space: normal; }
+.jt-reasons td small, .jt-reasons td.jt-reason-basis span { display: block; }
+.jt-reasons td small { color: #5c7080; font-size: 10px; }
+.jt-reasons tr:focus { outline: 2px solid #9a3d06; outline-offset: -2px; }
 .jt-reason span { overflow: hidden; text-overflow: ellipsis; display: block; }
 .jt-reason-zone { background: repeating-linear-gradient(135deg, #f4f7fb 0 5px, #e3ebf4 5px 10px); border-style: dashed; }
 .jt-reasons { margin-top: 18px; }

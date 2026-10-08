@@ -20,3 +20,5 @@
 .ar-keywords dl { display: grid; gap: 6px; margin: 8px 0; }
 .ar-keywords dt { font-weight: 600; }
 .ar-keywords dd { margin: 0 0 0 12px; }
+.ar-table td small { display: block; color: var(--jc-muted, #555); font-size: 0.85em; white-space: normal; }
+.ar-reasons h4 { margin: 0 0 6px; font-size: 0.95rem; }

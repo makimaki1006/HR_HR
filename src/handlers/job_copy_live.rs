@@ -670,13 +670,18 @@ impl JobReadService {
                 .and_then(Result::ok)
                 .flatten(),
         };
-        let reasons = applicant_reasons::extract_with_labels(
+        let mut reasons = applicant_reasons::extract_with_labels(
             listing,
             &rows,
             chrono::Utc::now().to_rfc3339(),
             labels.as_ref(),
             applicant_reasons::OptionLabelsStatus::Unavailable,
         );
+        // The reasons of an application also linked to another job are left out of the reason
+        // counts on the screen, as its application is left out of the period table.
+        if let Ok((_, multi)) = &links {
+            reasons.mark_multi_listing(listing, &rows, multi);
+        }
         let mut response = json!({"listing_id":listing,"metric":"HubSpot応募レコード数","summary":null,"version_attribution":"日次観測との対応は別途必要。現在の関連による集計。","attribute_basis":"現在取得できる属性","billing":null,"capture_bundle":null,"dated_comparison":null,"capture_status":"not_configured_or_not_matched"});
         response["applicant_reasons"] =
             serde_json::to_value(reasons).map_err(|_| fail("reason_serialization_failed"))?;

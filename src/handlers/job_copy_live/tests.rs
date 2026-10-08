@@ -755,6 +755,16 @@ async fn traverses_all_pages_preserves_contracts_and_aggregates_unknowns() {
         json!({"2026-10-03": 1})
     );
     assert_eq!(applicants["summary"]["multi_listing_missing_date"], 0);
+    // The same application is named (by its applicant key) in the reasons, so the screen leaves
+    // its reasons out as the period table leaves out its application. 51 is not named.
+    assert_eq!(
+        applicants["applicant_reasons"]["multi_listing_applicants"],
+        json!([super::applicant_reasons::applicant_key("30", "50")])
+    );
+    assert_ne!(
+        super::applicant_reasons::applicant_key("30", "50"),
+        super::applicant_reasons::applicant_key("30", "51")
+    );
     assert_eq!(applicants["summary"]["dimensions"]["gender"]["不明"], 2);
     assert!(applicants.get("rows").is_none());
     assert_eq!(applicants["applicant_reasons"]["total_applicants"], 2);
@@ -941,6 +951,10 @@ async fn a_failed_listing_link_read_still_returns_totals_and_dates() {
         .get("multi_listing_missing_date")
         .is_none());
     assert!(applicants["listing_links_status"].is_string());
+    // Not known which applications are linked to another job: absent, never an empty list.
+    assert!(applicants["applicant_reasons"]
+        .get("multi_listing_applicants")
+        .is_none());
     assert!(applicants["dated_comparison"].is_null());
     // The definition read was refused: the value is shown as it is, and the read still works.
     let selection = &applicants["applicant_reasons"]["selections"][0];
