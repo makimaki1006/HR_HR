@@ -33,6 +33,11 @@
 .jt-unacquired { background: repeating-linear-gradient(135deg, #f1f5f9 0 6px, #e2e8f0 6px 12px); border: 1px dashed #64748b; color: #334155; }
 .jt-zone span, .jt-unacquired span { overflow: hidden; text-overflow: ellipsis; display: block; }
 /* Selected: a dark outline away from the bar (on the white track, 5:1) plus a thicker underline. */
+.jt-pub { position: absolute; top: 8px; height: 24px; border-radius: 4px; font-size: 11px; line-height: 22px; padding: 0 6px; overflow: hidden; white-space: nowrap; }
+.jt-pub span { overflow: hidden; text-overflow: ellipsis; display: block; }
+/* Hatched: published at the start and when last seen; the days between are not known one by one. */
+.jt-pub-public { background: repeating-linear-gradient(135deg, #eef7f0 0 6px, #d5ecdb 6px 12px); border: 1px solid #2f7d4a; color: #1d4d2e; }
+.jt-pub-private { background: repeating-linear-gradient(135deg, #f4f6f8 0 6px, #e3e8ee 6px 12px); border: 1px solid #64748b; border-right-style: dashed; color: #334155; }
 .jt-period[aria-pressed="true"] { outline: 3px solid #9a3d06; outline-offset: 2px; }
 
 .jt-salary { position: absolute; height: 0; border-top: 2px solid #2463a7; }

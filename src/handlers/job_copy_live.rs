@@ -22,6 +22,7 @@ use std::{
 use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
+mod listing_status;
 
 #[derive(Debug)]
 pub struct ReadError(pub(super) StatusCode, pub(super) &'static str);
@@ -189,6 +190,7 @@ pub struct JobReadService {
     token: String,
     base: String,
     labels: Arc<std::sync::Mutex<LabelCache>>,
+    publication: listing_status::Cache,
 }
 impl JobReadService {
     #[cfg(test)]
@@ -213,6 +215,7 @@ impl JobReadService {
             token,
             base,
             labels: Arc::default(),
+            publication: Arc::default(),
         })
     }
     async fn request(
@@ -2040,6 +2043,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/job-copy/image", get(image))
         .route("/api/job-copy/snapshot-image", get(snapshot_image))
         .route("/api/job-copy/market", get(super::job_copy_market::read))
+        .route("/api/job-copy/listing-status", get(listing_status::read))
         .layer(Extension(Access {
             allowed,
             service,
