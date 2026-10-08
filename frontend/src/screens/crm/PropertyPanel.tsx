@@ -1,18 +1,21 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { PropLink } from './CenterTabs';
+import { HUBSPOT_CARDS } from './hubspotCards';
 import {
-  CATALOG_OBJECTS, DEFAULT_SELECTED, MAX_SELECTED_PER_OBJECT, OBJECT_LABELS, OBJECT_VALUE_LABELS, orderedSelection, sameSelected, selectedValue,
-  toggleSelected, viewValue,
+  CATALOG_OBJECTS, DEFAULT_SELECTED, MAX_SELECTED_PER_OBJECT, OBJECT_LABELS, OBJECT_VALUE_LABELS, cardAvailableNames, cardSections, orderedSelection,
+  sameSelected, selectedValue, toggleSelected, viewValue,
 } from './propertyModel';
-import type { CatalogEntry, CatalogObject, SelectedProps } from './propertyModel';
+import type { CardSection, CatalogEntry, CatalogObject, SelectedProps } from './propertyModel';
 import type { CatalogState } from './usePropertyCatalog';
 import type { CrmPropertyGroup } from '../../generated/CrmPropertyGroup';
 import './property-panel.css';
 
 /**
  * 「プロパティ」パネル: 選んだ項目を HubSpot の表示名で並べる (読み取りだけ)。
- * 「表示する項目を選ぶ」で、HubSpot のグループごとに項目を選ぶ (グループまとめて・1 項目ずつ・名前で探す)。
+ * 案件の項目は、HubSpot の取引レコードの左サイドバーと同じカード (「リスト情報」は開いて、「BPOアポ情報」は閉じて) に分けて出す
+ * (hubspotCards.ts)。どのカードにも無い項目は「案件(そのほかの項目)」に出す。
+ * 「表示する項目を選ぶ」で、HubSpot のカードまとめて・グループまとめて・1 項目ずつ・名前で探して選ぶ。
  * 選んだ項目はこのブラウザに残り、適用すると今の案件を読み直す (同じ読み取りに項目を足すだけ)
  */
 
@@ -27,38 +30,86 @@ function Value({ entry, raw, ownerNames }: { entry: CatalogEntry; raw: string | 
   return <span className={v.multiline ? 'pp-multiline' : undefined}>{v.text}</span>;
 }
 
-function ObjectValues({ obj, entries, data, ownerNames }: {
-  obj: CatalogObject; entries: CatalogEntry[]; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>;
+function ValueList({ obj, entries, data, ownerNames, id }: {
+  obj: CatalogObject; entries: CatalogEntry[]; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>; id?: string | undefined;
 }) {
-  if (entries.length === 0) return null;
-  const missing = obj === 'contacts' ? data.contacts.length === 0 : obj === 'companies' ? data.companies.length === 0 : false;
-  return <section className="pp-section" aria-label={OBJECT_VALUE_LABELS[obj]}>
-    <h4>{OBJECT_VALUE_LABELS[obj]}</h4>
-    {missing ? <p className="crm-muted pp-note">{OBJECT_LABELS[obj]}の情報を取得できませんでした(HubSpot に紐づいていない、または取得に失敗)。</p>
-      : <dl className="pp-list">{entries.map(e => <div key={e.prop.name}>
-        <dt>{e.prop.label}</dt>
-        <dd><Value entry={e} raw={selectedValue(data.selected, obj, e.prop.name)} ownerNames={ownerNames} /></dd>
-      </div>)}</dl>}
+  return <dl className="pp-list" id={id}>{entries.map(e => <div key={e.prop.name}>
+    <dt>{e.prop.label}</dt>
+    <dd><Value entry={e} raw={selectedValue(data.selected, obj, e.prop.name)} ownerNames={ownerNames} /></dd>
+  </div>)}</dl>;
+}
+
+/** HubSpot のカード 1 枚 (見出しのボタンで開け閉め) */
+function CardValues({ section, data, ownerNames, open, onToggle }: {
+  section: CardSection; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>; open: boolean; onToggle: () => void;
+}) {
+  const listId = `pp-card-${section.card.id}`;
+  const { entries, unavailable } = section;
+  return <section className="pp-section pp-card" aria-label={section.card.title} data-testid={`pp-card-${section.card.id}`}>
+    <h4 className="pp-card-head"><button type="button" className="pp-card-toggle" aria-expanded={open} aria-controls={listId} onClick={onToggle}>
+      <span aria-hidden="true">{open ? '▾' : '▸'}</span> {section.card.title}<small>({String(entries.length)})</small></button></h4>
+    {/* 閉じている間も枠は置いておく (aria-controls の先が消えないように)。中身は開いたときだけ描く */}
+    <div id={listId} hidden={!open}>{open && <>
+      {entries.length > 0 && <ValueList obj="deals" entries={entries} data={data} ownerNames={ownerNames} />}
+      {unavailable > 0 && <p className="crm-muted pp-note">ほかに {String(unavailable)} 項目は HubSpot の項目の一覧に無いため表示できません(非表示・削除・機微情報の項目)。</p>}
+    </>}</div>
   </section>;
 }
 
-/** グループのまとめて選ぶ欄 (一部だけ選んでいるときは途中の表示) */
-function GroupCheckbox({ group, obj, draft, onChange }: {
-  group: CrmPropertyGroup; obj: CatalogObject; draft: SelectedProps; onChange: (next: SelectedProps) => void;
+function ObjectValues({ obj, entries, data, ownerNames, title }: {
+  obj: CatalogObject; entries: CatalogEntry[]; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>; title?: string | undefined;
+}) {
+  if (entries.length === 0) return null;
+  const missing = obj === 'contacts' ? data.contacts.length === 0 : obj === 'companies' ? data.companies.length === 0 : false;
+  const heading = title ?? OBJECT_VALUE_LABELS[obj];
+  return <section className="pp-section" aria-label={heading}>
+    <h4>{heading}</h4>
+    {missing ? <p className="crm-muted pp-note">{OBJECT_LABELS[obj]}の情報を取得できませんでした(HubSpot に紐づいていない、または取得に失敗)。</p>
+      : <ValueList obj={obj} entries={entries} data={data} ownerNames={ownerNames} />}
+  </section>;
+}
+
+/** 項目をまとめて選ぶ欄 (一部だけ選んでいるときは途中の表示)。HubSpot のグループ・カードで使う */
+function BulkCheckbox({ names, obj, draft, onChange, name, children }: {
+  names: readonly string[]; obj: CatalogObject; draft: SelectedProps; onChange: (next: SelectedProps) => void;
+  /** 読み上げ用の名前 */
+  name: string; children: React.ReactNode;
 }) {
   const ref = useRef<HTMLInputElement | null>(null);
-  const names = group.properties.map(p => p.name);
   const chosen = names.filter(n => draft[obj].includes(n)).length;
-  const all = chosen === names.length;
+  const all = names.length > 0 && chosen === names.length;
   const some = chosen > 0 && !all;
   const tooMany = !all && draft[obj].length + (names.length - chosen) > MAX_SELECTED_PER_OBJECT;
   useEffect(() => { if (ref.current) ref.current.indeterminate = some; }, [some]);
   return <label className="pp-group-all" title={tooMany ? `項目が多いため、まとめては選べません(1 つの種類で ${String(MAX_SELECTED_PER_OBJECT)} 項目まで)。1 つずつ選んでください` : undefined}>
-    <input ref={ref} type="checkbox" checked={all} disabled={tooMany} aria-label={`「${group.label}」の項目をまとめて選ぶ`}
+    <input ref={ref} type="checkbox" checked={all} disabled={tooMany || names.length === 0} aria-label={name}
       onChange={e => { onChange(toggleSelected(draft, obj, names, e.target.checked)); }} />
     {/* 多すぎてまとめて選べないときは、その理由を見える文字で出す */}
-    {tooMany ? '多いため 1 つずつ選んでください' : 'まとめて選ぶ'}
+    {tooMany ? '多いため 1 つずつ選んでください' : children}
   </label>;
+}
+
+/** グループのまとめて選ぶ欄 */
+function GroupCheckbox({ group, obj, draft, onChange }: {
+  group: CrmPropertyGroup; obj: CatalogObject; draft: SelectedProps; onChange: (next: SelectedProps) => void;
+}) {
+  return <BulkCheckbox names={group.properties.map(p => p.name)} obj={obj} draft={draft} onChange={onChange}
+    name={`「${group.label}」の項目をまとめて選ぶ`}>まとめて選ぶ</BulkCheckbox>;
+}
+
+/** 「HubSpotのカードから選ぶ」: HubSpot の取引レコードの左サイドバーのカードの項目をまとめて選ぶ */
+function CardPresets({ index, draft, onChange }: {
+  index: Extract<CatalogState, { phase: 'ready' }>['index']; draft: SelectedProps; onChange: (next: SelectedProps) => void;
+}) {
+  return <fieldset className="pp-cards" data-testid="pp-card-presets">
+    <legend>HubSpotのカードから選ぶ</legend>
+    {HUBSPOT_CARDS.map(card => {
+      const names = cardAvailableNames(card, index);
+      return <BulkCheckbox key={card.id} names={names} obj="deals" draft={draft} onChange={onChange}
+        name={`HubSpot のカード「${card.title}」の項目をまとめて選ぶ`}>
+        {card.title}<small>({String(names.length)} 項目)</small></BulkCheckbox>;
+    })}
+  </fieldset>;
 }
 
 export function PropertyPicker({ catalog, selection, onApply, onCancel }: {
@@ -81,6 +132,7 @@ export function PropertyPicker({ catalog, selection, onApply, onCancel }: {
     setOpen(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
   return <div className="pp-picker" role="region" aria-label="表示する項目を選ぶ" data-testid="property-picker">
+    <CardPresets index={catalog.index} draft={draft} onChange={setDraft} />
     <div className="pp-objects" role="group" aria-label="項目の種類">
       {CATALOG_OBJECTS.map(o => <button key={o} type="button" aria-pressed={o === obj} onClick={() => { setObj(o); }}>
         {OBJECT_LABELS[o]}<small>({draft[o].length})</small></button>)}
@@ -118,7 +170,8 @@ export function PropertyPicker({ catalog, selection, onApply, onCancel }: {
     <div className="pp-actions">
       <button type="button" className="pp-apply" disabled={!changed} onClick={() => { onApply(draft); }}>この項目で表示する</button>
       <button type="button" onClick={onCancel}>やめる</button>
-      <button type="button" className="pp-reset" disabled={sameSelected(draft, DEFAULT_SELECTED)} onClick={() => { setDraft(DEFAULT_SELECTED); }}>既定の項目に戻す</button>
+      <button type="button" className="pp-reset" disabled={sameSelected(draft, DEFAULT_SELECTED)} title="HubSpot のカード「リスト情報」「BPOアポ情報」の項目に戻します(適用するまで表示は変わりません)"
+        onClick={() => { setDraft(DEFAULT_SELECTED); }}>既定に戻す</button>
     </div>
   </div>;
 }
@@ -134,9 +187,13 @@ function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data,
 }) {
   const [picking, setPicking] = useState(false);
   const pickerId = useId();
+  // カードの開け閉め (最初は HubSpot と同じく「リスト情報」だけ開く)
+  const [openCards, setOpenCards] = useState<Readonly<Record<string, boolean>>>(() => Object.fromEntries(HUBSPOT_CARDS.map(c => [c.id, c.expanded])));
   const ready = catalog.phase === 'ready' ? catalog : null;
-  const entries = ready === null ? null : Object.fromEntries(CATALOG_OBJECTS.map(o => [o, orderedSelection(o, selection, ready.index)])) as Record<CatalogObject, CatalogEntry[]>;
-  const nothing = entries !== null && CATALOG_OBJECTS.every(o => entries[o].length === 0);
+  const cards = useMemo(() => (ready === null ? null : cardSections(selection, ready.index)), [ready, selection]);
+  const entries = ready === null ? null : { deals: cards?.others ?? [], contacts: orderedSelection('contacts', selection, ready.index), companies: orderedSelection('companies', selection, ready.index) };
+  const shownCards = cards?.sections.filter(c => c.entries.length > 0 || c.unavailable > 0) ?? [];
+  const nothing = entries !== null && shownCards.length === 0 && CATALOG_OBJECTS.every(o => entries[o].length === 0);
   return <div className="pp dock-scroll" data-testid="property-panel">
     <div className="pp-head">
       <button type="button" className="pp-pick" aria-expanded={picking} aria-controls={pickerId} disabled={ready === null}
@@ -150,7 +207,12 @@ function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data,
           <button type="button" onClick={onReloadCatalog}>再試行</button></div>
           : data === null ? <p className="dock-placeholder">{placeholder}</p>
             : nothing ? <p className="crm-muted pp-note">表示する項目がありません。「表示する項目を選ぶ」から選んでください。</p>
-              : entries !== null && CATALOG_OBJECTS.map(o => <ObjectValues key={o} obj={o} entries={entries[o]} data={data} ownerNames={ownerNames} />)}
+              : entries !== null && <>
+                {shownCards.map(c => <CardValues key={c.card.id} section={c} data={data} ownerNames={ownerNames} open={openCards[c.card.id] === true}
+                  onToggle={() => { setOpenCards(o => ({ ...o, [c.card.id]: o[c.card.id] !== true })); }} />)}
+                {CATALOG_OBJECTS.map(o => <ObjectValues key={o} obj={o} entries={entries[o]} data={data} ownerNames={ownerNames}
+                  title={o === 'deals' && shownCards.length > 0 ? '案件(そのほかの項目)' : undefined} />)}
+              </>}
   </div>;
 }
 

@@ -10,7 +10,8 @@ import { ZOOM_NO_RESPONSE } from './DealDetail';
 import type { DialedFor } from './CallQueueScreen';
 import { EMPTY_CALL } from './smartEmbed';
 import type { CallState } from './smartEmbed';
-import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage } from './queueTestUtil';
+import { LEGACY_DEFAULT_SELECTED, PROPS_STORAGE_KEY } from './propertyModel';
+import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage, setScreenHeight } from './queueTestUtil';
 import { ZOOM_EMBED_ORIGIN } from './smartEmbed';
 import { fixtureOwnersFetch } from './useOwners';
 import type { DetailFetch } from './useDealDetail';
@@ -18,7 +19,7 @@ import { DIAL_STALL_MS } from './useZoomPhone';
 import type { ZoomOptions } from './useZoomPhone';
 import type { QueueFilters } from './queueModel';
 
-beforeEach(() => { resetDockStorage(); });
+beforeEach(() => { resetDockStorage(); setScreenHeight(900); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function detail(id: string, over: Partial<WorkspaceResponse> = {}): WorkspaceResponse {
@@ -94,6 +95,8 @@ function zoomEvent(win: Window, data: unknown, origin = ZOOM_EMBED_ORIGIN) {
 
 describe('架電ワークスペース (実データ)', () => {
   it('shows a placeholder until a row is chosen, then loads the overview, the chosen properties (labels, not internal names) and the activity log', async () => {
+    // 以前の既定 (架電の項目・担当者・会社) を選んだ状態で確かめる
+    window.localStorage.setItem(PROPS_STORAGE_KEY, JSON.stringify({ v: 2, ...LEGACY_DEFAULT_SELECTED }));
     const { calls, fetcher } = detailFetcher();
     await renderQueue(fetcher);
     expect(screen.getByText('架電一覧から架電先を選んでください')).toBeTruthy();
@@ -185,6 +188,7 @@ describe('架電ワークスペース (実データ)', () => {
   });
 
   it('shows partial notes and the empty states (no associations, no activities) without breaking', async () => {
+    window.localStorage.setItem(PROPS_STORAGE_KEY, JSON.stringify({ v: 2, ...LEGACY_DEFAULT_SELECTED }));
     const { calls, fetcher } = detailFetcher();
     await renderQueue(fetcher);
     open('1');

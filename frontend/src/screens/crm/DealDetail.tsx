@@ -34,7 +34,11 @@ const DIAL_MESSAGES: Record<DialResult, string> = {
  * 電話番号 1 つ分: 表示(ハイフン区切り) / 発信(Smart Embed、元の値) / コピー(国内形式の数字) / tel:
  * `primary` は「架ける番号」の大きい表示
  */
-export function PhoneRow({ label, raw, zoom, primary = false }: { label: string; raw: string; zoom: ZoomPhone; primary?: boolean }) {
+export function PhoneRow({ label, raw, zoom, primary = false, compact = false }: {
+  label: string; raw: string; zoom: ZoomPhone; primary?: boolean;
+  /** 1 行の表示 (番号と発信だけ。コピーと端末の電話は「詳しく表示」で出す) */
+  compact?: boolean;
+}) {
   const shown = formatPhoneForDisplay(raw) ?? raw;
   const copyValue = toDomesticPhone(raw) ?? raw;
   const e164 = toE164Jp(raw);
@@ -44,6 +48,15 @@ export function PhoneRow({ label, raw, zoom, primary = false }: { label: string;
     const clip = typeof navigator === 'undefined' ? undefined : (navigator as { clipboard?: Clipboard }).clipboard;
     if (!clip) { setNote('コピーできませんでした。番号を選んでコピーしてください。'); return; }
     clip.writeText(copyValue).then(() => { setNote('番号をコピーしました。'); }, () => { setNote('コピーできませんでした。番号を選んでコピーしてください。'); });
+  }
+  if (compact) {
+    return <span className="wd-phone wd-phone-primary wd-phone-compact">
+      <span className="cq-phone" title={`${label}: ${raw}`}>{shown}</span>
+      <button type="button" className="wd-dial" onClick={dial} disabled={e164 === null || zoom.embed === 'disabled'}
+        aria-label={`${label} ${shown} に発信`}>発信</button>
+      {e164 === null && <small className="crm-muted">ダイヤルできる形式ではありません</small>}
+      {note && <small role="status">{note}</small>}
+    </span>;
   }
   return <div className={`wd-phone${primary ? ' wd-phone-primary' : ''}`}>
     <span className="wd-phone-label">{label}</span>
@@ -71,20 +84,23 @@ export type CallBarInfo =
 /** Zoom が発信の依頼に応えなかったときの案内 */
 export const ZOOM_NO_RESPONSE = 'Zoomが応答しません。Zoomアプリを起動してサインインしてから、もう一度発信してください';
 
+/** 通話の様子の文言 (と、終わった通話の通話時間) */
+export function callBarLabel(info: CallBarInfo): { label: string; extra: string | null } {
+  if (info.kind === 'dialing') return { label: '発信しています…', extra: null };
+  if (info.kind === 'failed') return { label: '発信できませんでした', extra: null };
+  if (info.kind === 'ringing') return { label: info.inbound ? '着信中' : '呼び出し中', extra: null };
+  if (info.kind === 'connected') return { label: '通話中', extra: null };
+  return {
+    label: (info.result ? RESULT_LABELS[info.result] : undefined) ?? '通話が終了しました',
+    extra: info.talkSeconds !== null ? `(通話時間 ${clock(info.talkSeconds)})` : null,
+  };
+}
+
 export function CallBar({ info, now, onOpenZoom }: { info: CallBarInfo; now: () => number; onOpenZoom?: (() => void) | undefined }) {
   const connectedAt = info.kind === 'connected' ? info.connectedAt : null;
   const t = useTicking(connectedAt !== null, now);
   const who = 'number' in info ? formatPhoneForDisplay(info.number) : null;
-  let label: string;
-  let extra: string | null = null;
-  if (info.kind === 'dialing') label = '発信しています…';
-  else if (info.kind === 'failed') label = '発信できませんでした';
-  else if (info.kind === 'ringing') label = info.inbound ? '着信中' : '呼び出し中';
-  else if (info.kind === 'connected') label = '通話中';
-  else {
-    label = (info.result ? RESULT_LABELS[info.result] : undefined) ?? '通話が終了しました';
-    if (info.talkSeconds !== null) extra = `(通話時間 ${clock(info.talkSeconds)})`;
-  }
+  const { label, extra } = callBarLabel(info);
   return <div className={`wd-callbar wd-callbar-${info.kind}`} data-testid="call-bar">
     <p className="wd-callbar-line">
       <span role="status" className="wd-callbar-status" data-testid="call-bar-status"><strong>{label}</strong>{extra && <span> {extra}</span>}</span>
@@ -136,10 +152,23 @@ export function Freshness({ fetchedAt, now, refreshing, refreshError, onRefresh 
   </p>;
 }
 
-function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh }: {
+/** 「案件の概要」の表示の切り替え (1 行 ⇔ 詳しく) */
+export interface OverviewDensity {
+  compact: boolean;
+  onToggle: () => void;
+}
+
+function DensityToggle({ density }: { density: OverviewDensity }) {
+  return <button type="button" className="wd-density" aria-expanded={!density.compact} onClick={density.onToggle}
+    title={density.compact ? '会社・案件・番号の詳細、ほかの番号、架電の注意を表示します' : '会社・担当者・番号・発信だけの 1 行にします'}>
+    {density.compact ? '詳しく表示' : '1 行にする'}</button>;
+}
+
+function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh, density }: {
   data: WorkspaceResponse; zoom: ZoomPhone; stopLabel: StopLabel;
   callBar?: CallBarInfo | null | undefined; onOpenZoom?: (() => void) | undefined;
   refreshing: boolean; refreshError: string | null; onRefresh?: (() => void) | undefined;
+  density?: OverviewDensity | undefined;
 }) {
   const d = data.deal;
   const company = data.companies.find(c => c.is_primary) ?? null;
@@ -152,6 +181,35 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
     ...data.companies.map(c => c.phone && { key: `${c.id}-c`, label: `${c.name ?? '会社'}の電話`, raw: c.phone }),
   ].filter((x): x is { key: string; label: string; raw: string } => typeof x === 'object' && x !== null && x.raw !== data.dial?.number);
 
+  if (density?.compact === true) {
+    // 1 行: 会社 · 担当者 · 架ける番号 · 発信 · 通話の様子 (列が低いとき。「詳しく表示」で戻す)
+    const contact = data.contacts.find(c => c.is_primary) ?? data.contacts[0] ?? null;
+    const status = callBar ? callBarLabel(callBar) : null;
+    return <article className="wd wd-compact" aria-label="架電先の詳細" data-testid="overview-compact">
+      <div className="wd-top wd-top-compact">
+        <div className="wd-line">
+          <h2 className="wd-line-company" title={d.name ?? undefined}>{company?.name ?? d.name ?? '(名称なし)'}</h2>
+          <span className="wd-line-sep" aria-hidden="true">·</span>
+          <span className="wd-line-contact">{contact?.name ?? <span className="crm-muted">担当者なし</span>}</span>
+          <span className="wd-line-sep" aria-hidden="true">·</span>
+          {data.dial ? <PhoneRow label={SOURCE_LABELS[data.dial.source] ?? '電話'} raw={data.dial.number} zoom={zoom} primary compact />
+            : <span className="crm-muted">番号を確認できません</span>}
+          {status !== null && callBar?.kind !== 'failed' && <span className={`wd-line-status wd-callbar-${callBar?.kind ?? ''}`} role="status" data-testid="call-bar-status">
+            <strong>{status.label}</strong>{status.extra && <span> {status.extra}</span>}</span>}
+          {status !== null && callBar?.kind !== 'failed' && onOpenZoom && <button type="button" className="wd-callbar-open" onClick={onOpenZoom}
+            title="消音・保留・通話を切る・数字の入力は Zoom の枠で行います">Zoomを開く</button>}
+          {stopReasons.length > 0 && <span className="cq-flag wd-line-flag" title={stopReasons.join(' / ')}>架電の注意 {String(stopReasons.length)} 件</span>}
+          {notes.length > 0 && <span className="cq-flag wd-line-flag" title={notes.join(' / ')}>一部の情報が欠けています</span>}
+          <span className="wd-line-end">
+            <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
+            <DensityToggle density={density} />
+          </span>
+        </div>
+        {/* 発信できなかったときは、何をすればよいかを 1 行の下に出す */}
+        {callBar?.kind === 'failed' && <CallBar info={callBar} now={zoom.now} onOpenZoom={onOpenZoom} />}
+      </div>
+    </article>;
+  }
   return <article className="wd" aria-label="架電先の詳細">
     {/* 会社・案件・ステージ・HubSpot と「架ける番号」・通話の様子 (置いた列の上端に固定) */}
     <div className="wd-top">
@@ -162,6 +220,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
         <div className="wd-head-side">
           <span className="cq-stage">{d.stage_label ?? '(ステージ名を取得できません)'}</span>
           <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
+          {density && <DensityToggle density={density} />}
         </div>
       </header>
       <Freshness fetchedAt={data.fetched_at} now={zoom.now} refreshing={refreshing} refreshError={refreshError} onRefresh={onRefresh} />
@@ -241,7 +300,7 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom }: {
+function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density }: {
   state: DetailState; reload: () => void; zoom: ZoomPhone; stopLabel?: StopLabel;
   /** サーバのキャッシュを使わずに読み直す (「最新にする」) */
   refresh?: (() => void) | undefined;
@@ -249,10 +308,12 @@ function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLab
   callBar?: CallBarInfo | null | undefined;
   /** Zoom の枠を開く */
   onOpenZoom?: (() => void) | undefined;
+  /** 1 行の表示にするか (と切り替え)。無ければ常に詳しく */
+  density?: OverviewDensity | undefined;
 }) {
   if (state.phase === 'ready' && state.data !== null) {
     return <Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
-      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} />;
+      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} />;
   }
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }

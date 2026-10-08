@@ -54,6 +54,8 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
 
   test('一覧と詳細の値、結果ごとの必須欄、記録して次へ、再読み込み・新しいタブでの残り方。HubSpot には何も送らない', async ({ page, context }) => {
     const crmRequests = watchCrmRequests(page);
+    // 案件の概要の詳しい表示 (ステージ・案件名) を確かめるので、背の高い画面で開く (800px 以下では 1 行の表示)
+    await page.setViewportSize({ width: 1440, height: 900 });
     await openScreen(page);
 
     // 一覧: 架空サンプルの 1 ページ目 (5 件)。先頭行の会社・担当者・番号・ステージ

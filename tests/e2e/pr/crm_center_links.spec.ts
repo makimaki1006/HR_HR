@@ -35,11 +35,12 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     const article = page.getByRole('article', { name: '架電先の詳細' });
     await expect(article.locator('h2')).toHaveText('ダミー建設');
     const dockTab = (name: string) => page.getByRole('tablist', { name: '中央の列のパネル' }).getByRole('tab', { name, exact: true });
+    // 既定の配置 (v2): 「求人検索・リンク先」は右の列で前に出ている
+    await expect(page.getByRole('tablist', { name: '右の列のパネル' }).getByRole('tab', { name: '求人検索・リンク先' })).toHaveAttribute('aria-selected', 'true');
     await dockTab('架電結果の入力').click();
     const form = page.getByRole('form', { name: '架電結果の入力' });
     const memo = form.locator('textarea').first();
     await memo.fill('受付で不在。来週火曜に再架電');
-    await dockTab('求人検索・リンク先').click();
 
     // 選んだだけでは Google を読みに行かない
     expect(external).toEqual([]);
@@ -70,18 +71,14 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     await expect(page.frameLocator('#cq-cpanel-search iframe').locator('#stub')).toHaveText('外部ページ(テスト用の代わり)');
     await expect(panel.getByRole('link', { name: '新しいタブで開く' })).toHaveAttribute('href', stored ?? '');
     await expect(panel.getByText('表示されない場合は新しいタブで開いてください')).toBeVisible();
-    // 案件の概要 (列の上端に固定) は見えたまま、架電結果の入力は隠れている
+    // 右の列に開くので、案件の概要と架電結果の入力 (中央の列) は見えたまま。メモもそのまま
     await expect(article).toBeVisible();
-    await expect(form).toBeHidden();
-
-    // 架電結果の入力に戻る: メモがそのまま。求人検索の枠は隠れる
-    await dockTab('架電結果の入力').click();
     await expect(article.locator('h2')).toHaveText('ダミー建設');
+    await expect(form).toBeVisible();
     await expect(memo).toHaveValue('受付で不在。来週火曜に再架電');
-    await expect(frame).toBeHidden();
+    await expect(frame).toBeVisible();
 
     // ホームページは別のタブに開き、×で閉じると求人検索のタブに戻る
-    await dockTab('求人検索・リンク先').click();
     await tabs.getByRole('tab', { name: 'リンク一覧' }).click();
     await page.getByRole('region', { name: 'リンク' }).getByRole('link', { name: 'https://www.example.com/' }).click();
     await expect(tabs.getByRole('tab')).toHaveText(['リンク一覧', '求人検索', 'ホームページ']);

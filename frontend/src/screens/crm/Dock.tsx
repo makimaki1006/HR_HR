@@ -16,6 +16,8 @@ import './dock.css';
  * - タブはドラッグで別の列へ移せる。キーボードでは各タブの「移動」から「左へ移動 / 中央へ移動 / 右へ移動」
  * - 列の間の区切りはドラッグか矢印キーで幅を変える
  * - 配置を変えても HubSpot は呼ばない (画面の中だけの状態)
+ * - `maximized` のパネルの列を、置き場全体に重ねて広げる (CSS だけで重ねる。箱は動かさないので枠の中のページは読み直さない)。
+ *   ほかの列は残したまま操作できなくする (inert)
  */
 
 const DRAG_TYPE = 'application/x-hrhr-crm-panel';
@@ -96,9 +98,11 @@ function MoveMenu({ panel, layout, dispatch }: { panel: PanelId; layout: DockLay
   </span>;
 }
 
-function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging }: {
+function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging, max }: {
   index: ColumnIndex; layout: DockLayout; dispatch: (a: DockAction) => void; hosts: Record<PanelId, HTMLElement>;
   dragging: PanelId | null; setDragging: (p: PanelId | null) => void;
+  /** 'max' = この列を広げている、'under' = ほかの列を広げている (この列は操作させない) */
+  max: 'max' | 'under' | null;
 }) {
   const col = layout.columns[index];
   const tabs = tabPanels(col);
@@ -148,11 +152,13 @@ function ColumnView({ index, layout, dispatch, hosts, dragging, setDragging }: {
 
   if (isEmptyColumn(col)) {
     return <section className={`dock-col is-empty${dragging !== null ? ' is-dragging' : ''}${over ? ' is-over' : ''}`} aria-label={`${COLUMN_LABELS[index]}の列(空き)`}
+      inert={max === 'under'}
       data-testid={`dock-col-${String(index)}`} title={`パネルのタブをここへドラッグするか、タブの「⋮」から「${COLUMN_LABELS[index]}へ移動」を選ぶと、この列に置けます`} {...dropProps}>
       <span className="dock-empty-label" aria-hidden="true">{dragging !== null ? 'ここに置く' : '＋'}</span>
     </section>;
   }
-  return <section className={`dock-col${over ? ' is-over' : ''}`} aria-label={`${COLUMN_LABELS[index]}の列`} data-testid={`dock-col-${String(index)}`} {...dropProps}>
+  return <section className={`dock-col${over ? ' is-over' : ''}${max === 'max' ? ' is-max' : ''}`} aria-label={`${COLUMN_LABELS[index]}の列`}
+    data-testid={`dock-col-${String(index)}`} inert={max === 'under'} {...dropProps}>
     {pinned && <div className="dock-pinned" data-testid="dock-pinned"><Slot host={hosts[PINNED_PANEL]} /></div>}
     <div className="dock-tabrow">
       {tabs.length > 0 && <div className="dock-tabs" role="tablist" aria-label={`${COLUMN_LABELS[index]}の列のパネル`} ref={listRef} onKeyDown={onTabKey}>
@@ -225,10 +231,12 @@ function Divider({ left, right, layout, dispatch, containerRef }: {
     onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end} onKeyDown={onKeyDown} />;
 }
 
-export function Dock({ layout, dispatch, panels }: {
+export function Dock({ layout, dispatch, panels, maximized = null }: {
   layout: DockLayout; dispatch: (a: DockAction) => void;
   /** パネルの中身 (常に描く。見えていないパネルも外さない) */
   panels: Record<PanelId, ReactNode>;
+  /** 置き場全体に広げて出すパネル (その列を重ねる)。無ければ null */
+  maximized?: PanelId | null;
 }) {
   // パネルごとの箱 (画面を開いている間ずっと同じ箱を使う)
   const [hosts] = useState<Record<PanelId, HTMLElement>>(() => {
@@ -254,6 +262,7 @@ export function Dock({ layout, dispatch, panels }: {
     col?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
   }, [layout]);
 
+  const maxCol = maximized === null ? null : columnOf(layout, maximized);
   const items: ReactNode[] = [];
   const template: string[] = [];
   let prevVisible: ColumnIndex | null = null;
@@ -263,13 +272,14 @@ export function Dock({ layout, dispatch, panels }: {
       items.push(<Divider key={`d-${String(prevVisible)}-${String(i)}`} left={prevVisible} right={i} layout={layout} dispatch={dispatch} containerRef={containerRef} />);
       template.push('6px');
     }
-    items.push(<ColumnView key={`c-${String(i)}`} index={i} layout={layout} dispatch={dispatch} hosts={hosts} dragging={dragging} setDragging={setDrag} />);
+    items.push(<ColumnView key={`c-${String(i)}`} index={i} layout={layout} dispatch={dispatch} hosts={hosts} dragging={dragging} setDragging={setDrag}
+      max={maxCol === null ? null : maxCol === i ? 'max' : 'under'} />);
     template.push(empty ? (dragging !== null ? '120px' : '28px') : `minmax(${String(MIN_COLUMN_PX)}px, ${String(layout.widths[i])}fr)`);
     if (!empty) prevVisible = i;
   }
   const style: CSSProperties = { gridTemplateColumns: template.join(' ') };
   return <>
-    <div className="dock" ref={containerRef} style={style} data-testid="dock">{items}</div>
+    <div className={`dock${maxCol !== null ? ' has-max' : ''}`} ref={containerRef} style={style} data-testid="dock">{items}</div>
     {/* 中身は列の後に描く (列の枠に箱を差し込んでから、中身の effect が動く) */}
     {PANEL_IDS.map(p => createPortal(panels[p], hosts[p], p))}
   </>;

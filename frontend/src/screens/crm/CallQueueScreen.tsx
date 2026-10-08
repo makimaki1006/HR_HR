@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
 import { OwnerFilter } from './OwnerFilter';
@@ -30,7 +30,7 @@ import { CallResultForm } from './CallResultForm';
 import { CenterPanel, CenterTabBar, LinkOpenerContext, LinkView, searchTab, useCenterTabs } from './CenterTabs';
 import { DEAL_TAB, SEARCH_TAB, dealJobSearchUrl } from './centerLinks';
 import { Dock } from './Dock';
-import { dockReducer, loadLayout, localStorageOrNull, saveLayout } from './dockModel';
+import { clearLegacyLayout, columnOf, dockReducer, loadLayoutWithNotice, localStorageOrNull, saveLayout } from './dockModel';
 import type { DockAction, PanelId } from './dockModel';
 import { PropertyPanel } from './PropertyPanel';
 import { loadSelected, sanitizeSelected, saveSelected } from './propertyModel';
@@ -81,6 +81,23 @@ export function bindsToDial(d: DialedFor, call: CallState): boolean {
 }
 
 const PHONE_SOURCE_LABELS: Record<string, string> = { deal: '案件', contact: '担当者', mobile: '担当者(携帯)', company: '会社' };
+
+/** 画面の高さがこれ以下 (列が低い) なら、「案件の概要」を 1 行で出す (利用者が切り替えるまで) */
+export const COMPACT_OVERVIEW_QUERY = '(max-height: 800px)';
+
+/** メディアクエリに合っているか (matchMedia の無い環境では false) */
+export function useMediaQuery(query: string): boolean {
+  const subscribe = useCallback((cb: () => void) => {
+    if (typeof window.matchMedia !== 'function') return () => undefined;
+    const m = window.matchMedia(query);
+    m.addEventListener('change', cb);
+    return () => { m.removeEventListener('change', cb); };
+  }, [query]);
+  return useSyncExternalStore(subscribe, () => typeof window.matchMedia === 'function' && window.matchMedia(query).matches, () => false);
+}
+
+/** 配置を新しい既定に切り替えたときの 1 回だけの案内 */
+export const LAYOUT_UPDATED_NOTE = '画面の配置を更新しました。「求人検索・リンク先」を右の列に移し、検索結果を広く表示します(パネルはタブのドラッグか「⋮」で移せます)。';
 
 /** 矢印キーで行を移ったとき、詳細の取得を待つ時間 (押しっぱなしで HubSpot を連続で呼ばない) */
 export const KEY_SELECT_DELAY_MS = 300;
@@ -235,8 +252,16 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const detailId = detailSel !== null && detailSel.mode === mode ? detailSel.id : null;
   const keyTimer = useRef<number | null>(null);
   // パネルの配置 (このブラウザに残す。変えても HubSpot は呼ばない)
-  const [layout, dispatchLayout] = useReducer(dockReducer, null, () => loadLayout(localStorageOrNull()));
-  useEffect(() => { saveLayout(localStorageOrNull(), layout); }, [layout]);
+  // 以前の版の配置だけが残っていたら新しい既定の配置にして、1 回だけ案内を出す (新しい配置を残せたら以前の配置は消す)
+  const [initialLayout] = useState(() => loadLayoutWithNotice(localStorageOrNull()));
+  const [layout, dispatchLayout] = useReducer(dockReducer, initialLayout.layout);
+  const [layoutNote, setLayoutNote] = useState(initialLayout.migrated);
+  useEffect(() => { if (saveLayout(localStorageOrNull(), layout)) clearLegacyLayout(localStorageOrNull()); }, [layout]);
+  // 「案件の概要」の 1 行表示: 列が低い (画面の高さが低い) ときは自動で 1 行。利用者が切り替えたらそれに従う
+  const shortScreen = useMediaQuery(COMPACT_OVERVIEW_QUERY);
+  const [densityPref, setDensityPref] = useState<'auto' | 'full' | 'compact'>('auto');
+  const compactOverview = densityPref === 'auto' ? shortScreen : densityPref === 'compact';
+  const density = useMemo(() => ({ compact: compactOverview, onToggle: () => { setDensityPref(compactOverview ? 'full' : 'compact'); } }), [compactOverview]);
   // 「プロパティ」パネルで表示する項目 (このブラウザに残す)。項目の一覧に無いもの (HubSpot で消された等) は送らない
   const [storedProps, setStoredProps] = useState<SelectedProps>(() => loadSelected(localStorageOrNull()));
   const catalog = usePropertyCatalog(mode, selection !== null, catalogFetcher);
@@ -253,6 +278,10 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     });
   }, []);
   const detail = useDealDetail(detailId, mode, detailFetcher, selectedProps, staleDeals, freshLoaded);
+  // 項目の一覧を読み終える前に送った項目に、一覧に無いもの (HubSpot で隠された・消された項目) があると 400 invalid_properties になる。
+  // 一覧を読み終えると一覧に無い項目を外して読み直すので、その間は失敗を出さずに「読み込み中」とする
+  const detailState = useMemo(() => (detail.state.phase === 'error' && detail.state.errorKind === 'invalid_properties' && catalog.state.phase === 'loading'
+    ? { ...detail.state, phase: 'loading' as const, message: '' } : detail.state), [detail.state, catalog.state.phase]);
   // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
   const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
   // Zoom の枠は右から開く引き出し。閉じている間も iframe は画面の外に置いたまま (発信の依頼は届く)
@@ -525,7 +554,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
   const waitingKey = selectedId !== null && selectedId !== detailId;
   // 「求人検索・リンク先」パネルの中のタブ (リンク一覧 / 求人検索 / 開いたリンク)。案件を選び直したら開いたリンクは閉じる
-  const shownData = !waitingKey && detail.state.phase === 'ready' && detail.state.data?.deal.id === selectedId ? detail.state.data : null;
+  const shownData = !waitingKey && detailState.phase === 'ready' && detailState.data?.deal.id === selectedId ? detailState.data : null;
   const searchUrl = useMemo(() => (shownData !== null ? dealJobSearchUrl(shownData) : null), [shownData]);
   const center = useCenterTabs(selectedId === null ? null : `${mode}:${selectedId}`, searchUrl);
   const searchLink = useMemo(() => (searchUrl !== null ? searchTab(searchUrl) : null), [searchUrl]);
@@ -543,6 +572,18 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     dispatchLayout({ type: 'activate', panel: 'links' });
   }, [centerOpen]);
   const layoutDispatch = useCallback((a: DockAction) => { dispatchLayout(a); }, []);
+  // 「求人検索・リンク先」を置き場全体に広げる (Esc か「戻す」で戻る)。列を重ねるだけなので枠の中のページは読み直さない。
+  // 同じ列で別のタブを前に出した・架電先の選択を外したときは戻す
+  const [maxLinks, setMaxLinks] = useState(false);
+  const linksFront = layout.columns[columnOf(layout, 'links')].active === 'links';
+  if (maxLinks && (!linksFront || selectedId === null)) setMaxLinks(false);
+  useEffect(() => {
+    if (!maxLinks) return;
+    // メニュー・Zoom の枠が Esc を使ったとき (preventDefault 済み) は戻さない
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); setMaxLinks(false); } };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); };
+  }, [maxLinks]);
   // 不通時チェック・ブロック理由は、入力欄と同じ HubSpot の表示ラベルで出す (定義を読めていなければ値のまま)
   const stopLabel = useMemo<StopLabel>(() => {
     if (defs.state.phase !== 'ready') return rawStopLabel;
@@ -551,7 +592,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }, [defs.state]);
   const anyFocusable = state.items.some(i => i.deal_id === selectedId);
 
-  const detailPhase = waitingKey ? 'waiting' : detail.state.phase;
+  const detailPhase = waitingKey ? 'waiting' : detailState.phase;
   const placeholder = panelPlaceholder(selectedId !== null, detailPhase);
   const panels: Record<PanelId, React.ReactNode> = {
     queue: <>
@@ -603,8 +644,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       data={shownData} placeholder={placeholder} ownerNames={ownerNames} hasSelection={selectedId !== null} />,
     overview: <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
       {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
-        : <DealOverview state={detail.state} reload={detail.reload} refresh={detail.refresh} zoom={zoomForDetail} stopLabel={stopLabel}
-          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} />}
+        : <DealOverview state={detailState} reload={detail.reload} refresh={detail.refresh} zoom={zoomForDetail} stopLabel={stopLabel}
+          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} density={density} />}
     </section>,
     activity: <ActivityLog data={shownData} placeholder={placeholder} ownerNames={ownerNames} />,
     // 架電結果の入力欄。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない
@@ -619,7 +660,12 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />}
       </div>,
     links: selectedId === null ? <div className="dock-scroll"><p className="dock-placeholder">{placeholder}</p></div> : <div className="cq-linkpanel">
-      <CenterTabBar tabs={center} />
+      <div className="cq-linkpanel-head">
+        <CenterTabBar tabs={center} />
+        <button type="button" className="cq-maximize" data-testid="links-maximize"
+          title={maxLinks ? '元の大きさに戻します(Esc でも戻せます)' : 'このパネルを画面いっぱいに広げます(Esc か「戻す」で戻ります)'}
+          onClick={() => { if (!maxLinks) dispatchLayout({ type: 'activate', panel: 'links' }); setMaxLinks(m => !m); }}>{maxLinks ? '戻す' : '広げる'}</button>
+      </div>
       <div className="cq-cpanels">
         <CenterPanel id={DEAL_TAB} active={center.active === DEAL_TAB}>
           <div className="dock-scroll">{shownData !== null ? <DealLinks data={shownData} /> : <p className="dock-placeholder">{placeholder}</p>}</div>
@@ -694,9 +740,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         </div>
       </div>
     </form>
+    {layoutNote && <p className="cq-layout-note" role="status" data-testid="layout-note">{LAYOUT_UPDATED_NOTE}
+      <button type="button" onClick={() => { setLayoutNote(false); }}>閉じる</button></p>}
 
     <LinkOpenerContext.Provider value={selectedId !== null ? openLinkInPanel : null}>
-      <Dock layout={layout} dispatch={layoutDispatch} panels={panels} />
+      <Dock layout={layout} dispatch={layoutDispatch} panels={panels} maximized={maxLinks ? 'links' : null} />
     </LinkOpenerContext.Provider>
     {/* Zoom の枠 (右から開く引き出し)。閉じている間も外さず、同じ大きさのまま画面の外へ送る
         (display:none にしない。iframe を作り直すと通話が切れ、発信の依頼も届かなくなる) */}

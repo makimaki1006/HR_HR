@@ -33,13 +33,18 @@ export interface DockLayout {
   widths: [number, number, number];
 }
 
+/**
+ * 既定の配置 (v2, 2026-10-08): 左 = 架電一覧 + プロパティ、中央 = 案件の概要 (上端) + 活動ログ / 架電結果の入力、
+ * 右 = 求人検索・リンク先 (Google の検索結果を広く・高く出す)。
+ * 幅の比は 1440px で 左 ≈ 300px / 中央 ≈ 490px / 右 ≈ 640px (45%)。1366 / 1280px でも同じ比 (左 ≈ 285 / 265px)
+ */
 export const DEFAULT_LAYOUT: DockLayout = {
   columns: [
     { panels: ['queue', 'properties'], active: 'queue' },
-    { panels: ['overview', 'activity', 'result', 'links'], active: 'activity' },
-    { panels: [], active: null },
+    { panels: ['overview', 'activity', 'result'], active: 'activity' },
+    { panels: ['links'], active: 'links' },
   ],
-  widths: [0.26, 0.74, 0.3],
+  widths: [0.21, 0.34, 0.45],
 };
 
 /** 列の最小幅 (並んでいる列の幅の合計に対する比)。px の最小は CSS で別に効かせる */
@@ -145,8 +150,10 @@ export function leftPercent(layout: DockLayout, left: ColumnIndex, right: Column
 // このブラウザに残す
 // ---------------------------------------------------------------------------
 
-export const DOCK_STORAGE_KEY = 'hrhr.crm.dockLayout.v1';
-const VERSION = 1;
+export const DOCK_STORAGE_KEY = 'hrhr.crm.dockLayout.v2';
+/** 以前 (v1) の置き場所。残っていたら新しい既定の配置に切り替え、1 回だけ知らせてから消す */
+export const LEGACY_DOCK_STORAGE_KEY = 'hrhr.crm.dockLayout.v1';
+const VERSION = 2;
 
 const isPanelId = (v: unknown): v is PanelId => typeof v === 'string' && (PANEL_IDS as readonly string[]).includes(v);
 
@@ -196,8 +203,25 @@ export function localStorageOrNull(): Storage | null {
 }
 
 export function loadLayout(storage: Storage | null): DockLayout {
-  if (storage === null) return DEFAULT_LAYOUT;
-  try { return parseLayout(storage.getItem(DOCK_STORAGE_KEY)); } catch { return DEFAULT_LAYOUT; }
+  return loadLayoutWithNotice(storage).layout;
+}
+
+/**
+ * 配置を読む (読むだけ。書き換えない)。以前の版 (v1) の配置だけが残っていたら、新しい既定の配置 (求人検索・リンク先を右の列) にして
+ * `migrated: true` を返す (画面で 1 回だけ知らせる)。以前の置き場所は、新しい配置を残した後に [`clearLegacyLayout`] で消す
+ */
+export function loadLayoutWithNotice(storage: Storage | null): { layout: DockLayout; migrated: boolean } {
+  if (storage === null) return { layout: DEFAULT_LAYOUT, migrated: false };
+  try {
+    const cur = storage.getItem(DOCK_STORAGE_KEY);
+    if (cur !== null) return { layout: parseLayout(cur), migrated: false };
+    return { layout: DEFAULT_LAYOUT, migrated: storage.getItem(LEGACY_DOCK_STORAGE_KEY) !== null };
+  } catch { return { layout: DEFAULT_LAYOUT, migrated: false }; }
+}
+
+/** 以前 (v1) の配置を消す (新しい配置を残せた後に呼ぶ。次に開いたときは知らせない) */
+export function clearLegacyLayout(storage: Storage | null): void {
+  try { storage?.removeItem(LEGACY_DOCK_STORAGE_KEY); } catch { /* 消せなくても、新しい配置が残っていれば次は知らせない */ }
 }
 
 /** 残せたら true (残せない環境では、開いている間だけ配置が効く) */

@@ -10,6 +10,8 @@ import type { CrmCatalogProperty } from '../../generated/CrmCatalogProperty';
 import type { CrmPropertyCatalogResponse } from '../../generated/CrmPropertyCatalogResponse';
 import type { WorkspaceSelected } from '../../generated/WorkspaceSelected';
 import { extractUrls } from './centerLinks';
+import { HUBSPOT_CARDS, cardPropertyNames } from './hubspotCards';
+import type { HubSpotCard } from './hubspotCards';
 import { formatPhoneForDisplay } from './phone';
 import { formatTimestamp } from './workspaceModel';
 
@@ -25,17 +27,26 @@ export type SelectedProps = Record<CatalogObject, string[]>;
 export const MAX_SELECTED_PER_OBJECT = 100;
 
 /**
- * 既定の項目: 以前の「案件」カードにあった架電の項目 (担当・次回架電日/時間・最終架電日・不通時チェック・架電禁止理由・ブロック理由)、
- * URL_求人検索、担当者の名前・電話、会社のサイト
+ * 既定の項目: HubSpot の取引レコードの左サイドバーのカード「リスト情報」「BPOアポ情報」の項目 (hubspotCards.ts、カードの並び)。
+ * 担当者・会社の項目は既定では出さない (「表示する項目を選ぶ」で足せる)
  */
 export const DEFAULT_SELECTED: SelectedProps = {
+  deals: cardPropertyNames(),
+  contacts: [],
+  companies: [],
+};
+
+/** 以前 (v1) の既定。v1 に残っていた選択がこれと同じなら、新しい既定 (HubSpot のカード) に移す */
+export const LEGACY_DEFAULT_SELECTED: SelectedProps = {
   deals: ['hubspot_owner_id', 'bpo_13', 'bpo_14', 'bpo_20', 'bpo_10', 'bpo_3', 'bpo_4', 'bpo_32'],
   contacts: ['lastname', 'firstname', 'phone'],
   companies: ['website'],
 };
 
-export const PROPS_STORAGE_KEY = 'hrhr.crm.selectedProps.v1';
-const VERSION = 1;
+export const PROPS_STORAGE_KEY = 'hrhr.crm.selectedProps.v2';
+/** 以前の置き場所 (読むだけ。新しい置き場所に移したら消す) */
+export const LEGACY_PROPS_STORAGE_KEY = 'hrhr.crm.selectedProps.v1';
+const VERSION = 2;
 const NAME_RE = /^[A-Za-z0-9_]{1,100}$/;
 
 function cleanList(v: unknown): string[] | null {
@@ -48,23 +59,44 @@ function cleanList(v: unknown): string[] | null {
   return out.length > MAX_SELECTED_PER_OBJECT ? null : out;
 }
 
-/** 残した選択を読む。壊れていたら既定 */
-export function parseSelected(raw: string | null): SelectedProps {
-  if (raw === null) return DEFAULT_SELECTED;
+function parseVersioned(raw: string | null, version: number): SelectedProps | null {
+  if (raw === null) return null;
   let v: unknown;
-  try { v = JSON.parse(raw); } catch { return DEFAULT_SELECTED; }
-  if (typeof v !== 'object' || v === null || (v as { v?: unknown }).v !== VERSION) return DEFAULT_SELECTED;
+  try { v = JSON.parse(raw); } catch { return null; }
+  if (typeof v !== 'object' || v === null || (v as { v?: unknown }).v !== version) return null;
   const o = v as Record<string, unknown>;
   const deals = cleanList(o.deals);
   const contacts = cleanList(o.contacts);
   const companies = cleanList(o.companies);
-  if (deals === null || contacts === null || companies === null) return DEFAULT_SELECTED;
+  if (deals === null || contacts === null || companies === null) return null;
   return { deals, contacts, companies };
+}
+
+/** 残した選択を読む。壊れていたら既定 */
+export function parseSelected(raw: string | null): SelectedProps {
+  return parseVersioned(raw, VERSION) ?? DEFAULT_SELECTED;
+}
+
+/**
+ * 以前 (v1) の選択を新しい形にする。v1 の既定のままなら新しい既定 (HubSpot のカード)、
+ * 自分で選び直していたらその選択を残す。読めなければ null
+ */
+export function migrateLegacySelected(raw: string | null): SelectedProps | null {
+  const old = parseVersioned(raw, 1);
+  if (old === null) return null;
+  return sameSelected(old, LEGACY_DEFAULT_SELECTED) ? DEFAULT_SELECTED : old;
 }
 
 export function loadSelected(storage: Storage | null): SelectedProps {
   if (storage === null) return DEFAULT_SELECTED;
-  try { return parseSelected(storage.getItem(PROPS_STORAGE_KEY)); } catch { return DEFAULT_SELECTED; }
+  try {
+    const cur = storage.getItem(PROPS_STORAGE_KEY);
+    if (cur !== null) return parseSelected(cur);
+    const migrated = migrateLegacySelected(storage.getItem(LEGACY_PROPS_STORAGE_KEY));
+    if (migrated === null) return DEFAULT_SELECTED;
+    if (saveSelected(storage, migrated)) storage.removeItem(LEGACY_PROPS_STORAGE_KEY);
+    return migrated;
+  } catch { return DEFAULT_SELECTED; }
 }
 
 export function saveSelected(storage: Storage | null, sel: SelectedProps): boolean {
@@ -72,7 +104,9 @@ export function saveSelected(storage: Storage | null, sel: SelectedProps): boole
   try { storage.setItem(PROPS_STORAGE_KEY, JSON.stringify({ v: VERSION, ...sel })); return true; } catch { return false; }
 }
 
-export const sameSelected = (a: SelectedProps, b: SelectedProps) => CATALOG_OBJECTS.every(o => a[o].join(',') === b[o].join(','));
+export function sameSelected(a: SelectedProps, b: SelectedProps): boolean {
+  return CATALOG_OBJECTS.every(o => a[o].join(',') === b[o].join(','));
+}
 
 /** 詳細の要求に付けるクエリ (`?deal_props=..`)。何も選んでいなければ '' */
 export function selectedQuery(sel: SelectedProps): string {
@@ -107,6 +141,41 @@ export function sanitizeSelected(sel: SelectedProps, index: Record<CatalogObject
 export function orderedSelection(obj: CatalogObject, sel: SelectedProps, index: Record<CatalogObject, Map<string, CatalogEntry>>): CatalogEntry[] {
   const chosen = new Set(sel[obj]);
   return [...index[obj].values()].filter(e => chosen.has(e.prop.name));
+}
+
+/** HubSpot のカード 1 枚分の表示 (選んでいて、項目の一覧にある項目だけ。カードの並び) */
+export interface CardSection {
+  card: HubSpotCard;
+  entries: CatalogEntry[];
+  /** 選んでいるが項目の一覧に無い (HubSpot で非表示・削除・機微情報) ため出せない項目の数 */
+  unavailable: number;
+}
+
+/** 案件の項目を HubSpot のカードごとに分ける。どのカードにも無い選んだ項目は `others` (HubSpot の表示順) */
+export function cardSections(sel: SelectedProps, index: Record<CatalogObject, Map<string, CatalogEntry>>, cards: readonly HubSpotCard[] = HUBSPOT_CARDS): { sections: CardSection[]; others: CatalogEntry[] } {
+  const chosen = new Set(sel.deals);
+  const inCards = new Set<string>();
+  const sections = cards.map(card => {
+    const entries: CatalogEntry[] = [];
+    let unavailable = 0;
+    for (const it of card.items) {
+      inCards.add(it.name);
+      if (!chosen.has(it.name)) continue;
+      const e = index.deals.get(it.name);
+      if (e === undefined) unavailable += 1;
+      else entries.push(e);
+    }
+    return { card, entries, unavailable };
+  });
+  const others = orderedSelection('deals', sel, index).filter(e => !inCards.has(e.prop.name));
+  return { sections, others };
+}
+
+/** カードの項目のうち、項目の一覧にあるもの (「HubSpotのカードから選ぶ」でまとめて選ぶ対象) */
+export function cardAvailableNames(card: HubSpotCard, index: Record<CatalogObject, Map<string, CatalogEntry>>): string[] {
+  const out: string[] = [];
+  for (const it of card.items) if (index.deals.has(it.name) && !out.includes(it.name)) out.push(it.name);
+  return out;
 }
 
 /** 選択の切り替え (上限を超えるときは足さない) */

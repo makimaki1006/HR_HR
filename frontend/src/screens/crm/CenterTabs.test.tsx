@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CallQueueScreen } from './CallQueueScreen';
-import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage } from './queueTestUtil';
+import { makeItem, makeResponse, okMetadataFetch, okUserFetch, okCatalogFetch, resetDockStorage, setScreenHeight } from './queueTestUtil';
 import type { QueueFilters } from './queueModel';
 import { fixtureQueuePage } from './queueFixture';
 import { DEFAULT_FILTERS } from './queueModel';
@@ -13,7 +13,7 @@ import type { WorkspaceDeal } from '../../generated/WorkspaceDeal';
 import { LINK_FRAME_SANDBOX } from './CenterTabs';
 
 beforeEach(() => { try { window.sessionStorage.clear(); } catch { /* ignore */ } });
-beforeEach(() => { resetDockStorage(); });
+beforeEach(() => { resetDockStorage(); setScreenHeight(900); });
 afterEach(() => { cleanup(); });
 
 const STORED = 'https://www.google.com/search?q=03-0000-0001+%E6%B1%82%E4%BA%BA&sca_esv=x&ei=y';
@@ -60,9 +60,9 @@ describe('求人検索・リンク先 panel (links open inside the panel)', () =
     if (!memo) throw new Error('memo');
     fireEvent.change(memo, { target: { value: '受付で不在。来週再架電' } });
 
-    // 既定の配置では中央の列は「活動ログ」が前。「求人検索・リンク先」を前に出す
-    expect(tab('求人検索・リンク先').getAttribute('aria-selected')).toBe('false');
-    fireEvent.click(tab('求人検索・リンク先'));
+    // 既定の配置 (v2) では「求人検索・リンク先」は右の列にあり、最初から前に出ている
+    expect(tab('求人検索・リンク先').getAttribute('aria-selected')).toBe('true');
+    expect(byId('dock-panel-links').closest('[data-testid="dock-col-2"]')).not.toBeNull();
     expect(tab('リンク一覧').getAttribute('aria-selected')).toBe('true');
     // 開くまでは Google を読みに行かない
     expect(screen.queryByTestId('link-frame')).toBeNull();
@@ -77,7 +77,7 @@ describe('求人検索・リンク先 panel (links open inside the panel)', () =
     // 押したリンクは隠れるので、フォーカスは前に出たタブへ移る
     expect(document.activeElement).toBe(tab('求人検索'));
     expect(tab('リンク一覧').getAttribute('aria-selected')).toBe('false');
-    // リンクを開くと「求人検索・リンク先」パネルが前に出る (同じ列の「架電結果の入力」は隠れる)
+    // リンクを開いても「求人検索・リンク先」パネルは前に出たまま (中央の列は「活動ログ」が前のままで、「架電結果の入力」は隠れている)
     expect(tab('求人検索・リンク先').getAttribute('aria-selected')).toBe('true');
     const frame = within(panel('search')).getByTestId('link-frame');
     expect(frame.getAttribute('src')).toBe('https://www.google.com/search?q=03-0000-0001+%E6%B1%82%E4%BA%BA&igu=1');
