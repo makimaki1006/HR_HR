@@ -44,13 +44,14 @@ describe('job timeline lanes', () => {
   });
 
   it('says 課金データなし without billing data, says it is not 0円, and never shows 0円 as an amount', () => {
-    render(<JobTimeline job={demo('demo-job-005')} marketMode="demo" />);
+    // 「仮の課金データを表示」を外したとき（実データの求人と同じ見え方）
+    render(<JobTimeline job={demo('demo-job-005')} marketMode="demo" showDummyBilling={false} />);
     const lane = screen.getByRole('group', { name: '課金' });
     // The explanation is visible text (not a hover-only title).
     expect(lane.textContent).toContain('課金データなし（0円という意味ではありません）');
     expect(lane.querySelector('[title]')).toBeNull();
-    expect(document.body.textContent.replace('0円という意味ではありません', '')).not.toMatch(/(^|[^\d,])0円/);
-    expect(within(screen.getByRole('table')).getAllByText('課金データなし').length).toBe(2);
+    expect(document.body.textContent.replaceAll('0円という意味ではありません', '')).not.toMatch(/(^|[^\d,])0円/);
+    expect(within(screen.getByRole('table')).getAllByText('課金データなし（0円という意味ではありません）').length).toBe(2);
     expect(document.body.textContent).not.toContain('未接続');
   });
 
@@ -257,10 +258,10 @@ describe('period table rows without counts or periods (review round 2)', () => {
 });
 
 describe('cross-job overview billing cell', () => {
-  it('shows 期間が重なる課金あり instead of a sum when CSV billing overlaps HRハッカー billing', () => {
+  it('says the HRハッカー row and the CSV row conflict instead of choosing one or adding them up', () => {
     render(<JobOverview records={[demo('demo-job-001')]} billing={{ 'demo-job-001': [{ source: 'csv', start: '2026-09-10', end: '2026-09-20', amountYen: 5000, media: 'HRハッカー' }] }} onChoose={() => undefined} />);
     const row = within(screen.getByRole('region', { name: '求人の横断比較の表' })).getAllByRole('row')[1];
-    expect(row?.textContent).toContain('期間が重なる課金あり');
+    expect(row?.textContent).toContain('HRハッカーの実績と課金CSVで同じ期間の課金が重なっています（合計しません）');
     expect(row?.textContent).not.toContain('8万7,000円');
     expect(row?.textContent).not.toContain('9万2,000円');
   });

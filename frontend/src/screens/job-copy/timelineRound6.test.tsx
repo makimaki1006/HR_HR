@@ -63,12 +63,12 @@ describe('課金 lane source', () => {
 });
 
 describe('「約」 note', () => {
-  it('explains 約 when only dummy amounts are split by days', () => {
+  it('does not split or add dummy amounts in the period table, so no 約 note comes from them', () => {
     const job = { ...demo('demo-job-002'), hrhPerformance: undefined };
     render(<JobTimeline job={job} marketMode="demo" />);
     const cells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent ?? '');
-    expect(cells.some(cell => cell.includes('仮の課金データ（ダミー） 約'))).toBe(true);
-    expect(screen.getByText('「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。')).toBeTruthy();
+    expect(cells.every(cell => cell === '実際の課金データなし（仮の課金データ（ダミー）は合計しません）')).toBe(true);
+    expect(screen.queryByText('「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。')).toBeNull();
   });
 });
 

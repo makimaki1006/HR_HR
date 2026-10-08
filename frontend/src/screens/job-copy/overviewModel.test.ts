@@ -11,14 +11,15 @@ const demo = (id: string) => {
 describe('cross-job overview', () => {
   it('matches a hand calculation of applications per day 14 days before and after the latest change', () => {
     const row = overviewRow(demo('demo-job-001'));
-    expect(row.lastChange).toBe('2026-09-25');
+    // The demo has media publication times, so the change day is known exactly.
+    expect(row.lastChange).toEqual({ from: '2026-09-25', to: '2026-09-25', exact: true });
     expect(row.kinds).toEqual(['給与', '本文', '画像']);
     // 変更前は直前の版（09-15〜09-24）の中だけ: 09-16 3, 09-18 2, 09-21 2, 09-24 1 = 8件 / 10日。
     // 09-13 の 1件は、さらに前の版の応募なので入れない。
     expect(row.before).toEqual({ days: 10, applications: 8, perDay: 8 / 10 });
     // 09-25〜10-05（取得日で打ち切り）: 09-27 1, 09-30 1, 10-02 1 = 3件 / 11日
     expect(row.after).toEqual({ days: 11, applications: 3, perDay: 3 / 11 });
-    expect(row.changeDates).toEqual(['2026-09-15', '2026-09-25']);
+    expect(row.changes.map(change => change.to)).toEqual(['2026-09-15', '2026-09-25']);
     expect(row.billingYen).toBe(87000);
   });
   it('keeps not-connected billing and missing applications apart from zero', () => {
@@ -43,16 +44,18 @@ describe('cross-job overview', () => {
   it('uses the full 14 days before a change when the previous version ran longer', () => {
     const job = demo('demo-job-001');
     const row = overviewRow({ ...job, versions: job.versions.filter(version => version.id !== 'demo-001-v2') });
-    // v1 09-01〜09-24, v3 from 09-25: 09-11〜09-24 = 09-13 1, 09-16 3, 09-18 2, 09-21 2, 09-24 1 = 9件 / 14日
-    expect(row.before).toEqual({ days: 14, applications: 9, perDay: 9 / 14 });
+    // v1 is published 09-01〜09-14 (taken down 09-15), v3 from 09-25. The days 09-15〜09-24 have no
+    // confirmed publication, so the before-window is v1's 14 days: 09-02 1, 09-04 2, 09-07 1, 09-10 2, 09-13 1 = 7件
+    expect(row.lastChange).toEqual({ from: '2026-09-01', to: '2026-09-25', exact: false });
+    expect(row.before).toEqual({ days: 14, applications: 7, perDay: 7 / 14 });
   });
 });
 
 describe('overlapping billing in the cross-job overview', () => {
-  it('leaves the total blank when a CSV billing period partly overlaps an HRハッカー period', () => {
+  it('leaves the total blank and says so when a CSV billing period overlaps an HRハッカー period', () => {
     // demo-job-001 HRハッカー: 09-01〜09-14 30000, 09-15〜09-30 45000, 10-01〜10-05 12000.
     const row = overviewRow(demo('demo-job-001'), { billing: [{ source: 'csv', start: '2026-09-10', end: '2026-09-20', amountYen: 5000, media: 'HRハッカー' }] });
-    expect([row.billingConnected, row.billingYen, row.billingOverlapping]).toEqual([true, null, true]);
+    expect([row.billingConnected, row.billingYen, row.billingConflict]).toEqual([true, null, true]);
     // Without the overlap the same job adds up.
     expect([overviewRow(demo('demo-job-001')).billingOverlapping, overviewRow(demo('demo-job-001')).billingYen]).toEqual([false, 87000]);
   });

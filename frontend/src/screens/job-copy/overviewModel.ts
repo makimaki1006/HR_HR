@@ -1,13 +1,16 @@
 /**
- * Cross-job overview: one row per job on a shared calendar. Shows the latest change and the
- * applications per day in the N days before and after it. Rows are sortable but never ranked as
- * winners; the numbers sit side by side and do not say why applications changed.
+ * Cross-job overview: one row per job on a shared calendar. Shows the latest change found between
+ * two acquisitions (取得日A〜取得日B) and the applications per day in the N days up to A and from B.
+ * The days between A and B are left out: which content was shown then is not known. Rows are
+ * sortable but never ranked as winners; the numbers sit side by side and do not say why
+ * applications changed.
  */
 import type { JobCopyRecord } from './data';
 import {
-  addDays, applicationBuckets, asOfDate, billingEntries, billingOverlaps, changeKinds, countApplications, daysBetween, dummyBilling, realBilling, versionChanges,
+  addDays, applicationBuckets, asOfDate, billingConflict, billingEntries, billingOverlaps, boundaryStatus, buildPeriods, changeKinds, countApplications, daysBetween, dummyBilling,
+  multiListingByDate, realBilling, versionChanges,
 } from './timelineModel';
-import type { ApplicationBucket, BillingEntry } from './timelineModel';
+import type { ApplicationBucket, BillingEntry, TimelinePeriod } from './timelineModel';
 
 export const OVERVIEW_WINDOW_DAYS = 14;
 /** A before/after window shorter than this is not compared (a rate from 1 or 2 days is not shown or sorted). */
@@ -19,42 +22,47 @@ export function comparableRate(rate: WindowRate | null): boolean {
 
 export interface WindowRate {
   /**
-   * Days actually covered. The before-window starts no earlier than the previous version; the
-   * after-window stops at the day counts were taken.
+   * Days actually covered. The before-window ends on 取得日A and stays inside the days the earlier
+   * content is known to be shown; the after-window starts on 取得日B and stops at the last day the
+   * later content is known to be shown (its last acquisition) or at the day counts were taken.
    */
   days: number;
   applications: number;
   perDay: number | null;
 }
+/**
+ * A change found between two acquisitions. from: 取得日A (the earlier content was seen), to: 取得日B
+ * (the later content was seen). For media publication times from = to = the publication day.
+ */
+export interface ChangeWindow { from: string; to: string; exact: boolean }
 export interface OverviewRow {
   jobId: string;
   title: string;
   company: string;
   media: string;
-  /** Start day of the latest version that changed something; null with fewer than two versions. */
-  lastChange: string | null;
+  /** The latest version that changed something; null when no change was found. */
+  lastChange: ChangeWindow | null;
   kinds: ('給与' | '本文' | '画像')[];
-  /** Every version start after the first (change markers on the calendar). */
-  changeDates: string[];
+  /** Every change found (for the mini calendar). */
+  changes: ChangeWindow[];
   /** Start day of the first version; null without a dated version. */
   firstDate: string | null;
   before: WindowRate | null;
   after: WindowRate | null;
   /** Applications recorded in HubSpot with a date, by week, for the mini calendar. */
   weeks: ApplicationBucket[];
-  /** null: no billing data connected (not zero). */
+  /** Real billing total; null when no real billing amount is known (not zero). Dummy amounts are never in it. */
   billingYen: number | null;
   billingConnected: boolean;
   billingMissingAmount: boolean;
   /** Two billing periods share days; the total is left blank instead of adding them up. */
   billingOverlapping: boolean;
+  /** An HRハッカー実績 row and a billing CSV row cover the same days; neither is chosen. */
+  billingConflict: boolean;
   /** The real billing rows are the demo's made-up HRハッカー amounts. */
   billingFictional: boolean;
-  /**
-   * Total of the dummy billing (仮の課金データ) for the days with no real billing; null when none.
-   * Shown separately and labelled, never added to billingYen.
-   */
-  dummyBillingYen: number | null;
+  /** The dummy billing (仮の課金データ) is shown for this job. It is never added up or sorted. */
+  hasDummyBilling: boolean;
   /** No application data at all (different from zero applications). */
   applicationsAvailable: boolean;
   asOf: string;
@@ -62,39 +70,70 @@ export interface OverviewRow {
 
 function rate(job: JobCopyRecord, start: string, endExclusive: string): WindowRate {
   const days = Math.max(0, daysBetween(start, endExclusive));
-  const applications = countApplications(job.overallApplications?.byDate, start, endExclusive);
+  const applications = days > 0 ? countApplications(job.overallApplications?.byDate, start, endExclusive) - countApplications(multiListingByDate(job) ?? undefined, start, endExclusive) : 0;
   return { days, applications, perDay: days > 0 ? applications / days : null };
+}
+
+/**
+ * First day the content of periods[index] is known to be shown: earlier periods count only while
+ * they touch and nothing changed between them (the same content was seen again).
+ */
+function runStart(periods: readonly TimelinePeriod[], same: (index: number) => boolean, index: number): string {
+  let cursor = index;
+  while (cursor > 0 && same(cursor) && periods[cursor - 1]?.end === periods[cursor]?.start) cursor -= 1;
+  return periods[cursor]?.start ?? '';
+}
+/** Exclusive end of the days the content of periods[index] is known to be shown (same rule). */
+function runEnd(periods: readonly TimelinePeriod[], same: (index: number) => boolean, index: number, asOf: string): string {
+  let cursor = index;
+  while (cursor < periods.length - 1 && same(cursor + 1) && periods[cursor]?.end === periods[cursor + 1]?.start) cursor += 1;
+  return periods[cursor]?.end ?? addDays(asOf, 1);
 }
 
 export function overviewRow(job: JobCopyRecord, options: { billing?: readonly BillingEntry[] | undefined; now?: Date | undefined; windowDays?: number | undefined; dummyBilling?: boolean | undefined } = {}): OverviewRow {
   const windowDays = options.windowDays ?? OVERVIEW_WINDOW_DAYS;
   const asOf = asOfDate(job, options.now);
   const changes = versionChanges(job);
-  const later = changes.slice(1);
-  const latest = [...later].reverse().find(change => changeKinds(change).length > 0) ?? later.at(-1) ?? null;
+  const periods = buildPeriods(job, asOf);
+  const same = (index: number) => { const change = changes[index]; return change !== undefined && boundaryStatus(change) === 'same'; };
+  const windowOf = (index: number): ChangeWindow | null => {
+    const change = changes[index]; const period = periods[index]; const previous = periods[index - 1];
+    if (!change || !period || !previous) return null;
+    const exact = period.basis === 'published' && previous.end === period.start;
+    return { from: exact ? period.start : previous.start, to: period.start, exact };
+  };
+  const changed = changes.map((change, index) => ({ change, index, window: windowOf(index) })).filter(item => item.index > 0 && changeKinds(item.change).length > 0 && item.window);
+  const latest = changed.at(-1) ?? null;
   const applicationsAvailable = job.overallApplications?.byDate !== undefined;
   let before: WindowRate | null = null; let after: WindowRate | null = null;
   if (latest && applicationsAvailable) {
-    // The before-window stays inside the previous version: it never reaches back into an earlier
-    // version (or before the first publication day). Its real length is in before.days.
-    const previousStart = changes[latest.index - 1]?.date ?? latest.date;
-    const windowStart = addDays(latest.date, -windowDays);
-    before = rate(job, windowStart < previousStart ? previousStart : windowStart, latest.date);
-    const afterEnd = addDays(latest.date, windowDays);
-    const cappedEnd = afterEnd > addDays(asOf, 1) ? addDays(asOf, 1) : afterEnd;
-    after = rate(job, latest.date, cappedEnd);
+    // Before: up to and including 取得日A, never earlier than the first day the earlier content is
+    // known to be shown. After: from 取得日B, never past the last day the later content is known
+    // to be shown. The days in between are not counted on either side.
+    const previous = periods[latest.index - 1]; const period = periods[latest.index];
+    if (previous && period) {
+      const beforeEnd = previous.end ?? addDays(asOf, 1);
+      const earliest = runStart(periods, same, latest.index - 1);
+      const windowStart = addDays(beforeEnd, -windowDays);
+      before = rate(job, windowStart < earliest ? earliest : windowStart, beforeEnd);
+      const known = runEnd(periods, same, latest.index, asOf);
+      const limit = [addDays(period.start, windowDays), known, addDays(asOf, 1)].reduce((a, b) => (a < b ? a : b));
+      after = rate(job, period.start, limit < period.start ? period.start : limit);
+    }
   }
   const all = billingEntries(job, options.billing, { asOf, dummy: options.dummyBilling });
   const billing = realBilling(all);
   const dummy = dummyBilling(all);
   const known = billing.filter(entry => entry.amountYen !== null);
+  const conflict = billingConflict(billing);
+  const overlapping = billingOverlaps(billing);
   return {
     jobId: job.id, title: job.title, company: job.company, media: job.media,
-    lastChange: latest?.date ?? null, kinds: latest ? changeKinds(latest) : [], changeDates: later.map(change => change.date), firstDate: changes.find(change => change.date !== '')?.date ?? null,
+    lastChange: latest?.window ?? null, kinds: latest ? changeKinds(latest.change) : [], changes: changed.flatMap(item => item.window ? [item.window] : []), firstDate: changes.find(change => change.date !== '')?.date ?? null,
     before, after, weeks: applicationBuckets(job.overallApplications?.byDate, 'week'),
-    billingYen: known.length && !billingOverlaps(billing) ? known.reduce((sum, entry) => sum + (entry.amountYen ?? 0), 0) : null,
-    billingConnected: billing.length > 0, billingMissingAmount: billing.length > known.length, billingOverlapping: billingOverlaps(billing), billingFictional: billing.some(entry => entry.fictional === true),
-    dummyBillingYen: dummy.length ? dummy.reduce((sum, entry) => sum + (entry.amountYen ?? 0), 0) : null,
+    billingYen: known.length && !overlapping ? known.reduce((sum, entry) => sum + (entry.amountYen ?? 0), 0) : null,
+    billingConnected: billing.length > 0, billingMissingAmount: billing.length > known.length, billingOverlapping: overlapping && !conflict, billingConflict: conflict, billingFictional: billing.some(entry => entry.fictional === true),
+    hasDummyBilling: dummy.length > 0,
     applicationsAvailable, asOf,
   };
 }
@@ -104,19 +143,17 @@ export function overviewRows(jobs: readonly JobCopyRecord[], options: { billing?
 }
 
 export type OverviewSort = 'source' | 'lastChange' | 'afterPerDay' | 'beforePerDay' | 'billing';
-/** Missing values always go last; ties keep the original order. */
+/**
+ * Missing values always go last; ties keep the original order. Billing sorts by the real total
+ * only: a job with only the dummy billing has no value and goes last.
+ */
 export function sortOverview(rows: readonly OverviewRow[], sort: OverviewSort): OverviewRow[] {
   if (sort === 'source') return [...rows];
-  const value = (row: OverviewRow): number | string | null => sort === 'lastChange' ? row.lastChange
+  const value = (row: OverviewRow): number | string | null => sort === 'lastChange' ? row.lastChange?.to ?? null
     : sort === 'afterPerDay' ? comparableRate(row.after) ? row.after?.perDay ?? null : null
       : sort === 'beforePerDay' ? comparableRate(row.before) ? row.before?.perDay ?? null : null : row.billingYen;
-  // Billing: rows with a real total come first (by the real total); rows with only the dummy total
-  // follow, ordered among themselves. A dummy amount is never compared with a real one.
-  const dummyGroup = (row: OverviewRow) => sort === 'billing' && row.billingYen === null && row.dummyBillingYen !== null;
-  const sortValue = (row: OverviewRow) => dummyGroup(row) ? row.dummyBillingYen : value(row);
-  return rows.map((row, index) => ({ row, index, value: sortValue(row), dummy: dummyGroup(row) }))
+  return rows.map((row, index) => ({ row, index, value: value(row) }))
     .sort((a, b) => {
-      if (a.dummy !== b.dummy && a.value !== null && b.value !== null) return a.dummy ? 1 : -1;
       if (a.value === null || b.value === null) return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;
       if (a.value === b.value) return a.index - b.index;
       return a.value < b.value ? 1 : -1;
@@ -131,7 +168,7 @@ export function overviewRange(jobs: readonly JobCopyRecord[], rows: readonly Ove
   for (const job of jobs) for (const date of Object.keys(job.overallApplications?.byDate ?? {})) days.push(date);
   for (const row of rows) {
     if (row.firstDate) days.push(row.firstDate);
-    for (const date of row.changeDates) if (date) days.push(date);
+    for (const change of row.changes) days.push(change.from, change.to);
     if (row.applicationsAvailable) days.push(row.asOf);
   }
   if (!days.length) return null;

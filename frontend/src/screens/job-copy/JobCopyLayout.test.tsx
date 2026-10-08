@@ -69,24 +69,24 @@ describe('job copy layout', () => {
     expect(within(screen.getByRole('tablist', { name: '求人管理の機能' })).getByRole('tab', { name: 'タイムライン' }).getAttribute('aria-selected')).toBe('true');
   });
 
-  it('puts billing CSV rows on the timeline lane and the period table, replacing the HRハッカー row for the same days', async () => {
+  it('puts billing CSV rows on the timeline lane and the period table, matched on media + account login ID + job ID', async () => {
     vi.stubGlobal('fetch', vi.fn());
     render(<JobCopyScreen />);
     // 取り込む前: demo-001 は HRハッカー実績の 3万円（09-01〜09-14）
     expect(within(periodTable()).getAllByRole('row')[1]?.textContent).toContain('3万円');
     expect(screen.queryByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'データ取込' }));
-    upload('媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-AIR-002,2026-09-05,2026-09-30,40000');
+    // HRハッカーの行は媒体求人IDが 8 桁でないため使わない。Airワークの行は 口座ログインID + 求人ID で結びつく。
+    upload('媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-SHOP-01,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-002,2026-09-05,2026-09-30,40000\nAirワーク,OTHER-ACCOUNT,DEMO-AIR-004,2026-09-05,2026-09-30,1000');
     await screen.findByText('2. 列の対応を確かめる');
     fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
-    fireEvent.click(screen.getByRole('button', { name: '一致した2行を課金として反映' }));
-    await screen.findByText(/課金CSVの 2 期間を反映中/u);
-    // demo-001: CSV の 3万3,000円 が HRハッカーの 3万円 に置き換わる。後の 2 期間は HRハッカー実績のまま。
-    await waitFor(() => { expect(lane('課金').textContent).toContain('3万3,000円'); });
-    expect([...lane('課金').querySelectorAll('.jt-billing')].map(bar => [bar.className.includes('jt-billing-csv') ? 'csv' : 'hrhacker', bar.textContent])).toEqual([['csv', '3万3,000円'], ['hrhacker', '架空 4万5,000円'], ['hrhacker', '架空 1万2,000円']]);
-    expect(screen.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。')).toBeTruthy();
-    const firstRow = within(periodTable()).getAllByRole('row')[1];
-    expect(firstRow?.querySelectorAll('td')[3]?.textContent).toBe('3万3,000円');
+    const counts = within(screen.getByLabelText('照合結果の件数'));
+    expect(counts.getByText('値に誤り').nextElementSibling?.textContent).toBe('1行');
+    expect(counts.getByText('一覧に無い').nextElementSibling?.textContent).toBe('1行');
+    fireEvent.click(screen.getByRole('button', { name: '一致した1行を課金として反映' }));
+    await screen.findByText(/課金CSVの 1 期間を反映中/u);
+    // demo-001 の課金は HRハッカー実績のまま
+    expect([...lane('課金').querySelectorAll('.jt-billing')].map(bar => bar.textContent)).toEqual(['架空 3万円', '架空 4万5,000円', '架空 1万2,000円']);
     // demo-002（Airワーク）は HRハッカー実績が無く、CSV だけが課金レーンに出る
     const airJob = [...document.querySelectorAll<HTMLButtonElement>('.jc-job')].find(button => button.textContent.includes('倉庫内ピッキングスタッフ'));
     if (!airJob) throw new Error('missing demo-job-002');

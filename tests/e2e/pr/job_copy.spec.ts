@@ -7,6 +7,7 @@ import { login } from './helpers/login';
  * ここでは合成データを page.route で返し、市場 (/api/job-copy/market) も合成の月次データを返す。
  * 確かめること: 最初のタブがタイムライン、7 レーンの値、2 つの ECharts の描画完了、期間比較表の具体値、
  * 課金CSV を読み込むと課金レーンと期間比較表に入ること、取込と逆検索が主作業の外にあること。
+ * 版は取得日で区切る（取得日A〜Bの間は前後どちらの版にも入れない）。仮の課金データは合計しない。
  */
 const defaultCapturedAt = '2026-08-20T00:00:00Z';
 const months = Array.from({ length: 14 }, (_, index) => `${2025 + Math.floor((index + 6) / 12)}-${String((index + 6) % 12 + 1).padStart(2, '0')}`);
@@ -15,7 +16,7 @@ function snapshot(capturedAt = defaultCapturedAt) {
   return {
     schemaVersion: 1, capturedAt,
     capture_bundle: { schemaVersion: 1, capturedAt, jobs: [{
-      id: 'synthetic-pr-timeline', hubspotListingId: '30', title: '合成配送ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: '12345678',
+      id: 'synthetic-pr-timeline', hubspotListingId: '30', shopId: '0042', title: '合成配送ドライバー', company: '合成取引先', media: 'HRハッカー', mediaJobId: '12345678',
       location: '大分県大分市', body: '仕事内容：合成の配送業務です。\n給与：月給250,000円〜280,000円\n休日：土日', images: [],
       history: [{ id: 'synthetic-pr-timeline-previous', capturedAt: '2026-07-01T00:00:00Z', body: '仕事内容：合成の配送業務です。\n給与：月給230,000円〜260,000円\n休日：土日', images: [] }],
     }] },
@@ -85,24 +86,47 @@ test.describe('求人文面管理のタイムライン', () => {
     const market = await seriesLengths(page, 'jt-market');
     expect(market.length).toBe(2);
     expect(market[0]).toBeGreaterThan(0);
-    // 期間比較表: 取得日 07-01 と 08-20 で区切った 2 期間（応募は HubSpot 記録分）
+    // 期間比較表: 取得日 07-01 と 08-20 の行と、その間（給与が変わった。どちらの内容か分からない）の行。
+    // 掲載日は分からないので、版の行は取得した日だけ。間の応募は前後どちらの版にも入れない。
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
-    await expect(rows).toHaveCount(2);
-    await expect(rows.nth(0).locator('td').nth(0)).toHaveText('50日');
-    await expect(rows.nth(0).locator('td').nth(1)).toHaveText('3件');
-    await expect(rows.nth(0).locator('td').nth(2)).toHaveText('0.06件/日');
-    // 07 月分 73,000円 + 08 月分 47,097円 × 19/20 = 117,742円（日数で配分。実際の課金データとは足さない）
-    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('仮の課金データ（ダミー） 約11万7,742円');
-    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件）');
-    await expect(rows.nth(1).locator('td')).toHaveText(['1日', '2件', '2.00件/日', '仮の課金データ（ダミー） 約2,355円', '同じ月の中（2026年8月 230件）']);
-    // 版の名前は日付で書く（「過去CSVの版」「媒体CSV取得版」は出さない）
-    await expect(rows.nth(0).locator('th')).toContainText('2026/07/01時点の求人内容');
-    await expect(rows.nth(1).locator('th')).toContainText('2026/08/20時点の求人内容');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0).locator('th')).toContainText('2026/07/01に取得した内容');
+    await expect(rows.nth(1).locator('th')).toContainText('取得日2026/07/01〜2026/08/20の間に変化');
+    await expect(rows.nth(1).locator('th')).toContainText('2026/07/02〜2026/08/19（どちらの内容か分からない期間）');
+    await expect(rows.nth(2).locator('th')).toContainText('2026/08/20に取得した内容');
+    // 仮の課金データは課金レーンにだけ出し、期間比較表では合計しない
+    const noRealBilling = '実際の課金データなし（仮の課金データ（ダミー）は合計しません）';
+    await expect(rows.nth(0).locator('td')).toHaveText(['1日', '0件', '0.00件/日', noRealBilling, '同じ月の中（2026年7月 220件）']);
+    await expect(rows.nth(1).locator('td')).toHaveText(['49日', '3件', '比べません', noRealBilling, '+4.5%（2026年7月 220件 → 2026年8月 230件）']);
+    await expect(rows.nth(2).locator('td')).toHaveText(['1日', '2件', '2.00件/日', noRealBilling, '同じ月の中（2026年8月 230件）']);
+    await expect(timeline.getByRole('region', { name: '期間比較表の数値' })).not.toContainText(/11万7,742円|2,355円/u);
+    await expect(timeline).toContainText('取得日の間・最後の取得より後の応募 3件 は、どちらの内容への応募か分からないため期間比較表の各版には入れていません');
+    // 掲載期間の段: 取得日の間を別の帯で示し、凡例は「掲載日は不明（取得日で表示）」
+    const periodLane = timeline.getByRole('group', { name: '掲載期間', exact: true });
+    await expect(periodLane.locator('.jt-zone')).toHaveCount(1);
+    await expect(periodLane.locator('.jt-zone')).toHaveAttribute('title', '取得日2026/07/01〜2026/08/20の間に変化。どちらの内容か分からない期間です');
+    await expect(timeline.getByRole('group', { name: '凡例', exact: true })).toContainText('掲載日は不明（取得日で表示）');
+    await expect(timeline).not.toContainText(/変更日|版が切り替わった日|掲載日の確かさ/u);
     await expect(page.locator('body')).not.toContainText(/過去CSVの版|媒体CSV取得版|接続待ち|実求人ID|原本不足/u);
-    // 上の帯の件数は期間比較表と同じ割り当てで数える（応募日なし 1 件 + 期間外 0 件 = 1 件。全 6 件ではない）
+    // 上の帯の件数は期間比較表と同じ割り当てで数える（全 6 件のうち、版の行に入ったのは 08-20 の 2 件だけ）
     await page.locator('.jc-snapshot-tip > summary').click();
-    await expect(page.getByRole('region', { name: '実データの取得範囲' })).toContainText('掲載期間に入らない応募 1件');
+    const summary = page.getByRole('region', { name: '実データの取得範囲' });
+    await expect(summary).toContainText('6応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
+    await expect(summary).toContainText('どの版への応募か分からない応募 6件（求人ごとの件数の合計（重複あり））');
+    await expect(summary).toContainText('期間比較表の版の行に入らない応募 4件（求人ごとの件数の合計（重複あり））');
     await page.locator('.jc-snapshot-tip > summary').click();
+    // 一部の求人だけを表示していることを、上の帯の下に 1 行で示す
+    await expect(page.getByText('この画面は、選んで取り込んだ一部の求人（1件）だけを表示しています。管理しているすべての求人ではありません。', { exact: true })).toBeVisible();
+    // 「仮の課金データを表示」を外すと、課金レーンは「課金データなし（0円という意味ではありません）」
+    const toggle = page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true });
+    await expect(toggle).toBeChecked();
+    await toggle.uncheck();
+    await expect(billingLane.locator('.jt-billing')).toHaveCount(0);
+    await expect(billingLane).toContainText('課金データなし（0円という意味ではありません）');
+    await page.reload();
+    await expect(page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true })).not.toBeChecked();
+    await page.getByRole('checkbox', { name: '仮の課金データを表示', exact: true }).check();
+    await expect(page.getByRole('region', { name: 'タイムライン', exact: true }).getByRole('group', { name: '課金', exact: true }).locator('.jt-billing-dummy')).toHaveCount(2);
     // 市場の選び方: 職種と都道府県を別々に、自動で選んだことを示す
     await expect(timeline.getByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください', { exact: true })).toBeVisible();
     await expect(timeline.getByText('勤務地から大分県を自動で選びました', { exact: true })).toBeVisible();
@@ -171,6 +195,7 @@ test.describe('求人文面管理のタイムライン', () => {
     const panel = timeline.getByRole('region', { name: '選んだ版', exact: true });
     await expect(panel).toContainText('2026/08/20時点の求人内容');
     await expect(panel).toBeInViewport({ ratio: 0.98 });
+    await expect(panel).toContainText('2026/08/20 に取得（前回の取得 2026/07/01 以降に変化）');
     // 期間比較表の行も「選択中」と文字で示す
     await expect(timeline.locator('tr[aria-current="true"]')).toContainText('選択中');
   });
@@ -180,12 +205,15 @@ test.describe('求人文面管理のタイムライン', () => {
     await open(page, '2026-10-05T00:00:00Z');
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
-    await expect(rows).toHaveCount(2);
-    // 1 つ目の期間は 07-01〜10-04。07 と 08 の市場データで比べ、09 以降はデータなしと書く。
-    await expect(rows.nth(0).locator('td').nth(0)).toHaveText('96日');
-    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件、2026年9月以降はデータなし）');
+    // 取得日は 07-01 と 10-05。その間（07-02〜10-04）は給与が変わった期間で、どちらの内容か分からない。
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(1).locator('th')).toContainText('取得日2026/07/01〜2026/10/05の間に変化');
+    await expect(rows.nth(1).locator('td').nth(0)).toHaveText('95日');
+    await expect(rows.nth(1).locator('td').nth(2)).toHaveText('比べません');
+    // 07 と 08 の市場データで比べ、09 以降はデータなしと書く。
+    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件、2026年9月以降はデータなし）');
     // 期間がまるごと市場データより後: どの月までデータがあるかを書く（最後の月はデータから読む）
-    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('データなし（市場求人数は2026年8月まで）');
+    await expect(rows.nth(2).locator('td').nth(4)).toHaveText('データなし（市場求人数は2026年8月まで）');
     await expect(timeline).toContainText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています');
     await expect(timeline.getByRole('group', { name: '市場', exact: true }).locator('.jt-nodata')).toHaveText('データなし');
     const market = await seriesLengths(page, 'jt-market');
@@ -204,7 +232,7 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows.nth(0).locator('td').nth(4)).toHaveText('取得できませんでした');
     await expect(rows.nth(1).locator('td').nth(4)).toHaveText('取得できませんでした');
     await timeline.getByRole('button', { name: '市場データを再取得', exact: true }).click();
-    await expect(rows.nth(0).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件）');
+    await expect(rows.nth(1).locator('td').nth(4)).toHaveText('+4.5%（2026年7月 220件 → 2026年8月 230件）');
     await expect(timeline.getByLabel('職種')).toHaveValue('配送ドライバー');
     const market = await seriesLengths(page, 'jt-market');
     expect(market).toEqual([2, 2]);
@@ -217,7 +245,8 @@ test.describe('求人文面管理のタイムライン', () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await open(page);
     await page.getByRole('button', { name: 'データ取込', exact: true }).click();
-    const csv = '媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,12345678,2026-07-01,2026-07-31,31000\n';
+    // 媒体 + 店舗ID + 媒体求人ID の 3 つで結びつける（先頭の 0 も文字のまま比べる）
+    const csv = '媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,0042,12345678,2026-07-01,2026-07-31,31000\n';
     await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
     await page.getByRole('button', { name: '求人と照合する', exact: true }).click();
     await page.getByRole('button', { name: '一致した1行を課金として反映', exact: true }).click();
@@ -227,12 +256,13 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(timeline.getByRole('group', { name: '課金', exact: true }).locator('.jt-billing')).toHaveText(['3万1,000円', 'ダミー 4万7,097円']);
     await expect(timeline.getByRole('group', { name: '課金', exact: true }).locator('.jt-billing-csv')).toHaveCount(1);
     await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
-    // 07-01〜07-31 の 31 日分 31,000円 のうち、1 つ目の期間（07-01〜08-19 の 50 日）に入るのは全額
+    // 07-01〜07-31 の 31 日分 31,000円 を日数で配分: 07-01 の行に 1 日分、取得日の間（07-02〜）に 30 日分
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
-    // 実際の金額と仮の金額は足さずに並べる（7万5,742円 のような合計は出さない）
-    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('3万1,000円 ／ 仮の課金データ（ダミー） 約4万4,742円');
-    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('仮の課金データ（ダミー） 約2,355円');
-    await expect(timeline.getByRole('region', { name: '期間比較表の数値' })).not.toContainText('7万5,742円');
+    // 実際の金額だけを書き、仮の金額は合計しない（7万5,742円 のような合計も、仮の金額も出さない）
+    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('約1,000円');
+    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('約3万円（仮の課金データ（ダミー）は合計に入れていません）');
+    await expect(rows.nth(2).locator('td').nth(3)).toHaveText('実際の課金データなし（仮の課金データ（ダミー）は合計しません）');
+    await expect(timeline.getByRole('region', { name: '期間比較表の数値' })).not.toContainText(/7万5,742円|4万4,742円/u);
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   });
 
@@ -240,8 +270,8 @@ test.describe('求人文面管理のタイムライン', () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await open(page);
     await page.getByRole('button', { name: 'データ取込', exact: true }).click();
-    // 08-01〜08-31 の 31 日で 31,000円。1 つ目の期間（〜08-19）に 19 日分、2 つ目（08-20 の 1 日）に 1 日分を配分する。
-    const csv = '媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,12345678,2026-08-01,2026-08-31,31000\n';
+    // 08-01〜08-31 の 31 日で 31,000円。取得日の間（〜08-19）に 19 日分、08-20 の行に 1 日分を配分する。
+    const csv = '媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,0042,12345678,2026-08-01,2026-08-31,31000\n';
     await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
     await page.getByRole('button', { name: '求人と照合する', exact: true }).click();
     await page.getByRole('button', { name: '一致した1行を課金として反映', exact: true }).click();
@@ -249,9 +279,10 @@ test.describe('求人文面管理のタイムライン', () => {
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const table = timeline.getByRole('region', { name: '期間比較表の数値' });
     const rows = table.locator('tbody tr');
-    // 08 月は課金CSVの金額。07 月は CSV に無いので仮の課金データ（ダミー）のまま、足さずに並べる
-    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('約1万9,000円 ／ 仮の課金データ（ダミー） 7万3,000円');
-    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('約1,000円');
+    // 08 月は課金CSVの金額。07 月は CSV に無いので仮の課金データ（ダミー）のまま課金レーンにだけ出し、合計しない
+    await expect(rows.nth(0).locator('td').nth(3)).toHaveText('実際の課金データなし（仮の課金データ（ダミー）は合計しません）');
+    await expect(rows.nth(1).locator('td').nth(3)).toHaveText('約1万9,000円（仮の課金データ（ダミー）は合計に入れていません）');
+    await expect(rows.nth(2).locator('td').nth(3)).toHaveText('約1,000円');
     await expect(timeline.getByText('「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。', { exact: true })).toBeVisible();
     await expect(table.locator('[title]')).toHaveCount(0);
     // 本文の印: 画面の文字と読み上げが同じことを言う

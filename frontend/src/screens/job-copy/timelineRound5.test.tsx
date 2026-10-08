@@ -62,7 +62,8 @@ describe('explanations that can be read without hovering', () => {
   it('explains 約 and 未取得 in the period table with visible text, not title attributes', () => {
     // demo-job-001: 09-01〜09-14, 09-15〜09-24, 09-25〜. One billing row of 45,000円 for 09-15〜09-30
     // covers two version periods, so both get a prorated (約) share.
-    render(<JobTimeline job={driver()} marketMode="demo" now={new Date('2026-10-05T03:00:00Z')} billing={[{ source: 'csv', start: '2026-09-15', end: '2026-09-30', amountYen: 45000 }]} />);
+    // HRハッカー実績は外す（同じ日に両方あると、どちらも合計しない「重なり」になるため）。
+    render(<JobTimeline job={{ ...driver(), hrhPerformance: undefined }} marketMode="demo" now={new Date('2026-10-05T03:00:00Z')} billing={[{ source: 'csv', start: '2026-09-15', end: '2026-09-30', amountYen: 45000 }]} />);
     const table = screen.getByRole('region', { name: '期間比較表の数値' });
     expect(table.querySelectorAll('[title]')).toHaveLength(0);
     expect(table.textContent).toContain('約2万8,125円');

@@ -113,18 +113,20 @@ describe('explanations reachable without hovering', () => {
     expect(visible.match(/HubSpot に記録された/gu)).toHaveLength(1);
     expect(visible).not.toContain('版が切り替わった日で期間を区切っています');
     const legend = screen.getByRole('group', { name: '凡例' });
-    expect(legend.textContent).toMatch(/^掲載日の確かさ：確定推定不明/u);
+    // The demo has media publication times; the legend says so (no 確定/推定/不明 scale).
+    expect(legend.textContent).toBe('掲載日：媒体の掲載日時');
   });
 });
 
 describe('top-bar count matches the period table', () => {
-  it('counts undated applications plus applications outside every period (not every application)', () => {
+  it('counts undated applications, applications before the first acquisition and between acquisitions (not every application)', () => {
     const job = synthetic([version('a', '2026-07-01T00:00:00Z', '給与：月給230,000円'), version('b', '2026-08-20T00:00:00Z', '給与：月給250,000円')], {
       dataSource: 'hubspot',
       overallApplications: { total: 9, missingDate: 1, fetchedAt: '2026-08-20T00:00:00Z', distributions: {}, byDate: { '2026-06-20': 2, '2026-07-10': 2, '2026-07-25': 1, '2026-08-20': 3 } },
     });
-    // 1 undated + 2 before the first period (06-20) = 3; the other 6 are in the period table.
-    expect(applicationsOutsideTimeline(job)).toBe(3);
+    // 1 undated + 2 before the first acquisition (06-20) + 3 between the two acquisitions (07-10, 07-25:
+    // the salary changed somewhere between 07-01 and 08-20) = 6; the other 3 are in version rows (08-20).
+    expect(applicationsOutsideTimeline(job)).toBe(6);
     expect(applicationsOutsideTimeline(synthetic([]))).toBeNull();
   });
 });

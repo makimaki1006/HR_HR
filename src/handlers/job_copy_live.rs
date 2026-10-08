@@ -447,6 +447,54 @@ impl JobReadService {
         }
         Ok(())
     }
+    /// (applications linked to this listing only, applications linked to more than one listing).
+    /// An application missing from the reply is in neither set.
+    async fn listing_links(
+        &self,
+        ids: &[String],
+        listing: &str,
+    ) -> Result<(BTreeSet<String>, BTreeSet<String>), ReadError> {
+        let mut unambiguous = BTreeSet::new();
+        let mut multi = BTreeSet::new();
+        for chunk in ids.chunks(100) {
+            let data = self
+                .request(
+                    "/crm/v4/associations/0-421/0-420/batch/read",
+                    &[],
+                    Some(json!({"inputs":chunk.iter().map(|id|json!({"id":id})).collect::<Vec<_>>()})),
+                )
+                .await?;
+            let results = data["results"]
+                .as_array()
+                .ok_or_else(|| fail("hubspot_invalid_response"))?;
+            for result in results {
+                let targets = result["to"]
+                    .as_array()
+                    .ok_or_else(|| fail("hubspot_invalid_response"))?;
+                let target_ids: BTreeSet<_> = targets
+                    .iter()
+                    .filter_map(|t| {
+                        t["toObjectId"]
+                            .as_str()
+                            .map(str::to_owned)
+                            .or_else(|| t["toObjectId"].as_u64().map(|n| n.to_string()))
+                    })
+                    .collect();
+                let Some(id) = result.pointer("/from/id").and_then(Value::as_str) else {
+                    continue;
+                };
+                if target_ids.len() == 1
+                    && target_ids.contains(listing)
+                    && result.get("paging").is_none()
+                {
+                    unambiguous.insert(id.to_owned());
+                } else if target_ids.len() > 1 || result.get("paging").is_some() {
+                    multi.insert(id.to_owned());
+                }
+            }
+        }
+        Ok((unambiguous, multi))
+    }
     pub async fn applicants(&self, company: &str, listing: &str) -> Result<Value, ReadError> {
         self.validate_customer_listing(company, listing).await?;
         let ids = self.all_associations("0-420", listing, "0-421").await?;
@@ -469,7 +517,11 @@ impl JobReadService {
         // Missing/undefined properties remain unknown; do not turn an existing
         // appointment into zero applications. hs_appointment_start is synthesized
         // by the importer from yingmuri and does not prove the real event time.
-        let summary = summarize(&rows);
+        // Which applications HubSpot also links to another job. They are counted apart and never
+        // put into a version's period (one application must not count for two jobs).
+        let (unambiguous, multi) = self.listing_links(&ids, listing).await?;
+        let mut summary = summarize(&rows);
+        add_multi_listing(&mut summary, &rows, &multi);
         let reasons = applicant_reasons::extract(listing, &rows, chrono::Utc::now().to_rfc3339());
         let mut response = json!({"listing_id":listing,"metric":"HubSpot応募レコード数","summary":summary,"version_attribution":"日次観測との対応は別途必要。現在の関連による集計。","attribute_basis":"現在取得できる属性","billing":null,"capture_bundle":null,"dated_comparison":null,"capture_status":"not_configured_or_not_matched"});
         response["applicant_reasons"] =
@@ -489,35 +541,6 @@ impl JobReadService {
         .await
         {
             Ok(Some(bundle)) => {
-                let mut unambiguous = BTreeSet::new();
-                for chunk in ids.chunks(100) {
-                    let data=self.request("/crm/v4/associations/0-421/0-420/batch/read",&[],Some(json!({"inputs":chunk.iter().map(|id|json!({"id":id})).collect::<Vec<_>>()}))).await?;
-                    let results = data["results"]
-                        .as_array()
-                        .ok_or_else(|| fail("hubspot_invalid_response"))?;
-                    for result in results {
-                        let targets = result["to"]
-                            .as_array()
-                            .ok_or_else(|| fail("hubspot_invalid_response"))?;
-                        let target_ids: BTreeSet<_> = targets
-                            .iter()
-                            .filter_map(|t| {
-                                t["toObjectId"]
-                                    .as_str()
-                                    .map(str::to_owned)
-                                    .or_else(|| t["toObjectId"].as_u64().map(|n| n.to_string()))
-                            })
-                            .collect();
-                        if target_ids.len() == 1
-                            && target_ids.contains(listing)
-                            && result.get("paging").is_none()
-                        {
-                            if let Some(id) = result.pointer("/from/id").and_then(Value::as_str) {
-                                unambiguous.insert(id.to_owned());
-                            }
-                        }
-                    }
-                }
                 let applications: Vec<_> = rows
                     .iter()
                     .map(|row| crate::job_copy_date::ApplicantRecord {
@@ -730,6 +753,28 @@ pub fn summarize(rows: &[Record]) -> Value {
     }
     let cells:Vec<_> = joint.into_iter().map(|((gender,age,prefecture,municipality),count)|json!({"gender":gender,"age":age,"prefecture":prefecture,"municipality":municipality,"count":count})).collect();
     json!({"total":unique.len(),"duplicate_ids":rows.len()-unique.len(),"by_date":dates,"missing_date":missing_date,"dimensions":dimensions,"joint_demographics":{"total":unique.len(),"cells":cells}})
+}
+
+/// Adds `multi_listing_by_date` / `multi_listing_missing_date`: the applications (by
+/// application date, as in `by_date`) that HubSpot also links to another job. Counts only.
+pub fn add_multi_listing(summary: &mut Value, rows: &[Record], multi: &BTreeSet<String>) {
+    let unique: BTreeMap<_, _> = rows.iter().map(|row| (&row.id, row)).collect();
+    let mut dates: BTreeMap<String, usize> = BTreeMap::new();
+    let mut missing = 0;
+    for (id, row) in unique {
+        if !multi.contains(id) {
+            continue;
+        }
+        match row
+            .value("yingmuri")
+            .and_then(|v| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d").ok())
+        {
+            Some(date) => *dates.entry(date.to_string()).or_default() += 1,
+            None => missing += 1,
+        }
+    }
+    summary["multi_listing_by_date"] = json!(dates);
+    summary["multi_listing_missing_date"] = json!(missing);
 }
 
 struct CachedSnapshot {
@@ -1159,12 +1204,20 @@ fn validate_moc(value: &Value) -> Result<(), ReadError> {
                     "missing_date",
                     "dimensions",
                     "joint_demographics",
+                    "multi_listing_by_date",
+                    "multi_listing_missing_date",
                 ],
             )
             || ["total", "duplicate_ids", "missing_date"]
                 .iter()
                 .any(|key| summary[*key].as_u64().is_none())
             || !counts(&summary["by_date"])
+            || summary
+                .get("multi_listing_by_date")
+                .is_some_and(|value| !counts(value))
+            || summary
+                .get("multi_listing_missing_date")
+                .is_some_and(|value| value.as_u64().is_none())
             || !aggregate_dimensions(&summary["dimensions"])
             || !result["billing"].is_null()
             || !result["capture_bundle"].is_null()

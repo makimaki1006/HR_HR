@@ -12,7 +12,7 @@ use unicode_normalization::UnicodeNormalization;
 const MASTER_CITY_CSV: &str = include_str!("master_city.csv");
 pub const AREA_UNKNOWN: &str = "不明";
 pub const AREA_OTHER: &str = "その他";
-/// これ未満の人数の地域は「その他」にまとめる (画面側の MINIMUM_AREA_COUNT と同じ値)。
+/// 応募がこの件数未満の地域は「その他」にまとめる (画面側の MINIMUM_AREA_COUNT と同じ値)。
 pub const MINIMUM_AREA_COUNT: u64 = 3;
 
 struct Prefecture {
@@ -294,9 +294,9 @@ fn merge_cells(cells: Vec<JointCell>) -> Vec<JointCell> {
 ///
 /// 1. 地域を都道府県 + 市区町村に丸める。市区町村が分かれば、都道府県はその市区町村から決め直す
 ///    (都道府県欄が空でも、市区町村欄から都道府県が分かることがあるため)。
-/// 2. 求人内の人数が 3 人未満の都道府県・市区町村は「その他」にする。
-/// 3. それでも 3 人未満のセルは、市区町村を「その他」にする。まだ 3 人未満なら都道府県も「その他」にする。
-///    「女性・60代・由布市 = 1人」のように、組み合わせで 1 人を特定できる地域は送らない。
+/// 2. 求人内の応募が 3 件未満の都道府県・市区町村は「その他」にする。
+/// 3. それでも 3 件未満のセルは、市区町村を「その他」にする。まだ 3 件未満なら都道府県も「その他」にする。
+///    「女性・60代・由布市 = 1件」のように、組み合わせで 1 件の応募を特定できる地域は送らない。
 pub fn protect_joint_cells(cells: Vec<JointCell>) -> Vec<JointCell> {
     let rounded: Vec<JointCell> = cells
         .into_iter()

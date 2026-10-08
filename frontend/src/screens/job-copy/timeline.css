@@ -25,6 +25,13 @@
 .jt-period span { overflow: hidden; text-overflow: ellipsis; display: block; }
 .jt-timeline .jt-period.jt-cert-estimated { background: repeating-linear-gradient(135deg, #d9ecef 0 6px, #b5d6dc 6px 12px); color: #12424c; border-color: var(--jt-estimated); }
 .jt-timeline .jt-period.jt-cert-unknown { background: #fff; color: #3b4f5d; border: 2px dotted var(--jt-unknown); }
+/* Known only from acquisitions: the day(s) the content was seen. */
+.jt-timeline .jt-period.jt-basis-captured { background: #fff; color: #12424c; border: 2px solid var(--jt-confirmed); }
+/* Between two acquisitions (which content was shown is not known) and after the last acquisition. */
+.jt-zone, .jt-unacquired { position: absolute; top: 8px; height: 24px; border-radius: 4px; font-size: 10px; line-height: 20px; padding: 0 4px; overflow: hidden; white-space: nowrap; color: #4f3b12; }
+.jt-zone { background: repeating-linear-gradient(135deg, #fff4dd 0 5px, #fde2b0 5px 10px); border: 1px dashed #b7791f; }
+.jt-unacquired { background: repeating-linear-gradient(135deg, #f1f5f9 0 6px, #e2e8f0 6px 12px); border: 1px dashed #64748b; color: #334155; }
+.jt-zone span, .jt-unacquired span { overflow: hidden; text-overflow: ellipsis; display: block; }
 /* Selected: a dark outline away from the bar (on the white track, 5:1) plus a thicker underline. */
 .jt-period[aria-pressed="true"] { outline: 3px solid #9a3d06; outline-offset: 2px; }
 
@@ -42,9 +49,9 @@
    (::before) sits on the exact day as a tick under the label, so it never covers the text. */
 .jt-mark { position: absolute; top: 4px; transform: translateX(calc(var(--jt-pin, 0) * -1%)); border: 1px solid #7d8f9c; background: #fff; border-radius: 3px; font-size: 10px; padding: 2px 7px; white-space: nowrap; line-height: 1.4; --jt-pin-color: #607d8f; }
 .jt-mark::before { content: ""; position: absolute; top: calc(100% + 1px); height: 9px; left: calc(var(--jt-pin, 0) * 1%); width: 3px; margin-left: calc(var(--jt-pin, 0) * -0.03px); background: var(--jt-pin-color); border-radius: 1px; }
-.jt-timeline .jt-mark-changed, .jt-timeline .jt-image-changed { --jt-pin-color: #b54708; background: #fff6ec; color: #7a3306; }
+.jt-timeline .jt-mark-changed, .jt-timeline .jt-image-replaced, .jt-timeline .jt-image-reordered, .jt-timeline .jt-image-content { --jt-pin-color: #b54708; background: #fff6ec; color: #7a3306; }
 .jt-timeline .jt-image-same { color: #3b4f5d; }
-.jt-timeline .jt-image-unknown { border-style: dotted; color: #5c7080; }
+.jt-timeline .jt-image-unknown, .jt-timeline .jt-image-missing, .jt-timeline .jt-image-reference_only { border-style: dotted; color: #4f6270; }
 .jt-mark[aria-pressed="true"] { outline: 3px solid #9a3d06; outline-offset: 2px; }
 
 .jt-billing { position: absolute; top: 9px; height: 22px; background: #fff2d9; border: 1px solid #d9a441; border-radius: 3px; font-size: 10px; color: #6a4410; padding: 0 4px; overflow: hidden; white-space: nowrap; line-height: 20px; }
@@ -64,6 +71,9 @@
 .jt-key.jt-cert-confirmed { background: var(--jt-confirmed); }
 .jt-key.jt-cert-estimated { background: repeating-linear-gradient(135deg, #d9ecef 0 3px, #8fc0c9 3px 6px); }
 .jt-key.jt-cert-unknown { border: 2px dotted var(--jt-unknown); }
+.jt-key.jt-basis-captured { border: 2px solid var(--jt-confirmed); background: #fff; }
+.jt-key.jt-key-zone { background: repeating-linear-gradient(135deg, #fff4dd 0 3px, #fde2b0 3px 6px); border: 1px dashed #b7791f; }
+.jt-key.jt-key-unacquired { background: repeating-linear-gradient(135deg, #f1f5f9 0 3px, #cbd5e1 3px 6px); border: 1px dashed #64748b; }
 .jt-key-jobs { height: 2px; background: #2463a7; vertical-align: 3px; }
 .jt-key-viewers { height: 0; border-top: 2px dashed #7c4dbd; vertical-align: 3px; }
 .jt-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 11px; color: #52697a; }
@@ -118,4 +128,6 @@
 .jo-overview td small { display: block; color: #52697a; font-size: 10px; }
 /* 仮の課金データ（ダミー）: hatched grey so it never looks like a real amount */
 .jt-billing-dummy { background: repeating-linear-gradient(135deg, #f1f5f9 0 5px, #e2e8f0 5px 10px); border-style: dashed; border-color: #94a3b8; color: #334155; }
+.jo-sort-note { margin: 2px 0 6px; font-size: 12px; color: #52697a; }
+.jt-billing-conflict { margin: 2px 0 6px; padding: 4px 8px; border-left: 3px solid #b54708; background: #fff6ec; color: #7a3306; font-size: 12px; }
 .jt-dummy-billing, .jt-demo-billing { margin: 2px 0 6px; padding: 4px 8px; border-left: 3px solid #94a3b8; background: #f8fafc; color: #334155; font-size: 12px; }

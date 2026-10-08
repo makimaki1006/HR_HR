@@ -111,6 +111,10 @@
 .jc-topline .jc-page-heading h1 { font-size: 16px; }
 .jc-topline .jc-demo { flex: 1 1 240px; min-width: 0; padding: 3px 8px; border: 1px solid #ead2b9; border-radius: 4px; gap: 8px; white-space: nowrap; overflow: hidden; }
 .jc-topline .jc-demo > span { overflow: hidden; text-overflow: ellipsis; }
+.jc-scope-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 16px; padding: 2px 25px 4px; font-size: 12px; color: #52697a; }
+.jc-scope-line p { margin: 0; }
+.jc-scope-line .jc-dummy-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-weight: 400; color: #334155; }
+.jc-scope-line .jc-dummy-toggle input { width: auto; margin: 0; }
 .jc-topline .jc-snapshot-summary { padding: 0; border: 0; background: transparent; gap: 4px 14px; font-size: 12px; flex-wrap: wrap; }
 .jc-topline .jc-snapshot-summary span { gap: 3px; }
 .jc-topline .jc-snapshot-summary strong { font-size: 14px; }

@@ -54,7 +54,7 @@ test('joined HR Hacker metrics show exact rates, period delta and meaningful joi
   await page.setViewportSize({ width: 375, height: 850 });
   await page.locator('.jc-reverse-search').scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'joint-mobile.png') });
-  await page.getByLabel('最低該当人数', { exact: true }).fill('4');
+  await page.getByLabel('最低該当件数', { exact: true }).fill('4');
   await expect(page.getByRole('status')).toContainText('条件に一致する求人はありません');
   await page.setViewportSize({ width: 375, height: 850 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

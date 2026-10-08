@@ -103,7 +103,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
     catch (caught) { setResult(null); setError(caught instanceof BillingCsvError ? caught.message : '照合できませんでした。'); }
   }
 
-  const recordsKey = records.map(job => `${job.id}\u0000${job.media}\u0000${job.mediaJobId}`).join('\u0001');
+  const recordsKey = records.map(job => `${job.id}\u0000${job.media}\u0000${job.accountId ?? ''}\u0000${job.mediaJobId}`).join('\u0001');
   const stale = result !== null && checkedKey !== recordsKey;
   const currentIds = new Set(records.map(job => job.id));
   // Same rule as buildBillingImport: a row whose cells are all empty is not a data row.
@@ -128,7 +128,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
             {(Object.keys(encodingLabels) as EncodingChoice[]).map(value => <option key={value} value={value}>{encodingLabels[value]}</option>)}
           </select></label>
         </div>
-        <p className="jc-muted">必要な列: 媒体（Airワーク / HRハッカー）・媒体求人ID・期間開始・期間終了・金額。あれば使う列: プラン名・表示回数・クリック数・媒体の応募数。5MBまで。</p>
+        <p className="jc-muted">必要な列: 媒体（Airワーク / HRハッカー）・店舗ID（Airワークは口座ログインID）・媒体求人ID・期間開始・期間終了・金額。IDは先頭の0を消さずに入れてください（HRハッカーの媒体求人IDは8桁）。あれば使う列: プラン名・表示回数・クリック数・媒体の応募数。5MBまで。</p>
         {reading && <p role="status">読み込み中…</p>}
         {fileName && rows && <p role="status">{fileName}：{String(dataRows)}行（{usedEncoding === 'shift_jis' ? 'Excel の日本語 CSV' : 'UTF-8'} として読み取り）</p>}
         {error && <p role="alert" className="jc-error">{error}</p>}
@@ -158,18 +158,18 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
       </li>}
 
       {result && <li aria-current={!appliedNow ? 'step' : undefined}><h4>3. 求人との照合結果</h4>
-        <p className="jc-muted">媒体と媒体求人IDが一覧の求人と完全に同じ行だけを結びつけます。求人名からの推測はしません。</p>
+        <p className="jc-muted">媒体・店舗ID（Airワークは口座ログインID）・媒体求人IDの3つが一覧の求人と完全に同じ行だけを結びつけます。媒体求人IDだけや求人名からは結びつけません。同じ求人で期間が重なる行や、同じ期間で金額などが違う行は、どの行も使いません。</p>
         <dl className="jc-billing-counts" aria-label="照合結果の件数">
           <div><dt>一致</dt><dd>{String(result.counts.matched)}<small>行</small></dd></div>
           <div><dt>候補が複数</dt><dd>{String(result.counts.ambiguous)}<small>行</small></dd></div>
           <div><dt>一覧に無い</dt><dd>{String(result.counts.notFound)}<small>行</small></dd></div>
           <div><dt>値に誤り</dt><dd>{String(result.counts.rejected)}<small>行</small></dd></div>
-          <div><dt>同じ期間の重複</dt><dd>{String(result.counts.duplicates)}<small>行</small></dd></div>
+          <div><dt>同じ内容の重複</dt><dd>{String(result.counts.duplicates)}<small>行</small></dd></div>
         </dl>
         <IssueList title="値に誤りがあり使わない行" issues={result.rejected} />
         <IssueList title="一覧に無い求人の行" issues={result.notFound} />
         <IssueList title="候補が複数あり結びつけない行" issues={result.ambiguous} />
-        <IssueList title="同じ期間の重複（合算しません）" issues={result.duplicates} />
+        <IssueList title="まったく同じ内容の行（1行として扱います）" issues={result.duplicates} />
         <IssueList title="確認してほしい行" issues={result.warnings} />
       </li>}
 

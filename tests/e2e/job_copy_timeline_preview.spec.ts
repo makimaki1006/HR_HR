@@ -68,10 +68,13 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
   await expect(overview.locator('tbody tr').first()).toContainText('0.80件/日');
   await expect(overview.locator('tbody tr').first()).toContainText('8万7,000円');
-  // 実際の課金データが無い求人は、仮の課金データ（ダミー）と書いて金額を出す（実際の金額と足さない）
-  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' }).locator('td.jo-billing')).toHaveText('仮の課金データ（ダミー） 7万2,802円');
+  // 実際の課金データが無い求人は、仮の課金データ（ダミー）を合計しない（課金レーンにだけ出す）
+  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' }).locator('td.jo-billing')).toHaveText('実際の課金データなし（仮の課金データ（ダミー）は合計しません）');
   await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' }).locator('td.jo-billing')).toHaveText('デモ用の架空の金額 8万7,000円');
-  await expect(page.getByText(/課金合計の仮の課金データ（ダミー）は、実際の課金データがまだ無いため/u)).toBeVisible();
+  await expect(page.getByText('仮の課金データ（ダミー）は課金レーンにだけ表示し、課金合計と並び替えには使っていません。', { exact: true })).toBeVisible();
+  // 並び替えの理由ではないことを、並び替えの横に文字で示す
+  await expect(page.getByText('並び順は数の大小で並べただけです。応募が増えた・減った理由を示すものではありません。', { exact: true })).toBeVisible();
+  await expect(overview).not.toContainText('変更日');
   await expect(overview).not.toContainText('未接続');
   await page.screenshot({ path: `${shots}/overview-1280.png`, fullPage: true });
   // 1100 幅でも 7 列（課金合計まで）が横スクロールなしで収まる
@@ -91,7 +94,7 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   expect(requests).toEqual([]);
 });
 
-test('billing CSV import fills the billing lane, the period table and the overview total', async ({ page }) => {
+test('billing CSV import matches on media + account + job ID and fills the billing lane and the overview total', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) requests.push(request.url()); });
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -102,28 +105,30 @@ test('billing CSV import fills the billing lane, the period table and the overvi
   await expect(billingLane.locator('.jt-billing')).toHaveText(['架空 3万円', '架空 4万5,000円', '架空 1万2,000円']);
   await page.getByRole('button', { name: 'データ取込', exact: true }).click();
   await expect(page.getByRole('region', { name: 'データ取込', exact: true })).toBeVisible();
-  const csv = '媒体,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-AIR-002,2026-09-05,2026-09-30,40000\n';
+  // 媒体 + 店舗ID（Airワークは口座ログインID）+ 媒体求人ID で結びつける。HRハッカーの媒体求人IDは 8 桁の数字でないと使わない。
+  const csv = '媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nHRハッカー,DEMO-SHOP-01,DEMO-HRH-001,2026-09-01,2026-09-14,33000\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-002,2026-09-05,2026-09-30,40000\n';
   await page.getByLabel('課金CSVファイル', { exact: true }).setInputFiles({ name: 'billing.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
   await page.getByRole('button', { name: '求人と照合する', exact: true }).click();
-  await page.getByRole('button', { name: '一致した2行を課金として反映', exact: true }).click();
-  await expect(page.getByText(/課金CSVの 2 期間を反映中/u)).toBeVisible();
+  await expect(page.getByText('値に誤りがあり使わない行（1行）')).toBeVisible();
+  await page.getByRole('button', { name: '一致した1行を課金として反映', exact: true }).click();
+  await expect(page.getByText(/課金CSVの 1 期間を反映中/u)).toBeVisible();
   await page.getByRole('region', { name: 'データ取込', exact: true }).getByRole('button', { name: '閉じる', exact: true }).click();
   await expect(page.locator('.jc-data-import')).toBeHidden();
-  // The CSV row (33,000円) replaces the HRハッカー row for the same days; the other rows stay.
-  await expect(billingLane.locator('.jt-billing')).toHaveText(['3万3,000円', '架空 4万5,000円', '架空 1万2,000円']);
-  await expect(billingLane.locator('.jt-billing-csv')).toHaveCount(1);
-  await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
+  // The HRハッカー row was not used, so demo-001 keeps its HRハッカー実績.
+  await expect(billingLane.locator('.jt-billing')).toHaveText(['架空 3万円', '架空 4万5,000円', '架空 1万2,000円']);
+  await expect(billingLane.locator('.jt-billing-csv')).toHaveCount(0);
   const rows = timeline.getByRole('table').locator('tbody tr');
-  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', '3万3,000円', 'データなし（市場求人数は2026年8月まで）']);
+  await expect(rows.nth(0).locator('td')).toHaveText(['14日', '7件', '0.50件/日', 'デモ用の架空の金額 3万円', 'データなし（市場求人数は2026年8月まで）']);
   await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   await page.locator('.jc-job', { hasText: '倉庫内ピッキングスタッフ' }).click();
+  await expect(timeline.getByText('読み込んだ課金CSVはこの画面を開いている間だけ表示します。再読み込みすると消えます。', { exact: true })).toBeVisible();
   // CSV の 09-05〜09-30 は CSV の金額。CSV に無い 10-01〜10-05 だけ仮の課金データ（ダミー）が残る。
   await expect(billingLane.locator('.jt-billing')).toHaveText(['4万円', 'ダミー 6,935円']);
   await expect(billingLane.locator('.jt-billing-dummy')).toHaveCount(1);
   await page.getByRole('button', { name: '横断比較', exact: true }).click();
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
-  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' }).locator('td.jo-billing')).toHaveText('4万円 ／ 仮の課金データ（ダミー） 6,935円');
-  await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' })).toContainText('9万円');
+  await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' }).locator('td.jo-billing')).toHaveText('4万円（仮の課金データ（ダミー）は合計に入れていません）');
+  await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' })).toContainText('8万7,000円');
   await page.screenshot({ path: `${shots}/overview-billing-1280.png`, fullPage: true });
   // Reloading drops the browser-only billing rows (the URL keeps the selected demo-job-002, which has no HRハッカー実績).
   await page.reload();

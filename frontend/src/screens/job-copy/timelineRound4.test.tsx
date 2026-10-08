@@ -86,7 +86,7 @@ describe('billing CSV media names', () => {
     expect(canonicalMedia('__proto__')).toBeNull();
     expect(canonicalMedia('toString')).toBeNull();
     expect(canonicalMedia('HRハッカー')).toBe('HRハッカー');
-    const result = importBillingCsv('媒体,媒体求人ID,期間開始,期間終了,金額\nconstructor,DEMO-HRH-001,2026-09-01,2026-09-30,10000\n', jobs);
+    const result = importBillingCsv('媒体,店舗ID,媒体求人ID,期間開始,期間終了,金額\nconstructor,DEMO-SHOP-01,DEMO-HRH-001,2026-09-01,2026-09-30,10000\n', jobs);
     expect(result.periods).toEqual([]);
     expect(result.rejected.map(issue => issue.message).join(' ')).toContain('媒体「constructor」は扱えません');
     expect(result.notFound).toEqual([]);
@@ -186,7 +186,7 @@ describe('cross-job overview', () => {
     const job = demo('demo-job-001');
     const row = overviewRow(job, { now: new Date('2026-10-05T03:00:00Z') });
     expect(row.firstDate).toBe('2026-09-01');
-    expect(row.changeDates).toEqual(['2026-09-15', '2026-09-25']);
+    expect(row.changes.map(change => change.to)).toEqual(['2026-09-15', '2026-09-25']);
     // Without the job's application dates, the range still comes from the row's version days.
     expect(overviewRange([], [{ ...row, applicationsAvailable: false }])).toEqual({ start: '2026-09-01', end: '2026-09-25' });
   });
@@ -209,25 +209,26 @@ describe('dummy billing (仮の課金データ（ダミー）)', () => {
     expect(dummyBilling(real)).toEqual([]);
     expect(realBilling(real).map(entry => entry.amountYen)).toEqual([30000, 45000, 12000]);
   });
-  it('writes a real amount and the dummy side by side with the label, never added together', () => {
+  it('never adds the dummy into a total: the period table and the overview show the real amount only', () => {
     const job: JobCopyRecord = { ...demo('demo-job-001'), id: 'job-a',
       overallApplications: { total: 0, missingDate: 0, fetchedAt: '2026-09-30T09:00:00+09:00', distributions: {}, byDate: {} },
       hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-001', captured_at: '2026-09-30T00:00:00Z', rows: [{ period_start: '2026-09-10', period_end: '2026-09-19', impressions: null, clicks: null, cost_yen: 50000, applications: null }] },
       versions: [version('v1', '2026-09-01T00:00:00Z', '給与：月給25万円')] };
     const [row] = periodRows(job, { asOf: '2026-09-30' });
     expect(row?.billing).toMatchObject({ connected: true, yen: 50000 });
-    expect(row?.dummyBilling).toEqual({ yen: 28000, prorated: false });
-    expect(row && billingText(row)).toBe(`5万円 ／ ${DUMMY_BILLING_LABEL} 2万8,000円`);
+    expect(row?.dummyBilling).toBe(true);
+    expect(row && billingText(row)).toBe(`5万円（${DUMMY_BILLING_LABEL}は合計に入れていません）`);
     const overview = overviewRow(job, { now: new Date('2026-09-30T03:00:00Z') });
     expect(overview.billingYen).toBe(50000);
-    expect(overview.dummyBillingYen).toBe(28000);
-    expect(overviewBillingText(overview)).toBe(`5万円 ／ ${DUMMY_BILLING_LABEL} 2万8,000円`);
-    // 7万8,000円 (the sum) is never shown.
-    expect(billingText(row ?? periodRows(job, { asOf: '2026-09-30' })[0] as never)).not.toContain('7万8,000円');
+    expect(overview.hasDummyBilling).toBe(true);
+    expect(overviewBillingText(overview)).toBe(`5万円（${DUMMY_BILLING_LABEL}は合計に入れていません）`);
+    // Neither 7万8,000円 (the sum) nor the dummy 2万8,000円 is shown as a total.
+    expect(billingText(row ?? periodRows(job, { asOf: '2026-09-30' })[0] as never)).not.toMatch(/7万8,000円|2万8,000円/u);
     // With the switch off, only the real amount is left.
-    expect(periodRows(job, { asOf: '2026-09-30', dummyBilling: false })[0]?.dummyBilling).toBeNull();
+    expect(periodRows(job, { asOf: '2026-09-30', dummyBilling: false })[0]?.dummyBilling).toBe(false);
+    expect(overviewBillingText(overviewRow(job, { now: new Date('2026-09-30T03:00:00Z'), dummyBilling: false }))).toBe('5万円');
   });
-  it('labels the dummy in the 課金 lane, the period table and the overview of the demo', () => {
+  it('labels the dummy in the 課金 lane and keeps it out of the period table, the overview totals and the sort', () => {
     render(<JobTimeline job={demo('demo-job-002')} marketMode="demo" now={new Date('2026-10-05T03:00:00Z')} />);
     const lane = screen.getByRole('group', { name: '課金' });
     expect(lane.textContent).toContain(DUMMY_BILLING_LABEL);
@@ -235,14 +236,15 @@ describe('dummy billing (仮の課金データ（ダミー）)', () => {
     expect([...lane.querySelectorAll('.jt-billing-dummy')].every(bar => (bar.getAttribute('title') ?? '').startsWith(DUMMY_BILLING_LABEL))).toBe(true);
     expect(screen.getByText(/仮の課金データ（ダミー）は、実際の課金データがまだ無いため表示している架空の金額です/u)).toBeTruthy();
     const billingCells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent);
-    expect(billingCells).toEqual([`${DUMMY_BILLING_LABEL} 約3万8,000円`, `${DUMMY_BILLING_LABEL} 約3万4,802円`]);
+    expect(billingCells).toEqual([`実際の課金データなし（${DUMMY_BILLING_LABEL}は合計しません）`, `実際の課金データなし（${DUMMY_BILLING_LABEL}は合計しません）`]);
+    expect(within(screen.getByRole('table')).queryByText(/3万8,000円|3万4,802円/u)).toBeNull();
     const rows = overviewRows(jobs);
-    expect(rows.map(row => [row.jobId, row.billingYen, row.dummyBillingYen])).toEqual([
-      ['demo-job-001', 87000, null], ['demo-job-002', null, 72802], ['demo-job-003', 48000, null], ['demo-job-004', null, 57874],
-      ['demo-job-005', null, 47044], ['demo-job-006', null, 17951], ['demo-job-007', null, 15968], ['demo-job-008', null, null],
+    expect(rows.map(row => [row.jobId, row.billingYen, row.hasDummyBilling])).toEqual([
+      ['demo-job-001', 87000, false], ['demo-job-002', null, true], ['demo-job-003', 48000, false], ['demo-job-004', null, true],
+      ['demo-job-005', null, true], ['demo-job-006', null, true], ['demo-job-007', null, true], ['demo-job-008', null, false],
     ]);
-    expect(rows.map(overviewBillingText).filter(text => text.includes('ダミー')).every(text => text.startsWith(DUMMY_BILLING_LABEL))).toBe(true);
-    // Sorting by billing puts real totals first; dummy-only rows follow (never ranked among real ones).
+    expect(rows.map(overviewBillingText).filter(text => text.includes('ダミー'))).toEqual(Array.from({ length: 5 }, () => `実際の課金データなし（${DUMMY_BILLING_LABEL}は合計しません）`));
+    // Sorting by billing uses real totals only; jobs with only the dummy have no value and keep their order after them.
     expect(sortOverview(rows, 'billing').map(row => row.jobId)).toEqual(['demo-job-001', 'demo-job-003', 'demo-job-002', 'demo-job-004', 'demo-job-005', 'demo-job-006', 'demo-job-007', 'demo-job-008']);
   });
 });

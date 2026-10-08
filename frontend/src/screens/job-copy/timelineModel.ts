@@ -9,7 +9,8 @@
 import type { CopyVersion, JobCopyRecord } from './data';
 import { compareCopy } from './diff';
 import type { CopyComparisonStatus } from './diff';
-import { compareImages, referenceImages } from './images';
+import { imageChangeKind } from './images';
+import type { ImageChangeKind } from './images';
 import type { MarketRow } from './marketChartModel';
 import type { BillingPeriod } from './billingTypes';
 import { extractSalary, isSalaryLine, sameSalary } from './salaryExtract';
@@ -111,6 +112,15 @@ export function billingOverlaps(entries: readonly BillingEntry[]): boolean {
   }
   return false;
 }
+/**
+ * True when an HRハッカー実績 row and a billing CSV row share at least one day. The screen says so
+ * instead of choosing one of them.
+ */
+export function billingConflict(entries: readonly BillingEntry[]): boolean {
+  const hrh = entries.filter(entry => entry.source === 'hrhacker');
+  const csv = entries.filter(entry => entry.source === 'csv');
+  return hrh.some(a => csv.some(b => a.start <= b.end && b.start <= a.end));
+}
 
 export interface BillingOptions {
   /** Day the dummy billing runs up to (default: the day the application counts were taken). */
@@ -146,11 +156,10 @@ function realBillingEntries(job: JobCopyRecord, injected?: readonly BillingEntry
     ...(isDemoJob(job) ? { fictional: true } : {}),
   }));
   const csv = (injected ?? []).filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end);
-  // A billing CSV row for exactly the same HRハッカー period (same start and end) replaces the
-  // HRハッカー実績 row, so one period is not counted twice. A CSV row that covers only part of an
-  // HRハッカー period does not remove it: both stay, and billingOverlaps() leaves the total blank.
-  const hrh = fromHrh.filter(row => !csv.some(entry => (entry.media ?? 'HRハッカー') === 'HRハッカー' && entry.start === row.start && entry.end === row.end));
-  return [...hrh, ...csv]
+  // A billing CSV row never replaces an HRハッカー実績 row, even for the same period: which amount is
+  // right is not known. Both stay, and billingConflict() marks the days they share, so no total is
+  // made from either.
+  return [...fromHrh, ...csv]
     .filter(entry => DATE.test(entry.start) && DATE.test(entry.end) && entry.start <= entry.end)
     .sort((a, b) => a.start.localeCompare(b.start) || a.source.localeCompare(b.source));
 }
@@ -164,8 +173,16 @@ export function publishedVersions(job: JobCopyRecord): CopyVersion[] {
 export interface TimelinePeriod {
   versionId: string;
   label: string;
+  /**
+   * First day the version is known to be shown. 'captured': the day it was acquired.
+   * 'published': the media publication day.
+   */
   start: string;
-  /** Exclusive end day; null while the version is still the latest one. */
+  /**
+   * Exclusive end day; null only for the latest version with media publication times (still
+   * running). A version known only from acquisitions ends the day after its acquisition, or at the
+   * next acquisition when nothing changed in between (the same content was seen again).
+   */
   end: string | null;
   /** Days covered. A still-running period counts up to and including asOf. */
   days: number;
@@ -175,27 +192,103 @@ export interface TimelinePeriod {
   basis: 'published' | 'captured';
 }
 
+/**
+ * Between two acquisitions of different (or not comparable) content the listing changed on some
+ * day in between, and which content was shown on those days is not known. 'changed': a change was
+ * found. 'unknown': whether it changed could not be checked (a body or the images could not be
+ * compared).
+ */
+export interface UncertainSpan {
+  kind: 'between' | 'unacquired';
+  /** Acquisition day of the earlier version (取得日A). */
+  from: string;
+  /** Acquisition day of the later version (取得日B); null after the last acquisition. */
+  to: string | null;
+  /** First day of the span. */
+  start: string;
+  /** Exclusive end. */
+  end: string;
+  reason: 'changed' | 'unknown' | 'after_last';
+  fromVersionId: string;
+  toVersionId: string | null;
+}
+
+export type BoundaryStatus = 'changed' | 'same' | 'unknown';
+/**
+ * Whether the version differs from the previous one. 'same' only when the text and both image
+ * comparisons say nothing changed; 'unknown' when something could not be compared.
+ */
+export function boundaryStatus(change: Pick<VersionChange, 'index' | 'salaryChanged' | 'otherBodyChanged' | 'bodyStatus' | 'imageChange'>): BoundaryStatus {
+  if (change.index === 0) return 'same';
+  if (changeKinds(change).length > 0) return 'changed';
+  if (change.bodyStatus === 'unavailable') return 'unknown';
+  return change.imageChange === 'same' ? 'same' : 'unknown';
+}
+
+function versionStart(version: CopyVersion): string {
+  return jstDate(version.publishedFrom ?? version.observedAt) ?? '';
+}
+
 export function buildPeriods(job: JobCopyRecord, asOf: string): TimelinePeriod[] {
   const versions = publishedVersions(job);
-  const starts = versions.map(version => jstDate(version.publishedFrom ?? version.observedAt) ?? '');
+  const changes = versionChanges(job);
+  const starts = versions.map(versionStart);
   return versions.map((version, index) => {
     const start = starts[index] ?? '';
+    const next = versions[index + 1];
     const nextStart = starts[index + 1] ?? null;
-    let end = jstDate(version.publishedUntil) ?? nextStart;
-    if (end !== null && nextStart !== null && end > nextStart) end = nextStart;
+    const basis: TimelinePeriod['basis'] = version.publishedFrom ? 'published' : 'captured';
+    let end: string | null;
+    if (basis === 'published' && (!next || next.publishedFrom)) {
+      // Media publication times: the version runs until it was taken down or the next one started.
+      end = jstDate(version.publishedUntil) ?? nextStart;
+      if (end !== null && nextStart !== null && end > nextStart) end = nextStart;
+    } else {
+      // Known only from acquisitions: the version was seen on its acquisition day. When the next
+      // acquisition found the same content, it is taken to run until then; otherwise the days up to
+      // the next acquisition are an UncertainSpan, and after the last acquisition nothing is known.
+      const nextChange = changes[index + 1];
+      const status = nextChange ? boundaryStatus(nextChange) : null;
+      end = status === 'same' && nextStart !== null ? nextStart : addDays(start, 1);
+      if (nextStart !== null && end > nextStart) end = nextStart;
+    }
     if (end !== null && end < start) end = start;
     const ongoing = end === null;
     const days = ongoing ? Math.max(0, daysBetween(start, asOf) + 1) : daysBetween(start, end ?? start);
-    return { versionId: version.id, label: version.label, start, end, days, ongoing, certainty: version.certainty, basis: version.publishedFrom ? 'published' : 'captured' };
+    return { versionId: version.id, label: version.label, start, end, days, ongoing, certainty: version.certainty, basis };
   });
 }
 
-export type ImageChange = 'initial' | 'changed' | 'same' | 'unknown';
+/**
+ * The days between acquisitions whose content is not known (between two versions that differ or
+ * could not be compared), and the days after the last acquisition up to asOf.
+ */
+export function uncertainSpans(job: JobCopyRecord, asOf: string, periods: readonly TimelinePeriod[] = buildPeriods(job, asOf)): UncertainSpan[] {
+  const changes = versionChanges(job);
+  const spans: UncertainSpan[] = [];
+  periods.forEach((period, index) => {
+    const next = periods[index + 1];
+    if (period.basis !== 'captured' || period.end === null) return;
+    if (next) {
+      if (period.end >= next.start) return;
+      const change = changes[index + 1];
+      const status = change ? boundaryStatus(change) : 'unknown';
+      spans.push({ kind: 'between', from: period.start, to: next.start, start: period.end, end: next.start, reason: status === 'changed' ? 'changed' : 'unknown', fromVersionId: period.versionId, toVersionId: next.versionId });
+    } else if (period.end <= asOf) {
+      spans.push({ kind: 'unacquired', from: period.start, to: null, start: period.end, end: addDays(asOf, 1), reason: 'after_last', fromVersionId: period.versionId, toVersionId: null });
+    }
+  });
+  return spans;
+}
+
+export type ImageChange = ImageChangeKind;
 export interface VersionChange {
   versionId: string;
   label: string;
-  /** Day the version starts (JST). */
+  /** Day the version starts (JST): its acquisition day, or its media publication day. */
   date: string;
+  /** Day the previous version starts (取得日A); null for the first version. */
+  previousDate: string | null;
   index: number;
   salary: SalaryInfo | null;
   /**
@@ -246,27 +339,24 @@ export function versionChanges(job: JobCopyRecord): VersionChange[] {
       : salary?.kind === '不明' || previousSalary?.kind === '不明' || sameSalary(previousSalary, salary) ? 'other'
         : direction(previousSalary, salary);
     const changed = result.lines.filter(line => line.kind !== 'same');
-    const images = compareImages(referenceImages(previous), referenceImages(version));
-    const imageChange: ImageChange = !previous ? (referenceImages(version) ? 'initial' : 'unknown')
-      : images.status === 'unknown' ? 'unknown' : images.status === 'same_reference' ? 'same' : 'changed';
     return {
-      versionId: version.id, label: version.label, date: jstDate(version.publishedFrom ?? version.observedAt) ?? '', index, salary, salaryChanged, salaryDirection,
+      versionId: version.id, label: version.label, date: versionStart(version), previousDate: previous ? versionStart(previous) : null, index, salary, salaryChanged, salaryDirection,
       bodyStatus: result.status,
       bodyAdded: previous ? changed.filter(line => line.kind === 'added').length : 0,
       bodyRemoved: previous ? changed.filter(line => line.kind === 'removed').length : 0,
       otherBodyChanged: Boolean(previous) && result.status === 'changed' && changed.some(line => !isSalaryLine(line.text)),
-      imageChange,
+      imageChange: imageChangeKind(previous, version),
     };
   });
 }
 
-/** Kinds of change at a version, in lane order. */
-export function changeKinds(change: VersionChange): ('給与' | '本文' | '画像')[] {
+/** Kinds of change at a version, in lane order. 画像 covers 差し替え・並び順・中身. */
+export function changeKinds(change: Pick<VersionChange, 'index' | 'salaryChanged' | 'otherBodyChanged' | 'imageChange'>): ('給与' | '本文' | '画像')[] {
   if (change.index === 0) return [];
   const kinds: ('給与' | '本文' | '画像')[] = [];
   if (change.salaryChanged) kinds.push('給与');
   if (change.otherBodyChanged) kinds.push('本文');
-  if (change.imageChange === 'changed') kinds.push('画像');
+  if (change.imageChange === 'replaced' || change.imageChange === 'reordered' || change.imageChange === 'content') kinds.push('画像');
   return kinds;
 }
 
@@ -394,8 +484,16 @@ export function marketChange(rows: readonly MarketRow[] | null, firstDay: string
 
 export interface PeriodRow {
   key: string;
-  kind: 'period' | 'gap';
+  /**
+   * 'period': days a version is known to be shown. 'between': days between two acquisitions whose
+   * content is not known (取得日A〜取得日Bの間). 'unacquired': days after the last acquisition.
+   * 'gap': days with no publication (media publication times only). Applications in rows other
+   * than 'period' are counted separately and never put into a version's period.
+   */
+  kind: 'period' | 'gap' | 'between' | 'unacquired';
   label: string;
+  /** How the row's days were found, in plain words (shown under the label). */
+  detail: string;
   versionId: string | null;
   start: string;
   /** Exclusive end; null while running. */
@@ -403,19 +501,22 @@ export interface PeriodRow {
   lastDay: string;
   days: number;
   ongoing: boolean;
-  /** Applications with a date in the period. null when application dates were never fetched (not 0). */
+  /**
+   * Applications with a date in the row (applications linked to more than one job left out). null
+   * when application dates were never fetched (not 0).
+   */
   applications: number | null;
-  /** Applications per day. null when the period has no days or application dates were never fetched. */
+  /** Applications per day. null for 'between' / 'unacquired' rows, when the period has no days, or when application dates were never fetched. */
   perDay: number | null;
   /**
    * The period starts after the day the application counts were taken (asOf). Its applications are
    * not known yet (null), which is different from 0.
    */
   afterCounts: boolean;
-  /** Real billing only (HRハッカー実績 and the billing CSV). */
-  billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number; overlapping: boolean; fictional: boolean };
-  /** The dummy billing for the days in the period with no real billing; null when there is none. Never added to billing. */
-  dummyBilling: { yen: number; prorated: boolean } | null;
+  /** Real billing only (HRハッカー実績 and the billing CSV). Dummy amounts are never in it. */
+  billing: { connected: false } | { connected: true; yen: number | null; prorated: boolean; missingAmount: boolean; entries: number; overlapping: boolean; conflict: boolean; fictional: boolean };
+  /** The dummy billing covers days of this row. Its amounts are never added up in the table. */
+  dummyBilling: boolean;
   market: MarketChangeResult;
 }
 
@@ -435,18 +536,30 @@ function billingFor(entries: readonly BillingEntry[], start: string, endExclusiv
     yen += entry.amountYen * overlap / entryDays;
   }
   // Billing periods that overlap each other are not added together (the amount is left blank).
+  // An HRハッカー実績 row and a billing CSV row for the same days is a conflict: neither is chosen.
+  const conflict = billingConflict(touching);
   const overlapping = billingOverlaps(touching);
-  return { connected: true, yen: count === 0 || overlapping || (missingAmount && yen === 0) ? null : Math.round(yen), prorated, missingAmount, entries: count, overlapping, fictional: touching.some(entry => entry.fictional === true) };
+  return { connected: true, yen: count === 0 || overlapping || (missingAmount && yen === 0) ? null : Math.round(yen), prorated, missingAmount, entries: count, overlapping, conflict, fictional: touching.some(entry => entry.fictional === true) };
 }
 
-function dummyFor(entries: readonly BillingEntry[], start: string, endExclusive: string): PeriodRow['dummyBilling'] {
-  const summary = billingFor(entries, start, endExclusive);
-  return summary.connected && summary.yen !== null && summary.entries > 0 ? { yen: summary.yen, prorated: summary.prorated } : null;
+function touches(entries: readonly BillingEntry[], start: string, endExclusive: string): boolean {
+  return entries.some(entry => entry.start < endExclusive && addDays(entry.end, 1) > start);
+}
+
+/** Applications linked to more than one job, by date (when the source says which ones). */
+export function multiListingByDate(job: JobCopyRecord): Record<string, number> | null {
+  return job.overallApplications?.multiListing?.byDate ?? null;
+}
+function applicationsIn(job: JobCopyRecord, start: string, endExclusive: string): number {
+  const byDate = job.overallApplications?.byDate;
+  return countApplications(byDate, start, endExclusive) - countApplications(multiListingByDate(job) ?? undefined, start, endExclusive);
 }
 
 /**
- * The period comparison table: one row per version period (plus gaps between periods), with
- * applications per day so periods of different length can be read side by side.
+ * The period comparison table. Rows follow the acquisition days: a version's row covers the days
+ * it is known to be shown, the days between two acquisitions with different content are a
+ * separate 「取得日A〜取得日Bの間」 row, and the days after the last acquisition are 未取得.
+ * Applications per day are only given for version rows.
  */
 export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?: readonly BillingEntry[] | undefined; market?: readonly MarketRow[] | null | undefined; dummyBilling?: boolean | undefined }): PeriodRow[] {
   const { asOf } = options;
@@ -455,29 +568,62 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
   const dummy = dummyBilling(all);
   const byDate = job.overallApplications?.byDate;
   const periods = buildPeriods(job, asOf);
+  const spans = uncertainSpans(job, asOf, periods);
   const rows: PeriodRow[] = [];
-  const make = (key: string, kind: PeriodRow['kind'], label: string, versionId: string | null, start: string, end: string | null, days: number, ongoing: boolean): PeriodRow => {
+  const make = (key: string, kind: PeriodRow['kind'], label: string, detail: string, versionId: string | null, start: string, end: string | null, days: number, ongoing: boolean): PeriodRow => {
     const endExclusive = end ?? addDays(asOf, 1);
     const lastDay = addDays(endExclusive, -1) < start ? start : addDays(endExclusive, -1);
     const afterCounts = start > asOf;
-    const applications = byDate === undefined || afterCounts ? null : countApplications(byDate, start, endExclusive < start ? start : endExclusive);
-    return { key, kind, label, versionId, start, end, lastDay, days, ongoing, applications, perDay: applications !== null && days > 0 ? applications / days : null, afterCounts,
-      billing: billingFor(billing, start, endExclusive), dummyBilling: dummyFor(dummy, start, endExclusive), market: marketChange(options.market ?? null, start, lastDay) };
+    const applications = byDate === undefined || afterCounts ? null : applicationsIn(job, start, endExclusive < start ? start : endExclusive);
+    return { key, kind, label, detail, versionId, start, end, lastDay, days, ongoing, applications, perDay: (kind === 'period' || kind === 'gap') && applications !== null && days > 0 ? applications / days : null, afterCounts,
+      billing: billingFor(billing, start, endExclusive), dummyBilling: touches(dummy, start, endExclusive), market: marketChange(options.market ?? null, start, lastDay) };
   };
   periods.forEach((period, index) => {
-    rows.push(make(period.versionId, 'period', period.label, period.versionId, period.start, period.end, period.days, period.ongoing));
+    const lastDay = period.end ? addDays(period.end, -1) : asOf;
+    if (period.basis === 'captured') {
+      const detail = period.days > 1 ? `${formatDay(period.start)}〜${formatDay(lastDay)}（次の取得まで同じ内容）` : `${formatDay(period.start)}（取得した日）`;
+      rows.push(make(period.versionId, 'period', `${formatDay(period.start)}に取得した内容`, detail, period.versionId, period.start, period.end, period.days, period.ongoing));
+    } else {
+      rows.push(make(period.versionId, 'period', period.label, `${formatDay(period.start)}〜${period.ongoing ? `継続中（${formatDay(asOf)}まで）` : formatDay(lastDay)}`, period.versionId, period.start, period.end, period.days, period.ongoing));
+    }
+    const span = spans.find(item => item.fromVersionId === period.versionId);
+    if (span) {
+      const spanLast = addDays(span.end, -1);
+      const days = daysBetween(span.start, span.end);
+      const range = `${formatDay(span.start)}〜${formatDay(spanLast)}`;
+      if (span.kind === 'between') {
+        rows.push(make(`between-${period.versionId}`, 'between', span.reason === 'changed' ? `取得日${formatDay(span.from)}〜${formatDay(span.to ?? span.from)}の間に変化` : `取得日${formatDay(span.from)}〜${formatDay(span.to ?? span.from)}の間（変化したか確認できない）`,
+          `${range}（どちらの内容か分からない期間）`, null, span.start, span.end, days, false));
+      } else {
+        rows.push(make(`unacquired-${period.versionId}`, 'unacquired', `最後の取得（${formatDay(span.from)}）より後`, `${range}（未取得）`, null, span.start, span.end, days, false));
+      }
+    }
     const next = periods[index + 1];
-    if (next && period.end && period.end < next.start) {
-      rows.push(make(`gap-${period.versionId}`, 'gap', '掲載が確認できない期間', null, period.end, next.start, daysBetween(period.end, next.start), false));
+    if (period.basis === 'published' && next && period.end && period.end < next.start) {
+      rows.push(make(`gap-${period.versionId}`, 'gap', '掲載が確認できない期間', `${formatDay(period.end)}〜${formatDay(addDays(next.start, -1))}`, null, period.end, next.start, daysBetween(period.end, next.start), false));
     }
   });
   return rows;
 }
 
-/** Applications with a date outside every period (before the first one, or in no row). */
+/** Applications with a date outside every row (before the first one), leaving out multi-job ones. */
 export function applicationsOutsidePeriods(job: JobCopyRecord, rows: readonly PeriodRow[]): number {
   const dated = Object.values(job.overallApplications?.byDate ?? {}).reduce((sum, count) => sum + count, 0);
-  return dated - rows.reduce((sum, row) => sum + (row.applications ?? 0), 0);
+  const multi = Object.values(multiListingByDate(job) ?? {}).reduce((sum, count) => sum + count, 0);
+  return dated - multi - rows.reduce((sum, row) => sum + (row.applications ?? 0), 0);
+}
+
+/**
+ * Applications that are in no version row of the period table: no application date, a date before
+ * the first acquisition, a date in a 「取得日A〜Bの間」 or 未取得 row, or linked to more than one job.
+ * null when applications were not fetched.
+ */
+export function applicationsOutsideVersions(job: JobCopyRecord, rows: readonly PeriodRow[]): number | null {
+  const overall = job.overallApplications;
+  if (!overall) return null;
+  if (!overall.byDate) return overall.total;
+  const inVersions = rows.filter(row => row.kind === 'period').reduce((sum, row) => sum + (row.applications ?? 0), 0);
+  return overall.total - inVersions;
 }
 
 export function formatPerDay(value: number | null): string {

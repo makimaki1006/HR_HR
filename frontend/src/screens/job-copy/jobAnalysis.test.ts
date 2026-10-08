@@ -33,7 +33,7 @@ describe('joint demographic reverse search', () => {
   ] };
   const job = { id: 'synthetic', jointDemographics: joint } as JobCopyRecord;
   it('answers intersecting conditions from actual cells rather than marginal totals', () => {
-    // 地域は都道府県 + 市区町村に丸め、3人未満の地域（福岡県の1人）は「その他」にまとめる
+    // 地域は都道府県 + 市区町村に丸め、3件未満の地域（福岡県の1件）は「その他」にまとめる
     expect(parseJointDemographics(joint, 8)).toEqual({ total: 8, cells: [
       { gender: '男性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', count: 3 },
       { gender: '女性', age: '20代', prefecture: '大分県', municipality: '大分県大分市', count: 4 },

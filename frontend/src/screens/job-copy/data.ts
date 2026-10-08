@@ -32,7 +32,14 @@ export interface JobCopyRecord {
   dataSource?: 'hubspot';
   hubspotUrl?: string;
   attributionUnknown?: number;
-  overallApplications?: { total: number; missingDate: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>>; byDate?: Record<string, number> };
+  overallApplications?: {
+    total: number; missingDate: number; fetchedAt: string; distributions: Partial<Record<ApplicantDimension, ApplicantDistribution>>; byDate?: Record<string, number>;
+    /**
+     * Applications that HubSpot also links to another job, by application date (included in byDate
+     * and total). Absent when the source did not check. They are never put into a version's period.
+     */
+    multiListing?: { byDate: Record<string, number>; missingDate: number };
+  };
   applicantReasons?: ApplicantReasonCollection | undefined;
   hrhPerformance?: HrhPerformanceCollection | undefined;
   jointDemographics?: JointDemographics | undefined;
@@ -40,6 +47,12 @@ export interface JobCopyRecord {
   company: string;
   media: string;
   mediaJobId: string;
+  /**
+   * The account the media job ID belongs to: the HRハッカー shop ID (id_shop_hrhakkaa) or the
+   * Airワーク account login ID (airwork_account_login_id). Billing rows are matched on media +
+   * this + mediaJobId, never on the job ID alone. Absent when not acquired.
+   */
+  accountId?: string;
   location: string;
   versions: CopyVersion[];
 }
@@ -50,7 +63,7 @@ const driverRevision = "キャッチコピー：土日は自分の時間に。�
 export const jobs: JobCopyRecord[] = [
   {
     id: 'demo-job-001', title: '地域配送ドライバー', company: 'デモ運輸A',
-    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', location: '大分県大分市',
+    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-001', accountId: 'DEMO-SHOP-01', location: '大分県大分市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 3,
@@ -94,7 +107,7 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-002', title: '倉庫内ピッキングスタッフ', company: 'デモ物流B',
-    media: 'Airワーク', mediaJobId: 'DEMO-AIR-002', location: '大分県別府市',
+    media: 'Airワーク', mediaJobId: 'DEMO-AIR-002', accountId: 'DEMO-ACCOUNT-01', location: '大分県別府市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 2,
@@ -117,7 +130,7 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-003', title: '受付事務スタッフ', company: 'デモサービスC',
-    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-003', location: '大分県大分市',
+    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-003', accountId: 'DEMO-SHOP-01', location: '大分県大分市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 0,
@@ -145,7 +158,7 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-004', title: '施設清掃スタッフ', company: 'デモ環境D',
-    media: 'Airワーク', mediaJobId: 'DEMO-AIR-004', location: '大分県中津市',
+    media: 'Airワーク', mediaJobId: 'DEMO-AIR-004', accountId: 'DEMO-ACCOUNT-01', location: '大分県中津市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 6,
@@ -167,7 +180,7 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-005', title: '調理補助スタッフ', company: 'デモフードE',
-    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-005', location: '大分県日田市',
+    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-005', accountId: 'DEMO-SHOP-01', location: '大分県日田市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 1,
@@ -190,7 +203,7 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-006', title: '製造ラインスタッフ', company: 'デモ製作F',
-    media: 'Airワーク', mediaJobId: 'DEMO-AIR-006', location: '大分県宇佐市',
+    media: 'Airワーク', mediaJobId: 'DEMO-AIR-006', accountId: 'DEMO-ACCOUNT-01', location: '大分県宇佐市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 2,
@@ -213,7 +226,7 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-007', title: '店舗販売スタッフ', company: 'デモリテールG',
-    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-007', location: '大分県佐伯市',
+    media: 'HRハッカー', mediaJobId: 'DEMO-HRH-007', accountId: 'DEMO-SHOP-01', location: '大分県佐伯市',
     
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 0,
@@ -236,7 +249,7 @@ export const jobs: JobCopyRecord[] = [
   },
   {
     id: 'demo-job-008', title: '設備点検スタッフ', company: 'デモ設備H',
-    media: 'Airワーク', mediaJobId: 'DEMO-AIR-008', location: '大分県臼杵市', versions: [],
+    media: 'Airワーク', mediaJobId: 'DEMO-AIR-008', accountId: 'DEMO-ACCOUNT-01', location: '大分県臼杵市', versions: [],
   },
 ];
 
