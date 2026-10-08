@@ -87,7 +87,17 @@ const CONTACT_PROPS: &[&str] = &[
     "email",
 ];
 const COMPANY_PROPS: &[&str] = &[
-    "name", "phone", "address", "city", "state", "zip", "industry", "domain",
+    "name", "phone", "address", "city", "state", "zip", "industry", "domain", "website",
+];
+/// 詳細だけで読む案件の項目 (キューの Search では読まない)。中央の列でリンクとして開く URL の項目を含む。
+/// 案件本体の読み取り (#1) に足すだけなので、HubSpot の呼び出し回数は増えない
+const DETAIL_ONLY_DEAL_PROPS: &[&str] = &[
+    "amount",
+    "closedate",
+    "bpo_32",
+    "website_url",
+    "recruit_media_observed_urls",
+    "risuto_jigyousyokibo",
 ];
 const CALL_PROPS: &[&str] = &[
     "hs_timestamp",
@@ -169,6 +179,14 @@ pub struct WorkspaceDeal {
     pub stop: WorkspaceStop,
     /// 案件に入っている担当者の電話番号 `bpo_29`
     pub bpo_phone: Option<String>,
+    /// URL_求人検索 `bpo_32` (Google 検索の URL。HubSpot の値のまま。画面で http(s) かを確かめて開く)
+    pub job_search_url: Option<String>,
+    /// ホームページ `website_url` (HubSpot の値のまま)
+    pub homepage_url: Option<String>,
+    /// 外部求人媒体_求人URL `recruit_media_observed_urls` (複数の URL が入ることがある。HubSpot の値のまま)
+    pub media_job_urls: Option<String>,
+    /// 求人票URL `risuto_jigyousyokibo` (HubSpot の値のまま)
+    pub job_posting_url: Option<String>,
     pub deep_link: String,
 }
 
@@ -196,6 +214,8 @@ pub struct WorkspaceCompany {
     pub address: Option<String>,
     pub industry: Option<String>,
     pub domain: Option<String>,
+    /// Website URL `website` (HubSpot の値のまま)
+    pub website: Option<String>,
     pub labels: Vec<String>,
     pub is_primary: bool,
     pub deep_link: String,
@@ -462,7 +482,7 @@ async fn build(
 
     let mut partials: Vec<WorkspacePartial> = Vec::new();
     let mut deal_props: Vec<&str> = DEAL_PROPERTIES.to_vec();
-    deal_props.extend(["amount", "closedate"]);
+    deal_props.extend(DETAIL_ONLY_DEAL_PROPS);
 
     // 1) 案件の本体 + 活動の関連 ID。メールのスコープが無く 401/403 になったときだけ、メール抜きで読み直す
     let all_types: Vec<&str> = ENGAGEMENTS.iter().map(|e| e.api_name()).collect();
@@ -714,6 +734,7 @@ async fn build(
                 address: join_address(c),
                 industry: nz(c, "industry"),
                 domain: nz(c, "domain"),
+                website: nz(c, "website"),
                 labels: r.labels.clone(),
                 is_primary: i == 0,
                 deep_link: record_url(&portal, RecordType::Company, &c.id),
@@ -756,6 +777,10 @@ async fn build(
             unreachable_check: nz(&deal, "bpo_10"),
         },
         bpo_phone: nz(&deal, "bpo_29"),
+        job_search_url: nz(&deal, "bpo_32"),
+        homepage_url: nz(&deal, "website_url"),
+        media_job_urls: nz(&deal, "recruit_media_observed_urls"),
+        job_posting_url: nz(&deal, "risuto_jigyousyokibo"),
         deep_link: record_url(&portal, RecordType::Deal, &deal.id),
     };
     Ok(WorkspaceResponse {
