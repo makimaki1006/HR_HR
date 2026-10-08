@@ -27,11 +27,22 @@ jobs:
         id: c1c4
         env:
           PYTHONIOENCODING: utf-8
-        run: python e2e_c1_c4_coverage.py
+          E2E_BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://hr-hw.onrender.com' }}
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+          E2E_PASS: ${{ secrets.E2E_PASS }}
+        run: |
+          if [ -z "$E2E_EMAIL" ] || [ -z "$E2E_PASS" ]; then
+            echo "::warning ::E2E_EMAIL/E2E_PASS が未設定。C-1 〜 C-4 をスキップ"
+            exit 0
+          fi
+          python e2e_c1_c4_coverage.py
 
       - name: Run other E2E (best-effort, non-blocking)
         env:
           PYTHONIOENCODING: utf-8
+          E2E_BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://hr-hw.onrender.com' }}
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+          E2E_PASS: ${{ secrets.E2E_PASS }}
         run: |
           python e2e_other_tabs.py || echo "other_tabs failed (non-blocking)"
           python e2e_report_insight.py || echo "report_insight failed (non-blocking)"
@@ -101,15 +112,10 @@ jobs:
           esac
           exit $rc
 
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-${{ github.run_id }}
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 14
+      # 本番にログインした画面のスクリーンショット・動画・trace は
+      # 公開リポジトリの Actions artifact に載せない (顧客データが写るため)。
+      # playwright-report/ と test-results/ はアップロードしない。
+      # 失敗の内容はジョブログ (--reporter=list) で確認する。
 
       - name: Notify Slack on failure
         if: failure()
