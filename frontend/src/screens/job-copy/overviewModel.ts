@@ -11,6 +11,7 @@ import {
   MIN_RATE_DAYS, multiListingByDate, realBilling, versionChanges,
 } from './timelineModel';
 import type { ApplicationBucket, BillingEntry, CountRange, TimelinePeriod } from './timelineModel';
+import { overviewReasonText } from './reasonCategories';
 
 export const OVERVIEW_WINDOW_DAYS = 14;
 /** A before/after window shorter than this is not compared (the same rule as the period table). */
@@ -65,6 +66,8 @@ export interface OverviewRow {
   billingFictional: boolean;
   /** The dummy billing (仮の課金データ) is shown for this job. It is never added up or sorted. */
   hasDummyBilling: boolean;
+  /** The two most frequent application reasons with counts and n, 「記録なし」, or 「未取得」. */
+  reasonText: string;
   /** No application data at all (different from zero applications). */
   applicationsAvailable: boolean;
   asOf: string;
@@ -139,6 +142,7 @@ export function overviewRow(job: JobCopyRecord, options: { billing?: readonly Bi
     billingYen: known.length && !overlapping ? known.reduce((sum, entry) => sum + (entry.amountYen ?? 0), 0) : null,
     billingConnected: billing.length > 0, billingMissingAmount: billing.length > known.length, billingOverlapping: overlapping && !conflict, billingConflict: conflict, billingFictional: billing.some(entry => entry.fictional === true),
     hasDummyBilling: dummy.length > 0,
+    reasonText: overviewReasonText(job.applicantReasons),
     applicationsAvailable, asOf,
   };
 }

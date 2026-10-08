@@ -7,7 +7,7 @@ import { performanceRatios } from './hrhPerformanceModel';
 import type { HrhPerformanceRow } from './hrhPerformanceModel';
 import { ImageGallery } from './ImageGallery';
 import { imagesByVersion } from './images';
-import { reasonSourceLabels } from './applicantReasonsModel';
+import { APPLICATION_TEXT_SOURCES, reasonSourceLabels } from './applicantReasonsModel';
 import { unmatchedApplicationCount } from './applicationCountsModel';
 import { AssumptionsNote } from './AssumptionsNote';
 import { formatDateJst, formatDateTimeJst, formatPeriodJst, formatYen, orderCategories, plainWording } from './format';
@@ -30,7 +30,9 @@ function Variant({ label, job, version, scope, metric, onVersion, onMetric }: {
 }) {
   const row = job.hrhPerformance?.rows.find(item => item.period_start === metric);
   const reasons = job.applicantReasons;
-  const texts = reasons?.available ? reasons.items.filter(item => scope === 'record' || item.versionId === version?.id) : [];
+  // Only application reasons: transfer reasons (why the person leaves a job) are a different question.
+  const applicationItems = reasons?.available ? reasons.items.filter(item => APPLICATION_TEXT_SOURCES.includes(item.sourceProperty)) : [];
+  const texts = applicationItems.filter(item => scope === 'record' || item.versionId === version?.id);
   return <section className="ab-variant" aria-label={`${label}求人の比較内容`}>
     <h3>{label}：{job.title}</h3><p>{job.company} · {job.location} · {job.media}</p><p>媒体求人ID：{job.mediaJobId} / HubSpot ID：{job.hubspotId ?? '未接続'}</p>
     {job.hubspotUrl && <a href={job.hubspotUrl} target="_blank" rel="noreferrer">{label}のHubSpot求人を開く</a>}
@@ -42,7 +44,7 @@ function Variant({ label, job, version, scope, metric, onVersion, onMetric }: {
     <label>{label}の課金実績期間<select value={metric} onChange={event => { onMetric(event.target.value); }}><option value="">実績期間を選択</option>{job.hrhPerformance?.rows.map(item => <option key={item.period_start} value={item.period_start}>{formatPeriodJst(item.period_start, item.period_end)}</option>)}</select></label>
     <MetricValues row={row} />
     <details className="jc-no-print"><summary>{label}の応募理由（内部閲覧）</summary><p>表示対象：{texts.length}記述。複数出典を含み、応募人数・回答率とは異なります。{reasons?.truncated ? '取得上限による一部表示です。' : ''}</p>
-      {!reasons?.available ? <p>応募理由は未取得です。</p> : <><p>どの版への理由か不明な記述：{reasons.items.filter(item => item.versionId === null).length}件。選択版の反応には割り当てません。</p>{texts.map(item => <details key={item.id}><summary>原記録を開く · {reasonSourceLabels[item.sourceProperty] ?? '記録欄'} · {item.applicationDate ? formatDateJst(item.applicationDate, item.applicationDate) : '応募日不明'}</summary><p>個人情報を含む可能性のある原記録です。対応する版：{item.versionId === null ? '不明' : job.versions.find(entry => entry.id === item.versionId)?.label ?? '取得した版'}</p><blockquote>{item.text}</blockquote></details>)}</>}
+      {!reasons?.available ? <p>応募理由は未取得です。</p> : <><p>どの版への理由か不明な記述：{applicationItems.filter(item => item.versionId === null).length}件。選択版の反応には割り当てません。</p>{texts.map(item => <details key={item.id}><summary>原記録を開く · {reasonSourceLabels[item.sourceProperty] ?? '記録欄'} · {item.applicationDate ? formatDateJst(item.applicationDate, item.applicationDate) : '応募日不明'}</summary><p>個人情報を含む可能性のある原記録です。対応する版：{item.versionId === null ? '不明' : job.versions.find(entry => entry.id === item.versionId)?.label ?? '取得した版'}</p><blockquote>{item.text}</blockquote></details>)}</>}
     </details>
   </section>;
 }

@@ -53,6 +53,39 @@ fn valid_id(id: &str) -> Result<(), ReadError> {
     Ok(())
 }
 
+const OPTION_LABELS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const OPTION_LABELS_RETRY: Duration = Duration::from_secs(10 * 60);
+/// How long the application response waits for a running definition read after every other read
+/// is done. A read slower than this fills the labels for later requests only.
+const LABEL_GRACE: Duration = Duration::from_millis(300);
+
+/// Reads `{results:[{name, options:[{value,label}]}]}` (HubSpot property batch read). Only the
+/// category selects are kept; None when the reply holds none of them.
+pub fn option_labels(data: &Value) -> Option<applicant_reasons::OptionLabels> {
+    let mut labels = applicant_reasons::OptionLabels::new();
+    for property in data["results"].as_array()? {
+        let Some(name) = property["name"]
+            .as_str()
+            .filter(|name| applicant_reasons::CATEGORY_PROPERTIES.contains(name))
+        else {
+            continue;
+        };
+        let options: BTreeMap<String, String> = property["options"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|option| {
+                let value = option["value"].as_str()?.trim();
+                let label = option["label"].as_str()?.trim();
+                (!value.is_empty() && !label.is_empty())
+                    .then(|| (value.to_owned(), label.to_owned()))
+            })
+            .collect();
+        labels.insert(name.to_owned(), options);
+    }
+    (!labels.is_empty()).then_some(labels)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Record {
     pub id: String,
@@ -86,10 +119,76 @@ struct Next {
     after: String,
 }
 
+/// The option labels of the reason category selects, kept per service (one HubSpot base).
+#[derive(Default)]
+struct LabelCache {
+    /// The labels of the last definition read that worked. A later failed read never drops them:
+    /// stale labels are better than none (without them a chosen category can not be named).
+    labels: Option<applicant_reasons::OptionLabels>,
+    /// When the last definition read finished, and whether it failed.
+    checked: Option<(Instant, bool)>,
+    /// A definition read is running (started at this time); no second one is started meanwhile.
+    running_since: Option<Instant>,
+}
+
+/// What reason_option_labels() does with the cache.
+#[derive(Debug, PartialEq)]
+enum LabelPlan {
+    /// Use these labels; no definition read is started.
+    Use(Option<applicant_reasons::OptionLabels>),
+    /// Start a definition read. With kept labels, the response uses them at once and the read
+    /// only refreshes them for later requests; without, the response waits up to LABEL_GRACE.
+    Read(Option<applicant_reasons::OptionLabels>),
+}
+
+impl LabelCache {
+    fn plan(&mut self, now: Instant) -> LabelPlan {
+        if let Some((at, failed)) = self.checked {
+            let ttl = if failed {
+                OPTION_LABELS_RETRY
+            } else {
+                OPTION_LABELS_TTL
+            };
+            if now.saturating_duration_since(at) < ttl {
+                return LabelPlan::Use(self.labels.clone());
+            }
+        }
+        if self
+            .running_since
+            .is_some_and(|since| now.saturating_duration_since(since) < Duration::from_secs(60))
+        {
+            // Another request started the read; use the last labels kept, if any.
+            return LabelPlan::Use(self.labels.clone());
+        }
+        self.running_since = Some(now);
+        LabelPlan::Read(self.labels.clone())
+    }
+    /// Records a finished definition read and returns the labels to use now.
+    fn finish(
+        &mut self,
+        now: Instant,
+        read: Option<applicant_reasons::OptionLabels>,
+    ) -> Option<applicant_reasons::OptionLabels> {
+        self.checked = Some((now, read.is_none()));
+        self.running_since = None;
+        if read.is_some() {
+            self.labels = read;
+        }
+        self.labels.clone()
+    }
+}
+
+enum PendingLabels {
+    Ready(Option<applicant_reasons::OptionLabels>),
+    Reading(tokio::task::JoinHandle<Option<applicant_reasons::OptionLabels>>),
+}
+
+#[derive(Clone)]
 pub struct JobReadService {
     client: reqwest::Client,
     token: String,
     base: String,
+    labels: Arc<std::sync::Mutex<LabelCache>>,
 }
 impl JobReadService {
     #[cfg(test)]
@@ -113,6 +212,7 @@ impl JobReadService {
             client,
             token,
             base,
+            labels: Arc::default(),
         })
     }
     async fn request(
@@ -495,25 +595,64 @@ impl JobReadService {
         }
         Ok((unambiguous, multi))
     }
+    /// Option labels (internal value -> label) of the reason category selects, from the
+    /// property definitions. Returns the kept labels while they are fresh (OPTION_LABELS_TTL, or
+    /// OPTION_LABELS_RETRY after a failed read). Otherwise it starts one definition read in the
+    /// background (never two at once). With labels kept from an earlier read, those are used at
+    /// once and the read only refreshes them; a failed refresh keeps them. With none kept, the
+    /// application read waits for it at most LABEL_GRACE (see applicants()). A failed read is not
+    /// fatal: the screen then cannot name the chosen category and says so.
+    fn reason_option_labels(&self) -> PendingLabels {
+        let Ok(mut cache) = self.labels.lock() else {
+            return PendingLabels::Ready(None);
+        };
+        let kept = match cache.plan(Instant::now()) {
+            LabelPlan::Use(labels) => return PendingLabels::Ready(labels),
+            LabelPlan::Read(kept) => kept,
+        };
+        drop(cache);
+        let service = self.clone();
+        let handle = tokio::spawn(async move {
+            let read = service
+                .request(
+                    "/crm/v3/properties/0-421/batch/read",
+                    &[],
+                    Some(json!({"archived":false,"inputs":applicant_reasons::CATEGORY_PROPERTIES.iter().map(|name|json!({"name":name})).collect::<Vec<_>>()})),
+                )
+                .await
+                .ok()
+                .and_then(|data| option_labels(&data));
+            match service.labels.lock() {
+                Ok(mut cache) => cache.finish(Instant::now(), read),
+                Err(_) => read,
+            }
+        });
+        if kept.is_some() {
+            // The refresh runs on by itself; this response uses the kept labels.
+            PendingLabels::Ready(kept)
+        } else {
+            PendingLabels::Reading(handle)
+        }
+    }
     pub async fn applicants(&self, company: &str, listing: &str) -> Result<Value, ReadError> {
         self.validate_customer_listing(company, listing).await?;
         let ids = self.all_associations("0-420", listing, "0-421").await?;
-        let rows = self
-            .batch(
-                "0-421",
-                &ids,
-                &[
-                    "yingmuri",
-                    "seibetsu",
-                    "nenrei",
-                    "todoufuken",
-                    "shikuchouson",
-                    "oubodouki",
-                    "ouboriyuu_baitaikisai",
-                    "ouboriyuu_hiaringu",
-                ],
-            )
-            .await?;
+        // Every reason source is asked for in the same batch read as the other application
+        // fields (no extra read per source).
+        let mut properties = vec![
+            "yingmuri",
+            "seibetsu",
+            "nenrei",
+            "todoufuken",
+            "shikuchouson",
+        ];
+        properties.extend(applicant_reasons::PROPERTIES);
+        // The option labels of the two category selects come from a separate definition read,
+        // kept for OPTION_LABELS_TTL. When none are kept, that read runs in the background while
+        // the applications are read, and the response waits for it at most LABEL_GRACE after
+        // everything else is done; a slower read only fills the labels for later requests.
+        let pending_labels = self.reason_option_labels();
+        let rows = self.batch("0-421", &ids, &properties).await?;
         // Missing/undefined properties remain unknown; do not turn an existing
         // appointment into zero applications. hs_appointment_start is synthesized
         // by the importer from yingmuri and does not prove the real event time.
@@ -523,7 +662,26 @@ impl JobReadService {
         // are still sent, the multi-job counts are left out (unknown, not 0), and no application
         // is put into a version's period (which needs to know it belongs to this job only).
         let links = self.listing_links(&ids, listing).await;
-        let reasons = applicant_reasons::extract(listing, &rows, chrono::Utc::now().to_rfc3339());
+        let labels = match pending_labels {
+            PendingLabels::Ready(labels) => labels,
+            PendingLabels::Reading(mut handle) => tokio::time::timeout(LABEL_GRACE, &mut handle)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten(),
+        };
+        let mut reasons = applicant_reasons::extract_with_labels(
+            listing,
+            &rows,
+            chrono::Utc::now().to_rfc3339(),
+            labels.as_ref(),
+            applicant_reasons::OptionLabelsStatus::Unavailable,
+        );
+        // The reasons of an application also linked to another job are left out of the reason
+        // counts on the screen, as its application is left out of the period table.
+        if let Ok((_, multi)) = &links {
+            reasons.mark_multi_listing(listing, &rows, multi);
+        }
         let mut response = json!({"listing_id":listing,"metric":"HubSpot応募レコード数","summary":null,"version_attribution":"日次観測との対応は別途必要。現在の関連による集計。","attribute_basis":"現在取得できる属性","billing":null,"capture_bundle":null,"dated_comparison":null,"capture_status":"not_configured_or_not_matched"});
         response["applicant_reasons"] =
             serde_json::to_value(reasons).map_err(|_| fail("reason_serialization_failed"))?;
@@ -614,6 +772,19 @@ fn round_snapshot_areas(data: &mut Value) {
     };
     for result in results {
         protect_applicant_areas(result);
+        if let Some(selections) = result["applicant_reasons"]["selections"].as_array_mut() {
+            for selection in selections {
+                for key in ["value", "label"] {
+                    if let Some(text) = selection[key].as_str() {
+                        let masked: String = applicant_reasons::mask_personal_details(text)
+                            .chars()
+                            .take(applicant_reasons::MAX_VALUE_CHARS)
+                            .collect();
+                        selection[key] = json!(masked);
+                    }
+                }
+            }
+        }
         if let Some(items) = result["applicant_reasons"]["items"].as_array_mut() {
             for item in items {
                 if let Some(text) = item["text"].as_str() {
@@ -2392,6 +2563,98 @@ mod tests {
         for raw in ["府内町", "山田", "090", "1234", "5678"] {
             assert!(!text.contains(raw), "{raw:?} left in {text}");
         }
+    }
+
+    #[test]
+    fn stored_selection_values_are_masked_before_sending() {
+        let mut data = json!({"results": [{
+            "listing_id": "30",
+            "summary": {"total": 1, "dimensions": {}},
+            "applicant_reasons": {"selections": [
+                {"value": "給与", "label": "給与"},
+                {"value": "090-1234-5678", "label": null}
+            ]}
+        }]});
+        round_snapshot_areas(&mut data);
+        let selections = &data["results"][0]["applicant_reasons"]["selections"];
+        assert_eq!(selections[0]["value"], "給与");
+        assert_eq!(selections[0]["label"], "給与");
+        assert_eq!(selections[1]["value"], "＊＊");
+        assert!(selections[1]["label"].is_null());
+    }
+
+    fn some_labels(label: &str) -> Option<applicant_reasons::OptionLabels> {
+        Some(BTreeMap::from([(
+            "ouboriyuukategori_hiaringu".to_owned(),
+            BTreeMap::from([("kyuuyo".to_owned(), label.to_owned())]),
+        )]))
+    }
+
+    #[test]
+    fn label_cache_keeps_good_labels_through_a_stale_refresh_and_a_failed_one() {
+        let start = Instant::now();
+        let mut cache = LabelCache::default();
+        // Nothing kept: the first request starts a read and has no labels to use meanwhile.
+        assert_eq!(cache.plan(start), LabelPlan::Read(None));
+        // A second request while it runs does not start another one.
+        assert_eq!(cache.plan(start), LabelPlan::Use(None));
+        assert_eq!(
+            cache.finish(start, some_labels("給与")),
+            some_labels("給与")
+        );
+        // Fresh: used without a read.
+        let fresh = start + Duration::from_secs(60);
+        assert_eq!(cache.plan(fresh), LabelPlan::Use(some_labels("給与")));
+        // Stale (after the TTL): a refresh starts, and this request still gets the kept labels.
+        let stale = start + OPTION_LABELS_TTL + Duration::from_secs(1);
+        assert_eq!(cache.plan(stale), LabelPlan::Read(some_labels("給与")));
+        assert_eq!(cache.plan(stale), LabelPlan::Use(some_labels("給与")));
+        // The refresh fails (429 / 5xx / timeout / 403): the kept labels stay.
+        assert_eq!(cache.finish(stale, None), some_labels("給与"));
+        let after_fail = stale + Duration::from_secs(1);
+        assert_eq!(cache.plan(after_fail), LabelPlan::Use(some_labels("給与")));
+        // After OPTION_LABELS_RETRY it tries again, still handing out the kept labels.
+        let retry = stale + OPTION_LABELS_RETRY + Duration::from_secs(1);
+        assert_eq!(cache.plan(retry), LabelPlan::Read(some_labels("給与")));
+        // A good refresh replaces them and the TTL starts again.
+        assert_eq!(
+            cache.finish(retry, some_labels("給与（月給）")),
+            some_labels("給与（月給）")
+        );
+        assert_eq!(
+            cache.plan(retry + Duration::from_secs(OPTION_LABELS_RETRY.as_secs() + 5)),
+            LabelPlan::Use(some_labels("給与（月給）"))
+        );
+    }
+
+    #[test]
+    fn label_cache_without_good_labels_retries_after_the_short_wait() {
+        let start = Instant::now();
+        let mut cache = LabelCache::default();
+        assert_eq!(cache.plan(start), LabelPlan::Read(None));
+        assert_eq!(cache.finish(start, None), None);
+        assert_eq!(
+            cache.plan(start + Duration::from_secs(1)),
+            LabelPlan::Use(None)
+        );
+        assert_eq!(
+            cache.plan(start + OPTION_LABELS_RETRY + Duration::from_secs(1)),
+            LabelPlan::Read(None)
+        );
+    }
+
+    #[test]
+    fn option_labels_keep_only_the_category_selects() {
+        let labels = option_labels(&json!({"results":[
+            {"name":"ouboriyuukategori_hiaringu","options":[{"value":"a","label":"給与"},{"value":"","label":"x"}]},
+            {"name":"other","options":[{"value":"b","label":"y"}]}
+        ]}))
+        .unwrap();
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels["ouboriyuukategori_hiaringu"].len(), 1);
+        assert_eq!(labels["ouboriyuukategori_hiaringu"]["a"], "給与");
+        assert!(option_labels(&json!({"results":[]})).is_none());
+        assert!(option_labels(&json!({"message":"x"})).is_none());
     }
 
     #[test]

@@ -2,11 +2,38 @@
 use super::Record;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-pub const PROPERTIES: [&str; 3] = ["oubodouki", "ouboriyuu_baitaikisai", "ouboriyuu_hiaringu"];
-pub const MAX_ITEMS: usize = 100;
+/// Free-text sources: 応募動機, 応募理由_媒体記載, 応募理由_ヒアリング, 現職・前職からの転職理由.
+/// Every text is masked (mask_personal_details) before it leaves the server.
+pub const TEXT_PROPERTIES: [&str; 4] = [
+    "oubodouki",
+    "ouboriyuu_baitaikisai",
+    "ouboriyuu_hiaringu",
+    "genshokumaeshokukaranotenshokuriyuu",
+];
+/// Select sources: 応募理由カテゴリ_ヒアリング, 応募理由カテゴリ_媒体記載 (給与/勤務地/職種興味/会社規模/その他/未設定).
+pub const CATEGORY_PROPERTIES: [&str; 2] = [
+    "ouboriyuukategori_hiaringu",
+    "ouboriyuukategori_baitaikisai",
+];
+/// Every source read now, in a fixed order (one batch read asks for all of them).
+pub const PROPERTIES: [&str; 6] = [
+    "oubodouki",
+    "ouboriyuu_baitaikisai",
+    "ouboriyuu_hiaringu",
+    "genshokumaeshokukaranotenshokuriyuu",
+    "ouboriyuukategori_hiaringu",
+    "ouboriyuukategori_baitaikisai",
+];
+/// The sources of a snapshot written before 2026-10-08. Such a snapshot has no applicant keys
+/// and no category selections; the other sources are 未取得 there, never 0.
+pub const LEGACY_PROPERTIES: [&str; 3] =
+    ["oubodouki", "ouboriyuu_baitaikisai", "ouboriyuu_hiaringu"];
+pub const MAX_ITEMS: usize = 500;
 pub const MAX_TEXT_CHARS: usize = 2000;
+/// A select value longer than this is not a value from the option list; it is cut.
+pub const MAX_VALUE_CHARS: usize = 100;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,9 +47,51 @@ pub struct Reasons {
     pub total_source_values: usize,
     pub source_counts: BTreeMap<String, SourceCounts>,
     pub items: Vec<Reason>,
+    /// Category values chosen in HubSpot, one per applicant and value. None in a snapshot written
+    /// before the category sources were read (未取得, not 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selections: Option<Vec<Selection>>,
+    /// Whether the option labels of the category selects were read for this response. None in a
+    /// snapshot written before the category sources were read (it has no selections).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub option_labels: Option<OptionLabelsStatus>,
+    /// Applicant keys (as in Reason::applicant) of the applications HubSpot also links to another
+    /// job. The screen leaves them out of the reason counts, as the period table leaves them out
+    /// of the application counts. None when that was not read (a failed association read, or a
+    /// stored snapshot): the screen then says it cannot tell them apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_listing_applicants: Option<Vec<String>>,
     pub missing: usize,
     pub blank: usize,
+    /// True only when texts were left out because there were more than MAX_ITEMS. A single text
+    /// longer than MAX_TEXT_CHARS is cut but still counted and classified; that is not this.
     pub truncated: bool,
+}
+
+/// How the option labels of a response were obtained. The screen uses it to tell why a chosen
+/// value has no label: the definition was read and does not list the value (the option was
+/// removed or renamed in HubSpot), the read failed or was slow (reopening may help), or a stored
+/// snapshot was written without the labels (reopening does not help).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptionLabelsStatus {
+    Read,
+    Unavailable,
+    NotStored,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Selection {
+    /// Opaque per-application key (same as Reason::applicant); not the HubSpot record ID.
+    pub applicant: String,
+    pub source_property: String,
+    /// The internal option value HubSpot stores.
+    pub value: String,
+    /// The option label from the property definition; None when the definition was not read
+    /// or does not list the value (the screen then shows the value).
+    pub label: Option<String>,
+    pub application_date: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -37,6 +106,10 @@ pub struct SourceCounts {
 #[serde(deny_unknown_fields)]
 pub struct Reason {
     pub id: String,
+    /// Opaque per-application key, the same for every text and selection of one application, so
+    /// the screen can count applications instead of texts. None in an old snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applicant: Option<String>,
     pub text: String,
     pub source: String,
     pub source_property: String,
@@ -152,14 +225,204 @@ fn is_mail_local(c: char) -> bool {
 fn is_mail_domain(c: char) -> bool {
     c.is_ascii_alphanumeric() || ".-".contains(c)
 }
+fn is_hiragana(c: char) -> bool {
+    ('\u{3041}'..='\u{309F}').contains(&c)
+}
+fn is_name_char(c: char) -> bool {
+    is_han(c) || is_katakana(c)
+}
+/// A full-width ASCII character (ＩＤ, ｔａｒｏ) as its half-width form.
+fn ascii_fold(c: char) -> char {
+    if ('！'..='～').contains(&c) {
+        char::from_u32(c as u32 - 0xFEE0).unwrap_or(c)
+    } else {
+        c
+    }
+}
+fn starts_with(chars: &[char], index: usize, word: &str) -> bool {
+    (index..)
+        .zip(word.chars())
+        .all(|(at, w)| chars.get(at) == Some(&w))
+}
+/// Skips the spaces, colons and は between a label and its value (生年月日：, LINE ID は).
+fn skip_label_gap(chars: &[char], mut index: usize) -> usize {
+    let start = index;
+    while index < chars.len() && index - start < 4 && " 　:：は".contains(chars[index]) {
+        index += 1;
+    }
+    index
+}
+/// The end of a date written from `start` (1990年5月1日, 1990/5/1, S55.3.1, 平成2年5月1日), when it
+/// holds a digit.
+fn date_run_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut end = start;
+    let mut digits = 0;
+    while end < chars.len() && end - start < 20 {
+        let c = chars[end];
+        if is_digit(c) || is_kanji_digit(c) {
+            digits += 1;
+        } else if !("年月日/／.．-－ 　".contains(c)
+            || "昭和平成令元".contains(c)
+            || "SHRshr".contains(ascii_fold(c)))
+        {
+            break;
+        }
+        end += 1;
+    }
+    while end > start && " 　".contains(chars[end - 1]) {
+        end -= 1;
+    }
+    (digits > 0).then_some(end)
+}
+/// Before a 7-digit number: 〒 or 郵便番号 (with spaces or a colon between).
+fn postal_mark_before(chars: &[char], index: usize) -> bool {
+    let mut at = index;
+    while at > 0 && index - at < 3 && " 　:：".contains(chars[at - 1]) {
+        at -= 1;
+    }
+    (at > 0 && chars[at - 1] == '〒') || (at >= 4 && starts_with(chars, at - 4, "郵便番号"))
+}
+/// A rural lot: the name right before the number holds 大字, starts with 字, or has 字 right after
+/// a 市町村郡 (大字松岡1234, 村字中原567). 文字・数字・赤字 are not.
+fn is_rural_lot_name(chars: &[char], index: usize) -> bool {
+    let mut from = index;
+    while from > 0 && index - from < 12 && is_name_char(chars[from - 1]) {
+        from -= 1;
+    }
+    let name = &chars[from..index];
+    name.first() == Some(&'字')
+        || name
+            .windows(2)
+            .any(|pair| pair[1] == '字' && (pair[0] == '大' || "市町村郡".contains(pair[0])))
+}
+/// Not names although written before さん・様: 皆さん, お客様, 奥さん ...
+const NOT_NAMES: [&str; 9] = ["皆", "客", "お客", "奥", "神", "王", "利用者", "患者", "諸"];
+/// Hiragana words before さん・くん・ちゃん that are not names (たくさん, みなさん, おかあさん ...).
+const NOT_HIRAGANA_NAMES: [&str; 17] = [
+    "みな",
+    "たく",
+    "みんな",
+    "おじい",
+    "おばあ",
+    "おかあ",
+    "おとう",
+    "おねえ",
+    "おにい",
+    "おば",
+    "おじ",
+    "あか",
+    "おく",
+    "おつかれ",
+    "ごくろう",
+    "あなた",
+    "どちら",
+];
+/// The start of the name written right before `end` (an honorific or と申します): up to 8 kanji or
+/// katakana, a surname before one space (山田 太郎さん), or with `hiragana`, up to 6 hiragana
+/// (やまださん). None when nothing there is a name.
+fn name_before(chars: &[char], end: usize, hiragana: bool) -> Option<usize> {
+    let mut start = end;
+    while start > 0 && end - start < 8 && is_name_char(chars[start - 1]) {
+        start -= 1;
+    }
+    if start < end {
+        let name: String = chars[start..end].iter().collect();
+        if NOT_NAMES.contains(&name.as_str()) {
+            return None;
+        }
+        if start >= 2 && " 　".contains(chars[start - 1]) && is_name_char(chars[start - 2]) {
+            let gap = start - 1;
+            let mut surname = gap;
+            while surname > 0 && gap - surname < 6 && is_name_char(chars[surname - 1]) {
+                surname -= 1;
+            }
+            return Some(surname);
+        }
+        return Some(start);
+    }
+    if !hiragana {
+        return None;
+    }
+    while start > 0 && end - start < 6 && is_hiragana(chars[start - 1]) {
+        start -= 1;
+    }
+    let name: String = chars[start..end].iter().collect();
+    (end - start >= 2 && !NOT_HIRAGANA_NAMES.iter().any(|word| name.ends_with(word)))
+        .then_some(start)
+}
+/// The end of a name written after a label (紹介者：佐藤一郎): up to 8 kanji or katakana, and a given
+/// name after one space.
+fn name_after(chars: &[char], start: usize) -> usize {
+    let mut end = start;
+    while end < chars.len() && end - start < 8 && is_name_char(chars[end]) {
+        end += 1;
+    }
+    if end > start
+        && end + 1 < chars.len()
+        && " 　".contains(chars[end])
+        && is_name_char(chars[end + 1])
+    {
+        let gap = end + 1;
+        end = gap;
+        while end < chars.len() && end - gap < 6 && is_name_char(chars[end]) {
+            end += 1;
+        }
+    }
+    end
+}
+/// An account written after LINE or ID (LINE ID: taro_yamada123): the masked range, or None when
+/// no account of 3 or more characters follows.
+fn account_after_label(chars: &[char], index: usize) -> Option<(usize, usize)> {
+    let word_at = |at: usize, word: &str| {
+        word.chars().enumerate().all(|(offset, w)| {
+            chars
+                .get(at + offset)
+                .is_some_and(|c| ascii_fold(*c).eq_ignore_ascii_case(&w))
+        })
+    };
+    let boundary = |at: usize| {
+        chars
+            .get(at)
+            .is_none_or(|c| !ascii_fold(*c).is_ascii_alphabetic())
+    };
+    if index > 0 && ascii_fold(chars[index - 1]).is_ascii_alphanumeric() {
+        return None;
+    }
+    let mut at = if word_at(index, "line") && boundary(index + 4) {
+        index + 4
+    } else if word_at(index, "id") && boundary(index + 2) {
+        index + 2
+    } else {
+        return None;
+    };
+    at = skip_label_gap(chars, at);
+    if word_at(at, "id") && boundary(at + 2) {
+        at = skip_label_gap(chars, at + 2);
+    }
+    let mut end = at;
+    while end < chars.len() && {
+        let c = ascii_fold(chars[end]);
+        c.is_ascii_alphanumeric() || "._-@".contains(c)
+    } {
+        end += 1;
+    }
+    (end - at >= 3).then_some((at, end))
+}
 
 /// Masks the parts of a free-text reason that can point at one person before it leaves the
-/// server: an address finer than 市区町村 (丁目・番地・号・「3-10-1」 and the town or building
-/// name written right before it, house numbers in kanji such as 三丁目十番一号, a building name
-/// with a room number such as 府内ビル201, and a town name written after a 市区町村 name such as
-/// 大分市府内町), a phone number, an e-mail address, and a name written with さん・様・氏. Each
-/// part becomes 「＊＊」. This is a best-effort filter, not anonymization; the screen still says
-/// the text may hold personal information.
+/// server. Each part becomes 「＊＊」:
+/// - an address finer than 市区町村: 丁目・番地・号・「3-10-1」・「3の10の1」 and the town or
+///   building name written right before it, house numbers in kanji (三丁目十番一号), a building
+///   name with a room number (府内ビル201), a town name after a 市区町村 name (大分市府内町), a rural
+///   lot (大字松岡1234, 大分市大字松岡), a 条丁目 address (北1条西2丁目), and a postal code (〒8700021);
+/// - a phone number, also split by spaces or dots (090 1234 5678, 090.1234.5678);
+/// - an e-mail address, and an account written after LINE or ID;
+/// - a date of birth (生年月日1990年5月1日, 1990年5月1日生まれ);
+/// - a name written before さん・様・氏・くん・ちゃん・君・先生 (kanji, katakana or hiragana, up to 8
+///   characters, with a surname before one space), before と申します, and after 紹介者.
+///
+/// A name written without any of these (姉の山田花子) is not found. This is a best-effort filter,
+/// not anonymization; the screen says so and that the text may hold personal information.
 pub fn mask_personal_details(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut masked = vec![false; chars.len()];
@@ -176,10 +439,39 @@ pub fn mask_personal_details(text: &str) -> String {
             while end < chars.len() && is_mail_domain(chars[end]) {
                 end += 1;
             }
-            if start < index && chars[index + 1..end].contains(&'.') {
+            if start < index && end > index + 1 {
                 masked[start..end].iter_mut().for_each(|m| *m = true);
             }
             index = end.max(index + 1);
+            continue;
+        }
+        // an account after LINE or ID
+        if let Some((start, end)) = account_after_label(&chars, index) {
+            masked[start..end].iter_mut().for_each(|m| *m = true);
+            index = end;
+            continue;
+        }
+        // a date of birth after its label
+        if let Some(label) = ["生年月日", "誕生日"]
+            .iter()
+            .find(|label| starts_with(&chars, index, label))
+        {
+            let start = skip_label_gap(&chars, index + label.chars().count());
+            match date_run_end(&chars, start) {
+                Some(end) => {
+                    masked[start..end].iter_mut().for_each(|m| *m = true);
+                    index = end;
+                }
+                None => index = start,
+            }
+            continue;
+        }
+        // a name after 紹介者
+        if starts_with(&chars, index, "紹介者") {
+            let start = skip_label_gap(&chars, index + 3);
+            let end = name_after(&chars, start);
+            masked[start..end].iter_mut().for_each(|m| *m = true);
+            index = end.max(index + 3);
             continue;
         }
         // a run of numbers, dashes and address words (3丁目10番地1号, 3-10-1, 097-123-4567)
@@ -192,21 +484,56 @@ pub fn mask_personal_details(text: &str) -> String {
                 chars.get(look) == Some(&'丁')
             });
         if starts_number {
+            // a date followed by 生まれ
+            if is_digit(c) {
+                if let Some(end) = date_run_end(&chars, index) {
+                    let mut after = end;
+                    while after < chars.len() && " 　".contains(chars[after]) {
+                        after += 1;
+                    }
+                    if starts_with(&chars, after, "生まれ") || starts_with(&chars, after, "生れ")
+                    {
+                        masked[index..end].iter_mut().for_each(|m| *m = true);
+                        index = end;
+                        continue;
+                    }
+                }
+            }
             let mut end = index;
             let mut digits = 0;
+            // the most digits not split by a space, a dot or の (a dash does not split)
+            let mut group = 0;
+            let mut longest_group = 0;
             let mut address = false;
             let mut dashed = false;
+            let mut spaced = false;
+            let mut joins = 0;
             while end < chars.len() {
                 let here = chars[end];
                 let next = chars.get(end + 1).copied();
+                let after_digit = end > index && is_digit(chars[end - 1]);
                 if is_digit(here)
                     || (is_kanji_digit(here)
                         && (!address || kanji_number_continues_address(&chars, end)))
                 {
-                    digits += usize::from(is_digit(here));
+                    if is_digit(here) {
+                        digits += 1;
+                        group += 1;
+                        longest_group = longest_group.max(group);
+                    }
                     end += 1;
                 } else if is_dash(here) && next.is_some_and(is_digit) && end > index {
                     dashed = true;
+                    end += 1;
+                } else if here == 'の' && after_digit && next.is_some_and(is_digit) {
+                    // 3の10の1
+                    joins += 1;
+                    group = 0;
+                    end += 1;
+                } else if " 　.．".contains(here) && after_digit && next.is_some_and(is_digit) {
+                    // 090 1234 5678 / 090.1234.5678
+                    spaced = true;
+                    group = 0;
                     end += 1;
                 } else if (here == '丁' && next == Some('目'))
                     || (here == '番' && next == Some('地'))
@@ -231,20 +558,44 @@ pub fn mask_personal_details(text: &str) -> String {
                     break;
                 }
             }
-            let room = !address && !dashed && is_room_number(&chars, index, end, digits);
-            if address || dashed || digits >= 8 || room {
+            let spaced_phone =
+                spaced && joins == 0 && (10..=11).contains(&digits) && "0０".contains(c);
+            let lot = joins >= 2
+                || (joins == 1 && index > 0 && "町村字丁目通".contains(chars[index - 1]));
+            let rural = is_rural_lot_name(&chars, index);
+            let postal = !dashed
+                && !address
+                && digits == 7
+                && longest_group == 7
+                && postal_mark_before(&chars, index);
+            let room =
+                !address && !dashed && joins == 0 && is_room_number(&chars, index, end, digits);
+            if address
+                || dashed
+                || longest_group >= 8
+                || room
+                || spaced_phone
+                || lot
+                || rural
+                || postal
+            {
                 // the town or building name written right before an address number (not before
-                // a phone number: 「携帯09012345678」 keeps 「携帯」)
-                let street = address || room || (dashed && digits < 10);
+                // a phone number: 「携帯09012345678」 keeps 「携帯」), through 北1条 of 北1条西2丁目
+                let street = address || room || lot || rural || (dashed && digits < 10);
                 let mut start = index;
                 let mut taken = 0;
-                while street
-                    && start > 0
-                    && taken < 12
-                    && (is_han(chars[start - 1]) || is_katakana(chars[start - 1]))
-                {
-                    start -= 1;
-                    taken += 1;
+                while street && start > 0 && taken < 12 {
+                    if is_name_char(chars[start - 1]) {
+                        start -= 1;
+                        taken += 1;
+                    } else if is_digit(chars[start - 1]) && chars[start] == '条' {
+                        while start > 0 && is_digit(chars[start - 1]) {
+                            start -= 1;
+                            taken += 1;
+                        }
+                    } else {
+                        break;
+                    }
                 }
                 masked[start..end].iter_mut().for_each(|m| *m = true);
             }
@@ -257,24 +608,42 @@ pub fn mask_personal_details(text: &str) -> String {
             index = end;
             continue;
         }
-        // a name followed by さん・様・氏
-        let honorific = ["さん", "様", "氏", "くん", "ちゃん"]
-            .iter()
-            .find(|word| chars[index..].starts_with(&word.chars().collect::<Vec<_>>()));
-        if let Some(word) = honorific {
-            let mut start = index;
-            while start > 0
-                && index - start < 4
-                && (is_han(chars[start - 1]) || is_katakana(chars[start - 1]))
-            {
-                start -= 1;
+        // a rural district (大分市大字松岡: the city is kept)
+        if starts_with(&chars, index, "大字") {
+            let mut end = index + 2;
+            while end < chars.len() && end - index < 12 && is_name_char(chars[end]) {
+                end += 1;
             }
-            let name: String = chars[start..index].iter().collect();
-            if start < index && !["皆", "客", "お客", "奥", "神", "王"].contains(&name.as_str())
-            {
+            if end > index + 2 {
+                masked[index..end].iter_mut().for_each(|m| *m = true);
+            }
+            index = end;
+            continue;
+        }
+        // a name before と申します
+        if ["と申します", "と申し", "と言います", "といいます"]
+            .iter()
+            .any(|word| starts_with(&chars, index, word))
+        {
+            if let Some(start) = name_before(&chars, index, false) {
                 masked[start..index].iter_mut().for_each(|m| *m = true);
             }
-            index += word.chars().count();
+            index += 1;
+            continue;
+        }
+        // a name followed by さん・様・氏・くん・ちゃん・君・先生 (not ちゃんと)
+        let honorific = ["さん", "様", "氏", "くん", "ちゃん", "君", "先生"]
+            .iter()
+            .find(|word| starts_with(&chars, index, word));
+        if let Some(word) = honorific {
+            let length = word.chars().count();
+            let kana = ["さん", "くん", "ちゃん"].contains(word);
+            if !(*word == "ちゃん" && chars.get(index + length) == Some(&'と')) {
+                if let Some(start) = name_before(&chars, index, kana) {
+                    masked[start..index].iter_mut().for_each(|m| *m = true);
+                }
+            }
+            index += length;
             continue;
         }
         index += 1;
@@ -294,9 +663,66 @@ pub fn mask_personal_details(text: &str) -> String {
     result
 }
 
+fn opaque(parts: &[&str]) -> String {
+    let mut hash = Sha256::new();
+    for part in parts {
+        hash.update(part.as_bytes());
+        hash.update([0]);
+    }
+    format!("{:x}", hash.finalize())
+}
+
+/// The opaque per-application key sent with every reason (not the HubSpot record ID).
+pub fn applicant_key(listing: &str, id: &str) -> String {
+    opaque(&[listing, id, "applicant"])
+}
+
+impl Reasons {
+    /// Records which applications HubSpot also links to another job (`multi`: record IDs), as
+    /// applicant keys. Only in the current shape (a legacy one has no applicant keys).
+    pub fn mark_multi_listing(&mut self, listing: &str, rows: &[Record], multi: &BTreeSet<String>) {
+        if self.selections.is_none() {
+            return;
+        }
+        let ids: BTreeSet<&String> = rows.iter().map(|row| &row.id).collect();
+        self.multi_listing_applicants = Some(
+            ids.into_iter()
+                .filter(|id| multi.contains(*id))
+                .map(|id| applicant_key(listing, id))
+                // Sorted by key, so the order says nothing about the record IDs.
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+        );
+    }
+}
+
+/// Option labels by property and internal value, from the property definitions.
+pub type OptionLabels = BTreeMap<String, BTreeMap<String, String>>;
+
+/// The reasons of a stored snapshot read without the option labels.
 pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
+    extract_with_labels(
+        listing,
+        rows,
+        fetched_at,
+        None,
+        OptionLabelsStatus::NotStored,
+    )
+}
+
+/// `labels`: the option labels when the definitions were read; otherwise `without` says why
+/// there are none (Unavailable on the live read, NotStored for a snapshot).
+pub fn extract_with_labels(
+    listing: &str,
+    rows: &[Record],
+    fetched_at: String,
+    labels: Option<&OptionLabels>,
+    without: OptionLabelsStatus,
+) -> Reasons {
     // Same deterministic duplicate handling as the existing aggregate summary.
     let unique: BTreeMap<_, _> = rows.iter().map(|row| (&row.id, row)).collect();
+    let mut selections = Vec::new();
     let mut reasons = Reasons {
         available: true,
         source: "hubspot".into(),
@@ -310,11 +736,20 @@ pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
             .map(|key| ((*key).into(), SourceCounts::default()))
             .collect(),
         items: Vec::new(),
+        selections: None,
+        option_labels: Some(if labels.is_some() {
+            OptionLabelsStatus::Read
+        } else {
+            without
+        }),
+        multi_listing_applicants: None,
         missing: 0,
         blank: 0,
         truncated: false,
     };
     for row in unique.values() {
+        let applicant = applicant_key(listing, &row.id);
+        let application_date = row.value("yingmuri").and_then(date);
         for property in PROPERTIES {
             let counts = reasons
                 .source_counts
@@ -326,6 +761,54 @@ pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
                 continue;
             };
             let text = raw.trim();
+            if CATEGORY_PROPERTIES.contains(&property) {
+                // A multiple-choice value is written "a;b"; each chosen value is one selection. A
+                // value with nothing but separators (";") chose nothing and counts as blank, so
+                // nonblank always equals the applications that have a selection.
+                // The label is looked up with the raw internal value: masking first would turn an
+                // option value that looks like a long number into 「＊＊」 and lose its label. Only
+                // what is sent is masked.
+                let mut chosen: Vec<&str> = text
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .collect();
+                chosen.sort();
+                chosen.dedup();
+                if chosen.is_empty() {
+                    counts.blank += 1;
+                    reasons.blank += 1;
+                    continue;
+                }
+                counts.nonblank += 1;
+                let mut sent: Vec<(String, Option<String>)> = chosen
+                    .into_iter()
+                    .map(|raw_value| {
+                        let label = labels
+                            .and_then(|labels| labels.get(property))
+                            .and_then(|options| options.get(raw_value))
+                            .map(|label| label.chars().take(MAX_VALUE_CHARS).collect());
+                        let value: String = mask_personal_details(raw_value)
+                            .chars()
+                            .take(MAX_VALUE_CHARS)
+                            .collect();
+                        (value, label)
+                    })
+                    .collect();
+                // Two raw values can mask to the same text; keep one selection per sent value.
+                sent.sort();
+                sent.dedup_by(|a, b| a.0 == b.0);
+                for (value, label) in sent {
+                    selections.push(Selection {
+                        applicant: applicant.clone(),
+                        source_property: property.into(),
+                        value,
+                        label,
+                        application_date: application_date.clone(),
+                    });
+                }
+                continue;
+            }
             if text.is_empty() {
                 counts.blank += 1;
                 reasons.blank += 1;
@@ -336,28 +819,46 @@ pub fn extract(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
                 reasons.truncated = true;
                 continue;
             }
-            let mut hash = Sha256::new();
-            for part in [listing, row.id.as_str(), property] {
-                hash.update(part.as_bytes());
-                hash.update([0]);
-            }
             // Masked before it is cut, so a cut never leaves half of an address behind.
             let bounded: String = mask_personal_details(text)
                 .chars()
                 .take(MAX_TEXT_CHARS)
                 .collect();
-            reasons.truncated |= text.chars().count() > MAX_TEXT_CHARS;
             reasons.items.push(Reason {
-                id: format!("{:x}", hash.finalize()),
+                id: opaque(&[listing, row.id.as_str(), property]),
+                applicant: Some(applicant.clone()),
                 text: bounded,
                 source: "hubspot".into(),
                 source_property: property.into(),
-                application_date: row.value("yingmuri").and_then(date),
+                application_date: application_date.clone(),
                 collected_at: None,
                 version_id: None,
             });
         }
     }
+    reasons.selections = Some(selections);
+    reasons
+}
+
+/// The shape of a snapshot written before 2026-10-08, for rows read with only the three old
+/// sources: no applicant keys, no selections, three source counts. The sources that were not read
+/// stay out (未取得), so they are never shown as 記録なし or 0.
+pub fn extract_legacy(listing: &str, rows: &[Record], fetched_at: String) -> Reasons {
+    let mut reasons = extract(listing, rows, fetched_at);
+    reasons
+        .source_counts
+        .retain(|key, _| LEGACY_PROPERTIES.contains(&key.as_str()));
+    reasons.missing = reasons.source_counts.values().map(|c| c.missing).sum();
+    reasons.blank = reasons.source_counts.values().map(|c| c.blank).sum();
+    reasons.total_source_values = reasons.total_applicants * LEGACY_PROPERTIES.len();
+    reasons
+        .items
+        .retain(|item| LEGACY_PROPERTIES.contains(&item.source_property.as_str()));
+    for item in &mut reasons.items {
+        item.applicant = None;
+    }
+    reasons.selections = None;
+    reasons.option_labels = None;
     reasons
 }
 
@@ -398,11 +899,11 @@ mod tests {
         let reasons = extract_rows(&[a.clone(), a, b]);
         assert_eq!(
             (reasons.total_applicants, reasons.total_source_values),
-            (2, 6)
+            (2, 12)
         );
         assert_eq!(
             (reasons.missing, reasons.blank, reasons.items.len()),
-            (3, 1, 2)
+            (9, 1, 2)
         );
         assert_eq!(reasons.items[0].text, "Flexible hours");
         assert_eq!(
@@ -451,7 +952,7 @@ mod tests {
             .all(|item| item.text.chars().count() == MAX_TEXT_CHARS));
         assert!(reasons.truncated);
         assert_eq!(reasons.source_counts["oubodouki"].nonblank, MAX_ITEMS + 1);
-        assert_eq!(reasons.missing, (MAX_ITEMS + 1) * 2);
+        assert_eq!(reasons.missing, (MAX_ITEMS + 1) * 5);
     }
     #[test]
     fn addresses_phone_numbers_mail_and_names_are_masked() {
@@ -486,6 +987,65 @@ mod tests {
         }
     }
     #[test]
+    fn review_round_4_personal_details_are_masked() {
+        for (raw, expected) in [
+            // phone numbers split by spaces or dots
+            ("090 1234 5678に連絡ください", "＊＊に連絡ください"),
+            ("電話は090.1234.5678", "電話は＊＊"),
+            ("097 123 4567", "＊＊"),
+            // a rural lot and district
+            ("大分市大字松岡1234", "＊＊"),
+            ("大分市大字松岡", "大分市＊＊"),
+            ("大字松岡1234番地", "＊＊"),
+            // の between the numbers
+            ("府内町3の10の1に住んでいます", "＊＊に住んでいます"),
+            ("荷揚町2の31", "＊＊"),
+            // a postal code without a dash
+            ("〒8700021", "〒＊＊"),
+            ("郵便番号：8700021です", "郵便番号：＊＊です"),
+            // names before an honorific
+            ("ヤマダタロウさん", "＊＊さん"),
+            ("東郷平八郎さん", "＊＊さん"),
+            ("山田 太郎さん", "＊＊さん"),
+            ("田中君の紹介", "＊＊君の紹介"),
+            ("やまださんの紹介", "＊＊さんの紹介"),
+            ("鈴木先生の紹介", "＊＊先生の紹介"),
+            // a date of birth
+            ("生年月日1990年5月1日", "生年月日＊＊"),
+            ("誕生日は1990/5/1です", "誕生日は＊＊です"),
+            ("1990年5月1日生まれです", "＊＊生まれです"),
+            // accounts and partial addresses
+            ("LINE ID: taro_yamada123", "LINE ID: ＊＊"),
+            ("ID：yamada01です", "ID：＊＊です"),
+            ("taro@example", "＊＊"),
+            ("札幌市中央区北1条西2丁目", "＊＊"),
+            // names without an honorific that follow a label
+            ("紹介者：佐藤一郎", "紹介者：＊＊"),
+            ("山田太郎と申します", "＊＊と申します"),
+        ] {
+            assert_eq!(mask_personal_details(raw), expected, "{raw}");
+        }
+    }
+    #[test]
+    fn review_round_4_ordinary_texts_stay() {
+        for text in [
+            "たくさんの求人から選びました",
+            "皆さんの雰囲気が良さそう",
+            "ちゃんと休みが取れるため",
+            "おばあちゃんの介護経験があります",
+            "時給1.5倍になるため",
+            "2026.10.08に応募",
+            "LINEで連絡しやすい",
+            "文字数200字程度",
+            "学校の先生になりたい",
+            "週3の2日だけ",
+            "電話番号は伝えていません",
+            "1日8 9件",
+        ] {
+            assert_eq!(mask_personal_details(text), text, "{text}");
+        }
+    }
+    #[test]
     fn ordinary_reason_texts_are_left_as_they_are() {
         for text in [
             "週3日から働けるため",
@@ -513,6 +1073,269 @@ mod tests {
         let json = serde_json::to_string(&reasons).unwrap();
         assert!(!json.contains("府内町"));
         assert!(!json.contains("3丁目"));
+    }
+    #[test]
+    fn every_source_keeps_its_own_missing_blank_and_nonblank_counts() {
+        let rows = [
+            row(
+                "50",
+                &[
+                    (
+                        "genshokumaeshokukaranotenshokuriyuu",
+                        Some("給料が安いため"),
+                    ),
+                    ("ouboriyuukategori_hiaringu", Some("kyuuyo")),
+                    ("ouboriyuukategori_baitaikisai", Some("")),
+                    ("yingmuri", Some("2026-10-01")),
+                ],
+            ),
+            row(
+                "51",
+                &[
+                    ("genshokumaeshokukaranotenshokuriyuu", Some("  ")),
+                    ("ouboriyuukategori_hiaringu", Some("給与;勤務地")),
+                ],
+            ),
+        ];
+        let reasons = extract_rows(&rows);
+        let counts = |property: &str| {
+            let c = &reasons.source_counts[property];
+            (c.missing, c.blank, c.nonblank)
+        };
+        assert_eq!(reasons.source_counts.len(), 6);
+        assert_eq!(counts("genshokumaeshokukaranotenshokuriyuu"), (0, 1, 1));
+        assert_eq!(counts("ouboriyuukategori_hiaringu"), (0, 0, 2));
+        assert_eq!(counts("ouboriyuukategori_baitaikisai"), (1, 1, 0));
+        assert_eq!(counts("oubodouki"), (2, 0, 0));
+        // Texts only for the free-text sources; the select values are selections.
+        assert_eq!(reasons.items.len(), 1);
+        assert_eq!(
+            reasons.items[0].source_property,
+            "genshokumaeshokukaranotenshokuriyuu"
+        );
+        let selections = reasons.selections.as_ref().unwrap();
+        let values: Vec<_> = selections.iter().map(|s| s.value.as_str()).collect();
+        assert_eq!(values, ["kyuuyo", "勤務地", "給与"]);
+        assert!(selections.iter().all(|s| s.label.is_none()));
+        assert_eq!(
+            selections[0].application_date.as_deref(),
+            Some("2026-10-01")
+        );
+        // One applicant key per application, shared by its text and its selection.
+        assert_eq!(
+            selections[0].applicant,
+            reasons.items[0].applicant.clone().unwrap()
+        );
+        assert_eq!(selections[1].applicant, selections[2].applicant);
+        assert_ne!(selections[0].applicant, selections[1].applicant);
+        assert_eq!(selections[0].applicant.len(), 64);
+        let json = serde_json::to_string(&reasons).unwrap();
+        assert!(!json.contains("\"51\""));
+    }
+    #[test]
+    fn select_values_get_labels_from_the_definition_and_fall_back_to_the_value() {
+        let rows = [row(
+            "50",
+            &[(
+                "ouboriyuukategori_baitaikisai",
+                Some("kyuuyo;unknown_value"),
+            )],
+        )];
+        let labels: OptionLabels = BTreeMap::from([(
+            "ouboriyuukategori_baitaikisai".to_owned(),
+            BTreeMap::from([("kyuuyo".to_owned(), "給与".to_owned())]),
+        )]);
+        let reasons = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            Some(&labels),
+            OptionLabelsStatus::Unavailable,
+        );
+        assert_eq!(reasons.option_labels, Some(OptionLabelsStatus::Read));
+        let selections = reasons.selections.unwrap();
+        assert_eq!(selections.len(), 2);
+        assert_eq!(selections[0].value, "kyuuyo");
+        assert_eq!(selections[0].label.as_deref(), Some("給与"));
+        assert_eq!(selections[1].value, "unknown_value");
+        assert_eq!(selections[1].label, None);
+    }
+    #[test]
+    fn transfer_reason_texts_are_masked_like_every_other_text() {
+        let rows = [row(
+            "50",
+            &[(
+                "genshokumaeshokukaranotenshokuriyuu",
+                Some("上司の山田さんと合わず、090-1234-5678"),
+            )],
+        )];
+        let reasons = extract_rows(&rows);
+        assert_eq!(reasons.items[0].text, "上司の＊＊さんと合わず、＊＊");
+    }
+    #[test]
+    fn a_select_value_of_only_separators_is_blank_not_a_selection() {
+        let rows = [
+            row("50", &[("ouboriyuukategori_hiaringu", Some(";"))]),
+            row("51", &[("ouboriyuukategori_hiaringu", Some(" ; ; "))]),
+            row("52", &[("ouboriyuukategori_hiaringu", Some("給与;"))]),
+        ];
+        let reasons = extract_rows(&rows);
+        let c = &reasons.source_counts["ouboriyuukategori_hiaringu"];
+        assert_eq!((c.missing, c.blank, c.nonblank), (0, 2, 1));
+        let selections = reasons.selections.unwrap();
+        assert_eq!(selections.len(), 1);
+        assert_eq!(selections[0].value, "給与");
+    }
+    #[test]
+    fn legacy_extract_keeps_only_the_three_old_sources() {
+        let rows = [
+            row(
+                "50",
+                &[
+                    ("oubodouki", Some("家から近い")),
+                    ("ouboriyuu_baitaikisai", Some(" ")),
+                    ("ouboriyuu_hiaringu", None),
+                ],
+            ),
+            row("51", &[("oubodouki", None)]),
+        ];
+        let reasons = extract_legacy("30", &rows, "2026-10-05T00:00:00Z".into());
+        assert_eq!(
+            reasons.source_counts.keys().collect::<Vec<_>>(),
+            ["oubodouki", "ouboriyuu_baitaikisai", "ouboriyuu_hiaringu"]
+        );
+        assert_eq!(
+            (reasons.total_source_values, reasons.missing, reasons.blank),
+            (6, 4, 1)
+        );
+        assert!(reasons.selections.is_none());
+        assert!(reasons.option_labels.is_none());
+        assert_eq!(reasons.items.len(), 1);
+        assert!(reasons.items[0].applicant.is_none());
+        let json = serde_json::to_value(&reasons).unwrap();
+        assert!(json.get("selections").is_none());
+        assert!(json.get("option_labels").is_none());
+        assert!(!json
+            .to_string()
+            .contains("genshokumaeshokukaranotenshokuriyuu"));
+    }
+    #[test]
+    fn a_long_text_is_cut_but_not_reported_as_left_out() {
+        let long = "時給が高い".repeat(401); // 2005 characters
+        let rows = [row("50", &[("oubodouki", Some(long.as_str()))])];
+        let reasons = extract_rows(&rows);
+        assert_eq!(reasons.items.len(), 1);
+        assert_eq!(reasons.items[0].text.chars().count(), MAX_TEXT_CHARS);
+        assert_eq!(reasons.source_counts["oubodouki"].nonblank, 1);
+        // Every text was kept, so nothing is reported as left out.
+        assert!(!reasons.truncated);
+    }
+    #[test]
+    fn texts_over_the_item_cap_are_reported_as_left_out() {
+        let rows: Vec<Record> = (0..MAX_ITEMS + 1)
+            .map(|i| {
+                row(
+                    &format!("{}", 1000 + i),
+                    &[("oubodouki", Some("家から近い"))],
+                )
+            })
+            .collect();
+        let reasons = extract_rows(&rows);
+        assert_eq!(reasons.items.len(), MAX_ITEMS);
+        assert_eq!(reasons.source_counts["oubodouki"].nonblank, MAX_ITEMS + 1);
+        assert!(reasons.truncated);
+    }
+    #[test]
+    fn select_values_are_masked_and_a_repeated_value_is_one_selection() {
+        let rows = [
+            row(
+                "50",
+                &[("ouboriyuukategori_hiaringu", Some("給与;給与; 給与 "))],
+            ),
+            row(
+                "51",
+                &[("ouboriyuukategori_hiaringu", Some("090-1234-5678;山田さん"))],
+            ),
+        ];
+        let labels: OptionLabels = BTreeMap::from([(
+            "ouboriyuukategori_hiaringu".to_owned(),
+            BTreeMap::from([("給与".to_owned(), "給与".to_owned())]),
+        )]);
+        let reasons = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            Some(&labels),
+            OptionLabelsStatus::Unavailable,
+        );
+        let selections = reasons.selections.unwrap();
+        let values: Vec<_> = selections.iter().map(|s| s.value.as_str()).collect();
+        // One selection for the repeated value (the screen rejects a repeated one), and the
+        // phone number and the name never leave the server.
+        assert_eq!(values.iter().filter(|v| **v == "給与").count(), 1);
+        assert_eq!(selections.len(), 3);
+        assert!(values.contains(&"＊＊"));
+        assert!(values.contains(&"＊＊さん"));
+        let json = serde_json::to_string(&selections).unwrap();
+        assert!(!json.contains("1234"));
+        assert!(!json.contains("山田"));
+        assert_eq!(
+            reasons.source_counts["ouboriyuukategori_hiaringu"].nonblank,
+            2
+        );
+    }
+    #[test]
+    fn a_numeric_option_value_keeps_its_label_although_the_value_is_masked() {
+        // An internal option value that looks like a long number is masked before it is sent,
+        // but its label is looked up with the raw value, so the selection is still named.
+        let rows = [row(
+            "60",
+            &[("ouboriyuukategori_hiaringu", Some("123456789"))],
+        )];
+        let labels: OptionLabels = BTreeMap::from([(
+            "ouboriyuukategori_hiaringu".to_owned(),
+            BTreeMap::from([("123456789".to_owned(), "給与".to_owned())]),
+        )]);
+        let reasons = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            Some(&labels),
+            OptionLabelsStatus::Unavailable,
+        );
+        let selections = reasons.selections.unwrap();
+        assert_eq!(selections.len(), 1);
+        assert_eq!(selections[0].label.as_deref(), Some("給与"));
+        assert_eq!(selections[0].value, "＊＊");
+        let json = serde_json::to_string(&selections).unwrap();
+        assert!(!json.contains("123456789"));
+    }
+    #[test]
+    fn the_label_status_says_why_a_value_has_no_label() {
+        let rows = [row("50", &[("ouboriyuukategori_hiaringu", Some("kyuuyo"))])];
+        let live = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            None,
+            OptionLabelsStatus::Unavailable,
+        );
+        assert_eq!(live.option_labels, Some(OptionLabelsStatus::Unavailable));
+        let stored = extract_rows(&rows);
+        assert_eq!(stored.option_labels, Some(OptionLabelsStatus::NotStored));
+        assert_eq!(
+            serde_json::to_value(&stored).unwrap()["option_labels"],
+            "not_stored"
+        );
+        let read = extract_with_labels(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+            Some(&OptionLabels::new()),
+            OptionLabelsStatus::Unavailable,
+        );
+        assert_eq!(read.option_labels, Some(OptionLabelsStatus::Read));
+        assert_eq!(read.selections.unwrap()[0].label, None);
     }
     #[test]
     fn verified_empty_read_differs_from_absent_optional_snapshot_field() {

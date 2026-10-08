@@ -3,6 +3,7 @@ import type { ApplicantDimension, ApplicantDistribution } from './applicantCompo
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import type { HrhPerformanceCollection } from './hrhPerformanceModel';
 import type { JointDemographics } from './reverseSearchModel';
+import { demoApplicantReasons } from './demoReasons';
 import type { MarketData } from './marketChartModel';
 /** Fictional MOC fixtures. No HubSpot IDs, real employers, or applicant data. */
 export interface CopyVersion {
@@ -68,6 +69,8 @@ export const jobs: JobCopyRecord[] = [
     // 応募日別の件数（架空）。HubSpot の応募レコードを模した値で、実在の応募ではありません。
     attributionUnknown: 3,
     overallApplications: { total: 28, missingDate: 10, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-09-02': 1, '2026-09-04': 2, '2026-09-07': 1, '2026-09-10': 2, '2026-09-13': 1, '2026-09-16': 3, '2026-09-18': 2, '2026-09-21': 2, '2026-09-24': 1, '2026-09-27': 1, '2026-09-30': 1, '2026-10-02': 1 } },
+    // 応募理由（架空）。分類の選択と文の両方を含む。
+    applicantReasons: demoApplicantReasons(),
     // HRハッカーの期間別実績（架空の課金例）
     hrhPerformance: { schema_version: 1, source: 'hrhacker', job_id: 'DEMO-HRH-001', captured_at: '2026-10-05T00:00:00Z', rows: [
       { period_start: '2026-09-01', period_end: '2026-09-14', impressions: 4200, clicks: 160, cost_yen: 30000, applications: 6 },
