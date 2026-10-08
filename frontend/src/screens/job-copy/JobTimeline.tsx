@@ -174,6 +174,8 @@ function realBillingText(row: PeriodRow): string | null {
  * up here, so a period with only the dummy billing says there is no real billing data.
  */
 export function billingText(row: PeriodRow): string {
+  // A version row with no whole known day: its acquisition day is counted in another row.
+  if (row.kind === 'period' && row.days === 0) return '—';
   const real = realBillingText(row);
   if (real) return row.dummyBilling ? `${real}（${DUMMY_BILLING_LABEL}は合計に入れていません）` : real;
   if (row.dummyBilling) return `実際の課金データなし（${DUMMY_BILLING_LABEL}は合計しません）`;

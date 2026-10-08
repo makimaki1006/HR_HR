@@ -645,7 +645,11 @@ export function periodRows(job: JobCopyRecord, options: { asOf: string; billing?
       const change = changes[index + 1];
       const status = change ? boundaryStatus(change) : 'unknown';
       rows.push(make(`between-${period.versionId}`, 'between', status === 'changed' ? `取得日${formatDay(period.start)}〜${formatDay(next.start)}の間に変化` : `取得日${formatDay(period.start)}〜${formatDay(next.start)}の間（変化したか確認できない）`,
-        (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}（どちらの内容か分からない期間。取得した日を含む）`, null, from, nextRange.start, false, from));
+        (start, lastDay) => {
+          // Name the acquisition days the row holds (the first acquisition day is counted before the table instead).
+          const held = [period.start, next.start].filter((day, at, days) => day >= start && day <= lastDay && days.indexOf(day) === at).map(formatDay);
+          return `${formatDay(start)}〜${formatDay(lastDay)}（どちらの内容か分からない期間${held.length ? `。取得した日 ${held.join('・')} を含む` : ''}）`;
+        }, null, from, nextRange.start, false, from));
     } else if (period.basis === 'captured' && !period.ongoing && from <= asOf) {
       rows.push(make(`unacquired-${period.versionId}`, 'unacquired', `最後の取得（${formatDay(period.start)}）より後`, (start, lastDay) => `${formatDay(start)}〜${formatDay(lastDay)}（${start <= period.start ? '最後に取得した日を含む。' : ''}未取得）`, null, from, addDays(asOf, 1), false, from));
     }
