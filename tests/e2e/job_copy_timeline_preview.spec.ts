@@ -68,10 +68,10 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   const overview = page.getByRole('region', { name: '求人の横断比較の表' });
   await expect(overview.locator('tbody tr').first()).toContainText('0.80件/日');
   await expect(overview.locator('tbody tr').first()).toContainText('8万7,000円');
-  // 実際の課金データが無い求人は、仮の課金データ（ダミー）を合計しない（課金レーンにだけ出す）
+  // 実際の課金データが無い求人は、仮の課金データ（ダミー）を合計しない（タイムラインの課金の段にだけ出す）
   await expect(overview.locator('tbody tr', { hasText: '倉庫内ピッキングスタッフ' }).locator('td.jo-billing')).toHaveText('実際の課金データなし（仮の課金データ（ダミー）は合計しません）');
   await expect(overview.locator('tbody tr', { hasText: '地域配送ドライバー' }).locator('td.jo-billing')).toHaveText('デモ用の架空の金額 8万7,000円');
-  await expect(page.getByText('仮の課金データ（ダミー）は課金レーンにだけ表示し、課金合計と並び替えには使っていません。', { exact: true })).toBeVisible();
+  await expect(page.getByText('仮の課金データ（ダミー）は架空の金額です。この表の課金合計にも並び替えにも使っていません。金額は各求人のタイムラインの「課金」の段で「ダミー」と付けて表示します。', { exact: true })).toBeVisible();
   // 並び替えの理由ではないことを、並び替えの横に文字で示す
   await expect(page.getByText('並び順は数の大小で並べただけです。応募が増えた・減った理由を示すものではありません。', { exact: true })).toBeVisible();
   await expect(overview).not.toContainText('変更日');
