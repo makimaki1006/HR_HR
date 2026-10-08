@@ -33,22 +33,32 @@
 //!
 //! 一部の取得 (担当者・会社・活動・ステージ名) が失敗しても案件は 200 で返し、失敗した部分を `partial` に出す。
 //! 案件の取得の失敗だけがエラー応答になる。応答には `Cache-Control: no-store` が付く (router の層)。
+//!
+//! ## 選んだ項目 (「プロパティ」パネル)
+//! `?deal_props=a,b&contact_props=..&company_props=..` (各 [`super::property_catalog::MAX_SELECTED_PER_OBJECT`] 件まで) で、
+//! 利用者が選んだ項目の値も返す (`selected`)。案件は #1 の本体の読み取り、担当者・会社は #3 の batch_read に
+//! 項目を足すだけなので、**HubSpot の呼び出し回数は増えない**。
+//! 名前は形 (英数字と `_`) を確かめ、不正なら HubSpot を呼ばずに 400 `invalid_properties`。
+//! さらに項目の一覧 ([`super::property_catalog`]、6 時間キャッシュ) に無い名前があれば 400 `invalid_properties`。
+//! 一覧が冷えているときだけ一覧の取得 (定義 6 回) が先に走る。一覧を取れなかったときは選んだ項目を読まずに
+//! 案件を返し、`partial` に `selected_properties` を出す。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use chrono::SecondsFormat;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
 use ts_rs::TS;
 
 use super::call_queue::{contact_name, deal_in_queue, jst_today_ms, nz, pick, DEAL_PROPERTIES};
+use super::property_catalog::parse_selected;
 use super::rbac::{self, CrmRole};
 use super::routes::{
     error_json, hubspot_error_response, is_valid_id, sort_ids_newest_first, timeout_response,
@@ -262,6 +272,16 @@ pub struct WorkspacePartial {
     pub error_kind: String,
 }
 
+/// 利用者が選んだ項目の値 (内部名 → HubSpot の値のまま。空なら null)。要求した名前はすべてキーに入る
+#[derive(Debug, Clone, Default, Serialize, TS)]
+pub struct WorkspaceSelected {
+    pub deal: BTreeMap<String, Option<String>>,
+    /// 主担当者 (`contacts` の先頭) の値。担当者が読めなければ空
+    pub contact: BTreeMap<String, Option<String>>,
+    /// 主会社 (`companies` の先頭) の値。会社が読めなければ空
+    pub company: BTreeMap<String, Option<String>>,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct WorkspaceResponse {
     pub deal: WorkspaceDeal,
@@ -279,6 +299,8 @@ pub struct WorkspaceResponse {
     /// 活動の範囲の説明 (画面にそのまま出す)
     pub activity_scope: String,
     pub partial: Vec<WorkspacePartial>,
+    /// `?deal_props=` 等で選んだ項目の値
+    pub selected: WorkspaceSelected,
     pub hubspot_portal_id: String,
     pub data_scope: String,
     pub generated_at: String,
@@ -398,11 +420,74 @@ fn partial(part: &str, e: &HubSpotError) -> WorkspacePartial {
 // ハンドラ
 // ---------------------------------------------------------------------------
 
+/// 選んだ項目 (カンマ区切りの内部名)
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct WorkspaceQuery {
+    deal_props: Option<String>,
+    contact_props: Option<String>,
+    company_props: Option<String>,
+}
+
+/// 選んだ項目の名前 (形は確かめ済み)
+#[derive(Debug, Default)]
+struct SelectedProps {
+    deal: Vec<String>,
+    contact: Vec<String>,
+    company: Vec<String>,
+}
+
+impl SelectedProps {
+    fn parse(q: &WorkspaceQuery) -> Option<Self> {
+        Some(Self {
+            deal: parse_selected(q.deal_props.as_deref())?,
+            contact: parse_selected(q.contact_props.as_deref())?,
+            company: parse_selected(q.company_props.as_deref())?,
+        })
+    }
+    fn is_empty(&self) -> bool {
+        self.deal.is_empty() && self.contact.is_empty() && self.company.is_empty()
+    }
+}
+
+/// `base` に `extra` を足した読み取り項目 (重複なし)
+fn with_extra<'a>(base: &[&'a str], extra: &'a [String]) -> Vec<&'a str> {
+    let mut out: Vec<&str> = base.to_vec();
+    for n in extra {
+        if !out.contains(&n.as_str()) {
+            out.push(n.as_str());
+        }
+    }
+    out
+}
+
+/// 選んだ項目の値 (要求した名前はすべてキーに入れる。空白だけ・空は null)
+fn selected_values(
+    rec: Option<&HubSpotRecord>,
+    names: &[String],
+) -> BTreeMap<String, Option<String>> {
+    let Some(rec) = rec else {
+        return BTreeMap::new();
+    };
+    names
+        .iter()
+        .map(|n| {
+            let v = rec
+                .properties
+                .get(n)
+                .and_then(|v| v.as_deref())
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string);
+            (n.clone(), v)
+        })
+        .collect()
+}
+
 pub(super) async fn get_workspace_deal(
     session: Session,
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<Arc<CrmCtx>>,
     Path(id): Path<String>,
+    Query(query): Query<WorkspaceQuery>,
 ) -> Response {
     // 1) 認可 (設定有無より先)。通らなければ HubSpot を呼ばない
     let principal =
@@ -415,6 +500,10 @@ pub(super) async fn get_workspace_deal(
     if !is_valid_id(&id) {
         return error_json(StatusCode::BAD_REQUEST, "invalid_id");
     }
+    // 選んだ項目の形 (不正なら HubSpot を呼ばない)
+    let Some(selected) = SelectedProps::parse(&query) else {
+        return error_json(StatusCode::BAD_REQUEST, "invalid_properties");
+    };
     // 3) HubSpot 設定
     let Some(client) = state.hubspot.clone() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
@@ -433,7 +522,7 @@ pub(super) async fn get_workspace_deal(
     };
     let email = principal.email.clone().unwrap_or_default();
     let remaining = CRM_REQUEST_DEADLINE.saturating_sub(started.elapsed());
-    match tokio::time::timeout(remaining, build(&client, &ctx, role, &email, &id)).await {
+    match tokio::time::timeout(remaining, build(&client, &ctx, role, &email, &id, selected)).await {
         Err(_elapsed) => {
             tracing::warn!(error_kind = "crm_timeout", "crm workspace timed out");
             timeout_response()
@@ -466,6 +555,7 @@ async fn build(
     role: CrmRole,
     email: &str,
     id: &str,
+    mut selected: SelectedProps,
 ) -> Result<WorkspaceResponse, Response> {
     // 管理者以外の全員 はレコード関門を通す (安全側)
     let is_bpo = !role.reads_all_records();
@@ -481,8 +571,32 @@ async fn build(
     };
 
     let mut partials: Vec<WorkspacePartial> = Vec::new();
-    let mut deal_props: Vec<&str> = DEAL_PROPERTIES.to_vec();
-    deal_props.extend(DETAIL_ONLY_DEAL_PROPS);
+    // 選んだ項目は一覧 (許可リスト) で確かめる。一覧に無い名前は 400。一覧を取れなければ選んだ項目は読まない
+    if !selected.is_empty() {
+        match ctx.catalog.get(client).await {
+            Ok((catalog, _)) => {
+                let unknown = [
+                    ("deals", &selected.deal),
+                    ("contacts", &selected.contact),
+                    ("companies", &selected.company),
+                ]
+                .iter()
+                .any(|(o, names)| !catalog.unknown(o, names).is_empty());
+                if unknown {
+                    return Err(error_json(StatusCode::BAD_REQUEST, "invalid_properties"));
+                }
+            }
+            Err(e) => {
+                partials.push(partial("selected_properties", &e));
+                selected = SelectedProps::default();
+            }
+        }
+    }
+    let mut base_deal: Vec<&str> = DEAL_PROPERTIES.to_vec();
+    base_deal.extend(DETAIL_ONLY_DEAL_PROPS);
+    let deal_props = with_extra(&base_deal, &selected.deal);
+    let contact_props = with_extra(CONTACT_PROPS, &selected.contact);
+    let company_props = with_extra(COMPANY_PROPS, &selected.company);
 
     // 1) 案件の本体 + 活動の関連 ID。メールのスコープが無く 401/403 になったときだけ、メール抜きで読み直す
     let all_types: Vec<&str> = ENGAGEMENTS.iter().map(|e| e.api_name()).collect();
@@ -567,7 +681,7 @@ async fn build(
                 Ok(Vec::new())
             } else {
                 client
-                    .batch_read("contacts", &contact_ids, CONTACT_PROPS)
+                    .batch_read("contacts", &contact_ids, &contact_props)
                     .await
             }
         },
@@ -576,7 +690,7 @@ async fn build(
                 Ok(Vec::new())
             } else {
                 client
-                    .batch_read("companies", &company_ids, COMPANY_PROPS)
+                    .batch_read("companies", &company_ids, &company_props)
                     .await
             }
         },
@@ -758,6 +872,11 @@ async fn build(
         })
     });
 
+    let selected_out = WorkspaceSelected {
+        deal: selected_values(Some(&deal), &selected.deal),
+        contact: selected_values(primary_contact, &selected.contact),
+        company: selected_values(primary_company, &selected.company),
+    };
     let stage_id = nz(&deal, "dealstage");
     let wdeal = WorkspaceDeal {
         id: deal.id.clone(),
@@ -794,6 +913,7 @@ async fn build(
         activities_truncated,
         activity_scope: ACTIVITY_SCOPE.to_string(),
         partial: partials,
+        selected: selected_out,
         hubspot_portal_id: portal,
         data_scope: DATA_SCOPE.to_string(),
         generated_at: ctx.queue.now().to_rfc3339_opts(SecondsFormat::Secs, true),

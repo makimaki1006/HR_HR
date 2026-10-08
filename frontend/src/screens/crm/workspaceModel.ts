@@ -63,7 +63,7 @@ export function activityStatusLabel(s: string | null): string | null {
 /** 取得できなかった部分の名前 (サーバの part) → 日本語。架電キューの partial.failed にも使う */
 export const PARTIAL_LABELS: Record<string, string> = {
   contacts: '担当者', companies: '会社', associations: '担当者・会社との関連', stage_labels: 'ステージ名',
-  calls_via_contacts: '担当者経由の通話', calls: '通話', notes: 'メモ', emails: 'メール', meetings: 'ミーティング',
+  calls_via_contacts: '担当者経由の通話', selected_properties: 'プロパティの値', calls: '通話', notes: 'メモ', emails: 'メール', meetings: 'ミーティング',
 };
 
 /** 取得できなかった理由 (error_kind) → 日本語。コードは画面に出さない */
@@ -88,5 +88,6 @@ export function detailErrorMessage(kind: string | null, status: number | null): 
   if (kind === 'forbidden_record') return 'この案件を表示する権限がありません。';
   if (kind === 'not_found') return 'HubSpot にこの案件がありません(削除された可能性があります)。';
   if (kind === 'invalid_id') return '案件の指定が正しくありません。';
+  if (kind === 'invalid_properties') return '「プロパティ」で選んだ項目の一部が HubSpot にありません。「表示する項目を選ぶ」で選び直してから、再試行してください。';
   return errorMessage(kind, status);
 }

@@ -20,7 +20,7 @@ function isTyping(el: Element | null): boolean {
   return el instanceof HTMLInputElement && !['button', 'submit', 'reset', 'checkbox', 'radio'].includes(el.type);
 }
 
-/** 中央の列の下端に固定する、架電結果の入力欄 (下書き。HubSpot には送らない) */
+/** 「架電結果の入力」パネルの入力欄 (下書き。HubSpot には送らない) */
 export function CallResultForm({
   dealId, draft, onChange, defsState, onReloadDefs, recorded, onRecord, onClear, collapsed, onCollapsedChange, endedCall, focusCallId, onCallHandled, today, notice,
   recordBlocked = false, persistFailed = false, autoFocusOutcome = false, onAnnounce,
