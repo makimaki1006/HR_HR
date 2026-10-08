@@ -1,5 +1,6 @@
 import { expect, Page, Route, test } from '@playwright/test';
 import { login } from './helpers/login';
+import { startWithResultPanelInFront } from './helpers/crm_layout';
 import { MOC_DEAL_PROPERTIES } from '../../../frontend/src/screens/crm/mocProperties';
 import { QUEUE_STAGE_IDS } from '../../../frontend/src/screens/crm/queueModel';
 
@@ -85,7 +86,8 @@ const recordBtn = (page: Page) => form(page).getByRole('button', { name: /記録
 const recorded = (page: Page) => page.evaluate((k) => (JSON.parse(window.sessionStorage.getItem(k) ?? '{"recorded":{}}') as { recorded: Record<string, boolean> }).recorded, STORAGE_KEY);
 
 test.describe('CRM 架電画面 (実データの表示、API は架空の応答): 記録の守りと案内', () => {
-  test.beforeEach(async ({ page }) => { await login(page); });
+  // 架電結果の入力欄を確かめるので、「架電結果の入力」を前に出した配置で始める (既定は「活動ログ」が前)
+  test.beforeEach(async ({ page }) => { await startWithResultPanelInFront(page); await login(page); });
 
   test('選択肢の読み込みが上限で失敗 → 待って再試行の案内 (直接入力は案内しない)。一覧の読み直し中・失敗時は記録しない', async ({ page }) => {
     const m = await mockCrm(page, { status: 503, kind: 'hubspot_rate_limited' });

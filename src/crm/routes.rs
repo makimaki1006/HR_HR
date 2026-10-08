@@ -181,6 +181,8 @@ pub fn engagement_properties(et: EngagementType) -> &'static [&'static str] {
 pub(super) struct CrmCtx {
     pub(super) access: CrmAccess,
     metadata_cache: MetadataCache,
+    /// 「プロパティ」パネルで選べる項目の一覧 (数時間キャッシュ。workspace の選んだ項目の許可リストにも使う)
+    pub(super) catalog: super::property_catalog::PropertyCatalogCache,
     /// 架電キュー (`call_queue`) の状態 (owner / ステージ名のキャッシュ、cursor の署名鍵)
     pub(super) queue: super::call_queue::CallQueueState,
     /// レコード読み取りの同時実行数の上限。HubSpot の鍵は既存の営業自動化バッチと共有で
@@ -211,6 +213,7 @@ pub(super) fn router_with_queue(
     let ctx = Arc::new(CrmCtx {
         access,
         metadata_cache: MetadataCache::with_refresh_floor(METADATA_REFRESH_FLOOR),
+        catalog: super::property_catalog::PropertyCatalogCache::default(),
         queue,
         read_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_RECORD_READS),
     });
@@ -225,6 +228,10 @@ pub(super) fn router_with_queue(
             get(super::call_queue::get_call_queue_pipelines),
         )
         .route("/api/crm/owners", get(super::owners::get_owners))
+        .route(
+            "/api/crm/property-catalog",
+            get(super::property_catalog::get_property_catalog),
+        )
         .route(
             "/api/crm/workspace/deals/{id}",
             get(super::workspace::get_workspace_deal),

@@ -25,7 +25,7 @@ export function useTicking(active: boolean, now: () => number): number {
 export type CallLink = 'selected' | 'recorded' | 'none';
 
 const LINK_HINTS: Record<CallLink, string> = {
-  selected: '通話の結果は中央下の「架電結果」に下書きとして入力できます。HubSpot にはまだ保存されません。',
+  selected: '通話の結果は「架電結果の入力」に下書きとして入力できます。HubSpot にはまだ保存されません。',
   recorded: 'この通話の結果は、発信した架電先に記録済みです(HubSpot には未送信)。',
   none: 'この通話は選んでいる架電先と結び付いていません。架電先を選んでから「架電結果」に入力してください。',
 };

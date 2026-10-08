@@ -1,5 +1,6 @@
 import { expect, Page, test } from '@playwright/test';
 import { login } from './helpers/login';
+import { startWithResultPanelInFront } from './helpers/crm_layout';
 
 /**
  * 架電画面 (/app/crm?mode=fixture) のキーボード操作・画面の高さ別の見え方・画面の文言の E2E。
@@ -45,14 +46,15 @@ async function dialVisibility(page: Page) {
     if (!top) throw new Error('missing .wd-top');
     return {
       topClient: top.clientHeight, topScroll: top.scrollHeight, top: r('.wd-top'),
-      number: r('.wd-phone-primary .cq-phone'), dial: r('.wd-phone-primary .wd-dial'), body: r('.wd-body'),
+      number: r('.wd-phone-primary .cq-phone'), dial: r('.wd-phone-primary .wd-dial'),
       numberText: document.querySelector('.wd-phone-primary .cq-phone')?.textContent ?? '',
     };
   });
 }
 
 test.describe('CRM 架電画面: キーボード・画面の高さ・文言', () => {
-  test.beforeEach(async ({ page }) => { await login(page); });
+  // 架電結果の入力欄を確かめるので、「架電結果の入力」を前に出した配置で始める (既定は「活動ログ」が前)
+  test.beforeEach(async ({ page }) => { await startWithResultPanelInFront(page); await login(page); });
 
   test('1 行の入力欄・日付欄で Enter を押しても記録しない (Ctrl+Enter だけが記録する)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -94,11 +96,10 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
         expect(v.numberText, step).toBe('03-0000-0005');
         // 上端は自分の中でスクロールしない (中身が全部見えている)
         expect(v.topScroll, `${step} ${JSON.stringify(v)}`).toBeLessThanOrEqual(v.topClient + 1);
-        // 番号と発信ボタンは上端の中に収まり、下の情報 (.wd-body) より上にある
+        // 番号と発信ボタンは「案件の概要」(列の上端に固定) の中に収まる
         expect(v.number.top, step).toBeGreaterThanOrEqual(v.top.top);
         expect(v.number.bottom, step).toBeLessThanOrEqual(v.top.bottom);
         expect(v.dial.bottom, step).toBeLessThanOrEqual(v.top.bottom);
-        expect(v.number.bottom, step).toBeLessThanOrEqual(v.body.top);
         expect(v.dial.bottom - v.dial.top, step).toBeGreaterThan(20);
         await expect(article(page).locator('.wd-phone-primary .wd-dial')).toBeInViewport({ ratio: 1 });
       }
@@ -188,8 +189,9 @@ test.describe('CRM 架電画面: キーボード・画面の高さ・文言', ()
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFirst(page);
     const art = article(page);
-    // 活動の状態は日本語 (fixture の通話は COMPLETED)
-    await expect(art.locator('.wd-act-call .wd-act-meta').first()).toHaveText('発信 · 完了 · 通話時間 1分05秒');
+    // 活動の状態は日本語 (fixture の通話は COMPLETED)。活動ログは中央の列のタブ
+    await page.getByRole('tab', { name: '活動ログ' }).click();
+    await expect(page.getByRole('region', { name: '活動ログ' }).locator('.wd-act-call .wd-act-meta').first()).toHaveText('発信 · 完了 · 通話時間 1分05秒');
     // tel: リンクは「端末の電話で発信」(href は tel:)
     const telLink = art.locator('.wd-phone-primary a[href^="tel:"]');
     await expect(telLink).toHaveText('端末の電話で発信');

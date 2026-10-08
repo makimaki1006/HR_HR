@@ -1,0 +1,61 @@
+/* 架電画面のパネルの置き場 (Dock.tsx)。3 列、列ごとにタブ。色は queue.css の --cq-* を使う */
+.dock { flex: 1 1 auto; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+.dock-col { min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--cq-bg); border-right: 1px solid var(--cq-line); }
+.dock-col:last-child { border-right: 0; }
+.dock-col.is-over { box-shadow: inset 0 0 0 2px var(--cq-accent); }
+
+/* 空の列: 細い帯 (ドラッグ中は広げて置き場を見せる) */
+.dock-col.is-empty { align-items: center; justify-content: center; background: var(--cq-surface); border-left: 1px dashed var(--cq-line-strong); }
+.dock-col.is-empty.is-dragging { background: #eef7f8; border: 2px dashed var(--cq-accent); }
+.dock-empty-label { writing-mode: vertical-rl; color: var(--cq-faint); font-size: 12px; letter-spacing: .1em; }
+.dock-col.is-empty.is-dragging .dock-empty-label { color: var(--cq-accent); font-weight: 700; }
+
+/* 上端に固定するパネル (案件の概要) */
+.dock-pinned { flex: none; display: flex; flex-direction: column; min-height: 0; max-height: 60%; overflow: auto; }
+
+/* タブの並び */
+.dock-tabrow { flex: none; display: flex; align-items: flex-end; gap: 4px; padding: 4px 6px 0; background: var(--cq-bg); border-bottom: 1px solid var(--cq-line-strong); min-height: 31px; }
+.dock-tabs { flex: 1 1 auto; min-width: 0; display: flex; gap: 2px; overflow-x: auto; }
+.dock-tab { flex: none; display: inline-flex; align-items: center; max-width: 14em; border: 1px solid transparent; border-bottom: 0; border-radius: 4px 4px 0 0; margin-bottom: -1px; cursor: grab; }
+.dock-tab.is-active { background: var(--cq-surface); border-color: var(--cq-line-strong); }
+.dock-tab.is-dragging { opacity: .5; }
+.dock-tab button[role="tab"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; padding: 5px 12px; font-size: 12px; cursor: pointer; color: var(--cq-sub); }
+.dock-tab.is-active button[role="tab"] { color: var(--cq-text); font-weight: 700; box-shadow: inset 0 2px 0 var(--cq-accent); }
+.crm-app .dock-tab button[role="tab"]:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
+.dock-pinned-chip { flex: none; display: inline-flex; align-items: center; gap: 2px; margin: 0 0 3px auto; padding: 0 0 0 8px; font-size: 11px; color: var(--cq-sub); border: 1px solid var(--cq-line); border-radius: 10px; background: var(--cq-surface); cursor: grab; }
+
+/* 移動のメニュー */
+.dock-move { position: relative; flex: none; display: inline-flex; margin-bottom: 2px; }
+.dock-move-btn { border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 0 6px; font-size: 14px; line-height: 22px; cursor: pointer; color: var(--cq-sub) !important; }
+.dock-move-btn:hover, .dock-move-btn[aria-expanded="true"] { background: var(--cq-surface); border-color: var(--cq-line-strong); color: var(--cq-text) !important; }
+.crm-app .dock-move-btn:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: 1px; }
+.dock-menu { position: absolute; top: 100%; right: 0; z-index: 30; min-width: 11em; display: flex; flex-direction: column; padding: 4px 0; background: var(--cq-surface); border: 1px solid var(--cq-line-strong); border-radius: 6px; box-shadow: 0 4px 16px #1f2a3526; }
+.dock-menu button { text-align: left; background: transparent; border: 0; padding: 6px 14px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.dock-menu button:hover, .dock-menu button:focus { background: var(--cq-bg); outline: none; }
+.crm-app .dock-menu button:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: -2px; }
+
+/* パネルの枠 (重ねて置き、前に出ていないものは見えなくする。外さないので中身と枠の中のページが残る) */
+.dock-panels { flex: 1 1 auto; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); background: var(--cq-surface); }
+.dock-panel { grid-area: 1 / 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.dock-panel:not(.is-active) { visibility: hidden; }
+.dock-slot, .dock-host { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.dock-pinned .dock-slot, .dock-pinned .dock-host { flex: none; }
+
+/* 区切り */
+.dock-divider { position: relative; cursor: col-resize; background: var(--cq-line); touch-action: none; }
+.dock-divider::after { content: ""; position: absolute; inset: 0 -3px; }
+.dock-divider:hover, .dock-divider:focus-visible { background: var(--cq-accent); }
+.crm-app .dock-divider:focus-visible { outline: 2px solid var(--cq-accent); outline-offset: 0; }
+
+/* パネルの中の共通の枠 */
+.dock-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 12px 16px; }
+.dock-placeholder { margin: 16px 12px; color: var(--cq-sub); font-size: 12px; }
+
+@media (max-width: 999px) {
+  .dock { display: flex; flex-direction: column; }
+  .dock-divider, .dock-col.is-empty { display: none; }
+  .dock-col { overflow: visible; border-right: 0; border-bottom: 1px solid var(--cq-line-strong); }
+  .dock-panel { overflow: visible; }
+  .dock-panel:not(.is-active) { display: none; }
+  .dock-pinned { max-height: none; }
+}

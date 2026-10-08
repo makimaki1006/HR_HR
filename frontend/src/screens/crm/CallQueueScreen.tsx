@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
 import { OwnerFilter } from './OwnerFilter';
@@ -16,7 +16,7 @@ import { useQueuePipelines } from './useQueuePipelines';
 import type { PipelinesFetch } from './useQueuePipelines';
 import { useCallQueue } from './useCallQueue';
 import { useAutoLoadMore } from './useAutoLoadMore';
-import { DealDetail, rawStopLabel } from './DealDetail';
+import { ActivityLog, DealLinks, DealOverview, rawStopLabel } from './DealDetail';
 import type { CallBarInfo, StopLabel } from './DealDetail';
 import { ZoomPhonePanel } from './ZoomPhonePanel';
 import { useDealDetail } from './useDealDetail';
@@ -29,6 +29,14 @@ import type { OwnersFetch } from './useOwners';
 import { CallResultForm } from './CallResultForm';
 import { CenterPanel, CenterTabBar, LinkOpenerContext, LinkView, searchTab, useCenterTabs } from './CenterTabs';
 import { DEAL_TAB, SEARCH_TAB, dealJobSearchUrl } from './centerLinks';
+import { Dock } from './Dock';
+import { dockReducer, loadLayout, localStorageOrNull, saveLayout } from './dockModel';
+import type { DockAction, PanelId } from './dockModel';
+import { PropertyPanel } from './PropertyPanel';
+import { loadSelected, sanitizeSelected, saveSelected } from './propertyModel';
+import type { SelectedProps } from './propertyModel';
+import { usePropertyCatalog } from './usePropertyCatalog';
+import type { CatalogFetch } from './usePropertyCatalog';
 import { PARTIAL_LABELS } from './workspaceModel';
 import {
   clearDraftEntry, draftKey, editDraft, emptyResultDraft, emptyStore, loadStore, markRecorded, msUntilNextJstMidnight, nextUnrecorded, optionLabel, saveStore,
@@ -45,6 +53,13 @@ import { toE164Jp } from './smartEmbed';
 import type { CallState } from './smartEmbed';
 import './crm.css';
 import './queue.css';
+
+/** パネルの中で、架電先を選ぶ前・読み込み中・失敗のときに出す一言 (詳しい案内は「案件の概要」に出す) */
+export function panelPlaceholder(selected: boolean, phase: 'idle' | 'loading' | 'ready' | 'error' | 'forbidden' | 'waiting'): string {
+  if (!selected || phase === 'idle') return '架電一覧から架電先を選ぶと、ここに表示します。';
+  if (phase === 'loading' || phase === 'waiting') return '案件の情報を読み込み中…';
+  return '案件の情報を表示できません。「案件の概要」の案内を確認してください。';
+}
 
 /** 案件の画面から発信した記録。callId は発信の後に最初に始まった (番号の合う) 通話のもの */
 export interface DialedFor {
@@ -197,9 +212,9 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
   </li>;
 });
 
-export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, pipelinesFetcher, zoomOptions, initialSearch, now }: {
+export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, pipelinesFetcher, catalogFetcher, zoomOptions, initialSearch, now }: {
   fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; metadataFetcher?: MetadataFetch; userFetcher?: UserFetch;
-  pipelinesFetcher?: PipelinesFetch;
+  pipelinesFetcher?: PipelinesFetch; catalogFetcher?: CatalogFetch;
   zoomOptions?: ZoomOptions | undefined; initialSearch?: string; now?: () => number;
 }) {
   const search = initialSearch ?? window.location.search;
@@ -219,7 +234,15 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const [detailSel, setDetailSel] = useState<{ id: string; mode: QueueMode } | null>(null);
   const detailId = detailSel !== null && detailSel.mode === mode ? detailSel.id : null;
   const keyTimer = useRef<number | null>(null);
-  const detail = useDealDetail(detailId, mode, detailFetcher);
+  // パネルの配置 (このブラウザに残す。変えても HubSpot は呼ばない)
+  const [layout, dispatchLayout] = useReducer(dockReducer, null, () => loadLayout(localStorageOrNull()));
+  useEffect(() => { saveLayout(localStorageOrNull(), layout); }, [layout]);
+  // 「プロパティ」パネルで表示する項目 (このブラウザに残す)。項目の一覧に無いもの (HubSpot で消された等) は送らない
+  const [storedProps, setStoredProps] = useState<SelectedProps>(() => loadSelected(localStorageOrNull()));
+  const catalog = usePropertyCatalog(mode, selection !== null, catalogFetcher);
+  const selectedProps = useMemo(() => (catalog.state.phase === 'ready' ? sanitizeSelected(storedProps, catalog.state.index) : storedProps), [catalog.state, storedProps]);
+  const applyProps = useCallback((next: SelectedProps) => { setStoredProps(next); saveSelected(localStorageOrNull(), next); }, []);
+  const detail = useDealDetail(detailId, mode, detailFetcher, selectedProps);
   // Zoom Phone は常駐 (案件を切り替えても作り直さない)。架空サンプルでは出さず、発信もしない
   const { zoom, iframeRef } = useZoomPhone(mode === 'live', zoomOptions);
   // Zoom の枠は右から開く引き出し。閉じている間も iframe は画面の外に置いたまま (発信の依頼は届く)
@@ -396,7 +419,6 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     if (typeof btn?.scrollIntoView === 'function') btn.scrollIntoView({ block: 'nearest' });
   }
 
-  const selectedOwner = state.items.find(i => i.deal_id === selectedId)?.owner_id;
   const isRecorded = useCallback((id: string) => store.recorded[draftKey(mode, id)] === true, [store, mode]);
   const selKey = selectedId !== null ? draftKey(mode, selectedId) : null;
   const draft: ResultDraft = (selKey !== null ? store.drafts[selKey] : undefined) ?? emptyResultDraft();
@@ -479,18 +501,25 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   }, [selectedId]);
 
   const waitingKey = selectedId !== null && selectedId !== detailId;
-  // 中央のタブ (案件 / 求人検索 / 開いたリンク)。案件を選び直したら開いたリンクは閉じる
+  // 「求人検索・リンク先」パネルの中のタブ (リンク一覧 / 求人検索 / 開いたリンク)。案件を選び直したら開いたリンクは閉じる
   const shownData = !waitingKey && detail.state.phase === 'ready' && detail.state.data?.deal.id === selectedId ? detail.state.data : null;
   const searchUrl = useMemo(() => (shownData !== null ? dealJobSearchUrl(shownData) : null), [shownData]);
   const center = useCenterTabs(selectedId === null ? null : `${mode}:${selectedId}`, searchUrl);
   const searchLink = useMemo(() => (searchUrl !== null ? searchTab(searchUrl) : null), [searchUrl]);
-  // 通話が終わったら案件のタブに戻す (架電結果を入力するため。リンクのタブは閉じない)
+  // 通話が終わったら「架電結果の入力」を前に出す (どの列に置いていても。リンクのタブは閉じない)
   const endedKey = endedCall === null ? null : (endedCall.callId ?? 'ended');
   const [seenEnded, setSeenEnded] = useState<string | null>(null);
   if (endedKey !== seenEnded) {
     setSeenEnded(endedKey);
-    if (endedKey !== null && center.active !== DEAL_TAB) center.activate(DEAL_TAB);
+    if (endedKey !== null) dispatchLayout({ type: 'activate', panel: 'result' });
   }
+  // リンクを開いたら「求人検索・リンク先」パネルを前に出す
+  const centerOpen = center.open;
+  const openLinkInPanel = useCallback((url: string, label?: string) => {
+    centerOpen(url, label);
+    dispatchLayout({ type: 'activate', panel: 'links' });
+  }, [centerOpen]);
+  const layoutDispatch = useCallback((a: DockAction) => { dispatchLayout(a); }, []);
   // 不通時チェック・ブロック理由は、入力欄と同じ HubSpot の表示ラベルで出す (定義を読めていなければ値のまま)
   const stopLabel = useMemo<StopLabel>(() => {
     if (defs.state.phase !== 'ready') return rawStopLabel;
@@ -498,6 +527,90 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     return (p, v) => optionLabel(d[p], v);
   }, [defs.state]);
   const anyFocusable = state.items.some(i => i.deal_id === selectedId);
+
+  const detailPhase = waitingKey ? 'waiting' : detail.state.phase;
+  const placeholder = panelPlaceholder(selectedId !== null, detailPhase);
+  const panels: Record<PanelId, React.ReactNode> = {
+    queue: <>
+        <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
+          <div className="cq-list-head">
+            {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
+              title={total !== null ? QUEUE_TOTAL_NOTE : undefined}>{queueCountText(total, state.items.length)}
+              {total !== null && <span>({QUEUE_TOTAL_NOTE_SHORT})</span>}</p>}
+            {mode === 'live' && state.last !== null && <p className="cq-scope-note" data-testid="scope-note"
+              title={[ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</p>}
+          </div>
+          <div className="cq-list-scroll" ref={listScrollRef}>
+            {state.phase === 'invalid' && <div className="cq-notice cq-error" role="alert"><strong>条件を確認してください</strong>
+              <ul>{state.invalid.map(m => <li key={m}>{m}</li>)}</ul></div>}
+            {state.phase === 'loading' && <p role="status" className="cq-loading">読み込み中…</p>}
+            {state.phase === 'unauthorized' && <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p>
+            </div>}
+            {state.phase === 'error' && needsOwnerPick && <div className="cq-notice cq-warn" role="status" data-testid="owner-pick-prompt">
+              <strong>所有者を選んでください</strong><p>{state.message}</p></div>}
+            {state.phase === 'error' && !needsOwnerPick && <div className="cq-notice cq-error" role="alert"><strong>取得できませんでした</strong><p>{state.message}</p>
+              <button type="button" onClick={reload}>再試行</button></div>}
+
+            {state.phase === 'ready' && <>
+              {state.last?.truncated && <div className="cq-notice cq-warn" role="status">HubSpot の検索は 1 万件までしか取得できないため、これより先は表示できません。条件を絞ってください。</div>}
+              {notes.length > 0 && <div className="cq-notice cq-warn" role="status"><strong>一部の情報が欠けています</strong>
+                <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div>}
+              {state.items.length === 0 && <div className="cq-notice cq-empty">
+                {state.nextCursor ? <p>このページには表示できる行がありません。続きを読み込んでください。</p>
+                  : hasConditions ? <><strong>条件に一致する架電先がありません</strong><p>条件を変えるか、クリアしてください。</p>
+                    <button type="button" onClick={clearAll}>条件をクリア</button></>
+                    : <><strong>いま架電キューに出ている架電先はありません</strong></>}</div>}
+              {state.items.length > 0 && <ul className="cq-list" aria-label="架電キュー" ref={listRef} onKeyDown={onListKey}>
+                {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
+                  selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
+                  recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
+                  onSelect={selectByClick} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
+              {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
+                {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
+              {/* 続きの自動読み込みの目印 (ここが見えるところまでスクロールしたら読む) */}
+              {state.nextCursor && <div ref={sentinelRef} className="cq-load-sentinel" aria-hidden="true" data-testid="queue-load-sentinel" />}
+              {state.nextCursor && <button type="button" className="cq-btn cq-load-more" disabled={state.loadingMore} onClick={loadMore}>
+                {state.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>}
+              {!state.nextCursor && state.items.length > 0 && <p className="cq-end">これで最後です。</p>}
+            </>}
+          </div>
+        </section>
+    </>,
+    properties: <PropertyPanel catalog={catalog.state} onReloadCatalog={catalog.reload} selection={selectedProps} onApply={applyProps}
+      data={shownData} placeholder={placeholder} ownerNames={ownerNames} hasSelection={selectedId !== null} />,
+    overview: <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
+      {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
+        : <DealOverview state={detail.state} reload={detail.reload} zoom={zoomForDetail} stopLabel={stopLabel}
+          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} />}
+    </section>,
+    activity: <ActivityLog data={shownData} placeholder={placeholder} ownerNames={ownerNames} />,
+    // 架電結果の入力欄。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない
+    result: selectedId === null ? <div className="dock-scroll"><p className="dock-placeholder">{placeholder}</p></div>
+      : <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId}>
+        {!storeReady ? <p role="status" className="cq-loading">架電結果の入力欄を準備しています…</p> : <CallResultForm key={`${mode}:${selectedId}`} dealId={selectedId} draft={draft} onChange={changeDraft}
+          defsState={defs.state} onReloadDefs={defs.reload} recorded={isRecorded(selectedId)} onRecord={recordAndNext} onClear={clearDraft}
+          collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
+          focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
+          recordBlocked={recordBlockedNotice !== null} persistFailed={persistFailed}
+          autoFocusOutcome={focusFormFor === selectedId} onAnnounce={announce}
+          notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />}
+      </div>,
+    links: selectedId === null ? <div className="dock-scroll"><p className="dock-placeholder">{placeholder}</p></div> : <div className="cq-linkpanel">
+      <CenterTabBar tabs={center} />
+      <div className="cq-cpanels">
+        <CenterPanel id={DEAL_TAB} active={center.active === DEAL_TAB}>
+          <div className="dock-scroll">{shownData !== null ? <DealLinks data={shownData} /> : <p className="dock-placeholder">{placeholder}</p>}</div>
+        </CenterPanel>
+        {searchLink !== null && <CenterPanel id={SEARCH_TAB} active={center.active === SEARCH_TAB}>
+          {/* 開くまでは枠を作らない (案件を選ぶたびに Google を読みに行かない) */}
+          {center.searchOpened && <LinkView key={searchLink.url} tab={searchLink} />}
+        </CenterPanel>}
+        {center.links.map(l => <CenterPanel key={l.id} id={l.id} active={center.active === l.id}>
+          <LinkView tab={l} onClose={() => { center.close(l.id); }} />
+        </CenterPanel>)}
+      </div>
+    </div>,
+  };
 
   return <div className="crm-app cq-app">
     {/* 画面全体の読み上げ欄 (記録した・記録できない理由)。常に置いておき、中身だけ変える */}
@@ -513,6 +626,8 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         aria-controls="cq-zoom-drawer" data-testid="zoom-toggle" title={drawerOpen ? 'Zoom の枠を閉じる' : 'Zoom の枠を開く(消音・保留・通話を切る・サインインはこちら)'}
         onClick={() => { if (drawerOpen) closeZoom(); else openZoom(); }}>
         Zoom<span className="cq-zoom-dot" aria-hidden="true" /><span className="cq-zoom-state">{ZOOM_READINESS_LABELS[readiness]}</span></button>}
+      <button type="button" className="cq-layout-reset" onClick={() => { dispatchLayout({ type: 'reset' }); }}
+        title="パネルの置き場所と列の幅を、最初の配置に戻します(表示する項目の選択はそのまま)">元の配置に戻す</button>
       <span className="cq-mode-switch" role="group" aria-label="データの切り替え">
         <button type="button" aria-pressed={mode === 'live'} onClick={() => { switchMode('live'); }}>実データ</button>
         <button type="button" aria-pressed={mode === 'fixture'} disabled={inCall}
@@ -557,81 +672,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
       </div>
     </form>
 
-    <div className="cq-body">
-      <section className="cq-col cq-list-col" aria-label="架電先の一覧" aria-busy={state.phase === 'loading'}>
-        <div className="cq-list-head">
-          {state.phase === 'ready' && <p className="cq-count" role="status" data-testid="queue-count"
-            title={total !== null ? QUEUE_TOTAL_NOTE : undefined}>{queueCountText(total, state.items.length)}
-            {total !== null && <span>({QUEUE_TOTAL_NOTE_SHORT})</span>}</p>}
-          {mode === 'live' && state.last !== null && <p className="cq-scope-note" data-testid="scope-note"
-            title={[ownerScopeTitle(state.last.scope.owner, ownerNames), 'HubSpot の全件から、上の所有者の選択で切り替えられます'].filter(Boolean).join('。')}>所有者: {ownerScopeLabel(state.last.scope.owner, ownerNames)} を表示中</p>}
-        </div>
-        <div className="cq-list-scroll" ref={listScrollRef}>
-          {state.phase === 'invalid' && <div className="cq-notice cq-error" role="alert"><strong>条件を確認してください</strong>
-            <ul>{state.invalid.map(m => <li key={m}>{m}</li>)}</ul></div>}
-          {state.phase === 'loading' && <p role="status" className="cq-loading">読み込み中…</p>}
-          {state.phase === 'unauthorized' && <div className="cq-notice cq-error" role="alert"><strong>表示できません</strong><p>{state.message}</p>
-          </div>}
-          {state.phase === 'error' && needsOwnerPick && <div className="cq-notice cq-warn" role="status" data-testid="owner-pick-prompt">
-            <strong>所有者を選んでください</strong><p>{state.message}</p></div>}
-          {state.phase === 'error' && !needsOwnerPick && <div className="cq-notice cq-error" role="alert"><strong>取得できませんでした</strong><p>{state.message}</p>
-            <button type="button" onClick={reload}>再試行</button></div>}
-
-          {state.phase === 'ready' && <>
-            {state.last?.truncated && <div className="cq-notice cq-warn" role="status">HubSpot の検索は 1 万件までしか取得できないため、これより先は表示できません。条件を絞ってください。</div>}
-            {notes.length > 0 && <div className="cq-notice cq-warn" role="status"><strong>一部の情報が欠けています</strong>
-              <ul>{notes.map(n => <li key={n}>{n}</li>)}</ul></div>}
-            {state.items.length === 0 && <div className="cq-notice cq-empty">
-              {state.nextCursor ? <p>このページには表示できる行がありません。続きを読み込んでください。</p>
-                : hasConditions ? <><strong>条件に一致する架電先がありません</strong><p>条件を変えるか、クリアしてください。</p>
-                  <button type="button" onClick={clearAll}>条件をクリア</button></>
-                  : <><strong>いま架電キューに出ている架電先はありません</strong></>}</div>}
-            {state.items.length > 0 && <ul className="cq-list" aria-label="架電キュー" ref={listRef} onKeyDown={onListKey}>
-              {state.items.map((item, i) => <QueueRow key={item.deal_id} item={item}
-                selected={item.deal_id === selectedId} focusable={anyFocusable ? item.deal_id === selectedId : i === 0}
-                recorded={isRecorded(item.deal_id)} unsaved={persistFailed} stopLabel={stopLabel}
-                onSelect={selectByClick} ownerName={item.owner_id ? ownerNames.get(item.owner_id) : undefined} />)}</ul>}
-            {state.moreError && <div className="cq-notice cq-error" role="alert"><strong>続きを読み込めませんでした</strong><p>{state.moreError.message}</p>
-              {state.moreError.kind === 'cursor_mismatch' && <button type="button" onClick={reload}>最初から読み直す</button>}</div>}
-            {/* 続きの自動読み込みの目印 (ここが見えるところまでスクロールしたら読む) */}
-            {state.nextCursor && <div ref={sentinelRef} className="cq-load-sentinel" aria-hidden="true" data-testid="queue-load-sentinel" />}
-            {state.nextCursor && <button type="button" className="cq-btn cq-load-more" disabled={state.loadingMore} onClick={loadMore}>
-              {state.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>}
-            {!state.nextCursor && state.items.length > 0 && <p className="cq-end">これで最後です。</p>}
-          </>}
-        </div>
-      </section>
-      <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
-        {selectedId !== null && <CenterTabBar tabs={center} />}
-        <LinkOpenerContext.Provider value={selectedId !== null ? center.open : null}>
-        <div className="cq-cpanels">
-        <CenterPanel id={DEAL_TAB} active={selectedId === null || center.active === DEAL_TAB} tabbed={selectedId !== null}>
-        {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
-          : <DealDetail state={detail.state} reload={detail.reload} zoom={zoomForDetail}
-            ownerName={selectedOwner ? ownerNames.get(selectedOwner) : undefined} stopLabel={stopLabel}
-            callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} />}
-        {/* 架電結果の入力欄 (中央の列の下端に固定)。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない */}
-        {selectedId !== null && <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId}>
-          {!storeReady ? <p role="status" className="cq-loading">架電結果の入力欄を準備しています…</p> : <CallResultForm key={`${mode}:${selectedId}`} dealId={selectedId} draft={draft} onChange={changeDraft}
-            defsState={defs.state} onReloadDefs={defs.reload} recorded={isRecorded(selectedId)} onRecord={recordAndNext} onClear={clearDraft}
-            collapsed={formCollapsed} onCollapsedChange={setFormCollapsed} endedCall={endedCall} today={today}
-            focusCallId={endedCall?.callId != null && endedCall.callId !== handledCall ? endedCall.callId : null} onCallHandled={setHandledCall}
-            recordBlocked={recordBlockedNotice !== null} persistFailed={persistFailed}
-            autoFocusOutcome={focusFormFor === selectedId} onAnnounce={announce}
-            notice={recordBlockedNotice ?? (formNotice?.dealId === selectedId ? formNotice.text : undefined)} />}
-        </div>}
-        </CenterPanel>
-        {searchLink !== null && <CenterPanel id={SEARCH_TAB} active={center.active === SEARCH_TAB}>
-          {/* 開くまでは枠を作らない (案件を選ぶたびに Google を読みに行かない) */}
-          {center.searchOpened && <LinkView key={searchLink.url} tab={searchLink} />}
-        </CenterPanel>}
-        {center.links.map(l => <CenterPanel key={l.id} id={l.id} active={center.active === l.id}>
-          <LinkView tab={l} onClose={() => { center.close(l.id); }} />
-        </CenterPanel>)}
-        </div>
-        </LinkOpenerContext.Provider>
-      </section>
-    </div>
+    <LinkOpenerContext.Provider value={selectedId !== null ? openLinkInPanel : null}>
+      <Dock layout={layout} dispatch={layoutDispatch} panels={panels} />
+    </LinkOpenerContext.Provider>
     {/* Zoom の枠 (右から開く引き出し)。閉じている間も外さず、同じ大きさのまま画面の外へ送る
         (display:none にしない。iframe を作り直すと通話が切れ、発信の依頼も届かなくなる) */}
     <div id="cq-zoom-drawer" ref={drawerRef} className={`cq-zoom-drawer${drawerOpen ? ' is-open' : ''}`} data-testid="zoom-drawer"

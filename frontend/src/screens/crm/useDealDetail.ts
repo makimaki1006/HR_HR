@@ -5,17 +5,20 @@ import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { detailErrorMessage } from './workspaceModel';
 import { fixtureDetail } from './workspaceFixture';
 import type { QueueMode } from './queueModel';
+import { selectedQuery } from './propertyModel';
+import type { SelectedProps } from './propertyModel';
 
-export type DetailFetch = (dealId: string, signal: AbortSignal) => Promise<ApiResult<WorkspaceResponse>>;
+/** `props` は「プロパティ」パネルで選んだ項目 (同じ読み取りで値も受け取る。HubSpot の呼び出し回数は増えない) */
+export type DetailFetch = (dealId: string, signal: AbortSignal, props?: SelectedProps) => Promise<ApiResult<WorkspaceResponse>>;
 
-export const liveDetailFetch: DetailFetch = (dealId, signal) =>
-  apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(dealId)}`, { signal, timeoutMs: 35_000 });
+export const liveDetailFetch: DetailFetch = (dealId, signal, props) =>
+  apiGet<WorkspaceResponse>(`/api/crm/workspace/deals/${encodeURIComponent(dealId)}${props ? selectedQuery(props) : ''}`, { signal, timeoutMs: 35_000 });
 
 /** 架空データ (HubSpot には接続しない)。実データの失敗時には使われない */
-export const fixtureDetailFetch: DetailFetch = async (dealId, signal) => {
+export const fixtureDetailFetch: DetailFetch = async (dealId, signal, props) => {
   await Promise.resolve();
   if (signal.aborted) return { ok: false, error: new ApiAbortedError('aborted') };
-  const data = fixtureDetail(dealId);
+  const data = fixtureDetail(dealId, props);
   if (data === null) return { ok: false, error: new ApiHttpError(404, { error_kind: 'not_found' }) };
   return { ok: true, data };
 };
@@ -38,17 +41,19 @@ const blank = (reqId: string, phase: DetailPhase): DetailState => ({ reqId, phas
  * - 応答の案件 ID が選んでいる案件と違えば捨てる (別の案件を表示しない)
  * - 失敗時に架空データへ黙って切り替えない
  */
-export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: DetailFetch) {
+export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: DetailFetch, props?: SelectedProps) {
   const fetchDetail = fetcher ?? (mode === 'fixture' ? fixtureDetailFetch : liveDetailFetch);
   const [raw, setRaw] = useState<DetailState>(() => blank('', 'idle'));
   const [reloadToken, setReloadToken] = useState(0);
-  const reqId = `${dealId ?? ''}|${mode}|${String(reloadToken)}`;
+  // 選んだ項目を変えたら読み直す (「表示する項目を選ぶ」で適用したときだけ変わる)
+  const propsKey = props ? selectedQuery(props) : '';
+  const reqId = `${dealId ?? ''}|${mode}|${String(reloadToken)}|${propsKey}`;
   const state: DetailState = dealId === null ? blank(reqId, 'idle') : raw.reqId === reqId ? raw : blank(reqId, 'loading');
 
   useEffect(() => {
     if (dealId === null) return;
     const ctl = new AbortController();
-    void fetchDetail(dealId, ctl.signal).then(res => {
+    void fetchDetail(dealId, ctl.signal, props).then(res => {
       if (ctl.signal.aborted) return;
       if (res.ok) {
         if (res.data.deal.id !== dealId) {
@@ -72,7 +77,7 @@ export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: 
       }
     });
     return () => { ctl.abort(); };
-  // 案件・モード・再読み込みは reqId に入っている。取得関数は mode / fetcher で決まる
+  // 案件・モード・再読み込み・選んだ項目は reqId に入っている。取得関数は mode / fetcher で決まる
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqId, fetcher]);
 

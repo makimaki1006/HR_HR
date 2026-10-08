@@ -85,7 +85,7 @@ const toggle = (page: Page) => page.getByTestId('zoom-toggle');
 test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
   test.beforeEach(async ({ page }) => { await login(page); });
 
-  test('閉じた状態で始まり中央が広がる。閉じたまま発信が Zoom に届き、呼び出し中が番号の下に出る。開け閉めで枠は作り直さない', async ({ page }) => {
+  test('閉じた状態で始まりパネルの置き場が広がる。閉じたまま発信が Zoom に届き、呼び出し中が番号の下に出る。開け閉めで枠は作り直さない', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const m = await mockCrm(page);
     await page.goto('/app/crm');
@@ -94,13 +94,13 @@ test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
     await list.getByText('架空会社1').click();
     await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('h2')).toHaveText('架空会社1');
 
-    // 閉じている: 枠は画面の外 (同じ幅のまま)、中央の列は右端まで広がる
+    // 閉じている: 枠は画面の外 (同じ幅のまま)、パネルの置き場は右端まで広がる
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
     await expect(drawer(page)).toHaveAttribute('aria-hidden', 'true');
     const closed = await page.evaluate(() => {
       const d = document.querySelector('[data-testid="zoom-drawer"]')?.getBoundingClientRect();
       const f = document.querySelector('iframe[title="Zoom Phone"]')?.getBoundingClientRect();
-      const c = document.querySelector('.cq-detail')?.getBoundingClientRect();
+      const c = document.querySelector('[data-testid="dock"]')?.getBoundingClientRect();
       return { drawerLeft: d?.left ?? 0, frameWidth: f?.width ?? 0, frameHeight: f?.height ?? 0, centerRight: c?.right ?? 0, vw: window.innerWidth, sw: document.documentElement.scrollWidth };
     });
     expect(closed.drawerLeft).toBeGreaterThanOrEqual(closed.vw);
@@ -139,6 +139,14 @@ test.describe('CRM 架電画面: Zoom の枠 (引き出し)', () => {
     await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('h2')).toHaveText('架空会社2');
     const same = await page.locator('iframe[title="Zoom Phone"]').evaluate((el, h) => el === h, iframeHandle);
     expect(same).toBe(true);
+
+    // パネルを別の列へ移しても、Zoom の枠は同じ iframe のまま (作り直すと通話が切れる)
+    await page.getByRole('button', { name: '「活動ログ」の移動' }).click();
+    await page.getByRole('menu', { name: '「活動ログ」の移動' }).getByRole('menuitem', { name: '右へ移動' }).click();
+    await expect(page.getByRole('tablist', { name: '右の列のパネル' }).getByRole('tab', { name: '活動ログ' })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('button', { name: '元の配置に戻す' }).click();
+    await expect(page.getByRole('tablist', { name: '中央の列のパネル' }).getByRole('tab', { name: '活動ログ' })).toBeVisible();
+    expect(await page.locator('iframe[title="Zoom Phone"]').evaluate((el, h) => el === h, iframeHandle)).toBe(true);
     expect(m.writes).toEqual([]);
   });
 });

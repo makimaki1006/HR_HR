@@ -5,6 +5,7 @@
 //! - `call_queue`: `GET /api/crm/call-queue` (架電キュー。HubSpot の Deal 検索 + 関連の一括読み取り)
 //! - `queue_pipelines`: 架電キューで選べるパイプラインとステージごとの決まり (表 1 箇所。React 側へ JSON で書き出す)
 //! - `owners`: `GET /api/crm/owners` (CRM の利用者全員。所有者を名前で選ぶための一覧。HubSpot Owners API、10 分キャッシュ)
+//! - `property_catalog`: `GET /api/crm/property-catalog` (「プロパティ」パネルで選べる案件・担当者・会社の項目をグループごとに。定義だけ、6 時間キャッシュ)
 //! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴)
 //! - `routes`: `GET /api/crm/metadata` と `GET /api/crm/{contacts|companies|deals}/{id}`
 //!
@@ -14,6 +15,7 @@
 
 pub mod call_queue;
 pub mod owners;
+pub mod property_catalog;
 pub mod queue_pipelines;
 pub mod rbac;
 pub mod record_gate;
