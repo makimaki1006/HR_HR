@@ -9,6 +9,18 @@ function errorCode(error: ApiError): string | undefined {
     && typeof body.code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(body.code) ? body.code : undefined;
 }
 
+/** The server's shared HubSpot gateway refused the read because it would wait too long (503 hubspot_busy). */
+export const HUBSPOT_BUSY_MESSAGE = 'HubSpot が混み合っています。少し待ってから再試行してください。';
+
+/**
+ * True when the server answered 503 `{"code":"hubspot_busy"}` (nothing was sent to HubSpot).
+ * Reads the fields by shape (not `instanceof`), so it also works where the API client is mocked.
+ */
+export function isHubSpotBusy(error: ApiError): boolean {
+  const { status, body } = error as { status?: unknown; body?: unknown };
+  return status === 503 && typeof body === 'object' && body !== null && (body as { code?: unknown }).code === 'hubspot_busy';
+}
+
 /** User guidance only: Rust remains the authentication/authorization boundary. */
 export function snapshotErrorGuidance(error: ApiError): SnapshotErrorGuidance {
   const code = errorCode(error);
@@ -28,6 +40,7 @@ export function snapshotErrorGuidance(error: ApiError): SnapshotErrorGuidance {
   if (error instanceof ApiHttpError && code === 'moc_drive_snapshot_unavailable') {
     return { message: 'Drive上のレビュー用データを読み取れませんでした。管理者にデータの配置と閲覧権限を確認してもらってください。' };
   }
+  if (isHubSpotBusy(error)) return { message: HUBSPOT_BUSY_MESSAGE };
   if (error instanceof ApiTimeoutError) return { message: '実データの取得に時間がかかっています。少し待ってから画面を再読み込みしてください。続く場合は管理者に取得状況を確認してください。' };
   return { message: '実データを取得できませんでした。画面を再読み込みしてください。続く場合は管理者にデータと画像の取得状況を確認してください。' };
 }

@@ -73,14 +73,16 @@ export interface PendingCall {
   filters: QueueFilters;
   cursor: string | null;
   signal: AbortSignal;
+  /** サーバのキャッシュを使わずに読み直す要求か */
+  fresh: boolean;
   resolve: (r: ApiResult<CallQueueResponse>) => void;
 }
 
 /** 呼び出しを溜めておき、テストが好きな順・好きなタイミングで応答する偽の取得関数 */
 export function deferredFetcher() {
   const calls: PendingCall[] = [];
-  const fetcher = (filters: QueueFilters, cursor: string | null, signal: AbortSignal) =>
-    new Promise<ApiResult<CallQueueResponse>>(resolve => { calls.push({ filters, cursor, signal, resolve }); });
+  const fetcher = (filters: QueueFilters, cursor: string | null, signal: AbortSignal, fresh = false) =>
+    new Promise<ApiResult<CallQueueResponse>>(resolve => { calls.push({ filters, cursor, signal, fresh, resolve }); });
   return { calls, fetcher };
 }
 
