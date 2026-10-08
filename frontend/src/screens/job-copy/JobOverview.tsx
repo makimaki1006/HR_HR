@@ -77,6 +77,7 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
       <p>掲載が変わった日は分かりません。前の取得日と後の取得日の間のどこかで変わったとして、その間の応募は前後どちらにも入れていません。応募は日付だけで記録されていて、2つの取得日も取得した時刻の前後で変わった可能性があるため、取得日当日の応募も入れていません。</p>
       <p>複数の求人に関連する応募は、どの求人の応募か決められないため数えていません（見分ける情報がある場合）。</p>
       <p>並べて見るための表で、どの求人が良いかを決めるものではありません。</p>
+      <p>「多い応募理由」は、HubSpot に記録された応募理由を分類し、件数の多い2つを並べたものです。件数の後ろに、HubSpotで分類が選ばれた件数（選択）と、文から言葉で推定した件数（推定）を分けて書いています。nは応募理由の記録がある応募の件数です。古い保存データでは同じ応募の記述を見分けられないため、「記述n=」として記述ごとに数えています。「記録なし」は応募理由の記録が無いこと、「未取得」は応募理由を取得していないことです。「分類の選択は未取得」は、そのデータでは分類の選択を読んでいないことです。</p>
       <p>変更の前後が{MIN_RATE_DAYS}日に満たないときは、1日あたりの数を比べず並び替えにも使いません。</p>
       <p>市場の動き（Indeed の求人数など）は月ごとのデータなので、この表には並べていません。求人名を選ぶと、タイムラインの「市場」の段で同じ時間軸で確認できます。</p>
     </InfoTip></div>
@@ -84,17 +85,18 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
       {range && <span className="jc-muted">カレンダー：{formatDay(range.start)}〜{formatDay(range.end)}（棒は週ごとの応募、色の付いた帯は変化が見つかった取得日の間）</span>}</div>
     <p className="jo-sort-note" role="note">並び順は数の大小で並べただけです。応募が増えた・減った理由を示すものではありません。</p>
     {!rows.length ? <p className="jc-notice">表示できる求人がありません。</p> : <div className="jo-table-scroll" role="region" aria-label="求人の横断比較の表" tabIndex={0}><table>
-      <thead><tr><th scope="col">求人</th><th scope="col">応募と変化</th><th scope="col">直近の変化</th><th scope="col">変化の種類</th><th scope="col">前の取得日の前日までの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">後の取得日の翌日からの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">実際の課金合計</th></tr></thead>
+      <thead><tr><th scope="col">求人</th><th scope="col">応募と変化</th><th scope="col">直近の変化</th><th scope="col">変化の種類</th><th scope="col">前の取得日の前日までの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">後の取得日の翌日からの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">実際の課金合計</th><th scope="col">多い応募理由</th></tr></thead>
       <tbody>{sorted.map(row => {
         const job = byId.get(row.jobId);
         return <tr key={row.jobId}>
           <th scope="row">{job ? <button type="button" className="jc-text-button" style={{ padding: 0 }} onClick={() => { onChoose(job); }}>{row.title}</button> : row.title}<small>{row.company} · {row.media}</small></th>
           <td className="jo-calendar">{range && <MiniCalendar row={row} range={range} />}</td>
-          <td>{row.lastChange ? changeText(row.lastChange) : '変化は見つかっていません'}</td>
+          <td className="jo-change">{row.lastChange ? changeText(row.lastChange) : '変化は見つかっていません'}</td>
           <td className="jo-kinds">{row.kinds.length ? row.kinds.map(kind => <span key={kind}>{kind}</span>) : '—'}</td>
-          <td>{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
-          <td>{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
+          <td className="jo-rate">{row.applicationsAvailable ? rateText(row.before) : '応募未取得'}</td>
+          <td className="jo-rate">{row.applicationsAvailable ? rateText(row.after) : '応募未取得'}</td>
           <td className="jo-billing">{overviewBillingText(row)}</td>
+          <td className="jo-reasons">{row.reasonText}</td>
         </tr>;
       })}</tbody>
     </table></div>}

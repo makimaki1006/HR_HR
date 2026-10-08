@@ -105,14 +105,14 @@ describe('the last market month comes from the data', () => {
     expect(document.querySelector('.jt-nodata')).toBeNull();
     expect(document.body.textContent).not.toContain('2026年8月まで');
     // 2026-09-01〜09-14 and 09-15〜09-24 are inside the data: compared, not "データなし".
-    const cells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
+    const cells = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
     expect(cells).toEqual(['同じ月の中（2026年9月 130件）', '同じ月の中（2026年9月 130件）', '+7.7%（2026年9月 130件 → 2026年10月 140件）']);
   });
   it('shows 市場データは2026年8月まで and names the month for a period after it', async () => {
     api.mockImplementation((path: string) => Promise.resolve(marketData(path, ['2026-06', '2026-07', '2026-08'])));
     render(<JobTimeline job={demo('demo-job-001')} />);
     expect(await screen.findByText('市場データは2026年8月まで（毎月更新）。2026年9月以降はデータなしとして表示しています')).toBeTruthy();
-    const cells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
+    const cells = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[4]?.textContent);
     expect(cells).toEqual(['データなし（市場求人数は2026年8月まで）', 'データなし（市場求人数は2026年8月まで）', 'データなし（市場求人数は2026年8月まで）']);
   });
   it('shows the last month on the 市場分析 tab too, under the plain label 市場環境', async () => {
@@ -235,9 +235,9 @@ describe('dummy billing (仮の課金データ（ダミー）)', () => {
     expect(lane.querySelectorAll('.jt-billing-dummy')).toHaveLength(2);
     expect([...lane.querySelectorAll('.jt-billing-dummy')].every(bar => (bar.getAttribute('title') ?? '').startsWith(DUMMY_BILLING_LABEL))).toBe(true);
     expect(screen.getByText(/仮の課金データ（ダミー）は、実際の課金データがまだ無いため表示している架空の金額です/u)).toBeTruthy();
-    const billingCells = within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent);
+    const billingCells = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent);
     expect(billingCells).toEqual([`実際の課金データなし（${DUMMY_BILLING_LABEL}は合計しません）`, `実際の課金データなし（${DUMMY_BILLING_LABEL}は合計しません）`]);
-    expect(within(screen.getByRole('table')).queryByText(/3万8,000円|3万4,802円/u)).toBeNull();
+    expect(within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).queryByText(/3万8,000円|3万4,802円/u)).toBeNull();
     const rows = overviewRows(jobs);
     expect(rows.map(row => [row.jobId, row.billingYen, row.hasDummyBilling])).toEqual([
       ['demo-job-001', 87000, false], ['demo-job-002', null, true], ['demo-job-003', 48000, false], ['demo-job-004', null, true],

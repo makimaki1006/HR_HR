@@ -13,6 +13,29 @@ use std::{
     path::Path,
 };
 
+/// The reasons of one job, in the shape that matches the sources the dump was read with. With
+/// the option labels read alongside the dump, the chosen categories get their labels; without,
+/// the snapshot says the labels were not stored (reopening the screen does not add them).
+fn reasons_for(
+    listing: &str,
+    records: &[Record],
+    fetched: &str,
+    every_source: bool,
+    labels: Option<&applicant_reasons::OptionLabels>,
+) -> applicant_reasons::Reasons {
+    if every_source {
+        applicant_reasons::extract_with_labels(
+            listing,
+            records,
+            fetched.to_owned(),
+            labels,
+            applicant_reasons::OptionLabelsStatus::NotStored,
+        )
+    } else {
+        applicant_reasons::extract_legacy(listing, records, fetched.to_owned())
+    }
+}
+
 fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
     let fetched = source["fetched_at"]
         .as_str()
@@ -20,6 +43,10 @@ fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
         .ok_or("invalid_source_timestamp")?;
     let raw = source["rows"].as_array().ok_or("missing_rows")?;
     let mut rows = BTreeMap::new();
+    // A dump read with every reason source gives the current shape. A dump read before the
+    // transfer reason and the category selects were added gives the old shape, where those
+    // sources are 未取得 (never 記録なし or 0). Rows of one dump must all be read the same way.
+    let mut every_source = None;
     for value in raw {
         let row: Record = serde_json::from_value(value.clone()).map_err(|_| "invalid_row")?;
         for field in [
@@ -28,18 +55,38 @@ fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
             "nenrei",
             "todoufuken",
             "shikuchouson",
-            "oubodouki",
-            "ouboriyuu_baitaikisai",
-            "ouboriyuu_hiaringu",
-        ] {
+        ]
+        .into_iter()
+        .chain(applicant_reasons::LEGACY_PROPERTIES)
+        {
             if !row.properties.contains_key(field) {
                 return Err("source_property_not_requested");
             }
+        }
+        let added: Vec<bool> = applicant_reasons::PROPERTIES
+            .iter()
+            .filter(|field| !applicant_reasons::LEGACY_PROPERTIES.contains(field))
+            .map(|field| row.properties.contains_key(*field))
+            .collect();
+        let all = added.iter().all(|read| *read);
+        if !all && added.iter().any(|read| *read) {
+            return Err("source_property_not_requested");
+        }
+        if *every_source.get_or_insert(all) != all {
+            return Err("mixed_source_properties");
         }
         if rows.insert(row.id.clone(), row).is_some() {
             return Err("duplicate_applicant");
         }
     }
+    // Optional: the reply of the property definition read
+    // (POST /crm/v3/properties/0-421/batch/read for the two category selects), saved with the dump.
+    let labels = match source.get("property_definitions") {
+        None => None,
+        Some(definitions) => {
+            Some(job_copy_live::option_labels(definitions).ok_or("invalid_property_definitions")?)
+        }
+    };
     let associations = source["associations"]
         .as_object()
         .ok_or("missing_associations")?;
@@ -131,7 +178,14 @@ fn refresh(source: &Value, mut moc: Value) -> Result<Value, &'static str> {
         // The per-version areas and the job-wide cells are hidden with the same version groups.
         let (comparison, groups) =
             job_copy_capture::dated_comparison_with_groups(&bundle, &applications)?;
-        results.push(json!({"listing_id":listing,"summary":job_copy_live::summarize_grouped(&records,&groups),"dated_comparison":comparison,"applicant_reasons":applicant_reasons::extract(&listing,&records,fetched.to_owned())}));
+        let reasons = reasons_for(
+            &listing,
+            &records,
+            fetched,
+            every_source == Some(true),
+            labels.as_ref(),
+        );
+        results.push(json!({"listing_id":listing,"summary":job_copy_live::summarize_grouped(&records,&groups),"dated_comparison":comparison,"applicant_reasons":reasons}));
     }
     moc["capturedAt"] = json!(fetched);
     moc["results"] = json!(results);
@@ -213,6 +267,124 @@ mod tests {
         .map(|key| (key.to_owned(), Value::Null))
         .collect();
         json!({"fetched_at":"2026-10-05T00:00:00Z","associations":{"30":["50"]},"rows":[{"id":"50","properties":properties}]})
+    }
+    fn with_new_sources(mut input: Value) -> Value {
+        for field in [
+            "genshokumaeshokukaranotenshokuriyuu",
+            "ouboriyuukategori_hiaringu",
+            "ouboriyuukategori_baitaikisai",
+        ] {
+            for row in input["rows"].as_array_mut().unwrap() {
+                row["properties"][field] = Value::Null;
+            }
+        }
+        input
+    }
+    fn moc() -> Value {
+        json!({"capture_bundle":{"jobs":[{"hubspotListingId":"30"}]}})
+    }
+    fn rows(input: &Value) -> Vec<Record> {
+        input["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| serde_json::from_value(row.clone()).unwrap())
+            .collect()
+    }
+    #[test]
+    fn a_dump_without_the_new_sources_gives_the_old_shape_not_zero_counts() {
+        // The dump passes the source check (the error comes later, from the empty capture bundle).
+        assert_eq!(
+            refresh(&source(), moc()).unwrap_err(),
+            "capture_schema_invalid"
+        );
+        let reasons = serde_json::to_value(reasons_for(
+            "30",
+            &rows(&source()),
+            "2026-10-05T00:00:00Z",
+            false,
+            None,
+        ))
+        .unwrap();
+        assert!(reasons.get("selections").is_none());
+        assert_eq!(reasons["source_counts"].as_object().unwrap().len(), 3);
+        assert!(reasons["source_counts"]["ouboriyuukategori_hiaringu"].is_null());
+        assert_eq!(
+            (
+                reasons["total_source_values"].as_u64(),
+                reasons["missing"].as_u64()
+            ),
+            (Some(3), Some(3))
+        );
+    }
+    #[test]
+    fn a_dump_with_every_source_gives_the_new_shape() {
+        let input = with_new_sources(source());
+        assert_eq!(
+            refresh(&input, moc()).unwrap_err(),
+            "capture_schema_invalid"
+        );
+        let reasons = serde_json::to_value(reasons_for(
+            "30",
+            &rows(&input),
+            "2026-10-05T00:00:00Z",
+            true,
+            None,
+        ))
+        .unwrap();
+        assert_eq!(reasons["source_counts"].as_object().unwrap().len(), 6);
+        assert_eq!(reasons["selections"], json!([]));
+        // Without the definitions, the snapshot says the labels were not stored.
+        assert_eq!(reasons["option_labels"], "not_stored");
+    }
+    #[test]
+    fn definitions_saved_with_the_dump_name_the_chosen_categories() {
+        let mut input = with_new_sources(source());
+        input["rows"][0]["properties"]["ouboriyuukategori_hiaringu"] = json!("kyuuyo");
+        input["property_definitions"] = json!({"results":[{"name":"ouboriyuukategori_hiaringu",
+            "options":[{"value":"kyuuyo","label":"給与"}]}]});
+        // The definitions are accepted (the error comes later, from the empty capture bundle).
+        assert_eq!(
+            refresh(&input, moc()).unwrap_err(),
+            "capture_schema_invalid"
+        );
+        let labels = job_copy_live::option_labels(&input["property_definitions"]).unwrap();
+        let reasons = serde_json::to_value(reasons_for(
+            "30",
+            &rows(&input),
+            "2026-10-05T00:00:00Z",
+            true,
+            Some(&labels),
+        ))
+        .unwrap();
+        assert_eq!(reasons["option_labels"], "read");
+        assert_eq!(reasons["selections"][0]["value"], "kyuuyo");
+        assert_eq!(reasons["selections"][0]["label"], "給与");
+        input["property_definitions"] = json!({"results":[]});
+        assert_eq!(
+            refresh(&input, moc()).unwrap_err(),
+            "invalid_property_definitions"
+        );
+    }
+    #[test]
+    fn a_dump_with_only_some_new_sources_or_mixed_rows_is_rejected() {
+        let mut input = with_new_sources(source());
+        input["rows"][0]["properties"]
+            .as_object_mut()
+            .unwrap()
+            .remove("ouboriyuukategori_baitaikisai");
+        assert_eq!(
+            refresh(&input, json!({})).unwrap_err(),
+            "source_property_not_requested"
+        );
+        let mut input = source();
+        let mut row = with_new_sources(source())["rows"][0].clone();
+        row["id"] = json!("51");
+        input["rows"].as_array_mut().unwrap().push(row);
+        assert_eq!(
+            refresh(&input, json!({})).unwrap_err(),
+            "mixed_source_properties"
+        );
     }
     #[test]
     fn missing_requested_demographics_are_not_converted_to_unknown() {
