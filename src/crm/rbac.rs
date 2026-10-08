@@ -409,6 +409,17 @@ pub fn can_read(
     Ok(())
 }
 
+/// CRM を使える人か (ナビの表示用)。セッションと設定だけで決まる部分で、[`authorize`] と同じ条件
+/// (Google 本人確認済み・許可メール・会社ドメイン)。無効化アカウントの照会 (監査 DB) はしないので、
+/// 無効化された人にはリンクが出ても API 側で 403 になる。
+pub fn crm_usable(principal: &Principal, access: &CrmAccess, allowed_domains: &[String]) -> bool {
+    can_read(principal, None, access).is_ok()
+        && crate::auth::validate_email_domain(
+            principal.email.as_deref().unwrap_or_default(),
+            allowed_domains,
+        )
+}
+
 /// 本人の役割。[`authorize`] を通った人は必ず入っている。入っていなければ最小権限 (user)。
 pub fn resolve_role(principal: &Principal) -> CrmRole {
     principal.role.unwrap_or(CrmRole::User)
@@ -450,6 +461,37 @@ pub async fn authorize(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ナビの表示判定は API の認可と同じ条件 (Google 本人確認・許可メール・会社ドメイン)。管理者かどうかは見ない
+    #[test]
+    fn crm_usable_はgoogleログインの会社ドメインだけ() {
+        let doms = vec!["f-a-c.co.jp".to_string()];
+        let open = CrmAccess::from_list("");
+        let g = Some(crate::auth::LOGIN_METHOD_GOOGLE_OIDC);
+        assert!(crm_usable(&p(Some("staff@f-a-c.co.jp"), g), &open, &doms));
+        assert!(crm_usable(&p(Some("Staff@F-A-C.co.jp"), g), &open, &doms));
+        // 社外ドメイン・パスワードログイン・未ログイン・メールなしは出さない
+        assert!(!crm_usable(&p(Some("x@example.com"), g), &open, &doms));
+        assert!(!crm_usable(
+            &p(
+                Some("staff@f-a-c.co.jp"),
+                Some(crate::auth::LOGIN_METHOD_PASSWORD_INTERNAL)
+            ),
+            &open,
+            &doms
+        ));
+        assert!(!crm_usable(
+            &p(Some("staff@f-a-c.co.jp"), None),
+            &open,
+            &doms
+        ));
+        assert!(!crm_usable(&p(None, g), &open, &doms));
+        assert!(!crm_usable(&p(Some("  "), g), &open, &doms));
+        // 許可メールの絞り込みがあれば、それも見る
+        let only = CrmAccess::from_list("boss@f-a-c.co.jp");
+        assert!(crm_usable(&p(Some("boss@f-a-c.co.jp"), g), &only, &doms));
+        assert!(!crm_usable(&p(Some("staff@f-a-c.co.jp"), g), &only, &doms));
+    }
     use crate::auth::{
         LOGIN_METHOD_PASSWORD, LOGIN_METHOD_PASSWORD_EXTERNAL, LOGIN_METHOD_PASSWORD_INTERNAL,
     };

@@ -243,20 +243,17 @@ async fn api_navは管理者にだけ管理リンクを出す() {
     assert_eq!(admin["href"], "/admin/usage");
     assert_eq!(admin["kind"], "page");
     assert_eq!(v["header_links"].as_array().unwrap().len(), 4);
-    // CRM は admin かつ /app/crm が KNOWN_SCREENS に登録済みのときだけ items に入る
-    let has_crm = v["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|i| i["id"] == "crm");
-    assert_eq!(has_crm, crate::handlers::nav::crm_screen_registered());
-    if has_crm {
-        let crm = item(&v, "crm");
-        assert_eq!(crm["label"], "CRM");
-        assert_eq!(crm["kind"], "app");
-        assert_eq!(crm["href"], "/app/crm");
-        assert_eq!(crm["hidden"], false);
-    }
+    // CRM は「CRM を使える人」(Google 本人確認済みの会社ドメイン) にだけ出す (2026-10-07)。
+    // このテストのログインはパスワードなので、管理者でも CRM は出ない (CRM の API も 403 になる)。
+    // Google ログインで出ることは nav.rs / crm::rbac の crm_usable のテストで確かめている
+    assert!(
+        v["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|i| i["id"] != "crm"),
+        "パスワードログインの管理者に CRM は出ない"
+    );
 
     let cookie = login(&app, USER).await;
     let v = get_json(&app, "/api/nav", &cookie).await;
@@ -272,7 +269,7 @@ async fn api_navは管理者にだけ管理リンクを出す() {
             .unwrap()
             .iter()
             .all(|i| i["id"] != "crm"),
-        "非 admin に CRM は出ない"
+        "パスワードログインの非 admin に CRM は出ない"
     );
 }
 
