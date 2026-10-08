@@ -67,17 +67,17 @@ export function withBlankOwner(D: SalesKpiData = loadFixture()): { data: SalesKp
  */
 export function withOffRosterRows(D: SalesKpiData = loadFixture()): SalesKpiData {
   const d = JSON.parse(JSON.stringify(D)) as SalesKpiData;
-  const izubo = d.people.find((p) => p.team === '***REMOVED***');
-  const hirata = d.people.find((p) => p.team === '***REMOVED***');
-  if (!izubo || !hirata) throw new Error('fixture に伊壺・***REMOVED***の人が居ない');
+  const izubo = d.people.find((p) => p.team === '第1チーム');
+  const hirata = d.people.find((p) => p.team === '第2チーム');
+  if (!izubo || !hirata) throw new Error('fixture に伊壺・第2チームの人が居ない');
   const base = d.stale[0] ?? d.week_deals[0];
   if (!base) throw new Error('fixture に下段の行が無い');
   const mk = (id: string, owner: string, ownerName: string, team: string) => ({ ...base, id, owner, ownerName, team });
   d.stale.push(
-    mk('off-1', 'ZZ-OFF', '名簿外の人', '***REMOVED***'),
-    // 名簿は***REMOVED***なのに、行は***REMOVED***と言っている (旧画面は名簿を信じる → ***REMOVED***には出ない)
-    mk('off-2', hirata.id, hirata.name, '***REMOVED***'),
+    mk('off-1', 'ZZ-OFF', '名簿外の人', '第1チーム'),
+    // 名簿は第2チームなのに、行は第1チームと言っている (旧画面は名簿を信じる → 第1チームには出ない)
+    mk('off-2', hirata.id, hirata.name, '第1チーム'),
   );
-  d.week_deals.push(mk('off-3', 'ZZ-OFF', '名簿外の人', '***REMOVED***'));
+  d.week_deals.push(mk('off-3', 'ZZ-OFF', '名簿外の人', '第1チーム'));
   return d;
 }
