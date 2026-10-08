@@ -5,6 +5,11 @@
 //! `scripts\consulting_dashboard\build_sheets.py --fixture` で
 //! シート形式に畳んだもの。**顧客が特定できる列だけ伏せてある**。
 //!
+//! 🔴 2026-10-09: 公開リポジトリに置くため、実データを仮名化した（列・行数・数値・日付は元のまま）。
+//!   ID（取引・担当・通話・録画）は桁数をそろえた別の値に、伏字のハッシュも別の値に置き換え、
+//!   ファイルをまたいだ対応（結合）は保っている。人名は「担当NN」、チーム名は「第Nチーム」、
+//!   MTG の自由記述と抽出結果は短い作文に置き換えた。実データを fixture に戻さないこと。
+//!
 //! なぜ自作のテストデータを使わないか:
 //!   架電クオリティを Rust へ移したとき、テストデータを自作していたせいで
 //!   「存在しない列名を読んで常に 0」というバグを検出できなかった。
@@ -2330,7 +2335,7 @@ fn 注力の内訳が法人の画面に出る() {
     );
     assert_eq!(f["n_houjin_option_only"], 3);
     assert_eq!(f["n_display"], 517, "稼働中の取引を持つ法人");
-    // 🔴 図の 517 社にはオプション契約しか持たない法人が1社入っている（h411cb77ce494）。
+    // 🔴 図の 517 社にはオプション契約しか持たない法人が1社入っている（h40e1de24c955）。
     //    画面はこれを書く（書かないと「オプション契約しか持たない法人は数えていません」が
     //    図にも掛かって読める）
     assert_eq!(f["n_display_option_only"], 1);
@@ -3312,7 +3317,7 @@ fn 案件一覧の何ヶ月目は満了日の当日でも契約期間を超え�
     }
     assert!(n > 400, "{n}");
     // 実測（fixture・稼働中603件）: 602件が契約期間どおりに満了する。
-    // 残る1件（62465528145、1ヶ月契約 2026-06-01〜2026-07-31）は満了日が1か月後ろ
+    // 残る1件（62468577208、1ヶ月契約 2026-06-01〜2026-07-31）は満了日が1か月後ろ
     assert_eq!(on_std, 602, "契約期間どおりに満了する行");
     assert_eq!(late_over, 1, "満了日が後ろにずれて期間を超える行");
 }
@@ -5305,7 +5310,7 @@ fn 通話要約のfixtureは合成で伏字の決まりを守っている() {
 /// （別の取引の期間 11・動いている契約が無い日 3）。
 #[test]
 fn 案件の詳細は電話_mtg_交代を新しい順に1本で並べる() {
-    let v = detail("61098080280");
+    let v = detail("61328438118");
     assert_eq!(v["meta"]["found"], true);
     assert_eq!(v["meta"]["summary_sheet"], "ok");
     let c = &v["counts"];
@@ -5377,7 +5382,7 @@ fn 案件の詳細は電話_mtg_交代を新しい順に1本で並べる() {
 /// Python の数え直し: 電話 117（全部付け直し。同じ通話の重複を除いた数で、行では 228）、60秒超 63、録画 MTG 3、交代 1。
 #[test]
 fn 案件の詳細は継続先に付いた電話をこの契約の期間なら付け直して並べる() {
-    let v = detail("51831964246");
+    let v = detail("51874904676");
     let c = &v["counts"];
     assert_eq!(c["call"], 117);
     assert_eq!(c["call_moved_in"], 117);
@@ -5391,7 +5396,7 @@ fn 案件の詳細は継続先に付いた電話をこの契約の期間なら�
         let a = &e["attach"];
         assert_eq!(a["state"], "moved_in", "{e}");
         let from = a["moved_from"]["deal_id"].as_str().unwrap();
-        assert_ne!(from, "51831964246");
+        assert_ne!(from, "51874904676");
         assert!(
             !a["moved_from"]["name"].as_str().unwrap().is_empty(),
             "どこから付け直したかの名前が無い"
@@ -5409,7 +5414,7 @@ fn 案件の詳細は継続先に付いた電話をこの契約の期間なら�
         assert_eq!(e["attach"]["moved_from"]["relation"], "later", "{e}");
     }
     let rows = v["chain"]["rows"].as_array().unwrap();
-    assert!(rows.iter().any(|r| r["deal_id"] == "51831964246"));
+    assert!(rows.iter().any(|r| r["deal_id"] == "51874904676"));
     assert_eq!(rows.iter().filter(|r| r["current"] == true).count(), 1);
 }
 
@@ -5417,7 +5422,7 @@ fn 案件の詳細は継続先に付いた電話をこの契約の期間なら�
 /// シートが読めないときは全部 null のまま、残りは同じに出す。
 #[test]
 fn 案件の詳細は通話要約をcall_idで結び_無いときも開く() {
-    let v = detail("61098080280");
+    let v = detail("61328438118");
     let s = call_summary();
     let have: std::collections::HashSet<&str> =
         s.rows.iter().map(|r| s.get(r, "call_id")).collect();
@@ -5440,7 +5445,7 @@ fn 案件の詳細は通話要約をcall_idで結び_無いときも開く() {
     assert_eq!(n, 3);
 
     // シートが読めない
-    let none = build_deal_detail(&sheets(), None, Some("61098080280"), None, fixture_day());
+    let none = build_deal_detail(&sheets(), None, Some("61328438118"), None, fixture_day());
     assert_eq!(none["meta"]["summary_sheet"], "missing");
     assert_eq!(none["counts"]["call_summarized"], 0);
     assert_eq!(
@@ -5453,7 +5458,7 @@ fn 案件の詳細は通話要約をcall_idで結び_無いときも開く() {
     let e = build_deal_detail(
         &sheets(),
         Some(&empty),
-        Some("61098080280"),
+        Some("61328438118"),
         None,
         fixture_day(),
     );
@@ -5748,11 +5753,11 @@ fn 案件の詳細の付け直しの印と要約の結合を小さなシート�
     assert!(i_rec < i_mail);
 }
 
-/// メール由来の MTG の付け直し。61098080280 に付いていた期間外の行のうち 11 件は、
-/// 前の契約 44675364955（3 件）と 58208343561（8 件）の詳細に並ぶ（Python の数え直し）。
+/// メール由来の MTG の付け直し。61328438118 に付いていた期間外の行のうち 11 件は、
+/// 前の契約 44622672257（3 件）と 58525502198（8 件）の詳細に並ぶ（Python の数え直し）。
 #[test]
 fn 案件の詳細はメール由来のmtgも付け直して前の契約に並べる() {
-    for (id, n) in [("44675364955", 3), ("58208343561", 8)] {
+    for (id, n) in [("44622672257", 3), ("58525502198", 8)] {
         let v = detail(id);
         let c = &v["counts"];
         assert_eq!(c["mail_mtg"], n, "{id}");
@@ -5767,11 +5772,11 @@ fn 案件の詳細はメール由来のmtgも付け直して前の契約に並�
     }
 }
 
-/// 付け直しの元がオプション契約のとき。56611938826 の電話 39 件は全部、同じ拠点のオプション契約から
+/// 付け直しの元がオプション契約のとき。56636097356 の電話 39 件は全部、同じ拠点のオプション契約から
 /// 付け直して来たもの（Python の数え直し）。元の関係を `option` で返す（画面は「継続の取引」と書かない）。
 #[test]
 fn 案件の詳細は付け直しの元がオプション契約ならそう返す() {
-    let v = detail("56611938826");
+    let v = detail("56636097356");
     assert_eq!(v["counts"]["call"], 39);
     assert_eq!(v["counts"]["call_moved_in"], 39);
     for e in events_of(&v, "call") {
@@ -5785,11 +5790,11 @@ fn 案件の詳細は付け直しの元がオプション契約ならそう返�
     }
 }
 
-/// 抽出済みの録画 MTG の結合と、取引への結び付けの確度（fixture の実データ 15873742655）。
+/// 抽出済みの録画 MTG の結合と、取引への結び付けの確度（fixture の実データ 15697475721）。
 /// 2件とも抽出済みで、2025-09-03 の1件は確度「中」。
 #[test]
 fn 案件の詳細は抽出済みmtgの項目と結び付けの確度を返す() {
-    let v = detail("15873742655");
+    let v = detail("15697475721");
     let c = &v["counts"];
     assert_eq!(c["mtg"], 2);
     assert_eq!(c["mtg_extracted"], 2);
@@ -5799,15 +5804,15 @@ fn 案件の詳細は抽出済みmtgの項目と結び付けの確度を返す()
     let aug = m.iter().find(|e| e["date"] == "2025-08-01").unwrap();
     assert_eq!(aug["extracted"], true);
     assert_eq!(aug["link_certainty"], "高");
-    assert_eq!(aug["todo"], "次回定期ミーティングの実施");
+    assert_eq!(aug["todo"], "面接前のリマインド文面を送る");
     assert!(aug["concern"]
         .as_str()
         .unwrap()
-        .starts_with("面接まで繋がらなかった"));
+        .starts_with("掲載の効果が見えづらい"));
     assert!(aug["positive"]
         .as_str()
         .unwrap()
-        .starts_with("面接した方が"));
+        .starts_with("応募が増えてきた"));
     assert_eq!(aug["next"], "9月3日10時");
     assert_eq!(aug["risk"], "高");
     let sep = m.iter().find(|e| e["date"] == "2025-09-03").unwrap();
@@ -5816,24 +5821,24 @@ fn 案件の詳細は抽出済みmtgの項目と結び付けの確度を返す()
     assert!(sep["risk_reason"]
         .as_str()
         .unwrap()
-        .starts_with("契約満了に伴い"));
+        .starts_with("判断材料がまだ"));
     assert_eq!(sep["fact"], true, "録画そのものは事実");
 }
 
 #[test]
 fn 話した人の表示名は接頭辞と空白を取ってそろえる() {
     use super::deal_detail::handler_label;
-    assert_eq!(handler_label("リクロジ＿及川流奈"), "及川流奈");
-    assert_eq!(handler_label("リクロジ_山口智輝"), "山口智輝");
-    assert_eq!(handler_label("星川 輝羅"), "星川輝羅");
-    assert_eq!(handler_label("平野　明日香"), "平野明日香");
-    assert_eq!(handler_label("リクロジ事業部　嶋貫明仁"), "嶋貫明仁");
-    assert_eq!(handler_label("松野日向子"), "松野日向子");
+    assert_eq!(handler_label("リクロジ＿担当10"), "担当10");
+    assert_eq!(handler_label("リクロジ_担当20"), "担当20");
+    assert_eq!(handler_label("担当 29"), "担当29");
+    assert_eq!(handler_label("担当　27"), "担当27");
+    assert_eq!(handler_label("リクロジ事業部　担当24"), "担当24");
+    assert_eq!(handler_label("担当34"), "担当34");
     assert_eq!(handler_label(""), "");
     // 接頭辞だけで名前が無いものは元のまま（名前を消さない）
     assert_eq!(handler_label("リクロジ＿"), "リクロジ＿");
     // fixture の電話は全部、表示名があれば handler_label もある
-    let v = detail("61098080280");
+    let v = detail("61328438118");
     for e in events_of(&v, "call") {
         assert_eq!(e["handler"].is_null(), e["handler_label"].is_null(), "{e}");
         if let Some(h) = e["handler_label"].as_str() {
@@ -5899,7 +5904,7 @@ fn 全apiのmetaにhubspot_portal_idが載る() {
             f(super::deal_detail::build_deal_detail(
                 &sh,
                 None,
-                Some("61098080280"),
+                Some("61328438118"),
                 None,
                 day,
             )),

@@ -999,7 +999,7 @@ check("法人数", "注力の注記と本部アプローチの「全 N 法人」
 check("N18c", "満了日が後ろにずれて期間を超えた行は「2 / 1」と出さず、ずれていると書く", async () => {
   const t = boot();
   const pos = t.R("pos");
-  // fixture 62465528145: 1ヶ月契約 2026-06-01〜2026-07-31。7/1〜7/31 は2ヶ月目だが満了前
+  // fixture 62468577208: 1ヶ月契約 2026-06-01〜2026-07-31。7/1〜7/31 は2ヶ月目だが満了前
   const late = pos({ months: 2, period: 1, past_expiry: false, band: "終盤" });
   if (late.indexOf("2 / 1") >= 0) throw new Error("期間を超えた分数が出ている: " + late);
   if (late.indexOf("満了日が後ろにずれています") < 0 || late.indexOf("契約 1 か月") < 0)
@@ -1029,7 +1029,7 @@ check("N18c", "推移の横に書く理由は満了日を比べて選ぶ（1日�
   const mid = sh({ start: "2026-03-19", expiration: "2026-09-18", std_expiration: "2026-09-18",
     period: 6, span_months: 7 });
   if (mid.indexOf("月の途中に始まったので") < 0) throw new Error("月の途中の開始: " + mid);
-  // fixture 62465528145: 1日に始まり、満了日が1か月後ろ（span = 期間 + 1）
+  // fixture 62468577208: 1日に始まり、満了日が1か月後ろ（span = 期間 + 1）
   const late1 = sh({ start: "2026-06-01", expiration: "2026-07-31", std_expiration: "2026-06-30",
     period: 1, span_months: 2 });
   if (late1.indexOf("月の途中") >= 0) throw new Error("1日の開始なのに月の途中と書いている: " + late1);
@@ -1038,7 +1038,7 @@ check("N18c", "推移の横に書く理由は満了日を比べて選ぶ（1日�
   const late2 = sh({ start: "2025-01-10", expiration: "2025-12-09", std_expiration: "2025-07-09",
     period: 6, span_months: 12 });
   if (late2.indexOf("より後ろにあり、暦では 12 か月") < 0) throw new Error("2か月以上後ろ: " + late2);
-  // fixture 15873848622: 12ヶ月契約なのに 2025-12-18〜2026-06-17（span < 期間）
+  // fixture 15896429660: 12ヶ月契約なのに 2025-12-18〜2026-06-17（span < 期間）
   const early = sh({ start: "2025-12-18", expiration: "2026-06-17", std_expiration: "2026-12-17",
     period: 12, span_months: 7 });
   if (early.indexOf("（2026-12-17）より前にあり、暦では 7 か月") < 0) throw new Error("期間より前: " + early);

@@ -819,12 +819,12 @@ fn プロパティや関連が欠けた取引でも行は16列で空文字にな
 #[test]
 fn 名簿と除外はシートから復元する() {
     let m = sheet_from_tsv(
-        "ownerId\t氏名\tチーム\t在籍\t出どころ\n1\t山田\t伊壺チーム\t在籍\t名簿\n2\t鈴木\tチーム未設定\t在籍\tHubSpot\n\t空\tx\t\t名簿\n",
+        "ownerId\t氏名\tチーム\t在籍\t出どころ\n1\t山田\t第1チーム\t在籍\t名簿\n2\t鈴木\tチーム未設定\t在籍\tHubSpot\n\t空\tx\t\t名簿\n",
     );
     let r = roster_from_member_sheet(&m);
     assert_eq!(r.len(), 1, "出どころが名簿で ownerId があるものだけ");
     assert_eq!(r["1"].name, "山田");
-    assert_eq!(r["1"].team, "伊壺チーム");
+    assert_eq!(r["1"].team, "第1チーム");
     let e = exclusions_from_sheet(&sheet_from_tsv(
         "種別\t値\t理由\nHubSpotチーム\t BPO \tx\nownerId\t9\t\nownerId\t\t値なし\n不明\t1\t\n",
     ));

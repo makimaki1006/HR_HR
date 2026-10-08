@@ -1,5 +1,10 @@
 //! 営業KPI: 実データでの突き合わせ
 //!
+//! 🔴 2026-10-09: 公開リポジトリに置くため、実データを仮名化した（列・行数・数値・日付は元のまま）。
+//!   ID（取引・担当・通話・録画）は桁数をそろえた別の値に、伏字のハッシュも別の値に置き換え、
+//!   ファイルをまたいだ対応（結合）は保っている。人名は「担当NN」、チーム名は「第Nチーム」、
+//!   MTG の自由記述と抽出結果は短い作文に置き換えた。実データを fixture に戻さないこと。
+//!
 //! `tests/fixtures/sales_kpi/` にある TSV は、本番のスプレッドシートから
 //! そのまま落としたもの。ただし **このリポジトリは public** なので、
 //! 集計に使っていない列は落としてある（取引名＝顧客の会社名、
@@ -264,7 +269,7 @@ fn bpoは当月と前月の窓でしか数えない() {
 /// 同じ姓の人が名簿に複数いるとどれを掴むかが `people` の並び順に依存する。
 /// 架電の行を持たない同姓の人を掴めば 0件で落ちる（実際、名簿には同姓が3名いた）。
 /// ownerId は HubSpot の内部IDで、fixture 全体で既に使っている。
-const KADEN_ACTUAL_OWNER: &str = "96032022";
+const KADEN_ACTUAL_OWNER: &str = "96001782";
 
 #[test]
 fn 架電数が現場の実数と合う() {
@@ -1001,13 +1006,13 @@ fn 集計対象の列が無ければ全員数える() {
 // ------------------------------------------------ メンバー
 
 /// 名簿に載っていない人（BPO など）も名前で出す。
-/// 画面に `owner_62991116` と出ていたのを直したぶん（2026-09-07 現場指摘）。
+/// 画面に `owner_62889014` と出ていたのを直したぶん（2026-09-07 現場指摘）。
 #[test]
 fn 名簿にない担当者もhubspotの氏名で出す() {
     let sheets = fixture_sheets();
     let members = super::members_of(&sheets.member);
     // 現場が「名前が分からない」と言った3人。いずれも BPO で名簿に無い。
-    for id in ["71368916", "62991116", "96437217"] {
+    for id in ["71583573", "62889014", "96437217"] {
         let p = members
             .get(id)
             .unwrap_or_else(|| panic!("{id} が名簿に無い"));
@@ -1022,8 +1027,8 @@ fn 名簿にない担当者もhubspotの氏名で出す() {
         assert!(!p.hs_team.is_empty(), "{id} の HubSpotチームが空");
     }
     // 名簿に載っている人は名簿のチームが勝つ（HubSpot は「新規営業」までしか無い）
-    let itsubo = members.get("613211320").expect("伊壺さんが名簿に無い");
-    assert_eq!(itsubo.team, "伊壺チーム");
+    let itsubo = members.get("615075002").expect("伊壺さんが名簿に無い");
+    assert_eq!(itsubo.team, "第1チーム");
     assert_eq!(itsubo.hs_team, "新規営業");
 }
 
@@ -1404,7 +1409,7 @@ fn 決定者は最新日と前日だけを使う() {
         "その1つ前の**記録**"
     );
     // いちばん古い 2026-09-04 は全員 1件ずつ（合計4）。混ざっていればここで落ちる。
-    let r = kettei_row(&body, "613211320");
+    let r = kettei_row(&body, "615075002");
     assert_eq!(r["合計"].as_i64(), Some(289), "最新日の合計だけを出す");
 }
 
@@ -1437,7 +1442,7 @@ fn 決定者のfixtureは日曜が抜けた形を保つ() {
         "最新日を月曜にしてある（1つ前が土曜になる形）"
     );
     // その形でも増加はちゃんと出ること。
-    assert_eq!(kettei_row(&body, "613211320")["増加"].as_i64(), Some(31));
+    assert_eq!(kettei_row(&body, "615075002")["増加"].as_i64(), Some(31));
 }
 
 /// 「本日増加」は 最新日の合計 − 前日の合計。
@@ -1445,15 +1450,15 @@ fn 決定者のfixtureは日曜が抜けた形を保つ() {
 fn 決定者の増加は前日との差() {
     let body = payload();
     // 258 → 289
-    assert_eq!(kettei_row(&body, "613211320")["増加"].as_i64(), Some(31));
+    assert_eq!(kettei_row(&body, "615075002")["増加"].as_i64(), Some(31));
     // 157 → 181
-    assert_eq!(kettei_row(&body, "97534759")["増加"].as_i64(), Some(24));
+    assert_eq!(kettei_row(&body, "97642762")["増加"].as_i64(), Some(24));
     // 88 → 158
-    assert_eq!(kettei_row(&body, "79628535")["増加"].as_i64(), Some(70));
+    assert_eq!(kettei_row(&body, "79895902")["増加"].as_i64(), Some(70));
     // 前日と同じ。0 は null ではない（画面は ±0 と出す）
-    assert_eq!(kettei_row(&body, "79319481")["増加"].as_i64(), Some(0));
+    assert_eq!(kettei_row(&body, "79645855")["増加"].as_i64(), Some(0));
     // 減ることもある。45 → 42
-    assert_eq!(kettei_row(&body, "94365826")["増加"].as_i64(), Some(-3));
+    assert_eq!(kettei_row(&body, "94159703")["増加"].as_i64(), Some(-3));
 }
 
 /// 前日の行が無い担当者は増加を出さない（0 と言い切らない）。
@@ -1462,17 +1467,17 @@ fn 決定者の増加は前日との差() {
 /// 前日も入力が無かったのか、前日はそもそも記録されていなかったのかは
 /// この材料からは分からない。画面は null を「—」で出す。
 ///
-/// この担当者（1302250542）は `集計対象` が「対象外」でもある。
+/// この担当者（1300567242）は `集計対象` が「対象外」でもある。
 /// **決定者・決裁者は外さない**（外すのは商談だけ。架電・架電リストと同じ扱い）ので、
 /// 対象外でもこの表には出る。
 #[test]
 fn 前日の行が無ければ増加はnull() {
     let body = payload();
-    let r = kettei_row(&body, "1302250542");
+    let r = kettei_row(&body, "1300567242");
     assert_eq!(r["合計"].as_i64(), Some(15));
     assert!(r["増加"].is_null(), "前日の行が無いのに増加が出ている: {r}");
     assert!(
-        !members_of(&fixture_sheets().member)["1302250542"].counted,
+        !members_of(&fixture_sheets().member)["1300567242"].counted,
         "この検査は『集計対象外の人』で行う前提。名簿の fixture が変わっている"
     );
 }
@@ -1567,7 +1572,7 @@ fn 決定者が1日ぶんしか無ければ増加は全部出せない() {
     }
     assert!(k["no_owner"]["増加"].is_null(), "担当者なしも同じ");
     // 件数は最新日ぶんそのまま出る（増加が出せないだけ）。
-    assert_eq!(kettei_row(&body, "613211320")["合計"].as_i64(), Some(289));
+    assert_eq!(kettei_row(&body, "615075002")["合計"].as_i64(), Some(289));
 }
 
 /// この表にだけ出てくる担当者も、チーム・個人・チェックボックスの絞り込みに載せる。
@@ -1611,7 +1616,7 @@ fn 決定者の列は表と行で揃っている() {
             .map(|(_, k)| *k)
             .collect::<Vec<_>>()
     );
-    let row = kettei_row(&body, "613211320");
+    let row = kettei_row(&body, "615075002");
     let mut sum = 0i64;
     for c in &cols {
         sum += row[*c]
@@ -2172,16 +2177,16 @@ fn 契約_トップレベルのキーと基本値() {
         body["teams"],
         json!([
             "チーム未設定",
-            "伊壺チーム",
-            "平田チーム",
-            "櫻井チーム",
-            "野中チーム",
-            "野口チーム"
+            "第1チーム",
+            "第2チーム",
+            "第3チーム",
+            "第4チーム",
+            "第5チーム"
         ])
     );
-    assert_eq!(body["by_team"]["伊壺チーム"]["apo"], 31);
-    assert_eq!(body["by_team"]["伊壺チーム"]["pool"], 66);
-    assert_eq!(body["by_team"]["伊壺チーム"]["実施"], 19);
+    assert_eq!(body["by_team"]["第1チーム"]["apo"], 31);
+    assert_eq!(body["by_team"]["第1チーム"]["pool"], 66);
+    assert_eq!(body["by_team"]["第1チーム"]["実施"], 19);
     let len = |key: &str| body[key].as_array().expect(key).len();
     assert_eq!(len("people"), 109);
     assert_eq!(len("stale"), 9);
@@ -2196,7 +2201,7 @@ fn 契約_トップレベルのキーと基本値() {
     assert_eq!(deals("cyomi"), 123);
     assert_eq!(
         body["card_deals"]["pool"][0]["url"],
-        "https://app.hubspot.com/contacts/23708633/record/0-3/13016924850/"
+        "https://app.hubspot.com/contacts/23708633/record/0-3/13076144265/"
     );
     assert_eq!(body["excluded"], json!({"コンサル営業": 7, "件数": 7}));
     assert_eq!(body["kaden_base"], 129869);
@@ -2210,7 +2215,7 @@ fn 契約_担当者と取引の行() {
     let people = body["people"].as_array().expect("people");
     assert_eq!(
         people[0],
-        json!({"id": "81558823", "name": "担当074", "team": "チーム未設定", "hsTeam": "BPO_リクロジ"})
+        json!({"id": "81715367", "name": "担当074", "team": "チーム未設定", "hsTeam": "BPO_リクロジ"})
     );
     assert_eq!(
         people.iter().filter(|p| p.get("hsTeam").is_some()).count(),
@@ -2222,10 +2227,10 @@ fn 契約_担当者と取引の行() {
         "counted は画面に出さない"
     );
     let stale = &body["stale"][0];
-    assert_eq!(stale["id"], "15873734455");
+    assert_eq!(stale["id"], "15676657489");
     assert_eq!(stale["date"], "2026-07-10");
     assert_eq!(stale["ownerName"], "担当006");
-    assert_eq!(stale["team"], "伊壺チーム");
+    assert_eq!(stale["team"], "第1チーム");
     assert_eq!(stale["kind"], "未処理");
     assert_eq!(stale["why"], "アポ日確定のまま");
     for absent in ["days", "anq", "past"] {
@@ -2560,7 +2565,7 @@ fn fixture経路は任意のシートが無くても組める() {
     assert!(sheets.weekly.rows.is_empty());
     assert!(sheets.kettei.rows.is_empty());
     let body = serde_json::to_value(build_payload(&sheets, fixture_day())).expect("JSON 化");
-    assert_eq!(body["by_team"]["伊壺チーム"]["apo"], 31);
+    assert_eq!(body["by_team"]["第1チーム"]["apo"], 31);
     assert!(body["snapshots"].as_array().expect("snapshots").is_empty());
     assert!(body["kettei"]["rows"].as_array().expect("rows").is_empty());
     // 必須のシートが無ければ Err

@@ -32,7 +32,7 @@ interface Step {
 }
 const steps = (blankValue: string | null): Step[] => [
   { name: '初期 (全社)', run: () => undefined },
-  { name: 'チーム=伊壺チーム', run: (s) => { s.clickTeam('伊壺チーム'); } },
+  { name: 'チーム=第1チーム', run: (s) => { s.clickTeam('第1チーム'); } },
   { name: 'チーム=チーム未設定', run: (s) => { s.clickTeam('チーム未設定'); } },
   ...(blankValue === null
     ? []
@@ -83,10 +83,10 @@ describe('名簿に居ない担当者・名簿とずれた行 (下段の一覧�
     const o = await collect(mountOld, D, null);
     const n = await collect(mountNew, D, null);
     expect(n).toEqual(o);
-    // 旧画面の具体値: 伊壺チームの ⑦ は fixture で 1 件。名簿外の人の行 (off-1) は行のチームで入って 2 件、
-    // 名簿が平田チームの人の行 (off-2) は行が「伊壺チーム」と言っていても入らない。
-    expect(loadFixture().stale.filter((r) => r.team === '伊壺チーム')).toHaveLength(1);
-    expect(o['チーム=伊壺チーム']?.cards2?.slice(0, 2)).toEqual(['⑦ ステージが止まっている', '2件']);
+    // 旧画面の具体値: 第1チームの ⑦ は fixture で 1 件。名簿外の人の行 (off-1) は行のチームで入って 2 件、
+    // 名簿が第2チームの人の行 (off-2) は行が「第1チーム」と言っていても入らない。
+    expect(loadFixture().stale.filter((r) => r.team === '第1チーム')).toHaveLength(1);
+    expect(o['チーム=第1チーム']?.cards2?.slice(0, 2)).toEqual(['⑦ ステージが止まっている', '2件']);
   });
 });
 
@@ -105,7 +105,7 @@ describe('担当なしの選択: 旧画面と React 版が同じ表示になる 
     expect(all?.scope?.[0]).toContain('担当なし の数字だけを表示しています。');
   });
   it('チェックで外した人が混じっても同じ', async () => {
-    const hidden = data.people.filter((p) => p.team === '平田チーム').slice(0, 2).map((p) => p.id);
+    const hidden = data.people.filter((p) => p.team === '第2チーム').slice(0, 2).map((p) => p.id);
     const o = await collect(mountOld, data, '__none__', hidden);
     const n = await collect(mountNew, data, '__none__', hidden);
     expect(n).toEqual(o);
@@ -115,8 +115,8 @@ describe('担当なしの選択: 旧画面と React 版が同じ表示になる 
 describe('担当者のチェックを外すと個人指定が解ける (null に戻る)', () => {
   it('選んだ人のチェックを外す → 全社の表示に戻る。旧と同じ', async () => {
     const D = loadFixture();
-    const target = D.people.find((p) => p.team === '伊壺チーム');
-    if (!target) throw new Error('fixture に伊壺チームの人が居ない');
+    const target = D.people.find((p) => p.team === '第1チーム');
+    if (!target) throw new Error('fixture に第1チームの人が居ない');
     const run = async (mount: typeof mountOld) => {
       const s = await mount(D);
       try {

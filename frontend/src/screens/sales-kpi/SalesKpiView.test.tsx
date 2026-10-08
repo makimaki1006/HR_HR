@@ -94,7 +94,7 @@ describe('ヘッダー・絞り込み', () => {
   it('チーム chip は「すべて」+ teams の順、すべてが on', () => {
     const chips = [...html.matchAll(/<button type="button" class="chip( on)?">([^<]*)<\/button>/g)].map((m) => [m[2], !!m[1]]);
     expect(chips.slice(0, 7)).toEqual([
-      ['すべて', true], ['チーム未設定', false], ['伊壺チーム', false], ['平田チーム', false], ['櫻井チーム', false], ['野中チーム', false], ['野口チーム', false],
+      ['すべて', true], ['チーム未設定', false], ['第1チーム', false], ['第2チーム', false], ['第3チーム', false], ['第4チーム', false], ['第5チーム', false],
     ]);
   });
   it('個人プルダウン: 109 名 + 「個人で見る…」、すべてのときはチーム名付き', () => {
@@ -135,29 +135,29 @@ describe('今月の成績 (すべて)', () => {
 });
 
 describe('絞り込みを変えたとき', () => {
-  it('伊壺チーム: カードの値と scope 文、プルダウン 7 名 (チーム名なし)', () => {
-    const html = render({}, { team: '伊壺チーム' });
+  it('第1チーム: カードの値と scope 文、プルダウン 7 名 (チーム名なし)', () => {
+    const html = render({}, { team: '第1チーム' });
     expect(cardValue(html, 'apo')).toBe('31');
     expect(cardValue(html, 'pool')).toBe('66');
     expect(cardValue(html, 'rate')).toBe('63.3%');
-    expect(html).toContain('伊壺チーム の数字だけを表示しています。');
-    expect(html).toContain('class="chip on">伊壺チーム</button>');
+    expect(html).toContain('第1チーム の数字だけを表示しています。');
+    expect(html).toContain('class="chip on">第1チーム</button>');
     const opts = [...html.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)];
     expect(opts).toHaveLength(8);
     expect(opts[1]?.[2]).toBe('担当001');
     expect(cardBlock(html, 'apo')).toContain('1人あたり 4.4件<span style="opacity:0.75">（7名）</span>');
   });
-  it('個人 (担当001): 自分の値と「伊壺チーム の平均」', () => {
-    const html = render({}, { person: '613211320' });
+  it('個人 (担当001): 自分の値と「第1チーム の平均」', () => {
+    const html = render({}, { person: '615075002' });
     expect(cardValue(html, 'apo')).toBe('10');
     expect(cardValue(html, 'rate')).toBe('60.0%');
     expect(html).toContain('担当001 の数字だけを表示しています。');
-    expect(cardBlock(html, 'apo')).toContain('伊壺チーム の平均 4.4件');
+    expect(cardBlock(html, 'apo')).toContain('第1チーム の平均 4.4件');
     expect(html).toContain('<select id="person"><option value="">個人で見る…</option>');
-    expect(html).toContain('<option value="613211320" selected="">');
+    expect(html).toContain('<option value="615075002" selected="">');
   });
   it('チェックで 2 名外す: 件数が減り、注記が出る', () => {
-    const html = render({}, { hidden: new Set(['613211320', '96032023']) });
+    const html = render({}, { hidden: new Set(['615075002', '96115282']) });
     expect(html).toContain('2名を外しています');
     expect(html).toContain('　2名をチェックで外しています。');
     expect(cardValue(html, 'apo')).not.toBe('245');
@@ -171,7 +171,7 @@ describe('絞り込みを変えたとき', () => {
     const groups = [...html.matchAll(/<div class="gh"><input type="checkbox"[^>]*\/><b>([^<]*)<\/b><span class="n">([^<]*)<\/span>/g)].map((m) => [m[1], m[2]]);
     // 営業チームは localeCompare('ja') 順 (旧画面と同じ)、チーム未設定は最後
     expect(groups).toEqual([
-      ['伊壺チーム', '7 / 7名'], ['平田チーム', '9 / 9名'], ['野口チーム', '4 / 4名'], ['野中チーム', '5 / 5名'], ['櫻井チーム', '8 / 8名'], ['チーム未設定', '76 / 76名'],
+      ['第1チーム', '7 / 7名'], ['第2チーム', '9 / 9名'], ['第3チーム', '8 / 8名'], ['第4チーム', '5 / 5名'], ['第5チーム', '4 / 4名'], ['チーム未設定', '76 / 76名'],
     ]);
   });
 });
@@ -195,7 +195,7 @@ describe('いま手を打てること', () => {
     expect(html).toContain('<div class="open">閉じる ▲</div>');
     // DealRow.url (HubSpot の取引ページ。#45 でサーバが付ける) がそのまま href になる
     expect(html).toContain(
-      '<a class="item stale" href="https://app.hubspot.com/contacts/23708633/record/0-3/15873734455/" target="_blank" rel="noopener noreferrer"',
+      '<a class="item stale" href="https://app.hubspot.com/contacts/23708633/record/0-3/15676657489/" target="_blank" rel="noopener noreferrer"',
     );
     expect(html).toContain('<div class="d"><b>7/10（金）</b><span>57日前</span></div><div class="nm">（取引名なし）</div><div class="who">担当006</div><div class="go">HubSpotを開く ›</div>');
   });
@@ -221,7 +221,7 @@ describe('いま手を打てること', () => {
     expect(html).toContain('この日を閉じる');
   });
   it('個人で ⑦ が 0 件のとき「該当はありません。」', () => {
-    const html = render({ openKey: 'stale' }, { person: '613211320' });
+    const html = render({ openKey: 'stale' }, { person: '615075002' });
     expect(html).toContain('<b>ステージが止まっている取引（0件）</b>');
     expect(html).toContain('<div class="empty"><b>該当はありません。</b></div>');
   });
@@ -250,7 +250,7 @@ describe('架電', () => {
     const html = render();
     const rows = tableRows(html, 'calls-by-person');
     expect(rows).toHaveLength(40);
-    expect(rows[0]).toEqual(['担当407', '櫻井チーム', '949', '1,126', '84.3%', '30', '+251']);
+    expect(rows[0]).toEqual(['担当407', '第3チーム', '949', '1,126', '84.3%', '30', '+251']);
     expect(html).toContain('今週の架電数（人別・上位40名）');
     expect(html).toContain('担当者に紐づいた発信は 34,295件 ／ 全体 54,098件。紐づかない分は他部署の発信です（(不明) 1,358件 ／ Capital 20件 ／ FAC Capital 8,947件）。');
   });
@@ -282,9 +282,9 @@ describe('架電リストの残り', () => {
     // 差 0 は旧 JS と同じく「−0」(sign は n>0 のときだけ ＋)
     expect(html).toContain('アポ前リスト全体では <b>129,869件</b>（2026-W35 の記録 129,869件 より <b>−0</b>）');
   });
-  it('伊壺チーム: 未配布の枠は出さない', () => {
-    const html = render({}, { team: '伊壺チーム' });
-    expect(html).toContain('<b>伊壺チーム が持っている分</b>の数字です。');
+  it('第1チーム: 未配布の枠は出さない', () => {
+    const html = render({}, { team: '第1チーム' });
+    expect(html).toContain('<b>第1チーム が持っている分</b>の数字です。');
     expect(cardValue(html, 'touched')).toBe('50.6%');
     expect(html).not.toContain('data-testid="unassigned"');
   });
@@ -325,10 +325,10 @@ describe('決定者・決裁者タブ', () => {
     expect(html).toContain('style="color:var(--ok)">+31</td>');
     expect(html).toContain('style="color:var(--alert)">-3</td>');
   });
-  it('伊壺チームに絞ると 1 名', () => {
-    const html = render({ tab: 'kettei' }, { team: '伊壺チーム' });
+  it('第1チームに絞ると 1 名', () => {
+    const html = render({ tab: 'kettei' }, { team: '第1チーム' });
     expect(tableRows(html, 'kettei')).toHaveLength(1);
-    expect(tableRows(html, 'kettei', 'tfoot')[0]?.[0]).toBe('合計伊壺チーム・1名');
+    expect(tableRows(html, 'kettei', 'tfoot')[0]?.[0]).toBe('合計第1チーム・1名');
   });
 });
 
