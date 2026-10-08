@@ -351,6 +351,41 @@ mod tests {
         assert!(!validate(&bad, &job));
     }
     #[test]
+    fn snapshots_the_server_writes_validate_including_separator_only_selects_and_old_dumps() {
+        let rows = [
+            super::super::Record {
+                id: "50".into(),
+                properties: BTreeMap::from([
+                    ("ouboriyuukategori_hiaringu".into(), Some(";".into())),
+                    ("oubodouki".into(), Some("家から近い".into())),
+                ]),
+            },
+            super::super::Record {
+                id: "51".into(),
+                properties: BTreeMap::from([(
+                    "ouboriyuukategori_baitaikisai".into(),
+                    Some("給与; ;".into()),
+                )]),
+            },
+        ];
+        let summary = super::super::summarize(&rows);
+        let reasons =
+            super::super::applicant_reasons::extract("30", &rows, "2026-10-05T00:00:00Z".into());
+        assert!(validate(
+            &json!({"summary":summary,"applicant_reasons":reasons}),
+            &json!({})
+        ));
+        let legacy = super::super::applicant_reasons::extract_legacy(
+            "30",
+            &rows,
+            "2026-10-05T00:00:00Z".into(),
+        );
+        assert!(validate(
+            &json!({"summary":summary,"applicant_reasons":legacy}),
+            &json!({})
+        ));
+    }
+    #[test]
     fn selections_must_match_the_category_counts() {
         let rows = [super::super::Record {
             id: "50".into(),

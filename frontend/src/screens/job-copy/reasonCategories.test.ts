@@ -24,6 +24,18 @@ describe('keyword dictionary', () => {
     ['ﾎﾞｰﾅｽがある', ['給与']],
     ['特になし', []],
     ['介護施設', []],
+    // Words that mean something else in these phrases are not used.
+    ['好きな時間に働ける', []],
+    ['介護の仕事が好き', ['職種興味']],
+    ['シフトが安定している', ['その他']],
+    ['安定した収入が欲しい', ['給与']],
+    ['収入が安定する', ['給与']],
+    ['経営が安定した会社', ['会社規模']],
+    ['近隣の大手スーパーより時給が低い', ['給与']],
+    ['大手で安心', ['会社規模']],
+    ['定年が近い', []],
+    ['理想に近い', []],
+    ['家が近いので', ['勤務地']],
   ])('%s → %j', (value, expected) => {
     expect(inferCategories(value)).toEqual(expected);
   });
@@ -69,9 +81,17 @@ describe('classification by application', () => {
     expect(result?.unsetOnly).toBe(1);
   });
 
-  it('shows a chosen value that names no category as unclassified, with the value', () => {
-    const result = classifyApplicationReasons(collection({ selections: [choice(1, 'kyuuyo', null)] }));
-    expect(result?.applications[0]).toMatchObject({ basis: 'unclassified', otherValues: ['kyuuyo'] });
+  it('shows a chosen option name that names no category, but never an internal value without a name', () => {
+    const named = classifyApplicationReasons(collection({ selections: [choice(1, 'fukuri', '福利厚生')] }));
+    expect(named?.applications[0]).toMatchObject({ basis: 'unclassified', otherValues: ['福利厚生'], unnamedSelections: 0 });
+    // The definition read failed (label null) and the value is a code: it is not shown and not 選択済み.
+    const unnamed = classifyApplicationReasons(collection({ items: [text(2, 'b1', '時給が高い')], selections: [choice(1, 'kyuuyo', null), choice(2, 'kyuuyo', null)] }));
+    expect(unnamed?.applications.map(row => [row.basis, row.categories, row.otherValues, row.unnamedSelections])).toEqual([
+      ['estimated', ['給与'], [], 1],
+      ['unclassified', [], [], 1],
+    ]);
+    expect(unnamed?.unnamedApplications).toBe(2);
+    expect(tally(unnamed?.applications ?? []).selectedN).toBe(0);
   });
 
   it('counts each text on its own in a stored file without applicant keys', () => {
@@ -111,10 +131,17 @@ describe('shares, periods and the overview', () => {
     const demo = demoApplicantReasons();
     // Demo: 給与 = chosen(1) + 時給(7, 未設定) = 2; 勤務地 = 家から近い(2) + chosen(3) = 2; 職種興味 2 (4, 8);
     // 会社規模 1 (9); その他 1 (5); 特になし unclassified (6). n = 9.
-    expect(overviewReasonText(demo)).toBe('給与 2件・勤務地 2件（n=9）');
+    expect(overviewReasonText(demo)).toBe('給与 2件（選択1・推定1）・勤務地 2件（選択1・推定1）／n=9');
     const counted = tally(classifyApplicationReasons(demo)?.applications ?? []);
     expect(topReasons(counted, 3).map(row => [row.category, row.selected, row.estimated])).toEqual([['給与', 1, 1], ['勤務地', 1, 1], ['職種興味', 1, 1]]);
     expect(overviewReasonText(collection())).toBe('記録なし');
     expect(overviewReasonText(undefined)).toBe('未取得');
+  });
+
+  it('marks an old stored file in the overview: texts as 記述n, choices 未取得, and no plain 記録なし', () => {
+    const old = collection({ selections: null, items: [text(null, 'a1', '時給が高い'), text(null, 'a2', '月給が良い'), text(null, 'b1', '家から近い')] });
+    expect(overviewReasonText(old)).toBe('給与 2件（推定2）・勤務地 1件（推定1）／記述n=3（応募ごとではない）（分類の選択は未取得）');
+    expect(overviewReasonText(collection({ selections: null }))).toBe('文の記録なし（分類の選択は未取得）');
+    expect(overviewReasonText(collection({ truncated: true, items: [text(1, 'a1', '時給が高い')] }))).toBe('給与 1件（推定1）／n=1（記述の一部だけで集計）');
   });
 });

@@ -1,6 +1,6 @@
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
 import { reasonSourceLabels } from './applicantReasonsModel';
-import { REASON_CATEGORIES, REASON_KEYWORDS, classifyApplicationReasons, classifyTransferReasons, shareText, tally } from './reasonCategories';
+import { EXCLUDED_PHRASE_NOTES, REASON_CATEGORIES, REASON_KEYWORDS, classifyApplicationReasons, classifyTransferReasons, shareText, tally } from './reasonCategories';
 import type { Classification } from './reasonCategories';
 import { formatDateJst } from './format';
 
@@ -38,6 +38,7 @@ function Unclassified({ classification }: { classification: Classification }) {
     <ol className="ar-texts">{rows.map(row => <li key={row.key}>
       <p>応募日: {row.applicationDate ? formatDateJst(row.applicationDate, row.applicationDate) : '不明'}</p>
       {row.otherValues.length > 0 && <p>選ばれた分類: {row.otherValues.join('・')}（決まった分類のどれにも当たりません）</p>}
+      {row.unnamedSelections > 0 && <p>分類は選ばれていますが、分類の名前を読み取れませんでした（選択済みには数えていません）。</p>}
       {row.texts.map(text => <blockquote key={text.id}>{text.text}</blockquote>)}
     </li>)}</ol>
   </details>;
@@ -53,7 +54,10 @@ export function ReasonCategorySummary({ collection }: { collection: ApplicantRea
     <p>HubSpotで分類が選ばれた応募は「選択済み」、分類が選ばれていない応募は応募動機・応募理由の文から言葉で分類した「キーワードで推定」として、分けて数えます。1件の応募が複数の分類に入ることがあります。</p>
     {collection.selections === null && <p className="jc-notice">この取得データには「応募理由の分類」の記録欄が含まれていません（未取得）。選択済みの件数は0件ではなく不明です。</p>}
     {reasons && <CategoryTable label="応募理由の分類の件数" classification={reasons} withSelected />}
-    {reasons && reasons.unsetOnly > 0 && <p>分類が「未設定」で文もない応募 {reasons.unsetOnly}件 は数えていません。</p>}
+    {reasons && reasons.unnamedApplications > 0 && <p className="jc-notice">分類が選ばれているのに分類の名前を読み取れなかった応募が {reasons.unnamedApplications}件 あります。この応募は選択済みに数えず、文があれば言葉で推定しています。時間をおいて開き直すと読み取れることがあります。</p>}
+    {reasons && reasons.unsetOnly > 0 && (collection.truncated
+      ? <p>分類が「未設定」で、読み込めた文もない応募 {reasons.unsetOnly}件 は数えていません（記述が上限を超えて一部を読み込んでいないため、文が記録されている応募も含まれることがあります）。</p>
+      : <p>分類が「未設定」で文もない応募 {reasons.unsetOnly}件 は数えていません。</p>)}
     {reasons?.unit === 'text' && <p className="jc-notice">この取得データでは同じ応募の記述を見分けられないため、記述ごとに数えています。1件の応募が複数回数えられていることがあります。</p>}
     {collection.truncated && <p className="jc-notice">表示できる記述の上限を超えたため、一部の記述は分類に入っていません。</p>}
     {reasons && <Unclassified classification={reasons} />}
@@ -63,6 +67,7 @@ export function ReasonCategorySummary({ collection }: { collection: ApplicantRea
     <details className="ar-keywords"><summary>分類に使う言葉の一覧</summary>
       <p>文にこれらの言葉が含まれると、その分類に入れます。言葉が含まれるかどうかだけで分けるため、読み違えることがあります。</p>
       <dl>{REASON_CATEGORIES.map(category => <div key={category}><dt>{category}</dt><dd>{REASON_KEYWORDS[category].join('、')}</dd></div>)}</dl>
+      <p>次の言い回しの中の言葉は、別の意味になるため分類に使いません: {EXCLUDED_PHRASE_NOTES.join('、')}。</p>
     </details>
   </section>;
 }
