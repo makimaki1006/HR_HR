@@ -58,10 +58,10 @@ function mockApi(schema: EditSchema, patch: Patch, operation?: WriteApi['operati
   return {
     editSchema: () => Promise.resolve({ ok: true as const, data: schema }),
     patchDeal: patch,
-    operation: operation ?? (() => Promise.resolve({ ok: true as const, data: { operation_id: 'x', status: 'saved', attempts: 1 } satisfies OperationStatus })),
+    operation: operation ?? (() => Promise.resolve({ ok: true as const, data: { operation_id: 'x', status: 'saved', attempts: 1, last_error_code: null, next_retry_at: null } satisfies OperationStatus })),
   };
 }
-const savedOut = (values: Record<string, string | null>): PatchOutcome => ({ kind: 'saved', response: { status: 'saved', values, fetched_at: '2026-10-09T00:00:00Z' } });
+const savedOut = (values: Record<string, string | null>): PatchOutcome => ({ kind: 'saved', response: { status: 'saved', values, objects_values: {}, fetched_at: '2026-10-09T00:00:00Z' } });
 
 let ids = 0;
 function Harness({ api, onSaved, pollMs = 10_000 }: { api: WriteApi; onSaved: (id: string) => void; pollMs?: number }) {
@@ -240,7 +240,7 @@ describe('反映待ち (202)', () => {
     vi.useFakeTimers();
     const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'queued', response: { status: 'queued', operation_id: 'op-q' } }));
     let state: OperationStatus['status'] = 'pending';
-    const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-q', status: state, attempts: 1 } }));
+    const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-q', status: state, attempts: 1, last_error_code: null, next_retry_at: null } }));
     const onSaved = await setup(schemaOf(), patch, { operation });
     fireEvent.click(editBtn('募集職種（リストデータ）'));
     fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: '待ち中の値' } });
@@ -265,7 +265,7 @@ describe('反映待ち (202)', () => {
   it('10 分たっても保存済みにならなければ「まだ反映待ちです」を出して黄色のまま、確認をやめる', async () => {
     vi.useFakeTimers();
     const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'queued', response: { status: 'queued', operation_id: 'op-slow' } }));
-    const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-slow', status: 'retrying' as const, attempts: 3 } }));
+    const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-slow', status: 'retrying' as const, attempts: 3, last_error_code: null, next_retry_at: null } }));
     await setup(schemaOf(), patch, { operation });
     fireEvent.click(editBtn('募集職種（リストデータ）'));
     fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: 'v' } });
@@ -281,7 +281,7 @@ describe('反映待ち (202)', () => {
   it('failed になったら赤で知らせる', async () => {
     vi.useFakeTimers();
     const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'queued', response: { status: 'queued', operation_id: 'op-f' } }));
-    const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-f', status: 'failed' as const, attempts: 5 } }));
+    const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-f', status: 'failed' as const, attempts: 5, last_error_code: null, next_retry_at: null } }));
     await setup(schemaOf(), patch, { operation });
     fireEvent.click(editBtn('募集職種（リストデータ）'));
     fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: 'v' } });
@@ -294,7 +294,7 @@ describe('反映待ち (202)', () => {
 
 describe('衝突 (409)', () => {
   const conflictPatch = (): Patch => vi.fn()
-    .mockResolvedValueOnce({ kind: 'conflict', body: { status: 'conflict', current: { syokusyu_risuto: 'HubSpotで変わった値' }, changed_by_hubspot: ['syokusyu_risuto'] } })
+    .mockResolvedValueOnce({ kind: 'conflict', body: { status: 'conflict', object: 'deal', current: { syokusyu_risuto: 'HubSpotで変わった値' }, changed_by_hubspot: ['syokusyu_risuto'] } })
     .mockResolvedValue(savedOut({ syokusyu_risuto: '自分の値' }));
   async function startConflict(patch: Patch) {
     const onSaved = await setup(schemaOf(), patch);
@@ -435,11 +435,12 @@ describe('契約の読み取り', () => {
   it('PATCH の結果を分類する', () => {
     const http = (status: number, b: unknown) => classifyPatch({ ok: false, error: new ApiHttpError(status, b) });
     expect(classifyPatch({ ok: true, data: { status: 'queued', operation_id: 'o' } }).kind).toBe('queued');
-    expect(http(409, { status: 'conflict', current: {}, changed_by_hubspot: [] }).kind).toBe('conflict');
+    expect(http(409, { status: 'conflict', object: 'contact', current: {}, changed_by_hubspot: [] }).kind).toBe('conflict');
     expect(http(422, { status: 'invalid', errors: {}, missing_required: [] }).kind).toBe('invalid');
     expect(http(403, { error: 'writes_disabled' }).kind).toBe('writes_disabled');
     expect(http(403, { error: 'forbidden' }).kind).toBe('forbidden');
     expect(http(503, { error: 'queue_full' }).kind).toBe('queue_full');
+    expect(http(503, { error: 'queue_unavailable', error_kind: 'queue_unavailable' }).kind).toBe('queue_full');
     expect(http(500, undefined).kind).toBe('error');
   });
 

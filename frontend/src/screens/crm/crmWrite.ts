@@ -36,7 +36,8 @@ export function classifyPatch(res: ApiResult<PatchResponse>): PatchOutcome {
     if (e.status === 409 && b?.status === 'conflict') return { kind: 'conflict', body: b as unknown as PatchConflict };
     if (e.status === 422 && b?.status === 'invalid') return { kind: 'invalid', body: b as unknown as PatchInvalid };
     if (e.status === 403) return b?.error === 'writes_disabled' ? { kind: 'writes_disabled' } : { kind: 'forbidden' };
-    if (e.status === 503 && b?.error === 'queue_full') return { kind: 'queue_full' };
+    // queue_unavailable = 台帳 (監査 DB) に記録できず、書かずに断った。queue_full と同じく何も保存されていない
+    if (e.status === 503 && (b?.error === 'queue_full' || b?.error === 'queue_unavailable')) return { kind: 'queue_full' };
     return { kind: 'error', message: `サーバーがエラーを返しました(HTTP ${String(e.status)})。` };
   }
   return { kind: 'error', message: '通信できませんでした。' };

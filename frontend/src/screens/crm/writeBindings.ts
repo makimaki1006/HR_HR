@@ -154,7 +154,7 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, loadV
     return {
       rows: names.map(name => {
         const f = find(name);
-        const mine = c.req.changes.find(x => x.name === name);
+        const mine = c.req.changes.find(x => x.name === name && x.object === c.object);
         return { name, label: f.label, theirs: f.text(c.current[name] ?? null), mine: mine ? f.text(mine.value) : '(このステージへの移動)' };
       }),
       keepTheirs: () => { write.resolveConflict('theirs'); },
