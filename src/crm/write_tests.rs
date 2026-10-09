@@ -20,7 +20,7 @@ use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 use super::call_queue::CallQueueState;
 use super::rbac::{CrmAccess, CrmRole};
 use super::workspace_cache::WorkspaceCache;
-use super::write::{self, WriteConfig};
+use super::write::{self, norm, WriteConfig};
 use crate::audit::fake_turso::{start_sqlite_audit, SharedConn};
 use crate::audit::AuditDb;
 use crate::config::AppConfig;
@@ -49,6 +49,8 @@ struct Fake {
     objects: HashMap<(String, String), BTreeMap<String, String>>,
     /// 次の PATCH から順に返す失敗 status (空なら成功)
     patch_fail: Vec<u16>,
+    /// オブジェクト種別 (`contacts` など) ごとに、その PATCH を常に失敗させる status
+    fail_object: HashMap<String, u16>,
     /// (method + path, body or query)
     log: Vec<(String, String)>,
     /// deal id → 担当者 id
@@ -116,6 +118,9 @@ async fn hs_patch(
     let mut s = st.lock().unwrap();
     s.log
         .push((format!("PATCH /crm/v3/objects/{o}/{id}"), body.to_string()));
+    if let Some(code) = s.fail_object.get(&o).copied() {
+        return (StatusCode::from_u16(code).unwrap(), "UPSTREAM-SECRET").into_response();
+    }
     if !s.patch_fail.is_empty() {
         let code = s.patch_fail.remove(0);
         return (StatusCode::from_u16(code).unwrap(), "UPSTREAM-SECRET").into_response();
@@ -764,12 +769,12 @@ async fn 一時障害は_202_で台帳に積み_worker_が再送して保存す�
     assert_eq!(e.ledger_count(), 1);
 
     // 期限前は何もしない
-    write::run_due(&e.audit, &e.client).await;
+    write::run_due(&e.audit, &e.client, &open()).await;
     assert_eq!(e.ledger("op-retry-0001").0, "pending");
     assert_eq!(e.calls("PATCH"), 1);
     // 期限が来たら再送 → 保存
     e.make_due("op-retry-0001");
-    write::run_due(&e.audit, &e.client).await;
+    write::run_due(&e.audit, &e.client, &open()).await;
     assert_eq!(e.ledger("op-retry-0001").0, "saved");
     assert_eq!(
         e.hs.lock()
@@ -805,7 +810,7 @@ async fn 再送で_hubspot_の値が変わっていたら_上書きせず_failed
         .unwrap()
         .insert("bpo_50".into(), "他の人のメモ".into());
     e.make_due("op-rconf-0001");
-    write::run_due(&e.audit, &e.client).await;
+    write::run_due(&e.audit, &e.client, &open()).await;
     let (status, attempts, code) = e.ledger("op-rconf-0001");
     assert_eq!((status.as_str(), code.as_str()), ("failed", "conflict"));
     assert_eq!(attempts, 2);
@@ -856,7 +861,7 @@ async fn 再送の途中で応答だけ失われた書き込みは_保存済み�
         .unwrap()
         .insert("bpo_50".into(), "新メモ".into());
     e.make_due("op-lost-00001");
-    write::run_due(&e.audit, &e.client).await;
+    write::run_due(&e.audit, &e.client, &open()).await;
     assert_eq!(e.ledger("op-lost-00001").0, "saved", "競合にしない");
     assert_eq!(e.calls("PATCH"), 1, "同じ値は書き直さない");
 }
@@ -864,7 +869,7 @@ async fn 再送の途中で応答だけ失われた書き込みは_保存済み�
 #[tokio::test(flavor = "multi_thread")]
 async fn 恒久エラーは再送せず_failed_で_管理者が再試行と破棄できる() {
     let mut f = base_fake();
-    f.patch_fail = vec![400];
+    f.patch_fail = vec![400, 400];
     let e = env_with(f, open(), true).await;
     let (s, v) = e
         .patch(memo_patch("op-perm-00001", "旧メモ", "新メモ"))
@@ -872,16 +877,17 @@ async fn 恒久エラーは再送せず_failed_で_管理者が再試行と破�
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
     assert_eq!(v["status"], "invalid");
     assert_eq!(e.ledger("op-perm-00001").0, "failed");
-    // 同じ operation_id は保存された失敗を返す (書き直さない)
+    // 同じ operation_id の再送は失敗を返し続けず、受付し直して HubSpot に送る (まだ受け付けられなければ同じ 422)
     let (s, _) = e
         .patch(memo_patch("op-perm-00001", "旧メモ", "新メモ"))
         .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(e.calls("PATCH"), 1);
+    assert_eq!(e.calls("PATCH"), 2);
+    assert_eq!(e.ledger("op-perm-00001").0, "failed");
     // worker は触らない
     e.make_due("op-perm-00001");
-    write::run_due(&e.audit, &e.client).await;
-    assert_eq!(e.calls("PATCH"), 1);
+    write::run_due(&e.audit, &e.client, &open()).await;
+    assert_eq!(e.calls("PATCH"), 2);
 
     let admin = login(&e.app, ADMIN, "google_oidc").await;
     // 一般ユーザーが管理 API を叩ける経路はこのテストのルーターには無い (lib.rs の require_admin_mw)。
@@ -896,7 +902,7 @@ async fn 恒久エラーは再送せず_failed_で_管理者が再試行と破�
     .await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(e.ledger("op-perm-00001").0, "pending");
-    write::run_due(&e.audit, &e.client).await;
+    write::run_due(&e.audit, &e.client, &open()).await;
     assert_eq!(
         e.ledger("op-perm-00001").0,
         "saved",
@@ -961,8 +967,196 @@ async fn 再送待ちが上限に達したら_503_queue_full_で何も積まな�
     let (s, v) = e.patch(memo_patch("op-cap-000002", "旧メモ", "B")).await;
     assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{v}");
     assert_eq!(v["error"], "queue_full");
-    assert_eq!(e.ledger("op-cap-000002").0, "failed", "再送されない");
-    assert_eq!(e.ledger("op-cap-000002").2, "queue_full");
+    // 上限は受付の前に見る: 台帳にも HubSpot にも触らない (Turso への書き込みを増やさない)
+    assert_eq!(e.ledger_count(), 1, "2 件目は台帳に入れない");
+    assert_eq!(e.calls("PATCH"), 1, "2 件目は HubSpot に送らない");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 受付を断った後_詰まりが解ければ同じ操作を新しい_operation_id_で保存できる() {
+    let mut f = base_fake();
+    f.patch_fail = vec![503];
+    let cfg = WriteConfig {
+        pending_max: 1,
+        ..open()
+    };
+    let e = env_with(f, cfg, true).await;
+    let (s, _) = e.patch(memo_patch("op-drain-0001", "旧メモ", "A")).await;
+    assert_eq!(s, StatusCode::ACCEPTED);
+    let (s, _) = e.patch(memo_patch("op-drain-0002", "旧メモ", "B")).await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
+    // worker が詰まりを解く
+    e.make_due("op-drain-0001");
+    write::run_due(&e.audit, &e.client, &open()).await;
+    assert_eq!(e.ledger("op-drain-0001").0, "saved");
+    // 断られた側は台帳に残らないので、同じ operation_id でも新しい受付になる
+    let (s, v) = e.patch(memo_patch("op-drain-0002", "A", "B")).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(e.ledger("op-drain-0002").0, "saved");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 失敗した操作の再送は_失敗を返し続けず_受け付け直す() {
+    // 1 回目 400 (恒久)、再送は HubSpot が受け付ける
+    let mut f = base_fake();
+    f.patch_fail = vec![400];
+    let e = env_with(f, open(), true).await;
+    let (s, _) = e.patch(memo_patch("op-redo-0001", "旧メモ", "新")).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(e.ledger("op-redo-0001").0, "failed");
+    let (s, v) = e.patch(memo_patch("op-redo-0001", "旧メモ", "新")).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["values"]["bpo_50"], "新");
+    assert_eq!(e.ledger("op-redo-0001").0, "saved");
+    // 保存済みは二重に書かない
+    let (s, _) = e.patch(memo_patch("op-redo-0001", "旧メモ", "新")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        e.calls("PATCH"),
+        2,
+        "2 回目の送信 (成功) まで。保存後の再送は書かない"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 破棄された操作の再送は_410_discarded() {
+    let mut f = base_fake();
+    f.patch_fail = vec![400];
+    let e = env_with(f, open(), true).await;
+    let _ = e.patch(memo_patch("op-gone-0001", "旧メモ", "新")).await;
+    let admin = login(&e.app, ADMIN, "google_oidc").await;
+    let (s, _) = call(
+        &e.app,
+        Method::POST,
+        "/__admin/ops/op-gone-0001/discard",
+        Some(&admin),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, v) = e.patch(memo_patch("op-gone-0001", "旧メモ", "新")).await;
+    assert_eq!(s, StatusCode::GONE);
+    assert_eq!(v["error"], "discarded");
+    assert_eq!(e.calls("PATCH"), 1, "破棄された操作は送らない");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 他人の_operation_id_は案件が違っても同じ_403_で存在を探れない() {
+    let e = env().await;
+    let (s, _) = e.patch(memo_patch("op-oracle-001", "旧メモ", "新")).await;
+    assert_eq!(s, StatusCode::OK);
+    for deal in [DEAL, "999"] {
+        let (s, v) = call(
+            &e.app,
+            Method::PATCH,
+            &format!("/api/crm/deals/{deal}"),
+            Some(&e.other),
+            Some(memo_patch("op-oracle-001", "旧メモ", "新")),
+            true,
+        )
+        .await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "deal={deal} {v}");
+        assert_eq!(v["error"], "forbidden");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 栓を閉じたら_積んである操作も送らず_failed_にする() {
+    let mut f = base_fake();
+    f.patch_fail = vec![503];
+    let e = env_with(f, open(), true).await;
+    let (s, _) = e.patch(memo_patch("op-gate-0001", "旧メモ", "新")).await;
+    assert_eq!(s, StatusCode::ACCEPTED);
+    e.make_due("op-gate-0001");
+    // 受付のあとで栓を閉じた (閉じた設定で worker を回す)
+    write::run_due(&e.audit, &e.client, &WriteConfig::default()).await;
+    assert_eq!(
+        e.ledger("op-gate-0001"),
+        ("failed".into(), 1, "writes_disabled".into())
+    );
+    assert_eq!(e.calls("PATCH"), 1, "栓が閉じた後は HubSpot に送らない");
+    // 開け直して管理者が再試行すれば送られる
+    let admin = login(&e.app, ADMIN, "google_oidc").await;
+    let (s, _) = call(
+        &e.app,
+        Method::POST,
+        "/__admin/ops/op-gate-0001/retry",
+        Some(&admin),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    write::run_due(&e.audit, &e.client, &open()).await;
+    assert_eq!(e.ledger("op-gate-0001").0, "saved");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 案件は書けて担当者が恒久エラーなら_書けた分を_partial_で返す() {
+    let mut f = base_fake();
+    f.fail_object.insert("contacts".into(), 400);
+    let e = env_with(f, open(), true).await;
+    let body = json!({"operation_id": "op-part-0001",
+        "base": {"bpo_50": "旧メモ"}, "set": {"bpo_50": "新メモ"},
+        "objects": {"contact": {"id": CONTACT, "base": {"jobtitle": "旧役職"}, "set": {"jobtitle": "部長"}}}});
+    let (s, v) = e.patch(body).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
+    assert_eq!(v["status"], "invalid");
+    assert_eq!(v["partial"]["values"]["bpo_50"], "新メモ", "{v}");
+    assert!(v["partial"]["objects_values"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        e.hs.lock()
+            .unwrap()
+            .value("deals", DEAL, "bpo_50")
+            .as_deref(),
+        Some("新メモ"),
+        "案件は実際に書けている"
+    );
+    // 何も書けなかった失敗には partial を付けない
+    let mut f2 = base_fake();
+    f2.patch_fail = vec![400];
+    let e2 = env_with(f2, open(), true).await;
+    let (_, v2) = e2.patch(memo_patch("op-part-0002", "旧メモ", "新")).await;
+    assert!(v2.get("partial").is_none(), "{v2}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 監査には担当者と会社の値を写さない() {
+    let e = env().await;
+    let ok = json!({"operation_id": "op-redact-001", "base": {"bpo_50": "旧メモ"}, "set": {"bpo_50": "新メモ"},
+        "objects": {"contact": {"id": CONTACT, "base": {"jobtitle": "旧役職"}, "set": {"jobtitle": "部長"}}}});
+    let (s, v) = e.patch(ok).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let metas = e.audit_metas();
+    let text = serde_json::to_string(&metas).unwrap();
+    assert!(!text.contains("部長") && !text.contains("旧役職"), "{text}");
+    assert!(text.contains("新メモ"), "案件の値は残す: {text}");
+    assert!(
+        text.contains("jobtitle"),
+        "どの項目が変わったかは残す: {text}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 必須の真偽値は_false_でも入力済み_として扱う() {
+    // 画面 (draftToValue) も true / false のどちらかを必ず送る。サーバーも明示した false は空とみなさない (仕様の固定)
+    assert_eq!(norm(Some("false"), "bool"), "false");
+    assert!(!norm(Some("false"), "bool").is_empty());
+    assert!(norm(None, "bool").is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 書き込みの受付は操作者ごとに速さを制限する() {
+    let l = write::WriteRateLimiter::default();
+    for _ in 0..write::WRITE_RATE_PER_MIN {
+        assert!(l.allow("a@example.com"));
+    }
+    assert!(!l.allow("a@example.com"), "上限を超えたら断る");
+    assert!(l.allow("b@example.com"), "他の人には影響しない");
 }
 
 #[tokio::test(flavor = "multi_thread")]

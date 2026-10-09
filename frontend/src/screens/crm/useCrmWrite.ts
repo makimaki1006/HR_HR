@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WriteApi } from './crmWrite';
 import { buildPatchBody, fieldKey, requestSignature, stageKey } from './writeModel';
 import type { SaveRequest } from './writeModel';
-import type { EditSchema, PropValues, WriteObject } from './writeTypes';
+import type { EditSchema, PatchPartial, PropValues, WriteObject } from './writeTypes';
 
 /** 1 回の保存の状態 (headless-crm-design §12: 緑 = 保存済み / 黄 = 一時保存・HubSpot 反映待ち / 赤 = 保存できていません) */
 export type FieldStatus =
@@ -44,6 +44,28 @@ export interface UseCrmWriteOptions {
   onSaved: (dealId: string) => void;
   pollIntervalMs?: number | undefined;
   newId?: (() => string) | undefined;
+}
+
+/** サーバーのエラーのキーは、案件の項目は項目名、担当者・会社は `contact.x` / `company.x`、全体は `_`。項目に出す文言を選ぶ */
+export function errorKey(object: WriteObject, name: string): string {
+  return object === 'deal' ? name : `${object}.${name}`;
+}
+
+/** `allowAny` = この要求のどの項目にも固有のエラーが無いとき、残りのエラー (項目名の無いもの) を代わりに見せる */
+export function invalidMessage(errs: Readonly<Record<string, string>>, object: WriteObject, name: string, allowAny: boolean): string {
+  const general = errs[object === 'deal' ? '_' : `${object}._`] ?? errs._;
+  const any = allowAny ? Object.values(errs)[0] : undefined;
+  return errs[errorKey(object, name)] ?? general ?? any ?? '保存できませんでした。入力を確かめてください。';
+}
+
+/** 途中まで書けた分だけの要求 (どのオブジェクトが保存されたかは、応答に値があるかで見分ける) */
+export function partialRequest(req: SaveRequest, partial: PatchPartial): SaveRequest {
+  const dealSaved = Object.keys(partial.values).length > 0;
+  return {
+    ...req,
+    changes: req.changes.filter(c => (c.object === 'deal' ? dealSaved : c.object in partial.objects_values)),
+    ...(req.stage && 'dealstage' in partial.values ? {} : { stage: undefined }),
+  };
 }
 
 export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERVAL_MS, newId }: UseCrmWriteOptions) {
@@ -147,10 +169,24 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
     const sig = requestSignature(req);
     let opId = opIds.current.get(sig);
     if (opId === undefined) { opId = (newId ?? (() => crypto.randomUUID()))(); opIds.current.set(sig, opId); }
-    const keys = keysOf(req);
+    let keys = keysOf(req);
     setStatus(keys, { phase: 'saving' });
     const out = await apiRef.current.patchDeal(req.dealId, buildPatchBody(req, opId));
     if (!isAlive()) return { kind: 'error', message: '' };
+    // 複数オブジェクトの保存が途中で止まった: 先に書けた分は保存済みとして表示し、詳細を読み直す。
+    // 残りの項目だけを失敗として扱う (「何も保存されていない」と誤らない)
+    const partial: PatchPartial | undefined = out.kind === 'invalid' ? out.body.partial ?? undefined : out.kind === 'forbidden' || out.kind === 'error' ? out.partial : undefined;
+    let savedKeys: readonly string[] = [];
+    if (partial !== undefined) {
+      const part = partialRequest(req, partial);
+      savedKeys = keysOf(part);
+      if (savedKeys.length > 0) {
+        setOverlays(part, { values: partial.values, objects_values: partial.objects_values }, false);
+        setStatus(savedKeys, { phase: 'saved' });
+        keys = keys.filter(k => !savedKeys.includes(k));
+      }
+      onSavedRef.current(req.dealId);
+    }
     switch (out.kind) {
       case 'saved':
         opIds.current.delete(sig);
@@ -172,11 +208,13 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
       case 'invalid': {
         opIds.current.delete(sig);
         const errs = out.body.errors;
+        const allowAny = !req.changes.some(c => errs[errorKey(c.object, c.name)] !== undefined);
         for (const c of req.changes) {
-          const m = errs[c.name];
-          setStatus([fieldKey(req.dealId, c.object, c.name)], m === undefined ? null : { phase: 'invalid', message: m });
+          const k = fieldKey(req.dealId, c.object, c.name);
+          if (savedKeys.includes(k)) continue;
+          setStatus([k], { phase: 'invalid', message: invalidMessage(errs, c.object, c.name, allowAny) });
         }
-        if (req.stage) setStatus([stageKey(req.dealId)], { phase: 'invalid', message: '移すには必要な項目が足りません。' });
+        if (req.stage && !savedKeys.includes(stageKey(req.dealId))) setStatus([stageKey(req.dealId)], { phase: 'invalid', message: errs.stage ?? '移すには必要な項目が足りません。' });
         return { kind: 'invalid', errors: errs, missing: out.body.missing_required };
       }
       case 'writes_disabled':
@@ -186,16 +224,28 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
         return { kind: 'error', message: WRITES_OFF_NOTE };
       case 'forbidden':
         opIds.current.delete(sig);
-        setStatus(keys, { phase: 'error', message: 'この操作をする権限がありません。', req: null });
+        setStatus(keys, { phase: 'error', message: savedKeys.length > 0 ? '一部は保存しました。残りはこの操作をする権限がありません。' : 'この操作をする権限がありません。', req: null });
         return { kind: 'error', message: 'この操作をする権限がありません。' };
       case 'queue_full': {
+        // 受け付けなかったので何も保存されていない。再試行は新しい操作 (operation_id) にする。
+        // 同じ鍵を残すと、混雑が解けても保存済みの失敗の結果が返り続ける
+        opIds.current.delete(sig);
         const message = 'いま保存を受け付けられません。何も保存されていません。少し待ってからもう一度お試しください。';
+        setStatus(keys, { phase: 'error', message, req });
+        return { kind: 'error', message };
+      }
+      case 'discarded': {
+        opIds.current.delete(sig);
+        const message = '管理者がこの保存を取り消しました。内容を確かめて、もう一度保存してください。';
         setStatus(keys, { phase: 'error', message, req });
         return { kind: 'error', message };
       }
       case 'error': {
         // HubSpot に届いたか分からない。同じ operation_id で再送できるよう鍵は残す
-        const message = `${out.message}保存できたか確認できません。もう一度保存してください。`;
+        // 途中まで書けていた (partial) ときは、書けた分は保存済みと分かっている
+        const message = savedKeys.length > 0
+          ? `${out.message}一部は保存しました。残りをもう一度保存してください。`
+          : `${out.message}保存できたか確認できません。もう一度保存してください。`;
         setStatus(keys, { phase: 'error', message, req });
         return { kind: 'error', message };
       }

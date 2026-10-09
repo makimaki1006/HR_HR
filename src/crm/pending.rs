@@ -234,6 +234,34 @@ pub fn count_pending(turso: &TursoDb) -> Result<i64, String> {
     Ok(rows.first().map(|r| get_i64(r, "n")).unwrap_or(0))
 }
 
+/// 未完了 (`pending` + `in_progress`) の件数。受付の上限 (Turso への書き込みの総量) の判定に使う
+pub fn count_active(turso: &TursoDb) -> Result<i64, String> {
+    let rows = turso.query(
+        "SELECT COUNT(*) AS n FROM crm_pending_operations WHERE status IN ('pending', 'in_progress')",
+        &[],
+    )?;
+    Ok(rows.first().map(|r| get_i64(r, "n")).unwrap_or(0))
+}
+
+/// `failed` の行を、同じ `operation_id` の再送で新しい受付 (`in_progress`) に戻す。
+/// 失敗の結果を永久に返し続けない (再送が成功する道を残す)。`failed` 以外には効かない
+pub fn reset_failed_op(
+    turso: &TursoDb,
+    operation_id: &str,
+    payload: &Payload,
+    object_refs: &str,
+) -> Result<(), String> {
+    let now = now_iso();
+    let payload_json = serde_json::to_string(payload).map_err(|e| e.to_string())?;
+    let stale_at = iso(Utc::now() + ChronoDuration::seconds(IN_PROGRESS_STALE_SECS));
+    turso.execute(
+        "UPDATE crm_pending_operations SET status = 'in_progress', attempts = 0, \
+         last_error_code = '', http_status = 0, result_json = '', object_refs = ?1, payload = ?2, \
+         next_retry_at = ?3, updated_at = ?4 WHERE operation_id = ?5 AND status = 'failed'",
+        &[&object_refs, &payload_json, &stale_at, &now, &operation_id],
+    )
+}
+
 /// 期限が来た再送待ち (と、止まった送信中) を古い順に
 pub fn due_ops(turso: &TursoDb, now: &str, limit: i64) -> Result<Vec<OpRow>, String> {
     let rows = turso.query(

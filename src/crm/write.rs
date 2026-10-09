@@ -111,6 +111,34 @@ impl Default for WriteConfig {
     }
 }
 
+/// 1 人あたりの書き込み受付の速さの上限 (1 分あたり)
+pub const WRITE_RATE_PER_MIN: u32 = 60;
+
+/// 操作者ごとの固定窓の受付制限 (プロセス内。ルーターごとに 1 つ)
+#[derive(Default)]
+pub struct WriteRateLimiter {
+    windows: std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>,
+}
+
+impl WriteRateLimiter {
+    /// 受け付けてよければ true (数える)
+    pub fn allow(&self, who: &str) -> bool {
+        let now = std::time::Instant::now();
+        let Ok(mut m) = self.windows.lock() else {
+            return true;
+        };
+        if m.len() > 10_000 {
+            m.retain(|_, (t, _)| now.duration_since(*t) < Duration::from_secs(60));
+        }
+        let e = m.entry(who.to_string()).or_insert((now, 0));
+        if now.duration_since(e.0) >= Duration::from_secs(60) {
+            *e = (now, 0);
+        }
+        e.1 += 1;
+        e.1 <= WRITE_RATE_PER_MIN
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 契約の型 (ts-rs で frontend/src/generated/ に書き出す)
 // ---------------------------------------------------------------------------
@@ -236,6 +264,19 @@ pub struct CrmPatchInvalid {
     pub status: String,
     pub errors: BTreeMap<String, String>,
     pub missing_required: Vec<String>,
+    /// 途中の段までは HubSpot に書けていた場合の、書けた分の保存後の値。何も書けていなければ無い
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial: Option<CrmPatchPartial>,
+}
+
+/// 複数オブジェクトの書き込みが途中で止まったとき、すでに HubSpot に書けた分 (エラー応答に付く)
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct CrmPatchPartial {
+    /// 案件の項目の保存後の値 (案件の段が済んでいなければ空)
+    pub values: BTreeMap<String, Option<String>>,
+    /// 担当者・会社の保存後の値 (`contact` / `company`)
+    #[serde(default)]
+    pub objects_values: BTreeMap<String, BTreeMap<String, Option<String>>>,
 }
 
 /// `GET /api/crm/operations/{id}`
@@ -290,6 +331,7 @@ fn invalid(errors: BTreeMap<String, String>, missing: Vec<String>) -> (StatusCod
             status: "invalid".into(),
             errors,
             missing_required: missing,
+            partial: None,
         }),
     )
 }
@@ -747,13 +789,28 @@ pub async fn audit_write(
     deal_id: &str,
     outcome: &str,
     changes: &[Change],
-) {
+) -> bool {
+    // 担当者・会社の値は個人情報なので監査に写さない (どの項目が変わったかだけ残す。値は HubSpot の変更履歴で見る)
+    let redacted: Vec<Change> = changes
+        .iter()
+        .map(|c| {
+            if c.object == "deal" {
+                c.clone()
+            } else {
+                Change {
+                    before: c.before.as_ref().map(|_| REDACTED.to_string()),
+                    after: c.after.as_ref().map(|_| REDACTED.to_string()),
+                    ..c.clone()
+                }
+            }
+        })
+        .collect();
     let meta = json!({
         "operation_id": operation_id,
         "operator": operator,
         "outcome": outcome,
         "at": now_rfc3339(),
-        "changes": changes,
+        "changes": redacted,
     })
     .to_string();
     let (a, acc, sid, did) = (
@@ -763,21 +820,29 @@ pub async fn audit_write(
         deal_id.to_string(),
     );
     let res = tokio::task::spawn_blocking(move || {
-        crate::audit::dao::insert_activity(
-            &a,
-            &acc,
-            &sid,
-            "crm_write",
-            "hubspot_deal",
-            &did,
-            &meta,
-        );
+        crate::audit::dao::insert_activity(&a, &acc, &sid, "crm_write", "hubspot_deal", &did, &meta)
     })
     .await;
-    if let Err(e) = res {
-        tracing::warn!("crm write audit join failed: {e}");
+    match res {
+        Ok(true) => true,
+        Ok(false) => {
+            // HubSpot にはすでに書けている。利用者の応答は変えないが、監査の欠落は error で残す
+            tracing::error!(
+                operation_id = %operation_id,
+                outcome = %outcome,
+                "crm write audit row was NOT recorded"
+            );
+            false
+        }
+        Err(e) => {
+            tracing::error!("crm write audit join failed: {e}");
+            false
+        }
     }
 }
+
+/// 監査に写さない値の代わりに置く印
+pub const REDACTED: &str = "(非表示)";
 
 /// 意図した変更 (競合・失敗の記録用。`before` は分かる範囲)
 fn intended_changes(steps: &[Step], cur: Option<&BTreeMap<String, Option<String>>>) -> Vec<Change> {
@@ -832,6 +897,9 @@ fn replay_response(row: &pending::OpRow) -> Response {
             }),
         )
             .into_response(),
+        // 管理者が破棄した操作。同じ operation_id では二度と送らない (クライアントは鍵を捨てて入力し直す)
+        "discarded" => err(StatusCode::GONE, "discarded"),
+        // `failed` はここに来ない (呼び出し側が受付し直す)。万一来ても失敗の本文を返す
         _ => {
             let status = StatusCode::from_u16(row.http_status as u16)
                 .unwrap_or(StatusCode::UNPROCESSABLE_ENTITY);
@@ -963,8 +1031,15 @@ async fn build_steps(
         .filter_map(|(api, _)| steps.iter().find(|s| s.object == *api).map(|s| (*api, s)))
     {
         match client.list_associations("deals", deal_id, api).await {
-            Ok((refs, _)) => {
+            Ok((refs, has_more)) => {
                 if !refs.iter().any(|r| r.id == s.id) {
+                    if has_more {
+                        // 先頭ページに無いだけかもしれない。「紐づいていない」とは言えないので確認できなかったことにする
+                        return Err((
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            json!({"error": "association_check_incomplete", "error_kind": "association_check_incomplete"}),
+                        ));
+                    }
                     return Err((
                         StatusCode::FORBIDDEN,
                         json!({"error": "forbidden", "error_kind": "forbidden", "detail": format!("{} は案件に紐づいていません", object_label(api))}),
@@ -1016,9 +1091,14 @@ pub(super) async fn patch_deal(
     }
     let operator = principal.email.clone().unwrap_or_default();
     let is_admin = principal.role.is_some_and(|r| r.is_admin());
+    // 1 人あたりの受付の速さ (拒否される要求も監査 Turso に書くので、連打で書き込みが膨らまないよう絞る)
+    if !ctx.write_rate.allow(&operator) {
+        return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
+    }
 
     // 冪等性: 同じ operation_id は保存された結果を返す
     let op_id = req.operation_id.clone();
+    let mut reuse_failed = false;
     match pending::blocking(&audit, {
         let op_id = op_id.clone();
         move |t| pending::get_op(t, &op_id)
@@ -1026,13 +1106,20 @@ pub(super) async fn patch_deal(
     .await
     {
         Ok(Ok(Some(row))) => {
-            if row.deal_id != deal_id {
-                return one_error("operation_id", "別の案件で使われた operation_id です");
-            }
+            // 持ち主の確認が先 (他人の operation_id の存在や案件を、違いのある応答で探らせない)
             if row.operator_email != operator && !is_admin {
                 return err(StatusCode::FORBIDDEN, "forbidden");
             }
-            return replay_response(&row);
+            if row.deal_id != deal_id {
+                return one_error("operation_id", "別の案件で使われた operation_id です");
+            }
+            if row.status == "failed" {
+                // 失敗は返し続けない。同じ operation_id の再送は新しい受付として最初からやり直す
+                // (HubSpot の現在値を読み直して比べるので、途中まで書けた分は二重に書かない)
+                reuse_failed = true;
+            } else {
+                return replay_response(&row);
+            }
         }
         Ok(Ok(None)) => {}
         Ok(Err(e)) | Err(e) => {
@@ -1064,6 +1151,7 @@ pub(super) async fn patch_deal(
         &operator,
         &account_id,
         &session_id,
+        reuse_failed,
     );
     match tokio::time::timeout(CRM_REQUEST_DEADLINE, flow).await {
         Ok(r) => r,
@@ -1085,6 +1173,7 @@ async fn run_patch(
     operator: &str,
     account_id: &str,
     session_id: &str,
+    reuse_failed: bool,
 ) -> Response {
     let (catalog, _) = match ctx.catalog.get(client).await {
         Ok(c) => c,
@@ -1116,6 +1205,17 @@ async fn run_patch(
         }
     }
 
+    // 受付の上限: 未完了の操作が多すぎるときは、台帳にも HubSpot にも触らずに断る (何も保存されていない)
+    if !reuse_failed {
+        let active = pending::blocking(audit, pending::count_active)
+            .await
+            .ok()
+            .and_then(Result::ok);
+        if active.is_some_and(|n| n >= ctx.write.pending_max) {
+            return err(StatusCode::SERVICE_UNAVAILABLE, "queue_full");
+        }
+    }
+
     // 台帳 (送る前に記録)
     let refs = json!({
         "contact": steps.iter().find(|s| s.object == "contacts").map(|s| s.id.clone()),
@@ -1132,7 +1232,13 @@ async fn run_patch(
             deal_id.to_string(),
             payload.clone(),
         );
-        move |t| pending::insert_op(t, &op, &who, &did, &pl, &refs)
+        move |t| {
+            if reuse_failed {
+                pending::reset_failed_op(t, &op, &pl, &refs)
+            } else {
+                pending::insert_op(t, &op, &who, &did, &pl, &refs)
+            }
+        }
     })
     .await;
     match ins {
@@ -1244,9 +1350,11 @@ async fn run_patch(
             })
             .await;
             if !matches!(res, Ok(Ok(()))) {
-                // 再送待ちにも積めない: どこにも保存できていない
+                // 再送待ちに積めなかった。台帳の行は送信中のまま残り、止まった送信中として worker が後で
+                // 拾って再送しうる。「何も保存されていない」とは言えない (途中まで書けた分もある) ので、
+                // 確認できない扱いにする (同じ operation_id で再送すると、台帳の行の結果が返る)
                 tracing::warn!("crm write: ledger update (pending) failed: {res:?}");
-                return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
+                return err(StatusCode::SERVICE_UNAVAILABLE, "queue_uncertain");
             }
             audit_write(
                 audit,
@@ -1284,7 +1392,13 @@ async fn run_patch(
                 .await;
                 invalidate_caches(ctx, deal_id);
             }
-            let resp = stop_response_recorded(
+            // 先の段が書けていたら、書けた分を本文に付ける (画面が「何も保存されていない」と誤らない)
+            let partial =
+                (!run.values.is_empty() || !run.other.is_empty()).then(|| CrmPatchPartial {
+                    values: run.values.clone(),
+                    objects_values: run.other.clone(),
+                });
+            stop_response_recorded(
                 stop,
                 audit,
                 account_id,
@@ -1294,9 +1408,9 @@ async fn run_patch(
                 deal_id,
                 &payload,
                 1,
+                partial,
             )
-            .await;
-            resp
+            .await
         }
     }
 }
@@ -1372,6 +1486,7 @@ async fn stop_response_recorded(
     deal_id: &str,
     payload: &Payload,
     attempts: i64,
+    partial: Option<CrmPatchPartial>,
 ) -> Response {
     let (status, body, outcome, cur) = stop_body(&stop);
     let (status, body, code) = match &stop {
@@ -1394,6 +1509,10 @@ async fn stop_response_recorded(
         },
         _ => (status, body, outcome.clone()),
     };
+    let mut body = body;
+    if let (Some(p), Some(obj)) = (&partial, body.as_object_mut()) {
+        obj.insert("partial".into(), json!(p));
+    }
     let body_s = body.to_string();
     let res = pending::blocking(audit, {
         let (op, pl, code, st) = (
@@ -1662,7 +1781,37 @@ pub fn wake_worker() {
 }
 
 /// 期限が来た操作を 1 件処理する。結果は台帳と監査に残す
-pub async fn process_op(audit: &AuditDb, client: &HubSpotClient, row: &pending::OpRow) {
+pub async fn process_op(
+    audit: &AuditDb,
+    client: &HubSpotClient,
+    write: &WriteConfig,
+    row: &pending::OpRow,
+) {
+    // 栓: 受付のあとで書き込みを閉じたら、積んである操作も送らない (管理者の再試行も同じ。開け直してから再試行する)
+    if !write.allows(&row.deal_id) {
+        let body = json!({"error": "writes_disabled"}).to_string();
+        let (a, op, pl) = (audit.clone(), row.operation_id.clone(), row.payload.clone());
+        let r = pending::blocking(&a, move |t| {
+            pending::update_op(t, &op, "failed", 1, "writes_disabled", 403, &body, "", &pl)
+        })
+        .await;
+        if !matches!(r, Ok(Ok(()))) {
+            tracing::warn!("crm write worker: ledger update (writes_disabled) failed: {r:?}");
+        }
+        let account = row.operator_email.clone();
+        audit_write(
+            audit,
+            &account,
+            "",
+            &row.operator_email,
+            &row.operation_id,
+            &row.deal_id,
+            "failed:writes_disabled",
+            &intended_changes(&row.payload.steps, None),
+        )
+        .await;
+        return;
+    }
     let mut payload = row.payload.clone();
     let mut run = Run::default();
     let attempts = row.attempts.max(1) + i64::from(row.status == "pending");
@@ -1812,7 +1961,11 @@ pub async fn process_op(audit: &AuditDb, client: &HubSpotClient, row: &pending::
 }
 
 /// 1 周: 期限が来た操作を処理して、次に期限が来る時刻を返す (再送待ちが無ければ None)
-pub async fn run_due(audit: &AuditDb, client: &HubSpotClient) -> Option<chrono::DateTime<Utc>> {
+pub async fn run_due(
+    audit: &AuditDb,
+    client: &HubSpotClient,
+    write: &WriteConfig,
+) -> Option<chrono::DateTime<Utc>> {
     let now = pending::now_iso();
     let rows = pending::blocking(audit, {
         let now = now.clone();
@@ -1823,7 +1976,7 @@ pub async fn run_due(audit: &AuditDb, client: &HubSpotClient) -> Option<chrono::
     .and_then(Result::ok)
     .unwrap_or_default();
     for r in &rows {
-        process_op(audit, client, r).await;
+        process_op(audit, client, write, r).await;
     }
     let next = pending::blocking(audit, pending::next_due)
         .await
@@ -1841,6 +1994,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         return;
     };
     let client = client.background();
+    let write = WriteConfig::from_env();
     let wake = wake_handle();
     tokio::spawn(async move {
         // 起動直後は他の初期化を邪魔しない (E2E は debug ビルドだけ `CRM_WORKER_START_DELAY_SECS_DEBUG` で縮められる)
@@ -1849,7 +2003,7 @@ pub fn spawn_worker(state: Arc<AppState>) {
         tokio::time::sleep(Duration::from_secs(start_delay as u64)).await;
         let mut last_purge = std::time::Instant::now() - Duration::from_secs(86_400);
         loop {
-            let next = run_due(&audit, &client).await;
+            let next = run_due(&audit, &client, &write).await;
             if last_purge.elapsed() >= Duration::from_secs(86_400) {
                 last_purge = std::time::Instant::now();
                 let _ = pending::blocking(&audit, pending::purge_old).await;

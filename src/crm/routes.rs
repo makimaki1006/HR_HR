@@ -198,6 +198,8 @@ pub(super) struct CrmCtx {
     pub(super) assoc_labels: super::assoc_labels::AssocLabelCache,
     /// 書き込みの栓と再送待ちの上限 (`write.rs`)
     pub(super) write: super::write::WriteConfig,
+    /// 書き込みの受付の速さの制限 (操作者ごと)
+    pub(super) write_rate: super::write::WriteRateLimiter,
 }
 
 /// レコード読み取りの同時実行数。HubSpot への流量は関所 (`hubspot::gateway`) が絞るので、ここは
@@ -260,6 +262,7 @@ pub(super) fn router_with_write(
         workspace_cache,
         assoc_labels: super::assoc_labels::AssocLabelCache::default(),
         write,
+        write_rate: super::write::WriteRateLimiter::default(),
     });
     Router::new()
         .route("/api/crm/metadata", get(get_metadata))
