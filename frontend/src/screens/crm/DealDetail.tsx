@@ -14,6 +14,8 @@ import { RESULT_LABELS, useTicking } from './ZoomPhonePanel';
 import { dealJobSearchUrl, extractUrls, isEmptyGoogleSearch, safeHttpUrl } from './centerLinks';
 import { PropLink } from './CenterTabs';
 import type { ZoomEvent } from './smartEmbed';
+import { StageMover } from './StageMove';
+import type { StageMoveCtx } from './writeBindings';
 
 /** HubSpot の選択肢の値 → 表示ラベル (不通時チェック bpo_10・ブロック理由 bpo_4)。定義がまだ無いときは値のまま */
 export type StopLabel = (property: 'bpo_10' | 'bpo_4', value: string) => string;
@@ -164,11 +166,12 @@ function DensityToggle({ density }: { density: OverviewDensity }) {
     {density.compact ? '詳しく表示' : '1 行にする'}</button>;
 }
 
-function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh, density }: {
+function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refreshError, onRefresh, density, stageMove }: {
   data: WorkspaceResponse; zoom: ZoomPhone; stopLabel: StopLabel;
   callBar?: CallBarInfo | null | undefined; onOpenZoom?: (() => void) | undefined;
   refreshing: boolean; refreshError: string | null; onRefresh?: (() => void) | undefined;
   density?: OverviewDensity | undefined;
+  stageMove?: StageMoveCtx | null | undefined;
 }) {
   const d = data.deal;
   const company = data.companies.find(c => c.is_primary) ?? null;
@@ -218,7 +221,7 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
           <h2>{company?.name ?? d.name ?? '(名称なし)'}</h2>
           <p>{d.name ?? '(案件名なし)'}</p></div>
         <div className="wd-head-side">
-          <span className="cq-stage">{d.stage_label ?? '(ステージ名を取得できません)'}</span>
+          <StageMover ctx={stageMove} fallback={<span className="cq-stage">{d.stage_label ?? '(ステージ名を取得できません)'}</span>} />
           <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
           {density && <DensityToggle density={density} />}
         </div>
@@ -300,7 +303,7 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density }: {
+function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density, stageMove }: {
   state: DetailState; reload: () => void; zoom: ZoomPhone; stopLabel?: StopLabel;
   /** サーバのキャッシュを使わずに読み直す (「最新にする」) */
   refresh?: (() => void) | undefined;
@@ -310,10 +313,12 @@ function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLab
   onOpenZoom?: (() => void) | undefined;
   /** 1 行の表示にするか (と切り替え)。無ければ常に詳しく */
   density?: OverviewDensity | undefined;
+  /** ステージの変更 (無ければ表示だけ) */
+  stageMove?: StageMoveCtx | null | undefined;
 }) {
   if (state.phase === 'ready' && state.data !== null) {
     return <Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
-      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} />;
+      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} />;
   }
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }
