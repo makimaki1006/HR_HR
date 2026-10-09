@@ -72,7 +72,7 @@ describe('fixtureQueuePage (fictional data)', () => {
 describe('fixtureQueuePage: the second fictional pipeline', () => {
   it('shows the always-shown stage and due rows only; never another pipeline, an excluded stage or a future date', () => {
     const fx = f({ pipeline: 'fx-sample' });
-    expect(ids(fx)).toEqual(['f-14', 'f-13']);
+    expect(ids(fx)).toEqual(['f-14', 'f-13', 'f-17']);
     expect(ids(f({ pipeline: 'fx-sample', stages: ['fx-follow'] }))).toEqual(['f-14']);
     expect(ids(DEFAULT_FILTERS)).not.toContain('f-13');
     // bpo_リクロジの行にもステージ名が付く (架空サンプルは固定の名前)
