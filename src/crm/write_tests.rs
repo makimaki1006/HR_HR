@@ -63,6 +63,36 @@ struct Fake {
     props_fail: bool,
     /// 次の PATCH から順に、**書いたあとで**この失敗 status を返す (「書けたのに失敗に見える」を再現する)
     patch_apply_fail: Vec<u16>,
+    /// 応答を遅らせている最中のリクエスト数と、その最大値 (「同時に進んだか」を時間でなく数で確かめる)
+    inflight: usize,
+    max_inflight: usize,
+    /// PATCH を受け取った数 (遅延より前に数える。「送信が始まった」ことを待つ目印)
+    patch_started: usize,
+}
+
+/// 偽 HubSpot の応答を `ms` ミリ秒遅らせる (その間は inflight に数える)
+async fn hold(st: &Shared<Fake>, ms: u64) {
+    if ms == 0 {
+        return;
+    }
+    {
+        let mut s = st.lock().unwrap();
+        s.inflight += 1;
+        s.max_inflight = s.max_inflight.max(s.inflight);
+    }
+    tokio::time::sleep(Duration::from_millis(ms)).await;
+    st.lock().unwrap().inflight -= 1;
+}
+
+/// 条件が成り立つまで待つ (固定の sleep で順序を当てにしない)。10 秒で諦めて失敗にする
+async fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
+    for _ in 0..1000 {
+        if cond() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("待っていた条件が成り立たない: {what}");
 }
 
 impl Fake {
@@ -115,10 +145,8 @@ async fn hs_get(
             .push((format!("GET /crm/v3/objects/{o}/{id}"), q.clone()));
         (record(&o, &id, &s, &wanted), s.delay_ms)
     };
-    if delay > 0 {
-        // 読んだ時点の値を持ったまま遅れる (書き込みが割り込むと古い値を返す = 実際の HubSpot と同じ)
-        tokio::time::sleep(Duration::from_millis(delay)).await;
-    }
+    // 読んだ時点の値を持ったまま遅れる (書き込みが割り込むと古い値を返す = 実際の HubSpot と同じ)
+    hold(&st, delay).await;
     match found {
         Some(v) => Json(v).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -130,10 +158,12 @@ async fn hs_patch(
     Path((o, id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Response {
-    let delay = st.lock().unwrap().delay_ms;
-    if delay > 0 {
-        tokio::time::sleep(Duration::from_millis(delay)).await;
-    }
+    let delay = {
+        let mut s = st.lock().unwrap();
+        s.patch_started += 1;
+        s.delay_ms
+    };
+    hold(&st, delay).await;
     // ロックは await をまたがない (このブロックの中だけ)
     let applied: Result<(Value, u64, Option<u16>), Response> = {
         let mut s = st.lock().unwrap();
@@ -160,9 +190,7 @@ async fn hs_patch(
         Ok(x) => x,
         Err(r) => return r,
     };
-    if after > 0 {
-        tokio::time::sleep(Duration::from_millis(after)).await;
-    }
+    hold(&st, after).await;
     if let Some(code) = apply_fail {
         return (StatusCode::from_u16(code).unwrap(), "UPSTREAM-SECRET").into_response();
     }
@@ -1742,8 +1770,7 @@ async fn 台帳に記録したあとで締め切りが来ても_打ち切らず�
     );
     let (_, v) = get_status(&e, &e.op, "op-to-000001").await;
     assert_eq!(v["status"], "saved");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(e.write.locks.is_empty());
+    wait_until("鍵が放される", || e.write.locks.is_empty()).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1888,7 +1915,8 @@ async fn 送ったあとの曖昧な失敗が満杯のときは_読み直して�
         )
         .await
     });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // PATCH が HubSpot に届いた (応答は 400ms 止まっている) ことを待ってから割り込む
+    wait_until("PATCH が届く", || e.calls("PATCH") == 1).await;
     // 送信中に別の操作が再送待ちとして入った (上限 1)
     pending_insert(
         &e,
@@ -1933,7 +1961,11 @@ async fn 送ったあとの曖昧な失敗が満杯で_書けていないと確�
         )
         .await
     });
-    tokio::time::sleep(Duration::from_millis(600)).await;
+    // 読み取りが終わり PATCH が始まった (これも 400ms 止まる) ことを待ってから割り込む
+    wait_until("PATCH が始まる", || {
+        e.hs.lock().unwrap().patch_started == 1
+    })
+    .await;
     pending_insert(
         &e,
         "op-amb-other2",
@@ -1964,30 +1996,42 @@ async fn 送ったあとの曖昧な失敗が満杯で_書けていないと確�
 #[tokio::test(flavor = "multi_thread")]
 async fn プロパティ一覧の取り直しに失敗しても_前の一覧で続け_短い間隔で取り直す() {
     let (client, hs) = start_hs(base_fake()).await;
-    let cache = super::property_catalog::PropertyCatalogCache::with_ttl(
+    // 時計は手で進める (実時間の sleep で期限を待つと、負荷の高い環境で順序が崩れる)
+    let (clock, time) = super::clock::Clock::manual();
+    let cache = super::property_catalog::PropertyCatalogCache::with_clock(
         Duration::from_millis(60),
         Duration::from_millis(120),
+        clock,
     );
     let props_calls = |hs: &Shared<Fake>| hs.lock().unwrap().count("GET /crm/v3/properties/deals");
     let (entry, hit) = cache.get(&client).await.unwrap();
     assert!(!hit);
     assert!(entry.property("deals", "bpo_50").is_some());
     assert_eq!(props_calls(&hs), 1);
+    // 期限の直前はキャッシュ
+    time.advance(Duration::from_millis(59));
+    let (_, hit) = cache.get(&client).await.unwrap();
+    assert!(hit);
+    assert_eq!(props_calls(&hs), 1);
 
     // 期限が切れ、取り直しが失敗する: 前の一覧を返す (保存の許可リストが止まらない)
     hs.lock().unwrap().props_fail = true;
-    tokio::time::sleep(Duration::from_millis(80)).await;
+    time.advance(Duration::from_millis(2));
     let (stale, hit) = cache.get(&client).await.unwrap();
     assert!(hit, "前の一覧");
     assert!(stale.property("deals", "bpo_50").is_some());
-    assert_eq!(props_calls(&hs), 2);
+    assert_eq!(props_calls(&hs), 2, "期限が切れたので取り直しに行った");
     // 失敗の直後は取り直さない
     let _ = cache.get(&client).await.unwrap();
     assert_eq!(props_calls(&hs), 2, "失敗した直後は呼ばない");
 
-    // 障害が終わったら、失敗の待ち (短い) が明け次第すぐ取り直す
+    // 障害が終わっても、失敗の待ち (短い) の間は呼ばない。明けた瞬間に取り直す
     hs.lock().unwrap().props_fail = false;
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    time.advance(Duration::from_millis(119));
+    let (_, hit) = cache.get(&client).await.unwrap();
+    assert!(hit);
+    assert_eq!(props_calls(&hs), 2, "失敗の待ちの間は呼ばない");
+    time.advance(Duration::from_millis(1));
     let (fresh, hit) = cache.get(&client).await.unwrap();
     assert!(!hit);
     assert!(fresh.property("deals", "bpo_50").is_some());
@@ -2027,18 +2071,15 @@ async fn 再送_worker_は別々の案件を同時に進める() {
     for i in 0..8 {
         e.make_due(&format!("op-wc-{i:05}"));
     }
-    // 偽 HubSpot の 1 回の呼び出しを 150ms にする: 直列なら 8 件 × 2 回 × 150ms = 2.4 秒、4 並列なら約 0.6 秒
+    // 偽 HubSpot の 1 回の呼び出しを 150ms 止める (同時に止まっている本数を max_inflight に記録する)
     e.hs.lock().unwrap().delay_ms = 150;
-    let t = std::time::Instant::now();
     let round = write::run_due_round(&e.audit, &e.client, &e.write).await;
-    let took = t.elapsed();
     for i in 0..8 {
         assert_eq!(e.ledger(&format!("op-wc-{i:05}")).0, "saved");
     }
-    assert!(
-        took < Duration::from_millis(1500),
-        "4 並列で進める: {took:?}"
-    );
+    // 時間でなく数で確かめる: 直列なら偽 HubSpot で同時に待たされるリクエストは常に 1 本
+    let peak = e.hs.lock().unwrap().max_inflight;
+    assert!(peak >= 2, "別々の案件は同時に進める: 同時 {peak} 本");
     assert!(!round.more, "取り切ったのですぐ次の周回はしない");
     assert!(e.write.locks.is_empty());
 }
