@@ -55,6 +55,8 @@ struct Fake {
     log: Vec<(String, String)>,
     /// deal id → 担当者 id
     contacts: HashMap<String, Vec<String>>,
+    /// 偽 HubSpot の応答遅延 (ミリ秒。読み取りは「読んだ時点の値」を返したあとで遅れる)
+    delay_ms: u64,
 }
 
 impl Fake {
@@ -95,16 +97,23 @@ async fn hs_get(
     RawQuery(q): RawQuery,
 ) -> Response {
     let q = q.unwrap_or_default();
-    let mut s = st.lock().unwrap();
-    s.log
-        .push((format!("GET /crm/v3/objects/{o}/{id}"), q.clone()));
     let wanted: Vec<String> = reqwest::Url::parse(&format!("http://x/?{q}"))
         .unwrap()
         .query_pairs()
         .filter(|(k, _)| k == "properties")
         .flat_map(|(_, v)| v.split(',').map(str::to_string).collect::<Vec<_>>())
         .collect();
-    match record(&o, &id, &s, &wanted) {
+    let (found, delay) = {
+        let mut s = st.lock().unwrap();
+        s.log
+            .push((format!("GET /crm/v3/objects/{o}/{id}"), q.clone()));
+        (record(&o, &id, &s, &wanted), s.delay_ms)
+    };
+    if delay > 0 {
+        // 読んだ時点の値を持ったまま遅れる (書き込みが割り込むと古い値を返す = 実際の HubSpot と同じ)
+        tokio::time::sleep(Duration::from_millis(delay)).await;
+    }
+    match found {
         Some(v) => Json(v).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
@@ -115,6 +124,10 @@ async fn hs_patch(
     Path((o, id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Response {
+    let delay = st.lock().unwrap().delay_ms;
+    if delay > 0 {
+        tokio::time::sleep(Duration::from_millis(delay)).await;
+    }
     let mut s = st.lock().unwrap();
     s.log
         .push((format!("PATCH /crm/v3/objects/{o}/{id}"), body.to_string()));
@@ -1298,4 +1311,250 @@ async fn 編集スキーマは書ける項目だけを返し_ステージの必�
     // 未ログインは 401
     let (s, _) = call(&e2.app, Method::GET, &uri, None, None, false).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// 同時書き込み (レコード単位の直列化)
+// ---------------------------------------------------------------------------
+
+fn concurrent_fake(deals: &[&str]) -> Fake {
+    let mut f = base_fake();
+    f.delay_ms = 40;
+    for d in deals {
+        f.objects.insert(
+            ("deals".into(), d.to_string()),
+            BTreeMap::from([
+                ("dealname".to_string(), "架空案件".to_string()),
+                ("dealstage".to_string(), UNPROCESSED.to_string()),
+                ("pipeline".to_string(), PIPELINE.to_string()),
+                ("bpo_50".to_string(), "初期値".to_string()),
+            ]),
+        );
+    }
+    f
+}
+
+async fn patch_on(e: &Env, deal: &str, body: Value) -> (StatusCode, Value) {
+    call(
+        &e.app,
+        Method::PATCH,
+        &format!("/api/crm/deals/{deal}"),
+        Some(&e.op),
+        Some(body),
+        true,
+    )
+    .await
+}
+
+async fn fire(e: &Env, deals: &[&str], n: usize) -> Vec<(String, StatusCode, Value)> {
+    let mut hs = Vec::new();
+    for d in deals {
+        for i in 0..n {
+            let (app, cookie, d) = (e.app.clone(), e.op.clone(), d.to_string());
+            hs.push(tokio::spawn(async move {
+                let body = memo_patch(&format!("op-{d}-{i:04}"), "初期値", &format!("値{d}-{i}"));
+                let (s, v) = call(
+                    &app,
+                    Method::PATCH,
+                    &format!("/api/crm/deals/{d}"),
+                    Some(&cookie),
+                    Some(body),
+                    true,
+                )
+                .await;
+                (d, s, v)
+            }));
+        }
+    }
+    let mut out = Vec::new();
+    for h in hs {
+        out.push(h.await.unwrap());
+    }
+    out
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 同じ案件へ_15_件同時に同じ_base_で書くと_1_件だけ保存され_14_件は_409() {
+    let cfg = open();
+    let e = env_with(concurrent_fake(&["7201"]), cfg.clone(), true).await;
+    let before = e.client.gateway().snapshot().coalesced;
+    let res = fire(&e, &["7201"], 15).await;
+    let saved = res.iter().filter(|r| r.1 == StatusCode::OK).count();
+    let conflict = res.iter().filter(|r| r.1 == StatusCode::CONFLICT).count();
+    assert_eq!((saved, conflict), (1, 14), "{res:?}");
+    let patches =
+        e.hs.lock()
+            .unwrap()
+            .count("PATCH /crm/v3/objects/deals/7201");
+    assert_eq!(patches, 1, "HubSpot へ届いた PATCH は 1 回だけ");
+    // 保存された値は、保存に成功した要求の値と一致する (取りこぼしで別の値に上書きされていない)
+    let winner = res.iter().find(|r| r.1 == StatusCode::OK).unwrap();
+    let won = winner.2["values"]["bpo_50"].as_str().unwrap().to_string();
+    assert_eq!(
+        e.hs.lock().unwrap().value("deals", "7201", "bpo_50"),
+        Some(won)
+    );
+    // 競合確認の読み取りは相乗りしない
+    assert_eq!(e.client.gateway().snapshot().coalesced, before);
+    // 鍵の表は空に戻る
+    assert!(cfg.locks.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 三つの案件へ_15_件ずつ同時に書くと_案件ごとに_1_件保存_14_件は_409() {
+    let deals = ["7211", "7212", "7213"];
+    let e = env_with(concurrent_fake(&deals), open(), true).await;
+    let res = fire(&e, &deals, 15).await;
+    assert_eq!(res.iter().filter(|r| r.1 == StatusCode::OK).count(), 3);
+    assert_eq!(
+        res.iter().filter(|r| r.1 == StatusCode::CONFLICT).count(),
+        42
+    );
+    for d in deals {
+        let ok = res
+            .iter()
+            .filter(|r| r.0 == d && r.1 == StatusCode::OK)
+            .count();
+        assert_eq!(ok, 1, "{d}");
+        assert_eq!(
+            e.hs.lock()
+                .unwrap()
+                .count(&format!("PATCH /crm/v3/objects/deals/{d}")),
+            1
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 順番に前の結果を_base_にして書けば全部_200() {
+    let e = env_with(concurrent_fake(&["7221"]), open(), true).await;
+    let mut base = "初期値".to_string();
+    for i in 0..6 {
+        let new = format!("値{i}");
+        let (s, v) = patch_on(
+            &e,
+            "7221",
+            memo_patch(&format!("op-chain-{i:04}"), &base, &new),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        base = new;
+    }
+    assert_eq!(
+        e.hs.lock()
+            .unwrap()
+            .count("PATCH /crm/v3/objects/deals/7221"),
+        6
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 案件と担当者を同時に書く要求が重なっても詰まらず_1_件だけ保存される() {
+    let cfg = open();
+    let mut f = concurrent_fake(&["7231"]);
+    f.contacts.insert("7231".into(), vec![CONTACT.into()]);
+    let e = env_with(f, cfg.clone(), true).await;
+    let mut hs = Vec::new();
+    for i in 0..6 {
+        let (app, cookie) = (e.app.clone(), e.op.clone());
+        hs.push(tokio::spawn(async move {
+            let body = json!({
+                "operation_id": format!("op-multi-{i:04}"),
+                "base": {"bpo_50": "初期値"}, "set": {"bpo_50": format!("値{i}")},
+                "objects": {"contact": {"id": CONTACT, "base": {"jobtitle": "旧役職"}, "set": {"jobtitle": format!("役職{i}")}}}
+            });
+            call(&app, Method::PATCH, "/api/crm/deals/7231", Some(&cookie), Some(body), true).await
+        }));
+    }
+    let mut codes = Vec::new();
+    for h in hs {
+        let r = tokio::time::timeout(Duration::from_secs(15), h)
+            .await
+            .expect("詰まった")
+            .unwrap();
+        codes.push(r.0);
+    }
+    assert_eq!(
+        codes.iter().filter(|c| **c == StatusCode::OK).count(),
+        1,
+        "{codes:?}"
+    );
+    assert_eq!(
+        codes.iter().filter(|c| **c == StatusCode::CONFLICT).count(),
+        5,
+        "{codes:?}"
+    );
+    assert_eq!(
+        e.hs.lock()
+            .unwrap()
+            .count(&format!("PATCH /crm/v3/objects/contacts/{CONTACT}")),
+        1
+    );
+    assert!(cfg.locks.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 先行する書き込みが終わらなければ_503_record_busy_で何も書かない() {
+    let cfg = WriteConfig {
+        lock_wait: Duration::from_millis(80),
+        ..open()
+    };
+    let e = env_with(concurrent_fake(&["7241"]), cfg.clone(), true).await;
+    let held = cfg
+        .locks
+        .acquire(
+            [super::record_lock::key("deals", "7241")],
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+    let (s, v) = patch_on(&e, "7241", memo_patch("op-busy-0001", "初期値", "新")).await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{v}");
+    assert_eq!(v["error"], "record_busy");
+    assert_eq!(e.calls("PATCH"), 0);
+    assert_eq!(e.ledger_count(), 0);
+    drop(held);
+    let (s, _) = patch_on(&e, "7241", memo_patch("op-busy-0002", "初期値", "新")).await;
+    assert_eq!(s, StatusCode::OK);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 再送_worker_も同じ鍵を待ち_取れなければ見送って_鍵が空けば保存する() {
+    let cfg = WriteConfig {
+        lock_wait: Duration::from_millis(80),
+        ..open()
+    };
+    let mut f = concurrent_fake(&["7251"]);
+    f.delay_ms = 0;
+    f.patch_fail = vec![503];
+    let e = env_with(f, cfg.clone(), true).await;
+    let (s, _) = patch_on(&e, "7251", memo_patch("op-wk-00001", "初期値", "再送値")).await;
+    assert_eq!(s, StatusCode::ACCEPTED);
+    e.make_due("op-wk-00001");
+    let held = cfg
+        .locks
+        .acquire(
+            [super::record_lock::key("deals", "7251")],
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+    write::run_due(&e.audit, &e.client, &cfg).await;
+    assert_eq!(
+        e.ledger("op-wk-00001").0,
+        "pending",
+        "鍵を取れない間は見送る"
+    );
+    assert_eq!(e.calls("PATCH"), 1, "見送った間は HubSpot へ送らない");
+    drop(held);
+    write::run_due(&e.audit, &e.client, &cfg).await;
+    assert_eq!(e.ledger("op-wk-00001").0, "saved");
+    assert_eq!(
+        e.hs.lock()
+            .unwrap()
+            .value("deals", "7251", "bpo_50")
+            .as_deref(),
+        Some("再送値")
+    );
+    assert!(cfg.locks.is_empty());
 }

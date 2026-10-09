@@ -27,6 +27,7 @@ pub mod queue_cache;
 pub mod queue_pipelines;
 pub mod rbac;
 pub mod record_gate;
+pub mod record_lock;
 pub mod routes;
 pub mod stage_rules;
 pub mod workspace;
