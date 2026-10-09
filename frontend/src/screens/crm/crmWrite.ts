@@ -13,6 +13,8 @@ export type PatchOutcome =
   | { kind: 'forbidden'; partial?: PatchPartial | undefined }
   /** 受け付けられず何も保存されていない (混雑・台帳に記録できない)。同じ操作を新しい operation_id で再試行してよい */
   | { kind: 'queue_full' }
+  /** 1 人あたりの保存の速さの上限 (429 rate_limited)。何も保存されていない。待てば再試行できる */
+  | { kind: 'rate_limited' }
   /** 管理者が破棄した操作。同じ operation_id では送れない */
   | { kind: 'discarded' }
   /** 通信の失敗・5xx など。HubSpot に届いたか分からない (同じ operation_id で再送してよい) */
@@ -48,6 +50,7 @@ export function classifyPatch(res: ApiResult<PatchResponse>): PatchOutcome {
     if (e.status === 409 && b?.status === 'conflict') return { kind: 'conflict', body: b as unknown as PatchConflict };
     if (e.status === 422 && b?.status === 'invalid') return { kind: 'invalid', body: b as unknown as PatchInvalid };
     if (e.status === 403) return b?.error === 'writes_disabled' ? { kind: 'writes_disabled' } : { kind: 'forbidden', partial: partialOf(b) };
+    if (e.status === 429 && b?.error === 'rate_limited') return { kind: 'rate_limited' };
     if (e.status === 410 && b?.error === 'discarded') return { kind: 'discarded' };
     // queue_unavailable = 台帳 (監査 DB) に記録できず、書かずに断った。queue_full と同じく何も保存されていない。
     // queue_uncertain (送った後で台帳を更新できなかった) はここに入れない: 保存できたか分からない
