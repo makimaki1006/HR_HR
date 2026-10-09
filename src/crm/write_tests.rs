@@ -1152,11 +1152,42 @@ async fn 必須の真偽値は_false_でも入力済み_として扱う() {
 #[tokio::test(flavor = "multi_thread")]
 async fn 書き込みの受付は操作者ごとに速さを制限する() {
     let l = write::WriteRateLimiter::default();
-    for _ in 0..write::WRITE_RATE_PER_MIN {
+    assert_eq!(write::DEFAULT_WRITE_RATE_PER_MIN, 200);
+    for i in 0..200 {
+        assert!(l.allow("a@example.com"), "{} 件目は通る", i + 1);
+    }
+    assert!(!l.allow("a@example.com"), "201 件目は断る");
+    assert!(l.allow("b@example.com"), "他の人には影響しない");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 書き込みの上限は設定で変えられる() {
+    assert_eq!(write::parse_rate_per_min(Some("5")), 5);
+    assert_eq!(write::parse_rate_per_min(Some(" 1 ")), 1);
+    for bad in [None, Some("0"), Some("-3"), Some("abc"), Some("")] {
+        assert_eq!(write::parse_rate_per_min(bad), 200, "{bad:?}");
+    }
+    let l = write::WriteRateLimiter::new(write::parse_rate_per_min(Some("5")));
+    for _ in 0..5 {
         assert!(l.allow("a@example.com"));
     }
-    assert!(!l.allow("a@example.com"), "上限を超えたら断る");
-    assert!(l.allow("b@example.com"), "他の人には影響しない");
+    assert!(!l.allow("a@example.com"), "6 件目は断る");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 上限を超えた_patch_は_429_rate_limited_で何も書かない() {
+    let cfg = WriteConfig {
+        rate_per_min: 1,
+        ..open()
+    };
+    let e = env_with(base_fake(), cfg, true).await;
+    let (s1, v1) = e.patch(memo_patch("op-rate-001", "旧メモ", "新1")).await;
+    assert_eq!(s1, StatusCode::OK, "{v1}");
+    let patches = e.calls("PATCH");
+    let (s2, v2) = e.patch(memo_patch("op-rate-002", "新1", "新2")).await;
+    assert_eq!(s2, StatusCode::TOO_MANY_REQUESTS, "{v2}");
+    assert_eq!(v2["error"], "rate_limited");
+    assert_eq!(e.calls("PATCH"), patches, "断った分は HubSpot に書かない");
 }
 
 #[tokio::test(flavor = "multi_thread")]

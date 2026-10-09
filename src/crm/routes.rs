@@ -252,6 +252,7 @@ pub(super) fn router_with_write(
     workspace_cache: super::workspace_cache::WorkspaceCache,
     write: super::write::WriteConfig,
 ) -> Router<Arc<AppState>> {
+    let write_rate = super::write::WriteRateLimiter::new(write.rate_per_min);
     let ctx = Arc::new(CrmCtx {
         access,
         metadata_cache: MetadataCache::with_refresh_floor(METADATA_REFRESH_FLOOR),
@@ -262,7 +263,7 @@ pub(super) fn router_with_write(
         workspace_cache,
         assoc_labels: super::assoc_labels::AssocLabelCache::default(),
         write,
-        write_rate: super::write::WriteRateLimiter::default(),
+        write_rate,
     });
     Router::new()
         .route("/api/crm/metadata", get(get_metadata))
