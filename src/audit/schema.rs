@@ -11,7 +11,9 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
             .execute(sql, &[])
             .map_err(|e| format!("audit schema failed on `{sql}`: {e}"))?;
     }
-    tracing::info!("audit tables ensured (accounts/login_sessions/activity_logs)");
+    tracing::info!(
+        "audit tables ensured (accounts/login_sessions/activity_logs/crm_pending_operations)"
+    );
     Ok(())
 }
 
@@ -54,6 +56,25 @@ const TABLE_DDL: &[&str] = &[
         target_id   TEXT,
         meta        TEXT
     )"#,
+    // crm_pending_operations: Headless CRM の書き込み (PATCH /api/crm/deals/{id}) の操作台帳 (ADR-018)。
+    //   CRM のコピーではなく、HubSpot へ「まだ反映されていない / 反映した結果を再送時に返すための」操作だけを持つ。
+    //   status: in_progress (送信中) / pending (一時障害で再送待ち) / saved / failed / discarded
+    //   保存済み (saved) の行は冪等性 (同じ operation_id の再送で同じ結果を返す) のため数日残し、worker が消す。
+    r#"CREATE TABLE IF NOT EXISTS crm_pending_operations (
+        operation_id    TEXT PRIMARY KEY,
+        operator_email  TEXT NOT NULL,
+        deal_id         TEXT NOT NULL,
+        object_refs     TEXT,
+        payload         TEXT NOT NULL,
+        status          TEXT NOT NULL,
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        last_error_code TEXT,
+        http_status     INTEGER,
+        result_json     TEXT,
+        next_retry_at   TEXT,
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL
+    )"#,
 ];
 
 const INDEX_DDL: &[&str] = &[
@@ -62,4 +83,5 @@ const INDEX_DDL: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_sessions_started ON login_sessions(started_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_activity_account_at ON activity_logs(account_id, at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_activity_at ON activity_logs(at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_crm_ops_status_retry ON crm_pending_operations(status, next_retry_at)",
 ];

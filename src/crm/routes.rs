@@ -37,7 +37,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, patch},
     Extension, Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -196,6 +196,10 @@ pub(super) struct CrmCtx {
     pub(super) workspace_cache: super::workspace_cache::WorkspaceCache,
     /// 案件 → 担当者・会社の関連ラベルの定義 (6 時間)
     pub(super) assoc_labels: super::assoc_labels::AssocLabelCache,
+    /// 書き込みの栓と再送待ちの上限 (`write.rs`)
+    pub(super) write: super::write::WriteConfig,
+    /// 書き込みの受付の速さの制限 (操作者ごと)
+    pub(super) write_rate: super::write::WriteRateLimiter,
 }
 
 /// レコード読み取りの同時実行数。HubSpot への流量は関所 (`hubspot::gateway`) が絞るので、ここは
@@ -233,6 +237,21 @@ pub(super) fn router_with_parts(
     queue: super::call_queue::CallQueueState,
     workspace_cache: super::workspace_cache::WorkspaceCache,
 ) -> Router<Arc<AppState>> {
+    router_with_write(
+        access,
+        queue,
+        workspace_cache,
+        super::write::WriteConfig::from_env(),
+    )
+}
+
+/// [`router_with_parts`] の書き込みの設定も差し替えられる版 (テストで栓・上限を固定する)。
+pub(super) fn router_with_write(
+    access: CrmAccess,
+    queue: super::call_queue::CallQueueState,
+    workspace_cache: super::workspace_cache::WorkspaceCache,
+    write: super::write::WriteConfig,
+) -> Router<Arc<AppState>> {
     let ctx = Arc::new(CrmCtx {
         access,
         metadata_cache: MetadataCache::with_refresh_floor(METADATA_REFRESH_FLOOR),
@@ -242,6 +261,8 @@ pub(super) fn router_with_parts(
         queue_slots: tokio::sync::Semaphore::new(MAX_CONCURRENT_QUEUE_READS),
         workspace_cache,
         assoc_labels: super::assoc_labels::AssocLabelCache::default(),
+        write,
+        write_rate: super::write::WriteRateLimiter::default(),
     });
     Router::new()
         .route("/api/crm/metadata", get(get_metadata))
@@ -265,6 +286,14 @@ pub(super) fn router_with_parts(
         .route("/api/crm/contacts/{id}", get(get_contact))
         .route("/api/crm/companies/{id}", get(get_company))
         .route("/api/crm/deals/{id}", get(get_deal))
+        .route("/api/crm/edit-schema", get(super::write::get_edit_schema))
+        .route("/api/crm/operations/{id}", get(super::write::get_operation))
+        // 書き込み: CSRF (X-Requested-With) は共有の auth_middleware の外なのでここで掛ける
+        .route(
+            "/api/crm/deals/{id}",
+            patch(super::write::patch_deal)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
         .layer(Extension(ctx))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,

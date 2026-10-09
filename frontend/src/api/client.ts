@@ -256,7 +256,7 @@ function parseBody<T>(contentType: string, text: string, expect: ApiExpect): Api
 }
 
 interface FetchInit {
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PATCH';
   headers: Record<string, string>;
   body?: string;
 }
@@ -355,6 +355,27 @@ export async function apiPost<T>(
     path,
     {
       method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...REQUESTED_WITH,
+      },
+      body: JSON.stringify(body),
+    },
+    options,
+  );
+}
+
+/** PATCH a JSON body. Same result/error contract as apiPost (non-2xx keeps the parsed JSON body on `ApiHttpError.body`). */
+export async function apiPatch<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<T>> {
+  return sendFetch<T>(
+    path,
+    {
+      method: 'PATCH',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',

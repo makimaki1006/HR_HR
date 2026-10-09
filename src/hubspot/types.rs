@@ -185,6 +185,24 @@ impl HubSpotError {
         }
     }
 
+    /// 書き込みを後で再送してよい失敗か (一時的な障害: 429・5xx・タイムアウト・接続失敗・混雑・応答が読めない)。
+    /// 401 / 403 / 404 / 400 / 422 などは再送しても直らない (恒久エラー)。
+    /// `Decode` (2xx なのに本文が読めない) は書き込みが通っている可能性があるので一時扱いにし、再送時の
+    /// 「現在値が書く値と同じなら保存済み」の判定に任せる
+    pub fn is_transient(&self) -> bool {
+        match self {
+            HubSpotError::RateLimited
+            | HubSpotError::Busy
+            | HubSpotError::Timeout
+            | HubSpotError::Transport(_)
+            | HubSpotError::Decode(_) => true,
+            HubSpotError::Upstream { status } => *status >= 500,
+            HubSpotError::NotConfigured | HubSpotError::Auth { .. } | HubSpotError::NotFound => {
+                false
+            }
+        }
+    }
+
     /// `/api/crm/*` が返す HTTP ステータス
     pub fn http_status(&self) -> u16 {
         match self {

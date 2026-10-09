@@ -9,6 +9,9 @@ import {
 import type { CardSection, CatalogEntry, CatalogObject, SelectedProps } from './propertyModel';
 import type { CatalogState } from './usePropertyCatalog';
 import type { CrmPropertyGroup } from '../../generated/CrmPropertyGroup';
+import { EditableValue } from './WriteWidgets';
+import { WRITES_OFF_NOTE } from './useCrmWrite';
+import type { PanelWrite } from './writeBindings';
 import './property-panel.css';
 
 /**
@@ -30,18 +33,29 @@ function Value({ entry, raw, ownerNames }: { entry: CatalogEntry; raw: string | 
   return <span className={v.multiline ? 'pp-multiline' : undefined}>{v.text}</span>;
 }
 
-function ValueList({ obj, entries, data, ownerNames, id }: {
+function ValueList({ obj, entries, data, ownerNames, id, write }: {
   obj: CatalogObject; entries: CatalogEntry[]; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>; id?: string | undefined;
+  write?: PanelWrite | null | undefined;
 }) {
-  return <dl className="pp-list" id={id}>{entries.map(e => <div key={e.prop.name}>
-    <dt>{e.prop.label}</dt>
-    <dd><Value entry={e} raw={selectedValue(data.selected, obj, e.prop.name)} ownerNames={ownerNames} /></dd>
-  </div>)}</dl>;
+  return <dl className="pp-list" id={id}>{entries.map(e => {
+    const raw = selectedValue(data.selected, obj, e.prop.name);
+    const def = write?.def(obj, e) ?? null;
+    const st = write?.status(obj, e.prop.name);
+    const failedReq = st?.phase === 'error' ? st.req : null;
+    return <div key={e.prop.name}>
+      <dt>{e.prop.label}</dt>
+      <dd>{def !== null && write ? <EditableValue def={def} raw={raw} display={<Value entry={e} raw={raw} ownerNames={ownerNames} />}
+        status={write.status(obj, e.prop.name)}
+        onSave={(base, value) => { write.save(def, base, value); }}
+        onRetry={failedReq !== null ? (() => { write.retry(failedReq); }) : undefined} />
+        : <Value entry={e} raw={raw} ownerNames={ownerNames} />}</dd>
+    </div>;
+  })}</dl>;
 }
 
 /** HubSpot のカード 1 枚 (見出しのボタンで開け閉め) */
-function CardValues({ section, data, ownerNames, open, onToggle }: {
-  section: CardSection; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>; open: boolean; onToggle: () => void;
+function CardValues({ section, data, ownerNames, open, onToggle, write }: {
+  section: CardSection; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>; open: boolean; onToggle: () => void; write?: PanelWrite | null | undefined;
 }) {
   const listId = `pp-card-${section.card.id}`;
   const { entries, unavailable } = section;
@@ -50,14 +64,14 @@ function CardValues({ section, data, ownerNames, open, onToggle }: {
       <span aria-hidden="true">{open ? '▾' : '▸'}</span> {section.card.title}<small>({String(entries.length)})</small></button></h4>
     {/* 閉じている間も枠は置いておく (aria-controls の先が消えないように)。中身は開いたときだけ描く */}
     <div id={listId} hidden={!open}>{open && <>
-      {entries.length > 0 && <ValueList obj="deals" entries={entries} data={data} ownerNames={ownerNames} />}
+      {entries.length > 0 && <ValueList obj="deals" entries={entries} data={data} ownerNames={ownerNames} write={write} />}
       {unavailable > 0 && <p className="crm-muted pp-note">ほかに {String(unavailable)} 項目は HubSpot の項目の一覧に無いため表示できません(非表示・削除・機微情報の項目)。</p>}
     </>}</div>
   </section>;
 }
 
-function ObjectValues({ obj, entries, data, ownerNames, title }: {
-  obj: CatalogObject; entries: CatalogEntry[]; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>; title?: string | undefined;
+function ObjectValues({ obj, entries, data, ownerNames, title, write }: {
+  obj: CatalogObject; entries: CatalogEntry[]; data: WorkspaceResponse; ownerNames: ReadonlyMap<string, string>; title?: string | undefined; write?: PanelWrite | null | undefined;
 }) {
   if (entries.length === 0) return null;
   const missing = obj === 'contacts' ? data.contacts.length === 0 : obj === 'companies' ? data.companies.length === 0 : false;
@@ -65,7 +79,7 @@ function ObjectValues({ obj, entries, data, ownerNames, title }: {
   return <section className="pp-section" aria-label={heading}>
     <h4>{heading}</h4>
     {missing ? <p className="crm-muted pp-note">{OBJECT_LABELS[obj]}の情報を取得できませんでした(HubSpot に紐づいていない、または取得に失敗)。</p>
-      : <ValueList obj={obj} entries={entries} data={data} ownerNames={ownerNames} />}
+      : <ValueList obj={obj} entries={entries} data={data} ownerNames={ownerNames} write={write} />}
   </section>;
 }
 
@@ -176,7 +190,7 @@ export function PropertyPicker({ catalog, selection, onApply, onCancel }: {
   </div>;
 }
 
-function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data, placeholder, ownerNames, hasSelection }: {
+function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data, placeholder, ownerNames, hasSelection, write }: {
   catalog: CatalogState; onReloadCatalog: () => void;
   selection: SelectedProps; onApply: (next: SelectedProps) => void;
   /** 表示中の案件の詳細 (無ければ placeholder を出す) */
@@ -184,6 +198,8 @@ function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data,
   ownerNames: ReadonlyMap<string, string>;
   /** 架電先を選んでいるか (選ぶまでは項目の一覧も読まない) */
   hasSelection: boolean;
+  /** 項目の書き換え (無ければ読み取りだけ) */
+  write?: PanelWrite | null | undefined;
 }) {
   const [picking, setPicking] = useState(false);
   const pickerId = useId();
@@ -201,6 +217,7 @@ function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data,
     </div>
     <div id={pickerId}>{picking && ready !== null && <PropertyPicker catalog={ready} selection={selection}
       onApply={next => { setPicking(false); onApply(next); }} onCancel={() => { setPicking(false); }} />}</div>
+    {write?.writesEnabled === false && hasSelection && <p className="crm-muted pp-note" data-testid="writes-off-note">{WRITES_OFF_NOTE}</p>}
     {!hasSelection ? <p className="dock-placeholder">{placeholder}</p>
       : catalog.phase === 'loading' ? <p role="status" className="dock-placeholder">項目の一覧を読み込み中…</p>
         : catalog.phase === 'error' ? <div className="cq-notice cq-error" role="alert"><strong>項目を表示できません</strong><p>{catalog.message}</p>
@@ -208,9 +225,9 @@ function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data,
           : data === null ? <p className="dock-placeholder">{placeholder}</p>
             : nothing ? <p className="crm-muted pp-note">表示する項目がありません。「表示する項目を選ぶ」から選んでください。</p>
               : entries !== null && <>
-                {shownCards.map(c => <CardValues key={c.card.id} section={c} data={data} ownerNames={ownerNames} open={openCards[c.card.id] === true}
+                {shownCards.map(c => <CardValues key={c.card.id} section={c} data={data} ownerNames={ownerNames} write={write} open={openCards[c.card.id] === true}
                   onToggle={() => { setOpenCards(o => ({ ...o, [c.card.id]: o[c.card.id] !== true })); }} />)}
-                {CATALOG_OBJECTS.map(o => <ObjectValues key={o} obj={o} entries={entries[o]} data={data} ownerNames={ownerNames}
+                {CATALOG_OBJECTS.map(o => <ObjectValues key={o} obj={o} entries={entries[o]} data={data} ownerNames={ownerNames} write={write}
                   title={o === 'deals' && shownCards.length > 0 ? '案件(そのほかの項目)' : undefined} />)}
               </>}
   </div>;

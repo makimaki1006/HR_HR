@@ -1,0 +1,27 @@
+/* 項目の書き換え (WriteWidgets.tsx / StageMove.tsx) */
+.wr-view { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.wr-edit-btn, .wr-retry, .wr-link { border: 1px solid var(--cq-line-strong, #ccc); background: #fff; border-radius: 4px; padding: 0 6px; font-size: 11px; cursor: pointer; }
+.wr-link { border: 0; background: transparent; text-decoration: underline; color: var(--cq-accent, #1d4ed8); }
+.wr-edit { display: flex; flex-direction: column; gap: 4px; }
+.wr-edit input[type="text"], .wr-edit input[type="number"], .wr-edit input[type="date"], .wr-edit select, .wr-edit textarea { width: 100%; font-size: 13px; }
+.wr-edit-actions { display: flex; gap: 6px; }
+.wr-edit-actions button, .wr-dialog-actions button { border: 1px solid var(--cq-line-strong, #ccc); background: #fff; border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.wr-save, .wr-primary { background: var(--cq-accent, #1d4ed8) !important; color: #fff !important; border-color: var(--cq-accent, #1d4ed8) !important; }
+.wr-dialog-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.wr-multi { display: flex; flex-direction: column; gap: 2px; }
+.wr-status { font-size: 11px; border-radius: 3px; padding: 0 6px; }
+.wr-saving { color: #4b5563; }
+.wr-saved { color: #166534; background: #dcfce7; }
+.wr-queued { color: #854d0e; background: #fef9c3; }
+.wr-error { color: #991b1b; background: #fee2e2; }
+.wr-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.wr-dialog { background: #fff; border-radius: 8px; padding: 16px 18px; width: min(520px, 94vw); max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; color: #111; }
+.wr-dialog h3 { margin: 0; font-size: 15px; }
+.wr-dialog label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.wr-fields { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wr-required { color: #991b1b; }
+.wr-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.wr-conflict { border-collapse: collapse; font-size: 12px; width: 100%; }
+.wr-conflict th, .wr-conflict td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; overflow-wrap: anywhere; }
+.wr-stage { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.wr-edit-btn::before { content: '編集'; } /* 文字は見た目だけ (値の文字列に混ざらないよう aria-label で名前を付ける) */

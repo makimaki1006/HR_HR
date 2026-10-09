@@ -83,6 +83,18 @@
 | 25 | `HUBSPOT_ACCESS_TOKEN` | `""` | HubSpot CRM API の Bearer トークン (`Authorization: Bearer`)。Legacy Private App / static auth アプリ / Service Key のどれでも同じ形で扱う。スコープは読み取りのみ (`crm.objects.contacts.read` / `crm.objects.companies.read` / `crm.objects.deals.read` / `crm.objects.owners.read`) を推奨し、書き込みスコープは PR4 まで付けない。秘密情報のためログ・API 応答に出さない | `/api/crm/*` は 503 `not_configured`。他機能には影響なし | `src/config.rs` / `src/hubspot/` / `src/crm/` |
 | 26 | `CRM_METADATA_ALLOWED_EMAILS` | `""` | `/api/crm/*` (定義 `metadata` とレコード読み取り) を読める人のメール (カンマ区切り、大文字小文字を区別しない完全一致)。Google Workspace OIDC ログインであることも必須 (共有・外部パスワードは 403、未ログインは JSON 401)。役割 (RBAC) の本実装までの暫定。変更後は再起動 | 空なら全員 403 | `src/crm/rbac.rs` `CrmAccess::from_env()` |
 
+### 2d-1. Headless CRM の書き込み (3 個、2026-10-09 追加、ADR-018)
+
+`src/crm/write.rs` `WriteConfig::from_env()` が読む (ルーターを作るときに 1 回。変更後は再起動)。**既定は書き込み OFF**。
+
+| # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照 |
+|---|------|----------|------|-------------|------|
+| 27 | `CRM_WRITES_ENABLED` | `""` (OFF) | `1` で `PATCH /api/crm/deals/{id}` を全案件で開く | 閉じている。許可リストの案件以外は 403 `writes_disabled` (HubSpot も監査 DB も触らない) | `src/crm/write.rs` |
+| 28 | `CRM_WRITE_DEAL_ALLOWLIST` | `""` | 栓が閉じていても書ける案件 ID (カンマ区切り)。本番で 1 件だけ試すときに使う | 空 | `src/crm/write.rs` |
+| 29 | `CRM_PENDING_MAX` | `50000` | 一時障害で再送待ち (`crm_pending_operations.status = 'pending'`) にできる件数の上限。超えたら 503 `queue_full` で何も積まない | 既定 | `src/crm/write.rs` |
+
+書き込みには HubSpot の書き込みスコープ (`crm.objects.deals.write` ほか、担当者・会社も書くなら `contacts.write` / `companies.write`) が `HUBSPOT_ACCESS_TOKEN` に必要。監査 Turso に表 `crm_pending_operations` を起動時に自動作成する (`CREATE TABLE IF NOT EXISTS`、手動作業なし)。
+
 ### 2d-2. HubSpot 呼び出しの関所 (6 個、2026-10-08 追加)
 
 `src/hubspot/gateway.rs` `GatewayConfig::from_env()` と `src/hubspot/client.rs` `base_url_from_env()` が読む。このプロセスの全 HubSpot 呼び出し (CRM 画面・求人票コピー・営業KPI 直読み・管理画面の鍵確認) が 1 つの流量制限を共有する。範囲外・数字以外は既定値に戻して warn を出す。設計は `docs/architecture/headless-crm-design.md` §18。観測値は `/api/admin/hubspot-usage` (管理画面 `/app/admin?view=hubspot`)。
