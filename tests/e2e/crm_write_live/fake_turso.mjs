@@ -5,6 +5,7 @@
 //
 // Controls (no auth): POST /_down {down: true|false}  -> pipeline answers 500 while down (audit unavailable)
 //                     GET  /_health
+//                     GET  /_stats  -> statement counts by verb and table (write load test); POST /_reset_stats
 //                     POST /_query {sql}  -> rows as objects (test inspection of the ledger)
 import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
@@ -13,6 +14,16 @@ const portArg = process.argv.indexOf('--port');
 const PORT = portArg >= 0 ? Number(process.argv[portArg + 1]) : 9411;
 const db = new DatabaseSync(':memory:');
 let down = false;
+const latArg = process.argv.indexOf('--latency-ms'); // optional fixed latency per statement (load test)
+const LATENCY_MS = latArg >= 0 ? Number(process.argv[latArg + 1]) : 0;
+let counts = {}; // "INSERT crm_pending_operations" -> n
+let failedWhileDown = 0;
+const classify = sql => {
+  const t = sql.trim().replace(/\s+/g, ' ');
+  const verb = t.split(' ')[0].toUpperCase();
+  const m = t.match(/(?:INTO|UPDATE|FROM)\s+([A-Za-z_][A-Za-z0-9_]*)/i);
+  return `${verb} ${m ? m[1] : '?'}`;
+};
 
 const toArg = a => {
   switch (a?.type) {
@@ -48,6 +59,8 @@ const send = (res, status, body) => {
 http.createServer(async (req, res) => {
   try {
     if (req.url === '/_health') return send(res, 200, { ok: true });
+    if (req.url === '/_stats') return send(res, 200, { counts, failedWhileDown });
+    if (req.url === '/_reset_stats' && req.method === 'POST') { counts = {}; failedWhileDown = 0; return send(res, 200, { ok: true }); }
     if (req.url === '/_down' && req.method === 'POST') { down = JSON.parse(await readBody(req)).down === true; return send(res, 200, { down }); }
     if (req.url === '/_query' && req.method === 'POST') {
       const { sql } = JSON.parse(await readBody(req));
@@ -55,8 +68,11 @@ http.createServer(async (req, res) => {
     }
     if (req.url === '/v2/pipeline' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));
-      if (down) return send(res, 500, { error: 'fake turso is down' });
+      if (LATENCY_MS > 0) await new Promise(r => setTimeout(r, LATENCY_MS));
+      if (down) { failedWhileDown++; return send(res, 500, { error: 'fake turso is down' }); }
       const stmt = body.requests?.[0]?.stmt ?? {};
+      const key = classify(stmt.sql ?? '');
+      counts[key] = (counts[key] ?? 0) + 1;
       try {
         const result = run(stmt.sql ?? '', (stmt.args ?? []).map(toArg));
         return send(res, 200, { results: [{ type: 'ok', response: { type: 'execute', result } }, { type: 'ok', response: { type: 'close' } }] });

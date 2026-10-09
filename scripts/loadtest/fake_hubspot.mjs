@@ -647,6 +647,7 @@ function route(method, url, body) {
 }
 
 // --- write mode (--writable): in-memory PATCH, failure injection, state inspection ---
+const chaos = { storm429: false, outage: false, patch503Rate: 0, retryAfter: 2, hangMs: 11_000 }; // POST /_chaos (write load test)
 const patchLog = []; // { at, object, id, properties, status }
 const failQueue = []; // statuses to answer the next PATCH calls with (POST /_fail)
 function runPatch(object, id, body) {
@@ -737,6 +738,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/_reset') {
       t0 = Date.now();
       Object.assign(stats, newStats());
+      delete stats.chaos503;
+      patchLog.length = 0;
+      Object.assign(chaos, { storm429: false, outage: false, patch503Rate: 0 });
       return send(res, 200, { ok: true });
     }
     if (url.pathname === '/_stats') {
@@ -748,6 +752,10 @@ const server = http.createServer(async (req, res) => {
       const id = url.searchParams.get('id') ?? '';
       if (!recordExists(object, id)) return send(res, 404, { error: 'not found' });
       return send(res, 200, { id, properties: allProps(object, id) });
+    }
+    if (req.method === 'POST' && url.pathname === '/_chaos') {
+      Object.assign(chaos, JSON.parse((await readBody(req)) || '{}'));
+      return send(res, 200, chaos);
     }
     if (OPT.writable && req.method === 'POST' && url.pathname === '/_fail') {
       const b = JSON.parse((await readBody(req)) || '{}');
@@ -773,6 +781,13 @@ const server = http.createServer(async (req, res) => {
     stats.inFlight++;
     stats.peakInFlight = Math.max(stats.peakInFlight, stats.inFlight);
     try {
+      // chaos (POST /_chaos, write load test): 429 storm, total outage, random 503 on PATCH
+      if (chaos.storm429) {
+        bump(r.type, '429');
+        stats.policy429.CHAOS_STORM = (stats.policy429.CHAOS_STORM ?? 0) + 1;
+        await sleep(OPT.rateLimitedLatencyMs);
+        return send(res, 429, { status: 'error', message: 'chaos: 429 storm (fake)', errorType: 'RATE_LIMIT', policyName: 'CHAOS' }, { 'retry-after': String(chaos.retryAfter), ...(r.isSearch ? {} : rateHeaders()) });
+      }
       const rejected = admit(Boolean(r.isSearch));
       if (rejected) {
         bump(r.type, '429');
@@ -780,6 +795,22 @@ const server = http.createServer(async (req, res) => {
         await sleep(OPT.rateLimitedLatencyMs);
         const h = { 'retry-after': String(rejected.retryAfterS), ...(r.isSearch ? {} : rateHeaders()) };
         return send(res, 429, { status: 'error', message: `You have reached your ${rejected.policy === 'SECONDLY' ? 'secondly' : 'ten secondly rolling'} limit.`, errorType: 'RATE_LIMIT', correlationId: crypto.randomUUID(), policyName: rejected.policy }, h);
+      }
+      const isPatch = r.type.startsWith('patch:');
+      if (chaos.outage || (isPatch && chaos.patch503Rate > 0 && Math.random() < chaos.patch503Rate)) {
+        // outage: 70% plain 503; 15% the PATCH is applied but the answer is a 503 (lost response);
+        // 15% the PATCH is applied (half of them) and the answer hangs past the app's 10 s timeout.
+        // injected random 503 (patch503Rate, outside an outage): plain 503, not applied.
+        const roll = chaos.outage ? Math.random() : 0;
+        let hang = false;
+        if (chaos.outage && roll >= 0.7) {
+          if (isPatch && (roll < 0.85 || Math.random() < 0.5)) r.run();
+          hang = roll >= 0.85;
+        }
+        await sleep(hang ? chaos.hangMs : latency());
+        bump(r.type, '503');
+        stats.chaos503 = (stats.chaos503 ?? 0) + 1;
+        return send(res, hang ? 504 : 503, { status: 'error', message: 'chaos: HubSpot unavailable (fake)', category: 'INTERNAL_ERROR' });
       }
       const out = r.run();
       await sleep(latency());

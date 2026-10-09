@@ -99,3 +99,28 @@ git apply -R scripts/loadtest/before-main-base-url.patch  # 戻す
 - 本物の HubSpot の応答時間・上限の挙動 (どの時点で数えるか、Retry-After の有無) とは一致しない。ここで見られるのは
   「アプリが HubSpot をどう叩くか (回数・並び・待ち)」と「その結果利用者に何が返るか」。
 - 同じマシンでアプリ・偽 HubSpot・ドライバを動かす。CPU が詰まると数字が歪むので、実行中は他の重い処理を止める。
+
+## 書き込みシナリオ (`--scenario write`)
+
+架電結果の保存 (`PATCH /api/crm/deals/{id}`) を 100 人が同時に行ったときの失敗率・台帳 (`crm_pending_operations`) の滞留・復旧時間を測る。
+読み取りのシナリオとは別のドライバ (`write_run.mjs`) を `run.mjs` が呼ぶ。結果と注意点は `docs/architecture/crm-write-loadtest-2026-10-09.md`。
+
+```bash
+# Node 23.11 以上 (偽 Turso が node:sqlite を使う)。debug ビルド必須 (偽 Google・再送待ちの上書きは debug だけ)
+CARGO_TARGET_DIR=$PWD/target-private cargo build --bin rust_dashboard
+CARGO_TARGET_DIR=$PWD/target-private node scripts/loadtest/run.mjs --scenario write --variant v1   # v1 | v2 | v3 | v4
+```
+
+| 変種 | 内容 |
+|---|---|
+| `v1` | 偽 HubSpot は正常 (遅延 450 ± 150 ms、一般枠 190/10 秒・19/秒) |
+| `v2` | PATCH の 5% を 503 にする + t=120〜150 秒に全面障害 (70% は 503、15% は書いた上で 503、15% は書いた上で 10 秒超ハング) |
+| `v3` | t=120〜140 秒、全リクエストを 429 (Retry-After 2) にする |
+| `v4` | 全員が同じ 10 秒のうちに 10 項目を保存 → その後 60 秒は通常の動き |
+| `v5` | 20 人が同じ 5 案件の同じ項目を同じ base で同時に保存 (期待: 案件ごとに 1 件成功 + 残り 409。上書きで消えた更新を数える) |
+
+1 人 3 件の案件を持ち (衝突しない)、5〜15 項目を 0.15〜0.5 秒間隔で 1 項目ずつ PATCH → 25% でステージ移動 → 10〜40 秒の間 → 繰り返し。
+429 / 503 / タイムアウトは同じ `operation_id` で最大 2 回やり直す (`--retries`)。負荷が終わったあと台帳が空になるまで最大 `--drain-max` 秒(既定 300) 見続ける。
+主なオプション: `--users` `--duration` `--backoff-secs` (再送待ち。debug の上書きは一定値) `--turso-latency-ms` `--latency-ms` `--app-env K=V,..` (例: 関所 `HUBSPOT_APP_RATE_PER_SEC=19,HUBSPOT_APP_RATE_PER_10S=190`) `--write-rate` (`CRM_WRITE_RATE_PER_MIN` を読むバイナリのときだけ効く)。
+
+偽 HubSpot に `POST /_chaos` ({storm429, outage, patch503Rate, retryAfter, hangMs})、偽 Turso (`tests/e2e/crm_write_live/fake_turso.mjs`) に `--latency-ms` と `GET /_stats` (文=動詞+表の回数) を足した。
