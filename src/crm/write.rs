@@ -1843,7 +1843,10 @@ pub fn spawn_worker(state: Arc<AppState>) {
     let client = client.background();
     let wake = wake_handle();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        // 起動直後は他の初期化を邪魔しない (E2E は debug ビルドだけ `CRM_WORKER_START_DELAY_SECS_DEBUG` で縮められる)
+        let start_delay =
+            pending::debug_override_secs("CRM_WORKER_START_DELAY_SECS_DEBUG").unwrap_or(30);
+        tokio::time::sleep(Duration::from_secs(start_delay as u64)).await;
         let mut last_purge = std::time::Instant::now() - Duration::from_secs(86_400);
         loop {
             let next = run_due(&audit, &client).await;

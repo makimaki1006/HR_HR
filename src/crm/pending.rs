@@ -41,8 +41,23 @@ pub fn now_iso() -> String {
 
 /// 失敗 `attempts` 回目 (1 始まり) の後に待つ時間
 pub fn backoff_after(attempts: i64) -> ChronoDuration {
+    if let Some(secs) = debug_override_secs("CRM_PENDING_BACKOFF_SECS_DEBUG") {
+        return ChronoDuration::seconds(secs);
+    }
     let i = (attempts.max(1) - 1) as usize;
     ChronoDuration::seconds(BACKOFF_SECS[i.min(BACKOFF_SECS.len() - 1)])
+}
+
+/// E2E 用: debug ビルドだけが読む秒数の上書き (`*_DEBUG` 環境変数。release では常に None)。
+/// 再送の待ち時間 (60 秒〜) を E2E で待てる長さに縮めるために使う
+pub fn debug_override_secs(var: &str) -> Option<i64> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|n| *n >= 0)
 }
 
 /// 書き込みの 1 段 (オブジェクト 1 つ分の PATCH)
