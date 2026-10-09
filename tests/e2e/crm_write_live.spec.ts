@@ -181,3 +181,26 @@ async function openContactJobtitle(page: import('@playwright/test').Page) {
   await expect(panel.getByRole('button', { name: '役職を編集' })).toBeVisible();
   return panel;
 }
+
+test('同じ案件へ 10 件を同時に同じ base で PATCH → 1 件だけ 200、残りは 409。偽 HubSpot への PATCH は 1 回 (更新の取りこぼしが無い)', async ({ page }) => {
+  await openDeal(page, COMPANY_A);
+  const before = (await hsPatches()).length;
+  const res = await page.evaluate(async ({ id }) => {
+    const one = async (i: number) => {
+      const r = await fetch(`/api/crm/deals/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'X-Requested-With': 'fetch' },
+        body: JSON.stringify({ operation_id: crypto.randomUUID(), base: { bpo_29: '' }, set: { bpo_29: `03-7000-${String(i).padStart(4, '0')}` } }),
+      });
+      return { status: r.status, body: await r.json() };
+    };
+    return Promise.all(Array.from({ length: 10 }, (_, i) => one(i)));
+  }, { id: LIVE.allowedDealId });
+  const statuses = res.map((r) => r.status).sort();
+  expect(statuses.filter((s) => s === 200)).toHaveLength(1);
+  expect(statuses.filter((s) => s === 409)).toHaveLength(9);
+  const sent = (await hsPatches()).slice(before).filter((p) => p.id === LIVE.allowedDealId);
+  expect(sent).toHaveLength(1);
+  const winner = res.find((r) => r.status === 200)!;
+  expect((await hsRecord('deals', LIVE.allowedDealId)).bpo_29).toBe(winner.body.values.bpo_29);
+});

@@ -552,6 +552,28 @@ impl HubSpotClient {
         id: &str,
         properties: &[&str],
     ) -> Result<HubSpotRecord, HubSpotError> {
+        self.get_object_inner(object, id, properties, false).await
+    }
+
+    /// `get_object` と同じ読み取りを、**他の読み取りと相乗りせずに**必ず HubSpot へ送る。
+    /// 書き込み前の競合確認用 (相乗りすると、直前の書き込み前の値を受け取って比べてしまう)。
+    /// 結果をキャッシュしない (この層にキャッシュは無く、呼び出し側も使わないこと)。
+    pub async fn get_object_fresh(
+        &self,
+        object: &str,
+        id: &str,
+        properties: &[&str],
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        self.get_object_inner(object, id, properties, true).await
+    }
+
+    async fn get_object_inner(
+        &self,
+        object: &str,
+        id: &str,
+        properties: &[&str],
+        fresh: bool,
+    ) -> Result<HubSpotRecord, HubSpotError> {
         check_object(object)?;
         check_id(id)?;
         let path = format!("/crm/v3/objects/{object}/{id}");
@@ -560,7 +582,12 @@ impl HubSpotClient {
         } else {
             vec![("properties", properties.join(","))]
         };
-        let v = self.send(Method::GET, &path, &query, None).await?;
+        let v = if fresh {
+            self.send_uncoalesced(&Method::GET, &path, &query, None)
+                .await?
+        } else {
+            self.send(Method::GET, &path, &query, None).await?
+        };
         parse_record(&v)
     }
 
