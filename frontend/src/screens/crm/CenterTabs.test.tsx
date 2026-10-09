@@ -131,6 +131,26 @@ describe('求人検索・リンク先 panel (links open inside the panel)', () =
     expect(tab('求人検索').getAttribute('aria-selected')).toBe('true');
   });
 
+  it('with the frame extension, a HubSpot link opens as an embedded tab with the open-in-new-tab button and the login note', async () => {
+    document.documentElement.setAttribute('data-hrhr-frames', '1.0');
+    try {
+      await openDeal(detailWith(DEAL_LINKS));
+      const links = screen.getByRole('region', { name: 'リンク' });
+      const hsUrl = 'https://app.hubspot.com/contacts/1/record/0-3/1/';
+      expect(fireEvent.click(within(links).getByRole('link', { name: hsUrl }))).toBe(false); // preventDefault = パネルで開く
+      const hs = tab('求人媒体');
+      expect(hs.getAttribute('aria-selected')).toBe('true');
+      const p = panelOf(hs);
+      expect(within(p).getByTestId('link-frame').getAttribute('src')).toBe(hsUrl);
+      expect(within(p).getByRole('link', { name: '新しいタブで開く' }).getAttribute('href')).toBe(hsUrl);
+      expect(within(p).getByTestId('hubspot-note').textContent).toBe('HubSpot のログイン画面が繰り返し出る場合は「新しいタブで開く」を使ってください');
+      // HubSpot 以外のタブには出ない
+      fireEvent.click(tab('リンク一覧'));
+      fireEvent.click(within(links).getByRole('link', { name: 'https://www.example.com/' }));
+      expect(within(panelOf(tab('ホームページ'))).queryByTestId('hubspot-note')).toBeNull();
+    } finally { document.documentElement.removeAttribute('data-hrhr-frames'); }
+  });
+
   it('the tab list works with the keyboard (arrows / Home / End / Delete)', async () => {
     await openDeal(detailWith(DEAL_LINKS));
     fireEvent.click(within(screen.getByRole('region', { name: 'リンク' })).getByRole('link', { name: 'https://www.example.com/' }));
