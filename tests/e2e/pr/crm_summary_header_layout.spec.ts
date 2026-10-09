@@ -59,15 +59,15 @@ test.describe('CRM 架電画面: 案件の概要の見出し', () => {
     test(`詳しく表示: 社名が 1 文字ずつ縦に並ばず、概要が内容の高さに収まる (${label})`, async ({ page }) => {
       await open(page, narrow);
       await setDensity(page, 'expanded');
-      const h2 = await box(page, '.wd-head h2');
+      const h2 = await box(page, '.wd-s-name h2');
       const top = await box(page, '.wd-top');
       const center = await box(page, '[data-testid="dock-col-1"]');
       console.log(`measure expanded ${tag} center=${String(Math.round(center.width))} name=${String(Math.round(h2.width))}x${String(Math.round(h2.height))} summary=${String(Math.round(top.height))}`);
       if (SHOT) await page.screenshot({ path: `${SHOT}/expanded-${tag}.png` });
       expect(h2.width).toBeGreaterThanOrEqual(150);
       expect(h2.height).toBeLessThanOrEqual(60);
-      // 既定の配置では 260px 以内。中央の列を狭めると「架ける番号」の注記が折り返すぶん (約 20px) 高くなる
-      expect(top.height).toBeLessThanOrEqual(narrow ? 290 : 260);
+      // 概要は幅で並べ替わる (crm_summary_responsive.spec.ts)。既定の配置 (約 430px) は 2 列で 275px 以内、380px 台は縦積みで 330px 以内
+      expect(top.height).toBeLessThanOrEqual(narrow ? 330 : 275);
       // 見出しの中の操作が列からはみ出さない
       const sel = await box(page, '.wr-stage-select');
       expect(sel.x + sel.width).toBeLessThanOrEqual(center.x + center.width + 1);
