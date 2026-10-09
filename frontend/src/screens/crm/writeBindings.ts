@@ -73,10 +73,11 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, loadV
     };
     const so = write.stageOverlay[id];
     const stage = so && (so.pending || so.fetchedAt === data.fetched_at) ? so : null;
-    const selected = {
-      deal: pick('deals', data.selected.deal), contact: pick('contacts', data.selected.contact), company: pick('companies', data.selected.company),
-    };
-    if (selected.deal === data.selected.deal && selected.contact === data.selected.contact && selected.company === data.selected.company && stage === null) return data;
+    // 古い形の応答 (selected が無い) でも画面を壊さない
+    const base = data.selected as WorkspaceResponse['selected'] | undefined;
+    if (base === undefined) return stage === null ? data : { ...data, deal: { ...data.deal, stage_id: stage.stage_id, pipeline_id: stage.pipeline_id, stage_label: stage.label } };
+    const selected = { deal: pick('deals', base.deal), contact: pick('contacts', base.contact), company: pick('companies', base.company) };
+    if (selected.deal === base.deal && selected.contact === base.contact && selected.company === base.company && stage === null) return data;
     return { ...data, selected, deal: stage ? { ...data.deal, stage_id: stage.stage_id, pipeline_id: stage.pipeline_id, stage_label: stage.label } : data.deal };
   }, [data, write.overlay, write.stageOverlay]);
 
@@ -122,7 +123,8 @@ export function useWriteBindings({ write, dealId, data, index, ownerNames, loadV
         const out: Record<string, string | null> = {};
         const missing: FieldDef[] = [];
         for (const d of defs) {
-          const m = d.object === 'deal' ? view?.selected.deal : d.object === 'contact' ? view?.selected.contact : view?.selected.company;
+          const sel = view?.selected;
+          const m = d.object === 'deal' ? sel?.deal : d.object === 'contact' ? sel?.contact : sel?.company;
           if (m && d.name in m) out[d.name] = m[d.name] ?? null; else missing.push(d);
         }
         if (missing.length > 0) Object.assign(out, await loadValues(dealId, missing));

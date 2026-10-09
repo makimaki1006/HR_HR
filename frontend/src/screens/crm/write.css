@@ -24,3 +24,4 @@
 .wr-conflict { border-collapse: collapse; font-size: 12px; width: 100%; }
 .wr-conflict th, .wr-conflict td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; overflow-wrap: anywhere; }
 .wr-stage { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.wr-edit-btn::before { content: '編集'; } /* 文字は見た目だけ (値の文字列に混ざらないよう aria-label で名前を付ける) */
