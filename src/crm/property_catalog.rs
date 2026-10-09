@@ -9,6 +9,9 @@
 //! グループの表示名はプロパティ定義の応答に入っていない (グループの内部名だけ) ため、グループ定義も読む。
 //! 定義は滅多に変わらないので数時間使い回す。同時のキャッシュミスは 1 回の取得にまとめる。
 //! 失敗は [`FAILURE_TTL`] だけ覚えて同じ失敗を返す (詳細を開くたびに 6 回ずつ失敗する呼び出しを繰り返さない)。
+//! **前に取れた一覧が残っているなら、期限が切れていても取り直しに失敗した間はそれを返す** (stale-while-error。
+//! 保存の許可リストにも使うので、HubSpot の一時障害のたびに保存が 502 になるのを避ける)。
+//! 一度も取れていないときだけ失敗を返す。
 //!
 //! 返さないもの: HubSpot で非表示 (`hidden`) の項目と選択肢、アーカイブ済みの項目、
 //! 機微情報として印の付いた項目 (`dataSensitivity` が `non_sensitive` 以外)。
@@ -41,8 +44,9 @@ use crate::AppState;
 
 /// 定義の一覧を使い回す時間
 pub const CATALOG_TTL: Duration = Duration::from_secs(6 * 60 * 60);
-/// 取得に失敗したとき、取り直さずに同じ失敗を返す時間
-pub const FAILURE_TTL: Duration = Duration::from_secs(60);
+/// 取得に失敗したとき、取り直さずに待つ時間 (短く: 障害が終わったらすぐ取り直す。
+/// 一度も取れていないときは同じ失敗を、前の一覧があるときはそれを、この間返す)
+pub const FAILURE_TTL: Duration = Duration::from_secs(5);
 /// 1 つの型 (案件・担当者・会社) で、一度に表示できる項目の最大数 (workspace の `*_props` も同じ上限)
 pub const MAX_SELECTED_PER_OBJECT: usize = 100;
 /// HubSpot の内部名の最大長 (実データの最長は 64 文字。余裕を持たせる)
@@ -206,6 +210,11 @@ impl PropertyCatalogCache {
         }
         if let Some((at, e)) = slot.failed.as_ref() {
             if at.elapsed() < self.failure_ttl {
+                // 取り直しに失敗した直後: 前の一覧があればそれで続ける
+                if let Some((_, entry)) = slot.ok.as_ref() {
+                    cache_hit("property_catalog");
+                    return Ok((entry.clone(), true));
+                }
                 return Err(e.clone());
             }
         }
@@ -218,6 +227,13 @@ impl PropertyCatalogCache {
             }
             Err(e) => {
                 slot.failed = Some((Instant::now(), e.clone()));
+                if let Some((_, entry)) = slot.ok.as_ref() {
+                    tracing::warn!(
+                        error_kind = e.error_kind(),
+                        "crm property catalog refresh failed; serving the last good catalog"
+                    );
+                    return Ok((entry.clone(), true));
+                }
                 Err(e)
             }
         }
