@@ -393,3 +393,25 @@
 .cq-linkhint { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 12px; background: #fff8e1; border-bottom: 1px solid #f0e0a0; }
 .cq-linkhint span { flex: 1; }
 .cq-linkhint button { border: 0; background: transparent; cursor: pointer; font-size: 14px; }
+
+/* 活動カード (メール・メモ・ミーティング・通話を読みやすく) */
+.wd-card { background: var(--cq-surface); border: 1px solid var(--cq-line); border-left-width: 3px; border-radius: 6px; padding: 8px 10px; }
+.wd-act-email { border-left-color: #6b5bd2; }
+.wd-act-note { border-left-color: #c28a00; }
+.wd-act-meeting { border-left-color: #1f8a5b; }
+.wd-card-badge { white-space: nowrap; }
+.wd-card-title { overflow-wrap: anywhere; }
+.wd-card-dir { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--cq-line-strong); }
+.wd-card-dir-in { color: #1f6f4a; border-color: #1f6f4a; }
+.wd-card-dir-out { color: var(--cq-sub); }
+.wd-card-addr { margin: 4px 0 0; font-size: 12px; color: var(--cq-sub); overflow-wrap: anywhere; }
+.wd-card-preview { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.wd-card-body { margin: 6px 0 0; max-height: 420px; overflow: auto; overflow-wrap: anywhere; border: 1px solid var(--cq-line); border-radius: 4px; padding: 8px; background: var(--cq-bg); }
+.wd-card-text { white-space: pre-wrap; }
+.wd-card-html img { max-width: 100%; height: auto; }
+.wd-card-html table { max-width: 100%; border-collapse: collapse; }
+.wd-card-html td, .wd-card-html th { border: 1px solid var(--cq-line); padding: 2px 6px; }
+.wd-card-html blockquote { margin: 4px 0; padding-left: 8px; border-left: 3px solid var(--cq-line-strong); color: var(--cq-sub); }
+.wd-card-quoted { opacity: .85; }
+.wd-card-more { margin-top: 6px; background: none; border: 0; padding: 0; color: var(--cq-accent); cursor: pointer; font-size: 12px; text-decoration: underline; }
+.wd-card-quote { margin-top: 4px; }

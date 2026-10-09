@@ -1,15 +1,15 @@
 import { memo, useState } from 'react';
-import type { WorkspaceActivity } from '../../generated/WorkspaceActivity';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { formatPhoneForDisplay, toDomesticPhone } from './phone';
 import { toE164Jp } from './smartEmbed';
 import type { DialResult, ZoomPhone } from './useZoomPhone';
 import type { DetailState } from './useDealDetail';
 import {
-  ACTIVITY_FILTERS, ACTIVITY_KIND_LABELS, activityStatusLabel, directionLabel, filterActivities, formatDurationMs, formatTimestamp, partialNotes,
+  ACTIVITY_FILTERS, filterActivities, partialNotes,
 } from './workspaceModel';
 import type { ActivityKindFilter } from './workspaceModel';
 import { FRESHNESS_TICK_MS, clock, freshnessLabel } from './workspaceModel';
+import { ActivityCard } from './ActivityCard';
 import { RESULT_LABELS, useTicking } from './ZoomPhonePanel';
 import { dealJobSearchUrl, extractUrls, isEmptyGoogleSearch, safeHttpUrl } from './centerLinks';
 import { PropLink } from './CenterTabs';
@@ -114,26 +114,6 @@ export function CallBar({ info, now, onOpenZoom }: { info: CallBarInfo; now: () 
     </p>
     {info.kind === 'failed' && <p className="wd-callbar-msg" role="alert">{ZOOM_NO_RESPONSE}</p>}
   </div>;
-}
-
-function ActivityItem({ a, ownerNames }: { a: WorkspaceActivity; ownerNames: ReadonlyMap<string, string> }) {
-  const when = formatTimestamp(a.timestamp);
-  const who = a.owner_id ? (ownerNames.get(a.owner_id) ?? null) : null;
-  const dir = directionLabel(a.direction);
-  const status = activityStatusLabel(a.status);
-  const dur = formatDurationMs(a.duration_ms);
-  return <li className={`wd-act wd-act-${a.kind}`}>
-    <div className="wd-act-head">
-      <span className="crm-status">{ACTIVITY_KIND_LABELS[a.kind] ?? a.kind}</span>
-      {a.title && <strong>{a.title}</strong>}
-      <small>{when ?? '日時不明'}</small>
-      {who && <small className="wd-act-who">{who}</small>}
-    </div>
-    {(dir !== null || status !== null || dur !== null || a.via === 'contact') && <p className="wd-act-meta">
-      {[dir, status, dur && `通話時間 ${dur}`, a.via === 'contact' && '担当者の通話(別の案件のものを含む場合があります)'].filter(Boolean).join(' · ')}
-    </p>}
-    {a.body && <p className="wd-act-body">{a.body}</p>}
-  </li>;
 }
 
 /**
@@ -262,7 +242,7 @@ function ActivityLogImpl({ data, placeholder, ownerNames }: {
       {ACTIVITY_FILTERS.map(f => <button key={f.value} type="button" aria-pressed={kind === f.value} onClick={() => { setKind(f.value); }}>{f.label}</button>)}
     </div>
     {acts.length === 0 && <p className="crm-muted">{data.activities.length === 0 ? '表示できる活動履歴はありません。' : 'この種類の活動はありません。'}</p>}
-    <ul className="wd-acts">{acts.map(a => <ActivityItem key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} />)}</ul>
+    <ul className="wd-acts">{acts.map(a => <ActivityCard key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} />)}</ul>
   </section>;
 }
 
