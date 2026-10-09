@@ -58,4 +58,36 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     await expect(page.getByRole('article', { name: '架電先の詳細' }).getByText('✓ 保存済み')).toBeVisible();
     await expect(select.locator('option:checked')).toHaveText('アポ日確定');
   });
+  test('日付の項目: カレンダーで土曜は青・日曜と祝日は赤 (5/4 みどりの日など)。日を選ぶと緑の「保存済み」', async ({ page }) => {
+    const crm: string[] = [];
+    page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/api/crm/')) crm.push(r.url()); });
+    await openFirst(page);
+    await page.getByRole('tab', { name: 'プロパティ' }).click();
+    const panel = page.getByTestId('property-panel');
+    await panel.getByRole('button', { name: 'アポ取得日を編集' }).click();
+    const edit = panel.locator('.wr-edit').first();
+    // 入力は YYYY/MM/DD の文字入力 (ブラウザ標準の日付ポップアップではない)
+    const input = edit.getByRole('textbox');
+    await input.fill('2026/05/10');
+    await edit.getByRole('button', { name: 'カレンダーを開く' }).click();
+    const cell = (iso: string) => edit.locator(`button.dp-day[data-date="${iso}"]`);
+    const color = (iso: string) => cell(iso).evaluate((el) => getComputedStyle(el).color);
+    // 祝日データは開いたときに読み込む。みどりの日の表示を待つ
+    await expect(cell('2026-05-04')).toHaveClass(/dp-holiday/);
+    await expect(cell('2026-05-04')).toHaveAttribute('aria-label', '5月4日 みどりの日');
+    const red = 'rgb(198, 40, 40)';
+    const blue = 'rgb(21, 101, 192)';
+    for (const iso of ['2026-05-03', '2026-05-04', '2026-05-05', '2026-05-06', '2026-05-17']) expect(await color(iso)).toBe(red);
+    expect(await color('2026-05-02')).toBe(blue);
+    expect(await color('2026-05-01')).not.toBe(red);
+    expect(await color('2026-05-01')).not.toBe(blue);
+    await cell('2026-05-21').click();
+    await expect(input).toHaveValue('2026/05/21');
+    await panel.getByRole('button', { name: '保存', exact: true }).click();
+    const saved = panel.locator('.wr-saved');
+    await expect(saved).toHaveText('✓ 保存済み');
+    await expect(saved).toHaveCSS('background-color', 'rgb(220, 252, 231)'); // 緑
+    await expect(panel.getByText('2026/05/21')).toBeVisible();
+    expect(crm).toEqual([]);
+  });
 });

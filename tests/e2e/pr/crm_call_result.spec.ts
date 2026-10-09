@@ -136,7 +136,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveText('記録済み(HubSpot 未送信)');
     await rowButton(page, 0).click();
     await expect(outcome(page, '再架電の約束')).toHaveAttribute('aria-pressed', 'true');
-    await expect(form(page).getByLabel(/^次回架電日/)).toHaveValue(nextDate);
+    await expect(form(page).getByLabel(/^次回架電日/)).toHaveValue(nextDate.replaceAll('-', '/'));
     await expect(form(page).getByRole('status').filter({ hasText: '記録済み' })).toHaveText('記録済み(HubSpot 未送信)');
 
     // 記録の後に書き換えると印が外れ、その旨が出る
