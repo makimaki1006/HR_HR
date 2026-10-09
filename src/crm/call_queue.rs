@@ -230,6 +230,12 @@ impl CallQueueState {
         Ok(pipelines)
     }
 
+    /// 架電キューの 1 ページ・件数のキャッシュを捨てる (書き込みの後)
+    pub(super) fn invalidate_pages(&self) {
+        self.pages.clear();
+        self.counts.clear();
+    }
+
     /// パイプライン定義が有効期間の終わり近く (残り 20% 未満) なら true (先読みの対象)
     pub(super) fn pipeline_defs_refresh_due(&self) -> bool {
         match self.labels.try_lock() {

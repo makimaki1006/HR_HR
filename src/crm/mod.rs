@@ -1,4 +1,4 @@
-//! Headless CRM の `/api/crm/*` (HubSpot からの読み取りだけ。書き込みはしない)。
+//! Headless CRM の `/api/crm/*` (HubSpot からの読み取りと、`write` の書き込み)。
 //!
 //! - `rbac`: 認可 (誰が使えるか。会社の Google ログインなら全員が全件を読める。管理者 = `ADMIN_EMAILS` または `accounts.role = admin` はキューの既定が全員分、それ以外は自分)。許可条件は `rbac.rs` 1 箇所
 //! - `record_gate`: レコード単位の制限。CRM の利用者には掛けない (役割が決まっていない最小権限の人だけの備え)
@@ -9,6 +9,9 @@
 //! - `workspace`: `GET /api/crm/workspace/deals/{id}` (架電ワークスペースの詳細。案件・担当者・会社・活動履歴)
 //! - `workspace_cache`: 架電ワークスペースの応答の短いキャッシュ (60 秒。認可は毎回)
 //! - `assoc_labels`: 案件 → 担当者・会社の関連ラベルの定義 (6 時間キャッシュ)
+//! - `write`: `PATCH /api/crm/deals/{id}`・`GET /api/crm/edit-schema`・`GET /api/crm/operations/{id}`・管理者の一覧/再試行/破棄・再送 worker (既定は書き込み OFF。ADR-018)
+//! - `pending`: 書き込みの操作台帳 (監査 Turso の `crm_pending_operations`)
+//! - `stage_rules`: ステージの必須項目の設定 (`stage_rules.json`) と HubSpot の定義とのずれの検査
 //! - `routes`: `GET /api/crm/metadata` と `GET /api/crm/{contacts|companies|deals}/{id}`
 //!
 //! ルートは `lib.rs` の `protected_routes` **の外**に merge する (未ログインを /login への 303 でなく
@@ -18,14 +21,17 @@
 pub mod assoc_labels;
 pub mod call_queue;
 pub mod owners;
+pub mod pending;
 pub mod property_catalog;
 pub mod queue_cache;
 pub mod queue_pipelines;
 pub mod rbac;
 pub mod record_gate;
 pub mod routes;
+pub mod stage_rules;
 pub mod workspace;
 pub mod workspace_cache;
+pub mod write;
 
 pub use routes::router;
 
@@ -39,3 +45,5 @@ mod roles_tests;
 mod routes_tests;
 #[cfg(test)]
 mod workspace_tests;
+#[cfg(test)]
+mod write_tests;

@@ -62,6 +62,11 @@ pub struct CrmCatalogProperty {
     pub field_type: String,
     /// 選択肢 (非表示の選択肢は除く)
     pub options: Vec<CrmPropertyOption>,
+    /// HubSpot の API で書き込める項目か (読み取り専用・計算・システム項目などは false)。
+    /// 書き込み API (`crm::write`) の許可リストに使う。応答 JSON には出さない
+    #[serde(skip)]
+    #[ts(skip)]
+    pub writable: bool,
 }
 
 /// HubSpot のプロパティのグループ (画面の見出し) 1 つ
@@ -96,11 +101,16 @@ pub struct CrmPropertyCatalogResponse {
 pub struct CatalogEntry {
     pub response: CrmPropertyCatalogResponse,
     names: BTreeMap<&'static str, HashSet<String>>,
+    defs: BTreeMap<&'static str, std::collections::HashMap<String, CrmCatalogProperty>>,
 }
 
 impl CatalogEntry {
     fn new(response: CrmPropertyCatalogResponse) -> Self {
         let mut names: BTreeMap<&'static str, HashSet<String>> = BTreeMap::new();
+        let mut defs: BTreeMap<
+            &'static str,
+            std::collections::HashMap<String, CrmCatalogProperty>,
+        > = BTreeMap::new();
         for o in &response.objects {
             let key = match o.object_type.as_str() {
                 "deals" => "deals",
@@ -109,11 +119,35 @@ impl CatalogEntry {
                 _ => continue,
             };
             let set = names.entry(key).or_default();
+            let d = defs.entry(key).or_default();
             for g in &o.groups {
                 set.extend(g.properties.iter().map(|p| p.name.clone()));
+                for p in &g.properties {
+                    d.insert(p.name.clone(), p.clone());
+                }
             }
         }
-        Self { response, names }
+        Self {
+            response,
+            names,
+            defs,
+        }
+    }
+
+    /// `object` (`deals` / `contacts` / `companies`) の項目の定義
+    pub fn property(&self, object: &str, name: &str) -> Option<&CrmCatalogProperty> {
+        self.defs.get(object).and_then(|m| m.get(name))
+    }
+
+    /// `object` の書き込める項目 (名前順)
+    pub fn writable(&self, object: &str) -> Vec<&CrmCatalogProperty> {
+        let mut v: Vec<&CrmCatalogProperty> = self
+            .defs
+            .get(object)
+            .map(|m| m.values().filter(|p| p.writable).collect())
+            .unwrap_or_default();
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        v
     }
 
     /// `object` (`deals` / `contacts` / `companies`) の一覧に無い名前
@@ -329,12 +363,20 @@ pub(crate) fn build_object(
             "" => name.to_string(),
             l => l.to_string(),
         };
+        let writable = is_writable(
+            p,
+            name,
+            &label,
+            str_field(p, "type"),
+            str_field(p, "fieldType"),
+        );
         let prop = CrmCatalogProperty {
             name: name.to_string(),
             label,
             property_type: str_field(p, "type").to_string(),
             field_type: str_field(p, "fieldType").to_string(),
             options,
+            writable,
         };
         // 定義に無いグループ名の項目は「その他の項目」にまとめる (内部名を見出しにしない)
         let group = str_field(p, "groupName");
@@ -367,6 +409,42 @@ pub(crate) fn build_object(
         object_type: object.api_name().to_string(),
         groups: groups_out.into_iter().map(|(_, _, g)| g).collect(),
     })
+}
+
+/// 書き込めない項目 (専用の経路がある・システムが管理する・外部システムの ID)
+const NEVER_WRITABLE: &[&str] = &[
+    // ステージ・パイプラインは `stage` で移す (必須項目の確認が要る)
+    "dealstage",
+    "pipeline",
+    // BPO の取引 ID と HubSpot URL (外部システムが入れる値)
+    "bpo_transactio_id",
+    "bpo_hsurl",
+];
+
+/// 書き込める項目か。読み取り専用 (`modificationMetadata.readOnlyValue`)・計算・`hs_*` と `hubspot_*` のシステム項目・
+/// ラベルに「※編集不可」を含む項目・選択肢が外部にある項目 (担当者など)・書き込めない型は false
+fn is_writable(p: &Value, name: &str, label: &str, ptype: &str, field_type: &str) -> bool {
+    let read_only = p
+        .pointer("/modificationMetadata/readOnlyValue")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if read_only
+        || is_true(p, "calculated")
+        || is_true(p, "externalOptions")
+        || name.starts_with("hs_")
+        || name.starts_with("hubspot_")
+        || label.contains("※編集不可")
+        || NEVER_WRITABLE.contains(&name)
+    {
+        return false;
+    }
+    if field_type.starts_with("calculation") || field_type == "file" {
+        return false;
+    }
+    matches!(
+        ptype,
+        "string" | "number" | "date" | "datetime" | "enumeration" | "bool" | "phone_number"
+    )
 }
 
 /// HubSpot の内部名として受け付ける形 (英数字と `_`、1〜100 文字)
