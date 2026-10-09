@@ -783,7 +783,16 @@ fn round_snapshot_areas(data: &mut Value) {
     };
     for result in results {
         protect_applicant_areas(result);
-        if let Some(selections) = result["applicant_reasons"]["selections"].as_array_mut() {
+        // get_mut only: indexing a missing key with `value["key"]` on a mutable Value inserts it as
+        // null (and turns a missing object into {}), which made a stored file without selections
+        // arrive as "selections": null and the screen reject the whole snapshot (2026-10-09).
+        let Some(reasons) = result
+            .get_mut("applicant_reasons")
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        if let Some(selections) = reasons.get_mut("selections").and_then(Value::as_array_mut) {
             for selection in selections {
                 for key in ["value", "label"] {
                     if let Some(text) = selection[key].as_str() {
@@ -796,7 +805,7 @@ fn round_snapshot_areas(data: &mut Value) {
                 }
             }
         }
-        if let Some(items) = result["applicant_reasons"]["items"].as_array_mut() {
+        if let Some(items) = reasons.get_mut("items").and_then(Value::as_array_mut) {
             for item in items {
                 if let Some(text) = item["text"].as_str() {
                     // Cut after masking, as extract() does (a mask can make the text longer).
@@ -2686,6 +2695,26 @@ mod tests {
             Some("千代田区丸の内1-1-1 ○○マンション305"),
         ));
         assert_eq!(area.municipality.as_deref(), Some("千代田区"));
+    }
+
+    #[test]
+    fn snapshot_masking_never_adds_missing_reason_keys() {
+        // A stored file written before 2026-10-08 has no selections; a result may have no reasons.
+        let mut data = json!({"results": [
+            {"listing_id": "1", "applicant_reasons": {"items": [{"text": "連絡先 090-1234-5678"}], "source_counts": {}}},
+            {"listing_id": "2"},
+        ]});
+        round_snapshot_areas(&mut data);
+        let reasons = &data["results"][0]["applicant_reasons"];
+        assert!(
+            reasons.get("selections").is_none(),
+            "selections must stay absent: {reasons}"
+        );
+        assert!(!reasons["items"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("090-1234-5678"));
+        assert!(data["results"][1].get("applicant_reasons").is_none());
     }
 
     #[test]
