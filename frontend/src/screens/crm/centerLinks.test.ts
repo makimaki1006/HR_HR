@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  closeLink, DEAL_TAB, dealJobSearchUrl, embedUrlFor, extractUrls, initialCenterTabs, isEmptyGoogleSearch, jobSearchUrl, makeLinkTab,
+  closeLink, DEAL_TAB, dealJobSearchUrl, embedUrlFor, extractUrls, initialCenterTabs, isEmptyGoogleSearch, isHubspotUrl, jobSearchUrl, makeLinkTab,
   MAX_LINK_TABS, openLink, safeHttpUrl, SEARCH_TAB,
 } from './centerLinks';
 import type { CenterTabsState } from './centerLinks';
@@ -22,6 +22,18 @@ describe('safeHttpUrl', () => {
     expect(safeHttpUrl('https://user:pass@example.com/')).toBeNull();
     expect(safeHttpUrl('')).toBeNull();
     expect(safeHttpUrl(null)).toBeNull();
+  });
+});
+
+describe('isHubspotUrl', () => {
+  const hs = (raw: string) => { const u = safeHttpUrl(raw); if (u === null) throw new Error(raw); return isHubspotUrl(u); };
+  it('is true only for hubspot hosts (not for yahoo / duckduckgo / f-a-c.co.jp / lookalikes)', () => {
+    expect(hs('https://app.hubspot.com/contacts/1/record/0-3/2/')).toBe(true);
+    expect(hs('https://app-eu1.hubspot.com/x')).toBe(true);
+    expect(hs('https://search.yahoo.co.jp/search?p=a')).toBe(false);
+    expect(hs('https://duckduckgo.com/?q=a')).toBe(false);
+    expect(hs('https://www.f-a-c.co.jp/')).toBe(false);
+    expect(hs('https://evilhubspot.com/')).toBe(false);
   });
 });
 

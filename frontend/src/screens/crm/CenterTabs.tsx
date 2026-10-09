@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import {
-  closeLink, DEAL_TAB, initialCenterTabs, makeLinkTab, openLink, safeHttpUrl, SEARCH_TAB,
+  closeLink, DEAL_TAB, initialCenterTabs, isHubspotUrl, makeLinkTab, openLink, safeHttpUrl, SEARCH_TAB,
 } from './centerLinks';
 import type { CenterTabsState, LinkTab } from './centerLinks';
 
@@ -19,6 +19,7 @@ export const LinkOpenerContext = createContext<OpenLink | null>(null);
 
 /**
  * 項目の値のリンク。クリックで「求人検索・リンク先」パネルのタブに開く。Ctrl / ⌘ / Shift / 中クリックはブラウザの新しいタブ (通常の動き)。
+ * HubSpot の URL はパネルのタブを作らず、常にブラウザの新しいタブで直接開く。
  * http(s) でない値はリンクにせず文字のまま出す
  */
 export function PropLink({ url, label, children }: { url: string; label?: string | undefined; children?: ReactNode }) {
@@ -26,8 +27,9 @@ export function PropLink({ url, label, children }: { url: string; label?: string
   const u = safeHttpUrl(url);
   if (u === null) return <span className="wd-link-text">{children ?? url}</span>;
   const href = u.toString();
+  const hubspot = isHubspotUrl(u);
   function onClick(e: MouseEvent<HTMLAnchorElement>) {
-    if (open === null || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (open === null || hubspot || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     open(href, label);
   }
