@@ -95,8 +95,10 @@ describe('selection, retry focus and announcements', () => {
     expect(status()).toBe('市場データを取り直しています');
     await act(async () => { release({ ok: true, data: { ...list, series } }); await Promise.resolve(); });
     await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再取得' })).toBeNull(); });
-    expect(document.activeElement).toBe(screen.getByLabelText('職種'));
-    expect(status()).toBe('市場データを表示しました（ドライバー・大分県）');
+    // Focus moves in a passive effect that can run after the commit that removes the button (the
+    // update may land outside act), so wait for it instead of reading activeElement right away.
+    await waitFor(() => { expect(document.activeElement).toBe(screen.getByLabelText('職種')); });
+    await waitFor(() => { expect(status()).toBe('市場データを表示しました（ドライバー・大分県）'); });
   });
 });
 

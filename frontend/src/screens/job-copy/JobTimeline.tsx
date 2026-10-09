@@ -96,17 +96,22 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
     });
   };
   // When a retry ends, focus moves to the 職種 select (or stays on the retry button when it failed again).
-  const focusAfterRetry = useRef(false);
+  // 'requested' = the button was pressed but the loading render has not been seen yet; 'loading' =
+  // the retry is in flight. An effect still pending from the earlier error render must not consume
+  // the request (it would focus the old button and the move to 職種 would never happen).
+  const focusAfterRetry = useRef<'idle' | 'requested' | 'loading'>('idle');
   const retry = () => {
     if (state.status === 'loading') return;
-    focusAfterRetry.current = true;
+    focusAfterRetry.current = 'requested';
     setState(previous => ({ ...previous, status: 'loading', retrying: true }));
     if (state.meta) setSeriesAttempt(value => value + 1); else setAttempt(value => value + 1);
   };
   const { retryButton, titleSelect } = focus;
   useEffect(() => {
-    if (!focusAfterRetry.current || state.status === 'loading') return;
-    focusAfterRetry.current = false;
+    if (focusAfterRetry.current === 'idle') return;
+    if (state.status === 'loading') { focusAfterRetry.current = 'loading'; return; }
+    if (focusAfterRetry.current === 'requested') return;
+    focusAfterRetry.current = 'idle';
     if (state.status === 'error') retryButton.current?.focus();
     else (titleSelect.current ?? retryButton.current)?.focus();
   }, [state.status, retryButton, titleSelect]);
