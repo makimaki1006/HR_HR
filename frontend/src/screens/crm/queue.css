@@ -189,6 +189,7 @@
 .cq-linkbar-host { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cq-linkbar button { border: 1px solid var(--cq-line-strong); background: #fff; border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
 .cq-linkbar-note { color: var(--cq-sub); font-size: 11px; }
+.cq-linkbar-ext { color: var(--cq-sub); font-size: 11px; border: 1px solid currentColor; border-radius: 8px; padding: 0 6px; white-space: nowrap; }
 .cq-linkframe { flex: 1 1 auto; min-height: 0; width: 100%; border: 0; background: #fff; }
 .cq-linkview-blocked { margin: 24px 16px; }
 .cq-linkview-blocked .cq-linkbar-open { display: inline-block; margin-top: 8px; }
