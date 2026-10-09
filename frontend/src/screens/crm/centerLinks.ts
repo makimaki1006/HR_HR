@@ -6,7 +6,8 @@
  *   枠に出す URL は検索語 (q) と表示に関わる少数の項目だけを残して組み立て直す
  *   (HubSpot に貼られた URL には古いセッションの項目が多く付いているため)。
  *   「新しいタブで開く」は元の URL のまま開く
- * - HubSpot (app.hubspot.com / app-*.hubspot.com) のリンクはパネルのタブを作らず、直接ブラウザの新しいタブで開く (`isHubspotUrl`)
+ * - HubSpot (app.hubspot.com / app-*.hubspot.com) は枠の拡張機能が入っているときだけ、通常のリンクと同じくパネルのタブ (枠) で開く。
+ *   入っていないときは枠を断られるので、パネルのタブを作らず直接ブラウザの新しいタブで開く (`isHubspotUrl`)
  * - 枠の中への表示を断ると分かっているサイト (Yahoo・DuckDuckGo・自社ドメインなど) は枠を作らず「新しいタブで開く」だけを出す
  * - http: のページはこの画面 (https) の枠には出せない (混在コンテンツ) ので、同じく新しいタブだけ
  * - 断るかどうかは別オリジンなので確実には分からない。枠を出すときは必ず「新しいタブで開く」を並べる
@@ -50,7 +51,7 @@ function hostMatches(host: string, domain: string): boolean {
   return host === domain || host.endsWith(`.${domain}`);
 }
 
-/** HubSpot の画面 (app.hubspot.com / app-*.hubspot.com など) か。枠にもパネルのタブにも出さず、直接新しいタブで開く */
+/** HubSpot の画面 (app.hubspot.com / app-*.hubspot.com など) か。拡張機能が無いときは枠にもパネルのタブにも出さず、直接新しいタブで開く */
 export function isHubspotUrl(u: URL): boolean {
   return hostMatches(u.hostname, 'hubspot.com') || hostMatches(u.hostname, 'hubspot.jp');
 }
@@ -64,7 +65,7 @@ export function isGoogleSearch(u: URL): boolean {
  * 枠 (iframe) に出す URL。出せない・出さないと分かっているときは null。
  * Google 検索は `igu=1` を付けて組み立て直す。Bing などはそのまま
  */
-export function embedUrlFor(u: URL): string | null {
+export function embedUrlFor(u: URL, hubspotEmbeddable = false): string | null {
   if (u.protocol !== 'https:') return null;
   if (isGoogleSearch(u)) {
     const out = new URL(`https://${u.hostname}/search`);
@@ -76,6 +77,7 @@ export function embedUrlFor(u: URL): string | null {
     return out.toString();
   }
   if (GOOGLE_HOSTS.has(u.hostname)) return null; // 検索以外の Google のページ (地図など) は枠を断る
+  if (hubspotEmbeddable && isHubspotUrl(u)) return u.toString();
   if (NO_EMBED_DOMAINS.some(d => hostMatches(u.hostname, d))) return null;
   return u.toString();
 }
@@ -127,11 +129,11 @@ export interface LinkTab {
 }
 
 /** URL からタブを作る。http(s) でなければ null */
-export function makeLinkTab(id: string, raw: string, label?: string): LinkTab | null {
+export function makeLinkTab(id: string, raw: string, label?: string, hubspotEmbeddable = false): LinkTab | null {
   const u = safeHttpUrl(raw);
   if (u === null) return null;
   const name = label?.trim() ?? '';
-  return { id, label: name === '' ? u.hostname : name, url: u.toString(), host: u.hostname, embed: embedUrlFor(u) };
+  return { id, label: name === '' ? u.hostname : name, url: u.toString(), host: u.hostname, embed: embedUrlFor(u, hubspotEmbeddable) };
 }
 
 export interface CenterTabsState {
@@ -147,8 +149,8 @@ export const initialCenterTabs: CenterTabsState = { active: DEAL_TAB, links: [],
  * リンクを開く。同じ URL のタブがあればそれを前に出す (求人検索のタブと同じ URL ならそちら)。
  * 上限を超えるときは、いちばん前に開いたタブを閉じてから開く
  */
-export function openLink(s: CenterTabsState, raw: string, label: string | undefined, searchUrl: string | null): CenterTabsState {
-  const tab = makeLinkTab(`link-${String(s.seq)}`, raw, label);
+export function openLink(s: CenterTabsState, raw: string, label: string | undefined, searchUrl: string | null, hubspotEmbeddable = false): CenterTabsState {
+  const tab = makeLinkTab(`link-${String(s.seq)}`, raw, label, hubspotEmbeddable);
   if (tab === null) return s;
   if (searchUrl !== null && tab.url === searchUrl) return { ...s, active: SEARCH_TAB };
   const same = s.links.find(l => l.url === tab.url);
