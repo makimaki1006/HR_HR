@@ -160,3 +160,4 @@ data/job-copy-local/
 playwright-report-pr/
 test-results-pr/
 test-results-job-copy/
+dist/
