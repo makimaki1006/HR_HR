@@ -5,6 +5,7 @@ import {
 } from './centerLinks';
 import type { CenterTabsState, LinkTab } from './centerLinks';
 import { FrameExtensionBadge } from './FrameExtensionBadge';
+import { shouldShowFrameHint, useFrameExtension } from './useFrameExtension';
 
 /**
  * 「求人検索・リンク先」パネルの中のタブ: 「リンク一覧」(いつもある) / 「求人検索」(検索の URL があるとき) / 開いたリンク (最大 5)。
@@ -146,7 +147,8 @@ function readHintDismissed(): boolean {
 /** Google 検索のタブの先頭に出す 1 行の案内 (閉じた記録は localStorage に残す。使えなくても動く) */
 function SearchHint() {
   const [hidden, setHidden] = useState(readHintDismissed);
-  if (hidden) return null;
+  const { installed } = useFrameExtension();
+  if (hidden || !shouldShowFrameHint(installed)) return null;
   return <div className="cq-linkhint" data-testid="link-hint">
     <span>{HINT_TEXT}</span>
     <button type="button" aria-label="案内を閉じる" onClick={() => {

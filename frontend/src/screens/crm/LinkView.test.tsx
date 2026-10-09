@@ -61,4 +61,17 @@ describe('LinkView 戻る / 案内', () => {
     render(<LinkView tab={t} />);
     expect(screen.queryByTestId('link-hint')).toBeNull();
   });
+
+  it('hint is hidden when the extension attribute is present, shown without it', () => {
+    document.documentElement.setAttribute('data-hrhr-frames', '1.0.0');
+    try {
+      render(<LinkView tab={tab()} />);
+      expect(screen.queryByTestId('link-hint')).toBeNull();
+    } finally {
+      document.documentElement.removeAttribute('data-hrhr-frames');
+    }
+    cleanup();
+    render(<LinkView tab={tab()} />);
+    expect(screen.getByTestId('link-hint')).not.toBeNull();
+  });
 });
