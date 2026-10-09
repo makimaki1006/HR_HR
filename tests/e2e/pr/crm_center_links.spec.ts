@@ -88,3 +88,54 @@ test.describe('CRM 架電画面: 求人検索・リンク先のパネルでリ�
     await expect(tabs.getByRole('tab', { name: '求人検索' })).toHaveAttribute('aria-selected', 'true');
   });
 });
+
+test.describe('CRM 架電画面: 求人検索の枠の「戻る」と案内', () => {
+  test.beforeEach(async ({ page }) => { await login(page); });
+
+  test('枠の中で移動したあと「戻る」で枠だけが前のページに戻り、CRM 画面の URL は変わらない。Ctrl / ⌘ + クリックは新しいタブで開く', async ({ page }) => {
+    await page.route(/^https:\/\/(www\.google\.com|www\.example\.com)\//, async (route) => {
+      const u = new URL(route.request().url());
+      const body = u.pathname === '/second'
+        ? '<!doctype html><title>second</title><p id="second">2ページ目</p>'
+        : '<!doctype html><title>first</title><p id="first">1ページ目</p><a id="next" href="/second">次へ</a> <a id="ext" href="https://www.example.com/ext">外部</a>';
+      await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body });
+    });
+    const openSearch = async () => {
+      await page.goto(SCREEN_URL);
+      await page.getByRole('list', { name: '架電キュー' }).locator('li.cq-row button.cq-row-button').first().click();
+      await page.getByRole('region', { name: 'リンク' }).getByRole('link', { name: /求人を検索する/ }).click();
+    };
+    await openSearch();
+    const panel = page.locator('#cq-cpanel-search');
+    const inner = page.frameLocator('#cq-cpanel-search iframe');
+    await expect(inner.locator('#first')).toBeVisible();
+    const crmUrl = page.url();
+
+    const hint = panel.getByTestId('link-hint');
+    await expect(hint).toContainText('⌘ / Ctrl を押しながらクリック');
+
+    const back = panel.getByRole('button', { name: '戻る' });
+    await expect(back).toBeDisabled();
+    await inner.locator('#next').click();
+    await expect(inner.locator('#second')).toBeVisible();
+    await expect(back).toBeEnabled();
+    await back.click();
+    await expect(inner.locator('#first')).toBeVisible();
+    await expect(back).toBeDisabled();
+    expect(page.url()).toBe(crmUrl);
+    await expect(page.getByRole('article', { name: '架電先の詳細' })).toBeVisible();
+
+    // Ctrl / ⌘ + クリックで新しいタブ (サンドボックスの枠の中のリンク)
+    const popupPromise = page.context().waitForEvent('page', { timeout: 5000 }).catch(() => null);
+    await inner.locator('#ext').click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
+    const popup = await popupPromise;
+    console.log(`CTRL_CLICK_POPUP=${popup !== null}`);
+    expect(popup).not.toBeNull();
+
+    await hint.getByRole('button', { name: '案内を閉じる' }).click();
+    await expect(hint).toBeHidden();
+    await openSearch();
+    await expect(inner.locator('#first')).toBeVisible();
+    await expect(panel.getByTestId('link-hint')).toHaveCount(0);
+  });
+});

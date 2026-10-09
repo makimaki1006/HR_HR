@@ -364,3 +364,7 @@
   .cq-owner { flex: 1 1 120px; }
   .cq-app .cq-sort { flex: 1 1 160px; }
 }
+
+.cq-linkhint { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 12px; background: #fff8e1; border-bottom: 1px solid #f0e0a0; }
+.cq-linkhint span { flex: 1; }
+.cq-linkhint button { border: 0; background: transparent; cursor: pointer; font-size: 14px; }
