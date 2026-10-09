@@ -598,6 +598,25 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
     expect(screen.getByRole('button', { name: 'ステージ（16件選択）' })).toBeTruthy();
   });
 
+  it('the stage checklist closes on Esc and on outside click without applying', async () => {
+    const { calls, fetcher } = deferredFetcher();
+    render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="" />);
+    await waitFor(() => { expect(screen.getAllByRole('option', { name: 'bpo_リクロジ' })).toHaveLength(1); });
+    openDetails();
+    const before = calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて外す' }));
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(screen.queryByRole('group', { name: 'ステージの選択' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ステージ（16件選択）' }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて外す' }));
+    fireEvent.mouseDown(screen.getByLabelText('並び替え'));
+    expect(screen.queryByRole('group', { name: 'ステージの選択' })).toBeNull();
+    expect(calls).toHaveLength(before);
+    expect(screen.getByRole('button', { name: 'ステージ（16件選択）' })).toBeTruthy();
+  });
+
   it('fixture mode has a second fictional pipeline: always-shown and due stages appear, excluded and future ones do not', async () => {
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} initialSearch="?mode=fixture" />);
     await waitFor(() => { expect(screen.getByText('架空食品株式会社')).toBeTruthy(); });
