@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "blocklist": {
+      "title": "フレーム化を許可しないドメイン",
+      "description": "ここに挙げたドメイン (サブドメイン含む) は、CRM 画面内でも X-Frame-Options / CSP を触らない。設定すると拡張のオプション画面では編集できなくなる。",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "appOrigins": {
+      "title": "CRM アプリのオリジン",
+      "description": "例: https://hr-hw.onrender.com。省略時は既定の 3 つ (本番 / localhost:9216 / 127.0.0.1:9216)。",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
