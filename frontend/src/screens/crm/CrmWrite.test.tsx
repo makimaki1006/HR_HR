@@ -11,7 +11,7 @@ import { PropertyPanel } from './PropertyPanel';
 import { catalogIndex } from './propertyModel';
 import type { SelectedProps } from './propertyModel';
 import { FIXTURE_CATALOG } from './usePropertyCatalog';
-import { invalidMessage, partialRequest, useCrmWrite } from './useCrmWrite';
+import { invalidMessage, partialRequest, pollDelayMs, useCrmWrite } from './useCrmWrite';
 import { useWriteBindings } from './writeBindings';
 import { fixtureDetail } from './workspaceFixture';
 import { kindOf } from './writeModel';
@@ -64,7 +64,7 @@ function mockApi(schema: EditSchema, patch: Patch, operation?: WriteApi['operati
 const savedOut = (values: Record<string, string | null>): PatchOutcome => ({ kind: 'saved', response: { status: 'saved', values, objects_values: {}, fetched_at: '2026-10-09T00:00:00Z' } });
 
 let ids = 0;
-function Harness({ api, onSaved, pollMs = 10_000 }: { api: WriteApi; onSaved: (id: string) => void; pollMs?: number }) {
+function Harness({ api, onSaved, pollMs = 5_000 }: { api: WriteApi; onSaved: (id: string) => void; pollMs?: number }) {
   const data = useMemo(() => fixtureDetail(DEAL, SELECTION), []);
   const write = useCrmWrite({ dealId: DEAL, api, onSaved, pollIntervalMs: pollMs, newId: () => `op-${String(++ids)}` });
   const b = useWriteBindings({
@@ -236,7 +236,7 @@ describe('項目の保存', () => {
 });
 
 describe('反映待ち (202)', () => {
-  it('黄色の反映待ちを出し、10 秒ごとに確認して、保存済みになったら緑にする', async () => {
+  it('黄色の反映待ちを出し、5 秒後・その 10 秒後に確認して、保存済みになったら緑にする', async () => {
     vi.useFakeTimers();
     const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'queued', response: { status: 'queued', operation_id: 'op-q' } }));
     let state: OperationStatus['status'] = 'pending';
@@ -251,18 +251,42 @@ describe('反映待ち (202)', () => {
     expect(screen.queryByText('✓ 保存済み')).toBeNull();
     expect(screen.getByText('待ち中の値')).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
+    expect(operation).toHaveBeenCalledTimes(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(operation).toHaveBeenCalledTimes(1);
     expect(operation).toHaveBeenCalledWith('op-q');
     expect(screen.getByText(/反映待ち/).getAttribute('data-state')).toBe('queued');
     state = 'saved';
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+    expect(operation).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(operation).toHaveBeenCalledTimes(2);
     expect(screen.getByText('✓ 保存済み').getAttribute('data-state')).toBe('saved');
     expect(onSaved).toHaveBeenCalledWith(DEAL);
   });
 
-  it('10 分たっても保存済みにならなければ「まだ反映待ちです」を出して黄色のまま、確認をやめる', async () => {
+  it('確認の間隔は 5, 10, 20, 40 秒と倍々に延び、最大 60 秒', async () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 100].map(n => pollDelayMs(n))).toEqual([5_000, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000, 60_000]);
+    vi.useFakeTimers();
+    const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'queued', response: { status: 'queued', operation_id: 'op-b' } }));
+    const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-b', status: 'pending' as const, attempts: 1, last_error_code: null, next_retry_at: null } }));
+    await setup(schemaOf(), patch, { operation });
+    fireEvent.click(editBtn('募集職種（リストデータ）'));
+    fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: 'v' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    let expected = 0;
+    for (const gap of [5_000, 10_000, 20_000, 40_000, 60_000, 60_000]) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(gap - 1); });
+      expect(operation).toHaveBeenCalledTimes(expected);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expected += 1;
+      expect(operation).toHaveBeenCalledTimes(expected);
+    }
+  });
+
+  it('30 分たっても保存済みにならなければ「まだ反映待ちです」を出して黄色のまま、確認をやめる (33 回)', async () => {
     vi.useFakeTimers();
     const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'queued', response: { status: 'queued', operation_id: 'op-slow' } }));
     const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-slow', status: 'retrying' as const, attempts: 3, last_error_code: null, next_retry_at: null } }));
@@ -270,12 +294,63 @@ describe('反映待ち (202)', () => {
     fireEvent.click(editBtn('募集職種（リストデータ）'));
     fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: 'v' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000 + 5_000); });
-    expect(operation).toHaveBeenCalledTimes(60);
+    await act(async () => { await vi.advanceTimersByTimeAsync(31 * 60_000); });
+    // 5 + 10 + 20 + 40 秒の 4 回のあとは 60 秒おき。待ちの合計が 30 分 (1,800 秒) に届く 33 回目 (1,815 秒) でやめる
+    expect(operation).toHaveBeenCalledTimes(33);
     const slow = screen.getByText(/まだ反映待ちです/);
     expect(slow.getAttribute('data-state')).toBe('queued');
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
-    expect(operation).toHaveBeenCalledTimes(60);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000); });
+    expect(operation).toHaveBeenCalledTimes(33);
+  });
+
+  describe('タブが隠れているとき', () => {
+    const setVisibility = (v: 'visible' | 'hidden') => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    afterEach(() => { Reflect.deleteProperty(document, 'visibilityState'); });
+
+    it('隠れている間は確認せず、時間も数えず、表示に戻ったらすぐ確認する', async () => {
+      vi.useFakeTimers();
+      const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'queued', response: { status: 'queued', operation_id: 'op-h' } }));
+      let state: OperationStatus['status'] = 'pending';
+      const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-h', status: state, attempts: 1, last_error_code: null, next_retry_at: null } }));
+      const onSaved = await setup(schemaOf(), patch, { operation });
+      fireEvent.click(editBtn('募集職種（リストデータ）'));
+      fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: 'v' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      setVisibility('hidden');
+      // 2 時間隠れていても、確認の通信は 1 回も出ない
+      await act(async () => { await vi.advanceTimersByTimeAsync(2 * 60 * 60_000); });
+      expect(operation).toHaveBeenCalledTimes(0);
+      expect(screen.getByText(/反映待ち/).getAttribute('data-state')).toBe('queued');
+      state = 'saved';
+      setVisibility('visible');
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(operation).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('✓ 保存済み').getAttribute('data-state')).toBe('saved');
+      expect(onSaved).toHaveBeenCalledWith(DEAL);
+    });
+
+    it('隠れていた時間は 30 分に数えない (戻ったあとも確認を続ける)', async () => {
+      vi.useFakeTimers();
+      const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({ kind: 'queued', response: { status: 'queued', operation_id: 'op-h2' } }));
+      const operation = vi.fn(() => Promise.resolve({ ok: true as const, data: { operation_id: 'op-h2', status: 'pending' as const, attempts: 1, last_error_code: null, next_retry_at: null } }));
+      await setup(schemaOf(), patch, { operation });
+      fireEvent.click(editBtn('募集職種（リストデータ）'));
+      fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: 'v' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      setVisibility('hidden');
+      await act(async () => { await vi.advanceTimersByTimeAsync(3 * 60 * 60_000); });
+      setVisibility('visible');
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(operation).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText(/まだ反映待ちです/)).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(operation).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('failed になったら赤で知らせる', async () => {

@@ -612,8 +612,14 @@ impl HubSpotClient {
             .collect();
         let body = json!({ "properties": props });
         let path = format!("/crm/v3/objects/{object}/{id}");
+        // 書き込みの続き: 同じ保存の読み取りは済んでいるので、新しい読み取りより先に関所を通す
+        // (背景の再送 worker は背景のまま)
+        let priority = match self.priority {
+            Priority::Interactive => Priority::Continuation,
+            other => other,
+        };
         let reply = self
-            .raw_once(&Method::PATCH, &path, &[], Some(&body))
+            .raw_once_with(priority, &Method::PATCH, &path, &[], Some(&body))
             .await?;
         match reply.status {
             200..=299 => {
@@ -922,10 +928,22 @@ impl HubSpotClient {
         query: &[(&str, String)],
         body: Option<&Value>,
     ) -> Result<RawReply, HubSpotError> {
+        self.raw_once_with(self.priority, method, path, query, body)
+            .await
+    }
+
+    async fn raw_once_with(
+        &self,
+        priority: Priority,
+        method: &Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<&Value>,
+    ) -> Result<RawReply, HubSpotError> {
         let lane = lane_of(path);
         self.inner
             .gateway
-            .acquire(lane, self.priority)
+            .acquire(lane, priority)
             .await
             .map_err(|_| HubSpotError::Busy)?;
         self.inner.gateway.record_call(endpoint_group(path), lane);

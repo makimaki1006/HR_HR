@@ -22,7 +22,8 @@
 //! (監査できない書き込みは許さない)。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::{
@@ -39,6 +40,7 @@ use tokio::sync::Notify;
 use tower_sessions::Session;
 use ts_rs::TS;
 
+use super::op_status::{self, OpState, OpStatusCache};
 use super::pending::{self, Payload, StageMove, Step};
 use super::property_catalog::{valid_property_name, CatalogEntry, CrmCatalogProperty};
 use super::queue_pipelines::{find_pipeline, QUEUE_PIPELINES};
@@ -50,6 +52,7 @@ use super::routes::{
 use super::stage_rules;
 use crate::audit::AuditDb;
 use crate::handlers::crm_metadata::CrmPropertyOption;
+use crate::hubspot::gateway::{cache_hit, cache_miss, Lane};
 use crate::hubspot::{HubSpotClient, HubSpotError, RecordType};
 use crate::AppState;
 
@@ -77,6 +80,10 @@ pub struct WriteConfig {
     pub locks: Arc<RecordLocks>,
     /// 同じレコードの先行する書き込みを待つ最長 (超えたら 503 `record_busy`)
     pub lock_wait: Duration,
+    /// 操作の状態の表 (本番は要求側・再送 worker・照会で同じもの。`Default` は個別)
+    pub statuses: Arc<OpStatusCache>,
+    /// 1 回の PATCH 要求を待つ最長 (超えたとき、台帳に記録済みなら 202、未記録なら 504)
+    pub deadline: Duration,
 }
 
 impl WriteConfig {
@@ -104,6 +111,8 @@ impl WriteConfig {
             rate_per_min,
             locks: record_lock::shared(),
             lock_wait: record_lock::DEFAULT_LOCK_WAIT,
+            statuses: op_status::shared(),
+            deadline: CRM_REQUEST_DEADLINE,
         }
     }
 
@@ -122,6 +131,8 @@ impl Default for WriteConfig {
             rate_per_min: DEFAULT_WRITE_RATE_PER_MIN,
             locks: Arc::new(RecordLocks::default()),
             lock_wait: record_lock::DEFAULT_LOCK_WAIT,
+            statuses: Arc::new(OpStatusCache::default()),
+            deadline: CRM_REQUEST_DEADLINE,
         }
     }
 }
@@ -357,11 +368,101 @@ fn err(status: StatusCode, kind: &str) -> Response {
 
 /// 同じレコードへの先行する書き込みが終わらない (何も保存されていない。少し待って再度保存する)
 fn record_busy() -> Response {
+    count_rejection("record_busy");
     err(StatusCode::SERVICE_UNAVAILABLE, "record_busy")
 }
 
 fn now_rfc3339() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+// ---------------------------------------------------------------------------
+// 断った要求の集計 (監査 Turso に 1 行ずつ書かない)
+// ---------------------------------------------------------------------------
+
+static REJECTIONS: OnceLock<Mutex<BTreeMap<String, u64>>> = OnceLock::new();
+
+/// 受け付けなかった (何も保存していない) 要求を種類別に数える。`/api/admin/hubspot-usage` が読む。
+///
+/// 監査 (`activity_logs`) に残すのは**受け付けた結果** (保存した・再送待ちにした・競合・送ったあとの失敗) だけ。
+/// 混雑 (`hubspot_busy`)・速さの上限 (`rate_limited`)・入力の誤り (`validation`) などを 1 件ずつ Turso に書くと、
+/// 負荷が高いほど書き込みが増える (2026-10-09 の負荷試験: 拒否だけで監査の書き込みが支配的)。
+pub fn count_rejection(kind: &str) {
+    if let Ok(mut m) = REJECTIONS.get_or_init(Default::default).lock() {
+        // 種類は固定の `error_kind` の語彙だけ。念のため際限なく増えないようにする
+        if m.len() < 64 || m.contains_key(kind) {
+            *m.entry(kind.to_string()).or_default() += 1;
+        }
+    }
+}
+
+/// 種類 → 起動してからの回数
+pub fn rejections_snapshot() -> BTreeMap<String, u64> {
+    REJECTIONS
+        .get_or_init(Default::default)
+        .lock()
+        .map(|m| m.clone())
+        .unwrap_or_default()
+}
+
+/// 台帳の `status` と試行回数 → API の状態名
+pub fn api_status_of(status: &str, attempts: i64) -> &'static str {
+    match status {
+        "saved" => "saved",
+        "failed" | "discarded" => "failed",
+        _ if attempts > 1 => "retrying",
+        _ => "pending",
+    }
+}
+
+/// 台帳を更新した直後に、同じ内容を状態の表へ写す (照会をメモリから返すため。`op_status`)
+fn note_status(
+    write: &WriteConfig,
+    operation_id: &str,
+    operator: &str,
+    status: &str,
+    attempts: i64,
+    last_error_code: &str,
+    next_retry_at: &str,
+) {
+    write.statuses.put(
+        operation_id,
+        OpState {
+            operator_email: operator.to_string(),
+            status: api_status_of(status, attempts).to_string(),
+            attempts,
+            last_error_code: last_error_code.to_string(),
+            next_retry_at: next_retry_at.to_string(),
+        },
+    );
+}
+
+/// 台帳に記録する瞬間 (= 以後は取り消せない) を、要求のタイムアウトと取り合うための印。
+///
+/// 要求は別のタスクで走り、ハンドラは締め切りまで待つだけ。締め切りが来たとき:
+/// - まだ台帳に記録していない (`PRE`) → 取り下げて (`ABANDONED`) 504。タスクは記録の直前でこれを見て、何も送らずに終わる
+/// - もう記録した (`COMMITTED`) → タスクは最後まで走り (HubSpot への送信・台帳の更新)、ハンドラは 202 queued を返す。
+///   画面は操作の状態を見に行く。中断された要求が台帳に `in_progress` のまま取り残されない
+#[derive(Default)]
+struct CommitGate(AtomicU8);
+
+const GATE_PRE: u8 = 0;
+const GATE_COMMITTED: u8 = 1;
+const GATE_ABANDONED: u8 = 2;
+
+impl CommitGate {
+    /// 記録に進む。すでに取り下げられていたら false (何もせず終わる)
+    fn commit(&self) -> bool {
+        self.0
+            .compare_exchange(GATE_PRE, GATE_COMMITTED, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+    /// 取り下げる。すでに記録に進んでいたら false
+    fn abandon(&self) -> bool {
+        self.0
+            .compare_exchange(GATE_PRE, GATE_ABANDONED, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
 }
 
 fn invalid(errors: BTreeMap<String, String>, missing: Vec<String>) -> (StatusCode, Value) {
@@ -1134,7 +1235,21 @@ pub(super) async fn patch_deal(
     let is_admin = principal.role.is_some_and(|r| r.is_admin());
     // 1 人あたりの受付の速さ (拒否される要求も監査 Turso に書くので、連打で書き込みが膨らまないよう絞る)
     if !ctx.write_rate.allow(&operator) {
+        count_rejection("rate_limited");
         return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
+    }
+
+    // 混んでいて、しかもこの operation_id を知らない (= 新しい保存) なら、台帳を読む前に断る。
+    // 過負荷のとき、断る要求ごとに Turso の SELECT (台帳の照会) を払わない。
+    // 状態の表に載っている操作 (= 受け付け済みの再送) は、混んでいても保存された結果を返せるので通す
+    if ctx.write.statuses.get(&req.operation_id).is_none()
+        && client
+            .gateway()
+            .admit(Lane::General, client.priority(), 2)
+            .is_err()
+    {
+        count_rejection("hubspot_busy");
+        return hubspot_error_response(&HubSpotError::Busy);
     }
 
     // 冪等性: 同じ operation_id は保存された結果を返す
@@ -1165,6 +1280,7 @@ pub(super) async fn patch_deal(
         Ok(Ok(None)) => {}
         Ok(Err(e)) | Err(e) => {
             tracing::warn!("crm write: ledger lookup failed: {e}");
+            count_rejection("queue_unavailable");
             return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
         }
     }
@@ -1182,23 +1298,53 @@ pub(super) async fn patch_deal(
         .flatten()
         .unwrap_or_default();
 
-    let flow = run_patch(
-        &state,
-        &ctx,
-        &client,
-        &audit,
-        &deal_id,
-        &req,
-        &operator,
-        &account_id,
-        &session_id,
-        reuse_failed,
-    );
-    match tokio::time::timeout(CRM_REQUEST_DEADLINE, flow).await {
-        Ok(r) => r,
+    // 別のタスクで走らせる: 締め切りでハンドラの future を捨てても、台帳に記録済みの要求は最後まで走って
+    // 台帳を確定させる (送ったのに `in_progress` のまま取り残される・送った結果が分からないままになるのを防ぐ)
+    let gate = Arc::new(CommitGate::default());
+    let deadline = ctx.write.deadline;
+    let mut task = tokio::spawn({
+        let (state, ctx, gate) = (state.clone(), ctx.clone(), gate.clone());
+        async move {
+            run_patch(
+                &state,
+                &ctx,
+                &client,
+                &audit,
+                &deal_id,
+                &req,
+                &operator,
+                &account_id,
+                &session_id,
+                reuse_failed,
+                &gate,
+            )
+            .await
+        }
+    });
+    match tokio::time::timeout(deadline, &mut task).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
+            tracing::error!("crm write task failed: {e}");
+            count_rejection("internal_error");
+            err(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+        }
         Err(_) => {
             tracing::warn!(error_kind = "crm_timeout", "crm write timed out");
-            timeout_response()
+            if gate.abandon() {
+                // まだ何も記録も送信もしていない。タスクは記録の直前で気づいて終わる
+                count_rejection("crm_timeout");
+                timeout_response()
+            } else {
+                // 台帳に記録済み: タスクは最後まで走る。送れたか・再送待ちかは操作の状態を見に行けば分かる
+                (
+                    StatusCode::ACCEPTED,
+                    Json(CrmPatchQueued {
+                        status: "queued".into(),
+                        operation_id: op_id,
+                    }),
+                )
+                    .into_response()
+            }
         }
     }
 }
@@ -1215,6 +1361,7 @@ async fn run_patch(
     account_id: &str,
     session_id: &str,
     reuse_failed: bool,
+    gate: &CommitGate,
 ) -> Response {
     // 同じ案件への書き込みは 1 つずつ (読む → 比べる → 書く の間に他の要求が割り込めない)
     let Ok(mut held) = ctx
@@ -1227,12 +1374,32 @@ async fn run_patch(
     };
     let (catalog, _) = match ctx.catalog.get(client).await {
         Ok(c) => c,
-        Err(e) => return hubspot_error_response(&e),
+        Err(e) => {
+            count_rejection(&format!("catalog:{}", e.error_kind()));
+            return hubspot_error_response(&e);
+        }
     };
     let mut steps = match build_steps(client, &catalog, deal_id, req).await {
         Ok(s) => s,
-        Err((status, v)) => return (status, Json(v)).into_response(),
+        Err((status, v)) => {
+            count_rejection(v["error_kind"].as_str().unwrap_or("validation"));
+            return (status, Json(v)).into_response();
+        }
     };
+    // HubSpot の呼び出し枠 (読み取り + PATCH をオブジェクトごとに) が今の混み具合で足りるか、読む前に確かめる。
+    // 足りないのに読むと、読み取りだけ HubSpot に飛んで PATCH が断られる (負荷試験: PATCH 1 回に読み取り 4.6 回)
+    if client
+        .gateway()
+        .admit(
+            Lane::General,
+            client.priority(),
+            (steps.len() as u32).saturating_mul(2),
+        )
+        .is_err()
+    {
+        count_rejection("hubspot_busy");
+        return hubspot_error_response(&HubSpotError::Busy);
+    }
     // 担当者・会社も同じ要求の中で書くので、その分も (整列した順に) 取る
     if held
         .extend(
@@ -1275,8 +1442,14 @@ async fn run_patch(
             .ok()
             .and_then(Result::ok);
         if active.is_some_and(|n| n >= ctx.write.pending_max) {
+            count_rejection("queue_full");
             return err(StatusCode::SERVICE_UNAVAILABLE, "queue_full");
         }
+    }
+
+    // ここから先は取り消せない (台帳に記録して送る)。締め切りで取り下げられていたら、何もせずに終わる
+    if !gate.commit() {
+        return timeout_response();
     }
 
     // 台帳 (送る前に記録)
@@ -1305,7 +1478,17 @@ async fn run_patch(
     })
     .await;
     match ins {
-        Ok(Ok(())) => {}
+        Ok(Ok(())) => {
+            note_status(
+                &ctx.write,
+                &req.operation_id,
+                operator,
+                "in_progress",
+                0,
+                "",
+                "",
+            );
+        }
         Ok(Err(e)) | Err(e) => {
             // 同時に同じ operation_id が来た場合は、先に入った行の結果を返す
             if let Ok(Ok(Some(row))) = pending::blocking(audit, {
@@ -1317,6 +1500,17 @@ async fn run_patch(
                 return replay_response(&row);
             }
             tracing::warn!("crm write: ledger insert failed: {e}");
+            count_rejection("queue_unavailable");
+            // 締め切りで 202 を返した後でも、状態の照会が「失敗」と答えられるようにする
+            note_status(
+                &ctx.write,
+                &req.operation_id,
+                operator,
+                "failed",
+                0,
+                "queue_unavailable",
+                "",
+            );
             return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
         }
     }
@@ -1330,6 +1524,88 @@ async fn run_patch(
             break;
         }
     }
+
+    // 送ったあとの曖昧な失敗 (タイムアウト・5xx・通信断・応答が読めない) は、書けたかどうか分からない。
+    // 再送待ちが満杯のときに「失敗」と断定すると、書けていた場合に利用者の画面と HubSpot が食い違う
+    // (負荷試験: 失敗と答えたのに入っていた「幻」)。HubSpot を読み直して確かめ、確かめられなければ上限を超えても積む
+    if matches!(outcome, Err(Stop::Transient(_))) {
+        let full = pending::blocking(audit, pending::count_pending)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .is_some_and(|n| n >= ctx.write.pending_max);
+        if full {
+            match verify_after_send(client, &mut steps, &mut run).await {
+                Verified::Saved => outcome = Ok(()),
+                Verified::NotApplied => {
+                    let payload = Payload { steps };
+                    if !run.changes.is_empty() {
+                        audit_write(
+                            audit,
+                            account_id,
+                            session_id,
+                            operator,
+                            &req.operation_id,
+                            deal_id,
+                            "partial_saved",
+                            &run.changes,
+                        )
+                        .await;
+                        invalidate_caches(ctx, deal_id);
+                    }
+                    let body =
+                        json!({"error": "queue_full", "error_kind": "queue_full"}).to_string();
+                    let res = pending::blocking(audit, {
+                        let (op, pl) = (req.operation_id.clone(), payload.clone());
+                        move |t| {
+                            pending::update_op(
+                                t,
+                                &op,
+                                "failed",
+                                1,
+                                "queue_full",
+                                503,
+                                &body,
+                                "",
+                                &pl,
+                            )
+                        }
+                    })
+                    .await;
+                    if matches!(res, Ok(Ok(()))) {
+                        note_status(
+                            &ctx.write,
+                            &req.operation_id,
+                            operator,
+                            "failed",
+                            1,
+                            "queue_full",
+                            "",
+                        );
+                    }
+                    audit_write(
+                        audit,
+                        account_id,
+                        session_id,
+                        operator,
+                        &req.operation_id,
+                        deal_id,
+                        "queue_full",
+                        &intended_changes(&payload.steps, None),
+                    )
+                    .await;
+                    return err(StatusCode::SERVICE_UNAVAILABLE, "queue_full");
+                }
+                Verified::Unknown => {
+                    tracing::warn!(
+                        operation_id = %req.operation_id,
+                        "crm write: could not verify an ambiguous send while the queue is full; queueing it anyway"
+                    );
+                }
+            }
+        }
+    }
+
     let payload = Payload { steps };
     match outcome {
         Ok(()) => {
@@ -1345,7 +1621,9 @@ async fn run_patch(
                 move |t| pending::update_op(t, &op, "saved", 1, "", 200, &body_json, "", &pl)
             })
             .await;
-            if !matches!(res, Ok(Ok(()))) {
+            if matches!(res, Ok(Ok(()))) {
+                note_status(&ctx.write, &req.operation_id, operator, "saved", 1, "", "");
+            } else {
                 tracing::warn!("crm write: ledger update (saved) failed: {res:?}");
             }
             audit_write(
@@ -1378,37 +1656,15 @@ async fn run_patch(
                 .await;
                 invalidate_caches(ctx, deal_id);
             }
-            let full = pending::blocking(audit, pending::count_pending)
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .is_some_and(|n| n >= ctx.write.pending_max);
-            if full {
-                let body = json!({"error": "queue_full", "error_kind": "queue_full"}).to_string();
-                let _ = pending::blocking(audit, {
-                    let (op, pl) = (req.operation_id.clone(), payload.clone());
-                    move |t| {
-                        pending::update_op(t, &op, "failed", 1, "queue_full", 503, &body, "", &pl)
-                    }
-                })
-                .await;
-                audit_write(
-                    audit,
-                    account_id,
-                    session_id,
-                    operator,
-                    &req.operation_id,
-                    deal_id,
-                    "queue_full",
-                    &intended_changes(&payload.steps, None),
-                )
-                .await;
-                return err(StatusCode::SERVICE_UNAVAILABLE, "queue_full");
-            }
             let next = pending::iso(Utc::now() + pending::backoff_after(1));
             let code = e.error_kind().to_string();
             let res = pending::blocking(audit, {
-                let (op, pl, code, next) = (req.operation_id.clone(), payload.clone(), code, next);
+                let (op, pl, code, next) = (
+                    req.operation_id.clone(),
+                    payload.clone(),
+                    code.clone(),
+                    next.clone(),
+                );
                 move |t| pending::update_op(t, &op, "pending", 1, &code, 0, "", &next, &pl)
             })
             .await;
@@ -1419,6 +1675,15 @@ async fn run_patch(
                 tracing::warn!("crm write: ledger update (pending) failed: {res:?}");
                 return err(StatusCode::SERVICE_UNAVAILABLE, "queue_uncertain");
             }
+            note_status(
+                &ctx.write,
+                &req.operation_id,
+                operator,
+                "pending",
+                1,
+                &code,
+                &next,
+            );
             audit_write(
                 audit,
                 account_id,
@@ -1463,6 +1728,7 @@ async fn run_patch(
                 });
             stop_response_recorded(
                 stop,
+                &ctx.write,
                 audit,
                 account_id,
                 session_id,
@@ -1476,6 +1742,42 @@ async fn run_patch(
             .await
         }
     }
+}
+
+/// 送ったあとの曖昧な失敗のあと、HubSpot を読み直した結果
+enum Verified {
+    /// 残りの段は全部すでに書けていた (保存済み)
+    Saved,
+    /// 書けていない (競合・必須の不足も「書けていない」)
+    NotApplied,
+    /// 読み直せなかった (確かめられない)
+    Unknown,
+}
+
+/// まだ終わっていない段を読み直し、書く値がすでに HubSpot にあるか確かめる (PATCH はしない)。
+/// 全部あれば段を完了にして `run` に積む
+async fn verify_after_send(client: &HubSpotClient, steps: &mut [Step], run: &mut Run) -> Verified {
+    let mut found: Vec<(usize, Prepared)> = Vec::new();
+    for (i, s) in steps.iter().enumerate() {
+        if s.done {
+            continue;
+        }
+        match prepare(client, s).await {
+            Ok(p) if p.already => found.push((i, p)),
+            Ok(_) | Err(Stop::Conflict { .. }) | Err(Stop::Missing(_)) => {
+                return Verified::NotApplied
+            }
+            Err(Stop::Transient(_)) | Err(Stop::Permanent(_)) => return Verified::Unknown,
+        }
+    }
+    for (i, p) in found {
+        let intended = intended_changes(std::slice::from_ref(&steps[i]), None);
+        if send(client, &mut steps[i], &p, run).await.is_err() {
+            return Verified::Unknown;
+        }
+        run.changes.extend(intended);
+    }
+    Verified::Saved
 }
 
 /// 事前確認の段階で止まった (台帳には入れていない) 場合の応答 + 監査
@@ -1492,34 +1794,16 @@ async fn stop_response(
 ) -> Response {
     let (status, body, outcome, cur) = stop_body(&stop);
     match stop {
-        Stop::Transient(e) => {
-            audit_write(
-                audit,
-                account_id,
-                session_id,
-                operator,
-                operation_id,
-                deal_id,
-                &format!("read_failed:{}", e.error_kind()),
-                &[],
-            )
-            .await;
+        // 読み取りに失敗した・必須項目が足りない: 何も送っていない「断り」。監査には書かず、種類別に数えるだけ
+        Stop::Transient(e) | Stop::Permanent(e) => {
+            count_rejection(&format!("read_failed:{}", e.error_kind()));
             hubspot_error_response(&e)
         }
-        Stop::Permanent(e) => {
-            audit_write(
-                audit,
-                account_id,
-                session_id,
-                operator,
-                operation_id,
-                deal_id,
-                &format!("failed:{}", e.error_kind()),
-                &[],
-            )
-            .await;
-            hubspot_error_response(&e)
+        Stop::Missing(_) => {
+            count_rejection("missing_required");
+            (status, Json(body)).into_response()
         }
+        // 競合 (409): 誰がどの値を上書きしようとして止められたかは残す
         _ => {
             audit_write(
                 audit,
@@ -1541,6 +1825,7 @@ async fn stop_response(
 #[allow(clippy::too_many_arguments)]
 async fn stop_response_recorded(
     stop: Stop,
+    write: &WriteConfig,
     audit: &AuditDb,
     account_id: &str,
     session_id: &str,
@@ -1587,7 +1872,9 @@ async fn stop_response_recorded(
         move |t| pending::update_op(t, &op, "failed", attempts, &code, st, &body_s, "", &pl)
     })
     .await;
-    if !matches!(res, Ok(Ok(()))) {
+    if matches!(res, Ok(Ok(()))) {
+        note_status(write, operation_id, operator, "failed", attempts, &code, "");
+    } else {
         tracing::warn!("crm write: ledger update (failed) failed: {res:?}");
     }
     audit_write(
@@ -1651,12 +1938,7 @@ fn stop_body(
 // ---------------------------------------------------------------------------
 
 pub fn api_status(row: &pending::OpRow) -> &'static str {
-    match row.status.as_str() {
-        "saved" => "saved",
-        "failed" | "discarded" => "failed",
-        _ if row.attempts > 1 => "retrying",
-        _ => "pending",
-    }
+    api_status_of(&row.status, row.attempts)
 }
 
 pub(super) async fn get_operation(
@@ -1672,30 +1954,50 @@ pub(super) async fn get_operation(
     if !valid_operation_id(&operation_id) {
         return err(StatusCode::BAD_REQUEST, "invalid_id");
     }
-    let Some(audit) = state.audit.clone() else {
-        return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
-    };
-    let row = match pending::blocking(&audit, {
-        let id = operation_id.clone();
-        move |t| pending::get_op(t, &id)
-    })
-    .await
-    {
-        Ok(Ok(Some(r))) => r,
-        Ok(Ok(None)) => return err(StatusCode::NOT_FOUND, "not_found"),
-        _ => return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable"),
+    // まずプロセス内の表から返す (202 のあとの照会が Turso の SELECT にならない)。
+    // 表に無い (再起動した・期限が切れた・表から押し出された) ときだけ台帳を 1 回読み、表に入れ直す
+    let st = match ctx.write.statuses.get(&operation_id) {
+        Some(st) => {
+            cache_hit("op_status");
+            st
+        }
+        None => {
+            cache_miss("op_status");
+            let Some(audit) = state.audit.clone() else {
+                return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
+            };
+            let row = match pending::blocking(&audit, {
+                let id = operation_id.clone();
+                move |t| pending::get_op(t, &id)
+            })
+            .await
+            {
+                Ok(Ok(Some(r))) => r,
+                Ok(Ok(None)) => return err(StatusCode::NOT_FOUND, "not_found"),
+                _ => return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable"),
+            };
+            let st = OpState {
+                operator_email: row.operator_email.clone(),
+                status: api_status(&row).to_string(),
+                attempts: row.attempts,
+                last_error_code: row.last_error_code.clone(),
+                next_retry_at: row.next_retry_at.clone(),
+            };
+            ctx.write.statuses.put(&operation_id, st.clone());
+            st
+        }
     };
     let is_admin = principal.role.is_some_and(|r| r.is_admin());
-    if row.operator_email != principal.email.clone().unwrap_or_default() && !is_admin {
+    if st.operator_email != principal.email.clone().unwrap_or_default() && !is_admin {
         return err(StatusCode::FORBIDDEN, "forbidden");
     }
     let opt = |s: &str| (!s.is_empty()).then(|| s.to_string());
     Json(CrmOperationStatus {
-        operation_id: row.operation_id.clone(),
-        status: api_status(&row).to_string(),
-        attempts: row.attempts,
-        last_error_code: opt(&row.last_error_code),
-        next_retry_at: opt(&row.next_retry_at),
+        operation_id,
+        status: st.status.clone(),
+        attempts: st.attempts,
+        last_error_code: opt(&st.last_error_code),
+        next_retry_at: opt(&st.next_retry_at),
     })
     .into_response()
 }
@@ -1821,6 +2123,21 @@ async fn admin_transition(state: Arc<AppState>, operation_id: String, retry: boo
     if !matches!(res, Ok(Ok(()))) {
         return err(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
     }
+    // 管理者の操作も状態の表に写す (本番の表は要求側・worker と共有のもの)
+    op_status::shared().put(
+        &row.operation_id,
+        OpState {
+            operator_email: row.operator_email.clone(),
+            status: if retry { "pending" } else { "failed" }.to_string(),
+            attempts: if retry { 0 } else { row.attempts },
+            last_error_code: if retry {
+                String::new()
+            } else {
+                row.last_error_code.clone()
+            },
+            next_retry_at: String::new(),
+        },
+    );
     if retry {
         wake_worker();
     }
@@ -1843,13 +2160,14 @@ pub fn wake_worker() {
     wake_handle().notify_one();
 }
 
-/// 期限が来た操作を 1 件処理する。結果は台帳と監査に残す
+/// 期限が来た操作を 1 件処理する。結果は台帳と監査に残す。
+/// 実際に送ろうとした (または栓で失敗にした) なら true、見送った (鍵が取れない・もう終わっている) なら false
 pub async fn process_op(
     audit: &AuditDb,
     client: &HubSpotClient,
     write: &WriteConfig,
     row: &pending::OpRow,
-) {
+) -> bool {
     // 栓: 受付のあとで書き込みを閉じたら、積んである操作も送らない (管理者の再試行も同じ。開け直してから再試行する)
     if !write.allows(&row.deal_id) {
         let body = json!({"error": "writes_disabled"}).to_string();
@@ -1858,7 +2176,17 @@ pub async fn process_op(
             pending::update_op(t, &op, "failed", 1, "writes_disabled", 403, &body, "", &pl)
         })
         .await;
-        if !matches!(r, Ok(Ok(()))) {
+        if matches!(r, Ok(Ok(()))) {
+            note_status(
+                write,
+                &row.operation_id,
+                &row.operator_email,
+                "failed",
+                1,
+                "writes_disabled",
+                "",
+            );
+        } else {
             tracing::warn!("crm write worker: ledger update (writes_disabled) failed: {r:?}");
         }
         let account = row.operator_email.clone();
@@ -1873,7 +2201,7 @@ pub async fn process_op(
             &intended_changes(&row.payload.steps, None),
         )
         .await;
-        return;
+        return true;
     }
     // 受付側と同じ鍵 (案件 + 担当者・会社) を取ってから送る。取れなければ今回は見送り、次の周回でやり直す
     let _held = match write
@@ -1895,7 +2223,7 @@ pub async fn process_op(
                 operation_id = %row.operation_id,
                 "crm write worker: record busy, retry on the next round"
             );
-            return;
+            return false;
         }
     };
     // 鍵を待っている間に台帳の行が変わった (管理者が破棄した・受付側が保存した) かもしれない。最新を読み直す
@@ -1909,7 +2237,7 @@ pub async fn process_op(
         _ => row.clone(),
     };
     if !matches!(fresh_row.status.as_str(), "pending" | "in_progress") {
-        return;
+        return false;
     }
     let row = &fresh_row;
     let mut payload = row.payload.clone();
@@ -1935,25 +2263,37 @@ pub async fn process_op(
             break;
         }
     }
-    let account = {
-        let email = row.operator_email.clone();
-        pending::blocking(audit, move |t| {
-            crate::audit::dao::find_account_by_email(t, &email).map(|a| a.id)
-        })
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| row.operator_email.clone())
-    };
+    // 最後の試行でも曖昧な失敗なら、「失敗」と断定する前に HubSpot を読み直して確かめる
+    // (書けていれば保存済み。確かめられなければ失敗にせず、次の周期でもう一度)
+    let mut unverified = false;
+    if attempts >= pending::MAX_ATTEMPTS && matches!(result, Err(Stop::Transient(_))) {
+        match verify_after_send(client, &mut payload.steps, &mut run).await {
+            Verified::Saved => result = Ok(()),
+            Verified::NotApplied => {}
+            Verified::Unknown => unverified = true,
+        }
+    }
+    // 監査の account_id (メールで引く) は、監査を書くときだけ引く
     let log = |outcome: String, changes: Vec<Change>| {
-        let (a, acc, who, op, did) = (
+        let (a, who, op, did) = (
             audit.clone(),
-            account.clone(),
             row.operator_email.clone(),
             row.operation_id.clone(),
             row.deal_id.clone(),
         );
-        async move { audit_write(&a, &acc, "", &who, &op, &did, &outcome, &changes).await }
+        async move {
+            let account = {
+                let (a2, email) = (a.clone(), who.clone());
+                pending::blocking(&a2, move |t| {
+                    crate::audit::dao::find_account_by_email(t, &email).map(|a| a.id)
+                })
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| who.clone())
+            };
+            audit_write(&a, &account, "", &who, &op, &did, &outcome, &changes).await
+        }
     };
     let update = |status: &'static str,
                   code: String,
@@ -1963,12 +2303,16 @@ pub async fn process_op(
                   pl: Payload,
                   att: i64| {
         let op = row.operation_id.clone();
+        let (who, code2, next2) = (row.operator_email.clone(), code.clone(), next.clone());
         async move {
-            let r = pending::blocking(audit, move |t| {
-                pending::update_op(t, &op, status, att, &code, http, &body, &next, &pl)
+            let r = pending::blocking(audit, {
+                let op = op.clone();
+                move |t| pending::update_op(t, &op, status, att, &code, http, &body, &next, &pl)
             })
             .await;
-            if !matches!(r, Ok(Ok(()))) {
+            if matches!(r, Ok(Ok(()))) {
+                note_status(write, &op, &who, status, att, &code2, &next2);
+            } else {
                 tracing::warn!("crm write worker: ledger update failed: {r:?}");
             }
         }
@@ -1998,7 +2342,7 @@ pub async fn process_op(
             if !run.changes.is_empty() {
                 log("partial_saved".into(), run.changes.clone()).await;
             }
-            if attempts >= pending::MAX_ATTEMPTS {
+            if attempts >= pending::MAX_ATTEMPTS && !unverified {
                 update(
                     "failed",
                     "max_attempts".into(),
@@ -2058,6 +2402,82 @@ pub async fn process_op(
             .await;
         }
     }
+    true
+}
+
+/// 再送 worker が同時に進める案件の数 (同じ案件の操作は古い順に 1 つずつ)
+pub const WORKER_CONCURRENCY: usize = 4;
+/// 1 周で取る期限切れの操作の数
+pub const DUE_BATCH: i64 = 40;
+
+/// 待っている案件の束を 1 つ取る (ロックは返す前に放す。await をまたがない)
+fn next_group(
+    queue: &Mutex<std::collections::VecDeque<Vec<pending::OpRow>>>,
+) -> Option<Vec<pending::OpRow>> {
+    queue.lock().ok().and_then(|mut q| q.pop_front())
+}
+
+/// 1 周の結果
+pub struct Round {
+    /// 次に期限が来る時刻 (再送待ちが無ければ None)
+    pub next: Option<chrono::DateTime<Utc>>,
+    /// 取った件数が上限いっぱい、かつ実際に処理した = すぐ次の周回をしてよい
+    pub more: bool,
+}
+
+/// 1 周: 期限が来た操作を処理する。案件ごとに束ね (同じ案件は古い順に直列)、案件どうしは最大
+/// [`WORKER_CONCURRENCY`] 件を同時に進める (直列だと 1 件あたり HubSpot 2 回 + Turso 数回で、約 0.8 件/秒しか減らなかった)。
+/// HubSpot への呼び出しは背景の優先度のままなので、関所では画面の操作が先に通る
+pub async fn run_due_round(audit: &AuditDb, client: &HubSpotClient, write: &WriteConfig) -> Round {
+    let now = pending::now_iso();
+    let rows = pending::blocking(audit, {
+        let now = now.clone();
+        move |t| pending::due_ops(t, &now, DUE_BATCH)
+    })
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or_default();
+    let batch_full = rows.len() as i64 >= DUE_BATCH;
+    let mut groups: Vec<Vec<pending::OpRow>> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for r in rows {
+        match index.get(&r.deal_id) {
+            Some(i) => groups[*i].push(r),
+            None => {
+                index.insert(r.deal_id.clone(), groups.len());
+                groups.push(vec![r]);
+            }
+        }
+    }
+    let queue = Arc::new(Mutex::new(std::collections::VecDeque::from(groups)));
+    let handled = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut set = tokio::task::JoinSet::new();
+    for _ in 0..WORKER_CONCURRENCY {
+        let (queue, handled) = (queue.clone(), handled.clone());
+        let (audit, client, write) = (audit.clone(), client.clone(), write.clone());
+        set.spawn(async move {
+            while let Some(group) = next_group(&queue) {
+                for r in &group {
+                    if process_op(&audit, &client, &write, r).await {
+                        handled.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+    }
+    while set.join_next().await.is_some() {}
+    let next = pending::blocking(audit, pending::next_due)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten()
+        .and_then(|t| chrono::DateTime::parse_from_rfc3339(&t).ok())
+        .map(|d| d.with_timezone(&Utc));
+    Round {
+        next,
+        more: batch_full && handled.load(Ordering::Relaxed) > 0,
+    }
 }
 
 /// 1 周: 期限が来た操作を処理して、次に期限が来る時刻を返す (再送待ちが無ければ None)
@@ -2066,26 +2486,7 @@ pub async fn run_due(
     client: &HubSpotClient,
     write: &WriteConfig,
 ) -> Option<chrono::DateTime<Utc>> {
-    let now = pending::now_iso();
-    let rows = pending::blocking(audit, {
-        let now = now.clone();
-        move |t| pending::due_ops(t, &now, 20)
-    })
-    .await
-    .ok()
-    .and_then(Result::ok)
-    .unwrap_or_default();
-    for r in &rows {
-        process_op(audit, client, write, r).await;
-    }
-    let next = pending::blocking(audit, pending::next_due)
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .flatten()?;
-    chrono::DateTime::parse_from_rfc3339(&next)
-        .ok()
-        .map(|d| d.with_timezone(&Utc))
+    run_due_round(audit, client, write).await.next
 }
 
 /// 再送 worker を始める (背景の優先度で HubSpot を呼ぶ。書き込みでポーリングしない)
@@ -2103,16 +2504,21 @@ pub fn spawn_worker(state: Arc<AppState>) {
         tokio::time::sleep(Duration::from_secs(start_delay as u64)).await;
         let mut last_purge = std::time::Instant::now() - Duration::from_secs(86_400);
         loop {
-            let next = run_due(&audit, &client, &write).await;
+            let round = run_due_round(&audit, &client, &write).await;
             if last_purge.elapsed() >= Duration::from_secs(86_400) {
                 last_purge = std::time::Instant::now();
                 let _ = pending::blocking(&audit, pending::purge_old).await;
             }
-            let wait = match next {
+            // 期限切れがまだ残っていて前進している間は待たずに次の周回へ。そうでなければ次の期限まで眠る
+            // (鍵が取れずに見送った行で空回りしないよう、最短 2 秒)
+            if round.more {
+                continue;
+            }
+            let wait = match round.next {
                 Some(t) => (t - Utc::now())
                     .to_std()
-                    .unwrap_or(Duration::from_secs(5))
-                    .clamp(Duration::from_secs(5), Duration::from_secs(300)),
+                    .unwrap_or(Duration::from_secs(2))
+                    .clamp(Duration::from_secs(2), Duration::from_secs(300)),
                 None => Duration::from_secs(600),
             };
             tokio::select! {

@@ -393,3 +393,93 @@ fn 環境変数が無ければ既定値で_範囲外は既定値に戻す() {
     assert_eq!(v(Some("0")), 7, "範囲外");
     assert_eq!(v(Some("abc")), 7, "数字でない");
 }
+
+#[tokio::test(start_paused = true)]
+async fn 書き込みの続きは先に並んだ新しい読み取りより先に通る() {
+    let gw = Arc::new(Gateway::new(cfg(1, 0)));
+    gw.acquire(Lane::General, Priority::Interactive)
+        .await
+        .unwrap();
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let mut tasks = Vec::new();
+    for name in ["read1", "read2"] {
+        let (gw, order) = (gw.clone(), order.clone());
+        tasks.push(tokio::spawn(async move {
+            gw.acquire(Lane::General, Priority::Interactive)
+                .await
+                .unwrap();
+            order.lock().unwrap().push(name);
+        }));
+    }
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
+    assert_eq!(gw.snapshot().queue_general, 2);
+    let (gw2, order2) = (gw.clone(), order.clone());
+    tasks.push(tokio::spawn(async move {
+        gw2.acquire(Lane::General, Priority::Continuation)
+            .await
+            .unwrap();
+        order2.lock().unwrap().push("patch");
+    }));
+    for t in tasks {
+        t.await.unwrap();
+    }
+    assert_eq!(
+        *order.lock().unwrap(),
+        vec!["patch", "read1", "read2"],
+        "読み取りが済んだ保存の PATCH を先に通す (読み取りだけ無駄にしない)"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn 続きの待ちの上限は読み取りより長く_429_の最長停止を待てる() {
+    let mut c = cfg(8, 0);
+    c.interactive_max_wait = Duration::from_secs(5);
+    let gw = Arc::new(Gateway::new(c));
+    gw.on_rate_limited(Some(Duration::from_secs(8)));
+    // 8 秒の停止: 新しい読み取りは 5 秒の上限を超えるので断る
+    assert_eq!(
+        gw.acquire(Lane::General, Priority::Interactive).await,
+        Err(Busy)
+    );
+    // 続きは (5 + 10 秒) まで待てるので、停止が明けたら通る
+    let waited = gw
+        .acquire(Lane::General, Priority::Continuation)
+        .await
+        .unwrap();
+    assert!(waited >= Duration::from_secs(7), "{waited:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn 受け入れの見積もりは枠も列も取らずに_読み取りと_patch_の分を数える() {
+    let mut c = cfg(1, 0);
+    c.interactive_max_wait = Duration::from_millis(2_500);
+    let gw = Arc::new(Gateway::new(c));
+    // 空いている: 2 回 (読み取り + PATCH) 分を見積もっても 2.5 秒に収まる
+    assert_eq!(gw.admit(Lane::General, Priority::Interactive, 2), Ok(()));
+    assert_eq!(gw.snapshot().granted, 0, "枠は取らない");
+    assert_eq!(gw.snapshot().queue_general, 0, "列にも並ばない");
+    // 枠を使い切り、先に 2 件並んでいる: 1 秒 + 1 秒 × (2 + 2) > 2.5 秒
+    gw.acquire(Lane::General, Priority::Interactive)
+        .await
+        .unwrap();
+    let mut waiting = Vec::new();
+    for _ in 0..2 {
+        let gw = gw.clone();
+        waiting.push(tokio::spawn(async move {
+            gw.acquire(Lane::General, Priority::Interactive).await
+        }));
+    }
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
+    let before = gw.snapshot().busy;
+    assert_eq!(
+        gw.admit(Lane::General, Priority::Interactive, 2),
+        Err(Busy),
+        "読み取りの後ろで PATCH が断られそうなら、読み取る前に断る"
+    );
+    assert_eq!(gw.snapshot().busy, before + 1, "断った回数に数える");
+    for w in waiting {
+        let _ = w.await;
+    }
+}
