@@ -4,6 +4,8 @@ import {
   closeLink, DEAL_TAB, initialCenterTabs, isHubspotUrl, makeLinkTab, openLink, safeHttpUrl, SEARCH_TAB,
 } from './centerLinks';
 import type { CenterTabsState, LinkTab } from './centerLinks';
+import { FrameExtensionBadge } from './FrameExtensionBadge';
+import { shouldShowFrameHint, useFrameExtension } from './useFrameExtension';
 
 /**
  * 「求人検索・リンク先」パネルの中のタブ: 「リンク一覧」(いつもある) / 「求人検索」(検索の URL があるとき) / 開いたリンク (最大 5)。
@@ -145,7 +147,8 @@ function readHintDismissed(): boolean {
 /** Google 検索のタブの先頭に出す 1 行の案内 (閉じた記録は localStorage に残す。使えなくても動く) */
 function SearchHint() {
   const [hidden, setHidden] = useState(readHintDismissed);
-  if (hidden) return null;
+  const { installed } = useFrameExtension();
+  if (hidden || !shouldShowFrameHint(installed)) return null;
   return <div className="cq-linkhint" data-testid="link-hint">
     <span>{HINT_TEXT}</span>
     <button type="button" aria-label="案内を閉じる" onClick={() => {
@@ -187,6 +190,7 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
   return <div className="cq-linkview">
     <div className="cq-linkbar">
       <span className="cq-linkbar-host" title={tab.url}>{tab.host}</span>
+      <FrameExtensionBadge />
       <a className="cq-linkbar-open" href={tab.url} target="_blank" rel="noopener noreferrer">新しいタブで開く</a>
       {tab.embed !== null && <button type="button" disabled={navs === 0} onClick={back}>戻る</button>}
       {tab.embed !== null && <button type="button" onClick={reload}>再読み込み</button>}
