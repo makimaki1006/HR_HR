@@ -16,12 +16,8 @@ export const DEFAULT_BLOCKLIST = [
   'okta.com',
   'auth0.com',
   'appleid.apple.com',
-  'hubspot.com',
-  'hubspot.jp',
-  'hubapi.com',
   'paypal.com',
   'stripe.com',
-  'zoom.us',
 ];
 
 export const RULE_ID = 1;
@@ -59,37 +55,21 @@ export function parseBlocklist(text) {
   return { domains, errors };
 }
 
-/** オリジン文字列の配列 → 正規化 (origin のみ、http/https のみ、重複除去)。不正は捨てる。 */
-export function normalizeOrigins(list) {
-  const out = [];
-  for (const o of Array.isArray(list) ? list : []) {
-    try {
-      const u = new URL(String(o).trim());
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
-      if (!out.includes(u.origin)) out.push(u.origin);
-    } catch { /* 無視 */ }
-  }
-  return out;
-}
-
 /** managed / sync / 既定値から有効な設定を決める。managed が優先。 */
 export function resolveConfig({ managed, sync } = {}) {
   const m = managed || {};
   const s = sync || {};
   const managedBlocklist = Array.isArray(m.blocklist);
-  const managedOrigins = Array.isArray(m.appOrigins);
   const blocklistSource = managedBlocklist ? m.blocklist : Array.isArray(s.blocklist) ? s.blocklist : DEFAULT_BLOCKLIST;
   const blocklist = [];
   for (const d of blocklistSource) {
     const r = validateDomain(d);
     if (r.ok && !blocklist.includes(r.domain)) blocklist.push(r.domain);
   }
-  const origins = normalizeOrigins(managedOrigins ? m.appOrigins : DEFAULT_APP_ORIGINS);
   return {
     blocklist,
-    appOrigins: origins.length ? origins : normalizeOrigins(DEFAULT_APP_ORIGINS),
+    appOrigins: [...DEFAULT_APP_ORIGINS], // 固定 (manifest の content_scripts.matches と一致させる)
     managedBlocklist,
-    managedOrigins,
   };
 }
 
@@ -134,9 +114,4 @@ export function buildRules(tabIds, blocklist, appOrigins = DEFAULT_APP_ORIGINS) 
       },
     },
   ];
-}
-
-/** 既定外のオリジン (動的 content script 登録用) → match pattern */
-export function extraMatchPatterns(appOrigins) {
-  return appOrigins.filter((o) => !DEFAULT_APP_ORIGINS.includes(o)).map((o) => `${o}/*`);
 }
