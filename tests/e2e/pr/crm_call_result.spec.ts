@@ -74,8 +74,8 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     await rowButton(page, 0).click();
     await expect(rowButton(page, 0)).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('h2')).toHaveText(firstCompany);
-    await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('.wd-head .cq-stage option:checked')).toHaveText('担当者ブロック');
-    await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('.wd-head-main p')).toHaveText('ダミー建設 採用支援');
+    await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('.wd-summary .cq-stage option:checked')).toHaveText('担当者ブロック');
+    await expect(page.getByRole('article', { name: '架電先の詳細' }).locator('.wd-s-name p')).toHaveText('ダミー建設 採用支援');
     await expect(form(page).getByRole('status').filter({ hasText: '下書き' })).toHaveText('下書き(HubSpot 未送信)');
     await expect(form(page).locator('.rf-unsent')).toHaveText('この画面(タブ)だけに残ります。タブを閉じると消え、HubSpot には保存されません');
     // 結果の 6 択
@@ -136,7 +136,7 @@ test.describe('CRM 架電画面: 架電結果の下書き', () => {
     await expect(rows(page).nth(0).locator('.cq-recorded')).toHaveText('記録済み(HubSpot 未送信)');
     await rowButton(page, 0).click();
     await expect(outcome(page, '再架電の約束')).toHaveAttribute('aria-pressed', 'true');
-    await expect(form(page).getByLabel(/^次回架電日/)).toHaveValue(nextDate);
+    await expect(form(page).getByLabel(/^次回架電日/)).toHaveValue(nextDate.replaceAll('-', '/'));
     await expect(form(page).getByRole('status').filter({ hasText: '記録済み' })).toHaveText('記録済み(HubSpot 未送信)');
 
     // 記録の後に書き換えると印が外れ、その旨が出る

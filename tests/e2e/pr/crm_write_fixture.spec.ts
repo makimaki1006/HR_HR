@@ -58,4 +58,81 @@ test.describe('CRM 架電画面: 項目の書き換え (架空サンプル)', ()
     await expect(page.getByRole('article', { name: '架電先の詳細' }).getByText('✓ 保存済み')).toBeVisible();
     await expect(select.locator('option:checked')).toHaveText('アポ日確定');
   });
+  test('日付の項目: カレンダーで土曜は青・日曜と祝日は赤 (5/4 みどりの日など)。日を選ぶと緑の「保存済み」', async ({ page }) => {
+    const crm: string[] = [];
+    page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/api/crm/')) crm.push(r.url()); });
+    await openFirst(page);
+    await page.getByRole('tab', { name: 'プロパティ' }).click();
+    const panel = page.getByTestId('property-panel');
+    await panel.getByRole('button', { name: 'アポ取得日を編集' }).click();
+    const edit = panel.locator('.wr-edit').first();
+    // 入力は YYYY/MM/DD の文字入力 (ブラウザ標準の日付ポップアップではない)
+    const input = edit.getByRole('textbox');
+    await input.fill('2026/05/10');
+    await edit.getByRole('button', { name: 'カレンダーを開く' }).click();
+    const cell = (iso: string) => page.locator(`.dp-pop button.dp-day[data-date="${iso}"]`);
+    const color = (iso: string) => cell(iso).evaluate((el) => getComputedStyle(el).color);
+    // 祝日データは開いたときに読み込む。みどりの日の表示を待つ
+    await expect(cell('2026-05-04')).toHaveClass(/dp-holiday/);
+    await expect(cell('2026-05-04')).toHaveAttribute('aria-label', '5月4日 みどりの日');
+    const red = 'rgb(198, 40, 40)';
+    const blue = 'rgb(21, 101, 192)';
+    for (const iso of ['2026-05-03', '2026-05-04', '2026-05-05', '2026-05-06', '2026-05-17']) expect(await color(iso)).toBe(red);
+    expect(await color('2026-05-02')).toBe(blue);
+    expect(await color('2026-05-01')).not.toBe(red);
+    expect(await color('2026-05-01')).not.toBe(blue);
+    const style = (iso: string) => cell(iso).evaluate((el) => { const c = getComputedStyle(el); return { bg: c.backgroundColor, fw: Number(c.fontWeight) }; });
+    expect(await style('2026-05-04')).toEqual({ bg: 'rgb(253, 236, 234)', fw: 700 });
+    expect(await style('2026-05-02')).toEqual({ bg: 'rgb(232, 240, 254)', fw: 700 });
+    const wd = await style('2026-05-12');
+    expect(wd.fw).toBeLessThan(600);
+    expect(wd.bg).toBe('rgba(0, 0, 0, 0)');
+    await cell('2026-05-21').click();
+    await expect(input).toHaveValue('2026/05/21');
+    await panel.getByRole('button', { name: '保存', exact: true }).click();
+    const saved = panel.locator('.wr-saved');
+    await expect(saved).toHaveText('✓ 保存済み');
+    await expect(saved).toHaveCSS('background-color', 'rgb(220, 252, 231)'); // 緑
+    await expect(panel.getByText('2026/05/21')).toBeVisible();
+    expect(crm).toEqual([]);
+  });
+
+  for (const vp of [{ width: 1568, height: 713 }, { width: 1280, height: 720 }]) {
+    test(`日付ポップオーバー: 日付が折り返さず幅 250px 以上・画面内 (${String(vp.width)}x${String(vp.height)})`, async ({ page }) => {
+      await openFirst(page);
+      await page.setViewportSize(vp);
+      await page.getByRole('tab', { name: 'プロパティ' }).click();
+      const panel = page.getByTestId('property-panel');
+      await panel.getByRole('button', { name: 'アポ取得日を編集' }).click();
+      await panel.locator('.wr-edit').first().getByRole('textbox').fill('2026/05/10');
+      await panel.locator('.wr-edit').first().getByRole('button', { name: 'カレンダーを開く' }).click();
+      await expectPopoverSane(page);
+      // 左の列を狭めても、ポップオーバーは親の幅に縛られない
+      await page.evaluate(() => { const el = document.querySelector<HTMLElement>('[data-testid="property-panel"]'); if (el) { el.style.width = '300px'; el.style.maxWidth = '300px'; } });
+      await page.setViewportSize({ width: vp.width - 1, height: vp.height });
+      await expectPopoverSane(page);
+    });
+  }
 });
+
+async function expectPopoverSane(page: Page): Promise<void> {
+  const pop = page.getByTestId('dp-popover');
+  await expect(page.locator('.dp-pop button.dp-day').first()).toBeVisible();
+  const m = await page.evaluate(() => {
+    const p = document.querySelector('[data-testid="dp-popover"]')!.getBoundingClientRect();
+    const cells = [...document.querySelectorAll<HTMLElement>('.dp-pop button.dp-day')].map((b) => { const r = b.getBoundingClientRect(); return { w: r.width, h: r.height, top: Math.round(r.top) }; });
+    const rows = new Map<number, number[]>();
+    cells.forEach((c, i) => { const row = Math.floor(i / 7); rows.set(row, [...(rows.get(row) ?? []), c.top]); });
+    const d21 = document.querySelector<HTMLElement>('.dp-pop button[data-date="2026-05-21"]')!;
+    const lh = parseFloat(getComputedStyle(d21).lineHeight);
+    const range = document.createRange(); range.selectNodeContents(d21);
+    return { pw: p.width, l: p.left, t: p.top, r: p.right, b: p.bottom, vw: window.innerWidth, vh: window.innerHeight, cells, rowsSame: [...rows.values()].every((t) => new Set(t).size === 1), textH: range.getBoundingClientRect().height, lh };
+  });
+  expect(m.pw).toBeGreaterThanOrEqual(250);
+  expect(m.l).toBeGreaterThanOrEqual(0); expect(m.t).toBeGreaterThanOrEqual(0);
+  expect(m.r).toBeLessThanOrEqual(m.vw); expect(m.b).toBeLessThanOrEqual(m.vh);
+  for (const c of m.cells) expect(c.h).toBeLessThanOrEqual(c.w * 1.3);
+  expect(m.rowsSame).toBe(true);
+  expect(m.textH).toBeLessThanOrEqual(m.lh + 1); // 21 が 1 行
+  await expect(pop).toBeVisible();
+}

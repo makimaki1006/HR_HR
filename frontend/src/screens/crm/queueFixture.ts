@@ -39,6 +39,8 @@ const SEEDS: Seed[] = [
   { id: 'f-14', company: '架空ベーカリー', contact: '寅田 静', stage: 'fx-follow', owner: '9002', next: '2026-10-02', time: '11:30', last: '2026-09-30', phone: '03-0000-0014', pipeline: FIXTURE_PIPELINE_ID },
   { id: 'f-15', company: '架空塾', contact: '卯月 望', stage: 'fx-follow', owner: '9001', next: '2026-10-09', time: '10:00', last: '2026-10-01', phone: '03-0000-0015', pipeline: FIXTURE_PIPELINE_ID },
   { id: 'f-16', company: '架空クリーニング', contact: '辰野 晴', stage: 'fx-stop', owner: '9001', next: '2026-10-01', time: null, last: '2026-09-20', phone: '03-0000-0016', pipeline: FIXTURE_PIPELINE_ID },
+  // 長い社名の見出し崩れの確認用 (案件の概要の見出しが 1 文字ずつ縦に並ばないこと)
+  { id: 'f-17', company: '架空サーモスタット工業株式会社', contact: '巳野 久', stage: 'fx-new', owner: '9001', next: null, time: null, last: null, phone: '03-0000-0017', pipeline: FIXTURE_PIPELINE_ID },
 ];
 
 const pipelineOf = (s: Seed) => s.pipeline ?? DEFAULT_PIPELINE_ID;

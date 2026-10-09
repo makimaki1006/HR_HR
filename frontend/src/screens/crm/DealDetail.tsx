@@ -216,17 +216,22 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
   return <article className="wd" aria-label="架電先の詳細">
     {/* 会社・案件・ステージ・HubSpot と「架ける番号」・通話の様子 (置いた列の上端に固定) */}
     <div className="wd-top">
-      <header className="wd-head">
-        <div className="wd-head-main">
-          <h2>{company?.name ?? d.name ?? '(名称なし)'}</h2>
-          <p>{d.name ?? '(案件名なし)'}</p></div>
-        <div className="wd-head-side">
+      {/* 概要の見出し: 並べ方は「このパネルの幅」で変わる (queue.css の @container wdsum。広い=3 列 / 中=2 列 / 狭い=縦に区切って積む) */}
+      <header className="wd-summary" aria-label="案件の概要">
+        <div className="wd-s-name">
+          <h2 title={company?.name ?? d.name ?? undefined}>{company?.name ?? d.name ?? '(名称なし)'}</h2>
+          <p title={d.name ?? undefined}>{d.name ?? '(案件名なし)'}</p></div>
+        <div className="wd-s-stage">
           <StageMover ctx={stageMove} fallback={<span className="cq-stage">{d.stage_label ?? '(ステージ名を取得できません)'}</span>} />
-          <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
-          {density && <DensityToggle density={density} />}
+        </div>
+        <div className="wd-s-foot">
+          <span className="wd-s-actions">
+            <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
+            {density && <DensityToggle density={density} />}
+          </span>
+          <Freshness fetchedAt={data.fetched_at} now={zoom.now} refreshing={refreshing} refreshError={refreshError} onRefresh={onRefresh} />
         </div>
       </header>
-      <Freshness fetchedAt={data.fetched_at} now={zoom.now} refreshing={refreshing} refreshError={refreshError} onRefresh={onRefresh} />
 
       <section className="wd-dialbox" aria-label="架ける番号">
         <h3 className="wd-dial-title">架ける番号</h3>

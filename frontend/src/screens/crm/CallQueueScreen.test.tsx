@@ -121,8 +121,8 @@ describe('CallQueueScreen', () => {
     render(<CallQueueScreen catalogFetcher={okCatalogFetch} userFetcher={okUserFetch} fetcher={fetcher} initialSearch="?view=queue&q=架空&stage=1095387445&due=today&sort=next_call_desc&next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30" />);
     expect(calls[0]?.filters).toEqual(parseFilters('?q=架空&stage=1095387445&due=today&sort=next_call_desc&next_from=2026-10-01&next_to=2026-10-31&last_from=2026-09-01&last_to=2026-09-30'));
     expect((screen.getByLabelText<HTMLSelectElement>('並び替え')).value).toBe('next_call_desc');
-    expect((screen.getAllByLabelText('から')[0] as HTMLInputElement).value).toBe('2026-10-01');
-    expect((screen.getAllByLabelText('まで')[1] as HTMLInputElement).value).toBe('2026-09-30');
+    expect((screen.getAllByRole('textbox', { name: 'から', hidden: true })[0] as HTMLInputElement).value).toBe('2026/10/01');
+    expect((screen.getAllByRole('textbox', { name: 'まで', hidden: true })[1] as HTMLInputElement).value).toBe('2026/09/30');
     expect((screen.getByLabelText<HTMLInputElement>('次回日が来たものだけ')).checked).toBe(true);
     openDetails();
     expect(screen.getByRole('button', { name: 'ステージ（1件選択）' })).toBeTruthy();
@@ -146,11 +146,11 @@ describe('CallQueueScreen', () => {
     fireEvent.click(screen.getByLabelText(/^不在/));
     fireEvent.click(screen.getByRole('button', { name: '適用' }));
     expect(calls[3]?.filters.stages).toEqual(['1095387445']);
-    const dates = screen.getAllByLabelText('から');
+    const dates = screen.getAllByRole('textbox', { name: 'から', hidden: true });
     fireEvent.change(at(dates, 0), { target: { value: '2026-10-01' } });
     expect(calls[4]?.filters.nextFrom).toBe('2026-10-01');
     // 範囲の逆転は取得せずに知らせる
-    const tos = screen.getAllByLabelText('まで');
+    const tos = screen.getAllByRole('textbox', { name: 'まで', hidden: true });
     fireEvent.change(at(tos, 0), { target: { value: '2026-09-01' } });
     expect(calls).toHaveLength(5);
     expect(screen.getByRole('alert').textContent).toContain('次回架電日の開始日が終了日より後');
@@ -609,7 +609,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
     expect(screen.queryByText('架空塾')).toBeNull(); // 次回日が未来
     expect(screen.queryByText('架空クリーニング')).toBeNull(); // 対象外ステージ
     expect(screen.queryByText('架空食品株式会社')).toBeNull();
-    expect(screen.getByTestId('queue-count').textContent).toContain('全 2 件中 2 件を表示');
+    expect(screen.getByTestId('queue-count').textContent).toContain('全 3 件中 3 件を表示');
     // 実データに切り替えると、架空のパイプラインは既定に戻す
     fireEvent.click(screen.getByRole('button', { name: '実データ' }));
     expect(screen.getByLabelText<HTMLSelectElement>('パイプライン').value).toBe('753186575');
