@@ -368,6 +368,23 @@ describe('operation_id (失敗の後の再試行)', () => {
     expect(body(patch, 1)?.operation_id).not.toBe(body(patch, 0)?.operation_id);
   });
 
+  it('429 rate_limited は赤いメッセージを出し、再送待ちにせず、新しい operation_id で送り直せる', async () => {
+    const patch: Patch = vi.fn()
+      .mockResolvedValueOnce({ kind: 'rate_limited' })
+      .mockResolvedValue(savedOut({}));
+    await setup(schemaOf(), patch);
+    fireEvent.click(editBtn('募集職種（リストデータ）'));
+    fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: '一回目' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    const msg = await screen.findByText(/短時間に保存が多すぎます。少し待ってから保存してください。何も保存されていません。/);
+    expect(msg.getAttribute('role')).toBe('alert');
+    expect(msg.className).toContain('wr-error');
+    expect(screen.queryByText(/同期待ち|再送待ち/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度保存' }));
+    await screen.findByText('✓ 保存済み');
+    expect(body(patch, 1)?.operation_id).not.toBe(body(patch, 0)?.operation_id);
+  });
+
   it('管理者が破棄した操作 (410) は新しい operation_id で送り直せる', async () => {
     const patch: Patch = vi.fn()
       .mockResolvedValueOnce({ kind: 'discarded' })
@@ -515,6 +532,7 @@ describe('契約の読み取り', () => {
     // 送った後で台帳を更新できなかった: 保存できたか分からないので「何も保存されていない」にしない
     expect(http(503, { error: 'queue_uncertain', error_kind: 'queue_uncertain' }).kind).toBe('error');
     expect(http(410, { error: 'discarded' }).kind).toBe('discarded');
+    expect(http(429, { error: 'rate_limited' }).kind).toBe('rate_limited');
     expect(http(500, undefined).kind).toBe('error');
     const withPartial = http(403, { error: 'forbidden', partial: { values: { amount: '2' }, objects_values: {} } });
     expect(withPartial.kind === 'forbidden' && withPartial.partial?.values).toEqual({ amount: '2' });

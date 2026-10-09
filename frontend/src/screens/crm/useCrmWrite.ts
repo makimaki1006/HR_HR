@@ -234,6 +234,13 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
         setStatus(keys, { phase: 'error', message, req });
         return { kind: 'error', message };
       }
+      case 'rate_limited': {
+        // 受け付けなかったので何も保存されていない。キューには積まない。再試行は新しい操作 (operation_id) にする
+        opIds.current.delete(sig);
+        const message = '短時間に保存が多すぎます。少し待ってから保存してください。何も保存されていません。';
+        setStatus(keys, { phase: 'error', message, req });
+        return { kind: 'error', message };
+      }
       case 'discarded': {
         opIds.current.delete(sig);
         const message = '管理者がこの保存を取り消しました。内容を確かめて、もう一度保存してください。';
