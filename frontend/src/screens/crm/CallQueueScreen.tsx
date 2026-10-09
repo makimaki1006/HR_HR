@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
+import { DatePicker } from '../../components/DatePicker';
 import { OwnerFilter } from './OwnerFilter';
 import { ownerNameMap } from './ownerModel';
 import { formatPhoneForDisplay } from './phone';
@@ -763,11 +764,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           labelsUnavailable={pipelines.labelsUnavailable} onApply={stages => { update({ stages }); }} />}
         <div className="cq-ranges">
           <fieldset className="cq-range"><legend>次回架電日</legend>
-            <label>から<input type="date" value={filters.nextFrom} onChange={e => { update({ nextFrom: e.target.value }); }} /></label>
-            <label>まで<input type="date" value={filters.nextTo} onChange={e => { update({ nextTo: e.target.value }); }} /></label></fieldset>
+            <label>から<DatePicker value={filters.nextFrom} onChange={v => { update({ nextFrom: v }); }} /></label>
+            <label>まで<DatePicker value={filters.nextTo} onChange={v => { update({ nextTo: v }); }} /></label></fieldset>
           <fieldset className="cq-range"><legend>最終架電日</legend>
-            <label>から<input type="date" value={filters.lastFrom} onChange={e => { update({ lastFrom: e.target.value }); }} /></label>
-            <label>まで<input type="date" value={filters.lastTo} onChange={e => { update({ lastTo: e.target.value }); }} /></label></fieldset>
+            <label>から<DatePicker value={filters.lastFrom} onChange={v => { update({ lastFrom: v }); }} /></label>
+            <label>まで<DatePicker value={filters.lastTo} onChange={v => { update({ lastTo: v }); }} /></label></fieldset>
         </div>
       </div>
     </form>

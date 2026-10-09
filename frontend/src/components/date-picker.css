@@ -1,0 +1,24 @@
+.dp { position: relative; display: inline-block; max-width: 100%; }
+.dp-field { display: inline-flex; align-items: center; gap: 4px; width: 100%; }
+.dp-field input { min-width: 0; flex: 1 1 auto; width: 100%; font-size: 13px; }
+.dp-open { border: 1px solid #94a3b8; background: #fff; border-radius: 4px; padding: 3px 5px; line-height: 0; cursor: pointer; color: #334155; }
+.dp-pop { position: absolute; z-index: 60; top: calc(100% + 4px); left: 0; width: 260px; padding: 8px; background: #fff; color: #0f172a;
+  border: 1px solid #94a3b8; border-radius: 6px; box-shadow: 0 6px 18px rgba(15, 23, 42, .25); font-size: 13px; }
+.dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.dp-head button, .dp-foot button { border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 4px; padding: 2px 8px; cursor: pointer; color: #0f172a; }
+.dp-foot button:disabled { opacity: .5; cursor: not-allowed; }
+.dp-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.dp-grid th { font-weight: 600; padding: 2px 0; text-align: center; }
+.dp-grid td { padding: 1px; text-align: center; }
+/* 画面側の button { color } より強くするため .dp-pop から書く */
+.dp-pop .dp-day { width: 100%; height: 30px; border: 2px solid transparent; background: transparent; border-radius: 4px; cursor: pointer; color: #0f172a; font-size: 13px; }
+.dp-day:hover { background: #e2e8f0; }
+.dp-day:focus-visible, .dp-open:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 1px; }
+.dp-pop .dp-day.dp-sun, .dp-pop .dp-day.dp-holiday, .dp-grid th.dp-sun { color: #c62828; }
+.dp-pop .dp-day.dp-sat, .dp-grid th.dp-sat { color: #1565c0; }
+.dp-pop .dp-day.dp-out { color: #94a3b8; }
+.dp-pop .dp-day.dp-today { border-color: #475569; }
+.dp-pop .dp-day.dp-selected { background: #1d4ed8; color: #fff; }
+.dp-pop .dp-day.dp-disabled { opacity: .35; cursor: not-allowed; text-decoration: line-through; }
+.dp-pop .dp-day.dp-disabled:hover { background: transparent; }
+.dp-foot { display: flex; justify-content: space-between; margin-top: 6px; }
