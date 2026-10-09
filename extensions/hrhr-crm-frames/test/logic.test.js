@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  validateDomain, parseBlocklist, isAppTab, buildRules, resolveConfig, normalizeOrigins,
-  excludedDomains, extraMatchPatterns, DEFAULT_APP_ORIGINS, DEFAULT_BLOCKLIST,
+  validateDomain, parseBlocklist, isAppTab, buildRules, resolveConfig,
+  excludedDomains, DEFAULT_APP_ORIGINS, DEFAULT_BLOCKLIST,
 } from '../lib/logic.js';
 
 test('validateDomain: 正常系は小文字化・trim', () => {
@@ -67,11 +67,23 @@ test('buildRules: 除外にブロックリストとアプリ自身のホスト�
   assert.deepEqual(excludedDomains(['a.com'], ['https://x.example:8443']), ['a.com', 'x.example']);
 });
 
-test('既定ブロックリストに必須ドメインが入っている', () => {
-  for (const d of ['zoom.us', 'hubspot.com', 'accounts.google.com', 'stripe.com']) {
+test('既定ブロックリスト: 認証・決済は入り、HubSpot と Zoom は入っていない', () => {
+  for (const d of ['accounts.google.com', 'login.microsoftonline.com', 'okta.com', 'stripe.com', 'paypal.com']) {
     assert.ok(DEFAULT_BLOCKLIST.includes(d), d);
   }
-  assert.equal(DEFAULT_BLOCKLIST.length, 13);
+  for (const d of ['hubspot.com', 'hubspot.jp', 'hubapi.com', 'zoom.us']) {
+    assert.ok(!DEFAULT_BLOCKLIST.includes(d), d);
+  }
+  assert.equal(DEFAULT_BLOCKLIST.length, 9);
+});
+
+test('buildRules: 既定では hubspot.com / applications.zoom.us は除外されず、accounts.google.com は除外される', () => {
+  const [rule] = buildRules([1], DEFAULT_BLOCKLIST);
+  const ex = rule.condition.excludedRequestDomains;
+  assert.ok(ex.includes('accounts.google.com'));
+  for (const d of ['hubspot.com', 'app.hubspot.com', 'zoom.us', 'applications.zoom.us']) {
+    assert.ok(!ex.includes(d), d);
+  }
 });
 
 test('resolveConfig: managed が sync を上書き、不正値は捨てる', () => {
@@ -92,8 +104,7 @@ test('resolveConfig: sync の空配列は「ブロック無し」として尊重
   assert.deepEqual(resolveConfig({ sync: { blocklist: [] } }).blocklist, []);
 });
 
-test('normalizeOrigins / extraMatchPatterns', () => {
-  assert.deepEqual(normalizeOrigins(['https://a.example/path', 'ftp://x', 'junk', 'https://a.example']), ['https://a.example']);
-  assert.deepEqual(resolveConfig({ managed: { appOrigins: ['junk'] } }).appOrigins, DEFAULT_APP_ORIGINS);
-  assert.deepEqual(extraMatchPatterns(['https://hr-hw.onrender.com', 'https://stg.example']), ['https://stg.example/*']);
+test('appOrigins は固定 (managed に appOrigins があっても無視)', () => {
+  assert.deepEqual(resolveConfig({ managed: { appOrigins: ['https://evil.example'] } }).appOrigins, DEFAULT_APP_ORIGINS);
+  assert.equal(resolveConfig({}).managedOrigins, undefined);
 });

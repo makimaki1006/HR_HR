@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "HR_HR CRM Frames",
-  "description": "HR_HR の CRM 架電画面 (/app/crm) の中でだけ、フレーム表示を拒否するサイトを iframe に表示できるようにする社内用拡張。",
-  "version": "1.0.0",
+  "description": "HR_HR の CRM 架電画面 (/app/crm) の中だけで、フレーム表示を拒否する求人サイト等を右側パネルに表示できるようにする社内用拡張。",
+  "version": "1.0.1",
   "minimum_chrome_version": "111",
-  "permissions": ["declarativeNetRequestWithHostAccess", "storage", "scripting"],
+  "permissions": ["declarativeNetRequestWithHostAccess", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [
