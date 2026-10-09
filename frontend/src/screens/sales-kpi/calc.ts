@@ -483,6 +483,8 @@ export interface CardConf {
   src: CardSrc;
   base: (r: DealRow) => boolean;
   segs?: CardSeg[];
+  /** 判定日(today: yyyy-MM-dd)によって区分が変わるカードの区分。segs より優先 */
+  dynSegs?: (today: string) => CardSeg[];
   /** 率のカード: 分子の区分名 */
   num?: string;
   /** 率のカード: 分母の名前 */
@@ -491,6 +493,15 @@ export interface CardConf {
 }
 
 const KIND_SEGS: CardSeg[] = KINDS4.map((k) => ({ k, pred: (r: DealRow) => r.kind === k }));
+/** 商談予定日時(JST の yyyy-MM-dd。空は未設定)を、判定日の月に対して仕分けた区分名。 */
+export const CYOMI_BUCKETS = ['今月商談', '過去（流れ案件）', '未来（来月以降）', '予定日未設定'] as const;
+export function cyomiBucket(date: string, today: string): (typeof CYOMI_BUCKETS)[number] {
+  const ym = today.slice(0, 7);
+  const m = date.slice(0, 7);
+  if (!m) return '予定日未設定';
+  if (m === ym) return '今月商談';
+  return m < ym ? '過去（流れ案件）' : '未来（来月以降）';
+}
 const notUpcoming = (r: DealRow): boolean => r.kind !== 'これから';
 
 export const CARD_CONF: Record<CardKey, CardConf> = {
@@ -539,7 +550,8 @@ export const CARD_CONF: Record<CardKey, CardConf> = {
     t: '⑨ 持っているCヨミ',
     src: 'cyomi',
     base: () => true,
-    d: 'Cヨミのシートにある取引です。予定日が空のものも入ります（日付は「—」）。',
+    dynSegs: (today) => CYOMI_BUCKETS.map((k) => ({ k, pred: (r: DealRow) => cyomiBucket(r.date, today) === k })),
+    d: 'Cヨミのシートにある取引です。商談予定日時が今月のもの・過去の月（流れ案件）・来月以降・未設定に分けています。区分を押すとその一覧が出ます。予定日が空のものも入ります（日付は「—」）。',
   },
 };
 
@@ -677,7 +689,7 @@ export function cardPanelView(
   const key = st.openCard;
   const conf = CARD_CONF[key];
   const base = cardRows(d, scope, teamOf, conf); // 見出しの件数の元 (絞り込み後)
-  const segs = conf.segs ?? [];
+  const segs = conf.dynSegs ? conf.dynSegs(todayOf(d)) : (conf.segs ?? []);
   const segN = (sg: CardSeg): number => base.filter(sg.pred).length;
   const bpoN = base.filter((r) => r.bpo).length;
   const numSeg = conf.num ? segs.find((x) => x.k === conf.num) : undefined;
