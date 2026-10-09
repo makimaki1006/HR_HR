@@ -20,21 +20,21 @@ describe('カード内訳: 旧画面と React 版が同じ (fixture)', () => {
     expect(log.some(([t]) => t.includes('card1') && t.split('>').length === 3)).toBe(true);
     expect(log.length).toBeGreaterThan(100);
   }, 120_000);
-  it('伊壺チームを選んでいる: 担当者の表から始まる', async () => {
+  it('第1チームを選んでいる: 担当者の表から始まる', async () => {
     await same(D, (s, l) => {
-      s.clickTeam('伊壺チーム');
+      s.clickTeam('第1チーム');
       allCards(s, l, '伊壺');
     });
   }, 60_000);
   it('個人を選んでいる: いきなり取引一覧', async () => {
-    const id = D.people.find((p) => p.team === '伊壺チーム')?.id ?? '';
+    const id = D.people.find((p) => p.team === '第1チーム')?.id ?? '';
     await same(D, (s, l) => {
       s.selectPerson(id);
       allCards(s, l, '個人');
     });
   }, 60_000);
   it('チェックで外した人が居る', async () => {
-    const hidden = D.people.filter((p) => p.team === '伊壺チーム').slice(0, 3).map((p) => p.id);
+    const hidden = D.people.filter((p) => p.team === '第1チーム').slice(0, 3).map((p) => p.id);
     await same(D, (s, l) => { allCards(s, l, '外す'); }, hidden);
   }, 120_000);
   it('開いたまま絞り込みを変えると閉じる / 別のカードを押すと掘り下げが消える', async () => {
@@ -44,10 +44,10 @@ describe('カード内訳: 旧画面と React 版が同じ (fixture)', () => {
       l.push(['team 選択後', panel(s)]);
       s.clickCard(2);
       l.push(['別カード', panel(s)]);
-      s.clickTeam('平田チーム');
+      s.clickTeam('第2チーム');
       l.push(['チップ切替で閉じる', [...panel(s), ...cardsOf(s)]]);
       s.clickCard(0);
-      s.selectPerson(D.people.find((p) => p.team === '平田チーム')?.id ?? '');
+      s.selectPerson(D.people.find((p) => p.team === '第2チーム')?.id ?? '');
       l.push(['個人選択で閉じる', [...panel(s), ...cardsOf(s)]]);
     });
   });
@@ -81,10 +81,10 @@ describe('カード内訳: 担当なし・名簿外の行 (合成データ)', ()
     // card_deals にも同じ名簿外の行を足す
     const row = d.card_deals.pool[0];
     if (!row) throw new Error('fixture に pool の行が無い');
-    d.card_deals.pool.push({ ...row, id: 'off-9', owner: 'ZZ-OFF', ownerName: '名簿外の人', team: '伊壺チーム' });
+    d.card_deals.pool.push({ ...row, id: 'off-9', owner: 'ZZ-OFF', ownerName: '名簿外の人', team: '第1チーム' });
     await same(d, (s, l) => {
       allCards(s, l, '名簿外(全社)');
-      s.clickTeam('伊壺チーム');
+      s.clickTeam('第1チーム');
       allCards(s, l, '名簿外(伊壺)');
     });
   }, 120_000);

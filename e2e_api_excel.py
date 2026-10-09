@@ -17,9 +17,19 @@ import subprocess
 import tempfile
 from io import BytesIO
 
-BASE = "https://hr-hw.onrender.com"
-EMAIL = "test@f-a-c.co.jp"
-PASSWORD = "cyxen_2025"
+import os as _os
+import sys as _sys
+
+# 接続先とログイン情報は環境変数で渡す（リポジトリに書かない）
+_E2E_MISSING = [k for k in ("E2E_BASE_URL", "E2E_EMAIL", "E2E_PASS") if not _os.environ.get(k)]
+if _E2E_MISSING:
+    _sys.exit(
+        "Missing environment variable(s): " + ", ".join(_E2E_MISSING)
+        + ". Set E2E_BASE_URL, E2E_EMAIL and E2E_PASS before running this script."
+    )
+BASE = _os.environ["E2E_BASE_URL"].rstrip("/")
+EMAIL = _os.environ["E2E_EMAIL"]
+PASSWORD = _os.environ["E2E_PASS"]
 DIR = os.path.dirname(os.path.abspath(__file__))
 
 PASS = 0

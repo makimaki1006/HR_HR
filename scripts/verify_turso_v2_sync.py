@@ -3,7 +3,7 @@
 Turso V2 ←→ ローカル hellowork.db 同期検証スクリプト (READ-ONLY)
 ===============================================================
 Phase 3 着手前に、ローカル `data/hellowork.db` と本番 Turso V2
-(`country-statistics-makimaki1006.aws-ap-northeast-1.turso.io`) の
+(`country-statistics-<org>.turso.io`) の
 v2_external_* テーブルが同期されているかを検証する。
 
 設計原則:
@@ -23,7 +23,7 @@ v2_external_* テーブルが同期されているかを検証する。
     python scripts/verify_turso_v2_sync.py --output docs/turso_v2_sync_report_2026-05-04.md
 
 環境変数:
-    TURSO_EXTERNAL_URL     例: libsql://country-statistics-makimaki1006.aws-ap-northeast-1.turso.io
+    TURSO_EXTERNAL_URL     例: libsql://country-statistics-<org>.turso.io
     TURSO_EXTERNAL_TOKEN   Bearer token
 
 対象: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_TURSO_VERIFY.md 参照

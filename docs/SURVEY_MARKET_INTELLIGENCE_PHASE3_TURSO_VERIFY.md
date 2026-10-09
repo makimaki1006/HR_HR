@@ -7,7 +7,7 @@
 
 ## 1. 目的
 
-Phase 3 着手前に、ローカル `data/hellowork.db` と本番 Turso V2 (`country-statistics-makimaki1006.aws-ap-northeast-1.turso.io`) の **テーブル存在 / 行数 / 代表値** を比較し、差分を可視化する。
+Phase 3 着手前に、ローカル `data/hellowork.db` と本番 Turso V2 (`country-statistics-<org>.turso.io`) の **テーブル存在 / 行数 / 代表値** を比較し、差分を可視化する。
 
 MEMORY ルール「Turso優先」(ローカル DB 更新だけでは本番に反映されない) に基づき、本番反映状態を可視化することで Phase 3 実装時の前提齟齬を防ぐ。
 
@@ -52,7 +52,7 @@ pip install requests
 `hellowork-deploy/.env` に以下が設定されていることを確認:
 
 ```
-TURSO_EXTERNAL_URL=libsql://country-statistics-makimaki1006.aws-ap-northeast-1.turso.io
+TURSO_EXTERNAL_URL=libsql://country-statistics-<org>.turso.io
 TURSO_EXTERNAL_TOKEN=<Bearer token>
 ```
 
@@ -268,7 +268,7 @@ TARGET_TABLES を増やしすぎた場合に発生。`--max-reads 200` で上限
 
 - 環境変数の確認: `echo $TURSO_EXTERNAL_URL` (空でないこと)
 - token 期限切れ: Turso ダッシュボードで再発行
-- ネットワーク: `curl https://country-statistics-makimaki1006.aws-ap-northeast-1.turso.io/health` で疎通確認
+- ネットワーク: `curl https://country-statistics-<org>.turso.io/health` で疎通確認
 
 ### 8.4 `ローカル DB が見つかりません`
 

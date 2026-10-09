@@ -5,7 +5,19 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='repla
 
 from playwright.sync_api import sync_playwright
 
-BASE = "https://hr-hw.onrender.com"
+import os as _os
+import sys as _sys
+
+# 接続先とログイン情報は環境変数で渡す（リポジトリに書かない）
+_E2E_MISSING = [k for k in ("E2E_BASE_URL", "E2E_EMAIL", "E2E_PASS") if not _os.environ.get(k)]
+if _E2E_MISSING:
+    _sys.exit(
+        "Missing environment variable(s): " + ", ".join(_E2E_MISSING)
+        + ". Set E2E_BASE_URL, E2E_EMAIL and E2E_PASS before running this script."
+    )
+BASE = _os.environ["E2E_BASE_URL"].rstrip("/")
+EMAIL = _os.environ["E2E_EMAIL"]
+PASSWORD = _os.environ["E2E_PASS"]
 SSDIR = "scripts/screenshots/prod_final"
 os.makedirs(SSDIR, exist_ok=True)
 
@@ -72,8 +84,8 @@ with sync_playwright() as p:
 
     # === Login ===
     page.goto(f"{BASE}/login", wait_until="networkidle", timeout=60000)
-    page.fill('input[name=email]', 'test@f-a-c.co.jp')
-    page.fill('input[name=password]', 'cyxen_2025')
+    page.fill('input[name=email]', EMAIL)
+    page.fill('input[name=password]', PASSWORD)
     page.click('button[type=submit]')
     page.wait_for_timeout(8000)
     logged_in = "/login" not in page.url

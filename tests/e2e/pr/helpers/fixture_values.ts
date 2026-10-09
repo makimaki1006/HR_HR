@@ -153,7 +153,7 @@ export const RD_FIXTURE = {
 /**
  * 営業KPI (tests/fixtures/sales_kpi、判定日 2026-09-04) の既知値。
  * `cargo run --example dump_sales_kpi` の JSON の by_person / by_team / calls.periods.this_week を Python で足した値
- * (Rust の契約テスト src/handlers/sales_kpi/tests.rs と同じ: 伊壺チーム apo 31 / pool 66 / 実施 19、stale 9)。
+ * (Rust の契約テスト src/handlers/sales_kpi/tests.rs と同じ: 第1チーム apo 31 / pool 66 / 実施 19、stale 9)。
  */
 export const SALES_KPI_FIXTURE = {
   today: '2026-09-04',

@@ -102,7 +102,7 @@ test.describe('営業KPI (React) /app/sales-kpi', () => {
     expect(r).toMatch(/^blocked: EvalError/);
   });
 
-  test('fixture の主要 KPI の値 (全社 / 伊壺チーム / 架電)', async ({ page }) => {
+  test('fixture の主要 KPI の値 (全社 / 第1チーム / 架電)', async ({ page }) => {
     await login(page);
     const api = await fetchApi(page);
     await page.goto('/app/sales-kpi');
@@ -143,9 +143,9 @@ test.describe('営業KPI (React) /app/sales-kpi', () => {
     expect(call.get('5分超の通話')).toBe(`${k.calls.long}件`);
     expect(call.get('1日あたりの架電数')).toBe(`${Math.round(conn / tw.days.length).toLocaleString('en-US')}件`);
 
-    // 伊壺チームに絞ると今月の成績が by_team['伊壺チーム'] と一致する
-    await page.locator('#teams .chip', { hasText: /^伊壺チーム$/ }).click();
-    const t = api.by_team['伊壺チーム'] ?? {};
+    // 第1チームに絞ると今月の成績が by_team['第1チーム'] と一致する
+    await page.locator('#teams .chip', { hasText: /^第1チーム$/ }).click();
+    const t = api.by_team['第1チーム'] ?? {};
     const team = new Map(await cards(page, 'cards1'));
     expect(team.get('① 取ったアポ')).toBe(`${k.iduboTeam.apo}件`);
     expect(t.apo).toBe(k.iduboTeam.apo);
@@ -302,7 +302,7 @@ test.describe('営業KPI (React) /app/sales-kpi', () => {
         await page.goto(url);
         await expect(page.locator('#cards1 .c')).toHaveCount(7);
         const out: Record<string, string[]> = {};
-        await page.locator('#teams .chip', { hasText: /^伊壺チーム$/ }).click();
+        await page.locator('#teams .chip', { hasText: /^第1チーム$/ }).click();
         await page.locator('#cards1 .c').nth(1).click();
         out['team'] = await grab();
         const person = (await page.locator('#person option').nth(1).getAttribute('value')) ?? '';

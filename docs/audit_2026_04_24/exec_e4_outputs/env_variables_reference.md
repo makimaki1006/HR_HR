@@ -82,11 +82,11 @@ cargo run
 ```bash
 # Windows PowerShell
 $env:AUTH_PASSWORD = "dev-password"
-$env:TURSO_EXTERNAL_URL = "libsql://country-statistics-xxx.turso.io"
+$env:TURSO_EXTERNAL_URL = "libsql://country-statistics-<org>.turso.io"
 $env:TURSO_EXTERNAL_TOKEN = "..."
-$env:SALESNOW_TURSO_URL = "libsql://salesnow-xxx.turso.io"
+$env:SALESNOW_TURSO_URL = "libsql://salesnow-<org>.turso.io"
 $env:SALESNOW_TURSO_TOKEN = "..."
-$env:AUDIT_TURSO_URL = "libsql://audit-xxx.turso.io"
+$env:AUDIT_TURSO_URL = "libsql://audit-<org>.turso.io"
 $env:AUDIT_TURSO_TOKEN = "..."
 $env:AUDIT_IP_SALT = "$(uuidgen)"   # ⚠ 本番危険デフォルトを必ず変更
 $env:ADMIN_EMAILS = "admin@example.com"

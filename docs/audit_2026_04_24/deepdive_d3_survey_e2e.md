@@ -79,8 +79,8 @@
 ```bash
 cd C:/Users/fuji1/AppData/Local/Temp/hellowork-deploy
 BASE_URL=https://hr-hw.onrender.com \
-E2E_EMAIL=s_fujimaki@f-a-c.co.jp \
-E2E_PASS=cyxen_2025 \
+E2E_EMAIL=<E2E_EMAIL> \
+E2E_PASS=<E2E_PASS> \
 npx playwright test tests/e2e/survey_deepdive_2026_04_26.spec.ts --reporter=list
 ```
 
@@ -194,8 +194,8 @@ Permission to use Bash has been denied.
 ```bash
 cd C:/Users/fuji1/AppData/Local/Temp/hellowork-deploy
 BASE_URL=https://hr-hw.onrender.com \
-E2E_EMAIL=s_fujimaki@f-a-c.co.jp \
-E2E_PASS=cyxen_2025 \
+E2E_EMAIL=<E2E_EMAIL> \
+E2E_PASS=<E2E_PASS> \
 npx playwright test tests/e2e/survey_deepdive_2026_04_26.spec.ts --reporter=list
 ```
 

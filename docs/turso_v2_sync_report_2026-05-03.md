@@ -3,7 +3,7 @@
 - 実行日時 (UTC): 2026-05-03T15:13:10.018264+00:00 〜 2026-05-03T15:13:12.985102+00:00
 - 所要時間: 3.0 秒
 - ローカル DB: `C:\Users\fuji1\AppData\Local\Temp\hellowork-deploy\data\hellowork.db`
-- リモート: `country-statistics-makimaki1006.aws-ap-northeast-1.turso.io` (Turso V2)
+- リモート: `country-statistics-<org>.turso.io` (Turso V2)
 - READ 消費: 13 (上限 100)
 
 ## サマリ

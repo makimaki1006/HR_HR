@@ -35,8 +35,8 @@ HTML 内容の検証項目はすべて **既存 unit test (70 件) で網羅的�
 | ビルド | `cargo build --release` 6m40s で成功 |
 | 起動コマンド | `nohup ./target/release/rust_dashboard.exe > /tmp/server.log 2>&1 &` |
 | ローカル DB | `data/hellowork.db` 469,027 rows ロード成功 |
-| Turso 外部統計 | `country-statistics-makimaki1006.aws-ap-northeast-1.turso.io` 接続成功 |
-| Turso SalesNow | `salesnow-makimaki1006.aws-ap-northeast-1.turso.io` 接続成功 |
+| Turso 外部統計 | `country-statistics-<org>.turso.io` 接続成功 |
+| Turso SalesNow | `salesnow-<org>.turso.io` 接続成功 |
 | Audit DB | 未設定 (AUDIT_TURSO_URL 無し → 機能 OFF) |
 
 起動ログ抜粋:

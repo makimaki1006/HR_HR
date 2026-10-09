@@ -7,7 +7,7 @@
 
 | 項目 | Turso V2 (`country-statistics`) | SalesNow 専用 Turso | ローカル CSV |
 |------|--------------------------------|---------------------|--------------|
-| ホスト | `country-statistics-makimaki1006.aws-ap-northeast-1.turso.io` | `salesnow-makimaki1006.aws-ap-northeast-1.turso.io` | (ローカル) |
+| ホスト | `country-statistics-<org>.turso.io` | `salesnow-<org>.turso.io` | (ローカル) |
 | 存在 | ✅ | ✅ | ✅ |
 | 行数 | 198,201 | 198,243 | 467,626 |
 | corporate_number 一意 | 198,201 | 198,243 | (未集計) |
@@ -17,7 +17,7 @@
 
 ## Turso V2 (`country-statistics`)
 
-- ホスト: `country-statistics-makimaki1006.aws-ap-northeast-1.turso.io`
+- ホスト: `country-statistics-<org>.turso.io`
 - 行数: **198,201** (`v2_salesnow_companies`)
 - corporate_number 一意性: 198,201 / 198,201 (100.00% unique)
 - corporate_number NULL/空: 0
@@ -77,7 +77,7 @@
 
 ## SalesNow 専用 Turso
 
-- ホスト: `salesnow-makimaki1006.aws-ap-northeast-1.turso.io`
+- ホスト: `salesnow-<org>.turso.io`
 - 行数: **198,243** (`v2_salesnow_companies`)
 - corporate_number 一意性: 198,243 / 198,243 (100.00% unique)
 - corporate_number NULL/空: 0

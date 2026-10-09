@@ -61,7 +61,7 @@ C:\Users\fuji1\OneDrive\デスクトップ\Hubspot\.env
 ### 3.4 Turso V2 認証 (アップロード時)
 
 ```bash
-export TURSO_EXTERNAL_URL=libsql://country-statistics-makimaki1006.aws-ap-northeast-1.turso.io
+export TURSO_EXTERNAL_URL=libsql://country-statistics-<org>.turso.io
 export TURSO_EXTERNAL_TOKEN=<別途取得>
 ```
 
@@ -217,7 +217,7 @@ SalesNow を Phase 3 で **Turso V2 経由のみ** で参照する場合、ロ�
 ローカル hellowork.db に投入した後、本番反映のため Turso にアップロード:
 
 ```bash
-export TURSO_EXTERNAL_URL=libsql://country-statistics-makimaki1006.aws-ap-northeast-1.turso.io
+export TURSO_EXTERNAL_URL=libsql://country-statistics-<org>.turso.io
 export TURSO_EXTERNAL_TOKEN=<token>
 
 # dry-run でテーブル一覧と件数を確認

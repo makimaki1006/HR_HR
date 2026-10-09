@@ -21,15 +21,16 @@ export const LinkOpenerContext = createContext<OpenLink | null>(null);
 
 /**
  * 項目の値のリンク。クリックで「求人検索・リンク先」パネルのタブに開く。Ctrl / ⌘ / Shift / 中クリックはブラウザの新しいタブ (通常の動き)。
- * HubSpot の URL はパネルのタブを作らず、常にブラウザの新しいタブで直接開く。
+ * HubSpot の URL は、枠の拡張機能が入っていればパネルのタブで開き、無ければブラウザの新しいタブで直接開く。
  * http(s) でない値はリンクにせず文字のまま出す
  */
 export function PropLink({ url, label, children }: { url: string; label?: string | undefined; children?: ReactNode }) {
   const open = useContext(LinkOpenerContext);
+  const { installed } = useFrameExtension();
   const u = safeHttpUrl(url);
   if (u === null) return <span className="wd-link-text">{children ?? url}</span>;
   const href = u.toString();
-  const hubspot = isHubspotUrl(u);
+  const hubspot = isHubspotUrl(u) && !installed;
   function onClick(e: MouseEvent<HTMLAnchorElement>) {
     if (open === null || hubspot || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
@@ -51,6 +52,7 @@ export interface CenterTabs {
 
 /** パネルの中のタブの状態。`resetKey` (選んだ案件) が変わったら、開いたリンクを閉じてリンク一覧に戻す */
 export function useCenterTabs(resetKey: string | null, searchUrl: string | null): CenterTabs {
+  const { installed } = useFrameExtension();
   const [state, setState] = useState<CenterTabsState & { searchOpened: boolean }>({ ...initialCenterTabs, searchOpened: false });
   const [seenKey, setSeenKey] = useState(resetKey);
   if (seenKey !== resetKey) {
@@ -60,10 +62,10 @@ export function useCenterTabs(resetKey: string | null, searchUrl: string | null)
   const active = state.active === SEARCH_TAB && searchUrl === null ? DEAL_TAB : state.active;
   const open = useCallback<OpenLink>((url, label) => {
     setState(s => {
-      const next = openLink(s, url, label, searchUrl);
+      const next = openLink(s, url, label, searchUrl, installed);
       return { ...next, searchOpened: s.searchOpened || next.active === SEARCH_TAB };
     });
-  }, [searchUrl]);
+  }, [searchUrl, installed]);
   // 最後のリンクを閉じたら、タブの並びで左隣 (求人検索があればそれ、無ければ案件) に戻る
   const close = useCallback((id: string) => {
     setState(s => ({ ...s, ...closeLink(s, id, searchUrl !== null ? SEARCH_TAB : DEAL_TAB) }));
@@ -138,6 +140,9 @@ export function CenterPanel({ id, active, tabbed = true, children }: {
     className={`cq-cpanel${active ? ' is-active' : ''}`} inert={!active} data-testid={`center-panel-${id}`}>{children}</div>;
 }
 
+const HUBSPOT_NOTE = 'HubSpot のログイン画面が繰り返し出る場合は「新しいタブで開く」を使ってください';
+const isHubspotHost = (host: string) => host === 'hubspot.com' || host.endsWith('.hubspot.com') || host === 'hubspot.jp' || host.endsWith('.hubspot.jp');
+
 const HINT_KEY = 'crm.linkHintDismissed';
 const HINT_TEXT = '求人サイト（Indeed など）は枠の中では開けないことがあります。⌘ / Ctrl を押しながらクリックすると新しいタブで開きます。';
 function readHintDismissed(): boolean {
@@ -169,6 +174,7 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
   const loaded = useRef(false);
   /** 「戻る」で起きる枠の読み込み (移動ではない) を数えないための、まだ来ていない読み込みの数 */
   const pendingBack = useRef(0);
+  const hubspotNote = tab.embed !== null && isHubspotHost(tab.host);
   const isSearch = tab.embed !== null && tab.host.replace(/^www\./, '').startsWith('google.');
   function onLoad() {
     if (!loaded.current) { loaded.current = true; return; }
@@ -197,6 +203,7 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
       {onClose && <button type="button" onClick={onClose}>このタブを閉じる</button>}
       {tab.embed !== null && <small className="cq-linkbar-note">表示されない場合は新しいタブで開いてください</small>}
     </div>
+    {hubspotNote && <small className="cq-linkbar-note" data-testid="hubspot-note">{HUBSPOT_NOTE}</small>}
     {isSearch && <SearchHint />}
     {tab.embed !== null
       ? <iframe key={reloads} className="cq-linkframe" src={tab.embed} title={`${tab.label}(${tab.host})`}
