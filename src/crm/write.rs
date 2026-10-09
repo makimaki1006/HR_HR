@@ -43,6 +43,7 @@ use super::pending::{self, Payload, StageMove, Step};
 use super::property_catalog::{valid_property_name, CatalogEntry, CrmCatalogProperty};
 use super::queue_pipelines::{find_pipeline, QUEUE_PIPELINES};
 use super::rbac;
+use super::record_lock::{self, RecordLocks};
 use super::routes::{
     hubspot_error_response, is_valid_id, timeout_response, CrmCtx, CRM_REQUEST_DEADLINE,
 };
@@ -72,6 +73,10 @@ pub struct WriteConfig {
     pub pending_max: i64,
     /// 1 人あたりの保存受付の上限 (1 分あたり。`CRM_WRITE_RATE_PER_MIN`、最小 1。0・不正は既定 200)
     pub rate_per_min: u32,
+    /// レコード単位の直列化の表 (本番は要求側と再送 worker で同じもの。`Default` は個別)
+    pub locks: Arc<RecordLocks>,
+    /// 同じレコードの先行する書き込みを待つ最長 (超えたら 503 `record_busy`)
+    pub lock_wait: Duration,
 }
 
 impl WriteConfig {
@@ -97,6 +102,8 @@ impl WriteConfig {
             allowlist,
             pending_max,
             rate_per_min,
+            locks: record_lock::shared(),
+            lock_wait: record_lock::DEFAULT_LOCK_WAIT,
         }
     }
 
@@ -113,6 +120,8 @@ impl Default for WriteConfig {
             allowlist: HashSet::new(),
             pending_max: pending::DEFAULT_PENDING_MAX,
             rate_per_min: DEFAULT_WRITE_RATE_PER_MIN,
+            locks: Arc::new(RecordLocks::default()),
+            lock_wait: record_lock::DEFAULT_LOCK_WAIT,
         }
     }
 }
@@ -344,6 +353,11 @@ pub struct CrmAdminOperationsResponse {
 
 fn err(status: StatusCode, kind: &str) -> Response {
     (status, Json(json!({ "error": kind, "error_kind": kind }))).into_response()
+}
+
+/// 同じレコードへの先行する書き込みが終わらない (何も保存されていない。少し待って再度保存する)
+fn record_busy() -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "record_busy")
 }
 
 fn now_rfc3339() -> String {
@@ -655,8 +669,9 @@ pub async fn prepare(client: &HubSpotClient, step: &Step) -> Result<Prepared, St
         props.extend(required.iter().cloned());
     }
     let names: Vec<&str> = props.iter().map(String::as_str).collect();
+    // 競合確認の読み取りは相乗り・キャッシュをしない (直前の書き込み前の値と比べると、更新を取りこぼす)
     let rec = client
-        .get_object(&step.object, &step.id, &names)
+        .get_object_fresh(&step.object, &step.id, &names)
         .await
         .map_err(classify)?;
     let cur: BTreeMap<String, Option<String>> = props
@@ -1201,6 +1216,15 @@ async fn run_patch(
     session_id: &str,
     reuse_failed: bool,
 ) -> Response {
+    // 同じ案件への書き込みは 1 つずつ (読む → 比べる → 書く の間に他の要求が割り込めない)
+    let Ok(mut held) = ctx
+        .write
+        .locks
+        .acquire([record_lock::key("deals", deal_id)], ctx.write.lock_wait)
+        .await
+    else {
+        return record_busy();
+    };
     let (catalog, _) = match ctx.catalog.get(client).await {
         Ok(c) => c,
         Err(e) => return hubspot_error_response(&e),
@@ -1209,6 +1233,17 @@ async fn run_patch(
         Ok(s) => s,
         Err((status, v)) => return (status, Json(v)).into_response(),
     };
+    // 担当者・会社も同じ要求の中で書くので、その分も (整列した順に) 取る
+    if held
+        .extend(
+            steps.iter().map(|s| record_lock::key(&s.object, &s.id)),
+            ctx.write.lock_wait,
+        )
+        .await
+        .is_err()
+    {
+        return record_busy();
+    }
 
     // 事前確認 (現在値の読み取り → 競合・必須項目)
     let mut prepared = Vec::new();
@@ -1216,6 +1251,8 @@ async fn run_patch(
         match prepare(client, s).await {
             Ok(p) => prepared.push(p),
             Err(stop) => {
+                // 何も書かない終わり方 (競合など)。監査の書き込みを待たせないよう、先に鍵を放す
+                drop(held);
                 return stop_response(
                     stop,
                     audit,
@@ -1226,7 +1263,7 @@ async fn run_patch(
                     deal_id,
                     &steps,
                 )
-                .await
+                .await;
             }
         }
     }
@@ -1838,6 +1875,43 @@ pub async fn process_op(
         .await;
         return;
     }
+    // 受付側と同じ鍵 (案件 + 担当者・会社) を取ってから送る。取れなければ今回は見送り、次の周回でやり直す
+    let _held = match write
+        .locks
+        .acquire(
+            std::iter::once(record_lock::key("deals", &row.deal_id)).chain(
+                row.payload
+                    .steps
+                    .iter()
+                    .map(|s| record_lock::key(&s.object, &s.id)),
+            ),
+            write.lock_wait,
+        )
+        .await
+    {
+        Ok(h) => h,
+        Err(_) => {
+            tracing::warn!(
+                operation_id = %row.operation_id,
+                "crm write worker: record busy, retry on the next round"
+            );
+            return;
+        }
+    };
+    // 鍵を待っている間に台帳の行が変わった (管理者が破棄した・受付側が保存した) かもしれない。最新を読み直す
+    let fresh_row = match pending::blocking(audit, {
+        let op = row.operation_id.clone();
+        move |t| pending::get_op(t, &op)
+    })
+    .await
+    {
+        Ok(Ok(Some(r))) => r,
+        _ => row.clone(),
+    };
+    if !matches!(fresh_row.status.as_str(), "pending" | "in_progress") {
+        return;
+    }
+    let row = &fresh_row;
     let mut payload = row.payload.clone();
     let mut run = Run::default();
     let attempts = row.attempts.max(1) + i64::from(row.status == "pending");
