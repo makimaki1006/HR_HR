@@ -222,11 +222,16 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
           <p>{d.name ?? '(案件名なし)'}</p></div>
         <div className="wd-head-side">
           <StageMover ctx={stageMove} fallback={<span className="cq-stage">{d.stage_label ?? '(ステージ名を取得できません)'}</span>} />
-          <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
-          {density && <DensityToggle density={density} />}
         </div>
       </header>
-      <Freshness fetchedAt={data.fetched_at} now={zoom.now} refreshing={refreshing} refreshError={refreshError} onRefresh={onRefresh} />
+      {/* 情報の鮮度と、HubSpot・表示の切り替えは同じ行に置く (見出しの行を縦に伸ばさない) */}
+      <div className="wd-meta-row">
+        <Freshness fetchedAt={data.fetched_at} now={zoom.now} refreshing={refreshing} refreshError={refreshError} onRefresh={onRefresh} />
+        <span className="wd-meta-end">
+          <a href={d.deep_link} target="_blank" rel="noreferrer">HubSpotで開く</a>
+          {density && <DensityToggle density={density} />}
+        </span>
+      </div>
 
       <section className="wd-dialbox" aria-label="架ける番号">
         <h3 className="wd-dial-title">架ける番号</h3>

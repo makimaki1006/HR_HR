@@ -609,7 +609,7 @@ describe('CallQueueScreen: pipeline and stage dropdowns', () => {
     expect(screen.queryByText('架空塾')).toBeNull(); // 次回日が未来
     expect(screen.queryByText('架空クリーニング')).toBeNull(); // 対象外ステージ
     expect(screen.queryByText('架空食品株式会社')).toBeNull();
-    expect(screen.getByTestId('queue-count').textContent).toContain('全 2 件中 2 件を表示');
+    expect(screen.getByTestId('queue-count').textContent).toContain('全 3 件中 3 件を表示');
     // 実データに切り替えると、架空のパイプラインは既定に戻す
     fireEvent.click(screen.getByRole('button', { name: '実データ' }));
     expect(screen.getByLabelText<HTMLSelectElement>('パイプライン').value).toBe('753186575');
