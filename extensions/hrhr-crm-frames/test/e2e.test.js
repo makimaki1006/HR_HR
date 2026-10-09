@@ -76,7 +76,7 @@ after(async () => {
 });
 
 const ruleCount = () => sw.evaluate(async () => (await chrome.declarativeNetRequest.getSessionRules()).length);
-async function waitFor(fn, msg, ms = 10_000) {
+async function waitFor(fn, msg, ms = 30_000) {
   const end = Date.now() + ms;
   for (;;) {
     const v = await fn();

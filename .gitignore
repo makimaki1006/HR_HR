@@ -53,6 +53,8 @@ STATUS.md
 # VRT baseline は例外 (CI 生成・目視レビュー済みを追跡する)
 !tests/vrt/__screenshots__/
 !tests/vrt/__screenshots__/**/*.png
+# Chrome extension icons (version-controlled source icons)
+!extensions/hrhr-crm-frames/icons/*.png
 chart_verify*.png
 check_*.png
 d??_*.png
@@ -158,3 +160,4 @@ data/job-copy-local/
 playwright-report-pr/
 test-results-pr/
 test-results-job-copy/
+dist/
