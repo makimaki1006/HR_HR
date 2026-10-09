@@ -12,6 +12,7 @@ import type { CrmOperationStatus } from '../../generated/CrmOperationStatus';
 import type { CrmPatchConflict } from '../../generated/CrmPatchConflict';
 import type { CrmPatchInvalid } from '../../generated/CrmPatchInvalid';
 import type { CrmPatchObject } from '../../generated/CrmPatchObject';
+import type { CrmPatchPartial } from '../../generated/CrmPatchPartial';
 import type { CrmPatchQueued } from '../../generated/CrmPatchQueued';
 import type { CrmPatchSaved } from '../../generated/CrmPatchSaved';
 import type { CrmPropertyOption } from '../../generated/CrmPropertyOption';
@@ -57,6 +58,8 @@ export type PatchQueued = Omit<CrmPatchQueued, 'status'> & { status: 'queued' };
 /** 409: どのオブジェクトの現在値が違ったか (object) を持つ */
 export type PatchConflict = Omit<CrmPatchConflict, 'status' | 'object'> & { status: 'conflict'; object: WriteObject };
 export type PatchInvalid = Omit<CrmPatchInvalid, 'status'> & { status: 'invalid' };
+/** 複数オブジェクトの保存が途中で止まったとき、すでに HubSpot に書けた分 */
+export type PatchPartial = CrmPatchPartial;
 /** 2xx で返るもの (200 saved / 202 queued) */
 export type PatchResponse = PatchSaved | PatchQueued;
 /** 4xx で返るもの (409 / 422) */

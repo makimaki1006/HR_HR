@@ -11,7 +11,7 @@ import { PropertyPanel } from './PropertyPanel';
 import { catalogIndex } from './propertyModel';
 import type { SelectedProps } from './propertyModel';
 import { FIXTURE_CATALOG } from './usePropertyCatalog';
-import { useCrmWrite } from './useCrmWrite';
+import { invalidMessage, partialRequest, useCrmWrite } from './useCrmWrite';
 import { useWriteBindings } from './writeBindings';
 import { fixtureDetail } from './workspaceFixture';
 import { kindOf } from './writeModel';
@@ -353,6 +353,77 @@ describe('operation_id', () => {
   });
 });
 
+describe('operation_id (失敗の後の再試行)', () => {
+  it('受け付けられなかった (queue_full) 後の再試行は、新しい operation_id で送る (古い失敗の結果が返り続けない)', async () => {
+    const patch: Patch = vi.fn()
+      .mockResolvedValueOnce({ kind: 'queue_full' })
+      .mockResolvedValue(savedOut({}));
+    await setup(schemaOf(), patch);
+    fireEvent.click(editBtn('募集職種（リストデータ）'));
+    fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: '一回目' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await screen.findByText(/何も保存されていません/);
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度保存' }));
+    await screen.findByText('✓ 保存済み');
+    expect(body(patch, 1)?.operation_id).not.toBe(body(patch, 0)?.operation_id);
+  });
+
+  it('管理者が破棄した操作 (410) は新しい operation_id で送り直せる', async () => {
+    const patch: Patch = vi.fn()
+      .mockResolvedValueOnce({ kind: 'discarded' })
+      .mockResolvedValue(savedOut({}));
+    await setup(schemaOf(), patch);
+    fireEvent.click(editBtn('募集職種（リストデータ）'));
+    fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: '一回目' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    await screen.findByText(/取り消しました/);
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度保存' }));
+    await screen.findByText('✓ 保存済み');
+    expect(body(patch, 1)?.operation_id).not.toBe(body(patch, 0)?.operation_id);
+  });
+});
+
+describe('途中まで書けた保存 (partial)', () => {
+  it('案件は書けて担当者が拒否された → 案件の項目は保存済みと表示し、詳細を読み直す (「何も保存されていない」と言わない)', async () => {
+    const patch: Patch = vi.fn(() => Promise.resolve<PatchOutcome>({
+      kind: 'invalid',
+      body: { status: 'invalid', errors: { '_': 'HubSpot が値を受け付けませんでした' }, missing_required: [], partial: { values: { syokusyu_risuto: '入力した値' }, objects_values: {} } },
+    }));
+    const onSaved = await setup(schemaOf(), patch);
+    fireEvent.click(editBtn('募集職種（リストデータ）'));
+    fireEvent.change(screen.getByRole('textbox', { name: '募集職種（リストデータ）' }), { target: { value: '入力した値' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect((await screen.findByText('✓ 保存済み')).getAttribute('data-state')).toBe('saved');
+    expect(onSaved).toHaveBeenCalledWith(DEAL);
+  });
+
+  it('項目のエラーのキー: 案件は項目名、担当者・会社は contact.x / company.x、全体は _ (どれも画面に出る)', () => {
+    expect(invalidMessage({ 'contact.jobtitle': '長すぎます' }, 'contact', 'jobtitle', false)).toBe('長すぎます');
+    expect(invalidMessage({ 'company.domain': '不正' }, 'company', 'domain', false)).toBe('不正');
+    expect(invalidMessage({ amount: '数値で' }, 'deal', 'amount', false)).toBe('数値で');
+    expect(invalidMessage({ _: 'HubSpot が値を受け付けませんでした' }, 'contact', 'jobtitle', false)).toBe('HubSpot が値を受け付けませんでした');
+    expect(invalidMessage({ 'contact._': '担当者の一括エラー' }, 'contact', 'jobtitle', false)).toBe('担当者の一括エラー');
+    // 他の項目に固有のエラーがあるときは、その文言を関係ない項目に出さない
+    expect(invalidMessage({ amount: '数値で' }, 'deal', 'dealname', false)).toBe('保存できませんでした。入力を確かめてください。');
+    // どの項目にも固有のエラーが無いときだけ、残りのエラーを代わりに出す
+    expect(invalidMessage({ operation_id: 'operation_id が不正です' }, 'deal', 'amount', true)).toBe('operation_id が不正です');
+  });
+
+  it('partial から、書けたオブジェクトの変更だけを取り出す', () => {
+    const req = {
+      dealId: DEAL, recordIds: { contact: 'c1', company: null },
+      changes: [
+        { object: 'deal' as const, name: 'amount', base: '1', value: '2' },
+        { object: 'contact' as const, name: 'jobtitle', base: 'a', value: 'b' },
+      ],
+    };
+    const onlyDeal = partialRequest(req, { values: { amount: '2' }, objects_values: {} });
+    expect(onlyDeal.changes.map(c => c.name)).toEqual(['amount']);
+    const onlyContact = partialRequest(req, { values: {}, objects_values: { contact: { jobtitle: 'b' } } });
+    expect(onlyContact.changes.map(c => c.name)).toEqual(['jobtitle']);
+  });
+});
+
 describe('ステージの変更', () => {
   const stageSelect = () => screen.getByRole('combobox', { name: 'ステージを変更' });
 
@@ -441,7 +512,14 @@ describe('契約の読み取り', () => {
     expect(http(403, { error: 'forbidden' }).kind).toBe('forbidden');
     expect(http(503, { error: 'queue_full' }).kind).toBe('queue_full');
     expect(http(503, { error: 'queue_unavailable', error_kind: 'queue_unavailable' }).kind).toBe('queue_full');
+    // 送った後で台帳を更新できなかった: 保存できたか分からないので「何も保存されていない」にしない
+    expect(http(503, { error: 'queue_uncertain', error_kind: 'queue_uncertain' }).kind).toBe('error');
+    expect(http(410, { error: 'discarded' }).kind).toBe('discarded');
     expect(http(500, undefined).kind).toBe('error');
+    const withPartial = http(403, { error: 'forbidden', partial: { values: { amount: '2' }, objects_values: {} } });
+    expect(withPartial.kind === 'forbidden' && withPartial.partial?.values).toEqual({ amount: '2' });
+    const err = http(404, { error: 'not_found', partial: { values: { amount: '2' }, objects_values: { contact: {} } } });
+    expect(err.kind === 'error' && err.partial?.objects_values).toEqual({ contact: {} });
   });
 
   it('項目の種類 → 入力欄', () => {

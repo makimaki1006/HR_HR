@@ -327,7 +327,7 @@ fn row_to_session(r: std::collections::HashMap<String, serde_json::Value>) -> Lo
 // activity_logs
 // ============================================================================
 
-/// 重要操作を1件記録 (fire-and-forget。失敗しても本番動作に影響させない)
+/// 重要操作を1件記録 (fire-and-forget。失敗しても本番動作に影響させない)。記録できたら true
 pub fn insert_activity(
     audit: &AuditDb,
     account_id: &str,
@@ -336,7 +336,7 @@ pub fn insert_activity(
     target_type: &str,
     target_id: &str,
     meta: &str,
-) {
+) -> bool {
     let id = new_uuid();
     let at = now_iso8601();
     let result = audit.turso().execute(
@@ -360,7 +360,9 @@ pub fn insert_activity(
             account_id = %account_id,
             "activity log failed: {e}"
         );
+        return false;
     }
+    true
 }
 
 /// 特定アカウントの最近のアクティビティ
