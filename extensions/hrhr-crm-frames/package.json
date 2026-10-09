@@ -1,0 +1,11 @@
+{
+  "name": "hrhr-crm-frames",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/logic.test.js",
+    "test:e2e": "node --test --test-timeout=120000 test/e2e.test.js",
+    "test:all": "node --test --test-timeout=120000 test/logic.test.js test/e2e.test.js"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "HR_HR CRM Frames",
+  "description": "HR_HR の CRM 架電画面 (/app/crm) の中でだけ、フレーム表示を拒否するサイトを iframe に表示できるようにする社内用拡張。",
+  "version": "1.0.0",
+  "minimum_chrome_version": "111",
+  "permissions": ["declarativeNetRequestWithHostAccess", "storage", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://hr-hw.onrender.com/*",
+        "http://localhost:9216/*",
+        "http://127.0.0.1:9216/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": { "default_title": "HR_HR CRM Frames", "default_popup": "popup.html" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "storage": { "managed_schema": "managed_schema.json" }
+}
