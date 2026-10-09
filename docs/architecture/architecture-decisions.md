@@ -231,3 +231,26 @@ Headless CRM の RBAC と操作者記録 (headless-crm-design §9, §13) には
   - 既存 audit Turso の accounts.role (列は既存)
   - Google グループ (Workspace 管理側での設定が必要)
   - 環境変数 (ADMIN_EMAILS と同じ方式。変更に再デプロイが要る)
+
+---
+
+## ADR-018 — Headless CRM の書き込みの再送待ち・操作台帳は既存の監査 Turso に置く
+
+Status: Accepted (2026-10-09 ユーザー決定。書き込み機能は既定 OFF で出荷)
+
+ADR-009 が保留していた「Durable Retry / Pending Sync の保存技術」を決める。
+
+- 現行の決定: ADR-009 は「Queue は CRM copy ではない。未反映 operation のみ保持する。具体 storage は未決定」。headless-crm-design §17 の候補は「既存 audit Turso への表追加 / 既存 Google Sheets 連携」。
+- 具体的な問題: BPO が入力した値を HubSpot の一時障害で失わず、二重に書かず、誰が何を変えたかを残す必要がある。プロセス内メモリだけでは再起動 (Render のデプロイ) で消える。
+- 変更内容: 監査 Turso (`AUDIT_TURSO_URL`) に表 `crm_pending_operations` を追加する (`src/audit/schema.rs` の `CREATE TABLE IF NOT EXISTS`、起動時に自動作成)。持つのは書き込み操作 1 件ごとの operation_id・操作者・案件 ID・書く値と競合検査用の base・状態・試行回数・次回時刻・結果だけ。HubSpot のレコードのコピーは持たない (ADR-006 の趣旨を維持)。保存済み・失敗の行は 7 日で掃除し、長期の「誰が何を変えたか」は `activity_logs` (1 年保持) に `crm_write` として残す。
+- 変える利点: 新しいインフラ (Redis 等) を足さない。操作者の識別 (accounts) と同じ DB で、既にバックアップ・接続管理がある。再起動をまたいで残る。
+- 現行 (代替案) を保つ利点: Google Sheets は編集履歴が見えるが、排他・条件付き更新・冪等キーの一意制約が無く、API の割り当てもある。専用 Redis / 別 DB は運用物が増え、ADR-006 の「DB を増やさない」に反する。
+- 移行 / 戻しのコスト: 表 1 つ。戻す (別ストレージへ移す) ときは `src/crm/pending.rs` の関数を差し替えるだけで、ハンドラ・worker は台帳の関数だけを呼ぶ。書き込み機能自体は `CRM_WRITES_ENABLED` を空にすれば即座に止まる。
+- 制約 / 注意: Turso は過去に請求超過 (2026-01) があるため書き込み回数を絞る。書き込むのは (1) 受付の INSERT (2) 送信結果ごとの UPDATE (3) 1 日 1 回の DELETE だけで、worker は書き込みでポーリングしない。再送待ちの件数上限 `CRM_PENDING_MAX` (既定 50000) を超えたら 503 `queue_full` で積まない。監査 DB が使えないときは HubSpot に書かない (監査できない書き込みは許さない)。Render が複数インスタンスになる場合は worker の排他 (行の取得時の更新) が要る。
+
+関連する決定 (同日、ユーザー):
+
+- 競合は上書きしない (409 と現在値を返す)。再送でも HubSpot の値が変わっていたら `failed`。
+- 書けるのは「プロパティ」パネルで選べる全ての項目のうち HubSpot が API で書かせるもの (読み取り専用・計算・`hs_*` / `hubspot_*`・「※編集不可」・`bpo_hsurl` / `bpo_transactio_id`・`dealstage` / `pipeline` を除く)。ステージはパイプライン内・パイプライン間の移動を許す。
+- ステージの必須項目は HubSpot が API の書き込みでは強制しないため、HR_HR が移動前に確かめる (`src/crm/stage_rules.json`、HubSpot の画面の内部 API を 2026-10-09 に読み取り専用で写した。6 時間おきに公開のパイプライン API と突き合わせ、ずれを `GET /api/admin/crm-stage-rules-drift` に出す)。
+- 失敗 (恒久エラー) した操作は管理者の一覧 (`/api/admin/crm-operations`) に出す。

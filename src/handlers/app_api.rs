@@ -109,6 +109,24 @@ mod tests {
             .expect("WorkspaceResponse の TS 型を書き出せない");
         crate::crm::property_catalog::CrmPropertyCatalogResponse::export_all(&cfg)
             .expect("CrmPropertyCatalogResponse の TS 型を書き出せない");
+        crate::crm::write::CrmEditSchemaResponse::export_all(&cfg)
+            .expect("CrmEditSchemaResponse の TS 型を書き出せない");
+        crate::crm::write::CrmDealPatchRequest::export_all(&cfg)
+            .expect("CrmDealPatchRequest の TS 型を書き出せない");
+        crate::crm::write::CrmPatchSaved::export_all(&cfg)
+            .expect("CrmPatchSaved の TS 型を書き出せない");
+        crate::crm::write::CrmPatchQueued::export_all(&cfg)
+            .expect("CrmPatchQueued の TS 型を書き出せない");
+        crate::crm::write::CrmPatchConflict::export_all(&cfg)
+            .expect("CrmPatchConflict の TS 型を書き出せない");
+        crate::crm::write::CrmPatchInvalid::export_all(&cfg)
+            .expect("CrmPatchInvalid の TS 型を書き出せない");
+        crate::crm::write::CrmOperationStatus::export_all(&cfg)
+            .expect("CrmOperationStatus の TS 型を書き出せない");
+        crate::crm::write::CrmAdminOperationsResponse::export_all(&cfg)
+            .expect("CrmAdminOperationsResponse の TS 型を書き出せない");
+        crate::crm::stage_rules::StageRulesDriftReport::export_all(&cfg)
+            .expect("StageRulesDriftReport の TS 型を書き出せない");
         crate::handlers::admin::hubspot_usage::HubSpotUsageResponse::export_all(&cfg)
             .expect("HubSpotUsageResponse の TS 型を書き出せない");
         // W8 求人票作成 (/app/jobgen): src/job_gen/contract.rs の要求・応答型

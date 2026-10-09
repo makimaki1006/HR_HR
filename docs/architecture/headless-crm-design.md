@@ -294,8 +294,21 @@ FAILED / Dead Letter
 内容確認
 ```
 
-Durable Retry の保存技術は別途実装設計で決める。
-この文書は特定 DB / Redis / Turso 等を既決事項にしない。
+Durable Retry の保存技術は ADR-018 (2026-10-09) で **既存の監査 Turso の表 `crm_pending_operations`** と決めた。
+
+### 実装状況 (2026-10-09、`src/crm/write.rs` / `pending.rs`)
+
+- 実装済み: `PATCH /api/crm/deals/{id}` (既定 OFF。`CRM_WRITES_ENABLED` / `CRM_WRITE_DEAL_ALLOWLIST`)、
+  一時障害 (429・5xx・タイムアウト・接続失敗・混雑) だけを `pending` にして 202、worker が再送
+  (1 分・5 分・30 分・2 時間・以降 6 時間、最大 8 回。**再送のたびに競合と必須項目を確かめ、HubSpot の値が変わっていたら上書きせず `failed`**)。
+- 恒久エラー (400 / 401 / 403 / 404 / 422)・競合・上限超えは即 `failed`。管理者の一覧 `GET /api/admin/crm-operations?status=failed|pending`、
+  再試行 / 破棄 `POST /api/admin/crm-operations/{id}/retry|discard`。
+- 表は起動時に自動作成 (`CREATE TABLE IF NOT EXISTS`)。Turso への書き込みは受付・送信結果ごと・1 日 1 回の掃除だけで、
+  worker は書き込みでポーリングしない (期限が来た行の SELECT のみ。再送待ちが無ければ 10 分おき)。
+- 上限 `CRM_PENDING_MAX` (既定 50000) を超える一時障害は 503 `queue_full` (台帳は `failed`、再送しない)。
+- 台帳に記録できない (監査 DB 未接続・Turso 障害) ときは HubSpot に書かず 503 `queue_unavailable`。
+- 未実装: Dead Letter の管理者通知 (一覧に出るだけ)、再送成功後のキャッシュ即時破棄 (60 秒 / 30 秒で自然に切れる)、
+  複数インスタンスでの worker の排他 (現状 Render は 1 インスタンス前提)。
 
 ## 11. Idempotency
 
@@ -326,6 +339,11 @@ HubSpotに既にあるか確認
 
 Property PATCH のような同一値更新は比較的 retry しやすい。
 
+実装 (2026-10-09): PATCH はクライアントが付ける `operation_id` を台帳 (`crm_pending_operations`) に**送る前**に記録し、
+同じ `operation_id` の再送は保存された結果をそのまま返す (HubSpot へは 2 度書かない)。PATCH 自体も同じ値なら冪等。
+再送では「HubSpot の現在値が書く値と同じ」なら保存済みとして扱う (応答だけ失われた書き込みを競合にしない)。
+Call / Task / Note の CREATE 系は ADR-007 により HR_HR では作らないので、この仕組みの対象外。
+
 ## 12. User Feedback
 
 保存状態を UI で区別する。
@@ -335,6 +353,9 @@ Property PATCH のような同一値更新は比較的 retry しやすい。
 - 赤: どこにも保存できていない
 
 Queue への保存にも失敗しているのに「保存しました」と表示してはいけない。
+
+実装 (2026-10-09): 緑 = 200 `saved`、黄 = 202 `queued` (`GET /api/crm/operations/{id}` で `pending` / `retrying` / `saved` / `failed` を確かめる)、
+赤 = 409 競合・422 検証/必須不足・503 `queue_full` / `queue_unavailable`・ネットワーク失敗。
 
 ## 13. RBAC
 
