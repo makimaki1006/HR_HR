@@ -118,15 +118,48 @@ describe('owner picker (everyone)', () => {
     expect(screen.getByText('所有者の一覧を読み込み中…')).toBeTruthy();
   });
 
-  it('keeps an owner from the URL visible even when retired or missing from the list', async () => {
+  it('keeps an owner from the URL visible (retired or missing from the list) on the trigger, and in the list when opened', async () => {
     await renderAdmin(ownersStub(okOwners()), '?view=queue&owner=104');
-    const list = await screen.findByLabelText('所有者を選ぶ');
-    expect((list as HTMLSelectElement).value).toBe('104');
+    expect(screen.queryByLabelText('所有者を選ぶ')).toBeNull();
+    const trigger = () => screen.getByLabelText<HTMLSelectElement>('所有者');
+    expect(trigger().selectedOptions[0]?.text).toMatch(/ダミー 退職/);
+    pickMode();
+    expect((await screen.findByLabelText<HTMLSelectElement>('所有者を選ぶ')).value).toBe('104');
     cleanup();
     await renderAdmin(ownersStub(okOwners()), '?view=queue&owner=999');
-    const l2 = await screen.findByLabelText('所有者を選ぶ');
-    expect((l2 as HTMLSelectElement).value).toBe('999');
+    expect(trigger().selectedOptions[0]?.text).toBe('ID 999');
+    pickMode();
+    const l2 = await screen.findByLabelText<HTMLSelectElement>('所有者を選ぶ');
+    expect(l2.value).toBe('999');
     expect(screen.getByText(/ID 999.*一覧にありません/)).toBeTruthy();
+  });
+
+  it('closes the list on selection and returns focus to the trigger; the owner stays applied', async () => {
+    const q = await renderAdmin(ownersStub(okOwners()));
+    pickMode();
+    fireEvent.change(await screen.findByLabelText('所有者を選ぶ'), { target: { value: '103' } });
+    expect(screen.queryByLabelText('所有者を選ぶ')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText('所有者'));
+    await waitFor(() => { expect(q.calls.at(-1)?.filters.owner).toBe('103'); });
+    expect(screen.getByLabelText<HTMLSelectElement>('所有者').selectedOptions[0]?.text).toMatch(/サンプル 花子/);
+  });
+
+  it('closes on Esc (focus back on the trigger), on outside click, and when focus leaves', async () => {
+    await renderAdmin(ownersStub(okOwners()));
+    const open = async () => { pickMode(); await screen.findByLabelText('所有者を選ぶ'); };
+    await open();
+    fireEvent.keyDown(screen.getByLabelText('所有者を検索'), { key: 'Escape' });
+    expect(screen.queryByLabelText('所有者を選ぶ')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText('所有者'));
+    await open();
+    fireEvent.mouseDown(screen.getByLabelText('並び替え'));
+    expect(screen.queryByLabelText('所有者を選ぶ')).toBeNull();
+    await open();
+    // 中のクリックでは閉じない
+    fireEvent.mouseDown(screen.getByLabelText('所有者を検索'));
+    expect(screen.queryByLabelText('所有者を選ぶ')).not.toBeNull();
+    fireEvent.blur(screen.getByLabelText('所有者を検索'), { relatedTarget: screen.getByLabelText('並び替え') });
+    expect(screen.queryByLabelText('所有者を選ぶ')).toBeNull();
   });
 
   it('shows the name (not the raw ID) in the table when the owner is in the list', async () => {
