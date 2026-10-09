@@ -96,6 +96,10 @@ pub const MAX_COMPANIES: usize = 3;
 pub const MAX_CONTACTS_FOR_CALLS: usize = 20;
 /// 本文・件名の最大文字数 (超えたら末尾に `…`)
 pub const MAX_TEXT_CHARS: usize = 600;
+/// 活動の平文の全文の上限
+pub const MAX_FULL_TEXT_CHARS: usize = 20_000;
+/// 活動の HTML 本文の上限 (超えた分は切る)
+pub const MAX_HTML_CHARS: usize = 60_000;
 
 const DATA_SCOPE: &str = "HubSpot の読み取り結果。書き込みはしない";
 const ACTIVITY_SCOPE: &str =
@@ -127,19 +131,33 @@ const CALL_PROPS: &[&str] = &[
     "hs_timestamp",
     "hs_call_title",
     "hs_call_body",
+    "hs_call_recording_url",
     "hs_call_direction",
     "hs_call_status",
     "hs_call_duration",
     "hs_call_source",
     "hubspot_owner_id",
 ];
-const NOTE_PROPS: &[&str] = &["hs_timestamp", "hs_note_body", "hubspot_owner_id"];
+const NOTE_PROPS: &[&str] = &[
+    "hs_timestamp",
+    "hs_note_body",
+    "hs_attachment_ids",
+    "hubspot_owner_id",
+];
 const EMAIL_PROPS: &[&str] = &[
     "hs_timestamp",
     "hs_email_subject",
     "hs_email_text",
     "hs_email_direction",
     "hs_email_status",
+    "hs_email_html",
+    "hs_email_from_email",
+    "hs_email_from_firstname",
+    "hs_email_from_lastname",
+    "hs_email_to_email",
+    "hs_email_cc_email",
+    "hs_email_thread_id",
+    "hs_attachment_ids",
     "hubspot_owner_id",
 ];
 const MEETING_PROPS: &[&str] = &[
@@ -147,6 +165,9 @@ const MEETING_PROPS: &[&str] = &[
     "hs_meeting_title",
     "hs_meeting_body",
     "hs_meeting_outcome",
+    "hs_meeting_start_time",
+    "hs_meeting_end_time",
+    "hs_meeting_location",
     "hubspot_owner_id",
 ];
 
@@ -253,6 +274,35 @@ pub struct WorkspaceDial {
     pub source: String,
 }
 
+/// 全文表示用の追加情報。既存の項目 (`body` は 600 文字までの平文) とは別に、
+/// 同じ HubSpot の読み取り結果から取り出す (追加の呼び出しはしない)
+#[derive(Debug, Clone, Default, Serialize, TS)]
+pub struct ActivityRich {
+    /// HTML 本文 (HubSpot の値のまま、最大 [`MAX_HTML_CHARS`] 文字)。画面側で無害化してから描く
+    pub body_html: Option<String>,
+    /// 平文の全文 (改行を保つ、最大 [`MAX_FULL_TEXT_CHARS`] 文字)
+    pub body_full: Option<String>,
+    /// メールの差出人の名前
+    pub from_name: Option<String>,
+    /// メールの差出人のアドレス
+    pub from_email: Option<String>,
+    /// メールの宛先のアドレス
+    pub to: Vec<String>,
+    /// メールの CC のアドレス
+    pub cc: Vec<String>,
+    /// メールのスレッド (同じやりとりのまとまり) の識別子
+    pub thread_id: Option<String>,
+    /// 添付ファイルの数 (数えられるとき)
+    pub attachments_count: Option<u32>,
+    /// ミーティングの開始・終了時刻 (HubSpot の値のまま)
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    /// ミーティングの場所
+    pub location: Option<String>,
+    /// 通話の録音の URL (https のものだけ)
+    pub recording_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct WorkspaceActivity {
     pub id: String,
@@ -276,6 +326,10 @@ pub struct WorkspaceActivity {
     /// 見つけた経路: `deal` (案件に直接) / `contact` (担当者経由の通話)
     pub via: String,
     pub via_id: String,
+    /// 全文表示用の追加情報 (無ければ省く)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub rich: Option<ActivityRich>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -1110,7 +1164,9 @@ fn to_activity(
         source: None,
         via: via.to_string(),
         via_id,
+        rich: None,
     };
+    let mut rich = ActivityRich::default();
     match et {
         EngagementType::Call => {
             a.title = text_prop(rec, "hs_call_title");
@@ -1121,24 +1177,82 @@ fn to_activity(
                 .and_then(|v| v.parse::<u64>().ok())
                 .map(|v| v.min(u32::MAX as u64) as u32);
             a.source = nz(rec, "hs_call_source");
+            rich.body_full =
+                nz(rec, "hs_call_body").and_then(|v| plain_text(&v, MAX_FULL_TEXT_CHARS));
+            rich.recording_url =
+                nz(rec, "hs_call_recording_url").filter(|u| u.starts_with("https://"));
         }
         EngagementType::Note => {
             a.body = text_prop(rec, "hs_note_body");
+            rich.body_html = html_prop(rec, "hs_note_body");
+            rich.body_full =
+                nz(rec, "hs_note_body").and_then(|v| plain_text(&v, MAX_FULL_TEXT_CHARS));
+            rich.attachments_count = attachment_count(rec);
         }
         EngagementType::Email => {
             a.title = text_prop(rec, "hs_email_subject");
             a.body = text_prop(rec, "hs_email_text");
             a.direction = nz(rec, "hs_email_direction");
             a.status = nz(rec, "hs_email_status");
+            rich.body_html = html_prop(rec, "hs_email_html");
+            rich.body_full =
+                nz(rec, "hs_email_text").and_then(|v| plain_text(&v, MAX_FULL_TEXT_CHARS));
+            rich.from_email = nz(rec, "hs_email_from_email");
+            let name = [
+                nz(rec, "hs_email_from_lastname"),
+                nz(rec, "hs_email_from_firstname"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ");
+            rich.from_name = (!name.is_empty()).then_some(name);
+            rich.to = split_addresses(nz(rec, "hs_email_to_email"));
+            rich.cc = split_addresses(nz(rec, "hs_email_cc_email"));
+            rich.thread_id = nz(rec, "hs_email_thread_id");
+            rich.attachments_count = attachment_count(rec);
         }
         EngagementType::Meeting => {
             a.title = text_prop(rec, "hs_meeting_title");
             a.body = text_prop(rec, "hs_meeting_body");
             a.status = nz(rec, "hs_meeting_outcome");
+            rich.body_html = html_prop(rec, "hs_meeting_body");
+            rich.body_full =
+                nz(rec, "hs_meeting_body").and_then(|v| plain_text(&v, MAX_FULL_TEXT_CHARS));
+            rich.start_time = nz(rec, "hs_meeting_start_time");
+            rich.end_time = nz(rec, "hs_meeting_end_time");
+            rich.location = text_prop(rec, "hs_meeting_location");
         }
         EngagementType::Task => {}
     }
+    a.rich = Some(rich);
     a
+}
+
+/// HTML 本文を、上限で切って返す (描く前に画面側で無害化する)。タグを含まない値は返さない
+fn html_prop(rec: &HubSpotRecord, key: &str) -> Option<String> {
+    let v = nz(rec, key)?;
+    if !v.contains('<') {
+        return None;
+    }
+    Some(v.chars().take(MAX_HTML_CHARS).collect())
+}
+
+/// `a@x;b@y` や `a@x, b@y` を分けて空を除く
+fn split_addresses(raw: Option<String>) -> Vec<String> {
+    raw.map(|v| {
+        v.split([';', ','])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// 添付ファイルの数 (`hs_attachment_ids` は `;` 区切りの ID)
+fn attachment_count(rec: &HubSpotRecord) -> Option<u32> {
+    let n = split_addresses(nz(rec, "hs_attachment_ids")).len();
+    (n > 0).then_some(n as u32)
 }
 
 #[cfg(test)]
@@ -1203,6 +1317,57 @@ mod tests {
         assert_eq!(t, "こんにちは 太郎\nA & B <x>\n末尾");
         assert_eq!(plain_text("   ", 10), None);
         assert_eq!(plain_text("<p></p>", 10), None);
+    }
+
+    #[test]
+    fn 活動の読み取りにメールの本文と宛先の項目が入る() {
+        // 追加の呼び出しはせず、既存の型ごとの一括読み取りの項目に足しているだけ
+        let p = engagement_props(EngagementType::Email);
+        for k in [
+            "hs_email_html",
+            "hs_email_from_email",
+            "hs_email_to_email",
+            "hs_email_cc_email",
+            "hs_email_thread_id",
+            "hs_attachment_ids",
+        ] {
+            assert!(p.contains(&k), "{k}");
+        }
+        assert!(engagement_props(EngagementType::Note).contains(&"hs_note_body"));
+        assert!(engagement_props(EngagementType::Meeting).contains(&"hs_meeting_start_time"));
+        assert!(engagement_props(EngagementType::Call).contains(&"hs_call_recording_url"));
+        assert_eq!(ENGAGEMENTS.len(), 4);
+    }
+
+    #[test]
+    fn メール活動は差出人と宛先を分けて持つ() {
+        let mut props = std::collections::BTreeMap::new();
+        for (k, v) in [
+            ("hs_email_subject", "ご挨拶(架空)"),
+            ("hs_email_html", "<p>本文</p><blockquote>引用</blockquote>"),
+            ("hs_email_text", "本文\n引用"),
+            ("hs_email_from_email", "taro@example.invalid"),
+            ("hs_email_from_lastname", "山田"),
+            ("hs_email_from_firstname", "太郎"),
+            ("hs_email_to_email", "a@example.invalid; b@example.invalid"),
+            ("hs_attachment_ids", "1;2"),
+        ] {
+            props.insert(k.to_string(), Some(v.to_string()));
+        }
+        let rec = HubSpotRecord {
+            id: "1".into(),
+            properties: props,
+            created_at: None,
+            updated_at: None,
+            archived: false,
+        };
+        let a = to_activity(EngagementType::Email, &rec, "deal", "9".into());
+        let r = a.rich.unwrap();
+        assert_eq!(r.from_name.as_deref(), Some("山田 太郎"));
+        assert_eq!(r.to, ["a@example.invalid", "b@example.invalid"]);
+        assert_eq!(r.attachments_count, Some(2));
+        assert!(r.body_html.unwrap().contains("blockquote"));
+        assert_eq!(r.body_full.as_deref(), Some("本文\n引用"));
     }
 
     #[test]
