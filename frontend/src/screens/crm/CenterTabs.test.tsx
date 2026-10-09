@@ -103,7 +103,7 @@ describe('求人検索・リンク先 panel (links open inside the panel)', () =
     expect(within(panel('search')).getByTestId('link-frame')).toBe(frame);
   });
 
-  it('other links open their own closable tab; HubSpot shows only the open-in-new-tab button; javascript: is not a link', async () => {
+  it('other links open their own closable tab; HubSpot opens directly in a new browser tab; javascript: is not a link', async () => {
     await openDeal(detailWith(DEAL_LINKS));
     const links = screen.getByRole('region', { name: 'リンク' });
     expect(within(links).queryByText(/javascript:/)).toBeNull();
@@ -114,18 +114,21 @@ describe('求人検索・リンク先 panel (links open inside the panel)', () =
     const homePanel = panelOf(home);
     expect(within(homePanel).getByTestId('link-frame').getAttribute('src')).toBe('https://www.example.com/');
 
+    // HubSpot はパネルのタブを作らず、直接新しいタブで開く (元の URL のまま)
     fireEvent.click(tab('リンク一覧'));
-    fireEvent.click(within(links).getByRole('link', { name: 'https://app.hubspot.com/contacts/1/record/0-3/1/' }));
-    const media = tab('求人媒体');
-    const mediaPanel = panelOf(media);
-    expect(within(mediaPanel).queryByTestId('link-frame')).toBeNull();
-    expect(within(mediaPanel).getByText('このページは画面の中に表示できません')).toBeTruthy();
-    expect(within(mediaPanel).getAllByRole('link', { name: '新しいタブで開く' })[0]?.getAttribute('href')).toBe('https://app.hubspot.com/contacts/1/record/0-3/1/');
-
-    // 閉じると隣のタブ (ホームページ) に戻る
-    fireEvent.click(within(mediaPanel).getByRole('button', { name: 'このタブを閉じる' }));
+    const hs = within(links).getByRole('link', { name: 'https://app.hubspot.com/contacts/1/record/0-3/1/' });
+    expect(hs.getAttribute('target')).toBe('_blank');
+    expect(hs.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(hs.getAttribute('href')).toBe('https://app.hubspot.com/contacts/1/record/0-3/1/');
+    expect(fireEvent.click(hs)).toBe(true); // preventDefault されない = ブラウザが新しいタブで開く
     expect(screen.queryByRole('tab', { name: '求人媒体' })).toBeNull();
-    expect(tab('ホームページ').getAttribute('aria-selected')).toBe('true');
+    expect(tab('リンク一覧').getAttribute('aria-selected')).toBe('true');
+
+    // ホームページのタブを閉じると、左隣の求人検索に戻る
+    fireEvent.click(tab('ホームページ'));
+    fireEvent.click(within(panelOf(tab('ホームページ'))).getByRole('button', { name: 'このタブを閉じる' }));
+    expect(screen.queryByRole('tab', { name: 'ホームページ' })).toBeNull();
+    expect(tab('求人検索').getAttribute('aria-selected')).toBe('true');
   });
 
   it('the tab list works with the keyboard (arrows / Home / End / Delete)', async () => {

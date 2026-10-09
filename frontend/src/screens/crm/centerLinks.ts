@@ -6,7 +6,8 @@
  *   枠に出す URL は検索語 (q) と表示に関わる少数の項目だけを残して組み立て直す
  *   (HubSpot に貼られた URL には古いセッションの項目が多く付いているため)。
  *   「新しいタブで開く」は元の URL のまま開く
- * - 枠の中への表示を断ると分かっているサイト (HubSpot など) は枠を作らず「新しいタブで開く」だけを出す
+ * - HubSpot (app.hubspot.com / app-*.hubspot.com) のリンクはパネルのタブを作らず、直接ブラウザの新しいタブで開く (`isHubspotUrl`)
+ * - 枠の中への表示を断ると分かっているサイト (Yahoo・DuckDuckGo・自社ドメインなど) は枠を作らず「新しいタブで開く」だけを出す
  * - http: のページはこの画面 (https) の枠には出せない (混在コンテンツ) ので、同じく新しいタブだけ
  * - 断るかどうかは別オリジンなので確実には分からない。枠を出すときは必ず「新しいタブで開く」を並べる
  */
@@ -47,6 +48,11 @@ const NO_EMBED_DOMAINS = [
 
 function hostMatches(host: string, domain: string): boolean {
   return host === domain || host.endsWith(`.${domain}`);
+}
+
+/** HubSpot の画面 (app.hubspot.com / app-*.hubspot.com など) か。枠にもパネルのタブにも出さず、直接新しいタブで開く */
+export function isHubspotUrl(u: URL): boolean {
+  return hostMatches(u.hostname, 'hubspot.com') || hostMatches(u.hostname, 'hubspot.jp');
 }
 
 /** Google 検索の結果ページか */
