@@ -204,12 +204,37 @@
 .cq-detail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
 .wd { flex: none; display: flex; flex-direction: column; }
 .wd-top { flex: none; background: var(--cq-surface); border-bottom: 1px solid var(--cq-line); padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 2px 6px #1f2a3510; z-index: 1; }
-.wd-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-.wd-head-main { min-width: 0; }
-.wd-head h2 { margin: 0; font-size: 17px; line-height: 1.35; overflow-wrap: anywhere; }
-.wd-head p { margin: 0; color: var(--cq-sub); font-size: 12px; }
-.wd-head-side { flex: none; display: flex; gap: 8px; align-items: center; font-size: 12px; }
-.wd-head-side .cq-stage { font-size: 12px; padding: 1px 8px; }
+/* ---- 案件の概要の見出し: パネルの幅 (ビューポートではない) で並べ替える ----
+   広い   (>= 640px): 3 列 [社名 / 案件名] [ステージ / 別のパイプライン] [HubSpot / 1 行にする]、下に全幅で「○分前の情報 [最新にする]」
+   中     (400-639px): 2 列 [社名 / 案件名] [ステージ]、下に [HubSpot / 1 行にする] と 「○分前の情報」
+   狭い   (< 400px): 細い線で区切って 1) 社名・案件名 2) ステージ (全幅) 3) HubSpot・1 行にする・鮮度 (折り返す 1 行)
+   どの幅でも社名は単語単位で折り返し (最大 2 行、超えたら省略 + title)、行並びでは最小 12em を確保する */
+.wd { container: wdsum / inline-size; }
+.wd-summary { display: grid; gap: 6px 16px; align-items: start; min-width: 0;
+  grid-template-columns: minmax(12em, 1.5fr) minmax(11em, 1fr) auto; grid-template-areas: "name stage actions" "fresh fresh fresh"; }
+.wd-s-name { grid-area: name; min-width: 12em; }
+.wd-s-stage { grid-area: stage; min-width: 0; }
+.wd-s-foot { display: contents; }
+.wd-s-actions { grid-area: actions; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; }
+.wd-summary .wd-fresh { grid-area: fresh; margin: 0; }
+.wd-s-name h2, .wd-s-name p { margin: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: break-word; word-break: normal; }
+.wd-s-name h2 { font-size: 17px; line-height: 1.35; }
+.wd-s-name p { color: var(--cq-sub); font-size: 12px; line-height: 1.4; }
+.wd-s-stage .wr-stage { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: 100%; }
+.wd-s-stage .wr-stage-select { width: 100%; max-width: 18em; min-width: 0; }
+.wd-s-stage .cq-stage { font-size: 12px; padding: 1px 8px; }
+@container wdsum (max-width: 639px) {
+  .wd-summary { grid-template-columns: minmax(12em, 1fr) minmax(11em, 1fr); grid-template-areas: "name stage" "foot foot"; }
+  .wd-s-foot { grid-area: foot; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .wd-s-actions { flex-direction: row; align-items: center; gap: 12px; }
+}
+@container wdsum (max-width: 399px) {
+  .wd-summary { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "stage" "foot"; gap: 0; }
+  .wd-s-stage, .wd-s-foot { border-top: 1px solid var(--cq-line); margin-top: 6px; padding-top: 6px; }
+  .wd-s-name { min-width: 0; }
+  .wd-s-stage .wr-stage { flex-direction: column; align-items: flex-start; width: 100%; }
+  .wd-s-stage .wr-stage-select { max-width: none; }
+}
 /* 詳細を読んだ時刻からの経過と「最新にする」(案件名の下の 1 行) */
 .wd-fresh { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font-size: 11px; color: var(--cq-sub); }
 .wd-fresh-age { font-variant-numeric: tabular-nums; }
@@ -267,7 +292,7 @@
 .wd-density { border: 1px solid var(--cq-line-strong); background: #fff; border-radius: 4px; padding: 1px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .wd-top-compact { padding: 6px 12px; gap: 4px; }
 .wd-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; font-size: 13px; }
-.wd-line-company { margin: 0; font-size: 15px; line-height: 1.3; max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wd-line-company { margin: 0; flex: 0 1 auto; min-width: min(12em, 100%); font-size: 15px; line-height: 1.3; max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wd-line-contact { max-width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wd-line-sep { color: var(--cq-faint); }
 .wd-phone-compact { display: inline-flex; flex-wrap: nowrap; gap: 6px; padding: 0; }
