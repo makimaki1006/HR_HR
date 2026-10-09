@@ -674,6 +674,14 @@ addEventListener('scroll',hideTip,{passive:true});
 //   cyomi= ⑨ Cヨミシートの全行（予定日が空でも入る）
 const KINDS4=['実施','未実施','未処理','要判定'];
 const KIND_SEGS=KINDS4.map(k=>({k:k,pred:r=>r.kind===k}));
+// 商談予定日時（JST の yyyy-MM-dd。空は未設定）を判定日の月に対して仕分ける（calc.ts の cyomiBucket と同じ規則）
+const CYOMI_BUCKETS=['今月商談','過去（流れ案件）','未来（来月以降）','予定日未設定'];
+function cyomiBucket(date){
+  const ym=TODAY.slice(0,7), m=String(date||'').slice(0,7);
+  if(!m) return '予定日未設定';
+  if(m===ym) return '今月商談';
+  return m<ym?'過去（流れ案件）':'未来（来月以降）';
+}
 const notUpcoming=r=>r.kind!=='これから';
 const CARD_CONF={
   apo:{t:'① 取ったアポ',src:'apo',base:()=>true,
@@ -691,7 +699,8 @@ const CARD_CONF={
     num:'回収済み',den:'④ 日が過ぎた分',
     d:'分子は事前アンケートの「回収済み」、分母は ④ 日が過ぎた分です。分母を 回収済み・未回収 に分けています。'},
   cyomi:{t:'⑨ 持っているCヨミ',src:'cyomi',base:()=>true,
-    d:'Cヨミのシートにある取引です。予定日が空のものも入ります（日付は「—」）。'},
+    segs:CYOMI_BUCKETS.map(k=>({k:k,pred:r=>cyomiBucket(r.date)===k})),
+    d:'Cヨミのシートにある取引です。商談予定日時が今月のもの・過去の月（流れ案件）・来月以降・未設定に分けています。区分を押すとその一覧が出ます。予定日が空のものも入ります（日付は「—」）。'},
 };
 function toggleCard(k){
   return ()=>{
