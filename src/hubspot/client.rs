@@ -564,6 +564,46 @@ impl HubSpotClient {
         parse_record(&v)
     }
 
+    /// `PATCH /crm/v3/objects/{object}/{id}` (プロパティの書き込み。Contact / Company / Deal のみ)。
+    ///
+    /// **1 回だけ送る** (retry しない・他の呼び出しと相乗りしない)。失敗の扱い (キューに積むか) は呼び出し側が決める
+    /// (`crm::write`)。関所と 429 の全員停止は読み取りと同じ。`None` は値の消去 (HubSpot には空文字を送る)。
+    /// 成功したら更新後のレコードを返す。
+    pub async fn patch_object(
+        &self,
+        object: &str,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        if !RecordType::ALL.iter().any(|t| t.api_name() == object) {
+            return Err(HubSpotError::Decode("invalid object".into()));
+        }
+        check_id(id)?;
+        let props: serde_json::Map<String, Value> = properties
+            .iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone().unwrap_or_default())))
+            .collect();
+        let body = json!({ "properties": props });
+        let path = format!("/crm/v3/objects/{object}/{id}");
+        let reply = self
+            .raw_once(&Method::PATCH, &path, &[], Some(&body))
+            .await?;
+        match reply.status {
+            200..=299 => {
+                let v = reply
+                    .body
+                    .ok_or_else(|| HubSpotError::Decode("empty body".into()))?;
+                parse_record(&v)
+            }
+            401 | 403 => Err(HubSpotError::Auth {
+                status: reply.status,
+            }),
+            404 => Err(HubSpotError::NotFound),
+            429 => Err(HubSpotError::RateLimited),
+            s => Err(HubSpotError::Upstream { status: s }),
+        }
+    }
+
     /// `POST /crm/v3/objects/{object}/batch/read` (読み取り。最大 100 件ずつに分割)。
     /// 見つからない ID は結果に含まれないだけでエラーにしない。
     pub async fn batch_read(

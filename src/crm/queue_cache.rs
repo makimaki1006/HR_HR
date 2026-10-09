@@ -113,6 +113,13 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
         g.insert(key, (Instant::now(), seq, value));
     }
 
+    /// 全部捨てる (書き込みの後。案件を特定して捨てるキーが無いため)
+    pub fn clear(&self) {
+        if let Ok(mut g) = self.inner.lock() {
+            g.clear();
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.inner.lock().map(|g| g.len()).unwrap_or(0)
     }

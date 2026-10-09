@@ -160,4 +160,5 @@ data/job-copy-local/
 playwright-report-pr/
 test-results-pr/
 test-results-job-copy/
+test-results-crm-write-live/
 dist/

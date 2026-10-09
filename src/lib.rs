@@ -775,6 +775,20 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/admin/hubspot-usage",
             get(handlers::admin::api_hubspot_usage),
         )
+        // Headless CRM の書き込み台帳 (失敗した操作の一覧・再試行・破棄)と、ステージ必須項目の設定のずれ
+        .route("/api/admin/crm-operations", get(crm::write::api_admin_list))
+        .route(
+            "/api/admin/crm-operations/{id}/retry",
+            post(crm::write::api_admin_retry),
+        )
+        .route(
+            "/api/admin/crm-operations/{id}/discard",
+            post(crm::write::api_admin_discard),
+        )
+        .route(
+            "/api/admin/crm-stage-rules-drift",
+            get(crm::stage_rules::api_stage_rules_drift),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_admin_mw,

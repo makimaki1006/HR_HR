@@ -17,9 +17,16 @@ import type { PipelinesFetch } from './useQueuePipelines';
 import { useCallQueue } from './useCallQueue';
 import { useAutoLoadMore } from './useAutoLoadMore';
 import { ActivityLog, DealLinks, DealOverview, rawStopLabel } from './DealDetail';
+import { ConflictDialog } from './WriteWidgets';
+import { fakeWriteApi } from './fakeWrite';
+import { liveWriteApi } from './crmWrite';
+import type { WriteApi } from './crmWrite';
+import { useCrmWrite } from './useCrmWrite';
+import { useWriteBindings } from './writeBindings';
+import type { FieldDef } from './writeModel';
 import type { CallBarInfo, StopLabel } from './DealDetail';
 import { ZoomPhonePanel } from './ZoomPhonePanel';
-import { useDealDetail } from './useDealDetail';
+import { fixtureDetailFetch, liveDetailFetch, useDealDetail } from './useDealDetail';
 import type { DetailFetch } from './useDealDetail';
 import { useZoomPhone } from './useZoomPhone';
 import type { ZoomOptions } from './useZoomPhone';
@@ -229,9 +236,11 @@ const QueueRow = memo(function QueueRow({ item, ownerName, selected, focusable, 
   </li>;
 });
 
-export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, pipelinesFetcher, catalogFetcher, zoomOptions, initialSearch, now }: {
+export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadataFetcher, userFetcher, pipelinesFetcher, catalogFetcher, writeApi, writePollMs, zoomOptions, initialSearch, now }: {
   fetcher?: QueueFetch; ownersFetcher?: OwnersFetch; detailFetcher?: DetailFetch; metadataFetcher?: MetadataFetch; userFetcher?: UserFetch;
   pipelinesFetcher?: PipelinesFetch; catalogFetcher?: CatalogFetch;
+  /** 項目の書き換え (省略すると、実データは /api/crm、架空サンプルはメモリの中だけ) */
+  writeApi?: WriteApi; writePollMs?: number;
   zoomOptions?: ZoomOptions | undefined; initialSearch?: string; now?: () => number;
 }) {
   const search = initialSearch ?? window.location.search;
@@ -554,7 +563,28 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
 
   const waitingKey = selectedId !== null && selectedId !== detailId;
   // 「求人検索・リンク先」パネルの中のタブ (リンク一覧 / 求人検索 / 開いたリンク)。案件を選び直したら開いたリンクは閉じる
-  const shownData = !waitingKey && detailState.phase === 'ready' && detailState.data?.deal.id === selectedId ? detailState.data : null;
+  const loadedData = !waitingKey && detailState.phase === 'ready' && detailState.data?.deal.id === selectedId ? detailState.data : null;
+  // 項目の書き換え。保存した値は、読み直した詳細に切り替わるまで仮に重ねて表示する
+  const effectiveWriteApi = writeApi ?? (mode === 'fixture' ? fakeWriteApi : liveWriteApi);
+  const crmWrite = useCrmWrite({
+    dealId: detailId, api: effectiveWriteApi, pollIntervalMs: writePollMs,
+    onSaved: id => { if (id === detailId) detail.refresh(); },
+  });
+  const loadWriteValues = useCallback(async (id: string, defs: readonly FieldDef[]) => {
+    const names = (o: FieldDef['object']) => defs.filter(d => d.object === o).map(d => d.name);
+    const props: SelectedProps = { deals: names('deal'), contacts: names('contact'), companies: names('company') };
+    const fetchDetail = detailFetcher ?? (mode === 'fixture' ? fixtureDetailFetch : liveDetailFetch);
+    const r = await fetchDetail(id, new AbortController().signal, props, { fresh: true });
+    if (!r.ok) throw new Error('detail');
+    const out: Record<string, string | null> = {};
+    for (const d of defs) out[d.name] = (d.object === 'deal' ? r.data.selected.deal : d.object === 'contact' ? r.data.selected.contact : r.data.selected.company)[d.name] ?? null;
+    return out;
+  }, [detailFetcher, mode]);
+  const writeBindings = useWriteBindings({
+    write: crmWrite, dealId: detailId, data: loadedData, index: catalog.state.phase === 'ready' ? catalog.state.index : null,
+    ownerNames, loadValues: loadWriteValues,
+  });
+  const shownData = writeBindings.view;
   const searchUrl = useMemo(() => (shownData !== null ? dealJobSearchUrl(shownData) : null), [shownData]);
   const center = useCenterTabs(selectedId === null ? null : `${mode}:${selectedId}`, searchUrl);
   const searchLink = useMemo(() => (searchUrl !== null ? searchTab(searchUrl) : null), [searchUrl]);
@@ -641,11 +671,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
         </section>
     </>,
     properties: <PropertyPanel catalog={catalog.state} onReloadCatalog={catalog.reload} selection={selectedProps} onApply={applyProps}
-      data={shownData} placeholder={placeholder} ownerNames={ownerNames} hasSelection={selectedId !== null} />,
+      data={shownData} placeholder={placeholder} ownerNames={ownerNames} hasSelection={selectedId !== null} write={writeBindings.panel} />,
     overview: <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
       {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
         : <DealOverview state={detailState} reload={detail.reload} refresh={detail.refresh} zoom={zoomForDetail} stopLabel={stopLabel}
-          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} density={density} />}
+          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} density={density} stageMove={writeBindings.stage} />}
     </section>,
     activity: <ActivityLog data={shownData} placeholder={placeholder} ownerNames={ownerNames} />,
     // 架電結果の入力欄。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない
@@ -682,14 +712,15 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   };
 
   return <div className="crm-app cq-app">
+    {writeBindings.conflict !== null && <ConflictDialog view={writeBindings.conflict} />}
     {/* 画面全体の読み上げ欄 (記録した・記録できない理由)。常に置いておき、中身だけ変える */}
     <p className="cq-sr-only" role="status" data-testid="screen-announcement">{announcement.text}{announcement.n % 2 === 1 ? '\u00a0' : ''}</p>
     <header className="crm-topbar cq-topbar"><a className="crm-home" href="/">HR_HR</a>
       <span className="crm-topbar-divider" /><h1 className="cq-title">架電</h1>
       <div className={`cq-mode cq-mode-${mode}`} role="status" aria-label="データの種類">
         <strong className="cq-mode-badge">{mode === 'live' ? '実データ(HubSpot)' : '架空サンプル'}</strong>
-        <span className="cq-mode-note">{mode === 'live' ? 'HubSpot への書き込みはしません' : '表示内容はすべて架空です。HubSpot には接続しません。'}</span>
-        <span className="cq-mode-note-short">{mode === 'live' ? 'HubSpot 書き込みなし' : '架空・未接続'}</span>
+        <span className="cq-mode-note">{mode === 'live' ? (crmWrite.writesEnabled === true ? 'HubSpot への書き込みは、編集した項目だけです' : 'HubSpot への書き込みはしません') : '表示内容はすべて架空です。HubSpot には接続しません。'}</span>
+        <span className="cq-mode-note-short">{mode === 'live' ? (crmWrite.writesEnabled === true ? '編集した項目だけ書き込み' : 'HubSpot 書き込みなし') : '架空・未接続'}</span>
       </div>
       {mode === 'live' && <button type="button" ref={zoomToggleRef} className={`cq-zoom-toggle is-${readiness}`} aria-expanded={drawerOpen}
         aria-controls="cq-zoom-drawer" data-testid="zoom-toggle" title={drawerOpen ? 'Zoom の枠を閉じる' : 'Zoom の枠を開く(消音・保留・通話を切る・サインインはこちら)'}

@@ -56,6 +56,9 @@ const OPT = {
   owners: num('owners', 150),
   seed: num('seed', 1),
   searchCountsGeneral: args['search-counts-general'] === 'true',
+  // E2E write mode (tests/e2e/crm_write_live.spec.ts): PATCH on deals/contacts/companies with in-memory state,
+  // all deals owned by lt-user000, fixed names for deals 0 (writable) and 1 (not on the allowlist), and /_fail /_mutate /_record /_patches controls.
+  writable: args.writable === 'true',
 };
 const BASE = `http://127.0.0.1:${OPT.port}`;
 
@@ -151,6 +154,16 @@ for (let i = 0; i < OPT.deals; i++) {
     createdate: '2026-01-15T00:00:00.000Z',
     hs_lastmodifieddate: '2026-10-01T00:00:00.000Z',
   };
+  if (OPT.writable) {
+    props.hubspot_owner_id = String(OWNER_BASE);
+    props.dealstage = '1095387442';
+    props.pipeline = '753186575';
+    props.bpo_13 = ymd(TODAY);
+    props.bpo_10 = null;
+    props.bpo_57 = null;
+    if (i === 0) props.dealname = 'E2E書込テスト案件A';
+    if (i === 1) props.dealname = 'E2E書込不可案件B';
+  }
   deals[i] = { id: String(DEAL_BASE + i), i, props };
 }
 const DATE_PROPS = new Set(['bpo_13', 'bpo_20', 'closedate', 'createdate', 'hs_lastmodifieddate', 'hs_timestamp']);
@@ -193,7 +206,7 @@ function contactProps(id) {
 function companyProps(id) {
   const c = id - COMPANY_BASE;
   return {
-    name: `株式会社${pick(PREFS, h01(c, 50))}${pick(KINDS, h01(c, 51))}${c}`,
+    name: OPT.writable && c < 2 ? `E2E書込テスト会社${'AB'[c]}` : `株式会社${pick(PREFS, h01(c, 50))}${pick(KINDS, h01(c, 51))}${c}`,
     phone: `06-${String(c % 10000).padStart(4, '0')}-1111`,
     address: `${pick(PREFS, h01(c, 50))}市1-2-3`,
     city: pick(PREFS, h01(c, 50)),
@@ -250,11 +263,12 @@ function recordExists(object, id) {
     default: return false;
   }
 }
+const overlay = new Map(); // `${object}:${id}` -> props written by PATCH / _mutate (contacts, companies)
 function allProps(object, id) {
   switch (object) {
     case 'deals': return deals[dealIndexOf(id)].props;
-    case 'contacts': return contactProps(Number(id));
-    case 'companies': return companyProps(Number(id));
+    case 'contacts': return { ...contactProps(Number(id)), ...(overlay.get(`contacts:${id}`) ?? {}) };
+    case 'companies': return { ...companyProps(Number(id)), ...(overlay.get(`companies:${id}`) ?? {}) };
     default: return engagementProps(object, Number(id));
   }
 }
@@ -326,6 +340,7 @@ const PROPERTY_DEFS = {
     ['bpo_29', '架電先電話番号', 'string', 'phonenumber', 'bpo'],
     ['bpo_32', 'URL_求人検索', 'string', 'text', 'bpo'],
     ['bpo_57', 'その他理由', 'string', 'text', 'bpo'],
+    ['bpo_31', '不通メモ', 'string', 'text', 'bpo'],
     ...range(30, k => [`bpo_${60 + k}`, `BPO 項目 ${60 + k}`, 'string', 'text', 'bpo']),
     ...['bpo_16', 'bpo_40', 'bpo_42', 'bpo_45', 'bpo_21', 'bpo_22', 'bpo_50', 'bpo_24', 'bpo_49', 'bpo_34', 'bpo_25', 'bpo_8', 'bpo_23', 'bpo__', 'bpo_33', 'bpo_18', 'bpo_19']
       .map(n => [n, `BPO ${n}`, 'enumeration', 'select', 'bpo', ['A', 'B', 'C']]),
@@ -361,7 +376,7 @@ function propertiesResponse(object) {
   return {
     results: (PROPERTY_DEFS[object] ?? []).map(([name, label, type, fieldType, groupName, opts], k) => ({
       name, label, type, fieldType, groupName, description: '', displayOrder: k, hidden: false, archived: false,
-      calculated: false, hasUniqueValue: false, formField: true, dataSensitivity: 'non_sensitive',
+      calculated: false, externalOptions: name === 'hubspot_owner_id', hasUniqueValue: false, formField: true, dataSensitivity: 'non_sensitive',
       options: (opts ?? []).map((v, j) => ({ label: v, value: v, displayOrder: j, hidden: false })),
       createdAt: '2024-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
     })),
@@ -624,7 +639,53 @@ function route(method, url, body) {
   if (method === 'GET' && p === '/crm/v3/pipelines/deals') return { type: 'pipelines', run: () => ({ status: 200, json: pipelinesResponse() }) };
   if (method === 'GET' && (m = p.match(/^\/crm\/v3\/properties\/(\w+)\/groups$/))) return { type: `property_groups:${m[1]}`, run: () => ({ status: 200, json: groupsResponse(m[1]) }) };
   if (method === 'GET' && (m = p.match(/^\/crm\/v3\/properties\/(\w+)$/))) return { type: `properties:${m[1]}`, run: () => ({ status: 200, json: propertiesResponse(m[1]) }) };
+  if (OPT.writable && method === 'PATCH' && (m = p.match(/^\/crm\/v3\/objects\/(deals|contacts|companies)\/(\d+)$/))) {
+    const [, object, id] = m;
+    return { type: `patch:${object}`, run: () => runPatch(object, id, body) };
+  }
   return null;
+}
+
+// --- write mode (--writable): in-memory PATCH, failure injection, state inspection ---
+const patchLog = []; // { at, object, id, properties, status }
+const failQueue = []; // statuses to answer the next PATCH calls with (POST /_fail)
+function runPatch(object, id, body) {
+  let b;
+  try { b = JSON.parse(body || '{}'); } catch { return { status: 400, json: { status: 'error', message: 'bad json', category: 'VALIDATION_ERROR' } }; }
+  const properties = b.properties ?? {};
+  const entry = { at: new Date().toISOString(), object, id, properties, status: 0 };
+  patchLog.push(entry);
+  if (failQueue.length) {
+    entry.status = failQueue.shift();
+    return { status: entry.status, json: { status: 'error', message: 'injected failure (fake)', category: 'INTERNAL_ERROR' } };
+  }
+  if (!recordExists(object, id)) { entry.status = 404; return { status: 404, json: { status: 'error', message: 'Object not found', category: 'OBJECT_NOT_FOUND' } }; }
+  const defs = new Map((PROPERTY_DEFS[object] ?? []).map(d => [d[0], d]));
+  for (const [name, value] of Object.entries(properties)) {
+    const d = defs.get(name);
+    if (!d && !(object === 'deals' && (name === 'dealstage' || name === 'pipeline'))) {
+      entry.status = 400;
+      return { status: 400, json: { status: 'error', message: `Property "${name}" does not exist`, category: 'VALIDATION_ERROR' } };
+    }
+    const opts = d?.[5];
+    if (d && d[2] === 'enumeration' && opts && value !== '' && !String(value).split(';').every(v => opts.includes(v))) {
+      entry.status = 400;
+      return { status: 400, json: { status: 'error', message: `${value} is not a valid option for ${name}`, category: 'VALIDATION_ERROR' } };
+    }
+  }
+  applyProps(object, id, properties);
+  entry.status = 200;
+  return { status: 200, json: recordJson(object, id, Object.keys(properties)) };
+}
+function applyProps(object, id, properties) {
+  const now = new Date().toISOString();
+  if (object === 'deals') {
+    const d = deals[dealIndexOf(id)];
+    Object.assign(d.props, properties, { hs_lastmodifieddate: now });
+  } else {
+    const key = `${object}:${id}`;
+    overlay.set(key, { ...(overlay.get(key) ?? {}), ...properties });
+  }
 }
 
 // --- fake Google OIDC (/oidc/*) ---
@@ -681,7 +742,25 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/_stats') {
       return send(res, 200, { t0, now: Date.now(), options: OPT, deals: OPT.deals, ...stats });
     }
-    const body = req.method === 'POST' ? await readBody(req) : '';
+    if (OPT.writable && url.pathname === '/_patches') return send(res, 200, { patches: patchLog });
+    if (OPT.writable && url.pathname === '/_record') {
+      const object = url.searchParams.get('object') ?? 'deals';
+      const id = url.searchParams.get('id') ?? '';
+      if (!recordExists(object, id)) return send(res, 404, { error: 'not found' });
+      return send(res, 200, { id, properties: allProps(object, id) });
+    }
+    if (OPT.writable && req.method === 'POST' && url.pathname === '/_fail') {
+      const b = JSON.parse((await readBody(req)) || '{}');
+      for (let k = 0; k < (b.count ?? 1); k++) failQueue.push(b.status ?? 503);
+      return send(res, 200, { queued: failQueue.length });
+    }
+    if (OPT.writable && req.method === 'POST' && url.pathname === '/_mutate') {
+      const b = JSON.parse((await readBody(req)) || '{}');
+      if (!recordExists(b.object, b.id)) return send(res, 404, { error: 'not found' });
+      applyProps(b.object, b.id, b.properties ?? {});
+      return send(res, 200, { ok: true });
+    }
+    const body = req.method !== 'GET' ? await readBody(req) : '';
     if (!/^Bearer \S+/.test(req.headers.authorization ?? '')) {
       bump('unauthenticated', 'other');
       return send(res, 401, { status: 'error', message: 'Authentication credentials not found.', category: 'INVALID_AUTHENTICATION' });

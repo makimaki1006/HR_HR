@@ -1,0 +1,2158 @@
+{
+ "source": "HubSpot UI internal read ConditionalPropertiesV2Rpc/getRules (objectTypeId 0-3), portal 23708633 (read-only)",
+ "read_at": "2026-10-09",
+ "note": "ステージに移すとき表示される項目 (conditional stage properties)。required=true は必須。HubSpot は API の書き込みでは必須を強制しないため、HR_HR が移動前に確認する。label は src/crm/queue_pipelines.rs のコメント由来 (確認用)。HubSpot 側でルールを変えたらここを更新する。pipeline_id が null のステージは queue_pipelines の表に無い",
+ "pipeline_rules": "6 パイプラインとも 0 件 (スキップ/後戻り/編集者制限なし)",
+ "rules": [
+  {
+   "stage_id": "1095457875",
+   "pipeline_id": "753186575",
+   "label": "アポ日確定",
+   "props": [
+    {
+     "name": "bpo_51",
+     "required": true
+    },
+    {
+     "name": "nitteigiri",
+     "required": true
+    },
+    {
+     "name": "bpo_23",
+     "required": true
+    },
+    {
+     "name": "bpo__",
+     "required": true
+    },
+    {
+     "name": "negotiation_type",
+     "required": true
+    },
+    {
+     "name": "bpo_33",
+     "required": true
+    },
+    {
+     "name": "bpo_24",
+     "required": true
+    },
+    {
+     "name": "risuto_ninnzuu",
+     "required": true
+    },
+    {
+     "name": "bosyuriyu",
+     "required": true
+    },
+    {
+     "name": "bpo_25",
+     "required": true
+    },
+    {
+     "name": "bpo_34",
+     "required": true
+    },
+    {
+     "name": "recruitment_method",
+     "required": true
+    },
+    {
+     "name": "bpo_21",
+     "required": true
+    },
+    {
+     "name": "bpo_35",
+     "required": true
+    },
+    {
+     "name": "remarks_after_calling",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": false
+    },
+    {
+     "name": "bpo_22",
+     "required": true
+    },
+    {
+     "name": "charge_impression",
+     "required": false
+    },
+    {
+     "name": "bpo_29",
+     "required": true
+    },
+    {
+     "name": "risuto_adoresu",
+     "required": true
+    },
+    {
+     "name": "bpo_26",
+     "required": true
+    },
+    {
+     "name": "bpo_27",
+     "required": true
+    },
+    {
+     "name": "bpo_28",
+     "required": false
+    },
+    {
+     "name": "nkadainofukasa",
+     "required": true
+    },
+    {
+     "name": "ahkessaifuro",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "51997752",
+   "pipeline_id": "default",
+   "label": "TEL_アポ日確定",
+   "props": [
+    {
+     "name": "scheduled_business_meeting_date",
+     "required": true
+    },
+    {
+     "name": "jikan",
+     "required": true
+    },
+    {
+     "name": "aposyutokusya",
+     "required": true
+    },
+    {
+     "name": "aposyutokubi",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "nkadainofukasa",
+     "required": true
+    },
+    {
+     "name": "risuto_adoresu",
+     "required": true
+    },
+    {
+     "name": "name_of_person_in_charge",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": false
+    },
+    {
+     "name": "ketteishamei",
+     "required": false
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": false
+    },
+    {
+     "name": "kessaishamei",
+     "required": false
+    },
+    {
+     "name": "boshuuhaikeisentaku",
+     "required": true
+    },
+    {
+     "name": "risuto_kadennbi",
+     "required": true
+    },
+    {
+     "name": "boshuuhaikeinoshousaijiyuukinyuu",
+     "required": true
+    },
+    {
+     "name": "kadainogutainaiyoujiyuukinyuu",
+     "required": true
+    },
+    {
+     "name": "tjikanjiku",
+     "required": true
+    },
+    {
+     "name": "ckyougoujoukyou",
+     "required": true
+    },
+    {
+     "name": "ahkessaifuro",
+     "required": true
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "sihonkin",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "52035889",
+   "pipeline_id": "21724969",
+   "label": "Cヨミ：30％（決定者との価値合意）",
+   "props": [
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "c_______",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudangomemo",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "name_of_person_in_charge",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": true
+    },
+    {
+     "name": "d___budget_____________",
+     "required": true
+    },
+    {
+     "name": "kessaiflow",
+     "required": true
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": true
+    },
+    {
+     "name": "kyougou",
+     "required": true
+    },
+    {
+     "name": "genjou",
+     "required": true
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52035887",
+   "pipeline_id": "21724969",
+   "label": "進捗確認（商談実施済）",
+   "props": [
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "tanntousya",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": false
+    },
+    {
+     "name": "d___budget_____________",
+     "required": false
+    },
+    {
+     "name": "kessaiflow",
+     "required": false
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": false
+    },
+    {
+     "name": "kyougou",
+     "required": false
+    },
+    {
+     "name": "genjou",
+     "required": false
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52035888",
+   "pipeline_id": "21724969",
+   "label": "Dヨミ：10％（担当者との価値合意）",
+   "props": [
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudangomemo",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "name_of_person_in_charge",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": true
+    },
+    {
+     "name": "d___budget_____________",
+     "required": true
+    },
+    {
+     "name": "kessaiflow",
+     "required": false
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": false
+    },
+    {
+     "name": "kyougou",
+     "required": false
+    },
+    {
+     "name": "genjou",
+     "required": false
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52017683",
+   "pipeline_id": "21724969",
+   "label": "成約",
+   "props": [
+    {
+     "name": "consultant",
+     "required": true
+    },
+    {
+     "name": "number_of_payments",
+     "required": true
+    },
+    {
+     "name": "contract_period",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "71794963",
+   "pipeline_id": "21724969",
+   "label": "※使わない　日程再調整中",
+   "props": [
+    {
+     "name": "risuto_saikadennbi",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52035890",
+   "pipeline_id": "21724969",
+   "label": "Bヨミ：70％（決裁者との価値合意）",
+   "props": [
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "b__________",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudangomemo",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "name_of_person_in_charge",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": true
+    },
+    {
+     "name": "d___budget_____________",
+     "required": true
+    },
+    {
+     "name": "kessaiflow",
+     "required": true
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": true
+    },
+    {
+     "name": "kyougou",
+     "required": true
+    },
+    {
+     "name": "genjou",
+     "required": true
+    },
+    {
+     "name": "ringityuu",
+     "required": true
+    },
+    {
+     "name": "goui",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "52035891",
+   "pipeline_id": "21724969",
+   "label": "Aヨミ：90％（契約手続き中）",
+   "props": [
+    {
+     "name": "scheduled_date_of_conclusion_cloud_sign",
+     "required": true
+    },
+    {
+     "name": "kanoubi",
+     "required": false
+    },
+    {
+     "name": "sending_address_of_cloud_sign",
+     "required": true
+    },
+    {
+     "name": "fstantousha",
+     "required": true
+    },
+    {
+     "name": "istantousha",
+     "required": true
+    },
+    {
+     "name": "keijoushubetsu1or2",
+     "required": true
+    },
+    {
+     "name": "bpoapo",
+     "required": true
+    },
+    {
+     "name": "contract_plan",
+     "required": true
+    },
+    {
+     "name": "discount_amount",
+     "required": true
+    },
+    {
+     "name": "unit_price",
+     "required": true
+    },
+    {
+     "name": "quantity",
+     "required": true
+    },
+    {
+     "name": "payment_method",
+     "required": true
+    },
+    {
+     "name": "contract_start_date",
+     "required": true
+    },
+    {
+     "name": "contract_expiration_date",
+     "required": true
+    },
+    {
+     "name": "number_of_sales",
+     "required": true
+    },
+    {
+     "name": "number_of_payments",
+     "required": true
+    },
+    {
+     "name": "payment",
+     "required": true
+    },
+    {
+     "name": "invoice_sending_method",
+     "required": true
+    },
+    {
+     "name": "company_name",
+     "required": true
+    },
+    {
+     "name": "postal_code_main_office",
+     "required": true
+    },
+    {
+     "name": "representative_name",
+     "required": true
+    },
+    {
+     "name": "head_office_address",
+     "required": true
+    },
+    {
+     "name": "position_of_representative",
+     "required": true
+    },
+    {
+     "name": "name_of_person_in_charge",
+     "required": true
+    },
+    {
+     "name": "deadline_of_cloud_sign",
+     "required": true
+    },
+    {
+     "name": "reason_of_the_deadline",
+     "required": false
+    },
+    {
+     "name": "website_url",
+     "required": false
+    },
+    {
+     "name": "contract_period",
+     "required": true
+    },
+    {
+     "name": "invoice_mail_address_1",
+     "required": true
+    },
+    {
+     "name": "postcode_invoice",
+     "required": false
+    },
+    {
+     "name": "mailing_address",
+     "required": false
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "itijitaiou",
+     "required": true
+    },
+    {
+     "name": "syoudangomemo",
+     "required": true
+    },
+    {
+     "name": "contract_type",
+     "required": true
+    },
+    {
+     "name": "head_office_address_kana",
+     "required": true
+    },
+    {
+     "name": "company_name_kana",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "sihonkin",
+     "required": true
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyusu",
+     "required": true
+    },
+    {
+     "name": "keisaisu",
+     "required": true
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "155012224",
+   "pipeline_id": "62583420",
+   "label": "A_決裁者価値合意案件_成約見込み",
+   "props": [
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "tanntousya",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": false
+    },
+    {
+     "name": "d___budget_____________",
+     "required": false
+    },
+    {
+     "name": "kessaiflow",
+     "required": false
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": false
+    },
+    {
+     "name": "kyougou",
+     "required": false
+    },
+    {
+     "name": "genjou",
+     "required": false
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason_detail",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "155012220",
+   "pipeline_id": "62583420",
+   "label": "T_ターゲット外案件",
+   "props": [
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "tanntousya",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": false
+    },
+    {
+     "name": "d___budget_____________",
+     "required": false
+    },
+    {
+     "name": "kessaiflow",
+     "required": false
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": false
+    },
+    {
+     "name": "kyougou",
+     "required": false
+    },
+    {
+     "name": "genjou",
+     "required": false
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason_detail",
+     "required": true
+    },
+    {
+     "name": "shoukaifi",
+     "required": false
+    },
+    {
+     "name": "keikennoumu",
+     "required": false
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "155012221",
+   "pipeline_id": "62583420",
+   "label": "D_担当者価値合意案件",
+   "props": [
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "tanntousya",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": false
+    },
+    {
+     "name": "d___budget_____________",
+     "required": false
+    },
+    {
+     "name": "kessaiflow",
+     "required": false
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": false
+    },
+    {
+     "name": "kyougou",
+     "required": false
+    },
+    {
+     "name": "genjou",
+     "required": false
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason_detail",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "155012222",
+   "pipeline_id": "62583420",
+   "label": "C_決定者価値合意案件",
+   "props": [
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "tanntousya",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___budget_____________",
+     "required": false
+    },
+    {
+     "name": "kessaiflow",
+     "required": false
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": false
+    },
+    {
+     "name": "kyougou",
+     "required": false
+    },
+    {
+     "name": "genjou",
+     "required": false
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason_detail",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "155012223",
+   "pipeline_id": "62583420",
+   "label": "B_決裁者価値合意案件",
+   "props": [
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "tanntousya",
+     "required": true
+    },
+    {
+     "name": "person_in_charge_title",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": false
+    },
+    {
+     "name": "d___budget_____________",
+     "required": false
+    },
+    {
+     "name": "kessaiflow",
+     "required": false
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": false
+    },
+    {
+     "name": "kyougou",
+     "required": false
+    },
+    {
+     "name": "genjou",
+     "required": false
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason_detail",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1095457878",
+   "pipeline_id": "753186575",
+   "label": "架電禁止 ※リーダーのみ変更",
+   "props": [
+    {
+     "name": "forbidden_destination_of_call",
+     "required": true
+    },
+    {
+     "name": "bpo_3",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "89363529",
+   "pipeline_id": "default",
+   "label": "架電禁止先",
+   "props": [
+    {
+     "name": "kadenkinsi",
+     "required": true
+    },
+    {
+     "name": "bpo_3",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1095387446",
+   "pipeline_id": "753186575",
+   "label": "担当者ブロック",
+   "props": [
+    {
+     "name": "bpo_4",
+     "required": true
+    },
+    {
+     "name": "bpo_31",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1095387443",
+   "pipeline_id": "753186575",
+   "label": "不通",
+   "props": [
+    {
+     "name": "bpo_10",
+     "required": true
+    },
+    {
+     "name": "bpo_31",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1025314206",
+   "pipeline_id": "681393283",
+   "label": "TEL_アポ確定",
+   "props": [
+    {
+     "name": "scheduled_business_meeting_date",
+     "required": true
+    },
+    {
+     "name": "jikan",
+     "required": true
+    },
+    {
+     "name": "aposyutokusya",
+     "required": true
+    },
+    {
+     "name": "risuto_kadennbi",
+     "required": true
+    },
+    {
+     "name": "aposyutokubi",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "budget________",
+     "required": true
+    },
+    {
+     "name": "authority________",
+     "required": true
+    },
+    {
+     "name": "needs_________",
+     "required": true
+    },
+    {
+     "name": "timeframe______",
+     "required": true
+    },
+    {
+     "name": "risuto_adoresu",
+     "required": true
+    },
+    {
+     "name": "dennwabangou",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "qualifiedtobuy",
+   "pipeline_id": "default",
+   "label": "TEL_不通",
+   "props": [
+    {
+     "name": "bpo_10",
+     "required": true
+    },
+    {
+     "name": "bpo_31",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "122445645",
+   "pipeline_id": "default",
+   "label": "担当者_有料サービス利用経験アリ",
+   "props": [
+    {
+     "name": "risuto_saikadennbi",
+     "required": true
+    },
+    {
+     "name": "service1",
+     "required": true
+    },
+    {
+     "name": "service",
+     "required": true
+    },
+    {
+     "name": "syuuryou",
+     "required": false
+    },
+    {
+     "name": "ketteishamei",
+     "required": false
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": false
+    },
+    {
+     "name": "kessaishamei",
+     "required": false
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "122445644",
+   "pipeline_id": "default",
+   "label": "担当者_有料サービス利用経験ナシ",
+   "props": [
+    {
+     "name": "risuto_saikadennbi",
+     "required": false
+    },
+    {
+     "name": "ketteishamei",
+     "required": false
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": false
+    },
+    {
+     "name": "kessaishamei",
+     "required": false
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1016858793",
+   "pipeline_id": "681393283",
+   "label": "再調整",
+   "props": [
+    {
+     "name": "risuto_saikadennbi",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "973220404",
+   "pipeline_id": "default",
+   "label": "本社一括管理",
+   "props": [
+    {
+     "name": "honsya",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1095457877",
+   "pipeline_id": "753186575",
+   "label": "案件差戻",
+   "props": [
+    {
+     "name": "hubspot_owner_id",
+     "required": false
+    },
+    {
+     "name": "bpo_13",
+     "required": false
+    },
+    {
+     "name": "bpo_14",
+     "required": false
+    },
+    {
+     "name": "bpo_16",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1319310149",
+   "pipeline_id": "753186575",
+   "label": "日程確保",
+   "props": [
+    {
+     "name": "apomikakuteiriyuu",
+     "required": true
+    },
+    {
+     "name": "bpo_13",
+     "required": true
+    },
+    {
+     "name": "bpo_16",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1330563334",
+   "pipeline_id": "753186575",
+   "label": "商談未実施処理",
+   "props": [
+    {
+     "name": "shoudanmijisshiriyuu",
+     "required": true
+    },
+    {
+     "name": "shitsuchuujiki",
+     "required": true
+    },
+    {
+     "name": "shoudanmijisshiriyuushousai",
+     "required": true
+    },
+    {
+     "name": "bposashimodoshi",
+     "required": true
+    },
+    {
+     "name": "fshoyuukigenbi",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1332175104",
+   "pipeline_id": "default",
+   "label": "日程確保済み",
+   "props": [
+    {
+     "name": "risuto_saikadennbi",
+     "required": true
+    },
+    {
+     "name": "aposyutokusya",
+     "required": false
+    },
+    {
+     "name": "risuto_kadennbi",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": false
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": false
+    },
+    {
+     "name": "kessaishamei",
+     "required": false
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": false
+    },
+    {
+     "name": "risuto_adoresu",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "miapokayouinsentaku",
+     "required": true
+    },
+    {
+     "name": "miapokayouinjiyuukinyuu",
+     "required": false
+    },
+    {
+     "name": "boshuuhaikeisentaku",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1325086466",
+   "pipeline_id": "753186575",
+   "label": "商談実施処理",
+   "props": [
+    {
+     "name": "bposhoudanjisshikekka",
+     "required": true
+    },
+    {
+     "name": "apoyoukenwomitashiteimashitaka",
+     "required": true
+    },
+    {
+     "name": "shoudanfb",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1366400580",
+   "pipeline_id": "default",
+   "label": "アポヨミ",
+   "props": [
+    {
+     "name": "risuto_saikadennbi",
+     "required": false
+    },
+    {
+     "name": "bpo_43",
+     "required": false
+    },
+    {
+     "name": "service",
+     "required": false
+    },
+    {
+     "name": "syuuryou",
+     "required": false
+    },
+    {
+     "name": "ketteishamei",
+     "required": false
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": false
+    },
+    {
+     "name": "kessaishamei",
+     "required": false
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": false
+    }
+   ]
+  },
+  {
+   "stage_id": "1404735259",
+   "pipeline_id": "default",
+   "label": "ターゲット外（業種、職種、費用0など）",
+   "props": [
+    {
+     "name": "tagettogairiyuu",
+     "required": true
+    },
+    {
+     "name": "tagettogairiyuushousai",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1422059151",
+   "pipeline_id": "62583420",
+   "label": "非価値合意案件",
+   "props": [
+    {
+     "name": "nextaction",
+     "required": true
+    },
+    {
+     "name": "date_of_next_action",
+     "required": true
+    },
+    {
+     "name": "amount",
+     "required": true
+    },
+    {
+     "name": "teianplan",
+     "required": true
+    },
+    {
+     "name": "syoudandouga",
+     "required": true
+    },
+    {
+     "name": "tanntousya",
+     "required": true
+    },
+    {
+     "name": "risuto_tanntouyakusyoku",
+     "required": true
+    },
+    {
+     "name": "ketteishamei",
+     "required": true
+    },
+    {
+     "name": "ketteishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "kessaishamei",
+     "required": true
+    },
+    {
+     "name": "kessaishanoyakushoku",
+     "required": true
+    },
+    {
+     "name": "teiannn",
+     "required": true
+    },
+    {
+     "name": "syokusyu",
+     "required": true
+    },
+    {
+     "name": "sinntyokukkauninn",
+     "required": true
+    },
+    {
+     "name": "saiyoujiki",
+     "required": true
+    },
+    {
+     "name": "d___need________",
+     "required": false
+    },
+    {
+     "name": "d___budget_____________",
+     "required": false
+    },
+    {
+     "name": "kessaiflow",
+     "required": false
+    },
+    {
+     "name": "kessaisyagameikaku",
+     "required": false
+    },
+    {
+     "name": "kyougou",
+     "required": false
+    },
+    {
+     "name": "genjou",
+     "required": false
+    },
+    {
+     "name": "ringityuu",
+     "required": false
+    },
+    {
+     "name": "goui",
+     "required": false
+    },
+    {
+     "name": "gyoukai",
+     "required": true
+    },
+    {
+     "name": "etc_",
+     "required": false
+    },
+    {
+     "name": "kigyouzentaininzuu",
+     "required": true
+    },
+    {
+     "name": "syokusyu_risuto",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason",
+     "required": true
+    },
+    {
+     "name": "closed_lost_reason_detail",
+     "required": true
+    },
+    {
+     "name": "shoudanzokusei",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1422048803",
+   "pipeline_id": "21724969",
+   "label": "先方都合キャンセル",
+   "props": [
+    {
+     "name": "risuto_saikadennbi",
+     "required": true
+    },
+    {
+     "name": "bpo_47",
+     "required": true
+    }
+   ]
+  },
+  {
+   "stage_id": "1422048804",
+   "pipeline_id": "21724969",
+   "label": "当社都合キャンセル",
+   "props": [
+    {
+     "name": "miapokayouinsentaku",
+     "required": true
+    },
+    {
+     "name": "miapokayouinjiyuukinyuu",
+     "required": true
+    },
+    {
+     "name": "bpo_47",
+     "required": true
+    }
+   ]
+  }
+ ]
+}

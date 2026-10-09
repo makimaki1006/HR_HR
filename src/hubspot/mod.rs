@@ -6,7 +6,8 @@
 //! - `gateway`: プロセス共有の関所 (流量制限・優先度・待ちの上限・429 の全員停止・観測)
 //! - `types`: レコード・エラーの型 (`crm` モジュールとの契約)
 //!
-//! 書き込み API はこのモジュールに置かない (PR4 以降)。
+//! 書き込みは `HubSpotClient::patch_object` (プロパティの PATCH 1 回。retry なし) だけ。何を書いてよいか・
+//! 失敗時にキューへ積むかは `crm::write` が決める。
 
 pub mod client;
 pub mod deep_link;
