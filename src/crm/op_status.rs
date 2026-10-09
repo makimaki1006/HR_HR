@@ -16,6 +16,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use super::clock::Clock;
+
 /// 表に持つ最大件数
 pub const MAX_ENTRIES: usize = 20_000;
 /// 最後に更新されてから有効な時間。これを過ぎたら台帳を読み直す
@@ -36,6 +38,7 @@ pub struct OpStatusCache {
     map: Mutex<HashMap<String, (Instant, OpState)>>,
     ttl: Duration,
     max: usize,
+    clock: Clock,
 }
 
 impl Default for OpStatusCache {
@@ -62,10 +65,16 @@ pub fn shared() -> Arc<OpStatusCache> {
 
 impl OpStatusCache {
     pub fn new(ttl: Duration, max: usize) -> Self {
+        Self::with_clock(ttl, max, Clock::default())
+    }
+
+    /// 時計を指定して作る (テストで手で進める時計を渡す)
+    pub fn with_clock(ttl: Duration, max: usize, clock: Clock) -> Self {
         Self {
             map: Mutex::new(HashMap::new()),
             ttl,
             max: max.max(1),
+            clock,
         }
     }
 
@@ -81,7 +90,7 @@ impl OpStatusCache {
     pub fn get(&self, operation_id: &str) -> Option<OpState> {
         let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
         match m.get(operation_id) {
-            Some((at, s)) if at.elapsed() < self.ttl => Some(s.clone()),
+            Some((at, s)) if self.clock.since(*at) < self.ttl => Some(s.clone()),
             Some(_) => {
                 m.remove(operation_id);
                 None
@@ -94,8 +103,8 @@ impl OpStatusCache {
     pub fn put(&self, operation_id: &str, state: OpState) {
         let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
         if m.len() >= self.max && !m.contains_key(operation_id) {
-            let ttl = self.ttl;
-            m.retain(|_, (at, _)| at.elapsed() < ttl);
+            let (ttl, clock) = (self.ttl, &self.clock);
+            m.retain(|_, (at, _)| clock.since(*at) < ttl);
             if m.len() >= self.max {
                 let mut ages: Vec<(Instant, String)> =
                     m.iter().map(|(k, (at, _))| (*at, k.clone())).collect();
@@ -105,7 +114,7 @@ impl OpStatusCache {
                 }
             }
         }
-        m.insert(operation_id.to_string(), (Instant::now(), state));
+        m.insert(operation_id.to_string(), (self.clock.now(), state));
     }
 }
 
@@ -125,23 +134,27 @@ mod tests {
 
     #[test]
     fn 入れたものは返り_置き換えられ_期限が過ぎたら消える() {
-        let c = OpStatusCache::new(Duration::from_millis(40), 10);
+        let (clock, time) = Clock::manual();
+        let c = OpStatusCache::with_clock(Duration::from_millis(40), 10, clock);
         assert!(c.get("a").is_none());
         c.put("a", st("pending"));
         assert_eq!(c.get("a").unwrap().status, "pending");
         c.put("a", st("saved"));
         assert_eq!(c.get("a").unwrap().status, "saved");
-        std::thread::sleep(Duration::from_millis(60));
+        time.advance(Duration::from_millis(39));
+        assert!(c.get("a").is_some(), "期限の直前はまだ有効");
+        time.advance(Duration::from_millis(1));
         assert!(c.get("a").is_none(), "期限切れは台帳に戻る");
         assert!(c.is_empty(), "期限切れは表からも消える");
     }
 
     #[test]
     fn 件数の上限を超えない_古いものから捨てる() {
-        let c = OpStatusCache::new(Duration::from_secs(60), 20);
+        let (clock, time) = Clock::manual();
+        let c = OpStatusCache::with_clock(Duration::from_secs(60), 20, clock);
         for i in 0..20 {
             c.put(&format!("op-{i}"), st("pending"));
-            std::thread::sleep(Duration::from_millis(1));
+            time.advance(Duration::from_millis(1));
         }
         assert_eq!(c.len(), 20);
         c.put("op-new", st("pending"));

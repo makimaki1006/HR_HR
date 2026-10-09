@@ -33,6 +33,7 @@ use tokio::sync::Mutex;
 use tower_sessions::Session;
 use ts_rs::TS;
 
+use super::clock::Clock;
 use super::rbac;
 use super::routes::{
     error_json, hubspot_error_response, timeout_response, CrmCtx, CRM_REQUEST_DEADLINE,
@@ -170,6 +171,7 @@ pub struct PropertyCatalogCache {
     slot: Mutex<Slot>,
     ttl: Duration,
     failure_ttl: Duration,
+    clock: Clock,
     /// 先読み (背景の優先度) が走っているか
     refreshing: super::call_queue::RefreshGate,
 }
@@ -188,10 +190,16 @@ impl Default for PropertyCatalogCache {
 
 impl PropertyCatalogCache {
     pub fn with_ttl(ttl: Duration, failure_ttl: Duration) -> Self {
+        Self::with_clock(ttl, failure_ttl, Clock::default())
+    }
+
+    /// 時計を指定して作る (テストで手で進める時計を渡す)
+    pub fn with_clock(ttl: Duration, failure_ttl: Duration, clock: Clock) -> Self {
         Self {
             slot: Mutex::new(Slot::default()),
             ttl,
             failure_ttl,
+            clock,
             refreshing: super::call_queue::RefreshGate::new(),
         }
     }
@@ -203,13 +211,13 @@ impl PropertyCatalogCache {
     ) -> Result<(Arc<CatalogEntry>, bool), HubSpotError> {
         let mut slot = self.slot.lock().await;
         if let Some((stored, entry)) = slot.ok.as_ref() {
-            if stored.elapsed() < self.ttl {
+            if self.clock.since(*stored) < self.ttl {
                 cache_hit("property_catalog");
                 return Ok((entry.clone(), true));
             }
         }
         if let Some((at, e)) = slot.failed.as_ref() {
-            if at.elapsed() < self.failure_ttl {
+            if self.clock.since(*at) < self.failure_ttl {
                 // 取り直しに失敗した直後: 前の一覧があればそれで続ける
                 if let Some((_, entry)) = slot.ok.as_ref() {
                     cache_hit("property_catalog");
@@ -221,12 +229,12 @@ impl PropertyCatalogCache {
         cache_miss("property_catalog");
         match self.fetch(client).await {
             Ok(entry) => {
-                slot.ok = Some((Instant::now(), entry.clone()));
+                slot.ok = Some((self.clock.now(), entry.clone()));
                 slot.failed = None;
                 Ok((entry, false))
             }
             Err(e) => {
-                slot.failed = Some((Instant::now(), e.clone()));
+                slot.failed = Some((self.clock.now(), e.clone()));
                 if let Some((_, entry)) = slot.ok.as_ref() {
                     tracing::warn!(
                         error_kind = e.error_kind(),
@@ -242,9 +250,9 @@ impl PropertyCatalogCache {
     /// 有効期間の終わり近く (残り 20% 未満) なら true (先読みの対象)。取得中は false
     pub fn refresh_due(&self) -> bool {
         self.slot.try_lock().is_ok_and(|slot| {
-            slot.ok
-                .as_ref()
-                .is_some_and(|(at, _)| super::call_queue::refresh_due(at.elapsed(), self.ttl))
+            slot.ok.as_ref().is_some_and(|(at, _)| {
+                super::call_queue::refresh_due(self.clock.since(*at), self.ttl)
+            })
         })
     }
 
@@ -257,7 +265,7 @@ impl PropertyCatalogCache {
         match self.fetch(client).await {
             Ok(entry) => {
                 let mut slot = self.slot.lock().await;
-                slot.ok = Some((Instant::now(), entry));
+                slot.ok = Some((self.clock.now(), entry));
                 slot.failed = None;
             }
             Err(e) => tracing::warn!(
@@ -269,19 +277,24 @@ impl PropertyCatalogCache {
     }
 
     async fn fetch(&self, client: &HubSpotClient) -> Result<Arc<CatalogEntry>, HubSpotError> {
-        let (dp, cp, op, dg, cg, og) = tokio::try_join!(
+        // 全部の応答を待つ (`try_join!` は 1 つ失敗すると残りの送信を途中で取り下げる。
+        // 取り下げは HubSpot に届くかどうかが時の運で、呼び出し回数の数え方も揺れる)
+        let (dp, cp, op, dg, cg, og) = tokio::join!(
             client.property_definitions(RecordType::Deal),
             client.property_definitions(RecordType::Contact),
             client.property_definitions(RecordType::Company),
             client.property_groups(RecordType::Deal),
             client.property_groups(RecordType::Contact),
             client.property_groups(RecordType::Company),
-        )
-        .map_err(|e| match e {
-            // 定義の取得で 404 は「レコードが無い」ではなく上流の不具合
-            HubSpotError::NotFound => HubSpotError::Upstream { status: 404 },
-            other => other,
-        })?;
+        );
+        let [dp, cp, op, dg, cg, og] = [dp, cp, op, dg, cg, og].map(|r| {
+            r.map_err(|e| match e {
+                // 定義の取得で 404 は「レコードが無い」ではなく上流の不具合
+                HubSpotError::NotFound => HubSpotError::Upstream { status: 404 },
+                other => other,
+            })
+        });
+        let (dp, cp, op, dg, cg, og) = (dp?, cp?, op?, dg?, cg?, og?);
         let response = CrmPropertyCatalogResponse {
             objects: vec![
                 build_object(RecordType::Deal, &dp, &dg)?,
