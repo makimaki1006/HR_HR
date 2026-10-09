@@ -72,16 +72,16 @@ describe('商談属性: 旧画面と React 版が同じ (種別の列がある f
     const log = await same(D, (s, l) => { ntCards(s, l, '全社'); });
     expect(log.length).toBeGreaterThan(100);
   }, 280_000);
-  it('伊壺チーム・個人・チェック外し', async () => {
-    const id = D.people.find((p) => p.team === '伊壺チーム')?.id ?? '';
+  it('第1チーム・個人・チェック外し', async () => {
+    const id = D.people.find((p) => p.team === '第1チーム')?.id ?? '';
     await same(D, (s, l) => {
-      s.clickTeam('伊壺チーム');
+      s.clickTeam('第1チーム');
       ntCards(s, l, '伊壺');
       s.clickTeam('すべて');
       s.selectPerson(id);
       ntCards(s, l, '個人');
     });
-    const hidden = D.people.filter((p) => p.team === '伊壺チーム').slice(0, 3).map((p) => p.id);
+    const hidden = D.people.filter((p) => p.team === '第1チーム').slice(0, 3).map((p) => p.id);
     await same(D, (s, l) => { ntCards(s, l, '外す'); }, hidden);
   }, 280_000);
   it('分子でない区分を選ぶと「分子の列は計算できません」の注釈 (⑥⑤)。分子の区分では出ない', async () => {

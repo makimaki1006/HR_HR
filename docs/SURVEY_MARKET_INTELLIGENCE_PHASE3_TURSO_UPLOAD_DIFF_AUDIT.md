@@ -3,7 +3,7 @@
 - 実行日時 (UTC): 2026-05-05T15:20:36.043262+00:00 〜 2026-05-05T15:20:43.555220+00:00
 - 所要時間: 7.5 秒
 - ローカル DB: `data/hellowork.db`
-- リモート: `country-statistics-makimaki1006.aws-ap-northeast-1.turso.io` (Turso V2)
+- リモート: `country-statistics-<org>.turso.io` (Turso V2)
 - READ 消費: **7 / 50**
 - 監査者: Worker X1 (READ-ONLY)
 

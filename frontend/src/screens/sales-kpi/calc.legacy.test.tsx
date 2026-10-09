@@ -51,9 +51,9 @@ describe('md / wd / ago (JST では旧 JS と同一)', () => {
 describe('sumIf (旧 JS と同一)', () => {
   const cases: { name: string; hidden: string[]; ok: (id: string) => boolean }[] = [
     { name: '全員', hidden: [], ok: () => true },
-    { name: '伊壺チームだけ', hidden: [], ok: (id) => D.people.find((p) => p.id === id)?.team === '伊壺チーム' },
-    { name: '1人外す', hidden: ['613211320'], ok: () => true },
-    { name: '個人', hidden: [], ok: (id) => id === '613211320' },
+    { name: '第1チームだけ', hidden: [], ok: (id) => D.people.find((p) => p.id === id)?.team === '第1チーム' },
+    { name: '1人外す', hidden: ['615075002'], ok: () => true },
+    { name: '個人', hidden: [], ok: (id) => id === '615075002' },
   ];
   it.each(cases)('$name: by_person', ({ hidden, ok }) => {
     const h = new Set(hidden);
@@ -75,7 +75,7 @@ describe('avgLine (旧 JS の HTML と同一の文字列になる)', () => {
     a ? `${a.label} ${a.value}<span style="opacity:.75">（${String(a.n)}名）</span>` : '';
   it.each([
     [{ label: '1人あたり', team: null, n: 109 }, 245, undefined],
-    [{ label: '伊壺チーム の平均', team: '伊壺チーム', n: 7 }, 31, undefined],
+    [{ label: '第1チーム の平均', team: '第1チーム', n: 7 }, 31, undefined],
     [{ label: '1人あたり', team: null, n: 109 }, 29866, '件'],
     [{ label: '1人あたり', team: null, n: 0 }, 5, undefined],
     [null, 5, undefined],
@@ -176,18 +176,18 @@ describe('絞り込みの規則 inScope / sumScope / pick / avgBase / personName
   const first = (team: string) => roster.find((p) => p.team === team);
   const states: { name: string; team: string; person: string | null; hidden: string[] }[] = [
     { name: '全社・個人なし', team: 'すべて', person: null, hidden: [] },
-    { name: '伊壺チーム', team: '伊壺チーム', person: null, hidden: [] },
-    { name: '伊壺チーム・1人外す', team: '伊壺チーム', person: null, hidden: [first('伊壺チーム')?.id ?? ''] },
-    { name: '個人 (名簿に居る)', team: 'すべて', person: first('平田チーム')?.id ?? '', hidden: [] },
-    { name: '個人 + 別チームを選択 (個人が優先)', team: '伊壺チーム', person: first('平田チーム')?.id ?? '', hidden: [] },
+    { name: '第1チーム', team: '第1チーム', person: null, hidden: [] },
+    { name: '第1チーム・1人外す', team: '第1チーム', person: null, hidden: [first('第1チーム')?.id ?? ''] },
+    { name: '個人 (名簿に居る)', team: 'すべて', person: first('第2チーム')?.id ?? '', hidden: [] },
+    { name: '個人 + 別チームを選択 (個人が優先)', team: '第1チーム', person: first('第2チーム')?.id ?? '', hidden: [] },
     { name: '担当なし (全社)', team: 'すべて', person: '', hidden: [] },
-    { name: '担当なし (チーム選択中。個人が優先)', team: '伊壺チーム', person: '', hidden: [] },
-    { name: '個人を選んだがチェックで外した', team: 'すべて', person: first('平田チーム')?.id ?? '', hidden: [first('平田チーム')?.id ?? ''] },
+    { name: '担当なし (チーム選択中。個人が優先)', team: '第1チーム', person: '', hidden: [] },
+    { name: '個人を選んだがチェックで外した', team: 'すべて', person: first('第2チーム')?.id ?? '', hidden: [first('第2チーム')?.id ?? ''] },
     { name: '名簿に居ない id を個人に', team: 'すべて', person: 'ZZ-OFF', hidden: [] },
   ];
   // id: 名簿に居る人・担当なし ('')・名簿に居ない人。rowTeam: 名簿と同じ・違う・無し
-  const ids = ['', 'ZZ-OFF', first('伊壺チーム')?.id ?? '', first('平田チーム')?.id ?? '', first('チーム未設定')?.id ?? ''];
-  const rowTeams = [undefined, '伊壺チーム', '平田チーム', 'チーム未設定', '存在しないチーム'];
+  const ids = ['', 'ZZ-OFF', first('第1チーム')?.id ?? '', first('第2チーム')?.id ?? '', first('チーム未設定')?.id ?? ''];
+  const rowTeams = [undefined, '第1チーム', '第2チーム', 'チーム未設定', '存在しないチーム'];
   it.each(states)('inScope: $name (全 id × 全 rowTeam)', (st) => {
     const lg = legacy.makeScoped(D, { team: st.team, person: st.person, hidden: new Set(st.hidden) });
     const scope: mine.Scope = { team: st.team, person: st.person, hidden: new Set(st.hidden) };
@@ -217,10 +217,10 @@ describe('絞り込みの規則 inScope / sumScope / pick / avgBase / personName
   });
   it('番兵: 担当なし(null でも "" でもない値)の往復', () => {
     const lg = legacy.makeScoped(D, { team: 'すべて', person: null, hidden: new Set() });
-    for (const v of ['', '__none__', '613211320']) {
+    for (const v of ['', '__none__', '615075002']) {
       expect(mine.personOfValue(v)).toBe(lg.personOfValue(v));
     }
-    for (const p of [null, '', '613211320']) {
+    for (const p of [null, '', '615075002']) {
       expect(mine.valueOfPerson(p)).toBe(lg.valueOfPerson(p));
     }
     expect(mine.personOfValue('')).toBeNull();
@@ -232,7 +232,7 @@ describe('絞り込みの規則 inScope / sumScope / pick / avgBase / personName
     const scope: mine.Scope = { team: 'すべて', person: '', hidden: new Set() };
     const teamOf = mine.teamOfMap(roster);
     expect(mine.inScope(scope, teamOf, '')).toBe(true);
-    expect(mine.inScope(scope, teamOf, '613211320')).toBe(false);
-    expect(mine.inScope({ ...scope, person: null }, teamOf, '613211320')).toBe(true);
+    expect(mine.inScope(scope, teamOf, '615075002')).toBe(false);
+    expect(mine.inScope({ ...scope, person: null }, teamOf, '615075002')).toBe(true);
   });
 });

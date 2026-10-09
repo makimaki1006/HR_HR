@@ -8,6 +8,7 @@
   scripts/staging/cross_switcher_supply.csv  → cross_switcher_supply  (約134行)
 
 使い方 (PowerShell):
+  $env:TURSO_EXTERNAL_URL = "libsql://country-statistics-<org>.turso.io"
   $env:TURSO_EXTERNAL_TOKEN = "<トークン>"
   python scripts/upload_cross_tables.py          # 初回投入 (既にデータがあれば中断)
   python scripts/upload_cross_tables.py --force  # 作り直し (DROP して再投入)
@@ -31,10 +32,7 @@ import sys
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-URL = os.environ.get(
-    "TURSO_EXTERNAL_URL",
-    "libsql://country-statistics-makimaki1006.aws-ap-northeast-1.turso.io",
-)
+URL = os.environ.get("TURSO_EXTERNAL_URL", "").strip()
 TOKEN = os.environ.get("TURSO_EXTERNAL_TOKEN", "").strip()
 FORCE = "--force" in sys.argv
 
@@ -124,6 +122,10 @@ def sql_quote(v):
 
 
 def main():
+    if not URL:
+        print("[中断] 環境変数 TURSO_EXTERNAL_URL が設定されていません。")
+        print('  PowerShell:  $env:TURSO_EXTERNAL_URL = "libsql://country-statistics-<org>.turso.io"')
+        return 1
     if not TOKEN:
         print("[中断] 環境変数 TURSO_EXTERNAL_TOKEN が設定されていません。")
         print('  PowerShell:  $env:TURSO_EXTERNAL_TOKEN = "<トークン>"')

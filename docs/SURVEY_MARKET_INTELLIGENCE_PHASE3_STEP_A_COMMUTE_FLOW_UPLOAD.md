@@ -42,7 +42,7 @@ JIS 整備完了 (commit `e889683`) により、ローカル `commute_flow_summa
 
 | 項目 | 値 |
 |------|----|
-| ホスト | `country-statistics-makimaki1006.aws-ap-northeast-1.turso.io` |
+| ホスト | `country-statistics-<org>.turso.io` |
 | 環境変数 | `TURSO_EXTERNAL_URL` / `TURSO_EXTERNAL_TOKEN` (`.env` 参照) |
 | 検証スクリプト | `scripts/verify_turso_v2_sync.py` |
 

@@ -365,14 +365,14 @@ fn 内訳の行の担当者とチームは絞り込みの名簿と同じ() {
 
 /// ① の内BPO は「当月に取った BPO アポ」だけ（`is_bpo(month_lo, month_hi)`）。
 /// 他のカードの BPO（前月＋当月の窓 `bpo_of`）と同じ判定で行の bpo を作ると 1 件多くなる。
-/// fixture の dealId 22995477277 は BPOアポ取得日 2026-08-27（前月）: ①では BPO ではない。
+/// fixture の dealId 22722720314 は BPOアポ取得日 2026-08-27（前月）: ①では BPO ではない。
 #[test]
 fn 取ったアポの内bpoは当月の取得日だけ() {
     let body = payload();
     let row = card_rows(&body, "apo")
         .iter()
-        .find(|r| r["id"].as_str() == Some("22995477277"))
-        .expect("fixture のアポに 22995477277 が無い");
+        .find(|r| r["id"].as_str() == Some("22722720314"))
+        .expect("fixture のアポに 22722720314 が無い");
     assert_eq!(
         row["bpo"].as_bool(),
         Some(false),
@@ -399,7 +399,7 @@ fn cヨミの内bpoは前月と当月の窓() {
 }
 
 /// 集計除外（`KPI営業_集計除外` → メンバーの `集計対象=対象外`）の人の取引は内訳にも出ない。
-/// fixture の 34145414434 は除外者の取引で、商談と Cヨミの両方のシートにある。
+/// fixture の 34084170002 は除外者の取引で、商談と Cヨミの両方のシートにある。
 #[test]
 fn 集計除外の取引は内訳にも出ない() {
     let sheets = fixture_sheets();
@@ -410,7 +410,7 @@ fn 集計除外の取引は内訳にも出ない() {
         for r in card_rows(&body, src) {
             let o = r["owner"].as_str().unwrap_or("");
             assert!(!out.contains(o), "{src} に集計除外の {o} の取引が出ている");
-            assert_ne!(r["id"].as_str(), Some("34145414434"));
+            assert_ne!(r["id"].as_str(), Some("34084170002"));
         }
     }
 }

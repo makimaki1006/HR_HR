@@ -79,14 +79,14 @@ function ok(cond, msg) { if (!cond) throw new Error(msg); }
 // h6e0d… は 0.0%（0/11か月）で small_n。以前の KPI はこの人を「いちばん低い」として赤で出していた。
 // 母数が足りる人の最下位は h9821… の 26.4%（33/125か月）。small_n は 5 名。
 const TEAM_ROWS = [
-  { consultant: "h6e0d76778594", contact_rate: 0, contact_touched: 0, contact_months: 11, small_n: true, n_active: 10, focus: 0 },
-  { consultant: "h14989084e280", contact_rate: 57.14, contact_touched: 4, contact_months: 7, small_n: true, n_active: 1, focus: 0 },
-  { consultant: "h4d5a88534c6a", contact_rate: 50, contact_touched: 8, contact_months: 16, small_n: true, n_active: 9, focus: 0 },
-  { consultant: "habc7b05f19ea", contact_rate: 100, contact_touched: 1, contact_months: 1, small_n: true, n_active: 1, focus: 0 },
-  { consultant: "hb9aeb29c3e60", contact_rate: 100, contact_touched: 6, contact_months: 6, small_n: true, n_active: 4, focus: 0 },
-  { consultant: "h9821a39368fe", contact_rate: 26.4, contact_touched: 33, contact_months: 125, small_n: false, n_active: 28, focus: 3 },
-  { consultant: "h2e505aa278de", contact_rate: 41.11, contact_touched: 37, contact_months: 90, small_n: false, n_active: 25, focus: 16 },
-  { consultant: "h60b499e1c307", contact_rate: 96.92, contact_touched: 63, contact_months: 65, small_n: false, n_active: 22, focus: 2 },
+  { consultant: "h6cbf3e7797ba", contact_rate: 0, contact_touched: 0, contact_months: 11, small_n: true, n_active: 10, focus: 0 },
+  { consultant: "h13e58afffff5", contact_rate: 57.14, contact_touched: 4, contact_months: 7, small_n: true, n_active: 1, focus: 0 },
+  { consultant: "h4cf5523a8575", contact_rate: 50, contact_touched: 8, contact_months: 16, small_n: true, n_active: 9, focus: 0 },
+  { consultant: "hac96f6816815", contact_rate: 100, contact_touched: 1, contact_months: 1, small_n: true, n_active: 1, focus: 0 },
+  { consultant: "hbba4a9f74bb1", contact_rate: 100, contact_touched: 6, contact_months: 6, small_n: true, n_active: 4, focus: 0 },
+  { consultant: "h96f5a5adf9aa", contact_rate: 26.4, contact_touched: 33, contact_months: 125, small_n: false, n_active: 28, focus: 3 },
+  { consultant: "h2ce37435eb16", contact_rate: 41.11, contact_touched: 37, contact_months: 90, small_n: false, n_active: 25, focus: 16 },
+  { consultant: "h603dd3dbe359", contact_rate: 96.92, contact_touched: 63, contact_months: 65, small_n: false, n_active: 22, focus: 2 },
 ];
 ctx.__TEAM = TEAM_ROWS;
 
@@ -136,10 +136,10 @@ check("V2/S-10: 40% 未満の人数から母数が小さい人を外して書き
   /* 40% 未満の人（母数が足りる h9821…）の表の値は、色だけでなく ▼ でも分かる。母数が小さい人（h6e0d… 0.0%）には「母数が小さい」の印 */
   const tb = h.slice(h.indexOf('<table id="team-tbl"'));
   const rowOf = (name) => tb.slice(tb.indexOf(">" + name + "<"), tb.indexOf("</tr>", tb.indexOf(">" + name + "<")));
-  ok(rowOf("h9821a39368fe").includes("&#9660; 26.4%"), "40% 未満の値に ▼ が無い（色だけで伝えている）");
-  ok(rowOf("h6e0d76778594").includes(">母数が小さい</span>"), "母数が小さい人に印が無い");
+  ok(rowOf("h96f5a5adf9aa").includes("&#9660; 26.4%"), "40% 未満の値に ▼ が無い（色だけで伝えている）");
+  ok(rowOf("h6cbf3e7797ba").includes(">母数が小さい</span>"), "母数が小さい人に印が無い");
   /* 注力案件は札にせず、表の列（件数）で出す */
-  ok(/<td class="n">16<\/td>/.test(rowOf("h2e505aa278de")), "注力案件の件数（16 件）が表に無い");
+  ok(/<td class="n">16<\/td>/.test(rowOf("h2ce37435eb16")), "注力案件の件数（16 件）が表に無い");
   // 0 名なら持ち案件を書かない
   ctx.__D0 = Object.assign({}, ctx.__D, { rows: TEAM_ROWS.filter((r) => r.small_n || r.contact_rate >= 40) });
   const d0 = plainOf(run("renderTeam(teamOf(__D0))"));
@@ -824,9 +824,9 @@ check("図の部品(5): 軸の題名と最上段の目盛りが重ならず、�
 check("図の部品(6): 接触率の図の目盛りが最大値を覆い、率と母数が棒の近くにある", () => {
   // fixture の接触率（母数が足りる担当者）の最大は 96.92%。前は目盛りが 75% で止まっていた
   const h = run(`svgBarH({ w: 720, fmt: F.pp, rh: 24, rows: [
-    { label: "h9821a39368fe", v: 26.4, txt: "26.4%", note: "33/125 か月　案件28" },
-    { label: "h60b499e1c307", v: 96.92, txt: "96.9%", note: "63/65 か月　案件22" },
-    { label: "h14989084e280", v: 57.14, txt: "57.1%", note: "4/7 か月" } ] })`);
+    { label: "h96f5a5adf9aa", v: 26.4, txt: "26.4%", note: "33/125 か月　案件28" },
+    { label: "h603dd3dbe359", v: 96.92, txt: "96.9%", note: "63/65 か月　案件22" },
+    { label: "h13e58afffff5", v: 57.14, txt: "57.1%", note: "4/7 か月" } ] })`);
   const tks = textBoxes(h).filter((b) => /^\d+%$/.test(b.s)).map((b) => parseFloat(b.s));
   ok(Math.max(...tks) >= 96.92, "目盛りの最大が " + Math.max(...tks) + "%（96.9% の棒が目盛りの先へ伸びる）");
   const b = textBoxes(h), v = b.find((q) => q.s === "96.9%"), n = b.find((q) => q.s.startsWith("63/65"));
@@ -1024,7 +1024,7 @@ check("board: 並びの決まり（order_rule）を1回だけ出す（名札の�
   ok((h.match(/並びのきまりXYZ/g) || []).length === 1, "order_rule が " + (h.match(/並びのきまりXYZ/g) || []).length + " 回出ている");
 });
 
-/* 法人番号で見るの cpa3（routes.rs build_customer の形）。fixture の h00f31a786bac（2026-09-23 実測）では
+/* 法人番号で見るの cpa3（routes.rs build_customer の形）。fixture の h0131dcfddeb5（2026-09-23 実測）では
    稼働中 2 件のうち censored は 1 件だけで、総額が出ている稼働中の 1 件（censored=false, 720000）が藍で描かれていた。
    その形を写し、中央値の位置を数値で確かめられるよう、帯の中央値を確定の契約の総額と同じ 900000 に置いた */
 ctx.__C3 = { meta: { found: true }, cpa3: [
@@ -1255,7 +1255,7 @@ check("顧客（前の法人番号で見る）: 末尾の「集計の基準日�
 
 check("KPI: 最終満了を折り返さない・電話の61件の色をそろえる・退職者の補足に別の話を混ぜない", () => {
   ok(/\.kpi\.is-date \.big\{[^}]*white-space:nowrap/.test(html), "日付の KPI に white-space:nowrap が無い");
-  // 🔴 2026-09-23 統合後の実測（400px）: 担当名（h9821a39368fe、29px）が KPI の箱（中身 144px）から 263px まで
+  // 🔴 2026-09-23 統合後の実測（400px）: 担当名（h96f5a5adf9aa、29px）が KPI の箱（中身 144px）から 263px まで
   // 伸び、ページ本体が 486px に広がっていた（86px のはみ出し）。箱は中身で広がらず、長い語は箱の幅で折り返す
   const kcss = html.slice(0, html.indexOf("</style>"));
   ok(/\.kpi\{ min-width:0; \}/.test(kcss), "KPI の箱に min-width:0 が無い（長い名前で格子の列が広がり、ページ本体がはみ出す）");
@@ -2951,7 +2951,7 @@ check("担当者ごとの接触: 縦軸の上端は、点を打たない値（sm
 });
 
 /* ---- ループ5（2026-09-24 藤巻さん「タイトルが意味わからなくなってる」）----
-   貼られた文: 「hd26f422ffda0 / 直近の確定した週（9/7〜9/13）: 持ち案件 34 件 / ← 図を横にスクロールできます → /
+   貼られた文: 「hd31edd7dadc3 / 直近の確定した週（9/7〜9/13）: 持ち案件 34 件 / ← 図を横にスクロールできます → /
    0.0 2.0 4.0 6.0 0.0 2.0 4.0 6.0 / 6/29 7/20 8/10 8/31 9/14」。週ごと（12 週）の図を枠 約319px に描いたもの。
    2026-09-29 組み替えで図は 1 枚（全体＋選んだ担当）になった。同じ性質（枠の幅で描く・目盛りは 1 回・整数の刻み・名前と持ち案件の書き方）を
    その 1 枚で見る */
@@ -2966,7 +2966,7 @@ check("担当者ごとの接触: 縦軸の上端は、点を打たない値（sm
   });
   const cells = (k) => wk.map((_, i) => cell(30 + i, Math.round((30 + i) * (k + (i % 4)) / 2)));
   T.week = { periods: wk,
-    rows: [{ consultant: "hd26f422ffda0", retired: false, cells: cells(1) },
+    rows: [{ consultant: "hd31edd7dadc3", retired: false, cells: cells(1) },
            { consultant: "担当R", retired: true, cells: cells(2) }],
     team: cells(1), undetermined: wk.map(() => cell(0, 0)), shared: wk.map(() => 0), moved: wk.map(() => 0) };
   ctx.__CTW = T;
@@ -2980,7 +2980,7 @@ const ctAxis = (body) => [...body.matchAll(/<text class="ax" [^>]*text-anchor="e
 
 check("担当者ごとの接触（ループ5 a）: 図は枠の幅で描き、どの幅でも横スクロールにしない", () => {
   for (const av of [null, 250, 285, 319, 334, 360, 520]) {
-    for (const pick of ["", "hd26f422ffda0"]) {
+    for (const pick of ["", "hd31edd7dadc3"]) {
       const h = ctDraw('contactUnit = "week"; teamContact({ contact: __CTW })', av, pick);
       const figs = ctFigs(h);
       ok(figs.length === 1, "週ごとの図が 1 枚でない（枠 " + av + "）: " + figs.length);
@@ -3001,7 +3001,7 @@ check("担当者ごとの接触（ループ5 a）: 図は枠の幅で描き、�
 
 check("担当者ごとの接触（ループ5 b）: 縦軸の目盛りは1回だけ描く（左に貼り付けた複製を作らない）", () => {
   for (const av of [null, 285, 319, 360]) {
-    ctFigs(ctDraw('contactUnit = "week"; teamContact({ contact: __CTW })', av, "hd26f422ffda0")).forEach((f) => {
+    ctFigs(ctDraw('contactUnit = "week"; teamContact({ contact: __CTW })', av, "hd31edd7dadc3")).forEach((f) => {
       ok(!f.body.includes('class="sticklab"') && !f.body.includes("stickwrap"), "目盛りを左に貼り付けた複製がある（枠 " + av + "px, " + f.cap + "）");
       const t = ctAxis(f.body);
       ok(t.length >= 2 && new Set(t).size === t.length, "縦軸の目盛りが2回出る（枠 " + av + "px）: " + t.join(" "));
@@ -3026,10 +3026,10 @@ check("担当者ごとの接触（ループ5 c）: 目盛りは整数で表せ�
 });
 
 check("担当者ごとの接触（ループ5 d）: 選んだ人は「担当者: 名前」、持ち案件はどの週の件数かを添え、退職者は印", () => {
-  const h = ctDraw('contactUnit = "week"; teamContact({ contact: __CTW })', 319, "hd26f422ffda0");
+  const h = ctDraw('contactUnit = "week"; teamContact({ contact: __CTW })', 319, "hd31edd7dadc3");
   const f = ctFigs(h)[0];
   const leg = textOf(f.body.slice(f.body.indexOf("</svg>")));
-  ok(leg.includes("担当者: hd26f422ffda0・持ち案件 41 件（直近の確定した週 9/7〜9/13）"),
+  ok(leg.includes("担当者: hd31edd7dadc3・持ち案件 41 件（直近の確定した週 9/7〜9/13）"),
     "選んだ人の凡例に「担当者:」と、どの週の持ち案件かが無い: " + leg.slice(0, 300));
   ok(leg.includes("全体（担当が決まった案件の合計）") && !/担当者: [^・]*全体/.test(leg), "全体の線に「担当者:」を付けている、または全体の凡例が無い");
   const r = ctFigs(ctDraw('contactUnit = "week"; teamContact({ contact: __CTW })', 319, "担当R"))[0];
@@ -3040,14 +3040,14 @@ check("担当者ごとの接触（ループ5 d）: 選んだ人は「担当者: 
 check("ループ5統合: 接触の推移の見出しの2行目も、数字と単位を折れない塊にする（keepNum と両立）", () => {
   /* fix5/cs-residual の keepNum（fig() の入口で hint の数字と単位を <span class="nw"> で包む）と、見出しの 2 行目
      「全体 と 担当者: 名前。全体は持ち案件 N 件（直近の確定した週 …）」を合わせたときの形 */
-  const h = ctDraw('contactUnit = "week"; teamContact({ contact: __CTW })', 319, "hd26f422ffda0");
+  const h = ctDraw('contactUnit = "week"; teamContact({ contact: __CTW })', 319, "hd31edd7dadc3");
   const f = ctFigs(h)[0];
   ok(f && f.cap === "持ち案件1件あたりの接触（週ごと）", "図の見出しが違う: " + (f && f.cap));
   const hint = (f.body.match(/<span class="hint">([\s\S]*?)<\/span><\/figcaption>/) || [])[1] || "";
-  ok(/^全体 と 担当者: hd26f422ffda0。全体は持ち案件 <span class="nw">\d+ 件<\/span>（直近の確定した週 9\/7〜9\/13）$/.test(hint),
+  ok(/^全体 と 担当者: hd31edd7dadc3。全体は持ち案件 <span class="nw">\d+ 件<\/span>（直近の確定した週 9\/7〜9\/13）$/.test(hint),
     "2行目の「N 件」が折れない塊になっていないか、形が崩れた: " + hint);
   /* 名前は keepNum の対象外（ハッシュの数字を包まない） */
-  ok(!/hd26f422ffda0<\/span>|<span class="nw">[^<]*hd26/.test(hint), "名前まで包んでいる");
+  ok(!/hd31edd7dadc3<\/span>|<span class="nw">[^<]*hd26/.test(hint), "名前まで包んでいる");
 });
 
 /* ================================================================ 担当の交代 × 交代の前後の接触（2026-09-24 藤巻さんの要望） */
@@ -3756,7 +3756,7 @@ check("S-8: 表が主役の画面（案件そのもの・担当者ごとの案�
 /* ================================================================ 段1 D-1a の検証（2026-09-28）で見つかった分 */
 check("D-1a の検証: 担当の選択欄の顔ぶれは選んだ担当で変わらない（絞る前の応答から集める）。サーバの consultants があれば候補 0 件の担当も選べる", () => {
   const F = todayFixture();
-  // 担当D は候補（candidates）に無く、今週始まった契約にだけ居る（fixture の habc7b05f19ea と同じ形。稼働 1 件・名札 1 本）
+  // 担当D は候補（candidates）に無く、今週始まった契約にだけ居る（fixture の hac96f6816815 と同じ形。稼働 1 件・名札 1 本）
   F.started_this_week.push(TD_ROW({ deal_id: "s2", name: "新規2", consultant: "担当D", start: "2026-09-16", flags: ["x"], n_flags: 1 }));
   ctx.__TD7 = F;
   const opts = (h) => [...h.slice(h.indexOf('<select id="td-consultant">'), h.indexOf("</select>")).matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]).join(",");

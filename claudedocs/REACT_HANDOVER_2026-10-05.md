@@ -226,7 +226,7 @@ React 画面の部品: `frontend/src/screens/<screen>/`、`frontend/src/entries/
 | 競合調査の Google 語数上限・タイムアウト | 未質問 | 今のまま。変えるなら質問 |
 
 Google ログインの切り替え:
-- 新しいプロジェクト `hr-hr-login`(内部)に Web クライアントを作成済み。クライアント ID `65296119757-7vc2v16ok7oq7sdjmh2suhq3dpnujj6c.apps.googleusercontent.com`、リダイレクト `https://hr-hw.onrender.com/auth/google/callback`。シークレットは `C:\Users\fuji1\OneDrive\デスクトップ\Hubspot\credentials\hr_hr_oidc_web_client_internal.json`(gitignore 済み。値を表示しない)。
+- 新しいプロジェクト `hr-hr-login`(内部)に Web クライアントを作成済み。クライアント ID `<GOOGLE_OIDC_CLIENT_ID>`、リダイレクト `https://hr-hw.onrender.com/auth/google/callback`。シークレットは `<OIDC クライアント JSON のローカルパス>`(gitignore 済み。値を表示しない)。
 - Render には今も旧プロジェクト `gws-claude-ws-633754`(外部)のクライアントが入っている。`GOOGLE_OIDC_CLIENT_ID` と `GOOGLE_OIDC_CLIENT_SECRET` の 2 つを**ユーザーが**書き換える(Render の環境変数画面は既存値が空に見えるため、AI が保存すると消すおそれがある)。
 - 切り替え後: 本番でログインできることを確認 → 旧クライアントを消すかをユーザーに聞く。
 - ユーザー決定: **既存の外部プロジェクトは絶対に内部にしない**(他の機能が止まる)。新プロジェクトは既存を触らず、両者が競合しない前提で作った。
