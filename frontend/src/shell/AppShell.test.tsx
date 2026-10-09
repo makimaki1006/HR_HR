@@ -546,6 +546,11 @@ describe('AppShell filters', () => {
       </AppShell>,
     );
     await screen.findByTestId('probe');
+    // CtxProbe publishes the context from a passive effect, which can lag the commit that shows
+    // the probe; wait for it instead of assuming findByTestId implies it.
+    await waitFor(() => {
+      expect(() => getCtx()).not.toThrow();
+    });
     await act(async () => {
       await getCtx().setPrefecture('東京都');
     });
