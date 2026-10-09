@@ -4,7 +4,7 @@ import type { ApiResult } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import type { WriteApi, PatchOutcome } from './crmWrite';
 import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID } from './queuePipelines';
-import type { EditSchema, OperationStatus, PatchRequest, PropValues } from './writeTypes';
+import type { EditSchema, OperationStatus, PatchRequest, PropValues, WriteObject } from './writeTypes';
 
 interface DealWrites { deal: PropValues; contact: PropValues; company: PropValues; stage: { pipeline_id: string; stage_id: string } | null }
 const store = new Map<string, DealWrites>();
@@ -43,13 +43,15 @@ function patch(dealId: string, body: PatchRequest): PatchOutcome {
   // 同じ画面の中で先に保存した値と、見せた値 (base) が食い違えば衝突
   const conflicts: string[] = [];
   const current: PropValues = {};
-  const check = (stored: PropValues, base: PropValues) => {
-    for (const [k, b] of Object.entries(base)) if (k in stored && (stored[k] ?? '') !== (b ?? '')) { conflicts.push(k); current[k] = stored[k] ?? null; }
+  let conflictObject: WriteObject = 'deal';
+  const check = (stored: PropValues, base: PropValues, object: WriteObject) => {
+    if (conflicts.length > 0) return;
+    for (const [k, b] of Object.entries(base)) if (k in stored && (stored[k] ?? '') !== (b ?? '')) { conflicts.push(k); current[k] = stored[k] ?? null; conflictObject = object; }
   };
-  check(s.deal, body.base);
-  if (body.objects?.contact) check(s.contact, body.objects.contact.base);
-  if (body.objects?.company) check(s.company, body.objects.company.base);
-  if (conflicts.length > 0) return { kind: 'conflict', body: { status: 'conflict', current, changed_by_hubspot: conflicts } };
+  check(s.deal, body.base, 'deal');
+  if (body.objects?.contact) check(s.contact, body.objects.contact.base, 'contact');
+  if (body.objects?.company) check(s.company, body.objects.company.base, 'company');
+  if (conflicts.length > 0) return { kind: 'conflict', body: { status: 'conflict', object: conflictObject, current, changed_by_hubspot: conflicts } };
   if (body.stage) {
     const rule = schema.stages.find(r => r.id === body.stage?.stage_id);
     const missing = (rule?.required ?? []).filter(n => (body.set[n] ?? s.deal[n] ?? '') === '');
@@ -61,7 +63,7 @@ function patch(dealId: string, body: PatchRequest): PatchOutcome {
   if (body.objects?.contact) Object.assign(s.contact, body.objects.contact.set);
   if (body.objects?.company) Object.assign(s.company, body.objects.company.set);
   if (body.stage) s.stage = { pipeline_id: body.stage.pipeline_id, stage_id: body.stage.stage_id };
-  return { kind: 'saved', response: { status: 'saved', values: { ...body.set }, fetched_at: new Date().toISOString() } };
+  return { kind: 'saved', response: { status: 'saved', values: { ...body.set }, objects_values: { ...(body.objects?.contact ? { contact: { ...body.objects.contact.set } } : {}), ...(body.objects?.company ? { company: { ...body.objects.company.set } } : {}) }, fetched_at: new Date().toISOString() } };
 }
 
 export const fakeWriteApi: WriteApi = {
@@ -69,7 +71,7 @@ export const fakeWriteApi: WriteApi = {
   patchDeal: async (dealId, body) => { await Promise.resolve(); return patch(dealId, body); },
   operation: async (operationId): Promise<ApiResult<OperationStatus>> => {
     await Promise.resolve();
-    return { ok: true, data: { operation_id: operationId, status: 'saved', attempts: 1 } };
+    return { ok: true, data: { operation_id: operationId, status: 'saved', attempts: 1, last_error_code: null, next_retry_at: null } };
   },
 };
 

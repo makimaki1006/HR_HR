@@ -24,7 +24,8 @@ export type SaveOutcome =
 export interface ValueOverlay { value: string | null; pending: boolean; fetchedAt: string | null }
 export interface StageOverlay { pipeline_id: string; stage_id: string; label: string; pending: boolean; fetchedAt: string | null }
 
-export interface ConflictState { req: SaveRequest; current: PropValues; changed: string[] }
+/** `object` は HubSpot の現在値が違ったオブジェクト (案件 / 担当者 / 会社)。`current` はそのオブジェクトの項目の現在値 */
+export interface ConflictState { req: SaveRequest; object: WriteObject; current: PropValues; changed: string[] }
 
 export type SchemaState =
   | { phase: 'idle' | 'loading' }
@@ -90,10 +91,12 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
     ...(req.stage ? [stageKey(req.dealId)] : []),
   ];
 
-  const setOverlays = useCallback((req: SaveRequest, values: PropValues | null, pending: boolean) => {
+  const setOverlays = useCallback((req: SaveRequest, saved: { values: PropValues; objects_values: Record<string, PropValues> } | null, pending: boolean) => {
     setOverlay(prev => {
       const next = { ...prev };
       for (const c of req.changes) {
+        // 案件の項目は values、担当者・会社の項目は objects_values[contact|company] に保存後の値が入る
+        const values = saved === null ? null : c.object === 'deal' ? saved.values : (saved.objects_values[c.object] ?? null);
         const v = values !== null && c.name in values ? values[c.name] ?? null : c.value;
         next[fieldKey(req.dealId, c.object, c.name)] = { value: v, pending, fetchedAt: req.fetchedAt ?? null };
       }
@@ -151,7 +154,7 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
     switch (out.kind) {
       case 'saved':
         opIds.current.delete(sig);
-        setOverlays(req, out.response.values, false);
+        setOverlays(req, { values: out.response.values, objects_values: out.response.objects_values }, false);
         setStatus(keys, { phase: 'saved' });
         onSavedRef.current(req.dealId);
         return { kind: 'saved' };
@@ -164,7 +167,7 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
       case 'conflict':
         opIds.current.delete(sig);
         setStatus(keys, null);
-        setConflict({ req, current: out.body.current, changed: out.body.changed_by_hubspot });
+        setConflict({ req, object: out.body.object, current: out.body.current, changed: out.body.changed_by_hubspot });
         return { kind: 'conflict' };
       case 'invalid': {
         opIds.current.delete(sig);
@@ -206,14 +209,14 @@ export function useCrmWrite({ dealId, api, onSaved, pollIntervalMs = POLL_INTERV
     if (choice === 'theirs') {
       setOverlay(prev => {
         const next = { ...prev };
-        for (const ch of c.req.changes) if (ch.name in c.current) next[fieldKey(c.req.dealId, ch.object, ch.name)] = { value: c.current[ch.name] ?? null, pending: false, fetchedAt: c.req.fetchedAt ?? null };
+        for (const ch of c.req.changes) if (ch.object === c.object && ch.name in c.current) next[fieldKey(c.req.dealId, ch.object, ch.name)] = { value: c.current[ch.name] ?? null, pending: false, fetchedAt: c.req.fetchedAt ?? null };
         return next;
       });
       onSavedRef.current(c.req.dealId);
       return;
     }
     // 自分の値で上書き: HubSpot の今の値を「見た値」として送り直す (新しい操作なので operation_id も新しくなる)
-    void save({ ...c.req, changes: c.req.changes.map(ch => (ch.name in c.current ? { ...ch, base: c.current[ch.name] ?? null } : ch)) });
+    void save({ ...c.req, changes: c.req.changes.map(ch => (ch.object === c.object && ch.name in c.current ? { ...ch, base: c.current[ch.name] ?? null } : ch)) });
   }, [conflict, save]);
 
   const dismiss = useCallback((key: string) => { setStatus([key], null); }, [setStatus]);
