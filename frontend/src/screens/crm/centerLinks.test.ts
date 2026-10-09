@@ -37,6 +37,16 @@ describe('isHubspotUrl', () => {
   });
 });
 
+describe('embedUrlFor with the frame extension', () => {
+  it('embeds hubspot hosts only when allowed; other no-embed hosts stay blocked', () => {
+    const e = (raw: string, ok: boolean) => { const u = safeHttpUrl(raw); if (u === null) throw new Error(raw); return embedUrlFor(u, ok); };
+    expect(e('https://app.hubspot.com/contacts/1/', true)).toBe('https://app.hubspot.com/contacts/1/');
+    expect(e('https://app.hubspot.com/contacts/1/', false)).toBeNull();
+    expect(e('https://app.hubspot.jp/x', true)).toBe('https://app.hubspot.jp/x');
+    expect(e('https://zoom.us/x', true)).toBeNull();
+  });
+});
+
 describe('embedUrlFor', () => {
   it('rebuilds a Google search with igu=1, keeping the query and dropping old session parameters', () => {
     const e = embed(STORED);
