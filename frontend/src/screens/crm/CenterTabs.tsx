@@ -4,6 +4,7 @@ import {
   closeLink, DEAL_TAB, initialCenterTabs, isHubspotUrl, makeLinkTab, openLink, safeHttpUrl, SEARCH_TAB,
 } from './centerLinks';
 import type { CenterTabsState, LinkTab } from './centerLinks';
+import { FrameExtensionBadge } from './FrameExtensionBadge';
 
 /**
  * 「求人検索・リンク先」パネルの中のタブ: 「リンク一覧」(いつもある) / 「求人検索」(検索の URL があるとき) / 開いたリンク (最大 5)。
@@ -142,6 +143,7 @@ export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void
   return <div className="cq-linkview">
     <div className="cq-linkbar">
       <span className="cq-linkbar-host" title={tab.url}>{tab.host}</span>
+      <FrameExtensionBadge />
       <a className="cq-linkbar-open" href={tab.url} target="_blank" rel="noopener noreferrer">新しいタブで開く</a>
       {tab.embed !== null && <button type="button" onClick={() => { setReloads(n => n + 1); }}>再読み込み</button>}
       {onClose && <button type="button" onClick={onClose}>このタブを閉じる</button>}
