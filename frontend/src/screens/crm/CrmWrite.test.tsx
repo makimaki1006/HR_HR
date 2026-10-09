@@ -162,8 +162,8 @@ describe('項目の保存', () => {
     const patch: Patch = vi.fn(() => Promise.resolve(savedOut({})));
     await setup(schemaOf(), patch);
     fireEvent.click(editBtn('アポ取得日'));
-    const date = screen.getByLabelText('アポ取得日');
-    expect(date.getAttribute('type')).toBe('date');
+    const date = (screen.getAllByLabelText('アポ取得日')[0] as HTMLInputElement);
+    expect(date.getAttribute('type')).toBe('text'); // 日付は DatePicker (値は YYYY-MM-DD で受け渡す)
     fireEvent.change(date, { target: { value: '2026-10-20' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     await waitFor(() => { expect(patch).toHaveBeenCalledTimes(1); });
@@ -455,7 +455,7 @@ describe('ステージの変更', () => {
     await waitFor(() => { expect(within(dlg).getByLabelText<HTMLTextAreaElement>(new RegExp(bikouLabel.slice(0, 6))).value).toBe(bikouRaw); });
     const move = within(dlg).getByRole('button', { name: '移す' });
     expect((move as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(within(dlg).getByLabelText(/アポ取得日/), { target: { value: '2026-11-01' } });
+    fireEvent.change((within(dlg).getAllByLabelText(/アポ取得日/)[0] as HTMLInputElement), { target: { value: '2026-11-01' } });
     expect((move as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(move);
     await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull(); });
@@ -511,8 +511,8 @@ describe('ステージの変更', () => {
     await setup(schemaOf(), patch);
     fireEvent.change(stageSelect(), { target: { value: 'st-appo' } });
     const dlg = await screen.findByRole('dialog');
-    await waitFor(() => { expect(within(dlg).getByLabelText(/アポ取得日/)).toBeTruthy(); });
-    fireEvent.change(within(dlg).getByLabelText(/アポ取得日/), { target: { value: '2026-11-01' } });
+    await waitFor(() => { expect((within(dlg).getAllByLabelText(/アポ取得日/)[0] as HTMLInputElement)).toBeTruthy(); });
+    fireEvent.change((within(dlg).getAllByLabelText(/アポ取得日/)[0] as HTMLInputElement), { target: { value: '2026-11-01' } });
     fireEvent.click(within(dlg).getByRole('button', { name: '移す' }));
     expect((await within(dlg).findByText(/次の項目を入力してください: アポ取得日/)).getAttribute('role')).toBe('alert');
     expect(screen.getByRole('dialog')).toBeTruthy();
