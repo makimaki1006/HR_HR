@@ -86,8 +86,8 @@ export function EditableValue({ def, raw, display, status, onSave, onRetry }: {
   }
   return <span className="wr-view">
     {display}
-    <button type="button" ref={editBtn} className="wr-edit-btn" disabled={busy} aria-label={`${def.label}を編集`}
-      onClick={() => { setSession({ base: raw ?? null, draft: initialDraft(def.kind, raw) }); }}>編集</button>
+    <button type="button" ref={editBtn} className="wr-edit-btn" title="編集" disabled={busy} aria-label={`${def.label}を編集`}
+      onClick={() => { setSession({ base: raw ?? null, draft: initialDraft(def.kind, raw) }); }} />
     <SaveStatus status={status} onRetry={onRetry} />
   </span>;
 }
