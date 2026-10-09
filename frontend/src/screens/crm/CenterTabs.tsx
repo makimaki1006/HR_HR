@@ -136,20 +136,67 @@ export function CenterPanel({ id, active, tabbed = true, children }: {
     className={`cq-cpanel${active ? ' is-active' : ''}`} inert={!active} data-testid={`center-panel-${id}`}>{children}</div>;
 }
 
-/** リンクのタブの中身: 細い操作行 (ホスト名・新しいタブで開く・再読み込み) + 枠 */
+const HINT_KEY = 'crm.linkHintDismissed';
+const HINT_TEXT = '求人サイト（Indeed など）は枠の中では開けないことがあります。⌘ / Ctrl を押しながらクリックすると新しいタブで開きます。';
+function readHintDismissed(): boolean {
+  try { return window.localStorage.getItem(HINT_KEY) === '1'; } catch { return false; }
+}
+
+/** Google 検索のタブの先頭に出す 1 行の案内 (閉じた記録は localStorage に残す。使えなくても動く) */
+function SearchHint() {
+  const [hidden, setHidden] = useState(readHintDismissed);
+  if (hidden) return null;
+  return <div className="cq-linkhint" data-testid="link-hint">
+    <span>{HINT_TEXT}</span>
+    <button type="button" aria-label="案内を閉じる" onClick={() => {
+      setHidden(true);
+      try { window.localStorage.setItem(HINT_KEY, '1'); } catch { /* 保存できなくても閉じるだけ */ }
+    }}>×</button>
+  </div>;
+}
+
+/**
+ * リンクのタブの中身: 細い操作行 (ホスト名・新しいタブで開く・戻る・再読み込み) + 枠。
+ * 枠の中の移動は上の画面の履歴 (joint session history) に積まれるので、枠の中で 1 回以上移動したときだけ
+ * 「戻る」で window.history.back() を呼ぶ (数が 0 のときは押せない = CRM 画面自体は戻らない)
+ */
 export function LinkView({ tab, onClose }: { tab: LinkTab; onClose?: (() => void) | undefined }) {
   const [reloads, setReloads] = useState(0);
+  const [navs, setNavs] = useState(0);
+  const loaded = useRef(false);
+  /** 「戻る」で起きる枠の読み込み (移動ではない) を数えないための、まだ来ていない読み込みの数 */
+  const pendingBack = useRef(0);
+  const isSearch = tab.embed !== null && tab.host.replace(/^www\./, '').startsWith('google.');
+  function onLoad() {
+    if (!loaded.current) { loaded.current = true; return; }
+    if (pendingBack.current > 0) { pendingBack.current -= 1; return; }
+    setNavs(n => n + 1);
+  }
+  function back() {
+    if (navs <= 0) return;
+    pendingBack.current += 1;
+    setNavs(n => n - 1);
+    window.history.back();
+  }
+  function reload() {
+    loaded.current = false;
+    pendingBack.current = 0;
+    setNavs(0);
+    setReloads(n => n + 1);
+  }
   return <div className="cq-linkview">
     <div className="cq-linkbar">
       <span className="cq-linkbar-host" title={tab.url}>{tab.host}</span>
       <a className="cq-linkbar-open" href={tab.url} target="_blank" rel="noopener noreferrer">新しいタブで開く</a>
-      {tab.embed !== null && <button type="button" onClick={() => { setReloads(n => n + 1); }}>再読み込み</button>}
+      {tab.embed !== null && <button type="button" disabled={navs === 0} onClick={back}>戻る</button>}
+      {tab.embed !== null && <button type="button" onClick={reload}>再読み込み</button>}
       {onClose && <button type="button" onClick={onClose}>このタブを閉じる</button>}
       {tab.embed !== null && <small className="cq-linkbar-note">表示されない場合は新しいタブで開いてください</small>}
     </div>
+    {isSearch && <SearchHint />}
     {tab.embed !== null
       ? <iframe key={reloads} className="cq-linkframe" src={tab.embed} title={`${tab.label}(${tab.host})`}
-        sandbox={LINK_FRAME_SANDBOX} referrerPolicy="no-referrer" data-testid="link-frame" />
+        sandbox={LINK_FRAME_SANDBOX} referrerPolicy="no-referrer" data-testid="link-frame" onLoad={onLoad} />
       : <div className="cq-notice cq-empty cq-linkview-blocked">
         <strong>このページは画面の中に表示できません</strong>
         <p>{tab.host} のページは、ほかの画面の中に表示できない設定になっています。新しいタブで開いてください。</p>
