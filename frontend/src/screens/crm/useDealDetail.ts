@@ -4,6 +4,7 @@ import type { ApiResult } from '../../api/client';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { detailErrorMessage } from './workspaceModel';
 import { fixtureDetail } from './workspaceFixture';
+import { applyFakeWrites } from './fakeWrite';
 import type { QueueMode } from './queueModel';
 import { selectedQuery } from './propertyModel';
 import type { SelectedProps } from './propertyModel';
@@ -31,7 +32,7 @@ export const fixtureDetailFetch: DetailFetch = async (dealId, signal, props) => 
   if (signal.aborted) return { ok: false, error: new ApiAbortedError('aborted') };
   const data = fixtureDetail(dealId, props);
   if (data === null) return { ok: false, error: new ApiHttpError(404, { error_kind: 'not_found' }) };
-  return { ok: true, data };
+  return { ok: true, data: applyFakeWrites(data) };
 };
 
 export type DetailPhase = 'idle' | 'loading' | 'ready' | 'error' | 'forbidden';
