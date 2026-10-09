@@ -2,23 +2,32 @@
 .dp-field { display: inline-flex; align-items: center; gap: 4px; width: 100%; }
 .dp-field input { min-width: 0; flex: 1 1 auto; width: 100%; font-size: 13px; }
 .dp-open { border: 1px solid #94a3b8; background: #fff; border-radius: 4px; padding: 3px 5px; line-height: 0; cursor: pointer; color: #334155; }
-.dp-pop { position: absolute; z-index: 60; top: calc(100% + 4px); left: 0; width: 260px; padding: 8px; background: #fff; color: #0f172a;
-  border: 1px solid #94a3b8; border-radius: 6px; box-shadow: 0 6px 18px rgba(15, 23, 42, .25); font-size: 13px; }
+.dp-pop { position: fixed; z-index: 2000; box-sizing: content-box; width: calc(7 * 2.5em + 4px); padding: 8px; background: #fff; color: #0f172a;
+  border: 1px solid #94a3b8; border-radius: 6px; box-shadow: 0 6px 18px rgba(15, 23, 42, .25); font-size: 14px; line-height: 1.2; }
 .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .dp-head button, .dp-foot button { border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 4px; padding: 2px 8px; cursor: pointer; color: #0f172a; }
 .dp-foot button:disabled { opacity: .5; cursor: not-allowed; }
-.dp-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.dp-grid th { font-weight: 600; padding: 2px 0; text-align: center; }
-.dp-grid td { padding: 1px; text-align: center; }
+.dp-grid { border-collapse: collapse; table-layout: fixed; width: calc(7 * 2.5em); }
+.dp-pop .dp-grid th { font-weight: 700; padding: 2px 0; text-align: center; width: 2.5em; white-space: nowrap; }
+.dp-pop .dp-grid td { padding: 0; text-align: center; width: 2.5em; height: 2.5em; }
 /* 画面側の button { color } より強くするため .dp-pop から書く */
-.dp-pop .dp-day { width: 100%; height: 30px; border: 2px solid transparent; background: transparent; border-radius: 4px; cursor: pointer; color: #0f172a; font-size: 13px; }
-.dp-day:hover { background: #e2e8f0; }
-.dp-day:focus-visible, .dp-open:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 1px; }
-.dp-pop .dp-day.dp-sun, .dp-pop .dp-day.dp-holiday, .dp-grid th.dp-sun { color: #c62828; }
-.dp-pop .dp-day.dp-sat, .dp-grid th.dp-sat { color: #1565c0; }
-.dp-pop .dp-day.dp-out { color: #94a3b8; }
-.dp-pop .dp-day.dp-today { border-color: #475569; }
-.dp-pop .dp-day.dp-selected { background: #1d4ed8; color: #fff; }
-.dp-pop .dp-day.dp-disabled { opacity: .35; cursor: not-allowed; text-decoration: line-through; }
-.dp-pop .dp-day.dp-disabled:hover { background: transparent; }
+.dp-pop .dp-grid .dp-day { position: relative; display: block; box-sizing: border-box; width: 2.5em; height: 2.5em; line-height: calc(2.5em - 4px); padding: 0; margin: 0;
+  white-space: nowrap; font-variant-numeric: tabular-nums; text-align: center; border: 2px solid transparent; background: transparent; border-radius: 4px; cursor: pointer;
+  color: #0f172a; font-size: 14px; font-weight: 400; }
+.dp-pop .dp-grid .dp-day:hover { background: #e2e8f0; }
+.dp-pop .dp-grid .dp-day:focus-visible, .dp-open:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 1px; }
+.dp-pop .dp-grid th.dp-sun { color: #c62828; background: #fdecea; }
+.dp-pop .dp-grid th.dp-sat { color: #1565c0; background: #e8f0fe; }
+.dp-pop .dp-grid .dp-day.dp-sun, .dp-pop .dp-grid .dp-day.dp-holiday { color: #c62828; background: #fdecea; font-weight: 700; }
+.dp-pop .dp-grid .dp-day.dp-sat { color: #1565c0; background: #e8f0fe; font-weight: 700; }
+.dp-pop .dp-grid .dp-day.dp-holiday::after { content: ''; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
+.dp-pop .dp-grid .dp-day.dp-out { opacity: .5; }
+.dp-pop .dp-grid .dp-day:not(.dp-sun):not(.dp-sat):not(.dp-holiday).dp-out { color: #64748b; opacity: 1; }
+.dp-pop .dp-grid .dp-day.dp-today { border: 3px solid #0f172a; line-height: calc(2.5em - 6px); }
+.dp-pop .dp-grid .dp-day.dp-selected, .dp-pop .dp-grid .dp-day.dp-selected:hover { background: #1e3a8a; color: #fff; font-weight: 700; opacity: 1; }
+.dp-pop .dp-grid .dp-day.dp-disabled { opacity: .35; cursor: not-allowed; text-decoration: line-through; }
+.dp-pop .dp-grid .dp-day.dp-disabled:hover { background: transparent; }
+.dp-legend { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; font-weight: 700; }
+.dp-lg-red { color: #c62828; }
+.dp-lg-blue { color: #1565c0; }
 .dp-foot { display: flex; justify-content: space-between; margin-top: 6px; }

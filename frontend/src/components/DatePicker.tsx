@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { KeyboardEvent } from 'react';
 import { loadHolidays } from './holidays';
 import { addDays, addMonths, displayDate, eraYear, monthGrid, pad, parseDate, splitIso, todayIso, weekdayOf } from './datePickerModel';
@@ -36,6 +37,8 @@ export function DatePicker(p: DatePickerProps) {
   const root = useRef<HTMLSpanElement | null>(null);
   const input = useRef<HTMLInputElement | null>(null);
   const grid = useRef<HTMLTableElement | null>(null);
+  const pop = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const focusWanted = useRef(false);
   const popId = useId();
 
@@ -73,10 +76,35 @@ export function DatePicker(p: DatePickerProps) {
 
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => { if (root.current !== null && !root.current.contains(e.target as Node)) setOpen(false); };
+    const away = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (root.current !== null && !root.current.contains(t) && !(pop.current?.contains(t) ?? false)) setOpen(false);
+    };
     document.addEventListener('mousedown', away);
     return () => { document.removeEventListener('mousedown', away); };
   }, [open]);
+
+  // ポップオーバーは body 直下に position: fixed で出す。親の幅に左右されず、画面からはみ出すときは上・左へ反転する
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const f = root.current, el = pop.current;
+      if (f === null || el === null) return;
+      const r = f.getBoundingClientRect();
+      const w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+      let top = r.bottom + 4;
+      if (top + h > vh - 4 && r.top - 4 - h >= 4) top = r.top - 4 - h;
+      top = Math.max(4, Math.min(top, vh - h - 4));
+      let left = r.left;
+      if (left + w > vw - 4) left = r.right - w;
+      left = Math.max(4, Math.min(left, vw - w - 4));
+      setPos(prev => (prev !== null && prev.top === top && prev.left === left ? prev : { top, left }));
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [open, view]);
 
   function openCalendar() {
     const base = parseDate(value) ?? (min !== undefined && min !== '' && min > today ? min : today);
@@ -149,7 +177,7 @@ export function DatePicker(p: DatePickerProps) {
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 2v2M13 2v2M2 5h12M3 3h10a1 1 0 011 1v9a1 1 0 01-1 1H3a1 1 0 01-1-1V4a1 1 0 011-1z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
       </button>
     </span>
-    {open && <div className="dp-pop" id={popId} role="dialog" aria-label="日付を選ぶ" data-testid="dp-popover">
+    {open && createPortal(<div className="dp-pop" ref={pop} style={pos !== null ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: 'hidden' }} id={popId} role="dialog" aria-label="日付を選ぶ" data-testid="dp-popover">
       <div className="dp-head">
         <button type="button" aria-label="前の月" onClick={() => { shiftMonth(-1); }}>‹</button>
         <strong aria-live="polite">{`${String(view.y)}年${era !== '' ? `(${era})` : ''} ${String(view.m)}月`}</strong>
@@ -178,6 +206,7 @@ export function DatePicker(p: DatePickerProps) {
         <button type="button" disabled={!inRange(today)} onClick={() => { pick(today); }}>今日</button>
         <button type="button" onClick={() => { setText(''); onChange(''); close(); }}>削除</button>
       </div>
-    </div>}
+      <div className="dp-legend" aria-hidden="true"><span className="dp-lg-red">■ 日曜・祝日</span><span className="dp-lg-blue">■ 土曜</span></div>
+    </div>, document.body)}
   </span>;
 }
