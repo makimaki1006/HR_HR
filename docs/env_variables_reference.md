@@ -92,6 +92,7 @@
 | 27 | `CRM_WRITES_ENABLED` | `""` (OFF) | `1` で `PATCH /api/crm/deals/{id}` を全案件で開く | 閉じている。許可リストの案件以外は 403 `writes_disabled` (HubSpot も監査 DB も触らない) | `src/crm/write.rs` |
 | 28 | `CRM_WRITE_DEAL_ALLOWLIST` | `""` | 栓が閉じていても書ける案件 ID (カンマ区切り)。本番で 1 件だけ試すときに使う | 空 | `src/crm/write.rs` |
 | 29 | `CRM_PENDING_MAX` | `50000` | 一時障害で再送待ち (`crm_pending_operations.status = 'pending'`) にできる件数の上限。超えたら 503 `queue_full` で何も積まない | 既定 | `src/crm/write.rs` |
+| 29b | `CRM_WRITE_RATE_PER_MIN` | `200` | 1 人あたりの保存受付の上限 (1 分あたり、最小 1)。超えたら 429 `rate_limited` で何も保存しない (再送待ちにも積まない) | 既定。0・数でない値も既定 | `src/crm/write.rs` |
 
 書き込みには HubSpot の書き込みスコープ (`crm.objects.deals.write` ほか、担当者・会社も書くなら `contacts.write` / `companies.write`) が `HUBSPOT_ACCESS_TOKEN` に必要。監査 Turso に表 `crm_pending_operations` を起動時に自動作成する (`CREATE TABLE IF NOT EXISTS`、手動作業なし)。
 

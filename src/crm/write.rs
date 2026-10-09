@@ -70,6 +70,8 @@ pub struct WriteConfig {
     pub allowlist: HashSet<String>,
     /// 再送待ちの上限 (`CRM_PENDING_MAX`)
     pub pending_max: i64,
+    /// 1 人あたりの保存受付の上限 (1 分あたり。`CRM_WRITE_RATE_PER_MIN`、最小 1。0・不正は既定 200)
+    pub rate_per_min: u32,
 }
 
 impl WriteConfig {
@@ -88,10 +90,13 @@ impl WriteConfig {
             .and_then(|v| v.trim().parse::<i64>().ok())
             .filter(|n| *n > 0)
             .unwrap_or(pending::DEFAULT_PENDING_MAX);
+        let rate_per_min =
+            parse_rate_per_min(std::env::var("CRM_WRITE_RATE_PER_MIN").ok().as_deref());
         Self {
             enabled,
             allowlist,
             pending_max,
+            rate_per_min,
         }
     }
 
@@ -107,20 +112,41 @@ impl Default for WriteConfig {
             enabled: false,
             allowlist: HashSet::new(),
             pending_max: pending::DEFAULT_PENDING_MAX,
+            rate_per_min: DEFAULT_WRITE_RATE_PER_MIN,
         }
     }
 }
 
-/// 1 人あたりの書き込み受付の速さの上限 (1 分あたり)
-pub const WRITE_RATE_PER_MIN: u32 = 60;
+/// 1 人あたりの書き込み受付の速さの既定の上限 (1 分あたり。`CRM_WRITE_RATE_PER_MIN` で変える)
+pub const DEFAULT_WRITE_RATE_PER_MIN: u32 = 200;
+
+/// `CRM_WRITE_RATE_PER_MIN` の読み取り。未設定・0・数でない値は既定 (200)。最小は 1
+pub fn parse_rate_per_min(v: Option<&str>) -> u32 {
+    v.and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_WRITE_RATE_PER_MIN)
+}
 
 /// 操作者ごとの固定窓の受付制限 (プロセス内。ルーターごとに 1 つ)
-#[derive(Default)]
 pub struct WriteRateLimiter {
+    limit: u32,
     windows: std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>,
 }
 
+impl Default for WriteRateLimiter {
+    fn default() -> Self {
+        Self::new(DEFAULT_WRITE_RATE_PER_MIN)
+    }
+}
+
 impl WriteRateLimiter {
+    pub fn new(limit: u32) -> Self {
+        Self {
+            limit: limit.max(1),
+            windows: Default::default(),
+        }
+    }
+
     /// 受け付けてよければ true (数える)
     pub fn allow(&self, who: &str) -> bool {
         let now = std::time::Instant::now();
@@ -135,7 +161,7 @@ impl WriteRateLimiter {
             *e = (now, 0);
         }
         e.1 += 1;
-        e.1 <= WRITE_RATE_PER_MIN
+        e.1 <= self.limit
     }
 }
 
