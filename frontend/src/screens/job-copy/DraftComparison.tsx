@@ -7,12 +7,29 @@ import { useDraftMutation } from './draftApi';
 import { parseSalaryText, sameSalary } from './salaryExtract';
 const facts = [ ['salary', '給与', '給与'], ['working_hours', '勤務時間', '勤務時間'], ['holidays', '休日', '休日'], ['work_location', '勤務地', '勤務地'], ['employment_type', '雇用形態', '雇用形態'], ['insurance', '保険', '保険'], ['allowances', '手当', '手当'], ['required_qualifications', '応募資格', '応募資格'] ] as const;
 const normalize = (text: string) => text.normalize('NFKC').replace(/\s/g, '');
+const sectionHeadings = [...facts.map(([, , heading]) => heading), '休日・休暇', '福利厚生・待遇', '社会保険', '仕事内容', '案件名', '応募方法', '勤務時間帯'];
+function sectionValue(current: CopyVersion | undefined, headings: readonly string[]): string | undefined {
+  for (const heading of headings) {
+    const section = current?.bodySections?.find(item => item.heading === heading);
+    if (section) return section.text;
+    const text = current?.body.match(new RegExp(`(?:^|\\n)${heading}[：:]([\\s\\S]*?)(?=\\n(?:${sectionHeadings.join('|')})[：:]|\\n\\s*\\n|$)`))?.[1];
+    if (text !== undefined) return text.trim();
+  }
+  return undefined;
+}
+/** 既存の組み立ては保険と手当を改行で同じ欄に転記する。項目に関係する行だけを比較する。 */
+function benefitValue(text: string, key: 'insurance' | 'allowances'): string {
+  const relevant = key === 'insurance' ? /保険|年金|退職金/ : /手当|交通費|旅費|賞与|ボーナス/;
+  return text.split(/\r?\n/).filter(line => relevant.test(line)).join('\n').trim();
+}
 export function factDifferences(draft: DraftSnapshot, current: CopyVersion | undefined, location: string) {
   return facts.flatMap(([key, label, heading]) => {
     const fact = draft.facts[key];
     if (fact?.status !== 'verified' || !fact.value.trim()) return [];
-    const headings = key === 'holidays' ? ['休日', '休日・休暇'] : key === 'allowances' ? ['手当', '福利厚生・待遇'] : [heading];
-    const value = current?.bodySections?.find(section => headings.includes(section.heading))?.text ?? (current?.body.match(new RegExp(`(?:^|\\n)(?:${headings.join('|')})[：:]([^\\n]+)`))?.[1] ?? (key === 'work_location' && location !== '勤務地不明' ? location : ''));
+    const headings = key === 'holidays' ? ['休日', '休日・休暇'] : key === 'insurance' ? ['保険', '社会保険'] : [heading];
+    const dedicated = sectionValue(current, headings);
+    const shared = key === 'insurance' || key === 'allowances' ? sectionValue(current, ['福利厚生・待遇']) : undefined;
+    const value = dedicated ?? (shared !== undefined && (key === 'insurance' || key === 'allowances') ? benefitValue(shared, key) : key === 'work_location' && location !== '勤務地不明' ? location : '');
     const leftPay = key === 'salary' ? parseSalaryText(value) : null;
     const rightPay = key === 'salary' ? parseSalaryText(fact.value) : null;
     const equalPay = key === 'salary' && leftPay?.kind !== '不明' && leftPay?.min !== null && rightPay?.kind !== '不明' && rightPay?.min !== null && sameSalary(leftPay, rightPay);
