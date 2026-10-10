@@ -250,3 +250,7 @@ body{margin:0}
 @media(max-width:640px){.jobgen .abrow{grid-template-columns:1fr}}
 .jobgen .foot{margin-top:26px;font-size:11.5px;color:var(--ink-3)}
 .jobgen button.theme{position:fixed;top:14px;right:14px;background:var(--surface);border:1px solid var(--line-2);color:var(--ink-2);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;z-index:60}
+/* 複数求人の選択はキーボードでも操作できるボタン。 */
+.jobgen .jobitem { width: 100%; text-align: left; font: inherit; color: inherit; }
+.jobgen .jobitem:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 2px; }
+.jobgen button:disabled { cursor: wait; }

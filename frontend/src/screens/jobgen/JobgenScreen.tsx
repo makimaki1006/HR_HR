@@ -1,7 +1,7 @@
 // 求人票生成パイプライン画面 (/app/jobgen)。旧 static/jobgen.html の React 移植。
 // Shell (ヘッダー・ナビ) には依存しない。要素 id は旧画面と同じにしてある
 // (旧新比較の Playwright と、外部の自動操作が同じセレクタで動くように)。
-import { type ChangeEvent, type ReactNode, useMemo, useSyncExternalStore } from 'react';
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { NormalizeRequest } from '../../generated/NormalizeRequest';
 import { postJobgen, type PostFn } from './api';
 import './jobgen.css';
@@ -27,7 +27,7 @@ import {
 import { createStore, type Store } from './store';
 
 const KINDS: { kind: InputKind; label: string }[] = [
-  { kind: 'free_text', label: '自由テキスト' },
+  { kind: 'free_text', label: '自由文章' },
   { kind: 'url', label: 'URL' },
   { kind: 'csv', label: 'CSV' },
   { kind: 'excel', label: 'Excel' },
@@ -37,14 +37,14 @@ const KINDS: { kind: InputKind; label: string }[] = [
 
 const FILE_ACCEPT: Partial<Record<InputKind, string>> = {
   csv: '.csv,text/csv',
-  excel: '.xlsx,.xls',
+  excel: '.xlsx',
   pdf: '.pdf,application/pdf',
   html: '.html,.htm,text/html',
 };
 const FILE_HINT: Partial<Record<InputKind, string>> = {
   csv: 'CSVファイル（1行1求人）。または下のテキスト欄に貼り付け。',
-  excel: 'Excelファイル（.xlsx / .xls・1行1求人）。base64でサーバへ送ります。',
-  pdf: 'PDFの求人票。base64でサーバへ送りテキスト抽出します。',
+  excel: 'Excelファイル（.xlsx・先頭のシート、1行1求人）。古い形式は .xlsx に保存し直してください。',
+  pdf: '文字の入ったPDFの求人票。画像だけの場合は、本文を自由文章の欄に貼り付けてください。',
   html: '求人ページのHTML。または下のテキスト欄に貼り付け。',
 };
 
@@ -62,7 +62,21 @@ function readText(file: File): Promise<string> {
     r.onerror = () => {
       rej(new Error('ファイル読込に失敗'));
     };
-    r.readAsText(file);
+    if (/\.csv$/i.test(file.name)) {
+      r.onload = () => {
+        try {
+          const bytes = new Uint8Array(r.result as ArrayBuffer);
+          try {
+            res(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+          } catch {
+            res(new TextDecoder('shift_jis', { fatal: true }).decode(bytes));
+          }
+        } catch {
+          rej(new Error('文字を読み取れません。Excelで「CSV UTF-8」として保存し直してください。'));
+        }
+      };
+      r.readAsArrayBuffer(file);
+    } else r.readAsText(file);
   });
 }
 
@@ -123,6 +137,7 @@ export async function buildNormalizeRequest(
     return { ok: true, body: { kind: k, text: t } };
   }
   if (!inp.file) return { ok: false, message: 'ファイルを選択してください。' };
+  if (k === 'excel' && !/\.xlsx$/i.test(inp.file.name)) return { ok: false, message: 'Excelで .xlsx 形式に保存し直してから選んでください。' };
   return { ok: true, body: { kind: k, data_base64: await readBase64(inp.file) } };
 }
 
@@ -136,9 +151,13 @@ function toggleTheme(): void {
 
 /** 入力パネル (自由テキスト / URL / ファイル)。入力欄の値は DOM が持つ (旧と同じ非制御)。 */
 function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
+  const [reading, setReading] = useState(false);
+  const busy = s.running || s.normalizing || reading;
   const k = s.kind;
   const isFile = isFileKind(k);
   const onNormalize = (): void => {
+    if (busy) return;
+    setReading(true);
     const q = (id: string): HTMLInputElement | HTMLTextAreaElement | null =>
       document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null;
     const fileEl = document.getElementById('fileInput') as HTMLInputElement | null;
@@ -155,13 +174,16 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
         built = await buildNormalizeRequest(inputs);
       } catch (e) {
         ctl.errStatus(e instanceof Error ? e.message : String(e));
+        setReading(false);
         return;
       }
       if (!built.ok) {
         ctl.errStatus(built.message);
+        setReading(false);
         return;
       }
       await ctl.normalize(built.body);
+      setReading(false);
     })();
   };
   return (
@@ -174,6 +196,7 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
             type="button"
             className={`tab${k === t.kind ? ' on' : ''}`}
             data-kind={t.kind}
+            disabled={busy}
             onClick={() => {
               const fileEl = document.getElementById('fileInput') as HTMLInputElement | null;
               if (fileEl) fileEl.value = '';
@@ -188,6 +211,7 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
         <label htmlFor="freeText">求人原文（貼り付け）</label>
         <textarea
           id="freeText"
+          disabled={busy}
           placeholder={
             '求人票の本文をそのまま貼り付けてください。\n例: 職種／給与／勤務時間／休日／勤務地／雇用形態／保険／手当／必須資格 など'
           }
@@ -195,14 +219,14 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
       </div>
       <div className={`in-block${k === 'url' ? '' : ' hide'}`} id="in-url">
         <label htmlFor="urlInput">他媒体の掲載ページURL</label>
-        <input type="url" id="urlInput" placeholder="https://…" />
-        <div className="hint">サーバ側でHTTP取得し本文を抽出します。</div>
+        <input type="url" id="urlInput" placeholder="https://…" disabled={busy} />
+        <div className="hint">掲載ページから求人の本文を読み取ります。</div>
       </div>
       <div className={`in-block${isFile ? '' : ' hide'}`} id="in-file">
         <label id="fileLabel" htmlFor="fileInput">
           ファイルを選択
         </label>
-        <input type="file" id="fileInput" accept={FILE_ACCEPT[k] ?? ''} />
+        <input type="file" id="fileInput" accept={FILE_ACCEPT[k] ?? ''} disabled={busy} />
         <div className="hint" id="fileHint">
           {FILE_HINT[k] ?? ''}
         </div>
@@ -212,12 +236,12 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
           style={{ marginTop: '10px', display: k === 'csv' || k === 'html' ? undefined : 'none' }}
         >
           <label htmlFor="pasteArea">またはテキストを貼り付け</label>
-          <textarea id="pasteArea" placeholder="CSV／HTMLのテキストを直接貼り付けても構いません。" />
+          <textarea id="pasteArea" disabled={busy} placeholder="CSV／HTMLのテキストを直接貼り付けても構いません。" />
         </div>
       </div>
       <div style={{ marginTop: '8px' }}>
-        <button type="button" className="btn" id="normBtn" disabled={s.normalizing} onClick={onNormalize}>
-          正規化して取り込む
+        <button type="button" className="btn" id="normBtn" disabled={busy} onClick={onNormalize}>
+          {reading || s.normalizing ? '取り込み中…' : '求人を取り込む'}
         </button>
       </div>
       <div className="note">
@@ -228,9 +252,12 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
           <>
             <div className="joblist">
               {s.jobs.map((j, i) => {
-                const on = s.sourceText === j.source_text && s.titleHint === (j.title_hint || '');
+                const on = s.selectedJobIndex === i;
                 return (
-                  <div
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={on}
                     key={i}
                     className={`jobitem${on ? ' on' : ''}`}
                     data-i={i}
@@ -239,13 +266,13 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
                     }}
                   >
                     <span className="jt">{j.title_hint || '求人 ' + String(i + 1)}</span>
-                    <span className="jp">{(j.source_text || '').slice(0, 90)}</span>
-                  </div>
+                    <span className="jp">求人 {i + 1} · 原文 {j.source_text.length.toLocaleString('ja-JP')}字</span>
+                  </button>
                 );
               })}
             </div>
             <div className="note">
-              複数の求人が見つかりました。1件を選ぶとパイプラインを実行できます。
+              {s.jobs.length}件の求人が見つかりました。1件ずつ選んで作成・出力します。別の求人を選ぶと現在の作成結果は消えるため、先にCSVを保存してください。
             </div>
           </>
         ) : null}
@@ -262,6 +289,7 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
               <input
                 type="text"
                 id="jobTitle"
+                disabled={busy}
                 placeholder="例: 介護職 / 保育士 / 営業"
                 value={s.jobTitle}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => {
@@ -277,6 +305,7 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
               <input
                 type="checkbox"
                 id="jobConfirmChk"
+                disabled={busy}
                 checked={s.jobTitleConfirmed}
                 onChange={(e) => {
                   ctl.setJobTitleConfirmed(e.currentTarget.checked);
@@ -296,11 +325,11 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
 }
 
 function StepsPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
-  const ready = !!s.sourceText;
+  const ready = !!s.sourceText && !s.normalizing;
   return (
     <div className="panel">
       <h2>
-        生成パイプライン <span className="tag">工程①〜⑧</span>
+        作成の手順 <span className="tag">工程①〜⑧</span>
       </h2>
       <div className="ctl">
         <button
@@ -353,7 +382,7 @@ function StepsPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
                   void ctl.runOne(st.key);
                 }}
               >
-                再実行
+                {s.status[st.key] === 'wait' ? '実行' : '再実行'}
               </button>
             </div>
           );
@@ -384,6 +413,14 @@ function ResultSection({
 }
 
 export function JobgenView({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
+  const [elapsed, setElapsed] = useState(0);
+  const busy = s.running || s.normalizing;
+  useEffect(() => {
+    if (!busy) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => { setElapsed(Math.floor((Date.now() - started) / 1000)); }, 1000);
+    return () => { window.clearInterval(timer); };
+  }, [busy, s.curStep]);
   const onConfirm = ctl.toggleConfirm;
   const msg = s.statusMessage;
   return (
@@ -401,12 +438,11 @@ export function JobgenView({ s, ctl }: { s: PipelineState; ctl: PipelineControll
       </button>
       <div className="wrap">
         <header>
-          <div className="eyebrow">求人媒体選定エンジン · 生成パイプライン</div>
-          <h1>求人票生成パイプライン</h1>
+          <div className="eyebrow">顧客の資料から求人票を作成</div>
+          <h1>求人票作成</h1>
           <p className="sub">
-            顧客の求人原文（自由テキスト／URL／CSV／Excel／PDF／HTML）から、工程①〜⑧を順に走らせて
-            <b>戦略提案</b>と<b>HRハッカー84列原稿</b>
-            を生成します。各工程はコードによる検証ゲート（引用照合・数値照合・NGワード・文字数）を通し、通らない項目は空欄＋人間レビュー行きにします。工程を分割しているので、失敗した工程だけ再実行できます。
+            資料を取り込み、職種名を確認してから求人の案を作成します。
+            元の資料で確かめられない項目は空欄で出力します。事実と文章を確認し、HRハッカー用の84列CSVを保存してください。
           </p>
           <div className="legend" id="legend">
             <span className="lg">
@@ -435,8 +471,9 @@ export function JobgenView({ s, ctl }: { s: PipelineState; ctl: PipelineControll
         <InputPanel s={s} ctl={ctl} />
         <StepsPanel s={s} ctl={ctl} />
 
-        <div id="status">
+        <div id="status" role="status" aria-live="polite">
           {msg ? <div className={msg.kind === 'err' ? 'err' : 'loading'}>{msg.text}</div> : null}
+          {busy ? <div className="note">処理を待っています（{elapsed}秒経過）。文章の作成には数分かかることがあります。この画面を開いたままお待ちください。</div> : null}
         </div>
 
         <ResultSection s={s} stepKey="extract">

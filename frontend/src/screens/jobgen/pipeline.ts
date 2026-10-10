@@ -338,7 +338,7 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
   };
 
   const runOne = async (key: StepKey): Promise<void> => {
-    if (get().running) return;
+    if (get().running || get().normalizing) return;
     set((s) => beginStep(s, key));
     try {
       const st = await RUNNERS[key]();
@@ -362,7 +362,7 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
   /** 一括実行 (①→⑧を順に。前工程結果をメモリ経由で次へ)。失敗した工程で停止。 */
   const runAll = async (): Promise<void> => {
     const s0 = get();
-    if (s0.running || !s0.sourceText) return;
+    if (s0.running || s0.normalizing || !s0.sourceText || !s0.jobTitleConfirmed) return;
     for (const step of STEPS) {
       set((s) => beginStep(s, step.key));
       try {
@@ -389,6 +389,8 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
 
   const pickJob = (index: number): void => {
     const s = get();
+    if (s.running || s.normalizing) return;
+    if (s.selectedJobIndex === index) return;
     const j = s.jobs[index];
     if (!j) return;
     const titleHint = j.title_hint || '';
@@ -396,17 +398,19 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
     saveSourceHandoff(sourceText, titleHint, clock());
     set((prev) => ({
       ...resetResults({ ...prev, titleHint, sourceText }),
+      selectedJobIndex: index,
       jobTitle: titleHint,
       ctlHint: CTL_HINT_READY,
     }));
   };
 
   const normalize = async (body: NormalizeRequest): Promise<void> => {
-    set({ normalizing: true, statusMessage: { kind: 'loading', text: '正規化中…' } });
+    if (get().running || get().normalizing) return;
+    set({ normalizing: true, statusMessage: { kind: 'loading', text: '求人の内容を取り込み中…' } });
     try {
       const r = await post('/api/jobgen/normalize', body);
       if (!r.ok) {
-        errStatus('正規化エラー: ' + r.error.message);
+        errStatus('取り込めませんでした: ' + r.error.message);
         return;
       }
       const jobs = r.data.jobs.filter((j) => (j.source_text || '').trim());
@@ -414,8 +418,10 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
         errStatus('求人原文が取得できませんでした。');
         return;
       }
-      set({ jobs, statusMessage: null });
+      set((s) => ({ ...resetResults(s), jobs, titleHint: '', sourceText: '', jobTitle: '', normalizing: false, statusMessage: null }));
       if (jobs.length === 1) pickJob(0);
+    } catch {
+      errStatus('取り込みを完了できませんでした。通信状態を確認し、もう一度取り込んでください。');
     } finally {
       set({ normalizing: false });
     }

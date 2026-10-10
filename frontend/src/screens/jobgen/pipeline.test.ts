@@ -69,6 +69,21 @@ const AB_SUMMARY = [
 ].join('\n');
 
 describe('取り込み (normalize)', () => {
+  it('単一求人の生成後に複数求人を取り込むと、選択前の原文・結果・職種確認を消す', async () => {
+    const t = setup();
+    await t.ctl.normalize({ kind: 'free_text', text: SRC });
+    t.ctl.setJobTitleConfirmed(true);
+    await t.ctl.runAll();
+    const s = t.store.get();
+    const two = { status: 'ok', jobs: [{ title_hint: '倉庫', source_text: '月給250000円' }, { title_hint: '配送', source_text: '月給300000円' }] };
+    const ctl = createPipelineController({ store: t.store, post: () => Promise.resolve({ ok: true, data: two } as ApiResult<never>) });
+    expect(s.hrhacker).not.toBeNull();
+    await ctl.normalize({ kind: 'csv', text: 'dummy' });
+    expect(t.store.get().sourceText).toBe('');
+    expect(t.store.get().hrhacker).toBeNull();
+    expect(t.store.get().jobTitleConfirmed).toBe(false);
+    expect(canRunAll(t.store.get())).toBe(false);
+  });
   it('free_text は {kind, text} だけを送り、1 件なら自動で選択して職種名欄を先頭行候補で埋める', async () => {
     const t = setup();
     await t.ctl.normalize({ kind: 'free_text', text: SRC });
@@ -95,7 +110,7 @@ describe('取り込み (normalize)', () => {
     expect(t.calls[0]?.body).toEqual({ kind: 'url', url: 'https://example.invalid/x' });
     expect(t.store.get().statusMessage).toEqual({
       kind: 'err',
-      text: '正規化エラー: source_text が必要です',
+      text: '取り込めませんでした: source_text が必要です',
     });
     expect(t.store.get().sourceText).toBe('');
   });

@@ -35,7 +35,7 @@ describe('jobgen postJson via the shared client', () => {
     expect(r.error).toBeInstanceOf(ApiHttpError);
     expect((r.error as ApiHttpError).status).toBe(502);
     expect((r.error as ApiHttpError).body).toEqual({ message: 'Gemini 429', retry_after: 7 });
-    expect(r.error.message).toBe('Gemini 429');
+    expect(r.error.message).toBe('処理を完了できませんでした。少し待ってから再実行してください。');
   });
 
   it('200 with {error: "..."} keeps the body message (message wins over error), body in ApiDataError.body', async () => {
@@ -54,7 +54,7 @@ describe('jobgen postJson via the shared client', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBeInstanceOf(ApiDataError);
-    expect(r.error.message).toBe('source_text が必要です');
+    expect(r.error.message).toBe('処理を完了できませんでした。入力した資料を確認し、もう一度お試しください。');
   });
 
   it('a 200 text/html login form (no redirect flag) is AuthRequiredError', async () => {

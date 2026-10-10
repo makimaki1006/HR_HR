@@ -762,6 +762,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let text = format!("{}\n", serde_json::to_string_pretty(&fixture).unwrap());
         std::fs::write(dir.join("fixtures.json"), text).expect("fixtures.json を書き出せない");
+        // CSV 出力と確認表は応答オブジェクトのキー順ではなく、この正本を参照する。
+        let columns = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&crate::job_gen::hrhacker::HRHACKER_COLUMNS.to_vec())
+                .unwrap()
+        );
+        std::fs::write(dir.join("columns.json"), columns).expect("columns.json を書き出せない");
     }
 
     #[test]
