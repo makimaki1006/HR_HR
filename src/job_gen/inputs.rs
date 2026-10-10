@@ -689,9 +689,24 @@ fn rows_to_csv_bytes(rows: &[Vec<String>]) -> Result<Vec<u8>> {
 fn find_title_col(header: &[String]) -> Option<usize> {
     const JP_KEYS: [&str; 6] = ["職種", "案件名", "求人名", "募集職種", "タイトル", "職種名"];
     const EN_KEYS: [&str; 4] = ["title", "job", "position", "role"];
+    // 管理番号は職種名にしない。明示的な名称の見出しを部分一致より優先する。
+    let is_identifier = |h: &str| {
+        let lower = h.to_ascii_lowercase();
+        lower.ends_with("id") || h.contains("コード") || h.contains("番号")
+    };
     for (i, h) in header.iter().enumerate() {
+        let h = h.trim();
         let hl = h.to_ascii_lowercase();
-        if JP_KEYS.iter().any(|k| h.contains(k)) || EN_KEYS.iter().any(|k| hl.contains(k)) {
+        if JP_KEYS.contains(&h) || EN_KEYS.contains(&hl.as_str()) || hl == "job_title" {
+            return Some(i);
+        }
+    }
+    for (i, h) in header.iter().enumerate() {
+        let h = h.trim();
+        let hl = h.to_ascii_lowercase();
+        if !is_identifier(h)
+            && (JP_KEYS.iter().any(|k| h.contains(k)) || EN_KEYS.iter().any(|k| hl.contains(k)))
+        {
             return Some(i);
         }
     }
@@ -902,6 +917,18 @@ mod tests {
         assert_eq!(jobs[0].source_text, body);
         assert_eq!(jobs[0].title_hint.chars().count(), 30);
         assert!(long.starts_with(&jobs[0].title_hint));
+    }
+
+    #[test]
+    fn csv_職種idより職種名を選び原文のidは保持する() {
+        for csv in [
+            "職種ID,職種名\n42,配送スタッフ\n",
+            "job_id,job_title\n42,配送スタッフ\n",
+        ] {
+            let jobs = rows_to_jobs(parse_csv(csv).unwrap());
+            assert_eq!(jobs[0].title_hint, "配送スタッフ");
+            assert!(jobs[0].source_text.contains("42"));
+        }
     }
 
     #[test]
