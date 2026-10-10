@@ -1484,10 +1484,8 @@ async fn job_copy_listings_auth_and_mock_contract() {
             seen.lock().unwrap().push(format!("{} {}?{}", req.method(), path, query));
             let record = json!({"id":"10", "properties":{"hs_name":"合成配送求人", "id_hrhakkaa":"HR-10", "todoufuken":"大分県", "shikuchouson":"大分市", "hrh_kyuujinhyou_honbun":"Indeed表示職種名：配送ドライバー", "baitai_genjoukyou_hrhakkaa":"公開中"}});
             let data = if path == "/crm/v3/objects/0-420" {
-                let cursor = query.split('&').find_map(|p| p.strip_prefix("after=")?.parse::<u64>().ok());
-                if cursor.is_some_and(|v| v >= 900) {
-                    json!({"results":[record],"paging":{"next":{"after":(cursor.unwrap()+1).to_string()}}})
-                } else if query.contains("after=") {json!({"results":[record]})}
+                if query.contains("after=12") {json!({"results":[{"id":"12","properties":{"id_hrhakkaa":"HR-12","todoufuken":"沖縄県","hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師"}}]})}
+                else if query.contains("after=") {json!({"results":[record], "paging":{"next":{"after":"12"}}})}
                 else {json!({"results":[{"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師"}}],"paging":{"next":{"after":"11"}}})}
             } else if path == "/crm/v4/associations/0-420/0-421/batch/read" {
                 assert_eq!(req.method(), Method::POST);
@@ -1507,10 +1505,11 @@ async fn job_copy_listings_auth_and_mock_contract() {
     let task = tokio::spawn(async move {
         axum::serve(listener, upstream).await.unwrap();
     });
+    let service = Arc::new(JobReadService::for_test(base));
     let store = tower_sessions::MemoryStore::default();
     let access = Access {
         allowed: BTreeSet::from(["reader@example.test".into()]),
-        service: Some(Arc::new(JobReadService::for_test(base))),
+        service: Some(service.clone()),
         moc_path: None,
         moc_drive: Ok(None),
         snapshot_reader: None,
@@ -1560,6 +1559,35 @@ async fn job_copy_listings_auth_and_mock_contract() {
             .await
             .unwrap();
         session.save().await.unwrap();
+        if method == LOGIN_METHOD_GOOGLE_OIDC {
+            let preparing = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/job-copy/listings")
+                        .header("cookie", format!("id={}", session.id().unwrap()))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let data: Value =
+                serde_json::from_slice(&to_bytes(preparing.into_body(), 4096).await.unwrap())
+                    .unwrap();
+            assert_eq!(data["status"], "preparing");
+            assert_eq!(data["total"], Value::Null);
+            assert_eq!(data["index_built_at"], Value::Null);
+            assert!(calls.lock().unwrap().is_empty());
+            listings::refresh(
+                &service.listing_index,
+                &service,
+                vec!["ドライバー".into(), "看護師".into()],
+                Duration::ZERO,
+            )
+            .await
+            .unwrap();
+            assert_eq!(calls.lock().unwrap().len(), 3);
+        }
         let response = app.clone().oneshot(Request::builder().uri("/api/job-copy/listings?prefecture=%E5%A4%A7%E5%88%86%E7%9C%8C&title=%E3%83%89%E3%83%A9%E3%82%A4%E3%83%90%E3%83%BC&media=hrh").header("cookie", format!("id={}", session.id().unwrap())).body(Body::empty()).unwrap()).await.unwrap();
         if method == "password" {
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -1577,8 +1605,9 @@ async fn job_copy_listings_auth_and_mock_contract() {
         assert_eq!(data["listings"][0]["media_job_id"], "HR-10");
         assert_eq!(data["listings"][0]["category"], "ドライバー");
         assert_eq!(data["listings"][0]["application_count"], 2);
-        assert_eq!(data["next_after"], Value::Null);
-        assert_eq!(data["scanned"], 2);
+        assert_eq!(data["next_offset"], Value::Null);
+        assert_eq!(data["total"], 1);
+        assert!(data["index_built_at"].as_str().is_some());
     }
     let response = app
         .clone()
@@ -1600,26 +1629,8 @@ async fn job_copy_listings_auth_and_mock_contract() {
         "2026-10-02T00:00:00+00:00"
     );
     assert_eq!(data["history_counts"]["hrh_kyuujinhyou_honbun"], 2);
-    assert_eq!(data["history_may_be_incomplete"], true);
-    assert_eq!(calls.lock().unwrap().len(), 4);
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/job-copy/listings?after=900&media=airwork")
-                .header("cookie", format!("id={}", session.id().unwrap()))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let data: Value =
-        serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
-    assert_eq!(data["listings"], json!([]));
-    assert_eq!(data["next_after"], "905");
-    assert_eq!(data["scanned"], 5);
-    assert_eq!(calls.lock().unwrap().len(), 9); // exactly five reads; no applicant read for an empty page
+    assert_eq!(data["history_may_be_incomplete"], false);
+    assert_eq!(calls.lock().unwrap().len(), 5); // three index pages, one association batch, one history GET
     session
         .insert(SESSION_USER_KEY, "outside@example.test")
         .await
@@ -1636,6 +1647,6 @@ async fn job_copy_listings_auth_and_mock_contract() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(calls.lock().unwrap().len(), 9);
+    assert_eq!(calls.lock().unwrap().len(), 5);
     task.abort();
 }

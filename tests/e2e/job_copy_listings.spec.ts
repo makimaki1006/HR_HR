@@ -8,8 +8,8 @@ test('HubSpotの求人を絞って履歴を比較し、固定一覧へ戻る', a
     if (url.pathname.endsWith('/versions')) return route.fulfill({ json: { listing, versions: [
       { written_at: '2026-10-01T00:00:00Z', body: '合成の旧本文', image_urls: [] },
       { written_at: '2026-10-02T00:00:00Z', body: '合成の新本文', image_urls: [] },
-    ], history_counts: { hrh_kyuujinhyou_honbun: 2, hrh_kyuujinhyou_gazou: 1 }, history_may_be_incomplete: true } });
-    if (url.pathname.endsWith('/listings')) return route.fulfill({ json: { listings: [listing], titles: ['ドライバー'], next_after: null, scanned: 1 } });
+    ], history_counts: { hrh_kyuujinhyou_honbun: 2, hrh_kyuujinhyou_gazou: 1 }, history_may_be_incomplete: false } });
+    if (url.pathname.endsWith('/listings')) return route.fulfill({ json: { listings: [listing], titles: ['ドライバー'], status: 'ready', total: 1, index_built_at: '2026-10-10T00:00:00Z', offset: 0, next_offset: null, refreshing: false, refresh_failed: false } });
     if (url.pathname.endsWith('/market')) return route.fulfill({ json: { titles: [], prefectures: [], series: null } });
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
   });
@@ -28,7 +28,7 @@ test('HubSpotの求人を絞って履歴を比較し、固定一覧へ戻る', a
   await panel.getByRole('button', { name: '合成配送求人の版を見る' }).click();
   await expect(page.locator('.jc-job')).toHaveCount(1);
   await expect(panel.getByRole('status')).toContainText('文面の版は2件');
-  await expect(panel.getByRole('status')).toContainText('20件までの可能性');
+  await expect(panel.getByRole('status')).not.toContainText('20件までの可能性');
   await selectJobFeature(page, 'body');
   await expect(jobFeaturePanel(page, 'body').locator('pre')).toHaveText('合成の新本文');
   await selectJobFeature(page, 'diff');

@@ -190,7 +190,7 @@
 .jc-listings-panel { margin: 12px 0; padding: 16px; border: 1px solid #dbe2ea; border-radius: 8px; background: #fff; }
 .jc-listings-panel h2 { margin: 0 0 8px; font-size: 18px; }
 .jc-listings-panel p { color: #475569; font-size: 13px; line-height: 1.7; }
-.jc-listings-panel .jc-filters { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; }
+.jc-listings-panel .jc-filters { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: end; }
 .jc-listings-panel label { display: grid; gap: 4px; font-size: 13px; }
 .jc-listings-panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .jc-listings-panel th, .jc-listings-panel td { padding: 8px; border-bottom: 1px solid #dbe2ea; text-align: left; }
