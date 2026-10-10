@@ -512,11 +512,14 @@ fn normalize_ws(s: &str) -> String {
 fn parse_csv(text: &str) -> Result<Vec<Vec<String>>> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
-        .flexible(true)
+        .flexible(false)
         .from_reader(text.as_bytes());
     let mut rows = Vec::new();
     for rec in rdr.records() {
-        let rec = rec.map_err(|e| anyhow!("CSV パースに失敗しました: {e}"))?;
+        let rec = rec.map_err(|e| {
+            let line = e.position().map(|p| format!("{}行目", p.line())).unwrap_or_else(|| "該当行".to_string());
+            anyhow!("CSVの{line}を読み取れません。見出しと各行の項目数、引用符の囲み方を確認してください。")
+        })?;
         rows.push(rec.iter().map(|s| s.to_string()).collect());
     }
     Ok(rows)
@@ -605,14 +608,21 @@ fn rows_to_jobs(rows: Vec<Vec<String>>) -> Vec<NormalizedJob> {
 
 /// ヘッダが媒体(Indeed/求人ボックス等)形式かを判定する。
 ///
-/// 汎用CSV(`CsvSource::Unknown`)は従来の [`rows_to_jobs`] に流し、それ以外は
-/// 本番の媒体分析パーサに委譲する。判定ロジックは媒体分析タブと同一にするため、
-/// 独自実装せず [`survey_upload::detect_csv_source`] をそのまま使う。
+/// 「勤務地」「会社名」など一般的な見出しだけでは媒体を特定できない。
+/// 顧客一覧の勤務時間・休日などを専用パーサが捨てないよう、機械名の固有見出しを
+/// 持つ形式だけを媒体分析パーサに委譲する。読める見出しは全列を原文に残す。
 fn is_media_csv(header: &[String]) -> bool {
-    !matches!(
-        survey_upload::detect_csv_source(header),
-        survey_upload::CsvSource::Unknown
-    )
+    let machine_headers = header.iter().any(|h| {
+        let h = h.trim().to_ascii_lowercase();
+        ["css-", "jcs-", "jobsearch-", "p-result", "c-icon"]
+            .iter()
+            .any(|prefix| h.starts_with(prefix))
+    });
+    machine_headers
+        && !matches!(
+            survey_upload::detect_csv_source(header),
+            survey_upload::CsvSource::Unknown
+        )
 }
 
 /// 媒体CSVのバイト列を専用パーサ([`survey_upload::parse_csv_bytes`])で解釈し、
@@ -694,11 +704,11 @@ fn find_title_col(header: &[String]) -> Option<usize> {
 #[cfg(feature = "pdf")]
 fn extract_pdf_text(bytes: &[u8]) -> Result<String> {
     let text = pdf_extract::extract_text_from_mem(bytes)
-        .map_err(|e| anyhow!("PDF テキスト抽出に失敗しました: {e}"))?;
+        .map_err(|_| anyhow!("PDFを読み取れません。ファイルが開けることを確認し、文字の入ったPDFを選ぶか、本文を貼り付けてください。"))?;
     let cleaned = normalize_ws(&text);
     if cleaned.trim().is_empty() {
         return Err(anyhow!(
-            "PDF からテキストを抽出できませんでした(画像PDFの可能性)"
+            "PDFから文字を読み取れませんでした。画像だけのPDFには対応していません。文字の入ったPDFを選ぶか、本文を自由文章の欄に貼り付けてください。"
         ));
     }
     Ok(cleaned)
@@ -735,6 +745,118 @@ mod calamine_shim {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn csv_項目数不一致を値の欠落なしで拒否() {
+        let err = parse_csv("職種,給与\n倉庫,250000,消してはいけない値\n").unwrap_err();
+        assert!(err.to_string().contains("2行目"));
+        assert!(err.to_string().contains("項目数"));
+    }
+
+    #[tokio::test]
+    async fn excel_求人一覧の職種名と金額と改行を保つ() {
+        let bytes = include_bytes!("../../tests/fixtures/jobgen/customer.xlsx");
+        let jobs = normalize(
+            InputKind::Excel,
+            None,
+            None,
+            Some(base64::engine::general_purpose::STANDARD.encode(bytes)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[1].title_hint, "配送スタッフ");
+        assert!(jobs[1].source_text.contains("月給300,000円"));
+        assert!(jobs[0].source_text.contains("梱包\n商品に「傷」"));
+        assert!(jobs[0].source_text.contains("勤務時間: 9:00〜18:00"));
+        assert!(jobs[0].source_text.contains("休日: 土日休み"));
+    }
+
+    #[tokio::test]
+    async fn csv_顧客一覧は勤務地という見出しで媒体扱いせず全項目を保持() {
+        let text = include_str!("../../tests/fixtures/jobgen/customer-utf8.csv");
+        let jobs = normalize(InputKind::Csv, Some(text.to_string()), None, None)
+            .await
+            .unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[1].title_hint, "配送スタッフ");
+        assert!(jobs[0].source_text.contains("勤務時間: 9:00〜18:00"));
+        assert!(jobs[0].source_text.contains("休日: 土日休み"));
+        assert!(jobs[1].source_text.contains("勤務時間: 8:00〜17:00"));
+        assert!(jobs[1].source_text.contains("休日: 水日休み"));
+    }
+
+    #[tokio::test]
+    async fn 顧客資料から抽出と84列の組立まで_llm生応答のみモック() {
+        use crate::job_gen::{handlers, hrhacker, types};
+        let ng = crate::job_gen::ng_words::NgRules::load_from_str(include_str!(
+            "../../assets/ng_words.json"
+        ))
+        .unwrap();
+        let b64 = base64::engine::general_purpose::STANDARD
+            .encode(include_bytes!("../../tests/fixtures/jobgen/customer.xlsx"));
+        for (kind, text, data) in [
+            (
+                InputKind::Csv,
+                Some(include_str!("../../tests/fixtures/jobgen/customer-utf8.csv").to_string()),
+                None,
+            ),
+            (InputKind::Excel, None, Some(b64)),
+            (
+                InputKind::FreeText,
+                Some(include_str!("../../tests/fixtures/jobgen/customer.txt").to_string()),
+                None,
+            ),
+        ] {
+            let jobs = normalize(kind, text, None, data).await.unwrap();
+            let source = &jobs[0].source_text;
+            // 生成サービスからの生応答だけを架空の値に置換。照合・転記は実装を通す。
+            let raw = serde_json::json!({
+                "salary": {"value":"月給250,000円", "evidence_quote":"月給250,000円"},
+                "working_hours": {"value":"9:00〜18:00", "evidence_quote":"9:00〜18:00"},
+                "holidays": {"value":"土日休み", "evidence_quote":"土日休み"}
+            });
+            let extracted = handlers::extract_ok_response(source, &raw);
+            assert_eq!(
+                extracted["facts"]["working_hours"]["status"], "verified",
+                "{kind:?}"
+            );
+            assert_eq!(extracted["facts"]["salary"]["value"], "月給250,000円");
+            assert_eq!(
+                extracted["facts"]["required_qualifications"]["status"],
+                "missing"
+            );
+            let facts: types::ExtractedFacts =
+                serde_json::from_value(extracted["facts"].clone()).unwrap();
+            let generated = hrhacker::validate_generated(
+                source,
+                &serde_json::json!({"job_title":"倉庫スタッフ", "job_description":"商品の検品と梱包"}),
+                &ng,
+            );
+            let output = handlers::hrhacker_ok_response(source, &facts, &generated, 1);
+            assert_eq!(output["row"].as_object().unwrap().len(), 84);
+            assert_eq!(output["row"]["給与補足"], "月給250,000円");
+            assert_eq!(output["row"]["勤務時間"], "9:00〜18:00");
+            assert_eq!(output["row"]["自由項目1の内容"], "土日休み");
+            assert_eq!(output["row"]["案件名"], "倉庫スタッフ");
+            assert_eq!(output["row"]["応募資格"], "");
+        }
+    }
+
+    #[cfg(feature = "pdf")]
+    #[tokio::test]
+    async fn pdf_画像のみは別の入力方法を案内() {
+        let bytes = include_bytes!("../../tests/fixtures/jobgen/customer-image.pdf");
+        let err = normalize(
+            InputKind::Pdf,
+            None,
+            None,
+            Some(base64::engine::general_purpose::STANDARD.encode(bytes)),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("文字の入ったPDF"));
+        assert!(err.to_string().contains("貼り付け"));
+    }
     use super::*;
 
     #[test]

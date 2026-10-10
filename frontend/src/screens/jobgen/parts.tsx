@@ -94,7 +94,7 @@ export function ExprWarnings({ items }: { items: NgViolation[] }) {
         {items.map((v, i) => (
           <li key={i}>
             {violationLabel(v)}
-            {v.severity ? ` [${v.severity}]` : ''}: {v.reason || ''}
+            {v.severity ? `（${v.severity === 'warning' ? '要確認' : '注意'}）` : ''}: {v.reason || ''}
           </li>
         ))}
       </ul>

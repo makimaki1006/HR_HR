@@ -4,8 +4,8 @@ import { type Facts, FKEY_JA, type StepKey } from '../state';
 
 const ST_JA: Record<string, string> = {
   verified: '検証済',
-  rejected: 'リジェクト',
-  missing: '欠落',
+  rejected: '要確認',
+  missing: '未取得',
 };
 
 export function ExtractSection({
@@ -31,7 +31,7 @@ export function ExtractSection({
           <GateBadge
             label="引用照合"
             cls={nr ? 'bad' : 'ok'}
-            detail={`検証 ${String(nv)}／リジェクト ${String(nr)}／欠落 ${String(nm)}`}
+            detail={`確認済み ${String(nv)}／要確認 ${String(nr)}／未取得 ${String(nm)}`}
           />
         }
       />
@@ -54,11 +54,11 @@ export function ExtractSection({
                   status === 'rejected' ? 'row-rejected' : status === 'missing' ? 'row-missing' : '';
                 return (
                   <tr key={k} className={cls}>
-                    <td className="fkey">{FKEY_JA[k] ?? k}</td>
-                    <td>{f?.value ?? ''}</td>
+                    <td className="fkey">{FKEY_JA[k] ?? 'その他の項目'}</td>
+                    <td>{status === 'verified' && f?.value ? f.value : '未取得'}</td>
                     <td className="fquote">{f?.evidence_quote ? `「${f.evidence_quote}」` : '—'}</td>
                     <td>
-                      <span className={`fst ${status}`}>{ST_JA[status] ?? status}</span>
+                      <span className={`fst ${status}`}>{ST_JA[status] ?? '不明'}</span>
                     </td>
                   </tr>
                 );
@@ -72,7 +72,7 @@ export function ExtractSection({
         </table>
       </div>
       <div className="note">
-        引用が原文に文字列一致しない項目は自動リジェクト（赤）→空欄＋レビュー。原文に無い項目は欠落（グレー）。
+        元の資料で確かめられない値は採用していません。「要確認」の項目は引用と元の資料を照らし合わせてください。「未取得」は資料から確認できなかった項目です。
       </div>
       <ConfirmBox stepKey="extract" checked={confirmed} onChange={onConfirm} />
     </>

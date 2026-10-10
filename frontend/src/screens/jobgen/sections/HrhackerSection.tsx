@@ -1,5 +1,7 @@
 // ⑦ 84 列原稿＋数値照合 (旧 renderHrhacker)。
-import { downloadHrhackerCsv } from '../csv';
+import { useState } from 'react';
+import { downloadHrhackerCsv, HRHACKER_COLUMNS } from '../csv';
+import { fieldLabel, fieldValue, reviewIssue } from '../presentation';
 import { ConfirmBox, GateBadge, SectionHead } from '../parts';
 import type { HrhackerResult, StepKey } from '../state';
 
@@ -15,14 +17,21 @@ export function HrhackerSection({
   onConfirm: (key: StepKey, checked: boolean) => void;
 }) {
   const row = h.row;
-  const cols = Object.keys(row);
+  const cols = HRHACKER_COLUMNS;
+  const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
   const genEntries = Object.entries(h.generated_fields).flatMap(([k, g]) =>
     g ? [[k, g] as const] : [],
   );
   const genReview = genEntries.some(([, g]) => g.status === 'review_required');
+  const numberIssues = h.unsupported_numbers.filter(issue => issue.startsWith('unsupported_numbers:'));
   const genKeys = new Set(genEntries.map(([k, g]) => g.column || k));
   const fs = h.fill_stats;
   const uh = h.unassigned_hints;
+  const needsReview = (c: string): boolean => h.review_required_fields.includes(c) || genEntries.some(([k, g]) => (g.column || k) === c && g.status !== 'generated_verified');
+  const visibleCols = cols.filter(c => fieldLabel(c).includes(search.trim()) && (
+    filter === 'all' || filter === 'filled' && !!row[c]?.trim() || filter === 'missing' && !row[c]?.trim() || filter === 'review' && needsReview(c)
+  ));
   return (
     <>
       <SectionHead
@@ -31,11 +40,11 @@ export function HrhackerSection({
         gates={
           <>
             <GateBadge
-              label="数値照合[E]"
-              cls={h.unsupported_numbers.length ? 'bad' : 'ok'}
+              label="数値照合"
+              cls={numberIssues.length ? 'bad' : 'ok'}
               detail={
-                h.unsupported_numbers.length
-                  ? `未照合 ${String(h.unsupported_numbers.length)}件`
+                numberIssues.length
+                  ? `未照合 ${String(numberIssues.length)}件`
                   : '通過'
               }
             />
@@ -65,9 +74,9 @@ export function HrhackerSection({
           ）
         </div>
       ) : null}
-      {h.unsupported_numbers.length ? (
+      {numberIssues.length ? (
         <div className="badnums">
-          <b>原文に無い数値（リジェクト）:</b> {h.unsupported_numbers.join(' / ')}
+          <b>元の資料で確認できない数値があります。</b> 該当する生成項目を確認してください。
         </div>
       ) : null}
       {uh.length ? (
@@ -79,14 +88,14 @@ export function HrhackerSection({
             <table>
               <thead>
                 <tr>
-                  <th>列名（候補）</th>
+                  <th>確認する項目</th>
                   <th>原文の該当箇所</th>
                 </tr>
               </thead>
               <tbody>
                 {uh.map((u, i) => (
                   <tr key={i}>
-                    <td className="colcell">{u.column || ''}</td>
+                    <td className="colcell">{fieldLabel(u.column || '')}</td>
                     <td className="fquote">{u.evidence || ''}</td>
                   </tr>
                 ))}
@@ -104,7 +113,7 @@ export function HrhackerSection({
             return (
               <div key={k} className={`gencard ${cls}`}>
                 <div className="gcol">
-                  {g.column || k} <span className={`gstat ${cls}`}>{ok ? '検証済' : 'レビュー要'}</span>
+                  {fieldLabel(g.column || k)} <span className={`gstat ${cls}`}>{ok ? '検証済' : '要確認'}</span>
                 </div>
                 <div className={`gval${g.value ? '' : ' empty'}`}>
                   {g.value ? g.value : '（空欄・レビュー行き）'}
@@ -114,7 +123,7 @@ export function HrhackerSection({
                     課題:
                     <ul>
                       {g.issues.map((x, i) => (
-                        <li key={i}>{x}</li>
+                        <li key={i}>{reviewIssue(x)}</li>
                       ))}
                     </ul>
                   </div>
@@ -141,29 +150,42 @@ export function HrhackerSection({
           UTF-8 BOM付き・ヘッダ1行＋データ1行。検証を通らなかった生成列は空欄です。
         </span>
       </div>
-      <h3 style={H3_STYLE}>84列 確認テーブル（{cols.length}列）</h3>
+      <h3 style={H3_STYLE}>出力内容の確認（{cols.length}項目）</h3>
+      <div className="ctl">
+        <label htmlFor="reviewFilter">表示する項目</label>
+        <select id="reviewFilter" value={filter} onChange={e => { setFilter(e.currentTarget.value); }}>
+          <option value="all">すべて</option>
+          <option value="filled">入力済み</option>
+          <option value="review">要確認</option>
+          <option value="missing">未取得</option>
+        </select>
+        <label htmlFor="reviewSearch">項目を探す</label>
+        <input id="reviewSearch" type="search" placeholder="例：給与、休日" value={search} onChange={e => { setSearch(e.currentTarget.value); }} />
+        <span className="hint">表示中 {visibleCols.length}項目 · CSVは84列すべて出力します。</span>
+      </div>
       <div className="tblwrap">
-        <table>
+        <table id="reviewTable">
           <thead>
             <tr>
-              <th>列名</th>
+              <th>項目</th>
               <th>値</th>
               <th>区分</th>
             </tr>
           </thead>
           <tbody>
-            {cols.map((c) => {
+            {visibleCols.map((c) => {
               const isGen = genKeys.has(c);
               return (
                 <tr key={c} className={isGen ? 'row-gen' : ''}>
-                  <td className="colcell">{c}</td>
+                  <td className="colcell">{fieldLabel(c)}</td>
                   <td>
-                    <div className="valwrap">{row[c]}</div>
+                    <div className="valwrap">{fieldValue(c, row[c])}</div>
                   </td>
-                  <td className="colcell">{isGen ? '生成（検証済）' : '不変転記／スロット'}</td>
+                  <td className="colcell">{isGen ? needsReview(c) ? '要確認' : '生成（検証済）' : row[c] ? '元の資料から転記' : '未取得'}</td>
                 </tr>
               );
             })}
+            {!visibleCols.length ? <tr><td colSpan={3}>該当する項目はありません。表示条件を変えてください。</td></tr> : null}
           </tbody>
         </table>
       </div>
