@@ -192,6 +192,7 @@ pub struct JobReadService {
     hs: crate::hubspot::HubSpotClient,
     labels: Arc<std::sync::Mutex<LabelCache>>,
     publication: listing_status::Cache,
+    listing_index: listings::Cache,
 }
 /// Maps a client failure (nothing usable came back from HubSpot) to this API's codes.
 fn client_error(e: crate::hubspot::HubSpotError) -> ReadError {
@@ -233,6 +234,7 @@ impl JobReadService {
             hs,
             labels: Arc::default(),
             publication: Arc::default(),
+            listing_index: Arc::default(),
         }
     }
     /// The HubSpot client (the image bridge's operator writes wait on its gateway too).
@@ -245,17 +247,25 @@ impl JobReadService {
         query: &[(&str, String)],
         body: Option<Value>,
     ) -> Result<Value, ReadError> {
+        self.request_with_client(&self.hs, path, query, body).await
+    }
+    async fn request_with_client(
+        &self,
+        hs: &crate::hubspot::HubSpotClient,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<Value>,
+    ) -> Result<Value, ReadError> {
         // POST is used only for HubSpot's batch/read endpoints. No create/update/delete.
         for attempt in 0..2 {
-            let reply = self
-                .hs
+            let reply = hs
                 .read_raw(body.is_some(), path, query, body.as_ref())
                 .await
                 .map_err(client_error)?;
             let status = reply.status;
             if attempt == 0 && (status == 429 || (500..600).contains(&status)) {
                 let wait = reply.retry_after_secs.unwrap_or(1);
-                if wait <= 2 {
+                if wait <= 2 || hs.priority() == crate::hubspot::gateway::Priority::Background {
                     // A 429 also paused the shared gateway; the retry waits there as well.
                     tokio::time::sleep(Duration::from_secs(wait)).await;
                     continue;
@@ -2027,7 +2037,14 @@ async fn image(
     )
         .into_response())
 }
+#[cfg(test)]
 pub fn router() -> Router<Arc<AppState>> {
+    router_with_index(None)
+}
+pub fn router_for_state(state: &Arc<AppState>) -> Router<Arc<AppState>> {
+    router_with_index(Some(state))
+}
+fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
     let allowed = std::env::var("JOB_COPY_ALLOWED_EMAILS")
         .unwrap_or_default()
         .split(',')
@@ -2038,6 +2055,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .ok()
         .and_then(|t| JobReadService::new(t).ok())
         .map(Arc::new);
+    if let (Some(service), Some(db)) = (&service, state.and_then(|state| state.indeed_db.as_ref()))
+    {
+        listings::start_worker(service, db.clone());
+    }
     let snapshot_reader = super::job_copy_drive::DriveReader::from_env()
         .ok()
         .map(Arc::new);
@@ -2058,7 +2079,10 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/job-copy/live", get(read))
         .route("/api/job-copy/listings", get(listings::read))
-        .route("/api/job-copy/listings/{id}/versions", get(listings::read_versions))
+        .route(
+            "/api/job-copy/listings/{id}/versions",
+            get(listings::read_versions),
+        )
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
         .route("/api/job-copy/snapshot-image", get(snapshot_image))

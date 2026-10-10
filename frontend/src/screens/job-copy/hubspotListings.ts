@@ -4,7 +4,11 @@ export interface HubSpotListing {
   title: string | null; prefecture: string | null; municipality: string | null; category: string | null;
   publication_status: string | null; last_csv_detected_at: string | null; application_count: number | null;
 }
-export interface HubSpotListingPage { listings: HubSpotListing[]; titles: string[]; next_after: string | null; scanned: number }
+interface ListingPageBase { listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
+export type HubSpotListingPage = ListingPageBase & (
+  { status: 'ready'; total: number; index_built_at: string } |
+  { status: 'preparing'; total: null; index_built_at: null }
+);
 export interface HubSpotVersions {
   listing: HubSpotListing;
   versions: { written_at: string; body: string; image_urls: string[] | null }[];
