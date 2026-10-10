@@ -23,8 +23,8 @@ export type BillingEncoding = 'utf-8' | 'shift_jis';
 export interface BillingFieldSpec { field: BillingField; label: string; required: boolean }
 export const BILLING_FIELDS: readonly BillingFieldSpec[] = [
   { field: 'media', label: '媒体', required: true },
-  { field: 'accountId', label: '店舗ID（HRハッカー）／口座ログインID（Airワーク）', required: true },
-  { field: 'mediaJobId', label: '媒体求人ID', required: true },
+  { field: 'accountId', label: '媒体の店舗番号／アカウントのログイン番号', required: true },
+  { field: 'mediaJobId', label: '媒体の求人番号', required: true },
   { field: 'periodStart', label: '期間開始', required: true },
   { field: 'periodEnd', label: '期間終了', required: true },
   { field: 'amount', label: '金額（円）', required: true },
@@ -223,7 +223,7 @@ const sameValues = (a: Candidate, b: Candidate) => a.amountYen === b.amountYen &
 function zeroHint(value: string, known: readonly string[], label: string): string {
   if (!/^\d+$/u.test(value)) return '';
   const match = known.find(candidate => candidate !== value && /^\d+$/u.test(candidate) && withoutLeadingZeros(candidate) === withoutLeadingZeros(value));
-  return match ? `。${label}の先頭の0が消えている可能性があります（一覧では「${match}」）。Excel で開くと先頭の0が消えることがあります` : '';
+  return match ? `。${label}の先頭の0が消えている可能性があります。Excel で開くと先頭の0が消えることがあります` : '';
 }
 
 /**
@@ -268,12 +268,12 @@ export function buildBillingImport(rows: readonly (readonly string[])[], mapping
     if (!mediaRaw) errors.push('媒体が空欄です');
     else if (!media) errors.push(`媒体「${mediaRaw}」は扱えません（Airワーク か HRハッカー）`);
     const accountId = cell(row, 'accountId');
-    if (!accountId) errors.push(media === 'Airワーク' ? '口座ログインIDが空欄です' : '店舗IDが空欄です');
+    if (!accountId) errors.push(media === 'Airワーク' ? 'アカウントのログイン番号が空欄です' : '媒体の店舗番号が空欄です');
     const mediaJobId = cell(row, 'mediaJobId');
-    if (!mediaJobId) errors.push('媒体求人IDが空欄です');
+    if (!mediaJobId) errors.push('媒体の求人番号が空欄です');
     else if (media === 'HRハッカー' && !HRH_JOB_ID.test(mediaJobId)) {
       const known = records.filter(job => canonicalMedia(job.media) === 'HRハッカー').map(job => job.mediaJobId.trim());
-      errors.push(`HRハッカーの媒体求人ID「${mediaJobId}」は8桁の数字ではありません${zeroHint(mediaJobId, known, '媒体求人ID') || (/^\d{1,7}$/u.test(mediaJobId) ? '。先頭の0が消えている可能性があります' : '')}`);
+      errors.push(`HRハッカーの媒体の求人番号は8桁の数字で入力してください${zeroHint(mediaJobId, known, '媒体の求人番号') || (/^\d{1,7}$/u.test(mediaJobId) ? '。先頭の0が消えている可能性があります' : '')}`);
     }
     const start = billingDate(cell(row, 'periodStart'));
     const end = billingDate(cell(row, 'periodEnd'));
@@ -332,17 +332,17 @@ export function buildBillingImport(rows: readonly (readonly string[])[], mapping
   for (const candidate of accepted.sort((a, b) => a.rowNumber - b.rowNumber)) {
     const { rowNumber, media, accountId, mediaJobId } = candidate;
     const matches = index.get(jobKey(media, accountId, mediaJobId)) ?? [];
-    if (matches.length > 1) { result.ambiguous.push({ row: rowNumber, message: `${media} の求人ID「${mediaJobId}」（${media === 'Airワーク' ? '口座ログインID' : '店舗ID'}「${accountId}」）に当てはまる求人が ${String(matches.length)} 件あるため結びつけません` }); continue; }
+    if (matches.length > 1) { result.ambiguous.push({ row: rowNumber, message: `${media} の同じ照合番号に当てはまる求人が ${String(matches.length)} 件あるため結びつけません` }); continue; }
     const [job] = matches;
     if (!job) {
       const sameMedia = records.filter(item => canonicalMedia(item.media) === media);
       const sameId = sameMedia.filter(item => item.mediaJobId.trim() === mediaJobId);
-      const accountLabel = media === 'Airワーク' ? '口座ログインID' : '店舗ID';
+      const accountLabel = media === 'Airワーク' ? 'アカウントのログイン番号' : '媒体の店舗番号';
       const message = sameId.length && sameId.every(item => !item.accountId?.trim())
-        ? `${media} の求人ID「${mediaJobId}」は一覧にありますが、求人の${accountLabel}が未取得のため結びつけません`
+        ? `${media} の求人は一覧にありますが、求人の${accountLabel}が未取得のため結びつけません`
         : sameId.length
-          ? `${media} の求人ID「${mediaJobId}」は一覧にありますが、${accountLabel}「${accountId}」が違います${zeroHint(accountId, sameId.map(item => item.accountId?.trim() ?? ''), accountLabel)}`
-          : `${media} の求人ID「${mediaJobId}」は一覧にありません${zeroHint(mediaJobId, sameMedia.map(item => item.mediaJobId.trim()), '媒体求人ID')}`;
+          ? `${media} の求人は一覧にありますが、${accountLabel}が違います${zeroHint(accountId, sameId.map(item => item.accountId?.trim() ?? ''), accountLabel)}`
+          : `${media} の条件に合う求人は一覧にありません${zeroHint(mediaJobId, sameMedia.map(item => item.mediaJobId.trim()), '媒体の求人番号')}`;
       result.notFound.push({ row: rowNumber, message });
       continue;
     }

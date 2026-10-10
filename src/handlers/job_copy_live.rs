@@ -22,6 +22,7 @@ use std::{
 use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
+mod hrh_copy;
 mod listing_status;
 mod listings;
 

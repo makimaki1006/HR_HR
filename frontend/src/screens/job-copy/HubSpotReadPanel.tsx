@@ -127,7 +127,7 @@ export function HubSpotReadPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => v
     <button className="jc-button" disabled={busy || !customer} onClick={() => { void loadJobs(); }}>関連する求人を取得</button>
     {busy && <p role="status">HubSpotを読み取り中…</p>}{message && <p role="status">{message}</p>}{error && <p className="jc-error" role="alert">{error}</p>}
     {page && <><p>関連する求人は{page.total}件。このページは{page.jobs.length}件です。現契約・旧契約を含む現在の関連を使用しています。</p>
-      <label>契約で絞り込む<select value={contract} onChange={event => { setContract(event.target.value); }}><option value="">このページの全契約</option>{page.contracts.map(row => <option key={row.id} value={row.id}>{row.properties.dealname ?? row.id} / {row.properties.code_of_customer ?? 'コード未取得'}</option>)}</select></label>
+      <label>契約で絞り込む<select value={contract} onChange={event => { setContract(event.target.value); }}><option value="">このページの全契約</option>{page.contracts.map(row => <option key={row.id} value={row.id}>{row.properties.dealname ?? '契約名未取得'}</option>)}</select></label>
       <div className="jc-live-jobs">{page.jobs.filter(job => !contract || job.deal_ids.includes(contract)).map(({ record, deal_ids }) => <button className="jc-button" key={record.id} disabled={busy} onClick={() => { void open(record); }}>{record.properties.hs_name ?? '求人名未取得'}（関連契約{deal_ids.length}件）</button>)}</div>
       {page.next_offset !== null && <button className="jc-button" disabled={busy} onClick={() => { void loadJobs(page.next_offset ?? 0); }}>次の20件</button>}
     </>}

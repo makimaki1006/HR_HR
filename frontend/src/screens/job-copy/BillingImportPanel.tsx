@@ -128,7 +128,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
             {(Object.keys(encodingLabels) as EncodingChoice[]).map(value => <option key={value} value={value}>{encodingLabels[value]}</option>)}
           </select></label>
         </div>
-        <p className="jc-muted">必要な列: 媒体（Airワーク / HRハッカー）・店舗ID（Airワークは口座ログインID）・媒体求人ID・期間開始・期間終了・金額。IDは先頭の0を消さずに入れてください（HRハッカーの媒体求人IDは8桁）。あれば使う列: プラン名・表示回数・クリック数・媒体の応募数。5MBまで。</p>
+        <p className="jc-muted">必要な列: 媒体（Airワーク / HRハッカー）・媒体の店舗番号（Airワークはアカウントのログイン番号）・媒体の求人番号・期間開始・期間終了・金額。番号は先頭の0を消さずに入れてください（HRハッカーの媒体の求人番号は8桁）。あれば使う列: プラン名・表示回数・クリック数・媒体の応募数。5MBまで。</p>
         {reading && <p role="status">読み込み中…</p>}
         {fileName && rows && <p role="status">{fileName}：{String(dataRows)}行（{usedEncoding === 'shift_jis' ? 'Excel の日本語 CSV' : 'UTF-8'} として読み取り）</p>}
         {error && <p role="alert" className="jc-error">{error}</p>}
@@ -146,7 +146,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
                 <option value="">使わない</option>
                 {headers.map((header, index) => <option key={`${String(index)}-${header}`} value={String(index)}>{header || `（${String(index + 1)}列目・見出しなし）`}</option>)}
               </select></td>
-              <td>{sample}</td>
+              <td>{spec.field === 'accountId' || spec.field === 'mediaJobId' ? sample ? '照合に使用（番号は表示しません）' : '未取得' : sample}</td>
             </tr>;
           })}
         </tbody></table>
@@ -158,7 +158,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
       </li>}
 
       {result && <li aria-current={!appliedNow ? 'step' : undefined}><h4>3. 求人との照合結果</h4>
-        <p className="jc-muted">媒体・店舗ID（Airワークは口座ログインID）・媒体求人IDの3つが一覧の求人と完全に同じ行だけを結びつけます。媒体求人IDだけや求人名からは結びつけません。同じ求人で期間が重なる行や、同じ期間で金額などが違う行は、どの行も使いません。</p>
+        <p className="jc-muted">媒体・媒体の店舗番号（Airワークはアカウントのログイン番号）・媒体の求人番号の3つが一覧の求人と完全に同じ行だけを結びつけます。媒体の求人番号だけや求人名からは結びつけません。同じ求人で期間が重なる行や、同じ期間で金額などが違う行は、どの行も使いません。</p>
         <dl className="jc-billing-counts" aria-label="照合結果の件数">
           <div><dt>一致</dt><dd>{String(result.counts.matched)}<small>行</small></dd></div>
           <div><dt>候補が複数</dt><dd>{String(result.counts.ambiguous)}<small>行</small></dd></div>
