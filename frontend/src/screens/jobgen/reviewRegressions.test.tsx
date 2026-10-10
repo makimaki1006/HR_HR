@@ -23,7 +23,7 @@ it('旧求人があってもCSVの読込開始から工程①を止め、新し�
   await waitFor(() => { expect((element(view.container, '#jobTitle') as HTMLInputElement).value).toBe('営業'); });
   expect((element(view.container, '#jobTitle') as HTMLInputElement).value).toBe('営業');
   fireEvent.click(element(view.container, '[data-kind="csv"]'));
-  const originalRead = Reflect.get(FileReader.prototype, 'readAsArrayBuffer') as FileReader['readAsArrayBuffer'];
+  const originalRead = Reflect.get(FileReader.prototype, 'readAsArrayBuffer');
   let resume: () => void = () => { throw new Error('ファイル読込が始まっていません'); };
   vi.spyOn(FileReader.prototype, 'readAsArrayBuffer').mockImplementation(function (this: FileReader, blob: Blob) { resume = () => { originalRead.call(this, blob); }; });
   fireEvent.change(element(view.container, '#fileInput'), { target: { files: [new File(['職種ID,職種名\n42,配送スタッフ\n'], '求人.csv')] } });
