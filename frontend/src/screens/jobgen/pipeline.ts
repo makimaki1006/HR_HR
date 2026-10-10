@@ -288,7 +288,7 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
       fill_stats: r.data.fill_stats,
       unassigned_hints: r.data.unassigned_hints,
     };
-    set((s2) => ({ ...s2, hrhacker: h, resultReady: { ...s2.resultReady, hrhacker: true } }));
+    set((s2) => ({ ...s2, hrhacker: h, hrhackerCreatedAt: clock().toISOString(), resultReady: { ...s2.resultReady, hrhacker: true } }));
     return h.review_required_fields.length ||
       h.unsupported_numbers.length ||
       Object.values(h.generated_fields).some((g) => g.status === 'review_required')
@@ -438,7 +438,7 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
         errStatus('求人原文が取得できませんでした。');
         return;
       }
-      set((s) => ({ ...resetResults(s), jobs, titleHint: '', sourceText: '', jobTitle: '', normalizing: false, statusMessage: null }));
+      set((s) => ({ ...resetResults(s), jobs, sourceKind: body.kind as InputKind, titleHint: '', sourceText: '', jobTitle: '', normalizing: false, statusMessage: null }));
       if (jobs.length === 1) pickJob(0);
     } catch {
       errStatus('取り込みを完了できませんでした。通信状態を確認し、もう一度取り込んでください。');

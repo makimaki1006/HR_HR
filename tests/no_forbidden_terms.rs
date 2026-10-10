@@ -84,6 +84,29 @@ fn is_legacy_v1_path(path: &Path) -> bool {
     s.contains("src/models/statistics.rs")
 }
 
+// 架電の2パネルでは対象となった実在顧客レコードの件数を返す。
+// 採用候補者の人数を推計する識別子とは用途が異なるため、この語と2ファイルだけを区別する。
+fn is_observed_customer_count(path: &Path, term: &str) -> bool {
+    let s = path.to_string_lossy().replace('\\', "/");
+    term == "target_count"
+        && [
+            "src/handlers/call_quality/tabs/prisk_riskboard.rs",
+            "src/handlers/call_quality/tabs/p10_future_actions.rs",
+        ]
+        .iter()
+        .any(|allowed| s.ends_with(allowed))
+}
+#[test]
+fn observed_customer_count_exception_does_not_allow_population_estimates() {
+    let actual = Path::new("src/handlers/call_quality/tabs/prisk_riskboard.rs");
+    assert!(is_observed_customer_count(actual, "target_count"));
+    assert!(!is_observed_customer_count(actual, "estimated_population"));
+    assert!(!is_observed_customer_count(
+        Path::new("src/handlers/survey/report_html/mod.rs"),
+        "target_count"
+    ));
+}
+
 #[test]
 fn no_forbidden_identifiers_in_src() {
     let mut files = Vec::new();
@@ -100,6 +123,9 @@ fn no_forbidden_identifiers_in_src() {
             continue;
         }
         for term in FORBIDDEN_IDENTIFIERS {
+            if is_observed_customer_count(path, term) {
+                continue;
+            }
             if !content.contains(term) {
                 continue;
             }

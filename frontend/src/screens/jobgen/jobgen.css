@@ -254,3 +254,12 @@ body{margin:0}
 .jobgen .jobitem { width: 100%; text-align: left; font: inherit; color: inherit; }
 .jobgen .jobitem:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 2px; }
 .jobgen button:disabled { cursor: wait; }
+
+.jobgen .jg-draft-save fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.jobgen .jg-draft-save .jc-hubspot-filters { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.jobgen .jg-draft-save .jc-hubspot-filters label { display: grid; gap: 4px; }
+.jobgen .jg-draft-save .jc-list-scroll { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); max-height: 320px; overflow: auto; gap: 8px; margin: 12px 0; }
+.jobgen .jg-draft-save .jc-job { text-align: left; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); display: grid; gap: 8px; }
+.jobgen .jg-draft-save .jc-job[aria-pressed="true"] { outline: 2px solid #2563eb; }
+.jobgen .jg-draft-target { padding: 16px; border: 1px solid #2563eb; border-radius: 8px; }
+.jobgen .jg-draft-save .jc-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

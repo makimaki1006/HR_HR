@@ -5,6 +5,7 @@ import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState, useSync
 import type { NormalizeRequest } from '../../generated/NormalizeRequest';
 import { postJobgen, type PostFn } from './api';
 import './jobgen.css';
+import { DraftSavePanel } from './DraftSavePanel';
 import { createPipelineController, type PipelineController } from './pipeline';
 import { FailBody, StaleBar } from './parts';
 import { AbSection } from './sections/AbSection';
@@ -520,6 +521,7 @@ export function JobgenView({ s, ctl }: { s: PipelineState; ctl: PipelineControll
           {s.ab ? <AbSection ab={s.ab} confirmed={s.confirmed.ab} onConfirm={onConfirm} /> : null}
         </ResultSection>
 
+        {s.hrhacker && <DraftSavePanel key={JSON.stringify([s.sourceText, s.sourceKind, s.hrhacker.row])} s={s} />}
         <p className="foot">
           作成した文章と出力内容を元の資料と照らし合わせ、確認してから掲載してください。
         </p>

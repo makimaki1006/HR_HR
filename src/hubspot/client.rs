@@ -591,6 +591,41 @@ impl HubSpotClient {
         parse_record(&v)
     }
 
+    /// 求人の案だけが使う読み取り。関所の相乗りをせず競合確認する。
+    pub(crate) async fn get_listing_fresh(
+        &self,
+        id: &str,
+        properties: &[&str],
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        check_id(id)?;
+        let path = format!("/crm/v3/objects/0-420/{id}");
+        let value = self
+            .send_uncoalesced(
+                &Method::GET,
+                &path,
+                &[("properties", properties.join(","))],
+                None,
+            )
+            .await?;
+        parse_record(&value)
+    }
+
+    /// 求人の案の固定5項目だけを書ける。CRMの汎用PATCHの対象は広げない。
+    pub(crate) async fn patch_listing_draft(
+        &self,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
+        if properties.is_empty()
+            || properties
+                .keys()
+                .any(|key| !crate::job_gen::drafts::PROPERTIES.contains(&key.as_str()))
+        {
+            return Err(HubSpotError::Decode("invalid draft properties".into()));
+        }
+        self.patch_object_inner("0-420", id, properties).await
+    }
+
     /// `PATCH /crm/v3/objects/{object}/{id}` (プロパティの書き込み。Contact / Company / Deal のみ)。
     ///
     /// **1 回だけ送る** (retry しない・他の呼び出しと相乗りしない)。失敗の扱い (キューに積むか) は呼び出し側が決める
@@ -605,6 +640,15 @@ impl HubSpotClient {
         if !RecordType::ALL.iter().any(|t| t.api_name() == object) {
             return Err(HubSpotError::Decode("invalid object".into()));
         }
+        self.patch_object_inner(object, id, properties).await
+    }
+
+    async fn patch_object_inner(
+        &self,
+        object: &str,
+        id: &str,
+        properties: &BTreeMap<String, Option<String>>,
+    ) -> Result<HubSpotRecord, HubSpotError> {
         check_id(id)?;
         let props: serde_json::Map<String, Value> = properties
             .iter()
