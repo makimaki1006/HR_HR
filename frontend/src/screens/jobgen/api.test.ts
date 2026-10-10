@@ -25,6 +25,15 @@ afterEach(() => {
 });
 
 describe('postJson (/api/jobgen/*)', () => {
+  it.each([
+    [429, '利用が混み合っています。少し待ってから再実行してください。'],
+    [413, 'ファイルが大きすぎます。求人ごとにファイルを分けて取り込んでください。'],
+  ])('失敗 %s は内部応答を見せず次の操作を案内する', async (status, message) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ message: 'Gemini HTTP error: private-id-123' }, status));
+    const r = await postJson('/api/jobgen/extract', {});
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toBe(message);
+  });
   it('POST JSON + X-Requested-With: fetch + same-origin cookie で送り、応答 JSON をそのまま返す', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(fixtures.responses.extract));
     const body = { source_text: fixtures.source_text };
@@ -54,7 +63,7 @@ describe('postJson (/api/jobgen/*)', () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.error).toBeInstanceOf(ApiDataError);
-    expect(r.error.message).toBe('source_text が必要です');
+    expect(r.error.message).toBe('処理を完了できませんでした。入力した資料を確認し、もう一度お試しください。');
   });
 
   it('非 2xx: JSON に message があればそれ、無ければ "HTTP <status>" (旧 postJSON と同じ)', async () => {
@@ -63,7 +72,7 @@ describe('postJson (/api/jobgen/*)', () => {
     expect(r1.ok).toBe(false);
     if (r1.ok) return;
     expect(r1.error).toBeInstanceOf(ApiHttpError);
-    expect(r1.error.message).toBe('Gemini 429');
+    expect(r1.error.message).toBe('処理を完了できませんでした。少し待ってから再実行してください。');
     expect((r1.error as ApiHttpError).status).toBe(502);
 
     fetchMock.mockResolvedValueOnce(
@@ -72,7 +81,7 @@ describe('postJson (/api/jobgen/*)', () => {
     const r2 = await postJson('/api/jobgen/analyze', {});
     expect(r2.ok).toBe(false);
     if (r2.ok) return;
-    expect(r2.error.message).toBe('HTTP 403');
+    expect(r2.error.message).toBe('この操作を実行できません。再度ログインしてお試しください。');
   });
 
   it('未ログイン (303 → /login の HTML) は AuthRequiredError', async () => {

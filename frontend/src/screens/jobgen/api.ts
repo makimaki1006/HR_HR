@@ -9,7 +9,7 @@
 // 違い: 未ログイン (303 → /login の HTML / HTTP 401) は AuthRequiredError にする (旧は null を返して
 // 呼び出し側で TypeError になっていた)。Gemini 生成は 1 分を超えることがあるので
 // タイムアウトは実質掛けない (30 分、旧は無制限)。
-import { ApiDataError, ApiHttpError, AuthRequiredError, type ApiResult, apiPost } from '../../api/client';
+import { ApiDataError, ApiHttpError, ApiNetworkError, ApiTimeoutError, AuthRequiredError, type ApiResult, apiPost } from '../../api/client';
 import type { AbRequest } from '../../generated/AbRequest';
 import type { AbResponse } from '../../generated/AbResponse';
 import type { AnalyzeRequest } from '../../generated/AnalyzeRequest';
@@ -64,6 +64,13 @@ function messageFromBody(body: unknown): string | null {
   return null;
 }
 
+function userMessage(message: string | null): string {
+  if (!message || /[A-Za-z]+_|HTTP|Gemini|base64|xlsx|kind:|\{/.test(message)) {
+    return '処理を完了できませんでした。入力した資料を確認し、もう一度お試しください。';
+  }
+  return message;
+}
+
 function isErrorBody(body: unknown): boolean {
   if (typeof body !== 'object' || body === null) return false;
   const rec = body as Record<string, unknown>;
@@ -90,20 +97,27 @@ export async function postJson<T>(path: string, body: unknown): Promise<ApiResul
     if (e instanceof ApiHttpError) {
       // 旧: (d && (d.message||d.error)) || ('HTTP '+status)。JSON でない本文は 'HTTP <status>'。
       const err = new ApiHttpError(e.status, e.body);
-      err.message = messageFromBody(e.body) ?? `HTTP ${String(e.status)}`;
+      err.message = e.status === 429 ? '利用が混み合っています。少し待ってから再実行してください。'
+        : e.status === 413 ? 'ファイルが大きすぎます。求人ごとにファイルを分けて取り込んでください。'
+        : e.status === 403 ? 'この操作を実行できません。再度ログインしてお試しください。'
+        : e.status >= 500 ? '処理を完了できませんでした。少し待ってから再実行してください。'
+        : userMessage(messageFromBody(e.body));
       return { ok: false, error: err };
     }
     if (e instanceof ApiDataError) {
       // client は error キーの文字列をそのままメッセージにするが、旧は message を優先する。
-      return { ok: false, error: new ApiDataError(messageFromBody(e.body) ?? e.message, e.body) };
+      return { ok: false, error: new ApiDataError(userMessage(messageFromBody(e.body) ?? e.message), e.body) };
     }
-    return r;
+    return { ok: false, error: new ApiDataError(e instanceof ApiTimeoutError
+      ? '処理の待ち時間を超えました。少し待ってから再実行してください。'
+      : e instanceof ApiNetworkError ? '通信を完了できませんでした。接続を確認して再実行してください。'
+      : '処理を完了できませんでした。もう一度お試しください。', null) };
   }
   if (isErrorBody(r.data)) {
     // 200 で status:'error' (error キー無し)。client は成功扱いにするのでここで拾う。
     return {
       ok: false,
-      error: new ApiDataError(messageFromBody(r.data) ?? 'サーバエラー', r.data),
+      error: new ApiDataError(userMessage(messageFromBody(r.data)), r.data),
     };
   }
   return r;
