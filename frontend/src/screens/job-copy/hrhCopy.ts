@@ -1,3 +1,4 @@
+import columns from './hrhCopyColumns.json';
 /** HRハッカー compose_copy_body の列を、読みやすい求人票に組み直す。 */
 export interface BodySection { heading: string; text: string }
 const labels: Record<string, string> = {
@@ -10,20 +11,38 @@ const labels: Record<string, string> = {
   '試用・研修期の平均稼働時間': '平均の勤務時間', '試用・研修期の平均稼働日数': '平均の勤務日数', '試用・研修期の固定残業代': '固定残業代', '試用・研修期の想定残業時間': '想定される残業時間', '試用・研修の詳細情報': '詳細',
   勤務時間: '勤務時間', 勤務時間帯: '勤務時間帯', 受動喫煙対策: '受動喫煙対策', 受動喫煙についての補足情報: '喫煙に関する案内', 応募方法: '応募方法', 応募後のプロセス: '応募後の流れ', 採用予定人数: '採用予定人数',
 };
-const extra = /^(仕事情報補足|自由項目)([1-4])の(タイトル|内容)$/;
 const conditional = /^条件付き給与([1-3])(?:の|\s*)(条件|深夜帯|最小給与|最大給与)$/;
-/** Only CSV column names start fields. Colons inside multiline descriptions remain text. */
+/** Choose the longest forward column sequence, anchored at the first field.
+ * Equal sequences for the same column prefer the later occurrence, preserving
+ * column-like lines in an earlier multiline value. The source format is unescaped.
+ */
 export function parseHrhFields(body: string): Map<string, string> {
-  const fields = new Map<string, string>();
-  let key = '';
-  for (const line of body.split(/\r?\n/)) {
-    const match = /^([^：]+)：(.*)$/.exec(line);
-    const name = match?.[1]?.trim() ?? '';
-    if (match && (name in labels || extra.test(name) || conditional.test(name))) {
-      key = name; fields.set(key, match[2] ?? '');
-    } else if (key) fields.set(key, `${fields.get(key) ?? ''}\n${line}`);
+  const lines = body.split(/\r?\n/);
+  const candidates: { line: number; rank: number; value: string; length: number; next: number | null }[] = [];
+  lines.forEach((line, index) => {
+    const match = /^([^：:]+)[：:](.*)$/.exec(line);
+    const rank = columns.indexOf(match?.[1]?.trim() ?? '');
+    if (match && rank >= 0) candidates.push({ line: index, rank, value: match[2] ?? '', length: 1, next: null });
+  });
+  const best: (number | undefined)[] = Array.from({ length: columns.length });
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const candidate = candidates[i]; if (!candidate) continue;
+    for (let rank = candidate.rank + 1; rank < columns.length; rank++) {
+      const next = best[rank]; const following = next === undefined ? undefined : candidates[next];
+      if (following && following.length + 1 > candidate.length && next !== undefined) { candidate.length = following.length + 1; candidate.next = next; }
+    }
+    const existing = best[candidate.rank];
+    if (existing === undefined || candidate.length > (candidates[existing]?.length ?? 0)) best[candidate.rank] = i;
   }
-  return new Map([...fields].map(([name, value]) => [name, value.trim()]));
+  const fields = new Map<string, string>();
+  let index: number | null = candidates.length ? 0 : null;
+  while (index !== null) {
+    const candidate = candidates[index]; if (!candidate) break;
+    const end = candidate.next === null ? lines.length : candidates[candidate.next]?.line ?? lines.length;
+    fields.set(columns[candidate.rank] ?? '', [candidate.value, ...lines.slice(candidate.line + 1, end)].join('\n').trim());
+    index = candidate.next;
+  }
+  return fields;
 }
 const money = (value: string) => /^\d+(?:\.\d+)?$/.test(value.normalize('NFKC').replace(/,/g, ''))
   ? `${Number(value.normalize('NFKC').replace(/,/g, '')).toLocaleString('ja-JP')}円` : value;

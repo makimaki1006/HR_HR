@@ -100,16 +100,12 @@ fn listing(record: &Record, titles: &[String]) -> Option<Listing> {
     };
     let (prefecture, municipality, occupation) = if media == "hrh" {
         let body = record.value("hrh_kyuujinhyou_honbun").unwrap_or("");
-        let occupation = body
+        let occupation = super::hrh_copy::fields(body)
+            .remove("Indeed表示職種名")
+            .unwrap_or_default()
             .lines()
-            .find_map(|line| {
-                line.trim()
-                    .strip_prefix("Indeed表示職種名：")
-                    .or_else(|| line.trim().strip_prefix("Indeed表示職種名:"))
-            })
-            .unwrap_or("")
-            .trim()
-            .to_owned();
+            .map(str::trim)
+            .collect::<String>();
         (
             record.value("todoufuken").map(str::to_owned),
             record.value("shikuchouson").map(str::to_owned),
@@ -633,6 +629,29 @@ pub(super) async fn read_versions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn job_copy_multiline_occupation_is_classified_and_filtered() {
+        let record: Record = serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"HR-1","hrh_kyuujinhyou_honbun":"仕事内容：配送します\nIndeed表示職種名：\n配送\nドライバー\n応募資格：普通免許","todoufuken":"沖縄県"}})).unwrap();
+        let titles = vec!["配送ドライバー".into()];
+        let row = listing(&record, &titles).unwrap();
+        assert_eq!(row.category.as_deref(), Some("配送ドライバー"));
+        let index = Index {
+            records: vec![row],
+            titles,
+            built_at: "2026-10-10T00:00:00Z".into(),
+        };
+        let (total, page) = selected_page(
+            &index,
+            &ListingsQuery {
+                prefecture: Some("沖縄県".into()),
+                title: Some("配送ドライバー".into()),
+                media: Some("hrh".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(total, 1);
+        assert_eq!(page[0].listing.id, "1");
+    }
     #[test]
     fn job_copy_title_and_prefecture_specific_values() {
         let titles = vec![

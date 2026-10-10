@@ -23,6 +23,7 @@ use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
 mod listing_status;
+mod hrh_copy;
 mod listings;
 
 #[derive(Debug)]

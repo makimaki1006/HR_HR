@@ -61,6 +61,8 @@ RUN mkdir -p src \
 # ---- アプリ本体 ----
 # ソースコード + テンプレート（include_str!がコンパイル時に参照）
 COPY src/ src/
+# HRハッカー本文の列順をフロントと共有（include_str! の入力）
+COPY frontend/src/screens/job-copy/hrhCopyColumns.json frontend/src/screens/job-copy/hrhCopyColumns.json
 COPY templates/ templates/
 # include_str! で driver/data.rs が wage_census → 国勢調査中分類のマッピングを参照
 COPY data/wage_census_to_occupation_middle_map.json data/wage_census_to_occupation_middle_map.json
