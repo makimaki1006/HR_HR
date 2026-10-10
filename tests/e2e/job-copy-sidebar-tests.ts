@@ -78,9 +78,16 @@ export function sidebarTests() {
       await expect(trigger).toBeFocused();
       await expectFullDetail();
       await openList();
+      let deliver: (() => Promise<void>) | undefined;
+      await page.route('**/api/job-copy/listings/1/versions', route => { deliver = () => route.fulfill({ json: fixtureHistory('1') }); });
       await region.getByRole('button', { name: '配送ドライバー・大分1の版を見る' }).click();
-      // ポインターもフォーカスも一覧内にある選択操作で閉じることを確かめる。
+      // 文面が届く前から一覧を閉じ、詳細へフォーカスを移す。
+      await expect(page.getByRole('heading', { name: '求人票を取得しています' })).toBeVisible();
       await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.locator('#job-details')).toBeFocused();
+      await expect.poll(() => Boolean(deliver)).toBe(true);
+      if (!deliver) throw new Error('合成求人の取得待ちがありません');
+      await deliver();
       await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
       await expectFullDetail();
       await screenshot('closed');
