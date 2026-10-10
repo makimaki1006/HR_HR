@@ -257,10 +257,10 @@ pub fn history(data: &Value) -> (Vec<DraftSnapshot>, bool) {
         values.push((String::new(), current.to_owned()));
     }
     let mut by_id = BTreeMap::new();
-    for (_, raw) in values {
+    for (order, (_, raw)) in values.into_iter().enumerate() {
         match serde_json::from_str::<DraftSnapshot>(&raw) {
             Ok(snapshot) if snapshot.valid() => {
-                by_id.insert(snapshot.draft_id.clone(), snapshot);
+                by_id.insert(snapshot.draft_id.clone(), (order, snapshot));
             }
             _ => {
                 if !raw.is_empty() {
@@ -270,13 +270,15 @@ pub fn history(data: &Value) -> (Vec<DraftSnapshot>, bool) {
         }
     }
     let mut snapshots: Vec<_> = by_id.into_values().collect();
-    snapshots.sort_by(|a, b| {
-        DateTime::parse_from_rfc3339(&a.created_at)
-            .ok()
-            .cmp(&DateTime::parse_from_rfc3339(&b.created_at).ok())
-            .then(a.draft_id.cmp(&b.draft_id))
-    });
-    (snapshots, incomplete)
+    // 生成が早い案を後から保存しても、現在値を最新の保存として扱う。
+    snapshots.sort_by_key(|(order, _)| *order);
+    (
+        snapshots
+            .into_iter()
+            .map(|(_, snapshot)| snapshot)
+            .collect(),
+        incomplete,
+    )
 }
 
 #[cfg(test)]
@@ -330,6 +332,19 @@ pub(crate) mod tests {
             DraftSnapshot::from_request(&r, Utc::now()).unwrap_err(),
             "draft_too_long"
         );
+    }
+    #[test]
+    fn latest_saved_draft_is_current_even_when_generated_before_history() {
+        let current = DraftSnapshot::from_request(&request(), Utc::now()).unwrap();
+        let mut newer_generation = current.clone();
+        newer_generation.draft_id = "20000000-0000-4000-8000-000000000002".into();
+        newer_generation.created_at = "2026-10-11T00:00:00Z".into();
+        let data = serde_json::json!({"properties":{FACTS:serde_json::to_string(&current).unwrap()},"propertiesWithHistory":{FACTS:[{"timestamp":"2026-10-11T01:00:00Z","value":serde_json::to_string(&newer_generation).unwrap()},{"timestamp":"2026-10-11T02:00:00Z","value":serde_json::to_string(&current).unwrap()}]}});
+        let (items, incomplete) = history(&data);
+        assert!(!incomplete);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items.last().unwrap().draft_id, current.draft_id);
+        assert_eq!(items[0].draft_id, newer_generation.draft_id);
     }
     #[test]
     fn histories_restore_identical_bodies_as_separate_drafts_and_merge_status_changes() {
