@@ -5,6 +5,7 @@ import type { HubSpotUsageGroup } from "./HubSpotUsageGroup";
 import type { HubSpotUsageLimits } from "./HubSpotUsageLimits";
 import type { HubSpotUsageQueue } from "./HubSpotUsageQueue";
 import type { HubSpotUsageRateLimit } from "./HubSpotUsageRateLimit";
+import type { HubSpotUsageRejection } from "./HubSpotUsageRejection";
 
 export type HubSpotUsageResponse = { 
 /**
@@ -18,4 +19,8 @@ calls_by_group: Array<HubSpotUsageGroup>,
 /**
  * キャッシュごとの当たり外れ (名前順)
  */
-caches: Array<HubSpotUsageCache>, queue: HubSpotUsageQueue, };
+caches: Array<HubSpotUsageCache>, queue: HubSpotUsageQueue, 
+/**
+ * CRM の保存で断った要求 (回数の多い順)
+ */
+write_rejections: Array<HubSpotUsageRejection>, };

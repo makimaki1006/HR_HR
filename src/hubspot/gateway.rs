@@ -28,6 +28,10 @@ use tokio::time::Instant;
 /// 呼び出しの優先度
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Priority {
+    /// 書き込みの続き: 同じ保存の「現在値の読み取り」は済んでいて、次の PATCH を送るだけの呼び出し。
+    /// 読み取りだけ通って PATCH が断られると読み取りが無駄になる (2026-10-09 の負荷試験: PATCH 1 回に読み取り 4.6 回)
+    /// ので、新しい読み取り (`Interactive`) より先に通す。待てる上限は `Interactive` + 429 の最長停止
+    Continuation,
     /// 画面の操作で人が待っている読み取り
     Interactive,
     /// キャッシュの先読み・定期の取得など、人が直接待っていないもの
@@ -37,6 +41,7 @@ pub enum Priority {
 impl Priority {
     pub fn as_str(self) -> &'static str {
         match self {
+            Priority::Continuation => "continuation",
             Priority::Interactive => "interactive",
             Priority::Background => "background",
         }
@@ -200,6 +205,7 @@ impl GatewayConfig {
 
     pub fn max_wait(&self, p: Priority) -> Duration {
         match p {
+            Priority::Continuation => self.interactive_max_wait + self.max_pause,
             Priority::Interactive => self.interactive_max_wait,
             Priority::Background => self.background_max_wait,
         }
@@ -235,6 +241,7 @@ struct LaneState {
     horizon: Duration,
     /// 1 回あたりの最短間隔の見積もり (並んだ時点の待ちの見積もりに使う)
     spacing: Duration,
+    continuation: VecDeque<u64>,
     interactive: VecDeque<u64>,
     background: VecDeque<u64>,
 }
@@ -252,6 +259,7 @@ impl LaneState {
             grants: VecDeque::new(),
             horizon,
             spacing,
+            continuation: VecDeque::new(),
             interactive: VecDeque::new(),
             background: VecDeque::new(),
         }
@@ -259,6 +267,7 @@ impl LaneState {
 
     fn queue(&mut self, p: Priority) -> &mut VecDeque<u64> {
         match p {
+            Priority::Continuation => &mut self.continuation,
             Priority::Interactive => &mut self.interactive,
             Priority::Background => &mut self.background,
         }
@@ -289,17 +298,33 @@ impl LaneState {
     /// この券の前に並んでいる数 (優先度順)。列に無ければ None
     fn ahead_of(&self, p: Priority, ticket: u64) -> Option<usize> {
         match p {
-            Priority::Interactive => self.interactive.iter().position(|t| *t == ticket),
+            Priority::Continuation => self.continuation.iter().position(|t| *t == ticket),
+            Priority::Interactive => self
+                .interactive
+                .iter()
+                .position(|t| *t == ticket)
+                .map(|i| i + self.continuation.len()),
             Priority::Background => self
                 .background
                 .iter()
                 .position(|t| *t == ticket)
-                .map(|i| i + self.interactive.len()),
+                .map(|i| i + self.continuation.len() + self.interactive.len()),
+        }
+    }
+
+    /// 優先度 `p` の新しい呼び出しの前に並んでいる数
+    fn ahead_of_new(&self, p: Priority) -> usize {
+        match p {
+            Priority::Continuation => self.continuation.len(),
+            Priority::Interactive => self.continuation.len() + self.interactive.len(),
+            Priority::Background => {
+                self.continuation.len() + self.interactive.len() + self.background.len()
+            }
         }
     }
 
     fn depth(&self) -> usize {
-        self.interactive.len() + self.background.len()
+        self.continuation.len() + self.interactive.len() + self.background.len()
     }
 }
 
@@ -451,6 +476,35 @@ impl Gateway {
 
     pub fn config(&self) -> &GatewayConfig {
         &self.cfg
+    }
+
+    /// `calls` 回の呼び出し (例: 保存 1 回の「読み取り + PATCH」= 2) が今の混み具合で待ちの上限に収まりそうか確かめる。
+    /// 枠も列も取らない (見積もりだけ)。収まらないなら `Err(Busy)` (断った回数に数える)。
+    /// 読み取りが通ったあとで PATCH が断られる無駄 (読み取りだけ HubSpot に飛ぶ) を、読み取りの前に避けるための検査
+    pub fn admit(&self, lane: Lane, priority: Priority, calls: u32) -> Result<(), Busy> {
+        let now = Instant::now();
+        let max_wait = self.cfg.max_wait(priority);
+        let over = {
+            let Ok(mut st) = self.state.lock() else {
+                return Err(Busy);
+            };
+            let paused = st.paused_until;
+            let ls = &mut st.lanes[lane.idx()];
+            ls.prune(now);
+            let mut ready = ls.window_ready_at(now);
+            if let Some(p) = paused {
+                ready = ready.max(p);
+            }
+            let ahead = ls.ahead_of_new(priority) as u32;
+            let estimate = ready.saturating_duration_since(now)
+                + ls.spacing.saturating_mul(ahead.saturating_add(calls));
+            estimate > max_wait
+        };
+        if over {
+            self.counters.busy.fetch_add(1, Ordering::Relaxed);
+            return Err(Busy);
+        }
+        Ok(())
     }
 
     /// 1 回の HubSpot 呼び出しの許可を待つ。待てた時間を返す。

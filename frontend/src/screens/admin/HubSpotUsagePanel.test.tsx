@@ -58,6 +58,7 @@ const sample: HubSpotUsageResponse = {
     wait_samples: 321,
     wait_window_secs: 300,
   },
+  write_rejections: [{ key: 'hubspot_busy', count: 7 }],
 };
 
 describe('HubSpotUsageView', () => {
