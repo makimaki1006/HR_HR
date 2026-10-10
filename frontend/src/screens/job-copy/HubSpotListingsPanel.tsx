@@ -55,7 +55,7 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   }
   const rows = sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [];
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
-    <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : '未取得'}</span></div>
+    <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>
     <details className="jc-hubspot-filter-details" open={filtersOpen} onToggle={event => { setFiltersOpen(event.currentTarget.open); }}><summary>絞り込み・並び順</summary><div className="jc-hubspot-filters">
       <label>都道府県<select aria-label="都道府県" value={prefecture} onChange={event => { setPrefecture(event.target.value); }}><option value="">すべて</option>{AREA_MASTER.map(([pref]) => <option key={pref} value={pref}>{pref}</option>)}</select></label>
       <label>職種の分類<select aria-label="職種の分類" value={title} onChange={event => { setTitle(event.target.value); }}><option value="">すべて</option><option value="unknown">不明</option>{titles.map(item => <option key={item} value={item}>{item}</option>)}</select></label>

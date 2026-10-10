@@ -272,3 +272,23 @@
 .jc-hubspot-filter-details > summary { padding: 6px 8px; min-height: 32px; border: 1px solid var(--jc-border); border-radius: 5px; background: white; cursor: pointer; }
 .jc-hubspot-filter-details[open] .jc-hubspot-filters { margin-top: 6px; }
 @media (min-width: 801px) { .jc-hubspot-filter-details > summary { display: none; }.jc-hubspot-filter-details[open] .jc-hubspot-filters { margin-top: 0; } }
+
+.jc-mobile-back { display: none; }
+@media (max-width: 800px) {
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) { height: calc(100dvh - var(--jc-workspace-top, 0px)); min-height: 600px; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-list { height: 100%; min-height: 0; padding: 8px; gap: 6px; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])).jc-mobile-list .jc-main,
+  .jc-workspace:has(.jc-listings-panel:not([hidden])).jc-mobile-detail .jc-list { display: none; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])).jc-mobile-detail { height: auto; min-height: 0; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])).jc-mobile-detail .jc-main { height: auto; overflow: visible; }
+  .jc-mobile-back { display: block; margin: 8px 12px; }
+  .jc-hubspot-job { padding: 7px 9px; gap: 2px; }
+  .jc-hubspot-job > span { font-size: 11px; line-height: 1.4; }
+  .jc-hubspot-job strong { font-size: 13px; line-height: 1.4; }
+  .jc-hubspot-job .jc-job-bottom small { font-size: 10px; }
+  .jc-listings-panel { gap: 5px; }
+  .jc-listings-panel .jc-index-date { font-size: 10px; line-height: 1.4; margin: 0; }
+  .jc-list-source button { min-height: 32px; font-size: 12px; }
+  .jc-listings-panel > .jc-button { min-height: 28px; padding: 3px; font-size: 11px; }
+  .jc-history-status { display: none; }
+}
