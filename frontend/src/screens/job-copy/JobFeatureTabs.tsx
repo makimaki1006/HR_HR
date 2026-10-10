@@ -21,7 +21,7 @@ export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; fe
   ] },
   { id: 'comparison', label: '比較・報告', features: [
     { id: 'diff', label: '変更差分', description: '同じ求人の本文・画像の変化を比較します。' },
-    { id: 'ab', label: '2求人のA/B比較', description: '異なる求人IDを組み合わせ、独立した実績を比較します。' },
+    { id: 'ab', label: '2求人のA/B比較', description: '2つの求人を組み合わせ、独立した実績を比較します。' },
     { id: 'report', label: '顧客報告・検証', description: '比較結果を整理し、次に検証する施策を記録します。' },
   ] },
   { id: 'import', label: '外部文面を確認', hidden: true, features: [{ id: 'receive', label: '外部文面を確認', description: '外部から届いた本文を現在の本文と照合します。' }] },

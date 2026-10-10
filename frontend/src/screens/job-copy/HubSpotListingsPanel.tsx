@@ -71,8 +71,8 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
       <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の版を見る`} onClick={() => { void open(row); }}>
         <span className="jc-job-company">{mediaLabel(row.media)} <span className="jc-publication">{row.publication_status ?? '未取得'}</span></span>
         <strong>{row.title ?? '求人名未取得'}</strong><span>{row.prefecture ?? '不明'}{row.municipality ?? ''} · {row.category ?? '職種不明'}</span>
-        <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small><small>{row.media_job_id}</small></span>
-        <span className="jc-visually-hidden">{row.account_id ? `${row.account_id} / ` : ''}{row.media_job_id} 媒体の一覧で最後に確認した日：{formatDateTimeJst(row.last_csv_detected_at, '未取得')}</span>
+        <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
+        <span className="jc-visually-hidden">媒体の一覧で最後に確認した日：{formatDateTimeJst(row.last_csv_detected_at, '未取得')}</span>
       </button>)}{!rows.length && <p>条件に合う求人はありません。</p>}</div>
       <div className="jc-list-pagination"><span>{page.total ? `${String(page.offset + 1)}〜${String(page.offset + rows.length)}件を表示` : '条件に合う求人はありません'}</span>{page.offset > 0 && <button className="jc-button" disabled={busy} onClick={() => { void load(Math.max(0, page.offset - 50)); }}>前の求人</button>}{page.next_offset !== null && <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(page.next_offset ?? 0); }}>次の求人</button>}</div>
     </>}
