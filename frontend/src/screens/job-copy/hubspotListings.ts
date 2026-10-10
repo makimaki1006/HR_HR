@@ -1,3 +1,6 @@
+import type { DraftSnapshot } from '../../generated/DraftSnapshot';
+import type { CopyVersion } from './data';
+import columns from '../../generated/jobgen/columns.json';
 import { hrhCopySections, composeHrhBody } from './hrhCopy';
 import type { JobCopyRecord } from './data';
 export interface HubSpotListing {
@@ -11,11 +14,20 @@ export type HubSpotListingPage = ListingPageBase & (
   { status: 'preparing'; total: null; index_built_at: null }
 );
 export interface HubSpotVersions {
+  drafts?: DraftSnapshot[];
+  draft_revision?: string;
+  can_write_drafts?: boolean;
+  draft_history_may_be_incomplete?: boolean;
   current?: { checked_at: string; body: string; image_urls: string[] | null } | null;
   current_images?: { observed_at: string; image_urls: string[] } | null;
   listing: HubSpotListing;
   versions: { written_at: string; body: string; image_urls: string[] | null }[];
   history_counts: Record<string, number>; history_may_be_incomplete: boolean;
+}
+export const draftStateLabel = (status: DraftSnapshot['review_status']) => ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' })[status];
+export function draftVersion(draft: DraftSnapshot, index: number): CopyVersion {
+  const raw = columns.map(column => `${column}：${draft.row[column] ?? ''}`).join('\n');
+  return { id: `hubspot-draft-${draft.draft_id}`, draft, label: `${draftStateLabel(draft.review_status)}の案 ${String(index + 1)}`, observedAt: draft.created_at, body: composeHrhBody(raw), bodySections: hrhCopySections(raw), kind: 'ai_draft', certainty: 'unknown', applications: null, source: '求人票作成で保存した案', note: '未掲載の案です。掲載開始日時と応募は対応させていません。' };
 }
 export const mediaLabel = (media: HubSpotListing['media']) => media === 'hrh' ? 'HRハッカー' : 'AirWork';
 export function listingRecord(data: HubSpotVersions): JobCopyRecord {
@@ -23,6 +35,7 @@ export function listingRecord(data: HubSpotVersions): JobCopyRecord {
   const copy = (body: string) => row.media === 'hrh' ? { body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
   return {
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
+    draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
     title: row.title ?? '求人名未取得', company: '取引先名未取得', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),
     location: [row.prefecture, row.municipality].filter(Boolean).join('') || '勤務地不明',
@@ -34,6 +47,6 @@ export function listingRecord(data: HubSpotVersions): JobCopyRecord {
       ...(version.image_urls !== null ? { images: version.image_urls.map((url, slot) => ({ id: `history-image-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}),
       historicalImageBytesAvailable: false,
       note: '日時はHubSpotに保存された日時です。掲載開始日時は不明です。画像は記録されたURLで、保存当時の画像とは異なる可能性があります。応募は版に結びつけていません。',
-    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: '現在の文面（履歴未取得）', observedAt: data.current.checked_at, ...copy(data.current.body), kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotで取得した現在の文面', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '変更履歴を取得できないため、現在保存されている本文を表示しています。日時は今回取得した日時で、文面の保存日時と掲載開始日時は不明です。' }] : [])],
+    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: '現在の文面（履歴未取得）', observedAt: data.current.checked_at, ...copy(data.current.body), kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotで取得した現在の文面', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '変更履歴を取得できないため、現在保存されている本文を表示しています。日時は今回取得した日時で、文面の保存日時と掲載開始日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
   };
 }

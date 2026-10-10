@@ -195,6 +195,7 @@ export interface StatusMessage {
 
 export interface PipelineState {
   kind: InputKind;
+  sourceKind: InputKind;
   titleHint: string;
   sourceText: string;
   jobs: NormalizedJob[];
@@ -218,6 +219,7 @@ export interface PipelineState {
   imagesNumberCheck: string;
   mobile: MobileResult[];
   hrhacker: HrhackerResult | null;
+  hrhackerCreatedAt: string | null;
   ab: AbResult | null;
   status: Record<StepKey, StepStatus>;
   /** コンサルが目視確認済み (ページ内 state のみ・永続化なし)。 */
@@ -257,6 +259,7 @@ function allSteps<T>(v: T): Record<StepKey, T> {
 export function initialState(): PipelineState {
   return {
     kind: 'free_text',
+    sourceKind: 'free_text',
     titleHint: '',
     sourceText: '',
     jobs: [],
@@ -277,6 +280,7 @@ export function initialState(): PipelineState {
     imagesNumberCheck: '',
     mobile: [],
     hrhacker: null,
+    hrhackerCreatedAt: null,
     ab: null,
     status: allSteps<StepStatus>('wait'),
     confirmed: allSteps(false),
@@ -311,6 +315,7 @@ export function resetResults(s: PipelineState): PipelineState {
     imagesNumberCheck: '',
     mobile: [],
     hrhacker: null,
+    hrhackerCreatedAt: null,
     ab: null,
     status: allSteps<StepStatus>('wait'),
     confirmed: allSteps(false),

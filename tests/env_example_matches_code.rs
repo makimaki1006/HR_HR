@@ -62,6 +62,8 @@ fn collect_env_vars_in_src(dir: &Path, out: &mut BTreeSet<String>) {
 /// `std::env::var("X")` / `env::var( "X" )` の両方を拾う。
 fn extract_env_var_names(src: &str) -> Vec<String> {
     let mut found = Vec::new();
+    let normalized = src.replace("env::var_os(", "env::var(");
+    let src = normalized.as_str();
     let needle = "env::var(";
     let bytes = src.as_bytes();
     let mut from = 0usize;
@@ -190,9 +192,11 @@ fn 抽出ロジックそのものが動く() {
         let a = std::env::var("FOO_BAR").unwrap_or_default();
         let b = env::var( "BAZ" ).ok();
         let c = env::var("not_upper");     // 環境変数らしくないので拾わない
+        let file = std::env::var_os("FILE_PATH");
         let d = some_other::var("QUX");    // env::var ではないので拾わない
     "#;
     let got = extract_env_var_names(sample);
+    assert!(got.contains(&"FILE_PATH".to_string()));
     assert!(
         got.contains(&"FOO_BAR".to_string()),
         "取れていない: {got:?}"

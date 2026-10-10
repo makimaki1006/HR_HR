@@ -292,3 +292,9 @@
   .jc-listings-panel > .jc-button { min-height: 28px; padding: 3px; font-size: 11px; }
 
 }
+
+.jc-draft-review, .jc-draft-facts { padding: 16px; margin: 12px 0; border: 1px solid #e5b64b; border-radius: 8px; background: var(--jc-surface, #fffdf5); }
+.jc-draft-review label { display: inline-flex; align-items: center; gap: 8px; margin-right: 12px; }
+.jc-draft-facts table { width: 100%; border-collapse: collapse; }
+.jc-draft-facts th, .jc-draft-facts td { text-align: left; padding: 12px; border-bottom: 1px solid #e4d8ba; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jc-draft-facts th small { display: block; color: #9b3f00; }
