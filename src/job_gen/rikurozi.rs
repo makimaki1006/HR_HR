@@ -479,6 +479,43 @@ fn copied_condition_columns() -> impl Iterator<Item = &'static str> {
                 && !column.ends_with("のタイトル")
         })
 }
+// 直後の括弧注記だけを金額に結び付け、後続の別の給与説明は含めない。
+fn annotated_trial(suffix: &str) -> Option<bool> {
+    let opening = suffix.find('(')?;
+    let note = suffix[opening + 1..].split_once(')')?.0;
+    [
+        ("研修中", true),
+        ("研修期間", true),
+        ("研修時", true),
+        ("試用中", true),
+        ("試用期間", true),
+        ("試用時", true),
+        ("通常", false),
+        ("本採用", false),
+    ]
+    .into_iter()
+    .filter_map(|(word, trial)| note.rfind(word).map(|pos| (pos, trial)))
+    .max_by_key(|(pos, _)| *pos)
+    .map(|(_, trial)| trial)
+}
+fn amount_suffix(chars: &[char], amounts: &[&NumericClaim], index: usize) -> String {
+    let mut last = index;
+    while last + 1 < amounts.len() {
+        let between: String = chars[amounts[last].end..amounts[last + 1].start]
+            .iter()
+            .collect();
+        if !is_range_separator(&between) {
+            break;
+        }
+        last += 1;
+    }
+    nearby_context(
+        chars,
+        amounts[last].end,
+        amounts.get(last + 1).map_or(chars.len(), |c| c.start),
+        false,
+    )
+}
 fn supplement_matches(source: &Source, purpose: &str, claim: &NumericClaim, trial: bool) -> bool {
     copied_condition_columns().any(|column| {
         let Some(text) = source.row.get(column) else {
@@ -501,12 +538,7 @@ fn supplement_matches(source: &Source, purpose: &str, claim: &NumericClaim, tria
                 amount.start,
                 true,
             );
-            let suffix = nearby_context(
-                &chars,
-                amount.end,
-                amounts.get(index + 1).map_or(chars.len(), |c| c.start),
-                false,
-            );
+            let suffix = amount_suffix(&chars, &amounts, index);
             let range = is_range_separator(&prefix);
             let amount_purpose = money_purpose(&prefix)
                 .or_else(|| range.then_some(previous_purpose).flatten())
@@ -520,15 +552,17 @@ fn supplement_matches(source: &Source, purpose: &str, claim: &NumericClaim, tria
                     .then(|| money_purpose(heading))
                     .flatten()
                 });
-            let amount_trial = if range {
-                previous_trial
-            } else {
-                column.starts_with("試用・研修")
-                    || prefix.contains("研修")
-                    || prefix.contains("試用")
-                    || heading.contains("研修")
-                    || heading.contains("試用")
-            };
+            let amount_trial = annotated_trial(&suffix).unwrap_or_else(|| {
+                if range {
+                    previous_trial
+                } else {
+                    column.starts_with("試用・研修")
+                        || prefix.contains("研修")
+                        || prefix.contains("試用")
+                        || heading.contains("研修")
+                        || heading.contains("試用")
+                }
+            });
             previous_purpose = amount_purpose;
             previous_trial = amount_trial;
             amount_trial == trial && amount.value == claim.value && amount_purpose == Some(purpose)
@@ -571,10 +605,12 @@ fn salary_kind_mismatch(source: &Source, text: &str, amounts: &[(usize, bool)]) 
             let prefix = nearby_context(&chars, 0, position, true);
             let suffix =
                 nearby_context(&chars, position + kind.chars().count(), chars.len(), false);
-            let mut trial = amounts
+            let following_end = position + kind.chars().count() + suffix.chars().count();
+            let following = amounts
                 .iter()
-                .rev()
-                .find(|(end, _)| *end <= position)
+                .find(|(end, _)| *end > position && *end <= following_end);
+            let mut trial = following
+                .or_else(|| amounts.iter().rev().find(|(end, _)| *end <= position))
                 .is_some_and(|(_, trial)| *trial);
             let marker = [
                 ("研修", true),
@@ -643,12 +679,8 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
     for (index, claim) in amounts.iter().enumerate() {
         let prefix: String = chars[previous_end..claim.start].iter().collect();
         let context = nearby_context(&chars, previous_end, claim.start, true);
-        let suffix = nearby_context(
-            &chars,
-            claim.end,
-            amounts.get(index + 1).map_or(chars.len(), |c| c.start),
-            false,
-        );
+        let suffix = amount_suffix(&chars, &amounts, index);
+        let annotation = annotated_trial(&suffix);
         // 後続の別の給与説明に入り込まない範囲で、金額の後ろも確認する。
         let suffix_end = ["研修", "試用", "通常", "本採用"]
             .into_iter()
@@ -662,6 +694,7 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
         if context.contains("研修") || context.contains("試用") {
             trial = true;
         }
+        let amount_trial = annotation.unwrap_or(trial);
         let purpose = money_purpose(&context)
             .or_else(|| {
                 is_range_separator(&context)
@@ -679,7 +712,7 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
             });
         previous_purpose = purpose;
         if let Some(purpose) = purpose {
-            if !supplement_matches(source, purpose, claim, trial)
+            if !supplement_matches(source, purpose, claim, amount_trial)
                 || ["時給", "日給", "月給", "年俸"]
                     .iter()
                     .any(|kind| context.contains(kind) || suffix.contains(kind))
@@ -689,7 +722,7 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
             previous_end = claim.end;
             continue;
         }
-        let kind_column = if trial {
+        let kind_column = if amount_trial {
             "試用・研修期の給与のタイプ"
         } else {
             "給与形態"
@@ -713,12 +746,12 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
                 !value.is_empty()
                     && if context.contains("固定残業") {
                         column.as_str()
-                            == if trial {
+                            == if amount_trial {
                                 "試用・研修期の固定残業代"
                             } else {
                                 "固定残業代"
                             }
-                    } else if trial {
+                    } else if amount_trial {
                         column.starts_with("試用・研修期の基本給与")
                     } else {
                         column.starts_with("基本給与")
@@ -732,7 +765,7 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
         if !claims(&salary).contains(&(claim.value.clone(), claim.unit.clone())) {
             return true;
         }
-        salary_contexts.push((claim.end, trial));
+        salary_contexts.push((claim.end, amount_trial));
         previous_end = claim.end;
     }
     salary_kind_mismatch(source, text, &salary_contexts)
@@ -1221,6 +1254,68 @@ mod tests {
                 assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
                 assert_eq!(row(&draft.csv)["自由項目2の内容"], content);
             }
+        }
+    }
+    #[test]
+    fn trailing_training_notes_bind_each_amount_to_its_original_context() {
+        let mut s = source();
+        s.row.insert("給与補足".into(), "交通費500円支給".into());
+        s.row
+            .insert("試用・研修の詳細情報".into(), "交通費400円支給".into());
+        s.body.push_str("\n通常交通費500円、研修交通費400円");
+        for (text, review) in [
+            ("時給1200円（研修中）", true),
+            ("時給1100円（研修中）", false),
+            ("時給1100円(試用期間中)", false),
+            ("時給1200円(通常)", false),
+            ("時給1100円(通常)", true),
+            ("交通費500円支給（研修中）", true),
+            ("交通費400円支給（研修中）", false),
+            ("交通費400円支給(試用期間中)", false),
+            ("交通費500円支給(通常)", false),
+            ("交通費400円支給(通常)", true),
+            ("時給1200円。研修があります", false),
+            ("時給1200円、研修中は時給1100円", false),
+            ("交通費500円支給。研修中は交通費400円支給", false),
+            ("時給1200円(通常)。時給1100円(研修中)", false),
+        ] {
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&s, &raw, 0.35).unwrap();
+            assert_eq!(draft.generated[1].review, review, "{text}");
+            assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
+            assert_eq!(row(&draft.csv)["基本給与 最小"], "1200");
+            assert_eq!(row(&draft.csv)["給与補足"], "交通費500円支給");
+        }
+    }
+    #[test]
+    fn trailing_notes_in_original_supplements_and_ranges_keep_their_scope() {
+        let mut s = source();
+        s.row
+            .insert("試用・研修期の基本給与 最大".into(), "1150".into());
+        s.row.insert(
+            "給与補足".into(),
+            "交通費500〜600円支給(通常)。交通費400〜450円支給(研修中)".into(),
+        );
+        s.body
+            .push_str("\n研修時給1100〜1150円、通常交通費500〜600円、研修交通費400円〜450円");
+        for (text, review) in [
+            ("時給1100〜1150円（研修中）", false),
+            ("時給1200〜1150円（研修中）", true),
+            ("交通費400〜450円支給（研修中）", false),
+            ("交通費500〜600円支給（研修中）", true),
+            ("交通費500〜600円支給（通常）", false),
+            ("交通費400〜450円支給（通常）", true),
+            ("交通費400円支給（研修中）", false),
+            ("交通費400円支給", true),
+        ] {
+            assert_eq!(numeric_mismatch(&s, text), review, "{text}");
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&s, &raw, 0.35).unwrap();
+            assert_eq!(draft.generated[1].review, review, "{text}");
+            assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
+            assert_eq!(row(&draft.csv)["試用・研修期の基本給与 最大"], "1150");
         }
     }
     #[test]
