@@ -167,14 +167,20 @@ fn copied(source: &Source) -> Vec<Check> {
 }
 fn normalized(text: &str) -> String {
     text.nfkc()
-        .filter(|c| !c.is_whitespace() && *c != ',')
+        .filter(|c| (!c.is_whitespace() || *c == '\n') && *c != ',')
         .collect()
 }
 /// 数字とその直後の単位を保持。時刻は分に換算、金額は円へ換算する。
-fn claims(text: &str) -> BTreeSet<(String, String)> {
+struct NumericClaim {
+    start: usize,
+    end: usize,
+    value: String,
+    unit: String,
+}
+fn numeric_claims(text: &str) -> Vec<NumericClaim> {
     let text = normalized(text);
     let chars: Vec<_> = text.chars().collect();
-    let mut out = BTreeSet::new();
+    let mut out = Vec::new();
     let mut i = 0;
     while i < chars.len() {
         if !chars[i].is_ascii_digit() {
@@ -210,9 +216,19 @@ fn claims(text: &str) -> BTreeSet<(String, String)> {
                     .and_then(|n| n.checked_add(m))
                     .filter(|_| m < 60)
                 {
-                    out.insert((clock.to_string(), "時刻".into()));
+                    out.push(NumericClaim {
+                        start,
+                        end,
+                        value: clock.to_string(),
+                        unit: "時刻".into(),
+                    });
                 } else {
-                    out.insert((num.clone(), "不明な時刻".into()));
+                    out.push(NumericClaim {
+                        start,
+                        end,
+                        value: num.clone(),
+                        unit: "不明な時刻".into(),
+                    });
                 }
                 i = end;
                 continue;
@@ -227,18 +243,66 @@ fn claims(text: &str) -> BTreeSet<(String, String)> {
         .unwrap_or("");
         let pair = match unit {
             "万円" | "千円" => (
-                (num.parse::<f64>().unwrap_or(0.0)
+                (num.parse::<f64>().unwrap_or(f64::NAN)
                     * if unit == "万円" { 10000.0 } else { 1000.0 })
                 .to_string(),
                 "円".into(),
             ),
             _ => (num, unit.to_owned()),
         };
-        out.insert(pair);
         i += unit.chars().count();
+        out.push(NumericClaim {
+            start,
+            end: i,
+            value: pair.0,
+            unit: pair.1,
+        });
+    }
+    // 「1200〜1400円」の前端にも末尾の単位を適用する。
+    for index in (0..out.len().saturating_sub(1)).rev() {
+        let next = &out[index + 1];
+        let separator: String = chars[out[index].end..next.start].iter().collect();
+        if out[index].unit.is_empty() && is_range_separator(&separator) {
+            let unit = next.unit.clone();
+            // 金額の倍率も両端に適用する（例: 1.2〜1.4万円）。
+            let suffix: String = chars[next.start..next.end].iter().collect();
+            let multiplier = if suffix.ends_with("万円") {
+                10000.0
+            } else if suffix.ends_with("千円") {
+                1000.0
+            } else {
+                1.0
+            };
+            if unit == "円" {
+                out[index].value =
+                    (out[index].value.parse::<f64>().unwrap_or(f64::NAN) * multiplier).to_string();
+            }
+            out[index].unit = unit;
+        }
     }
     out
 }
+fn is_range_separator(text: &str) -> bool {
+    matches!(text, "〜" | "~" | "-" | "–" | "—" | "から")
+}
+fn claims(text: &str) -> BTreeSet<(String, String)> {
+    numeric_claims(text)
+        .into_iter()
+        .map(|c| (c.value, c.unit))
+        .collect()
+}
+fn clock_pairs(text: &str) -> BTreeSet<(String, String)> {
+    let clocks: Vec<_> = numeric_claims(text)
+        .into_iter()
+        .filter(|c| c.unit == "時刻")
+        .collect();
+    // 句点や説明文の挿入で順序の照合を回避させない。
+    clocks
+        .windows(2)
+        .map(|pair| (pair[0].value.clone(), pair[1].value.clone()))
+        .collect()
+}
+
 fn numeric_source(source: &Source) -> String {
     let mut parts = Vec::new();
     for column in &hrhacker::HRHACKER_COLUMNS[20..65] {
@@ -276,41 +340,69 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
     if !generated.is_subset(&allowed) {
         return true;
     }
-    // An hourly amount must not be reused as a monthly/daily salary or vice versa.
-    let normalized = normalized(text);
-    for kind in ["時給", "日給", "月給", "年俸"] {
-        if normalized.contains(kind) && source.row.get("給与形態").is_none_or(|v| !v.contains(kind))
-        {
-            return true;
-        }
+    // 開始・終了の順序を保つ。夜勤の翌日終了も原本の順序で照合する。
+    let working_hours = source.row.get("勤務時間").map(String::as_str).unwrap_or("");
+    if !clock_pairs(text).is_subset(&clock_pairs(working_hours)) {
+        return true;
     }
-    // A base salary cannot borrow the fixed overtime allowance or trial amount.
-    if ["時給", "日給", "月給", "年俸"]
-        .iter()
-        .any(|kind| normalized.contains(kind))
-    {
-        let mut salary = Vec::new();
-        let trial = text.contains("研修") || text.contains("試用");
-        for (column, value) in &source.row {
-            let relevant = if trial {
-                column.starts_with("試用・研修期の基本給与")
-            } else {
-                column.starts_with("基本給与")
-                    || column.starts_with("条件付き給与")
-                        && (column.contains("最小給与") || column.contains("最大給与"))
-            };
-            if relevant && !value.is_empty() {
-                salary.push(format!("{value}円"));
+    // 各金額の直前の文脈を確認。別の文の「研修」を通常給与に適用しない。
+    let chars: Vec<_> = normalized(text).chars().collect();
+    let mut previous_end = 0;
+    let mut trial = false;
+    for claim in numeric_claims(text).into_iter().filter(|c| c.unit == "円") {
+        let prefix: String = chars[previous_end..claim.start].iter().collect();
+        let context = prefix
+            .rsplit(['。', '！', '？', ';', '\n'])
+            .next()
+            .unwrap_or("");
+        if context != prefix || context.contains("通常") || context.contains("本採用") {
+            trial = false;
+        }
+        if context.contains("研修") || context.contains("試用") {
+            trial = true;
+        }
+        let kind_column = if trial {
+            "試用・研修期の給与のタイプ"
+        } else {
+            "給与形態"
+        };
+        let kind = source
+            .row
+            .get(kind_column)
+            .filter(|v| !v.is_empty())
+            .or_else(|| source.row.get("給与形態"));
+        for salary_kind in ["時給", "日給", "月給", "年俸"] {
+            if context.contains(salary_kind) && kind.is_none_or(|v| !v.contains(salary_kind)) {
+                return true;
             }
         }
-        let salary = claims(&salary.join("\n"));
-        if generated
+        let salary = source
+            .row
             .iter()
-            .filter(|(_, unit)| unit == "円")
-            .any(|pair| !salary.contains(pair))
-        {
+            .filter(|(column, value)| {
+                !value.is_empty()
+                    && if context.contains("固定残業") {
+                        column.as_str()
+                            == if trial {
+                                "試用・研修期の固定残業代"
+                            } else {
+                                "固定残業代"
+                            }
+                    } else if trial {
+                        column.starts_with("試用・研修期の基本給与")
+                    } else {
+                        column.starts_with("基本給与")
+                            || column.starts_with("条件付き給与")
+                                && (column.contains("最小給与") || column.contains("最大給与"))
+                    }
+            })
+            .map(|(_, value)| format!("{value}円"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !claims(&salary).contains(&(claim.value, claim.unit)) {
             return true;
         }
+        previous_end = claim.end;
     }
     false
 }
@@ -549,6 +641,58 @@ mod tests {
             assert_eq!(row(&result.csv)["基本給与 最小"], "1200");
             assert!(result.generated[1].review);
             assert!(result.review_required);
+        }
+    }
+    #[test]
+    fn review_regressions_check_clock_order_and_each_salary_context() {
+        for text in [
+            "18:00から9:00まで働きます。",
+            "18時に勤務開始。9時に勤務終了です。",
+            "給与は1100円です。",
+            "通常は1100円、研修中は1200円です。",
+            "時給1200円。研修中も1200円です。",
+        ] {
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&source(), &raw, 0.35).unwrap();
+            assert_eq!(row(&draft.csv)["仕事内容"], "", "{text}");
+            assert!(draft.generated[1].review, "{text}");
+            assert_eq!(row(&draft.csv)["基本給与 最小"], "1200");
+            assert_eq!(row(&draft.csv)["勤務時間"], "9:00〜18:00（休憩60分）");
+        }
+        for text in [
+            "時給1200円。研修があります",
+            "時給1200〜1400円",
+            "時給１２００～１４００円です。",
+            "給与は1200円です。",
+            "通常は時給1200円、研修中は1100円です。",
+            "研修中は1100円。通常は時給1200円です。",
+            "9:00から18:00まで働きます。",
+            "9時から18時まで働きます。",
+        ] {
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&source(), &raw, 0.35).unwrap();
+            assert_eq!(row(&draft.csv)["仕事内容"], text, "{text}");
+            assert!(!draft.generated[1].review, "{text}");
+        }
+    }
+    #[test]
+    fn clock_order_preserves_night_shifts_and_rejects_reversed_minutes() {
+        let mut source = source();
+        source.row.insert("勤務時間".into(), "22:30〜6:15".into());
+        source.body.push_str("\n勤務時間：22:30〜6:15");
+        for (text, review) in [
+            ("22:30から6:15まで働きます。", false),
+            ("6:15から22:30まで働きます。", true),
+            ("22:15から6:30まで働きます。", true),
+        ] {
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&source, &raw, 0.35).unwrap();
+            assert_eq!(draft.generated[1].review, review, "{text}");
+            assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
+            assert_eq!(row(&draft.csv)["勤務時間"], "22:30〜6:15");
         }
     }
     #[test]
