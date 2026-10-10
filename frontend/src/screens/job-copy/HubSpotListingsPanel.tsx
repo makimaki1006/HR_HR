@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import type { JobCopyRecord } from './data';
 import { listingRecord, mediaLabel } from './hubspotListings';
@@ -7,7 +7,9 @@ import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen }: { onOpen: (job: JobCopyRecord) => void }) {
+export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void }) {
+  const [filtersOpen, setFiltersOpen] = useState(() => window.matchMedia('(min-width: 801px)').matches);
+  useEffect(() => { const media = window.matchMedia('(min-width: 801px)'); const change = (event: MediaQueryListEvent) => { setFiltersOpen(event.matches); }; media.addEventListener('change', change); return () => { media.removeEventListener('change', change); }; }, []);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
   const [media, setMedia] = useState('');
@@ -16,60 +18,64 @@ export function HubSpotListingsPanel({ onOpen }: { onOpen: (job: JobCopyRecord) 
   const [page, setPage] = useState<HubSpotListingPage | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [selected, setSelected] = useState('');
   const [history, setHistory] = useState<HubSpotVersions | null>(null);
-  const request = useRef<AbortController | null>(null);
-  useEffect(() => () => { request.current?.abort(); }, []);
-  function start() {
-    request.current?.abort(); const controller = new AbortController(); request.current = controller;
-    setBusy(true); setError(''); return controller;
-  }
-  function failure(error: Error) {
-    setError(error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '求人を取得できませんでした。閲覧権限を確認し、時間を置いて再取得してください。');
-  }
-  async function load(offset = 0) {
-    const controller = start(); setHistory(null);
-    const query = new URLSearchParams();
+  const listRequest = useRef<AbortController | null>(null);
+  const detailRequest = useRef<AbortController | null>(null);
+  const message = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '求人を取得できませんでした。時間を置いて再取得してください。';
+  const load = useCallback(async (offset = 0) => {
+    listRequest.current?.abort(); const controller = new AbortController(); listRequest.current = controller;
+    setBusy(true); setError('');
+    const query = new URLSearchParams({ offset: String(offset), sort: sort === 'applications' ? 'title' : sort });
     if (prefecture) query.set('prefecture', prefecture);
     if (title) query.set('title', title);
     if (media) query.set('media', media);
-    query.set('offset', String(offset));
-    query.set('sort', sort);
     const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${query.toString()}`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { setPage(result.data); setTitles(result.data.titles); } else failure(result.error);
+    if (result.ok) { setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
     setBusy(false);
-  }
-  function changeFilter(set: (value: string) => void, value: string) {
-    request.current?.abort(); setBusy(false); setPage(null); setHistory(null); setError(''); set(value);
-  }
+  }, [prefecture, title, media, sort]);
+  useEffect(() => {
+    if (!active) { listRequest.current?.abort(); detailRequest.current?.abort(); return; }
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
+  }, [active, load]);
+  useEffect(() => {
+    if (!active || page?.status !== 'preparing' || busy || error) return;
+    const timer = window.setTimeout(() => { void load(); }, 5_000);
+    return () => { window.clearTimeout(timer); };
+  }, [active, page, busy, error, load]);
   async function open(row: HubSpotListing) {
-    const controller = start(); setHistory(null);
+    detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
+    setSelected(row.id); setHistory(null); setError(''); onLoading?.();
     const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(row.id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { setHistory(result.data); onOpen(listingRecord(result.data)); } else failure(result.error);
-    setBusy(false);
+    if (result.ok) { setHistory(result.data); onOpen(listingRecord(result.data)); }
+    else { const text = message(result.error); setError(text); onFailure?.(text); }
   }
-  return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading">
-    <h2 id="hubspot-listings-heading">HubSpot の求人</h2>
-    <p>媒体ごとに別の求人として表示します。応募は求人に関連する件数です。同じ応募が複数の求人に含まれることがあります。</p>
-    <div className="jc-filters">
-      <label>都道府県<select aria-label="都道府県" value={prefecture} onChange={event => { changeFilter(setPrefecture, event.target.value); }}><option value="">すべて</option>{AREA_MASTER.map(([pref]) => <option key={pref} value={pref}>{pref}</option>)}</select></label>
-      <label>職種の分類<select aria-label="職種の分類" value={title} onChange={event => { changeFilter(setTitle, event.target.value); }}><option value="">すべて</option><option value="unknown">不明</option>{titles.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
-      <label>媒体<select aria-label="媒体" value={media} onChange={event => { changeFilter(setMedia, event.target.value); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label>
-      <label>並び順<select aria-label="並び順" value={sort} onChange={event => { changeFilter(setSort, event.target.value); }}><option value="title">求人名順</option><option value="media">媒体順</option></select></label>
-      <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(); }}>求人を取得</button>
-    </div>
-    {busy && <p role="status">求人を取得しています…</p>}{error && <p role="alert">{error}</p>}
-    {page?.status === 'preparing' && <p role="status">求人の一覧を準備しています。しばらくしてから再取得してください。</p>}
-    {page?.status === 'ready' && <><p>条件に合う求人は{page.total}件です。{page.listings.length}件を表示しています。{formatDateTimeJst(page.index_built_at, '日時不明')}時点の一覧です。職種はIndeedの分類名との一致・含まれる文字で照合しています。近い職種は「不明」とします。</p>
-      {page.refreshing && <p role="status">一覧を更新しています。更新が完了するまでは、表示している時点の一覧を利用できます。</p>}
+  const rows = sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [];
+  return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
+    <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : '未取得'}</span></div>
+    <details className="jc-hubspot-filter-details" open={filtersOpen} onToggle={event => { setFiltersOpen(event.currentTarget.open); }}><summary>絞り込み・並び順</summary><div className="jc-hubspot-filters">
+      <label>都道府県<select aria-label="都道府県" value={prefecture} onChange={event => { setPrefecture(event.target.value); }}><option value="">すべて</option>{AREA_MASTER.map(([pref]) => <option key={pref} value={pref}>{pref}</option>)}</select></label>
+      <label>職種の分類<select aria-label="職種の分類" value={title} onChange={event => { setTitle(event.target.value); }}><option value="">すべて</option><option value="unknown">不明</option>{titles.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label>媒体<select aria-label="媒体" value={media} onChange={event => { setMedia(event.target.value); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label>
+      <label>並び順<select aria-label="並び順" value={sort} onChange={event => { setSort(event.target.value); }}><option value="title">求人名順</option><option value="media">媒体順</option><option value="applications">表示中の応募が多い順</option></select></label>
+    </div></details>
+    <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(); }}>求人を取得</button>
+    {busy && !page && <p role="status">求人の一覧を取得しています…</p>}{error && <p role="alert">{error}</p>}
+    {page?.status === 'preparing' && <div className="jc-index-preparing" role="status"><strong>求人の一覧を準備しています</strong><p>初回の準備には約7分が目安です。あと数分かかる場合があります。準備が終わると自動で一覧を表示します。</p>{page.refresh_failed && <p>準備を取得できませんでした。時間を置いて自動で確認します。</p>}<progress aria-label="求人の一覧を準備中" /></div>}
+    {page?.status === 'ready' && <><p className="jc-index-date">条件に合う求人は{page.total}件です。<br />{formatDateTimeJst(page.index_built_at, '日時不明')}時点の一覧</p>
+      {page.refreshing && <p role="status">一覧を更新中です。表示している時点の一覧を利用できます。</p>}
       {page.refresh_failed && <p role="status">一覧の更新を取得できませんでした。表示している時点の一覧を利用しています。</p>}
-      <div style={{ overflowX: 'auto' }}><table><thead><tr>{['媒体', '媒体の求人ID', '求人名', '都道府県', '市区町村', '職種の分類', '公開状況', '媒体の一覧で最後に確認した日', '応募', '文面'].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{page.listings.map(row => <tr key={row.id}>
-        <td>{mediaLabel(row.media)}</td><td>{row.media === 'airwork' ? `${row.account_id ?? 'アカウント未取得'} / ${row.media_job_id}` : row.media_job_id}</td><td>{row.title ?? '未取得'}</td><td>{row.prefecture ?? '不明'}</td><td>{row.municipality ?? '不明'}</td><td>{row.category ?? '不明'}</td><td>{row.publication_status ?? '未取得'}</td><td>{row.last_csv_detected_at ? formatDateTimeJst(row.last_csv_detected_at, '不明') : '未取得'}</td><td>{row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</td><td><button type="button" disabled={busy} onClick={() => { void open(row); }}>{row.title ?? '求人'}の版を見る</button></td>
-      </tr>)}</tbody></table></div>
-      {!page.listings.length && <p>条件に合う求人はありません。</p>}
-      {page.next_offset !== null && <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(page.next_offset ?? 0); }}>次の求人</button>}
+      <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の版を見る`} onClick={() => { void open(row); }}>
+        <span className="jc-job-company">{mediaLabel(row.media)} <span className="jc-publication">{row.publication_status ?? '未取得'}</span></span>
+        <strong>{row.title ?? '求人名未取得'}</strong><span>{row.prefecture ?? '不明'}{row.municipality ?? ''} · {row.category ?? '職種不明'}</span>
+        <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small><small>{row.media_job_id}</small></span>
+        <span className="jc-visually-hidden">{row.account_id ? `${row.account_id} / ` : ''}{row.media_job_id} 媒体の一覧で最後に確認した日：{formatDateTimeJst(row.last_csv_detected_at, '未取得')}</span>
+      </button>)}{!rows.length && <p>条件に合う求人はありません。</p>}</div>
+      <div className="jc-list-pagination"><span>{page.total ? `${String(page.offset + 1)}〜${String(page.offset + rows.length)}件を表示` : '条件に合う求人はありません'}</span>{page.offset > 0 && <button className="jc-button" disabled={busy} onClick={() => { void load(Math.max(0, page.offset - 50)); }}>前の求人</button>}{page.next_offset !== null && <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(page.next_offset ?? 0); }}>次の求人</button>}</div>
     </>}
-    {history && <p role="status">取得した文面の版は{history.versions.length}件です。本文の履歴：{history.history_counts[history.listing.media === 'hrh' ? 'hrh_kyuujinhyou_honbun' : 'shigotonaiyou'] ?? 0}件{history.listing.media === 'hrh' ? `、画像の履歴：${String(history.history_counts.hrh_kyuujinhyou_gazou ?? 0)}件` : ''}。{history.history_may_be_incomplete && '履歴は項目ごとに20件までの可能性があり、過去の版がすべて含まれているとは限りません。'}日時は保存された日時で、掲載開始日時は不明です。</p>}
+    {history && <p className="jc-history-status" role="status">取得した文面の版は{history.versions.length}件です。本文の履歴：{history.history_counts[history.listing.media === 'hrh' ? 'hrh_kyuujinhyou_honbun' : 'shigotonaiyou'] ?? '未取得'}件。{history.history_may_be_incomplete && '履歴は項目ごとに20件までの可能性があり、過去の版がすべて含まれているとは限りません。'}保存日時と掲載開始日時は異なります。</p>}
   </section>;
 }

@@ -196,3 +196,79 @@
 .jc-listings-panel th, .jc-listings-panel td { padding: 8px; border-bottom: 1px solid #dbe2ea; text-align: left; }
 .jc-listings-panel th { white-space: nowrap; background: #f8fafc; }
 @media (max-width: 800px) { .jc-listings-panel .jc-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Both listing sources share one workspace that reaches the bottom of the viewport. */
+.jc-shell #content { max-width: none; width: 100%; margin: 0; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) { grid-template-columns: clamp(320px, 25vw, 420px) minmax(0, 1fr); }
+.jc-fixed-list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+.jc-fixed-list[hidden], .jc-listings-panel[hidden] { display: none !important; }
+.jc-list-source { display: flex; flex-shrink: 0; gap: 4px; padding: 4px; background: #eaf0f4; border-radius: 7px; }
+.jc-list-source button { flex: 1; min-height: 38px; border: 0; border-radius: 5px; background: transparent; font-weight: 600; }
+.jc-list-source button[aria-pressed="true"] { background: white; color: #006879; box-shadow: 0 1px 4px #25394c1a; }
+.jc-listings-panel { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px; }
+.jc-listings-panel h2 { margin: 0; font-size: 15px; }
+.jc-listings-panel p { font-size: 12px; line-height: 1.5; }
+.jc-hubspot-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; flex-shrink: 0; }
+.jc-hubspot-filters label { font-size: 11px; gap: 2px; color: #52697a; }
+.jc-hubspot-filters select { width: 100%; border: 1px solid var(--jc-border); background: white; border-radius: 5px; padding: 7px 5px; font-size: 12px; }
+.jc-index-date { color: var(--jc-muted); }
+.jc-hubspot-job { flex-shrink: 0; padding: 12px; gap: 5px; border-radius: 7px; }
+.jc-hubspot-job strong { font-size: 14px; }
+.jc-hubspot-job .jc-job-company { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.jc-publication { color: #41696c; background: #eef4f4; border-radius: 4px; padding: 1px 6px; font-size: 10px; }
+.jc-hubspot-job .jc-job-bottom small:first-child { color: #006879; font-weight: 600; }
+.jc-list-pagination { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.jc-list-pagination .jc-button { min-height: 32px; padding: 4px 6px; }
+.jc-history-status { padding: 6px 8px; background: #eaf5f7; border-radius: 5px; }
+.jc-index-preparing { margin-top: 20px; padding: 18px; border: 1px solid var(--jc-border); border-radius: 8px; background: #fff; }
+.jc-index-preparing p { margin: 10px 0; }
+.jc-index-preparing progress { width: 100%; accent-color: var(--jc-accent); }
+.jc-detail-placeholder { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 15px; }
+.jc-placeholder-icon { font-size: 60px; color: #7eabb5; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-history-layout { grid-template-columns: minmax(0, 1fr); }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-history { display: flex; gap: 8px; flex-wrap: wrap; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-history h2 { width: 100%; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-history > p { display: none; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version { flex: 0 1 210px; padding: 8px 12px; margin: 0; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version time { font-size: 11px; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version > span:not(:first-child), .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version > small { display: none; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-reading { padding: 20px; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-image-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.jc-job-sheet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+.jc-job-sheet section { padding: 18px 0; border-bottom: 1px solid var(--jc-border); }
+.jc-job-sheet .jc-sheet-wide { grid-column: 1 / -1; }
+.jc-job-sheet h3 { margin-bottom: 8px; font-size: 13px; color: #006879; }
+.jc-job-sheet p { font-size: 15px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 800px) {
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-list { height: 48dvh; min-height: 340px; overflow: hidden; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-list-scroll { max-height: none; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-main { min-height: 50dvh; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-reading { padding: 12px; }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-image-grid { grid-template-columns: minmax(0, 1fr); }
+  .jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-version { flex-basis: 145px; }
+  .jc-job-sheet { grid-template-columns: minmax(0, 1fr); }
+}
+.jc-copy-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 28%); gap: 24px; margin-top: 16px; align-items: start; }
+.jc-copy-content .jc-job-sheet { grid-template-columns: minmax(0, 1fr); }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-copy-content .jc-image-grid { grid-template-columns: minmax(0, 1fr); }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-history { align-items: center; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-history h2 { width: auto; margin-right: 12px; font-size: 13px; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-history .jc-version { flex-basis: 170px; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-reading-title { align-items: center; }
+.jc-workspace:has(.jc-listings-panel:not([hidden])) .jc-reading-title h2 { font-size: 15px; }
+@media (max-width: 800px) { .jc-copy-content { grid-template-columns: minmax(0, 1fr); gap: 12px; }.jc-copy-content .jc-image-section { grid-row: 1; }.jc-copy-content .jc-image-grid img { max-height: 150px; }.jc-copy-content .jc-job-sheet p { font-size: 14px; } }
+/* Contain screen-reader-only labels in scrolling cards; they must not extend the page. */
+.jc-hubspot-job { position: relative; }
+.jc-app:has(.jc-listings-panel:not([hidden])) .jc-demo { display: none; }
+@media (max-width: 800px) { .jc-copy-content > div:last-child { grid-row: 1; } }
+.jc-hubspot-list-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.jc-fixed-list { gap: 4px; }
+.jc-list:has(.jc-fixed-list:not([hidden])) .jc-list-source { padding: 2px; }
+.jc-list:has(.jc-fixed-list:not([hidden])) .jc-list-source button { min-height: 32px; }
+.jc-fixed-list .jc-list-heading { gap: 6px; }
+.jc-fixed-list .jc-reverse-toggle { padding: 3px 6px !important; font-size: 11px; white-space: nowrap; }
+.jc-hubspot-filter-details { flex-shrink: 0; }
+.jc-hubspot-filter-details > summary { padding: 6px 8px; min-height: 32px; border: 1px solid var(--jc-border); border-radius: 5px; background: white; cursor: pointer; }
+.jc-hubspot-filter-details[open] .jc-hubspot-filters { margin-top: 6px; }
+@media (min-width: 801px) { .jc-hubspot-filter-details > summary { display: none; }.jc-hubspot-filter-details[open] .jc-hubspot-filters { margin-top: 0; } }
