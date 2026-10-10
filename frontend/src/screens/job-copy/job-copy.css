@@ -294,10 +294,11 @@
 }
 
 /* 一覧の中身は残し、通常は細い帯から開く。 */
-.jc-sidebar { min-height: 0; height: 100%; }
-.jc-sidebar > .jc-list { height: 100%; }
+.jc-sidebar { display: contents; }
 .jc-sidebar-rail, .jc-sidebar-actions { display: none; }
 @media (min-width: 801px) {
+  .jc-sidebar { display: block; min-height: 0; height: 100%; }
+  .jc-sidebar > .jc-list { height: 100%; }
   .jc-workspace.jc-sidebar-collapsed { position: relative; grid-template-columns: 48px minmax(0, 1fr); }
   .jc-workspace.jc-sidebar-pinned { grid-template-columns: 300px minmax(0, 1fr); }
   .jc-workspace.jc-sidebar-pinned:has(.jc-listings-panel:not([hidden])) { grid-template-columns: clamp(320px, 25vw, 420px) minmax(0, 1fr); }
