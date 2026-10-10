@@ -82,3 +82,12 @@ PR #131 の画面を40求人のモックで再現した（HRハッカー30件・
 今回の結果: Rust129成功・既存2件無視、clippy新規0（既存962）、frontend typecheck・lint成功、Vitest563成功。一覧E2E8、既存サーバーE2E27、タイムラインE2E2、計37成功。HubSpot・本番に書き込まず、架空の求人だけで検証した。
 
 今回撮影した1440px: [顧客報告](../screenshots/job-copy-hubspot-ui/report-1440.png)、[課金](../screenshots/job-copy-hubspot-ui/performance-1440.png)、[A/B比較](../screenshots/job-copy-hubspot-ui/ab-1440.png)。既存の1440/1920pxの求人票・画像・給与・準備中も再撮影（表示が同じ画像は差分なし）。
+
+
+## CI と課金CSVの列選択（PR #133 追加修正）
+
+- `gh pr checks 133` と `gh run view 38061029461 --log-failed` で調査。`rust-test` は Unit tests の前の Format check で停止していた。`job_copy_live.rs` の `mod listing_status` と `mod hrh_copy` の順番がrustfmtの辞書順と逆だった。手元で通っていた `cargo test --lib job_copy` とclippyは書式を検査しないため、CIとの差になった。手元の `cargo fmt -- --check` でも同じ差分を再現し、宣言順だけを修正して成功を確認した。CIのチェックは緩めていない。
+- CSVの「金額」「費用」を同じ「金額（円）」へ置換していたため、選択肢を区別できなかった。利用者のCSVの実際の列名をそのまま表示する。求人・店舗番号の値は引き続き表示しないが、利用者が付けた列名はそのまま残す（前のID表示テストにもこの区別を反映）。
+- 同じ1行目の見本値1000、2行目は金額1000／費用2000という架空CSVで回帰テスト2件を追加。修正前の失敗を確認し、選択肢「金額」「費用」が別々に選べ、反映される2行の課金額がそれぞれ `[1000,1000]` ／ `[1000,2000]` になることを検証した。
+
+今回のローカル検証: rustfmt成功、Rust129成功・既存2件無視、clippy新規0（既存962）、frontend typecheck・lint成功、Vitest565成功。求人文面管理のE2E37件成功。スマホの確認・撮影は行わない。

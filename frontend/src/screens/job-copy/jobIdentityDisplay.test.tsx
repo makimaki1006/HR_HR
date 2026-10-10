@@ -38,7 +38,11 @@ describe('媒体名と求人名で示す', () => {
     await waitFor(() => { expect(screen.getByRole('button', { name: '求人と照合する' })).toBeTruthy(); });
     fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
     await waitFor(() => { expect(container.textContent).toContain('8桁の数字'); });
-    expect(container.textContent).not.toMatch(forbidden);
+    // 利用者のCSV見出しはそのまま表示する。照合番号の値は表示しない。
+    expect(container.textContent).not.toMatch(/HR-|901234567890|SHOP-SECRET/);
+    const columns = screen.getByLabelText('媒体の求人番号の列');
+    expect(columns.textContent).toContain('媒体求人ID');
+    expect(columns.textContent).toContain('店舗ID');
   });
   it('取引先確認の契約名が欠けても生のレコード番号で代用しない', async () => {
     api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('company=') ? { company_id: '77', contracts: [{ id: '901234567890', properties: { code_of_customer: 'SHOP-SECRET-001' } }], jobs: [], total: 0, next_offset: null } : { customers: [{ id: '77', properties: { name: '合成の取引先' } }], next_after: null } }));

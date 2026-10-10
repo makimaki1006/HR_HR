@@ -21,6 +21,24 @@ function upload(text: string, name = 'billing.csv') {
 }
 
 describe('BillingImportPanel', () => {
+  it.each(['金額', '費用'])('同じ見本値でも実際の列名 %s を選び、その列の課金額を使う', async columnName => {
+    lastApplied = [];
+    render(<Harness />);
+    upload('媒体,口座ログインID,媒体求人ID,期間開始,期間終了,金額,費用\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-002,2026-09-01,2026-09-14,1000,1000\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-004,2026-09-15,2026-09-30,1000,2000');
+    await screen.findByText('2. 列の対応を確かめる');
+    const select = screen.getByLabelText<HTMLSelectElement>('金額（円）の列');
+    const amount = within(select).getByRole<HTMLOptionElement>('option', { name: '金額' });
+    const cost = within(select).getByRole<HTMLOptionElement>('option', { name: '費用' });
+    expect(amount.value).toBe('5');
+    expect(cost.value).toBe('6');
+    fireEvent.change(select, { target: { value: columnName === '金額' ? amount.value : cost.value } });
+    expect(select.selectedOptions[0]?.textContent).toBe(columnName);
+    expect(select.closest('tr')?.querySelector('td:last-child')?.textContent).toBe('1000');
+    fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
+    fireEvent.click(screen.getByRole('button', { name: '一致した2行を課金として反映' }));
+    expect(lastApplied.map(period => period.amountYen)).toEqual(columnName === '金額' ? [1000, 1000] : [1000, 2000]);
+  });
+
   it('walks through choose file → column check → match counts → apply', async () => {
     lastApplied = [];
     render(<Harness />);
