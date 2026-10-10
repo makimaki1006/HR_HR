@@ -299,7 +299,8 @@
 @media (min-width: 801px) {
   .jc-sidebar { display: block; min-height: 0; height: 100%; }
   .jc-sidebar > .jc-list { height: 100%; }
-  .jc-workspace.jc-sidebar-collapsed { position: relative; grid-template-columns: 48px minmax(0, 1fr); }
+  .jc-workspace.jc-sidebar-collapsed,
+  .jc-workspace.jc-sidebar-collapsed:has(.jc-listings-panel:not([hidden])) { position: relative; grid-template-columns: 48px minmax(0, 1fr); }
   .jc-workspace.jc-sidebar-pinned { grid-template-columns: 300px minmax(0, 1fr); }
   .jc-workspace.jc-sidebar-pinned:has(.jc-listings-panel:not([hidden])) { grid-template-columns: clamp(320px, 25vw, 420px) minmax(0, 1fr); }
   .jc-sidebar-rail { display: flex; flex-direction: column; align-items: center; gap: 18px; height: 100%; background: #edf4f6; border-right: 1px solid var(--jc-border); padding: 8px 0; }
