@@ -1,3 +1,5 @@
+import { test as sidebarSetup } from '@playwright/test';
+sidebarSetup.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); });
 import { selectJobFeature } from './job-copy-navigation';
 /** Synthetic cross-record fixture E2E only. Different record IDs are kept separate;
  * these checks do not establish random assignment, causal effects or live auth. */
