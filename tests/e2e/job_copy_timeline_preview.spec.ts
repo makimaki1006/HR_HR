@@ -85,12 +85,13 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   await page.screenshot({ path: `${shots}/overview-1100.png` });
   await page.setViewportSize({ width: 1280, height: 900 });
 
-  await page.setViewportSize({ width: 375, height: 800 });
+  // 今回はユーザー指示に従い、パソコン幅のみ確認する。
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('button', { name: '一覧', exact: true }).click();
   await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
-  await page.screenshot({ path: `${shots}/timeline-375.png`, fullPage: true });
+  await page.screenshot({ path: `${shots}/timeline-1440.png`, fullPage: true });
   expect(requests).toEqual([]);
 });
 

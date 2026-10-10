@@ -24,7 +24,8 @@ test('joined HR Hacker metrics show exact rates, period delta and meaningful joi
   await page.goto('/app/job-copy');
   await selectJobFeature(page, 'performance');
   const metrics = page.getByRole('region', { name: 'HRハッカー課金・クリック実績', exact: true });
-  await expect(metrics).toContainText('01234567');
+  await expect(metrics).toContainText('HRハッカー · 合成分析求人');
+  await expect(metrics).not.toContainText(/01234567|求人ID/);
   const first = metrics.locator('tbody tr').first();
   await expect(first.locator('td').nth(2)).toHaveText('5%');
   await expect(first.locator('td').nth(4)).toHaveText('200円');
