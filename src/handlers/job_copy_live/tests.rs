@@ -1470,3 +1470,172 @@ async fn local_snapshot_is_reloaded_instead_of_using_cloud_cache() {
     assert!(access.snapshot_cache.lock().await.is_none());
     tokio::fs::remove_file(path).await.unwrap();
 }
+
+#[tokio::test]
+async fn job_copy_listings_auth_and_mock_contract() {
+    use tower::ServiceExt;
+    let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen = calls.clone();
+    let upstream = Router::new().fallback(any(move |req: Request<Body>| {
+        let seen = seen.clone();
+        async move {
+            let path = req.uri().path().to_owned();
+            let query = req.uri().query().unwrap_or("").to_owned();
+            seen.lock().unwrap().push(format!("{} {}?{}", req.method(), path, query));
+            let record = json!({"id":"10", "properties":{"hs_name":"合成配送求人", "id_hrhakkaa":"HR-10", "todoufuken":"大分県", "shikuchouson":"大分市", "hrh_kyuujinhyou_honbun":"Indeed表示職種名：配送ドライバー", "baitai_genjoukyou_hrhakkaa":"公開中"}});
+            let data = if path == "/crm/v3/objects/0-420" {
+                let cursor = query.split('&').find_map(|p| p.strip_prefix("after=")?.parse::<u64>().ok());
+                if cursor.is_some_and(|v| v >= 900) {
+                    json!({"results":[record],"paging":{"next":{"after":(cursor.unwrap()+1).to_string()}}})
+                } else if query.contains("after=") {json!({"results":[record]})}
+                else {json!({"results":[{"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師"}}],"paging":{"next":{"after":"11"}}})}
+            } else if path == "/crm/v4/associations/0-420/0-421/batch/read" {
+                assert_eq!(req.method(), Method::POST);
+                let body: Value = serde_json::from_slice(&to_bytes(req.into_body(), 4096).await.unwrap()).unwrap();
+                assert_eq!(body, json!({"inputs":[{"id":"10"}]}));
+                json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":21},{"toObjectId":22}]}]})
+            } else if path == "/crm/v3/objects/0-420/10" {
+                let mut record = record;
+                record["propertiesWithHistory"] = json!({"hrh_kyuujinhyou_honbun":[{"timestamp":"2026-10-01T00:00:00Z","value":"合成の旧本文"},{"timestamp":"2026-10-02T00:00:00Z","value":"合成の新本文"}]});
+                record
+            } else {panic!("unexpected upstream path: {path}");};
+            Json(data)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, upstream).await.unwrap();
+    });
+    let store = tower_sessions::MemoryStore::default();
+    let access = Access {
+        allowed: BTreeSet::from(["reader@example.test".into()]),
+        service: Some(Arc::new(JobReadService::for_test(base))),
+        moc_path: None,
+        moc_drive: Ok(None),
+        snapshot_reader: None,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
+        images: None,
+        drive_listings: BTreeSet::new(),
+        drive_config_error: None,
+    };
+    let file = tempfile::NamedTempFile::new().unwrap();
+    rusqlite::Connection::open(file.path()).unwrap().execute_batch("CREATE TABLE insight_title_pref (norm_title TEXT); INSERT INTO insight_title_pref VALUES ('ドライバー'), ('看護師');").unwrap();
+    let mut state = moc_state();
+    Arc::get_mut(&mut state).unwrap().indeed_db =
+        Some(crate::db::local_sqlite::LocalDb::new(file.path().to_str().unwrap()).unwrap());
+    let app = Router::new()
+        .route("/api/job-copy/listings", get(listings::read))
+        .route(
+            "/api/job-copy/listings/{id}/versions",
+            get(listings::read_versions),
+        )
+        .layer(Extension(access))
+        .with_state(state)
+        .layer(tower_sessions::SessionManagerLayer::new(store.clone()).with_secure(false));
+    for path in [
+        "/api/job-copy/listings",
+        "/api/job-copy/listings/10/versions",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body, json!({"code":"login_required"}));
+    }
+    assert!(calls.lock().unwrap().is_empty());
+    let session = Session::new(None, Arc::new(store), None);
+    session
+        .insert(SESSION_USER_KEY, "reader@example.test")
+        .await
+        .unwrap();
+    for method in ["password", LOGIN_METHOD_GOOGLE_OIDC] {
+        session
+            .insert(SESSION_LOGIN_METHOD_KEY, method)
+            .await
+            .unwrap();
+        session.save().await.unwrap();
+        let response = app.clone().oneshot(Request::builder().uri("/api/job-copy/listings?prefecture=%E5%A4%A7%E5%88%86%E7%9C%8C&title=%E3%83%89%E3%83%A9%E3%82%A4%E3%83%90%E3%83%BC&media=hrh").header("cookie", format!("id={}", session.id().unwrap())).body(Body::empty()).unwrap()).await.unwrap();
+        if method == "password" {
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert!(calls.lock().unwrap().is_empty());
+            continue;
+        }
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        let data: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(data["listings"].as_array().unwrap().len(), 1);
+        assert_eq!(data["listings"][0]["media_job_id"], "HR-10");
+        assert_eq!(data["listings"][0]["category"], "ドライバー");
+        assert_eq!(data["listings"][0]["application_count"], 2);
+        assert_eq!(data["next_after"], Value::Null);
+        assert_eq!(data["scanned"], 2);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/listings/10/versions")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let data: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+    assert_eq!(data["versions"][0]["body"], "合成の旧本文");
+    assert_eq!(
+        data["versions"][1]["written_at"],
+        "2026-10-02T00:00:00+00:00"
+    );
+    assert_eq!(data["history_counts"]["hrh_kyuujinhyou_honbun"], 2);
+    assert_eq!(data["history_may_be_incomplete"], true);
+    assert_eq!(calls.lock().unwrap().len(), 4);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/listings?after=900&media=airwork")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let data: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+    assert_eq!(data["listings"], json!([]));
+    assert_eq!(data["next_after"], "905");
+    assert_eq!(data["scanned"], 5);
+    assert_eq!(calls.lock().unwrap().len(), 9); // exactly five reads; no applicant read for an empty page
+    session
+        .insert(SESSION_USER_KEY, "outside@example.test")
+        .await
+        .unwrap();
+    session.save().await.unwrap();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/listings/10/versions")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(calls.lock().unwrap().len(), 9);
+    task.abort();
+}

@@ -23,6 +23,7 @@ use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
 mod listing_status;
+mod listings;
 
 #[derive(Debug)]
 pub struct ReadError(pub(super) StatusCode, pub(super) &'static str);
@@ -2056,6 +2057,8 @@ pub fn router() -> Router<Arc<AppState>> {
     let drive_listings = parsed_listings.unwrap_or_default();
     Router::new()
         .route("/api/job-copy/live", get(read))
+        .route("/api/job-copy/listings", get(listings::read))
+        .route("/api/job-copy/listings/{id}/versions", get(listings::read_versions))
         .route("/api/job-copy/moc", get(moc))
         .route("/api/job-copy/image", get(image))
         .route("/api/job-copy/snapshot-image", get(snapshot_image))
