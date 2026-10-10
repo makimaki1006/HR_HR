@@ -17,10 +17,15 @@ function sectionValue(current: CopyVersion | undefined, headings: readonly strin
   }
   return undefined;
 }
-/** 既存の組み立ては保険と手当を改行で同じ欄に転記する。項目に関係する行だけを比較する。 */
-function benefitValue(text: string, key: 'insurance' | 'allowances'): string {
-  const relevant = key === 'insurance' ? /保険|年金|退職金/ : /手当|交通費|旅費|賞与|ボーナス/;
-  return text.split(/\r?\n/).filter(line => relevant.test(line)).join('\n').trim();
+/** 共有欄では事実と同じ行のまとまりを先に探す。手当の名称では行を捨てない。 */
+function benefitValue(text: string, key: 'insurance' | 'allowances', fact: string): string {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const factLines = fact.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const matching = lines.findIndex((_, start) => factLines.every((line, offset) => normalize(lines[start + offset] ?? '') === normalize(line)));
+  if (matching >= 0) return lines.slice(matching, matching + factLines.length).join('\n');
+  // 一致しなかった場合も、取得できた待遇の文面を保持して違いを確認できるようにする。
+  const insuranceLine = /保険|年金|退職金/;
+  return lines.filter(line => key === 'insurance' ? insuranceLine.test(line) : !insuranceLine.test(line)).join('\n');
 }
 export function factDifferences(draft: DraftSnapshot, current: CopyVersion | undefined, location: string) {
   return facts.flatMap(([key, label, heading]) => {
@@ -29,7 +34,7 @@ export function factDifferences(draft: DraftSnapshot, current: CopyVersion | und
     const headings = key === 'holidays' ? ['休日', '休日・休暇'] : key === 'insurance' ? ['保険', '社会保険'] : [heading];
     const dedicated = sectionValue(current, headings);
     const shared = key === 'insurance' || key === 'allowances' ? sectionValue(current, ['福利厚生・待遇']) : undefined;
-    const value = dedicated ?? (shared !== undefined && (key === 'insurance' || key === 'allowances') ? benefitValue(shared, key) : key === 'work_location' && location !== '勤務地不明' ? location : '');
+    const value = dedicated ?? (shared !== undefined && (key === 'insurance' || key === 'allowances') ? benefitValue(shared, key, fact.value) : key === 'work_location' && location !== '勤務地不明' ? location : '');
     const leftPay = key === 'salary' ? parseSalaryText(value) : null;
     const rightPay = key === 'salary' ? parseSalaryText(fact.value) : null;
     const equalPay = key === 'salary' && leftPay?.kind !== '不明' && leftPay?.min !== null && rightPay?.kind !== '不明' && rightPay?.min !== null && sameSalary(leftPay, rightPay);

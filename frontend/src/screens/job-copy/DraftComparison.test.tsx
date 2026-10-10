@@ -95,6 +95,37 @@ describe('保存された求人の案', () => {
     expect(factDifferences(draft, prefix, '勤務地不明')).toMatchObject([{ key: 'allowances', current: '夜勤手当3,500円/回（月4回まで）', missing: false }]);
     expect(factDifferences(draft, currentFor(`${insurance}\n夜勤手当3,5000円/回`), '勤務地不明')).toHaveLength(1);
   });
+  it.each(['84項目', '本文', '表示用項目'])('%sでは手当の名称を限定せず金額と条件を比較する', representation => {
+    const insurance = '雇用保険 労災保険 健康保険 厚生年金';
+    const base = listingRecord(versionsFixture()).versions[0];
+    if (!base) throw new Error('比較する今の版がありません');
+    const currentFor = (text: string) => representation === '84項目'
+      ? draftVersion({ ...draftFixture(), row: { ...draftFixture().row, '自由項目2のタイトル': '福利厚生・待遇', '自由項目2の内容': text } }, 0)
+      : { ...base, body: `福利厚生・待遇：${text}`, bodySections: representation === '表示用項目' ? [{ heading: '福利厚生・待遇', text }] : [] };
+    const values = ['家賃補助20,000円/月', '祝い金20,000円', 'インセンティブ20,000円/月', '残業代20,000円/月', '住宅支援20,000円/月', '家賃補助20,000円/月\n祝い金20,000円'];
+    for (const value of values) {
+      const draft = { ...draftFixture(), facts: {
+        insurance: { value: insurance, evidence_quote: insurance, status: 'verified' },
+        allowances: { value, evidence_quote: value, status: 'verified' },
+      } };
+      for (const text of [`${insurance}\n${value}`, `${value}\r\n${insurance}\r\n制服貸与`]) {
+        expect(factDifferences(draft, currentFor(text), '勤務地不明')).toEqual([]);
+        render(<DraftFacts draft={draft} current={currentFor(text)} location="勤務地不明" />);
+        expect(screen.queryByRole('table')).toBeNull();
+        cleanup();
+      }
+      expect(factDifferences({ ...draft, facts: { allowances: draft.facts.allowances } }, currentFor(value), '勤務地不明')).toEqual([]);
+      for (const other of [value.replaceAll('20,000', '10,000'), `${value}（入社半年後から）`, value.replaceAll('20,000', '20,0000')]) {
+        const current = currentFor(`${insurance}\n${other}`);
+        expect(factDifferences(draft, current, '勤務地不明')).toEqual([expect.objectContaining({ key: 'allowances', current: other, fact: value, missing: false })]);
+        render(<DraftFacts draft={draft} current={current} location="勤務地不明" />);
+        expect(screen.getByRole('table').textContent).toContain(other);
+        expect(screen.getByRole('table').textContent).not.toContain('未取得');
+        cleanup();
+      }
+      expect(factDifferences(draft, currentFor(insurance), '勤務地不明')).toEqual([expect.objectContaining({ key: 'allowances', current: '未取得', missing: true })]);
+    }
+  });
   it('changing review sends explicit patch and applies returned status without changing published body', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'saved', draft: { ...draftFixture(), review_status: 'adopted' }, revision: 'b'.repeat(64) }), { status:200, headers:{'Content-Type':'application/json'} })); vi.stubGlobal('fetch', fetchMock);
     const saved = vi.fn(); const job = listingRecord(versionsFixture()); render(<DraftReview job={job} draft={draftFixture()} onSaved={saved} />);
