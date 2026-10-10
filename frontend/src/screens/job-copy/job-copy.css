@@ -292,3 +292,13 @@
   .jc-listings-panel > .jc-button { min-height: 28px; padding: 3px; font-size: 11px; }
 
 }
+
+.jc-rikurozi { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--jc-border, #cbd5e1); }
+.jc-rikurozi h3, .jc-rikurozi h4 { margin: 16px 0 8px; }
+.jc-rikurozi p, .jc-rikurozi li, .jc-rikurozi dd { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.jc-rikurozi ul { padding-left: 20px; }
+.jc-rikurozi li { margin-bottom: 10px; }
+.jc-rikurozi li span { display: block; }
+.jc-rikurozi dl > div { margin: 10px 0; }
+.jc-rikurozi dt { font-weight: 700; }
+.jc-rikurozi dd { margin: 4px 0; white-space: pre-wrap; }

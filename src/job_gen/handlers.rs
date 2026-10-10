@@ -239,7 +239,7 @@ async fn finish_journey_google_ads_budget() {
 ///
 /// env `KNOWLEDGE_DIR` (ng_words.json を含む階層) があればファイル、なければ埋め込み。
 /// 公開デプロイ (Render) ではファイル配置に依存せず埋め込みで動く。
-fn load_ng_rules() -> anyhow::Result<ng_words::NgRules> {
+pub(crate) fn load_ng_rules() -> anyhow::Result<ng_words::NgRules> {
     if let Ok(dir) = std::env::var("KNOWLEDGE_DIR") {
         if !dir.trim().is_empty() {
             let path = std::path::PathBuf::from(dir).join("ng_words.json");
@@ -388,7 +388,11 @@ fn missing_required_keys(schema: &Value, got: &Value) -> Vec<String> {
 /// 2 回目のプロンプトには、化けたキーを名指しで直す指示を足す。
 /// 同じプロンプトをそのまま投げ直すより当たる見込みがある
 /// （工程⑦の再生成も前回の問題点を足す作りになっている）。
-async fn jobgen_llm(prompt: &str, schema: &Value, temperature: f64) -> anyhow::Result<Value> {
+pub(crate) async fn jobgen_llm(
+    prompt: &str,
+    schema: &Value,
+    temperature: f64,
+) -> anyhow::Result<Value> {
     let key = gemini_api_key();
     anyhow::ensure!(!key.is_empty(), "GEMINI_API_KEY が未設定です");
     let model = gemini_model();
