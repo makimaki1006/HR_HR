@@ -28,6 +28,22 @@ describe('保存された求人の案', () => {
     expect(factDifferences(formatted, undefined, '勤務地不明')).toMatchObject([{ current: '未取得', missing: true }]);
     formatted.facts.salary.status = 'rejected'; expect(factDifferences(formatted, undefined, '勤務地不明')).toEqual([]);
   });
+  it.each(['本文', '表示用項目'])('%sの休日・休暇と休日を事実と比較する', representation => {
+    const draft = { ...draftFixture(), facts: { holidays: { value: '土日休み', evidence_quote: '休日は土日休み。', status: 'verified' } } };
+    const base = listingRecord(versionsFixture()).versions[0];
+    if (!base) throw new Error('比較する今の版がありません');
+    for (const heading of ['休日・休暇', '休日']) {
+      const current = { ...base, body: `${heading}：土日休み`, bodySections: representation === '表示用項目' ? [{ heading, text: '土日休み' }] : [] };
+      expect(factDifferences(draft, current, '勤務地不明')).toEqual([]);
+      const different = { ...current, body: `${heading}：日曜休み`, bodySections: representation === '表示用項目' ? [{ heading, text: '日曜休み' }] : [] };
+      expect(factDifferences(draft, different, '勤務地不明')).toMatchObject([{ key: 'holidays', current: '日曜休み', fact: '土日休み', missing: false }]);
+      render(<DraftFacts draft={draft} current={different} location="勤務地不明" />);
+      expect(screen.getByRole('table').textContent).toContain('日曜休み');
+      expect(screen.getByRole('table').textContent).toContain('土日休み');
+      expect(screen.getByRole('table').textContent).not.toContain('未取得');
+      cleanup();
+    }
+  });
   it('changing review sends explicit patch and applies returned status without changing published body', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'saved', draft: { ...draftFixture(), review_status: 'adopted' }, revision: 'b'.repeat(64) }), { status:200, headers:{'Content-Type':'application/json'} })); vi.stubGlobal('fetch', fetchMock);
     const saved = vi.fn(); const job = listingRecord(versionsFixture()); render(<DraftReview job={job} draft={draftFixture()} onSaved={saved} />);
