@@ -62,35 +62,37 @@ fn collect_env_vars_in_src(dir: &Path, out: &mut BTreeSet<String>) {
 /// `std::env::var("X")` / `env::var( "X" )` の両方を拾う。
 fn extract_env_var_names(src: &str) -> Vec<String> {
     let mut found = Vec::new();
-    let needle = "env::var(";
+    // File paths may contain non-UTF-8 bytes; their readers use var_os.
     let bytes = src.as_bytes();
-    let mut from = 0usize;
+    for needle in ["env::var(", "env::var_os("] {
+        let mut from = 0usize;
 
-    while let Some(rel) = src[from..].find(needle) {
-        let mut i = from + rel + needle.len();
-        // 開き括弧のあとの空白を飛ばす
-        while i < bytes.len() && (bytes[i] as char).is_whitespace() {
-            i += 1;
-        }
-        if i < bytes.len() && bytes[i] == b'"' {
-            i += 1;
-            let start = i;
-            while i < bytes.len() && bytes[i] != b'"' {
+        while let Some(rel) = src[from..].find(needle) {
+            let mut i = from + rel + needle.len();
+            // 開き括弧のあとの空白を飛ばす
+            while i < bytes.len() && (bytes[i] as char).is_whitespace() {
                 i += 1;
             }
-            if i <= bytes.len() {
-                let name = &src[start..i];
-                // 環境変数らしい形のものだけ(大文字・数字・アンダースコア)
-                if !name.is_empty()
-                    && name
-                        .chars()
-                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-                {
-                    found.push(name.to_string());
+            if i < bytes.len() && bytes[i] == b'"' {
+                i += 1;
+                let start = i;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += 1;
+                }
+                if i <= bytes.len() {
+                    let name = &src[start..i];
+                    // 環境変数らしい形のものだけ(大文字・数字・アンダースコア)
+                    if !name.is_empty()
+                        && name
+                            .chars()
+                            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                    {
+                        found.push(name.to_string());
+                    }
                 }
             }
+            from = from + rel + needle.len();
         }
-        from = from + rel + needle.len();
     }
     found
 }
@@ -189,10 +191,12 @@ fn 抽出ロジックそのものが動く() {
     let sample = r#"
         let a = std::env::var("FOO_BAR").unwrap_or_default();
         let b = env::var( "BAZ" ).ok();
+        let path = std::env::var_os("FOO_PATH");
         let c = env::var("not_upper");     // 環境変数らしくないので拾わない
         let d = some_other::var("QUX");    // env::var ではないので拾わない
     "#;
     let got = extract_env_var_names(sample);
+    assert!(got.contains(&"FOO_PATH".to_string()));
     assert!(
         got.contains(&"FOO_BAR".to_string()),
         "取れていない: {got:?}"
