@@ -144,7 +144,7 @@ export function BillingImportPanel({ records, applied, onApply, onClear }: {
               <th scope="row">{spec.label}{spec.required ? <span className="jc-billing-required">（必須）</span> : <span className="jc-muted">（任意）</span>}</th>
               <td><select aria-label={`${spec.label}の列`} value={column === undefined ? '' : String(column)} onChange={event => { changeColumn(spec.field, event.target.value); }}>
                 <option value="">使わない</option>
-                {headers.map((header, index) => <option key={`${String(index)}-${header}`} value={String(index)}>{BILLING_FIELDS.find(field => guessBillingColumns([header])[field.field] === 0)?.label ?? (header || `（${String(index + 1)}列目・見出しなし）`)}</option>)}
+                {headers.map((header, index) => <option key={`${String(index)}-${header}`} value={String(index)}>{header || `（${String(index + 1)}列目・見出しなし）`}</option>)}
               </select></td>
               <td>{spec.field === 'accountId' || spec.field === 'mediaJobId' ? sample ? '照合に使用（番号は表示しません）' : '未取得' : sample}</td>
             </tr>;
