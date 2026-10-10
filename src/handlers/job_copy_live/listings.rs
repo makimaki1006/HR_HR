@@ -533,6 +533,45 @@ fn versions(
     let may_be_incomplete = counts.values().any(|count| *count >= 20);
     Ok((result, counts, may_be_incomplete))
 }
+fn current_body(record: &Record, media: &str) -> Option<Value> {
+    let property = if media == "hrh" {
+        "hrh_kyuujinhyou_honbun"
+    } else {
+        "shigotonaiyou"
+    };
+    let body = record.value(property)?;
+    let images = if media == "hrh" {
+        record.value("hrh_kyuujinhyou_gazou").map(image_urls)
+    } else {
+        None
+    };
+    Some(json!({"checked_at":chrono::Utc::now().to_rfc3339(),"body":body,"image_urls":images}))
+}
+// Available observed images can accompany an AirWork body; never relabel them as historical images.
+async fn observed_images(record: &Record, access: &Access) -> Option<Value> {
+    use super::super::job_copy_image_bridge::{Pointer, PROPERTY};
+    let bridge = access.images.as_ref()?;
+    let pointer: Pointer = serde_json::from_str(record.value(PROPERTY)?).ok()?;
+    pointer.validate().ok()?;
+    let manifest = bridge.manifest(&pointer).await.ok()?;
+    if manifest.listing_id != record.id {
+        return None;
+    }
+    let company = manifest.company_ids.first()?;
+    bridge.authorize(company, &record.id).await.ok()?;
+    let mut ordered: Vec<_> = manifest.images.iter().collect();
+    ordered.sort_by_key(|image| image.slot);
+    let urls: Vec<_> = ordered
+        .iter()
+        .map(|image| {
+            format!(
+                "/api/job-copy/image?company_id={company}&listing_id={}&manifest_id={}&slot={}",
+                record.id, pointer.file_id, image.slot
+            )
+        })
+        .collect();
+    Some(json!({"observed_at":manifest.observed_at,"image_urls":urls}))
+}
 pub(super) async fn read_versions(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
@@ -545,7 +584,14 @@ pub(super) async fn read_versions(
         .request(
             &format!("/crm/v3/objects/0-420/{id}"),
             &[
-                ("properties", PROPERTIES.join(",")),
+                (
+                    "properties",
+                    format!(
+                        "{},{}",
+                        PROPERTIES.join(","),
+                        super::super::job_copy_image_bridge::PROPERTY
+                    ),
+                ),
                 (
                     "propertiesWithHistory",
                     "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou".into(),
@@ -568,10 +614,19 @@ pub(super) async fn read_versions(
         "listing_media_unknown",
     ))?;
     let (versions, counts, may_be_incomplete) = versions(&data, row.media)?;
+    let current = if versions
+        .iter()
+        .all(|version| version.body.trim().is_empty())
+    {
+        current_body(&record, row.media)
+    } else {
+        None
+    };
+    let current_images = observed_images(&record, &access).await;
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete}),
+            json!({"listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images}),
         ),
     ))
 }
@@ -815,5 +870,91 @@ mod tests {
             assert_eq!(counts["hrh_kyuujinhyou_gazou"], count);
             assert_eq!(incomplete, count >= 20);
         }
+    }
+    #[test]
+    fn job_copy_current_body_is_available_without_history_and_has_a_read_timestamp() {
+        let record: Record = serde_json::from_value(json!({"id":"42","properties":{"id_airwork":"AW-42","shigotonaiyou":"仕事内容：合成の看護業務\n給与：時給1800円"}})).unwrap();
+        assert!(versions(&json!({}), "airwork").unwrap().0.is_empty());
+        let current = current_body(&record, "airwork").unwrap();
+        assert_eq!(
+            current["body"],
+            "仕事内容：合成の看護業務\n給与：時給1800円"
+        );
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(current["checked_at"].as_str().unwrap()).is_ok()
+        );
+        assert!(current["image_urls"].is_null());
+        assert!(current_body(&record, "hrh").is_none());
+    }
+    #[tokio::test]
+    async fn job_copy_observed_images_require_verified_manifest_and_customer_relation() {
+        use crate::handlers::{
+            job_copy_drive::DriveReader,
+            job_copy_image_bridge::{ImageBridge, PROPERTY},
+        };
+        use axum::{body::Body, http::Request, routing::any};
+        use sha2::{Digest, Sha256};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let related = Arc::new(AtomicBool::new(true));
+        let date = "2026-10-10T00:00:00Z";
+        let manifest = json!({"schemaVersion":1,"listingId":"30","companyIds":["10"],"observedAt":date,"operationId":"a".repeat(64),"images":[{"slot":1,"fileId":"synthetic_image_001","sha256":"b".repeat(64),"mimeType":"image/png","size":100}]});
+        let raw = serde_json::to_vec(&manifest).unwrap();
+        let pointer = json!({"fileId":"synthetic_manifest_001","sha256":format!("{:x}", Sha256::digest(&raw)),"observedAt":date}).to_string();
+        let relation = related.clone();
+        let upstream = Router::new().fallback(any(move |request: Request<Body>| {
+            let raw = raw.clone(); let relation = relation.clone();
+            async move {
+                let path = request.uri().path();
+                match path {
+                    "/token" => Json(json!({"access_token":"synthetic-only","token_type":"Bearer","expires_in":3600})).into_response(),
+                    "/drive/v3/files/synthetic_manifest_001" => ([(header::CONTENT_TYPE,"application/json")], raw).into_response(),
+                    "/crm/v4/objects/companies/10/associations/deals" => {
+                        assert_eq!(request.method(), reqwest::Method::GET);
+                        Json(json!({"results":[{"toObjectId":"20"}]})).into_response()
+                    }
+                    "/crm/v4/objects/0-420/30/associations/deals" => Json(json!({"results":[{"toObjectId":if relation.load(Ordering::Relaxed) {"20"} else {"99"}}]})).into_response(),
+                    _ => panic!("unexpected mock read path"),
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+        let access = Access {
+            allowed: BTreeSet::new(),
+            service: None,
+            moc_path: None,
+            moc_drive: Ok(None),
+            snapshot_reader: None,
+            snapshot_cache: Arc::default(),
+            resolved_jobs: Arc::default(),
+            images: Some(Arc::new(ImageBridge::for_test(
+                &base,
+                Arc::new(DriveReader::for_test(&base)),
+            ))),
+            drive_listings: BTreeSet::new(),
+            drive_config_error: None,
+        };
+        let record = Record {
+            id: "30".into(),
+            properties: BTreeMap::from([(PROPERTY.into(), Some(pointer))]),
+        };
+        let observation = observed_images(&record, &access).await.unwrap();
+        assert_eq!(observation["observed_at"], date);
+        assert_eq!(observation["image_urls"][0], "/api/job-copy/image?company_id=10&listing_id=30&manifest_id=synthetic_manifest_001&slot=1");
+        related.store(false, Ordering::Relaxed);
+        assert!(observed_images(&record, &access).await.is_none());
+        assert!(observed_images(
+            &Record {
+                id: "31".into(),
+                ..record
+            },
+            &access
+        )
+        .await
+        .is_none());
+        task.abort();
     }
 }
