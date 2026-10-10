@@ -1,3 +1,4 @@
+import { composeHrhBody } from './hrhCopy';
 /**
  * Pull the pay condition out of a job body ("給与：月給250,000円〜280,000円").
  * There is no structured salary field, so this reads the labelled line only. When the line
@@ -89,21 +90,23 @@ export function parseSalaryText(text: string): SalaryInfo {
   if (min === null) return unreadable(raw);
   // A range is only "<amount> 〜 <amount>" written next to each other. A later amount (an allowance,
   // a training wage) is not the top of the range. A range that cannot be read is 不明, never one end.
-  let max = min;
+  let max: number | null = /^[〜~]$/.test(normalized.slice(first.end).trim()) && !adjacent ? null : min;
   if (adjacent) {
     if (second.value === null) return unreadable(raw);
     if (second.value >= min) max = second.value;
     else if (first.unit === 'none') return unreadable(raw);
   }
   const bounds = PLAUSIBLE[kind];
-  if (bounds && (min < bounds[0] || max > bounds[1])) return unreadable(raw);
+  if (bounds && (min < bounds[0] || (max !== null && max > bounds[1]))) return unreadable(raw);
+  if (!adjacent && /^まで$/.test(normalized.slice(first.end).trim())) return { kind, min: null, max: min, raw };
   return { kind, min, max, raw };
 }
 
 /** null when the body has no salary line. */
 export function extractSalary(body: string | null | undefined): SalaryInfo | null {
   if (!body) return null;
-  const lines = body.split(/\r?\n/);
+  const readable = /^基本給与 (最小|最大)：/m.test(body) || /^給与形態：/m.test(body) ? composeHrhBody(body) : body;
+  const lines = readable.split(/\r?\n/);
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index] ?? '';
     const match = LABEL.exec(line.normalize('NFKC'));
@@ -129,10 +132,11 @@ const man = (value: number) => `${(value / 10_000).toLocaleString('ja-JP', { max
 /** Short label for the timeline ("月給25万〜28万円", "時給1,100円", "日給12,000円"). */
 export function salaryLabel(info: SalaryInfo | null): string {
   if (!info) return '給与の記載なし';
-  if (info.kind === '不明' || info.min === null) return '不明';
+  if (info.kind === '不明') return '不明';
   const format = (value: number) => info.kind === '時給' || info.kind === '日給' ? value.toLocaleString('ja-JP') : man(value);
-  const range = info.max !== null && info.max !== info.min ? `${format(info.min)}〜${format(info.max)}` : format(info.min);
-  return `${info.kind}${range}円`;
+  if (info.min === null) return info.max === null ? '不明' : `${info.kind}${format(info.max)}円まで`;
+  const range = info.max === null ? `${format(info.min)}円〜` : info.max !== info.min ? `${format(info.min)}〜${format(info.max)}` : format(info.min);
+  return `${info.kind}${range}${info.max === null ? '' : '円'}`;
 }
 
 /** True when the line is the salary line (used to tell salary edits from other body edits). */

@@ -17,6 +17,7 @@ export interface CopyVersion {
   kind: 'published' | 'received' | 'ai_draft';
   source: string;
   body: string;
+  bodySections?: { heading: string; text: string }[];
   applications: { confirmed: number; estimated: number; unknown: number } | null;
   images?: CopyImage[];
   imageReferences?: { referenceHash: string; slot: number }[];
@@ -30,6 +31,7 @@ export interface CopyVersion {
 
 export interface JobCopyRecord {
   id: string;
+  currentImageObservation?: { observedAt: string; images: CopyImage[] };
   hubspotId?: string;
   dataSource?: 'hubspot';
   hubspotUrl?: string;
