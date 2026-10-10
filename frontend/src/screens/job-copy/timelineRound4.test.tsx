@@ -8,6 +8,9 @@
  * - 横断比較 not rebuilt on unrelated state changes;
  * - dummy billing (仮の課金データ（ダミー）) that is always labelled and never added to real billing.
  */
+import { beforeEach as pinSidebarBeforeEach, afterEach as clearSidebarAfterEach } from 'vitest';
+pinSidebarBeforeEach(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pinned'); });
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EChartProps } from '../../components/EChart';

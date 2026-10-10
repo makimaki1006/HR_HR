@@ -1,3 +1,5 @@
+import { test as sidebarSetup } from '@playwright/test';
+sidebarSetup.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); });
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { fixtureImage, fixtureHistory } from './job-copy-listings-fixture.mjs';

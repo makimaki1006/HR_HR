@@ -26,6 +26,9 @@ const result = {
   ],
 };
 export function registerRikuroziDraftTests() {
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'));
+});
 for (const width of [1440, 1920]) {
   test(`${width}px: selected HRハッカー creates a draft, checks unknown/similar and downloads`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
