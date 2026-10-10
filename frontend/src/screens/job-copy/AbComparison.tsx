@@ -34,7 +34,7 @@ function Variant({ label, job, version, scope, metric, onVersion, onMetric }: {
   const applicationItems = reasons?.available ? reasons.items.filter(item => APPLICATION_TEXT_SOURCES.includes(item.sourceProperty)) : [];
   const texts = applicationItems.filter(item => scope === 'record' || item.versionId === version?.id);
   return <section className="ab-variant" aria-label={`${label}求人の比較内容`}>
-    <h3>{label}：{job.title}</h3><p>{job.company} · {job.location} · {job.media}</p><p>媒体求人ID：{job.mediaJobId} / HubSpot ID：{job.hubspotId ?? '未接続'}</p>
+    <h3>{label}：{job.title}</h3><p>{job.company} · {job.location} · {job.media}</p>
     {job.hubspotUrl && <a href={job.hubspotUrl} target="_blank" rel="noreferrer">{label}のHubSpot求人を開く</a>}
     <label>{label}の本文の版<select value={version?.id ?? ''} onChange={event => { onVersion(event.target.value); }}><option value="">版を選択</option>{publishedVariants(job).map(item => <option key={item.id} value={item.id}>{item.label} · {formatDateJst(item.observedAt)}</option>)}</select></label>
     <p>応募数（{scope === 'record' ? '求人レコード全体' : '選んだ版に結びついた応募'}）：<strong>{number(variantCount(job, version, scope), '件')}</strong></p>
@@ -61,9 +61,9 @@ export function AbComparison({ job, records }: { job: JobCopyRecord; records: Jo
   const rowA = job.hrhPerformance?.rows.find(item => item.period_start === metricA); const rowB = other?.hrhPerformance?.rows.find(item => item.period_start === metricB);
   const periods = rowA && rowB ? compareMetricPeriods(rowA, rowB) : null;
   function chooseB(id: string) { const chosen = records.find(item => item.id === id); setOtherId(id); setVersionB(chosen ? publishedVariants(chosen).at(-1)?.id ?? '' : ''); setMetricB(''); setConfirmed(false); }
-  return <section className="ab-comparison" aria-label="2求人のA/B比較"><h2>2つの求人をA/B比較する</h2><p>求人IDや本文が違っても、同じ募集の比較対象として組み合わせられます。元のレコード・履歴・応募はそれぞれ保持します。</p>
+  return <section className="ab-comparison" aria-label="2求人のA/B比較"><h2>2つの求人をA/B比較する</h2><p>別の求人や文面でも、同じ募集の比較対象として組み合わせられます。元のレコード・履歴・応募はそれぞれ保持します。</p>
     <div className="ab-controls jc-no-print"><label>比較グループ名<input value={name} maxLength={120} placeholder="例：配送募集・画像の訴求比較" onChange={event => { setName(event.target.value); }} /></label><label>検証したい仮説<textarea value={hypothesis} maxLength={1000} rows={2} onChange={event => { setHypothesis(event.target.value); }} /></label>
-      <label>Bとして比較する求人<select value={otherId} onChange={event => { chooseB(event.target.value); }}><option value="">別の求人を選択</option>{records.filter(item => item.id !== job.id).map(item => <option key={item.id} value={item.id}>{item.company} · {item.title} · {item.mediaJobId}</option>)}</select></label>
+      <label>Bとして比較する求人<select value={otherId} onChange={event => { chooseB(event.target.value); }}><option value="">別の求人を選択</option>{records.filter(item => item.id !== job.id).map(item => <option key={item.id} value={item.id}>{item.company} · {item.title} · {item.media}</option>)}</select></label>
       <label><input type="checkbox" checked={confirmed} disabled={!other} onChange={event => { setConfirmed(event.target.checked); }} />同じ募集として比較する組み合わせを確認した</label>
       <label>応募の比較範囲<select value={scope} onChange={event => { setScope(event.target.value === 'version' ? 'version' : 'record'); }}><option value="record">求人レコード全体（取得済み応募）</option><option value="version">選択した本文の版（確定・推定の対応分）</option></select></label>
       <p className="jc-muted">比較設定はこの画面の中だけに残ります。再読み込み・求人の切り替えで消え、共有の保存はまだできません。</p>

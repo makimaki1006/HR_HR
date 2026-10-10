@@ -32,8 +32,8 @@ describe('cross-record A/B comparison', () => {
     render(<AbComparison job={a} records={[a, b, c]} />);
     expect(within(screen.getByLabelText('Bとして比較する求人')).queryByText(/募集a/)).toBeNull();
     fireEvent.change(screen.getByLabelText('Bとして比較する求人'), { target: { value: 'b' } });
-    expect(screen.getByLabelText('A求人の比較内容').textContent).toContain('01234567');
-    expect(screen.getByLabelText('B求人の比較内容').textContent).toContain('07654321');
+    expect(screen.getByLabelText('A求人の比較内容').textContent).toContain('募集a');
+    expect(screen.getByLabelText('B求人の比較内容').textContent).toContain('募集b');
     expect(screen.getByLabelText('B求人の比較内容').textContent).toContain('本文b');
     fireEvent.change(screen.getByLabelText('応募の比較範囲'), { target: { value: 'version' } });
     expect(screen.getByLabelText('A求人の比較内容').textContent).toContain('選んだ版に結びついた応募）：3件');

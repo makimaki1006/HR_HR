@@ -29,7 +29,7 @@ describe('BillingImportPanel', () => {
     upload('媒体,口座ログインID,媒体求人ID,期間開始,期間終了,金額（円・税込）\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-004,2026-09-01,2026-09-14,30000\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-002,2026-09-15,2026-09-30,45000\nAirワーク,DEMO-ACCOUNT-01,NOPE,2026-09-01,2026-09-14,1\nAirワーク,DEMO-ACCOUNT-01,DEMO-AIR-004,2026-09-01,2026-09-14,30000');
     await screen.findByText('2. 列の対応を確かめる');
     expect(screen.getByLabelText<HTMLSelectElement>('媒体の列').value).toBe('0');
-    expect(screen.getByLabelText<HTMLSelectElement>('店舗ID（HRハッカー）／口座ログインID（Airワーク）の列').value).toBe('1');
+    expect(screen.getByLabelText<HTMLSelectElement>('媒体の店舗番号／アカウントのログイン番号の列').value).toBe('1');
     expect(screen.getByLabelText<HTMLSelectElement>('金額（円）の列').value).toBe('5');
     expect(screen.getByLabelText<HTMLSelectElement>('金額の扱い').value).toBe('税込');
     fireEvent.click(screen.getByRole('button', { name: '求人と照合する' }));
@@ -58,11 +58,11 @@ describe('BillingImportPanel', () => {
     const button = screen.getByRole<HTMLButtonElement>('button', { name: '求人と照合する' });
     expect(button.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('媒体の列'), { target: { value: '0' } });
-    fireEvent.change(screen.getByLabelText('媒体求人IDの列'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('媒体の求人番号の列'), { target: { value: '2' } });
     fireEvent.change(screen.getByLabelText('金額（円）の列'), { target: { value: '5' } });
     // 店舗ID・口座ログインIDの列も必須（媒体求人IDだけでは結びつけない）
     expect(button.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('店舗ID（HRハッカー）／口座ログインID（Airワーク）の列'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('媒体の店舗番号／アカウントのログイン番号の列'), { target: { value: '1' } });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
     expect(within(screen.getByLabelText('照合結果の件数')).getByText('一致').nextElementSibling?.textContent).toBe('1行');
