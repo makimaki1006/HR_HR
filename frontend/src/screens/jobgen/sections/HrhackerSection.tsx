@@ -104,7 +104,7 @@ export function HrhackerSection({
           </div>
         </div>
       ) : null}
-      <h3 style={H3_STYLE}>生成5列（数値照合＋文字数＋NGワード）</h3>
+      <h3 style={H3_STYLE}>作成した文章（数値・文字数・表現を確認）</h3>
       <div className="genwrap">
         {genEntries.length ? (
           genEntries.map(([k, g]) => {
@@ -147,7 +147,7 @@ export function HrhackerSection({
           84列CSVをダウンロード
         </button>
         <span className="hint">
-          UTF-8 BOM付き・ヘッダ1行＋データ1行。検証を通らなかった生成列は空欄です。
+          Excelで開ける形式で、求人1件を保存します。確認を通らなかった文章は空欄で出力します。
         </span>
       </div>
       <h3 style={H3_STYLE}>出力内容の確認（{cols.length}項目）</h3>
