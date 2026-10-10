@@ -44,6 +44,61 @@ export function sidebarTests() {
     });
   }
 
+  for (const width of [1440, 1920]) {
+    test(`${width}px: HubSpot一覧をEsc・求人選択・固定解除で閉じても帯は48px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      const trigger = page.getByRole('button', { name: triggerName });
+      const panel = page.getByRole('complementary', { name: '求人一覧と絞り込み' });
+      const region = page.getByRole('region', { name: 'HubSpot の求人' });
+      async function openList() {
+        await page.mouse.move(width - 100, 500);
+        await trigger.hover();
+        await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        await expect(panel).toBeVisible();
+      }
+      async function expectFullDetail() {
+        const workspace = (await page.locator('.jc-workspace').boundingBox())!;
+        const detail = (await page.locator('.jc-main').boundingBox())!;
+        expect((await page.locator('.jc-sidebar-rail').boundingBox())!.width).toBe(48);
+        expect(detail.x - workspace.x).toBe(48);
+        expect(detail.width).toBe(width - 48);
+      }
+      const shots = path.resolve(__dirname, '../../docs/screenshots/job-copy-collapsible-sidebar');
+      async function screenshot(state: string) {
+        if (width !== 1440 || !process.env.JOB_COPY_SIDEBAR_SCREENSHOTS) return;
+        await expect.poll(() => page.locator('.jc-list').evaluate(element => getComputedStyle(element).opacity)).toBe(state === 'closed' ? '0' : '1');
+        await page.screenshot({ path: path.join(shots, `hubspot-${state}-1440.png`) });
+      }
+      await openList();
+      await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+      await expect(region.locator('.jc-job')).toHaveCount(40);
+      await expectFullDetail();
+      await page.keyboard.press('Escape');
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await expect(trigger).toBeFocused();
+      await expectFullDetail();
+      await openList();
+      await region.getByRole('button', { name: '配送ドライバー・大分1の版を見る' }).click();
+      // ポインターもフォーカスも一覧内にある選択操作で閉じることを確かめる。
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
+      await expectFullDetail();
+      await screenshot('closed');
+      await openList();
+      await expectFullDetail();
+      await screenshot('open');
+      await page.getByRole('button', { name: '固定', exact: true }).click();
+      const pinnedWidth = Math.min(420, Math.max(320, width * 0.25));
+      expect((await page.locator('.jc-sidebar').boundingBox())!.width).toBe(pinnedWidth);
+      expect((await page.locator('.jc-main').boundingBox())!.width).toBe(width - pinnedWidth);
+      await screenshot('pinned');
+      await page.getByRole('button', { name: '固定を解除', exact: true }).click();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      await expect(trigger).toBeFocused();
+      await expectFullDetail();
+    });
+  }
+
   test('Tab・Esc・外クリックと、マウスが少し離れたときの猶予', async ({ page }) => {
     const trigger = page.getByRole('button', { name: triggerName });
     await trigger.focus();
