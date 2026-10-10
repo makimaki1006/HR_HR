@@ -1,10 +1,13 @@
 //! Same ordered, unescaped CSV body reader as frontend/hrhCopy.ts.
 use std::{collections::HashMap, sync::LazyLock};
 static COLUMNS: LazyLock<Vec<String>> = LazyLock::new(|| {
-    serde_json::from_str(include_str!(
+    let mut columns: Vec<String> = serde_json::from_str(include_str!(
         "../../../frontend/src/screens/job-copy/hrhCopyColumns.json"
     ))
-    .expect("checked-in HRハッカー column list must be valid JSON")
+    .expect("checked-in HRハッカー column list must be valid JSON");
+    // Stored image bodies use the same ordered unescaped format.
+    columns.splice(1..1, ["画像1".into(), "画像2".into(), "画像3".into()]);
+    columns
 });
 struct Candidate<'a> {
     line: usize,

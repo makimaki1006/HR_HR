@@ -499,6 +499,8 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 
 ## 13. ドキュメント索引
 
+- [リクロジメディア向け求人案の計画](docs/architecture/rikurozi-draft-plan.md)
+
 ### マスター/index
 - [`CLAUDE.md`](CLAUDE.md) — ★ 本ファイル (マスターリファレンス)
 - [`docs/CLAUDE.md`](docs/CLAUDE.md) — docs/ 索引
