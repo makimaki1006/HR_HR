@@ -198,6 +198,7 @@ export interface PipelineState {
   titleHint: string;
   sourceText: string;
   jobs: NormalizedJob[];
+  selectedJobIndex: number | null;
   /** 職種名欄 (②市場分析で使用)。取り込み時に title_hint で初期化。 */
   jobTitle: string;
   /** 職種名で市場分析してよいとコンサルが確認したか (一括実行ゲート)。 */
@@ -259,6 +260,7 @@ export function initialState(): PipelineState {
     titleHint: '',
     sourceText: '',
     jobs: [],
+    selectedJobIndex: null,
     jobTitle: '',
     jobTitleConfirmed: false,
     facts: null,
@@ -294,6 +296,7 @@ export function initialState(): PipelineState {
 export function resetResults(s: PipelineState): PipelineState {
   return {
     ...s,
+    selectedJobIndex: null,
     facts: null,
     factsText: '',
     category: '',
@@ -358,5 +361,5 @@ export function strategyHint(s: PipelineState): string {
 
 /** 一括実行は「求人取り込み済み」かつ「職種名の確認済み」で解禁。 */
 export function canRunAll(s: PipelineState): boolean {
-  return !!s.sourceText && !s.running && s.jobTitleConfirmed;
+  return !!s.sourceText && !s.running && !s.normalizing && s.jobTitleConfirmed;
 }

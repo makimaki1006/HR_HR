@@ -8,7 +8,7 @@
  * - 横断比較 not rebuilt on unrelated state changes;
  * - dummy billing (仮の課金データ（ダミー）) that is always labelled and never added to real billing.
  */
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EChartProps } from '../../components/EChart';
 import { jobs } from './data';
@@ -156,7 +156,8 @@ describe('market data cache', () => {
       : Promise.resolve(marketData(path, ['2026-08', '2026-09'])));
     render(<JobTimeline job={{ ...demo('demo-job-001'), title: 'ドライバー' }} />);
     await screen.findByText(/^市場データは2026年9月まで（毎月更新）/u);
-    expect(charts.mounts).toBe(2);
+    // The month label can render before the market chart's mount effect has run.
+    await waitFor(() => { expect(charts.mounts).toBe(2); });
     fireEvent.change(screen.getByLabelText('職種'), { target: { value: '倉庫作業' } });
     // Still the same chart element while loading, with the loading note shown.
     expect(screen.getByTestId('jt-market')).toBeTruthy();
