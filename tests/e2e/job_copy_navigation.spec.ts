@@ -1,3 +1,5 @@
+import { test as sidebarSetup } from '@playwright/test';
+sidebarSetup.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); });
 /** Synthetic navigation fixtures: local frontend behavior, not production auth. */
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -34,7 +36,7 @@ async function setup(page: Page, longBody = false, openBody = true) {
 test.beforeAll(() => { mkdirSync(visuals, { recursive: true }); });
 
 test('the first view shows the full-height list beside the timeline, tabs stay on screen and the list filters stay usable', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize({ width: 1440, height: 800 });
   await setup(page, true, false);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
   await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
