@@ -1,3 +1,5 @@
+import { test as sidebarSetup } from '@playwright/test';
+sidebarSetup.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); });
 import { selectJobFeature } from './job-copy-navigation';
 // Synthetic applicant text fixture: this checks React behavior, not production
 // OIDC authorization or actual applicant motives. No real record text is logged.

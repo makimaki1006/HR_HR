@@ -1,3 +1,5 @@
+import { test as sidebarSetup } from '@playwright/test';
+sidebarSetup.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); });
 import { selectJobFeature } from './job-copy-navigation';
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
