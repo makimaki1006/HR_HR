@@ -30,6 +30,7 @@ export interface CopyVersion {
 
 export interface JobCopyRecord {
   id: string;
+  currentImageObservation?: { observedAt: string; images: CopyImage[] };
   hubspotId?: string;
   dataSource?: 'hubspot';
   hubspotUrl?: string;
