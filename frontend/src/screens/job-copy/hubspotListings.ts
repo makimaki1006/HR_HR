@@ -22,7 +22,7 @@ export function listingRecord(data: HubSpotVersions): JobCopyRecord {
   const row = data.listing;
   const copy = (body: string) => row.media === 'hrh' ? { body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
   return {
-    id: `hubspot-history-${row.id}`, hubspotId: row.id, dataSource: 'hubspot',
+    id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
     title: row.title ?? '求人名未取得', company: '取引先名未取得', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),
     location: [row.prefecture, row.municipality].filter(Boolean).join('') || '勤務地不明',

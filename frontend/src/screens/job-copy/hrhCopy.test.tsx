@@ -12,6 +12,11 @@ afterEach(cleanup);
 const body = '案件名：架空の配送求人\n仕事内容：\n日用品を届けます。\n例：朝に積み込みます。\nキャッチコピー：地域を支える仕事\n仕事情報補足1のタイトル：入社後の流れ\n仕事情報補足2のタイトル：職場の雰囲気\n仕事情報補足1の内容：先輩と同行します。\n仕事情報補足2の内容：チームで相談できます。\nIndeed表示職種名：ドライバー\n給与形態：月給\n基本給与 最小：250000\n基本給与 最大：280000\nタスクの所要時間：2\nタスクの単位：時間\n平均稼働時間：1日8時間\n平均稼働日数：月20日\n固定残業代：30000\n想定残業時間：月20時間\n条件付き給与1 条件：夜間勤務の場合\n条件付き給与1 深夜帯：22時〜5時\n条件付き給与1 最小給与：270000\n条件付き給与1 最大給与：300000\n給与補足：交通費支給\n試用・研修の有無：あり\n試用・研修時の雇用条件：給与が異なります\n試用・研修期の給与のタイプ：月給\n試用・研修期の基本給与 最小：240000\n試用・研修期の基本給与 最大：240000\n試用・研修期の平均稼働時間：1日8時間\n試用・研修の詳細情報：同乗研修2週間\n自由項目1のタイトル：休日・休暇\n自由項目1の内容：週休2日\n自由項目2の内容：制服貸与';
 const history: HubSpotVersions = { listing: { id: '42', media: 'hrh', media_job_id: 'SAMPLE42', account_id: null, title: '架空求人', prefecture: null, municipality: null, category: null, publication_status: null, last_csv_detected_at: null, application_count: null }, versions: [{ written_at: '2026-10-01T00:00:00Z', body, image_urls: [] }, { written_at: '2026-10-02T00:00:00Z', body: body.replace('基本給与 最小：250000', '基本給与 最小：260000'), image_urls: [] }], history_counts: {}, history_may_be_incomplete: false };
 describe('本番形式のHRハッカー求人票', () => {
+  it('keeps column-like lines inside a three-line description and the actual qualification', () => {
+    const sections = hrhCopySections('仕事内容：\nご案内\n応募資格：未経験可\n補足\n応募資格：普通免許');
+    expect(sections).toContainEqual({ heading: '仕事内容', text: 'ご案内\n応募資格：未経験可\n補足' });
+    expect(sections).toContainEqual({ heading: '応募資格', text: '普通免許' });
+  });
   it('pairs separated titles and contents, retains multiline descriptions, and uses applicant-facing headings', () => {
     const sections = hrhCopySections(body);
     expect(sections).toContainEqual({ heading: '仕事内容', text: '日用品を届けます。\n例：朝に積み込みます。' });

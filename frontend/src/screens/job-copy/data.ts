@@ -33,6 +33,7 @@ export interface JobCopyRecord {
   id: string;
   currentImageObservation?: { observedAt: string; images: CopyImage[] };
   hubspotId?: string;
+  historyMayBeIncomplete?: boolean;
   dataSource?: 'hubspot';
   hubspotUrl?: string;
   attributionUnknown?: number;

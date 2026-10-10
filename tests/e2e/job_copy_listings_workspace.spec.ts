@@ -130,3 +130,29 @@ test('390×844: mobile list shows at least four whole jobs, opens detail and ret
   await page.getByRole('button', { name: '一覧に戻る', exact: true }).click();
   await expect(list).toBeVisible();
 });
+
+test('390px: incomplete history warning stays visible in detail and raw IDs are absent', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await page.route('**/api/job-copy/listings/1/versions', route => route.fulfill({ json: { ...fixtureHistory('1'), versions: Array.from({ length: 20 }, (_, index) => ({ ...fixtureHistory('1').versions[index % 2], written_at: `2026-09-${String(index + 1).padStart(2, '0')}T00:00:00Z` })), history_may_be_incomplete: true, history_counts: { hrh_kyuujinhyou_honbun: 20, hrh_kyuujinhyou_gazou: 2 } } }));
+  await page.goto('/app/job-copy?demo=1');
+  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  const list = page.getByRole('region', { name: 'HubSpot の求人' });
+  await expect(list.getByRole('button', { name: /の版を見る$/ })).toHaveCount(40);
+  await list.getByRole('button', { name: '配送ドライバー・大分1の版を見る' }).click();
+  await expect(page.locator('.jc-main').getByText(/過去の版がすべて含まれているとは限りません/)).toBeVisible();
+  await expect(page.locator('.jc-main').getByText(/過去の版がすべて含まれているとは限りません/)).toBeInViewport();
+  await expect(page.locator('.jc-main')).not.toContainText(/HR-|HubSpot求人ID/);
+  await page.screenshot({ path: path.join(shots, 'history-warning-390.png') });
+});
+
+test('1440px: listing and detail do not expose raw IDs', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/app/job-copy?demo=1');
+  await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  const list = page.getByRole('region', { name: 'HubSpot の求人' });
+  await expect(list.getByRole('button', { name: /の版を見る$/ })).toHaveCount(40);
+  await expect(list).not.toContainText(/HR-|HubSpot求人ID/);
+  await list.getByRole('button', { name: '配送ドライバー・大分1の版を見る' }).click();
+  await expect(page.getByLabel('求人票')).toContainText('決まったルート');
+  await expect(page.locator('.jc-main')).not.toContainText(/HR-|HubSpot求人ID/);
+});
