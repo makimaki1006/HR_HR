@@ -1,3 +1,4 @@
+import type { DraftSnapshot } from '../../generated/DraftSnapshot';
 import type { CopyImage } from './images';
 import type { ApplicantDimension, ApplicantDistribution } from './applicantCompositionModel';
 import type { ApplicantReasonCollection } from './applicantReasonsModel';
@@ -9,6 +10,7 @@ import type { MediaPublicationState } from './mediaPublication';
 /** Fictional MOC fixtures. No HubSpot IDs, real employers, or applicant data. */
 export interface CopyVersion {
   id: string;
+  draft?: DraftSnapshot;
   label: string;
   observedAt: string;
   publishedFrom?: string;
@@ -30,6 +32,10 @@ export interface CopyVersion {
 }
 
 export interface JobCopyRecord {
+  draftRevision?: string | undefined;
+  canWriteDrafts?: boolean | undefined;
+  draftHistoryMayBeIncomplete?: boolean | undefined;
+  latestDraftId?: string | undefined;
   id: string;
   currentImageObservation?: { observedAt: string; images: CopyImage[] };
   hubspotId?: string;

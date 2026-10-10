@@ -337,6 +337,10 @@ pub struct AbResponse {
 /// 依存型 (FactField / NgViolation / GeneratedField / FillStats / UnassignedHint / NormalizedJob)
 /// も `export_all` が一緒に書き出す。
 pub fn export_ts(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    super::drafts::DraftOperationResponse::export_all(cfg)?;
+    super::drafts::DraftSnapshot::export_all(cfg)?;
+    super::drafts::SaveDraftRequest::export_all(cfg)?;
+    super::drafts::ReviewDraftRequest::export_all(cfg)?;
     JobgenErrorResponse::export_all(cfg)?;
     NormalizeRequest::export_all(cfg)?;
     NormalizeResponse::export_all(cfg)?;

@@ -22,6 +22,7 @@ use std::{
 use tower_sessions::Session;
 mod applicant_extensions;
 pub mod applicant_reasons;
+mod drafts;
 mod hrh_copy;
 mod listing_status;
 mod listings;
@@ -2077,6 +2078,23 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         parse_drive_listings(&std::env::var("JOB_COPY_DRIVE_LISTINGS").unwrap_or_default());
     let drive_config_error = parsed_listings.as_ref().err().copied();
     let drive_listings = parsed_listings.unwrap_or_default();
+    let access = Access {
+        allowed,
+        service,
+        images,
+        drive_listings,
+        drive_config_error,
+        snapshot_reader,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
+        moc_drive: snapshot_pointer(
+            std::env::var("JOB_COPY_MOC_DRIVE_FILE_ID").ok().as_deref(),
+            std::env::var("JOB_COPY_MOC_DRIVE_SHA256").ok().as_deref(),
+        ),
+        moc_path: std::env::var_os("JOB_COPY_MOC_PATH")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from),
+    };
     Router::new()
         .route("/api/job-copy/live", get(read))
         .route("/api/job-copy/listings", get(listings::read))
@@ -2089,23 +2107,8 @@ fn router_with_index(state: Option<&Arc<AppState>>) -> Router<Arc<AppState>> {
         .route("/api/job-copy/snapshot-image", get(snapshot_image))
         .route("/api/job-copy/market", get(super::job_copy_market::read))
         .route("/api/job-copy/listing-status", get(listing_status::read))
-        .layer(Extension(Access {
-            allowed,
-            service,
-            images,
-            drive_listings,
-            drive_config_error,
-            snapshot_reader,
-            snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
-            resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
-            moc_drive: snapshot_pointer(
-                std::env::var("JOB_COPY_MOC_DRIVE_FILE_ID").ok().as_deref(),
-                std::env::var("JOB_COPY_MOC_DRIVE_SHA256").ok().as_deref(),
-            ),
-            moc_path: std::env::var_os("JOB_COPY_MOC_PATH")
-                .filter(|path| !path.is_empty())
-                .map(PathBuf::from),
-        }))
+        .merge(drafts::router(state, access.clone()))
+        .layer(Extension(access))
 }
 
 #[cfg(test)]

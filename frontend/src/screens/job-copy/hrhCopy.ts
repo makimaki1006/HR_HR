@@ -1,4 +1,4 @@
-import columns from './hrhCopyColumns.json';
+import columns from '../../generated/jobgen/columns.json';
 /** HRハッカー compose_copy_body の列を、読みやすい求人票に組み直す。 */
 export interface BodySection { heading: string; text: string }
 const labels: Record<string, string> = {

@@ -293,6 +293,11 @@
 
 }
 
+.jc-draft-review, .jc-draft-facts { padding: 16px; margin: 12px 0; border: 1px solid #e5b64b; border-radius: 8px; background: var(--jc-surface, #fffdf5); }
+.jc-draft-review label { display: inline-flex; align-items: center; gap: 8px; margin-right: 12px; }
+.jc-draft-facts table { width: 100%; border-collapse: collapse; }
+.jc-draft-facts th, .jc-draft-facts td { text-align: left; padding: 12px; border-bottom: 1px solid #e4d8ba; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jc-draft-facts th small { display: block; color: #9b3f00; }
 /* 一覧の中身は残し、通常は細い帯から開く。 */
 .jc-sidebar { display: contents; }
 .jc-sidebar-rail, .jc-sidebar-actions { display: none; }

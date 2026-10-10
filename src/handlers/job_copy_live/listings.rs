@@ -583,14 +583,18 @@ pub(super) async fn read_versions(
                 (
                     "properties",
                     format!(
-                        "{},{}",
+                        "{},{},{}",
                         PROPERTIES.join(","),
-                        super::super::job_copy_image_bridge::PROPERTY
+                        super::super::job_copy_image_bridge::PROPERTY,
+                        crate::job_gen::drafts::PROPERTIES.join(",")
                     ),
                 ),
                 (
                     "propertiesWithHistory",
-                    "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou".into(),
+                    format!(
+                        "hrh_kyuujinhyou_honbun,hrh_kyuujinhyou_gazou,shigotonaiyou,{}",
+                        crate::job_gen::drafts::FACTS
+                    ),
                 ),
             ],
             None,
@@ -619,10 +623,13 @@ pub(super) async fn read_versions(
         None
     };
     let current_images = observed_images(&record, &access).await;
+    let (drafts, draft_history_may_be_incomplete) = crate::job_gen::drafts::history(&data);
+    let draft_revision = crate::job_gen::drafts::revision(&record.properties);
+    let can_write_drafts = state.audit.is_some() && super::drafts::Writes::from_env().allows(&id);
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images}),
+            json!({"listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
         ),
     ))
 }
