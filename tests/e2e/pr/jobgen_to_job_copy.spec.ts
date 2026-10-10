@@ -5,9 +5,9 @@ import columns from '../../../frontend/src/generated/jobgen/columns.json';
 import fs from 'node:fs';
 import path from 'node:path';
 const directory = path.resolve('docs/screenshots/jobgen-to-job-copy');
-const source = '架空配送スタッフ\n給与は月給270,000円〜300,000円です。\n勤務地は大分県大分市です。\n土日休みです。\n通勤手当（上限20,000円／月）があります。';
-const facts = { salary:{value:'月給270,000円〜300,000円',evidence_quote:'給与は月給270,000円〜300,000円です。',status:'verified'},work_location:{value:'大分県大分市',evidence_quote:'勤務地は大分県大分市です。',status:'verified'},holidays:{value:'土日休み',evidence_quote:'土日休みです。',status:'verified'},allowances:{value:'通勤手当（上限20,000円／月）',evidence_quote:'通勤手当（上限20,000円／月）があります。',status:'verified'} };
-const row = {...Object.fromEntries(columns.map(column => [column,''])), '案件名':'架空配送スタッフ','仕事内容':'日用品を配送します。','給与形態':'月給','基本給与 最小':'270000','基本給与 最大':'300000','自由項目2のタイトル':'福利厚生・待遇','自由項目2の内容':'通勤手当（上限20,000円／月）','求人id':'hidden-job-123','店舗id':'hidden-shop-456','職種id':'hidden-role-42'};
+const source = '架空配送スタッフ\n給与は月給270,000円〜300,000円です。\n勤務地は大分県大分市です。\n土日休みです。\n雇用保険 労災保険 健康保険 厚生年金に加入します。\n夜勤手当3,500円/回があります。';
+const facts = { salary:{value:'月給270,000円〜300,000円',evidence_quote:'給与は月給270,000円〜300,000円です。',status:'verified'},work_location:{value:'大分県大分市',evidence_quote:'勤務地は大分県大分市です。',status:'verified'},holidays:{value:'土日休み',evidence_quote:'土日休みです。',status:'verified'},insurance:{value:'雇用保険 労災保険 健康保険 厚生年金',evidence_quote:'雇用保険 労災保険 健康保険 厚生年金に加入します。',status:'verified'},allowances:{value:'夜勤手当3,500円/回',evidence_quote:'夜勤手当3,500円/回があります。',status:'verified'} };
+const row = {...Object.fromEntries(columns.map(column => [column,''])), '案件名':'架空配送スタッフ','仕事内容':'日用品を配送します。','給与形態':'月給','基本給与 最小':'270000','基本給与 最大':'300000','自由項目2のタイトル':'福利厚生・待遇','自由項目2の内容':'雇用保険 労災保険 健康保険 厚生年金\n夜勤手当3,500円/回','求人id':'hidden-job-123','店舗id':'hidden-shop-456','職種id':'hidden-role-42'};
 function draft(id = '10000000-0000-4000-8000-000000000001', date = '2026-10-11T00:00:00Z', status = 'pending') { return {schema_version:1,draft_id:id,created_at:date,source_kind:'free_text',review_status:status,row,facts}; }
 async function mock(page: Page, options: { allowed?: boolean; queued?: boolean } = {}) {
   const writes: { method: string; body: any }[] = [];
@@ -16,7 +16,7 @@ async function mock(page: Page, options: { allowed?: boolean; queued?: boolean }
   let revision = 'a'.repeat(64);
   let operation = '';
   const listing = {id:'30',media:'hrh',media_job_id:'hidden-hrh-999',account_id:null,title:'架空配送スタッフ',prefecture:'大分県',municipality:'別府市',category:'配送ドライバー',publication_status:'掲載中',last_csv_detected_at:null,application_count:null};
-  const published = '案件名：架空配送スタッフ\n仕事内容：日用品を配送します。\n給与形態：月給\n基本給与 最小：250000\n基本給与 最大：280000\n自由項目1のタイトル：休日・休暇\n自由項目2のタイトル：福利厚生・待遇\n自由項目1の内容：土日休み\n自由項目2の内容：通勤手当（上限20,000円／月）';
+  const published = '案件名：架空配送スタッフ\n仕事内容：日用品を配送します。\n給与形態：月給\n基本給与 最小：250000\n基本給与 最大：280000\n自由項目1のタイトル：休日・休暇\n自由項目2のタイトル：福利厚生・待遇\n自由項目1の内容：土日休み\n自由項目2の内容：雇用保険 労災保険 健康保険 厚生年金\n夜勤手当3,500円/回';
   await page.route('**/api/jobgen/*', route => {
     const step = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
     const values: Record<string, unknown> = {...fixtures.responses,normalize:{status:'ok',jobs:[{title_hint:'配送ドライバー',source_text:source}]},extract:{...fixtures.responses.extract,facts},hrhacker:{...fixtures.responses.hrhacker,row}};
@@ -48,9 +48,10 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
     if (width === 1440) { fs.mkdirSync(directory,{recursive:true}); await page.getByRole('heading',{name:'作った案を求人に保存'}).scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'01-save-1440.png')}); }
     await page.getByRole('link',{name:'求人文面管理で今の版と案を比べる'}).click(); await expect(page.locator('.jc-comparison')).toBeVisible();
     await expect(page.getByLabel('比較元', {exact:true})).toHaveValue('hubspot-history-30-0'); await expect(page.getByLabel('比較先',{exact:true})).toHaveValue(`hubspot-draft-${writes[0].body.operation_id}`);
-    await expect(page.locator('.jc-draft-facts')).toContainText('月給 250,000円〜280,000円'); await expect(page.locator('.jc-draft-facts')).toContainText('月給270,000円〜300,000円'); await expect(page.locator('.jc-draft-facts')).toContainText('大分県別府市'); await expect(page.locator('.jc-draft-facts')).toContainText('大分県大分市'); await expect(page.locator('.jc-draft-facts table')).not.toContainText('休日'); await expect(page.locator('.jc-draft-facts table')).not.toContainText('手当');
+    await expect(page.locator('.jc-draft-facts')).toContainText('月給 250,000円〜280,000円'); await expect(page.locator('.jc-draft-facts')).toContainText('月給270,000円〜300,000円'); await expect(page.locator('.jc-draft-facts')).toContainText('大分県別府市'); await expect(page.locator('.jc-draft-facts')).toContainText('大分県大分市'); await expect(page.locator('.jc-draft-facts table')).not.toContainText('休日'); await expect(page.locator('.jc-draft-facts table')).not.toContainText('手当'); await expect(page.locator('.jc-draft-facts table')).not.toContainText('保険');
     await expect(page.locator('.jc-mark-added').first()).toBeVisible(); await expect(page.locator('.jc-mark-removed').first()).toBeVisible();
     if (width === 1440) { await page.locator('#job-copy-text-diff').scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'03-text-diff-1440.png')}); }
+    if (width === 1440) { await page.locator('.jc-diff-lines').scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'04-combined-benefits-1440.png')}); }
      const diffText = await page.locator('.jc-diff-lines').innerText(); expect(diffText).toContain('270,000円'); expect(diffText).not.toMatch(/hidden-|基本給与|給与形態|求人id|店舗id/);
     if (width === 1440) { await page.locator('.jc-draft-review').scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'02-compare-1440.png')}); }
     await page.getByLabel('比較先',{exact:true}).selectOption('hubspot-draft-20000000-0000-4000-8000-000000000002'); await expect(page.locator('.jc-draft-review')).toContainText('過去の案です'); await expect(page.getByRole('button',{name:'確認状態を保存'})).toHaveCount(0);
