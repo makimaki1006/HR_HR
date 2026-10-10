@@ -44,6 +44,27 @@ describe('保存された求人の案', () => {
       cleanup();
     }
   });
+  it.each(['84項目', '本文', '表示用項目'])('%sの福利厚生・待遇と手当を事実と比較する', representation => {
+    const value = '通勤手当（上限20,000円／月）';
+    const other = '通勤手当（上限10,000円／月）';
+    const draft = { ...draftFixture(), facts: { allowances: { value, evidence_quote: value, status: 'verified' } } };
+    const base = listingRecord(versionsFixture()).versions[0];
+    if (!base) throw new Error('比較する今の版がありません');
+    for (const heading of ['福利厚生・待遇', '手当']) {
+      const currentFor = (text: string) => representation === '84項目'
+        ? draftVersion({ ...draftFixture(), row: { ...draftFixture().row, '自由項目2のタイトル': heading, '自由項目2の内容': text } }, 0)
+        : { ...base, body: `${heading}：${text}`, bodySections: representation === '表示用項目' ? [{ heading, text }] : [] };
+      expect(factDifferences(draft, currentFor(value), '勤務地不明')).toEqual([]);
+      const different = currentFor(other);
+      expect(factDifferences(draft, different, '勤務地不明')).toMatchObject([{ key: 'allowances', current: other, fact: value, missing: false }]);
+      render(<DraftFacts draft={draft} current={different} location="勤務地不明" />);
+      expect(screen.getByRole('table').textContent).toContain(other);
+      expect(screen.getByRole('table').textContent).toContain(value);
+      expect(screen.getByRole('table').textContent).not.toContain('未取得');
+      cleanup();
+    }
+    expect(factDifferences(draft, { ...base, body: '', bodySections: [] }, '勤務地不明')).toMatchObject([{ current: '未取得', missing: true }]);
+  });
   it('changing review sends explicit patch and applies returned status without changing published body', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'saved', draft: { ...draftFixture(), review_status: 'adopted' }, revision: 'b'.repeat(64) }), { status:200, headers:{'Content-Type':'application/json'} })); vi.stubGlobal('fetch', fetchMock);
     const saved = vi.fn(); const job = listingRecord(versionsFixture()); render(<DraftReview job={job} draft={draftFixture()} onSaved={saved} />);

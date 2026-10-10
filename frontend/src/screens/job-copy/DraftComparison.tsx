@@ -11,7 +11,7 @@ export function factDifferences(draft: DraftSnapshot, current: CopyVersion | und
   return facts.flatMap(([key, label, heading]) => {
     const fact = draft.facts[key];
     if (fact?.status !== 'verified' || !fact.value.trim()) return [];
-    const headings = key === 'holidays' ? ['休日', '休日・休暇'] : [heading];
+    const headings = key === 'holidays' ? ['休日', '休日・休暇'] : key === 'allowances' ? ['手当', '福利厚生・待遇'] : [heading];
     const value = current?.bodySections?.find(section => headings.includes(section.heading))?.text ?? (current?.body.match(new RegExp(`(?:^|\\n)(?:${headings.join('|')})[：:]([^\\n]+)`))?.[1] ?? (key === 'work_location' && location !== '勤務地不明' ? location : ''));
     const leftPay = key === 'salary' ? parseSalaryText(value) : null;
     const rightPay = key === 'salary' ? parseSalaryText(fact.value) : null;
