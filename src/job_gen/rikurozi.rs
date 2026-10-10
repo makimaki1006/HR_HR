@@ -273,6 +273,14 @@ fn numeric_claims(text: &str) -> Vec<NumericClaim> {
             } else {
                 1.0
             };
+            if unit == "時刻" {
+                out[index].value = out[index]
+                    .value
+                    .parse::<u32>()
+                    .ok()
+                    .and_then(|h| h.checked_mul(60))
+                    .map_or_else(|| "不明".into(), |m| m.to_string());
+            }
             if unit == "円" {
                 out[index].value =
                     (out[index].value.parse::<f64>().unwrap_or(f64::NAN) * multiplier).to_string();
@@ -301,6 +309,118 @@ fn clock_pairs(text: &str) -> BTreeSet<(String, String)> {
         .windows(2)
         .map(|pair| (pair[0].value.clone(), pair[1].value.clone()))
         .collect()
+}
+
+fn clause_boundary(c: char) -> bool {
+    matches!(c, '。' | '！' | '？' | ';' | '\n' | '、')
+}
+fn nearby_context(chars: &[char], begin: usize, end: usize, prefix: bool) -> String {
+    let text: String = chars[begin..end].iter().collect();
+    if prefix {
+        text.rsplit(clause_boundary).next().unwrap_or("").into()
+    } else {
+        text.split(clause_boundary).next().unwrap_or("").into()
+    }
+}
+// 時刻の役割が曖昧な単独表記は確認に回す。
+fn clock_role(prefix: &str, suffix: &str) -> (bool, bool) {
+    let start_words = ["開始", "始業", "出勤"];
+    let end_words = ["終了", "終業", "退勤"];
+    let start = suffix.starts_with("から")
+        || suffix.starts_with("より")
+        || start_words
+            .iter()
+            .any(|word| prefix.contains(word) || suffix.contains(word));
+    let end = suffix.starts_with("まで")
+        || end_words
+            .iter()
+            .any(|word| prefix.contains(word) || suffix.contains(word));
+    (start, end)
+}
+fn clock_role_mismatch(source: &str, text: &str) -> bool {
+    let original = numeric_claims(source);
+    let original: Vec<_> = original.iter().filter(|c| c.unit == "時刻").collect();
+    let mut starts = BTreeSet::new();
+    let mut ends = BTreeSet::new();
+    for pair in original.chunks_exact(2) {
+        starts.insert(pair[0].value.as_str());
+        ends.insert(pair[1].value.as_str());
+    }
+    let chars: Vec<_> = normalized(text).chars().collect();
+    let generated = numeric_claims(text);
+    let clocks: Vec<_> = generated.iter().filter(|c| c.unit == "時刻").collect();
+    for (index, claim) in clocks.iter().enumerate() {
+        let prefix = nearby_context(
+            &chars,
+            index.checked_sub(1).map_or(0, |i| clocks[i].end),
+            claim.start,
+            true,
+        );
+        let suffix = nearby_context(
+            &chars,
+            claim.end,
+            clocks.get(index + 1).map_or(chars.len(), |c| c.start),
+            false,
+        );
+        let (start, end) = clock_role(&prefix, suffix.trim_start_matches('分'));
+        if start && !starts.contains(claim.value.as_str())
+            || end && !ends.contains(claim.value.as_str())
+            || clocks.len() == 1 && !start && !end
+        {
+            return true;
+        }
+    }
+    false
+}
+fn money_purpose(context: &str) -> Option<&'static str> {
+    // 用途も一致させる。補足の金額を通常給与や別の手当に流用しない。
+    [
+        "交通費",
+        "通勤手当",
+        "住宅手当",
+        "家族手当",
+        "食事手当",
+        "資格手当",
+        "皆勤手当",
+        "賞与",
+        "ボーナス",
+    ]
+    .into_iter()
+    .find(|purpose| context.contains(purpose))
+}
+fn supplement_matches(source: &Source, purpose: &str, claim: &NumericClaim, trial: bool) -> bool {
+    ["給与補足", "試用・研修の詳細情報"]
+        .into_iter()
+        .any(|column| {
+            let Some(text) = source.row.get(column) else {
+                return false;
+            };
+            let chars: Vec<_> = normalized(text).chars().collect();
+            let original = numeric_claims(text);
+            let amounts: Vec<_> = original.iter().filter(|c| c.unit == "円").collect();
+            amounts.iter().enumerate().any(|(index, amount)| {
+                let prefix = nearby_context(
+                    &chars,
+                    index.checked_sub(1).map_or(0, |i| amounts[i].end),
+                    amount.start,
+                    true,
+                );
+                let suffix = nearby_context(
+                    &chars,
+                    amount.end,
+                    amounts.get(index + 1).map_or(chars.len(), |c| c.start),
+                    false,
+                );
+                let amount_trial = column == "試用・研修の詳細情報"
+                    || prefix.contains("研修")
+                    || prefix.contains("試用");
+                amount_trial == trial
+                    && amount.value == claim.value
+                    && (money_purpose(&prefix) == Some(purpose)
+                        || money_purpose(&prefix).is_none()
+                            && money_purpose(&suffix) == Some(purpose))
+            })
+        })
 }
 
 fn numeric_source(source: &Source) -> String {
@@ -342,24 +462,81 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
     }
     // 開始・終了の順序を保つ。夜勤の翌日終了も原本の順序で照合する。
     let working_hours = source.row.get("勤務時間").map(String::as_str).unwrap_or("");
-    if !clock_pairs(text).is_subset(&clock_pairs(working_hours)) {
+    if !clock_pairs(text).is_subset(&clock_pairs(working_hours))
+        || clock_role_mismatch(working_hours, text)
+    {
         return true;
+    }
+    // 金額と別の文に書かれた給与形態も、原本にない形態なら要確認。
+    for kind in ["時給", "日給", "月給", "年俸"] {
+        if text.contains(kind)
+            && !["給与形態", "試用・研修期の給与のタイプ"]
+                .iter()
+                .any(|column| {
+                    source
+                        .row
+                        .get(*column)
+                        .is_some_and(|value| value.contains(kind))
+                })
+        {
+            return true;
+        }
     }
     // 各金額の直前の文脈を確認。別の文の「研修」を通常給与に適用しない。
     let chars: Vec<_> = normalized(text).chars().collect();
     let mut previous_end = 0;
     let mut trial = false;
-    for claim in numeric_claims(text).into_iter().filter(|c| c.unit == "円") {
+    let all_claims = numeric_claims(text);
+    let amounts: Vec<_> = all_claims.iter().filter(|c| c.unit == "円").collect();
+    let mut previous_purpose = None;
+    for (index, claim) in amounts.iter().enumerate() {
         let prefix: String = chars[previous_end..claim.start].iter().collect();
-        let context = prefix
-            .rsplit(['。', '！', '？', ';', '\n'])
-            .next()
-            .unwrap_or("");
+        let context = nearby_context(&chars, previous_end, claim.start, true);
+        let suffix = nearby_context(
+            &chars,
+            claim.end,
+            amounts.get(index + 1).map_or(chars.len(), |c| c.start),
+            false,
+        );
+        // 後続の別の給与説明に入り込まない範囲で、金額の後ろも確認する。
+        let suffix_end = ["研修", "試用", "通常", "本採用"]
+            .into_iter()
+            .filter_map(|marker| suffix.find(marker))
+            .min()
+            .unwrap_or(suffix.len());
+        let suffix = &suffix[..suffix_end];
         if context != prefix || context.contains("通常") || context.contains("本採用") {
             trial = false;
         }
         if context.contains("研修") || context.contains("試用") {
             trial = true;
+        }
+        let purpose = money_purpose(&context)
+            .or_else(|| {
+                is_range_separator(&context)
+                    .then_some(previous_purpose)
+                    .flatten()
+            })
+            .or_else(|| {
+                (!context.contains("給与")
+                    && !context.contains("給料")
+                    && !["時給", "月給", "日給", "年俸"]
+                        .iter()
+                        .any(|kind| context.contains(kind)))
+                .then(|| money_purpose(suffix))
+                .flatten()
+            });
+        previous_purpose = purpose;
+        if let Some(purpose) = purpose {
+            if !supplement_matches(source, purpose, claim, trial)
+                || ["時給", "日給", "月給", "年俸"]
+                    .iter()
+                    .any(|kind| context.contains(kind) || suffix.contains(kind))
+            {
+                return true;
+            }
+            previous_end = claim.end;
+            continue;
         }
         let kind_column = if trial {
             "試用・研修期の給与のタイプ"
@@ -372,7 +549,9 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
             .filter(|v| !v.is_empty())
             .or_else(|| source.row.get("給与形態"));
         for salary_kind in ["時給", "日給", "月給", "年俸"] {
-            if context.contains(salary_kind) && kind.is_none_or(|v| !v.contains(salary_kind)) {
+            if (context.contains(salary_kind) || suffix.contains(salary_kind))
+                && kind.is_none_or(|v| !v.contains(salary_kind))
+            {
                 return true;
             }
         }
@@ -399,7 +578,7 @@ fn numeric_mismatch(source: &Source, text: &str) -> bool {
             .map(|(_, value)| format!("{value}円"))
             .collect::<Vec<_>>()
             .join("\n");
-        if !claims(&salary).contains(&(claim.value, claim.unit)) {
+        if !claims(&salary).contains(&(claim.value.clone(), claim.unit.clone())) {
             return true;
         }
         previous_end = claim.end;
@@ -693,6 +872,101 @@ mod tests {
             assert_eq!(draft.generated[1].review, review, "{text}");
             assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
             assert_eq!(row(&draft.csv)["勤務時間"], "22:30〜6:15");
+        }
+    }
+    #[test]
+    fn second_review_single_clock_checks_start_and_end_roles() {
+        for (text, review) in [
+            ("18時から働きます", true),
+            ("9時まで働きます", true),
+            ("勤務開始は18時です", true),
+            ("9時に勤務終了です", true),
+            ("9時から働きます", false),
+            ("18時まで働きます", false),
+            ("始業は9時です", false),
+            ("18時に退勤します", false),
+        ] {
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&source(), &raw, 0.35).unwrap();
+            assert_eq!(draft.generated[1].review, review, "{text}");
+            assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
+            assert_eq!(row(&draft.csv)["勤務時間"], "9:00〜18:00（休憩60分）");
+        }
+    }
+    #[test]
+    fn second_review_salary_kind_after_amount_is_checked() {
+        for (text, review) in [
+            ("給与は1200円の月給制です", true),
+            ("給与は1200円の日給制です", true),
+            ("給与は1200円の年俸制です", true),
+            ("給与は1200円の時給制です", false),
+            ("給与は1200円。月給制です", true),
+        ] {
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&source(), &raw, 0.35).unwrap();
+            assert_eq!(draft.generated[1].review, review, "{text}");
+            assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
+            assert_eq!(row(&draft.csv)["給与形態"], "時給");
+        }
+    }
+    #[test]
+    fn second_review_supplement_money_is_bound_to_its_purpose() {
+        let mut source = source();
+        source
+            .row
+            .insert("給与補足".into(), "交通費500円支給".into());
+        source.body.push_str("\n給与補足：交通費500円支給");
+        source
+            .row
+            .insert("試用・研修の詳細情報".into(), "交通費400円支給".into());
+        source
+            .body
+            .push_str("\n試用・研修の詳細情報：交通費400円支給");
+        for (text, review) in [
+            ("交通費500円支給", false),
+            ("500円の交通費を支給", false),
+            ("時給1200円、交通費500円支給", false),
+            ("交通費600円支給", true),
+            ("給与は500円です", true),
+            ("賞与500円支給", true),
+            ("交通費500円の時給制です", true),
+            ("交通費400円支給", true),
+            ("研修中は交通費400円支給", false),
+            ("研修中は交通費500円支給", true),
+        ] {
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&source, &raw, 0.35).unwrap();
+            assert_eq!(draft.generated[1].review, review, "{text}");
+            assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
+            assert_eq!(row(&draft.csv)["給与補足"], "交通費500円支給");
+            assert_eq!(row(&draft.csv)["基本給与 最小"], "1200");
+        }
+    }
+    #[test]
+    fn abbreviated_hour_range_and_trial_salary_kind_keep_their_roles() {
+        let mut source = source();
+        source.row.insert("勤務時間".into(), "9〜18時".into());
+        source
+            .row
+            .insert("試用・研修期の給与のタイプ".into(), "日給".into());
+        for (text, review) in [
+            ("9時から働きます", false),
+            ("18時から働きます", true),
+            ("18時まで働きます", false),
+            ("9時まで働きます", true),
+            ("研修中は1100円の日給制です", false),
+            ("研修中は1100円の時給制です", true),
+            ("給与は1200円の日給制です", true),
+        ] {
+            let mut raw = raw();
+            raw["job_description"] = json!(text);
+            let draft = finish(&source, &raw, 0.35).unwrap();
+            assert_eq!(draft.generated[1].review, review, "{text}");
+            assert_eq!(row(&draft.csv)["仕事内容"], if review { "" } else { text });
+            assert_eq!(row(&draft.csv)["勤務時間"], "9〜18時");
         }
     }
     #[test]
