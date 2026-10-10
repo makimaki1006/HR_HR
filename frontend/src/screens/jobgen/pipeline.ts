@@ -32,14 +32,18 @@ import {
 } from './state';
 import type { Store } from './store';
 
+export type NormalizePreparation = () => Promise<
+  { ok: true; body: NormalizeRequest } | { ok: false; message: string }
+>;
+
 export interface PipelineController {
   setKind: (kind: InputKind) => void;
   setPersonaCount: (n: number) => void;
   setJobTitle: (v: string) => void;
   setJobTitleConfirmed: (b: boolean) => void;
   toggleConfirm: (key: StepKey, checked: boolean) => void;
-  /** 取り込み。body は画面側で組む (ファイル読込は DOM 側)。 */
-  normalize: (body: NormalizeRequest) => Promise<void>;
+  /** ファイル読込の準備から取り込み完了まで共通の待機状態で守る。 */
+  normalize: (input: NormalizeRequest | NormalizePreparation) => Promise<void>;
   pickJob: (index: number) => void;
   runOne: (key: StepKey) => Promise<void>;
   runAll: () => Promise<void>;
@@ -404,10 +408,26 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
     }));
   };
 
-  const normalize = async (body: NormalizeRequest): Promise<void> => {
+  const normalize = async (input: NormalizeRequest | NormalizePreparation): Promise<void> => {
     if (get().running || get().normalizing) return;
     set({ normalizing: true, statusMessage: { kind: 'loading', text: '求人の内容を取り込み中…' } });
     try {
+      let body: NormalizeRequest;
+      if (typeof input === 'function') {
+        try {
+          const prepared = await input();
+          if (!prepared.ok) {
+            errStatus(prepared.message);
+            return;
+          }
+          body = prepared.body;
+        } catch (e) {
+          errStatus(e instanceof Error ? e.message : 'ファイルを読み取れませんでした。ファイルを選び直してください。');
+          return;
+        }
+      } else {
+        body = input;
+      }
       const r = await post('/api/jobgen/normalize', body);
       if (!r.ok) {
         errStatus('取り込めませんでした: ' + r.error.message);

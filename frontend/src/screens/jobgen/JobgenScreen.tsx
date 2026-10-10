@@ -151,13 +151,11 @@ function toggleTheme(): void {
 
 /** 入力パネル (自由テキスト / URL / ファイル)。入力欄の値は DOM が持つ (旧と同じ非制御)。 */
 function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
-  const [reading, setReading] = useState(false);
-  const busy = s.running || s.normalizing || reading;
+  const busy = s.running || s.normalizing;
   const k = s.kind;
   const isFile = isFileKind(k);
   const onNormalize = (): void => {
     if (busy) return;
-    setReading(true);
     const q = (id: string): HTMLInputElement | HTMLTextAreaElement | null =>
       document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null;
     const fileEl = document.getElementById('fileInput') as HTMLInputElement | null;
@@ -168,23 +166,7 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
       file: fileEl?.files?.[0] ?? null,
       pasteText: q('pasteArea')?.value ?? '',
     };
-    void (async () => {
-      let built: Awaited<ReturnType<typeof buildNormalizeRequest>>;
-      try {
-        built = await buildNormalizeRequest(inputs);
-      } catch (e) {
-        ctl.errStatus(e instanceof Error ? e.message : String(e));
-        setReading(false);
-        return;
-      }
-      if (!built.ok) {
-        ctl.errStatus(built.message);
-        setReading(false);
-        return;
-      }
-      await ctl.normalize(built.body);
-      setReading(false);
-    })();
+    void ctl.normalize(() => buildNormalizeRequest(inputs));
   };
   return (
     <div className="panel">
@@ -241,7 +223,7 @@ function InputPanel({ s, ctl }: { s: PipelineState; ctl: PipelineController }) {
       </div>
       <div style={{ marginTop: '8px' }}>
         <button type="button" className="btn" id="normBtn" disabled={busy} onClick={onNormalize}>
-          {reading || s.normalizing ? '取り込み中…' : '求人を取り込む'}
+          {s.normalizing ? '取り込み中…' : '求人を取り込む'}
         </button>
       </div>
       <div className="note">
@@ -539,9 +521,7 @@ export function JobgenView({ s, ctl }: { s: PipelineState; ctl: PipelineControll
         </ResultSection>
 
         <p className="foot">
-          検証はすべてコード側で実施（LLMには検証させない）。戦略成果物②〜⑥⑧は人間向け提案、①⑦は機械データ（84列CSV）。設計正本:
-          docs/job_creation_media_engine_generation_pipeline_v1_2026-07-24.md ／
-          job_media_engine_rs。最終レビューはコンサルが担保します。
+          作成した文章と出力内容を元の資料と照らし合わせ、確認してから掲載してください。
         </p>
       </div>
     </div>

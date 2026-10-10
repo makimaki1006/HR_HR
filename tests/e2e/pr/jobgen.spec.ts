@@ -67,6 +67,54 @@ for (const width of [1440, 1920]) {
       await page.goto('/app/jobgen');
     });
 
+    test('旧求人のあるCSV読込中も工程①を止め、管理番号でなく職種名を表示する', async ({ page }) => {
+      await page.locator('#freeText').fill('営業 月給250000円');
+      await page.locator('#normBtn').click();
+      await expect(page.locator('#jobTitle')).toHaveValue('営業 月給250000円');
+      await page.locator('#jobConfirmChk').check();
+      await page.locator('[data-kind="csv"]').click();
+      await page.locator('#fileInput').setInputFiles({ name: '職種一覧.csv', mimeType: 'text/csv', buffer: Buffer.from('職種ID,職種名\n42,配送スタッフ\n43,倉庫スタッフ\n') });
+      await page.evaluate(() => {
+        const native = FileReader.prototype.readAsArrayBuffer;
+        FileReader.prototype.readAsArrayBuffer = function (blob: Blob) { setTimeout(() => native.call(this, blob), 1500); };
+      });
+      const extractRequests: string[] = [];
+      page.on('request', req => { if (req.url().endsWith('/api/jobgen/extract')) extractRequests.push(req.url()); });
+      await page.locator('#normBtn').click();
+      await expect(page.locator('[data-rerun="extract"]')).toBeDisabled();
+      await expect(page.locator('#runAllBtn')).toBeDisabled();
+      await expect(page.locator('#status')).toContainText('取り込み中');
+      await page.locator('[data-rerun="extract"]').click({ force: true });
+      await expect(page.locator('.jobitem')).toHaveCount(2);
+      await expect(page.locator('.jobitem .jt')).toHaveText(['配送スタッフ', '倉庫スタッフ']);
+      await expect(page.locator('#jobTitle')).toHaveCount(0);
+      await page.locator('.jobitem').first().click();
+      await expect(page.locator('#jobTitle')).toHaveValue('配送スタッフ');
+      expect(extractRequests).toEqual([]);
+      await expect(page.locator('.jobitem').first()).toContainText('配送スタッフ');
+      await expect(page.locator('.foot')).not.toContainText(/docs\/|job_media_engine_rs|LLM|機械データ|設計正本/);
+      if (width === 1440 && process.env.JOBGEN_SCREENSHOTS) {
+        await page.locator('.foot').scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.join(root, 'docs/screenshots/jobgen-usability/review-fixes-1440.png') });
+      }
+    });
+
+    test('確認表の要確認区分と絞り込みを実際の画面で確認する', async ({ page }) => {
+      const h = structuredClone(fixtures.responses.hrhacker);
+      await page.route('**/api/jobgen/hrhacker', route => route.fulfill({ json: h }));
+      await page.locator('#freeText').fill('架空の介護職 月給192000円');
+      await page.locator('#normBtn').click();
+      await page.locator('#jobConfirmChk').check();
+      await page.locator('#runAllBtn').click();
+      const merit = page.locator('#reviewTable tbody tr').filter({ has: page.getByText('メリット', { exact: true }) });
+      await expect(merit.locator('td').nth(2)).toHaveText('要確認');
+      const title = page.locator('#reviewTable tbody tr').filter({ has: page.getByText('求人の見出し', { exact: true }) });
+      await expect(title.locator('td').nth(2)).toHaveText('生成（検証済）');
+      await page.locator('#reviewFilter').selectOption('review');
+      await expect(page.locator('#reviewTable tbody tr')).toHaveCount(1);
+      await expect(merit.locator('td').nth(2)).toHaveText('要確認');
+    });
+
     for (const input of [
       { kind: 'csv', file: 'customer-utf8.csv', title: '倉庫スタッフ', salary: '月給250,000円', multi: true },
       { kind: 'csv', file: 'customer-sjis.csv', title: '倉庫スタッフ', salary: '月給250,000円', multi: true },

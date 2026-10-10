@@ -69,6 +69,21 @@ const AB_SUMMARY = [
 ].join('\n');
 
 describe('取り込み (normalize)', () => {
+  it('ファイル読込の検査失敗・読込エラーでも待機を解除し、旧求人を保つ', async () => {
+    const t = setup();
+    await importAndConfirm(t);
+    await t.ctl.normalize(() => Promise.resolve({ ok: false, message: 'ファイルを選択してください。' }));
+    expect(t.store.get().normalizing).toBe(false);
+    expect(t.store.get().sourceText).toBe(SRC);
+    expect(t.store.get().statusMessage?.text).toBe('ファイルを選択してください。');
+    await t.ctl.normalize(() => Promise.reject(new Error('文字を読み取れません。')));
+    expect(t.store.get().normalizing).toBe(false);
+    expect(t.store.get().statusMessage?.text).toBe('文字を読み取れません。');
+    expect(t.calls).toHaveLength(1);
+    await t.ctl.runOne('extract');
+    expect(t.calls[1]?.path).toBe('/api/jobgen/extract');
+  });
+
   it('単一求人の生成後に複数求人を取り込むと、選択前の原文・結果・職種確認を消す', async () => {
     const t = setup();
     await t.ctl.normalize({ kind: 'free_text', text: SRC });
