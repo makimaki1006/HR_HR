@@ -14,13 +14,20 @@ struct Candidate<'a> {
     next: Option<usize>,
 }
 pub(super) fn fields(body: &str) -> HashMap<&str, String> {
+    let columns: Vec<&str> = COLUMNS.iter().map(String::as_str).collect();
+    ordered_fields(body, &columns)
+}
+pub(super) fn fields84(body: &str) -> HashMap<&str, String> {
+    ordered_fields(body, &crate::job_gen::hrhacker::HRHACKER_COLUMNS)
+}
+fn ordered_fields<'a>(body: &str, columns: &[&'a str]) -> HashMap<&'a str, String> {
     let lines: Vec<_> = body.lines().collect();
     let mut candidates: Vec<_> = lines
         .iter()
         .enumerate()
         .filter_map(|(line, text)| {
             let (name, value) = text.split_once(['：', ':'])?;
-            let rank = COLUMNS.iter().position(|column| column == name.trim())?;
+            let rank = columns.iter().position(|column| *column == name.trim())?;
             Some(Candidate {
                 line,
                 rank,
@@ -30,7 +37,7 @@ pub(super) fn fields(body: &str) -> HashMap<&str, String> {
             })
         })
         .collect();
-    let mut best: Vec<Option<usize>> = vec![None; COLUMNS.len()];
+    let mut best: Vec<Option<usize>> = vec![None; columns.len()];
     for i in (0..candidates.len()).rev() {
         let mut next = None;
         let mut length = 1;
@@ -56,10 +63,7 @@ pub(super) fn fields(body: &str) -> HashMap<&str, String> {
         let end = candidate.next.map_or(lines.len(), |j| candidates[j].line);
         let mut value = vec![candidate.value];
         value.extend_from_slice(&lines[candidate.line + 1..end]);
-        fields.insert(
-            COLUMNS[candidate.rank].as_str(),
-            value.join("\n").trim().to_owned(),
-        );
+        fields.insert(columns[candidate.rank], value.join("\n").trim().to_owned());
         index = candidate.next;
     }
     fields

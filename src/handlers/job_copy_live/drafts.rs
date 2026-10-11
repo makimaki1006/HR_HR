@@ -3,7 +3,9 @@ use super::{authorized_user, Access, JobReadService, ReadError};
 use crate::{
     audit::AuditDb,
     crm::{pending, record_lock, write::WriteRateLimiter},
-    job_gen::drafts::{self, DraftSnapshot, ReviewDraftRequest, SaveDraftRequest},
+    job_gen::drafts::{
+        self, DraftSnapshot, ManualDraftRequest, ReviewDraftRequest, ReviewEvent, SaveDraftRequest,
+    },
     AppState,
 };
 use axum::{
@@ -130,7 +132,16 @@ async fn current(
     id: &str,
 ) -> Result<BTreeMap<String, Option<String>>, crate::hubspot::HubSpotError> {
     let mut properties = drafts::PROPERTIES.to_vec();
-    properties.extend(["id_hrhakkaa", "id_airwork", "airwork_account_login_id"]);
+    properties.extend([
+        "id_hrhakkaa",
+        "id_shop_hrhakkaa",
+        "hrh_kyuujinhyou_gazou",
+        "baitai_genjoukyou_hrhakkaa",
+        "id_airwork",
+        "airwork_account_login_id",
+        "hrh_kyuujinhyou_honbun",
+        "shigotonaiyou",
+    ]);
     Ok(service
         .hubspot()
         .get_listing_fresh(id, &properties)
@@ -180,7 +191,12 @@ async fn process(
                     .map_err(|c| err(StatusCode::BAD_REQUEST, c))?;
                 if drafts::revision(&properties) == drafts::revision(&desired) {
                     Ok(())
-                } else if drafts::revision(&properties) != op.base {
+                } else if drafts::revision(&properties) != op.base
+                    || op.snapshot.manual_edit.as_ref().is_some_and(|edit| {
+                        super::manual_edit::published(&properties)
+                            .is_none_or(|body| drafts::hash(body) != edit.published_hash)
+                    })
+                {
                     Err((false, "draft_conflict"))
                 } else {
                     service
@@ -198,6 +214,14 @@ async fn process(
         Ok(()) => {
             op.status = "saved".into();
             op.code.clear();
+            if let Some(service) = &access.service {
+                super::listings::update_draft_state(
+                    service,
+                    &op.listing,
+                    op.snapshot.review_status,
+                )
+                .await;
+            }
         }
         Err((transient, code)) => {
             op.status = if transient && op.attempts < 8 {
@@ -211,7 +235,7 @@ async fn process(
     }
     persist(audit, op, false).await?;
     wake_worker().notify_one();
-    tracing::info!(operator_email=%op.actor, listing_id=%op.listing, operation_id=%op.id, status=%op.status, "job_copy_draft_write");
+    tracing::info!(status=%op.status, code=%op.code, "job_copy_draft_write");
     Ok(())
 }
 async fn authenticate(
@@ -274,6 +298,7 @@ async fn save(
         drafts::hash(&serde_json::to_string(&req).expect("request serializes")),
         Some(snapshot),
         None,
+        None,
     )
     .await
 }
@@ -301,6 +326,35 @@ async fn review(
         drafts::hash(&serde_json::to_string(&req).expect("request serializes")),
         None,
         Some(req),
+        None,
+    )
+    .await
+}
+async fn manual_save(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    Extension(writes): Extension<Writes>,
+    session: Session,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<ManualDraftRequest>,
+) -> Result<Response, ReadError> {
+    let actor = authenticate(&state, &access, &writes, &session, &headers, &id).await?;
+    if !drafts::valid_operation(&req.operation_id, &req.base_revision) {
+        return Err(err(StatusCode::BAD_REQUEST, "draft_invalid_input"));
+    }
+    accept(
+        &state,
+        &access,
+        &writes,
+        actor,
+        id,
+        req.operation_id.clone(),
+        req.base_revision.clone(),
+        drafts::hash(&serde_json::to_string(&req).expect("request serializes")),
+        None,
+        None,
+        Some(req),
     )
     .await
 }
@@ -316,6 +370,7 @@ async fn accept(
     fingerprint: String,
     snapshot: Option<DraftSnapshot>,
     review: Option<ReviewDraftRequest>,
+    manual: Option<ManualDraftRequest>,
 ) -> Result<Response, ReadError> {
     let _lock = record_lock::shared()
         .acquire(
@@ -334,30 +389,83 @@ async fn accept(
         }
         return Ok(operation_response(&op));
     }
-    let snapshot = match snapshot {
-        Some(s) => s,
-        None => {
-            let properties = current(access.service.as_ref().ok_or_else(unavailable)?, &listing)
-                .await
-                .map_err(super::client_error)?;
-            if drafts::revision(&properties) != base {
-                return Err(err(StatusCode::CONFLICT, "draft_conflict"));
-            }
-            let mut s: DraftSnapshot = serde_json::from_str(
-                properties
-                    .get(drafts::FACTS)
-                    .and_then(|v| v.as_deref())
-                    .unwrap_or(""),
+    let snapshot = if let Some(req) = manual {
+        let service = access.service.as_ref().ok_or_else(unavailable)?;
+        let properties = current(service, &listing)
+            .await
+            .map_err(super::client_error)?;
+        if drafts::revision(&properties) != base {
+            return Err(err(StatusCode::CONFLICT, "draft_conflict"));
+        }
+        let mut bases = Vec::new();
+        if req.base_draft_id.is_some() {
+            let data = service
+                .request(
+                    &format!("/crm/v3/objects/0-420/{listing}"),
+                    &[
+                        ("properties", drafts::FACTS.into()),
+                        ("propertiesWithHistory", drafts::FACTS.into()),
+                    ],
+                    None,
+                )
+                .await?;
+            bases = drafts::history(&data).0;
+        }
+        let base_draft = req
+            .base_draft_id
+            .as_ref()
+            .map(|id| {
+                bases
+                    .iter()
+                    .find(|s| &s.draft_id == id)
+                    .ok_or_else(|| err(StatusCode::CONFLICT, "draft_not_found"))
+            })
+            .transpose()?;
+        super::manual_edit::snapshot(&req, &properties, base_draft).map_err(|c| {
+            err(
+                if c == "draft_conflict" {
+                    StatusCode::CONFLICT
+                } else {
+                    StatusCode::BAD_REQUEST
+                },
+                c,
             )
-            .map_err(|_| err(StatusCode::CONFLICT, "draft_not_found"))?;
-            let req = review.ok_or_else(|| err(StatusCode::BAD_REQUEST, "draft_invalid_input"))?;
-            if !s.valid() || s.draft_id != req.draft_id {
-                return Err(err(StatusCode::CONFLICT, "draft_conflict"));
+        })?
+    } else {
+        match snapshot {
+            Some(s) => s,
+            None => {
+                let properties =
+                    current(access.service.as_ref().ok_or_else(unavailable)?, &listing)
+                        .await
+                        .map_err(super::client_error)?;
+                if drafts::revision(&properties) != base {
+                    return Err(err(StatusCode::CONFLICT, "draft_conflict"));
+                }
+                let mut s: DraftSnapshot = serde_json::from_str(
+                    properties
+                        .get(drafts::FACTS)
+                        .and_then(|v| v.as_deref())
+                        .unwrap_or(""),
+                )
+                .map_err(|_| err(StatusCode::CONFLICT, "draft_not_found"))?;
+                let req =
+                    review.ok_or_else(|| err(StatusCode::BAD_REQUEST, "draft_invalid_input"))?;
+                if !s.valid() || s.draft_id != req.draft_id {
+                    return Err(err(StatusCode::CONFLICT, "draft_conflict"));
+                }
+                s.review_status = req.status;
+                s.review_events
+                    .get_or_insert_with(Vec::new)
+                    .push(ReviewEvent {
+                        actor: actor.clone(),
+                        at: Utc::now().to_rfc3339(),
+                        status: req.status,
+                    });
+                s.properties()
+                    .map_err(|c| err(StatusCode::BAD_REQUEST, c))?;
+                s
             }
-            s.review_status = req.status;
-            s.properties()
-                .map_err(|c| err(StatusCode::BAD_REQUEST, c))?;
-            s
         }
     };
     let mut op = Operation {
@@ -463,6 +571,10 @@ pub(super) fn router(state: Option<&Arc<AppState>>, access: Access) -> Router<Ar
         .route(
             "/api/job-copy/listings/{id}/draft",
             post(save).patch(review),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/manual-draft",
+            post(manual_save),
         )
         .route("/api/job-copy/draft-operations/{id}", get(operation))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
@@ -588,6 +700,105 @@ mod tests {
         .await
     }
     #[tokio::test]
+    async fn manual_save_reason_authorization_values_and_durable_retry() {
+        let (state, access, writes, session, remote) = setup().await;
+        let original = "案件名：架空配送\n仕事内容：日用品を配送\n給与形態：月給\n基本給与 最小：250000\n基本給与 最大：280000";
+        remote
+            .lock()
+            .unwrap()
+            .properties
+            .insert("id_hrhakkaa".into(), Some("secret-job".into()));
+        remote
+            .lock()
+            .unwrap()
+            .properties
+            .insert("hrh_kyuujinhyou_honbun".into(), Some(original.into()));
+        let properties = remote.lock().unwrap().properties.clone();
+        let mut req = ManualDraftRequest {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            base_revision: drafts::revision(&properties),
+            base_body_hash: drafts::hash(original),
+            base_draft_id: None,
+            row: super::super::manual_edit::current_row(&properties).unwrap(),
+            reason: String::new(),
+        };
+        req.row.insert("基本給与 最小".into(), "270000".into());
+        let call = |req, session, writes| {
+            manual_save(
+                State(state.clone()),
+                Extension(access.clone()),
+                Extension(writes),
+                session,
+                Path("30".into()),
+                headers(),
+                Json(req),
+            )
+        };
+        assert_eq!(
+            call(req.clone(), session.clone(), writes.clone())
+                .await
+                .unwrap_err()
+                .1,
+            "draft_reason_required"
+        );
+        assert!(remote.lock().unwrap().patches.is_empty());
+        req.reason = "募集担当者に金額の変更を確認したため".into();
+        let anonymous = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+        assert_eq!(
+            call(req.clone(), anonymous, writes.clone())
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
+        let mut disabled = writes.clone();
+        disabled.enabled = false;
+        assert_eq!(
+            call(req.clone(), session.clone(), disabled)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        assert!(remote.lock().unwrap().patches.is_empty());
+        remote.lock().unwrap().transient = true;
+        assert_eq!(
+            call(req.clone(), session.clone(), writes.clone())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::ACCEPTED
+        );
+        let mut op = find(state.audit.as_ref().unwrap(), req.operation_id.clone())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(op.actor, "writer@example.test");
+        remote.lock().unwrap().transient = false;
+        process(&state, &access, &writes, &mut op).await.unwrap();
+        assert_eq!(op.status, "saved");
+        let saved: DraftSnapshot = serde_json::from_str(
+            remote.lock().unwrap().properties[drafts::FACTS]
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved.row["基本給与 最小"], "270000");
+        assert_eq!(saved.row.len(), 84);
+        assert_eq!(saved.row["求人id"], "secret-job");
+        assert_eq!(saved.manual_edit.unwrap().reason, req.reason);
+        assert_eq!(
+            remote.lock().unwrap().properties["hrh_kyuujinhyou_honbun"].as_deref(),
+            Some(original)
+        );
+        call(req.clone(), session, writes).await.unwrap();
+        assert_eq!(
+            remote.lock().unwrap().patches.len(),
+            2,
+            "応答を再確認しても余分に書かない"
+        );
+    }
+    #[tokio::test]
     async fn save_payload_author_audit_idempotency_and_review_only_touch_draft() {
         let (state, access, writes, session, remote) = setup().await;
         let r = save_fixture(
@@ -648,6 +859,12 @@ mod tests {
         assert_eq!(r.status(), StatusCode::OK);
         let remote = remote.lock().unwrap();
         assert_eq!(remote.patches.len(), 2);
+        let saved: DraftSnapshot =
+            serde_json::from_str(remote.properties[drafts::FACTS].as_deref().unwrap()).unwrap();
+        let event = saved.review_events.unwrap().pop().unwrap();
+        assert_eq!(event.actor, "writer@example.test");
+        assert_eq!(event.status, drafts::DraftStatus::Adopted);
+        assert!(chrono::DateTime::parse_from_rfc3339(&event.at).is_ok());
         assert_eq!(
             remote.properties[drafts::STATUS].as_deref(),
             Some("adopted")

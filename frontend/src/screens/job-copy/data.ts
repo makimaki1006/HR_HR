@@ -33,6 +33,7 @@ export interface CopyVersion {
 }
 
 export interface JobCopyRecord {
+  currentDraftRow?: Record<string, string> | undefined;
   draftRevision?: string | undefined;
   canWriteDrafts?: boolean | undefined;
   draftHistoryMayBeIncomplete?: boolean | undefined;
