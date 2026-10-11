@@ -60,10 +60,10 @@ def instructions(dockerfile):
         raise ContextError('Dockerfile の行継続が閉じていません')
 
 
-def builder_copies(dockerfile):
+def builder_inputs(dockerfile):
     active = found = False
     workdir = PurePosixPath('/')
-    copies = []
+    inputs = []
     for name, body in instructions(dockerfile):
         if name == 'FROM':
             words = shlex.split(body)
@@ -82,6 +82,7 @@ def builder_copies(dockerfile):
             if len(words) != 1:
                 raise ContextError(f'未対応の WORKDIR: {body}')
             workdir = image_path(words[0], workdir)
+            inputs.append(('WORKDIR', workdir))
         elif active and name == 'COPY':
             if body.startswith('--'):
                 # web の成果物は現在 runtime のみで使用。builder に追加されたら
@@ -92,12 +93,12 @@ def builder_copies(dockerfile):
                 raise ContextError(f'不正な COPY: {body}')
             for src in words[:-1]:
                 literal(src)
-            copies.append((words[:-1], image_path(words[-1], workdir), words[-1].endswith('/')))
+            inputs.append(('COPY', (words[:-1], image_path(words[-1], workdir), words[-1].endswith('/'))))
         elif active and name in ('ADD', 'ONBUILD', 'VOLUME'):
             raise ContextError(f'builder の {name} は入力再現に未対応です')
-    if not found or not copies:
+    if not found or not any(name == 'COPY' for name, _ in inputs):
         raise ContextError('COPY を持つ builder ステージがありません')
-    return copies, workdir
+    return inputs, workdir
 
 
 def glob_regex(pattern):
@@ -154,8 +155,14 @@ def materialize(repo, root):
     # Dockerfile 固有の ignore がある場合はそちらを優先（Docker と同じ）。
     specific = repo / 'Dockerfile.dockerignore'
     ignore = Ignore(specific if specific.exists() else repo / '.dockerignore')
-    copies, workdir = builder_copies(dockerfile)
-    for sources, destination, trailing in copies:
+    inputs, workdir = builder_inputs(dockerfile)
+    for name, value in inputs:
+        if name == 'WORKDIR':
+            # WORKDIR はその時点でディレクトリを作る。COPY file . や、
+            # 後続の COPY が無い WORKDIR も Docker と同じ順序で再現する。
+            (root / str(value).lstrip('/')).mkdir(parents=True, exist_ok=True)
+            continue
+        sources, destination, trailing = value
         dest = root / str(destination).lstrip('/')
         if len(sources) > 1 and not trailing:
             raise ContextError('複数ソースの COPY の宛先は / で終わる必要があります')
