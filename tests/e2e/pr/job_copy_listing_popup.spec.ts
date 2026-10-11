@@ -147,3 +147,45 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await mkdir(screenshots, { recursive: true });
   await page.screenshot({ path: `${screenshots}/05-outside-first-page-${viewport.width}.png` });
 });
+
+for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 1080 }]) test(`集計準備完了後に初回50件の外の応募0件を補う ${viewport.width}`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  await login(page);
+  await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+  let ready = false;
+  let bodyReads = 0;
+  let countReads = 0;
+  const rows = Array.from({ length: 50 }, (_, index) => ({ ...hrh, id: String(index + 2), title: `架空の一覧求人${String(index + 2)}`, application_count: 99 }));
+  const columns = JSON.parse(await readFile('frontend/src/generated/jobgen/columns.json', 'utf8')) as string[];
+  const body = columns.map(key => `${key}：${fields[key] ?? ''}`).join('\n');
+  await page.route('**/api/job-copy/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/listings')) return route.fulfill({ json: { status: ready ? 'ready' : 'preparing', listings: ready ? rows : [], total: ready ? 51 : null, offset: 0, next_offset: ready ? 50 : null, titles: [], index_built_at: ready ? '2026-10-11T00:00:00Z' : null, refreshing: !ready, refresh_failed: false } });
+    if (path.endsWith('/1/versions')) {
+      bodyReads++;
+      return route.fulfill({ json: { listing: { ...hrh, application_count: null }, versions: [{ written_at: '2026-10-11T00:00:00Z', body, image_urls: [] }], history_counts: {}, history_may_be_incomplete: false } });
+    }
+    if (path.endsWith('/1/applications')) { countReads++; return route.fulfill({ json: { listing_id: '1', application_count: ready ? 0 : null } }); }
+    return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
+  });
+  await page.goto('/app/job-copy?listing=1');
+  const panel = page.getByRole('region', { name: 'HubSpot の求人' });
+  await expect(panel.getByText('求人の一覧を準備しています', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  const dialog = page.getByRole('dialog', { name: hrh.title });
+  const applications = dialog.locator('.jc-listing-popup-summary > div').filter({ has: page.locator('dt', { hasText: '応募数' }) }).locator('dd');
+  await expect(applications).toHaveText('未取得');
+  expect(countReads).toBe(0);
+  // Keep the popup open; the existing five-second list poll observes completion.
+  ready = true;
+  await expect(applications).toHaveText('0件');
+  await expect(dialog).toBeFocused();
+  await expect(panel.locator('.jc-hubspot-job')).toHaveCount(50);
+  await expect(panel.getByRole('button', { name: `${hrh.title}の本文を見る` })).toHaveCount(0);
+  expect(bodyReads).toBe(1); expect(countReads).toBe(1);
+  await expect(dialog.locator('.jc-listing-popup-missing')).not.toContainText('公開状況');
+  await expect(dialog).not.toContainText(/hidden-hrh-id|hidden-job-id|hidden-shop-id/);
+  expect(await dialog.locator('.jc-listing-popup-scroll').evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
+  await mkdir(screenshots, { recursive: true });
+  await page.screenshot({ path: `${screenshots}/06-cold-index-outside-first-page-${viewport.width}.png` });
+});
