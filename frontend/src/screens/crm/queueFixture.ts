@@ -4,6 +4,7 @@ import { DEFAULT_PIPELINE_ID, FIXTURE_PIPELINE_ID, FIXTURE_PIPELINES, eligibleSt
 
 /** 架空サンプルのパイプライン (ステージ名は固定) */
 const fixturePipeline = (id: string) => FIXTURE_PIPELINES.find(p => p.id === id);
+import { matchesCondition } from './queuePropertyFilter';
 import type { QueueFilters } from './queueModel';
 
 /**
@@ -84,7 +85,10 @@ export function fixtureQueuePage(f: QueueFilters, cursor: string | null): CallQu
     if (f.nextTo && !(s.next !== null && s.next <= f.nextTo)) return false;
     if (f.lastFrom && !(s.last !== null && s.last >= f.lastFrom)) return false;
     if (f.lastTo && !(s.last !== null && s.last <= f.lastTo)) return false;
-    return true;
+    const properties: Record<string, string | null> = { dealname: `${s.company} 採用支援`, hubspot_owner_id: s.owner,
+      bpo_13: s.next, bpo_14: s.time, bpo_20: s.last, bpo_29: s.phone, bpo_3: null, bpo_4: null,
+      bpo_10: s.id === 'f-3' ? '通話中が続く' : null, amount: String(Number(s.id.slice(2)) * 1000) };
+    return f.conditions.every(c => matchesCondition(c, properties[c.property] ?? null));
   });
   const asc = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   const isDue = (s: Seed) => s.next !== null && s.next <= FIXTURE_TODAY;

@@ -586,6 +586,8 @@ struct Params {
     last: DateRange,
     /// `fresh=1`: サーバの短いキャッシュを使わずに HubSpot から読み直す (cursor の条件には入れない)
     fresh: bool,
+    property_conditions: Vec<super::queue_property_filter::PropertyCondition>,
+    property_filters: Vec<Value>,
 }
 
 /// 日付 (JST) の範囲。両端を含む。`from <= to` は解析時に確認済み
@@ -605,7 +607,7 @@ impl DateRange {
 }
 
 /// `YYYY-MM-DD` (ゼロ詰め 10 文字、実在する日付、2000〜2100 年) だけ受け付ける
-fn parse_date(v: &str) -> Option<NaiveDate> {
+pub(super) fn parse_date(v: &str) -> Option<NaiveDate> {
     let b = v.as_bytes();
     let shaped = b.len() == 10
         && b.iter().enumerate().all(|(i, c)| {
@@ -636,6 +638,7 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     let mut sort = None;
     let mut dates: [Option<NaiveDate>; 4] = [None; 4];
     let mut fresh = false;
+    let mut property_conditions = Vec::new();
     let mut seen: HashSet<&'static str> = HashSet::new();
     let mut once = |name: &'static str| -> Result<(), &'static str> {
         if seen.insert(name) {
@@ -646,6 +649,11 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
     };
     for (k, v) in url.query_pairs() {
         match k.as_ref() {
+            "conditions" => {
+                once("conditions")?;
+                property_conditions =
+                    super::queue_property_filter::parse(&v).map_err(|_| "conditions")?;
+            }
             "pipeline" => {
                 once("pipeline")?;
                 pipeline = Some(find_pipeline(&v).ok_or("pipeline")?);
@@ -755,6 +763,8 @@ fn parse_params(raw: &str) -> Result<Params, &'static str> {
             to: dates[3],
         },
         fresh,
+        property_conditions,
+        property_filters: Vec::new(),
     })
 }
 
@@ -954,6 +964,18 @@ fn filter_groups(
     today_ms: i64,
     r: &Ranges,
 ) -> Vec<Value> {
+    filter_groups_budget(phase, pipeline, stages, owner, today_ms, r, 0)
+}
+
+fn filter_groups_budget(
+    phase: Phase,
+    pipeline: &QueuePipeline,
+    stages: &[&str],
+    owner: Option<&Value>,
+    today_ms: i64,
+    r: &Ranges,
+    extra_count: usize,
+) -> Vec<Value> {
     let today = today_ms.to_string();
     // 選んだステージを決まりで分ける (表に無い・`exclude` は parse_params で弾いている)
     let always: Vec<&str> = stages
@@ -982,7 +1004,7 @@ fn filter_groups(
                 LastCall::Present => fs.push(f_has("bpo_20", true)),
             }
         }
-        if fs.len() + 2 + usize::from(owner.is_some()) <= 6 {
+        if fs.len() + 2 + usize::from(owner.is_some()) + extra_count <= 6 {
             fs.push(f_has("bpo_3", false));
             fs.push(f_has("bpo_4", false));
         }
@@ -1146,6 +1168,7 @@ fn condition_hash(
         params.limit.to_string(),
         params.q.clone().unwrap_or_default(),
         params.stages.join(","),
+        serde_json::to_string(&params.property_conditions).expect("conditions json"),
         owner_label(owner),
         params.due.as_str().to_string(),
         params.sort.as_str().to_string(),
@@ -1523,7 +1546,24 @@ pub(super) fn deal_in_queue(deal: &HubSpotRecord, owner_id: &str, today_ms: i64)
 // ハンドラ
 // ---------------------------------------------------------------------------
 
+fn condition_error(message: &str) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(CrmErrorResponse {
+            error_kind: "invalid_conditions".into(),
+            message: Some(message.into()),
+        }),
+    )
+        .into_response()
+}
+
 fn bad_param(name: &str) -> Response {
+    if name == "conditions" {
+        return condition_error(
+            "追加条件は 3 つまで、値は 200 文字・選択肢は 20 個までです。指定を見直してください。",
+        );
+    }
+
     (
         StatusCode::BAD_REQUEST,
         Json(CrmErrorResponse {
@@ -1547,7 +1587,7 @@ pub(super) async fn get_call_queue(
             Err(denied) => return denied.into_response(),
         };
     // 2) クエリ
-    let params = match parse_params(raw.as_deref().unwrap_or("")) {
+    let mut params = match parse_params(raw.as_deref().unwrap_or("")) {
         Ok(p) => p,
         Err(name) => return bad_param(name),
     };
@@ -1559,6 +1599,20 @@ pub(super) async fn get_call_queue(
     let Some(client) = state.hubspot.clone() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
+    if !params.property_conditions.is_empty() {
+        let entry = match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.catalog.get(&client)).await
+        {
+            Ok(Ok((entry, _))) => entry,
+            Ok(Err(e)) => return hubspot_error_response(&e),
+            Err(_) => return timeout_response(),
+        };
+        for c in &params.property_conditions {
+            match super::queue_property_filter::validate(c, entry.property("deals", &c.property)) {
+                Ok(f) => params.property_filters.push(f),
+                Err(message) => return condition_error(message),
+            }
+        }
+    }
     // 5) cursor (署名・条件・有効期限。HubSpot は呼ばない)
     let now = ctx.queue.now();
     let today_ms = jst_today_ms(now);
@@ -1706,6 +1760,7 @@ fn filter_key(params: &Params, owner_key: &str, today_ms: i64) -> QueueFilterKey
     QueueFilterKey {
         pipeline: params.pipeline.id.to_string(),
         q: params.q.clone(),
+        property_conditions: params.property_conditions.clone(),
         stages: params.stages.clone(),
         owner: owner_key.to_string(),
         due: params.due.as_str().to_string(),
@@ -1809,11 +1864,25 @@ async fn execute(
     let active: Vec<(Phase, Vec<Value>)> = phases(params.sort, params.due, ranges.has_last())
         .into_iter()
         .map(|p| {
-            (
-                p,
-                filter_groups(p, pipeline, &selected, owner_filter, today_ms, &ranges),
-            )
+            let groups = if params.property_filters.is_empty() {
+                filter_groups(p, pipeline, &selected, owner_filter, today_ms, &ranges)
+            } else {
+                filter_groups_budget(
+                    p,
+                    pipeline,
+                    &selected,
+                    owner_filter,
+                    today_ms,
+                    &ranges,
+                    params.property_filters.len(),
+                )
+            };
+            super::queue_property_filter::append(groups, &params.property_filters)
+                .map(|groups| (p, groups))
         })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(condition_error)?
+        .into_iter()
         .filter(|(_, g)| !g.is_empty())
         .collect();
     let (start_phase, start_after) = start;
