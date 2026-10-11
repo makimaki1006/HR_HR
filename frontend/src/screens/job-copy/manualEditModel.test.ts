@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conditionChanges, protectedManualColumns, managementColumns, manualColumns, manualLabel, manualRow } from './manualEditModel';
+import { conditionChanges, protectedManualColumns, managementColumns, manualColumns, manualLabel, manualRow, rowBody } from './manualEditModel';
 describe('手直しする求人票', () => {
   it('途中に保存形式の見出しがある本文も冒頭の給与を落とさない', () => {
     const body = '訪問看護師募集。時給1800円。\n勤務時間：9〜18時';
@@ -23,6 +23,17 @@ describe('手直しする求人票', () => {
     const current = manualRow('仕事内容：配送\n給与形態：月給\n基本給与 最小：250000');
     expect(conditionChanges(current, current, { ...current, [key]: `${current[key] ?? ''} ` })).toContain(key);
     expect(conditionChanges(current, current, current)).toHaveLength(0);
+  });
+  it.each([' ', '　', '\t', '\n', '\r\n'])('原文の勤務時間末尾%sを保ち、削除を検知する', suffix => {
+    const value = `9〜18時${suffix}`;
+    const current = manualRow(`勤務時間：${value}\n勤務時間帯：日勤`);
+    expect(current['勤務時間']).toBe(value);
+    expect(conditionChanges(current, current, current)).toEqual([]);
+    expect(conditionChanges(current, current, { ...current, '勤務時間': '9〜18時' })).toEqual(['勤務時間']);
+  });
+  it('84項目を空白・タブ・複数行・改行コードごと往復する', () => {
+    const row = Object.fromEntries(manualColumns.map(key => [key, ' \t先頭\r\n途中\n末尾　\n']));
+    expect(manualRow(rowBody(row))).toEqual(row);
   });
   it('基にする案ですでに変わった条件も確認し、管理情報は入力対象にしない', () => {
     const current = manualRow('求人id：hidden\n仕事内容：配送\n基本給与 最小：250000');

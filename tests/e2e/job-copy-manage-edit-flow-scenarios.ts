@@ -110,6 +110,41 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await save.click();
       expect(requests[0].body.row['案件名']).toBe(`${after!} `); expect(requests[0].body.reason).toBe('');
     });
+    for (const includeCurrentRow of [true, false]) test(`原文の末尾空白を保持し削除時の理由を求める（項目データ${includeCurrentRow ? 'あり' : 'なし'}）`, async ({ page }) => {
+      const { requests, drafts } = await mockFlow(page);
+      const originalRow = { ...row, '勤務時間': '9〜18時 ' };
+      await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({ json: {
+        listing: { id: '30', media: 'hrh', media_job_id: 'secret-job', account_id: null, title: '架空配送スタッフ', prefecture: null, municipality: null, category: null, publication_status: null, last_csv_detected_at: null, application_count: null },
+        current_row: includeCurrentRow ? originalRow : null,
+        versions: [{ written_at: '2026-10-01T00:00:00Z', body: composeFixtureBody(originalRow), image_urls: null }],
+        history_counts: {}, history_may_be_incomplete: false, drafts, draft_revision: 'a'.repeat(64), can_write_drafts: true,
+      } }));
+      await page.goto('/app/job-copy?listing=30&demo=1');
+      await page.getByRole('button', { name: '今の版を手直しする' }).click();
+      const editor = page.getByRole('region', { name: '求人の手直し' });
+      const input = editor.getByLabel('働く時間・休憩', { exact: true });
+      await expect(input).toHaveValue('9〜18時 ');
+      await expect(editor.getByRole('alert')).toHaveCount(0);
+      const preview = editor.getByRole('region', { name: '保存前の変更確認' });
+      await expect(preview).toContainText('変更なし');
+      await preview.getByRole('checkbox').check();
+      const save = editor.getByRole('button', { name: '確認待ちの案として保存して比較' });
+      await expect(save).toBeEnabled();
+      await input.fill('9〜18時');
+      await expect(preview.getByRole('checkbox')).not.toBeChecked();
+      await expect(editor.getByRole('alert')).toContainText('働く時間・休憩');
+      const changed = preview.getByRole('row').filter({ has: page.getByRole('rowheader', { name: '働く時間・休憩', exact: true }) });
+      expect(await changed.locator('pre').allTextContents()).toEqual(['9〜18時 ', '9〜18時']);
+      await expect(changed.locator('del')).toHaveText(' ');
+      await preview.getByRole('checkbox').check();
+      await expect(save).toBeDisabled(); expect(requests).toHaveLength(0);
+      if (!includeCurrentRow) { await editor.getByRole('alert').scrollIntoViewIfNeeded(); await shot(page, width, '08-whitespace-condition-warning'); }
+      await editor.getByLabel('条件を変更する理由').fill('勤務時間末尾の空白を削除したため');
+      await save.click(); await expect(page.locator('.jc-comparison')).toBeVisible();
+      expect(requests[0].body.row['勤務時間']).toBe('9〜18時');
+      expect(requests[0].body.reason).toBe('勤務時間末尾の空白を削除したため');
+      expect(requests[0].body.row['基本給与 最小']).toBe('250000');
+    });
     test('給与変更と理由、保存状態、二つの案の比較、採用CSVの84列と具体値', async ({ page }) => {
       const { requests } = await mockFlow(page);
       await page.goto('/app/job-copy?demo=1');
