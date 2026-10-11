@@ -3,7 +3,7 @@ import { CATEGORY_SOURCES, LEGACY_SOURCES, TEXT_SOURCES, reasonSourceLabels } fr
 import { maskPersonalDetails } from './personalText';
 
 const OPTION_LABEL_STATUSES: OptionLabelsStatus[] = ['read', 'unavailable', 'not_stored'];
-const invalid = (): never => { throw new Error('応募理由の取得データを確認できませんでした。'); };
+const invalid = (): never => { throw new Error('応募理由の保存データを確認できませんでした。'); };
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return invalid();
   return value as Record<string, unknown>;

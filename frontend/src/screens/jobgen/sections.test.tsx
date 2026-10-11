@@ -56,15 +56,15 @@ describe('① ExtractSection', () => {
     const html = renderToStaticMarkup(
       <ExtractSection facts={R.extract.facts} confirmed={false} onConfirm={noop} />,
     );
-    expect(html).toContain('<span class="gate bad">引用照合：検証 6／リジェクト 1／欠落 1</span>');
+    expect(html).toContain('<span class="gate bad">引用照合：確認済み 6／要確認 1／未取得 1</span>');
     expect(html).toContain(
       '<td class="fkey">給与</td><td>月給192,000円〜195,000円</td><td class="fquote">「月給192,000円〜195,000円」</td><td><span class="fst verified">検証済</span></td>',
     );
     expect(html).toContain(
-      '<tr class="row-rejected"><td class="fkey">保険</td><td></td><td class="fquote">「雇用保険、労災保険、健康保険、厚生年金、退職金制度」</td><td><span class="fst rejected">リジェクト</span></td>',
+      '<tr class="row-rejected"><td class="fkey">保険</td><td>未取得</td><td class="fquote">「雇用保険、労災保険、健康保険、厚生年金、退職金制度」</td><td><span class="fst rejected">要確認</span></td>',
     );
     expect(html).toContain(
-      '<tr class="row-missing"><td class="fkey">必須資格</td><td></td><td class="fquote">—</td><td><span class="fst missing">欠落</span></td>',
+      '<tr class="row-missing"><td class="fkey">必須資格</td><td>未取得</td><td class="fquote">—</td><td><span class="fst missing">未取得</span></td>',
     );
     expect(count(html, '<tr')).toBe(9); // ヘッダ 1 + 8 項目
     expect(html).toContain('この工程の生成物を目視で確認しました（コンサル確認済みにする）');
@@ -130,7 +130,7 @@ describe('④ CopySection', () => {
     expect(html).toContain('<div class="chip"><span class="cstyle">常識破壊</span>夜勤なしでも、介護福祉士の資格はちゃんと評価される。</div>');
     expect(html).toContain('<li>女性歓迎（女性×歓迎）: 性別差別表現</li>');
     expect(html).toContain('<li>年間休日120日。前の職場より土日が増えたと先輩が言った。　→ 数値: <b>120 / 120日</b></li>');
-    expect(html).toContain('<li>夜勤なし（清掃業務/クレーム対応/夜勤/残業/雑務/電話対応/オンコール対応×なし） [warning]: 要出典確認表現(業務内容の断定)</li>');
+    expect(html).toContain('<li>夜勤なし（清掃業務/クレーム対応/夜勤/残業/雑務/電話対応/オンコール対応×なし）（要確認）: 要出典確認表現(業務内容の断定)</li>');
     expect(count(html, '<span class="gstat review">要確認</span>')).toBe(3);
     expect(html).not.toContain('数値照合: 未実施');
   });
@@ -264,22 +264,22 @@ describe('⑦ HrhackerSection', () => {
     const html = renderToStaticMarkup(
       <HrhackerSection h={state.hrhacker} confirmed={false} onConfirm={noop} />,
     );
-    expect(html).toContain('<span class="gate bad">数値照合[E]：未照合 1件</span>');
+    expect(html).toContain('<span class="gate bad">数値照合：未照合 1件</span>');
     expect(html).toContain('<span class="gate warn">文字数・NGワード：レビュー要あり</span>');
     expect(html).toContain('<span class="gate warn">生成列：要レビュー 1列</span>');
     expect(html).toContain('<div class="fillstat">転記充足: <b>11/84</b> 列（原文に対応する列 <b>11/13</b>）</div>');
-    expect(html).toContain('<div class="badnums"><b>原文に無い数値（リジェクト）:</b> unsupported_numbers:120,120日</div>');
+    expect(html).toContain('<div class="badnums"><b>元の資料で確認できない数値があります。</b> 該当する生成項目を確認してください。</div>');
     expect(html).toContain('📋 原文に記載があるのに未転記の可能性がある項目（2件）');
     expect(html).toContain('<td class="colcell">最寄り駅</td>');
     expect(html).toContain('<td class="colcell">試用・研修の有無</td>');
-    expect(html).toContain('<div class="gcol">メリット <span class="gstat review">レビュー要</span></div><div class="gval empty">（空欄・レビュー行き）</div><div class="gissues">課題:<ul><li>unsupported_numbers:120,120日</li></ul></div>');
-    expect(html).toContain('<div class="gcol">案件名 <span class="gstat verified">検証済</span></div><div class="gval">介護職員（特養）／高尾駅徒歩10分・年間休日110日</div>');
+    expect(html).toContain('<div class="gcol">メリット <span class="gstat review">要確認</span></div><div class="gval empty">（空欄・レビュー行き）</div><div class="gissues">課題:<ul><li>原文で確認できない数値があります。元の資料を確認してください。</li></ul></div>');
+    expect(html).toContain('<div class="gcol">求人の見出し <span class="gstat verified">検証済</span></div><div class="gval">介護職員（特養）／高尾駅徒歩10分・年間休日110日</div>');
     expect(count(html, 'class="gencard ')).toBe(5);
-    expect(html).toContain('84列 確認テーブル（84列）');
+    expect(html).toContain('出力内容の確認（84項目）');
     expect(count(html, 'class="row-gen"')).toBe(5);
-    expect(html).toContain('<tr class=""><td class="colcell">求人id</td><td><div class="valwrap"></div></td><td class="colcell">不変転記／スロット</td></tr>');
+    expect(html).toContain('<tr class=""><td class="colcell">求人の管理番号</td><td><div class="valwrap">未取得</div></td><td class="colcell">未取得</td></tr>');
     expect(html).toContain('<td class="colcell">雇用形態</td><td><div class="valwrap">正社員</div></td>');
-    expect(html).toContain('<td class="colcell">自由項目1の内容</td><td><div class="valwrap">週休2日制（シフト制）、年間休日110日</div></td>');
+    expect(html).toContain('<td class="colcell">休日・休暇</td><td><div class="valwrap">週休2日制（シフト制）、年間休日110日</div></td>');
     expect(html).toContain('id="csvBtn"');
   });
 });
@@ -302,7 +302,7 @@ describe('画面全体 (JobgenView)', () => {
     const store = createStore<PipelineState>(initialState());
     const ctl = createPipelineController({ store, post: () => Promise.reject(new Error('unused')) });
     const html = renderToStaticMarkup(<JobgenView s={store.get()} ctl={ctl} />);
-    expect(html).toContain('<h1>求人票生成パイプライン</h1>');
+    expect(html).toContain('<h1>求人票作成</h1>');
     expect(count(html, '<span class="st wait">待機</span>')).toBe(8);
     expect(html).toContain('<button type="button" class="btn" id="runAllBtn" disabled="">一括実行</button>');
     expect(html).toContain('先に求人原文を取り込むと実行できます。');

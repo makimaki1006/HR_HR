@@ -69,11 +69,11 @@ test('actual recorded reasons are unknown-cohort originals with desktop/mobile v
     await page.locator('.jc-job').nth(index).click();
     await selectJobFeature(page, 'reasons');
     const region = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
-    const unknown = region.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true });
+    const unknown = region.getByRole('region', { name: 'どの本文への理由か不明な記述', exact: true });
     await expect(unknown.locator('blockquote')).toHaveCount(result.applicant_reasons.items.length);
     await expect(region.locator('details[open]')).toHaveCount(0);
-    await expect(region.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('版との対応は未取得');
-    await expect(region.getByRole('region', { name: '比較先の記述', exact: true })).toContainText('版との対応は未取得');
+    await expect(region.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('本文との対応は未取得');
+    await expect(region.getByRole('region', { name: '比較先の記述', exact: true })).toContainText('本文との対応は未取得');
     expect(await unknown.locator('blockquote').allTextContents().then(texts => texts.every((text, i) => text === result.applicant_reasons.items[i]?.text))).toBe(true);
     observed += result.applicant_reasons.items.length;
     if (!captured) {

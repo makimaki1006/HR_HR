@@ -5,7 +5,7 @@ import type { MarketRow } from './marketChartModel';
 import type { BillingPeriod } from './billingTypes';
 import {
   addDays, applicationBuckets, applicationsOutsidePeriods, billingConflict, billingEntries, billingEntriesByJob, billingOverlaps, buildPeriods, changeKinds, countApplications, daysBetween,
-  formatMonth, formatPerDay, formatYen, jstDate, lastMarketMonth, marketChange, marketDataUntil, marketLane, nextMonth, periodRows, positionOf, publishedVersions, timelineRange, versionChanges,
+  formatMonth, formatPerDay, formatYen, jstDate, lastMarketMonth, marketChange, marketDataUntil, marketLane, nextMonth, periodRows, positionOf, publishedVersions, timelineRange, timelineLabelRows, versionChanges,
 } from './timelineModel';
 
 const demo = jobs.find(job => job.id === 'demo-job-001');
@@ -239,7 +239,7 @@ describe('version changes', () => {
   it('counts dated applications outside every period separately and covers them in the range', () => {
     const job: JobCopyRecord = { ...driver, overallApplications: { total: 3, missingDate: 0, fetchedAt: '2026-10-05T09:00:00+09:00', distributions: {}, byDate: { '2026-08-20': 1, '2026-09-10': 2 } } };
     expect(applicationsOutsidePeriods(job, periodRows(job, { asOf: '2026-10-05' }))).toBe(1);
-    expect(timelineRange(job, '2026-10-05', [])).toEqual({ start: '2026-08-20', end: '2026-10-05' });
+    expect(timelineRange(job, '2026-10-05', [])).toEqual({ start: '2026-08-20', end: '2026-10-07' });
   });
 });
 
@@ -304,5 +304,21 @@ describe('demo data adds up', () => {
       const dated = Object.values(applications.byDate).reduce((sum, count) => sum + count, 0);
       expect({ id: job.id, sum: dated + applications.missingDate }).toEqual({ id: job.id, sum: applications.total });
     }
+  });
+});
+
+
+describe('readable short histories', () => {
+  it('includes a single observation and leaves space on both sides', () => {
+    const base = driver.versions[0];
+    if (!base) throw new Error('synthetic version missing');
+    const version = { ...base, observedAt: '2026-10-09T07:09:00Z' };
+    delete version.publishedFrom; delete version.publishedUntil;
+    const job: JobCopyRecord = { ...driver, versions: [version] };
+    delete job.overallApplications;
+    expect(timelineRange(job, '2026-10-09', [])).toEqual({ start: '2026-10-06', end: '2026-10-12' });
+  });
+  it('separates nearby marks but reuses a row for distant ones', () => {
+    expect(timelineLabelRows(['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-28'], { start: '2026-10-01', end: '2026-10-31' })).toEqual([0, 1, 2, 0]);
   });
 });
