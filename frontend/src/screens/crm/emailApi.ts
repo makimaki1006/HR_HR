@@ -33,7 +33,18 @@ export function emailMessage(r: EmailResult): string {
   return r.sent ? '送信済み・記録を保存できませんでした。管理者にご連絡ください。' : r.error_kind === 'gmail_send_uncertain' ? '送信結果を確認できませんでした。Gmail の送信済みを確認してください。' : '送信できませんでした。';
 }
 export function textHtml(text: string): string {
-  return `<p>${text.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;').replace(/"/gu, '&quot;').replace(/\n/gu, '<br>')}</p>`;
+  const escaped = text.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;').replace(/"/gu, '&quot;');
+  // Match escaped text only: encoded quotes/tags end a URL, while query-string &amp; stays intact.
+  const linked = escaped.replace(/https?:\/\/(?:(?!&(?:quot|lt|gt);)[^\s<>"。、「」『』【】（）〈〉《》])+/giu, candidate => {
+    let end = candidate.length;
+    while (end > 0 && /[.,!?;:)\]}、。！？…」』】〉》]/u.test(candidate[end - 1] ?? '')) {
+      if (candidate.slice(0, end).endsWith('&amp;')) break;
+      end--;
+    }
+    const url = candidate.slice(0, end);
+    return `<a href="${url}">${url}</a>${candidate.slice(end)}`;
+  });
+  return `<p>${linked.replace(/\n/gu, '<br>')}</p>`;
 }
 
 // Explicit sample mode only. Never calls Google, HubSpot or the backend send endpoint.

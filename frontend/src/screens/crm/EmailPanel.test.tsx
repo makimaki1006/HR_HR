@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /* eslint-disable @typescript-eslint/require-await -- Immediate Promise fakes match the async API contract. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EmailPanel } from './EmailPanel';
 import { fixtureDetail } from './workspaceFixture';
 import { ApiHttpError, ApiNetworkError } from '../../api/client';
@@ -73,9 +73,39 @@ describe('email composer', () => {
   });
   it('removes consent and states remote revocation failure explicitly', async () => {
     render(<EmailPanel data={detail()} api={api({ revoke: async () => ({ ok: true, data: { granted: false, google_revocation_pending: true } }) })} />);
-    fireEvent.click(await screen.findByText('Gmail の許可を取り消す'));
+    fireEvent.click(await screen.findByText('メールを書く'));
+    fireEvent.click(screen.getByText('その他'));
+    fireEvent.click(screen.getByRole('button', { name: 'Gmail の許可を取り消す' }));
     await screen.findByText('この画面からの送信許可を取り消しました。Google アカウントの「接続」からも許可を取り消してください。');
     expect(screen.queryByText('Gmail の許可を取り消す')).toBeNull();
+  });
+  it('keeps revocation inside the closed composer menu', async () => {
+    const a = api({ revoke: vi.fn<EmailApi['revoke']>(async () => ({ ok: true, data: { granted: false, google_revocation_pending: false } })) });
+    const view = render(<EmailPanel data={detail()} api={a} />);
+    const write = await screen.findByText('メールを書く');
+    expect(screen.queryByText('Gmail の許可を取り消す')).toBeNull();
+    fireEvent.click(write);
+    expect(view.container.querySelector('details')?.open).toBe(false);
+    expect(screen.getByText('Gmail の許可を取り消す').closest('details')).toBe(view.container.querySelector('details'));
+    expect(a.revoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('その他'));
+    expect(screen.getByRole('button', { name: 'Gmail の許可を取り消す' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByText('Gmail の許可を取り消す')).toBeNull();
+  });
+  it('distinguishes the primary send button and prevents clicks or submits while sending', async () => {
+    let complete: ((r: Awaited<ReturnType<EmailApi['send']>>) => void) | undefined;
+    const a = api({ send: vi.fn<EmailApi['send']>(() => new Promise(resolve => { complete = resolve; })) });
+    await compose(a);
+    const send = screen.getByRole<HTMLButtonElement>('button', { name: '送信中…' });
+    expect(send.className).toContain('crm-email-send');
+    expect(screen.getByRole('button', { name: '閉じる' }).className).not.toContain('crm-email-send');
+    expect(send.disabled).toBe(true);
+    fireEvent.click(send);
+    fireEvent.submit(screen.getByRole('form', { name: 'メールを書く' }));
+    expect(a.send).toHaveBeenCalledTimes(1);
+    await act(async () => { complete?.({ ok: true, data: saved }); });
+    expect(await screen.findByText('送信済み・保存済み')).toBeTruthy();
   });
   it('preserves uncertain and sent-failed wording and escapes text', () => {
     expect(emailMessage({ ...saved, status: 'pending', sent: false })).toBe('送信結果を確認中です。もう一度送らずにお待ちください。');

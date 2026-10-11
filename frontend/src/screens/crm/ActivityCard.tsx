@@ -66,7 +66,7 @@ function ActivityCardImpl({ a, ownerNames }: { a: WorkspaceActivity; ownerNames:
   const attach = a.rich?.attachments_count ?? null;
   const metaParts = [
     isEmail ? null : dir, status, dur && `通話時間 ${dur}`, when2, a.rich?.location ? `場所: ${a.rich.location}` : null,
-    attach !== null && `添付 ${String(attach)} 件`,
+    attach !== null && attach > 0 && `添付 ${String(attach)} 件`,
     a.via === 'contact' && '担当者の通話(別の案件のものを含む場合があります)',
   ].filter(Boolean);
   const hasBody = view.html !== null ? view.html.trim() !== '' : view.text.trim() !== '';

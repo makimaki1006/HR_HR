@@ -94,7 +94,6 @@ export function EmailPanel({ data, sample = false, api: suppliedApi, onSaved }: 
   return <section className="crm-email" aria-label="メール送信">
     <div className="crm-email-actions">
       <button type="button" disabled={busy || attempted !== null} onClick={() => { setOpen(v => !v); }}>メールを書く</button>
-      {grant.granted && <button type="button" disabled={busy} onClick={() => { void revoke(); }}>Gmail の許可を取り消す</button>}
     </div>
     {!grant.granted && <div className="crm-email-permission"><p>Gmail での送信を許可してください</p>
       {sample ? <button type="button" onClick={() => { allowFakeGmail(); setGrant({ enabled: true, granted: true }); }}>Gmail で送信を許可する</button>
@@ -115,8 +114,12 @@ export function EmailPanel({ data, sample = false, api: suppliedApi, onSaved }: 
         <label>件名<input value={subject} onChange={e => { setSubject(e.target.value); }} maxLength={512} required /></label>
         <label>本文<textarea value={body} onChange={e => { setBody(e.target.value); }} rows={7} maxLength={30000} required /></label>
       </fieldset>
-      <div className="crm-email-actions"><button type="submit" disabled={busy || attempted !== null || !contact || !subject.trim() || !body.trim()}>{busy ? '送信中…' : '送信'}</button>
-        <button type="button" disabled={busy} onClick={() => { setOpen(false); }}>閉じる</button></div>
+      <div className="crm-email-actions"><button type="submit" className="crm-email-send" disabled={busy || attempted !== null || !contact || !subject.trim() || !body.trim()}>{busy ? '送信中…' : '送信'}</button>
+        <button type="button" disabled={busy} onClick={() => { setOpen(false); }}>閉じる</button>
+        <details className="crm-email-more"><summary>その他</summary>
+          <button type="button" disabled={busy || attempted !== null} onClick={() => { void revoke(); }}>Gmail の許可を取り消す</button>
+        </details>
+      </div>
     </form>}
   </section>;
 }
