@@ -91,3 +91,12 @@ it('does not show undefined numeric codes in the readable original or infer holi
   expect(text).toContain('180,000円');
   expect(text).not.toContain('999');
 });
+it('hides the numeric night-work code in every conditional salary group', () => {
+  for (const group of [1, 2, 3]) {
+    const body = `仕事内容：荷物の確認を担当します\n給与形態：月給\n条件付き給与${String(group)} 条件：夜の仕事\n条件付き給与${String(group)} 深夜帯：999\n条件付き給与${String(group)} 最小給与：213000`;
+    const text = hrhCopySections(body).map(section => section.text).join('\n');
+    expect(text).toContain('深夜の勤務：確認が必要');
+    expect(text).not.toContain('999');
+    expect(text).toContain('213,000円');
+  }
+});

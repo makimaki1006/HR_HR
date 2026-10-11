@@ -64,7 +64,7 @@ test('作り直し回数と写した条件の表示を1440×900で確認する',
   await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
   await page.route('**/api/job-copy/listings/1/rikurozi-draft', route => route.fulfill({ json: {
     review_required: true, regeneration_count: 2, threshold: 0.2, min_sentence_chars: 8, csv: '',
-    comparisons: [{ media: 'HRハッカー', title: '架空の基準求人', publication: '基準', ratio: 0.25, too_similar: true, whole_match: false, matched_sentences: ['品物を棚から集める業務を担当します'] }],
+    comparisons: [{ media: 'HRハッカー', title: '架空の基準求人', publication: '基準', ratio: 0.1, too_similar: true, whole_match: false, matched_sentences: ['品物を棚から集める業務を担当します'] }],
     copied: [{ label: '給与', value: '月給 213,000円〜249,000円\n試用・研修：確認が必要\n研修中の給与：確認が必要 180,000円〜未取得', review: true, reason: null, missing_chunks: [] }, { label: '休日・休暇', value: '週休2日・夏季休暇', review: false, reason: null, missing_chunks: [] }],
     generated: [{ label: '仕事内容', value: '品物を棚から集める業務を担当します。', review: false, reason: null, missing_chunks: [] }],
   } }));
@@ -77,6 +77,8 @@ test('作り直し回数と写した条件の表示を1440×900で確認する',
   await expect(draft).toContainText('月給 213,000円〜249,000円');
   await expect(draft).toContainText('週休2日・夏季休暇');
   await expect(draft).toContainText('要確認の案');
+  await expect(draft).toContainText('同じ文が1つでもある場合');
+  await expect(draft).toContainText('文の一致率：10.0％ ／ 似すぎ・不合格');
   await draft.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'docs/screenshots/job-copy-realdata-findings/04-regeneration-1440.png' });
   await draft.getByText('原本から写した条件', { exact: true }).scrollIntoViewIfNeeded();
