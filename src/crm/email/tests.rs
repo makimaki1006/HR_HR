@@ -1,12 +1,201 @@
 use super::*;
 
+async fn set_history_cursor(e: &Env, id: &str) {
+    let id = id.to_string();
+    pending::blocking(&e.audit,move |t|t.execute("INSERT INTO crm_gmail_reply_cursors(operator_email,history_id) VALUES ('taro@example.com',?1) ON CONFLICT(operator_email) DO UPDATE SET history_id=excluded.history_id", &[&id])).await.unwrap().unwrap();
+}
+async fn history_cursor(e: &Env) -> String {
+    pending::blocking(&e.audit,|t|t.query("SELECT history_id FROM crm_gmail_reply_cursors WHERE operator_email='taro@example.com'",&[]).map(|r|r.first().map(|r|crate::handlers::helpers::get_str(r,"history_id")).unwrap_or_default())).await.unwrap().unwrap()
+}
+fn added_page(id: &str, messages: &[(&str, &str)], next: Option<&str>) -> Value {
+    json!({"historyId":id,"history":[{"messagesAdded":messages.iter().map(|(id,thread)|json!({"message":{"id":id,"threadId":thread}})).collect::<Vec<_>>()}],"nextPageToken":next})
+}
+#[tokio::test]
+async fn history_idle_with_many_sent_threads_uses_one_gmail_call_and_zero_hubspot_calls() {
+    let e = reply_env().await;
+    let original = row(&e).await;
+    pending::blocking(&e.audit, move |t| {
+        for n in 0..100 {
+            let mut payload = original.payload.clone();
+            payload
+                .email
+                .as_mut()
+                .unwrap()
+                .gmail
+                .as_mut()
+                .unwrap()
+                .thread_id = format!("thread-{n}");
+            pending::insert_op(
+                t,
+                &format!("history-seed-{n}"),
+                "taro@example.com",
+                "700",
+                &payload,
+                "emails",
+            )?;
+        }
+        Ok::<_, String>(())
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    set_history_cursor(&e, "500").await;
+    let searches = e.fake.lock().unwrap().searches.len();
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "501");
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.history_reads.len(), 1);
+    assert_eq!(
+        f.profile_reads + f.thread_reads.len() + f.reply_reads.len() + f.reply_metadata_reads.len(),
+        0
+    );
+    assert_eq!(f.searches.len(), searches);
+    assert_eq!(f.create_calls, 1);
+}
+#[tokio::test]
+async fn history_first_round_and_expired_cursor_bootstrap_only_once() {
+    for expired in [false, true] {
+        let e = reply_env().await;
+        if expired {
+            let mut f = e.fake.lock().unwrap();
+            f.history_failures = 1;
+            f.history_failure_status = 404;
+        } else {
+            pending::blocking(&e.audit, |t| {
+                t.execute("DELETE FROM crm_gmail_reply_cursors", &[])
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        }
+        scan(&e).await;
+        assert_eq!(history_cursor(&e).await, "500");
+        scan(&e).await;
+        assert_eq!(history_cursor(&e).await, "501");
+        let f = e.fake.lock().unwrap();
+        assert_eq!(f.profile_reads, 1);
+        assert_eq!(f.thread_reads.len(), 1);
+        assert_eq!(f.history_reads.len(), if expired { 2 } else { 1 });
+        assert_eq!(f.create_calls, 2);
+    }
+}
+#[tokio::test]
+async fn history_pages_deduplicate_messages_and_do_not_read_unrelated_thread_content() {
+    let e = reply_env().await;
+    {
+        let mut f = e.fake.lock().unwrap();
+        f.history_pages.insert(
+            "".into(),
+            added_page(
+                "501",
+                &[
+                    ("unrelated-999", "unrelated-thread"),
+                    ("reply-301", "thread-201"),
+                ],
+                Some("page-2"),
+            ),
+        );
+        f.history_pages.insert(
+            "page-2".into(),
+            added_page("502", &[("reply-301", "thread-201")], None),
+        );
+    }
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "502");
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.history_reads.len(), 2);
+    assert!(f
+        .history_reads
+        .iter()
+        .all(|q| q.contains("startHistoryId=100")));
+    assert!(f.history_reads[1].contains("pageToken=page-2"));
+    assert_eq!(
+        f.reply_metadata_reads,
+        vec!["/gmail/users/me/messages/reply-301"]
+    );
+    assert_eq!(f.reply_reads.len(), 1);
+    assert!(f.thread_reads.is_empty());
+    assert_eq!(f.create_calls, 2);
+}
+#[tokio::test]
+async fn history_transient_failure_keeps_cursor_and_does_not_bootstrap() {
+    let e = reply_env().await;
+    {
+        let mut f = e.fake.lock().unwrap();
+        f.history_failures = 1;
+        f.history_failure_status = 503;
+    }
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "100");
+    assert_eq!(e.fake.lock().unwrap().profile_reads, 0);
+    assert!(e.fake.lock().unwrap().thread_reads.is_empty());
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "501");
+    assert_eq!(e.fake.lock().unwrap().create_calls, 2);
+}
+#[tokio::test]
+async fn history_message_read_failure_keeps_cursor_for_retry() {
+    let e = reply_env().await;
+    e.fake.lock().unwrap().fail_reply_reads = 1;
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "100");
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "501");
+    assert_eq!(e.fake.lock().unwrap().create_calls, 2);
+}
+
 fn reply_message(from: &str) -> Value {
     json!({"id":"reply-301","threadId":"thread-201","labelIds":["INBOX"],"internalDate":(chrono::Utc::now()+chrono::Duration::minutes(1)).timestamp_millis().to_string(),"payload":{"mimeType":"text/html","headers":[{"name":"Message-ID","value":"<reply-301@customer.invalid>"},{"name":"From","value":from},{"name":"To","value":"Taro <taro@example.com>"},{"name":"Cc","value":"cc@example.invalid"},{"name":"Subject","value":"Re: 採用のご相談"},{"name":"Content-Type","value":"text/html; charset=UTF-8"}],"body":{"data":URL_SAFE_NO_PAD.encode("<p>火曜日14時でお願いします。</p>")}}})
+}
+
+#[tokio::test]
+async fn history_late_page_failure_does_not_commit_partial_cursor() {
+    let e = reply_env().await;
+    {
+        let mut f = e.fake.lock().unwrap();
+        f.history_pages.insert(
+            "".into(),
+            added_page("501", &[("reply-301", "thread-201")], Some("page-2")),
+        );
+        f.history_pages.insert("page-2".into(), json!({}));
+    }
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "100");
+    assert_eq!(e.fake.lock().unwrap().create_calls, 1);
+    e.fake
+        .lock()
+        .unwrap()
+        .history_pages
+        .insert("page-2".into(), added_page("502", &[], None));
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "502");
+    assert_eq!(e.fake.lock().unwrap().create_calls, 2);
+}
+#[tokio::test]
+async fn history_fifty_reply_limit_replays_remaining_message_without_loss() {
+    let e = reply_env().await;
+    e.fake.lock().unwrap().replies = (0..51)
+        .map(|n| {
+            let mut m = reply_message("contact@example.invalid");
+            m["id"] = json!(format!("reply-{n}"));
+            m["payload"]["headers"][0]["value"] = json!(format!("<reply-{n}@customer.invalid>"));
+            m
+        })
+        .collect();
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "100");
+    assert_eq!(e.fake.lock().unwrap().create_calls, 51);
+    scan(&e).await;
+    assert_eq!(history_cursor(&e).await, "501");
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.create_calls, 52);
+    assert_eq!(f.reply_reads.len(), 51);
 }
 async fn reply_env() -> Env {
     let e = env(true).await;
     assert_eq!(send(&e, &request()).await.0, 200);
     e.fake.lock().unwrap().replies = vec![reply_message("Customer <contact@example.invalid>")];
+    set_history_cursor(&e, "100").await;
     e
 }
 async fn scan(e: &Env) {
@@ -37,10 +226,8 @@ async fn reply_import_one_and_second_round_has_zero_hubspot_calls() {
     assert_eq!(f.create_calls, 2); // one outgoing + exactly one incoming
     assert_eq!(f.searches.len(), searches);
     assert_eq!(f.reply_reads.len(), 1);
-    assert_eq!(
-        f.thread_reads,
-        vec!["/gmail/users/me/threads/thread-201"; 2]
-    );
+    assert!(f.thread_reads.is_empty());
+    assert_eq!(f.history_reads.len(), 2);
     let p = &f.created[1]["properties"];
     assert_eq!(p["hs_email_direction"], "INCOMING_EMAIL");
     assert_eq!(p["hs_email_message_id"], "<reply-301@customer.invalid>");
@@ -240,6 +427,10 @@ async fn reply_one_hundred_operators_without_new_mail_make_zero_hubspot_calls() 
             let who = format!("operator-{n}@example.com");
             let enc = grants::encrypt(&[7; 32], &who, "fake-refresh").unwrap();
             grants::save(t, &who, &enc, &SCOPES.join(" "))?;
+            t.execute(
+                "INSERT INTO crm_gmail_reply_cursors(operator_email,history_id) VALUES (?1, '100')",
+                &[&who],
+            )?;
             pending::insert_op(
                 t,
                 &format!("seed-outgoing-{n}"),
@@ -257,7 +448,9 @@ async fn reply_one_hundred_operators_without_new_mail_make_zero_hubspot_calls() 
     let searches = e.fake.lock().unwrap().searches.len();
     scan(&e).await;
     let f = e.fake.lock().unwrap();
-    assert_eq!(f.thread_reads.len(), 100);
+    assert_eq!(f.thread_reads.len(), 0);
+    assert_eq!(f.history_reads.len(), 100);
+    assert_eq!(f.profile_reads, 0);
     assert_eq!(f.searches.len(), searches);
     assert_eq!(f.create_calls, 1);
     assert!(f.reply_reads.is_empty());
@@ -397,9 +590,16 @@ use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 
 #[derive(Default)]
 struct Fake {
+    profile_reads: usize,
+    history_reads: Vec<String>,
+    history_pages: HashMap<String, Value>,
+    history_failures: usize,
+    history_failure_status: u16,
+    fail_reply_reads: usize,
     replies: Vec<Value>,
     thread_reads: Vec<String>,
     reply_reads: Vec<String>,
+    reply_metadata_reads: Vec<String>,
     expired: bool,
     sends: usize,
     send_attempts: usize,
@@ -484,14 +684,53 @@ async fn fake(
                 json!({"messages":[]})
             }
         }
+        "/gmail/users/me/profile" => {
+            f.profile_reads += 1;
+            json!({"historyId":"500"})
+        }
+        "/gmail/users/me/history" => {
+            let query = uri.query().unwrap_or_default();
+            f.history_reads.push(query.into());
+            assert!(query.contains("historyTypes=messageAdded"));
+            let params = reqwest::Url::parse(&format!("http://fake/?{query}")).unwrap();
+            let page = params
+                .query_pairs()
+                .find(|(k, _)| k == "pageToken")
+                .map(|(_, v)| v.into_owned())
+                .unwrap_or_default();
+            if f.history_failures > 0 {
+                f.history_failures -= 1;
+                status = StatusCode::from_u16(f.history_failure_status).unwrap();
+                json!({})
+            } else {
+                f.history_pages
+                    .get(&page)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        let start=params.query_pairs().find(|(k,_)|k=="startHistoryId").map(|(_,v)|v.into_owned()).unwrap_or_default();
+                        if start=="100" { json!({"historyId":"501","history":[{"messagesAdded":f.replies.iter().map(|m|json!({"message":{"id":m["id"],"threadId":m["threadId"]}})).collect::<Vec<_>>()}]}) } else { json!({"historyId":"501"}) }
+                    })
+            }
+        }
         p if p.starts_with("/gmail/users/me/threads/") => {
             f.thread_reads.push(p.into());
             assert!(uri.query().unwrap_or_default().contains("format=metadata"));
             json!({"messages":f.replies})
         }
         p if p.starts_with("/gmail/users/me/messages/reply-") => {
-            f.reply_reads.push(p.into());
-            assert!(uri.query().unwrap_or_default().contains("format=full"));
+            if uri.query().unwrap_or_default().contains("format=full") {
+                f.reply_reads.push(p.into());
+            } else {
+                f.reply_metadata_reads.push(p.into());
+            }
+            assert!(
+                uri.query().unwrap_or_default().contains("format=full")
+                    || uri.query().unwrap_or_default().contains("format=metadata")
+            );
+            if f.fail_reply_reads > 0 {
+                f.fail_reply_reads -= 1;
+                return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({}))).into_response();
+            }
             f.replies
                 .iter()
                 .find(|m| Some(p.rsplit('/').next().unwrap()) == m["id"].as_str())
