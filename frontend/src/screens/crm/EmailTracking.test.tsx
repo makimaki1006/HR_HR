@@ -23,13 +23,14 @@ describe('メールカードの計測', () => {
     get.mockResolvedValue({ ok: true, data });
     render(<ul><ActivityCard a={a} ownerNames={new Map()} /></ul>);
     await waitFor(() => { expect(screen.getByTestId('email-tracking-summary').textContent).toBe('開封 2 回（最後 10/12 14:03）・クリック 1 回'); });
-    const details = screen.getByText('開封・クリックの詳細').closest('details');
+    const details = screen.getByLabelText('開封・クリックの詳細').closest('details');
+    expect(screen.getByLabelText('開封・クリックの詳細').textContent).toBe('開封 2 回（最後 10/12 14:03）・クリック 1 回');
     expect(details?.open).toBe(false);
     const automatic = screen.getByTestId('email-tracking-automatic');
     expect(automatic.closest('details')).toBe(details);
     expect(automatic.textContent).toBe('ほかに自動の確認とみられるもの：開封 3 回・クリック 1 回（数に含めていません）');
     expect(screen.getAllByTestId('email-tracking-automatic')).toHaveLength(1);
-    fireEvent.click(screen.getByText('開封・クリックの詳細'));
+    fireEvent.click(screen.getByLabelText('開封・クリックの詳細'));
     expect(details?.open).toBe(true);
     expect(screen.getByText('最初の開封 10/12 13:00・最後の開封 10/12 14:03')).toBeTruthy();
     expect(screen.getByText('https://example.invalid/guide')).toBeTruthy();
