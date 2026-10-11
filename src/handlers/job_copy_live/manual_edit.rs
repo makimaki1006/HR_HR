@@ -20,7 +20,15 @@ pub(super) fn published(properties: &BTreeMap<String, Option<String>>) -> Option
         .filter(|v| !v.trim().is_empty())
 }
 pub(super) fn row(body: &str) -> BTreeMap<String, String> {
-    let fields = super::hrh_copy::fields84(body);
+    let structured = body.trim_start().lines().next().is_some_and(|line| {
+        line.split_once(['：', ':'])
+            .is_some_and(|(heading, _)| HRHACKER_COLUMNS.contains(&heading.trim()))
+    });
+    let fields = if structured {
+        super::hrh_copy::fields84(body)
+    } else {
+        Default::default()
+    };
     let mut row: BTreeMap<_, _> = HRHACKER_COLUMNS
         .iter()
         .map(|key| {
@@ -38,7 +46,18 @@ pub(super) fn row(body: &str) -> BTreeMap<String, String> {
 pub(super) fn current_row(
     properties: &BTreeMap<String, Option<String>>,
 ) -> Option<BTreeMap<String, String>> {
-    let mut values = row(published(properties)?);
+    let body = published(properties)?;
+    let is_hrh = properties
+        .get("id_hrhakkaa")
+        .and_then(|v| v.as_deref())
+        .is_some_and(|v| !v.is_empty());
+    let mut values = if is_hrh {
+        row(body)
+    } else {
+        let mut values = row("");
+        values.insert("仕事内容".into(), body.into());
+        values
+    };
     if let Some(id) = properties
         .get("id_hrhakkaa")
         .and_then(|v| v.as_ref())
@@ -95,9 +114,35 @@ pub(super) fn protected(
             .into_iter()
             .flatten()
             .any(|v| {
-                ["休日", "勤務地", "休暇"]
-                    .iter()
-                    .any(|word| v.contains(word))
+                [
+                    "給与",
+                    "月給",
+                    "時給",
+                    "日給",
+                    "年俸",
+                    "年収",
+                    "残業",
+                    "勤務",
+                    "稼働",
+                    "雇用",
+                    "研修",
+                    "休日",
+                    "勤務地",
+                    "休暇",
+                    "通勤",
+                    "正社員",
+                    "契約社員",
+                    "パート",
+                    "アルバイト",
+                ]
+                .iter()
+                .any(|word| v.contains(word))
+                    || v.lines().any(|line| {
+                        line.char_indices().any(|(i, c)| {
+                            (c.is_ascii_digit() || ('０'..='９').contains(&c))
+                                && line[i..].contains(['円', '時', '休'])
+                        })
+                    })
             })
 }
 pub(super) fn snapshot(
@@ -129,7 +174,7 @@ pub(super) fn snapshot(
     let changes: Vec<String> = HRHACKER_COLUMNS
         .iter()
         .filter(|key| {
-            protected(key, &current, &req.row)
+            (protected(key, &current, &req.row) || protected(key, baseline, &req.row))
                 && (req.row.get(**key) != current.get(**key)
                     || req.row.get(**key) != baseline.get(**key))
         })
@@ -181,6 +226,70 @@ mod tests {
             },
             properties,
         )
+    }
+    #[test]
+    fn airwork_keeps_entire_body_even_when_lines_look_like_hrh_columns() {
+        for body in [
+            "訪問看護師募集。時給1800円。\n勤務時間：9〜18時",
+            "勤務時間：9〜18時\n訪問看護師募集。時給1800円。",
+        ] {
+            let properties = BTreeMap::from([("shigotonaiyou".into(), Some(body.into()))]);
+            let values = current_row(&properties).unwrap();
+            assert_eq!(values["仕事内容"], body);
+            assert_eq!(values["基本給与 最小"], "");
+            let req = ManualDraftRequest {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                base_revision: drafts::revision(&properties),
+                base_body_hash: drafts::hash(body),
+                base_draft_id: None,
+                row: values,
+                reason: String::new(),
+            };
+            assert_eq!(
+                snapshot(&req, &properties, None).unwrap().row["仕事内容"],
+                body
+            );
+        }
+        assert_eq!(
+            row("訪問看護師募集。時給1800円。\n勤務時間：9〜18時")["仕事内容"],
+            "訪問看護師募集。時給1800円。\n勤務時間：9〜18時"
+        );
+    }
+    #[test]
+    fn conditions_in_heading_require_reason_including_removal_from_saved_base() {
+        for (before, after) in [
+            ("月給25万円の配送", "月給30万円の配送"),
+            ("配送スタッフ", "月給30万円の配送"),
+            ("月給25万円の配送", "配送スタッフ"),
+        ] {
+            let (mut req, mut properties) = fixture();
+            let body = published(&properties)
+                .unwrap()
+                .replace("架空の配送", before);
+            properties.insert("hrh_kyuujinhyou_honbun".into(), Some(body.clone()));
+            req.base_body_hash = drafts::hash(&body);
+            req.row = current_row(&properties).unwrap();
+            req.row.insert("案件名".into(), after.into());
+            assert_eq!(
+                snapshot(&req, &properties, None).unwrap_err(),
+                "draft_reason_required"
+            );
+            req.reason = "募集担当者に確認".into();
+            assert!(snapshot(&req, &properties, None)
+                .unwrap()
+                .manual_edit
+                .unwrap()
+                .changed_conditions
+                .contains(&"案件名".into()));
+        }
+        let (mut req, properties) = fixture();
+        let mut base = snapshot(&req, &properties, None).unwrap();
+        base.row.insert("案件名".into(), "月給25万円の配送".into());
+        req.base_body_hash = drafts::hash(&drafts::compose_body(&base.row));
+        assert_eq!(
+            snapshot(&req, &properties, Some(&base)).unwrap_err(),
+            "draft_reason_required"
+        );
     }
     #[test]
     fn all_84_fields_including_management_contact_and_publication_roundtrip() {

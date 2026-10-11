@@ -5,7 +5,7 @@ import type { ManualDraftRequest } from '../../generated/ManualDraftRequest';
 import { useDraftMutation } from './draftApi';
 import { manualColumns, managementColumns, manualLabel, manualRow, conditionChanges, bodyHash, rowBody } from './manualEditModel';
 export function ManualDraftEditor({ job, current, base, onSaved, onCancel }: { job: JobCopyRecord; current: CopyVersion; base: CopyVersion; onSaved: (draft: DraftSnapshot, revision: string) => void; onCancel: () => void }) {
-  const currentRow = job.currentDraftRow ?? manualRow(current.comparisonBody ?? current.body);
+  const currentRow = job.currentDraftRow ?? manualRow(current.comparisonBody ?? current.body, job.media === 'HRハッカー');
   const baseline = base.draft?.row ?? currentRow;
   const [row, setRow] = useState<Record<string, string>>(() => ({ ...baseline, ...Object.fromEntries(managementColumns.map(key => [key, currentRow[key] ?? ''])) }));
   const [reason, setReason] = useState('');

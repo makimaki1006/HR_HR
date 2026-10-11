@@ -2,8 +2,10 @@ import columns from '../../generated/jobgen/columns.json';
 import { parseHrhFields } from './hrhCopy';
 export const manualColumns = columns;
 export const managementColumns = ['求人id', '店舗id', '職種id'];
-export function manualRow(body: string): Record<string, string> {
-  const fields = parseHrhFields(body);
+export function manualRow(body: string, structured = true): Record<string, string> {
+  const first = body.trimStart().split(/\r?\n/, 1)[0] ?? '';
+  const heading = /^([^：:]+)[：:]/.exec(first)?.[1]?.trim();
+  const fields = structured && heading && columns.includes(heading) ? parseHrhFields(body) : new Map<string, string>();
   const row = Object.fromEntries(columns.map(key => [key, fields.get(key) ?? '']));
   if (!fields.size) row['仕事内容'] = body;
   return row;
@@ -14,7 +16,7 @@ export async function bodyHash(body: string): Promise<string> {
   return [...new Uint8Array(bytes)].map(value => value.toString(16).padStart(2, '0')).join('');
 }
 export function conditionChanges(current: Readonly<Record<string, string>>, baseline: Readonly<Record<string, string>>, row: Readonly<Record<string, string>>): string[] {
-  return columns.filter(key => !managementColumns.includes(key) && (/給与|残業|勤務|稼働|タスク|雇用|研修/.test(key) || ['通勤経路', '最寄り駅', '仕事内容', 'キャッチコピー', 'メリット'].includes(key) || /^(自由項目|仕事情報補足)/.test(key) || /休日|勤務地|休暇/.test(`${current[key] ?? ''}${row[key] ?? ''}`)) && (row[key] !== current[key] || row[key] !== baseline[key]));
+  return columns.filter(key => !managementColumns.includes(key) && (/給与|残業|勤務|稼働|タスク|雇用|研修/.test(key) || ['通勤経路', '最寄り駅', '仕事内容', 'キャッチコピー', 'メリット'].includes(key) || /^(自由項目|仕事情報補足)/.test(key) || /給与|月給|時給|日給|年俸|年収|残業|勤務|稼働|雇用|研修|休日|勤務地|休暇|通勤|[0-9０-９].*[円時休]|正社員|契約社員|パート|アルバイト/.test(`${current[key] ?? ''}${baseline[key] ?? ''}${row[key] ?? ''}`)) && (row[key] !== current[key] || row[key] !== baseline[key]));
 }
 const names: Record<string, string> = {
   求人id: '求人の管理情報', 店舗id: '事業所の管理情報', 職種id: '職種の管理情報', 案件名: '求人の見出し',

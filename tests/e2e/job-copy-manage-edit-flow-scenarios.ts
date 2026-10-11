@@ -10,24 +10,26 @@ const row = { ...Object.fromEntries(columns.map(key => [key, ''])), '求人id': 
 const body = composeFixtureBody(row);
 export async function mockFlow(page: Page, allowed = true, failedSave = false) {
   const drafts: DraftSnapshot[] = [{ schema_version: 1, draft_id: '10000000-0000-4000-8000-000000000001', created_at: '2026-10-10T00:00:00Z', source_kind: 'free_text', review_status: 'pending', row: { ...row, '仕事内容': 'チームで日用品を配送します。' }, facts: {} }];
+  const airworkDrafts: DraftSnapshot[] = [];
   const requests: { method: string; body: any }[] = [];
   let revision = 'a'.repeat(64);
   const listing = { id: '30', media: 'hrh', media_job_id: 'secret-job', account_id: null, title: '架空配送スタッフ', prefecture: '大分県', municipality: '大分市', category: 'ドライバー', publication_status: '非公開', last_csv_detected_at: null, application_count: null };
   const airwork = { ...listing, id: '31', media: 'airwork', title: '架空看護スタッフ', media_job_id: 'secret-aw', account_id: 'secret-account', category: '看護師', publication_status: '掲載中' };
   await page.route('**/api/job-copy/listings*', route => {
     const url = new URL(route.request().url());
-    const entries = [{ ...listing, draft_status: drafts.at(-1)?.review_status }, { ...airwork, draft_status: null }].filter(value => ['prefecture', 'media', 'draft_status'].every(key => !url.searchParams.get(key) || value[key as keyof typeof value] === url.searchParams.get(key)) && (!url.searchParams.get('title') || value.category === url.searchParams.get('title')) && (!url.searchParams.get('publication') || value.publication_status === url.searchParams.get('publication')));
+    const entries = [{ ...listing, draft_status: drafts.at(-1)?.review_status }, { ...airwork, draft_status: airworkDrafts.at(-1)?.review_status ?? null }].filter(value => ['prefecture', 'media', 'draft_status'].every(key => !url.searchParams.get(key) || value[key as keyof typeof value] === url.searchParams.get(key)) && (!url.searchParams.get('title') || value.category === url.searchParams.get('title')) && (!url.searchParams.get('publication') || value.publication_status === url.searchParams.get('publication')));
     return route.fulfill({ json: { status: 'ready', listings: entries, titles: ['ドライバー', '看護師'], publication_statuses: ['非公開', '掲載中'], total: entries.length, index_built_at: '2026-10-11T00:00:00Z', offset: 0, next_offset: null, refreshing: false, refresh_failed: false } });
   });
   await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({ json: { listing, current_row: row, versions: [{ written_at: '2026-10-01T00:00:00Z', body, image_urls: null }], history_counts: {}, history_may_be_incomplete: false, drafts, draft_revision: revision, can_write_drafts: allowed } }));
-  await page.route('**/api/job-copy/listings/31/versions', route => route.fulfill({ json: { listing: airwork, versions: [{ written_at: '2026-10-01T00:00:00Z', body: '健康を支える看護のお仕事です。時給1,800円。9時〜18時、週休2日。', image_urls: null }], history_counts: {}, history_may_be_incomplete: false, drafts: [], draft_revision: revision, can_write_drafts: allowed } }));
+  await page.route('**/api/job-copy/listings/31/versions', route => route.fulfill({ json: { listing: airwork, versions: [{ written_at: '2026-10-01T00:00:00Z', body: '健康を支える看護のお仕事です。時給1,800円。9時〜18時、週休2日。', image_urls: null }], history_counts: {}, history_may_be_incomplete: false, drafts: airworkDrafts, draft_revision: revision, can_write_drafts: allowed } }));
   for (const endpoint of ['manual-draft', 'draft']) await page.route(`**/api/job-copy/listings/*/${endpoint}`, route => {
     const req = route.request().postDataJSON(); const method = route.request().method(); requests.push({ method, body: req });
     if (!allowed || failedSave) return route.fulfill({ status: 403, json: { code: 'draft_forbidden' } });
-    if (method === 'POST') drafts.push({ schema_version: 1, draft_id: req.operation_id, created_at: '2026-10-11T00:00:00Z', source_kind: 'free_text', review_status: 'pending', row: req.row, facts: {}, manual_edit: { base_draft_id: req.base_draft_id, published_hash: req.base_body_hash, reason: req.reason, changed_conditions: ['基本給与 最小'] } });
-    else { const last = drafts.at(-1)!; last.review_status = req.status; last.review_events = [...(last.review_events ?? []), { actor: 'private-reviewer@example.invalid', at: '2026-10-11T01:00:00Z', status: req.status }]; }
+    const targetDrafts = new URL(route.request().url()).pathname.includes('/31/') ? airworkDrafts : drafts;
+    if (method === 'POST') targetDrafts.push({ schema_version: 1, draft_id: req.operation_id, created_at: '2026-10-11T00:00:00Z', source_kind: 'free_text', review_status: 'pending', row: req.row, facts: {}, manual_edit: { base_draft_id: req.base_draft_id, published_hash: req.base_body_hash, reason: req.reason, changed_conditions: ['基本給与 最小'] } });
+    else { const last = targetDrafts.at(-1)!; last.review_status = req.status; last.review_events = [...(last.review_events ?? []), { actor: 'private-reviewer@example.invalid', at: '2026-10-11T01:00:00Z', status: req.status }]; }
     revision = method === 'POST' ? 'b'.repeat(64) : 'c'.repeat(64);
-    return route.fulfill({ json: { status: 'saved', operation_id: req.operation_id, draft: drafts.at(-1), revision, code: '' } });
+    return route.fulfill({ json: { status: 'saved', operation_id: req.operation_id, draft: targetDrafts.at(-1), revision, code: '' } });
   });
   return { requests, drafts };
 }
@@ -49,6 +51,57 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
   test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); if (login) await login(page); });
   for (const width of [1440, 1920]) test.describe(`${width}px 管理→修正→比較→表示`, () => {
     test.use({ viewport: { width, height: 1000 } });
+    test('求人を切り替えても前の本文を再取得せず選んだ求人を保持する', async ({ page }) => {
+      await mockFlow(page);
+      const fetched: string[] = [];
+      page.on('request', request => { if (/\/listings\/\d+\/versions$/.test(request.url())) fetched.push(new URL(request.url()).pathname); });
+      await page.goto('/app/job-copy?listing=30&demo=1');
+      await expect(page.getByLabel('求人票')).toContainText('日用品を配送します。');
+      const list = page.getByRole('region', { name: 'HubSpot の求人' });
+      await list.getByRole('button', { name: '架空看護スタッフの版を見る' }).click();
+      await expect(page.getByLabel('求人票')).toContainText('健康を支える看護');
+      await expect(page).toHaveURL(/listing=31/);
+      await page.getByRole('button', { name: '今の版を手直しする' }).click();
+      await expect(page.getByLabel('仕事の内容', { exact: true })).toHaveValue('健康を支える看護のお仕事です。時給1,800円。9時〜18時、週休2日。');
+      await page.getByRole('button', { name: '手直しを閉じる' }).click();
+      expect(fetched).toEqual(['/api/job-copy/listings/30/versions', '/api/job-copy/listings/31/versions']);
+      await list.getByRole('button', { name: '架空配送スタッフの版を見る' }).click();
+      await expect(page.getByLabel('求人票')).toContainText('日用品を配送します。');
+      await expect(page).toHaveURL(/listing=30/);
+    });
+    test('AirWorkの冒頭と給与を手直しから保存・表示まで保持する', async ({ page }) => {
+      const { requests } = await mockFlow(page);
+      const body = '訪問看護師募集。時給1800円。\n勤務時間：9〜18時';
+      await page.route('**/api/job-copy/listings/31/versions', route => route.fulfill({ json: { listing: { id: '31', media: 'airwork', media_job_id: 'secret-aw', title: '架空看護スタッフ' }, versions: [{ written_at: '2026-10-01T00:00:00Z', body, image_urls: null }], drafts: [], draft_revision: 'a'.repeat(64), can_write_drafts: true, history_counts: {}, history_may_be_incomplete: false } }));
+      await page.goto('/app/job-copy?listing=31&demo=1');
+      await page.getByRole('button', { name: '今の版を手直しする' }).click();
+      await expect(page.getByLabel('仕事の内容', { exact: true })).toHaveValue(body);
+      await page.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
+      expect(requests[0].body.row['仕事内容']).toBe(body);
+      expect(requests[0].body.row['基本給与 最小']).toBe('');
+      await page.locator('.jc-draft-review').getByRole('combobox', { name: '案の確認状態', exact: true }).selectOption('adopted');
+      await page.getByRole('button', { name: '確認状態を保存' }).click();
+      await page.getByRole('button', { name: 'この案を求人票で見る', exact: true }).click();
+      await expect(page.getByLabel('求人票')).toContainText('訪問看護師募集。時給1800円。');
+      await expect(page.getByLabel('求人票')).toContainText('勤務時間：9〜18時');
+      await shot(page, width, '05-airwork-preserved');
+    });
+    test('求人見出しの給与変更にも警告と理由を求める', async ({ page }) => {
+      const { requests } = await mockFlow(page);
+      await page.goto('/app/job-copy?listing=30&demo=1');
+      await page.getByRole('button', { name: '今の版を手直しする' }).click();
+      const editor = page.getByRole('region', { name: '求人の手直し' });
+      await editor.getByLabel('求人の見出し').fill('月給25万円の配送スタッフ');
+      await editor.getByLabel('求人の見出し').fill('月給30万円の配送スタッフ');
+      await expect(editor.getByRole('alert')).toContainText('求人の見出し');
+      await expect(editor.getByRole('button', { name: '確認待ちの案として保存して比較' })).toBeDisabled();
+      expect(requests).toHaveLength(0);
+      await editor.getByLabel('条件を変更する理由').fill('募集担当者に給与変更を確認したため');
+      await editor.getByRole('alert').scrollIntoViewIfNeeded(); await shot(page, width, '06-heading-condition-warning');
+      await editor.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
+      expect(requests[0].body.row['案件名']).toBe('月給30万円の配送スタッフ');
+      expect(requests[0].body.reason).toBe('募集担当者に給与変更を確認したため');
+    });
     test('給与変更と理由、保存状態、二つの案の比較、採用CSVの84列と具体値', async ({ page }) => {
       const { requests } = await mockFlow(page);
       await page.goto('/app/job-copy?demo=1');
