@@ -1120,11 +1120,15 @@ mod tests {
                     calls.lock().unwrap().push(path.clone());
                     let bytes = axum::body::to_bytes(req.into_body(), 100000).await.unwrap();
                     let input: Value = serde_json::from_slice(&bytes).unwrap();
-                    return Json(json!({"results":input["inputs"].as_array().unwrap().iter().map(|v| {
+                    // Like HubSpot: objects without associations come back as NO_ASSOCIATIONS_FOUND errors.
+                    let (mut results, mut empty) = (vec![], vec![]);
+                    for v in input["inputs"].as_array().unwrap() {
                         let id = v["id"].as_str().unwrap();
                         let targets = if path.contains("/deals/") { match id { "1" => vec![json!({"toObjectId":901}),json!({"toObjectId":902})], "2" => vec![json!({"toObjectId":901})], _ => vec![] } } else { vec![json!({"toObjectId":7001}),json!({"toObjectId":7002})] };
-                        json!({"from":{"id":id},"to":targets})
-                    }).collect::<Vec<_>>()})).into_response();
+                        if targets.is_empty() { empty.push(json!(id)); } else { results.push(json!({"from":{"id":id},"to":targets})); }
+                    }
+                    let errors: Vec<Value> = empty.chunks(50).map(|ids| json!({"status":"error","category":"OBJECT_NOT_FOUND","subCategory":"crm.associations.NO_ASSOCIATIONS_FOUND","context":{"fromObjectId":ids,"fromObjectType":["listing"],"toObjectType":["deal"]}})).collect();
+                    return Json(json!({"status":"COMPLETE","results":results,"errors":errors})).into_response();
                 }
                 if path == "/crm/v3/objects/deals/batch/read" {
                     calls.lock().unwrap().push(path);
