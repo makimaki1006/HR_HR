@@ -264,14 +264,10 @@ async fn build_index(
         .collect::<Vec<_>>()
         .join(",");
     loop {
-        let mut params = vec![
-            ("limit", "100".into()),
-            ("properties", properties.clone()),
-            (
-                "propertiesWithHistory",
-                "hrh_kyuujinhyou_honbun,shigotonaiyou".into(),
-            ),
-        ];
+        // No propertiesWithHistory here: HubSpot caps history reads at 50 objects per request
+        // (400 at limit=100), and full body histories for ~40k listings are too heavy for the
+        // index. The body's last-change date is therefore not indexed (shown as 未取得).
+        let mut params = vec![("limit", "100".into()), ("properties", properties.clone())];
         if let Some(cursor) = &after {
             params.push(("after", cursor.clone()));
         }
@@ -1139,6 +1135,8 @@ mod tests {
                 assert!(query.contains("limit=100"));
                 assert!(!query.contains("hrh_kyuujinhyou_gazou"));
                 assert!(query.contains("shigotonaiyou"));
+                // Like HubSpot: history reads above 50 objects are rejected with 400.
+                if query.contains("propertiesWithHistory") && query.contains("limit=100") { return (StatusCode::BAD_REQUEST, Json(json!({"message":"You can only request at most 50 objects in one request for properties with history."}))).into_response(); }
                 calls.lock().unwrap().push(query.into());
                 if fail_next.load(Ordering::Relaxed) { return (StatusCode::FORBIDDEN, Json(json!({}))).into_response(); }
                 let start = if query.contains("after=200") {201} else if query.contains("after=100") {101} else {1};
