@@ -35,7 +35,7 @@ function ComparisonCell({ value, reference, different }: { value: string; refere
     observer.observe(element);
     return () => { observer.disconnect(); };
   }, [value, expanded]);
-  const segments = different ? markInlineChanges([{ kind: 'removed', text: reference }, { kind: 'added', text: value }]).find(line => line.kind === 'added')?.segments : undefined;
+  const segments = different && value !== '未取得' && reference !== '未取得' ? markInlineChanges([{ kind: 'removed', text: reference }, { kind: 'added', text: value }]).find(line => line.kind === 'added')?.segments : undefined;
   const content = segments ? segments.map((segment, i) => segment.changed ? <mark className="jc-mark-added" key={i}>{segment.text}</mark> : segment.text) : value;
   const long = clipped || value.length > 100 || value.split('\n').length > 3;
   return <><div ref={preview} className={expanded ? 'jc-comparison-full' : 'jc-comparison-preview'}>{content}</div>{long && <button className="jc-button" aria-expanded={expanded} onClick={() => { setExpanded(!expanded); }}>{expanded ? '閉じる' : '全文を見る'}</button>}</>;
