@@ -60,7 +60,14 @@ export function fixtureDetail(dealId: string, props?: SelectedProps): WorkspaceR
     activities: [
       { id: `${dealId}-a1`, kind: 'call', timestamp: '2026-10-03T01:00:00Z', title: '架電(架空)', body: '受付で不在。来週再架電。', direction: 'OUTBOUND', status: 'COMPLETED', duration_ms: 65_000, owner_id: item.owner_id, source: null, via: 'deal', via_id: dealId },
       { id: `${dealId}-a2`, kind: 'note', timestamp: '2026-10-02T01:00:00Z', title: null, body: '採用担当は火曜・木曜の午後が在席。', direction: null, status: null, duration_ms: null, owner_id: item.owner_id, source: null, via: 'deal', via_id: dealId },
-      { id: `${dealId}-a3`, kind: 'email', timestamp: '2026-09-30T01:00:00Z', title: 'ご挨拶(架空)', body: '資料を送付します。', direction: 'EMAIL', status: null, duration_ms: null, owner_id: item.owner_id, source: null, via: 'deal', via_id: dealId },
+      {
+        id: `${dealId}-a3`, kind: 'email', timestamp: '2026-09-30T01:00:00Z', title: 'ご挨拶(架空)', body: '資料を送付します。', direction: 'EMAIL', status: 'SENT', duration_ms: null, owner_id: item.owner_id, source: null, via: 'deal', via_id: dealId,
+        rich: {
+          body_html: '<p>ダミー建設 ご担当者様</p><p>お世話になっております。<b>資料</b>を送付します。<br>ご確認ください。</p><p>--<br>架空 太郎<br>株式会社サンプル / 電話 03-0000-0000</p><div class="gmail_quote"><p>2026年9月29日 10:00 担当者 &lt;contact@example.invalid&gt;:</p><blockquote><p>先日の件、資料をお願いします。</p></blockquote></div>',
+          body_full: 'ダミー建設 ご担当者様\nお世話になっております。資料を送付します。', from_name: '架空 太郎', from_email: 'taro@example.invalid',
+          to: ['contact@example.invalid'], cc: [], thread_id: null, attachments_count: 1, start_time: null, end_time: null, location: null, recording_url: null,
+        },
+      },
     ],
     activities_truncated: false,
     activity_scope: '架空サンプルです。実データでは、案件に直接つながる通話・メモ・メール・ミーティングと、担当者に直接つながる通話を表示します。',
