@@ -50,6 +50,7 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     return () => { window.clearTimeout(timer); };
   }, [active, page, busy, error, load]);
   const opened = useRef('');
+  const restored = useRef('');
   const openId = useCallback(async (id: string) => {
     opened.current = id;
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
@@ -59,7 +60,13 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     if (result.ok) { setHistory(result.data); onOpen(listingRecord(result.data)); }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
   }, [onOpen, onLoading, onFailure]);
-  useEffect(() => { if (active && initialListingId && /^\d{1,20}$/.test(initialListingId) && opened.current !== initialListingId) { opened.current = initialListingId; void openId(initialListingId); } }, [active, initialListingId, openId]);
+  useEffect(() => {
+    if (!active) return;
+    if (!initialListingId) { restored.current = ''; return; }
+    if (!/^\d{1,20}$/.test(initialListingId) || restored.current === initialListingId) return;
+    restored.current = initialListingId;
+    if (opened.current !== initialListingId) void openId(initialListingId);
+  }, [active, initialListingId, openId]);
   const rows = sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [];
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
     <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>
