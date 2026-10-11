@@ -57,6 +57,9 @@ jobs:
           export PDF_CHROMIUM_PATH="$(node -e 'process.stdout.write(require("@playwright/test").chromium.executablePath())')"
           npx playwright test -c tests/e2e/pr/playwright.pr.config.ts
 
+      - name: Email tracking display and self-open protection (fake data only)
+        run: npx playwright test -c tests/e2e/crm-email-tracking.config.ts
+
       - name: Upload traces and screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -64,6 +67,7 @@ jobs:
           name: e2e-pr-report
           path: |
             test-results-pr/
+            test-results/email-tracking/
             playwright-report-pr/
             /tmp/hp_e2e_*/server.log
           if-no-files-found: ignore
