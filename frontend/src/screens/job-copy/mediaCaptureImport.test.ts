@@ -115,7 +115,7 @@ describe('private media capture import', () => {
     const image = source.jobs[0]?.images[0];
     if (!image) throw new Error('Missing test fixture.');
     image.url = url;
-    expect(() => parseMediaCapture(JSON.stringify(source))).toThrow('媒体取得データの形式');
+    expect(() => parseMediaCapture(JSON.stringify(source))).toThrow('媒体保存データの形式');
   });
 
   it.each(['not-a-date', '2026-02-30T06:00:00Z', '2026-10-03', '2026-10-03T24:00:00Z'])('rejects unsupported or impossible timestamps %s', (value) => {
@@ -233,7 +233,7 @@ describe('private media capture import', () => {
   });
 
   it('rejects malformed JSON, schema, missing images, and invalid content fingerprints', () => {
-    expect(() => parseMediaCapture('{private-value')).toThrow('媒体取得データの形式');
+    expect(() => parseMediaCapture('{private-value')).toThrow('媒体保存データの形式');
     expect(() => parseMediaCapture(JSON.stringify({ ...sample(), schemaVersion: 2 }))).toThrow();
     const source = sample();
     expect(() => parseMediaCapture(JSON.stringify({ ...source, jobs: [{ ...source.jobs[0], images: undefined }] }))).toThrow();
@@ -242,14 +242,14 @@ describe('private media capture import', () => {
 
   it('never includes imported content in an error message', () => {
     const privateTitle = 'PRIVATE-FIXTURE-TITLE';
-    expect(() => parseMediaCapture(JSON.stringify({ ...sample(), jobs: [{ id: 'fixture', title: privateTitle }] }))).toThrow(/^媒体取得データの形式を確認してください/);
+    expect(() => parseMediaCapture(JSON.stringify({ ...sample(), jobs: [{ id: 'fixture', title: privateTitle }] }))).toThrow(/^媒体保存データの形式を確認してください/);
   });
 
   it('offers a local file input and explicit display action without auto-importing', () => {
     const html = renderToStaticMarkup(createElement(MediaCaptureImport, { onImport: () => undefined }));
-    expect(html).toContain('媒体取得データを読み込む');
+    expect(html).toContain('媒体保存データを読み込む');
     expect(html).toContain('type="file"');
     expect(html).toContain('サーバーには送らず');
-    expect(html).not.toContain('取得データを表示');
+    expect(html).not.toContain('保存データを表示');
   });
 });

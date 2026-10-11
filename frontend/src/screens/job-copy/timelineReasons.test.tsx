@@ -200,7 +200,7 @@ describe('category breakdown on the 応募理由 tab', () => {
     for (const optionLabels of ['not_stored', null] as const) {
       render(<ApplicantReasons job={{ ...job, applicantReasons: { ...reasons, optionLabels, selections: [...(reasons.selections ?? []), unlisted] } }} />);
       summary = screen.getByRole('region', { name: '応募理由の分類' });
-      expect(summary.textContent).toContain('保存された取得データに分類の名前が入っていないため、開き直しても変わりません。');
+      expect(summary.textContent).toContain('保存データに分類の名前が入っていないため、開き直しても変わりません。');
       expect(summary.textContent).not.toContain('時間をおいて開き直す');
       cleanup();
     }
@@ -229,7 +229,7 @@ describe('category breakdown on the 応募理由 tab', () => {
   });
 });
 
-describe('reasons in 取得日の間 rows and on the as-of day', () => {
+describe('reasons in 文面を確認した日の間 rows and on the as-of day', () => {
   const version = (id: string, observedAt: string, body: string): CopyVersion => ({
     id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '', images: [],
   });
@@ -254,7 +254,7 @@ describe('reasons in 取得日の間 rows and on the as-of day', () => {
   const reasonRows = () => within(within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getByRole('table')).getAllByRole('row').slice(1)
     .map(row => [row.querySelector('th')?.textContent ?? '', row.querySelectorAll('td')[0]?.textContent ?? ''] as const);
 
-  it('puts the reasons of the days between two acquisitions into the 取得日の間 row', () => {
+  it('puts the reasons of the days between two acquisitions into the 文面を確認した日の間 row', () => {
     render(<JobTimeline job={record(['2026-08-15', '2026-08-18'])} marketMode="demo" showDummyBilling={false} />);
     const rows = reasonRows();
     const between = rows.filter(([label]) => label.includes('の間に変化'));

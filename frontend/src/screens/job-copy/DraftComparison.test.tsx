@@ -24,7 +24,7 @@ describe('保存された求人の案', () => {
     render(<DraftReview job={job} draft={{ ...draftFixture(), source_text: source }} onSaved={vi.fn()} />);
     const details = screen.getByText('元データを見る').closest('details');
     expect(details?.querySelector('pre')?.textContent).toBe(source);
-    expect(screen.queryByText('元データの事実と今の版の確認')).toBeNull();
+    expect(screen.queryByText('元データの事実と現在の文面の確認')).toBeNull();
     cleanup(); render(<DraftReview job={job} draft={draftFixture()} onSaved={vi.fn()} />);
     expect(screen.getByText('未取得')).toBeTruthy();
   });

@@ -106,7 +106,7 @@ test('a pending version request shows a message in the detail before the body ar
   await page.goto('/app/job-copy?demo=1');
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
   await page.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
-  await expect(page.getByRole('heading', { name: '求人票を取得しています' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '求人票を読み込んでいます' })).toBeVisible();
   await expect(page.getByText('本文・画像・文面の履歴を確認しています。')).toBeVisible();
   await expect.poll(() => Boolean(deliver)).toBe(true);
   if (!deliver) throw new Error('synthetic request missing');

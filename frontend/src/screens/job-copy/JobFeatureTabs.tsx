@@ -17,7 +17,7 @@ export const jobFeatureGroups: { id: string; label: string; hidden?: boolean; fe
   { id: 'market', label: '市場分析', features: [
     { id: 'market', label: '市場グラフ', description: '市場職種と都道府県を選び、各指標の月次推移を確認します。' },
     { id: 'market-table', label: '市場データ', description: '市場グラフと同じ職種・地域・期間の実数を確認します。' },
-    { id: 'factors', label: '要因・仮説', description: '本文・画像の取得履歴と、次に確認する要因を整理します。' },
+    { id: 'factors', label: '要因・仮説', description: '本文・画像を確認した履歴と、次に確認する要因を整理します。' },
   ] },
   { id: 'comparison', label: '比較・報告', features: [
     { id: 'diff', label: '変更差分', description: '同じ求人の本文・画像の変化を比較します。' },

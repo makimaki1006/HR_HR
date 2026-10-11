@@ -8,7 +8,7 @@ function RetryableImage({ image, onOpen, slot }: { image: CopyImage; onOpen?: ()
   const picture = <img key={`${image.url}-${String(attempt)}`} src={image.url} alt={image.caption} loading={onOpen ? 'lazy' : 'eager'} style={failed ? { display: 'none' } : undefined} onLoad={() => { setStatus('loaded'); }} onError={() => { setStatus('failed'); }} />;
   return <>
     {onOpen ? <button className="jc-image-open" disabled={status !== 'loaded'} aria-label={`画像${String(slot)}を拡大: ${image.caption}`} onClick={onOpen}>{picture}{status === 'loaded' && <span>画像を拡大</span>}</button> : picture}
-    {status === 'loading' && <p className="jc-muted" role="status" style={{ minHeight: '3rem' }}>画像を取得中です。本文や分析はそのまま操作できます。</p>}
+    {status === 'loading' && <p className="jc-muted" role="status" style={{ minHeight: '3rem' }}>画像を読み込み中です。本文や分析はそのまま操作できます。</p>}
     {failed && <div className="jc-notice"><p role="alert">画像の取得に失敗しました。画像なし・削除とは判定していません。</p><button className="jc-button" aria-label={`画像を再読み込み: ${image.caption}`} onClick={() => { setStatus('loading'); setAttempt(value => value + 1); }}>画像を再読み込み</button></div>}
   </>;
 }

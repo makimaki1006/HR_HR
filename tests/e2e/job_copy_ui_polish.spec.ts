@@ -36,7 +36,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await expect(page.getByLabel('求人票')).toContainText('月給 280,000円〜320,000円');
       await expect(page.locator('.jc-detail-heading')).toContainText('合成運輸株式会社 · 大分県大分市 · HRハッカー');
       await expect(page.locator('.jc-record-meta')).toContainText('2026/10/02 09:00 JST にHubSpotに記録された本文');
-      await expect(page.locator('.jc-main')).not.toContainText(/保存を確認・掲載時刻不明|取得した版 1|取引先名未取得/);
+      await expect(page.locator('.jc-main')).not.toContainText(/保存を確認・掲載時刻不明|確認した本文 1|取引先名未取得/);
       if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
       await expect.poll(() => wholeCards(page)).toBeGreaterThanOrEqual(5);
       await expect(page.locator('.jc-listings-panel .jc-history-status')).toHaveCount(0);

@@ -1,0 +1,23 @@
+import { test, expect } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import { mockFlow } from './job-copy-manage-edit-flow-scenarios';
+test('手直しの空欄と管理項目、本文の比較状態を利用者の言葉で表示する', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'));
+  await mockFlow(page);
+  await page.goto('/app/job-copy?listing=30');
+  await expect(page.locator('.jc-detail-heading')).toContainText('過去の本文がないため比較できません');
+  await page.getByRole('button', { name: '現在の文面を手直しする' }).click();
+  const editor = page.getByRole('region', { name: '求人の手直し' });
+  const management = editor.locator('.jc-management-fields');
+  await expect(management).not.toHaveAttribute('open');
+  await expect(editor.locator('input[type=password]')).toHaveCount(0);
+  await expect(editor.getByLabel('近くの駅')).toHaveValue('');
+  await expect(editor.getByLabel('近くの駅')).toHaveAttribute('placeholder', '（空欄）');
+  await expect(editor).not.toContainText('非表示・取得した値を保持');
+  await expect(editor).not.toContainText('secret-job');
+  await mkdir('docs/screenshots/job-copy-ui-polish-2', { recursive: true });
+  await page.screenshot({ path: 'docs/screenshots/job-copy-ui-polish-2/03-manual-edit-1440.png' });
+  await management.locator('summary').click();
+  await expect(management).toContainText('事業所の管理情報：この項目は変更しません');
+});

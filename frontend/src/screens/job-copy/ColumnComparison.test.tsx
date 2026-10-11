@@ -83,14 +83,14 @@ describe('全文で検知して列で特定する', () => {
     const result = compareColumns(body(a), body(b), a, b);
     expect(result.changes).toEqual([expect.objectContaining({ key: '仕事内容', before: a.仕事内容, after: b.仕事内容 })]);
   });
-  it('今の版でも複数行の値の中の未知の見出しを分断しない', () => {
+  it('現在の文面でも複数行の値の中の未知の見出しを分断しない', () => {
     const value = '雇用保険\n手当：夜勤3,500円/回';
     const current = `自由項目2の内容：${value}\n勤務時間：9時〜17時`;
     const row = { '自由項目2の内容': `${value}\n（月4回まで）`, '勤務時間': '9時〜17時' };
     const next = `自由項目2の内容：${row['自由項目2の内容']}\n勤務時間：9時〜17時`;
     expect(compareColumns(current, next, undefined, row).changes).toEqual([expect.objectContaining({ key: '自由項目2の内容', before: value, after: row['自由項目2の内容'] })]);
   });
-  it('今の版の複数行値に別の列名が含まれても実際の列の境界を使う', () => {
+  it('現在の文面の複数行値に別の列名が含まれても実際の列の境界を使う', () => {
     const current = '仕事内容：配送します\n勤務時間：8時の例\n勤務時間：9時〜17時';
     const row = { '仕事内容': '配送します\n勤務時間：8時の例\n（月4回まで）', '勤務時間': '9時〜17時' };
     const next = `仕事内容：${row.仕事内容}\n勤務時間：9時〜17時`;

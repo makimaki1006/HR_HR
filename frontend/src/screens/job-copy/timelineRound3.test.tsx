@@ -88,16 +88,16 @@ describe('selection, retry focus and announcements', () => {
     });
     render(<JobTimeline job={demo('demo-job-001')} />);
     const status = () => screen.getByRole('group', { name: '市場' }).parentElement?.querySelector('[role="status"]')?.textContent;
-    const retry = await screen.findByRole('button', { name: '市場データを再取得' });
-    expect(status()).toBe('市場データの取得に失敗しました。「市場データを再取得」で取り直せます');
+    const retry = await screen.findByRole('button', { name: '市場データを再読み込み' });
+    expect(status()).toBe('市場データの取得に失敗しました。「市場データを再読み込み」で取り直せます');
     retry.focus();
     fireEvent.click(retry);
     // Still on screen (aria-disabled) while loading, so focus stays on it.
-    expect(screen.getByRole('button', { name: '市場データを再取得' }).getAttribute('aria-disabled')).toBe('true');
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: '市場データを再取得' }));
+    expect(screen.getByRole('button', { name: '市場データを再読み込み' }).getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '市場データを再読み込み' }));
     expect(status()).toBe('市場データを取り直しています');
     await act(async () => { release({ ok: true, data: { ...list, series } }); await Promise.resolve(); });
-    await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再取得' })).toBeNull(); });
+    await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再読み込み' })).toBeNull(); });
     // Focus moves in a passive effect that can run after the commit that removes the button (the
     // update may land outside act), so wait for it instead of reading activeElement right away.
     await waitFor(() => { expect(document.activeElement).toBe(screen.getByLabelText('職種')); });
@@ -169,7 +169,7 @@ describe('市場分析 in demo mode and month labels', () => {
   it('styles the retry button as a button', async () => {
     api.mockResolvedValue({ ok: false });
     render(<MarketContext job={demo('demo-job-001')} />);
-    const button = await screen.findByRole('button', { name: '市場データを再取得' });
+    const button = await screen.findByRole('button', { name: '市場データを再読み込み' });
     expect(button.className).toBe('jc-button');
     expect(button.getAttribute('type')).toBe('button');
   });
@@ -196,7 +196,7 @@ describe('plain wording for versions, the header and the diff panel', () => {
     const meta = document.querySelector('.jc-record-meta');
     expect(meta?.textContent).toContain('表示中の本文: 初回文面への復帰');
     expect(meta?.textContent).toContain('HubSpotの求人と未連携');
-    expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|取得した版/u);
+    expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|確認した本文/u);
     fireEvent.click(screen.getByRole('tab', { name: '比較・報告' }));
     const diffTab = screen.queryByRole('tab', { name: '変更差分' });
     if (diffTab) fireEvent.click(diffTab);

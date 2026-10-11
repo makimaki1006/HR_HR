@@ -27,7 +27,7 @@ describe('market UI evidence and recovery', () => {
     api.mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: true, data: metadata });
     render(<MarketContext job={job} />);
     expect(await screen.findByRole('alert')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '市場データを再取得' }));
+    fireEvent.click(screen.getByRole('button', { name: '市場データを再読み込み' }));
     expect(await screen.findByLabelText('比較する市場職種')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(api).toHaveBeenCalledTimes(2);

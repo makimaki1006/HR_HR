@@ -14,7 +14,7 @@ const snapshot = (total = 2) => {
 // The timeline tab (first tab) also asks for market data; those calls are answered here and not counted.
 const market = (path: string) => path.startsWith('/api/job-copy/market') ? Promise.resolve(response({ source: '合成', titles: [], prefectures: [], ctk_basis: '', series: null })) : null;
 const loading = () => screen.queryByText(/求人一覧・本文・応募集計を読み込んでいます|読み込みに時間がかかっています/);
-const retry = () => screen.getByRole('button', { name: '求人データを再取得' });
+const retry = () => screen.getByRole('button', { name: '求人データを再読み込み' });
 
 beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy?data=actual'); });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -31,7 +31,7 @@ describe('snapshot recovery without fictional replacement', () => {
     expect(screen.getByRole('region', { name: '取り込んだ内容の内訳' }).textContent).toContain('2応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
     expect(container.querySelectorAll('.jc-job')).toHaveLength(1);
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.queryByRole('button', { name: '求人データを再取得' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '求人データを再読み込み' })).toBeNull();
     expect(count).toBe(2);
   });
 
@@ -48,9 +48,9 @@ describe('snapshot recovery without fictional replacement', () => {
       return new Promise<Response>(resolve => { finishOld = resolve; });
     }));
     await act(async () => { render(<JobCopyScreen />); await Promise.resolve(); });
-    expect(screen.getByRole('heading', { name: '求人レコード' }).parentElement?.textContent).toContain('取得中');
+    expect(screen.getByRole('heading', { name: '求人レコード' }).parentElement?.textContent).toContain('読み込み中');
     expect(screen.getByRole('heading', { name: '求人レコード' }).parentElement?.textContent).not.toMatch(/0\s*\/\s*0/);
-    expect(screen.queryByRole('button', { name: '求人データを再取得' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '求人データを再読み込み' })).toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     expect(retry()).toBeDefined();
     expect(loading()).not.toBeNull();
@@ -113,11 +113,11 @@ describe('snapshot recovery without fictional replacement', () => {
     // 媒体で取得したデータは「データ取込」の中にある（2026-10-08 の配置の組み直し）
     fireEvent.click(screen.getByRole('button', { name: 'データ取込' }));
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('媒体取得データを読み込む'), { target: { files: [file] } });
+      fireEvent.change(screen.getByLabelText('媒体保存データを読み込む'), { target: { files: [file] } });
       await Promise.resolve();
     });
-    await screen.findByRole('button', { name: '取得データを表示' });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '取得データを表示' })); await Promise.resolve(); });
+    await screen.findByRole('button', { name: '保存データを表示' });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '保存データを表示' })); await Promise.resolve(); });
     expect(transport.signal?.aborted).toBe(true);
     expect(loading()).toBeNull();
     expect(screen.getByRole('heading', { name: '合成の手動取込' })).toBeDefined();
