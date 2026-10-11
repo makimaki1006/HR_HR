@@ -41,7 +41,7 @@ function fixture() {
 test.beforeAll(() => { mkdirSync(visuals, { recursive: true }); });
 test('cross-record A/B preserves bodies, images, independent denominators, scope and overlapping metric periods', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'ab');
   const comparison = page.getByRole('region', { name: '2求人のA/B比較', exact: true });
   await expect(comparison).toContainText('B求人を選ぶと');
@@ -104,7 +104,7 @@ test('cross-record A/B preserves bodies, images, independent denominators, scope
 
 test('B candidates include loaded records outside list filters and changing the pair requires confirmation again', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await page.locator('.jc-list input[type=search]').fill('合成配送募集A');
   await expect(page.locator('.jc-job')).toHaveCount(1);
   await selectJobFeature(page, 'ab');

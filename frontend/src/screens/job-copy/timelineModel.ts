@@ -439,12 +439,15 @@ export interface TimelineRange { start: string; end: string }
 /** Inclusive day range covering periods, dated applications, billing and asOf. */
 export function timelineRange(job: JobCopyRecord, asOf: string, billing: readonly BillingEntry[]): TimelineRange | null {
   const periods = buildPeriods(job, asOf);
-  const starts = [...periods.map(period => period.start), ...Object.keys(job.overallApplications?.byDate ?? {}).filter(date => DATE.test(date)), ...billing.map(entry => entry.start)];
+  const dates = versionChanges(job).map(change => change.date);
+  const starts = [...dates, ...periods.map(period => period.start), ...Object.keys(job.overallApplications?.byDate ?? {}).filter(date => DATE.test(date)), ...billing.map(entry => entry.start)];
   if (!starts.length) return null;
-  const ends = [asOf, ...periods.map(period => period.end ? addDays(period.end, -1) : asOf), ...Object.keys(job.overallApplications?.byDate ?? {}).filter(date => DATE.test(date)), ...billing.map(entry => entry.end)];
+  const ends = [...dates, asOf, ...periods.map(period => period.end ? addDays(period.end, -1) : asOf), ...Object.keys(job.overallApplications?.byDate ?? {}).filter(date => DATE.test(date)), ...billing.map(entry => entry.end)];
   const start = starts.reduce((a, b) => (a < b ? a : b));
   const end = ends.reduce((a, b) => (a > b ? a : b));
-  return { start, end: end < start ? start : end };
+  // Leave space around short histories and single observations.
+  if (daysBetween(start, end) < 7) return { start: addDays(start, -3), end: addDays(end < start ? start : end, 3) };
+  return { start, end: addDays(end < start ? start : end, 2) };
 }
 /** Position of the start of a day on the range, in percent (0–100). */
 export function positionOf(date: string, range: TimelineRange): number {
@@ -708,4 +711,16 @@ export function lastMarketMonth(rows: readonly MarketRow[]): string | null {
 /** "2026-08" → "2026/08" (the same YYYY/MM form as formatDateJst). */
 export function formatMonth(month: string): string {
   return month.replace('-', '/');
+}
+
+/** Assign nearby labels to separate rows without changing their dates. */
+export function timelineLabelRows(dates: readonly string[], range: TimelineRange): number[] {
+  const lastPositions: number[] = [];
+  return dates.map(date => {
+    const position = positionOf(date, range);
+    let row = lastPositions.findIndex(last => Math.abs(position - last) >= 24);
+    if (row < 0) row = lastPositions.length;
+    lastPositions[row] = position;
+    return row;
+  });
 }

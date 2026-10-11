@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../../components/EChart';
@@ -13,7 +13,7 @@ import { InfoTip } from './InfoTip';
 import { publicationLane, publicationNotes } from './mediaPublication';
 import {
   addDays, applicationBuckets, bodyMark, asOfDate, billingConflict, billingEntries, boundaryStatus, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
-  formatMonthJa, marketDataUntil, marketLane, MIN_RATE_DAYS, periodRows, positionOf, timelineRange, uncertainSpans, versionChanges, applicationsOutsidePeriods,
+  formatMonthJa, marketDataUntil, marketLane, MIN_RATE_DAYS, periodRows, positionOf, timelineRange, timelineLabelRows, uncertainSpans, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
 import { IMAGE_CHANGE_MARK } from './images';
@@ -122,10 +122,10 @@ const salaryMark = { up: '▲', down: '▼', other: '変更' } as const;
 const salaryWord = { up: '前の版より上がった', down: '前の版より下がった', other: '前の版から変わった' } as const;
 const granularityLabel: Record<Granularity, string> = { day: '日', week: '週', month: '月' };
 
-function Lane({ title, source, children, className = '' }: { title: string; source: string; children: ReactNode; className?: string }) {
+function Lane({ title, source, children, className = '', rows = 1 }: { rows?: number; title: string; source: string; children: ReactNode; className?: string }) {
   return <div className={`jt-lane ${className}`} role="group" aria-label={title}>
     <div className="jt-lane-head"><h3>{title}</h3><span className="jt-source">{source}</span></div>
-    <div className="jt-track">{children}</div>
+    <div className="jt-track" style={{ minHeight: `${String(16 + rows * 28)}px` }}>{children}</div>
   </div>;
 }
 
@@ -272,6 +272,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const spans = useMemo(() => uncertainSpans(job, asOf, periods), [job, asOf, periods]);
   const changes = useMemo(() => versionChanges(job), [job]);
   const range = useMemo(() => timelineRange(job, asOf, billing), [job, asOf, billing]);
+  const labelRows = range ? timelineLabelRows(changes.map(change => change.date), range) : [];
+  const rowCount = Math.max(1, ...labelRows.map(row => row + 1));
   const retryButton = useRef<HTMLButtonElement>(null);
   const titleSelect = useRef<HTMLSelectElement>(null);
   const market = useTimelineMarket(job, marketMode, { retryButton, titleSelect });
@@ -390,18 +392,18 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : <p className="jt-empty" title={publication.title}>{publication.label}</p>}
       </Lane>}
 
-      <Lane title="掲載期間" source={captured ? '求人データを取得した日（掲載日は不明）' : '媒体の掲載日時'}>
-        {periods.map(period => <button type="button" key={period.versionId} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
-          style={span(range, period.start, period.end ?? addDays(asOf, 1))} onClick={() => { setSelected(period.versionId); }}
+      <Lane rows={rowCount} title="掲載期間" source={captured ? '求人データを取得した日（掲載日は不明）' : '媒体の掲載日時'}>
+        {periods.map(period => <Fragment key={period.versionId}><button type="button" aria-label={period.label} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
+          style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), top: `${String(8 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }} onClick={() => { setSelected(period.versionId); }}
           title={period.basis === 'captured' ? `${period.label}: ${formatDay(period.start)}に取得${period.days > 1 && period.end ? `（${formatDay(addDays(period.end, -1))}まで同じ内容）` : ''}` : `${period.label}: ${formatDay(period.start)}〜${period.end ? formatDay(addDays(period.end, -1)) : '継続中'}（媒体の掲載日時）`}>
-          <span>{period.label}</span></button>)}
+          <span>{period.label}</span></button><span aria-hidden="true" className="jt-period-label" style={{ ...pinned(period.start, range), top: `${String(12 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }}>{period.label}</span></Fragment>)}
         {spans.map(item => <div key={`${item.kind}-${item.fromVersionId}`} className={item.kind === 'between' ? 'jt-zone' : 'jt-unacquired'} style={span(range, item.start, item.end)}
           title={item.kind === 'between' ? `取得日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の取得（${formatDay(item.from)}）より後は未取得です`}>
           <span>{item.kind === 'between' ? '取得日の間' : '未取得'}</span></div>)}
         {!periods.length && <p className="jt-empty">掲載期間は未取得です</p>}
       </Lane>
 
-      <Lane title="給与" source="本文の「給与」の行から読み取り">
+      <Lane rows={rowCount + 1} title="給与" source="本文の「給与」の行から読み取り">
         {changes.map((change, index) => {
           const period = periods[index];
           if (!period) return null;
@@ -413,7 +415,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           // track even when the period is only a few days long (the latest version).
           return <div key={change.versionId} className="jt-salary-item">
             <div className={`jt-salary${className}`} aria-hidden="true" style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), bottom: `calc(${String(height)}% + 14px)` }} />
-            <div className={`jt-salary-label${className}`} style={{ ...pinned(period.start, range), bottom: `${String(height)}%` }}
+            <div className={`jt-salary-label${className}`} style={{ ...pinned(period.start, range), top: `${String(8 + (labelRows[index] ?? 0) * 28)}px` }}
               title={`${info ? `${change.label}: ${info.raw || '記載なし'}` : `${change.label}: 給与の記載なし`}${change.salaryDirection ? `（${salaryWord[change.salaryDirection]}）` : ''}`}>
               {change.salaryDirection && <i className={`jt-salary-dir jt-salary-${change.salaryDirection}`} role="img" aria-label={salaryWord[change.salaryDirection]}>{salaryMark[change.salaryDirection]}</i>}<span>{salaryLabel(info)}</span>
             </div>
@@ -421,17 +423,17 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         })}
       </Lane>
 
-      <Lane title="本文" source="前の版との行の比較">
+      <Lane rows={rowCount} title="本文" source="前の版との行の比較">
         {changes.map(change => <button type="button" key={change.versionId} className={`jt-mark${change.index > 0 && change.bodyStatus === 'changed' ? ' jt-mark-changed' : ''}`} aria-pressed={selected === change.versionId}
-          style={pinned(change.date, range)} onClick={() => { setSelected(change.versionId); }}
+          style={{ ...pinned(change.date, range), top: `${String(4 + (labelRows[change.index] ?? 0) * 28)}px` }} onClick={() => { setSelected(change.versionId); }}
           aria-label={`${change.label}の本文：${bodyMark(change).spoken}`}>
           {bodyMark(change).text}
         </button>)}
       </Lane>
 
-      <Lane title="画像" source="前の版との画像の比較（差し替え・並び順・中身）">
+      <Lane rows={rowCount} title="画像" source="前の版との画像の比較（差し替え・並び順・中身）">
         {changes.map(change => <button type="button" key={change.versionId} className={`jt-mark jt-image-${change.imageChange}`} aria-pressed={selected === change.versionId}
-          style={pinned(change.date, range)} onClick={() => { setSelected(change.versionId); }}
+          style={{ ...pinned(change.date, range), top: `${String(4 + (labelRows[change.index] ?? 0) * 28)}px` }} onClick={() => { setSelected(change.versionId); }}
           aria-label={`${change.label}の画像：${IMAGE_CHANGE_MARK[change.imageChange].spoken}`}>
           {IMAGE_CHANGE_MARK[change.imageChange].text}
         </button>)}

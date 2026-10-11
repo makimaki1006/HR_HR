@@ -100,7 +100,7 @@ describe('explanations that can be read without hovering', () => {
     render(<JobCopyScreen />);
     const summaries = [...document.querySelectorAll('.jc-infotip > summary')].map(node => node.textContent);
     expect(summaries).toContain('試作版 ⓘ');
-    expect(summaries).toContain('取得日時: 2026/09/25 12:30 JST ⓘ');
+    expect(summaries).toContain('本文を確認した日時: 2026/09/25 12:30 JST ⓘ');
     expect(document.querySelector('.jc-mode')?.getAttribute('title')).toBeNull();
     expect(document.querySelector('.jc-record-meta [title]')).toBeNull();
   });

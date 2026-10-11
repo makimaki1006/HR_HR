@@ -194,7 +194,7 @@ describe('plain wording for versions, the header and the diff panel', () => {
   it('shows plain header wording and one image notice in the diff panel', () => {
     render(<JobCopyScreen />);
     const meta = document.querySelector('.jc-record-meta');
-    expect(meta?.textContent).toContain('表示中の文面: 初回文面への復帰');
+    expect(meta?.textContent).toContain('表示中の本文: 初回文面への復帰');
     expect(meta?.textContent).toContain('HubSpotの求人と未連携');
     expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|取得した版/u);
     fireEvent.click(screen.getByRole('tab', { name: '比較・報告' }));

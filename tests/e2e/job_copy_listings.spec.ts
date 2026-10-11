@@ -20,6 +20,7 @@ test('HubSpotの求人を絞って履歴を比較し、固定一覧へ戻る', a
   expect(original).toBeGreaterThan(0);
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
   await page.getByRole('button', { name: 'HubSpot の求人', exact: true }).click();
+  await panel.getByText('絞り込み・並び順', { exact: true }).click();
   await panel.getByLabel('都道府県', { exact: true }).selectOption('大分県');
   await panel.getByLabel('媒体', { exact: true }).selectOption('hrh');
   await panel.getByRole('button', { name: '求人を取得' }).click();
@@ -28,10 +29,10 @@ test('HubSpotの求人を絞って履歴を比較し、固定一覧へ戻る', a
   const request = page.waitForRequest(req => req.url().includes('/listings?') && new URL(req.url()).searchParams.get('title') === 'ドライバー');
   await panel.getByRole('button', { name: '求人を取得' }).click();
   expect(new URL((await request).url()).searchParams.get('prefecture')).toBe('大分県');
-  await panel.getByRole('button', { name: '合成配送求人の版を見る' }).click();
+  await panel.getByRole('button', { name: '合成配送求人の本文を見る' }).click();
   await expect(page.locator('.jc-fixed-list .jc-job')).toHaveCount(1);
-  await expect(panel.getByRole('status')).toContainText('文面の版は2件');
-  await expect(panel.getByRole('status')).not.toContainText('20件までの可能性');
+  await expect(panel.locator('.jc-history-status')).toHaveCount(0);
+  await expect(page.locator('.jc-main')).toContainText('2026/10/02 09:00 JST にHubSpotに記録された本文');
   await selectJobFeature(page, 'body');
   await expect(jobFeaturePanel(page, 'body').getByText('合成の新本文', { exact: true })).toBeVisible();
   await selectJobFeature(page, 'diff');

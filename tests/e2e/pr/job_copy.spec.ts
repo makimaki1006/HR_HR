@@ -42,7 +42,7 @@ async function open(page: Page, capturedAt = defaultCapturedAt, options: { serie
     }) });
   });
   await login(page);
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await expect(page.locator('.jc-job')).toHaveCount(1);
   return calls;
 }
@@ -58,7 +58,7 @@ async function seriesLengths(page: Page, testId: string) {
 
 test.describe('求人文面管理のタイムライン', () => {
   test('最初のタブがタイムラインで、7 レーン・グラフ・期間比較表に具体値が出る', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1440, height: 800 });
     const calls = await open(page);
     const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
     await expect(primary.getByRole('tab')).toHaveText(['タイムライン', '求人内容', '応募分析', '市場分析', '比較・報告']);
@@ -144,7 +144,7 @@ test.describe('求人文面管理のタイムライン', () => {
   });
 
   test('最新の版の給与・本文・画像の印が右端で切れずに読める', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1440, height: 800 });
     await open(page);
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     // 最新の版は取得日 (08-20) に始まり、時間軸の右端 (約 99%) に来る。
@@ -205,7 +205,7 @@ test.describe('求人文面管理のタイムライン', () => {
   });
 
   test('市場データ（毎月更新）が 2026-08 で終わり、期間がそれより先まで続くとき、データのある月で比べてそれ以降は「データなし」と示す', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1440, height: 800 });
     await open(page, '2026-10-05T00:00:00Z');
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
@@ -227,7 +227,7 @@ test.describe('求人文面管理のタイムライン', () => {
   });
 
   test('市場データの取得に失敗したら期間比較表にもそう書き、再取得すると具体値とグラフが出る', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1440, height: 800 });
     const calls = await open(page, defaultCapturedAt, { seriesFailures: 1 });
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
@@ -246,7 +246,7 @@ test.describe('求人文面管理のタイムライン', () => {
   });
 
   test('課金CSVを読み込むと課金の段と期間比較表に入り、再読み込みで消えることを示す', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1440, height: 800 });
     await open(page);
     await page.getByRole('button', { name: 'データ取込', exact: true }).click();
     // 媒体 + 店舗ID + 媒体求人ID の 3 つで結びつける（先頭の 0 も文字のまま比べる）
@@ -278,7 +278,7 @@ test.describe('求人文面管理のタイムライン', () => {
   });
 
   test('課金を日数で配分した「約」と本文の印の読み上げを、ホバーしなくても読める文字で示す', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1440, height: 800 });
     await open(page);
     await page.getByRole('button', { name: 'データ取込', exact: true }).click();
     // 08-01〜08-31 の 31 日で 31,000円。取得日の間（〜08-20、取得日 08-20 を含む）に 20 日分を配分する。

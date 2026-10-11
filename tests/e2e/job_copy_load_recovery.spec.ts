@@ -11,7 +11,7 @@ const json = (value: unknown, status = 200) => ({ status, contentType: 'applicat
 test('503 retries into two real-response applications, while 401 keeps the login action', async ({ page }) => {
   let attempts = 0;
   await page.route('**/api/job-copy/moc', route => route.fulfill(++attempts === 1 ? json({ code: 'moc_drive_snapshot_unavailable' }, 503) : json(snapshot())));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.locator('.jc-job')).toHaveCount(0);
   await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
@@ -38,7 +38,7 @@ test('slow snapshot retry preserves the new response when the old server handler
     if (++attempts === 1) { held = route; return; }
     await route.fulfill(json(snapshot()));
   });
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await expect.poll(() => attempts).toBe(1);
   await expect(page.locator('.jc-list-heading')).toContainText('取得中');
   await expect(page.locator('.jc-list-heading')).not.toContainText(/0\s*\/\s*0/);
@@ -64,7 +64,7 @@ test('30-second timeout ends loading without demo data, then retry recovers', as
   await page.route('**/api/job-copy/moc', async route => {
     if (++attempts > 1) await route.fulfill(json(snapshot()));
   });
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   const loading = page.getByRole('status').filter({ hasText: /求人一覧・本文・応募集計を読み込んでいます|読み込みに時間がかかっています/ });
   await expect(loading).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('時間がかかっています', { timeout: 35_000 });
@@ -80,7 +80,7 @@ test('30-second timeout ends loading without demo data, then retry recovers', as
 test('manual media capture cancels pending snapshot and its slow timer without losing chosen body', async ({ page }) => {
   let held: Route | undefined;
   await page.route('**/api/job-copy/moc', route => { held = route; });
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await expect.poll(() => Boolean(held)).toBe(true);
   await page.getByRole('button', { name: 'データ取込', exact: true }).click();
   await page.getByText('媒体で取得した求人本文・画像を確認', { exact: true }).click();

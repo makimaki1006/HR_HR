@@ -60,7 +60,7 @@ const changeStatus = (job: JobCopyRecord) => {
 
 function ApplicationSummary({ job, version, live = false }: { job: JobCopyRecord; version: CopyVersion; live?: boolean }) {
   if (version.kind === 'ai_draft') return <div className="jc-notice">未掲載のAI案です。応募実績には対応させていません。</div>;
-  if (version.applications === null) return <p className="jc-notice">この版に対応する応募は未取得です。掲載開始日時は不明です。</p>;
+  if (version.applications === null) return <p className="jc-notice">この本文に対応する応募は未取得です。掲載開始日時は不明です。</p>;
   const unmatched = unmatchedApplicationCount(job);
   return <section className="jc-applications" aria-label="版別の応募状況">
     <div className="jc-period"><strong>この文面に対応する応募</strong><span>{version.publishedFrom ? date(version.publishedFrom) : '開始不明'} → {version.publishedUntil ? date(version.publishedUntil) : '終了未確認'} · 期間{certaintyLabels[version.certainty]}</span></div>
@@ -155,9 +155,9 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
   }
 
   return <article className="jc-detail" id="job-details" tabIndex={-1}>
-    <header className="jc-detail-heading"><div><h1>{job.title}</h1><p>{job.company} <span>·</span> {job.location} <span>·</span> {job.media}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
-    {job.historyMayBeIncomplete && <p className="jc-notice" role="status">履歴は項目ごとに20件までの可能性があり、過去の版がすべて含まれているとは限りません。</p>}
-    <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の文面（HubSpotの現在値）' : '表示中の文面'}: {current?.label ?? '本文未取得'}</span><InfoTip className="jc-infotip-left" label={`取得日時: ${current ? date(current.observedAt) : '—'}`}><p>{current?.source === 'HubSpotで取得した現在の文面' ? '現在の文面を今回取得した日時です。保存された日時と掲載開始日時は不明です。' : job.id.startsWith('hubspot-history-') ? 'HubSpotに保存された日時です。掲載が変わった日時ではありません。' : 'ファイルを取得した日時です。掲載が変わった日時ではありません。'}</p></InfoTip>{job.hubspotId ? null : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
+    <header className="jc-detail-heading"><div><h1>{job.title}</h1><p>{joinPresent([job.company, job.location, job.media])}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
+    {job.historyMayBeIncomplete && <p className="jc-notice" role="status">履歴は項目ごとに20件までの可能性があり、過去の文面がすべて含まれているとは限りません。</p>}
+    <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の本文（HubSpotの現在値）' : '表示中の本文'}: {current?.label ?? '本文未取得'}</span><InfoTip className="jc-infotip-left" label={`${job.id.startsWith('hubspot-history-') && current?.source !== 'HubSpotの現在の本文' ? 'HubSpot記録日時' : '本文を確認した日時'}: ${current ? date(current.observedAt) : '—'}`}><p>{current?.source === 'HubSpotの現在の本文' ? '今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' : job.id.startsWith('hubspot-history-') ? '本文がHubSpotに記録された日時です。掲載開始日時は不明です。' : 'ファイルの本文を確認した日時です。掲載開始日時は不明です。'}</p></InfoTip>{job.hubspotId ? null : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
     {message && <p className="jc-message" role="status">{message}</p>}
     <JobFeatureTabs value={tab} onChange={setTab} remembered={remembered} prefix={tabPrefix} onLeaveHidden={() => { openFeatureFromContent('timeline'); }}>
     <JobFeaturePanel feature="timeline" active={tab === 'timeline'} prefix={tabPrefix}>{visited.includes('timeline') && <JobTimeline job={job} billing={billing} showDummyBilling={showDummyBilling} marketMode={demo ? 'demo' : 'api'} onOpenVersion={id => { setSelected(id); openFeatureFromContent('body'); }} onCompareVersions={(from, to) => { setBefore(from); setAfter(to); openFeatureFromContent('diff'); }} />}</JobFeaturePanel>
@@ -172,17 +172,17 @@ function CopyDetail({ job, records, onAdd, reviewed, onReview, billing, demo = f
     <JobFeaturePanel feature="factors" active={tab === 'factors'} prefix={tabPrefix}>{visited.includes('factors') && <MarketFactors job={job} />}</JobFeaturePanel>
     <JobFeaturePanel feature="report" active={tab === 'report'} prefix={tabPrefix}>{tab === 'report' && <ConsultantReview job={job} draft={reportDraft} onDraft={setReportDraft} billing={billing} />}</JobFeaturePanel>
     <JobFeaturePanel feature="body" active={tab === 'body'} prefix={tabPrefix}><div className="jc-history-layout">
-      <aside className="jc-history"><h2>文面のタイムライン</h2><p className="jc-muted">本文の版を選ぶと内容が開きます</p>
+      <aside className="jc-history"><h2>文面のタイムライン</h2><p className="jc-muted">日時を選ぶと本文が開きます</p>
         {[...job.versions].reverse().map(item => <button key={item.id} className="jc-version" aria-pressed={version?.id === item.id} onClick={() => { setSelected(item.id); }}>
-          <span className="jc-version-top"><strong>{item.label}</strong><small>{item.kind === 'ai_draft' ? 'AI案・未掲載' : item.publishedFrom ? '掲載を確認' : item.kind === 'published' ? job.id.startsWith('hubspot-history-') ? '保存を確認・掲載時刻不明' : '媒体取得・掲載時刻不明' : '受領・掲載未確認'}</small></span>
+          <span className="jc-version-top"><strong>{item.label}</strong><small>{item.kind === 'ai_draft' ? 'AI案・未掲載' : item.publishedFrom ? '掲載を確認' : item.kind === 'published' ? job.id.startsWith('hubspot-history-') ? '掲載開始日時は不明' : '掲載開始日時は不明' : '受領・掲載未確認'}</small></span>
           <time>{date(item.observedAt)}</time><span>{plainWording(item.source)}</span><small>{reviewed.includes(item.id) ? '確認済み（デモ）' : '未確認'}</small>
         </button>)}
         {!job.versions.length && <p className="jc-empty">本文はまだ届いていません。</p>}
       </aside>
-      <section className="jc-reading">{version ? <><div className="jc-reading-title"><div><h2>{version.label}の文面</h2><p className="jc-muted">{joinPresent([plainWording(version.source), date(version.observedAt)])}</p></div><button className="jc-button" onClick={() => { onReview(version.id); }}>{reviewed.includes(version.id) ? '未確認に戻す' : '確認済みにする'}</button></div>
-        {version.note.trim() && (job.id.startsWith('hubspot-history-') ? <details className="jc-originals"><summary>保存日時と画像について</summary><p className="jc-notice">{plainWording(version.note)}</p></details> : <p className="jc-notice">{plainWording(version.note)}</p>)}
+      <section className="jc-reading">{version ? <><div className="jc-reading-title"><div><h2>{job.id.startsWith('hubspot-history-') ? version.label : `${version.label}の文面`}</h2><p className="jc-muted">{joinPresent([plainWording(version.source), date(version.observedAt)])}</p></div><button className="jc-button" onClick={() => { onReview(version.id); }}>{reviewed.includes(version.id) ? '未確認に戻す' : '確認済みにする'}</button></div>
+        {version.note.trim() && (job.id.startsWith('hubspot-history-') ? <details className="jc-originals"><summary>本文と画像の日時について</summary><p className="jc-notice">{plainWording(version.note)}</p></details> : <p className="jc-notice">{plainWording(version.note)}</p>)}
         {version.observedPublicationStatus !== undefined && <p>媒体CSVの公開状態: {version.observedPublicationStatus || '未取得'}</p>}
-        {job.id.startsWith('hubspot-history-') ? <div className="jc-copy-content"><JobCopyBody body={version.body} sections={version.bodySections} /><div>{versionImages(version) === undefined && job.currentImageObservation ? <><ImageGallery title="現在取得できる掲載画像" images={job.currentImageObservation.images} /><p className="jc-muted">画像を確認した日時：{date(job.currentImageObservation.observedAt)}。この版の保存時点の画像は不明です。</p></> : <ImageGallery title="この版の掲載画像" images={versionImages(version)} />}</div></div> : <><ImageGallery title="この版の掲載画像" images={versionImages(version)} /><div className="jc-full-copy-heading"><h3>{version.source === HUBSPOT_BODY_SOURCE ? '仕事内容（HubSpotの現在値）' : '求人票の本文（全文）'}</h3><span>読み取り専用 · 原文の段落・改行を保持</span></div><pre className="jc-body">{version.body}</pre></>}
+        {job.id.startsWith('hubspot-history-') ? <div className="jc-copy-content"><JobCopyBody body={version.body} sections={version.bodySections} /><div>{versionImages(version) === undefined && job.currentImageObservation ? <><ImageGallery title="現在取得できる掲載画像" images={job.currentImageObservation.images} /><p className="jc-muted">画像を確認した日時：{date(job.currentImageObservation.observedAt)}。この本文が記録された時点の画像は不明です。</p></> : <ImageGallery title="この本文に対応する掲載画像" images={versionImages(version)} />}</div></div> : <><ImageGallery title="この本文に対応する掲載画像" images={versionImages(version)} /><div className="jc-full-copy-heading"><h3>{version.source === HUBSPOT_BODY_SOURCE ? '仕事内容（HubSpotの現在値）' : '求人票の本文（全文）'}</h3><span>読み取り専用 · 原文の段落・改行を保持</span></div><pre className="jc-body">{version.body}</pre></>}
         {job.hubspotUrl && <a href={job.hubspotUrl} target="_blank" rel="noreferrer">HubSpotで求人レコードを開く</a>}
         {version.kind === 'received' ? <p className="jc-notice">応募情報は未取得です。0件とは判定していません。</p> : <ApplicationSummary job={job} version={version} live={job.dataSource === 'hubspot'} />}
         <button className="jc-text-button" onClick={() => { const index = job.versions.findIndex(item => item.id === version.id); setBefore(job.versions[index - 1]?.id ?? version.id); setAfter(version.id); openFeatureFromContent('diff'); }}>この版を前の版と比較する →</button>
@@ -243,7 +243,7 @@ export function JobCopyScreen() {
   const [captured, setCaptured] = useState(false);
   const [live, setLive] = useState(false);
   const originalListing = useRef<{ records: JobCopyRecord[]; snapshotAt: string; live: boolean; captured: boolean; selectedId: string } | null>(null);
-  const [listingSource, setListingSource] = useState<'fixed' | 'hubspot'>('fixed');
+  const [listingSource, setListingSource] = useState<'fixed' | 'hubspot'>(query.get('demo') === '1' || query.get('data') === 'actual' || query.has('job') ? 'fixed' : 'hubspot');
   const [listingDetail, setListingDetail] = useState('idle');
   const [mobileListingView, setMobileListingView] = useState<'list' | 'detail'>('list');
   const [listingFailure, setListingFailure] = useState('');
@@ -283,7 +283,7 @@ export function JobCopyScreen() {
     return () => { window.removeEventListener('resize', measure); observer?.disconnect(); };
   }, []);
   useEffect(() => {
-    if (!snapshotRequested) return;
+    if (!snapshotRequested || listingSource !== 'fixed') return;
     const controller = new AbortController();
     snapshotAbort.current = controller;
     const slowTimer = window.setTimeout(() => {
@@ -313,7 +313,7 @@ export function JobCopyScreen() {
       if (!controller.signal.aborted) { setSnapshotLoading(false); setSnapshotSlow(false); }
     });
     return () => { window.clearTimeout(slowTimer); controller.abort(); };
-  }, [snapshotRequested, initialId, snapshotAttempt]);
+  }, [snapshotRequested, initialId, snapshotAttempt, listingSource]);
   function stopSnapshot() {
     snapshotAbort.current?.abort();
     setSnapshotLoading(false); setSnapshotSlow(false); setSnapshotError(null);
@@ -359,7 +359,7 @@ export function JobCopyScreen() {
   function restoreOriginalListing() {
     setListingSource('fixed');
     const original = originalListing.current;
-    if (!original) return;
+    if (!original) { if (snapshotRequested && !records.length) retrySnapshot(); return; }
     stopSnapshot(); setSnapshotAt(original.snapshotAt); setRecords(original.records); setSelectedId(original.selectedId);
     setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setLive(original.live); setCaptured(original.captured); setView('list'); setFeatureRequest(null);
     originalListing.current = null;
@@ -371,7 +371,7 @@ export function JobCopyScreen() {
     <button type="button" className="jc-button jc-import-toggle" aria-expanded={importOpen} aria-controls="job-copy-data-import" onClick={toggleImport}>データ取込</button></div>
     <div className="jc-scope-line"><p>{listingSource === 'hubspot' ? '媒体ごとに別の求人として表示します。応募は求人に関連する件数です。' : <>この画面は、選んで取り込んだ一部の求人{records.length ? `（${String(records.length)}件）` : ''}だけを表示しています。管理しているすべての求人ではありません。</>}</p>
       <label className="jc-dummy-toggle"><input type="checkbox" checked={showDummyBilling} onChange={event => { changeDummyBilling(event.target.checked); }} />仮の課金データを表示</label></div>
-    {snapshotLoading && <div className="jc-notice"><p role="status">{snapshotSlow ? '読み込みに時間がかかっています。待機を続けるか、求人データを再取得できます。' : '求人一覧・本文・応募集計を読み込んでいます…画像は表示時に取得します。'}</p>{snapshotSlow && <button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button>}</div>}
+    {listingSource === 'fixed' && snapshotLoading && <div className="jc-notice"><p role="status">{snapshotSlow ? '読み込みに時間がかかっています。待機を続けるか、求人データを再取得できます。' : '求人一覧・本文・応募集計を読み込んでいます…画像は表示時に取得します。'}</p>{snapshotSlow && <button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button>}</div>}
     {snapshotError && <><SnapshotErrorNotice guidance={snapshotError} /><button type="button" className="jc-button" onClick={retrySnapshot}>求人データを再取得</button></>}
     <JobCopyDataImport open={importOpen} onClose={() => { setImportOpen(false); document.querySelector<HTMLButtonElement>('.jc-import-toggle')?.focus(); }}>
       <HubSpotReadPanel key={panelEpoch} onOpen={job => { stopSnapshot(); setSnapshotAt(''); keepBillingFor([job]); setRecords([job]); setSelectedId(job.id); setReviewed([]); setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setCaptured(false); setLive(true); }} />
@@ -386,7 +386,7 @@ export function JobCopyScreen() {
       <div className="jc-filters"><label>媒体<select value={media} onChange={event => { setMedia(event.target.value); }}><option value="all">すべて</option>{[...new Set(records.map(job => job.media))].map(value => <option key={value}>{value}</option>)}</select></label><label>変更判定<select value={status} onChange={event => { setStatus(event.target.value); }}><option value="all">すべて</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
       <label>並び順<select aria-label="並び順" value={listOrder} onChange={event => { setListOrder(event.target.value === 'applications' ? 'applications' : 'source'); }}><option value="source">取得順</option><option value="applications">応募数が多い順</option></select></label></div></details>
       {filtersActive && <button type="button" className="jc-button jc-filter-reset" onClick={resetFilters}>検索条件をリセット</button>}
-      <div className="jc-list-scroll">{visible.map(job => <button className="jc-job" key={job.id} aria-pressed={selected?.id === job.id} onClick={() => { choose(job); }}><span className="jc-job-company">{job.company}</span><strong>{job.title}</strong><span>{job.location} · {job.media}</span><span className="jc-job-bottom"><small>{published(job).length}版{job.versions.some(version => version.kind === 'ai_draft') ? ' + AI案' : ''}</small><small>{statusLabels[changeStatus(job)]}</small></span><small>{applicationCountLabel(job)}</small></button>)}{!visible.length && <div className="jc-empty"><p>{snapshotLoading ? '求人一覧を取得中です。' : records.length ? '一致する求人はありません。' : '表示できる求人がありません。'}</p></div>}</div>
+      <div className="jc-list-scroll">{visible.map(job => <button className="jc-job" key={job.id} aria-pressed={selected?.id === job.id} onClick={() => { choose(job); }}><span className="jc-job-company">{job.company}</span><strong>{job.title}</strong><span>{joinPresent([job.location, job.media])}</span><span className="jc-job-bottom"><small>{published(job).length}版{job.versions.some(version => version.kind === 'ai_draft') ? ' + AI案' : ''}</small><small>{statusLabels[changeStatus(job)]}</small></span><small>{applicationCountLabel(job)}</small></button>)}{!visible.length && <div className="jc-empty"><p>{snapshotLoading ? '求人一覧を取得中です。' : records.length ? '一致する求人はありません。' : '表示できる求人がありません。'}</p></div>}</div>
     </div></JobCopySidebar><div className="jc-main">{listingSource === 'hubspot' && <button type="button" className="jc-button jc-mobile-back" onClick={() => { setMobileListingView('list'); }}>一覧に戻る</button>}{listingSource === 'hubspot' && listingDetail !== 'ready' ? <main className="jc-detail jc-detail-placeholder" id="job-details" tabIndex={-1}><span className="jc-placeholder-icon" aria-hidden="true">▤</span><h1>{listingDetail === 'loading' ? '求人票を取得しています' : listingDetail === 'error' ? '求人票を取得できませんでした' : '求人を選んで内容を確認'}</h1><p role={listingDetail === 'error' ? 'alert' : 'status'}>{listingDetail === 'loading' ? '本文・画像・文面の履歴を確認しています。' : listingDetail === 'error' ? listingFailure : '一覧から求人を選ぶと、本文と取得できた画像をここに表示します。'}</p></main> : <>{reverseOpen && <ReverseSearch records={records} onClose={() => { setReverseOpen(false); document.querySelector<HTMLButtonElement>('.jc-reverse-toggle')?.focus(); }} onChoose={job => { setSearch(''); setMedia('all'); setCustomer('all'); setStatus('all'); setReverseOpen(false); setView('list'); choose(job); }} />}{view === 'overview' && records.length > 0 ? <JobOverview records={visible} billing={billingByJob} showDummyBilling={showDummyBilling} onChoose={job => { setView('list'); choose(job); }} /> : selected ? <CopyDetail key={`${selected.id}-${selected.versions[0]?.id ?? ''}`} job={selected} records={records} billing={billingByJob[selected.id]} showDummyBilling={showDummyBilling} demo={demoMode} request={featureRequest} reviewed={reviewed} onReview={id => { setReviewed(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]); }} onAdd={version => { setRecords(items => items.map(job => job.id === selected.id ? { ...job, versions: [...job.versions, version] } : job)); }} /> : <main className="jc-detail jc-empty"><h1>{snapshotLoading ? '求人データを取得しています' : records.length ? '一致する求人はありません' : '表示できる求人がありません'}</h1><p>{snapshotLoading ? '取得完了後に本文と応募集計を表示します。' : records.length ? '検索・取引先・媒体・変更判定の条件を見直すか、一覧の「検索条件をリセット」を押してください。' : 'データの取得状況と、画面上部の案内を確認してください。'}</p></main>}</>}</div></div>
   </div></MarketCacheContext.Provider>;
 }
