@@ -21,6 +21,7 @@ export type HubSpotListingPage = ListingPageBase & (
   { status: 'preparing'; total: null; index_built_at: null }
 );
 export interface HubSpotVersions {
+  current_fields?: Record<string, string>;
   current_row?: Record<string, string> | null;
   company_name?: string | null;
   drafts?: DraftSnapshot[];
@@ -45,6 +46,8 @@ export function listingRecord(data: HubSpotVersions): JobCopyRecord {
   return {
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
     currentDraftRow: data.current_row ?? undefined, draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
+    ...(data.current_fields ? { currentListingFields: data.current_fields } : {}),
+    listingPublicationStatus: row.publication_status, listingApplicationCount: row.application_count,
     title: row.title ?? '求人名未取得', company: data.company_name ?? '', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),
     location: [row.prefecture, row.municipality].filter(Boolean).join('') || '',
