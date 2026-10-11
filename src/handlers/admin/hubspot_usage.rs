@@ -114,6 +114,15 @@ pub struct HubSpotUsageQueue {
     pub wait_window_secs: u32,
 }
 
+/// CRM の保存で断った要求の種類別の回数 (起動してからの合計。監査 DB には 1 件ずつ書かない)
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct HubSpotUsageRejection {
+    /// `rate_limited` / `hubspot_busy` / `record_busy` / `validation` / `queue_full` / `read_failed:*` など
+    pub key: String,
+    #[ts(type = "number")]
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct HubSpotUsageResponse {
     /// HubSpot の鍵が設定されているか
@@ -127,6 +136,8 @@ pub struct HubSpotUsageResponse {
     /// キャッシュごとの当たり外れ (名前順)
     pub caches: Vec<HubSpotUsageCache>,
     pub queue: HubSpotUsageQueue,
+    /// CRM の保存で断った要求 (回数の多い順)
+    pub write_rejections: Vec<HubSpotUsageRejection>,
 }
 
 /// 呼び出しの種類 (`gateway::endpoint_group`) の表示名
@@ -157,6 +168,7 @@ fn cache_label(key: &str) -> &'static str {
         "property_catalog" => "プロパティ一覧 (6 時間)",
         "assoc_labels" => "関連ラベル (6 時間)",
         "crm_metadata" => "CRM の定義 (60 秒)",
+        "op_status" => "保存の状態の照会 (メモリ。外れは台帳を読む)",
         _ => "その他",
     }
 }
@@ -187,6 +199,11 @@ pub fn build_response(configured: bool, snap: &GatewaySnapshot) -> HubSpotUsageR
         })
         .collect();
     let r = &snap.rate_limit;
+    let mut write_rejections: Vec<HubSpotUsageRejection> = crate::crm::write::rejections_snapshot()
+        .into_iter()
+        .map(|(key, count)| HubSpotUsageRejection { key, count })
+        .collect();
+    write_rejections.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.key.cmp(&b.key)));
     HubSpotUsageResponse {
         configured,
         generated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
@@ -224,6 +241,7 @@ pub fn build_response(configured: bool, snap: &GatewaySnapshot) -> HubSpotUsageR
             wait_samples: snap.wait_samples as u32,
             wait_window_secs: WAIT_WINDOW.as_secs() as u32,
         },
+        write_rejections,
     }
 }
 

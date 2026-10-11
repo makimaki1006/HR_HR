@@ -25,6 +25,8 @@ jobs:
           python-version: "3.11"
       - name: Statistical claims lint
         run: python scripts/lint_statistical_claims.py
+      - name: 読み取り専用の文一致率実測の検査
+        run: python -m unittest discover -s scripts -p 'test_measure_sentence_overlap.py'
 
   # -----------------------------------------------------------------------
   # CSS クラス存在検査 (段 1 / 静的)
@@ -60,6 +62,8 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-test
       - name: Format check
         run: cargo fmt -- --check
       - name: Clippy (errors only; warnings reported but non-blocking)
@@ -82,6 +86,23 @@ jobs:
           git diff --exit-code -- frontend/src/generated
       - name: Build release
         run: cargo build --release
+
+  docker-context-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: dtolnay/rust-toolchain@stable
+      # rust-test と同じ依存キー・target/ を使う。検査対象のソースは一時領域。
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-test
+      - name: COPY と除外設定の再現を検証
+        run: python -m unittest discover -s scripts -p 'test_check_docker_context.py'
+      - name: Docker builder の入力だけでリリース用 Rust を検査
+        run: python scripts/check_docker_context.py
 
   # -----------------------------------------------------------------------
   # React フロントエンド (frontend/、Phase 0-5)

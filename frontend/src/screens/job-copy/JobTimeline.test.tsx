@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { beforeEach as pinSidebarBeforeEach, afterEach as clearSidebarAfterEach } from 'vitest';
+pinSidebarBeforeEach(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pinned'); });
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EChartProps } from '../../components/EChart';
@@ -158,7 +161,7 @@ describe('job timeline lanes', () => {
     expect(selectedRow?.textContent).toContain('給与・勤務条件変更');
     fireEvent.click(screen.getByRole('button', { name: '本文・画像を開く' }));
     expect(open).toHaveBeenCalledWith('demo-001-v2');
-    fireEvent.click(screen.getByRole('button', { name: '前の版との差分を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: '前回の本文との違いを見る' }));
     expect(compare).toHaveBeenCalledWith('demo-001-v1', 'demo-001-v2');
   });
 });
@@ -196,14 +199,14 @@ describe('market cells of the period table while loading or after a failure (rev
     api.mockResolvedValue({ ok: false, error: { message: '500' } });
     render(<JobTimeline job={demo('demo-job-001')} />);
     expect(await screen.findByText('市場データを取得できませんでした')).toBeTruthy();
-    expect(marketCells()).toEqual(['取得できませんでした', '取得できませんでした', '取得できませんでした']);
+    expect(marketCells()).toEqual(['市場データを確認できませんでした', '市場データを確認できませんでした', '市場データを確認できませんでした']);
   });
 
   it('says 取得できませんでした (not データなし) when the request for the chosen market fails', async () => {
     api.mockImplementation((path: string) => Promise.resolve(path.includes('title=') ? { ok: false, error: { message: 'timeout' } } : { ok: true, data: list }));
     render(<JobTimeline job={demo('demo-job-001')} />);
     expect(await screen.findByText('市場データを取得できませんでした')).toBeTruthy();
-    expect(marketCells()).toEqual(['取得できませんでした', '取得できませんでした', '取得できませんでした']);
+    expect(marketCells()).toEqual(['市場データを確認できませんでした', '市場データを確認できませんでした', '市場データを確認できませんでした']);
     expect(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').textContent).not.toContain('データなし');
   });
 
@@ -211,8 +214,8 @@ describe('market cells of the period table while loading or after a failure (rev
     api.mockImplementation((path: string) => path.includes('title=') ? new Promise(() => undefined) : Promise.resolve({ ok: true, data: list }));
     render(<JobTimeline job={demo('demo-job-001')} />);
     await screen.findByText('求人名に含まれる職種を自動で選びました。違う場合は選び直してください');
-    expect(screen.getByText('市場データを取得中…')).toBeTruthy();
-    expect(marketCells()).toEqual(['取得中…', '取得中…', '取得中…']);
+    expect(screen.getAllByText('市場データを読み込み中…')).toHaveLength(4);
+    expect(marketCells()).toEqual(['市場データを読み込み中…', '市場データを読み込み中…', '市場データを読み込み中…']);
     expect(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table').textContent).not.toContain('市場を選ぶと表示');
   });
 
@@ -226,10 +229,10 @@ describe('market cells of the period table while loading or after a failure (rev
     render(<JobTimeline job={demo('demo-job-001')} />);
     await waitFor(() => { expect(lastChart('jt-market')).toBeDefined(); });
     fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: '福岡県' } });
-    expect(await screen.findByRole('button', { name: '市場データを再取得' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '市場データを再取得' }));
+    expect(await screen.findByRole('button', { name: '市場データを再読み込み' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '市場データを再読み込み' }));
     await waitFor(() => { expect(seriesCalls).toBe(3); });
-    await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再取得' })).toBeNull(); });
+    await waitFor(() => { expect(screen.queryByRole('button', { name: '市場データを再読み込み' })).toBeNull(); });
     expect(screen.getByLabelText<HTMLSelectElement>('都道府県').value).toBe('福岡県');
     expect(screen.getByText('手で選んだ都道府県です')).toBeTruthy();
     const paths = api.mock.calls.map(call => String(call[0]));
@@ -239,13 +242,13 @@ describe('market cells of the period table while loading or after a failure (rev
 });
 
 describe('period table rows without counts or periods (review round 2)', () => {
-  it('shows 応募集計の取得後に始まった期間 (not 0日 / 0件) for a period that starts after the counts were taken', () => {
+  it('shows 応募件数を確認した後に始まった期間 (not 0日 / 0件) for a period that starts after the counts were taken', () => {
     const base = demo('demo-job-001');
     if (!base.overallApplications) throw new Error('Missing counts');
     const job: JobCopyRecord = { ...base, overallApplications: { ...base.overallApplications, fetchedAt: '2026-09-20T09:00:00+09:00' } };
     render(<JobTimeline job={job} marketMode="demo" />);
     const rows = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => [...row.querySelectorAll('td')].map(cell => cell.textContent));
-    expect(rows.at(-1)?.slice(0, 3)).toEqual(['—', '応募集計の取得後に始まった期間', '—']);
+    expect(rows.at(-1)?.slice(0, 3)).toEqual(['—', '応募件数を確認した後に始まった期間', '—']);
     expect(rows[0]?.slice(0, 3)).toEqual(['14日', '7件', '0.50件/日']);
   });
 

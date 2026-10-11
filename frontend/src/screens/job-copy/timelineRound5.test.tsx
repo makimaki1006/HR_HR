@@ -4,6 +4,9 @@
  * label that matches the visible mark, plain names for version kinds and application counts, and
  * explanations that can be read without hovering.
  */
+import { beforeEach as pinSidebarBeforeEach, afterEach as clearSidebarAfterEach } from 'vitest';
+pinSidebarBeforeEach(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pinned'); });
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { jobs } from './data';
@@ -44,10 +47,10 @@ describe('本文 lane mark', () => {
     const marks = [...screen.getByRole('group', { name: '本文' }).querySelectorAll('button')];
     expect(marks.map(mark => mark.textContent)).toEqual(['最初', '改行のみ', '比べられない', '比べられない']);
     expect(marks.map(mark => mark.getAttribute('aria-label'))).toEqual([
-      '初回の本文：最初の版',
+      '初回の本文：最初の本文',
       '改行違いの本文：改行だけが違います',
-      '空本文の本文：本文が無いため、前の版と比べられません',
-      '同じ本文の本文：本文が無いため、前の版と比べられません',
+      '空本文の本文：本文が無いため、前回の本文と比べられません',
+      '同じ本文の本文：本文が無いため、前回の本文と比べられません',
     ]);
     expect(marks.map(mark => mark.textContent).join('')).not.toContain('追加0');
     expect(marks.some(mark => (mark.getAttribute('aria-label') ?? '').includes('行追加'))).toBe(false);
@@ -55,8 +58,8 @@ describe('本文 lane mark', () => {
 
   it('gives the same counts in the text and the spoken label for a changed body', () => {
     expect(bodyMark({ index: 1, bodyStatus: 'changed', bodyAdded: 2, bodyRemoved: 1 })).toEqual({ text: '追加2・削除1', spoken: '2行追加・1行削除' });
-    expect(bodyMark({ index: 1, bodyStatus: 'unchanged', bodyAdded: 0, bodyRemoved: 0 })).toEqual({ text: '同じ', spoken: '前の版と同じ' });
-    expect(bodyMark({ index: 0, bodyStatus: 'unavailable', bodyAdded: 0, bodyRemoved: 0 })).toEqual({ text: '最初', spoken: '最初の版' });
+    expect(bodyMark({ index: 1, bodyStatus: 'unchanged', bodyAdded: 0, bodyRemoved: 0 })).toEqual({ text: '同じ', spoken: '前回の本文と同じ' });
+    expect(bodyMark({ index: 0, bodyStatus: 'unavailable', bodyAdded: 0, bodyRemoved: 0 })).toEqual({ text: '最初', spoken: '最初の本文' });
   });
 });
 
@@ -69,7 +72,7 @@ describe('explanations that can be read without hovering', () => {
     const table = screen.getByRole('region', { name: '期間比較表の数値' });
     expect(table.querySelectorAll('[title]')).toHaveLength(0);
     expect(table.textContent).toContain('約2万8,125円');
-    expect(screen.getByText('「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。')).toBeTruthy();
+    expect(screen.getByText('「約」の付いた課金額は、課金の期間と本文の表示期間がずれているため、日数で割って配分した金額です。')).toBeTruthy();
   });
 
   it('shows the 未取得 note when application dates were never fetched', () => {
@@ -92,12 +95,12 @@ describe('explanations that can be read without hovering', () => {
     expect(document.querySelector('.jo-short-note')?.textContent).toContain('ある日数分だけで1日あたりを数えています');
   });
 
-  it('opens the screen explanations by click (試作版, 取得日時, どの版への応募か不明)', () => {
+  it('opens the screen explanations by click (試作画面, 文面を確認した日時, どの本文への応募か不明)', () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1');
     render(<JobCopyScreen />);
     const summaries = [...document.querySelectorAll('.jc-infotip > summary')].map(node => node.textContent);
-    expect(summaries).toContain('試作版 ⓘ');
-    expect(summaries).toContain('取得日時: 2026/09/25 12:30 JST ⓘ');
+    expect(summaries).toContain('試作画面 ⓘ');
+    expect(summaries).toContain('本文を確認した日時: 2026/09/25 12:30 JST ⓘ');
     expect(document.querySelector('.jc-mode')?.getAttribute('title')).toBeNull();
     expect(document.querySelector('.jc-record-meta [title]')).toBeNull();
   });
@@ -106,7 +109,7 @@ describe('explanations that can be read without hovering', () => {
 describe('plain names for version kinds and counts', () => {
   it('treats the old internal names as developer terms', () => {
     for (const word of ['媒体取得版', '媒体CSV取得版', '受信版', '確定対応', '推定対応', '選択版の確定＋推定対応']) expect(word).toMatch(JARGON_PATTERN);
-    for (const word of ['媒体から取り込んだ求人', '確認待ちの文面', '応募日で結びついた応募', '気づいた日の版で数えた応募', '選んだ版に結びついた応募']) expect(word).not.toMatch(JARGON_PATTERN);
+    for (const word of ['媒体から取り込んだ求人', '確認待ちの文面', '応募日で結びついた応募', '気づいた日の本文で数えた応募', '選んだ本文に結びついた応募']) expect(word).not.toMatch(JARGON_PATTERN);
   });
 
   it('names a received text 確認待ちの文面 and shows no developer terms after adding it', async () => {
@@ -130,6 +133,6 @@ describe('plain names for version kinds and counts', () => {
     render(<JobCopyScreen />);
     fireEvent.click(screen.getByRole('tab', { name: '求人内容' }));
     const counts = document.querySelector('.jc-counts')?.textContent ?? '';
-    expect(counts).toMatch(/^応募日で結びついた応募\d+件気づいた日の版で数えた応募\d+件どの版への応募か不明（求人全体）\d+件どんな応募か ⓘ/);
+    expect(counts).toMatch(/^応募日で結びついた応募\d+件気づいた日の本文で数えた応募\d+件どの本文への応募か不明（求人全体）\d+件どんな応募か ⓘ/);
   });
 });

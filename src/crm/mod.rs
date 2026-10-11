@@ -10,6 +10,7 @@
 //! - `workspace_cache`: 架電ワークスペースの応答の短いキャッシュ (60 秒。認可は毎回)
 //! - `assoc_labels`: 案件 → 担当者・会社の関連ラベルの定義 (6 時間キャッシュ)
 //! - `write`: `PATCH /api/crm/deals/{id}`・`GET /api/crm/edit-schema`・`GET /api/crm/operations/{id}`・管理者の一覧/再試行/破棄・再送 worker (既定は書き込み OFF。ADR-018)
+//! - `op_status`: 操作の状態のプロセス内表 (台帳の写し。照会をメモリから返して Turso の SELECT を減らす)
 //! - `pending`: 書き込みの操作台帳 (監査 Turso の `crm_pending_operations`)
 //! - `stage_rules`: ステージの必須項目の設定 (`stage_rules.json`) と HubSpot の定義とのずれの検査
 //! - `routes`: `GET /api/crm/metadata` と `GET /api/crm/{contacts|companies|deals}/{id}`
@@ -20,6 +21,8 @@
 
 pub mod assoc_labels;
 pub mod call_queue;
+pub mod clock;
+pub mod op_status;
 pub mod owners;
 pub mod pending;
 pub mod property_catalog;

@@ -241,7 +241,7 @@ async fn invalid_cloud_configuration_does_not_fall_back_to_local_file() {
     );
 }
 
-fn moc_state() -> Arc<AppState> {
+pub(super) fn moc_state() -> Arc<AppState> {
     use crate::{config::AppConfig, db::cache::AppCache};
     Arc::new(AppState {
         config: AppConfig {
@@ -1469,4 +1469,255 @@ async fn local_snapshot_is_reloaded_instead_of_using_cloud_cache() {
     );
     assert!(access.snapshot_cache.lock().await.is_none());
     tokio::fs::remove_file(path).await.unwrap();
+}
+
+#[tokio::test]
+async fn job_copy_listings_auth_and_mock_contract() {
+    use tower::ServiceExt;
+    let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen = calls.clone();
+    let upstream = Router::new().fallback(any(move |req: Request<Body>| {
+        let seen = seen.clone();
+        async move {
+            let path = req.uri().path().to_owned();
+            let query = req.uri().query().unwrap_or("").to_owned();
+            seen.lock().unwrap().push(format!("{} {}?{}", req.method(), path, query));
+            let record = json!({"id":"10", "properties":{"hs_name":"合成配送求人", "id_hrhakkaa":"HR-10", "todoufuken":"大分県", "shikuchouson":"大分市", "hrh_kyuujinhyou_honbun":"Indeed表示職種名：配送ドライバー", "baitai_genjoukyou_hrhakkaa":"公開中"}});
+            let data = if path == "/crm/v3/objects/0-420" {
+                if query.contains("after=12") {json!({"results":[{"id":"12","properties":{"id_hrhakkaa":"HR-12","todoufuken":"沖縄県","hrh_kyuujinhyou_honbun":"Indeed表示職種名：看護師"}}]})}
+                else if query.contains("after=") {json!({"results":[record], "paging":{"next":{"after":"12"}}})}
+                else {json!({"results":[{"id":"11","properties":{"id_airwork":"AW-11","airwork_account_login_id":"synthetic-account","qinwude":"東京都新宿区","zhizhong":"看護師"}}],"paging":{"next":{"after":"11"}}})}
+            } else if path == "/crm/v3/objects/0-420/batch/read" {
+                let body: Value = serde_json::from_slice(&to_bytes(req.into_body(),4096).await.unwrap()).unwrap();
+                assert_eq!(body["inputs"],json!([{"id":"10"},{"id":"11"}]));
+                json!({"results":[record,{"id":"11","properties":{"id_airwork":"AW-11","hs_name":"合成別媒体","shigotonaiyou":"合成AirWorkの本文"}}]})
+            } else if path == "/crm/v4/objects/0-420/10/associations/deals" {
+                json!({"results":[]})
+            } else if path == "/crm/v4/associations/0-420/0-421/batch/read" {
+                assert_eq!(req.method(), Method::POST);
+                let body: Value = serde_json::from_slice(&to_bytes(req.into_body(), 4096).await.unwrap()).unwrap();
+                assert_eq!(body, json!({"inputs":[{"id":"11"},{"id":"10"},{"id":"12"}]}));
+                json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":21},{"toObjectId":22}]},{"from":{"id":"11"},"to":[]},{"from":{"id":"12"},"to":[]}]})
+            } else if path == "/crm/v3/objects/0-420/10" {
+                let mut record = record;
+                let mut req = crate::job_gen::drafts::tests::request();
+                let first = crate::job_gen::drafts::DraftSnapshot::from_request(&req, chrono::Utc::now()).unwrap();
+                req.operation_id = "20000000-0000-4000-8000-000000000002".into();
+                req.created_at = "2026-10-10T01:00:00Z".into();
+                let second = crate::job_gen::drafts::DraftSnapshot::from_request(&req, chrono::Utc::now()).unwrap();
+                let current = second.properties().unwrap();
+                for (key, value) in current { record["properties"][key] = json!(value); }
+                record["propertiesWithHistory"] = json!({"hrh_kyuujinhyou_honbun":[{"timestamp":"2026-10-01T00:00:00Z","value":"合成の旧本文"},{"timestamp":"2026-10-02T00:00:00Z","value":"合成の新本文"}], crate::job_gen::drafts::FACTS: [ {"timestamp":"2026-10-10T00:00:00Z","value":serde_json::to_string(&first).unwrap()}, {"timestamp":"2026-10-10T01:00:00Z","value":serde_json::to_string(&second).unwrap()} ]});
+                record
+            } else if path == "/crm/v4/associations/0-420/deals/batch/read" { json!({"results":[{"from":{"id":"10"},"to":[]},{"from":{"id":"11"},"to":[]},{"from":{"id":"12"},"to":[]}]})
+            } else {panic!("unexpected upstream path: {path}");};
+            Json(data)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, upstream).await.unwrap();
+    });
+    let service = Arc::new(JobReadService::for_test(base));
+    let store = tower_sessions::MemoryStore::default();
+    let access = Access {
+        allowed: BTreeSet::from(["reader@example.test".into()]),
+        service: Some(service.clone()),
+        moc_path: None,
+        moc_drive: Ok(None),
+        snapshot_reader: None,
+        snapshot_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        resolved_jobs: Arc::new(tokio::sync::Mutex::new(BTreeMap::new())),
+        images: None,
+        drive_listings: BTreeSet::new(),
+        drive_config_error: None,
+    };
+    let file = tempfile::NamedTempFile::new().unwrap();
+    rusqlite::Connection::open(file.path()).unwrap().execute_batch("CREATE TABLE insight_title_pref (norm_title TEXT); INSERT INTO insight_title_pref VALUES ('ドライバー'), ('看護師');").unwrap();
+    let mut state = moc_state();
+    Arc::get_mut(&mut state).unwrap().indeed_db =
+        Some(crate::db::local_sqlite::LocalDb::new(file.path().to_str().unwrap()).unwrap());
+    let app = Router::new()
+        .route("/api/job-copy/listings", get(listings::read))
+        .route(
+            "/api/job-copy/listing-comparison",
+            get(listings::read_comparison),
+        )
+        .route(
+            "/api/job-copy/listings/{id}/versions",
+            get(listings::read_versions),
+        )
+        .layer(Extension(access))
+        .with_state(state)
+        .layer(tower_sessions::SessionManagerLayer::new(store.clone()).with_secure(false));
+    for path in [
+        "/api/job-copy/listings",
+        "/api/job-copy/listing-comparison?ids=10,11",
+        "/api/job-copy/listings/10/versions",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body, json!({"code":"login_required"}));
+    }
+    assert!(calls.lock().unwrap().is_empty());
+    let session = Session::new(None, Arc::new(store), None);
+    session
+        .insert(SESSION_USER_KEY, "reader@example.test")
+        .await
+        .unwrap();
+    for method in ["password", LOGIN_METHOD_GOOGLE_OIDC] {
+        session
+            .insert(SESSION_LOGIN_METHOD_KEY, method)
+            .await
+            .unwrap();
+        session.save().await.unwrap();
+        if method == LOGIN_METHOD_GOOGLE_OIDC {
+            let preparing = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/job-copy/listings")
+                        .header("cookie", format!("id={}", session.id().unwrap()))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let data: Value =
+                serde_json::from_slice(&to_bytes(preparing.into_body(), 4096).await.unwrap())
+                    .unwrap();
+            assert_eq!(data["status"], "preparing");
+            assert_eq!(data["total"], Value::Null);
+            assert_eq!(data["index_built_at"], Value::Null);
+            assert!(calls.lock().unwrap().is_empty());
+            listings::refresh(
+                &service.listing_index,
+                &service,
+                vec!["ドライバー".into(), "看護師".into()],
+                Duration::ZERO,
+            )
+            .await
+            .unwrap();
+            assert_eq!(calls.lock().unwrap().len(), 5);
+        }
+        let response = app.clone().oneshot(Request::builder().uri("/api/job-copy/listings?prefecture=%E5%A4%A7%E5%88%86%E7%9C%8C&title=%E3%83%89%E3%83%A9%E3%82%A4%E3%83%90%E3%83%BC&media=hrh").header("cookie", format!("id={}", session.id().unwrap())).body(Body::empty()).unwrap()).await.unwrap();
+        if method == "password" {
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert!(calls.lock().unwrap().is_empty());
+            continue;
+        }
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        let data: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(calls.lock().unwrap().len(), 5); // filters/pages use the index only
+        assert_eq!(data["listings"].as_array().unwrap().len(), 1);
+        assert_eq!(data["listings"][0]["media_job_id"], "HR-10");
+        assert_eq!(data["listings"][0]["category"], "ドライバー");
+        assert_eq!(data["listings"][0]["application_count"], 2);
+        assert_eq!(data["next_offset"], Value::Null);
+        assert_eq!(data["total"], 1);
+        assert!(data["index_built_at"].as_str().is_some());
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/listings/10/versions")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let data: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+    assert_eq!(data["versions"][0]["body"], "合成の旧本文");
+    assert_eq!(
+        data["versions"][1]["written_at"],
+        "2026-10-02T00:00:00+00:00"
+    );
+    assert_eq!(data["history_counts"]["hrh_kyuujinhyou_honbun"], 2);
+    assert_eq!(data["history_may_be_incomplete"], false);
+    assert_eq!(data["drafts"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        data["drafts"][0]["draft_id"],
+        "10000000-0000-4000-8000-000000000001"
+    );
+    assert_eq!(data["drafts"][1]["row"]["基本給与 最小"], "270000");
+    assert_eq!(
+        data["drafts"][1]["facts"]["work_location"]["value"],
+        "大分県大分市"
+    );
+    assert_eq!(data["drafts"][1]["review_status"], "pending");
+    assert_eq!(data["draft_revision"].as_str().unwrap().len(), 64);
+    assert_eq!(data["can_write_drafts"], false);
+    assert_eq!(calls.lock().unwrap().len(), 7); // index + association batches, history and detail-only company associations
+    for ids in ["10", "10,10", "10,11,12,13,14,15", "10,not-an-id"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/job-copy/listing-comparison?ids={ids}"))
+                    .header("cookie", format!("id={}", session.id().unwrap()))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(calls.lock().unwrap().len(), 7);
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/listing-comparison?ids=10,11")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let data: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+    assert_eq!(data["jobs"].as_array().unwrap().len(), 2);
+    assert_eq!(data["jobs"][0]["listing"]["media"], "hrh");
+    assert_eq!(data["jobs"][1]["listing"]["media"], "airwork");
+    assert_eq!(data["jobs"][1]["body"], "合成AirWorkの本文");
+    assert_eq!(calls.lock().unwrap().len(), 8); // one read for selected jobs
+    session
+        .insert(SESSION_USER_KEY, "outside@example.test")
+        .await
+        .unwrap();
+    session.save().await.unwrap();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/listings/10/versions")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(calls.lock().unwrap().len(), 8);
+    task.abort();
 }

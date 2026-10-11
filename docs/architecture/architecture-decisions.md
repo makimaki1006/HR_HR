@@ -254,3 +254,10 @@ ADR-009 が保留していた「Durable Retry / Pending Sync の保存技術」�
 - 書けるのは「プロパティ」パネルで選べる全ての項目のうち HubSpot が API で書かせるもの (読み取り専用・計算・`hs_*` / `hubspot_*`・「※編集不可」・`bpo_hsurl` / `bpo_transactio_id`・`dealstage` / `pipeline` を除く)。ステージはパイプライン内・パイプライン間の移動を許す。
 - ステージの必須項目は HubSpot が API の書き込みでは強制しないため、HR_HR が移動前に確かめる (`src/crm/stage_rules.json`、HubSpot の画面の内部 API を 2026-10-09 に読み取り専用で写した。6 時間おきに公開のパイプライン API と突き合わせ、ずれを `GET /api/admin/crm-stage-rules-drift` に出す)。
 - 失敗 (恒久エラー) した操作は管理者の一覧 (`/api/admin/crm-operations`) に出す。
+
+
+## ADR-019 — 求人の案の再送は既存監査DBの専用表に保持する
+
+Status: Accepted for this implementation (2026-10-11)
+
+案と履歴の正本はHubSpot。未反映の保存操作・競合確認・重複防止だけを、既存監査Tursoの `job_copy_draft_operations` に保持する。新しいDBは作らず、CRMの取引向けworkerは変更しない。採用理由・代替案・戻すコスト・運用制約は [`jobgen-to-job-copy.md`](jobgen-to-job-copy.md) を参照。
