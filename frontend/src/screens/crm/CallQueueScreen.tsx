@@ -1,3 +1,5 @@
+import { EMAIL_SAVED } from './emailApi';
+import type { SavedEmailNotice } from './emailApi';
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueuePartial } from '../../generated/CallQueuePartial';
@@ -265,6 +267,15 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   // 以前の版の配置だけが残っていたら新しい既定の配置にして、1 回だけ案内を出す (新しい配置を残せたら以前の配置は消す)
   const [initialLayout] = useState(() => loadLayoutWithNotice(localStorageOrNull()));
   const [layout, dispatchLayout] = useReducer(dockReducer, initialLayout.layout);
+  useEffect(() => {
+    const saved = (event: Event) => {
+      if ((event as CustomEvent<SavedEmailNotice>).detail.dealId === selectedId) {
+        dispatchLayout({ type: 'activate', panel: 'activity' });
+      }
+    };
+    window.addEventListener(EMAIL_SAVED, saved);
+    return () => { window.removeEventListener(EMAIL_SAVED, saved); };
+  }, [selectedId]);
   const [layoutNote, setLayoutNote] = useState(initialLayout.migrated);
   useEffect(() => { if (saveLayout(localStorageOrNull(), layout)) clearLegacyLayout(localStorageOrNull()); }, [layout]);
   // 「案件の概要」の 1 行表示: 列が低い (画面の高さが低い) ときは自動で 1 行。利用者が切り替えたらそれに従う
