@@ -176,6 +176,9 @@ pub struct EmailOperation {
     pub cc: Vec<String>,
     pub subject: String,
     pub html: String,
+    /// Uninstrumented body for HubSpot; older sender ledger rows already contain clean HTML.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_html: Option<String>,
     pub owner_id: String,
     /// Empty means this message was sent without measurements. Keeps existing ledger format.
     pub tracking_id: String,
@@ -310,6 +313,7 @@ fn finish(row: &mut OpRow, status: &str, code: &str) {
         // Keep IDs only: the receipt must outlive the normal seven-day PATCH retention.
         if let Some(e) = row.payload.email.as_mut() {
             e.html.clear();
+            e.original_html = None;
             e.subject.clear();
             e.to.clear();
             e.cc.clear();
@@ -387,7 +391,7 @@ pub async fn record(
                 email.create_uncertain = true;
                 row.payload.email = Some(email.clone());
                 persist(audit, row).await.map_err(|_| HubSpotError::Transport("ledger_unavailable".into()))?;
-                let properties = json!({"hs_email_direction":"EMAIL","hs_email_status":"SENT","hs_timestamp":email.sent_at,"hs_email_headers":json!({"from":{"email":row.operator_email},"to":[{"email":email.to}],"cc":email.cc.iter().map(|e|json!({"email":e})).collect::<Vec<_>>(),"bcc":[]}).to_string(),"hs_email_subject":email.subject,"hs_email_html":email.html,"hs_email_message_id":rfc,"hs_email_thread_id":email.gmail.as_ref().map(|m|&m.thread_id),"hubspot_owner_id":email.owner_id});
+                let properties = json!({"hs_email_direction":"EMAIL","hs_email_status":"SENT","hs_timestamp":email.sent_at,"hs_email_headers":json!({"from":{"email":row.operator_email},"to":[{"email":email.to}],"cc":email.cc.iter().map(|e|json!({"email":e})).collect::<Vec<_>>(),"bcc":[]}).to_string(),"hs_email_subject":email.subject,"hs_email_html":email.original_html.as_deref().unwrap_or(&email.html),"hs_email_message_id":rfc,"hs_email_thread_id":email.gmail.as_ref().map(|m|&m.thread_id),"hubspot_owner_id":email.owner_id});
                 match client.create_email(properties, &row.deal_id, &email.contact_ids).await {
                     Ok(id) => { email.hubspot_email_id = Some(id); email.create_uncertain = false; }
                     Err(e) => {
