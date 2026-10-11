@@ -63,7 +63,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust
+          shared-key: rust-test
       - name: Format check
         run: cargo fmt -- --check
       - name: Clippy (errors only; warnings reported but non-blocking)
@@ -98,7 +98,7 @@ jobs:
       # rust-test と同じ依存キー・target/ を使う。検査対象のソースは一時領域。
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust
+          shared-key: rust-test
       - name: COPY と除外設定の再現を検証
         run: python -m unittest discover -s scripts -p 'test_check_docker_context.py'
       - name: Docker builder の入力だけでリリース用 Rust を検査
