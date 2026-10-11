@@ -500,6 +500,7 @@ turso db shell salesnow "SELECT COUNT(*) FROM v2_salesnow_companies"
 ## 13. ドキュメント索引
 
 - [リクロジメディア向け求人案の計画](docs/architecture/rikurozi-draft-plan.md)
+- [`docs/architecture/jobgen-to-job-copy.md`](docs/architecture/jobgen-to-job-copy.md) — 求人票作成の案の保存・履歴・比較と再送台帳（ADR-019）
 
 ### マスター/index
 - [`CLAUDE.md`](CLAUDE.md) — ★ 本ファイル (マスターリファレンス)

@@ -13,6 +13,13 @@ import { initialState, type PipelineState } from './state';
 import { createStore } from './store';
 
 describe('顧客資料と確認画面', () => {
+  it.each(['free_text', 'csv', 'html'] as const)('貼り付けた%sの先頭空白と末尾改行を取り込み内容にそのまま残す', async kind => {
+    const original = '  架空配送スタッフ\r\n夜勤手当3,500円/回\n\n';
+    const result = await buildNormalizeRequest({ kind, freeText: original, pasteText: original, file: null, url: '' });
+    expect(result).toEqual({ ok: true, body: { kind, text: original } });
+    expect(await buildNormalizeRequest({ kind, freeText: ' \n　', pasteText: ' \n　', file: null, url: '' })).toMatchObject({ ok: false });
+  });
+
   it('Excelから出したShift-JISの給与・職種・改行を保つ', async () => {
     const bytes = readFileSync(resolve('../tests/fixtures/jobgen/customer-sjis.csv'));
     const result = await buildNormalizeRequest({ kind: 'csv', file: new File([bytes], 'customer.csv'), freeText: '', url: '', pasteText: '' });
