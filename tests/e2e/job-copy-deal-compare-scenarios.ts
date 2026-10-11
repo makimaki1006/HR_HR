@@ -2,6 +2,37 @@ import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 const body = (amount: number) => `求人id：hidden-media-id\n案件名：配送スタッフ\n仕事内容：日用品を決まったルートで届けます。\nIndeed表示職種名：ドライバー\n給与形態：月給\n基本給与 最小：${amount}\n基本給与 最大：320000\n勤務時間：8:00〜17:00\n自由項目1のタイトル：休日・休暇\n自由項目1の内容：土日休み`;
 export function registerDealCompareTests(path: string) {
+  for (const width of [1440, 1920]) test(`末尾空白の比較と給与表示 ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+    const jobs = ['250000 ', '9000'].map((salary, index) => ({ id: String(index + 1), title: `空白確認の配送求人${index + 1}`, media: 'hrh', media_job_id: 'hidden-id', account_id: null, prefecture: '沖縄県', municipality: '那覇市', category: 'ドライバー', publication_status: '公開', application_count: null, summary: { salary_kind: '月給', salary_min: salary, salary_max: salary } }));
+    await page.route('**/api/job-copy/**', async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/listing-comparison')) return route.fulfill({ json: { jobs: jobs.map((listing, index) => ({ listing, body: `仕事内容：配送${index ? ' ' : ''}` })) } });
+      if (url.pathname.endsWith('/listings')) return route.fulfill({ json: { status: 'ready', listings: jobs, total: 2, titles: [], deals: [{ id: '901', name: '合成物流の契約', count: 2 }], no_deal_count: 0, offset: 0, next_offset: null, index_built_at: '2026-10-11T00:00:00Z' } });
+      return route.fulfill({ status: 503, json: {} });
+    });
+    await page.goto(path);
+    const panel = page.getByRole('region', { name: 'HubSpot の求人' });
+    await panel.getByText('絞り込み・並び順', { exact: true }).click();
+    await panel.getByLabel('取引', { exact: true }).selectOption('901');
+    await panel.getByRole('button', { name: 'この取引の求人', exact: true }).click();
+    const table = page.getByRole('table', { name: '取引の求人一覧表' });
+    await expect(table.locator('tbody tr').first()).toContainText('月給 250,000円');
+    await expect(table.locator('tbody tr').last()).toContainText('月給 9,000円');
+    for (const job of jobs) await table.getByLabel(`${job.title}を比較に選ぶ`).check();
+    await page.getByRole('button', { name: '横に並べて比べる' }).click();
+    const comparison = page.getByRole('region', { name: '選んだ求人の横並び比較' });
+    await expect(comparison).toContainText('本文には違いがあります。');
+    await expect(comparison).toContainText('違う項目（1項目）');
+    await expect(comparison.locator('.jc-comparison-different')).toHaveCount(1);
+    expect(await comparison.locator('.jc-comparison-different td').allTextContents()).toEqual(['配送', '配送 ']);
+    await expect(comparison.locator('details')).not.toHaveAttribute('open');
+    if (width === 1440) {
+      await comparison.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: 'docs/screenshots/job-copy-deal-compare/04-whitespace-comparison-1440.png' });
+    }
+  });
   for (const width of [1440, 1920]) test(`取引の絞り込み・101件の表・横並び比較 ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });

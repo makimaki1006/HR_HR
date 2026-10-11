@@ -23,6 +23,9 @@ it('formats exact salaries and never infers prose conditions', () => {
   expect(result.rows.map(row => row.key)).not.toContain('求人id');
   expect(compareJobs([{ id: '1', title: 'A', media: 'AirWork', body: '月給25万円で土日休みです' }, { id: '2', title: 'B', media: 'HRハッカー', body: null }]).rows).toEqual([]);
 });
+it.each(['250000 ', ' 250000', '　２５０，０００　', '250,000\t'])('formats salary %j consistently with numeric sorting', value => {
+  expect(salaryAmount('月給', value)).toBe('月給 250,000円');
+});
 it('highlights differing fields and collapses identical ones without identifiers', () => {
   const { container } = render(<ParallelJobs jobs={[{ id: '1', title: 'A', media: 'HRハッカー', body: body('250000') }, { id: '2', title: 'B', media: 'AirWork', body: body('280000') }]} />);
   expect(container.querySelectorAll('.jc-comparison-different')).toHaveLength(1);
@@ -32,6 +35,19 @@ it('highlights differing fields and collapses identical ones without identifiers
   expect(container.textContent).not.toContain('raw-id-secret');
   expect(container.textContent).not.toContain('基本給与 最小');
   fireEvent.click(screen.getByText('同じ項目（5項目）'));
+});
+it.each([' ', '　', '\t', '\n', '\r\n'])('preserves trailing whitespace %j in full-body and field comparison', suffix => {
+  const jobs = [{ id: '1', title: 'A', media: 'HRハッカー', body: '仕事内容：配送' }, { id: '2', title: 'B', media: 'AirWork', body: `仕事内容：配送${suffix}` }];
+  const result = compareJobs(jobs);
+  expect(result.fullDifferent).toBe(true);
+  expect(result.rows).toEqual([{ key: '仕事内容', label: '仕事内容', values: ['配送', `配送${suffix}`], different: true }]);
+  const { container } = render(<ParallelJobs jobs={jobs} />);
+  expect(screen.getByText('違う項目（1項目）')).toBeTruthy();
+  expect(screen.queryByText(/取得した本文は同じ/)).toBeNull();
+  expect(container.querySelectorAll('.jc-comparison-different')).toHaveLength(1);
+});
+it('does not discard a whitespace-only field value', () => {
+  expect(compareJobs([{ id: '1', title: 'A', media: 'HRハッカー', body: '仕事内容：' }, { id: '2', title: 'B', media: 'AirWork', body: '仕事内容： ' }]).rows).toEqual([{ key: '仕事内容', label: '仕事内容', values: ['', ' '], different: true }]);
 });
 it('searches cached deal candidates, combines existing filters and opens the table', async () => {
   api.mockResolvedValue({ ok: true, data: page }); const show = vi.fn(); render(<HubSpotListingsPanel onOpen={vi.fn()} onShowDeal={show} />);

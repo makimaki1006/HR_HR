@@ -512,8 +512,21 @@ fn selected_page(index: &Index, query: &ListingsQuery) -> (usize, Vec<PageListin
             let left = summary_value(a, query.sort.as_deref());
             let right = summary_value(b, query.sort.as_deref());
             let number = |v: Option<&str>| {
-                v.and_then(|v| v.replace(',', "").parse::<f64>().ok())
-                    .filter(|v| v.is_finite())
+                v.and_then(|v| {
+                    // 給与表示と同じく全角数字・桁区切り・前後の空白を整える。
+                    let normalized: String = v.nfkc().filter(|c| *c != ',').collect();
+                    let value = normalized.trim();
+                    let mut parts = value.split('.');
+                    let digits =
+                        |part: &str| !part.is_empty() && part.bytes().all(|c| c.is_ascii_digit());
+                    if !digits(parts.next()?)
+                        || parts.next().is_some_and(|p| !digits(p))
+                        || parts.next().is_some()
+                    {
+                        return None;
+                    }
+                    value.parse::<f64>().ok().filter(|v| v.is_finite())
+                })
             };
             Some(
                 if ["salary_min", "salary_max"].contains(&query.sort.as_deref().unwrap_or("")) {

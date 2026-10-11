@@ -1,6 +1,5 @@
 import columns from '../../generated/jobgen/columns.json';
 import { parseHrhFields } from './hrhCopy';
-import { normalizeFullBody } from './ColumnComparison';
 export interface ComparedJob { id: string; title: string; media: string; body: string | null }
 export function salaryAmount(kind: string | null | undefined, value: string | null | undefined): string {
   if (!value?.trim()) return '—';
@@ -25,10 +24,10 @@ export function comparisonLabel(key: string): string {
 }
 export function compareJobs(jobs: ComparedJob[]) {
   const fields = jobs.map(job => parseHrhFields(job.body ?? ''));
-  const fullDifferent = jobs.some(job => job.body === null) || new Set(jobs.map(job => normalizeFullBody(job.body ?? ''))).size > 1;
+  const fullDifferent = jobs.some(job => job.body === null) || new Set(jobs.map(job => job.body)).size > 1;
   const rows = columns.filter(key => !key.toLowerCase().endsWith('id')).flatMap(key => {
     const values = fields.map(row => row.get(key) ?? '');
-    if (!values.some(value => value.trim())) return [];
+    if (!values.some(value => value !== '')) return [];
     return [{ key, label: comparisonLabel(key), values, different: fullDifferent && new Set(values).size > 1 }];
   });
   return { fullDifferent, rows, unstructured: jobs.filter((job, index) => job.body && !fields[index]?.size) };
