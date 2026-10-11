@@ -105,4 +105,11 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   }
   await table.getByRole('button', { name: hrh.title, exact: true }).click(); await expect(opener).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.goto('/app/job-copy?demo=1');
+  await page.locator('.jc-main').evaluate(element => { element.scrollTop = element.scrollHeight; });
+  expect(await page.locator('.jc-main').evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await page.locator('.jc-job').filter({ hasText: '倉庫内ピッキングスタッフ' }).click();
+  expect(await page.locator('.jc-main').evaluate(element => element.scrollTop)).toBe(0);
+  const switched = (await opener.boundingBox())!;
+  expect(switched.y).toBeGreaterThanOrEqual(0); expect(switched.y + switched.height).toBeLessThan(viewport.height);
 });

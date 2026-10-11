@@ -86,6 +86,11 @@ function ApplicationSummary({ job, version, live = false }: { job: JobCopyRecord
 export interface FeatureRequest { feature: JobFeature; nonce: number }
 
 function CopyDetail({ job, records, onAdd, onDraftSaved, reviewed, onReview, billing, demo = false, request = null, showDummyBilling = DUMMY_BILLING_ENABLED }: { job: JobCopyRecord; records: JobCopyRecord[]; onAdd: (version: CopyVersion) => void; onDraftSaved: (draft: DraftSnapshot, revision: string) => void; reviewed: string[]; onReview: (id: string) => void; billing?: readonly BillingEntry[] | undefined; demo?: boolean; request?: FeatureRequest | null; showDummyBilling?: boolean }) {
+  const detailElement = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const scroll = detailElement.current?.closest('.jc-main');
+    if (scroll) scroll.scrollTop = 0;
+  }, [job.id]);
   const current = latest(job);
   const draft = job.latestDraftId ? job.versions.find(item => item.draft?.draft_id === job.latestDraftId) : undefined;
   const [tab, setCurrentTab] = useState<JobFeature>(draft ? 'diff' : job.id.startsWith('hubspot-history-') ? 'body' : 'timeline');
@@ -169,7 +174,7 @@ function CopyDetail({ job, records, onAdd, onDraftSaved, reviewed, onReview, bil
     setMessage('確認待ちの文面として画面内のデモ履歴に追加しました。媒体での掲載確認・HubSpot保存は行っていません。');
   }
 
-  return <article className="jc-detail" id="job-details" tabIndex={-1}>
+  return <article ref={detailElement} className="jc-detail" id="job-details" tabIndex={-1}>
     <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><h1>{job.title}</h1><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button></div><p>{joinPresent([job.company, job.location, job.media])}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
     {listingPopupOpen && <ListingPopup job={job} version={version} onClose={() => { setListingPopupOpen(false); }} />}
     {job.id.startsWith('hubspot-history-') && job.media === 'HRハッカー' && job.hubspotId && <RikuroziDraftPanel listingId={job.hubspotId} />}

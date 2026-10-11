@@ -108,6 +108,12 @@ it('opens the selected timeline version from the detail heading, initially the l
   fireEvent.click(opener);
   expect(screen.getByRole('dialog').textContent).toContain(jobs[0]?.versions[1]?.body);
   expect(screen.getByRole('dialog').textContent).toContain('2026/09/15 10:30 JST');
+  fireEvent.click(screen.getByRole('button', { name: '求人の内容を閉じる' }));
+  const main = opener.closest('.jc-main');
+  if (!main) throw new Error('詳細の領域がありません');
+  main.scrollTop = 500;
+  fireEvent.click(screen.getByRole('button', { name: /倉庫内ピッキングスタッフ.*デモ物流B/ }));
+  expect(main.scrollTop).toBe(0);
 });
 
 it('retains acquired conditions and separately observed images when no body has been acquired', () => {
