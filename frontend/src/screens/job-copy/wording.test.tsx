@@ -94,7 +94,7 @@ describe('job copy screen wording', () => {
     await screen.findByRole('option', { name: '合成取引先' });
     expect(visibleWording()).not.toMatch(/\d+\s?ms/);
     fireEvent.change(screen.getByLabelText('HubSpotの取引先'), { target: { value: '77' } });
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '関連する求人を取得' })); await Promise.resolve(); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '関連する求人を読み込む' })); await Promise.resolve(); });
     await act(async () => { fireEvent.click(await screen.findByRole('button', { name: '合成ドライバー（関連契約1件）' })); await Promise.resolve(); });
     await waitFor(() => { expect(screen.getByText('応募を取得しました。')).toBeTruthy(); });
     expect(visibleWording()).not.toMatch(JARGON_PATTERN);
@@ -118,7 +118,7 @@ describe('job copy screen wording', () => {
 
   it('formats the selected version timestamp as YYYY/MM/DD HH:mm JST', () => {
     render(<JobCopyScreen />);
-    // demo-001 の最新版 v3 は 2026-09-25T12:30:00+09:00 に取得した版（data.ts）。
+    // demo-001 の最新版 v3 は 2026-09-25T12:30:00+09:00 に確認した本文（data.ts）。
     const meta = document.querySelector('.jc-record-meta')?.textContent ?? '';
     expect(meta).toContain('本文を確認した日時: 2026/09/25 12:30 JST');
     expect(meta).not.toContain('JST JST');

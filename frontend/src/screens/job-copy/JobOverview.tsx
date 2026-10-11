@@ -10,9 +10,9 @@ import './timeline.css';
 
 const sortLabels: Record<OverviewSort, string> = {
   source: '一覧と同じ順',
-  lastChange: '直近の変化が新しい順（後の取得日）',
-  afterPerDay: '変化後（後の取得日の翌日から）の1日あたり応募が多い順',
-  beforePerDay: '変化前（前の取得日の前日まで）の1日あたり応募が多い順',
+  lastChange: '直近の変化が新しい順（後の文面を確認した日）',
+  afterPerDay: '変化後（後の文面を確認した日の翌日から）の1日あたり応募が多い順',
+  beforePerDay: '変化前（前の文面を確認した日の前日まで）の1日あたり応募が多い順',
   billing: '実際の課金合計が多い順',
 };
 
@@ -20,7 +20,7 @@ function MiniCalendar({ row, range }: { row: OverviewRow; range: { start: string
   const total = daysBetween(range.start, range.end) + 1;
   const x = (date: string) => Math.max(0, Math.min(240, daysBetween(range.start, date) / total * 240));
   const max = Math.max(1, ...row.weeks.map(week => week.count));
-  return <svg viewBox="0 0 240 34" role="img" aria-label={`${row.title}の週ごとの応募と、変化が見つかった取得日の間`} preserveAspectRatio="none">
+  return <svg viewBox="0 0 240 34" role="img" aria-label={`${row.title}の週ごとの応募と、変化が見つかった文面を確認した日の間`} preserveAspectRatio="none">
     <line x1="0" y1="33" x2="240" y2="33" stroke="#cbd5e1" strokeWidth="1" />
     {row.weeks.map(week => {
       const left = x(week.start); const width = Math.max(1.5, x(week.end) - left - 1);
@@ -33,9 +33,9 @@ function MiniCalendar({ row, range }: { row: OverviewRow; range: { start: string
   </svg>;
 }
 
-/** 「取得日2026/07/01〜2026/08/20の間に変化」 (or the publication day when it is known). */
+/** 「文面を確認した日2026/07/01〜2026/08/20の間に変化」 (or the publication day when it is known). */
 export function changeText(change: ChangeWindow): string {
-  return change.exact ? `${formatDay(change.to)}に掲載が変わりました（媒体の掲載日時）` : `取得日${formatDay(change.from)}〜${formatDay(change.to)}の間に変化`;
+  return change.exact ? `${formatDay(change.to)}に掲載が変わりました（媒体の掲載日時）` : `文面を確認した日${formatDay(change.from)}〜${formatDay(change.to)}の間に変化`;
 }
 
 /**
@@ -73,8 +73,8 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
   const byId = new Map(records.map(job => [job.id, job]));
   return <main className="jc-detail jo-overview" id="job-details" tabIndex={-1} aria-labelledby="job-overview-heading">
     <h1 id="job-overview-heading">求人の横断比較</h1>
-    <div className="jc-muted">直近の変化が見つかった2つの取得日について、前の取得日の前日までの{OVERVIEW_WINDOW_DAYS}日間と、後の取得日の翌日からの{OVERVIEW_WINDOW_DAYS}日間の1日あたり応募を並べています（HubSpot に記録された応募のみ）。<InfoTip className="jc-infotip-left" label="この表の見方">
-      <p>掲載が変わった日は分かりません。前の取得日と後の取得日の間のどこかで変わったとして、その間の応募は前後どちらにも入れていません。応募は日付だけで記録されていて、2つの取得日も取得した時刻の前後で変わった可能性があるため、取得日当日の応募も入れていません。</p>
+    <div className="jc-muted">直近の変化が見つかった2つの文面を確認した日について、前の文面を確認した日の前日までの{OVERVIEW_WINDOW_DAYS}日間と、後の文面を確認した日の翌日からの{OVERVIEW_WINDOW_DAYS}日間の1日あたり応募を並べています（HubSpot に記録された応募のみ）。<InfoTip className="jc-infotip-left" label="この表の見方">
+      <p>掲載が変わった日は分かりません。前の文面を確認した日と後の文面を確認した日の間のどこかで変わったとして、その間の応募は前後どちらにも入れていません。応募は日付だけで記録されていて、2つの文面を確認した日も文面を確認した時刻の前後で変わった可能性があるため、文面を確認した日当日の応募も入れていません。</p>
       <p>複数の求人に関連する応募は、どの求人の応募か決められないため数えていません（見分ける情報がある場合）。</p>
       <p>並べて見るための表で、どの求人が良いかを決めるものではありません。</p>
       <p>「多い応募理由」は、HubSpot に記録された応募理由を分類し、件数の多い2つを並べたものです。件数の後ろに、HubSpotで分類が選ばれた件数（選択）と、文から言葉で推定した件数（推定）を分けて書いています。nは応募理由の記録がある応募の件数です。古い保存データでは同じ応募の記述を見分けられないため、「記述n=」として記述ごとに数えています。「記録なし」は応募理由の記録が無いこと、「未取得」は応募理由を取得していないことです。「分類の選択は未取得」は、そのデータでは分類の選択を読んでいないことです。</p>
@@ -82,10 +82,10 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
       <p>市場の動き（Indeed の求人数など）は月ごとのデータなので、この表には並べていません。求人名を選ぶと、タイムラインの「市場」の段で同じ時間軸で確認できます。</p>
     </InfoTip></div>
     <div className="jo-sort"><label>並び替え<select value={sort} onChange={event => { setSort(event.target.value as OverviewSort); }}>{(Object.keys(sortLabels) as OverviewSort[]).map(key => <option key={key} value={key}>{sortLabels[key]}</option>)}</select></label>
-      {range && <span className="jc-muted">カレンダー：{formatDay(range.start)}〜{formatDay(range.end)}（棒は週ごとの応募、色の付いた帯は変化が見つかった取得日の間）</span>}</div>
+      {range && <span className="jc-muted">カレンダー：{formatDay(range.start)}〜{formatDay(range.end)}（棒は週ごとの応募、色の付いた帯は変化が見つかった文面を確認した日の間）</span>}</div>
     <p className="jo-sort-note" role="note">並び順は数の大小で並べただけです。応募が増えた・減った理由を示すものではありません。</p>
     {!rows.length ? <p className="jc-notice">表示できる求人がありません。</p> : <div className="jo-table-scroll" role="region" aria-label="求人の横断比較の表" tabIndex={0}><table>
-      <thead><tr><th scope="col">求人</th><th scope="col">応募と変化</th><th scope="col">直近の変化</th><th scope="col">変化の種類</th><th scope="col">前の取得日の前日までの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">後の取得日の翌日からの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">実際の課金合計</th><th scope="col">多い応募理由</th></tr></thead>
+      <thead><tr><th scope="col">求人</th><th scope="col">応募と変化</th><th scope="col">直近の変化</th><th scope="col">変化の種類</th><th scope="col">前の文面を確認した日の前日までの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">後の文面を確認した日の翌日からの{OVERVIEW_WINDOW_DAYS}日の1日あたり応募</th><th scope="col">実際の課金合計</th><th scope="col">多い応募理由</th></tr></thead>
       <tbody>{sorted.map(row => {
         const job = byId.get(row.jobId);
         return <tr key={row.jobId}>
@@ -102,6 +102,6 @@ export function JobOverview({ records, billing, onChoose, now, showDummyBilling 
     </table></div>}
     {sorted.some(row => row.hasDummyBilling) && <p className="jt-dummy-billing" role="note">{DUMMY_BILLING_LABEL}は架空の金額です。この表の課金合計にも並び替えにも使っていません。金額は各求人のタイムラインの「課金」の段で「ダミー」と付けて表示します。</p>}
     {sorted.some(row => [row.before, row.after].some(rate => rate ? rate.days < OVERVIEW_WINDOW_DAYS : false)) && <p className="jc-muted jo-short-note">
-      前後が{OVERVIEW_WINDOW_DAYS}日に満たない求人は、ある日数分だけで1日あたりを数えています（各欄の「件 / 日」の日数）。後の期間は、その内容を最後に取得した日か、応募を取得した日までです。</p>}
+      前後が{OVERVIEW_WINDOW_DAYS}日に満たない求人は、ある日数分だけで1日あたりを数えています（各欄の「件 / 日」の日数）。後の期間は、その文面を最後に確認した日か、応募件数を確認した日までです。</p>}
   </main>;
 }

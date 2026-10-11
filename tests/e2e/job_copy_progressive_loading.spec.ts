@@ -27,7 +27,7 @@ test('30-second image response does not block full body, application counts or t
   await expect(bodyPanel.locator('.jc-body')).toHaveText(snapshot.capture_bundle.jobs[0]!.body);
   await picture.scrollIntoViewIfNeeded();
   await expect.poll(() => requestedAt).toBeGreaterThan(0);
-  await expect(bodyPanel.getByRole('status')).toContainText('画像を取得中');
+  await expect(bodyPanel.getByRole('status')).toContainText('画像を読み込み中');
   await expect(bodyPanel.getByRole('button', { name: '画像1を拡大: 合成の遅延画像' })).toBeDisabled();
   await selectJobFeature(page, 'applicants');
   const applications = page.getByRole('region', { name: '求人全体の実応募者構成', exact: true });
@@ -37,7 +37,7 @@ test('30-second image response does not block full body, application counts or t
   expect(Date.now() - requestedAt).toBeLessThan(30_000);
   await selectJobFeature(page, 'body');
   await expect(bodyPanel.locator('.jc-body')).toHaveText(snapshot.capture_bundle.jobs[0]!.body);
-  await expect(bodyPanel.getByRole('status')).toContainText('画像を取得中');
+  await expect(bodyPanel.getByRole('status')).toContainText('画像を読み込み中');
   await expect.poll(() => picture.evaluate(image => (image as HTMLImageElement).naturalWidth), { timeout: 35_000 }).toBe(1);
   expect(Date.now() - requestedAt).toBeGreaterThanOrEqual(30_000);
   await expect(bodyPanel.getByRole('status')).toHaveCount(0);
