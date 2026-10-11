@@ -95,7 +95,7 @@ test('HubSpot が 503 を 1 回返す → 黄「反映待ち」→ 再送 worker
   await expect(pending).toContainText('反映待ち');
   // 受付の時点では HubSpot の値は変わっていない
   expect((await hsRecord('deals', LIVE.allowedDealId)).bpo_29).not.toBe('03-2222-2222');
-  // worker (debug 用に待ちを 2 秒に縮めてある) → 画面は 10 秒ごとに状態を見る
+  // worker (debug 用に待ちを 2 秒に縮めてある) → 画面は 5 秒後・15 秒後・35 秒後… (間隔は倍々で最大 60 秒) に状態を見る
   await expect(panel.getByText('✓ 保存済み')).toBeVisible({ timeout: 60_000 });
   expect((await hsRecord('deals', LIVE.allowedDealId)).bpo_29).toBe('03-2222-2222');
   const sent = (await hsPatches()).slice(before);
