@@ -357,3 +357,11 @@
 .jc-column-comparison del { background: #f2a3a3; }
 
 .jc-draft-source { margin-top: 12px; }
+
+/* 固定一覧も会社名・勤務地を含めて2行に収める。全文は詳細と補助表示で確認できる。 */
+@media (min-width: 801px) {
+  .jc-fixed-list .jc-job { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 5px; }
+  .jc-fixed-list .jc-job-bottom { margin-top: 0; font-size: 10px; line-height: 15px; }
+  .jc-fixed-applications { text-align: right; white-space: nowrap; }
+  .jc-fixed-list > :not(.jc-list-scroll) { flex-shrink: 0; }
+}

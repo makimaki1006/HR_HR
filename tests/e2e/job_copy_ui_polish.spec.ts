@@ -4,8 +4,8 @@ import { fixtureHistory, fixtureImage } from './job-copy-listings-fixture.mjs';
 import { selectJobFeature } from './job-copy-navigation';
 const shots = path.resolve(__dirname, '../../docs/screenshots/job-copy-ui-polish');
 test.beforeEach(async ({ page }) => { await page.setViewportSize({ width: 1440, height: 900 }); });
-async function wholeCards(page: import('@playwright/test').Page) {
-  return page.locator('.jc-listings-panel .jc-job').evaluateAll(cards => cards.filter(card => {
+async function wholeCards(page: import('@playwright/test').Page, selector = '.jc-listings-panel .jc-job') {
+  return page.locator(selector).evaluateAll(cards => cards.filter(card => {
     const box = card.getBoundingClientRect(); const list = card.parentElement!.getBoundingClientRect();
     return box.top >= Math.max(0, list.top) && box.bottom <= Math.min(window.innerHeight, list.bottom);
   }).length);
@@ -95,3 +95,38 @@ test('近い3つの日時でも給与「不明」と本文「同じ」が重な�
   await expect(page.getByRole('group', { name: '給与', exact: true })).toContainText('不明');
   await page.screenshot({ path: path.join(shots, 'after-nearby-timeline-1440.png') });
 });
+
+for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
+  for (const pinned of [true, false]) {
+    test(`固定一覧36件 ${width}×${height} ${pinned ? '固定' : 'マウス'}: 選択前後で5枚以上`, async ({ page }) => {
+      await page.addInitScript(value => localStorage.setItem('hrhr-job-copy-sidebar-pinned', String(value)), pinned);
+      const capturedAt = '2026-10-09T07:09:00Z';
+      const jobs = Array.from({ length: 36 }, (_, i) => ({ id: `synthetic-fixed-${i}`, hubspotListingId: String(100 + i), title: i === 0 ? '(夜勤)大型ドライバー' : `特殊機械の組立スタッフ${i + 1}`, company: '合成運輸株式会社', location: '大分県大分市', media: 'HRハッカー', mediaJobId: `synthetic-${i}`, body: '仕事内容：特殊機械を組み立てます。', images: [], versions: [] }));
+      await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt, jobs }, results: jobs.map(job => ({ listing_id: job.hubspotListingId, summary: { total: 0, missing_date: 0, by_date: {}, dimensions: {} }, dated_comparison: null })) } }));
+      await page.setViewportSize({ width, height });
+      await page.goto('/app/job-copy?data=actual');
+      if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
+      const cards = page.locator('.jc-fixed-list .jc-job');
+      await expect(cards).toHaveCount(36);
+      if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-fixed-list-1440.png') });
+      await expect.poll(() => wholeCards(page, '.jc-fixed-list .jc-job')).toBeGreaterThanOrEqual(5);
+      await expect(cards.first()).toContainText('合成運輸株式会社 · 大分県大分市 · HRハッカー');
+      await expect(cards.first()).toContainText('本文 1件');
+      await expect(cards.first()).not.toContainText(/\d+版/);
+      const filters = page.locator('.jc-fixed-list .jc-filter-more');
+      const top = (await filters.boundingBox())!.y;
+      await page.locator('.jc-fixed-list .jc-list-scroll').evaluate(element => { element.scrollTop = 200; });
+      expect((await filters.boundingBox())!.y).toBe(top);
+      await page.locator('.jc-fixed-list .jc-list-scroll').evaluate(element => { element.scrollTop = 0; });
+      await cards.nth(1).click();
+      await expect(page.locator('.jc-detail-heading')).toContainText('特殊機械の組立スタッフ2');
+      if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
+      await expect.poll(() => wholeCards(page, '.jc-fixed-list .jc-job')).toBeGreaterThanOrEqual(5);
+      await selectJobFeature(page, 'body');
+      await expect(page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true })).toBeVisible();
+      await expect(page.locator('.jc-main')).not.toContainText('この版を前の版と比較する');
+      if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
+      if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-fixed-detail-1440.png') });
+    });
+  }
+}
