@@ -1,7 +1,9 @@
 import { EmailPanel } from "./EmailPanel";
 import { EmailPendingLog } from "./EmailPendingLog";
 import { ReplySyncStatus } from "./ReplySyncStatus";
-import { memo, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { EMAIL_SAVED } from './emailApi';
+import type { SavedEmailNotice } from './emailApi';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { formatPhoneForDisplay, toDomesticPhone } from './phone';
 import { toE164Jp } from './smartEmbed';
@@ -236,9 +238,32 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
   data: WorkspaceResponse | null; placeholder: string; ownerNames: ReadonlyMap<string, string>; sample?: boolean;
 }) {
   const [kind, setKind] = useState<ActivityKindFilter>('all');
+  const log = useRef<HTMLElement>(null);
+  const [notice, setNotice] = useState<SavedEmailNotice | null>(null);
+  useEffect(() => {
+    const saved = (event: Event) => {
+      const value = (event as CustomEvent<SavedEmailNotice>).detail;
+      if (value.dealId !== data?.deal.id) return;
+      setKind('all'); setNotice(value);
+      if (log.current) log.current.scrollTop = 0;
+    };
+    window.addEventListener(EMAIL_SAVED, saved);
+    return () => { window.removeEventListener(EMAIL_SAVED, saved); };
+  }, [data?.deal.id]);
+  const visibleId = notice?.dealId === data?.deal.id ? notice?.emailId : null;
+  const shown = visibleId !== null && data?.activities.some(a => a.kind === 'email' && a.id === visibleId) === true;
+  useLayoutEffect(() => {
+    if (shown && log.current) log.current.scrollTop = 0;
+  }, [shown, visibleId]);
+  useEffect(() => {
+    if (!notice) return;
+    // Start the five-second highlight after the refreshed record actually appears.
+    const timer = setTimeout(() => { setNotice(null); }, shown ? 5000 : 60_000);
+    return () => { clearTimeout(timer); };
+  }, [notice, shown]);
   if (data === null) return <div className="dock-scroll"><p className="dock-placeholder">{placeholder}</p></div>;
   const acts = filterActivities(data.activities, kind);
-  return <section className="wd-log dock-scroll" aria-label="活動ログ" data-testid="activity-log">
+  return <section ref={log} className="wd-log dock-scroll" aria-label="活動ログ" data-testid="activity-log">
     <p className="wd-log-head"><strong>{data.activities.length} 件</strong>{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
     <p className="wd-scope">{data.activity_scope}</p>
     <ReplySyncStatus key={data.deal.id} dealId={data.deal.id} sample={sample} />
@@ -247,7 +272,7 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
     </div>
     {acts.length === 0 && <p className="crm-muted">{data.activities.length === 0 ? '表示できる活動履歴はありません。' : 'この種類の活動はありません。'}</p>}
     {(kind === 'all' || kind === 'email') && <EmailPendingLog key={data.deal.id} dealId={data.deal.id} sample={sample} />}
-    <ul className="wd-acts">{acts.map(a => <ActivityCard key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} />)}</ul>
+    <ul className="wd-acts">{acts.map(a => <ActivityCard key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} highlighted={shown && a.kind === 'email' && a.id === visibleId} />)}</ul>
   </section>;
 }
 
@@ -309,7 +334,7 @@ function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLab
 }) {
   if (state.phase === 'ready' && state.data !== null) {
     return <><Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
-      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} /></>;
+      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} context={<div className="crm-email-context"><strong>{state.data.companies.find(c => c.is_primary)?.name ?? state.data.deal.name}</strong>{state.data.dial && <PhoneRow label={SOURCE_LABELS[state.data.dial.source] ?? '電話'} raw={state.data.dial.number} zoom={zoom} primary compact />}</div>} /></>;
   }
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }

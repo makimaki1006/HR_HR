@@ -60,6 +60,9 @@ jobs:
       - name: Email tracking display and self-open protection (fake data only)
         run: npx playwright test -c tests/e2e/crm-email-tracking.config.ts
 
+      - name: Email compose usability (fake data only)
+        run: npx playwright test -c tests/e2e/crm-email-compose.config.ts
+
       - name: Upload traces and screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -68,6 +71,7 @@ jobs:
           path: |
             test-results-pr/
             test-results/email-tracking/
+            test-results/email-compose/
             playwright-report-pr/
             /tmp/hp_e2e_*/server.log
           if-no-files-found: ignore
