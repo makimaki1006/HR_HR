@@ -5,10 +5,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { EmailPanel } from './EmailPanel';
 import { fixtureDetail } from './workspaceFixture';
 import { ApiHttpError, ApiNetworkError } from '../../api/client';
-import { emailMessage, textHtml } from './emailApi';
+import { EMAIL_SAVED, emailMessage, textHtml } from './emailApi';
 import type { EmailApi } from './emailApi';
 import type { EmailResult } from '../../generated/EmailResult';
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 // Fixture ID derives from the existing sample queue, rather than production data.
 const detail = () => {
   const d = fixtureDetail('f-1');
@@ -85,7 +85,7 @@ describe('email composer', () => {
     const write = await screen.findByText('メールを書く');
     expect(screen.queryByText('Gmail の許可を取り消す')).toBeNull();
     fireEvent.click(write);
-    expect(view.container.querySelector('details')?.open).toBe(false);
+    expect(view.baseElement.querySelector('details')?.open).toBe(false);
     expect(screen.getByText('Gmail の許可を取り消す').closest('details')).toBe(view.container.querySelector('details'));
     expect(a.revoke).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('その他'));
@@ -111,5 +111,46 @@ describe('email composer', () => {
     expect(emailMessage({ ...saved, status: 'pending', sent: false })).toBe('送信結果を確認中です。もう一度送らずにお待ちください。');
     expect(emailMessage({ ...saved, status: 'failed' })).toBe('送信済み・記録を保存できませんでした。管理者にご連絡ください。');
     expect(textHtml('a&b\n<script>')).toBe('<p>a&amp;b<br>&lt;script&gt;</p>');
+  });
+});
+
+describe('compose usability', () => {
+  it('renders the editor outside the clipped dock panel and restores focus on close', async () => {
+    const { container } = render(<div style={{ height: 100, overflow: 'hidden' }}><EmailPanel data={detail()} api={api()} context={<span>架空会社 · 03-1234-5678 · 発信</span>} /></div>);
+    const trigger = await screen.findByRole('button', { name: 'メールを書く' });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: 'メールの作成' });
+    expect(dialog.parentElement).toBe(document.body);
+    expect(container.contains(dialog)).toBe(false);
+    expect(dialog.textContent).toContain('架空会社 · 03-1234-5678 · 発信');
+    expect(document.activeElement).toBe(screen.getByLabelText('件名'));
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+  it('shows twelve elapsed seconds, blocks duplicate sends and removes its timer on completion', async () => {
+    let complete: ((r: Awaited<ReturnType<EmailApi['send']>>) => void) | undefined;
+    const a=api({ send: vi.fn<EmailApi['send']>(() => new Promise(resolve => { complete=resolve; })) });
+    render(<EmailPanel data={detail()} api={a} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'メールを書く' }));
+    fireEvent.change(screen.getByLabelText('件名'), { target: { value: 'お打ち合わせ' } });
+    fireEvent.change(screen.getByLabelText('本文'), { target: { value: '火曜日14時にお願いします。' } });
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: '送信' }));
+    await act(async () => { vi.advanceTimersByTime(12_000); });
+    expect(screen.getByText('経過 12 秒 ·')).toBeTruthy();
+    expect(screen.getByText(/通常 10 秒ほどかかります/u)).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '送信中…' }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '閉じる' }).disabled).toBe(true);
+    fireEvent.submit(screen.getByRole('form', { name: 'メールを書く' }));
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(a.send).toHaveBeenCalledTimes(1);
+    const notice=vi.fn(); window.addEventListener(EMAIL_SAVED,notice);
+    await act(async () => { complete?.({ ok: true, data: saved }); });
+    expect(notice).toHaveBeenCalledTimes(1);
+    expect((notice.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({ dealId: detail().deal.id, emailId: '902' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    window.removeEventListener(EMAIL_SAVED,notice);
   });
 });

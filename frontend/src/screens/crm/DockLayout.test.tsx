@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResult } from '../../api/client';
 import type { CallQueueResponse } from '../../generated/CallQueueResponse';
 import { CallQueueScreen } from './CallQueueScreen';
+import { emailSaved } from './emailApi';
 import { DEFAULT_LAYOUT, DOCK_STORAGE_KEY, LEGACY_DOCK_STORAGE_KEY, dockReducer, serializeLayout } from './dockModel';
 import { DEFAULT_SELECTED, PROPS_STORAGE_KEY } from './propertyModel';
 import type { SelectedProps } from './propertyModel';
@@ -382,4 +383,19 @@ describe('selected properties are read in the same detail request', () => {
     await liveDetailFetch('123', new AbortController().signal, { deals: ['bpo_10', 'bpo_32'], contacts: ['phone'], companies: [] });
     expect(urls).toEqual(['/api/crm/workspace/deals/123?deal_props=bpo_10%2Cbpo_32&contact_props=phone']);
   });
+});
+
+it('successful own email opens activity without changing panel placement or column widths', async () => {
+  const c=counted();
+  await openDeal(c);
+  moveVia('活動ログ','右へ移動');
+  fireEvent.click(tab('架電結果の入力'));
+  const grid=screen.getByTestId('dock').style.gridTemplateColumns;
+  const column=columnOfPanel('activity');
+  act(() => { emailSaved('other-deal','902'); });
+  expect(tab('架電結果の入力').getAttribute('aria-selected')).toBe('true');
+  act(() => { emailSaved('1','902'); });
+  expect(tab('活動ログ').getAttribute('aria-selected')).toBe('true');
+  expect(columnOfPanel('activity')).toBe(column);
+  expect(screen.getByTestId('dock').style.gridTemplateColumns).toBe(grid);
 });
