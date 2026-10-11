@@ -314,3 +314,23 @@ Status: Accepted (2026-10-11 ユーザー決定。依頼の ADR-019 は既存の
 - 制約: `CRM_EMAIL_ENABLED=1`、専用鍵、追加 callback URL、既存 Google 設定、監査接続がそろった場合だけ有効。トークン・本文をログへ出さない。現行の単一 Render インスタンスで操作ごとのロックを共有する。返信取り込みには audit 台帳の条件付き claim を使う。送信 API を複数インスタンスで動かすには送信側にも条件付き claim が別途必要。
 
 参照: [Google OAuth (offline / incremental)](https://developers.google.com/identity/protocols/oauth2/web-server)、[Gmail send](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send)、[HubSpot email activity](https://developers.hubspot.com/docs/api-reference/legacy/crm/activities/emails/guide)。
+
+## ADR-022 — HR_HR 送信メールの計測情報は既存監査 Turso に置く
+
+Status: Accepted for this implementation (2026-10-11、ユーザー指定)
+
+- 現行の決定: HubSpot が Contact / Deal / Email 活動の正本 (ADR-005)。独自 CRM DB は作らない (ADR-006)。
+- 具体的な問題: HubSpot の標準メール開封・クリック数は API 書き込み不可。Gmail で送信したメールに対する HR_HR の計測には、公開リンクの転送先と再起動後も読める集計が必要。
+- 採用する変更: 既存監査 Turso に `crm_email_tracking`・`crm_email_tracking_links`・`crm_email_tracking_events` を追加。本文・連絡先の複製は持たず、操作者、参照 ID、件名、送信 ID、転送先、計測時刻と自動確認の可能性だけを保存する。生 IP・User-Agent・Referer は保存しない。CRM_EMAIL_ENABLED=1 と暗号化鍵がある場合のみ、既存の起動時初期化で表を作る。実 DB の設定・起動はユーザーが行う。
+- 変える利点: 新規 DB / サービスを増やさず、HR_HR 固有の計測を永続化する。メールの業務履歴と関連付けは引き続き HubSpot に置く。
+- 現行を保つ利点: DB 負荷が増えない。ただし独自計測は再起動で失われ、転送リンクも維持できない。
+- 制約: 同一計測 ID・種類・リンク・自動判定の組合せはプロセス内で60秒に1回、DBでは1分の窓で1回にまとめる。保存は全体120件/分、DB照会は公開ルート全体600回/分、同時DB処理8件、キャッシュ各2000件まで。上限時の計測は失われる。件数は実際の人の操作回数の保証ではない。Apple の画像プロキシなど識別情報のない自動取得は判別できない。
+- 保持期間: この PR は削除ジョブを追加せず計測情報を保持する。長期運用の保持日数と掃除は別途決定する。件名・転送先は認証済みCRMユーザーだけに返す。
+- 移行 / 戻すコスト: 表3つとBの計測モジュール・公開2ルート・集計1ルート・表示部品。環境変数を未設定にすれば計測と表示を止められる。ただし既送信メールの転送リンクも404となるため、停止は既送信リンクへの影響を考慮する。
+
+### 送信 PR との接続
+
+- `&AuditDb` をそのまま渡す (同じDBアダプター・同時処理上限を使用)。明示する場合は `AuditTrackingStore::new(audit.clone())` を共有し、共通ブリーフの `instrument_html` / `bind_sent` を呼ぶ。送信処理・鍵の検証・再送台帳はAが担当。
+- HubSpot保存待ちなら `bind_sent(..., None, gmail_message_id)`。保存完了後、同じ計測ID・Gmail IDで `Some(hubspot_email_id)` を結び付け直せる。既存の別IDへの変更は拒否。
+- 公開側の有効化条件は `CRM_EMAIL_ENABLED=1`・`CRM_EMAIL_TOKEN_KEY` が標準Base64の32バイト・監査DBあり。鍵はAと同じ標準Base64の32バイトを検証し、無効な鍵では表初期化・計測・表示を無効にする。
+- HubSpot保存失敗時に本文を再度 instrument したり Gmail を再送したりしない。最初の計測IDをAの再送状態に保持する。

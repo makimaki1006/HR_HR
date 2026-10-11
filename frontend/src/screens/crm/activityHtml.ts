@@ -35,7 +35,20 @@ purify.addHook('afterSanitizeAttributes', node => {
 
 /** HTML を無害化して文字列で返す */
 export function sanitizeHtml(html: string): string {
-  return purify.sanitize(html, {
+  // Reading our own sent message in CRM must not create recipient measurements.
+  // A template element is inert: scripts and images do not execute or load.
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  template.content.querySelectorAll('img').forEach(img => {
+    const src = img.getAttribute('src') ?? '';
+    if (img.hasAttribute('data-hr-email-open') || /\/t\/o\/[a-f0-9]{32}\.gif(?:[?#]|$)/i.test(src)) img.remove();
+  });
+  template.content.querySelectorAll('a[data-hr-email-url]').forEach(link => {
+    const original = link.getAttribute('data-hr-email-url') ?? '';
+    if (/^https?:\/\//i.test(original.trim())) link.setAttribute('href', original);
+    else link.removeAttribute('href');
+  });
+  return purify.sanitize(template.innerHTML, {
     ALLOWED_TAGS, ALLOWED_ATTR, ALLOW_DATA_ATTR: false, FORBID_TAGS: ['style', 'script', 'iframe', 'form', 'object', 'embed'],
   });
 }

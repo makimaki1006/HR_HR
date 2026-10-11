@@ -77,6 +77,8 @@ rust_xlsxwriter = "0.80"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 urlencoding = "2"
+lol_html = "2"
+html-escape = "0.2"
 sha2 = "0.10"
 
 # キーワード需要ビューア (media_engine、2026-07-24 統合)
