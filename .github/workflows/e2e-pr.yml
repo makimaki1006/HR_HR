@@ -66,6 +66,9 @@ jobs:
       - name: Email compose usability (fake data only)
         run: npx playwright test -c tests/e2e/crm-email-compose.config.ts
 
+      - name: Role property layout E2E
+        run: npx playwright test -c tests/e2e/crm-property-layout.config.ts
+
       - name: Upload traces and screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
