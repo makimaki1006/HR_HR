@@ -193,10 +193,12 @@ fn 抽出ロジックそのものが動く() {
         let b = env::var( "BAZ" ).ok();
         let path = std::env::var_os("FOO_PATH");
         let c = env::var("not_upper");     // 環境変数らしくないので拾わない
+        let file = std::env::var_os("FILE_PATH");
         let d = some_other::var("QUX");    // env::var ではないので拾わない
     "#;
     let got = extract_env_var_names(sample);
     assert!(got.contains(&"FOO_PATH".to_string()));
+    assert!(got.contains(&"FILE_PATH".to_string()));
     assert!(
         got.contains(&"FOO_BAR".to_string()),
         "取れていない: {got:?}"

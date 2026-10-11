@@ -302,6 +302,11 @@
 .jc-rikurozi dl > div { margin: 10px 0; }
 .jc-rikurozi dt { font-weight: 700; }
 .jc-rikurozi dd { margin: 4px 0; white-space: pre-wrap; }
+.jc-draft-review, .jc-draft-facts { padding: 16px; margin: 12px 0; border: 1px solid #e5b64b; border-radius: 8px; background: var(--jc-surface, #fffdf5); }
+.jc-draft-review label { display: inline-flex; align-items: center; gap: 8px; margin-right: 12px; }
+.jc-draft-facts table { width: 100%; border-collapse: collapse; }
+.jc-draft-facts th, .jc-draft-facts td { text-align: left; padding: 12px; border-bottom: 1px solid #e4d8ba; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jc-draft-facts th small { display: block; color: #9b3f00; }
 /* 一覧の中身は残し、通常は細い帯から開く。 */
 .jc-sidebar { display: contents; }
 .jc-sidebar-rail, .jc-sidebar-actions { display: none; }
@@ -325,3 +330,15 @@
   .jc-sidebar-pinned .jc-sidebar-rail { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .jc-sidebar-collapsed .jc-sidebar > .jc-list { transition: none; transform: none; } }
+/* 案の確認操作はラベル・選択欄・ボタンを同じ基準線に置く。 */
+.jc-app .jc-draft-review-controls { display: flex; align-items: end; gap: 16px; }
+.jc-app .jc-draft-review-controls label { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; }
+.jc-app .jc-draft-review-controls select, .jc-app .jc-draft-review-controls button { min-height: 40px; margin: 0; }
+.jc-app .jc-feature-purpose { position: relative; margin: 0; padding: 16px 0; line-height: 1.6; }
+.jc-column-comparison table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.jc-column-comparison th, .jc-column-comparison td { padding: 12px; vertical-align: top; text-align: left; border-bottom: 1px solid var(--jc-border); overflow-wrap: anywhere; }
+.jc-column-comparison pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0; }
+.jc-column-comparison ins { background: #8fd19e; text-decoration: none; }
+.jc-column-comparison del { background: #f2a3a3; }
+
+.jc-draft-source { margin-top: 12px; }
