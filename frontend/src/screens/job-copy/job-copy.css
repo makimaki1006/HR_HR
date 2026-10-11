@@ -430,3 +430,9 @@
 .jc-hubspot-filters input { width:100%; min-width:0; box-sizing:border-box; padding:8px; border:1px solid #cbd5e1; border-radius:6px; }
 
 @media (min-width:801px) { .jc-list-actions .jc-button { min-height:28px; padding:3px 8px; } }
+
+/* 本文の長さで比較表全体を押し広げない。全文でも同じ色付けを保持する。 */
+.jc-comparison-preview { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; max-height:4.8em; }
+.jc-comparison-full { white-space:pre-wrap; max-height:420px; overflow:auto; }
+.jc-parallel-table .jc-button { margin-top:8px; }
+.jc-deal-table [data-column="media"] { white-space:nowrap; min-width:86px; }

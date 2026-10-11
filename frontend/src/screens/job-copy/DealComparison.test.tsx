@@ -54,18 +54,18 @@ it('searches cached deal candidates, combines existing filters and opens the tab
   await screen.findByRole('button', { name: '配送の仕事の本文を見る' });
   fireEvent.click(screen.getByText('絞り込み・並び順'));
   fireEvent.change(screen.getByLabelText('取引名を検索'), { target: { value: '合成配送' } });
-  await waitFor(() => { expect(String(api.mock.calls.at(-1)?.[0])).toContain('deal_search='); });
+  await waitFor(() => { expect(String(api.mock.calls.filter(call => String(call[0]).includes('/listings?')).at(-1)?.[0])).toContain('deal_search='); });
   expect(screen.getByRole('option', { name: '合成配送の契約（101件）' })).toBeTruthy();
   fireEvent.change(screen.getByLabelText('取引', { exact: true }), { target: { value: '901' } });
   fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: '沖縄県' } });
   fireEvent.change(screen.getByLabelText('職種の分類'), { target: { value: 'ドライバー' } });
-  await waitFor(() => { const query = new URL(String(api.mock.calls.at(-1)?.[0]), 'http://test').searchParams; expect(query.get('deal')).toBe('901'); expect(query.get('prefecture')).toBe('沖縄県'); expect(query.get('title')).toBe('ドライバー'); });
+  await waitFor(() => { const query = new URL(String(api.mock.calls.filter(call => String(call[0]).includes('/listings?')).at(-1)?.[0]), 'http://test').searchParams; expect(query.get('deal')).toBe('901'); expect(query.get('prefecture')).toBe('沖縄県'); expect(query.get('title')).toBe('ドライバー'); });
   fireEvent.click(screen.getByRole('button', { name: 'この取引の求人' }));
   expect(show).toHaveBeenCalledWith({ id: '901', name: '合成配送の契約', prefecture: '沖縄県', title: 'ドライバー', media: '' });
   expect(screen.queryByText('01', { exact: true })).toBeNull();
   expect(screen.getByText('不明', { selector: '.jc-publication' })).toBeTruthy();
   fireEvent.change(screen.getByLabelText('取引', { exact: true }), { target: { value: 'none' } });
-  await waitFor(() => { expect(String(api.mock.calls.at(-1)?.[0])).toContain('deal=none'); });
+  await waitFor(() => { expect(String(api.mock.calls.filter(call => String(call[0]).includes('/listings?')).at(-1)?.[0])).toContain('deal=none'); });
 });
 it('sorts on the server, pages 101 jobs and compares distinct media jobs', async () => {
   api.mockImplementation((url: string) => Promise.resolve({ ok: true, data: url.includes('listing-comparison') ? { jobs: [{ listing: row, body: body('250000') }, { listing: { ...row, id: '2', media: 'airwork' }, body: body('280000') }] } : url.includes('/versions') ? { listing: row, versions: [], history_counts: {}, history_may_be_incomplete: false } : page }));
@@ -74,9 +74,9 @@ it('sorts on the server, pages 101 jobs and compares distinct media jobs', async
   expect(within(table).getAllByText('月給 250,000円〜300,000円')).toHaveLength(2);
   expect(within(table).getAllByText('12件')).toHaveLength(2);
   fireEvent.click(within(table).getByRole('button', { name: '給与' }));
-  await waitFor(() => { expect(String(api.mock.calls.at(-1)?.[0])).toContain('sort=salary_min'); });
+  await waitFor(() => { expect(String(api.mock.calls.filter(call => String(call[0]).includes('/listings?')).at(-1)?.[0])).toContain('sort=salary_min'); });
   fireEvent.click(screen.getByRole('button', { name: '次の50件' }));
-  await waitFor(() => { expect(String(api.mock.calls.at(-1)?.[0])).toContain('offset=50'); });
+  await waitFor(() => { expect(String(api.mock.calls.filter(call => String(call[0]).includes('/listings?')).at(-1)?.[0])).toContain('offset=50'); });
   fireEvent.click(within(table).getByLabelText('配送の仕事を比較に選ぶ'));
   expect(screen.getByRole('button', { name: '横に並べて比べる' }).hasAttribute('disabled')).toBe(true);
   fireEvent.click(within(table).getByLabelText('配送の仕事・別媒体を比較に選ぶ'));
@@ -96,4 +96,44 @@ it('limits selection to five jobs and keeps unknown counts separate from zero', 
   expect(within(table).getByLabelText<HTMLInputElement>('比較求人6を比較に選ぶ').disabled).toBe(true);
   fireEvent.click(within(table).getByLabelText('比較求人1を比較に選ぶ'));
   expect(within(table).getByLabelText<HTMLInputElement>('比較求人6を比較に選ぶ').disabled).toBe(false);
+});
+it('renders real-shaped AirWork fields beside HRハッカー with bounded cells and expanded highlights', () => {
+  const description = '梱包済みの商品を車へ積み込みます。\n'.repeat(12);
+  const { container } = render(<ParallelJobs jobs={[
+    { id: '1', title: '架空の配送スタッフ', media: 'HRハッカー', body: `仕事内容：${description}\n給与形態：月給\n基本給与 最小：213000\n基本給与 最大：249000` },
+    { id: '2', title: '架空の運搬スタッフ', media: 'AirWork', body: '配送先へ荷物を届けます。', fields: { 仕事内容: '配送先へ荷物を届けます。', 給与形態: '月給', 勤務地: '東京都江東区', 勤務時間: '8:00〜17:00' } },
+  ]} />);
+  expect(container.textContent).toContain('配送先へ荷物を届けます。');
+  expect(container.textContent).toContain('東京都江東区');
+  expect(container.textContent).toContain('8:00〜17:00');
+  expect(container.textContent).toContain('月給 213,000円');
+  const button = screen.getByRole('button', { name: '全文を見る' });
+  expect(button.getAttribute('aria-expanded')).toBe('false');
+  expect(container.querySelector('.jc-comparison-preview mark')).toBeTruthy();
+  fireEvent.click(button);
+  expect(container.querySelector('.jc-comparison-full')?.textContent).toBe(description);
+  expect(container.querySelector('.jc-comparison-full mark')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+  expect(container.querySelector('.jc-comparison-full')).toBeNull();
+});
+it('reads only displayed rows for dates, preserves unknowns and drops a previous page response', async () => {
+  let oldResolve: ((value: unknown) => void) | undefined;
+  const first = { ...page, listings: [{ ...row, summary: { ...row.summary, body_changed_at: null } }] };
+  const second = { ...page, listings: [{ ...row, id: '51', title: '次のページの求人', summary: { ...row.summary, body_changed_at: null } }] };
+  api.mockImplementation((url: string) => {
+    if (url.includes('listing-body-dates?ids=1')) return new Promise(resolve => { oldResolve = resolve; });
+    if (url.includes('listing-body-dates?ids=51')) return Promise.resolve({ ok: true, data: { dates: { '51': '2026-10-09T00:00:00Z' } } });
+    return Promise.resolve({ ok: true, data: url.includes('offset=50') ? second : first });
+  });
+  render(<DealComparison deal={{ id: '901', name: '架空の契約', prefecture: '', title: '', media: '' }} onOpen={vi.fn()} onClose={vi.fn()} />);
+  const table = await screen.findByRole('table', { name: '取引の求人一覧表' });
+  await waitFor(() => { expect(oldResolve).toBeTruthy(); });
+  expect(table.querySelector('[data-column="body_changed_at"]')?.textContent).toBe('本文の最終変更日');
+  expect(table.querySelector('tbody [data-column="body_changed_at"]')?.textContent).toBe('未取得');
+  fireEvent.click(screen.getByRole('button', { name: '次の50件' }));
+  await waitFor(() => { expect(table.querySelector('tbody [data-column="body_changed_at"]')?.textContent).toContain('2026/10/09'); });
+  oldResolve?.({ ok: true, data: { dates: { '1': '2026-01-01T00:00:00Z' } } });
+  await waitFor(() => { expect(table.textContent).toContain('次のページの求人'); });
+  expect(table.textContent).not.toContain('2026/01/01');
+  expect(api.mock.calls.filter(call => String(call[0]).includes('listing-body-dates')).map(call => String(call[0]).split('ids=')[1])).toEqual(['1', '51']);
 });

@@ -5,10 +5,10 @@ use axum::extract::Path as AxumPath;
 use unicode_normalization::UnicodeNormalization;
 #[path = "listing_deals.rs"]
 mod deals;
-pub(super) use deals::read_comparison;
 use deals::{
     body_changed_at, deal_candidates, index_associations, publication, summary, Deal, Summary,
 };
+pub(super) use deals::{read_body_dates, read_comparison};
 #[cfg(test)]
 #[path = "listing_deal_tests.rs"]
 mod deal_tests;
@@ -27,6 +27,11 @@ const PROPERTIES: &[&str] = &[
     "qinwude",
     "zhizhong",
     "shigotonaiyou",
+    "kyuuyokeitai",
+    "kinmujikan",
+    "kyuujitsu",
+    "guyongxingtai",
+    "fukurikousei",
     "baitai_genjoukyou_hrhakkaa",
     "baitai_genjoukyou_airwork",
     "saishuu_csv_kenshutsu_bi",

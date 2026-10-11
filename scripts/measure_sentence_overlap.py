@@ -14,15 +14,24 @@ import urllib.parse
 import urllib.request
 
 
+def sentence_text(text):
+    columns = set(json.loads((Path(__file__).resolve().parents[1] / "frontend/src/generated/jobgen/columns.json").read_text()))
+    lines = []
+    for line in unicodedata.normalize("NFKC", text).splitlines():
+        key, separator, value = line.strip().partition(":")
+        lines.append(value.strip() if separator and key.strip() in columns else line.strip())
+    return "\n".join(lines).strip()
+
+
 def sentences(text, minimum=0):
-    text = unicodedata.normalize("NFKC", text).strip()
+    text = sentence_text(text)
     return [part.strip() for part in re.split(r"[。!?\n\r]", text)
             if part.strip() and len(part.strip()) >= minimum]
 
 
 def overlap(generated, original, minimum=0):
-    generated = unicodedata.normalize("NFKC", generated).strip()
-    original = unicodedata.normalize("NFKC", original).strip()
+    generated = sentence_text(generated)
+    original = sentence_text(original)
     if not generated or not original:
         return None, False
     parts = sentences(generated, minimum)

@@ -1,4 +1,5 @@
 import shared from './hrhCopyColumns.json';
+import { displayCode } from './copyDisplay';
 import draftColumns from '../../generated/jobgen/columns.json';
 import { manualLabel } from './manualEditModel';
 import { compareCopy, markInlineChanges, type CopyComparison, type MarkedDiffLine } from './diff';
@@ -81,13 +82,13 @@ export function compareColumns(before: string | null, after: string | null, befo
 const friendly = Object.fromEntries(draftColumns.map(key => [key, manualLabel(key)]));
 const moneyColumns = draftColumns.filter(key => key === '固定残業代' || key === '試用・研修期の固定残業代' || /(?:基本給与 (?:最小|最大)|条件付き給与[1-3] (?:最小給与|最大給与))$/.test(key));
 function displayValue(key: string, value: string, row?: Record<string, string>): string {
-  if (!moneyColumns.includes(key) || !/^[0-9０-９]+(?:[.,，][0-9０-９]+)*$/.test(value)) return value;
+  if (!moneyColumns.includes(key) || !/^[0-9０-９]+(?:[.,，][0-9０-９]+)*$/.test(value)) return displayCode(key, value);
   const amount = value.normalize('NFKC').replaceAll(',', '');
   if (!/^\d+(?:\.\d+)?$/.test(amount)) return value;
   const [integer, fraction] = amount.split('.');
   const money = `${(integer ?? '').replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction !== undefined ? `.${fraction}` : ''}`;
   const kind = row?.[key.startsWith('試用・研修期') ? '試用・研修期の給与のタイプ' : '給与形態'];
-  return `${kind && !key.includes('固定残業代') ? `${kind} ` : ''}${money}円`;
+  return `${kind && !key.includes('固定残業代') ? `${displayCode(key.startsWith('試用・研修期') ? '試用・研修期の給与のタイプ' : '給与形態', kind)} ` : ''}${money}円`;
 }
 /** 表示だけを整える。全文の検知と列の値の比較には加工前の本文を使う。 */
 function displayOther(text: string, row?: Record<string, string>): string {

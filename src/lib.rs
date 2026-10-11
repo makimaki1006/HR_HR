@@ -932,6 +932,9 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/logout", get(logout))
         // Google Workspace OIDC (/auth/google/login, /auth/google/callback)。未ログインで到達する必要がある
         .merge(auth::google_oidc::router())
+        // Only the two opaque email measurement GETs are public. The summary handler
+        // applies CRM OIDC/RBAC itself, like the other JSON CRM endpoints.
+        .merge(crm::email::tracking::router_for_state(&state))
         // Job-copy private reads return JSON401; OIDC/allowlist authorization stays in Rust.
         .merge(handlers::job_copy_live::router_for_state(&state))
         .merge(api_v1)
