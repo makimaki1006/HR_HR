@@ -222,10 +222,12 @@ pub fn number_chunks(text: &str) -> Vec<String> {
         }
         let start = chars[index].0;
         let left = text[..start].trim_end_matches([' ', '\t']);
-        let prefix = ["時給", "日給", "月給", "年俸", "月", "週", "年", "日"]
-            .into_iter()
-            .find(|word| left.ends_with(word))
-            .unwrap_or("");
+        let prefix = [
+            "時給", "日給", "週給", "月給", "年給", "年俸", "年収", "月", "週", "年", "日",
+        ]
+        .into_iter()
+        .find(|word| left.ends_with(word))
+        .unwrap_or("");
         while index < chars.len()
             && (chars[index].1.is_ascii_digit()
                 || matches!(chars[index].1, '.' | ':')
@@ -238,16 +240,88 @@ pub fn number_chunks(text: &str) -> Vec<String> {
         let end = chars.get(index).map_or(text.len(), |(byte, _)| *byte);
         let right = text[end..].trim_start_matches([' ', '\t']);
         let gap = text[end..].len() - right.len();
-        let ascii_unit_end = right
-            .find(|c: char| !c.is_ascii_alphabetic())
-            .unwrap_or(right.len());
+        // NFKCで㎡はm2になる。単位内の数字を別のかたまりにしない。
+        let ascii_unit_end = if right.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            right
+                .find(|c: char| !c.is_ascii_alphanumeric())
+                .unwrap_or(right.len())
+        } else {
+            0
+        };
         let unit = if ascii_unit_end > 0 {
             &right[..ascii_unit_end]
         } else {
             [
-                "億円", "万円", "千円", "時間", "か月", "ヶ月", "箇月", "週間", "年間", "円", "時",
-                "分", "秒", "日", "月", "年", "回", "名", "人", "歳", "代", "件", "個", "枚", "台",
-                "割", "倍", "本", "階", "号", "箱", "袋", "社", "組", "%", "km", "kg", "cm", "m",
+                "千万円",
+                "百万円",
+                "兆円",
+                "億円",
+                "万円",
+                "千円",
+                "時間",
+                "か月",
+                "ヶ月",
+                "箇月",
+                "週間",
+                "年間",
+                "営業日",
+                "平方メートル",
+                "キロメートル",
+                "センチメートル",
+                "ミリメートル",
+                "メートル",
+                "キログラム",
+                "ミリグラム",
+                "グラム",
+                "ミリリットル",
+                "リットル",
+                "パーセント",
+                "ポイント",
+                "トン",
+                "ドル",
+                "ユーロ",
+                "ポンド",
+                "ウォン",
+                "元",
+                "$",
+                "€",
+                "£",
+                "°C",
+                "°F",
+                "度",
+                "平米",
+                "μg",
+                "μm",
+                "円",
+                "時",
+                "分",
+                "秒",
+                "日",
+                "週",
+                "月",
+                "年",
+                "回",
+                "名",
+                "人",
+                "歳",
+                "代",
+                "件",
+                "個",
+                "枚",
+                "台",
+                "割",
+                "倍",
+                "本",
+                "階",
+                "号",
+                "箱",
+                "袋",
+                "社",
+                "組",
+                "坪",
+                "泊",
+                "便",
+                "%",
             ]
             .into_iter()
             .find(|word| right.starts_with(word))
@@ -569,6 +643,43 @@ mod tests {
                 if missing.is_empty() { text } else { "" }
             );
         }
+        // 数字だけが原文にあっても、付いている単位が違えば保持しない。
+        let units = "20坪。5週。100㎡。2トン。3リットル。1千万円。1200ドル。50℃。";
+        assert_eq!(
+            number_chunks(units),
+            vec![
+                "20坪",
+                "5週",
+                "100m2",
+                "2トン",
+                "3リットル",
+                "1千万円",
+                "1200ドル",
+                "50°C"
+            ]
+        );
+        s.body = units.into();
+        assert!(missing_numbers(&s, units).is_empty());
+        assert!(missing_numbers(&s, "100m2").is_empty()); // NFKC以外の換算はしない。
+        s.body = "20時間。5日。100m。2人。3回。1円。1200円。50人。".into();
+        let mut generated = raw();
+        generated["job_description"] = json!(units);
+        let draft = finish(&s, &generated, 0.2, 0).unwrap();
+        assert_eq!(
+            draft.generated[1].missing_chunks,
+            vec![
+                "100m2",
+                "1200ドル",
+                "1千万円",
+                "20坪",
+                "2トン",
+                "3リットル",
+                "50°C",
+                "5週"
+            ]
+        );
+        assert!(draft.generated[1].review);
+        assert_eq!(row(&draft.csv)["仕事内容"], "");
         s.body = "時給1200円".into();
         assert_eq!(missing_numbers(&s, "日給1100円"), vec!["日給1100円"]);
         assert_eq!(
