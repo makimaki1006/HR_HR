@@ -2,7 +2,7 @@
 import { beforeEach as pinSidebarBeforeEach, afterEach as clearSidebarAfterEach } from 'vitest';
 pinSidebarBeforeEach(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
 clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pinned'); });
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HubSpotListingsPanel } from './HubSpotListingsPanel';
 import { JobCopyScreen } from './JobCopyScreen';
@@ -22,7 +22,7 @@ const history: HubSpotVersions = {
 };
 const page = { listings: [row, ...Array.from({ length: 49 }, (_, index) => ({ ...row, id: String(index + 11), title: `合成求人${String(index + 11)}`, media_job_id: `AW-${String(index + 11)}` }))], titles: ['ドライバー', '看護師'], status: 'ready', total: 51, index_built_at: '2026-10-10T00:00:00Z', offset: 0, next_offset: 50, refreshing: false, refresh_failed: false };
 function mock() {
-  api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : path.includes('offset=50') ? { ...page, listings: [{ ...row, id: '60', title: '合成の次ページ求人', media_job_id: 'AW-60' }], offset: 50, next_offset: null } : page }));
+  api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : path.includes('offset=50') ? { ...page, listings: [{ ...row, id: '60', title: '合成の次ページ求人', media_job_id: 'AW-60' }], offset: 50, next_offset: null } : page }));
 }
 describe('HubSpot listing history', () => {
   it('preserves body, ordered URLs and unknown dates and counts in the existing record shape', () => {
@@ -79,7 +79,7 @@ describe('HubSpot listing history', () => {
     expect(screen.getByRole('region').textContent).not.toMatch(JARGON_PATTERN);
     fireEvent.click(screen.getByRole('button', { name: '次の求人' }));
     await screen.findByRole('button', { name: '合成の次ページ求人の本文を見る' });
-    expect(new URL(String(api.mock.calls.at(-1)?.[0]), 'https://example.test').searchParams.get('offset')).toBe('50');
+    expect(new URL(String(api.mock.calls.filter(call => String(call[0]).includes('/listings?')).at(-1)?.[0]), 'https://example.test').searchParams.get('offset')).toBe('50');
   });
   it('shows preparation without zero results and preserves the dated list after refresh failure', async () => {
     api.mockResolvedValue({ ok: true, data: { ...page, status: 'preparing', listings: [], total: null, index_built_at: null, next_offset: null, refreshing: true } });
@@ -128,7 +128,7 @@ describe('HubSpot listing history', () => {
     const fixed = { schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt,
       jobs: [{ id: 'synthetic-fixed', hubspotListingId: '30', title: '合成の固定求人', company: '合成会社', media: 'HRハッカー', mediaJobId: 'HR-30', location: '大分県', body: '合成の固定本文', images: [] }] },
       results: [{ listing_id: '30', summary: { total: 2, missing_date: 0, by_date: { '2026-10-05': 2 }, dimensions: {} }, dated_comparison: null }] };
-    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.endsWith('/moc') ? fixed : path.endsWith('/listing-status') ? { listings: {} } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : page }));
+    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.endsWith('/moc') ? fixed : path.endsWith('/listing-status') ? { listings: {} } : path.endsWith('/applications') ? { listing_id: row.id, application_count: null } : path.includes('/market') ? { titles: [], prefectures: [], series: null } : path.includes('/versions') ? history : page }));
     const { container } = render(<JobCopyScreen />);
     await waitFor(() => { expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成の固定求人'); });
     fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
@@ -141,4 +141,26 @@ describe('HubSpot listing history', () => {
     expect(screen.getByText('実データ（取得済み）')).toBeTruthy();
   });
 
+});
+
+it('ignores a delayed count for the previous job after switching jobs', async () => {
+  let resolveCount!: (value: unknown) => void;
+  const delayed = new Promise(resolve => { resolveCount = resolve; });
+  const onOpen = vi.fn<(job: JobCopyRecord) => void>();
+  const onApplicationsLoaded = vi.fn();
+  api.mockImplementation((path: string) => {
+    if (path.endsWith('/applications')) return delayed;
+    if (path.includes('/versions')) return Promise.resolve({ ok: true, data: path.includes('/11/') ? { ...history, listing: { ...row, id: '11', application_count: 7 } } : history });
+    return Promise.resolve({ ok: true, data: { ...page, listings: page.listings.filter(item => item.id !== '10') } });
+  });
+  render(<HubSpotListingsPanel initialListingId="10" onOpen={onOpen} onApplicationsLoaded={onApplicationsLoaded} />);
+  await waitFor(() => { expect(api.mock.calls.some(call => String(call[0]).endsWith('/10/applications'))).toBe(true); });
+  const countCall = api.mock.calls.find(call => String(call[0]).endsWith('/10/applications'));
+  fireEvent.click(screen.getByRole('button', { name: '合成求人11の本文を見る' }));
+  await waitFor(() => { expect(onOpen.mock.calls.at(-1)?.[0].hubspotId).toBe('11'); });
+  const countOptions = countCall?.[1] as { signal: AbortSignal } | undefined;
+  expect(countOptions?.signal.aborted).toBe(true);
+  await act(async () => { resolveCount({ ok: true, data: { listing_id: '10', application_count: 0 } }); await delayed; });
+  expect(onApplicationsLoaded).not.toHaveBeenCalled();
+  expect(onOpen.mock.calls.at(-1)?.[0].listingApplicationCount).toBe(7);
 });

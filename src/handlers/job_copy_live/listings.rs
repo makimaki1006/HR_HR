@@ -654,6 +654,26 @@ pub(super) async fn read(
         })),
     ))
 }
+/// Re-read acquired counts after index preparation, without fetching bodies or HubSpot.
+pub(super) async fn read_applications(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(id): AxumPath<String>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
+    let cached = service(&access)?.listing_index.state.read().await;
+    let application_count = cached
+        .snapshot
+        .as_ref()
+        .and_then(|index| index.records.iter().find(|row| row.id == id))
+        .and_then(|row| row.indexed_application_count);
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"listing_id":id,"application_count":application_count})),
+    ))
+}
 #[cfg(test)]
 fn association_count(data: &Value, id: &str) -> Option<usize> {
     if data
@@ -895,16 +915,202 @@ pub(super) async fn read_versions(
     let current_fields = deals::comparison_fields(&record, row.media);
     let draft_revision = crate::job_gen::drafts::revision(&record.properties);
     let can_write_drafts = state.audit.is_some() && super::drafts::Writes::from_env().allows(&id);
+    // Use the same acquired counts as the list/deal table, across the entire index.
+    // An absent index/record/count stays unknown; no additional HubSpot read is needed.
+    let application_count = service(&access)?
+        .listing_index
+        .state
+        .read()
+        .await
+        .snapshot
+        .as_ref()
+        .and_then(|index| index.records.iter().find(|item| item.id == id))
+        .and_then(|item| item.indexed_application_count);
+
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"current_fields":current_fields,"company_name":company_name,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
+            json!({"current_fields":current_fields,"company_name":company_name,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
         ),
     ))
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn job_copy_detail_counts_cover_jobs_outside_the_first_page_and_preserve_unknowns() {
+        use axum::{body::to_bytes, routing::any};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let record: Record = serde_json::from_value(json!({"id":"51","properties":{
+            "id_hrhakkaa":"synthetic-job","hs_name":"架空の直接リンク求人",
+            "hrh_kyuujinhyou_honbun":"仕事内容：棚の品物を確認します。"
+        }}))
+        .unwrap();
+        let upstream_record = record.clone();
+        let upstream = Router::new().fallback(any(
+            move |request: axum::http::Request<axum::body::Body>| {
+                let seen = seen.clone();
+                let record = upstream_record.clone();
+                async move {
+                    assert_eq!(request.method(), reqwest::Method::GET);
+                    seen.fetch_add(1, Ordering::Relaxed);
+                    match request.uri().path() {
+                        "/crm/v3/objects/0-420/51" => {
+                            Json(json!({"id":record.id,"properties":record.properties}))
+                        }
+                        "/crm/v4/objects/0-420/51/associations/deals" => {
+                            Json(json!({"results":[]}))
+                        }
+                        path => panic!("unexpected read: {path}"),
+                    }
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let service = Arc::new(JobReadService::for_test(format!(
+            "http://{}",
+            listener.local_addr().unwrap()
+        )));
+        let task = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+        let access = Access {
+            allowed: BTreeSet::from(["reader@example.test".into()]),
+            service: Some(service.clone()),
+            moc_path: None,
+            moc_drive: Ok(None),
+            snapshot_reader: None,
+            snapshot_cache: Arc::default(),
+            resolved_jobs: Arc::default(),
+            images: None,
+            drive_listings: BTreeSet::new(),
+            drive_config_error: None,
+        };
+        let file = tempfile::NamedTempFile::new().unwrap();
+        rusqlite::Connection::open(file.path())
+            .unwrap()
+            .execute_batch("CREATE TABLE insight_title_pref (norm_title TEXT);")
+            .unwrap();
+        let mut state = super::super::integration_tests::moc_state();
+        Arc::get_mut(&mut state).unwrap().indeed_db =
+            Some(crate::db::local_sqlite::LocalDb::new(file.path().to_str().unwrap()).unwrap());
+        let session = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+        session
+            .insert(SESSION_USER_KEY, "reader@example.test")
+            .await
+            .unwrap();
+        session
+            .insert(SESSION_LOGIN_METHOD_KEY, LOGIN_METHOD_GOOGLE_OIDC)
+            .await
+            .unwrap();
+        for mode in ["zero", "seven", "unknown", "missing-job", "missing-index"] {
+            let count = match mode {
+                "zero" => Some(0),
+                "seven" => Some(7),
+                _ => None,
+            };
+            let records: Vec<_> = (1..=51)
+                .map(|id| {
+                    let mut row = listing(&record, &[]).unwrap();
+                    row.id = id.to_string();
+                    row.title = Some(format!("架空求人{id:03}"));
+                    row.indexed_application_count = if id == 51 { count } else { Some(99) };
+                    row
+                })
+                .filter(|row| mode != "missing-job" || row.id != "51")
+                .collect();
+            let index = Arc::new(Index {
+                records,
+                titles: vec![],
+                deals: vec![],
+                built_at: "2026-10-12T00:00:00Z".into(),
+            });
+            let (_, first_page) = selected_page(&index, &ListingsQuery::default());
+            assert_eq!(first_page.len(), 50);
+            assert!(first_page.iter().all(|row| row.listing.id != "51"));
+            service.listing_index.state.write().await.snapshot = if mode == "missing-index" {
+                None
+            } else {
+                Some(index)
+            };
+            let counts = read_applications(
+                State(state.clone()),
+                Extension(access.clone()),
+                session.clone(),
+                AxumPath("51".into()),
+            )
+            .await
+            .unwrap()
+            .into_response();
+            assert_eq!(counts.headers()[header::CACHE_CONTROL], "private, no-store");
+            let counts: Value =
+                serde_json::from_slice(&to_bytes(counts.into_body(), 4096).await.unwrap()).unwrap();
+            assert_eq!(
+                counts,
+                json!({"listing_id":"51","application_count":count}),
+                "{mode}"
+            );
+            let response = read_versions(
+                State(state.clone()),
+                Extension(access.clone()),
+                session.clone(),
+                AxumPath("51".into()),
+            )
+            .await
+            .unwrap()
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap())
+                    .unwrap();
+            assert_eq!(body["listing"]["id"], "51");
+            assert_eq!(body["listing"]["application_count"], json!(count), "{mode}");
+        }
+        let anonymous = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+        assert!(matches!(
+            read_applications(
+                State(state.clone()),
+                Extension(access.clone()),
+                anonymous,
+                AxumPath("51".into())
+            )
+            .await,
+            Err(ReadError(StatusCode::UNAUTHORIZED, _))
+        ));
+        session
+            .insert(SESSION_USER_KEY, "outside@example.test")
+            .await
+            .unwrap();
+        assert!(matches!(
+            read_applications(
+                State(state.clone()),
+                Extension(access.clone()),
+                session.clone(),
+                AxumPath("51".into())
+            )
+            .await,
+            Err(ReadError(StatusCode::FORBIDDEN, _))
+        ));
+        session
+            .insert(SESSION_USER_KEY, "reader@example.test")
+            .await
+            .unwrap();
+        assert!(matches!(
+            read_applications(
+                State(state),
+                Extension(access),
+                session,
+                AxumPath("not-a-job".into())
+            )
+            .await,
+            Err(ReadError(StatusCode::BAD_REQUEST, _))
+        ));
+        // Exactly the existing detail and company-association reads for each request.
+        assert_eq!(calls.load(Ordering::Relaxed), 10);
+        task.abort();
+    }
     #[tokio::test]
     async fn job_copy_detail_company_is_batched_and_never_guesses_ambiguous_relations() {
         use axum::{body::Body, http::Request, routing::any, Json, Router};
