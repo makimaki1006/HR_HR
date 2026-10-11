@@ -33,6 +33,9 @@ export interface CopyVersion {
 }
 
 export interface JobCopyRecord {
+  currentListingFields?: Record<string, string>;
+  listingPublicationStatus?: string | null;
+  listingApplicationCount?: number | null;
   currentDraftRow?: Record<string, string> | undefined;
   draftRevision?: string | undefined;
   canWriteDrafts?: boolean | undefined;

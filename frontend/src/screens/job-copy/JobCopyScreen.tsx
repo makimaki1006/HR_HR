@@ -1,3 +1,4 @@
+import { ListingPopup } from './ListingPopup';
 import { DealComparison } from './DealComparison';
 import type { DealSelection } from './hubspotListings';
 import { ManualDraftEditor } from "./ManualDraftEditor";
@@ -85,6 +86,11 @@ function ApplicationSummary({ job, version, live = false }: { job: JobCopyRecord
 export interface FeatureRequest { feature: JobFeature; nonce: number }
 
 function CopyDetail({ job, records, onAdd, onDraftSaved, reviewed, onReview, billing, demo = false, request = null, showDummyBilling = DUMMY_BILLING_ENABLED }: { job: JobCopyRecord; records: JobCopyRecord[]; onAdd: (version: CopyVersion) => void; onDraftSaved: (draft: DraftSnapshot, revision: string) => void; reviewed: string[]; onReview: (id: string) => void; billing?: readonly BillingEntry[] | undefined; demo?: boolean; request?: FeatureRequest | null; showDummyBilling?: boolean }) {
+  const detailElement = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const scroll = detailElement.current?.closest('.jc-main');
+    if (scroll) scroll.scrollTop = 0;
+  }, [job.id]);
   const current = latest(job);
   const draft = job.latestDraftId ? job.versions.find(item => item.draft?.draft_id === job.latestDraftId) : undefined;
   const [tab, setCurrentTab] = useState<JobFeature>(draft ? 'diff' : job.id.startsWith('hubspot-history-') ? 'body' : 'timeline');
@@ -110,6 +116,7 @@ function CopyDetail({ job, records, onAdd, onDraftSaved, reviewed, onReview, bil
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request]);
   const [reportDraft, setReportDraft] = useState<ConsultantDraft>({ stage: 'plan', target: 'both', fields: {}, selection: [published(job)[0]?.id ?? '', published(job)[1]?.id ?? published(job)[0]?.id ?? ''] });
+  const [listingPopupOpen, setListingPopupOpen] = useState(false);
   const [selected, setSelected] = useState(current?.id ?? '');
   const [editing, setEditing] = useState<CopyVersion | null>(null);
   const [before, setBefore] = useState(draft ? current?.id ?? '' : published(job).at(-2)?.id ?? current?.id ?? '');
@@ -167,8 +174,9 @@ function CopyDetail({ job, records, onAdd, onDraftSaved, reviewed, onReview, bil
     setMessage('確認待ちの文面として画面内のデモ履歴に追加しました。媒体での掲載確認・HubSpot保存は行っていません。');
   }
 
-  return <article className="jc-detail" id="job-details" tabIndex={-1}>
-    <header className="jc-detail-heading"><div><h1>{job.title}</h1><p>{joinPresent([job.company, job.location, job.media])}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
+  return <article ref={detailElement} className="jc-detail" id="job-details" tabIndex={-1}>
+    <header className="jc-detail-heading"><div><div className="jc-detail-title-row"><h1>{job.title}</h1><button className="jc-button" onClick={() => { setListingPopupOpen(true); }}>求人の内容を確認する</button></div><p>{joinPresent([job.company, job.location, job.media])}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
+    {listingPopupOpen && <ListingPopup job={job} version={version} onClose={() => { setListingPopupOpen(false); }} />}
     {job.id.startsWith('hubspot-history-') && job.media === 'HRハッカー' && job.hubspotId && <RikuroziDraftPanel listingId={job.hubspotId} />}
     {job.historyMayBeIncomplete && <p className="jc-notice" role="status">履歴は項目ごとに20件までの可能性があり、過去の文面がすべて含まれているとは限りません。</p>}
     <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の本文（HubSpotの現在値）' : '表示中の本文'}: {current?.label ?? '本文未取得'}</span><InfoTip className="jc-infotip-left" label={`${job.id.startsWith('hubspot-history-') && current?.source !== 'HubSpotの現在の本文' ? 'HubSpot記録日時' : '本文を確認した日時'}: ${current ? date(current.observedAt) : '—'}`}><p>{current?.source === 'HubSpotの現在の本文' ? '今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' : job.id.startsWith('hubspot-history-') ? '本文がHubSpotに記録された日時です。掲載開始日時は不明です。' : 'ファイルの本文を確認した日時です。掲載開始日時は不明です。'}</p></InfoTip>{job.hubspotId ? null : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
