@@ -633,3 +633,267 @@ fn is_email_disabled_の_sql_は大文字小文字を無視して_disabled_at_�
     assert!(!hit("saburo@f-a-c.co.jp"));
     assert!(!hit("nobody@f-a-c.co.jp"));
 }
+
+// 認証 Cookie の復元は CRM のコードを変更せず、その読み取り・認可を通す。
+async fn cookie_principal(session: Session) -> Json<Value> {
+    let principal = crate::crm::rbac::load_principal(&session).await;
+    let allowed =
+        crate::crm::rbac::can_read(&principal, None, &crate::crm::rbac::CrmAccess::default())
+            .is_ok();
+    Json(
+        json!({"email": principal.email, "method": principal.login_method, "crm_allowed": allowed,
+        "temporary": session.get::<String>("uploaded_csv").await.unwrap()}),
+    )
+}
+
+fn durable_app(state: Arc<AppState>, key: Option<tower_sessions::cookie::Key>) -> Router {
+    let cookie_state = crate::auth::login_cookie::CookieState {
+        app: state.clone(),
+        key,
+        secure: false,
+    };
+    Router::new()
+        .merge(crate::auth::google_oidc::router())
+        .route("/login", post(crate::login_submit))
+        .route("/logout", get(crate::logout))
+        .route("/principal", get(cookie_principal))
+        .route(
+            "/temporary",
+            get(|session: Session| async move {
+                session
+                    .insert("uploaded_csv", "large temporary data")
+                    .await
+                    .unwrap();
+                StatusCode::OK
+            }),
+        )
+        .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(
+            cookie_state,
+            crate::auth::login_cookie::restore_login,
+        ))
+        .layer(
+            SessionManagerLayer::new(MemoryStore::default())
+                .with_secure(false)
+                .with_expiry(tower_sessions::Expiry::OnInactivity(time::Duration::hours(
+                    24,
+                ))),
+        )
+}
+
+async fn password_cookie(app: &Router, password: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/login")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "email=taro%40f-a-c.co.jp&password={password}"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 同じ鍵の再起動でメールと方法を復元し一時データは消える() {
+    use tower_sessions::cookie::Key;
+    let key = Key::from(&[42; 64]);
+    for password in ["internal-pass", "external-pass"] {
+        let state = test_state(None, None);
+        let app = durable_app(state.clone(), Some(key.clone()));
+        let login = password_cookie(&app, password).await;
+        assert_eq!(login.status(), StatusCode::SEE_OTHER);
+        let cookie = cookie_pair(&login, crate::auth::login_cookie::COOKIE_NAME).unwrap();
+        let memory = cookie_pair(&login, "id").unwrap();
+        let combined = format!("{cookie}; {memory}");
+        assert_eq!(
+            get_req(&app, "/temporary", Some(&combined)).await.status(),
+            StatusCode::OK
+        );
+        let reboot = durable_app(state, Some(key.clone()));
+        let who: Value = serde_json::from_str(
+            &body_string(get_req(&reboot, "/principal", Some(&combined)).await).await,
+        )
+        .unwrap();
+        let method = if password == "internal-pass" {
+            "password_internal"
+        } else {
+            "password_external"
+        };
+        assert_eq!(
+            who,
+            json!({"email":"taro@f-a-c.co.jp", "method":method, "crm_allowed":false, "temporary":null})
+        );
+        let set = set_cookies(&login)
+            .into_iter()
+            .find(|c| c.starts_with("hr_login="))
+            .unwrap();
+        assert!(
+            set.contains("HttpOnly") && set.contains("SameSite=Lax") && set.contains("Expires=")
+        );
+        assert!(!set.contains("taro") && !set.contains(method));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn googleログインを再起動後にcrmが同じ方法で読める() {
+    let key = tower_sessions::cookie::Key::from(&[42; 64]);
+    let (oidc, google) = start_fake_google("taro@f-a-c.co.jp", "f-a-c.co.jp").await;
+    let state = test_state(Some(oidc), None);
+    let app = durable_app(state.clone(), Some(key.clone()));
+    let (tx, q) = start_login(&app).await;
+    google.lock().unwrap().nonce = param(&q, "nonce").to_string();
+    let login = get_req(
+        &app,
+        &format!(
+            "/auth/google/callback?code=test-code&state={}",
+            param(&q, "state")
+        ),
+        Some(&tx),
+    )
+    .await;
+    assert_eq!(login.status(), StatusCode::OK);
+    let cookie = cookie_pair(&login, "hr_login").unwrap();
+    let reboot = durable_app(state, Some(key));
+    let who: Value = serde_json::from_str(
+        &body_string(get_req(&reboot, "/principal", Some(&cookie)).await).await,
+    )
+    .unwrap();
+    assert_eq!(
+        who,
+        json!({"email":"taro@f-a-c.co.jp","method":"google_oidc","crm_allowed":true,"temporary":null})
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 別鍵と改ざんとログアウトと無効化と鍵なしは認証を復元しない() {
+    use tower_sessions::cookie::Key;
+    let key = Key::from(&[42; 64]);
+    let (audit, fake) = start_fake_audit(&[]).await;
+    let state = test_state(None, Some(audit));
+    let app = durable_app(state.clone(), Some(key.clone()));
+    let login = password_cookie(&app, "internal-pass").await;
+    let cookie = cookie_pair(&login, "hr_login").unwrap();
+    let memory = cookie_pair(&login, "id").unwrap();
+    let combined = format!("{cookie}; {memory}");
+    let wrong = durable_app(state.clone(), Some(Key::from(&[43; 64])));
+    for (target, c) in [
+        (&wrong, cookie.clone()),
+        (&app, format!("{cookie}tampered; {memory}")),
+        (&durable_app(state.clone(), None), combined.clone()),
+    ] {
+        let who: Value =
+            serde_json::from_str(&body_string(get_req(target, "/principal", Some(&c)).await).await)
+                .unwrap();
+        assert_eq!(who["email"], Value::Null);
+        assert!(!who["crm_allowed"].as_bool().unwrap());
+    }
+    // 元のメモリセッションは改ざんで破棄されている。ログアウトは復元した認証 Cookie も消す。
+    let logout = get_req(&app, "/logout", Some(&cookie)).await;
+    let cleared = set_cookies(&logout)
+        .into_iter()
+        .find(|c| c.starts_with("hr_login="))
+        .unwrap();
+    assert!(cleared.contains("Max-Age=0"));
+    let who: Value =
+        serde_json::from_str(&body_string(get_req(&app, "/principal", None).await).await).unwrap();
+    assert_eq!(who["email"], Value::Null);
+    fake.lock()
+        .unwrap()
+        .disabled
+        .push("taro@f-a-c.co.jp".into());
+    let reboot = durable_app(state, Some(key));
+    let rejected = get_req(&reboot, "/principal", Some(&cookie)).await;
+    assert!(set_cookies(&rejected)
+        .iter()
+        .any(|c| c.starts_with("hr_login=") && c.contains("Max-Age=0")));
+    let who: Value = serde_json::from_str(&body_string(rejected).await).unwrap();
+    assert_eq!(who["email"], Value::Null);
+    assert!(fake
+        .lock()
+        .unwrap()
+        .calls
+        .iter()
+        .any(|(sql, _)| sql.starts_with("SELECT disabled_at")));
+    let without = durable_app(test_state(None, None), None);
+    let login = password_cookie(&without, "internal-pass").await;
+    assert!(cookie_pair(&login, "hr_login").is_none());
+    let memory = cookie_pair(&login, "id").unwrap();
+    let before: Value = serde_json::from_str(
+        &body_string(get_req(&without, "/principal", Some(&memory)).await).await,
+    )
+    .unwrap();
+    assert_eq!(before["email"], "taro@f-a-c.co.jp");
+    let reboot = durable_app(test_state(None, None), None);
+    let after: Value = serde_json::from_str(
+        &body_string(get_req(&reboot, "/principal", Some(&memory)).await).await,
+    )
+    .unwrap();
+    assert_eq!(after["email"], Value::Null);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 暗号が正しくても認証期限と社外パスワード期限が切れたcookieは拒否する() {
+    use tower_sessions::cookie::{Cookie, CookieJar, Key};
+    let key = Key::from(&[42; 64]);
+    let state = test_state(None, None);
+    let app = durable_app(state.clone(), Some(key.clone()));
+    let login = password_cookie(&app, "internal-pass").await;
+    let memory = cookie_pair(&login, "id").unwrap();
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    for (method, expires, external) in [
+        ("google_oidc", now - 1, None),
+        ("password_external", now + 86400, Some("2020-01-01")),
+    ] {
+        let mut jar = CookieJar::new();
+        jar.private_mut(&key).add(Cookie::new("hr_login",json!({"email":"taro@f-a-c.co.jp","method":method,"expires":expires,"external_expires":external}).to_string()));
+        let c = format!(
+            "hr_login={}; {memory}",
+            jar.get("hr_login").unwrap().value()
+        );
+        let reboot = durable_app(state.clone(), Some(key.clone()));
+        let who: Value = serde_json::from_str(
+            &body_string(get_req(&reboot, "/principal", Some(&c)).await).await,
+        )
+        .unwrap();
+        assert_eq!(who["email"], Value::Null);
+        assert_eq!(who["crm_allowed"], false);
+    }
+    // 期限切れ Cookie がブラウザから消えても、メモリ Cookie だけでは通さない。
+    let who: Value =
+        serde_json::from_str(&body_string(get_req(&app, "/principal", Some(&memory)).await).await)
+            .unwrap();
+    assert_eq!(who["email"], Value::Null);
+    // 鍵なしのメモリ認証でも外部パスワードの期限を要求ごとに見る。
+    let session = Session::new(None, Arc::new(MemoryStore::default()), None);
+    session
+        .insert(crate::auth::SESSION_USER_KEY, "taro@f-a-c.co.jp")
+        .await
+        .unwrap();
+    session
+        .insert(crate::auth::SESSION_LOGIN_METHOD_KEY, "password_external")
+        .await
+        .unwrap();
+    session
+        .insert(crate::auth::login_cookie::EXTERNAL_EXPIRY_KEY, "2020-01-01")
+        .await
+        .unwrap();
+    let state = crate::auth::login_cookie::CookieState {
+        app: test_state(None, None),
+        key: None,
+        secure: false,
+    };
+    let app = Router::new()
+        .route("/principal", get(cookie_principal))
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::auth::login_cookie::restore_login,
+        ))
+        .layer(axum::Extension(session));
+    let who: Value =
+        serde_json::from_str(&body_string(get_req(&app, "/principal", None).await).await).unwrap();
+    assert_eq!(who["email"], Value::Null);
+}

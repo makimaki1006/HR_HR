@@ -103,6 +103,7 @@ mod router_startup_test;
 mod platform_api_tests;
 
 pub fn build_app(state: Arc<AppState>) -> Router {
+    let login_cookie = auth::login_cookie::CookieState::from_env(state.clone());
     let session_store = MemoryStore::default();
     // 2026-05-22 セキュリティ修正 (Agent A3 H1): 本番 (RENDER env 等) で
     // Secure=true / SameSite=Strict を強制。Render 環境変数 `RENDER` が
@@ -999,6 +1000,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .layer(
             tower::ServiceBuilder::new()
                 .layer(session_layer)
+                .layer(middleware::from_fn_with_state(login_cookie, auth::login_cookie::restore_login))
                 .layer(CompressionLayer::new()),
         )
 }
@@ -1445,6 +1447,18 @@ async fn login_submit(
     )
     .await;
 
+    if login_method == auth::LOGIN_METHOD_PASSWORD_EXTERNAL {
+        if let Some(ext) = state
+            .config
+            .external_passwords
+            .iter()
+            .find(|ext| ext.password == form.password)
+        {
+            let _ = session
+                .insert(auth::login_cookie::EXTERNAL_EXPIRY_KEY, &ext.expires)
+                .await;
+        }
+    }
     Redirect::to("/").into_response()
 }
 
@@ -1543,6 +1557,9 @@ pub(crate) async fn complete_login(
     // 2026-05-22 セキュリティ修正 (Agent A3 M1): session fixation 対策。
     // login 成功後に session id を再発行する。pre-login で attacker が取得した
     // session id を victim ログイン後も使い回せる脆弱性を防ぐ。
+    let _ = session
+        .remove::<String>(auth::login_cookie::EXTERNAL_EXPIRY_KEY)
+        .await;
     let _ = session.cycle_id().await;
     let _ = session.insert(SESSION_USER_KEY, email).await;
     let _ = session
