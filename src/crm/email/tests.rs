@@ -744,18 +744,8 @@ async fn normal_send_records_headers_ids_owner_and_all_associations() {
     assert_eq!(p["hubspot_owner_id"], "900");
     assert_eq!(p["hs_email_thread_id"], "thread-201");
     assert_eq!(p["hs_email_subject"], "採用のご相談");
-    assert!(p["hs_email_html"]
-        .as_str()
-        .unwrap()
-        .starts_with(&request().html));
-    assert_eq!(
-        p["hs_email_html"]
-            .as_str()
-            .unwrap()
-            .matches("/t/o/")
-            .count(),
-        1
-    );
+    assert_eq!(p["hs_email_html"], request().html);
+    assert_eq!(delivered_html(&f).matches("/t/o/").count(), 1);
     let headers: Value = serde_json::from_str(p["hs_email_headers"].as_str().unwrap()).unwrap();
     assert_eq!(headers["from"]["email"], "taro@example.com");
     assert_eq!(headers["to"][0]["email"], "contact@example.invalid");
@@ -792,7 +782,9 @@ async fn gmail_rejection_is_red_no_send_and_no_hubspot_creation() {
 async fn hubspot_failure_is_yellow_retry_creates_exactly_one_without_resending() {
     let e = env(true).await;
     e.fake.lock().unwrap().fail_search = 1;
-    let (status, v) = send(&e, &request()).await;
+    let mut req = request();
+    req.html = r#"<p><a href="https://example.invalid/docs">資料</a></p>"#.into();
+    let (status, v) = send(&e, &req).await;
     assert_eq!(status, 202);
     assert_eq!(v["status"], "pending");
     assert_eq!(v["sent"], true);
@@ -800,15 +792,24 @@ async fn hubspot_failure_is_yellow_retry_creates_exactly_one_without_resending()
     assert_eq!(e.conn.lock().unwrap().query_row(
         "SELECT COUNT(*) FROM crm_email_tracking WHERE gmail_message_id = 'gmail-101' AND hubspot_email_id IS NULL AND sent_at IS NOT NULL", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
     let r = row(&e).await;
+    assert_eq!(
+        r.payload.email.as_ref().unwrap().original_html.as_deref(),
+        Some(req.html.as_str())
+    );
     assert!(crate::crm::write::process_op(&e.audit, &e.client, &e.write, &r).await);
     let r = row(&e).await;
     assert_eq!(r.status, "saved");
     assert_eq!(r.payload.email.as_ref().unwrap().html, "");
+    assert_eq!(r.payload.email.as_ref().unwrap().original_html, None);
     assert!(!crate::crm::write::process_op(&e.audit, &e.client, &e.write, &r).await);
     let f = e.fake.lock().unwrap();
     assert_eq!(f.sends, 1);
     assert_eq!(f.create_calls, 1);
     assert_eq!(f.created.len(), 1);
+    assert_eq!(f.created[0]["properties"]["hs_email_html"], req.html);
+    let sent = delivered_html(&f);
+    assert_eq!(sent.matches("/t/o/").count(), 1);
+    assert_eq!(sent.matches("/t/c/").count(), 1);
 }
 #[tokio::test]
 async fn same_operation_parallel_and_after_old_retention_never_sends_twice() {
@@ -1146,7 +1147,12 @@ async fn send_instruments_text_html_links_binds_both_ids_and_exposes_summary() {
     let html = {
         let f = e.fake.lock().unwrap();
         let html = delivered_html(&f);
-        assert_eq!(f.created[0]["properties"]["hs_email_html"], html);
+        let history_html = f.created[0]["properties"]["hs_email_html"]
+            .as_str()
+            .unwrap();
+        assert_eq!(history_html, req.html);
+        assert!(!history_html.contains("/t/o/"));
+        assert!(!history_html.contains("/t/c/"));
         assert_eq!(html.matches("/t/o/").count(), 1);
         assert_eq!(html.matches("data-hr-email-open").count(), 1);
         assert_eq!(html.matches("href=\"http://localhost/t/c/").count(), 2);

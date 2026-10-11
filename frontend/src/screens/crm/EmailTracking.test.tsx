@@ -32,6 +32,7 @@ describe('メールカードの計測', () => {
     expect(screen.getAllByTestId('email-tracking-automatic')).toHaveLength(1);
     fireEvent.click(screen.getByLabelText('開封・クリックの詳細'));
     expect(details?.open).toBe(true);
+    expect(screen.getByText(/送った本人が Gmail の送信済みメールを開いた場合も、開封として数えることがあります。/)).toBeTruthy();
     expect(screen.getByText('最初の開封 10/12 13:00・最後の開封 10/12 14:03')).toBeTruthy();
     expect(screen.getByText('https://example.invalid/guide')).toBeTruthy();
     expect(screen.getByText('https://example.invalid/guide').parentElement?.textContent).toBe('https://example.invalid/guide：クリック 1 回（ほかに自動 1 回）');

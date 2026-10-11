@@ -246,6 +246,7 @@ pub(in crate::crm) async fn send_email(
         cc,
         subject: req.subject,
         html: tracked.html,
+        original_html: Some(req.html),
         owner_id: owner,
         tracking_id: tracked.tracking_id,
         requested_message_id: format!(

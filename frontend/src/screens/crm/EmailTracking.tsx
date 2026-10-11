@@ -43,7 +43,7 @@ export function EmailTracking({ emailId }: { emailId: string }) {
         <span className="wd-email-tracking-url">{link.url}</span>：クリック {link.clicks.count} 回
         {link.automatic_clicks.count > 0 && `（ほかに自動 ${String(link.automatic_clicks.count)} 回）`}
       </p>)}
-      <p className="crm-muted">同じリンクや開封が短時間に繰り返された場合はまとめて数えています。画像の読み込みを数えるため、実際の開封と異なることがあります。</p>
+      <p className="crm-muted">同じリンクや開封が短時間に繰り返された場合はまとめて数えています。画像の読み込みを数えるため、実際の開封と異なることがあります。送った本人が Gmail の送信済みメールを開いた場合も、開封として数えることがあります。</p>
     </details>
   </div>;
 }

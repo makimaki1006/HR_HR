@@ -19,6 +19,7 @@ for (const tracked of [true, false]) {
       await expect(page.getByTestId('email-tracking').locator('details')).not.toHaveAttribute('open');
       await expect(page.getByTestId('email-tracking-automatic')).toBeHidden();
       await page.getByLabel('開封・クリックの詳細', { exact: true }).click();
+      await expect(page.getByText(/送った本人が Gmail の送信済みメールを開いた場合も、開封として数えることがあります。/)).toBeVisible();
       await expect(page.getByTestId('email-tracking-automatic')).toHaveText('ほかに自動の確認とみられるもの：開封 3 回・クリック 1 回（数に含めていません）');
       await expect(page.getByText('https://example.invalid/guide', { exact: true }).locator('..')).toHaveText('https://example.invalid/guide：クリック 1 回（ほかに自動 1 回）');
       await expect(page.getByTestId('email-tracking')).toContainText('最初の開封 10/12 13:00');
