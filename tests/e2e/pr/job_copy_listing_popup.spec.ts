@@ -117,3 +117,33 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   const switched = (await opener.boundingBox())!;
   expect(switched.y).toBeGreaterThanOrEqual(0); expect(switched.y + switched.height).toBeLessThan(viewport.height);
 });
+
+for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 1080 }]) test(`初回50件の外の求人を直接開いて応募0件を表示 ${viewport.width}`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  await login(page);
+  await page.addInitScript(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+  const rows = Array.from({ length: 50 }, (_, index) => ({ ...hrh, id: String(index + 2), title: `架空の一覧求人${String(index + 2)}`, application_count: 99 }));
+  const columns = JSON.parse(await readFile('frontend/src/generated/jobgen/columns.json', 'utf8')) as string[];
+  const body = columns.map(key => `${key}：${fields[key] ?? ''}`).join('\n');
+  await page.route('**/api/job-copy/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/listings')) return route.fulfill({ json: { status: 'ready', listings: rows, total: 51, offset: 0, next_offset: 50, titles: [], index_built_at: '2026-10-11T00:00:00Z', refreshing: false, refresh_failed: false } });
+    if (path.endsWith('/1/versions')) return route.fulfill({ json: { listing: hrh, versions: [{ written_at: '2026-10-11T00:00:00Z', body, image_urls: [] }], history_counts: {}, history_may_be_incomplete: false } });
+    return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
+  });
+  await page.goto('/app/job-copy?listing=1');
+  const panel = page.getByRole('region', { name: 'HubSpot の求人' });
+  await expect(panel.locator('.jc-hubspot-job')).toHaveCount(50);
+  await expect(panel.getByRole('button', { name: `${hrh.title}の本文を見る` })).toHaveCount(0);
+  await expect(panel).toContainText('応募 99件');
+  await page.getByRole('button', { name: '求人の内容を確認する' }).click();
+  const dialog = page.getByRole('dialog', { name: hrh.title });
+  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');
+  await expect(dialog.locator('.jc-listing-popup-summary')).not.toContainText('99件');
+  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('非公開');
+  await expect(dialog.locator('.jc-listing-popup-missing')).not.toContainText('公開状況');
+  await expect(dialog).not.toContainText(/hidden-hrh-id|hidden-job-id|hidden-shop-id/);
+  expect(await dialog.locator('.jc-listing-popup-scroll').evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
+  await mkdir(screenshots, { recursive: true });
+  await page.screenshot({ path: `${screenshots}/05-outside-first-page-${viewport.width}.png` });
+});
