@@ -5,6 +5,12 @@ import type { EmailResult } from '../../generated/EmailResult';
 import type { GmailGrantStatus } from '../../generated/GmailGrantStatus';
 import type { PendingEmailActivity } from '../../generated/PendingEmailActivity';
 import type { WorkspaceActivity } from '../../generated/WorkspaceActivity';
+import type { ReplySyncStatus } from '../../generated/ReplySyncStatus';
+
+export const replyStatus = (): Promise<ApiResult<ReplySyncStatus>> => apiGet('/api/crm/gmail/replies/status');
+export const sampleReplyStatus = (): Promise<ApiResult<ReplySyncStatus>> => Promise.resolve({ ok: true, data: {
+  last_checked_at: new Date(Date.now() - 600_000).toISOString(), last_imported_at: null, grant_expired: false, interval_seconds: 600,
+} });
 
 export interface EmailApi {
   grant: () => Promise<ApiResult<GmailGrantStatus>>;
@@ -67,10 +73,15 @@ export const fakeEmailApi: EmailApi = {
   pending: () => Promise.resolve({ ok: true, data: [] }),
 };
 export function fakeEmailActivities(dealId: string): WorkspaceActivity[] {
-  return [...fakeSent.values()].filter(e => e.req.hubspot_deal_id === dealId).map(({ req, result }) => ({
+  return [...fakeSent.values()].filter(e => e.req.hubspot_deal_id === dealId).flatMap(({ req, result }): WorkspaceActivity[] => [{
     id: result.hubspot_email_id ?? req.operation_id, kind: 'email', timestamp: new Date().toISOString(), title: req.subject,
     body: null, direction: 'EMAIL', status: 'SENT', duration_ms: null, owner_id: null, source: null, via: 'deal', via_id: dealId,
     rich: { body_html: req.html, body_full: null, from_email: 'taro@example.invalid', from_name: '自分（架空）', to: [req.to], cc: req.cc,
       thread_id: null, attachments_count: 0, start_time: null, end_time: null, location: null, recording_url: null },
-  }));
+  }, {
+    id: `reply-${req.operation_id}`, kind: 'email', timestamp: new Date().toISOString(), title: 'Re: 採用計画について（架空）',
+    body: null, direction: 'INCOMING_EMAIL', status: null, duration_ms: null, owner_id: null, source: null, via: 'deal', via_id: dealId,
+    rich: { body_html: '<p>ご連絡ありがとうございます。<br>来週の火曜日、14時からお話しできます。<br>採用人数は3名で進めたいと考えています。</p>', body_full: null, from_email: req.to, from_name: '丁野（架空）', to: ['taro@example.invalid'], cc: [],
+      thread_id: `sample-thread-${req.operation_id}`, attachments_count: 0, start_time: null, end_time: null, location: null, recording_url: null },
+  }]);
 }

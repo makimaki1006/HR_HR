@@ -131,6 +131,12 @@ impl OpRow {
 const COLS: &str = "operation_id, operator_email, deal_id, payload, status, attempts, \
      last_error_code, http_status, result_json, next_retry_at, created_at, updated_at";
 
+/// Only HR_HR's own sent threads in the last 30 days. No mailbox-wide lookup.
+pub fn reply_threads(t: &TursoDb, operator: &str, cutoff: &str) -> Result<Vec<OpRow>, String> {
+    t.query(&format!("SELECT {COLS} FROM crm_pending_operations WHERE operator_email = ?1 AND json_extract(payload, '$.email.send_state') = 'sent' AND json_extract(payload, '$.email.reply') IS NULL AND json_extract(payload, '$.email.gmail.threadId') IS NOT NULL AND json_extract(payload, '$.email.sent_at') >= ?2 ORDER BY created_at"), &[&operator, &cutoff])
+        .map(|rows| rows.iter().filter_map(row_to_op).collect())
+}
+
 fn row_to_op(r: &std::collections::HashMap<String, serde_json::Value>) -> Option<OpRow> {
     let payload: Payload = serde_json::from_str(&get_str(r, "payload")).ok()?;
     Some(OpRow {

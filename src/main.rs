@@ -365,6 +365,7 @@ async fn main() {
     // Headless CRM: 書き込みの再送 worker と、ステージ必須項目の設定のずれの検査 (どちらも背景の優先度。
     // HubSpot / 監査 DB 未接続なら何もしない。書き込み自体は CRM_WRITES_ENABLED 等が開くまで受け付けない)
     rust_dashboard::crm::write::spawn_worker(state.clone());
+    rust_dashboard::crm::email::replies::spawn_worker(state.clone());
     rust_dashboard::crm::stage_rules::spawn_drift_check(state.clone());
 
     let app = build_app(state);

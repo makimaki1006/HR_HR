@@ -1,5 +1,314 @@
 use super::*;
 
+fn reply_message(from: &str) -> Value {
+    json!({"id":"reply-301","threadId":"thread-201","labelIds":["INBOX"],"internalDate":(chrono::Utc::now()+chrono::Duration::minutes(1)).timestamp_millis().to_string(),"payload":{"mimeType":"text/html","headers":[{"name":"Message-ID","value":"<reply-301@customer.invalid>"},{"name":"From","value":from},{"name":"To","value":"Taro <taro@example.com>"},{"name":"Cc","value":"cc@example.invalid"},{"name":"Subject","value":"Re: 採用のご相談"},{"name":"Content-Type","value":"text/html; charset=UTF-8"}],"body":{"data":URL_SAFE_NO_PAD.encode("<p>火曜日14時でお願いします。</p>")}}})
+}
+async fn reply_env() -> Env {
+    let e = env(true).await;
+    assert_eq!(send(&e, &request()).await.0, 200);
+    e.fake.lock().unwrap().replies = vec![reply_message("Customer <contact@example.invalid>")];
+    e
+}
+async fn scan(e: &Env) {
+    replies::run_round(
+        &e.audit,
+        &e.client,
+        &e.service,
+        &["example.com".into()],
+        &crate::crm::rbac::CrmAccess::from_list(""),
+    )
+    .await
+    .unwrap();
+}
+async fn incoming_row(e: &Env) -> OpRow {
+    pending::blocking(&e.audit, |t| {
+        let ids=t.query("SELECT operation_id FROM crm_pending_operations WHERE json_extract(payload,'$.email.reply') IS NOT NULL",&[])?;
+        pending::get_op(t,&crate::handlers::helpers::get_str(&ids[0],"operation_id"))
+    }).await.unwrap().unwrap().unwrap()
+}
+#[tokio::test]
+async fn reply_import_one_and_second_round_has_zero_hubspot_calls() {
+    let e = reply_env().await;
+    scan(&e).await;
+    assert_eq!(incoming_row(&e).await.status, "saved");
+    let searches = e.fake.lock().unwrap().searches.len();
+    scan(&e).await;
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.create_calls, 2); // one outgoing + exactly one incoming
+    assert_eq!(f.searches.len(), searches);
+    assert_eq!(f.reply_reads.len(), 1);
+    assert_eq!(
+        f.thread_reads,
+        vec!["/gmail/users/me/threads/thread-201"; 2]
+    );
+    let p = &f.created[1]["properties"];
+    assert_eq!(p["hs_email_direction"], "INCOMING_EMAIL");
+    assert_eq!(p["hs_email_message_id"], "<reply-301@customer.invalid>");
+    assert_eq!(p["hs_email_thread_id"], "thread-201");
+    assert_eq!(p["hs_email_html"], "<p>火曜日14時でお願いします。</p>");
+    assert_eq!(p["hs_email_subject"], "Re: 採用のご相談");
+    let h: Value = serde_json::from_str(p["hs_email_headers"].as_str().unwrap()).unwrap();
+    assert_eq!(h["from"]["email"], "contact@example.invalid");
+    assert_eq!(h["to"][0]["email"], "taro@example.com");
+    assert!(f
+        .associations
+        .contains(&"/crm/v3/objects/emails/903/associations/deals/700/210".into()));
+    assert!(f
+        .associations
+        .contains(&"/crm/v3/objects/emails/903/associations/contacts/800/198".into()));
+}
+#[tokio::test]
+async fn reply_existing_hubspot_record_skips_create_and_retains_local_receipt() {
+    let e = reply_env().await;
+    e.fake
+        .lock()
+        .unwrap()
+        .created
+        .push(json!({"properties":{"hs_email_message_id":"<reply-301@customer.invalid>"}}));
+    scan(&e).await;
+    scan(&e).await;
+    assert_eq!(e.fake.lock().unwrap().create_calls, 1);
+    assert_eq!(
+        incoming_row(&e)
+            .await
+            .payload
+            .email
+            .unwrap()
+            .hubspot_email_id
+            .as_deref(),
+        Some("903")
+    );
+}
+#[tokio::test]
+async fn reply_internal_and_self_are_ignored_with_no_hubspot_calls() {
+    let e = reply_env().await;
+    e.fake.lock().unwrap().replies = vec![
+        reply_message("Staff <STAFF@EXAMPLE.COM>"),
+        reply_message("taro@example.com"),
+    ];
+    let before = e.fake.lock().unwrap().searches.len();
+    scan(&e).await;
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.searches.len(), before);
+    assert_eq!(f.create_calls, 1);
+    assert!(f.reply_reads.is_empty());
+}
+#[tokio::test]
+async fn reply_old_thread_is_not_read() {
+    let e = reply_env().await;
+    let mut r = row(&e).await;
+    r.payload.email.as_mut().unwrap().sent_at =
+        pending::iso(chrono::Utc::now() - chrono::Duration::days(31));
+    persist(&e.audit, &r).await.unwrap();
+    scan(&e).await;
+    assert!(e.fake.lock().unwrap().thread_reads.is_empty());
+    assert_eq!(e.fake.lock().unwrap().create_calls, 1);
+}
+#[tokio::test]
+async fn reply_expired_grant_is_skipped_and_exposed_until_renewed() {
+    let e = reply_env().await;
+    e.fake.lock().unwrap().expired = true;
+    scan(&e).await;
+    let calls = e.fake.lock().unwrap().token_requests.len();
+    scan(&e).await;
+    let (_, s) = call(
+        &e,
+        Method::GET,
+        "/api/crm/gmail/replies/status",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(s["grant_expired"], true);
+    assert_eq!(e.fake.lock().unwrap().token_requests.len(), calls);
+    assert!(e.fake.lock().unwrap().thread_reads.is_empty());
+    let enc = grants::encrypt(&[7; 32], "taro@example.com", "renewed-refresh").unwrap();
+    pending::blocking(&e.audit, move |t| {
+        grants::save(t, "taro@example.com", &enc, &SCOPES.join(" "))
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    e.fake.lock().unwrap().expired = false;
+    scan(&e).await;
+    assert_eq!(e.fake.lock().unwrap().create_calls, 2);
+}
+#[tokio::test]
+async fn reply_hubspot_failure_queues_then_retry_creates_once() {
+    let e = reply_env().await;
+    e.fake.lock().unwrap().fail_search = 1;
+    scan(&e).await;
+    let r = incoming_row(&e).await;
+    assert_eq!(r.status, "pending");
+    assert_eq!(r.attempts, 1);
+    assert_eq!(e.fake.lock().unwrap().create_calls, 1);
+    assert!(process_pending(&e.audit, &e.client, &e.write, &r).await);
+    assert_eq!(incoming_row(&e).await.status, "saved");
+    scan(&e).await;
+    assert_eq!(e.fake.lock().unwrap().create_calls, 2);
+    assert_eq!(e.fake.lock().unwrap().sends, 1);
+}
+#[tokio::test]
+async fn reply_two_scanners_and_stale_pending_row_do_not_create_twice() {
+    let e = reply_env().await;
+    tokio::join!(scan(&e), scan(&e));
+    let mut r = incoming_row(&e).await;
+    let saved = r.clone();
+    r.status = "pending".into();
+    r.payload.email.as_mut().unwrap().hubspot_email_id = None;
+    // A stale in-memory operation is reloaded after the database lease.
+    replies::record(&e.audit, &e.client, &mut r).await.unwrap();
+    assert_eq!(r.status, saved.status);
+    assert_eq!(e.fake.lock().unwrap().create_calls, 2);
+}
+#[tokio::test]
+async fn reply_lost_create_response_reconciles_without_second_create() {
+    let e = reply_env().await;
+    e.fake.lock().unwrap().lose_create = true;
+    scan(&e).await;
+    let r = incoming_row(&e).await;
+    assert_eq!(r.status, "pending");
+    assert!(r.payload.email.as_ref().unwrap().create_uncertain);
+    e.fake.lock().unwrap().hidden_search = 1;
+    process_pending(&e.audit, &e.client, &e.write, &r).await;
+    assert_eq!(incoming_row(&e).await.status, "pending");
+    let r = incoming_row(&e).await;
+    process_pending(&e.audit, &e.client, &e.write, &r).await;
+    assert_eq!(incoming_row(&e).await.status, "saved");
+    assert_eq!(e.fake.lock().unwrap().create_calls, 2);
+}
+#[tokio::test]
+async fn reply_plain_text_is_escaped_and_autoreply_is_imported() {
+    let e = reply_env().await;
+    {
+        let mut f = e.fake.lock().unwrap();
+        let m = &mut f.replies[0];
+        m["payload"]["mimeType"] = json!("text/plain");
+        m["payload"]["body"]["data"] =
+            json!(URL_SAFE_NO_PAD.encode("<script>alert(1)</script> &\n不在です"));
+        m["payload"]["headers"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name":"Auto-Submitted","value":"auto-replied"}));
+    }
+    scan(&e).await;
+    let f = e.fake.lock().unwrap();
+    assert_eq!(
+        f.created[1]["properties"]["hs_email_html"],
+        "<p>&lt;script&gt;alert(1)&lt;/script&gt; &amp;<br>不在です</p>"
+    );
+    assert_eq!(
+        f.created[1]["properties"]["hs_email_subject"],
+        "【自動返信】Re: 採用のご相談"
+    );
+}
+#[tokio::test]
+async fn reply_revoked_or_disabled_accounts_are_never_read() {
+    let e = reply_env().await;
+    pending::blocking(&e.audit, |t| grants::revoke(t, "taro@example.com"))
+        .await
+        .unwrap()
+        .unwrap();
+    scan(&e).await;
+    assert!(e.fake.lock().unwrap().thread_reads.is_empty());
+    assert_eq!(
+        call(
+            &e,
+            Method::GET,
+            "/api/crm/gmail/replies/status",
+            Value::Null
+        )
+        .await
+        .1["grant_expired"],
+        true
+    );
+    let enc = grants::encrypt(&[7; 32], "taro@example.com", "renewed-refresh").unwrap();
+    pending::blocking(&e.audit,move |t| {
+        grants::save(t,"taro@example.com",&enc,&SCOPES.join(" "))?;
+        t.execute("INSERT INTO accounts(id,email,first_seen_at,disabled_at) VALUES ('disabled-1','taro@example.com','2026-10-11T00:00:00Z','2026-10-11T00:01:00Z')",&[])
+    }).await.unwrap().unwrap();
+    scan(&e).await;
+    assert!(e.fake.lock().unwrap().thread_reads.is_empty());
+}
+
+#[tokio::test]
+async fn reply_one_hundred_operators_without_new_mail_make_zero_hubspot_calls() {
+    let e = reply_env().await;
+    e.fake.lock().unwrap().replies.clear();
+    let original = row(&e).await;
+    pending::blocking(&e.audit, move |t| {
+        for n in 1..100 {
+            let who = format!("operator-{n}@example.com");
+            let enc = grants::encrypt(&[7; 32], &who, "fake-refresh").unwrap();
+            grants::save(t, &who, &enc, &SCOPES.join(" "))?;
+            pending::insert_op(
+                t,
+                &format!("seed-outgoing-{n}"),
+                &who,
+                "700",
+                &original.payload,
+                "emails",
+            )?;
+        }
+        Ok::<_, String>(())
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    let searches = e.fake.lock().unwrap().searches.len();
+    scan(&e).await;
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.thread_reads.len(), 100);
+    assert_eq!(f.searches.len(), searches);
+    assert_eq!(f.create_calls, 1);
+    assert!(f.reply_reads.is_empty());
+}
+
+#[tokio::test]
+async fn reply_multipart_prefers_html_and_decodes_subject() {
+    let e = reply_env().await;
+    {
+        let mut f = e.fake.lock().unwrap();
+        let m = &mut f.replies[0];
+        m["payload"]["mimeType"] = json!("multipart/alternative");
+        m["payload"]["body"] = json!({});
+        let encoded = STANDARD.encode("Re: 採用のご相談");
+        m["payload"]["headers"][4]["value"] = json!(format!("=?UTF-8?B?{encoded}?="));
+        m["payload"]["parts"] = json!([
+            {"mimeType":"text/plain","body":{"data":URL_SAFE_NO_PAD.encode("plain version")}},
+            {"mimeType":"text/html","headers":[{"name":"Content-Type","value":"text/html; charset=UTF-8"}],"body":{"data":URL_SAFE_NO_PAD.encode("<p>HTML の返信</p>")}}
+        ]);
+    }
+    scan(&e).await;
+    let f = e.fake.lock().unwrap();
+    assert_eq!(
+        f.created[1]["properties"]["hs_email_html"],
+        "<p>HTML の返信</p>"
+    );
+    assert_eq!(
+        f.created[1]["properties"]["hs_email_subject"],
+        "Re: 採用のご相談"
+    );
+}
+
+#[tokio::test]
+async fn reply_two_independent_record_workers_use_database_claim() {
+    let e = reply_env().await;
+    e.fake.lock().unwrap().fail_search = 1;
+    scan(&e).await;
+    let mut a = incoming_row(&e).await;
+    let mut b = a.clone();
+    let searches = e.fake.lock().unwrap().searches.len();
+    let (a_result, b_result) = tokio::join!(
+        replies::record(&e.audit, &e.client, &mut a),
+        replies::record(&e.audit, &e.client, &mut b)
+    );
+    assert!(a_result.is_ok() && b_result.is_ok());
+    assert_eq!(incoming_row(&e).await.status, "saved");
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.create_calls, 2);
+    assert_eq!(f.searches.len(), searches + 1);
+}
+
 #[test]
 fn token_cipher_is_random_and_bound_to_operator() {
     let key = [7; 32];
@@ -35,6 +344,7 @@ fn export_ts_bindings() {
     EmailResult::export_all(&cfg).unwrap();
     GmailGrantStatus::export_all(&cfg).unwrap();
     PendingEmailActivity::export_all(&cfg).unwrap();
+    replies::ReplySyncStatus::export_all(&cfg).unwrap();
 }
 
 fn test_config() -> crate::config::AppConfig {
@@ -87,6 +397,10 @@ use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
 
 #[derive(Default)]
 struct Fake {
+    replies: Vec<Value>,
+    thread_reads: Vec<String>,
+    reply_reads: Vec<String>,
+    expired: bool,
     sends: usize,
     send_attempts: usize,
     reject_gmail: bool,
@@ -119,6 +433,9 @@ async fn fake(
     let mut status = StatusCode::OK;
     let value = match path {
         "/token" => {
+            if f.expired {
+                status = StatusCode::BAD_REQUEST;
+            }
             let form = String::from_utf8_lossy(&bytes).to_string();
             f.token_requests.push(form);
             let mut h = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
@@ -167,6 +484,20 @@ async fn fake(
                 json!({"messages":[]})
             }
         }
+        p if p.starts_with("/gmail/users/me/threads/") => {
+            f.thread_reads.push(p.into());
+            assert!(uri.query().unwrap_or_default().contains("format=metadata"));
+            json!({"messages":f.replies})
+        }
+        p if p.starts_with("/gmail/users/me/messages/reply-") => {
+            f.reply_reads.push(p.into());
+            assert!(uri.query().unwrap_or_default().contains("format=full"));
+            f.replies
+                .iter()
+                .find(|m| Some(p.rsplit('/').next().unwrap()) == m["id"].as_str())
+                .cloned()
+                .unwrap_or(Value::Null)
+        }
         "/crm/v3/objects/deals/700" => {
             json!({"id":"700","properties":{},"archived":false,"associations":{"contacts":{"results":[{"id":"800","type":"deal_to_contact"},{"id":"801","type":"deal_to_contact"}]}}})
         }
@@ -177,7 +508,7 @@ async fn fake(
             json!({"results":[{"id":"900","email":"taro@example.com","archived":false}]})
         }
         "/crm/v3/objects/emails/search" => {
-            f.searches.push(body);
+            f.searches.push(body.clone());
             if f.fail_search > 0 {
                 f.fail_search -= 1;
                 status = StatusCode::SERVICE_UNAVAILABLE;
@@ -186,7 +517,7 @@ async fn fake(
                 f.hidden_search -= 1;
                 json!({"results":[]})
             } else {
-                json!({"results":f.created.iter().enumerate().map(|(i,e)|json!({"id":(902+i).to_string(),"properties":e["properties"]})).collect::<Vec<_>>()})
+                json!({"results":f.created.iter().enumerate().filter(|(_,e)| e["properties"]["hs_email_message_id"] == body["filterGroups"][0]["filters"][0]["value"]).map(|(i,e)|json!({"id":(902+i).to_string(),"properties":e["properties"]})).collect::<Vec<_>>()})
             }
         }
         "/crm/v3/objects/emails" if method == Method::POST => {
@@ -197,10 +528,10 @@ async fn fake(
                 status = StatusCode::INTERNAL_SERVER_ERROR;
                 json!({})
             } else {
-                json!({"id":"902","properties":body["properties"]})
+                json!({"id":(901+f.created.len()).to_string(),"properties":body["properties"]})
             }
         }
-        p if p.starts_with("/crm/v3/objects/emails/902/associations/") => {
+        p if p.starts_with("/crm/v3/objects/emails/") && p.contains("/associations/") => {
             assert_eq!(method, Method::PUT);
             f.associations.push(p.into());
             json!({})
