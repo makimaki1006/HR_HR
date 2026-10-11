@@ -85,7 +85,7 @@ export function DealComparison({ deal, onOpen, onClose }: { deal: DealSelection;
     action.current?.abort(); const controller = new AbortController(); action.current = controller; setBusy(true); setError('');
     const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(row.id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { const job = listingRecord(result.data); if (opener) setPopup({ job: { ...job, listingApplicationCount: job.listingApplicationCount ?? row.application_count }, opener }); else onOpen(job); } else setError(failure(result.error));
+    if (result.ok) { const job = listingRecord(result.data, row); if (opener) setPopup({ job, opener }); else onOpen(job); } else setError(failure(result.error));
     setBusy(false);
   };
   const compare = async () => {

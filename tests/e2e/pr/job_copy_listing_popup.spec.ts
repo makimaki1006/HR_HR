@@ -59,6 +59,7 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await expect(dialog).toHaveAttribute('aria-modal', 'true');
   await expect(dialog).toContainText('2026/10/11 09:00 JST');
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('月給 213,000円〜249,000円');
+  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('12件');
   expect(await dialog.locator('.jc-listing-popup-section').first().locator('p').textContent()).toBe(description);
   await expect(dialog).toContainText('確認が必要');
   await expect(dialog).not.toContainText(/hidden-job-id|hidden-shop-id|hidden-hrh-id|基本給与 最小|求人id|店舗id|shigotonaiyou/);
@@ -104,6 +105,8 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
     await page.keyboard.press('Escape'); await expect(rowOpener).toBeFocused(); await expect(table).toBeVisible();
   }
   await table.getByRole('button', { name: hrh.title, exact: true }).click(); await expect(opener).toBeVisible();
+  await opener.click(); await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('12件');
+  await page.keyboard.press('Escape');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.goto('/app/job-copy?demo=1');
   await page.locator('.jc-main').evaluate(element => { element.scrollTop = element.scrollHeight; });
