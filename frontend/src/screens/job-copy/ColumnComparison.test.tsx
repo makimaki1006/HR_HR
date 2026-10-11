@@ -46,6 +46,25 @@ describe('全文で検知して列で特定する', () => {
     const result = compareColumns(body(a), body(b), a, b);
     expect(result.changes).toEqual([expect.objectContaining({ key: '仕事内容', before: a.仕事内容, after: b.仕事内容 })]);
   });
+  it('今の版でも複数行の値の中の未知の見出しを分断しない', () => {
+    const value = '雇用保険\n手当：夜勤3,500円/回';
+    const current = `自由項目2の内容：${value}\n勤務時間：9時〜17時`;
+    const row = { '自由項目2の内容': `${value}\n（月4回まで）`, '勤務時間': '9時〜17時' };
+    const next = `自由項目2の内容：${row['自由項目2の内容']}\n勤務時間：9時〜17時`;
+    expect(compareColumns(current, next, undefined, row).changes).toEqual([expect.objectContaining({ key: '自由項目2の内容', before: value, after: row['自由項目2の内容'] })]);
+  });
+  it('今の版の複数行値に別の列名が含まれても実際の列の境界を使う', () => {
+    const current = '仕事内容：配送します\n勤務時間：8時の例\n勤務時間：9時〜17時';
+    const row = { '仕事内容': '配送します\n勤務時間：8時の例\n（月4回まで）', '勤務時間': '9時〜17時' };
+    const next = `仕事内容：${row.仕事内容}\n勤務時間：9時〜17時`;
+    expect(compareColumns(current, next, undefined, row).changes).toEqual([expect.objectContaining({ key: '仕事内容', before: '配送します\n勤務時間：8時の例', after: row.仕事内容 })]);
+  });
+  it('途中の未対応見出しもその他に残し、変更のない前後の列を出さない', () => {
+    const row = { '仕事内容': '配送します', '勤務時間': '9時〜17時' };
+    const current = '仕事内容：配送します\n独自の待遇：祝い金20,000円\n勤務時間：9時〜17時';
+    const next = '仕事内容：配送します\n勤務時間：9時〜17時';
+    expect(compareColumns(current, next, undefined, row).changes).toEqual([expect.objectContaining({ key: 'その他', before: '独自の待遇：祝い金20,000円', after: undefined, kind: '削除' })]);
+  });
   it('管理用の識別子と機械的な給与の列名を画面に出さない', () => {
     const result = compareColumns('求人id：private-old\n試用・研修期の基本給与 最小：250000', '求人id：private-new\n試用・研修期の基本給与 最小：270000');
     render(<ColumnComparison result={result} />);
