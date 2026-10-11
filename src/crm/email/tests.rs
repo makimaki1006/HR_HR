@@ -890,6 +890,7 @@ async fn env_client(granted: bool, dedicated: bool) -> Env {
         rate_limiter: crate::auth::session::RateLimiter::new(50, 60),
         company_geo_cache: None,
         audit: Some(audit.clone()),
+        crm_hubspot: None,
         hubspot: Some(client.clone()),
         google_oidc: Some(Arc::new(
             crate::auth::google_oidc::GoogleOidc::with_endpoints(

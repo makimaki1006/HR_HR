@@ -360,10 +360,11 @@ impl HubSpotClient {
         Self::with_gateway(access_token, base_url, opts, gateway)
     }
 
-    /// 本番用: 接続先は [`base_url_from_env`]、関所はプロセス共有 ([`Gateway::shared`])。
+    /// 本番用: 接続先は [`base_url_from_env`]、関所は同じ鍵で共有 ([`Gateway::shared_for_token`])。
     /// Search の間隔は関所の設定 (`HUBSPOT_APP_SEARCH_PER_SEC`) で決まり、`opts.search_min_interval` は使わない。
     pub fn for_production(access_token: String, opts: ClientOptions) -> Result<Self, HubSpotError> {
-        Self::with_gateway(access_token, &base_url_from_env(), opts, Gateway::shared())
+        let gateway = Gateway::shared_for_token(&access_token);
+        Self::with_gateway(access_token, &base_url_from_env(), opts, gateway)
     }
 
     /// 関所を指定して作る (テストで共有の関所を再現する)

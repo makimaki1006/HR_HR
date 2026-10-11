@@ -514,7 +514,7 @@ pub(super) async fn get_property_catalog(
     if let Err(denied) = rbac::authorize(&session, &state, &ctx.access, None).await {
         return denied.into_response();
     }
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.catalog.get(&client)).await {

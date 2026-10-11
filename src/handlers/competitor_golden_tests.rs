@@ -193,6 +193,7 @@ fn bare_state() -> Arc<AppState> {
         company_geo_cache: None,
         audit: None,
         google_oidc: None,
+        crm_hubspot: None,
         hubspot: None,
     })
 }

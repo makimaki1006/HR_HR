@@ -279,7 +279,7 @@ pub async fn check_drift(client: &HubSpotClient) -> StageRulesDriftReport {
 
 /// 低頻度の背景検査を始める (起動 2 分後に 1 回、その後 [`DRIFT_INTERVAL`] ごと)
 pub fn spawn_drift_check(state: Arc<AppState>) {
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return;
     };
     let client = client.background();

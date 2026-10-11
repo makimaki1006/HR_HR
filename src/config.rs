@@ -106,6 +106,23 @@ impl HubSpotApiConfig {
         Self::from_value(env::var("HUBSPOT_ACCESS_TOKEN").ok())
     }
 
+    /// CRM 用は専用鍵を優先。空・未設定なら従来の鍵を使う。
+    pub fn crm_from_env() -> Option<(Self, &'static str)> {
+        Self::crm_from_values(
+            env::var("HUBSPOT_CRM_ACCESS_TOKEN").ok(),
+            env::var("HUBSPOT_ACCESS_TOKEN").ok(),
+        )
+    }
+
+    pub fn crm_from_values(
+        dedicated: Option<String>,
+        shared: Option<String>,
+    ) -> Option<(Self, &'static str)> {
+        Self::from_value(dedicated)
+            .map(|c| (c, "HUBSPOT_CRM_ACCESS_TOKEN"))
+            .or_else(|| Self::from_value(shared).map(|c| (c, "HUBSPOT_ACCESS_TOKEN")))
+    }
+
     /// 前後の空白は落とし、空文字は未設定扱い。
     pub fn from_value(access_token: Option<String>) -> Option<Self> {
         access_token
@@ -354,6 +371,51 @@ mod tests {
 
     fn s(v: &str) -> Option<String> {
         Some(v.to_string())
+    }
+
+    #[test]
+    fn crm_hubspot_鍵を選択し値をログへ出さない() {
+        for (dedicated, shared, expected) in [
+            (
+                s(" dedicated-key-123 "),
+                s("legacy-key-456"),
+                Some(("dedicated-key-123", "HUBSPOT_CRM_ACCESS_TOKEN")),
+            ),
+            (
+                s("dedicated-only-789"),
+                None,
+                Some(("dedicated-only-789", "HUBSPOT_CRM_ACCESS_TOKEN")),
+            ),
+            (
+                None,
+                s("legacy-key-456"),
+                Some(("legacy-key-456", "HUBSPOT_ACCESS_TOKEN")),
+            ),
+            (
+                s("  "),
+                s(" legacy-key-456 "),
+                Some(("legacy-key-456", "HUBSPOT_ACCESS_TOKEN")),
+            ),
+            (None, None, None),
+            (s(" "), s(" "), None),
+        ] {
+            let selected = HubSpotApiConfig::crm_from_values(dedicated, shared);
+            match (selected, expected) {
+                (Some((cfg, source)), Some((token, wanted_source))) => {
+                    assert_eq!(cfg.access_token, token);
+                    assert_eq!(source, wanted_source);
+                    assert!(!format!("{cfg:?}").contains(token));
+                }
+                (None, None) => {}
+                other => panic!("鍵の選択結果が期待と異なる: {other:?}"),
+            }
+        }
+        assert_eq!(
+            HubSpotApiConfig::from_value(s("legacy-key-456"))
+                .unwrap()
+                .access_token,
+            "legacy-key-456"
+        );
     }
 
     #[test]

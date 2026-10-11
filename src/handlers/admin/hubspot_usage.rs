@@ -247,13 +247,13 @@ pub fn build_response(configured: bool, snap: &GatewaySnapshot) -> HubSpotUsageR
 
 /// GET /api/admin/hubspot-usage
 pub async fn api_hubspot_usage(State(state): State<Arc<AppState>>) -> Response {
-    // 本番の HubSpot クライアントは全部プロセス共有の関所を使う。CRM のクライアントがあればその関所
-    // (= 共有のもの)、無ければ共有の関所をそのまま読む
-    let gateway: Arc<Gateway> = match state.hubspot.as_deref() {
+    // CRM が使う鍵の関所を読む。CRM 未設定なら共通の関所を読む。
+    let crm_client = state.crm_hubspot();
+    let gateway: Arc<Gateway> = match crm_client.as_deref() {
         Some(c) => c.gateway().clone(),
         None => Gateway::shared(),
     };
-    let body = build_response(state.hubspot.is_some(), &gateway.snapshot());
+    let body = build_response(crm_client.is_some(), &gateway.snapshot());
     (
         [(axum::http::header::CACHE_CONTROL, "no-store")],
         Json(body),
