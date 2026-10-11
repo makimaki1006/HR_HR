@@ -1491,13 +1491,17 @@ async fn job_copy_listings_auth_and_mock_contract() {
                 let body: Value = serde_json::from_slice(&to_bytes(req.into_body(),4096).await.unwrap()).unwrap();
                 assert_eq!(body["inputs"],json!([{"id":"10"},{"id":"11"}]));
                 json!({"results":[record,{"id":"11","properties":{"id_airwork":"AW-11","hs_name":"合成別媒体","shigotonaiyou":"合成AirWorkの本文"}}]})
-            } else if path == "/crm/v4/objects/0-420/10/associations/deals" {
+            } else if path == "/crm/v4/objects/0-420/10/associations/deals" || path == "/crm/v4/objects/0-420/11/associations/deals" {
                 json!({"results":[]})
             } else if path == "/crm/v4/associations/0-420/0-421/batch/read" {
                 assert_eq!(req.method(), Method::POST);
                 let body: Value = serde_json::from_slice(&to_bytes(req.into_body(), 4096).await.unwrap()).unwrap();
                 assert_eq!(body, json!({"inputs":[{"id":"11"},{"id":"10"},{"id":"12"}]}));
                 json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":21},{"toObjectId":22}]},{"from":{"id":"11"},"to":[]},{"from":{"id":"12"},"to":[]}]})
+            } else if path == "/crm/v3/objects/0-420/11" {
+                assert!(query.contains("kinmujikan"));
+                assert!(query.contains("fukurikousei"));
+                json!({"id":"11","properties":{"id_airwork":"AW-11","hs_name":"合成の倉庫求人","shigotonaiyou":"箱を仕分けます。\n最後に持ち場を片付けます。","qinwude":"東京都江東区","kyuuyokeitai":"月給","kinmujikan":"9:00〜18:00","guyongxingtai":"full_time","fukurikousei":"社会保険"},"propertiesWithHistory":{"shigotonaiyou":[{"timestamp":"2026-10-01T00:00:00Z","value":"以前は検品を担当していました。"}]}})
             } else if path == "/crm/v3/objects/0-420/10" {
                 let mut record = record;
                 let mut req = crate::job_gen::drafts::tests::request();
@@ -1643,11 +1647,44 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(response.status(), StatusCode::OK);
     let data: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 16384).await.unwrap()).unwrap();
+    let airwork = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/job-copy/listings/11/versions")
+                .header("cookie", format!("id={}", session.id().unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(airwork.status(), StatusCode::OK);
+    let airwork: Value =
+        serde_json::from_slice(&to_bytes(airwork.into_body(), 16384).await.unwrap()).unwrap();
+    assert_eq!(
+        airwork["current_fields"]["仕事内容"],
+        "箱を仕分けます。\n最後に持ち場を片付けます。"
+    );
+    assert_eq!(airwork["current_fields"]["勤務地"], "東京都江東区");
+    assert_eq!(airwork["current_fields"]["雇用形態"], "正社員");
+    assert_eq!(airwork["current_fields"]["福利厚生"], "社会保険");
+    assert_eq!(airwork["current_fields"]["勤務時間"], "9:00〜18:00");
+    assert!(airwork["current_fields"].get("基本給与 最小").is_none());
+    assert_eq!(
+        airwork["versions"][0]["body"],
+        "以前は検品を担当していました。"
+    );
+    assert_eq!(
+        airwork["current"]["body"],
+        "箱を仕分けます。\n最後に持ち場を片付けます。"
+    );
     assert_eq!(data["versions"][0]["body"], "合成の旧本文");
     assert_eq!(
         data["versions"][1]["written_at"],
         "2026-10-02T00:00:00+00:00"
     );
+    assert_eq!(data["current_fields"]["Indeed表示職種名"], "配送ドライバー");
+    assert_eq!(data["current_fields"]["勤務地"], "大分県大分市");
     assert_eq!(data["history_counts"]["hrh_kyuujinhyou_honbun"], 2);
     assert_eq!(data["history_may_be_incomplete"], false);
     assert_eq!(data["drafts"].as_array().unwrap().len(), 2);
@@ -1663,7 +1700,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["drafts"][1]["review_status"], "pending");
     assert_eq!(data["draft_revision"].as_str().unwrap().len(), 64);
     assert_eq!(data["can_write_drafts"], false);
-    assert_eq!(calls.lock().unwrap().len(), 7); // index + association batches, history and detail-only company associations
+    assert_eq!(calls.lock().unwrap().len(), 9); // index + association batches, history and detail-only company associations
     for ids in ["10", "10,10", "10,11,12,13,14,15", "10,not-an-id"] {
         let response = app
             .clone()
@@ -1677,7 +1714,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        assert_eq!(calls.lock().unwrap().len(), 7);
+        assert_eq!(calls.lock().unwrap().len(), 9);
     }
     let response = app
         .clone()
@@ -1701,7 +1738,7 @@ async fn job_copy_listings_auth_and_mock_contract() {
     assert_eq!(data["jobs"][0]["listing"]["media"], "hrh");
     assert_eq!(data["jobs"][1]["listing"]["media"], "airwork");
     assert_eq!(data["jobs"][1]["body"], "合成AirWorkの本文");
-    assert_eq!(calls.lock().unwrap().len(), 8); // one read for selected jobs
+    assert_eq!(calls.lock().unwrap().len(), 10); // one read for selected jobs
     session
         .insert(SESSION_USER_KEY, "outside@example.test")
         .await
@@ -1718,6 +1755,6 @@ async fn job_copy_listings_auth_and_mock_contract() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(calls.lock().unwrap().len(), 8);
+    assert_eq!(calls.lock().unwrap().len(), 10);
     task.abort();
 }
