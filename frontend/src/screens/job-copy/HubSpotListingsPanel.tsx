@@ -7,7 +7,7 @@ import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, onShowDeal, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; revision?: number }) {
+export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; revision?: number }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
@@ -20,6 +20,8 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   const [sort, setSort] = useState('title');
   const [titles, setTitles] = useState<string[]>([]);
   const [page, setPage] = useState<HubSpotListingPage | null>(null);
+  const pageRef = useRef(page);
+  const loadedRecord = useRef<JobCopyRecord | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState('');
@@ -39,7 +41,7 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     if (draftStatus) query.set('draft_status', draftStatus);
     const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${query.toString()}`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
+    if (result.ok) { pageRef.current = result.data; setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
     setBusy(false);
   }, [prefecture, title, media, sort, deal, dealSearch, publication, draftStatus]);
   useEffect(() => {
@@ -55,14 +57,25 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   const opened = useRef('');
   const restored = useRef('');
   const openId = useCallback(async (id: string, listedRow?: HubSpotListing) => {
-    opened.current = id;
+    opened.current = id; loadedRecord.current = null;
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
     setSelected(id); setError(''); onLoading?.();
     const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { onOpen(listingRecord(result.data, listedRow ?? page?.listings.find(row => row.id === id))); }
+    if (result.ok) {
+      const record = listingRecord(result.data, listedRow ?? pageRef.current?.listings.find(row => row.id === id));
+      loadedRecord.current = record; onOpen(record);
+    }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
-  }, [onOpen, onLoading, onFailure, page]);
+  }, [onOpen, onLoading, onFailure]);
+  useEffect(() => {
+    const record = loadedRecord.current;
+    const row = page?.listings.find(item => item.id === record?.hubspotId);
+    if (record?.hubspotId === opened.current && record.listingApplicationCount == null && row?.application_count != null) {
+      loadedRecord.current = { ...record, listingApplicationCount: row.application_count };
+      onApplicationsLoaded?.(row.id, row.application_count);
+    }
+  }, [page, onApplicationsLoaded]);
   useEffect(() => {
     if (!active) return;
     if (!initialListingId) { restored.current = ''; return; }

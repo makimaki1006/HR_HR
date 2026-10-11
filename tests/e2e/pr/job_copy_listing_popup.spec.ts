@@ -5,7 +5,7 @@ const screenshots = 'docs/screenshots/job-copy-listing-popup';
 const description = '出荷リストを確認し、日用品を棚から集めます。\n\n商品の種類と数量を照合し、配送先ごとに箱へまとめます。\n台車を使い、通路の安全を確認しながら出荷場所へ運びます。\n\n困ったときは近くの担当者へ確認してください。\n最後の作業では翌日の出荷予定を確認し、持ち場を片付けます。';
 const awDescription = '届いた商品を配送先ごとに分ける仕事です。\n\n伝票を見て種類と数量を照合します。\n商品を台車へ載せ、指定された場所へ運びます。\n\nはじめは先輩と一緒に、伝票の見方と安全な運び方を覚えます。';
 const summary = { occupation: '倉庫作業', location: '東京都江東区', salary_kind: '月給', salary_min: '213000', salary_max: '249000', hours: '9:00〜18:00', holidays: '土日休み', body_changed_at: '2026-10-11T00:00:00Z' };
-const hrh = { id: '1', media: 'hrh', media_job_id: 'hidden-hrh-id', account_id: null, title: '架空の日用品ピッキングスタッフ', prefecture: '東京都', municipality: '江東区', category: null, publication_status: '公開', last_csv_detected_at: null, application_count: 12, summary };
+const hrh = { id: '1', media: 'hrh', media_job_id: 'hidden-hrh-id', account_id: null, title: '架空の日用品ピッキングスタッフ', prefecture: '東京都', municipality: '江東区', category: null, publication_status: '非公開', last_csv_detected_at: null, application_count: 0, summary };
 const aw = { ...hrh, id: '2', media: 'airwork', media_job_id: 'hidden-aw-id', title: '架空の出荷準備スタッフ', publication_status: '掲載中', application_count: null, summary: { ...summary, salary_min: null, salary_max: null, holidays: null } };
 const fields: Record<string, string> = {
   求人id: 'hidden-job-id', 店舗id: 'hidden-shop-id', 職種id: 'hidden-occupation-id', 案件名: hrh.title,
@@ -16,7 +16,7 @@ const fields: Record<string, string> = {
   '試用・研修の有無': '1', '試用・研修時の雇用条件': '同条件', '試用・研修期の雇用形態': '正社員', '試用・研修期の給与のタイプ': '月給', '試用・研修期の基本給与 最小': '213000', '試用・研修期の基本給与 最大': '249000', '試用・研修期の平均稼働時間': '8時間', '試用・研修期の平均稼働日数': '20日', '試用・研修期の固定残業代': 'なし', '試用・研修期の想定残業時間': '月10時間', '試用・研修の詳細情報': '先輩と作業を進めます。',
   給与補足: '交通費は別途支給します。', 勤務時間: '9:00〜18:00（休憩60分）', 勤務時間帯: '日勤',
   自由項目1のタイトル: '休日・休暇', 自由項目1の内容: '土日休み\n年末年始休暇', 自由項目2のタイトル: '福利厚生', 自由項目2の内容: '社会保険・交通費支給',
-  受動喫煙対策: '屋内禁煙', 受動喫煙についての補足情報: '屋外に喫煙所あり', 応募方法: '応募フォームで受け付けます。', 応募後のプロセス: '担当者が面談日程をご案内します。', 採用予定人数: '2名', 問い合わせ電話番号: '03-0000-0000', 連絡先メールアドレス: 'synthetic@example.invalid', 制作メモ: '担当者が文章を確認しています。', 公開: '公開', 公開開始日時: '2026-10-01 09:00',
+  受動喫煙対策: '屋内禁煙', 受動喫煙についての補足情報: '屋外に喫煙所あり', 応募方法: '応募フォームで受け付けます。', 応募後のプロセス: '担当者が面談日程をご案内します。', 採用予定人数: '2名', 問い合わせ電話番号: '03-0000-0000', 連絡先メールアドレス: 'synthetic@example.invalid', 制作メモ: '担当者が文章を確認しています。', 公開: '', 公開開始日時: '2026-10-01 09:00',
 };
 for (let i = 1; i <= 4; i++) {
   fields[`仕事情報補足${String(i)}のタイトル`] = ['1日の進め方', '職場の案内', '入社後の流れ', '応募後の案内'][i - 1]!;
@@ -44,9 +44,8 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
     return route.fulfill({ status: 503, json: { code: 'synthetic_unavailable' } });
   });
   await page.route('**/static/app/popup-fixture.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#eaf5f7"/><text x="210" y="130" font-size="25" fill="#25394c">架空の職場の案内画像</text></svg>' }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?listing=1');
   const panel = page.getByRole('region', { name: 'HubSpot の求人' });
-  await panel.getByRole('button', { name: `${hrh.title}の本文を見る` }).click();
   const opener = page.getByRole('button', { name: '求人の内容を確認する' });
   await expect(opener).toBeVisible();
   const bounds = (await opener.boundingBox())!;
@@ -59,7 +58,9 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   await expect(dialog).toHaveAttribute('aria-modal', 'true');
   await expect(dialog).toContainText('2026/10/11 09:00 JST');
   await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('月給 213,000円〜249,000円');
-  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('12件');
+  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');
+  await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('非公開');
+  await expect(dialog.locator('.jc-listing-popup-missing')).not.toContainText(/公開状況|求人名|勤務地|給与形態/);
   expect(await dialog.locator('.jc-listing-popup-section').first().locator('p').textContent()).toBe(description);
   await expect(dialog).toContainText('確認が必要');
   await expect(dialog).not.toContainText(/hidden-job-id|hidden-shop-id|hidden-hrh-id|基本給与 最小|求人id|店舗id|shigotonaiyou/);
@@ -69,12 +70,12 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
   expect(await dialog.locator('.jc-listing-popup-scroll').evaluate(element => element.scrollWidth - element.clientWidth)).toBe(0);
   expect(dialogBounds.width).toBe(900); expect(Math.abs(dialogBounds.height / viewport.height - 0.9)).toBeLessThan(0.01);
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('hidden');
-  if (viewport.width === 1440) await page.screenshot({ path: `${screenshots}/02-hrh-popup-1440.png` });
+  await page.screenshot({ path: `${screenshots}/02-hrh-popup-${viewport.width}.png` });
   const scroller = dialog.locator('.jc-listing-popup-scroll');
   await scroller.evaluate(element => { element.scrollTop = element.scrollHeight; });
   await expect(dialog.getByRole('heading', { name: /^未取得の項目（/ })).toBeInViewport();
   await expect(dialog.getByRole('img', { name: '画像1', exact: true })).toHaveCount(1);
-  if (viewport.width === 1440) await page.screenshot({ path: `${screenshots}/04-missing-bottom-1440.png` });
+  await page.screenshot({ path: `${screenshots}/04-missing-bottom-${viewport.width}.png` });
   const background = await page.locator('.jc-main').evaluate(element => element.scrollTop);
   await page.mouse.move(20, viewport.height / 2); await page.mouse.wheel(0, 500);
   expect(await page.locator('.jc-main').evaluate(element => element.scrollTop)).toBe(background);
@@ -101,11 +102,11 @@ for (const viewport of [{ width: 1440, height: 742 }, { width: 1920, height: 108
     await rowOpener.click();
     const rowDialog = page.getByRole('dialog', { name: job.title });
     await expect(rowDialog).toBeFocused(); await expect(rowDialog).toContainText(index === 0 ? description : awDescription);
-    if (index === 0) await expect(rowDialog.locator('.jc-listing-popup-summary')).toContainText('12件');
+    if (index === 0) await expect(rowDialog.locator('.jc-listing-popup-summary')).toContainText('0件');
     await page.keyboard.press('Escape'); await expect(rowOpener).toBeFocused(); await expect(table).toBeVisible();
   }
   await table.getByRole('button', { name: hrh.title, exact: true }).click(); await expect(opener).toBeVisible();
-  await opener.click(); await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('12件');
+  await opener.click(); await expect(dialog.locator('.jc-listing-popup-summary')).toContainText('0件');
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.goto('/app/job-copy?demo=1');
