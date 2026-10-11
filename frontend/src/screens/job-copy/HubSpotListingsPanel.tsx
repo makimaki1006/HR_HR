@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import type { JobCopyRecord } from './data';
 import { listingRecord, mediaLabel } from './hubspotListings';
-import type { HubSpotListing, HubSpotListingPage, HubSpotVersions } from './hubspotListings';
+import type { HubSpotListingPage, HubSpotVersions } from './hubspotListings';
 import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void }) {
-  const [filtersOpen, setFiltersOpen] = useState(() => window.matchMedia('(min-width: 801px)').matches);
+export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined }) {
+  const [filtersOpen, setFiltersOpen] = useState(() => typeof window === 'undefined' || window.matchMedia('(min-width: 801px)').matches);
   useEffect(() => { const media = window.matchMedia('(min-width: 801px)'); const change = (event: MediaQueryListEvent) => { setFiltersOpen(event.matches); }; media.addEventListener('change', change); return () => { media.removeEventListener('change', change); }; }, []);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
@@ -45,14 +45,16 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     const timer = window.setTimeout(() => { void load(); }, 5_000);
     return () => { window.clearTimeout(timer); };
   }, [active, page, busy, error, load]);
-  async function open(row: HubSpotListing) {
+  const openId = useCallback(async (id: string) => {
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
-    setSelected(row.id); setHistory(null); setError(''); onLoading?.();
-    const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(row.id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
+    setSelected(id); setHistory(null); setError(''); onLoading?.();
+    const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
     if (result.ok) { setHistory(result.data); onOpen(listingRecord(result.data)); }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
-  }
+  }, [onOpen, onLoading, onFailure]);
+  const opened = useRef('');
+  useEffect(() => { if (active && initialListingId && /^\d{1,20}$/.test(initialListingId) && opened.current !== initialListingId) { opened.current = initialListingId; void openId(initialListingId); } }, [active, initialListingId, openId]);
   const rows = sort === 'applications' ? [...(page?.listings ?? [])].sort((a, b) => (b.application_count ?? -1) - (a.application_count ?? -1)) : page?.listings ?? [];
   return <section className="jc-listings-panel" aria-labelledby="hubspot-listings-heading" hidden={!active}>
     <div className="jc-hubspot-list-heading"><h2 id="hubspot-listings-heading">HubSpot の求人</h2><span>{page?.status === 'ready' ? `${String(page.total)}件` : page?.status === 'preparing' ? '準備中' : '未取得'}</span></div>
@@ -68,7 +70,7 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     {page?.status === 'ready' && <><p className="jc-index-date">条件に合う求人は{page.total}件です。<br />{formatDateTimeJst(page.index_built_at, '日時不明')}時点の一覧</p>
       {page.refreshing && <p role="status">一覧を更新中です。表示している時点の一覧を利用できます。</p>}
       {page.refresh_failed && <p role="status">一覧の更新を取得できませんでした。表示している時点の一覧を利用しています。</p>}
-      <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の版を見る`} onClick={() => { void open(row); }}>
+      <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の版を見る`} onClick={() => { void openId(row.id); }}>
         <span className="jc-job-company">{mediaLabel(row.media)} <span className="jc-publication">{row.publication_status ?? '未取得'}</span></span>
         <strong>{row.title ?? '求人名未取得'}</strong><span>{row.prefecture ?? '不明'}{row.municipality ?? ''} · {row.category ?? '職種不明'}</span>
         <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
