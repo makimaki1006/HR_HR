@@ -44,3 +44,12 @@
 .pp-cards legend { font-size: 11px; font-weight: 700; color: var(--cq-sub); padding: 0 4px; }
 .pp-cards .pp-group-all { font-size: 12px; color: var(--cq-text); }
 .pp-cards .pp-group-all small { margin-left: 2px; color: var(--cq-faint); }
+.pp-role-standard { display: grid; gap: .5rem; padding-block: .75rem; }
+.pp-role-standard select { margin-top: .25rem; }
+.pp-role-standard button, .pp-order button, .pp-role-reset { border: 1px solid #cbd5e1; border-radius: 4px; background: white; padding: .35rem .6rem; color: #334155; cursor: pointer; }
+.pp-order { margin-block: .75rem; }
+.pp-order ol { padding-left: 1.5rem; }
+.pp-order li { padding-block: .2rem; }
+.pp-order button { margin-left: .35rem; }
+.pp-order button:disabled { opacity: .4; cursor: default; }
+.pp-role-reset { margin-bottom: .5rem; }

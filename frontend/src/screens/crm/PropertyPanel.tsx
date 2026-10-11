@@ -13,6 +13,9 @@ import { EditableValue } from './WriteWidgets';
 import { WRITES_OFF_NOTE } from './useCrmWrite';
 import type { PanelWrite } from './writeBindings';
 import './property-panel.css';
+import { ROLE_LABELS } from './useRolePropertyLayout';
+import type { LayoutRole, useRolePropertyLayout } from './useRolePropertyLayout';
+type RoleLayout = ReturnType<typeof useRolePropertyLayout>;
 
 /**
  * 「プロパティ」パネル: 選んだ項目を HubSpot の表示名で並べる (読み取りだけ)。
@@ -126,11 +129,14 @@ function CardPresets({ index, draft, onChange }: {
   </fieldset>;
 }
 
-export function PropertyPicker({ catalog, selection, onApply, onCancel }: {
+export function PropertyPicker({ catalog, selection, onApply, onCancel, roleLayout }: {
   catalog: Extract<CatalogState, { phase: 'ready' }>; selection: SelectedProps;
-  onApply: (next: SelectedProps) => void; onCancel: () => void;
+  onApply: (next: SelectedProps) => void; onCancel: () => void; roleLayout?: RoleLayout | undefined;
 }) {
   const [draft, setDraft] = useState<SelectedProps>(selection);
+  const [targetRole, setTargetRole] = useState<LayoutRole>('bpo');
+  const [saving, setSaving] = useState(false);
+  const [saveNote, setSaveNote] = useState('');
   const [obj, setObj] = useState<CatalogObject>('deals');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
@@ -181,6 +187,23 @@ export function PropertyPicker({ catalog, selection, onApply, onCancel }: {
         </li>;
       })}
     </ul>
+    <section className="pp-order" aria-label="表示の順番"><h4>表示の順番</h4><ol>{draft[obj].map((name, i) => <li key={name}>
+      {catalog.index[obj].get(name)?.prop.label ?? '表示できない項目'}
+      {([-1, 1] as const).map(delta => <button key={delta} type="button" aria-label={`${catalog.index[obj].get(name)?.prop.label ?? '項目'}を${delta === -1 ? '上' : '下'}へ`}
+        disabled={i + delta < 0 || i + delta >= draft[obj].length} onClick={() => {
+          const next = [...draft[obj]]; const adjacent = next[i + delta]; if (adjacent === undefined) return;
+          next[i + delta] = name; next[i] = adjacent; setDraft({ ...draft, [obj]: next });
+        }}>{delta === -1 ? '↑' : '↓'}</button>)}
+    </li>)}</ol></section>
+    {roleLayout?.role?.can_edit && <div className="pp-role-standard">
+      <label>標準にする役割 <select value={targetRole} onChange={e => { setTargetRole(e.target.value as LayoutRole); }}>
+        {(Object.keys(ROLE_LABELS) as LayoutRole[]).map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+      </select></label>
+      <button type="button" disabled={saving} onClick={() => { setSaving(true); setSaveNote(''); void roleLayout.saveStandard(targetRole, obj, draft[obj])
+        .then(() => { setSaveNote(`${ROLE_LABELS[targetRole]}の${OBJECT_LABELS[obj]}の標準を保存しました。`); })
+        .catch(() => { setSaveNote('役割の標準を保存できませんでした。もう一度お試しください。'); }).finally(() => { setSaving(false); });
+      }}>この並びを {ROLE_LABELS[targetRole]} の標準にする</button><p role="status">{saveNote}</p>
+    </div>}
     <div className="pp-actions">
       <button type="button" className="pp-apply" disabled={!changed} onClick={() => { onApply(draft); }}>この項目で表示する</button>
       <button type="button" onClick={onCancel}>やめる</button>
@@ -190,7 +213,8 @@ export function PropertyPicker({ catalog, selection, onApply, onCancel }: {
   </div>;
 }
 
-function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data, placeholder, ownerNames, hasSelection, write }: {
+function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data, placeholder, ownerNames, hasSelection, write, roleLayout }: {
+  roleLayout?: RoleLayout | undefined;
   catalog: CatalogState; onReloadCatalog: () => void;
   selection: SelectedProps; onApply: (next: SelectedProps) => void;
   /** 表示中の案件の詳細 (無ければ placeholder を出す) */
@@ -207,15 +231,16 @@ function PropertyPanelImpl({ catalog, onReloadCatalog, selection, onApply, data,
   const [openCards, setOpenCards] = useState<Readonly<Record<string, boolean>>>(() => Object.fromEntries(HUBSPOT_CARDS.map(c => [c.id, c.expanded])));
   const ready = catalog.phase === 'ready' ? catalog : null;
   const cards = useMemo(() => (ready === null ? null : cardSections(selection, ready.index)), [ready, selection]);
-  const entries = ready === null ? null : { deals: cards?.others ?? [], contacts: orderedSelection('contacts', selection, ready.index), companies: orderedSelection('companies', selection, ready.index) };
-  const shownCards = cards?.sections.filter(c => c.entries.length > 0 || c.unavailable > 0) ?? [];
+  const entries = ready === null ? null : { deals: roleLayout?.ordered ? orderedSelection('deals', selection, ready.index) : cards?.others ?? [], contacts: orderedSelection('contacts', selection, ready.index), companies: orderedSelection('companies', selection, ready.index) };
+  const shownCards = roleLayout?.ordered ? [] : cards?.sections.filter(c => c.entries.length > 0 || c.unavailable > 0) ?? [];
   const nothing = entries !== null && shownCards.length === 0 && CATALOG_OBJECTS.every(o => entries[o].length === 0);
   return <div className="pp dock-scroll" data-testid="property-panel">
     <div className="pp-head">
       <button type="button" className="pp-pick" aria-expanded={picking} aria-controls={pickerId} disabled={ready === null}
         onClick={() => { setPicking(p => !p); }}>表示する項目を選ぶ</button>
     </div>
-    <div id={pickerId}>{picking && ready !== null && <PropertyPicker catalog={ready} selection={selection}
+    {roleLayout && <button type="button" className="pp-role-reset" onClick={() => { setPicking(false); roleLayout.reset(); }}>役割の標準に戻す</button>}
+    <div id={pickerId}>{picking && ready !== null && <PropertyPicker roleLayout={roleLayout} catalog={ready} selection={selection}
       onApply={next => { setPicking(false); onApply(next); }} onCancel={() => { setPicking(false); }} />}</div>
     {write?.writesEnabled === false && hasSelection && <p className="crm-muted pp-note" data-testid="writes-off-note">{WRITES_OFF_NOTE}</p>}
     {!hasSelection ? <p className="dock-placeholder">{placeholder}</p>

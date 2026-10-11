@@ -43,7 +43,8 @@ import { Dock } from './Dock';
 import { clearLegacyLayout, columnOf, dockReducer, loadLayoutWithNotice, localStorageOrNull, saveLayout } from './dockModel';
 import type { DockAction, PanelId } from './dockModel';
 import { PropertyPanel } from './PropertyPanel';
-import { loadSelected, sanitizeSelected, saveSelected } from './propertyModel';
+import { sanitizeSelected } from './propertyModel';
+import { useRolePropertyLayout } from './useRolePropertyLayout';
 import type { SelectedProps } from './propertyModel';
 import { usePropertyCatalog } from './usePropertyCatalog';
 import type { CatalogFetch } from './usePropertyCatalog';
@@ -284,10 +285,11 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
   const compactOverview = densityPref === 'auto' ? shortScreen : densityPref === 'compact';
   const density = useMemo(() => ({ compact: compactOverview, onToggle: () => { setDensityPref(compactOverview ? 'full' : 'compact'); } }), [compactOverview]);
   // 「プロパティ」パネルで表示する項目 (このブラウザに残す)。項目の一覧に無いもの (HubSpot で消された等) は送らない
-  const [storedProps, setStoredProps] = useState<SelectedProps>(() => loadSelected(localStorageOrNull()));
+  const roleLayout = useRolePropertyLayout(mode, localStorageOrNull(), selection !== null);
+  const storedProps = roleLayout.selection;
   const catalog = usePropertyCatalog(mode, selection !== null, catalogFetcher);
   const selectedProps = useMemo(() => (catalog.state.phase === 'ready' ? sanitizeSelected(storedProps, catalog.state.index) : storedProps), [catalog.state, storedProps]);
-  const applyProps = useCallback((next: SelectedProps) => { setStoredProps(next); saveSelected(localStorageOrNull(), next); }, []);
+  const applyProps = roleLayout.apply;
   // 通話が終わったが、まだ読み直していない案件 (次に開くときサーバのキャッシュを使わずに読む)
   const [staleDeals, setStaleDeals] = useState<ReadonlySet<string>>(() => new Set());
   const freshLoaded = useCallback((id: string) => {
@@ -682,7 +684,7 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
           </div>
         </section>
     </>,
-    properties: <PropertyPanel catalog={catalog.state} onReloadCatalog={catalog.reload} selection={selectedProps} onApply={applyProps}
+    properties: <PropertyPanel roleLayout={roleLayout} catalog={catalog.state} onReloadCatalog={catalog.reload} selection={selectedProps} onApply={applyProps}
       data={shownData} placeholder={placeholder} ownerNames={ownerNames} hasSelection={selectedId !== null} write={writeBindings.panel} />,
     overview: <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
       {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
