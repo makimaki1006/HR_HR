@@ -654,6 +654,26 @@ pub(super) async fn read(
         })),
     ))
 }
+/// Re-read acquired counts after index preparation, without fetching bodies or HubSpot.
+pub(super) async fn read_applications(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    AxumPath(id): AxumPath<String>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    valid_id(&id)?;
+    let cached = service(&access)?.listing_index.state.read().await;
+    let application_count = cached
+        .snapshot
+        .as_ref()
+        .and_then(|index| index.records.iter().find(|row| row.id == id))
+        .and_then(|row| row.indexed_application_count);
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(json!({"listing_id":id,"application_count":application_count})),
+    ))
+}
 #[cfg(test)]
 fn association_count(data: &Value, id: &str) -> Option<usize> {
     if data
@@ -1015,6 +1035,23 @@ mod tests {
             } else {
                 Some(index)
             };
+            let counts = read_applications(
+                State(state.clone()),
+                Extension(access.clone()),
+                session.clone(),
+                AxumPath("51".into()),
+            )
+            .await
+            .unwrap()
+            .into_response();
+            assert_eq!(counts.headers()[header::CACHE_CONTROL], "private, no-store");
+            let counts: Value =
+                serde_json::from_slice(&to_bytes(counts.into_body(), 4096).await.unwrap()).unwrap();
+            assert_eq!(
+                counts,
+                json!({"listing_id":"51","application_count":count}),
+                "{mode}"
+            );
             let response = read_versions(
                 State(state.clone()),
                 Extension(access.clone()),
@@ -1031,6 +1068,45 @@ mod tests {
             assert_eq!(body["listing"]["id"], "51");
             assert_eq!(body["listing"]["application_count"], json!(count), "{mode}");
         }
+        let anonymous = Session::new(None, Arc::new(tower_sessions::MemoryStore::default()), None);
+        assert!(matches!(
+            read_applications(
+                State(state.clone()),
+                Extension(access.clone()),
+                anonymous,
+                AxumPath("51".into())
+            )
+            .await,
+            Err(ReadError(StatusCode::UNAUTHORIZED, _))
+        ));
+        session
+            .insert(SESSION_USER_KEY, "outside@example.test")
+            .await
+            .unwrap();
+        assert!(matches!(
+            read_applications(
+                State(state.clone()),
+                Extension(access.clone()),
+                session.clone(),
+                AxumPath("51".into())
+            )
+            .await,
+            Err(ReadError(StatusCode::FORBIDDEN, _))
+        ));
+        session
+            .insert(SESSION_USER_KEY, "reader@example.test")
+            .await
+            .unwrap();
+        assert!(matches!(
+            read_applications(
+                State(state),
+                Extension(access),
+                session,
+                AxumPath("not-a-job".into())
+            )
+            .await,
+            Err(ReadError(StatusCode::BAD_REQUEST, _))
+        ));
         // Exactly the existing detail and company-association reads for each request.
         assert_eq!(calls.load(Ordering::Relaxed), 10);
         task.abort();
