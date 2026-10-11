@@ -47,10 +47,36 @@ pub struct EmailConfig {
     pub gmail_url: String,
 }
 impl EmailConfig {
+    /// Choose once for consent, token exchange and refresh. Login configuration is unchanged.
+    fn google_client(
+        login: Option<GoogleOidcConfig>,
+        client_id: Option<String>,
+        client_secret: Option<String>,
+    ) -> Option<GoogleOidcConfig> {
+        let norm = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        match (norm(client_id), norm(client_secret)) {
+            (None, None) => login,
+            (Some(id), Some(secret)) => {
+                let mut google = login?;
+                google.client_id = id;
+                google.client_secret = secret;
+                Some(google)
+            }
+            _ => {
+                tracing::warn!("CRM_EMAIL_GOOGLE_CLIENT_ID / CRM_EMAIL_GOOGLE_CLIENT_SECRET が一部だけ設定されています。Gmail 機能は無効です");
+                None
+            }
+        }
+    }
     pub fn from_env() -> Option<Self> {
         if std::env::var("CRM_EMAIL_ENABLED").ok().as_deref() != Some("1") {
             return None;
         }
+        let google = Self::google_client(
+            GoogleOidcConfig::from_env(),
+            std::env::var("CRM_EMAIL_GOOGLE_CLIENT_ID").ok(),
+            std::env::var("CRM_EMAIL_GOOGLE_CLIENT_SECRET").ok(),
+        )?;
         let key: [u8; 32] = STANDARD
             .decode(std::env::var("CRM_EMAIL_TOKEN_KEY").ok()?)
             .ok()?
@@ -70,7 +96,7 @@ impl EmailConfig {
         let base_url = url.origin().ascii_serialization();
         Some(Self {
             key,
-            google: GoogleOidcConfig::from_env()?,
+            google,
             redirect_url,
             base_url,
             authorization_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),

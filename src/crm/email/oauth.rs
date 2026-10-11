@@ -183,9 +183,10 @@ async fn callback_inner(
         Err(e) => return error_json(StatusCode::BAD_GATEWAY, e.code()),
     };
     let identity = match oidc
-        .verify(
+        .verify_for_client(
             tokens.id_token.as_deref().unwrap_or_default(),
             &tx.login.nonce,
+            &service.cfg.google.client_id,
         )
         .await
     {

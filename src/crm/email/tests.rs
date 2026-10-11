@@ -615,6 +615,8 @@ struct Fake {
     lose_create: bool,
     hidden_search: usize,
     token_requests: Vec<String>,
+    consent_aud: Option<String>,
+    consent_claims: Option<Value>,
     consent_email: Option<String>,
     consent_scopes: Option<String>,
     nonce: String,
@@ -644,7 +646,13 @@ async fn fake(
                 include_str!("../../../tests/fixtures/oidc/test_key_1.pem").as_bytes(),
             )
             .unwrap();
-            let token = jsonwebtoken::encode(&h,&json!({"iss":"https://accounts.google.com","aud":"test-client","sub":"operator-1","email":f.consent_email.clone().unwrap_or("taro@example.com".into()),"hd":"example.com","email_verified":true,"nonce":f.nonce,"exp":chrono::Utc::now().timestamp()+3600}),&key).unwrap();
+            let mut claims = json!({"iss":"https://accounts.google.com","aud":f.consent_aud.as_deref().unwrap_or("test-client"),"sub":"operator-1","email":f.consent_email.clone().unwrap_or("taro@example.com".into()),"hd":"example.com","email_verified":true,"nonce":f.nonce,"exp":chrono::Utc::now().timestamp()+3600});
+            if let Some(overrides) = f.consent_claims.as_ref().and_then(Value::as_object) {
+                for (name, value) in overrides {
+                    claims[name] = value.clone();
+                }
+            }
+            let token = jsonwebtoken::encode(&h, &claims, &key).unwrap();
             json!({"access_token":"access-test","refresh_token":"refresh-test-123","id_token":token,"scope":f.consent_scopes.clone().unwrap_or(SCOPES.join(" "))})
         }
         "/jwks" => {
@@ -802,8 +810,12 @@ struct Env {
     conn: SharedConn,
     cookie: String,
     write: WriteConfig,
+    oidc: Arc<crate::auth::google_oidc::GoogleOidc>,
 }
 async fn env(granted: bool) -> Env {
+    env_client(granted, false).await
+}
+async fn env_client(granted: bool, dedicated: bool) -> Env {
     let fake_state = Arc::new(Mutex::new(Fake::default()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -819,8 +831,17 @@ async fn env(granted: bool) -> Env {
     };
     let service = Arc::new(EmailService::new(EmailConfig {
         key: [7; 32],
-        google: google.clone(),
-        redirect_url: format!("http://localhost{CALLBACK}"),
+        google: EmailConfig::google_client(
+            Some(google.clone()),
+            dedicated.then(|| "gmail-client.apps.googleusercontent.com".into()),
+            dedicated.then(|| "gmail-only-secret".into()),
+        )
+        .unwrap(),
+        redirect_url: if dedicated {
+            format!("https://hr-hw.onrender.com{CALLBACK}")
+        } else {
+            format!("http://localhost{CALLBACK}")
+        },
         base_url: "http://localhost".into(),
         authorization_url: format!("{base}/authorize"),
         token_url: format!("{base}/token"),
@@ -882,6 +903,7 @@ async fn env(granted: bool) -> Env {
             ),
         )),
     });
+    let oidc = state.google_oidc.clone().unwrap();
     let write = WriteConfig {
         email: Some(service.clone()),
         ..WriteConfig::default()
@@ -921,6 +943,7 @@ async fn env(granted: bool) -> Env {
         conn,
         cookie,
         write,
+        oidc,
     }
 }
 fn request() -> SendEmailRequest {
@@ -1146,6 +1169,11 @@ async fn consent_state_scope_identity_encryption_replay_and_revocation() {
     let url = reqwest::Url::parse(start.headers()[header::LOCATION].to_str().unwrap()).unwrap();
     let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
     assert_eq!(query["scope"], format!("openid email {}", SCOPES.join(" ")));
+    assert_eq!(query["client_id"], "test-client");
+    assert_eq!(
+        query["redirect_uri"],
+        "http://localhost/api/crm/gmail/callback"
+    );
     assert_eq!(query["access_type"], "offline");
     assert_eq!(query["prompt"], "consent");
     assert_eq!(query["include_granted_scopes"], "true");
@@ -1203,6 +1231,9 @@ async fn consent_state_scope_identity_encryption_replay_and_revocation() {
     );
     assert_eq!(send(&e, &request()).await.0, 403);
     assert_eq!(e.fake.lock().unwrap().revoke_calls, 1);
+    let q = form_fields(&e.fake.lock().unwrap().token_requests[0]);
+    assert_eq!(q["client_id"], "test-client");
+    assert_eq!(q["client_secret"], "test-secret");
 }
 
 #[tokio::test]
@@ -1486,4 +1517,263 @@ async fn imported_reply_has_no_tracking_binding_or_summary() {
         .unwrap();
     assert_eq!(r.status(), StatusCode::NO_CONTENT);
     assert_eq!(e.fake.lock().unwrap().sends, 1);
+}
+
+#[test]
+fn gmail_client_configuration_is_paired_and_backward_compatible() {
+    let login = GoogleOidcConfig {
+        client_id: "login-client.apps.googleusercontent.com".into(),
+        client_secret: "login-secret".into(),
+        redirect_url: "https://hr-hw.onrender.com/auth/google/callback".into(),
+        hosted_domain: "f-a-c.co.jp".into(),
+    };
+    for (id, secret) in [(None, None), (Some(" ".into()), Some(" ".into()))] {
+        let cfg = EmailConfig::google_client(Some(login.clone()), id, secret).unwrap();
+        assert_eq!(cfg.client_id, "login-client.apps.googleusercontent.com");
+        assert_eq!(cfg.client_secret, "login-secret");
+    }
+    for (id, secret) in [
+        (Some("gmail-client".into()), None),
+        (None, Some("secret".into())),
+        (Some("gmail-client".into()), Some(" ".into())),
+    ] {
+        assert!(EmailConfig::google_client(Some(login.clone()), id, secret).is_none());
+    }
+    let cfg = EmailConfig::google_client(
+        Some(login.clone()),
+        Some(" gmail-client.apps.googleusercontent.com ".into()),
+        Some(" gmail-only-secret ".into()),
+    )
+    .unwrap();
+    assert_eq!(cfg.client_id, "gmail-client.apps.googleusercontent.com");
+    assert_eq!(cfg.client_secret, "gmail-only-secret");
+    assert_eq!(cfg.hosted_domain, "f-a-c.co.jp");
+    assert_eq!(login.client_id, "login-client.apps.googleusercontent.com");
+}
+
+async fn consent_callback(e: &Env) -> Response {
+    let start = e
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/api/crm/gmail/authorize")
+                .header(header::COOKIE, &e.cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(start.status(), StatusCode::SEE_OTHER);
+    let q: HashMap<String, String> =
+        reqwest::Url::parse(start.headers()[header::LOCATION].to_str().unwrap())
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
+    e.fake.lock().unwrap().nonce = q["nonce"].clone();
+    e.app
+        .clone()
+        .oneshot(
+            Request::get(format!("{CALLBACK}?code=gmail-code&state={}", q["state"]))
+                .header(header::COOKIE, format!("hrhr_gmail_tx={}", q["state"]))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+fn form_fields(body: &str) -> HashMap<String, String> {
+    reqwest::Url::parse(&format!("http://localhost/?{body}"))
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect()
+}
+#[tokio::test]
+async fn dedicated_gmail_client_consent_send_reply_refresh_and_revoke_use_selected_credentials() {
+    let e = env_client(false, true).await;
+    e.fake.lock().unwrap().consent_aud = Some("gmail-client.apps.googleusercontent.com".into());
+    let (url, _) = e.service.authorization("taro@example.com".into()).unwrap();
+    let q = form_fields(reqwest::Url::parse(&url).unwrap().query().unwrap());
+    assert_eq!(q["client_id"], "gmail-client.apps.googleusercontent.com");
+    assert_eq!(
+        q["redirect_uri"],
+        "https://hr-hw.onrender.com/api/crm/gmail/callback"
+    );
+    assert_eq!(consent_callback(&e).await.status(), StatusCode::OK);
+    assert_eq!(send(&e, &request()).await.0, 200);
+    e.fake.lock().unwrap().replies = vec![reply_message("customer@example.invalid")];
+    scan(&e).await;
+    assert_eq!(
+        call(&e, Method::POST, "/api/crm/gmail/revoke", json!({}))
+            .await
+            .0,
+        200
+    );
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.revoke_calls, 1);
+    assert_eq!(f.token_requests.len(), 4); // consent, send preflight, send adapter, reply refresh
+    for (n, body) in f.token_requests.iter().enumerate() {
+        let q = form_fields(body);
+        assert_eq!(q["client_id"], "gmail-client.apps.googleusercontent.com");
+        assert_eq!(q["client_secret"], "gmail-only-secret");
+        assert_eq!(
+            q["grant_type"],
+            if n == 0 {
+                "authorization_code"
+            } else {
+                "refresh_token"
+            }
+        );
+        if n == 0 {
+            assert_eq!(
+                q["redirect_uri"],
+                "https://hr-hw.onrender.com/api/crm/gmail/callback"
+            );
+        } else {
+            assert_eq!(q["refresh_token"], "refresh-test-123");
+        }
+    }
+}
+#[tokio::test]
+async fn dedicated_gmail_callback_rejects_login_audience_and_invalid_identity_claims() {
+    for claims in [
+        json!({"aud":"test-client"}),
+        json!({"iss":"https://attacker.invalid"}),
+        json!({"exp":chrono::Utc::now().timestamp()-3600}),
+        json!({"hd":"other.invalid"}),
+        json!({"email_verified":false}),
+        json!({"email":"other@example.com"}),
+        json!({"nonce":"wrong-nonce"}),
+    ] {
+        let e = env_client(false, true).await;
+        {
+            let mut f = e.fake.lock().unwrap();
+            f.consent_aud = Some("gmail-client.apps.googleusercontent.com".into());
+            f.consent_claims = Some(claims.clone());
+        }
+        assert_eq!(
+            consent_callback(&e).await.status(),
+            StatusCode::FORBIDDEN,
+            "{claims}"
+        );
+        let count: i64 = e
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM crm_gmail_grants", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0, "{claims}");
+    }
+}
+#[tokio::test]
+async fn login_verifier_still_rejects_gmail_audience_and_accepts_login_audience() {
+    let e = env_client(false, true).await;
+    {
+        let mut f = e.fake.lock().unwrap();
+        f.nonce = "client-isolation-nonce".into();
+        f.consent_aud = Some("gmail-client.apps.googleusercontent.com".into());
+    }
+    let t = e
+        .service
+        .tokens(&[("grant_type", "authorization_code"), ("code", "gmail-code")])
+        .await
+        .unwrap();
+    let token = t.id_token.unwrap();
+    assert!(e
+        .oidc
+        .verify(&token, "client-isolation-nonce")
+        .await
+        .is_err());
+    assert!(e
+        .oidc
+        .verify_for_client(
+            &token,
+            "client-isolation-nonce",
+            "gmail-client.apps.googleusercontent.com"
+        )
+        .await
+        .is_ok());
+    e.fake.lock().unwrap().consent_aud = None;
+    let t = e
+        .service
+        .tokens(&[("grant_type", "authorization_code"), ("code", "login-code")])
+        .await
+        .unwrap();
+    assert!(e
+        .oidc
+        .verify(&t.id_token.unwrap(), "client-isolation-nonce")
+        .await
+        .is_ok());
+}
+
+#[tokio::test]
+async fn gmail_dedicated_audience_keeps_company_domain_and_signature_verification() {
+    use crate::auth::google_oidc::{Endpoints, GoogleOidc};
+    let e = env_client(false, true).await;
+    let mut cfg = e.oidc.config().clone();
+    cfg.hosted_domain = "f-a-c.co.jp".into();
+    let base = e.service.cfg.token_url.trim_end_matches("/token");
+    let oidc = GoogleOidc::with_endpoints(
+        cfg,
+        Endpoints {
+            issuer: "https://accounts.google.com".into(),
+            authorization_endpoint: format!("{base}/authorize"),
+            token_endpoint: format!("{base}/token"),
+            jwks_uri: format!("{base}/jwks"),
+        },
+    );
+    let claims = json!({"iss":"https://accounts.google.com","aud":"gmail-client.apps.googleusercontent.com","sub":"operator-1","email":"taro@f-a-c.co.jp","hd":"f-a-c.co.jp","email_verified":true,"nonce":"company-nonce","exp":chrono::Utc::now().timestamp()+3600});
+    let token = crate::auth::google_oidc::tests::sign(
+        &claims,
+        crate::auth::google_oidc::tests::KEY_1_PEM,
+        "test-key-1",
+    );
+    let id = oidc
+        .verify_for_client(
+            &token,
+            "company-nonce",
+            "gmail-client.apps.googleusercontent.com",
+        )
+        .await
+        .unwrap();
+    assert_eq!(id.email, "taro@f-a-c.co.jp");
+    let forged = crate::auth::google_oidc::tests::sign(
+        &claims,
+        crate::auth::google_oidc::tests::KEY_2_PEM,
+        "test-key-1",
+    );
+    assert!(oidc
+        .verify_for_client(
+            &forged,
+            "company-nonce",
+            "gmail-client.apps.googleusercontent.com"
+        )
+        .await
+        .is_err());
+    for update in [
+        json!({"hd":"gmail.com"}),
+        json!({"email":"taro@gmail.com"}),
+        json!({"email_verified":false}),
+    ] {
+        let mut wrong = claims.clone();
+        for (k, v) in update.as_object().unwrap() {
+            wrong[k] = v.clone();
+        }
+        let token = crate::auth::google_oidc::tests::sign(
+            &wrong,
+            crate::auth::google_oidc::tests::KEY_1_PEM,
+            "test-key-1",
+        );
+        assert!(
+            oidc.verify_for_client(
+                &token,
+                "company-nonce",
+                "gmail-client.apps.googleusercontent.com"
+            )
+            .await
+            .is_err(),
+            "{update}"
+        );
+    }
 }
