@@ -29,6 +29,8 @@ pub(crate) struct CookieState {
     pub app: Arc<AppState>,
     pub key: Option<Key>,
     pub secure: bool,
+    // 同じプロセス内で復元して増えたメモリセッションもまとめて失効する。
+    pub revoked: Arc<dashmap::DashMap<String, i64>>,
 }
 
 impl CookieState {
@@ -41,6 +43,7 @@ impl CookieState {
             app,
             key,
             secure: crate::config::is_production_env(),
+            revoked: Arc::default(),
         }
     }
 }
@@ -131,6 +134,13 @@ async fn verified_account(state: &AppState, login: &Login) -> Result<Option<Stri
     .map_err(|_| ())
 }
 
+fn revoke(state: &CookieState, sid: String) {
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    state.revoked.retain(|_, until| *until > now);
+    // 発行済み Cookie の最大寿命は24時間。期限内は容量による退避をしない。
+    state.revoked.insert(sid, now + 24 * 60 * 60);
+}
+
 pub(crate) async fn restore_login(
     State(state): State<CookieState>,
     session: Session,
@@ -168,24 +178,31 @@ pub(crate) async fn restore_login(
         }
         if had_cookie {
             if let Some(login) = decode(&jar, key) {
-                let account_id = match verified_account(&state.app, &login).await {
-                    Ok(id) => id,
-                    Err(()) => return unavailable(),
-                };
-                if let Some(account_id) = account_id {
-                    previous_expiry = Some(login.expires);
-                    previous_sid = Some(login.session_id.clone());
-                    let email: Option<String> = session.get(SESSION_USER_KEY).await.unwrap_or(None);
-                    let method: Option<String> =
-                        session.get(SESSION_LOGIN_METHOD_KEY).await.unwrap_or(None);
-                    let sid: Option<String> = session
-                        .get(crate::SESSION_LOGIN_SESSION_ID_KEY)
-                        .await
-                        .unwrap_or(None);
-                    if email.as_deref() != Some(&login.email)
-                        || method.as_deref() != Some(&login.method)
-                        || sid.as_deref() != Some(&login.session_id)
-                    {
+                previous_expiry = Some(login.expires);
+                previous_sid = Some(login.session_id.clone());
+                let email: Option<String> = session.get(SESSION_USER_KEY).await.unwrap_or(None);
+                let method: Option<String> =
+                    session.get(SESSION_LOGIN_METHOD_KEY).await.unwrap_or(None);
+                let sid: Option<String> = session
+                    .get(crate::SESSION_LOGIN_SESSION_ID_KEY)
+                    .await
+                    .unwrap_or(None);
+                let revoked = state
+                    .revoked
+                    .get(&login.session_id)
+                    .is_some_and(|until| *until > time::OffsetDateTime::now_utc().unix_timestamp());
+                if revoked {
+                    let _ = session.flush().await;
+                } else if email.as_deref() != Some(&login.email)
+                    || method.as_deref() != Some(&login.method)
+                    || sid.as_deref() != Some(&login.session_id)
+                {
+                    // メモリに同じ認証がない場合だけ、永続的な失効を確認して復元する。
+                    let account_id = match verified_account(&state.app, &login).await {
+                        Ok(id) => id,
+                        Err(()) => return unavailable(),
+                    };
+                    if let Some(account_id) = account_id {
                         let _ = session.flush().await;
                         let _ = session.insert(SESSION_USER_KEY, &login.email).await;
                         let _ = session
@@ -200,11 +217,11 @@ pub(crate) async fn restore_login(
                         if let Some(expiry) = &login.external_expires {
                             let _ = session.insert(EXTERNAL_EXPIRY_KEY, expiry).await;
                         }
+                        let _ = session.insert(COOKIE_ISSUED_KEY, true).await;
                         restored = true;
+                    } else if path != "/logout" {
+                        let _ = session.flush().await;
                     }
-                    let _ = session.insert(COOKIE_ISSUED_KEY, true).await;
-                } else if path != "/logout" {
-                    let _ = session.flush().await;
                 }
             } else if path != "/logout" {
                 let _ = session.flush().await;
@@ -233,11 +250,21 @@ pub(crate) async fn restore_login(
             }
         }
     }
-    let rejected = super::unauthenticated_response(&request);
+    let logout_sid = if path == "/logout" {
+        session
+            .get::<String>(crate::SESSION_LOGIN_SESSION_ID_KEY)
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
     let mut response = next.run(request).await;
     // 失効確認・失効書き込みが失敗した応答では、Cookie を更新・削除しない。
     if response.status().is_server_error() {
         return response;
+    }
+    if let Some(sid) = logout_sid.filter(|_| response.status().is_redirection()) {
+        revoke(&state, sid);
     }
     if let Some(key) = &state.key {
         let email = session
@@ -259,15 +286,17 @@ pub(crate) async fn restore_login(
                     return unavailable();
                 };
                 if !matches!(
-                    tokio::task::spawn_blocking(move || crate::audit::dao::mark_session_ended(
-                        &audit, &old_sid
-                    ))
+                    tokio::task::spawn_blocking({
+                        let old_sid = old_sid.clone();
+                        move || crate::audit::dao::mark_session_ended(&audit, &old_sid)
+                    })
                     .await,
                     Ok(Ok(()))
                 ) {
                     let _ = session.flush().await;
                     return unavailable();
                 }
+                revoke(&state, old_sid);
             }
         }
         if let (Some(email), Some(method), Some(session_id)) = (email, method, sid) {
@@ -285,24 +314,15 @@ pub(crate) async fn restore_login(
                     external_expires: session.get(EXTERNAL_EXPIRY_KEY).await.unwrap_or(None),
                 };
                 if login.valid() {
-                    match verified_account(&state.app, &login).await {
-                        Ok(Some(_)) => {
-                            let mut c = cookie(
-                                serde_json::to_string(&login).expect("login serialization"),
-                                state.secure,
-                            );
-                            c.set_expires(
-                                time::OffsetDateTime::from_unix_timestamp(expires).unwrap(),
-                            );
-                            let _ = session.insert(COOKIE_ISSUED_KEY, true).await;
-                            jar.private_mut(key).add(c);
-                        }
-                        Ok(None) => {
-                            let _ = session.flush().await;
-                            return rejected;
-                        }
-                        Err(()) => return unavailable(),
-                    }
+                    // この参照はログイン成功時の保存または復元時の照会で確認済み。
+                    // 同じ応答で再度照会しない。
+                    let mut c = cookie(
+                        serde_json::to_string(&login).expect("login serialization"),
+                        state.secure,
+                    );
+                    c.set_expires(time::OffsetDateTime::from_unix_timestamp(expires).unwrap());
+                    let _ = session.insert(COOKIE_ISSUED_KEY, true).await;
+                    jar.private_mut(key).add(c);
                 }
             }
         } else {
