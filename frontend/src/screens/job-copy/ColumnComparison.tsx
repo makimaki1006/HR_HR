@@ -1,10 +1,10 @@
 import shared from './hrhCopyColumns.json';
 import draftColumns from '../../generated/jobgen/columns.json';
 import { compareCopy, markInlineChanges, type CopyComparison, type MarkedDiffLine } from './diff';
-const columns = [...new Set([...shared, ...draftColumns])];
+const columns = [...new Set([...draftColumns, ...shared])];
 export const normalizeFullBody = (text: string) => text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
 /** 保存形式の列名＋区切り文字だけを読む。本文の意味や保険・手当などの語では分類しない。 */
-export function savedColumns(text: string): Map<string, string> {
+export function savedColumns(text: string, referenceRow?: Readonly<Record<string, string>>): Map<string, string> {
   const result = new Map<string, string>();
   if (!text) return result;
   let key = 'その他'; let lines: string[] = [];
@@ -13,13 +13,38 @@ export function savedColumns(text: string): Map<string, string> {
     const value = lines.join('\n');
     result.set(key, result.has(key) ? `${result.get(key) ?? ''}\n${value}` : value);
   };
-  for (const line of text.split('\n')) {
+  const source = text.split('\n');
+  const headers = source.map((line, index) => {
     const full = line.indexOf('：'); const half = line.indexOf(':');
     const separator = full < 0 ? half : half < 0 ? full : Math.min(full, half);
     const heading = separator > 0 ? line.slice(0, separator) : '';
-    if (heading && columns.includes(heading)) {
-      flush(); key = heading; lines = [line.slice(separator + 1)];
-    } else if (heading && !line.startsWith(' ') && !line.startsWith('　')) {
+    return { index, separator, heading, rank: columns.indexOf(heading), length: 1, next: -1 };
+  });
+  const candidates = headers.filter(header => header.rank >= 0);
+  let boundaries = new Set(candidates.map(header => header.index));
+  if (new Set(candidates.map(header => header.heading)).size !== candidates.length) {
+    // 重複する列名らしい行は、保存時の列順に合う最長の列の並びを使って区切る。
+    // 同じ長さなら後の境界を優先し、前の値に含まれる列名らしい行を保持する。
+    const best = new Map<number, number>();
+    for (let index = candidates.length - 1; index >= 0; index--) {
+      const header = candidates[index]; if (!header) continue;
+      for (let rank = header.rank + 1; rank < columns.length; rank++) {
+        const next = best.get(rank); const candidate = next === undefined ? undefined : candidates[next];
+        if (candidate && next !== undefined && candidate.length + 1 > header.length) { header.length = candidate.length + 1; header.next = next; }
+      }
+      const previous = best.get(header.rank);
+      if (previous === undefined || header.length > (candidates[previous]?.length ?? 0)) best.set(header.rank, index);
+    }
+    boundaries = new Set();
+    let index = 0;
+    while (index >= 0) { const header = candidates[index]; if (!header) break; boundaries.add(header.index); index = header.next; }
+  }
+  for (const header of headers) {
+    const line = source[header.index] ?? '';
+    if (boundaries.has(header.index)) {
+      flush(); key = header.heading; lines = [line.slice(header.separator + 1)];
+    } else if (header.rank < 0 && header.heading && (key === 'その他' || !referenceRow?.[key]?.split('\n').some(valueLine => valueLine.startsWith(`${header.heading}：`) || valueLine.startsWith(`${header.heading}:`)))) {
+      // 行データ内の同じ見出しの行は列値の一部として保持し、対応しない見出しは全文を残す。
       flush(); key = 'その他'; lines = [line];
     } else lines.push(line);
   }
@@ -37,8 +62,8 @@ export function compareColumns(before: string | null, after: string | null, befo
   } : raw;
   if (comparison.status === 'unchanged' || comparison.status === 'unavailable') return { ...comparison, changes: [] };
   const rowValues = (row: Readonly<Record<string, string>>) => new Map(Object.entries(row).map(([key, value]) => [key, value.replaceAll('\r\n', '\n').replaceAll('\r', '\n')]));
-  const a = beforeRow ? rowValues(beforeRow) : savedColumns(left ?? '');
-  const b = afterRow ? rowValues(afterRow) : savedColumns(right ?? '');
+  const a = beforeRow ? rowValues(beforeRow) : savedColumns(left ?? '', afterRow);
+  const b = afterRow ? rowValues(afterRow) : savedColumns(right ?? '', beforeRow);
   const changes = [...new Set([...a.keys(), ...b.keys()])].flatMap(key => {
     const old = a.get(key); const next = b.get(key);
     if (old === next) return [];
