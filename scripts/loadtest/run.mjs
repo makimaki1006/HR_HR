@@ -516,6 +516,11 @@ function reportOnly(jsonPath) {
 }
 
 async function main() {
+  if (A.scenario === 'write') {
+    // write scenario (PATCH /api/crm/deals/{id}): separate driver, same options style. See write_run.mjs
+    const r = spawn(process.execPath, [path.join(HERE, 'write_run.mjs'), ...process.argv.slice(2)], { stdio: 'inherit' });
+    return new Promise(res => r.on('exit', code => { process.exitCode = code ?? 1; res(); }));
+  }
   if (A.report) return reportOnly(A.report);
   const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crm_loadtest_'));
