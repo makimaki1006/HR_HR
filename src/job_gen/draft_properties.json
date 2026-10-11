@@ -1,0 +1,99 @@
+[
+  {
+    "groupName": "tab_p_1_kyuujinjouhou",
+    "description": "求人票作成の画面が書く。手で編集しない",
+    "formField": false,
+    "name": "jobgen_draft_body",
+    "label": "確認待ちの案の本文",
+    "type": "string",
+    "fieldType": "textarea"
+  },
+  {
+    "groupName": "tab_p_1_kyuujinjouhou",
+    "description": "求人票作成の画面が書く。手で編集しない",
+    "formField": false,
+    "name": "jobgen_draft_created_at",
+    "label": "案を作った日時",
+    "type": "datetime",
+    "fieldType": "date"
+  },
+  {
+    "groupName": "tab_p_1_kyuujinjouhou",
+    "description": "求人票作成の画面が書く。手で編集しない",
+    "formField": false,
+    "name": "jobgen_draft_status",
+    "label": "案の確認状態",
+    "type": "enumeration",
+    "fieldType": "select",
+    "options": [
+      {
+        "value": "pending",
+        "label": "確認待ち",
+        "displayOrder": 0,
+        "hidden": false
+      },
+      {
+        "value": "adopted",
+        "label": "採用",
+        "displayOrder": 1,
+        "hidden": false
+      },
+      {
+        "value": "rejected",
+        "label": "見送り",
+        "displayOrder": 2,
+        "hidden": false
+      }
+    ]
+  },
+  {
+    "groupName": "tab_p_1_kyuujinjouhou",
+    "description": "求人票作成の画面が書く。手で編集しない",
+    "formField": false,
+    "name": "jobgen_draft_source",
+    "label": "案の元データの種類",
+    "type": "enumeration",
+    "fieldType": "select",
+    "options": [
+      {
+        "value": "csv",
+        "label": "CSV",
+        "displayOrder": 0,
+        "hidden": false
+      },
+      {
+        "value": "pdf",
+        "label": "PDF",
+        "displayOrder": 1,
+        "hidden": false
+      },
+      {
+        "value": "excel",
+        "label": "Excel",
+        "displayOrder": 2,
+        "hidden": false
+      },
+      {
+        "value": "free_text",
+        "label": "文章",
+        "displayOrder": 3,
+        "hidden": false
+      },
+      {
+        "value": "url",
+        "label": "URL",
+        "displayOrder": 4,
+        "hidden": false
+      }
+    ]
+  },
+  {
+    "groupName": "tab_p_1_kyuujinjouhou",
+    "description": "求人票作成の画面が書く。手で編集しない",
+    "formField": false,
+    "name": "jobgen_draft_facts",
+    "label": "案の事実と版の対応情報",
+    "type": "string",
+    "fieldType": "textarea"
+  }
+]

@@ -241,7 +241,7 @@ async fn invalid_cloud_configuration_does_not_fall_back_to_local_file() {
     );
 }
 
-fn moc_state() -> Arc<AppState> {
+pub(super) fn moc_state() -> Arc<AppState> {
     use crate::{config::AppConfig, db::cache::AppCache};
     Arc::new(AppState {
         config: AppConfig {
@@ -1494,7 +1494,14 @@ async fn job_copy_listings_auth_and_mock_contract() {
                 json!({"results":[{"from":{"id":"10"},"to":[{"toObjectId":21},{"toObjectId":22}]}]})
             } else if path == "/crm/v3/objects/0-420/10" {
                 let mut record = record;
-                record["propertiesWithHistory"] = json!({"hrh_kyuujinhyou_honbun":[{"timestamp":"2026-10-01T00:00:00Z","value":"合成の旧本文"},{"timestamp":"2026-10-02T00:00:00Z","value":"合成の新本文"}]});
+                let mut req = crate::job_gen::drafts::tests::request();
+                let first = crate::job_gen::drafts::DraftSnapshot::from_request(&req, chrono::Utc::now()).unwrap();
+                req.operation_id = "20000000-0000-4000-8000-000000000002".into();
+                req.created_at = "2026-10-10T01:00:00Z".into();
+                let second = crate::job_gen::drafts::DraftSnapshot::from_request(&req, chrono::Utc::now()).unwrap();
+                let current = second.properties().unwrap();
+                for (key, value) in current { record["properties"][key] = json!(value); }
+                record["propertiesWithHistory"] = json!({"hrh_kyuujinhyou_honbun":[{"timestamp":"2026-10-01T00:00:00Z","value":"合成の旧本文"},{"timestamp":"2026-10-02T00:00:00Z","value":"合成の新本文"}], crate::job_gen::drafts::FACTS: [ {"timestamp":"2026-10-10T00:00:00Z","value":serde_json::to_string(&first).unwrap()}, {"timestamp":"2026-10-10T01:00:00Z","value":serde_json::to_string(&second).unwrap()} ]});
                 record
             } else {panic!("unexpected upstream path: {path}");};
             Json(data)
@@ -1630,6 +1637,26 @@ async fn job_copy_listings_auth_and_mock_contract() {
     );
     assert_eq!(data["history_counts"]["hrh_kyuujinhyou_honbun"], 2);
     assert_eq!(data["history_may_be_incomplete"], false);
+    assert_eq!(data["drafts"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        data["drafts"][0]["draft_id"],
+        "10000000-0000-4000-8000-000000000001"
+    );
+    assert_eq!(data["drafts"][1]["row"]["基本給与 最小"], "270000");
+    assert_eq!(
+        data["drafts"][1]["facts"]["work_location"]["value"],
+        "大分県大分市"
+    );
+    assert_eq!(data["drafts"][1]["review_status"], "pending");
+    assert_eq!(data["draft_revision"].as_str().unwrap().len(), 64);
+    assert_eq!(data["can_write_drafts"], false);
+    assert!(calls
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .contains("jobgen_draft_facts"));
+
     assert_eq!(calls.lock().unwrap().len(), 5); // three index pages, one association batch, one history GET
     session
         .insert(SESSION_USER_KEY, "outside@example.test")
