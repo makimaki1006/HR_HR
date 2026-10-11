@@ -15,6 +15,8 @@ import {
 import type { ActivityKindFilter } from './workspaceModel';
 import { FRESHNESS_TICK_MS, clock, freshnessLabel } from './workspaceModel';
 import { ActivityCard } from './ActivityCard';
+import { EmailThreadCard } from './EmailThreadCard';
+import { groupActivityEmails } from './emailThreads';
 import { RESULT_LABELS, useTicking } from './ZoomPhonePanel';
 import { dealJobSearchUrl, extractUrls, isEmptyGoogleSearch, safeHttpUrl } from './centerLinks';
 import { PropLink } from './CenterTabs';
@@ -263,16 +265,22 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
   }, [notice, shown]);
   if (data === null) return <div className="dock-scroll"><p className="dock-placeholder">{placeholder}</p></div>;
   const acts = filterActivities(data.activities, kind);
+  const entries = groupActivityEmails(acts);
+  const emailTotal = acts.filter(a => a.kind === 'email').length;
   return <section ref={log} className="wd-log dock-scroll" aria-label="活動ログ" data-testid="activity-log">
-    <p className="wd-log-head"><strong>{data.activities.length} 件</strong>{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
+    <p className="wd-log-head"><strong>{entries.length} 件</strong>{emailTotal > 0 && <small>（メール {emailTotal} 件）</small>}{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
     <p className="wd-scope">{data.activity_scope}</p>
-    <ReplySyncStatus key={data.deal.id} dealId={data.deal.id} sample={sample} />
+    <ReplySyncStatus key={`reply:${data.deal.id}`} dealId={data.deal.id} sample={sample} />
     <div className="wd-filters" role="group" aria-label="活動の種類">
       {ACTIVITY_FILTERS.map(f => <button key={f.value} type="button" aria-pressed={kind === f.value} onClick={() => { setKind(f.value); }}>{f.label}</button>)}
     </div>
     {acts.length === 0 && <p className="crm-muted">{data.activities.length === 0 ? '表示できる活動履歴はありません。' : 'この種類の活動はありません。'}</p>}
-    {(kind === 'all' || kind === 'email') && <EmailPendingLog key={data.deal.id} dealId={data.deal.id} sample={sample} />}
-    <ul className="wd-acts">{acts.map(a => <ActivityCard key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} highlighted={shown && a.kind === 'email' && a.id === visibleId} />)}</ul>
+    {(kind === 'all' || kind === 'email') && <EmailPendingLog key={`pending:${data.deal.id}`} dealId={data.deal.id} sample={sample} />}
+    <ul className="wd-acts">{entries.map(entry => {
+      if (entry.kind === 'thread' && entry.messages.length > 1) return <EmailThreadCard key={entry.key} thread={entry} ownerNames={ownerNames} highlightedId={shown ? visibleId ?? null : null} />;
+      const a = entry.kind === 'thread' ? entry.messages[0] : entry.activity;
+      return a ? <ActivityCard key={entry.key} a={a} ownerNames={ownerNames} highlighted={shown && a.kind === 'email' && a.id === visibleId} /> : null;
+    })}</ul>
   </section>;
 }
 

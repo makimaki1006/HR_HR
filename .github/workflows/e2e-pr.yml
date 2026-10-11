@@ -60,6 +60,9 @@ jobs:
       - name: Email tracking display and self-open protection (fake data only)
         run: npx playwright test -c tests/e2e/crm-email-tracking.config.ts
 
+      - name: Email thread display E2E (fake data only)
+        run: npx playwright test -c tests/e2e/crm-email-thread.config.ts
+
       - name: Email compose usability (fake data only)
         run: npx playwright test -c tests/e2e/crm-email-compose.config.ts
 
