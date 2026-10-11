@@ -392,9 +392,29 @@
 .jc-deal-controls select { padding:8px; border:1px solid #cbd5e1; border-radius:6px; background:white; }
 .jc-deal-table-scroll { overflow:auto; max-width:100%; margin:16px 0; }
 .jc-deal-table, .jc-parallel-table { border-collapse:collapse; width:100%; font-size:13px; }
-.jc-deal-table { min-width:1650px; }
-.jc-deal-table th, .jc-deal-table td, .jc-parallel-table th, .jc-parallel-table td { border:1px solid #dbe3ec; padding:12px; text-align:left; vertical-align:top; }
-.jc-deal-table th { background:#edf3f8; white-space:nowrap; }
+.jc-deal-table { table-layout:fixed; min-width:0; border-collapse:separate; border-spacing:0; }
+.jc-deal-table th, .jc-deal-table td { padding:8px 5px; overflow-wrap:anywhere; }
+.jc-deal-table th { white-space:normal; }
+.jc-deal-table th:first-child { width:44px; }
+.jc-deal-table [data-column="title"] { width:22%; position:sticky; left:0; z-index:1; background:#fff; box-shadow:2px 0 3px rgb(22 38 49 / 10%); }
+.jc-deal-table th[data-column="title"] { background:#edf3f8; z-index:2; }
+.jc-deal-table [data-column="media"] { width:8%; }
+.jc-deal-table [data-column="publication"] { width:8%; }
+.jc-deal-table [data-column="occupation"] { width:12%; }
+.jc-deal-table [data-column="location"] { width:12%; }
+.jc-deal-table [data-column="salary"] { width:15%; }
+.jc-deal-table [data-column="applications"] { width:7%; }
+.jc-deal-table [data-column="body_changed_at"] { width:12%; }
+.jc-deal-table:has([data-column="hours"]), .jc-deal-table:has([data-column="holidays"]), .jc-deal-table:has([data-column="salary_kind"]), .jc-deal-table:has([data-column="salary_min"]), .jc-deal-table:has([data-column="salary_max"]) { min-width:1400px; }
+.jc-deal-column-options > div { display:flex; gap:12px; flex-wrap:wrap; padding:8px 0; }
+.jc-deal-column-options label { flex-direction:row; align-items:center; }
+.jc-deal-column-options input { width:auto; }
+.jc-filter-summary { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--jc-muted); }
+.jc-list-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.jc-management-fields { margin-bottom:16px; }
+@media (min-width:801px) { .jc-hubspot-filter-details[open] { max-height:250px; overflow-y:auto; } }
+.jc-deal-table th, .jc-deal-table td, .jc-parallel-table th, .jc-parallel-table td { border:1px solid #dbe3ec; padding:8px 5px; text-align:left; vertical-align:top; }
+.jc-deal-table th { background:#edf3f8; white-space:normal; }
 .jc-deal-table th button, .jc-deal-open { font:inherit; color:inherit; background:transparent; border:0; cursor:pointer; text-align:left; }
 .jc-deal-table tbody tr { cursor:pointer; }
 .jc-deal-table tbody tr:hover { background:#f3f7fb; }
@@ -408,3 +428,5 @@
 .jc-parallel-table small { display:block; margin-top:6px; }
 .jc-comparison-different td { background:#fff7d6; }
 .jc-hubspot-filters input { width:100%; min-width:0; box-sizing:border-box; padding:8px; border:1px solid #cbd5e1; border-radius:6px; }
+
+@media (min-width:801px) { .jc-list-actions .jc-button { min-height:28px; padding:3px 8px; } }

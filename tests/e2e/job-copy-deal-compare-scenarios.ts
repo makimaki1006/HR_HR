@@ -69,11 +69,43 @@ export function registerDealCompareTests(path: string) {
     expect(requests.at(-1)?.searchParams.get('deal')).toBe('901');
     await expect(panel.locator('.jc-publication').filter({ hasText: /^01$/ })).toHaveCount(0);
     if (width === 1440) { await mkdir('docs/screenshots/job-copy-deal-compare', { recursive: true }); await page.screenshot({ path: 'docs/screenshots/job-copy-deal-compare/01-deal-filter-1440.png' }); }
+    await panel.getByRole('button', { name: '条件を畳む' }).click();
+    await expect(panel.getByLabel('選択中の条件')).toHaveText('合成物流・那覇の契約 ／ 沖縄県 ／ ドライバー');
+    const visibleCards = await panel.locator('.jc-hubspot-job').evaluateAll(cards => cards.filter(card => {
+      const box = card.getBoundingClientRect(); const list = card.parentElement!.getBoundingClientRect();
+      return box.top >= Math.max(0, list.top) && box.bottom <= Math.min(window.innerHeight, list.bottom);
+    }).length);
+    expect(visibleCards).toBeGreaterThanOrEqual(5);
+    if (width === 1440) {
+      await mkdir('docs/screenshots/job-copy-ui-polish-2', { recursive: true });
+      await page.screenshot({ path: 'docs/screenshots/job-copy-ui-polish-2/01-deal-filter-1440.png' });
+    }
     await panel.getByRole('button', { name: 'この取引の求人', exact: true }).click();
     const table = page.getByRole('table', { name: '取引の求人一覧表' });
     await expect(table.getByRole('row')).toHaveCount(51);
     await expect(table.locator('tbody tr').first()).toContainText('月給 250,000円');
     if (width === 1440) await page.screenshot({ path: 'docs/screenshots/job-copy-deal-compare/02-deal-table-1440.png' });
+    const scroll = table.locator('..');
+    const sizes = await scroll.evaluate(element => ({ client: element.clientWidth, scroll: element.scrollWidth }));
+    expect(sizes.scroll - sizes.client).toBe(0);
+    for (const label of ['求人名', '媒体', '公開状況', '職種', '勤務地', '給与', '応募数', '本文の最終変更日']) {
+      const box = await table.getByRole('columnheader').filter({ has: page.getByRole('button', { name: new RegExp(`^${label}(?: [▲▼])?$`) }) }).boundingBox();
+      const bounds = (await scroll.boundingBox())!;
+      expect(box!.x).toBeGreaterThanOrEqual(bounds.x);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+    }
+    console.log(JSON.stringify({ width, horizontalOverflow: sizes.scroll - sizes.client, visibleCards }));
+    if (width === 1440) await page.screenshot({ path: 'docs/screenshots/job-copy-ui-polish-2/02-deal-table-1440.png' });
+    await page.getByText('表示する列を選ぶ', { exact: true }).click();
+    await page.getByLabel('勤務時間', { exact: true }).check();
+    await expect(table.getByRole('columnheader', { name: '勤務時間' })).toBeVisible();
+    const firstTitle = table.locator('tbody [data-column="title"]').first();
+    await scroll.evaluate(element => { element.scrollLeft = 100; });
+    const initialX = (await firstTitle.boundingBox())!.x;
+    await scroll.evaluate(element => { element.scrollLeft = 250; });
+    expect(Math.abs((await firstTitle.boundingBox())!.x - initialX)).toBeLessThanOrEqual(1);
+    await scroll.evaluate(element => { element.scrollLeft = 0; });
+    await page.getByLabel('勤務時間', { exact: true }).uncheck();
     await page.getByLabel('表の媒体').selectOption('hrh');
     await expect.poll(() => requests.at(-1)?.searchParams.get('media')).toBe('hrh');
     await expect(page.locator('.jc-deal-comparison')).toContainText('51件');
@@ -83,7 +115,7 @@ export function registerDealCompareTests(path: string) {
     await expect(table.locator('tbody tr')).toHaveCount(50);
     await page.getByLabel('表の公開状況').selectOption('');
     await expect(page.locator('.jc-deal-comparison')).toContainText('101件');
-    await table.getByRole('button', { name: '給与の下限', exact: true }).click();
+    await table.getByRole('button', { name: '給与', exact: true }).click();
     await expect.poll(() => requests.at(-1)?.searchParams.get('sort')).toBe('salary_min');
     await table.getByLabel('配送スタッフ001を比較に選ぶ').check();
     await table.getByLabel('配送スタッフ002を比較に選ぶ').check();

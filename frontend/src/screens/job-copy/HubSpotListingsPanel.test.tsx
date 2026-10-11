@@ -72,10 +72,10 @@ describe('HubSpot listing history', () => {
     expect(screen.getByRole('region').textContent).not.toContain('0件');
     expect(screen.getByText(/準備が終わると自動で/)).toBeTruthy();
     api.mockResolvedValue({ ok: true, data: { ...page, refresh_failed: true } });
-    fireEvent.click(screen.getByRole('button', { name: '求人を取得' }));
+    fireEvent.click(screen.getByRole('button', { name: '求人を読み込む' }));
     await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
     expect(screen.getByText(/2026.*時点/)).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toContain('一覧の更新を取得できませんでした');
+    expect(screen.getByRole('status').textContent).toContain('一覧を更新できませんでした');
   });
   it('hides the warning for nineteen history entries and shows an empty matching result', async () => {
     mock(); const onOpen = vi.fn<(job: JobCopyRecord) => void>(); render(<HubSpotListingsPanel onOpen={onOpen} />);
@@ -85,7 +85,7 @@ describe('HubSpot listing history', () => {
     await waitFor(() => { expect(onOpen).toHaveBeenCalledOnce(); });
     expect(onOpen.mock.calls[0]?.[0].historyMayBeIncomplete).toBe(false);
     api.mockResolvedValue({ ok: true, data: { ...page, listings: [], total: 0, next_offset: null } });
-    fireEvent.click(screen.getByRole('button', { name: '求人を取得' }));
+    fireEvent.click(screen.getByRole('button', { name: '求人を読み込む' }));
     await screen.findByText('条件に合う求人はありません。');
   });
   it('opens versions in the existing body comparison and restores the fixed list', async () => {

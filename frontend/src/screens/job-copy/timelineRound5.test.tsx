@@ -95,11 +95,11 @@ describe('explanations that can be read without hovering', () => {
     expect(document.querySelector('.jo-short-note')?.textContent).toContain('ある日数分だけで1日あたりを数えています');
   });
 
-  it('opens the screen explanations by click (試作版, 取得日時, どの本文への応募か不明)', () => {
+  it('opens the screen explanations by click (試作画面, 文面を確認した日時, どの本文への応募か不明)', () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1');
     render(<JobCopyScreen />);
     const summaries = [...document.querySelectorAll('.jc-infotip > summary')].map(node => node.textContent);
-    expect(summaries).toContain('試作版 ⓘ');
+    expect(summaries).toContain('試作画面 ⓘ');
     expect(summaries).toContain('本文を確認した日時: 2026/09/25 12:30 JST ⓘ');
     expect(document.querySelector('.jc-mode')?.getAttribute('title')).toBeNull();
     expect(document.querySelector('.jc-record-meta [title]')).toBeNull();

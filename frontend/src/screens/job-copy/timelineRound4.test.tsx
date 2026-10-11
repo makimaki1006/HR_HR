@@ -164,7 +164,7 @@ describe('market data cache', () => {
     fireEvent.change(screen.getByLabelText('職種'), { target: { value: '倉庫作業' } });
     // Still the same chart element while loading, with the loading note shown.
     expect(screen.getByTestId('jt-market')).toBeTruthy();
-    expect(within(screen.getByRole('group', { name: '市場' })).getByText('市場データを取得中…')).toBeTruthy();
+    expect(within(screen.getByRole('group', { name: '市場' })).getByText('市場データを読み込み中…')).toBeTruthy();
     await act(async () => { release(marketData('?title=倉庫作業', ['2026-08', '2026-09', '2026-10'])); await Promise.resolve(); });
     await screen.findByText(/^市場データは2026年10月まで（毎月更新）/u);
     expect(screen.getByTestId('jt-market')).toBeTruthy();

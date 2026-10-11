@@ -19,7 +19,7 @@ function trustedImageRoute(url: string, contentHash: string): boolean {
 }
 
 function invalid(): never {
-  throw new Error('媒体取得データの形式を確認してください。対応形式はschemaVersion 1です。');
+  throw new Error('媒体保存データの形式を確認してください。対応する形式のファイルを選んでください。');
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -80,10 +80,10 @@ function observedVersion(item: Record<string, unknown>, id: string, capturedAt: 
   const status = acquisition(item.imageAcquisition, images.length);
   if (item.historicalImageBytesAvailable !== undefined && typeof item.historicalImageBytesAvailable !== 'boolean') return invalid();
   if (item.publicationBoundaryKnown !== undefined && typeof item.publicationBoundaryKnown !== 'boolean') return invalid();
-  const imageTime = item.imageAcquiredAt === undefined ? '' : `画像取得日時：${timestamp(item.imageAcquiredAt)}。`;
+  const imageTime = item.imageAcquiredAt === undefined ? '' : `画像を確認した日時：${timestamp(item.imageAcquiredAt)}。`;
   if (item.imageAcquisitionStartedAt !== undefined) timestamp(item.imageAcquisitionStartedAt);
   const provenance = item.provenance === undefined ? '' : text(item.provenance, 2000, true);
-  const timeBasis = item.observationTimeBasis === undefined ? '' : `取得日時の根拠：${text(item.observationTimeBasis, 500, true)}。`;
+  const timeBasis = item.observationTimeBasis === undefined ? '' : `本文を確認した日時の根拠：${text(item.observationTimeBasis, 500, true)}。`;
   const historicBytes = item.historicalImageBytesAvailable ?? (historical ? false : undefined);
   let references: { referenceHash: string; slot: number }[] | undefined;
   if (item.imageReferences !== undefined) {

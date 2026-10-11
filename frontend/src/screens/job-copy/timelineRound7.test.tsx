@@ -55,7 +55,7 @@ describe('acquisition days next to a change', () => {
     expect(rows.map(row => [row.kind, row.start, row.lastDay, row.days, row.applications, row.perDay])).toEqual([
       ['period', '2026-08-02', '2026-08-11', 10, 2, 0.2],
       ['period', '2026-08-12', '2026-08-12', 0, 0, null],
-      // 取得日A (08-12) and 取得日B (08-20) are in the 取得日の間 row: the change may fall on either day.
+      // 文面を確認した日A (08-12) and 文面を確認した日B (08-20) are in the 文面を確認した日の間 row: the change may fall on either day.
       ['between', '2026-08-12', '2026-08-20', 9, 12, null],
       ['period', '2026-08-21', '2026-08-30', 10, 6, 0.6],
       ['period', '2026-08-31', '2026-08-31', 0, 0, null],
@@ -69,13 +69,13 @@ describe('acquisition days next to a change', () => {
     expect(applicationsOutsidePeriods(record, rows)).toBe(1);
   });
 
-  it('starts the overview after-window the day after 取得日B and ends the before-window the day before 取得日A', () => {
+  it('starts the overview after-window the day after 文面を確認した日B and ends the before-window the day before 文面を確認した日A', () => {
     render(<JobOverview records={[record]} onChoose={() => undefined} showDummyBilling={false} now={new Date('2026-09-02T03:00:00Z')} />);
     const row = within(screen.getByRole('region', { name: '求人の横断比較の表' })).getAllByRole('row')[1];
     // before: 08-02〜08-11 (2件 / 10日), after: 08-21〜08-30 (6件 / 10日).
     expect(row?.textContent).toContain('0.20件/日2件 / 10日');
     expect(row?.textContent).toContain('0.60件/日6件 / 10日');
-    expect(screen.getByRole('columnheader', { name: /前の取得日の前日まで/u })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: /前の文面を確認した日の前日まで/u })).toBeTruthy();
   });
 });
 

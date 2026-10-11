@@ -6,7 +6,7 @@ export type DraftResult = DraftOperationResponse;
 export function draftError(error: Error): string {
   if (error instanceof ApiHttpError) {
     if (error.status === 401 || error.status === 403) return '案を保存する権限がありません。ログインと利用設定を確認してください。';
-    if (error.status === 409) return '案が更新されたか、保存できない状態です。求人を再取得して内容を確認してください。';
+    if (error.status === 409) return '案が更新されたか、保存できない状態です。求人を読み込み直して内容を確認してください。';
     if (error.status === 400 || error.status === 413) return '案の内容を保存できません。空欄や文章の長さを確認してください。';
   }
   return '保存結果を確認できませんでした。「保存結果を確認」を押してください。';
@@ -33,7 +33,7 @@ export function useDraftMutation(onSaved: (draft: DraftSnapshot, revision: strin
       if (!mounted.current) return;
       if (!result.ok) { setMessage(draftError(result.error)); setBusy(false); setUncertain(!(result.error instanceof ApiHttpError && result.error.status < 500)); if (result.error instanceof ApiHttpError && result.error.status < 500) pending.current = null; return; }
       if (result.data.status === 'saved' && result.data.draft && result.data.revision) { saved.current(result.data.draft, result.data.revision); pending.current = null; setMessage('案を保存しました。'); setBusy(false); return; }
-      if (result.data.status === 'failed') { pending.current = null; setMessage('案を保存できませんでした。求人を再取得してください。'); setBusy(false); return; }
+      if (result.data.status === 'failed') { pending.current = null; setMessage('案を保存できませんでした。求人を読み込み直してください。'); setBusy(false); return; }
       setMessage('案の保存を受け付けました。時間を置いて自動で再確認します。');
       timer.current = setTimeout(() => { void (async () => { result = await apiGet<DraftResult>(`/api/job-copy/draft-operations/${encodeURIComponent(operation.id)}`, { timeoutMs: 120_000 }); finish(); })(); }, 2_000);
     };
