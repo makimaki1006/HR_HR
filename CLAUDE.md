@@ -20,6 +20,7 @@
 | HW 掲載求人のみが対象であり、全求人市場ではないことを UI/レポートに必ず明記 | UI 誤認リスク | `feedback_hw_data_scope` |
 | 雇用形態を必ず dedup キーに含める (V2 では「正社員」、V1 では「正職員」と区別) | 2026-02-24 大量データ消失 | `feedback_dedup_rules` |
 | 部分コミット時は依存チェーン (`include_str!`/`pub mod`/可視性) を確認。ローカル成功 ≠ 本番成功 | 2026-04-22 Render deploy 失敗 | `feedback_partial_commit_verify` |
+| CI の `docker-context-check` は builder の COPY と除外設定だけを再現し、`cargo check --release --locked` でコンパイル時の依存ファイル漏れを機械的に検査する | 2026-10-11 #139 の COPY 漏れによる Render ビルド失敗 | `scripts/check_docker_context.py` |
 | 並列 agent 間の契約 (JSON shape 等) は agent 個別テスト pass でも別途 cross-check | 2026-04-23 採用診断 8 panel 全滅 | `feedback_agent_contract_verification` |
 | テストはデータ妥当性 (具体値) で検証する。「要素存在」だけでは不可 | 2026-03-22 / 2026-04-12 バグ見逃し | `feedback_test_data_validation` / `feedback_reverse_proof_tests` |
 | E2E では canvas 存在ではなく ECharts 初期化完了を確認 | 2026-04-08 19/24 ブランク見逃し | `feedback_e2e_chart_verification` |
