@@ -76,9 +76,13 @@ fn run(conn: &Connection, sql: &str, args: &[SqlValue]) -> Result<Value, String>
     }
 }
 
-async fn pipeline(State(conn): State<SharedConn>, Json(body): Json<Value>) -> Json<Value> {
+async fn pipeline(
+    State((conn, queries)): State<(SharedConn, Arc<Mutex<Vec<String>>>)>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
     let stmt = &body["requests"][0]["stmt"];
     let sql = stmt["sql"].as_str().unwrap_or("");
+    queries.lock().unwrap().push(sql.to_string());
     let args: Vec<SqlValue> = stmt["args"]
         .as_array()
         .map(|a| a.iter().map(arg_to_sql).collect())
@@ -102,12 +106,19 @@ async fn pipeline(State(conn): State<SharedConn>, Json(body): Json<Value>) -> Js
 /// 偽 Turso を 127.0.0.1 の空きポートに立て、監査スキーマ (`ensure_audit_tables`) を
 /// **pipeline 経由で**適用した `AuditDb` と、直接 seed するための SQLite 接続を返す。
 pub async fn start_sqlite_audit() -> (AuditDb, SharedConn) {
+    let (audit, conn, _) = start_sqlite_audit_with_queries().await;
+    (audit, conn)
+}
+
+/// SQL ごとの実際の HTTP 呼び出し回数も検証できる版。
+pub async fn start_sqlite_audit_with_queries() -> (AuditDb, SharedConn, Arc<Mutex<Vec<String>>>) {
+    let queries = Arc::new(Mutex::new(Vec::new()));
     let conn: SharedConn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let app = Router::new()
         .route("/v2/pipeline", post(pipeline))
-        .with_state(conn.clone());
+        .with_state((conn.clone(), queries.clone()));
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
@@ -121,7 +132,7 @@ pub async fn start_sqlite_audit() -> (AuditDb, SharedConn) {
         .await
         .unwrap()
         .expect("監査スキーマを適用できない");
-    (AuditDb::new(turso, "test-salt".to_string()), conn)
+    (AuditDb::new(turso, "test-salt".to_string()), conn, queries)
 }
 
 #[cfg(test)]

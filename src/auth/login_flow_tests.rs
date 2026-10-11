@@ -651,6 +651,7 @@ fn durable_app(state: Arc<AppState>, key: Option<tower_sessions::cookie::Key>) -
         app: state.clone(),
         key,
         secure: false,
+        revoked: Arc::default(),
     };
     Router::new()
         .merge(crate::auth::google_oidc::router())
@@ -917,6 +918,7 @@ async fn 暗号が正しくても認証期限と社外パスワード期限が�
         app: test_state(None, None),
         key: None,
         secure: false,
+        revoked: Arc::default(),
     };
     let app = Router::new()
         .route("/principal", get(cookie_principal))
@@ -955,7 +957,8 @@ async fn 更新前後のcookieとメモリを再送してもログアウト失�
     let memory = cookie_pair(&login, "id").unwrap();
     let updated = get_req(&app, "/temporary", Some(&format!("{first}; {memory}"))).await;
     let renewed = cookie_pair(&updated, "hr_login").unwrap();
-    let restored_app = durable_app(state.clone(), Some(key.clone()));
+    // 同じプロセス内でも Cookie だけの復元で別のメモリ状態が作られる。
+    let restored_app = app.clone();
     let before = get_json_req(&restored_app, "/api/nav", &first).await;
     assert_eq!(before.status(), StatusCode::OK);
     let restored_memory = cookie_pair(&before, "id").unwrap();
@@ -1010,11 +1013,15 @@ async fn 失効確認とログアウト書き込みの失敗を成功扱いせ�
     );
     conn.lock().unwrap().execute_batch("DROP TRIGGER fail_logout; ALTER TABLE login_sessions RENAME TO unavailable_login_sessions;").unwrap();
     let reboot = durable_app(state, Some(key));
+    assert_eq!(
+        get_json_req(&app, "/api/nav", &combined).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        get_json_req(&reboot, "/api/nav", &combined).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
     for target in [&app, &reboot] {
-        assert_eq!(
-            get_json_req(target, "/api/nav", &combined).await.status(),
-            StatusCode::SERVICE_UNAVAILABLE
-        );
         assert_eq!(
             get_req(target, "/logout", Some(&combined)).await.status(),
             StatusCode::SERVICE_UNAVAILABLE
@@ -1029,7 +1036,7 @@ async fn 失効確認とログアウト書き込みの失敗を成功扱いせ�
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        get_json_req(&app, "/api/nav", &combined).await.status(),
+        get_json_req(&reboot, "/api/nav", &combined).await.status(),
         StatusCode::UNAUTHORIZED
     );
 }
@@ -1228,5 +1235,172 @@ async fn cookieが一部欠ける場合や無効化中のログアウトでも�
                 StatusCode::UNAUTHORIZED
             );
         }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 履歴照会は復元時に一度だけでメモリ一致なら障害中も利用できる() {
+    let key = tower_sessions::cookie::Key::from(&[42; 64]);
+    let (audit, conn, queries) = crate::audit::fake_turso::start_sqlite_audit_with_queries().await;
+    let state = test_state(None, Some(audit));
+    let app = durable_app(state.clone(), Some(key.clone()));
+    let login = password_cookie(&app, "internal-pass").await;
+    let cookie = cookie_pair(&login, "hr_login").unwrap();
+    let memory = cookie_pair(&login, "id").unwrap();
+    let combined = format!("{cookie}; {memory}");
+    let history_reads = || {
+        queries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|sql| sql.starts_with("SELECT s.account_id FROM login_sessions"))
+            .count()
+    };
+    assert_eq!(history_reads(), 0, "履歴はログイン時に保存済み");
+    for path in ["/api/nav", "/temporary", "/api/nav"] {
+        assert_eq!(
+            get_json_req(&app, path, &combined).await.status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        history_reads(),
+        0,
+        "読み取り・セッション更新の応答も再照会しない"
+    );
+    let reboot = durable_app(state.clone(), Some(key.clone()));
+    let restored = get_json_req(&reboot, "/api/nav", &combined).await;
+    assert_eq!(restored.status(), StatusCode::OK);
+    let new_memory = cookie_pair(&restored, "id").unwrap();
+    let restored_cookie = format!("{cookie}; {new_memory}");
+    assert_eq!(history_reads(), 1, "復元した最初の要求のみ");
+    for _ in 0..3 {
+        assert_eq!(
+            get_json_req(&reboot, "/api/nav", &restored_cookie)
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(history_reads(), 1);
+    // SQL を問わず監査 DB の読み取りが失敗する状況。既存無効化判定の失敗時方針は維持。
+    conn.lock().unwrap().execute_batch("ALTER TABLE login_sessions RENAME TO lost_sessions; ALTER TABLE accounts RENAME TO lost_accounts;").unwrap();
+    assert_eq!(
+        get_json_req(&app, "/api/nav", &combined).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        get_json_req(&reboot, "/api/nav", &restored_cookie)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(history_reads(), 1);
+    let cold = durable_app(state, Some(key));
+    assert_eq!(
+        get_json_req(&cold, "/api/nav", &cookie).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(history_reads(), 2);
+    conn.lock().unwrap().execute_batch("ALTER TABLE lost_sessions RENAME TO login_sessions; ALTER TABLE lost_accounts RENAME TO accounts;").unwrap();
+    let before = history_reads();
+    assert_eq!(
+        get_req(&reboot, "/logout", Some(&restored_cookie))
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        history_reads(),
+        before,
+        "一致するメモリのログアウトは失効を書くだけ"
+    );
+    for target in [&reboot, &cold] {
+        assert_eq!(
+            get_json_req(target, "/api/nav", &cookie).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            get_json_req(target, "/api/nav", &restored_cookie)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 別インスタンスの失効は復元時に確認し確認済みのメモリは継続する() {
+    let key = tower_sessions::cookie::Key::from(&[42; 64]);
+    let (audit, _) = crate::audit::fake_turso::start_sqlite_audit().await;
+    let state = test_state(None, Some(audit));
+    let first = durable_app(state.clone(), Some(key.clone()));
+    let login = password_cookie(&first, "internal-pass").await;
+    let cookie = cookie_pair(&login, "hr_login").unwrap();
+    let memory = cookie_pair(&login, "id").unwrap();
+    let other = durable_app(state.clone(), Some(key.clone()));
+    assert_eq!(
+        get_req(&other, "/logout", Some(&cookie)).await.status(),
+        StatusCode::SEE_OTHER
+    );
+    // この変更で採用する境界。別インスタンスから既存メモリへの即時失効通知はない。
+    assert_eq!(
+        get_json_req(&first, "/api/nav", &format!("{cookie}; {memory}"))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        get_json_req(&first, "/api/nav", &cookie).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let reboot = durable_app(state, Some(key));
+    assert_eq!(
+        get_json_req(&reboot, "/api/nav", &cookie).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn 本人か方式か履歴参照が違うメモリでは照会を省かない() {
+    let key = tower_sessions::cookie::Key::from(&[42; 64]);
+    for (email, password) in [
+        ("jiro%40f-a-c.co.jp", "internal-pass"),
+        ("taro%40f-a-c.co.jp", "external-pass"),
+        ("taro%40f-a-c.co.jp", "internal-pass"),
+    ] {
+        let (audit, _, queries) = crate::audit::fake_turso::start_sqlite_audit_with_queries().await;
+        let app = durable_app(test_state(None, Some(audit)), Some(key.clone()));
+        let first = password_cookie(&app, "internal-pass").await;
+        let cookie = cookie_pair(&first, "hr_login").unwrap();
+        let other = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/login")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("email={email}&password={password}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(other.status(), StatusCode::SEE_OTHER);
+        let memory = cookie_pair(&other, "id").unwrap();
+        queries.lock().unwrap().clear();
+        let restored = get_json_req(&app, "/api/nav", &format!("{cookie}; {memory}")).await;
+        assert_eq!(restored.status(), StatusCode::OK);
+        let who: Value = serde_json::from_str(&body_string(restored).await).unwrap();
+        assert_eq!(who["email"], "taro@f-a-c.co.jp");
+        assert_eq!(who["method"], crate::auth::LOGIN_METHOD_PASSWORD_INTERNAL);
+        assert_eq!(
+            queries
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|sql| sql.starts_with("SELECT s.account_id FROM login_sessions"))
+                .count(),
+            1
+        );
     }
 }
