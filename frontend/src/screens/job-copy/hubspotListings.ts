@@ -7,14 +7,21 @@ import type { JobCopyRecord } from './data';
 export interface HubSpotListing {
   id: string; media: 'hrh' | 'airwork'; media_job_id: string; account_id: string | null;
   title: string | null; prefecture: string | null; municipality: string | null; category: string | null;
+  draft_status?: DraftSnapshot['review_status'] | null;
+  deal_ids?: string[]; summary?: ListingSummary;
   publication_status: string | null; last_csv_detected_at: string | null; application_count: number | null;
 }
-interface ListingPageBase { listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
+export interface ListingSummary { occupation: string | null; location: string | null; salary_kind: string | null; salary_min: string | null; salary_max: string | null; hours: string | null; holidays: string | null; body_changed_at: string | null }
+export interface DealCandidate { id: string; name: string | null; count: number }
+export interface DealSelection { id: string; name: string; prefecture: string; title: string; media: string; publication?: string; draftStatus?: string }
+export const publicationLabel = (value: string | null) => value == null ? '未取得' : ['公開', '公開中', '掲載中', '非公開', '公開終了', '公開開始前', '掲載終了', '募集中', '募集終了'].includes(value) ? value : '不明';
+interface ListingPageBase { publication_statuses?: string[]; deals?: DealCandidate[]; no_deal_count?: number; listings: HubSpotListing[]; titles: string[]; offset: number; next_offset: number | null; refreshing: boolean; refresh_failed: boolean }
 export type HubSpotListingPage = ListingPageBase & (
   { status: 'ready'; total: number; index_built_at: string } |
   { status: 'preparing'; total: null; index_built_at: null }
 );
 export interface HubSpotVersions {
+  current_row?: Record<string, string> | null;
   company_name?: string | null;
   drafts?: DraftSnapshot[];
   draft_revision?: string;
@@ -29,7 +36,7 @@ export interface HubSpotVersions {
 export const draftStateLabel = (status: DraftSnapshot['review_status']) => ({ pending: '確認待ち', adopted: '採用', rejected: '見送り' })[status];
 export function draftVersion(draft: DraftSnapshot, index: number): CopyVersion {
   const raw = columns.map(column => `${column}：${draft.row[column] ?? ''}`).join('\n');
-  return { id: `hubspot-draft-${draft.draft_id}`, draft, label: `${draftStateLabel(draft.review_status)}の案 ${String(index + 1)}`, observedAt: draft.created_at, comparisonBody: raw, body: composeHrhBody(raw), bodySections: hrhCopySections(raw), kind: 'ai_draft', certainty: 'unknown', applications: null, source: '求人票作成で保存した案', note: '未掲載の案です。掲載開始日時と応募は対応させていません。' };
+  return { id: `hubspot-draft-${draft.draft_id}`, draft, label: `${draftStateLabel(draft.review_status)}の案 ${String(index + 1)}`, observedAt: draft.created_at, comparisonBody: raw, body: composeHrhBody(raw), bodySections: hrhCopySections(raw), kind: 'ai_draft', certainty: 'unknown', applications: null, source: draft.manual_edit ? '手直しで保存した案' : '求人票作成で保存した案', note: '未掲載の案です。掲載開始日時と応募は対応させていません。' };
 }
 export const mediaLabel = (media: HubSpotListing['media']) => media === 'hrh' ? 'HRハッカー' : 'AirWork';
 export function listingRecord(data: HubSpotVersions): JobCopyRecord {
@@ -37,7 +44,7 @@ export function listingRecord(data: HubSpotVersions): JobCopyRecord {
   const copy = (body: string) => row.media === 'hrh' ? { comparisonBody: body, body: composeHrhBody(body), bodySections: hrhCopySections(body) } : { body, bodySections: body.trim() ? [{ heading: '仕事内容', text: body }] : [] };
   return {
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
-    draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
+    currentDraftRow: data.current_row ?? undefined, draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
     title: row.title ?? '求人名未取得', company: data.company_name ?? '', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),
     location: [row.prefecture, row.municipality].filter(Boolean).join('') || '',
