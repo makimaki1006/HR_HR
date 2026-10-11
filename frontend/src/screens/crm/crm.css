@@ -87,3 +87,9 @@ body { margin: 0; }
 .crm-empty-list { color: #657b8e; padding: 10px; }
 @media (max-width: 1250px) { .crm-workspace { grid-template-columns: 210px minmax(0,1fr); } .crm-record-layout { grid-template-columns: 220px minmax(0,1fr); } .crm-associations { grid-column: 2; border-left: 0; border-top: 1px solid #dce4ec; } .crm-properties { grid-row: 1 / span 2; } .crm-activity-filters { grid-template-columns: 1fr 1fr; } .crm-search-label { grid-column: 1 / -1; } }
 @media (max-width: 760px) { .crm-workspace { display: block; } .crm-record-list { border-right: 0; border-bottom: 1px solid #cbd6e2; padding: 14px; } .crm-list-items { flex-direction: row; overflow-x: auto; } .crm-list-record { flex: 0 0 220px; } .crm-list-footer { display: none; } .crm-record-layout { display: flex; flex-direction: column; } .crm-properties, .crm-main, .crm-associations { width: 100%; border: 0; } .crm-property-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .crm-property-list div { margin: 0; } .crm-sample-banner { flex-wrap: wrap; gap: 4px 12px; padding: 10px 16px; } .crm-sample-banner a { margin-left: 0; } .crm-topbar { padding: 0 16px; gap: 12px; } .crm-topbar-right { display: none; } .crm-identity .crm-avatar { display: none; } }
+
+.wd-email-tracking { border-top: 1px solid #e2e8f0; padding-top: .5rem; margin: .5rem 0; }
+.wd-email-tracking-details { font-size: .8rem; color: #475569; }
+.wd-email-tracking-details summary { cursor: pointer; }
+.wd-email-tracking-url { overflow-wrap: anywhere; }
+.wd-email-tracking-automatic { padding: .5rem; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; }
