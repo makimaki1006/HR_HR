@@ -5,6 +5,7 @@ import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState, useSync
 import type { NormalizeRequest } from '../../generated/NormalizeRequest';
 import { postJobgen, type PostFn } from './api';
 import './jobgen.css';
+import { DraftSavePanel } from './DraftSavePanel';
 import { createPipelineController, type PipelineController } from './pipeline';
 import { FailBody, StaleBar } from './parts';
 import { AbSection } from './sections/AbSection';
@@ -123,7 +124,7 @@ export async function buildNormalizeRequest(
   if (k === 'free_text') {
     const t = inp.freeText.trim();
     if (!t) return { ok: false, message: '求人原文を入力してください。' };
-    return { ok: true, body: { kind: k, text: t } };
+    return { ok: true, body: { kind: k, text: inp.freeText } };
   }
   if (k === 'url') {
     const u = inp.url.trim();
@@ -134,7 +135,7 @@ export async function buildNormalizeRequest(
     if (inp.file) return { ok: true, body: { kind: k, text: await readText(inp.file) } };
     const t = inp.pasteText.trim();
     if (!t) return { ok: false, message: 'ファイルを選ぶかテキストを貼り付けてください。' };
-    return { ok: true, body: { kind: k, text: t } };
+    return { ok: true, body: { kind: k, text: inp.pasteText } };
   }
   if (!inp.file) return { ok: false, message: 'ファイルを選択してください。' };
   if (k === 'excel' && !/\.xlsx$/i.test(inp.file.name)) return { ok: false, message: 'Excelで .xlsx 形式に保存し直してから選んでください。' };
@@ -520,6 +521,7 @@ export function JobgenView({ s, ctl }: { s: PipelineState; ctl: PipelineControll
           {s.ab ? <AbSection ab={s.ab} confirmed={s.confirmed.ab} onConfirm={onConfirm} /> : null}
         </ResultSection>
 
+        {s.hrhacker && <DraftSavePanel key={JSON.stringify([s.sourceText, s.sourceKind, s.hrhacker.row])} s={s} />}
         <p className="foot">
           作成した文章と出力内容を元の資料と照らし合わせ、確認してから掲載してください。
         </p>
