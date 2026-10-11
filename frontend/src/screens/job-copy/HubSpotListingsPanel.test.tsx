@@ -120,7 +120,7 @@ describe('HubSpot listing history', () => {
     expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: '固定一覧を表示' }));
     expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成の固定求人');
-    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募');
+    expect(screen.getByRole('region', { name: '取り込んだ内容の内訳' }).textContent).toContain('2応募');
     expect(screen.getByText('実データ（取得済み）')).toBeTruthy();
   });
 

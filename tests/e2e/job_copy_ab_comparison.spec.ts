@@ -76,13 +76,13 @@ test('cross-record A/B preserves bodies, images, independent denominators, scope
   await comparison.scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'ab-record-desktop.png'), fullPage: true });
   await comparison.getByLabel('応募の比較範囲').selectOption('version');
-  await expect(a).toContainText('選んだ版に結びついた応募）：4件');
-  await expect(b).toContainText('選んだ版に結びついた応募）：2件');
-  await expect(a).toContainText('求人全体で、どの版への応募か不明：6件');
-  await expect(b).toContainText('求人全体で、どの版への応募か不明：4件');
+  await expect(a).toContainText('選んだ本文に結びついた応募）：4件');
+  await expect(b).toContainText('選んだ本文に結びついた応募）：2件');
+  await expect(a).toContainText('求人全体で、どの本文への応募か不明：6件');
+  await expect(b).toContainText('求人全体で、どの本文への応募か不明：4件');
   await expect(male.locator('td')).toHaveText(['1', '25%', '2', '100%', '75ポイント']);
   await expect(a.locator('blockquote')).toHaveCount(0);
-  await expect(a).toContainText('どの版への理由か不明な記述：1件');
+  await expect(a).toContainText('どの本文への理由か不明な記述：1件');
   await page.setViewportSize({ width: 375, height: 850 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await a.getByRole('heading', { name: 'A：合成配送募集A', exact: true }).scrollIntoViewIfNeeded();

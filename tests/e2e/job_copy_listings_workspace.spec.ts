@@ -95,7 +95,7 @@ test('preparing switches to forty jobs automatically; missing history and failed
   await list.getByRole('button', { name: '看護スタッフ・東京39の本文を見る' }).click();
   await expect(page.getByText('この求人の文面の履歴はありません。本文は未取得です。')).toBeVisible();
   await list.getByRole('button', { name: '看護スタッフ・大分40の本文を見る' }).click();
-  await expect(page.getByText(/この版の本文は未取得です/)).toBeVisible();
+  await expect(page.getByText(/選んだ本文は未取得です/)).toBeVisible();
   await list.getByRole('button', { name: '看護スタッフ・沖縄38の本文を見る' }).click();
   await expect(page.getByRole('heading', { name: '求人票を取得できませんでした' })).toBeVisible();
 });

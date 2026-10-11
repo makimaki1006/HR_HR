@@ -95,7 +95,7 @@ describe('explanations that can be read without hovering', () => {
     expect(document.querySelector('.jo-short-note')?.textContent).toContain('ある日数分だけで1日あたりを数えています');
   });
 
-  it('opens the screen explanations by click (試作版, 取得日時, どの版への応募か不明)', () => {
+  it('opens the screen explanations by click (試作版, 取得日時, どの本文への応募か不明)', () => {
     window.history.replaceState(null, '', '/app/job-copy?demo=1');
     render(<JobCopyScreen />);
     const summaries = [...document.querySelectorAll('.jc-infotip > summary')].map(node => node.textContent);
@@ -109,7 +109,7 @@ describe('explanations that can be read without hovering', () => {
 describe('plain names for version kinds and counts', () => {
   it('treats the old internal names as developer terms', () => {
     for (const word of ['媒体取得版', '媒体CSV取得版', '受信版', '確定対応', '推定対応', '選択版の確定＋推定対応']) expect(word).toMatch(JARGON_PATTERN);
-    for (const word of ['媒体から取り込んだ求人', '確認待ちの文面', '応募日で結びついた応募', '気づいた日の版で数えた応募', '選んだ本文に結びついた応募']) expect(word).not.toMatch(JARGON_PATTERN);
+    for (const word of ['媒体から取り込んだ求人', '確認待ちの文面', '応募日で結びついた応募', '気づいた日の本文で数えた応募', '選んだ本文に結びついた応募']) expect(word).not.toMatch(JARGON_PATTERN);
   });
 
   it('names a received text 確認待ちの文面 and shows no developer terms after adding it', async () => {
@@ -133,6 +133,6 @@ describe('plain names for version kinds and counts', () => {
     render(<JobCopyScreen />);
     fireEvent.click(screen.getByRole('tab', { name: '求人内容' }));
     const counts = document.querySelector('.jc-counts')?.textContent ?? '';
-    expect(counts).toMatch(/^応募日で結びついた応募\d+件気づいた日の版で数えた応募\d+件どの版への応募か不明（求人全体）\d+件どんな応募か ⓘ/);
+    expect(counts).toMatch(/^応募日で結びついた応募\d+件気づいた日の本文で数えた応募\d+件どの本文への応募か不明（求人全体）\d+件どんな応募か ⓘ/);
   });
 });

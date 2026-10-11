@@ -101,7 +101,7 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
     test(`固定一覧36件 ${width}×${height} ${pinned ? '固定' : 'マウス'}: 選択前後で5枚以上`, async ({ page }) => {
       await page.addInitScript(value => localStorage.setItem('hrhr-job-copy-sidebar-pinned', String(value)), pinned);
       const capturedAt = '2026-10-09T07:09:00Z';
-      const jobs = Array.from({ length: 36 }, (_, i) => ({ id: `synthetic-fixed-${i}`, hubspotListingId: String(100 + i), title: i === 0 ? '(夜勤)大型ドライバー' : `特殊機械の組立スタッフ${i + 1}`, company: '合成運輸株式会社', location: '大分県大分市', media: 'HRハッカー', mediaJobId: `synthetic-${i}`, body: '仕事内容：特殊機械を組み立てます。', images: [], versions: [] }));
+      const jobs = Array.from({ length: 36 }, (_, i) => ({ id: `synthetic-fixed-${i}`, hubspotListingId: String(100 + i), title: i === 0 ? '(夜勤)大型ドライバー' : `特殊機械の組立スタッフ${i + 1}`, company: '合成運輸株式会社', location: '大分県大分市', media: 'HRハッカー', mediaJobId: `synthetic-${i}`, body: '仕事内容：特殊機械を組み立てます。', images: [], versions: [], history: i === 1 ? [{ id: 'synthetic-old', capturedAt: '2026-10-08T07:09:00Z', body: '仕事内容：特殊機械の組立を補助します。', images: [], historicalImageBytesAvailable: false }] : [] }));
       await page.route('**/api/job-copy/moc', route => route.fulfill({ json: { schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt, jobs }, results: jobs.map(job => ({ listing_id: job.hubspotListingId, summary: { total: 0, missing_date: 0, by_date: {}, dimensions: {} }, dated_comparison: null })) } }));
       await page.setViewportSize({ width, height });
       await page.goto('/app/job-copy?data=actual');
@@ -135,6 +135,20 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await expect(page.locator('.jc-reading')).not.toContainText(/この版|前の版|媒体CSVから/);
       await expect(page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true })).toBeVisible();
       await expect(page.locator('.jc-main')).not.toContainText('この版を前の版と比較する');
+      const scope = page.locator('.jc-snapshot-tip');
+      await scope.locator('summary').click();
+      await expect(page.getByRole('region', { name: '取り込んだ内容の内訳' })).toContainText('37取り込んだ本文');
+      await expect(scope).toContainText('どの本文への応募か分からない応募');
+      await expect(scope).not.toContainText('版');
+      if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-scope-wording-1440.png') });
+      await scope.locator('summary').click();
+      await selectJobFeature(page, 'diff');
+      await expect(page.locator('.jc-image-comparison')).toContainText('比較元または比較先の画像が未取得のため、画像が変わったかどうかは不明です。');
+      await expect(page.locator('.jc-image-comparison')).not.toContainText('版');
+      await selectJobFeature(page, 'applicants');
+      await expect(page.locator('.ac-overall')).toContainText('どの本文への応募か不明');
+      await expect(page.locator('.ac-composition')).not.toContainText('版');
+      await selectJobFeature(page, 'body');
       if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
       if (width === 1440 && height === 900 && pinned) await page.screenshot({ path: path.join(shots, 'after-fixed-detail-1440.png') });
     });

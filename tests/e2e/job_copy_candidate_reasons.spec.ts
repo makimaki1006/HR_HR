@@ -26,11 +26,11 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
   await expect(reasons).toContainText('応募2件 · 確認した記録欄3つ（応募ごと）');
   await expect(reasons).not.toContainText('欄 =');
-  await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('版との対応は未取得');
-  await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象2件');
+  await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('本文との対応は未取得');
+  await expect(reasons.getByRole('region', { name: 'どの本文への理由か不明な記述', exact: true })).toContainText('表示対象2件');
   await expect(reasons.locator('details[open]')).toHaveCount(0);
   // The texts per version (the category summary above them has its own collapsed list).
-  const unknown = reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true });
+  const unknown = reasons.getByRole('region', { name: 'どの本文への理由か不明な記述', exact: true });
   await expect(reasons.locator('blockquote').first()).toBeHidden();
   await unknown.getByText('記録された文を開く（社内確認用）', { exact: true }).nth(1).click();
   await expect(unknown.locator('blockquote').nth(1)).toHaveText('<img src=x onerror="alert(1)">');
@@ -40,7 +40,7 @@ test('reason originals stay collapsed and escaped, unknown cohorts separate, sou
   await expect(reasons.locator('img')).toHaveCount(0);
   await expect(reasons).toContainText('それ以外の個人情報が残っていることがあります');
   await reasons.getByLabel('理由の出典', { exact: true }).selectOption('ouboriyuu_hiaringu');
-  await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象0件');
+  await expect(reasons.getByRole('region', { name: 'どの本文への理由か不明な記述', exact: true })).toContainText('表示対象0件');
   await reasons.getByLabel('理由の出典', { exact: true }).selectOption('all');
   await page.setViewportSize({ width: 375, height: 850 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -64,10 +64,10 @@ test('only explicit published-version associations appear in before and after re
   const reasons = page.getByRole('region', { name: '応募理由の記述比較', exact: true });
   await expect(reasons.getByRole('region', { name: '比較元の記述', exact: true })).toContainText('表示対象1件');
   await expect(reasons.getByRole('region', { name: '比較先の記述', exact: true })).toContainText('表示対象1件');
-  await expect(reasons.getByRole('region', { name: 'どの版への理由か不明な記述', exact: true })).toContainText('表示対象0件');
+  await expect(reasons.getByRole('region', { name: 'どの本文への理由か不明な記述', exact: true })).toContainText('表示対象0件');
   await page.getByRole('tabpanel', { name: '応募理由', exact: true }).getByLabel('理由比較先').selectOption('synthetic-before');
-  await expect(reasons).toContainText('同じ版を選んでいます');
-  await expect(reasons).toContainText('選択した2版以外の表示対象記述: 1件');
+  await expect(reasons).toContainText('同じ本文を選んでいます');
+  await expect(reasons).toContainText('選択した2つの本文以外の表示対象記述: 1件');
 });
 
 /** The shape the server sends since 2026-10-08: six sources, applicant keys and category selections (synthetic). */
