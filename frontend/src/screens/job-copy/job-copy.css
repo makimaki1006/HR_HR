@@ -321,3 +321,15 @@
   .jc-sidebar-pinned .jc-sidebar-rail { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .jc-sidebar-collapsed .jc-sidebar > .jc-list { transition: none; transform: none; } }
+/* 案の確認操作はラベル・選択欄・ボタンを同じ基準線に置く。 */
+.jc-app .jc-draft-review-controls { display: flex; align-items: end; gap: 16px; }
+.jc-app .jc-draft-review-controls label { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; }
+.jc-app .jc-draft-review-controls select, .jc-app .jc-draft-review-controls button { min-height: 40px; margin: 0; }
+.jc-app .jc-feature-purpose { position: relative; margin: 0; padding: 16px 0; line-height: 1.6; }
+.jc-column-comparison table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.jc-column-comparison th, .jc-column-comparison td { padding: 12px; vertical-align: top; text-align: left; border-bottom: 1px solid var(--jc-border); overflow-wrap: anywhere; }
+.jc-column-comparison pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 0; }
+.jc-column-comparison ins { background: #8fd19e; text-decoration: none; }
+.jc-column-comparison del { background: #f2a3a3; }
+
+.jc-draft-source { margin-top: 12px; }

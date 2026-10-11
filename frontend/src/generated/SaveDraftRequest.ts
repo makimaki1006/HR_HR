@@ -2,4 +2,4 @@
 import type { DraftSource } from "./DraftSource";
 import type { FactField } from "./FactField";
 
-export type SaveDraftRequest = { operation_id: string, base_revision: string, created_at: string, row: { [key in string]: string }, facts: { [key in string]: FactField }, source_text: string, source_kind: DraftSource, };
+export type SaveDraftRequest = { operation_id: string, base_revision: string, created_at: string, row: { [key in string]: string }, facts: { [key in string]: FactField }, source_text: string, original_source_text?: string, source_kind: DraftSource, };

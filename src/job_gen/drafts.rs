@@ -44,6 +44,9 @@ pub struct SaveDraftRequest {
     pub row: BTreeMap<String, String>,
     pub facts: ExtractedFacts,
     pub source_text: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub original_source_text: Option<String>,
     pub source_kind: DraftSource,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -81,6 +84,9 @@ pub struct DraftSnapshot {
     pub review_status: DraftStatus,
     pub row: BTreeMap<String, String>,
     pub facts: ExtractedFacts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source_text: Option<String>,
 }
 pub fn hash(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
@@ -126,6 +132,10 @@ impl DraftSnapshot {
     pub fn from_request(req: &SaveDraftRequest, now: DateTime<Utc>) -> Result<Self, &'static str> {
         if !valid_operation(&req.operation_id, &req.base_revision)
             || req.source_text.len() > 1_000_000
+            || req
+                .original_source_text
+                .as_ref()
+                .is_some_and(|text| text.len() > 1_000_000)
             || req.source_text.trim().is_empty()
             || req
                 .row
@@ -167,6 +177,11 @@ impl DraftSnapshot {
             review_status: DraftStatus::Pending,
             row,
             facts,
+            source_text: Some(
+                req.original_source_text
+                    .clone()
+                    .unwrap_or_else(|| req.source_text.clone()),
+            ),
         };
         result.properties()?;
         Ok(result)
@@ -286,6 +301,22 @@ pub(crate) mod tests {
     use super::*;
     pub(crate) fn request() -> SaveDraftRequest {
         serde_json::from_value(serde_json::json!({"operation_id":"10000000-0000-4000-8000-000000000001","base_revision":revision(&BTreeMap::new()),"created_at":"2026-10-10T00:00:00Z","source_kind":"csv","source_text":"給与は月給270,000円〜300,000円。勤務地は大分県大分市。","row":{"案件名":"配送スタッフ","仕事内容":"日用品を配送します。","給与形態":"月給","基本給与 最小":"270000","基本給与 最大":"300000"},"facts":{"salary":{"value":"月給270,000円〜300,000円","evidence_quote":"給与は月給270,000円〜300,000円。","status":"verified"},"work_location":{"value":"大分県大分市","evidence_quote":"勤務地は大分県大分市。","status":"verified"}}})).unwrap()
+    }
+    #[test]
+    fn original_source_roundtrips_without_processing_and_old_snapshots_remain_readable() {
+        let mut req = request();
+        let source = "  給与 20,000円\r\n家賃補助：月額\n（月4回まで）　";
+        req.original_source_text = Some(source.to_owned());
+        let snapshot = DraftSnapshot::from_request(&req, Utc::now()).unwrap();
+        let properties = snapshot.properties().unwrap();
+        let saved: DraftSnapshot =
+            serde_json::from_str(properties[FACTS].as_deref().unwrap()).unwrap();
+        assert_eq!(saved.source_text.as_deref(), Some(source));
+        let mut old = serde_json::to_value(&saved).unwrap();
+        old.as_object_mut().unwrap().remove("source_text");
+        let restored: DraftSnapshot = serde_json::from_value(old).unwrap();
+        assert!(restored.valid());
+        assert_eq!(restored.source_text, None);
     }
     #[test]
     fn payload_has_all_84_columns_in_order_and_only_five_draft_properties() {

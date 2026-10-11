@@ -198,6 +198,7 @@ export interface PipelineState {
   sourceKind: InputKind;
   titleHint: string;
   sourceText: string;
+  rawSourceText?: string | undefined;
   jobs: NormalizedJob[];
   selectedJobIndex: number | null;
   /** 職種名欄 (②市場分析で使用)。取り込み時に title_hint で初期化。 */

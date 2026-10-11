@@ -438,7 +438,7 @@ export function createPipelineController({ store, post, now }: ControllerDeps): 
         errStatus('求人原文が取得できませんでした。');
         return;
       }
-      set((s) => ({ ...resetResults(s), jobs, sourceKind: body.kind as InputKind, titleHint: '', sourceText: '', jobTitle: '', normalizing: false, statusMessage: null }));
+      set((s) => ({ ...resetResults(s), jobs, rawSourceText: body.text, sourceKind: body.kind as InputKind, titleHint: '', sourceText: '', jobTitle: '', normalizing: false, statusMessage: null }));
       if (jobs.length === 1) pickJob(0);
     } catch {
       errStatus('取り込みを完了できませんでした。通信状態を確認し、もう一度取り込んでください。');
