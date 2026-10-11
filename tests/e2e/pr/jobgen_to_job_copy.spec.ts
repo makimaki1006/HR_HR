@@ -9,7 +9,7 @@ const source = '架空配送スタッフ\n給与は月給270,000円〜300,000円
 const facts = { salary:{value:'月給270,000円〜300,000円',evidence_quote:'給与は月給270,000円〜300,000円です。',status:'verified'},work_location:{value:'大分県大分市',evidence_quote:'勤務地は大分県大分市です。',status:'verified'},holidays:{value:'土日休み',evidence_quote:'土日休みです。',status:'verified'},insurance:{value:'雇用保険 労災保険 健康保険 厚生年金',evidence_quote:'雇用保険 労災保険 健康保険 厚生年金に加入します。',status:'verified'},allowances:{value:'夜勤手当3,500円/回',evidence_quote:'夜勤手当3,500円/回があります。',status:'verified'} };
 const row = {...Object.fromEntries(columns.map(column => [column,''])), '案件名':'架空配送スタッフ','仕事内容':'日用品を配送します。','給与形態':'月給','基本給与 最小':'270000','基本給与 最大':'300000','自由項目2のタイトル':'福利厚生・待遇','自由項目2の内容':'雇用保険 労災保険 健康保険 厚生年金\n夜勤手当3,500円/回','求人id':'hidden-job-123','店舗id':'hidden-shop-456','職種id':'hidden-role-42'};
 function draft(id = '10000000-0000-4000-8000-000000000001', date = '2026-10-11T00:00:00Z', status = 'pending') { return {schema_version:1,draft_id:id,created_at:date,source_kind:'free_text',review_status:status,row,facts,source_text:source}; }
-async function mock(page: Page, options: { allowed?: boolean; queued?: boolean; benefits?: string; currentBenefits?: string } = {}) {
+async function mock(page: Page, options: { allowed?: boolean; queued?: boolean; benefits?: string; currentBenefits?: string; currentBody?: string } = {}) {
   const writes: { method: string; body: any }[] = [];
   let latest: ReturnType<typeof draft> | null = options.benefits ? {
     ...draft(), row: { ...row, '自由項目2の内容': `${facts.insurance.value}\n${options.benefits}` },
@@ -27,7 +27,7 @@ async function mock(page: Page, options: { allowed?: boolean; queued?: boolean; 
     return route.fulfill({json:values[step]});
   });
   await page.route('**/api/job-copy/listings*', route => route.fulfill({json:{status:'ready',listings:[listing],titles:['配送ドライバー'],offset:0,next_offset:null,refreshing:false,refresh_failed:false,total:1,index_built_at:'2026-10-11T00:00:00Z'}}));
-  await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({json:{listing,versions:[{written_at:'2026-10-01T00:00:00Z',body:published.replace('夜勤手当3,500円/回', options.currentBenefits ?? options.benefits ?? '夜勤手当3,500円/回'),image_urls:null}],history_counts:{hrh_kyuujinhyou_honbun:1},history_may_be_incomplete:false,drafts:latest ? [past,latest] : [past],draft_revision:revision,can_write_drafts:options.allowed !== false}}));
+  await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({json:{listing,versions:[{written_at:'2026-10-01T00:00:00Z',body:options.currentBody ?? published.replace('夜勤手当3,500円/回', options.currentBenefits ?? options.benefits ?? '夜勤手当3,500円/回'),image_urls:null}],history_counts:{hrh_kyuujinhyou_honbun:1},history_may_be_incomplete:false,drafts:latest ? [past,latest] : [past],draft_revision:revision,can_write_drafts:options.allowed !== false}}));
   await page.route('**/api/job-copy/listings/30/draft', route => {
     const body = route.request().postDataJSON(); const method = route.request().method(); writes.push({method,body});
     if (options.allowed === false) return route.fulfill({status:403,json:{code:'draft_writes_disabled'}});
@@ -44,6 +44,32 @@ async function generate(page: Page) {
 }
 for (const width of [1440,1920]) test.describe(`求人票作成から案の比較 ${width}`, () => {
   test.use({viewport:{width,height:1100}});
+  test('列順と区切りだけの違いを全文表示し、その他でも管理情報を隠す', async ({page}) => {
+    const full = columns.map(column => `${column}：${row[column] ?? ''}`).join('\n');
+    const {writes} = await mock(page, {benefits: '夜勤手当3,500円/回', currentBody: full.replace('求人id：', '求人id:')});
+    await login(page); await page.goto('/app/job-copy?listing=30');
+    const table = page.locator('.jc-column-comparison');
+    await expect(page.locator('.jc-diff-summary')).toContainText('変更あり');
+    await expect(table).not.toContainText('hidden-');
+    await expect(table).not.toContainText('求人id');
+    await expect(table).toContainText('非表示');
+    await expect(table.locator('pre')).toHaveCount(2);
+    for (const value of await table.locator('pre').all()) {
+      await expect(value).toContainText('案件名：架空配送スタッフ');
+      await expect(value).toContainText('仕事内容：日用品を配送します。');
+      await expect(value).toContainText('夜勤手当3,500円/回');
+    }
+    expect(writes).toHaveLength(0);
+    if (width === 1440) { await table.evaluate(element => element.scrollIntoView({block:'start'})); await page.screenshot({path:path.join(directory,'08-other-full-body-1440.png')}); }
+  });
+  test('原文の先頭空白と末尾改行を取り込み時に保持する', async ({page}) => {
+    await mock(page); await login(page); await page.goto('/app/jobgen');
+    const original = `  ${source}\n\n`;
+    await page.locator('#freeText').fill(original);
+    const request = page.waitForRequest(request => request.url().endsWith('/api/jobgen/normalize') && request.method() === 'POST');
+    await page.locator('#normBtn').click();
+    expect((await request).postDataJSON().text).toBe(original);
+  });
   test('案を明示保存し、給与・文字色・事実の違い・過去の案・確認状態を確認', async ({page}) => {
     const {writes} = await mock(page); await login(page); await generate(page); expect(writes).toHaveLength(0);
     await page.getByRole('button',{name:'架空配送スタッフの版を見る'}).click(); await expect(page.getByRole('button',{name:'この求人に案を保存'})).toBeEnabled();

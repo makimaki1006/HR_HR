@@ -74,10 +74,28 @@ export function compareColumns(before: string | null, after: string | null, befo
     return [{ key, before: old, after: next, kind: old === undefined ? '追加' as const : next === undefined ? '削除' as const : '変更' as const, lines }];
   });
   // 列の並び順や区切り文字だけが変わった場合も全文の違いを捨てない。
-  if (!changes.length) changes.push({ key: 'その他', before: left ?? undefined, after: right ?? undefined, kind: '変更', lines: markInlineChanges(comparison.lines) });
+  if (!changes.length) changes.push({ key: 'その他', before: left ?? undefined, after: right ?? undefined, kind: '変更', lines: markInlineChanges([{ kind: 'removed', text: left ?? '' }, { kind: 'added', text: right ?? '' }]) });
   return { ...comparison, changes };
 }
 const friendly: Record<string, string> = { '基本給与 最小': '給与の下限', '基本給与 最大': '給与の上限', '給与形態': '給与の種類', '試用・研修期の基本給与 最小': '研修中の給与の下限', '試用・研修期の基本給与 最大': '研修中の給与の上限', '試用・研修期の給与のタイプ': '研修中の給与の種類', '自由項目2の内容': '補足欄2の本文', '自由項目1の内容': '補足欄1の本文', '自由項目3の内容': '補足欄3の本文', '自由項目4の内容': '補足欄4の本文', '自由項目1のタイトル': '補足欄1の見出し', '自由項目2のタイトル': '補足欄2の見出し', '自由項目3のタイトル': '補足欄3の見出し', '自由項目4のタイトル': '補足欄4の見出し', '求人id': '求人の管理情報', '店舗id': '店舗の管理情報', '職種id': '職種の管理情報' };
+/** 表示だけを整える。全文の検知と列の値の比較には加工前の本文を使う。 */
+function displayOther(text: string): string {
+  return text.split('\n').map(line => {
+    const full = line.indexOf('：'); const half = line.indexOf(':');
+    const separator = full < 0 ? half : half < 0 ? full : Math.min(full, half);
+    const heading = separator > 0 ? line.slice(0, separator) : '';
+    if (!columns.includes(heading)) return line;
+    const value = heading.toLowerCase().endsWith('id') ? '非表示' : line.slice(separator + 1);
+    return `${friendly[heading] ?? heading}${line.charAt(separator)}${value}`;
+  }).join('\n');
+}
+function displayLines(change: ColumnChange): MarkedDiffLine[] {
+  if (change.key !== 'その他') return change.lines;
+  return markInlineChanges([
+    ...(change.before !== undefined ? [{ kind: 'removed' as const, text: displayOther(change.before) }] : []),
+    ...(change.after !== undefined ? [{ kind: 'added' as const, text: displayOther(change.after) }] : []),
+  ]);
+}
 function Value({ line, hidden }: { line: MarkedDiffLine | undefined; hidden: boolean }) {
   if (!line) return <span>未取得</span>;
   if (hidden) return <span>非表示</span>;
@@ -86,5 +104,5 @@ function Value({ line, hidden }: { line: MarkedDiffLine | undefined; hidden: boo
 export function ColumnComparison({ result }: { result: ColumnResult }) {
   if (result.status === 'unavailable') return <p>比較先の本文は未取得です。</p>;
   if (result.status === 'unchanged') return <p>変更なし</p>;
-  return <section className="jc-column-comparison jc-diff-lines" aria-label="変わった項目"><h3>変わった項目</h3><table><thead><tr><th>項目</th><th>変更</th><th>今の値</th><th>案の値</th></tr></thead><tbody>{result.changes.map(change => <tr key={change.key}><th>{friendly[change.key] ?? change.key}</th><td>{change.kind}</td><td><Value line={change.lines.find(line => line.kind === 'removed')} hidden={change.key.toLowerCase().endsWith('id')} /></td><td><Value line={change.lines.find(line => line.kind === 'added')} hidden={change.key.toLowerCase().endsWith('id')} /></td></tr>)}</tbody></table></section>;
+  return <section className="jc-column-comparison jc-diff-lines" aria-label="変わった項目"><h3>変わった項目</h3><table><thead><tr><th>項目</th><th>変更</th><th>今の値</th><th>案の値</th></tr></thead><tbody>{result.changes.map(change => <tr key={change.key}><th>{friendly[change.key] ?? change.key}</th><td>{change.kind}</td><td><Value line={displayLines(change).find(line => line.kind === 'removed')} hidden={change.key.toLowerCase().endsWith('id')} /></td><td><Value line={displayLines(change).find(line => line.kind === 'added')} hidden={change.key.toLowerCase().endsWith('id')} /></td></tr>)}</tbody></table></section>;
 }

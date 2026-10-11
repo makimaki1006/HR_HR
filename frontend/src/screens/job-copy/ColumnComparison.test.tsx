@@ -83,4 +83,30 @@ describe('全文で検知して列で特定する', () => {
     expect(compareColumns('案件名：配送\n仕事内容：配達', '仕事内容：配達\n案件名：配送').changes.map(item => item.key)).toEqual(['その他']);
     expect(savedColumns('仕事内容：1行目\n2行目\n3行目').get('仕事内容')).toBe('1行目\n2行目\n3行目');
   });
+  it.each(['求人id', '店舗id', '職種id'])('区切り文字だけが変わったその他でも%sの生の値を隠す', key => {
+    const result = compareColumns(`${key}:hidden-job-123`, `${key}：hidden-job-123`);
+    expect(result.status).toBe('changed');
+    expect(result.changes.map(item => item.key)).toEqual(['その他']);
+    render(<ColumnComparison result={result} />);
+    expect(screen.getByRole('table').textContent).not.toContain('hidden-job-123');
+    expect(screen.getByRole('table').textContent).not.toContain(key);
+    expect(screen.getByRole('table').textContent).toContain('非表示');
+  });
+  it('三つの列の順序だけが変わってもその他の左右に全文を表示する', () => {
+    const left = '案件名：配送スタッフ\n仕事内容：日用品の配達\n応募資格：普通免許';
+    const right = '応募資格：普通免許\n仕事内容：日用品の配達\n案件名：配送スタッフ';
+    const result = compareColumns(left, right);
+    expect(result.status).toBe('changed');
+    expect(result.changes).toHaveLength(1);
+    render(<ColumnComparison result={result} />);
+    const values = screen.getByRole('table').querySelectorAll('pre');
+    expect([...values].map(value => value.textContent)).toEqual([left, right]);
+  });
+  it('未知の見出しの変更と一緒にその他に含まれた管理情報も隠す', () => {
+    const row = { '案件名': '配送', '求人id': 'hidden-job-123' };
+    const result = compareColumns('独自の待遇：祝い金\n求人id:hidden-job-123\n案件名：配送', '独自の待遇：家賃補助\n求人id：hidden-job-123\n案件名：配送', row, row);
+    render(<ColumnComparison result={result} />);
+    expect(screen.getByRole('table').textContent).not.toContain('hidden-job-123');
+  });
+
 });
