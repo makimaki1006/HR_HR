@@ -21,6 +21,10 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    // ADR-022: per-operator Gmail sync cursor only, not mailbox/business content.
+    r#"CREATE TABLE IF NOT EXISTS crm_gmail_reply_cursors (
+        operator_email TEXT PRIMARY KEY, history_id TEXT NOT NULL
+    )"#,
     // ADR-022: reply deduplication/leases and consent health, not a CRM history copy.
     r#"CREATE TABLE IF NOT EXISTS crm_gmail_reply_receipts (
         message_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE,

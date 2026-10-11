@@ -306,6 +306,7 @@ Status: Accepted (2026-10-11 ユーザー決定。依頼の ADR-019 は既存の
 - 保存先: 既存 audit Turso の `crm_gmail_grants` に refresh token を AES-256-GCM (32 バイトの専用環境変数鍵、操作者 email を AAD) で暗号化して保存する。新しい DB は作らない。取り消し時はローカルの token を消し、Google へも取り消しを要求する。Google の取り消しが失敗した場合は利用者へ Google アカウントでも取り消すよう案内する。
 - 冪等・再試行: 送信前に既存 `crm_pending_operations` にメール操作を永続化する。Gmail の送信結果と HubSpot の記録結果を分ける。worker はメールを送らず、記録のみ再試行する。送信途中の中断は Gmail の RFC Message-ID を検索して確認する。HubSpot は CREATE 前に `hs_email_message_id` で検索し、見つかれば作成しない。CREATE の結果が不明な場合は検索の反映を待ち、見つからなくても二度目の CREATE は行わない。上限後は管理者確認が必要になる。
 - 返信取り込み: 本人の追加許可で gmail.readonly を使い、既定 10 分おき（`CRM_EMAIL_REPLY_INTERVAL_SECS`）に HR_HR の送信台帳にある送信後 30 日以内のスレッドだけを自動確認する。自分・許可ドメインからの返信は除外し、自動返信を含む外部の受信を同じ取引・コンタクトの HubSpot emails に記録する。
+- 返信巡回の改善: スレッド数に比例する確認を Gmail の `history.list(messageAdded)` に変更し、既存 audit Turso の `crm_gmail_reply_cursors` に人ごとの historyId だけを保持する。対象スレッド以外は本文・ヘッダを読まない。初回・履歴404時のみ対象スレッドを一巡し、先に取得した historyId を処理完了後に保存する。途中失敗・50件上限時はカーソルを進めず再確認する。従来方式は簡単だが呼び出しが増えるため、差分方式を採用する。移行は表1つの追加で、戻すときはカーソルの利用を止めればよい。
 - 返信の保存と負荷: 既存 audit Turso に返信 ID・条件付き処理確保の `crm_gmail_reply_receipts` と確認時刻・許可状態の `crm_gmail_reply_status` を加える。本文は既存保存待ちで記録完了までだけ保持し、HubSpot の Message-ID 検索と永続的な処理確保で二重起動を防ぐ。新着がなければ HubSpot を呼ばず、新着は巡回あたり最大 50 件、記録と再試行は共有 gateway の Background 優先度を使う。
 - 保持: メールの操作番号は七日を過ぎても再送を許さない。メール操作を既存 PATCH の七日掃除から除外し、記録済み・Gmail に拒否された操作は本文・件名・宛先を除いた小さな重複防止の受領記録にする。未反映の業務情報は記録が終わるまでのみ保持する。HubSpot の業務履歴を複製する表ではない。
 - 変更の利点: 本人の Gmail から送れる。HubSpot に履歴と操作者が残り、失敗時にメールを重ねて送らない。既存の監査ストアと再試行 worker を利用できる。
