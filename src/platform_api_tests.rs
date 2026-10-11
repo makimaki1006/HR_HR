@@ -71,6 +71,7 @@ fn app() -> Router {
         company_geo_cache: None,
         audit: None,
         google_oidc: None,
+        crm_hubspot: None,
         hubspot: None,
     }))
 }
@@ -832,6 +833,7 @@ fn geo_app(db: Option<crate::db::local_sqlite::LocalDb>) -> Router {
         company_geo_cache: None,
         audit: None,
         google_oidc: None,
+        crm_hubspot: None,
         hubspot: None,
     }))
 }

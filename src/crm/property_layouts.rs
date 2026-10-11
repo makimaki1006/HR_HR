@@ -157,7 +157,7 @@ pub(super) async fn put(
     {
         return error_json(StatusCode::BAD_REQUEST, "invalid_layout");
     }
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     let Some(audit) = state.audit.clone() else {
@@ -264,7 +264,11 @@ mod tests {
         conn.lock().unwrap().execute("INSERT INTO accounts(id,email,role,first_seen_at) VALUES('fake','operator@f-a-c.co.jp','consultant','2026-10-12')", []).unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
-        async fn catalog(Path(path): Path<String>) -> Json<serde_json::Value> {
+        async fn catalog(
+            Path(path): Path<String>,
+            headers: axum::http::HeaderMap,
+        ) -> Json<serde_json::Value> {
+            assert_eq!(headers[header::AUTHORIZATION], "Bearer crm-layout-key-123");
             if path.ends_with("/groups") {
                 Json(
                     serde_json::json!({"results":[{"name":"info","label":"情報","displayOrder":0}]}),
@@ -298,9 +302,11 @@ mod tests {
             company_geo_cache: None,
             audit: Some(audit),
             google_oidc: None,
-            hubspot: Some(Arc::new(
+            // 共通鍵なしでも役割ごとの項目設定を保存できる。
+            hubspot: None,
+            crm_hubspot: Some(Arc::new(
                 crate::hubspot::HubSpotClient::new(
-                    "fake-token".into(),
+                    "crm-layout-key-123".into(),
                     &base,
                     crate::hubspot::ClientOptions::default(),
                 )

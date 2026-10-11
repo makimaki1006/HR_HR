@@ -488,6 +488,13 @@ async fn hs_assoc_batch(
 }
 
 async fn start_fake_hubspot(fake: FakeHubSpot) -> (Arc<HubSpotClient>, Shared<FakeHubSpot>) {
+    start_fake_hubspot_with_token(fake, HUBSPOT_TOKEN).await
+}
+
+async fn start_fake_hubspot_with_token(
+    fake: FakeHubSpot,
+    token: &str,
+) -> (Arc<HubSpotClient>, Shared<FakeHubSpot>) {
     let st = Arc::new(Mutex::new(fake));
     let base = spawn(
         Router::new()
@@ -503,7 +510,7 @@ async fn start_fake_hubspot(fake: FakeHubSpot) -> (Arc<HubSpotClient>, Shared<Fa
     )
     .await;
     let client = HubSpotClient::new(
-        HUBSPOT_TOKEN.into(),
+        token.into(),
         &base,
         ClientOptions {
             timeout: Duration::from_secs(3),
@@ -563,6 +570,7 @@ fn test_state(audit: Option<AuditDb>, hubspot: Option<Arc<HubSpotClient>>) -> Ar
         company_geo_cache: None,
         audit,
         google_oidc: None,
+        crm_hubspot: None,
         hubspot,
     })
 }
@@ -1783,4 +1791,78 @@ async fn metadata_は_hubspot_未設定なら_503() {
             json!({"error_kind": "not_configured"})
         )
     );
+}
+
+#[tokio::test]
+async fn crmの定義取得は専用鍵を使い従来のクライアントは従来の鍵を保つ() {
+    let (legacy, old_hs) =
+        start_fake_hubspot_with_token(FakeHubSpot::default(), "legacy-key-456").await;
+    let (dedicated, new_hs) =
+        start_fake_hubspot_with_token(FakeHubSpot::default(), "crm-key-123").await;
+    let mut state = test_state(None, Some(legacy.clone()));
+    Arc::get_mut(&mut state).unwrap().crm_hubspot = Some(dedicated.clone());
+    assert!(Arc::ptr_eq(&state.crm_hubspot().unwrap(), &dedicated));
+    assert!(Arc::ptr_eq(state.hubspot.as_ref().unwrap(), &legacy));
+    let app = crm_app(state.clone());
+    let cookie = login_as(&app, "google_oidc", None).await;
+    let (status, _, body) = get_json(&app, "/api/crm/metadata", &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["properties"].as_array().unwrap().len() >= 3);
+    assert!(old_hs.lock().unwrap().requests.is_empty());
+    assert_eq!(new_hs.lock().unwrap().requests.len(), 4);
+    assert!(new_hs
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .all(|r| r.2 == "Bearer crm-key-123"));
+    // 求人文面・営業KPI が使う共通クライアントに CRM の鍵を付け替えない。
+    state
+        .hubspot
+        .as_ref()
+        .unwrap()
+        .property_definitions(RecordType::Deal)
+        .await
+        .unwrap();
+    assert_eq!(
+        old_hs.lock().unwrap().requests[0].2,
+        "Bearer legacy-key-456"
+    );
+    assert_eq!(new_hs.lock().unwrap().requests.len(), 4);
+}
+
+#[tokio::test]
+async fn 専用鍵だけでもcrmを使え未設定なら従来のクライアントを使う() {
+    let (dedicated, new_hs) =
+        start_fake_hubspot_with_token(FakeHubSpot::default(), "crm-only-key-789").await;
+    let mut state = test_state(None, None);
+    Arc::get_mut(&mut state).unwrap().crm_hubspot = Some(dedicated);
+    assert!(state.hubspot.is_none());
+    let app = crm_app(state);
+    let cookie = login_as(&app, "google_oidc", None).await;
+    assert_eq!(
+        get_json(&app, "/api/crm/metadata", &cookie).await.0,
+        StatusCode::OK
+    );
+    assert!(new_hs
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .all(|r| r.2 == "Bearer crm-only-key-789"));
+    let (legacy, old_hs) =
+        start_fake_hubspot_with_token(FakeHubSpot::default(), "legacy-only-key-456").await;
+    let app = crm_app(test_state(None, Some(legacy)));
+    let cookie = login_as(&app, "google_oidc", None).await;
+    assert_eq!(
+        get_json(&app, "/api/crm/metadata", &cookie).await.0,
+        StatusCode::OK
+    );
+    assert!(old_hs
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .all(|r| r.2 == "Bearer legacy-only-key-456"));
+    assert!(test_state(None, None).crm_hubspot().is_none());
 }

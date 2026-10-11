@@ -352,6 +352,7 @@ fn test_state(hubspot: Arc<HubSpotClient>, audit: Option<AuditDb>) -> Arc<AppSta
         company_geo_cache: None,
         audit,
         google_oidc: None,
+        crm_hubspot: None,
         hubspot: Some(hubspot),
     })
 }

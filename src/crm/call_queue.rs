@@ -1596,7 +1596,7 @@ pub(super) async fn get_call_queue(
     let owner = effective_owner(&params.owner, role);
     let email = principal.email.clone().unwrap_or_default();
     // 4) HubSpot 設定
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     if !params.property_conditions.is_empty() {
@@ -2139,7 +2139,7 @@ pub(super) async fn get_call_queue_pipelines(
     if raw.as_deref().is_some_and(|q| !q.is_empty()) {
         return bad_param("unknown");
     }
-    let defs = match state.hubspot.clone() {
+    let defs = match state.crm_hubspot() {
         None => None,
         Some(client) => {
             match tokio::time::timeout(CRM_REQUEST_DEADLINE, ctx.queue.pipeline_defs(&client)).await
