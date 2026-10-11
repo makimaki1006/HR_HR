@@ -24,8 +24,11 @@ use crate::handlers::helpers::{get_i64, get_str};
 pub const BACKOFF_SECS: [i64; 5] = [60, 300, 1_800, 7_200, 21_600];
 /// 再送の最大試行回数 (初回の同期送信を含む)。超えたら `failed`
 pub const MAX_ATTEMPTS: i64 = 8;
-/// `in_progress` のまま止まった行を再送の対象にするまでの時間 (プロセスが送信中に落ちた場合)
-pub const IN_PROGRESS_STALE_SECS: i64 = 600;
+/// `in_progress` のまま止まった行を再送の対象にするまでの時間 (プロセスが送信中に落ちた場合)。
+/// 要求側は締め切りで打ち切られても台帳の行を最後まで確定させる (`write::patch_deal`) ので、ここに来るのは
+/// プロセスの異常終了だけ。worker は同じレコードの鍵 (要求側が送信中は持っている) を取ってから触るので、
+/// 短くしても生きている送信と二重にはならない (2026-10-09 の負荷試験は 600 秒で、キューが空にならなかった)
+pub const IN_PROGRESS_STALE_SECS: i64 = 90;
 /// 保存済み・失敗・破棄の行を残す日数
 pub const RETAIN_DAYS: i64 = 7;
 /// 保留の既定の上限 (`CRM_PENDING_MAX`)

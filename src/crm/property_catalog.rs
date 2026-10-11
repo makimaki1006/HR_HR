@@ -9,6 +9,9 @@
 //! グループの表示名はプロパティ定義の応答に入っていない (グループの内部名だけ) ため、グループ定義も読む。
 //! 定義は滅多に変わらないので数時間使い回す。同時のキャッシュミスは 1 回の取得にまとめる。
 //! 失敗は [`FAILURE_TTL`] だけ覚えて同じ失敗を返す (詳細を開くたびに 6 回ずつ失敗する呼び出しを繰り返さない)。
+//! **前に取れた一覧が残っているなら、期限が切れていても取り直しに失敗した間はそれを返す** (stale-while-error。
+//! 保存の許可リストにも使うので、HubSpot の一時障害のたびに保存が 502 になるのを避ける)。
+//! 一度も取れていないときだけ失敗を返す。
 //!
 //! 返さないもの: HubSpot で非表示 (`hidden`) の項目と選択肢、アーカイブ済みの項目、
 //! 機微情報として印の付いた項目 (`dataSensitivity` が `non_sensitive` 以外)。
@@ -30,6 +33,7 @@ use tokio::sync::Mutex;
 use tower_sessions::Session;
 use ts_rs::TS;
 
+use super::clock::Clock;
 use super::rbac;
 use super::routes::{
     error_json, hubspot_error_response, timeout_response, CrmCtx, CRM_REQUEST_DEADLINE,
@@ -41,8 +45,9 @@ use crate::AppState;
 
 /// 定義の一覧を使い回す時間
 pub const CATALOG_TTL: Duration = Duration::from_secs(6 * 60 * 60);
-/// 取得に失敗したとき、取り直さずに同じ失敗を返す時間
-pub const FAILURE_TTL: Duration = Duration::from_secs(60);
+/// 取得に失敗したとき、取り直さずに待つ時間 (短く: 障害が終わったらすぐ取り直す。
+/// 一度も取れていないときは同じ失敗を、前の一覧があるときはそれを、この間返す)
+pub const FAILURE_TTL: Duration = Duration::from_secs(5);
 /// 1 つの型 (案件・担当者・会社) で、一度に表示できる項目の最大数 (workspace の `*_props` も同じ上限)
 pub const MAX_SELECTED_PER_OBJECT: usize = 100;
 /// HubSpot の内部名の最大長 (実データの最長は 64 文字。余裕を持たせる)
@@ -166,6 +171,7 @@ pub struct PropertyCatalogCache {
     slot: Mutex<Slot>,
     ttl: Duration,
     failure_ttl: Duration,
+    clock: Clock,
     /// 先読み (背景の優先度) が走っているか
     refreshing: super::call_queue::RefreshGate,
 }
@@ -184,10 +190,16 @@ impl Default for PropertyCatalogCache {
 
 impl PropertyCatalogCache {
     pub fn with_ttl(ttl: Duration, failure_ttl: Duration) -> Self {
+        Self::with_clock(ttl, failure_ttl, Clock::default())
+    }
+
+    /// 時計を指定して作る (テストで手で進める時計を渡す)
+    pub fn with_clock(ttl: Duration, failure_ttl: Duration, clock: Clock) -> Self {
         Self {
             slot: Mutex::new(Slot::default()),
             ttl,
             failure_ttl,
+            clock,
             refreshing: super::call_queue::RefreshGate::new(),
         }
     }
@@ -199,25 +211,37 @@ impl PropertyCatalogCache {
     ) -> Result<(Arc<CatalogEntry>, bool), HubSpotError> {
         let mut slot = self.slot.lock().await;
         if let Some((stored, entry)) = slot.ok.as_ref() {
-            if stored.elapsed() < self.ttl {
+            if self.clock.since(*stored) < self.ttl {
                 cache_hit("property_catalog");
                 return Ok((entry.clone(), true));
             }
         }
         if let Some((at, e)) = slot.failed.as_ref() {
-            if at.elapsed() < self.failure_ttl {
+            if self.clock.since(*at) < self.failure_ttl {
+                // 取り直しに失敗した直後: 前の一覧があればそれで続ける
+                if let Some((_, entry)) = slot.ok.as_ref() {
+                    cache_hit("property_catalog");
+                    return Ok((entry.clone(), true));
+                }
                 return Err(e.clone());
             }
         }
         cache_miss("property_catalog");
         match self.fetch(client).await {
             Ok(entry) => {
-                slot.ok = Some((Instant::now(), entry.clone()));
+                slot.ok = Some((self.clock.now(), entry.clone()));
                 slot.failed = None;
                 Ok((entry, false))
             }
             Err(e) => {
-                slot.failed = Some((Instant::now(), e.clone()));
+                slot.failed = Some((self.clock.now(), e.clone()));
+                if let Some((_, entry)) = slot.ok.as_ref() {
+                    tracing::warn!(
+                        error_kind = e.error_kind(),
+                        "crm property catalog refresh failed; serving the last good catalog"
+                    );
+                    return Ok((entry.clone(), true));
+                }
                 Err(e)
             }
         }
@@ -226,9 +250,9 @@ impl PropertyCatalogCache {
     /// 有効期間の終わり近く (残り 20% 未満) なら true (先読みの対象)。取得中は false
     pub fn refresh_due(&self) -> bool {
         self.slot.try_lock().is_ok_and(|slot| {
-            slot.ok
-                .as_ref()
-                .is_some_and(|(at, _)| super::call_queue::refresh_due(at.elapsed(), self.ttl))
+            slot.ok.as_ref().is_some_and(|(at, _)| {
+                super::call_queue::refresh_due(self.clock.since(*at), self.ttl)
+            })
         })
     }
 
@@ -241,7 +265,7 @@ impl PropertyCatalogCache {
         match self.fetch(client).await {
             Ok(entry) => {
                 let mut slot = self.slot.lock().await;
-                slot.ok = Some((Instant::now(), entry));
+                slot.ok = Some((self.clock.now(), entry));
                 slot.failed = None;
             }
             Err(e) => tracing::warn!(
@@ -253,19 +277,24 @@ impl PropertyCatalogCache {
     }
 
     async fn fetch(&self, client: &HubSpotClient) -> Result<Arc<CatalogEntry>, HubSpotError> {
-        let (dp, cp, op, dg, cg, og) = tokio::try_join!(
+        // 全部の応答を待つ (`try_join!` は 1 つ失敗すると残りの送信を途中で取り下げる。
+        // 取り下げは HubSpot に届くかどうかが時の運で、呼び出し回数の数え方も揺れる)
+        let (dp, cp, op, dg, cg, og) = tokio::join!(
             client.property_definitions(RecordType::Deal),
             client.property_definitions(RecordType::Contact),
             client.property_definitions(RecordType::Company),
             client.property_groups(RecordType::Deal),
             client.property_groups(RecordType::Contact),
             client.property_groups(RecordType::Company),
-        )
-        .map_err(|e| match e {
-            // 定義の取得で 404 は「レコードが無い」ではなく上流の不具合
-            HubSpotError::NotFound => HubSpotError::Upstream { status: 404 },
-            other => other,
-        })?;
+        );
+        let [dp, cp, op, dg, cg, og] = [dp, cp, op, dg, cg, og].map(|r| {
+            r.map_err(|e| match e {
+                // 定義の取得で 404 は「レコードが無い」ではなく上流の不具合
+                HubSpotError::NotFound => HubSpotError::Upstream { status: 404 },
+                other => other,
+            })
+        });
+        let (dp, cp, op, dg, cg, og) = (dp?, cp?, op?, dg?, cg?, og?);
         let response = CrmPropertyCatalogResponse {
             objects: vec![
                 build_object(RecordType::Deal, &dp, &dg)?,
