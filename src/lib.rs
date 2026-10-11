@@ -103,6 +103,7 @@ mod router_startup_test;
 mod platform_api_tests;
 
 pub fn build_app(state: Arc<AppState>) -> Router {
+    let login_cookie = auth::login_cookie::CookieState::from_env(state.clone());
     let session_store = MemoryStore::default();
     // 2026-05-22 セキュリティ修正 (Agent A3 H1): 本番 (RENDER env 等) で
     // Secure=true / SameSite=Strict を強制。Render 環境変数 `RENDER` が
@@ -999,6 +1000,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .layer(
             tower::ServiceBuilder::new()
                 .layer(session_layer)
+                .layer(middleware::from_fn_with_state(login_cookie, auth::login_cookie::restore_login))
                 .layer(CompressionLayer::new()),
         )
 }
@@ -1445,6 +1447,18 @@ async fn login_submit(
     )
     .await;
 
+    if login_method == auth::LOGIN_METHOD_PASSWORD_EXTERNAL {
+        if let Some(ext) = state
+            .config
+            .external_passwords
+            .iter()
+            .find(|ext| ext.password == form.password)
+        {
+            let _ = session
+                .insert(auth::login_cookie::EXTERNAL_EXPIRY_KEY, &ext.expires)
+                .await;
+        }
+    }
     Redirect::to("/").into_response()
 }
 
@@ -1543,6 +1557,14 @@ pub(crate) async fn complete_login(
     // 2026-05-22 セキュリティ修正 (Agent A3 M1): session fixation 対策。
     // login 成功後に session id を再発行する。pre-login で attacker が取得した
     // session id を victim ログイン後も使い回せる脆弱性を防ぐ。
+    let _ = session
+        .remove::<String>(auth::login_cookie::EXTERNAL_EXPIRY_KEY)
+        .await;
+    let _ = session
+        .remove::<bool>(auth::login_cookie::COOKIE_ISSUED_KEY)
+        .await;
+    let _ = session.remove::<String>(SESSION_LOGIN_SESSION_ID_KEY).await;
+    let _ = session.remove::<String>(SESSION_ACCOUNT_ID_KEY).await;
     let _ = session.cycle_id().await;
     let _ = session.insert(SESSION_USER_KEY, email).await;
     let _ = session
@@ -1618,7 +1640,13 @@ pub(crate) async fn complete_login(
     }
 }
 
-async fn logout(State(state): State<Arc<AppState>>, session: Session) -> Redirect {
+async fn logout(State(state): State<Arc<AppState>>, session: Session) -> axum::response::Response {
+    // 暗号化 Cookie がある場合は、失効の保存までログアウトを完了させない。
+    let durable_login = session
+        .get::<bool>(auth::login_cookie::COOKIE_ISSUED_KEY)
+        .await
+        .unwrap_or(None)
+        == Some(true);
     // 監査: ログイン履歴の ended_at を埋める + 'logout' イベント記録
     if let Some(audit) = &state.audit {
         let account_id: Option<String> = session.get(SESSION_ACCOUNT_ID_KEY).await.unwrap_or(None);
@@ -1631,20 +1659,24 @@ async fn logout(State(state): State<Arc<AppState>>, session: Session) -> Redirec
             let audit_clone = audit.clone();
             let sid_owned = sid.clone();
             let aid_owned = account_id.clone();
-            if let Err(e) = tokio::task::spawn_blocking(move || {
-                let _ = audit::dao::mark_session_ended(&audit_clone, &sid_owned);
+            let ended = tokio::task::spawn_blocking(move || {
+                audit::dao::mark_session_ended(&audit_clone, &sid_owned)?;
                 if let Some(ref aid) = aid_owned {
                     audit::insert_activity(&audit_clone, aid, &sid_owned, "logout", "", "", "");
                 }
+                Ok::<(), String>(())
             })
-            .await
-            {
-                tracing::warn!("logout audit spawn_blocking join failed: {e}");
+            .await;
+            if !matches!(ended, Ok(Ok(()))) {
+                tracing::warn!("ログアウト履歴の保存に失敗しました");
+                if durable_login {
+                    return auth::login_cookie::unavailable();
+                }
             }
         }
     }
     session.flush().await.ok();
-    Redirect::to("/login")
+    Redirect::to("/login").into_response()
 }
 
 // --- ダッシュボード ---
