@@ -25,9 +25,14 @@ test('Gmail consent, composed email and sent activity use only local sample data
   fs.mkdirSync(screenshots, { recursive: true });
   await page.screenshot({ path: `${screenshots}/01-before-permission.png`, fullPage: true });
   await page.getByRole('button', { name: 'Gmail で送信を許可する', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Gmail の許可を取り消す' })).toHaveCount(0);
   await page.getByRole('button', { name: 'メールを書く', exact: true }).click();
+  await expect(page.getByText('Gmail の許可を取り消す', { exact: true })).toBeHidden();
+  await page.getByText('その他', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Gmail の許可を取り消す' })).toBeVisible();
+  await page.getByText('その他', { exact: true }).click();
   await page.getByLabel('件名', { exact: true }).fill('採用のご相談（架空）');
-  await page.getByLabel('本文', { exact: true }).fill('丁野様\n採用人数3名のご相談について、資料をご案内します。\n来週の火曜日にお話しできますでしょうか。');
+  await page.getByLabel('本文', { exact: true }).fill('丁野様\n採用人数3名のご相談について、資料をご案内します。\n資料（https://example.invalid/docs?a=1&b=2）。\n来週の火曜日にお話しできますでしょうか。');
   await expect(page.getByLabel('宛先', { exact: true })).toContainText('sample@example.invalid');
   await page.screenshot({ path: `${screenshots}/02-compose-email.png`, fullPage: true });
   await page.getByRole('button', { name: '送信', exact: true }).click();
@@ -36,6 +41,10 @@ test('Gmail consent, composed email and sent activity use only local sample data
   await expect(activity.getByText('採用のご相談（架空）', { exact: true })).toBeVisible();
   await expect(activity.getByText('採用人数3名', { exact: false })).toBeVisible();
   await expect(activity.getByText('保存済み', { exact: true }).first()).toBeVisible();
+  const sent = activity.getByTestId('activity-card').filter({ hasText: '採用のご相談（架空）' });
+  await sent.getByRole('button', { name: '全文を表示' }).click();
+  await expect(sent.getByRole('link', { name: 'https://example.invalid/docs?a=1&b=2' })).toHaveAttribute('href', 'https://example.invalid/docs?a=1&b=2');
+  await expect(activity.getByText('添付 0 件', { exact: false })).toHaveCount(0);
   await page.screenshot({ path: `${screenshots}/03-sent-activity-log.png`, fullPage: true });
   expect(external).toEqual([]);
 });
