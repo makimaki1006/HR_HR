@@ -183,8 +183,8 @@ function noDataNote(month: string | null | undefined): string {
 }
 /** The market cell of the period table. While loading or after a failed request it says so (not "pick a market"). */
 function marketText(market: MarketChangeResult, status: MarketState['status'] = 'ready'): string {
-  if (status === 'error') return '取得できませんでした';
-  if (status === 'loading') return '取得中…';
+  if (status === 'error') return '市場データを確認できませんでした';
+  if (status === 'loading') return '市場データを読み込み中…';
   if (market.ok) {
     const sign = market.value.changePct > 0 ? '+' : market.value.changePct < 0 ? '−' : '±';
     return `${sign}${Math.abs(market.value.changePct).toFixed(1)}%（${formatMonthJa(market.value.fromMonth)} ${market.value.fromJobs.toLocaleString('ja-JP')}件 → ${formatMonthJa(market.value.toMonth)} ${market.value.toJobs.toLocaleString('ja-JP')}件${noDataNote(market.value.noDataFrom)}）`;
@@ -199,7 +199,7 @@ function marketText(market: MarketChangeResult, status: MarketState['status'] = 
 /** Text for the screen-reader live region of the market lane. */
 function marketStatusText(state: MarketState): string {
   if (state.status === 'loading') return state.retrying ? '市場データを取り直しています' : '市場データを読み込んでいます';
-  if (state.status === 'error') return '市場データの取得に失敗しました。「市場データを再取得」で取り直せます';
+  if (state.status === 'error') return '市場データの取得に失敗しました。「市場データを再読み込み」で取り直せます';
   if (state.rows?.length) return `市場データを表示しました（${state.title}・${state.prefecture}）`;
   return '';
 }
@@ -226,11 +226,11 @@ export function billingText(row: PeriodRow): string {
 /** The 選んだ本文 panel's date: the acquisition day, and between which acquisitions it changed. */
 export function selectionDateText(change: VersionChange, captured: boolean): string {
   if (!captured) return `${formatDay(change.date)} から（媒体の掲載日時）`;
-  if (change.index === 0 || change.previousDate === null) return `${formatDay(change.date)} に取得（最初の取得）`;
+  if (change.index === 0 || change.previousDate === null) return `${formatDay(change.date)} に確認（最初の確認）`;
   const status = boundaryStatus(change);
-  if (status === 'changed') return `${formatDay(change.date)} に取得（前回の取得 ${formatDay(change.previousDate)} 以降に変化）`;
-  if (status === 'same') return `${formatDay(change.date)} に取得（前回の取得 ${formatDay(change.previousDate)} から変化は見つかっていません）`;
-  return `${formatDay(change.date)} に取得（前回の取得 ${formatDay(change.previousDate)} と比べられない項目があります）`;
+  if (status === 'changed') return `${formatDay(change.date)} に確認（前回の確認 ${formatDay(change.previousDate)} 以降に変化）`;
+  if (status === 'same') return `${formatDay(change.date)} に確認（前回の確認 ${formatDay(change.previousDate)} から変化は見つかっていません）`;
+  return `${formatDay(change.date)} に確認（前回の確認 ${formatDay(change.previousDate)} と比べられない項目があります）`;
 }
 
 function axisMonths(range: TimelineRange) {
@@ -377,8 +377,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <div className="jt-scope">応募は HubSpot に記録されたものだけです。<InfoTip label="並べて見るための表示です">
         <p>同じ時期に起きたことを並べて表示しています。応募が増えた・減った理由を示すものではありません。</p>
         <p>応募件数は HubSpot に記録された応募日で数えています。媒体上のすべての応募ではなく、どの本文を見て応募したかは分かりません。</p>
-        <p>掲載が変わった日は分かりません。期間比較表は求人データを取得した日で区切り、前後の取得で内容が違うときは「取得日A〜取得日Bの間に変化」として、その間の応募を前後どちらの期間にも入れていません。取得した日も、取得した時刻の前後で変わった可能性があるため、この間に含めます。最後に取得した日より後は「未取得」です。</p>
-        {job.mediaPublication && <p>「媒体の公開状況」は HRハッカーの求人一覧の最新の状態で、求人全体の公開期間です。「掲載期間」はどの本文がいつ載っていたかを、求人データを取得した日で示します。{publicationNotes(job.mediaPublication).join('')}</p>}
+        <p>掲載が変わった日は分かりません。期間比較表は文面を確認した日で区切り、前後の取得で内容が違うときは「文面を確認した日A〜文面を確認した日Bの間に変化」として、その間の応募を前後どちらの期間にも入れていません。文面を確認した日も、文面を確認した時刻の前後で変わった可能性があるため、この間に含めます。最後に文面を確認した日より後は「未取得」です。</p>
+        {job.mediaPublication && <p>「媒体の公開状況」は HRハッカーの求人一覧の最新の状態で、求人全体の公開期間です。「掲載期間」はどの本文がいつ載っていたかを、文面を確認した日で示します。{publicationNotes(job.mediaPublication).join('')}</p>}
         <p>期間の長さが違うので「1日あたり」で並べて確認してください。{MIN_RATE_DAYS}日に満たない期間は1日あたりを出さず、比べません（求人の横断比較と同じ扱い）。</p>
       </InfoTip></div>
     </header>
@@ -392,14 +392,14 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : <p className="jt-empty" title={publication.title}>{publication.label}</p>}
       </Lane>}
 
-      <Lane rows={rowCount} title="掲載期間" source={captured ? '求人データを取得した日（掲載日は不明）' : '媒体の掲載日時'}>
+      <Lane rows={rowCount} title="掲載期間" source={captured ? '文面を確認した日（掲載日は不明）' : '媒体の掲載日時'}>
         {periods.map(period => <Fragment key={period.versionId}><button type="button" aria-label={period.label} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
           style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), top: `${String(8 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }} onClick={() => { setSelected(period.versionId); }}
-          title={period.basis === 'captured' ? `${period.label}: ${formatDay(period.start)}に取得${period.days > 1 && period.end ? `（${formatDay(addDays(period.end, -1))}まで同じ内容）` : ''}` : `${period.label}: ${formatDay(period.start)}〜${period.end ? formatDay(addDays(period.end, -1)) : '継続中'}（媒体の掲載日時）`}>
+          title={period.basis === 'captured' ? `${period.label}: ${formatDay(period.start)}に確認${period.days > 1 && period.end ? `（${formatDay(addDays(period.end, -1))}まで同じ内容）` : ''}` : `${period.label}: ${formatDay(period.start)}〜${period.end ? formatDay(addDays(period.end, -1)) : '継続中'}（媒体の掲載日時）`}>
           <span>{period.label}</span></button><span aria-hidden="true" className="jt-period-label" style={{ ...pinned(period.start, range), top: `${String(12 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }}>{period.label}</span></Fragment>)}
         {spans.map(item => <div key={`${item.kind}-${item.fromVersionId}`} className={item.kind === 'between' ? 'jt-zone' : 'jt-unacquired'} style={span(range, item.start, item.end)}
-          title={item.kind === 'between' ? `取得日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の取得（${formatDay(item.from)}）より後は未取得です`}>
-          <span>{item.kind === 'between' ? '取得日の間' : '未取得'}</span></div>)}
+          title={item.kind === 'between' ? `文面を確認した日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の確認（${formatDay(item.from)}）より後は未取得です`}>
+          <span>{item.kind === 'between' ? '文面を確認した日の間' : '未取得'}</span></div>)}
         {!periods.length && <p className="jt-empty">掲載期間は未取得です</p>}
       </Lane>
 
@@ -459,8 +459,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <div className="jt-lane-tools">
         <div className="jt-granularity" role="group" aria-label="応募の集計単位">{(['day', 'week', 'month'] as const).map(value => <button type="button" key={value} aria-pressed={granularity === value} onClick={() => { setGranularity(value); }}>{granularityLabel[value]}ごと</button>)}</div>
         {applications && applications.missingDate > 0 && <span>応募日が分からない応募 {applications.missingDate}件 はグラフに含めていません</span>}
-        {outside > 0 && <span>{captured ? `最初に取得した日まで（その日を含む）の応募 ${String(outside)}件` : `最初の掲載より前の日付の応募 ${String(outside)}件`}</span>}
-        {unsure > 0 && <span>取得日の間・最後の取得より後の応募 {unsure}件 は、どちらの内容への応募か分からないため期間比較表の各本文には入れていません</span>}
+        {outside > 0 && <span>{captured ? `最初に文面を確認した日まで（その日を含む）の応募 ${String(outside)}件` : `最初の掲載より前の日付の応募 ${String(outside)}件`}</span>}
+        {unsure > 0 && <span>文面を確認した日の間・最後の確認より後の応募 {unsure}件 は、どちらの内容への応募か分からないため期間比較表の各本文には入れていません</span>}
         {multi ? multiTotal > 0 && <span>複数の求人に関連する応募 {multiTotal}件 は期間比較表に入れていません</span>
           : applications?.byDate && <span>複数の求人に関連する応募を見分ける情報を取得していないため、期間比較表の件数に含まれている場合があります</span>}
       </div>
@@ -480,7 +480,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
                 })}
       </Lane>
       {reasonPeriods && (reasonInPeriods || reasonPeriods.undated > 0 || reasonPeriods.outside > 0 || job.applicantReasons?.truncated === true || job.applicantReasons?.selections === null || (reasonClasses?.multiListing ?? 0) > 0) && <div className="jt-lane-tools">
-        {reasonInPeriods && <span>枠を押すと、下の「期間ごとの応募理由」の表で分類ごとの数を確認できます。斜線の枠は、どちらの内容への応募か分からない期間（取得日の間・最後の取得より後）です</span>}
+        {reasonInPeriods && <span>枠を押すと、下の「期間ごとの応募理由」の表で分類ごとの数を確認できます。斜線の枠は、どちらの内容への応募か分からない期間（文面を確認した日の間・最後の確認より後）です</span>}
         {job.applicantReasons?.selections === null && reasonClasses?.applications.length ? <span>このデータでは分類の選択を取得していないため、数はすべて文から言葉で推定したものです（選択済みは0件ではなく未取得）</span> : null}
         {job.applicantReasons?.truncated === true && <span>記述が多く一部しか読み込んでいないため、期間ごとの応募理由の数は実際より少ないことがあります</span>}
         {reasonPeriods.undated > 0 && <span>応募日が分からない応募理由 {reasonPeriods.undated}件 は段と表に入れていません</span>}
@@ -490,9 +490,9 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
 
       <Lane title="市場" source="Indeed（都道府県・職種の月ごと）" className="jt-lane-chart">
         {lane?.noDataFrom && <div className="jt-nodata" style={span(range, `${lane.noDataFrom}-01` > range.start ? `${lane.noDataFrom}-01` : range.start, addDays(range.end, 1))} title={lane.lastDataMonth ? marketDataUntil(lane.lastDataMonth) : undefined}>データなし</div>}
-        {marketOption && market.state.status === 'loading' && <p className="jt-empty jt-market-loading" role="status">市場データを取得中…</p>}
+        {marketOption && market.state.status === 'loading' && <p className="jt-empty jt-market-loading" role="status">市場データを読み込み中…</p>}
         {marketOption ? <EChart option={marketOption} testId="jt-market" height={72} renderer="svg" />
-          : <p className="jt-empty">{market.state.status === 'loading' ? '市場データを取得中…' : market.state.status === 'error' ? '市場データを取得できませんでした' : !market.state.title ? '職種を選ぶと市場の動きを表示します' : !market.state.prefecture ? '都道府県を選ぶと市場の動きを表示します' : 'この職種・都道府県の市場データはありません'}</p>}
+          : <p className="jt-empty">{market.state.status === 'loading' ? '市場データを読み込み中…' : market.state.status === 'error' ? '市場データを取得できませんでした' : !market.state.title ? '職種を選ぶと市場の動きを表示します' : !market.state.prefecture ? '都道府県を選ぶと市場の動きを表示します' : 'この職種・都道府県の市場データはありません'}</p>}
       </Lane>
       <div className="jt-lane-tools jt-market-tools">
         <div className="jt-market-key"><i className="jt-key jt-key-jobs" />市場求人数 <i className="jt-key jt-key-viewers" /><InfoTip className="jc-infotip-left" label="Indeed閲覧者指標"><p>{plainWording(marketMeta?.ctk_basis ?? 'Indeed閲覧者指標は、求職者の人数やこの求人への応募数ではありません。')}</p></InfoTip></div>
@@ -502,7 +502,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           <span className="jt-choice">{market.state.titleBy === 'auto-exact' ? '求人名と同じ職種を自動で選びました' : market.state.titleBy === 'auto-partial' ? '求人名に含まれる職種を自動で選びました。違う場合は選び直してください' : market.state.titleBy === 'user' ? '手で選んだ職種です' : '求人名から職種を決められませんでした'}</span>
           <span className="jt-choice">{market.state.prefectureBy === 'auto' ? `勤務地から${market.state.prefecture}を自動で選びました` : market.state.prefectureBy === 'user' ? '手で選んだ都道府県です' : '勤務地から都道府県を決められませんでした'}</span>
         </>}
-        {(market.state.status === 'error' || market.state.retrying) && <button type="button" ref={retryButton} className="jc-button" aria-disabled={market.state.status === 'loading'} onClick={market.retry}>市場データを再取得</button>}
+        {(market.state.status === 'error' || market.state.retrying) && <button type="button" ref={retryButton} className="jc-button" aria-disabled={market.state.status === 'loading'} onClick={market.retry}>市場データを再読み込み</button>}
         <span className="jc-visually-hidden" role="status">{marketStatusText(market.state)}</span>
         {lane?.lastDataMonth && <span className="jt-market-until">{marketDataUntil(lane.lastDataMonth)}{lane.lastJobsMonth && lane.lastJobsMonth < lane.lastDataMonth ? `。市場求人数は${formatMonthJa(lane.lastJobsMonth)}まで` : ''}{lane.noDataFrom ? `。${formatMonthJa(lane.noDataFrom)}以降はデータなしとして表示しています` : ''}</span>}
       </div>
@@ -516,7 +516,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange !== 'same' && <span>本文は前回と同じです。画像：{IMAGE_CHANGE_MARK[selectedChange.imageChange].spoken}</span>}
     </div>}
     <div className="jt-legend" role="group" aria-label="凡例">{captured
-      ? <><span className="jt-legend-title">掲載日は不明（取得日で表示）：</span><span><i className="jt-key jt-basis-captured" />取得した日の内容</span><span><i className="jt-key jt-key-zone" />取得日の間（どちらの内容か分からない）</span><span><i className="jt-key jt-key-unacquired" />最後の取得より後（未取得）</span></>
+      ? <><span className="jt-legend-title">掲載日は不明（文面を確認した日で表示）：</span><span><i className="jt-key jt-basis-captured" />文面を確認した日の内容</span><span><i className="jt-key jt-key-zone" />文面を確認した日の間（どちらの内容か分からない）</span><span><i className="jt-key jt-key-unacquired" />最後の確認より後（未取得）</span></>
       : <><span className="jt-legend-title">掲載日：</span><span><i className="jt-key jt-cert-confirmed" />媒体の掲載日時</span></>}
       {publication?.bar && <><span className="jt-legend-title">媒体の公開状況：</span><span><i className="jt-key jt-pub-public" />公開開始〜最後に公開を確認した日（途中で止めたかは不明）</span>{publication.bar.status === 'private' && <span><i className="jt-key jt-pub-private" />公開開始〜非公開を確認した日</span>}</>}</div>
 
@@ -528,31 +528,31 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         <tbody>{rows.map(row => <tr key={row.key} className={row.kind !== 'period' ? `jt-gap-row jt-row-${row.kind}` : selected === row.versionId ? 'jt-row-selected' : undefined} aria-current={row.kind === 'period' && selected === row.versionId ? 'true' : undefined}>
           <th scope="row">{row.versionId ? <button type="button" className="jc-text-button" aria-pressed={selected === row.versionId} onClick={() => { setSelected(row.versionId); }}>{row.label}</button> : row.label}{row.kind === 'period' && selected === row.versionId && <span className="jt-selected-tag">選択中</span>}<small>{row.detail}</small></th>
           <td>{row.afterCounts && row.days === 0 ? '—' : `${String(row.days)}日`}</td>
-          <td>{row.afterCounts ? '応募集計の取得後に始まった期間' : row.applications === null ? '未取得' : row.kind === 'period' && row.days === 0 ? '別の行に数えます' : `${String(row.applications)}件`}</td>
+          <td>{row.afterCounts ? '応募件数を確認した後に始まった期間' : row.applications === null ? '未取得' : row.kind === 'period' && row.days === 0 ? '別の行に数えます' : `${String(row.applications)}件`}</td>
           <td>{row.afterCounts ? '—' : row.applications === null ? '未取得' : row.kind === 'between' || row.kind === 'unacquired' ? '比べません' : row.shortPeriod ? '期間が短いため比べません' : formatPerDay(row.perDay)}</td>
           <td>{billingText(row)}</td>
           <td>{marketText(row.market, market.state.status)}</td>
         </tr>)}</tbody>
       </table></div>}
-      {rows.some(row => row.afterCounts) && <p className="jt-table-note">「応募集計の取得後に始まった期間」は、応募件数を{formatDay(asOf)}に取得した後に始まった期間です。0件という意味ではありません。</p>}
+      {rows.some(row => row.afterCounts) && <p className="jt-table-note">「応募件数を確認した後に始まった期間」は、応募件数を{formatDay(asOf)}に取得した後に始まった期間です。0件という意味ではありません。</p>}
       {rows.some(row => !row.afterCounts && row.applications === null) && <p className="jt-table-note">「未取得」は応募日ごとの件数を取得していないという意味です。0件という意味ではありません。</p>}
-      {rows.some(row => row.kind === 'between' || row.kind === 'unacquired') && <p className="jt-table-note">「取得日の間」と「最後の取得より後」の行の応募は、どちらの内容を見た応募か分からないため、前後の期間に入れず別に数えています。応募は日付だけで記録されていて、取得した日も取得した時刻の前後で内容が変わった可能性があるため、取得した日の応募もこれらの行に入れています。1日あたりは比べません。</p>}
+      {rows.some(row => row.kind === 'between' || row.kind === 'unacquired') && <p className="jt-table-note">「文面を確認した日の間」と「最後の確認より後」の行の応募は、どちらの内容を見た応募か分からないため、前後の期間に入れず別に数えています。応募は日付だけで記録されていて、文面を確認した日も文面を確認した時刻の前後で内容が変わった可能性があるため、文面を確認した日の応募もこれらの行に入れています。1日あたりは比べません。</p>}
       {rows.some(row => !row.afterCounts && row.applications !== null && row.shortPeriod && (row.kind === 'period' || row.kind === 'gap')) && <p className="jt-table-note">「期間が短いため比べません」は、{MIN_RATE_DAYS}日に満たない期間です。1日や2日の件数を1日あたりに直すと大きく振れるため、比べません。</p>}
       {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と本文の表示期間がずれているため、日数で割って配分した金額です。</p>}
     </section>
     {reasonClasses && <section className="jt-periods jt-reasons" aria-label="期間ごとの応募理由">
       <h3>期間ごとの応募理由</h3>
       {rows.length === 0 ? <p className="jc-notice">掲載期間が取得できていないため、期間ごとの応募理由は出せません。応募理由の記録 {reasonClasses.applications.length}件 の分類は「応募理由」で確認できます。</p> : <>
-      <p className="jc-muted">期間比較表と同じ期間（取得日の間を含む）で、応募日ごとに応募理由の分類を数えています。nは応募理由の記録がある{reasonUnit}の件数です。分類ごとの数の下の「選択」はHubSpotで分類が選ばれた件数、「推定」は文から言葉で推定した件数です。1件が複数の分類に入ることがあります。nが{MIN_SHARE_N}件に満たない期間は割合を出しません。</p>
+      <p className="jc-muted">期間比較表と同じ期間（文面を確認した日の間を含む）で、応募日ごとに応募理由の分類を数えています。nは応募理由の記録がある{reasonUnit}の件数です。分類ごとの数の下の「選択」はHubSpotで分類が選ばれた件数、「推定」は文から言葉で推定した件数です。1件が複数の分類に入ることがあります。nが{MIN_SHARE_N}件に満たない期間は割合を出しません。</p>
       <div className="jt-table-scroll" role="region" aria-label="期間ごとの応募理由の数値" tabIndex={0}><table>
         <thead><tr><th scope="col">期間</th><th scope="col">n</th><th scope="col">選択済み・推定・分類できない</th>{REASON_CATEGORIES.map(category => <th scope="col" key={category}>{category}</th>)}</tr></thead>
         <tbody>{rows.map(row => {
           const result = row.afterCounts ? null : reasonOf(row.key);
           return <tr key={row.key} id={reasonRowId(row.key)} tabIndex={-1} className={row.kind !== 'period' ? `jt-gap-row jt-row-${row.kind}` : undefined}>
             <th scope="row">{row.label}<small>{row.detail}</small></th>
-            {!result ? <td colSpan={2 + REASON_CATEGORIES.length}>応募集計の取得後に始まった期間</td> : <>
+            {!result ? <td colSpan={2 + REASON_CATEGORIES.length}>応募件数を確認した後に始まった期間</td> : <>
               <td>n={result.n}</td>
-              <td className="jt-reason-basis">{result.n ? <><span>{selectionsUnread ? '選択済み 未取得' : `選択済み${String(result.selectedN)}件`}</span><span>推定{result.estimatedN}件</span><span>分類できない{result.unclassified}件</span></> : '記録なし'}</td>
+              <td className="jt-reason-basis">{result.n ? <><span>{selectionsUnread ? '分類の選択件数は未取得' : `選択済み${String(result.selectedN)}件`}</span><span>推定{result.estimatedN}件</span><span>分類できない{result.unclassified}件</span></> : '記録なし'}</td>
               {result.counts.map(count => { const share = shareText(count.total, result.n); const basis = basisText(count); return <td key={count.category}>{result.n ? <>{`${String(count.total)}件${share ? `（${share}）` : ''}`}{basis && <small>{basis}</small>}</> : '—'}</td>; })}
             </>}
           </tr>;

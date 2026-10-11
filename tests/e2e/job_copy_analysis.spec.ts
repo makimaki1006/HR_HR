@@ -126,7 +126,7 @@ test('market graphs retain missing months and real zero and hide stale charts du
   await page.locator('.jc-market-charts').scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'market-graphs-desktop.png') });
   await page.getByLabel('比較する都道府県').selectOption('福岡県');
-  await expect(page.getByRole('status')).toContainText('市場データを取得中');
+  await expect(page.getByRole('status')).toContainText('市場データを読み込み中');
   await expect(page.getByTestId('jc-market-jobs')).toHaveCount(0);
   await expect(page.getByRole('tabpanel', { name: '市場グラフ', exact: true }).getByTestId('jc-applications-monthly')).toHaveCount(0);
   await expect.poll(() => Boolean(release)).toBe(true);

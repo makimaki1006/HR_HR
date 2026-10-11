@@ -15,7 +15,7 @@ const body = (salary: string) => `求人id：raw-id-secret\n案件名：配送�
 it('formats exact salaries and never infers prose conditions', () => {
   expect(salaryAmount('月給', '250000')).toBe('月給 250,000円');
   expect(salaryAmount('時給', '1,200')).toBe('時給 1,200円');
-  expect(salaryAmount('月給', null)).toBe('—');
+  expect(salaryAmount('月給', null)).toBe('未取得');
   expect(salaryAmount(null, '250000')).toBe('給与形態不明 250,000円');
   const result = compareJobs([{ id: 'hrh', title: 'A', media: 'HRハッカー', body: body('250000') }, { id: 'aw', title: 'B', media: 'AirWork', body: body('280000') }]);
   expect(result.fullDifferent).toBe(true);
@@ -71,9 +71,9 @@ it('sorts on the server, pages 101 jobs and compares distinct media jobs', async
   api.mockImplementation((url: string) => Promise.resolve({ ok: true, data: url.includes('listing-comparison') ? { jobs: [{ listing: row, body: body('250000') }, { listing: { ...row, id: '2', media: 'airwork' }, body: body('280000') }] } : url.includes('/versions') ? { listing: row, versions: [], history_counts: {}, history_may_be_incomplete: false } : page }));
   const open = vi.fn(); render(<DealComparison deal={{ id: '901', name: '合成配送', prefecture: '沖縄県', title: '', media: '' }} onOpen={open} onClose={vi.fn()} />);
   const table = await screen.findByRole('table', { name: '取引の求人一覧表' });
-  expect(within(table).getAllByText('月給 250,000円')).toHaveLength(2);
+  expect(within(table).getAllByText('月給 250,000円〜300,000円')).toHaveLength(2);
   expect(within(table).getAllByText('12件')).toHaveLength(2);
-  fireEvent.click(within(table).getByRole('button', { name: '給与の下限' }));
+  fireEvent.click(within(table).getByRole('button', { name: '給与' }));
   await waitFor(() => { expect(String(api.mock.calls.at(-1)?.[0])).toContain('sort=salary_min'); });
   fireEvent.click(screen.getByRole('button', { name: '次の50件' }));
   await waitFor(() => { expect(String(api.mock.calls.at(-1)?.[0])).toContain('offset=50'); });

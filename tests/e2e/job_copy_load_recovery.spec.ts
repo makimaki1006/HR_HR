@@ -14,20 +14,20 @@ test('503 retries into two real-response applications, while 401 keeps the login
   await page.goto('/app/job-copy?data=actual');
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.locator('.jc-job')).toHaveCount(0);
-  await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
+  await page.getByRole('button', { name: '求人データを再読み込み', exact: true }).click();
   // 件数は上の帯の「取り込んだ内容 ⓘ」の中（閉じていても中身は DOM にある。2026-10-08 round 3）
   await expect(page.getByRole('region', { name: '取り込んだ内容の内訳', includeHidden: true })).toContainText('2応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
   await selectJobFeature(page, 'body');
   await expect(jobFeaturePanel(page, 'body').locator('.jc-body')).toHaveText('再取得した合成の全文です。');
   await selectJobFeature(page, 'applicants');
   await expect(page.getByRole('region', { name: '求人全体の実応募者構成', exact: true })).toContainText('応募2件');
-  await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '求人データを再読み込み', exact: true })).toHaveCount(0);
   expect(attempts).toBe(2);
   await page.unroute('**/api/job-copy/moc');
   await page.route('**/api/job-copy/moc', route => route.fulfill(json({ code: 'login_required' }, 401)));
   await page.reload();
   await expect(page.getByRole('link', { name: '再ログインする' })).toHaveAttribute('href', '/login');
-  await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '求人データを再読み込み', exact: true })).toBeVisible();
   await expect(page.locator('.jc-job')).toHaveCount(0);
 });
 
@@ -42,10 +42,10 @@ test('slow snapshot retry preserves the new response when the old server handler
   await expect.poll(() => attempts).toBe(1);
   await expect(page.locator('.jc-list-heading')).toContainText('取得中');
   await expect(page.locator('.jc-list-heading')).not.toContainText(/0\s*\/\s*0/);
-  await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByRole('button', { name: '求人データを再読み込み', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '求人データを再読み込み', exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.locator('.jc-job')).toHaveCount(0);
-  await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
+  await page.getByRole('button', { name: '求人データを再読み込み', exact: true }).click();
   const summary = page.getByRole('region', { name: '取り込んだ内容の内訳', includeHidden: true });
   await expect(summary).toContainText('2応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
   if (!held) throw new Error('The first synthetic request was not held');
@@ -54,7 +54,7 @@ test('slow snapshot retry preserves the new response when the old server handler
   await held.fulfill(json(snapshot(9))).catch(() => undefined);
   await expect(summary).toContainText('2応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
   await expect(page.getByRole('heading', { name: '合成の復帰確認9', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '求人データを再読み込み', exact: true })).toHaveCount(0);
   expect(attempts).toBe(2);
 });
 
@@ -71,10 +71,10 @@ test('30-second timeout ends loading without demo data, then retry recovers', as
   expect(Date.now() - started).toBeGreaterThanOrEqual(30_000);
   await expect(loading).toHaveCount(0);
   await expect(page.locator('.jc-job')).toHaveCount(0);
-  await page.getByRole('button', { name: '求人データを再取得', exact: true }).click();
+  await page.getByRole('button', { name: '求人データを再読み込み', exact: true }).click();
   await expect(page.getByRole('region', { name: '取り込んだ内容の内訳', includeHidden: true })).toContainText('2応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '求人データを再読み込み', exact: true })).toHaveCount(0);
 });
 
 test('manual media capture cancels pending snapshot and its slow timer without losing chosen body', async ({ page }) => {
@@ -89,8 +89,8 @@ test('manual media capture cancels pending snapshot and its slow timer without l
   if (!job) throw new Error('Missing synthetic capture');
   job.title = '合成の手動取込';
   job.body = '手動取込の本文を維持します。';
-  await page.getByLabel('媒体取得データを読み込む', { exact: true }).setInputFiles({ name: 'synthetic-capture.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(capture)) });
-  await page.getByRole('button', { name: '取得データを表示', exact: true }).click();
+  await page.getByLabel('媒体保存データを読み込む', { exact: true }).setInputFiles({ name: 'synthetic-capture.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(capture)) });
+  await page.getByRole('button', { name: '保存データを表示', exact: true }).click();
   await selectJobFeature(page, 'body');
   const body = jobFeaturePanel(page, 'body').locator('.jc-body');
   await expect(body).toHaveText(job.body);
@@ -103,5 +103,5 @@ test('manual media capture cancels pending snapshot and its slow timer without l
   await expect(loading).toHaveCount(0);
   await expect(body).toHaveText(job.body);
   await expect(page.getByRole('region', { name: '取り込んだ内容の内訳', includeHidden: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '求人データを再取得', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '求人データを再読み込み', exact: true })).toHaveCount(0);
 });

@@ -82,7 +82,7 @@ export function sidebarTests() {
       await page.route('**/api/job-copy/listings/1/versions', route => { deliver = () => route.fulfill({ json: fixtureHistory('1') }); });
       await region.getByRole('button', { name: '配送ドライバー・大分1の本文を見る' }).click();
       // 文面が届く前から一覧を閉じ、詳細へフォーカスを移す。
-      await expect(page.getByRole('heading', { name: '求人票を取得しています' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '求人票を読み込んでいます' })).toBeVisible();
       await expect(trigger).toHaveAttribute('aria-expanded', 'false');
       await expect(page.locator('#job-details')).toBeFocused();
       await expect.poll(() => Boolean(deliver)).toBe(true);
