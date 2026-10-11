@@ -2,6 +2,8 @@ import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from '../../frontend/node_modules/vite/dist/node/index.js';
 import { fixtureJobs, fixtureHistory } from './job-copy-listings-fixture.mjs';
+const port = Number(process.env.JOB_COPY_E2E_PORT ?? '5197');
+const apiBase = `http://127.0.0.1:${port + 1}`;
 const polls = new Map();
 const api = createServer((request, response) => {
   const url = new URL(request.url, 'http://localhost');
@@ -24,8 +26,8 @@ const api = createServer((request, response) => {
   if (match) return match[1] === '38' ? send({ code: 'synthetic_unavailable' }, 503) : send(fixtureHistory(match[1]));
   return send({ code: 'synthetic_unavailable' }, 503);
 });
-await new Promise(resolve => api.listen(5198, '127.0.0.1', resolve));
-const vite = await createViteServer({ plugins: [{ name: 'review-shell', configureServer(server) { server.middlewares.use(async (request, response, next) => { if (!request.url?.startsWith('/app/job-copy')) return next(); const html = await server.transformIndexHtml(request.url, '<!doctype html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>求人文面管理・操作確認</title></head><body><div id="app-root"></div><script type="module" src="/src/entries/job-copy.tsx"></script></body></html>'); response.setHeader('Content-Type', 'text/html'); response.end(html); }); } }], root: fileURLToPath(new URL('../../frontend', import.meta.url)), server: { host: '127.0.0.1', port: 5197, strictPort: true, proxy: { '/api/nav': 'http://127.0.0.1:5198', '/api/job-copy': 'http://127.0.0.1:5198' } } });
+await new Promise(resolve => api.listen(port + 1, '127.0.0.1', resolve));
+const vite = await createViteServer({ plugins: [{ name: 'review-shell', configureServer(server) { server.middlewares.use(async (request, response, next) => { if (!request.url?.startsWith('/app/job-copy')) return next(); const html = await server.transformIndexHtml(request.url, '<!doctype html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>求人文面管理・操作確認</title></head><body><div id="app-root"></div><script type="module" src="/src/entries/job-copy.tsx"></script></body></html>'); response.setHeader('Content-Type', 'text/html'); response.end(html); }); } }], root: fileURLToPath(new URL('../../frontend', import.meta.url)), server: { host: '127.0.0.1', port, strictPort: true, proxy: { '/api/nav': apiBase, '/api/job-copy': apiBase } } });
 await vite.listen();
 const close = async () => { await vite.close(); api.close(); process.exit(); };
 process.on('SIGTERM', close); process.on('SIGINT', close);

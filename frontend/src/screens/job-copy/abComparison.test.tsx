@@ -36,7 +36,7 @@ describe('cross-record A/B comparison', () => {
     expect(screen.getByLabelText('B求人の比較内容').textContent).toContain('募集b');
     expect(screen.getByLabelText('B求人の比較内容').textContent).toContain('本文b');
     fireEvent.change(screen.getByLabelText('応募の比較範囲'), { target: { value: 'version' } });
-    expect(screen.getByLabelText('A求人の比較内容').textContent).toContain('選んだ版に結びついた応募）：3件');
+    expect(screen.getByLabelText('A求人の比較内容').textContent).toContain('選んだ本文に結びついた応募）：3件');
     const confirmation = screen.getByRole('checkbox'); fireEvent.click(confirmation); expect((confirmation as HTMLInputElement).checked).toBe(true);
     fireEvent.change(screen.getByLabelText('Bとして比較する求人'), { target: { value: 'c' } });
     expect((confirmation as HTMLInputElement).checked).toBe(false);
@@ -54,7 +54,7 @@ describe('cross-record A/B comparison', () => {
     fireEvent.change(view.getByLabelText('Bとして比較する求人'), { target: { value: 'b' } });
     const panel = view.getByLabelText('A求人の比較内容').textContent;
     expect(panel).toContain('表示対象：1記述');
-    expect(panel).toContain('どの版への理由か不明な記述：1件');
+    expect(panel).toContain('どの本文への理由か不明な記述：1件');
     expect(panel).toContain('時給が高いから');
     expect(panel).not.toContain('通勤に片道1時間かかるため');
   });

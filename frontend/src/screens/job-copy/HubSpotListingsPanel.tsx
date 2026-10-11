@@ -8,8 +8,7 @@ import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
 export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; revision?: number }) {
-  const [filtersOpen, setFiltersOpen] = useState(() => typeof window === 'undefined' || window.matchMedia('(min-width: 801px)').matches);
-  useEffect(() => { const media = window.matchMedia('(min-width: 801px)'); const change = (event: MediaQueryListEvent) => { setFiltersOpen(event.matches); }; media.addEventListener('change', change); return () => { media.removeEventListener('change', change); }; }, []);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
   const [media, setMedia] = useState('');
@@ -21,7 +20,6 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState('');
-  const [history, setHistory] = useState<HubSpotVersions | null>(null);
   const listRequest = useRef<AbortController | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
   const message = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '求人を取得できませんでした。時間を置いて再取得してください。';
@@ -54,10 +52,10 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   const openId = useCallback(async (id: string) => {
     opened.current = id;
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
-    setSelected(id); setHistory(null); setError(''); onLoading?.();
+    setSelected(id); setError(''); onLoading?.();
     const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { setHistory(result.data); onOpen(listingRecord(result.data)); }
+    if (result.ok) { onOpen(listingRecord(result.data)); }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
   }, [onOpen, onLoading, onFailure]);
   useEffect(() => {
@@ -81,17 +79,16 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(); }}>求人を取得</button>
     {busy && !page && <p role="status">求人の一覧を取得しています…</p>}{error && <p role="alert">{error}</p>}
     {page?.status === 'preparing' && <div className="jc-index-preparing" role="status"><strong>求人の一覧を準備しています</strong><p>初回の準備には約7分が目安です。あと数分かかる場合があります。準備が終わると自動で一覧を表示します。</p>{page.refresh_failed && <p>準備を取得できませんでした。時間を置いて自動で確認します。</p>}<progress aria-label="求人の一覧を準備中" /></div>}
-    {page?.status === 'ready' && <><p className="jc-index-date">条件に合う求人は{page.total}件です。<br />{formatDateTimeJst(page.index_built_at, '日時不明')}時点の一覧</p>
+    {page?.status === 'ready' && <><p className="jc-index-date">{formatDateTimeJst(page.index_built_at, '日時不明')}時点</p>
       {page.refreshing && <p role="status">一覧を更新中です。表示している時点の一覧を利用できます。</p>}
       {page.refresh_failed && <p role="status">一覧の更新を取得できませんでした。表示している時点の一覧を利用しています。</p>}
-      <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の版を見る`} onClick={() => { void openId(row.id); }}>
-        <span className="jc-job-company">{mediaLabel(row.media)} <span className="jc-publication">{row.publication_status ?? '未取得'}</span></span>
-        <strong>{row.title ?? '求人名未取得'}</strong><span>{row.prefecture ?? '不明'}{row.municipality ?? ''} · {row.category ?? '職種不明'}</span>
-        <span>案：{row.draft_status ? draftStateLabel(row.draft_status) : '案なし・未取得'}</span><span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
+      <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の本文を見る`} onClick={() => { void openId(row.id); }}>
+        <strong>{row.title ?? '求人名未取得'}</strong><span className="jc-job-company"><span className="jc-publication">{row.publication_status ?? '未取得'}</span><span>案：{row.draft_status ? draftStateLabel(row.draft_status) : '案なし・未取得'}</span></span>
+        <span className="jc-job-location">{row.prefecture ?? '不明'}{row.municipality ?? ''} · {mediaLabel(row.media)} · {row.category ?? '職種不明'}</span>
+        <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
         <span className="jc-visually-hidden">媒体の一覧で最後に確認した日：{formatDateTimeJst(row.last_csv_detected_at, '未取得')}</span>
       </button>)}{!rows.length && <p>条件に合う求人はありません。</p>}</div>
       <div className="jc-list-pagination"><span>{page.total ? `${String(page.offset + 1)}〜${String(page.offset + rows.length)}件を表示` : '条件に合う求人はありません'}</span>{page.offset > 0 && <button className="jc-button" disabled={busy} onClick={() => { void load(Math.max(0, page.offset - 50)); }}>前の求人</button>}{page.next_offset !== null && <button type="button" className="jc-button" disabled={busy} onClick={() => { void load(page.next_offset ?? 0); }}>次の求人</button>}</div>
     </>}
-    {history && <p className="jc-history-status" role="status">取得した文面の版は{history.versions.length}件です。本文の履歴：{history.history_counts[history.listing.media === 'hrh' ? 'hrh_kyuujinhyou_honbun' : 'shigotonaiyou'] ?? '未取得'}件。{history.history_may_be_incomplete && '履歴は項目ごとに20件までの可能性があり、過去の版がすべて含まれているとは限りません。'}保存日時と掲載開始日時は異なります。</p>}
   </section>;
 }

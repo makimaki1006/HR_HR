@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../../components/EChart';
@@ -13,7 +13,7 @@ import { InfoTip } from './InfoTip';
 import { publicationLane, publicationNotes } from './mediaPublication';
 import {
   addDays, applicationBuckets, bodyMark, asOfDate, billingConflict, billingEntries, boundaryStatus, buildPeriods, dayNumber, formatDay, formatMonth, formatPerDay, formatYen,
-  formatMonthJa, marketDataUntil, marketLane, MIN_RATE_DAYS, periodRows, positionOf, timelineRange, uncertainSpans, versionChanges, applicationsOutsidePeriods,
+  formatMonthJa, marketDataUntil, marketLane, MIN_RATE_DAYS, periodRows, positionOf, timelineRange, timelineLabelRows, uncertainSpans, versionChanges, applicationsOutsidePeriods,
 } from './timelineModel';
 import type { BillingEntry, Granularity, MarketChangeResult, PeriodRow, TimelineRange, VersionChange } from './timelineModel';
 import { IMAGE_CHANGE_MARK } from './images';
@@ -119,13 +119,13 @@ function useTimelineMarket(job: JobCopyRecord, mode: 'api' | 'demo', focus: Mark
 }
 
 const salaryMark = { up: '▲', down: '▼', other: '変更' } as const;
-const salaryWord = { up: '前の版より上がった', down: '前の版より下がった', other: '前の版から変わった' } as const;
+const salaryWord = { up: '前回の本文より上がった', down: '前回の本文より下がった', other: '前回の本文から変わった' } as const;
 const granularityLabel: Record<Granularity, string> = { day: '日', week: '週', month: '月' };
 
-function Lane({ title, source, children, className = '' }: { title: string; source: string; children: ReactNode; className?: string }) {
+function Lane({ title, source, children, className = '', rows = 1 }: { rows?: number; title: string; source: string; children: ReactNode; className?: string }) {
   return <div className={`jt-lane ${className}`} role="group" aria-label={title}>
     <div className="jt-lane-head"><h3>{title}</h3><span className="jt-source">{source}</span></div>
-    <div className="jt-track">{children}</div>
+    <div className="jt-track" style={{ minHeight: `${String(16 + rows * 28)}px` }}>{children}</div>
   </div>;
 }
 
@@ -223,7 +223,7 @@ export function billingText(row: PeriodRow): string {
   return row.billing.connected ? 'この期間の課金データなし（0円という意味ではありません）' : '課金データなし（0円という意味ではありません）';
 }
 
-/** The 選んだ版 panel's date: the acquisition day, and between which acquisitions it changed. */
+/** The 選んだ本文 panel's date: the acquisition day, and between which acquisitions it changed. */
 export function selectionDateText(change: VersionChange, captured: boolean): string {
   if (!captured) return `${formatDay(change.date)} から（媒体の掲載日時）`;
   if (change.index === 0 || change.previousDate === null) return `${formatDay(change.date)} に取得（最初の取得）`;
@@ -272,6 +272,8 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const spans = useMemo(() => uncertainSpans(job, asOf, periods), [job, asOf, periods]);
   const changes = useMemo(() => versionChanges(job), [job]);
   const range = useMemo(() => timelineRange(job, asOf, billing), [job, asOf, billing]);
+  const labelRows = range ? timelineLabelRows(changes.map(change => change.date), range) : [];
+  const rowCount = Math.max(1, ...labelRows.map(row => row + 1));
   const retryButton = useRef<HTMLButtonElement>(null);
   const titleSelect = useRef<HTMLSelectElement>(null);
   const market = useTimelineMarket(job, marketMode, { retryButton, titleSelect });
@@ -281,7 +283,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
   const [granularity, setGranularity] = useState<Granularity>('week');
   const [selected, setSelected] = useState<string | null>(null);
   const reasonIdPrefix = useId();
-  // After a mark or period is chosen, bring the 選んだ版 panel into view (it can sit below the fold).
+  // After a mark or period is chosen, bring the 選んだ本文 panel into view (it can sit below the fold).
   const selectionPanel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const panel = selectionPanel.current;
@@ -374,9 +376,9 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       <div><h2>タイムライン</h2><p className="jc-muted">{formatDay(range.start)} 〜 {formatDay(range.end)}（応募は {formatDay(asOf)} 時点）</p></div>
       <div className="jt-scope">応募は HubSpot に記録されたものだけです。<InfoTip label="並べて見るための表示です">
         <p>同じ時期に起きたことを並べて表示しています。応募が増えた・減った理由を示すものではありません。</p>
-        <p>応募件数は HubSpot に記録された応募日で数えています。媒体上のすべての応募ではなく、どの版を見て応募したかは分かりません。</p>
+        <p>応募件数は HubSpot に記録された応募日で数えています。媒体上のすべての応募ではなく、どの本文を見て応募したかは分かりません。</p>
         <p>掲載が変わった日は分かりません。期間比較表は求人データを取得した日で区切り、前後の取得で内容が違うときは「取得日A〜取得日Bの間に変化」として、その間の応募を前後どちらの期間にも入れていません。取得した日も、取得した時刻の前後で変わった可能性があるため、この間に含めます。最後に取得した日より後は「未取得」です。</p>
-        {job.mediaPublication && <p>「媒体の公開状況」は HRハッカーの求人一覧の最新の状態で、求人全体の公開期間です。「掲載期間」はどの内容（版）がいつ載っていたかを、求人データを取得した日で示します。{publicationNotes(job.mediaPublication).join('')}</p>}
+        {job.mediaPublication && <p>「媒体の公開状況」は HRハッカーの求人一覧の最新の状態で、求人全体の公開期間です。「掲載期間」はどの本文がいつ載っていたかを、求人データを取得した日で示します。{publicationNotes(job.mediaPublication).join('')}</p>}
         <p>期間の長さが違うので「1日あたり」で並べて確認してください。{MIN_RATE_DAYS}日に満たない期間は1日あたりを出さず、比べません（求人の横断比較と同じ扱い）。</p>
       </InfoTip></div>
     </header>
@@ -390,18 +392,18 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           : <p className="jt-empty" title={publication.title}>{publication.label}</p>}
       </Lane>}
 
-      <Lane title="掲載期間" source={captured ? '求人データを取得した日（掲載日は不明）' : '媒体の掲載日時'}>
-        {periods.map(period => <button type="button" key={period.versionId} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
-          style={span(range, period.start, period.end ?? addDays(asOf, 1))} onClick={() => { setSelected(period.versionId); }}
+      <Lane rows={rowCount} title="掲載期間" source={captured ? '求人データを取得した日（掲載日は不明）' : '媒体の掲載日時'}>
+        {periods.map(period => <Fragment key={period.versionId}><button type="button" aria-label={period.label} className={`jt-period ${period.basis === 'captured' ? 'jt-basis-captured' : `jt-cert-${period.certainty}`}`} aria-pressed={selected === period.versionId}
+          style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), top: `${String(8 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }} onClick={() => { setSelected(period.versionId); }}
           title={period.basis === 'captured' ? `${period.label}: ${formatDay(period.start)}に取得${period.days > 1 && period.end ? `（${formatDay(addDays(period.end, -1))}まで同じ内容）` : ''}` : `${period.label}: ${formatDay(period.start)}〜${period.end ? formatDay(addDays(period.end, -1)) : '継続中'}（媒体の掲載日時）`}>
-          <span>{period.label}</span></button>)}
+          <span>{period.label}</span></button><span aria-hidden="true" className="jt-period-label" style={{ ...pinned(period.start, range), top: `${String(12 + (labelRows[periods.indexOf(period)] ?? 0) * 28)}px` }}>{period.label}</span></Fragment>)}
         {spans.map(item => <div key={`${item.kind}-${item.fromVersionId}`} className={item.kind === 'between' ? 'jt-zone' : 'jt-unacquired'} style={span(range, item.start, item.end)}
           title={item.kind === 'between' ? `取得日${formatDay(item.from)}〜${formatDay(item.to ?? item.from)}の間${item.reason === 'changed' ? 'に変化' : '（変化したか確認できない）'}。どちらの内容か分からない期間です` : `最後の取得（${formatDay(item.from)}）より後は未取得です`}>
           <span>{item.kind === 'between' ? '取得日の間' : '未取得'}</span></div>)}
         {!periods.length && <p className="jt-empty">掲載期間は未取得です</p>}
       </Lane>
 
-      <Lane title="給与" source="本文の「給与」の行から読み取り">
+      <Lane rows={rowCount + 1} title="給与" source="本文の「給与」の行から読み取り">
         {changes.map((change, index) => {
           const period = periods[index];
           if (!period) return null;
@@ -413,7 +415,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
           // track even when the period is only a few days long (the latest version).
           return <div key={change.versionId} className="jt-salary-item">
             <div className={`jt-salary${className}`} aria-hidden="true" style={{ ...span(range, period.start, period.end ?? addDays(asOf, 1)), bottom: `calc(${String(height)}% + 14px)` }} />
-            <div className={`jt-salary-label${className}`} style={{ ...pinned(period.start, range), bottom: `${String(height)}%` }}
+            <div className={`jt-salary-label${className}`} style={{ ...pinned(period.start, range), top: `${String(8 + (labelRows[index] ?? 0) * 28)}px` }}
               title={`${info ? `${change.label}: ${info.raw || '記載なし'}` : `${change.label}: 給与の記載なし`}${change.salaryDirection ? `（${salaryWord[change.salaryDirection]}）` : ''}`}>
               {change.salaryDirection && <i className={`jt-salary-dir jt-salary-${change.salaryDirection}`} role="img" aria-label={salaryWord[change.salaryDirection]}>{salaryMark[change.salaryDirection]}</i>}<span>{salaryLabel(info)}</span>
             </div>
@@ -421,17 +423,17 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         })}
       </Lane>
 
-      <Lane title="本文" source="前の版との行の比較">
+      <Lane rows={rowCount} title="本文" source="前回の本文との行ごとの比較">
         {changes.map(change => <button type="button" key={change.versionId} className={`jt-mark${change.index > 0 && change.bodyStatus === 'changed' ? ' jt-mark-changed' : ''}`} aria-pressed={selected === change.versionId}
-          style={pinned(change.date, range)} onClick={() => { setSelected(change.versionId); }}
+          style={{ ...pinned(change.date, range), top: `${String(4 + (labelRows[change.index] ?? 0) * 28)}px` }} onClick={() => { setSelected(change.versionId); }}
           aria-label={`${change.label}の本文：${bodyMark(change).spoken}`}>
           {bodyMark(change).text}
         </button>)}
       </Lane>
 
-      <Lane title="画像" source="前の版との画像の比較（差し替え・並び順・中身）">
+      <Lane rows={rowCount} title="画像" source="前回の画像との比較（差し替え・並び順・中身）">
         {changes.map(change => <button type="button" key={change.versionId} className={`jt-mark jt-image-${change.imageChange}`} aria-pressed={selected === change.versionId}
-          style={pinned(change.date, range)} onClick={() => { setSelected(change.versionId); }}
+          style={{ ...pinned(change.date, range), top: `${String(4 + (labelRows[change.index] ?? 0) * 28)}px` }} onClick={() => { setSelected(change.versionId); }}
           aria-label={`${change.label}の画像：${IMAGE_CHANGE_MARK[change.imageChange].spoken}`}>
           {IMAGE_CHANGE_MARK[change.imageChange].text}
         </button>)}
@@ -458,7 +460,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
         <div className="jt-granularity" role="group" aria-label="応募の集計単位">{(['day', 'week', 'month'] as const).map(value => <button type="button" key={value} aria-pressed={granularity === value} onClick={() => { setGranularity(value); }}>{granularityLabel[value]}ごと</button>)}</div>
         {applications && applications.missingDate > 0 && <span>応募日が分からない応募 {applications.missingDate}件 はグラフに含めていません</span>}
         {outside > 0 && <span>{captured ? `最初に取得した日まで（その日を含む）の応募 ${String(outside)}件` : `最初の掲載より前の日付の応募 ${String(outside)}件`}</span>}
-        {unsure > 0 && <span>取得日の間・最後の取得より後の応募 {unsure}件 は、どちらの内容への応募か分からないため期間比較表の各版には入れていません</span>}
+        {unsure > 0 && <span>取得日の間・最後の取得より後の応募 {unsure}件 は、どちらの内容への応募か分からないため期間比較表の各本文には入れていません</span>}
         {multi ? multiTotal > 0 && <span>複数の求人に関連する応募 {multiTotal}件 は期間比較表に入れていません</span>
           : applications?.byDate && <span>複数の求人に関連する応募を見分ける情報を取得していないため、期間比較表の件数に含まれている場合があります</span>}
       </div>
@@ -506,12 +508,12 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       </div>
     </div>
 
-    {selectedChange && <div className="jt-selection" ref={selectionPanel} role="region" aria-label="選んだ版">
+    {selectedChange && <div className="jt-selection" ref={selectionPanel} role="region" aria-label="選んだ本文">
       <strong>{selectedChange.label}</strong><span>{selectionDateText(selectedChange, periods[selectedChange.index]?.basis === 'captured')} · 給与 {salaryLabel(selectedChange.salary)}</span>
       {onOpenVersion && <button type="button" className="jc-button" onClick={() => { onOpenVersion(selectedChange.versionId); }}>本文・画像を開く</button>}
-      {onCompareVersions && previous && <button type="button" className="jc-button" onClick={() => { onCompareVersions(previous.versionId, selectedChange.versionId); }}>前の版との差分を開く</button>}
-      {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange === 'same' && <span>前の版から本文・画像の変更はありません</span>}
-      {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange !== 'same' && <span>本文は前の版と同じです。画像：{IMAGE_CHANGE_MARK[selectedChange.imageChange].spoken}</span>}
+      {onCompareVersions && previous && <button type="button" className="jc-button" onClick={() => { onCompareVersions(previous.versionId, selectedChange.versionId); }}>前回の本文との違いを見る</button>}
+      {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange === 'same' && <span>前回から本文・画像の変更はありません</span>}
+      {previous && selectedChange.bodyStatus === 'unchanged' && selectedChange.imageChange !== 'same' && <span>本文は前回と同じです。画像：{IMAGE_CHANGE_MARK[selectedChange.imageChange].spoken}</span>}
     </div>}
     <div className="jt-legend" role="group" aria-label="凡例">{captured
       ? <><span className="jt-legend-title">掲載日は不明（取得日で表示）：</span><span><i className="jt-key jt-basis-captured" />取得した日の内容</span><span><i className="jt-key jt-key-zone" />取得日の間（どちらの内容か分からない）</span><span><i className="jt-key jt-key-unacquired" />最後の取得より後（未取得）</span></>
@@ -536,7 +538,7 @@ function JobTimelineForJob({ job, billing: injected, marketMode = 'api', onOpenV
       {rows.some(row => !row.afterCounts && row.applications === null) && <p className="jt-table-note">「未取得」は応募日ごとの件数を取得していないという意味です。0件という意味ではありません。</p>}
       {rows.some(row => row.kind === 'between' || row.kind === 'unacquired') && <p className="jt-table-note">「取得日の間」と「最後の取得より後」の行の応募は、どちらの内容を見た応募か分からないため、前後の期間に入れず別に数えています。応募は日付だけで記録されていて、取得した日も取得した時刻の前後で内容が変わった可能性があるため、取得した日の応募もこれらの行に入れています。1日あたりは比べません。</p>}
       {rows.some(row => !row.afterCounts && row.applications !== null && row.shortPeriod && (row.kind === 'period' || row.kind === 'gap')) && <p className="jt-table-note">「期間が短いため比べません」は、{MIN_RATE_DAYS}日に満たない期間です。1日や2日の件数を1日あたりに直すと大きく振れるため、比べません。</p>}
-      {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。</p>}
+      {rows.some(row => row.billing.connected && row.billing.prorated) && <p className="jt-table-note">「約」の付いた課金額は、課金の期間と本文の表示期間がずれているため、日数で割って配分した金額です。</p>}
     </section>
     {reasonClasses && <section className="jt-periods jt-reasons" aria-label="期間ごとの応募理由">
       <h3>期間ごとの応募理由</h3>

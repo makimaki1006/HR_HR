@@ -110,7 +110,7 @@ describe('composition fixture boundary and UI', () => {
     expect(html).toContain('2026/09/01');
     expect(html).toContain('架空の応募者属性');
     expect(html).toContain('属性不明も含めます');
-    expect(html).toContain('構成の差は、2つの版を並べて見るための数字です。');
+    expect(html).toContain('構成の差は、2つの本文を並べて見るための数字です。');
     expect(html).toContain('ⓘ 集計の前提');
     expect(html).toContain(HUBSPOT_ONLY_NOTE);
     expect(html).toContain(NOT_CAUSAL_NOTE);
