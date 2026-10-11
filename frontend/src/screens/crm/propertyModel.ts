@@ -72,6 +72,9 @@ function parseVersioned(raw: string | null, version: number): SelectedProps | nu
   return { deals, contacts, companies };
 }
 
+/** 有効な個人設定だけを返す (壊れた設定は役割の標準へ戻せるよう null)。 */
+export function parsePersonalSelected(raw: string | null): SelectedProps | null { return parseVersioned(raw, VERSION); }
+
 /** 残した選択を読む。壊れていたら既定 */
 export function parseSelected(raw: string | null): SelectedProps {
   return parseVersioned(raw, VERSION) ?? DEFAULT_SELECTED;
@@ -137,10 +140,9 @@ export function sanitizeSelected(sel: SelectedProps, index: Record<CatalogObject
   return sameSelected(next, sel) ? sel : next;
 }
 
-/** 選んだ項目を HubSpot の表示順に並べる (一覧に無いものは除く) */
+/** 選んだ項目を選択された順番に並べる (一覧に無いものは除く) */
 export function orderedSelection(obj: CatalogObject, sel: SelectedProps, index: Record<CatalogObject, Map<string, CatalogEntry>>): CatalogEntry[] {
-  const chosen = new Set(sel[obj]);
-  return [...index[obj].values()].filter(e => chosen.has(e.prop.name));
+  return sel[obj].flatMap(name => { const entry = index[obj].get(name); return entry ? [entry] : []; });
 }
 
 /** HubSpot のカード 1 枚分の表示 (選んでいて、項目の一覧にある項目だけ。カードの並び) */

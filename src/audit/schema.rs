@@ -21,6 +21,10 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    r#"CREATE TABLE IF NOT EXISTS crm_role_property_layouts (
+        role TEXT NOT NULL, object_type TEXT NOT NULL, properties TEXT NOT NULL,
+        updated_by TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(role, object_type)
+    )"#,
     // ADR-022: per-operator Gmail sync cursor only, not mailbox/business content.
     r#"CREATE TABLE IF NOT EXISTS crm_gmail_reply_cursors (
         operator_email TEXT PRIMARY KEY, history_id TEXT NOT NULL
