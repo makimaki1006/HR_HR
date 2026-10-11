@@ -2,6 +2,7 @@
 mod gmail;
 mod grants;
 mod oauth;
+pub mod replies;
 mod routes;
 #[cfg(test)]
 mod tests;
@@ -167,6 +168,8 @@ pub struct SendEmailRequest {
 /// Persist only until recorded. Terminal rows are reduced to durable deduplication receipts.
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 pub struct EmailOperation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply: Option<replies::ReplyHeaders>,
     pub contact_id: String,
     pub contact_ids: Vec<String>,
     pub to: String,
@@ -309,6 +312,11 @@ fn finish(row: &mut OpRow, status: &str, code: &str) {
             e.subject.clear();
             e.to.clear();
             e.cc.clear();
+            if let Some(reply) = &mut e.reply {
+                reply.from.clear();
+                reply.to.clear();
+                reply.cc.clear();
+            }
         }
     }
 }
@@ -319,6 +327,14 @@ pub async fn record(
     service: &EmailService,
     row: &mut OpRow,
 ) -> Result<(), EmailError> {
+    if row
+        .payload
+        .email
+        .as_ref()
+        .is_some_and(|e| e.reply.is_some())
+    {
+        return replies::record(audit, client, row).await;
+    }
     let mut email = row.payload.email.clone().ok_or(EmailError::Invalid)?;
     if email.send_state == "rejected" {
         finish(row, "failed", "gmail_send_failed");
@@ -450,6 +466,7 @@ fn write_wake() {
 
 #[derive(Clone, Serialize, TS)]
 pub struct PendingEmailActivity {
+    pub incoming: bool,
     pub result: EmailResult,
     pub subject: String,
     pub to: String,

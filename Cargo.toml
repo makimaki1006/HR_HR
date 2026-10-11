@@ -62,6 +62,7 @@ csv = "1"
 # 文字エンコーディング検出 (Excel 標準保存 Shift-JIS / UTF-16 BOM 対応)
 # 2026-04-26 Fix-A: 媒体分析タブ CSV アップロードの BOM 検出 + SJIS フォールバック
 encoding_rs = "0.8"
+mailparse = "0.18"
 
 # Random (bootstrap statistics)
 rand = "0.8"

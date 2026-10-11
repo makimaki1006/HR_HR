@@ -33,8 +33,8 @@ export function EmailPendingLog({ dealId, sample = false }: { dealId: string; sa
     return () => { active = false; if (timer) clearTimeout(timer); window.removeEventListener(EMAIL_CHANGED, changed); };
   }, [dealId, sample]);
   return <ul className="wd-acts">{rows.map(r => <li key={r.result.operation_id} className="wd-act wd-act-email wd-card" data-kind="email">
-    <div className="wd-act-head"><span>✉ 自分のメール</span><strong>{r.subject === '' ? 'メール' : r.subject}</strong><small>{formatTimestamp(r.sent_at)}</small></div>
+    <div className="wd-act-head"><span>✉ {r.incoming ? '受信' : '自分のメール'}</span><strong>{r.subject === '' ? 'メール' : r.subject}</strong><small>{formatTimestamp(r.sent_at)}</small></div>
     {r.to && <p>宛先: {r.to}{r.cc.length > 0 && ` · CC: ${r.cc.join(', ')}`}</p>}
-    <p className={`crm-email-state crm-email-${r.result.status}`} role="status">{emailMessage(r.result)}</p>
+    <p className={`crm-email-state crm-email-${r.result.status}`} role="status">{r.incoming ? r.result.status === 'pending' ? '受信メール・記録の保存待ち' : '受信メールを保存できませんでした。管理者にご連絡ください。' : emailMessage(r.result)}</p>
   </li>)}</ul>;
 }

@@ -1,5 +1,6 @@
 import { EmailPanel } from "./EmailPanel";
 import { EmailPendingLog } from "./EmailPendingLog";
+import { ReplySyncStatus } from "./ReplySyncStatus";
 import { memo, useState } from 'react';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { formatPhoneForDisplay, toDomesticPhone } from './phone';
@@ -240,6 +241,7 @@ function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
   return <section className="wd-log dock-scroll" aria-label="活動ログ" data-testid="activity-log">
     <p className="wd-log-head"><strong>{data.activities.length} 件</strong>{data.activities_truncated && <small>(これより古い履歴は表示していません)</small>}</p>
     <p className="wd-scope">{data.activity_scope}</p>
+    <ReplySyncStatus key={data.deal.id} dealId={data.deal.id} sample={sample} />
     <div className="wd-filters" role="group" aria-label="活動の種類">
       {ACTIVITY_FILTERS.map(f => <button key={f.value} type="button" aria-pressed={kind === f.value} onClick={() => { setKind(f.value); }}>{f.label}</button>)}
     </div>
