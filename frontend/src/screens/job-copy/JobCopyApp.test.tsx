@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { beforeEach as pinSidebarBeforeEach, afterEach as clearSidebarAfterEach } from 'vitest';
+pinSidebarBeforeEach(() => { localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true'); });
+clearSidebarAfterEach(() => { localStorage.removeItem('hrhr-job-copy-sidebar-pinned'); });
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JobCopyApp } from './JobCopyApp';
@@ -14,7 +17,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('job copy shared application shell', () => {
   it('uses one common header and active navigation while a protected snapshot fails without fictional jobs', async () => {
-    window.history.replaceState(null, '', '/app/job-copy');
+    window.history.replaceState(null, '', '/app/job-copy?data=actual');
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn((input: string) => {
       calls.push(input);

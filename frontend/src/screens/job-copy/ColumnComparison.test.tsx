@@ -1,0 +1,149 @@
+// @vitest-environment happy-dom
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ColumnComparison, compareColumns, savedColumns } from './ColumnComparison';
+afterEach(cleanup);
+const before = '案件名：配送スタッフ\n自由項目2の内容：雇用保険 労災保険\n夜勤手当3,500円/回\n勤務時間：8時〜17時';
+describe('全文で検知して列で特定する', () => {
+  it('大きな金額の桁を丸めず、同額の全角変更も色で示す', () => {
+    const left = { '基本給与 最小': '9007199254740993', '基本給与 最大': '250000' };
+    const right = { '基本給与 最小': '9007199254740994', '基本給与 最大': '２５００００' };
+    render(<ColumnComparison result={compareColumns('前', '後', left, right)} />);
+    expect(screen.getByRole('table').textContent).toContain('9,007,199,254,740,993円');
+    expect(screen.getByRole('table').textContent).toContain('9,007,199,254,740,994円');
+    const amount = screen.getByRole('row', { name: /給与の上限/ });
+    expect(amount.querySelector('ins')?.textContent).toBe('250,000円');
+    expect(amount.querySelector('del')?.textContent).toBe('250,000円');
+  });
+  it('末尾の空白や改行コードも保存行の一文字変更として表示する', () => {
+    const left = { 公開: '公開', 勤務時間: '9〜18時\r\n休憩1時間' };
+    const right = { 公開: '公開 ', 勤務時間: '9〜18時\n休憩1時間' };
+    expect(compareColumns('同じ本文', '同じ本文', left, right).changes.map(item => item.key)).toEqual(['公開', '勤務時間']);
+  });
+  it('給与形態と桁区切りと円を付け、比較の原値を変えない', () => {
+    const left = { '給与形態': '月給', '基本給与 最小': '250000', '試用・研修期の給与のタイプ': '時給', '試用・研修期の基本給与 最小': '1800', '固定残業代': '30000' };
+    const right = { ...left, '基本給与 最小': '270000', '試用・研修期の基本給与 最小': '1900', '固定残業代': '35000' };
+    const result = compareColumns('前', '後', left, right);
+    render(<ColumnComparison result={result} />);
+    for (const value of ['月給 250,000円', '月給 270,000円', '時給 1,800円', '時給 1,900円', '30,000円', '35,000円']) expect(screen.getByRole('table').textContent).toContain(value);
+    expect(result.changes[0]?.before).toBe('250000');
+  });
+  it('手直しできる補足・条件別給与も利用者向けの見出しで比較する', () => {
+    const keys = ['仕事情報補足1の内容', '条件付き給与1 条件', 'Indeed表示職種名', '平均稼働日数'];
+    const left = Object.fromEntries(keys.map(key => [key, '変更前']));
+    const right = Object.fromEntries(keys.map(key => [key, '変更後']));
+    render(<ColumnComparison result={compareColumns('変更前', '変更後', left, right)} />);
+    const text = screen.getByRole('table').textContent;
+    for (const key of keys) expect(text).not.toContain(key);
+    for (const label of ['仕事の案内1の本文', '条件別の給与（1）・適用する条件', '募集する職種', '平均の勤務日数']) expect(text).toContain(label);
+  });
+  it('次の行の条件追加を検知し、その列の複数行値を丸ごと示す', () => {
+    const after = before.replace('夜勤手当3,500円/回', '夜勤手当3,500円/回\n（月4回まで）');
+    const result = compareColumns(before, after);
+    expect(result.status).toBe('changed');
+    expect(result.changes.map(item => item.key)).toEqual(['自由項目2の内容']);
+    expect(result.changes[0]?.after).toBe('雇用保険 労災保険\n夜勤手当3,500円/回\n（月4回まで）');
+    render(<ColumnComparison result={result} />);
+    expect(screen.getByRole('table').textContent).toContain('（月4回まで）');
+    expect(screen.getByRole('table').textContent).not.toContain('配送スタッフ');
+    expect(screen.getByRole('table').textContent).not.toContain('8時〜17時');
+    expect(document.querySelector('ins')?.textContent).toContain('（月4回まで）');
+  });
+  it.each([' ', '　'])('本文内のスペース「%s」一文字も検知する', space => {
+    const result = compareColumns(before, before.replace('配送スタッフ', `配送${space}スタッフ`));
+    expect(result.status).toBe('changed');
+    expect(result.changes.map(item => item.key)).toEqual(['案件名']);
+  });
+  it('両端の空白・改行コードも原文の変更として保持する', () => {
+    expect(compareColumns(before, `\u3000\r\n${before.replaceAll('\n', '\r\n')}\r\n `).status).toBe('changed');
+    expect(compareColumns('仕事内容：配送 スタッフ', '仕事内容：配送　スタッフ').status).toBe('changed');
+  });
+  it.each([' ', '　', '\t', '\n', '\r\n'])('末尾の空白%jを列の変更として示す', suffix => {
+    const result = compareColumns('仕事内容：配送', `仕事内容：配送${suffix}`);
+    expect(result.status).toBe('changed');
+    expect(result.changes).toMatchObject([{ key: '仕事内容', before: '配送', after: `配送${suffix}` }]);
+  });
+  it('列定義にない見出しとその複数行本文をその他として捨てない', () => {
+    const left = `${before}\n独自の待遇：家賃補助20,000円/月\n祝い金あり`;
+    const right = left.replace('20,000', '10,000');
+    const result = compareColumns(left, right);
+    expect(result.changes).toEqual([expect.objectContaining({ key: 'その他', before: '独自の待遇：家賃補助20,000円/月\n祝い金あり', after: '独自の待遇：家賃補助10,000円/月\n祝い金あり' })]);
+    render(<ColumnComparison result={result} />); expect(screen.getByRole('table').textContent).toContain('その他');
+  });
+  it('片方しかない列を追加・削除として表示し、空欄と未取得を区別する', () => {
+    const result = compareColumns('案件名：配送\n勤務時間：8時', '案件名：配送\n応募資格：');
+    expect(result.changes).toMatchObject([{ key: '勤務時間', kind: '削除', before: '8時' }, { key: '応募資格', kind: '追加', after: '' }]);
+    render(<ColumnComparison result={result} />); expect(screen.getByRole('table').textContent).toContain('（空欄）');
+    expect(screen.getByRole('table').textContent).toContain('未取得');
+  });
+  it('案の列値は保存された行データを使い、値の中の列名や改行を分割しない', () => {
+    const a = { '仕事内容': '配送します\n勤務時間：8時', '勤務時間': '9時〜17時' };
+    const b = { ...a, '仕事内容': `${a.仕事内容}\n（月4回まで）` };
+    const body = (row: Record<string, string>) => Object.entries(row).map(([key, value]) => `${key}：${value}`).join('\n');
+    const result = compareColumns(body(a), body(b), a, b);
+    expect(result.changes).toEqual([expect.objectContaining({ key: '仕事内容', before: a.仕事内容, after: b.仕事内容 })]);
+  });
+  it('現在の文面でも複数行の値の中の未知の見出しを分断しない', () => {
+    const value = '雇用保険\n手当：夜勤3,500円/回';
+    const current = `自由項目2の内容：${value}\n勤務時間：9時〜17時`;
+    const row = { '自由項目2の内容': `${value}\n（月4回まで）`, '勤務時間': '9時〜17時' };
+    const next = `自由項目2の内容：${row['自由項目2の内容']}\n勤務時間：9時〜17時`;
+    expect(compareColumns(current, next, undefined, row).changes).toEqual([expect.objectContaining({ key: '自由項目2の内容', before: value, after: row['自由項目2の内容'] })]);
+  });
+  it('現在の文面の複数行値に別の列名が含まれても実際の列の境界を使う', () => {
+    const current = '仕事内容：配送します\n勤務時間：8時の例\n勤務時間：9時〜17時';
+    const row = { '仕事内容': '配送します\n勤務時間：8時の例\n（月4回まで）', '勤務時間': '9時〜17時' };
+    const next = `仕事内容：${row.仕事内容}\n勤務時間：9時〜17時`;
+    expect(compareColumns(current, next, undefined, row).changes).toEqual([expect.objectContaining({ key: '仕事内容', before: '配送します\n勤務時間：8時の例', after: row.仕事内容 })]);
+  });
+  it('途中の未対応見出しもその他に残し、変更のない前後の列を出さない', () => {
+    const row = { '仕事内容': '配送します', '勤務時間': '9時〜17時' };
+    const current = '仕事内容：配送します\n独自の待遇：祝い金20,000円\n勤務時間：9時〜17時';
+    const next = '仕事内容：配送します\n勤務時間：9時〜17時';
+    expect(compareColumns(current, next, undefined, row).changes).toEqual([expect.objectContaining({ key: 'その他', before: '独自の待遇：祝い金20,000円', after: undefined, kind: '削除' })]);
+  });
+  it('管理用の識別子と機械的な給与の列名を画面に出さない', () => {
+    const result = compareColumns('求人id：private-old\n試用・研修期の基本給与 最小：250000', '求人id：private-new\n試用・研修期の基本給与 最小：270000');
+    render(<ColumnComparison result={result} />);
+    expect(screen.getByRole('table').textContent).not.toMatch(/private-|求人id|基本給与/);
+    expect(screen.getByRole('table').textContent).toContain('試用・研修中の給与の下限');
+    expect(screen.getByRole('table').textContent).toContain('270,000円');
+  });
+  it('取得済みの空本文と未取得を区別し、全列の削除も検知する', () => {
+    const result = compareColumns('案件名：配送\n仕事内容：配達', '');
+    expect(result.status).toBe('changed');
+    expect(result.changes.map(item => [item.key, item.kind])).toEqual([['案件名', '削除'], ['仕事内容', '削除']]);
+    expect(compareColumns('', '').status).toBe('unchanged');
+    expect(compareColumns('案件名：配送', null).status).toBe('unavailable');
+  });
+  it('列の順序だけの違いも全文で検知してその他に示す', () => {
+    expect(compareColumns('案件名：配送\n仕事内容：配達', '仕事内容：配達\n案件名：配送').changes.map(item => item.key)).toEqual(['その他']);
+    expect(savedColumns('仕事内容：1行目\n2行目\n3行目').get('仕事内容')).toBe('1行目\n2行目\n3行目');
+  });
+  it.each(['求人id', '店舗id', '職種id'])('区切り文字だけが変わったその他でも%sの生の値を隠す', key => {
+    const result = compareColumns(`${key}:hidden-job-123`, `${key}：hidden-job-123`);
+    expect(result.status).toBe('changed');
+    expect(result.changes.map(item => item.key)).toEqual(['その他']);
+    render(<ColumnComparison result={result} />);
+    expect(screen.getByRole('table').textContent).not.toContain('hidden-job-123');
+    expect(screen.getByRole('table').textContent).not.toContain(key);
+    expect(screen.getByRole('table').textContent).toContain('非表示');
+  });
+  it('三つの列の順序だけが変わってもその他の左右に全文を表示する', () => {
+    const left = '案件名：配送スタッフ\n仕事内容：日用品の配達\n応募資格：普通免許';
+    const right = '応募資格：普通免許\n仕事内容：日用品の配達\n案件名：配送スタッフ';
+    const result = compareColumns(left, right);
+    expect(result.status).toBe('changed');
+    expect(result.changes).toHaveLength(1);
+    render(<ColumnComparison result={result} />);
+    const values = screen.getByRole('table').querySelectorAll('pre');
+    expect([...values].map(value => value.textContent)).toEqual([left, right].map(text => text.replaceAll('案件名', '求人の見出し').replaceAll('仕事内容', '仕事の内容').replaceAll('応募資格', '応募に必要な資格・経験')));
+  });
+  it('未知の見出しの変更と一緒にその他に含まれた管理情報も隠す', () => {
+    const row = { '案件名': '配送', '求人id': 'hidden-job-123' };
+    const result = compareColumns('独自の待遇：祝い金\n求人id:hidden-job-123\n案件名：配送', '独自の待遇：家賃補助\n求人id：hidden-job-123\n案件名：配送', row, row);
+    render(<ColumnComparison result={result} />);
+    expect(screen.getByRole('table').textContent).not.toContain('hidden-job-123');
+  });
+
+});

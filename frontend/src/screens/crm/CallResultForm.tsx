@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { DatePicker } from '../../components/DatePicker';
 import type { CallState } from './smartEmbed';
 import type { MocPropertyDefinition } from './mocProperties';
 import type { DefinitionsState } from './useResultDefinitions';
@@ -195,8 +196,8 @@ export function CallResultForm({
   function dateInput({ f, required = false }: { f: DraftField; required?: boolean }) {
     return <label className="rf-field">
       <span className="rf-label">{label(f)}{required && <span className="rf-req">必須</span>}</span>
-      <input type="date" value={draft[f]} min={today} aria-invalid={invalid(f)} aria-describedby={described(f)}
-        onBlur={() => { touch(f); }} onChange={e => { set(f, e.target.value); }} />
+      <DatePicker aria-label={label(f)} value={draft[f]} min={today} today={today} aria-invalid={invalid(f)} aria-describedby={described(f)}
+        onBlur={() => { touch(f); }} onChange={v => { set(f, v); }} />
       {err(f)}
     </label>;
   }

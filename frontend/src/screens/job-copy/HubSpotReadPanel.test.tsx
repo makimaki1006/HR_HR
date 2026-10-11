@@ -37,7 +37,7 @@ async function openJob(onOpen: (job: JobCopyRecord) => void) {
   fireEvent.click(screen.getByText('取引先を取得'));
   await screen.findByText('取引先を1件取得しました。');
   fireEvent.change(screen.getByLabelText('HubSpotの取引先'), { target: { value: 'c1' } });
-  fireEvent.click(screen.getByText('関連する求人を取得'));
+  fireEvent.click(screen.getByText('関連する求人を読み込む'));
   fireEvent.click(await screen.findByText('合成求人（関連契約0件）'));
   await screen.findByText('応募を取得しました。');
 }

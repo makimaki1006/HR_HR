@@ -1,3 +1,5 @@
+import { test as sidebarSetup } from '@playwright/test';
+sidebarSetup.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); });
 /** Synthetic navigation fixtures: local frontend behavior, not production auth. */
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -26,7 +28,7 @@ async function setup(page: Page, longBody = false, openBody = true) {
     const months = Array.from({ length: 18 }, (_, index) => `${2025 + Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, '0')}`);
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ source: '合成市場レポート', titles: ['合成職種'], prefectures: ['大分県'], ctk_basis: '市場指標です。応募数ではありません。', series: selected ? { prefecture: '大分県', months, job_count: months.map((_, i) => 100 + i), ctk_count: months.map((_, i) => 300 + i), employer_count: months.map(() => 20), seekers_per_posting: months.map(() => 3) } : null }) });
   });
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await expect(page.locator('.jc-job')).toHaveCount(2);
   // The timeline opens first (2026-10-08); most checks start from the body tab.
   if (openBody) await selectJobFeature(page, 'body');
@@ -34,7 +36,7 @@ async function setup(page: Page, longBody = false, openBody = true) {
 test.beforeAll(() => { mkdirSync(visuals, { recursive: true }); });
 
 test('the first view shows the full-height list beside the timeline, tabs stay on screen and the list filters stay usable', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await setup(page, true, false);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
   await expect(primary.getByRole('tab', { name: 'タイムライン', exact: true })).toHaveAttribute('aria-selected', 'true');
@@ -63,7 +65,7 @@ test('the first view shows the full-height list beside the timeline, tabs stay o
   });
   expect(inactiveTabContrast).toBeGreaterThanOrEqual(4.5);
   await selectJobFeature(page, 'body');
-  const jump = page.getByRole('button', { name: 'この版を前の版と比較する →', exact: true });
+  const jump = page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true });
   await jump.scrollIntoViewIfNeeded();
   // The group tabs stay at the top of the detail while the long body scrolls.
   await expect(primary).toBeInViewport();
@@ -163,7 +165,7 @@ test('functional tabs isolate applicants, reasons, application trends, market gr
 test('tab keyboard Arrow/Home/End movement activates valid linked panels and inactive controls stay hidden', async ({ page }) => {
   await setup(page, true);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-  const jump = page.getByRole('button', { name: 'この版を前の版と比較する →', exact: true });
+  const jump = page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true });
   await jump.scrollIntoViewIfNeeded();
   // Sticky group tabs (2026-10-08): still on screen after scrolling the long body.
   await expect(primary).toBeInViewport();

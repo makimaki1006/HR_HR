@@ -67,12 +67,12 @@ describe('call-result form (draft only)', () => {
     expect(selectedId()).toBe('1');
     expect(within(form()).getByText('次回架電日を入れてください(再架電のとき必須)。')).toBeTruthy();
     expect(within(form()).getByText('次回架電時間を選んでください(再架電のとき必須)。')).toBeTruthy();
-    expect(document.activeElement).toBe(within(form()).getByLabelText(/^次回架電日/));
-    expect(within(form()).getByLabelText(/^次回架電日/).getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe((within(form()).getAllByLabelText(/^次回架電日/)[0] as HTMLInputElement));
+    expect((within(form()).getAllByLabelText(/^次回架電日/)[0] as HTMLInputElement).getAttribute('aria-invalid')).toBe('true');
     expect(form().querySelectorAll('[role="alert"]')).toHaveLength(0);
-    fireEvent.change(within(form()).getByLabelText(/^次回架電日/), { target: { value: '2026-10-07' } });
+    fireEvent.change((within(form()).getAllByLabelText(/^次回架電日/)[0] as HTMLInputElement), { target: { value: '2026-10-07' } });
     expect(within(form()).getByText('今日以降の日付を入れてください。')).toBeTruthy();
-    fireEvent.change(within(form()).getByLabelText(/^次回架電日/), { target: { value: '2026-10-09' } });
+    fireEvent.change((within(form()).getAllByLabelText(/^次回架電日/)[0] as HTMLInputElement), { target: { value: '2026-10-09' } });
     const time = within(form()).getByLabelText<HTMLSelectElement>(/^次回架電時間/);
     // 15 分刻み 8:00〜19:00 の 45 択 + 未選択
     expect(time.options).toHaveLength(46);
@@ -153,7 +153,7 @@ describe('call-result form (draft only)', () => {
     open('1');
     await formReady();
     fireEvent.click(outcome('アポイント獲得'));
-    expect(within(form()).getByLabelText(/^商談予定日/)).toBeTruthy();
+    expect((within(form()).getAllByLabelText(/^商談予定日/)[0] as HTMLInputElement)).toBeTruthy();
     expect(within(form()).getByLabelText<HTMLSelectElement>(/^商談予定時間/).options).toHaveLength(26);
     expect(within(form()).getByLabelText(/^商談方法/)).toBeTruthy();
     expect(within(form()).queryByLabelText(/^架電禁止理由/)).toBeNull();
@@ -224,7 +224,7 @@ describe('call-result form (draft only)', () => {
     expect(selectedId()).toBe('1');
     expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
     fireEvent.click(outcome('再架電の約束'));
-    const date = within(form()).getByLabelText(/^次回架電日/);
+    const date = (within(form()).getAllByLabelText(/^次回架電日/)[0] as HTMLInputElement);
     fireEvent.change(date, { target: { value: '2026-10-09' } });
     fireEvent.change(within(form()).getByLabelText(/^次回架電時間/), { target: { value: '9:15' } });
     fireEvent.keyDown(date, { key: 'Enter' });
@@ -336,8 +336,17 @@ describe('call-result form (draft only)', () => {
     open('1');
     await formReady();
     fireEvent.click(outcome('再架電の約束'));
-    const date = () => within(form()).getByLabelText<HTMLInputElement>(/^次回架電日/);
-    expect(date().min).toBe('2026-10-08');
+    const date = () => within(form()).getByRole('textbox', { name: /^次回架電日/ });
+    // 最小日 = 記録時の今日。カレンダーを開いて、前日が選べず当日が選べることで確かめる
+    const minDay = (iso: string) => {
+      fireEvent.click(within(form()).getByRole('button', { name: 'カレンダーを開く' }));
+      const cell = document.querySelector(`button[data-date="${iso}"]`);
+      const disabled = cell?.getAttribute('aria-disabled') === 'true';
+      if (cell !== null) fireEvent.keyDown(cell, { key: 'Escape' });
+      return disabled;
+    };
+    expect(minDay('2026-10-07')).toBe(true);
+    expect(minDay('2026-10-08')).toBe(false);
     fireEvent.change(date(), { target: { value: '2026-10-08' } });
     fireEvent.change(within(form()).getByLabelText(/^次回架電時間/), { target: { value: '9:15' } });
     expect(recordDisabled()).toBe(false);
@@ -345,7 +354,8 @@ describe('call-result form (draft only)', () => {
     fireEvent.click(recordBtn());
     expect(selectedId()).toBe('1');
     expect(within(rowOf('1')).queryByText('記録済み(HubSpot 未送信)')).toBeNull();
-    expect(date().min).toBe('2026-10-09');
+    expect(minDay('2026-10-08')).toBe(true);
+    expect(minDay('2026-10-09')).toBe(false);
     expect(within(form()).getByText('今日以降の日付を入れてください。')).toBeTruthy();
     expect(recordDisabled()).toBe(true);
   });
@@ -409,14 +419,14 @@ describe('call-result form (draft only)', () => {
     fireEvent.click(outcome('再架電の約束'));
     fireEvent.click(recordBtn());
     expect(within(form()).getByText('次回架電日を入れてください(再架電のとき必須)。')).toBeTruthy();
-    expect(within(form()).getByLabelText(/^次回架電日/).getAttribute('aria-invalid')).toBe('true');
+    expect((within(form()).getAllByLabelText(/^次回架電日/)[0] as HTMLInputElement).getAttribute('aria-invalid')).toBe('true');
     open('2');
     await formReady();
     expect(within(form()).queryByText('今回の結果を選んでください。')).toBeTruthy(); // 未選択の案内 (赤くしない文言) だけ
     fireEvent.click(outcome('再架電の約束'));
     expect(within(form()).queryByText('次回架電日を入れてください(再架電のとき必須)。')).toBeNull();
     expect(within(form()).queryByText('次回架電時間を選んでください(再架電のとき必須)。')).toBeNull();
-    expect(within(form()).getByLabelText(/^次回架電日/).getAttribute('aria-invalid')).not.toBe('true');
+    expect((within(form()).getAllByLabelText(/^次回架電日/)[0] as HTMLInputElement).getAttribute('aria-invalid')).not.toBe('true');
     expect(form().querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
   });
 
@@ -647,7 +657,7 @@ describe('call-result form (draft only)', () => {
     fireEvent.click(recordBtn());
     const shown = Array.from(form().querySelectorAll('.rf-err')).map(e => e.textContent);
     expect(shown.sort()).toEqual(['商談予定日を入れてください。', '商談予定時間を選んでください。', '商談方法を選んでください。'].sort());
-    expect(within(form()).getByLabelText(/^次回架電日/).closest('label')?.textContent).not.toContain('必須');
+    expect((within(form()).getAllByLabelText(/^次回架電日/)[0] as HTMLInputElement).closest('label')?.textContent).not.toContain('必須');
   });
 
   it('editing after 記録して次へ says the mark was removed and asks to record again', async () => {

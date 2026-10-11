@@ -4,6 +4,7 @@ import { draftToValue, initialDraft, sameValue } from './writeModel';
 import type { FieldDef } from './writeModel';
 import type { FieldStatus } from './useCrmWrite';
 import type { ConflictView } from './writeBindings';
+import { DatePicker } from '../../components/DatePicker';
 import './write.css';
 
 /** 値を入れる欄 (項目の種類ごと)。値は文字列 (日付は YYYY-MM-DD、真偽は true/false、複数選択は ; 区切り) */
@@ -27,7 +28,7 @@ export function PropInput({ def, value, onChange, autoFocus, onKeyDown, id }: {
       </span>;
     }
     case 'date':
-      return <input {...common} type="date" value={value} onChange={e => { onChange(e.target.value); }} />;
+      return <DatePicker id={id} aria-label={def.label} autoFocus={autoFocus} onKeyDown={onKeyDown} value={value} onChange={onChange} />;
     case 'number':
       return <input {...common} type="number" value={value} onChange={e => { onChange(e.target.value); }} />;
     case 'bool':
