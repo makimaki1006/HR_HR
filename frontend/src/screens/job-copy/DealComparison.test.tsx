@@ -107,6 +107,9 @@ it('renders real-shaped AirWork fields beside HRハッカー with bounded cells 
   expect(container.textContent).toContain('東京都江東区');
   expect(container.textContent).toContain('8:00〜17:00');
   expect(container.textContent).toContain('月給 213,000円');
+  const locationRow = [...container.querySelectorAll('tr')].find(tr => tr.querySelector('th')?.textContent === '勤務地');
+  expect(locationRow?.textContent).toContain('未取得');
+  expect(locationRow?.querySelector('mark')).toBeNull();
   const button = screen.getByRole('button', { name: '全文を見る' });
   expect(button.getAttribute('aria-expanded')).toBe('false');
   expect(container.querySelector('.jc-comparison-preview mark')).toBeTruthy();

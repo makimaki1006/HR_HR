@@ -42,7 +42,7 @@ export function RikuroziDraftPanel({ listingId }: { listingId: string }) {
       <p>数字は原文に同じ表記があるかだけを確かめます。通常と研修の取り違えなど、正しい数字を違う文脈で使った誤りは検知できません。給与や時間の意味は担当者が確認してください。</p>
       <p>自動で作り直した回数：{String(draft.regeneration_count ?? 0)}回（最大2回）</p>
       <h4>比べた求人と文の一致率</h4>
-      <p>同じ文が1つでもある場合、文の一致率が{(draft.threshold * 100).toLocaleString('ja-JP', { maximumSignificantDigits: 6 })}％以上の場合、または生成した全文が相手の本文に含まれると「似すぎ・不合格」です。既知の項目見出しを除いて文を比べます。{draft.min_sentence_chars === 0 ? '短い文もすべて数えます。' : `${draft.min_sentence_chars.toLocaleString('ja-JP')}文字未満の文は一致率に数えません。`}</p>
+      <p>文の一致率が{(draft.threshold * 100).toLocaleString('ja-JP', { maximumSignificantDigits: 6 })}％以上の場合、または生成した全文が相手の本文に含まれると「似すぎ・不合格」です。既知の項目見出しを除いて文を比べます。{draft.min_sentence_chars === 0 ? '短い文もすべて数えます。' : `${draft.min_sentence_chars.toLocaleString('ja-JP')}文字未満の文は一致率に数えません。`}</p>
       <ul>{draft.comparisons.map((item, index) => <li key={index}><strong>{item.media} · {item.title}</strong><span>{item.publication} ／ 文の一致率：{item.ratio === null ? '未取得（要確認）' : `${(item.ratio * 100).toFixed(1)}％`}{item.too_similar && ' ／ 似すぎ・不合格（要確認）'}</span>
         {item.whole_match && <p>生成した全文が相手の本文に含まれています。</p>}
         {item.matched_sentences.length > 0 && <><span>一致した文</span><ul>{item.matched_sentences.map((sentence, sentenceIndex) => <li key={sentenceIndex}>{sentence}</li>)}</ul></>}
