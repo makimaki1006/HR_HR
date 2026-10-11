@@ -31,20 +31,20 @@ export function EmailTracking({ emailId }: { emailId: string }) {
   }, [emailId]);
   const data = result?.id === emailId ? result.data : null;
   if (!data) return null;
-  const last = shortDate(data.opens.last_at);
-  const first = shortDate(data.opens.first_at);
+  const last = data.opens.count > 0 ? shortDate(data.opens.last_at) : null;
+  const first = data.opens.count > 0 ? shortDate(data.opens.first_at) : null;
   const automatic = data.automatic_opens.count + data.automatic_clicks.count > 0;
   return <div className="wd-email-tracking" data-testid="email-tracking">
-    <p className="wd-act-meta">開封 {data.opens.count} 回{last && `（最後 ${last}）`}・クリック {data.clicks.count} 回</p>
-    <details className="wd-email-tracking-details">
+    <p className="wd-act-meta" data-testid="email-tracking-summary">{data.opens.count > 0 ? `開封 ${String(data.opens.count)} 回` : '未開封'}{last && `（最後 ${last}）`}・クリック {data.clicks.count} 回</p>
+    <details key={emailId} className="wd-email-tracking-details">
       <summary>開封・クリックの詳細</summary>
       {first && <p>最初の開封 {first}{last && `・最後の開封 ${last}`}</p>}
+      {automatic && <p className="wd-email-tracking-automatic" data-testid="email-tracking-automatic">ほかに自動の確認とみられるもの：開封 {data.automatic_opens.count} 回・クリック {data.automatic_clicks.count} 回（数に含めていません）</p>}
       {data.links.filter(link => link.clicks.count > 0 || link.automatic_clicks.count > 0).map(link => <p key={link.link_no}>
         <span className="wd-email-tracking-url">{link.url}</span>：クリック {link.clicks.count} 回
-        {link.automatic_clicks.count > 0 && `（自動の可能性 ${String(link.automatic_clicks.count)} 回）`}
+        {link.automatic_clicks.count > 0 && `（ほかに自動 ${String(link.automatic_clicks.count)} 回）`}
       </p>)}
       <p className="crm-muted">同じリンクや開封が短時間に繰り返された場合はまとめて数えています。画像の読み込みを数えるため、実際の開封と異なることがあります。</p>
     </details>
-    {automatic && <p className="wd-act-meta">自動の可能性：開封 {data.automatic_opens.count} 回・クリック {data.automatic_clicks.count} 回</p>}
   </div>;
 }
