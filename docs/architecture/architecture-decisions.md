@@ -315,7 +315,7 @@ Status: Accepted (2026-10-11 ユーザー決定。依頼の ADR-019 は既存の
 
 参照: [Google OAuth (offline / incremental)](https://developers.google.com/identity/protocols/oauth2/web-server)、[Gmail send](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send)、[HubSpot email activity](https://developers.hubspot.com/docs/api-reference/legacy/crm/activities/emails/guide)。
 
-## ADR-022 — HR_HR 送信メールの計測情報は既存監査 Turso に置く
+## ADR-023 — HR_HR 送信メールの計測情報は既存監査 Turso に置く
 
 Status: Accepted for this implementation (2026-10-11、ユーザー指定)
 

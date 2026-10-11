@@ -15,9 +15,15 @@ for (const tracked of [true, false]) {
     await expect(page.getByTestId('activity-card')).toBeVisible();
     if (tracked) {
       await expect(page.getByTestId('email-tracking')).toContainText('開封 2 回（最後 10/12 14:03）・クリック 1 回');
-      await expect(page.getByTestId('email-tracking')).toContainText('自動の可能性：開封 3 回・クリック 1 回');
+      await expect(page.getByTestId('email-tracking').locator('details')).not.toHaveAttribute('open');
+      await expect(page.getByTestId('email-tracking-automatic')).toBeHidden();
       await page.getByText('開封・クリックの詳細', { exact: true }).click();
+      await expect(page.getByTestId('email-tracking-automatic')).toHaveText('ほかに自動の確認とみられるもの：開封 3 回・クリック 1 回（数に含めていません）');
+      await expect(page.getByText('https://example.invalid/guide', { exact: true }).locator('..')).toHaveText('https://example.invalid/guide：クリック 1 回（ほかに自動 1 回）');
       await expect(page.getByTestId('email-tracking')).toContainText('最初の開封 10/12 13:00');
+      await page.getByText('開封・クリックの詳細', { exact: true }).click();
+      await expect(page.getByTestId('email-tracking-automatic')).toBeHidden();
+      await expect(page.getByTestId('email-tracking').locator('details')).not.toHaveAttribute('open');
     } else {
       await expect(page.getByTestId('activity-title')).toHaveText('先日のご相談について（架空）');
       await expect(page.getByTestId('email-tracking')).toHaveCount(0);
