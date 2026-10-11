@@ -41,7 +41,9 @@ export function registerDealCompareTests(path: string) {
       deal_ids: index < 101 ? index === 0 ? ['901', '902'] : ['901'] : [], summary: { occupation: '配送ドライバー', location: '沖縄県那覇市', salary_kind: '月給', salary_min: String(250000 + index * 1000), salary_max: '320000', hours: '8:00〜17:00', holidays: '土日休み', body_changed_at: '2026-10-10T00:00:00Z' } }));
     const requests: URL[] = [];
     await page.route('**/api/job-copy/**', async route => {
-      const url = new URL(route.request().url()); requests.push(url);
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/listing-body-dates')) return route.fulfill({ json: { dates: Object.fromEntries((url.searchParams.get('ids') ?? '').split(',').map(id => [id, '2026-10-10T00:00:00Z'])) } });
+      requests.push(url);
       if (url.pathname.endsWith('/market')) return route.fulfill({ json: { titles: [], prefectures: [], series: null } });
       if (url.pathname.endsWith('/listing-comparison')) return route.fulfill({ json: { jobs: (url.searchParams.get('ids') ?? '').split(',').map(id => ({ listing: jobs.find(row => row.id === id), body: body(250000 + (Number(id) - 1) * 1000) })) } });
       if (url.pathname.endsWith('/versions')) { const row = jobs.find(row => row.id === url.pathname.split('/').at(-2)); return route.fulfill({ json: { listing: row, versions: [{ body: body(250000), written_at: '2026-10-10T00:00:00Z', image_urls: [] }], history_counts: {}, history_may_be_incomplete: false } }); }

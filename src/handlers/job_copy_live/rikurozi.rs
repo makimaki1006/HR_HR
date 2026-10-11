@@ -48,7 +48,7 @@ impl JobReadService {
             StatusCode::UNPROCESSABLE_ENTITY,
             "hrh_body_missing",
         ))?;
-        let parsed = super::hrh_copy::fields(body);
+        let parsed = super::hrh_copy::fields84(body);
         if parsed.is_empty() {
             return Err(ReadError(
                 StatusCode::UNPROCESSABLE_ENTITY,
