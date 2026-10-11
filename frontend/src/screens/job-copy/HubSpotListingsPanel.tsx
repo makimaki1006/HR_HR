@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, AuthRequiredError } from '../../api/client';
 import type { JobCopyRecord } from './data';
 import { listingRecord, mediaLabel, publicationLabel, draftStateLabel } from './hubspotListings';
-import type { HubSpotListingPage, HubSpotVersions, DealSelection } from './hubspotListings';
+import type { HubSpotListingPage, HubSpotVersions, HubSpotListing, DealSelection } from './hubspotListings';
 import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
@@ -54,15 +54,15 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   }, [active, page, busy, error, load]);
   const opened = useRef('');
   const restored = useRef('');
-  const openId = useCallback(async (id: string) => {
+  const openId = useCallback(async (id: string, listedRow?: HubSpotListing) => {
     opened.current = id;
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
     setSelected(id); setError(''); onLoading?.();
     const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { onOpen(listingRecord(result.data)); }
+    if (result.ok) { onOpen(listingRecord(result.data, listedRow ?? page?.listings.find(row => row.id === id))); }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
-  }, [onOpen, onLoading, onFailure]);
+  }, [onOpen, onLoading, onFailure, page]);
   useEffect(() => {
     if (!active) return;
     if (!initialListingId) { restored.current = ''; return; }
@@ -94,7 +94,7 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     {page?.status === 'ready' && <><p className="jc-index-date">{formatDateTimeJst(page.index_built_at, '日時不明')}時点の求人・応募数</p>
       {page.refreshing && <p role="status">一覧を更新中です。表示している時点の一覧を利用できます。</p>}
       {page.refresh_failed && <p role="status">一覧を更新できませんでした。表示している時点の一覧を利用しています。</p>}
-      <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の本文を見る`} onClick={() => { void openId(row.id); }}>
+      <div className="jc-list-scroll" aria-label="HubSpotの求人一覧">{rows.map(row => <button type="button" className="jc-job jc-hubspot-job" key={row.id} aria-pressed={row.id === selected} aria-label={`${row.title ?? '求人'}の本文を見る`} onClick={() => { void openId(row.id, row); }}>
         <strong>{row.title ?? '求人名未取得'}</strong><span className="jc-job-company"><span className="jc-publication">{publicationLabel(row.publication_status)}</span><span>案：{row.draft_status ? draftStateLabel(row.draft_status) : '案なし・確認状態は未取得'}</span></span>
         <span className="jc-job-location">{row.prefecture ?? '不明'}{row.municipality ?? ''} · {mediaLabel(row.media)} · {row.category ?? '職種不明'}</span>
         <span className="jc-job-bottom"><small>応募 {row.application_count === null ? '未取得' : `${String(row.application_count)}件`}</small></span>
