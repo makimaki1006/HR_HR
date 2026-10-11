@@ -152,3 +152,8 @@
 .jt-reason span { overflow: hidden; text-overflow: ellipsis; display: block; }
 .jt-reason-zone { background: repeating-linear-gradient(135deg, #f4f7fb 0 5px, #e3ebf4 5px 10px); border-style: dashed; }
 .jt-reasons { margin-top: 18px; }
+
+/* 近い日付のラベルは別の段へ。期間の線の幅は日付どおりに保つ。 */
+.jt-timeline .jt-period > span { visibility: hidden; }
+.jt-period-label { position: absolute; transform: translateX(calc(var(--jt-pin, 0) * -1%)); max-width: 22%; padding: 0 3px; background: #fff; color: #12424c; font-size: 10px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; z-index: 2; }
+.jt-salary-label { max-width: 22%; }

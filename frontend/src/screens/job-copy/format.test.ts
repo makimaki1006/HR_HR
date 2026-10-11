@@ -105,8 +105,8 @@ describe('plainWording', () => {
     expect(CAUSAL_PATTERN.test('市場環境と応募獲得の要因')).toBe(true);
     expect(CAUSAL_PATTERN.test('応募獲得の要因・仮説')).toBe(false);
     expect(plainWording('変更検知日を基準に集計。媒体生成日が不明の観測は鮮度未確認。')).toBe('変更検知日を基準に集計。媒体生成日が不明の取得は鮮度未確認。');
-    expect(plainWording('版対応不明3件')).toBe('どの版への応募か不明3件');
-    expect(plainWording('過去CSV観測版')).toBe('過去CSV取得した版');
+    expect(plainWording('版対応不明3件')).toBe('どの本文への応募か不明3件');
+    expect(plainWording('過去CSV観測版')).toBe('過去CSV確認した本文');
     expect(plainWording('source filename acquisition label; not publication timestamp')).toBe('ファイルを取得した日時（掲載が変わった日時ではありません）');
     expect(plainWording('求人文面（MOC）')).toBe('求人文面');
   });

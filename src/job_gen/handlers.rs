@@ -74,13 +74,26 @@ pub async fn tab_jobgen_tools() -> axum::response::Html<&'static str> {
   </div>
   <div id="jobtools-frames">
     <iframe id="jt-frame-0" src="/jobgen" title="求人票生成"
-            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+            onload="jobtoolsFit(this)" style="width:100%;height:560px;min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
     <iframe id="jt-frame-1" data-src="/jobgen/competitive-beta" title="競合比較から求人作成" hidden
-            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+            onload="jobtoolsFit(this)" style="width:100%;height:560px;min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
     <iframe id="jt-frame-2" data-src="/jobgen/applicant-journey-beta" title="応募者ジャーニー診断" hidden
-            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+            onload="jobtoolsFit(this)" style="width:100%;height:560px;min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
   </div>
   <script>
+    function jobtoolsFit(frame){
+      if(frame._jobtoolsObserver){frame._jobtoolsObserver.disconnect();}
+      var doc=frame.contentDocument;
+      if(!doc||!doc.body){return;}
+      function fit(){
+        if(!frame.isConnected||frame.hidden){return;}
+        var height=Math.ceil(doc.body.getBoundingClientRect().height);
+        frame.style.height=Math.max(560,height)+"px";
+      }
+      frame._jobtoolsObserver=new ResizeObserver(fit);
+      frame._jobtoolsObserver.observe(doc.body);
+      fit();
+    }
     function jobtoolsSwitch(btn){
       var nav=document.getElementById("jobtools-nav");
       nav.querySelectorAll("button").forEach(function(b){b.classList.remove("active");b.setAttribute("aria-selected","false");});
@@ -92,6 +105,7 @@ pub async fn tab_jobgen_tools() -> axum::response::Html<&'static str> {
         // 初回だけロード。以降は hidden 切替のみで状態を保つ。
         if(!frame.getAttribute("src")&&frame.getAttribute("data-src")){frame.src=frame.getAttribute("data-src");}
         frame.hidden=false;
+        if(frame.contentDocument&&frame.contentDocument.readyState==="complete"){jobtoolsFit(frame);}
       }
       document.getElementById("jobtools-open").href=btn.getAttribute("data-src");
     }
