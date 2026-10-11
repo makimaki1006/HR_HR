@@ -136,13 +136,13 @@ describe('category breakdown on the 応募理由 tab', () => {
     // Every transfer row is 推定, so only one count column.
     expect([...within(transfer).getAllByRole('columnheader')].map(cell => cell.textContent)).toEqual(['分類', '件数（キーワードで推定）', 'nに対する割合']);
     expect(within(transfer).getAllByRole('row')[2]?.textContent).toBe('勤務地1件n=1のため出しません');
-    // Landmarks name only what they hold; headings nest under 版ごとの記述.
+    // Landmarks name only what they hold; headings nest under 本文ごとの記述.
     expect(within(summary).queryByRole('region', { name: '記録欄ごとの件数' })).toBeNull();
     expect(within(summary).queryByRole('region', { name: '転職理由の分類の件数' })).toBeNull();
     expect(screen.getByRole('region', { name: '今の仕事・前の仕事から転職する理由の分類' })).toBeTruthy();
     expect([...document.querySelectorAll('h2, h3, h4')].map(node => `${node.tagName}:${node.textContent}`)).toEqual([
-      'H2:応募理由・志望動機の記述', 'H3:記録欄ごとの件数', 'H3:応募理由の分類', 'H3:今の仕事・前の仕事から転職する理由の分類', 'H3:版ごとの記述',
-      'H4:比較元の記述', 'H4:比較先の記述', 'H4:どの版への理由か不明な記述 · 表示対象7件',
+      'H2:応募理由・志望動機の記述', 'H3:記録欄ごとの件数', 'H3:応募理由の分類', 'H3:今の仕事・前の仕事から転職する理由の分類', 'H3:本文ごとの記述',
+      'H4:比較元の記述', 'H4:比較先の記述', 'H4:どの本文への理由か不明な記述 · 表示対象7件',
     ]);
     expect(screen.getByRole('region', { name: '今の仕事・前の仕事から転職する理由の分類' }).textContent).toContain('nが5件に満たないため、割合は出さず件数だけを示します。');
     const unclassified = summary.querySelector('details.ar-unclassified');

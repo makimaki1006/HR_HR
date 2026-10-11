@@ -31,6 +31,9 @@ describe('HubSpot listing history', () => {
     expect(record.accountId).toBe('synthetic-account');
     expect(record.mediaJobId).toBe('AW-10');
     expect(record.location).toBe('大分県大分市');
+    expect(record.company).toBe('');
+    expect(listingRecord({ ...history, company_name: '合成運輸株式会社' }).company).toBe('合成運輸株式会社');
+    expect(record.versions[1]?.label).toBe('2026/10/02 09:00 JST にHubSpotに記録された本文');
     expect(record.versions.map(v => [v.observedAt, v.body])).toEqual([['2026-10-01T00:00:00Z', '合成の旧本文'], ['2026-10-02T00:00:00Z', '合成の新本文']]);
     expect(record.versions[0]?.images).toBeUndefined();
     expect(record.versions[1]?.images?.map(image => image.url)).toEqual(['https://example.invalid/1.png']);
@@ -41,45 +44,46 @@ describe('HubSpot listing history', () => {
   });
   it('loads on entry, filters, pages and passes the actual body to detail', async () => {
     mock(); const onOpen = vi.fn<(job: JobCopyRecord) => void>(); render(<HubSpotListingsPanel onOpen={onOpen} />);
-    await screen.findByRole('button', { name: '合成配送求人の版を見る' });
-    expect(screen.getByText(/条件に合う求人は51件/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: '合成配送求人の版を見る' }).textContent).toContain('応募 未取得');
+    await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
+    expect(screen.getByText('51件')).toBeTruthy();
+    fireEvent.click(screen.getByText('絞り込み・並び順'));
+    expect(screen.getByRole('button', { name: '合成配送求人の本文を見る' }).textContent).toContain('応募 未取得');
     fireEvent.change(screen.getByLabelText('都道府県'), { target: { value: '大分県' } });
     fireEvent.change(screen.getByLabelText('職種の分類'), { target: { value: 'ドライバー' } });
     fireEvent.change(screen.getByLabelText('媒体', { selector: 'select' }), { target: { value: 'airwork' } });
     await waitFor(() => { const query = new URL(String(api.mock.calls.at(-1)?.[0]), 'https://example.test').searchParams;
       expect(query.get('prefecture')).toBe('大分県'); expect(query.get('title')).toBe('ドライバー'); expect(query.get('media')).toBe('airwork'); });
-    fireEvent.click(screen.getByRole('button', { name: '合成配送求人の版を見る' }));
+    fireEvent.click(screen.getByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(onOpen).toHaveBeenCalledOnce(); });
     expect(onOpen.mock.calls[0]?.[0].versions[1]?.body).toBe('合成の新本文');
-    const warning = screen.getByRole('status').textContent;
-    expect(warning).toContain('文面の版は2件'); expect(warning).toContain('本文の履歴：20件'); expect(warning).toContain('20件までの可能性');
+    expect(onOpen.mock.calls[0]?.[0].historyMayBeIncomplete).toBe(true);
+    expect(screen.queryByText(/文面の版は/)).toBeNull();
     expect(screen.getByRole('region').textContent).not.toMatch(CAUSAL_PATTERN);
     expect(screen.getByRole('region').textContent).not.toMatch(JARGON_PATTERN);
     fireEvent.click(screen.getByRole('button', { name: '次の求人' }));
-    await screen.findByRole('button', { name: '合成の次ページ求人の版を見る' });
+    await screen.findByRole('button', { name: '合成の次ページ求人の本文を見る' });
     expect(new URL(String(api.mock.calls.at(-1)?.[0]), 'https://example.test').searchParams.get('offset')).toBe('50');
   });
   it('shows preparation without zero results and preserves the dated list after refresh failure', async () => {
     api.mockResolvedValue({ ok: true, data: { ...page, status: 'preparing', listings: [], total: null, index_built_at: null, next_offset: null, refreshing: true } });
     render(<HubSpotListingsPanel onOpen={vi.fn()} />);
     await screen.findByText('求人の一覧を準備しています');
-    expect(screen.queryByRole('button', { name: '合成配送求人の版を見る' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '合成配送求人の本文を見る' })).toBeNull();
     expect(screen.getByRole('region').textContent).not.toContain('0件');
     expect(screen.getByText(/準備が終わると自動で/)).toBeTruthy();
     api.mockResolvedValue({ ok: true, data: { ...page, refresh_failed: true } });
     fireEvent.click(screen.getByRole('button', { name: '求人を取得' }));
-    await screen.findByRole('button', { name: '合成配送求人の版を見る' });
-    expect(screen.getByText(/2026.*時点の一覧/)).toBeTruthy();
+    await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
+    expect(screen.getByText(/2026.*時点/)).toBeTruthy();
     expect(screen.getByRole('status').textContent).toContain('一覧の更新を取得できませんでした');
   });
   it('hides the warning for nineteen history entries and shows an empty matching result', async () => {
-    mock(); render(<HubSpotListingsPanel onOpen={vi.fn()} />);
-    await screen.findByRole('button', { name: '合成配送求人の版を見る' });
+    mock(); const onOpen = vi.fn<(job: JobCopyRecord) => void>(); render(<HubSpotListingsPanel onOpen={onOpen} />);
+    await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
     api.mockResolvedValueOnce({ ok: true, data: { ...history, history_counts: { shigotonaiyou: 19 }, history_may_be_incomplete: false } });
-    fireEvent.click(screen.getByRole('button', { name: '合成配送求人の版を見る' }));
-    await screen.findByText(/本文の履歴：19件/);
-    expect(screen.getByRole('status').textContent).not.toContain('20件までの可能性');
+    fireEvent.click(screen.getByRole('button', { name: '合成配送求人の本文を見る' }));
+    await waitFor(() => { expect(onOpen).toHaveBeenCalledOnce(); });
+    expect(onOpen.mock.calls[0]?.[0].historyMayBeIncomplete).toBe(false);
     api.mockResolvedValue({ ok: true, data: { ...page, listings: [], total: 0, next_offset: null } });
     fireEvent.click(screen.getByRole('button', { name: '求人を取得' }));
     await screen.findByText('条件に合う求人はありません。');
@@ -89,7 +93,7 @@ describe('HubSpot listing history', () => {
     const { container } = render(<JobCopyScreen />);
     const originalCount = container.querySelectorAll('.jc-fixed-list .jc-job').length;
     fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
-    fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の版を見る' }));
+    fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1); });
     const main = within(screen.getByRole('article'));
     fireEvent.click(main.getByRole('tab', { name: '求人内容' }));
@@ -102,7 +106,7 @@ describe('HubSpot listing history', () => {
     await waitFor(() => { expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(originalCount); });
   });
   it('restores the fixed file records and their acquisition date after opening HubSpot history', async () => {
-    window.history.replaceState(null, '', '/app/job-copy');
+    window.history.replaceState(null, '', '/app/job-copy?data=actual');
     const capturedAt = '2026-10-06T00:00:00Z';
     const fixed = { schemaVersion: 1, capturedAt, capture_bundle: { schemaVersion: 1, capturedAt,
       jobs: [{ id: 'synthetic-fixed', hubspotListingId: '30', title: '合成の固定求人', company: '合成会社', media: 'HRハッカー', mediaJobId: 'HR-30', location: '大分県', body: '合成の固定本文', images: [] }] },
@@ -111,12 +115,12 @@ describe('HubSpot listing history', () => {
     const { container } = render(<JobCopyScreen />);
     await waitFor(() => { expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成の固定求人'); });
     fireEvent.click(screen.getByRole('button', { name: 'HubSpot の求人' }));
-    fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の版を見る' }));
+    fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
     await waitFor(() => { expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成配送求人'); });
     expect(container.querySelectorAll('.jc-fixed-list .jc-job')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: '固定一覧を表示' }));
     expect(container.querySelector('.jc-fixed-list .jc-job')?.textContent).toContain('合成の固定求人');
-    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('2応募');
+    expect(screen.getByRole('region', { name: '取り込んだ内容の内訳' }).textContent).toContain('2応募');
     expect(screen.getByText('実データ（取得済み）')).toBeTruthy();
   });
 

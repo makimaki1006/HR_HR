@@ -86,7 +86,7 @@ test('all 28 linked jobs render 45 proxy references matching 34 unique original 
   const verified = await open(page);
   for (const target of targets) {
     await page.locator('.jc-job').nth(target.index).click();
-    const gallery = page.getByRole('region', { name: 'この版の掲載画像', exact: true });
+    const gallery = page.getByRole('region', { name: 'この本文に対応する掲載画像', exact: true });
     await expect(gallery.getByRole('img')).toHaveCount(target.images.length);
     for (const image of target.images) {
       const imageIndex = await gallery.getByRole('img').evaluateAll((nodes, expected) => nodes.findIndex(node => node.getAttribute('src') === expected), image.url);
@@ -151,8 +151,8 @@ test('mobile shared shell stays within the viewport and printed reports hide nav
   const overall = page.getByRole('region', { name: '求人全体の実応募者構成' });
   await expect(overall).toBeVisible();
   await expect(overall).toContainText('応募34件');
-  await expect(overall).toContainText(`どの版への応募か不明${largest.dated_comparison.unknown}件`);
-  await expect(overall).toContainText('各版へ割り当てていません');
+  await expect(overall).toContainText(`どの本文への応募か不明${largest.dated_comparison.unknown}件`);
+  await expect(overall).toContainText('各本文へ割り当てていません');
   await expect(page.getByRole('textbox', { name: '仮説', exact: true })).toBeHidden();
   const printed = page.locator('.jc-print-text').first();
   await expect(printed).toBeVisible();
@@ -162,12 +162,12 @@ test('mobile shared shell stays within the viewport and printed reports hide nav
 
 test('expanded image data retains real application totals and the richest job displays images and charts at both widths', async ({ page }) => {
   await open(page);
-  // 取得範囲の件数は上の帯の「取得した範囲」を開くと出る（帯を 1 行に保つため、2026-10-08 round 3）
+  // 取得範囲の件数は上の帯の「取り込んだ内容」を開くと出る（帯を 1 行に保つため、2026-10-08 round 3）
   await page.locator('.jc-snapshot-tip > summary').click();
-  const summary = page.getByRole('region', { name: '実データの取得範囲' });
+  const summary = page.getByRole('region', { name: '取り込んだ内容の内訳' });
   await expect(summary).toContainText('317応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
-  await expect(summary).toContainText(/どの版への応募か分からない応募 \d+件（求人ごとの件数の合計（重複あり））/u);
-  await expect(summary).toContainText(/期間比較表の版の行に入らない応募 \d+件/u);
+  await expect(summary).toContainText(/どの本文への応募か分からない応募 \d+件（求人ごとの件数の合計（重複あり））/u);
+  await expect(summary).toContainText(/期間比較表の本文の行に入らない応募 \d+件/u);
   const max = Math.max(...aggregates.map(row => row.summary.total));
   expect(max).toBe(34);
   const richest = aggregates.find(row => row.summary.total === max)!;
@@ -178,7 +178,7 @@ test('expanded image data retains real application totals and the richest job di
     await page.setViewportSize({ width, height: width === 375 ? 812 : 1100 });
     await page.locator('.jc-job').nth(index).click();
     await selectJobFeature(page, 'body');
-    const image = page.getByRole('region', { name: 'この版の掲載画像', exact: true }).getByRole('img').first();
+    const image = page.getByRole('region', { name: 'この本文に対応する掲載画像', exact: true }).getByRole('img').first();
     await image.scrollIntoViewIfNeeded();
     await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

@@ -1,3 +1,4 @@
+import { formatDateTimeJst } from './format';
 import type { DraftSnapshot } from '../../generated/DraftSnapshot';
 import type { CopyVersion } from './data';
 import columns from '../../generated/jobgen/columns.json';
@@ -16,6 +17,7 @@ export type HubSpotListingPage = ListingPageBase & (
 );
 export interface HubSpotVersions {
   current_row?: Record<string, string> | null;
+  company_name?: string | null;
   drafts?: DraftSnapshot[];
   draft_revision?: string;
   can_write_drafts?: boolean;
@@ -38,17 +40,17 @@ export function listingRecord(data: HubSpotVersions): JobCopyRecord {
   return {
     id: `hubspot-history-${row.id}`, hubspotId: row.id, historyMayBeIncomplete: data.history_may_be_incomplete, dataSource: 'hubspot',
     currentDraftRow: data.current_row ?? undefined, draftRevision: data.draft_revision, canWriteDrafts: data.can_write_drafts, draftHistoryMayBeIncomplete: data.draft_history_may_be_incomplete, latestDraftId: data.drafts?.at(-1)?.draft_id,
-    title: row.title ?? '求人名未取得', company: '取引先名未取得', media: mediaLabel(row.media),
+    title: row.title ?? '求人名未取得', company: data.company_name ?? '', media: mediaLabel(row.media),
     mediaJobId: row.media_job_id, ...(row.account_id ? { accountId: row.account_id } : {}),
-    location: [row.prefecture, row.municipality].filter(Boolean).join('') || '勤務地不明',
+    location: [row.prefecture, row.municipality].filter(Boolean).join('') || '',
     ...(data.current_images ? { currentImageObservation: { observedAt: data.current_images.observed_at, images: data.current_images.image_urls.map((url, index) => ({ id: `observed-${String(index)}`, url, caption: `現在の画像${String(index + 1)}` })) } } : {}),
     versions: [...data.versions.map((version, index) => ({
-      id: `hubspot-history-${row.id}-${String(index)}`, label: `取得した版 ${String(index + 1)}`,
+      id: `hubspot-history-${row.id}-${String(index)}`, label: `${formatDateTimeJst(version.written_at, '日時不明')} にHubSpotに記録された本文`,
       observedAt: version.written_at, ...copy(version.body), kind: 'published' as const, certainty: 'unknown' as const,
-      source: 'HubSpotに保存された求人の変更履歴', applications: null,
+      source: 'HubSpotに記録された本文', applications: null,
       ...(version.image_urls !== null ? { images: version.image_urls.map((url, slot) => ({ id: `history-image-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}),
       historicalImageBytesAvailable: false,
-      note: '日時はHubSpotに保存された日時です。掲載開始日時は不明です。画像は記録されたURLで、保存当時の画像とは異なる可能性があります。応募は版に結びつけていません。',
-    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: '現在の文面（履歴未取得）', observedAt: data.current.checked_at, ...copy(data.current.body), kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotで取得した現在の文面', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '変更履歴を取得できないため、現在保存されている本文を表示しています。日時は今回取得した日時で、文面の保存日時と掲載開始日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
+      note: '本文がHubSpotに記録された日時です。掲載開始日時は不明です。画像は当時と異なる可能性があります。この本文への応募件数は未取得です。',
+    })), ...(data.current ? [{ id: `hubspot-current-${row.id}`, label: `${formatDateTimeJst(data.current.checked_at, '日時不明')} に確認した現在の本文`, observedAt: data.current.checked_at, ...copy(data.current.body), kind: 'published' as const, certainty: 'unknown' as const, source: 'HubSpotの現在の本文', applications: null, ...(data.current.image_urls !== null ? { images: data.current.image_urls.map((url, slot) => ({ id: `current-${String(slot)}`, url, caption: `画像${String(slot + 1)}` })) } : {}), historicalImageBytesAvailable: false, note: '以前の本文を確認できないため、現在の本文を表示しています。日時は今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' }] : []), ...(data.drafts ?? []).map(draftVersion)],
   };
 }

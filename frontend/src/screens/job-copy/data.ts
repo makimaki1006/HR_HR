@@ -104,14 +104,14 @@ export const jobs: JobCopyRecord[] = [
         publishedFrom: '2026-09-15T10:00:00+09:00', publishedUntil: '2026-09-25T12:00:00+09:00',
         certainty: 'confirmed', kind: 'published', source: '求人CSV（デモ・更新取得）', body: driverRevision,
         applications: { confirmed: 9, estimated: 0, unknown: 2 },
-        note: '日時が不明な応募2件は、この版に応募日で結びついた件数に含めません。全件架空です。',
+        note: '日時が不明な応募2件は、この本文に応募日で結びついた件数に含めません。全件架空です。',
       },
       {
         id: 'demo-001-v3', label: '初回文面への復帰', observedAt: '2026-09-25T12:30:00+09:00',
         publishedFrom: '2026-09-25T12:00:00+09:00', certainty: 'confirmed', kind: 'published',
-        source: '求人CSV（デモ・元の本文に戻した版）', body: driverOriginal,
+        source: '求人CSV（デモ・元の本文に戻した本文）', body: driverOriginal,
         applications: { confirmed: 4, estimated: 0, unknown: 1 },
-        note: '初回版と同じ本文へ戻った例。本文を再利用しても掲載期間は別です。応募数は架空です。',
+        note: '最初の本文と同じ本文へ戻った例。本文を再利用しても掲載期間は別です。応募数は架空です。',
       },
       {
         id: 'demo-001-draft', label: 'ヒアリングからのAI案', observedAt: '2026-10-02T15:00:00+09:00',
@@ -185,7 +185,7 @@ export const jobs: JobCopyRecord[] = [
         id: 'demo-004-v1', label: '初回取得', observedAt: '2026-09-10T08:00:00+09:00',
         certainty: 'unknown', kind: 'published', source: '求人XLSX（デモ・更新日時なし）',
         body: "キャッチコピー：朝の施設を整え、気持ちよい一日の始まりを支える。\n\n仕事内容\n施設の廊下、入口、共有スペースを掃き掃除と拭き掃除で整えます。ごみを回収し、備品の破損に気づいた際は管理担当へ報告します。\n\n利用者が通る場所では作業中の表示を置き、周囲を確認します。洗剤は指定された用途と量を守って使い、終了後は道具を洗って所定の場所に戻します。\n\n仕事の進め方\n朝の集合時に担当エリアを確認します。入口から共有スペースへ順に進め、終了した場所をチェック表に記録して引き継ぎます。\n\n職場紹介\n複数のスタッフがエリアを分担する施設清掃です。利用者の動線を共有し、困った汚れや設備の不具合は責任者へ相談します。\n\n入社後の流れ\n清掃用具の使い方と安全確認を学びます。先輩と一緒に巡回し、場所ごとの手順と確認項目を覚えます。\n\n応募後の流れ\n勤務可能日と通勤方法を確認します。面談では朝の勤務時間と車通勤不可の条件を説明し、勤務開始日を相談します。" + '\n\n募集条件\n' + '職種：施設清掃\n仕事内容：共有スペースの清掃。\n給与：時給1,050円\n勤務時間：6:00〜9:00、週5日\n応募条件：車通勤不可。経験不問。',
-        applications: { confirmed: 0, estimated: 0, unknown: 4 }, note: '掲載時刻が不明な架空例。応募4件は版を特定できません。',
+        applications: { confirmed: 0, estimated: 0, unknown: 4 }, note: '掲載時刻が不明な架空例。応募4件は本文を特定できません。',
       },
       {
         id: 'demo-004-v2', label: '通勤条件変更', observedAt: '2026-09-28T08:00:00+09:00',

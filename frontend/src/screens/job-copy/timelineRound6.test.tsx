@@ -68,7 +68,7 @@ describe('「約」 note', () => {
     render(<JobTimeline job={job} marketMode="demo" />);
     const cells = within(within(screen.getByRole('region', { name: '期間比較表の数値' })).getByRole('table')).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[3]?.textContent ?? '');
     expect(cells.every(cell => cell === '実際の課金データなし（仮の課金データ（ダミー）は合計しません）')).toBe(true);
-    expect(screen.queryByText('「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。')).toBeNull();
+    expect(screen.queryByText('「約」の付いた課金額は、課金の期間と本文の表示期間がずれているため、日数で割って配分した金額です。')).toBeNull();
   });
 });
 
