@@ -303,11 +303,10 @@ async fn reply_two_independent_record_workers_use_database_claim() {
         replies::record(&e.audit, &e.client, &mut b)
     );
     assert!(a_result.is_ok() && b_result.is_ok());
+    assert_eq!(incoming_row(&e).await.status, "saved");
     let f = e.fake.lock().unwrap();
     assert_eq!(f.create_calls, 2);
     assert_eq!(f.searches.len(), searches + 1);
-    drop(f);
-    assert_eq!(incoming_row(&e).await.status, "saved");
 }
 
 #[test]
