@@ -891,12 +891,14 @@ pub(super) async fn read_versions(
             None
         });
     let (drafts, draft_history_may_be_incomplete) = crate::job_gen::drafts::history(&data);
+    // Independent conditions are current values, not historical conditions.
+    let current_fields = deals::comparison_fields(&record, row.media);
     let draft_revision = crate::job_gen::drafts::revision(&record.properties);
     let can_write_drafts = state.audit.is_some() && super::drafts::Writes::from_env().allows(&id);
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"company_name":company_name,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
+            json!({"current_fields":current_fields,"company_name":company_name,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
         ),
     ))
 }

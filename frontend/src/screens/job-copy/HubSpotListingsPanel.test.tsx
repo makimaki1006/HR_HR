@@ -42,6 +42,23 @@ describe('HubSpot listing history', () => {
     expect(record.overallApplications).toBeUndefined();
     expect(listingRecord({ ...history, versions: [{ written_at: '2026-10-01T00:00:00Z', body: '合成本文', image_urls: [] }] }).versions[0]?.images).toEqual([]);
   });
+  it.each(['hrh', 'airwork'] as const)('preserves known listing counts for %s without replacing zero or mixing jobs', media => {
+    const data = { ...history, listing: { ...row, media } };
+    expect(listingRecord(data, { ...row, application_count: 12 }).listingApplicationCount).toBe(12);
+    expect(listingRecord(data, { ...row, application_count: 0 }).listingApplicationCount).toBe(0);
+    expect(listingRecord(data, row).listingApplicationCount).toBeNull();
+    expect(listingRecord(data).listingApplicationCount).toBeNull();
+    expect(listingRecord(data, { ...row, id: '11', application_count: 12 }).listingApplicationCount).toBeNull();
+    expect(listingRecord({ ...data, listing: { ...data.listing, application_count: 0 } }, { ...row, application_count: 12 }).listingApplicationCount).toBe(0);
+    expect(listingRecord({ ...data, listing: { ...data.listing, application_count: 3 } }, { ...row, application_count: 12 }).listingApplicationCount).toBe(3);
+  });
+  it.each([12, 0])('carries %i applications from the selected list row when detail has no count', async count => {
+    api.mockImplementation((path: string) => Promise.resolve({ ok: true, data: path.includes('/versions') ? history : { ...page, listings: [{ ...row, application_count: count }] } }));
+    const onOpen = vi.fn<(job: JobCopyRecord) => void>(); render(<HubSpotListingsPanel onOpen={onOpen} />);
+    fireEvent.click(await screen.findByRole('button', { name: '合成配送求人の本文を見る' }));
+    await waitFor(() => { expect(onOpen).toHaveBeenCalledOnce(); });
+    expect(onOpen.mock.calls[0]?.[0].listingApplicationCount).toBe(count);
+  });
   it('loads on entry, filters, pages and passes the actual body to detail', async () => {
     mock(); const onOpen = vi.fn<(job: JobCopyRecord) => void>(); render(<HubSpotListingsPanel onOpen={onOpen} />);
     await screen.findByRole('button', { name: '合成配送求人の本文を見る' });
