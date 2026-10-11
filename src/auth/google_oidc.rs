@@ -411,10 +411,21 @@ impl GoogleOidc {
 
     /// ID token を検証する。kid がキャッシュに無ければ JWKS を 1 回だけ取り直す。
     pub async fn verify(&self, id_token: &str, nonce: &str) -> Result<VerifiedIdentity, OidcError> {
+        self.verify_for_client(id_token, nonce, &self.cfg.client_id)
+            .await
+    }
+
+    /// Additional Gmail consent uses its selected client's audience; all other checks stay shared.
+    pub(crate) async fn verify_for_client(
+        &self,
+        id_token: &str,
+        nonce: &str,
+        client_id: &str,
+    ) -> Result<VerifiedIdentity, OidcError> {
         let ep = self.endpoints().await?;
         let issuers = ep.accepted_issuers();
         let check = IdTokenCheck {
-            client_id: &self.cfg.client_id,
+            client_id,
             issuers: &issuers,
             nonce,
             hosted_domain: &self.cfg.hosted_domain,
