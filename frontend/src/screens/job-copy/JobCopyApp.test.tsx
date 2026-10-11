@@ -17,7 +17,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('job copy shared application shell', () => {
   it('uses one common header and active navigation while a protected snapshot fails without fictional jobs', async () => {
-    window.history.replaceState(null, '', '/app/job-copy');
+    window.history.replaceState(null, '', '/app/job-copy?data=actual');
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn((input: string) => {
       calls.push(input);

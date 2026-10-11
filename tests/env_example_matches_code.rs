@@ -59,12 +59,11 @@ fn collect_env_vars_in_src(dir: &Path, out: &mut BTreeSet<String>) {
 /// `env::var("NAME")` を素朴に抜き出す。
 ///
 /// 正規表現クレートを増やしたくないので手で走査する。
-/// `std::env::var("X")` / `env::var( "X" )` の両方を拾う。
+/// `std::env::var("X")` / `env::var_os("X")` と空白入りの呼び出しを拾う。
 fn extract_env_var_names(src: &str) -> Vec<String> {
     let mut found = Vec::new();
-    // File paths may contain non-UTF-8 bytes; their readers use var_os.
-    let bytes = src.as_bytes();
     for needle in ["env::var(", "env::var_os("] {
+        let bytes = src.as_bytes();
         let mut from = 0usize;
 
         while let Some(rel) = src[from..].find(needle) {
@@ -187,6 +186,10 @@ fn 起動に必須の二つが明記されている() {
 
 #[test]
 fn 抽出ロジックそのものが動く() {
+    assert_eq!(
+        extract_env_var_names(r#"std::env::var_os("JOB_COPY_MOC_PATH")"#),
+        vec!["JOB_COPY_MOC_PATH"]
+    );
     // このテストが「何も見つけられずに素通り」しないことの担保。
     let sample = r#"
         let a = std::env::var("FOO_BAR").unwrap_or_default();

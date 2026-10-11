@@ -120,7 +120,7 @@ describe('job copy screen wording', () => {
     render(<JobCopyScreen />);
     // demo-001 の最新版 v3 は 2026-09-25T12:30:00+09:00 に取得した版（data.ts）。
     const meta = document.querySelector('.jc-record-meta')?.textContent ?? '';
-    expect(meta).toContain('取得日時: 2026/09/25 12:30 JST');
+    expect(meta).toContain('本文を確認した日時: 2026/09/25 12:30 JST');
     expect(meta).not.toContain('JST JST');
   });
 });

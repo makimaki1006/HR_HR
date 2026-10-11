@@ -13,6 +13,6 @@ export function jobCopySections(body: string): BodySection[] {
   return sections.filter(section => section.heading || section.text.trim());
 }
 export function JobCopyBody({ body, sections }: { body: string | null; sections?: BodySection[] | undefined }) {
-  if (!body?.trim()) return <p className="jc-notice" role="status">この版の本文は未取得です。別の版を選ぶか、時間を置いて再取得してください。</p>;
+  if (!body?.trim()) return <p className="jc-notice" role="status">選んだ本文は未取得です。別の本文を選ぶか、時間を置いて再取得してください。</p>;
   return <div className="jc-job-sheet" aria-label="求人票">{(sections ?? jobCopySections(body)).map((section, index) => <section key={index} className={['仕事内容', 'キャッチコピー', '案件名', '給与詳細'].includes(section.heading) ? 'jc-sheet-wide' : ''}><h3>{section.heading === 'Indeed表示職種名' ? '職種' : section.heading}</h3><p>{section.text.trim() || '未取得'}</p></section>)}</div>;
 }

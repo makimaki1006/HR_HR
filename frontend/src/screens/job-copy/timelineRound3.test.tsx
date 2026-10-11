@@ -47,14 +47,14 @@ describe('salary direction (▲ only for a raise)', () => {
     render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" />);
     const labels = [...screen.getByRole('group', { name: '給与' }).querySelectorAll('.jt-salary-label')].map(label => label.textContent);
     expect(labels).toEqual(['月給25万〜28万円', '▲月給27万〜30万円', '▼月給25万〜28万円']);
-    expect(screen.getByRole('img', { name: '前の版より下がった' }).textContent).toBe('▼');
-    expect(screen.getByRole('img', { name: '前の版より上がった' }).textContent).toBe('▲');
+    expect(screen.getByRole('img', { name: '前回の本文より下がった' }).textContent).toBe('▼');
+    expect(screen.getByRole('img', { name: '前回の本文より上がった' }).textContent).toBe('▲');
   });
   it('says 変更 (not ▲ or ▼) when the kind of pay changes', () => {
     const job = synthetic([version('a', '2026-07-01T00:00:00Z', '給与：月給250,000円'), version('b', '2026-08-01T00:00:00Z', '給与：時給1,500円')]);
     expect(versionChanges(job).map(change => change.salaryDirection)).toEqual([null, 'other']);
     render(<JobTimeline job={job} marketMode="demo" />);
-    expect(screen.getByRole('img', { name: '前の版から変わった' }).textContent).toBe('変更');
+    expect(screen.getByRole('img', { name: '前回の本文から変わった' }).textContent).toBe('変更');
   });
   it('compares the upper bound when the lower bound is the same', () => {
     const job = synthetic([version('a', '2026-07-01T00:00:00Z', '給与：月給250,000円〜300,000円'), version('b', '2026-08-01T00:00:00Z', '給与：月給250,000円〜280,000円')]);
@@ -63,16 +63,16 @@ describe('salary direction (▲ only for a raise)', () => {
 });
 
 describe('selection, retry focus and announcements', () => {
-  it('scrolls the 選んだ版 panel into view after a mark is chosen, and the panel sits right under the lanes', () => {
+  it('scrolls the 選んだ本文 panel into view after a mark is chosen, and the panel sits right under the lanes', () => {
     const scroll = vi.fn();
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, writable: true, value: scroll });
     render(<JobTimeline job={demo('demo-job-001')} marketMode="demo" onOpenVersion={() => undefined} onCompareVersions={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: /給与・勤務条件変更の本文/ }));
-    const panel = screen.getByRole('region', { name: '選んだ版' });
+    const panel = screen.getByRole('region', { name: '選んだ本文' });
     expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
     expect(scroll.mock.contexts.at(-1)).toBe(panel);
     expect(panel.previousElementSibling?.classList.contains('jt-lanes')).toBe(true);
-    expect(within(panel).getByRole('button', { name: '前の版との差分を開く' })).toBeTruthy();
+    expect(within(panel).getByRole('button', { name: '前回の本文との違いを見る' })).toBeTruthy();
   });
 
   it('keeps the retry button while retrying, then moves focus to 職種 and announces the result', async () => {
@@ -194,7 +194,7 @@ describe('plain wording for versions, the header and the diff panel', () => {
   it('shows plain header wording and one image notice in the diff panel', () => {
     render(<JobCopyScreen />);
     const meta = document.querySelector('.jc-record-meta');
-    expect(meta?.textContent).toContain('表示中の文面: 初回文面への復帰');
+    expect(meta?.textContent).toContain('表示中の本文: 初回文面への復帰');
     expect(meta?.textContent).toContain('HubSpotの求人と未連携');
     expect(meta?.textContent).not.toMatch(/接続待ち|実求人ID|取得した版/u);
     fireEvent.click(screen.getByRole('tab', { name: '比較・報告' }));
