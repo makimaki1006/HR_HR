@@ -26,6 +26,7 @@ mod drafts;
 mod hrh_copy;
 mod listing_status;
 mod listings;
+mod manual_edit;
 
 #[derive(Debug)]
 pub struct ReadError(pub(super) StatusCode, pub(super) &'static str);

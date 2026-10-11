@@ -26,7 +26,7 @@ export function ParallelJobs({ jobs }: { jobs: ComparedJob[] }) {
 export function DealComparison({ deal, onOpen, onClose }: { deal: DealSelection; onOpen: (job: JobCopyRecord) => void; onClose: () => void }) {
   const [page, setPage] = useState<HubSpotListingPage | null>(null);
   const [media, setMedia] = useState(deal.media);
-  const [publication, setPublication] = useState('');
+  const [publication, setPublication] = useState(deal.publication ?? '');
   const [sort, setSort] = useState('title');
   const [descending, setDescending] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -41,6 +41,7 @@ export function DealComparison({ deal, onOpen, onClose }: { deal: DealSelection;
     const query = new URLSearchParams({ deal: deal.id, offset: String(offset), sort, descending: String(descending) });
     if (deal.prefecture) query.set('prefecture', deal.prefecture);
     if (deal.title) query.set('title', deal.title);
+    if (deal.draftStatus) query.set('draft_status', deal.draftStatus);
     if (media) query.set('media', media);
     if (publication) query.set('publication', publication);
     void apiGet<HubSpotListingPage>(`/api/job-copy/listings?${query.toString()}`, { signal: controller.signal, timeoutMs: 120_000 }).then(result => { if (controller.signal.aborted) return; if (result.ok) { setPage(result.data); setError(''); } else setError(failure(result.error)); });
@@ -61,8 +62,8 @@ export function DealComparison({ deal, onOpen, onClose }: { deal: DealSelection;
     if (result.ok) setComparison(result.data.jobs.map(job => ({ id: job.listing.id, title: job.listing.title ?? '求人名未取得', media: mediaLabel(job.listing.media), body: job.body }))); else setError(failure(result.error));
     setBusy(false);
   };
-  return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><header><div><h1>この取引の求人</h1><p>{deal.name}</p></div><button className="jc-button" onClick={onClose}>詳細に戻る</button></header><p>取引に関連する求人を50件ずつ表示します。都道府県・職種は左の絞り込み条件を引き継ぎます。</p>
-    <div className="jc-deal-controls"><label>表の媒体<select value={media} onChange={event => { setMedia(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label><label>表の公開状況<select value={publication} onChange={event => { setPublication(event.target.value); setOffset(0); }}><option value="">すべて</option>{['公開', '公開中', '掲載中', '非公開', '公開終了', '公開開始前', '掲載終了', '募集中', '募集終了', '不明'].map(value => <option key={value}>{value}</option>)}</select></label><button className="jc-button" onClick={() => { setReload(value => value + 1); }}>表を再取得</button></div>
+  return <main className="jc-detail jc-deal-comparison" id="job-details" tabIndex={-1}><header><div><h1>この取引の求人</h1><p>{deal.name}</p></div><button className="jc-button" onClick={onClose}>詳細に戻る</button></header><p>取引に関連する求人を50件ずつ表示します。都道府県・職種・案の状態は左の絞り込み条件を引き継ぎます。</p>
+    <div className="jc-deal-controls"><label>表の媒体<select value={media} onChange={event => { setMedia(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="hrh">HRハッカー</option><option value="airwork">AirWork</option></select></label><label>表の公開状況<select value={publication} onChange={event => { setPublication(event.target.value); setOffset(0); }}><option value="">すべて</option><option value="unknown">未取得</option>{['公開', '公開中', '掲載中', '非公開', '公開終了', '公開開始前', '掲載終了', '募集中', '募集終了', '不明'].map(value => <option key={value}>{value}</option>)}</select></label><button className="jc-button" onClick={() => { setReload(value => value + 1); }}>表を再取得</button></div>
     {error && <p role="alert">{error}</p>}{!page && <p role="status">この取引の求人を取得しています…</p>}{busy && <p role="status">選んだ求人を取得しています…</p>}
     {page && <><p>{page.total == null ? '準備中' : `${String(page.total)}件`} · {formatDateTimeJst(page.index_built_at, '日時不明')}時点の関連・条件・応募数。本文の最終変更日は掲載開始日とは異なります。</p>{page.refresh_failed && <p>一覧の更新を取得できませんでした。表示時点の値を利用しています。</p>}
     <div className="jc-deal-table-scroll"><table className="jc-deal-table" aria-label="取引の求人一覧表"><thead><tr><th>比較に選ぶ</th>{columns.map(([key, label]) => <th key={key} aria-sort={sort === key ? descending ? 'descending' : 'ascending' : 'none'}><button onClick={() => { setSort(key); setDescending(sort === key ? !descending : false); setOffset(0); }}>{label}{sort === key ? descending ? ' ▼' : ' ▲' : ''}</button></th>)}</tr></thead><tbody>{page.listings.map(row => <tr key={row.id} onClick={() => { if (!busy) void open(row); }}><td onClick={event => { event.stopPropagation(); }}><input type="checkbox" aria-label={`${row.title ?? '求人'}を比較に選ぶ`} checked={selected.some(item => item.id === row.id)} disabled={!selected.some(item => item.id === row.id) && selected.length >= 5} onChange={event => { setComparison(null); setSelected(items => event.target.checked ? [...items, row] : items.filter(item => item.id !== row.id)); }} /></td>{columns.map(([key]) => <td key={key}>{key === 'title' ? <button className="jc-deal-open" disabled={busy} onClick={event => { event.stopPropagation(); void open(row); }}>{cell(row, key)}</button> : cell(row, key)}</td>)}</tr>)}</tbody></table></div>
