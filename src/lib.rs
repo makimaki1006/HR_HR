@@ -1560,6 +1560,11 @@ pub(crate) async fn complete_login(
     let _ = session
         .remove::<String>(auth::login_cookie::EXTERNAL_EXPIRY_KEY)
         .await;
+    let _ = session
+        .remove::<bool>(auth::login_cookie::COOKIE_ISSUED_KEY)
+        .await;
+    let _ = session.remove::<String>(SESSION_LOGIN_SESSION_ID_KEY).await;
+    let _ = session.remove::<String>(SESSION_ACCOUNT_ID_KEY).await;
     let _ = session.cycle_id().await;
     let _ = session.insert(SESSION_USER_KEY, email).await;
     let _ = session
@@ -1635,7 +1640,13 @@ pub(crate) async fn complete_login(
     }
 }
 
-async fn logout(State(state): State<Arc<AppState>>, session: Session) -> Redirect {
+async fn logout(State(state): State<Arc<AppState>>, session: Session) -> axum::response::Response {
+    // 暗号化 Cookie がある場合は、失効の保存までログアウトを完了させない。
+    let durable_login = session
+        .get::<bool>(auth::login_cookie::COOKIE_ISSUED_KEY)
+        .await
+        .unwrap_or(None)
+        == Some(true);
     // 監査: ログイン履歴の ended_at を埋める + 'logout' イベント記録
     if let Some(audit) = &state.audit {
         let account_id: Option<String> = session.get(SESSION_ACCOUNT_ID_KEY).await.unwrap_or(None);
@@ -1648,20 +1659,24 @@ async fn logout(State(state): State<Arc<AppState>>, session: Session) -> Redirec
             let audit_clone = audit.clone();
             let sid_owned = sid.clone();
             let aid_owned = account_id.clone();
-            if let Err(e) = tokio::task::spawn_blocking(move || {
-                let _ = audit::dao::mark_session_ended(&audit_clone, &sid_owned);
+            let ended = tokio::task::spawn_blocking(move || {
+                audit::dao::mark_session_ended(&audit_clone, &sid_owned)?;
                 if let Some(ref aid) = aid_owned {
                     audit::insert_activity(&audit_clone, aid, &sid_owned, "logout", "", "", "");
                 }
+                Ok::<(), String>(())
             })
-            .await
-            {
-                tracing::warn!("logout audit spawn_blocking join failed: {e}");
+            .await;
+            if !matches!(ended, Ok(Ok(()))) {
+                tracing::warn!("ログアウト履歴の保存に失敗しました");
+                if durable_login {
+                    return auth::login_cookie::unavailable();
+                }
             }
         }
     }
     session.flush().await.ok();
-    Redirect::to("/login")
+    Redirect::to("/login").into_response()
 }
 
 // --- ダッシュボード ---

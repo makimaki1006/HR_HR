@@ -6,7 +6,8 @@
 //! - `activity_logs`: 重要操作の履歴 (1年保持)
 //!
 //! 既存の認証フロー (`src/auth/`) は維持し、本モジュールは成功時 upsert +
-//! セッション記録 + 操作記録の責務だけを持つ。
+//! セッション記録 + 操作記録を持つ。ADR-020: 認証 Cookie の復元では、
+//! 既存 login_sessions の成功状態・本人・方式・未終了も確認する。
 
 pub mod dao;
 /// W8: SQLite で裏打ちした偽 Turso (DAO の SQL をそのまま流す contract テスト用)
