@@ -292,3 +292,23 @@ Status: Accepted for this implementation (2026-10-11、ユーザーが指定し�
 - 現行を維持する利点と変更の制約: 要求ごとの確認なら、他インスタンスに残る既存メモリにも即時失効が効く。今回の方式では別インスタンスで既に確認済みのメモリへ失効を即時通知せず、メモリ消失・期限切れで次の復元が必要になるまで継続できる。ユーザーが指定した可用性と費用の改善のため、この境界を採用する。既存の無効化判定や画面固有の DB 照会は別に残るため、監査 DB の呼び出し総数が0になるとは限らない。
 - 障害時の扱い: 復元が必要な場合の照会失敗は503で Cookie を残す。メモリが一致する場合は追加の履歴照会がないので、その障害による503は返さない。アカウント無効化確認の照会失敗時の既存方針は変えない。
 - 移行・戻すコスト: Cookie 形式・鍵・環境変数・スキーマの変更なし。戻す場合は要求ごとの履歴確認を復活させる。プロセス内の失効情報は再起動で消えるが、その後はメモリも消えるので DB の復元時確認で終了済みを拒否する。
+
+---
+
+## ADR-022 — HR_HR はメールの記録を HubSpot に作る
+
+Status: Accepted (2026-10-11 ユーザー決定。依頼の ADR-019 は既存の求人再送 ADR と重なるため、022 を使用（main の ADR-021 も使用済み）)
+
+- 現行の決定: HubSpot が業務履歴の正本 (ADR-005)。Call の作成は Zoom 純正連携に任せる (ADR-007)。
+- 具体的な問題: HR_HR の画面から本人の 1 対 1 営業メールを送る必要がある。HubSpot の公開 emails API は記録用で、1 対 1 送信の公開 API はない。マーケティング向け single-send は今回の用途ではない。
+- 採用する変更: 操作者本人の Gmail API で送信し、HR_HR が HubSpot の emails に SENT の記録を作り、取引と宛先・CC の関連コンタクトに結び付ける。Call は引き続き作らない。`hubspot_owner_id` は取引所有者ではなく操作者本人を使用する。
+- 追加許可: 既存 Google Workspace OIDC の client に incremental authorization と offline consent を追加する。gmail.send / gmail.readonly を同時に要求する (readonly は送信結果確認と今後の返信取り込み用)。state・PKCE・ID token の nonce / aud / 署名 / ドメイン / 本人一致を確認する。
+- 保存先: 既存 audit Turso の `crm_gmail_grants` に refresh token を AES-256-GCM (32 バイトの専用環境変数鍵、操作者 email を AAD) で暗号化して保存する。新しい DB は作らない。取り消し時はローカルの token を消し、Google へも取り消しを要求する。Google の取り消しが失敗した場合は利用者へ Google アカウントでも取り消すよう案内する。
+- 冪等・再試行: 送信前に既存 `crm_pending_operations` にメール操作を永続化する。Gmail の送信結果と HubSpot の記録結果を分ける。worker はメールを送らず、記録のみ再試行する。送信途中の中断は Gmail の RFC Message-ID を検索して確認する。HubSpot は CREATE 前に `hs_email_message_id` で検索し、見つかれば作成しない。CREATE の結果が不明な場合は検索の反映を待ち、見つからなくても二度目の CREATE は行わない。上限後は管理者確認が必要になる。
+- 保持: メールの操作番号は七日を過ぎても再送を許さない。メール操作を既存 PATCH の七日掃除から除外し、記録済み・Gmail に拒否された操作は本文・件名・宛先を除いた小さな重複防止の受領記録にする。未反映の業務情報は記録が終わるまでのみ保持する。HubSpot の業務履歴を複製する表ではない。
+- 変更の利点: 本人の Gmail から送れる。HubSpot に履歴と操作者が残り、失敗時にメールを重ねて送らない。既存の監査ストアと再試行 worker を利用できる。
+- 現行を保つ利点: Gmail の許可・鍵管理・記録の再試行が増えない。ただし HR_HR からの送信はできず、Gmail と HubSpot の手作業になる。
+- 移行・戻すコスト: 表 1 つと既存台帳 payload の任意フィールド。`CRM_EMAIL_ENABLED` を未設定にすれば停止できる。既存ログインと CRM PATCH は維持する。戻す場合は Gmail の許可を取り消し、既に送信済みのメールと HubSpot の記録を残す。
+- 制約: `CRM_EMAIL_ENABLED=1`、専用鍵、追加 callback URL、既存 Google 設定、監査接続がそろった場合だけ有効。トークン・本文をログへ出さない。現行の単一 Render インスタンスで操作ごとのロックを共有する。複数インスタンスで動かすには台帳の条件付き claim が別途必要。
+
+参照: [Google OAuth (offline / incremental)](https://developers.google.com/identity/protocols/oauth2/web-server)、[Gmail send](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send)、[HubSpot email activity](https://developers.hubspot.com/docs/api-reference/legacy/crm/activities/emails/guide)。

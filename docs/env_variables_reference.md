@@ -245,3 +245,16 @@ Cookie は保持して回復後に再試行できる。認証 Cookie を使っ�
 
 初回導入と参照を持たない旧形式 Cookie からの更新では、一度再ログインが必要。その後は同じ鍵・同じ既存監査 DB の
 再デプロイで復元できる。失効方式は [ADR-020](architecture/architecture-decisions.md#adr-020--認証-cookie-の失効を既存ログイン履歴で確認する)、復元時だけの確認に変更する理由・制約・戻すコストは ADR-021 を参照。
+
+
+### CRM メール送信 (既定 OFF、ADR-022)
+
+| 変数 | 内容 |
+|---|---|
+| `CRM_EMAIL_ENABLED` | `1` のときのみ有効。未設定なら実データの画面にメール送信を出さない |
+| `CRM_EMAIL_TOKEN_KEY` | Base64 形式のランダムな 32 バイト AES-256-GCM 鍵。既存の Cookie / Scout の鍵を流用しない。欠落・不正なら無効。設定後の変更は保存済み token を復号できなくなるため、先に許可を取り消して再許可する |
+| `CRM_EMAIL_REDIRECT_URL` | Google Cloud の承認済み URI と一致する追加許可 callback。例 `https://hr-hw.onrender.com/api/crm/gmail/callback`。HTTPS 必須 (ローカルの localhost / 127.0.0.1 は HTTP 可) |
+
+既存 `GOOGLE_OIDC_CLIENT_ID` / `GOOGLE_OIDC_CLIENT_SECRET` / `GOOGLE_OIDC_REDIRECT_URL` / `GOOGLE_OIDC_HOSTED_DOMAIN` と `AUDIT_TURSO_URL` / `AUDIT_TURSO_TOKEN` も必要。既存 OIDC callback は維持し、Gmail 用 URI を追加する。Gmail API を有効化し、同意画面は会社の Internal とする。要求する追加スコープは gmail.send と gmail.readonly。HubSpot に emails の読み取り・検索・作成・関連付けができる既存アプリの権限も必要 (本 PR では本番の権限は変更しない)。
+
+許可の開始・callback の間だけ `hrhr_gmail_tx` (HttpOnly / SameSite=Lax / 五分 / 本番 Secure) を使う。既存ログインの Cookie を変更しない。監査 DB に記録できなければメールを送らない。ローカル試験は偽 Gmail・偽 HubSpot・SQLite に裏打ちした偽 Turso だけを使う。
