@@ -99,7 +99,7 @@ pub fn sentence_overlap(
     (ratio, whole, matches)
 }
 pub fn min_sentence_chars(raw: Option<&str>) -> anyhow::Result<usize> {
-    Ok(raw.unwrap_or("0").parse()?)
+    Ok(raw.unwrap_or("8").parse()?)
 }
 fn joined(row: &Row, columns: &[&str]) -> Option<String> {
     let values: Vec<_> = columns
@@ -754,11 +754,37 @@ mod tests {
             vec!["時給1200円", "2kg", "3ms"]
         );
         assert_eq!(threshold(None).unwrap(), 0.2);
-        assert_eq!(min_sentence_chars(None).unwrap(), 0);
+        assert_eq!(min_sentence_chars(None).unwrap(), 8);
+        assert_eq!(min_sentence_chars(Some("0")).unwrap(), 0);
         assert!(min_sentence_chars(Some("-1")).is_err());
         for value in ["NaN", "0", "-1", "1.01"] {
             assert!(threshold(Some(value)).is_err());
         }
+    }
+    #[test]
+    fn default_sentence_rules_exclude_short_sentences_and_reject_exact_threshold() {
+        let min_chars = min_sentence_chars(None).unwrap();
+        let limit = threshold(None).unwrap();
+        let generated = "未経験歓迎。配送の手順を学べます。荷物の確認を行います。安全の手順を学べます。作業の順番を学べます。道具の使い方を学べます。倉庫の整理を行います。梱包の手順を学べます。商品の確認を行います。周囲の仲間と協力します。担当の仕事に取り組みます。";
+        let mut s = source();
+        s.comparisons[0].body = "未経験歓迎。配送の手順を学べます。荷物の確認を行います。".into();
+        let generated_raw = json!({"job_description": generated});
+        let draft = finish(&s, &generated_raw, limit, min_chars).unwrap();
+        let comparison = &draft.comparisons[1];
+        assert_eq!(comparison.ratio, Some(0.2));
+        assert_eq!(
+            comparison.matched_sentences,
+            vec!["配送の手順を学べます", "荷物の確認を行います"]
+        );
+        assert!(comparison.too_similar);
+        assert_eq!(
+            sentences("七文字の文章だ。八文字の文章です。", min_chars),
+            vec!["八文字の文章です"]
+        );
+        s.comparisons[0].body = "未経験歓迎。配送の手順を学べます。".into();
+        let draft = finish(&s, &generated_raw, limit, min_chars).unwrap();
+        assert_eq!(draft.comparisons[1].ratio, Some(0.1));
+        assert!(!draft.comparisons[1].too_similar);
     }
     #[test]
     fn missing_original_conditions_and_unread_comparisons_remain_unknown() {
