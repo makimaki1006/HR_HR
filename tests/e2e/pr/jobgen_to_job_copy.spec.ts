@@ -8,8 +8,8 @@ const directory = path.resolve('docs/screenshots/jobgen-to-job-copy');
 const source = '架空配送スタッフ\n給与は月給270,000円〜300,000円です。\n勤務地は大分県大分市です。\n土日休みです。\n雇用保険 労災保険 健康保険 厚生年金に加入します。\n夜勤手当3,500円/回があります。';
 const facts = { salary:{value:'月給270,000円〜300,000円',evidence_quote:'給与は月給270,000円〜300,000円です。',status:'verified'},work_location:{value:'大分県大分市',evidence_quote:'勤務地は大分県大分市です。',status:'verified'},holidays:{value:'土日休み',evidence_quote:'土日休みです。',status:'verified'},insurance:{value:'雇用保険 労災保険 健康保険 厚生年金',evidence_quote:'雇用保険 労災保険 健康保険 厚生年金に加入します。',status:'verified'},allowances:{value:'夜勤手当3,500円/回',evidence_quote:'夜勤手当3,500円/回があります。',status:'verified'} };
 const row = {...Object.fromEntries(columns.map(column => [column,''])), '案件名':'架空配送スタッフ','仕事内容':'日用品を配送します。','給与形態':'月給','基本給与 最小':'270000','基本給与 最大':'300000','自由項目2のタイトル':'福利厚生・待遇','自由項目2の内容':'雇用保険 労災保険 健康保険 厚生年金\n夜勤手当3,500円/回','求人id':'hidden-job-123','店舗id':'hidden-shop-456','職種id':'hidden-role-42'};
-function draft(id = '10000000-0000-4000-8000-000000000001', date = '2026-10-11T00:00:00Z', status = 'pending') { return {schema_version:1,draft_id:id,created_at:date,source_kind:'free_text',review_status:status,row,facts}; }
-async function mock(page: Page, options: { allowed?: boolean; queued?: boolean; benefits?: string } = {}) {
+function draft(id = '10000000-0000-4000-8000-000000000001', date = '2026-10-11T00:00:00Z', status = 'pending') { return {schema_version:1,draft_id:id,created_at:date,source_kind:'free_text',review_status:status,row,facts,source_text:source}; }
+async function mock(page: Page, options: { allowed?: boolean; queued?: boolean; benefits?: string; currentBenefits?: string } = {}) {
   const writes: { method: string; body: any }[] = [];
   let latest: ReturnType<typeof draft> | null = options.benefits ? {
     ...draft(), row: { ...row, '自由項目2の内容': `${facts.insurance.value}\n${options.benefits}` },
@@ -19,14 +19,15 @@ async function mock(page: Page, options: { allowed?: boolean; queued?: boolean; 
   let revision = 'a'.repeat(64);
   let operation = '';
   const listing = {id:'30',media:'hrh',media_job_id:'hidden-hrh-999',account_id:null,title:'架空配送スタッフ',prefecture:'大分県',municipality:'別府市',category:'配送ドライバー',publication_status:'掲載中',last_csv_detected_at:null,application_count:null};
-  const published = '案件名：架空配送スタッフ\n仕事内容：日用品を配送します。\n給与形態：月給\n基本給与 最小：250000\n基本給与 最大：280000\n自由項目1のタイトル：休日・休暇\n自由項目2のタイトル：福利厚生・待遇\n自由項目1の内容：土日休み\n自由項目2の内容：雇用保険 労災保険 健康保険 厚生年金\n夜勤手当3,500円/回';
+  const currentRow: Record<string, string> = { ...row, '基本給与 最小': '250000', '基本給与 最大': '280000', '自由項目1のタイトル': '休日・休暇', '自由項目1の内容': '土日休み' };
+  const published = columns.map(column => `${column}：${currentRow[column] ?? ''}`).join('\n');
   await page.route('**/api/jobgen/*', route => {
     const step = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
     const values: Record<string, unknown> = {...fixtures.responses,normalize:{status:'ok',jobs:[{title_hint:'配送ドライバー',source_text:source}]},extract:{...fixtures.responses.extract,facts},hrhacker:{...fixtures.responses.hrhacker,row}};
     return route.fulfill({json:values[step]});
   });
   await page.route('**/api/job-copy/listings*', route => route.fulfill({json:{status:'ready',listings:[listing],titles:['配送ドライバー'],offset:0,next_offset:null,refreshing:false,refresh_failed:false,total:1,index_built_at:'2026-10-11T00:00:00Z'}}));
-  await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({json:{listing,versions:[{written_at:'2026-10-01T00:00:00Z',body:published.replace('夜勤手当3,500円/回', options.benefits ?? '夜勤手当3,500円/回'),image_urls:null}],history_counts:{hrh_kyuujinhyou_honbun:1},history_may_be_incomplete:false,drafts:latest ? [past,latest] : [past],draft_revision:revision,can_write_drafts:options.allowed !== false}}));
+  await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({json:{listing,versions:[{written_at:'2026-10-01T00:00:00Z',body:published.replace('夜勤手当3,500円/回', options.currentBenefits ?? options.benefits ?? '夜勤手当3,500円/回'),image_urls:null}],history_counts:{hrh_kyuujinhyou_honbun:1},history_may_be_incomplete:false,drafts:latest ? [past,latest] : [past],draft_revision:revision,can_write_drafts:options.allowed !== false}}));
   await page.route('**/api/job-copy/listings/30/draft', route => {
     const body = route.request().postDataJSON(); const method = route.request().method(); writes.push({method,body});
     if (options.allowed === false) return route.fulfill({status:403,json:{code:'draft_writes_disabled'}});
@@ -51,15 +52,19 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
     if (width === 1440) { fs.mkdirSync(directory,{recursive:true}); await page.getByRole('heading',{name:'作った案を求人に保存'}).scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'01-save-1440.png')}); }
     await page.getByRole('link',{name:'求人文面管理で今の版と案を比べる'}).click(); await expect(page.locator('.jc-comparison')).toBeVisible();
     await expect(page.getByLabel('比較元', {exact:true})).toHaveValue('hubspot-history-30-0'); await expect(page.getByLabel('比較先',{exact:true})).toHaveValue(`hubspot-draft-${writes[0].body.operation_id}`);
-    await expect(page.locator('.jc-draft-facts')).toContainText('月給 250,000円〜280,000円'); await expect(page.locator('.jc-draft-facts')).toContainText('月給270,000円〜300,000円'); await expect(page.locator('.jc-draft-facts')).toContainText('大分県別府市'); await expect(page.locator('.jc-draft-facts')).toContainText('大分県大分市'); await expect(page.locator('.jc-draft-facts table')).not.toContainText('休日'); await expect(page.locator('.jc-draft-facts table')).not.toContainText('手当'); await expect(page.locator('.jc-draft-facts table')).not.toContainText('保険');
+    await expect(page.locator('.jc-column-comparison')).toContainText('270000');
+    await expect(page.locator('.jc-column-comparison')).toContainText('250000');
+    await expect(page.getByText('元データの事実と今の版の確認')).toHaveCount(0);
+    await page.getByText('元データを見る', {exact:true}).click();
+    await expect(page.locator('.jc-draft-source pre')).toHaveText(source);
     await expect(page.locator('.jc-mark-added').first()).toBeVisible(); await expect(page.locator('.jc-mark-removed').first()).toBeVisible();
     if (width === 1440) { await page.locator('#job-copy-text-diff').scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'03-text-diff-1440.png')}); }
     if (width === 1440) { await page.locator('.jc-diff-lines').scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'04-combined-benefits-1440.png')}); }
-     const diffText = await page.locator('.jc-diff-lines').innerText(); expect(diffText).toContain('270,000円'); expect(diffText).not.toMatch(/hidden-|基本給与|給与形態|求人id|店舗id/);
+     const diffText = await page.locator('.jc-diff-lines').innerText(); expect(diffText).toContain('270000'); expect(diffText).not.toMatch(/hidden-|基本給与|給与形態|求人id|店舗id/);
     if (width === 1440) { await page.locator('.jc-draft-review').scrollIntoViewIfNeeded(); await page.screenshot({path:path.join(directory,'02-compare-1440.png')}); }
     await page.getByLabel('比較先',{exact:true}).selectOption('hubspot-draft-20000000-0000-4000-8000-000000000002'); await expect(page.locator('.jc-draft-review')).toContainText('過去の案です'); await expect(page.getByRole('button',{name:'確認状態を保存'})).toHaveCount(0);
     await page.getByLabel('比較先',{exact:true}).selectOption(`hubspot-draft-${writes[0].body.operation_id}`); await page.getByRole('combobox',{name:'案の確認状態',exact:true}).selectOption('adopted'); await page.getByRole('button',{name:'確認状態を保存'}).click(); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案'); expect(writes).toHaveLength(2); expect(writes[1].method).toBe('PATCH'); expect(writes[1].body).toMatchObject({draft_id:writes[0].body.operation_id,status:'adopted',base_revision:'b'.repeat(64)});
-    await expect(page.locator('.jc-diff-lines')).toContainText('250,000円'); await page.reload(); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案');
+    await expect(page.locator('.jc-diff-lines')).toContainText('250000'); await page.reload(); await expect(page.locator('.jc-draft-review h3')).toHaveText('採用の案');
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth); expect(overflow).toBe(false);
   });
   test('家賃補助・祝い金・インセンティブ・残業代の一致を保険と分けて確認', async ({page}) => {
@@ -67,14 +72,37 @@ for (const width of [1440,1920]) test.describe(`求人票作成から案の比�
     const { writes } = await mock(page, { benefits });
     await login(page); await page.goto('/app/job-copy?listing=30');
     await expect(page.locator('.jc-comparison')).toBeVisible();
-    await expect(page.locator('.jc-draft-facts table')).not.toContainText('手当');
-    await expect(page.locator('.jc-draft-facts table')).not.toContainText('保険');
-    for (const value of benefits.split('\n')) await expect(page.locator('.jc-diff-lines')).toContainText(value);
+    await expect(page.locator('.jc-column-comparison')).not.toContainText('家賃補助');
+    await expect(page.getByText('元データの事実と今の版の確認')).toHaveCount(0);
     expect(writes).toHaveLength(0);
     if (width === 1440) {
       fs.mkdirSync(directory, { recursive: true });
       await page.locator('.jc-diff-lines').scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(directory, '05-benefit-variants-1440.png') });
+    }
+  });
+  test('次の行の条件追加を全文と項目で検知し、確認操作と説明文の配置を確認', async ({page}) => {
+    const benefits = '夜勤手当3,500円/回\n（月4回まで）';
+    const { writes } = await mock(page, { benefits, currentBenefits: '夜勤手当3,500円/回' });
+    await login(page); await page.goto('/app/job-copy?listing=30');
+    await expect(page.locator('.jc-diff-summary')).toContainText('変更あり');
+    const table = page.locator('.jc-column-comparison');
+    await expect(table).toContainText('（月4回まで）');
+    await expect(table).not.toContainText('配送スタッフ');
+    await expect(table.locator('ins')).toContainText(['（月4回まで）']);
+    const select = await page.getByRole('combobox', { name: '案の確認状態', exact: true }).boundingBox();
+    const button = await page.getByRole('button', { name: '確認状態を保存' }).boundingBox();
+    expect(select).not.toBeNull(); expect(button).not.toBeNull();
+    expect(Math.abs((select?.y ?? 0) + (select?.height ?? 0) - (button?.y ?? 0) - (button?.height ?? 0))).toBeLessThan(2);
+    const purpose = await page.locator('.jc-feature-purpose').boundingBox();
+    const tabs = await page.getByRole('tablist', { name: '比較・報告の表示' }).boundingBox();
+    expect(purpose?.y).toBeGreaterThanOrEqual((tabs?.y ?? 0) + (tabs?.height ?? 0));
+    expect(writes).toHaveLength(0);
+    if (width === 1440) {
+      await page.locator('.jc-draft-review').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(directory, '06-two-stage-layout-1440.png') });
+      await table.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(directory, '07-column-changes-1440.png') });
     }
   });
   test('権限・設定がない求人には保存できない', async ({page}) => { const {writes} = await mock(page,{allowed:false}); await login(page); await generate(page); await page.getByRole('button',{name:'架空配送スタッフの版を見る'}).click(); await expect(page.getByRole('button',{name:'この求人に案を保存'})).toBeDisabled(); await expect(page.getByText('案を保存する権限または利用設定がありません。')).toBeVisible(); expect(writes).toHaveLength(0); });

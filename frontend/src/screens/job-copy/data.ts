@@ -19,6 +19,7 @@ export interface CopyVersion {
   kind: 'published' | 'received' | 'ai_draft';
   source: string;
   body: string;
+  comparisonBody?: string;
   bodySections?: { heading: string; text: string }[];
   applications: { confirmed: number; estimated: number; unknown: number } | null;
   images?: CopyImage[];
