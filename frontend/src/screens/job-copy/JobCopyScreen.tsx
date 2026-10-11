@@ -32,6 +32,7 @@ import type { BillingPeriod } from './billingTypes';
 import { AbComparison } from './AbComparison';
 import { ConsultantReview } from './ConsultantReview';
 import { HubSpotReadPanel } from './HubSpotReadPanel';
+import { RikuroziDraftPanel } from './RikuroziDraftPanel';
 import { HubSpotListingsPanel } from './HubSpotListingsPanel';
 import { HUBSPOT_BODY_SOURCE } from './liveApplications';
 import { JobTimeline } from './JobTimeline';
@@ -168,6 +169,7 @@ function CopyDetail({ job, records, onAdd, onDraftSaved, reviewed, onReview, bil
 
   return <article className="jc-detail" id="job-details" tabIndex={-1}>
     <header className="jc-detail-heading"><div><h1>{job.title}</h1><p>{joinPresent([job.company, job.location, job.media])}</p></div><span className="jc-badge">本文：{statusLabels[changeStatus(job)]}</span></header>
+    {job.id.startsWith('hubspot-history-') && job.media === 'HRハッカー' && job.hubspotId && <RikuroziDraftPanel listingId={job.hubspotId} />}
     {job.historyMayBeIncomplete && <p className="jc-notice" role="status">履歴は項目ごとに20件までの可能性があり、過去の文面がすべて含まれているとは限りません。</p>}
     <div className="jc-record-meta"><span>{current?.source === HUBSPOT_BODY_SOURCE ? '表示中の本文（HubSpotの現在値）' : '表示中の本文'}: {current?.label ?? '本文未取得'}</span><InfoTip className="jc-infotip-left" label={`${job.id.startsWith('hubspot-history-') && current?.source !== 'HubSpotの現在の本文' ? 'HubSpot記録日時' : '本文を確認した日時'}: ${current ? date(current.observedAt) : '—'}`}><p>{current?.source === 'HubSpotの現在の本文' ? '今回本文を確認した日時です。本文が記録された日時と掲載開始日時は不明です。' : job.id.startsWith('hubspot-history-') ? '本文がHubSpotに記録された日時です。掲載開始日時は不明です。' : 'ファイルの本文を確認した日時です。掲載開始日時は不明です。'}</p></InfoTip>{job.hubspotId ? null : <InfoTip className="jc-infotip-left" label="HubSpotの求人と未連携"><p>この求人は、HubSpot の求人レコードとまだつながっていません。つながると、応募の件数と HubSpot へのリンクが表示されます。</p></InfoTip>}</div>
     {message && <p className="jc-message" role="status">{message}</p>}
