@@ -606,6 +606,10 @@ async fn env(granted: bool) -> Env {
         .unwrap(),
     );
     let (audit, conn) = start_sqlite_audit().await;
+    let db = audit.turso().clone();
+    tokio::task::spawn_blocking(move || tracking::ensure_tables(&db).unwrap())
+        .await
+        .unwrap();
     if granted {
         let enc = grants::encrypt(&[7; 32], "taro@example.com", "refresh-test-123").unwrap();
         pending::blocking(&audit, move |t| {
@@ -650,6 +654,10 @@ async fn env(granted: bool) -> Env {
             crate::crm::workspace_cache::WorkspaceCache::default(),
             write.clone(),
         ))
+        .merge(tracking::router(Arc::new(tracking::TrackingContext::new(
+            Some(Arc::new(tracking::AuditTrackingStore::new(audit.clone()))),
+            crate::crm::rbac::CrmAccess::from_list(""),
+        ))))
         .route("/test/login", post(inject))
         .with_state(state)
         .layer(SessionManagerLayer::new(MemoryStore::default()));
@@ -736,7 +744,8 @@ async fn normal_send_records_headers_ids_owner_and_all_associations() {
     assert_eq!(p["hubspot_owner_id"], "900");
     assert_eq!(p["hs_email_thread_id"], "thread-201");
     assert_eq!(p["hs_email_subject"], "採用のご相談");
-    assert_eq!(p["hs_email_html"], "<p>山田様<br>採用人数は3名です。</p>");
+    assert_eq!(p["hs_email_html"], request().html);
+    assert_eq!(delivered_html(&f).matches("/t/o/").count(), 1);
     let headers: Value = serde_json::from_str(p["hs_email_headers"].as_str().unwrap()).unwrap();
     assert_eq!(headers["from"]["email"], "taro@example.com");
     assert_eq!(headers["to"][0]["email"], "contact@example.invalid");
@@ -773,21 +782,34 @@ async fn gmail_rejection_is_red_no_send_and_no_hubspot_creation() {
 async fn hubspot_failure_is_yellow_retry_creates_exactly_one_without_resending() {
     let e = env(true).await;
     e.fake.lock().unwrap().fail_search = 1;
-    let (status, v) = send(&e, &request()).await;
+    let mut req = request();
+    req.html = r#"<p><a href="https://example.invalid/docs">資料</a></p>"#.into();
+    let (status, v) = send(&e, &req).await;
     assert_eq!(status, 202);
     assert_eq!(v["status"], "pending");
     assert_eq!(v["sent"], true);
     assert_eq!(v["recorded"], false);
+    assert_eq!(e.conn.lock().unwrap().query_row(
+        "SELECT COUNT(*) FROM crm_email_tracking WHERE gmail_message_id = 'gmail-101' AND hubspot_email_id IS NULL AND sent_at IS NOT NULL", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
     let r = row(&e).await;
+    assert_eq!(
+        r.payload.email.as_ref().unwrap().original_html.as_deref(),
+        Some(req.html.as_str())
+    );
     assert!(crate::crm::write::process_op(&e.audit, &e.client, &e.write, &r).await);
     let r = row(&e).await;
     assert_eq!(r.status, "saved");
     assert_eq!(r.payload.email.as_ref().unwrap().html, "");
+    assert_eq!(r.payload.email.as_ref().unwrap().original_html, None);
     assert!(!crate::crm::write::process_op(&e.audit, &e.client, &e.write, &r).await);
     let f = e.fake.lock().unwrap();
     assert_eq!(f.sends, 1);
     assert_eq!(f.create_calls, 1);
     assert_eq!(f.created.len(), 1);
+    assert_eq!(f.created[0]["properties"]["hs_email_html"], req.html);
+    let sent = delivered_html(&f);
+    assert_eq!(sent.matches("/t/o/").count(), 1);
+    assert_eq!(sent.matches("/t/c/").count(), 1);
 }
 #[tokio::test]
 async fn same_operation_parallel_and_after_old_retention_never_sends_twice() {
@@ -1103,4 +1125,126 @@ async fn ledger_failure_before_acceptance_sends_nothing_and_after_send_recovers_
     let f = e.fake.lock().unwrap();
     assert_eq!(f.send_attempts, 1);
     assert_eq!(f.created.len(), 1);
+}
+
+fn delivered_html(f: &Fake) -> String {
+    let mime = String::from_utf8(URL_SAFE_NO_PAD.decode(&f.raw).unwrap()).unwrap();
+    let encoded = mime
+        .split_once("\r\n\r\n")
+        .unwrap()
+        .1
+        .replace(['\r', '\n'], "");
+    String::from_utf8(STANDARD.decode(encoded).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn send_instruments_text_html_links_binds_both_ids_and_exposes_summary() {
+    let e = env(true).await;
+    let mut req = request();
+    // Same escaped output as emailApi.textHtml's URL fixture; frontend also asserts that fixture.
+    req.html = r#"<p>資料 <a href="https://example.invalid/docs?a=1&amp;b=2">https://example.invalid/docs?a=1&amp;b=2</a><br><a href="http://example.invalid/next">http://example.invalid/next</a></p>"#.into();
+    assert_eq!(send(&e, &req).await.0, 200);
+    let html = {
+        let f = e.fake.lock().unwrap();
+        let html = delivered_html(&f);
+        let history_html = f.created[0]["properties"]["hs_email_html"]
+            .as_str()
+            .unwrap();
+        assert_eq!(history_html, req.html);
+        assert!(!history_html.contains("/t/o/"));
+        assert!(!history_html.contains("/t/c/"));
+        assert_eq!(html.matches("/t/o/").count(), 1);
+        assert_eq!(html.matches("data-hr-email-open").count(), 1);
+        assert_eq!(html.matches("href=\"http://localhost/t/c/").count(), 2);
+        assert!(!html.contains("href=\"https://example.invalid"));
+        html
+    };
+    let id: String = e.conn.lock().unwrap().query_row(
+        "SELECT tracking_id FROM crm_email_tracking WHERE hubspot_email_id = '902' AND gmail_message_id = 'gmail-101' AND sent_at IS NOT NULL", [], |r| r.get(0)).unwrap();
+    assert!(html.contains(&format!("/t/o/{id}.gif")));
+    let (status, summary) =
+        call(&e, Method::GET, "/api/crm/emails/902/tracking", Value::Null).await;
+    assert_eq!(status, 200);
+    assert_eq!(summary["opens"]["count"], 0);
+    assert_eq!(summary["clicks"]["count"], 0);
+    assert_eq!(
+        summary["links"][0]["url"],
+        "https://example.invalid/docs?a=1&b=2"
+    );
+    assert_eq!(summary["links"][1]["url"], "http://example.invalid/next");
+    assert_eq!(summary["links"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn tracking_storage_failure_sends_original_body_and_records_once() {
+    let e = env(true).await;
+    e.conn.lock().unwrap().execute_batch("CREATE TRIGGER fail_tracking BEFORE INSERT ON crm_email_tracking BEGIN SELECT RAISE(ABORT, 'fake tracking outage'); END;").unwrap();
+    let mut req = request();
+    req.html = r#"<p><a href="https://example.invalid/docs">資料</a></p>"#.into();
+    let (status, result) = send(&e, &req).await;
+    assert_eq!(status, 200);
+    assert_eq!(result["status"], "saved");
+    assert_eq!(send(&e, &req).await.0, 200);
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.sends, 1);
+    assert_eq!(f.create_calls, 1);
+    assert_eq!(delivered_html(&f), req.html);
+    assert_eq!(f.created[0]["properties"]["hs_email_html"], req.html);
+    assert_eq!(
+        e.conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM crm_email_tracking", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn tracking_bind_failure_does_not_retry_successful_history_or_resend() {
+    let e = env(true).await;
+    e.conn.lock().unwrap().execute_batch("CREATE TRIGGER fail_bind BEFORE UPDATE ON crm_email_tracking BEGIN SELECT RAISE(ABORT, 'fake bind outage'); END;").unwrap();
+    let (status, result) = send(&e, &request()).await;
+    assert_eq!(status, 200);
+    assert_eq!(result["status"], "saved");
+    assert_eq!(send(&e, &request()).await.0, 200);
+    assert!(!crate::crm::write::process_op(&e.audit, &e.client, &e.write, &row(&e).await).await);
+    let f = e.fake.lock().unwrap();
+    assert_eq!(f.sends, 1);
+    assert_eq!(f.create_calls, 1);
+}
+
+#[tokio::test]
+async fn imported_reply_has_no_tracking_binding_or_summary() {
+    let e = reply_env().await;
+    scan(&e).await;
+    let reply = incoming_row(&e).await;
+    let email = reply.payload.email.as_ref().unwrap();
+    assert_eq!(reply.status, "saved");
+    assert_eq!(email.hubspot_email_id.as_deref(), Some("903"));
+    assert!(email.tracking_id.is_empty());
+    assert_eq!(
+        e.conn
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM crm_email_tracking", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    let r = e
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/crm/emails/903/tracking")
+                .header(header::COOKIE, &e.cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    assert_eq!(e.fake.lock().unwrap().sends, 1);
 }
