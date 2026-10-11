@@ -342,3 +342,5 @@
 .jc-manual-fields textarea, .jc-manual-fields input, .jc-condition-warning textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #94a3b8; border-radius: 6px; font: inherit; resize: vertical; }
 .jc-condition-warning { border: 2px solid #b45309; background: #fffbeb; color: #78350f; padding: 18px; border-radius: 8px; margin-bottom: 20px; }
 .jc-manual-editor fieldset { border: 0; padding: 0; margin: 16px 0; }
+.jc-manual-editor .jc-manual-confirmation { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 16px 0; }
+.jc-manual-editor .jc-manual-confirmation input { width: auto; }

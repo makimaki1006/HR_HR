@@ -93,58 +93,14 @@ pub(super) fn current_row(
     }
     Some(values)
 }
-pub(super) fn protected(
-    key: &str,
-    before: &BTreeMap<String, String>,
-    after: &BTreeMap<String, String>,
-) -> bool {
-    key.contains("給与")
-        || key.contains("残業")
-        || key.contains("勤務")
-        || key.contains("稼働")
-        || key.contains("タスク")
-        || key.contains("雇用")
-        || key.contains("研修")
-        || key == "通勤経路"
-        || key == "最寄り駅"
-        || key.starts_with("自由項目")
-        || key.starts_with("仕事情報補足")
-        || ["仕事内容", "キャッチコピー", "メリット"].contains(&key)
-        || [before.get(key), after.get(key)]
-            .into_iter()
-            .flatten()
-            .any(|v| {
-                [
-                    "給与",
-                    "月給",
-                    "時給",
-                    "日給",
-                    "年俸",
-                    "年収",
-                    "残業",
-                    "勤務",
-                    "稼働",
-                    "雇用",
-                    "研修",
-                    "休日",
-                    "勤務地",
-                    "休暇",
-                    "通勤",
-                    "正社員",
-                    "契約社員",
-                    "パート",
-                    "アルバイト",
-                ]
-                .iter()
-                .any(|word| v.contains(word))
-                    || v.lines().any(|line| {
-                        line.char_indices().any(|(i, c)| {
-                            (c.is_ascii_digit() || ('０'..='９').contains(&c))
-                                && line[i..].contains(['円', '時', '休'])
-                        })
-                    })
-            })
-}
+// 判定対象の唯一の定義。画面も同じJSONを読み、本文の意味では分類しない。
+pub(super) static PROTECTED_COLUMNS: std::sync::LazyLock<Vec<String>> =
+    std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!(
+            "../../../frontend/src/screens/job-copy/manualEditPolicy.json"
+        ))
+        .expect("checked-in manual edit policy must be valid JSON")
+    });
 pub(super) fn snapshot(
     req: &ManualDraftRequest,
     properties: &BTreeMap<String, Option<String>>,
@@ -174,7 +130,8 @@ pub(super) fn snapshot(
     let changes: Vec<String> = HRHACKER_COLUMNS
         .iter()
         .filter(|key| {
-            (protected(key, &current, &req.row) || protected(key, baseline, &req.row))
+            PROTECTED_COLUMNS.iter().any(|column| column == **key)
+                && **key != "店舗id"
                 && (req.row.get(**key) != current.get(**key)
                     || req.row.get(**key) != baseline.get(**key))
         })
@@ -256,40 +213,22 @@ mod tests {
         );
     }
     #[test]
-    fn conditions_in_heading_require_reason_including_removal_from_saved_base() {
-        for (before, after) in [
-            ("月給25万円の配送", "月給30万円の配送"),
-            ("配送スタッフ", "月給30万円の配送"),
-            ("月給25万円の配送", "配送スタッフ"),
+    fn free_text_changes_are_not_classified_by_meaning() {
+        for (key, before, after) in [
+            ("案件名", "土日休みの配送", "日曜休みの配送"),
+            ("案件名", "東京都の配送", "大阪府の配送"),
+            ("案件名", "月給25万円の配送", "月給30万円の配送"),
+            ("自由項目1の内容", "土日休み", "日曜休み"),
         ] {
-            let (mut req, mut properties) = fixture();
-            let body = published(&properties)
-                .unwrap()
-                .replace("架空の配送", before);
-            properties.insert("hrh_kyuujinhyou_honbun".into(), Some(body.clone()));
-            req.base_body_hash = drafts::hash(&body);
-            req.row = current_row(&properties).unwrap();
-            req.row.insert("案件名".into(), after.into());
-            assert_eq!(
-                snapshot(&req, &properties, None).unwrap_err(),
-                "draft_reason_required"
-            );
-            req.reason = "募集担当者に確認".into();
-            assert!(snapshot(&req, &properties, None)
-                .unwrap()
-                .manual_edit
-                .unwrap()
-                .changed_conditions
-                .contains(&"案件名".into()));
+            let (mut req, properties) = fixture();
+            let mut base = snapshot(&req, &properties, None).unwrap();
+            base.row.insert(key.into(), before.into());
+            req.base_body_hash = drafts::hash(&drafts::compose_body(&base.row));
+            req.row.insert(key.into(), after.into());
+            let result = snapshot(&req, &properties, Some(&base)).unwrap();
+            assert_eq!(result.row[key], after);
+            assert!(result.manual_edit.unwrap().changed_conditions.is_empty());
         }
-        let (mut req, properties) = fixture();
-        let mut base = snapshot(&req, &properties, None).unwrap();
-        base.row.insert("案件名".into(), "月給25万円の配送".into());
-        req.base_body_hash = drafts::hash(&drafts::compose_body(&base.row));
-        assert_eq!(
-            snapshot(&req, &properties, Some(&base)).unwrap_err(),
-            "draft_reason_required"
-        );
     }
     #[test]
     fn all_84_fields_including_management_contact_and_publication_roundtrip() {
@@ -324,16 +263,15 @@ mod tests {
         assert!(saved.manual_edit.unwrap().changed_conditions.is_empty());
     }
     #[test]
-    fn salary_location_hours_employment_and_holidays_need_reason() {
-        for (key, value) in [
-            ("基本給与 最小", "270000"),
-            ("通勤経路", "東京の事業所"),
-            ("勤務時間", "8〜17時"),
-            ("雇用形態", "パート"),
-            ("自由項目1の内容", "日曜休み"),
-        ] {
+    fn every_protected_column_requires_reason_for_one_character_changes() {
+        for key in PROTECTED_COLUMNS
+            .iter()
+            .filter(|key| key.as_str() != "店舗id")
+        {
+            assert!(HRHACKER_COLUMNS.contains(&key.as_str()));
             let (mut req, properties) = fixture();
-            req.row.insert(key.into(), value.into());
+            let value = format!("{} ", req.row[key]);
+            req.row.insert(key.clone(), value.clone());
             assert_eq!(
                 snapshot(&req, &properties, None).unwrap_err(),
                 "draft_reason_required"
@@ -343,11 +281,7 @@ mod tests {
             assert_eq!(saved.row[key], value);
             assert_eq!(saved.review_status, drafts::DraftStatus::Pending);
             assert_eq!(saved.source_kind, DraftSource::FreeText);
-            assert!(saved
-                .manual_edit
-                .unwrap()
-                .changed_conditions
-                .contains(&key.into()));
+            assert!(saved.manual_edit.unwrap().changed_conditions.contains(key));
         }
     }
     #[test]
