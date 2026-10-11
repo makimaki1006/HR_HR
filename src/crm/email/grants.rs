@@ -54,6 +54,10 @@ pub fn get(t: &TursoDb, operator: &str) -> Result<Option<String>, String> {
 }
 pub fn save(t: &TursoDb, operator: &str, encrypted: &str, scopes: &str) -> Result<(), String> {
     let now = super::super::pending::now_iso();
+    t.execute(
+        "UPDATE crm_gmail_reply_status SET expired_grant_at=NULL WHERE operator_email=?1",
+        &[&operator],
+    )?;
     t.execute("INSERT INTO crm_gmail_grants (operator_email, encrypted_refresh_token, scopes, granted_at, revoked_at) VALUES (?1, ?2, ?3, ?4, NULL) ON CONFLICT(operator_email) DO UPDATE SET encrypted_refresh_token = excluded.encrypted_refresh_token, scopes = excluded.scopes, granted_at = excluded.granted_at, revoked_at = NULL", &[&operator, &encrypted, &scopes, &now])
 }
 pub fn revoke(t: &TursoDb, operator: &str) -> Result<(), String> {

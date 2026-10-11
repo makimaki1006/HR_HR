@@ -267,6 +267,10 @@ pub(super) fn router_with_write(
     });
     Router::new()
         .route("/api/crm/gmail/status", get(super::email::grant_status))
+        .route(
+            "/api/crm/gmail/replies/status",
+            get(super::email::replies::status),
+        )
         .route("/api/crm/gmail/authorize", get(super::email::authorize))
         .route("/api/crm/gmail/callback", get(super::email::callback))
         .route(
