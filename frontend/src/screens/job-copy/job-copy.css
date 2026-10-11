@@ -330,6 +330,30 @@
   .jc-sidebar-pinned .jc-sidebar-rail { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .jc-sidebar-collapsed .jc-sidebar > .jc-list { transition: none; transform: none; } }
+
+/* PC の一覧は絞り込みと件数を残してカードだけをスクロールする。 */
+@media (min-width: 801px) {
+  .jc-workspace { min-height: 0; }
+  .jc-list { gap: 6px; padding: 8px; }
+  .jc-listings-panel { gap: 5px; }
+  .jc-hubspot-filter-details > summary { display: block; padding: 4px 8px; min-height: 28px; font-size: 12px; }
+  .jc-listings-panel .jc-index-date { margin: 0; font-size: 11px; white-space: nowrap; }
+  .jc-listings-panel > .jc-button { min-height: 28px; padding: 3px 8px; font-size: 12px; }
+  .jc-job, .jc-hubspot-job { padding: 5px 8px; gap: 0; }
+  .jc-job strong { font-size: 12px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .jc-job > span, .jc-job > small { font-size: 10px; line-height: 15px; }
+  .jc-job-company { font-size: 10px; }
+  .jc-list-scroll { gap: 4px; flex: 1; overflow-y: auto; }
+  .jc-listings-panel > :not(.jc-list-scroll) { flex-shrink: 0; }
+}
+
+@media (min-width: 801px) {
+  .jc-hubspot-job { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 5px; }
+  .jc-hubspot-job .jc-job-bottom { margin-top: 0; justify-content: flex-end; }
+  .jc-job-location { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .jc-hubspot-job .jc-job-company { justify-content: flex-end; }
+  .jc-version-top strong { font-size: 12px; }
+}
 /* 案の確認操作はラベル・選択欄・ボタンを同じ基準線に置く。 */
 .jc-app .jc-draft-review-controls { display: flex; align-items: end; gap: 16px; }
 .jc-app .jc-draft-review-controls label { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 0; }
@@ -342,3 +366,11 @@
 .jc-column-comparison del { background: #f2a3a3; }
 
 .jc-draft-source { margin-top: 12px; }
+
+/* 固定一覧も会社名・勤務地を含めて2行に収める。全文は詳細と補助表示で確認できる。 */
+@media (min-width: 801px) {
+  .jc-fixed-list .jc-job { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 5px; }
+  .jc-fixed-list .jc-job-bottom { margin-top: 0; font-size: 10px; line-height: 15px; }
+  .jc-fixed-applications { text-align: right; white-space: nowrap; }
+  .jc-fixed-list > :not(.jc-list-scroll) { flex-shrink: 0; }
+}

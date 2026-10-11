@@ -230,6 +230,8 @@ pub fn number_chunks(text: &str) -> Vec<String> {
         .unwrap_or("");
         while index < chars.len()
             && (chars[index].1.is_ascii_digit()
+                // 桁を表す字も表記の一部として保持し、金額へ換算しない。
+                || matches!(chars[index].1, '零' | '〇' | '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十' | '百' | '千' | '万' | '億' | '兆')
                 || matches!(chars[index].1, '.' | ':')
                     && chars
                         .get(index + 1)
@@ -680,6 +682,22 @@ mod tests {
         );
         assert!(draft.generated[1].review);
         assert_eq!(row(&draft.csv)["仕事内容"], "");
+        // 「万」等を落として数字だけを照合せず、原文の表記を保持する。
+        assert_eq!(
+            number_chunks("月給25万。年俸1億二千万円。3千円"),
+            vec!["月給25万", "年俸1億二千万円", "3千円"]
+        );
+        s.body = "月給250000円。年俸120000000円。3000円。".into();
+        let mut generated = raw();
+        generated["job_description"] = json!("月給25万。年俸1億二千万円。3千円");
+        let draft = finish(&s, &generated, 0.2, 0).unwrap();
+        assert_eq!(
+            draft.generated[1].missing_chunks,
+            vec!["3千円", "年俸1億二千万円", "月給25万"]
+        );
+        assert_eq!(row(&draft.csv)["仕事内容"], "");
+        s.body = "月給25万。年俸1億二千万円。3千円".into();
+        assert!(missing_numbers(&s, &s.body).is_empty());
         s.body = "時給1200円".into();
         assert_eq!(missing_numbers(&s, "日給1100円"), vec!["日給1100円"]);
         assert_eq!(

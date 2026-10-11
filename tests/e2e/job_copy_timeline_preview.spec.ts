@@ -34,7 +34,7 @@ test('timeline lanes, chart readiness and period values on the demo job', async 
   }
   await expect(timeline.getByRole('group', { name: '給与', exact: true })).toContainText('月給25万〜28万円');
   await expect(timeline.getByRole('group', { name: '給与', exact: true })).toContainText('月給27万〜30万円');
-  // 上がった版は ▲、下がった版は ▼（下がったのに ▲ を付けない）
+  // 上がった本文は ▲、下がった本文は ▼（下がったのに ▲ を付けない）
   await expect(timeline.getByRole('group', { name: '給与', exact: true }).locator('.jt-salary-label')).toHaveText(['月給25万〜28万円', '▲月給27万〜30万円', '▼月給25万〜28万円']);
   // 一覧の件数はタイムラインと同じ（架空の件数と分かるように書く）
   await expect(page.locator('.jc-job').first()).toContainText('応募28件（架空）');

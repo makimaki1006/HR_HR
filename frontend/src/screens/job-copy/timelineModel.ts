@@ -405,12 +405,12 @@ export function countApplications(byDate: Record<string, number> | undefined, st
  * is 比べられない, never 追加0・削除0 (which would read as "nothing changed").
  */
 export function bodyMark(change: Pick<VersionChange, 'index' | 'bodyStatus' | 'bodyAdded' | 'bodyRemoved'>): { text: string; spoken: string } {
-  if (change.index === 0) return { text: '最初', spoken: '最初の版' };
+  if (change.index === 0) return { text: '最初', spoken: '最初の本文' };
   switch (change.bodyStatus) {
-    case 'unchanged': return { text: '同じ', spoken: '前の版と同じ' };
+    case 'unchanged': return { text: '同じ', spoken: '前回の本文と同じ' };
     case 'format_only': return { text: '改行のみ', spoken: '改行だけが違います' };
-    case 'unavailable': return { text: '比べられない', spoken: '本文が無いため、前の版と比べられません' };
-    case 'initial': return { text: '最初', spoken: '最初の版' };
+    case 'unavailable': return { text: '比べられない', spoken: '本文が無いため、前回の本文と比べられません' };
+    case 'initial': return { text: '最初', spoken: '最初の本文' };
     case 'changed': return { text: `追加${String(change.bodyAdded)}・削除${String(change.bodyRemoved)}`, spoken: `${String(change.bodyAdded)}行追加・${String(change.bodyRemoved)}行削除` };
   }
 }
@@ -439,12 +439,15 @@ export interface TimelineRange { start: string; end: string }
 /** Inclusive day range covering periods, dated applications, billing and asOf. */
 export function timelineRange(job: JobCopyRecord, asOf: string, billing: readonly BillingEntry[]): TimelineRange | null {
   const periods = buildPeriods(job, asOf);
-  const starts = [...periods.map(period => period.start), ...Object.keys(job.overallApplications?.byDate ?? {}).filter(date => DATE.test(date)), ...billing.map(entry => entry.start)];
+  const dates = versionChanges(job).map(change => change.date);
+  const starts = [...dates, ...periods.map(period => period.start), ...Object.keys(job.overallApplications?.byDate ?? {}).filter(date => DATE.test(date)), ...billing.map(entry => entry.start)];
   if (!starts.length) return null;
-  const ends = [asOf, ...periods.map(period => period.end ? addDays(period.end, -1) : asOf), ...Object.keys(job.overallApplications?.byDate ?? {}).filter(date => DATE.test(date)), ...billing.map(entry => entry.end)];
+  const ends = [...dates, asOf, ...periods.map(period => period.end ? addDays(period.end, -1) : asOf), ...Object.keys(job.overallApplications?.byDate ?? {}).filter(date => DATE.test(date)), ...billing.map(entry => entry.end)];
   const start = starts.reduce((a, b) => (a < b ? a : b));
   const end = ends.reduce((a, b) => (a > b ? a : b));
-  return { start, end: end < start ? start : end };
+  // Leave space around short histories and single observations.
+  if (daysBetween(start, end) < 7) return { start: addDays(start, -3), end: addDays(end < start ? start : end, 3) };
+  return { start, end: addDays(end < start ? start : end, 2) };
 }
 /** Position of the start of a day on the range, in percent (0–100). */
 export function positionOf(date: string, range: TimelineRange): number {
@@ -708,4 +711,16 @@ export function lastMarketMonth(rows: readonly MarketRow[]): string | null {
 /** "2026-08" → "2026/08" (the same YYYY/MM form as formatDateJst). */
 export function formatMonth(month: string): string {
   return month.replace('-', '/');
+}
+
+/** Assign nearby labels to separate rows without changing their dates. */
+export function timelineLabelRows(dates: readonly string[], range: TimelineRange): number[] {
+  const lastPositions: number[] = [];
+  return dates.map(date => {
+    const position = positionOf(date, range);
+    let row = lastPositions.findIndex(last => Math.abs(position - last) >= 24);
+    if (row < 0) row = lastPositions.length;
+    lastPositions[row] = position;
+    return row;
+  });
 }

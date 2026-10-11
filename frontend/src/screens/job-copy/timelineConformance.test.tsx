@@ -99,7 +99,7 @@ describe('1. versions dated by acquisition day', () => {
     const third = within(screen.getByRole('group', { name: '本文' })).getAllByRole('button')[2];
     if (!third) throw new Error('missing the third 本文 mark');
     fireEvent.click(third);
-    expect(screen.getByRole('region', { name: '選んだ版' }).textContent).toContain('2026/08/20 に取得（前回の取得 2026/07/15 以降に変化）');
+    expect(screen.getByRole('region', { name: '選んだ本文' }).textContent).toContain('2026/08/20 に取得（前回の取得 2026/07/15 以降に変化）');
     const cells = within(screen.getByRole('region', { name: '期間比較表の数値' })).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[2]?.textContent);
     expect(cells).toEqual(['0.15件/日', '期間が短いため比べません', '比べません', '期間が短いため比べません', '比べません']);
     const counts = within(screen.getByRole('region', { name: '期間比較表の数値' })).getAllByRole('row').slice(1).map(row => row.querySelectorAll('td')[1]?.textContent);
@@ -153,16 +153,16 @@ describe('2. images: references and file contents', () => {
     render(<JobTimeline job={record} marketMode="demo" showDummyBilling={false} />);
     const marks = within(screen.getByRole('group', { name: '画像' })).getAllByRole('button');
     expect(marks.map(mark => [mark.textContent, mark.getAttribute('aria-label')])).toEqual([
-      ['最初', `${changes[0]?.label ?? ''}の画像：最初の版`],
+      ['最初', `${changes[0]?.label ?? ''}の画像：最初の本文`],
       ['中身', `${changes[1]?.label ?? ''}の画像：同じ場所の画像の中身が変わりました`],
-      ['未取得', `${changes[2]?.label ?? ''}の画像：この版の画像は未取得です`],
+      ['未取得', `${changes[2]?.label ?? ''}の画像：この本文に対応する画像は未取得です`],
     ]);
     const second = marks[1];
     if (!second) throw new Error('missing the second 画像 mark');
     fireEvent.click(second);
-    const panel = screen.getByRole('region', { name: '選んだ版' });
-    expect(panel.textContent).not.toContain('前の版から本文・画像の変更はありません');
-    expect(panel.textContent).toContain('本文は前の版と同じです。画像：同じ場所の画像の中身が変わりました');
+    const panel = screen.getByRole('region', { name: '選んだ本文' });
+    expect(panel.textContent).not.toContain('前回から本文・画像の変更はありません');
+    expect(panel.textContent).toContain('本文は前回と同じです。画像：同じ場所の画像の中身が変わりました');
     // The days between i1 and i2 belong to neither version (the images changed in between).
     expect(periodRows(record, { asOf: '2026-07-20', dummyBilling: false }).map(row => row.kind)).toEqual(['period', 'between', 'period', 'between', 'period']);
   });

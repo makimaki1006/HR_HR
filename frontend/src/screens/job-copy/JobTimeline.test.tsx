@@ -161,7 +161,7 @@ describe('job timeline lanes', () => {
     expect(selectedRow?.textContent).toContain('給与・勤務条件変更');
     fireEvent.click(screen.getByRole('button', { name: '本文・画像を開く' }));
     expect(open).toHaveBeenCalledWith('demo-001-v2');
-    fireEvent.click(screen.getByRole('button', { name: '前の版との差分を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: '前回の本文との違いを見る' }));
     expect(compare).toHaveBeenCalledWith('demo-001-v1', 'demo-001-v2');
   });
 });
