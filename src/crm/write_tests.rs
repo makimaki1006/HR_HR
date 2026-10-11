@@ -1683,7 +1683,10 @@ async fn 状態の照会はメモリの表から答え_表に無いときだけ�
     assert_eq!(s, StatusCode::OK, "管理者は他人の分も見られる");
 
     // 表に無い操作 (再起動した後など) は台帳を 1 回読み、表に入れ直す
-    let payload = super::pending::Payload { steps: vec![] };
+    let payload = super::pending::Payload {
+        steps: vec![],
+        email: None,
+    };
     pending_insert(&e, "op-st-000002", payload).await;
     let (s, v) = get_status(&e, &e.op, "op-st-000002").await;
     assert_eq!(s, StatusCode::OK, "{v}");
@@ -1921,7 +1924,10 @@ async fn 送ったあとの曖昧な失敗が満杯のときは_読み直して�
     pending_insert(
         &e,
         "op-amb-other1",
-        super::pending::Payload { steps: vec![] },
+        super::pending::Payload {
+            steps: vec![],
+            email: None,
+        },
     )
     .await;
     e.conn
@@ -1969,7 +1975,10 @@ async fn 送ったあとの曖昧な失敗が満杯で_書けていないと確�
     pending_insert(
         &e,
         "op-amb-other2",
-        super::pending::Payload { steps: vec![] },
+        super::pending::Payload {
+            steps: vec![],
+            email: None,
+        },
     )
     .await;
     e.conn
@@ -2104,7 +2113,12 @@ async fn 再送_worker_は同じ案件の操作を古い順に直列で処理す
         stage: None,
         done: false,
     }];
-    pending_insert(&e, "op-og-000002", super::pending::Payload { steps }).await;
+    pending_insert(
+        &e,
+        "op-og-000002",
+        super::pending::Payload { steps, email: None },
+    )
+    .await;
     e.conn
         .lock()
         .unwrap()

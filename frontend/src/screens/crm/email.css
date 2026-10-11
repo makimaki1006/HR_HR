@@ -1,0 +1,17 @@
+.crm-email { padding: 12px; border-top: 1px solid #d8e1eb; background: #f8fafc; }
+.crm-email-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.crm-email button, .crm-email-permission a { padding: 6px 12px; border: 1px solid #afbdd0; border-radius: 5px; background: white; color: #194b81; }
+.crm-email button:disabled { opacity: .55; cursor: default; }
+.crm-email-permission { margin-top: 10px; }
+.crm-email-permission p { margin-bottom: 8px; }
+.crm-email form { margin-top: 12px; }
+.crm-email fieldset { border: 0; margin: 0; padding: 0; }
+.crm-email label { display: grid; gap: 4px; margin: 10px 0; font-size: 13px; }
+.crm-email input, .crm-email select, .crm-email textarea { padding: 8px; background: white; border: 1px solid #afbdd0; border-radius: 4px; width: 100%; }
+.crm-email textarea { resize: vertical; }
+.crm-email .crm-email-cc label { display: flex; }
+.crm-email-cc input { width: auto; }
+.crm-email-state { border-radius: 4px; padding: 8px; font-size: 13px; }
+.crm-email-saved { background: #dcfce7; color: #14532d; }
+.crm-email-pending { background: #fef3c7; color: #78350f; }
+.crm-email-failed, .crm-email-discarded { background: #fee2e2; color: #7f1d1d; }

@@ -18,6 +18,11 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    // Gmail credentials only; email business history remains in HubSpot.
+    r#"CREATE TABLE IF NOT EXISTS crm_gmail_grants (
+        operator_email TEXT PRIMARY KEY, encrypted_refresh_token TEXT NOT NULL,
+        scopes TEXT NOT NULL, granted_at TEXT NOT NULL, revoked_at TEXT
+    )"#,
     // ADR-019: 求人本文の複製DBではなく、書き込みの再送と冪等性だけの台帳。
     r#"CREATE TABLE IF NOT EXISTS job_copy_draft_operations (
         operation_id TEXT PRIMARY KEY, operator_email TEXT NOT NULL, listing_id TEXT NOT NULL,
