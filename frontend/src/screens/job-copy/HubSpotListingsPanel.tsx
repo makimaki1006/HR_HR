@@ -7,7 +7,7 @@ import { formatDateTimeJst } from './format';
 import { isHubSpotBusy, HUBSPOT_BUSY_MESSAGE } from './SnapshotErrorNotice';
 import { AREA_MASTER } from './areaMaster';
 
-export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, onShowDeal, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; revision?: number }) {
+export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailure, initialListingId, onShowDeal, onApplicationsLoaded, revision = 0 }: { onOpen: (job: JobCopyRecord) => void; active?: boolean; onLoading?: () => void; onFailure?: (message: string) => void; initialListingId?: string | undefined; onShowDeal?: (deal: DealSelection) => void; onApplicationsLoaded?: (id: string, count: number) => void; revision?: number }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [prefecture, setPrefecture] = useState('');
   const [title, setTitle] = useState('');
@@ -20,11 +20,15 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   const [sort, setSort] = useState('title');
   const [titles, setTitles] = useState<string[]>([]);
   const [page, setPage] = useState<HubSpotListingPage | null>(null);
+  const pageRef = useRef(page);
+  const loadedRecord = useRef<JobCopyRecord | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState('');
   const listRequest = useRef<AbortController | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
+  const countRequest = useRef<{ key: string; controller: AbortController } | null>(null);
+  useEffect(() => () => { countRequest.current?.controller.abort(); }, []);
   const message = (error: Error) => error instanceof AuthRequiredError ? 'Googleでログインしてから再取得してください。' : isHubSpotBusy(error) ? HUBSPOT_BUSY_MESSAGE : '求人を読み込めませんでした。時間を置いて再取得してください。';
   const load = useCallback(async (offset = 0) => {
     listRequest.current?.abort(); const controller = new AbortController(); listRequest.current = controller;
@@ -39,11 +43,11 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
     if (draftStatus) query.set('draft_status', draftStatus);
     const result = await apiGet<HubSpotListingPage>(`/api/job-copy/listings?${query.toString()}`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
+    if (result.ok) { pageRef.current = result.data; setPage(result.data); if (result.data.titles.length) setTitles(result.data.titles); } else setError(message(result.error));
     setBusy(false);
   }, [prefecture, title, media, sort, deal, dealSearch, publication, draftStatus]);
   useEffect(() => {
-    if (!active) { listRequest.current?.abort(); detailRequest.current?.abort(); return; }
+    if (!active) { listRequest.current?.abort(); detailRequest.current?.abort(); countRequest.current?.controller.abort(); return; }
     const timer = window.setTimeout(() => { void load(); }, dealSearch ? 250 : 0);
     return () => { window.clearTimeout(timer); listRequest.current?.abort(); };
   }, [active, load, dealSearch, revision]);
@@ -55,14 +59,43 @@ export function HubSpotListingsPanel({ onOpen, active = true, onLoading, onFailu
   const opened = useRef('');
   const restored = useRef('');
   const openId = useCallback(async (id: string, listedRow?: HubSpotListing) => {
-    opened.current = id;
+    opened.current = id; loadedRecord.current = null;
+    countRequest.current?.controller.abort(); countRequest.current = null;
     detailRequest.current?.abort(); const controller = new AbortController(); detailRequest.current = controller;
     setSelected(id); setError(''); onLoading?.();
     const result = await apiGet<HubSpotVersions>(`/api/job-copy/listings/${encodeURIComponent(id)}/versions`, { signal: controller.signal, timeoutMs: 120_000 });
     if (controller.signal.aborted) return;
-    if (result.ok) { onOpen(listingRecord(result.data, listedRow ?? page?.listings.find(row => row.id === id))); }
+    if (result.ok) {
+      const record = listingRecord(result.data, listedRow ?? pageRef.current?.listings.find(row => row.id === id));
+      loadedRecord.current = record; onOpen(record);
+    }
     else { const text = message(result.error); setError(text); onFailure?.(text); }
-  }, [onOpen, onLoading, onFailure, page]);
+  }, [onOpen, onLoading, onFailure]);
+  useEffect(() => {
+    const record = loadedRecord.current;
+    if (!active || page?.status !== 'ready' || !record?.hubspotId || record.hubspotId !== opened.current || record.listingApplicationCount != null) return;
+    const id = record.hubspotId;
+    const row = page.listings.find(item => item.id === id);
+    if (row?.application_count != null) {
+      loadedRecord.current = { ...record, listingApplicationCount: row.application_count };
+      onApplicationsLoaded?.(id, row.application_count);
+      return;
+    }
+    // The opened job may be outside the current page or filters. Only re-read
+    // the acquired count, once per job/index; retain the selected body and popup.
+    const key = JSON.stringify([id, page.index_built_at]);
+    if (countRequest.current?.key === key && !countRequest.current.controller.signal.aborted) return;
+    countRequest.current?.controller.abort();
+    const controller = new AbortController(); countRequest.current = { key, controller };
+    void apiGet<{ listing_id: string; application_count: number | null }>(`/api/job-copy/listings/${encodeURIComponent(id)}/applications`, { signal: controller.signal, timeoutMs: 30_000 }).then(result => {
+      const current = loadedRecord.current;
+      if (controller.signal.aborted || opened.current !== id || current?.hubspotId !== id || current.listingApplicationCount != null) return;
+      if (result.ok && result.data.listing_id === id && result.data.application_count != null) {
+        loadedRecord.current = { ...current, listingApplicationCount: result.data.application_count };
+        onApplicationsLoaded?.(id, result.data.application_count);
+      }
+    });
+  }, [active, page, onApplicationsLoaded]);
   useEffect(() => {
     if (!active) return;
     if (!initialListingId) { restored.current = ''; return; }
