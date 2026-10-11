@@ -77,7 +77,7 @@ it('limits selection to five jobs and keeps unknown counts separate from zero', 
   expect(within(table).getByText('0件')).toBeTruthy();
   expect(within(table).getAllByText('未取得')).toHaveLength(5);
   for (let index = 1; index <= 5; index++) fireEvent.click(within(table).getByLabelText(`比較求人${String(index)}を比較に選ぶ`));
-  expect((within(table).getByLabelText('比較求人6を比較に選ぶ') as HTMLInputElement).disabled).toBe(true);
+  expect(within(table).getByLabelText<HTMLInputElement>('比較求人6を比較に選ぶ').disabled).toBe(true);
   fireEvent.click(within(table).getByLabelText('比較求人1を比較に選ぶ'));
-  expect((within(table).getByLabelText('比較求人6を比較に選ぶ') as HTMLInputElement).disabled).toBe(false);
+  expect(within(table).getByLabelText<HTMLInputElement>('比較求人6を比較に選ぶ').disabled).toBe(false);
 });

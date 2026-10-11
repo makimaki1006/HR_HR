@@ -14,6 +14,7 @@ use deals::{
 mod deal_tests;
 
 const PROPERTIES: &[&str] = &[
+    "jobgen_draft_status",
     "hs_name",
     "id_hrhakkaa",
     "id_airwork",
@@ -43,6 +44,7 @@ pub(super) struct ListingsQuery {
     deal_search: Option<String>,
     publication: Option<String>,
     descending: Option<bool>,
+    draft_status: Option<String>,
 }
 #[derive(Clone, Debug, Serialize)]
 struct Listing {
@@ -55,6 +57,7 @@ struct Listing {
     municipality: Option<String>,
     category: Option<String>,
     publication_status: Option<String>,
+    draft_status: Option<String>,
     last_csv_detected_at: Option<String>,
     deal_ids: Vec<String>,
     summary: Summary,
@@ -154,6 +157,10 @@ fn listing(record: &Record, titles: &[String]) -> Option<Listing> {
         deal_ids: vec![],
         summary: summary(record, media),
         indexed_application_count: None,
+        draft_status: record
+            .value("jobgen_draft_status")
+            .filter(|v| ["pending", "adopted", "rejected"].contains(v))
+            .map(str::to_owned),
         last_csv_detected_at: record.value("saishuu_csv_kenshutsu_bi").map(str::to_owned),
     })
 }
@@ -200,7 +207,9 @@ struct IndexState {
     snapshot: Option<Arc<Index>>,
     refreshing: bool,
     refresh_failed: bool,
+    draft_updates: BTreeMap<String, String>,
 }
+#[derive(Clone)]
 struct Index {
     records: Vec<Listing>,
     titles: Vec<String>,
@@ -212,6 +221,29 @@ struct PageListing {
     #[serde(flatten)]
     listing: Listing,
     application_count: Option<usize>,
+}
+
+// 保存に成功した案だけ一覧へ反映する。全件索引の絞り込み・件数にも使用する。
+pub(super) async fn update_draft_state(
+    service: &JobReadService,
+    id: &str,
+    status: crate::job_gen::drafts::DraftStatus,
+) {
+    let mut cache = service.listing_index.state.write().await;
+    let status = serde_json::to_value(status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned));
+    if cache.refreshing {
+        if let Some(value) = &status {
+            cache.draft_updates.insert(id.to_owned(), value.clone());
+        }
+    }
+    if let Some(index) = cache.snapshot.as_mut() {
+        let index = Arc::make_mut(index);
+        if let Some(row) = index.records.iter_mut().find(|r| r.id == id) {
+            row.draft_status = status;
+        }
+    }
 }
 
 /// One complete build. Page bodies/history are discarded after their summaries are read.
@@ -353,7 +385,13 @@ pub(super) async fn refresh(
     state.refreshing = false;
     state.refresh_failed = result.is_err();
     match result {
-        Ok(index) => {
+        Ok(mut index) => {
+            for row in &mut index.records {
+                if let Some(status) = state.draft_updates.get(&row.id) {
+                    row.draft_status = Some(status.clone());
+                }
+            }
+            state.draft_updates.clear();
             state.snapshot = Some(Arc::new(index));
             Ok(())
         }
@@ -406,11 +444,19 @@ fn matches(row: &Listing, query: &ListingsQuery) -> bool {
         } else {
             row.deal_ids.contains(v)
         }
-    }) && query
-        .publication
-        .as_ref()
-        .is_none_or(|v| row.publication_status.as_ref() == Some(v))
-        && query.media.as_ref().is_none_or(|v| v == row.media)
+    }) && query.publication.as_ref().is_none_or(|v| {
+        if v == "unknown" {
+            row.publication_status.is_none()
+        } else {
+            Some(v) == row.publication_status.as_ref()
+        }
+    }) && query.draft_status.as_ref().is_none_or(|v| {
+        if v == "none" {
+            row.draft_status.is_none()
+        } else {
+            Some(v) == row.draft_status.as_ref()
+        }
+    }) && query.media.as_ref().is_none_or(|v| v == row.media)
         && query
             .prefecture
             .as_ref()
@@ -535,9 +581,14 @@ pub(super) async fn read(
         ));
     };
     if query
-        .media
+        .draft_status
         .as_deref()
-        .is_some_and(|v| !["hrh", "airwork"].contains(&v))
+        .is_some_and(|v| !["pending", "adopted", "rejected", "none"].contains(&v))
+        || query.publication.as_ref().is_some_and(|v| v.len() > 100)
+        || query
+            .media
+            .as_deref()
+            .is_some_and(|v| !["hrh", "airwork"].contains(&v))
         || query
             .title
             .as_ref()
@@ -582,6 +633,7 @@ pub(super) async fn read(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(json!({
+            "publication_statuses": index.records.iter().filter_map(|r| r.publication_status.clone()).collect::<BTreeSet<_>>(),
             "status":"ready", "listings":rows, "total":total, "index_built_at":index.built_at,
             "offset":query.offset, "next_offset":next_offset, "titles":index.titles,
             "refreshing":refreshing, "refresh_failed":refresh_failed, "deals":deal_candidates(&index, query.deal_search.as_deref().unwrap_or("")), "no_deal_count":index.records.iter().filter(|r| r.deal_ids.is_empty()).count()
@@ -626,7 +678,7 @@ struct History {
     timestamp: String,
     value: String,
 }
-fn image_urls(value: &str) -> Vec<String> {
+pub(super) fn image_urls(value: &str) -> Vec<String> {
     // Image fields may contain labelled lines; retain slot order and allow only web URLs.
     value
         .split_whitespace()
@@ -812,14 +864,11 @@ pub(super) async fn read_versions(
         "listing_media_unknown",
     ))?;
     let (versions, counts, may_be_incomplete) = versions(&data, row.media)?;
-    let current = if versions
-        .iter()
-        .all(|version| version.body.trim().is_empty())
-    {
-        current_body(&record, row.media)
-    } else {
-        None
-    };
+    let current = current_body(&record, row.media).filter(|value| {
+        versions
+            .last()
+            .is_none_or(|version| Some(version.body.as_str()) != value["body"].as_str())
+    });
     let current_images = observed_images(&record, &access).await;
     let company_name = listing_company_name(service(&access)?, &id)
         .await
@@ -833,7 +882,7 @@ pub(super) async fn read_versions(
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"company_name":company_name,"listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
+            json!({"company_name":company_name,"current_row": super::manual_edit::current_row(&record.properties), "listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
         ),
     ))
 }
@@ -1105,6 +1154,12 @@ mod tests {
         )
         .await
         .unwrap();
+        update_draft_state(
+            &service,
+            "180",
+            crate::job_gen::drafts::DraftStatus::Pending,
+        )
+        .await;
         let old = cache.state.read().await.snapshot.clone().unwrap();
         assert_eq!(old.records.len(), 203);
         assert_eq!(seen.lock().unwrap().len(), 6);
@@ -1135,6 +1190,29 @@ mod tests {
         assert_eq!(selected_page(&old, &parse(json!({"deal":"none"}))).0, 201);
         assert_eq!(
             selected_page(&old, &parse(json!({"deal":"901","media":"airwork"}))).0,
+            0
+        );
+        assert_eq!(
+            selected_page(&old, &parse(json!({"draft_status":"pending"}))).0,
+            1
+        );
+        assert_eq!(
+            selected_page(&old, &parse(json!({"draft_status":"none"}))).0,
+            202
+        );
+        update_draft_state(
+            &service,
+            "180",
+            crate::job_gen::drafts::DraftStatus::Adopted,
+        )
+        .await;
+        let updated = cache.state.read().await.snapshot.clone().unwrap();
+        assert_eq!(
+            selected_page(&updated, &parse(json!({"draft_status":"adopted"}))).0,
+            1
+        );
+        assert_eq!(
+            selected_page(&updated, &parse(json!({"draft_status":"pending"}))).0,
             0
         );
         assert_eq!(
@@ -1183,7 +1261,7 @@ mod tests {
                 .is_err()
         );
         let state = cache.state.read().await;
-        assert!(Arc::ptr_eq(state.snapshot.as_ref().unwrap(), &old));
+        assert!(Arc::ptr_eq(state.snapshot.as_ref().unwrap(), &updated));
         assert_eq!(state.snapshot.as_ref().unwrap().built_at, old.built_at);
         assert!(state.refresh_failed);
         assert!(!state.refreshing);
