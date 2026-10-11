@@ -41,6 +41,7 @@ pub struct QueuePageKey {
 pub struct QueueFilterKey {
     pub pipeline: String,
     pub q: Option<String>,
+    pub property_conditions: Vec<super::queue_property_filter::PropertyCondition>,
     /// 昇順・重複なし (空 = パイプラインの全部)
     pub stages: Vec<String>,
     /// 解決済みの担当者 (`all` / `unassigned` / `id:<owner id>`)

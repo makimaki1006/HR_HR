@@ -1,3 +1,5 @@
+import { parseConditions } from './queuePropertyFilter';
+import type { PropertyCondition } from './queuePropertyFilter';
 import type { CallQueueItem } from '../../generated/CallQueueItem';
 import type { CallQueueScope } from '../../generated/CallQueueScope';
 import { ApiDataError, ApiHttpError, ApiInvalidResponseError, ApiTimeoutError } from '../../api/client';
@@ -33,11 +35,12 @@ export interface QueueFilters {
   nextTo: string;
   lastFrom: string;
   lastTo: string;
+  conditions: PropertyCondition[];
 }
 
 export const DEFAULT_FILTERS: QueueFilters = {
   pipeline: DEFAULT_PIPELINE_ID, q: '', stages: [], owner: '', due: 'all', sort: 'default',
-  nextFrom: '', nextTo: '', lastFrom: '', lastTo: '',
+  nextFrom: '', nextTo: '', lastFrom: '', lastTo: '', conditions: [],
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -98,6 +101,7 @@ export function parseFilters(search: string): QueueFilters {
     sort: SORT_VALUES.includes(sort) ? (sort as QueueSort) : 'default',
     nextFrom: date('next_from'), nextTo: date('next_to'),
     lastFrom: date('last_from'), lastTo: date('last_to'),
+    conditions: parseConditions(p.get('conditions')),
   };
 }
 
@@ -118,6 +122,7 @@ export function filtersToParams(f: QueueFilters): URLSearchParams {
   if (f.nextTo) p.set('next_to', f.nextTo);
   if (f.lastFrom) p.set('last_from', f.lastFrom);
   if (f.lastTo) p.set('last_to', f.lastTo);
+  if (f.conditions.length) p.set('conditions', JSON.stringify(f.conditions));
   return p;
 }
 
@@ -245,6 +250,7 @@ export function errorMessage(kind: string | null, status: number | null): string
     case 'hubspot_decode': return 'HubSpot の応答を読み取れませんでした。管理者に連絡してください。';
     case 'not_configured': return 'HubSpot への接続が設定されていません。管理者に連絡してください。';
     case 'cursor_mismatch': return '続きの読み込みに使う情報が古くなりました。最初から読み直してください。';
+    case 'invalid_conditions': return '追加条件を使えません。項目・値を確認し、追加条件・担当者・日付の指定を減らして再試行してください。';
     case 'invalid_param': return '条件の指定が正しくないため取得できませんでした。条件を見直してください。';
     case CLIENT_TIMEOUT_KIND: return '応答が時間内に返りませんでした。少し待ってから再試行してください。';
     case INVALID_RESPONSE_KIND: return 'サーバーの応答を読み取れませんでした。再試行し、続くときは管理者に連絡してください。';

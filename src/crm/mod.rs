@@ -29,6 +29,7 @@ pub mod pending;
 pub mod property_catalog;
 pub mod queue_cache;
 pub mod queue_pipelines;
+pub mod queue_property_filter;
 pub mod rbac;
 pub mod record_gate;
 pub mod record_lock;

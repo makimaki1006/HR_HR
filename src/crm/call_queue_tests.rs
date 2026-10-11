@@ -443,6 +443,8 @@ async fn start_hs(fake: FakeHs) -> (Arc<HubSpotClient>, Shared<FakeHs>) {
             )
             .route("/crm/v3/owners", get(hs_owners))
             .route("/crm/v3/pipelines/deals", get(hs_pipelines))
+            .route("/crm/v3/properties/{o}/groups", get(|| async { Json(json!({"results":[{"name":"dealinfo","label":"取引","displayOrder":0}]})) }))
+            .route("/crm/v3/properties/{o}", get(|| async { Json(json!({"results":[{"name":"amount","label":"金額","type":"number","fieldType":"number","groupName":"dealinfo"},{"name":"dealname","label":"案件名","type":"string","fieldType":"text","groupName":"dealinfo"}]})) }))
             .with_state(st.clone()),
     )
     .await;
@@ -3469,4 +3471,70 @@ fn 先読みは同時に_1_本で_続けて始めない() {
         !refresh_due(Duration::from_secs(100), ttl),
         "期限切れはその場で読む"
     );
+}
+
+fn conditions_query(conditions: Value, suffix: &str) -> String {
+    let mut params = reqwest::Url::parse("http://local.invalid/").unwrap();
+    params
+        .query_pairs_mut()
+        .append_pair("conditions", &conditions.to_string());
+    format!("?{}{}", params.query().unwrap(), suffix)
+}
+
+#[tokio::test]
+async fn 追加条件は検索と件数に同じ値を渡しキャッシュを分離する() {
+    let e = env(FakeHs::new()).await;
+    let a = conditions_query(
+        json!([{"property":"amount","operator":"GTE","values":["8000"]}]),
+        "",
+    );
+    let b = conditions_query(
+        json!([{"property":"amount","operator":"GTE","values":["9000"]}]),
+        "",
+    );
+    assert_eq!(e.admin_get(&a).await.0, StatusCode::OK);
+    let first = e.hs.lock().unwrap().search_calls;
+    assert_eq!(first, 3, "従来の3段階だけ。条件による検索追加なし");
+    assert_eq!(e.admin_get(&a).await.0, StatusCode::OK);
+    assert_eq!(e.hs.lock().unwrap().search_calls, first);
+    assert_eq!(e.admin_get(&b).await.0, StatusCode::OK);
+    assert_eq!(e.hs.lock().unwrap().search_calls, first * 2);
+    let hs = e.hs.lock().unwrap();
+    let searches: Vec<Value> = hs
+        .log
+        .iter()
+        .filter(|(path, _)| path.ends_with("/search"))
+        .map(|(_, body)| serde_json::from_str(body).unwrap())
+        .collect();
+    assert!(!searches.is_empty());
+    for body in searches {
+        for group in body["filterGroups"].as_array().unwrap() {
+            let fs = group["filters"].as_array().unwrap();
+            assert!(fs.iter().any(|f| f["propertyName"] == "amount"
+                && f["operator"] == "GTE"
+                && (f["value"] == "8000" || f["value"] == "9000")));
+            assert!(fs.len() <= 6);
+        }
+    }
+}
+
+#[tokio::test]
+async fn 許可外の項目と型違いと上限超過は400で検索しない() {
+    let e = env(FakeHs::new()).await;
+    for conditions in [
+        json!([{"property":"arbitrary_secret","operator":"EQ","values":["1"]}]),
+        json!([{"property":"amount","operator":"CONTAINS_TOKEN","values":["1"]}]),
+    ] {
+        let (status, body) = e.admin_get(&conditions_query(conditions, "")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error_kind"], "invalid_conditions");
+    }
+    let conditions = json!(vec![
+        json!({"property":"amount","operator":"GTE","values":["1"]});
+        3
+    ]);
+    let (status,body)=e.admin_get(&conditions_query(conditions,"&owner=111&last_from=2026-10-01&last_to=2026-10-05&next_from=2026-10-01&next_to=2026-10-05")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["message"], super::queue_property_filter::LIMIT_MESSAGE);
+    assert_eq!(e.hs.lock().unwrap().search_calls, 0);
 }
