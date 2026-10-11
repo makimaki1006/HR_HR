@@ -1,5 +1,6 @@
 import shared from './hrhCopyColumns.json';
 import draftColumns from '../../generated/jobgen/columns.json';
+import { manualLabel } from './manualEditModel';
 import { compareCopy, markInlineChanges, type CopyComparison, type MarkedDiffLine } from './diff';
 const columns = [...new Set([...draftColumns, ...shared])];
 export const normalizeFullBody = (text: string) => text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
@@ -78,6 +79,7 @@ export function compareColumns(before: string | null, after: string | null, befo
   return { ...comparison, changes };
 }
 const friendly: Record<string, string> = { '基本給与 最小': '給与の下限', '基本給与 最大': '給与の上限', '給与形態': '給与の種類', '試用・研修期の基本給与 最小': '研修中の給与の下限', '試用・研修期の基本給与 最大': '研修中の給与の上限', '試用・研修期の給与のタイプ': '研修中の給与の種類', '自由項目2の内容': '補足欄2の本文', '自由項目1の内容': '補足欄1の本文', '自由項目3の内容': '補足欄3の本文', '自由項目4の内容': '補足欄4の本文', '自由項目1のタイトル': '補足欄1の見出し', '自由項目2のタイトル': '補足欄2の見出し', '自由項目3のタイトル': '補足欄3の見出し', '自由項目4のタイトル': '補足欄4の見出し', '求人id': '求人の管理情報', '店舗id': '店舗の管理情報', '職種id': '職種の管理情報' };
+for (const key of draftColumns) if (/仕事情報補足|条件付き給与|タスク|稼働|Indeed|応募時通知先/.test(key)) friendly[key] ??= manualLabel(key);
 /** 表示だけを整える。全文の検知と列の値の比較には加工前の本文を使う。 */
 function displayOther(text: string): string {
   return text.split('\n').map(line => {

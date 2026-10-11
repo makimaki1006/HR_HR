@@ -5,6 +5,15 @@ import { ColumnComparison, compareColumns, savedColumns } from './ColumnComparis
 afterEach(cleanup);
 const before = '案件名：配送スタッフ\n自由項目2の内容：雇用保険 労災保険\n夜勤手当3,500円/回\n勤務時間：8時〜17時';
 describe('全文で検知して列で特定する', () => {
+  it('手直しできる補足・条件別給与も利用者向けの見出しで比較する', () => {
+    const keys = ['仕事情報補足1の内容', '条件付き給与1 条件', 'Indeed表示職種名', '平均稼働日数'];
+    const left = Object.fromEntries(keys.map(key => [key, '変更前']));
+    const right = Object.fromEntries(keys.map(key => [key, '変更後']));
+    render(<ColumnComparison result={compareColumns('変更前', '変更後', left, right)} />);
+    const text = screen.getByRole('table').textContent;
+    for (const key of keys) expect(text).not.toContain(key);
+    for (const label of ['仕事の案内1の本文', '条件別の給与（1）・適用する条件', '募集する職種', '平均の勤務日数']) expect(text).toContain(label);
+  });
   it('次の行の条件追加を検知し、その列の複数行値を丸ごと示す', () => {
     const after = before.replace('夜勤手当3,500円/回', '夜勤手当3,500円/回\n（月4回まで）');
     const result = compareColumns(before, after);
