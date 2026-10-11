@@ -40,6 +40,41 @@ class DockerContextTest(unittest.TestCase):
                          {'Cargo.toml': 'manifest', 'Cargo.lock': 'lock',
                           'src/main.rs': 'source', 'frontend/policy.json': 'policy'})
 
+    def test_single_file_copy_to_workdir_without_trailing_slash(self):
+        self.write('Cargo.toml', 'manifest')
+        for copy in ['COPY Cargo.toml .', 'COPY Cargo.toml ./',
+                     'COPY Cargo.toml /app', 'COPY Cargo.toml /app/',
+                     'COPY ["Cargo.toml", "."]']:
+            with self.subTest(copy=copy), tempfile.TemporaryDirectory() as temp:
+                self.dockerfile(copy)
+                workdir = materialize(self.repo, Path(temp))
+                self.assertTrue(workdir.is_dir())
+                self.assertEqual((workdir / 'Cargo.toml').read_text(), 'manifest')
+
+    def test_relative_workdir_copy_to_dot(self):
+        self.write('policy.json', 'policy')
+        self.dockerfile('WORKDIR nested\nCOPY policy.json .')
+        workdir = materialize(self.repo, self.root)
+        self.assertEqual(workdir, self.root / 'app/nested')
+        self.assertEqual((workdir / 'policy.json').read_text(), 'policy')
+
+    def test_all_workdirs_created_in_instruction_order(self):
+        self.write('policy.json', 'policy')
+        self.dockerfile('WORKDIR /earlier\nWORKDIR /later\n'
+                        'COPY policy.json /earlier\nWORKDIR empty')
+        workdir = materialize(self.repo, self.root)
+        self.assertEqual((self.root / 'earlier/policy.json').read_text(), 'policy')
+        self.assertEqual(workdir, self.root / 'later/empty')
+        self.assertTrue(workdir.is_dir())
+        self.assertEqual(list(workdir.iterdir()), [])
+
+    def test_workdir_is_not_created_before_preceding_copy(self):
+        self.write('policy.json', 'policy')
+        self.dockerfile('COPY policy.json /later\nWORKDIR /later')
+        with self.assertRaises(FileExistsError):
+            materialize(self.repo, self.root)
+        self.assertEqual((self.root / 'later').read_text(), 'policy')
+
     def test_ignore_patterns_negation_and_directory_contents(self):
         for name in ['src/main.rs', 'src/notes.md', 'src/nested/notes.md',
                      'src/node_modules/pkg/code.rs', 'src/keep.md']:
