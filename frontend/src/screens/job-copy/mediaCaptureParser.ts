@@ -97,16 +97,16 @@ function observedVersion(item: Record<string, unknown>, id: string, capturedAt: 
   }
   // Without the CSV's image URLs and with no images, the version's images are not known at all.
   const urlsUnknown = references === undefined && images.length === 0;
-  const archived = historicBytes !== false ? '' : urlsUnknown ? '過去時点の画像ファイルとこの版の画像URLは未取得です。前後の版と画像を比べられません。'
-    : `過去時点の画像ファイルは未保存です。${images.length ? '表示画像は後日取得したものです。' : ''}画像の変化は媒体CSVの画像URLと並び順で判定しています。`;
+  const archived = historicBytes !== false ? '' : urlsUnknown ? '過去時点の画像ファイルとこの本文に対応する画像の情報は未取得です。前回・次回の画像と比べられません。'
+    : `過去時点の画像ファイルは未保存です。${images.length ? '表示画像は後日取得したものです。' : ''}画像の変化は媒体に記載された画像の参照先と並び順で確認しています。`;
   return {
-    id, label: `${capturedLabel(capturedAt)}時点の求人内容`, source: historical ? 'HRハッカー過去CSV・画像参照' : 'HRハッカーCSV・掲載画像',
+    id, label: `${capturedLabel(capturedAt)}時点の求人内容`, source: historical ? 'HRハッカーの過去の本文・画像' : 'HRハッカーの本文・掲載画像',
     observedAt: capturedAt, certainty: 'unknown', kind: 'published', body: text(item.body, 100_000, true),
     ...(status.unavailable || (historicBytes === false && images.length === 0) ? {} : { images }), applications: null,
     ...(references === undefined ? {} : { imageReferences: references }),
     ...(typeof historicBytes === 'boolean' ? { historicalImageBytesAvailable: historicBytes } : {}),
     ...(item.observedRawStatus === undefined ? {} : { observedPublicationStatus: text(item.observedRawStatus, 100, true) }),
-    note: `媒体CSVから取得した版です。媒体での掲載・更新日時と応募情報は未取得です。${historical ? '過去CSVの取得ラベルは掲載切り替わり日時を示しません。' : ''}${status.note}${imageTime}${archived}${provenance}${timeBasis}`,
+    note: `媒体から取り込んだ本文です。媒体での掲載・更新日時と応募情報は未取得です。${historical ? '過去の本文を確認した日は、掲載内容が切り替わった日時ではありません。' : ''}${status.note}${imageTime}${archived}${provenance}${timeBasis}`,
   };
 }
 

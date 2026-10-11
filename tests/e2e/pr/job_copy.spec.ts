@@ -101,7 +101,7 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows.nth(1).locator('td')).toHaveText(['50日', '5件', '比べません', noRealBilling, '+4.5%（2026年7月 220件 → 2026年8月 230件）']);
     await expect(rows.nth(2).locator('td')).toHaveText(['0日', '別の行に数えます', '期間が短いため比べません', '—', '同じ月の中（2026年8月 230件）']);
     await expect(timeline.getByRole('region', { name: '期間比較表の数値' })).not.toContainText(/11万7,742円|2,355円/u);
-    await expect(timeline).toContainText('取得日の間・最後の取得より後の応募 5件 は、どちらの内容への応募か分からないため期間比較表の各版には入れていません');
+    await expect(timeline).toContainText('取得日の間・最後の取得より後の応募 5件 は、どちらの内容への応募か分からないため期間比較表の各本文には入れていません');
     // 掲載期間の段: 取得日の間を別の帯で示し、凡例は「掲載日は不明（取得日で表示）」
     const periodLane = timeline.getByRole('group', { name: '掲載期間', exact: true });
     await expect(periodLane.locator('.jt-zone')).toHaveCount(1);
@@ -189,14 +189,14 @@ test.describe('求人文面管理のタイムライン', () => {
     for (const mark of overlaps) expect(mark.pinTop, `${String(mark.label)} の線が文字に重なる`).toBeGreaterThanOrEqual(mark.textBottom);
   });
 
-  test('1100x623 で上の帯が 1 行に収まり、印を選ぶと「選んだ版」が画面内に出る', async ({ page }) => {
+  test('1100x623 で上の帯が 1 行に収まり、印を選ぶと「選んだ本文」が画面内に出る', async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 623 });
     await open(page);
     const topline = await page.locator('.jc-topline').evaluate(element => element.getBoundingClientRect().height);
     expect(topline).toBeLessThan(60);
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
     await timeline.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark').last().click();
-    const panel = timeline.getByRole('region', { name: '選んだ版', exact: true });
+    const panel = timeline.getByRole('region', { name: '選んだ本文', exact: true });
     await expect(panel).toContainText('2026/08/20時点の求人内容');
     await expect(panel).toBeInViewport({ ratio: 0.98 });
     await expect(panel).toContainText('2026/08/20 に取得（前回の取得 2026/07/01 以降に変化）');
@@ -294,11 +294,11 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(rows.nth(0).locator('td').nth(3)).toHaveText('—');
     await expect(rows.nth(1).locator('td').nth(3)).toHaveText('約2万円（仮の課金データ（ダミー）は合計に入れていません）');
     await expect(rows.nth(2).locator('td').nth(3)).toHaveText('—');
-    await expect(timeline.getByText('「約」の付いた課金額は、課金の期間と版の期間がずれているため、日数で割って配分した金額です。', { exact: true })).toBeVisible();
+    await expect(timeline.getByText('「約」の付いた課金額は、課金の期間と本文の表示期間がずれているため、日数で割って配分した金額です。', { exact: true })).toBeVisible();
     await expect(table.locator('[title]')).toHaveCount(0);
     // 本文の印: 画面の文字と読み上げが同じことを言う
     const marks = await timeline.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark').evaluateAll(elements => elements.map(element => [element.textContent, element.getAttribute('aria-label')]));
-    expect(marks).toEqual([['最初', '2026/07/01時点の求人内容の本文：最初の版'], ['追加1・削除1', '2026/08/20時点の求人内容の本文：1行追加・1行削除']]);
+    expect(marks).toEqual([['最初', '2026/07/01時点の求人内容の本文：最初の本文'], ['追加1・削除1', '2026/08/20時点の求人内容の本文：1行追加・1行削除']]);
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="jt-market"][data-chart-ready="true"]')).toHaveCount(1);
     // 求人内容でも、内部の呼び方（媒体取得版・受信版・確定対応・推定対応）を出さない

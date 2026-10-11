@@ -122,7 +122,17 @@ for (const [width, height] of [[1440, 900], [1440, 690], [1920, 900]]) {
       await expect(page.locator('.jc-detail-heading')).toContainText('特殊機械の組立スタッフ2');
       if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
       await expect.poll(() => wholeCards(page, '.jc-fixed-list .jc-job')).toBeGreaterThanOrEqual(5);
+      if (!pinned) {
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.jc-workspace')).not.toHaveClass(/jc-sidebar-open/);
+      }
+      await selectJobFeature(page, 'timeline');
+      await expect(page.getByRole('group', { name: '本文', exact: true })).toContainText('前回の本文との行ごとの比較');
+      await expect(page.getByRole('group', { name: '画像', exact: true })).toContainText('前回の画像との比較');
       await selectJobFeature(page, 'body');
+      await expect(page.locator('.jc-reading')).toContainText('媒体から取り込んだ本文です。');
+      await expect(page.locator('.jc-reading')).toContainText('この本文に対応する画像はありません。');
+      await expect(page.locator('.jc-reading')).not.toContainText(/この版|前の版|媒体CSVから/);
       await expect(page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true })).toBeVisible();
       await expect(page.locator('.jc-main')).not.toContainText('この版を前の版と比較する');
       if (!pinned) await page.getByRole('button', { name: '求人一覧を開く' }).hover();
