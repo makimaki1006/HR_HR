@@ -18,6 +18,15 @@ pub fn ensure_audit_tables(turso: &TursoDb) -> Result<(), String> {
 }
 
 const TABLE_DDL: &[&str] = &[
+    // ADR-022: reply deduplication/leases and consent health, not a CRM history copy.
+    r#"CREATE TABLE IF NOT EXISTS crm_gmail_reply_receipts (
+        message_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE,
+        claimed_by TEXT NOT NULL DEFAULT '', claim_until TEXT NOT NULL DEFAULT ''
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS crm_gmail_reply_status (
+        operator_email TEXT PRIMARY KEY, last_checked_at TEXT, last_imported_at TEXT,
+        expired_grant_at TEXT
+    )"#,
     // Gmail credentials only; email business history remains in HubSpot.
     r#"CREATE TABLE IF NOT EXISTS crm_gmail_grants (
         operator_email TEXT PRIMARY KEY, encrypted_refresh_token TEXT NOT NULL,

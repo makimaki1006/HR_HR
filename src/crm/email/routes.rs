@@ -35,10 +35,16 @@ pub(in crate::crm) async fn grant_status(
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable");
     };
     let who = p.email.unwrap_or_default();
-    match pending::blocking(audit, move |t| grants::get(t, &who)).await {
+    match pending::blocking(audit, move |t| {
+        Ok::<_, String>(
+            grants::get(t, &who)?.is_some() && !super::replies::sync_status(t, &who)?.grant_expired,
+        )
+    })
+    .await
+    {
         Ok(Ok(t)) => Json(GmailGrantStatus {
             enabled: state.google_oidc.is_some(),
-            granted: t.is_some(),
+            granted: t,
         })
         .into_response(),
         _ => error_json(StatusCode::SERVICE_UNAVAILABLE, "queue_unavailable"),
@@ -226,6 +232,7 @@ pub(in crate::crm) async fn send_email(
         Err(_) => return error(EmailError::Tracking),
     };
     let email = EmailOperation {
+        reply: None,
         contact_id: req.contact_id.clone(),
         contact_ids,
         to,
@@ -353,6 +360,7 @@ pub(in crate::crm) async fn list_emails(
                 .filter_map(|row| {
                     let e = row.payload.email.as_ref()?;
                     Some(super::PendingEmailActivity {
+                        incoming: e.reply.is_some(),
                         result: EmailResult::from_row(&row),
                         subject: e.subject.clone(),
                         to: e.to.clone(),
