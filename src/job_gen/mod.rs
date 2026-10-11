@@ -24,6 +24,7 @@
 pub mod claim_audit;
 pub mod commute;
 pub mod contract;
+pub mod copy_display;
 pub mod coverage_gate;
 pub mod customer_report;
 pub mod drafts;
