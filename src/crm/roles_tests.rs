@@ -322,6 +322,7 @@ fn state_with(
         company_geo_cache: None,
         audit,
         google_oidc: None,
+        crm_hubspot: None,
         hubspot,
     })
 }

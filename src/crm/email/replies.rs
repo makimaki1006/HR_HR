@@ -84,7 +84,7 @@ pub(in crate::crm) async fn status(
 pub fn spawn_worker(state: Arc<AppState>) {
     let (Some(audit), Some(client), Some(service)) = (
         state.audit.clone(),
-        state.hubspot.clone(),
+        state.crm_hubspot(),
         EmailService::from_env(),
     ) else {
         return;

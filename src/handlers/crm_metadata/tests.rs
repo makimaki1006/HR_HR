@@ -225,6 +225,7 @@ async fn real_application_api_returns_json_401_instead_of_login_redirect() {
         company_geo_cache: None,
         audit: None,
         google_oidc: None,
+        crm_hubspot: None,
         hubspot: None,
     });
     let response = crate::build_app(state)

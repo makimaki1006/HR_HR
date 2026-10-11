@@ -107,7 +107,7 @@ pub(in crate::crm) async fn send_email(
     let Some(audit) = state.audit.clone() else {
         return error(EmailError::Storage);
     };
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return error_json(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     let operator = p.email.unwrap_or_default();

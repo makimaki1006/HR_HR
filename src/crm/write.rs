@@ -638,7 +638,7 @@ pub(super) async fn get_edit_schema(
     if !is_valid_id(&deal_id) {
         return err(StatusCode::BAD_REQUEST, "invalid_id");
     }
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return err(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     let work = async {
@@ -1222,7 +1222,7 @@ pub(super) async fn patch_deal(
     if !ctx.write.allows(&deal_id) {
         return err(StatusCode::FORBIDDEN, "writes_disabled");
     }
-    let Some(client) = state.hubspot.clone() else {
+    let Some(client) = state.crm_hubspot() else {
         return err(StatusCode::SERVICE_UNAVAILABLE, "not_configured");
     };
     let Some(audit) = state.audit.clone() else {
@@ -2499,7 +2499,7 @@ pub async fn run_due(
 
 /// 再送 worker を始める (背景の優先度で HubSpot を呼ぶ。書き込みでポーリングしない)
 pub fn spawn_worker(state: Arc<AppState>) {
-    let (Some(audit), Some(client)) = (state.audit.clone(), state.hubspot.clone()) else {
+    let (Some(audit), Some(client)) = (state.audit.clone(), state.crm_hubspot()) else {
         return;
     };
     let client = client.background();

@@ -1,4 +1,4 @@
-//! HubSpot 呼び出しの関所 (gateway)。プロセス内の全 HubSpot 呼び出しが 1 つの流量制限を共有する。
+//! HubSpot 呼び出しの関所 (gateway)。同じ鍵の HubSpot 呼び出しが流量制限を共有する。
 //!
 //! 設計: `docs/architecture/headless-crm-design.md` §18 (HubSpot 呼び出しの関所)。
 //!
@@ -10,13 +10,14 @@
 //!   `Background` (キャッシュの更新・常駐の取得) が進む。同じ優先度の中は到着順。
 //! - **待ちの上限**: 優先度ごとに待てる時間がある。並んだ時点の見積もりが上限を超えるなら並ばずに、
 //!   並んだ後でも上限に達したら列から抜けて [`Busy`] を返す (呼び出し側は 503 `hubspot_busy`)。
-//! - **429**: どの要求が 429 を受けても、`Retry-After` (無ければ最低待ち時間) の間は全員を止める。
+//! - **429**: どの要求が 429 を受けても、`Retry-After` (無ければ最低待ち時間) の間は同じ鍵の要求を止める。
 //! - **観測**: 呼び出し回数 (種類別)・Search 回数・429 回数・まとめた回数・断った回数・待ち時間 (直近 5 分の
 //!   p50 / p95)・最後に見た `X-HubSpot-RateLimit-*` を持つ。`/api/admin/hubspot-usage` が読む。鍵は持たない。
 //!
 //! 時刻は `tokio::time::Instant` (テストで `start_paused` の仮想時計を使えるように)。
 
-use std::collections::{BTreeMap, VecDeque};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -411,7 +412,7 @@ impl std::fmt::Debug for Gateway {
     }
 }
 
-static SHARED: OnceLock<Arc<Gateway>> = OnceLock::new();
+static SHARED: OnceLock<Mutex<HashMap<[u8; 32], Arc<Gateway>>>> = OnceLock::new();
 
 /// 列から抜ける (許可・断り・取り消し) ときに必ず券を消す
 struct TicketGuard<'a> {
@@ -456,10 +457,21 @@ impl Gateway {
         }
     }
 
-    /// プロセスで 1 つの関所 (環境変数の設定)。本番の HubSpot クライアントは全部これを使う
+    /// 従来の共通鍵の関所。独自 HTTP を使う既存 CLI もこの枠に入る
     pub fn shared() -> Arc<Gateway> {
-        SHARED
-            .get_or_init(|| {
+        Self::shared_for_token(&std::env::var("HUBSPOT_ACCESS_TOKEN").unwrap_or_default())
+    }
+
+    /// 同じ鍵は同じ枠。鍵そのものは表・ログ・観測値に保持しない。
+    pub fn shared_for_token(token: &str) -> Arc<Gateway> {
+        let key: [u8; 32] = Sha256::digest(token.trim().as_bytes()).into();
+        let mut pools = SHARED
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        pools
+            .entry(key)
+            .or_insert_with(|| {
                 let cfg = GatewayConfig::from_env();
                 tracing::info!(
                     per_second = cfg.per_second,
@@ -467,7 +479,7 @@ impl Gateway {
                     search_interval_ms = cfg.search_interval.as_millis() as u64,
                     interactive_max_wait_ms = cfg.interactive_max_wait.as_millis() as u64,
                     background_max_wait_ms = cfg.background_max_wait.as_millis() as u64,
-                    "HubSpot 呼び出しの関所を初期化しました"
+                    "HubSpot 呼び出しの関所を鍵ごとに初期化しました"
                 );
                 Arc::new(Gateway::new(cfg))
             })

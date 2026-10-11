@@ -74,14 +74,34 @@
 
 ユーザー側の準備 (Google Cloud): OAuth 同意画面を「内部」で作成 → OAuth クライアント ID (ウェブアプリ) を作成 → 承認済みリダイレクト URI に上の URL を登録 → 4 つを Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
 
-## 2d. HubSpot CRM API (1 個、2026-09-29 追加、Headless CRM PR2)
+## 2d. HubSpot API の鍵 (CRM 専用鍵は任意)
 
-`src/config.rs` `HubSpotApiConfig::from_env()` が読む。前後の空白は落とし、空文字は未設定扱い。`Debug` 出力ではトークンを `***` に伏せる。
+`HubSpotApiConfig::from_env()` は従来の鍵、`crm_from_env()` は CRM 専用鍵を優先して読む。前後の空白を落とし、空文字は未設定扱い。`Debug` は値を伏せ、起動ログには選択した変数名だけを出す。変更後は再起動する。
 
 | # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照 |
 |---|------|----------|------|-------------|------|
-| 25 | `HUBSPOT_ACCESS_TOKEN` | `""` | HubSpot CRM API の Bearer トークン (`Authorization: Bearer`)。Legacy Private App / static auth アプリ / Service Key のどれでも同じ形で扱う。スコープは読み取りのみ (`crm.objects.contacts.read` / `crm.objects.companies.read` / `crm.objects.deals.read` / `crm.objects.owners.read`) を推奨し、書き込みスコープは PR4 まで付けない。秘密情報のためログ・API 応答に出さない | `/api/crm/*` は 503 `not_configured`。他機能には影響なし | `src/config.rs` / `src/hubspot/` / `src/crm/` |
-| 26 | `CRM_METADATA_ALLOWED_EMAILS` | `""` | `/api/crm/*` (定義 `metadata` とレコード読み取り) を読める人のメール (カンマ区切り、大文字小文字を区別しない完全一致)。Google Workspace OIDC ログインであることも必須 (共有・外部パスワードは 403、未ログインは JSON 401)。役割 (RBAC) の本実装までの暫定。変更後は再起動 | 空なら全員 403 | `src/crm/rbac.rs` `CrmAccess::from_env()` |
+| 25 | `HUBSPOT_ACCESS_TOKEN` | `""` | 従来の共通 Bearer トークン。求人文面・営業KPI など CRM 以外の機能と、専用鍵がない場合の CRM に使用 | 専用鍵もなければ CRM は 503 `not_configured`。専用鍵だけあれば CRM は利用可能 | `src/config.rs` / `src/main.rs` |
+| 25b | `HUBSPOT_CRM_ACCESS_TOKEN` | `""` | CRM 専用 private app の Bearer トークン。`/api/crm/*`、メール記録、返信取り込み、保存待ちの再送で優先。共通鍵の値は変更しない | `HUBSPOT_ACCESS_TOKEN` に戻る | 同上 / `src/crm/` |
+| 26 | `CRM_METADATA_ALLOWED_EMAILS` | `""` | Google Workspace ログインと既存 RBAC に加えるメールの絞り込み (カンマ区切り、完全一致)。変更後は再起動 | 追加のメール絞り込みなし。RBAC は必須 | `src/crm/rbac.rs` |
+
+### 専用 private app に付けるスコープ
+
+現在の `/crm/v3`・`/crm/v4` 呼び出しに対応する Legacy Private App の構成。読み取りと書き込みを下記のとおり付ける。Gmail 送信の権限は Google 側で別に取得する。
+
+| 種別 | スコープ | 実際の API / 利用機能 |
+|------|----------|---------------------|
+| 読み取り | `crm.objects.deals.read` | deals の GET・batch/read・search、取引プロパティ定義・グループ、パイプライン、関連ラベル / batch/read。架電一覧・詳細・段階ルール |
+| 読み取り | `crm.objects.contacts.read` | contacts の GET・batch/read・search、プロパティ定義・関連。担当者詳細・宛先・活動 (calls / notes / tasks / meetings / emails) の取得 |
+| 読み取り | `crm.objects.companies.read` | companies の GET・batch/read、プロパティ定義・関連。会社情報 |
+| 読み取り | `crm.objects.owners.read` | `GET /crm/v3/owners`。担当者一覧・操作者の owner ID |
+| 読み取り | `sales-email-read` | emails の GET・batch/read・search の本文取得。活動ログ・送信/返信の Message-ID 重複確認 |
+| 書き込み | `crm.objects.deals.write` | `PATCH /crm/v3/objects/deals/{id}`。段階・取引項目の保存 / 再送、メールの取引への関連付け |
+| 書き込み | `crm.objects.contacts.write` | `PATCH /crm/v3/objects/contacts/{id}`、`POST /crm/v3/objects/emails`、emails の取引・コンタクトへの関連付け。担当者項目・送信/受信メール記録 / 再送 |
+| 書き込み | `crm.objects.companies.write` | `PATCH /crm/v3/objects/companies/{id}`。会社項目の保存 / 再送 |
+
+定義の読み取りは上記オブジェクトの読み取り権限で行える。プロパティ・パイプラインの作成変更、Call 作成、マーケティングメール送信、求人 listing の権限は CRM 専用鍵に不要。実装は `src/hubspot/client.rs` と `src/crm/{routes,workspace,write,email}.rs`。
+
+参照: [スコープ一覧](https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/scopes)、[メール記録 API](https://developers.hubspot.com/docs/api-reference/legacy/crm/activities/emails/guide)、[メール本文の権限](https://developers.hubspot.com/changelog/announcement-new-scope-required-to-get-the-content-of-email-engagements)、[公式 OpenAPI 定義](https://github.com/HubSpot/HubSpot-public-api-spec-collection/tree/master/PublicApiSpecs/CRM)。
 
 ### 2d-1. Headless CRM の書き込み (3 個、2026-10-09 追加、ADR-018)
 
@@ -94,22 +114,24 @@
 | 29 | `CRM_PENDING_MAX` | `50000` | 一時障害で再送待ち (`crm_pending_operations.status = 'pending'`) にできる件数の上限。超えたら 503 `queue_full` で何も積まない | 既定 | `src/crm/write.rs` |
 | 29b | `CRM_WRITE_RATE_PER_MIN` | `200` | 1 人あたりの保存受付の上限 (1 分あたり、最小 1)。超えたら 429 `rate_limited` で何も保存しない (再送待ちにも積まない) | 既定。0・数でない値も既定 | `src/crm/write.rs` |
 
-書き込みには HubSpot の書き込みスコープ (`crm.objects.deals.write` ほか、担当者・会社も書くなら `contacts.write` / `companies.write`) が `HUBSPOT_ACCESS_TOKEN` に必要。監査 Turso に表 `crm_pending_operations` を起動時に自動作成する (`CREATE TABLE IF NOT EXISTS`、手動作業なし)。
+書き込みには HubSpot の書き込みスコープ (`crm.objects.deals.write` ほか、担当者・会社も書くなら `contacts.write` / `companies.write`) が選択された CRM の鍵 (`HUBSPOT_CRM_ACCESS_TOKEN`、未設定時は `HUBSPOT_ACCESS_TOKEN`) に必要。監査 Turso に表 `crm_pending_operations` を起動時に自動作成する (`CREATE TABLE IF NOT EXISTS`、手動作業なし)。
 
 ### 2d-2. HubSpot 呼び出しの関所 (6 個、2026-10-08 追加)
 
-`src/hubspot/gateway.rs` `GatewayConfig::from_env()` と `src/hubspot/client.rs` `base_url_from_env()` が読む。このプロセスの全 HubSpot 呼び出し (CRM 画面・求人票コピー・営業KPI 直読み・管理画面の鍵確認) が 1 つの流量制限を共有する。範囲外・数字以外は既定値に戻して warn を出す。設計は `docs/architecture/headless-crm-design.md` §18。観測値は `/api/admin/hubspot-usage` (管理画面 `/app/admin?view=hubspot`)。
+`src/hubspot/gateway.rs` `GatewayConfig::from_env()` と `src/hubspot/client.rs` `base_url_from_env()` が読む。このプロセスで同じ鍵の HubSpot 呼び出しが同じ流量制限を共有し、異なる鍵は別の枠を持つ。CRM は専用鍵を優先し、求人票コピー・営業KPI 直読みは従来の鍵を使う。範囲外・数字以外は既定値に戻して warn を出す。設計は `docs/architecture/headless-crm-design.md` §18。選択された CRM の鍵の観測値は `/api/admin/hubspot-usage` (管理画面 `/app/admin?view=hubspot`)。
 
 | # | 変数 | デフォルト | 用途 | 未設定時影響 | 参照 |
 |---|------|----------|------|-------------|------|
-| 27 | `HUBSPOT_APP_RATE_PER_SEC` | `8` (範囲 1〜19) | Search 以外の呼び出しの、このアプリの 1 秒あたりの上限 (どの 1 秒を切り取っても超えない) | 既定値 | `src/hubspot/gateway.rs` |
-| 28 | `HUBSPOT_APP_RATE_PER_10S` | `80` (範囲 1〜190) | 同じく 10 秒あたりの上限。HubSpot の上限 190 / 10 秒のうち残りは鍵を共有する外部バッチの分 | 既定値 | 同上 |
-| 29 | `HUBSPOT_APP_SEARCH_PER_SEC` | `3` (範囲 1〜5) | Search の 1 秒あたりの上限 (アプリ全体で共有。HubSpot 側はアカウントで 5 / 秒。残り 2 / 秒は外部バッチの分) | 既定値 | 同上 |
+| 27 | `HUBSPOT_APP_RATE_PER_SEC` | `8` (範囲 1〜19) | Search 以外の呼び出しの、鍵ごとの 1 秒あたりの上限 (どの 1 秒を切り取っても超えない) | 既定値 | `src/hubspot/gateway.rs` |
+| 28 | `HUBSPOT_APP_RATE_PER_10S` | `80` (範囲 1〜190) | 鍵ごとの 10 秒あたりの上限。HubSpot の上限 190 / 10 秒のうち残りは鍵を共有する外部バッチの分 | 既定値 | 同上 |
+| 29 | `HUBSPOT_APP_SEARCH_PER_SEC` | `3` (範囲 1〜5) | Search の 1 秒あたりの上限 (鍵ごとの枠。HubSpot 側はアカウントで 5 / 秒なので、別の鍵も含む合計は共有) | 既定値 | 同上 |
 | 30 | `HUBSPOT_INTERACTIVE_MAX_WAIT_MS` | `5000` (範囲 100〜60000) | 画面の操作 (CRM・求人票コピーの読み取り) が順番を待てる上限。超える・超えると見込まれるときは HubSpot を呼ばずに 503 `hubspot_busy` (画面は「HubSpot が混み合っています。少し待ってから再試行してください」)。CRM のレコード読み取りの同時実行枠の待ちもこの時間まで | 既定値 | 同上 / `src/crm/routes.rs` `acquire_read_slot` |
 | 31 | `HUBSPOT_BACKGROUND_MAX_WAIT_MS` | `60000` (範囲 100〜600000) | 背景の取得 (定義系キャッシュの先読み・営業KPI 直読み) が待てる上限 | 既定値 | 同上 |
 | 32 | `HUBSPOT_BASE_URL` | `""` (= `https://api.hubapi.com`) | HubSpot API の接続先の差し替え。負荷試験の偽 HubSpot (`scripts/loadtest/`) 用。`http://` / `https://` で始まる値だけ使う。**鍵 (Bearer) はこの接続先に送られる**ので本番では設定しない | `https://api.hubapi.com` | `src/hubspot/client.rs` `base_url_from_env()` |
 
-鍵は既存の HubSpot Service Key (sales-automation-api) を共有する (2026-09-29 ユーザー決定 P-2。HR_HR 専用キーは発行しない)。既存バッチ群とレート上限 (10 秒あたりの上限、Search 5 req/秒/アカウント) を共有するため、アプリ全体の Search を 3 req/秒 (`HUBSPOT_APP_SEARCH_PER_SEC`) に絞り、429 は Retry-After (無ければ最低 1 秒) を待って最大 2 回だけ retry する。ユーザー側の準備: 同じ値を Render の環境変数に設定 (`render.yaml` は `sync: false` で名前だけ)。
+専用鍵を設定すると CRM と既存機能の短時間の枠・待ち行列・429 停止を分離する。同じ鍵を両変数に設定した場合は同じ枠。各枠の設定値は既定の 8 / 秒・80 / 10 秒・Search 3 / 秒を維持する。**日次上限は同一アカウントの全 private app で共有され、Search の公式上限もアカウントで 5 / 秒**なので、鍵を分けてもこれらの総量は増えない。日次の別枠や新しい保存先は追加しない。429 の再試行は従来どおり最大 2 回。ユーザー側の準備: 上記権限の private app を用意し、任意の専用鍵を実行環境に設定する。未設定なら従来の鍵で動く。
+
+参照: [HubSpot 利用上限](https://developers.hubspot.com/docs/developer-tooling/platform/usage-guidelines)、[Search の上限](https://developers.hubspot.com/docs/api-reference/latest/crm/search-the-crm)。
 
 > ⚠ この文書の見出しの「19 個」は 2026-04-26 時点の数。その後 `config.rs` に Turso 系が入り（§2 の 4 個は今は `AppConfig::from_env` にある）、`src/` の `env::var` の名前は 2026-09-28 時点で 43 個。全体の棚卸しは別作業。
 
