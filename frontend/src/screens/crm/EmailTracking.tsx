@@ -35,9 +35,8 @@ export function EmailTracking({ emailId }: { emailId: string }) {
   const first = data.opens.count > 0 ? shortDate(data.opens.first_at) : null;
   const automatic = data.automatic_opens.count + data.automatic_clicks.count > 0;
   return <div className="wd-email-tracking" data-testid="email-tracking">
-    <p className="wd-act-meta" data-testid="email-tracking-summary">{data.opens.count > 0 ? `開封 ${String(data.opens.count)} 回` : '未開封'}{last && `（最後 ${last}）`}・クリック {data.clicks.count} 回</p>
     <details key={emailId} className="wd-email-tracking-details">
-      <summary>開封・クリックの詳細</summary>
+      <summary className="wd-act-meta" aria-label="開封・クリックの詳細"><span data-testid="email-tracking-summary">{data.opens.count > 0 ? `開封 ${String(data.opens.count)} 回` : '未開封'}{last && `（最後 ${last}）`}・クリック {data.clicks.count} 回</span></summary>
       {first && <p>最初の開封 {first}{last && `・最後の開封 ${last}`}</p>}
       {automatic && <p className="wd-email-tracking-automatic" data-testid="email-tracking-automatic">ほかに自動の確認とみられるもの：開封 {data.automatic_opens.count} 回・クリック {data.automatic_clicks.count} 回（数に含めていません）</p>}
       {data.links.filter(link => link.clicks.count > 0 || link.automatic_clicks.count > 0).map(link => <p key={link.link_no}>
