@@ -681,6 +681,62 @@ impl HubSpotClient {
         }
     }
 
+    /// Email CREATE is never retried by the transport. Caller persists/reconciles its Message-ID.
+    pub async fn create_email(
+        &self,
+        properties: Value,
+        deal_id: &str,
+        contact_ids: &[String],
+    ) -> Result<String, HubSpotError> {
+        check_id(deal_id)?;
+        let mut associations = vec![
+            json!({"to":{"id":deal_id},"types":[{"associationCategory":"HUBSPOT_DEFINED","associationTypeId":210}]}),
+        ];
+        for id in contact_ids {
+            check_id(id)?;
+            associations.push(json!({"to":{"id":id},"types":[{"associationCategory":"HUBSPOT_DEFINED","associationTypeId":198}]}));
+        }
+        let reply = self
+            .raw_once_with(
+                self.priority,
+                &Method::POST,
+                "/crm/v3/objects/emails",
+                &[],
+                Some(&json!({"properties":properties,"associations":associations})),
+            )
+            .await?;
+        let body = email_reply(reply)?;
+        body["id"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or(HubSpotError::Decode("missing email id".into()))
+    }
+    pub async fn associate_email(
+        &self,
+        email_id: &str,
+        object: &str,
+        id: &str,
+        association_type: u16,
+    ) -> Result<(), HubSpotError> {
+        check_id(email_id)?;
+        check_id(id)?;
+        if !matches!(
+            (object, association_type),
+            ("deals", 210) | ("contacts", 198)
+        ) {
+            return Err(HubSpotError::Decode("invalid email association".into()));
+        }
+        let path = format!(
+            "/crm/v3/objects/emails/{email_id}/associations/{object}/{id}/{association_type}"
+        );
+        email_reply(
+            self.raw_once_with(self.priority, &Method::PUT, &path, &[], None)
+                .await?,
+        )
+        .map(|_| ())
+    }
+
     /// `POST /crm/v3/objects/{object}/batch/read` (読み取り。最大 100 件ずつに分割)。
     /// 見つからない ID は結果に含まれないだけでエラーにしない。
     pub async fn batch_read(
@@ -1032,8 +1088,12 @@ impl HubSpotClient {
                 HubSpotError::Transport(transport_message(e))
             }
         })?;
-        let v = serde_json::from_slice::<Value>(&bytes)
-            .map_err(|_| HubSpotError::Decode("invalid json".into()))?;
+        let v = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice::<Value>(&bytes)
+                .map_err(|_| HubSpotError::Decode("invalid json".into()))?
+        };
         Ok(RawReply {
             status: status.as_u16(),
             retry_after_secs,
@@ -1231,3 +1291,14 @@ fn flight_key(
 #[cfg(test)]
 #[path = "client_tests.rs"]
 mod client_tests;
+
+fn email_reply(reply: RawReply) -> Result<Value, HubSpotError> {
+    match reply.status {
+        200..=299 => Ok(reply.body.unwrap_or(Value::Null)),
+        401 | 403 => Err(HubSpotError::Auth {
+            status: reply.status,
+        }),
+        429 => Err(HubSpotError::RateLimited),
+        status => Err(HubSpotError::Upstream { status }),
+    }
+}
