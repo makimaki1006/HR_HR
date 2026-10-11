@@ -86,7 +86,6 @@ pub(super) fn protected(
         || key.contains("タスク")
         || key.contains("雇用")
         || key.contains("研修")
-        || key == "店舗id"
         || key == "通勤経路"
         || key == "最寄り駅"
         || key.starts_with("自由項目")
@@ -200,6 +199,20 @@ mod tests {
             snapshot(&req, &properties, None).unwrap().row["公開"],
             "非公開"
         );
+    }
+    #[test]
+    fn saved_draft_with_missing_management_keeps_current_identity_without_a_reason() {
+        let (mut req, properties) = fixture();
+        let mut base = snapshot(&req, &properties, None).unwrap();
+        for key in ["求人id", "店舗id", "職種id"] {
+            base.row.insert(key.into(), String::new());
+        }
+        req.base_draft_id = Some(base.draft_id.clone());
+        req.base_body_hash = drafts::hash(&drafts::compose_body(&base.row));
+        let saved = snapshot(&req, &properties, Some(&base)).unwrap();
+        assert_eq!(saved.row["求人id"], "secret-job");
+        assert_eq!(saved.row["店舗id"], "secret-shop");
+        assert!(saved.manual_edit.unwrap().changed_conditions.is_empty());
     }
     #[test]
     fn salary_location_hours_employment_and_holidays_need_reason() {

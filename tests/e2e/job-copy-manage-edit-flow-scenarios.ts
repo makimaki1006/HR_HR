@@ -142,6 +142,28 @@ export function manageEditScenarios(login?: (page: Page) => Promise<void>) {
       await page.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
       await expect(page.getByRole('region', { name: '求人の手直し' })).toContainText('案を保存する権限がありません');
     });
+    test('保存済み案に管理情報がなくても現在の値を保って手直しできる', async ({ page }) => {
+      const { requests, drafts } = await mockFlow(page);
+      drafts[0]!.row = { ...row, '求人id': '', '店舗id': '', '職種id': '' };
+      await page.goto('/app/job-copy?listing=30&demo=1');
+      await page.getByRole('button', { name: '保存済みの案を手直しする' }).click();
+      const editor = page.getByRole('region', { name: '求人の手直し' });
+      await editor.getByLabel('求人の見出し').fill('見出しを手直しした配送スタッフ');
+      await expect(editor.getByLabel('条件を変更する理由')).toHaveCount(0);
+      await editor.getByRole('button', { name: '確認待ちの案として保存して比較' }).click();
+      await expect(page.locator('.jc-comparison')).toBeVisible();
+      expect(requests[0].body.row).toMatchObject({ '求人id': 'secret-job', '店舗id': 'secret-shop', '職種id': 'secret-role' });
+      expect(requests[0].body.reason).toBe('');
+    });
+    test('今の版が未取得の場合は保存を止め、再取得を案内する', async ({ page }) => {
+      const { requests, drafts } = await mockFlow(page);
+      await page.route('**/api/job-copy/listings/30/versions', route => route.fulfill({ json: { listing: { id: '30', media: 'hrh', media_job_id: 'secret-job', account_id: null, title: '架空配送スタッフ', prefecture: null, municipality: null, category: null, publication_status: null, last_csv_detected_at: null, application_count: null }, versions: [], drafts, current_row: null, current: null, history_counts: {}, history_may_be_incomplete: false, draft_revision: 'a'.repeat(64), can_write_drafts: true } }));
+      await page.goto('/app/job-copy?listing=30&demo=1');
+      await expect(page.getByRole('button', { name: '今の版を手直しする' })).toBeDisabled();
+      await expect(page.getByRole('button', { name: '保存済みの案を手直しする' })).toBeDisabled();
+      await expect(page.getByText('今の版の本文が未取得のため、手直しを保存できません。求人を再取得して内容を確認してください。')).toBeVisible();
+      expect(requests).toHaveLength(0);
+    });
     test('手直しを閉じて既存の求人票表示と比較へ戻れる', async ({ page }) => {
       await mockFlow(page); await page.goto('/app/job-copy?listing=30&demo=1');
       await page.getByRole('button', { name: '今の版を手直しする' }).click();
