@@ -63,14 +63,21 @@ export function listingPopupModel(job: JobCopyRecord, version?: CopyVersion) {
   if (unresolvedImages.length) sections.push({ heading: '画像の案内', entries: unresolvedImages.map((item, i) => ({ ...item, key: `image-note-${String(i)}` })) });
   // Only add separately observed current images to the latest body (or no body).
   const observedImages = (current || !version) && images === undefined ? job.currentImageObservation : undefined;
-  const missingKeys = [...new Set([...columns.filter(key => !isManagement(key) && !imageKeys.includes(key)), '勤務地', '休日・休暇', '福利厚生', ...fields.keys()])];
-  const missing = missingKeys.filter(key => !isManagement(key) && !imageKeys.includes(key) && !get(key).trim()).map(comparisonLabel);
-  if (images === undefined && !observedImages) missing.push('画像');
   const publication = get('公開').trim() ? displayCode('公開', get('公開')) === '確認が必要' ? '確認が必要' : publicationLabel(get('公開'))
     : version?.observedPublicationStatus ? publicationLabel(version.observedPublicationStatus) : (current || !version) ? publicationLabel(job.listingPublicationStatus ?? null) : '未取得';
+  const title = get('案件名').trim() || job.title;
+  const location = get('勤務地').trim() || ((current || !version) ? job.location : '') || '未取得';
+  // A summary value can come from independently acquired listing data.
+  const summaryValues: Record<string, string> = { 求人名: title, 公開状況: publication, 勤務地: location, 給与: salary };
+  const missingKeys = [...new Set([...columns.filter(key => !isManagement(key) && !imageKeys.includes(key)), '勤務地', '休日・休暇', '福利厚生', ...fields.keys()])];
+  const missing = missingKeys.filter(key => {
+    const summary = summaryValues[comparisonLabel(key)];
+    return !isManagement(key) && !imageKeys.includes(key) && !get(key).trim() && !(summary && !['未取得', '求人名未取得'].includes(summary));
+  }).map(comparisonLabel);
+  if (images === undefined && !observedImages) missing.push('画像');
   const total = (current || !version) ? job.overallApplications?.total ?? job.listingApplicationCount : undefined;
   return { sections, missing, images, observedImages, hasCurrentConditions, salary, publication,
-    title: get('案件名').trim() || job.title, location: get('勤務地').trim() || (current ? job.location : '') || '未取得',
+    title, location,
     applications: total == null ? '未取得' : `${String(total)}件`,
   };
 }
