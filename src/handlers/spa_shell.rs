@@ -176,7 +176,16 @@ fn render_screen(manifest: Option<&AppManifest>, screen: &str) -> Response {
         return (StatusCode::NOT_FOUND, "Not Found").into_response();
     }
     match manifest.and_then(|m| m.entry_for(screen).map(|e| (m, e))) {
-        Some((m, entry)) => Html(shell_html(entry, &m.css_for(entry))).into_response(),
+        Some((m, entry)) => {
+            let mut html = shell_html(entry, &m.css_for(entry));
+            if screen == "crm" && crate::crm::email::EmailConfig::from_env().is_some() {
+                html = html.replace(
+                    "id=\"app-root\"",
+                    "id=\"app-root\" data-crm-email-enabled=\"1\"",
+                );
+            }
+            Html(html).into_response()
+        }
         None => Html(not_built_html(screen)).into_response(),
     }
 }

@@ -676,9 +676,9 @@ export function CallQueueScreen({ fetcher, ownersFetcher, detailFetcher, metadat
     overview: <section className="cq-col cq-detail" aria-label="選んだ架電先の詳細">
       {waitingKey ? <div className="cq-detail-scroll"><p role="status" className="cq-loading">詳細を読み込み中…</p></div>
         : <DealOverview state={detailState} reload={detail.reload} refresh={detail.refresh} zoom={zoomForDetail} stopLabel={stopLabel}
-          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} density={density} stageMove={writeBindings.stage} />}
+          callBar={callBar} onOpenZoom={mode === 'live' ? openZoom : undefined} density={density} stageMove={writeBindings.stage} sample={mode === 'fixture'} />}
     </section>,
-    activity: <ActivityLog data={shownData} placeholder={placeholder} ownerNames={ownerNames} />,
+    activity: <ActivityLog data={shownData} placeholder={placeholder} ownerNames={ownerNames} sample={mode === 'fixture'} />,
     // 架電結果の入力欄。案件を選んでいるときだけ出す。下書きだけで HubSpot には送らない
     result: selectedId === null ? <div className="dock-scroll"><p className="dock-placeholder">{placeholder}</p></div>
       : <div className="cq-result-slot" data-testid="result-slot" data-deal-id={selectedId}>

@@ -91,6 +91,8 @@ pub struct StageMove {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Payload {
     pub steps: Vec<Step>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<super::email::EmailOperation>,
 }
 
 /// 台帳の 1 行
@@ -308,12 +310,26 @@ pub fn list_ops(turso: &TursoDb, status: &str, limit: i64) -> Result<Vec<OpRow>,
     Ok(rows.iter().filter_map(row_to_op).collect())
 }
 
+/// Own unfinished email activities in a deal. One SELECT, no per-row round trips.
+pub fn list_email_ops(
+    turso: &TursoDb,
+    operator: &str,
+    deal_id: &str,
+) -> Result<Vec<OpRow>, String> {
+    let rows = turso.query(
+        &format!("SELECT {COLS} FROM crm_pending_operations WHERE deal_id = ?1 AND operator_email = ?2 AND status IN ('pending', 'in_progress', 'failed') AND json_extract(payload, '$.email') IS NOT NULL ORDER BY created_at DESC LIMIT 50"),
+        &[&deal_id, &operator],
+    )?;
+    Ok(rows.iter().filter_map(row_to_op).collect())
+}
+
 /// 古い保存済み・失敗・破棄の行を消す (worker が 1 日 1 回)
 pub fn purge_old(turso: &TursoDb) -> Result<(), String> {
     let cutoff = iso(Utc::now() - ChronoDuration::days(RETAIN_DAYS));
     turso.execute(
         "DELETE FROM crm_pending_operations \
-         WHERE status IN ('saved', 'failed', 'discarded') AND updated_at < ?1",
+         WHERE status IN ('saved', 'failed', 'discarded') AND updated_at < ?1 \
+         AND json_extract(payload, '$.email') IS NULL",
         &[&cutoff],
     )
 }

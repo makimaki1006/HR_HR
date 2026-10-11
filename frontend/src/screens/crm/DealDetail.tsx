@@ -1,3 +1,5 @@
+import { EmailPanel } from "./EmailPanel";
+import { EmailPendingLog } from "./EmailPendingLog";
 import { memo, useState } from 'react';
 import type { WorkspaceResponse } from '../../generated/WorkspaceResponse';
 import { formatPhoneForDisplay, toDomesticPhone } from './phone';
@@ -229,8 +231,8 @@ function Overview({ data, zoom, stopLabel, callBar, onOpenZoom, refreshing, refr
 }
 
 /** 活動ログ (いつ・誰が・どうだったか)。種類で絞り込める */
-function ActivityLogImpl({ data, placeholder, ownerNames }: {
-  data: WorkspaceResponse | null; placeholder: string; ownerNames: ReadonlyMap<string, string>;
+function ActivityLogImpl({ data, placeholder, ownerNames, sample = false }: {
+  data: WorkspaceResponse | null; placeholder: string; ownerNames: ReadonlyMap<string, string>; sample?: boolean;
 }) {
   const [kind, setKind] = useState<ActivityKindFilter>('all');
   if (data === null) return <div className="dock-scroll"><p className="dock-placeholder">{placeholder}</p></div>;
@@ -242,6 +244,7 @@ function ActivityLogImpl({ data, placeholder, ownerNames }: {
       {ACTIVITY_FILTERS.map(f => <button key={f.value} type="button" aria-pressed={kind === f.value} onClick={() => { setKind(f.value); }}>{f.label}</button>)}
     </div>
     {acts.length === 0 && <p className="crm-muted">{data.activities.length === 0 ? '表示できる活動履歴はありません。' : 'この種類の活動はありません。'}</p>}
+    {(kind === 'all' || kind === 'email') && <EmailPendingLog key={data.deal.id} dealId={data.deal.id} sample={sample} />}
     <ul className="wd-acts">{acts.map(a => <ActivityCard key={`${a.kind}-${a.id}`} a={a} ownerNames={ownerNames} />)}</ul>
   </section>;
 }
@@ -288,7 +291,8 @@ function DetailMessage({ state, reload }: { state: DetailState; reload: () => vo
     <p>{state.message || '取得に失敗しました。'}</p><button type="button" onClick={reload}>再試行</button></div>;
 }
 
-function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density, stageMove }: {
+function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLabel, callBar, onOpenZoom, density, stageMove, sample = false }: {
+  sample?: boolean;
   state: DetailState; reload: () => void; zoom: ZoomPhone; stopLabel?: StopLabel;
   /** サーバのキャッシュを使わずに読み直す (「最新にする」) */
   refresh?: (() => void) | undefined;
@@ -302,8 +306,8 @@ function DealOverviewImpl({ state, reload, refresh, zoom, stopLabel = rawStopLab
   stageMove?: StageMoveCtx | null | undefined;
 }) {
   if (state.phase === 'ready' && state.data !== null) {
-    return <Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
-      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} />;
+    return <><Overview data={state.data} zoom={zoom} stopLabel={stopLabel} callBar={callBar} onOpenZoom={onOpenZoom}
+      refreshing={state.refreshing} refreshError={state.refreshError} onRefresh={refresh} density={density} stageMove={stageMove} /><EmailPanel key={state.data.deal.id} data={state.data} sample={sample} onSaved={refresh} /></>;
   }
   return <div className="cq-detail-scroll"><DetailMessage state={state} reload={reload} /></div>;
 }

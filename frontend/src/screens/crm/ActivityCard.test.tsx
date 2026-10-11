@@ -34,6 +34,17 @@ describe('sanitizeHtml', () => {
   });
 });
 
+describe('attachment count', () => {
+  it.each([0, null])('hides absent attachments (%s)', count => {
+    render(<ul><ActivityCard a={act({ rich: { ...RICH, attachments_count: count } })} ownerNames={OWNERS} /></ul>);
+    expect(document.body.textContent).not.toContain('添付');
+  });
+  it('keeps a positive attachment count', () => {
+    render(<ul><ActivityCard a={act({ rich: { ...RICH, attachments_count: 2 } })} ownerNames={OWNERS} /></ul>);
+    expect(document.body.textContent).toContain('添付 2 件');
+  });
+});
+
 describe('引用の折りたたみ', () => {
   it('blockquote 以降を引用に分ける', () => {
     const { main, quoted } = splitQuotedHtml('<p>本文です</p><blockquote>前のメール</blockquote>');

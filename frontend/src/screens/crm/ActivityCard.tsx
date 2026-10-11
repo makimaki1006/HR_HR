@@ -66,7 +66,7 @@ function ActivityCardImpl({ a, ownerNames }: { a: WorkspaceActivity; ownerNames:
   const attach = a.rich?.attachments_count ?? null;
   const metaParts = [
     isEmail ? null : dir, status, dur && `通話時間 ${dur}`, when2, a.rich?.location ? `場所: ${a.rich.location}` : null,
-    attach !== null && `添付 ${String(attach)} 件`,
+    attach !== null && attach > 0 && `添付 ${String(attach)} 件`,
     a.via === 'contact' && '担当者の通話(別の案件のものを含む場合があります)',
   ].filter(Boolean);
   const hasBody = view.html !== null ? view.html.trim() !== '' : view.text.trim() !== '';
@@ -84,6 +84,7 @@ function ActivityCardImpl({ a, ownerNames }: { a: WorkspaceActivity; ownerNames:
       {a.title && <strong className="wd-card-title" data-testid="activity-title">{a.title}</strong>}
       <small>{when ?? '日時不明'}</small>
       {who && <small className="wd-act-who">{who}</small>}
+      {isEmail && a.status === 'SENT' && <small className="crm-email-state crm-email-saved">保存済み</small>}
     </div>
     {addr && <p className="wd-card-addr" data-testid="activity-addr">{addr}{cc && <span className="wd-card-cc"> ({cc})</span>}</p>}
     {metaParts.length > 0 && <p className="wd-act-meta">{metaParts.join(' · ')}</p>}

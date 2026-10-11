@@ -1,3 +1,4 @@
+import { EMAIL_CHANGED, fakeEmailActivities } from "./emailApi";
 import { useCallback, useEffect, useState } from 'react';
 import { ApiAbortedError, ApiHttpError, AuthRequiredError, apiGet } from '../../api/client';
 import type { ApiResult } from '../../api/client';
@@ -32,7 +33,8 @@ export const fixtureDetailFetch: DetailFetch = async (dealId, signal, props) => 
   if (signal.aborted) return { ok: false, error: new ApiAbortedError('aborted') };
   const data = fixtureDetail(dealId, props);
   if (data === null) return { ok: false, error: new ApiHttpError(404, { error_kind: 'not_found' }) };
-  return { ok: true, data: applyFakeWrites(data) };
+  const written = applyFakeWrites(data);
+  return { ok: true, data: { ...written, activities: [...fakeEmailActivities(dealId), ...written.activities] } };
 };
 
 export type DetailPhase = 'idle' | 'loading' | 'ready' | 'error' | 'forbidden';
@@ -122,5 +124,10 @@ export function useDealDetail(dealId: string | null, mode: QueueMode, fetcher?: 
   const reload = useCallback(() => { setReloadToken(t => ({ n: t.n + 1, freshFor: null })); }, []);
   /** サーバのキャッシュを使わずに読み直す (前の内容は出したまま) */
   const refresh = useCallback(() => { setReloadToken(t => ({ n: t.n + 1, freshFor: `${baseKey}|${String(t.n + 1)}` })); }, [baseKey]);
+  useEffect(() => {
+    const handler = (e: Event) => { if ((e as CustomEvent<string>).detail === dealId) refresh(); };
+    window.addEventListener(EMAIL_CHANGED, handler);
+    return () => { window.removeEventListener(EMAIL_CHANGED, handler); };
+  }, [dealId, refresh]);
   return { state, reload, refresh };
 }

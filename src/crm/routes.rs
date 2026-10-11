@@ -37,7 +37,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, patch},
+    routing::{get, patch, post},
     Extension, Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -266,6 +266,21 @@ pub(super) fn router_with_write(
         write_rate,
     });
     Router::new()
+        .route("/api/crm/gmail/status", get(super::email::grant_status))
+        .route("/api/crm/gmail/authorize", get(super::email::authorize))
+        .route("/api/crm/gmail/callback", get(super::email::callback))
+        .route(
+            "/api/crm/gmail/revoke",
+            post(super::email::revoke)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
+        .route(
+            "/api/crm/emails",
+            get(super::email::list_emails)
+                .post(super::email::send_email)
+                .route_layer(axum::middleware::from_fn(super::write::csrf_guard)),
+        )
+        .route("/api/crm/emails/{id}", get(super::email::get_email))
         .route("/api/crm/metadata", get(get_metadata))
         .route(
             "/api/crm/call-queue",

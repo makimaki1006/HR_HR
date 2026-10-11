@@ -68,6 +68,8 @@ pub const MAX_LINE_LEN: usize = 1_024;
 
 #[derive(Debug, Clone)]
 pub struct WriteConfig {
+    /// Gmail send uses its own feature gate; worker only retries the CRM record.
+    pub email: Option<Arc<super::email::EmailService>>,
     /// `CRM_WRITES_ENABLED=1` で全案件の書き込みを開く
     pub enabled: bool,
     /// `CRM_WRITE_DEAL_ALLOWLIST` (カンマ区切りの案件 ID)。栓が閉じていても、ここにある案件だけ書ける
@@ -105,6 +107,7 @@ impl WriteConfig {
         let rate_per_min =
             parse_rate_per_min(std::env::var("CRM_WRITE_RATE_PER_MIN").ok().as_deref());
         Self {
+            email: super::email::EmailService::from_env().map(Arc::new),
             enabled,
             allowlist,
             pending_max,
@@ -125,6 +128,7 @@ impl WriteConfig {
 impl Default for WriteConfig {
     fn default() -> Self {
         Self {
+            email: None,
             enabled: false,
             allowlist: HashSet::new(),
             pending_max: pending::DEFAULT_PENDING_MAX,
@@ -1460,6 +1464,7 @@ async fn run_patch(
     .to_string();
     let payload = Payload {
         steps: steps.clone(),
+        email: None,
     };
     let ins = pending::blocking(audit, {
         let (op, who, did, pl) = (
@@ -1538,7 +1543,7 @@ async fn run_patch(
             match verify_after_send(client, &mut steps, &mut run).await {
                 Verified::Saved => outcome = Ok(()),
                 Verified::NotApplied => {
-                    let payload = Payload { steps };
+                    let payload = Payload { steps, email: None };
                     if !run.changes.is_empty() {
                         audit_write(
                             audit,
@@ -1606,7 +1611,7 @@ async fn run_patch(
         }
     }
 
-    let payload = Payload { steps };
+    let payload = Payload { steps, email: None };
     match outcome {
         Ok(()) => {
             let body = CrmPatchSaved {
@@ -2168,6 +2173,9 @@ pub async fn process_op(
     write: &WriteConfig,
     row: &pending::OpRow,
 ) -> bool {
+    if row.payload.email.is_some() {
+        return super::email::process_pending(audit, client, write, row).await;
+    }
     // 栓: 受付のあとで書き込みを閉じたら、積んである操作も送らない (管理者の再試行も同じ。開け直してから再試行する)
     if !write.allows(&row.deal_id) {
         let body = json!({"error": "writes_disabled"}).to_string();
@@ -2611,7 +2619,10 @@ mod tests {
             operation_id: "x".into(),
             operator_email: "u@example.com".into(),
             deal_id: "1".into(),
-            payload: Payload { steps: vec![] },
+            payload: Payload {
+                steps: vec![],
+                email: None,
+            },
             status: status.into(),
             attempts,
             last_error_code: String::new(),
