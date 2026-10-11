@@ -7,7 +7,7 @@ import { login } from './helpers/login';
  * ここでは合成データを page.route で返し、市場 (/api/job-copy/market) も合成の月次データを返す。
  * 確かめること: 最初のタブがタイムライン、7 レーンの値、2 つの ECharts の描画完了、期間比較表の具体値、
  * 課金CSV を読み込むと課金レーンと期間比較表に入ること、取込と逆検索が主作業の外にあること。
- * 版は取得日で区切る（取得日A〜Bの間は前後どちらの版にも入れない）。仮の課金データは合計しない。
+ * 本文は取得日で区切る（取得日A〜Bの間は前後どちらの本文にも入れない）。仮の課金データは合計しない。
  */
 const defaultCapturedAt = '2026-08-20T00:00:00Z';
 const months = Array.from({ length: 14 }, (_, index) => `${2025 + Math.floor((index + 6) / 12)}-${String((index + 6) % 12 + 1).padStart(2, '0')}`);
@@ -88,7 +88,7 @@ test.describe('求人文面管理のタイムライン', () => {
     expect(market[0]).toBeGreaterThan(0);
     // 期間比較表: 取得日 07-01 と 08-20 の行と、その間（給与が変わった。どちらの内容か分からない）の行。
     // 掲載日は分からず、応募は日付だけなので、変化の前後の取得日そのものもどちらの内容か分からない。
-    // 版の行は 0 日で、取得日 08-20 の応募も間の行に数える（07-01 は最初の取得日で、表より前に数える）。
+    // 本文の行は 0 日で、取得日 08-20 の応募も間の行に数える（07-01 は最初の取得日で、表より前に数える）。
     const rows = timeline.getByRole('region', { name: '期間比較表の数値' }).locator('tbody tr');
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(0).locator('th')).toContainText('2026/07/01に取得した内容');
@@ -107,14 +107,14 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(periodLane.locator('.jt-zone')).toHaveCount(1);
     await expect(periodLane.locator('.jt-zone')).toHaveAttribute('title', '取得日2026/07/01〜2026/08/20の間に変化。どちらの内容か分からない期間です');
     await expect(timeline.getByRole('group', { name: '凡例', exact: true })).toContainText('掲載日は不明（取得日で表示）');
-    await expect(timeline).not.toContainText(/変更日|版が切り替わった日|掲載日の確かさ/u);
-    await expect(page.locator('body')).not.toContainText(/過去CSVの版|媒体CSV取得版|接続待ち|実求人ID|原本不足/u);
-    // 上の帯の件数は期間比較表と同じ割り当てで数える（全 6 件のうち、版の行に入った応募は無い）
+    await expect(timeline).not.toContainText(/変更日|本文が切り替わった日|掲載日の確かさ/u);
+    await expect(page.locator('body')).not.toContainText(/過去CSVの本文|媒体CSV取得本文|接続待ち|実求人ID|原本不足/u);
+    // 上の帯の件数は期間比較表と同じ割り当てで数える（全 6 件のうち、本文の行に入った応募は無い）
     await page.locator('.jc-snapshot-tip > summary').click();
-    const summary = page.getByRole('region', { name: '実データの取得範囲' });
+    const summary = page.getByRole('region', { name: '取り込んだ内容の内訳' });
     await expect(summary).toContainText('6応募（HubSpot記録分・求人ごとの件数の合計（重複あり））');
-    await expect(summary).toContainText('どの版への応募か分からない応募 6件（求人ごとの件数の合計（重複あり））');
-    await expect(summary).toContainText('期間比較表の版の行に入らない応募 6件（求人ごとの件数の合計（重複あり））');
+    await expect(summary).toContainText('どの本文への応募か分からない応募 6件（求人ごとの件数の合計（重複あり））');
+    await expect(summary).toContainText('期間比較表の本文の行に入らない応募 6件（求人ごとの件数の合計（重複あり））');
     await page.locator('.jc-snapshot-tip > summary').click();
     // 一部の求人だけを表示していることを、上の帯の下に 1 行で示す
     await expect(page.getByText('この画面は、選んで取り込んだ一部の求人（1件）だけを表示しています。管理しているすべての求人ではありません。', { exact: true })).toBeVisible();
@@ -143,11 +143,11 @@ test.describe('求人文面管理のタイムライン', () => {
     await expect(page.locator('body')).not.toContainText(/効果|確実に|必ず|100%/u);
   });
 
-  test('最新の版の給与・本文・画像の印が右端で切れずに読める', async ({ page }) => {
+  test('最新の本文の給与・本文・画像の印が右端で切れずに読める', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
     await open(page);
     const timeline = page.getByRole('region', { name: 'タイムライン', exact: true });
-    // 最新の版は取得日 (08-20) に始まり、時間軸の右端 (約 99%) に来る。
+    // 最新の本文は取得日 (08-20) に始まり、時間軸の右端 (約 99%) に来る。
     const checks: [string, string, string][] = [
       ['給与', '.jt-salary-label', '▲月給25万〜28万円'],
       ['本文', '.jt-mark', '追加1・削除1'],
@@ -168,7 +168,7 @@ test.describe('求人文面管理のタイムライン', () => {
       expect(box.scrollWidth, `${lane}: 文字が切れている`).toBeLessThanOrEqual(box.clientWidth + 1);
       expect(box.width).toBeGreaterThan(20);
     }
-    // 印は版の開始日 (右端の近く) に付いている: 枠の右 15% の中
+    // 印は本文の開始日 (右端の近く) に付いている: 枠の右 15% の中
     const pin = await timeline.getByRole('group', { name: '本文', exact: true }).locator('.jt-mark').last().evaluate(element => {
       const track = element.closest('.jt-track')?.getBoundingClientRect();
       const before = window.getComputedStyle(element, '::before');
@@ -301,10 +301,10 @@ test.describe('求人文面管理のタイムライン', () => {
     expect(marks).toEqual([['最初', '2026/07/01時点の求人内容の本文：最初の本文'], ['追加1・削除1', '2026/08/20時点の求人内容の本文：1行追加・1行削除']]);
     await expect(page.locator('[data-testid="jt-applications"][data-chart-ready="true"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="jt-market"][data-chart-ready="true"]')).toHaveCount(1);
-    // 求人内容でも、内部の呼び方（媒体取得版・受信版・確定対応・推定対応）を出さない
+    // 求人内容でも、内部の呼び方（媒体取得本文・受信本文・確定対応・推定対応）を出さない
     await page.getByRole('tablist', { name: '求人管理の機能', exact: true }).getByRole('tab', { name: '求人内容', exact: true }).click();
     await expect(page.locator('.jc-reading')).toBeVisible();
-    await expect(page.locator('body')).not.toContainText(/媒体取得版|受信版|確定対応|推定対応/u);
+    await expect(page.locator('body')).not.toContainText(/媒体取得本文|受信本文|確定対応|推定対応/u);
     await expect(page.locator('.jc-mode')).not.toHaveAttribute('title', /.+/u);
   });
 });
