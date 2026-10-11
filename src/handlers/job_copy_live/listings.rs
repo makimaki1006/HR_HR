@@ -568,6 +568,35 @@ async fn observed_images(record: &Record, access: &Access) -> Option<Value> {
         .collect();
     Some(json!({"observed_at":manifest.observed_at,"image_urls":urls}))
 }
+// Read only on detail open. Resolve all related deals in one batch; do not guess
+// the customer when several companies are related or any association is incomplete.
+async fn listing_company_name(
+    service: &JobReadService,
+    id: &str,
+) -> Result<Option<String>, ReadError> {
+    let deals = service.all_associations("0-420", id, "deals").await?;
+    if deals.is_empty() || deals.len() > 100 {
+        return Ok(None);
+    }
+    let related = service
+        .association_map("deals", &deals, "companies")
+        .await?;
+    let companies: BTreeSet<String> = related.into_values().flatten().collect();
+    if companies.len() != 1 {
+        return Ok(None);
+    }
+    let records = service
+        .batch(
+            "companies",
+            &companies.into_iter().collect::<Vec<_>>(),
+            &["name"],
+        )
+        .await?;
+    Ok(records
+        .first()
+        .and_then(|record| record.value("name"))
+        .map(str::to_owned))
+}
 pub(super) async fn read_versions(
     State(state): State<Arc<AppState>>,
     Extension(access): Extension<Access>,
@@ -623,19 +652,97 @@ pub(super) async fn read_versions(
         None
     };
     let current_images = observed_images(&record, &access).await;
+    let company_name = listing_company_name(service(&access)?, &id)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(reason = error.1, "job-copy company name unavailable");
+            None
+        });
     let (drafts, draft_history_may_be_incomplete) = crate::job_gen::drafts::history(&data);
     let draft_revision = crate::job_gen::drafts::revision(&record.properties);
     let can_write_drafts = state.audit.is_some() && super::drafts::Writes::from_env().allows(&id);
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(
-            json!({"listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
+            json!({"company_name":company_name,"listing":PageListing {listing: row, application_count: None},"versions":versions,"history_counts":counts,"history_may_be_incomplete":may_be_incomplete,"current":current,"current_images":current_images,"drafts":drafts,"draft_revision":draft_revision,"can_write_drafts":can_write_drafts,"draft_history_may_be_incomplete":draft_history_may_be_incomplete}),
         ),
     ))
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn job_copy_detail_company_is_batched_and_never_guesses_ambiguous_relations() {
+        use axum::{body::Body, http::Request, routing::any, Json, Router};
+        for mode in ["single", "multiple", "empty", "failure"] {
+            let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let seen = calls.clone();
+            let upstream = Router::new().fallback(any(move |request: Request<Body>| {
+                let seen = seen.clone();
+                async move {
+                    let path = request.uri().path().to_owned();
+                    seen.lock().unwrap().push(path.clone());
+                    match path.as_str() {
+                        "/crm/v4/objects/0-420/30/associations/deals" => {
+                            assert_eq!(request.method(), reqwest::Method::GET);
+                            if mode == "failure" {
+                                return (StatusCode::FORBIDDEN, Json(json!({}))).into_response();
+                            }
+                            Json(if mode == "empty" { json!({"results":[]}) } else {
+                                json!({"results":[{"toObjectId":"20"},{"toObjectId":"21"}]})
+                            }).into_response()
+                        }
+                        "/crm/v4/associations/deals/companies/batch/read" => {
+                            assert_eq!(request.method(), reqwest::Method::POST);
+                            let body = axum::body::to_bytes(request.into_body(), 4096).await.unwrap();
+                            let body: Value = serde_json::from_slice(&body).unwrap();
+                            assert_eq!(body["inputs"], json!([{"id":"20"},{"id":"21"}]));
+                            Json(json!({"results":[
+                                {"from":{"id":"20"},"to":[{"toObjectId":"10"}]},
+                                {"from":{"id":"21"},"to":[{"toObjectId":if mode == "multiple" {"11"} else {"10"}}]}
+                            ]})).into_response()
+                        }
+                        "/crm/v3/objects/companies/batch/read" => {
+                            let body = axum::body::to_bytes(request.into_body(), 4096).await.unwrap();
+                            let body: Value = serde_json::from_slice(&body).unwrap();
+                            assert_eq!(body["inputs"], json!([{"id":"10"}]));
+                            assert_eq!(body["properties"], json!(["name"]));
+                            Json(json!({"results":[{"id":"10","properties":{"name":"合成運輸株式会社"}}]})).into_response()
+                        }
+                        _ => panic!("unexpected company read: {path}"),
+                    }
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let service =
+                JobReadService::for_test(format!("http://{}", listener.local_addr().unwrap()));
+            let task = tokio::spawn(async move {
+                axum::serve(listener, upstream).await.unwrap();
+            });
+            let result = listing_company_name(&service, "30").await;
+            if mode == "failure" {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(
+                    result.unwrap().as_deref(),
+                    if mode == "single" {
+                        Some("合成運輸株式会社")
+                    } else {
+                        None
+                    }
+                );
+            }
+            assert_eq!(
+                calls.lock().unwrap().len(),
+                match mode {
+                    "single" => 3,
+                    "multiple" => 2,
+                    _ => 1,
+                }
+            );
+            task.abort();
+        }
+    }
     #[test]
     fn job_copy_multiline_occupation_is_classified_and_filtered() {
         let record: Record = serde_json::from_value(json!({"id":"1","properties":{"id_hrhakkaa":"HR-1","hrh_kyuujinhyou_honbun":"仕事内容：配送します\nIndeed表示職種名：\n配送\nドライバー\n応募資格：普通免許","todoufuken":"沖縄県"}})).unwrap();

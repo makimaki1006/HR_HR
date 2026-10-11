@@ -18,7 +18,7 @@ const snapshot = () => ({ schemaVersion: 1, capturedAt, capture_bundle: { schema
     joint_demographics: { total: 34, cells: [{ gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 新宿区西新宿2-8-1 ○○ビル301', count: 31 }, { gender: '男性', age: '30代', prefecture: '東京都', municipality: '東京都 / 港区芝公園4-2-8', count: 1 }, { gender: '男性', age: '30代', prefecture: '大分県', municipality: '大分県 / 大分市府内町1-1', count: 2 }] } },
   dated_comparison: { total: 34, unknown: 34, basis: '合成の日付対応', by_version: { [versionId]: { count: 0, dimensions: { gender: empty, age: empty, prefecture: empty, municipality: empty } } }, daily_representatives: {} } }] });
 
-beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy'); });
+beforeEach(() => { window.history.replaceState(null, '', '/app/job-copy?data=actual'); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('one application denominator across panels', () => {
@@ -27,18 +27,18 @@ describe('one application denominator across panels', () => {
     const { container } = render(<JobCopyScreen />);
     // 最初のタブはタイムライン。本文・画像へ切り替えてから確かめる
     fireEvent.click(await screen.findByRole('tab', { name: '求人内容' }));
-    const summary = await screen.findByRole('region', { name: '版別の応募状況' });
-    expect(within(summary).getByRole('status').textContent).toBe('この版に結びつく応募はまだありません（求人全体では34件）');
-    expect(summary.querySelector('.jc-counts')?.textContent).toContain('どの版への応募か不明（求人全体）34件');
+    const summary = await screen.findByRole('region', { name: '本文ごとの応募状況' });
+    expect(within(summary).getByRole('status').textContent).toBe('この本文に結びつく応募はまだありません（求人全体では34件）');
+    expect(summary.querySelector('.jc-counts')?.textContent).toContain('どの本文への応募か不明（求人全体）34件');
     fireEvent.click(screen.getByRole('tab', { name: '応募分析' }));
     fireEvent.click(screen.getByRole('tab', { name: '応募者構成' }));
     const overall = await screen.findByRole('region', { name: '求人全体の実応募者構成' });
-    expect(overall.textContent).toContain('応募34件 · 応募日不明0件 · どの版への応募か不明34件');
-    expect(screen.getByText(/どの版への応募か不明: 34件/u)).toBeDefined();
-    expect(screen.getAllByText('この版に結びつく応募はまだありません（求人全体では34件）。割合は算出できません。')).toHaveLength(4);
+    expect(overall.textContent).toContain('応募34件 · 応募日不明0件 · どの本文への応募か不明34件');
+    expect(screen.getByText(/どの本文への応募か不明: 34件/u)).toBeDefined();
+    expect(screen.getAllByText('この本文に結びつく応募はまだありません（求人全体では34件）。割合は算出できません。')).toHaveLength(4);
     const municipality = within(overall).getByRole('region', { name: '求人全体の市区町村' });
     expect([...municipality.querySelectorAll('.ac-chart-row')].map(row => row.textContent)).toEqual(['東京都新宿区31件 (91.2%)', 'その他3件 (8.8%)']);
-    expect(screen.getByRole('region', { name: '実データの取得範囲' }).textContent).toContain('34');
+    expect(screen.getByRole('region', { name: '取り込んだ内容の内訳' }).textContent).toContain('34');
     // 元の住所は画面のどこにも出ない（閉じた逆検索の選択肢も含む）
     expect(container.innerHTML).not.toMatch(/西新宿|○○ビル|芝公園|府内町/u);
   });
@@ -58,8 +58,8 @@ describe('application count model', () => {
     expect(unmatchedApplicationCount({ ...live, attributionUnknown: 31 })).toBe(31);
     expect(jobApplicationTotal(live)).toBe(34);
     expect(unmatchedApplicationCount({ ...live, overallApplications: undefined } as unknown as JobCopyRecord)).toBeNull();
-    expect(noLinkedApplicationsMessage(34)).toBe('この版に結びつく応募はまだありません（求人全体では34件）');
-    expect(noLinkedApplicationsMessage(null)).toBe('この版に結びつく応募はまだありません（求人全体の件数は未取得）');
+    expect(noLinkedApplicationsMessage(34)).toBe('この本文に結びつく応募はまだありません（求人全体では34件）');
+    expect(noLinkedApplicationsMessage(null)).toBe('この本文に結びつく応募はまだありません（求人全体の件数は未取得）');
     expect(noLinkedApplicationsMessage(34)).not.toMatch(/効果|確実に|必ず|100%/u);
   });
 });
