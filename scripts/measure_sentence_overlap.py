@@ -51,6 +51,7 @@ class Reader:
         self.access_token = access_token
         self.last = 0.0
         self.calls = 0
+        self.association_cache = {}
 
     def request(self, path, body=None):
         # 許可した読み取り窓口以外へはリクエストを作れない。
@@ -90,7 +91,7 @@ class Reader:
             chunk = unique[index:index + 100]
             data = self.request("/crm/v3/objects/0-420/batch/read", {
                 "inputs": [{"id": key} for key in chunk],
-                "properties": ["id_hrhakkaa", "id_airwork", "hrh_kyuujinhyou_honbun", "shigotonaiyou", "baitai_genjoukyou_airwork"]})
+                "properties": ["id_hrhakkaa", "id_airwork", "hrh_kyuujinhyou_honbun", "shigotonaiyou", "baitai_genjoukyou_airwork", "kyuujin_status"]})
             if data.get("errors"):
                 raise RuntimeError("本文の一部を取得できませんでした")
             records = {str(row["id"]): row.get("properties", {}) for row in data["results"]}
@@ -116,24 +117,32 @@ class Reader:
 
     def associations(self, source, ids, target):
         unique = sorted(set(ids))
-        output = {}
-        for index in range(0, len(unique), 100):
-            chunk = unique[index:index + 100]
+        output = {key: self.association_cache[source, key, target] for key in unique if (source, key, target) in self.association_cache}
+        pending = [key for key in unique if key not in output]
+        for index in range(0, len(pending), 100):
+            chunk = pending[index:index + 100]
             data = self.request(f"/crm/v4/associations/{source}/{target}/batch/read", {"inputs": [{"id": key} for key in chunk]})
             for record in data["results"]:
                 key = str(record["from"]["id"])
+                if key not in chunk:
+                    raise RuntimeError("関連の応答を確認できませんでした")
                 output[key] = (self.all_associations(source, key, target) if record.get("paging") else
                                {str(item["toObjectId"]) for item in record["to"]})
             # 関連なしの入力がbatch応答から省かれる場合も、個別の全ページ読取で確認する。
             for key in set(chunk) - output.keys():
                 output[key] = self.all_associations(source, key, target)
+            for key in chunk:
+                self.association_cache[source, key, target] = output[key]
         return output
 
     def companies(self, maximum):
         found, after, seen = set(), None, set()
         while len(found) < maximum:
-            body = {"filterGroups": [{"filters": [{"propertyName": "id_hrhakkaa", "operator": "HAS_PROPERTY"}]}],
-                    "properties": ["id_hrhakkaa"], "limit": 200, "sorts": ["hs_object_id"]}
+            body = {"filterGroups": [{"filters": [
+                        {"propertyName": "id_airwork", "operator": "HAS_PROPERTY"},
+                        {"propertyName": "id_hrhakkaa", "operator": "NOT_HAS_PROPERTY"},
+                        {"propertyName": "kyuujin_status", "operator": "EQ", "value": "公開中"}]}],
+                    "properties": ["id_airwork"], "limit": 100, "sorts": ["hs_object_id"]}
             if after is not None:
                 body["after"] = after
             data = self.request("/crm/v3/objects/0-420/search", body)
@@ -142,11 +151,12 @@ class Reader:
             deals = self.associations("deals", set().union(*jobs.values()) if jobs else set(), "companies")
             for job in seeds:
                 linked = set().union(*(deals.get(key, set()) for key in jobs[job]))
-                # アプリと同じく、取引先が一意に決まる基準求人だけ使う。
+                # 掲載中のAirWorkから、取引先が一意に決まる候補を集める。
                 if len(linked) == 1:
                     found.update(linked)
                 if len(found) >= maximum:
                     break
+            print(f"確認した取引先候補：{len(found)}件", flush=True)
             after = data.get("paging", {}).get("next", {}).get("after")
             if after is None:
                 break
@@ -156,10 +166,25 @@ class Reader:
         return sorted(found)
 
 
+def publication(raw, normalized):
+    raw = (raw or "").strip()
+    normalized = (normalized or "").strip()
+    if normalized == "公開中":
+        return "掲載中"
+    if normalized in {"公開前", "公開終了"}:
+        return None
+    if raw in {"公開", "掲載中", "公開中"}:
+        return "掲載中"
+    if raw in {"非公開", "公開終了", "掲載終了", "公開開始前", "未掲載", "掲載停止", "停止中"}:
+        return None
+    return "掲載中か不明"
+
+
 def samples(records):
     hrh = [r.get("hrh_kyuujinhyou_honbun") or "" for r in records if r.get("id_hrhakkaa")]
     air = [r.get("shigotonaiyou") or "" for r in records if r.get("id_airwork")
-           and (r.get("baitai_genjoukyou_airwork") or "").strip() in {"公開", "掲載中"}]
+           and publication((r.get("baitai_genjoukyou_airwork") or "").strip(),
+                           (r.get("kyuujin_status") or "").strip() if not r.get("id_hrhakkaa") else None) == "掲載中"]
     return hrh, air
 
 
