@@ -1,10 +1,72 @@
 [
-  {"generated":"一文目。二文目。三文目。四文目。五文目。六文目。七文目。八文目。九文目。十文目。","original":"一文目。二文目。別の文。","minimum":0,"ratio":0.2,"whole":false},
-  {"generated":" Ａ！ B？ C。\nD ","original":"A。B！X。","minimum":0,"ratio":0.5,"whole":false},
-  {"generated":"未経験歓迎","original":"前の文章。未経験歓迎。後の文章","minimum":8,"ratio":null,"whole":true},
-  {"generated":"未経験歓迎。作業の手順を丁寧に学べます。","original":"未経験歓迎。別の文章です。","minimum":0,"ratio":0.5,"whole":false},
-  {"generated":"未経験歓迎。作業の手順を丁寧に学べます。","original":"未経験歓迎。別の文章です。","minimum":8,"ratio":0.0,"whole":false},
-  {"generated":"同じ文。同じ文。別の文。","original":"同じ文。","minimum":0,"ratio":0.6666666666666666,"whole":false},
-  {"generated":"内部 空白は保持。","original":"内部空白は保持。","minimum":0,"ratio":0.0,"whole":false},
-  {"generated":"","original":"文章。","minimum":0,"ratio":null,"whole":false}
+  {
+    "generated": "一文目。二文目。三文目。四文目。五文目。六文目。七文目。八文目。九文目。十文目。",
+    "original": "一文目。二文目。別の文。",
+    "minimum": 0,
+    "ratio": 0.2,
+    "whole": false
+  },
+  {
+    "generated": " Ａ！ B？ C。\nD ",
+    "original": "A。B！X。",
+    "minimum": 0,
+    "ratio": 0.5,
+    "whole": false
+  },
+  {
+    "generated": "未経験歓迎",
+    "original": "前の文章。未経験歓迎。後の文章",
+    "minimum": 8,
+    "ratio": null,
+    "whole": true
+  },
+  {
+    "generated": "未経験歓迎。作業の手順を丁寧に学べます。",
+    "original": "未経験歓迎。別の文章です。",
+    "minimum": 0,
+    "ratio": 0.5,
+    "whole": false
+  },
+  {
+    "generated": "未経験歓迎。作業の手順を丁寧に学べます。",
+    "original": "未経験歓迎。別の文章です。",
+    "minimum": 8,
+    "ratio": 0.0,
+    "whole": false
+  },
+  {
+    "generated": "同じ文。同じ文。別の文。",
+    "original": "同じ文。",
+    "minimum": 0,
+    "ratio": 0.6666666666666666,
+    "whole": false
+  },
+  {
+    "generated": "内部 空白は保持。",
+    "original": "内部空白は保持。",
+    "minimum": 0,
+    "ratio": 0.0,
+    "whole": false
+  },
+  {
+    "generated": "",
+    "original": "文章。",
+    "minimum": 0,
+    "ratio": null,
+    "whole": false
+  },
+  {
+    "generated": "荷物の仕分けを担当します。新しい文章を加えます。",
+    "original": "仕事内容：荷物の仕分けを担当します。\n応募資格：経験は問いません。",
+    "minimum": 8,
+    "ratio": 0.5,
+    "whole": false
+  },
+  {
+    "generated": "注意：荷物の確認です。",
+    "original": "荷物の確認です。",
+    "minimum": 0,
+    "ratio": 0.0,
+    "whole": false
+  }
 ]

@@ -28,13 +28,18 @@ pub(super) fn summary(record: &Record, media: &str) -> Summary {
     let fields = super::hrh_copy::fields(body);
     let get = |key: &str| fields.get(key).filter(|v| !v.is_empty()).cloned();
     // Free-text salary/hours are deliberately not interpreted.
-    let holidays = (1..=4).find_map(|n| {
-        let title = fields.get(format!("自由項目{n}のタイトル").as_str())?;
-        ["休日", "休日・休暇", "休日休暇", "休暇"]
-            .contains(&title.trim())
-            .then(|| get(&format!("自由項目{n}の内容")))
-            .flatten()
+    let holidays = get("休日休暇").or_else(|| {
+        ["仕事情報補足", "自由項目"].into_iter().find_map(|prefix| {
+            (1..=4).find_map(|n| {
+                let title = fields.get(format!("{prefix}{n}のタイトル").as_str())?;
+                ["休日", "休日・休暇", "休日休暇", "休暇"]
+                    .contains(&title.trim())
+                    .then(|| get(&format!("{prefix}{n}の内容")))
+                    .flatten()
+            })
+        })
     });
+    let air = |key| record.value(key).map(str::to_owned);
     Summary {
         occupation: if media == "hrh" {
             get("Indeed表示職種名")
@@ -50,11 +55,23 @@ pub(super) fn summary(record: &Record, media: &str) -> Summary {
         } else {
             record.value("qinwude").map(str::to_owned)
         },
-        salary_kind: get("給与形態"),
+        salary_kind: if media == "hrh" {
+            get("給与形態").map(|v| crate::job_gen::copy_display::code("給与形態", &v))
+        } else {
+            air("kyuuyokeitai").filter(|v| v != "unset")
+        },
         salary_min: get("基本給与 最小"),
         salary_max: get("基本給与 最大"),
-        hours: get("勤務時間"),
-        holidays,
+        hours: if media == "hrh" {
+            get("勤務時間")
+        } else {
+            air("kinmujikan")
+        },
+        holidays: if media == "hrh" {
+            holidays
+        } else {
+            air("kyuujitsu")
+        },
         body_changed_at: None,
     }
 }
@@ -259,11 +276,118 @@ pub(in crate::handlers::job_copy_live) async fn read_comparison(
         } else {
             "shigotonaiyou"
         });
-        jobs.push(json!({"listing":listing,"body":body}));
+        jobs.push(json!({"fields":comparison_fields(record, listing.media),"listing":listing,"body":body}));
     }
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(json!({"jobs":jobs})),
+    ))
+}
+/// Media-independent display keys. This does not identify the same job across media.
+pub(super) fn comparison_fields(record: &Record, media: &str) -> BTreeMap<String, String> {
+    if media == "hrh" {
+        let mut fields: BTreeMap<String, String> =
+            super::hrh_copy::fields84(record.value("hrh_kyuujinhyou_honbun").unwrap_or(""))
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v))
+                .collect();
+        let conditions = summary(record, media);
+        for (key, value) in [
+            ("勤務地", conditions.location),
+            ("休日・休暇", conditions.holidays),
+        ] {
+            if let Some(value) = value {
+                fields.insert(key.into(), value);
+            }
+        }
+        return fields;
+    }
+    [
+        ("案件名", "hs_name"),
+        ("仕事内容", "shigotonaiyou"),
+        ("Indeed表示職種名", "zhizhong"),
+        ("勤務地", "qinwude"),
+        ("給与形態", "kyuuyokeitai"),
+        ("勤務時間", "kinmujikan"),
+        ("休日・休暇", "kyuujitsu"),
+        ("雇用形態", "guyongxingtai"),
+        ("福利厚生", "fukurikousei"),
+    ]
+    .into_iter()
+    .filter_map(|(key, prop)| {
+        record.value(prop).filter(|v| *v != "unset").map(|v| {
+            (
+                key.into(),
+                if prop == "guyongxingtai" {
+                    match v {
+                        "full_time" => "正社員",
+                        "contract" => "契約社員",
+                        "outsourced" => "業務委託",
+                        "part_time" => "パート・アルバイト",
+                        "other" => "その他",
+                        _ => "確認が必要",
+                    }
+                    .into()
+                } else {
+                    v.into()
+                },
+            )
+        })
+    })
+    .collect()
+}
+/// History is intentionally fetched only for the requested visible rows, never the index.
+pub(super) async fn body_dates(
+    service: &JobReadService,
+    ids: &[String],
+) -> Result<Value, ReadError> {
+    let mut dates = BTreeMap::new();
+    for chunk in ids.chunks(50) {
+        let data = service.request("/crm/v3/objects/0-420/batch/read", &[], Some(json!({"inputs":chunk.iter().map(|id| json!({"id":id})).collect::<Vec<_>>(), "properties":["id_hrhakkaa","id_airwork","hrh_kyuujinhyou_honbun","shigotonaiyou"], "propertiesWithHistory":["hrh_kyuujinhyou_honbun","shigotonaiyou"]}))).await?;
+        let page: Page =
+            serde_json::from_value(data.clone()).map_err(|_| fail("hubspot_invalid_response"))?;
+        if data
+            .get("errors")
+            .and_then(Value::as_array)
+            .is_some_and(|v| !v.is_empty())
+            || page.results.iter().map(|r| &r.id).collect::<BTreeSet<_>>()
+                != chunk.iter().collect::<BTreeSet<_>>()
+            || page.results.len() != chunk.len()
+        {
+            return Err(fail("hubspot_partial_read"));
+        }
+        for record in &page.results {
+            let media = match (record.value("id_hrhakkaa"), record.value("id_airwork")) {
+                (Some(_), None) => "hrh",
+                (None, Some(_)) => "airwork",
+                _ => return Err(fail("listing_media_invalid")),
+            };
+            let raw = data["results"]
+                .as_array()
+                .and_then(|r| r.iter().find(|v| v["id"].as_str() == Some(&record.id)))
+                .ok_or_else(|| fail("hubspot_invalid_response"))?;
+            dates.insert(record.id.clone(), body_changed_at(raw, media));
+        }
+    }
+    Ok(json!({"dates":dates}))
+}
+pub(in crate::handlers::job_copy_live) async fn read_body_dates(
+    State(state): State<Arc<AppState>>,
+    Extension(access): Extension<Access>,
+    session: Session,
+    Query(query): Query<ComparisonQuery>,
+) -> Result<impl IntoResponse, ReadError> {
+    authorized_user(&state, &access, &session).await?;
+    let ids: Vec<String> = query.ids.split(',').map(str::to_owned).collect();
+    if ids.is_empty() || ids.len() > 50 || ids.iter().collect::<BTreeSet<_>>().len() != ids.len() {
+        return Err(ReadError(StatusCode::BAD_REQUEST, "listing_filter_invalid"));
+    }
+    for id in &ids {
+        valid_id(id)?;
+    }
+    Ok((
+        [(header::CACHE_CONTROL, "private, no-store")],
+        Json(body_dates(service(&access)?, &ids).await?),
     ))
 }
 #[cfg(test)]
