@@ -102,6 +102,22 @@ pub(super) fn body_changed_at(data: &Value, media: &str) -> Option<String> {
     }
     Some(end.0.to_rfc3339())
 }
+fn no_association_ids(error: &Value) -> Option<Vec<String>> {
+    if error["subCategory"].as_str() != Some("crm.associations.NO_ASSOCIATIONS_FOUND") {
+        return None;
+    }
+    let ids: Vec<String> = error
+        .pointer("/context/fromObjectId")?
+        .as_array()?
+        .iter()
+        .map(|v| {
+            v.as_str()
+                .map(str::to_owned)
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
+        .collect::<Option<_>>()?;
+    (!ids.is_empty()).then_some(ids)
+}
 // Strict batch paging: missing/error rows never turn into a false "no deal" or zero count.
 pub(super) async fn index_associations(
     service: &JobReadService,
@@ -127,17 +143,26 @@ pub(super) async fn index_associations(
                     Some(json!({"inputs":pending})),
                 )
                 .await?;
-            if data
+            let mut actual = BTreeSet::new();
+            // HubSpot reports "no associations" as an error row per object, not as `to: []`.
+            // Only that sub-category means "none"; any other error is still a failed read.
+            for error in data
                 .get("errors")
                 .and_then(Value::as_array)
-                .is_some_and(|v| !v.is_empty())
+                .into_iter()
+                .flatten()
             {
-                return Err(fail("hubspot_partial_read"));
+                let ids = no_association_ids(error).ok_or_else(|| fail("hubspot_partial_read"))?;
+                for id in ids {
+                    if !expected.contains(&id) || !actual.insert(id.clone()) {
+                        return Err(fail("hubspot_invalid_response"));
+                    }
+                    targets.entry(id).or_default();
+                }
             }
             let rows = data["results"]
                 .as_array()
                 .ok_or_else(|| fail("hubspot_invalid_response"))?;
-            let mut actual = BTreeSet::new();
             pending = vec![];
             for row in rows {
                 let id = row
@@ -240,4 +265,20 @@ pub(in crate::handlers::job_copy_live) async fn read_comparison(
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(json!({"jobs":jobs})),
     ))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn job_copy_only_no_association_errors_count_as_none() {
+        let none = json!({"status":"error","category":"OBJECT_NOT_FOUND","subCategory":"crm.associations.NO_ASSOCIATIONS_FOUND","context":{"fromObjectId":["548568732444", 7]}});
+        assert_eq!(
+            no_association_ids(&none),
+            Some(vec!["548568732444".into(), "7".into()])
+        );
+        let other = json!({"status":"error","category":"RATE_LIMITS","subCategory":"crm.associations.SOMETHING","context":{"fromObjectId":["1"]}});
+        assert_eq!(no_association_ids(&other), None);
+        let no_ids = json!({"subCategory":"crm.associations.NO_ASSOCIATIONS_FOUND","context":{}});
+        assert_eq!(no_association_ids(&no_ids), None);
+    }
 }
