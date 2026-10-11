@@ -89,7 +89,7 @@ function ActivityCardImpl({ a, ownerNames }: { a: WorkspaceActivity; ownerNames:
     </div>
     {addr && <p className="wd-card-addr" data-testid="activity-addr">{addr}{cc && <span className="wd-card-cc"> ({cc})</span>}</p>}
     {metaParts.length > 0 && <p className="wd-act-meta">{metaParts.join(' · ')}</p>}
-    {isEmail && <EmailTracking emailId={a.id} />}
+    {isEmail && a.direction?.toUpperCase() === 'EMAIL' && a.status === 'SENT' && <EmailTracking emailId={a.id} />}
     {recording && <p className="wd-act-meta"><a href={recording} target="_blank" rel="noopener noreferrer">録音を聞く</a></p>}
     {hasBody && !open && <p className="wd-card-preview" data-testid="activity-preview">{view.preview}</p>}
     {hasBody && open && (view.html !== null
