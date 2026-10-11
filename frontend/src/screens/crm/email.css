@@ -20,3 +20,30 @@
 .crm-email-saved { background: #dcfce7; color: #14532d; }
 .crm-email-pending { background: #fef3c7; color: #78350f; }
 .crm-email-failed, .crm-email-discarded { background: #fee2e2; color: #7f1d1d; }
+
+/* Independent editor: never increases the pinned overview's height or changes dock layout. */
+.crm-email-compose { position: fixed; z-index: 60; top: 88px; bottom: 16px; left: 16px; width: min(560px, calc(100vw - 32px)); display: flex; flex-direction: column; min-height: 0; border: 1px solid #afbdd0; border-radius: 8px; box-shadow: 0 8px 32px #1f2a3538; font-family: sans-serif; color: #243b53; }
+.crm-email-compose-head { flex: none; border-bottom: 1px solid #d8e1eb; padding-bottom: 8px; }
+.crm-email-compose h2 { margin: 0 0 6px; font-size: 16px; }
+.crm-email-context { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.crm-email-context .wd-phone { margin: 0; padding: 0; }
+.crm-email-context .cq-phone { font-size: 16px; }
+.crm-email-compose form { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.crm-email-compose form > fieldset { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.crm-email-compose label { margin: 6px 0; }
+.crm-email-compose .crm-email-cc { flex: none; max-height: 72px; overflow-y: auto; font-size: 12px; margin-top: 8px; }
+.crm-email-compose .crm-email-body-label { flex: 1; min-height: 150px; grid-template-rows: auto 1fr; }
+.crm-email-compose textarea { height: 100%; min-height: 120px; resize: none; }
+.crm-email-compose-footer { flex: none; padding-top: 8px; border-top: 1px solid #d8e1eb; }
+.crm-email-progress { flex: none; padding: 8px; border-radius: 4px; background: #eaf2fb; font-size: 12px; }
+.crm-email-progress p { margin: 0; }
+.crm-email-progress p:first-child { font-weight: 600; margin-bottom: 4px; }
+.crm-email-highlight { background: #f0fdf4; outline: 3px solid #4ade80; outline-offset: -3px; }
+@media (max-height: 650px) { .crm-email-compose { top: 16px; } }
+@media (prefers-reduced-motion: no-preference) { .crm-email-highlight { transition: background-color .3s; } }
+
+.crm-email-compose, .crm-email-compose * { box-sizing: border-box; }
+
+.crm-email-compose .crm-email-context button.wd-dial { background: #194b81; border: 1px solid #194b81; color: white; }
+
+.crm-email-compose .crm-email-more > button { top: auto; bottom: 100%; }

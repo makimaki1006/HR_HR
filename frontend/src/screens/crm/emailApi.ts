@@ -27,6 +27,11 @@ export const liveEmailApi: EmailApi = {
   pending: dealId => apiGet(`/api/crm/emails?deal_id=${encodeURIComponent(dealId)}`),
 };
 export const EMAIL_CHANGED = 'hrhr-email-changed';
+export const EMAIL_SAVED = 'hrhr-email-saved';
+export interface SavedEmailNotice { dealId: string; emailId: string | null }
+export function emailSaved(dealId: string, emailId: string | null) {
+  window.dispatchEvent(new CustomEvent<SavedEmailNotice>(EMAIL_SAVED, { detail: { dealId, emailId } }));
+}
 export function emailChanged(dealId: string) { window.dispatchEvent(new CustomEvent(EMAIL_CHANGED, { detail: dealId })); }
 export function resultFromError(error: unknown): EmailResult | null {
   if (!(error instanceof ApiHttpError) || typeof error.body !== 'object' || error.body === null) return null;

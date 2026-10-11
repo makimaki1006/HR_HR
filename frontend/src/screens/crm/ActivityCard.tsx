@@ -51,7 +51,7 @@ function meetingTime(a: WorkspaceActivity): string | null {
   return e ? `${s} 〜 ${e.slice(11)}` : s;
 }
 
-function ActivityCardImpl({ a, ownerNames }: { a: WorkspaceActivity; ownerNames: ReadonlyMap<string, string> }) {
+function ActivityCardImpl({ a, ownerNames, highlighted = false }: { a: WorkspaceActivity; ownerNames: ReadonlyMap<string, string>; highlighted?: boolean }) {
   const [open, setOpen] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   const view = useMemo(() => buildBodyView(a), [a]);
@@ -78,7 +78,7 @@ function ActivityCardImpl({ a, ownerNames }: { a: WorkspaceActivity; ownerNames:
   const recording = a.rich?.recording_url ?? null;
   const dirClass = dir === '受信' || dir === '着信' ? 'in' : 'out';
 
-  return <li className={`wd-act wd-act-${a.kind} wd-card`} data-testid="activity-card" data-kind={a.kind}>
+  return <li className={`wd-act wd-act-${a.kind} wd-card${highlighted ? ' crm-email-highlight' : ''}`} data-highlighted={highlighted || undefined} data-testid="activity-card" data-kind={a.kind}>
     <div className="wd-act-head">
       <span className="crm-status wd-card-badge"><span aria-hidden="true">{KIND_ICONS[a.kind] ?? '•'}</span> {ACTIVITY_KIND_LABELS[a.kind] ?? a.kind}</span>
       {isEmail && dir !== null && <span className={`wd-card-dir wd-card-dir-${dirClass}`} data-testid="activity-direction">{dir}</span>}
