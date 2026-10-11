@@ -65,7 +65,7 @@ test('the first view shows the full-height list beside the timeline, tabs stay o
   });
   expect(inactiveTabContrast).toBeGreaterThanOrEqual(4.5);
   await selectJobFeature(page, 'body');
-  const jump = page.getByRole('button', { name: 'この版を前の版と比較する →', exact: true });
+  const jump = page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true });
   await jump.scrollIntoViewIfNeeded();
   // The group tabs stay at the top of the detail while the long body scrolls.
   await expect(primary).toBeInViewport();
@@ -165,7 +165,7 @@ test('functional tabs isolate applicants, reasons, application trends, market gr
 test('tab keyboard Arrow/Home/End movement activates valid linked panels and inactive controls stay hidden', async ({ page }) => {
   await setup(page, true);
   const primary = page.getByRole('tablist', { name: '求人管理の機能', exact: true });
-  const jump = page.getByRole('button', { name: 'この版を前の版と比較する →', exact: true });
+  const jump = page.getByRole('button', { name: 'この本文を前の本文と比較する →', exact: true });
   await jump.scrollIntoViewIfNeeded();
   // Sticky group tabs (2026-10-08): still on screen after scrolling the long body.
   await expect(primary).toBeInViewport();
