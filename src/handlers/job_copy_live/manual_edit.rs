@@ -152,6 +152,8 @@ pub(super) fn snapshot(
         source_kind: DraftSource::FreeText,
     };
     let mut result = DraftSnapshot::from_request(&request, now)?;
+    // 手直しは生成案の改行整形を適用せず、検証した入力値をそのまま保存する。
+    result.row = req.row.clone();
     result.manual_edit = Some(ManualEdit {
         published_hash: drafts::hash(body),
         base_draft_id: req.base_draft_id.clone(),
@@ -283,6 +285,41 @@ mod tests {
             assert_eq!(saved.source_kind, DraftSource::FreeText);
             assert!(saved.manual_edit.unwrap().changed_conditions.contains(key));
         }
+    }
+    #[test]
+    fn original_whitespace_is_preserved_and_removal_requires_reason() {
+        for key in PROTECTED_COLUMNS
+            .iter()
+            .filter(|key| key.as_str() != "店舗id")
+        {
+            for suffix in [" ", "　", "\t", "\n", "\r\n"] {
+                let (mut req, mut properties) = fixture();
+                let original = format!("架空の条件{suffix}");
+                req.row.insert(key.clone(), original.clone());
+                let body = drafts::compose_body(&req.row);
+                properties.insert("hrh_kyuujinhyou_honbun".into(), Some(body.clone()));
+                req.base_body_hash = drafts::hash(&body);
+                assert_eq!(current_row(&properties).unwrap()[key], original);
+                assert_eq!(
+                    snapshot(&req, &properties, None).unwrap().row[key],
+                    original
+                );
+                req.row.insert(key.clone(), "架空の条件".into());
+                assert_eq!(
+                    snapshot(&req, &properties, None).unwrap_err(),
+                    "draft_reason_required"
+                );
+                req.reason = "空白の削除を確認したため".into();
+                let saved = snapshot(&req, &properties, None).unwrap();
+                assert_eq!(saved.row[key], "架空の条件");
+                assert!(saved.manual_edit.unwrap().changed_conditions.contains(key));
+            }
+        }
+        let values: BTreeMap<String, String> = HRHACKER_COLUMNS
+            .iter()
+            .map(|key| ((*key).to_owned(), " \t先頭\r\n途中\n末尾　\n".into()))
+            .collect();
+        assert_eq!(row(&drafts::compose_body(&values)), values);
     }
     #[test]
     fn stale_body_forged_identity_unknown_columns_and_existing_ai_conditions_are_checked() {
