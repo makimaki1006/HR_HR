@@ -246,6 +246,26 @@ pub fn insert_login_session(
     Ok(id)
 }
 
+/// 認証 Cookie が示す成功ログインが、同じ本人・方法で未終了か確認する。
+/// 照会失敗は呼び出し側で復元を拒否する (失効済み Cookie を通さない)。
+pub(crate) fn active_login_account(
+    turso: &TursoDb,
+    session_id: &str,
+    email: &str,
+    method: &str,
+) -> Result<Option<String>, String> {
+    let rows = turso.query(
+        "SELECT s.account_id FROM login_sessions s JOIN accounts a ON a.id = s.account_id \
+         WHERE s.id = ?1 AND lower(a.email) = lower(?2) AND s.login_method = ?3 \
+         AND s.success = 1 AND s.ended_at IS NULL",
+        &[&session_id, &email, &method],
+    )?;
+    Ok(rows
+        .first()
+        .map(|r| get_str(r, "account_id"))
+        .filter(|id| !id.is_empty()))
+}
+
 /// ログアウト時: ended_at を埋める
 pub fn mark_session_ended(audit: &AuditDb, session_id: &str) -> Result<(), String> {
     let now = now_iso8601();
