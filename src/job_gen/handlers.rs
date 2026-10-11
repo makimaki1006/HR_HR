@@ -74,13 +74,26 @@ pub async fn tab_jobgen_tools() -> axum::response::Html<&'static str> {
   </div>
   <div id="jobtools-frames">
     <iframe id="jt-frame-0" src="/jobgen" title="求人票生成"
-            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+            onload="jobtoolsFit(this)" style="width:100%;height:560px;min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
     <iframe id="jt-frame-1" data-src="/jobgen/competitive-beta" title="競合比較から求人作成" hidden
-            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+            onload="jobtoolsFit(this)" style="width:100%;height:560px;min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
     <iframe id="jt-frame-2" data-src="/jobgen/applicant-journey-beta" title="応募者ジャーニー診断" hidden
-            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+            onload="jobtoolsFit(this)" style="width:100%;height:560px;min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
   </div>
   <script>
+    function jobtoolsFit(frame){
+      if(frame._jobtoolsObserver){frame._jobtoolsObserver.disconnect();}
+      var doc=frame.contentDocument;
+      if(!doc||!doc.body){return;}
+      function fit(){
+        if(!frame.isConnected||frame.hidden){return;}
+        var height=Math.ceil(doc.body.getBoundingClientRect().height);
+        frame.style.height=Math.max(560,height)+"px";
+      }
+      frame._jobtoolsObserver=new ResizeObserver(fit);
+      frame._jobtoolsObserver.observe(doc.body);
+      fit();
+    }
     function jobtoolsSwitch(btn){
       var nav=document.getElementById("jobtools-nav");
       nav.querySelectorAll("button").forEach(function(b){b.classList.remove("active");b.setAttribute("aria-selected","false");});
@@ -92,6 +105,7 @@ pub async fn tab_jobgen_tools() -> axum::response::Html<&'static str> {
         // 初回だけロード。以降は hidden 切替のみで状態を保つ。
         if(!frame.getAttribute("src")&&frame.getAttribute("data-src")){frame.src=frame.getAttribute("data-src");}
         frame.hidden=false;
+        if(frame.contentDocument&&frame.contentDocument.readyState==="complete"){jobtoolsFit(frame);}
       }
       document.getElementById("jobtools-open").href=btn.getAttribute("data-src");
     }
@@ -239,7 +253,7 @@ async fn finish_journey_google_ads_budget() {
 ///
 /// env `KNOWLEDGE_DIR` (ng_words.json を含む階層) があればファイル、なければ埋め込み。
 /// 公開デプロイ (Render) ではファイル配置に依存せず埋め込みで動く。
-fn load_ng_rules() -> anyhow::Result<ng_words::NgRules> {
+pub(crate) fn load_ng_rules() -> anyhow::Result<ng_words::NgRules> {
     if let Ok(dir) = std::env::var("KNOWLEDGE_DIR") {
         if !dir.trim().is_empty() {
             let path = std::path::PathBuf::from(dir).join("ng_words.json");
@@ -388,7 +402,11 @@ fn missing_required_keys(schema: &Value, got: &Value) -> Vec<String> {
 /// 2 回目のプロンプトには、化けたキーを名指しで直す指示を足す。
 /// 同じプロンプトをそのまま投げ直すより当たる見込みがある
 /// （工程⑦の再生成も前回の問題点を足す作りになっている）。
-async fn jobgen_llm(prompt: &str, schema: &Value, temperature: f64) -> anyhow::Result<Value> {
+pub(crate) async fn jobgen_llm(
+    prompt: &str,
+    schema: &Value,
+    temperature: f64,
+) -> anyhow::Result<Value> {
     let key = gemini_api_key();
     anyhow::ensure!(!key.is_empty(), "GEMINI_API_KEY が未設定です");
     let model = gemini_model();

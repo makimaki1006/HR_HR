@@ -136,13 +136,13 @@ describe('category breakdown on the 応募理由 tab', () => {
     // Every transfer row is 推定, so only one count column.
     expect([...within(transfer).getAllByRole('columnheader')].map(cell => cell.textContent)).toEqual(['分類', '件数（キーワードで推定）', 'nに対する割合']);
     expect(within(transfer).getAllByRole('row')[2]?.textContent).toBe('勤務地1件n=1のため出しません');
-    // Landmarks name only what they hold; headings nest under 版ごとの記述.
+    // Landmarks name only what they hold; headings nest under 本文ごとの記述.
     expect(within(summary).queryByRole('region', { name: '記録欄ごとの件数' })).toBeNull();
     expect(within(summary).queryByRole('region', { name: '転職理由の分類の件数' })).toBeNull();
     expect(screen.getByRole('region', { name: '今の仕事・前の仕事から転職する理由の分類' })).toBeTruthy();
     expect([...document.querySelectorAll('h2, h3, h4')].map(node => `${node.tagName}:${node.textContent}`)).toEqual([
-      'H2:応募理由・志望動機の記述', 'H3:記録欄ごとの件数', 'H3:応募理由の分類', 'H3:今の仕事・前の仕事から転職する理由の分類', 'H3:版ごとの記述',
-      'H4:比較元の記述', 'H4:比較先の記述', 'H4:どの版への理由か不明な記述 · 表示対象7件',
+      'H2:応募理由・志望動機の記述', 'H3:記録欄ごとの件数', 'H3:応募理由の分類', 'H3:今の仕事・前の仕事から転職する理由の分類', 'H3:本文ごとの記述',
+      'H4:比較元の記述', 'H4:比較先の記述', 'H4:どの本文への理由か不明な記述 · 表示対象7件',
     ]);
     expect(screen.getByRole('region', { name: '今の仕事・前の仕事から転職する理由の分類' }).textContent).toContain('nが5件に満たないため、割合は出さず件数だけを示します。');
     const unclassified = summary.querySelector('details.ar-unclassified');
@@ -200,7 +200,7 @@ describe('category breakdown on the 応募理由 tab', () => {
     for (const optionLabels of ['not_stored', null] as const) {
       render(<ApplicantReasons job={{ ...job, applicantReasons: { ...reasons, optionLabels, selections: [...(reasons.selections ?? []), unlisted] } }} />);
       summary = screen.getByRole('region', { name: '応募理由の分類' });
-      expect(summary.textContent).toContain('保存された取得データに分類の名前が入っていないため、開き直しても変わりません。');
+      expect(summary.textContent).toContain('保存データに分類の名前が入っていないため、開き直しても変わりません。');
       expect(summary.textContent).not.toContain('時間をおいて開き直す');
       cleanup();
     }
@@ -229,7 +229,7 @@ describe('category breakdown on the 応募理由 tab', () => {
   });
 });
 
-describe('reasons in 取得日の間 rows and on the as-of day', () => {
+describe('reasons in 文面を確認した日の間 rows and on the as-of day', () => {
   const version = (id: string, observedAt: string, body: string): CopyVersion => ({
     id, label: id, observedAt, certainty: 'unknown', kind: 'published', source: '合成', body, applications: null, note: '', images: [],
   });
@@ -254,7 +254,7 @@ describe('reasons in 取得日の間 rows and on the as-of day', () => {
   const reasonRows = () => within(within(screen.getByRole('region', { name: '期間ごとの応募理由の数値' })).getByRole('table')).getAllByRole('row').slice(1)
     .map(row => [row.querySelector('th')?.textContent ?? '', row.querySelectorAll('td')[0]?.textContent ?? ''] as const);
 
-  it('puts the reasons of the days between two acquisitions into the 取得日の間 row', () => {
+  it('puts the reasons of the days between two acquisitions into the 文面を確認した日の間 row', () => {
     render(<JobTimeline job={record(['2026-08-15', '2026-08-18'])} marketMode="demo" showDummyBilling={false} />);
     const rows = reasonRows();
     const between = rows.filter(([label]) => label.includes('の間に変化'));

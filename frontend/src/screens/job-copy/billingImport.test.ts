@@ -31,29 +31,29 @@ describe('billing CSV import', () => {
   });
 
   it('requires the shop / account login ID column', () => {
-    expect(billingMappingProblems(guessBillingColumns(['媒体', '媒体求人ID', '期間開始', '期間終了', '金額']), 5)).toEqual(['「店舗ID（HRハッカー）／口座ログインID（Airワーク）」の列を選んでください。']);
+    expect(billingMappingProblems(guessBillingColumns(['媒体', '媒体求人ID', '期間開始', '期間終了', '金額']), 5)).toEqual(['「媒体の店舗番号／アカウントのログイン番号」の列を選んでください。']);
     expect(() => importBillingCsv('媒体,媒体求人ID,期間開始,期間終了,金額\nHRハッカー,00123456,2026-09-01,2026-09-14,30000', records)).toThrow(BillingCsvError);
     const blank = importBillingCsv(csv('HRハッカー,,00123456,2026-09-01,2026-09-14,30000', 'Airワーク,,DEMO-AIR-002,2026-09-01,2026-09-14,1'), records);
-    expect(blank.rejected).toEqual([{ row: 2, message: '店舗IDが空欄です' }, { row: 3, message: '口座ログインIDが空欄です' }]);
+    expect(blank.rejected).toEqual([{ row: 2, message: '媒体の店舗番号が空欄です' }, { row: 3, message: 'アカウントのログイン番号が空欄です' }]);
   });
 
   it('never links on the job ID alone: another shop with the same job ID is not this job', () => {
     const result = importBillingCsv(csv('HRハッカー,SHOP-B,00123456,2026-09-01,2026-09-14,30000'), records);
     expect(result.counts).toMatchObject({ matched: 0, notFound: 1 });
-    expect(result.notFound[0]?.message).toBe('HRハッカー の求人ID「00123456」は一覧にありますが、店舗ID「SHOP-B」が違います');
+    expect(result.notFound[0]?.message).toBe('HRハッカー の求人は一覧にありますが、媒体の店舗番号が違います');
     // 求人側の店舗IDが未取得なら結びつけない
     const noAccount: JobCopyRecord = { ...job1, mediaJobId: '00123456' };
     delete noAccount.accountId;
     const unknownShop = importBillingCsv(csv('HRハッカー,SHOP-A,00123456,2026-09-01,2026-09-14,30000'), [noAccount]);
     expect(unknownShop.counts.matched).toBe(0);
-    expect(unknownShop.notFound[0]?.message).toBe('HRハッカー の求人ID「00123456」は一覧にありますが、求人の店舗IDが未取得のため結びつけません');
+    expect(unknownShop.notFound[0]?.message).toBe('HRハッカー の求人は一覧にありますが、求人の媒体の店舗番号が未取得のため結びつけません');
   });
 
   it('rejects an HRハッカー job ID that is not 8 digits and hints when leading zeros look stripped', () => {
     const result = importBillingCsv(csv('HRハッカー,SHOP-A,123456,2026-09-01,2026-09-14,30000', 'HRハッカー,SHOP-A,DEMO-1,2026-09-01,2026-09-14,1'), records);
     expect(result.counts.matched).toBe(0);
-    expect(result.rejected[0]).toEqual({ row: 2, message: 'HRハッカーの媒体求人ID「123456」は8桁の数字ではありません。媒体求人IDの先頭の0が消えている可能性があります（一覧では「00123456」）。Excel で開くと先頭の0が消えることがあります' });
-    expect(result.rejected[1]).toEqual({ row: 3, message: 'HRハッカーの媒体求人ID「DEMO-1」は8桁の数字ではありません' });
+    expect(result.rejected[0]).toEqual({ row: 2, message: 'HRハッカーの媒体の求人番号は8桁の数字で入力してください。媒体の求人番号の先頭の0が消えている可能性があります。Excel で開くと先頭の0が消えることがあります' });
+    expect(result.rejected[1]).toEqual({ row: 3, message: 'HRハッカーの媒体の求人番号は8桁の数字で入力してください' });
   });
 
   it('keeps leading zeros (compares as text) and hints on a zero-stripped shop ID', () => {
@@ -61,7 +61,7 @@ describe('billing CSV import', () => {
     expect(importBillingCsv(csv('HRハッカー,0042,00123456,2026-09-01,2026-09-14,30000'), zeros).counts.matched).toBe(1);
     const stripped = importBillingCsv(csv('HRハッカー,42,00123456,2026-09-01,2026-09-14,30000'), zeros);
     expect(stripped.counts.matched).toBe(0);
-    expect(stripped.notFound[0]?.message).toBe('HRハッカー の求人ID「00123456」は一覧にありますが、店舗ID「42」が違います。店舗IDの先頭の0が消えている可能性があります（一覧では「0042」）。Excel で開くと先頭の0が消えることがあります');
+    expect(stripped.notFound[0]?.message).toBe('HRハッカー の求人は一覧にありますが、媒体の店舗番号が違います。媒体の店舗番号の先頭の0が消えている可能性があります。Excel で開くと先頭の0が消えることがあります');
   });
 
   it('reads rows whose dates carry a time or are written in Japanese (re-saved in Excel)', () => {
@@ -109,7 +109,7 @@ describe('billing CSV import', () => {
   it('counts an ID that is not in the list as not found and leaves it out', () => {
     const result = importBillingCsv(csv('HRハッカー,SHOP-A,00999999,2026-09-01,2026-09-14,30000', 'HRハッカー,SHOP-A,00123456,2026-09-01,2026-09-14,30000'), records);
     expect(result.counts.notFound).toBe(1);
-    expect(result.notFound[0]).toEqual({ row: 2, message: 'HRハッカー の求人ID「00999999」は一覧にありません' });
+    expect(result.notFound[0]).toEqual({ row: 2, message: 'HRハッカー の条件に合う求人は一覧にありません' });
     expect(result.periods.map(period => period.mediaJobId)).toEqual(['00123456']);
   });
 
@@ -154,7 +154,7 @@ describe('billing CSV import', () => {
     expect(result.rejected).toHaveLength(1);
     expect(result.rejected[0]?.row).toBe(2);
     expect(result.rejected[0]?.message).toContain('媒体「Indeed」は扱えません');
-    expect(result.rejected[0]?.message).toContain('媒体求人IDが空欄です');
+    expect(result.rejected[0]?.message).toContain('媒体の求人番号が空欄です');
     expect(result.rejected[0]?.message).toContain('期間開始は');
     expect(result.rejected[0]?.message).toContain('金額が数として読めません');
   });
@@ -181,7 +181,7 @@ describe('billing CSV import', () => {
 
   it('reports missing and doubled columns in the mapping', () => {
     expect(billingMappingProblems({ media: 0, accountId: 1, mediaJobId: 0, periodStart: 2, periodEnd: 3 }, 5)).toEqual([
-      '「媒体」と「媒体求人ID」に同じ列が選ばれています。',
+      '「媒体」と「媒体の求人番号」に同じ列が選ばれています。',
       '「金額（円）」の列を選んでください。',
     ]);
     expect(guessBillingColumns(['金額（円・税込）', '媒体', '媒体求人ID', '口座ログインID'])).toMatchObject({ amount: 0, media: 1, mediaJobId: 2, accountId: 3 });

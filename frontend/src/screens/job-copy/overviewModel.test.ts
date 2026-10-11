@@ -17,7 +17,7 @@ describe('cross-job overview', () => {
     // 変更前は直前の版（09-15〜09-24）の中だけ: 09-16 3, 09-18 2, 09-21 2, 09-24 1 = 8件 / 10日。
     // 09-13 の 1件は、さらに前の版の応募なので入れない。
     expect(row.before).toEqual({ days: 10, applications: 8, perDay: 8 / 10 });
-    // 09-25〜10-05（取得日で打ち切り）: 09-27 1, 09-30 1, 10-02 1 = 3件 / 11日
+    // 09-25〜10-05（情報を確認した日で打ち切り）: 09-27 1, 09-30 1, 10-02 1 = 3件 / 11日
     expect(row.after).toEqual({ days: 11, applications: 3, perDay: 3 / 11 });
     expect(row.changes.map(change => change.to)).toEqual(['2026-09-15', '2026-09-25']);
     expect(row.billingYen).toBe(87000);

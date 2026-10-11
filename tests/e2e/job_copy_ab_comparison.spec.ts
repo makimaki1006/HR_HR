@@ -1,3 +1,5 @@
+import { test as sidebarSetup } from '@playwright/test';
+sidebarSetup.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('hrhr-job-copy-sidebar-pinned', 'true')); });
 import { selectJobFeature } from './job-copy-navigation';
 /** Synthetic cross-record fixture E2E only. Different record IDs are kept separate;
  * these checks do not establish random assignment, causal effects or live auth. */
@@ -39,7 +41,7 @@ function fixture() {
 test.beforeAll(() => { mkdirSync(visuals, { recursive: true }); });
 test('cross-record A/B preserves bodies, images, independent denominators, scope and overlapping metric periods', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await selectJobFeature(page, 'ab');
   const comparison = page.getByRole('region', { name: '2求人のA/B比較', exact: true });
   await expect(comparison).toContainText('B求人を選ぶと');
@@ -74,13 +76,13 @@ test('cross-record A/B preserves bodies, images, independent denominators, scope
   await comparison.scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve(visuals, 'ab-record-desktop.png'), fullPage: true });
   await comparison.getByLabel('応募の比較範囲').selectOption('version');
-  await expect(a).toContainText('選んだ版に結びついた応募）：4件');
-  await expect(b).toContainText('選んだ版に結びついた応募）：2件');
-  await expect(a).toContainText('求人全体で、どの版への応募か不明：6件');
-  await expect(b).toContainText('求人全体で、どの版への応募か不明：4件');
+  await expect(a).toContainText('選んだ本文に結びついた応募）：4件');
+  await expect(b).toContainText('選んだ本文に結びついた応募）：2件');
+  await expect(a).toContainText('求人全体で、どの本文への応募か不明：6件');
+  await expect(b).toContainText('求人全体で、どの本文への応募か不明：4件');
   await expect(male.locator('td')).toHaveText(['1', '25%', '2', '100%', '75ポイント']);
   await expect(a.locator('blockquote')).toHaveCount(0);
-  await expect(a).toContainText('どの版への理由か不明な記述：1件');
+  await expect(a).toContainText('どの本文への理由か不明な記述：1件');
   await page.setViewportSize({ width: 375, height: 850 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await a.getByRole('heading', { name: 'A：合成配送募集A', exact: true }).scrollIntoViewIfNeeded();
@@ -102,7 +104,7 @@ test('cross-record A/B preserves bodies, images, independent denominators, scope
 
 test('B candidates include loaded records outside list filters and changing the pair requires confirmation again', async ({ page }) => {
   await page.route('**/api/job-copy/moc', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixture()) }));
-  await page.goto('/app/job-copy');
+  await page.goto('/app/job-copy?data=actual');
   await page.locator('.jc-list input[type=search]').fill('合成配送募集A');
   await expect(page.locator('.jc-job')).toHaveCount(1);
   await selectJobFeature(page, 'ab');
